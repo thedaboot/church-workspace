@@ -1,3 +1,4 @@
+import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import '@seed-design/css/base.css';
