@@ -1,5 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import '@seed-design/css/base.css';
 import './index.css';
 import ChurchApp from './App.jsx';
 

@@ -3,18 +3,18 @@
 // ============================================================================
 export const CONFIG = {
   TEAMS: {
-    '웰컴팀': 'bg-pink-100 text-pink-800',
-    '워십팀': 'bg-purple-100 text-purple-800',
-    '찬양팀': 'bg-blue-100 text-blue-800',
-    '엔지니어팀': 'bg-gray-100 text-gray-800',
-    '미디어팀': 'bg-indigo-100 text-indigo-800',
-    '임원진': 'bg-yellow-100 text-yellow-800',
-    '교역자': 'bg-red-100 text-red-800',
+    '웰컴팀': 'bg-tag-pink text-tag-pink-fg',
+    '워십팀': 'bg-tag-purple text-tag-purple-fg',
+    '찬양팀': 'bg-tag-blue text-tag-blue-fg',
+    '엔지니어팀': 'bg-tag-gray text-tag-gray-fg',
+    '미디어팀': 'bg-tag-brown text-tag-brown-fg',
+    '임원진': 'bg-tag-yellow text-tag-yellow-fg',
+    '교역자': 'bg-tag-red text-tag-red-fg',
   },
   STATUSES: ['시작 전', '진행 중', '완료'],
   STATUS_STYLES: {
-    '시작 전': 'bg-gray-100 text-gray-600 border-gray-200',
-    '진행 중': 'bg-blue-100 text-blue-700 border-blue-200',
-    '완료': 'bg-green-100 text-green-700 border-green-200'
+    '시작 전': 'bg-tag-gray text-tag-gray-fg border-line',
+    '진행 중': 'bg-tag-blue text-tag-blue-fg border-line',
+    '완료': 'bg-tag-green text-tag-green-fg border-line'
   }
 };
