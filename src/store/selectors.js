@@ -54,7 +54,13 @@ export const selectDashboardStats = createSelector(
   }
 );
 
-// 캘린더용 O(1) 맵핑 캐싱 — 날짜별로 [{ task, kind: 'start' | 'due' }] 반환 (시작일·마감일 모두 추적)
+// 로컬 기준 날짜 유틸 (UTC 시프트 없이 하루씩 증가)
+const parseYMD = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const toYMD = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+const MS_DAY = 86400000;
+
+// 캘린더용 O(1) 맵핑 캐싱 — 날짜별로 [{ task, kind }] 반환
+// kind: 'start' | 'mid' | 'due' | 'single' (기간 띠) / 'due-only' (마감만)
 export const selectTasksByDate = createSelector(
   [selectTasksList],
   (tasksList) => {
@@ -65,8 +71,28 @@ export const selectTasksByDate = createSelector(
       map.get(date).push({ task, kind });
     };
     tasksList.forEach(t => {
-      push(t.startDate, t, 'start');
-      push(t.dueDate, t, 'due');
+      if (t.startDate && t.dueDate) {
+        const start = parseYMD(t.startDate);
+        const end = parseYMD(t.dueDate);
+        const span = Math.round((end - start) / MS_DAY);
+        if (span < 0 || span > 180) {
+          // 구간이 뒤집혔거나 비정상적으로 길면 마감만 표시로 폴백
+          push(t.dueDate, t, 'due-only');
+        } else if (span === 0) {
+          push(t.startDate, t, 'single');
+        } else {
+          const cur = new Date(start);
+          for (let i = 0; i <= span; i++) {
+            const kind = i === 0 ? 'start' : i === span ? 'due' : 'mid';
+            push(toYMD(cur), t, kind);
+            cur.setDate(cur.getDate() + 1);
+          }
+        }
+      } else if (t.dueDate) {
+        push(t.dueDate, t, 'due-only');
+      } else if (t.startDate) {
+        push(t.startDate, t, 'single');
+      }
     });
     return map;
   }

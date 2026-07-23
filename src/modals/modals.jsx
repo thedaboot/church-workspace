@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   CheckSquare, Clock, X, User, Hash, RefreshCw, Download, Upload,
-  Wand2, Sparkles, Bot, CalendarRange
+  Wand2, Sparkles, Bot, CalendarRange, Pencil, Trash2
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { formatDate } from '../utils.js';
@@ -14,7 +14,7 @@ import { DatePicker } from '../components/DatePicker.jsx';
 // ============================================================================
 // 13. Modals (완벽한 SRP 분리)
 // ============================================================================
-export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAddComment }) {
+export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAddComment, onUpdateComment, onDeleteComment }) {
   const currentUser = useStore(selectCurrentUser);
   const [formData, setFormData] = useState(task);
   const [activeTab, setActiveTab] = useState('comments');
@@ -47,10 +47,10 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         {!isEditMode && task.id && (
           <div className="w-full md:w-80 h-[40vh] md:h-auto bg-surface-2 flex flex-col border-t md:border-t-0 md:border-l border-line shrink-0">
             <div className="flex border-b border-line bg-surface shrink-0">
-              <button onClick={() => setActiveTab('comments')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'comments' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>댓글 ({(formData.comments || []).length})</button>
+              <button onClick={() => setActiveTab('comments')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'comments' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>댓글 ({(formData.comments || []).filter(c => !c.parentId).length})</button>
               <button onClick={() => setActiveTab('activity')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'activity' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>활동 기록</button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4">{activeTab === 'comments' ? <CommentPanel comments={formData.comments} onReply={onAddComment} /> : <ActivityPanel logs={formData.activityLog} />}</div>
+            <div className="flex-1 overflow-y-auto p-4">{activeTab === 'comments' ? <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} /> : <ActivityPanel logs={formData.activityLog} />}</div>
             {activeTab === 'comments' && <CommentInput onAdd={onAddComment} />}
           </div>
         )}
@@ -176,17 +176,56 @@ const TaskViewer = React.memo(({ formData }) => {
 });
 
 // 노션 스타일 플랫 댓글: 아바타 + 이름·시간 + 본문, 카드 대신 헤어라인 구분
-const CommentBody = ({ c }) => (
-  <div className="flex items-start gap-2.5">
-    <div className="w-6 h-6 rounded-full bg-accent-weak text-accent-text text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{c.author?.[0]}</div>
-    <div className="flex-1 min-w-0">
-      <div className="flex items-baseline gap-2 mb-0.5"><span className="font-semibold text-[11px] text-fg">{c.author}</span><span className="text-[9px] text-fg-faint">{formatDate(c.timestamp)}</span></div>
-      <div className="text-xs text-fg-secondary leading-relaxed"><RichText content={c.text} /></div>
-    </div>
-  </div>
-);
+// 작성자 본인일 때만 수정(인라인 textarea)·삭제(인라인 확인) 노출
+const CommentBody = ({ c, currentUser, onUpdate, onDelete }) => {
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(c.text);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const isOwner = c.author === currentUser?.name;
 
-const CommentPanel = React.memo(({ comments, onReply }) => {
+  const saveEdit = () => {
+    if (!editText.trim()) return;
+    onUpdate(c.id, editText.trim());
+    setEditing(false);
+  };
+
+  return (
+    <div className="flex items-start gap-2.5 group/comment">
+      <div className="w-6 h-6 rounded-full bg-accent-weak text-accent-text text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{c.author?.[0]}</div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2 mb-0.5">
+          <span className="font-semibold text-[11px] text-fg">{c.author}</span>
+          <span className="text-[9px] text-fg-faint">{formatDate(c.timestamp)}</span>
+          {c.edited && <span className="text-[9px] text-fg-faint">(수정됨)</span>}
+          {isOwner && !editing && (
+            <span className="ml-auto flex items-center gap-1.5 opacity-0 group-hover/comment:opacity-100 transition-opacity">
+              <button onClick={() => { setEditText(c.text); setEditing(true); setConfirmingDelete(false); }} className="text-fg-faint hover:text-fg-muted transition-colors" title="수정"><Pencil size={11} /></button>
+              <button onClick={() => { setConfirmingDelete(true); setEditing(false); }} className="text-fg-faint hover:text-red-500 transition-colors" title="삭제"><Trash2 size={11} /></button>
+            </span>
+          )}
+        </div>
+        {editing ? (
+          <textarea
+            autoFocus value={editText} onChange={e => setEditText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(); } if (e.key === 'Escape') setEditing(false); }}
+            className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg resize-none h-14 focus:border-accent focus:shadow-soft outline-none transition-all"
+          />
+        ) : (
+          <div className="text-xs text-fg-secondary leading-relaxed"><RichText content={c.text} /></div>
+        )}
+        {confirmingDelete && !editing && (
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="text-[10px] text-fg-muted">삭제할까요?</span>
+            <button onClick={() => { onDelete(c.id); setConfirmingDelete(false); }} className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-md px-2 py-0.5 text-[10px] font-semibold transition active:scale-95">삭제</button>
+            <button onClick={() => setConfirmingDelete(false)} className="text-fg-muted hover:text-fg hover:bg-surface-hover rounded-md px-2 py-0.5 text-[10px] font-medium transition active:scale-95">취소</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onDelete }) => {
   const [replyingTo, setReplyingTo] = useState(null);
   const [replyText, setReplyText] = useState('');
   const all = comments || [];
@@ -206,7 +245,7 @@ const CommentPanel = React.memo(({ comments, onReply }) => {
     <div className="divide-y divide-line/60">
       {topLevel.map(c => (
         <div key={c.id} className="py-3 first:pt-0 group/c animate-in fade-in duration-200">
-          <CommentBody c={c} />
+          <CommentBody c={c} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete} />
           <div className="pl-8 mt-1">
             <button
               onClick={() => { setReplyingTo(replyingTo === c.id ? null : c.id); setReplyText(''); }}
@@ -215,7 +254,7 @@ const CommentPanel = React.memo(({ comments, onReply }) => {
           </div>
           {(getReplies(c.id).length > 0 || replyingTo === c.id) && (
             <div className="ml-8 mt-2 border-l border-line pl-3 space-y-3">
-              {getReplies(c.id).map(r => <div key={r.id} className="animate-in fade-in duration-200"><CommentBody c={r} /></div>)}
+              {getReplies(c.id).map(r => <div key={r.id} className="animate-in fade-in duration-200"><CommentBody c={r} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete} /></div>)}
               {replyingTo === c.id && (
                 <input
                   autoFocus value={replyText} onChange={e => setReplyText(e.target.value)}

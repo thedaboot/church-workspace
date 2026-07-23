@@ -31,6 +31,16 @@ export const TaskService = {
   addComment: (task, text, author, parentId = null) => ({
     ...task,
     comments: [...(task.comments || []), { id: generateId(), author, text, timestamp: new Date().toISOString(), parentId }]
+  }),
+  updateComment: (task, commentId, newText) => ({
+    ...task,
+    comments: (task.comments || []).map(c => c.id === commentId ? { ...c, text: newText, edited: true, updatedAt: new Date().toISOString() } : c)
+  }),
+  // 최상위 댓글 삭제 시 그 답글(parentId === commentId)도 함께 제거
+  deleteComment: (task, commentId, author) => ({
+    ...task,
+    comments: (task.comments || []).filter(c => c.id !== commentId && c.parentId !== commentId),
+    activityLog: [...(task.activityLog || []), ActivityService.createLog('댓글을 삭제했습니다.', author)]
   })
 };
 

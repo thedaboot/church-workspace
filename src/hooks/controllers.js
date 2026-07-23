@@ -31,6 +31,18 @@ export const useWorkspaceController = () => {
     return updated;
   }, [currentUser.name]);
 
+  const handleUpdateComment = useCallback((task, commentId, newText) => {
+    const updated = TaskService.updateComment(task, commentId, newText);
+    store.dispatch({ type: 'UPSERT_TASK', payload: updated });
+    return updated;
+  }, []);
+
+  const handleDeleteComment = useCallback((task, commentId) => {
+    const updated = TaskService.deleteComment(task, commentId, currentUser.name);
+    store.dispatch({ type: 'UPSERT_TASK', payload: updated });
+    return updated;
+  }, [currentUser.name]);
+
   const handleAddProject = useCallback((title) => {
     const newProject = { id: generateId(), title, pinnedLinks: [] };
     store.dispatch({ type: 'ADD_PROJECT', payload: newProject });
@@ -41,7 +53,7 @@ export const useWorkspaceController = () => {
     store.dispatch({ type: 'UPDATE_USER', payload: profile });
   }, []);
 
-  return { handleSaveTask, handleAddComment, handleAddProject, handleUpdateUser, undo: store.undo, redo: store.redo };
+  return { handleSaveTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleAddProject, handleUpdateUser, undo: store.undo, redo: store.redo };
 };
 
 export const usePersistenceController = () => {

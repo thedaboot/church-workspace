@@ -52,7 +52,14 @@ export function DashboardView({ onNavigate }) {
                 {stat.projects.length > 0 ? (
                   <>
                     {stat.projects.slice(0, 2).map((p, i) => <span key={i} className="text-[10px] bg-surface-2 border border-line text-fg-muted px-1.5 py-0.5 rounded-md truncate max-w-[160px]">{p}</span>)}
-                    {stat.projects.length > 2 && <span className="text-[10px] text-fg-faint">+{stat.projects.length - 2}</span>}
+                    {stat.projects.length > 2 && (
+                      <span className="relative group/more" onClick={e => e.stopPropagation()}>
+                        <span className="text-[10px] text-fg-faint cursor-default hover:text-fg-muted transition-colors">+{stat.projects.length - 2}</span>
+                        <div className="absolute left-0 top-full mt-1 z-40 hidden group-hover/more:block bg-surface border border-line rounded-md shadow-elevated p-2 w-max max-w-[240px] animate-in fade-in duration-150">
+                          {stat.projects.slice(2).map((p, i) => <div key={i} className="text-[10px] text-fg-muted truncate">{p}</div>)}
+                        </div>
+                      </span>
+                    )}
                   </>
                 ) : <span className="text-[10px] text-fg-faint italic">진행 중인 프로젝트 없음</span>}
               </div>

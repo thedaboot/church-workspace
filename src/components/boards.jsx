@@ -60,11 +60,30 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
             <div key={day} className={`border-b border-r border-line p-1 min-h-[80px] ${isToday ? 'bg-accent-weak' : ''}`}>
               <div className={`text-[10px] font-semibold p-1 ${isToday ? 'text-accent' : 'text-fg-muted'}`}>{day}</div>
               <div className="space-y-1 mt-0.5">
-                {dayEntries.map(({ task, kind }) => (
-                  <div key={`${task.id}-${kind}`} onClick={() => onTaskClick(task)} title={`${kind === 'start' ? '시작' : '마감'}: ${task.title}`} className={`text-[9px] truncate px-1.5 py-0.5 rounded border border-line cursor-pointer hover:opacity-80 transition-opacity ${kind === 'start' ? 'bg-tag-blue text-tag-blue-fg' : 'bg-tag-orange text-tag-orange-fg'}`}>
-                    {kind === 'start' ? '▸ ' : ''}{task.title}
-                  </div>
-                ))}
+                {dayEntries.map(({ task, kind }, i) => {
+                  const base = 'flex items-center h-[18px] text-[9px] overflow-hidden cursor-pointer hover:opacity-80 transition-opacity';
+                  let cls, content, prefix;
+                  if (kind === 'mid') {
+                    cls = 'bg-tag-blue rounded-none -mx-1'; content = null; prefix = '진행';
+                  } else if (kind === 'start') {
+                    cls = 'bg-tag-blue text-tag-blue-fg rounded-l-sm rounded-r-none -mr-1 px-1.5';
+                    content = <span className="truncate">{task.title}</span>; prefix = '시작';
+                  } else if (kind === 'due') {
+                    cls = 'bg-tag-blue text-tag-blue-fg rounded-r-sm rounded-l-none -ml-1 px-1.5 justify-end';
+                    content = <span className="text-[8px] opacity-70">마감</span>; prefix = '마감';
+                  } else if (kind === 'single') {
+                    cls = 'bg-tag-blue text-tag-blue-fg rounded-sm px-1.5';
+                    content = <span className="truncate">{task.title}</span>; prefix = '기간';
+                  } else { // due-only
+                    cls = 'bg-tag-orange text-tag-orange-fg rounded-sm px-1.5';
+                    content = <span className="truncate">{task.title}</span>; prefix = '마감';
+                  }
+                  return (
+                    <div key={`${task.id}-${kind}-${i}`} onClick={() => onTaskClick(task)} title={`${prefix}: ${task.title}`} className={`${base} ${cls}`}>
+                      {content}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );
