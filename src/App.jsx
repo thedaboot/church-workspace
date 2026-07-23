@@ -35,7 +35,7 @@ function WorkspaceShell() {
   }, []);
 
   return (
-    <div className="flex h-screen bg-gray-50 text-gray-800 font-sans overflow-hidden">
+    <div className="flex h-screen bg-surface text-fg font-sans overflow-hidden">
       {isSidebarOpen && <div className="md:hidden fixed inset-0 bg-black/50 z-20" onClick={() => setIsSidebarOpen(false)} />}
 
       <Sidebar
@@ -50,7 +50,7 @@ function WorkspaceShell() {
           activeMenu={activeMenu} openSidebar={() => setIsSidebarOpen(true)} onOpenSync={() => setIsSyncModalOpen(true)}
           undo={controller.undo} redo={controller.redo} canUndo={store.canUndo()} canRedo={store.canRedo()}
         />
-        <main className="flex-1 overflow-auto bg-gray-50/50 p-4 md:p-6 relative">
+        <main className="flex-1 overflow-auto bg-surface p-4 md:p-6 relative">
           <ErrorBoundary>
             {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} />}
             {activeMenu === 'myTasks' && <MyTasksView onTaskClick={(t) => openTaskModal(t)} onStatusChange={(t, status) => controller.handleSaveTask({ ...t, status }, t)} />}

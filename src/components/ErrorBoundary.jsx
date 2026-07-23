@@ -11,7 +11,7 @@ export class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="p-6 bg-red-50 border border-red-200 rounded-xl m-4 flex items-start gap-3">
+        <div className="p-6 bg-red-50 border border-red-200 rounded-md m-4 flex items-start gap-3">
           <AlertTriangle className="text-red-500 shrink-0 mt-0.5" />
           <div>
             <h3 className="text-red-800 font-bold text-sm">컴포넌트 렌더링 중 오류가 발생했습니다.</h3>
