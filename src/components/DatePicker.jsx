@@ -84,10 +84,10 @@ export function DatePicker({ value, onChange }) {
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1 bg-surface border border-line rounded-lg shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150">
+        <div className="absolute left-0 top-full z-50 mt-1 w-max bg-surface border border-line rounded-lg shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150">
           <div className="flex items-center justify-between mb-2">
             <button type="button" onClick={goPrev} disabled={!canPrev} className={`p-1 rounded-md text-fg-muted transition active:scale-95 ${canPrev ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`}><ChevronLeft size={16} /></button>
-            <span className="text-xs font-semibold text-fg tracking-[-0.25px]">{view.y}년 {view.m + 1}월</span>
+            <span className="text-xs font-semibold text-fg tracking-[-0.25px] whitespace-nowrap px-2">{view.y}년 {view.m + 1}월</span>
             <button type="button" onClick={goNext} disabled={!canNext} className={`p-1 rounded-md text-fg-muted transition active:scale-95 ${canNext ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`}><ChevronRight size={16} /></button>
           </div>
           <div className="grid grid-cols-7 mb-1">
