@@ -28,9 +28,9 @@ export const TaskService = {
     }
     return updated;
   },
-  addComment: (task, text, author) => ({
+  addComment: (task, text, author, parentId = null) => ({
     ...task,
-    comments: [...(task.comments || []), { id: generateId(), author, text, timestamp: new Date().toISOString() }]
+    comments: [...(task.comments || []), { id: generateId(), author, text, timestamp: new Date().toISOString(), parentId }]
   })
 };
 

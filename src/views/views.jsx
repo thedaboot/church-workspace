@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   LayoutDashboard, Plus, Calendar as CalendarIcon,
-  Pin, ListTodo, ExternalLink, ChevronRight, Undo2, Check, X, Trash2
+  Link as LinkIcon, ListTodo, ListFilter, ExternalLink, ChevronRight, Undo2, Check, X, Trash2
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { generateId } from '../utils.js';
@@ -42,21 +42,24 @@ export function DashboardView({ onNavigate }) {
       </div>
       <div className="bg-surface rounded-lg border border-line overflow-hidden">
         <div className="px-4 md:px-6 py-3 md:py-4 border-b border-line flex justify-between items-center bg-surface-2">
-          <h3 className="font-bold text-sm md:text-base text-fg flex items-center gap-2 tracking-[-0.25px]"><ListTodo size={18} className="text-accent"/> 팀별 업무 현황</h3>
+          <h3 className="font-bold text-sm md:text-base text-fg flex items-center gap-2 tracking-[-0.25px]"><ListTodo size={18} strokeWidth={1.75} className="text-accent"/> 팀별 업무 현황</h3>
         </div>
-        <div className="p-4 md:p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="divide-y divide-line/60">
           {teamStats.map(stat => (
-            <div key={stat.name} onClick={() => onNavigate(`team:${stat.name}`)} className="border border-line rounded-lg p-3 md:p-4 cursor-pointer hover:border-accent transition-all bg-surface group">
-              <div className="flex justify-between items-center mb-2 md:mb-3">
-                <span className={`px-2 py-1 rounded-sm text-[10px] md:text-xs font-bold ${CONFIG.TEAMS[stat.name]}`}>{stat.name}</span>
-                <span className="text-xs font-medium text-fg-muted group-hover:text-accent transition-colors">{stat.done} / {stat.total} 완료 <ChevronRight size={12} className="inline opacity-0 group-hover:opacity-100 transition-opacity" /></span>
+            <div key={stat.name} onClick={() => onNavigate(`team:${stat.name}`)} className="flex items-center gap-3 px-4 md:px-6 py-3 hover:bg-surface-hover cursor-pointer transition-colors group">
+              <span className={`px-2 py-1 rounded-sm text-[10px] md:text-xs font-bold shrink-0 ${CONFIG.TEAMS[stat.name]}`}>{stat.name}</span>
+              <div className="hidden sm:flex flex-1 min-w-0 flex-wrap items-center gap-1">
+                {stat.projects.length > 0 ? (
+                  <>
+                    {stat.projects.slice(0, 2).map((p, i) => <span key={i} className="text-[10px] bg-surface-2 border border-line text-fg-muted px-1.5 py-0.5 rounded-md truncate max-w-[160px]">{p}</span>)}
+                    {stat.projects.length > 2 && <span className="text-[10px] text-fg-faint">+{stat.projects.length - 2}</span>}
+                  </>
+                ) : <span className="text-[10px] text-fg-faint italic">진행 중인 프로젝트 없음</span>}
               </div>
-              <div className="w-full bg-surface-2 rounded-full h-1.5 md:h-2 mb-2 md:mb-3 overflow-hidden"><div className="bg-accent h-full rounded-full transition-all duration-700" style={{ width: `${stat.progress}%` }}></div></div>
-              <div>
-                <p className="text-[10px] text-fg-faint mb-1.5">진행 중인 프로젝트:</p>
-                <div className="flex flex-wrap gap-1">
-                  {stat.projects.length > 0 ? stat.projects.map((p, i) => <span key={i} className="text-[9px] md:text-[10px] bg-surface-2 border border-line text-fg-muted px-1.5 py-0.5 rounded-md truncate max-w-full">{p}</span>) : <span className="text-[10px] text-fg-faint italic">없음</span>}
-                </div>
+              <div className="flex items-center gap-3 ml-auto shrink-0">
+                <div className="w-24 md:w-32 bg-surface-2 rounded-full h-1.5 overflow-hidden"><div className="bg-accent h-full rounded-full transition-all duration-700" style={{ width: `${stat.progress}%` }}></div></div>
+                <span className="text-xs text-fg-muted text-right w-20 tabular-nums">{stat.done} / {stat.total} 완료</span>
+                <ChevronRight size={16} strokeWidth={1.75} className="text-fg-faint opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
             </div>
           ))}
@@ -79,6 +82,17 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
   const [isAddingLink, setIsAddingLink] = useState(false);
   const [linkDraft, setLinkDraft] = useState({ title: '', url: '' });
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const linkPopRef = useRef(null);
+
+  // 리소스 추가 팝오버: 바깥 클릭 / Escape 닫기
+  useEffect(() => {
+    if (!isAddingLink) return;
+    const onDown = (e) => { if (linkPopRef.current && !linkPopRef.current.contains(e.target)) setIsAddingLink(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setIsAddingLink(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [isAddingLink]);
 
   const toggleTeam = (team) => setSelectedTeams(prev => prev.includes(team) ? prev.filter(t => t !== team) : [...prev, team]);
   const filteredTasks = useMemo(() => selectedTeams.length === 0 ? projectTasks : projectTasks.filter(task => task.teams.some(t => selectedTeams.includes(t))), [projectTasks, selectedTeams]);
@@ -104,24 +118,29 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
       <div className="bg-surface p-3 md:p-4 rounded-lg border border-line mb-3 flex flex-col md:flex-row gap-3 md:gap-4 justify-between items-start md:items-center shrink-0">
         <div className="w-full md:w-auto min-w-0">
           <h2 className="text-lg md:text-xl font-bold text-fg mb-1.5 tracking-[-0.25px]">{project.title}</h2>
-          <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
-            <span className="text-[10px] md:text-xs font-semibold text-fg-muted uppercase flex items-center gap-1"><Pin size={12} /> 리소스:</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-1 text-[11px] font-medium text-fg-faint shrink-0"><LinkIcon size={12} /> 리소스</span>
             {project.pinnedLinks?.map(link => (
               <span key={link.id} className="group/link inline-flex items-center gap-1 text-[10px] md:text-xs pl-1.5 pr-1 py-1 bg-accent-weak text-accent-text rounded-md transition-colors">
                 <a href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:underline"><ExternalLink size={10} /> {link.title}</a>
                 <button onClick={() => removeLink(link.id)} className="opacity-0 group-hover/link:opacity-100 hover:text-fg rounded-full p-0.5 transition-opacity" title="링크 삭제"><X size={10} /></button>
               </span>
             ))}
-            {isAddingLink ? (
-              <span className="inline-flex items-center gap-1 animate-in fade-in duration-150">
-                <input autoFocus value={linkDraft.title} onChange={e => setLinkDraft(p => ({ ...p, title: e.target.value }))} placeholder="이름" className="w-20 text-[10px] md:text-xs px-1.5 py-1 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
-                <input value={linkDraft.url} onChange={e => setLinkDraft(p => ({ ...p, url: e.target.value }))} placeholder="https://..." onKeyDown={e => { if (e.key === 'Enter') saveLink(); if (e.key === 'Escape') setIsAddingLink(false); }} className="w-36 text-[10px] md:text-xs px-1.5 py-1 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
-                <button onClick={saveLink} disabled={!linkDraft.title.trim() || !linkDraft.url.trim()} className="text-[10px] md:text-xs px-2 py-1 bg-accent hover:bg-accent-strong disabled:bg-line text-white rounded-md transition active:scale-95">추가</button>
-                <button onClick={() => setIsAddingLink(false)} className="p-1 text-fg-faint hover:text-fg-muted transition"><X size={12} /></button>
-              </span>
-            ) : (
-              <button onClick={() => setIsAddingLink(true)} className="text-[10px] md:text-xs text-fg-faint hover:text-fg-muted hover:bg-surface-hover px-1.5 py-1 border border-dashed border-line rounded-md transition active:scale-95">+ 추가</button>
-            )}
+            <div className="relative" ref={linkPopRef}>
+              <button onClick={() => setIsAddingLink(v => !v)} className="text-[10px] md:text-xs text-fg-faint hover:text-fg-muted hover:bg-surface-hover px-1.5 py-1 border border-dashed border-line rounded-md transition active:scale-95">+ 추가</button>
+              {isAddingLink && (
+                <div className="absolute left-0 top-full mt-1 w-64 bg-surface border border-line rounded-lg shadow-elevated p-3 z-50 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="space-y-2">
+                    <input autoFocus value={linkDraft.title} onChange={e => setLinkDraft(p => ({ ...p, title: e.target.value }))} placeholder="이름" className="w-full text-xs px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
+                    <input value={linkDraft.url} onChange={e => setLinkDraft(p => ({ ...p, url: e.target.value }))} placeholder="https://..." onKeyDown={e => { if (e.key === 'Enter') saveLink(); }} className="w-full text-xs px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
+                  </div>
+                  <div className="flex justify-end gap-2 mt-3">
+                    <button onClick={() => setIsAddingLink(false)} className="text-xs px-2.5 py-1 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">취소</button>
+                    <button onClick={saveLink} disabled={!linkDraft.title.trim() || !linkDraft.url.trim()} className="text-xs px-2.5 py-1 bg-accent hover:bg-accent-strong disabled:bg-line text-white rounded-md transition active:scale-95">추가</button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
@@ -137,7 +156,7 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
                 <button onClick={() => setConfirmingDelete(false)} className="text-fg-muted hover:text-fg hover:bg-surface-hover rounded-md px-2 py-1 text-[10px] font-medium transition active:scale-95">취소</button>
               </div>
             ) : (
-              <button onClick={() => setConfirmingDelete(true)} className="p-1.5 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95 shrink-0" title="프로젝트 삭제"><Trash2 size={16} /></button>
+              <button onClick={() => setConfirmingDelete(true)} className="p-1.5 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95 shrink-0" title="프로젝트 삭제"><Trash2 size={16} strokeWidth={1.75} /></button>
             )
           )}
         </div>
@@ -145,7 +164,7 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
       {viewMode === 'kanban' && (
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-3 shrink-0">
           <div className="flex flex-nowrap gap-1.5 overflow-x-auto pb-1 w-full scrollbar-hide">
-            <span className="text-xs font-medium text-fg-muted flex items-center mr-1 shrink-0">필터:</span>
+            <span className="flex items-center gap-1 text-[11px] font-medium text-fg-faint mr-1 shrink-0"><ListFilter size={12} /> 필터</span>
             {Object.entries(CONFIG.TEAMS).map(([team, colorClass]) => {
               const selected = selectedTeams.includes(team);
               return (

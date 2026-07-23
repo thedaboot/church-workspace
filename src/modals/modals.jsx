@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
-  CheckSquare, Clock, X, User, Hash, Database, Download, Upload,
-  Wand2, Sparkles, Bot
+  CheckSquare, Clock, X, User, Hash, RefreshCw, Download, Upload,
+  Wand2, Sparkles, Bot, CalendarRange
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { formatDate } from '../utils.js';
@@ -30,7 +30,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         <div className="flex-1 flex flex-col border-r-0 md:border-r border-line overflow-y-auto">
           <div className="sticky top-0 bg-surface/95 backdrop-blur z-10 px-4 py-3 border-b border-line flex justify-between items-center">
             <div className="flex items-center gap-2 text-xs font-semibold text-fg-muted"><CheckSquare size={14} className="text-accent"/> {task.id ? '작업 세부 정보' : '새 작업 만들기'}</div>
-            <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18}/></button>
+            <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>
           </div>
           <div className="p-5 md:p-8 flex-1">
             {isEditMode ? <TaskEditor formData={formData} setFormData={setFormData} /> : <TaskViewer formData={formData} />}
@@ -50,7 +50,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
               <button onClick={() => setActiveTab('comments')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'comments' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>댓글 ({(formData.comments || []).length})</button>
               <button onClick={() => setActiveTab('activity')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'activity' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>활동 기록</button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4">{activeTab === 'comments' ? <CommentPanel comments={formData.comments} /> : <ActivityPanel logs={formData.activityLog} />}</div>
+            <div className="flex-1 overflow-y-auto p-4">{activeTab === 'comments' ? <CommentPanel comments={formData.comments} onReply={onAddComment} /> : <ActivityPanel logs={formData.activityLog} />}</div>
             {activeTab === 'comments' && <CommentInput onAdd={onAddComment} />}
           </div>
         )}
@@ -96,6 +96,9 @@ const TaskEditor = React.memo(({ formData, setFormData }) => {
               </button>
             ))}
           </div>
+        </PropertyRow>
+        <PropertyRow icon={<CalendarRange size={13} className="text-fg-faint" />} label="시작일">
+          <DatePicker value={formData.startDate || ''} onChange={(v) => setFormData(prev => ({ ...prev, startDate: v }))} />
         </PropertyRow>
         <PropertyRow icon={<Clock size={13} className="text-fg-faint" />} label="마감일">
           <DatePicker value={formData.dueDate || ''} onChange={(v) => setFormData(prev => ({ ...prev, dueDate: v }))} />
@@ -147,7 +150,8 @@ const TaskViewer = React.memo(({ formData }) => {
       <div className="flex flex-wrap items-center gap-1.5 mb-2"><span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${CONFIG.STATUS_STYLES[formData.status]}`}>{formData.status}</span>{formData.teams?.map(t => <span key={t} className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${CONFIG.TEAMS[t]}`}>{t}</span>)}</div>
       <h2 className="text-xl md:text-2xl font-bold text-fg leading-tight tracking-[-0.25px]">{formData.title}</h2>
       <div className="mt-4 border-y border-line divide-y divide-line/60 text-xs">
-        <div className="flex items-center gap-0 py-2"><span className="w-28 shrink-0 flex items-center gap-1.5 text-fg-muted"><User size={13} className="text-fg-faint" />담당</span><span className="font-medium text-fg">{formData.assignees?.join(', ') || '미지정'}</span></div>
+        <div className="flex items-center gap-0 py-2"><span className="w-28 shrink-0 flex items-center gap-1.5 text-fg-muted"><User size={13} className="text-fg-faint" />담당자</span><span className="font-medium text-fg">{formData.assignees?.join(', ') || '미지정'}</span></div>
+        {formData.startDate && <div className="flex items-center gap-0 py-2"><span className="w-28 shrink-0 flex items-center gap-1.5 text-fg-muted"><CalendarRange size={13} className="text-fg-faint" />시작일</span><span className="inline-flex items-center gap-1 font-semibold text-tag-blue-fg bg-tag-blue px-2 py-0.5 rounded-sm">{new Date(formData.startDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</span></div>}
         {formData.dueDate && <div className="flex items-center gap-0 py-2"><span className="w-28 shrink-0 flex items-center gap-1.5 text-fg-muted"><Clock size={13} className="text-fg-faint" />마감일</span><span className="inline-flex items-center gap-1 font-semibold text-tag-orange-fg bg-tag-orange px-2 py-0.5 rounded-sm">{new Date(formData.dueDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</span></div>}
       </div>
 
@@ -172,26 +176,76 @@ const TaskViewer = React.memo(({ formData }) => {
 });
 
 // 노션 스타일 플랫 댓글: 아바타 + 이름·시간 + 본문, 카드 대신 헤어라인 구분
-const CommentPanel = React.memo(({ comments }) => (
-  <div className="divide-y divide-line/60">
-    {(comments || []).map(c => (
-      <div key={c.id} className="flex items-start gap-2.5 py-3 first:pt-0 animate-in fade-in duration-200">
-        <div className="w-6 h-6 rounded-full bg-accent-weak text-accent-text text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{c.author?.[0]}</div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2 mb-0.5"><span className="font-semibold text-[11px] text-fg">{c.author}</span><span className="text-[9px] text-fg-faint">{formatDate(c.timestamp)}</span></div>
-          <div className="text-xs text-fg-secondary leading-relaxed"><RichText content={c.text} /></div>
-        </div>
-      </div>
-    ))}
-    {(!comments || comments.length === 0) && <div className="text-center text-xs text-fg-faint mt-6">첫 댓글을 남겨보세요!</div>}
+const CommentBody = ({ c }) => (
+  <div className="flex items-start gap-2.5">
+    <div className="w-6 h-6 rounded-full bg-accent-weak text-accent-text text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{c.author?.[0]}</div>
+    <div className="flex-1 min-w-0">
+      <div className="flex items-baseline gap-2 mb-0.5"><span className="font-semibold text-[11px] text-fg">{c.author}</span><span className="text-[9px] text-fg-faint">{formatDate(c.timestamp)}</span></div>
+      <div className="text-xs text-fg-secondary leading-relaxed"><RichText content={c.text} /></div>
+    </div>
   </div>
-));
+);
+
+const CommentPanel = React.memo(({ comments, onReply }) => {
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const all = comments || [];
+  const topLevel = all.filter(c => !c.parentId);
+  const getReplies = (id) => all.filter(c => c.parentId === id);
+
+  const submitReply = (parentId) => {
+    if (!replyText.trim()) return;
+    onReply(replyText, parentId);
+    setReplyText('');
+    setReplyingTo(null);
+  };
+
+  if (all.length === 0) return <div className="text-center text-xs text-fg-faint mt-6">첫 댓글을 남겨보세요!</div>;
+
+  return (
+    <div className="divide-y divide-line/60">
+      {topLevel.map(c => (
+        <div key={c.id} className="py-3 first:pt-0 group/c animate-in fade-in duration-200">
+          <CommentBody c={c} />
+          <div className="pl-8 mt-1">
+            <button
+              onClick={() => { setReplyingTo(replyingTo === c.id ? null : c.id); setReplyText(''); }}
+              className={`text-[10px] text-fg-faint hover:text-accent-text transition-opacity ${replyingTo === c.id ? 'opacity-100' : 'opacity-0 group-hover/c:opacity-100'}`}
+            >답글</button>
+          </div>
+          {(getReplies(c.id).length > 0 || replyingTo === c.id) && (
+            <div className="ml-8 mt-2 border-l border-line pl-3 space-y-3">
+              {getReplies(c.id).map(r => <div key={r.id} className="animate-in fade-in duration-200"><CommentBody c={r} /></div>)}
+              {replyingTo === c.id && (
+                <input
+                  autoFocus value={replyText} onChange={e => setReplyText(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitReply(c.id); } if (e.key === 'Escape') { setReplyingTo(null); setReplyText(''); } }}
+                  placeholder="답글 입력 후 Enter (Esc 취소)"
+                  className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg placeholder:text-fg-faint focus:border-accent focus:shadow-soft outline-none transition-all"
+                />
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+});
+
+// 활동 action 문자열 키워드 → 타임라인 dot 색상 매핑
+const activityDotColor = (action = '') => {
+  if (action.includes('생성')) return 'bg-tag-green-fg';
+  if (action.includes('상태')) return action.includes('완료') ? 'bg-tag-green-fg' : 'bg-accent';
+  if (action.includes('수정')) return 'bg-tag-yellow-fg';
+  if (action.includes('댓글')) return 'bg-tag-purple-fg';
+  return 'bg-fg-faint';
+};
 
 const ActivityPanel = React.memo(({ logs }) => (
   <div className="space-y-4 relative before:absolute before:inset-y-1 before:left-[3px] before:w-px before:bg-line">
     {(logs || []).slice().reverse().map(l => (
       <div key={l.id} className="relative flex items-start gap-3">
-        <div className="mt-1 w-[7px] h-[7px] rounded-full bg-fg-faint ring-4 ring-surface-2 z-10 shrink-0"></div>
+        <div className={`mt-1 w-[7px] h-[7px] rounded-full ring-4 ring-surface-2 z-10 shrink-0 ${activityDotColor(l.action)}`}></div>
         <div className="min-w-0">
           <p className="text-[11px] text-fg-secondary leading-snug"><span className="font-semibold text-fg">{l.author}</span>님이 {l.action}</p>
           <p className="text-[9px] text-fg-faint mt-0.5">{formatDate(l.timestamp)}</p>
@@ -240,7 +294,7 @@ export function ProfileModal({ onClose, onSave }) {
 export function SyncModal({ onClose, persistence }) {
   const [url, setUrl] = useState(() => localStorage.getItem('church_app_sync_url') || '');
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"><div className="bg-surface p-5 rounded-lg shadow-elevated border border-line w-full max-w-md animate-in fade-in zoom-in-95 duration-200"><div className="flex justify-between items-center mb-4"><h3 className="font-bold text-fg flex items-center gap-2"><Database size={16} className="text-accent"/> 데이터 연동</h3><button onClick={onClose} className="text-fg-faint"><X size={18}/></button></div><div className="bg-accent-weak text-accent-text p-3 rounded-md text-xs leading-relaxed mb-4">구글 Apps Script URL을 입력하여 데이터를 동기화합니다.</div><input type="text" value={url} onChange={e=>{setUrl(e.target.value); localStorage.setItem('church_app_sync_url',e.target.value);}} placeholder="https://script.google.com/..." className="w-full border border-line rounded-xs p-2 mb-4 text-xs bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none" /><div className="flex gap-2"><button onClick={()=>persistence.loadFromCloud(url)} disabled={!url || persistence.syncStatus === 'syncing'} className="flex-1 bg-surface-hover hover:bg-line text-fg border border-line py-2 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition active:scale-95"><Download size={14}/> 불러오기</button><button onClick={()=>persistence.syncToCloud(url)} disabled={!url || persistence.syncStatus === 'syncing'} className="flex-1 bg-accent hover:bg-accent-strong text-white py-2 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition active:scale-95"><Upload size={14}/> 덮어쓰기</button></div><p className="text-center text-xs font-bold mt-3 h-4 text-accent-text">{persistence.syncStatus === 'syncing' ? '진행 중...' : persistence.syncStatus === 'success' ? '성공!' : <span className="text-red-500">{persistence.errorMsg}</span>}</p></div></div>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"><div className="bg-surface p-5 rounded-lg shadow-elevated border border-line w-full max-w-md animate-in fade-in zoom-in-95 duration-200"><div className="flex justify-between items-center mb-4"><h3 className="font-bold text-fg flex items-center gap-2"><RefreshCw size={16} strokeWidth={1.75} className="text-accent"/> 데이터 연동</h3><button onClick={onClose} className="text-fg-faint"><X size={18}/></button></div><div className="bg-accent-weak text-accent-text p-3 rounded-md text-xs leading-relaxed mb-4">구글 Apps Script URL을 입력하여 데이터를 동기화합니다.</div><input type="text" value={url} onChange={e=>{setUrl(e.target.value); localStorage.setItem('church_app_sync_url',e.target.value);}} placeholder="https://script.google.com/..." className="w-full border border-line rounded-xs p-2 mb-4 text-xs bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none" /><div className="flex gap-2"><button onClick={()=>persistence.loadFromCloud(url)} disabled={!url || persistence.syncStatus === 'syncing'} className="flex-1 bg-surface-hover hover:bg-line text-fg border border-line py-2 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition active:scale-95"><Download size={14}/> 불러오기</button><button onClick={()=>persistence.syncToCloud(url)} disabled={!url || persistence.syncStatus === 'syncing'} className="flex-1 bg-accent hover:bg-accent-strong text-white py-2 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition active:scale-95"><Upload size={14}/> 덮어쓰기</button></div><p className="text-center text-xs font-bold mt-3 h-4 text-accent-text">{persistence.syncStatus === 'syncing' ? '진행 중...' : persistence.syncStatus === 'success' ? '성공!' : <span className="text-red-500">{persistence.errorMsg}</span>}</p></div></div>
   );
 }
 
@@ -249,7 +303,7 @@ export function ProjectModal({ onClose, onSave }) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
       <div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-200">
-        <h3 className="font-bold text-fg mb-4 flex items-center gap-2"><Hash size={18} className="text-accent"/> 새 프로젝트 생성</h3>
+        <h3 className="font-bold text-fg mb-4 flex items-center gap-2"><Hash size={18} strokeWidth={1.75} className="text-accent"/> 새 프로젝트 생성</h3>
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">프로젝트 이름</label>
         <input
           type="text" value={title} onChange={e => setTitle(e.target.value)}

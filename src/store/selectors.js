@@ -54,16 +54,19 @@ export const selectDashboardStats = createSelector(
   }
 );
 
-// 캘린더용 O(1) 맵핑 캐싱
+// 캘린더용 O(1) 맵핑 캐싱 — 날짜별로 [{ task, kind: 'start' | 'due' }] 반환 (시작일·마감일 모두 추적)
 export const selectTasksByDate = createSelector(
   [selectTasksList],
   (tasksList) => {
     const map = new Map();
+    const push = (date, task, kind) => {
+      if (!date) return;
+      if (!map.has(date)) map.set(date, []);
+      map.get(date).push({ task, kind });
+    };
     tasksList.forEach(t => {
-      if (t.dueDate) {
-        if (!map.has(t.dueDate)) map.set(t.dueDate, []);
-        map.get(t.dueDate).push(t);
-      }
+      push(t.startDate, t, 'start');
+      push(t.dueDate, t, 'due');
     });
     return map;
   }

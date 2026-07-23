@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   LayoutDashboard, CheckSquare, Search, Plus, X, Hash, Menu,
-  Settings, Database, Undo2, Redo2, Sun, Moon, LogOut
+  Settings, RefreshCw, Undo2, Redo2, Sun, Moon, LogOut
 } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
 import {
@@ -23,7 +23,7 @@ function ThemeToggle() {
   };
   return (
     <button onClick={toggle} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95" title={theme === 'dark' ? '라이트 모드' : '다크 모드'}>
-      {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+      {theme === 'dark' ? <Sun size={18} strokeWidth={1.75} /> : <Moon size={18} strokeWidth={1.75} />}
     </button>
   );
 }
@@ -47,8 +47,8 @@ export const Sidebar = React.memo(({ activeMenu, setActiveMenu, isSidebarOpen, c
         <button className="md:hidden p-1 text-fg-muted transition active:scale-95" onClick={closeSidebar}><X size={20} /></button>
       </div>
       <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1 scrollbar-hide">
-        <NavItem icon={<LayoutDashboard size={18} />} label="전체 대시보드" active={activeMenu === 'dashboard'} onClick={() => setActiveMenu('dashboard')} />
-        <NavItem icon={<CheckSquare size={18} />} label="내 작업" active={activeMenu === 'myTasks'} onClick={() => setActiveMenu('myTasks')} badge={myTasksCount} />
+        <NavItem icon={<LayoutDashboard size={18} strokeWidth={1.75} />} label="전체 대시보드" active={activeMenu === 'dashboard'} onClick={() => setActiveMenu('dashboard')} />
+        <NavItem icon={<CheckSquare size={18} strokeWidth={1.75} />} label="내 작업" active={activeMenu === 'myTasks'} onClick={() => setActiveMenu('myTasks')} badge={myTasksCount} />
         <div className="mt-6 mb-2 px-2 text-[10px] font-bold text-fg-faint uppercase tracking-wider flex justify-between items-center">
           프로젝트 리스트 <Plus size={14} className="cursor-pointer hover:text-fg p-0.5 rounded hover:bg-surface-hover transition active:scale-95" onClick={onOpenProject} />
         </div>
@@ -94,21 +94,21 @@ export const Header = React.memo(({ activeMenu, openSidebar, onOpenSync, undo, r
   return (
     <header className="h-14 bg-surface border-b border-line flex items-center px-4 md:px-6 shrink-0 gap-2 md:gap-4 z-10">
       <div className="flex items-center gap-3 min-w-0 shrink">
-        <button className="md:hidden p-1 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95" onClick={openSidebar}><Menu size={20} /></button>
+        <button className="md:hidden p-1 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95" onClick={openSidebar}><Menu size={20} strokeWidth={1.75} /></button>
         <h2 className="font-semibold text-base md:text-lg text-fg truncate tracking-[-0.25px]">{title}</h2>
       </div>
       <div className="flex items-center gap-1 md:gap-3 flex-1 justify-end min-w-0">
         {/* Undo / Redo Controllers */}
         <div className="flex items-center bg-surface-2 rounded-md p-0.5 shrink-0">
-          <button onClick={undo} disabled={!canUndo} className={`p-1.5 rounded text-fg-muted transition active:scale-95 ${canUndo ? 'hover:bg-surface hover:shadow-soft' : 'opacity-30 cursor-not-allowed'}`} title="실행 취소 (Ctrl+Z)"><Undo2 size={16}/></button>
-          <button onClick={redo} disabled={!canRedo} className={`p-1.5 rounded text-fg-muted transition active:scale-95 ${canRedo ? 'hover:bg-surface hover:shadow-soft' : 'opacity-30 cursor-not-allowed'}`} title="다시 실행"><Redo2 size={16}/></button>
+          <button onClick={undo} disabled={!canUndo} className={`p-1.5 rounded text-fg-muted transition active:scale-95 ${canUndo ? 'hover:bg-surface hover:shadow-soft' : 'opacity-30 cursor-not-allowed'}`} title="실행 취소 (Ctrl+Z)"><Undo2 size={16} strokeWidth={1.75}/></button>
+          <button onClick={redo} disabled={!canRedo} className={`p-1.5 rounded text-fg-muted transition active:scale-95 ${canRedo ? 'hover:bg-surface hover:shadow-soft' : 'opacity-30 cursor-not-allowed'}`} title="다시 실행"><Redo2 size={16} strokeWidth={1.75}/></button>
         </div>
         <div className="relative hidden sm:block flex-1 max-w-2xl">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-fg-faint" />
+          <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-fg-faint" strokeWidth={1.75} />
           <input type="text" placeholder="검색..." className="pl-9 pr-4 py-1.5 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all" />
         </div>
         <ThemeToggle />
-        <button onClick={onOpenSync} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0"><Database size={18} /></button>
+        <button onClick={onOpenSync} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0" title="데이터 연동"><RefreshCw size={18} strokeWidth={1.75} /></button>
       </div>
     </header>
   );

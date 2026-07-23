@@ -42,9 +42,9 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
       <div className="px-4 py-3 border-b border-line bg-surface-2 flex items-center justify-between">
         <h3 className="font-semibold text-sm text-fg tracking-[-0.25px]">{currentYear}년 {currentMonth + 1}월</h3>
         <div className="flex items-center gap-1">
-          <button onClick={goPrev} disabled={!canPrev} className={`p-1 rounded-md text-fg-muted transition active:scale-95 ${canPrev ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`}><ChevronLeft size={16} /></button>
+          <button onClick={goPrev} disabled={!canPrev} className={`p-1 rounded-md text-fg-muted transition active:scale-95 ${canPrev ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`}><ChevronLeft size={16} strokeWidth={1.75} /></button>
           <button onClick={goToday} className="px-2 py-1 rounded-md text-xs font-medium text-fg-muted hover:bg-surface-hover transition active:scale-95">오늘</button>
-          <button onClick={goNext} disabled={!canNext} className={`p-1 rounded-md text-fg-muted transition active:scale-95 ${canNext ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`}><ChevronRight size={16} /></button>
+          <button onClick={goNext} disabled={!canNext} className={`p-1 rounded-md text-fg-muted transition active:scale-95 ${canNext ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`}><ChevronRight size={16} strokeWidth={1.75} /></button>
         </div>
       </div>
       <div className="grid grid-cols-7 border-b border-line">
@@ -54,13 +54,17 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
         {days.map((day, idx) => {
           if (!day) return <div key={`empty-${idx}`} className="border-b border-r border-line bg-surface-2"></div>;
           const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-          const dayTasks = tasksByDateMap.get(dateStr) || []; // O(1) Lookup
+          const dayEntries = tasksByDateMap.get(dateStr) || []; // O(1) Lookup — [{ task, kind }]
           const isToday = showingCurrentMonth && day === today.getDate();
           return (
             <div key={day} className={`border-b border-r border-line p-1 min-h-[80px] ${isToday ? 'bg-accent-weak' : ''}`}>
               <div className={`text-[10px] font-semibold p-1 ${isToday ? 'text-accent' : 'text-fg-muted'}`}>{day}</div>
               <div className="space-y-1 mt-0.5">
-                {dayTasks.map(task => <div key={task.id} onClick={() => onTaskClick(task)} className="text-[9px] truncate px-1.5 py-0.5 rounded bg-accent-weak text-accent border border-line cursor-pointer hover:bg-surface-hover transition-colors">{task.title}</div>)}
+                {dayEntries.map(({ task, kind }) => (
+                  <div key={`${task.id}-${kind}`} onClick={() => onTaskClick(task)} title={`${kind === 'start' ? '시작' : '마감'}: ${task.title}`} className={`text-[9px] truncate px-1.5 py-0.5 rounded border border-line cursor-pointer hover:opacity-80 transition-opacity ${kind === 'start' ? 'bg-tag-blue text-tag-blue-fg' : 'bg-tag-orange text-tag-orange-fg'}`}>
+                    {kind === 'start' ? '▸ ' : ''}{task.title}
+                  </div>
+                ))}
               </div>
             </div>
           );
@@ -75,15 +79,27 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
   const [draggingId, setDraggingId] = React.useState(null);
   const [overStatus, setOverStatus] = React.useState(null);
   const scrollRef = React.useRef(null);
+  const lastClientXRef = React.useRef(0);
 
-  // 드래그가 컨테이너 가장자리에 닿으면 가로 자동 스크롤 (dragover는 연속 발생 → 타이머 불필요)
-  const handleContainerDragOver = (e) => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    if (e.clientX > r.right - 80) el.scrollLeft += 14;
-    else if (e.clientX < r.left + 80) el.scrollLeft -= 14;
-  };
+  // dragover는 마우스가 멈추면 발생이 드물어 위치만 ref에 기록하고, 실제 스크롤은 rAF 루프로 매 프레임 처리
+  const handleContainerDragOver = (e) => { lastClientXRef.current = e.clientX; };
+
+  React.useEffect(() => {
+    if (!draggingId) return;
+    let raf;
+    const step = () => {
+      const el = scrollRef.current;
+      const x = lastClientXRef.current;
+      if (el && x > 0) {
+        const r = el.getBoundingClientRect();
+        if (x > r.right - 80) el.scrollLeft += 10;
+        else if (x < r.left + 80) el.scrollLeft -= 10;
+      }
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [draggingId]);
 
   const onDragStart = (e, task) => {
     e.dataTransfer.setData('taskJson', JSON.stringify(task));
@@ -98,7 +114,7 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
   };
 
   return (
-    <div ref={scrollRef} onDragOver={handleContainerDragOver} className="flex gap-4 h-full pb-2 overflow-x-auto snap-x snap-mandatory">
+    <div ref={scrollRef} onDragOver={handleContainerDragOver} className={`flex gap-4 h-full pb-2 overflow-x-auto ${draggingId ? '' : 'snap-x snap-mandatory'}`}>
       {CONFIG.STATUSES.map(status => {
         const isOver = draggingId && overStatus === status;
         return (

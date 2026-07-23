@@ -25,8 +25,8 @@ export const useWorkspaceController = () => {
     return task;
   }, [currentUser.name]);
 
-  const handleAddComment = useCallback((task, text) => {
-    const updated = TaskService.addComment(task, text, currentUser.name);
+  const handleAddComment = useCallback((task, text, parentId = null) => {
+    const updated = TaskService.addComment(task, text, currentUser.name, parentId);
     store.dispatch({ type: 'UPSERT_TASK', payload: updated });
     return updated;
   }, [currentUser.name]);
