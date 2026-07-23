@@ -11,10 +11,12 @@
   "dependencies": {
     "@seed-design/css": "^2.2.1",
     "@seed-design/react": "^2.0.4",
+    "@supabase/supabase-js": "^2.110.8",
     "lucide-react": "^1.26.0",
     "pretendard": "^1.3.9",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "tw-animate-css": "^1.4.0"
   },
   "devDependencies": {
     "@seed-design/vite-plugin": "^2.0.0",

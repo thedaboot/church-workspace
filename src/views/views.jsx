@@ -34,7 +34,8 @@ export function DashboardView({ onNavigate }) {
           <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white opacity-10 rounded-full blur-xl"></div>
           <h3 className="text-base md:text-lg font-bold mb-1 text-white tracking-[-0.25px]">엔터프라이즈 워크스페이스</h3>
           <p className="text-xs text-white/70 mb-4 leading-relaxed">상단 헤더의 '실행 취소(Undo)' 버튼을 눌러 상태 롤백을 경험해보세요.</p>
-          <button onClick={() => onNavigate('guide')} className="bg-white text-fg hover:bg-white/90 text-xs py-2 px-4 rounded-full shadow-soft transition active:scale-95 self-start font-medium">사용 가이드 보기</button>
+          {/* 밤하늘 카드는 항상 어두우므로 글자색을 테마와 무관한 잉크색으로 고정 */}
+          <button onClick={() => onNavigate('guide')} className="bg-white text-[#31302e] hover:bg-white/90 text-xs py-2 px-4 rounded-full shadow-soft transition active:scale-95 self-start font-medium whitespace-nowrap">사용 가이드 보기</button>
         </div>
       </div>
       <div className="bg-surface rounded-lg border border-line overflow-hidden">
@@ -90,8 +91,8 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask 
           </div>
         </div>
         <div className="flex bg-surface-2 p-1 rounded-md w-full md:w-auto shrink-0">
-          <button onClick={() => setViewMode('kanban')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 ${viewMode === 'kanban' ? 'bg-surface shadow-sm text-fg' : 'text-fg-muted hover:text-fg'}`}><LayoutDashboard size={14}/> 보드</button>
-          <button onClick={() => setViewMode('calendar')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 ${viewMode === 'calendar' ? 'bg-surface shadow-sm text-fg' : 'text-fg-muted hover:text-fg'}`}><CalendarIcon size={14}/> 캘린더</button>
+          <button onClick={() => setViewMode('kanban')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'kanban' ? 'bg-surface shadow-soft text-fg' : 'text-fg-muted hover:text-fg'}`}><LayoutDashboard size={14} className="shrink-0"/> 보드</button>
+          <button onClick={() => setViewMode('calendar')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'calendar' ? 'bg-surface shadow-soft text-fg' : 'text-fg-muted hover:text-fg'}`}><CalendarIcon size={14} className="shrink-0"/> 캘린더</button>
         </div>
       </div>
       {viewMode === 'kanban' && (

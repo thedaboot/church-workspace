@@ -1,4 +1,8 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
+
+/* 수동 테마 전환: <html data-theme="dark">가 다크 기준 (기본값은 index.html 스크립트가 시스템 설정으로 결정) */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
 /* ── 앱 시맨틱 변수: 라이트 (docs/DESIGN.md 스펙 값) ── */
 :root {
@@ -32,9 +36,8 @@
   --seed-color-fg-brand: #0075de;
 }
 
-/* ── 다크 (시스템 자동, DESIGN.md '프로젝트 적용 노트' 참조) ── */
-@media (prefers-color-scheme: dark) {
-  :root {
+/* ── 다크 (data-theme 속성 기반 — 헤더 토글로 전환, DESIGN.md '프로젝트 적용 노트' 참조) ── */
+:root[data-theme='dark'] {
     --app-canvas: #191919; --app-surface: #202020; --app-surface-hover: #2a2a2a;
     --app-line: #333230;
     --app-ink: #ededec; --app-ink-secondary: #d3d1cb; --app-ink-muted: #9b9998; --app-ink-faint: #6f6d66;
@@ -53,7 +56,6 @@
     /* SEED 오버라이드 (다크) */
     --seed-color-bg-brand-weak: #1c2a3a;
     --seed-color-fg-brand: #4a9eea;
-  }
 }
 
 /* ── Tailwind 토큰 연결: 기존 클래스명 유지 + 신규 ── */
@@ -94,5 +96,5 @@
 }
 
 @layer base {
-  body { background-color: var(--app-canvas); color: var(--app-ink); font-feature-settings: 'lnum', 'locl'; }
+  body { background-color: var(--app-canvas); color: var(--app-ink); font-feature-settings: 'lnum', 'locl'; transition: background-color .2s ease, color .2s ease; }
 }

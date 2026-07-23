@@ -1,14 +1,32 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   LayoutDashboard, CheckSquare, Search, Plus, X, Hash, Menu,
-  Settings, Database, Undo2, Redo2
+  Settings, Database, Undo2, Redo2, Sun, Moon, LogOut
 } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsList, selectProjectsMap, selectMyTasks
 } from '../store/selectors.js';
+import { useAuth } from '../services/auth.jsx';
 import logoLight from '../assets/logo-light.png';
 import logoDark from '../assets/logo-dark.png';
+
+// 라이트/다크 수동 전환 (기본값은 시스템 설정, 선택은 localStorage에 기억)
+function ThemeToggle() {
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || 'light');
+  const toggle = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    document.documentElement.setAttribute('data-seed-user-color-scheme', next);
+    localStorage.setItem('theme', next);
+    setTheme(next);
+  };
+  return (
+    <button onClick={toggle} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95" title={theme === 'dark' ? '라이트 모드' : '다크 모드'}>
+      {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+    </button>
+  );
+}
 
 // ============================================================================
 // 11. UI Views (데이터를 구독하는 프레젠테이션 컴포넌트)
@@ -21,10 +39,10 @@ export const Sidebar = React.memo(({ activeMenu, setActiveMenu, isSidebarOpen, c
   return (
     <div className={`fixed md:static inset-y-0 left-0 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 ease-in-out w-64 bg-surface-2 border-r border-line flex flex-col shadow-xl md:shadow-none z-30`}>
       <div className="p-4 flex items-center justify-between border-b border-line">
-        <div className="flex items-center gap-2 min-w-0">
+        <button onClick={() => setActiveMenu('dashboard')} className="flex items-center gap-2 min-w-0 transition active:scale-95" title="홈(대시보드)으로">
           <img src={logoLight} alt="The 다붓" className="h-9 w-auto dark:hidden" />
           <img src={logoDark} alt="The 다붓" className="h-9 w-auto hidden dark:block" />
-        </div>
+        </button>
         <button className="md:hidden p-1 text-fg-muted transition active:scale-95" onClick={closeSidebar}><X size={20} /></button>
       </div>
       <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1 scrollbar-hide">
@@ -35,14 +53,26 @@ export const Sidebar = React.memo(({ activeMenu, setActiveMenu, isSidebarOpen, c
         </div>
         {projectsList.map(p => <NavItem key={p.id} icon={<Hash size={16} className="text-fg-faint"/>} label={p.title} active={activeMenu === p.id} onClick={() => setActiveMenu(p.id)} />)}
       </div>
-      <div onClick={onOpenProfile} className="p-4 border-t border-line flex items-center gap-3 hover:bg-surface-hover cursor-pointer transition-colors group">
-        <div className="w-9 h-9 rounded-full bg-accent-weak flex items-center justify-center text-accent font-bold shrink-0 transition-colors">{currentUser.name[0]}</div>
-        <div className="flex-1 min-w-0"><p className="text-sm font-medium text-fg truncate">{currentUser.name}</p><p className="text-xs text-fg-muted truncate">{currentUser.team}</p></div>
-        <Settings size={14} className="text-fg-faint group-hover:text-fg-muted" />
-      </div>
+      <SidebarProfile currentUser={currentUser} onOpenProfile={onOpenProfile} />
     </div>
   );
 });
+
+function SidebarProfile({ currentUser, onOpenProfile }) {
+  const { enabled, session, signOut } = useAuth();
+  return (
+    <div className="p-4 border-t border-line flex items-center gap-3 hover:bg-surface-hover transition-colors group">
+      <div onClick={onOpenProfile} className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
+        <div className="w-9 h-9 rounded-full bg-accent-weak flex items-center justify-center text-accent font-bold shrink-0 transition-colors">{currentUser.name[0]}</div>
+        <div className="flex-1 min-w-0"><p className="text-sm font-medium text-fg truncate">{currentUser.name}</p><p className="text-xs text-fg-muted truncate">{currentUser.team}</p></div>
+        <Settings size={14} className="text-fg-faint group-hover:text-fg-muted shrink-0" />
+      </div>
+      {enabled && session && (
+        <button onClick={signOut} className="p-1.5 rounded-md hover:bg-line text-fg-faint hover:text-fg-muted transition active:scale-95 shrink-0" title="로그아웃"><LogOut size={14} /></button>
+      )}
+    </div>
+  );
+}
 
 const NavItem = React.memo(({ icon, label, active, onClick, badge }) => (
   <button onClick={onClick} className={`w-full flex items-center justify-between px-2.5 py-2 rounded-md text-sm transition-colors transition active:scale-95 ${active ? 'bg-surface-hover text-fg font-medium' : 'text-fg-muted hover:bg-surface-hover hover:text-fg'}`}>
@@ -76,6 +106,7 @@ export const Header = React.memo(({ activeMenu, openSidebar, onOpenSync, undo, r
           <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-fg-faint" />
           <input type="text" placeholder="검색..." className="pl-9 pr-4 py-1.5 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-48 transition-all" />
         </div>
+        <ThemeToggle />
         <button onClick={onOpenSync} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95"><Database size={18} /></button>
       </div>
     </header>

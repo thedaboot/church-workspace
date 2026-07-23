@@ -218,5 +218,5 @@ Product screenshots are framed in rounded `{rounded.lg}` / `{rounded.xl}` wells,
 ## 프로젝트 적용 노트 (이 저장소 한정)
 
 - **브랜드 로고**: `src/assets/`의 "The 다붓" 로고를 사용. 라이트 모드는 잉크색 획(`logo-light.png`), 다크 모드는 흰색 획(`logo-dark.png`), 하트의 핑크는 스티커 팔레트 원칙에 따라 장식색으로 유지.
-- **다크 모드 파생 팔레트** (시스템 `prefers-color-scheme` 자동): canvas #191919 · surface #202020 · hover #2a2a2a · hairline #333230 · ink #ededec · ink-secondary #d3d1cb · ink-muted #9b9998 · ink-faint #6f6d66 · 링크/액센트 텍스트는 대비 확보를 위해 #4a9eea, 버튼 fill은 #0075de 유지.
+- **다크 모드 파생 팔레트** (`<html data-theme>` 속성 기반 — 헤더 토글로 수동 전환, 초기값은 시스템 설정): canvas #191919 · surface #202020 · hover #2a2a2a · hairline #333230 · ink #ededec · ink-secondary #d3d1cb · ink-muted #9b9998 · ink-faint #6f6d66 · 링크/액센트 텍스트는 대비 확보를 위해 #4a9eea, 버튼 fill은 #0075de 유지.
 - **태그 팔레트**: 라이트는 노션 태그 색, 다크는 저채도 어두운 배경 + 밝은 글자 쌍으로 파생.

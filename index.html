@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>교회 청년부 워크스페이스</title>
+    <script>
+      // 첫 페인트 전에 테마 결정: 저장된 선택 > 시스템 설정
+      (function () {
+        var t = localStorage.getItem('theme');
+        if (t !== 'light' && t !== 'dark') {
+          t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = t;
+        document.documentElement.setAttribute('data-seed-user-color-scheme', t);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

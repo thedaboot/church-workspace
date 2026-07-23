@@ -5,6 +5,8 @@ import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import { Sidebar, Header } from './components/layout.jsx';
 import { DashboardView, ProjectView, MyTasksView, TeamView, GuideView } from './views/views.jsx';
 import { TaskModalShell, ProfileModal, SyncModal, ProjectModal } from './modals/modals.jsx';
+import { AuthProvider, useAuth } from './services/auth.jsx';
+import { LoginScreen } from './components/LoginScreen.jsx';
 
 // ============================================================================
 // 10. Shell & Layout (프레젠테이션 최상위 계층)
@@ -12,9 +14,19 @@ import { TaskModalShell, ProfileModal, SyncModal, ProjectModal } from './modals/
 export default function ChurchApp() {
   return (
     <ErrorBoundary>
-      <WorkspaceShell />
+      <AuthProvider>
+        <AuthGate />
+      </AuthProvider>
     </ErrorBoundary>
   );
+}
+
+// Supabase 설정 시에만 로그인 요구, 미설정이면 게스트 모드
+function AuthGate() {
+  const { enabled, session, loading } = useAuth();
+  if (loading) return <div className="h-screen bg-canvas" />;
+  if (enabled && !session) return <LoginScreen />;
+  return <WorkspaceShell />;
 }
 
 function WorkspaceShell() {
@@ -52,6 +64,8 @@ function WorkspaceShell() {
         />
         <main className="flex-1 overflow-auto bg-canvas p-4 md:p-6 relative">
           <ErrorBoundary>
+            {/* key로 뷰 전환 시 리마운트 → 각 뷰의 등장 애니메이션 재생 */}
+            <div key={activeMenu} className="h-full">
             {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} />}
             {activeMenu === 'myTasks' && <MyTasksView onTaskClick={(t) => openTaskModal(t)} onStatusChange={(t, status) => controller.handleSaveTask({ ...t, status }, t)} />}
             {activeMenu === 'guide' && <GuideView />}
@@ -59,6 +73,7 @@ function WorkspaceShell() {
             {(!['dashboard', 'myTasks', 'guide'].includes(activeMenu) && !activeMenu.startsWith('team:')) && (
                <ProjectView projectId={activeMenu} onTaskClick={(t) => openTaskModal(t)} onStatusChange={(t, status) => controller.handleSaveTask({ ...t, status }, t)} onNewTask={() => openTaskModal({ projectId: activeMenu, status: '시작 전', assignees: [], teams: [] }, true)} />
             )}
+            </div>
           </ErrorBoundary>
         </main>
       </div>
