@@ -92,23 +92,23 @@ export const Header = React.memo(({ activeMenu, openSidebar, onOpenSync, undo, r
   else if (projectsMap[activeMenu]) title = projectsMap[activeMenu].title;
 
   return (
-    <header className="h-14 bg-surface border-b border-line flex items-center justify-between px-4 md:px-6 shrink-0 gap-2 z-10">
-      <div className="flex items-center gap-3 min-w-0">
+    <header className="h-14 bg-surface border-b border-line flex items-center px-4 md:px-6 shrink-0 gap-2 md:gap-4 z-10">
+      <div className="flex items-center gap-3 min-w-0 shrink">
         <button className="md:hidden p-1 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95" onClick={openSidebar}><Menu size={20} /></button>
         <h2 className="font-semibold text-base md:text-lg text-fg truncate tracking-[-0.25px]">{title}</h2>
       </div>
-      <div className="flex items-center gap-1 md:gap-3">
+      <div className="flex items-center gap-1 md:gap-3 flex-1 justify-end min-w-0">
         {/* Undo / Redo Controllers */}
-        <div className="flex items-center bg-surface-2 rounded-md p-0.5 mr-2">
+        <div className="flex items-center bg-surface-2 rounded-md p-0.5 shrink-0">
           <button onClick={undo} disabled={!canUndo} className={`p-1.5 rounded text-fg-muted transition active:scale-95 ${canUndo ? 'hover:bg-surface hover:shadow-soft' : 'opacity-30 cursor-not-allowed'}`} title="실행 취소 (Ctrl+Z)"><Undo2 size={16}/></button>
           <button onClick={redo} disabled={!canRedo} className={`p-1.5 rounded text-fg-muted transition active:scale-95 ${canRedo ? 'hover:bg-surface hover:shadow-soft' : 'opacity-30 cursor-not-allowed'}`} title="다시 실행"><Redo2 size={16}/></button>
         </div>
-        <div className="relative hidden sm:block">
+        <div className="relative hidden sm:block flex-1 max-w-2xl">
           <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-fg-faint" />
-          <input type="text" placeholder="검색..." className="pl-9 pr-4 py-1.5 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-56 lg:w-80 focus:lg:w-96 transition-all" />
+          <input type="text" placeholder="검색..." className="pl-9 pr-4 py-1.5 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all" />
         </div>
         <ThemeToggle />
-        <button onClick={onOpenSync} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95"><Database size={18} /></button>
+        <button onClick={onOpenSync} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0"><Database size={18} /></button>
       </div>
     </header>
   );

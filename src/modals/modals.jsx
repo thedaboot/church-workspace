@@ -9,6 +9,7 @@ import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { AiService } from '../services/ai.js';
 import { RichText } from '../components/RichText.jsx';
+import { DatePicker } from '../components/DatePicker.jsx';
 
 // ============================================================================
 // 13. Modals (완벽한 SRP 분리)
@@ -46,8 +47,8 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         {!isEditMode && task.id && (
           <div className="w-full md:w-80 h-[40vh] md:h-auto bg-surface-2 flex flex-col border-t md:border-t-0 md:border-l border-line shrink-0">
             <div className="flex border-b border-line bg-surface shrink-0">
-              <button onClick={() => setActiveTab('comments')} className={`flex-1 py-3 text-xs font-semibold transition-colors ${activeTab === 'comments' ? 'border-b-2 border-accent text-accent-text' : 'text-fg-muted hover:bg-surface-hover'}`}>댓글 ({(formData.comments || []).length})</button>
-              <button onClick={() => setActiveTab('activity')} className={`flex-1 py-3 text-xs font-semibold transition-colors ${activeTab === 'activity' ? 'border-b-2 border-accent text-accent-text' : 'text-fg-muted hover:bg-surface-hover'}`}>활동 기록</button>
+              <button onClick={() => setActiveTab('comments')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'comments' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>댓글 ({(formData.comments || []).length})</button>
+              <button onClick={() => setActiveTab('activity')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'activity' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>활동 기록</button>
             </div>
             <div className="flex-1 overflow-y-auto p-4">{activeTab === 'comments' ? <CommentPanel comments={formData.comments} /> : <ActivityPanel logs={formData.activityLog} />}</div>
             {activeTab === 'comments' && <CommentInput onAdd={onAddComment} />}
@@ -60,7 +61,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
 
 // 노션 속성 행: 좌측 라벨 + 우측 값 레이아웃
 const PropertyRow = ({ icon, label, children }) => (
-  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-0 py-1.5">
+  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1.5 sm:gap-0 py-2">
     <div className="w-28 shrink-0 flex items-center gap-1.5 text-xs text-fg-muted">{icon}{label}</div>
     <div className="flex-1 min-w-0">{children}</div>
   </div>
@@ -85,7 +86,7 @@ const TaskEditor = React.memo(({ formData, setFormData }) => {
     <form className="space-y-4">
       <input type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="작업 제목 입력" className="w-full text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus />
 
-      <div className="py-3 border-y border-line divide-y divide-line/60">
+      <div className="border-y border-line divide-y divide-line/60">
         <PropertyRow icon={<CheckSquare size={13} className="text-fg-faint" />} label="상태">
           <div className="flex flex-wrap gap-1.5">
             {CONFIG.STATUSES.map(s => (
@@ -97,7 +98,7 @@ const TaskEditor = React.memo(({ formData, setFormData }) => {
           </div>
         </PropertyRow>
         <PropertyRow icon={<Clock size={13} className="text-fg-faint" />} label="마감일">
-          <input type="date" name="dueDate" value={formData.dueDate || ''} onChange={handleChange} className="w-full sm:w-44 border border-line rounded-xs text-xs bg-surface text-fg px-2 py-1.5 focus:border-accent focus:shadow-soft outline-none transition-all" />
+          <DatePicker value={formData.dueDate || ''} onChange={(v) => setFormData(prev => ({ ...prev, dueDate: v }))} />
         </PropertyRow>
         <PropertyRow icon={<Hash size={13} className="text-fg-faint" />} label="담당 팀">
           <div className="flex flex-wrap gap-1.5">
@@ -142,12 +143,12 @@ const TaskViewer = React.memo(({ formData }) => {
   };
 
   return (
-    <div className="space-y-4 md:space-y-5">
-      <div className="flex flex-wrap items-center gap-1.5 mb-1"><span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${CONFIG.STATUS_STYLES[formData.status]}`}>{formData.status}</span>{formData.teams?.map(t => <span key={t} className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${CONFIG.TEAMS[t]}`}>{t}</span>)}</div>
+    <div>
+      <div className="flex flex-wrap items-center gap-1.5 mb-2"><span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${CONFIG.STATUS_STYLES[formData.status]}`}>{formData.status}</span>{formData.teams?.map(t => <span key={t} className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${CONFIG.TEAMS[t]}`}>{t}</span>)}</div>
       <h2 className="text-xl md:text-2xl font-bold text-fg leading-tight tracking-[-0.25px]">{formData.title}</h2>
-      <div className="py-2 border-y border-line divide-y divide-line/60 text-xs">
-        <div className="flex items-center gap-0 py-1.5"><span className="w-28 shrink-0 flex items-center gap-1.5 text-fg-muted"><User size={13} className="text-fg-faint" />담당</span><span className="font-medium text-fg">{formData.assignees?.join(', ') || '미지정'}</span></div>
-        {formData.dueDate && <div className="flex items-center gap-0 py-1.5"><span className="w-28 shrink-0 flex items-center gap-1.5 text-fg-muted"><Clock size={13} className="text-fg-faint" />마감일</span><span className="inline-flex items-center gap-1 font-semibold text-tag-orange-fg bg-tag-orange px-2 py-0.5 rounded-sm">{new Date(formData.dueDate).toLocaleDateString('ko-KR')}</span></div>}
+      <div className="mt-4 border-y border-line divide-y divide-line/60 text-xs">
+        <div className="flex items-center gap-0 py-2"><span className="w-28 shrink-0 flex items-center gap-1.5 text-fg-muted"><User size={13} className="text-fg-faint" />담당</span><span className="font-medium text-fg">{formData.assignees?.join(', ') || '미지정'}</span></div>
+        {formData.dueDate && <div className="flex items-center gap-0 py-2"><span className="w-28 shrink-0 flex items-center gap-1.5 text-fg-muted"><Clock size={13} className="text-fg-faint" />마감일</span><span className="inline-flex items-center gap-1 font-semibold text-tag-orange-fg bg-tag-orange px-2 py-0.5 rounded-sm">{new Date(formData.dueDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</span></div>}
       </div>
 
       {/* AI 요약 섹션 (보라 = 장식 전용 스티커 팔레트) */}

@@ -52,6 +52,27 @@ export class WorkspaceStore {
         };
         break;
       }
+      case 'DELETE_PROJECT': {
+        const projectId = action.payload;
+        if (!currentState.projects.byId[projectId]) return;
+        const { [projectId]: _removedProject, ...remainingProjects } = currentState.projects.byId;
+        // 해당 프로젝트에 속한 Task도 함께 제거
+        const remainingTaskIds = currentState.tasks.allIds.filter(id => currentState.tasks.byId[id].projectId !== projectId);
+        const remainingTasksById = {};
+        remainingTaskIds.forEach(id => { remainingTasksById[id] = currentState.tasks.byId[id]; });
+        nextState = {
+          ...currentState,
+          projects: {
+            byId: remainingProjects,
+            allIds: currentState.projects.allIds.filter(id => id !== projectId)
+          },
+          tasks: {
+            byId: remainingTasksById,
+            allIds: remainingTaskIds
+          }
+        };
+        break;
+      }
       case 'UPDATE_PROJECT': {
         const { id, ...patch } = action.payload;
         if (!currentState.projects.byId[id]) return;

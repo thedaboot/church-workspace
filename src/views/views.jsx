@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   LayoutDashboard, Plus, Calendar as CalendarIcon,
-  Pin, ListTodo, ExternalLink, ChevronRight, Undo2, Check, X
+  Pin, ListTodo, ExternalLink, ChevronRight, Undo2, Check, X, Trash2
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { generateId } from '../utils.js';
@@ -11,6 +11,7 @@ import {
   selectDashboardStats, selectTasksList
 } from '../store/selectors.js';
 import { Board, CalendarBoard } from '../components/boards.jsx';
+import { useAuth } from '../services/auth.jsx';
 
 // ============================================================================
 // 11. UI Views (데이터를 구독하는 프레젠테이션 컴포넌트)
@@ -65,9 +66,10 @@ export function DashboardView({ onNavigate }) {
   );
 }
 
-export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask }) {
+export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask, onNavigate }) {
   const projectsMap = useStore(selectProjectsMap);
   const tasksList = useStore(selectTasksList);
+  const { isAdmin } = useAuth();
   // 특정 프로젝트의 Task만 필터링 (해당 View 내부에서만 필요한 연산)
   const projectTasks = useMemo(() => tasksList.filter(t => t.projectId === projectId), [tasksList, projectId]);
   const project = projectsMap[projectId];
@@ -76,6 +78,7 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask 
   const [selectedTeams, setSelectedTeams] = useState([]);
   const [isAddingLink, setIsAddingLink] = useState(false);
   const [linkDraft, setLinkDraft] = useState({ title: '', url: '' });
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const toggleTeam = (team) => setSelectedTeams(prev => prev.includes(team) ? prev.filter(t => t !== team) : [...prev, team]);
   const filteredTasks = useMemo(() => selectedTeams.length === 0 ? projectTasks : projectTasks.filter(task => task.teams.some(t => selectedTeams.includes(t))), [projectTasks, selectedTeams]);
@@ -91,11 +94,16 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask 
   };
   const removeLink = (linkId) => store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, pinnedLinks: (project.pinnedLinks || []).filter(l => l.id !== linkId) } });
 
+  const deleteProject = () => {
+    store.dispatch({ type: 'DELETE_PROJECT', payload: project.id });
+    onNavigate?.('dashboard');
+  };
+
   return (
     <div className="h-full flex flex-col min-w-0 animate-in fade-in">
-      <div className="bg-surface p-3 md:p-4 rounded-lg border border-line mb-3 md:mb-4 flex flex-col md:flex-row gap-3 md:gap-4 justify-between items-start md:items-center shrink-0">
-        <div className="w-full md:w-auto">
-          <h2 className="text-lg md:text-xl font-bold text-fg mb-2 tracking-[-0.25px]">{project.title}</h2>
+      <div className="bg-surface p-3 md:p-4 rounded-lg border border-line mb-3 flex flex-col md:flex-row gap-3 md:gap-4 justify-between items-start md:items-center shrink-0">
+        <div className="w-full md:w-auto min-w-0">
+          <h2 className="text-lg md:text-xl font-bold text-fg mb-1.5 tracking-[-0.25px]">{project.title}</h2>
           <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
             <span className="text-[10px] md:text-xs font-semibold text-fg-muted uppercase flex items-center gap-1"><Pin size={12} /> 리소스:</span>
             {project.pinnedLinks?.map(link => (
@@ -116,9 +124,22 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask 
             )}
           </div>
         </div>
-        <div className="flex bg-surface-2 p-1 rounded-md w-full md:w-auto shrink-0">
-          <button onClick={() => setViewMode('kanban')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'kanban' ? 'bg-surface shadow-soft text-fg' : 'text-fg-muted hover:text-fg'}`}><LayoutDashboard size={14} className="shrink-0"/> 보드</button>
-          <button onClick={() => setViewMode('calendar')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'calendar' ? 'bg-surface shadow-soft text-fg' : 'text-fg-muted hover:text-fg'}`}><CalendarIcon size={14} className="shrink-0"/> 캘린더</button>
+        <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+          <div className="flex bg-surface-2 p-1 rounded-md flex-1 md:flex-none">
+            <button onClick={() => setViewMode('kanban')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'kanban' ? 'bg-surface shadow-soft text-fg' : 'text-fg-muted hover:text-fg'}`}><LayoutDashboard size={14} className="shrink-0"/> 보드</button>
+            <button onClick={() => setViewMode('calendar')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'calendar' ? 'bg-surface shadow-soft text-fg' : 'text-fg-muted hover:text-fg'}`}><CalendarIcon size={14} className="shrink-0"/> 캘린더</button>
+          </div>
+          {isAdmin && (
+            confirmingDelete ? (
+              <div className="flex items-center gap-1.5 animate-in fade-in duration-150 shrink-0">
+                <span className="text-[10px] text-fg-muted whitespace-nowrap">정말 삭제할까요?</span>
+                <button onClick={deleteProject} className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-md px-2 py-1 text-[10px] font-semibold transition active:scale-95">삭제</button>
+                <button onClick={() => setConfirmingDelete(false)} className="text-fg-muted hover:text-fg hover:bg-surface-hover rounded-md px-2 py-1 text-[10px] font-medium transition active:scale-95">취소</button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmingDelete(true)} className="p-1.5 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95 shrink-0" title="프로젝트 삭제"><Trash2 size={16} /></button>
+            )
+          )}
         </div>
       </div>
       {viewMode === 'kanban' && (

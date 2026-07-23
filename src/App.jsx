@@ -77,7 +77,7 @@ function WorkspaceShell() {
             {activeMenu === 'guide' && <GuideView />}
             {activeMenu.startsWith('team:') && <TeamView teamName={activeMenu.split(':')[1]} onTaskClick={(t) => openTaskModal(t)} onStatusChange={(t, status) => controller.handleSaveTask({ ...t, status }, t)} />}
             {(!['dashboard', 'myTasks', 'guide'].includes(activeMenu) && !activeMenu.startsWith('team:')) && (
-               <ProjectView projectId={activeMenu} onTaskClick={(t) => openTaskModal(t)} onStatusChange={(t, status) => controller.handleSaveTask({ ...t, status }, t)} onNewTask={() => openTaskModal({ projectId: activeMenu, status: '시작 전', assignees: [], teams: [] }, true)} />
+               <ProjectView projectId={activeMenu} onNavigate={setActiveMenu} onTaskClick={(t) => openTaskModal(t)} onStatusChange={(t, status) => controller.handleSaveTask({ ...t, status }, t)} onNewTask={() => openTaskModal({ projectId: activeMenu, status: '시작 전', assignees: [], teams: [] }, true)} />
             )}
             </div>
           </ErrorBoundary>
