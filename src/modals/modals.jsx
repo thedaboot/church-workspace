@@ -58,11 +58,19 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   );
 }
 
+// 노션 속성 행: 좌측 라벨 + 우측 값 레이아웃
+const PropertyRow = ({ icon, label, children }) => (
+  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-0 py-1.5">
+    <div className="w-28 shrink-0 flex items-center gap-1.5 text-xs text-fg-muted">{icon}{label}</div>
+    <div className="flex-1 min-w-0">{children}</div>
+  </div>
+);
+
 const TaskEditor = React.memo(({ formData, setFormData }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
 
   const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
-  const handleTeams = (e) => setFormData(prev => ({ ...prev, teams: Array.from(e.target.selectedOptions, o => o.value) }));
+  const toggleTeam = (team) => setFormData(prev => ({ ...prev, teams: (prev.teams || []).includes(team) ? prev.teams.filter(t => t !== team) : [...(prev.teams || []), team] }));
   const handleAssignees = (e) => setFormData(prev => ({ ...prev, assignees: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }));
 
   const handleAiPolish = async () => {
@@ -74,22 +82,49 @@ const TaskEditor = React.memo(({ formData, setFormData }) => {
   };
 
   return (
-    <form className="space-y-5">
-      <input type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="작업 제목 입력" className="w-full text-xl font-bold text-fg placeholder:text-fg-faint border-none focus:ring-0 p-0" required autoFocus />
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4 border-y border-line">
-        <div><label className="block text-[10px] font-semibold text-fg-muted uppercase mb-1.5">상태</label><select name="status" value={formData.status || '시작 전'} onChange={handleChange} className="w-full border border-line rounded-xs text-xs bg-surface text-fg p-2 focus:ring-2 focus:ring-accent outline-none">{CONFIG.STATUSES.map(s => <option key={s}>{s}</option>)}</select></div>
-        <div><label className="block text-[10px] font-semibold text-fg-muted uppercase mb-1.5">마감일</label><input type="date" name="dueDate" value={formData.dueDate || ''} onChange={handleChange} className="w-full border border-line rounded-xs text-xs bg-surface text-fg p-2 focus:ring-2 focus:ring-accent outline-none" /></div>
-        <div className="sm:col-span-2 md:col-span-1"><label className="block text-[10px] font-semibold text-fg-muted uppercase mb-1.5">담당 팀 (다중 선택)</label><select multiple value={formData.teams || []} onChange={handleTeams} className="w-full border border-line rounded-xs text-xs h-20 bg-surface text-fg p-2 focus:ring-2 focus:ring-accent outline-none">{Object.keys(CONFIG.TEAMS).map(t => <option key={t}>{t}</option>)}</select></div>
-        <div className="sm:col-span-2 md:col-span-1"><label className="block text-[10px] font-semibold text-fg-muted uppercase mb-1.5">담당자 (쉼표 구분)</label><input type="text" value={(formData.assignees || []).join(', ')} onChange={handleAssignees} className="w-full border border-line rounded-xs text-xs bg-surface text-fg p-2 focus:ring-2 focus:ring-accent outline-none" /></div>
+    <form className="space-y-4">
+      <input type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="작업 제목 입력" className="w-full text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus />
+
+      <div className="py-3 border-y border-line divide-y divide-line/60">
+        <PropertyRow icon={<CheckSquare size={13} className="text-fg-faint" />} label="상태">
+          <div className="flex flex-wrap gap-1.5">
+            {CONFIG.STATUSES.map(s => (
+              <button key={s} type="button" onClick={() => setFormData(prev => ({ ...prev, status: s }))}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all active:scale-95 ${(formData.status || '시작 전') === s ? CONFIG.STATUS_STYLES[s] + ' border-transparent shadow-soft' : 'bg-surface text-fg-muted border-line hover:bg-surface-hover'}`}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </PropertyRow>
+        <PropertyRow icon={<Clock size={13} className="text-fg-faint" />} label="마감일">
+          <input type="date" name="dueDate" value={formData.dueDate || ''} onChange={handleChange} className="w-full sm:w-44 border border-line rounded-xs text-xs bg-surface text-fg px-2 py-1.5 focus:border-accent focus:shadow-soft outline-none transition-all" />
+        </PropertyRow>
+        <PropertyRow icon={<Hash size={13} className="text-fg-faint" />} label="담당 팀">
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(CONFIG.TEAMS).map(([team, colorClass]) => {
+              const selected = (formData.teams || []).includes(team);
+              return (
+                <button key={team} type="button" onClick={() => toggleTeam(team)}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all active:scale-95 ${selected ? colorClass + ' border-transparent shadow-soft' : 'bg-surface text-fg-muted border-line hover:bg-surface-hover'}`}>
+                  {team}
+                </button>
+              );
+            })}
+          </div>
+        </PropertyRow>
+        <PropertyRow icon={<User size={13} className="text-fg-faint" />} label="담당자">
+          <input type="text" value={(formData.assignees || []).join(', ')} onChange={handleAssignees} placeholder="이름을 쉼표로 구분해 입력" className="w-full border border-line rounded-xs text-xs bg-surface text-fg placeholder:text-fg-faint px-2 py-1.5 focus:border-accent focus:shadow-soft outline-none transition-all" />
+        </PropertyRow>
       </div>
+
       <div>
         <div className="flex justify-between items-center mb-1.5">
-          <label className="block text-[10px] font-semibold text-fg-muted uppercase">상세 내용</label>
-          <button type="button" onClick={handleAiPolish} disabled={isAiLoading || !formData.content} className="flex items-center gap-1 px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded text-[10px] font-bold transition-colors disabled:opacity-50">
+          <label className="block text-xs text-fg-muted">상세 내용</label>
+          <button type="button" onClick={handleAiPolish} disabled={isAiLoading || !formData.content} className="flex items-center gap-1 px-2 py-1 bg-tag-purple text-tag-purple-fg hover:opacity-80 rounded-full text-[10px] font-bold transition active:scale-95 disabled:opacity-40">
             {isAiLoading ? <span className="animate-pulse">다듬는 중...</span> : <><Wand2 size={12} /> AI 문맥 다듬기</>}
           </button>
         </div>
-        <textarea name="content" value={formData.content || ''} onChange={handleChange} className="w-full h-32 md:h-48 border border-line rounded-xs p-3 text-xs bg-surface text-fg placeholder:text-fg-faint resize-none focus:ring-2 focus:ring-accent outline-none"></textarea>
+        <textarea name="content" value={formData.content || ''} onChange={handleChange} placeholder="내용을 입력하세요. @이름 멘션, 이미지·링크 URL도 붙여넣을 수 있어요." className="w-full h-32 md:h-48 border border-line rounded-md p-3 text-xs leading-relaxed bg-surface text-fg placeholder:text-fg-faint resize-none focus:border-accent focus:shadow-soft outline-none transition-all"></textarea>
       </div>
     </form>
   );
@@ -108,21 +143,24 @@ const TaskViewer = React.memo(({ formData }) => {
 
   return (
     <div className="space-y-4 md:space-y-5">
-      <div className="flex flex-wrap items-center gap-2 mb-1"><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${CONFIG.STATUS_STYLES[formData.status]}`}>{formData.status}</span>{formData.teams?.map(t => <span key={t} className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${CONFIG.TEAMS[t]}`}>{t}</span>)}</div>
-      <h2 className="text-xl md:text-2xl font-bold text-fg leading-tight">{formData.title}</h2>
-      <div className="flex flex-wrap gap-4 py-3 border-y border-line text-xs"><div className="flex items-center gap-1.5"><User size={14} className="text-fg-faint" /><span className="text-fg-muted">담당:</span><span className="font-medium text-fg">{formData.assignees?.join(', ') || '미지정'}</span></div>{formData.dueDate && <div className="flex items-center gap-1.5 text-orange-600 bg-orange-50 px-2 py-1 rounded"><Clock size={12} /><span className="font-semibold">{new Date(formData.dueDate).toLocaleDateString('ko-KR')} 마감</span></div>}</div>
+      <div className="flex flex-wrap items-center gap-1.5 mb-1"><span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${CONFIG.STATUS_STYLES[formData.status]}`}>{formData.status}</span>{formData.teams?.map(t => <span key={t} className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${CONFIG.TEAMS[t]}`}>{t}</span>)}</div>
+      <h2 className="text-xl md:text-2xl font-bold text-fg leading-tight tracking-[-0.25px]">{formData.title}</h2>
+      <div className="py-2 border-y border-line divide-y divide-line/60 text-xs">
+        <div className="flex items-center gap-0 py-1.5"><span className="w-28 shrink-0 flex items-center gap-1.5 text-fg-muted"><User size={13} className="text-fg-faint" />담당</span><span className="font-medium text-fg">{formData.assignees?.join(', ') || '미지정'}</span></div>
+        {formData.dueDate && <div className="flex items-center gap-0 py-1.5"><span className="w-28 shrink-0 flex items-center gap-1.5 text-fg-muted"><Clock size={13} className="text-fg-faint" />마감일</span><span className="inline-flex items-center gap-1 font-semibold text-tag-orange-fg bg-tag-orange px-2 py-0.5 rounded-sm">{new Date(formData.dueDate).toLocaleDateString('ko-KR')}</span></div>}
+      </div>
 
-      {/* AI 요약 섹션 */}
+      {/* AI 요약 섹션 (보라 = 장식 전용 스티커 팔레트) */}
       {(summary || isAiLoading) && (
-        <div className="bg-purple-50/50 border border-purple-100 rounded-lg p-3 relative mt-4">
-          <div className="text-[10px] font-bold text-purple-600 mb-1 flex items-center gap-1"><Sparkles size={12}/> AI 3줄 요약</div>
-          {isAiLoading ? <div className="text-xs text-purple-400 animate-pulse">업무 내용과 댓글을 분석하고 있습니다...</div> : <div className="text-xs text-fg-secondary whitespace-pre-wrap"><RichText content={summary} /></div>}
+        <div className="bg-tag-purple/40 border border-line rounded-lg p-3 relative mt-4 animate-in fade-in duration-200">
+          <div className="text-[10px] font-bold text-tag-purple-fg mb-1 flex items-center gap-1"><Sparkles size={12}/> AI 3줄 요약</div>
+          {isAiLoading ? <div className="text-xs text-tag-purple-fg/70 animate-pulse">업무 내용과 댓글을 분석하고 있습니다...</div> : <div className="text-xs text-fg-secondary whitespace-pre-wrap"><RichText content={summary} /></div>}
         </div>
       )}
 
       <div className="prose prose-sm max-w-none mt-4 bg-surface-2/50 p-4 rounded-lg border border-line min-h-[150px] relative group">
         {!summary && (
-           <button onClick={handleSummarize} disabled={isAiLoading} className="absolute top-3 right-3 bg-surface border border-line text-fg-muted hover:text-purple-600 hover:border-purple-200 px-2 py-1 rounded shadow-sm text-[10px] font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
+           <button onClick={handleSummarize} disabled={isAiLoading} className="absolute top-3 right-3 bg-surface border border-line text-fg-muted hover:text-tag-purple-fg px-2 py-1 rounded-full shadow-soft text-[10px] font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all active:scale-95 z-10">
              <Sparkles size={12}/> 3줄 요약
            </button>
         )}
@@ -132,16 +170,34 @@ const TaskViewer = React.memo(({ formData }) => {
   );
 });
 
+// 노션 스타일 플랫 댓글: 아바타 + 이름·시간 + 본문, 카드 대신 헤어라인 구분
 const CommentPanel = React.memo(({ comments }) => (
-  <div className="space-y-3">
-    {(comments || []).map(c => <div key={c.id} className="bg-surface p-3 rounded-lg border border-line shadow-soft"><div className="flex justify-between items-center mb-1"><span className="font-bold text-[11px] text-fg">{c.author}</span><span className="text-[9px] text-fg-faint">{formatDate(c.timestamp)}</span></div><div className="text-xs text-fg-secondary"><RichText content={c.text} /></div></div>)}
+  <div className="divide-y divide-line/60">
+    {(comments || []).map(c => (
+      <div key={c.id} className="flex items-start gap-2.5 py-3 first:pt-0 animate-in fade-in duration-200">
+        <div className="w-6 h-6 rounded-full bg-accent-weak text-accent-text text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{c.author?.[0]}</div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 mb-0.5"><span className="font-semibold text-[11px] text-fg">{c.author}</span><span className="text-[9px] text-fg-faint">{formatDate(c.timestamp)}</span></div>
+          <div className="text-xs text-fg-secondary leading-relaxed"><RichText content={c.text} /></div>
+        </div>
+      </div>
+    ))}
     {(!comments || comments.length === 0) && <div className="text-center text-xs text-fg-faint mt-6">첫 댓글을 남겨보세요!</div>}
   </div>
 ));
 
 const ActivityPanel = React.memo(({ logs }) => (
-  <div className="space-y-3 relative before:absolute before:inset-0 before:ml-2 before:-translate-x-px before:h-full before:w-0.5 before:bg-line">
-    {(logs || []).slice().reverse().map(l => <div key={l.id} className="relative flex items-start gap-3 group"><div className="absolute left-0 mt-1 ml-1 w-2 h-2 rounded-full bg-accent ring-2 ring-surface z-10"></div><div className="ml-5"><p className="text-[11px] text-fg"><span className="font-bold">{l.author}</span>님이 {l.action}</p><p className="text-[9px] text-fg-faint mt-0.5">{formatDate(l.timestamp)}</p></div></div>)}
+  <div className="space-y-4 relative before:absolute before:inset-y-1 before:left-[3px] before:w-px before:bg-line">
+    {(logs || []).slice().reverse().map(l => (
+      <div key={l.id} className="relative flex items-start gap-3">
+        <div className="mt-1 w-[7px] h-[7px] rounded-full bg-fg-faint ring-4 ring-surface-2 z-10 shrink-0"></div>
+        <div className="min-w-0">
+          <p className="text-[11px] text-fg-secondary leading-snug"><span className="font-semibold text-fg">{l.author}</span>님이 {l.action}</p>
+          <p className="text-[9px] text-fg-faint mt-0.5">{formatDate(l.timestamp)}</p>
+        </div>
+      </div>
+    ))}
+    {(!logs || logs.length === 0) && <div className="text-center text-xs text-fg-faint mt-6">아직 활동 기록이 없어요.</div>}
   </div>
 ));
 
@@ -159,10 +215,10 @@ const CommentInput = ({ onAdd }) => {
 
   return (
     <div className="p-3 bg-surface border-t border-line shrink-0 relative">
-      {isAiLoading && <div className="absolute inset-0 bg-surface/70 backdrop-blur-[1px] flex items-center justify-center z-10 text-xs font-bold text-purple-600 animate-pulse">댓글 다듬는 중...</div>}
+      {isAiLoading && <div className="absolute inset-0 bg-surface/70 backdrop-blur-[1px] flex items-center justify-center z-10 text-xs font-bold text-tag-purple-fg animate-pulse">댓글 다듬는 중...</div>}
       <textarea value={val} onChange={e => setVal(e.target.value)} placeholder="@이름 으로 멘션..." className="w-full text-xs border border-line rounded-xs p-2 focus:ring-2 focus:ring-accent outline-none resize-none h-14 bg-surface text-fg placeholder:text-fg-faint" onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (val.trim()) { onAdd(val); setVal(''); } } }} />
       <div className="flex justify-between mt-2 items-center">
-        <button onClick={handleAiSuggest} disabled={!val.trim() || isAiLoading} className="text-purple-600 hover:bg-purple-50 disabled:opacity-50 disabled:hover:bg-transparent p-1.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition-colors" title="부드러운 어조로 자동 수정">
+        <button onClick={handleAiSuggest} disabled={!val.trim() || isAiLoading} className="text-tag-purple-fg hover:bg-tag-purple disabled:opacity-50 disabled:hover:bg-transparent px-2 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1 transition active:scale-95" title="부드러운 어조로 자동 수정">
           <Bot size={14}/> AI 둥글게 둥글게
         </button>
         <button onClick={() => { if (val.trim()) { onAdd(val); setVal(''); } }} disabled={!val.trim()} className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-3 py-1.5 rounded-md text-[10px] font-bold transition active:scale-95">등록</button>
@@ -176,7 +232,7 @@ export function ProfileModal({ onClose, onSave }) {
   const [name, setName] = useState(user.name);
   const [team, setTeam] = useState(user.team);
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"><div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-200"><h3 className="font-bold text-fg mb-4">프로필 설정</h3><label className="block text-xs font-semibold text-fg-muted mb-1.5">이름</label><input type="text" value={name} onChange={e=>setName(e.target.value)} className="w-full border border-line rounded-xs p-2 mb-4 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none" /><label className="block text-xs font-semibold text-fg-muted mb-1.5">소속 팀</label><select value={team} onChange={e=>setTeam(e.target.value)} className="w-full border border-line rounded-xs p-2 mb-6 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none">{Object.keys(CONFIG.TEAMS).map(t=><option key={t}>{t}</option>)}</select><div className="flex gap-2"><button onClick={onClose} className="flex-1 bg-surface-hover hover:bg-line text-fg-muted py-2.5 rounded-md text-sm font-medium transition active:scale-95">취소</button><button onClick={()=>{onSave({name, team}); onClose();}} className="flex-1 bg-accent hover:bg-accent-strong text-white py-2.5 rounded-md text-sm font-medium transition active:scale-95">저장</button></div></div></div>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"><div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-200"><h3 className="font-bold text-fg mb-1 tracking-[-0.25px]">프로필 설정</h3><p className="text-xs text-fg-muted mb-4">워크스페이스에 표시될 이름(닉네임)과 소속 팀이에요. 언제든 여기서 바꿀 수 있어요.</p><label className="block text-xs font-semibold text-fg-muted mb-1.5">이름</label><input type="text" value={name} onChange={e=>setName(e.target.value)} className="w-full border border-line rounded-xs p-2 mb-4 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none" /><label className="block text-xs font-semibold text-fg-muted mb-1.5">소속 팀</label><select value={team} onChange={e=>setTeam(e.target.value)} className="w-full border border-line rounded-xs p-2 mb-6 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none">{Object.keys(CONFIG.TEAMS).map(t=><option key={t}>{t}</option>)}</select><div className="flex gap-2"><button onClick={onClose} className="flex-1 bg-surface-hover hover:bg-line text-fg-muted py-2.5 rounded-md text-sm font-medium transition active:scale-95">취소</button><button onClick={()=>{onSave({name, team}); onClose();}} className="flex-1 bg-accent hover:bg-accent-strong text-white py-2.5 rounded-md text-sm font-medium transition active:scale-95">저장</button></div></div></div>
   );
 }
 

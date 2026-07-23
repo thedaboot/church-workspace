@@ -97,4 +97,18 @@
 
 @layer base {
   body { background-color: var(--app-canvas); color: var(--app-ink); font-feature-settings: 'lnum', 'locl'; transition: background-color .2s ease, color .2s ease; }
+
+  /* 노션풍 얇은 스크롤바 (라이트/다크 토큰 연동) */
+  * { scrollbar-width: thin; scrollbar-color: var(--app-line) transparent; }
+  *::-webkit-scrollbar { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: var(--app-line); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--app-ink-faint); background-clip: padding-box; }
+  *::-webkit-scrollbar-corner { background: transparent; }
+}
+
+/* 스크롤바 숨김 (코드에서 사용 중이던 유틸 — 실제 정의) */
+@utility scrollbar-hide {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
 }

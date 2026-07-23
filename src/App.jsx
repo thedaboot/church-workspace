@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { store } from './store/workspaceStore.js';
 import { useWorkspaceController, usePersistenceController } from './hooks/controllers.js';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
@@ -32,12 +32,18 @@ function AuthGate() {
 function WorkspaceShell() {
   const controller = useWorkspaceController();
   const persistence = usePersistenceController();
+  const { enabled: authEnabled, session } = useAuth();
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [modalState, setModalState] = useState({ isOpen: false, task: null, isEditMode: false });
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+
+  // 첫 로그인 온보딩: 표시 이름·소속 팀을 설정하도록 프로필 창을 자동으로 연다
+  useEffect(() => {
+    if (authEnabled && session && !localStorage.getItem('daboot_profile_done')) setIsProfileModalOpen(true);
+  }, [authEnabled, session]);
 
   // 리렌더링 감지용 (개발자도구로 확인해보면 해당 뷰만 리렌더링됨을 알 수 있습니다)
   // console.log("WorkspaceShell Renders");
@@ -90,7 +96,7 @@ function WorkspaceShell() {
         </ErrorBoundary>
       )}
 
-      {isProfileModalOpen && <ProfileModal onClose={() => setIsProfileModalOpen(false)} onSave={controller.handleUpdateUser} />}
+      {isProfileModalOpen && <ProfileModal onClose={() => setIsProfileModalOpen(false)} onSave={(p) => { controller.handleUpdateUser(p); localStorage.setItem('daboot_profile_done', '1'); }} />}
       {isProjectModalOpen && <ProjectModal onClose={() => setIsProjectModalOpen(false)} onSave={(title) => { const newId = controller.handleAddProject(title); setActiveMenu(newId); setIsProjectModalOpen(false); }} />}
       {isSyncModalOpen && <SyncModal onClose={() => setIsSyncModalOpen(false)} persistence={persistence} />}
     </div>

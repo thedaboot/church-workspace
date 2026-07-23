@@ -52,6 +52,18 @@ export class WorkspaceStore {
         };
         break;
       }
+      case 'UPDATE_PROJECT': {
+        const { id, ...patch } = action.payload;
+        if (!currentState.projects.byId[id]) return;
+        nextState = {
+          ...currentState,
+          projects: {
+            ...currentState.projects,
+            byId: { ...currentState.projects.byId, [id]: { ...currentState.projects.byId[id], ...patch } }
+          }
+        };
+        break;
+      }
       case 'UPDATE_USER':
         nextState = { ...currentState, currentUser: { ...currentState.currentUser, ...action.payload } };
         break;

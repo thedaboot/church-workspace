@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import {
   LayoutDashboard, Plus, Calendar as CalendarIcon,
-  Pin, ListTodo, ExternalLink, ChevronRight, Undo2
+  Pin, ListTodo, ExternalLink, ChevronRight, Undo2, Check, X
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { useStore } from '../store/workspaceStore.js';
+import { generateId } from '../utils.js';
+import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsMap, selectMyTasks,
   selectDashboardStats, selectTasksList
@@ -73,11 +74,22 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask 
 
   const [viewMode, setViewMode] = useState('kanban');
   const [selectedTeams, setSelectedTeams] = useState([]);
-
-  if (!project) return null;
+  const [isAddingLink, setIsAddingLink] = useState(false);
+  const [linkDraft, setLinkDraft] = useState({ title: '', url: '' });
 
   const toggleTeam = (team) => setSelectedTeams(prev => prev.includes(team) ? prev.filter(t => t !== team) : [...prev, team]);
   const filteredTasks = useMemo(() => selectedTeams.length === 0 ? projectTasks : projectTasks.filter(task => task.teams.some(t => selectedTeams.includes(t))), [projectTasks, selectedTeams]);
+
+  if (!project) return null;
+
+  const saveLink = () => {
+    if (!linkDraft.title.trim() || !linkDraft.url.trim()) return;
+    const url = /^https?:\/\//.test(linkDraft.url) ? linkDraft.url : `https://${linkDraft.url}`;
+    store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, pinnedLinks: [...(project.pinnedLinks || []), { id: generateId(), title: linkDraft.title.trim(), url }] } });
+    setLinkDraft({ title: '', url: '' });
+    setIsAddingLink(false);
+  };
+  const removeLink = (linkId) => store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, pinnedLinks: (project.pinnedLinks || []).filter(l => l.id !== linkId) } });
 
   return (
     <div className="h-full flex flex-col min-w-0 animate-in fade-in">
@@ -86,8 +98,22 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask 
           <h2 className="text-lg md:text-xl font-bold text-fg mb-2 tracking-[-0.25px]">{project.title}</h2>
           <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
             <span className="text-[10px] md:text-xs font-semibold text-fg-muted uppercase flex items-center gap-1"><Pin size={12} /> 리소스:</span>
-            {project.pinnedLinks?.map(link => <a key={link.id} href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] md:text-xs px-1.5 py-1 bg-accent-weak text-accent-text hover:bg-accent-weak rounded-md transition-colors"><ExternalLink size={10} /> {link.title}</a>)}
-            <button className="text-[10px] md:text-xs text-fg-faint hover:text-fg-muted px-1.5 py-1 border border-dashed border-line rounded-md">+ 추가</button>
+            {project.pinnedLinks?.map(link => (
+              <span key={link.id} className="group/link inline-flex items-center gap-1 text-[10px] md:text-xs pl-1.5 pr-1 py-1 bg-accent-weak text-accent-text rounded-md transition-colors">
+                <a href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:underline"><ExternalLink size={10} /> {link.title}</a>
+                <button onClick={() => removeLink(link.id)} className="opacity-0 group-hover/link:opacity-100 hover:text-fg rounded-full p-0.5 transition-opacity" title="링크 삭제"><X size={10} /></button>
+              </span>
+            ))}
+            {isAddingLink ? (
+              <span className="inline-flex items-center gap-1 animate-in fade-in duration-150">
+                <input autoFocus value={linkDraft.title} onChange={e => setLinkDraft(p => ({ ...p, title: e.target.value }))} placeholder="이름" className="w-20 text-[10px] md:text-xs px-1.5 py-1 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
+                <input value={linkDraft.url} onChange={e => setLinkDraft(p => ({ ...p, url: e.target.value }))} placeholder="https://..." onKeyDown={e => { if (e.key === 'Enter') saveLink(); if (e.key === 'Escape') setIsAddingLink(false); }} className="w-36 text-[10px] md:text-xs px-1.5 py-1 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
+                <button onClick={saveLink} disabled={!linkDraft.title.trim() || !linkDraft.url.trim()} className="text-[10px] md:text-xs px-2 py-1 bg-accent hover:bg-accent-strong disabled:bg-line text-white rounded-md transition active:scale-95">추가</button>
+                <button onClick={() => setIsAddingLink(false)} className="p-1 text-fg-faint hover:text-fg-muted transition"><X size={12} /></button>
+              </span>
+            ) : (
+              <button onClick={() => setIsAddingLink(true)} className="text-[10px] md:text-xs text-fg-faint hover:text-fg-muted hover:bg-surface-hover px-1.5 py-1 border border-dashed border-line rounded-md transition active:scale-95">+ 추가</button>
+            )}
           </div>
         </div>
         <div className="flex bg-surface-2 p-1 rounded-md w-full md:w-auto shrink-0">
@@ -99,9 +125,16 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask 
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-3 shrink-0">
           <div className="flex flex-nowrap gap-1.5 overflow-x-auto pb-1 w-full scrollbar-hide">
             <span className="text-xs font-medium text-fg-muted flex items-center mr-1 shrink-0">필터:</span>
-            {Object.entries(CONFIG.TEAMS).map(([team, colorClass]) => <button key={team} onClick={() => toggleTeam(team)} className={`shrink-0 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${selectedTeams.includes(team) ? colorClass + ' ring-2 ring-offset-1 ring-accent' : 'bg-surface text-fg-muted border-line'}`}>{team}</button>)}
+            {Object.entries(CONFIG.TEAMS).map(([team, colorClass]) => {
+              const selected = selectedTeams.includes(team);
+              return (
+                <button key={team} onClick={() => toggleTeam(team)} className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold border whitespace-nowrap transition-all active:scale-95 ${selected ? colorClass + ' border-transparent shadow-soft' : 'bg-surface text-fg-muted border-line hover:bg-surface-hover'}`}>
+                  {selected && <Check size={10} className="shrink-0" />}{team}
+                </button>
+              );
+            })}
           </div>
-          <button onClick={onNewTask} className="w-full md:w-auto shrink-0 bg-accent hover:bg-accent-strong text-white px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex justify-center items-center gap-2"><Plus size={14} /> 새 작업</button>
+          <button onClick={onNewTask} className="w-full md:w-auto shrink-0 bg-accent hover:bg-accent-strong text-white pl-3 pr-4 py-1.5 rounded-full text-xs font-medium shadow-soft transition active:scale-95 flex justify-center items-center gap-1.5 whitespace-nowrap"><Plus size={14} className="shrink-0" /> 새 작업</button>
         </div>
       )}
       <div className="flex-1 min-h-0">

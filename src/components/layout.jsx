@@ -38,10 +38,11 @@ export const Sidebar = React.memo(({ activeMenu, setActiveMenu, isSidebarOpen, c
 
   return (
     <div className={`fixed md:static inset-y-0 left-0 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 ease-in-out w-64 bg-surface-2 border-r border-line flex flex-col shadow-xl md:shadow-none z-30`}>
-      <div className="p-4 flex items-center justify-between border-b border-line">
+      {/* h-14: 헤더와 하단 라인 정렬 */}
+      <div className="h-14 px-4 flex items-center justify-between border-b border-line shrink-0">
         <button onClick={() => setActiveMenu('dashboard')} className="flex items-center gap-2 min-w-0 transition active:scale-95" title="홈(대시보드)으로">
-          <img src={logoLight} alt="The 다붓" className="h-9 w-auto dark:hidden" />
-          <img src={logoDark} alt="The 다붓" className="h-9 w-auto hidden dark:block" />
+          <img src={logoLight} alt="The 다붓" className="h-8 w-auto dark:hidden" />
+          <img src={logoDark} alt="The 다붓" className="h-8 w-auto hidden dark:block" />
         </button>
         <button className="md:hidden p-1 text-fg-muted transition active:scale-95" onClick={closeSidebar}><X size={20} /></button>
       </div>
@@ -104,7 +105,7 @@ export const Header = React.memo(({ activeMenu, openSidebar, onOpenSync, undo, r
         </div>
         <div className="relative hidden sm:block">
           <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-fg-faint" />
-          <input type="text" placeholder="검색..." className="pl-9 pr-4 py-1.5 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-48 transition-all" />
+          <input type="text" placeholder="검색..." className="pl-9 pr-4 py-1.5 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-56 lg:w-80 focus:lg:w-96 transition-all" />
         </div>
         <ThemeToggle />
         <button onClick={onOpenSync} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95"><Database size={18} /></button>
