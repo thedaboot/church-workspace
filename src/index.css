@@ -96,6 +96,8 @@
 }
 
 @layer base {
+  /* 모바일 주소창 바운스로 인한 이중 스크롤 억제 */
+  html, body { overscroll-behavior-y: none; }
   body { background-color: var(--app-canvas); color: var(--app-ink); font-feature-settings: 'lnum', 'locl'; word-break: keep-all; overflow-wrap: break-word; transition: background-color .2s ease, color .2s ease; }
 
   /* 노션풍 얇은 스크롤바 (라이트/다크 토큰 연동) */

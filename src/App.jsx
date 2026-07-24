@@ -14,7 +14,7 @@ import logoDark from './assets/logo-dark.png';
 // 클라우드 초기 로드 중 미니멀 스플래시 (로고 + 살짝 pulse)
 function CloudSplash() {
   return (
-    <div className="h-screen bg-canvas flex items-center justify-center">
+    <div className="h-dvh bg-canvas flex items-center justify-center">
       <img src={logoLight} alt="더다붓" className="h-12 w-auto animate-pulse dark:hidden" />
       <img src={logoDark} alt="더다붓" className="h-12 w-auto animate-pulse hidden dark:block" />
     </div>
@@ -37,7 +37,7 @@ export default function ChurchApp() {
 // Supabase 설정 시에만 로그인 요구, 미설정이면 게스트 모드
 function AuthGate() {
   const { enabled, session, loading } = useAuth();
-  if (loading) return <div className="h-screen bg-canvas" />;
+  if (loading) return <div className="h-dvh bg-canvas" />;
   if (enabled && !session) return <LoginScreen />;
   return <WorkspaceShell />;
 }
@@ -127,7 +127,7 @@ function WorkspaceShell() {
   if (cloudMode && !cloudReady) return <CloudSplash />;
 
   return (
-    <div className="flex h-screen bg-canvas text-fg font-sans overflow-hidden">
+    <div className="flex h-dvh bg-canvas text-fg font-sans overflow-hidden">
       {/* 배경 파스텔 글로우 (장식 전용 · 상호작용 차단 · 스크롤 고정) */}
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden" aria-hidden="true">
         <div className="absolute -top-40 -left-32 w-[36rem] h-[36rem] rounded-full bg-[#62aef0] opacity-[0.12] blur-[140px] dark:opacity-[0.07]" />

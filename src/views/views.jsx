@@ -220,7 +220,7 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
               );
             })}
           </div>
-          <button onClick={onNewTask} className="w-full md:w-auto shrink-0 bg-accent hover:bg-accent-strong text-white pl-3 pr-4 py-1.5 rounded-full text-xs font-medium shadow-soft transition active:scale-95 flex justify-center items-center gap-1.5 whitespace-nowrap"><Plus size={14} className="shrink-0" /> 새 업무</button>
+          <button onClick={onNewTask} className="w-full md:w-auto shrink-0 bg-accent hover:bg-accent-strong text-white pl-3 pr-4 py-1.5 rounded-full text-xs font-medium shadow-soft transition active:scale-95 inline-flex justify-center items-center gap-1.5 leading-none whitespace-nowrap"><Plus size={14} strokeWidth={2} className="shrink-0" /><span className="leading-none">새 업무</span></button>
         </div>
       )}
       <div className="flex-1 min-h-0">

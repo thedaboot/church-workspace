@@ -10,7 +10,7 @@ export function LoginScreen() {
   const { signIn } = useAuth();
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center p-4 overflow-hidden bg-[#f6f5f4]">
+    <div className="relative min-h-dvh flex items-center justify-center p-4 overflow-hidden bg-[#f6f5f4]">
       {/* 파스텔 글로우: 스티커 팔레트를 장식으로만 */}
       <div className="absolute -top-32 -left-24 w-[30rem] h-[30rem] rounded-full bg-[#62aef0]/25 blur-[130px]" />
       <div className="absolute -bottom-40 -right-24 w-[34rem] h-[34rem] rounded-full bg-[#d6b6f6]/35 blur-[140px]" />

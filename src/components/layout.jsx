@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useDeferredValue } from 'react';
 import {
   LayoutDashboard, CheckSquare, Search, Plus, X, Hash, Menu,
   Settings, Undo2, Redo2, Sun, Moon, LogOut
@@ -101,35 +101,65 @@ const highlight = (text, q) => {
   );
 };
 
-// 검색 결과 리스트(데스크톱 드롭다운 · 모바일 오버레이 공용)
-function SearchResults({ results, debounced, projectsMap, onPick }) {
-  const empty = results && results.projectHits.length === 0 && results.taskHits.length === 0;
+const SEARCH_LIMIT = 8; // 그룹당 최대 표시 수
+
+// 결과 계산 + 렌더 (검색 중일 때만 마운트 → store 구독·계산도 그때만 발생)
+// useDeferredValue로 타이핑 입력과 무거운 결과 렌더를 분리해 렉 방지
+function SearchResults({ query, onPick }) {
+  const projectsList = useStore(selectProjectsList);
+  const tasksList = useStore(selectTasksList);
+  const projectsMap = useStore(selectProjectsMap);
+  const deferred = useDeferredValue(query);
+
+  const results = useMemo(() => {
+    const q = deferred.trim().toLowerCase();
+    if (q.length < 2) return null;
+    const projectHits = projectsList.filter(p => (p.title || '').toLowerCase().includes(q));
+    const taskHits = tasksList.filter(t =>
+      (t.title || '').toLowerCase().includes(q) ||
+      (t.content || '').toLowerCase().includes(q) ||
+      (t.assignees || []).some(a => (a || '').toLowerCase().includes(q))
+    );
+    return { projectHits, taskHits };
+  }, [deferred, projectsList, tasksList]);
+
+  if (!results) return null;
+  const empty = results.projectHits.length === 0 && results.taskHits.length === 0;
   if (empty) return <p className="px-3 py-6 text-center text-xs text-fg-faint">검색 결과가 없어요</p>;
+
+  const pShown = results.projectHits.slice(0, SEARCH_LIMIT);
+  const tShown = results.taskHits.slice(0, SEARCH_LIMIT);
+  const pMore = results.projectHits.length - pShown.length;
+  const tMore = results.taskHits.length - tShown.length;
+  const q = deferred.trim();
+
   return (
     <>
-      {results.projectHits.length > 0 && (
+      {pShown.length > 0 && (
         <div className="mb-1">
           <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-faint uppercase tracking-wider">프로젝트</p>
-          {results.projectHits.map(p => (
+          {pShown.map(p => (
             <button key={p.id} onClick={() => onPick('project', p)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
               <span className="w-6 h-6 rounded-md bg-tag-purple text-tag-purple-fg flex items-center justify-center shrink-0"><Hash size={13} strokeWidth={1.75} /></span>
-              <span className="text-sm text-fg truncate min-w-0">{highlight(p.title, debounced)}</span>
+              <span className="text-sm text-fg truncate min-w-0">{highlight(p.title, q)}</span>
             </button>
           ))}
+          {pMore > 0 && <p className="px-2 py-1 text-[10px] text-fg-faint">그 외 {pMore}건 더 있어요</p>}
         </div>
       )}
-      {results.taskHits.length > 0 && (
+      {tShown.length > 0 && (
         <div>
           <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-faint uppercase tracking-wider">업무</p>
-          {results.taskHits.map(t => (
+          {tShown.map(t => (
             <button key={t.id} onClick={() => onPick('task', t)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
               <span className="w-6 h-6 rounded-md bg-tag-green text-tag-green-fg flex items-center justify-center shrink-0"><CheckSquare size={13} strokeWidth={1.75} /></span>
               <span className="flex-1 min-w-0">
-                <span className="block text-sm text-fg truncate">{highlight(t.title, debounced)}</span>
+                <span className="block text-sm text-fg truncate">{highlight(t.title, q)}</span>
                 <span className="block text-[10px] text-fg-faint truncate">{projectsMap[t.projectId]?.title || '프로젝트 없음'}</span>
               </span>
             </button>
           ))}
+          {tMore > 0 && <p className="px-2 py-1 text-[10px] text-fg-faint">그 외 {tMore}건 더 있어요</p>}
         </div>
       )}
     </>
@@ -137,21 +167,13 @@ function SearchResults({ results, debounced, projectsMap, onPick }) {
 }
 
 // 통합 검색 — 데스크톱 인라인 드롭다운 + 모바일 아이콘 트리거·전체폭 오버레이
+// store 구독/결과 계산은 SearchResults(검색어 2자+ 일 때만 마운트)로 분리해 타이핑 렉 제거
 function SearchBox({ onSearchSelect }) {
-  const projectsList = useStore(selectProjectsList);
-  const tasksList = useStore(selectTasksList);
-  const projectsMap = useStore(selectProjectsMap);
   const [query, setQuery] = useState('');
-  const [debounced, setDebounced] = useState('');
   const [open, setOpen] = useState(false);        // 데스크톱 드롭다운
   const [mobileOpen, setMobileOpen] = useState(false); // 모바일 오버레이
   const rootRef = useRef(null);
-
-  // 300ms debounce
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(query.trim()), 300);
-    return () => clearTimeout(t);
-  }, [query]);
+  const active = query.trim().length >= 2;
 
   // 데스크톱: 바깥 클릭 / Escape 닫기
   useEffect(() => {
@@ -163,29 +185,17 @@ function SearchBox({ onSearchSelect }) {
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [open]);
 
+  const reset = () => setQuery('');
+  const closeMobile = () => { setMobileOpen(false); reset(); };
+
   // 모바일 오버레이: Escape 닫기
   useEffect(() => {
     if (!mobileOpen) return;
-    const onKey = (e) => { if (e.key === 'Escape') closeMobile(); };
+    const onKey = (e) => { if (e.key === 'Escape') { setMobileOpen(false); setQuery(''); } };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mobileOpen]);
 
-  const results = useMemo(() => {
-    const q = debounced.toLowerCase();
-    if (q.length < 2) return null;
-    const projectHits = projectsList.filter(p => (p.title || '').toLowerCase().includes(q));
-    const taskHits = tasksList.filter(t =>
-      (t.title || '').toLowerCase().includes(q) ||
-      (t.content || '').toLowerCase().includes(q) ||
-      (t.assignees || []).some(a => (a || '').toLowerCase().includes(q))
-    );
-    return { projectHits, taskHits };
-  }, [debounced, projectsList, tasksList]);
-
-  const reset = () => { setQuery(''); setDebounced(''); };
-  const closeMobile = () => { setMobileOpen(false); reset(); };
   const pick = (kind, item) => { onSearchSelect(kind, item); setOpen(false); setMobileOpen(false); reset(); };
 
   return (
@@ -200,9 +210,9 @@ function SearchBox({ onSearchSelect }) {
           placeholder="프로젝트나 업무를 검색해봐요!"
           className="pl-9 pr-4 py-1.5 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak focus:shadow-soft outline-none w-full transition-all"
         />
-        {open && results && (
+        {open && active && (
           <div className="absolute left-0 top-full z-50 mt-1 w-full max-h-80 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 animate-in fade-in zoom-in-95 duration-150">
-            <SearchResults results={results} debounced={debounced} projectsMap={projectsMap} onPick={pick} />
+            <SearchResults query={query} onPick={pick} />
           </div>
         )}
       </div>
@@ -210,7 +220,7 @@ function SearchBox({ onSearchSelect }) {
       {/* 모바일 검색 아이콘 */}
       <button className="sm:hidden p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0" onClick={() => setMobileOpen(true)} title="검색"><Search size={18} strokeWidth={1.75} /></button>
 
-      {/* 모바일 전체폭 오버레이 */}
+      {/* 모바일 전체폭 오버레이 (불투명 배경 — 모바일 GPU 비용 큰 blur 미사용) */}
       {mobileOpen && (
         <div className="sm:hidden fixed inset-0 z-50 bg-black/40 animate-in fade-in duration-150" onClick={closeMobile}>
           <div className="absolute inset-x-0 top-0 bg-surface border-b border-line shadow-elevated p-3 animate-in slide-in-from-top-2 duration-150" onClick={e => e.stopPropagation()}>
@@ -225,9 +235,9 @@ function SearchBox({ onSearchSelect }) {
               </div>
               <button onClick={closeMobile} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0"><X size={18} /></button>
             </div>
-            {results && (
-              <div className="mt-2 max-h-[70vh] overflow-y-auto">
-                <SearchResults results={results} debounced={debounced} projectsMap={projectsMap} onPick={pick} />
+            {active && (
+              <div className="mt-2 max-h-[70dvh] overflow-y-auto">
+                <SearchResults query={query} onPick={pick} />
               </div>
             )}
           </div>

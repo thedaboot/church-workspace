@@ -50,7 +50,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4 animate-in fade-in duration-200">
-      <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-5xl h-[95vh] md:h-[85vh] flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-5xl h-[100dvh] md:h-[85dvh] flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         <div className="flex-1 flex flex-col border-r-0 md:border-r border-line overflow-y-auto">
           <div className="sticky top-0 bg-surface/95 backdrop-blur z-10 px-4 py-3 border-b border-line flex justify-between items-center">
             <div className="flex items-center gap-2 text-xs font-semibold text-fg-muted"><CheckSquare size={14} className="text-accent"/> {task.id ? '업무 세부 정보' : '새 업무 만들기'}</div>
@@ -83,7 +83,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
           </div>
         </div>
         {!isEditMode && task.id && (
-          <div className="w-full md:w-80 h-[40vh] md:h-auto bg-surface-2 flex flex-col border-t md:border-t-0 md:border-l border-line shrink-0">
+          <div className="w-full md:w-80 h-[40dvh] md:h-auto bg-surface-2 flex flex-col border-t md:border-t-0 md:border-l border-line shrink-0">
             <div className="flex border-b border-line bg-surface shrink-0">
               <button onClick={() => setActiveTab('comments')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'comments' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>댓글 ({(formData.comments || []).filter(c => !c.parentId).length})</button>
               <button onClick={() => setActiveTab('activity')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'activity' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>활동 기록</button>
