@@ -12,6 +12,7 @@ import { AiService } from '../services/ai.js';
 import { RichText } from '../components/RichText.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { MentionInput } from '../components/MentionInput.jsx';
+import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { supabase } from '../services/supabaseClient.js';
 import { uploadAttachment, getAttachmentUrl, deleteAttachment, listCardFiles, uploadContentImage } from '../services/cloud.js';
@@ -21,14 +22,27 @@ import { ShareButton } from '../components/ShareButton.jsx';
 // ============================================================================
 // 13. Modals (완벽한 SRP 분리)
 // ============================================================================
+// md 미만 여부 (모바일 풀스크린 레이아웃 판단)
+function useIsMobile() {
+  const [m, setM] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const on = () => setM(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return m;
+}
+
 export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAddComment, onUpdateComment, onDeleteComment, onFileActivity, onDelete }) {
   const currentUser = useStore(selectCurrentUser);
   const { enabled, session, isAdmin } = useAuth();
   const cloudMode = enabled && !!session;
   const userId = session?.user?.id;
   const [formData, setFormData] = useState(task);
-  const [activeTab, setActiveTab] = useState('comments');
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [activeTab, setActiveTab] = useState('comments'); // 데스크톱 우측 사이드바 탭
+  const [mobileTab, setMobileTab] = useState('detail');    // 모바일 세그먼트 탭
+  const isMobile = useIsMobile();
 
   // Stale State 방지: 모달 재사용 시 데이터 강제 동기화
   useEffect(() => { setFormData(task); }, [task]);
@@ -47,49 +61,89 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   }, [cloudMode, currentUser.name, tasksList]);
 
   const handleSubmit = (e) => { e.preventDefault(); onSave(formData); };
+  const commentCount = (formData.comments || []).filter(c => !c.parentId).length;
 
+  // ── 공용 조각 (데스크톱/모바일 레이아웃이 재사용) ──
+  const headerInner = (
+    <>
+      <div className="flex items-center gap-2 text-xs font-semibold text-fg-muted"><CheckSquare size={14} className="text-accent"/> {task.id ? '업무 세부 정보' : '새 업무 만들기'}</div>
+      <div className="flex items-center gap-1">
+        {task.id && <ShareButton url={`${window.location.origin}/s/t/${task.id}`} title="업무 공유 링크 복사" />}
+        <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>
+      </div>
+    </>
+  );
+  const footerInner = (
+    <>
+      <div className="flex items-center gap-2 min-w-0">
+        {!isEditMode && canDelete && (
+          <ConfirmPopover message="이 업무를 삭제할까요?" onConfirm={onDelete}>
+            <button type="button" className="p-2 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95 shrink-0" title="업무 삭제"><Trash2 size={16} /></button>
+          </ConfirmPopover>
+        )}
+        <div className="text-[10px] text-fg-faint hidden md:block truncate">작성: {formData.author} • 최근: {formatDate(formData.updatedAt)}</div>
+      </div>
+      <div className="flex gap-2 shrink-0">
+        <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2 text-xs font-medium text-fg-muted bg-surface-hover hover:bg-line rounded-md transition active:scale-95">닫기</button>
+        {isEditMode ? <button type="button" onClick={handleSubmit} className="flex-1 sm:flex-none bg-accent hover:bg-accent-strong text-white px-6 py-2 rounded-md text-xs font-medium transition active:scale-95">저장</button>
+                    : <button type="button" onClick={onEdit} className="flex-1 sm:flex-none bg-surface-hover hover:bg-line text-fg border border-line px-6 py-2 rounded-md text-xs font-medium transition active:scale-95">수정</button>}
+      </div>
+    </>
+  );
+  const detailBody = isEditMode
+    ? <TaskEditor formData={formData} setFormData={setFormData} members={members} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />
+    : <TaskViewer formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />;
+  const commentsPanel = <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} />;
+  const activityPanel = <ActivityPanel logs={formData.activityLog} />;
+  const commentInputEl = <CommentInput onAdd={onAddComment} members={members} />;
+
+  // ── 모바일: 풀스크린 + 세그먼트 탭 ──
+  if (isMobile) {
+    const segBtn = (id, label) => (
+      <button onClick={() => setMobileTab(id)} className={`flex-1 py-3 text-xs font-semibold border-b-2 -mb-px transition-colors ${mobileTab === id ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted'}`}>{label}</button>
+    );
+    return (
+      <div className="fixed inset-0 z-50 bg-surface flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-200">
+        <div className="shrink-0 px-4 py-3 border-b border-line flex justify-between items-center bg-surface">{headerInner}</div>
+        {!isEditMode && task.id && (
+          <div className="flex border-b border-line bg-surface shrink-0">
+            {segBtn('detail', '상세')}
+            {segBtn('comments', `댓글 (${commentCount})`)}
+            {segBtn('activity', '활동')}
+          </div>
+        )}
+        {isEditMode ? (
+          <div className="flex-1 min-h-0 overflow-y-auto p-5">{detailBody}</div>
+        ) : (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            {mobileTab === 'detail' && <div className="flex-1 overflow-y-auto p-5">{detailBody}</div>}
+            {mobileTab === 'comments' && <div className="flex-1 overflow-y-auto p-4">{commentsPanel}</div>}
+            {mobileTab === 'activity' && <div className="flex-1 overflow-y-auto p-4">{activityPanel}</div>}
+            {mobileTab === 'comments' && commentInputEl}
+          </div>
+        )}
+        <div className="shrink-0 border-t border-line p-3 flex justify-between items-center gap-2 bg-surface-2">{footerInner}</div>
+      </div>
+    );
+  }
+
+  // ── 데스크톱(md+): 기존 좌우 분할 ──
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4 animate-in fade-in duration-200">
       <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-5xl h-[100dvh] md:h-[85dvh] flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         <div className="flex-1 flex flex-col border-r-0 md:border-r border-line overflow-y-auto">
-          <div className="sticky top-0 bg-surface/95 backdrop-blur z-10 px-4 py-3 border-b border-line flex justify-between items-center">
-            <div className="flex items-center gap-2 text-xs font-semibold text-fg-muted"><CheckSquare size={14} className="text-accent"/> {task.id ? '업무 세부 정보' : '새 업무 만들기'}</div>
-            <div className="flex items-center gap-1">
-              {task.id && <ShareButton url={`${window.location.origin}/s/t/${task.id}`} title="업무 공유 링크 복사" />}
-              <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>
-            </div>
-          </div>
-          <div className="p-5 md:p-8 flex-1">
-            {isEditMode ? <TaskEditor formData={formData} setFormData={setFormData} members={members} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} /> : <TaskViewer formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />}
-          </div>
-          <div className="sticky bottom-0 border-t border-line p-3 md:p-4 flex justify-between items-center gap-2 z-10 bg-surface-2/80 backdrop-blur">
-            <div className="flex items-center gap-2 min-w-0">
-              {!isEditMode && canDelete && (confirmingDelete ? (
-                <span className="flex items-center gap-1.5 shrink-0">
-                  <span className="text-[10px] text-fg-muted hidden sm:inline">삭제할까요?</span>
-                  <button type="button" onClick={() => { setConfirmingDelete(false); onDelete?.(); }} className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-md px-2 py-1.5 text-[10px] font-semibold transition active:scale-95">삭제</button>
-                  <button type="button" onClick={() => setConfirmingDelete(false)} className="text-fg-muted hover:text-fg hover:bg-surface-hover rounded-md px-2 py-1.5 text-[10px] font-medium transition active:scale-95">취소</button>
-                </span>
-              ) : (
-                <button type="button" onClick={() => setConfirmingDelete(true)} className="p-2 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95 shrink-0" title="업무 삭제"><Trash2 size={16} /></button>
-              ))}
-              <div className="text-[10px] text-fg-faint hidden md:block truncate">작성: {formData.author} • 최근: {formatDate(formData.updatedAt)}</div>
-            </div>
-            <div className="flex gap-2 shrink-0">
-              <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2 text-xs font-medium text-fg-muted bg-surface-hover hover:bg-line rounded-md transition active:scale-95">닫기</button>
-              {isEditMode ? <button type="button" onClick={handleSubmit} className="flex-1 sm:flex-none bg-accent hover:bg-accent-strong text-white px-6 py-2 rounded-md text-xs font-medium transition active:scale-95">저장</button>
-                          : <button type="button" onClick={onEdit} className="flex-1 sm:flex-none bg-surface-hover hover:bg-line text-fg border border-line px-6 py-2 rounded-md text-xs font-medium transition active:scale-95">수정</button>}
-            </div>
-          </div>
+          <div className="sticky top-0 bg-surface/95 backdrop-blur z-10 px-4 py-3 border-b border-line flex justify-between items-center">{headerInner}</div>
+          <div className="p-5 md:p-8 flex-1">{detailBody}</div>
+          <div className="sticky bottom-0 border-t border-line p-3 md:p-4 flex justify-between items-center gap-2 z-10 bg-surface-2/80 backdrop-blur">{footerInner}</div>
         </div>
         {!isEditMode && task.id && (
           <div className="w-full md:w-80 h-[40dvh] md:h-auto bg-surface-2 flex flex-col border-t md:border-t-0 md:border-l border-line shrink-0">
             <div className="flex border-b border-line bg-surface shrink-0">
-              <button onClick={() => setActiveTab('comments')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'comments' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>댓글 ({(formData.comments || []).filter(c => !c.parentId).length})</button>
+              <button onClick={() => setActiveTab('comments')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'comments' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>댓글 ({commentCount})</button>
               <button onClick={() => setActiveTab('activity')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'activity' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>활동 기록</button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4">{activeTab === 'comments' ? <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} /> : <ActivityPanel logs={formData.activityLog} />}</div>
-            {activeTab === 'comments' && <CommentInput onAdd={onAddComment} members={members} />}
+            <div className="flex-1 overflow-y-auto p-4">{activeTab === 'comments' ? commentsPanel : activityPanel}</div>
+            {activeTab === 'comments' && commentInputEl}
           </div>
         )}
       </div>
@@ -465,10 +519,9 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
 
 // 노션 스타일 플랫 댓글: 아바타 + 이름·시간 + 본문, 카드 대신 헤어라인 구분
 // 작성자 본인일 때만 수정(인라인 textarea)·삭제(인라인 확인) 노출
-const CommentBody = ({ c, currentUser, onUpdate, onDelete }) => {
+const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies }) => {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(c.text);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const isOwner = c.author === currentUser?.name;
 
   const saveEdit = () => {
@@ -486,9 +539,11 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete }) => {
           <span className="text-[9px] text-fg-faint">{formatDate(c.timestamp)}</span>
           {c.edited && <span className="text-[9px] text-fg-faint">(수정됨)</span>}
           {isOwner && !editing && (
-            <span className="ml-auto flex items-center gap-1.5 opacity-0 group-hover/comment:opacity-100 transition-opacity">
-              <button onClick={() => { setEditText(c.text); setEditing(true); setConfirmingDelete(false); }} className="text-fg-faint hover:text-fg-muted transition-colors" title="수정"><Pencil size={11} /></button>
-              <button onClick={() => { setConfirmingDelete(true); setEditing(false); }} className="text-fg-faint hover:text-red-500 transition-colors" title="삭제"><Trash2 size={11} /></button>
+            <span className="ml-auto flex items-center gap-1.5 opacity-100 md:opacity-0 md:group-hover/comment:opacity-100 transition-opacity">
+              <button onClick={() => { setEditText(c.text); setEditing(true); }} className="text-fg-faint hover:text-fg-muted transition-colors" title="수정"><Pencil size={11} /></button>
+              <ConfirmPopover message={hasReplies ? '댓글을 삭제할까요? 답글도 함께 삭제돼요.' : '댓글을 삭제할까요?'} onConfirm={() => onDelete(c.id)}>
+                <button type="button" className="text-fg-faint hover:text-red-500 transition-colors" title="삭제"><Trash2 size={11} /></button>
+              </ConfirmPopover>
             </span>
           )}
         </div>
@@ -500,13 +555,6 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete }) => {
           />
         ) : (
           <div className="text-xs text-fg-secondary leading-relaxed"><RichText content={c.text} /></div>
-        )}
-        {confirmingDelete && !editing && (
-          <div className="flex items-center gap-1.5 mt-1">
-            <span className="text-[10px] text-fg-muted">삭제할까요?</span>
-            <button onClick={() => { onDelete(c.id); setConfirmingDelete(false); }} className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-md px-2 py-0.5 text-[10px] font-semibold transition active:scale-95">삭제</button>
-            <button onClick={() => setConfirmingDelete(false)} className="text-fg-muted hover:text-fg hover:bg-surface-hover rounded-md px-2 py-0.5 text-[10px] font-medium transition active:scale-95">취소</button>
-          </div>
         )}
       </div>
     </div>
@@ -538,11 +586,11 @@ const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onD
     <div className="divide-y divide-line/60">
       {topLevel.map(c => (
         <div key={c.id} className="py-3 first:pt-0 group/c animate-in fade-in duration-200">
-          <CommentBody c={c} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete} />
+          <CommentBody c={c} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete} hasReplies={getReplies(c.id).length > 0} />
           <div className="pl-8 mt-1">
             <button
               onClick={() => { setReplyingTo(replyingTo === c.id ? null : c.id); setReplyText(''); }}
-              className={`text-[10px] text-fg-faint hover:text-accent-text transition-opacity ${replyingTo === c.id ? 'opacity-100' : 'opacity-0 group-hover/c:opacity-100'}`}
+              className={`text-[10px] text-fg-faint hover:text-accent-text transition-opacity ${replyingTo === c.id ? 'opacity-100' : 'opacity-100 md:opacity-0 md:group-hover/c:opacity-100'}`}
             >답글</button>
           </div>
           {(getReplies(c.id).length > 0 || replyingTo === c.id) && (

@@ -15,6 +15,7 @@ import { Board, CalendarBoard } from '../components/boards.jsx';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
+import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 
 // ============================================================================
 // 11. UI Views (데이터를 구독하는 프레젠테이션 컴포넌트)
@@ -118,7 +119,6 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
   const [selectedTeams, setSelectedTeams] = useState([]);
   const [isAddingLink, setIsAddingLink] = useState(false);
   const [linkDraft, setLinkDraft] = useState({ title: '', url: '' });
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const linkPopRef = useRef(null);
 
   // 리소스 추가 팝오버: 바깥 클릭 / Escape 닫기
@@ -195,15 +195,9 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
           </div>
           <ShareButton url={`${window.location.origin}/s/p/${project.id}`} title="프로젝트 공유 링크 복사" />
           {isAdmin && (
-            confirmingDelete ? (
-              <div className="flex items-center gap-1.5 animate-in fade-in duration-150 shrink-0">
-                <span className="text-[10px] text-fg-muted whitespace-nowrap">{cloudOn ? '삭제하면 되돌릴 수 없어요' : '정말 삭제할까요?'}</span>
-                <button onClick={deleteProject} className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-md px-2 py-1 text-[10px] font-semibold transition active:scale-95">삭제</button>
-                <button onClick={() => setConfirmingDelete(false)} className="text-fg-muted hover:text-fg hover:bg-surface-hover rounded-md px-2 py-1 text-[10px] font-medium transition active:scale-95">취소</button>
-              </div>
-            ) : (
-              <button onClick={() => setConfirmingDelete(true)} className="p-1.5 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95 shrink-0" title="프로젝트 삭제"><Trash2 size={16} strokeWidth={1.75} /></button>
-            )
+            <ConfirmPopover message="프로젝트와 안의 모든 업무가 삭제돼요. 되돌릴 수 없어요." onConfirm={deleteProject}>
+              <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95 shrink-0" title="프로젝트 삭제"><Trash2 size={16} strokeWidth={1.75} /></button>
+            </ConfirmPopover>
           )}
         </div>
       </div>
