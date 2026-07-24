@@ -174,7 +174,7 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
             <div className="relative" ref={linkPopRef}>
               <button onClick={() => setIsAddingLink(v => !v)} className="text-[10px] md:text-xs text-fg-faint hover:text-fg-muted hover:bg-surface-hover px-1.5 py-1 border border-dashed border-line rounded-md transition active:scale-95">+ 추가</button>
               {isAddingLink && (
-                <div className="absolute left-0 top-full mt-1 w-64 bg-surface border border-line rounded-lg shadow-elevated p-3 z-50 animate-in fade-in zoom-in-95 duration-150">
+                <div className="absolute left-0 top-full mt-1 w-64 max-w-[calc(100vw-2rem)] bg-surface border border-line rounded-lg shadow-elevated p-3 z-50 animate-in fade-in zoom-in-95 duration-150">
                   <div className="space-y-2">
                     <input autoFocus value={linkDraft.title} onChange={e => setLinkDraft(p => ({ ...p, title: e.target.value }))} placeholder="이름" className="w-full text-xs px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
                     <input value={linkDraft.url} onChange={e => setLinkDraft(p => ({ ...p, url: e.target.value }))} placeholder="https://..." onKeyDown={e => { if (e.key === 'Enter') saveLink(); }} className="w-full text-xs px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
@@ -188,7 +188,7 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto shrink-0">
           <div className="flex bg-surface-2 p-1 rounded-md flex-1 md:flex-none">
             <button onClick={() => setViewMode('kanban')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'kanban' ? 'bg-surface shadow-soft text-fg' : 'text-fg-muted hover:text-fg'}`}><LayoutDashboard size={14} className="shrink-0"/> 보드</button>
             <button onClick={() => setViewMode('calendar')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'calendar' ? 'bg-surface shadow-soft text-fg' : 'text-fg-muted hover:text-fg'}`}><CalendarIcon size={14} className="shrink-0"/> 캘린더</button>
