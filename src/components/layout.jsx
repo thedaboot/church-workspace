@@ -44,8 +44,8 @@ export const Sidebar = React.memo(({ activeMenu, setActiveMenu, isSidebarOpen, c
       {/* h-14: 헤더와 하단 라인 정렬 */}
       <div className="h-14 px-4 flex items-center justify-between border-b border-line shrink-0">
         <button onClick={() => setActiveMenu('dashboard')} className="flex items-center gap-2 min-w-0 transition active:scale-95" title="홈(대시보드)으로">
-          <img src={logoLight} alt="The 다붓" className="h-8 w-auto dark:hidden" />
-          <img src={logoDark} alt="The 다붓" className="h-8 w-auto hidden dark:block" />
+          <img src={logoLight} alt="더다붓" className="h-8 w-auto dark:hidden" />
+          <img src={logoDark} alt="더다붓" className="h-8 w-auto hidden dark:block" />
         </button>
         <button className="md:hidden p-1 text-fg-muted transition active:scale-95" onClick={closeSidebar}><X size={20} /></button>
       </div>

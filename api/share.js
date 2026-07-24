@@ -16,7 +16,7 @@ export default async function handler(req, res) {
   const origin = `${proto}://${host}`;
   const ogImage = `${origin}/og.png`;
 
-  let title = '다붓 워크스페이스';
+  let title = '더다붓 워크스페이스';
   let description = '함께 준비하고, 함께 섬기는 청년들의 공간';
   let appUrl = '/';
 
@@ -26,14 +26,14 @@ export default async function handler(req, res) {
       if (type === 'p') {
         const { data } = await supabase.from('projects').select('name, description').eq('id', id).maybeSingle();
         if (data) {
-          title = `다붓 · ${data.name}`;
+          title = `더다붓 · ${data.name}`;
           description = data.description || '팀과 함께 준비하는 프로젝트예요.';
           appUrl = `/?p=${id}`;
         }
       } else {
         const { data } = await supabase.from('cards').select('title, status, due_date, project_id').eq('id', id).maybeSingle();
         if (data) {
-          title = `다붓 · ${data.title}`;
+          title = `더다붓 · ${data.title}`;
           const parts = [STATUS_KO[data.status] || ''];
           if (data.due_date) parts.push(`마감 ${data.due_date}`);
           description = parts.filter(Boolean).join(' · ') || '작업 상세';

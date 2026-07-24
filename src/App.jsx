@@ -15,8 +15,8 @@ import logoDark from './assets/logo-dark.png';
 function CloudSplash() {
   return (
     <div className="h-screen bg-canvas flex items-center justify-center">
-      <img src={logoLight} alt="다붓" className="h-12 w-auto animate-pulse dark:hidden" />
-      <img src={logoDark} alt="다붓" className="h-12 w-auto animate-pulse hidden dark:block" />
+      <img src={logoLight} alt="더다붓" className="h-12 w-auto animate-pulse dark:hidden" />
+      <img src={logoDark} alt="더다붓" className="h-12 w-auto animate-pulse hidden dark:block" />
     </div>
   );
 }

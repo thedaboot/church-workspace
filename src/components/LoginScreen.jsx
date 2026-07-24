@@ -18,8 +18,8 @@ export function LoginScreen() {
       <div className="absolute bottom-1/4 left-1/4 w-48 h-48 rounded-full bg-[#2a9d99]/12 blur-[90px]" />
 
       <div className="relative w-full max-w-sm text-center animate-in fade-in zoom-in-95 duration-500">
-        <img src={logoLight} alt="The 다붓" className="h-20 w-auto mx-auto mb-6 drop-shadow-[0_8px_28px_rgba(55,53,47,0.18)]" />
-        <h1 className="text-xl font-bold text-[#31302e] tracking-[-0.25px] mb-2">다붓 워크스페이스</h1>
+        <img src={logoLight} alt="더다붓" className="h-20 w-auto mx-auto mb-6 drop-shadow-[0_8px_28px_rgba(55,53,47,0.18)]" />
+        <h1 className="text-xl font-bold text-[#31302e] tracking-[-0.25px] mb-2">더다붓 워크스페이스</h1>
         <p className="text-sm text-[#615d59] mb-10 leading-relaxed">함께 준비하고, 함께 섬기는 청년들의 공간<br />같이 만들어봐요!</p>
 
         <div className="bg-white/80 backdrop-blur-md border border-[#e6e6e6] rounded-xl p-6 shadow-elevated space-y-3">
