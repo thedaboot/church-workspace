@@ -12,6 +12,7 @@ import { AiService } from '../services/ai.js';
 import { RichText } from '../components/RichText.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { MentionInput } from '../components/MentionInput.jsx';
+import { MarkdownEditor } from '../components/MarkdownEditor.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { supabase } from '../services/supabaseClient.js';
@@ -326,14 +327,13 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
             </button>
           </div>
         </div>
-        <MentionInput
-          as="textarea" name="content" value={formData.content || ''}
+        <MarkdownEditor
+          value={formData.content || ''}
           onChange={(val) => setFormData(prev => ({ ...prev, content: val }))}
           members={members} elementRef={contentRef} onPaste={handleContentPaste}
           placeholder={cloudMode ? '내용을 입력하세요. @이름 멘션, 이미지 붙여넣기(Ctrl/⌘+V), 링크 URL도 돼요.' : '내용을 입력하세요. @이름 멘션, 이미지·링크 URL도 붙여넣을 수 있어요.'}
           className="w-full h-32 md:h-48 border border-line rounded-md p-3 text-xs leading-relaxed bg-surface text-fg placeholder:text-fg-faint resize-none focus:border-accent focus:shadow-soft outline-none transition-all"
         />
-        <p className="text-[10px] text-fg-faint mt-1">마크다운 지원 — **굵게** · *기울임* · __밑줄__ · ~~취소선~~ · ==형광펜== · # 제목(#~####) · - 불릿 · 1. 번호 · [이름](URL) 링크</p>
       </div>
 
       {cloudMode && (formData.id
