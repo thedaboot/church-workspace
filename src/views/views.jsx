@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   LayoutDashboard, Plus, Calendar as CalendarIcon,
-  Link as LinkIcon, ListTodo, ListFilter, ExternalLink, ChevronRight, Undo2, Check, X, Trash2
+  Link as LinkIcon, ListTodo, ListFilter, ExternalLink, ChevronRight, Undo2, Check, X, Trash2,
+  TrendingUp, CheckSquare
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { generateId } from '../utils.js';
@@ -25,12 +26,21 @@ export function DashboardView({ onNavigate }) {
     <div className="max-w-6xl mx-auto space-y-4 md:space-y-6 animate-in fade-in duration-300">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         <div className="bg-surface p-5 md:p-6 rounded-lg border border-line">
-          <h3 className="text-fg-muted text-xs md:text-sm font-medium mb-2">전체 프로젝트 진척도</h3>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="w-7 h-7 rounded-md bg-tag-blue text-tag-blue-fg flex items-center justify-center shrink-0"><TrendingUp size={14} strokeWidth={1.75} /></span>
+            <h3 className="text-fg-muted text-xs md:text-sm font-medium">전체 프로젝트 진척도</h3>
+          </div>
           <div className="flex items-end gap-2"><span className="text-3xl md:text-4xl font-bold text-fg">{progress}%</span><span className="text-fg-muted text-xs mb-1">완료</span></div>
           <div className="w-full bg-surface-2 rounded-full h-2 mt-4"><div className="bg-accent h-2 rounded-full transition-all duration-1000" style={{ width: `${progress}%` }}></div></div>
         </div>
-        <div onClick={() => onNavigate('myTasks')} className="bg-surface p-5 md:p-6 rounded-lg border border-line flex flex-col justify-between hover:bg-surface-hover transition-colors cursor-pointer group">
-          <div><h3 className="text-fg-muted text-xs md:text-sm font-medium mb-2 group-hover:text-accent transition-colors">내 남은 업무</h3><div className="text-3xl md:text-4xl font-bold text-fg group-hover:text-accent transition-colors">{myTasksCount}개</div></div>
+        <div onClick={() => onNavigate('myTasks')} className="bg-surface p-5 md:p-6 rounded-lg border border-line flex flex-col justify-between hover:bg-surface-hover hover:-translate-y-0.5 hover:shadow-soft transition-all cursor-pointer group">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="w-7 h-7 rounded-md bg-tag-green text-tag-green-fg flex items-center justify-center shrink-0"><CheckSquare size={14} strokeWidth={1.75} /></span>
+              <h3 className="text-fg-muted text-xs md:text-sm font-medium group-hover:text-accent transition-colors">내 남은 업무</h3>
+            </div>
+            <div className="text-3xl md:text-4xl font-bold text-fg group-hover:text-accent transition-colors">{myTasksCount}개</div>
+          </div>
           <p className="text-xs text-fg-muted mt-2 flex justify-between items-center">오늘도 화이팅입니다! <span className="text-accent-text font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">확인하기 <ChevronRight size={12}/></span></p>
         </div>
         <div className="bg-night text-white p-5 md:p-6 rounded-lg flex flex-col justify-center sm:col-span-2 lg:col-span-1 relative overflow-hidden">
@@ -65,7 +75,7 @@ export function DashboardView({ onNavigate }) {
                 ) : <span className="text-[10px] text-fg-faint italic">진행 중인 프로젝트 없음</span>}
               </div>
               <div className="flex items-center gap-3 ml-auto shrink-0">
-                <div className="w-24 md:w-32 bg-surface-2 rounded-full h-1.5 overflow-hidden"><div className="bg-accent h-full rounded-full transition-all duration-700" style={{ width: `${stat.progress}%` }}></div></div>
+                <div className="w-24 md:w-32 bg-surface-2 rounded-full h-1.5 overflow-hidden"><div className={`h-full rounded-full transition-all duration-700 ${stat.progress >= 100 ? 'bg-tag-green-fg' : 'bg-accent'}`} style={{ width: `${stat.progress}%` }}></div></div>
                 <span className="text-xs text-fg-muted text-right w-20 tabular-nums">{stat.done} / {stat.total} 완료</span>
                 <ChevronRight size={16} strokeWidth={1.75} className="text-fg-faint opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>

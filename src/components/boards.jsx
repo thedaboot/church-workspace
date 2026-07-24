@@ -1,6 +1,7 @@
 import React from 'react';
 import { User, Clock, Folder, ChevronLeft, ChevronRight } from 'lucide-react';
 import { CONFIG } from '../config.js';
+import { avatarColor } from '../utils.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectProjectsMap, selectTasksByDate } from '../store/selectors.js';
 
@@ -153,13 +154,19 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
                 key={task.id} draggable
                 onDragStart={e => onDragStart(e, task)} onDragEnd={onDragEnd}
                 onClick={() => onTaskClick(task)}
-                className={`bg-surface p-3.5 rounded-lg border border-line cursor-grab active:cursor-grabbing hover:shadow-soft transition-all group animate-in fade-in zoom-in-95 duration-200 ${draggingId === task.id ? 'opacity-40 rotate-1 scale-[.98] shadow-elevated' : ''}`}
+                className={`bg-surface p-3.5 rounded-lg border border-line cursor-grab active:cursor-grabbing hover:shadow-soft hover:-translate-y-0.5 transition-all group animate-in fade-in zoom-in-95 duration-200 ${draggingId === task.id ? 'opacity-40 rotate-1 scale-[.98] shadow-elevated' : ''}`}
               >
                 {showProjectBadge && projectsMap[task.projectId] && <div className="text-[9px] text-fg-faint mb-1.5 flex items-center gap-1"><Folder size={10}/> {projectsMap[task.projectId].title}</div>}
                 <div className="flex flex-wrap gap-1 mb-2">{task.teams.map(team => <span key={team} className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${CONFIG.TEAMS[team]}`}>{team}</span>)}</div>
                 <h4 className="font-semibold text-sm text-fg mb-2 leading-tight group-hover:text-accent transition-colors">{task.title}</h4>
                 <div className="flex items-center justify-between text-[10px] text-fg-muted mt-3 border-t border-line pt-2">
-                  <div className="flex items-center gap-1 min-w-0"><User size={12} className="text-fg-faint shrink-0" /><span className="truncate">{task.assignees.join(', ') || '미지정'}</span></div>
+                  <div className="flex items-center gap-1 min-w-0">
+                    {task.assignees.length > 0 ? (
+                      <><span className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold shrink-0 ${avatarColor(task.assignees[0])}`}>{task.assignees[0][0]}</span><span className="truncate">{task.assignees[0]}{task.assignees.length > 1 ? ` +${task.assignees.length - 1}` : ''}</span></>
+                    ) : (
+                      <><User size={12} className="text-fg-faint shrink-0" /><span className="truncate text-fg-faint">미지정</span></>
+                    )}
+                  </div>
                   {task.dueDate && <div className="flex items-center gap-1 text-tag-orange-fg bg-tag-orange px-1.5 py-0.5 rounded shrink-0"><Clock size={10} /><span>{new Date(task.dueDate).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric'})}</span></div>}
                 </div>
               </div>

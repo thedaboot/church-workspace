@@ -8,6 +8,7 @@ import {
   selectCurrentUser, selectProjectsList, selectProjectsMap, selectMyTasks
 } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
+import { avatarColor } from '../utils.js';
 import logoLight from '../assets/logo-light.png';
 import logoDark from '../assets/logo-dark.png';
 
@@ -22,8 +23,10 @@ function ThemeToggle() {
     setTheme(next);
   };
   return (
-    <button onClick={toggle} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95" title={theme === 'dark' ? '라이트 모드' : '다크 모드'}>
-      {theme === 'dark' ? <Sun size={18} strokeWidth={1.75} /> : <Moon size={18} strokeWidth={1.75} />}
+    <button onClick={toggle} className="group p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95" title={theme === 'dark' ? '라이트 모드' : '다크 모드'}>
+      {theme === 'dark'
+        ? <Sun size={18} strokeWidth={1.75} className="transition-transform duration-300 group-hover:rotate-12" />
+        : <Moon size={18} strokeWidth={1.75} className="transition-transform duration-300 group-hover:rotate-12" />}
     </button>
   );
 }
@@ -47,12 +50,13 @@ export const Sidebar = React.memo(({ activeMenu, setActiveMenu, isSidebarOpen, c
         <button className="md:hidden p-1 text-fg-muted transition active:scale-95" onClick={closeSidebar}><X size={20} /></button>
       </div>
       <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1 scrollbar-hide">
-        <NavItem icon={<LayoutDashboard size={18} strokeWidth={1.75} />} label="전체 대시보드" active={activeMenu === 'dashboard'} onClick={() => setActiveMenu('dashboard')} />
-        <NavItem icon={<CheckSquare size={18} strokeWidth={1.75} />} label="내 작업" active={activeMenu === 'myTasks'} onClick={() => setActiveMenu('myTasks')} badge={myTasksCount} />
+        <NavItem icon={<LayoutDashboard size={15} strokeWidth={1.75} />} tile="bg-tag-blue text-tag-blue-fg" label="전체 대시보드" active={activeMenu === 'dashboard'} onClick={() => setActiveMenu('dashboard')} />
+        <NavItem icon={<CheckSquare size={15} strokeWidth={1.75} />} tile="bg-tag-green text-tag-green-fg" label="내 작업" active={activeMenu === 'myTasks'} onClick={() => setActiveMenu('myTasks')} badge={myTasksCount} />
         <div className="mt-6 mb-2 px-2 text-[10px] font-bold text-fg-faint uppercase tracking-wider flex justify-between items-center">
           프로젝트 리스트 <Plus size={14} className="cursor-pointer hover:text-fg p-0.5 rounded hover:bg-surface-hover transition active:scale-95" onClick={onOpenProject} />
         </div>
-        {projectsList.map(p => <NavItem key={p.id} icon={<Hash size={16} className="text-fg-faint"/>} label={p.title} active={activeMenu === p.id} onClick={() => setActiveMenu(p.id)} />)}
+        {projectsList.map(p => <NavItem key={p.id} icon={<Hash size={15} strokeWidth={1.75} />} tile="bg-tag-purple text-tag-purple-fg" label={p.title} active={activeMenu === p.id} onClick={() => setActiveMenu(p.id)} />)}
+        {projectsList.length === 0 && <p className="px-2 pt-1 text-[10px] text-fg-faint leading-relaxed">위 <span className="font-semibold">+</span> 버튼으로 첫 프로젝트를 만들어보세요.</p>}
       </div>
       <SidebarProfile currentUser={currentUser} onOpenProfile={onOpenProfile} />
     </div>
@@ -64,7 +68,7 @@ function SidebarProfile({ currentUser, onOpenProfile }) {
   return (
     <div className="p-4 border-t border-line flex items-center gap-3 hover:bg-surface-hover transition-colors group">
       <div onClick={onOpenProfile} className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
-        <div className="w-9 h-9 rounded-full bg-accent-weak flex items-center justify-center text-accent font-bold shrink-0 transition-colors">{currentUser.name[0]}</div>
+        <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shrink-0 transition-colors ${avatarColor(currentUser.name)}`}>{currentUser.name[0]}</div>
         <div className="flex-1 min-w-0"><p className="text-sm font-medium text-fg truncate">{currentUser.name}</p><p className="text-xs text-fg-muted truncate">{currentUser.team}</p></div>
         <Settings size={14} className="text-fg-faint group-hover:text-fg-muted shrink-0" />
       </div>
@@ -75,10 +79,13 @@ function SidebarProfile({ currentUser, onOpenProfile }) {
   );
 }
 
-const NavItem = React.memo(({ icon, label, active, onClick, badge }) => (
-  <button onClick={onClick} className={`w-full flex items-center justify-between px-2.5 py-2 rounded-md text-sm transition-colors transition active:scale-95 ${active ? 'bg-surface-hover text-fg font-medium' : 'text-fg-muted hover:bg-surface-hover hover:text-fg'}`}>
-    <div className="flex items-center gap-2 truncate"><span className={active ? 'text-accent-text' : ''}>{icon}</span><span className="truncate">{label}</span></div>
-    {badge > 0 && <span className="bg-surface-hover text-accent-text py-0.5 px-2 rounded-full text-[10px] font-bold">{badge}</span>}
+const NavItem = React.memo(({ icon, label, active, onClick, badge, tile }) => (
+  <button onClick={onClick} className={`group w-full flex items-center justify-between px-2.5 py-2 rounded-md text-sm transition-colors transition active:scale-95 ${active ? 'bg-surface-hover text-fg font-medium' : 'text-fg-muted hover:bg-surface-hover hover:text-fg'}`}>
+    <div className="flex items-center gap-2.5 truncate min-w-0">
+      <span className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 ${tile || ''} ${active ? 'shadow-soft' : ''}`}>{icon}</span>
+      <span className="truncate">{label}</span>
+    </div>
+    {badge > 0 && <span className="bg-surface-hover text-accent-text py-0.5 px-2 rounded-full text-[10px] font-bold shrink-0">{badge}</span>}
   </button>
 ));
 
@@ -107,10 +114,10 @@ export const Header = React.memo(({ activeMenu, openSidebar, onOpenSync, undo, r
         )}
         <div className="relative hidden sm:block flex-1 max-w-2xl">
           <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-fg-faint" strokeWidth={1.75} />
-          <input type="text" placeholder="검색..." className="pl-9 pr-4 py-1.5 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all" />
+          <input type="text" placeholder="검색..." className="pl-9 pr-4 py-1.5 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak focus:shadow-soft outline-none w-full transition-all" />
         </div>
         <ThemeToggle />
-        <button onClick={onOpenSync} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0" title="데이터 연동"><RefreshCw size={18} strokeWidth={1.75} /></button>
+        <button onClick={onOpenSync} className="group p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0" title="데이터 연동"><RefreshCw size={18} strokeWidth={1.75} className="transition-transform duration-300 group-hover:rotate-90" /></button>
       </div>
     </header>
   );

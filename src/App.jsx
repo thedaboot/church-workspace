@@ -118,6 +118,12 @@ function WorkspaceShell() {
 
   return (
     <div className="flex h-screen bg-canvas text-fg font-sans overflow-hidden">
+      {/* 배경 파스텔 글로우 (장식 전용 · 상호작용 차단 · 스크롤 고정) */}
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden" aria-hidden="true">
+        <div className="absolute -top-40 -left-32 w-[36rem] h-[36rem] rounded-full bg-[#62aef0] opacity-[0.12] blur-[140px] dark:opacity-[0.07]" />
+        <div className="absolute -bottom-48 -right-32 w-[40rem] h-[40rem] rounded-full bg-[#d6b6f6] opacity-[0.14] blur-[150px] dark:opacity-[0.07]" />
+        <div className="absolute -top-10 right-1/4 w-[26rem] h-[26rem] rounded-full bg-[#ffb6dd] opacity-[0.10] blur-[130px] dark:opacity-[0.05]" />
+      </div>
       {isSidebarOpen && <div className="md:hidden fixed inset-0 bg-black/50 z-20" onClick={() => setIsSidebarOpen(false)} />}
 
       <Sidebar
@@ -132,7 +138,7 @@ function WorkspaceShell() {
           activeMenu={activeMenu} openSidebar={() => setIsSidebarOpen(true)} onOpenSync={() => setIsSyncModalOpen(true)}
           undo={controller.undo} redo={controller.redo} canUndo={store.canUndo()} canRedo={store.canRedo()} cloudMode={cloudMode}
         />
-        <main className="flex-1 overflow-auto bg-canvas p-4 md:p-6 relative">
+        <main className="flex-1 overflow-auto p-4 md:p-6 relative">
           <ErrorBoundary>
             {/* key로 뷰 전환 시 리마운트 → 각 뷰의 등장 애니메이션 재생 */}
             <div key={activeMenu} className="h-full">

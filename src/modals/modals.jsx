@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   CheckSquare, Clock, X, User, Hash, RefreshCw, Download, Upload,
-  Wand2, Sparkles, Bot, CalendarRange, Pencil, Trash2
+  Wand2, Sparkles, Bot, CalendarRange, Pencil, Trash2, Heart
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { formatDate } from '../utils.js';
+import { formatDate, avatarColor } from '../utils.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser, selectProjectsList } from '../store/selectors.js';
 import { AiService } from '../services/ai.js';
@@ -193,7 +193,7 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete }) => {
 
   return (
     <div className="flex items-start gap-2.5 group/comment">
-      <div className="w-6 h-6 rounded-full bg-accent-weak text-accent-text text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{c.author?.[0]}</div>
+      <div className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5 ${avatarColor(c.author)}`}>{c.author?.[0]}</div>
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 mb-0.5">
           <span className="font-semibold text-[11px] text-fg">{c.author}</span>
@@ -241,7 +241,12 @@ const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onD
     setReplyingTo(null);
   };
 
-  if (all.length === 0) return <div className="text-center text-xs text-fg-faint mt-6">첫 댓글을 남겨보세요!</div>;
+  if (all.length === 0) return (
+    <div className="text-center mt-6">
+      <span className="inline-flex w-8 h-8 rounded-full bg-tag-pink text-tag-pink-fg items-center justify-center mb-2"><Heart size={13} strokeWidth={1.75} /></span>
+      <p className="text-xs text-fg-faint">첫 댓글을 남겨보세요!</p>
+    </div>
+  );
 
   return (
     <div className="divide-y divide-line/60">
@@ -293,7 +298,12 @@ const ActivityPanel = React.memo(({ logs }) => (
         </div>
       </div>
     ))}
-    {(!logs || logs.length === 0) && <div className="text-center text-xs text-fg-faint mt-6">아직 활동 기록이 없어요.</div>}
+    {(!logs || logs.length === 0) && (
+      <div className="text-center mt-6">
+        <span className="inline-flex w-8 h-8 rounded-full bg-tag-purple text-tag-purple-fg items-center justify-center mb-2"><span className="w-1.5 h-1.5 rounded-full bg-current" /></span>
+        <p className="text-xs text-fg-faint">아직 활동 기록이 없어요.</p>
+      </div>
+    )}
   </div>
 ));
 
