@@ -14,6 +14,7 @@ import { DatePicker } from '../components/DatePicker.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { supabase } from '../services/supabaseClient.js';
 import { uploadAttachment, getAttachmentUrl, deleteAttachment, listCardFiles } from '../services/cloud.js';
+import { ShareButton } from '../components/ShareButton.jsx';
 
 // ============================================================================
 // 13. Modals (완벽한 SRP 분리)
@@ -37,7 +38,10 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         <div className="flex-1 flex flex-col border-r-0 md:border-r border-line overflow-y-auto">
           <div className="sticky top-0 bg-surface/95 backdrop-blur z-10 px-4 py-3 border-b border-line flex justify-between items-center">
             <div className="flex items-center gap-2 text-xs font-semibold text-fg-muted"><CheckSquare size={14} className="text-accent"/> {task.id ? '작업 세부 정보' : '새 작업 만들기'}</div>
-            <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>
+            <div className="flex items-center gap-1">
+              {task.id && <ShareButton url={`${window.location.origin}/s/t/${task.id}`} title="작업 공유 링크 복사" />}
+              <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>
+            </div>
           </div>
           <div className="p-5 md:p-8 flex-1">
             {isEditMode ? <TaskEditor formData={formData} setFormData={setFormData} /> : <TaskViewer formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />}

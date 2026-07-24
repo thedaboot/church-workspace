@@ -1,20 +1,34 @@
+import { supabase } from './supabaseClient.js';
+
 // ============================================================================
-// 6-2. AI Service Layer (Gemini LLM Integration)
+// 6-2. AI Service Layer — /api/ai 서버 프록시 경유 (API 키는 서버에만)
 // ============================================================================
 export const AiService = {
   callGemini: async (prompt, systemInstruction = "") => {
-    const apiKey = ""; // Canvas 환경에서 자동 주입됨
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-    const payload = { contents: [{ parts: [{ text: prompt }] }] };
-    if (systemInstruction) payload.systemInstruction = { parts: [{ text: systemInstruction }] };
+    // 게스트 모드(수파베이스 미설정) → 로그인 안내
+    if (!supabase) return "AI 기능은 로그인 후 사용할 수 있어요.";
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) return "AI 기능은 로그인 후 사용할 수 있어요.";
 
     try {
-      const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ prompt, systemInstruction }),
+      });
+      // 로컬 vite dev에는 서버 함수가 없어 404 → 안내
+      if (response.status === 404) return "AI 기능은 배포 환경에서 동작해요 (로컬은 `npx vercel dev` 필요).";
+      if (response.status === 501) return "AI 기능이 아직 설정되지 않았어요 (관리자에게 GEMINI_API_KEY 설정을 요청하세요).";
+      if (!response.ok) {
+        console.error("AI 프록시 오류:", response.status, await response.text().catch(() => ''));
+        return "오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
+      }
       const result = await response.json();
-      return result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      return result.text || "";
     } catch (error) {
-      console.error("Gemini API Error:", error);
-      return "오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
+      console.error("AI 요청 실패:", error);
+      return "AI 기능은 배포 환경에서 동작해요 (로컬은 `npx vercel dev` 필요).";
     }
   },
   summarizeTask: async (task) => {

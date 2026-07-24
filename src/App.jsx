@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { store } from './store/workspaceStore.js';
 import { useWorkspaceController, usePersistenceController } from './hooks/controllers.js';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
@@ -47,7 +47,9 @@ function WorkspaceShell() {
   const persistence = usePersistenceController();
   const { enabled: authEnabled, session, isAdmin } = useAuth();
   const cloudMode = authEnabled && !!session;
-  const [activeMenu, setActiveMenu] = useState('dashboard');
+  // 딥링크: /?p=<projectId>&t=<taskId>
+  const [activeMenu, setActiveMenu] = useState(() => new URLSearchParams(window.location.search).get('p') || 'dashboard');
+  const pendingTaskIdRef = useRef(new URLSearchParams(window.location.search).get('t'));
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [modalState, setModalState] = useState({ isOpen: false, task: null, isEditMode: false });
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -95,6 +97,29 @@ function WorkspaceShell() {
   const openTaskModal = useCallback((task, isEditMode = false) => {
     setModalState({ isOpen: true, task, isEditMode });
   }, []);
+
+  // 딥링크의 taskId → 데이터 준비 후 해당 작업 모달 오픈(존재 검증)
+  useEffect(() => {
+    const tid = pendingTaskIdRef.current;
+    if (!tid) return;
+    if (cloudMode && !cloudReady) return; // 클라우드 로드 완료 대기
+    const task = store.getState().tasks.byId[tid];
+    if (task) { setActiveMenu(task.projectId); openTaskModal(task); }
+    pendingTaskIdRef.current = null;
+  }, [cloudMode, cloudReady, openTaskModal]);
+
+  // activeMenu/모달 상태 → URL(search params) 동기화 (대시보드/일반 뷰는 파라미터 제거)
+  useEffect(() => {
+    const params = new URLSearchParams();
+    const isProject = !['dashboard', 'myTasks', 'guide'].includes(activeMenu) && !activeMenu.startsWith('team:');
+    if (isProject) params.set('p', activeMenu);
+    if (modalState.isOpen && modalState.task?.id) {
+      if (modalState.task.projectId) params.set('p', modalState.task.projectId);
+      params.set('t', modalState.task.id);
+    }
+    const qs = params.toString();
+    window.history.replaceState(null, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+  }, [activeMenu, modalState]);
 
   // 로컬 → 클라우드 1회 이관
   const handleMigrate = useCallback(async () => {

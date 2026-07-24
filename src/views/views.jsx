@@ -14,6 +14,7 @@ import {
 import { Board, CalendarBoard } from '../components/boards.jsx';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
+import { ShareButton } from '../components/ShareButton.jsx';
 
 // ============================================================================
 // 11. UI Views (데이터를 구독하는 프레젠테이션 컴포넌트)
@@ -175,6 +176,7 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
             <button onClick={() => setViewMode('kanban')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'kanban' ? 'bg-surface shadow-soft text-fg' : 'text-fg-muted hover:text-fg'}`}><LayoutDashboard size={14} className="shrink-0"/> 보드</button>
             <button onClick={() => setViewMode('calendar')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'calendar' ? 'bg-surface shadow-soft text-fg' : 'text-fg-muted hover:text-fg'}`}><CalendarIcon size={14} className="shrink-0"/> 캘린더</button>
           </div>
+          <ShareButton url={`${window.location.origin}/s/p/${project.id}`} title="프로젝트 공유 링크 복사" />
           {isAdmin && (
             confirmingDelete ? (
               <div className="flex items-center gap-1.5 animate-in fade-in duration-150 shrink-0">

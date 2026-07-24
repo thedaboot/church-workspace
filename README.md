@@ -133,6 +133,39 @@ insert into admins (email) values ('joshua@276holdings.com');
 
 `.env`가 없으면 지금처럼 로그인 없는 **로컬(게스트) 모드**로 동작하며 데이터는 브라우저 localStorage에 저장됩니다.
 
+## 🔗 공유 · 미리보기 · AI 프록시 (Vercel 서버 함수)
+
+### 딥링크
+
+- `/?p=<projectId>` — 해당 프로젝트 보드로 진입.
+- `/?p=<projectId>&t=<taskId>` — 프로젝트로 진입 후 해당 작업 상세 모달을 자동으로 엽니다(존재 검증).
+- 앱 안에서 프로젝트/모달을 오가면 주소창 URL이 자동으로 동기화됩니다(대시보드로 오면 파라미터 제거). 게스트 모드에서도 동일하게 동작합니다.
+
+### 공유 링크 & 카카오톡 미리보기(OG)
+
+프로젝트 헤더와 작업 상세 헤더의 **공유 버튼(Share)** 을 누르면 `/s/p/<projectId>` 또는 `/s/t/<taskId>` 링크가 클립보드에 복사됩니다.
+
+- 이 링크는 `api/share.js`(Vercel 서버 함수)로 연결됩니다. 크롤러(카카오톡/트위터 등)에는 **제목·설명·`og:image`(절대 URL) 메타**가 담긴 HTML을 주고, 사람은 곧바로 앱(`/?p=...`)으로 리디렉션됩니다.
+- 메타의 제목/설명은 `SUPABASE_SECRET_KEY`로 projects/cards를 조회해 채웁니다(프로젝트명, 카드 제목·상태·마감일). 응답은 `s-maxage=300`으로 캐시됩니다.
+- 대표 URL(루트 `/`)의 미리보기 이미지: 상대경로 `og.png`는 카카오에서 무효라 배포 도메인이 확정되어야 절대 URL을 넣을 수 있습니다. `index.html`에 TODO 주석으로 표시해 두었으니 **배포 후 `og:image` 한 줄을 추가**하세요. (개별 `/s/` 공유 링크는 이미 이미지가 정상 노출됩니다.)
+- 확인 도구: [카카오 공유 디버거](https://developers.kakao.com/tool/debugger/sharing)에 `/s/p/<id>` URL을 넣어 미리보기와 메타를 점검할 수 있습니다.
+
+### Gemini AI 프록시
+
+AI 요약·문맥 다듬기·댓글 톤 교정은 `api/ai.js`를 경유합니다. 클라이언트는 API 키를 갖지 않고, 로그인 세션 토큰을 실어 요청하면 서버가 세션을 검증한 뒤 `gemini-3.1-flash-lite`를 호출합니다. 게스트 모드에서는 "로그인 후 사용" 안내를 반환합니다.
+
+### 필요한 Vercel 환경변수
+
+| 변수 | 용도 | 노출 |
+|---|---|---|
+| `VITE_SUPABASE_URL` | Supabase 프로젝트 URL | 클라이언트(빌드 포함) |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anon key | 클라이언트(빌드 포함) |
+| `VITE_ADMIN_EMAILS` | 관리자 이메일(쉼표 구분) | 클라이언트(빌드 포함) |
+| `GEMINI_API_KEY` | Gemini 호출 키 | **서버 전용** |
+| `SUPABASE_SECRET_KEY` | RLS 우회 조회·세션 검증(`sb_secret_...`) | **서버 전용** |
+
+> 로컬에서 `api/` 서버 함수까지 함께 띄우려면 `npx vercel dev`를 사용하세요. 일반 `npm run dev`에는 서버 함수가 없어 AI/공유 함수는 배포 환경(또는 vercel dev)에서만 동작합니다.
+
 ## 🚀 로컬 실행 방법 (Getting Started)
 
 ### 1. 프로젝트 클론 및 패키지 설치
