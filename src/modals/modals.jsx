@@ -140,6 +140,7 @@ const TaskEditor = React.memo(({ formData, setFormData }) => {
           </button>
         </div>
         <textarea name="content" value={formData.content || ''} onChange={handleChange} placeholder="내용을 입력하세요. @이름 멘션, 이미지·링크 URL도 붙여넣을 수 있어요." className="w-full h-32 md:h-48 border border-line rounded-md p-3 text-xs leading-relaxed bg-surface text-fg placeholder:text-fg-faint resize-none focus:border-accent focus:shadow-soft outline-none transition-all"></textarea>
+        <p className="text-[10px] text-fg-faint mt-1">마크다운 지원 — **굵게** · *기울임* · __밑줄__ · ~~취소선~~ · ==형광펜== · # 제목(#~####) · - 불릿 · 1. 번호 목록</p>
       </div>
     </form>
   );
