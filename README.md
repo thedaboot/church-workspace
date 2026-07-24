@@ -9,6 +9,7 @@
 - **프로젝트 리소스 링크**: 기획안·시트 같은 외부 링크를 프로젝트 상단에 고정(핀)해두고, 추가·삭제할 수 있습니다.
 - **마스터 대시보드**: 전체 프로젝트 진척도 및 팀별 남은 업무 통계 시각화
 - **실시간 소통 & 멘션**: 업무별 댓글 피드 및 @이름 멘션 기능
+- **카드 첨부 파일**(클라우드 모드): 작업 상세에서 파일을 드래그앤드롭하거나 클릭해 올리고, 이미지는 클립보드 붙여넣기(Ctrl/⌘+V)도 됩니다. 이미지는 썸네일로, 그 외는 타입별 파스텔 아이콘(PDF·워드·PPT·엑셀 등)으로 표시되며 한 파일당 최대 25MB입니다. 저장소는 현재 Supabase Storage(private 버킷)이며 추후 구글 드라이브 전환을 계획하고 있어요. 삭제는 올린 본인 또는 관리자만 가능합니다.
 - **Time-Travel (Undo/Redo)**: 자체 구현한 상태 관리를 통한 실행 취소/다시 실행 기능 — 칸반에서 카드를 실수로 옮기거나 잘못 저장했을 때 헤더의 버튼으로 즉시 되돌립니다.
 - **프로필(닉네임·팀)**: 사이드바 하단에서 표시 이름과 소속 팀을 설정합니다. 로그인 사용 시 첫 로그인 직후 설정 창이 자동으로 열려요.
 - **서버리스 클라우드 동기화**: 구글 Apps Script를 활용하여 관리자의 구글 드라이브를 자체 DB로 활용
@@ -101,10 +102,15 @@ src/
 
 ### 마이그레이션 적용
 
-스키마는 [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) 한 파일에 정리되어 있습니다. 둘 중 한 방법으로 적용하세요.
+스키마는 `supabase/migrations/`에 순서대로 정리되어 있습니다. 둘 중 한 방법으로 적용하세요.
 
-- **Supabase 대시보드**: `SQL Editor`에 `0001_init.sql` 내용을 붙여넣고 실행.
+- **Supabase 대시보드**: `SQL Editor`에 각 파일 내용을 순서대로 붙여넣고 실행.
 - **Supabase CLI**: 프로젝트를 링크한 뒤 `supabase db push`.
+
+마이그레이션 파일:
+- [`0001_init.sql`](supabase/migrations/0001_init.sql) — 초기 스키마(테이블·RLS·트리거·Realtime).
+- [`0002_profile_selfheal.sql`](supabase/migrations/0002_profile_selfheal.sql) — 누락 프로필 백필(가입 트리거 미발화 대비).
+- [`0003_attachments.sql`](supabase/migrations/0003_attachments.sql) — 첨부 파일용 `files` 스키마 보정 + Storage 버킷/정책 + teams 시드.
 
 ### 관리자 등록
 

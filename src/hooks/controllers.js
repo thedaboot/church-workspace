@@ -73,6 +73,17 @@ export const useWorkspaceController = () => {
     return updated;
   }, [currentUser.name, cloudOn]);
 
+  // 첨부 업로드/삭제 시 활동 로그(로컬 반영 + 클라우드 activity 미러링)
+  const handleFileActivity = useCallback((task, action) => {
+    const updated = TaskService.addActivity(task, action, currentUser.name);
+    store.dispatch({ type: 'UPSERT_TASK', payload: updated });
+    if (cloudOn) {
+      const entry = updated.activityLog[updated.activityLog.length - 1];
+      cloudSync.activityAddCloud([entry], task.projectId, task.id).catch(reportCloudError('활동 기록'));
+    }
+    return updated;
+  }, [currentUser.name, cloudOn]);
+
   const handleAddProject = useCallback((title) => {
     const newProject = { id: generateId(), title, pinnedLinks: [] };
     store.dispatch({ type: 'ADD_PROJECT', payload: newProject });
@@ -85,7 +96,7 @@ export const useWorkspaceController = () => {
     if (cloudOn) cloudSync.profileUpdateCloud(profile).catch(reportCloudError('프로필 저장'));
   }, [cloudOn]);
 
-  return { handleSaveTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleAddProject, handleUpdateUser, undo: store.undo, redo: store.redo };
+  return { handleSaveTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleUpdateUser, undo: store.undo, redo: store.redo };
 };
 
 export const usePersistenceController = () => {

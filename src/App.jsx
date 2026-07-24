@@ -164,6 +164,7 @@ function WorkspaceShell() {
             onAddComment={(text, parentId = null) => { const updated = controller.handleAddComment(modalState.task, text, parentId); setModalState(prev => ({ ...prev, task: updated })); }}
             onUpdateComment={(commentId, newText) => { const updated = controller.handleUpdateComment(modalState.task, commentId, newText); setModalState(prev => ({ ...prev, task: updated })); }}
             onDeleteComment={(commentId) => { const updated = controller.handleDeleteComment(modalState.task, commentId); setModalState(prev => ({ ...prev, task: updated })); }}
+            onFileActivity={(action) => { const updated = controller.handleFileActivity(modalState.task, action); setModalState(prev => ({ ...prev, task: updated })); }}
           />
         </ErrorBoundary>
       )}

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   CheckSquare, Clock, X, User, Hash, RefreshCw, Download, Upload,
-  Wand2, Sparkles, Bot, CalendarRange, Pencil, Trash2, Heart
+  Wand2, Sparkles, Bot, CalendarRange, Pencil, Trash2, Heart,
+  FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, Loader2, ExternalLink
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { formatDate, avatarColor } from '../utils.js';
@@ -12,12 +13,16 @@ import { RichText } from '../components/RichText.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { supabase } from '../services/supabaseClient.js';
+import { uploadAttachment, getAttachmentUrl, deleteAttachment, listCardFiles } from '../services/cloud.js';
 
 // ============================================================================
 // 13. Modals (완벽한 SRP 분리)
 // ============================================================================
-export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAddComment, onUpdateComment, onDeleteComment }) {
+export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAddComment, onUpdateComment, onDeleteComment, onFileActivity }) {
   const currentUser = useStore(selectCurrentUser);
+  const { enabled, session, isAdmin } = useAuth();
+  const cloudMode = enabled && !!session;
+  const userId = session?.user?.id;
   const [formData, setFormData] = useState(task);
   const [activeTab, setActiveTab] = useState('comments');
 
@@ -35,7 +40,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
             <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>
           </div>
           <div className="p-5 md:p-8 flex-1">
-            {isEditMode ? <TaskEditor formData={formData} setFormData={setFormData} /> : <TaskViewer formData={formData} />}
+            {isEditMode ? <TaskEditor formData={formData} setFormData={setFormData} /> : <TaskViewer formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />}
           </div>
           <div className="sticky bottom-0 border-t border-line p-3 md:p-4 flex justify-between items-center z-10 bg-surface-2/80 backdrop-blur">
             <div className="text-[10px] text-fg-faint hidden sm:block">작성: {formData.author} • 최근: {formatDate(formData.updatedAt)}</div>
@@ -136,7 +141,7 @@ const TaskEditor = React.memo(({ formData, setFormData }) => {
   );
 });
 
-const TaskViewer = React.memo(({ formData }) => {
+const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity }) => {
   const [summary, setSummary] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
 
@@ -173,9 +178,135 @@ const TaskViewer = React.memo(({ formData }) => {
         )}
         <RichText content={formData.content} />
       </div>
+
+      {cloudMode && formData.id && (
+        <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />
+      )}
     </div>
   );
 });
+
+// ── 첨부 파일 (클라우드 모드 전용) ──────────────────────────────────────────
+const formatBytes = (b) => {
+  if (b === null || b === undefined) return '';
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${Math.round(b / 1024)} KB`;
+  return `${(b / 1024 / 1024).toFixed(1)} MB`;
+};
+const fileKind = (name = '', mime = '') => {
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  const has = (m) => (mime || '').includes(m);
+  if (ext === 'pdf' || has('pdf')) return { chip: 'bg-tag-red text-tag-red-fg', icon: <FileText size={16} strokeWidth={1.75} /> };
+  if (['doc', 'docx'].includes(ext) || has('word')) return { chip: 'bg-tag-blue text-tag-blue-fg', icon: <FileText size={16} strokeWidth={1.75} /> };
+  if (['ppt', 'pptx'].includes(ext) || has('presentation')) return { chip: 'bg-tag-orange text-tag-orange-fg', icon: <Presentation size={16} strokeWidth={1.75} /> };
+  if (['xls', 'xlsx', 'csv'].includes(ext) || has('sheet') || has('excel') || has('csv')) return { chip: 'bg-tag-green text-tag-green-fg', icon: <FileSpreadsheet size={16} strokeWidth={1.75} /> };
+  return { chip: 'bg-tag-gray text-tag-gray-fg', icon: <File size={16} strokeWidth={1.75} /> };
+};
+
+const AttachmentRow = ({ row, canDelete, onOpen, onRemove }) => {
+  const [confirming, setConfirming] = useState(false);
+  const [thumb, setThumb] = useState(null);
+  const isImage = (row.mime_type || '').startsWith('image/');
+  useEffect(() => {
+    if (!isImage || !row.storage_path) return;
+    let alive = true;
+    getAttachmentUrl(row.storage_path).then(u => { if (alive) setThumb(u); }).catch(() => {});
+    return () => { alive = false; };
+  }, [row.id]);
+  const kind = fileKind(row.name, row.mime_type);
+  return (
+    <div className="flex items-center gap-2.5 py-2 animate-in fade-in duration-200">
+      {isImage
+        ? (thumb
+            ? <img src={thumb} alt={row.name} onClick={onOpen} className="h-20 w-20 object-cover rounded-md border border-line cursor-pointer shrink-0" />
+            : <div className="h-20 w-20 rounded-md border border-line bg-surface-2 shrink-0 animate-pulse" />)
+        : <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>}
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-fg truncate">{row.name}</p>
+        <p className="text-[10px] text-fg-faint mt-0.5">{formatBytes(row.size_bytes)}</p>
+      </div>
+      <button onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title="열기"><ExternalLink size={14} /></button>
+      {canDelete && (confirming
+        ? <span className="flex items-center gap-1 shrink-0"><button onClick={onRemove} className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-md px-2 py-0.5 text-[10px] font-semibold transition active:scale-95">삭제</button><button onClick={() => setConfirming(false)} className="text-fg-muted hover:text-fg text-[10px] px-1 transition">취소</button></span>
+        : <button onClick={() => setConfirming(true)} className="p-1.5 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95" title="삭제"><Trash2 size={14} /></button>)}
+    </div>
+  );
+};
+
+const AttachmentSection = ({ task, userId, isAdmin, onFileActivity }) => {
+  const [items, setItems] = useState(task.attachments || []);
+  const [dragOver, setDragOver] = useState(false);
+  const [uploadingName, setUploadingName] = useState(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    let alive = true;
+    listCardFiles(task.id).then(rows => { if (alive) setItems(rows); }).catch(e => console.error('[cloud] 첨부 목록 로드 실패:', e));
+    return () => { alive = false; };
+  }, [task.id]);
+
+  const uploadFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    for (const file of files) {
+      if (file.size > 25 * 1024 * 1024) { window.alert(`'${file.name}'은(는) 25MB를 초과해 건너뜁니다.`); continue; }
+      try {
+        setUploadingName(file.name);
+        const row = await uploadAttachment(file, { projectId: task.projectId, cardId: task.id });
+        setItems(prev => [...prev, row]);
+        onFileActivity?.(`파일 '${row.name}'을(를) 첨부했습니다.`);
+      } catch (e) {
+        console.error('[cloud] 업로드 실패:', e);
+        window.alert(`업로드 실패 (${file.name})\n원인: ${e.message || e}`);
+      } finally {
+        setUploadingName(null);
+      }
+    }
+  };
+
+  // 클립보드 이미지 붙여넣기
+  useEffect(() => {
+    const onPaste = (e) => { const f = e.clipboardData?.files; if (f && f.length) uploadFiles(f); };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.id]);
+
+  const openFile = async (row) => {
+    try { const url = await getAttachmentUrl(row.storage_path); window.open(url, '_blank', 'noopener'); }
+    catch (e) { window.alert('파일을 열 수 없어요: ' + (e.message || e)); }
+  };
+  const removeItem = async (row) => {
+    try {
+      await deleteAttachment(row);
+      setItems(prev => prev.filter(x => x.id !== row.id));
+      onFileActivity?.(`파일 '${row.name}'을(를) 삭제했습니다.`);
+    } catch (e) { console.error('[cloud] 삭제 실패:', e); window.alert('삭제 실패: ' + (e.message || e)); }
+  };
+
+  return (
+    <div className="mt-5">
+      <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-fg-muted"><Paperclip size={13} className="text-fg-faint" /> 첨부 파일</div>
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => { e.preventDefault(); setDragOver(false); uploadFiles(e.dataTransfer.files); }}
+        onClick={() => inputRef.current?.click()}
+        className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${dragOver ? 'border-accent bg-accent-weak/40' : 'border-line hover:bg-surface-2/50'}`}
+      >
+        <input ref={inputRef} type="file" multiple className="hidden" onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
+        <UploadCloud size={20} strokeWidth={1.75} className="mx-auto text-fg-faint mb-1" />
+        <p className="text-[11px] text-fg-muted">파일을 끌어다 놓거나 클릭해서 선택하세요</p>
+        <p className="text-[10px] text-fg-faint mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 25MB</p>
+      </div>
+      {uploadingName && <div className="flex items-center gap-2 mt-2 text-[11px] text-fg-muted"><Loader2 size={13} className="animate-spin" /> 업로드 중: {uploadingName}</div>}
+      {items.length > 0 && (
+        <div className="divide-y divide-line/60 mt-1">
+          {items.map(row => <AttachmentRow key={row.id} row={row} canDelete={isAdmin || row.uploaded_by === userId} onOpen={() => openFile(row)} onRemove={() => removeItem(row)} />)}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // 노션 스타일 플랫 댓글: 아바타 + 이름·시간 + 본문, 카드 대신 헤어라인 구분
 // 작성자 본인일 때만 수정(인라인 textarea)·삭제(인라인 확인) 노출

@@ -47,6 +47,7 @@ const cardToTask = (card) => ({
   updatedAt: card.updated_at,
   comments: [],
   activityLog: [],
+  attachments: [],
 });
 
 const commentToApp = (c) => ({
@@ -73,9 +74,9 @@ const projectToApp = (p, linksByProject) => ({
 
 // ── 초기 로드: 전체를 병렬 조회 → 앱 스토어 모양으로 정규화 ──────────────────
 export async function loadCloudState() {
-  const [teams, profiles, projects, cards, links, comments, activity, initialProfile, sessionRes] = await Promise.all([
+  const [teams, profiles, projects, cards, links, comments, activity, files, initialProfile, sessionRes] = await Promise.all([
     cloud.listTeams(), cloud.listProfiles(), cloud.listProjects(), cloud.listAllCards(),
-    cloud.listAllLinks(), cloud.listAllComments(), cloud.listAllActivity(), cloud.getMyProfile(),
+    cloud.listAllLinks(), cloud.listAllComments(), cloud.listAllActivity(), cloud.listAllFiles(), cloud.getMyProfile(),
     cloud.getSession(),
   ]);
 
@@ -102,10 +103,14 @@ export async function loadCloudState() {
   const activityByCard = new Map();
   activity.forEach(a => { if (!a.card_id) return; if (!activityByCard.has(a.card_id)) activityByCard.set(a.card_id, []); activityByCard.get(a.card_id).push(activityToApp(a)); });
 
+  const filesByCard = new Map();
+  files.forEach(f => { if (!f.card_id) return; if (!filesByCard.has(f.card_id)) filesByCard.set(f.card_id, []); filesByCard.get(f.card_id).push(f); });
+
   const tasks = cards.map(card => {
     const t = cardToTask(card);
     t.comments = commentsByCard.get(card.id) || [];
     t.activityLog = activityByCard.get(card.id) || [];
+    t.attachments = filesByCard.get(card.id) || [];
     return t;
   });
 

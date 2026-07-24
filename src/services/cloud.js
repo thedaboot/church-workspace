@@ -174,16 +174,57 @@ export async function removeLink(id) {
   if (error) throw error;
 }
 
-// ── files (드라이브 참조만 DB에 보관) ───────────────────────────────────────
-export async function linkDriveFile(meta) {
-  // meta: { project_id, card_id?, drive_file_id, name, mime_type?, web_view_link? }
-  return unwrap(await client().from('files').insert(meta).select().single());
-}
+// ── files / 첨부 파일 (Supabase Storage: private 버킷 'attachments') ──────────
+const ATTACH_BUCKET = 'attachments';
+
 export async function listFiles(projectId) {
   return unwrap(await client().from('files').select('*').eq('project_id', projectId).order('created_at', { ascending: true }));
 }
-export async function unlinkFile(id) {
-  const { error } = await client().from('files').delete().eq('id', id);
+export async function listAllFiles() {
+  return unwrap(await client().from('files').select('*').order('created_at', { ascending: true }));
+}
+export async function listCardFiles(cardId) {
+  return unwrap(await client().from('files').select('*').eq('card_id', cardId).order('created_at', { ascending: true }));
+}
+
+// 파일 업로드: Storage 업로드 → files 테이블 참조 행 insert. DB 실패 시 객체 정리.
+export async function uploadAttachment(file, { projectId, cardId }) {
+  const c = client();
+  const safe = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = `${projectId}/${cardId}/${crypto.randomUUID()}-${safe}`;
+  const up = await c.storage.from(ATTACH_BUCKET).upload(path, file, { contentType: file.type || undefined, upsert: false });
+  if (up.error) throw up.error;
+  try {
+    return unwrap(await c.from('files').insert({
+      project_id: projectId,
+      card_id: cardId,
+      name: file.name,
+      mime_type: file.type || null,
+      storage_path: path,
+      size_bytes: file.size ?? null,
+      source: 'storage',
+    }).select().single());
+  } catch (e) {
+    try { await c.storage.from(ATTACH_BUCKET).remove([path]); } catch (_) { /* 정리 실패는 무시 */ }
+    throw e;
+  }
+}
+
+// 1시간 유효 서명 URL (private 버킷이라 직접 URL 불가)
+export async function getAttachmentUrl(storagePath) {
+  const { data, error } = await client().storage.from(ATTACH_BUCKET).createSignedUrl(storagePath, 3600);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+// 삭제: Storage 객체 + files 행
+export async function deleteAttachment(fileRow) {
+  const c = client();
+  if (fileRow.storage_path) {
+    const { error } = await c.storage.from(ATTACH_BUCKET).remove([fileRow.storage_path]);
+    if (error) throw error;
+  }
+  const { error } = await c.from('files').delete().eq('id', fileRow.id);
   if (error) throw error;
 }
 
@@ -220,6 +261,7 @@ export function subscribeAll(onChange) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'card_teams' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'resource_links' }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'files' }, onChange)
     .subscribe();
   return () => c.removeChannel(channel);
 }

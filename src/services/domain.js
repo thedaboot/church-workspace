@@ -41,6 +41,11 @@ export const TaskService = {
     ...task,
     comments: (task.comments || []).filter(c => c.id !== commentId && c.parentId !== commentId),
     activityLog: [...(task.activityLog || []), ActivityService.createLog('댓글을 삭제했습니다.', author)]
+  }),
+  // 임의 활동 로그 추가(첨부 업로드/삭제 등)
+  addActivity: (task, action, author) => ({
+    ...task,
+    activityLog: [...(task.activityLog || []), ActivityService.createLog(action, author)]
   })
 };
 
