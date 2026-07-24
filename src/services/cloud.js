@@ -210,6 +210,21 @@ export async function uploadAttachment(file, { projectId, cardId }) {
   }
 }
 
+// 본문 이미지: 공개 버킷 'content-images'에 업로드 → publicUrl 반환
+// (RichText가 이미지 URL을 렌더하므로 텍스트에 URL만 삽입하면 됨)
+const CONTENT_IMG_BUCKET = 'content-images';
+export async function uploadContentImage(file) {
+  const c = client();
+  const { data: { user } } = await c.auth.getUser();
+  if (!user) throw new Error('로그인이 필요합니다.');
+  const ext = (file.type && file.type.split('/')[1]) || (file.name || '').split('.').pop() || 'png';
+  const path = `${user.id}/${crypto.randomUUID()}.${ext.toLowerCase()}`;
+  const up = await c.storage.from(CONTENT_IMG_BUCKET).upload(path, file, { contentType: file.type || 'image/png', upsert: false });
+  if (up.error) throw up.error;
+  const { data } = c.storage.from(CONTENT_IMG_BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
+
 // 1시간 유효 서명 URL (private 버킷이라 직접 URL 불가)
 export async function getAttachmentUrl(storagePath) {
   const { data, error } = await client().storage.from(ATTACH_BUCKET).createSignedUrl(storagePath, 3600);

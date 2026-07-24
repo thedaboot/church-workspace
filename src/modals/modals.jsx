@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   CheckSquare, Clock, X, User, Hash, RefreshCw, Download, Upload,
   Wand2, Sparkles, Bot, CalendarRange, Pencil, Trash2, Heart,
@@ -7,13 +7,15 @@ import {
 import { CONFIG } from '../config.js';
 import { formatDate, avatarColor } from '../utils.js';
 import { useStore } from '../store/workspaceStore.js';
-import { selectCurrentUser, selectProjectsList } from '../store/selectors.js';
+import { selectCurrentUser, selectProjectsList, selectTasksList } from '../store/selectors.js';
 import { AiService } from '../services/ai.js';
 import { RichText } from '../components/RichText.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
+import { MentionInput } from '../components/MentionInput.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { supabase } from '../services/supabaseClient.js';
-import { uploadAttachment, getAttachmentUrl, deleteAttachment, listCardFiles } from '../services/cloud.js';
+import { uploadAttachment, getAttachmentUrl, deleteAttachment, listCardFiles, uploadContentImage } from '../services/cloud.js';
+import { getMemberNames } from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 
 // ============================================================================
@@ -34,6 +36,16 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   // 삭제 노출 조건: 저장된 카드 + (게스트=작성자 본인 / 클라우드=작성자 본인 또는 관리자)
   const canDelete = !!task.id && (cloudMode ? (task.created_by === userId || isAdmin) : (task.author === currentUser.name));
 
+  // 멘션·담당자 자동완성 멤버 소스 (클라우드=프로필 표시명 / 게스트=현재 사용자 + 기존 담당자)
+  const tasksList = useStore(selectTasksList);
+  const members = useMemo(() => {
+    if (cloudMode) return getMemberNames();
+    const set = new Set();
+    if (currentUser.name) set.add(currentUser.name);
+    tasksList.forEach(t => (t.assignees || []).forEach(a => a && set.add(a)));
+    return [...set];
+  }, [cloudMode, currentUser.name, tasksList]);
+
   const handleSubmit = (e) => { e.preventDefault(); onSave(formData); };
 
   return (
@@ -48,7 +60,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
             </div>
           </div>
           <div className="p-5 md:p-8 flex-1">
-            {isEditMode ? <TaskEditor formData={formData} setFormData={setFormData} /> : <TaskViewer formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />}
+            {isEditMode ? <TaskEditor formData={formData} setFormData={setFormData} members={members} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} /> : <TaskViewer formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />}
           </div>
           <div className="sticky bottom-0 border-t border-line p-3 md:p-4 flex justify-between items-center gap-2 z-10 bg-surface-2/80 backdrop-blur">
             <div className="flex items-center gap-2 min-w-0">
@@ -77,7 +89,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
               <button onClick={() => setActiveTab('activity')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'activity' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>활동 기록</button>
             </div>
             <div className="flex-1 overflow-y-auto p-4">{activeTab === 'comments' ? <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} /> : <ActivityPanel logs={formData.activityLog} />}</div>
-            {activeTab === 'comments' && <CommentInput onAdd={onAddComment} />}
+            {activeTab === 'comments' && <CommentInput onAdd={onAddComment} members={members} />}
           </div>
         )}
       </div>
@@ -93,12 +105,84 @@ const PropertyRow = ({ icon, label, children }) => (
   </div>
 );
 
-const TaskEditor = React.memo(({ formData, setFormData }) => {
+// 담당자 멤버 칩 선택기 — 목록에서 선택하거나 직접 타이핑+Enter로 임의 이름 추가
+const AssigneePicker = ({ value = [], onChange, members = [] }) => {
+  const [input, setInput] = useState('');
+  const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const rootRef = useRef(null);
+
+  const suggestions = useMemo(() => {
+    const q = input.trim().toLowerCase();
+    const uniq = [...new Set(members.filter(Boolean))].filter(m => !value.includes(m));
+    return (q ? uniq.filter(m => m.toLowerCase().includes(q)) : uniq).slice(0, 6);
+  }, [input, members, value]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const add = (name) => {
+    const n = (name || '').trim();
+    setInput(''); setActiveIdx(0);
+    if (!n || value.includes(n)) return;
+    onChange([...value, n]);
+  };
+  const remove = (name) => onChange(value.filter(v => v !== name));
+
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (open && suggestions.length && input.trim()) add(suggestions[activeIdx]);
+      else if (input.trim()) add(input);
+    } else if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActiveIdx(i => Math.min(i + 1, suggestions.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)); }
+    else if (e.key === 'Escape') { setOpen(false); }
+    else if (e.key === 'Backspace' && !input && value.length) { remove(value[value.length - 1]); }
+  };
+
+  return (
+    <div className="relative" ref={rootRef}>
+      <div className="flex flex-wrap items-center gap-1.5 border border-line rounded-xs bg-surface px-2 py-1.5 focus-within:border-accent focus-within:shadow-soft transition-all">
+        {value.map(name => (
+          <span key={name} className="inline-flex items-center gap-1 bg-accent-weak text-accent-text rounded-full pl-2 pr-1 py-0.5 text-[11px] font-medium">
+            {name}
+            <button type="button" onClick={() => remove(name)} className="hover:bg-accent/20 rounded-full p-0.5 transition active:scale-95" title="제거"><X size={11} /></button>
+          </span>
+        ))}
+        <input
+          value={input}
+          onChange={e => { setInput(e.target.value); setOpen(true); setActiveIdx(0); }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={onKeyDown}
+          placeholder={value.length ? '추가…' : '이름 입력 후 Enter 또는 목록에서 선택'}
+          className="flex-1 min-w-[8rem] bg-transparent text-xs text-fg placeholder:text-fg-faint outline-none py-0.5"
+        />
+      </div>
+      {open && suggestions.length > 0 && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-max min-w-[10rem] max-w-[min(18rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150">
+          {suggestions.map((name, i) => (
+            <button key={name} type="button" onMouseDown={e => { e.preventDefault(); add(name); }}
+              className={`w-full flex items-center gap-2 px-2 py-2 rounded-md text-left text-sm transition-colors ${i === activeIdx ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:bg-surface-hover'}`}>
+              <span className="truncate">{name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [imgUploading, setImgUploading] = useState(false);
+  const contentRef = useRef(null);
 
   const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   const toggleTeam = (team) => setFormData(prev => ({ ...prev, teams: (prev.teams || []).includes(team) ? prev.teams.filter(t => t !== team) : [...(prev.teams || []), team] }));
-  const handleAssignees = (e) => setFormData(prev => ({ ...prev, assignees: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }));
 
   const handleAiPolish = async () => {
     if (!formData.content) return;
@@ -106,6 +190,37 @@ const TaskEditor = React.memo(({ formData, setFormData }) => {
     const polished = await AiService.polishText(formData.content);
     if (polished) setFormData(prev => ({ ...prev, content: polished }));
     setIsAiLoading(false);
+  };
+
+  // 본문 이미지 붙여넣기(클라우드 모드): content-images 공개 버킷 업로드 → 커서 위치에 URL 줄 삽입
+  const handleContentPaste = async (e) => {
+    if (!cloudMode) return; // 게스트: 기본 붙여넣기(URL 등) 유지
+    const files = e.clipboardData?.files;
+    const img = files && [...files].find(f => (f.type || '').startsWith('image/'));
+    if (!img) return;
+    e.preventDefault();
+    e.stopPropagation(); // 문서 레벨 첨부 붙여넣기 리스너로 전파 방지
+    setImgUploading(true);
+    try {
+      const url = await uploadContentImage(img);
+      const el = contentRef.current;
+      const cur = formData.content || '';
+      const caret = el ? el.selectionStart : cur.length;
+      const before = cur.slice(0, caret);
+      const after = cur.slice(caret);
+      const lead = before && !before.endsWith('\n') ? '\n' : '';
+      const trail = after && !after.startsWith('\n') ? '\n' : '';
+      const insert = `${lead}${url}${trail}`;
+      const next = before + insert + after;
+      setFormData(prev => ({ ...prev, content: next }));
+      const newPos = (before + insert).length;
+      requestAnimationFrame(() => { if (el) { el.focus(); el.setSelectionRange(newPos, newPos); } });
+    } catch (err) {
+      console.error('[cloud] 본문 이미지 업로드 실패:', err);
+      window.alert('이미지 업로드에 실패했어요: ' + (err.message || err));
+    } finally {
+      setImgUploading(false);
+    }
   };
 
   return (
@@ -143,20 +258,34 @@ const TaskEditor = React.memo(({ formData, setFormData }) => {
           </div>
         </PropertyRow>
         <PropertyRow icon={<User size={13} className="text-fg-faint" />} label="담당자">
-          <input type="text" value={(formData.assignees || []).join(', ')} onChange={handleAssignees} placeholder="이름을 쉼표로 구분해 입력" className="w-full border border-line rounded-xs text-xs bg-surface text-fg placeholder:text-fg-faint px-2 py-1.5 focus:border-accent focus:shadow-soft outline-none transition-all" />
+          <AssigneePicker value={formData.assignees || []} onChange={(next) => setFormData(prev => ({ ...prev, assignees: next }))} members={members} />
         </PropertyRow>
       </div>
 
       <div>
-        <div className="flex justify-between items-center mb-1.5">
-          <label className="block text-xs text-fg-muted">상세 내용</label>
-          <button type="button" onClick={handleAiPolish} disabled={isAiLoading || !formData.content} className="flex items-center gap-1 px-2 py-1 bg-tag-purple text-tag-purple-fg hover:opacity-80 rounded-full text-[10px] font-bold transition active:scale-95 disabled:opacity-40">
-            {isAiLoading ? <span className="animate-pulse">다듬는 중...</span> : <><Wand2 size={12} /> AI 문맥 다듬기</>}
-          </button>
+        <div className="flex justify-between items-center gap-2 mb-1.5">
+          <label className="block text-xs text-fg-muted shrink-0">상세 내용</label>
+          <div className="flex items-center gap-2 min-w-0">
+            {imgUploading && <span className="text-[10px] text-fg-muted animate-pulse whitespace-nowrap">이미지 업로드 중...</span>}
+            <button type="button" onClick={handleAiPolish} disabled={isAiLoading || !formData.content} className="flex items-center gap-1 px-2 py-1 bg-tag-purple text-tag-purple-fg hover:opacity-80 rounded-full text-[10px] font-bold transition active:scale-95 disabled:opacity-40 shrink-0">
+              {isAiLoading ? <span className="animate-pulse">다듬는 중...</span> : <><Wand2 size={12} /> AI 문맥 다듬기</>}
+            </button>
+          </div>
         </div>
-        <textarea name="content" value={formData.content || ''} onChange={handleChange} placeholder="내용을 입력하세요. @이름 멘션, 이미지·링크 URL도 붙여넣을 수 있어요." className="w-full h-32 md:h-48 border border-line rounded-md p-3 text-xs leading-relaxed bg-surface text-fg placeholder:text-fg-faint resize-none focus:border-accent focus:shadow-soft outline-none transition-all"></textarea>
-        <p className="text-[10px] text-fg-faint mt-1">마크다운 지원 — **굵게** · *기울임* · __밑줄__ · ~~취소선~~ · ==형광펜== · # 제목(#~####) · - 불릿 · 1. 번호 목록</p>
+        <MentionInput
+          as="textarea" name="content" value={formData.content || ''}
+          onChange={(val) => setFormData(prev => ({ ...prev, content: val }))}
+          members={members} elementRef={contentRef} onPaste={handleContentPaste}
+          placeholder={cloudMode ? '내용을 입력하세요. @이름 멘션, 이미지 붙여넣기(Ctrl/⌘+V), 링크 URL도 돼요.' : '내용을 입력하세요. @이름 멘션, 이미지·링크 URL도 붙여넣을 수 있어요.'}
+          className="w-full h-32 md:h-48 border border-line rounded-md p-3 text-xs leading-relaxed bg-surface text-fg placeholder:text-fg-faint resize-none focus:border-accent focus:shadow-soft outline-none transition-all"
+        />
+        <p className="text-[10px] text-fg-faint mt-1">마크다운 지원 — **굵게** · *기울임* · __밑줄__ · ~~취소선~~ · ==형광펜== · # 제목(#~####) · - 불릿 · 1. 번호 · [이름](URL) 링크</p>
       </div>
+
+      {cloudMode && (formData.id
+        ? <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />
+        : <p className="mt-4 text-[11px] text-fg-faint flex items-center gap-1.5"><Paperclip size={13} className="text-fg-faint" /> 저장 후 첨부할 수 있어요.</p>
+      )}
     </form>
   );
 });
@@ -200,7 +329,7 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
       </div>
 
       {cloudMode && formData.id && (
-        <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />
+        <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} readOnly />
       )}
     </div>
   );
@@ -253,7 +382,7 @@ const AttachmentRow = ({ row, canDelete, onOpen, onRemove }) => {
   );
 };
 
-const AttachmentSection = ({ task, userId, isAdmin, onFileActivity }) => {
+const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = false }) => {
   const [items, setItems] = useState(task.attachments || []);
   const [dragOver, setDragOver] = useState(false);
   const [uploadingName, setUploadingName] = useState(null);
@@ -283,13 +412,14 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity }) => {
     }
   };
 
-  // 클립보드 이미지 붙여넣기
+  // 클립보드 이미지 붙여넣기 (수정 모드에서만; 본문 textarea 붙여넣기는 stopPropagation으로 제외)
   useEffect(() => {
+    if (readOnly) return;
     const onPaste = (e) => { const f = e.clipboardData?.files; if (f && f.length) uploadFiles(f); };
     document.addEventListener('paste', onPaste);
     return () => document.removeEventListener('paste', onPaste);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task.id]);
+  }, [task.id, readOnly]);
 
   const openFile = async (row) => {
     try { const url = await getAttachmentUrl(row.storage_path); window.open(url, '_blank', 'noopener'); }
@@ -303,25 +433,30 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity }) => {
     } catch (e) { console.error('[cloud] 삭제 실패:', e); window.alert('삭제 실패: ' + (e.message || e)); }
   };
 
+  // 읽기 전용(뷰어)에서 첨부가 없으면 섹션 자체를 숨김
+  if (readOnly && items.length === 0) return null;
+
   return (
     <div className="mt-5">
       <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-fg-muted"><Paperclip size={13} className="text-fg-faint" /> 첨부 파일</div>
-      <div
-        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={e => { e.preventDefault(); setDragOver(false); uploadFiles(e.dataTransfer.files); }}
-        onClick={() => inputRef.current?.click()}
-        className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${dragOver ? 'border-accent bg-accent-weak/40' : 'border-line hover:bg-surface-2/50'}`}
-      >
-        <input ref={inputRef} type="file" multiple className="hidden" onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
-        <UploadCloud size={20} strokeWidth={1.75} className="mx-auto text-fg-faint mb-1" />
-        <p className="text-[11px] text-fg-muted">파일을 끌어다 놓거나 클릭해서 선택하세요</p>
-        <p className="text-[10px] text-fg-faint mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 25MB</p>
-      </div>
-      {uploadingName && <div className="flex items-center gap-2 mt-2 text-[11px] text-fg-muted"><Loader2 size={13} className="animate-spin" /> 업로드 중: {uploadingName}</div>}
+      {!readOnly && (
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={e => { e.preventDefault(); setDragOver(false); uploadFiles(e.dataTransfer.files); }}
+          onClick={() => inputRef.current?.click()}
+          className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${dragOver ? 'border-accent bg-accent-weak/40' : 'border-line hover:bg-surface-2/50'}`}
+        >
+          <input ref={inputRef} type="file" multiple className="hidden" onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
+          <UploadCloud size={20} strokeWidth={1.75} className="mx-auto text-fg-faint mb-1" />
+          <p className="text-[11px] text-fg-muted">파일을 끌어다 놓거나 클릭해서 선택하세요</p>
+          <p className="text-[10px] text-fg-faint mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 25MB</p>
+        </div>
+      )}
+      {!readOnly && uploadingName && <div className="flex items-center gap-2 mt-2 text-[11px] text-fg-muted"><Loader2 size={13} className="animate-spin" /> 업로드 중: {uploadingName}</div>}
       {items.length > 0 && (
         <div className="divide-y divide-line/60 mt-1">
-          {items.map(row => <AttachmentRow key={row.id} row={row} canDelete={isAdmin || row.uploaded_by === userId} onOpen={() => openFile(row)} onRemove={() => removeItem(row)} />)}
+          {items.map(row => <AttachmentRow key={row.id} row={row} canDelete={!readOnly && (isAdmin || row.uploaded_by === userId)} onOpen={() => openFile(row)} onRemove={() => removeItem(row)} />)}
         </div>
       )}
     </div>
@@ -458,9 +593,10 @@ const ActivityPanel = React.memo(({ logs }) => (
   </div>
 ));
 
-const CommentInput = ({ onAdd }) => {
+const CommentInput = ({ onAdd, members = [] }) => {
   const [val, setVal] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const submit = () => { if (val.trim()) { onAdd(val); setVal(''); } };
 
   const handleAiSuggest = async () => {
     if (!val.trim()) return;
@@ -473,12 +609,17 @@ const CommentInput = ({ onAdd }) => {
   return (
     <div className="p-3 bg-surface border-t border-line shrink-0 relative">
       {isAiLoading && <div className="absolute inset-0 bg-surface/70 backdrop-blur-[1px] flex items-center justify-center z-10 text-xs font-bold text-tag-purple-fg animate-pulse">댓글 다듬는 중...</div>}
-      <textarea value={val} onChange={e => setVal(e.target.value)} placeholder="@이름 으로 멘션..." className="w-full text-xs border border-line rounded-xs p-2 focus:ring-2 focus:ring-accent outline-none resize-none h-14 bg-surface text-fg placeholder:text-fg-faint" onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (val.trim()) { onAdd(val); setVal(''); } } }} />
+      <MentionInput
+        as="textarea" value={val} onChange={setVal} members={members} dropUp
+        placeholder="@이름 으로 멘션..."
+        className="w-full text-xs border border-line rounded-xs p-2 focus:ring-2 focus:ring-accent outline-none resize-none h-14 bg-surface text-fg placeholder:text-fg-faint"
+        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+      />
       <div className="flex justify-between mt-2 items-center">
         <button onClick={handleAiSuggest} disabled={!val.trim() || isAiLoading} className="text-tag-purple-fg hover:bg-tag-purple disabled:opacity-50 disabled:hover:bg-transparent px-2 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1 transition active:scale-95" title="부드러운 어조로 자동 수정">
           <Bot size={14}/> AI 둥글게 둥글게
         </button>
-        <button onClick={() => { if (val.trim()) { onAdd(val); setVal(''); } }} disabled={!val.trim()} className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-3 py-1.5 rounded-md text-[10px] font-bold transition active:scale-95">등록</button>
+        <button onClick={submit} disabled={!val.trim()} className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-3 py-1.5 rounded-md text-[10px] font-bold transition active:scale-95">등록</button>
       </div>
     </div>
   );

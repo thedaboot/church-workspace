@@ -7,13 +7,17 @@ import React, { useMemo } from 'react';
 //    (풀 마크다운 파서가 아닌 정규식 경량 구현 — 중첩은 1단계까지만)
 // ============================================================================
 
-// 인라인 토큰: 순서 중요 — ** 가 * 보다, __ 가 먼저 매칭되어야 함
-const INLINE_RE = /(\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|==[^=\n]+==|\*[^*\n]+\*|@\S+|https?:\/\/\S+)/g;
+// 인라인 토큰: 순서 중요 — [텍스트](URL) 링크가 생 URL보다 먼저,
+// ** 가 * 보다, __ 가 먼저 매칭되어야 함
+const INLINE_RE = /(\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|==[^=\n]+==|\*[^*\n]+\*|@\S+|https?:\/\/\S+)/g;
+const MD_LINK_RE = /^\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)$/;
 
 const renderInline = (text, keyBase) => {
   if (!text) return null;
   return text.split(INLINE_RE).filter(Boolean).map((part, i) => {
     const key = `${keyBase}-${i}`;
+    const link = part.match(MD_LINK_RE);
+    if (link) return <a key={key} href={link[2]} target="_blank" rel="noreferrer" className="text-accent-text underline mx-0.5 break-all hover:text-accent-strong">{link[1]}</a>;
     if (/^\*\*[^*\n]+\*\*$/.test(part)) return <strong key={key} className="font-bold">{part.slice(2, -2)}</strong>;
     if (/^__[^_\n]+__$/.test(part)) return <u key={key}>{part.slice(2, -2)}</u>;
     if (/^~~[^~\n]+~~$/.test(part)) return <s key={key} className="opacity-80">{part.slice(2, -2)}</s>;
@@ -37,7 +41,9 @@ const parseBlocks = (text) => {
   if (!text) return [];
   const blocks = [];
   for (const [i, line] of text.split('\n').entries()) {
-    if (/(https?:\/\/\S+\.(?:png|jpg|jpeg|gif|webp))/i.test(line)) { blocks.push({ type: 'image', value: line.trim(), key: i }); continue; }
+    // [텍스트](URL) 형태의 링크 줄은 이미지로 오인하지 않고 단락으로(인라인에서 링크 렌더)
+    const isMdLinkLine = MD_LINK_RE.test(line.trim());
+    if (!isMdLinkLine && /(https?:\/\/\S+\.(?:png|jpg|jpeg|gif|webp))/i.test(line)) { blocks.push({ type: 'image', value: line.trim(), key: i }); continue; }
     const h = line.match(/^(#{1,4})\s+(.*)$/);
     if (h) { blocks.push({ type: 'heading', level: h[1].length, value: h[2], key: i }); continue; }
     const ul = line.match(/^\s*[-*]\s+(.*)$/);
