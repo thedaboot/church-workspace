@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from './supabase.js';
+import { supabase } from './supabaseClient.js';
 import { store } from '../store/workspaceStore.js';
 
 // ============================================================================
