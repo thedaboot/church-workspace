@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   CheckSquare, Clock, X, User, Hash, RefreshCw, Download, Upload,
-  Wand2, Sparkles, Bot, CalendarRange, Pencil, Trash2, Heart,
+  Wand2, Sparkles, CalendarRange, Pencil, Trash2, Heart,
   FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, Loader2, ExternalLink, Check
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
@@ -595,30 +595,17 @@ const ActivityPanel = React.memo(({ logs }) => (
 
 const CommentInput = ({ onAdd, members = [] }) => {
   const [val, setVal] = useState('');
-  const [isAiLoading, setIsAiLoading] = useState(false);
   const submit = () => { if (val.trim()) { onAdd(val); setVal(''); } };
-
-  const handleAiSuggest = async () => {
-    if (!val.trim()) return;
-    setIsAiLoading(true);
-    const friendlyText = await AiService.friendlyComment(val);
-    if (friendlyText) setVal(friendlyText);
-    setIsAiLoading(false);
-  };
 
   return (
     <div className="p-3 bg-surface border-t border-line shrink-0 relative">
-      {isAiLoading && <div className="absolute inset-0 bg-surface/70 backdrop-blur-[1px] flex items-center justify-center z-10 text-xs font-bold text-tag-purple-fg animate-pulse">댓글 다듬는 중...</div>}
       <MentionInput
         as="textarea" value={val} onChange={setVal} members={members} dropUp
         placeholder="@이름 으로 멘션..."
         className="w-full text-xs border border-line rounded-xs p-2 focus:ring-2 focus:ring-accent outline-none resize-none h-14 bg-surface text-fg placeholder:text-fg-faint"
         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
       />
-      <div className="flex justify-between mt-2 items-center">
-        <button onClick={handleAiSuggest} disabled={!val.trim() || isAiLoading} className="text-tag-purple-fg hover:bg-tag-purple disabled:opacity-50 disabled:hover:bg-transparent px-2 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1 transition active:scale-95" title="부드러운 어조로 자동 수정">
-          <Bot size={14}/> AI 둥글게 둥글게
-        </button>
+      <div className="flex justify-end mt-2 items-center">
         <button onClick={submit} disabled={!val.trim()} className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-3 py-1.5 rounded-md text-[10px] font-bold transition active:scale-95">등록</button>
       </div>
     </div>
