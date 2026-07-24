@@ -49,7 +49,10 @@ export function onAuthChange(cb) {
 export async function getMyProfile() {
   const { data: { user } } = await client().auth.getUser();
   if (!user) return null;
-  return unwrap(await client().from('profiles').select('*').eq('id', user.id).single());
+  return unwrap(await client().from('profiles').select('*').eq('id', user.id).maybeSingle());
+}
+export async function listProfiles() {
+  return unwrap(await client().from('profiles').select('*'));
 }
 export async function updateMyProfile(patch) {
   const { data: { user } } = await client().auth.getUser();
@@ -83,6 +86,10 @@ export async function listCards(projectId) {
     .select('*, card_teams(team_id)')
     .eq('project_id', projectId)
     .order('position', { ascending: true }));
+}
+// 전체 카드 (초기 로드용, card_teams 조인)
+export async function listAllCards() {
+  return unwrap(await client().from('cards').select('*, card_teams(team_id)').order('position', { ascending: true }));
 }
 export async function createCard(data, teamIds = []) {
   const card = unwrap(await client().from('cards').insert(data).select().single());
@@ -118,8 +125,14 @@ export async function deleteCard(id) {
 export async function listComments(cardId) {
   return unwrap(await client().from('comments').select('*').eq('card_id', cardId).order('created_at', { ascending: true }));
 }
-export async function addComment(cardId, body, parentId = null) {
-  return unwrap(await client().from('comments').insert({ card_id: cardId, body, parent_id: parentId }).select().single());
+export async function listAllComments() {
+  return unwrap(await client().from('comments').select('*').order('created_at', { ascending: true }));
+}
+// id를 명시하면 로컬에서 만든 uuid를 그대로 사용(로컬↔클라우드 id 일치)
+export async function addComment(cardId, body, parentId = null, id) {
+  const row = { card_id: cardId, body, parent_id: parentId };
+  if (id) row.id = id;
+  return unwrap(await client().from('comments').insert(row).select().single());
 }
 export async function updateComment(id, body) {
   return unwrap(await client().from('comments').update({ body, edited: true }).eq('id', id).select().single());
@@ -133,8 +146,13 @@ export async function deleteComment(id) {
 export async function listLinks(projectId) {
   return unwrap(await client().from('resource_links').select('*').eq('project_id', projectId).order('created_at', { ascending: true }));
 }
-export async function addLink(projectId, title, url) {
-  return unwrap(await client().from('resource_links').insert({ project_id: projectId, title, url }).select().single());
+export async function listAllLinks() {
+  return unwrap(await client().from('resource_links').select('*').order('created_at', { ascending: true }));
+}
+export async function addLink(projectId, title, url, id) {
+  const row = { project_id: projectId, title, url };
+  if (id) row.id = id;
+  return unwrap(await client().from('resource_links').insert(row).select().single());
 }
 export async function removeLink(id) {
   const { error } = await client().from('resource_links').delete().eq('id', id);
@@ -154,6 +172,15 @@ export async function unlinkFile(id) {
   if (error) throw error;
 }
 
+// ── activity ─────────────────────────────────────────────────────────────────
+export async function listAllActivity() {
+  return unwrap(await client().from('activity').select('*').order('created_at', { ascending: true }));
+}
+export async function insertActivity(row) {
+  // row: { id?, project_id?, card_id?, action, payload? }
+  return unwrap(await client().from('activity').insert(row).select().single());
+}
+
 // ── 실시간 구독 ────────────────────────────────────────────────────────────
 // 해당 프로젝트의 cards / resource_links / files 변경 + comments 전체 변경을 구독.
 // (comments엔 project_id가 없어 카드 단위 필터가 불가 → 전체 구독 후 onChange에서 재조회)
@@ -165,6 +192,19 @@ export function subscribeProject(projectId, onChange) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'resource_links', filter: `project_id=eq.${projectId}` }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'files', filter: `project_id=eq.${projectId}` }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, onChange)
+    .subscribe();
+  return () => c.removeChannel(channel);
+}
+
+// 워크스페이스 전역 구독(프로젝트/카드/댓글/리소스/팀매핑 변경) — onChange는 재조회 트리거용
+export function subscribeAll(onChange) {
+  const c = client();
+  const channel = c.channel('workspace-all')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'cards' }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'card_teams' }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'resource_links' }, onChange)
     .subscribe();
   return () => c.removeChannel(channel);
 }

@@ -82,7 +82,7 @@ const NavItem = React.memo(({ icon, label, active, onClick, badge }) => (
   </button>
 ));
 
-export const Header = React.memo(({ activeMenu, openSidebar, onOpenSync, undo, redo, canUndo, canRedo }) => {
+export const Header = React.memo(({ activeMenu, openSidebar, onOpenSync, undo, redo, canUndo, canRedo, cloudMode }) => {
   const projectsMap = useStore(selectProjectsMap);
   let title = '워크스페이스';
   if (activeMenu === 'dashboard') title = '전체 대시보드';
@@ -98,11 +98,13 @@ export const Header = React.memo(({ activeMenu, openSidebar, onOpenSync, undo, r
         <h2 className="font-semibold text-base md:text-lg text-fg truncate tracking-[-0.25px]">{title}</h2>
       </div>
       <div className="flex items-center gap-1 md:gap-3 flex-1 justify-end min-w-0">
-        {/* Undo / Redo Controllers */}
-        <div className="flex items-center bg-surface-2 rounded-md p-0.5 shrink-0">
-          <button onClick={undo} disabled={!canUndo} className={`p-1.5 rounded text-fg-muted transition active:scale-95 ${canUndo ? 'hover:bg-surface hover:shadow-soft' : 'opacity-30 cursor-not-allowed'}`} title="실행 취소 (Ctrl+Z)"><Undo2 size={16} strokeWidth={1.75}/></button>
-          <button onClick={redo} disabled={!canRedo} className={`p-1.5 rounded text-fg-muted transition active:scale-95 ${canRedo ? 'hover:bg-surface hover:shadow-soft' : 'opacity-30 cursor-not-allowed'}`} title="다시 실행"><Redo2 size={16} strokeWidth={1.75}/></button>
-        </div>
+        {/* Undo / Redo — 클라우드 모드에선 다른 사람과 상태가 어긋나므로 숨김 */}
+        {!cloudMode && (
+          <div className="flex items-center bg-surface-2 rounded-md p-0.5 shrink-0">
+            <button onClick={undo} disabled={!canUndo} className={`p-1.5 rounded text-fg-muted transition active:scale-95 ${canUndo ? 'hover:bg-surface hover:shadow-soft' : 'opacity-30 cursor-not-allowed'}`} title="실행 취소 (Ctrl+Z)"><Undo2 size={16} strokeWidth={1.75}/></button>
+            <button onClick={redo} disabled={!canRedo} className={`p-1.5 rounded text-fg-muted transition active:scale-95 ${canRedo ? 'hover:bg-surface hover:shadow-soft' : 'opacity-30 cursor-not-allowed'}`} title="다시 실행"><Redo2 size={16} strokeWidth={1.75}/></button>
+          </div>
+        )}
         <div className="relative hidden sm:block flex-1 max-w-2xl">
           <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-fg-faint" strokeWidth={1.75} />
           <input type="text" placeholder="검색..." className="pl-9 pr-4 py-1.5 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all" />

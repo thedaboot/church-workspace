@@ -12,6 +12,7 @@ import {
 } from '../store/selectors.js';
 import { Board, CalendarBoard } from '../components/boards.jsx';
 import { useAuth } from '../services/auth.jsx';
+import * as cloudSync from '../services/cloudSync.js';
 
 // ============================================================================
 // 11. UI Views (데이터를 구독하는 프레젠테이션 컴포넌트)
@@ -79,7 +80,8 @@ export function DashboardView({ onNavigate }) {
 export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask, onNavigate }) {
   const projectsMap = useStore(selectProjectsMap);
   const tasksList = useStore(selectTasksList);
-  const { isAdmin } = useAuth();
+  const { isAdmin, enabled, session } = useAuth();
+  const cloudOn = enabled && !!session;
   // 특정 프로젝트의 Task만 필터링 (해당 View 내부에서만 필요한 연산)
   const projectTasks = useMemo(() => tasksList.filter(t => t.projectId === projectId), [tasksList, projectId]);
   const project = projectsMap[projectId];
@@ -106,17 +108,25 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
 
   if (!project) return null;
 
+  const cloudErr = (label) => (err) => { console.error(`[cloud] ${label} 실패:`, err); window.alert(`클라우드 저장에 실패했어요 (${label}).`); };
+
   const saveLink = () => {
     if (!linkDraft.title.trim() || !linkDraft.url.trim()) return;
     const url = /^https?:\/\//.test(linkDraft.url) ? linkDraft.url : `https://${linkDraft.url}`;
-    store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, pinnedLinks: [...(project.pinnedLinks || []), { id: generateId(), title: linkDraft.title.trim(), url }] } });
+    const newLink = { id: generateId(), title: linkDraft.title.trim(), url };
+    store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, pinnedLinks: [...(project.pinnedLinks || []), newLink] } });
+    if (cloudOn) cloudSync.linkAddCloud(project.id, newLink).catch(cloudErr('리소스 추가'));
     setLinkDraft({ title: '', url: '' });
     setIsAddingLink(false);
   };
-  const removeLink = (linkId) => store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, pinnedLinks: (project.pinnedLinks || []).filter(l => l.id !== linkId) } });
+  const removeLink = (linkId) => {
+    store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, pinnedLinks: (project.pinnedLinks || []).filter(l => l.id !== linkId) } });
+    if (cloudOn) cloudSync.linkRemoveCloud(linkId).catch(cloudErr('리소스 삭제'));
+  };
 
   const deleteProject = () => {
     store.dispatch({ type: 'DELETE_PROJECT', payload: project.id });
+    if (cloudOn) cloudSync.projectDeleteCloud(project.id).catch(cloudErr('프로젝트 삭제'));
     onNavigate?.('dashboard');
   };
 
@@ -158,7 +168,7 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
           {isAdmin && (
             confirmingDelete ? (
               <div className="flex items-center gap-1.5 animate-in fade-in duration-150 shrink-0">
-                <span className="text-[10px] text-fg-muted whitespace-nowrap">정말 삭제할까요?</span>
+                <span className="text-[10px] text-fg-muted whitespace-nowrap">{cloudOn ? '삭제하면 되돌릴 수 없어요' : '정말 삭제할까요?'}</span>
                 <button onClick={deleteProject} className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-md px-2 py-1 text-[10px] font-semibold transition active:scale-95">삭제</button>
                 <button onClick={() => setConfirmingDelete(false)} className="text-fg-muted hover:text-fg hover:bg-surface-hover rounded-md px-2 py-1 text-[10px] font-medium transition active:scale-95">취소</button>
               </div>

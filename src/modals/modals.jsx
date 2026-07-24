@@ -6,10 +6,12 @@ import {
 import { CONFIG } from '../config.js';
 import { formatDate } from '../utils.js';
 import { useStore } from '../store/workspaceStore.js';
-import { selectCurrentUser } from '../store/selectors.js';
+import { selectCurrentUser, selectProjectsList } from '../store/selectors.js';
 import { AiService } from '../services/ai.js';
 import { RichText } from '../components/RichText.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
+import { useAuth } from '../services/auth.jsx';
+import { supabase } from '../services/supabaseClient.js';
 
 // ============================================================================
 // 13. Modals (완벽한 SRP 분리)
@@ -323,15 +325,52 @@ const CommentInput = ({ onAdd }) => {
 
 export function ProfileModal({ onClose, onSave }) {
   const user = useStore(selectCurrentUser);
+  const { enabled, session } = useAuth();
+  const cloudMode = enabled && !!session;
   const [name, setName] = useState(user.name);
   const [team, setTeam] = useState(user.team);
+
+  const kakaoLinked = (session?.user?.identities || []).some(i => i.provider === 'kakao');
+  const linkKakao = async () => {
+    if (!supabase) return;
+    const { error } = await supabase.auth.linkIdentity({ provider: 'kakao' });
+    if (error) window.alert('카카오 연결에 실패했어요: ' + error.message);
+  };
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"><div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-200"><h3 className="font-bold text-fg mb-1 tracking-[-0.25px]">프로필 설정</h3><p className="text-xs text-fg-muted mb-4 leading-relaxed">워크스페이스에 표시될 이름(닉네임)과 소속 팀이에요.<br />언제든 여기서 바꿀 수 있어요.</p><label className="block text-xs font-semibold text-fg-muted mb-1.5">이름</label><input type="text" value={name} onChange={e=>setName(e.target.value)} className="w-full border border-line rounded-xs p-2 mb-4 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none" /><label className="block text-xs font-semibold text-fg-muted mb-1.5">소속 팀</label><select value={team} onChange={e=>setTeam(e.target.value)} className="w-full border border-line rounded-xs p-2 mb-6 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none">{Object.keys(CONFIG.TEAMS).map(t=><option key={t}>{t}</option>)}</select><div className="flex gap-2"><button onClick={onClose} className="flex-1 bg-surface-hover hover:bg-line text-fg-muted py-2.5 rounded-md text-sm font-medium transition active:scale-95">취소</button><button onClick={()=>{onSave({name, team}); onClose();}} className="flex-1 bg-accent hover:bg-accent-strong text-white py-2.5 rounded-md text-sm font-medium transition active:scale-95">저장</button></div></div></div>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"><div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-200"><h3 className="font-bold text-fg mb-1 tracking-[-0.25px]">프로필 설정</h3><p className="text-xs text-fg-muted mb-4 leading-relaxed">워크스페이스에 표시될 이름(닉네임)과 소속 팀이에요.<br />언제든 여기서 바꿀 수 있어요.</p><label className="block text-xs font-semibold text-fg-muted mb-1.5">이름</label><input type="text" value={name} onChange={e=>setName(e.target.value)} className="w-full border border-line rounded-xs p-2 mb-4 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none" /><label className="block text-xs font-semibold text-fg-muted mb-1.5">소속 팀</label><select value={team} onChange={e=>setTeam(e.target.value)} className="w-full border border-line rounded-xs p-2 mb-4 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none">{Object.keys(CONFIG.TEAMS).map(t=><option key={t}>{t}</option>)}</select>{cloudMode && (<div className="mb-6"><label className="block text-xs font-semibold text-fg-muted mb-1.5">계정 연결</label>{kakaoLinked ? <span className="inline-flex items-center gap-1 text-xs font-medium bg-tag-yellow text-tag-yellow-fg px-2.5 py-1 rounded-full">카카오 연결됨</span> : <button type="button" onClick={linkKakao} className="w-full flex items-center justify-center gap-2 bg-[#fee500] text-[#191919] text-sm font-medium py-2.5 rounded-md hover:bg-[#f6dc00] transition active:scale-95">카카오 계정 연결</button>}</div>)}<div className="flex gap-2"><button onClick={onClose} className="flex-1 bg-surface-hover hover:bg-line text-fg-muted py-2.5 rounded-md text-sm font-medium transition active:scale-95">취소</button><button onClick={()=>{onSave({name, team}); onClose();}} className="flex-1 bg-accent hover:bg-accent-strong text-white py-2.5 rounded-md text-sm font-medium transition active:scale-95">저장</button></div></div></div>
   );
 }
 
-export function SyncModal({ onClose, persistence }) {
+export function SyncModal({ onClose, persistence, cloudMode, isAdmin, onMigrate, migrating }) {
   const [url, setUrl] = useState(() => localStorage.getItem('church_app_sync_url') || '');
+  const cloudProjects = useStore(selectProjectsList);
+
+  // 로컬(church_app_v4)에 이관할 데이터가 있는지
+  const localProjectCount = (() => {
+    try { const raw = localStorage.getItem('church_app_v4'); return raw ? (JSON.parse(raw).projects?.allIds?.length || 0) : 0; }
+    catch { return 0; }
+  })();
+  const canMigrate = isAdmin && cloudProjects.length === 0 && localProjectCount > 0;
+
+  // ── 클라우드 모드: 자동 동기화 안내 + (조건 충족 시) 로컬 이관 ──
+  if (cloudMode) {
+    return (
+      <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"><div className="bg-surface p-5 rounded-lg shadow-elevated border border-line w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
+        <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-fg flex items-center gap-2"><RefreshCw size={16} strokeWidth={1.75} className="text-accent"/> 데이터 연동</h3><button onClick={onClose} className="text-fg-faint"><X size={18}/></button></div>
+        <div className="bg-accent-weak text-accent-text p-3 rounded-md text-xs leading-relaxed mb-4">클라우드(Supabase)에 연결되어 있어요. 모든 변경사항은 자동으로 저장되고, 팀원과 실시간으로 동기화됩니다.</div>
+        {canMigrate ? (
+          <>
+            <p className="text-xs text-fg-muted leading-relaxed mb-3">이 브라우저에 저장된 로컬 데이터(프로젝트 {localProjectCount}개)를 클라우드로 한 번에 가져올 수 있어요. 클라우드가 비어 있을 때 최초 1회만 권장합니다.</p>
+            <button onClick={onMigrate} disabled={migrating} className="w-full bg-accent hover:bg-accent-strong disabled:bg-line text-white py-2.5 rounded-md text-xs font-medium flex justify-center items-center gap-1.5 transition active:scale-95"><Upload size={14}/> {migrating ? '가져오는 중...' : '이 브라우저의 로컬 데이터를 클라우드로 가져오기'}</button>
+          </>
+        ) : (
+          <p className="text-center text-xs text-fg-faint">따로 조작할 것은 없어요. 편하게 사용하세요!</p>
+        )}
+      </div></div>
+    );
+  }
+
+  // ── 게스트 모드: 기존 Google Apps Script 동기화 UI ──
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"><div className="bg-surface p-5 rounded-lg shadow-elevated border border-line w-full max-w-md animate-in fade-in zoom-in-95 duration-200"><div className="flex justify-between items-center mb-4"><h3 className="font-bold text-fg flex items-center gap-2"><RefreshCw size={16} strokeWidth={1.75} className="text-accent"/> 데이터 연동</h3><button onClick={onClose} className="text-fg-faint"><X size={18}/></button></div><div className="bg-accent-weak text-accent-text p-3 rounded-md text-xs leading-relaxed mb-4">구글 Apps Script URL을 입력하여 데이터를 동기화합니다.</div><input type="text" value={url} onChange={e=>{setUrl(e.target.value); localStorage.setItem('church_app_sync_url',e.target.value);}} placeholder="https://script.google.com/..." className="w-full border border-line rounded-xs p-2 mb-4 text-xs bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none" /><div className="flex gap-2"><button onClick={()=>persistence.loadFromCloud(url)} disabled={!url || persistence.syncStatus === 'syncing'} className="flex-1 bg-surface-hover hover:bg-line text-fg border border-line py-2 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition active:scale-95"><Download size={14}/> 불러오기</button><button onClick={()=>persistence.syncToCloud(url)} disabled={!url || persistence.syncStatus === 'syncing'} className="flex-1 bg-accent hover:bg-accent-strong text-white py-2 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition active:scale-95"><Upload size={14}/> 덮어쓰기</button></div><p className="text-center text-xs font-bold mt-3 h-4 text-accent-text">{persistence.syncStatus === 'syncing' ? '진행 중...' : persistence.syncStatus === 'success' ? '성공!' : <span className="text-red-500">{persistence.errorMsg}</span>}</p></div></div>
   );

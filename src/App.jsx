@@ -7,6 +7,19 @@ import { DashboardView, ProjectView, MyTasksView, TeamView, GuideView } from './
 import { TaskModalShell, ProfileModal, SyncModal, ProjectModal } from './modals/modals.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
+import * as cloudSync from './services/cloudSync.js';
+import logoLight from './assets/logo-light.png';
+import logoDark from './assets/logo-dark.png';
+
+// 클라우드 초기 로드 중 미니멀 스플래시 (로고 + 살짝 pulse)
+function CloudSplash() {
+  return (
+    <div className="h-screen bg-canvas flex items-center justify-center">
+      <img src={logoLight} alt="다붓" className="h-12 w-auto animate-pulse dark:hidden" />
+      <img src={logoDark} alt="다붓" className="h-12 w-auto animate-pulse hidden dark:block" />
+    </div>
+  );
+}
 
 // ============================================================================
 // 10. Shell & Layout (프레젠테이션 최상위 계층)
@@ -32,25 +45,76 @@ function AuthGate() {
 function WorkspaceShell() {
   const controller = useWorkspaceController();
   const persistence = usePersistenceController();
-  const { enabled: authEnabled, session } = useAuth();
+  const { enabled: authEnabled, session, isAdmin } = useAuth();
+  const cloudMode = authEnabled && !!session;
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [modalState, setModalState] = useState({ isOpen: false, task: null, isEditMode: false });
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [cloudReady, setCloudReady] = useState(!cloudMode);
+  const [migrating, setMigrating] = useState(false);
 
-  // 첫 로그인 온보딩: 표시 이름·소속 팀을 설정하도록 프로필 창을 자동으로 연다
+  // 클라우드 상태를 다시 읽어 스토어에 반영
+  const reloadCloud = useCallback(async () => {
+    const { state, profile } = await cloudSync.loadCloudState();
+    store.dispatch({ type: 'LOAD_STATE', payload: state });
+    return profile;
+  }, []);
+
+  // 초기 클라우드 로드 + 온보딩(프로필 display_name 없으면 프로필 창)
   useEffect(() => {
-    if (authEnabled && session && !localStorage.getItem('daboot_profile_done')) setIsProfileModalOpen(true);
-  }, [authEnabled, session]);
+    if (!cloudMode) { setCloudReady(true); return; }
+    let alive = true;
+    (async () => {
+      try {
+        const profile = await reloadCloud();
+        if (alive && (!profile || !profile.display_name)) setIsProfileModalOpen(true);
+      } catch (e) {
+        console.error('[cloud] 초기 로드 실패:', e);
+        if (alive) window.alert('클라우드 데이터를 불러오지 못했어요. 새로고침 해주세요.');
+      } finally {
+        if (alive) setCloudReady(true);
+      }
+    })();
+    return () => { alive = false; };
+  }, [cloudMode, reloadCloud]);
 
-  // 리렌더링 감지용 (개발자도구로 확인해보면 해당 뷰만 리렌더링됨을 알 수 있습니다)
-  // console.log("WorkspaceShell Renders");
+  // 실시간: 변경 감지 → 300ms debounce 재조회
+  useEffect(() => {
+    if (!cloudMode) return;
+    let timer = null;
+    const unsub = cloudSync.subscribeAll(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e)); }, 300);
+    });
+    return () => { clearTimeout(timer); unsub(); };
+  }, [cloudMode, reloadCloud]);
 
   const openTaskModal = useCallback((task, isEditMode = false) => {
     setModalState({ isOpen: true, task, isEditMode });
   }, []);
+
+  // 로컬 → 클라우드 1회 이관
+  const handleMigrate = useCallback(async () => {
+    try {
+      setMigrating(true);
+      const raw = localStorage.getItem('church_app_v4');
+      if (!raw) { window.alert('가져올 로컬 데이터가 없어요.'); return; }
+      await cloudSync.migrateLocalToCloud(JSON.parse(raw));
+      await reloadCloud();
+      window.alert('이 브라우저의 로컬 데이터를 클라우드로 가져왔어요.');
+      setIsSyncModalOpen(false);
+    } catch (e) {
+      console.error('[cloud] 이관 실패:', e);
+      window.alert('이관 중 오류가 발생했어요. 콘솔을 확인해 주세요.');
+    } finally {
+      setMigrating(false);
+    }
+  }, [reloadCloud]);
+
+  if (cloudMode && !cloudReady) return <CloudSplash />;
 
   return (
     <div className="flex h-screen bg-canvas text-fg font-sans overflow-hidden">
@@ -66,7 +130,7 @@ function WorkspaceShell() {
       <div className="flex-1 flex flex-col w-full min-w-0">
         <Header
           activeMenu={activeMenu} openSidebar={() => setIsSidebarOpen(true)} onOpenSync={() => setIsSyncModalOpen(true)}
-          undo={controller.undo} redo={controller.redo} canUndo={store.canUndo()} canRedo={store.canRedo()}
+          undo={controller.undo} redo={controller.redo} canUndo={store.canUndo()} canRedo={store.canRedo()} cloudMode={cloudMode}
         />
         <main className="flex-1 overflow-auto bg-canvas p-4 md:p-6 relative">
           <ErrorBoundary>
@@ -100,7 +164,7 @@ function WorkspaceShell() {
 
       {isProfileModalOpen && <ProfileModal onClose={() => setIsProfileModalOpen(false)} onSave={(p) => { controller.handleUpdateUser(p); localStorage.setItem('daboot_profile_done', '1'); }} />}
       {isProjectModalOpen && <ProjectModal onClose={() => setIsProjectModalOpen(false)} onSave={(title) => { const newId = controller.handleAddProject(title); setActiveMenu(newId); setIsProjectModalOpen(false); }} />}
-      {isSyncModalOpen && <SyncModal onClose={() => setIsSyncModalOpen(false)} persistence={persistence} />}
+      {isSyncModalOpen && <SyncModal onClose={() => setIsSyncModalOpen(false)} persistence={persistence} cloudMode={cloudMode} isAdmin={isAdmin} onMigrate={handleMigrate} migrating={migrating} />}
     </div>
   );
 }
