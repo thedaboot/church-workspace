@@ -15,12 +15,17 @@ import { normalize } from '../utils.js';
 let teamIdToName = new Map();
 let teamNameToId = new Map();
 let profileIdToName = new Map();
+let memberNames = [];
 
 const primeMaps = (teams, profiles) => {
   teamIdToName = new Map(teams.map(t => [t.id, t.name]));
   teamNameToId = new Map(teams.map(t => [t.name, t.id]));
   profileIdToName = new Map(profiles.map(p => [p.id, p.display_name || '']));
+  memberNames = [...new Set(profiles.map(p => p.display_name).filter(Boolean))];
 };
+
+// 멘션·담당자 자동완성용 멤버 표시명 목록(클라우드 로드 후 프라이밍됨)
+export function getMemberNames() { return memberNames.slice(); }
 
 // 팀 매핑만 필요할 때(마이그레이션 등) 최소 프라이밍
 async function ensureTeamMap() {
@@ -43,6 +48,7 @@ const cardToTask = (card) => ({
   dueDate: card.due_date || '',
   position: card.position ?? 0,
   author: profileIdToName.get(card.created_by) || '',
+  created_by: card.created_by || null,
   createdAt: card.created_at,
   updatedAt: card.updated_at,
   comments: [],

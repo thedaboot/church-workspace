@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   LayoutDashboard, CheckSquare, Search, Plus, X, Hash, Menu,
-  Settings, RefreshCw, Undo2, Redo2, Sun, Moon, LogOut
+  Settings, Undo2, Redo2, Sun, Moon, LogOut
 } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
 import {
-  selectCurrentUser, selectProjectsList, selectProjectsMap, selectMyTasks
+  selectCurrentUser, selectProjectsList, selectProjectsMap, selectMyTasks, selectTasksList
 } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
 import { avatarColor } from '../utils.js';
@@ -91,7 +91,153 @@ const NavItem = React.memo(({ icon, label, active, onClick, badge, tile }) => (
   </button>
 ));
 
-export const Header = React.memo(({ activeMenu, openSidebar, onOpenSync, undo, redo, canUndo, canRedo, cloudMode }) => {
+// 매치 부분을 <mark>로 강조(첫 등장 위치 기준)
+const highlight = (text, q) => {
+  if (!text) return text;
+  const idx = text.toLowerCase().indexOf(q.toLowerCase());
+  if (idx === -1) return text;
+  return (
+    <>{text.slice(0, idx)}<mark className="bg-tag-yellow text-tag-yellow-fg rounded-[2px] px-0.5">{text.slice(idx, idx + q.length)}</mark>{text.slice(idx + q.length)}</>
+  );
+};
+
+// 검색 결과 리스트(데스크톱 드롭다운 · 모바일 오버레이 공용)
+function SearchResults({ results, debounced, projectsMap, onPick }) {
+  const empty = results && results.projectHits.length === 0 && results.taskHits.length === 0;
+  if (empty) return <p className="px-3 py-6 text-center text-xs text-fg-faint">검색 결과가 없어요</p>;
+  return (
+    <>
+      {results.projectHits.length > 0 && (
+        <div className="mb-1">
+          <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-faint uppercase tracking-wider">프로젝트</p>
+          {results.projectHits.map(p => (
+            <button key={p.id} onClick={() => onPick('project', p)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
+              <span className="w-6 h-6 rounded-md bg-tag-purple text-tag-purple-fg flex items-center justify-center shrink-0"><Hash size={13} strokeWidth={1.75} /></span>
+              <span className="text-sm text-fg truncate min-w-0">{highlight(p.title, debounced)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {results.taskHits.length > 0 && (
+        <div>
+          <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-faint uppercase tracking-wider">작업</p>
+          {results.taskHits.map(t => (
+            <button key={t.id} onClick={() => onPick('task', t)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
+              <span className="w-6 h-6 rounded-md bg-tag-green text-tag-green-fg flex items-center justify-center shrink-0"><CheckSquare size={13} strokeWidth={1.75} /></span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm text-fg truncate">{highlight(t.title, debounced)}</span>
+                <span className="block text-[10px] text-fg-faint truncate">{projectsMap[t.projectId]?.title || '프로젝트 없음'}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// 통합 검색 — 데스크톱 인라인 드롭다운 + 모바일 아이콘 트리거·전체폭 오버레이
+function SearchBox({ onSearchSelect }) {
+  const projectsList = useStore(selectProjectsList);
+  const tasksList = useStore(selectTasksList);
+  const projectsMap = useStore(selectProjectsMap);
+  const [query, setQuery] = useState('');
+  const [debounced, setDebounced] = useState('');
+  const [open, setOpen] = useState(false);        // 데스크톱 드롭다운
+  const [mobileOpen, setMobileOpen] = useState(false); // 모바일 오버레이
+  const rootRef = useRef(null);
+
+  // 300ms debounce
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query.trim()), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  // 데스크톱: 바깥 클릭 / Escape 닫기
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  // 모바일 오버레이: Escape 닫기
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e) => { if (e.key === 'Escape') closeMobile(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobileOpen]);
+
+  const results = useMemo(() => {
+    const q = debounced.toLowerCase();
+    if (q.length < 2) return null;
+    const projectHits = projectsList.filter(p => (p.title || '').toLowerCase().includes(q));
+    const taskHits = tasksList.filter(t =>
+      (t.title || '').toLowerCase().includes(q) ||
+      (t.content || '').toLowerCase().includes(q) ||
+      (t.assignees || []).some(a => (a || '').toLowerCase().includes(q))
+    );
+    return { projectHits, taskHits };
+  }, [debounced, projectsList, tasksList]);
+
+  const reset = () => { setQuery(''); setDebounced(''); };
+  const closeMobile = () => { setMobileOpen(false); reset(); };
+  const pick = (kind, item) => { onSearchSelect(kind, item); setOpen(false); setMobileOpen(false); reset(); };
+
+  return (
+    <>
+      {/* 데스크톱 인라인 검색창 + 드롭다운 */}
+      <div className="relative hidden sm:block flex-1 max-w-2xl" ref={rootRef}>
+        <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-fg-faint" strokeWidth={1.75} />
+        <input
+          type="text" value={query}
+          onChange={e => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          placeholder="프로젝트·작업 검색..."
+          className="pl-9 pr-4 py-1.5 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak focus:shadow-soft outline-none w-full transition-all"
+        />
+        {open && results && (
+          <div className="absolute left-0 top-full z-50 mt-1 w-full max-h-80 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 animate-in fade-in zoom-in-95 duration-150">
+            <SearchResults results={results} debounced={debounced} projectsMap={projectsMap} onPick={pick} />
+          </div>
+        )}
+      </div>
+
+      {/* 모바일 검색 아이콘 */}
+      <button className="sm:hidden p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0" onClick={() => setMobileOpen(true)} title="검색"><Search size={18} strokeWidth={1.75} /></button>
+
+      {/* 모바일 전체폭 오버레이 */}
+      {mobileOpen && (
+        <div className="sm:hidden fixed inset-0 z-50 bg-black/40 animate-in fade-in duration-150" onClick={closeMobile}>
+          <div className="absolute inset-x-0 top-0 bg-surface border-b border-line shadow-elevated p-3 animate-in slide-in-from-top-2 duration-150" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 min-w-0">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-fg-faint" strokeWidth={1.75} />
+                <input
+                  autoFocus type="text" value={query} onChange={e => setQuery(e.target.value)}
+                  placeholder="프로젝트·작업 검색..."
+                  className="pl-9 pr-3 py-2 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all"
+                />
+              </div>
+              <button onClick={closeMobile} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0"><X size={18} /></button>
+            </div>
+            {results && (
+              <div className="mt-2 max-h-[70vh] overflow-y-auto">
+                <SearchResults results={results} debounced={debounced} projectsMap={projectsMap} onPick={pick} />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export const Header = React.memo(({ activeMenu, openSidebar, onSearchSelect, undo, redo, canUndo, canRedo, cloudMode }) => {
   const projectsMap = useStore(selectProjectsMap);
   let title = '워크스페이스';
   if (activeMenu === 'dashboard') title = '전체 대시보드';
@@ -114,12 +260,8 @@ export const Header = React.memo(({ activeMenu, openSidebar, onOpenSync, undo, r
             <button onClick={redo} disabled={!canRedo} className={`p-1.5 rounded text-fg-muted transition active:scale-95 ${canRedo ? 'hover:bg-surface hover:shadow-soft' : 'opacity-30 cursor-not-allowed'}`} title="다시 실행"><Redo2 size={16} strokeWidth={1.75}/></button>
           </div>
         )}
-        <div className="relative hidden sm:block flex-1 max-w-2xl">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-fg-faint" strokeWidth={1.75} />
-          <input type="text" placeholder="검색..." className="pl-9 pr-4 py-1.5 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak focus:shadow-soft outline-none w-full transition-all" />
-        </div>
+        <SearchBox onSearchSelect={onSearchSelect} />
         <ThemeToggle />
-        <button onClick={onOpenSync} className="group p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0" title="데이터 연동"><RefreshCw size={18} strokeWidth={1.75} className="transition-transform duration-300 group-hover:rotate-90" /></button>
       </div>
     </header>
   );

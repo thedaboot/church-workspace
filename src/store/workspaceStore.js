@@ -41,6 +41,19 @@ export class WorkspaceStore {
         };
         break;
       }
+      case 'DELETE_TASK': {
+        const id = action.payload;
+        if (!currentState.tasks.byId[id]) return;
+        const { [id]: _removedTask, ...remainingTasksById } = currentState.tasks.byId;
+        nextState = {
+          ...currentState,
+          tasks: {
+            byId: remainingTasksById,
+            allIds: currentState.tasks.allIds.filter(x => x !== id)
+          }
+        };
+        break;
+      }
       case 'ADD_PROJECT': {
         const project = action.payload;
         nextState = {

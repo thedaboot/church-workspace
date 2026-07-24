@@ -19,16 +19,20 @@ import { ShareButton } from '../components/ShareButton.jsx';
 // ============================================================================
 // 13. Modals (완벽한 SRP 분리)
 // ============================================================================
-export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAddComment, onUpdateComment, onDeleteComment, onFileActivity }) {
+export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAddComment, onUpdateComment, onDeleteComment, onFileActivity, onDelete }) {
   const currentUser = useStore(selectCurrentUser);
   const { enabled, session, isAdmin } = useAuth();
   const cloudMode = enabled && !!session;
   const userId = session?.user?.id;
   const [formData, setFormData] = useState(task);
   const [activeTab, setActiveTab] = useState('comments');
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Stale State 방지: 모달 재사용 시 데이터 강제 동기화
   useEffect(() => { setFormData(task); }, [task]);
+
+  // 삭제 노출 조건: 저장된 카드 + (게스트=작성자 본인 / 클라우드=작성자 본인 또는 관리자)
+  const canDelete = !!task.id && (cloudMode ? (task.created_by === userId || isAdmin) : (task.author === currentUser.name));
 
   const handleSubmit = (e) => { e.preventDefault(); onSave(formData); };
 
@@ -46,9 +50,20 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
           <div className="p-5 md:p-8 flex-1">
             {isEditMode ? <TaskEditor formData={formData} setFormData={setFormData} /> : <TaskViewer formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />}
           </div>
-          <div className="sticky bottom-0 border-t border-line p-3 md:p-4 flex justify-between items-center z-10 bg-surface-2/80 backdrop-blur">
-            <div className="text-[10px] text-fg-faint hidden sm:block">작성: {formData.author} • 최근: {formatDate(formData.updatedAt)}</div>
-            <div className="flex gap-2 w-full sm:w-auto">
+          <div className="sticky bottom-0 border-t border-line p-3 md:p-4 flex justify-between items-center gap-2 z-10 bg-surface-2/80 backdrop-blur">
+            <div className="flex items-center gap-2 min-w-0">
+              {!isEditMode && canDelete && (confirmingDelete ? (
+                <span className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-[10px] text-fg-muted hidden sm:inline">삭제할까요?</span>
+                  <button type="button" onClick={() => { setConfirmingDelete(false); onDelete?.(); }} className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-md px-2 py-1.5 text-[10px] font-semibold transition active:scale-95">삭제</button>
+                  <button type="button" onClick={() => setConfirmingDelete(false)} className="text-fg-muted hover:text-fg hover:bg-surface-hover rounded-md px-2 py-1.5 text-[10px] font-medium transition active:scale-95">취소</button>
+                </span>
+              ) : (
+                <button type="button" onClick={() => setConfirmingDelete(true)} className="p-2 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95 shrink-0" title="작업 삭제"><Trash2 size={16} /></button>
+              ))}
+              <div className="text-[10px] text-fg-faint hidden md:block truncate">작성: {formData.author} • 최근: {formatDate(formData.updatedAt)}</div>
+            </div>
+            <div className="flex gap-2 shrink-0">
               <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2 text-xs font-medium text-fg-muted bg-surface-hover hover:bg-line rounded-md transition active:scale-95">닫기</button>
               {isEditMode ? <button type="button" onClick={handleSubmit} className="flex-1 sm:flex-none bg-accent hover:bg-accent-strong text-white px-6 py-2 rounded-md text-xs font-medium transition active:scale-95">저장</button>
                           : <button type="button" onClick={onEdit} className="flex-1 sm:flex-none bg-surface-hover hover:bg-line text-fg border border-line px-6 py-2 rounded-md text-xs font-medium transition active:scale-95">수정</button>}

@@ -84,6 +84,12 @@ export const useWorkspaceController = () => {
     return updated;
   }, [currentUser.name, cloudOn]);
 
+  const handleDeleteTask = useCallback((task) => {
+    if (!task?.id) return;
+    store.dispatch({ type: 'DELETE_TASK', payload: task.id });
+    if (cloudOn) cloudSync.cardDeleteCloud(task.id).catch(reportCloudError('작업 삭제'));
+  }, [cloudOn]);
+
   const handleAddProject = useCallback((title) => {
     const newProject = { id: generateId(), title, pinnedLinks: [] };
     store.dispatch({ type: 'ADD_PROJECT', payload: newProject });
@@ -96,7 +102,7 @@ export const useWorkspaceController = () => {
     if (cloudOn) cloudSync.profileUpdateCloud(profile).catch(reportCloudError('프로필 저장'));
   }, [cloudOn]);
 
-  return { handleSaveTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleUpdateUser, undo: store.undo, redo: store.redo };
+  return { handleSaveTask, handleDeleteTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleUpdateUser, undo: store.undo, redo: store.redo };
 };
 
 export const usePersistenceController = () => {

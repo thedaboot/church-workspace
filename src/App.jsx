@@ -1,10 +1,10 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { store } from './store/workspaceStore.js';
-import { useWorkspaceController, usePersistenceController } from './hooks/controllers.js';
+import { useWorkspaceController } from './hooks/controllers.js';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import { Sidebar, Header } from './components/layout.jsx';
 import { DashboardView, ProjectView, MyTasksView, TeamView, GuideView } from './views/views.jsx';
-import { TaskModalShell, ProfileModal, SyncModal, ProjectModal } from './modals/modals.jsx';
+import { TaskModalShell, ProfileModal, ProjectModal } from './modals/modals.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
 import * as cloudSync from './services/cloudSync.js';
@@ -44,7 +44,6 @@ function AuthGate() {
 
 function WorkspaceShell() {
   const controller = useWorkspaceController();
-  const persistence = usePersistenceController();
   const { enabled: authEnabled, session, isAdmin } = useAuth();
   const cloudMode = authEnabled && !!session;
   // 딥링크: /?p=<projectId>&t=<taskId>
@@ -54,9 +53,7 @@ function WorkspaceShell() {
   const [modalState, setModalState] = useState({ isOpen: false, task: null, isEditMode: false });
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
-  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [cloudReady, setCloudReady] = useState(!cloudMode);
-  const [migrating, setMigrating] = useState(false);
 
   // 클라우드 상태를 다시 읽어 스토어에 반영
   const reloadCloud = useCallback(async () => {
@@ -98,6 +95,12 @@ function WorkspaceShell() {
     setModalState({ isOpen: true, task, isEditMode });
   }, []);
 
+  // 통합 검색 선택: 프로젝트 → 이동 / 작업 → 이동 + 모달 오픈
+  const handleSearchSelect = useCallback((kind, item) => {
+    if (kind === 'project') { setActiveMenu(item.id); }
+    else if (kind === 'task') { setActiveMenu(item.projectId); openTaskModal(item); }
+  }, [openTaskModal]);
+
   // 딥링크의 taskId → 데이터 준비 후 해당 작업 모달 오픈(존재 검증)
   useEffect(() => {
     const tid = pendingTaskIdRef.current;
@@ -121,24 +124,6 @@ function WorkspaceShell() {
     window.history.replaceState(null, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
   }, [activeMenu, modalState]);
 
-  // 로컬 → 클라우드 1회 이관
-  const handleMigrate = useCallback(async () => {
-    try {
-      setMigrating(true);
-      const raw = localStorage.getItem('church_app_v4');
-      if (!raw) { window.alert('가져올 로컬 데이터가 없어요.'); return; }
-      await cloudSync.migrateLocalToCloud(JSON.parse(raw));
-      await reloadCloud();
-      window.alert('이 브라우저의 로컬 데이터를 클라우드로 가져왔어요.');
-      setIsSyncModalOpen(false);
-    } catch (e) {
-      console.error('[cloud] 이관 실패:', e);
-      window.alert(`이관 중 오류가 발생했어요.\n원인: ${cloudSync.formatCloudError(e)}`);
-    } finally {
-      setMigrating(false);
-    }
-  }, [reloadCloud]);
-
   if (cloudMode && !cloudReady) return <CloudSplash />;
 
   return (
@@ -160,7 +145,7 @@ function WorkspaceShell() {
 
       <div className="flex-1 flex flex-col w-full min-w-0">
         <Header
-          activeMenu={activeMenu} openSidebar={() => setIsSidebarOpen(true)} onOpenSync={() => setIsSyncModalOpen(true)}
+          activeMenu={activeMenu} openSidebar={() => setIsSidebarOpen(true)} onSearchSelect={handleSearchSelect}
           undo={controller.undo} redo={controller.redo} canUndo={store.canUndo()} canRedo={store.canRedo()} cloudMode={cloudMode}
         />
         <main className="flex-1 overflow-auto p-4 md:p-6 relative">
@@ -190,13 +175,13 @@ function WorkspaceShell() {
             onUpdateComment={(commentId, newText) => { const updated = controller.handleUpdateComment(modalState.task, commentId, newText); setModalState(prev => ({ ...prev, task: updated })); }}
             onDeleteComment={(commentId) => { const updated = controller.handleDeleteComment(modalState.task, commentId); setModalState(prev => ({ ...prev, task: updated })); }}
             onFileActivity={(action) => { const updated = controller.handleFileActivity(modalState.task, action); setModalState(prev => ({ ...prev, task: updated })); }}
+            onDelete={() => { controller.handleDeleteTask(modalState.task); setModalState({ isOpen: false, task: null, isEditMode: false }); }}
           />
         </ErrorBoundary>
       )}
 
       {isProfileModalOpen && <ProfileModal onClose={() => setIsProfileModalOpen(false)} onSave={(p) => { controller.handleUpdateUser(p); localStorage.setItem('daboot_profile_done', '1'); }} />}
       {isProjectModalOpen && <ProjectModal onClose={() => setIsProjectModalOpen(false)} onSave={(title) => { const newId = controller.handleAddProject(title); setActiveMenu(newId); setIsProjectModalOpen(false); }} />}
-      {isSyncModalOpen && <SyncModal onClose={() => setIsSyncModalOpen(false)} persistence={persistence} cloudMode={cloudMode} isAdmin={isAdmin} onMigrate={handleMigrate} migrating={migrating} />}
     </div>
   );
 }
