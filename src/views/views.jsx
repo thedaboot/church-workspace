@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   LayoutDashboard, Plus, Calendar as CalendarIcon,
   Link as LinkIcon, ListTodo, ListFilter, ExternalLink, ChevronRight, Undo2, Check, X, Trash2,
-  TrendingUp, CheckSquare
+  TrendingUp, CheckSquare, Users
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { generateId } from '../utils.js';
@@ -50,25 +50,23 @@ export function DashboardView({ onNavigate }) {
           </div>
           <p className="text-xs text-fg-muted mt-2 flex justify-between items-center">오늘도 화이팅입니다! <span className="text-accent-text font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">확인하기 <ChevronRight size={12}/></span></p>
         </div>
-        {/* 내 팀 업무 — 밤하늘 시그니처 카드 (항상 어두우므로 내부 색은 테마 무관 고정) */}
-        <div onClick={() => onNavigate(`team:${currentUser.team}`)} className="bg-night text-white p-5 md:p-6 rounded-lg flex flex-col sm:col-span-2 lg:col-span-1 relative overflow-hidden cursor-pointer group hover:-translate-y-0.5 hover:shadow-soft transition-all">
-          <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white opacity-10 rounded-full blur-xl"></div>
-          <div className="flex items-center gap-2 mb-1.5">
-            <h3 className="text-base md:text-lg font-bold text-white tracking-[-0.25px]">내 팀 업무</h3>
-            <span className="text-[10px] font-semibold bg-white/15 text-white/90 px-2 py-0.5 rounded-full whitespace-nowrap">{currentUser.team}</span>
-          </div>
-          {myTeamTasks.length > 0 ? (
-            <div className="flex-1 min-h-0">
-              <p className="text-xs text-white/70 mb-2.5">진행 중인 팀 업무가 {myTeamTasks.length}개 있어요.</p>
-              <div className="space-y-1 mb-3">
-                {myTeamTasks.slice(0, 2).map(t => <div key={t.id} className="text-xs text-white/90 bg-white/10 rounded-md px-2 py-1 truncate">{t.title}</div>)}
-                {myTeamTasks.length > 2 && <div className="text-[10px] text-white/50 px-0.5">외 {myTeamTasks.length - 2}개</div>}
-              </div>
+        {/* 내 팀 업무 — KPI 카드 (배경만 특별히 로그인/OG의 파스텔 글로우, 항상 밝으므로 잉크색 고정) */}
+        <div onClick={() => onNavigate(`team:${currentUser.team}`)} className="relative overflow-hidden bg-[#f6f5f4] p-5 md:p-6 rounded-lg border border-line flex flex-col justify-between sm:col-span-2 lg:col-span-1 cursor-pointer group hover:-translate-y-0.5 hover:shadow-soft transition-all">
+          <div className="absolute -top-12 -left-12 w-44 h-44 rounded-full bg-[#62aef0]/30 blur-3xl pointer-events-none"></div>
+          <div className="absolute -bottom-14 -right-10 w-48 h-48 rounded-full bg-[#d6b6f6]/40 blur-3xl pointer-events-none"></div>
+          <div className="absolute -top-4 right-1/4 w-24 h-24 rounded-full bg-[#ff64c8]/20 blur-2xl pointer-events-none"></div>
+          <div className="relative">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="w-7 h-7 rounded-md bg-white/80 text-[#31302e] border border-[#e6e6e6] flex items-center justify-center shrink-0"><Users size={14} strokeWidth={1.75} /></span>
+              <h3 className="text-[#615d59] text-xs md:text-sm font-medium group-hover:text-accent transition-colors">내 팀 업무</h3>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${CONFIG.TEAMS[currentUser.team] || 'bg-white/80 text-[#615d59]'}`}>{currentUser.team}</span>
             </div>
-          ) : (
-            <p className="text-xs text-white/70 mb-3 flex-1">지금 {currentUser.team}에 남아 있는 업무가 없어요. 수고했어요!</p>
-          )}
-          <span className="bg-white text-[#31302e] group-hover:bg-white/90 text-xs py-2 px-4 rounded-full shadow-soft transition active:scale-95 self-start font-medium whitespace-nowrap mt-auto">팀 보드 열기</span>
+            <div className="text-3xl md:text-4xl font-bold text-[#31302e]">{myTeamTasks.length}개</div>
+          </div>
+          <p className="relative text-xs text-[#615d59] mt-2 flex justify-between items-center gap-2">
+            <span className="truncate min-w-0">{myTeamTasks.length > 0 ? `${myTeamTasks[0].title}${myTeamTasks.length > 1 ? ` 외 ${myTeamTasks.length - 1}건` : ''}` : '남은 팀 업무가 없어요. 수고했어요!'}</span>
+            <span className="text-accent-text font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 shrink-0">팀 보드 <ChevronRight size={12}/></span>
+          </p>
         </div>
       </div>
       <div className="bg-surface rounded-lg border border-line overflow-hidden">

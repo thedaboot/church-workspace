@@ -9,6 +9,7 @@ import {
 } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
 import { avatarColor } from '../utils.js';
+import { CONFIG } from '../config.js';
 import logoLight from '../assets/logo-light.png';
 import logoDark from '../assets/logo-dark.png';
 
@@ -68,7 +69,8 @@ function SidebarProfile({ currentUser, onOpenProfile }) {
   return (
     <div className="p-4 border-t border-line flex items-center gap-3 hover:bg-surface-hover transition-colors group">
       <div onClick={onOpenProfile} className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
-        <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shrink-0 transition-colors ${avatarColor(currentUser.name)}`}>{currentUser.name[0]}</div>
+        {/* 프로필 아바타는 소속 팀 색을 따른다 (팀 미지정 시 이름 해시 색) */}
+        <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold shrink-0 transition-colors ${CONFIG.TEAMS[currentUser.team] || avatarColor(currentUser.name)}`}>{currentUser.name[0]}</div>
         <div className="flex-1 min-w-0"><p className="text-sm font-medium text-fg truncate">{currentUser.name}</p><p className="text-xs text-fg-muted truncate">{currentUser.team}</p></div>
         <Settings size={14} className="text-fg-faint group-hover:text-fg-muted shrink-0" />
       </div>
