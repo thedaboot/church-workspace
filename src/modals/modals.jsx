@@ -53,9 +53,9 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
       <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-5xl h-[95vh] md:h-[85vh] flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         <div className="flex-1 flex flex-col border-r-0 md:border-r border-line overflow-y-auto">
           <div className="sticky top-0 bg-surface/95 backdrop-blur z-10 px-4 py-3 border-b border-line flex justify-between items-center">
-            <div className="flex items-center gap-2 text-xs font-semibold text-fg-muted"><CheckSquare size={14} className="text-accent"/> {task.id ? '작업 세부 정보' : '새 작업 만들기'}</div>
+            <div className="flex items-center gap-2 text-xs font-semibold text-fg-muted"><CheckSquare size={14} className="text-accent"/> {task.id ? '업무 세부 정보' : '새 업무 만들기'}</div>
             <div className="flex items-center gap-1">
-              {task.id && <ShareButton url={`${window.location.origin}/s/t/${task.id}`} title="작업 공유 링크 복사" />}
+              {task.id && <ShareButton url={`${window.location.origin}/s/t/${task.id}`} title="업무 공유 링크 복사" />}
               <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>
             </div>
           </div>
@@ -71,7 +71,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
                   <button type="button" onClick={() => setConfirmingDelete(false)} className="text-fg-muted hover:text-fg hover:bg-surface-hover rounded-md px-2 py-1.5 text-[10px] font-medium transition active:scale-95">취소</button>
                 </span>
               ) : (
-                <button type="button" onClick={() => setConfirmingDelete(true)} className="p-2 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95 shrink-0" title="작업 삭제"><Trash2 size={16} /></button>
+                <button type="button" onClick={() => setConfirmingDelete(true)} className="p-2 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95 shrink-0" title="업무 삭제"><Trash2 size={16} /></button>
               ))}
               <div className="text-[10px] text-fg-faint hidden md:block truncate">작성: {formData.author} • 최근: {formatDate(formData.updatedAt)}</div>
             </div>
@@ -225,7 +225,7 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
 
   return (
     <form className="space-y-4">
-      <input type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="작업 제목 입력" className="w-full text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus />
+      <input type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="업무 제목 입력" className="w-full text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus />
 
       <div className="border-y border-line divide-y divide-line/60">
         <PropertyRow icon={<CheckSquare size={13} className="text-fg-faint" />} label="상태">

@@ -30,7 +30,7 @@ export function DashboardView({ onNavigate }) {
   );
 
   return (
-    <div className="max-w-6xl mx-auto space-y-4 md:space-y-6 animate-in fade-in duration-300">
+    <div className="max-w-6xl mx-auto space-y-4 md:space-y-6 pb-8 md:pb-10 animate-in fade-in duration-300">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         <div className="bg-surface p-5 md:p-6 rounded-lg border border-line">
           <div className="flex items-center gap-2 mb-2">
@@ -220,7 +220,7 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
               );
             })}
           </div>
-          <button onClick={onNewTask} className="w-full md:w-auto shrink-0 bg-accent hover:bg-accent-strong text-white pl-3 pr-4 py-1.5 rounded-full text-xs font-medium shadow-soft transition active:scale-95 flex justify-center items-center gap-1.5 whitespace-nowrap"><Plus size={14} className="shrink-0" /> 새 작업</button>
+          <button onClick={onNewTask} className="w-full md:w-auto shrink-0 bg-accent hover:bg-accent-strong text-white pl-3 pr-4 py-1.5 rounded-full text-xs font-medium shadow-soft transition active:scale-95 flex justify-center items-center gap-1.5 whitespace-nowrap"><Plus size={14} className="shrink-0" /> 새 업무</button>
         </div>
       )}
       <div className="flex-1 min-h-0">
@@ -235,7 +235,7 @@ export function MyTasksView({ onTaskClick, onStatusChange }) {
   const myTasks = useStore(selectMyTasks);
   return (
     <div className="max-w-5xl mx-auto h-full flex flex-col animate-in fade-in">
-      <div className="mb-4 shrink-0"><h2 className="text-xl font-bold text-fg tracking-[-0.25px]">👋 {currentUser.name}님의 작업</h2><p className="text-xs text-fg-muted mt-1">할당된 모든 프로젝트의 업무가 이곳에 모입니다.</p></div>
+      <div className="mb-4 shrink-0"><h2 className="text-xl font-bold text-fg tracking-[-0.25px]">👋 {currentUser.name}님의 업무</h2><p className="text-xs text-fg-muted mt-1">할당된 모든 프로젝트의 업무가 이곳에 모입니다.</p></div>
       <div className="flex-1 min-h-0"><Board tasks={myTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} showProjectBadge /></div>
     </div>
   );
@@ -254,7 +254,7 @@ export function TeamView({ teamName, onTaskClick, onStatusChange }) {
 
 export function GuideView() {
   return (
-    <div className="max-w-3xl mx-auto bg-surface p-6 md:p-10 rounded-lg border border-line animate-in fade-in">
+    <div className="max-w-3xl mx-auto mb-8 md:mb-10 bg-surface p-6 md:p-10 rounded-lg border border-line animate-in fade-in">
       <h1 className="text-2xl font-bold mb-6 flex items-center gap-2 tracking-[-0.25px]"><LayoutDashboard className="text-accent"/> 사용 가이드</h1>
       <div className="space-y-6 text-sm text-fg-muted leading-relaxed">
         <section>

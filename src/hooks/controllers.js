@@ -39,7 +39,7 @@ export const useWorkspaceController = () => {
       const addedLogs = (task.activityLog || []).slice((oldData?.activityLog || []).length);
       cloudSync.cardUpsertCloud(task, isNew)
         .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id))
-        .catch(reportCloudError('작업 저장'));
+        .catch(reportCloudError('업무 저장'));
     }
     return task;
   }, [currentUser.name, cloudOn]);
@@ -87,7 +87,7 @@ export const useWorkspaceController = () => {
   const handleDeleteTask = useCallback((task) => {
     if (!task?.id) return;
     store.dispatch({ type: 'DELETE_TASK', payload: task.id });
-    if (cloudOn) cloudSync.cardDeleteCloud(task.id).catch(reportCloudError('작업 삭제'));
+    if (cloudOn) cloudSync.cardDeleteCloud(task.id).catch(reportCloudError('업무 삭제'));
   }, [cloudOn]);
 
   const handleAddProject = useCallback((title) => {

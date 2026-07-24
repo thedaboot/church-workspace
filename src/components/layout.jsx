@@ -52,7 +52,7 @@ export const Sidebar = React.memo(({ activeMenu, setActiveMenu, isSidebarOpen, c
       </div>
       <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1 scrollbar-hide">
         <NavItem icon={<LayoutDashboard size={15} strokeWidth={1.75} />} tile="bg-tag-blue text-tag-blue-fg" label="전체 대시보드" active={activeMenu === 'dashboard'} onClick={() => setActiveMenu('dashboard')} />
-        <NavItem icon={<CheckSquare size={15} strokeWidth={1.75} />} tile="bg-tag-green text-tag-green-fg" label="내 작업" active={activeMenu === 'myTasks'} onClick={() => setActiveMenu('myTasks')} badge={myTasksCount} />
+        <NavItem icon={<CheckSquare size={15} strokeWidth={1.75} />} tile="bg-tag-green text-tag-green-fg" label="내 업무" active={activeMenu === 'myTasks'} onClick={() => setActiveMenu('myTasks')} badge={myTasksCount} />
         <div className="mt-6 mb-2 px-2 text-[10px] font-bold text-fg-faint uppercase tracking-wider flex justify-between items-center">
           프로젝트 리스트 <Plus size={14} className="cursor-pointer hover:text-fg p-0.5 rounded hover:bg-surface-hover transition active:scale-95" onClick={onOpenProject} />
         </div>
@@ -120,7 +120,7 @@ function SearchResults({ results, debounced, projectsMap, onPick }) {
       )}
       {results.taskHits.length > 0 && (
         <div>
-          <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-faint uppercase tracking-wider">작업</p>
+          <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-faint uppercase tracking-wider">업무</p>
           {results.taskHits.map(t => (
             <button key={t.id} onClick={() => onPick('task', t)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
               <span className="w-6 h-6 rounded-md bg-tag-green text-tag-green-fg flex items-center justify-center shrink-0"><CheckSquare size={13} strokeWidth={1.75} /></span>
@@ -197,7 +197,7 @@ function SearchBox({ onSearchSelect }) {
           type="text" value={query}
           onChange={e => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
-          placeholder="프로젝트·작업 검색..."
+          placeholder="프로젝트나 업무를 검색해봐요!"
           className="pl-9 pr-4 py-1.5 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak focus:shadow-soft outline-none w-full transition-all"
         />
         {open && results && (
@@ -219,7 +219,7 @@ function SearchBox({ onSearchSelect }) {
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-fg-faint" strokeWidth={1.75} />
                 <input
                   autoFocus type="text" value={query} onChange={e => setQuery(e.target.value)}
-                  placeholder="프로젝트·작업 검색..."
+                  placeholder="프로젝트나 업무를 검색해봐요!"
                   className="pl-9 pr-3 py-2 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all"
                 />
               </div>
@@ -241,7 +241,7 @@ export const Header = React.memo(({ activeMenu, openSidebar, onSearchSelect, und
   const projectsMap = useStore(selectProjectsMap);
   let title = '워크스페이스';
   if (activeMenu === 'dashboard') title = '전체 대시보드';
-  else if (activeMenu === 'myTasks') title = '내 작업';
+  else if (activeMenu === 'myTasks') title = '내 업무';
   else if (activeMenu === 'guide') title = '사용 가이드';
   else if (activeMenu.startsWith('team:')) title = `${activeMenu.split(':')[1]} 보드`;
   else if (projectsMap[activeMenu]) title = projectsMap[activeMenu].title;

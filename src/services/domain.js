@@ -55,7 +55,7 @@ export const MockFactory = {
   createWorkspace: () => {
     const p1 = MockFactory.createProject('2026 여름 수련회 준비', [{ id: generateId(), title: '기획안 원본', url: '#' }]);
     const p2 = MockFactory.createProject('새신자 초청 주일', []);
-    const t1 = TaskService.create({ projectId: p1.id, title: '수련회 포스터 디자인', status: '진행 중', assignees: ['홍길동'], teams: ['미디어팀'], content: '여름 수련회 포스터 작업입니다.', dueDate: '2026-07-25' }, '임성빈');
+    const t1 = TaskService.create({ projectId: p1.id, title: '수련회 포스터 디자인', status: '진행 중', assignees: ['홍길동'], teams: ['미디어팀'], content: '여름 수련회 포스터 업무입니다.', dueDate: '2026-07-25' }, '임성빈');
     return {
       currentUser: MockFactory.createUser(),
       projects: normalize([p1, p2]),

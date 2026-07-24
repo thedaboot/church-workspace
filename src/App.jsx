@@ -95,13 +95,13 @@ function WorkspaceShell() {
     setModalState({ isOpen: true, task, isEditMode });
   }, []);
 
-  // 통합 검색 선택: 프로젝트 → 이동 / 작업 → 이동 + 모달 오픈
+  // 통합 검색 선택: 프로젝트 → 이동 / 업무 → 이동 + 모달 오픈
   const handleSearchSelect = useCallback((kind, item) => {
     if (kind === 'project') { setActiveMenu(item.id); }
     else if (kind === 'task') { setActiveMenu(item.projectId); openTaskModal(item); }
   }, [openTaskModal]);
 
-  // 딥링크의 taskId → 데이터 준비 후 해당 작업 모달 오픈(존재 검증)
+  // 딥링크의 taskId → 데이터 준비 후 해당 업무 모달 오픈(존재 검증)
   useEffect(() => {
     const tid = pendingTaskIdRef.current;
     if (!tid) return;

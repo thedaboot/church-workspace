@@ -36,7 +36,7 @@ export default async function handler(req, res) {
           title = `더다붓 · ${data.title}`;
           const parts = [STATUS_KO[data.status] || ''];
           if (data.due_date) parts.push(`마감 ${data.due_date}`);
-          description = parts.filter(Boolean).join(' · ') || '작업 상세';
+          description = parts.filter(Boolean).join(' · ') || '업무 상세';
           appUrl = `/?p=${data.project_id}&t=${id}`;
         }
       }
