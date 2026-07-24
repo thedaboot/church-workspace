@@ -41,8 +41,16 @@ export function AuthProvider({ children }) {
   });
   const signOut = () => supabase.auth.signOut();
 
-  // 게스트 모드는 전원 관리자, 로그인 모드는 등록된 이메일만 관리자
-  const isAdmin = !enabled || (!!session && ADMIN_EMAILS.includes((session.user.email || '').toLowerCase()));
+  // 세션 사용자의 대표 이메일 + 연결된 모든 신원(identity)의 이메일을 수집
+  // (카카오 우선 가입 후 구글을 연결해도 관리자로 인정되도록)
+  const collectEmails = (user) => {
+    if (!user) return [];
+    const list = [user.email];
+    (user.identities || []).forEach(i => { list.push(i.email); list.push(i.identity_data?.email); });
+    return list.filter(Boolean).map(e => e.toLowerCase());
+  };
+  // 게스트 모드는 전원 관리자, 로그인 모드는 등록 이메일 중 하나라도 일치하면 관리자
+  const isAdmin = !enabled || (!!session && collectEmails(session.user).some(e => ADMIN_EMAILS.includes(e)));
 
   return <AuthContext.Provider value={{ enabled, session, loading, isAdmin, signIn, signOut }}>{children}</AuthContext.Provider>;
 }
