@@ -118,7 +118,7 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
 
   if (!project) return null;
 
-  const cloudErr = (label) => (err) => { console.error(`[cloud] ${label} 실패:`, err); window.alert(`클라우드 저장에 실패했어요 (${label}).`); };
+  const cloudErr = (label) => (err) => { console.error(`[cloud] ${label} 실패:`, err); window.alert(`클라우드 저장에 실패했어요 (${label})\n원인: ${cloudSync.formatCloudError(err)}`); };
 
   const saveLink = () => {
     if (!linkDraft.title.trim() || !linkDraft.url.trim()) return;

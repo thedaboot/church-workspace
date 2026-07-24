@@ -73,10 +73,24 @@ const projectToApp = (p, linksByProject) => ({
 
 // ── 초기 로드: 전체를 병렬 조회 → 앱 스토어 모양으로 정규화 ──────────────────
 export async function loadCloudState() {
-  const [teams, profiles, projects, cards, links, comments, activity, myProfile] = await Promise.all([
+  const [teams, profiles, projects, cards, links, comments, activity, initialProfile, sessionRes] = await Promise.all([
     cloud.listTeams(), cloud.listProfiles(), cloud.listProjects(), cloud.listAllCards(),
     cloud.listAllLinks(), cloud.listAllComments(), cloud.listAllActivity(), cloud.getMyProfile(),
+    cloud.getSession(),
   ]);
+
+  // 가입 트리거가 프로필 행을 못 만든 경우 클라이언트가 직접 자기 행을 생성(자가 복구)
+  let myProfile = initialProfile;
+  const sessionUser = sessionRes?.user;
+  if (!myProfile && sessionUser) {
+    try {
+      myProfile = await cloud.ensureMyProfile(sessionUser);
+      if (myProfile && !profiles.some(p => p.id === myProfile.id)) profiles.push(myProfile);
+    } catch (e) {
+      console.error('[cloud] 프로필 자가 복구 실패:', e);
+    }
+  }
+
   primeMaps(teams, profiles);
 
   const linksByProject = new Map();
@@ -185,3 +199,14 @@ export async function migrateLocalToCloud(localState) {
 
 // 재조회 트리거용 전역 구독 재노출
 export const subscribeAll = cloud.subscribeAll;
+
+// Supabase 에러를 사람이 읽을 한 줄로 (message + code + details)
+export function formatCloudError(err) {
+  if (!err) return '알 수 없는 오류';
+  const parts = [];
+  if (err.message) parts.push(err.message);
+  if (err.code) parts.push(`code ${err.code}`);
+  if (err.details) parts.push(err.details);
+  if (err.hint) parts.push(err.hint);
+  return parts.length ? parts.join(' · ') : String(err);
+}

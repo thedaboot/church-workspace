@@ -31,7 +31,14 @@ export function AuthProvider({ children }) {
     if (name) store.dispatch({ type: 'UPDATE_USER', payload: { name } });
   }, [session]);
 
-  const signIn = (provider) => supabase.auth.signInWithOAuth({ provider, options: { redirectTo: window.location.origin } });
+  const signIn = (provider) => supabase.auth.signInWithOAuth({
+    provider,
+    options: {
+      redirectTo: window.location.origin,
+      // 구글: 매번 전체 동의 화면 대신 계정 선택만
+      ...(provider === 'google' ? { queryParams: { prompt: 'select_account' } } : {}),
+    },
+  });
   const signOut = () => supabase.auth.signOut();
 
   // 게스트 모드는 전원 관리자, 로그인 모드는 등록된 이메일만 관리자

@@ -339,15 +339,23 @@ export function ProfileModal({ onClose, onSave }) {
   const cloudMode = enabled && !!session;
   const [name, setName] = useState(user.name);
   const [team, setTeam] = useState(user.team);
+  const [linking, setLinking] = useState(false);
 
   const kakaoLinked = (session?.user?.identities || []).some(i => i.provider === 'kakao');
   const linkKakao = async () => {
-    if (!supabase) return;
-    const { error } = await supabase.auth.linkIdentity({ provider: 'kakao' });
-    if (error) window.alert('카카오 연결에 실패했어요: ' + error.message);
+    if (!supabase || linking) return;
+    setLinking(true);
+    try {
+      const { error } = await supabase.auth.linkIdentity({ provider: 'kakao' });
+      if (error) window.alert(`연결 실패: ${error.message}\nSupabase 대시보드 → Authentication → 설정에서 'Manual Linking'이 켜져 있는지 확인해 주세요.`);
+    } catch (e) {
+      window.alert(`연결 실패: ${e.message}\nSupabase 대시보드 → Authentication → 설정에서 'Manual Linking'이 켜져 있는지 확인해 주세요.`);
+    } finally {
+      setLinking(false);
+    }
   };
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"><div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-200"><h3 className="font-bold text-fg mb-1 tracking-[-0.25px]">프로필 설정</h3><p className="text-xs text-fg-muted mb-4 leading-relaxed">워크스페이스에 표시될 이름(닉네임)과 소속 팀이에요.<br />언제든 여기서 바꿀 수 있어요.</p><label className="block text-xs font-semibold text-fg-muted mb-1.5">이름</label><input type="text" value={name} onChange={e=>setName(e.target.value)} className="w-full border border-line rounded-xs p-2 mb-4 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none" /><label className="block text-xs font-semibold text-fg-muted mb-1.5">소속 팀</label><select value={team} onChange={e=>setTeam(e.target.value)} className="w-full border border-line rounded-xs p-2 mb-4 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none">{Object.keys(CONFIG.TEAMS).map(t=><option key={t}>{t}</option>)}</select>{cloudMode && (<div className="mb-6"><label className="block text-xs font-semibold text-fg-muted mb-1.5">계정 연결</label>{kakaoLinked ? <span className="inline-flex items-center gap-1 text-xs font-medium bg-tag-yellow text-tag-yellow-fg px-2.5 py-1 rounded-full">카카오 연결됨</span> : <button type="button" onClick={linkKakao} className="w-full flex items-center justify-center gap-2 bg-[#fee500] text-[#191919] text-sm font-medium py-2.5 rounded-md hover:bg-[#f6dc00] transition active:scale-95">카카오 계정 연결</button>}</div>)}<div className="flex gap-2"><button onClick={onClose} className="flex-1 bg-surface-hover hover:bg-line text-fg-muted py-2.5 rounded-md text-sm font-medium transition active:scale-95">취소</button><button onClick={()=>{onSave({name, team}); onClose();}} className="flex-1 bg-accent hover:bg-accent-strong text-white py-2.5 rounded-md text-sm font-medium transition active:scale-95">저장</button></div></div></div>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"><div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-200"><h3 className="font-bold text-fg mb-1 tracking-[-0.25px]">프로필 설정</h3><p className="text-xs text-fg-muted mb-4 leading-relaxed">워크스페이스에 표시될 이름(닉네임)과 소속 팀이에요.<br />언제든 여기서 바꿀 수 있어요.</p><label className="block text-xs font-semibold text-fg-muted mb-1.5">이름</label><input type="text" value={name} onChange={e=>setName(e.target.value)} className="w-full border border-line rounded-xs p-2 mb-4 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none" /><label className="block text-xs font-semibold text-fg-muted mb-1.5">소속 팀</label><select value={team} onChange={e=>setTeam(e.target.value)} className="w-full border border-line rounded-xs p-2 mb-4 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none">{Object.keys(CONFIG.TEAMS).map(t=><option key={t}>{t}</option>)}</select>{cloudMode && (<div className="mb-6"><label className="block text-xs font-semibold text-fg-muted mb-1.5">계정 연결</label>{kakaoLinked ? <span className="inline-flex items-center gap-1 text-xs font-medium bg-tag-yellow text-tag-yellow-fg px-2.5 py-1 rounded-full">카카오 연결됨</span> : <button type="button" onClick={linkKakao} disabled={linking} className="w-full flex items-center justify-center gap-2 bg-[#fee500] disabled:opacity-60 text-[#191919] text-sm font-medium py-2.5 rounded-md hover:bg-[#f6dc00] transition active:scale-95">{linking ? '연결 중...' : '카카오 계정 연결'}</button>}</div>)}<div className="flex gap-2"><button onClick={onClose} className="flex-1 bg-surface-hover hover:bg-line text-fg-muted py-2.5 rounded-md text-sm font-medium transition active:scale-95">취소</button><button onClick={()=>{onSave({name, team}); onClose();}} className="flex-1 bg-accent hover:bg-accent-strong text-white py-2.5 rounded-md text-sm font-medium transition active:scale-95">저장</button></div></div></div>
   );
 }
 

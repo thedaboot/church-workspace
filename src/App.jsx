@@ -73,7 +73,7 @@ function WorkspaceShell() {
         if (alive && (!profile || !profile.display_name)) setIsProfileModalOpen(true);
       } catch (e) {
         console.error('[cloud] 초기 로드 실패:', e);
-        if (alive) window.alert('클라우드 데이터를 불러오지 못했어요. 새로고침 해주세요.');
+        if (alive) window.alert(`클라우드 데이터를 불러오지 못했어요. 새로고침 해주세요.\n원인: ${cloudSync.formatCloudError(e)}`);
       } finally {
         if (alive) setCloudReady(true);
       }
@@ -108,7 +108,7 @@ function WorkspaceShell() {
       setIsSyncModalOpen(false);
     } catch (e) {
       console.error('[cloud] 이관 실패:', e);
-      window.alert('이관 중 오류가 발생했어요. 콘솔을 확인해 주세요.');
+      window.alert(`이관 중 오류가 발생했어요.\n원인: ${cloudSync.formatCloudError(e)}`);
     } finally {
       setMigrating(false);
     }

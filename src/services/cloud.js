@@ -31,7 +31,7 @@ export const statusFromDb = (dbStatus) => {
 // ── 인증 ──────────────────────────────────────────────────────────────────
 // (auth.jsx와 일부 중복되지만 영속 계층 완결성을 위해 export)
 export async function signInWithGoogle() {
-  return unwrap(await client().auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } }));
+  return unwrap(await client().auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin, queryParams: { prompt: 'select_account' } } }));
 }
 export async function signInWithKakao() {
   return unwrap(await client().auth.signInWithOAuth({ provider: 'kakao', options: { redirectTo: window.location.origin } }));
@@ -44,6 +44,10 @@ export function onAuthChange(cb) {
   const { data } = client().auth.onAuthStateChange((_event, session) => cb(session));
   return () => data.subscription.unsubscribe();
 }
+export async function getSession() {
+  const { data } = await client().auth.getSession();
+  return { session: data.session, user: data.session?.user || null };
+}
 
 // ── profiles / teams ────────────────────────────────────────────────────────
 export async function getMyProfile() {
@@ -54,10 +58,21 @@ export async function getMyProfile() {
 export async function listProfiles() {
   return unwrap(await client().from('profiles').select('*'));
 }
+// 가입 트리거가 발화하지 않아 프로필 행이 없을 수 있으므로 update 대신 upsert(행 없어도 성공)
 export async function updateMyProfile(patch) {
   const { data: { user } } = await client().auth.getUser();
   if (!user) throw new Error('로그인이 필요합니다.');
-  return unwrap(await client().from('profiles').update(patch).eq('id', user.id).select().single());
+  return unwrap(await client().from('profiles').upsert({ id: user.id, ...patch }).select().single());
+}
+// 프로필 행이 없을 때 클라이언트가 직접 자기 행을 생성(RLS상 본인 insert 허용)
+export async function ensureMyProfile(user) {
+  const meta = user.user_metadata || {};
+  const row = {
+    id: user.id,
+    display_name: meta.full_name || meta.name || null,
+    avatar_url: meta.avatar_url || null,
+  };
+  return unwrap(await client().from('profiles').upsert(row, { onConflict: 'id' }).select().single());
 }
 export async function listTeams() {
   return unwrap(await client().from('teams').select('*').order('name', { ascending: true }));

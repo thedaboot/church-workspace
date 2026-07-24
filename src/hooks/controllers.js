@@ -7,10 +7,10 @@ import { CloudRepository } from '../services/cloud.js';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 
-// 클라우드 쓰기 실패 공통 처리(콘솔 + 간단 알림)
+// 클라우드 쓰기 실패 공통 처리(콘솔 전체 에러 + 원인 노출 알림)
 const reportCloudError = (label) => (err) => {
   console.error(`[cloud] ${label} 실패:`, err);
-  if (typeof window !== 'undefined') window.alert(`클라우드 저장에 실패했어요 (${label}). 잠시 후 다시 시도해 주세요.`);
+  if (typeof window !== 'undefined') window.alert(`클라우드 저장에 실패했어요 (${label})\n원인: ${cloudSync.formatCloudError(err)}`);
 };
 
 // ============================================================================
