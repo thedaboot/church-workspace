@@ -14,6 +14,7 @@ import { DatePicker } from '../components/DatePicker.jsx';
 import { MentionInput } from '../components/MentionInput.jsx';
 import { MarkdownEditor } from '../components/MarkdownEditor.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
+import { showToast } from '../components/Toast.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { supabase } from '../services/supabaseClient.js';
 import { uploadAttachment, getAttachmentUrl, deleteAttachment, listCardFiles, uploadContentImage } from '../services/cloud.js';
@@ -272,7 +273,7 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
       requestAnimationFrame(() => { if (el) { el.focus(); el.setSelectionRange(newPos, newPos); } });
     } catch (err) {
       console.error('[cloud] 본문 이미지 업로드 실패:', err);
-      window.alert('이미지 업로드에 실패했어요: ' + (err.message || err));
+      showToast('이미지 업로드에 실패했어요 · ' + (err.message || err));
     } finally {
       setImgUploading(false);
     }
@@ -451,7 +452,7 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
   const uploadFiles = async (fileList) => {
     const files = Array.from(fileList || []);
     for (const file of files) {
-      if (file.size > 25 * 1024 * 1024) { window.alert(`'${file.name}'은(는) 25MB를 초과해 건너뜁니다.`); continue; }
+      if (file.size > 25 * 1024 * 1024) { showToast(`'${file.name}'은(는) 25MB를 초과해 건너뜁니다.`); continue; }
       try {
         setUploadingName(file.name);
         const row = await uploadAttachment(file, { projectId: task.projectId, cardId: task.id });
@@ -459,7 +460,7 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
         onFileActivity?.(`파일 '${row.name}'을(를) 첨부했습니다.`);
       } catch (e) {
         console.error('[cloud] 업로드 실패:', e);
-        window.alert(`업로드 실패 (${file.name})\n원인: ${e.message || e}`);
+        showToast(`업로드 실패 (${file.name}) · ${e.message || e}`);
       } finally {
         setUploadingName(null);
       }
@@ -477,14 +478,14 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
 
   const openFile = async (row) => {
     try { const url = await getAttachmentUrl(row.storage_path); window.open(url, '_blank', 'noopener'); }
-    catch (e) { window.alert('파일을 열 수 없어요: ' + (e.message || e)); }
+    catch (e) { showToast('파일을 열 수 없어요 · ' + (e.message || e)); }
   };
   const removeItem = async (row) => {
     try {
       await deleteAttachment(row);
       setItems(prev => prev.filter(x => x.id !== row.id));
       onFileActivity?.(`파일 '${row.name}'을(를) 삭제했습니다.`);
-    } catch (e) { console.error('[cloud] 삭제 실패:', e); window.alert('삭제 실패: ' + (e.message || e)); }
+    } catch (e) { console.error('[cloud] 삭제 실패:', e); showToast('삭제 실패 · ' + (e.message || e)); }
   };
 
   // 읽기 전용(뷰어)에서 첨부가 없으면 섹션 자체를 숨김
@@ -674,9 +675,9 @@ export function ProfileModal({ onClose, onSave }) {
     setLinking(provider);
     try {
       const { error } = await supabase.auth.linkIdentity({ provider });
-      if (error) window.alert(`연결 실패: ${error.message}\nSupabase 대시보드 → Authentication → 설정에서 'Manual Linking'이 켜져 있는지 확인해 주세요.`);
+      if (error) showToast(`연결 실패: ${error.message} · Supabase 설정에서 Manual Linking이 켜져 있는지 확인해 주세요.`);
     } catch (e) {
-      window.alert(`연결 실패: ${e.message}\nSupabase 대시보드 → Authentication → 설정에서 'Manual Linking'이 켜져 있는지 확인해 주세요.`);
+      showToast(`연결 실패: ${e.message} · Supabase 설정에서 Manual Linking이 켜져 있는지 확인해 주세요.`);
     } finally {
       setLinking(null);
     }

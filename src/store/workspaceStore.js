@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { MockFactory } from '../services/domain.js';
+import { isCloudEnabled } from '../services/supabaseClient.js';
 
 // ============================================================================
 // 5. State Management: Custom Store (Zustand/Redux 아키텍처)
@@ -137,8 +138,19 @@ export class WorkspaceStore {
   canRedo = () => this.state.future.length > 0;
 }
 
+// 빈 워크스페이스 (클라우드 모드 초기값 — 스테일 로컬/Mock 노출 방지)
+export const emptyWorkspace = () => ({
+  currentUser: { name: '', team: '' },
+  projects: { byId: {}, allIds: [] },
+  tasks: { byId: {}, allIds: [] },
+});
+
 // 글로벌 Store 인스턴스 (단일 파일 제약상 싱글톤 활용)
+// 클라우드 모드에서는 localStorage(church_app_v4)/Mock을 절대 읽지 않는다.
+// 로그인 세션이 있으면 서버가 유일한 원본이고, 스테일 로컬 데이터를 보여주면
+// 그 '유령' 업무를 저장하려다 PGRST116(0 rows) 같은 오류로 이어진다.
 const initialData = (() => {
+  if (isCloudEnabled()) return emptyWorkspace();
   try {
     const saved = localStorage.getItem('church_app_v4');
     if (saved) return JSON.parse(saved);

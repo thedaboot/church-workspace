@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Share2, Check } from 'lucide-react';
+import { showToast } from './Toast.jsx';
 
 // 공유 링크 복사 버튼 — 클릭 시 클립보드 복사 후 2초간 Check+"복사됨"
 export function ShareButton({ url, title = '공유 링크 복사', className = '' }) {
@@ -11,7 +12,7 @@ export function ShareButton({ url, title = '공유 링크 복사', className = '
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      window.alert('복사에 실패했어요. 링크: ' + url);
+      showToast('복사에 실패했어요 · ' + url);
     }
   };
   return (

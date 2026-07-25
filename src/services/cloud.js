@@ -16,6 +16,34 @@ const client = () => {
 // { data, error } 언래핑 헬퍼
 const unwrap = ({ data, error }) => { if (error) throw error; return data; };
 
+// ── PGRST303 (JWT issued at future) 자동 재시도 ─────────────────────────────
+// 기기 시계가 서버보다 앞서 있으면 발급 시각이 미래인 JWT가 되어 거부된다.
+// 잠깐 기다리면 서버 시각이 따라잡으므로 대기 후 재시도하고, 한 번은 세션도 갱신한다.
+const isClockSkewError = (err) => {
+  const code = err?.code || '';
+  const msg = `${err?.message || ''} ${err?.details || ''}`.toLowerCase();
+  return code === 'PGRST303' || (msg.includes('jwt') && msg.includes('future'));
+};
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// 클라우드 호출을 감싸 시계 오차 오류에 한해 재시도 (최대 2회 추가 시도)
+export async function withClockSkewRetry(fn, { retries = 2, delay = 1500 } = {}) {
+  let refreshed = false;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isClockSkewError(err) || attempt >= retries) throw err;
+      console.warn(`[cloud] JWT 시각 오차 감지 — ${delay}ms 후 재시도 (${attempt + 1}/${retries})`);
+      if (!refreshed) {
+        refreshed = true;
+        try { await supabase?.auth.refreshSession(); } catch (e) { console.warn('[cloud] 세션 갱신 실패:', e); }
+      }
+      await sleep(delay);
+    }
+  }
+}
+
 // ── 상태 매핑: DB 'todo'|'doing'|'done' ↔ 앱 '시작 전'|'진행 중'|'완료' ──
 // CONFIG.STATUSES 순서(['시작 전','진행 중','완료'])와 1:1 대응
 const DB_STATUSES = ['todo', 'doing', 'done'];
@@ -114,8 +142,19 @@ export async function createCard(data, teamIds = []) {
   }
   return card;
 }
+// 0 rows(PGRST116)는 대상 행이 없다는 뜻 — upsert로 폴백해 카드를 생성한다.
+// (스테일 로컬 데이터나 다른 기기에서의 삭제로 행이 사라진 경우 자연 복구)
+const isNoRowsError = (err) => err?.code === 'PGRST116';
+
 export async function updateCard(id, patch, teamIds) {
-  const card = unwrap(await client().from('cards').update(patch).eq('id', id).select().single());
+  let card;
+  try {
+    card = unwrap(await client().from('cards').update(patch).eq('id', id).select().single());
+  } catch (e) {
+    if (!isNoRowsError(e)) throw e;
+    console.warn('[cloud] 업무 행이 없어 upsert로 생성합니다:', id);
+    card = unwrap(await client().from('cards').upsert({ id, ...patch }, { onConflict: 'id' }).select().single());
+  }
   // teamIds가 명시적으로 주어졌을 때만 팀 매핑을 재설정
   if (teamIds !== undefined) {
     const del = await client().from('card_teams').delete().eq('card_id', id);
@@ -150,7 +189,13 @@ export async function addComment(cardId, body, parentId = null, id) {
   return unwrap(await client().from('comments').insert(row).select().single());
 }
 export async function updateComment(id, body) {
-  return unwrap(await client().from('comments').update({ body, edited: true }).eq('id', id).select().single());
+  try {
+    return unwrap(await client().from('comments').update({ body, edited: true }).eq('id', id).select().single());
+  } catch (e) {
+    if (!isNoRowsError(e)) throw e;
+    console.warn('[cloud] 댓글 행이 없어 수정을 건너뜁니다:', id);
+    return null; // 이미 삭제된 댓글 — 로컬 반영만 유지
+  }
 }
 export async function deleteComment(id) {
   const { error } = await client().from('comments').delete().eq('id', id);

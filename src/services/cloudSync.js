@@ -80,11 +80,11 @@ const projectToApp = (p, linksByProject) => ({
 
 // ── 초기 로드: 전체를 병렬 조회 → 앱 스토어 모양으로 정규화 ──────────────────
 export async function loadCloudState() {
-  const [teams, profiles, projects, cards, links, comments, activity, files, initialProfile, sessionRes] = await Promise.all([
+  const [teams, profiles, projects, cards, links, comments, activity, files, initialProfile, sessionRes] = await cloud.withClockSkewRetry(() => Promise.all([
     cloud.listTeams(), cloud.listProfiles(), cloud.listProjects(), cloud.listAllCards(),
     cloud.listAllLinks(), cloud.listAllComments(), cloud.listAllActivity(), cloud.listAllFiles(), cloud.getMyProfile(),
     cloud.getSession(),
-  ]);
+  ]));
 
   // 가입 트리거가 프로필 행을 못 만든 경우 클라이언트가 직접 자기 행을 생성(자가 복구)
   let myProfile = initialProfile;
@@ -144,38 +144,41 @@ const cardPatch = (task) => ({
   position: task.position ?? 0,
 });
 
+// 모든 쓰기 경로도 시계 오차(PGRST303) 재시도로 감싼다
+const write = cloud.withClockSkewRetry;
+
 export async function cardUpsertCloud(task, isNew) {
   const teamIds = (task.teams || []).map(n => teamNameToId.get(n)).filter(Boolean);
-  if (isNew) return cloud.createCard({ id: task.id, ...cardPatch(task) }, teamIds);
-  return cloud.updateCard(task.id, cardPatch(task), teamIds);
+  if (isNew) return write(() => cloud.createCard({ id: task.id, ...cardPatch(task) }, teamIds));
+  return write(() => cloud.updateCard(task.id, cardPatch(task), teamIds));
 }
-export async function cardDeleteCloud(id) { return cloud.deleteCard(id); }
+export async function cardDeleteCloud(id) { return write(() => cloud.deleteCard(id)); }
 
 export async function activityAddCloud(entries, projectId, cardId) {
   for (const e of entries) {
-    await cloud.insertActivity({ id: e.id, project_id: projectId, card_id: cardId, action: e.action });
+    await write(() => cloud.insertActivity({ id: e.id, project_id: projectId, card_id: cardId, action: e.action }));
   }
 }
 
 export async function commentAddCloud(comment, cardId) {
-  return cloud.addComment(cardId, comment.text, comment.parentId || null, comment.id);
+  return write(() => cloud.addComment(cardId, comment.text, comment.parentId || null, comment.id));
 }
-export async function commentUpdateCloud(commentId, text) { return cloud.updateComment(commentId, text); }
-export async function commentDeleteCloud(commentId) { return cloud.deleteComment(commentId); }
+export async function commentUpdateCloud(commentId, text) { return write(() => cloud.updateComment(commentId, text)); }
+export async function commentDeleteCloud(commentId) { return write(() => cloud.deleteComment(commentId)); }
 
 export async function projectCreateCloud(project) {
-  return cloud.createProject({ id: project.id, name: project.title, description: '' });
+  return write(() => cloud.createProject({ id: project.id, name: project.title, description: '' }));
 }
-export async function projectDeleteCloud(id) { return cloud.deleteProject(id); }
+export async function projectDeleteCloud(id) { return write(() => cloud.deleteProject(id)); }
 
-export async function linkAddCloud(projectId, link) { return cloud.addLink(projectId, link.title, link.url, link.id); }
-export async function linkRemoveCloud(id) { return cloud.removeLink(id); }
+export async function linkAddCloud(projectId, link) { return write(() => cloud.addLink(projectId, link.title, link.url, link.id)); }
+export async function linkRemoveCloud(id) { return write(() => cloud.removeLink(id)); }
 
 export async function profileUpdateCloud({ name, team }) {
   const patch = { display_name: name };
   const teamId = team ? teamNameToId.get(team) : null;
   if (teamId) patch.team_id = teamId;
-  return cloud.updateMyProfile(patch);
+  return write(() => cloud.updateMyProfile(patch));
 }
 
 // ── 로컬 → 클라우드 1회 이관 ─────────────────────────────────────────────────

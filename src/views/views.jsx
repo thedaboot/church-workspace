@@ -16,6 +16,7 @@ import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
+import { showToast } from '../components/Toast.jsx';
 
 // ============================================================================
 // 11. UI Views (데이터를 구독하는 프레젠테이션 컴포넌트)
@@ -136,7 +137,7 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
 
   if (!project) return null;
 
-  const cloudErr = (label) => (err) => { console.error(`[cloud] ${label} 실패:`, err); window.alert(`클라우드 저장에 실패했어요 (${label})\n원인: ${cloudSync.formatCloudError(err)}`); };
+  const cloudErr = (label) => (err) => { console.error(`[cloud] ${label} 실패:`, err); showToast(`저장에 실패했어요 (${label}) · ${cloudSync.formatCloudError(err)}`); };
 
   const saveLink = () => {
     if (!linkDraft.title.trim() || !linkDraft.url.trim()) return;

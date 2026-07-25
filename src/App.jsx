@@ -7,6 +7,7 @@ import { DashboardView, ProjectView, MyTasksView, TeamView, GuideView } from './
 import { TaskModalShell, ProfileModal, ProjectModal } from './modals/modals.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
+import { ToastHost } from './components/Toast.jsx';
 import * as cloudSync from './services/cloudSync.js';
 import logoLight from './assets/logo-light.png';
 import logoDark from './assets/logo-dark.png';
@@ -21,6 +22,24 @@ function CloudSplash() {
   );
 }
 
+// 클라우드 로드 실패 화면 — 스테일 로컬 데이터를 절대 보여주지 않는다
+function CloudErrorScreen({ reason, onRetry, retrying }) {
+  return (
+    <div className="h-dvh bg-canvas flex flex-col items-center justify-center px-6 text-center">
+      <img src={logoLight} alt="더다붓" className="h-12 w-auto mb-6 dark:hidden" />
+      <img src={logoDark} alt="더다붓" className="h-12 w-auto mb-6 hidden dark:block" />
+      <h1 className="text-base font-bold text-fg tracking-[-0.25px] mb-1.5">데이터를 불러오지 못했어요</h1>
+      <p className="text-xs text-fg-muted leading-relaxed max-w-sm mb-6 break-words">{reason}</p>
+      <button
+        onClick={onRetry} disabled={retrying}
+        className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-5 py-2.5 rounded-md text-xs font-medium transition active:scale-95"
+      >
+        {retrying ? '다시 시도 중...' : '다시 시도'}
+      </button>
+    </div>
+  );
+}
+
 // ============================================================================
 // 10. Shell & Layout (프레젠테이션 최상위 계층)
 // ============================================================================
@@ -29,6 +48,7 @@ export default function ChurchApp() {
     <ErrorBoundary>
       <AuthProvider>
         <AuthGate />
+        <ToastHost />
       </AuthProvider>
     </ErrorBoundary>
   );
@@ -54,6 +74,8 @@ function WorkspaceShell() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [cloudReady, setCloudReady] = useState(!cloudMode);
+  const [loadError, setLoadError] = useState(null);
+  const [retrying, setRetrying] = useState(false);
 
   // 클라우드 상태를 다시 읽어 스토어에 반영
   const reloadCloud = useCallback(async () => {
@@ -63,22 +85,30 @@ function WorkspaceShell() {
   }, []);
 
   // 초기 클라우드 로드 + 온보딩(프로필 display_name 없으면 프로필 창)
+  // 실패 시 cloudReady를 올리지 않고 오류 화면을 띄운다(스테일 데이터 노출 금지)
+  const initialLoad = useCallback(async () => {
+    try {
+      setLoadError(null);
+      const profile = await reloadCloud();
+      if (!profile || !profile.display_name) setIsProfileModalOpen(true);
+      setCloudReady(true);
+    } catch (e) {
+      console.error('[cloud] 초기 로드 실패:', e);
+      setLoadError(cloudSync.formatCloudError(e));
+      setCloudReady(false);
+    }
+  }, [reloadCloud]);
+
   useEffect(() => {
     if (!cloudMode) { setCloudReady(true); return; }
-    let alive = true;
-    (async () => {
-      try {
-        const profile = await reloadCloud();
-        if (alive && (!profile || !profile.display_name)) setIsProfileModalOpen(true);
-      } catch (e) {
-        console.error('[cloud] 초기 로드 실패:', e);
-        if (alive) window.alert(`클라우드 데이터를 불러오지 못했어요. 새로고침 해주세요.\n원인: ${cloudSync.formatCloudError(e)}`);
-      } finally {
-        if (alive) setCloudReady(true);
-      }
-    })();
-    return () => { alive = false; };
-  }, [cloudMode, reloadCloud]);
+    initialLoad();
+  }, [cloudMode, initialLoad]);
+
+  const retryLoad = useCallback(async () => {
+    setRetrying(true);
+    await initialLoad();
+    setRetrying(false);
+  }, [initialLoad]);
 
   // 실시간: 변경 감지 → 300ms debounce 재조회
   useEffect(() => {
@@ -124,6 +154,7 @@ function WorkspaceShell() {
     window.history.replaceState(null, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
   }, [activeMenu, modalState]);
 
+  if (cloudMode && loadError) return <CloudErrorScreen reason={loadError} onRetry={retryLoad} retrying={retrying} />;
   if (cloudMode && !cloudReady) return <CloudSplash />;
 
   return (
