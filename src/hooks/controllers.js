@@ -80,6 +80,7 @@ export const useWorkspaceController = () => {
 
   const handleUpdateComment = useCallback((task, commentId, newText) => {
     const updated = TaskService.updateComment(task, commentId, newText, currentUser.name);
+    if (updated === task) return task; // 내용이 그대로 → 아무 것도 기록·저장하지 않는다
     store.dispatch({ type: 'UPSERT_TASK', payload: updated });
     if (cloudOn) {
       const addedLogs = (updated.activityLog || []).slice((task.activityLog || []).length);

@@ -8,7 +8,7 @@ import { showToast } from './Toast.jsx';
 // - 지원하지 않으면(데스크톱 사파리·파이어폭스 등) 기존처럼 링크를 복사한다.
 // 카카오톡으로 "한 번에" 보내기(카카오 JS SDK)는 자바스크립트 키 발급 + 카카오 콘솔에
 // 도메인 등록이 필요해서, 설정 없이 바로 되는 공유 시트를 기본으로 둔다.
-export function ShareButton({ url, what = '', shareTitle = '더다붓 워크스페이스', className = '' }) {
+export function ShareButton({ url, what = '', className = '' }) {
   const [copied, setCopied] = useState(false);
   const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
@@ -26,7 +26,9 @@ export function ShareButton({ url, what = '', shareTitle = '더다붓 워크스�
     e.stopPropagation();
     if (canShare) {
       try {
-        await navigator.share({ title: shareTitle, text: shareTitle, url });
+        // url만 넘긴다 — title/text를 함께 주면 카카오톡 등이 그 문구를 메시지 본문에
+        // 붙여 보낸다. 링크만 보내면 받는 쪽에서 OG 카드(제목·설명·이미지)로 펼쳐진다.
+        await navigator.share({ url });
         return;
       } catch (err) {
         if (err?.name === 'AbortError') return; // 사용자가 시트를 닫음 — 조용히 종료

@@ -104,7 +104,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     <>
       <div className="flex items-center gap-2 text-xs font-semibold text-fg-muted"><CheckSquare size={14} className="text-accent"/> {task.id ? '업무 세부 정보' : '새 업무 만들기'}</div>
       <div className="flex items-center gap-1">
-        {task.id && <ShareButton url={`${window.location.origin}/s/t/${task.id}`} what="업무" shareTitle={task.title || '업무'} />}
+        {task.id && <ShareButton url={`${window.location.origin}/s/t/${task.id}`} what="업무" />}
         <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>
       </div>
     </>

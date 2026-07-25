@@ -1,4 +1,5 @@
 import { generateId, normalize } from '../utils.js';
+import { mdToDoc, docToMd } from './markdown.js';
 
 // ============================================================================
 // 4. Domain Services (비즈니스 로직 캡슐화)
@@ -6,6 +7,15 @@ import { generateId, normalize } from '../utils.js';
 // 같은 항목들인지(순서 무시) — 담당자·담당 팀은 순서가 바뀌어도 변경이 아니다
 const sameItems = (a = [], b = []) => a.length === b.length && a.every(x => b.includes(x));
 const listOrNone = (a = []) => (a.length ? a.join(', ') : null);
+// 상세 내용은 에디터를 열기만 해도 마크다운이 정규화된다(빈 줄 3개 이상 축약,
+// 줄 끝 공백 제거, '**==x==**'→'==**x**==' 등). 그래서 손대지 않고 저장해도
+// 문자열이 달라져 "상세 내용을 수정했습니다"가 잘못 남았다 → 같은 정규화를 거친
+// 값끼리 비교해 '진짜 바뀐 경우'만 기록한다.
+const normContent = (s) => {
+  try { return docToMd(mdToDoc(s || '')); }
+  catch { return String(s || ''); }
+};
+
 // '2026-08-01' → '2026년 8월 1일' (활동 기록에 그대로 읽히게)
 const ymdKo = (s) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
@@ -22,7 +32,7 @@ export const ActivityService = {
     const add = (msg) => logs.push(ActivityService.createLog(msg, author));
 
     if ((oldTask.title || '') !== (newData.title || '')) add(`제목을 '${newData.title || ''}'(으)로 변경했습니다.`);
-    if ((oldTask.content || '') !== (newData.content || '')) add('상세 내용을 수정했습니다.');
+    if (normContent(oldTask.content) !== normContent(newData.content)) add('상세 내용을 수정했습니다.');
 
     for (const [key, label] of [['startDate', '시작일'], ['dueDate', '마감일']]) {
       const before = oldTask[key] || '';
@@ -67,11 +77,17 @@ export const TaskService = {
     comments: [...(task.comments || []), { id: generateId(), author, text, timestamp: new Date().toISOString(), parentId }],
     activityLog: [...(task.activityLog || []), ActivityService.createLog(parentId ? '답글을 남겼습니다.' : '댓글을 남겼습니다.', author)]
   }),
-  updateComment: (task, commentId, newText, author) => ({
-    ...task,
-    comments: (task.comments || []).map(c => c.id === commentId ? { ...c, text: newText, edited: true, updatedAt: new Date().toISOString() } : c),
-    activityLog: [...(task.activityLog || []), ActivityService.createLog('댓글을 수정했습니다.', author)]
-  }),
+  // 내용이 실제로 달라지지 않으면 task를 그대로(같은 참조로) 돌려준다
+  // → (수정됨) 표시도, 활동 기록도, 서버 쓰기도 일어나지 않는다.
+  updateComment: (task, commentId, newText, author) => {
+    const target = (task.comments || []).find(c => c.id === commentId);
+    if (!target || (target.text || '').trim() === (newText || '').trim()) return task;
+    return {
+      ...task,
+      comments: (task.comments || []).map(c => c.id === commentId ? { ...c, text: newText, edited: true, updatedAt: new Date().toISOString() } : c),
+      activityLog: [...(task.activityLog || []), ActivityService.createLog('댓글을 수정했습니다.', author)]
+    };
+  },
   // 최상위 댓글 삭제 시 그 답글(parentId === commentId)도 함께 제거
   deleteComment: (task, commentId, author) => ({
     ...task,

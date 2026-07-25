@@ -2,8 +2,8 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { User, Clock, Folder, ChevronLeft, ChevronRight, ArrowLeftRight, Check } from 'lucide-react';
 import {
-  DndContext, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors,
-  useDraggable, useDroppable,
+  DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
+  useDraggable, useDroppable, pointerWithin, rectIntersection,
 } from '@dnd-kit/core';
 import { CONFIG } from '../config.js';
 import { avatarColor } from '../utils.js';
@@ -13,6 +13,15 @@ import { useAnchoredPos } from './ConfirmPopover.jsx';
 
 const CAL_MIN_YEAR = new Date().getFullYear();
 const CAL_MAX_YEAR = 2030;
+
+// 놓을 곳은 "손가락/커서가 있는 곳" 기준으로 판단한다.
+// 기본값(rectIntersection)은 끌고 있는 카드의 사각형이 가장 많이 겹친 대상을 고르는데,
+// 카드 폭이 상태 칩보다 훨씬 넓어서 엉뚱한 칩에 놓이곤 했다(실측: 완료에 놓았는데 보류 중).
+// 포인터가 어떤 대상 안에도 없을 때만 기존 방식으로 되돌린다.
+const dropCollision = (args) => {
+  const hit = pointerWithin(args);
+  return hit.length ? hit : rectIntersection(args);
+};
 
 // ============================================================================
 // 12. UI Components (순수 프레젠테이션)
@@ -116,7 +125,16 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
 const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action = null }) => (
   <>
     {showProjectBadge && projectsMap[task.projectId] && <div className="text-[9px] text-fg-faint mb-1.5 flex items-center gap-1"><Folder size={10}/> {projectsMap[task.projectId].title}</div>}
-    <div className="flex flex-wrap gap-1 mb-2">{task.teams.map(team => <span key={team} className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${CONFIG.TEAMS[team]}`}>{team}</span>)}</div>
+    {/* 팀 배지와 같은 줄의 오른쪽 끝에 액션(모바일 상태 옮기기)을 둔다.
+        푸터에 넣으면 담당자↔마감일 좌우 균형이 깨져 마감일이 가운데 떠 보였다. */}
+    {(task.teams.length > 0 || action) && (
+      <div className="flex items-start gap-2 mb-2">
+        <div className="flex flex-wrap gap-1 min-w-0 flex-1">
+          {task.teams.map(team => <span key={team} className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${CONFIG.TEAMS[team]}`}>{team}</span>)}
+        </div>
+        {action}
+      </div>
+    )}
     <h4 className="font-semibold text-sm text-fg mb-2 leading-tight group-hover:text-accent transition-colors">{task.title}</h4>
     <div className="flex items-center justify-between text-[10px] text-fg-muted mt-3 border-t border-line pt-2 gap-2">
       <div className="flex items-center gap-1 min-w-0">
@@ -127,7 +145,6 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action 
         )}
       </div>
       {task.dueDate && <div className="flex items-center gap-1 text-tag-orange-fg bg-tag-orange px-1.5 py-0.5 rounded shrink-0"><Clock size={10} /><span>{new Date(task.dueDate).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric'})}</span></div>}
-      {action}
     </div>
   </>
 ));
@@ -217,6 +234,28 @@ function DraggableCard({ task, projectsMap, showProjectBadge, onTaskClick, onSta
   );
 }
 
+// 모바일 상태 칩 — 탭하면 그 컬럼으로 이동, 드래그 중에는 드롭 타깃.
+// 컬럼과 id가 겹치지 않게 'chip:' 접두사를 쓰고 handleDragEnd에서 벗겨낸다.
+function StatusChip({ status, count, current, dragging, isDraggedStatus, onClick }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `chip:${status}` });
+  const base = 'shrink-0 inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-full border text-[11px] font-semibold transition active:scale-95';
+  let tone;
+  if (dragging) {
+    if (isOver) tone = 'bg-accent-weak border-accent text-accent-text shadow-soft scale-105';
+    else if (isDraggedStatus) tone = 'bg-surface-2 border-line border-dashed text-fg-faint';
+    else tone = 'bg-surface border-accent border-dashed text-fg-muted';
+  } else {
+    tone = current ? 'bg-surface border-accent text-fg shadow-soft' : 'bg-surface-2 border-line text-fg-muted';
+  }
+  return (
+    <button ref={setNodeRef} type="button" onClick={onClick} className={`${base} ${tone}`}>
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${CONFIG.STATUS_DOTS[status] || 'bg-fg-faint'}`} />
+      {status}
+      <span className="text-fg-faint font-normal">{count}</span>
+    </button>
+  );
+}
+
 // 드롭 대상 컬럼(status) — dnd-kit useDroppable의 isOver로 강조
 function ColumnDroppable({ status, count, dragging, children }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
@@ -267,12 +306,15 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
     setVisibleCol(Math.min(CONFIG.STATUSES.length - 1, Math.round(el.scrollLeft / per)));
   };
 
-  // PointerSensor: 마우스/펜은 6px 이동해야 드래그 시작(짧은 클릭은 모달 열기로).
-  // TouchSensor: 250ms 꾹 눌러야 시작하고, 그 사이 6px 이상 움직이면 취소 → 스크롤.
-  // 스크롤이 드래그로 잘못 잡히는 쪽을 줄였다(끌기 대신 카드의 '상태 옮기기' 버튼도 있으므로).
+  // MouseSensor + TouchSensor로 입력 종류를 완전히 분리한다.
+  // PointerSensor를 쓰면 터치에서도 pointerdown이 잡혀 6px 이동하는 순간 드래그가
+  // 시작되고, 동시에 브라우저는 스크롤을 시작해 pointercancel을 던진다 → 드래그가
+  // 매번 취소돼서 모바일에서 카드가 아예 안 옮겨졌다(실측 확인).
+  // 터치는 TouchSensor만 담당: 200ms 꾹 누르면 시작하고, 그때부터 dnd-kit이
+  // touchmove를 preventDefault해서 스크롤과 싸우지 않는다.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 6 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
   );
 
   const activeTask = activeId ? tasks.find(t => t.id === activeId) : null;
@@ -283,26 +325,31 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
     const { active, over } = e;
     setActiveId(null);
     if (!over) return;
+    // 드롭 타깃은 컬럼('시작 전') 또는 모바일 상태 칩('chip:시작 전')
+    const raw = String(over.id);
+    const target = raw.startsWith('chip:') ? raw.slice(5) : raw;
     const task = tasks.find(t => t.id === active.id);
-    if (task && task.status !== over.id) onStatusChange(task, over.id);
+    if (task && task.status !== target) onStatusChange(task, target);
   };
 
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
+    <DndContext sensors={sensors} collisionDetection={dropCollision} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
       <div className="h-full flex flex-col min-h-0">
-        {/* 모바일 전용 상태 요약·이동 칩 */}
+        {/* 모바일 전용 상태 칩 — 평소엔 요약·이동, 드래그 중에는 드롭 타깃이 된다.
+            (화면에 컬럼 하나만 보이는 모바일에서 옆 컬럼까지 끌고 갈 필요가 없도록) */}
         <div className="md:hidden flex gap-1.5 mb-2 overflow-x-auto scrollbar-hide shrink-0">
           {CONFIG.STATUSES.map((status, i) => (
-            <button
-              key={status} type="button" onClick={() => goCol(i)}
-              className={`shrink-0 inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-full border text-[11px] font-semibold transition active:scale-95 ${i === visibleCol ? 'bg-surface border-accent text-fg shadow-soft' : 'bg-surface-2 border-line text-fg-muted'}`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${CONFIG.STATUS_DOTS[status] || 'bg-fg-faint'}`} />
-              {status}
-              <span className="text-fg-faint font-normal">{(byStatus[status] || []).length}</span>
-            </button>
+            <StatusChip
+              key={status} status={status} count={(byStatus[status] || []).length}
+              current={i === visibleCol} dragging={!!activeId}
+              isDraggedStatus={activeTask?.status === status}
+              onClick={() => goCol(i)}
+            />
           ))}
         </div>
+        {activeId && (
+          <p className="md:hidden text-center text-[10px] text-fg-faint mb-1.5 -mt-0.5">위 상태 칩에 놓으면 바로 옮겨져요</p>
+        )}
         <div
           ref={scrollRef} onScroll={onScroll}
           className={`flex-1 min-h-0 flex gap-3 md:gap-4 pb-2 overflow-x-auto ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}
