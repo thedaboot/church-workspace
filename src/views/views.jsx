@@ -236,7 +236,7 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
   const myTasks = useStore(selectMyTasks);
   return (
     <div className="max-w-7xl mx-auto h-full flex flex-col animate-in fade-in">
-      <div className="mb-4 shrink-0"><h2 className="text-xl font-bold text-fg tracking-[-0.25px]">👋 {currentUser.name}님의 업무</h2><p className="text-xs text-fg-muted mt-1">할당된 모든 프로젝트의 업무가 이곳에 모입니다.</p></div>
+      <div className="mb-4 shrink-0"><h2 className="text-xl font-bold text-fg tracking-[-0.25px]">{currentUser.name} 청년의 업무</h2><p className="text-xs text-fg-muted mt-1">할당된 모든 프로젝트의 업무가 이곳에 모입니다.</p></div>
       <div className="flex-1 min-h-0"><Board tasks={myTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} showProjectBadge /></div>
     </div>
   );
