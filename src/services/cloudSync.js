@@ -27,6 +27,55 @@ const primeMaps = (teams, profiles) => {
 // 멘션·담당자 자동완성용 멤버 표시명 목록(클라우드 로드 후 프라이밍됨)
 export function getMemberNames() { return memberNames.slice(); }
 
+// ── @멘션 추출 · 수신자 매핑 ────────────────────────────────────────────────
+// 텍스트에서 @이름을 뽑아 표시명 정확 일치로 profiles.id를 찾는다.
+// 표시명에 공백이 있는 경우는 다루지 않는다(@뒤 공백 없는 토큰만).
+export function extractMentions(text) {
+  const found = String(text || '').match(/@([^\s@]+)/g) || [];
+  // 앞의 '@' 제거 + 문장부호로 끝나는 경우 보정( "@민수," → "민수" )
+  const names = found.map(t => t.slice(1).replace(/[.,!?;:)\]}'"]+$/, '')).filter(Boolean);
+  return [...new Set(names)];
+}
+
+// 표시명 → 프로필 id (정확 일치). excludeName(보통 본인)은 제외.
+export function resolveMentionRecipients(text, excludeName) {
+  const nameToId = new Map();
+  for (const [id, name] of profileIdToName.entries()) {
+    if (name) nameToId.set(name, id);
+  }
+  const ids = [];
+  for (const name of extractMentions(text)) {
+    if (excludeName && name === excludeName) continue;
+    const id = nameToId.get(name);
+    if (id) ids.push(id);
+  }
+  return [...new Set(ids)];
+}
+
+// 업무 상세 내용 저장 시: 이전 본문에 없던 새 멘션만 알림 대상
+export function newMentionsOnly(nextText, prevText, excludeName) {
+  const before = new Set(extractMentions(prevText));
+  const added = extractMentions(nextText).filter(n => !before.has(n));
+  if (!added.length) return [];
+  return resolveMentionRecipients(added.map(n => `@${n}`).join(' '), excludeName);
+}
+
+// 멘션 알림 생성 (실패는 조용히 삼킨다 — 본 저장 흐름을 막지 않는다)
+export async function notifyMentions(text, { actorName, cardId, projectId, recipientIds }) {
+  const ids = recipientIds ?? resolveMentionRecipients(text, actorName);
+  if (!ids.length) return;
+  try {
+    await cloud.insertMentionNotifications(ids, { actorName, cardId, projectId, preview: String(text || '').slice(0, 80) });
+  } catch (e) {
+    console.error('[cloud] 멘션 알림 생성 실패:', e);
+  }
+}
+
+export const listMyNotifications = cloud.listMyNotifications;
+export const markNotificationRead = cloud.markNotificationRead;
+export const markAllNotificationsRead = cloud.markAllNotificationsRead;
+export const subscribeMyNotifications = cloud.subscribeMyNotifications;
+
 // 팀 매핑만 필요할 때(마이그레이션 등) 최소 프라이밍
 async function ensureTeamMap() {
   if (teamNameToId.size) return;

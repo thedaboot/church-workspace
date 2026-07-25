@@ -300,6 +300,57 @@ export async function deleteAttachment(fileRow) {
   if (error) throw error;
 }
 
+// ── notifications (@멘션 알림) ──────────────────────────────────────────────
+// 본인 알림 최근 N개 (읽지 않은 것 우선, 그다음 최신순)
+export async function listMyNotifications(limit = 30) {
+  const { data: { user } } = await client().auth.getUser();
+  if (!user) return [];
+  return unwrap(await client()
+    .from('notifications')
+    .select('*')
+    .eq('recipient_id', user.id)
+    .order('read', { ascending: true })
+    .order('created_at', { ascending: false })
+    .limit(limit));
+}
+
+// 멘션 알림 일괄 생성 (recipientIds는 auth.users.id 배열)
+export async function insertMentionNotifications(recipientIds, { actorName, cardId, projectId, preview }) {
+  const ids = [...new Set((recipientIds || []).filter(Boolean))];
+  if (!ids.length) return [];
+  const rows = ids.map(recipient_id => ({
+    recipient_id,
+    actor_name: actorName || '누군가',
+    kind: 'mention',
+    card_id: cardId || null,
+    project_id: projectId || null,
+    preview: (preview || '').slice(0, 200) || null,
+  }));
+  return unwrap(await client().from('notifications').insert(rows).select());
+}
+
+export async function markNotificationRead(id) {
+  return unwrap(await client().from('notifications').update({ read: true }).eq('id', id).select().maybeSingle());
+}
+
+export async function markAllNotificationsRead() {
+  const { data: { user } } = await client().auth.getUser();
+  if (!user) return;
+  const { error } = await client().from('notifications').update({ read: true }).eq('recipient_id', user.id).eq('read', false);
+  if (error) throw error;
+}
+
+// 본인 수신 알림 INSERT만 구독
+export function subscribeMyNotifications(userId, onInsert) {
+  const c = client();
+  const channel = c.channel(`notifications:${userId}`)
+    .on('postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${userId}` },
+      payload => onInsert(payload.new))
+    .subscribe();
+  return () => c.removeChannel(channel);
+}
+
 // ── activity ─────────────────────────────────────────────────────────────────
 export async function listAllActivity() {
   return unwrap(await client().from('activity').select('*').order('created_at', { ascending: true }));

@@ -38,8 +38,16 @@ export const useWorkspaceController = () => {
     store.dispatch({ type: 'UPSERT_TASK', payload: task });
     if (cloudOn) {
       const addedLogs = (task.activityLog || []).slice((oldData?.activityLog || []).length);
+      // 상세 내용이 바뀐 경우, 이전 본문에 없던 새 멘션만 알림
+      const contentChanged = (oldData?.content || '') !== (task.content || '');
+      const mentionIds = contentChanged
+        ? cloudSync.newMentionsOnly(task.content, oldData?.content, currentUser.name)
+        : [];
       cloudSync.cardUpsertCloud(task, isNew)
         .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id))
+        .then(() => mentionIds.length && cloudSync.notifyMentions(task.content, {
+          actorName: currentUser.name, cardId: task.id, projectId: task.projectId, recipientIds: mentionIds,
+        }))
         .catch(reportCloudError('업무 저장'));
     }
     return task;
@@ -50,7 +58,11 @@ export const useWorkspaceController = () => {
     store.dispatch({ type: 'UPSERT_TASK', payload: updated });
     if (cloudOn) {
       const newComment = updated.comments[updated.comments.length - 1];
-      cloudSync.commentAddCloud(newComment, task.id).catch(reportCloudError('댓글 등록'));
+      cloudSync.commentAddCloud(newComment, task.id)
+        .then(() => cloudSync.notifyMentions(text, {
+          actorName: currentUser.name, cardId: task.id, projectId: task.projectId,
+        }))
+        .catch(reportCloudError('댓글 등록'));
     }
     return updated;
   }, [currentUser.name, cloudOn]);

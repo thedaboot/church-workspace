@@ -192,6 +192,7 @@ function WorkspaceShell() {
       <div className="flex-1 flex flex-col w-full min-w-0">
         <Header
           activeMenu={activeMenu} openSidebar={() => setIsSidebarOpen(true)} onSearchSelect={handleSearchSelect}
+          onOpenTask={(task) => handleSearchSelect('task', task)}
           undo={controller.undo} redo={controller.redo} canUndo={store.canUndo()} canRedo={store.canRedo()} cloudMode={cloudMode}
         />
         <main className="flex-1 overflow-auto p-4 md:p-6 relative">

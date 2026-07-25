@@ -1,14 +1,17 @@
 import React, { useState, useRef, useEffect, useMemo, useDeferredValue } from 'react';
 import {
   LayoutDashboard, CheckSquare, Search, Plus, X, Hash, Menu,
-  Settings, Undo2, Redo2, Sun, Moon, LogOut
+  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell
 } from 'lucide-react';
-import { useStore } from '../store/workspaceStore.js';
+import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsList, selectProjectsMap, selectMyTasks, selectTasksList
 } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
-import { avatarColor } from '../utils.js';
+import { avatarColor, formatRelative } from '../utils.js';
+import * as cloudSync from '../services/cloudSync.js';
+import { showToast } from './Toast.jsx';
+import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { CONFIG } from '../config.js';
 import logoLight from '../assets/logo-light.png';
 import logoDark from '../assets/logo-dark.png';
@@ -247,7 +250,125 @@ function SearchBox({ onSearchSelect }) {
   );
 }
 
-export const Header = React.memo(({ activeMenu, openSidebar, onSearchSelect, undo, redo, canUndo, canRedo, cloudMode }) => {
+// ── @멘션 알림 (클라우드 모드 전용) ────────────────────────────────────────
+// 알림은 전역 스토어에 넣지 않는다(워크스페이스 데이터와 수명·성격이 다름).
+// 헤더 컴포넌트 로컬 state + realtime 구독으로 충분.
+function NotificationBell({ onOpenTask }) {
+  const { session } = useAuth();
+  const userId = session?.user?.id;
+  const [items, setItems] = useState([]);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const btnRef = useRef(null);
+  const [pos] = useAnchoredPos(btnRef, open, 320, 240);
+  const unread = items.filter(n => !n.read).length;
+
+  // 초기 로드
+  useEffect(() => {
+    if (!userId) return;
+    let alive = true;
+    cloudSync.listMyNotifications(30)
+      .then(rows => { if (alive) setItems(rows || []); })
+      .catch(e => console.error('[cloud] 알림 로드 실패:', e));
+    return () => { alive = false; };
+  }, [userId]);
+
+  // 실시간: 본인 수신 알림 INSERT
+  useEffect(() => {
+    if (!userId) return;
+    const unsub = cloudSync.subscribeMyNotifications(userId, (row) => {
+      setItems(prev => (prev.some(n => n.id === row.id) ? prev : [row, ...prev].slice(0, 30)));
+      showToast(`${row.actor_name}님이 나를 멘션했어요`);
+    });
+    return unsub;
+  }, [userId]);
+
+  // 바깥 클릭 / Esc 닫기
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const openItem = (n) => {
+    setOpen(false);
+    if (!n.read) {
+      setItems(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+      cloudSync.markNotificationRead(n.id).catch(e => console.error('[cloud] 알림 읽음 처리 실패:', e));
+    }
+    if (!n.card_id) return;
+    const task = store.getState().tasks.byId[n.card_id];
+    if (task) onOpenTask?.(task);
+    else showToast('업무를 찾을 수 없어요');
+  };
+
+  const readAll = () => {
+    setItems(prev => prev.map(x => ({ ...x, read: true })));
+    cloudSync.markAllNotificationsRead().catch(e => console.error('[cloud] 모두 읽음 실패:', e));
+  };
+
+  return (
+    <span className="inline-flex shrink-0" ref={rootRef}>
+      <span ref={btnRef} className="inline-flex">
+        <button
+          onClick={() => setOpen(o => !o)}
+          className="relative p-2 min-w-11 min-h-11 flex items-center justify-center rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95"
+          title="알림"
+        >
+          <Bell size={18} strokeWidth={1.75} />
+          {unread > 0 && (
+            <span className="absolute top-1.5 right-1.5 bg-red-500 text-white text-[9px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center">
+              {unread > 9 ? '9+' : unread}
+            </span>
+          )}
+        </button>
+      </span>
+      {open && (
+        <div
+          style={{ position: 'fixed', left: pos.left, top: pos.top, width: 320 }}
+          className="z-[90] max-w-[calc(100vw-2rem)] max-h-96 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated animate-in fade-in zoom-in-95 duration-150"
+        >
+          <div className="flex items-center justify-between px-3 py-2.5 border-b border-line sticky top-0 bg-surface">
+            <span className="text-xs font-bold text-fg">알림</span>
+            {unread > 0 && (
+              <button onClick={readAll} className="text-[10px] text-accent-text hover:bg-surface-hover rounded-md px-1.5 py-1 transition active:scale-95">모두 읽음</button>
+            )}
+          </div>
+          {items.length === 0 ? (
+            <div className="text-center py-8 px-3">
+              <span className="inline-flex w-8 h-8 rounded-full bg-tag-yellow text-tag-yellow-fg items-center justify-center mb-2"><Bell size={13} strokeWidth={1.75} /></span>
+              <p className="text-xs text-fg-faint">새 알림이 없어요</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-line/60">
+              {items.map(n => (
+                <button
+                  key={n.id} onClick={() => openItem(n)}
+                  className={`w-full text-left px-3 py-2.5 flex items-start gap-2.5 hover:bg-surface-hover transition-colors ${n.read ? '' : 'bg-accent-weak/40'}`}
+                >
+                  {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2" />}
+                  <span className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 ${avatarColor(n.actor_name)}`}>{n.actor_name?.[0]}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[11px] text-fg-secondary leading-snug">
+                      <span className="font-semibold text-fg">{n.actor_name}</span>님이 나를 멘션했어요
+                    </span>
+                    {n.preview && <span className="block text-[10px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
+                    <span className="block text-[9px] text-fg-faint mt-0.5">{formatRelative(n.created_at)}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </span>
+  );
+}
+
+export const Header = React.memo(({ activeMenu, openSidebar, onSearchSelect, onOpenTask, undo, redo, canUndo, canRedo, cloudMode }) => {
   const projectsMap = useStore(selectProjectsMap);
   let title = '워크스페이스';
   if (activeMenu === 'dashboard') title = '전체 대시보드';
@@ -271,6 +392,7 @@ export const Header = React.memo(({ activeMenu, openSidebar, onSearchSelect, und
           </div>
         )}
         <SearchBox onSearchSelect={onSearchSelect} />
+        {cloudMode && <NotificationBell onOpenTask={onOpenTask} />}
         <ThemeToggle />
       </div>
     </header>

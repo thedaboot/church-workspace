@@ -12,6 +12,22 @@ export const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
+// 상대 시간 (방금 · n분 전 · n시간 전 · n일 전 · 그 이상은 날짜)
+export const formatRelative = (dateString) => {
+  if (!dateString) return '';
+  const then = new Date(dateString).getTime();
+  if (Number.isNaN(then)) return '';
+  const diff = Math.max(0, Date.now() - then);
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return '방금';
+  if (min < 60) return `${min}분 전`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}시간 전`;
+  const day = Math.floor(hr / 24);
+  if (day <= 7) return `${day}일 전`;
+  return new Date(then).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+};
+
 // 이름 해시 → 파스텔 태그 9색 중 하나 (같은 사람은 항상 같은 색). 장식 전용.
 const AVATAR_TAGS = ['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'];
 export const avatarColor = (name = '') => {
