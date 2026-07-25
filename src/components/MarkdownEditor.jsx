@@ -51,7 +51,7 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
     const q = mention.query.toLowerCase();
     // 정확 일치 > 접두 일치 > 포함 순 — 동명 유사 이름("노준석"/"노준석_서브")에서 오선택 방지
     const rank = (n) => { const l = n.toLowerCase(); return l === q ? 0 : l.startsWith(q) ? 1 : 2; };
-    return [...new Set(members.filter(Boolean))].filter(n => n.toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).slice(0, MAX_SUGGESTIONS);
+    return [...new Set(members.filter(Boolean))].filter(n => n.toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ko')).slice(0, MAX_SUGGESTIONS);
   }, [mention, members]);
   useEffect(() => { suggestionsRef.current = suggestions; }, [suggestions]);
 
@@ -201,7 +201,7 @@ function Toolbar({ editor, active, uploading }) {
   const [href, setHref] = useState('');
   const linkBtnRef = useRef(null);
   const linkRootRef = useRef(null);
-  const [linkPos] = useAnchoredPos(linkBtnRef, linkOpen, 256, 110);
+  const [linkPos, placeLink] = useAnchoredPos(linkBtnRef, linkOpen, 256, 110);
 
   useEffect(() => {
     if (!linkOpen) return;
@@ -249,7 +249,7 @@ function Toolbar({ editor, active, uploading }) {
       <span className="w-px h-4 bg-line mx-1 shrink-0" />
       <span ref={linkRootRef} className="inline-flex">
         <span ref={linkBtnRef} className="inline-flex">
-          <TB on={active.link} onClick={() => { setHref(''); setLinkOpen(o => !o); }} title="링크"><Link2 size={14} /></TB>
+          <TB on={active.link} onClick={() => { setHref(''); placeLink(); setLinkOpen(o => !o); }} title="링크"><Link2 size={14} /></TB>
         </span>
         {linkOpen && (
           <div

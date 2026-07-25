@@ -19,7 +19,7 @@ import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { supabase } from '../services/supabaseClient.js';
-import { uploadAttachment, getAttachmentUrl, getAttachmentUrls, deleteAttachment, listCardFiles } from '../services/cloud.js';
+import { uploadAttachment, getFileOpenUrl, getAttachmentUrls, deleteAttachment, listCardFiles } from '../services/cloud.js';
 import { getMemberNames } from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 
@@ -71,8 +71,14 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   // 댓글·활동 목록은 첫 페인트 이후에 붙인다(열림 체감 속도 우선)
   const listsReady = useAfterPaint();
 
+  // 열려 있는 동안 스토어의 최신 카드를 따라간다 — 다른 사람이 남긴 댓글·활동이
+  // 실시간 재조회로 들어와도 모달은 열릴 때의 스냅샷에 갇혀 있어서
+  // 새로고침해야 보였다. 수정 모드에서는 입력 중인 폼을 갈아치우면 안 되므로 제외.
+  const liveTask = useStore(s => (task.id ? s.tasks.byId[task.id] : null));
+  const source = liveTask || task;
+
   // Stale State 방지: 모달 재사용 시 데이터 강제 동기화
-  useEffect(() => { setFormData(task); }, [task]);
+  useEffect(() => { if (!isEditMode) setFormData(source); }, [source, isEditMode]);
 
   // 삭제 노출 조건: 저장된 카드 + (게스트=작성자 본인 / 클라우드=작성자 본인 또는 관리자)
   const canDelete = !!task.id && (cloudMode ? (task.created_by === userId || isAdmin) : (task.author === currentUser.name));
@@ -86,7 +92,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     const st = store.getState();
     if (st.currentUser?.name) set.add(st.currentUser.name);
     st.tasks.allIds.forEach(id => (st.tasks.byId[id]?.assignees || []).forEach(a => a && set.add(a)));
-    return [...set];
+    return [...set].sort((a, b) => a.localeCompare(b, 'ko'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudMode]);
 
@@ -160,13 +166,17 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   }
 
   // ── 데스크톱(md+): 기존 좌우 분할 ──
+  // 오버레이 blur 제거 — backdrop-filter 안에서 스크롤되는 컨테이너는
+  // 사파리에서 프레임마다 재합성돼 스크롤이 끊긴다(노션도 딤만 쓴다)
   return (
-    <div className="fixed inset-0 bg-black/60 md:backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-2 md:p-4 animate-in fade-in duration-200">
       <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-5xl h-[100dvh] md:h-[85dvh] flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         <div className="flex-1 flex flex-col border-r-0 md:border-r border-line overflow-y-auto">
-          <div className="sticky top-0 bg-surface/95 backdrop-blur z-10 px-4 py-3 border-b border-line flex justify-between items-center">{headerInner}</div>
+          {/* sticky 헤더·푸터에 backdrop-blur를 쓰면 스크롤 프레임마다 뒤 내용을
+              다시 블러링해서 새 업무/수정 창 스크롤이 눌린다 → 불투명 배경으로 */}
+          <div className="sticky top-0 bg-surface z-10 px-4 py-3 border-b border-line flex justify-between items-center">{headerInner}</div>
           <div className="p-5 md:p-8 flex-1">{detailBody}</div>
-          <div className="sticky bottom-0 border-t border-line p-3 md:p-4 flex justify-between items-center gap-2 z-10 bg-surface-2/80 backdrop-blur">{footerInner}</div>
+          <div className="sticky bottom-0 border-t border-line p-3 md:p-4 flex justify-between items-center gap-2 z-10 bg-surface-2">{footerInner}</div>
         </div>
         {!isEditMode && task.id && (
           <div className="w-full md:w-80 h-[40dvh] md:h-auto bg-surface-2 flex flex-col border-t md:border-t-0 md:border-l border-line shrink-0">
@@ -200,7 +210,8 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
 
   const suggestions = useMemo(() => {
     const q = input.trim().toLowerCase();
-    const uniq = [...new Set(members.filter(Boolean))].filter(m => !value.includes(m));
+    const uniq = [...new Set(members.filter(Boolean))].filter(m => !value.includes(m))
+      .sort((a, b) => a.localeCompare(b, 'ko')); // 가나다순
     return (q ? uniq.filter(m => m.toLowerCase().includes(q)) : uniq).slice(0, 6);
   }, [input, members, value]);
 
@@ -407,7 +418,8 @@ const fileKind = (name = '', mime = '') => {
 
 // thumb(서명 URL)은 상위에서 일괄 발급받아 주입 — 행마다 개별 요청하지 않는다
 const AttachmentRow = ({ row, canDelete, thumb, onOpen, onRemove }) => {
-  const isImage = (row.mime_type || '').startsWith('image/');
+  // 썸네일은 스토리지 파일만(드라이브로 옮긴 파일은 서명 URL이 없으므로 아이콘)
+  const isImage = (row.mime_type || '').startsWith('image/') && !!row.storage_path;
   const kind = fileKind(row.name, row.mime_type);
   return (
     <div className="flex items-center gap-2.5 py-2 animate-in fade-in duration-200">
@@ -489,7 +501,7 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
   }, [task.id, readOnly]);
 
   const openFile = async (row) => {
-    try { const url = await getAttachmentUrl(row.storage_path); window.open(url, '_blank', 'noopener'); }
+    try { const url = await getFileOpenUrl(row); window.open(url, '_blank', 'noopener'); }
     catch (e) { showToast('파일을 열 수 없어요 · ' + (e.message || e)); }
   };
   const removeItem = async (row) => {
@@ -648,7 +660,11 @@ const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onD
 // 활동 action 문자열 키워드 → 타임라인 dot 색상 매핑
 const activityDotColor = (action = '') => {
   if (action.includes('생성')) return 'bg-tag-green-fg';
-  if (action.includes('상태')) return action.includes('완료') ? 'bg-tag-green-fg' : 'bg-accent';
+  if (action.includes('상태')) {
+    if (action.includes('완료')) return 'bg-tag-green-fg';
+    if (action.includes('보류')) return 'bg-status-hold';
+    return 'bg-accent';
+  }
   if (action.includes('수정')) return 'bg-tag-yellow-fg';
   if (action.includes('댓글')) return 'bg-tag-purple-fg';
   return 'bg-fg-faint';
@@ -785,7 +801,7 @@ export function ProjectModal({ onClose, onSave }) {
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">프로젝트 이름</label>
         <input
           type="text" value={title} onChange={e => setTitle(e.target.value)}
-          placeholder="예: 2026 하반기 노방전도"
+          placeholder="예: 2026 하계 수련회"
           className="w-full border border-line p-2.5 rounded-xs mb-6 text-sm bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none"
           autoFocus
           onKeyDown={e => { if (e.key === 'Enter' && title.trim()) { onSave(title.trim()); } }}

@@ -21,7 +21,9 @@ const primeMaps = (teams, profiles) => {
   teamIdToName = new Map(teams.map(t => [t.id, t.name]));
   teamNameToId = new Map(teams.map(t => [t.name, t.id]));
   profileIdToName = new Map(profiles.map(p => [p.id, p.display_name || '']));
-  memberNames = [...new Set(profiles.map(p => p.display_name).filter(Boolean))];
+  // 담당자·멘션 자동완성은 가나다순으로 보여준다(호출부 전체가 이 순서를 물려받음)
+  memberNames = [...new Set(profiles.map(p => p.display_name).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'ko'));
 };
 
 // 멘션·담당자 자동완성용 멤버 표시명 목록(클라우드 로드 후 프라이밍됨)

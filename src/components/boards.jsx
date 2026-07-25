@@ -136,7 +136,7 @@ function DraggableCard({ task, projectsMap, showProjectBadge, onTaskClick }) {
     <div
       ref={setNodeRef} {...attributes} {...listeners}
       onClick={() => onTaskClick(task)}
-      className={`bg-surface p-3.5 rounded-lg border border-line cursor-grab active:cursor-grabbing hover:shadow-soft hover:-translate-y-0.5 transition-all group animate-in fade-in zoom-in-95 duration-200 ${isDragging ? 'opacity-40' : ''}`}
+      className={`board-card bg-surface p-3.5 rounded-lg border border-line cursor-grab active:cursor-grabbing hover:shadow-soft hover:-translate-y-0.5 transition-all group animate-in fade-in zoom-in-95 duration-200 ${isDragging ? 'opacity-40' : ''}`}
     >
       <TaskCardInner task={task} projectsMap={projectsMap} showProjectBadge={showProjectBadge} />
     </div>
@@ -149,10 +149,12 @@ function ColumnDroppable({ status, count, dragging, children }) {
   return (
     <div
       ref={setNodeRef}
-      className={`flex-1 min-w-[280px] max-w-[350px] flex flex-col rounded-lg p-3 border snap-center h-full transition-colors duration-150 ${isOver ? 'border-accent bg-accent-weak/60' : 'bg-surface border-line'}`}
+      // 모바일: 80vw로 다음 컬럼이 살짝 보이게(더 있다는 신호) + 스냅
+      // 데스크톱: flex-1로 4개 상태가 가로 스크롤 없이 한 화면에 들어온다
+      className={`flex-1 basis-0 min-w-[80vw] md:min-w-[180px] flex flex-col rounded-lg p-3 border snap-start h-full transition-colors duration-150 ${isOver ? 'border-accent bg-accent-weak/60' : 'bg-surface border-line'}`}
     >
       <div className="flex items-center justify-between mb-3 px-1 shrink-0">
-        <h3 className="font-semibold text-sm text-fg flex items-center gap-1.5 tracking-[-0.25px]"><div className={`w-2 h-2 rounded-full shrink-0 ${status === '시작 전' ? 'bg-fg-faint' : status === '진행 중' ? 'bg-accent' : 'bg-tag-green'}`}></div><span className="leading-none">{status}</span><span className="text-fg-faint text-xs font-normal leading-none mt-px">{count}</span></h3>
+        <h3 className="font-semibold text-[13px] md:text-sm text-fg flex items-center gap-1.5 tracking-[-0.25px] min-w-0"><div className={`w-2 h-2 rounded-full shrink-0 ${CONFIG.STATUS_DOTS[status] || 'bg-fg-faint'}`}></div><span className="leading-none truncate">{status}</span><span className="text-fg-faint text-xs font-normal leading-none mt-px shrink-0">{count}</span></h3>
       </div>
       <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 pb-4">
         {children}
@@ -166,6 +168,30 @@ function ColumnDroppable({ status, count, dragging, children }) {
 export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProjectBadge }) => {
   const projectsMap = useStore(selectProjectsMap);
   const [activeId, setActiveId] = React.useState(null);
+  const scrollRef = React.useRef(null);
+  const [visibleCol, setVisibleCol] = React.useState(0);
+
+  // 상태별 그룹핑을 한 번만 — 컬럼마다 filter를 두 번씩 돌지 않게
+  const byStatus = React.useMemo(() => {
+    const m = {};
+    CONFIG.STATUSES.forEach(s => { m[s] = []; });
+    tasks.forEach(t => { (m[t.status] || (m[t.status] = [])).push(t); });
+    return m;
+  }, [tasks]);
+
+  // 모바일은 컬럼이 80vw라 4개를 동시에 못 보여준다 → 상단에 상태 칩으로
+  // 4개 상태와 건수를 한눈에 보여주고, 누르면 그 컬럼으로 스크롤한다.
+  const goCol = (i) => {
+    const el = scrollRef.current;
+    const col = el?.children?.[i];
+    if (col) el.scrollTo({ left: col.offsetLeft - el.offsetLeft, behavior: 'smooth' });
+  };
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const per = el.scrollWidth / CONFIG.STATUSES.length;
+    setVisibleCol(Math.min(CONFIG.STATUSES.length - 1, Math.round(el.scrollLeft / per)));
+  };
 
   // PointerSensor: 마우스/펜은 6px 이동해야 드래그 시작(짧은 클릭은 모달 열기로).
   // TouchSensor: 180ms 눌러야 시작 — 그냥 스와이프는 스크롤(가로/세로)로 동작.
@@ -188,14 +214,32 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
-      <div className={`flex gap-4 h-full pb-2 overflow-x-auto ${activeId ? '' : 'snap-x snap-mandatory'}`}>
-        {CONFIG.STATUSES.map(status => (
-          <ColumnDroppable key={status} status={status} dragging={!!activeId} count={tasks.filter(t => t.status === status).length}>
-            {tasks.filter(t => t.status === status).map(task => (
-              <DraggableCard key={task.id} task={task} projectsMap={projectsMap} showProjectBadge={showProjectBadge} onTaskClick={onTaskClick} />
-            ))}
-          </ColumnDroppable>
-        ))}
+      <div className="h-full flex flex-col min-h-0">
+        {/* 모바일 전용 상태 요약·이동 칩 */}
+        <div className="md:hidden flex gap-1.5 mb-2 overflow-x-auto scrollbar-hide shrink-0">
+          {CONFIG.STATUSES.map((status, i) => (
+            <button
+              key={status} type="button" onClick={() => goCol(i)}
+              className={`shrink-0 inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-full border text-[11px] font-semibold transition active:scale-95 ${i === visibleCol ? 'bg-surface border-accent text-fg shadow-soft' : 'bg-surface-2 border-line text-fg-muted'}`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${CONFIG.STATUS_DOTS[status] || 'bg-fg-faint'}`} />
+              {status}
+              <span className="text-fg-faint font-normal">{(byStatus[status] || []).length}</span>
+            </button>
+          ))}
+        </div>
+        <div
+          ref={scrollRef} onScroll={onScroll}
+          className={`flex-1 min-h-0 flex gap-3 md:gap-4 pb-2 overflow-x-auto ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}
+        >
+          {CONFIG.STATUSES.map(status => (
+            <ColumnDroppable key={status} status={status} dragging={!!activeId} count={(byStatus[status] || []).length}>
+              {(byStatus[status] || []).map(task => (
+                <DraggableCard key={task.id} task={task} projectsMap={projectsMap} showProjectBadge={showProjectBadge} onTaskClick={onTaskClick} />
+              ))}
+            </ColumnDroppable>
+          ))}
+        </div>
       </div>
       {/* 드래그 중 미리보기(기존 스타일 유지). 원래 카드는 opacity-40 */}
       <DragOverlay dropAnimation={null}>

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 
 // ============================================================================
 // 삭제 확인 팝오버 (프로젝트·업무·댓글·첨부 공용)
@@ -28,7 +28,10 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP) {
     setPos({ left, top });
   }, [triggerRef, width, estHeight, gap]);
 
-  useEffect(() => {
+  // useLayoutEffect: 브라우저가 그리기 전에 위치를 확정한다.
+  // useEffect였을 때는 첫 프레임이 {0,0}에 그려지고 그 다음 프레임에 제자리로
+  // 튀어서, 팝오버가 "어디 갔다 오는" 것처럼 보였다(알림·리소스 추가 등 전부).
+  useLayoutEffect(() => {
     if (!open) return;
     place();
     window.addEventListener('resize', place);

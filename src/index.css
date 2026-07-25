@@ -29,6 +29,8 @@
   --app-tag-purple: #e8deee;  --app-tag-purple-fg: #5a3286;
   --app-tag-pink: #f5e0e9;    --app-tag-pink-fg: #85325c;
   --app-tag-red: #ffe2dd;     --app-tag-red-fg: #93372f;
+  /* 상태 dot 전용 — 태그 fg(#6c5121)는 갈색으로 읽혀서 '보류 중'은 별도 노란색 */
+  --app-status-hold: #dfab01;
   /* SEED 오버라이드 (향후 SEED 컴포넌트 대비) */
   --seed-color-bg-brand-solid: #0075de;
   --seed-color-bg-brand-solid-pressed: #005bab;
@@ -52,6 +54,7 @@
     --app-tag-purple: #2f2740; --app-tag-purple-fg: #b8a3d8;
     --app-tag-pink: #392430;   --app-tag-pink-fg: #d8a3bd;
     --app-tag-red: #3b2523;    --app-tag-red-fg: #d8a09a;
+    --app-status-hold: #e5b95c;
 
     /* SEED 오버라이드 (다크) */
     --seed-color-bg-brand-weak: #1c2a3a;
@@ -83,6 +86,7 @@
   --color-tag-purple: var(--app-tag-purple); --color-tag-purple-fg: var(--app-tag-purple-fg);
   --color-tag-pink: var(--app-tag-pink);     --color-tag-pink-fg: var(--app-tag-pink-fg);
   --color-tag-red: var(--app-tag-red);       --color-tag-red-fg: var(--app-tag-red-fg);
+  --color-status-hold: var(--app-status-hold);
 }
 
 @theme {
@@ -107,6 +111,29 @@
   *::-webkit-scrollbar-thumb { background: var(--app-line); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
   *::-webkit-scrollbar-thumb:hover { background: var(--app-ink-faint); background-clip: padding-box; }
   *::-webkit-scrollbar-corner { background: transparent; }
+}
+
+/* ── 배경 파스텔 글로우 ──────────────────────────────────────────────────────
+   전에는 blur-[140px] 원 3개였는데, 140px 블러 레이어는 모바일에서
+   래스터 비용이 커서 새 레이어(모달)가 올라올 때마다 GPU 작업이 몰렸다.
+   같은 모양을 radial-gradient로 직접 그리면 합성 비용이 사실상 0이다. */
+.app-glow {
+  background-image:
+    radial-gradient(38rem 38rem at -6% -10%, color-mix(in srgb, #62aef0 13%, transparent), transparent 70%),
+    radial-gradient(42rem 42rem at 106% 110%, color-mix(in srgb, #d6b6f6 15%, transparent), transparent 70%),
+    radial-gradient(26rem 26rem at 74% -4%, color-mix(in srgb, #ffb6dd 11%, transparent), transparent 70%);
+}
+:root[data-theme='dark'] .app-glow { opacity: .45; }
+
+/* ── 칸반 카드: 화면 밖은 브라우저가 렌더를 건너뛰게 ─────────────────────────
+   앱을 열고 첫 카드를 탭할 때 굼떴던 실측 원인이 "보이지도 않는 카드까지
+   전부 레이아웃·페인트"였다. content-visibility로 화면 밖을 건너뛰면
+   (모바일 4x CPU, 카드 150장, 로드 0.6초 뒤 첫 오픈) 620ms → 95ms.
+   카드는 DOM에 그대로 남으므로 드래그·순서·검색·새 업무 표시 전부 그대로다.
+   미지원 브라우저는 무시하고 기존 동작(전량 렌더)으로 떨어진다. */
+.board-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 118px; /* 실제 렌더 후엔 측정값을 기억한다 */
 }
 
 /* 스크롤바 숨김 (코드에서 사용 중이던 유틸 — 실제 정의) */

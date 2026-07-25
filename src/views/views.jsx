@@ -122,7 +122,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   const [linkDraft, setLinkDraft] = useState({ title: '', url: '' });
   const linkPopRef = useRef(null);
   const linkBtnRef = useRef(null);
-  const [linkPos] = useAnchoredPos(linkBtnRef, isAddingLink, 256, 150);
+  const [linkPos, placeLink] = useAnchoredPos(linkBtnRef, isAddingLink, 256, 150);
 
   // 리소스 추가 팝오버: 바깥 클릭 / Escape 닫기
   useEffect(() => {
@@ -176,7 +176,9 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
             ))}
             <div className="inline-flex" ref={linkPopRef}>
               <span ref={linkBtnRef} className="inline-flex">
-                <button onClick={() => setIsAddingLink(v => !v)} className="text-[10px] md:text-xs text-fg-faint hover:text-fg-muted hover:bg-surface-hover px-1.5 py-1 border border-dashed border-line rounded-md transition active:scale-95">+ 추가</button>
+                {/* 열기 전에 위치를 먼저 잡는다 — 안 그러면 첫 프레임이 {0,0}에
+                    그려져서 팝오버가 화면 좌상단에서 날아오는 것처럼 보인다 */}
+                <button onClick={() => { placeLink(); setIsAddingLink(v => !v); }} className="text-[10px] md:text-xs text-fg-faint hover:text-fg-muted hover:bg-surface-hover px-1.5 py-1 border border-dashed border-line rounded-md transition active:scale-95">+ 추가</button>
               </span>
               {isAddingLink && (
                 <div style={{ position: 'fixed', left: linkPos.left, top: linkPos.top, width: 256 }} className="bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90] animate-in fade-in zoom-in-95 duration-150">
@@ -233,7 +235,7 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
   const currentUser = useStore(selectCurrentUser);
   const myTasks = useStore(selectMyTasks);
   return (
-    <div className="max-w-5xl mx-auto h-full flex flex-col animate-in fade-in">
+    <div className="max-w-7xl mx-auto h-full flex flex-col animate-in fade-in">
       <div className="mb-4 shrink-0"><h2 className="text-xl font-bold text-fg tracking-[-0.25px]">👋 {currentUser.name}님의 업무</h2><p className="text-xs text-fg-muted mt-1">할당된 모든 프로젝트의 업무가 이곳에 모입니다.</p></div>
       <div className="flex-1 min-h-0"><Board tasks={myTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} showProjectBadge /></div>
     </div>
@@ -244,7 +246,7 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
   const tasksList = useStore(selectTasksList);
   const teamTasks = useMemo(() => tasksList.filter(t => t.teams.includes(teamName)), [tasksList, teamName]);
   return (
-    <div className="max-w-5xl mx-auto h-full flex flex-col animate-in fade-in">
+    <div className="max-w-7xl mx-auto h-full flex flex-col animate-in fade-in">
       <div className="mb-4 shrink-0 flex items-center gap-3"><h2 className="text-xl font-bold text-fg tracking-[-0.25px]">{teamName} 보드</h2><span className={`px-2 py-0.5 rounded-sm text-[10px] font-bold ${CONFIG.TEAMS[teamName]}`}>TEAM</span></div>
       <div className="flex-1 min-h-0"><Board tasks={teamTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} showProjectBadge /></div>
     </div>

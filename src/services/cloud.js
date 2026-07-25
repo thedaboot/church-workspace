@@ -44,17 +44,11 @@ export async function withClockSkewRetry(fn, { retries = 2, delay = 1500 } = {})
   }
 }
 
-// ── 상태 매핑: DB 'todo'|'doing'|'done' ↔ 앱 '시작 전'|'진행 중'|'완료' ──
-// CONFIG.STATUSES 순서(['시작 전','진행 중','완료'])와 1:1 대응
-const DB_STATUSES = ['todo', 'doing', 'done'];
-export const statusToDb = (appStatus) => {
-  const i = CONFIG.STATUSES.indexOf(appStatus);
-  return i >= 0 ? DB_STATUSES[i] : DB_STATUSES[0];
-};
-export const statusFromDb = (dbStatus) => {
-  const i = DB_STATUSES.indexOf(dbStatus);
-  return i >= 0 ? CONFIG.STATUSES[i] : CONFIG.STATUSES[0];
-};
+// ── 상태 매핑: DB 'todo'|'doing'|'hold'|'done' ↔ 앱 '시작 전'|'진행 중'|'보류 중'|'완료' ──
+// 이름 기준 매핑(CONFIG.STATUS_DB) — 보드 컬럼 순서를 바꿔도 DB 값이 어긋나지 않는다.
+const APP_BY_DB = Object.fromEntries(Object.entries(CONFIG.STATUS_DB).map(([app, db]) => [db, app]));
+export const statusToDb = (appStatus) => CONFIG.STATUS_DB[appStatus] || 'todo';
+export const statusFromDb = (dbStatus) => APP_BY_DB[dbStatus] || CONFIG.STATUSES[0];
 
 // ── 인증 ──────────────────────────────────────────────────────────────────
 // (auth.jsx와 일부 중복되지만 영속 계층 완결성을 위해 export)
@@ -275,6 +269,18 @@ export async function getAttachmentUrl(storagePath) {
   const { data, error } = await client().storage.from(ATTACH_BUCKET).createSignedUrl(storagePath, 3600);
   if (error) throw error;
   return data.signedUrl;
+}
+
+// 파일 열기 URL — files.source로 저장소를 분기한다.
+// 개인 구글 드라이브로 실체를 옮긴 뒤에는 source='drive'로 바꾸고
+// drive_file_id/web_view_link만 채우면 앱 코드는 그대로 동작한다.
+export async function getFileOpenUrl(row) {
+  if (row.source === 'drive') {
+    if (row.web_view_link) return row.web_view_link;
+    if (row.drive_file_id) return `https://drive.google.com/file/d/${row.drive_file_id}/view`;
+    throw new Error('드라이브 링크가 없는 파일이에요');
+  }
+  return getAttachmentUrl(row.storage_path);
 }
 
 // 복수 서명 URL 일괄 발급 → { [storagePath]: signedUrl }

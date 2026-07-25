@@ -260,7 +260,7 @@ function NotificationBell({ onOpenTask }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const btnRef = useRef(null);
-  const [pos] = useAnchoredPos(btnRef, open, 320, 240);
+  const [pos, place] = useAnchoredPos(btnRef, open, 320, 240);
   const unread = items.filter(n => !n.read).length;
 
   // 초기 로드
@@ -314,7 +314,9 @@ function NotificationBell({ onOpenTask }) {
     <span className="inline-flex shrink-0" ref={rootRef}>
       <span ref={btnRef} className="inline-flex">
         <button
-          onClick={() => setOpen(o => !o)}
+          // 열기 전에 위치 확정 — 첫 프레임이 {0,0}에 그려지면 좌상단에서
+          // 날아오는 것처럼 보인다(첫 오픈에서만 나던 증상)
+          onClick={() => { place(); setOpen(o => !o); }}
           className="relative p-2 min-w-11 min-h-11 flex items-center justify-center rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95"
           title="알림"
         >

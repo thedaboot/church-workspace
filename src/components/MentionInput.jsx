@@ -33,7 +33,8 @@ export function MentionInput({
     const uniq = [...new Set(members.filter(Boolean))];
     // 정확 일치 > 접두 일치 > 포함 순으로 정렬 — "노준석" 입력 시 "노준석_서브"가 앞서지 않게
     const rank = (n) => { const l = n.toLowerCase(); return l === q ? 0 : l.startsWith(q) ? 1 : 2; };
-    return uniq.filter(n => n.toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).slice(0, MAX_SUGGESTIONS);
+    // 동순위는 가나다순
+    return uniq.filter(n => n.toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ko')).slice(0, MAX_SUGGESTIONS);
   }, [mention, members]);
 
   const showPopover = !!mention && filtered.length > 0;
