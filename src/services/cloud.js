@@ -277,6 +277,18 @@ export async function getAttachmentUrl(storagePath) {
   return data.signedUrl;
 }
 
+// 복수 서명 URL 일괄 발급 → { [storagePath]: signedUrl }
+// (행마다 개별 요청하면 모바일에서 요청 폭주로 느려지므로 한 번에 받는다)
+export async function getAttachmentUrls(storagePaths = []) {
+  const paths = storagePaths.filter(Boolean);
+  if (!paths.length) return {};
+  const { data, error } = await client().storage.from(ATTACH_BUCKET).createSignedUrls(paths, 3600);
+  if (error) throw error;
+  const map = {};
+  (data || []).forEach(d => { if (d?.path && d.signedUrl) map[d.path] = d.signedUrl; });
+  return map;
+}
+
 // 삭제: Storage 객체 + files 행
 export async function deleteAttachment(fileRow) {
   const c = client();

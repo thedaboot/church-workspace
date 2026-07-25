@@ -100,6 +100,11 @@
   html, body { overscroll-behavior-y: none; }
   body { background-color: var(--app-canvas); color: var(--app-ink); font-feature-settings: 'lnum', 'locl'; word-break: keep-all; overflow-wrap: break-word; transition: background-color .2s ease, color .2s ease; }
 
+  /* iOS Safari는 16px 미만 입력을 탭하면 강제로 화면을 확대한다 — 모바일에선 16px 고정 */
+  @media (max-width: 767px) {
+    input, textarea, select { font-size: 16px; }
+  }
+
   /* 노션풍 얇은 스크롤바 (라이트/다크 토큰 연동) */
   * { scrollbar-width: thin; scrollbar-color: var(--app-line) transparent; }
   *::-webkit-scrollbar { width: 8px; height: 8px; }

@@ -111,15 +111,30 @@ function WorkspaceShell() {
   }, [initialLoad]);
 
   // 실시간: 변경 감지 → 300ms debounce 재조회
+  // 편집 중에는 LOAD_STATE가 폼을 갈아치우며 타이핑 렉·입력 유실을 일으키므로
+  // 재조회를 보류하고, 편집이 끝나면 밀린 변경을 1회 반영한다.
+  const isEditing = modalState.isOpen && modalState.isEditMode;
+  const isEditingRef = useRef(isEditing);
+  const pendingReloadRef = useRef(false);
+  useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
+
   useEffect(() => {
     if (!cloudMode) return;
     let timer = null;
     const unsub = cloudSync.subscribeAll(() => {
+      if (isEditingRef.current) { pendingReloadRef.current = true; return; }
       clearTimeout(timer);
       timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e)); }, 300);
     });
     return () => { clearTimeout(timer); unsub(); };
   }, [cloudMode, reloadCloud]);
+
+  // 편집 종료 시 보류된 재조회 1회 실행
+  useEffect(() => {
+    if (!cloudMode || isEditing || !pendingReloadRef.current) return;
+    pendingReloadRef.current = false;
+    reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e));
+  }, [cloudMode, isEditing, reloadCloud]);
 
   const openTaskModal = useCallback((task, isEditMode = false) => {
     setModalState({ isOpen: true, task, isEditMode });

@@ -5,9 +5,9 @@ import {
   FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, Loader2, ExternalLink, Check
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { formatDate, avatarColor } from '../utils.js';
-import { useStore } from '../store/workspaceStore.js';
-import { selectCurrentUser, selectProjectsList, selectTasksList } from '../store/selectors.js';
+import { formatDate, avatarColor, isMobileViewport } from '../utils.js';
+import { store, useStore } from '../store/workspaceStore.js';
+import { selectCurrentUser, selectProjectsList } from '../store/selectors.js';
 import { AiService } from '../services/ai.js';
 import { RichText } from '../components/RichText.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
@@ -17,7 +17,7 @@ import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { supabase } from '../services/supabaseClient.js';
-import { uploadAttachment, getAttachmentUrl, deleteAttachment, listCardFiles, uploadContentImage } from '../services/cloud.js';
+import { uploadAttachment, getAttachmentUrl, getAttachmentUrls, deleteAttachment, listCardFiles, uploadContentImage } from '../services/cloud.js';
 import { getMemberNames } from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 
@@ -53,14 +53,17 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   const canDelete = !!task.id && (cloudMode ? (task.created_by === userId || isAdmin) : (task.author === currentUser.name));
 
   // 멘션·담당자 자동완성 멤버 소스 (클라우드=프로필 표시명 / 게스트=현재 사용자 + 기존 담당자)
-  const tasksList = useStore(selectTasksList);
+  // 마운트 시 1회만 계산 — selectTasksList를 구독하면 실시간 재조회마다 모달이
+  // 리렌더되어 모바일에서 타이핑 렉이 발생한다(멤버 목록은 비반응이어도 충분).
   const members = useMemo(() => {
     if (cloudMode) return getMemberNames();
     const set = new Set();
-    if (currentUser.name) set.add(currentUser.name);
-    tasksList.forEach(t => (t.assignees || []).forEach(a => a && set.add(a)));
+    const st = store.getState();
+    if (st.currentUser?.name) set.add(st.currentUser.name);
+    st.tasks.allIds.forEach(id => (st.tasks.byId[id]?.assignees || []).forEach(a => a && set.add(a)));
     return [...set];
-  }, [cloudMode, currentUser.name, tasksList]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloudMode]);
 
   const handleSubmit = (e) => { e.preventDefault(); onSave(formData); };
   const commentCount = (formData.comments || []).filter(c => !c.parentId).length;
@@ -105,7 +108,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
       <button onClick={() => setMobileTab(id)} className={`flex-1 py-3 text-xs font-semibold border-b-2 -mb-px transition-colors ${mobileTab === id ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted'}`}>{label}</button>
     );
     return (
-      <div className="fixed inset-0 z-50 bg-surface flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-200">
+      <div className="fixed inset-0 z-50 bg-surface flex flex-col animate-in slide-in-from-bottom-4 duration-200">
         <div className="shrink-0 px-4 py-3 border-b border-line flex justify-between items-center bg-surface">{headerInner}</div>
         {!isEditMode && task.id && (
           <div className="flex border-b border-line bg-surface shrink-0">
@@ -131,7 +134,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
 
   // ── 데스크톱(md+): 기존 좌우 분할 ──
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 bg-black/60 md:backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-4 animate-in fade-in duration-200">
       <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-5xl h-[100dvh] md:h-[85dvh] flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         <div className="flex-1 flex flex-col border-r-0 md:border-r border-line overflow-y-auto">
           <div className="sticky top-0 bg-surface/95 backdrop-blur z-10 px-4 py-3 border-b border-line flex justify-between items-center">{headerInner}</div>
@@ -281,7 +284,8 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
 
   return (
     <form className="space-y-4">
-      <input type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="업무 제목 입력" className="w-full text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus />
+      {/* 모바일은 autoFocus 금지 — 열자마자 키보드가 화면 절반을 덮는다 */}
+      <input type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="업무 제목 입력" className="w-full text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus={!isMobileViewport()} />
 
       <div className="border-y border-line divide-y divide-line/60">
         <PropertyRow icon={<CheckSquare size={13} className="text-fg-faint" />} label="상태">
@@ -407,16 +411,9 @@ const fileKind = (name = '', mime = '') => {
   return { chip: 'bg-tag-gray text-tag-gray-fg', icon: <File size={16} strokeWidth={1.75} /> };
 };
 
-const AttachmentRow = ({ row, canDelete, onOpen, onRemove }) => {
-  const [confirming, setConfirming] = useState(false);
-  const [thumb, setThumb] = useState(null);
+// thumb(서명 URL)은 상위에서 일괄 발급받아 주입 — 행마다 개별 요청하지 않는다
+const AttachmentRow = ({ row, canDelete, thumb, onOpen, onRemove }) => {
   const isImage = (row.mime_type || '').startsWith('image/');
-  useEffect(() => {
-    if (!isImage || !row.storage_path) return;
-    let alive = true;
-    getAttachmentUrl(row.storage_path).then(u => { if (alive) setThumb(u); }).catch(() => {});
-    return () => { alive = false; };
-  }, [row.id]);
   const kind = fileKind(row.name, row.mime_type);
   return (
     <div className="flex items-center gap-2.5 py-2 animate-in fade-in duration-200">
@@ -429,16 +426,20 @@ const AttachmentRow = ({ row, canDelete, onOpen, onRemove }) => {
         <p className="text-xs text-fg truncate">{row.name}</p>
         <p className="text-[10px] text-fg-faint mt-0.5">{formatBytes(row.size_bytes)}</p>
       </div>
-      <button onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title="열기"><ExternalLink size={14} /></button>
-      {canDelete && (confirming
-        ? <span className="flex items-center gap-1 shrink-0"><button onClick={onRemove} className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-md px-2 py-0.5 text-[10px] font-semibold transition active:scale-95">삭제</button><button onClick={() => setConfirming(false)} className="text-fg-muted hover:text-fg text-[10px] px-1 transition">취소</button></span>
-        : <button onClick={() => setConfirming(true)} className="p-1.5 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95" title="삭제"><Trash2 size={14} /></button>)}
+      <button type="button" onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title="열기"><ExternalLink size={14} /></button>
+      {canDelete && (
+        <ConfirmPopover message={`'${row.name}'을(를) 삭제할까요?`} onConfirm={onRemove}>
+          <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95" title="삭제"><Trash2 size={14} /></button>
+        </ConfirmPopover>
+      )}
     </div>
   );
 };
 
 const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = false }) => {
+  // 이미 받아둔 attachments를 먼저 그리고(즉시 표시) 백그라운드로 갱신
   const [items, setItems] = useState(task.attachments || []);
+  const [thumbs, setThumbs] = useState({}); // { storage_path: signedUrl }
   const [dragOver, setDragOver] = useState(false);
   const [uploadingName, setUploadingName] = useState(null);
   const inputRef = useRef(null);
@@ -448,6 +449,18 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
     listCardFiles(task.id).then(rows => { if (alive) setItems(rows); }).catch(e => console.error('[cloud] 첨부 목록 로드 실패:', e));
     return () => { alive = false; };
   }, [task.id]);
+
+  // 이미지 썸네일 서명 URL을 한 번에 발급 (이미지 없으면 스토리지 호출 없음)
+  useEffect(() => {
+    const need = items.filter(r => (r.mime_type || '').startsWith('image/') && r.storage_path && !thumbs[r.storage_path]).map(r => r.storage_path);
+    if (!need.length) return;
+    let alive = true;
+    getAttachmentUrls(need)
+      .then(map => { if (alive) setThumbs(prev => ({ ...prev, ...map })); })
+      .catch(e => console.error('[cloud] 썸네일 URL 발급 실패:', e));
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
 
   const uploadFiles = async (fileList) => {
     const files = Array.from(fileList || []);
@@ -511,7 +524,7 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
       {!readOnly && uploadingName && <div className="flex items-center gap-2 mt-2 text-[11px] text-fg-muted"><Loader2 size={13} className="animate-spin" /> 업로드 중: {uploadingName}</div>}
       {items.length > 0 && (
         <div className="divide-y divide-line/60 mt-1">
-          {items.map(row => <AttachmentRow key={row.id} row={row} canDelete={!readOnly && (isAdmin || row.uploaded_by === userId)} onOpen={() => openFile(row)} onRemove={() => removeItem(row)} />)}
+          {items.map(row => <AttachmentRow key={row.id} row={row} thumb={thumbs[row.storage_path]} canDelete={!readOnly && (isAdmin || row.uploaded_by === userId)} onOpen={() => openFile(row)} onRemove={() => removeItem(row)} />)}
         </div>
       )}
     </div>
@@ -599,7 +612,7 @@ const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onD
               {getReplies(c.id).map(r => <div key={r.id} className="animate-in fade-in duration-200"><CommentBody c={r} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete} /></div>)}
               {replyingTo === c.id && (
                 <input
-                  autoFocus value={replyText} onChange={e => setReplyText(e.target.value)}
+                  autoFocus={!isMobileViewport()} value={replyText} onChange={e => setReplyText(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitReply(c.id); } if (e.key === 'Escape') { setReplyingTo(null); setReplyText(''); } }}
                   placeholder="답글 입력 후 Enter (Esc 취소)"
                   className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg placeholder:text-fg-faint focus:border-accent focus:shadow-soft outline-none transition-all"
