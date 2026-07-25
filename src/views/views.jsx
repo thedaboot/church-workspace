@@ -15,7 +15,7 @@ import { Board, CalendarBoard } from '../components/boards.jsx';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
-import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
+import { ConfirmPopover, useAnchoredPos } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 
 // ============================================================================
@@ -121,6 +121,8 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
   const [isAddingLink, setIsAddingLink] = useState(false);
   const [linkDraft, setLinkDraft] = useState({ title: '', url: '' });
   const linkPopRef = useRef(null);
+  const linkBtnRef = useRef(null);
+  const [linkPos] = useAnchoredPos(linkBtnRef, isAddingLink, 256, 150);
 
   // 리소스 추가 팝오버: 바깥 클릭 / Escape 닫기
   useEffect(() => {
@@ -172,10 +174,12 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
                 <button onClick={() => removeLink(link.id)} className="opacity-0 group-hover/link:opacity-100 hover:text-fg rounded-full p-0.5 transition-opacity" title="링크 삭제"><X size={10} /></button>
               </span>
             ))}
-            <div className="relative" ref={linkPopRef}>
-              <button onClick={() => setIsAddingLink(v => !v)} className="text-[10px] md:text-xs text-fg-faint hover:text-fg-muted hover:bg-surface-hover px-1.5 py-1 border border-dashed border-line rounded-md transition active:scale-95">+ 추가</button>
+            <div className="inline-flex" ref={linkPopRef}>
+              <span ref={linkBtnRef} className="inline-flex">
+                <button onClick={() => setIsAddingLink(v => !v)} className="text-[10px] md:text-xs text-fg-faint hover:text-fg-muted hover:bg-surface-hover px-1.5 py-1 border border-dashed border-line rounded-md transition active:scale-95">+ 추가</button>
+              </span>
               {isAddingLink && (
-                <div className="absolute left-0 top-full mt-1 w-64 max-w-[calc(100vw-2rem)] bg-surface border border-line rounded-lg shadow-elevated p-3 z-50 animate-in fade-in zoom-in-95 duration-150">
+                <div style={{ position: 'fixed', left: linkPos.left, top: linkPos.top, width: 256 }} className="bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90] animate-in fade-in zoom-in-95 duration-150">
                   <div className="space-y-2">
                     <input autoFocus value={linkDraft.title} onChange={e => setLinkDraft(p => ({ ...p, title: e.target.value }))} placeholder="이름" className="w-full text-xs px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
                     <input value={linkDraft.url} onChange={e => setLinkDraft(p => ({ ...p, url: e.target.value }))} placeholder="https://..." onKeyDown={e => { if (e.key === 'Enter') saveLink(); }} className="w-full text-xs px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />

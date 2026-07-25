@@ -61,26 +61,38 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
           const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
           const dayEntries = tasksByDateMap.get(dateStr) || []; // O(1) Lookup — [{ task, kind }]
           const isToday = showingCurrentMonth && day === today.getDate();
+          // 주의 첫 칸(일요일)에서는 이어지는 기간 띠에 제목을 다시 표시
+          const isWeekStart = (firstDayIndex + day - 1) % 7 === 0;
           return (
             <div key={day} className={`border-b border-r border-line p-1 min-h-[80px] ${isToday ? 'bg-accent-weak' : ''}`}>
               <div className={`text-[10px] font-semibold p-1 ${isToday ? 'text-accent' : 'text-fg-muted'}`}>{day}</div>
               <div className="space-y-1 mt-0.5">
                 {dayEntries.map(({ task, kind }, i) => {
-                  const base = 'flex items-center h-[18px] text-[9px] overflow-hidden cursor-pointer hover:opacity-80 transition-opacity';
+                  // 여러 날에 걸친 띠는 제목이 셀 경계를 넘어 띠 위로 이어져 보이게
+                  // (overflow-visible + nowrap, 띠 색이 같아 자연스럽게 얹힘)
+                  const base = 'flex items-center h-[18px] text-[9px] cursor-pointer hover:opacity-80 transition-opacity';
+                  const flow = 'overflow-visible relative z-[5] whitespace-nowrap';
+                  const label = <span className={`${flow} pointer-events-none`}>{task.title}</span>;
                   let cls, content, prefix;
                   if (kind === 'mid') {
-                    cls = 'bg-tag-blue rounded-none -mx-1'; content = null; prefix = '진행';
+                    cls = 'bg-tag-blue rounded-none -mx-1 overflow-visible';
+                    content = isWeekStart ? <span className="text-tag-blue-fg px-1.5">{label}</span> : null;
+                    prefix = '진행';
                   } else if (kind === 'start') {
-                    cls = 'bg-tag-blue text-tag-blue-fg rounded-l-sm rounded-r-none -mr-1 px-1.5';
-                    content = <span className="truncate">{task.title}</span>; prefix = '시작';
+                    cls = 'bg-tag-blue text-tag-blue-fg rounded-l-sm rounded-r-none -mr-1 px-1.5 overflow-visible';
+                    content = label; prefix = '시작';
                   } else if (kind === 'due') {
-                    cls = 'bg-tag-blue text-tag-blue-fg rounded-r-sm rounded-l-none -ml-1 px-1.5 justify-end';
-                    content = <span className="text-[8px] opacity-70">마감</span>; prefix = '마감';
+                    cls = 'bg-tag-blue text-tag-blue-fg rounded-r-sm rounded-l-none -ml-1 px-1.5 justify-end overflow-hidden';
+                    content = isWeekStart
+                      ? <span className="truncate">{task.title}</span>
+                      : <span className="text-[8px] opacity-70">마감</span>;
+                    prefix = '마감';
                   } else if (kind === 'single') {
-                    cls = 'bg-tag-blue text-tag-blue-fg rounded-sm px-1.5';
+                    // 하루짜리는 셀 안에서 truncate (넘칠 곳이 없음)
+                    cls = 'bg-tag-blue text-tag-blue-fg rounded-sm px-1.5 overflow-hidden';
                     content = <span className="truncate">{task.title}</span>; prefix = '기간';
                   } else { // due-only
-                    cls = 'bg-tag-orange text-tag-orange-fg rounded-sm px-1.5';
+                    cls = 'bg-tag-orange text-tag-orange-fg rounded-sm px-1.5 overflow-hidden';
                     content = <span className="truncate">{task.title}</span>; prefix = '마감';
                   }
                   return (
