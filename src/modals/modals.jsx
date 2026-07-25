@@ -17,7 +17,7 @@ import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { supabase } from '../services/supabaseClient.js';
-import { uploadAttachment, getAttachmentUrl, getAttachmentUrls, deleteAttachment, listCardFiles, uploadContentImage } from '../services/cloud.js';
+import { uploadAttachment, getAttachmentUrl, getAttachmentUrls, deleteAttachment, listCardFiles } from '../services/cloud.js';
 import { getMemberNames } from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 
@@ -237,49 +237,17 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
 
 const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [imgUploading, setImgUploading] = useState(false);
-  const contentRef = useRef(null);
 
   const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   const toggleTeam = (team) => setFormData(prev => ({ ...prev, teams: (prev.teams || []).includes(team) ? prev.teams.filter(t => t !== team) : [...(prev.teams || []), team] }));
 
+  // AI 결과(마크다운)는 content로 넣으면 MarkdownEditor가 파서를 거쳐 문서로 반영한다
   const handleAiPolish = async () => {
     if (!formData.content) return;
     setIsAiLoading(true);
     const polished = await AiService.polishText(formData.content);
     if (polished) setFormData(prev => ({ ...prev, content: polished }));
     setIsAiLoading(false);
-  };
-
-  // 본문 이미지 붙여넣기(클라우드 모드): content-images 공개 버킷 업로드 → 커서 위치에 URL 줄 삽입
-  const handleContentPaste = async (e) => {
-    if (!cloudMode) return; // 게스트: 기본 붙여넣기(URL 등) 유지
-    const files = e.clipboardData?.files;
-    const img = files && [...files].find(f => (f.type || '').startsWith('image/'));
-    if (!img) return;
-    e.preventDefault();
-    e.stopPropagation(); // 문서 레벨 첨부 붙여넣기 리스너로 전파 방지
-    setImgUploading(true);
-    try {
-      const url = await uploadContentImage(img);
-      const el = contentRef.current;
-      const cur = formData.content || '';
-      const caret = el ? el.selectionStart : cur.length;
-      const before = cur.slice(0, caret);
-      const after = cur.slice(caret);
-      const lead = before && !before.endsWith('\n') ? '\n' : '';
-      const trail = after && !after.startsWith('\n') ? '\n' : '';
-      const insert = `${lead}${url}${trail}`;
-      const next = before + insert + after;
-      setFormData(prev => ({ ...prev, content: next }));
-      const newPos = (before + insert).length;
-      requestAnimationFrame(() => { if (el) { el.focus(); el.setSelectionRange(newPos, newPos); } });
-    } catch (err) {
-      console.error('[cloud] 본문 이미지 업로드 실패:', err);
-      showToast('이미지 업로드에 실패했어요 · ' + (err.message || err));
-    } finally {
-      setImgUploading(false);
-    }
   };
 
   return (
@@ -325,19 +293,16 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
       <div>
         <div className="flex justify-between items-center gap-2 mb-1.5">
           <label className="block text-xs text-fg-muted shrink-0">상세 내용</label>
-          <div className="flex items-center gap-2 min-w-0">
-            {imgUploading && <span className="text-[10px] text-fg-muted animate-pulse whitespace-nowrap">이미지 업로드 중...</span>}
-            <button type="button" onClick={handleAiPolish} disabled={isAiLoading || !formData.content} className="flex items-center gap-1 px-2 py-1 bg-tag-purple text-tag-purple-fg hover:opacity-80 rounded-full text-[10px] font-bold transition active:scale-95 disabled:opacity-40 shrink-0">
-              {isAiLoading ? <span className="animate-pulse">다듬는 중...</span> : <><Wand2 size={12} /> AI 문맥 다듬기</>}
-            </button>
-          </div>
+          <button type="button" onClick={handleAiPolish} disabled={isAiLoading || !formData.content} className="flex items-center gap-1 px-2 py-1 bg-tag-purple text-tag-purple-fg hover:opacity-80 rounded-full text-[10px] font-bold transition active:scale-95 disabled:opacity-40 shrink-0">
+            {isAiLoading ? <span className="animate-pulse">다듬는 중...</span> : <><Wand2 size={12} /> AI 문맥 다듬기</>}
+          </button>
         </div>
         <MarkdownEditor
           value={formData.content || ''}
           onChange={(val) => setFormData(prev => ({ ...prev, content: val }))}
-          members={members} elementRef={contentRef} onPaste={handleContentPaste}
-          placeholder={cloudMode ? '내용을 입력하세요. @이름 멘션, 이미지 붙여넣기(Ctrl/⌘+V), 링크 URL도 돼요.' : '내용을 입력하세요. @이름 멘션, 이미지·링크 URL도 붙여넣을 수 있어요.'}
-          className="w-full h-32 md:h-48 border border-line rounded-md p-3 text-xs leading-relaxed bg-surface text-fg placeholder:text-fg-faint resize-none focus:border-accent focus:shadow-soft outline-none transition-all"
+          members={members} cloudMode={cloudMode}
+          placeholder={cloudMode ? '내용을 입력하세요. @이름 멘션, 이미지 붙여넣기(Ctrl/⌘+V)도 돼요.' : '내용을 입력하세요. @이름 멘션을 쓸 수 있어요.'}
+          className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none p-3 bg-surface focus-within:border-accent focus-within:shadow-soft transition-all"
         />
       </div>
 
