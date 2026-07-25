@@ -1,5 +1,6 @@
 import React from 'react';
-import { User, Clock, Folder, ChevronLeft, ChevronRight } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { User, Clock, Folder, ChevronLeft, ChevronRight, ArrowLeftRight, Check } from 'lucide-react';
 import {
   DndContext, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable,
@@ -8,6 +9,7 @@ import { CONFIG } from '../config.js';
 import { avatarColor } from '../utils.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectProjectsMap, selectTasksByDate } from '../store/selectors.js';
+import { useAnchoredPos } from './ConfirmPopover.jsx';
 
 const CAL_MIN_YEAR = new Date().getFullYear();
 const CAL_MAX_YEAR = 2030;
@@ -111,7 +113,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
 });
 
 // 카드 내부 프레젠테이션 (실제 카드 + DragOverlay 미리보기 공용)
-const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge }) => (
+const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action = null }) => (
   <>
     {showProjectBadge && projectsMap[task.projectId] && <div className="text-[9px] text-fg-faint mb-1.5 flex items-center gap-1"><Folder size={10}/> {projectsMap[task.projectId].title}</div>}
     <div className="flex flex-wrap gap-1 mb-2">{task.teams.map(team => <span key={team} className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${CONFIG.TEAMS[team]}`}>{team}</span>)}</div>
@@ -125,12 +127,81 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge }) => (
         )}
       </div>
       {task.dueDate && <div className="flex items-center gap-1 text-tag-orange-fg bg-tag-orange px-1.5 py-0.5 rounded shrink-0"><Clock size={10} /><span>{new Date(task.dueDate).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric'})}</span></div>}
+      {action}
     </div>
   </>
 ));
 
+// 모바일에서 끌지 않고 상태를 옮기는 버튼 — 카드마다 하나(모바일 전용).
+// 길게 눌러 끌기는 그대로 두고, "탭 → 상태 고르기"라는 확실한 길을 하나 더 준다.
+// 팝오버는 반드시 포털로 띄운다: 카드에 content-visibility가 걸려 있어 카드 안의
+// position:fixed는 뷰포트가 아니라 카드를 기준으로 잡힌다.
+function StatusMoveButton({ task, onStatusChange }) {
+  const [open, setOpen] = React.useState(false);
+  const rootRef = React.useRef(null);
+  const btnRef = React.useRef(null);
+  const popRef = React.useRef(null);
+  const [pos, place] = useAnchoredPos(btnRef, open, 176, 200);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      const inside = rootRef.current?.contains(e.target) || popRef.current?.contains(e.target);
+      if (!inside) setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  // pointerDown까지 막아야 dnd-kit이 이 버튼을 드래그 시작으로 보지 않는다
+  const stop = (e) => { e.stopPropagation(); e.preventDefault(); };
+
+  return (
+    <span ref={rootRef} className="md:hidden inline-flex shrink-0">
+      <span ref={btnRef} className="inline-flex">
+        <button
+          type="button" title="상태 옮기기" aria-label="상태 옮기기"
+          onPointerDown={stop} onTouchStart={stop} onMouseDown={stop}
+          onClick={(e) => { e.stopPropagation(); place(); setOpen(o => !o); }}
+          className="p-1.5 -m-0.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95"
+        >
+          <ArrowLeftRight size={13} strokeWidth={1.75} />
+        </button>
+      </span>
+      {open && createPortal(
+        <div
+          ref={popRef}
+          style={{ position: 'fixed', left: pos.left, top: pos.top, width: 176 }}
+          className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150"
+        >
+          <p className="px-2 pt-1 pb-1.5 text-[10px] font-bold text-fg-faint">상태 옮기기</p>
+          {CONFIG.STATUSES.map(s => (
+            <button
+              key={s} type="button"
+              onClick={(e) => { e.stopPropagation(); setOpen(false); if (s !== task.status) onStatusChange(task, s); }}
+              className={`w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left text-[13px] transition-colors ${s === task.status ? 'text-fg font-semibold bg-surface-hover' : 'text-fg-muted hover:bg-surface-hover'}`}
+            >
+              <span className={`w-2 h-2 rounded-full shrink-0 ${CONFIG.STATUS_DOTS[s] || 'bg-fg-faint'}`} />
+              <span className="flex-1 truncate">{s}</span>
+              {s === task.status && <Check size={13} className="text-accent-text shrink-0" />}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+    </span>
+  );
+}
+
 // 드래그 가능한 카드 — 클릭(모달)과 드래그는 센서 activationConstraint(distance/delay)로 구분
-function DraggableCard({ task, projectsMap, showProjectBadge, onTaskClick }) {
+function DraggableCard({ task, projectsMap, showProjectBadge, onTaskClick, onStatusChange }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
   return (
     <div
@@ -138,7 +209,10 @@ function DraggableCard({ task, projectsMap, showProjectBadge, onTaskClick }) {
       onClick={() => onTaskClick(task)}
       className={`board-card bg-surface p-3.5 rounded-lg border border-line cursor-grab active:cursor-grabbing hover:shadow-soft hover:-translate-y-0.5 transition-all group animate-in fade-in zoom-in-95 duration-200 ${isDragging ? 'opacity-40' : ''}`}
     >
-      <TaskCardInner task={task} projectsMap={projectsMap} showProjectBadge={showProjectBadge} />
+      <TaskCardInner
+        task={task} projectsMap={projectsMap} showProjectBadge={showProjectBadge}
+        action={<StatusMoveButton task={task} onStatusChange={onStatusChange} />}
+      />
     </div>
   );
 }
@@ -194,10 +268,11 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
   };
 
   // PointerSensor: 마우스/펜은 6px 이동해야 드래그 시작(짧은 클릭은 모달 열기로).
-  // TouchSensor: 180ms 눌러야 시작 — 그냥 스와이프는 스크롤(가로/세로)로 동작.
+  // TouchSensor: 250ms 꾹 눌러야 시작하고, 그 사이 6px 이상 움직이면 취소 → 스크롤.
+  // 스크롤이 드래그로 잘못 잡히는 쪽을 줄였다(끌기 대신 카드의 '상태 옮기기' 버튼도 있으므로).
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 6 } }),
   );
 
   const activeTask = activeId ? tasks.find(t => t.id === activeId) : null;
@@ -235,7 +310,7 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
           {CONFIG.STATUSES.map(status => (
             <ColumnDroppable key={status} status={status} dragging={!!activeId} count={(byStatus[status] || []).length}>
               {(byStatus[status] || []).map(task => (
-                <DraggableCard key={task.id} task={task} projectsMap={projectsMap} showProjectBadge={showProjectBadge} onTaskClick={onTaskClick} />
+                <DraggableCard key={task.id} task={task} projectsMap={projectsMap} showProjectBadge={showProjectBadge} onTaskClick={onTaskClick} onStatusChange={onStatusChange} />
               ))}
             </ColumnDroppable>
           ))}

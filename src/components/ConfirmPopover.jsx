@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 // ============================================================================
 // 삭제 확인 팝오버 (프로젝트·업무·댓글·첨부 공용)
@@ -46,11 +47,16 @@ export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel =
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
+  const popRef = useRef(null);
   const [pos, place] = useAnchoredPos(triggerRef, open, W, EST_H);
 
   useEffect(() => {
     if (!open) return;
-    const onDown = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false); };
+    // 팝오버가 포털로 나가 있으므로 바깥 클릭 판정에 팝오버 자신도 포함해야 한다
+    const onDown = (e) => {
+      const inside = rootRef.current?.contains(e.target) || popRef.current?.contains(e.target);
+      if (!inside) setOpen(false);
+    };
     const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
@@ -59,22 +65,29 @@ export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel =
 
   const toggle = (e) => { e.stopPropagation(); place(); setOpen(o => !o); };
 
+  // 포털로 body에 띄운다 — 트리거가 hover에서만 보이는 영역(댓글의 수정·삭제 아이콘)
+  // 안에 있으면, 마우스가 벗어날 때 부모의 opacity-0이 팝오버까지 같이 숨겨서
+  // 확인창이 사라졌다 나타났다 했다.
+  const popover = open ? createPortal(
+    <div
+      ref={popRef}
+      onClick={e => e.stopPropagation()}
+      style={{ position: 'fixed', left: pos.left, top: pos.top, width: W }}
+      className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150"
+    >
+      <p className="text-xs text-fg-secondary leading-relaxed mb-2.5 whitespace-normal break-words">{message}</p>
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={() => setOpen(false)} className="text-xs px-2.5 py-1.5 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">{cancelLabel}</button>
+        <button type="button" onClick={() => { setOpen(false); onConfirm?.(); }} className="text-xs px-2.5 py-1.5 bg-red-500 text-white hover:bg-red-600 rounded-md transition active:scale-95 font-semibold">{confirmLabel}</button>
+      </div>
+    </div>,
+    document.body
+  ) : null;
+
   return (
     <span className="inline-flex" ref={rootRef}>
       <span ref={triggerRef} onClick={toggle} className="inline-flex" title={title}>{children}</span>
-      {open && (
-        <div
-          onClick={e => e.stopPropagation()}
-          style={{ position: 'fixed', left: pos.left, top: pos.top, width: W }}
-          className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150"
-        >
-          <p className="text-xs text-fg-secondary leading-relaxed mb-2.5 whitespace-normal break-words">{message}</p>
-          <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setOpen(false)} className="text-xs px-2.5 py-1.5 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">{cancelLabel}</button>
-            <button type="button" onClick={() => { setOpen(false); onConfirm?.(); }} className="text-xs px-2.5 py-1.5 bg-red-500 text-white hover:bg-red-600 rounded-md transition active:scale-95 font-semibold">{confirmLabel}</button>
-          </div>
-        </div>
-      )}
+      {popover}
     </span>
   );
 }

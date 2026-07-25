@@ -14,9 +14,36 @@
 // 줄들을 '\n'으로 이어 붙인다. 빈 줄은 빈 문단으로 표현해 원문을 보존한다.
 // ============================================================================
 
-// 인라인 토큰 — 순서 중요: 링크가 먼저, ** 가 * 보다 먼저
-const INLINE_SPLIT_RE = /(\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|==[^=\n]+==|\*[^*\n]+\*)/g;
-const MD_LINK_RE = /^\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)$/;
+// 인라인 토큰 — 순서 중요: 링크가 먼저, *** → ** → * 순
+export const INLINE_SPLIT_RE = /(\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)|\*\*\*[^*\n]+\*\*\*|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|==[^=\n]+==|\*[^*\n]+\*)/g;
+export const MD_LINK_RE = /^\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)$/;
+
+// 래퍼 하나를 벗겨내면 안쪽을 다시 토큰화한다 → ==**형광펜+굵게**== 같은 중첩도
+// 마크로 살아난다(전에는 안쪽이 평문이라 '**'가 글자 그대로 남았다).
+const WRAPPERS = [
+  { re: /^\*\*\*([^*\n]+)\*\*\*$/, marks: ['bold', 'italic'] },
+  { re: /^\*\*([^*\n]+)\*\*$/, marks: ['bold'] },
+  { re: /^__([^_\n]+)__$/, marks: ['underline'] },
+  { re: /^~~([^~\n]+)~~$/, marks: ['strike'] },
+  { re: /^==([^=\n]+)==$/, marks: ['highlight'] },
+  { re: /^\*([^*\n]+)\*$/, marks: ['italic'] },
+];
+
+// 인라인 문자열 → 평평한 세그먼트 배열 [{ text, marks:['bold',…], href }]
+// 뷰어(RichText)와 에디터(mdToDoc)가 같은 토크나이저를 쓰도록 여기서만 정의한다.
+export function tokenizeInline(text, marks = [], href = null) {
+  if (!text) return [];
+  const out = [];
+  for (const part of String(text).split(INLINE_SPLIT_RE)) {
+    if (!part) continue;
+    const link = part.match(MD_LINK_RE);
+    if (link) { out.push(...tokenizeInline(link[1], marks, link[2])); continue; }
+    const wrap = WRAPPERS.find(w => w.re.test(part));
+    if (wrap) { out.push(...tokenizeInline(part.match(wrap.re)[1], [...marks, ...wrap.marks], href)); continue; }
+    out.push({ text: part, marks, href });
+  }
+  return out;
+}
 // 줄 전체가 이미지 URL일 때만 image 노드로 (일부만 포함된 줄은 문단으로 두어 원문 보존)
 const IMAGE_LINE_RE = /^https?:\/\/\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?$/i;
 
@@ -24,20 +51,11 @@ const textNode = (text, marks) => (marks && marks.length ? { type: 'text', text,
 
 // ── 인라인 문자열 → PM text 노드 배열 ───────────────────────────────────────
 function parseInline(text) {
-  if (!text) return [];
-  const out = [];
-  for (const part of text.split(INLINE_SPLIT_RE)) {
-    if (!part) continue;
-    const link = part.match(MD_LINK_RE);
-    if (link) { out.push(textNode(link[1], [{ type: 'link', attrs: { href: link[2] } }])); continue; }
-    if (/^\*\*[^*\n]+\*\*$/.test(part)) { out.push(textNode(part.slice(2, -2), [{ type: 'bold' }])); continue; }
-    if (/^__[^_\n]+__$/.test(part)) { out.push(textNode(part.slice(2, -2), [{ type: 'underline' }])); continue; }
-    if (/^~~[^~\n]+~~$/.test(part)) { out.push(textNode(part.slice(2, -2), [{ type: 'strike' }])); continue; }
-    if (/^==[^=\n]+==$/.test(part)) { out.push(textNode(part.slice(2, -2), [{ type: 'highlight' }])); continue; }
-    if (/^\*[^*\n]+\*$/.test(part)) { out.push(textNode(part.slice(1, -1), [{ type: 'italic' }])); continue; }
-    out.push(textNode(part));
-  }
-  return out;
+  return tokenizeInline(text).map(seg => {
+    const marks = [...new Set(seg.marks)].map(type => ({ type }));
+    if (seg.href) marks.push({ type: 'link', attrs: { href: seg.href } });
+    return textNode(seg.text, marks);
+  });
 }
 
 const paragraph = (text) => {

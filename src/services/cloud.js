@@ -321,13 +321,14 @@ export async function listMyNotifications(limit = 30) {
 }
 
 // 멘션 알림 일괄 생성 (recipientIds는 auth.users.id 배열)
-export async function insertMentionNotifications(recipientIds, { actorName, cardId, projectId, preview }) {
+// kind: 'mention'(멘션) | 'reply'(내 댓글에 답글) — DB check와 INSERT 정책이 이 둘만 허용
+export async function insertNotifications(recipientIds, { actorName, cardId, projectId, preview, kind = 'mention' }) {
   const ids = [...new Set((recipientIds || []).filter(Boolean))];
   if (!ids.length) return [];
   const rows = ids.map(recipient_id => ({
     recipient_id,
     actor_name: actorName || '누군가',
-    kind: 'mention',
+    kind,
     card_id: cardId || null,
     project_id: projectId || null,
     preview: (preview || '').slice(0, 200) || null,

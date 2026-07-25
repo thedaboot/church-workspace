@@ -253,6 +253,9 @@ function SearchBox({ onSearchSelect }) {
 // ── @멘션 알림 (클라우드 모드 전용) ────────────────────────────────────────
 // 알림은 전역 스토어에 넣지 않는다(워크스페이스 데이터와 수명·성격이 다름).
 // 헤더 컴포넌트 로컬 state + realtime 구독으로 충분.
+// 알림 종류별 문구 (kind: 'mention' | 'reply')
+const notifText = (kind) => (kind === 'reply' ? '내 댓글에 답글을 남겼어요' : '나를 멘션했어요');
+
 function NotificationBell({ onOpenTask }) {
   const { session } = useAuth();
   const userId = session?.user?.id;
@@ -278,7 +281,7 @@ function NotificationBell({ onOpenTask }) {
     if (!userId) return;
     const unsub = cloudSync.subscribeMyNotifications(userId, (row) => {
       setItems(prev => (prev.some(n => n.id === row.id) ? prev : [row, ...prev].slice(0, 30)));
-      showToast(`${row.actor_name}님이 나를 멘션했어요`);
+      showToast(`${row.actor_name}님이 ${notifText(row.kind)}`);
     });
     return unsub;
   }, [userId]);
@@ -355,7 +358,7 @@ function NotificationBell({ onOpenTask }) {
                   <span className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 ${avatarColor(n.actor_name)}`}>{n.actor_name?.[0]}</span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-[11px] text-fg-secondary leading-snug">
-                      <span className="font-semibold text-fg">{n.actor_name}</span>님이 나를 멘션했어요
+                      <span className="font-semibold text-fg">{n.actor_name}</span>님이 {notifText(n.kind)}
                     </span>
                     {n.preview && <span className="block text-[10px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
                     <span className="block text-[9px] text-fg-faint mt-0.5">{formatRelative(n.created_at)}</span>

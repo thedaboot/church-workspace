@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <title>더다붓 워크스페이스</title>
+
+    <!-- 홈 화면에 추가(PWA) — 안드로이드는 manifest, iOS는 apple-* 메타를 본다 -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="더다붓" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!-- 상태바 색: 라이트/다크 각각 앱 배경과 맞춘다 -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f5f4" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#191919" />
     <meta name="description" content="함께 준비하고, 함께 섬기는 청년들의 공간" />
     <!-- 전역 OG (대표 URL). 개별 공유 링크 /s/... 는 api/share가 절대 URL·동적 메타를 조립한다. -->
     <meta property="og:type" content="website" />

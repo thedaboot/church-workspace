@@ -136,6 +136,16 @@
   contain-intrinsic-size: auto 118px; /* 실제 렌더 후엔 측정값을 기억한다 */
 }
 
+/* 모바일에서 카드를 길게 눌러 끌 때, 그 길게 누름이 텍스트 선택이나 링크 미리보기로
+   가로채이지 않게 한다. 데스크톱에서는 카드 텍스트를 그대로 선택할 수 있게 둔다. */
+@media (hover: none) and (pointer: coarse) {
+  .board-card {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
 /* 스크롤바 숨김 (코드에서 사용 중이던 유틸 — 실제 정의) */
 @utility scrollbar-hide {
   scrollbar-width: none;

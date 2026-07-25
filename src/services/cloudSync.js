@@ -42,19 +42,40 @@ export function extractMentions(text) {
 // 표시명 → 프로필 id들 (정확 일치). 동명 프로필이 여럿이면 전원 매핑.
 // 본인 제외는 이름이 아니라 auth user id 기준으로 notifyMentions에서 최종 수행한다
 // (표시 이름은 로그인 직후 구글 이름 ↔ 프로필 이름 사이에서 흔들릴 수 있어 신뢰 불가).
-export function resolveMentionRecipients(text, excludeName) {
+function nameToIdsMap() {
   const nameToIds = new Map();
   for (const [id, name] of profileIdToName.entries()) {
     if (!name) continue;
     if (!nameToIds.has(name)) nameToIds.set(name, []);
     nameToIds.get(name).push(id);
   }
+  return nameToIds;
+}
+
+export function resolveMentionRecipients(text, excludeName) {
+  const nameToIds = nameToIdsMap();
   const ids = [];
   for (const name of extractMentions(text)) {
     if (excludeName && name === excludeName) continue;
     ids.push(...(nameToIds.get(name) || []));
   }
   return [...new Set(ids)];
+}
+
+// 표시명 하나 → 프로필 id들 (동명이면 전원). 답글 알림 대상 찾기용.
+export function resolveNameRecipients(name) {
+  if (!name) return [];
+  return [...new Set(nameToIdsMap().get(name) || [])];
+}
+
+// 현재 로그인 사용자 id (실패 시 null — 알림 생성을 막지는 않는다)
+async function myUserId() {
+  try {
+    const { data } = await cloud.getSession();
+    return data?.session?.user?.id || null;
+  } catch {
+    return null;
+  }
 }
 
 // 업무 상세 내용 저장 시: 이전 본문에 없던 새 멘션만 알림 대상
@@ -69,16 +90,34 @@ export function newMentionsOnly(nextText, prevText, excludeName) {
 // 본인 제외는 여기서 auth user id로 최종 차단한다 — 자기 자신에게는 절대 알림이 가지 않는다.
 export async function notifyMentions(text, { actorName, cardId, projectId, recipientIds }) {
   let ids = recipientIds ?? resolveMentionRecipients(text, actorName);
-  try {
-    const { data } = await cloud.getSession();
-    const myId = data?.session?.user?.id;
-    if (myId) ids = ids.filter(id => id !== myId);
-  } catch { /* 세션 조회 실패 시에도 알림 생성은 계속 */ }
+  const myId = await myUserId();
+  if (myId) ids = ids.filter(id => id !== myId);
   if (!ids.length) return;
   try {
-    await cloud.insertMentionNotifications(ids, { actorName, cardId, projectId, preview: String(text || '').slice(0, 80) });
+    await cloud.insertNotifications(ids, { kind: 'mention', actorName, cardId, projectId, preview: String(text || '').slice(0, 80) });
   } catch (e) {
     console.error('[cloud] 멘션 알림 생성 실패:', e);
+  }
+}
+
+// 댓글/답글 1건에 대한 알림 — 멘션 알림 + (답글이면) 원 댓글 작성자 알림.
+// 같은 사람이 양쪽에 걸리면 멘션 쪽만 보낸다(중복 알림 방지).
+// 본인 제외는 auth user id 기준 — 자기 댓글에 자기가 답글 달면 알림 없음.
+export async function notifyComment(text, { actorName, cardId, projectId, replyToName }) {
+  const myId = await myUserId();
+  const notMe = (id) => id !== myId;
+  const mentionIds = resolveMentionRecipients(text, actorName).filter(notMe);
+  const mentioned = new Set(mentionIds);
+  const replyIds = replyToName
+    ? resolveNameRecipients(replyToName).filter(id => notMe(id) && !mentioned.has(id))
+    : [];
+  const preview = String(text || '').slice(0, 80);
+  const meta = { actorName, cardId, projectId, preview };
+  try {
+    if (mentionIds.length) await cloud.insertNotifications(mentionIds, { ...meta, kind: 'mention' });
+    if (replyIds.length) await cloud.insertNotifications(replyIds, { ...meta, kind: 'reply' });
+  } catch (e) {
+    console.error('[cloud] 댓글 알림 생성 실패:', e);
   }
 }
 

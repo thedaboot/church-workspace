@@ -64,9 +64,14 @@ export const useWorkspaceController = () => {
     store.dispatch({ type: 'UPSERT_TASK', payload: updated });
     if (cloudOn) {
       const newComment = updated.comments[updated.comments.length - 1];
+      const addedLogs = (updated.activityLog || []).slice((task.activityLog || []).length);
+      // 답글이면 원 댓글 작성자에게도 알림 (본인 댓글에 본인이 답글 단 경우는 제외 — notifyComment가 처리)
+      const parent = parentId ? (task.comments || []).find(c => c.id === parentId) : null;
       cloudSync.commentAddCloud(newComment, task.id)
-        .then(() => cloudSync.notifyMentions(text, {
+        .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id))
+        .then(() => cloudSync.notifyComment(text, {
           actorName: currentUser.name, cardId: task.id, projectId: task.projectId,
+          replyToName: parent?.author,
         }))
         .catch(reportCloudError('댓글 등록'));
     }
@@ -74,11 +79,16 @@ export const useWorkspaceController = () => {
   }, [currentUser.name, cloudOn]);
 
   const handleUpdateComment = useCallback((task, commentId, newText) => {
-    const updated = TaskService.updateComment(task, commentId, newText);
+    const updated = TaskService.updateComment(task, commentId, newText, currentUser.name);
     store.dispatch({ type: 'UPSERT_TASK', payload: updated });
-    if (cloudOn) cloudSync.commentUpdateCloud(commentId, newText).catch(reportCloudError('댓글 수정'));
+    if (cloudOn) {
+      const addedLogs = (updated.activityLog || []).slice((task.activityLog || []).length);
+      cloudSync.commentUpdateCloud(commentId, newText)
+        .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id))
+        .catch(reportCloudError('댓글 수정'));
+    }
     return updated;
-  }, [cloudOn]);
+  }, [currentUser.name, cloudOn]);
 
   const handleDeleteComment = useCallback((task, commentId) => {
     const updated = TaskService.deleteComment(task, commentId, currentUser.name);

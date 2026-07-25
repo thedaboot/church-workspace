@@ -104,7 +104,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     <>
       <div className="flex items-center gap-2 text-xs font-semibold text-fg-muted"><CheckSquare size={14} className="text-accent"/> {task.id ? '업무 세부 정보' : '새 업무 만들기'}</div>
       <div className="flex items-center gap-1">
-        {task.id && <ShareButton url={`${window.location.origin}/s/t/${task.id}`} title="업무 공유 링크 복사" />}
+        {task.id && <ShareButton url={`${window.location.origin}/s/t/${task.id}`} what="업무" shareTitle={task.title || '업무'} />}
         <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>
       </div>
     </>
@@ -658,6 +658,8 @@ const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onD
 });
 
 // 활동 action 문자열 키워드 → 타임라인 dot 색상 매핑
+// 순서 주의: '상태를 …로 변경'처럼 여러 키워드를 동시에 가진 문장이 있어
+// 더 구체적인 것부터 검사한다.
 const activityDotColor = (action = '') => {
   if (action.includes('생성')) return 'bg-tag-green-fg';
   if (action.includes('상태')) {
@@ -665,8 +667,10 @@ const activityDotColor = (action = '') => {
     if (action.includes('보류')) return 'bg-status-hold';
     return 'bg-accent';
   }
-  if (action.includes('수정')) return 'bg-tag-yellow-fg';
-  if (action.includes('댓글')) return 'bg-tag-purple-fg';
+  if (action.includes('댓글') || action.includes('답글')) return 'bg-tag-purple-fg';
+  if (action.includes('파일')) return 'bg-tag-blue-fg';
+  // 제목·상세 내용·일정·담당자·담당 팀 변경
+  if (action.includes('변경') || action.includes('수정') || action.includes('비웠') || action.includes('지웠')) return 'bg-tag-yellow-fg';
   return 'bg-fg-faint';
 };
 

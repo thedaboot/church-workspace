@@ -1,31 +1,45 @@
 import React, { useMemo } from 'react';
+import { tokenizeInline, MD_LINK_RE } from '../services/markdown.js';
 
 // ============================================================================
 // 9. RichText Parser & Renderer
 //    마크다운 서브셋: **굵게** *기울임* __밑줄__ ~~취소선~~ ==형광펜==
 //    # ~ #### 제목, -/* 불릿, 1. 번호 목록 + 기존 @멘션·링크·이미지 URL 유지
-//    (풀 마크다운 파서가 아닌 정규식 경량 구현 — 중첩은 1단계까지만)
+//    인라인 토큰화는 에디터와 같은 것(services/markdown.js)을 쓴다 — 한쪽만
+//    중첩을 지원하면 "쓴 그대로 보인다"가 깨지므로 파서를 하나로 유지한다.
 // ============================================================================
 
-// 인라인 토큰: 순서 중요 — [텍스트](URL) 링크가 생 URL보다 먼저,
-// ** 가 * 보다, __ 가 먼저 매칭되어야 함
-const INLINE_RE = /(\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|==[^=\n]+==|\*[^*\n]+\*|@\S+|https?:\/\/\S+)/g;
-const MD_LINK_RE = /^\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)$/;
+const LINK_CLS = 'text-accent-text underline mx-0.5 break-all hover:text-accent-strong';
+// 마크 → 태그·클래스 (에디터 .tiptap 스타일과 같은 톤)
+const MARK_TAG = { bold: 'strong', italic: 'em', underline: 'u', strike: 's', highlight: 'mark' };
+const MARK_CLS = {
+  bold: 'font-bold',
+  strike: 'opacity-80',
+  highlight: 'bg-tag-yellow text-tag-yellow-fg rounded-[3px] px-0.5',
+};
+
+// 서식이 없는 구간에서만 @멘션·생 URL을 살린다(마크 안의 URL은 그대로 글자로)
+const PLAIN_RE = /(@\S+|https?:\/\/\S+)/g;
+const renderPlain = (text, key) => text.split(PLAIN_RE).filter(Boolean).map((p, i) => {
+  const k = `${key}-p${i}`;
+  if (/^@\S+$/.test(p)) return <span key={k} className="text-accent-text font-semibold bg-accent-weak px-1 rounded-xs mx-0.5">{p}</span>;
+  if (/^https?:\/\/\S+$/.test(p)) return <a key={k} href={p} target="_blank" rel="noreferrer" className={LINK_CLS}>{p}</a>;
+  return <React.Fragment key={k}>{p}</React.Fragment>;
+});
 
 const renderInline = (text, keyBase) => {
   if (!text) return null;
-  return text.split(INLINE_RE).filter(Boolean).map((part, i) => {
+  return tokenizeInline(text).map((seg, i) => {
     const key = `${keyBase}-${i}`;
-    const link = part.match(MD_LINK_RE);
-    if (link) return <a key={key} href={link[2]} target="_blank" rel="noreferrer" className="text-accent-text underline mx-0.5 break-all hover:text-accent-strong">{link[1]}</a>;
-    if (/^\*\*[^*\n]+\*\*$/.test(part)) return <strong key={key} className="font-bold">{part.slice(2, -2)}</strong>;
-    if (/^__[^_\n]+__$/.test(part)) return <u key={key}>{part.slice(2, -2)}</u>;
-    if (/^~~[^~\n]+~~$/.test(part)) return <s key={key} className="opacity-80">{part.slice(2, -2)}</s>;
-    if (/^==[^=\n]+==$/.test(part)) return <mark key={key} className="bg-tag-yellow text-tag-yellow-fg rounded-[3px] px-0.5">{part.slice(2, -2)}</mark>;
-    if (/^\*[^*\n]+\*$/.test(part)) return <em key={key}>{part.slice(1, -1)}</em>;
-    if (/^@\S+$/.test(part)) return <span key={key} className="text-accent-text font-semibold bg-accent-weak px-1 rounded-xs mx-0.5">{part}</span>;
-    if (/^https?:\/\/\S+$/.test(part)) return <a key={key} href={part} target="_blank" rel="noreferrer" className="text-accent-text underline mx-0.5 break-all hover:text-accent-strong">{part}</a>;
-    return <span key={key}>{part}</span>;
+    // 안쪽부터: 링크 or 평문 → 마크로 감싸 올라간다
+    let node = seg.href
+      ? <a href={seg.href} target="_blank" rel="noreferrer" className={LINK_CLS}>{seg.text}</a>
+      : renderPlain(seg.text, key);
+    for (const m of [...seg.marks].reverse()) {
+      const Tag = MARK_TAG[m];
+      if (Tag) node = <Tag className={MARK_CLS[m]}>{node}</Tag>;
+    }
+    return <React.Fragment key={key}>{node}</React.Fragment>;
   });
 };
 
