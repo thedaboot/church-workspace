@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   CheckSquare, Clock, X, User, Hash, RefreshCw, Download, Upload,
   Wand2, Sparkles, CalendarRange, Pencil, Trash2, Heart,
@@ -12,7 +12,9 @@ import { AiService } from '../services/ai.js';
 import { RichText } from '../components/RichText.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { MentionInput } from '../components/MentionInput.jsx';
-import { MarkdownEditor } from '../components/MarkdownEditor.jsx';
+// TipTap/ProseMirror는 무거워 초기 번들에서 분리한다 (업무 수정 모드에서만 필요)
+const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').then(m => ({ default: m.MarkdownEditor })));
+const EditorSkeleton = () => <div className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none bg-surface-2/50 animate-pulse" />;
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { useAuth } from '../services/auth.jsx';
@@ -297,13 +299,15 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
             {isAiLoading ? <span className="animate-pulse">다듬는 중...</span> : <><Wand2 size={12} /> AI 문맥 다듬기</>}
           </button>
         </div>
-        <MarkdownEditor
-          value={formData.content || ''}
-          onChange={(val) => setFormData(prev => ({ ...prev, content: val }))}
-          members={members} cloudMode={cloudMode}
-          placeholder={cloudMode ? '내용을 입력하세요. @이름 멘션, 이미지 붙여넣기(Ctrl/⌘+V)도 돼요.' : '내용을 입력하세요. @이름 멘션을 쓸 수 있어요.'}
-          className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none p-3 bg-surface focus-within:border-accent focus-within:shadow-soft transition-all"
-        />
+        <Suspense fallback={<EditorSkeleton />}>
+          <MarkdownEditor
+            value={formData.content || ''}
+            onChange={(val) => setFormData(prev => ({ ...prev, content: val }))}
+            members={members} cloudMode={cloudMode}
+            placeholder={cloudMode ? '내용을 입력하세요. @이름 멘션, 이미지 붙여넣기(Ctrl/⌘+V)도 돼요.' : '내용을 입력하세요. @이름 멘션을 쓸 수 있어요.'}
+            className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none p-3 bg-surface focus-within:border-accent focus-within:shadow-soft transition-all"
+          />
+        </Suspense>
       </div>
 
       {cloudMode && (formData.id
