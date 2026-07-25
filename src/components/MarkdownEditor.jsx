@@ -49,7 +49,9 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
   const suggestions = useMemo(() => {
     if (!mention) return [];
     const q = mention.query.toLowerCase();
-    return [...new Set(members.filter(Boolean))].filter(n => n.toLowerCase().includes(q)).slice(0, MAX_SUGGESTIONS);
+    // 정확 일치 > 접두 일치 > 포함 순 — 동명 유사 이름("노준석"/"노준석_서브")에서 오선택 방지
+    const rank = (n) => { const l = n.toLowerCase(); return l === q ? 0 : l.startsWith(q) ? 1 : 2; };
+    return [...new Set(members.filter(Boolean))].filter(n => n.toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).slice(0, MAX_SUGGESTIONS);
   }, [mention, members]);
   useEffect(() => { suggestionsRef.current = suggestions; }, [suggestions]);
 

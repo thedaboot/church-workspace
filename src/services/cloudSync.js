@@ -37,17 +37,20 @@ export function extractMentions(text) {
   return [...new Set(names)];
 }
 
-// 표시명 → 프로필 id (정확 일치). excludeName(보통 본인)은 제외.
+// 표시명 → 프로필 id들 (정확 일치). 동명 프로필이 여럿이면 전원 매핑.
+// 본인 제외는 이름이 아니라 auth user id 기준으로 notifyMentions에서 최종 수행한다
+// (표시 이름은 로그인 직후 구글 이름 ↔ 프로필 이름 사이에서 흔들릴 수 있어 신뢰 불가).
 export function resolveMentionRecipients(text, excludeName) {
-  const nameToId = new Map();
+  const nameToIds = new Map();
   for (const [id, name] of profileIdToName.entries()) {
-    if (name) nameToId.set(name, id);
+    if (!name) continue;
+    if (!nameToIds.has(name)) nameToIds.set(name, []);
+    nameToIds.get(name).push(id);
   }
   const ids = [];
   for (const name of extractMentions(text)) {
     if (excludeName && name === excludeName) continue;
-    const id = nameToId.get(name);
-    if (id) ids.push(id);
+    ids.push(...(nameToIds.get(name) || []));
   }
   return [...new Set(ids)];
 }
@@ -61,8 +64,14 @@ export function newMentionsOnly(nextText, prevText, excludeName) {
 }
 
 // 멘션 알림 생성 (실패는 조용히 삼킨다 — 본 저장 흐름을 막지 않는다)
+// 본인 제외는 여기서 auth user id로 최종 차단한다 — 자기 자신에게는 절대 알림이 가지 않는다.
 export async function notifyMentions(text, { actorName, cardId, projectId, recipientIds }) {
-  const ids = recipientIds ?? resolveMentionRecipients(text, actorName);
+  let ids = recipientIds ?? resolveMentionRecipients(text, actorName);
+  try {
+    const { data } = await cloud.getSession();
+    const myId = data?.session?.user?.id;
+    if (myId) ids = ids.filter(id => id !== myId);
+  } catch { /* 세션 조회 실패 시에도 알림 생성은 계속 */ }
   if (!ids.length) return;
   try {
     await cloud.insertMentionNotifications(ids, { actorName, cardId, projectId, preview: String(text || '').slice(0, 80) });
