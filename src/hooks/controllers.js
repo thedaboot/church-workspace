@@ -24,13 +24,19 @@ export const useWorkspaceController = () => {
 
   // 로컬 스토리지 자동 저장 (게스트 모드에서만 — 클라우드 모드에선 서버가 원본,
   // 로컬 church_app_v4는 이관 소스로 보존해야 하므로 덮어쓰지 않는다)
+  // 리렌더가 아니라 store 구독으로 저장한다 — 뷰가 메모이제이션돼 리렌더 없이
+  // 상태만 바뀌는 경우(예: 드래그로 상태 변경)에도 유실 없이 저장되도록.
   useEffect(() => {
     if (cloudOn) return;
-    const timer = setTimeout(() => {
-      localStorage.setItem('church_app_v4', JSON.stringify(store.getState()));
-    }, 500);
-    return () => clearTimeout(timer);
-  });
+    let timer = null;
+    const unsub = store.subscribe(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        localStorage.setItem('church_app_v4', JSON.stringify(store.getState()));
+      }, 300);
+    });
+    return () => { clearTimeout(timer); unsub(); };
+  }, [cloudOn]);
 
   const handleSaveTask = useCallback((newData, oldData = null) => {
     const isNew = !oldData;
