@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   LayoutDashboard, Plus, Calendar as CalendarIcon,
   Link as LinkIcon, ListTodo, ListFilter, ExternalLink, ChevronRight, Undo2, Check, X, Trash2,
-  TrendingUp, CheckSquare, Users
+  TrendingUp, CheckSquare, Users, Sparkles
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { generateId } from '../utils.js';
@@ -236,7 +236,13 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
   const myTasks = useStore(selectMyTasks);
   return (
     <div className="max-w-7xl mx-auto h-full flex flex-col animate-in fade-in">
-      <div className="mb-4 shrink-0"><h2 className="text-xl font-bold text-fg tracking-[-0.25px]">{currentUser.name} 청년의 업무</h2><p className="text-xs text-fg-muted mt-1">할당된 모든 프로젝트의 업무가 이곳에 모입니다.</p></div>
+      <div className="mb-4 shrink-0">
+        <h2 className="text-xl font-bold text-fg tracking-[-0.25px] flex items-center gap-2">
+          <span className="w-8 h-8 rounded-lg bg-tag-pink text-tag-pink-fg flex items-center justify-center shrink-0 shadow-soft"><Sparkles size={17} strokeWidth={2} /></span>
+          {currentUser.name}님의 업무
+        </h2>
+        <p className="text-xs text-fg-muted mt-1.5">할당된 모든 프로젝트의 업무가 이곳에 모입니다.</p>
+      </div>
       <div className="flex-1 min-h-0"><Board tasks={myTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} showProjectBadge /></div>
     </div>
   );

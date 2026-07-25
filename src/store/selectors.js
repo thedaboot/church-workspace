@@ -94,6 +94,12 @@ export const selectTasksByDate = createSelector(
         push(t.startDate, t, 'single');
       }
     });
+    // 하루 안에서는 시작일이 빠른 업무가 위로 — 셀이 넘쳐 +N으로 접힐 때
+    // 먼저 시작한 업무가 먼저 보이도록. 같은 날 시작이면 마감일, 그다음 제목 순.
+    const key = (t) => `${t.startDate || t.dueDate || '9999-99-99'}|${t.dueDate || '9999-99-99'}|${t.title || ''}`;
+    for (const entries of map.values()) {
+      entries.sort((a, b) => (key(a.task) < key(b.task) ? -1 : key(a.task) > key(b.task) ? 1 : 0));
+    }
     return map;
   }
 );

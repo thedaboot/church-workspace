@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'rea
 import {
   CheckSquare, Clock, X, User, Hash, RefreshCw, Download, Upload,
   Wand2, Sparkles, CalendarRange, Pencil, Trash2, Heart,
-  FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, Loader2, ExternalLink, Check
+  FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, Loader2, ExternalLink, Check, AlertTriangle
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { formatDate, avatarColor, isMobileViewport } from '../utils.js';
@@ -22,6 +22,7 @@ import { supabase } from '../services/supabaseClient.js';
 import { uploadAttachment, getFileOpenUrl, getAttachmentUrls, deleteAttachment, listCardFiles } from '../services/cloud.js';
 import { getMemberNames } from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 
 // ============================================================================
 // 13. Modals (완벽한 SRP 분리)
@@ -47,17 +48,6 @@ function useAfterPaint() {
   return ready;
 }
 
-// md 미만 여부 (모바일 풀스크린 레이아웃 판단)
-function useIsMobile() {
-  const [m, setM] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches);
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
-    const on = () => setM(mq.matches);
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
-  }, []);
-  return m;
-}
 
 export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAddComment, onUpdateComment, onDeleteComment, onFileActivity, onDelete }) {
   const currentUser = useStore(selectCurrentUser);
@@ -400,6 +390,7 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
 });
 
 // ── 첨부 파일 (클라우드 모드 전용) ──────────────────────────────────────────
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // Supabase Storage 버킷 제한과 동일
 const formatBytes = (b) => {
   if (b === null || b === undefined) return '';
   if (b < 1024) return `${b} B`;
@@ -448,6 +439,7 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
   const [thumbs, setThumbs] = useState({}); // { storage_path: signedUrl }
   const [dragOver, setDragOver] = useState(false);
   const [uploadingName, setUploadingName] = useState(null);
+  const [rejected, setRejected] = useState([]); // 용량 초과로 건너뛴 파일들
   const inputRef = useRef(null);
 
   // 첫 페인트 경쟁 방지: 네트워크는 유휴 시점으로 미룬다(모달은 로컬 데이터로 먼저 뜬다)
@@ -475,8 +467,12 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
 
   const uploadFiles = async (fileList) => {
     const files = Array.from(fileList || []);
+    // 용량 초과 파일은 토스트로 알리고 + 업로드 영역에 계속 남는 경고로도 보여준다
+    // (토스트는 몇 초 뒤 사라져서 "왜 안 올라갔지?"가 남는다)
+    const tooBig = files.filter(f => f.size > MAX_UPLOAD_BYTES);
+    setRejected(tooBig.map(f => ({ name: f.name, size: f.size })));
     for (const file of files) {
-      if (file.size > 25 * 1024 * 1024) { showToast(`'${file.name}'은(는) 25MB를 초과해 건너뜁니다.`); continue; }
+      if (file.size > MAX_UPLOAD_BYTES) { showToast(`'${file.name}'은(는) 25MB를 넘어 첨부하지 못했어요.`); continue; }
       try {
         setUploadingName(file.name);
         const row = await uploadAttachment(file, { projectId: task.projectId, cardId: task.id });
@@ -533,6 +529,21 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
         </div>
       )}
       {!readOnly && uploadingName && <div className="flex items-center gap-2 mt-2 text-[11px] text-fg-muted"><Loader2 size={13} className="animate-spin" /> 업로드 중: {uploadingName}</div>}
+      {!readOnly && rejected.length > 0 && (
+        <div className="mt-2 flex items-start gap-2 rounded-md border border-tag-red-fg/30 bg-tag-red/60 px-2.5 py-2 animate-in fade-in duration-200">
+          <AlertTriangle size={14} className="text-tag-red-fg shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-semibold text-tag-red-fg">한 파일당 25MB까지 올릴 수 있어요</p>
+            <ul className="mt-0.5 space-y-0.5">
+              {rejected.map(f => (
+                <li key={f.name} className="text-[10px] text-tag-red-fg/90 truncate">{f.name} · {formatBytes(f.size)}</li>
+              ))}
+            </ul>
+            <p className="text-[10px] text-tag-red-fg/80 mt-1">용량을 줄이거나 링크(리소스)로 공유해 주세요.</p>
+          </div>
+          <button type="button" onClick={() => setRejected([])} className="p-0.5 rounded text-tag-red-fg/70 hover:text-tag-red-fg transition shrink-0" title="닫기"><X size={13} /></button>
+        </div>
+      )}
       {items.length > 0 && (
         <div className="divide-y divide-line/60 mt-1">
           {items.map(row => <AttachmentRow key={row.id} row={row} thumb={thumbs[row.storage_path]} canDelete={!readOnly && (isAdmin || row.uploaded_by === userId)} onOpen={() => openFile(row)} onRemove={() => removeItem(row)} />)}

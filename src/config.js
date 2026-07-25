@@ -27,5 +27,35 @@ export const CONFIG = {
     '완료': 'bg-tag-green-fg'
   },
   // 앱 표기 ↔ DB(cards.status) 값. 순서를 바꿔도 매핑이 깨지지 않게 이름으로 못 박는다.
-  STATUS_DB: { '시작 전': 'todo', '진행 중': 'doing', '보류 중': 'hold', '완료': 'done' }
+  STATUS_DB: { '시작 전': 'todo', '진행 중': 'doing', '보류 중': 'hold', '완료': 'done' },
+  // 팀 → index.css의 태그 색 토큰 이름. 캘린더처럼 실제 색값이 필요한 곳에서 쓴다
+  // (TEAMS는 Tailwind 클래스 문자열이라 색값을 꺼낼 수 없다). TEAMS와 같은 색으로 유지.
+  TEAM_TOKENS: {
+    '웰컴팀': 'pink',
+    '워십팀': 'purple',
+    '찬양팀': 'blue',
+    '엔지니어팀': 'gray',
+    '미디어팀': 'brown',
+    '임원진': 'yellow',
+    '교역자': 'red',
+  }
+};
+
+// 담당 팀 색으로 캘린더 띠·점 색을 만든다.
+// 여러 팀이 함께 하는 업무는 팀 색을 세로 줄무늬로 나눠 칠해 "공동 업무"임을 보여준다
+// (최대 3색까지만 — 그 이상은 줄무늬가 알아보기 어려워진다).
+// strong: 점·세로바처럼 글자가 얹히지 않는 작은 요소용(진한 색).
+//         파스텔 배경색을 8px 점에 쓰면 팀 구분이 거의 안 보인다.
+export const teamPaint = (teams = [], strong = false) => {
+  const suffix = strong ? '-fg' : '';
+  const tokens = teams.map(t => CONFIG.TEAM_TOKENS[t]).filter(Boolean).slice(0, 3);
+  if (!tokens.length) return { background: `var(--app-tag-gray${suffix})`, color: 'var(--app-tag-gray-fg)' };
+  const color = `var(--app-tag-${tokens[0]}-fg)`;
+  if (tokens.length === 1) return { background: `var(--app-tag-${tokens[0]}${suffix})`, color };
+  const stops = tokens.map((tk, i) => {
+    const from = (i / tokens.length * 100).toFixed(2);
+    const to = ((i + 1) / tokens.length * 100).toFixed(2);
+    return `var(--app-tag-${tk}${suffix}) ${from}% ${to}%`;
+  }).join(', ');
+  return { background: `linear-gradient(90deg, ${stops})`, color };
 };
