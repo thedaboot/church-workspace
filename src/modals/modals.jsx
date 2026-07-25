@@ -26,6 +26,27 @@ import { ShareButton } from '../components/ShareButton.jsx';
 // ============================================================================
 // 13. Modals (완벽한 SRP 분리)
 // ============================================================================
+// 첫 페인트 이후(유휴)로 작업을 미루는 헬퍼 — requestIdleCallback 미지원 시 타이머 폴백
+const whenIdle = (fn) => (typeof requestIdleCallback === 'function'
+  ? requestIdleCallback(fn, { timeout: 800 })
+  : setTimeout(fn, 0));
+const cancelIdle = (h) => {
+  if (h == null) return;
+  if (typeof cancelIdleCallback === 'function') { try { cancelIdleCallback(h); return; } catch { /* 타이머 핸들일 수 있음 */ } }
+  clearTimeout(h);
+};
+
+// 첫 페인트가 끝난 뒤 true — 목록(댓글·활동)처럼 무거운 영역을 첫 커밋에서 빼낸다.
+// 마운트 직후 1회만 false→true로 바뀌고 이후 계속 true(탭 전환 시 지연 없음).
+function useAfterPaint() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let raf = requestAnimationFrame(() => { raf = requestAnimationFrame(() => setReady(true)); });
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return ready;
+}
+
 // md 미만 여부 (모바일 풀스크린 레이아웃 판단)
 function useIsMobile() {
   const [m, setM] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches);
@@ -47,6 +68,8 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   const [activeTab, setActiveTab] = useState('comments'); // 데스크톱 우측 사이드바 탭
   const [mobileTab, setMobileTab] = useState('detail');    // 모바일 세그먼트 탭
   const isMobile = useIsMobile();
+  // 댓글·활동 목록은 첫 페인트 이후에 붙인다(열림 체감 속도 우선)
+  const listsReady = useAfterPaint();
 
   // Stale State 방지: 모달 재사용 시 데이터 강제 동기화
   useEffect(() => { setFormData(task); }, [task]);
@@ -100,8 +123,10 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   const detailBody = isEditMode
     ? <TaskEditor formData={formData} setFormData={setFormData} members={members} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />
     : <TaskViewer formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />;
-  const commentsPanel = <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} />;
-  const activityPanel = <ActivityPanel logs={formData.activityLog} />;
+  const commentsPanel = listsReady
+    ? <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} />
+    : null;
+  const activityPanel = listsReady ? <ActivityPanel logs={formData.activityLog} /> : null;
   const commentInputEl = <CommentInput onAdd={onAddComment} members={members} />;
 
   // ── 모바일: 풀스크린 + 세그먼트 탭 ──
@@ -413,10 +438,13 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
   const [uploadingName, setUploadingName] = useState(null);
   const inputRef = useRef(null);
 
+  // 첫 페인트 경쟁 방지: 네트워크는 유휴 시점으로 미룬다(모달은 로컬 데이터로 먼저 뜬다)
   useEffect(() => {
     let alive = true;
-    listCardFiles(task.id).then(rows => { if (alive) setItems(rows); }).catch(e => console.error('[cloud] 첨부 목록 로드 실패:', e));
-    return () => { alive = false; };
+    const handle = whenIdle(() => {
+      listCardFiles(task.id).then(rows => { if (alive) setItems(rows); }).catch(e => console.error('[cloud] 첨부 목록 로드 실패:', e));
+    });
+    return () => { alive = false; cancelIdle(handle); };
   }, [task.id]);
 
   // 이미지 썸네일 서명 URL을 한 번에 발급 (이미지 없으면 스토리지 호출 없음)
@@ -424,10 +452,12 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
     const need = items.filter(r => (r.mime_type || '').startsWith('image/') && r.storage_path && !thumbs[r.storage_path]).map(r => r.storage_path);
     if (!need.length) return;
     let alive = true;
-    getAttachmentUrls(need)
-      .then(map => { if (alive) setThumbs(prev => ({ ...prev, ...map })); })
-      .catch(e => console.error('[cloud] 썸네일 URL 발급 실패:', e));
-    return () => { alive = false; };
+    const handle = whenIdle(() => {
+      getAttachmentUrls(need)
+        .then(map => { if (alive) setThumbs(prev => ({ ...prev, ...map })); })
+        .catch(e => console.error('[cloud] 썸네일 URL 발급 실패:', e));
+    });
+    return () => { alive = false; cancelIdle(handle); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
 
@@ -544,12 +574,26 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies }) => {
   );
 };
 
+// 처음에는 최근 댓글만 그린다 — 60개짜리 업무를 열 때 모달 첫 페인트가
+// 1초 넘게 밀리던 원인(댓글 1건당 RichText 파싱 + 노드 수십 개)을 잘라낸다.
+const INITIAL_COMMENTS = 10;
+
 const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onDelete }) => {
   const [replyingTo, setReplyingTo] = useState(null);
   const [replyText, setReplyText] = useState('');
+  const [showAll, setShowAll] = useState(false);
   const all = comments || [];
-  const topLevel = all.filter(c => !c.parentId);
-  const getReplies = (id) => all.filter(c => c.parentId === id);
+  const allTopLevel = all.filter(c => !c.parentId);
+  const repliesByParent = useMemo(() => {
+    const m = new Map();
+    for (const c of all) if (c.parentId) { if (!m.has(c.parentId)) m.set(c.parentId, []); m.get(c.parentId).push(c); }
+    return m;
+  }, [all]);
+  const getReplies = (id) => repliesByParent.get(id) || [];
+
+  // 최신 댓글이 아래쪽이므로 뒤에서 N개만 노출
+  const hiddenCount = showAll ? 0 : Math.max(0, allTopLevel.length - INITIAL_COMMENTS);
+  const topLevel = hiddenCount > 0 ? allTopLevel.slice(-INITIAL_COMMENTS) : allTopLevel;
 
   const submitReply = (parentId) => {
     if (!replyText.trim()) return;
@@ -567,6 +611,12 @@ const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onD
 
   return (
     <div className="divide-y divide-line/60">
+      {hiddenCount > 0 && (
+        <button
+          type="button" onClick={() => setShowAll(true)}
+          className="w-full text-[11px] text-accent-text hover:bg-surface-hover rounded-md py-2 mb-1 transition active:scale-95"
+        >이전 댓글 {hiddenCount}개 더 보기</button>
+      )}
       {topLevel.map(c => (
         <div key={c.id} className="py-3 first:pt-0 group/c animate-in fade-in duration-200">
           <CommentBody c={c} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete} hasReplies={getReplies(c.id).length > 0} />
@@ -604,25 +654,43 @@ const activityDotColor = (action = '') => {
   return 'bg-fg-faint';
 };
 
-const ActivityPanel = React.memo(({ logs }) => (
-  <div className="space-y-4 relative before:absolute before:inset-y-1 before:left-[3px] before:w-px before:bg-line">
-    {(logs || []).slice().reverse().map(l => (
-      <div key={l.id} className="relative flex items-start gap-3">
-        <div className={`mt-1 w-[7px] h-[7px] rounded-full ring-4 ring-surface-2 z-10 shrink-0 ${activityDotColor(l.action)}`}></div>
-        <div className="min-w-0">
-          <p className="text-[11px] text-fg-secondary leading-snug"><span className="font-semibold text-fg">{l.author}</span>님이 {l.action}</p>
-          <p className="text-[9px] text-fg-faint mt-0.5">{formatDate(l.timestamp)}</p>
+const INITIAL_LOGS = 20;
+
+const ActivityPanel = React.memo(({ logs }) => {
+  const [showAll, setShowAll] = useState(false);
+  const all = logs || [];
+  // 최신순 + 처음에는 상위 N개만
+  const ordered = useMemo(() => all.slice().reverse(), [all]);
+  const hiddenCount = showAll ? 0 : Math.max(0, ordered.length - INITIAL_LOGS);
+  const shown = hiddenCount > 0 ? ordered.slice(0, INITIAL_LOGS) : ordered;
+
+  if (all.length === 0) return (
+    <div className="text-center mt-6">
+      <span className="inline-flex w-8 h-8 rounded-full bg-tag-purple text-tag-purple-fg items-center justify-center mb-2"><span className="w-1.5 h-1.5 rounded-full bg-current" /></span>
+      <p className="text-xs text-fg-faint">아직 활동 기록이 없어요.</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4 relative before:absolute before:inset-y-1 before:left-[3px] before:w-px before:bg-line">
+      {shown.map(l => (
+        <div key={l.id} className="relative flex items-start gap-3">
+          <div className={`mt-1 w-[7px] h-[7px] rounded-full ring-4 ring-surface-2 z-10 shrink-0 ${activityDotColor(l.action)}`}></div>
+          <div className="min-w-0">
+            <p className="text-[11px] text-fg-secondary leading-snug"><span className="font-semibold text-fg">{l.author}</span>님이 {l.action}</p>
+            <p className="text-[9px] text-fg-faint mt-0.5">{formatDate(l.timestamp)}</p>
+          </div>
         </div>
-      </div>
-    ))}
-    {(!logs || logs.length === 0) && (
-      <div className="text-center mt-6">
-        <span className="inline-flex w-8 h-8 rounded-full bg-tag-purple text-tag-purple-fg items-center justify-center mb-2"><span className="w-1.5 h-1.5 rounded-full bg-current" /></span>
-        <p className="text-xs text-fg-faint">아직 활동 기록이 없어요.</p>
-      </div>
-    )}
-  </div>
-));
+      ))}
+      {hiddenCount > 0 && (
+        <button
+          type="button" onClick={() => setShowAll(true)}
+          className="relative w-full text-[11px] text-accent-text hover:bg-surface-hover rounded-md py-2 transition active:scale-95"
+        >이전 기록 {hiddenCount}개 더 보기</button>
+      )}
+    </div>
+  );
+});
 
 const CommentInput = ({ onAdd, members = [] }) => {
   const [val, setVal] = useState('');
