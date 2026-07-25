@@ -21,7 +21,7 @@ import { showToast } from '../components/Toast.jsx';
 // ============================================================================
 // 11. UI Views (데이터를 구독하는 프레젠테이션 컴포넌트)
 // ============================================================================
-export function DashboardView({ onNavigate }) {
+export const DashboardView = React.memo(function DashboardView({ onNavigate }) {
   const { progress, teamStats } = useStore(selectDashboardStats);
   const myTasksCount = useStore(selectMyTasks).filter(t => t.status !== '완료').length;
   const currentUser = useStore(selectCurrentUser);
@@ -105,9 +105,9 @@ export function DashboardView({ onNavigate }) {
       </div>
     </div>
   );
-}
+});
 
-export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask, onNavigate }) {
+export const ProjectView = React.memo(function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask, onNavigate }) {
   const projectsMap = useStore(selectProjectsMap);
   const tasksList = useStore(selectTasksList);
   const { isAdmin, enabled, session } = useAuth();
@@ -227,9 +227,9 @@ export function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask,
       </div>
     </div>
   );
-}
+});
 
-export function MyTasksView({ onTaskClick, onStatusChange }) {
+export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStatusChange }) {
   const currentUser = useStore(selectCurrentUser);
   const myTasks = useStore(selectMyTasks);
   return (
@@ -238,9 +238,9 @@ export function MyTasksView({ onTaskClick, onStatusChange }) {
       <div className="flex-1 min-h-0"><Board tasks={myTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} showProjectBadge /></div>
     </div>
   );
-}
+});
 
-export function TeamView({ teamName, onTaskClick, onStatusChange }) {
+export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, onStatusChange }) {
   const tasksList = useStore(selectTasksList);
   const teamTasks = useMemo(() => tasksList.filter(t => t.teams.includes(teamName)), [tasksList, teamName]);
   return (
@@ -249,7 +249,7 @@ export function TeamView({ teamName, onTaskClick, onStatusChange }) {
       <div className="flex-1 min-h-0"><Board tasks={teamTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} showProjectBadge /></div>
     </div>
   );
-}
+});
 
 export function GuideView() {
   return (

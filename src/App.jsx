@@ -140,11 +140,32 @@ function WorkspaceShell() {
     setModalState({ isOpen: true, task, isEditMode });
   }, []);
 
+  // ── 뷰·셸에 내려주는 핸들러는 전부 useCallback으로 고정 ──
+  // 인라인 화살표로 내려주면 매 렌더마다 새 함수가 되어 React.memo가 무력해지고,
+  // 모달을 열 때(setModalState) 활성 뷰의 카드 전체가 다시 렌더된다(150장 = 150회).
+  const closeSidebar = useCallback(() => setIsSidebarOpen(false), []);
+  const openSidebar = useCallback(() => setIsSidebarOpen(true), []);
+  const openProfile = useCallback(() => setIsProfileModalOpen(true), []);
+  const openProjectModal = useCallback(() => setIsProjectModalOpen(true), []);
+  const selectMenu = useCallback((menu) => { setActiveMenu(menu); setIsSidebarOpen(false); }, []);
+  const handleTaskClick = useCallback((t) => openTaskModal(t), [openTaskModal]);
+  const saveTask = controller.handleSaveTask;
+  const handleStatusChange = useCallback((t, status) => saveTask({ ...t, status }, t), [saveTask]);
+  const handleNewTask = useCallback(() => {
+    openTaskModal({ projectId: activeMenu, status: '시작 전', assignees: [], teams: [] }, true);
+  }, [openTaskModal, activeMenu]);
+
   // 통합 검색 선택: 프로젝트 → 이동 / 업무 → 이동 + 모달 오픈
   const handleSearchSelect = useCallback((kind, item) => {
     if (kind === 'project') { setActiveMenu(item.id); }
     else if (kind === 'task') { setActiveMenu(item.projectId); openTaskModal(item); }
   }, [openTaskModal]);
+
+  // 알림에서 열기: 해당 업무의 프로젝트로 이동 후 모달
+  const handleOpenTaskFromNotification = useCallback((task) => handleSearchSelect('task', task), [handleSearchSelect]);
+
+  // 문자열이라 값 비교 → memo에 안전
+  const teamName = activeMenu.startsWith('team:') ? activeMenu.split(':')[1] : '';
 
   // 딥링크의 taskId → 데이터 준비 후 해당 업무 모달 오픈(존재 검증)
   useEffect(() => {
@@ -183,16 +204,16 @@ function WorkspaceShell() {
       {isSidebarOpen && <div className="md:hidden fixed inset-0 bg-black/50 z-20" onClick={() => setIsSidebarOpen(false)} />}
 
       <Sidebar
-        activeMenu={activeMenu} setActiveMenu={(menu) => { setActiveMenu(menu); setIsSidebarOpen(false); }}
-        isSidebarOpen={isSidebarOpen} closeSidebar={() => setIsSidebarOpen(false)}
-        onOpenProfile={() => setIsProfileModalOpen(true)}
-        onOpenProject={() => setIsProjectModalOpen(true)}
+        activeMenu={activeMenu} setActiveMenu={selectMenu}
+        isSidebarOpen={isSidebarOpen} closeSidebar={closeSidebar}
+        onOpenProfile={openProfile}
+        onOpenProject={openProjectModal}
       />
 
       <div className="flex-1 flex flex-col w-full min-w-0">
         <Header
-          activeMenu={activeMenu} openSidebar={() => setIsSidebarOpen(true)} onSearchSelect={handleSearchSelect}
-          onOpenTask={(task) => handleSearchSelect('task', task)}
+          activeMenu={activeMenu} openSidebar={openSidebar} onSearchSelect={handleSearchSelect}
+          onOpenTask={handleOpenTaskFromNotification}
           undo={controller.undo} redo={controller.redo} canUndo={store.canUndo()} canRedo={store.canRedo()} cloudMode={cloudMode}
         />
         <main className="flex-1 overflow-auto p-4 md:p-6 relative">
@@ -200,11 +221,11 @@ function WorkspaceShell() {
             {/* key로 뷰 전환 시 리마운트 → 각 뷰의 등장 애니메이션 재생 */}
             <div key={activeMenu} className="h-full">
             {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} />}
-            {activeMenu === 'myTasks' && <MyTasksView onTaskClick={(t) => openTaskModal(t)} onStatusChange={(t, status) => controller.handleSaveTask({ ...t, status }, t)} />}
+            {activeMenu === 'myTasks' && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
             {activeMenu === 'guide' && <GuideView />}
-            {activeMenu.startsWith('team:') && <TeamView teamName={activeMenu.split(':')[1]} onTaskClick={(t) => openTaskModal(t)} onStatusChange={(t, status) => controller.handleSaveTask({ ...t, status }, t)} />}
+            {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
             {(!['dashboard', 'myTasks', 'guide'].includes(activeMenu) && !activeMenu.startsWith('team:')) && (
-               <ProjectView projectId={activeMenu} onNavigate={setActiveMenu} onTaskClick={(t) => openTaskModal(t)} onStatusChange={(t, status) => controller.handleSaveTask({ ...t, status }, t)} onNewTask={() => openTaskModal({ projectId: activeMenu, status: '시작 전', assignees: [], teams: [] }, true)} />
+               <ProjectView projectId={activeMenu} onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNewTask={handleNewTask} />
             )}
             </div>
           </ErrorBoundary>
