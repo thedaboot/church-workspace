@@ -38,6 +38,9 @@ export function previewKind(row) {
   return 'none';
 }
 
+// 브라우저 내장 PDF 뷰어의 좌측 썸네일 패널·툴바를 끄고 문서만 보여준다.
+// (전체 기능이 필요하면 모달 헤더의 '새 탭에서 열기'로 원래 뷰어를 쓴다)
+const PDF_VIEW_PARAMS = 'navpanes=0&toolbar=0&statusbar=0&view=FitH';
 const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
 const driveSrc = (row) => (row.drive_file_id ? `https://drive.google.com/file/d/${row.drive_file_id}/preview` : null);
 
@@ -97,13 +100,17 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
     if (error) return <Fallback row={row} message={error} onOpen={openExternal} />;
 
     if (kind === 'image') {
+      // 가운데 정렬은 바깥 div가 한다 — SmartImage의 래퍼(inline-block)에 폭을 주면
+      // 래퍼만 가운데로 가고 그 안의 이미지는 왼쪽에 붙는다.
       return (
-        <SmartImage
-          src={url} alt={row.name}
-          wrapperClassName="w-full max-w-3xl mx-auto min-h-[40vh] flex items-center justify-center"
-          className="max-w-full max-h-[72dvh] object-contain rounded-md"
-          skeletonClassName="min-h-[40vh]"
-        />
+        <div className="w-full h-full flex items-center justify-center">
+          <SmartImage
+            src={url} alt={row.name}
+            wrapperClassName="max-w-full"
+            className="max-w-full max-h-[76dvh] object-contain rounded-md"
+            skeletonClassName="w-72 h-72"
+          />
+        </div>
       );
     }
     if (kind === 'video') {
@@ -126,7 +133,9 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
       );
     }
     if (kind === 'pdf' || kind === 'office' || kind === 'drive') {
-      const src = kind === 'pdf' ? url : kind === 'drive' ? driveSrc(row) : (url && officeSrc(url));
+      const src = kind === 'pdf' ? (url && `${url}#${PDF_VIEW_PARAMS}`)
+        : kind === 'drive' ? driveSrc(row)
+        : (url && officeSrc(url));
       if (!src) return <Skeleton className="w-full h-[60dvh]" />;
       if (timedOut && !frameReady) return <Fallback row={row} message="미리보기가 응답하지 않아요." onOpen={openExternal} />;
       return (

@@ -28,12 +28,23 @@ const dropCollision = (args) => {
 // 12. UI Components (순수 프레젠테이션)
 // ============================================================================
 // 하루 셀에 보여줄 최대 줄 수. 넘치면 +N으로 접고, 날짜를 누르면 옆(모바일은 아래)
-// 목록에서 전체를 본다. 셀에 overflow-hidden을 걸 수 없어서(여러 날 띠의 제목이
-// 셀 밖으로 흘러야 한다) 칸 높이 안에 들어가는 줄 수로 제한한다.
-//   데스크톱 칸(min 104px) = 날짜 20 + 띠 20×2 + 간격 4 + 더보기 18 + 여백 8
-const CAL_MAX_ROWS = 2;
+// 목록에서 전체를 본다.
+// 데스크톱은 칸 높이를 고정하지 않고(고정하면 6주치가 넘쳐 스크롤이 생기고, 그 스크롤바
+// 폭만큼 요일 헤더와 칸이 어긋난다) 실제 칸 높이를 재서 들어가는 줄 수를 계산한다.
+// 셀에 overflow-hidden은 걸 수 없다 — 여러 날 띠의 제목이 셀 밖으로 흘러야 하므로.
 const CAL_MAX_ROWS_MOBILE = 2;
-const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+const DESK_CELL = { date: 18, pad: 8, band: 18, gap: 3, more: 14 }; // px 예산
+const rowsThatFit = (rowH) => Math.max(
+  1,
+  Math.min(5, Math.floor((rowH - DESK_CELL.date - DESK_CELL.pad - DESK_CELL.more) / (DESK_CELL.band + DESK_CELL.gap)))
+);
+// 교회 달력이라 일요일은 '주일'로 표기한다(요일 셀 배경도 주말만 따로).
+const WEEKDAYS = ['주일', '월', '화', '수', '목', '금', '토'];
+const WEEKDAY_TONE = [
+  'bg-tag-red/60 text-tag-red-fg',      // 주일
+  '', '', '', '', '',
+  'bg-tag-blue/50 text-tag-blue-fg',    // 토
+];
 
 export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
   // O(1) 맵핑 캐싱된 Selector 활용
@@ -73,7 +84,22 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
 
   const days = Array.from({ length: firstDayIndex + daysInMonth }, (_, i) => i < firstDayIndex ? null : i - firstDayIndex + 1);
   const dateStrOf = (day) => `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  const maxRows = isMobile ? CAL_MAX_ROWS_MOBILE : CAL_MAX_ROWS;
+  const weekCount = Math.ceil(days.length / 7);
+
+  // 데스크톱: 실제 칸 높이를 재서 몇 줄이 들어가는지 계산한다(창 높이에 따라 2~5줄).
+  const gridRef = React.useRef(null);
+  const [rowH, setRowH] = React.useState(0);
+  React.useEffect(() => {
+    if (isMobile) return;
+    const el = gridRef.current;
+    if (!el) return;
+    const measure = () => setRowH(el.clientHeight / weekCount);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isMobile, weekCount]);
+  const maxRows = isMobile ? CAL_MAX_ROWS_MOBILE : (rowH ? rowsThatFit(rowH) : 2);
 
   // ── 주 단위 레인(줄 위치) 배치 ────────────────────────────────────────────
   // 같은 업무는 그 주 동안 같은 줄에 고정해야 띠가 끊기지 않는다. 날짜별로 그냥
@@ -153,11 +179,17 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
       <div className={`flex-1 min-h-0 flex ${isMobile ? 'flex-col' : 'flex-row'}`}>
       <div className="flex-1 min-w-0 flex flex-col">
       <div className="grid grid-cols-7 border-b border-line shrink-0">
-        {WEEKDAYS.map(d => <div key={d} className="py-1.5 text-center text-[10px] font-semibold text-fg-muted border-r border-line last:border-0">{d}</div>)}
+        {WEEKDAYS.map((d, i) => (
+          <div key={d} className={`py-1.5 text-center text-[10px] font-semibold border-r border-line last:border-0 ${WEEKDAY_TONE[i] || 'text-fg-muted'}`}>{d}</div>
+        ))}
       </div>
-      {/* 모바일은 칸을 정사각형에 가깝게 눌러 담고(빈 칸이 커 보이지 않게) 남은
-          공간은 아래 목록 패널이 쓴다. 데스크톱은 칸을 늘려 채운다. */}
-      <div className={`grid grid-cols-7 overflow-y-auto ${isMobile ? 'auto-rows-min' : 'flex-1 auto-rows-fr'}`}>
+      {/* 모바일은 칸을 정사각형에 가깝게 눌러 담고(빈 칸이 커 보이지 않게) 남은 공간은
+          아래 목록 패널이 쓴다. 데스크톱은 6주치가 딱 맞게 늘어나 스크롤이 없다
+          (스크롤이 생기면 그 스크롤바 폭만큼 위 요일 헤더와 칸이 어긋난다). */}
+      <div
+        ref={gridRef}
+        className={`grid grid-cols-7 ${isMobile ? 'auto-rows-min overflow-y-auto' : 'flex-1 auto-rows-fr'}`}
+      >
         {days.map((day, idx) => {
           if (!day) return <div key={`empty-${idx}`} className={`border-b border-r border-line bg-surface-2 ${isMobile ? 'min-h-[62px]' : ''}`}></div>;
           const dateStr = dateStrOf(day);
@@ -171,27 +203,28 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
             <div
               key={day}
               onClick={() => setSelected(hasAny ? dateStr : null)}
-              className={`border-b border-r border-line p-1 ${isMobile ? 'min-h-[62px]' : 'min-h-[104px]'} ${hasAny ? 'cursor-pointer' : ''} ${isSelected ? 'bg-accent-weak/70 ring-1 ring-inset ring-accent' : isToday ? 'bg-accent-weak' : ''}`}
+              className={`relative border-b border-r border-line p-1 ${isMobile ? 'min-h-[62px]' : ''} ${hasAny ? 'cursor-pointer' : ''} ${isSelected ? 'bg-accent-weak/70 ring-1 ring-inset ring-accent' : isToday ? 'bg-accent-weak' : ''}`}
             >
               {/* 오늘은 채운 원으로 표시 — 배경 강조만으로는 눈에 덜 들어온다 */}
               <div className={`${isMobile ? 'text-center text-[10px]' : 'px-0.5 text-[11px]'} font-semibold leading-none`}>
-                <span className={`inline-flex items-center justify-center ${isMobile ? 'w-4 h-4' : 'w-5 h-5'} rounded-full ${isToday ? 'bg-accent text-white' : 'text-fg-muted'}`}>{day}</span>
+                <span className={`inline-flex items-center justify-center ${isMobile ? 'w-4 h-4' : 'w-[18px] h-[18px]'} rounded-full ${isToday ? 'bg-accent text-white' : 'text-fg-muted'}`}>{day}</span>
               </div>
-              <div className={`${isMobile ? 'space-y-0.5' : 'space-y-1'} mt-0.5`}>
+              <div className={`${isMobile ? 'space-y-0.5' : 'space-y-[3px]'} mt-0.5`}>
                 {Array.from({ length: lastLane + 1 }, (_, lane) => {
                   const e = cell.lanes[lane];
                   // 빈 레인은 같은 높이의 자리만 차지 — 여러 날 띠의 줄 위치를 지킨다
-                  if (!e) return <div key={`gap-${lane}`} className={isMobile ? 'h-[14px]' : 'h-[20px]'} />;
+                  if (!e) return <div key={`gap-${lane}`} className={isMobile ? 'h-[14px]' : 'h-[18px]'} />;
                   return <CalendarBand key={e.task.id} task={e.task} kind={e.kind} compact={isMobile} onClick={onTaskClick} />;
                 })}
-                {cell.more > 0 && (
-                  <button
-                    type="button"
-                    onClick={(ev) => { ev.stopPropagation(); setSelected(dateStr); }}
-                    className={`w-full font-semibold text-fg-muted hover:text-accent-text rounded-sm hover:bg-surface-hover transition ${isMobile ? 'text-[8px] text-center leading-[12px]' : 'text-[10px] text-left px-1.5 py-0.5'}`}
-                  >+{cell.more}{isMobile ? '' : '개 더'}</button>
-                )}
               </div>
+              {/* +N은 칸 오른쪽 아래에 얹는다 — 한 줄을 더 쓰면 다음 주 날짜와 겹친다 */}
+              {cell.more > 0 && (
+                <button
+                  type="button"
+                  onClick={(ev) => { ev.stopPropagation(); setSelected(dateStr); }}
+                  className={`absolute bottom-0.5 font-semibold text-fg-muted hover:text-accent-text rounded-sm hover:bg-surface-hover transition ${isMobile ? 'inset-x-0 text-[8px] text-center leading-[12px]' : 'right-1 px-1 text-[9px] leading-[13px]'}`}
+                >+{cell.more}{isMobile ? '' : '개'}</button>
+              )}
             </div>
           );
         })}
@@ -209,7 +242,7 @@ function CalendarBand({ task, kind, onClick, compact = false }) {
   const paint = teamPaint(task.teams);
   // compact = 모바일(칸 폭 53px 남짓). 아이폰 캘린더처럼 얇은 칩으로 줄이고,
   // 여러 날 업무는 제목이 띠 위로 이어져 흐르므로 좁은 칸에서도 읽을 수 있다.
-  const base = `flex items-center cursor-pointer hover:opacity-80 transition-opacity ${compact ? 'h-[14px] text-[8px] rounded-[3px]' : 'h-[20px] text-[10px]'}`;
+  const base = `flex items-center cursor-pointer hover:opacity-80 transition-opacity ${compact ? 'h-[14px] text-[8px] rounded-[3px]' : 'h-[18px] text-[10px]'}`;
   const pad = compact ? 'px-1' : 'px-1.5';
   const label = <span className="overflow-visible relative z-[5] whitespace-nowrap pointer-events-none">{task.title}</span>;
   let cls = '', content = null;
