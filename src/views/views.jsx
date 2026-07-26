@@ -221,7 +221,10 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
               );
             })}
           </div>
-          <button onClick={onNewTask} className="w-full md:w-auto shrink-0 bg-accent hover:bg-accent-strong text-white pl-3 pr-4 py-1.5 rounded-full text-xs font-medium shadow-soft transition active:scale-95 inline-flex justify-center items-center gap-1.5 leading-none whitespace-nowrap"><Plus size={14} strokeWidth={2} className="shrink-0" /><span className="leading-none">새 업무</span></button>
+          {/* 아이콘 좌우에 투명 여백(약 2.4px)이 있어서 pl-3/pr-4로는 왼쪽이 2px 좁아 보였다.
+              실측 기준으로 시각적 여백을 맞춘다(왼 14+2.4 ≒ 오른 16). 획도 살짝 굵혀
+              12px 한글 옆에서 너무 가늘어 보이지 않게. */}
+          <button onClick={onNewTask} className="w-full md:w-auto shrink-0 bg-accent hover:bg-accent-strong text-white pl-3.5 pr-4 py-1.5 rounded-full text-xs font-medium shadow-soft transition active:scale-95 inline-flex justify-center items-center gap-1 leading-none whitespace-nowrap"><Plus size={15} strokeWidth={2.25} className="shrink-0" /><span className="leading-none">새 업무</span></button>
         </div>
       )}
       <div className="flex-1 min-h-0">

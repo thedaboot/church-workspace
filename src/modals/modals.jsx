@@ -60,6 +60,9 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   const [activeTab, setActiveTab] = useState('comments'); // 데스크톱 우측 사이드바 탭
   const [mobileTab, setMobileTab] = useState('detail');    // 모바일 세그먼트 탭
   const isMobile = useIsMobile();
+  // 바깥(딤) 클릭으로 닫기 판정용 — 누른 곳도 딤이어야 닫는다
+  const overlayRef = useRef(null);
+  const downOnOverlay = useRef(false);
   // 댓글·활동 목록은 첫 페인트 이후에 붙인다(열림 체감 속도 우선)
   const listsReady = useAfterPaint();
 
@@ -161,7 +164,14 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   // 오버레이 blur 제거 — backdrop-filter 안에서 스크롤되는 컨테이너는
   // 사파리에서 프레임마다 재합성돼 스크롤이 끊긴다(노션도 딤만 쓴다)
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-2 md:p-4 animate-in fade-in duration-200">
+    // 바깥(딤) 영역을 누르면 닫힌다. 누른 곳과 뗀 곳이 모두 딤일 때만 —
+    // 안에서 글자를 드래그하다 바깥에서 손을 떼는 경우에 닫히면 안 되므로.
+    <div
+      ref={overlayRef}
+      onMouseDown={(e) => { downOnOverlay.current = e.target === overlayRef.current; }}
+      onClick={(e) => { if (e.target === overlayRef.current && downOnOverlay.current) onClose(); }}
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-2 md:p-4 animate-in fade-in duration-200"
+    >
       <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-5xl h-[100dvh] md:h-[85dvh] flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         <div className="flex-1 flex flex-col border-r-0 md:border-r border-line overflow-y-auto">
           {/* sticky 헤더·푸터에 backdrop-blur를 쓰면 스크롤 프레임마다 뒤 내용을
