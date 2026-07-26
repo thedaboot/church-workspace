@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   LayoutDashboard, Plus, Calendar as CalendarIcon,
-  ExternalLink, ChevronRight, Undo2, Check, X, Trash2, CheckSquare
+  ExternalLink, ChevronRight, Check, X, Trash2, CheckSquare
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { generateId } from '../utils.js';
@@ -261,25 +261,3 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
     </div>
   );
 });
-
-export function GuideView() {
-  return (
-    <div className="max-w-2xl mx-auto mb-8 md:mb-10 animate-in fade-in">
-      <h1 className="hidden md:block text-3xl font-extrabold mb-7 tracking-[-1px]">사용 가이드</h1>
-      <div className="space-y-6 text-sm text-fg-muted leading-relaxed">
-        <section>
-          <h2 className="font-bold text-lg mb-2 text-fg border-b border-line pb-2 tracking-[-0.25px]">1. 단일 파일 & 엔터프라이즈 아키텍처</h2>
-          <p>이 어플리케이션은 물리적으로 단 하나의 파일(`.jsx`)로 이루어져 있지만, 내부적으로는 <strong>Redux/Zustand 수준의 상태 관리(Store), O(1) 캐싱(Selectors), 낙관적 업데이트, Undo/Redo 기능</strong>을 순수 React만으로 100% 구현한 최적화의 결정체입니다.</p>
-        </section>
-        <section>
-          <h2 className="font-bold text-lg mb-2 text-fg border-b border-line pb-2 tracking-[-0.25px]">2. 상태 롤백 (Undo / Redo) 기능</h2>
-          <p>상단 내비 오른쪽에 있는 <Undo2 className="inline w-4 h-4 text-fg-muted mx-1"/> 버튼을 눌러보세요! 칸반 보드에서 카드를 옮기거나 내용을 잘못 수정한 경우, 언제든 이전 상태로 즉시 되돌릴 수 있습니다. Command 패턴과 Memento 패턴이 결합된 강력한 기능입니다.</p>
-        </section>
-        <section>
-          <h2 className="font-bold text-lg mb-2 text-fg border-b border-line pb-2 tracking-[-0.25px]">3. 빠른 성능 (O(1) 캐싱)</h2>
-          <p>수천 개의 Task가 쌓여도 달력(캘린더 뷰)이나 대시보드를 렌더링할 때 버벅이지 않습니다. 백그라운드에서 모든 데이터가 <strong>Map 구조로 정규화(Normalization)</strong>되어 있어 최적의 속도를 보장합니다.</p>
-        </section>
-      </div>
-    </div>
-  );
-}

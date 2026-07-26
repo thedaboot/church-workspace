@@ -4,7 +4,7 @@ import { useWorkspaceController } from './hooks/controllers.js';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import { TopNav, MobileTopBar, MobileTabBar } from './components/layout.jsx';
 import { useIsMobile } from './hooks/useIsMobile.js';
-import { DashboardView, ProjectView, MyTasksView, TeamView, GuideView } from './views/views.jsx';
+import { DashboardView, ProjectView, MyTasksView, TeamView } from './views/views.jsx';
 import { TaskModalShell, ProfileModal, ProjectModal } from './modals/modals.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
@@ -179,7 +179,7 @@ function WorkspaceShell() {
   // activeMenu/모달 상태 → URL(search params) 동기화 (대시보드/일반 뷰는 파라미터 제거)
   useEffect(() => {
     const params = new URLSearchParams();
-    const isProject = !['dashboard', 'myTasks', 'guide'].includes(activeMenu) && !activeMenu.startsWith('team:');
+    const isProject = !['dashboard', 'myTasks'].includes(activeMenu) && !activeMenu.startsWith('team:');
     if (isProject) params.set('p', activeMenu);
     if (modalState.isOpen && modalState.task?.id) {
       if (modalState.task.projectId) params.set('p', modalState.task.projectId);
@@ -224,9 +224,8 @@ function WorkspaceShell() {
           <div key={activeMenu} className="h-full">
           {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} />}
           {activeMenu === 'myTasks' && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
-          {activeMenu === 'guide' && <GuideView />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
-          {(!['dashboard', 'myTasks', 'guide'].includes(activeMenu) && !activeMenu.startsWith('team:')) && (
+          {(!['dashboard', 'myTasks'].includes(activeMenu) && !activeMenu.startsWith('team:')) && (
              <ProjectView projectId={activeMenu} onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNewTask={handleNewTask} />
           )}
           </div>

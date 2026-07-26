@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useDeferredValue } from 'r
 import { createPortal } from 'react-dom';
 import {
   LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown,
-  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BookOpen
+  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell
 } from 'lucide-react';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
@@ -20,7 +20,7 @@ import logoDark from '../assets/logo-dark.png';
 // ============================================================================
 // 11. UI Views (데이터를 구독하는 프레젠테이션 컴포넌트)
 // ============================================================================
-// 내비는 위쪽 두 줄로 나뉜다 — 1줄은 전역 메뉴(대시보드·내 업무·가이드),
+// 내비는 위쪽 두 줄로 나뉜다 — 1줄은 전역 메뉴(대시보드·내 업무),
 // 2줄은 프로젝트 탭. 예전 좌측 사이드바가 두 가지 일을 겹쳐 하던 걸 분리한 것.
 // 모바일은 같은 역할을 위(프로젝트 탭)/아래(전역 탭바)로 나눠 가진다.
 
@@ -49,9 +49,9 @@ function useDismiss(open, close, refs) {
   }, [open]);
 }
 
-// 프로필 아바타 → 내 정보·가이드·테마·로그아웃.
+// 프로필 아바타 → 내 정보·테마·로그아웃.
 // 사이드바 하단에 있던 것들이 전부 여기로 들어왔다(모바일 '내 정보' 탭도 이걸 쓴다).
-export function ProfileMenu({ onOpenProfile, onNavigate, className = 'inline-flex shrink-0', children }) {
+export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', children }) {
   const currentUser = useStore(selectCurrentUser);
   const { enabled, session, signOut } = useAuth();
   const [open, setOpen] = useState(false);
@@ -85,7 +85,6 @@ export function ProfileMenu({ onOpenProfile, onNavigate, className = 'inline-fle
             <p className="text-[11px] text-fg-muted truncate">{currentUser.team || '팀 미지정'}</p>
           </div>
           <button className={item} onClick={go(onOpenProfile)}><Settings size={15} /> 내 정보</button>
-          <button className={item} onClick={go(() => onNavigate('guide'))}><BookOpen size={15} /> 사용 가이드</button>
           <ThemeMenuItem className={item} />
           {enabled && session && (
             <button className={`${item} hover:text-tag-red-fg`} onClick={go(signOut)}><LogOut size={15} /> 로그아웃</button>
@@ -149,7 +148,6 @@ export const TopNav = React.memo(({
         <div className="flex items-center gap-1 shrink-0">
           {gnav('dashboard', '전체 대시보드')}
           {gnav('myTasks', '내 업무', myTasksCount)}
-          {gnav('guide', '사용 가이드')}
         </div>
         <div className="flex-1 flex items-center justify-end gap-2 min-w-0">
           {/* Undo / Redo — 클라우드 모드에선 다른 사람과 상태가 어긋나므로 숨김 */}
@@ -161,7 +159,7 @@ export const TopNav = React.memo(({
           )}
           <SearchBox onSearchSelect={onSearchSelect} variant="inline" />
           {cloudMode && <NotificationBell onOpenTask={onOpenTask} />}
-          <ProfileMenu onOpenProfile={onOpenProfile} onNavigate={setActiveMenu} />
+          <ProfileMenu onOpenProfile={onOpenProfile} />
         </div>
       </div>
 
@@ -253,7 +251,7 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProfi
       {tab(isProject, <Hash size={20} />, '프로젝트', goProject)}
       {tab(activeMenu === 'myTasks', <CheckSquare size={20} />, '내 업무', () => setActiveMenu('myTasks'), myTasksCount)}
       {tab(activeMenu === 'dashboard', <LayoutDashboard size={20} />, '대시보드', () => setActiveMenu('dashboard'))}
-      <ProfileMenu onOpenProfile={onOpenProfile} onNavigate={setActiveMenu} className="flex-1 flex">
+      <ProfileMenu onOpenProfile={onOpenProfile} className="flex-1 flex">
         <span className="flex flex-col items-center gap-1 py-1 text-fg-faint">
           <Settings size={20} />
           <span className="text-[10.5px] font-semibold">내 정보</span>
@@ -267,7 +265,6 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProfi
 function menuTitle(activeMenu, projectsMap, currentUser) {
   if (activeMenu === 'dashboard') return '전체 대시보드';
   if (activeMenu === 'myTasks') return `${currentUser?.name || '내'}님의 업무`;
-  if (activeMenu === 'guide') return '사용 가이드';
   if (activeMenu.startsWith('team:')) return `${activeMenu.split(':')[1]} 보드`;
   return projectsMap[activeMenu]?.title || '워크스페이스';
 }
