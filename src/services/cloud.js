@@ -350,7 +350,15 @@ export async function markAllNotificationsRead() {
 // 본인 수신 알림 INSERT만 구독
 export function subscribeMyNotifications(userId, onInsert) {
   const c = client();
-  const channel = c.channel(`notifications:${userId}`)
+  const topic = `notifications:${userId}`;
+  // supabase-js는 같은 topic으로 channel()을 부르면 기존 인스턴스를 그대로 돌려준다.
+  // 그 채널이 이미 subscribe()된 상태면 .on('postgres_changes')가 예외를 던지고
+  // (cannot add callbacks after subscribe) 그게 ErrorBoundary까지 올라가 화면이 깨졌다.
+  // 남아 있던 같은 topic 채널을 먼저 걷어내고 새로 만든다.
+  c.getChannels()
+    .filter(ch => ch.topic === topic || ch.topic === `realtime:${topic}`)
+    .forEach(ch => c.removeChannel(ch));
+  const channel = c.channel(topic)
     .on('postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${userId}` },
       payload => onInsert(payload.new))

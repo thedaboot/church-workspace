@@ -3,6 +3,7 @@ import { store } from './store/workspaceStore.js';
 import { useWorkspaceController } from './hooks/controllers.js';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import { TopNav, MobileTopBar, MobileTabBar } from './components/layout.jsx';
+import { useIsMobile } from './hooks/useIsMobile.js';
 import { DashboardView, ProjectView, MyTasksView, TeamView, GuideView } from './views/views.jsx';
 import { TaskModalShell, ProfileModal, ProjectModal } from './modals/modals.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
@@ -64,6 +65,7 @@ function AuthGate() {
 
 function WorkspaceShell() {
   const controller = useWorkspaceController();
+  const isMobile = useIsMobile();
   const { enabled: authEnabled, session, isAdmin } = useAuth();
   const cloudMode = authEnabled && !!session;
   // 딥링크: /?p=<projectId>&t=<taskId>
@@ -197,17 +199,23 @@ function WorkspaceShell() {
           blur 필터 대신 radial-gradient — index.css의 .app-glow 참고 */}
       <div className="pointer-events-none fixed inset-0 -z-10 app-glow" aria-hidden="true" />
 
-      <TopNav
-        activeMenu={activeMenu} setActiveMenu={selectMenu}
-        onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification}
-        onOpenProfile={openProfile} onOpenProject={openProjectModal}
-        undo={controller.undo} redo={controller.redo} canUndo={store.canUndo()} canRedo={store.canRedo()} cloudMode={cloudMode}
-      />
-      <MobileTopBar
-        activeMenu={activeMenu} setActiveMenu={selectMenu}
-        onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification}
-        onOpenProject={openProjectModal} cloudMode={cloudMode}
-      />
+      {/* CSS(hidden/md:hidden)로만 감추면 양쪽 내비가 동시에 '마운트'된다 →
+          알림 종이 둘 다 살아서 같은 Supabase 실시간 채널
+          (notifications:<userId>)에 두 번 붙는다. 그래서 폭에 맞는 쪽만 마운트한다. */}
+      {isMobile ? (
+        <MobileTopBar
+          activeMenu={activeMenu} setActiveMenu={selectMenu}
+          onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification}
+          onOpenProject={openProjectModal} cloudMode={cloudMode}
+        />
+      ) : (
+        <TopNav
+          activeMenu={activeMenu} setActiveMenu={selectMenu}
+          onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification}
+          onOpenProfile={openProfile} onOpenProject={openProjectModal}
+          undo={controller.undo} redo={controller.redo} canUndo={store.canUndo()} canRedo={store.canRedo()} cloudMode={cloudMode}
+        />
+      )}
 
       {/* 하단 탭바 높이만큼 모바일 여백(pb-20) — 마지막 카드가 탭바에 가리지 않게 */}
       <main className="flex-1 overflow-auto px-3.5 pt-3 pb-20 md:px-6 md:py-5 relative">
@@ -225,10 +233,12 @@ function WorkspaceShell() {
         </ErrorBoundary>
       </main>
 
-      <MobileTabBar
-        activeMenu={activeMenu} setActiveMenu={selectMenu}
-        onOpenProfile={openProfile} onOpenProject={openProjectModal}
-      />
+      {isMobile && (
+        <MobileTabBar
+          activeMenu={activeMenu} setActiveMenu={selectMenu}
+          onOpenProfile={openProfile} onOpenProject={openProjectModal}
+        />
+      )}
 
       {modalState.isOpen && (
         <ErrorBoundary>
