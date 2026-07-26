@@ -15,19 +15,23 @@ const EST_H = 110; // 높이 추정치(위/아래 배치 판단용)
 
 // 앵커 기준 fixed 위치를 뷰포트 안으로 클램프해 돌려주는 공용 훅
 // (트리거가 화면 좌·우·하단에 붙어 있어도 팝오버가 잘리지 않게)
-export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP) {
+// measuredRef를 주면 팝오버가 그려진 뒤 실제 높이로 위치를 다시 잡는다.
+// estHeight는 추정치라 실제보다 크면(예: 250 추정 / 150 실제) 위로 뜨는 팝오버가
+// 트리거에서 100px 떨어져 붕 떠 보였다. 같은 레이아웃 패스에서 고치니 깜빡임은 없다.
+export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, measuredRef = null) {
   const [pos, setPos] = useState({ left: 0, top: 0 });
   const place = useCallback(() => {
     const el = triggerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
     const vw = window.innerWidth, vh = window.innerHeight;
+    const h = measuredRef?.current?.offsetHeight || estHeight;
     const maxLeft = Math.max(gap, vw - width - gap);
     const left = Math.min(Math.max(r.right - width, gap), maxLeft);
     const below = vh - r.bottom;
-    const top = below < estHeight + gap ? Math.max(gap, r.top - estHeight - 4) : r.bottom + 4;
+    const top = below < h + gap ? Math.max(gap, r.top - h - 4) : r.bottom + 4;
     setPos({ left, top });
-  }, [triggerRef, width, estHeight, gap]);
+  }, [triggerRef, width, estHeight, gap, measuredRef]);
 
   // useLayoutEffect: 브라우저가 그리기 전에 위치를 확정한다.
   // useEffect였을 때는 첫 프레임이 {0,0}에 그려지고 그 다음 프레임에 제자리로

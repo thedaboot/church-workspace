@@ -86,6 +86,25 @@ export async function updateMyProfile(patch) {
   if (!user) throw new Error('로그인이 필요합니다.');
   return unwrap(await client().from('profiles').upsert({ id: user.id, ...patch }).select().single());
 }
+// ── 여러 팀 소속 (profile_teams) ─────────────────────────────────────────────
+// 0008 마이그레이션이 아직 적용되지 않은 환경에서도 앱이 죽지 않아야 한다.
+// 테이블이 없으면 빈 배열/무시로 떨어지고, 대표 팀(profiles.team_id)만으로 동작한다.
+export async function listProfileTeams() {
+  const { data, error } = await client().from('profile_teams').select('profile_id, team_id');
+  if (error) { console.warn('[cloud] profile_teams 조회 생략:', error.message); return []; }
+  return data || [];
+}
+export async function setMyTeams(teamIds) {
+  const { data: { user } } = await client().auth.getUser();
+  if (!user) throw new Error('로그인이 필요합니다.');
+  const del = await client().from('profile_teams').delete().eq('profile_id', user.id);
+  if (del.error) { console.warn('[cloud] profile_teams 저장 생략:', del.error.message); return; }
+  if (!teamIds.length) return;
+  const rows = teamIds.map(team_id => ({ profile_id: user.id, team_id }));
+  const ins = await client().from('profile_teams').insert(rows);
+  if (ins.error) console.warn('[cloud] profile_teams 저장 실패:', ins.error.message);
+}
+
 // 프로필 행이 없을 때 클라이언트가 직접 자기 행을 생성(RLS상 본인 insert 허용)
 export async function ensureMyProfile(user) {
   const meta = user.user_metadata || {};

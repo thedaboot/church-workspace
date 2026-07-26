@@ -179,10 +179,10 @@ const projectToApp = (p, linksByProject) => ({
 
 // ── 초기 로드: 전체를 병렬 조회 → 앱 스토어 모양으로 정규화 ──────────────────
 export async function loadCloudState() {
-  const [teams, profiles, projects, cards, links, comments, activity, files, initialProfile, sessionRes] = await cloud.withClockSkewRetry(() => Promise.all([
+  const [teams, profiles, projects, cards, links, comments, activity, files, initialProfile, sessionRes, profileTeams] = await cloud.withClockSkewRetry(() => Promise.all([
     cloud.listTeams(), cloud.listProfiles(), cloud.listProjects(), cloud.listAllCards(),
     cloud.listAllLinks(), cloud.listAllComments(), cloud.listAllActivity(), cloud.listAllFiles(), cloud.getMyProfile(),
-    cloud.getSession(),
+    cloud.getSession(), cloud.listProfileTeams(),
   ]));
 
   // 가입 트리거가 프로필 행을 못 만든 경우 클라이언트가 직접 자기 행을 생성(자가 복구)
@@ -221,9 +221,17 @@ export async function loadCloudState() {
 
   const projectsApp = projects.map(p => projectToApp(p, linksByProject));
 
+  // 소속 팀 여럿 (profile_teams). 테이블이 없으면 빈 배열이라 대표 팀만 남는다.
+  // team(대표) = 아바타 색·기본 팀 보드, teams(전체) = '내 팀 업무' 집계
+  const myTeamNames = (profileTeams || [])
+    .filter(r => myProfile && r.profile_id === myProfile.id)
+    .map(r => teamIdToName.get(r.team_id))
+    .filter(Boolean);
+  const primaryTeam = myProfile?.team_id ? (teamIdToName.get(myProfile.team_id) || '') : '';
+  const allTeams = [...new Set([primaryTeam, ...myTeamNames].filter(Boolean))];
   const currentUser = myProfile
-    ? { name: myProfile.display_name || '', team: myProfile.team_id ? (teamIdToName.get(myProfile.team_id) || '') : '' }
-    : { name: '', team: '' };
+    ? { name: myProfile.display_name || '', team: primaryTeam || allTeams[0] || '', teams: allTeams }
+    : { name: '', team: '', teams: [] };
 
   return {
     state: { currentUser, projects: normalize(projectsApp), tasks: normalize(tasks) },
@@ -275,11 +283,17 @@ export async function projectDeleteCloud(id) { return write(() => cloud.deletePr
 export async function linkAddCloud(projectId, link) { return write(() => cloud.addLink(projectId, link.title, link.url, link.id)); }
 export async function linkRemoveCloud(id) { return write(() => cloud.removeLink(id)); }
 
-export async function profileUpdateCloud({ name, team }) {
+// teams(여러 팀)를 주면 profile_teams까지 갱신한다. 대표 팀은 그 중 첫 번째.
+export async function profileUpdateCloud({ name, team, teams }) {
+  const list = (teams && teams.length ? teams : [team]).filter(Boolean);
   const patch = { display_name: name };
-  const teamId = team ? teamNameToId.get(team) : null;
+  const teamId = list[0] ? teamNameToId.get(list[0]) : null;
   if (teamId) patch.team_id = teamId;
-  return write(() => cloud.updateMyProfile(patch));
+  return write(async () => {
+    const saved = await cloud.updateMyProfile(patch);
+    await cloud.setMyTeams(list.map(t => teamNameToId.get(t)).filter(Boolean));
+    return saved;
+  });
 }
 
 // ── 로컬 → 클라우드 1회 이관 ─────────────────────────────────────────────────

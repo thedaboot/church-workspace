@@ -62,10 +62,19 @@ export const teamPaint = (teams = [], strong = false) => {
   if (!tokens.length) return { background: `var(--app-tag-gray${suffix})`, color: 'var(--app-tag-gray-fg)' };
   const color = `var(--app-tag-${tokens[0]}-fg)`;
   if (tokens.length === 1) return { background: `var(--app-tag-${tokens[0]}${suffix})`, color };
+  // 가로(90deg)로 나누면 여러 날에 걸친 띠가 날짜 칸마다 각각 그려지기 때문에
+  // 색이 계속 번갈아 반복되는 것처럼 보였다. 세로(180deg)로 나누면 어느 칸이든
+  // 같은 그림이 나와서 "두 팀 / 세 팀"이 한눈에 읽힌다.
   const stops = tokens.map((tk, i) => {
     const from = (i / tokens.length * 100).toFixed(2);
     const to = ((i + 1) / tokens.length * 100).toFixed(2);
     return `var(--app-tag-${tk}${suffix}) ${from}% ${to}%`;
   }).join(', ');
-  return { background: `linear-gradient(90deg, ${stops})`, color };
+  return { background: `linear-gradient(180deg, ${stops})`, color };
+};
+
+// 팀 색 한 가지를 실제 색값으로 (대시보드 막대 등). 팀이 없으면 회색.
+export const teamColor = (team) => {
+  const token = CONFIG.TEAM_TOKENS[team];
+  return token ? `var(--app-tag-${token}-fg)` : 'var(--app-tag-gray-fg)';
 };

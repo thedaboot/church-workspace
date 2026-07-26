@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient.js';
+import { store } from '../store/workspaceStore.js';
 
 // ============================================================================
 // 6-2. AI Service Layer — /api/ai 서버 프록시 경유 (API 키는 서버에만)
@@ -21,6 +22,55 @@ const ORG_CONTEXT = [
 
 // 대시 표기 규칙 — 엠/엔 대시는 쓰지 않는다(사용자 요청)
 const DASH_RULE = '- 문장 안에서 엠 대시(—)나 엔 대시(–)는 절대 쓰지 마라. 필요하면 일반 하이픈(-)을 써라.';
+
+// 사역 업무의 일반적인 진행 순서. "다음 단계"가 지금 업무를 되풀이하지 않고
+// 실제로 이어질 일을 짚게 하는 데 쓴다(예: 콘티 확정 → 송폼·악보 제작 → 연습 → 리허설).
+const FLOW_CONTEXT = [
+  '[사역별 일반 진행 순서]',
+  '- 찬양·워십: 곡 선정 → 콘티 확정 → 악보·송폼 제작 → 파트별 연습 → 전체 연습 → 사운드 체크·리허설 → 본 예배/집회',
+  '- 미디어: 컨셉 논의 → 디자인 시안 → 시안 확정 → 제작·인쇄 → 배포·업로드',
+  '- 엔지니어: 장비 점검 → 세팅·배선 → 사운드·조명 체크 → 리허설 → 당일 운영',
+  '- 웰컴: 참가 명단 정리 → 안내 동선·조 편성 → 물품 준비 → 당일 접수·안내',
+  '- 임원진·교역자: 기획·예산 승인 → 각 팀 배분 → 진행 점검 → 마무리 보고',
+].join('\n');
+
+// 지금 업무 주변 상황(같은 프로젝트의 다른 업무·담당 팀·담당자)을 프롬프트에 실어준다.
+// 이게 없으면 AI가 볼 게 이 카드 하나뿐이라 "다음 단계"에 마감일 얘기를 되풀이한다.
+const NEARBY_LIMIT = 12;
+const fmtTask = (t) => [
+  t.title,
+  t.status,
+  t.teams?.length ? t.teams.join('·') : '팀 미지정',
+  t.assignees?.length ? t.assignees.join(', ') : '담당자 미지정',
+  [t.startDate, t.dueDate].filter(Boolean).join('~') || '일정 없음',
+].join(' | ');
+
+export function buildTaskContext(task) {
+  const s = store.getState();
+  const project = s.projects.byId[task.projectId];
+  const siblings = (s.tasks.allIds || [])
+    .map(id => s.tasks.byId[id])
+    .filter(t => t && t.projectId === task.projectId && t.id !== task.id);
+  // 같은 팀을 공유하는 업무가 조율 상대일 확률이 높다 → 그걸 먼저, 나머지는 일정 순
+  const myTeams = new Set(task.teams || []);
+  const shared = siblings.filter(t => (t.teams || []).some(x => myTeams.has(x)));
+  const rest = siblings.filter(t => !shared.includes(t));
+  const byDate = (a, b) => String(a.dueDate || a.startDate || '9999').localeCompare(String(b.dueDate || b.startDate || '9999'));
+  const picked = [...shared.sort(byDate), ...rest.sort(byDate)].slice(0, NEARBY_LIMIT);
+  // 이 업무 마감 뒤에 놓인 업무 = "다음 단계"의 1순위 후보
+  const after = task.dueDate
+    ? picked.filter(t => String(t.dueDate || t.startDate || '') > task.dueDate).map(t => t.title)
+    : [];
+
+  return [
+    '[지금 이 업무의 주변 상황]',
+    project ? `- 소속 프로젝트: ${project.title}` : '',
+    `- 이 업무: ${fmtTask(task)}`,
+    '- 같은 프로젝트의 다른 업무 (제목 | 상태 | 담당 팀 | 담당자 | 일정):',
+    picked.length ? picked.map(t => `  · ${fmtTask(t)}`).join('\n') : '  · (없음)',
+    after.length ? `- 이 업무 마감 이후에 놓인 업무: ${after.join(', ')}` : '',
+  ].filter(Boolean).join('\n');
+}
 export const AiService = {
   callGemini: async (prompt, systemInstruction = "") => {
     // 게스트 모드(수파베이스 미설정) → 로그인 안내
@@ -60,6 +110,8 @@ export const AiService = {
       `상세 내용: ${task.content || '(없음)'}`,
       meta && `[정보] ${meta}`,
       `\n[댓글 타임라인]\n${commentsText || '(댓글 없음)'}`,
+      '',
+      buildTaskContext(task),
       '\n위 업무를 아래 형식에 맞춰 요약해줘.',
     ].filter(Boolean).join('\n');
     const sysPrompt = [
@@ -75,15 +127,28 @@ export const AiService = {
       DASH_RULE,
       '- 각 줄은 딱 한 문장, 존댓말 간결체(~해요/~예요체).',
       '- 예배·전도·수련회·양육 같은 사역 맥락과 용어를 자연스럽게 살려라.',
-      '- 담당자나 마감일이 있으면 "다음 단계"에 누가·언제까지인지 반영해라.',
       '- 내용이 빈약하면 지어내지 말고 있는 것만 담백하게 적어라.',
       '- "핵심"이라는 단어는 절대 쓰지 마라.',
+      '',
+      '"다음 단계" 규칙 (가장 중요):',
+      '- 이 업무가 끝난 뒤 이어질 행동을 써라. 이 업무를 마감일까지 끝내라는 말은 절대 쓰지 마라',
+      '  (예: 콘티 확정 업무에서 "마감일까지 콘티를 확정해 주세요"는 틀린 답이다).',
+      '- 1순위: 주변 상황에 적힌 "이 업무 마감 이후에 놓인 업무"를 지목하고, 그 담당 팀·담당자를 함께 불러라.',
+      '- 2순위: 이어질 업무가 목록에 없으면 사역별 진행 순서에서 바로 다음 단계 하나만 제안해라',
+      '  (예: 콘티 확정 → 악보·송폼 제작이나 파트별 연습 일정 잡기).',
+      '- 담당 팀이 둘 이상이면 팀 사이에 무엇을 넘겨주고 받아야 하는지 한 마디로 적어라',
+      '  (예: 찬양팀이 확정한 콘티를 엔지니어팀에 넘겨 사운드 세팅을 준비해요).',
+      '- 이 업무가 이미 완료 상태면 다음 단계는 후속 업무나 인수인계로 써라.',
+      '',
+      FLOW_CONTEXT,
       '',
       ORG_CONTEXT,
     ].join('\n');
     return await AiService.callGemini(prompt, sysPrompt);
   },
-  polishText: async (text) => {
+  // task를 넘기면 주변 상황(같은 프로젝트 업무·팀·담당자)을 배경 지식으로 함께 준다.
+  // 내용을 늘리라는 뜻이 아니라, 사람·팀 이름을 맞게 부르고 엉뚱한 다음 단계를 만들지 않게 하려는 것.
+  polishText: async (text, task = null) => {
     const prompt = [
       '아래는 팀원이 카드에 쓴 초안이야. 더다붓 카드 본문 형식으로 다듬어줘. 내용·의도·수량·링크·메모는 하나도 빼지 마.',
       '',
@@ -111,10 +176,12 @@ export const AiService = {
       '- [선물 포장지_쿠팡](https://www.coupang.com/vp/products/999?itemId=88) **50장**',
       '---예시 끝---',
       '',
+      task ? '\n' + buildTaskContext(task) : '',
+      '',
       '이제 아래 초안을 다듬어줘:',
       '',
       text,
-    ].join('\n');
+    ].filter(Boolean).join('\n');
     const sysPrompt = [
       '너는 더다붓(교회 청년부) 워크스페이스의 카드 정리 도우미야.',
       '청년부 팀원이 아무렇게나 쓴 초안(짧은 메모, 대충 나열, 구어체, 어딘가에서 복붙한 긴 텍스트 등)을 더다붓 카드 본문 형식으로 잘 구조화하는 게 목적이야.',
@@ -130,6 +197,13 @@ export const AiService = {
       '- 원문이 이미 깔끔하면 억지로 뜯어고치지 말고 형식만 살짝 정돈해라.',
       '- "핵심"이라는 단어는 절대 쓰지 마라.',
       DASH_RULE,
+      '',
+      '주변 상황(같은 프로젝트의 다른 업무·담당 팀·담당자)이 함께 주어지면:',
+      '- 원문에 등장하는 사람·팀을 그 정보에 맞게 정확히 불러라.',
+      '- 원문이 "남은 일"을 적고 있으면, 다른 팀에 넘겨야 하는 것과 받아야 하는 것을 원문 범위 안에서 분명히 적어라.',
+      '- 주변 상황에서 알게 된 사실을 새 항목으로 추가하지는 마라. 다듬기지 작성이 아니다.',
+      '',
+      FLOW_CONTEXT,
       '',
       ORG_CONTEXT,
     ].join('\n');

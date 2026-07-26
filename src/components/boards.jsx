@@ -469,7 +469,7 @@ function ColumnDroppable({ status, count, dragging, empty, children }) {
         {children}
         {/* 빈 컬럼을 그냥 두면 모바일에서 화면이 통째로 백지가 된다 */}
         {empty && !dragging && (
-          <p className="py-8 text-center text-[11px] text-fg-faint">여기 있는 업무가 없어요</p>
+          <p className="py-8 text-center text-[11px] text-fg-faint">아직 업무가 없어요</p>
         )}
         {/* 드래그 중일 때만 드롭 존 안내 표시 */}
         <div className={`h-16 border border-dashed rounded-sm flex items-center justify-center text-xs transition-all ${dragging ? (isOver ? 'opacity-100 border-accent text-accent-text' : 'opacity-100 border-line text-fg-faint') : 'opacity-0 border-transparent text-fg-faint'}`}>여기로 놓기</div>

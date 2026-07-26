@@ -58,7 +58,9 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
   const rootRef = useRef(null);
   const btnRef = useRef(null);
   const popRef = useRef(null);
-  const [pos, place] = useAnchoredPos(btnRef, open, 208, 250);
+  // popRef를 넘겨 실제 높이로 위치를 다시 잡는다 — 추정 높이로만 잡으면
+  // 아래에서 위로 뜨는 모바일 탭바 메뉴가 탭바에서 한참 떨어져 떠 보였다
+  const [pos, place] = useAnchoredPos(btnRef, open, 224, 200, 8, popRef);
   useDismiss(open, () => setOpen(false), [rootRef, popRef]);
 
   const item = 'w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-md text-[13px] text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors text-left';
@@ -68,7 +70,7 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
     <span ref={rootRef} className={className}>
       <span ref={btnRef} className="inline-flex flex-1">
         {/* 열기 전에 위치를 잡는다 — 첫 프레임이 {0,0}에 그려지면 좌상단에서 날아온다 */}
-        <button onClick={() => { place(); setOpen(o => !o); }} className="inline-flex flex-1 justify-center transition active:scale-95" title="내 정보">
+        <button onClick={() => { place(); setOpen(o => !o); }} className="inline-flex flex-1 justify-center transition active:scale-95" title="설정">
           {children || (
             <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${CONFIG.TEAMS[currentUser.team] || avatarColor(currentUser.name)}`}>{currentUser.name[0]}</span>
           )}
@@ -77,12 +79,12 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
       {open && createPortal(
         <div
           ref={popRef}
-          style={{ position: 'fixed', left: pos.left, top: pos.top, width: 208 }}
+          style={{ position: 'fixed', left: pos.left, top: pos.top, width: 224 }}
           className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 animate-in fade-in zoom-in-95 duration-150"
         >
           <div className="px-2.5 py-2 mb-1 border-b border-line">
             <p className="text-[13px] font-semibold text-fg truncate">{currentUser.name}</p>
-            <p className="text-[11px] text-fg-muted truncate">{currentUser.team || '팀 미지정'}</p>
+            <p className="text-[11px] text-fg-muted truncate">{(currentUser.teams?.length ? currentUser.teams : [currentUser.team]).filter(Boolean).join(' · ') || '팀 미지정'}</p>
           </div>
           <button className={item} onClick={go(onOpenProfile)}><Settings size={15} /> 내 정보</button>
           <ThemeMenuItem className={item} />
@@ -264,7 +266,7 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProfi
       <ProfileMenu onOpenProfile={onOpenProfile} className="flex-1 flex">
         <span className="flex flex-col items-center gap-1 py-1 text-fg-faint">
           <Settings size={20} />
-          <span className="text-[10.5px] font-semibold">내 정보</span>
+          <span className="text-[10.5px] font-semibold">설정</span>
         </span>
       </ProfileMenu>
     </nav>

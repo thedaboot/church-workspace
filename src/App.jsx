@@ -75,6 +75,8 @@ function WorkspaceShell() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState(null); // 이름 수정할 프로젝트
+  // 보드/캘린더 선택은 프로젝트를 옮겨도 유지한다(ProjectView는 프로젝트마다 리마운트됨)
+  const [projectViewMode, setProjectViewMode] = useState('kanban');
   const [cloudReady, setCloudReady] = useState(!cloudMode);
   const [loadError, setLoadError] = useState(null);
   const [retrying, setRetrying] = useState(false);
@@ -219,8 +221,9 @@ function WorkspaceShell() {
         />
       )}
 
-      {/* 하단 탭바 높이만큼 모바일 여백(pb-20) — 마지막 카드가 탭바에 가리지 않게 */}
-      <main className="flex-1 overflow-auto px-3.5 pt-3 pb-20 md:px-6 md:py-5 relative">
+      {/* 화면을 꽉 쓴다 — 여백은 내용이 벽에 붙지 않을 만큼만.
+          모바일 pb-20은 하단 탭바 높이(마지막 카드가 탭바에 가리지 않게) */}
+      <main className="flex-1 overflow-auto px-3 pt-2.5 pb-20 md:px-4 md:pt-3.5 md:pb-3 relative">
         <ErrorBoundary>
           {/* key로 뷰 전환 시 리마운트 → 각 뷰의 등장 애니메이션 재생 */}
           <div key={activeMenu} className="h-full">
@@ -228,7 +231,7 @@ function WorkspaceShell() {
           {activeMenu === 'myTasks' && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
           {(!['dashboard', 'myTasks'].includes(activeMenu) && !activeMenu.startsWith('team:')) && (
-             <ProjectView projectId={activeMenu} onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNewTask={handleNewTask} onRenameProject={openRenameProject} />
+             <ProjectView projectId={activeMenu} onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNewTask={handleNewTask} onRenameProject={openRenameProject} viewMode={projectViewMode} setViewMode={setProjectViewMode} />
           )}
           </div>
         </ErrorBoundary>
