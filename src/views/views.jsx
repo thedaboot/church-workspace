@@ -36,6 +36,9 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate }) {
     [tasksList, myTeamKey]
   );
 
+  const done = teamStats.reduce((n, s) => n + s.done, 0);
+  const left = teamStats.reduce((n, s) => n + (s.total - s.done), 0);
+
   // 화면을 채우는 건 장식이 아니라 정보다 — 7일 안에 마감인 업무를 모아 보여준다
   const soon = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -49,38 +52,35 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate }) {
       .slice(0, 8)
       .map(t => ({ ...t, overdue: t.dueDate < from }));
   }, [tasksList]);
+  const overdue = soon.filter(t => t.overdue).length;
 
   return (
     // 보드와 같은 규칙 — 상자·그림자·아이콘 타일 없이 숫자와 구분선으로만.
     // 폭 제한을 두지 않아 어떤 화면에서도 가로를 꽉 쓴다.
     <div className="pb-6 animate-in fade-in duration-300">
-      {/* 진척도는 도넛으로 한 줄 전체, 숫자 KPI 3개는 그 아래 한 줄에 나란히.
-          모바일에서 2열로 두면 KPI가 두 줄로 접히면서 화면 절반을 먹었다. */}
-      <div className="pb-4 border-b border-line">
-        <div className="flex items-center gap-4">
+      {/* KPI 4칸을 한 줄로 — 도넛도 다른 칸과 같은 골격(라벨/큰 값/설명)을 쓴다.
+          도넛만 한 줄을 따로 먹던 배치는 데스크톱에서 위쪽을 통째로 낭비했다. */}
+      <div className="grid grid-cols-4 gap-x-2.5 md:gap-x-6 pb-4 border-b border-line">
+        <KpiTile label="전체 진척도" shortLabel="진척도" sub={`${done}건 완료 · ${left}건 남음`} shortSub={`${done}/${done + left}`}>
           <ProgressRing value={progress} />
-          <div className="min-w-0">
-            <h3 className="text-fg-muted text-xs font-semibold">전체 진척도</h3>
-            <p className="text-[11px] text-fg-faint mt-1 leading-snug">{teamStats.reduce((n, s) => n + s.done, 0)}건 완료 · {teamStats.reduce((n, s) => n + (s.total - s.done), 0)}건 남음</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-x-3 md:gap-x-6 mt-4 pt-4 border-t border-line/70">
-          <KpiTile
-            label="내 남은 업무" value={`${myTasksCount}개`}
-            sub={myTasksCount ? '눌러서 내 업무로' : '오늘도 화이팅!'}
-            onClick={() => onNavigate('myTasks')}
-          />
-          <KpiTile
-            label="이번 주 마감" value={`${soon.length}개`}
-            sub={soon.some(t => t.overdue) ? `지난 마감 ${soon.filter(t => t.overdue).length}건` : '7일 안 마감'}
-            tone={soon.some(t => t.overdue) ? 'warn' : undefined}
-          />
-          <KpiTile
-            label="내 팀 업무" tag={myTeams.length > 1 ? `${myTeams[0]} 외 ${myTeams.length - 1}` : myTeams[0]} value={`${myTeamTasks.length}개`}
-            sub={myTeamTasks.length ? `${myTeamTasks[0].title}${myTeamTasks.length > 1 ? ` 외 ${myTeamTasks.length - 1}건` : ''}` : '남은 업무 없어요'}
-            onClick={() => myTeams[0] && onNavigate(`team:${myTeams[0]}`)}
-          />
-        </div>
+        </KpiTile>
+        <KpiTile
+          label="내 남은 업무" shortLabel="내 업무" value={`${myTasksCount}개`}
+          sub={myTasksCount ? '눌러서 내 업무로' : '오늘도 화이팅!'} shortSub={myTasksCount ? '눌러서 보기' : '화이팅!'}
+          onClick={() => onNavigate('myTasks')}
+        />
+        <KpiTile
+          label="이번 주 마감" shortLabel="이번 주" value={`${soon.length}개`}
+          sub={overdue ? `지난 마감 ${overdue}건` : '7일 안 마감'} shortSub={overdue ? `지남 ${overdue}건` : '7일 안'}
+          tone={overdue ? 'warn' : undefined}
+        />
+        <KpiTile
+          label="내 팀 업무" shortLabel="내 팀" tag={myTeams.length > 1 ? `${myTeams[0]} 외 ${myTeams.length - 1}` : myTeams[0]}
+          value={`${myTeamTasks.length}개`}
+          sub={myTeamTasks.length ? `${myTeamTasks[0].title}${myTeamTasks.length > 1 ? ` 외 ${myTeamTasks.length - 1}건` : ''}` : '남은 업무가 없어요'}
+          shortSub={myTeamTasks.length ? `${myTeamTasks.length}건 남음` : '없어요'}
+          onClick={() => myTeams[0] && onNavigate(`team:${myTeams[0]}`)}
+        />
       </div>
 
       {/* 팀별 현황 + 마감 임박 — 데스크톱은 나란히, 모바일은 위아래 */}
@@ -133,39 +133,48 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate }) {
 // 숫자는 SVG <text>가 아니라 위에 겹친 HTML로 넣는다. <text>에 CSS 회전(rotate-90 +
 // origin-center)을 걸었더니 iOS 사파리에서 transform-box 해석이 달라 숫자가 링 밖으로
 // 튀어나갔다(크롬에서는 정상이라 데스크톱에서 안 보였다).
-function ProgressRing({ value, size = 76, stroke = 7 }) {
-  const r = (size - stroke) / 2;
+// 크기는 viewBox로 스케일 — 좁은 화면에서는 다른 칸의 숫자와 비슷한 덩치로 줄어든다.
+const RING_VB = 76, RING_STROKE = 7;
+function ProgressRing({ value }) {
+  const r = (RING_VB - RING_STROKE) / 2;
   const c = 2 * Math.PI * r;
   return (
-    <div className="relative shrink-0" style={{ width: size, height: size }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90 block">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--app-line)" strokeWidth={stroke} />
+    <div className="relative w-[42px] h-[42px] md:w-[62px] md:h-[62px]">
+      <svg viewBox={`0 0 ${RING_VB} ${RING_VB}`} className="w-full h-full -rotate-90 block">
+        <circle cx={RING_VB / 2} cy={RING_VB / 2} r={r} fill="none" stroke="var(--app-line)" strokeWidth={RING_STROKE} />
         <circle
-          cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--app-accent)" strokeWidth={stroke}
+          cx={RING_VB / 2} cy={RING_VB / 2} r={r} fill="none" stroke="var(--app-accent)" strokeWidth={RING_STROKE}
           strokeLinecap="round" strokeDasharray={`${(c * value) / 100} ${c}`}
           className="transition-[stroke-dasharray] duration-1000"
         />
       </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-[18px] font-extrabold text-fg tracking-[-1px] tabular-nums">{value}%</span>
+      <span className="absolute inset-0 flex items-center justify-center text-[11px] md:text-[15px] font-extrabold text-fg tracking-[-0.5px] tabular-nums">{value}%</span>
     </div>
   );
 }
 
-// KPI 한 칸 — 누를 수 있으면 버튼, 아니면 그냥 칸
-function KpiTile({ label, value, sub, tag, tone, onClick }) {
+// KPI 한 칸 — 라벨 / 큰 값(숫자 또는 children) / 설명 한 줄.
+// 좁은 화면에서는 short* 를 대신 쓴다(4칸이 한 줄에 들어가야 하므로).
+function KpiTile({ label, shortLabel, value, sub, shortSub, tag, tone, onClick, children }) {
   const Tag = onClick ? 'button' : 'div';
+  const twoText = (long, short) => short && short !== long
+    ? <><span className="md:hidden">{short}</span><span className="hidden md:inline">{long}</span></>
+    : long;
   return (
     // block: <button>은 기본으로 내용을 세로 가운데 정렬해서, 같은 줄의 div 칸과
-    // 라벨 높이가 8px씩 어긋났다. 팀 이름표는 좁은 모바일에서 라벨을 두 줄로
+    // 라벨 높이가 8px씩 어긋났다. 팀 이름표는 좁은 칸에서 라벨을 두 줄로
     // 밀어내므로 데스크톱에서만 붙인다.
     <Tag onClick={onClick} className={`block text-left min-w-0 group ${onClick ? 'cursor-pointer' : ''}`}>
-      <h3 className="text-fg-muted text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap">
-        {label}
+      <h3 className="text-fg-muted text-[11px] md:text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap">
+        {twoText(label, shortLabel)}
         {tag && <span className={`hidden md:inline font-bold ${CONFIG.TEAM_FG[tag] || 'text-fg-muted'}`}>{tag}</span>}
         {onClick && <ChevronRight size={12} className="text-fg-faint opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />}
       </h3>
-      <div className={`text-[24px] md:text-[32px] font-extrabold tracking-[-1.5px] leading-tight mt-0.5 ${tone === 'warn' ? 'text-tag-red-fg' : 'text-fg'}`}>{value}</div>
-      <p className="text-[11px] text-fg-faint truncate">{sub}</p>
+      {/* 도넛과 숫자가 한 줄에 섞여도 위아래 여백이 같게 — 높이를 맞춘 상자에 담는다 */}
+      <div className="h-[42px] md:h-[62px] flex items-center mt-1">
+        {children || <span className={`text-[23px] md:text-[30px] font-extrabold tracking-[-1.5px] leading-none ${tone === 'warn' ? 'text-tag-red-fg' : 'text-fg'}`}>{value}</span>}
+      </div>
+      <p className="text-[10.5px] md:text-[11px] text-fg-faint truncate">{twoText(sub, shortSub)}</p>
     </Tag>
   );
 }
