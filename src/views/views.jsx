@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   LayoutDashboard, Plus, Calendar as CalendarIcon,
-  ExternalLink, ChevronRight, Check, X, Trash2, CheckSquare
+  ExternalLink, ChevronRight, Check, X, Trash2, CheckSquare, Pencil
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { generateId } from '../utils.js';
@@ -101,7 +101,7 @@ function NewTaskButton({ onClick, className = '' }) {
   );
 }
 
-export const ProjectView = React.memo(function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask, onNavigate }) {
+export const ProjectView = React.memo(function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask, onNavigate, onRenameProject }) {
   const projectsMap = useStore(selectProjectsMap);
   const tasksList = useStore(selectTasksList);
   const { isAdmin, enabled, session } = useAuth();
@@ -161,7 +161,15 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
           모바일은 상단바에 이미 프로젝트 이름이 있어 제목을 반복하지 않는다. */}
       <div className="pb-2.5 mb-3.5 flex flex-col md:flex-row gap-2.5 md:gap-4 justify-between items-start md:items-center shrink-0">
         <div className="w-full md:w-auto min-w-0">
-          <h2 className="hidden md:block text-2xl font-extrabold text-fg mb-1.5 tracking-[-0.7px]">{project.title}</h2>
+          {/* 제목을 누르면 이름 수정 (모바일은 상단바 제목을 누른다) */}
+          <button
+            onClick={() => onRenameProject?.(project)}
+            className="hidden md:inline-flex items-baseline gap-1.5 mb-1.5 group/title text-left"
+            title="프로젝트 이름 수정"
+          >
+            <span className="text-2xl font-extrabold text-fg tracking-[-0.7px]">{project.title}</span>
+            <Pencil size={13} className="text-fg-faint opacity-0 group-hover/title:opacity-100 transition-opacity shrink-0 mb-0.5" />
+          </button>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] font-medium text-fg-faint shrink-0">리소스</span>
             {project.pinnedLinks?.map(link => (
@@ -211,7 +219,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
       </div>
       {viewMode === 'kanban' && (
         <div className="flex flex-row justify-between items-center gap-3 mb-3 shrink-0">
-          <div className="flex flex-nowrap gap-1.5 overflow-x-auto pb-1 min-w-0 flex-1 scrollbar-hide">
+          <div className="flex flex-nowrap gap-1.5 overflow-x-auto pb-1 min-w-0 flex-1 scrollbar-hide x-scroll-lock">
             <span className="text-[11px] font-medium text-fg-faint mr-1 shrink-0">필터</span>
             {Object.entries(CONFIG.TEAMS).map(([team, colorClass]) => {
               const selected = selectedTeams.includes(team);

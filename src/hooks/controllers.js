@@ -127,12 +127,19 @@ export const useWorkspaceController = () => {
     return newProject.id;
   }, [cloudOn]);
 
+  const handleRenameProject = useCallback((id, title) => {
+    const next = String(title || '').trim();
+    if (!next) return;
+    store.dispatch({ type: 'UPDATE_PROJECT', payload: { id, title: next } });
+    if (cloudOn) cloudSync.projectRenameCloud(id, next).catch(reportCloudError('프로젝트 이름 변경'));
+  }, [cloudOn]);
+
   const handleUpdateUser = useCallback((profile) => {
     store.dispatch({ type: 'UPDATE_USER', payload: profile });
     if (cloudOn) cloudSync.profileUpdateCloud(profile).catch(reportCloudError('프로필 저장'));
   }, [cloudOn]);
 
-  return { handleSaveTask, handleDeleteTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleUpdateUser, undo: store.undo, redo: store.redo };
+  return { handleSaveTask, handleDeleteTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleRenameProject, handleUpdateUser, undo: store.undo, redo: store.redo };
 };
 
 export const usePersistenceController = () => {

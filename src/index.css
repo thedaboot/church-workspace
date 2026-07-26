@@ -176,6 +176,16 @@ svg.lucide { stroke-width: 1.4px; }
   &::-webkit-scrollbar { display: none; }
 }
 
+/* 가로로만 스크롤되는 줄(프로젝트 탭·필터 칩·상태 칩) 전용.
+   모바일에서 이런 줄을 손가락으로 밀면 브라우저가 세로 스크롤까지 같이 잡아서
+   화면이 위아래로 흔들렸다.
+   - touch-action: pan-x → 이 안에서는 가로 제스처만 받는다
+   - overscroll-behavior-x: contain → 끝에 닿아도 부모(페이지)로 넘기지 않는다 */
+@utility x-scroll-lock {
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+
 /* ── TipTap(상세 내용 WYSIWYG 에디터) 내부 스타일 ──────────────────────────
    RichText 뷰어와 같은 톤을 유지해 "쓰던 그대로 보인다"를 만든다.
    토큰 변수만 사용하므로 다크 모드는 자동 대응. */

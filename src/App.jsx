@@ -74,6 +74,7 @@ function WorkspaceShell() {
   const [modalState, setModalState] = useState({ isOpen: false, task: null, isEditMode: false });
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState(null); // 이름 수정할 프로젝트
   const [cloudReady, setCloudReady] = useState(!cloudMode);
   const [loadError, setLoadError] = useState(null);
   const [retrying, setRetrying] = useState(false);
@@ -146,6 +147,7 @@ function WorkspaceShell() {
   // 모달을 열 때(setModalState) 활성 뷰의 카드 전체가 다시 렌더된다(150장 = 150회).
   const openProfile = useCallback(() => setIsProfileModalOpen(true), []);
   const openProjectModal = useCallback(() => setIsProjectModalOpen(true), []);
+  const openRenameProject = useCallback((project) => setRenameTarget(project), []);
   const selectMenu = useCallback((menu) => setActiveMenu(menu), []);
   const handleTaskClick = useCallback((t) => openTaskModal(t), [openTaskModal]);
   const saveTask = controller.handleSaveTask;
@@ -206,7 +208,7 @@ function WorkspaceShell() {
         <MobileTopBar
           activeMenu={activeMenu} setActiveMenu={selectMenu}
           onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification}
-          onOpenProject={openProjectModal} cloudMode={cloudMode}
+          onOpenProject={openProjectModal} onRenameProject={openRenameProject} cloudMode={cloudMode}
         />
       ) : (
         <TopNav
@@ -226,7 +228,7 @@ function WorkspaceShell() {
           {activeMenu === 'myTasks' && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
           {(!['dashboard', 'myTasks'].includes(activeMenu) && !activeMenu.startsWith('team:')) && (
-             <ProjectView projectId={activeMenu} onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNewTask={handleNewTask} />
+             <ProjectView projectId={activeMenu} onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNewTask={handleNewTask} onRenameProject={openRenameProject} />
           )}
           </div>
         </ErrorBoundary>
@@ -256,7 +258,17 @@ function WorkspaceShell() {
       )}
 
       {isProfileModalOpen && <ProfileModal onClose={() => setIsProfileModalOpen(false)} onSave={(p) => { controller.handleUpdateUser(p); localStorage.setItem('daboot_profile_done', '1'); }} />}
-      {isProjectModalOpen && <ProjectModal onClose={() => setIsProjectModalOpen(false)} onSave={(title) => { const newId = controller.handleAddProject(title); setActiveMenu(newId); setIsProjectModalOpen(false); }} />}
+      {/* 창 하나로 '새로 만들기'와 '이름 수정'을 겸한다 — renameTarget이 있으면 수정 */}
+      {(isProjectModalOpen || renameTarget) && (
+        <ProjectModal
+          project={renameTarget}
+          onClose={() => { setIsProjectModalOpen(false); setRenameTarget(null); }}
+          onSave={(title) => {
+            if (renameTarget) { controller.handleRenameProject(renameTarget.id, title); setRenameTarget(null); }
+            else { const newId = controller.handleAddProject(title); setActiveMenu(newId); setIsProjectModalOpen(false); }
+          }}
+        />
+      )}
     </div>
   );
 }

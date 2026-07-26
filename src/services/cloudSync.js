@@ -268,6 +268,8 @@ export async function commentDeleteCloud(commentId) { return write(() => cloud.d
 export async function projectCreateCloud(project) {
   return write(() => cloud.createProject({ id: project.id, name: project.title, description: '' }));
 }
+// DB 컬럼명은 name (앱에서는 title로 부른다)
+export async function projectRenameCloud(id, title) { return write(() => cloud.updateProject(id, { name: title })); }
 export async function projectDeleteCloud(id) { return write(() => cloud.deleteProject(id)); }
 
 export async function linkAddCloud(projectId, link) { return write(() => cloud.addLink(projectId, link.title, link.url, link.id)); }

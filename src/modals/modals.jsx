@@ -836,23 +836,28 @@ export function SyncModal({ onClose, persistence, cloudMode, isAdmin, onMigrate,
   );
 }
 
-export function ProjectModal({ onClose, onSave }) {
-  const [title, setTitle] = useState('');
+// project를 넘기면 이름 수정, 없으면 새로 만들기 (창 하나로 둘 다)
+export function ProjectModal({ onClose, onSave, project = null }) {
+  const renaming = !!project;
+  const [title, setTitle] = useState(project?.title || '');
+  const clean = title.trim();
+  const unchanged = renaming && clean === (project.title || '').trim();
+  const submit = () => { if (clean && !unchanged) onSave(clean); };
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
       <div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-200">
-        <h3 className="font-bold text-fg mb-4 flex items-center gap-2"><Hash size={18} strokeWidth={1.75} className="text-accent"/> 새 프로젝트 생성</h3>
+        <h3 className="font-bold text-fg mb-4 flex items-center gap-2"><Hash size={18} className="text-accent"/> {renaming ? '프로젝트 이름 수정' : '새 프로젝트 생성'}</h3>
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">프로젝트 이름</label>
         <input
           type="text" value={title} onChange={e => setTitle(e.target.value)}
           placeholder="예: 2026 하계 수련회"
           className="w-full border border-line p-2.5 rounded-xs mb-6 text-sm bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none"
           autoFocus
-          onKeyDown={e => { if (e.key === 'Enter' && title.trim()) { onSave(title.trim()); } }}
+          onKeyDown={e => { if (e.key === 'Enter') submit(); }}
         />
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 bg-surface-hover hover:bg-line text-fg-muted py-2.5 rounded-md text-sm font-medium transition active:scale-95">취소</button>
-          <button onClick={() => { if(title.trim()) onSave(title.trim()); }} disabled={!title.trim()} className="flex-1 bg-accent hover:bg-accent-strong disabled:bg-line text-white py-2.5 rounded-md text-sm font-medium transition active:scale-95">생성하기</button>
+          <button onClick={submit} disabled={!clean || unchanged} className="flex-1 bg-accent hover:bg-accent-strong disabled:bg-line text-white py-2.5 rounded-md text-sm font-medium transition active:scale-95">{renaming ? '저장' : '생성하기'}</button>
         </div>
       </div>
     </div>

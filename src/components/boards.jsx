@@ -443,23 +443,34 @@ function StatusChip({ status, count, current, dragging, isDraggedStatus, onClick
 }
 
 // 드롭 대상 컬럼(status) — dnd-kit useDroppable의 isOver로 강조
-function ColumnDroppable({ status, count, dragging, children }) {
+function ColumnDroppable({ status, count, dragging, empty, children }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   return (
     <div
       ref={setNodeRef}
-      // 모바일: 80vw로 다음 컬럼이 살짝 보이게(더 있다는 신호) + 스냅
+      // 모바일: 86vw로 다음 컬럼이 살짝 보이게(더 있다는 신호) + 스냅
       // 데스크톱: flex-1로 4개 상태가 가로 스크롤 없이 한 화면에 들어온다
       // 컬럼도 상자를 버린다 — 제목 밑 얇은 선이 컬럼 경계 역할을 한다.
       // 드롭 대상일 때만 배경을 옅게 깔아 "여기 놓인다"를 알린다.
-      className={`flex-1 basis-0 min-w-[82vw] md:min-w-[180px] flex flex-col rounded-sm pt-1 pr-3.5 snap-start h-full transition-colors duration-150 ${isOver ? 'bg-accent-weak/70' : ''}`}
+      // 모바일에서는 왼쪽 세로선으로 옆 컬럼과 확실히 갈라 보이게 한다.
+      // first:*는 화면 왼쪽 끝에 세로선·여백이 붕 뜨는 것을 막는다(첫 컬럼만 제외)
+      className={`flex-1 basis-0 min-w-[86vw] md:min-w-[180px] flex flex-col rounded-sm pt-1 pl-3 pr-1 first:pl-0 first:border-l-0 md:pl-0 md:pr-3.5 snap-start h-full border-l border-line md:border-l-0 transition-colors duration-150 ${isOver ? 'bg-accent-weak/70' : ''}`}
     >
-      {/* 모바일은 위쪽 상태 칩이 같은 정보를 이미 보여주므로 제목을 숨긴다 */}
-      <div className="hidden md:flex items-center justify-between mb-1.5 shrink-0 border-b border-line pb-2">
-        <h3 className="font-bold text-xs text-fg-muted flex items-center gap-1.5 min-w-0"><div className={`w-[5px] h-[5px] rounded-full shrink-0 ${CONFIG.STATUS_DOTS[status] || 'bg-fg-faint'}`}></div><span className="leading-none truncate">{status}</span><span className="text-fg-faint font-medium leading-none shrink-0">{count}</span></h3>
+      {/* 모바일에도 제목을 둔다 — 없으면 컬럼을 넘겨도 그냥 목록 하나처럼 보인다.
+          카드 목록만 스크롤되는 구조라 이 제목은 늘 제자리에 남는다. */}
+      <div className="flex items-center justify-between mb-1.5 shrink-0 border-b border-line pb-2">
+        <h3 className="font-bold text-[13px] md:text-xs text-fg md:text-fg-muted flex items-center gap-1.5 min-w-0">
+          <span className={`w-[6px] h-[6px] md:w-[5px] md:h-[5px] rounded-full shrink-0 ${CONFIG.STATUS_DOTS[status] || 'bg-fg-faint'}`} />
+          <span className="leading-none truncate">{status}</span>
+          <span className="text-fg-faint font-medium leading-none shrink-0">{count}</span>
+        </h3>
       </div>
       <div className="flex-1 overflow-y-auto pb-4">
         {children}
+        {/* 빈 컬럼을 그냥 두면 모바일에서 화면이 통째로 백지가 된다 */}
+        {empty && !dragging && (
+          <p className="py-8 text-center text-[11px] text-fg-faint">여기 있는 업무가 없어요</p>
+        )}
         {/* 드래그 중일 때만 드롭 존 안내 표시 */}
         <div className={`h-16 border border-dashed rounded-sm flex items-center justify-center text-xs transition-all ${dragging ? (isOver ? 'opacity-100 border-accent text-accent-text' : 'opacity-100 border-line text-fg-faint') : 'opacity-0 border-transparent text-fg-faint'}`}>여기로 놓기</div>
       </div>
@@ -526,7 +537,7 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
       <div className="h-full flex flex-col min-h-0">
         {/* 모바일 전용 상태 칩 — 평소엔 요약·이동, 드래그 중에는 드롭 타깃이 된다.
             (화면에 컬럼 하나만 보이는 모바일에서 옆 컬럼까지 끌고 갈 필요가 없도록) */}
-        <div className="md:hidden flex gap-1.5 mb-2 overflow-x-auto scrollbar-hide shrink-0">
+        <div className="md:hidden flex gap-1.5 mb-2.5 overflow-x-auto scrollbar-hide x-scroll-lock shrink-0">
           {CONFIG.STATUSES.map((status, i) => (
             <StatusChip
               key={status} status={status} count={(byStatus[status] || []).length}
@@ -541,10 +552,12 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
         )}
         <div
           ref={scrollRef} onScroll={onScroll}
-          className={`flex-1 min-h-0 flex gap-3 md:gap-4 pb-2 overflow-x-auto ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}
+          // overscroll-behavior-x만 건다 — touch-action:pan-x를 걸면 컬럼 안 카드 목록의
+          // 세로 스크롤까지 막힌다(자손 전체에 적용되므로)
+          className={`flex-1 min-h-0 flex gap-3 md:gap-4 pb-2 overflow-x-auto [overscroll-behavior-x:contain] ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}
         >
           {CONFIG.STATUSES.map(status => (
-            <ColumnDroppable key={status} status={status} dragging={!!activeId} count={(byStatus[status] || []).length}>
+            <ColumnDroppable key={status} status={status} dragging={!!activeId} count={(byStatus[status] || []).length} empty={(byStatus[status] || []).length === 0}>
               {(byStatus[status] || []).map(task => (
                 <DraggableCard key={task.id} task={task} projectsMap={projectsMap} showProjectBadge={showProjectBadge} onTaskClick={onTaskClick} onStatusChange={onStatusChange} />
               ))}

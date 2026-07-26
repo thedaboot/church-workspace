@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useDeferredValue } from 'r
 import { createPortal } from 'react-dom';
 import {
   LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown,
-  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell
+  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, Pencil
 } from 'lucide-react';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
@@ -198,22 +198,32 @@ export const TopNav = React.memo(({
 });
 
 // 모바일 상단: 현재 화면 이름 + 검색·알림, 그 아래 프로젝트 탭(가로 스크롤)
-export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenProject, cloudMode }) => {
+export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenProject, onRenameProject, cloudMode }) => {
   const projectsList = useStore(selectProjectsList);
   const projectsMap = useStore(selectProjectsMap);
   const currentUser = useStore(selectCurrentUser);
   // 프로젝트 탭 줄은 프로젝트를 보고 있을 때만 — 내 업무·대시보드에서는 쓸 일이 없고
   // 좁은 화면에서 한 줄이 그대로 낭비된다(다른 프로젝트로는 하단 '프로젝트' 탭으로 간다)
-  const onProject = projectsMap[activeMenu] != null;
+  const project = projectsMap[activeMenu] || null;
+  const title = menuTitle(activeMenu, projectsMap, currentUser);
   return (
     <div className="md:hidden shrink-0 border-b border-line/70 z-20">
       <div className="flex items-center gap-1 px-3.5 h-12">
-        <h2 className="flex-1 min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{menuTitle(activeMenu, projectsMap, currentUser)}</h2>
+        {/* 프로젝트를 보고 있으면 제목을 눌러 이름을 바꾼다 */}
+        {project ? (
+          <button onClick={() => onRenameProject?.(project)} className="flex-1 min-w-0 flex items-baseline gap-1.5 text-left transition active:scale-[0.98]" title="프로젝트 이름 수정">
+            <span className="min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{title}</span>
+            <Pencil size={12} className="text-fg-faint shrink-0" />
+          </button>
+        ) : (
+          <h2 className="flex-1 min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{title}</h2>
+        )}
         <SearchBox onSearchSelect={onSearchSelect} variant="icon" />
         {cloudMode && <NotificationBell onOpenTask={onOpenTask} />}
       </div>
-      {onProject && (
-        <div className="flex items-end gap-0 px-2 overflow-x-auto scrollbar-hide border-t border-line/70">
+      {project && (
+        // x-scroll-lock: 가로로 밀 때 세로 스크롤이 같이 딸려가지 않게 (index.css)
+        <div className="flex items-end gap-0 px-2 overflow-x-auto scrollbar-hide x-scroll-lock border-t border-line/70">
           {projectsList.map(p => (
             <button
               key={p.id} onClick={() => setActiveMenu(p.id)}
