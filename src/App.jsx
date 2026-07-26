@@ -94,7 +94,11 @@ function WorkspaceShell() {
     try {
       setLoadError(null);
       const profile = await reloadCloud();
-      if (!profile || !profile.display_name) setIsProfileModalOpen(true);
+      // 첫 설정이 안 끝난 사람에게만 띄운다 — 이름과 팀이 둘 다 있으면 다시 뜨지 않는다.
+      // 팀까지 보는 이유: 이름만 있고 팀이 비면 팀 보드·'내 팀 업무'가 계속 빈다.
+      const me = store.getState().currentUser;
+      const needsSetup = !profile || !me.name || !(me.teams?.length || me.team);
+      if (needsSetup) setIsProfileModalOpen(true);
       setCloudReady(true);
     } catch (e) {
       console.error('[cloud] 초기 로드 실패:', e);
@@ -260,7 +264,7 @@ function WorkspaceShell() {
         </ErrorBoundary>
       )}
 
-      {isProfileModalOpen && <ProfileModal onClose={() => setIsProfileModalOpen(false)} onSave={(p) => { controller.handleUpdateUser(p); localStorage.setItem('daboot_profile_done', '1'); }} />}
+      {isProfileModalOpen && <ProfileModal onClose={() => setIsProfileModalOpen(false)} onSave={(p) => controller.handleUpdateUser(p)} />}
       {/* 창 하나로 '새로 만들기'와 '이름 수정'을 겸한다 — renameTarget이 있으면 수정 */}
       {(isProjectModalOpen || renameTarget) && (
         <ProjectModal

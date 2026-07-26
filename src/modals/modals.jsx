@@ -798,8 +798,10 @@ export function ProfileModal({ onClose, onSave }) {
     { provider: 'google', label: '구글', icon: <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.1A6.6 6.6 0 0 1 5.5 12c0-.73.13-1.44.34-2.1V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.07.56 4.21 1.64l3.16-3.16A11 11 0 0 0 2.18 7.06L5.84 9.9c.87-2.6 3.3-4.52 6.16-4.52z"/></svg> },
     { provider: 'kakao', label: '카카오', icon: <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#191919" d="M12 3C6.48 3 2 6.54 2 10.9c0 2.8 1.86 5.26 4.66 6.65l-1.19 4.4c-.1.39.34.7.68.47l5.23-3.47c.2.01.41.02.62.02 5.52 0 10-3.54 10-7.9S17.52 3 12 3z"/></svg> },
   ];
-  // 이름이 아직 없으면 = 첫 로그인. 안내 문구를 바꾸고 이름·팀을 넣기 전에는 닫지 못하게 한다.
-  const onboarding = !user.name;
+  // 첫 설정이 안 끝난 상태(이름이 없거나 팀이 없음) = 온보딩.
+  // 안내 문구를 바꾸고, 이름·팀을 채우기 전에는 닫지 못하게 한다.
+  // 한 번 채우고 나면 이 조건이 거짓이 되어 다시 뜨지 않는다.
+  const onboarding = !user.name || !(user.teams?.length || user.team);
   const canSave = name.trim().length > 0 && teams.length > 0;
 
   return (
@@ -814,8 +816,8 @@ export function ProfileModal({ onClose, onSave }) {
 
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">이름</label>
         <input
-          type="text" value={name} onChange={e => setName(e.target.value)} placeholder="예: 노준석"
-          className="w-full border border-line rounded-xs p-2 mb-4 text-sm bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none"
+          type="text" value={name} onChange={e => setName(e.target.value)}
+          className="w-full border border-line rounded-xs p-2 mb-4 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none"
         />
 
         {/* 한 사람이 두 팀 이상에 속하는 일이 흔하다(예: 찬양팀 + 임원진) → 다중 선택.
