@@ -43,3 +43,8 @@ export const normalize = (array) => array.reduce((acc, item) => {
   acc.allIds.push(item.id);
   return acc;
 }, { byId: {}, allIds: [] });
+
+// 목록에서 방향키로 옮긴 항목이 스크롤 영역 밖이면 보이게 끌어온다.
+// ref 콜백으로 쓴다: ref={i === activeIdx ? keepVisible : null}
+// (활성 항목이 바뀔 때만 호출되므로 useEffect가 필요 없다)
+export const keepVisible = (el) => el?.scrollIntoView({ block: 'nearest' });

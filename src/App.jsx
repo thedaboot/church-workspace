@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { store } from './store/workspaceStore.js';
 import { useWorkspaceController } from './hooks/controllers.js';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
-import { Sidebar, Header } from './components/layout.jsx';
+import { TopNav, MobileTopBar, MobileTabBar } from './components/layout.jsx';
 import { DashboardView, ProjectView, MyTasksView, TeamView, GuideView } from './views/views.jsx';
 import { TaskModalShell, ProfileModal, ProjectModal } from './modals/modals.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
@@ -69,7 +69,6 @@ function WorkspaceShell() {
   // 딥링크: /?p=<projectId>&t=<taskId>
   const [activeMenu, setActiveMenu] = useState(() => new URLSearchParams(window.location.search).get('p') || 'dashboard');
   const pendingTaskIdRef = useRef(new URLSearchParams(window.location.search).get('t'));
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [modalState, setModalState] = useState({ isOpen: false, task: null, isEditMode: false });
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
@@ -143,11 +142,9 @@ function WorkspaceShell() {
   // ── 뷰·셸에 내려주는 핸들러는 전부 useCallback으로 고정 ──
   // 인라인 화살표로 내려주면 매 렌더마다 새 함수가 되어 React.memo가 무력해지고,
   // 모달을 열 때(setModalState) 활성 뷰의 카드 전체가 다시 렌더된다(150장 = 150회).
-  const closeSidebar = useCallback(() => setIsSidebarOpen(false), []);
-  const openSidebar = useCallback(() => setIsSidebarOpen(true), []);
   const openProfile = useCallback(() => setIsProfileModalOpen(true), []);
   const openProjectModal = useCallback(() => setIsProjectModalOpen(true), []);
-  const selectMenu = useCallback((menu) => { setActiveMenu(menu); setIsSidebarOpen(false); }, []);
+  const selectMenu = useCallback((menu) => setActiveMenu(menu), []);
   const handleTaskClick = useCallback((t) => openTaskModal(t), [openTaskModal]);
   const saveTask = controller.handleSaveTask;
   const handleStatusChange = useCallback((t, status) => saveTask({ ...t, status }, t), [saveTask]);
@@ -194,40 +191,44 @@ function WorkspaceShell() {
   if (cloudMode && !cloudReady) return <CloudSplash />;
 
   return (
-    <div className="flex h-dvh bg-canvas text-fg font-sans overflow-hidden">
+    // bg-canvas는 body가 이미 깔아준다 — 여기에 또 칠하면 -z-10 글로우가 가려진다
+    <div className="flex flex-col h-dvh text-fg font-sans overflow-hidden">
       {/* 배경 파스텔 글로우 (장식 전용 · 상호작용 차단 · 스크롤 고정)
           blur 필터 대신 radial-gradient — index.css의 .app-glow 참고 */}
       <div className="pointer-events-none fixed inset-0 -z-10 app-glow" aria-hidden="true" />
-      {isSidebarOpen && <div className="md:hidden fixed inset-0 bg-black/50 z-20" onClick={() => setIsSidebarOpen(false)} />}
 
-      <Sidebar
+      <TopNav
         activeMenu={activeMenu} setActiveMenu={selectMenu}
-        isSidebarOpen={isSidebarOpen} closeSidebar={closeSidebar}
-        onOpenProfile={openProfile}
-        onOpenProject={openProjectModal}
+        onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification}
+        onOpenProfile={openProfile} onOpenProject={openProjectModal}
+        undo={controller.undo} redo={controller.redo} canUndo={store.canUndo()} canRedo={store.canRedo()} cloudMode={cloudMode}
+      />
+      <MobileTopBar
+        activeMenu={activeMenu} setActiveMenu={selectMenu}
+        onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification}
+        onOpenProject={openProjectModal} cloudMode={cloudMode}
       />
 
-      <div className="flex-1 flex flex-col w-full min-w-0">
-        <Header
-          activeMenu={activeMenu} openSidebar={openSidebar} onSearchSelect={handleSearchSelect}
-          onOpenTask={handleOpenTaskFromNotification}
-          undo={controller.undo} redo={controller.redo} canUndo={store.canUndo()} canRedo={store.canRedo()} cloudMode={cloudMode}
-        />
-        <main className="flex-1 overflow-auto p-4 md:p-6 relative">
-          <ErrorBoundary>
-            {/* key로 뷰 전환 시 리마운트 → 각 뷰의 등장 애니메이션 재생 */}
-            <div key={activeMenu} className="h-full">
-            {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} />}
-            {activeMenu === 'myTasks' && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
-            {activeMenu === 'guide' && <GuideView />}
-            {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
-            {(!['dashboard', 'myTasks', 'guide'].includes(activeMenu) && !activeMenu.startsWith('team:')) && (
-               <ProjectView projectId={activeMenu} onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNewTask={handleNewTask} />
-            )}
-            </div>
-          </ErrorBoundary>
-        </main>
-      </div>
+      {/* 하단 탭바 높이만큼 모바일 여백(pb-20) — 마지막 카드가 탭바에 가리지 않게 */}
+      <main className="flex-1 overflow-auto px-3.5 pt-3 pb-20 md:px-6 md:py-5 relative">
+        <ErrorBoundary>
+          {/* key로 뷰 전환 시 리마운트 → 각 뷰의 등장 애니메이션 재생 */}
+          <div key={activeMenu} className="h-full">
+          {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} />}
+          {activeMenu === 'myTasks' && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
+          {activeMenu === 'guide' && <GuideView />}
+          {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
+          {(!['dashboard', 'myTasks', 'guide'].includes(activeMenu) && !activeMenu.startsWith('team:')) && (
+             <ProjectView projectId={activeMenu} onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNewTask={handleNewTask} />
+          )}
+          </div>
+        </ErrorBoundary>
+      </main>
+
+      <MobileTabBar
+        activeMenu={activeMenu} setActiveMenu={selectMenu}
+        onOpenProfile={openProfile} onOpenProject={openProjectModal}
+      />
 
       {modalState.isOpen && (
         <ErrorBoundary>

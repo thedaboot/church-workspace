@@ -1,8 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   LayoutDashboard, Plus, Calendar as CalendarIcon,
-  Link as LinkIcon, ListTodo, ListFilter, ExternalLink, ChevronRight, Undo2, Check, X, Trash2,
-  TrendingUp, CheckSquare, Users, Sparkles
+  ExternalLink, ChevronRight, Undo2, Check, X, Trash2, CheckSquare
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { generateId } from '../utils.js';
@@ -32,72 +31,54 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate }) {
   );
 
   return (
-    <div className="max-w-6xl mx-auto space-y-4 md:space-y-6 pb-8 md:pb-10 animate-in fade-in duration-300">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-        <div className="bg-surface p-5 md:p-6 rounded-lg border border-line">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="w-7 h-7 rounded-md bg-tag-blue text-tag-blue-fg flex items-center justify-center shrink-0"><TrendingUp size={14} strokeWidth={1.75} /></span>
-            <h3 className="text-fg-muted text-xs md:text-sm font-medium">전체 프로젝트 진척도</h3>
-          </div>
-          <div className="flex items-end gap-2"><span className="text-3xl md:text-4xl font-bold text-fg">{progress}%</span><span className="text-fg-muted text-xs mb-1">완료</span></div>
-          <div className="w-full bg-surface-2 rounded-full h-2 mt-4"><div className="bg-accent h-2 rounded-full transition-all duration-1000" style={{ width: `${progress}%` }}></div></div>
+    // 보드와 같은 규칙 — 상자·그림자·아이콘 타일 없이 숫자와 구분선으로만
+    <div className="max-w-6xl mx-auto pb-8 md:pb-10 animate-in fade-in duration-300">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-0 sm:gap-8 border-b border-line pb-5 mb-6">
+        <div className="py-3 sm:py-0 border-b border-line sm:border-0">
+          <h3 className="text-fg-muted text-xs font-semibold mb-1.5">전체 프로젝트 진척도</h3>
+          <div className="flex items-end gap-1.5"><span className="text-3xl md:text-4xl font-extrabold text-fg tracking-[-1.5px]">{progress}%</span><span className="text-fg-faint text-xs mb-1.5">완료</span></div>
+          <div className="w-full max-w-[220px] bg-line/70 rounded-full h-1 mt-3"><div className="bg-fg h-1 rounded-full transition-all duration-1000" style={{ width: `${progress}%` }}></div></div>
         </div>
-        <div onClick={() => onNavigate('myTasks')} className="bg-surface p-5 md:p-6 rounded-lg border border-line flex flex-col justify-between hover:bg-surface-hover hover:-translate-y-0.5 hover:shadow-soft transition-all cursor-pointer group">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="w-7 h-7 rounded-md bg-tag-green text-tag-green-fg flex items-center justify-center shrink-0"><CheckSquare size={14} strokeWidth={1.75} /></span>
-              <h3 className="text-fg-muted text-xs md:text-sm font-medium group-hover:text-accent transition-colors">내 남은 업무</h3>
-            </div>
-            <div className="text-3xl md:text-4xl font-bold text-fg group-hover:text-accent transition-colors">{myTasksCount}개</div>
-          </div>
-          <p className="text-xs text-fg-muted mt-2 flex justify-between items-center">오늘도 화이팅입니다! <span className="text-accent-text font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">확인하기 <ChevronRight size={12}/></span></p>
-        </div>
-        {/* 내 팀 업무 — KPI 카드 (배경만 특별히 로그인/OG의 파스텔 글로우, 항상 밝으므로 잉크색 고정) */}
-        <div onClick={() => onNavigate(`team:${currentUser.team}`)} className="relative overflow-hidden bg-[#f6f5f4] p-5 md:p-6 rounded-lg border border-line flex flex-col justify-between sm:col-span-2 lg:col-span-1 cursor-pointer group hover:-translate-y-0.5 hover:shadow-soft transition-all">
-          <div className="absolute -top-12 -left-12 w-44 h-44 rounded-full bg-[#62aef0]/30 blur-3xl pointer-events-none"></div>
-          <div className="absolute -bottom-14 -right-10 w-48 h-48 rounded-full bg-[#d6b6f6]/40 blur-3xl pointer-events-none"></div>
-          <div className="absolute -top-4 right-1/4 w-24 h-24 rounded-full bg-[#ff64c8]/20 blur-2xl pointer-events-none"></div>
-          <div className="relative">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="w-7 h-7 rounded-md bg-white/80 text-[#31302e] border border-[#e6e6e6] flex items-center justify-center shrink-0"><Users size={14} strokeWidth={1.75} /></span>
-              <h3 className="text-[#615d59] text-xs md:text-sm font-medium group-hover:text-accent transition-colors">내 팀 업무</h3>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${CONFIG.TEAMS[currentUser.team] || 'bg-white/80 text-[#615d59]'}`}>{currentUser.team}</span>
-            </div>
-            <div className="text-3xl md:text-4xl font-bold text-[#31302e]">{myTeamTasks.length}개</div>
-          </div>
-          <p className="relative text-xs text-[#615d59] mt-2 flex justify-between items-center gap-2">
-            <span className="truncate min-w-0">{myTeamTasks.length > 0 ? `${myTeamTasks[0].title}${myTeamTasks.length > 1 ? ` 외 ${myTeamTasks.length - 1}건` : ''}` : '남은 팀 업무가 없어요. 수고했어요!'}</span>
-            <span className="text-accent-text font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 shrink-0">팀 보드 <ChevronRight size={12}/></span>
+        <button onClick={() => onNavigate('myTasks')} className="py-3 sm:py-0 border-b border-line sm:border-0 text-left group">
+          <h3 className="text-fg-muted text-xs font-semibold mb-1.5 group-hover:text-fg transition-colors">내 남은 업무</h3>
+          <div className="text-3xl md:text-4xl font-extrabold text-fg tracking-[-1.5px]">{myTasksCount}개</div>
+          <p className="text-xs text-fg-faint mt-3 flex items-center gap-0.5">오늘도 화이팅입니다!<ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity"/></p>
+        </button>
+        <button onClick={() => onNavigate(`team:${currentUser.team}`)} className="py-3 sm:py-0 text-left group">
+          <h3 className="text-fg-muted text-xs font-semibold mb-1.5 flex items-center gap-1.5 group-hover:text-fg transition-colors">
+            내 팀 업무 <span className={`font-bold ${CONFIG.TEAM_FG[currentUser.team] || 'text-fg-muted'}`}>{currentUser.team}</span>
+          </h3>
+          <div className="text-3xl md:text-4xl font-extrabold text-fg tracking-[-1.5px]">{myTeamTasks.length}개</div>
+          <p className="text-xs text-fg-faint mt-3 truncate">
+            {myTeamTasks.length > 0 ? `${myTeamTasks[0].title}${myTeamTasks.length > 1 ? ` 외 ${myTeamTasks.length - 1}건` : ''}` : '남은 팀 업무가 없어요. 수고했어요!'}
           </p>
-        </div>
+        </button>
       </div>
-      <div className="bg-surface rounded-lg border border-line overflow-hidden">
-        <div className="px-4 md:px-6 py-3 md:py-4 border-b border-line flex justify-between items-center bg-surface-2">
-          <h3 className="font-bold text-sm md:text-base text-fg flex items-center gap-2 tracking-[-0.25px]"><ListTodo size={18} strokeWidth={1.75} className="text-accent"/> 팀별 업무 현황</h3>
-        </div>
-        <div className="divide-y divide-line/60">
+      <div>
+        <h3 className="font-bold text-xs text-fg-muted mb-1.5 pb-2 border-b border-line">팀별 업무 현황</h3>
+        <div>
           {teamStats.map(stat => (
-            <div key={stat.name} onClick={() => onNavigate(`team:${stat.name}`)} className="flex items-center gap-3 px-4 md:px-6 py-3 hover:bg-surface-hover cursor-pointer transition-colors group">
-              <span className={`px-2 py-1 rounded-sm text-[10px] md:text-xs font-bold shrink-0 ${CONFIG.TEAMS[stat.name]}`}>{stat.name}</span>
-              <div className="hidden sm:flex flex-1 min-w-0 flex-wrap items-center gap-1">
+            <div key={stat.name} onClick={() => onNavigate(`team:${stat.name}`)} className="flex items-center gap-3 py-3 border-b border-line hover:bg-fg/[0.02] cursor-pointer transition-colors group">
+              <span className={`text-[11px] font-bold tracking-[0.03em] shrink-0 w-16 ${CONFIG.TEAM_FG[stat.name] || 'text-fg-muted'}`}>{stat.name}</span>
+              <div className="hidden sm:flex flex-1 min-w-0 flex-wrap items-center gap-2">
                 {stat.projects.length > 0 ? (
                   <>
-                    {stat.projects.slice(0, 2).map((p, i) => <span key={i} className="text-[10px] bg-surface-2 border border-line text-fg-muted px-1.5 py-0.5 rounded-md truncate max-w-[160px]">{p}</span>)}
+                    {stat.projects.slice(0, 2).map((p, i) => <span key={i} className="text-[11px] text-fg-muted truncate max-w-[200px]">{p}</span>)}
                     {stat.projects.length > 2 && (
                       <span className="relative group/more" onClick={e => e.stopPropagation()}>
-                        <span className="text-[10px] text-fg-faint cursor-default hover:text-fg-muted transition-colors">+{stat.projects.length - 2}</span>
+                        <span className="text-[11px] text-fg-faint cursor-default hover:text-fg-muted transition-colors">+{stat.projects.length - 2}</span>
                         <div className="absolute left-0 top-full mt-1 z-40 hidden group-hover/more:block bg-surface border border-line rounded-md shadow-elevated p-2 w-max max-w-[240px] animate-in fade-in duration-150">
-                          {stat.projects.slice(2).map((p, i) => <div key={i} className="text-[10px] text-fg-muted truncate">{p}</div>)}
+                          {stat.projects.slice(2).map((p, i) => <div key={i} className="text-[11px] text-fg-muted truncate">{p}</div>)}
                         </div>
                       </span>
                     )}
                   </>
-                ) : <span className="text-[10px] text-fg-faint italic">진행 중인 프로젝트 없음</span>}
+                ) : <span className="text-[11px] text-fg-faint">진행 중인 프로젝트 없음</span>}
               </div>
               <div className="flex items-center gap-3 ml-auto shrink-0">
-                <div className="w-24 md:w-32 bg-surface-2 rounded-full h-1.5 overflow-hidden"><div className={`h-full rounded-full transition-all duration-700 ${stat.progress >= 100 ? 'bg-tag-green-fg' : 'bg-accent'}`} style={{ width: `${stat.progress}%` }}></div></div>
-                <span className="text-xs text-fg-muted text-right w-20 tabular-nums">{stat.done} / {stat.total} 완료</span>
-                <ChevronRight size={16} strokeWidth={1.75} className="text-fg-faint opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="w-24 md:w-32 bg-line/70 rounded-full h-1 overflow-hidden"><div className={`h-full rounded-full transition-all duration-700 ${stat.progress >= 100 ? 'bg-tag-green-fg' : 'bg-fg-muted'}`} style={{ width: `${stat.progress}%` }}></div></div>
+                <span className="text-[11px] text-fg-muted text-right w-20 tabular-nums">{stat.done} / {stat.total} 완료</span>
+                <ChevronRight size={15} className="text-fg-faint opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
             </div>
           ))}
@@ -106,6 +87,19 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate }) {
     </div>
   );
 });
+
+// 아이콘 좌우에 투명 여백(약 2.4px)이 있어서 pl-3/pr-4로는 왼쪽이 2px 좁아 보였다.
+// 실측 기준으로 시각적 여백을 맞춘다(왼 14+2.4 ≒ 오른 16).
+// 흰 글자 옆 13px 아이콘은 1.4획이면 사라져 보여서 여기만 2로 되돌린다.
+function NewTaskButton({ onClick, className = '' }) {
+  return (
+    // display 유틸(inline-flex/hidden)은 호출부가 지정한다 — 여기서 같이 주면
+    // Tailwind가 같은 계층의 display 규칙끼리 충돌해 md:hidden이 안 먹는다
+    <button onClick={onClick} className={`shrink-0 bg-fg hover:opacity-90 text-canvas pl-3 pr-3.5 py-2 rounded-xs text-xs font-bold transition active:scale-95 justify-center items-center gap-1.5 leading-none whitespace-nowrap ${className}`}>
+      <Plus size={13} className="shrink-0 [stroke-width:2px]" /><span className="leading-none">새 업무</span>
+    </button>
+  );
+}
 
 export const ProjectView = React.memo(function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask, onNavigate }) {
   const projectsMap = useStore(selectProjectsMap);
@@ -163,11 +157,13 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
 
   return (
     <div className="h-full flex flex-col min-w-0 animate-in fade-in">
-      <div className="bg-surface p-3 md:p-4 rounded-lg border border-line mb-3 flex flex-col md:flex-row gap-3 md:gap-4 justify-between items-start md:items-center shrink-0">
+      {/* 흰 카드로 감싸지 않는다 — 제목은 페이지의 제목이지 카드의 내용이 아니다.
+          모바일은 상단바에 이미 프로젝트 이름이 있어 제목을 반복하지 않는다. */}
+      <div className="pb-2.5 mb-3.5 flex flex-col md:flex-row gap-2.5 md:gap-4 justify-between items-start md:items-center shrink-0">
         <div className="w-full md:w-auto min-w-0">
-          <h2 className="text-lg md:text-xl font-bold text-fg mb-1.5 tracking-[-0.25px]">{project.title}</h2>
+          <h2 className="hidden md:block text-2xl font-extrabold text-fg mb-1.5 tracking-[-0.7px]">{project.title}</h2>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="flex items-center gap-1 text-[11px] font-medium text-fg-faint shrink-0"><LinkIcon size={12} /> 리소스</span>
+            <span className="text-[11px] font-medium text-fg-faint shrink-0">리소스</span>
             {project.pinnedLinks?.map(link => (
               <span key={link.id} className="group/link inline-flex items-center gap-1 text-[10px] md:text-xs pl-1.5 pr-1 py-1 bg-accent-weak text-accent-text rounded-md transition-colors">
                 <a href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:underline"><ExternalLink size={10} /> {link.title}</a>
@@ -195,36 +191,38 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto shrink-0">
-          <div className="flex bg-surface-2 p-1 rounded-md flex-1 md:flex-none">
-            <button onClick={() => setViewMode('kanban')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'kanban' ? 'bg-surface shadow-soft text-fg' : 'text-fg-muted hover:text-fg'}`}><LayoutDashboard size={14} className="shrink-0"/> 보드</button>
-            <button onClick={() => setViewMode('calendar')} className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'calendar' ? 'bg-surface shadow-soft text-fg' : 'text-fg-muted hover:text-fg'}`}><CalendarIcon size={14} className="shrink-0"/> 캘린더</button>
+        {/* 모바일은 이 한 줄에 액션을 다 몰아넣는다 — 보기 전환/공유/삭제/새 업무를
+            각자 한 줄씩 차지하면 정작 업무 목록이 화면 밖으로 밀린다 */}
+        <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+          {/* 아이콘은 라벨을 거들 뿐 — 13px로 줄이고 톤을 낮춰 글자가 먼저 읽히게 */}
+          <div className="flex bg-surface-hover/70 p-0.5 rounded-sm shrink-0">
+            <button onClick={() => setViewMode('kanban')} className={`px-2.5 md:px-3 py-1.5 text-xs font-semibold rounded-xs transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'kanban' ? 'bg-surface text-fg' : 'text-fg-muted hover:text-fg'}`}><LayoutDashboard size={13} className="shrink-0 opacity-55"/> 보드</button>
+            <button onClick={() => setViewMode('calendar')} className={`px-2.5 md:px-3 py-1.5 text-xs font-semibold rounded-xs transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'calendar' ? 'bg-surface text-fg' : 'text-fg-muted hover:text-fg'}`}><CalendarIcon size={13} className="shrink-0 opacity-55"/> 캘린더</button>
           </div>
+          <span className="flex-1 md:hidden" />
           <ShareButton url={`${window.location.origin}/s/p/${project.id}`} what="프로젝트" />
           {isAdmin && (
             <ConfirmPopover message="프로젝트와 안의 모든 업무가 삭제돼요. 되돌릴 수 없어요." onConfirm={deleteProject}>
-              <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95 shrink-0" title="프로젝트 삭제"><Trash2 size={16} strokeWidth={1.75} /></button>
+              <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95 shrink-0" title="프로젝트 삭제"><Trash2 size={16} /></button>
             </ConfirmPopover>
           )}
+          {viewMode === 'kanban' && <NewTaskButton onClick={onNewTask} className="inline-flex md:hidden" />}
         </div>
       </div>
       {viewMode === 'kanban' && (
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-3 shrink-0">
-          <div className="flex flex-nowrap gap-1.5 overflow-x-auto pb-1 w-full scrollbar-hide">
-            <span className="flex items-center gap-1 text-[11px] font-medium text-fg-faint mr-1 shrink-0"><ListFilter size={12} /> 필터</span>
+        <div className="flex flex-row justify-between items-center gap-3 mb-3 shrink-0">
+          <div className="flex flex-nowrap gap-1.5 overflow-x-auto pb-1 min-w-0 flex-1 scrollbar-hide">
+            <span className="text-[11px] font-medium text-fg-faint mr-1 shrink-0">필터</span>
             {Object.entries(CONFIG.TEAMS).map(([team, colorClass]) => {
               const selected = selectedTeams.includes(team);
               return (
-                <button key={team} onClick={() => toggleTeam(team)} className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold border whitespace-nowrap transition-all active:scale-95 ${selected ? colorClass + ' border-transparent shadow-soft' : 'bg-surface text-fg-muted border-line hover:bg-surface-hover'}`}>
-                  {selected && <Check size={10} className="shrink-0" />}{team}
+                <button key={team} onClick={() => toggleTeam(team)} className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-xs text-[11px] font-semibold border whitespace-nowrap transition-all active:scale-95 ${selected ? colorClass + ' border-transparent' : 'bg-surface/70 text-fg-muted border-line hover:bg-surface'}`}>
+                  {selected && <Check size={11} className="shrink-0" />}{team}
                 </button>
               );
             })}
           </div>
-          {/* 아이콘 좌우에 투명 여백(약 2.4px)이 있어서 pl-3/pr-4로는 왼쪽이 2px 좁아 보였다.
-              실측 기준으로 시각적 여백을 맞춘다(왼 14+2.4 ≒ 오른 16). 획도 살짝 굵혀
-              12px 한글 옆에서 너무 가늘어 보이지 않게. */}
-          <button onClick={onNewTask} className="w-full md:w-auto shrink-0 bg-accent hover:bg-accent-strong text-white pl-3.5 pr-4 py-1.5 rounded-full text-xs font-medium shadow-soft transition active:scale-95 inline-flex justify-center items-center gap-1 leading-none whitespace-nowrap"><Plus size={15} strokeWidth={2.25} className="shrink-0" /><span className="leading-none">새 업무</span></button>
+          <NewTaskButton onClick={onNewTask} className="hidden md:inline-flex" />
         </div>
       )}
       <div className="flex-1 min-h-0">
@@ -239,9 +237,11 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
   const myTasks = useStore(selectMyTasks);
   return (
     <div className="max-w-7xl mx-auto h-full flex flex-col animate-in fade-in">
-      <div className="mb-4 shrink-0">
-        <h2 className="text-xl font-bold text-fg tracking-[-0.25px] flex items-center gap-2">
-          <span className="w-8 h-8 rounded-lg bg-tag-pink text-tag-pink-fg flex items-center justify-center shrink-0 shadow-soft"><Sparkles size={17} strokeWidth={2} /></span>
+      {/* 모바일은 상단바에 같은 제목이 있으니 여기서는 숨긴다 */}
+      <div className="mb-4 shrink-0 hidden md:block">
+        {/* 아이콘은 ✨(AI 상징) 대신 뜻이 맞는 체크박스로. 눈에 띄는 역할은 분홍 타일이 한다 */}
+        <h2 className="text-2xl font-extrabold text-fg tracking-[-0.7px] flex items-center gap-2.5">
+          <span className="w-8 h-8 rounded-md bg-tag-pink text-tag-pink-fg flex items-center justify-center shrink-0"><CheckSquare size={17} /></span>
           {currentUser.name}님의 업무
         </h2>
         <p className="text-xs text-fg-muted mt-1.5">할당된 모든 프로젝트의 업무가 이곳에 모입니다.</p>
@@ -256,7 +256,7 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
   const teamTasks = useMemo(() => tasksList.filter(t => t.teams.includes(teamName)), [tasksList, teamName]);
   return (
     <div className="max-w-7xl mx-auto h-full flex flex-col animate-in fade-in">
-      <div className="mb-4 shrink-0 flex items-center gap-3"><h2 className="text-xl font-bold text-fg tracking-[-0.25px]">{teamName} 보드</h2><span className={`px-2 py-0.5 rounded-sm text-[10px] font-bold ${CONFIG.TEAMS[teamName]}`}>TEAM</span></div>
+      <div className="mb-4 shrink-0 hidden md:flex items-baseline gap-2.5"><h2 className="text-2xl font-extrabold text-fg tracking-[-0.7px]">{teamName}</h2><span className={`text-[11px] font-bold tracking-[0.03em] ${CONFIG.TEAM_FG[teamName] || 'text-fg-muted'}`}>팀 보드</span></div>
       <div className="flex-1 min-h-0"><Board tasks={teamTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} showProjectBadge /></div>
     </div>
   );
@@ -264,8 +264,8 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
 
 export function GuideView() {
   return (
-    <div className="max-w-3xl mx-auto mb-8 md:mb-10 bg-surface p-6 md:p-10 rounded-lg border border-line animate-in fade-in">
-      <h1 className="text-2xl font-bold mb-6 flex items-center gap-2 tracking-[-0.25px]"><LayoutDashboard className="text-accent"/> 사용 가이드</h1>
+    <div className="max-w-2xl mx-auto mb-8 md:mb-10 animate-in fade-in">
+      <h1 className="hidden md:block text-3xl font-extrabold mb-7 tracking-[-1px]">사용 가이드</h1>
       <div className="space-y-6 text-sm text-fg-muted leading-relaxed">
         <section>
           <h2 className="font-bold text-lg mb-2 text-fg border-b border-line pb-2 tracking-[-0.25px]">1. 단일 파일 & 엔터프라이즈 아키텍처</h2>
@@ -273,7 +273,7 @@ export function GuideView() {
         </section>
         <section>
           <h2 className="font-bold text-lg mb-2 text-fg border-b border-line pb-2 tracking-[-0.25px]">2. 상태 롤백 (Undo / Redo) 기능</h2>
-          <p>상단 헤더 좌측에 있는 <Undo2 className="inline w-4 h-4 text-fg-muted mx-1"/> 버튼을 눌러보세요! 칸반 보드에서 카드를 옮기거나 내용을 잘못 수정한 경우, 언제든 이전 상태로 즉시 되돌릴 수 있습니다. Command 패턴과 Memento 패턴이 결합된 강력한 기능입니다.</p>
+          <p>상단 내비 오른쪽에 있는 <Undo2 className="inline w-4 h-4 text-fg-muted mx-1"/> 버튼을 눌러보세요! 칸반 보드에서 카드를 옮기거나 내용을 잘못 수정한 경우, 언제든 이전 상태로 즉시 되돌릴 수 있습니다. Command 패턴과 Memento 패턴이 결합된 강력한 기능입니다.</p>
         </section>
         <section>
           <h2 className="font-bold text-lg mb-2 text-fg border-b border-line pb-2 tracking-[-0.25px]">3. 빠른 성능 (O(1) 캐싱)</h2>

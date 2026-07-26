@@ -1,4 +1,5 @@
 import React, { useState, useRef, useMemo, useCallback } from 'react';
+import { keepVisible } from '../utils.js';
 
 // ============================================================================
 // @멘션 자동완성 입력 (textarea / input 공용)
@@ -95,6 +96,8 @@ export function MentionInput({
           {filtered.map((name, i) => (
             <button
               key={name} type="button"
+              // 방향키로 6명 넘게 내려가면 목록이 스크롤돼야 활성 항목이 보인다
+              ref={i === activeIdx ? keepVisible : null}
               // onMouseDown(preventDefault)로 blur보다 먼저 처리해 선택 보장
               onMouseDown={(e) => { e.preventDefault(); selectMember(name); }}
               className={`w-full flex items-center gap-2 px-2 py-2 rounded-md text-left text-sm transition-colors ${i === activeIdx ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:bg-surface-hover'}`}

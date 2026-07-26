@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { User, Clock, Folder, ChevronLeft, ChevronRight, ArrowLeftRight, Check, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ArrowLeftRight, Check, X } from 'lucide-react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable, pointerWithin, rectIntersection,
@@ -304,29 +304,31 @@ function CalendarDayPanel({ dateStr, entries, onTaskClick, onClose, isMobile = f
 }
 
 // 카드 내부 프레젠테이션 (실제 카드 + DragOverlay 미리보기 공용)
+// 팀은 알약 배지 대신 팀 색 글자로 — 배지를 카드마다 3개씩 얹으면 색 덩어리만 남고
+// 정작 제목이 뒤로 밀린다. 마감일·담당자도 아이콘 없이 글자만 둔다.
 const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action = null }) => (
   <>
-    {showProjectBadge && projectsMap[task.projectId] && <div className="text-[9px] text-fg-faint mb-1.5 flex items-center gap-1"><Folder size={10}/> {projectsMap[task.projectId].title}</div>}
-    {/* 팀 배지와 같은 줄의 오른쪽 끝에 액션(모바일 상태 옮기기)을 둔다.
+    {showProjectBadge && projectsMap[task.projectId] && <div className="text-[10px] text-fg-faint mb-1">{projectsMap[task.projectId].title}</div>}
+    {/* 팀 이름과 같은 줄의 오른쪽 끝에 액션(모바일 상태 옮기기)을 둔다.
         푸터에 넣으면 담당자↔마감일 좌우 균형이 깨져 마감일이 가운데 떠 보였다. */}
     {(task.teams.length > 0 || action) && (
-      <div className="flex items-start gap-2 mb-2">
-        <div className="flex flex-wrap gap-1 min-w-0 flex-1">
-          {task.teams.map(team => <span key={team} className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${CONFIG.TEAMS[team]}`}>{team}</span>)}
+      <div className="flex items-start gap-2 mb-1">
+        <div className="flex flex-wrap gap-x-2 gap-y-0.5 min-w-0 flex-1">
+          {task.teams.map(team => <span key={team} className={`text-[10px] font-bold tracking-[0.03em] ${CONFIG.TEAM_FG[team] || 'text-fg-muted'}`}>{team}</span>)}
         </div>
         {action}
       </div>
     )}
-    <h4 className="font-semibold text-sm text-fg mb-2 leading-tight group-hover:text-accent transition-colors">{task.title}</h4>
-    <div className="flex items-center justify-between text-[10px] text-fg-muted mt-3 border-t border-line pt-2 gap-2">
-      <div className="flex items-center gap-1 min-w-0">
+    <h4 className="font-semibold text-[14.5px] text-fg mb-1 leading-[1.4] tracking-[-0.2px] group-hover:text-accent-text transition-colors">{task.title}</h4>
+    <div className="flex items-center justify-between text-[11px] text-fg-muted mt-1.5 gap-2">
+      <div className="flex items-center gap-1.5 min-w-0">
         {task.assignees.length > 0 ? (
-          <><span className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold shrink-0 ${avatarColor(task.assignees[0])}`}>{task.assignees[0][0]}</span><span className="truncate">{task.assignees[0]}{task.assignees.length > 1 ? ` +${task.assignees.length - 1}` : ''}</span></>
+          <><span className="w-4 h-4 rounded-full border border-line flex items-center justify-center text-[8px] font-bold shrink-0">{task.assignees[0][0]}</span><span className="truncate">{task.assignees[0]}{task.assignees.length > 1 ? ` +${task.assignees.length - 1}` : ''}</span></>
         ) : (
-          <><User size={12} className="text-fg-faint shrink-0" /><span className="truncate text-fg-faint">미지정</span></>
+          <span className="truncate text-fg-faint">담당자 미지정</span>
         )}
       </div>
-      {task.dueDate && <div className="flex items-center gap-1 text-tag-orange-fg bg-tag-orange px-1.5 py-0.5 rounded shrink-0"><Clock size={10} /><span>{new Date(task.dueDate).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric'})}</span></div>}
+      {task.dueDate && <span className="font-semibold shrink-0">{new Date(task.dueDate).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric'})}</span>}
     </div>
   </>
 ));
@@ -406,7 +408,9 @@ function DraggableCard({ task, projectsMap, showProjectBadge, onTaskClick, onSta
     <div
       ref={setNodeRef} {...attributes} {...listeners}
       onClick={() => onTaskClick(task)}
-      className={`board-card bg-surface p-3.5 rounded-lg border border-line cursor-grab active:cursor-grabbing hover:shadow-soft hover:-translate-y-0.5 transition-all group animate-in fade-in zoom-in-95 duration-200 ${isDragging ? 'opacity-40' : ''}`}
+      // 카드를 흰 상자로 세우지 않고 목록의 한 줄로 둔다 — 얇은 구분선만.
+      // 상자 + 그림자 + 라운드를 카드마다 반복하면 화면이 자동 생성된 것처럼 읽힌다.
+      className={`board-card px-0.5 pt-2.5 pb-3 border-b border-line cursor-grab active:cursor-grabbing hover:bg-fg/[0.02] transition-colors group animate-in fade-in duration-200 ${isDragging ? 'opacity-40' : ''}`}
     >
       <TaskCardInner
         task={task} projectsMap={projectsMap} showProjectBadge={showProjectBadge}
@@ -446,15 +450,18 @@ function ColumnDroppable({ status, count, dragging, children }) {
       ref={setNodeRef}
       // 모바일: 80vw로 다음 컬럼이 살짝 보이게(더 있다는 신호) + 스냅
       // 데스크톱: flex-1로 4개 상태가 가로 스크롤 없이 한 화면에 들어온다
-      className={`flex-1 basis-0 min-w-[80vw] md:min-w-[180px] flex flex-col rounded-lg p-3 border snap-start h-full transition-colors duration-150 ${isOver ? 'border-accent bg-accent-weak/60' : 'bg-surface border-line'}`}
+      // 컬럼도 상자를 버린다 — 제목 밑 얇은 선이 컬럼 경계 역할을 한다.
+      // 드롭 대상일 때만 배경을 옅게 깔아 "여기 놓인다"를 알린다.
+      className={`flex-1 basis-0 min-w-[82vw] md:min-w-[180px] flex flex-col rounded-sm pt-1 pr-3.5 snap-start h-full transition-colors duration-150 ${isOver ? 'bg-accent-weak/70' : ''}`}
     >
-      <div className="flex items-center justify-between mb-3 px-1 shrink-0">
-        <h3 className="font-semibold text-[13px] md:text-sm text-fg flex items-center gap-1.5 tracking-[-0.25px] min-w-0"><div className={`w-2 h-2 rounded-full shrink-0 ${CONFIG.STATUS_DOTS[status] || 'bg-fg-faint'}`}></div><span className="leading-none truncate">{status}</span><span className="text-fg-faint text-xs font-normal leading-none mt-px shrink-0">{count}</span></h3>
+      {/* 모바일은 위쪽 상태 칩이 같은 정보를 이미 보여주므로 제목을 숨긴다 */}
+      <div className="hidden md:flex items-center justify-between mb-1.5 shrink-0 border-b border-line pb-2">
+        <h3 className="font-bold text-xs text-fg-muted flex items-center gap-1.5 min-w-0"><div className={`w-[5px] h-[5px] rounded-full shrink-0 ${CONFIG.STATUS_DOTS[status] || 'bg-fg-faint'}`}></div><span className="leading-none truncate">{status}</span><span className="text-fg-faint font-medium leading-none shrink-0">{count}</span></h3>
       </div>
-      <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 pb-4">
+      <div className="flex-1 overflow-y-auto pb-4">
         {children}
         {/* 드래그 중일 때만 드롭 존 안내 표시 */}
-        <div className={`h-16 border-2 border-dashed rounded-md flex items-center justify-center text-xs transition-all ${dragging ? (isOver ? 'opacity-100 border-accent text-accent-text' : 'opacity-100 border-line text-fg-faint') : 'opacity-0 border-transparent text-fg-faint'}`}>여기로 놓기</div>
+        <div className={`h-16 border border-dashed rounded-sm flex items-center justify-center text-xs transition-all ${dragging ? (isOver ? 'opacity-100 border-accent text-accent-text' : 'opacity-100 border-line text-fg-faint') : 'opacity-0 border-transparent text-fg-faint'}`}>여기로 놓기</div>
       </div>
     </div>
   );
@@ -548,7 +555,8 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
       {/* 드래그 중 미리보기(기존 스타일 유지). 원래 카드는 opacity-40 */}
       <DragOverlay dropAnimation={null}>
         {activeTask ? (
-          <div className="bg-surface p-3.5 rounded-lg border border-line shadow-elevated rotate-1 scale-[.98] opacity-90 cursor-grabbing">
+          // 끌고 있는 동안만 상자로 세운다 — 손에 들린 게 무엇인지 보여야 하니까
+          <div className="bg-surface px-3.5 py-3 rounded-sm border border-line shadow-elevated rotate-1 scale-[.98] opacity-95 cursor-grabbing">
             <TaskCardInner task={activeTask} projectsMap={projectsMap} showProjectBadge={showProjectBadge} />
           </div>
         ) : null}

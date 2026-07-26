@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   CheckSquare, Clock, X, User, Hash, RefreshCw, Download, Upload,
-  Wand2, Sparkles, CalendarRange, Pencil, Trash2, Heart,
+  Wand2, CalendarRange, Pencil, Trash2,
   FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, Loader2, ExternalLink, Check, AlertTriangle, Eye
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { formatDate, avatarColor, isMobileViewport } from '../utils.js';
+import { formatDate, avatarColor, isMobileViewport, keepVisible } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser, selectProjectsList } from '../store/selectors.js';
 import { AiService } from '../services/ai.js';
@@ -265,6 +265,8 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
         <div className="absolute left-0 top-full z-50 mt-1 w-max min-w-[10rem] max-w-[min(18rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150">
           {suggestions.map((name, i) => (
             <button key={name} type="button" onMouseDown={e => { e.preventDefault(); add(name); }}
+              // 방향키로 목록 밖까지 내려가도 활성 항목이 보이게
+              ref={i === activeIdx ? keepVisible : null}
               className={`w-full flex items-center gap-2 px-2 py-2 rounded-md text-left text-sm transition-colors ${i === activeIdx ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:bg-surface-hover'}`}>
               <span className="truncate">{name}</span>
             </button>
@@ -369,26 +371,30 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-1.5 mb-2"><span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${CONFIG.STATUS_STYLES[formData.status]}`}>{formData.status}</span>{formData.teams?.map(t => <span key={t} className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${CONFIG.TEAMS[t]}`}>{t}</span>)}</div>
-      <h2 className="text-xl md:text-2xl font-bold text-fg leading-tight tracking-[-0.25px]">{formData.title}</h2>
+      {/* 상태는 점, 팀은 팀 색 글자 — 카드와 같은 표기법을 쓴다(배지 남발 금지) */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1.5 text-[11px] font-bold">
+        <span className="inline-flex items-center gap-1.5 text-fg-muted"><span className={`w-[5px] h-[5px] rounded-full ${CONFIG.STATUS_DOTS[formData.status] || 'bg-fg-faint'}`} />{formData.status}</span>
+        {formData.teams?.map(t => <span key={t} className={`tracking-[0.03em] ${CONFIG.TEAM_FG[t] || 'text-fg-muted'}`}>{t}</span>)}
+      </div>
+      <h2 className="text-xl md:text-2xl font-extrabold text-fg leading-tight tracking-[-0.6px]">{formData.title}</h2>
       <div className="mt-4 border-y border-line divide-y divide-line/60 text-xs">
-        <div className="flex items-center gap-0 py-2"><span className="w-28 shrink-0 flex items-center gap-1.5 text-fg-muted"><User size={13} className="text-fg-faint" />담당자</span><span className="font-medium text-fg">{formData.assignees?.join(', ') || '미지정'}</span></div>
-        {formData.startDate && <div className="flex items-center gap-0 py-2"><span className="w-28 shrink-0 flex items-center gap-1.5 text-fg-muted"><CalendarRange size={13} className="text-fg-faint" />시작일</span><span className="inline-flex items-center gap-1 font-semibold text-tag-blue-fg bg-tag-blue px-2 py-0.5 rounded-sm">{new Date(formData.startDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</span></div>}
-        {formData.dueDate && <div className="flex items-center gap-0 py-2"><span className="w-28 shrink-0 flex items-center gap-1.5 text-fg-muted"><Clock size={13} className="text-fg-faint" />마감일</span><span className="inline-flex items-center gap-1 font-semibold text-tag-orange-fg bg-tag-orange px-2 py-0.5 rounded-sm">{new Date(formData.dueDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</span></div>}
+        <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">담당자</span><span className="font-medium text-fg">{formData.assignees?.join(', ') || '미지정'}</span></div>
+        {formData.startDate && <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">시작일</span><span className="font-semibold text-fg">{new Date(formData.startDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</span></div>}
+        {formData.dueDate && <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">마감일</span><span className="font-semibold text-fg">{new Date(formData.dueDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</span></div>}
       </div>
 
-      {/* AI 요약 섹션 (보라 = 장식 전용 스티커 팔레트) */}
+      {/* 요약 섹션 — ✨(AI 상징)를 빼고 왼쪽 선으로 "본문이 아닌 덧말"임을 표시 */}
       {(summary || isAiLoading) && (
-        <div className="bg-tag-purple/40 border border-line rounded-lg p-3 relative mt-4 animate-in fade-in duration-200">
-          <div className="text-[10px] font-bold text-tag-purple-fg mb-1 flex items-center gap-1"><Sparkles size={12}/> AI 3줄 요약</div>
-          {isAiLoading ? <div className="text-xs text-tag-purple-fg/70 animate-pulse">업무 내용과 댓글을 분석하고 있습니다...</div> : <div className="text-xs text-fg-secondary whitespace-pre-wrap"><RichText content={summary} /></div>}
+        <div className="mt-4 pl-3 border-l-2 border-tag-purple-fg/40 animate-in fade-in duration-200">
+          <div className="text-[10px] font-bold text-tag-purple-fg mb-1">3줄 요약</div>
+          {isAiLoading ? <div className="text-xs text-fg-muted animate-pulse">업무 내용과 댓글을 분석하고 있습니다...</div> : <div className="text-xs text-fg-secondary whitespace-pre-wrap"><RichText content={summary} /></div>}
         </div>
       )}
 
-      <div className="prose prose-sm max-w-none mt-4 bg-surface-2/50 p-4 rounded-lg border border-line min-h-[150px] relative group">
+      <div className="prose prose-sm max-w-none mt-4 min-h-[120px] relative group">
         {!summary && (
-           <button onClick={handleSummarize} disabled={isAiLoading} className="absolute top-3 right-3 bg-surface border border-line text-fg-muted hover:text-tag-purple-fg px-2 py-1 rounded-full shadow-soft text-[10px] font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all active:scale-95 z-10">
-             <Sparkles size={12}/> 3줄 요약
+           <button onClick={handleSummarize} disabled={isAiLoading} className="absolute top-0 right-0 bg-surface border border-line text-fg-muted hover:text-tag-purple-fg px-2 py-1 rounded-xs text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-all active:scale-95 z-10">
+             3줄 요약
            </button>
         )}
         <RichText content={formData.content} />
@@ -648,10 +654,7 @@ const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onD
   };
 
   if (all.length === 0) return (
-    <div className="text-center mt-6">
-      <span className="inline-flex w-8 h-8 rounded-full bg-tag-pink text-tag-pink-fg items-center justify-center mb-2"><Heart size={13} strokeWidth={1.75} /></span>
-      <p className="text-xs text-fg-faint">첫 댓글을 남겨보세요!</p>
-    </div>
+    <p className="text-center mt-8 text-xs text-fg-faint">첫 댓글을 남겨보세요!</p>
   );
 
   return (

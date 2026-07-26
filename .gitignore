@@ -1,6 +1,8 @@
 node_modules
 dist
+dist-guest
 .env
+.env.guest
 .DS_Store
 .claude/
 .agents/

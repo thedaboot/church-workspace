@@ -12,7 +12,7 @@ import { mdToDoc, docToMd } from '../services/markdown.js';
 import { uploadContentImage } from '../services/cloud.js';
 import { showToast } from './Toast.jsx';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
-import { isMobileViewport } from '../utils.js';
+import { isMobileViewport, keepVisible } from '../utils.js';
 
 // ============================================================================
 // 노션식 WYSIWYG 상세 내용 에디터 (TipTap)
@@ -182,6 +182,8 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
           {suggestions.map((name, i) => (
             <button
               key={name} type="button"
+              // 방향키로 목록 밖까지 내려가도 활성 항목이 보이게
+              ref={i === activeIdx ? keepVisible : null}
               onMouseDown={(e) => { e.preventDefault(); pick(name); }}
               className={`w-full flex items-center gap-2 px-2 py-2 rounded-md text-left text-sm transition-colors ${i === activeIdx ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:bg-surface-hover'}`}
             >

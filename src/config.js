@@ -28,6 +28,16 @@ export const CONFIG = {
   },
   // 앱 표기 ↔ DB(cards.status) 값. 순서를 바꿔도 매핑이 깨지지 않게 이름으로 못 박는다.
   STATUS_DB: { '시작 전': 'todo', '진행 중': 'doing', '보류 중': 'hold', '완료': 'done' },
+  // 팀 이름을 배지가 아니라 글자색으로 쓸 때 (보드 카드). TEAMS와 같은 색 계열.
+  TEAM_FG: {
+    '웰컴팀': 'text-tag-pink-fg',
+    '워십팀': 'text-tag-purple-fg',
+    '찬양팀': 'text-tag-blue-fg',
+    '엔지니어팀': 'text-tag-gray-fg',
+    '미디어팀': 'text-tag-brown-fg',
+    '임원진': 'text-tag-yellow-fg',
+    '교역자': 'text-tag-red-fg',
+  },
   // 팀 → index.css의 태그 색 토큰 이름. 캘린더처럼 실제 색값이 필요한 곳에서 쓴다
   // (TEAMS는 Tailwind 클래스 문자열이라 색값을 꺼낼 수 없다). TEAMS와 같은 색으로 유지.
   TEAM_TOKENS: {

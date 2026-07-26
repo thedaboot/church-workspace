@@ -1,41 +1,54 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+/* 본문 폰트 SUIT (가변) — 시스템 폰트는 기기마다 자획이 달라 화면 인상이 흔들린다.
+   패키지가 주는 CSS를 그대로 import하지 않는 이유는 font-display가 없어서다:
+   기본값(auto)이면 폰트를 받는 동안 글자가 아예 안 보인다(FOIT, 최대 3초).
+   swap으로 폴백 폰트부터 그리고, 도착하면 갈아끼운다. */
+@font-face {
+  font-family: 'SUIT Variable';
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('@sun-typeface/suit/fonts/variable/woff2/SUIT-Variable.woff2') format('woff2-variations');
+}
+
 /* 수동 테마 전환: <html data-theme="dark">가 다크 기준 (기본값은 index.html 스크립트가 시스템 설정으로 결정) */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
 /* ── 앱 시맨틱 변수: 라이트 (docs/DESIGN.md 스펙 값) ── */
 :root {
-  --app-canvas: #f6f5f4;        /* warm paper — 페이지 바탕 */
-  --app-surface: #ffffff;       /* 카드·패널·입력 */
-  --app-surface-hover: #efefee;
-  --app-line: #e6e6e6;          /* hairline */
-  --app-ink: rgba(0, 0, 0, .95);
-  --app-ink-secondary: #31302e;
-  --app-ink-muted: #615d59;
-  --app-ink-faint: #a39e98;
-  --app-accent: #0075de;        /* Notion Blue — 유일한 구조 색 */
-  --app-accent-strong: #005bab; /* pressed */
-  --app-accent-text: #0075de;   /* 링크·강조 텍스트용 */
-  --app-accent-weak: #e8f2fb;   /* 연한 블루 배경 */
+  /* 종이 톤 — 로그인 화면 글로우와 같은 계열(살짝 자색 기운)로 맞춘 무채색 */
+  --app-canvas: #f6f5f7;        /* 페이지 바탕 */
+  --app-surface: #fffdfc;       /* 카드·패널·입력 */
+  --app-surface-hover: #eeecef;
+  --app-line: #dcd8dc;          /* hairline */
+  --app-ink: #191720;
+  --app-ink-secondary: #2b2833;
+  --app-ink-muted: #6b6675;
+  --app-ink-faint: #a29daa;
+  --app-accent: #3f6fc4;        /* 유일한 구조 색 — 글로우의 하늘색을 진하게 */
+  --app-accent-strong: #33589c; /* pressed */
+  --app-accent-text: #3f6fc4;   /* 링크·강조 텍스트용 */
+  --app-accent-weak: #e8eefa;   /* 연한 블루 배경 */
   --app-night: #213183;         /* deep indigo hero */
-  /* 태그 팔레트 라이트 (기존 값 유지) */
-  --app-tag-gray: #f1f1ef;    --app-tag-gray-fg: #57564f;
-  --app-tag-brown: #f3eeee;   --app-tag-brown-fg: #6e4c41;
-  --app-tag-orange: #fadec9;  --app-tag-orange-fg: #8a4c21;
-  --app-tag-yellow: #fdecc8;  --app-tag-yellow-fg: #6c5121;
-  --app-tag-green: #dbeddb;   --app-tag-green-fg: #2b5e43;
-  --app-tag-blue: #d3e5ef;    --app-tag-blue-fg: #24567a;
-  --app-tag-purple: #e8deee;  --app-tag-purple-fg: #5a3286;
-  --app-tag-pink: #f5e0e9;    --app-tag-pink-fg: #85325c;
-  --app-tag-red: #ffe2dd;     --app-tag-red-fg: #93372f;
-  /* 상태 dot 전용 — 태그 fg(#6c5121)는 갈색으로 읽혀서 '보류 중'은 별도 노란색 */
-  --app-status-hold: #dfab01;
+  /* 태그 팔레트 라이트 — 로그인 글로우 3색(하늘·라벤더·핑크) 계열로 통일해
+     로그인에서 본 색이 앱 안에서 팀 색으로 이어지게 한다 */
+  --app-tag-gray: #e8e6ea;    --app-tag-gray-fg: #5b5764;
+  --app-tag-brown: #eee6e0;   --app-tag-brown-fg: #6b5347;
+  --app-tag-orange: #fce0cf;  --app-tag-orange-fg: #8b4a20;
+  --app-tag-yellow: #fbecd0;  --app-tag-yellow-fg: #7a5a1e;
+  --app-tag-green: #d9ecdf;   --app-tag-green-fg: #2c5d42;
+  --app-tag-blue: #dbeafd;    --app-tag-blue-fg: #2a5c9e;
+  --app-tag-purple: #e7dffb;  --app-tag-purple-fg: #5a3f9e;
+  --app-tag-pink: #fbdcec;    --app-tag-pink-fg: #9c3a6c;
+  --app-tag-red: #fbdedb;     --app-tag-red-fg: #993731;
+  /* 상태 dot 전용 — 태그 fg(#7a5a1e)는 갈색으로 읽혀서 '보류 중'은 별도 노란색 */
+  --app-status-hold: #d0a02a;
   /* SEED 오버라이드 (향후 SEED 컴포넌트 대비) */
-  --seed-color-bg-brand-solid: #0075de;
-  --seed-color-bg-brand-solid-pressed: #005bab;
-  --seed-color-bg-brand-weak: #e8f2fb;
-  --seed-color-fg-brand: #0075de;
+  --seed-color-bg-brand-solid: #3f6fc4;
+  --seed-color-bg-brand-solid-pressed: #33589c;
+  --seed-color-bg-brand-weak: #e8eefa;
+  --seed-color-fg-brand: #3f6fc4;
 }
 
 /* ── 다크 (data-theme 속성 기반 — 헤더 토글로 전환, DESIGN.md '프로젝트 적용 노트' 참조) ── */
@@ -43,7 +56,7 @@
     --app-canvas: #191919; --app-surface: #202020; --app-surface-hover: #2a2a2a;
     --app-line: #333230;
     --app-ink: #ededec; --app-ink-secondary: #d3d1cb; --app-ink-muted: #9b9998; --app-ink-faint: #6f6d66;
-    --app-accent: #0075de; --app-accent-strong: #005bab; --app-accent-text: #4a9eea; --app-accent-weak: #1c2a3a;
+    --app-accent: #4f7ed0; --app-accent-strong: #3f6fc4; --app-accent-text: #8fb4ea; --app-accent-weak: #202a3a;
     --app-night: #213183;
     --app-tag-gray: #303030;   --app-tag-gray-fg: #b9b7b3;
     --app-tag-brown: #362e26;  --app-tag-brown-fg: #c2a891;
@@ -57,8 +70,8 @@
     --app-status-hold: #e5b95c;
 
     /* SEED 오버라이드 (다크) */
-    --seed-color-bg-brand-weak: #1c2a3a;
-    --seed-color-fg-brand: #4a9eea;
+    --seed-color-bg-brand-weak: #202a3a;
+    --seed-color-fg-brand: #8fb4ea;
 }
 
 /* ── Tailwind 토큰 연결: 기존 클래스명 유지 + 신규 ── */
@@ -95,14 +108,14 @@
   /* 노션 다층 그림자 — DESIGN.md Elevation 표 그대로 */
   --shadow-soft: 0 0.175px 1.041px rgba(0, 0, 0, .01), 0 0.8px 2.925px rgba(0, 0, 0, .02), 0 2.025px 7.847px rgba(0, 0, 0, .027), 0 4px 18px rgba(0, 0, 0, .04);
   --shadow-elevated: 0 0.6px 1.8px rgba(0, 0, 0, .02), 0 2.3px 6.9px rgba(0, 0, 0, .03), 0 5.4px 16.2px rgba(0, 0, 0, .035), 0 11px 33px rgba(0, 0, 0, .04), 0 23px 52px rgba(0, 0, 0, .05);
-  /* 폰트 */
-  --font-sans: 'Pretendard Variable', Pretendard, Inter, -apple-system, system-ui, 'Segoe UI', sans-serif;
+  /* 폰트 — SUIT(index.html에서 CDN 로드) 우선, 실패하면 아래 순서로 */
+  --font-sans: 'SUIT Variable', 'Pretendard Variable', Pretendard, -apple-system, system-ui, 'Segoe UI', sans-serif;
 }
 
 @layer base {
   /* 모바일 주소창 바운스로 인한 이중 스크롤 억제 */
   html, body { overscroll-behavior-y: none; }
-  body { background-color: var(--app-canvas); color: var(--app-ink); font-feature-settings: 'lnum', 'locl'; word-break: keep-all; overflow-wrap: break-word; transition: background-color .2s ease, color .2s ease; }
+  body { background-color: var(--app-canvas); color: var(--app-ink); font-family: var(--font-sans); font-feature-settings: 'lnum', 'locl'; word-break: keep-all; overflow-wrap: break-word; transition: background-color .2s ease, color .2s ease; }
 
   /* 노션풍 얇은 스크롤바 (라이트/다크 토큰 연동) */
   * { scrollbar-width: thin; scrollbar-color: var(--app-line) transparent; }
@@ -116,14 +129,24 @@
 /* ── 배경 파스텔 글로우 ──────────────────────────────────────────────────────
    전에는 blur-[140px] 원 3개였는데, 140px 블러 레이어는 모바일에서
    래스터 비용이 커서 새 레이어(모달)가 올라올 때마다 GPU 작업이 몰렸다.
-   같은 모양을 radial-gradient로 직접 그리면 합성 비용이 사실상 0이다. */
+   같은 모양을 radial-gradient로 직접 그리면 합성 비용이 사실상 0이다.
+
+   앱 안에서는 화면 위쪽에만 남긴다 — 업무 목록은 오래 읽는 화면이라 배경 전체에
+   그라디언트를 깔면 글자가 뜬다. 로그인 화면은 자체 블러 원을 쓰므로 그대로다. */
 .app-glow {
+  background-repeat: no-repeat;
   background-image:
-    radial-gradient(38rem 38rem at -6% -10%, color-mix(in srgb, #62aef0 13%, transparent), transparent 70%),
-    radial-gradient(42rem 42rem at 106% 110%, color-mix(in srgb, #d6b6f6 15%, transparent), transparent 70%),
-    radial-gradient(26rem 26rem at 74% -4%, color-mix(in srgb, #ffb6dd 11%, transparent), transparent 70%);
+    radial-gradient(48rem 26rem at 2% -6%, color-mix(in srgb, #62aef0 32%, transparent), transparent 72%),
+    radial-gradient(42rem 24rem at 50% -12%, color-mix(in srgb, #d6b6f6 30%, transparent), transparent 72%),
+    radial-gradient(36rem 22rem at 99% -8%, color-mix(in srgb, #ffb6dd 28%, transparent), transparent 72%);
 }
-:root[data-theme='dark'] .app-glow { opacity: .45; }
+:root[data-theme='dark'] .app-glow { opacity: .3; }
+
+/* ── 아이콘 규칙 ────────────────────────────────────────────────────────────
+   lucide 기본 stroke-width는 2인데, 14~18px 한글 옆에서는 글자보다 굵어 보여
+   아이콘이 자기 존재를 과시한다. 선을 얇게 깔고, 굵어야 하는 몇 곳만
+   [stroke-width:*] 유틸로 되돌린다. 속성이 아니라 CSS라 개별 아이콘 수정 불필요. */
+svg.lucide { stroke-width: 1.4px; }
 
 /* ── 칸반 카드: 화면 밖은 브라우저가 렌더를 건너뛰게 ─────────────────────────
    앱을 열고 첫 카드를 탭할 때 굼떴던 실측 원인이 "보이지도 않는 카드까지
