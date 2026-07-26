@@ -19,8 +19,10 @@ export function SmartImage({ src, alt = '', className = '', wrapperClassName = '
   const [state, setState] = useState('loading'); // loading | ready | error
   useEffect(() => { setState('loading'); }, [src]);
 
+  // display는 호출부가 정한다 — 여기서 inline-block을 고정하면 래퍼에 확정 높이를
+  // 줄 수 없어서, 안쪽 이미지의 max-h-full이 기준을 못 잡고 가로 화면에서 넘쳤다.
   return (
-    <span className={`relative inline-block ${wrapperClassName}`}>
+    <span className={`relative ${wrapperClassName}`}>
       {state !== 'ready' && <Skeleton className={`absolute inset-0 w-full h-full ${skeletonClassName}`} />}
       {src && (
         <img
@@ -48,7 +50,7 @@ export function ImageLightbox({ src, alt = '', onClose }) {
       <button type="button" onClick={onClose} className="absolute top-3 right-3 p-2 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition" title="닫기"><X size={20} /></button>
       <SmartImage
         src={src} alt={alt}
-        wrapperClassName="max-w-full max-h-full flex items-center justify-center"
+        wrapperClassName="w-full h-full flex items-center justify-center"
         className="max-w-full max-h-[88dvh] object-contain rounded-md"
         skeletonClassName="w-64 h-64"
       />

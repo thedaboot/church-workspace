@@ -419,7 +419,7 @@ const AttachmentRow = ({ row, canDelete, thumb, onOpen, onRemove }) => {
       {isImage
         ? <SmartImage
             src={thumb} alt={row.name} onClick={onOpen} title="미리보기"
-            wrapperClassName="h-20 w-20 shrink-0"
+            wrapperClassName="h-20 w-20 shrink-0 inline-block"
             className="h-20 w-20 object-cover rounded-md border border-line"
           />
         : <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>}

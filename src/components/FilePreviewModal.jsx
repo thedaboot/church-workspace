@@ -5,6 +5,7 @@ import { RichText } from './RichText.jsx';
 import { getFileOpenUrl } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { Skeleton, SmartImage } from './media.jsx';
+import { PdfView } from './PdfView.jsx';
 
 // ============================================================================
 // 첨부 미리보기 — 새 탭으로 스토리지 링크를 던지지 않고 앱 안에서 본다.
@@ -22,8 +23,12 @@ const extOf = (name = '') => (name.split('.').pop() || '').toLowerCase();
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg'];
 const TEXT_EXT = ['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'log', 'xml', 'yml', 'yaml', 'html', 'css', 'js', 'jsx', 'ts', 'tsx', 'py', 'sql', 'sh'];
 const OFFICE_EXT = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
-const MAX_TEXT_BYTES = 512 * 1024;   // 텍스트는 이만큼만 내려받아 보여준다
-const OFFICE_TIMEOUT = 12000;        // 이 시간 안에 안 뜨면 안내로 대체
+const MAX_TEXT_BYTES = 512 * 1024;      // 텍스트는 이만큼만 내려받아 보여준다
+const MAX_PDF_PREFETCH = 15 * 1024 * 1024; // 이보다 크면 통째로 받지 않고 바로 스트리밍
+const OFFICE_TIMEOUT = 12000;           // 이 시간 안에 안 뜨면 안내로 대체
+// iframe onLoad는 "문서가 전달된 시점"이라 뷰어가 첫 페이지를 그리기 전이다.
+// 그 사이 PDF 뷰어의 검은 배경이 그대로 보여서, 조금 더 기다렸다 스켈레톤을 걷는다.
+const FRAME_SETTLE = 260;
 
 export function previewKind(row) {
   const mime = row.mime_type || '';
@@ -38,9 +43,6 @@ export function previewKind(row) {
   return 'none';
 }
 
-// 브라우저 내장 PDF 뷰어의 좌측 썸네일 패널·툴바를 끄고 문서만 보여준다.
-// (전체 기능이 필요하면 모달 헤더의 '새 탭에서 열기'로 원래 뷰어를 쓴다)
-const PDF_VIEW_PARAMS = 'navpanes=0&toolbar=0&statusbar=0&view=FitH';
 const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
 const driveSrc = (row) => (row.drive_file_id ? `https://drive.google.com/file/d/${row.drive_file_id}/preview` : null);
 
@@ -55,7 +57,9 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
   const [error, setError] = useState(null);
   const [frameReady, setFrameReady] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
+  const [pdfSrc, setPdfSrc] = useState(null); // { blob } 또는 { src } — 준비가 끝난 뒤에만 렌더
   const timerRef = useRef(null);
+  const settleRef = useRef(null);
 
   // 서명 URL 확보 (이미 있으면 건너뜀)
   useEffect(() => {
@@ -80,6 +84,23 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, url]);
+
+  // PDF는 파일을 먼저 통째로 받아두고 그 바이트로 그린다.
+  // 주소만 넘기면 그리기 시작한 뒤에야 내려받기가 진행돼 빈 화면이 오래 보인다.
+  // 큰 파일은 통째로 기다리는 게 더 나빠서 주소로 바로 스트리밍한다.
+  useEffect(() => {
+    if (kind !== 'pdf' || !url || pdfSrc) return;
+    if ((row.size_bytes ?? 0) > MAX_PDF_PREFETCH) { setPdfSrc({ src: url }); return; }
+    let alive = true;
+    fetch(url)
+      .then(r => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(b => { if (alive) setPdfSrc({ blob: b }); })
+      .catch(() => { if (alive) setPdfSrc({ src: url }); }); // 실패하면 주소로
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, url]);
+
+  useEffect(() => () => clearTimeout(settleRef.current), []);
 
   // 오피스 뷰어가 응답 없이 멈추는 경우가 있어 시간 제한을 둔다
   useEffect(() => {
@@ -106,48 +127,54 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
         <div className="w-full h-full flex items-center justify-center">
           <SmartImage
             src={url} alt={row.name}
-            wrapperClassName="max-w-full"
-            className="max-w-full max-h-[76dvh] object-contain rounded-md"
+            wrapperClassName="w-full h-full flex items-center justify-center"
+            className="max-w-full max-h-full object-contain rounded-md"
             skeletonClassName="w-72 h-72"
           />
         </div>
       );
     }
     if (kind === 'video') {
-      if (!url) return <Skeleton className="w-full h-[50dvh]" />;
-      return <video src={url} controls className="w-full max-h-[72dvh] rounded-md bg-black" />;
+      if (!url) return <Skeleton className="w-full h-full" />;
+      return <video src={url} controls className="max-w-full max-h-full rounded-md bg-black" />;
     }
     if (kind === 'audio') {
       if (!url) return <Skeleton className="w-full h-16" />;
       return <audio src={url} controls className="w-full" />;
     }
     if (kind === 'text') {
-      if (text === null) return <Skeleton className="w-full h-[50dvh]" />;
+      if (text === null) return <Skeleton className="w-full h-full" />;
       const isMd = ['md', 'markdown'].includes(extOf(row.name));
       return (
-        <div className="w-full max-w-3xl mx-auto bg-surface border border-line rounded-md p-4 max-h-[72dvh] overflow-auto">
+        <div className="w-full h-full max-w-3xl mx-auto bg-surface border border-line rounded-md p-4 overflow-auto">
           {isMd
             ? <RichText content={text} />
             : <pre className="text-xs text-fg-secondary whitespace-pre-wrap break-words font-mono leading-relaxed">{text}</pre>}
         </div>
       );
     }
-    if (kind === 'pdf' || kind === 'office' || kind === 'drive') {
-      const src = kind === 'pdf' ? (url && `${url}#${PDF_VIEW_PARAMS}`)
-        : kind === 'drive' ? driveSrc(row)
-        : (url && officeSrc(url));
-      if (!src) return <Skeleton className="w-full h-[60dvh]" />;
+    // PDF는 pdf.js로 직접 그린다 — iOS 사파리는 iframe 안의 PDF를 첫 쪽만 보여준다.
+    if (kind === 'pdf') {
+      if (!pdfSrc) return <PreparingFrame />;
+      return (
+        <PdfView
+          blob={pdfSrc.blob} src={pdfSrc.src}
+          onError={(e) => setError(`미리보기를 그릴 수 없어요 · ${e.message || e}`)}
+        />
+      );
+    }
+    if (kind === 'office' || kind === 'drive') {
+      const src = kind === 'drive' ? driveSrc(row) : (url && officeSrc(url));
+      // 파일을 받는 동안(src 없음)에도 같은 안내를 보여준다
+      if (!src) return <PreparingFrame />;
       if (timedOut && !frameReady) return <Fallback row={row} message="미리보기가 응답하지 않아요." onOpen={openExternal} />;
       return (
-        <div className="relative w-full h-[68dvh]">
-          {!frameReady && <Skeleton className="absolute inset-0 w-full h-full" />}
-          {!frameReady && (
-            <span className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-fg-muted">
-              <Loader2 size={14} className="animate-spin" /> 미리보기를 준비하고 있어요
-            </span>
-          )}
+        <div className="relative w-full h-full">
+          {!frameReady && <PreparingFrame absolute />}
           <iframe
-            src={src} title={row.name} onLoad={() => setFrameReady(true)}
+            src={src} title={row.name}
+            // onLoad 직후엔 아직 첫 페이지가 안 그려져 있다(뷰어 배경만 보임) → 조금 뒤에 걷는다
+            onLoad={() => { clearTimeout(settleRef.current); settleRef.current = setTimeout(() => setFrameReady(true), FRAME_SETTLE); }}
             className={`w-full h-full rounded-md border border-line bg-surface ${frameReady ? '' : 'opacity-0'}`}
           />
         </div>
@@ -160,7 +187,9 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
     <div className="fixed inset-0 z-[100] bg-black/70 flex items-center justify-center p-0 md:p-6 animate-in fade-in duration-150" onClick={onClose}>
       <div
         onClick={e => e.stopPropagation()}
-        className={`bg-canvas border border-line shadow-elevated flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 ${isMobile ? 'w-full h-full' : 'w-full max-w-5xl max-h-[90dvh] rounded-lg'}`}
+        // 높이를 확정해 둔다 — max-h만 주면 안쪽 h-full(미리보기 영역)이 기준을 못 잡아
+        // 파일 종류마다 크기가 들쭉날쭉해지고 모바일에서 잘려 보였다.
+        className={`bg-canvas border border-line shadow-elevated flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 ${isMobile ? 'w-full h-full' : 'w-full max-w-5xl h-[88dvh] rounded-lg'}`}
       >
         <div className="shrink-0 flex items-center gap-2 px-3 py-2.5 border-b border-line bg-surface">
           <div className="flex-1 min-w-0">
@@ -177,10 +206,23 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
           ><Download size={16} /></a>
           <button type="button" onClick={onClose} className="p-2 rounded-md text-fg-faint hover:bg-surface-hover transition active:scale-95" title="닫기"><X size={18} /></button>
         </div>
-        <div className="flex-1 min-h-0 overflow-auto p-3 md:p-4 flex items-center justify-center">{body}</div>
+        {/* 미리보기 영역은 남은 공간을 그대로 채운다(고정 dvh를 쓰면 창 크기에 안 맞는다) */}
+        <div className="flex-1 min-h-0 p-2 md:p-4 flex items-center justify-center overflow-hidden">{body}</div>
       </div>
     </div>,
     document.body
+  );
+}
+
+// 준비 중 자리(스켈레톤 + 안내). absolute=이미 자리를 잡은 컨테이너 위에 덮어씌울 때
+function PreparingFrame({ absolute = false }) {
+  return (
+    <div className={absolute ? 'absolute inset-0' : 'relative w-full h-full'}>
+      <Skeleton className="absolute inset-0 w-full h-full" />
+      <span className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-fg-muted">
+        <Loader2 size={14} className="animate-spin" /> 미리보기를 준비하고 있어요
+      </span>
+    </div>
   );
 }
 

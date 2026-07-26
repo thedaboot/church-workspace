@@ -88,7 +88,7 @@ function ContentImage({ src }) {
     <>
       <SmartImage
         src={src} alt="첨부 이미지" title="크게 보기" onClick={() => setOpen(true)}
-        wrapperClassName="max-w-full"
+        wrapperClassName="max-w-full inline-block"
         className="max-w-full rounded-lg border border-line max-h-64 object-contain"
         skeletonClassName="w-full h-40 rounded-lg"
       />
