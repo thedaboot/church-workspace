@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'rea
 import {
   CheckSquare, Clock, X, User, Hash, RefreshCw, Download, Upload,
   Wand2, Sparkles, CalendarRange, Pencil, Trash2, Heart,
-  FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, Loader2, ExternalLink, Check, AlertTriangle
+  FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, Loader2, ExternalLink, Check, AlertTriangle, Eye
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { formatDate, avatarColor, isMobileViewport } from '../utils.js';
@@ -23,6 +23,8 @@ import { uploadAttachment, getFileOpenUrl, getAttachmentUrls, deleteAttachment, 
 import { getMemberNames } from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { FilePreviewModal } from '../components/FilePreviewModal.jsx';
+import { SmartImage } from '../components/media.jsx';
 
 // ============================================================================
 // 13. Modals (완벽한 SRP 분리)
@@ -415,15 +417,17 @@ const AttachmentRow = ({ row, canDelete, thumb, onOpen, onRemove }) => {
   return (
     <div className="flex items-center gap-2.5 py-2 animate-in fade-in duration-200">
       {isImage
-        ? (thumb
-            ? <img src={thumb} alt={row.name} onClick={onOpen} className="h-20 w-20 object-cover rounded-md border border-line cursor-pointer shrink-0" />
-            : <div className="h-20 w-20 rounded-md border border-line bg-surface-2 shrink-0 animate-pulse" />)
+        ? <SmartImage
+            src={thumb} alt={row.name} onClick={onOpen} title="미리보기"
+            wrapperClassName="h-20 w-20 shrink-0"
+            className="h-20 w-20 object-cover rounded-md border border-line"
+          />
         : <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>}
       <div className="flex-1 min-w-0">
         <p className="text-xs text-fg truncate">{row.name}</p>
         <p className="text-[10px] text-fg-faint mt-0.5">{formatBytes(row.size_bytes)}</p>
       </div>
-      <button type="button" onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title="열기"><ExternalLink size={14} /></button>
+      <button type="button" onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title="미리보기"><Eye size={14} /></button>
       {canDelete && (
         <ConfirmPopover message={`'${row.name}'을(를) 삭제할까요?`} onConfirm={onRemove}>
           <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95" title="삭제"><Trash2 size={14} /></button>
@@ -440,6 +444,7 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
   const [dragOver, setDragOver] = useState(false);
   const [uploadingName, setUploadingName] = useState(null);
   const [rejected, setRejected] = useState([]); // 용량 초과로 건너뛴 파일들
+  const [preview, setPreview] = useState(null); // 미리보기로 열어둔 files 행
   const inputRef = useRef(null);
 
   // 첫 페인트 경쟁 방지: 네트워크는 유휴 시점으로 미룬다(모달은 로컬 데이터로 먼저 뜬다)
@@ -496,10 +501,9 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id, readOnly]);
 
-  const openFile = async (row) => {
-    try { const url = await getFileOpenUrl(row); window.open(url, '_blank', 'noopener'); }
-    catch (e) { showToast('파일을 열 수 없어요 · ' + (e.message || e)); }
-  };
+  // 스토리지 링크를 새 탭으로 던지지 않고 앱 안 미리보기로 연다
+  // (모달 안에 '새 탭에서 열기'·'내려받기'가 있다)
+  const openFile = (row) => setPreview(row);
   const removeItem = async (row) => {
     try {
       await deleteAttachment(row);
@@ -548,6 +552,14 @@ const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = f
         <div className="divide-y divide-line/60 mt-1">
           {items.map(row => <AttachmentRow key={row.id} row={row} thumb={thumbs[row.storage_path]} canDelete={!readOnly && (isAdmin || row.uploaded_by === userId)} onOpen={() => openFile(row)} onRemove={() => removeItem(row)} />)}
         </div>
+      )}
+      {preview && (
+        <FilePreviewModal
+          row={preview}
+          // 목록에서 이미 받아둔 이미지가 있으면 그대로 넘겨 스켈레톤 없이 바로 띄운다
+          initialSrc={thumbs[preview.storage_path] || null}
+          onClose={() => setPreview(null)}
+        />
       )}
     </div>
   );

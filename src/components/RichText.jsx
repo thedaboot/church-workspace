@@ -1,5 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { tokenizeInline, MD_LINK_RE } from '../services/markdown.js';
+import { SmartImage, ImageLightbox } from './media.jsx';
 
 // ============================================================================
 // 9. RichText Parser & Renderer
@@ -80,6 +81,22 @@ const parseBlocks = (text) => {
   return blocks;
 };
 
+// 본문 이미지 — 받는 동안 같은 자리에 스켈레톤, 누르면 크게 본다
+function ContentImage({ src }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <SmartImage
+        src={src} alt="첨부 이미지" title="크게 보기" onClick={() => setOpen(true)}
+        wrapperClassName="max-w-full"
+        className="max-w-full rounded-lg border border-line max-h-64 object-contain"
+        skeletonClassName="w-full h-40 rounded-lg"
+      />
+      {open && <ImageLightbox src={src} alt="첨부 이미지" onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
 export const RichText = React.memo(({ content }) => {
   const blocks = useMemo(() => parseBlocks(content), [content]);
   return (
@@ -87,7 +104,7 @@ export const RichText = React.memo(({ content }) => {
       {blocks.map(block => {
         switch (block.type) {
           case 'image':
-            return <div key={block.key} className="my-2"><img src={block.value} alt="embedded" className="max-w-full rounded-lg border border-line max-h-64 object-contain" /></div>;
+            return <div key={block.key} className="my-2"><ContentImage src={block.value} /></div>;
           case 'heading': {
             const Tag = `h${block.level}`;
             return <Tag key={block.key} className={HEADING_CLS[block.level]}>{renderInline(block.value, block.key)}</Tag>;

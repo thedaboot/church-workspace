@@ -27,8 +27,11 @@ const dropCollision = (args) => {
 // ============================================================================
 // 12. UI Components (순수 프레젠테이션)
 // ============================================================================
-// 하루 셀에 보여줄 최대 줄 수. 넘치면 +N으로 접고, 날짜를 누르면 전체를 목록으로 본다.
-const CAL_MAX_ROWS = 3;
+// 하루 셀에 보여줄 최대 줄 수. 넘치면 +N으로 접고, 날짜를 누르면 옆(모바일은 아래)
+// 목록에서 전체를 본다. 셀에 overflow-hidden을 걸 수 없어서(여러 날 띠의 제목이
+// 셀 밖으로 흘러야 한다) 칸 높이 안에 들어가는 줄 수로 제한한다.
+//   데스크톱 칸(min 104px) = 날짜 20 + 띠 20×2 + 간격 4 + 더보기 18 + 여백 8
+const CAL_MAX_ROWS = 2;
 const CAL_MAX_ROWS_MOBILE = 2;
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -115,10 +118,9 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entriesOf, currentYear, currentMonth, maxRows, firstDayIndex, daysInMonth]);
 
-  // 모바일은 아래 목록이 실질적인 읽기 화면이라 처음부터 열어둔다
+  // 목록 패널은 처음부터 열어둔다 — 좁은 칸에서 못 읽는 제목·팀·상태를 여기서 읽는다.
   // (오늘 → 일정이 있는 첫 날 순). 사용자가 닫으면(null) 다시 열지 않는다.
   const autoDay = React.useMemo(() => {
-    if (!isMobile) return null;
     const todayStr = dateStrOf(today.getDate());
     if (showingCurrentMonth && entriesOf(todayStr).length) return todayStr;
     for (const d of days) {
@@ -128,7 +130,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
     }
     return null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMobile, entriesOf, currentYear, currentMonth]);
+  }, [entriesOf, currentYear, currentMonth]);
   const openDay = selected === undefined ? autoDay : selected;
 
   // 달을 옮기면 선택은 다시 자동으로
@@ -146,7 +148,11 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
           <button onClick={goNext} disabled={!canNext} className={`p-1 rounded-md text-fg-muted transition active:scale-95 ${canNext ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`}><ChevronRight size={16} strokeWidth={1.75} /></button>
         </div>
       </div>
-      <div className="grid grid-cols-7 border-b border-line">
+      {/* 데스크톱은 달력 옆에 목록을 세로로 붙인다(칸 높이를 뺏지 않으면서 제대로 읽게).
+          모바일은 아래에 붙인다. */}
+      <div className={`flex-1 min-h-0 flex ${isMobile ? 'flex-col' : 'flex-row'}`}>
+      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="grid grid-cols-7 border-b border-line shrink-0">
         {WEEKDAYS.map(d => <div key={d} className="py-1.5 text-center text-[10px] font-semibold text-fg-muted border-r border-line last:border-0">{d}</div>)}
       </div>
       {/* 모바일은 칸을 정사각형에 가깝게 눌러 담고(빈 칸이 커 보이지 않게) 남은
@@ -165,21 +171,24 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
             <div
               key={day}
               onClick={() => setSelected(hasAny ? dateStr : null)}
-              className={`border-b border-r border-line p-1 ${isMobile ? 'min-h-[62px]' : 'min-h-[84px]'} ${hasAny ? 'cursor-pointer' : ''} ${isSelected ? 'bg-accent-weak/70 ring-1 ring-inset ring-accent' : isToday ? 'bg-accent-weak' : ''}`}
+              className={`border-b border-r border-line p-1 ${isMobile ? 'min-h-[62px]' : 'min-h-[104px]'} ${hasAny ? 'cursor-pointer' : ''} ${isSelected ? 'bg-accent-weak/70 ring-1 ring-inset ring-accent' : isToday ? 'bg-accent-weak' : ''}`}
             >
-              <div className={`text-[10px] font-semibold ${isMobile ? 'text-center' : 'px-1'} ${isToday ? 'text-accent' : 'text-fg-muted'}`}>{day}</div>
+              {/* 오늘은 채운 원으로 표시 — 배경 강조만으로는 눈에 덜 들어온다 */}
+              <div className={`${isMobile ? 'text-center text-[10px]' : 'px-0.5 text-[11px]'} font-semibold leading-none`}>
+                <span className={`inline-flex items-center justify-center ${isMobile ? 'w-4 h-4' : 'w-5 h-5'} rounded-full ${isToday ? 'bg-accent text-white' : 'text-fg-muted'}`}>{day}</span>
+              </div>
               <div className={`${isMobile ? 'space-y-0.5' : 'space-y-1'} mt-0.5`}>
                 {Array.from({ length: lastLane + 1 }, (_, lane) => {
                   const e = cell.lanes[lane];
                   // 빈 레인은 같은 높이의 자리만 차지 — 여러 날 띠의 줄 위치를 지킨다
-                  if (!e) return <div key={`gap-${lane}`} className={isMobile ? 'h-[14px]' : 'h-[18px]'} />;
+                  if (!e) return <div key={`gap-${lane}`} className={isMobile ? 'h-[14px]' : 'h-[20px]'} />;
                   return <CalendarBand key={e.task.id} task={e.task} kind={e.kind} compact={isMobile} onClick={onTaskClick} />;
                 })}
                 {cell.more > 0 && (
                   <button
                     type="button"
                     onClick={(ev) => { ev.stopPropagation(); setSelected(dateStr); }}
-                    className={`w-full font-semibold text-fg-muted hover:text-accent-text rounded-sm hover:bg-surface-hover transition ${isMobile ? 'text-[8px] text-center leading-[12px]' : 'text-[9px] text-left px-1.5 py-0.5'}`}
+                    className={`w-full font-semibold text-fg-muted hover:text-accent-text rounded-sm hover:bg-surface-hover transition ${isMobile ? 'text-[8px] text-center leading-[12px]' : 'text-[10px] text-left px-1.5 py-0.5'}`}
                   >+{cell.more}{isMobile ? '' : '개 더'}</button>
                 )}
               </div>
@@ -187,7 +196,9 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
           );
         })}
       </div>
+      </div>
       {openDay && <CalendarDayPanel dateStr={openDay} entries={entriesOf(openDay)} onTaskClick={onTaskClick} onClose={() => setSelected(null)} isMobile={isMobile} />}
+      </div>
     </div>
   );
 });
@@ -198,7 +209,7 @@ function CalendarBand({ task, kind, onClick, compact = false }) {
   const paint = teamPaint(task.teams);
   // compact = 모바일(칸 폭 53px 남짓). 아이폰 캘린더처럼 얇은 칩으로 줄이고,
   // 여러 날 업무는 제목이 띠 위로 이어져 흐르므로 좁은 칸에서도 읽을 수 있다.
-  const base = `flex items-center cursor-pointer hover:opacity-80 transition-opacity ${compact ? 'h-[14px] text-[8px] rounded-[3px]' : 'h-[18px] text-[9px]'}`;
+  const base = `flex items-center cursor-pointer hover:opacity-80 transition-opacity ${compact ? 'h-[14px] text-[8px] rounded-[3px]' : 'h-[20px] text-[10px]'}`;
   const pad = compact ? 'px-1' : 'px-1.5';
   const label = <span className="overflow-visible relative z-[5] whitespace-nowrap pointer-events-none">{task.title}</span>;
   let cls = '', content = null;
@@ -232,8 +243,8 @@ function CalendarDayPanel({ dateStr, entries, onTaskClick, onClose, isMobile = f
   const weekday = WEEKDAYS[new Date(y, m - 1, d).getDay()];
   const KIND_LABEL = { start: '시작', mid: '진행', due: '마감', single: '하루', 'due-only': '마감' };
   return (
-    // 모바일은 이 패널이 실제 읽는 화면이라 남은 공간을 다 쓴다
-    <div className={`border-t border-line bg-surface-2/60 overflow-y-auto ${isMobile ? 'flex-1 min-h-[120px]' : 'shrink-0 max-h-[38%]'}`}>
+    // 모바일: 달력 아래 / 데스크톱: 달력 오른쪽 세로 패널(칸 높이를 뺏지 않는다)
+    <div className={`bg-surface-2/60 overflow-y-auto ${isMobile ? 'border-t border-line flex-1 min-h-[120px]' : 'border-l border-line w-72 shrink-0'}`}>
       <div className="flex items-center justify-between px-3 py-2 sticky top-0 bg-surface-2">
         <span className="text-xs font-bold text-fg">{m}월 {d}일 ({weekday}) · {entries.length}건</span>
         <button type="button" onClick={onClose} className="p-1 rounded-md text-fg-faint hover:bg-surface-hover transition active:scale-95"><X size={14} /></button>
