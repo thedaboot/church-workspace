@@ -27,16 +27,17 @@ const dropCollision = (args) => {
 // ============================================================================
 // 12. UI Components (순수 프레젠테이션)
 // ============================================================================
-// 하루 셀에 보여줄 최대 줄 수(데스크톱) / 점 개수(모바일). 넘치면 +N으로 접는다.
+// 하루 셀에 보여줄 최대 줄 수. 넘치면 +N으로 접고, 날짜를 누르면 전체를 목록으로 본다.
 const CAL_MAX_ROWS = 3;
-const CAL_MAX_DOTS = 3;
+const CAL_MAX_ROWS_MOBILE = 2;
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
   // O(1) 맵핑 캐싱된 Selector 활용
   const tasksByDateMap = useStore(selectTasksByDate);
   const isMobile = useIsMobile();
-  const [selected, setSelected] = React.useState(null); // 'YYYY-MM-DD' — 아래 목록 패널
+  // undefined = 자동(모바일은 오늘/첫 일정일), null = 사용자가 닫음, 'YYYY-MM-DD' = 선택
+  const [selected, setSelected] = React.useState(undefined);
 
   // 이 캘린더가 보여줄 업무만 남긴다(프로젝트 캘린더는 그 프로젝트 업무만).
   // 전역 selector를 그대로 쓰면 다른 프로젝트 업무까지 달력에 섞여 나온다.
@@ -68,6 +69,72 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
   const showingCurrentMonth = currentYear === today.getFullYear() && currentMonth === today.getMonth();
 
   const days = Array.from({ length: firstDayIndex + daysInMonth }, (_, i) => i < firstDayIndex ? null : i - firstDayIndex + 1);
+  const dateStrOf = (day) => `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const maxRows = isMobile ? CAL_MAX_ROWS_MOBILE : CAL_MAX_ROWS;
+
+  // ── 주 단위 레인(줄 위치) 배치 ────────────────────────────────────────────
+  // 같은 업무는 그 주 동안 같은 줄에 고정해야 띠가 끊기지 않는다. 날짜별로 그냥
+  // 순서대로 쌓으면, 짧은 업무가 끝나는 날부터 뒤 업무가 한 줄 위로 올라가면서
+  // 여러 날 띠가 중간에 어긋나 보였다.
+  const layout = React.useMemo(() => {
+    const perDay = new Map(); // dateStr -> { lanes: (entry|null)[], more: number }
+    for (let w = 0; w < days.length; w += 7) {
+      const week = days.slice(w, w + 7).filter(Boolean).map(dateStrOf);
+      const dayEntries = week.map(entriesOf);
+      // 이 주에 처음 등장하는 순서 = 시작일 빠른 순(selector에서 정렬됨)
+      const order = [];
+      const seen = new Set();
+      dayEntries.forEach(list => list.forEach(e => {
+        if (!seen.has(e.task.id)) { seen.add(e.task.id); order.push(e.task.id); }
+      }));
+      const occupied = [];              // occupied[lane] = Set(요일 인덱스)
+      const laneOf = new Map();
+      for (const taskId of order) {
+        const cols = dayEntries.reduce((acc, list, i) => (list.some(e => e.task.id === taskId) ? [...acc, i] : acc), []);
+        let lane = 0;
+        while (true) {
+          if (!occupied[lane]) occupied[lane] = new Set();
+          if (cols.every(i => !occupied[lane].has(i))) break;
+          lane++;
+        }
+        cols.forEach(i => occupied[lane].add(i));
+        laneOf.set(taskId, lane);
+      }
+      week.forEach((ds, i) => {
+        const lanes = [];
+        let more = 0;
+        for (const e of dayEntries[i]) {
+          const lane = laneOf.get(e.task.id) ?? 0;
+          if (lane >= maxRows) more++;
+          else lanes[lane] = e;
+        }
+        perDay.set(ds, { lanes, more });
+      });
+    }
+    return perDay;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entriesOf, currentYear, currentMonth, maxRows, firstDayIndex, daysInMonth]);
+
+  // 모바일은 아래 목록이 실질적인 읽기 화면이라 처음부터 열어둔다
+  // (오늘 → 일정이 있는 첫 날 순). 사용자가 닫으면(null) 다시 열지 않는다.
+  const autoDay = React.useMemo(() => {
+    if (!isMobile) return null;
+    const todayStr = dateStrOf(today.getDate());
+    if (showingCurrentMonth && entriesOf(todayStr).length) return todayStr;
+    for (const d of days) {
+      if (!d) continue;
+      const ds = dateStrOf(d);
+      if (entriesOf(ds).length) return ds;
+    }
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile, entriesOf, currentYear, currentMonth]);
+  const openDay = selected === undefined ? autoDay : selected;
+
+  // 달을 옮기면 선택은 다시 자동으로
+  const monthKey = `${currentYear}-${currentMonth}`;
+  const lastMonthRef = React.useRef(monthKey);
+  if (lastMonthRef.current !== monthKey) { lastMonthRef.current = monthKey; if (selected !== undefined) setSelected(undefined); }
 
   return (
     <div className="bg-surface rounded-lg border border-line flex flex-col h-full min-h-[400px]">
@@ -82,71 +149,68 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
       <div className="grid grid-cols-7 border-b border-line">
         {WEEKDAYS.map(d => <div key={d} className="py-1.5 text-center text-[10px] font-semibold text-fg-muted border-r border-line last:border-0">{d}</div>)}
       </div>
-      <div className="flex-1 grid grid-cols-7 auto-rows-fr overflow-y-auto">
+      {/* 모바일은 칸을 정사각형에 가깝게 눌러 담고(빈 칸이 커 보이지 않게) 남은
+          공간은 아래 목록 패널이 쓴다. 데스크톱은 칸을 늘려 채운다. */}
+      <div className={`grid grid-cols-7 overflow-y-auto ${isMobile ? 'auto-rows-min' : 'flex-1 auto-rows-fr'}`}>
         {days.map((day, idx) => {
-          if (!day) return <div key={`empty-${idx}`} className="border-b border-r border-line bg-surface-2"></div>;
-          const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-          const dayEntries = entriesOf(dateStr); // [{ task, kind }] — 시작일 빠른 순
+          if (!day) return <div key={`empty-${idx}`} className={`border-b border-r border-line bg-surface-2 ${isMobile ? 'min-h-[62px]' : ''}`}></div>;
+          const dateStr = dateStrOf(day);
+          const cell = layout.get(dateStr) || { lanes: [], more: 0 };
+          const hasAny = cell.lanes.some(Boolean) || cell.more > 0;
           const isToday = showingCurrentMonth && day === today.getDate();
-          const isSelected = selected === dateStr;
-          const limit = isMobile ? CAL_MAX_DOTS : CAL_MAX_ROWS;
-          const shown = dayEntries.slice(0, limit);
-          const more = dayEntries.length - shown.length;
+          const isSelected = openDay === dateStr;
+          // 채워진 마지막 레인까지만 그린다(그 뒤 빈 줄은 안 그림 → 칸이 덜 비어 보인다)
+          const lastLane = cell.lanes.reduce((m, e, i) => (e ? i : m), -1);
           return (
             <div
               key={day}
-              onClick={() => setSelected(dayEntries.length ? dateStr : null)}
-              className={`border-b border-r border-line p-1 ${isMobile ? 'min-h-[58px]' : 'min-h-[84px]'} ${dayEntries.length ? 'cursor-pointer' : ''} ${isSelected ? 'bg-accent-weak/70 ring-1 ring-inset ring-accent' : isToday ? 'bg-accent-weak' : ''}`}
+              onClick={() => setSelected(hasAny ? dateStr : null)}
+              className={`border-b border-r border-line p-1 ${isMobile ? 'min-h-[62px]' : 'min-h-[84px]'} ${hasAny ? 'cursor-pointer' : ''} ${isSelected ? 'bg-accent-weak/70 ring-1 ring-inset ring-accent' : isToday ? 'bg-accent-weak' : ''}`}
             >
-              <div className={`text-[10px] font-semibold px-1 ${isToday ? 'text-accent' : 'text-fg-muted'}`}>{day}</div>
-              {isMobile ? (
-                // 모바일: 53px 남짓한 칸에 제목을 넣으면 아무것도 안 읽힌다 →
-                // 팀 색 점으로만 표시하고, 날짜를 누르면 아래 목록에서 제대로 읽는다.
-                <div className="flex flex-wrap items-center gap-1 px-1 mt-1.5">
-                  {shown.map(({ task }) => (
-                    <span key={task.id} className="w-2 h-2 rounded-full shrink-0" style={teamPaint(task.teams, true)} />
-                  ))}
-                  {more > 0 && <span className="text-[9px] font-semibold text-fg-faint leading-none">+{more}</span>}
-                </div>
-              ) : (
-                <div className="space-y-1 mt-0.5">
-                  {shown.map(({ task, kind }) => (
-                    <CalendarBand key={task.id} task={task} kind={kind} onClick={onTaskClick} />
-                  ))}
-                  {more > 0 && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setSelected(dateStr); }}
-                      className="w-full text-left text-[9px] font-semibold text-fg-muted hover:text-accent-text px-1.5 py-0.5 rounded-sm hover:bg-surface-hover transition"
-                    >+{more}개 더</button>
-                  )}
-                </div>
-              )}
+              <div className={`text-[10px] font-semibold ${isMobile ? 'text-center' : 'px-1'} ${isToday ? 'text-accent' : 'text-fg-muted'}`}>{day}</div>
+              <div className={`${isMobile ? 'space-y-0.5' : 'space-y-1'} mt-0.5`}>
+                {Array.from({ length: lastLane + 1 }, (_, lane) => {
+                  const e = cell.lanes[lane];
+                  // 빈 레인은 같은 높이의 자리만 차지 — 여러 날 띠의 줄 위치를 지킨다
+                  if (!e) return <div key={`gap-${lane}`} className={isMobile ? 'h-[14px]' : 'h-[18px]'} />;
+                  return <CalendarBand key={e.task.id} task={e.task} kind={e.kind} compact={isMobile} onClick={onTaskClick} />;
+                })}
+                {cell.more > 0 && (
+                  <button
+                    type="button"
+                    onClick={(ev) => { ev.stopPropagation(); setSelected(dateStr); }}
+                    className={`w-full font-semibold text-fg-muted hover:text-accent-text rounded-sm hover:bg-surface-hover transition ${isMobile ? 'text-[8px] text-center leading-[12px]' : 'text-[9px] text-left px-1.5 py-0.5'}`}
+                  >+{cell.more}{isMobile ? '' : '개 더'}</button>
+                )}
+              </div>
             </div>
           );
         })}
       </div>
-      {selected && <CalendarDayPanel dateStr={selected} entries={entriesOf(selected)} onTaskClick={onTaskClick} onClose={() => setSelected(null)} />}
+      {openDay && <CalendarDayPanel dateStr={openDay} entries={entriesOf(openDay)} onTaskClick={onTaskClick} onClose={() => setSelected(null)} isMobile={isMobile} />}
     </div>
   );
 });
 
 // 기간 띠 한 조각. 제목은 시작 칸에서 한 번만 쓴다 —
 // 주가 바뀔 때마다 다시 쓰면 같은 업무가 여러 번 적힌 것처럼 보인다.
-function CalendarBand({ task, kind, onClick }) {
+function CalendarBand({ task, kind, onClick, compact = false }) {
   const paint = teamPaint(task.teams);
-  const base = 'flex items-center h-[18px] text-[9px] cursor-pointer hover:opacity-80 transition-opacity';
+  // compact = 모바일(칸 폭 53px 남짓). 아이폰 캘린더처럼 얇은 칩으로 줄이고,
+  // 여러 날 업무는 제목이 띠 위로 이어져 흐르므로 좁은 칸에서도 읽을 수 있다.
+  const base = `flex items-center cursor-pointer hover:opacity-80 transition-opacity ${compact ? 'h-[14px] text-[8px] rounded-[3px]' : 'h-[18px] text-[9px]'}`;
+  const pad = compact ? 'px-1' : 'px-1.5';
   const label = <span className="overflow-visible relative z-[5] whitespace-nowrap pointer-events-none">{task.title}</span>;
   let cls = '', content = null;
   if (kind === 'mid') {
     cls = 'rounded-none -mx-1';                     // 셀 사이를 끊김 없이 이어 붙인다
   } else if (kind === 'start') {
-    cls = 'rounded-l-sm -mr-1 px-1.5 overflow-visible';
+    cls = `rounded-l-sm -mr-1 ${pad} overflow-visible`;
     content = label;
   } else if (kind === 'due') {
-    cls = 'rounded-r-sm -ml-1 px-1.5';              // 마감 칸은 띠만(제목은 시작 칸에 있음)
+    cls = `rounded-r-sm -ml-1 ${pad}`;              // 마감 칸은 띠만(제목은 시작 칸에 있음)
   } else {
-    cls = 'rounded-sm px-1.5 overflow-hidden';      // single / due-only
+    cls = `rounded-sm ${pad} overflow-hidden`;      // single / due-only
     content = <span className="truncate">{task.title}</span>;
   }
   const period = task.startDate && task.dueDate && task.startDate !== task.dueDate
@@ -163,12 +227,13 @@ function CalendarBand({ task, kind, onClick }) {
 }
 
 // 날짜를 누르면 그 날의 업무를 제대로 읽을 수 있는 목록 (모바일·데스크톱 공용)
-function CalendarDayPanel({ dateStr, entries, onTaskClick, onClose }) {
+function CalendarDayPanel({ dateStr, entries, onTaskClick, onClose, isMobile = false }) {
   const [y, m, d] = dateStr.split('-').map(Number);
   const weekday = WEEKDAYS[new Date(y, m - 1, d).getDay()];
   const KIND_LABEL = { start: '시작', mid: '진행', due: '마감', single: '하루', 'due-only': '마감' };
   return (
-    <div className="border-t border-line bg-surface-2/60 shrink-0 max-h-[38%] overflow-y-auto">
+    // 모바일은 이 패널이 실제 읽는 화면이라 남은 공간을 다 쓴다
+    <div className={`border-t border-line bg-surface-2/60 overflow-y-auto ${isMobile ? 'flex-1 min-h-[120px]' : 'shrink-0 max-h-[38%]'}`}>
       <div className="flex items-center justify-between px-3 py-2 sticky top-0 bg-surface-2">
         <span className="text-xs font-bold text-fg">{m}월 {d}일 ({weekday}) · {entries.length}건</span>
         <button type="button" onClick={onClose} className="p-1 rounded-md text-fg-faint hover:bg-surface-hover transition active:scale-95"><X size={14} /></button>
