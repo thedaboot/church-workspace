@@ -42,8 +42,9 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate }) {
     const limit = new Date(today); limit.setDate(limit.getDate() + 7);
     const iso = (d) => d.toISOString().slice(0, 10);
     const from = iso(today), to = iso(limit);
+    // 완료는 물론 보류 중도 뺀다 — 멈춰 세운 일을 마감으로 재촉할 이유가 없다
     return tasksList
-      .filter(t => t.status !== '완료' && t.dueDate && t.dueDate <= to)
+      .filter(t => t.status !== '완료' && t.status !== '보류 중' && t.dueDate && t.dueDate <= to)
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
       .slice(0, 8)
       .map(t => ({ ...t, overdue: t.dueDate < from }));
@@ -53,30 +54,33 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate }) {
     // 보드와 같은 규칙 — 상자·그림자·아이콘 타일 없이 숫자와 구분선으로만.
     // 폭 제한을 두지 않아 어떤 화면에서도 가로를 꽉 쓴다.
     <div className="pb-6 animate-in fade-in duration-300">
-      {/* KPI 3칸 — 진척도는 도넛으로(막대 하나보다 한눈에 읽힌다) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-5 gap-y-4 pb-5 border-b border-line">
-        <div className="col-span-2 lg:col-span-1 flex items-center gap-4">
+      {/* 진척도는 도넛으로 한 줄 전체, 숫자 KPI 3개는 그 아래 한 줄에 나란히.
+          모바일에서 2열로 두면 KPI가 두 줄로 접히면서 화면 절반을 먹었다. */}
+      <div className="pb-4 border-b border-line">
+        <div className="flex items-center gap-4">
           <ProgressRing value={progress} />
           <div className="min-w-0">
             <h3 className="text-fg-muted text-xs font-semibold">전체 진척도</h3>
             <p className="text-[11px] text-fg-faint mt-1 leading-snug">{teamStats.reduce((n, s) => n + s.done, 0)}건 완료 · {teamStats.reduce((n, s) => n + (s.total - s.done), 0)}건 남음</p>
           </div>
         </div>
-        <KpiTile
-          label="내 남은 업무" value={`${myTasksCount}개`}
-          sub={myTasksCount ? '눌러서 내 업무로' : '오늘도 화이팅입니다!'}
-          onClick={() => onNavigate('myTasks')}
-        />
-        <KpiTile
-          label="내 팀 업무" tag={myTeams.length > 1 ? `${myTeams[0]} 외 ${myTeams.length - 1}` : myTeams[0]} value={`${myTeamTasks.length}개`}
-          sub={myTeamTasks.length ? `${myTeamTasks[0].title}${myTeamTasks.length > 1 ? ` 외 ${myTeamTasks.length - 1}건` : ''}` : '남은 팀 업무가 없어요'}
-          onClick={() => myTeams[0] && onNavigate(`team:${myTeams[0]}`)}
-        />
-        <KpiTile
-          label="이번 주 마감" value={`${soon.length}개`}
-          sub={soon.some(t => t.overdue) ? `지난 마감 ${soon.filter(t => t.overdue).length}건 포함` : '7일 안에 마감되는 업무'}
-          tone={soon.some(t => t.overdue) ? 'warn' : undefined}
-        />
+        <div className="grid grid-cols-3 gap-x-3 md:gap-x-6 mt-4 pt-4 border-t border-line/70">
+          <KpiTile
+            label="내 남은 업무" value={`${myTasksCount}개`}
+            sub={myTasksCount ? '눌러서 내 업무로' : '오늘도 화이팅!'}
+            onClick={() => onNavigate('myTasks')}
+          />
+          <KpiTile
+            label="이번 주 마감" value={`${soon.length}개`}
+            sub={soon.some(t => t.overdue) ? `지난 마감 ${soon.filter(t => t.overdue).length}건` : '7일 안 마감'}
+            tone={soon.some(t => t.overdue) ? 'warn' : undefined}
+          />
+          <KpiTile
+            label="내 팀 업무" tag={myTeams.length > 1 ? `${myTeams[0]} 외 ${myTeams.length - 1}` : myTeams[0]} value={`${myTeamTasks.length}개`}
+            sub={myTeamTasks.length ? `${myTeamTasks[0].title}${myTeamTasks.length > 1 ? ` 외 ${myTeamTasks.length - 1}건` : ''}` : '남은 업무 없어요'}
+            onClick={() => myTeams[0] && onNavigate(`team:${myTeams[0]}`)}
+          />
+        </div>
       </div>
 
       {/* 팀별 현황 + 마감 임박 — 데스크톱은 나란히, 모바일은 위아래 */}
@@ -111,7 +115,11 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate }) {
                   {projectsMap[t.projectId]?.title || '프로젝트 없음'}{t.teams?.length ? ` · ${t.teams.join(', ')}` : ''}
                 </span>
               </span>
-              <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${CONFIG.STATUS_DOTS[t.status] || 'bg-fg-faint'}`} />
+              {/* 점만 두니 있는지 없는지도 모를 만큼 흐렸다 → 점 + 상태 글자 */}
+              <span className="shrink-0 inline-flex items-center gap-1.5">
+                <span className={`w-[7px] h-[7px] rounded-full ${CONFIG.STATUS_DOTS[t.status] || 'bg-fg-faint'}`} />
+                <span className="text-[11px] font-semibold text-fg-muted w-[42px]">{t.status}</span>
+              </span>
             </button>
           ))}
           {!soon.length && <p className="py-6 text-center text-[11px] text-fg-faint">7일 안에 마감되는 업무가 없어요</p>}
@@ -122,19 +130,24 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate }) {
 });
 
 // 진척도 도넛 — 라이브러리 없이 SVG 원 하나. stroke-dasharray로 채운 만큼만 그린다.
+// 숫자는 SVG <text>가 아니라 위에 겹친 HTML로 넣는다. <text>에 CSS 회전(rotate-90 +
+// origin-center)을 걸었더니 iOS 사파리에서 transform-box 해석이 달라 숫자가 링 밖으로
+// 튀어나갔다(크롬에서는 정상이라 데스크톱에서 안 보였다).
 function ProgressRing({ value, size = 76, stroke = 7 }) {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90">
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--app-line)" strokeWidth={stroke} />
-      <circle
-        cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--app-accent)" strokeWidth={stroke}
-        strokeLinecap="round" strokeDasharray={`${(c * value) / 100} ${c}`}
-        className="transition-[stroke-dasharray] duration-1000"
-      />
-      <text x="50%" y="50%" dominantBaseline="central" textAnchor="middle" className="rotate-90 origin-center fill-fg font-extrabold" style={{ fontSize: 19, letterSpacing: '-1px' }}>{value}%</text>
-    </svg>
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90 block">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--app-line)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--app-accent)" strokeWidth={stroke}
+          strokeLinecap="round" strokeDasharray={`${(c * value) / 100} ${c}`}
+          className="transition-[stroke-dasharray] duration-1000"
+        />
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center text-[18px] font-extrabold text-fg tracking-[-1px] tabular-nums">{value}%</span>
+    </div>
   );
 }
 
@@ -142,13 +155,16 @@ function ProgressRing({ value, size = 76, stroke = 7 }) {
 function KpiTile({ label, value, sub, tag, tone, onClick }) {
   const Tag = onClick ? 'button' : 'div';
   return (
-    <Tag onClick={onClick} className={`text-left min-w-0 group ${onClick ? 'cursor-pointer' : ''}`}>
-      <h3 className="text-fg-muted text-xs font-semibold flex items-center gap-1.5">
+    // block: <button>은 기본으로 내용을 세로 가운데 정렬해서, 같은 줄의 div 칸과
+    // 라벨 높이가 8px씩 어긋났다. 팀 이름표는 좁은 모바일에서 라벨을 두 줄로
+    // 밀어내므로 데스크톱에서만 붙인다.
+    <Tag onClick={onClick} className={`block text-left min-w-0 group ${onClick ? 'cursor-pointer' : ''}`}>
+      <h3 className="text-fg-muted text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap">
         {label}
-        {tag && <span className={`font-bold ${CONFIG.TEAM_FG[tag] || 'text-fg-muted'}`}>{tag}</span>}
-        {onClick && <ChevronRight size={12} className="text-fg-faint opacity-0 group-hover:opacity-100 transition-opacity" />}
+        {tag && <span className={`hidden md:inline font-bold ${CONFIG.TEAM_FG[tag] || 'text-fg-muted'}`}>{tag}</span>}
+        {onClick && <ChevronRight size={12} className="text-fg-faint opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />}
       </h3>
-      <div className={`text-[28px] md:text-[32px] font-extrabold tracking-[-1.5px] leading-tight mt-0.5 ${tone === 'warn' ? 'text-tag-red-fg' : 'text-fg'}`}>{value}</div>
+      <div className={`text-[24px] md:text-[32px] font-extrabold tracking-[-1.5px] leading-tight mt-0.5 ${tone === 'warn' ? 'text-tag-red-fg' : 'text-fg'}`}>{value}</div>
       <p className="text-[11px] text-fg-faint truncate">{sub}</p>
     </Tag>
   );
