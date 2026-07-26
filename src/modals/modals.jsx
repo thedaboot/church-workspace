@@ -391,12 +391,16 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
         </div>
       )}
 
-      <div className="prose prose-sm max-w-none mt-4 min-h-[120px] relative group">
-        {!summary && (
-           <button onClick={handleSummarize} disabled={isAiLoading} className="absolute top-0 right-0 bg-surface border border-line text-fg-muted hover:text-tag-purple-fg px-2 py-1 rounded-xs text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-all active:scale-95 z-10">
-             3줄 요약
-           </button>
-        )}
+      {/* 요약 버튼은 hover로 숨기지 않는다 — 터치 기기에는 hover가 없어서 모바일에서
+          이 기능이 아예 없는 것처럼 보였다. 본문 위 한 줄에 항상 둔다. */}
+      {!summary && formData.content && (
+        <div className="flex justify-end mt-4 -mb-1">
+          <button onClick={handleSummarize} disabled={isAiLoading} className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-tag-purple text-tag-purple-fg hover:opacity-80 rounded-xs text-[10px] font-bold transition active:scale-95 disabled:opacity-40">
+            {isAiLoading ? <span className="animate-pulse">요약하는 중...</span> : <><Wand2 size={12} /> 3줄 요약</>}
+          </button>
+        </div>
+      )}
+      <div className="prose prose-sm max-w-none mt-3 min-h-[120px]">
         <RichText content={formData.content} />
       </div>
 
