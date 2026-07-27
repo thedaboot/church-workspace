@@ -44,6 +44,11 @@
   --app-tag-red: #fbdedb;     --app-tag-red-fg: #993731;
   /* 상태 dot 전용 — 태그 fg(#7a5a1e)는 갈색으로 읽혀서 '보류 중'은 별도 노란색 */
   --app-status-hold: #d0a02a;
+  /* 진행 바 전용 파스텔 — 진한 팀 색을 바에 그대로 쓰면 대시보드가 시끄럽다.
+     점·칩·글자는 위의 진한 색을 그대로 쓰고, 바에만 이 한 단계 연한 세트를 쓴다. */
+  --p-track: #e6e3e8;
+  --p-blue: #93b4e4;  --p-red: #e5a29b;    --p-yellow: #e3c47b; --p-green: #8bbda2;
+  --p-gray: #c2bdc6;  --p-brown: #c9ad99;  --p-purple: #b4a2dc; --p-pink: #e3a8c6;
   /* SEED 오버라이드 (향후 SEED 컴포넌트 대비) */
   --seed-color-bg-brand-solid: #3f6fc4;
   --seed-color-bg-brand-solid-pressed: #33589c;
@@ -68,6 +73,9 @@
     --app-tag-pink: #392430;   --app-tag-pink-fg: #d8a3bd;
     --app-tag-red: #3b2523;    --app-tag-red-fg: #d8a09a;
     --app-status-hold: #e5b95c;
+    --p-track: #2d2d2c;
+    --p-blue: #5b83bd;  --p-red: #9a635d;    --p-yellow: #9c8450; --p-green: #5b8a70;
+    --p-gray: #5d5b57;  --p-brown: #87695a;  --p-purple: #75659b; --p-pink: #96667c;
 
     /* SEED 오버라이드 (다크) */
     --seed-color-bg-brand-weak: #202a3a;
@@ -141,6 +149,47 @@
     radial-gradient(36rem 22rem at 99% -8%, color-mix(in srgb, #ffb6dd 28%, transparent), transparent 72%);
 }
 :root[data-theme='dark'] .app-glow { opacity: .3; }
+
+/* ── 모션 ───────────────────────────────────────────────────────────────────
+   핸드오프 규칙: 진입·이탈은 ease-out 계열 한 가지만 쓰고 ease-in은 쓰지 않는다.
+   애니메이션 대상은 transform / opacity 뿐 — height·width·margin은 건드리지 않는다
+   (레이아웃을 다시 계산하게 만들어 스크롤 중 프레임이 튄다). */
+@theme {
+  --ease-out-quint: cubic-bezier(.16, 1, .3, 1);
+}
+@keyframes dc-screen-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes dc-row-in    { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@keyframes dc-card-in   { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@keyframes dc-pop-in    { from { opacity: 0; transform: scale(.97) translateY(-3px); } to { opacity: 1; transform: none; } }
+
+.dc-screen { animation: dc-screen-in .26s var(--ease-out-quint) both; }
+.dc-row    { animation: dc-row-in .3s var(--ease-out-quint) both; }
+.dc-card   { animation: dc-card-in .28s var(--ease-out-quint) both; }
+.dc-kpi    { animation: dc-card-in .32s var(--ease-out-quint) both; }
+.dc-pop    { animation: dc-pop-in .16s var(--ease-out-quint) both; transform-origin: top right; }
+
+/* 대시보드 2열 — KPI 줄과 본문 줄이 같은 정의를 써야 좌우 경계가 정확히 맞는다.
+   모바일은 1열. (Tailwind 임의값으로 두 군데에 흩뿌리면 어긋나기 쉬워 클래스로 못 박는다) */
+.dash-grid { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1024px) { .dash-grid { grid-template-columns: minmax(0, 1fr) 360px; } }
+/* 내 업무·팀 보드는 우측이 300px */
+.side-grid { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1024px) { .side-grid { grid-template-columns: minmax(0, 1fr) 300px; } }
+
+/* 진행 바는 width가 아니라 scaleX로 늘린다(레이아웃 재계산 없음) */
+.dc-bar-fill {
+  width: 100%; transform-origin: left;
+  transition: transform .55s var(--ease-out-quint);
+}
+.dc-press:active { transform: scale(.97); }
+.dc-press { transition: transform .09s var(--ease-out-quint); }
+
+*:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dc-screen, .dc-row, .dc-card, .dc-kpi, .dc-pop { animation: none !important; }
+  .dc-bar-fill, .dc-press { transition: none !important; }
+}
 
 /* ── 아이콘 규칙 ────────────────────────────────────────────────────────────
    lucide 기본 stroke-width는 2인데, 14~18px 한글 옆에서는 글자보다 굵어 보여

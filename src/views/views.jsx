@@ -4,13 +4,17 @@ import {
   ExternalLink, ChevronRight, Check, X, Trash2, Pencil, MoreHorizontal
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { CONFIG, teamColor } from '../config.js';
+import { CONFIG, teamColor, teamBgColor } from '../config.js';
 import { generateId } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
-  selectCurrentUser, selectProjectsMap, selectMyTasks,
+  selectCurrentUser, selectProjectsMap, selectProjectsList, selectMyTasks,
   selectDashboardStats, selectTasksList
 } from '../store/selectors.js';
+import {
+  ISO_TODAY, daysLeft, groupByDue, KpiCell, Bar, StatusSegments,
+  DueGroupList, TeamLeftGrid, SectionHead, Card, STATUS_DOT_VAR,
+} from './dashboardParts.jsx';
 import { Board, CalendarBoard } from '../components/boards.jsx';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
@@ -21,163 +25,156 @@ import { showToast } from '../components/Toast.jsx';
 // ============================================================================
 // 11. UI Views (데이터를 구독하는 프레젠테이션 컴포넌트)
 // ============================================================================
-export const DashboardView = React.memo(function DashboardView({ onNavigate }) {
-  const { progress, teamStats } = useStore(selectDashboardStats);
-  const myTasksCount = useStore(selectMyTasks).filter(t => t.status !== '완료').length;
+
+// ── 전체 대시보드 ─────────────────────────────────────────────────────────
+// "얼마나 진행됐나"가 아니라 "지금 뭘 해야 하나"를 먼저 보여준다.
+// 마감 기준으로 묶은 목록이 주인공이고, 그 자리에서 완료 처리까지 한다.
+const DASH_FILTERS = ['전체', '내 업무', '내 팀'];
+
+export const DashboardView = React.memo(function DashboardView({ onNavigate, onTaskClick, onStatusChange }) {
+  const { teamStats } = useStore(selectDashboardStats);
   const currentUser = useStore(selectCurrentUser);
   const tasksList = useStore(selectTasksList);
   const projectsMap = useStore(selectProjectsMap);
-  // 소속 팀이 여럿이면 전부 합쳐서 센다(대표 팀 하나만 세면 겸직한 사람의 업무가 빠진다)
+  const projectsList = useStore(selectProjectsList);
+  const [filter, setFilter] = useState('전체');
+  const today = ISO_TODAY();
+
+  // 소속 팀이 여럿이면 전부 합친다(대표 팀 하나만 보면 겸직한 사람 업무가 빠진다)
   const myTeams = currentUser.teams?.length ? currentUser.teams : [currentUser.team].filter(Boolean);
-  const myTeamKey = myTeams.join(',');
-  const myTeamTasks = useMemo(
-    () => tasksList.filter(t => (t.teams || []).some(x => myTeams.includes(x)) && t.status !== '완료'),
+  const myName = currentUser.name;
+
+  const open = useMemo(() => tasksList.filter(t => t.status !== '완료'), [tasksList]);
+  const mine = useMemo(() => open.filter(t => (t.assignees || []).includes(myName)), [open, myName]);
+  const teamOpen = useMemo(() => open.filter(t => (t.teams || []).some(x => myTeams.includes(x))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tasksList, myTeamKey]
-  );
+    [open, myTeams.join(',')]);
+  const shown = filter === '내 업무' ? mine : filter === '내 팀' ? teamOpen : open;
 
-  const done = teamStats.reduce((n, s) => n + s.done, 0);
-  const left = teamStats.reduce((n, s) => n + (s.total - s.done), 0);
+  const overdueCount = shown.filter(t => t.dueDate && t.dueDate < today).length;
+  const todayCount = shown.filter(t => t.dueDate === today).length;
+  const weekCount = shown.filter(t => t.dueDate && t.dueDate > today && daysLeft(t.dueDate, today) <= 6).length;
+  const groups = useMemo(() => groupByDue(shown, today), [shown, today]);
 
-  // 화면을 채우는 건 장식이 아니라 정보다 — 7일 안에 마감인 업무를 모아 보여준다
-  const soon = useMemo(() => {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const limit = new Date(today); limit.setDate(limit.getDate() + 7);
-    const iso = (d) => d.toISOString().slice(0, 10);
-    const from = iso(today), to = iso(limit);
-    // 완료는 물론 보류 중도 뺀다 — 멈춰 세운 일을 마감으로 재촉할 이유가 없다
-    return tasksList
-      .filter(t => t.status !== '완료' && t.status !== '보류 중' && t.dueDate && t.dueDate <= to)
-      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-      .slice(0, 8)
-      .map(t => ({ ...t, overdue: t.dueDate < from }));
-  }, [tasksList]);
-  const overdue = soon.filter(t => t.overdue).length;
+  const doneAll = tasksList.length - open.length;
+  const progress = tasksList.length ? Math.round((doneAll / tasksList.length) * 100) : 0;
+
+  // 프로젝트별 상태 분포 — 4색 세그먼트 바
+  const projectStats = useMemo(() => projectsList.map(p => {
+    const list = tasksList.filter(t => t.projectId === p.id);
+    const counts = {};
+    CONFIG.STATUSES.forEach(s => { counts[s] = list.filter(t => t.status === s).length; });
+    const dues = list.filter(t => t.dueDate && t.status !== '완료').map(t => t.dueDate).sort();
+    const nearest = dues[0];
+    const dd = nearest ? daysLeft(nearest, today) : null;
+    return {
+      ...p, counts, total: list.length,
+      dueLabel: nearest ? (dd < 0 ? `${-dd}일 지남` : dd === 0 ? '오늘 마감' : `D-${dd}`) : '마감 없음',
+      urgent: dd !== null && dd <= 2,
+      summary: CONFIG.STATUSES.map(s => `${s === '시작 전' ? '시작 전' : s} ${counts[s]}`).join(' · '),
+    };
+  }), [projectsList, tasksList, today]);
+
+  const greeting = overdueCount ? `${myName}님, 밀린 것부터 정리해요` : `${myName}님, 오늘 할 일만 남았어요`;
+  const headline = overdueCount ? `지난 마감 ${overdueCount}건이 아직 열려 있어요`
+    : todayCount ? `오늘 마감 ${todayCount}건만 정리하면 돼요` : '지난 마감 없이 잘 굴러가고 있어요';
+  const todayText = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' });
+  const counts = { '전체': open.length, '내 업무': mine.length, '내 팀': teamOpen.length };
+
+  const complete = (t) => onStatusChange(t, '완료');
 
   return (
-    // 보드와 같은 규칙 — 상자·그림자·아이콘 타일 없이 숫자와 구분선으로만.
-    // 폭 제한을 두지 않아 어떤 화면에서도 가로를 꽉 쓴다.
-    <div className="pb-6 animate-in fade-in duration-300">
-      {/* KPI 4칸을 한 줄로 — 도넛도 다른 칸과 같은 골격(라벨/큰 값/설명)을 쓴다.
-          도넛만 한 줄을 따로 먹던 배치는 데스크톱에서 위쪽을 통째로 낭비했다. */}
-      <div className="grid grid-cols-4 gap-x-2.5 md:gap-x-6 pb-4 border-b border-line">
-        <KpiTile label="전체 진척도" shortLabel="진척도" sub={`${done}건 완료 · ${left}건 남음`} shortSub={`${done}/${done + left}`}>
-          <ProgressRing value={progress} />
-        </KpiTile>
-        <KpiTile
-          label="내 남은 업무" shortLabel="내 업무" value={`${myTasksCount}개`}
-          sub={myTasksCount ? '눌러서 내 업무로' : '오늘도 화이팅!'} shortSub={myTasksCount ? '눌러서 보기' : '화이팅!'}
-          onClick={() => onNavigate('myTasks')}
-        />
-        <KpiTile
-          label="이번 주 마감" shortLabel="이번 주" value={`${soon.length}개`}
-          sub={overdue ? `지난 마감 ${overdue}건` : '7일 안 마감'} shortSub={overdue ? `지남 ${overdue}건` : '7일 안'}
-          tone={overdue ? 'warn' : undefined}
-        />
-        <KpiTile
-          label="내 팀 업무" shortLabel="내 팀" tag={myTeams.length > 1 ? `${myTeams[0]} 외 ${myTeams.length - 1}` : myTeams[0]}
-          value={`${myTeamTasks.length}개`}
-          sub={myTeamTasks.length ? `${myTeamTasks[0].title}${myTeamTasks.length > 1 ? ` 외 ${myTeamTasks.length - 1}건` : ''}` : '남은 업무가 없어요'}
-          shortSub={myTeamTasks.length ? `${myTeamTasks.length}건 남음` : '없어요'}
-          onClick={() => myTeams[0] && onNavigate(`team:${myTeams[0]}`)}
-        />
+    <div className="dc-screen pb-6">
+      {/* 인사말 + 전체/내 업무/내 팀 세그먼트 */}
+      <div className="flex items-end justify-between gap-5 flex-wrap pb-3.5">
+        <div className="min-w-0">
+          <h2 className="text-[19px] md:text-[23px] font-extrabold text-fg mb-[3px]" style={{ letterSpacing: '-0.7px' }}>{greeting}</h2>
+          <p className="text-[12.5px] text-fg-muted">{todayText} 기준 · {headline}</p>
+        </div>
+        <div className="flex items-center gap-1 shrink-0 p-[3px] rounded-lg" style={{ background: 'var(--app-surface-hover)' }}>
+          {DASH_FILTERS.map(f => (
+            <button
+              key={f} onClick={() => setFilter(f)}
+              className="dc-press px-3 py-1.5 rounded-[5px] text-[12.5px] font-semibold transition-colors"
+              style={{
+                background: filter === f ? 'var(--app-surface)' : 'transparent',
+                color: filter === f ? 'var(--app-ink)' : 'var(--app-ink-muted)',
+              }}
+            >
+              {f} {counts[f]}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* 팀별 현황 + 마감 임박 — 데스크톱은 나란히, 모바일은 위아래 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 pt-5">
-        <section>
-          <h3 className="font-bold text-xs text-fg-muted pb-2 border-b border-line">팀별 업무 현황</h3>
-          {teamStats.map(stat => (
-            <button key={stat.name} onClick={() => onNavigate(`team:${stat.name}`)} className="w-full flex items-center gap-3 py-2.5 border-b border-line hover:bg-fg/[0.02] transition-colors group text-left">
-              <span className={`text-[11px] font-bold tracking-[0.03em] shrink-0 w-[68px] ${CONFIG.TEAM_FG[stat.name] || 'text-fg-muted'}`}>{stat.name}</span>
-              {/* 막대 색을 팀 색으로 — 전에는 전부 초록/회색이라 우리 팀 색과 어긋났다 */}
-              <span className="flex-1 min-w-0 h-1.5 rounded-full bg-line/60 overflow-hidden">
-                <span className="block h-full rounded-full transition-all duration-700" style={{ width: `${stat.progress}%`, background: teamColor(stat.name) }} />
-              </span>
-              <span className="text-[11px] text-fg-muted tabular-nums shrink-0 w-[52px] text-right">{stat.done}/{stat.total}</span>
-              <span className="text-[11px] font-bold text-fg tabular-nums shrink-0 w-9 text-right">{stat.progress}%</span>
-              <ChevronRight size={14} className="text-fg-faint opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-            </button>
-          ))}
-          {!teamStats.length && <p className="py-6 text-center text-[11px] text-fg-faint">아직 업무가 없어요</p>}
-        </section>
+      {/* KPI — 좌 3칸(1px 격자) + 우 진척도. 아래 본문 2열과 경계가 정확히 맞는다 */}
+      <div className="grid gap-x-8 gap-y-3 items-stretch dash-grid">
+        <div className="grid grid-cols-3 rounded-[10px] overflow-hidden shadow-soft"
+          style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)' }}>
+          <KpiCell
+            label="지연" value={overdueCount} note={overdueCount ? '마감이 지난 업무' : '없어요'} delay={0}
+            dot="var(--app-tag-red-fg)" bar="var(--p-red)" alert={overdueCount > 0}
+            ratio={shown.length ? overdueCount / shown.length : 0}
+          />
+          <KpiCell
+            label="오늘 마감" value={todayCount} note={`열린 업무 ${shown.length}건 중`} delay={40}
+            dot="var(--app-accent)" bar="var(--p-blue)" ratio={shown.length ? todayCount / shown.length : 0}
+          />
+          <KpiCell
+            label="이번 주" value={weekCount} note="오늘 이후 6일" delay={80}
+            dot="var(--app-status-hold)" bar="var(--p-yellow)" ratio={shown.length ? weekCount / shown.length : 0}
+          />
+        </div>
+        <Card className="flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]">
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--app-accent)' }} />
+            <span className="text-[11.5px] font-semibold text-fg-muted whitespace-nowrap">전체 진척도</span>
+          </div>
+          <div className="flex items-baseline gap-[5px]">
+            <span className="text-[34px] font-extrabold leading-none tabular-nums text-fg" style={{ letterSpacing: '-1.8px' }}>{progress}%</span>
+            <span className="flex-1" />
+            <span className="text-[10.5px] text-fg-faint tabular-nums whitespace-nowrap">{doneAll}/{tasksList.length}건</span>
+          </div>
+          <Bar ratio={tasksList.length ? doneAll / tasksList.length : 0} color="var(--p-blue)" />
+        </Card>
+      </div>
 
-        <section>
-          <h3 className="font-bold text-xs text-fg-muted pb-2 border-b border-line">마감이 가까운 업무</h3>
-          {soon.map(t => (
-            <button key={t.id} onClick={() => onNavigate(t.projectId)} className="w-full flex items-center gap-3 py-2.5 border-b border-line hover:bg-fg/[0.02] transition-colors group text-left">
-              <span className={`shrink-0 w-[52px] text-[11px] font-bold tabular-nums ${t.overdue ? 'text-tag-red-fg' : 'text-fg-muted'}`}>
-                {new Date(t.dueDate).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[13px] font-semibold text-fg truncate">{t.title}</span>
-                <span className="block text-[10px] text-fg-faint truncate">
-                  {projectsMap[t.projectId]?.title || '프로젝트 없음'}{t.teams?.length ? ` · ${t.teams.join(', ')}` : ''}
-                </span>
-              </span>
-              {/* 점만 두니 있는지 없는지도 모를 만큼 흐렸다 → 점 + 상태 글자 */}
-              <span className="shrink-0 inline-flex items-center gap-1.5">
-                <span className={`w-[7px] h-[7px] rounded-full ${CONFIG.STATUS_DOTS[t.status] || 'bg-fg-faint'}`} />
-                <span className="text-[11px] font-semibold text-fg-muted w-[42px]">{t.status}</span>
-              </span>
-            </button>
-          ))}
-          {!soon.length && <p className="py-6 text-center text-[11px] text-fg-faint">7일 안에 마감되는 업무가 없어요</p>}
-        </section>
+      {/* 본문 — 좌: 마감 그룹, 우: 프로젝트 진행 + 팀별 남은 업무 */}
+      <div className="grid gap-x-8 gap-y-6 pt-5 items-start dash-grid">
+        <DueGroupList
+          groups={groups} projectsMap={projectsMap} today={today}
+          onComplete={complete} onOpen={onTaskClick}
+          emptyHint={filter === '전체' ? '새 업무가 들어오면 여기에 쌓여요' : '다른 탭에는 아직 남은 업무가 있어요'}
+        />
+        <div className="min-w-0 flex flex-col gap-[22px]">
+          <Card className="px-4 pt-[15px] pb-[3px]">
+            <div className="flex items-baseline justify-between pb-3">
+              <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 진행</h3>
+              <span className="text-[10.5px] text-fg-faint">완료 · 진행 · 보류 · 시작 전</span>
+            </div>
+            {projectStats.map(p => (
+              <div key={p.id} className="pb-[13px]">
+                <div className="flex items-baseline justify-between gap-2.5 pb-1.5">
+                  <button onClick={() => onNavigate(p.id)} className="text-[12.5px] font-semibold text-fg truncate text-left hover:text-accent-text transition-colors">{p.title}</button>
+                  <span className="text-[11px] font-semibold shrink-0 tabular-nums"
+                    style={{ color: p.urgent ? 'var(--app-tag-red-fg)' : 'var(--app-ink-muted)' }}>{p.dueLabel}</span>
+                </div>
+                <StatusSegments counts={p.counts} total={p.total} />
+                <p className="mt-[5px] text-[10.5px] text-fg-faint tabular-nums">{p.summary}</p>
+              </div>
+            ))}
+            {!projectStats.length && <p className="pb-4 text-[11px] text-fg-faint">아직 프로젝트가 없어요</p>}
+          </Card>
+
+          <div>
+            <SectionHead>팀별 남은 업무</SectionHead>
+            <TeamLeftGrid stats={teamStats} onOpenTeam={(name) => onNavigate(`team:${name}`)} />
+          </div>
+        </div>
       </div>
     </div>
   );
 });
-
-// 진척도 도넛 — 라이브러리 없이 SVG 원 하나. stroke-dasharray로 채운 만큼만 그린다.
-// 숫자는 SVG <text>가 아니라 위에 겹친 HTML로 넣는다. <text>에 CSS 회전(rotate-90 +
-// origin-center)을 걸었더니 iOS 사파리에서 transform-box 해석이 달라 숫자가 링 밖으로
-// 튀어나갔다(크롬에서는 정상이라 데스크톱에서 안 보였다).
-// 크기는 viewBox로 스케일 — 좁은 화면에서는 다른 칸의 숫자와 비슷한 덩치로 줄어든다.
-const RING_VB = 76, RING_STROKE = 7;
-function ProgressRing({ value }) {
-  const r = (RING_VB - RING_STROKE) / 2;
-  const c = 2 * Math.PI * r;
-  return (
-    <div className="relative w-[42px] h-[42px] md:w-[62px] md:h-[62px]">
-      <svg viewBox={`0 0 ${RING_VB} ${RING_VB}`} className="w-full h-full -rotate-90 block">
-        <circle cx={RING_VB / 2} cy={RING_VB / 2} r={r} fill="none" stroke="var(--app-line)" strokeWidth={RING_STROKE} />
-        <circle
-          cx={RING_VB / 2} cy={RING_VB / 2} r={r} fill="none" stroke="var(--app-accent)" strokeWidth={RING_STROKE}
-          strokeLinecap="round" strokeDasharray={`${(c * value) / 100} ${c}`}
-          className="transition-[stroke-dasharray] duration-1000"
-        />
-      </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-[11px] md:text-[15px] font-extrabold text-fg tracking-[-0.5px] tabular-nums">{value}%</span>
-    </div>
-  );
-}
-
-// KPI 한 칸 — 라벨 / 큰 값(숫자 또는 children) / 설명 한 줄.
-// 좁은 화면에서는 short* 를 대신 쓴다(4칸이 한 줄에 들어가야 하므로).
-function KpiTile({ label, shortLabel, value, sub, shortSub, tag, tone, onClick, children }) {
-  const Tag = onClick ? 'button' : 'div';
-  const twoText = (long, short) => short && short !== long
-    ? <><span className="md:hidden">{short}</span><span className="hidden md:inline">{long}</span></>
-    : long;
-  return (
-    // block: <button>은 기본으로 내용을 세로 가운데 정렬해서, 같은 줄의 div 칸과
-    // 라벨 높이가 8px씩 어긋났다. 팀 이름표는 좁은 칸에서 라벨을 두 줄로
-    // 밀어내므로 데스크톱에서만 붙인다.
-    <Tag onClick={onClick} className={`block text-left min-w-0 group ${onClick ? 'cursor-pointer' : ''}`}>
-      <h3 className="text-fg-muted text-[11px] md:text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap">
-        {twoText(label, shortLabel)}
-        {tag && <span className={`hidden md:inline font-bold ${CONFIG.TEAM_FG[tag] || 'text-fg-muted'}`}>{tag}</span>}
-        {onClick && <ChevronRight size={12} className="text-fg-faint opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />}
-      </h3>
-      {/* 도넛과 숫자가 한 줄에 섞여도 위아래 여백이 같게 — 높이를 맞춘 상자에 담는다 */}
-      <div className="h-[42px] md:h-[62px] flex items-center mt-1">
-        {children || <span className={`text-[23px] md:text-[30px] font-extrabold tracking-[-1.5px] leading-none ${tone === 'warn' ? 'text-tag-red-fg' : 'text-fg'}`}>{value}</span>}
-      </div>
-      <p className="text-[10.5px] md:text-[11px] text-fg-faint truncate">{twoText(sub, shortSub)}</p>
-    </Tag>
-  );
-}
 
 // ── 모바일 프로젝트 화면의 접히는 조작들 ──────────────────────────────────
 // 좁은 화면에서 버튼을 다 펼치면 정작 업무가 안 보인다. 자주 쓰는 것만 남기고

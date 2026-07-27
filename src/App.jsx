@@ -231,7 +231,7 @@ function WorkspaceShell() {
         <ErrorBoundary>
           {/* key로 뷰 전환 시 리마운트 → 각 뷰의 등장 애니메이션 재생 */}
           <div key={activeMenu} className="h-full">
-          {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} />}
+          {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
           {activeMenu === 'myTasks' && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
           {(!['dashboard', 'myTasks'].includes(activeMenu) && !activeMenu.startsWith('team:')) && (

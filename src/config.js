@@ -28,6 +28,15 @@ export const CONFIG = {
   },
   // 앱 표기 ↔ DB(cards.status) 값. 순서를 바꿔도 매핑이 깨지지 않게 이름으로 못 박는다.
   STATUS_DB: { '시작 전': 'todo', '진행 중': 'doing', '보류 중': 'hold', '완료': 'done' },
+  // 상태 칩용 실제 색값 (인라인 style에서 쓴다 — Tailwind 클래스로는 값을 꺼낼 수 없다)
+  STATUS_BG_VAR: {
+    '시작 전': 'var(--app-tag-gray)', '진행 중': 'var(--app-tag-blue)',
+    '보류 중': 'var(--app-tag-yellow)', '완료': 'var(--app-tag-green)',
+  },
+  STATUS_FG_VAR: {
+    '시작 전': 'var(--app-tag-gray-fg)', '진행 중': 'var(--app-tag-blue-fg)',
+    '보류 중': 'var(--app-tag-yellow-fg)', '완료': 'var(--app-tag-green-fg)',
+  },
   // 팀 이름을 배지가 아니라 글자색으로 쓸 때 (보드 카드). TEAMS와 같은 색 계열.
   TEAM_FG: {
     '웰컴팀': 'text-tag-pink-fg',
@@ -77,4 +86,14 @@ export const teamPaint = (teams = [], strong = false) => {
 export const teamColor = (team) => {
   const token = CONFIG.TEAM_TOKENS[team];
   return token ? `var(--app-tag-${token}-fg)` : 'var(--app-tag-gray-fg)';
+};
+// 팀 배경색 (칩)
+export const teamBgColor = (team) => {
+  const token = CONFIG.TEAM_TOKENS[team];
+  return token ? `var(--app-tag-${token})` : 'var(--app-tag-gray)';
+};
+// 진행 바에 쓰는 팀 파스텔 — 진한 팀 색을 바에 쓰면 화면이 시끄러워진다
+export const teamBar = (team) => {
+  const token = CONFIG.TEAM_TOKENS[team];
+  return token ? `var(--p-${token})` : 'var(--p-gray)';
 };
