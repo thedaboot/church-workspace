@@ -173,6 +173,8 @@ function WorkspaceShell() {
 
   // 문자열이라 값 비교 → memo에 안전
   const teamName = activeMenu.startsWith('team:') ? activeMenu.split(':')[1] : '';
+  // 프로젝트 화면(보드·캘린더)만 화면 높이에 맞춰 안에서 스크롤한다
+  const isProjectScreen = !['dashboard', 'myTasks'].includes(activeMenu) && !activeMenu.startsWith('team:');
 
   // 딥링크의 taskId → 데이터 준비 후 해당 업무 모달 오픈(존재 검증)
   useEffect(() => {
@@ -231,12 +233,17 @@ function WorkspaceShell() {
           고정값(pb-20)으로 두면 아이폰에서 마지막 카드가 탭바에 잘렸다 */}
       <main className="flex-1 overflow-auto px-3 pt-2.5 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:px-4 md:pt-3.5 md:pb-3 relative">
         <ErrorBoundary>
-          {/* key로 뷰 전환 시 리마운트 → 각 뷰의 등장 애니메이션 재생 */}
-          <div key={activeMenu} className="h-full">
+          {/* key로 뷰 전환 시 리마운트 → 각 뷰의 등장 애니메이션 재생.
+              h-full은 프로젝트 화면에만 — 보드/캘린더가 안에서 스크롤하려면 높이가
+              확정돼야 한다. 나머지 화면에 h-full을 걸면 내용이 이 박스를 넘쳐
+              흐르고, 넘친 부분에는 main의 padding-bottom이 적용되지 않아서
+              마지막 줄이 하단 탭바에 가렸다(대시보드 '팀별 남은 업무', 팀 보드
+              '참여 프로젝트'). */}
+          <div key={activeMenu} className={isProjectScreen ? 'h-full' : ''}>
           {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
           {activeMenu === "myTasks" && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
-          {(!['dashboard', 'myTasks'].includes(activeMenu) && !activeMenu.startsWith('team:')) && (
+          {isProjectScreen && (
              <ProjectView projectId={activeMenu} onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNewTask={handleNewTask} onRenameProject={openRenameProject} viewMode={projectViewMode} setViewMode={setProjectViewMode} />
           )}
           </div>

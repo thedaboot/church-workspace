@@ -4,6 +4,7 @@ dist-guest
 .env
 .env.guest
 .DS_Store
+tests/*.png
 .claude/
 .agents/
 skills-lock.json
