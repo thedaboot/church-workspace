@@ -106,7 +106,8 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
   if (!groups.length) {
     return (
       <div className="py-12 text-center">
-        <p className="text-[13.5px] font-semibold text-fg mb-1">여기는 다 정리됐어요</p>
+        <AllClearMark />
+        <p className="text-[13.5px] font-semibold text-fg mb-1 mt-3">여기는 다 정리됐어요</p>
         {emptyHint && <p className="text-xs text-fg-faint">{emptyHint}</p>}
       </div>
     );
@@ -128,7 +129,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
             return (
               <div
                 key={t.id}
-                className="dc-row flex items-center gap-3 p-2.5 -mx-2.5 rounded-lg hover:bg-surface-hover transition-colors"
+                className="dc-row flex items-center gap-3 p-2.5 -mx-2.5 rounded-[8px] hover:bg-surface-hover transition-colors"
                 style={{ animationDelay: delay, transitionDuration: '120ms' }}
               >
                 {/* 완료 처리 — 목록에서 바로 끝낼 수 있어야 '지금 뭘 해야 하나' 화면이 된다 */}
@@ -176,6 +177,20 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
   );
 }
 
+// 다 끝난 화면의 표식 — 원이 살짝 커지며 나타나고 체크가 그려진다.
+// 로티 파일을 물리는 대신 SVG 한 장으로 같은 인상을 낸다(의존성·네트워크 없음).
+function AllClearMark() {
+  return (
+    <svg viewBox="0 0 48 48" className="w-12 h-12 mx-auto" aria-hidden="true">
+      <circle className="dc-draw-ring" cx="24" cy="24" r="21" fill="var(--app-tag-green)" style={{ transformOrigin: 'center' }} />
+      <path
+        className="dc-draw" pathLength="1" d="M15 24.5 21.5 31 34 18"
+        fill="none" stroke="var(--app-tag-green-fg)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 // 완료 버튼 안의 체크 — hover에서 진해진다
 function Checkmark() {
   return (
@@ -192,7 +207,8 @@ export function TeamLeftGrid({ stats, onOpenTeam }) {
   return (
     <div className="grid grid-cols-2 gap-x-4 gap-y-3">
       {stats.map(s => (
-        <button key={s.name} onClick={() => onOpenTeam(s.name)} className="min-w-0 text-left hover:opacity-60 transition-opacity">
+        <button key={s.name} onClick={() => onOpenTeam(s.name)} title={`${s.name} 보드로`}
+          className="min-w-0 text-left hover:opacity-60 transition-opacity">
           <span className="flex items-baseline justify-between gap-1.5">
             <span className="text-[11.5px] font-bold truncate" style={{ color: teamColor(s.name) }}>{s.name}</span>
             <span className="text-[11px] font-semibold text-fg tabular-nums shrink-0">{s.total - s.done}건</span>

@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   LayoutDashboard, Plus, Calendar as CalendarIcon,
-  ExternalLink, ChevronRight, Check, X, Trash2, Pencil, MoreHorizontal
+  ChevronRight, ChevronDown, Check, X, Trash2, Pencil
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { CONFIG, teamColor, teamBgColor } from '../config.js';
-import { generateId } from '../utils.js';
+import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
+import { generateId, avatarColor } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsMap, selectProjectsList, selectMyTasks,
@@ -13,7 +13,7 @@ import {
 } from '../store/selectors.js';
 import {
   ISO_TODAY, daysLeft, groupByDue, KpiCell, Bar, StatusSegments,
-  DueGroupList, TeamLeftGrid, SectionHead, Card, STATUS_DOT_VAR,
+  DueGroupList, TeamLeftGrid, SectionHead, Card, STATUS_DOT_VAR, STATUS_BAR,
 } from './dashboardParts.jsx';
 import { Board, CalendarBoard } from '../components/boards.jsx';
 import { useAuth } from '../services/auth.jsx';
@@ -83,6 +83,39 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
 
   const complete = (t) => onStatusChange(t, '완료');
 
+  // 데스크톱(3+1)과 모바일(2×2)이 같은 칸을 재사용한다
+  const kpiCells = (
+    <>
+      <KpiCell
+        label="지연" value={overdueCount} note={overdueCount ? '마감이 지난 업무' : '없어요'} delay={0}
+        dot="var(--app-tag-red-fg)" bar="var(--p-red)" alert={overdueCount > 0}
+        ratio={shown.length ? overdueCount / shown.length : 0}
+      />
+      <KpiCell
+        label="오늘 마감" value={todayCount} note={`남은 업무 ${shown.length}건 중`} delay={40}
+        dot="var(--app-accent)" bar="var(--p-blue)" ratio={shown.length ? todayCount / shown.length : 0}
+      />
+      <KpiCell
+        label="이번 주" value={weekCount} note="앞으로 6일 안" delay={80}
+        dot="var(--app-status-hold)" bar="var(--p-yellow)" ratio={shown.length ? weekCount / shown.length : 0}
+      />
+    </>
+  );
+  const progressCell = (
+    <>
+      <div className="flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--app-accent)' }} />
+        <span className="text-[11.5px] font-semibold text-fg-muted whitespace-nowrap">전체 진척도</span>
+      </div>
+      <div className="flex items-baseline gap-[5px]">
+        <span className="text-[34px] font-extrabold leading-none tabular-nums text-fg" style={{ letterSpacing: '-1.8px' }}>{progress}%</span>
+        <span className="flex-1" />
+        <span className="text-[10.5px] text-fg-faint tabular-nums whitespace-nowrap">{doneAll}/{tasksList.length}건</span>
+      </div>
+      <Bar ratio={tasksList.length ? doneAll / tasksList.length : 0} color="var(--p-blue)" />
+    </>
+  );
+
   return (
     <div className="dc-screen pb-6">
       {/* 인사말 + 전체/내 업무/내 팀 세그먼트 */}
@@ -91,7 +124,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
           <h2 className="text-[19px] md:text-[23px] font-extrabold text-fg mb-[3px]" style={{ letterSpacing: '-0.7px' }}>{greeting}</h2>
           <p className="text-[12.5px] text-fg-muted">{todayText} 기준 · {headline}</p>
         </div>
-        <div className="flex items-center gap-1 shrink-0 p-[3px] rounded-lg" style={{ background: 'var(--app-surface-hover)' }}>
+        <div className="flex items-center gap-1 shrink-0 p-[3px] rounded-[8px]" style={{ background: 'var(--app-surface-hover)' }}>
           {DASH_FILTERS.map(f => (
             <button
               key={f} onClick={() => setFilter(f)}
@@ -107,36 +140,19 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
         </div>
       </div>
 
-      {/* KPI — 좌 3칸(1px 격자) + 우 진척도. 아래 본문 2열과 경계가 정확히 맞는다 */}
-      <div className="grid gap-x-8 gap-y-3 items-stretch dash-grid">
+      {/* KPI — 데스크톱은 좌 3칸(1px 격자) + 우 진척도로 아래 본문 2열과 경계가 맞고,
+          모바일은 네 칸이 2×2로 접힌다(핸드오프 규격) */}
+      <div className="hidden lg:grid gap-x-8 gap-y-3 items-stretch dash-grid">
         <div className="grid grid-cols-3 rounded-[10px] overflow-hidden shadow-soft"
           style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)' }}>
-          <KpiCell
-            label="지연" value={overdueCount} note={overdueCount ? '마감이 지난 업무' : '없어요'} delay={0}
-            dot="var(--app-tag-red-fg)" bar="var(--p-red)" alert={overdueCount > 0}
-            ratio={shown.length ? overdueCount / shown.length : 0}
-          />
-          <KpiCell
-            label="오늘 마감" value={todayCount} note={`열린 업무 ${shown.length}건 중`} delay={40}
-            dot="var(--app-accent)" bar="var(--p-blue)" ratio={shown.length ? todayCount / shown.length : 0}
-          />
-          <KpiCell
-            label="이번 주" value={weekCount} note="오늘 이후 6일" delay={80}
-            dot="var(--app-status-hold)" bar="var(--p-yellow)" ratio={shown.length ? weekCount / shown.length : 0}
-          />
+          {kpiCells}
         </div>
-        <Card className="flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]">
-          <div className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--app-accent)' }} />
-            <span className="text-[11.5px] font-semibold text-fg-muted whitespace-nowrap">전체 진척도</span>
-          </div>
-          <div className="flex items-baseline gap-[5px]">
-            <span className="text-[34px] font-extrabold leading-none tabular-nums text-fg" style={{ letterSpacing: '-1.8px' }}>{progress}%</span>
-            <span className="flex-1" />
-            <span className="text-[10.5px] text-fg-faint tabular-nums whitespace-nowrap">{doneAll}/{tasksList.length}건</span>
-          </div>
-          <Bar ratio={tasksList.length ? doneAll / tasksList.length : 0} color="var(--p-blue)" />
-        </Card>
+        <Card className="flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]">{progressCell}</Card>
+      </div>
+      <div className="grid lg:hidden kpi-grid rounded-[10px] overflow-hidden shadow-soft"
+        style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)' }}>
+        {kpiCells}
+        <div className="flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]" style={{ background: 'var(--app-surface)' }}>{progressCell}</div>
       </div>
 
       {/* 본문 — 좌: 마감 그룹, 우: 프로젝트 진행 + 팀별 남은 업무 */}
@@ -345,127 +361,378 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
       </div>
     </div>
   );
+
+  // 업무가 있는 팀만 칩으로 — 0건 팀을 늘어놓으면 줄만 길어진다
+  const teamCounts = {};
+  projectTasks.forEach(t => (t.teams || []).forEach(x => { teamCounts[x] = (teamCounts[x] || 0) + 1; }));
+  const teamChips = Object.keys(CONFIG.TEAMS).filter(n => teamCounts[n]);
+  const doneCount = projectTasks.filter(t => t.status === '완료').length;
+  const openDues = projectTasks.filter(t => t.dueDate && t.status !== '완료').map(t => t.dueDate).sort();
+  const dd = openDues[0] ? daysLeft(openDues[0], ISO_TODAY()) : null;
+  const projectMeta = [
+    `${projectTasks.length}건`,
+    `완료 ${doneCount}건`,
+    dd === null ? '마감 없음' : dd < 0 ? `${-dd}일 지남` : dd === 0 ? '오늘 마감' : `D-${dd}`,
+  ].join(' · ');
+
   const shareBtn = <ShareButton url={`${window.location.origin}/s/p/${project.id}`} what="프로젝트" />;
   const deleteBtn = isAdmin ? (
     <ConfirmPopover message="프로젝트와 안의 모든 업무가 삭제돼요. 되돌릴 수 없어요." onConfirm={deleteProject}>
       <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95 shrink-0" title="프로젝트 삭제"><Trash2 size={16} /></button>
     </ConfirmPopover>
   ) : null;
-  const viewToggle = (
-    // 아이콘은 라벨을 거들 뿐 — 13px로 줄이고 톤을 낮춰 글자가 먼저 읽히게
-    <div className="flex bg-surface-hover/70 p-0.5 rounded-sm shrink-0">
-      <button onClick={() => setViewMode('kanban')} className={`px-2.5 md:px-3 py-1.5 text-xs font-semibold rounded-xs transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'kanban' ? 'bg-surface text-fg' : 'text-fg-muted hover:text-fg'}`}><LayoutDashboard size={13} className="shrink-0 opacity-55"/> 보드</button>
-      <button onClick={() => setViewMode('calendar')} className={`px-2.5 md:px-3 py-1.5 text-xs font-semibold rounded-xs transition-colors flex justify-center items-center gap-1.5 whitespace-nowrap ${viewMode === 'calendar' ? 'bg-surface text-fg' : 'text-fg-muted hover:text-fg'}`}><CalendarIcon size={13} className="shrink-0 opacity-55"/> 캘린더</button>
-    </div>
-  );
 
   return (
-    <div className="h-full flex flex-col min-w-0 animate-in fade-in">
-      {/* ── 모바일: 액션을 한 줄로 ────────────────────────────────────────────
-          보기 전환 / 필터 / 그 외(리소스·공유·삭제) / 새 업무.
-          전에는 리소스·액션·필터가 각자 한 줄씩 먹어서 업무가 화면 밖으로 밀렸다. */}
-      <div className="md:hidden flex items-center gap-1.5 mb-3 shrink-0">
-        {viewToggle}
-        <span className="flex-1" />
-        {viewMode === 'kanban' && (
-          <TeamFilterButton selectedTeams={selectedTeams} toggleTeam={toggleTeam} onClear={() => setSelectedTeams([])} />
-        )}
-        <ProjectMoreMenu
-          project={project} onRemoveLink={removeLink}
-          isAddingLink={isAddingLink} setIsAddingLink={setIsAddingLink} linkForm={linkForm}
-          shareBtn={shareBtn} deleteBtn={deleteBtn}
-        />
-        {viewMode === 'kanban' && <NewTaskButton onClick={onNewTask} className="inline-flex" />}
-      </div>
-
-      {/* ── 데스크톱: 제목·리소스 / 보기 전환·공유·삭제 ───────────────────── */}
-      <div className="hidden md:flex pb-2.5 mb-3.5 gap-4 justify-between items-center shrink-0">
+    <div className="dc-screen h-full flex flex-col min-w-0">
+      {/* ── 헤더: 제목 + 메타(건수·완료·D-day) + 링크 / 우측은 '새 업무'만 ── */}
+      <div className="flex items-end justify-between gap-4 flex-wrap pb-3" style={{ borderBottom: '1px solid var(--app-line)' }}>
         <div className="min-w-0">
-          {/* 제목을 누르면 이름 수정 (모바일은 상단바 제목을 누른다) */}
-          <button
-            onClick={() => onRenameProject?.(project)}
-            className="inline-flex items-baseline gap-1.5 mb-1.5 group/title text-left"
-            title="프로젝트 이름 수정"
-          >
-            <span className="text-2xl font-extrabold text-fg tracking-[-0.7px]">{project.title}</span>
-            <Pencil size={13} className="text-fg-faint opacity-0 group-hover/title:opacity-100 transition-opacity shrink-0 mb-0.5" />
+          <button onClick={() => onRenameProject?.(project)} className="group/title inline-flex items-baseline gap-1.5 mb-[5px] text-left" title="프로젝트 이름 수정">
+            <span className="text-[19px] md:text-[23px] font-extrabold text-fg" style={{ letterSpacing: '-0.7px' }}>{project.title}</span>
+            <Pencil size={12} className="text-fg-faint md:opacity-0 md:group-hover/title:opacity-100 transition-opacity shrink-0" />
           </button>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-medium text-fg-faint shrink-0">리소스</span>
-            {project.pinnedLinks?.map(link => (
-              <span key={link.id} className="group/link inline-flex items-center gap-1 text-xs pl-1.5 pr-1 py-1 bg-accent-weak text-accent-text rounded-md transition-colors">
-                <a href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:underline"><ExternalLink size={10} /> {link.title}</a>
-                <button onClick={() => removeLink(link.id)} className="opacity-0 group-hover/link:opacity-100 hover:text-fg rounded-full p-0.5 transition-opacity" title="링크 삭제"><X size={10} /></button>
+          <div className="flex items-center gap-[7px] flex-wrap">
+            <span className="text-[11px] text-fg-muted tabular-nums">{projectMeta}</span>
+            <span className="w-0.5 h-0.5 rounded-full" style={{ background: 'var(--app-line)' }} />
+            {project.pinnedLinks?.map(l => (
+              <span key={l.id} className="group/link inline-flex items-center gap-1">
+                <a href={l.url} target="_blank" rel="noreferrer" className="text-[11px] font-semibold text-accent-text hover:underline">{l.title}</a>
+                <button onClick={() => removeLink(l.id)} className="md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint" title="링크 삭제"><X size={10} /></button>
               </span>
             ))}
-            <div className="inline-flex" ref={linkPopRef}>
+            <span className="inline-flex" ref={linkPopRef}>
               <span ref={linkBtnRef} className="inline-flex">
-                {/* 열기 전에 위치를 먼저 잡는다 — 안 그러면 첫 프레임이 {0,0}에
-                    그려져서 팝오버가 화면 좌상단에서 날아오는 것처럼 보인다 */}
-                <button onClick={() => { placeLink(); setIsAddingLink(v => !v); }} className="text-xs text-fg-faint hover:text-fg-muted hover:bg-surface-hover px-1.5 py-1 border border-dashed border-line rounded-md transition active:scale-95">+ 추가</button>
+                {/* 열기 전에 위치를 먼저 잡는다 — 안 그러면 첫 프레임이 {0,0}에 그려진다 */}
+                <button onClick={() => { placeLink(); setIsAddingLink(v => !v); }}
+                  className="text-[11px] text-fg-faint px-1.5 py-px rounded-[4px] transition-colors hover:text-fg-muted"
+                  style={{ border: '1px dashed var(--app-line)' }}>+ 링크</button>
               </span>
-              {isAddingLink && (
-                <div style={{ position: 'fixed', left: linkPos.left, top: linkPos.top, width: 256 }} className="bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90] animate-in fade-in zoom-in-95 duration-150">
+              {isAddingLink && createPortal(
+                <div style={{ position: 'fixed', left: linkPos.left, top: linkPos.top, width: 256 }} className="dc-pop bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90]">
                   {linkForm}
-                </div>
-              )}
-            </div>
+                </div>, document.body)}
+            </span>
+            {/* 공유·삭제는 메타 줄 끝에 — 헤더 우측은 '새 업무'만 두라는 규격을 지키면서도
+                기존 기능을 숨기지 않는다 */}
+            <span className="inline-flex items-center gap-0.5 ml-1">{shareBtn}{deleteBtn}</span>
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {viewToggle}
-          {shareBtn}
-          {deleteBtn}
-        </div>
+        <button onClick={onNewTask}
+          className="dc-press inline-flex items-center gap-1.5 pl-[11px] pr-3.5 py-[7px] rounded-[8px] text-[12.5px] font-bold text-white whitespace-nowrap shrink-0 hover:brightness-[1.07] transition-[filter]"
+          style={{ background: 'var(--app-accent)', boxShadow: '0 1px 2px rgba(25,23,32,.18), inset 0 1px 0 rgba(255,255,255,.22)' }}>
+          <Plus size={13} className="shrink-0 [stroke-width:2.2px]" />새 업무
+        </button>
       </div>
 
-      {viewMode === 'kanban' && (
-        // items-center: '필터' 라벨과 팀 칩의 세로 중심을 맞춘다(칩에 테두리가 있어 라벨이 떠 보였다)
-        <div className="hidden md:flex flex-row justify-between items-center gap-3 mb-3 shrink-0">
-          <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto pb-1 min-w-0 flex-1 scrollbar-hide x-scroll-lock">
-            <span className="text-[11px] font-medium text-fg-faint mr-1 shrink-0 leading-none">필터</span>
-            {Object.entries(CONFIG.TEAMS).map(([team, colorClass]) => {
-              const selected = selectedTeams.includes(team);
+      {/* ── 필터 줄: 보기 전환 + 팀 칩(데스크톱) / 한 줄 필터 버튼(모바일) ── */}
+      <div className="flex items-center gap-2.5 py-[11px] flex-wrap shrink-0">
+        <span className="flex p-[3px] rounded-[8px] shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
+          {[['kanban', '보드'], ['calendar', '캘린더']].map(([v, label]) => (
+            <button key={v} onClick={() => setViewMode(v)}
+              className="px-3 py-[5px] rounded-[5px] text-[12.5px] font-semibold transition-colors"
+              style={{
+                background: viewMode === v ? 'var(--app-surface)' : 'transparent',
+                color: viewMode === v ? 'var(--app-ink)' : 'var(--app-ink-muted)',
+              }}>{label}</button>
+          ))}
+        </span>
+
+        {/* 데스크톱: 전체 칩 + 업무가 있는 팀만 */}
+        <span className="hidden md:block w-px h-5 shrink-0" style={{ background: 'var(--app-line)' }} />
+        <div className="hidden md:flex flex-wrap items-center gap-1.5 min-w-0">
+          <button onClick={() => setSelectedTeams([])}
+            className="px-[11px] py-[5px] rounded-full text-[11.5px] whitespace-nowrap transition-colors"
+            style={{
+              background: selectedTeams.length ? 'var(--app-surface-hover)' : 'var(--app-ink)',
+              color: selectedTeams.length ? 'var(--app-ink-muted)' : 'var(--app-canvas)',
+              fontWeight: selectedTeams.length ? 500 : 700,
+            }}>전체 {projectTasks.length}</button>
+          {teamChips.map(name => {
+            const on = selectedTeams.includes(name);
+            return (
+              <button key={name} onClick={() => toggleTeam(name)}
+                className="inline-flex items-center gap-1.5 pl-[9px] pr-[11px] py-[5px] rounded-full text-[11.5px] whitespace-nowrap transition-colors"
+                style={{
+                  background: on ? teamBgColor(name) : 'var(--app-surface-hover)',
+                  color: on ? teamColor(name) : 'var(--app-ink-muted)',
+                  fontWeight: on ? 700 : 500,
+                }}>
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: teamColor(name) }} />
+                {name}
+                <span className="text-[10.5px] tabular-nums" style={{ color: on ? teamColor(name) : 'var(--app-ink-faint)' }}>{teamCounts[name]}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 모바일: 한 줄 필터 버튼 → 오버레이 카드 */}
+        <TeamFilterBar
+          className="md:hidden"
+          teams={teamChips} counts={teamCounts} total={projectTasks.length}
+          shownCount={filteredTasks.length} selected={selectedTeams}
+          onToggle={toggleTeam} onClear={() => setSelectedTeams([])}
+        />
+      </div>
+
+      <div className="flex-1 min-h-0">
+        {viewMode === 'kanban'
+          ? <Board tasks={filteredTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} />
+          : <CalendarBoard tasks={filteredTasks} onTaskClick={onTaskClick} />}
+      </div>
+    </div>
+  );
+});
+
+// 모바일 팀 필터 — 칩을 나열하지 않고 한 줄 버튼으로 접고, 누르면 오버레이 카드가 열린다.
+// 오버레이라 아래 콘텐츠를 밀지 않는다(핸드오프: position:absolute; z-index:20).
+function TeamFilterBar({ teams, counts, total, shownCount, selected, onToggle, onClear, className = '' }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (!rootRef.current?.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('touchstart', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const label = selected.length
+    ? `${selected[0]}${selected.length > 1 ? ` 외 ${selected.length - 1}` : ''} · ${shownCount}건`
+    : `전체 팀 · ${total}건`;
+
+  return (
+    <span ref={rootRef} className={`flex-1 min-w-0 relative ${className}`}>
+      <button onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-[7px] pl-[11px] pr-2.5 py-[7px] rounded-full text-xs font-semibold text-fg"
+        style={{ background: 'var(--app-surface)', border: `1px solid ${selected.length ? 'var(--app-accent)' : 'var(--app-line)'}` }}>
+        <SlidersIcon />
+        <span className="flex-1 min-w-0 text-left truncate">{label}</span>
+        <ChevronDown size={13} className="shrink-0 text-fg-faint transition-transform" style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
+      </button>
+      {open && (
+        <span className="block relative h-0 z-20">
+          <span className="dc-pop block absolute left-0 right-0 p-1.5 rounded-[10px]" style={{
+            top: -4, transformOrigin: 'top center',
+            background: 'var(--app-surface)', border: '1px solid var(--app-line)',
+            boxShadow: '0 10px 28px rgba(0,0,0,.14)',
+          }}>
+            <button onClick={() => { onClear(); setOpen(false); }}
+              className="w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-[7px] text-[13px] text-fg text-left"
+              style={{ background: selected.length ? 'transparent' : 'var(--app-surface-hover)', fontWeight: selected.length ? 500 : 700 }}>
+              <span className="w-[7px] h-[7px] rounded-[2px] shrink-0" style={{ background: 'var(--app-ink)' }} />
+              <span className="flex-1">전체 팀</span>
+              <span className="text-[11.5px] text-fg-faint tabular-nums">{total}</span>
+            </button>
+            {teams.map(name => {
+              const on = selected.includes(name);
               return (
-                <button key={team} onClick={() => toggleTeam(team)} className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-xs text-[11px] font-semibold border whitespace-nowrap leading-none h-[26px] transition-all active:scale-95 ${selected ? colorClass + ' border-transparent' : 'bg-surface/70 text-fg-muted border-line hover:bg-surface'}`}>
-                  {selected && <Check size={11} className="shrink-0" />}{team}
+                <button key={name} onClick={() => onToggle(name)}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-[7px] text-[13px] text-left"
+                  style={{ background: on ? teamBgColor(name) : 'transparent', color: on ? teamColor(name) : 'var(--app-ink)', fontWeight: on ? 700 : 500 }}>
+                  <span className="w-[7px] h-[7px] rounded-[2px] shrink-0" style={{ background: teamColor(name) }} />
+                  <span className="flex-1 truncate">{name}</span>
+                  <span className="text-[11.5px] text-fg-faint tabular-nums">{counts[name]}</span>
+                  {on && <Check size={13} className="shrink-0 [stroke-width:2.4px]" style={{ color: teamColor(name) }} />}
                 </button>
               );
             })}
-          </div>
-          <NewTaskButton onClick={onNewTask} className="hidden md:inline-flex" />
-        </div>
+          </span>
+        </span>
       )}
-      <div className="flex-1 min-h-0">
-        {viewMode === 'kanban' ? <Board tasks={filteredTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} /> : <CalendarBoard tasks={projectTasks} onTaskClick={onTaskClick} />}
-      </div>
-    </div>
+    </span>
   );
-});
+}
 
-export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStatusChange }) {
+// 필터 줄 아이콘 (핸드오프의 인라인 SVG를 그대로)
+function SlidersIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="var(--app-ink-muted)" strokeWidth="1.6" strokeLinecap="round" className="w-3.5 h-3.5 shrink-0">
+      <path d="M3 5h18M6 12h12M10 19h4" />
+    </svg>
+  );
+}
+
+// ── 내 업무 ───────────────────────────────────────────────────────────────
+// 상태 칩은 다중 선택. 아무것도 고르지 않으면 미완료 전체를 보여준다.
+export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStatusChange, onNavigate }) {
   const currentUser = useStore(selectCurrentUser);
   const myTasks = useStore(selectMyTasks);
+  const projectsMap = useStore(selectProjectsMap);
+  const [statusFilter, setStatusFilter] = useState([]);
+  const today = ISO_TODAY();
+
+  const toggle = (s) => setStatusFilter(p => p.includes(s) ? p.filter(x => x !== s) : [...p, s]);
+  const shown = statusFilter.length
+    ? myTasks.filter(t => statusFilter.includes(t.status))
+    : myTasks.filter(t => t.status !== '완료');
+  const groups = useMemo(() => groupByDue(shown, today), [shown, today]);
+
+  const openCount = myTasks.filter(t => t.status !== '완료').length;
+  const lateCount = myTasks.filter(t => t.status !== '완료' && t.dueDate && t.dueDate < today).length;
+
+  // 내가 맡은 프로젝트별 진행
+  const myProjects = useMemo(() => {
+    const ids = [...new Set(myTasks.map(t => t.projectId))];
+    return ids.map(id => {
+      const list = myTasks.filter(t => t.projectId === id);
+      const done = list.filter(t => t.status === '완료').length;
+      return { id, title: projectsMap[id]?.title || '프로젝트 없음', done, total: list.length };
+    });
+  }, [myTasks, projectsMap]);
+
   return (
-    <div className="h-full flex flex-col animate-in fade-in">
-      {/* 모바일은 상단바에 같은 제목이 있으니 여기서는 숨긴다.
-          아이콘 타일은 뺐다 — 다른 화면 제목은 다 글자만인데 여기만 분홍 상자가 붙어 톤이 어긋났다 */}
-      <div className="mb-3 shrink-0 hidden md:flex items-baseline gap-2.5">
-        <h2 className="text-2xl font-extrabold text-fg tracking-[-0.7px]">{currentUser.name}님의 업무</h2>
-        <p className="text-xs text-fg-muted">할당된 모든 프로젝트의 업무가 모입니다</p>
+    <div className="dc-screen pb-6">
+      <div className="flex items-end justify-between gap-4 flex-wrap pb-3.5">
+        {/* 모바일은 상단바에 같은 제목이 있으니 여기서는 숨긴다 */}
+        <div className="min-w-0 hidden md:block">
+          <h2 className="text-[23px] font-extrabold text-fg mb-[3px]" style={{ letterSpacing: '-0.7px' }}>{currentUser.name}님의 업무</h2>
+          <p className="text-[12.5px] text-fg-muted tabular-nums">{openCount}건 남음{lateCount ? ` · 지난 마감 ${lateCount}건` : ''}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+          {CONFIG.STATUSES.map(s => {
+            const on = statusFilter.includes(s);
+            return (
+              <button key={s} onClick={() => toggle(s)}
+                className="inline-flex items-center gap-1.5 pl-[9px] pr-[11px] py-[5px] rounded-full text-[11.5px] transition-colors"
+                style={{
+                  background: on ? CONFIG.STATUS_BG_VAR[s] : 'var(--app-surface-hover)',
+                  color: on ? CONFIG.STATUS_FG_VAR[s] : 'var(--app-ink-muted)',
+                  fontWeight: on ? 700 : 500,
+                }}>
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATUS_DOT_VAR[s] }} />{s}
+              </button>
+            );
+          })}
+        </div>
       </div>
-      <div className="flex-1 min-h-0"><Board tasks={myTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} showProjectBadge /></div>
+
+      <div className="grid gap-x-7 gap-y-6 items-start side-grid">
+        <DueGroupList
+          groups={groups} projectsMap={projectsMap} today={today} showTeam={false}
+          onComplete={(t) => onStatusChange(t, '완료')} onOpen={onTaskClick}
+          emptyHint={statusFilter.length ? '고른 상태에 해당하는 업무가 없어요' : '새로 맡은 일이 생기면 여기에 쌓여요'}
+        />
+        <div className="min-w-0">
+          <SectionHead>내가 맡은 프로젝트</SectionHead>
+          <div className="flex flex-col gap-3">
+            {myProjects.map(p => (
+              <button key={p.id} onClick={() => onNavigate?.(p.id)} className="min-w-0 text-left hover:opacity-60 transition-opacity">
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="text-[12.5px] font-semibold text-fg truncate">{p.title}</span>
+                  <span className="text-[11px] font-semibold text-fg-muted tabular-nums shrink-0">{p.done}/{p.total}건</span>
+                </span>
+                <span className="block mt-[5px]"><Bar ratio={p.total ? p.done / p.total : 0} color="var(--p-blue)" /></span>
+              </button>
+            ))}
+            {!myProjects.length && <p className="text-[11px] text-fg-faint">아직 맡은 업무가 없어요</p>}
+          </div>
+        </div>
+      </div>
     </div>
   );
 });
 
-export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, onStatusChange }) {
+// ── 팀 보드 ───────────────────────────────────────────────────────────────
+export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, onStatusChange, onNavigate }) {
   const tasksList = useStore(selectTasksList);
-  const teamTasks = useMemo(() => tasksList.filter(t => t.teams.includes(teamName)), [tasksList, teamName]);
+  const projectsMap = useStore(selectProjectsMap);
+  const today = ISO_TODAY();
+  const teamTasks = useMemo(() => tasksList.filter(t => (t.teams || []).includes(teamName)), [tasksList, teamName]);
+  const openTasks = teamTasks.filter(t => t.status !== '완료');
+
+  const counts = {};
+  CONFIG.STATUSES.forEach(s => { counts[s] = teamTasks.filter(t => t.status === s).length; });
+
+  // 멤버 칩 — 이 팀 업무의 담당자별 남은 건수
+  const members = useMemo(() => {
+    const m = new Map();
+    openTasks.forEach(t => (t.assignees || []).forEach(a => m.set(a, (m.get(a) || 0) + 1)));
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([name, left]) => ({ name, left }));
+  }, [openTasks]);
+
+  const teamProjects = useMemo(() => {
+    const ids = [...new Set(teamTasks.map(t => t.projectId))];
+    return ids.map(id => {
+      const list = teamTasks.filter(t => t.projectId === id);
+      const done = list.filter(t => t.status === '완료').length;
+      return { id, title: projectsMap[id]?.title || '프로젝트 없음', done, total: list.length };
+    });
+  }, [teamTasks, projectsMap]);
+
+  const groups = useMemo(() => groupByDue(openTasks, today), [openTasks, today]);
+
   return (
-    <div className="h-full flex flex-col animate-in fade-in">
-      <div className="mb-3 shrink-0 hidden md:flex items-baseline gap-2.5"><h2 className="text-2xl font-extrabold text-fg tracking-[-0.7px]">{teamName}</h2><span className={`text-[11px] font-bold tracking-[0.03em] ${CONFIG.TEAM_FG[teamName] || 'text-fg-muted'}`}>팀 보드</span></div>
-      <div className="flex-1 min-h-0"><Board tasks={teamTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} showProjectBadge /></div>
+    <div className="dc-screen pb-6">
+      <div className="flex items-end justify-between gap-4 flex-wrap pb-3.5">
+        <div className="min-w-0">
+          <h2 className="text-[19px] md:text-[23px] font-extrabold text-fg mb-[3px] flex items-center gap-2" style={{ letterSpacing: '-0.7px' }}>
+            <span className="w-[9px] h-[9px] rounded-[2px] shrink-0" style={{ background: teamColor(teamName) }} />
+            {teamName}
+          </h2>
+          <p className="text-[12.5px] text-fg-muted tabular-nums">{openTasks.length}건 남음 · {teamProjects.length}개 프로젝트 참여</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+          {members.slice(0, 5).map(m => (
+            <span key={m.name} className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full"
+              style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${avatarColor(m.name)}`}>{m.name[0]}</span>
+              <span className="text-[11.5px] font-semibold text-fg">{m.name}</span>
+              <span className="text-[11px] text-fg-faint tabular-nums">{m.left}</span>
+            </span>
+          ))}
+          {!members.length && <span className="text-[11.5px] text-fg-faint">남은 업무를 맡은 사람이 없어요</span>}
+        </div>
+      </div>
+
+      {/* 상태 4칸 — 대시보드 KPI와 같은 규격. 시작 전·진행 중·보류 중 3칸(좌) + 완료(우) */}
+      <div className="grid gap-x-7 gap-y-3 items-stretch side-grid">
+        <div className="grid grid-cols-3 rounded-[10px] overflow-hidden shadow-soft"
+          style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)' }}>
+          {['시작 전', '진행 중', '보류 중'].map((s, i) => (
+            <KpiCell key={s} label={s} value={counts[s]} note="" delay={i * 40}
+              dot={STATUS_DOT_VAR[s]} bar={STATUS_BAR[s]} ratio={teamTasks.length ? counts[s] / teamTasks.length : 0} />
+          ))}
+        </div>
+        <div className="rounded-[10px] shadow-soft flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]"
+          style={{ background: 'var(--app-tag-green)', border: '1px solid var(--app-line)' }}>
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--app-tag-green-fg)' }} />
+            <span className="text-[11.5px] font-semibold whitespace-nowrap" style={{ color: 'var(--app-tag-green-fg)' }}>완료</span>
+          </div>
+          <div className="flex items-baseline gap-[5px]">
+            <span className="text-[34px] font-extrabold leading-none tabular-nums" style={{ letterSpacing: '-1.8px', color: 'var(--app-tag-green-fg)' }}>{counts['완료']}</span>
+            <span className="text-xs font-semibold" style={{ color: 'var(--app-tag-green-fg)' }}>건</span>
+            <span className="flex-1" />
+            <span className="text-[10.5px] tabular-nums whitespace-nowrap" style={{ color: 'var(--app-tag-green-fg)', opacity: .7 }}>전체 {teamTasks.length}건 중</span>
+          </div>
+          <Bar ratio={teamTasks.length ? counts['완료'] / teamTasks.length : 0} color="var(--p-green)" />
+        </div>
+      </div>
+
+      <div className="grid gap-x-7 gap-y-6 pt-[22px] items-start side-grid">
+        <DueGroupList
+          groups={groups} projectsMap={projectsMap} today={today}
+          onComplete={(t) => onStatusChange(t, '완료')} onOpen={onTaskClick}
+          emptyHint="이 팀이 맡은 일은 다 끝났어요"
+        />
+        <div className="min-w-0">
+          <SectionHead>참여 프로젝트</SectionHead>
+          <div className="flex flex-col gap-3">
+            {teamProjects.map(p => (
+              <button key={p.id} onClick={() => onNavigate?.(p.id)} className="min-w-0 text-left hover:opacity-60 transition-opacity">
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="text-[12.5px] font-semibold text-fg truncate">{p.title}</span>
+                  <span className="text-[11px] font-semibold text-fg-muted tabular-nums shrink-0">{p.done}/{p.total}건</span>
+                </span>
+                <span className="block mt-[5px]"><Bar ratio={p.total ? p.done / p.total : 0} color={teamBar(teamName)} /></span>
+              </button>
+            ))}
+            {!teamProjects.length && <p className="text-[11px] text-fg-faint">아직 참여한 프로젝트가 없어요</p>}
+          </div>
+        </div>
+      </div>
     </div>
   );
 });

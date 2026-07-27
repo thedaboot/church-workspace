@@ -5,15 +5,14 @@ import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable, pointerWithin, rectIntersection,
 } from '@dnd-kit/core';
-import { CONFIG, teamPaint } from '../config.js';
+import { CONFIG, teamPaint, teamColor } from '../config.js';
 import { avatarColor } from '../utils.js';
+import { STATUS_BAR, STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
 import { useStore } from '../store/workspaceStore.js';
 import { selectProjectsMap, selectTasksByDate } from '../store/selectors.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 
-const CAL_MIN_YEAR = new Date().getFullYear();
-const CAL_MAX_YEAR = 2030;
 
 // 놓을 곳은 "손가락/커서가 있는 곳" 기준으로 판단한다.
 // 기본값(rectIntersection)은 끌고 있는 카드의 사각형이 가장 많이 겹친 대상을 고르는데,
@@ -27,311 +26,360 @@ const dropCollision = (args) => {
 // ============================================================================
 // 12. UI Components (순수 프레젠테이션)
 // ============================================================================
-// 하루 셀에 보여줄 최대 줄 수. 넘치면 +N으로 접고, 날짜를 누르면 옆(모바일은 아래)
-// 목록에서 전체를 본다.
-// 데스크톱은 칸 높이를 고정하지 않고(고정하면 6주치가 넘쳐 스크롤이 생기고, 그 스크롤바
-// 폭만큼 요일 헤더와 칸이 어긋난다) 실제 칸 높이를 재서 들어가는 줄 수를 계산한다.
-// 셀에 overflow-hidden은 걸 수 없다 — 여러 날 띠의 제목이 셀 밖으로 흘러야 하므로.
-const CAL_MAX_ROWS_MOBILE = 2;
-const DESK_CELL = { date: 18, pad: 8, band: 18, gap: 3, more: 14 }; // px 예산
-const rowsThatFit = (rowH) => Math.max(
-  1,
-  Math.min(5, Math.floor((rowH - DESK_CELL.date - DESK_CELL.pad - DESK_CELL.more) / (DESK_CELL.band + DESK_CELL.gap)))
-);
-// 교회 달력이라 일요일은 '주일'로 표기한다(요일 셀 배경도 주말만 따로).
+// 교회 달력이라 일요일은 '주일'로 표기한다.
 const WEEKDAYS = ['주일', '월', '화', '수', '목', '금', '토'];
-const WEEKDAY_TONE = [
-  'bg-tag-red/60 text-tag-red-fg',      // 주일
-  '', '', '', '', '',
-  'bg-tag-blue/50 text-tag-blue-fg',    // 토
-];
+const CAL_LANES = 2;            // 주당 보여줄 띠 줄 수. 넘치면 그 날짜에 +N건
+const CAL_MIN_YEAR = new Date().getFullYear();
+const CAL_MAX_YEAR = 2030;
 
+const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const addDays = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return isoOf(d); };
+const mdOf = (iso) => `${Number(iso.slice(5, 7))}. ${Number(iso.slice(8, 10))}.`;
+
+// 업무 기간 — 시작일이 없으면 마감일 하루로 본다(핸드오프: 없으면 마감일 당일로 처리)
+const spanOf = (t) => {
+  const end = t.dueDate || t.startDate;
+  const start = t.startDate || end;
+  if (!end) return null;
+  return start <= end ? { start, end } : { start: end, end: start };
+};
+
+// 한 주(일요일 시작) 안에서 겹치는 업무를 레인에 배치한다.
+// 같은 업무가 그 주 내내 같은 줄에 있어야 띠가 끊기지 않는다.
+function layoutWeek(weekStart, tasks) {
+  const weekEnd = addDays(weekStart, 6);
+  const bars = [];
+  tasks.forEach(t => {
+    const s = spanOf(t);
+    if (!s || s.end < weekStart || s.start > weekEnd) return;
+    const from = s.start < weekStart ? weekStart : s.start;
+    const to = s.end > weekEnd ? weekEnd : s.end;
+    const col = Math.round((new Date(`${from}T00:00:00`) - new Date(`${weekStart}T00:00:00`)) / 86400000);
+    const span = Math.round((new Date(`${to}T00:00:00`) - new Date(`${from}T00:00:00`)) / 86400000) + 1;
+    bars.push({
+      task: t, col, span,
+      continued: s.start < weekStart,     // 지난 주에서 이어짐 → ↳ 접두사
+      clippedRight: s.end > weekEnd,      // 다음 주로 이어짐 → 오른쪽 모서리 각지게
+      sortKey: `${s.start}-${-span}`,
+    });
+  });
+  bars.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+
+  const lanes = [];                        // lanes[i] = bar[]
+  const overflowByCol = Array(7).fill(0);
+  bars.forEach(bar => {
+    let li = 0;
+    while (li < CAL_LANES) {
+      const busy = (lanes[li] || []).some(b => bar.col < b.col + b.span && b.col < bar.col + bar.span);
+      if (!busy) break;
+      li++;
+    }
+    if (li >= CAL_LANES) {
+      for (let c = bar.col; c < bar.col + bar.span; c++) overflowByCol[c]++;
+      return;
+    }
+    (lanes[li] = lanes[li] || []).push(bar);
+  });
+  return { lanes, overflowByCol };
+}
+
+// ── 캘린더 ────────────────────────────────────────────────────────────────
+// 주 단위 행 구조: 각 주가 flex:1 / min-height:0 / overflow:hidden 이고,
+// 행 안은 ① 배경 셀 7칸(클릭 타깃) ② 날짜 숫자 줄 ③ 띠 레인 순서의 세로 흐름이다.
+// 띠를 날짜 위에 절대 배치로 얹으면 날짜가 가려지고 다음 주로 넘친다(핸드오프 경고).
 export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
-  // O(1) 맵핑 캐싱된 Selector 활용
-  const tasksByDateMap = useStore(selectTasksByDate);
   const isMobile = useIsMobile();
-  // undefined = 자동(모바일은 오늘/첫 일정일), null = 사용자가 닫음, 'YYYY-MM-DD' = 선택
-  const [selected, setSelected] = React.useState(undefined);
+  const todayIso = isoOf(new Date());
+  const [view, setView] = React.useState(() => {
+    const d = new Date();
+    return { y: Math.max(CAL_MIN_YEAR, Math.min(CAL_MAX_YEAR, d.getFullYear())), m: d.getMonth() };
+  });
+  const [selected, setSelected] = React.useState(todayIso);
 
-  // 이 캘린더가 보여줄 업무만 남긴다(프로젝트 캘린더는 그 프로젝트 업무만).
-  // 전역 selector를 그대로 쓰면 다른 프로젝트 업무까지 달력에 섞여 나온다.
-  const allowed = React.useMemo(() => new Set((tasks || []).map(t => t.id)), [tasks]);
-  const entriesOf = React.useCallback(
-    (dateStr) => (tasksByDateMap.get(dateStr) || []).filter(e => allowed.has(e.task.id)),
-    [tasksByDateMap, allowed]
-  );
+  const first = new Date(view.y, view.m, 1);
+  const gridStart = isoOf(new Date(view.y, view.m, 1 - first.getDay()));
+  const weekCount = Math.ceil((first.getDay() + new Date(view.y, view.m + 1, 0).getDate()) / 7);
+  const weekStarts = Array.from({ length: weekCount }, (_, i) => addDays(gridStart, i * 7));
 
-  const today = new Date();
-  // 표시 중인 연/월 상태 (초기값은 오늘, 범위로 클램프)
-  const [view, setView] = React.useState(() => ({
-    y: Math.max(CAL_MIN_YEAR, Math.min(CAL_MAX_YEAR, today.getFullYear())),
-    m: today.getMonth(),
-  }));
+  const monthPrefix = `${view.y}-${String(view.m + 1).padStart(2, '0')}`;
+  const monthTasks = React.useMemo(() => (tasks || []).filter(t => {
+    const s = spanOf(t);
+    return s && (s.start.startsWith(monthPrefix) || s.end.startsWith(monthPrefix)
+      || (s.start < monthPrefix && s.end > monthPrefix));
+  }), [tasks, monthPrefix]);
 
-  const currentYear = view.y;
-  const currentMonth = view.m;
-  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-  const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay();
-
-  const canPrev = !(currentYear === CAL_MIN_YEAR && currentMonth === 0);
-  const canNext = !(currentYear === CAL_MAX_YEAR && currentMonth === 11);
-  const goPrev = () => { if (canPrev) setView(v => v.m === 0 ? { y: v.y - 1, m: 11 } : { y: v.y, m: v.m - 1 }); };
-  const goNext = () => { if (canNext) setView(v => v.m === 11 ? { y: v.y + 1, m: 0 } : { y: v.y, m: v.m + 1 }); };
-  const goToday = () => setView({ y: Math.max(CAL_MIN_YEAR, Math.min(CAL_MAX_YEAR, today.getFullYear())), m: today.getMonth() });
-
-  // 실제 오늘이 표시 중인 달일 때만 isToday 강조
-  const showingCurrentMonth = currentYear === today.getFullYear() && currentMonth === today.getMonth();
-
-  const days = Array.from({ length: firstDayIndex + daysInMonth }, (_, i) => i < firstDayIndex ? null : i - firstDayIndex + 1);
-  const dateStrOf = (day) => `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  const weekCount = Math.ceil(days.length / 7);
-
-  // 데스크톱: 실제 칸 높이를 재서 몇 줄이 들어가는지 계산한다(창 높이에 따라 2~5줄).
-  const gridRef = React.useRef(null);
-  const [rowH, setRowH] = React.useState(0);
-  React.useEffect(() => {
-    if (isMobile) return;
-    const el = gridRef.current;
-    if (!el) return;
-    const measure = () => setRowH(el.clientHeight / weekCount);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [isMobile, weekCount]);
-  const maxRows = isMobile ? CAL_MAX_ROWS_MOBILE : (rowH ? rowsThatFit(rowH) : 2);
-
-  // ── 주 단위 레인(줄 위치) 배치 ────────────────────────────────────────────
-  // 같은 업무는 그 주 동안 같은 줄에 고정해야 띠가 끊기지 않는다. 날짜별로 그냥
-  // 순서대로 쌓으면, 짧은 업무가 끝나는 날부터 뒤 업무가 한 줄 위로 올라가면서
-  // 여러 날 띠가 중간에 어긋나 보였다.
-  const layout = React.useMemo(() => {
-    const perDay = new Map(); // dateStr -> { lanes: (entry|null)[], more: number }
-    for (let w = 0; w < days.length; w += 7) {
-      const week = days.slice(w, w + 7).filter(Boolean).map(dateStrOf);
-      const dayEntries = week.map(entriesOf);
-      // 이 주에 처음 등장하는 순서 = 시작일 빠른 순(selector에서 정렬됨)
-      const order = [];
-      const seen = new Set();
-      dayEntries.forEach(list => list.forEach(e => {
-        if (!seen.has(e.task.id)) { seen.add(e.task.id); order.push(e.task.id); }
-      }));
-      const occupied = [];              // occupied[lane] = Set(요일 인덱스)
-      const laneOf = new Map();
-      for (const taskId of order) {
-        const cols = dayEntries.reduce((acc, list, i) => (list.some(e => e.task.id === taskId) ? [...acc, i] : acc), []);
-        let lane = 0;
-        while (true) {
-          if (!occupied[lane]) occupied[lane] = new Set();
-          if (cols.every(i => !occupied[lane].has(i))) break;
-          lane++;
-        }
-        cols.forEach(i => occupied[lane].add(i));
-        laneOf.set(taskId, lane);
-      }
-      week.forEach((ds, i) => {
-        const lanes = [];
-        let more = 0;
-        for (const e of dayEntries[i]) {
-          const lane = laneOf.get(e.task.id) ?? 0;
-          if (lane >= maxRows) more++;
-          else lanes[lane] = e;
-        }
-        perDay.set(ds, { lanes, more });
-      });
-    }
-    return perDay;
+  const weeks = React.useMemo(() => weekStarts.map(ws => ({ ws, ...layoutWeek(ws, tasks || []) })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entriesOf, currentYear, currentMonth, maxRows, firstDayIndex, daysInMonth]);
+    [tasks, gridStart, weekCount]);
 
-  // 목록 패널은 처음부터 열어둔다 — 좁은 칸에서 못 읽는 제목·팀·상태를 여기서 읽는다.
-  // (오늘 → 일정이 있는 첫 날 순). 사용자가 닫으면(null) 다시 열지 않는다.
-  const autoDay = React.useMemo(() => {
-    const todayStr = dateStrOf(today.getDate());
-    if (showingCurrentMonth && entriesOf(todayStr).length) return todayStr;
-    for (const d of days) {
-      if (!d) continue;
-      const ds = dateStrOf(d);
-      if (entriesOf(ds).length) return ds;
-    }
-    return null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entriesOf, currentYear, currentMonth]);
-  const openDay = selected === undefined ? autoDay : selected;
+  const canPrev = !(view.y === CAL_MIN_YEAR && view.m === 0);
+  const canNext = !(view.y === CAL_MAX_YEAR && view.m === 11);
+  const shift = (n) => () => setView(v => {
+    const d = new Date(v.y, v.m + n, 1);
+    const y = Math.max(CAL_MIN_YEAR, Math.min(CAL_MAX_YEAR, d.getFullYear()));
+    return { y, m: d.getMonth() };
+  });
 
-  // 달을 옮기면 선택은 다시 자동으로
-  const monthKey = `${currentYear}-${currentMonth}`;
-  const lastMonthRef = React.useRef(monthKey);
-  if (lastMonthRef.current !== monthKey) { lastMonthRef.current = monthKey; if (selected !== undefined) setSelected(undefined); }
+  const dayTasks = (iso) => (tasks || []).filter(t => { const s = spanOf(t); return s && s.start <= iso && iso <= s.end; });
+  const selectedList = dayTasks(selected);
 
   return (
-    <div className="bg-surface rounded-lg border border-line flex flex-col h-full min-h-[400px]">
-      <div className="px-4 py-3 border-b border-line bg-surface-2 flex items-center justify-between">
-        <h3 className="font-semibold text-sm text-fg tracking-[-0.25px]">{currentYear}년 {currentMonth + 1}월</h3>
-        <div className="flex items-center gap-1">
-          <button onClick={goPrev} disabled={!canPrev} className={`p-1 rounded-md text-fg-muted transition active:scale-95 ${canPrev ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`}><ChevronLeft size={16} strokeWidth={1.75} /></button>
-          <button onClick={goToday} className="px-2 py-1 rounded-md text-xs font-medium text-fg-muted hover:bg-surface-hover transition active:scale-95">오늘</button>
-          <button onClick={goNext} disabled={!canNext} className={`p-1 rounded-md text-fg-muted transition active:scale-95 ${canNext ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`}><ChevronRight size={16} strokeWidth={1.75} /></button>
-        </div>
+    <div className="flex flex-col h-full min-h-0">
+      {/* 상단: 이전/다음 붙은 쌍 + 연월 + 건수 + 상태 범례 */}
+      <div className="flex items-center gap-2.5 pb-2 shrink-0 flex-wrap">
+        <span className="flex rounded-[8px] overflow-hidden shrink-0" style={{ border: '1px solid var(--app-line)' }}>
+          <button onClick={shift(-1)} disabled={!canPrev} title="이전 달"
+            className="w-7 h-7 flex items-center justify-center text-fg-muted hover:bg-surface-hover transition-colors disabled:opacity-30">
+            <ChevronLeft size={15} />
+          </button>
+          <span className="w-px" style={{ background: 'var(--app-line)' }} />
+          <button onClick={shift(1)} disabled={!canNext} title="다음 달"
+            className="w-7 h-7 flex items-center justify-center text-fg-muted hover:bg-surface-hover transition-colors disabled:opacity-30">
+            <ChevronRight size={15} />
+          </button>
+        </span>
+        <h3 className="text-[14.5px] font-extrabold text-fg tabular-nums">{view.y}년 {view.m + 1}월</h3>
+        <span className="text-[11.5px] text-fg-faint tabular-nums">{monthTasks.length}건</span>
+        <span className="flex-1" />
+        <span className="hidden sm:flex items-center gap-2.5">
+          {CONFIG.STATUSES.map(s => (
+            <span key={s} className="inline-flex items-center gap-1.5 text-[10.5px] text-fg-muted">
+              <span className="w-2 h-1 rounded-full" style={{ background: STATUS_BAR[s] }} />{s}
+            </span>
+          ))}
+        </span>
       </div>
-      {/* 데스크톱은 달력 옆에 목록을 세로로 붙인다(칸 높이를 뺏지 않으면서 제대로 읽게).
-          모바일은 아래에 붙인다. */}
-      <div className={`flex-1 min-h-0 flex ${isMobile ? 'flex-col' : 'flex-row'}`}>
-      <div className="flex-1 min-w-0 flex flex-col">
-      <div className="grid grid-cols-7 border-b border-line shrink-0">
-        {WEEKDAYS.map((d, i) => (
-          <div key={d} className={`py-1.5 text-center text-[10px] font-semibold border-r border-line last:border-0 ${WEEKDAY_TONE[i] || 'text-fg-muted'}`}>{d}</div>
+
+      {/* 요일 헤더 */}
+      <div className="grid grid-cols-7 pb-1.5 shrink-0">
+        {WEEKDAYS.map((w, i) => (
+          <span key={w} className="text-[10.5px] font-bold text-center"
+            style={{ color: i === 0 ? 'var(--app-tag-red-fg)' : i === 6 ? 'var(--app-tag-blue-fg)' : 'var(--app-ink-faint)' }}>{w}</span>
         ))}
       </div>
-      {/* 모바일은 칸을 정사각형에 가깝게 눌러 담고(빈 칸이 커 보이지 않게) 남은 공간은
-          아래 목록 패널이 쓴다. 데스크톱은 6주치가 딱 맞게 늘어나 스크롤이 없다
-          (스크롤이 생기면 그 스크롤바 폭만큼 위 요일 헤더와 칸이 어긋난다). */}
-      <div
-        ref={gridRef}
-        className={`grid grid-cols-7 ${isMobile ? 'auto-rows-min overflow-y-auto' : 'flex-1 auto-rows-fr'}`}
-      >
-        {days.map((day, idx) => {
-          if (!day) return <div key={`empty-${idx}`} className={`border-b border-r border-line bg-surface-2 ${isMobile ? 'min-h-[62px]' : ''}`}></div>;
-          const dateStr = dateStrOf(day);
-          const cell = layout.get(dateStr) || { lanes: [], more: 0 };
-          const hasAny = cell.lanes.some(Boolean) || cell.more > 0;
-          const isToday = showingCurrentMonth && day === today.getDate();
-          const isSelected = openDay === dateStr;
-          // 채워진 마지막 레인까지만 그린다(그 뒤 빈 줄은 안 그림 → 칸이 덜 비어 보인다)
-          const lastLane = cell.lanes.reduce((m, e, i) => (e ? i : m), -1);
-          return (
-            <div
-              key={day}
-              onClick={() => setSelected(hasAny ? dateStr : null)}
-              className={`relative border-b border-r border-line p-1 ${isMobile ? 'min-h-[62px]' : ''} ${hasAny ? 'cursor-pointer' : ''} ${isSelected ? 'bg-accent-weak/70 ring-1 ring-inset ring-accent' : isToday ? 'bg-accent-weak' : ''}`}
-            >
-              {/* 오늘은 채운 원으로 표시 — 배경 강조만으로는 눈에 덜 들어온다 */}
-              <div className={`${isMobile ? 'text-center text-[10px]' : 'px-0.5 text-[11px]'} font-semibold leading-none`}>
-                <span className={`inline-flex items-center justify-center ${isMobile ? 'w-4 h-4' : 'w-[18px] h-[18px]'} rounded-full ${isToday ? 'bg-accent text-white' : 'text-fg-muted'}`}>{day}</span>
-              </div>
-              <div className={`${isMobile ? 'space-y-0.5' : 'space-y-[3px]'} mt-0.5`}>
-                {Array.from({ length: lastLane + 1 }, (_, lane) => {
-                  const e = cell.lanes[lane];
-                  // 빈 레인은 같은 높이의 자리만 차지 — 여러 날 띠의 줄 위치를 지킨다
-                  if (!e) return <div key={`gap-${lane}`} className={isMobile ? 'h-[14px]' : 'h-[18px]'} />;
-                  return <CalendarBand key={e.task.id} task={e.task} kind={e.kind} compact={isMobile} onClick={onTaskClick} />;
+
+      {isMobile ? (
+        <MobileCalendar
+          weekStarts={weekStarts} month={view.m} todayIso={todayIso} selected={selected} setSelected={setSelected}
+          dayTasks={dayTasks} selectedList={selectedList} onTaskClick={onTaskClick}
+        />
+      ) : (
+        <div className="flex-1 min-h-0 flex flex-col rounded-[10px] overflow-hidden shadow-soft"
+          style={{ border: '1px solid var(--app-line)', background: 'var(--app-line)' }}>
+          {weeks.map(({ ws, lanes, overflowByCol }, wi) => (
+            <div key={ws} className="relative flex-1 min-h-0 overflow-hidden flex flex-col"
+              style={{ borderTop: wi ? '1px solid var(--app-line)' : 'none' }}>
+              {/* ① 배경 셀 — 클릭 타깃 */}
+              <div className="absolute inset-0 grid grid-cols-7" style={{ gap: 1 }}>
+                {Array.from({ length: 7 }, (_, i) => {
+                  const iso = addDays(ws, i);
+                  const inMonth = Number(iso.slice(5, 7)) === view.m + 1;
+                  const isToday = iso === todayIso;
+                  const isSel = iso === selected;
+                  return (
+                    <button key={iso} onClick={() => setSelected(iso)} aria-label={mdOf(iso)}
+                      className="transition-colors"
+                      style={{
+                        background: isToday ? 'var(--app-accent-weak)' : isSel ? 'var(--app-surface-hover)'
+                          : inMonth ? 'var(--app-surface)' : 'var(--app-canvas)',
+                        boxShadow: isSel && !isToday ? 'inset 0 0 0 1.5px var(--app-accent)' : 'none',
+                      }} />
+                  );
                 })}
               </div>
-              {/* +N은 칸 오른쪽 아래에 얹는다 — 한 줄을 더 쓰면 다음 주 날짜와 겹친다 */}
-              {cell.more > 0 && (
-                <button
-                  type="button"
-                  onClick={(ev) => { ev.stopPropagation(); setSelected(dateStr); }}
-                  className={`absolute bottom-0.5 font-semibold text-fg-muted hover:text-accent-text rounded-sm hover:bg-surface-hover transition ${isMobile ? 'inset-x-0 text-[8px] text-center leading-[12px]' : 'right-1 px-1 text-[9px] leading-[13px]'}`}
-                >+{cell.more}{isMobile ? '' : '개'}</button>
-              )}
+              {/* ② 날짜 숫자 */}
+              <div className="relative grid grid-cols-7 pt-1.5 shrink-0 pointer-events-none" style={{ gap: 1 }}>
+                {Array.from({ length: 7 }, (_, i) => {
+                  const iso = addDays(ws, i);
+                  const inMonth = Number(iso.slice(5, 7)) === view.m + 1;
+                  return (
+                    <span key={iso} className="px-1.5 text-[10.5px] font-semibold tabular-nums"
+                      style={{ color: inMonth ? 'var(--app-ink-muted)' : 'var(--app-ink-faint)' }}>
+                      {Number(iso.slice(8, 10))}
+                    </span>
+                  );
+                })}
+              </div>
+              {/* ③ 띠 레인 */}
+              <div className="relative flex-1 min-h-0 flex flex-col gap-[3px] pt-1 pb-1">
+                {Array.from({ length: CAL_LANES }, (_, li) => (
+                  <div key={li} className="grid grid-cols-7 shrink-0" style={{ gap: 1 }}>
+                    {(lanes[li] || []).map(bar => (
+                      <CalBar key={bar.task.id} bar={bar} onClick={() => onTaskClick(bar.task)} />
+                    ))}
+                  </div>
+                ))}
+                {overflowByCol.some(Boolean) && (
+                  <div className="grid grid-cols-7 shrink-0" style={{ gap: 1 }}>
+                    {overflowByCol.map((n, i) => (
+                      <span key={i} className="px-1.5">
+                        {n > 0 && (
+                          <button onClick={() => setSelected(addDays(ws, i))}
+                            className="text-[10px] font-semibold text-fg-faint hover:text-fg-muted transition-colors">+{n}건</button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          );
-        })}
-      </div>
-      </div>
-      {openDay && <CalendarDayPanel dateStr={openDay} entries={entriesOf(openDay)} onTaskClick={onTaskClick} onClose={() => setSelected(null)} isMobile={isMobile} />}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {/* 선택한 날의 목록 — 좁은 칸에서 못 읽는 제목·팀·기간을 여기서 읽는다 */}
+      {!isMobile && (
+        <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick} />
+      )}
     </div>
   );
 });
 
-// 기간 띠 한 조각. 제목은 시작 칸에서 한 번만 쓴다 —
-// 주가 바뀔 때마다 다시 쓰면 같은 업무가 여러 번 적힌 것처럼 보인다.
-function CalendarBand({ task, kind, onClick, compact = false }) {
-  const paint = teamPaint(task.teams);
-  // compact = 모바일(칸 폭 53px 남짓). 아이폰 캘린더처럼 얇은 칩으로 줄이고,
-  // 여러 날 업무는 제목이 띠 위로 이어져 흐르므로 좁은 칸에서도 읽을 수 있다.
-  const base = `flex items-center cursor-pointer hover:opacity-80 transition-opacity ${compact ? 'h-[14px] text-[8px] rounded-[3px]' : 'h-[18px] text-[10px]'}`;
-  const pad = compact ? 'px-1' : 'px-1.5';
-  const label = <span className="overflow-visible relative z-[5] whitespace-nowrap pointer-events-none">{task.title}</span>;
-  let cls = '', content = null;
-  if (kind === 'mid') {
-    cls = 'rounded-none -mx-1';                     // 셀 사이를 끊김 없이 이어 붙인다
-  } else if (kind === 'start') {
-    cls = `rounded-l-sm -mr-1 ${pad} overflow-visible`;
-    content = label;
-  } else if (kind === 'due') {
-    cls = `rounded-r-sm -ml-1 ${pad}`;              // 마감 칸은 띠만(제목은 시작 칸에 있음)
-  } else {
-    cls = `rounded-sm ${pad} overflow-hidden`;      // single / due-only
-    content = <span className="truncate">{task.title}</span>;
-  }
-  const period = task.startDate && task.dueDate && task.startDate !== task.dueDate
-    ? `${task.startDate} ~ ${task.dueDate}` : (task.dueDate || task.startDate || '');
+// 기간 띠 한 조각. 이어지는 조각은 ↳ 를 붙이고 잘린 쪽 모서리를 각지게 한다.
+function CalBar({ bar, onClick }) {
+  const { task, col, span, continued, clippedRight } = bar;
   return (
-    <div
-      onClick={(e) => { e.stopPropagation(); onClick(task); }}
-      title={`${task.title}${period ? ` (${period})` : ''}${task.teams?.length ? ` · ${task.teams.join(', ')}` : ''}`}
-      className={`${base} ${cls}`} style={paint}
+    <button
+      onClick={onClick} title={`${task.title} (${mdOf(spanOf(task).start)} ~ ${mdOf(spanOf(task).end)})`}
+      className="min-w-0 h-[18px] px-1.5 flex items-center text-left hover:brightness-95 transition-[filter]"
+      style={{
+        gridColumn: `${col + 1} / span ${span}`,
+        ...teamPaint(task.teams),
+        borderTopLeftRadius: continued ? 2 : 4, borderBottomLeftRadius: continued ? 2 : 4,
+        borderTopRightRadius: clippedRight ? 2 : 4, borderBottomRightRadius: clippedRight ? 2 : 4,
+      }}
     >
-      {content}
+      <span className="text-[10.5px] font-semibold truncate">{continued ? '↳ ' : ''}{task.title}</span>
+    </button>
+  );
+}
+
+// 모바일 캘린더 — 52px 고정 칸에 팀 색 점만 찍고, 날짜를 누르면 아래에 그날 목록
+function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, dayTasks, selectedList, onTaskClick }) {
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="grid grid-cols-7 rounded-[10px] overflow-hidden shadow-soft"
+        style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)', gridAutoRows: '52px' }}>
+        {weekStarts.flatMap(ws => Array.from({ length: 7 }, (_, i) => {
+          const iso = addDays(ws, i);
+          const inMonth = Number(iso.slice(5, 7)) === month + 1;
+          const isToday = iso === todayIso;
+          const isSel = iso === selected;
+          const list = dayTasks(iso);
+          return (
+            <button key={iso} onClick={() => setSelected(iso)}
+              className="flex flex-col items-center pt-1.5 gap-1 transition-colors"
+              style={{
+                background: isToday ? 'var(--app-accent-weak)' : isSel ? 'var(--app-surface-hover)'
+                  : inMonth ? 'var(--app-surface)' : 'var(--app-canvas)',
+                boxShadow: isSel && !isToday ? 'inset 0 0 0 1.5px var(--app-accent)' : 'none',
+              }}>
+              <span className="text-[11px] font-semibold tabular-nums"
+                style={{ color: inMonth ? 'var(--app-ink-muted)' : 'var(--app-ink-faint)' }}>{Number(iso.slice(8, 10))}</span>
+              <span className="flex items-center justify-center gap-[3px] flex-wrap px-1">
+                {list.slice(0, 3).map(t => (
+                  <span key={t.id} className="w-[5px] h-[5px] rounded-full" style={{ background: teamColor(t.teams?.[0]) }} />
+                ))}
+                {list.length > 3 && <span className="text-[8px] text-fg-faint leading-none">+{list.length - 3}</span>}
+              </span>
+            </button>
+          );
+        }))}
+      </div>
+      <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick} />
     </div>
   );
 }
 
-// 날짜를 누르면 그 날의 업무를 제대로 읽을 수 있는 목록 (모바일·데스크톱 공용)
-function CalendarDayPanel({ dateStr, entries, onTaskClick, onClose, isMobile = false }) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const weekday = WEEKDAYS[new Date(y, m - 1, d).getDay()];
-  const KIND_LABEL = { start: '시작', mid: '진행', due: '마감', single: '하루', 'due-only': '마감' };
+// 선택한 날의 목록 — 팀 레일 + 제목 + 팀·담당자·기간 + 상태 칩
+function DaySheet({ iso, list, onTaskClick }) {
   return (
-    // 모바일: 달력 아래 / 데스크톱: 달력 오른쪽 세로 패널(칸 높이를 뺏지 않는다)
-    <div className={`bg-surface-2/60 overflow-y-auto ${isMobile ? 'border-t border-line flex-1 min-h-[120px]' : 'border-l border-line w-72 shrink-0'}`}>
-      <div className="flex items-center justify-between px-3 py-2 sticky top-0 bg-surface-2">
-        <span className="text-xs font-bold text-fg">{m}월 {d}일 ({weekday}) · {entries.length}건</span>
-        <button type="button" onClick={onClose} className="p-1 rounded-md text-fg-faint hover:bg-surface-hover transition active:scale-95"><X size={14} /></button>
+    <div className="pt-3 shrink-0">
+      <div className="flex items-center gap-2 pb-2">
+        <h4 className="text-[12.5px] font-bold text-fg">{Number(iso.slice(5, 7))}월 {Number(iso.slice(8, 10))}일</h4>
+        <span className="text-[11px] text-fg-faint tabular-nums">{list.length}건</span>
+        <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
       </div>
-      <div className="divide-y divide-line/60">
-        {entries.map(({ task, kind }) => (
-          <button
-            key={task.id} type="button" onClick={() => onTaskClick(task)}
-            className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-surface-hover transition-colors"
-          >
-            <span className="w-1.5 h-7 rounded-full shrink-0" style={teamPaint(task.teams, true)} />
-            <span className="flex-1 min-w-0">
-              <span className="block text-[13px] text-fg truncate">{task.title}</span>
-              <span className="block text-[10px] text-fg-faint truncate mt-0.5">
-                {KIND_LABEL[kind] || ''}{task.teams?.length ? ` · ${task.teams.join(', ')}` : ''}
+      {list.length === 0
+        ? <p className="py-4 text-center text-[11px] text-fg-faint">이날은 잡힌 일이 없어요</p>
+        : list.map((t, i) => {
+          const s = spanOf(t);
+          return (
+            <button key={t.id} onClick={() => onTaskClick(t)}
+              className="dc-row w-full flex items-center gap-2.5 py-2 text-left hover:bg-surface-hover rounded-[8px] px-2 -mx-2 transition-colors"
+              style={{ animationDelay: `${Math.min(i, 12) * 22}ms` }}>
+              <span className="shrink-0 w-[3px] h-7 rounded-full" style={teamPaint(t.teams, true)} />
+              <span className="flex-1 min-w-0">
+                <span className="block text-[13px] font-semibold text-fg truncate">{t.title}</span>
+                <span className="block text-[10.5px] text-fg-faint truncate">
+                  {[t.teams?.join(', '), t.assignees?.join(', '), s && (s.start === s.end ? mdOf(s.end) : `${mdOf(s.start)} ~ ${mdOf(s.end)}`)]
+                    .filter(Boolean).join(' · ')}
+                </span>
               </span>
-            </span>
-            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${CONFIG.STATUS_STYLES[task.status] || ''}`}>{task.status}</span>
-          </button>
-        ))}
-      </div>
+              <span className="shrink-0 inline-flex items-center gap-1.5 pl-[7px] pr-[9px] py-[3px] rounded-[4px]"
+                style={{ background: CONFIG.STATUS_BG_VAR[t.status] }}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_DOT_VAR[t.status] }} />
+                <span className="text-[11px] font-semibold" style={{ color: CONFIG.STATUS_FG_VAR[t.status] }}>{t.status}</span>
+              </span>
+            </button>
+          );
+        })}
     </div>
   );
 }
+
+// 남은 날 → 라벨. 완료는 날짜만, 지난 건은 "N일 지남"으로 눈에 걸리게.
+const ddLabel = (task) => {
+  if (!task.dueDate) return '';
+  const d = Math.round((new Date(`${task.dueDate}T00:00:00`) - new Date(new Date().toDateString())) / 86400000);
+  if (task.status === '완료') return `${Number(task.dueDate.slice(5, 7))}. ${Number(task.dueDate.slice(8, 10))}.`;
+  if (d < 0) return `${-d}일 지남`;
+  return d === 0 ? '오늘' : `D-${d}`;
+};
+const isLate = (task) => !!task.dueDate && task.status !== '완료'
+  && new Date(`${task.dueDate}T00:00:00`) < new Date(new Date().toDateString());
 
 // 카드 내부 프레젠테이션 (실제 카드 + DragOverlay 미리보기 공용)
-// 팀은 알약 배지 대신 팀 색 글자로 — 배지를 카드마다 3개씩 얹으면 색 덩어리만 남고
-// 정작 제목이 뒤로 밀린다. 마감일·담당자도 아이콘 없이 글자만 둔다.
-const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action = null }) => (
-  <>
-    {showProjectBadge && projectsMap[task.projectId] && <div className="text-[10px] text-fg-faint mb-1">{projectsMap[task.projectId].title}</div>}
-    {/* 팀 이름과 같은 줄의 오른쪽 끝에 액션(모바일 상태 옮기기)을 둔다.
-        푸터에 넣으면 담당자↔마감일 좌우 균형이 깨져 마감일이 가운데 떠 보였다. */}
-    {(task.teams.length > 0 || action) && (
-      <div className="flex items-start gap-2 mb-1">
-        <div className="flex flex-wrap gap-x-2 gap-y-0.5 min-w-0 flex-1">
-          {task.teams.map(team => <span key={team} className={`text-[10px] font-bold tracking-[0.03em] ${CONFIG.TEAM_FG[team] || 'text-fg-muted'}`}>{team}</span>)}
-        </div>
-        {action}
-      </div>
-    )}
-    <h4 className="font-semibold text-[14.5px] text-fg mb-1 leading-[1.4] tracking-[-0.2px] group-hover:text-accent-text transition-colors">{task.title}</h4>
-    <div className="flex items-center justify-between text-[11px] text-fg-muted mt-1.5 gap-2">
-      <div className="flex items-center gap-1.5 min-w-0">
-        {task.assignees.length > 0 ? (
-          <><span className="w-4 h-4 rounded-full border border-line flex items-center justify-center text-[8px] font-bold shrink-0">{task.assignees[0][0]}</span><span className="truncate">{task.assignees[0]}{task.assignees.length > 1 ? ` +${task.assignees.length - 1}` : ''}</span></>
-        ) : (
-          <span className="truncate text-fg-faint">담당자 미지정</span>
+// 좌측 3px 팀 컬러 레일 → 팀명(10px) → 제목(14px) → 담당자·D-day (핸드오프 규격)
+const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action = null }) => {
+  const late = isLate(task);
+  const rail = teamPaint(task.teams, true);
+  return (
+    <div className="flex gap-2.5">
+      <span className="shrink-0 w-[3px] rounded-full my-0.5" style={rail} />
+      <span className="flex-1 min-w-0">
+        {showProjectBadge && projectsMap[task.projectId] && (
+          <span className="block text-[10px] text-fg-faint mb-0.5 truncate">{projectsMap[task.projectId].title}</span>
         )}
-      </div>
-      {task.dueDate && <span className="font-semibold shrink-0">{new Date(task.dueDate).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric'})}</span>}
+        <span className="flex items-center gap-1.5 mb-[3px] min-w-0">
+          <span className="flex-1 min-w-0 flex flex-wrap gap-x-1.5">
+            {task.teams.map(t => (
+              <span key={t} className="text-[10px] font-bold" style={{ letterSpacing: '.02em', color: teamColor(t) }}>{t}</span>
+            ))}
+          </span>
+          {action}
+        </span>
+        <span className="block text-sm font-semibold text-fg" style={{ lineHeight: 1.4, letterSpacing: '-0.2px' }}>{task.title}</span>
+        <span className="flex items-center justify-between gap-2 mt-2">
+          <span className="inline-flex items-center gap-1.5 min-w-0">
+            {task.assignees.length > 0 ? (
+              <>
+                <span className={`w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9.5px] font-bold shrink-0 ${avatarColor(task.assignees[0])}`}>{task.assignees[0][0]}</span>
+                <span className="text-[11px] text-fg-muted truncate">{task.assignees[0]}{task.assignees.length > 1 ? ` +${task.assignees.length - 1}` : ''}</span>
+              </>
+            ) : <span className="text-[11px] text-fg-faint truncate">담당자 미지정</span>}
+          </span>
+          {task.dueDate && (
+            <span className="shrink-0 text-[11px] font-bold tabular-nums px-1.5 py-px rounded-[4px]"
+              style={{ background: late ? 'var(--app-tag-red)' : 'transparent', color: late ? 'var(--app-tag-red-fg)' : 'var(--app-ink-muted)' }}>
+              {ddLabel(task)}
+            </span>
+          )}
+        </span>
+      </span>
     </div>
-  </>
-));
+  );
+});
 
 // 모바일에서 끌지 않고 상태를 옮기는 버튼 — 카드마다 하나(모바일 전용).
 // 길게 눌러 끌기는 그대로 두고, "탭 → 상태 고르기"라는 확실한 길을 하나 더 준다.
@@ -342,7 +390,7 @@ function StatusMoveButton({ task, onStatusChange }) {
   const rootRef = React.useRef(null);
   const btnRef = React.useRef(null);
   const popRef = React.useRef(null);
-  const [pos, place] = useAnchoredPos(btnRef, open, 176, 200);
+  const [pos, place] = useAnchoredPos(btnRef, open, 150, 160, 8, popRef);
 
   React.useEffect(() => {
     if (!open) return;
@@ -364,34 +412,38 @@ function StatusMoveButton({ task, onStatusChange }) {
   // pointerDown까지 막아야 dnd-kit이 이 버튼을 드래그 시작으로 보지 않는다
   const stop = (e) => { e.stopPropagation(); e.preventDefault(); };
 
+  // 카드 우상단 24×24 버튼 → 150px 팝오버 (핸드오프 규격). 데스크톱에도 둔다 —
+  // 드래그를 못 하는 상황(터치패드·확대 상태)에서도 상태를 옮길 길이 있어야 한다.
   return (
-    <span ref={rootRef} className="md:hidden inline-flex shrink-0">
+    <span ref={rootRef} className="inline-flex shrink-0">
       <span ref={btnRef} className="inline-flex">
         <button
           type="button" title="상태 옮기기" aria-label="상태 옮기기"
           onPointerDown={stop} onTouchStart={stop} onMouseDown={stop}
           onClick={(e) => { e.stopPropagation(); place(); setOpen(o => !o); }}
-          className="p-1.5 -m-0.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95"
+          className="w-6 h-6 -mr-1 -mt-0.5 rounded-md flex items-center justify-center text-fg-faint hover:text-accent-text hover:bg-surface-hover transition-colors"
         >
-          <ArrowLeftRight size={13} strokeWidth={1.75} />
+          <ArrowLeftRight size={13} />
         </button>
       </span>
       {open && createPortal(
         <div
           ref={popRef}
-          style={{ position: 'fixed', left: pos.left, top: pos.top, width: 176 }}
-          className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150"
+          style={{ position: 'fixed', left: pos.left, top: pos.top, width: 150 }}
+          className="dc-pop z-[90] bg-surface border border-line rounded-[8px] shadow-soft p-[5px]"
         >
-          <p className="px-2 pt-1 pb-1.5 text-[10px] font-bold text-fg-faint">상태 옮기기</p>
           {CONFIG.STATUSES.map(s => (
             <button
               key={s} type="button"
               onClick={(e) => { e.stopPropagation(); setOpen(false); if (s !== task.status) onStatusChange(task, s); }}
-              className={`w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left text-[13px] transition-colors ${s === task.status ? 'text-fg font-semibold bg-surface-hover' : 'text-fg-muted hover:bg-surface-hover'}`}
+              className="w-full flex items-center gap-2 px-2 py-[7px] rounded-[5px] text-left text-[12.5px] transition-colors hover:bg-surface-hover"
+              style={{
+                background: s === task.status ? 'var(--app-surface-hover)' : 'transparent',
+                color: s === task.status ? 'var(--app-ink)' : 'var(--app-ink-muted)',
+              }}
             >
-              <span className={`w-2 h-2 rounded-full shrink-0 ${CONFIG.STATUS_DOTS[s] || 'bg-fg-faint'}`} />
+              <span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: STATUS_DOT_VAR[s] }} />
               <span className="flex-1 truncate">{s}</span>
-              {s === task.status && <Check size={13} className="text-accent-text shrink-0" />}
             </button>
           ))}
         </div>,
@@ -402,7 +454,7 @@ function StatusMoveButton({ task, onStatusChange }) {
 }
 
 // 드래그 가능한 카드 — 클릭(모달)과 드래그는 센서 activationConstraint(distance/delay)로 구분
-function DraggableCard({ task, projectsMap, showProjectBadge, onTaskClick, onStatusChange }) {
+function DraggableCard({ task, index, projectsMap, showProjectBadge, onTaskClick, onStatusChange }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
   return (
     <div
@@ -410,7 +462,8 @@ function DraggableCard({ task, projectsMap, showProjectBadge, onTaskClick, onSta
       onClick={() => onTaskClick(task)}
       // 카드를 흰 상자로 세우지 않고 목록의 한 줄로 둔다 — 얇은 구분선만.
       // 상자 + 그림자 + 라운드를 카드마다 반복하면 화면이 자동 생성된 것처럼 읽힌다.
-      className={`board-card px-0.5 pt-2.5 pb-3 border-b border-line cursor-grab active:cursor-grabbing hover:bg-fg/[0.02] transition-colors group animate-in fade-in duration-200 ${isDragging ? 'opacity-40' : ''}`}
+      style={{ animationDelay: `${Math.min(index ?? 0, 10) * 24}ms`, borderBottom: '1px solid var(--app-line)' }}
+      className={`board-card dc-card relative pr-2 pt-[11px] pb-3 cursor-grab active:cursor-grabbing hover:bg-surface-hover transition-colors ${isDragging ? 'opacity-40' : ''}`}
     >
       <TaskCardInner
         task={task} projectsMap={projectsMap} showProjectBadge={showProjectBadge}
@@ -443,33 +496,30 @@ function StatusChip({ status, count, current, dragging, isDraggedStatus, onClick
 }
 
 // 드롭 대상 컬럼(status) — dnd-kit useDroppable의 isOver로 강조
-function ColumnDroppable({ status, count, dragging, empty, children }) {
+function ColumnDroppable({ status, count, share, dragging, empty, children }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   return (
     <div
       ref={setNodeRef}
-      // 모바일: 86vw로 다음 컬럼이 살짝 보이게(더 있다는 신호) + 스냅
-      // 데스크톱: flex-1로 4개 상태가 가로 스크롤 없이 한 화면에 들어온다
-      // 컬럼도 상자를 버린다 — 제목 밑 얇은 선이 컬럼 경계 역할을 한다.
-      // 드롭 대상일 때만 배경을 옅게 깔아 "여기 놓인다"를 알린다.
-      // 모바일에서는 왼쪽 세로선으로 옆 컬럼과 확실히 갈라 보이게 한다.
-      // first:*는 화면 왼쪽 끝에 세로선·여백이 붕 뜨는 것을 막는다(첫 컬럼만 제외)
-      className={`flex-1 basis-0 min-w-[86vw] md:min-w-[180px] flex flex-col rounded-sm pt-1 pl-3 pr-1 first:pl-0 first:border-l-0 md:pl-0 md:pr-3.5 snap-start h-full border-l border-line md:border-l-0 transition-colors duration-150 ${isOver ? 'bg-accent-weak/70' : ''}`}
+      // 모바일: 82vw로 다음 컬럼이 살짝 보이게(더 있다는 신호) + 스냅
+      // 데스크톱: 최소 210px, 4개 상태가 한 화면에 들어온다
+      className={`flex-1 basis-0 min-w-[82vw] md:min-w-[210px] flex flex-col min-h-0 snap-start h-full rounded-sm transition-colors duration-150 ${isOver ? 'bg-accent-weak/70' : ''}`}
     >
-      {/* 모바일에도 제목을 둔다 — 없으면 컬럼을 넘겨도 그냥 목록 하나처럼 보인다.
-          카드 목록만 스크롤되는 구조라 이 제목은 늘 제자리에 남는다. */}
-      <div className="flex items-center justify-between mb-1.5 shrink-0 border-b border-line pb-2">
-        <h3 className="font-bold text-[13px] md:text-xs text-fg md:text-fg-muted flex items-center gap-1.5 min-w-0">
-          <span className={`w-[6px] h-[6px] md:w-[5px] md:h-[5px] rounded-full shrink-0 ${CONFIG.STATUS_DOTS[status] || 'bg-fg-faint'}`} />
-          <span className="leading-none truncate">{status}</span>
-          <span className="text-fg-faint font-medium leading-none shrink-0">{count}</span>
-        </h3>
+      {/* 컬럼 헤더: 상태 점 + 이름 + 건수 + 우측 44×3px 비중 바 */}
+      <div className="flex items-center gap-[7px] pb-2 shrink-0" style={{ borderBottom: '1px solid var(--app-line)' }}>
+        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATUS_DOT_VAR[status] }} />
+        <h3 className="text-[12.5px] font-bold text-fg">{status}</h3>
+        <span className="text-[11.5px] font-semibold text-fg-faint tabular-nums">{count}</span>
+        <span className="flex-1" />
+        <span className="block w-11 rounded-full overflow-hidden shrink-0" style={{ height: 3, background: 'var(--p-track)' }}>
+          <span className="dc-bar-fill block h-full rounded-full"
+            style={{ background: STATUS_BAR[status], transform: `scaleX(${(share || 0).toFixed(3)})`, transitionDuration: '.45s' }} />
+        </span>
       </div>
-      <div className="flex-1 overflow-y-auto pb-4">
+      <div className="flex-1 min-h-0 overflow-y-auto pt-0.5">
         {children}
-        {/* 빈 컬럼을 그냥 두면 모바일에서 화면이 통째로 백지가 된다 */}
         {empty && !dragging && (
-          <p className="py-8 text-center text-[11px] text-fg-faint">아직 업무가 없어요</p>
+          <p className="py-[26px] text-center text-[11px] text-fg-faint">아직 업무가 없어요</p>
         )}
         {/* 드래그 중일 때만 드롭 존 안내 표시 */}
         <div className={`h-16 border border-dashed rounded-sm flex items-center justify-center text-xs transition-all ${dragging ? (isOver ? 'opacity-100 border-accent text-accent-text' : 'opacity-100 border-line text-fg-faint') : 'opacity-0 border-transparent text-fg-faint'}`}>여기로 놓기</div>
@@ -554,12 +604,12 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
           ref={scrollRef} onScroll={onScroll}
           // overscroll-behavior-x만 건다 — touch-action:pan-x를 걸면 컬럼 안 카드 목록의
           // 세로 스크롤까지 막힌다(자손 전체에 적용되므로)
-          className={`flex-1 min-h-0 flex gap-3 md:gap-4 pb-2 overflow-x-auto [overscroll-behavior-x:contain] ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}
+          className={`flex-1 min-h-0 flex gap-[14px] md:gap-[22px] pb-1.5 overflow-x-auto [overscroll-behavior-x:contain] ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}
         >
           {CONFIG.STATUSES.map(status => (
-            <ColumnDroppable key={status} status={status} dragging={!!activeId} count={(byStatus[status] || []).length} empty={(byStatus[status] || []).length === 0}>
-              {(byStatus[status] || []).map(task => (
-                <DraggableCard key={task.id} task={task} projectsMap={projectsMap} showProjectBadge={showProjectBadge} onTaskClick={onTaskClick} onStatusChange={onStatusChange} />
+            <ColumnDroppable key={status} status={status} dragging={!!activeId} count={(byStatus[status] || []).length} share={tasks.length ? (byStatus[status] || []).length / tasks.length : 0} empty={(byStatus[status] || []).length === 0}>
+              {(byStatus[status] || []).map((task, i) => (
+                <DraggableCard key={task.id} task={task} index={i} projectsMap={projectsMap} showProjectBadge={showProjectBadge} onTaskClick={onTaskClick} onStatusChange={onStatusChange} />
               ))}
             </ColumnDroppable>
           ))}

@@ -176,6 +176,11 @@
 .side-grid { grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 1024px) { .side-grid { grid-template-columns: minmax(0, 1fr) 300px; } }
 
+/* KPI 4칸 — 모바일 2×2, 데스크톱 한 줄 4칸.
+   1px 격자는 부모의 background:line + gap:1px 이 만든다. */
+.kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 1024px) { .kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
 /* 진행 바는 width가 아니라 scaleX로 늘린다(레이아웃 재계산 없음) */
 .dc-bar-fill {
   width: 100%; transform-origin: left;
@@ -183,6 +188,21 @@
 }
 .dc-press:active { transform: scale(.97); }
 .dc-press { transition: transform .09s var(--ease-out-quint); }
+
+/* 선을 그려 넣는 마크 — 로티 같은 인상을 SVG 한 장으로 낸다(외부 JSON·라이브러리 없음).
+   pathLength=1로 정규화해서 길이에 상관없이 같은 속도로 그려진다. */
+@keyframes dc-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes dc-ring { from { opacity: 0; transform: scale(.86); } to { opacity: 1; transform: none; } }
+.dc-draw {
+  stroke-dasharray: 1; stroke-dashoffset: 1;
+  animation: dc-draw .62s var(--ease-out-quint) .12s forwards;
+}
+.dc-draw-ring { animation: dc-ring .42s var(--ease-out-quint) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dc-draw { animation: none !important; stroke-dashoffset: 0; }
+  .dc-draw-ring { animation: none !important; }
+}
 
 *:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
 
