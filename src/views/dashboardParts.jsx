@@ -1,6 +1,7 @@
 import React from 'react';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { avatarColor } from '../utils.js';
+import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 
 // ============================================================================
 // 리디자인 공용 조각 — 대시보드 / 내 업무 / 팀 보드가 같은 부품을 쓴다.
@@ -16,14 +17,18 @@ export const daysLeft = (iso, today = ISO_TODAY()) =>
   Math.round((new Date(`${iso}T00:00:00`) - new Date(`${today}T00:00:00`)) / 86400000);
 export const mdLabel = (iso) => `${Number(iso.slice(5, 7))}. ${Number(iso.slice(8, 10))}.`;
 
-// 마감 기준 4구간 — 지연 / 오늘 / 이번 주(6일 내) / 그 이후
+// 마감 기준 구간 — 지연 / 오늘 / 이번 주(6일 내) / 그 이후 / 완료
 export const BUCKETS = [
   { key: 'overdue', label: '지연', fg: 'var(--app-tag-red-fg)' },
   { key: 'today', label: '오늘 마감', fg: 'var(--app-ink)' },
   { key: 'week', label: '이번 주', fg: 'var(--app-ink)' },
   { key: 'later', label: '다음 주 이후', fg: 'var(--app-ink-muted)' },
+  { key: 'done', label: '끝낸 업무', fg: 'var(--app-tag-green-fg)' },
 ];
 export function bucketOf(task, today = ISO_TODAY()) {
+  // 끝낸 업무는 마감이 지났어도 '지연'이 아니다 — 이미 끝난 일을 밀린 일로 세면
+  // '내 업무'에서 완료 탭을 볼 때마다 전부 빨갛게 지연으로 보였다
+  if (task.status === '완료') return 4;
   if (!task.dueDate) return 3;              // 마감 없는 건 맨 아래로
   if (task.dueDate < today) return 0;
   if (task.dueDate === today) return 1;
@@ -104,10 +109,11 @@ export function KpiCell({ dot, label, value, unit = '건', note, ratio, bar, ale
 // 대시보드·내 업무·팀 보드가 같이 쓴다. meta로 프로젝트만/팀까지 표시를 고른다.
 export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, showTeam = true, emptyHint }) {
   if (!groups.length) {
+    // 빈 화면은 남는 공간의 정가운데에 — 위쪽에 붙어 있으면 아래가 통째로 비어 보인다
     return (
-      <div className="py-12 text-center">
+      <div className="min-h-[46vh] flex flex-col items-center justify-center text-center">
         <AllClearMark />
-        <p className="text-[13.5px] font-semibold text-fg mb-1 mt-3">여기는 다 정리됐어요</p>
+        <p className="text-[13.5px] font-semibold text-fg mb-1 mt-3">다 정리되었어요</p>
         {emptyHint && <p className="text-xs text-fg-faint">{emptyHint}</p>}
       </div>
     );
@@ -124,23 +130,48 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
           </div>
           {g.items.map(t => {
             const delay = `${Math.min(seen++, 12) * 22}ms`;
-            const over = t.dueDate && t.dueDate < today;
-            const isToday = t.dueDate === today;
+            const done = t.status === '완료';
+            const over = !done && t.dueDate && t.dueDate < today;
+            const isToday = !done && t.dueDate === today;
             return (
               <div
                 key={t.id}
                 className="dc-row flex items-center gap-3 p-2.5 -mx-2.5 rounded-[8px] hover:bg-surface-hover transition-colors"
                 style={{ animationDelay: delay, transitionDuration: '120ms' }}
               >
-                {/* 완료 처리 — 목록에서 바로 끝낼 수 있어야 '지금 뭘 해야 하나' 화면이 된다 */}
-                <button
-                  type="button" title="완료로 옮기기" aria-label={`${t.title} 완료로 옮기기`}
-                  onClick={(e) => { e.stopPropagation(); onComplete(t); }}
-                  className="group/done shrink-0 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
-                  style={{ border: '1.5px solid var(--app-line)' }}
-                >
-                  <Checkmark />
-                </button>
+                {/* 완료 처리 — 목록에서 바로 끝낼 수 있어야 '지금 뭘 해야 하나' 화면이 된다.
+                    한 번의 오터치로 상태가 바뀌지 않게 확인을 한 번 받는다.
+                    이미 끝난 건은 같은 자리에서 되돌린다(같은 상태로 저장은 아무 일도 안 하니
+                    버튼이 죽은 것처럼 보였다). */}
+                {done ? (
+                  <ConfirmPopover
+                    className="shrink-0 inline-flex" tone="ok" confirmLabel="되돌리기"
+                    title="완료 취소" message={`'${t.title}'을 다시 진행 중으로 되돌릴까요?`}
+                    onConfirm={() => onComplete(t, '진행 중')}
+                  >
+                    <span
+                      role="button" aria-label={`${t.title} 완료 취소`}
+                      className="w-5 h-5 rounded-full flex items-center justify-center cursor-pointer transition-opacity hover:opacity-70"
+                      style={{ background: 'var(--app-tag-green-fg)' }}
+                    >
+                      <Checkmark filled />
+                    </span>
+                  </ConfirmPopover>
+                ) : (
+                  <ConfirmPopover
+                    className="shrink-0 inline-flex" tone="ok" confirmLabel="완료"
+                    title="완료로 옮기기" message={`'${t.title}'을 완료로 옮길까요?`}
+                    onConfirm={() => onComplete(t, '완료')}
+                  >
+                    <span
+                      role="button" aria-label={`${t.title} 완료로 옮기기`}
+                      className="group/done w-5 h-5 rounded-full flex items-center justify-center cursor-pointer transition-colors"
+                      style={{ border: '1.5px solid var(--app-line)' }}
+                    >
+                      <Checkmark />
+                    </span>
+                  </ConfirmPopover>
+                )}
                 <button type="button" onClick={() => onOpen(t)} className="flex-1 min-w-0 flex items-center gap-3 text-left">
                   <span className="shrink-0 w-11 text-[11.5px] font-bold tabular-nums"
                     style={{ color: over ? 'var(--app-tag-red-fg)' : isToday ? 'var(--app-ink)' : 'var(--app-ink-muted)' }}>
@@ -191,12 +222,12 @@ function AllClearMark() {
   );
 }
 
-// 완료 버튼 안의 체크 — hover에서 진해진다
-function Checkmark() {
+// 완료 버튼 안의 체크 — 미완료는 hover에서 진해지고, 끝낸 건은 초록 원 위 흰 체크
+function Checkmark({ filled = false }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="var(--app-tag-green-fg)" strokeWidth="2.4"
+    <svg viewBox="0 0 24 24" fill="none" stroke={filled ? '#fff' : 'var(--app-tag-green-fg)'} strokeWidth="2.4"
       strokeLinecap="round" strokeLinejoin="round"
-      className="w-[11px] h-[11px] opacity-40 group-hover/done:opacity-100 transition-opacity">
+      className={filled ? 'w-[11px] h-[11px]' : 'w-[11px] h-[11px] opacity-40 group-hover/done:opacity-100 transition-opacity'}>
       <path d="M20 6 9 17l-5-5" />
     </svg>
   );

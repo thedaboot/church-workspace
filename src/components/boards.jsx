@@ -46,7 +46,7 @@ const spanOf = (t) => {
 
 // 한 주(일요일 시작) 안에서 겹치는 업무를 레인에 배치한다.
 // 같은 업무가 그 주 내내 같은 줄에 있어야 띠가 끊기지 않는다.
-function layoutWeek(weekStart, tasks) {
+function layoutWeek(weekStart, tasks, laneCount = CAL_LANES) {
   const weekEnd = addDays(weekStart, 6);
   const bars = [];
   tasks.forEach(t => {
@@ -69,12 +69,12 @@ function layoutWeek(weekStart, tasks) {
   const overflowByCol = Array(7).fill(0);
   bars.forEach(bar => {
     let li = 0;
-    while (li < CAL_LANES) {
+    while (li < laneCount) {
       const busy = (lanes[li] || []).some(b => bar.col < b.col + b.span && b.col < bar.col + bar.span);
       if (!busy) break;
       li++;
     }
-    if (li >= CAL_LANES) {
+    if (li >= laneCount) {
       for (let c = bar.col; c < bar.col + bar.span; c++) overflowByCol[c]++;
       return;
     }
@@ -108,9 +108,27 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
       || (s.start < monthPrefix && s.end > monthPrefix));
   }), [tasks, monthPrefix]);
 
-  const weeks = React.useMemo(() => weekStarts.map(ws => ({ ws, ...layoutWeek(ws, tasks || []) })),
+  // 한 주 줄에 들어가는 띠 줄 수 — 창이 낮으면 2줄이 안 들어가 띠가 잘렸다.
+  // 실제 줄 높이를 재서 1~CAL_LANES 사이로 정하고, 넘치는 건 '+N건'으로 남긴다.
+  const gridRef = React.useRef(null);
+  const [laneFit, setLaneFit] = React.useState(CAL_LANES);
+  React.useEffect(() => {
+    const el = gridRef.current;
+    if (!el || isMobile) return;
+    const calc = () => {
+      const rowH = el.clientHeight / weekCount;
+      const DATE = 22, PAD = 8, OVER = 14, LANE = 21;  // 날짜 줄 / 여백 / +N건 줄 / 띠(18)+간격(3)
+      setLaneFit(Math.max(1, Math.min(CAL_LANES, Math.floor((rowH - DATE - PAD - OVER) / LANE))));
+    };
+    calc();
+    const ro = new ResizeObserver(calc);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [weekCount, isMobile]);
+
+  const weeks = React.useMemo(() => weekStarts.map(ws => ({ ws, ...layoutWeek(ws, tasks || [], laneFit) })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tasks, gridStart, weekCount]);
+    [tasks, gridStart, weekCount, laneFit]);
 
   const canPrev = !(view.y === CAL_MIN_YEAR && view.m === 0);
   const canNext = !(view.y === CAL_MAX_YEAR && view.m === 11);
@@ -122,6 +140,16 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
 
   const dayTasks = (iso) => (tasks || []).filter(t => { const s = spanOf(t); return s && s.start <= iso && iso <= s.end; });
   const selectedList = dayTasks(selected);
+
+  // 요일 줄은 달력 칸과 폭이 같아야 한다 → 데스크톱에선 달력 열 안에 들어간다
+  const weekdayHeader = (
+    <div className="grid grid-cols-7 pb-1.5 shrink-0">
+      {WEEKDAYS.map((w, i) => (
+        <span key={w} className="text-[10.5px] font-bold text-center"
+          style={{ color: i === 0 ? 'var(--app-tag-red-fg)' : i === 6 ? 'var(--app-tag-blue-fg)' : 'var(--app-ink-faint)' }}>{w}</span>
+      ))}
+    </div>
+  );
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -150,21 +178,21 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
         </span>
       </div>
 
-      {/* 요일 헤더 */}
-      <div className="grid grid-cols-7 pb-1.5 shrink-0">
-        {WEEKDAYS.map((w, i) => (
-          <span key={w} className="text-[10.5px] font-bold text-center"
-            style={{ color: i === 0 ? 'var(--app-tag-red-fg)' : i === 6 ? 'var(--app-tag-blue-fg)' : 'var(--app-ink-faint)' }}>{w}</span>
-        ))}
-      </div>
-
       {isMobile ? (
-        <MobileCalendar
-          weekStarts={weekStarts} month={view.m} todayIso={todayIso} selected={selected} setSelected={setSelected}
-          dayTasks={dayTasks} selectedList={selectedList} onTaskClick={onTaskClick}
-        />
+        <>
+          {weekdayHeader}
+          <MobileCalendar
+            weekStarts={weekStarts} month={view.m} todayIso={todayIso} selected={selected} setSelected={setSelected}
+            dayTasks={dayTasks} selectedList={selectedList} onTaskClick={onTaskClick}
+          />
+        </>
       ) : (
-        <div className="flex-1 min-h-0 flex flex-col rounded-[10px] overflow-hidden shadow-soft"
+        // 데스크톱: 달력이 왼쪽, 고른 날 목록이 오른쪽.
+        // 목록을 달력 아래에 두면 달력 높이를 빼앗아 띠가 잘렸다.
+        <div className="flex-1 min-h-0 flex gap-5">
+        <div className="flex-1 min-w-0 flex flex-col min-h-0">
+        {weekdayHeader}
+        <div ref={gridRef} className="flex-1 min-h-0 flex flex-col rounded-[10px] overflow-hidden shadow-soft"
           style={{ border: '1px solid var(--app-line)', background: 'var(--app-line)' }}>
           {weeks.map(({ ws, lanes, overflowByCol }, wi) => (
             <div key={ws} className="relative flex-1 min-h-0 overflow-hidden flex flex-col"
@@ -200,9 +228,11 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
                   );
                 })}
               </div>
-              {/* ③ 띠 레인 */}
-              <div className="relative flex-1 min-h-0 flex flex-col gap-[3px] pt-1 pb-1">
-                {Array.from({ length: CAL_LANES }, (_, li) => (
+              {/* ③ 띠 레인 — 레인 영역 자체는 클릭을 통과시킨다.
+                  안 그러면 칸의 아래 절반이 이 div에 먹혀서 날짜가 한 번에 안 눌렸다.
+                  띠와 '+N건'만 다시 클릭을 받는다. */}
+              <div className="relative flex-1 min-h-0 flex flex-col gap-[3px] pt-1 pb-1 pointer-events-none">
+                {Array.from({ length: laneFit }, (_, li) => (
                   <div key={li} className="grid grid-cols-7 shrink-0" style={{ gap: 1 }}>
                     {(lanes[li] || []).map(bar => (
                       <CalBar key={bar.task.id} bar={bar} onClick={() => onTaskClick(bar.task)} />
@@ -215,7 +245,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
                       <span key={i} className="px-1.5">
                         {n > 0 && (
                           <button onClick={() => setSelected(addDays(ws, i))}
-                            className="text-[10px] font-semibold text-fg-faint hover:text-fg-muted transition-colors">+{n}건</button>
+                            className="pointer-events-auto text-[10px] font-semibold text-fg-faint hover:text-fg-muted transition-colors">+{n}건</button>
                         )}
                       </span>
                     ))}
@@ -225,11 +255,12 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
             </div>
           ))}
         </div>
-      )}
-
-      {/* 선택한 날의 목록 — 좁은 칸에서 못 읽는 제목·팀·기간을 여기서 읽는다 */}
-      {!isMobile && (
-        <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick} />
+        </div>
+        {/* 고른 날의 목록 — 좁은 칸에서 못 읽는 제목·팀·기간을 여기서 읽는다 */}
+        <div className="w-[300px] shrink-0 min-h-0 overflow-y-auto">
+          <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick} tight />
+        </div>
+        </div>
       )}
     </div>
   );
@@ -241,7 +272,7 @@ function CalBar({ bar, onClick }) {
   return (
     <button
       onClick={onClick} title={`${task.title} (${mdOf(spanOf(task).start)} ~ ${mdOf(spanOf(task).end)})`}
-      className="min-w-0 h-[18px] px-1.5 flex items-center text-left hover:brightness-95 transition-[filter]"
+      className="pointer-events-auto min-w-0 h-[18px] px-1.5 flex items-center text-left hover:brightness-95 transition-[filter]"
       style={{
         gridColumn: `${col + 1} / span ${span}`,
         ...teamPaint(task.teams),
@@ -292,16 +323,16 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
 }
 
 // 선택한 날의 목록 — 팀 레일 + 제목 + 팀·담당자·기간 + 상태 칩
-function DaySheet({ iso, list, onTaskClick }) {
+function DaySheet({ iso, list, onTaskClick, tight = false }) {
   return (
-    <div className="pt-3 shrink-0">
+    <div className={`${tight ? '' : 'pt-3'} shrink-0`}>
       <div className="flex items-center gap-2 pb-2">
         <h4 className="text-[12.5px] font-bold text-fg">{Number(iso.slice(5, 7))}월 {Number(iso.slice(8, 10))}일</h4>
         <span className="text-[11px] text-fg-faint tabular-nums">{list.length}건</span>
         <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
       </div>
       {list.length === 0
-        ? <p className="py-4 text-center text-[11px] text-fg-faint">이날은 잡힌 일이 없어요</p>
+        ? <p className="py-4 text-center text-[11px] text-fg-faint">해당 날짜에는 업무가 없어요</p>
         : list.map((t, i) => {
           const s = spanOf(t);
           return (
@@ -519,12 +550,28 @@ function ColumnDroppable({ status, count, share, dragging, empty, children }) {
       <div className="flex-1 min-h-0 overflow-y-auto pt-0.5">
         {children}
         {empty && !dragging && (
-          <p className="py-[26px] text-center text-[11px] text-fg-faint">아직 업무가 없어요</p>
+          <div className="py-[22px] text-center">
+            <EmptyColumnMark />
+            <p className="text-[11px] text-fg-faint">아직 업무가 없어요</p>
+          </div>
         )}
         {/* 드래그 중일 때만 드롭 존 안내 표시 */}
         <div className={`h-16 border border-dashed rounded-sm flex items-center justify-center text-xs transition-all ${dragging ? (isOver ? 'opacity-100 border-accent text-accent-text' : 'opacity-100 border-line text-fg-faint') : 'opacity-0 border-transparent text-fg-faint'}`}>여기로 놓기</div>
       </div>
     </div>
+  );
+}
+
+// 빈 칸 표식 — 카드 한 장이 선으로 그려진다(로티 파일 없이 선 애니메이션 하나로).
+function EmptyColumnMark() {
+  return (
+    <svg viewBox="0 0 40 40" className="w-9 h-9 mx-auto mb-1.5" aria-hidden="true"
+      fill="none" stroke="var(--app-line)" strokeWidth="1.6" strokeLinecap="round">
+      <path className="dc-draw" pathLength="1"
+        d="M8 9.5h24a2.5 2.5 0 0 1 2.5 2.5v16a2.5 2.5 0 0 1-2.5 2.5H8a2.5 2.5 0 0 1-2.5-2.5V12A2.5 2.5 0 0 1 8 9.5Z" />
+      <path className="dc-draw dc-draw-2" pathLength="1" d="M11 17.5h13" />
+      <path className="dc-draw dc-draw-3" pathLength="1" d="M11 23.5h8" />
+    </svg>
   );
 }
 
@@ -583,7 +630,15 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
   };
 
   return (
-    <DndContext sensors={sensors} collisionDetection={dropCollision} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
+    <DndContext
+      sensors={sensors} collisionDetection={dropCollision}
+      // 가로 자동 스크롤만 끈다(threshold.x=0). 켜져 있으면 손가락이 화면 오른쪽
+      // 20% 안에 들어간 순간 화면이 옆으로 밀려서, 놓으려던 상태 칩이 손가락 밑에서
+      // 빠져나간다(실측: 완료 칩에 놓았는데 진행 중으로 저장됨).
+      // 세로(threshold.y)는 그대로 — 카드가 많은 컬럼에서 아래로 끌 때 필요하다.
+      autoScroll={{ threshold: { x: 0, y: 0.2 } }}
+      onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}
+    >
       <div className="h-full flex flex-col min-h-0">
         {/* 모바일 전용 상태 칩 — 평소엔 요약·이동, 드래그 중에는 드롭 타깃이 된다.
             (화면에 컬럼 하나만 보이는 모바일에서 옆 컬럼까지 끌고 갈 필요가 없도록) */}
@@ -603,8 +658,10 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
         <div
           ref={scrollRef} onScroll={onScroll}
           // overscroll-behavior-x만 건다 — touch-action:pan-x를 걸면 컬럼 안 카드 목록의
-          // 세로 스크롤까지 막힌다(자손 전체에 적용되므로)
-          className={`flex-1 min-h-0 flex gap-[14px] md:gap-[22px] pb-1.5 overflow-x-auto [overscroll-behavior-x:contain] ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}
+          // 세로 스크롤까지 막힌다(자손 전체에 적용되므로).
+          // contain이 아니라 none: contain은 부모로 스크롤이 넘어가는 것만 막고 자기
+          // 고무줄(바운스)은 남겨서, '완료' 오른쪽으로 더 넘어갈 것처럼 밀렸다.
+          className={`flex-1 min-h-0 flex gap-[14px] md:gap-[22px] pb-1.5 overflow-x-auto [overscroll-behavior-x:none] ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}
         >
           {CONFIG.STATUSES.map(status => (
             <ColumnDroppable key={status} status={status} dragging={!!activeId} count={(byStatus[status] || []).length} share={tasks.length ? (byStatus[status] || []).length / tasks.length : 0} empty={(byStatus[status] || []).length === 0}>
@@ -615,15 +672,22 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
           ))}
         </div>
       </div>
-      {/* 드래그 중 미리보기(기존 스타일 유지). 원래 카드는 opacity-40 */}
-      <DragOverlay dropAnimation={null}>
-        {activeTask ? (
-          // 끌고 있는 동안만 상자로 세운다 — 손에 들린 게 무엇인지 보여야 하니까
-          <div className="bg-surface px-3.5 py-3 rounded-sm border border-line shadow-elevated rotate-1 scale-[.98] opacity-95 cursor-grabbing">
-            <TaskCardInner task={activeTask} projectsMap={projectsMap} showProjectBadge={showProjectBadge} />
-          </div>
-        ) : null}
-      </DragOverlay>
+      {/* 드래그 중 미리보기(기존 스타일 유지). 원래 카드는 opacity-40.
+          body로 포털을 내보내야 한다: DragOverlay는 position:fixed로 카드 좌표에
+          맞춰 뜨는데, 조상(.dc-screen/.dc-card)에 transform 애니메이션이 걸려 있으면
+          그 조상이 fixed의 기준 박스가 돼서 미리보기가 헤더+여백만큼(약 100px)
+          아래로 밀려 떴다. body 밑이면 기준이 항상 뷰포트다. */}
+      {createPortal(
+        <DragOverlay dropAnimation={null}>
+          {activeTask ? (
+            // 끌고 있는 동안만 상자로 세운다 — 손에 들린 게 무엇인지 보여야 하니까
+            <div className="bg-surface px-3.5 py-3 rounded-sm border border-line shadow-elevated rotate-1 scale-[.98] opacity-95 cursor-grabbing">
+              <TaskCardInner task={activeTask} projectsMap={projectsMap} showProjectBadge={showProjectBadge} />
+            </div>
+          ) : null}
+        </DragOverlay>,
+        document.body
+      )}
     </DndContext>
   );
 });

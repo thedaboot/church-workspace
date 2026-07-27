@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useDeferredValue } from 'r
 import { createPortal } from 'react-dom';
 import {
   LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown,
-  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, Pencil
+  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, Pencil, Users
 } from 'lucide-react';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
@@ -86,7 +86,7 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
             <p className="text-[13px] font-semibold text-fg truncate">{currentUser.name}</p>
             <p className="text-[11px] text-fg-muted truncate">{(currentUser.teams?.length ? currentUser.teams : [currentUser.team]).filter(Boolean).join(' · ') || '팀 미지정'}</p>
           </div>
-          <button className={item} onClick={go(onOpenProfile)}><Settings size={15} /> 내 정보</button>
+          <button className={item} onClick={go(onOpenProfile)}><Settings size={15} /> 설정</button>
           <ThemeMenuItem className={item} />
           {enabled && session && (
             <button className={`${item} hover:text-tag-red-fg`} onClick={go(signOut)}><LogOut size={15} /> 로그아웃</button>
@@ -200,7 +200,7 @@ export const TopNav = React.memo(({
 });
 
 // 모바일 상단: 현재 화면 이름 + 검색·알림, 그 아래 프로젝트 탭(가로 스크롤)
-export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenProject, onRenameProject, cloudMode }) => {
+export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenProject, onRenameProject, onOpenProfile, cloudMode }) => {
   const projectsList = useStore(selectProjectsList);
   const projectsMap = useStore(selectProjectsMap);
   const currentUser = useStore(selectCurrentUser);
@@ -222,6 +222,8 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
         )}
         <SearchBox onSearchSelect={onSearchSelect} variant="icon" />
         {cloudMode && <NotificationBell onOpenTask={onOpenTask} />}
+        {/* 설정은 상단 헤더로 — 하단 탭 네 자리는 프로젝트·내 업무·대시보드·팀이 쓴다 */}
+        <ProfileMenu onOpenProfile={onOpenProfile} />
       </div>
       {project && (
         // x-scroll-lock: 가로로 밀 때 세로 스크롤이 같이 딸려가지 않게 (index.css)
@@ -241,17 +243,22 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
   );
 });
 
-// 모바일 하단 탭바 — 데스크톱 1줄(전역 메뉴)과 같은 역할
-export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProfile, onOpenProject }) => {
+// 모바일 하단 탭바 — 프로젝트 / 내 업무 / 대시보드 / 팀 (핸드오프 규격).
+// 설정은 상단 헤더로 올라갔다.
+export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProject }) => {
   const projectsList = useStore(selectProjectsList);
+  const currentUser = useStore(selectCurrentUser);
   const myTasksCount = useStore(selectMyTasks).filter(t => t.status !== '완료').length;
   const isProject = projectsList.some(p => p.id === activeMenu);
+  const myTeam = (currentUser.teams?.length ? currentUser.teams : [currentUser.team]).filter(Boolean)[0];
   // '프로젝트' 탭: 보던 프로젝트가 없으면 첫 프로젝트, 그것도 없으면 새로 만들기
   const goProject = () => {
     if (isProject) return;
     if (projectsList.length) setActiveMenu(projectsList[0].id);
     else onOpenProject();
   };
+  // 팀이 없는 사람은 팀 보드로 갈 곳이 없으니 프로필 설정으로 안내한다
+  const goTeam = () => { if (myTeam) setActiveMenu(`team:${myTeam}`); else showToast('설정에서 소속 팀을 먼저 정해주세요'); };
   const tab = (on, icon, label, onClick, badge) => (
     <button onClick={onClick} className={`flex-1 flex flex-col items-center gap-1 py-1 transition-colors ${on ? 'text-fg' : 'text-fg-faint'}`}>
       <span className="relative">{icon}{badge > 0 && <span className="absolute -top-0.5 -right-1.5 w-1.5 h-1.5 rounded-full bg-accent" />}</span>
@@ -259,16 +266,11 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProfi
     </button>
   );
   return (
-    <nav className="md:hidden fixed inset-x-0 bottom-0 z-40 flex bg-surface border-t border-line pt-1.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))]">
+    <nav className="md:hidden fixed inset-x-0 bottom-0 z-40 flex bg-surface border-t border-line pt-2 pb-[calc(0.875rem+env(safe-area-inset-bottom))]">
       {tab(isProject, <Hash size={20} />, '프로젝트', goProject)}
       {tab(activeMenu === 'myTasks', <CheckSquare size={20} />, '내 업무', () => setActiveMenu('myTasks'), myTasksCount)}
       {tab(activeMenu === 'dashboard', <LayoutDashboard size={20} />, '대시보드', () => setActiveMenu('dashboard'))}
-      <ProfileMenu onOpenProfile={onOpenProfile} className="flex-1 flex">
-        <span className="flex flex-col items-center gap-1 py-1 text-fg-faint">
-          <Settings size={20} />
-          <span className="text-[10.5px] font-semibold">설정</span>
-        </span>
-      </ProfileMenu>
+      {tab(activeMenu.startsWith('team:'), <Users size={20} />, '팀', goTeam)}
     </nav>
   );
 });

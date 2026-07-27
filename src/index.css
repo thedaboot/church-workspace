@@ -197,6 +197,9 @@
   stroke-dasharray: 1; stroke-dashoffset: 1;
   animation: dc-draw .62s var(--ease-out-quint) .12s forwards;
 }
+/* 여러 선을 순서대로 그릴 때의 지연 */
+.dc-draw-2 { animation-delay: .3s; }
+.dc-draw-3 { animation-delay: .42s; }
 .dc-draw-ring { animation: dc-ring .42s var(--ease-out-quint) both; }
 
 @media (prefers-reduced-motion: reduce) {

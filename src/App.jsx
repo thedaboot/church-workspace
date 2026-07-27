@@ -214,7 +214,8 @@ function WorkspaceShell() {
         <MobileTopBar
           activeMenu={activeMenu} setActiveMenu={selectMenu}
           onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification}
-          onOpenProject={openProjectModal} onRenameProject={openRenameProject} cloudMode={cloudMode}
+          onOpenProject={openProjectModal} onRenameProject={openRenameProject}
+          onOpenProfile={openProfile} cloudMode={cloudMode}
         />
       ) : (
         <TopNav
@@ -226,8 +227,9 @@ function WorkspaceShell() {
       )}
 
       {/* 화면을 꽉 쓴다 — 여백은 내용이 벽에 붙지 않을 만큼만.
-          모바일 pb-20은 하단 탭바 높이(마지막 카드가 탭바에 가리지 않게) */}
-      <main className="flex-1 overflow-auto px-3 pt-2.5 pb-20 md:px-4 md:pt-3.5 md:pb-3 relative">
+          모바일 아래 여백 = 탭바 높이 + 홈 인디케이터(safe-area) + 숨 쉴 틈.
+          고정값(pb-20)으로 두면 아이폰에서 마지막 카드가 탭바에 잘렸다 */}
+      <main className="flex-1 overflow-auto px-3 pt-2.5 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:px-4 md:pt-3.5 md:pb-3 relative">
         <ErrorBoundary>
           {/* key로 뷰 전환 시 리마운트 → 각 뷰의 등장 애니메이션 재생 */}
           <div key={activeMenu} className="h-full">
@@ -244,7 +246,7 @@ function WorkspaceShell() {
       {isMobile && (
         <MobileTabBar
           activeMenu={activeMenu} setActiveMenu={selectMenu}
-          onOpenProfile={openProfile} onOpenProject={openProjectModal}
+          onOpenProject={openProjectModal}
         />
       )}
 

@@ -47,7 +47,13 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
   return [pos, place];
 }
 
-export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel = '취소', onConfirm, children, title }) {
+// tone: 'danger'(기본, 삭제) | 'ok'(완료·되돌리기처럼 잃는 게 없는 확인)
+const TONE = {
+  danger: 'bg-red-500 hover:bg-red-600 text-white',
+  ok: 'bg-accent hover:opacity-90 text-white',
+};
+
+export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel = '취소', onConfirm, children, title, tone = 'danger', className = 'inline-flex' }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
@@ -82,14 +88,14 @@ export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel =
       <p className="text-xs text-fg-secondary leading-relaxed mb-2.5 whitespace-normal break-words">{message}</p>
       <div className="flex justify-end gap-2">
         <button type="button" onClick={() => setOpen(false)} className="text-xs px-2.5 py-1.5 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">{cancelLabel}</button>
-        <button type="button" onClick={() => { setOpen(false); onConfirm?.(); }} className="text-xs px-2.5 py-1.5 bg-red-500 text-white hover:bg-red-600 rounded-md transition active:scale-95 font-semibold">{confirmLabel}</button>
+        <button type="button" onClick={() => { setOpen(false); onConfirm?.(); }} className={`text-xs px-2.5 py-1.5 rounded-md transition active:scale-95 font-semibold ${TONE[tone] || TONE.danger}`}>{confirmLabel}</button>
       </div>
     </div>,
     document.body
   ) : null;
 
   return (
-    <span className="inline-flex" ref={rootRef}>
+    <span className={className} ref={rootRef}>
       <span ref={triggerRef} onClick={toggle} className="inline-flex" title={title}>{children}</span>
       {popover}
     </span>

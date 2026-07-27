@@ -1,8 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import {
-  LayoutDashboard, Plus, Calendar as CalendarIcon,
-  ChevronRight, ChevronDown, Check, X, Trash2, Pencil
-} from 'lucide-react';
+import { Plus, ChevronDown, Check, X, Trash2, Pencil } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
 import { generateId, avatarColor } from '../utils.js';
@@ -69,25 +66,30 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
     const dd = nearest ? daysLeft(nearest, today) : null;
     return {
       ...p, counts, total: list.length,
-      dueLabel: nearest ? (dd < 0 ? `${-dd}일 지남` : dd === 0 ? '오늘 마감' : `D-${dd}`) : '마감 없음',
+      dueLabel: nearest ? (dd < 0 ? `${-dd}일 지남` : dd === 0 ? '오늘 마감' : `D-${dd}`) : '마감 미정',
       urgent: dd !== null && dd <= 2,
       summary: CONFIG.STATUSES.map(s => `${s === '시작 전' ? '시작 전' : s} ${counts[s]}`).join(' · '),
     };
   }), [projectsList, tasksList, today]);
 
-  const greeting = overdueCount ? `${myName}님, 밀린 것부터 정리해요` : `${myName}님, 오늘 할 일만 남았어요`;
-  const headline = overdueCount ? `지난 마감 ${overdueCount}건이 아직 열려 있어요`
-    : todayCount ? `오늘 마감 ${todayCount}건만 정리하면 돼요` : '지난 마감 없이 잘 굴러가고 있어요';
+  // 인사말은 지금 상태를 그대로 말한다 — 지연이 0인데 "오늘 할 일만 남았어요"라고
+  // 하면 남은 게 없는 날에도 할 일이 있는 것처럼 읽힌다
+  const greeting = overdueCount ? `${myName}님, 밀린 업무부터 정리해봐요`
+    : todayCount ? `${myName}님, 오늘 마감되는 업무만 남았어요`
+    : shown.length ? `${myName}님, 당장 급한 업무는 없어요`
+    : `${myName}님, 남은 업무가 없어요`;
+  const headline = overdueCount ? `지연된 업무 ${overdueCount}건이 남아 있어요`
+    : todayCount ? `오늘 마감되는 업무 ${todayCount}건만 정리하면 돼요` : '지연된 업무가 없네요 :)';
   const todayText = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' });
   const counts = { '전체': open.length, '내 업무': mine.length, '내 팀': teamOpen.length };
 
-  const complete = (t) => onStatusChange(t, '완료');
+  const complete = (t, next) => onStatusChange(t, next);
 
   // 데스크톱(3+1)과 모바일(2×2)이 같은 칸을 재사용한다
   const kpiCells = (
     <>
       <KpiCell
-        label="지연" value={overdueCount} note={overdueCount ? '마감이 지난 업무' : '없어요'} delay={0}
+        label="지연" value={overdueCount} note={overdueCount ? '마감이 지난 업무' : '전부 기한 안'} delay={0}
         dot="var(--app-tag-red-fg)" bar="var(--p-red)" alert={overdueCount > 0}
         ratio={shown.length ? overdueCount / shown.length : 0}
       />
@@ -192,96 +194,9 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   );
 });
 
-// ── 모바일 프로젝트 화면의 접히는 조작들 ──────────────────────────────────
-// 좁은 화면에서 버튼을 다 펼치면 정작 업무가 안 보인다. 자주 쓰는 것만 남기고
-// 나머지는 이 두 팝오버로 접는다.
-
-// 바깥 클릭/Esc로 닫히는 팝오버 껍데기 (필터·더보기 공용)
-function MobilePopover({ label, badge, width = 240, title, children }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef(null);
-  const btnRef = useRef(null);
-  const popRef = useRef(null);
-  const [pos, place] = useAnchoredPos(btnRef, open, width, 240, 8, popRef);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e) => { if (!rootRef.current?.contains(e.target) && !popRef.current?.contains(e.target)) setOpen(false); };
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('touchstart', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('touchstart', onDown); document.removeEventListener('keydown', onKey); };
-  }, [open]);
-  return (
-    <span ref={rootRef} className="inline-flex shrink-0">
-      <span ref={btnRef} className="inline-flex">
-        <button
-          type="button" title={title}
-          onClick={() => { place(); setOpen(o => !o); }}
-          className={`inline-flex items-center gap-1 px-2 h-[30px] rounded-xs text-[11px] font-semibold border transition active:scale-95 ${badge > 0 ? 'bg-accent-weak border-accent text-accent-text' : 'bg-surface/70 border-line text-fg-muted'}`}
-        >
-          {label}{badge > 0 && <span className="font-bold">{badge}</span>}
-        </button>
-      </span>
-      {open && createPortal(
-        <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width }} className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-2 animate-in fade-in zoom-in-95 duration-150">
-          {typeof children === 'function' ? children(() => setOpen(false)) : children}
-        </div>,
-        document.body
-      )}
-    </span>
-  );
-}
-
-// 팀 필터 — 모바일에서는 칩 줄을 통째로 접어 버튼 하나로 만든다(선택 수를 배지로)
-function TeamFilterButton({ selectedTeams, toggleTeam, onClear }) {
-  return (
-    <MobilePopover label="필터" badge={selectedTeams.length} title="팀 필터" width={248}>
-      <div className="flex flex-wrap gap-1.5">
-        {Object.entries(CONFIG.TEAMS).map(([team, colorClass]) => {
-          const selected = selectedTeams.includes(team);
-          return (
-            <button key={team} onClick={() => toggleTeam(team)} className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xs text-[11px] font-semibold border transition active:scale-95 ${selected ? colorClass + ' border-transparent' : 'bg-surface text-fg-muted border-line'}`}>
-              {selected && <Check size={11} className="shrink-0" />}{team}
-            </button>
-          );
-        })}
-      </div>
-      {selectedTeams.length > 0 && (
-        <button onClick={onClear} className="mt-2 w-full py-1.5 text-[11px] font-semibold text-fg-muted hover:bg-surface-hover rounded-xs transition active:scale-95">필터 지우기</button>
-      )}
-    </MobilePopover>
-  );
-}
-
-// 그 외 조작 — 리소스 링크, 공유, 프로젝트 삭제
-function ProjectMoreMenu({ project, onRemoveLink, isAddingLink, setIsAddingLink, linkForm, shareBtn, deleteBtn }) {
-  const links = project.pinnedLinks || [];
-  return (
-    <MobilePopover label={<MoreHorizontal size={15} />} title="그 외" width={252}>
-      {(close) => (
-        <div>
-          <p className="px-1 pb-1.5 text-[10px] font-bold text-fg-faint">리소스</p>
-          {links.map(l => (
-            <div key={l.id} className="flex items-center gap-1 px-1 py-1.5">
-              <a href={l.url} target="_blank" rel="noreferrer" className="flex-1 min-w-0 inline-flex items-center gap-1.5 text-[13px] text-accent-text truncate"><ExternalLink size={12} className="shrink-0" />{l.title}</a>
-              <button onClick={() => onRemoveLink(l.id)} className="p-1 text-fg-faint rounded-md transition active:scale-95" title="링크 삭제"><X size={12} /></button>
-            </div>
-          ))}
-          {!links.length && !isAddingLink && <p className="px-1 pb-1 text-[11px] text-fg-faint">아직 링크가 없어요</p>}
-          {/* 중첩 팝오버 대신 이 안에서 펼친다 — 팝오버 안 팝오버는 위치 잡기가 불안하다 */}
-          {isAddingLink
-            ? <div className="pt-1">{linkForm}</div>
-            : <button onClick={() => setIsAddingLink(true)} className="mt-1 w-full py-1.5 text-[11px] font-semibold text-fg-muted border border-dashed border-line rounded-xs transition active:scale-95">+ 링크 추가</button>}
-          <div className="mt-2 pt-1.5 border-t border-line" onClick={close}>
-            <span className="flex items-center gap-1.5 px-0.5 py-0.5 text-[13px] text-fg-muted">{shareBtn} 공유하기</span>
-            {deleteBtn && <span className="flex items-center gap-1.5 px-0.5 py-0.5 text-[13px] text-fg-muted">{deleteBtn} 프로젝트 삭제</span>}
-          </div>
-        </div>
-      )}
-    </MobilePopover>
-  );
-}
+// 모바일 프로젝트 화면의 접히는 조작은 팀 필터 하나뿐이다(→ TeamFilterBar).
+// '⋯' 메뉴와 그 안의 팀 필터 팝오버는 없앴다 — 공유·삭제·참고 링크를 메타 줄에
+// 그대로 두는 쪽이 숨겨진 메뉴보다 찾기 쉬웠다.
 
 // 아이콘 좌우에 투명 여백(약 2.4px)이 있어서 pl-3/pr-4로는 왼쪽이 2px 좁아 보였다.
 // 실측 기준으로 시각적 여백을 맞춘다(왼 14+2.4 ≒ 오른 16).
@@ -372,7 +287,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   const projectMeta = [
     `${projectTasks.length}건`,
     `완료 ${doneCount}건`,
-    dd === null ? '마감 없음' : dd < 0 ? `${-dd}일 지남` : dd === 0 ? '오늘 마감' : `D-${dd}`,
+    dd === null ? '마감 미정' : dd < 0 ? `${-dd}일 지남` : dd === 0 ? '오늘 마감' : `D-${dd}`,
   ].join(' · ');
 
   const shareBtn = <ShareButton url={`${window.location.origin}/s/p/${project.id}`} what="프로젝트" />;
@@ -387,7 +302,8 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
       {/* ── 헤더: 제목 + 메타(건수·완료·D-day) + 링크 / 우측은 '새 업무'만 ── */}
       <div className="flex items-end justify-between gap-4 flex-wrap pb-3" style={{ borderBottom: '1px solid var(--app-line)' }}>
         <div className="min-w-0">
-          <button onClick={() => onRenameProject?.(project)} className="group/title inline-flex items-baseline gap-1.5 mb-[5px] text-left" title="프로젝트 이름 수정">
+          {/* 모바일은 상단바에 같은 제목(과 수정 연필)이 이미 있다 — 한 줄을 두 번 쓰지 않는다 */}
+          <button onClick={() => onRenameProject?.(project)} className="group/title hidden md:inline-flex items-baseline gap-1.5 mb-[5px] text-left" title="프로젝트 이름 수정">
             <span className="text-[19px] md:text-[23px] font-extrabold text-fg" style={{ letterSpacing: '-0.7px' }}>{project.title}</span>
             <Pencil size={12} className="text-fg-faint md:opacity-0 md:group-hover/title:opacity-100 transition-opacity shrink-0" />
           </button>
@@ -405,7 +321,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
                 {/* 열기 전에 위치를 먼저 잡는다 — 안 그러면 첫 프레임이 {0,0}에 그려진다 */}
                 <button onClick={() => { placeLink(); setIsAddingLink(v => !v); }}
                   className="text-[11px] text-fg-faint px-1.5 py-px rounded-[4px] transition-colors hover:text-fg-muted"
-                  style={{ border: '1px dashed var(--app-line)' }}>+ 링크</button>
+                  style={{ border: '1px dashed var(--app-line)' }}>+ 참고 링크</button>
               </span>
               {isAddingLink && createPortal(
                 <div style={{ position: 'fixed', left: linkPos.left, top: linkPos.top, width: 256 }} className="dc-pop bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90]">
@@ -611,7 +527,7 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
       <div className="grid gap-x-7 gap-y-6 items-start side-grid">
         <DueGroupList
           groups={groups} projectsMap={projectsMap} today={today} showTeam={false}
-          onComplete={(t) => onStatusChange(t, '완료')} onOpen={onTaskClick}
+          onComplete={(t, next) => onStatusChange(t, next)} onOpen={onTaskClick}
           emptyHint={statusFilter.length ? '고른 상태에 해당하는 업무가 없어요' : '새로 맡은 일이 생기면 여기에 쌓여요'}
         />
         <div className="min-w-0">
@@ -714,7 +630,7 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
       <div className="grid gap-x-7 gap-y-6 pt-[22px] items-start side-grid">
         <DueGroupList
           groups={groups} projectsMap={projectsMap} today={today}
-          onComplete={(t) => onStatusChange(t, '완료')} onOpen={onTaskClick}
+          onComplete={(t, next) => onStatusChange(t, next)} onOpen={onTaskClick}
           emptyHint="이 팀이 맡은 일은 다 끝났어요"
         />
         <div className="min-w-0">
