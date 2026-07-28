@@ -317,9 +317,16 @@ export async function listMyNotifications(limit = 30) {
 
 // 멘션 알림 일괄 생성 (recipientIds는 auth.users.id 배열)
 // kind: 'mention'(멘션) | 'reply'(내 댓글에 답글) — DB check와 INSERT 정책이 이 둘만 허용
+//
+// **.select()를 붙이면 안 된다.** notifications의 SELECT 정책은 본인 수신 행만
+// (recipient_id = auth.uid()) 허용하는데, 여기서 넣는 행은 '남에게 보내는' 알림이다.
+// insert().select()는 SQL의 INSERT ... RETURNING이라 넣은 행을 읽으려 하고, 정책에
+// 막혀 42501(new row violates row-level security policy)로 **insert까지 롤백된다.**
+// 그래서 멘션 알림이 한 번도 생성되지 않았다(호출부가 실패를 조용히 삼켜 화면에도
+// 아무 표시가 없었다). 넣기만 하고 돌려받지 않는다.
 export async function insertNotifications(recipientIds, { actorName, cardId, projectId, preview, kind = 'mention' }) {
   const ids = [...new Set((recipientIds || []).filter(Boolean))];
-  if (!ids.length) return [];
+  if (!ids.length) return 0;
   const rows = ids.map(recipient_id => ({
     recipient_id,
     actor_name: actorName || '누군가',
@@ -328,7 +335,9 @@ export async function insertNotifications(recipientIds, { actorName, cardId, pro
     project_id: projectId || null,
     preview: (preview || '').slice(0, 200) || null,
   }));
-  return unwrap(await client().from('notifications').insert(rows).select());
+  const { error } = await client().from('notifications').insert(rows);
+  if (error) throw error;
+  return rows.length;
 }
 
 export async function markNotificationRead(id) {

@@ -181,6 +181,14 @@ CHROME=/path/to/chrome npm run verify
     Postgres가 순서를 보장하지 않아 카드가 뒤바뀐다. 컬럼 안 순서는
     `dashboardParts.byDue`(마감일 순)가 소유한다 — 마감 그룹 목록과 같은 함수다.
 
+27. **RLS가 걸린 테이블에 "남의 행"을 넣을 때 `.select()`를 붙이면 전부 롤백된다.**
+    `insert().select()`는 SQL의 `INSERT ... RETURNING`이라 넣은 행을 읽으려 하는데,
+    `notifications`의 SELECT 정책은 본인 수신 행만(`recipient_id = auth.uid()`) 허용한다.
+    그래서 42501(new row violates row-level security policy)로 insert까지 되돌아갔고,
+    **멘션 알림이 한 번도 생성되지 않았다.** 호출부가 실패를 조용히 삼켜서(console.error만)
+    화면에는 아무 표시가 없었고, 검증 스위트는 게스트 모드만 돌아 이 경로를 보지 못한다.
+    넣기만 할 때는 `.select()`를 붙이지 않는다(`cloud.insertNotifications`).
+
 **테스트 스크립트 작성 시**
 
 17. 페이지에 주입하는 문자열은 JS 템플릿 리터럴이라 `\d`가 `d`로 죽습니다 → `[0-9]`.
