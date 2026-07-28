@@ -70,21 +70,34 @@ for (const [m,label,theme] of [[{width:390,height:844,deviceScaleFactor:2,mobile
     const rows=[...document.querySelectorAll('main .dc-row')];
     return rows.map(r=>{
       const spans=[...r.querySelectorAll('span')];
-      // 배지 껍데기도 textContent가 같으므로 자식 없는 안쪽 span만 고른다
-      const st=spans.find(s=>!s.children.length && /^(시작 전|진행 중|보류 중|완료)$/.test(s.textContent.trim()));
+      // 상태 글자는 두 벌 있다 — 좁은 화면용(메타 줄)과 넓은 화면용(오른쪽 칩).
+      // 안 쓰는 쪽은 display:none으로 DOM에 남아 있으므로 '보이는 쪽'을 골라야 한다.
+      // 배지 껍데기도 textContent가 같으니 자식 없는 잎 노드만 본다.
+      const st=spans.filter(s=>!s.children.length && /^(시작 전|진행 중|보류 중|완료)$/.test(s.textContent.trim()))
+                    .find(s=>s.getBoundingClientRect().width>0);
       const dot=st?st.previousElementSibling:null;
       const d=dot?dot.getBoundingClientRect():null;
+      // 제목 — 좁은 화면에서 상태·담당자를 메타 줄로 내린 이유가 이 폭이다
+      const ti=spans.find(s=>!s.children.length && /^업무 [0-9]$/.test(s.textContent.trim()));
+      // 담당자 아바타(이름 첫 글자). 상태 글자처럼 두 벌이라 보이는 쪽을 고른다.
+      const av=spans.filter(s=>!s.children.length && s.textContent.trim()==='노')
+                    .find(s=>s.getBoundingClientRect().width>0);
       return { title:r.textContent.slice(0,10), status:st?st.textContent.trim():null,
-               dotPx:d?Math.round(d.width):0, visible: st? getComputedStyle(st).display!=='none':false };
+               dotPx:d?Math.round(d.width):0, titlePx: ti?Math.round(ti.getBoundingClientRect().width):0,
+               avatarPx: av?Math.round(av.getBoundingClientRect().width):0 };
     });
   })()`);
   check(`${label}: 마감 목록에 행이 있다`, soon.length>0, `${soon.length}행`);
   check(`${label}: 완료는 대시보드 마감 목록에서 빠진다`, !soon.some(r=>r.status==='완료'), JSON.stringify(soon.map(r=>r.status)));
-  // 좁은 화면(sm 미만)에서는 상태 글자를 숨기고 색 점만 남긴다 — 칩 글자가 고정으로
-  // 70px쯤 먹어서 제목에 한글 12자밖에 안 남았다. 넓은 화면은 글자까지 보인다.
-  const wantText = label !== '모바일';
-  check(`${label}: 상태 글자 ${wantText?'보임':'숨김'}`, soon.every(r=>r.status && r.visible===wantText), JSON.stringify(soon.map(r=>r.visible)));
+  // 상태는 두 폭 다 글자로 읽혀야 한다. 좁은 화면은 오른쪽 칩을 없애고 제목 아래
+  // 메타 줄에 두는 방식 — 점만 남기면 색과 상태의 대응을 외워야 읽혔다.
+  check(`${label}: 상태 글자가 보인다`, soon.every(r=>r.status), JSON.stringify(soon.map(r=>r.status)));
   check(`${label}: 상태 점이 6px 이상`, soon.every(r=>r.dotPx>=6), JSON.stringify(soon.map(r=>r.dotPx)));
+  // 담당자도 두 폭 다 보인다(좁은 화면은 메타 줄 오른쪽 끝).
+  check(`${label}: 담당자 아바타가 보인다`, soon.every(r=>r.avatarPx>=14), JSON.stringify(soon.map(r=>r.avatarPx)));
+  // 상태·담당자를 메타 줄로 내린 대가로 제목 줄은 폭을 그대로 쓴다(제목이 주인공인 목록).
+  // 둘 중 하나라도 제목 옆으로 되돌리면 여기서 걸린다.
+  if (m.mobile) check(`${label}: 제목 폭 260px 이상`, soon.every(r=>r.titlePx>=260), JSON.stringify(soon.map(r=>r.titlePx)));
   const over=await ev(`(() => { const m=document.querySelector('main'); return Math.round(m.scrollWidth-m.clientWidth); })()`);
   check(`${label}: 가로 넘침 없음`, over<=0, `초과 ${over}px`);
   await shot(label==='모바일'?'fix-mob-dashboard':'fix-desk-dashboard');

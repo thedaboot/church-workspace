@@ -190,6 +190,17 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                   <span className="flex-1 min-w-0">
                     <span className="block text-[13.5px] font-semibold text-fg truncate" style={{ letterSpacing: '-0.2px' }}>{t.title}</span>
                     <span className="flex items-center gap-1.5 mt-0.5 overflow-hidden">
+                      {/* 좁은 화면의 상태 표시는 여기다(오른쪽 칩은 sm 이상에서만 뜬다).
+                          예전에는 오른쪽 칩에서 글자만 지우고 점을 남겼는데, 색과 상태의
+                          대응을 외우고 있어야 읽히는 표시가 됐다. 칩을 오른쪽에 되살리면
+                          글자가 고정으로 70px쯤 먹어서 제목에 한글 12자밖에 안 남는다 —
+                          제목이 주인공인 목록이다. 이 줄로 내리면 제목은 폭을 그대로 쓰고
+                          상태는 글자로 읽힌다. 폭이 밀릴 때 잘리는 건 프로젝트 이름 쪽. */}
+                      <span className="sm:hidden shrink-0 inline-flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_DOT_VAR[t.status] }} />
+                        <span className="text-[10.5px] font-semibold whitespace-nowrap" style={{ color: CONFIG.STATUS_FG_VAR[t.status] || 'var(--app-ink-muted)' }}>{t.status}</span>
+                      </span>
+                      <span className="sm:hidden shrink-0 w-0.5 h-0.5 rounded-full" style={{ background: 'var(--app-line)' }} />
                       <span className="text-[10.5px] text-fg-faint truncate">{projectsMap[t.projectId]?.title || '프로젝트 없음'}</span>
                       {showTeam && t.teams?.length > 0 && (
                         <>
@@ -197,16 +208,22 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                           <span className="text-[10.5px] font-semibold whitespace-nowrap" style={{ color: teamColor(t.teams[0]) }}>{t.teams[0]}</span>
                         </>
                       )}
+                      {/* 담당자도 좁은 화면에서는 여기 — 데스크톱처럼 제목 줄 오른쪽 끝에 두면
+                          아바타+간격이 34px을 먹어서 제목 폭이 278→244px로 밀린다. 이 줄에서
+                          ml-auto로 오른쪽에 붙이면 오른쪽 정렬이라는 인상은 같고 제목은
+                          한 픽셀도 안 준다. 이름 글자를 쓰지 않는 이유: 같은 10.5px 글자라
+                          팀·프로젝트와 구분이 안 된다(원형 아바타는 한눈에 '사람'으로 읽힌다). */}
+                      <span className={`sm:hidden ml-auto shrink-0 w-4 h-4 rounded-full inline-flex items-center justify-center text-[9px] font-bold ${avatarColor(t.assignees?.[0] || '')}`}
+                        title={t.assignees?.[0] || '미지정'}>
+                        {(t.assignees?.[0] || '?')[0]}
+                      </span>
                     </span>
                   </span>
-                  {/* 좁은 화면에서는 상태를 점 하나로 줄인다 — 칩 글자가 고정으로 70px쯤을
-                      먹어서 제목에 남는 폭이 한글 12자밖에 안 됐다(제목이 주인공인 목록이다).
-                      색은 그대로라 무슨 상태인지는 계속 읽힌다. */}
-                  <span className="shrink-0 inline-flex items-center gap-1.5 px-1 py-[3px] sm:pl-[7px] sm:pr-[9px] rounded-[4px]"
+                  <span className="hidden sm:inline-flex shrink-0 items-center gap-1.5 pl-[7px] pr-[9px] py-[3px] rounded-[4px]"
                     style={{ background: CONFIG.STATUS_BG_VAR[t.status] || 'transparent' }}
                     title={t.status}>
                     <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_DOT_VAR[t.status] }} />
-                    <span className="hidden sm:inline text-[11px] font-semibold" style={{ color: CONFIG.STATUS_FG_VAR[t.status] || 'var(--app-ink-muted)' }}>{t.status}</span>
+                    <span className="text-[11px] font-semibold" style={{ color: CONFIG.STATUS_FG_VAR[t.status] || 'var(--app-ink-muted)' }}>{t.status}</span>
                   </span>
                   <span className={`hidden sm:flex shrink-0 w-[22px] h-[22px] rounded-full items-center justify-center text-[10.5px] font-bold ${avatarColor(t.assignees?.[0] || '')}`}
                     title={t.assignees?.[0] || '미지정'}>
