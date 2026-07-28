@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { TaskService } from '../services/domain.js';
 import { generateId } from '../utils.js';
-import { CloudRepository } from '../services/cloud.js';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { showToast } from '../components/Toast.jsx';
@@ -142,35 +141,3 @@ export const useWorkspaceController = () => {
   return { handleSaveTask, handleDeleteTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleRenameProject, handleUpdateUser, undo: store.undo, redo: store.redo };
 };
 
-export const usePersistenceController = () => {
-  const [syncStatus, setSyncStatus] = useState('idle');
-  const [errorMsg, setErrorMsg] = useState('');
-
-  const syncToCloud = async (url) => {
-    setSyncStatus('syncing');
-    try {
-      // Optimistic 개념: 로컬 스토어의 현재 상태를 즉시 클라우드로 백업
-      await CloudRepository.save(url, store.getState());
-      setSyncStatus('success');
-      setTimeout(() => setSyncStatus('idle'), 3000);
-    } catch (e) {
-      setErrorMsg('동기화 실패: URL을 확인하세요.');
-      setSyncStatus('error');
-    }
-  };
-
-  const loadFromCloud = async (url) => {
-    setSyncStatus('syncing');
-    try {
-      const data = await CloudRepository.load(url);
-      store.dispatch({ type: 'LOAD_STATE', payload: data });
-      setSyncStatus('success');
-      setTimeout(() => setSyncStatus('idle'), 3000);
-    } catch (e) {
-      setErrorMsg('불러오기 실패');
-      setSyncStatus('error');
-    }
-  };
-
-  return { syncToCloud, loadFromCloud, syncStatus, errorMsg };
-};
