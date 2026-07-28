@@ -5,7 +5,7 @@
 디자인 시스템 절은 낡았습니다 — 아래 "README와 어긋난 부분" 참고).
 
 - 레포: `github.com/thedaboot/church-workspace` · 브랜치 `main`
-- 마지막 커밋: `4e59daf` (모바일 하단 여백 + 검증 스위트 레포 편입)
+- 마지막 커밋: `c6b631b` (죽은 코드·의존성 정리 + DB 정리 마이그레이션 0009~0011)
 - 배포: Vercel, `main` 푸시 시 자동
 - 검증: `npm run verify` → 20개 스위트 270 pass (약 6분)
 
@@ -161,6 +161,26 @@ CHROME=/path/to/chrome npm run verify
     트리거에서 100px 떠 보입니다. 여는 순간 `place()`를 먼저 호출해야 첫 프레임이 `{0,0}`에
     안 그려집니다.
 
+**데이터 로드 · 실시간 (2026-07-28 구조 변경)**
+
+22. **목록 화면에서 `task.comments` / `task.activityLog`는 비어 있다.** 초기 로드가
+    읽는 것은 팀·프로필·프로젝트·카드·리소스·첨부까지고, 댓글과 활동은 업무 창을 열 때
+    그 카드 것만 읽는다(`cloudSync.loadCardDetail`). 카드 목록에 "댓글 3" 같은 걸
+    붙이려면 개수를 따로 세는 경로가 필요하다 — 전체 댓글을 다시 읽으면 예전으로 되돌아간다.
+23. **실시간은 표(payload.table)에 따라 갈라진다**(`cloudSync.subscribeWorkspace`).
+    cards는 그 카드 1건만 다시 읽고, comments·files는 열려 있는 창일 때만 상세를 갱신하고,
+    나머지는 전체 재조회다. **구독에 새 표를 추가하면 기본이 전체 재조회**이니 라우팅에
+    같이 적어야 한다. comments의 DELETE payload에는 `card_id`가 없다(replica identity가
+    PK뿐) → cardId가 비면 "지금 열려 있는 카드"로 본다.
+24. **스토어 히스토리는 최근 20개까지.** `LOAD_STATE`는 기록을 초기화하고(서버가 원본이라
+    그 이전으로 되돌리면 유령 데이터가 살아난다) `SYNC_TASK`는 기록하지 않는다.
+    `SYNC_TASK`는 카드 1건을 **병합**한다 — `UPSERT_TASK`로 바꾸면 담아둔 댓글·활동·첨부가 날아간다.
+25. **`store.canUndo()`를 렌더 중에 그냥 부르면 갱신되지 않는다.** `useCanUndo()`/`useCanRedo()`로
+    구독한다(예전엔 카드를 옮겨도 실행 취소 버튼이 계속 비활성이었다).
+26. **`cards.position`은 아무도 채우지 않는다**(전부 0). 정렬 키로 쓰면 같은 값이라
+    Postgres가 순서를 보장하지 않아 카드가 뒤바뀐다. 컬럼 안 순서는
+    `dashboardParts.byDue`(마감일 순)가 소유한다 — 마감 그룹 목록과 같은 함수다.
+
 **테스트 스크립트 작성 시**
 
 17. 페이지에 주입하는 문자열은 JS 템플릿 리터럴이라 `\d`가 `d`로 죽습니다 → `[0-9]`.
@@ -177,8 +197,17 @@ CHROME=/path/to/chrome npm run verify
 
 ## 6. 데이터 · 스키마 · 비밀
 
-- 스키마는 `supabase/migrations/0001~0008`. **0008(`0008_profile_teams.sql`)은 라이브 DB에
-  이미 적용**했습니다 — 한 사람이 여러 팀에 속하는 조인 테이블 + RLS(읽기: 로그인 사용자,
+- 스키마는 `supabase/migrations/0001~0011`이고 **전부 라이브 DB에 적용**되어 있습니다
+  (0001~0005는 대시보드에서 수동, 0006~0011은 `npx supabase db push --db-url "$SUPABASE_DB_URL"`로.
+  접속 문자열은 로컬 `.env`의 `SUPABASE_DB_URL`에 둡니다 — 대시보드 Connect의 Session pooler URI).
+  0009~0011이 한 일:
+  안 쓰는 컬럼 정리(`projects.archived`·`projects.description`·`activity.payload` 삭제 —
+  값이 있던 `teams.color`는 남았고 앱은 이 컬럼을 보지 않습니다. 팀 색은 `config.js`),
+  activity 고아 행 정리 + cards/projects cascade, teams 쓰기는 관리자만,
+  `cards.updated_by`(트리거가 채움 → 업무 창의 '수정: 이름'),
+  어드바이저 경고 정리(공개 버킷 목록 조회 차단 등).
+  **`projects.description`은 이제 없습니다** — `createProject`에 다시 넣으면 실패합니다.
+- 0008(`0008_profile_teams.sql`) 메모: 라이브에 적용됨 — 한 사람이 여러 팀에 속하는 조인 테이블 + RLS(읽기: 로그인 사용자,
   쓰기: 본인 행만) + 기존 `profiles.team_id` 복사. 기존 컬럼은 남겨 두었고
   (`currentUser.teams?.length ? teams : [team]` 패턴으로 양쪽을 봅니다), 적용 후 데이터
   건수(프로젝트 3 / 카드 3)를 확인했습니다.
@@ -213,9 +242,16 @@ CHROME=/path/to/chrome npm run verify
 
 ## 8. 남은 일 / 알려진 상태
 
-- **README와 `docs/DESIGN.md`의 디자인 시스템 절이 낡았습니다.** Pretendard·노션 스펙·
-  사이드바 기준으로 쓰여 있는데 실제로는 SUIT + 외부 핸드오프 + 상단 2줄 내비입니다.
-  여기 있는 §3이 현재 기준입니다. 두 문서를 갱신하거나, 최소한 §3을 가리키게 해야 합니다.
+- README는 정리했습니다(디자인 절은 여기 §3을 가리킵니다). **`docs/DESIGN.md`는 여전히
+  낡았습니다** — 노션 스펙·Pretendard 기준이라 현재 화면과 맞지 않습니다. 참고용으로만
+  남겨 두었고, 시각 기준은 §1의 외부 핸드오프 문서와 §3입니다.
+- Pretendard는 폰트 스택의 폴백 이름으로만 남아 있습니다(패키지는 제거). 본문은 SUIT 한 벌입니다.
+  SUIT Variable이 625KB라, 더 줄이려면 사용 글자 범위로 서브셋하는 단계를 빌드에 넣어야 합니다.
+- 어드바이저 경고 중 두 개는 **의도해서 남긴 것**입니다: `is_admin()`을 로그인 사용자가
+  실행할 수 있는 것(RLS 정책이 평가할 때 필요합니다. 불러도 "나는 관리자인가"만 알 수 있습니다),
+  그리고 Leaked Password Protection(구글·카카오 OAuth만 쓰므로 저장하는 비밀번호가 없습니다).
+  `rls_auto_enable()`은 이 레포가 만든 함수가 아니라 PUBLIC 권한만 회수했습니다 — 정체를
+  확인하려면 대시보드 Database > Functions를 보세요.
 - 구글 드라이브 첨부 이관은 보류 상태(현재는 Supabase Storage private 버킷).
   계획은 `docs/DRIVE.md`.
 - `tests/`는 헤드리스 Chrome이 있는 로컬에서만 돕니다. CI에 붙이려면 Chrome 설치와

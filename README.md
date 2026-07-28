@@ -120,6 +120,9 @@ private 버킷에 저장합니다(구글 드라이브 이관은 보류 — [`doc
 | `0006_hold_status_and_drive.sql` | 상태 `hold` 허용 + `projects.drive_folder_id` |
 | `0007_reply_notifications.sql` | `notifications.kind`에 `reply` 추가 |
 | `0008_profile_teams.sql` | 한 사람이 여러 팀에 속하는 조인 테이블 + RLS |
+| `0009_cleanup.sql` | 안 쓰는 컬럼 정리 · activity 고아 행 + cascade · teams 쓰기는 관리자만 |
+| `0010_card_updated_by.sql` | `cards.updated_by` — 마지막으로 고친 사람(트리거가 채운다) |
+| `0011_linter_warnings.sql` | 어드바이저 경고 — search_path 고정 · 공개 버킷 목록 조회 차단 · SECURITY DEFINER 실행 권한 |
 
 ## 딥링크 · 공유 · 환경변수
 
