@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Hash } from 'lucide-react';
+import { Check, Hash, Archive } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
@@ -120,12 +120,15 @@ export function ProfileModal({ onClose, onSave }) {
 }
 
 // project를 넘기면 이름 수정, 없으면 새로 만들기 (창 하나로 둘 다)
-export function ProjectModal({ onClose, onSave, project = null }) {
+// 보관은 이름 수정일 때만 — 만들면서 보관할 일은 없다. 삭제(관리자 전용)와 달리
+// 되돌릴 수 있으므로 확인 팝오버를 두지 않는다.
+export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
   const renaming = !!project;
   const [title, setTitle] = useState(project?.title || '');
   const clean = title.trim();
   const unchanged = renaming && clean === (project.title || '').trim();
   const submit = () => { if (clean && !unchanged) onSave(clean); };
+  const archived = !!project?.archived;
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
       <div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-200">
@@ -138,6 +141,22 @@ export function ProjectModal({ onClose, onSave, project = null }) {
           autoFocus
           onKeyDown={e => { if (e.key === 'Enter') submit(); }}
         />
+        {renaming && onArchive && (
+          <div className="-mt-3 mb-5 pb-4 border-b border-line">
+            <button
+              onClick={() => { onArchive(project.id, !archived); onClose(); }}
+              className="w-full flex items-center gap-2 px-2.5 py-2.5 rounded-md text-[13px] text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors text-left"
+            >
+              <Archive size={14} className="shrink-0" />
+              {archived ? '보관 해제' : '보관하기'}
+            </button>
+            <p className="px-2.5 mt-0.5 text-[11px] text-fg-faint leading-relaxed">
+              {archived
+                ? '다시 상단 탭과 대시보드에 나와요'
+                : '상단 탭과 대시보드에서 빠져요. 업무는 그대로 남고 검색과 보관함에서 찾을 수 있어요'}
+            </p>
+          </div>
+        )}
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 bg-surface-hover hover:bg-line text-fg-muted py-2.5 rounded-md text-sm font-medium transition active:scale-95">취소</button>
           <button onClick={submit} disabled={!clean || unchanged} className="flex-1 bg-accent hover:bg-accent-strong disabled:bg-line text-white py-2.5 rounded-md text-sm font-medium transition active:scale-95">{renaming ? '저장' : '생성하기'}</button>

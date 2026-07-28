@@ -179,6 +179,10 @@ const activityToApp = (a) => ({
 const projectToApp = (p, linksByProject) => ({
   id: p.id,
   title: p.name,
+  // 보관된 프로젝트는 탭·대시보드에서 빠지지만 지워진 것은 아니다(보관함에서 본다).
+  // createdAt은 보관함의 연도 묶음에 쓴다 — 연도 컬럼을 따로 두지 않는 이유다.
+  archived: !!p.archived,
+  createdAt: p.created_at,
   pinnedLinks: (linksByProject.get(p.id) || []).map(l => ({ id: l.id, title: l.title, url: l.url })),
 });
 
@@ -317,6 +321,7 @@ export async function projectCreateCloud(project) {
 }
 // DB 컬럼명은 name (앱에서는 title로 부른다)
 export async function projectRenameCloud(id, title) { return write(() => cloud.updateProject(id, { name: title })); }
+export async function projectArchiveCloud(id, archived) { return write(() => cloud.updateProject(id, { archived })); }
 export async function projectDeleteCloud(id) { return write(() => cloud.deleteProject(id)); }
 
 export async function linkAddCloud(projectId, link) { return write(() => cloud.addLink(projectId, link.title, link.url, link.id)); }

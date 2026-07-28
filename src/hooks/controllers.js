@@ -133,11 +133,18 @@ export const useWorkspaceController = () => {
     if (cloudOn) cloudSync.projectRenameCloud(id, next).catch(reportCloudError('프로젝트 이름 변경'));
   }, [cloudOn]);
 
+  // 프로젝트 보관/해제 — 지우는 것이 아니라 탭·대시보드에서만 빼는 것이다.
+  // 안에 있는 업무는 그대로 남고 검색·보관함으로 계속 닿는다.
+  const handleArchiveProject = useCallback((id, archived) => {
+    store.dispatch({ type: 'UPDATE_PROJECT', payload: { id, archived } });
+    if (cloudOn) cloudSync.projectArchiveCloud(id, archived).catch(reportCloudError(archived ? '프로젝트 보관' : '보관 해제'));
+  }, [cloudOn]);
+
   const handleUpdateUser = useCallback((profile) => {
     store.dispatch({ type: 'UPDATE_USER', payload: profile });
     if (cloudOn) cloudSync.profileUpdateCloud(profile).catch(reportCloudError('프로필 저장'));
   }, [cloudOn]);
 
-  return { handleSaveTask, handleDeleteTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleRenameProject, handleUpdateUser, undo: store.undo, redo: store.redo };
+  return { handleSaveTask, handleDeleteTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleRenameProject, handleArchiveProject, handleUpdateUser, undo: store.undo, redo: store.redo };
 };
 

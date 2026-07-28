@@ -48,8 +48,12 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
 }
 
 // tone: 'danger'(기본, 삭제) | 'ok'(완료·되돌리기처럼 잃는 게 없는 확인)
+// 확정 버튼 색은 토큰만 쓴다. 예전엔 danger가 Tailwind 기본 red-500(#ef4444)이었는데
+// 이 앱의 팔레트에 없는 색이고, 원색이라 다크 모드에서도 그대로 튀었다(토큰은 테마마다
+// 값이 다르다). 프로젝트 삭제 버튼은 이미 tag-red-fg를 쓰고 있어서 같은 삭제인데
+// 색이 둘이었다.
 const TONE = {
-  danger: 'bg-red-500 hover:bg-red-600 text-white',
+  danger: 'bg-tag-red-fg hover:opacity-90 text-white',
   ok: 'bg-accent hover:opacity-90 text-white',
 };
 

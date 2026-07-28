@@ -5,7 +5,7 @@ import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
 import { generateId, avatarColor, groupBy } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
-  selectCurrentUser, selectProjectsMap, selectProjectsList, selectMyTasks,
+  selectCurrentUser, selectProjectsMap, selectActiveProjectsList, selectMyTasks,
   selectDashboardStats, selectTasksList
 } from '../store/selectors.js';
 import {
@@ -35,7 +35,9 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   const currentUser = useStore(selectCurrentUser);
   const tasksList = useStore(selectTasksList);
   const projectsMap = useStore(selectProjectsMap);
-  const projectsList = useStore(selectProjectsList);
+  // '프로젝트 진행'은 지금 굴러가는 것만 — 끝나서 보관한 프로젝트가 계속 100%로
+  // 남아 있으면 목록만 길어진다(업무는 여전히 세어져 KPI·마감 목록에는 들어간다)
+  const projectsList = useStore(selectActiveProjectsList);
   const [filter, setFilter] = useState('전체');
   const today = ISO_TODAY();
 
@@ -227,18 +229,9 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
 // '⋯' 메뉴와 그 안의 팀 필터 팝오버는 없앴다 — 공유·삭제·참고 링크를 메타 줄에
 // 그대로 두는 쪽이 숨겨진 메뉴보다 찾기 쉬웠다.
 
-// 아이콘 좌우에 투명 여백(약 2.4px)이 있어서 pl-3/pr-4로는 왼쪽이 2px 좁아 보였다.
-// 실측 기준으로 시각적 여백을 맞춘다(왼 14+2.4 ≒ 오른 16).
-// 흰 글자 옆 13px 아이콘은 1.4획이면 사라져 보여서 여기만 2로 되돌린다.
-function NewTaskButton({ onClick, className = '' }) {
-  return (
-    // display 유틸(inline-flex/hidden)은 호출부가 지정한다 — 여기서 같이 주면
-    // Tailwind가 같은 계층의 display 규칙끼리 충돌해 md:hidden이 안 먹는다
-    <button onClick={onClick} className={`shrink-0 bg-fg hover:opacity-90 text-canvas pl-3 pr-3.5 py-2 rounded-xs text-xs font-bold transition active:scale-95 justify-center items-center gap-1.5 leading-none whitespace-nowrap ${className}`}>
-      <Plus size={13} className="shrink-0 [stroke-width:2px]" /><span className="leading-none">새 업무</span>
-    </button>
-  );
-}
+// NewTaskButton은 지웠다 — 아무도 부르지 않는 죽은 코드였고, 실제 '새 업무' 버튼과
+// 다른 스타일(bg-fg 반전)이라 남겨두면 어느 쪽이 기준인지 헷갈린다. 지금 쓰는 것은
+// ProjectView 헤더 안의 accent 채움 버튼 하나뿐이다.
 
 // viewMode(보드/캘린더)는 App이 들고 있다 — 프로젝트를 옮기면 이 컴포넌트가 리마운트되므로
 // 여기서 state로 두면 캘린더를 보다가 다른 프로젝트로 넘어갈 때마다 보드로 되돌아갔다.

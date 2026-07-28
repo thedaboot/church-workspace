@@ -124,7 +124,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
       <div className="flex items-center gap-2 min-w-0">
         {!isEditMode && canDelete && (
           <ConfirmPopover message="이 업무를 삭제할까요?" onConfirm={onDelete}>
-            <button type="button" className="p-2 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95 shrink-0" title="업무 삭제"><Trash2 size={16} /></button>
+            <button type="button" className="p-2 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95 shrink-0" title="업무 삭제"><Trash2 size={16} /></button>
           </ConfirmPopover>
         )}
         {/* 작성자 · (고친 적이 있으면) 마지막으로 고친 사람 · 그 시각.
@@ -132,10 +132,18 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
             안 나와서, 작성자와 수정자가 다를 때 누가 손댔는지 알 수 없었다. */}
         <div className="text-[10px] text-fg-faint hidden md:block truncate">{metaLine}</div>
       </div>
+      {/* 할 일(수정·저장)이 왼쪽, 나가기(닫기)가 오른쪽. 두 모드에서 자리를 같게 둔다 —
+          저장이 오른쪽이고 수정이 왼쪽이면, 저장한 순간 손가락 밑의 버튼이 다른 뜻이 된다.
+          색: 이 앱의 구조색은 하나뿐이라(--app-accent) 그것을 행동에만 쓴다.
+            · 저장  = 되돌리기 어려운 확정 → 진한 accent 채움 ('새 업무'와 같은 급)
+            · 수정  = 편집으로 들어가는 것 → 연한 accent(accent-weak + accent 글자)
+            · 닫기  = 아무 일도 하지 않음 → 무채색 그대로
+          예전에는 수정과 닫기가 둘 다 surface-hover라 어느 쪽이 할 일인지 구분되지 않았다. */}
       <div className="flex gap-2 shrink-0">
+        {isEditMode
+          ? <button type="button" onClick={handleSubmit} className="flex-1 sm:flex-none bg-accent hover:bg-accent-strong text-white px-6 py-2 rounded-md text-xs font-semibold transition active:scale-95">저장</button>
+          : <button type="button" onClick={onEdit} className="flex-1 sm:flex-none bg-accent-weak hover:brightness-95 text-accent-text px-6 py-2 rounded-md text-xs font-semibold transition active:scale-95">수정</button>}
         <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2 text-xs font-medium text-fg-muted bg-surface-hover hover:bg-line rounded-md transition active:scale-95">닫기</button>
-        {isEditMode ? <button type="button" onClick={handleSubmit} className="flex-1 sm:flex-none bg-accent hover:bg-accent-strong text-white px-6 py-2 rounded-md text-xs font-medium transition active:scale-95">저장</button>
-                    : <button type="button" onClick={onEdit} className="flex-1 sm:flex-none bg-surface-hover hover:bg-line text-fg border border-line px-6 py-2 rounded-md text-xs font-medium transition active:scale-95">수정</button>}
       </div>
     </>
   );

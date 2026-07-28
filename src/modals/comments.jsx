@@ -37,7 +37,7 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies }) => {
             <span className="ml-auto flex items-center gap-1.5 opacity-100 md:opacity-0 md:group-hover/comment:opacity-100 transition-opacity">
               <button onClick={() => { setEditText(c.text); setEditing(true); }} className="text-fg-faint hover:text-fg-muted transition-colors" title="수정"><Pencil size={11} /></button>
               <ConfirmPopover message={hasReplies ? '댓글을 삭제할까요? 답글도 함께 삭제돼요.' : '댓글을 삭제할까요?'} onConfirm={() => onDelete(c.id)}>
-                <button type="button" className="text-fg-faint hover:text-red-500 transition-colors" title="삭제"><Trash2 size={11} /></button>
+                <button type="button" className="text-fg-faint hover:text-tag-red-fg transition-colors" title="삭제"><Trash2 size={11} /></button>
               </ConfirmPopover>
             </span>
           )}

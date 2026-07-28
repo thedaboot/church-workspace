@@ -74,6 +74,21 @@ check('안에서 바깥으로 드래그해도 닫히지 않는다', (await isOpe
 await ev(`[...document.querySelectorAll('.fixed.inset-0.z-50 button')].find(b => b.querySelector('svg'))?.click()`);
 await sleep(400);
 const stillOpen = await isOpen();
+// 푸터: 할 일(수정)이 왼쪽, 나가기(닫기)가 오른쪽. 색도 달라야 한다 —
+// 예전에는 둘 다 surface-hover라 어느 쪽이 할 일인지 구분되지 않았다.
+const footer = await ev(`(() => {
+  const btns=[...document.querySelectorAll('button')].filter(b=>/^(수정|저장|닫기)$/.test(b.textContent.trim()));
+  const get=t=>btns.find(b=>b.textContent.trim()===t);
+  const edit=get('수정'), close=get('닫기');
+  if(!edit||!close) return { edit:!!edit, close:!!close };
+  const er=edit.getBoundingClientRect(), cr=close.getBoundingClientRect();
+  const bg=e=>getComputedStyle(e).backgroundColor;
+  return { editLeftOfClose: er.left < cr.left, sameRow: Math.abs(er.top-cr.top) < 4,
+           differentColor: bg(edit) !== bg(close), editBg: bg(edit), closeBg: bg(close) };
+})()`);
+check('업무 창 푸터: 수정이 닫기보다 왼쪽', footer.editLeftOfClose === true && footer.sameRow === true, JSON.stringify(footer));
+check('업무 창 푸터: 수정과 닫기 색이 다르다', footer.differentColor === true, `${footer.editBg} vs ${footer.closeBg}`);
+
 if (stillOpen) { await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '닫기').click()`); await sleep(400); }
 check('닫기 버튼도 그대로 동작', (await isOpen()) === false);
 

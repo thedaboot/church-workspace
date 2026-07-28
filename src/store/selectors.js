@@ -28,6 +28,14 @@ export const selectTasksList = createSelector([selectTasks], (tasks) => tasks.al
 export const selectProjectsList = createSelector([selectProjects], (projects) => projects.allIds.map(id => projects.byId[id]));
 export const selectProjectsMap = createSelector([selectProjects], (projects) => projects.byId);
 
+// 보관하지 않은 프로젝트 — 상단 탭·대시보드처럼 "지금 굴러가는 것"만 보여야 하는 곳.
+// 보관된 것도 지워진 것은 아니므로 검색·보관함·이미 열어 둔 화면은
+// selectProjectsList(전체)를 그대로 쓴다.
+export const selectActiveProjectsList = createSelector([selectProjectsList], (list) => list.filter(p => !p.archived));
+// 보관된 것만, 최근에 만든 것부터 (보관함의 연도 묶음용)
+export const selectArchivedProjectsList = createSelector([selectProjectsList], (list) =>
+  list.filter(p => p.archived).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))));
+
 export const selectMyTasks = createSelector(
   [selectTasksList, selectCurrentUser],
   (tasksList, user) => tasksList.filter(t => t.assignees.includes(user.name))

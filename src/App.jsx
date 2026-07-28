@@ -364,6 +364,7 @@ function WorkspaceShell() {
       {(isProjectModalOpen || renameTarget) && (
         <ProjectModal
           project={renameTarget}
+          onArchive={controller.handleArchiveProject}
           onClose={() => { setIsProjectModalOpen(false); setRenameTarget(null); }}
           onSave={(title) => {
             if (renameTarget) { controller.handleRenameProject(renameTarget.id, title); setRenameTarget(null); }

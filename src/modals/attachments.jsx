@@ -66,7 +66,7 @@ const AttachmentRow = ({ row, canDelete, thumb, onOpen, onRemove }) => {
       <button type="button" onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title="미리보기"><Eye size={14} /></button>
       {canDelete && (
         <ConfirmPopover message={`'${row.name}'을(를) 삭제할까요?`} onConfirm={onRemove}>
-          <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95" title="삭제"><Trash2 size={14} /></button>
+          <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95" title="삭제"><Trash2 size={14} /></button>
         </ConfirmPopover>
       )}
     </div>

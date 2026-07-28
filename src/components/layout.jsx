@@ -2,11 +2,12 @@ import React, { useState, useRef, useEffect, useMemo, useDeferredValue } from 'r
 import { createPortal } from 'react-dom';
 import {
   LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown,
-  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, Pencil, Users
+  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, Pencil, Users, Archive
 } from 'lucide-react';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
-  selectCurrentUser, selectProjectsList, selectProjectsMap, selectMyTasks, selectTasksList
+  selectCurrentUser, selectProjectsList, selectActiveProjectsList, selectArchivedProjectsList,
+  selectProjectsMap, selectMyTasks, selectTasksList
 } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
 import { avatarColor, formatRelative } from '../utils.js';
@@ -121,9 +122,16 @@ export const TopNav = React.memo(({
   activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenProfile, onOpenProject,
   undo, redo, canUndo, canRedo, cloudMode,
 }) => {
-  const projectsList = useStore(selectProjectsList);
+  // 탭에는 보관하지 않은 프로젝트만. 보관된 것은 아래 '더보기' 안 보관함에서 연도별로 본다
+  // (활성 프로젝트가 보관돼 있으면 splitProjectTabs가 탭에 끌어올려 준다 — 지금 어디
+  //  있는지 알 수 없게 되면 안 되므로 보관된 것을 열어 둔 경우도 탭에 보인다)
+  const projectsList = useStore(selectActiveProjectsList);
+  const archived = useStore(selectArchivedProjectsList);
+  const allProjects = useStore(selectProjectsList);
+  const activeProject = allProjects.find(p => p.id === activeMenu);
+  const tabSource = activeProject?.archived ? [...projectsList, activeProject] : projectsList;
   const myTasksCount = useStore(selectMyTasks).filter(t => t.status !== '완료').length;
-  const { shown, rest } = splitProjectTabs(projectsList, activeMenu);
+  const { shown, rest } = splitProjectTabs(tabSource, activeMenu);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRootRef = useRef(null);
   const moreBtnRef = useRef(null);
@@ -174,7 +182,7 @@ export const TopNav = React.memo(({
             {p.title}
           </button>
         ))}
-        {rest.length > 0 && (
+        {(rest.length > 0 || archived.length > 0) && (
           <span ref={moreRootRef} className="inline-flex">
             <span ref={moreBtnRef} className="inline-flex">
               <button onClick={() => { placeMore(); setMoreOpen(o => !o); }} className="px-3 pt-2.5 pb-2 -mb-px inline-flex items-center gap-1 text-[13px] font-semibold text-fg-muted hover:text-fg border-b-2 border-transparent transition-colors">
@@ -188,6 +196,7 @@ export const TopNav = React.memo(({
                     <Hash size={14} className="shrink-0 text-fg-faint" /><span className="truncate">{p.title}</span>
                   </button>
                 ))}
+                <ArchivedProjects projects={archived} onPick={(id) => { setMoreOpen(false); setActiveMenu(id); }} />
               </div>,
               document.body
             )}
@@ -199,10 +208,42 @@ export const TopNav = React.memo(({
   );
 });
 
+// 보관함 — 보관된 프로젝트를 연도로 묶어 보여준다. 연도 컬럼을 따로 두지 않고
+// projects.created_at으로 묶는다("2026 수련회" 같은 이름은 사람이 붙이던 대로 붙인다).
+function ArchivedProjects({ projects, onPick }) {
+  if (!projects.length) return null;
+  const byYear = new Map();
+  for (const p of projects) {
+    const year = String(p.createdAt || '').slice(0, 4) || '연도 모름';
+    if (!byYear.has(year)) byYear.set(year, []);
+    byYear.get(year).push(p);
+  }
+  return (
+    <>
+      <p className="px-2.5 pt-2.5 pb-1 mt-1 border-t border-line text-[10px] font-bold text-fg-faint">보관함</p>
+      {[...byYear.entries()].map(([year, list]) => (
+        <div key={year}>
+          <p className="px-2.5 pt-1.5 pb-0.5 text-[10px] font-semibold text-fg-faint tabular-nums">{year}</p>
+          {list.map(p => (
+            <button key={p.id} onClick={() => onPick(p.id)}
+              className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-[13px] text-fg-faint hover:bg-surface-hover hover:text-fg-muted transition-colors text-left">
+              <Archive size={13} className="shrink-0" /><span className="truncate">{p.title}</span>
+            </button>
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}
+
 // 모바일 상단: 현재 화면 이름 + 검색·알림, 그 아래 프로젝트 탭(가로 스크롤)
 export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenProject, onRenameProject, onOpenProfile, cloudMode }) => {
-  const projectsList = useStore(selectProjectsList);
+  // 보관된 프로젝트는 탭 줄에서 빠진다. 다만 보관된 것을 열어 둔 상태라면 그 탭은
+  // 보여야 한다 — 안 그러면 지금 어디 있는지 표시가 아무 데도 없다.
+  const activeList = useStore(selectActiveProjectsList);
   const projectsMap = useStore(selectProjectsMap);
+  const current = projectsMap[activeMenu];
+  const projectsList = current?.archived ? [...activeList, current] : activeList;
   const currentUser = useStore(selectCurrentUser);
   // 프로젝트 탭 줄은 프로젝트를 보고 있을 때만 — 내 업무·대시보드에서는 쓸 일이 없고
   // 좁은 화면에서 한 줄이 그대로 낭비된다(다른 프로젝트로는 하단 '프로젝트' 탭으로 간다)
@@ -250,10 +291,13 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
 // 모바일 하단 탭바 — 프로젝트 / 내 업무 / 대시보드 / 팀 (핸드오프 규격).
 // 설정은 상단 헤더로 올라갔다.
 export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProject }) => {
-  const projectsList = useStore(selectProjectsList);
+  // '프로젝트' 탭이 새로 골라 주는 것은 보관하지 않은 것 중 첫 번째.
+  // 하지만 지금 보고 있는 것이 보관된 프로젝트여도 탭은 켜져 있어야 한다(전체로 판정).
+  const projectsList = useStore(selectActiveProjectsList);
+  const allProjects = useStore(selectProjectsList);
   const currentUser = useStore(selectCurrentUser);
   const myTasksCount = useStore(selectMyTasks).filter(t => t.status !== '완료').length;
-  const isProject = projectsList.some(p => p.id === activeMenu);
+  const isProject = allProjects.some(p => p.id === activeMenu);
   const myTeam = (currentUser.teams?.length ? currentUser.teams : [currentUser.team]).filter(Boolean)[0];
   // '프로젝트' 탭: 보던 프로젝트가 없으면 첫 프로젝트, 그것도 없으면 새로 만들기
   const goProject = () => {
@@ -338,6 +382,8 @@ function SearchResults({ query, onPick }) {
             <button key={p.id} onClick={() => onPick('project', p)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
               <span className="w-6 h-6 rounded-md bg-tag-purple text-tag-purple-fg flex items-center justify-center shrink-0"><Hash size={13} strokeWidth={1.75} /></span>
               <span className="text-sm text-fg truncate min-w-0">{highlight(p.title, q)}</span>
+              {/* 보관된 것도 검색에는 나온다(지운 게 아니다) — 대신 그렇다고 표시한다 */}
+              {p.archived && <span className="shrink-0 text-[10px] text-fg-faint">보관</span>}
             </button>
           ))}
           {pMore > 0 && <p className="px-2 py-1 text-[10px] text-fg-faint">그 외 {pMore}건 더 있어요</p>}
