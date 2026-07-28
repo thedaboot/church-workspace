@@ -126,14 +126,6 @@ export const markNotificationRead = cloud.markNotificationRead;
 export const markAllNotificationsRead = cloud.markAllNotificationsRead;
 export const subscribeMyNotifications = cloud.subscribeMyNotifications;
 
-// 팀 매핑만 필요할 때(마이그레이션 등) 최소 프라이밍
-async function ensureTeamMap() {
-  if (teamNameToId.size) return;
-  const teams = await cloud.listTeams();
-  teamIdToName = new Map(teams.map(t => [t.id, t.name]));
-  teamNameToId = new Map(teams.map(t => [t.name, t.id]));
-}
-
 // ── DB → 앱 매핑 ─────────────────────────────────────────────────────────────
 const cardToTask = (card) => ({
   id: card.id,
@@ -150,6 +142,8 @@ const cardToTask = (card) => ({
   created_by: card.created_by || null,
   createdAt: card.created_at,
   updatedAt: card.updated_at,
+  // 마지막으로 고친 사람 (0010 트리거가 채운다). 한 번도 수정되지 않았으면 빈 값
+  updatedBy: card.updated_by ? (profileIdToName.get(card.updated_by) || '') : '',
   comments: [],
   activityLog: [],
   attachments: [],
@@ -178,10 +172,14 @@ const projectToApp = (p, linksByProject) => ({
 });
 
 // ── 초기 로드: 전체를 병렬 조회 → 앱 스토어 모양으로 정규화 ──────────────────
+// 댓글·활동은 여기서 읽지 않는다 — 업무 창 안에서만 보이는 데이터라, 창을 열 때
+// 그 카드 것만 읽는다(loadCardDetail). 워크스페이스 전체를 읽으면 업무 100건
+// 기준으로도 댓글 수백 행·활동 수천 행이 되고, 그걸 실시간 변경마다 모든 접속자가
+// 다시 읽고 있었다.
 export async function loadCloudState() {
-  const [teams, profiles, projects, cards, links, comments, activity, files, initialProfile, sessionRes, profileTeams] = await cloud.withClockSkewRetry(() => Promise.all([
+  const [teams, profiles, projects, cards, links, files, initialProfile, sessionRes, profileTeams] = await cloud.withClockSkewRetry(() => Promise.all([
     cloud.listTeams(), cloud.listProfiles(), cloud.listProjects(), cloud.listAllCards(),
-    cloud.listAllLinks(), cloud.listAllComments(), cloud.listAllActivity(), cloud.listAllFiles(), cloud.getMyProfile(),
+    cloud.listAllLinks(), cloud.listAllFiles(), cloud.getMyProfile(),
     cloud.getSession(), cloud.listProfileTeams(),
   ]));
 
@@ -202,21 +200,13 @@ export async function loadCloudState() {
   const linksByProject = new Map();
   links.forEach(l => { if (!linksByProject.has(l.project_id)) linksByProject.set(l.project_id, []); linksByProject.get(l.project_id).push(l); });
 
-  const commentsByCard = new Map();
-  comments.forEach(c => { if (!commentsByCard.has(c.card_id)) commentsByCard.set(c.card_id, []); commentsByCard.get(c.card_id).push(commentToApp(c)); });
-
-  const activityByCard = new Map();
-  activity.forEach(a => { if (!a.card_id) return; if (!activityByCard.has(a.card_id)) activityByCard.set(a.card_id, []); activityByCard.get(a.card_id).push(activityToApp(a)); });
-
   const filesByCard = new Map();
   files.forEach(f => { if (!f.card_id) return; if (!filesByCard.has(f.card_id)) filesByCard.set(f.card_id, []); filesByCard.get(f.card_id).push(f); });
 
   const tasks = cards.map(card => {
     const t = cardToTask(card);
-    t.comments = commentsByCard.get(card.id) || [];
-    t.activityLog = activityByCard.get(card.id) || [];
     t.attachments = filesByCard.get(card.id) || [];
-    return t;
+    return t;   // comments·activityLog는 창을 열 때 채운다(loadCardDetail)
   });
 
   const projectsApp = projects.map(p => projectToApp(p, linksByProject));
@@ -237,6 +227,28 @@ export async function loadCloudState() {
     state: { currentUser, projects: normalize(projectsApp), tasks: normalize(tasks) },
     profile: myProfile,
   };
+}
+
+// ── 카드 1건 읽기 ────────────────────────────────────────────────────────────
+// 업무 창을 열 때의 상세(댓글·활동). 초기 로드에서 빠진 것을 여기서 채운다.
+export async function loadCardDetail(cardId) {
+  const [comments, activity] = await cloud.withClockSkewRetry(() => Promise.all([
+    cloud.listComments(cardId), cloud.listCardActivity(cardId),
+  ]));
+  return {
+    comments: (comments || []).map(commentToApp),
+    activityLog: (activity || []).map(activityToApp),
+  };
+}
+
+// 실시간으로 카드가 바뀌었을 때 그 한 건만 다시 읽어 덮어쓸 필드.
+// 댓글·활동·첨부는 넘기지 않는다 — 스토어에 이미 담아둔 것을 지우지 않기 위해.
+// 이미 지워진 카드면 null.
+export async function loadCardPatch(cardId) {
+  const card = await cloud.withClockSkewRetry(() => cloud.getCard(cardId));
+  if (!card) return null;
+  const { comments, activityLog, attachments, ...patch } = cardToTask(card);
+  return patch;
 }
 
 // ── 앱 → DB 쓰기 (컨트롤러가 로컬 반영 후 호출; id는 로컬 uuid 재사용) ───────
@@ -274,7 +286,7 @@ export async function commentUpdateCloud(commentId, text) { return write(() => c
 export async function commentDeleteCloud(commentId) { return write(() => cloud.deleteComment(commentId)); }
 
 export async function projectCreateCloud(project) {
-  return write(() => cloud.createProject({ id: project.id, name: project.title, description: '' }));
+  return write(() => cloud.createProject({ id: project.id, name: project.title }));
 }
 // DB 컬럼명은 name (앱에서는 title로 부른다)
 export async function projectRenameCloud(id, title) { return write(() => cloud.updateProject(id, { name: title })); }
@@ -296,38 +308,32 @@ export async function profileUpdateCloud({ name, team, teams }) {
   });
 }
 
-// ── 로컬 → 클라우드 1회 이관 ─────────────────────────────────────────────────
-export async function migrateLocalToCloud(localState) {
-  await ensureTeamMap();
-  const projects = (localState.projects?.allIds || []).map(id => localState.projects.byId[id]);
-  const tasks = (localState.tasks?.allIds || []).map(id => localState.tasks.byId[id]);
-
-  for (const p of projects) {
-    await cloud.createProject({ id: p.id, name: p.title, description: '' });
-    for (const link of (p.pinnedLinks || [])) {
-      if (!link.title || !link.url) continue;
-      const url = link.url === '#' ? 'https://example.com' : link.url;
-      await cloud.addLink(p.id, link.title, url, link.id);
+// ── 실시간 구독 라우팅 ───────────────────────────────────────────────────────
+// 예전에는 어떤 변경이든 "워크스페이스 전체 재조회" 하나로 처리했다. 카드 한 장을
+// 드래그하면 접속한 모든 사람이 전체를 다시 읽었다(쿼리 11개). 표에 따라 갈라
+// 필요한 만큼만 읽는다.
+//   cards        → 그 카드 1건만 다시 읽기 (삭제는 바로 제거)
+//   comments/files → 목록 화면에 안 나오는 데이터 → 열려 있는 업무 창일 때만 상세 갱신
+//   그 외(projects·resource_links) → 전체 재조회 (드문 변경)
+// comments의 DELETE payload에는 card_id가 없다(replica identity가 PK뿐) → cardId가
+// 비면 "지금 열려 있는 카드"로 본다. 호출부가 그렇게 처리한다.
+export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onFullReload }) {
+  return cloud.subscribeAll((payload) => {
+    const table = payload?.table;
+    const row = payload?.new || {};
+    const old = payload?.old || {};
+    if (table === 'cards') {
+      if (payload.eventType === 'DELETE') onCardDelete(old.id);
+      else onCard(row.id || old.id);
+      return;
     }
-  }
-  for (const t of tasks) {
-    const teamIds = (t.teams || []).map(n => teamNameToId.get(n)).filter(Boolean);
-    await cloud.createCard({
-      id: t.id, project_id: t.projectId, title: t.title, description: t.content || null,
-      status: statusToDb(t.status), start_date: t.startDate || null, due_date: t.dueDate || null,
-      assignees: t.assignees || [], position: t.position ?? 0,
-    }, teamIds);
-    for (const c of (t.comments || [])) {
-      await cloud.addComment(t.id, c.text, c.parentId || null, c.id);
+    if (table === 'comments' || table === 'files') {
+      onCardDetail(row.card_id || old.card_id || null);
+      return;
     }
-    for (const a of (t.activityLog || [])) {
-      await cloud.insertActivity({ id: a.id, project_id: t.projectId, card_id: t.id, action: a.action });
-    }
-  }
+    onFullReload();
+  });
 }
-
-// 재조회 트리거용 전역 구독 재노출
-export const subscribeAll = cloud.subscribeAll;
 
 // Supabase 에러를 사람이 읽을 한 줄로 (message + code + details)
 export function formatCloudError(err) {

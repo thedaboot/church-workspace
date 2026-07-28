@@ -129,16 +129,46 @@ function WorkspaceShell() {
   const pendingReloadRef = useRef(false);
   useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
 
+  // 열려 있는 업무 창의 카드 id — 댓글·첨부 변경은 이 카드일 때만 상세를 다시 읽는다
+  const openCardIdRef = useRef(null);
+  useEffect(() => { openCardIdRef.current = modalState.isOpen ? (modalState.task?.id || null) : null; }, [modalState]);
+
+  // 카드 1건만 다시 읽어 반영한다 — 예전에는 카드 한 장이 바뀌어도 워크스페이스
+  // 전체를 다시 읽었다(쿼리 11개). 서버에서 사라진 카드면 로컬에서도 지운다.
+  const syncCard = useCallback(async (cardId) => {
+    if (!cardId) return;
+    try {
+      const patch = await cloudSync.loadCardPatch(cardId);
+      if (patch) store.dispatch({ type: 'SYNC_TASK', payload: patch });
+      else store.dispatch({ type: 'DELETE_TASK', payload: cardId });
+    } catch (e) { console.error('[cloud] 카드 갱신 실패:', e); }
+  }, []);
+
+  // 댓글·첨부는 업무 창 안에서만 보인다 → 지금 열려 있는 카드일 때만 상세를 다시 읽는다
+  const syncCardDetail = useCallback(async (cardId) => {
+    const id = cardId || openCardIdRef.current;
+    if (!id || id !== openCardIdRef.current) return;
+    try {
+      const detail = await cloudSync.loadCardDetail(id);
+      store.dispatch({ type: 'SYNC_TASK', payload: { id, ...detail } });
+    } catch (e) { console.error('[cloud] 업무 상세 갱신 실패:', e); }
+  }, []);
+
   useEffect(() => {
     if (!cloudMode) return;
     let timer = null;
-    const unsub = cloudSync.subscribeAll(() => {
-      if (isEditingRef.current) { pendingReloadRef.current = true; return; }
-      clearTimeout(timer);
-      timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e)); }, 300);
+    const unsub = cloudSync.subscribeWorkspace({
+      onCard: (id) => { if (isEditingRef.current) { pendingReloadRef.current = true; return; } syncCard(id); },
+      onCardDelete: (id) => { if (id) store.dispatch({ type: 'DELETE_TASK', payload: id }); },
+      onCardDetail: (id) => { if (!isEditingRef.current) syncCardDetail(id); },
+      onFullReload: () => {
+        if (isEditingRef.current) { pendingReloadRef.current = true; return; }
+        clearTimeout(timer);
+        timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e)); }, 300);
+      },
     });
     return () => { clearTimeout(timer); unsub(); };
-  }, [cloudMode, reloadCloud]);
+  }, [cloudMode, reloadCloud, syncCard, syncCardDetail]);
 
   // 편집 종료 시 보류된 재조회 1회 실행
   useEffect(() => {

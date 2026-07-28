@@ -65,7 +65,10 @@ export const TaskService = {
     activityLog: [ActivityService.createLog('업무를 생성했습니다.', author)]
   }),
   update: (oldTask, newData, author) => {
-    const updated = { ...oldTask, ...newData, updatedAt: new Date().toISOString() };
+    // updatedBy — 작성자와 마지막으로 고친 사람이 다를 때 창에서 구분해 보여준다.
+    // 클라우드에서는 트리거(cards.updated_by)가 채운 값을 다시 받지만, 저장 직후에도
+    // 바로 보이려면 여기서도 넣어야 한다. newData 뒤에 둬서 폼에 실려온 옛 값을 덮는다.
+    const updated = { ...oldTask, ...newData, updatedAt: new Date().toISOString(), updatedBy: author };
     const logs = [];
     if (oldTask.status !== newData.status) logs.push(ActivityService.generateStatusLog(oldTask.status, newData.status, author));
     logs.push(...ActivityService.generateFieldLogs(oldTask, newData, author));

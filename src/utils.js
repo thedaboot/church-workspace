@@ -37,6 +37,20 @@ export const avatarColor = (name = '') => {
   return `bg-tag-${t} text-tag-${t}-fg`;
 };
 
+// 키별로 한 번에 묶는다 → Map<key, item[]>
+// 프로젝트마다/팀마다 목록 전체를 다시 filter하면 O(프로젝트×업무)가 되고, 그게
+// 렌더마다 돌았다(프로젝트 20 × 업무 500 = 만 단위 순회).
+export const groupBy = (list, keyOf) => {
+  const m = new Map();
+  for (const item of list) {
+    const k = keyOf(item);
+    if (k === undefined || k === null) continue;
+    const bucket = m.get(k);
+    if (bucket) bucket.push(item); else m.set(k, [item]);
+  }
+  return m;
+};
+
 // Entity 정규화 헬퍼 (Redux Toolkit Entity Adapter 패턴)
 export const normalize = (array) => array.reduce((acc, item) => {
   acc.byId[item.id] = item;

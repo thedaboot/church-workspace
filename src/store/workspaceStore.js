@@ -8,7 +8,7 @@ import { isCloudEnabled } from '../services/supabaseClient.js';
 // 순수 React Context의 한계(전체 리렌더링)를 극복하고 Undo/Redo 기능을 탑재한 커스텀 Store
 // 되돌리기 기록에 남기지 않는 액션 —
 //   LOAD_STATE   : 서버가 원본이므로 그 이전 상태로 되돌리면 유령 데이터가 살아난다 → 기록 초기화
-//   HYDRATE_TASK : 서버에서 상세(댓글·활동)를 채워 넣는 것뿐이라 조작이 아니다 → 기록 그대로
+//   SYNC_TASK    : 서버에서 카드 1건을 반영하는 것뿐이라 내 조작이 아니다 → 기록 그대로
 // 예전에는 둘 다 past에 전체 상태 스냅샷을 쌓아서, 실시간 재조회가 잦은 탭에서
 // 메모리가 계속 늘어났다(클라우드 모드는 실행 취소 버튼 자체를 숨기는데도).
 const HISTORY_LIMIT = 20;
@@ -37,15 +37,18 @@ export class WorkspaceStore {
       case 'LOAD_STATE':
         nextState = action.payload;
         break;
-      // 서버에서 온 부분 갱신 — 이미 있는 카드에 필드만 덮어쓴다.
+      // 서버에서 온 카드 1건 반영 — 있으면 필드만 덮어쓰고, 없으면(남이 새로 만든 카드) 넣는다.
       // UPSERT_TASK로 하면 통째로 교체돼서 그 카드에 담아둔 댓글·활동·첨부가 날아간다.
-      case 'HYDRATE_TASK': {
+      case 'SYNC_TASK': {
         const patch = action.payload;
         const prev = currentState.tasks.byId[patch.id];
-        if (!prev) return;
+        const next = prev ? { ...prev, ...patch } : { comments: [], activityLog: [], attachments: [], ...patch };
         nextState = {
           ...currentState,
-          tasks: { ...currentState.tasks, byId: { ...currentState.tasks.byId, [patch.id]: { ...prev, ...patch } } }
+          tasks: {
+            byId: { ...currentState.tasks.byId, [patch.id]: next },
+            allIds: prev ? currentState.tasks.allIds : [...currentState.tasks.allIds, patch.id],
+          }
         };
         break;
       }

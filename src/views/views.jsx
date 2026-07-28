@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, ChevronDown, Check, X, Trash2, Pencil } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
-import { generateId, avatarColor } from '../utils.js';
+import { generateId, avatarColor, groupBy } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsMap, selectProjectsList, selectMyTasks,
@@ -56,13 +56,18 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   const doneAll = tasksList.length - open.length;
   const progress = tasksList.length ? Math.round((doneAll / tasksList.length) * 100) : 0;
 
-  // 프로젝트별 상태 분포 — 4색 세그먼트 바
+  // 프로젝트별 상태 분포 — 4색 세그먼트 바.
+  // 프로젝트마다 목록 전체를 다시 훑지 않도록 한 번 묶고(groupBy) 한 번만 센다.
+  const tasksByProject = useMemo(() => groupBy(tasksList, t => t.projectId), [tasksList]);
   const projectStats = useMemo(() => projectsList.map(p => {
-    const list = tasksList.filter(t => t.projectId === p.id);
+    const list = tasksByProject.get(p.id) || [];
     const counts = {};
-    CONFIG.STATUSES.forEach(s => { counts[s] = list.filter(t => t.status === s).length; });
-    const dues = list.filter(t => t.dueDate && t.status !== '완료').map(t => t.dueDate).sort();
-    const nearest = dues[0];
+    CONFIG.STATUSES.forEach(s => { counts[s] = 0; });
+    let nearest = null;
+    for (const t of list) {
+      counts[t.status] = (counts[t.status] || 0) + 1;
+      if (t.dueDate && t.status !== '완료' && (nearest === null || t.dueDate < nearest)) nearest = t.dueDate;
+    }
     const dd = nearest ? daysLeft(nearest, today) : null;
     return {
       ...p, counts, total: list.length,
@@ -70,7 +75,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
       urgent: dd !== null && dd <= 2,
       summary: CONFIG.STATUSES.map(s => `${s === '시작 전' ? '시작 전' : s} ${counts[s]}`).join(' · '),
     };
-  }), [projectsList, tasksList, today]);
+  }), [projectsList, tasksByProject, today]);
 
   // 인사말은 지금 상태를 그대로 말한다 — 지연이 0인데 "오늘 할 일만 남았어요"라고
   // 하면 남은 게 없는 날에도 할 일이 있는 것처럼 읽힌다
@@ -89,7 +94,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   const kpiCells = (
     <>
       <KpiCell
-        label="지연" value={overdueCount} note={overdueCount ? '마감이 지난 업무' : '전부 기한 안'} delay={0}
+        label="지연" value={overdueCount} note={overdueCount ? '마감이 지난 업무' : '전부 기한 내'} delay={0}
         dot="var(--app-tag-red-fg)" bar="var(--p-red)" alert={overdueCount > 0}
         ratio={shown.length ? overdueCount / shown.length : 0}
       />
@@ -98,7 +103,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
         dot="var(--app-accent)" bar="var(--p-blue)" ratio={shown.length ? todayCount / shown.length : 0}
       />
       <KpiCell
-        label="이번 주" value={weekCount} note="앞으로 6일 안" delay={80}
+        label="이번 주" value={weekCount} note="앞으로 일주일 내" delay={80}
         dot="var(--app-status-hold)" bar="var(--p-yellow)" ratio={shown.length ? weekCount / shown.length : 0}
       />
     </>
@@ -494,15 +499,13 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
   const openCount = myTasks.filter(t => t.status !== '완료').length;
   const lateCount = myTasks.filter(t => t.status !== '완료' && t.dueDate && t.dueDate < today).length;
 
-  // 내가 맡은 프로젝트별 진행
-  const myProjects = useMemo(() => {
-    const ids = [...new Set(myTasks.map(t => t.projectId))];
-    return ids.map(id => {
-      const list = myTasks.filter(t => t.projectId === id);
-      const done = list.filter(t => t.status === '완료').length;
-      return { id, title: projectsMap[id]?.title || '프로젝트 없음', done, total: list.length };
-    });
-  }, [myTasks, projectsMap]);
+  // 내가 맡은 프로젝트별 진행 (프로젝트마다 다시 filter하지 않고 한 번 묶는다)
+  const myProjects = useMemo(() => [...groupBy(myTasks, t => t.projectId).entries()].map(([id, list]) => ({
+    id,
+    title: projectsMap[id]?.title || '프로젝트 없음',
+    done: list.reduce((n, t) => n + (t.status === '완료' ? 1 : 0), 0),
+    total: list.length,
+  })), [myTasks, projectsMap]);
 
   return (
     <div className="dc-screen pb-6">
@@ -564,8 +567,13 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
   const teamTasks = useMemo(() => tasksList.filter(t => (t.teams || []).includes(teamName)), [tasksList, teamName]);
   const openTasks = teamTasks.filter(t => t.status !== '완료');
 
-  const counts = {};
-  CONFIG.STATUSES.forEach(s => { counts[s] = teamTasks.filter(t => t.status === s).length; });
+  // 상태별 건수 — 상태마다 다시 filter하지 않고 한 번만 센다
+  const counts = useMemo(() => {
+    const c = {};
+    CONFIG.STATUSES.forEach(s => { c[s] = 0; });
+    for (const t of teamTasks) c[t.status] = (c[t.status] || 0) + 1;
+    return c;
+  }, [teamTasks]);
 
   // 멤버 칩 — 이 팀 업무의 담당자별 남은 건수
   const members = useMemo(() => {
@@ -574,14 +582,12 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
     return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([name, left]) => ({ name, left }));
   }, [openTasks]);
 
-  const teamProjects = useMemo(() => {
-    const ids = [...new Set(teamTasks.map(t => t.projectId))];
-    return ids.map(id => {
-      const list = teamTasks.filter(t => t.projectId === id);
-      const done = list.filter(t => t.status === '완료').length;
-      return { id, title: projectsMap[id]?.title || '프로젝트 없음', done, total: list.length };
-    });
-  }, [teamTasks, projectsMap]);
+  const teamProjects = useMemo(() => [...groupBy(teamTasks, t => t.projectId).entries()].map(([id, list]) => ({
+    id,
+    title: projectsMap[id]?.title || '프로젝트 없음',
+    done: list.reduce((n, t) => n + (t.status === '완료' ? 1 : 0), 0),
+    total: list.length,
+  })), [teamTasks, projectsMap]);
 
   const groups = useMemo(() => groupByDue(openTasks, today), [openTasks, today]);
 

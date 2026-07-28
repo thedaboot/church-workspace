@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { avatarColor } from '../utils.js';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
@@ -34,8 +34,9 @@ export function bucketOf(task, today = ISO_TODAY()) {
   if (task.dueDate === today) return 1;
   return daysLeft(task.dueDate, today) <= 6 ? 2 : 3;
 }
-// 마감 없는 업무가 뒤로 가도록 정렬 (마감일 오름차순)
-const byDue = (a, b) => String(a.dueDate || '9999').localeCompare(String(b.dueDate || '9999'));
+// 마감 없는 업무가 뒤로 가도록 정렬 (마감일 오름차순).
+// 칸반 컬럼 안 순서도 이걸 쓴다 — 목록과 보드가 서로 다른 순서를 보이면 안 된다.
+export const byDue = (a, b) => String(a.dueDate || '9999').localeCompare(String(b.dueDate || '9999'));
 
 export function groupByDue(tasks, today = ISO_TODAY()) {
   return BUCKETS.map((b, i) => ({
@@ -107,7 +108,11 @@ export function KpiCell({ dot, label, value, unit = '건', note, ratio, bar, ale
 
 // ── 마감 그룹 리스트 ──────────────────────────────────────────────────────
 // 대시보드·내 업무·팀 보드가 같이 쓴다. meta로 프로젝트만/팀까지 표시를 고른다.
+const GROUP_LIMIT = 30;   // 한 구간에 먼저 그리는 줄 수. 나머지는 '더 보기'
+
 export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, showTeam = true, emptyHint }) {
+  const [expanded, setExpanded] = useState({});   // { [구간 key]: true }
+
   if (!groups.length) {
     // 빈 화면은 남는 공간의 정가운데에 — 위쪽에 붙어 있으면 아래가 통째로 비어 보인다
     return (
@@ -121,14 +126,19 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
   let seen = 0;
   return (
     <div className="min-w-0">
-      {groups.map(g => (
+      {groups.map(g => {
+        // 구간마다 앞의 GROUP_LIMIT건만 먼저 그린다 — 업무가 쌓이면 이 목록이 화면에서
+        // 가장 긴 DOM이 되고(줄마다 확인 팝오버가 둘), 재조회 때마다 전부 다시 만들어진다.
+        const shown = expanded[g.key] ? g.items : g.items.slice(0, GROUP_LIMIT);
+        const hidden = g.items.length - shown.length;
+        return (
         <div key={g.key} className="pb-4">
           <div className="flex items-center gap-2 pb-[5px]">
             <span className="text-xs font-bold" style={{ color: g.fg }}>{g.label}</span>
             <span className="text-[11px] font-semibold tabular-nums text-fg-faint">{g.items.length}건</span>
             <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
           </div>
-          {g.items.map(t => {
+          {shown.map(t => {
             const delay = `${Math.min(seen++, 12) * 22}ms`;
             const done = t.status === '완료';
             const over = !done && t.dueDate && t.dueDate < today;
@@ -189,10 +199,14 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                       )}
                     </span>
                   </span>
-                  <span className="shrink-0 inline-flex items-center gap-1.5 pl-[7px] pr-[9px] py-[3px] rounded-[4px]"
-                    style={{ background: CONFIG.STATUS_BG_VAR[t.status] || 'transparent' }}>
+                  {/* 좁은 화면에서는 상태를 점 하나로 줄인다 — 칩 글자가 고정으로 70px쯤을
+                      먹어서 제목에 남는 폭이 한글 12자밖에 안 됐다(제목이 주인공인 목록이다).
+                      색은 그대로라 무슨 상태인지는 계속 읽힌다. */}
+                  <span className="shrink-0 inline-flex items-center gap-1.5 px-1 py-[3px] sm:pl-[7px] sm:pr-[9px] rounded-[4px]"
+                    style={{ background: CONFIG.STATUS_BG_VAR[t.status] || 'transparent' }}
+                    title={t.status}>
                     <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_DOT_VAR[t.status] }} />
-                    <span className="text-[11px] font-semibold" style={{ color: CONFIG.STATUS_FG_VAR[t.status] || 'var(--app-ink-muted)' }}>{t.status}</span>
+                    <span className="hidden sm:inline text-[11px] font-semibold" style={{ color: CONFIG.STATUS_FG_VAR[t.status] || 'var(--app-ink-muted)' }}>{t.status}</span>
                   </span>
                   <span className={`hidden sm:flex shrink-0 w-[22px] h-[22px] rounded-full items-center justify-center text-[10.5px] font-bold ${avatarColor(t.assignees?.[0] || '')}`}
                     title={t.assignees?.[0] || '미지정'}>
@@ -202,8 +216,15 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
               </div>
             );
           })}
+          {hidden > 0 && (
+            <button
+              type="button" onClick={() => setExpanded(p => ({ ...p, [g.key]: true }))}
+              className="w-full mt-1 py-2 rounded-[8px] text-[11.5px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-[0.99]"
+            >{hidden}건 더 보기</button>
+          )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

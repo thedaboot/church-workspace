@@ -51,21 +51,8 @@ export const statusToDb = (appStatus) => CONFIG.STATUS_DB[appStatus] || 'todo';
 export const statusFromDb = (dbStatus) => APP_BY_DB[dbStatus] || CONFIG.STATUSES[0];
 
 // ── 인증 ──────────────────────────────────────────────────────────────────
-// (auth.jsx와 일부 중복되지만 영속 계층 완결성을 위해 export)
-export async function signInWithGoogle() {
-  return unwrap(await client().auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin, queryParams: { prompt: 'select_account' } } }));
-}
-export async function signInWithKakao() {
-  return unwrap(await client().auth.signInWithOAuth({ provider: 'kakao', options: { redirectTo: window.location.origin } }));
-}
-export async function signOutCloud() {
-  const { error } = await client().auth.signOut();
-  if (error) throw error;
-}
-export function onAuthChange(cb) {
-  const { data } = client().auth.onAuthStateChange((_event, session) => cb(session));
-  return () => data.subscription.unsubscribe();
-}
+// 로그인·로그아웃은 auth.jsx가 supabase 클라이언트로 직접 한다(여기 있던 래퍼는
+// 아무도 쓰지 않아 지웠다). 세션 조회만 여러 곳에서 필요하다.
 export async function getSession() {
   const { data } = await client().auth.getSession();
   return { session: data.session, user: data.session?.user || null };
@@ -135,20 +122,19 @@ export async function deleteProject(id) {
 }
 
 // ── cards ─────────────────────────────────────────────────────────────────────
-export async function listCards(projectId) {
-  // card_teams 조인 포함 → 각 card에 card_teams: [{ team_id }]
-  return unwrap(await client()
-    .from('cards')
-    .select('*, card_teams(team_id)')
-    .eq('project_id', projectId)
-    .order('position', { ascending: true }));
-}
 // 전체 카드 (초기 로드용, card_teams 조인)
-// position은 아직 아무도 채우지 않아 전부 0이다 → 정렬 키로 쓰면 같은 컬럼 안 순서가
-// 매 조회마다 달라져(같은 값이면 Postgres가 순서를 보장하지 않는다) 카드가 제멋대로
-// 뒤바뀌어 보였다. 만든 순서로 고정한다. (컬럼은 수동 정렬을 붙일 때를 위해 남겨둔다)
+// 만든 순 — 그냥 "결정적인 순서"를 위한 것이고, 화면에 보이는 컬럼 안 순서는
+// 보드가 정한다(boards.jsx의 byDue: 마감일 순, 마감 미정은 아래).
+// 예전에는 position으로 정렬했는데 그 값을 아무도 채우지 않아 전부 0이었고, 정렬 키가
+// 모두 같으면 Postgres가 순서를 보장하지 않아서(내부 저장 순서) 카드를 한 번 수정할
+// 때마다 순서가 뒤바뀌어 보였다. position 컬럼은 수동 정렬을 붙일 때를 위해 남겨둔다.
 export async function listAllCards() {
   return unwrap(await client().from('cards').select('*, card_teams(team_id)').order('created_at', { ascending: true }));
+}
+// 카드 1건 (실시간 변경 반영용 — 전체를 다시 읽지 않는다)
+// 이미 지워진 카드면 null.
+export async function getCard(id) {
+  return unwrap(await client().from('cards').select('*, card_teams(team_id)').eq('id', id).maybeSingle());
 }
 export async function createCard(data, teamIds = []) {
   const card = unwrap(await client().from('cards').insert(data).select().single());
@@ -182,10 +168,6 @@ export async function updateCard(id, patch, teamIds) {
   }
   return card;
 }
-// status는 DB 값('todo'|'doing'|'done')을 기대 — 호출부에서 statusToDb로 변환
-export async function moveCard(id, status, position) {
-  return unwrap(await client().from('cards').update({ status, position }).eq('id', id).select().single());
-}
 export async function deleteCard(id) {
   const { error } = await client().from('cards').delete().eq('id', id);
   if (error) throw error;
@@ -194,9 +176,6 @@ export async function deleteCard(id) {
 // ── comments (parent_id로 답글 지원) ────────────────────────────────────────
 export async function listComments(cardId) {
   return unwrap(await client().from('comments').select('*').eq('card_id', cardId).order('created_at', { ascending: true }));
-}
-export async function listAllComments() {
-  return unwrap(await client().from('comments').select('*').order('created_at', { ascending: true }));
 }
 // id를 명시하면 로컬에서 만든 uuid를 그대로 사용(로컬↔클라우드 id 일치)
 export async function addComment(cardId, body, parentId = null, id) {
@@ -219,9 +198,6 @@ export async function deleteComment(id) {
 }
 
 // ── resource_links ──────────────────────────────────────────────────────────
-export async function listLinks(projectId) {
-  return unwrap(await client().from('resource_links').select('*').eq('project_id', projectId).order('created_at', { ascending: true }));
-}
 export async function listAllLinks() {
   return unwrap(await client().from('resource_links').select('*').order('created_at', { ascending: true }));
 }
@@ -238,9 +214,6 @@ export async function removeLink(id) {
 // ── files / 첨부 파일 (Supabase Storage: private 버킷 'attachments') ──────────
 const ATTACH_BUCKET = 'attachments';
 
-export async function listFiles(projectId) {
-  return unwrap(await client().from('files').select('*').eq('project_id', projectId).order('created_at', { ascending: true }));
-}
 export async function listAllFiles() {
   return unwrap(await client().from('files').select('*').order('created_at', { ascending: true }));
 }
@@ -389,8 +362,11 @@ export function subscribeMyNotifications(userId, onInsert) {
 }
 
 // ── activity ─────────────────────────────────────────────────────────────────
-export async function listAllActivity() {
-  return unwrap(await client().from('activity').select('*').order('created_at', { ascending: true }));
+// 카드 1건의 활동 기록 — 활동은 업무 창 안에서만 보이므로 창을 열 때 그 카드 것만 읽는다.
+// (예전에는 워크스페이스 전체 활동을 초기 로드와 매 재조회마다 읽었다. 활동은 쌓이기만
+//  하는 테이블이라 오래 쓰면 카드보다 훨씬 커진다.)
+export async function listCardActivity(cardId) {
+  return unwrap(await client().from('activity').select('*').eq('card_id', cardId).order('created_at', { ascending: true }));
 }
 export async function insertActivity(row) {
   // row: { id?, project_id?, card_id?, action, payload? }
@@ -398,21 +374,9 @@ export async function insertActivity(row) {
 }
 
 // ── 실시간 구독 ────────────────────────────────────────────────────────────
-// 해당 프로젝트의 cards / resource_links / files 변경 + comments 전체 변경을 구독.
-// (comments엔 project_id가 없어 카드 단위 필터가 불가 → 전체 구독 후 onChange에서 재조회)
-// 반환값: 구독 해제 함수
-export function subscribeProject(projectId, onChange) {
-  const c = client();
-  const channel = c.channel(`project:${projectId}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'cards', filter: `project_id=eq.${projectId}` }, onChange)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'resource_links', filter: `project_id=eq.${projectId}` }, onChange)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'files', filter: `project_id=eq.${projectId}` }, onChange)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, onChange)
-    .subscribe();
-  return () => c.removeChannel(channel);
-}
-
-// 워크스페이스 전역 구독(프로젝트/카드/댓글/리소스/팀매핑 변경) — onChange는 재조회 트리거용
+// 워크스페이스 전역 구독. onChange는 payload를 그대로 받는다 —
+// 표(payload.table)에 따라 "그 카드만 다시 읽기 / 전체 재조회"로 갈라진다
+// (cloudSync.subscribeWorkspace).
 export function subscribeAll(onChange) {
   const c = client();
   const channel = c.channel('workspace-all')
@@ -425,19 +389,3 @@ export function subscribeAll(onChange) {
   return () => c.removeChannel(channel);
 }
 
-// ============================================================================
-// ── 레거시: Google Apps Script 동기화 (Supabase 전환 완료 후 제거 예정) ──
-// ----------------------------------------------------------------------------
-// 아직 usePersistenceController / SyncModal 이 사용 중이므로 유지한다.
-// ============================================================================
-export const CloudRepository = {
-  save: async (url, data) => {
-    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(data), redirect: 'follow' });
-    if (!response.ok) throw new Error('Network response was not ok');
-  },
-  load: async (url) => {
-    const response = await fetch(url, { redirect: 'follow' });
-    if (!response.ok) throw new Error('Network response was not ok');
-    return await response.json();
-  }
-};

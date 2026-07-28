@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import {
-  CheckSquare, Clock, X, User, Hash, RefreshCw, Download, Upload,
-  Wand2, CalendarRange, Pencil, Trash2,
-  FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, Loader2, ExternalLink, Check, AlertTriangle, Eye
+  CheckSquare, Clock, X, User, Hash, Wand2, CalendarRange, Pencil, Trash2,
+  FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, Loader2, Check, AlertTriangle, Eye
 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { formatDate, avatarColor, isMobileViewport, keepVisible } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
-import { selectCurrentUser, selectProjectsList } from '../store/selectors.js';
+import { selectCurrentUser } from '../store/selectors.js';
 import { AiService } from '../services/ai.js';
 import { RichText } from '../components/RichText.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
@@ -20,7 +19,7 @@ import { showToast } from '../components/Toast.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { supabase } from '../services/supabaseClient.js';
 import { uploadAttachment, getFileOpenUrl, getAttachmentUrls, deleteAttachment, listCardFiles } from '../services/cloud.js';
-import { getMemberNames } from '../services/cloudSync.js';
+import { getMemberNames, loadCardDetail } from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { FilePreviewModal } from '../components/FilePreviewModal.jsx';
@@ -75,6 +74,17 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   // Stale State 방지: 모달 재사용 시 데이터 강제 동기화
   useEffect(() => { if (!isEditMode) setFormData(source); }, [source, isEditMode]);
 
+  // 댓글·활동은 초기 로드에서 빼두고(목록 화면에는 나오지 않는 데이터다) 창을 열 때
+  // 이 카드 것만 읽는다 — 첨부가 이미 쓰고 있던 방식과 같다(AttachmentSection).
+  useEffect(() => {
+    if (!cloudMode || !task.id) return;
+    let alive = true;
+    loadCardDetail(task.id)
+      .then(detail => { if (alive) store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, ...detail } }); })
+      .catch(e => console.error('[cloud] 업무 상세 로드 실패:', e));
+    return () => { alive = false; };
+  }, [cloudMode, task.id]);
+
   // 삭제 노출 조건: 저장된 카드 + (게스트=작성자 본인 / 클라우드=작성자 본인 또는 관리자)
   const canDelete = !!task.id && (cloudMode ? (task.created_by === userId || isAdmin) : (task.author === currentUser.name));
 
@@ -93,6 +103,11 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
 
   const handleSubmit = (e) => { e.preventDefault(); onSave(formData); };
   const commentCount = (formData.comments || []).filter(c => !c.parentId).length;
+  const metaLine = [
+    formData.author && `작성: ${formData.author}`,
+    formData.updatedBy && `수정: ${formData.updatedBy}`,
+    formatDate(formData.updatedBy ? formData.updatedAt : formData.createdAt),
+  ].filter(Boolean).join(' · ');
 
   // ── 공용 조각 (데스크톱/모바일 레이아웃이 재사용) ──
   const headerInner = (
@@ -112,7 +127,10 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
             <button type="button" className="p-2 rounded-md text-fg-faint hover:text-red-500 hover:bg-surface-hover transition active:scale-95 shrink-0" title="업무 삭제"><Trash2 size={16} /></button>
           </ConfirmPopover>
         )}
-        <div className="text-[10px] text-fg-faint hidden md:block truncate">작성: {formData.author} • 최근: {formatDate(formData.updatedAt)}</div>
+        {/* 작성자 · (고친 적이 있으면) 마지막으로 고친 사람 · 그 시각.
+            한 번도 고치지 않았으면 만든 시각을 보여준다 — 예전에는 수정한 사람이
+            안 나와서, 작성자와 수정자가 다를 때 누가 손댔는지 알 수 없었다. */}
+        <div className="text-[10px] text-fg-faint hidden md:block truncate">{metaLine}</div>
       </div>
       <div className="flex gap-2 shrink-0">
         <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2 text-xs font-medium text-fg-muted bg-surface-hover hover:bg-line rounded-md transition active:scale-95">닫기</button>
@@ -876,41 +894,6 @@ export function ProfileModal({ onClose, onSave }) {
         {!canSave && <p className="text-[11px] text-tag-red-fg mt-2 text-center">이름과 팀을 하나 이상 정해주세요</p>}
       </div>
     </div>
-  );
-}
-
-export function SyncModal({ onClose, persistence, cloudMode, isAdmin, onMigrate, migrating }) {
-  const [url, setUrl] = useState(() => localStorage.getItem('church_app_sync_url') || '');
-  const cloudProjects = useStore(selectProjectsList);
-
-  // 로컬(church_app_v4)에 이관할 데이터가 있는지
-  const localProjectCount = (() => {
-    try { const raw = localStorage.getItem('church_app_v4'); return raw ? (JSON.parse(raw).projects?.allIds?.length || 0) : 0; }
-    catch { return 0; }
-  })();
-  const canMigrate = isAdmin && cloudProjects.length === 0 && localProjectCount > 0;
-
-  // ── 클라우드 모드: 자동 동기화 안내 + (조건 충족 시) 로컬 이관 ──
-  if (cloudMode) {
-    return (
-      <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"><div className="bg-surface p-5 rounded-lg shadow-elevated border border-line w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
-        <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-fg flex items-center gap-2"><RefreshCw size={16} strokeWidth={1.75} className="text-accent"/> 데이터 연동</h3><button onClick={onClose} className="text-fg-faint"><X size={18}/></button></div>
-        <div className="bg-accent-weak text-accent-text p-3 rounded-md text-xs leading-relaxed mb-4">클라우드(Supabase)에 연결되어 있어요. 모든 변경사항은 자동으로 저장되고, 팀원과 실시간으로 동기화됩니다.</div>
-        {canMigrate ? (
-          <>
-            <p className="text-xs text-fg-muted leading-relaxed mb-3">이 브라우저에 저장된 로컬 데이터(프로젝트 {localProjectCount}개)를 클라우드로 한 번에 가져올 수 있어요. 클라우드가 비어 있을 때 최초 1회만 권장합니다.</p>
-            <button onClick={onMigrate} disabled={migrating} className="w-full bg-accent hover:bg-accent-strong disabled:bg-line text-white py-2.5 rounded-md text-xs font-medium flex justify-center items-center gap-1.5 transition active:scale-95"><Upload size={14}/> {migrating ? '가져오는 중...' : '이 브라우저의 로컬 데이터를 클라우드로 가져오기'}</button>
-          </>
-        ) : (
-          <p className="text-center text-xs text-fg-faint">따로 조작할 것은 없어요. 편하게 사용하세요!</p>
-        )}
-      </div></div>
-    );
-  }
-
-  // ── 게스트 모드: 기존 Google Apps Script 동기화 UI ──
-  return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"><div className="bg-surface p-5 rounded-lg shadow-elevated border border-line w-full max-w-md animate-in fade-in zoom-in-95 duration-200"><div className="flex justify-between items-center mb-4"><h3 className="font-bold text-fg flex items-center gap-2"><RefreshCw size={16} strokeWidth={1.75} className="text-accent"/> 데이터 연동</h3><button onClick={onClose} className="text-fg-faint"><X size={18}/></button></div><div className="bg-accent-weak text-accent-text p-3 rounded-md text-xs leading-relaxed mb-4">구글 Apps Script URL을 입력하여 데이터를 동기화합니다.</div><input type="text" value={url} onChange={e=>{setUrl(e.target.value); localStorage.setItem('church_app_sync_url',e.target.value);}} placeholder="https://script.google.com/..." className="w-full border border-line rounded-xs p-2 mb-4 text-xs bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none" /><div className="flex gap-2"><button onClick={()=>persistence.loadFromCloud(url)} disabled={!url || persistence.syncStatus === 'syncing'} className="flex-1 bg-surface-hover hover:bg-line text-fg border border-line py-2 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition active:scale-95"><Download size={14}/> 불러오기</button><button onClick={()=>persistence.syncToCloud(url)} disabled={!url || persistence.syncStatus === 'syncing'} className="flex-1 bg-accent hover:bg-accent-strong text-white py-2 rounded-md text-xs font-medium flex justify-center items-center gap-1 transition active:scale-95"><Upload size={14}/> 덮어쓰기</button></div><p className="text-center text-xs font-bold mt-3 h-4 text-accent-text">{persistence.syncStatus === 'syncing' ? '진행 중...' : persistence.syncStatus === 'success' ? '성공!' : <span className="text-red-500">{persistence.errorMsg}</span>}</p></div></div>
   );
 }
 

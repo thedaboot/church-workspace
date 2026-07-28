@@ -7,9 +7,9 @@ import {
 } from '@dnd-kit/core';
 import { CONFIG, teamPaint, teamColor } from '../config.js';
 import { avatarColor } from '../utils.js';
-import { STATUS_BAR, STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
+import { STATUS_BAR, STATUS_DOT_VAR, byDue } from '../views/dashboardParts.jsx';
 import { useStore } from '../store/workspaceStore.js';
-import { selectProjectsMap, selectTasksByDate } from '../store/selectors.js';
+import { selectProjectsMap } from '../store/selectors.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 
@@ -138,7 +138,25 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
     return { y, m: d.getMonth() };
   });
 
-  const dayTasks = (iso) => (tasks || []).filter(t => { const s = spanOf(t); return s && s.start <= iso && iso <= s.end; });
+  // 날짜 → 그 날 걸쳐 있는 업무. 한 번 만들어 두고 칸마다 꺼내 쓴다.
+  // 예전에는 칸마다 목록 전체를 다시 filter해서, 모바일 달력(42칸)은 렌더마다
+  // 42 × 전체 업무를 훑었다.
+  const tasksByDate = React.useMemo(() => {
+    const m = new Map();
+    (tasks || []).forEach(t => {
+      const s = spanOf(t);
+      if (!s) return;
+      // 구간이 비정상적으로 길면(잘못 입력된 연도 등) 시작·마감 이틀만 찍는다
+      let iso = s.start;
+      for (let i = 0; iso <= s.end && i < 400; i++) {
+        const bucket = m.get(iso);
+        if (bucket) bucket.push(t); else m.set(iso, [t]);
+        iso = addDays(iso, 1);
+      }
+    });
+    return m;
+  }, [tasks]);
+  const dayTasks = (iso) => tasksByDate.get(iso) || [];
   const selectedList = dayTasks(selected);
 
   // 요일 줄은 달력 칸과 폭이 같아야 한다 → 데스크톱에선 달력 열 안에 들어간다
@@ -581,11 +599,13 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
   const scrollRef = React.useRef(null);
   const [visibleCol, setVisibleCol] = React.useState(0);
 
-  // 상태별 그룹핑을 한 번만 — 컬럼마다 filter를 두 번씩 돌지 않게
+  // 상태별 그룹핑을 한 번만 — 컬럼마다 filter를 두 번씩 돌지 않게.
+  // 컬럼 안 순서는 마감일 순(마감 미정은 아래) — 마감 그룹 목록과 같은 비교 함수를 쓴다.
   const byStatus = React.useMemo(() => {
     const m = {};
     CONFIG.STATUSES.forEach(s => { m[s] = []; });
     tasks.forEach(t => { (m[t.status] || (m[t.status] = [])).push(t); });
+    Object.values(m).forEach(list => list.sort(byDue));
     return m;
   }, [tasks]);
 

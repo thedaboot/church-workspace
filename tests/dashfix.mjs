@@ -80,7 +80,10 @@ for (const [m,label,theme] of [[{width:390,height:844,deviceScaleFactor:2,mobile
   })()`);
   check(`${label}: 마감 목록에 행이 있다`, soon.length>0, `${soon.length}행`);
   check(`${label}: 완료는 대시보드 마감 목록에서 빠진다`, !soon.some(r=>r.status==='완료'), JSON.stringify(soon.map(r=>r.status)));
-  check(`${label}: 상태 글자가 보인다`, soon.every(r=>r.status && r.visible), JSON.stringify(soon.map(r=>r.status)));
+  // 좁은 화면(sm 미만)에서는 상태 글자를 숨기고 색 점만 남긴다 — 칩 글자가 고정으로
+  // 70px쯤 먹어서 제목에 한글 12자밖에 안 남았다. 넓은 화면은 글자까지 보인다.
+  const wantText = label !== '모바일';
+  check(`${label}: 상태 글자 ${wantText?'보임':'숨김'}`, soon.every(r=>r.status && r.visible===wantText), JSON.stringify(soon.map(r=>r.visible)));
   check(`${label}: 상태 점이 6px 이상`, soon.every(r=>r.dotPx>=6), JSON.stringify(soon.map(r=>r.dotPx)));
   const over=await ev(`(() => { const m=document.querySelector('main'); return Math.round(m.scrollWidth-m.clientWidth); })()`);
   check(`${label}: 가로 넘침 없음`, over<=0, `초과 ${over}px`);

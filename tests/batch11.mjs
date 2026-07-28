@@ -136,7 +136,7 @@ await load(DESK);
 const dash = await ev(`(() => {
   const txt=document.querySelector('main').textContent;
   return { noDueOld:/마감 없음/.test(txt), noDueNew:/마감 미정/.test(txt),
-           overdueNote:/전부 기한 안/.test(txt), oldNote:/지연[\\s\\S]{0,20}없어요/.test(txt) };
+           overdueNote:/전부 기한 내/.test(txt), oldNote:/지연[\\s\\S]{0,20}없어요/.test(txt) };
 })()`);
 check("'마감 없음' 표현이 사라졌다", dash.noDueOld===false, JSON.stringify(dash));
 
@@ -145,8 +145,8 @@ await ev(`(() => { const s=JSON.parse(localStorage.getItem('church_app_v4'));
   s.tasks.byId.t1.dueDate='${D(5)}'; localStorage.setItem('church_app_v4',JSON.stringify(s)); })()`);
 await send('Page.navigate',{url:URL_BASE}); await wait('Page.loadEventFired'); await sleep(1500);
 const zero = await ev(`(() => { const t=document.querySelector('main').textContent;
-  return { note:/전부 기한 안/.test(t), old:/없어요/.test(t.slice(0, t.indexOf('오늘 마감'))) }; })()`);
-check("지연 0건 문구가 '전부 기한 안'", zero.note===true && zero.old===false, JSON.stringify(zero));
+  return { note:/전부 기한 내/.test(t), old:/없어요/.test(t.slice(0, t.indexOf('오늘 마감'))) }; })()`);
+check("지연 0건 문구가 '전부 기한 내'", zero.note===true && zero.old===false, JSON.stringify(zero));
 
 // ── 9. 빈 칸 표식 ──
 await load(DESK, '/?p=p2');
