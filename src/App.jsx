@@ -9,7 +9,7 @@ import { TaskModalShell } from './modals/modals.jsx';
 import { ProfileModal, ProjectModal } from './modals/settings.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
-import { ToastHost } from './components/Toast.jsx';
+import { ToastHost, showToast } from './components/Toast.jsx';
 import * as cloudSync from './services/cloudSync.js';
 import logoLight from './assets/logo-light.png';
 import logoDark from './assets/logo-dark.png';
@@ -208,7 +208,42 @@ function WorkspaceShell() {
   const selectMenu = useCallback((menu) => setActiveMenu(menu), []);
   const handleTaskClick = useCallback((t) => openTaskModal(t), [openTaskModal]);
   const saveTask = controller.handleSaveTask;
-  const handleStatusChange = useCallback((t, status) => saveTask({ ...t, status }, t), [saveTask]);
+
+  // 목록·보드에서 상태를 바꾸면 되돌리기 토스트를 띄운다.
+  // 클라우드 모드에는 전역 실행 취소가 없다(다른 사람과 상태가 어긋나므로 숨겼다).
+  // 그래서 실수로 옮긴 카드를 되돌릴 길이 손으로 다시 옮기기뿐이었다.
+  //
+  // 되돌리기는 로컬만 고치면 안 되고 DB까지 같이 돌려야 한다(saveTask가 둘 다 한다).
+  // 다만 그 사이에 다른 사람이 같은 카드를 건드렸으면 남의 변경을 덮게 된다 →
+  // 되돌리기 직전에 서버 상태를 다시 읽어, 내가 저장한 그 상태가 그대로인지 확인한다.
+  // 시각(updated_at) 대신 상태값을 보는 이유: 되돌리려는 것이 상태이므로 "그 상태가
+  // 아직 내가 만든 그대로인가"가 정확히 물어야 할 질문이다(제목만 고친 사람의
+  // 변경을 이유로 되돌리기를 막을 필요는 없다).
+  const handleStatusChange = useCallback((t, status) => {
+    const prev = t.status;
+    saveTask({ ...t, status }, t);
+    if (prev === status) return;
+    showToast(`'${t.title}'을 ${status}로 옮겼어요`, {
+      label: '되돌리기',
+      onAction: async () => {
+        const live = store.getState().tasks.byId[t.id];
+        if (!live) { showToast('업무가 이미 삭제되었어요'); return; }
+        if (cloudMode) {
+          try {
+            const fresh = await cloudSync.loadCardPatch(t.id);
+            if (!fresh) { showToast('업무가 이미 삭제되었어요'); return; }
+            if (fresh.status !== status) { showToast(`다른 사람이 이미 ${fresh.status}로 바꿨어요`); return; }
+          } catch (e) {
+            console.error('[cloud] 되돌리기 전 확인 실패:', e);
+            showToast('지금은 되돌릴 수 없어요 · 잠시 후 다시 시도해주세요');
+            return;
+          }
+        }
+        saveTask({ ...live, status: prev }, live);
+        showToast(`${prev}로 되돌렸어요`);
+      },
+    });
+  }, [saveTask, cloudMode]);
   const handleNewTask = useCallback(() => {
     openTaskModal({ projectId: activeMenu, status: '시작 전', assignees: [], teams: [] }, true);
   }, [openTaskModal, activeMenu]);

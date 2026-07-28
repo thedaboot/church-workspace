@@ -181,6 +181,37 @@ const words2 = await ev(`(() => { const t=document.querySelector('main').textCon
 check("'다 정리되었어요' 문구", words2.neu===true && words2.old===false, JSON.stringify(words2));
 await shot('b11-mob-empty-list');
 
+// ── 상태 변경 되돌리기 토스트 ──
+// 클라우드 모드에는 전역 실행 취소가 없어서(다른 사람과 어긋나므로 숨겼다) 실수로
+// 옮긴 카드를 되돌릴 길이 손으로 다시 옮기기뿐이었다. 토스트의 '되돌리기'는
+// 로컬만이 아니라 DB까지 같이 돌려야 한다(게스트 모드에서는 localStorage).
+await load(DESK);
+const before = await ev(`Object.values(JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId).find(t=>t.title==='이번 주 건').status`);
+// 마감 목록에서 '이번 주 건'의 완료 원형 버튼 → 확인
+await ev(`(() => {
+  const row=[...document.querySelectorAll('main .dc-row')].find(r=>/이번 주 건/.test(r.textContent));
+  row.querySelector('[role="button"]').click();
+})()`);
+await sleep(300);
+await ev(clickText('완료'));
+await sleep(700);
+const toast = await ev(`(() => {
+  const el=document.querySelector('[role="status"]');
+  if(!el) return null;
+  const btn=[...el.querySelectorAll('button')].find(b=>/되돌리기/.test(b.textContent));
+  const r=btn?btn.getBoundingClientRect():null;
+  // 버튼이 실제로 눌리는 자리에 있는지 — 하단 탭바에 가리면 눌 수 없다
+  return { text:el.textContent, hasBtn:!!btn, clickable: r ? document.elementFromPoint(r.left+r.width/2, r.top+r.height/2)===btn : false };
+})()`);
+check('상태를 옮기면 되돌리기 토스트가 뜬다', toast?.hasBtn === true, JSON.stringify(toast));
+check('되돌리기 버튼이 가려지지 않는다', toast?.clickable === true, JSON.stringify(toast));
+const movedTo = await ev(`Object.values(JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId).find(t=>t.title==='이번 주 건').status`);
+check('옮긴 상태가 저장된다', movedTo === '완료', `${before} → ${movedTo}`);
+await ev(`[...document.querySelector('[role="status"]').querySelectorAll('button')].find(b=>/되돌리기/.test(b.textContent)).click()`);
+await sleep(700);
+const undoneStatus = await ev(`Object.values(JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId).find(t=>t.title==='이번 주 건').status`);
+check('되돌리기가 원래 상태로 저장한다', undoneStatus === before, `${movedTo} → ${undoneStatus} (원래 ${before})`);
+
 console.log(results.join('\n'));
 const real = logs.filter(l=>!/favicon|Failed to load resource|manifest/i.test(l));
 console.log(real.length ? '\n콘솔 오류:\n' + real.slice(0,5).join('\n') : '\n콘솔 오류 없음');

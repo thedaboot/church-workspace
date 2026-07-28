@@ -23,6 +23,30 @@ const ORG_CONTEXT = [
 // 대시 표기 규칙 — 엠/엔 대시는 쓰지 않는다(사용자 요청)
 const DASH_RULE = '- 문장 안에서 엠 대시(—)나 엔 대시(–)는 절대 쓰지 마라. 필요하면 일반 하이픈(-)을 써라.';
 
+// 교회 일정의 리듬. 이게 없으면 AI는 마감일을 그냥 숫자로 본다 — 마감이 일요일이면
+// 그건 대개 "예배 당일"이라는 뜻인데 그걸 모르고 "주말까지 여유가 있다"고 말한다.
+// 절기는 지어내지 못하게 목록을 못 박는다.
+const CHURCH_CALENDAR_CONTEXT = [
+  '[교회 일정의 기본 리듬]',
+  '- 주일(일요일) 예배가 한 주의 중심이다. 마감이 일요일이면 "예배 당일"인 경우가 많다.',
+  '- 주중 고정 일정: 수요 예배(수), 금요 기도회(금).',
+  '- 토요일은 주일 준비가 몰리는 날이다(리허설·장비 세팅·인쇄물 마감).',
+  '- 절기·큰 행사: 설·추석 / 부활절(3~4월) / 여름 수련회(7~8월) / 추수감사절(11월) /',
+  '  성탄절(12월) / 송구영신 예배(12월 31일).',
+  '달력 관련 규칙:',
+  '- 날짜에는 요일이 괄호로 붙어 있다. 정기 예배와 겹치면 "주일", "수요 예배", "금요 기도회"로 불러라.',
+  '- 마감이 주일이고 그 업무가 예배에 쓰이는 것이면, 준비는 그 전날까지라는 것을 전제해라.',
+  '- 위 목록에 없는 절기나 행사를 지어내지 마라.',
+].join('\n');
+
+// 날짜에 요일을 붙인다 — AI가 ISO 문자열만 보고 요일을 맞히지 못한다.
+const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+const withDow = (iso) => {
+  if (!iso) return iso;
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : `${iso}(${DOW[d.getDay()]})`;
+};
+
 // 사역 업무의 일반적인 진행 순서. "다음 단계"가 지금 업무를 되풀이하지 않고
 // 실제로 이어질 일을 짚게 하는 데 쓴다(예: 콘티 확정 → 송폼·악보 제작 → 연습 → 리허설).
 const FLOW_CONTEXT = [
@@ -42,7 +66,7 @@ const fmtTask = (t) => [
   t.status,
   t.teams?.length ? t.teams.join('·') : '팀 미지정',
   t.assignees?.length ? t.assignees.join(', ') : '담당자 미지정',
-  [t.startDate, t.dueDate].filter(Boolean).join('~') || '일정 없음',
+  [t.startDate, t.dueDate].filter(Boolean).map(withDow).join('~') || '일정 없음',
 ].join(' | ');
 
 export function buildTaskContext(task) {
@@ -71,13 +95,32 @@ export function buildTaskContext(task) {
     after.length ? `- 이 업무 마감 이후에 놓인 업무: ${after.join(', ')}` : '',
   ].filter(Boolean).join('\n');
 }
+// 호출이 안 된 경우 화면에 그대로 보여주는 안내 문구. 상수로 둔 이유는 요약 캐시가
+// "이건 모델 답이 아니다"를 알아야 하기 때문이다 — 안내 문구를 캐시에 넣으면
+// 로그인한 뒤에도 계속 "로그인 후 사용할 수 있어요"가 나온다.
+const MSG = {
+  needLogin: 'AI 기능은 로그인 후 사용할 수 있어요.',
+  needDeploy: 'AI 기능은 배포 환경에서 동작해요 (로컬은 `npx vercel dev` 필요).',
+  needKey: 'AI 기능이 아직 설정되지 않았어요 (관리자에게 GEMINI_API_KEY 설정을 요청하세요).',
+  failed: '오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+};
+const FALLBACKS = new Set(Object.values(MSG));
+
+// 요약 캐시 — 같은 카드를 다시 열거나 요약을 두 번 누르면 그대로 돌려준다.
+// 예전에는 사람 열 명이 같은 카드를 열면 열 번 과금됐다. 키에 updatedAt을 넣어서
+// 카드가 바뀌면 자동으로 무효가 된다.
+// ponytail: 탭을 닫으면 사라지는 메모리 캐시다. 사람들 사이에 공유하려면 카드에
+// 저장해야 하고, 그건 '이 요약 고정' 버튼이 하는 일이다(저장은 옵트인).
+const summaryCache = new Map();
+const summaryKey = (task) => `${task.id || 'new'}:${task.updatedAt || ''}`;
+
 export const AiService = {
   callGemini: async (prompt, systemInstruction = "") => {
     // 게스트 모드(수파베이스 미설정) → 로그인 안내
-    if (!supabase) return "AI 기능은 로그인 후 사용할 수 있어요.";
+    if (!supabase) return MSG.needLogin;
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
-    if (!token) return "AI 기능은 로그인 후 사용할 수 있어요.";
+    if (!token) return MSG.needLogin;
 
     try {
       const response = await fetch('/api/ai', {
@@ -86,20 +129,25 @@ export const AiService = {
         body: JSON.stringify({ prompt, systemInstruction }),
       });
       // 로컬 vite dev에는 서버 함수가 없어 404 → 안내
-      if (response.status === 404) return "AI 기능은 배포 환경에서 동작해요 (로컬은 `npx vercel dev` 필요).";
-      if (response.status === 501) return "AI 기능이 아직 설정되지 않았어요 (관리자에게 GEMINI_API_KEY 설정을 요청하세요).";
+      if (response.status === 404) return MSG.needDeploy;
+      if (response.status === 501) return MSG.needKey;
       if (!response.ok) {
         console.error("AI 프록시 오류:", response.status, await response.text().catch(() => ''));
-        return "오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
+        return MSG.failed;
       }
       const result = await response.json();
       return result.text || "";
     } catch (error) {
       console.error("AI 요청 실패:", error);
-      return "AI 기능은 배포 환경에서 동작해요 (로컬은 `npx vercel dev` 필요).";
+      return MSG.needDeploy;
     }
   },
+  // 캐시를 비우는 손잡이 — 카드를 저장한 뒤처럼 강제로 다시 만들어야 할 때
+  clearSummaryCache: () => summaryCache.clear(),
+
   summarizeTask: async (task) => {
+    const cached = summaryCache.get(summaryKey(task));
+    if (cached) return cached;
     const commentsText = (task.comments || []).map(c => `${c.author}: ${c.text}`).join('\n');
     const meta = [
       task.assignees?.length ? `담당자: ${task.assignees.join(', ')}` : '',
@@ -142,9 +190,14 @@ export const AiService = {
       '',
       FLOW_CONTEXT,
       '',
+      CHURCH_CALENDAR_CONTEXT,
+      '',
       ORG_CONTEXT,
     ].join('\n');
-    return await AiService.callGemini(prompt, sysPrompt);
+    const text = await AiService.callGemini(prompt, sysPrompt);
+    // 안내 문구는 캐시에 넣지 않는다 — 로그인하거나 배포된 뒤에도 계속 그 문구가 나온다
+    if (text && !FALLBACKS.has(text)) summaryCache.set(summaryKey(task), text);
+    return text;
   },
   // task를 넘기면 주변 상황(같은 프로젝트 업무·팀·담당자)을 배경 지식으로 함께 준다.
   // 내용을 늘리라는 뜻이 아니라, 사람·팀 이름을 맞게 부르고 엉뚱한 다음 단계를 만들지 않게 하려는 것.
@@ -204,6 +257,8 @@ export const AiService = {
       '- 주변 상황에서 알게 된 사실을 새 항목으로 추가하지는 마라. 다듬기지 작성이 아니다.',
       '',
       FLOW_CONTEXT,
+      '',
+      CHURCH_CALENDAR_CONTEXT,
       '',
       ORG_CONTEXT,
     ].join('\n');
