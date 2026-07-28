@@ -127,13 +127,24 @@ export const markAllNotificationsRead = cloud.markAllNotificationsRead;
 export const subscribeMyNotifications = cloud.subscribeMyNotifications;
 
 // ── DB → 앱 매핑 ─────────────────────────────────────────────────────────────
+// 담당자: card_assignees(profile_id)가 원본이고 표시명은 여기서 파생한다 —
+// 그래서 프로필 이름을 바꾸면 담당자 이름이 따라온다(예전에는 cards.assignees에
+// 박힌 옛 이름이 그대로 남아 그 사람의 '내 업무'에서 카드가 사라졌다).
+// 조인 행이 없으면 cards.assignees 컬럼으로 폴백한다 — 0013 적용 전 코드로 만든
+// 카드, 그리고 프로필과 이름이 안 맞아 백필되지 않은 담당자(오타·미가입자)를
+// 화면에서 지우지 않기 위해서다.
+const assigneeNames = (card) => {
+  const joined = (card.card_assignees || []).map(ca => profileIdToName.get(ca.profile_id)).filter(Boolean);
+  return joined.length ? joined : (card.assignees || []);
+};
+
 const cardToTask = (card) => ({
   id: card.id,
   projectId: card.project_id,
   title: card.title,
   content: card.description || '',
   status: statusFromDb(card.status),
-  assignees: card.assignees || [],
+  assignees: assigneeNames(card),
   teams: (card.card_teams || []).map(ct => teamIdToName.get(ct.team_id)).filter(Boolean),
   startDate: card.start_date || '',
   dueDate: card.due_date || '',
@@ -266,10 +277,26 @@ const cardPatch = (task) => ({
 // 모든 쓰기 경로도 시계 오차(PGRST303) 재시도로 감싼다
 const write = cloud.withClockSkewRetry;
 
+// 표시명 → 프로필 id. 담당자 선택기는 등록된 멤버만 고를 수 있으므로 여기서
+// 못 찾는 이름은 프로필이 사라진 경우뿐이고, 그때는 조인 행 없이 cards.assignees
+// 컬럼에만 남는다(cardToTask가 폴백으로 읽는다).
+// ponytail: 표시명이 같은 사람이 둘이면 첫 번째로 붙는다. 이 앱은 담당자·멘션·
+// 아바타가 전부 이름 기준이라 어차피 두 사람을 구분하지 못한다 — 구분이 필요해지면
+// 선택기가 id를 다루도록 고쳐야 하고, 그때 여기도 같이 고친다.
+const assigneeIdsOf = (names = []) => {
+  const nameToIds = nameToIdsMap();
+  return [...new Set(names.map(n => nameToIds.get(n)?.[0]).filter(Boolean))];
+};
+
 export async function cardUpsertCloud(task, isNew) {
   const teamIds = (task.teams || []).map(n => teamNameToId.get(n)).filter(Boolean);
-  if (isNew) return write(() => cloud.createCard({ id: task.id, ...cardPatch(task) }, teamIds));
-  return write(() => cloud.updateCard(task.id, cardPatch(task), teamIds));
+  // 프로필 맵이 비어 있으면(=아직 로드되지 않았다) 이름을 id로 바꿀 수 없다.
+  // 그때 빈 배열을 넘기면 updateCard가 담당자 조인 행을 통째로 지운다 → undefined를
+  // 넘겨 "건드리지 말라"로 둔다. 지금 흐름에서는 로드 후에만 저장하지만,
+  // 조용히 데이터가 지워지는 모양은 남겨두지 않는다.
+  const assigneeIds = profileIdToName.size ? assigneeIdsOf(task.assignees) : undefined;
+  if (isNew) return write(() => cloud.createCard({ id: task.id, ...cardPatch(task) }, teamIds, assigneeIds));
+  return write(() => cloud.updateCard(task.id, cardPatch(task), teamIds, assigneeIds));
 }
 export async function cardDeleteCloud(id) { return write(() => cloud.deleteCard(id)); }
 

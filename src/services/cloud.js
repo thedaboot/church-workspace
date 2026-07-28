@@ -128,18 +128,27 @@ export async function deleteProject(id) {
 // 예전에는 position으로 정렬했는데 그 값을 아무도 채우지 않아 전부 0이었고, 정렬 키가
 // 모두 같으면 Postgres가 순서를 보장하지 않아서(내부 저장 순서) 카드를 한 번 수정할
 // 때마다 순서가 뒤바뀌어 보였다. position 컬럼은 수동 정렬을 붙일 때를 위해 남겨둔다.
+// 담당자는 0013부터 card_assignees(profile_id)가 원본이다 — 표시명으로 붙여 두면
+// 이름을 바꿀 때 담당자가 남의 것이 됐다. cards.assignees 컬럼도 계속 쓰지만
+// 읽기는 조인을 먼저 본다(cloudSync.cardToTask).
+const CARD_SELECT = '*, card_teams(team_id), card_assignees(profile_id)';
+
 export async function listAllCards() {
-  return unwrap(await client().from('cards').select('*, card_teams(team_id)').order('created_at', { ascending: true }));
+  return unwrap(await client().from('cards').select(CARD_SELECT).order('created_at', { ascending: true }));
 }
 // 카드 1건 (실시간 변경 반영용 — 전체를 다시 읽지 않는다)
 // 이미 지워진 카드면 null.
 export async function getCard(id) {
-  return unwrap(await client().from('cards').select('*, card_teams(team_id)').eq('id', id).maybeSingle());
+  return unwrap(await client().from('cards').select(CARD_SELECT).eq('id', id).maybeSingle());
 }
-export async function createCard(data, teamIds = []) {
+export async function createCard(data, teamIds = [], assigneeIds = []) {
   const card = unwrap(await client().from('cards').insert(data).select().single());
   if (teamIds.length) {
     const { error } = await client().from('card_teams').insert(teamIds.map(team_id => ({ card_id: card.id, team_id })));
+    if (error) throw error;
+  }
+  if (assigneeIds.length) {
+    const { error } = await client().from('card_assignees').insert(assigneeIds.map(profile_id => ({ card_id: card.id, profile_id })));
     if (error) throw error;
   }
   return card;
@@ -148,7 +157,18 @@ export async function createCard(data, teamIds = []) {
 // (스테일 로컬 데이터나 다른 기기에서의 삭제로 행이 사라진 경우 자연 복구)
 const isNoRowsError = (err) => err?.code === 'PGRST116';
 
-export async function updateCard(id, patch, teamIds) {
+// 조인 테이블 하나를 '주어진 id 집합'으로 맞춘다(지우고 다시 넣기).
+// 담당자·팀 모두 한 카드에 몇 개뿐이라 차집합을 계산하는 것보다 이게 짧고,
+// 저장은 항상 폼 전체를 쓰는 흐름이라 부분 갱신이 필요하지 않다.
+async function resetCardJoin(table, column, cardId, ids) {
+  const del = await client().from(table).delete().eq('card_id', cardId);
+  if (del.error) throw del.error;
+  if (!ids.length) return;
+  const ins = await client().from(table).insert(ids.map(v => ({ card_id: cardId, [column]: v })));
+  if (ins.error) throw ins.error;
+}
+
+export async function updateCard(id, patch, teamIds, assigneeIds) {
   let card;
   try {
     card = unwrap(await client().from('cards').update(patch).eq('id', id).select().single());
@@ -157,15 +177,9 @@ export async function updateCard(id, patch, teamIds) {
     console.warn('[cloud] 업무 행이 없어 upsert로 생성합니다:', id);
     card = unwrap(await client().from('cards').upsert({ id, ...patch }, { onConflict: 'id' }).select().single());
   }
-  // teamIds가 명시적으로 주어졌을 때만 팀 매핑을 재설정
-  if (teamIds !== undefined) {
-    const del = await client().from('card_teams').delete().eq('card_id', id);
-    if (del.error) throw del.error;
-    if (teamIds.length) {
-      const ins = await client().from('card_teams').insert(teamIds.map(team_id => ({ card_id: id, team_id })));
-      if (ins.error) throw ins.error;
-    }
-  }
+  // 명시적으로 주어졌을 때만 재설정 (undefined는 "건드리지 말라"는 뜻)
+  if (teamIds !== undefined) await resetCardJoin('card_teams', 'team_id', id, teamIds);
+  if (assigneeIds !== undefined) await resetCardJoin('card_assignees', 'profile_id', id, assigneeIds);
   return card;
 }
 export async function deleteCard(id) {

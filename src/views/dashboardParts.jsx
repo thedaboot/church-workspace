@@ -213,7 +213,10 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                           ml-auto로 오른쪽에 붙이면 오른쪽 정렬이라는 인상은 같고 제목은
                           한 픽셀도 안 준다. 이름 글자를 쓰지 않는 이유: 같은 10.5px 글자라
                           팀·프로젝트와 구분이 안 된다(원형 아바타는 한눈에 '사람'으로 읽힌다). */}
-                      <span className={`sm:hidden ml-auto shrink-0 w-4 h-4 rounded-full inline-flex items-center justify-center text-[9px] font-bold ${avatarColor(t.assignees?.[0] || '')}`}
+                      {/* mr-1.5: 채워진 원이라 글자와 달리 좌우 여백이 0이다. 오른쪽 끝에
+                          그대로 붙이면 화면 가장자리에 눌린 것처럼 보인다(글자는 자획
+                          바깥에 자연스러운 여백이 있어서 같은 x에 있어도 안 그렇다). */}
+                      <span className={`sm:hidden ml-auto mr-1.5 shrink-0 w-4 h-4 rounded-full inline-flex items-center justify-center text-[9px] font-bold ${avatarColor(t.assignees?.[0] || '')}`}
                         title={t.assignees?.[0] || '미지정'}>
                         {(t.assignees?.[0] || '?')[0]}
                       </span>

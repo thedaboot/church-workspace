@@ -5,10 +5,11 @@
 디자인 시스템 절은 낡았습니다 — 아래 "README와 어긋난 부분" 참고).
 
 - 레포: `github.com/thedaboot/church-workspace` · 브랜치 `main`
-- 마지막 커밋: `3599947` (멘션 알림이 생성되지 않던 원인 제거)
+- 최근 작업은 `git log --oneline -15`로 봅니다 (여기에 커밋 해시를 적어 두면
+  커밋마다 손으로 고쳐야 해서 금방 낡습니다 — 실제로 한 번 어긋나 있었습니다)
 - 배포: Vercel, `main` 푸시 시 자동
-- 검증: `npm run verify` → 20개 스위트 270 pass (약 6분).
-  270은 단정 개수이고 스위트는 20개입니다 — 평소에는 `npm run verify -- handoff navsmoke`처럼
+- 검증: `npm run verify` → 21개 스위트 274 pass (약 6분).
+  274는 단정 개수이고 스위트는 21개입니다 — 평소에는 `npm run verify -- handoff navsmoke`처럼
   골라 돌리고(수십 초), 푸시 직전에 한 번 전부 돌리는 흐름입니다.
 
 ### 이 문서 밖에 있는 것 (레포만 받아서는 알 수 없는 것)
@@ -217,6 +218,17 @@ CHROME=/path/to/chrome npm run verify
     화면에는 아무 표시가 없었고, 검증 스위트는 게스트 모드만 돌아 이 경로를 보지 못한다.
     넣기만 할 때는 `.select()`를 붙이지 않는다(`cloud.insertNotifications`).
 
+28. **담당자를 표시명으로 붙이면 이름을 바꿀 때 카드가 남의 것이 된다.** `cards.assignees`는
+    표시명 `text[]`인데 프로필 이름을 바꾸는 경로는 이 배열을 건드리지 않았고, '내 업무'는
+    `assignees.includes(currentUser.name)`으로 거른다. 그래서 설정에서 이름을 한 번 고치면
+    그 사람이 맡은 카드가 전부 사라져 보였다. 0013의 `card_assignees(profile_id)`가 원본이고
+    **표시명은 읽을 때 `profiles`에서 파생한다** — 그래서 앱 안의 `task.assignees`는 여전히
+    이름 배열이고 뷰·셀렉터·활동 기록·AI 컨텍스트는 그대로다. 조인 행이 없으면
+    `cards.assignees` 컬럼으로 폴백한다(0013 전 카드, 백필 안 된 이름을 지우지 않기 위해).
+    담당자 선택기는 이제 **등록된 멤버만** 고를 수 있다 — 목록 밖 이름은 그 사람이 업무를
+    볼 수도 알림을 받을 수도 없어서 배정이 아니라 메모였다. 검증은 `tests/assignees.mjs`
+    (게스트 모드로는 이 경로가 안 돌아서 `cloud.js`를 가짜로 바꿔친다).
+
 **테스트 스크립트 작성 시**
 
 17. 페이지에 주입하는 문자열은 JS 템플릿 리터럴이라 `\d`가 `d`로 죽습니다 → `[0-9]`.
@@ -233,7 +245,7 @@ CHROME=/path/to/chrome npm run verify
 
 ## 6. 데이터 · 스키마 · 비밀
 
-- 스키마는 `supabase/migrations/0001~0012`이고 **전부 라이브 DB에 적용**되어 있습니다
+- 스키마는 `supabase/migrations/0001~0013`이고 **전부 라이브 DB에 적용**되어 있습니다
   (0001~0005는 대시보드에서 수동, 0006~0011은 `npx supabase db push --db-url "$SUPABASE_DB_URL"`로.
   접속 문자열은 로컬 `.env`의 `SUPABASE_DB_URL`에 둡니다 — 대시보드 Connect의 Session pooler URI).
   0009~0011이 한 일:
@@ -245,6 +257,10 @@ CHROME=/path/to/chrome npm run verify
   그리고 0012에서 `pg_cron`으로 보존 기간(읽은 알림 30일 / 활동 기록 6개월,
   UTC 19:00 = KST 04:00. 확인은 `select * from cron.job`, 해제는 `cron.unschedule`).
   **`projects.description`은 이제 없습니다** — `createProject`에 다시 넣으면 실패합니다.
+- 0013이 한 일: 담당자를 표시명 대신 프로필로 붙이는 `card_assignees` 조인 테이블
+  (`card_teams`와 같은 모양·같은 정책). 적용 후 확인 — 카드 4건 / 조인 행 7개 /
+  프로필과 못 이어진 이름 0개. `cards.assignees` 컬럼은 남겨 두었고 앱은 양쪽에
+  다 쓰지만 **읽기는 조인을 먼저** 봅니다(§5의 28번).
 - 0008(`0008_profile_teams.sql`) 메모: 라이브에 적용됨 — 한 사람이 여러 팀에 속하는 조인 테이블 + RLS(읽기: 로그인 사용자,
   쓰기: 본인 행만) + 기존 `profiles.team_id` 복사. 기존 컬럼은 남겨 두었고
   (`currentUser.teams?.length ? teams : [team]` 패턴으로 양쪽을 봅니다), 적용 후 데이터

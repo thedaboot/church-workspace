@@ -210,7 +210,10 @@ const PropertyRow = ({ icon, label, children }) => (
   </div>
 );
 
-// 담당자 멤버 칩 선택기 — 목록에서 선택하거나 직접 타이핑+Enter로 임의 이름 추가
+// 담당자 멤버 칩 선택기 — 등록된 멤버만 고를 수 있다(목록 밖 이름은 넣지 못한다).
+// 예전에는 아무 이름이나 타이핑+Enter로 넣을 수 있었는데, 가입하지 않은 사람은
+// 업무를 볼 수도 알림을 받을 수도 없고 아무의 '내 업무'에도 안 잡혀서 배정이
+// 아니라 메모였다. 오타도 그렇게 유령 담당자가 됐다. 그런 메모는 본문에 적는다.
 const AssigneePicker = ({ value = [], onChange, members = [] }) => {
   const [input, setInput] = useState('');
   const [open, setOpen] = useState(false);
@@ -242,8 +245,8 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
   const onKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (open && suggestions.length && input.trim()) add(suggestions[activeIdx]);
-      else if (input.trim()) add(input);
+      // 목록에 있는 것만 넣는다 — 입력한 글자를 그대로 담당자로 만들지 않는다
+      if (open && suggestions.length) add(suggestions[activeIdx] ?? suggestions[0]);
     } else if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActiveIdx(i => Math.min(i + 1, suggestions.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)); }
     else if (e.key === 'Escape') { setOpen(false); }
@@ -264,10 +267,17 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
           onChange={e => { setInput(e.target.value); setOpen(true); setActiveIdx(0); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder={value.length ? '추가…' : '이름 입력 후 Enter 또는 목록에서 선택'}
+          placeholder={value.length ? '추가…' : '멤버 이름으로 찾기'}
           className="flex-1 min-w-[8rem] bg-transparent text-xs text-fg placeholder:text-fg-faint outline-none py-0.5"
         />
       </div>
+      {/* 찾는 이름이 목록에 없을 때 — 왜 안 들어가는지 알려준다.
+          아무 안내 없이 Enter가 먹히지 않으면 입력이 씹힌 것처럼 보인다. */}
+      {open && input.trim() && suggestions.length === 0 && (
+        <p className="absolute left-0 top-full z-50 mt-1 px-2.5 py-2 text-[11px] text-fg-muted bg-surface border border-line rounded-lg shadow-elevated">
+          등록된 멤버에 없는 이름이에요
+        </p>
+      )}
       {open && suggestions.length > 0 && (
         <div className="absolute left-0 top-full z-50 mt-1 w-max min-w-[10rem] max-w-[min(18rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150">
           {suggestions.map((name, i) => (

@@ -21,6 +21,7 @@ CHROME=/path/to/chrome npm run verify   # 크롬 경로가 다를 때
 | 파일 | 보는 것 |
 |---|---|
 | `logcheck` `mdcheck` | 활동 기록·마크다운 라운드트립 (브라우저 없이 순수 로직) |
+| `assignees` | 담당자 ↔ 프로필 id 변환 (읽기: 조인·폴백·빈 값 / 쓰기: 신규·수정·미등록). `cloud.js`를 가짜로 바꿔치고 `cloudSync`만 노드에서 돌린다 — 게스트 모드로는 볼 수 없는 경로다 |
 | `aictx` | AI 프롬프트에 실리는 주변 업무 컨텍스트 |
 | `errhunt` | 화면 × 데이터 상태 × 화면폭 64조합에서 ErrorBoundary·콘솔 오류 |
 | `handoff` | 핸드오프 규격(토큰·모션·4개 화면 구조·업무 상세/수정) |
