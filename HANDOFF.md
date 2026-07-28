@@ -5,9 +5,21 @@
 디자인 시스템 절은 낡았습니다 — 아래 "README와 어긋난 부분" 참고).
 
 - 레포: `github.com/thedaboot/church-workspace` · 브랜치 `main`
-- 마지막 커밋: `c6b631b` (죽은 코드·의존성 정리 + DB 정리 마이그레이션 0009~0011)
+- 마지막 커밋: `3599947` (멘션 알림이 생성되지 않던 원인 제거)
 - 배포: Vercel, `main` 푸시 시 자동
-- 검증: `npm run verify` → 20개 스위트 270 pass (약 6분)
+- 검증: `npm run verify` → 20개 스위트 270 pass (약 6분).
+  270은 단정 개수이고 스위트는 20개입니다 — 평소에는 `npm run verify -- handoff navsmoke`처럼
+  골라 돌리고(수십 초), 푸시 직전에 한 번 전부 돌리는 흐름입니다.
+
+### 이 문서 밖에 있는 것 (레포만 받아서는 알 수 없는 것)
+
+1. **시각 규격의 원본**은 아래 §1의 외부 핸드오프 번들이고 레포에 없습니다. 규격 논쟁이
+   생기면 그 문서가 기준입니다.
+2. **비밀 값**은 로컬 `.env`와 Vercel 환경변수에만 있습니다(§6). 마이그레이션을 돌리려면
+   `.env`의 `SUPABASE_DB_URL`(대시보드 Connect의 Session pooler URI)이 필요합니다.
+3. **검증 스위트는 게스트 모드만 돌립니다.** 로그인·실시간·알림·첨부처럼 클라우드에서만
+   도는 경로는 테스트가 보지 못합니다 — 실제로 멘션 알림이 한 번도 생성되지 않던 버그를
+   이 사각지대가 가리고 있었습니다(§5의 27번). 그쪽을 건드리면 두 브라우저로 직접 확인하세요.
 
 ---
 
@@ -39,20 +51,29 @@ C:\Users\노준석\Downloads\대시보드 완전 리디자인\design_handoff_wor
 
 ```
 src/App.jsx                 조립 + 라우팅 상태. 내비 마운트 분기, main 패딩, 뷰 래퍼
-src/index.css               토큰(--app-*, --p-*) · 모션(dc-*) · 그리드 유틸 · SUIT 폰트
+src/index.css               토큰(--app-*, --p-*) · 모션(dc-*) · 그리드 유틸
+                            폰트는 assets/fonts/suit.css를 import (아래 §3)
 src/config.js               팀·상태 상수, teamColor/teamBgColor/teamBar/teamPaint
 src/components/layout.jsx   TopNav(데스크톱 2줄) / MobileTopBar / MobileTabBar / ProfileMenu
                             / SearchBox / NotificationBell
-src/components/boards.jsx   칸반 보드(dnd-kit) + 캘린더(주 단위 행) + 카드 + 상태 칩
+src/components/boards.jsx   칸반 보드(dnd-kit) — 카드 · 상태 칩 · 컬럼 · DragOverlay
+src/components/calendar.jsx 캘린더(주 단위 행) — 띠 배치(layoutWeek) · 모바일 달력 · 날짜 목록
 src/views/views.jsx         DashboardView / ProjectView / MyTasksView / TeamView / TeamFilterBar
-src/views/dashboardParts.jsx  세 화면이 공유하는 부품: 마감 구간 계산, KpiCell, Bar,
-                            StatusSegments, DueGroupList, TeamLeftGrid, SectionHead, Card
-src/modals/modals.jsx       업무 상세·수정, 프로필(설정), 프로젝트 생성/이름 변경
-src/services/               cloud.js(Supabase) · cloudSync.js(모양 변환) · ai.js(Gemini
-                            프롬프트+컨텍스트) · markdown.js · domain.js
+src/views/dashboardParts.jsx  세 화면이 공유하는 부품: 마감 구간 계산(byDue·groupByDue),
+                            KpiCell, Bar, StatusSegments, DueGroupList, TeamLeftGrid, SectionHead, Card
+src/modals/modals.jsx       업무 창 — 껍데기(TaskModalShell) · 보기 · 수정 폼 · 담당자 선택
+src/modals/attachments.jsx  업무 창의 첨부 영역(업로드·미리보기 열기·삭제)
+src/modals/comments.jsx     업무 창의 댓글 · 활동 기록 패널
+src/modals/settings.jsx     내 정보(이름·팀·연결된 계정) / 프로젝트 만들기·이름 수정
+src/services/               cloud.js(Supabase) · cloudSync.js(모양 변환 + 실시간 라우팅)
+                            · ai.js(Gemini 프롬프트+컨텍스트) · markdown.js · domain.js
 src/store/                  useSyncExternalStore 기반 커스텀 스토어 + 셀렉터
+scripts/subset_suit.py      폰트 조각 생성(한 번 돌리고 결과물을 커밋 — §3)
 tests/                      검증 스위트 + 러너 (README는 tests/README.md)
 ```
+
+업무 창 네 파일은 서로를 이렇게 부릅니다: `modals.jsx`가 `attachments.jsx`와
+`comments.jsx`를 가져다 쓰고, `settings.jsx`는 App이 직접 가져옵니다.
 
 ### 리디자인에서 손대지 않은 영역
 `src/services/`, `src/store/`, `src/hooks/`, `supabase/`, `api/`, 첨부 관련
@@ -74,7 +95,14 @@ tests/                      검증 스위트 + 러너 (README는 tests/README.md
   `.dc-bar-fill`(scaleX 전환) `.dc-draw`/`.dc-draw-2`/`.dc-draw-3`(선 그리기) `.dc-draw-ring`
 - **`transform`/`opacity`만** 애니메이션합니다. 진행 바도 `width`가 아니라 `scaleX`.
 - `prefers-reduced-motion`에서 전부 해제됩니다(`tests/handoff.mjs`가 검사).
-- 폰트: **SUIT Variable**(`@sun-typeface/suit`), Pretendard는 폴백으로만 남아 있습니다.
+- 폰트: **SUIT Variable**. 패키지(`@sun-typeface/suit`)의 통짜 woff2(610KB)를 그대로
+  물리지 않고, `scripts/subset_suit.py`로 **상용 한글 2,350자(503KB) + 나머지 음절(95KB)**
+  두 조각으로 나눠 `src/assets/fonts/`에 커밋해 두었습니다. `index.css`는 거기 생성된
+  `suit.css`를 import하고, `unicode-range`가 조각을 갈라 줍니다(희귀 음절이 화면에
+  나올 때만 두 번째 조각을 받습니다). **UI에 새 기호를 쓰면** 스크립트의 `LATIN`
+  범위에 넣고 다시 돌려야 합니다 — 범위 밖 문자는 시스템 폰트로 떨어져서 한 문장
+  안에서 자획이 달라집니다(실제로 `⌘`를 빠뜨렸습니다). Pretendard는 폰트 스택의
+  폴백 이름으로만 남아 있고 패키지는 없습니다.
 - 아이콘: lucide, `svg.lucide { stroke-width: 1.4px }`로 굵기 통일. 이모지 아이콘 금지.
 - 반응형 그리드 유틸: `.dash-grid`(1열 → lg에서 `1fr 360px`), `.side-grid`(lg에서 300px),
   `.kpi-grid`(모바일 2열 → lg 4열)
@@ -205,7 +233,7 @@ CHROME=/path/to/chrome npm run verify
 
 ## 6. 데이터 · 스키마 · 비밀
 
-- 스키마는 `supabase/migrations/0001~0011`이고 **전부 라이브 DB에 적용**되어 있습니다
+- 스키마는 `supabase/migrations/0001~0012`이고 **전부 라이브 DB에 적용**되어 있습니다
   (0001~0005는 대시보드에서 수동, 0006~0011은 `npx supabase db push --db-url "$SUPABASE_DB_URL"`로.
   접속 문자열은 로컬 `.env`의 `SUPABASE_DB_URL`에 둡니다 — 대시보드 Connect의 Session pooler URI).
   0009~0011이 한 일:
@@ -213,7 +241,9 @@ CHROME=/path/to/chrome npm run verify
   값이 있던 `teams.color`는 남았고 앱은 이 컬럼을 보지 않습니다. 팀 색은 `config.js`),
   activity 고아 행 정리 + cards/projects cascade, teams 쓰기는 관리자만,
   `cards.updated_by`(트리거가 채움 → 업무 창의 '수정: 이름'),
-  어드바이저 경고 정리(공개 버킷 목록 조회 차단 등).
+  어드바이저 경고 정리(공개 버킷 목록 조회 차단 등),
+  그리고 0012에서 `pg_cron`으로 보존 기간(읽은 알림 30일 / 활동 기록 6개월,
+  UTC 19:00 = KST 04:00. 확인은 `select * from cron.job`, 해제는 `cron.unschedule`).
   **`projects.description`은 이제 없습니다** — `createProject`에 다시 넣으면 실패합니다.
 - 0008(`0008_profile_teams.sql`) 메모: 라이브에 적용됨 — 한 사람이 여러 팀에 속하는 조인 테이블 + RLS(읽기: 로그인 사용자,
   쓰기: 본인 행만) + 기존 `profiles.team_id` 복사. 기존 컬럼은 남겨 두었고
@@ -253,8 +283,14 @@ CHROME=/path/to/chrome npm run verify
 - README는 정리했습니다(디자인 절은 여기 §3을 가리킵니다). **`docs/DESIGN.md`는 여전히
   낡았습니다** — 노션 스펙·Pretendard 기준이라 현재 화면과 맞지 않습니다. 참고용으로만
   남겨 두었고, 시각 기준은 §1의 외부 핸드오프 문서와 §3입니다.
-- Pretendard는 폰트 스택의 폴백 이름으로만 남아 있습니다(패키지는 제거). 본문은 SUIT 한 벌입니다.
-  SUIT Variable이 625KB라, 더 줄이려면 사용 글자 범위로 서브셋하는 단계를 빌드에 넣어야 합니다.
+- 폰트는 §3대로 두 조각으로 나눠 두었습니다. 더 줄이려면 조각을 더 잘게 나누는 길이
+  남아 있는데, 재보고 접었습니다(빈도별 92조각: 합계 610→920KB로 늘고 첫 화면이
+  28조각 485KB. 이유는 `scripts/subset_suit.py` docstring에).
+- **메인 번들 633KB(gzip 182KB)** 는 손대지 않았습니다. TipTap·pdf.js는 이미 분리돼
+  있고 남은 큰 덩이는 supabase-js·dnd-kit·React입니다.
+- 손대지 않은 개선 후보: `DatePicker`/`AssigneePicker` 드롭다운만 portal이 아니라
+  `absolute`(모달 본문이 `overflow-y-auto`라 잘릴 수 있음. 지금 깨지지는 않습니다),
+  캘린더 띠 줄 수 상한(`CAL_LANES = 2` — 사용자가 2로 유지하기로 정했습니다).
 - 어드바이저 경고 중 두 개는 **의도해서 남긴 것**입니다: `is_admin()`을 로그인 사용자가
   실행할 수 있는 것(RLS 정책이 평가할 때 필요합니다. 불러도 "나는 관리자인가"만 알 수 있습니다),
   그리고 Leaked Password Protection(구글·카카오 OAuth만 쓰므로 저장하는 비밀번호가 없습니다).
