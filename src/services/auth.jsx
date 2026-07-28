@@ -25,10 +25,13 @@ export function AuthProvider({ children }) {
     return () => sub.subscription.unsubscribe();
   }, [enabled]);
 
-  // 로그인 사용자 이름을 워크스페이스 프로필에 반영
+  // 로그인 사용자 이름을 워크스페이스 프로필에 반영 — 단, 이름이 **비어 있을 때만**.
+  // onAuthStateChange는 토큰 갱신(1시간 주기)에도 새 session 객체를 주므로 조건 없이
+  // 덮어쓰면 사용자가 정한 표시 이름이 구글 이름으로 되돌아갔다. 그러면
+  // selectMyTasks(assignees에 name 포함)가 어긋나 '내 업무'가 통째로 비었다.
   useEffect(() => {
     const name = session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.name;
-    if (name) store.dispatch({ type: 'UPDATE_USER', payload: { name } });
+    if (name && !store.getState().currentUser.name) store.dispatch({ type: 'UPDATE_USER', payload: { name } });
   }, [session]);
 
   const signIn = (provider) => supabase.auth.signInWithOAuth({

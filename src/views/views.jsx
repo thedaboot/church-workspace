@@ -242,6 +242,12 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   const toggleTeam = (team) => setSelectedTeams(prev => prev.includes(team) ? prev.filter(t => t !== team) : [...prev, team]);
   const filteredTasks = useMemo(() => selectedTeams.length === 0 ? projectTasks : projectTasks.filter(task => task.teams.some(t => selectedTeams.includes(t))), [projectTasks, selectedTeams]);
 
+  // 없는 프로젝트(잘못된 ?p= 딥링크 / 다른 사람이 방금 삭제)일 때 그냥 null을 돌려주면
+  // 내비만 남고 본문이 빈 화면이 됐다. 대시보드로 되돌린다.
+  // ponytail: 토스트는 띄우지 않는다 — 직접 삭제한 사람에게도 같이 떠서 "못 찾았다"는
+  // 엉뚱한 안내가 된다. 화면이 대시보드로 돌아가는 것으로 충분하다.
+  useEffect(() => { if (!project) onNavigate?.('dashboard'); }, [project, onNavigate]);
+
   if (!project) return null;
 
   const cloudErr = (label) => (err) => { console.error(`[cloud] ${label} 실패:`, err); showToast(`저장에 실패했어요 (${label}) · ${cloudSync.formatCloudError(err)}`); };

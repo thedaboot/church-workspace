@@ -45,7 +45,7 @@ export function tokenizeInline(text, marks = [], href = null) {
   return out;
 }
 // 줄 전체가 이미지 URL일 때만 image 노드로 (일부만 포함된 줄은 문단으로 두어 원문 보존)
-const IMAGE_LINE_RE = /^https?:\/\/\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?$/i;
+export const IMAGE_LINE_RE = /^https?:\/\/\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?$/i;
 
 const textNode = (text, marks) => (marks && marks.length ? { type: 'text', text, marks } : { type: 'text', text });
 

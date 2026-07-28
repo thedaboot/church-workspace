@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { store } from './store/workspaceStore.js';
+import { store, useCanUndo, useCanRedo } from './store/workspaceStore.js';
 import { useWorkspaceController } from './hooks/controllers.js';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import { TopNav, MobileTopBar, MobileTabBar } from './components/layout.jsx';
@@ -80,6 +80,9 @@ function WorkspaceShell() {
   const [cloudReady, setCloudReady] = useState(!cloudMode);
   const [loadError, setLoadError] = useState(null);
   const [retrying, setRetrying] = useState(false);
+  // 스토어 구독 — 렌더 중 store.canUndo()를 부르면 값이 갱신되지 않는다
+  const canUndo = useCanUndo();
+  const canRedo = useCanRedo();
 
   // 클라우드 상태를 다시 읽어 스토어에 반영
   const reloadCloud = useCallback(async () => {
@@ -143,6 +146,23 @@ function WorkspaceShell() {
     pendingReloadRef.current = false;
     reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e));
   }, [cloudMode, isEditing, reloadCloud]);
+
+  // Ctrl/⌘+Z · Shift+Ctrl/⌘+Z — 버튼 툴팁이 예전부터 이 단축키를 안내하고 있었는데
+  // 정작 핸들러가 없었다. 버튼과 같은 조건(게스트 모드)에서만 받고,
+  // 글자를 입력하는 중이거나 창이 열려 있으면 넘긴다(입력 되돌리기를 가로채면 안 된다).
+  useEffect(() => {
+    if (cloudMode) return;
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+      if (modalState.isOpen || isProfileModalOpen || isProjectModalOpen || renameTarget) return;
+      const el = e.target;
+      if (el?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el?.tagName || '')) return;
+      e.preventDefault();
+      if (e.shiftKey) store.redo(); else store.undo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cloudMode, modalState.isOpen, isProfileModalOpen, isProjectModalOpen, renameTarget]);
 
   const openTaskModal = useCallback((task, isEditMode = false) => {
     setModalState({ isOpen: true, task, isEditMode });
@@ -224,7 +244,7 @@ function WorkspaceShell() {
           activeMenu={activeMenu} setActiveMenu={selectMenu}
           onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification}
           onOpenProfile={openProfile} onOpenProject={openProjectModal}
-          undo={controller.undo} redo={controller.redo} canUndo={store.canUndo()} canRedo={store.canRedo()} cloudMode={cloudMode}
+          undo={controller.undo} redo={controller.redo} canUndo={canUndo} canRedo={canRedo} cloudMode={cloudMode}
         />
       )}
 

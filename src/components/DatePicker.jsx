@@ -4,8 +4,9 @@ import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 // 노션 톤 커스텀 데이트피커
 // - value: 'YYYY-MM-DD' 문자열 또는 ''
 // - onChange(nextValue): 선택/지우기 시 호출
-// - 선택 가능 범위: 올해 1월 ~ 2030년 12월
-const MIN_YEAR = new Date().getFullYear();
+// - 선택 가능 범위: 작년 1월 ~ 2030년 12월
+//   (작년까지 내려두는 이유: 이미 시작한 업무를 나중에 등록하면 시작일이 작년이다)
+const MIN_YEAR = new Date().getFullYear() - 1;
 const MAX_YEAR = 2030;
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 

@@ -144,8 +144,11 @@ export async function listCards(projectId) {
     .order('position', { ascending: true }));
 }
 // 전체 카드 (초기 로드용, card_teams 조인)
+// position은 아직 아무도 채우지 않아 전부 0이다 → 정렬 키로 쓰면 같은 컬럼 안 순서가
+// 매 조회마다 달라져(같은 값이면 Postgres가 순서를 보장하지 않는다) 카드가 제멋대로
+// 뒤바뀌어 보였다. 만든 순서로 고정한다. (컬럼은 수동 정렬을 붙일 때를 위해 남겨둔다)
 export async function listAllCards() {
-  return unwrap(await client().from('cards').select('*, card_teams(team_id)').order('position', { ascending: true }));
+  return unwrap(await client().from('cards').select('*, card_teams(team_id)').order('created_at', { ascending: true }));
 }
 export async function createCard(data, teamIds = []) {
   const card = unwrap(await client().from('cards').insert(data).select().single());
@@ -415,7 +418,6 @@ export function subscribeAll(onChange) {
   const channel = c.channel('workspace-all')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'cards' }, onChange)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'card_teams' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'resource_links' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'files' }, onChange)

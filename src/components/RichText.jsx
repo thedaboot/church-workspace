@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { tokenizeInline, MD_LINK_RE } from '../services/markdown.js';
+import { tokenizeInline, MD_LINK_RE, IMAGE_LINE_RE } from '../services/markdown.js';
 import { SmartImage, ImageLightbox } from './media.jsx';
 
 // ============================================================================
@@ -58,7 +58,10 @@ const parseBlocks = (text) => {
   for (const [i, line] of text.split('\n').entries()) {
     // [텍스트](URL) 형태의 링크 줄은 이미지로 오인하지 않고 단락으로(인라인에서 링크 렌더)
     const isMdLinkLine = MD_LINK_RE.test(line.trim());
-    if (!isMdLinkLine && /(https?:\/\/\S+\.(?:png|jpg|jpeg|gif|webp))/i.test(line)) { blocks.push({ type: 'image', value: line.trim(), key: i }); continue; }
+    // 줄 **전체**가 이미지 URL일 때만 이미지 블록으로 본다(에디터의 IMAGE_LINE_RE와 같은 판정).
+    // 예전에는 줄 안에 URL이 있으면 되던 탓에 "사진: https://….png"가 줄 전체를 src로
+    // 넘겨 깨진 이미지가 되고 앞의 문장이 사라졌다.
+    if (!isMdLinkLine && IMAGE_LINE_RE.test(line.trim())) { blocks.push({ type: 'image', value: line.trim(), key: i }); continue; }
     const h = line.match(/^(#{1,4})\s+(.*)$/);
     if (h) { blocks.push({ type: 'heading', level: h[1].length, value: h[2], key: i }); continue; }
     const ul = line.match(/^\s*[-*]\s+(.*)$/);
