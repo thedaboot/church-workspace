@@ -231,6 +231,10 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
           {projectsList.map(p => (
             <button
               key={p.id} onClick={() => setActiveMenu(p.id)}
+              // 활성 탭이 화면 밖이면 끌어온다 — 여기는 데스크톱과 달리 프로젝트를 전부
+              // 그려서(가로 스크롤), 프로젝트가 늘면 지금 보고 있는 탭이 오른쪽 밖에
+              // 있어도 아무 표시가 없었다. ref 콜백이라 활성 탭이 바뀔 때만 불린다.
+              ref={activeMenu === p.id ? (el) => el?.scrollIntoView({ inline: 'nearest', block: 'nearest' }) : null}
               className={`shrink-0 px-3 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap ${activeMenu === p.id ? 'text-fg border-fg' : 'text-fg-muted border-transparent'}`}
             >
               {p.title}

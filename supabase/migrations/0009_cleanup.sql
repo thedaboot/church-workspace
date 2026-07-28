@@ -76,16 +76,5 @@ create policy teams_insert on public.teams
 create policy teams_update on public.teams
   for update using (public.is_admin()) with check (public.is_admin());
 
--- ── (D) 보존 기간 ────────────────────────────────────────────────────────────
--- notifications·activity는 계속 쌓이기만 한다. pg_cron이 켜져 있으면 아래처럼 걸고,
--- 아니면 필요할 때 delete 두 줄을 대시보드에서 직접 돌리면 된다.
---
---   select cron.schedule('purge-read-notifications', '0 4 * * *', $$
---     delete from public.notifications where read and created_at < now() - interval '30 days';
---   $$);
---   select cron.schedule('purge-old-activity', '30 4 * * 0', $$
---     delete from public.activity where created_at < now() - interval '6 months';
---   $$);
---
--- ponytail: 지금 규모에서는 스케줄러를 켜는 것보다 필요할 때 한 줄 돌리는 게 싸다.
--- 수만 행이 되면 위 cron으로 올리세요.
+-- ── (D) 보존 기간 → 0012_retention.sql ──────────────────────────────────────
+-- notifications·activity는 계속 쌓이기만 한다. pg_cron으로 걸어 두었다.

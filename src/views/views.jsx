@@ -12,7 +12,8 @@ import {
   ISO_TODAY, daysLeft, groupByDue, KpiCell, Bar, StatusSegments,
   DueGroupList, TeamLeftGrid, SectionHead, Card, STATUS_DOT_VAR, STATUS_BAR,
 } from './dashboardParts.jsx';
-import { Board, CalendarBoard } from '../components/boards.jsx';
+import { Board } from '../components/boards.jsx';
+import { CalendarBoard } from '../components/calendar.jsx';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';

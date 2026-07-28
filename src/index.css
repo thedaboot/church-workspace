@@ -2,15 +2,12 @@
 @import 'tw-animate-css';
 
 /* 본문 폰트 SUIT (가변) — 시스템 폰트는 기기마다 자획이 달라 화면 인상이 흔들린다.
-   패키지가 주는 CSS를 그대로 import하지 않는 이유는 font-display가 없어서다:
-   기본값(auto)이면 폰트를 받는 동안 글자가 아예 안 보인다(FOIT, 최대 3초).
-   swap으로 폴백 폰트부터 그리고, 도착하면 갈아끼운다. */
-@font-face {
-  font-family: 'SUIT Variable';
-  font-weight: 100 900;
-  font-display: swap;
-  src: url('@sun-typeface/suit/fonts/variable/woff2/SUIT-Variable.woff2') format('woff2-variations');
-}
+   패키지의 통짜 woff2(610KB)를 그대로 물리면 글자 몇 개를 그리든 610KB를 받는다.
+   사용 빈도별 조각으로 나눠 두고(scripts/subset_suit.py) unicode-range로 갈라
+   브라우저가 화면에 나온 글자가 속한 조각만 받게 한다. 패키지 CSS를 쓰지 않는
+   이유이기도 하다: 거기엔 font-display가 없어서 받는 동안 글자가 아예 안 보인다
+   (FOIT, 최대 3초). 생성된 CSS는 swap을 넣는다. */
+@import './assets/fonts/suit.css';
 
 /* 수동 테마 전환: <html data-theme="dark">가 다크 기준 (기본값은 index.html 스크립트가 시스템 설정으로 결정) */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
