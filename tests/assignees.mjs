@@ -87,4 +87,56 @@ await sync.cardUpsertCloud({ id: 'c1', projectId: 'p1', title: 'x', status: '완
 assert.deepStrictEqual(writes.at(-1).assigneeIds, [], '프로필에 없는 이름은 조인 행을 만들지 않는다');
 assert.deepStrictEqual(writes.at(-1).patch.assignees, ['없는사람'], '그래도 컬럼에는 남아 화면에서 사라지지 않는다');
 
-console.log('PASS  담당자 읽기 3가지(조인·폴백·빈 값) · 쓰기 3가지(신규·수정·미등록)');
+// ── cloud.js가 내보내는 문장 모양 ─────────────────────────────────────────
+// 저장이 겹치면(저장 두 번 눌림·두 기기) 조인 쓰기 문장이 D1 D2 I1 I2 순으로 도착한다.
+// "전부 지우고 전부 넣기"였을 때는 I2가 I1의 행과 부딪혀 duplicate key로 저장이
+// 실패했다(라이브에서 재현 확인). 순서에 상관없는 모양인지 여기서 못 박는다.
+const SB_SRC = join(import.meta.dirname, '..', 'src', 'services', 'cloud.js');
+const sbPatched = readFileSync(SB_SRC, 'utf8')
+  .replace(/import \{ supabase \} from '\.\/supabaseClient\.js';/, 'const supabase = globalThis.__SB;')
+  .replace(/import \{ CONFIG \} from '\.\.\/config\.js';/,
+    `const CONFIG = { STATUS_DB: { '시작 전':'todo', '진행 중':'doing', '보류 중':'hold', '완료':'done' }, STATUSES: ['시작 전'] };`);
+
+// 부른 문장을 기록만 하는 가짜 쿼리 빌더 (네트워크 없음)
+const stmts = [];
+globalThis.__SB = {
+  from(table) {
+    const rec = { table, filters: [] };
+    const self = {
+      update: (patch) => { rec.op = 'update'; rec.patch = patch; return self; },
+      upsert: (rows, opts) => { rec.op = 'upsert'; rec.rows = rows; rec.opts = opts; return self; },
+      insert: (rows) => { rec.op = 'insert'; rec.rows = rows; return self; },
+      delete: () => { rec.op = 'delete'; return self; },
+      select: () => self, single: () => self, maybeSingle: () => self,
+      eq: (c, v) => { rec.filters.push({ kind: 'eq', col: c, val: v }); return self; },
+      not: (c, o, v) => { rec.filters.push({ kind: 'not', col: c, op: o, val: v }); return self; },
+      then: (onOk) => { stmts.push(rec); return Promise.resolve({ data: { id: 'c1' }, error: null }).then(onOk); },
+    };
+    return self;
+  },
+};
+const sbFile = join(dir, 'cloud.mjs');
+writeFileSync(sbFile, sbPatched);
+const cloudMod = await import('file://' + sbFile.replace(/\\/g, '/'));
+
+await cloudMod.updateCard('c1', { title: 'x' }, ['team-1'], ['u1', 'u2']);
+const stmtsFor = (t) => stmts.filter(s => s.table === t);
+for (const [table, col] of [['card_assignees', 'profile_id'], ['card_teams', 'team_id']]) {
+  const del = stmtsFor(table).find(s => s.op === 'delete');
+  const ins = stmtsFor(table).find(s => s.op === 'upsert' || s.op === 'insert');
+  assert.ok(del, `${table}: 지우는 문장이 있다`);
+  assert.ok(del.filters.some(f => f.kind === 'not' && f.col === col && f.op === 'in'),
+    `${table}: 집합에 없는 것만 지운다 (전부 지우면 겹친 저장이 duplicate key로 깨진다)`);
+  assert.equal(ins?.op, 'upsert', `${table}: 넣기는 upsert여야 한다 (insert는 이미 있는 행에서 깨진다)`);
+  assert.equal(ins.opts?.ignoreDuplicates, true, `${table}: on conflict do nothing`);
+}
+
+// 담당자를 모두 비우는 경우 — 이때는 전부 지우고 넣지 않는다
+stmts.length = 0;
+await cloudMod.updateCard('c1', { title: 'x' }, undefined, []);
+const emptyDel = stmtsFor('card_assignees').find(s => s.op === 'delete');
+assert.ok(emptyDel && !emptyDel.filters.some(f => f.kind === 'not'), '빈 집합이면 조건 없이 전부 지운다');
+assert.ok(!stmtsFor('card_assignees').some(s => s.op === 'upsert' || s.op === 'insert'), '빈 집합이면 넣지 않는다');
+assert.ok(!stmtsFor('card_teams').length, 'undefined인 조인은 건드리지 않는다');
+
+console.log('PASS  담당자 읽기 3가지(조인·폴백·빈 값) · 쓰기 3가지(신규·수정·미등록) · 조인 쓰기가 순서에 상관없는 모양');

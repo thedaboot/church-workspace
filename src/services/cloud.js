@@ -157,14 +157,32 @@ export async function createCard(data, teamIds = [], assigneeIds = []) {
 // (스테일 로컬 데이터나 다른 기기에서의 삭제로 행이 사라진 경우 자연 복구)
 const isNoRowsError = (err) => err?.code === 'PGRST116';
 
-// 조인 테이블 하나를 '주어진 id 집합'으로 맞춘다(지우고 다시 넣기).
-// 담당자·팀 모두 한 카드에 몇 개뿐이라 차집합을 계산하는 것보다 이게 짧고,
-// 저장은 항상 폼 전체를 쓰는 흐름이라 부분 갱신이 필요하지 않다.
+// 조인 테이블 하나를 '주어진 id 집합'으로 맞춘다.
+//
+// 처음에는 "전부 지우고 전부 넣기"로 썼는데, 그건 왕복이 두 번이라 **멱등이 아니다.**
+// 저장 두 개가 겹치면(저장 버튼 두 번 눌림, 두 기기, 곧바로 이어진 수정) 문장이
+// D1 → D2 → I1 → I2 순으로 도착하고, D2는 지울 것이 없는 상태로 지나가서 I2가 I1이
+// 넣은 행과 부딪힌다:
+//   ERROR: duplicate key value violates unique constraint "card_assignees_pkey"
+// 라이브 DB에 같은 역할·같은 JWT 클레임으로 그 순서를 흘려 재현했다(rollback).
+// 0013 전에는 담당자가 cards.assignees 컬럼 하나였고 컬럼 UPDATE는 몇 번 겹쳐도
+// 결과가 같아서(멱등) 이 문제가 없었다 — 담당자를 조인 테이블로 옮기면서 생긴 것이다.
+//
+// 그래서 순서에 상관없이 같은 결과가 되게 바꿨다:
+//   ① 집합에 **없는 것만** 지운다 (남길 행은 건드리지 않는다)
+//   ② 넣기는 on conflict do nothing (이미 있으면 조용히 넘어간다)
+// 두 저장이 겹쳐도 둘 다 성공하고 최종 상태는 같다.
 async function resetCardJoin(table, column, cardId, ids) {
-  const del = await client().from(table).delete().eq('card_id', cardId);
-  if (del.error) throw del.error;
+  let del = client().from(table).delete().eq('card_id', cardId);
+  // uuid에는 콤마가 없지만 따옴표로 감싸 PostgREST의 목록 파싱에 맡긴다
+  if (ids.length) del = del.not(column, 'in', `("${ids.join('","')}")`);
+  const d = await del;
+  if (d.error) throw d.error;
   if (!ids.length) return;
-  const ins = await client().from(table).insert(ids.map(v => ({ card_id: cardId, [column]: v })));
+  const ins = await client().from(table).upsert(
+    ids.map(v => ({ card_id: cardId, [column]: v })),
+    { onConflict: `card_id,${column}`, ignoreDuplicates: true },
+  );
   if (ins.error) throw ins.error;
 }
 

@@ -90,7 +90,18 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudMode]);
 
-  const handleSubmit = (e) => { e.preventDefault(); onSave(formData); };
+  // 저장은 한 번만 — 두 번 눌리면 같은 카드에 저장이 겹쳐서 담당자·팀 조인 쓰기가
+  // 서로 부딪혔다(duplicate key). cloud.js의 resetCardJoin을 멱등하게 고쳐 이제
+  // 부딪히지 않지만, 애초에 두 번 보낼 이유가 없으니 여기서도 막는다.
+  // 다시 '수정'으로 들어오면 풀린다.
+  const submittingRef = useRef(false);
+  useEffect(() => { if (isEditMode) submittingRef.current = false; }, [isEditMode]);
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    onSave(formData);
+  };
   const commentCount = (formData.comments || []).filter(c => !c.parentId).length;
   const metaLine = [
     formData.author && `작성: ${formData.author}`,

@@ -9,8 +9,9 @@ import {
   selectDashboardStats, selectTasksList
 } from '../store/selectors.js';
 import {
-  ISO_TODAY, daysLeft, groupByDue, KpiCell, Bar, StatusSegments,
-  DueGroupList, TeamLeftGrid, SectionHead, Card, STATUS_DOT_VAR, STATUS_BAR,
+  ISO_TODAY, daysLeft, ageDays, groupByDue, KpiCell, Bar, StatusSegments,
+  DueGroupList, TeamLeftGrid, PersonLoadGrid, personLoad, SectionHead, Card,
+  STATUS_DOT_VAR, STATUS_BAR,
 } from './dashboardParts.jsx';
 import { Board } from '../components/boards.jsx';
 import { CalendarBoard } from '../components/calendar.jsx';
@@ -56,6 +57,17 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
 
   const doneAll = tasksList.length - open.length;
   const progress = tasksList.length ? Math.round((doneAll / tasksList.length) * 100) : 0;
+
+  // 지난 7일 간 끝낸 건수 — 이 화면은 앞만 보기 때문에 정리한 성과가 바로 사라진다.
+  // ponytail: 완료 시각을 따로 저장하지 않으므로 updatedAt을 대신 쓴다. 끝낸 뒤에
+  // 그 카드를 또 고치면 날짜가 밀린다 — 정확한 완료 시각이 필요해지면
+  // cards.completed_at을 두고 그때 이 줄만 바꾸면 된다.
+  const doneRecent = useMemo(
+    () => tasksList.filter(t => t.status === '완료' && t.updatedAt && ageDays(t.updatedAt, today) <= 7).length,
+    [tasksList, today]);
+
+  // 사역의 무게 — 담당자별 남은 업무. 팀별과 같은 기준(필터와 무관한 전체)으로 센다
+  const people = useMemo(() => personLoad(open, today), [open, today]);
 
   // 프로젝트별 상태 분포 — 4색 세그먼트 바.
   // 프로젝트마다 목록 전체를 다시 훑지 않도록 한 번 묶고(groupBy) 한 번만 센다.
@@ -131,6 +143,12 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
         <div className="min-w-0">
           <h2 className="text-[19px] md:text-[23px] font-extrabold text-fg mb-[3px]" style={{ letterSpacing: '-0.7px' }}>{greeting}</h2>
           <p className="text-[12.5px] text-fg-muted">{todayText} 기준 · {headline}</p>
+          {/* 0건이면 줄을 아예 두지 않는다 — 없는 것을 굳이 말하지 않는다 */}
+          {doneRecent > 0 && (
+            <p className="text-[12.5px] mt-[2px] tabular-nums" style={{ color: 'var(--app-tag-green-fg)' }}>
+              지난 7일 간 {doneRecent}건 끝냈어요
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-1 shrink-0 p-[3px] rounded-[8px]" style={{ background: 'var(--app-surface-hover)' }}>
           {DASH_FILTERS.map(f => (
@@ -193,6 +211,11 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
           <div>
             <SectionHead>팀별 남은 업무</SectionHead>
             <TeamLeftGrid stats={teamStats} onOpenTeam={(name) => onNavigate(`team:${name}`)} />
+          </div>
+
+          <div>
+            <SectionHead>사역의 무게</SectionHead>
+            <PersonLoadGrid people={people} />
           </div>
         </div>
       </div>
