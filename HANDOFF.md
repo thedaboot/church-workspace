@@ -1,8 +1,12 @@
-# 인수인계 — 더다붓 워크스페이스 리디자인 (2026-07-28 기준)
+# 인수인계 — 더다붓 워크스페이스 (2026-07-29 기준)
 
-다음 사람이 이 코드를 처음 열었을 때 **어디를 보면 되는지**, 그리고 **이미 한 번 밟은 함정을
-다시 밟지 않도록** 정리한 문서입니다. 기능 소개는 [`README.md`](README.md)에 있습니다(단,
-디자인 시스템 절은 낡았습니다 — 아래 "README와 어긋난 부분" 참고).
+다음 사람이 이 코드를 처음 열었을 때 **어디를 보면 되는지**, **이미 한 번 밟은 함정을 다시
+밟지 않도록**, 그리고 **다음에 무엇을 할지** 정리한 문서입니다. 기능 소개는
+[`README.md`](README.md)에 있습니다.
+
+**새 기능을 붙이러 왔다면 §8(다음에 할 일)과 §9(이 레포의 흐름)부터 읽으세요.**
+§8.3에는 사용자가 판단해서 뺀 항목이 이유와 함께 있습니다 — 그걸 다시 제안하지 않는 것이
+이 문서의 목적 중 하나입니다.
 
 - 레포: `github.com/thedaboot/church-workspace` · 브랜치 `main`
 - 최근 작업은 `git log --oneline -15`로 봅니다 (여기에 커밋 해시를 적어 두면
@@ -18,9 +22,16 @@
    생기면 그 문서가 기준입니다.
 2. **비밀 값**은 로컬 `.env`와 Vercel 환경변수에만 있습니다(§6). 마이그레이션을 돌리려면
    `.env`의 `SUPABASE_DB_URL`(대시보드 Connect의 Session pooler URI)이 필요합니다.
-3. **검증 스위트는 게스트 모드만 돌립니다.** 로그인·실시간·알림·첨부처럼 클라우드에서만
-   도는 경로는 테스트가 보지 못합니다 — 실제로 멘션 알림이 한 번도 생성되지 않던 버그를
-   이 사각지대가 가리고 있었습니다(§5의 27번). 그쪽을 건드리면 두 브라우저로 직접 확인하세요.
+3. **검증 스위트는 게스트 모드만 돌립니다.** 로그인·실시간·알림·첨부·담당자 저장처럼
+   클라우드에서만 도는 경로는 테스트가 보지 못합니다. 이 사각지대가 실제로 버그 셋을
+   가리고 있었습니다 — 멘션 알림이 한 번도 생성되지 않던 것(§5의 27번), 담당자 추가 시
+   duplicate key(29번), 업무 저장 시 `activity_pkey`(30번). 뒤의 둘은 사용자가 직접 써
+   보고 알려줘서 잡혔습니다. **그쪽을 건드리면 배포 후 직접 확인해 달라고 부탁하세요.**
+4. **라이브 DB 확인은 psql로 합니다.** `.env`의 `SUPABASE_DB_URL`로 붙고, 한글이 깨지면
+   `PGCLIENTENCODING=UTF8`을 붙이세요(psql 메타 명령에 한글을 넣으면 인코딩이 깨져서
+   SQL은 파일로 넘기는 쪽이 안전합니다). RLS가 걸린 경로를 재현할 때는 트랜잭션 안에서
+   `set local role authenticated` + `set_config('request.jwt.claims', …)`로 같은 역할·
+   같은 클레임을 만들고 **ROLLBACK**하세요 — 버그 셋을 이 방법으로 재현했습니다.
 
 ---
 
@@ -59,15 +70,18 @@ src/components/layout.jsx   TopNav(데스크톱 2줄) / MobileTopBar / MobileTab
                             / SearchBox / NotificationBell
 src/components/boards.jsx   칸반 보드(dnd-kit) — 카드 · 상태 칩 · 컬럼 · DragOverlay
 src/components/calendar.jsx 캘린더(주 단위 행) — 띠 배치(layoutWeek) · 모바일 달력 · 날짜 목록
-src/views/views.jsx         DashboardView / ProjectView / MyTasksView / TeamView / TeamFilterBar
-src/views/dashboardParts.jsx  세 화면이 공유하는 부품: 마감 구간 계산(byDue·groupByDue),
-                            KpiCell, Bar, StatusSegments, DueGroupList, TeamLeftGrid, SectionHead, Card
+src/views/views.jsx         DashboardView / ProjectView / MyTasksView / TeamView / ScheduleView
+                            / TeamFilterBar
+src/views/dashboardParts.jsx  여러 화면이 공유하는 부품: 마감 구간 계산(byDue·groupByDue·
+                            bucketOf·isStaleNoDue), KpiCell, Bar, StatusSegments, DueGroupList,
+                            TeamLeftGrid, PersonLoadGrid·personLoad(청년별), SectionHead, Card
 src/modals/modals.jsx       업무 창 — 껍데기(TaskModalShell) · 보기 · 수정 폼 · 담당자 선택
 src/modals/attachments.jsx  업무 창의 첨부 영역(업로드·미리보기 열기·삭제)
 src/modals/comments.jsx     업무 창의 댓글 · 활동 기록 패널
 src/modals/settings.jsx     내 정보(이름·팀·연결된 계정) / 프로젝트 만들기·이름 수정
 src/services/               cloud.js(Supabase) · cloudSync.js(모양 변환 + 실시간 라우팅)
-                            · ai.js(Gemini 프롬프트+컨텍스트) · markdown.js · domain.js
+                            · ai.js(Gemini 프롬프트+컨텍스트+요약 캐시) · markdown.js
+                            · domain.js(TaskService·ActivityService)
 src/store/                  useSyncExternalStore 기반 커스텀 스토어 + 셀렉터
 scripts/subset_suit.py      폰트 조각 생성(한 번 돌리고 결과물을 커밋 — §3)
 tests/                      검증 스위트 + 러너 (README는 tests/README.md)
@@ -75,6 +89,11 @@ tests/                      검증 스위트 + 러너 (README는 tests/README.md
 
 업무 창 네 파일은 서로를 이렇게 부릅니다: `modals.jsx`가 `attachments.jsx`와
 `comments.jsx`를 가져다 쓰고, `settings.jsx`는 App이 직접 가져옵니다.
+
+전역 화면 이름은 `App.jsx`의 `GLOBAL_MENUS`(`dashboard`·`myTasks`·`schedule`)에 모여
+있습니다. **새 전역 화면을 만들면 이 목록에도 넣으세요** — 없으면 그 이름이 프로젝트
+id로 오해돼 '없는 프로젝트'로 판정되고 대시보드로 튕깁니다. 그리고 안에서 스크롤하는
+화면(보드·달력)은 `needsFullHeight`에도 넣어야 높이가 확정됩니다(§5의 2번).
 
 ### 리디자인에서 손대지 않은 영역
 `src/services/`, `src/store/`, `src/hooks/`, `supabase/`, `api/`, 첨부 관련
@@ -318,22 +337,107 @@ CHROME=/path/to/chrome npm run verify
   `AllClearMark`(체크), `EmptyColumnMark`(카드 한 장). 빈 상태 내용은 남는 공간의 세로
   가운데에 둡니다.
 - 기능을 숨기지 않습니다. 정리하려고 '⋯' 메뉴에 넣었더니 기존에 쓰던 공유를 못 찾았습니다.
+  hover로만 나타나는 조작도 같은 이유로 피합니다 — 터치 기기에는 hover가 없어서 그 기능이
+  아예 없는 것처럼 보입니다(요약 버튼·하위 업무 삭제·댓글 수정에서 실제로 그랬습니다).
+- **버튼 배치·색**: 대화창·팝오버는 `취소 왼쪽 / 확정 오른쪽`(웹 관행이고, 삭제 같은 확정을
+  손가락이 놓이는 자리에서 떨어뜨려 두는 안전 장치입니다). 업무 창 푸터는 대화창이 아니라
+  상시 도구 줄이라 `수정·저장 왼쪽 / 닫기 오른쪽`이고, 두 모드에서 자리가 같습니다 —
+  저장이 오른쪽이고 수정이 왼쪽이면 저장한 순간 손가락 밑의 버튼이 다른 뜻이 됩니다.
+  색은 구조색이 하나뿐이므로 행동에만 씁니다: 진한 accent = 확정(저장·새 업무),
+  연한 accent = 편집 진입(수정), 무채색 = 아무 일도 안 함(닫기·취소).
+  **Tailwind 기본 팔레트(`red-500` 등)를 쓰지 마세요** — 테마를 따라가지 않아 다크 모드에서
+  그대로 튑니다. 토큰(`tag-red-fg` 등)만 씁니다.
 
 ---
 
-## 8. 남은 일 / 알려진 상태
+## 8. 다음에 할 일 (준비된 설계)
 
-- README는 정리했습니다(디자인 절은 여기 §3을 가리킵니다). **`docs/DESIGN.md`는 여전히
-  낡았습니다** — 노션 스펙·Pretendard 기준이라 현재 화면과 맞지 않습니다. 참고용으로만
-  남겨 두었고, 시각 기준은 §1의 외부 핸드오프 문서와 §3입니다.
+### 8.1 알림 확장 + 웹 푸시 — 다음 세션의 1순위
+
+지금 알림은 **멘션과 답글 두 종류뿐**이고 앱 안에서만 뜹니다(`layout.jsx`의
+`NotificationBell`). 그래서 **나에게 업무가 배정돼도 아무 신호가 없습니다.** 마감 임박도
+없습니다. 그리고 청년부가 이 앱을 매일 열지는 않으니, 앱 밖으로 닿는 길이 필요합니다.
+
+전달 방식은 **웹 푸시로 정했습니다.** 카카오 알림톡·친구톡은 비즈니스 채널 개설 +
+사업자 정보 + **템플릿 사전 심사** + 발송 대행사 계약이 필요하고, 심사 문구에 갇혀서
+§7의 문구 톤을 못 씁니다. 카카오 로그인의 '나에게 보내기'는 본인에게만 보낼 수 있어
+팀 알림에 못 씁니다. 이메일은 웹 푸시 다음입니다.
+
+**할 일 네 덩이:**
+
+1. **알림 종류 추가** — `notifications.kind`에 `assign`·`due_soon`을 더합니다.
+   0007이 `reply`를 추가한 방식을 그대로 따르세요(체크 제약 갱신).
+   문구는 `layout.jsx`의 `notifText(kind)` 한 곳에 있습니다.
+   - `assign`: 담당자가 새로 붙었을 때. 만드는 자리는 `controllers.js`의
+     `handleSaveTask` — 이미 멘션 알림을 그 자리에서 만듭니다
+     (`newMentionsOnly`처럼 "이전에 없던 담당자만" 골라야 두 번 알리지 않습니다).
+   - `due_soon`: 사람이 만드는 게 아니라 하루 한 번 도는 작업이 만듭니다(아래 4번).
+
+2. **구독 저장** — `push_subscriptions(profile_id, endpoint unique, p256dh, auth,
+   user_agent, created_at)` + RLS(본인 행만 읽고 쓰기). 한 사람이 기기마다 하나씩
+   가집니다. `endpoint`에 unique를 걸고 **upsert + on conflict do nothing**으로
+   넣으세요 — 같은 기기가 다시 구독할 때 중복으로 깨지면 안 됩니다(§5의 29번과 같은 이유).
+
+3. **서비스 워커 + 발송 라우트**
+   - `public/sw.js`: `push` 이벤트 → `showNotification`, `notificationclick` →
+     `/?p=<projectId>&t=<taskId>`로 focus 또는 openWindow. 딥링크는 이미 있습니다.
+   - `api/push.js`: `web-push` 패키지로 발송. **VAPID 키가 필요합니다** —
+     `npx web-push generate-vapid-keys`로 만들고 Vercel 환경변수에 넣으세요:
+     `VAPID_PUBLIC_KEY`(클라이언트도 봐야 하므로 `VITE_VAPID_PUBLIC_KEY`로도),
+     `VAPID_PRIVATE_KEY`(**서버 전용**), `VAPID_SUBJECT`(`mailto:` 주소).
+   - 발송에서 410/404가 오면 그 구독은 죽은 것이므로 행을 지우세요. 안 지우면
+     탈퇴·앱 삭제한 기기로 계속 보냅니다.
+   - 알림 만들기와 푸시 보내기를 **한 경로로 묶으세요**. `cloud.insertNotifications`
+     뒤에 붙이는 것이 가장 짧습니다(그 함수가 이미 모든 알림의 관문입니다).
+     주의: `.select()`를 붙이면 RLS로 롤백됩니다(§5의 27번).
+
+4. **마감 임박 배치** — `pg_cron`이 이미 0012에서 돕니다. 같은 방식으로 하루 한 번
+   "내일·오늘 마감인데 완료가 아닌 카드"의 담당자에게 `due_soon`을 넣으세요.
+   푸시까지 보내려면 DB에서 HTTP를 쳐야 하므로 `pg_net`이 필요하거나, Vercel Cron이
+   `api/push.js`를 깨우는 쪽이 단순합니다(후자를 권합니다 — 로직이 JS 한 곳에 남습니다).
+
+**iOS 주의:** 웹 푸시는 **홈 화면에 추가(PWA)한 뒤에만** 동작합니다(iOS 16.4+).
+브라우저 탭에서는 권한 요청 자체가 안 뜹니다. PWA 설정은 이미 되어 있으니(§README),
+"홈 화면에 추가하면 알림을 받을 수 있어요" 안내가 필요합니다.
+
+**권한 요청 시점:** 앱을 처음 열 때 묻지 마세요. 한 번 거부되면 되돌리기 어렵습니다.
+알림 종 팝오버 안에 "알림 받기" 줄을 두고 거기서 묻는 쪽이 맞습니다.
+
+### 8.2 그 밖에 짚어둔 것
+
+- **`DatePicker`/`AssigneePicker` 드롭다운만 portal이 아니라 `absolute`** 입니다.
+  업무 창 본문이 `overflow-y-auto`라 잘릴 수 있습니다(지금 깨지지는 않습니다).
+  §5의 1번대로 body 포털이 기본이어야 합니다.
+- **캘린더 띠 줄 수 상한** `CAL_LANES = 2` — 사용자가 2로 유지하기로 정했습니다.
+- **검색은 아직 `String.includes()`** 입니다. "버스 견적"이 "전세버스 견적서"를 못 찾고,
+  댓글·첨부 내용은 검색되지 않습니다. 여기가 RAG(pgvector)를 도입할 자리로 정리해
+  두었는데, 카드 본문은 이미 컨텍스트에 다 들어가므로 **첨부 파일 내용·댓글·지난
+  프로젝트 아카이브**에만 값이 있습니다. 카드에 벡터를 붙이는 것부터 시작하지 마세요.
+- 성능은 측정하지 않았습니다. 이 PC에서는 실행 간 편차가 3배까지 나서, 예전에 낸 "블러
+  제거로 3배 빨라졌다"는 결론은 근거가 없어 철회했습니다. 성능 주장은 같은 실행 안에서
+  비교하세요.
+
+### 8.3 "다시 제안하지 말 것" (사용자가 판단해서 뺀 것)
+
+| 항목 | 이유 |
+|---|---|
+| 주간 브리핑(AI) | 품질 검증을 먼저 하기로. 팀 단위 주 1회면 월 28회라 비용은 문제가 아닙니다 |
+| 순(조직) 정보 | 나중에 명단을 줍니다. 대시보드는 팀 단위 기획을 유지하고, 순은 화면 축이 아니라 사람에 붙는 속성으로만 둡니다(순별 보드를 만들지 않습니다) |
+| 카카오 알림톡·친구톡 | 위 8.1의 이유. 웹 푸시로 먼저 해결합니다 |
+| 반복 업무 | 지금은 아니라고 정했습니다 |
+| 로티·외부 JSON | 빈 상태는 SVG 선 그리기(`dc-draw`)로 갑니다. lottie-web은 gzip 약 70KB인데(현재 메인 번들 gzip 182KB의 40%) 쓰이는 곳이 "할 일 없을 때만 보이는 화면"입니다 |
+| 마감일 필수화 | 강제하면 아무 날짜나 넣어서 '지연' 숫자가 거짓이 됩니다. 대신 마감 미정 구간 + 2주 방치 표시로 해결했고, 안내 문구는 "마감일을 정하면 캘린더에서 볼 수 있어요" |
+
+### 8.4 알려진 상태
+
+- **`docs/DESIGN.md`는 현재 기준이 아닙니다.** 문서 머리에 그렇게 적어 두었습니다.
+  초기 토큰 구조의 참고 자료이고 값은 전부 갈렸습니다(accent `#0075de` → `#3f6fc4`,
+  Pretendard → SUIT Variable). 시각 기준은 §1의 외부 핸드오프 번들과 §3입니다.
 - 폰트는 §3대로 두 조각으로 나눠 두었습니다. 더 줄이려면 조각을 더 잘게 나누는 길이
   남아 있는데, 재보고 접었습니다(빈도별 92조각: 합계 610→920KB로 늘고 첫 화면이
   28조각 485KB. 이유는 `scripts/subset_suit.py` docstring에).
 - **메인 번들 633KB(gzip 182KB)** 는 손대지 않았습니다. TipTap·pdf.js는 이미 분리돼
   있고 남은 큰 덩이는 supabase-js·dnd-kit·React입니다.
-- 손대지 않은 개선 후보: `DatePicker`/`AssigneePicker` 드롭다운만 portal이 아니라
-  `absolute`(모달 본문이 `overflow-y-auto`라 잘릴 수 있음. 지금 깨지지는 않습니다),
-  캘린더 띠 줄 수 상한(`CAL_LANES = 2` — 사용자가 2로 유지하기로 정했습니다).
 - 어드바이저 경고 중 두 개는 **의도해서 남긴 것**입니다: `is_admin()`을 로그인 사용자가
   실행할 수 있는 것(RLS 정책이 평가할 때 필요합니다. 불러도 "나는 관리자인가"만 알 수 있습니다),
   그리고 Leaked Password Protection(구글·카카오 OAuth만 쓰므로 저장하는 비밀번호가 없습니다).
@@ -343,6 +447,32 @@ CHROME=/path/to/chrome npm run verify
   계획은 `docs/DRIVE.md`.
 - `tests/`는 헤드리스 Chrome이 있는 로컬에서만 돕니다. CI에 붙이려면 Chrome 설치와
   `CHROME` 환경변수가 필요합니다.
-- 성능은 측정하지 않았습니다. 이 PC에서는 실행 간 편차가 3배까지 나서, 예전에 낸 "블러
-  제거로 3배 빨라졌다"는 결론은 근거가 없어 철회했습니다. 성능 주장은 같은 실행 안에서
-  비교하세요.
+
+---
+
+## 9. 새 기능을 붙일 때 (이 레포의 흐름)
+
+이번 회차에 기능 여덟 개를 붙이면서 매번 같은 순서를 밟았습니다. 그대로 하면 됩니다.
+
+1. **저장 자리를 먼저 고릅니다 — 컬럼이냐 조인 테이블이냐.**
+   카드와 언제나 같이 읽고 쓰고 항목이 몇 개뿐이면 **컬럼**(jsonb라도)이 맞습니다.
+   조인 테이블은 따로 조회·집계할 이유가 있을 때만. 이유는 §5의 29번 — 조인은 왕복이
+   두 번이라 저장이 겹치면 깨지고, 컬럼은 마지막 것이 남을 뿐입니다.
+2. **앱 안의 모양은 그대로 두는 쪽을 먼저 봅니다.** 0013이 담당자를 조인으로 옮겼는데도
+   `task.assignees`는 여전히 이름 배열입니다. 그래서 셀렉터·뷰·활동 기록·AI 컨텍스트를
+   한 줄도 안 고쳤습니다. 저장 계층만 바꾸는 길이 있는지 먼저 찾으세요.
+3. **마이그레이션은 dry-run 먼저.**
+   `npx supabase db push --db-url "$SUPABASE_DB_URL" --dry-run` → 새 파일만 대상인지 보고
+   `--yes`로 적용 → **psql로 결과를 눈으로 확인**(컬럼·제약·정책·백필 건수).
+   되돌리는 SQL을 마이그레이션 파일 맨 아래 주석으로 같이 적어두세요.
+4. **코드가 새 컬럼을 읽기 시작하면 마이그레이션이 먼저 나가야 합니다.** 조회에 없는
+   관계를 넣으면 `loadCloudState`가 던지고 **모두에게 오류 화면**이 뜹니다.
+   순서는 마이그레이션 → 푸시.
+5. **검사 하나를 남깁니다.** 화면이면 브라우저 스위트에, 순수 로직이면 `logcheck`에.
+   그리고 **일부러 되돌려서 실제로 실패하는지 확인하세요.** 이번에 두 번 걸렸습니다:
+   담당자 조인 문장 모양 검사, 그리고 활동 기록 검사(첫판은 옛 방식도 통과해서 다시 썼습니다).
+6. **클라우드 경로는 직접 확인해 달라고 부탁합니다.** 검증 스위트는 게스트 모드만 돕니다.
+   이번 회차의 버그 두 개(담당자 duplicate key, `activity_pkey`)는 둘 다 사용자가 실제로
+   써 보고 알려준 것입니다.
+7. **HANDOFF·README·`tests/README.md`를 같이 고칩니다.** 스위트 수·단정 개수·
+   마이그레이션 표가 낡으면 다음 사람이 그걸 믿습니다.
