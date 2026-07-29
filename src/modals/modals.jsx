@@ -530,8 +530,20 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
     setSummary(result);
     setIsAiLoading(false);
   };
+
+  // 고정된 요약도 '분석하는 중'을 한 번 지나서 나온다. 값이 이미 있으니 즉시 띄울 수도
+  // 있는데, 그러면 같은 버튼이 사람마다 다르게 동작한다 — 누구는 몇 초 기다리고 누구는
+  // 깜빡임도 없이 뜬다. 읽는 사람은 이게 저장된 것인지 알 필요가 없고, 알면 "누가 골라둔
+  // 글"로 읽힌다. 일부러 넣은 지연이다(성능 문제가 아니다).
+  const REVEAL_MS = 2000;
+  const revealPinned = async () => {
+    setIsAiLoading(true);
+    await new Promise(r => setTimeout(r, REVEAL_MS));
+    setRevealed(true);
+    setIsAiLoading(false);
+  };
   // 버튼 한 번: 고정된 게 있으면 펼치기, 없으면 AI 호출
-  const handleSummarize = () => (pinned ? setRevealed(true) : runAi());
+  const handleSummarize = () => (pinned ? revealPinned() : runAi());
 
   // 고정/해제 — 카드 폼과 분리된 경로다(요약 세 칸만 건드린다)
   const setPinnedSummary = async (text) => {
@@ -579,10 +591,15 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
           <div className="flex items-center gap-1.5 mb-1">
             <span className="text-[10px] font-bold text-tag-purple-fg">3줄 요약</span>
             {/* '고정' 배지는 지금 보고 있는 것이 저장된 요약일 때만 — 새로 만든 요약을
-                보면서 이 배지가 붙어 있으면 이미 저장된 줄로 오해한다 */}
-            {showingPinned && (
+                보면서 이 배지가 붙어 있으면 이미 저장된 줄로 오해한다.
+                그리고 **고정을 할 수 있는 사람(관리자)에게만** 보여준다. 읽는 사람에게는
+                이게 저장된 글인지 방금 만든 글인지가 같은 값이고, '고정'이 붙으면 AI가
+                요약한 게 아니라 누가 골라둔 글로 읽힌다. 관리자에게는 필요하다 —
+                고치기·다시 만들기·고정 해제가 무엇에 걸리는지 알아야 한다.
+                누가 고정했는지는 DB에만 남는다(cards.ai_summary_by). */}
+            {showingPinned && canPin && (
               <span className="inline-flex items-center gap-1 text-[10px] text-fg-faint">
-                <Pin size={9} />고정{formData.aiSummaryBy ? ` · ${formData.aiSummaryBy}` : ''}
+                <Pin size={9} />고정
               </span>
             )}
           </div>
