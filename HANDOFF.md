@@ -12,8 +12,8 @@
 - 최근 작업은 `git log --oneline -15`로 봅니다 (여기에 커밋 해시를 적어 두면
   커밋마다 손으로 고쳐야 해서 금방 낡습니다 — 실제로 한 번 어긋나 있었습니다)
 - 배포: Vercel, `main` 푸시 시 자동
-- 검증: `npm run verify` → 22개 스위트 301 pass (약 6분).
-  301은 단정 개수이고 스위트는 22개입니다 — 평소에는 `npm run verify -- handoff navsmoke`처럼
+- 검증: `npm run verify` → 22개 스위트 310 pass (약 6분).
+  310은 단정 개수이고 스위트는 22개입니다 — 평소에는 `npm run verify -- handoff navsmoke`처럼
   골라 돌리고(수십 초), 푸시 직전에 한 번 전부 돌리는 흐름입니다.
 
 ### 이 문서 밖에 있는 것 (레포만 받아서는 알 수 없는 것)
@@ -159,6 +159,16 @@ CHROME=/path/to/chrome npm run verify
 코드에는 각 지점에 왜 그렇게 했는지 주석이 달려 있습니다. 여기 있는 것은 그 주석의 색인입니다.
 
 **레이아웃 / CSS**
+
+0. **포털로 띄운 팝오버는 "바깥 클릭" 판정에 자기 자신도 넣어야 한다.** 앵커 ref만
+   `contains(e.target)`로 보면, 본체가 `createPortal`로 body에 나가 있어 앵커의 자손이
+   아니므로 **팝오버 안을 누르는 것이 '바깥'으로 잡힌다.** `mousedown`에서 언마운트되니
+   그 뒤의 `click`은 사라진 버튼에 닿지 않는다. 참고 링크가 이것 때문에 **한 건도 저장되지
+   않았다**(URL 칸을 누르는 순간 닫혔고, DB `resource_links`가 0행이었다). 앵커 ref +
+   본체 ref 둘 다 보세요 — `ConfirmPopover`·`ProfileMenu`·`더보기`는 그렇게 하고 있고,
+   `views.jsx`의 링크 팝오버만 빠져 있었습니다. 회귀는 `tests/three.mjs`가 막습니다.
+   **`el.click()`으로는 재현되지 않습니다**(mousedown이 안 나갑니다) — 실제 마우스
+   이벤트로 눌러야 합니다.
 
 1. **`position: fixed`가 뷰포트 기준이 아니게 된다** — `.dc-screen`·`.dc-card`에 걸린
    transform 애니메이션이 조상 containing block이 되어, dnd-kit의 `DragOverlay`가 카드보다

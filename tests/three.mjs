@@ -91,6 +91,88 @@ const other = await ev(`(() => { const s=JSON.parse(localStorage.getItem('church
   return { p2: s.projects?.byId?.p2?.title, taskCount: s.tasks?.allIds?.length, t0: s.tasks?.byId?.t0?.title }; })()`);
 check('다른 프로젝트·업무는 그대로', other.p2 === '새신자 초청 주일' && other.taskCount === START_COUNT + 2 && other.t0 === '업무 0', JSON.stringify(other));
 
+// ── 1-b) 참고 링크 추가 ──
+// 팝오버가 createPortal로 body에 나가 있는데 바깥 클릭 판정이 앵커 span만 봐서,
+// 팝오버 안을 누르는 것이 '바깥'으로 잡혔다. mousedown에서 팝오버가 닫히니 그 뒤의
+// click은 사라진 '추가' 버튼에 닿지 않았다 → 링크가 한 건도 저장되지 않았다.
+// **실제 마우스 이벤트로 눌러야 재현된다** — el.click()은 mousedown을 안 내보낸다.
+const mouse = async (type, x, y) => send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 });
+const clickAt = async (x, y) => { await mouse('mousePressed', x, y); await mouse('mouseReleased', x, y); await sleep(200); };
+const center = (sel) => ev(`(() => {
+  const e = document.querySelector(${JSON.stringify(sel)});
+  if (!e) return null;
+  const r = e.getBoundingClientRect();
+  return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+})()`);
+const linkPopOpen = () => ev(`!!document.querySelector('input[placeholder="https://..."]')`);
+// 셀렉터를 못 찾으면 던지지 않고 false를 돌려준다 — 여기서 예외로 죽으면 러너가
+// CRASH로만 찍고 어느 단정에서 어긋났는지 안 보인다(§4)
+const typeInto = async (sel, text) => {
+  const c = await center(sel);
+  if (!c) return false;
+  await clickAt(c.x, c.y);
+  await send('Input.insertText', { text });
+  await sleep(150);
+  return true;
+};
+
+await load(DESK);
+// 링크가 하나 붙으면 칩이 앞에 끼어들어 '+ 참고 링크' 버튼이 오른쪽으로 밀린다.
+// 옛 좌표를 다시 누르면 방금 만든 외부 링크를 클릭해 버린다 → 매번 다시 찾는다.
+const addBtnPos = () => ev(`(() => {
+  const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '+ 참고 링크');
+  if (!b) return null;
+  const r = b.getBoundingClientRect();
+  return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+})()`);
+const openLinkPop = async () => { const p = await addBtnPos(); if (!p) return false; await clickAt(p.x, p.y); return true; };
+
+check('프로젝트 화면에 + 참고 링크 버튼이 있다', !!(await addBtnPos()));
+await openLinkPop();
+check('누르면 링크 입력 팝오버가 열린다', (await linkPopOpen()) === true);
+
+// 이름 칸은 autoFocus지만, URL 칸은 눌러서 옮겨가야 한다 — 이 클릭에서 닫혔다
+await send('Input.insertText', { text: '전세버스 견적서' });
+const typedUrl = await typeInto('input[placeholder="https://..."]', 'example.com/quote');
+check('팝오버 안을 눌러도 닫히지 않는다', typedUrl === true && (await linkPopOpen()) === true, typedUrl ? '' : 'URL 칸이 사라졌다');
+
+const addLinkBtn = await ev(`(() => {
+  const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '추가');
+  if (!b) return null;
+  const r = b.getBoundingClientRect();
+  return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), disabled: b.disabled };
+})()`);
+check("'추가' 버튼이 눌릴 수 있는 상태", !!addLinkBtn && addLinkBtn.disabled === false, JSON.stringify(addLinkBtn));
+if (addLinkBtn) await clickAt(addLinkBtn.x, addLinkBtn.y);
+await sleep(500);
+const saved = await ev(`(() => {
+  const a = [...document.querySelectorAll('a')].find(x => x.textContent.trim() === '전세버스 견적서');
+  const s = JSON.parse(localStorage.getItem('church_app_v4') || '{}');
+  const stored = (s.projects?.byId?.p1?.pinnedLinks || []);
+  return { onScreen: !!a, href: a?.getAttribute('href') || null, stored: stored.length, storedUrl: stored[0]?.url || null };
+})()`);
+check('참고 링크가 헤더에 나온다', saved.onScreen === true, JSON.stringify(saved));
+check('http가 없으면 https://를 붙인다', saved.href === 'https://example.com/quote', String(saved.href));
+check('저장소에도 들어간다(게스트=localStorage / 클라우드=resource_links)', saved.stored === 1, JSON.stringify(saved));
+
+// Escape는 그대로 닫아야 한다
+await openLinkPop();
+await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+await sleep(300);
+check('Escape로 닫힌다', (await linkPopOpen()) === false);
+
+// 진짜 바깥을 누르면 닫혀야 한다. 제목 버튼은 이름 수정 창을 열어 버리므로
+// 아무 것도 열지 않는 자리(메타 글자)를 고른다.
+await openLinkPop();
+const outside = await ev(`(() => {
+  const s = [...document.querySelectorAll('span')].find(x => /건 · 완료/.test(x.textContent) && x.children.length === 0);
+  if (!s) return null;
+  const r = s.getBoundingClientRect();
+  return { x: Math.round(r.left + 4), y: Math.round(r.top + r.height / 2) };
+})()`);
+if (outside) await clickAt(outside.x, outside.y);
+check('팝오버 바깥을 누르면 닫힌다', !!outside && (await linkPopOpen()) === false, outside ? '' : '메타 글자를 못 찾았다');
+
 // ── 2) 모바일: 제목 눌러 수정 + 가로줄 스크롤 잠금 ──
 await load(MOB);
 const barBtn = await ev(`!!document.querySelector('button[title="프로젝트 이름 수정"]')`);

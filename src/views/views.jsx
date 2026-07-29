@@ -247,14 +247,24 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   const [selectedTeams, setSelectedTeams] = useState([]);
   const [isAddingLink, setIsAddingLink] = useState(false);
   const [linkDraft, setLinkDraft] = useState({ title: '', url: '' });
-  const linkPopRef = useRef(null);
+  const linkPopRef = useRef(null);   // 앵커(헤더 안의 span)
+  const linkBodyRef = useRef(null);  // 팝오버 본체 (포털로 body에 나가 있다)
   const linkBtnRef = useRef(null);
   const [linkPos, placeLink] = useAnchoredPos(linkBtnRef, isAddingLink, 256, 150);
 
   // 리소스 추가 팝오버: 바깥 클릭 / Escape 닫기
+  //
+  // **팝오버 본체도 '안'으로 세어야 한다.** 본체는 createPortal로 body에 나가 있어서
+  // 앵커 span의 자손이 아니다. 앵커만 보면 팝오버 안을 누르는 것이 '바깥'으로 잡히고,
+  // mousedown에서 팝오버가 언마운트되니 그 뒤의 click이 사라진 '추가' 버튼에 닿지
+  // 않는다 → 참고 링크가 한 건도 저장되지 않았다(URL 칸을 누르는 순간부터 닫혔다).
+  // ConfirmPopover가 같은 함정을 이미 이렇게 고쳐 두었다.
   useEffect(() => {
     if (!isAddingLink) return;
-    const onDown = (e) => { if (linkPopRef.current && !linkPopRef.current.contains(e.target)) setIsAddingLink(false); };
+    const onDown = (e) => {
+      const inside = linkPopRef.current?.contains(e.target) || linkBodyRef.current?.contains(e.target);
+      if (!inside) setIsAddingLink(false);
+    };
     const onKey = (e) => { if (e.key === 'Escape') setIsAddingLink(false); };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
@@ -352,7 +362,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
                   style={{ border: '1px dashed var(--app-line)' }}>+ 참고 링크</button>
               </span>
               {isAddingLink && createPortal(
-                <div style={{ position: 'fixed', left: linkPos.left, top: linkPos.top, width: 256 }} className="dc-pop bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90]">
+                <div ref={linkBodyRef} style={{ position: 'fixed', left: linkPos.left, top: linkPos.top, width: 256 }} className="dc-pop bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90]">
                   {linkForm}
                 </div>, document.body)}
             </span>
