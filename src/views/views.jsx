@@ -68,7 +68,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
     () => tasksList.filter(t => t.status === '완료' && t.updatedAt && ageDays(t.updatedAt, today) <= 7).length,
     [tasksList, today]);
 
-  // 사역의 무게 — 담당자별 남은 업무. 팀별과 같은 기준(필터와 무관한 전체)으로 센다
+  // 팀원별 남은 업무 — 담당자별 집계. 팀별과 같은 기준(필터와 무관한 전체)으로 센다
   const people = useMemo(() => personLoad(open, today), [open, today]);
 
   // 프로젝트별 상태 분포 — 4색 세그먼트 바.
@@ -216,7 +216,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
           </div>
 
           <div>
-            <SectionHead>사역의 무게</SectionHead>
+            <SectionHead>팀원별 남은 업무</SectionHead>
             <PersonLoadGrid people={people} />
           </div>
         </div>
