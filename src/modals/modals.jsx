@@ -334,6 +334,8 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
     setDraft('');
   };
   const toggle = (id) => onChange(value.map(s => (s.id === id ? { ...s, done: !s.done } : s)));
+  const rename = (id, title) => onChange(value.map(s => (s.id === id ? { ...s, title } : s)));
+  // 빈 이름으로 남은 줄은 저장할 때 걸러낸다(입력 중 잠깐 비는 것은 막지 않는다)
   const remove = (id) => onChange(value.filter(s => s.id !== id));
 
   // 읽기 전용인데 항목도 없으면 자리만 차지한다
@@ -350,7 +352,7 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
       </div>
       <div className="divide-y divide-line/60 border-y border-line">
         {value.map(s => (
-          <div key={s.id} className="flex items-center gap-2.5 py-2 group/sub">
+          <div key={s.id} className="flex items-center gap-2.5 py-2">
             {/* 보기 모드에서도 체크는 눌린다 — 하위 업무를 끝낼 때마다 수정 모드로
                 들어갔다 나오게 하면 아무도 쓰지 않는다 */}
             <button
@@ -363,16 +365,32 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
             >
               {s.done && <Check size={11} strokeWidth={3} className="text-white" />}
             </button>
-            <span className={`flex-1 min-w-0 text-[13px] break-words ${s.done ? 'text-fg-faint line-through' : 'text-fg'}`}>{s.title}</span>
+            {/* 수정 모드에서는 언제나 입력칸이다 — '눌러서 고치기'로 감추면 고칠 수
+                있다는 것 자체가 안 보인다. 삭제 버튼도 hover로 숨기지 않는다
+                (터치 기기에는 hover가 없다). */}
+            {readOnly ? (
+              <span className={`flex-1 min-w-0 text-[13px] break-words ${s.done ? 'text-fg-faint line-through' : 'text-fg'}`}>{s.title}</span>
+            ) : (
+              <input
+                value={s.title}
+                onChange={e => rename(s.id, e.target.value)}
+                placeholder="단계 이름"
+                className={`flex-1 min-w-0 text-[13px] bg-transparent border border-transparent rounded-xs px-1.5 py-1 outline-none transition-colors hover:border-line focus:border-accent focus:bg-surface ${s.done ? 'text-fg-faint line-through' : 'text-fg'} placeholder:text-fg-faint`}
+              />
+            )}
             {!readOnly && (
-              <button type="button" onClick={() => remove(s.id)} title="삭제"
-                className="shrink-0 text-fg-faint hover:text-tag-red-fg transition-colors opacity-100 md:opacity-0 md:group-hover/sub:opacity-100">
-                <X size={13} />
+              <button type="button" onClick={() => remove(s.id)} title="이 단계 삭제" aria-label={`${s.title} 삭제`}
+                className="shrink-0 p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors">
+                <Trash2 size={13} />
               </button>
             )}
           </div>
         ))}
-        {!total && <p className="py-2.5 text-[11px] text-fg-faint">단계를 나누면 여기에서 하나씩 체크할 수 있어요</p>}
+        {!total && (
+          <p className="py-2.5 text-[11px] text-fg-faint">
+            {readOnly ? '하위 업무가 없어요' : '단계를 나누면 여기에서 하나씩 체크할 수 있어요'}
+          </p>
+        )}
       </div>
       {!readOnly && (
         <input

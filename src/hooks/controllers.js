@@ -39,10 +39,15 @@ export const useWorkspaceController = () => {
 
   const handleSaveTask = useCallback((newData, oldData = null) => {
     const isNew = !oldData;
-    const task = isNew ? TaskService.create(newData, currentUser.name) : TaskService.update(oldData, newData, currentUser.name);
+    // 새 기록은 만든 자리에서 같이 받는다 — 나중에 스냅샷 두 개를 비교해 되계산하면
+    // 그 둘이 어긋날 때 서버에 이미 있는 기록을 다시 넣게 된다(domain.js 주석 참고)
+    const { task, logs } = isNew
+      ? { task: TaskService.create(newData, currentUser.name), logs: null }
+      : TaskService.updateWithLogs(oldData, newData, currentUser.name);
     store.dispatch({ type: 'UPSERT_TASK', payload: task });
     if (cloudOn) {
-      const addedLogs = (task.activityLog || []).slice((oldData?.activityLog || []).length);
+      // 새 카드는 생성 기록 하나가 전부다
+      const addedLogs = logs ?? (task.activityLog || []);
       // 상세 내용이 바뀐 경우, 이전 본문에 없던 새 멘션만 알림
       const contentChanged = (oldData?.content || '') !== (task.content || '');
       const mentionIds = contentChanged

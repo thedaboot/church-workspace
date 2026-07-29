@@ -422,7 +422,12 @@ export async function listCardActivity(cardId) {
 }
 export async function insertActivity(row) {
   // row: { id?, project_id?, card_id?, action, payload? }
-  return unwrap(await client().from('activity').insert(row).select().single());
+  // 같은 id가 이미 있으면 조용히 넘어간다. 활동은 덧붙이기만 하는 기록이고 id는
+  // 클라이언트가 만든다 — 같은 기록을 두 번 보내는 것은 '이미 적혔다'는 뜻이지
+  // 저장을 실패시킬 일이 아니다. 예전에는 여기서 activity_pkey 중복이 나면
+  // 업무 저장 전체가 "저장에 실패했어요"로 보였다(카드 자체는 이미 저장된 뒤인데도).
+  const { error } = await client().from('activity').upsert(row, { onConflict: 'id', ignoreDuplicates: true });
+  if (error) throw error;
 }
 
 // ── 실시간 구독 ────────────────────────────────────────────────────────────

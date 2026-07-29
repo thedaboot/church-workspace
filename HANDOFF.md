@@ -8,8 +8,8 @@
 - 최근 작업은 `git log --oneline -15`로 봅니다 (여기에 커밋 해시를 적어 두면
   커밋마다 손으로 고쳐야 해서 금방 낡습니다 — 실제로 한 번 어긋나 있었습니다)
 - 배포: Vercel, `main` 푸시 시 자동
-- 검증: `npm run verify` → 21개 스위트 289 pass (약 6분).
-  289는 단정 개수이고 스위트는 21개입니다 — 평소에는 `npm run verify -- handoff navsmoke`처럼
+- 검증: `npm run verify` → 21개 스위트 290 pass (약 6분).
+  290은 단정 개수이고 스위트는 21개입니다 — 평소에는 `npm run verify -- handoff navsmoke`처럼
   골라 돌리고(수십 초), 푸시 직전에 한 번 전부 돌리는 흐름입니다.
 
 ### 이 문서 밖에 있는 것 (레포만 받아서는 알 수 없는 것)
@@ -236,6 +236,16 @@ CHROME=/path/to/chrome npm run verify
     이라 순서에 상관없다(`cloud.resetCardJoin`). 새 조인 테이블을 붙이면 같은 모양을
     쓰세요. 그리고 이 판단이 0015에서 하위 업무를 조인이 아니라 `cards.subtasks` 컬럼으로
     둔 이유이기도 하다 — 컬럼 통째 쓰기는 겹쳐도 마지막 것이 남을 뿐 깨지지 않는다.
+
+30. **"새로 생긴 것"을 나중에 되계산하지 마세요.** 업무 저장이 활동 기록을
+    `task.activityLog.slice(oldData.activityLog.length)`로 잘라냈는데, `oldData`(업무 창을
+    열 때의 스냅샷)와 `newData`(스토어를 따라가는 폼)가 **다른 스냅샷**이었다. 창을 열면
+    상세 로드가 스토어에만 활동을 채우므로 `oldData.activityLog`는 빈 배열이고, 그래서
+    `slice(0)`이 되어 서버에 이미 있는 기록까지 다시 넣었다 → `activity_pkey` 중복 →
+    카드는 저장됐는데 "저장에 실패했어요"가 떴다. 하위 업무 체크가 매번 저장을 부르면서
+    드러났다. 지금은 `TaskService.updateWithLogs`가 바뀐 업무와 **이번에 생긴 기록**을
+    같이 돌려줘서 그 계산 자체가 없다. `insertActivity`도 `on conflict do nothing`이다 —
+    활동은 덧붙이기만 하는 기록이고 id는 클라이언트가 만든다.
 
 **테스트 스크립트 작성 시**
 

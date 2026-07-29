@@ -64,7 +64,16 @@ export const TaskService = {
     comments: [],
     activityLog: [ActivityService.createLog('업무를 생성했습니다.', author)]
   }),
-  update: (oldTask, newData, author) => {
+  // 바뀐 업무와 **이번에 생긴 활동 기록**을 같이 돌려준다.
+  //
+  // 호출부가 나중에 "새 기록이 뭐였지"를 되계산하게 두면 안 된다. 예전에는 컨트롤러가
+  // `task.activityLog.slice(oldData.activityLog.length)`로 잘라냈는데, oldData(업무 창을
+  // 열 때의 스냅샷)와 newData(스토어를 따라가는 폼)가 **다른 스냅샷**이었다. 창을 열면
+  // 상세 로드가 스토어에만 활동을 채우므로 oldData.activityLog는 빈 배열이고, 그래서
+  // slice(0)이 되어 서버에 이미 있는 기록까지 새 것으로 보고 다시 넣었다
+  // → activity_pkey 중복 → 카드는 저장됐는데 "저장에 실패했어요"가 떴다.
+  // 만든 자리에서 같이 돌려주면 그 계산 자체가 사라진다.
+  updateWithLogs: (oldTask, newData, author) => {
     // updatedBy — 작성자와 마지막으로 고친 사람이 다를 때 창에서 구분해 보여준다.
     // 클라우드에서는 트리거(cards.updated_by)가 채운 값을 다시 받지만, 저장 직후에도
     // 바로 보이려면 여기서도 넣어야 한다. newData 뒤에 둬서 폼에 실려온 옛 값을 덮는다.
@@ -73,8 +82,9 @@ export const TaskService = {
     if (oldTask.status !== newData.status) logs.push(ActivityService.generateStatusLog(oldTask.status, newData.status, author));
     logs.push(...ActivityService.generateFieldLogs(oldTask, newData, author));
     if (logs.length) updated.activityLog = [...(updated.activityLog || []), ...logs];
-    return updated;
+    return { task: updated, logs };
   },
+  update: (oldTask, newData, author) => TaskService.updateWithLogs(oldTask, newData, author).task,
   addComment: (task, text, author, parentId = null) => ({
     ...task,
     comments: [...(task.comments || []), { id: generateId(), author, text, timestamp: new Date().toISOString(), parentId }],

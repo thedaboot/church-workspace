@@ -67,3 +67,30 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(subtaskProgress([{ done: true }]), { total: 1, done: 1, ratio: 1 }, '전부 끝나면 1');
   console.log('PASS  하위 업무 진척 4가지');
 }
+
+// ── 이번에 생긴 활동 기록만 저장한다 (TaskService.updateWithLogs) ──
+// 업무 저장이 여기서 깨졌었다. 컨트롤러가 task.activityLog.slice(oldData.activityLog.length)로
+// 새 기록을 되계산했는데, oldData(업무 창을 열 때의 스냅샷)는 activityLog가 비어 있고
+// newData(스토어를 따라가는 폼)는 서버에서 읽은 기록으로 차 있다. 그래서 slice(0)이 되어
+// 서버에 이미 있는 기록까지 다시 넣었다 → activity_pkey 중복 → "저장에 실패했어요".
+{
+  const L = (id) => ({ id, action: '예전 기록', author: '노준석', timestamp: '2026-07-01' });
+  // 창을 열 때의 스냅샷: 상세 로드는 스토어에만 반영되므로 활동이 비어 있다
+  const opened = { ...base, activityLog: [] };
+  // 폼: 스토어를 따라가므로 서버에서 읽은 기록 3건이 들어 있다
+  const form = { ...base, activityLog: [L('a'), L('b'), L('c')], title: '수련회 준비 (수정)' };
+
+  const { task, logs } = TaskService.updateWithLogs(opened, form, '노준석');
+  assert.strictEqual(logs.length, 1, '이번에 바꾼 것은 제목 하나 → 새 기록도 하나여야 한다');
+  assert.match(logs[0].action, /제목을/);
+  assert.ok(!logs.some(l => ['a','b','c'].includes(l.id)), '서버에 이미 있는 기록이 섞이면 안 된다');
+  assert.strictEqual(task.activityLog.length, 4, '스토어에는 기존 3건 + 새 1건이 남는다');
+
+  // 옛 방식이었다면 4건 전부를 '새 기록'으로 보냈다 — 그게 중복의 원인이었다
+  const oldWay = task.activityLog.slice((opened.activityLog || []).length);
+  assert.strictEqual(oldWay.length, 4, '(참고) 개수로 자르면 4건이 되어 이미 있는 3건을 다시 넣는다');
+
+  // 바뀐 것이 없으면 기록도 없다
+  assert.deepStrictEqual(TaskService.updateWithLogs(opened, { ...form, title: base.title }, '노준석').logs, []);
+  console.log('PASS  새 활동 기록만 저장 5가지');
+}

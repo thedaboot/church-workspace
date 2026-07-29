@@ -283,7 +283,11 @@ const cardPatch = (task) => ({
   due_date: task.dueDate || null,
   assignees: task.assignees || [],
   position: task.position ?? 0,
-  subtasks: Array.isArray(task.subtasks) ? task.subtasks : [],
+  // 이름이 빈 줄은 저장하지 않는다 — 수정 중에 잠깐 비우는 것은 막지 않지만
+  // 그대로 저장되면 아무 뜻 없는 체크박스가 남는다
+  subtasks: (Array.isArray(task.subtasks) ? task.subtasks : [])
+    .filter(s => s && String(s.title || '').trim())
+    .map(s => ({ id: s.id, title: String(s.title).trim(), done: !!s.done })),
 });
 
 // 모든 쓰기 경로도 시계 오차(PGRST303) 재시도로 감싼다
