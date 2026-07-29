@@ -53,10 +53,15 @@ export const useWorkspaceController = () => {
       const mentionIds = contentChanged
         ? cloudSync.newMentionsOnly(task.content, oldData?.content, currentUser.name)
         : [];
+      // 담당자로 새로 붙은 사람에게만 — 새 카드면 담당자 전원이 '새로 붙은' 것이다
+      const assignIds = cloudSync.newAssigneesOnly(task.assignees, oldData?.assignees, currentUser.name);
       cloudSync.cardUpsertCloud(task, isNew)
         .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id))
         .then(() => mentionIds.length && cloudSync.notifyMentions(task.content, {
           actorName: currentUser.name, cardId: task.id, projectId: task.projectId, recipientIds: mentionIds,
+        }))
+        .then(() => assignIds.length && cloudSync.notifyAssignees(assignIds, {
+          actorName: currentUser.name, cardId: task.id, projectId: task.projectId, preview: task.title,
         }))
         .catch(reportCloudError('업무 저장'));
     }

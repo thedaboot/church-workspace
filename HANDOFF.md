@@ -12,8 +12,8 @@
 - 최근 작업은 `git log --oneline -15`로 봅니다 (여기에 커밋 해시를 적어 두면
   커밋마다 손으로 고쳐야 해서 금방 낡습니다 — 실제로 한 번 어긋나 있었습니다)
 - 배포: Vercel, `main` 푸시 시 자동
-- 검증: `npm run verify` → 21개 스위트 293 pass (약 6분).
-  293은 단정 개수이고 스위트는 21개입니다 — 평소에는 `npm run verify -- handoff navsmoke`처럼
+- 검증: `npm run verify` → 22개 스위트 294 pass (약 6분).
+  294는 단정 개수이고 스위트는 22개입니다 — 평소에는 `npm run verify -- handoff navsmoke`처럼
   골라 돌리고(수십 초), 푸시 직전에 한 번 전부 돌리는 흐름입니다.
 
 ### 이 문서 밖에 있는 것 (레포만 받아서는 알 수 없는 것)
@@ -82,6 +82,11 @@ src/modals/settings.jsx     내 정보(이름·팀·연결된 계정) / 프로�
 src/services/               cloud.js(Supabase) · cloudSync.js(모양 변환 + 실시간 라우팅)
                             · ai.js(Gemini 프롬프트+컨텍스트+요약 캐시) · markdown.js
                             · domain.js(TaskService·ActivityService)
+                            · push.js(브라우저 구독 켜기/끄기) · notifyText.js(알림 문구 —
+                              앱과 api/push.js가 같이 본다)
+public/sw.js                서비스 워커 — 푸시 표시 + 클릭 시 딥링크. 캐싱은 하지 않는다
+api/                        ai.js(Gemini 프록시) · share.js(OG 메타)
+                            · push.js(POST=앱이 만든 알림을 푸시로, GET=마감 임박 배치)
 src/store/                  useSyncExternalStore 기반 커스텀 스토어 + 셀렉터
 scripts/subset_suit.py      폰트 조각 생성(한 번 돌리고 결과물을 커밋 — §3)
 tests/                      검증 스위트 + 러너 (README는 tests/README.md)
@@ -266,6 +271,22 @@ CHROME=/path/to/chrome npm run verify
     같이 돌려줘서 그 계산 자체가 없다. `insertActivity`도 `on conflict do nothing`이다 —
     활동은 덧붙이기만 하는 기록이고 id는 클라이언트가 만든다.
 
+31. **한 겹 더 벗기면 조용히 `undefined`가 되고, 그 자리가 "아무도 안 걸리는 필터"가 된다.**
+    `cloudSync.myUserId()`가 `const { data } = await cloud.getSession()`으로 읽었는데,
+    `cloud.getSession()`은 supabase의 `{ data }`를 **이미 벗겨서** `{ session, user }`를
+    돌려준다. 그래서 언제나 null이었고 **알림의 본인 제외가 한 번도 걸리지 않았다.**
+    멘션은 이름으로도 한 번 거르므로(`resolveMentionRecipients`) 증상이 가려졌지만,
+    내 댓글에 내가 답글을 달면 나에게 알림이 왔다. 담당자 알림을 붙이면서 드러났다 —
+    "본인 제외" 같은 방어는 통과가 기본값이라 깨져도 아무 소리가 안 난다. 검사를
+    남겨 두세요(`tests/push.mjs`).
+
+32. **웹 푸시의 상태 원본은 DB 행이 아니라 브라우저의 `PushSubscription`이다.**
+    기기에서 권한을 껐거나 브라우저 데이터를 지우면 DB 행은 남아 있어도 알림이 오지
+    않는다. 그래서 화면의 켜짐/꺼짐은 `pushManager.getSubscription()`으로 판정하고,
+    죽은 행은 발송에서 410/404를 받은 서버가 지운다(`api/push.js`).
+    그리고 **iOS는 홈 화면에 추가(PWA)한 뒤에만** 동작한다 — 브라우저 탭에서는
+    `requestPermission()` 창 자체가 뜨지 않으므로, 묻기 전에 안내를 보여야 한다.
+
 **테스트 스크립트 작성 시**
 
 17. 페이지에 주입하는 문자열은 JS 템플릿 리터럴이라 `\d`가 `d`로 죽습니다 → `[0-9]`.
@@ -307,6 +328,12 @@ CHROME=/path/to/chrome npm run verify
   들고 있습니다 — 개수를 세려고 댓글을 다시 읽으면 §5의 22번으로 되돌아갑니다.
   앱이 세지 않고 트리거가 유지하므로 어느 경로로 들어와도 맞습니다(증감이 아니라
   실제 행 수 재계산이라 어긋나도 자기 회복). 전부 다시 세려면 0016 맨 아래 update문.
+- 0017: `notifications.kind`에 `assign`·`due_soon` 추가 + `push_subscriptions`(기기당 한 행,
+  `endpoint` unique). **체크 제약과 INSERT 정책을 같이 넓혔습니다** — 0007이 가르쳐 준
+  것이고, 한쪽만 고치면 RLS로 막힙니다. `due_soon`은 INSERT 정책에서 **일부러 뺐습니다**:
+  사람이 만들 알림이 아니고 서버(service key)는 RLS를 우회하므로, 넣어 두면 로그인
+  사용자가 남에게 가짜 마감 알림을 보낼 수 있습니다. 적용 후 확인 — 제약 4종/정책 3종/
+  push_subscriptions 8컬럼·정책 4개·RLS on.
 - 0008(`0008_profile_teams.sql`) 메모: 라이브에 적용됨 — 한 사람이 여러 팀에 속하는 조인 테이블 + RLS(읽기: 로그인 사용자,
   쓰기: 본인 행만) + 기존 `profiles.team_id` 복사. 기존 컬럼은 남겨 두었고
   (`currentUser.teams?.length ? teams : [team]` 패턴으로 양쪽을 봅니다), 적용 후 데이터
@@ -352,56 +379,58 @@ CHROME=/path/to/chrome npm run verify
 
 ## 8. 다음에 할 일 (준비된 설계)
 
-### 8.1 알림 확장 + 웹 푸시 — 다음 세션의 1순위
+### 8.1 알림 확장 + 웹 푸시 — 코드는 다 붙었고, **VAPID 키만 남았습니다**
 
-지금 알림은 **멘션과 답글 두 종류뿐**이고 앱 안에서만 뜹니다(`layout.jsx`의
-`NotificationBell`). 그래서 **나에게 업무가 배정돼도 아무 신호가 없습니다.** 마감 임박도
-없습니다. 그리고 청년부가 이 앱을 매일 열지는 않으니, 앱 밖으로 닿는 길이 필요합니다.
+네 덩이 전부 구현했습니다(0017 + `api/push.js` + `public/sw.js` + `src/services/push.js`).
+전달 방식을 웹 푸시로 정한 이유는 §8.3에 남겨 두었습니다.
 
-전달 방식은 **웹 푸시로 정했습니다.** 카카오 알림톡·친구톡은 비즈니스 채널 개설 +
-사업자 정보 + **템플릿 사전 심사** + 발송 대행사 계약이 필요하고, 심사 문구에 갇혀서
-§7의 문구 톤을 못 씁니다. 카카오 로그인의 '나에게 보내기'는 본인에게만 보낼 수 있어
-팀 알림에 못 씁니다. 이메일은 웹 푸시 다음입니다.
+지금 도는 것:
 
-**할 일 네 덩이:**
+| 종류 | 만드는 자리 |
+|---|---|
+| `mention` `reply` | 예전부터 (`cloudSync.notifyMentions` · `notifyComment`) |
+| `assign` | `controllers.js`의 `handleSaveTask` — `newAssigneesOnly`로 **이전에 없던 담당자만** |
+| `due_soon` | `api/push.js`의 GET — Vercel Cron이 하루 한 번(22:00 UTC = 07:00 KST) |
 
-1. **알림 종류 추가** — `notifications.kind`에 `assign`·`due_soon`을 더합니다.
-   0007이 `reply`를 추가한 방식을 그대로 따르세요(체크 제약 갱신).
-   문구는 `layout.jsx`의 `notifText(kind)` 한 곳에 있습니다.
-   - `assign`: 담당자가 새로 붙었을 때. 만드는 자리는 `controllers.js`의
-     `handleSaveTask` — 이미 멘션 알림을 그 자리에서 만듭니다
-     (`newMentionsOnly`처럼 "이전에 없던 담당자만" 골라야 두 번 알리지 않습니다).
-   - `due_soon`: 사람이 만드는 게 아니라 하루 한 번 도는 작업이 만듭니다(아래 4번).
+- 문구는 `src/services/notifyText.js` **한 곳**에 있습니다. 앱 안 알림 목록과 잠금화면
+  푸시가 같은 함수를 봅니다 — 갈라 두면 같은 알림이 두 군데서 다르게 읽힙니다.
+- 푸시는 `cloud.insertNotifications` 안에서 같이 보냅니다(`requestPush`). 그 함수가
+  모든 알림의 관문이라, **알림 종류가 늘어도 푸시가 따라옵니다.** 기다리지 않고
+  실패도 삼킵니다 — 앱 안 알림은 이미 들어갔으니 저장 흐름을 붙잡을 이유가 없습니다.
+- 권한은 **알림 종 팝오버의 '이 기기로 알림 받기'** 에서만 묻습니다(`PushRow`).
+  앱을 처음 열 때 묻지 않는 이유: 무슨 알림인지 모르는 상태에서 거부하기 쉽고,
+  한 번 거부되면 브라우저 설정에서 손으로 되돌려야 합니다.
+- 죽은 구독(410/404)은 발송할 때 서버가 지웁니다. 안 지우면 앱을 지운 기기로 계속
+  보내고, 그 실패가 로그를 가려서 진짜 실패를 못 봅니다.
+- 보관한 프로젝트의 카드는 마감 임박에서 뺍니다 — 탭·대시보드에서 이미 빠진 일입니다.
+- 같은 날 두 번 알리지 않게, 넣기 전에 최근 20시간의 `due_soon`을 읽어서 거릅니다.
+  유니크 제약으로 막지 못하는 이유: `(created_at at time zone 'Asia/Seoul')::date`는
+  immutable이 아니라 인덱스 식으로 못 씁니다.
 
-2. **구독 저장** — `push_subscriptions(profile_id, endpoint unique, p256dh, auth,
-   user_agent, created_at)` + RLS(본인 행만 읽고 쓰기). 한 사람이 기기마다 하나씩
-   가집니다. `endpoint`에 unique를 걸고 **upsert + on conflict do nothing**으로
-   넣으세요 — 같은 기기가 다시 구독할 때 중복으로 깨지면 안 됩니다(§5의 29번과 같은 이유).
+**남은 일 — 사용자만 할 수 있습니다:**
 
-3. **서비스 워커 + 발송 라우트**
-   - `public/sw.js`: `push` 이벤트 → `showNotification`, `notificationclick` →
-     `/?p=<projectId>&t=<taskId>`로 focus 또는 openWindow. 딥링크는 이미 있습니다.
-   - `api/push.js`: `web-push` 패키지로 발송. **VAPID 키가 필요합니다** —
-     `npx web-push generate-vapid-keys`로 만들고 Vercel 환경변수에 넣으세요:
-     `VAPID_PUBLIC_KEY`(클라이언트도 봐야 하므로 `VITE_VAPID_PUBLIC_KEY`로도),
-     `VAPID_PRIVATE_KEY`(**서버 전용**), `VAPID_SUBJECT`(`mailto:` 주소).
-   - 발송에서 410/404가 오면 그 구독은 죽은 것이므로 행을 지우세요. 안 지우면
-     탈퇴·앱 삭제한 기기로 계속 보냅니다.
-   - 알림 만들기와 푸시 보내기를 **한 경로로 묶으세요**. `cloud.insertNotifications`
-     뒤에 붙이는 것이 가장 짧습니다(그 함수가 이미 모든 알림의 관문입니다).
-     주의: `.select()`를 붙이면 RLS로 롤백됩니다(§5의 27번).
+1. `npx web-push generate-vapid-keys`
+2. Vercel 환경변수 4개 (로컬 `.env`에도 같이 두면 `vercel dev`로 확인할 수 있습니다)
+   - `VAPID_PUBLIC_KEY` + `VITE_VAPID_PUBLIC_KEY` — **같은 값**을 두 이름에.
+     클라이언트가 구독할 때도 이 키가 필요합니다
+   - `VAPID_PRIVATE_KEY` — **서버 전용**
+   - `VAPID_SUBJECT` — `mailto:` 주소
+   - `CRON_SECRET` — 아무 긴 임의 문자열. Vercel Cron이 `/api/push`를 깨울 때
+     이 값으로 인증합니다. **없으면 GET이 501이라 마감 임박이 아예 안 돕니다**
+3. 배포 후 직접 확인 (검증 스위트는 게스트 모드만 돕니다 — §서두 3번)
+   - 종 팝오버에 '이 기기로 알림 받기'가 보이는지 (키가 없으면 줄이 아예 숨습니다)
+   - 켜고 다른 계정으로 나를 담당자로 지정 → 잠금화면에 오는지, 눌러서 그 업무가 열리는지
+   - 아이폰은 **홈 화면에 추가한 뒤에** 켜야 합니다. 탭에서는 '홈 화면에 추가하면
+     알림을 받을 수 있어요' 안내만 보입니다
+   - 마감 임박은 손으로 부를 수 있습니다:
+     `curl -H "Authorization: Bearer $CRON_SECRET" https://church-workspace.vercel.app/api/push`
+     → `{cards, notified, sent, skipped}`를 돌려줍니다
 
-4. **마감 임박 배치** — `pg_cron`이 이미 0012에서 돕니다. 같은 방식으로 하루 한 번
-   "내일·오늘 마감인데 완료가 아닌 카드"의 담당자에게 `due_soon`을 넣으세요.
-   푸시까지 보내려면 DB에서 HTTP를 쳐야 하므로 `pg_net`이 필요하거나, Vercel Cron이
-   `api/push.js`를 깨우는 쪽이 단순합니다(후자를 권합니다 — 로직이 JS 한 곳에 남습니다).
-
-**iOS 주의:** 웹 푸시는 **홈 화면에 추가(PWA)한 뒤에만** 동작합니다(iOS 16.4+).
-브라우저 탭에서는 권한 요청 자체가 안 뜹니다. PWA 설정은 이미 되어 있으니(§README),
-"홈 화면에 추가하면 알림을 받을 수 있어요" 안내가 필요합니다.
-
-**권한 요청 시점:** 앱을 처음 열 때 묻지 마세요. 한 번 거부되면 되돌리기 어렵습니다.
-알림 종 팝오버 안에 "알림 받기" 줄을 두고 거기서 묻는 쪽이 맞습니다.
+키를 넣지 않아도 앱은 그대로 돕니다 — POST가 501을 주고 '알림 받기' 줄이 숨어서
+**푸시만 빠집니다.** 마감 임박 배치(GET)는 VAPID 키를 보지 않고 앱 안 알림을 만들고
+발송만 건너뜁니다 — 키가 없다고 라우트 전체를 막으면 종에도 아무것도 안 떠서,
+"마감 임박이 아예 없는 것"과 구분이 안 됩니다. 그래서 GET에 필요한 것은 `CRON_SECRET`
+하나입니다.
 
 ### 8.2 그 밖에 짚어둔 것
 
@@ -436,7 +465,7 @@ CHROME=/path/to/chrome npm run verify
 - 폰트는 §3대로 두 조각으로 나눠 두었습니다. 더 줄이려면 조각을 더 잘게 나누는 길이
   남아 있는데, 재보고 접었습니다(빈도별 92조각: 합계 610→920KB로 늘고 첫 화면이
   28조각 485KB. 이유는 `scripts/subset_suit.py` docstring에).
-- **메인 번들 633KB(gzip 182KB)** 는 손대지 않았습니다. TipTap·pdf.js는 이미 분리돼
+- **메인 번들 657KB(gzip 189KB)** 는 손대지 않았습니다(푸시 붙이면서 633→657KB). TipTap·pdf.js는 이미 분리돼
   있고 남은 큰 덩이는 supabase-js·dnd-kit·React입니다.
 - 어드바이저 경고 중 두 개는 **의도해서 남긴 것**입니다: `is_admin()`을 로그인 사용자가
   실행할 수 있는 것(RLS 정책이 평가할 때 필요합니다. 불러도 "나는 관리자인가"만 알 수 있습니다),

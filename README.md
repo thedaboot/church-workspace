@@ -44,8 +44,11 @@ npm run verify       # 브라우저 검증 스위트 (tests/README.md)
 - 댓글·@멘션 자동완성, 활동 기록(생성·상태·필드 변경·댓글·첨부).
   보드 카드에 댓글·첨부 개수가 표시됩니다(개수만 카드가 들고 있어서, 목록을 볼 때
   댓글을 다시 읽지 않습니다).
-- 알림(클라우드 모드) — 멘션과 내 댓글의 답글이 헤더 종에 실시간으로 쌓입니다. 업무 저장 시에는
-  이전 본문에 없던 새 멘션만 알립니다.
+- 알림(클라우드 모드) — 멘션, 내 댓글의 답글, **담당자로 지정됨**, **마감 임박**이 헤더 종에
+  실시간으로 쌓입니다. 업무 저장 시에는 이전에 없던 새 멘션·새 담당자만 알립니다.
+- 웹 푸시 — 종 팝오버의 '이 기기로 알림 받기'를 켜면 앱을 닫아 둔 동안에도 알림이 옵니다.
+  마감 임박(오늘·내일 마감인데 완료가 아닌 업무)은 하루 한 번 담당자에게 갑니다.
+  **아이폰은 홈 화면에 추가한 뒤에만 동작합니다**(iOS 16.4+).
 
 **전체**
 - 대시보드 — 마감 구간(지연·오늘·이번 주·다음 주·**마감 미정**·끝낸 업무)별 할 일,
@@ -144,6 +147,7 @@ private 버킷에 저장합니다(구글 드라이브 이관은 보류 — [`doc
 | `0014_project_archive.sql` | `projects.archived` 복구 — 프로젝트 보관 |
 | `0015_subtasks_and_summary.sql` | `cards.subtasks`(체크리스트) + `cards.ai_summary`(고정한 요약) |
 | `0016_card_counts.sql` | `cards.comment_count`·`file_count` + 재계산 트리거 |
+| `0017_push_notifications.sql` | `notifications.kind`에 `assign`·`due_soon` + `push_subscriptions` |
 
 ## 딥링크 · 공유 · 환경변수
 
@@ -152,14 +156,27 @@ private 버킷에 저장합니다(구글 드라이브 이관은 보류 — [`doc
 - `/s/p/<projectId>` · `/s/t/<taskId>` — 공유 링크. 크롤러에는 OG 메타 HTML을, 사람에게는 앱으로
   리디렉션을 줍니다(`api/share.js`, `s-maxage=300`).
   점검은 [카카오 공유 디버거](https://developers.kakao.com/tool/debugger/sharing).
+- `/api/push` — 웹 푸시. POST는 앱이 알림을 만든 직후 부르고, GET은 Vercel Cron이 하루 한 번
+  깨워 마감 임박 알림을 만듭니다(`vercel.json`의 `crons`, 22:00 UTC = 07:00 KST).
 
 | 변수 | 용도 | 노출 |
 |---|---|---|
 | `VITE_SUPABASE_URL` | Supabase 프로젝트 URL | 클라이언트 |
 | `VITE_SUPABASE_ANON_KEY` | Supabase anon key | 클라이언트 |
 | `VITE_ADMIN_EMAILS` | 관리자 이메일(쉼표 구분) | 클라이언트 |
+| `VITE_VAPID_PUBLIC_KEY` | 웹 푸시 구독용 공개키 | 클라이언트 |
 | `GEMINI_API_KEY` | Gemini 호출 키 | **서버 전용** |
 | `SUPABASE_SECRET_KEY` | RLS 우회 조회 · 세션 검증 | **서버 전용** |
+| `VAPID_PUBLIC_KEY` | 발송 시 짝을 맞추는 공개키 | 서버 |
+| `VAPID_PRIVATE_KEY` | 웹 푸시 서명 | **서버 전용** |
+| `VAPID_SUBJECT` | 푸시 서비스 연락처 (`mailto:…`) | 서버 |
+| `CRON_SECRET` | Vercel Cron이 `/api/push`를 깨울 때의 인증 | **서버 전용** |
+
+VAPID 키는 `npx web-push generate-vapid-keys`로 한 번 만들어 Vercel 환경변수에 넣습니다
+(공개키는 `VAPID_PUBLIC_KEY`와 `VITE_VAPID_PUBLIC_KEY` 두 이름에 같은 값으로).
+이 값들이 없으면 `/api/push`의 POST가 501을 돌려주고 앱은 '알림 받기' 줄을 감춥니다 —
+푸시만 빠지고 앱 안 알림은 그대로 동작합니다(마감 임박 배치도 알림은 만들고 발송만
+건너뜁니다. 그쪽은 `CRON_SECRET`만 있으면 됩니다).
 
 `.env`·`.env.guest`는 커밋하지 않습니다. 서버 전용 값에 `VITE_` 접두사를 붙이면 빌드에 노출되니 주의하세요.
 

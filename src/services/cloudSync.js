@@ -69,10 +69,16 @@ export function resolveNameRecipients(name) {
 }
 
 // 현재 로그인 사용자 id (실패 시 null — 알림 생성을 막지는 않는다)
+//
+// 여기는 한동안 `const { data } = await cloud.getSession()`으로 한 겹을 더 벗기고
+// 있었다. cloud.getSession()은 supabase의 { data } 를 이미 벗겨서 { session, user }를
+// 돌려주므로 data가 언제나 undefined였고, **본인 제외가 한 번도 걸리지 않았다.**
+// 멘션은 이름으로도 한 번 걸러서(resolveMentionRecipients) 증상이 가려졌지만,
+// 내 댓글에 내가 답글을 달면 나에게 알림이 왔다. 담당자 알림을 붙이면서 드러났다.
 async function myUserId() {
   try {
-    const { data } = await cloud.getSession();
-    return data?.session?.user?.id || null;
+    const { user } = await cloud.getSession();
+    return user?.id || null;
   } catch {
     return null;
   }
@@ -100,6 +106,36 @@ export async function notifyMentions(text, { actorName, cardId, projectId, recip
   }
 }
 
+// 업무 저장 시: 이전에 없던 담당자만 알림 대상. 하위 업무 체크처럼 저장이 자주
+// 불리는 경로가 있어서, 담당자 목록 전체로 알리면 같은 사람에게 매번 다시 간다
+// (새 멘션만 고르는 newMentionsOnly와 같은 이유).
+export function newAssigneesOnly(nextNames, prevNames, excludeName) {
+  const before = new Set(prevNames || []);
+  const added = (nextNames || []).filter(n => n && !before.has(n));
+  if (!added.length) return [];
+  const nameToIds = nameToIdsMap();
+  const ids = [];
+  for (const name of added) {
+    if (excludeName && name === excludeName) continue;
+    ids.push(...(nameToIds.get(name) || []));
+  }
+  return [...new Set(ids)];
+}
+
+// 담당자 지정 알림 (실패는 조용히 삼킨다 — 본 저장 흐름을 막지 않는다)
+// 본인 제외는 여기서 auth user id로 최종 차단한다 — 내가 나를 담당자로 넣어도 알림 없음.
+export async function notifyAssignees(recipientIds, { actorName, cardId, projectId, preview }) {
+  let ids = recipientIds || [];
+  const myId = await myUserId();
+  if (myId) ids = ids.filter(id => id !== myId);
+  if (!ids.length) return;
+  try {
+    await cloud.insertNotifications(ids, { kind: 'assign', actorName, cardId, projectId, preview });
+  } catch (e) {
+    console.error('[cloud] 담당자 알림 생성 실패:', e);
+  }
+}
+
 // 댓글/답글 1건에 대한 알림 — 멘션 알림 + (답글이면) 원 댓글 작성자 알림.
 // 같은 사람이 양쪽에 걸리면 멘션 쪽만 보낸다(중복 알림 방지).
 // 본인 제외는 auth user id 기준 — 자기 댓글에 자기가 답글 달면 알림 없음.
@@ -121,6 +157,8 @@ export async function notifyComment(text, { actorName, cardId, projectId, replyT
   }
 }
 
+export const savePushSubscription = cloud.savePushSubscription;
+export const deletePushSubscription = cloud.deletePushSubscription;
 export const listMyNotifications = cloud.listMyNotifications;
 export const markNotificationRead = cloud.markNotificationRead;
 export const markAllNotificationsRead = cloud.markAllNotificationsRead;

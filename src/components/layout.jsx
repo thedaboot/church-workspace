@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect, useMemo, useDeferredValue } from 'r
 import { createPortal } from 'react-dom';
 import {
   LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown,
-  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, Pencil, Users, Archive, CalendarDays
+  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users,
+  Archive, CalendarDays, CalendarClock, Smartphone
 } from 'lucide-react';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
@@ -12,6 +13,8 @@ import {
 import { useAuth } from '../services/auth.jsx';
 import { avatarColor, formatRelative } from '../utils.js';
 import * as cloudSync from '../services/cloudSync.js';
+import * as push from '../services/push.js';
+import { notifLine, notifText, isSystemNotif } from '../services/notifyText.js';
 import { showToast } from './Toast.jsx';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { CONFIG } from '../config.js';
@@ -503,8 +506,66 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
 // ── @멘션 알림 (클라우드 모드 전용) ────────────────────────────────────────
 // 알림은 전역 스토어에 넣지 않는다(워크스페이스 데이터와 수명·성격이 다름).
 // 헤더 컴포넌트 로컬 state + realtime 구독으로 충분.
-// 알림 종류별 문구 (kind: 'mention' | 'reply')
-const notifText = (kind) => (kind === 'reply' ? '내 댓글에 답글을 남겼어요' : '나를 멘션했어요');
+// 종류별 문구는 services/notifyText.js에 있다 — 웹 푸시(api/push.js)가 같은 문구를 쓴다.
+
+// 알림 종 팝오버 안의 '알림 받기' 줄. 여기서 권한을 묻는다 — 앱을 처음 열 때 물으면
+// 무슨 알림인지 모르는 상태에서 거부하기 쉽고, 한 번 거부되면 브라우저 설정에서
+// 손으로 되돌려야 한다.
+function PushRow() {
+  const [state, setState] = useState('unavailable');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { let alive = true; push.getPushState().then(s => alive && setState(s)); return () => { alive = false; }; }, []);
+
+  if (state === 'unavailable') return null;
+
+  if (state === 'needs-pwa') {
+    return (
+      <div className="flex items-start gap-2 px-3 py-2.5 border-b border-line text-[10px] text-fg-muted">
+        <Smartphone size={13} strokeWidth={1.75} className="shrink-0 mt-px" />
+        <span>홈 화면에 추가하면 알림을 받을 수 있어요</span>
+      </div>
+    );
+  }
+  if (state === 'denied') {
+    return (
+      <div className="flex items-start gap-2 px-3 py-2.5 border-b border-line text-[10px] text-fg-muted">
+        <BellOff size={13} strokeWidth={1.75} className="shrink-0 mt-px" />
+        <span>브라우저 설정에서 이 사이트의 알림을 허용해 주세요</span>
+      </div>
+    );
+  }
+
+  const on = state === 'on';
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      if (on) { await push.disablePush(); showToast('앱을 닫았을 때는 알림이 오지 않아요'); }
+      else { await push.enablePush(); showToast('이제 앱을 닫아도 알림이 와요'); }
+      setState(await push.getPushState());
+    } catch (e) {
+      console.error('[push] 설정 실패:', e);
+      showToast(e?.message || '알림 설정에 실패했어요');
+      setState(await push.getPushState());
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={toggle} disabled={busy}
+      className="w-full flex items-center gap-2 px-3 py-2.5 border-b border-line text-left hover:bg-surface-hover transition-colors disabled:opacity-60"
+    >
+      {on ? <BellRing size={13} strokeWidth={1.75} className="shrink-0 text-accent-text" />
+          : <Bell size={13} strokeWidth={1.75} className="shrink-0 text-fg-muted" />}
+      <span className="flex-1 min-w-0">
+        <span className="block text-[11px] text-fg">{on ? '이 기기로 알림 받는 중' : '이 기기로 알림 받기'}</span>
+        <span className="block text-[9px] text-fg-faint mt-0.5">{on ? '눌러서 끄기' : '앱을 닫아도 알림이 와요'}</span>
+      </span>
+    </button>
+  );
+}
 
 function NotificationBell({ onOpenTask }) {
   const { session } = useAuth();
@@ -531,7 +592,7 @@ function NotificationBell({ onOpenTask }) {
     if (!userId) return;
     const unsub = cloudSync.subscribeMyNotifications(userId, (row) => {
       setItems(prev => (prev.some(n => n.id === row.id) ? prev : [row, ...prev].slice(0, 30)));
-      showToast(`${row.actor_name}님이 ${notifText(row.kind)}`);
+      showToast(notifLine(row.kind, row.actor_name));
     });
     return unsub;
   }, [userId]);
@@ -592,6 +653,7 @@ function NotificationBell({ onOpenTask }) {
               <button onClick={readAll} className="text-[10px] text-accent-text hover:bg-surface-hover rounded-md px-1.5 py-1 transition active:scale-95">모두 읽음</button>
             )}
           </div>
+          <PushRow />
           {items.length === 0 ? (
             <div className="text-center py-8 px-3">
               <span className="inline-flex w-8 h-8 rounded-full bg-tag-yellow text-tag-yellow-fg items-center justify-center mb-2"><Bell size={13} strokeWidth={1.75} /></span>
@@ -605,10 +667,17 @@ function NotificationBell({ onOpenTask }) {
                   className={`w-full text-left px-3 py-2.5 flex items-start gap-2.5 hover:bg-surface-hover transition-colors ${n.read ? '' : 'bg-accent-weak/40'}`}
                 >
                   {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2" />}
-                  <span className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 ${avatarColor(n.actor_name)}`}>{n.actor_name?.[0]}</span>
+                  {/* 마감 알림은 사람이 만든 게 아니라 배치가 만든다 — 아바타 대신 시계 */}
+                  {isSystemNotif(n.kind) ? (
+                    <span className="w-6 h-6 rounded-full bg-tag-yellow text-tag-yellow-fg flex items-center justify-center shrink-0"><CalendarClock size={12} strokeWidth={1.75} /></span>
+                  ) : (
+                    <span className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 ${avatarColor(n.actor_name)}`}>{n.actor_name?.[0]}</span>
+                  )}
                   <span className="flex-1 min-w-0">
                     <span className="block text-[11px] text-fg-secondary leading-snug">
-                      <span className="font-semibold text-fg">{n.actor_name}</span>님이 {notifText(n.kind)}
+                      {isSystemNotif(n.kind)
+                        ? notifLine(n.kind)
+                        : <><span className="font-semibold text-fg">{n.actor_name}</span>님이 {notifText(n.kind)}</>}
                     </span>
                     {n.preview && <span className="block text-[10px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
                     <span className="block text-[9px] text-fg-faint mt-0.5">{formatRelative(n.created_at)}</span>

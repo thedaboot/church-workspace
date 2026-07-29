@@ -344,6 +344,31 @@ export async function deleteAttachment(fileRow) {
   if (error) throw error;
 }
 
+// ── push_subscriptions (웹 푸시 구독) ───────────────────────────────────────
+// 기기당 한 행. endpoint가 unique이고 upsert로 넣으므로 같은 기기가 다시 구독해도
+// 깨지지 않는다(권한 재요청·키 갱신·앱 재설치 때 실제로 그렇게 된다).
+// 공용 기기에서 주인이 바뀔 수 있으므로 갱신 시 profile_id도 같이 덮는다.
+// `.select()`를 붙이지 않는다 — 본인 행이라 정책상 읽을 수는 있지만 돌려받을 이유가 없다.
+export async function savePushSubscription(sub) {
+  const { data: { user } } = await client().auth.getUser();
+  if (!user) throw new Error('로그인이 필요합니다.');
+  const { endpoint, keys } = sub || {};
+  if (!endpoint || !keys?.p256dh || !keys?.auth) throw new Error('구독 정보가 올바르지 않습니다.');
+  const { error } = await client().from('push_subscriptions').upsert({
+    profile_id: user.id,
+    endpoint,
+    p256dh: keys.p256dh,
+    auth: keys.auth,
+    user_agent: navigator.userAgent.slice(0, 300),
+  }, { onConflict: 'endpoint' });
+  if (error) throw error;
+}
+
+export async function deletePushSubscription(endpoint) {
+  const { error } = await client().from('push_subscriptions').delete().eq('endpoint', endpoint);
+  if (error) throw error;
+}
+
 // ── notifications (@멘션 알림) ──────────────────────────────────────────────
 // 본인 알림 최근 N개 (읽지 않은 것 우선, 그다음 최신순)
 export async function listMyNotifications(limit = 30) {
@@ -380,7 +405,29 @@ export async function insertNotifications(recipientIds, { actorName, cardId, pro
   }));
   const { error } = await client().from('notifications').insert(rows);
   if (error) throw error;
+  // 앱 안 알림과 웹 푸시를 같은 자리에서 보낸다 — 이 함수가 모든 알림의 관문이므로
+  // 여기 붙이면 종류가 늘어도 푸시가 따라온다. 갈라 두면 한쪽만 도는 경로가 생긴다.
+  // 기다리지 않는다: 발송이 늦어도 저장 흐름을 붙잡지 않아야 하고, 실패는 삼킨다
+  // (앱 안 알림은 이미 들어갔다).
+  void requestPush(ids, { actorName, cardId, projectId, preview, kind });
   return rows.length;
+}
+
+// /api/push에 발송을 부탁한다. VAPID 개인키는 서버에만 있으므로 브라우저가 직접
+// 보낼 수는 없다. 배포 전(라우트 없음)·미설정(501)에서도 조용히 지나간다.
+async function requestPush(recipientIds, payload) {
+  try {
+    const { data } = await client().auth.getSession();
+    const token = data?.session?.access_token;
+    if (!token) return;
+    await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ recipientIds, ...payload }),
+    });
+  } catch (e) {
+    console.warn('[push] 발송 요청 실패:', e);
+  }
 }
 
 export async function markNotificationRead(id) {

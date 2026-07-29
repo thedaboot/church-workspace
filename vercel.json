@@ -1,5 +1,8 @@
 {
   "rewrites": [
     { "source": "/s/:type/:id", "destination": "/api/share?type=:type&id=:id" }
+  ],
+  "crons": [
+    { "path": "/api/push", "schedule": "0 22 * * *" }
   ]
 }
