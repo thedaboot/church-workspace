@@ -151,7 +151,9 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   );
   const detailBody = isEditMode
     ? <TaskEditor formData={formData} setFormData={setFormData} members={members} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />
-    : <TaskViewer formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
+    // key로 카드마다 새로 마운트한다 — 요약 state(펼침·이번에 만든 요약)가 카드
+    // 사이에 남으면, 다른 카드를 열었을 때 앞 카드의 요약이 그대로 보인다
+    : <TaskViewer key={formData.id} formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
         // 체크 하나에 카드 전체를 저장한다 — 하위 업무만 따로 쓰는 경로를 만들 만큼
         // 잦은 조작이 아니고, 저장 경로가 둘이면 활동 기록·실시간이 갈라진다
         onSubtasksChange={(next) => onSave({ ...formData, subtasks: next })} />;
@@ -374,22 +376,31 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
               <input
                 value={s.title}
                 onChange={e => rename(s.id, e.target.value)}
-                placeholder="단계 이름"
+                placeholder="예: 포스터 시안 만들기"
                 className={`flex-1 min-w-0 text-[13px] bg-transparent border border-transparent rounded-xs px-1.5 py-1 outline-none transition-colors hover:border-line focus:border-accent focus:bg-surface ${s.done ? 'text-fg-faint line-through' : 'text-fg'} placeholder:text-fg-faint`}
               />
             )}
+            {/* 한 번 누르면 바로 지워졌다 — 체크박스 옆 작은 휴지통이라 잘못 누르기 쉽고,
+                하위 업무는 실행 취소가 없다(클라우드 모드에서는 Undo를 감춘다).
+                삭제 확인은 §7대로 ConfirmPopover로 통일한다. */}
             {!readOnly && (
-              <button type="button" onClick={() => remove(s.id)} title="이 단계 삭제" aria-label={`${s.title} 삭제`}
-                className="shrink-0 p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors">
-                <Trash2 size={13} />
-              </button>
+              <ConfirmPopover
+                className="shrink-0 inline-flex"
+                title="이 하위 업무 삭제"
+                message={s.title.trim() ? `'${s.title.trim()}'을(를) 삭제할까요?` : '이 하위 업무를 삭제할까요?'}
+                onConfirm={() => remove(s.id)}
+              >
+                <button type="button" aria-label={`${s.title || '이름 없는 하위 업무'} 삭제`}
+                  className="p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors">
+                  <Trash2 size={13} />
+                </button>
+              </ConfirmPopover>
             )}
           </div>
         ))}
+        {/* readOnly + 항목 0개는 위에서 이미 return null이라 여기 오지 않는다 */}
         {!total && (
-          <p className="py-2.5 text-[11px] text-fg-faint">
-            {readOnly ? '하위 업무가 없어요' : '단계를 나누면 여기에서 하나씩 체크할 수 있어요'}
-          </p>
+          <p className="py-2.5 text-[11px] text-fg-faint">업무를 여러 개로 나누면 하나씩 체크할 수 있어요</p>
         )}
       </div>
       {!readOnly && (
@@ -397,7 +408,10 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
           value={draft} onChange={e => setDraft(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
           onBlur={add}
-          placeholder="단계를 입력하고 Enter"
+          // '입력하고 Enter'라고만 적혀 있었는데 onBlur로도 추가된다. 방법을 설명하는
+          // 대신 예시를 두는 쪽이 낫다 — '하위 업무'가 무엇인지 모르는 사람에게는
+          // 방법보다 "여기에 무엇을 적는 칸인지"가 먼저다.
+          placeholder="예: 포스터 시안 만들기"
           className="w-full mt-2 text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint"
         />
       )}
@@ -492,24 +506,32 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
 });
 
 const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange }) => {
-  const [summary, setSummary] = useState('');
+  const [summary, setSummary] = useState('');      // 이번에 AI가 만든 것(고정 전)
+  const [revealed, setRevealed] = useState(false); // 고정된 요약을 펼쳤는지
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [pinning, setPinning] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
 
-  // 고정된 요약이 있으면 그것이 먼저다 — AI를 부르지 않고 바로 보여준다.
-  // 요약은 기본적으로 각자 브라우저 메모리에만 캐시되므로, 잘 나온 것을 사람들이
-  // 같이 보게 하려면 카드에 남겨야 한다. 그 판단은 관리자만 한다(전원이 덮어쓰면
-  // 마지막 사람 것만 남는다).
+  // 고정된 요약은 카드에 남아 있어서(0015의 cards.ai_summary) 다른 사람도 본다.
+  // **열자마자 펼치지는 않는다** — 버튼을 눌러서 나오는 편이, 요약이라는 기능이
+  // 있다는 것과 자기가 그걸 불렀다는 것을 같이 알려준다. 대신 AI를 다시 부르지
+  // 않고 저장된 것을 바로 보여준다(값도 안 들고 즉시 뜬다).
   const pinned = formData.aiSummary || '';
-  const shown = pinned || summary;
+  // 이번에 만든 것이 있으면 그것이 먼저다. 예전에는 `pinned || summary`라서
+  // 고정된 상태에서 '다시 만들기'를 눌러도 화면이 옛 요약 그대로였다.
+  const shown = summary || (revealed ? pinned : '');
+  const showingPinned = !!pinned && shown === pinned;
   const canPin = cloudMode && isAdmin && !!formData.id;
 
-  const handleSummarize = async () => {
+  const runAi = async () => {
     setIsAiLoading(true);
     const result = await AiService.summarizeTask(formData);
     setSummary(result);
     setIsAiLoading(false);
   };
+  // 버튼 한 번: 고정된 게 있으면 펼치기, 없으면 AI 호출
+  const handleSummarize = () => (pinned ? setRevealed(true) : runAi());
 
   // 고정/해제 — 카드 폼과 분리된 경로다(요약 세 칸만 건드린다)
   const setPinnedSummary = async (text) => {
@@ -517,11 +539,24 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
     store.dispatch({ type: 'SYNC_TASK', payload: { id: formData.id, aiSummary: text, aiSummaryBy: text ? '나' : '', aiSummaryAt: text ? new Date().toISOString() : '' } });
     try {
       await cardSummaryCloud(formData.id, text);
+      // 고정한 것이 화면에 남게 정리한다 — summary가 남아 있으면 그게 계속 이긴다
+      setSummary('');
+      setRevealed(!!text);
     } catch (e) {
       console.error('[cloud] 요약 고정 실패:', e);
       showToast('요약을 고정하지 못했어요 · 잠시 후 다시 시도해주세요');
     }
     setPinning(false);
+  };
+
+  // 고친 요약 저장 — 다시 돌리면 딴 글이 나오므로, 마음에 든 요약의 한 줄만
+  // 손보고 싶을 때가 있다. 고정과 같은 자리에 쓰는 일이라 권한도 같다(관리자).
+  const startEdit = () => { setDraft(shown); setEditing(true); };
+  const saveEdit = async () => {
+    const text = draft.trim();
+    if (!text) return;
+    setEditing(false);
+    await setPinnedSummary(text);
   };
 
   return (
@@ -543,7 +578,9 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
         <div className="mt-4 pl-3 border-l-2 border-tag-purple-fg/40 animate-in fade-in duration-200">
           <div className="flex items-center gap-1.5 mb-1">
             <span className="text-[10px] font-bold text-tag-purple-fg">3줄 요약</span>
-            {pinned && (
+            {/* '고정' 배지는 지금 보고 있는 것이 저장된 요약일 때만 — 새로 만든 요약을
+                보면서 이 배지가 붙어 있으면 이미 저장된 줄로 오해한다 */}
+            {showingPinned && (
               <span className="inline-flex items-center gap-1 text-[10px] text-fg-faint">
                 <Pin size={9} />고정{formData.aiSummaryBy ? ` · ${formData.aiSummaryBy}` : ''}
               </span>
@@ -551,22 +588,46 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
           </div>
           {isAiLoading
             ? <div className="text-xs text-fg-muted animate-pulse">업무 내용과 댓글을 분석하고 있습니다...</div>
-            : <div className="text-xs text-fg-secondary whitespace-pre-wrap"><RichText content={shown} /></div>}
-          {/* 고정은 관리자만 — 아무나 덮어쓰면 마지막 사람 것만 남는다 */}
+            : editing
+              ? <textarea
+                  value={draft} onChange={e => setDraft(e.target.value)} rows={5} autoFocus
+                  className="w-full text-xs leading-relaxed text-fg bg-surface border border-line rounded-xs px-2 py-1.5 outline-none focus:border-accent resize-y"
+                />
+              : <div className="text-xs text-fg-secondary whitespace-pre-wrap"><RichText content={shown} /></div>}
+          {/* 고정·고치기는 관리자만 — 아무나 덮어쓰면 마지막 사람 것만 남는다 */}
           {canPin && !isAiLoading && (
             <div className="flex gap-2 mt-1.5">
-              {pinned ? (
+              {/* 저장이 왼쪽, 취소가 오른쪽 — 업무 창 푸터와 같은 이유다(§7).
+                  '고치기'를 누른 자리에 '저장'이 와야 손가락 밑의 뜻이 안 바뀐다. */}
+              {editing ? (
                 <>
+                  <button onClick={saveEdit} disabled={pinning || !draft.trim()}
+                    className="text-[10px] font-semibold text-accent-text hover:underline transition-colors disabled:opacity-40">
+                    {pinning ? '저장하는 중...' : '저장'}
+                  </button>
+                  <button onClick={() => setEditing(false)} disabled={pinning}
+                    className="text-[10px] text-fg-faint hover:text-fg-muted transition-colors disabled:opacity-40">취소</button>
+                </>
+              ) : showingPinned ? (
+                <>
+                  <button onClick={startEdit} disabled={pinning}
+                    className="text-[10px] font-semibold text-accent-text hover:underline transition-colors disabled:opacity-40">고치기</button>
+                  <button onClick={runAi} disabled={pinning}
+                    className="text-[10px] text-accent-text hover:underline transition-colors disabled:opacity-40">다시 만들기</button>
                   <button onClick={() => setPinnedSummary('')} disabled={pinning}
                     className="text-[10px] text-fg-faint hover:text-fg-muted transition-colors disabled:opacity-40">고정 해제</button>
-                  <button onClick={handleSummarize} disabled={pinning}
-                    className="text-[10px] text-accent-text hover:underline transition-colors disabled:opacity-40">다시 만들기</button>
                 </>
               ) : (
-                <button onClick={() => setPinnedSummary(summary)} disabled={pinning || !summary}
-                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-accent-text hover:underline transition-colors disabled:opacity-40">
-                  <Pin size={9} />{pinning ? '고정하는 중...' : '이 요약 고정'}
-                </button>
+                <>
+                  {/* 고정된 게 이미 있는데 새로 만든 것을 보고 있는 상태 —
+                      덮어쓰는 일이므로 문구로 그렇게 말한다 */}
+                  <button onClick={() => setPinnedSummary(shown)} disabled={pinning || !shown}
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-accent-text hover:underline transition-colors disabled:opacity-40">
+                    <Pin size={9} />{pinning ? '고정하는 중...' : (pinned ? '이 요약으로 바꾸기' : '이 요약 고정')}
+                  </button>
+                  <button onClick={startEdit} disabled={pinning || !shown}
+                    className="text-[10px] text-accent-text hover:underline transition-colors disabled:opacity-40">고쳐서 고정</button>
+                </>
               )}
             </div>
           )}
@@ -575,7 +636,9 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
 
       {/* 요약 버튼은 hover로 숨기지 않는다 — 터치 기기에는 hover가 없어서 모바일에서
           이 기능이 아예 없는 것처럼 보였다. 본문 위 한 줄에 항상 둔다. */}
-      {!shown && formData.content && (
+      {/* 고정된 요약이 있어도 이 버튼이 먼저다 — 눌러야 나온다. 본문이 없어도
+          고정된 게 있으면 보여줄 것이 있으므로 버튼을 둔다. */}
+      {!shown && (formData.content || pinned) && (
         <div className="flex justify-end mt-4 -mb-1">
           <button onClick={handleSummarize} disabled={isAiLoading} className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-tag-purple text-tag-purple-fg hover:opacity-80 rounded-xs text-[10px] font-bold transition active:scale-95 disabled:opacity-40">
             {isAiLoading ? <span className="animate-pulse">요약하는 중...</span> : <><Wand2 size={12} /> 3줄 요약</>}

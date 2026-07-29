@@ -92,7 +92,81 @@ check('업무 창 푸터: 수정과 닫기 색이 다르다', footer.differentCo
 if (stillOpen) { await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '닫기').click()`); await sleep(400); }
 check('닫기 버튼도 그대로 동작', (await isOpen()) === false);
 
-// 5) 모바일은 풀스크린이라 바깥이 없다 — 닫기 버튼으로 닫힌다
+// 5) 하위 업무 삭제는 확인을 거친다
+// 예전에는 휴지통을 한 번 누르면 바로 지워졌다. 체크박스 옆 13px 아이콘이라 잘못
+// 누르기 쉽고, 하위 업무에는 실행 취소가 없다(클라우드 모드에서는 Undo를 감춘다).
+const popover = () => ev(`(() => {
+  const d = [...document.querySelectorAll('div')]
+    .find(x => typeof x.className === 'string' && x.className.includes('z-[90]'));
+  if (!d) return null;
+  return { buttons: [...d.querySelectorAll('button')].map(b => b.textContent.trim()) };
+})()`);
+// 하위 업무 체크박스는 앱에서 aria-pressed를 쓰는 유일한 요소다
+const subCount = () => ev(`document.querySelectorAll('[aria-pressed]').length`);
+const clickTrash = async () => {
+  const r = await ev(`(() => {
+    const cb = document.querySelector('[aria-pressed]');
+    if (!cb) return null;
+    const trash = [...cb.parentElement.querySelectorAll('button')].find(b => b !== cb);
+    if (!trash) return null;
+    trash.scrollIntoView({ block: 'center' });
+    trash.click();
+    return true;
+  })()`);
+  await sleep(350);
+  return r;
+};
+const popClick = async (label) => {
+  await ev(`(() => {
+    const d = [...document.querySelectorAll('div')]
+      .find(x => typeof x.className === 'string' && x.className.includes('z-[90]'));
+    [...d.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})?.click();
+  })()`);
+  await sleep(350);
+};
+
+await openCard();
+await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '수정').click()`);
+await sleep(700);
+
+// 하위 업무 한 건 추가. 입력칸은 '예:'로 시작하는 placeholder로 찾는다 —
+// 문구가 '단계를 입력하고 Enter'에서 예시로 바뀐 자리다.
+const subBox = await ev(`(() => {
+  const i = [...document.querySelectorAll('input')].find(x => (x.placeholder || '').startsWith('예:'));
+  if (!i) return null;
+  i.scrollIntoView({ block: 'center' });
+  const r = i.getBoundingClientRect();
+  return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+})()`);
+check('수정 화면에 하위 업무 입력칸이 있다(예시 placeholder)', !!subBox);
+
+await mouse('mousePressed', subBox.x, subBox.y);
+await mouse('mouseReleased', subBox.x, subBox.y);
+await send('Input.insertText', { text: '포스터 시안 만들기' });
+await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+await sleep(400);
+check('Enter로 하위 업무가 추가된다', (await subCount()) === 1);
+
+// 휴지통 → 확인 팝오버가 뜨고, 이 시점에는 아직 지워지지 않아야 한다
+check('휴지통 버튼을 찾았다', (await clickTrash()) === true);
+const pop = await popover();
+check('하위 업무 삭제는 확인을 먼저 묻는다',
+  !!pop && pop.buttons.includes('삭제') && pop.buttons.includes('취소'), JSON.stringify(pop));
+check('확인하기 전에는 지워지지 않는다', (await subCount()) === 1);
+
+await popClick('취소');
+check('취소하면 하위 업무가 남는다', (await subCount()) === 1);
+
+await clickTrash();
+await popClick('삭제');
+check('확인하면 지워진다', (await subCount()) === 0);
+
+// 저장하지 않고 닫는다 — 다음 절(모바일)이 깨끗한 상태에서 시작하도록
+await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '닫기').click()`);
+await sleep(400);
+
+// 6) 모바일은 풀스크린이라 바깥이 없다 — 닫기 버튼으로 닫힌다
 await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
 await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
 await send('Page.navigate', { url: URL_BASE + '/?p=p1' });
