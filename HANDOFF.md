@@ -8,8 +8,8 @@
 - 최근 작업은 `git log --oneline -15`로 봅니다 (여기에 커밋 해시를 적어 두면
   커밋마다 손으로 고쳐야 해서 금방 낡습니다 — 실제로 한 번 어긋나 있었습니다)
 - 배포: Vercel, `main` 푸시 시 자동
-- 검증: `npm run verify` → 21개 스위트 274 pass (약 6분).
-  274는 단정 개수이고 스위트는 21개입니다 — 평소에는 `npm run verify -- handoff navsmoke`처럼
+- 검증: `npm run verify` → 21개 스위트 289 pass (약 6분).
+  289는 단정 개수이고 스위트는 21개입니다 — 평소에는 `npm run verify -- handoff navsmoke`처럼
   골라 돌리고(수십 초), 푸시 직전에 한 번 전부 돌리는 흐름입니다.
 
 ### 이 문서 밖에 있는 것 (레포만 받아서는 알 수 없는 것)
@@ -229,6 +229,14 @@ CHROME=/path/to/chrome npm run verify
     볼 수도 알림을 받을 수도 없어서 배정이 아니라 메모였다. 검증은 `tests/assignees.mjs`
     (게스트 모드로는 이 경로가 안 돌아서 `cloud.js`를 가짜로 바꿔친다).
 
+29. **조인 테이블은 "전부 지우고 전부 넣기"로 맞추면 안 된다.** 왕복이 두 번이라 멱등이
+    아니다. 저장 두 개가 겹치면 문장이 D1 → D2 → I1 → I2 순으로 도착하고, D2가 빈손으로
+    지나가서 I2가 I1의 행과 부딪힌다(23505 duplicate key). 실제로 0013 직후 담당자를
+    추가할 때 저장이 실패했다. 지금은 **집합에 없는 것만 지우고 + on conflict do nothing**
+    이라 순서에 상관없다(`cloud.resetCardJoin`). 새 조인 테이블을 붙이면 같은 모양을
+    쓰세요. 그리고 이 판단이 0015에서 하위 업무를 조인이 아니라 `cards.subtasks` 컬럼으로
+    둔 이유이기도 하다 — 컬럼 통째 쓰기는 겹쳐도 마지막 것이 남을 뿐 깨지지 않는다.
+
 **테스트 스크립트 작성 시**
 
 17. 페이지에 주입하는 문자열은 JS 템플릿 리터럴이라 `\d`가 `d`로 죽습니다 → `[0-9]`.
@@ -245,7 +253,7 @@ CHROME=/path/to/chrome npm run verify
 
 ## 6. 데이터 · 스키마 · 비밀
 
-- 스키마는 `supabase/migrations/0001~0013`이고 **전부 라이브 DB에 적용**되어 있습니다
+- 스키마는 `supabase/migrations/0001~0015`이고 **전부 라이브 DB에 적용**되어 있습니다
   (0001~0005는 대시보드에서 수동, 0006~0011은 `npx supabase db push --db-url "$SUPABASE_DB_URL"`로.
   접속 문자열은 로컬 `.env`의 `SUPABASE_DB_URL`에 둡니다 — 대시보드 Connect의 Session pooler URI).
   0009~0011이 한 일:
@@ -261,6 +269,10 @@ CHROME=/path/to/chrome npm run verify
   (`card_teams`와 같은 모양·같은 정책). 적용 후 확인 — 카드 4건 / 조인 행 7개 /
   프로필과 못 이어진 이름 0개. `cards.assignees` 컬럼은 남겨 두었고 앱은 양쪽에
   다 쓰지만 **읽기는 조인을 먼저** 봅니다(§5의 28번).
+- 0014: `projects.archived` 복구(0009에서 지웠던 것). 보관은 삭제가 아니라 탭·대시보드에서
+  빼는 것이고, 보관함은 `created_at`으로 연도를 묶습니다 — 연도 컬럼을 따로 두지 않습니다.
+- 0015: `cards.subtasks`(jsonb 체크리스트, 배열 제약 있음) + `cards.ai_summary`/`_at`/`_by`
+  (관리자가 고정한 3줄 요약). 하위 업무를 조인 테이블이 아니라 컬럼으로 둔 이유는 §5의 29번.
 - 0008(`0008_profile_teams.sql`) 메모: 라이브에 적용됨 — 한 사람이 여러 팀에 속하는 조인 테이블 + RLS(읽기: 로그인 사용자,
   쓰기: 본인 행만) + 기존 `profiles.team_id` 복사. 기존 컬럼은 남겨 두었고
   (`currentUser.teams?.length ? teams : [team]` 패턴으로 양쪽을 봅니다), 적용 후 데이터

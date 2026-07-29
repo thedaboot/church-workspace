@@ -149,6 +149,13 @@ const cardToTask = (card) => ({
   startDate: card.start_date || '',
   dueDate: card.due_date || '',
   position: card.position ?? 0,
+  // 하위 업무는 컬럼(jsonb) 하나다 — 카드와 언제나 같이 읽고 쓴다. 배열이 아닌 값은
+  // DB 제약이 막지만, 예전 카드에는 컬럼이 없을 수 있으므로 여기서도 배열로 못 박는다.
+  subtasks: Array.isArray(card.subtasks) ? card.subtasks : [],
+  // 고정한 AI 요약 (관리자가 '이 요약 고정'을 누른 것)
+  aiSummary: card.ai_summary || '',
+  aiSummaryAt: card.ai_summary_at || '',
+  aiSummaryBy: card.ai_summary_by ? (profileIdToName.get(card.ai_summary_by) || '') : '',
   author: profileIdToName.get(card.created_by) || '',
   created_by: card.created_by || null,
   createdAt: card.created_at,
@@ -276,6 +283,7 @@ const cardPatch = (task) => ({
   due_date: task.dueDate || null,
   assignees: task.assignees || [],
   position: task.position ?? 0,
+  subtasks: Array.isArray(task.subtasks) ? task.subtasks : [],
 });
 
 // 모든 쓰기 경로도 시계 오차(PGRST303) 재시도로 감싼다
@@ -303,6 +311,7 @@ export async function cardUpsertCloud(task, isNew) {
   return write(() => cloud.updateCard(task.id, cardPatch(task), teamIds, assigneeIds));
 }
 export async function cardDeleteCloud(id) { return write(() => cloud.deleteCard(id)); }
+export async function cardSummaryCloud(id, text) { return write(() => cloud.setCardSummary(id, text)); }
 
 export async function activityAddCloud(entries, projectId, cardId) {
   for (const e of entries) {

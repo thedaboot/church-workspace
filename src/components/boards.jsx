@@ -1,12 +1,12 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeftRight } from 'lucide-react';
+import { ArrowLeftRight, CheckSquare } from 'lucide-react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable, pointerWithin, rectIntersection,
 } from '@dnd-kit/core';
 import { CONFIG, teamPaint, teamColor } from '../config.js';
-import { avatarColor } from '../utils.js';
+import { avatarColor, subtaskProgress } from '../utils.js';
 import { STATUS_BAR, STATUS_DOT_VAR, byDue } from '../views/dashboardParts.jsx';
 import { useStore } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
@@ -41,6 +41,7 @@ const isLate = (task) => !!task.dueDate && task.status !== '완료'
 const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action = null }) => {
   const late = isLate(task);
   const rail = teamPaint(task.teams, true);
+  const sub = subtaskProgress(task.subtasks || []);
   return (
     <div className="flex gap-2.5">
       <span className="shrink-0 w-[3px] rounded-full my-0.5" style={rail} />
@@ -66,12 +67,24 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action 
               </>
             ) : <span className="text-[11px] text-fg-faint truncate">담당자 미지정</span>}
           </span>
-          {task.dueDate && (
-            <span className="shrink-0 text-[11px] font-bold tabular-nums px-1.5 py-px rounded-[4px]"
-              style={{ background: late ? 'var(--app-tag-red)' : 'transparent', color: late ? 'var(--app-tag-red-fg)' : 'var(--app-ink-muted)' }}>
-              {ddLabel(task)}
-            </span>
-          )}
+          <span className="shrink-0 inline-flex items-center gap-2">
+            {/* 하위 업무 진척 — 카드를 열지 않아도 몇 단계 남았는지 보인다.
+                subtasks는 cards 컬럼이라 목록 로드에 이미 들어와 있다(댓글·첨부와
+                달리 따로 세는 경로가 필요 없다). 항목이 없으면 아무것도 안 그린다. */}
+            {sub.total > 0 && (
+              <span className="inline-flex items-center gap-1 text-[10.5px] tabular-nums"
+                style={{ color: sub.done === sub.total ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)' }}
+                title={`하위 업무 ${sub.done}/${sub.total}`}>
+                <CheckSquare size={10} strokeWidth={2} />{sub.done}/{sub.total}
+              </span>
+            )}
+            {task.dueDate && (
+              <span className="text-[11px] font-bold tabular-nums px-1.5 py-px rounded-[4px]"
+                style={{ background: late ? 'var(--app-tag-red)' : 'transparent', color: late ? 'var(--app-tag-red-fg)' : 'var(--app-ink-muted)' }}>
+                {ddLabel(task)}
+              </span>
+            )}
+          </span>
         </span>
       </span>
     </div>

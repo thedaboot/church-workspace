@@ -1,4 +1,8 @@
 import assert from 'node:assert';
+import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { TaskService, ActivityService } from 'file:///C:/Users/%EB%85%B8%EC%A4%80%EC%84%9D/Desktop/church_workspace/src/services/domain.js';
 
 const base = { id: 't1', projectId: 'p1', title: '수련회 준비', content: '내용', status: '시작 전',
@@ -46,3 +50,20 @@ assert.ok(TaskService.deleteComment(withC, withC.comments[0].id, '노준석').ac
 for (const l of edited.activityLog) { assert.ok(l.id && l.author === '노준석' && l.timestamp); }
 
 console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
+
+// ── 하위 업무 진척 (utils.subtaskProgress) ──
+// 보드 카드와 업무 창이 같은 함수를 쓴다. 0/0에서 NaN이 나오면 카드가 통째로 깨진다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir2 = mkdtempSync(join(tmpdir(), 'sub-'));
+  const f2 = join(dir2, 'utils.mjs');
+  writeFileSync(f2, src);
+  const { subtaskProgress } = await import(pathToFileURL(f2).href);
+  assert.deepStrictEqual(subtaskProgress([]), { total: 0, done: 0, ratio: 0 }, '빈 목록은 0/0 · 비율 0(NaN 금지)');
+  assert.deepStrictEqual(subtaskProgress(), { total: 0, done: 0, ratio: 0 }, '인자가 없어도 안전하다');
+  assert.deepStrictEqual(
+    subtaskProgress([{ done: true }, { done: false }, { done: true }]),
+    { total: 3, done: 2, ratio: 2 / 3 });
+  assert.deepStrictEqual(subtaskProgress([{ done: true }]), { total: 1, done: 1, ratio: 1 }, '전부 끝나면 1');
+  console.log('PASS  하위 업무 진척 4가지');
+}

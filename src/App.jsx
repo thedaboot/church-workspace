@@ -4,7 +4,7 @@ import { useWorkspaceController } from './hooks/controllers.js';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import { TopNav, MobileTopBar, MobileTabBar } from './components/layout.jsx';
 import { useIsMobile } from './hooks/useIsMobile.js';
-import { DashboardView, ProjectView, MyTasksView, TeamView } from './views/views.jsx';
+import { DashboardView, ProjectView, MyTasksView, TeamView, ScheduleView } from './views/views.jsx';
 import { TaskModalShell } from './modals/modals.jsx';
 import { ProfileModal, ProjectModal } from './modals/settings.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
@@ -13,6 +13,11 @@ import { ToastHost, showToast } from './components/Toast.jsx';
 import * as cloudSync from './services/cloudSync.js';
 import logoLight from './assets/logo-light.png';
 import logoDark from './assets/logo-dark.png';
+
+// activeMenu에는 화면 이름이나 프로젝트 id가 들어간다 — 여기 없는 값은 프로젝트로 본다.
+// 새 전역 화면을 만들면 이 목록에도 넣어야 그 이름이 프로젝트 id로 오해되지 않는다
+// (오해되면 '없는 프로젝트'로 판정돼 대시보드로 튕긴다).
+const GLOBAL_MENUS = ['dashboard', 'myTasks', 'schedule'];
 
 // 클라우드 초기 로드 중 미니멀 스플래시 (로고 + 살짝 pulse)
 function CloudSplash() {
@@ -259,8 +264,10 @@ function WorkspaceShell() {
 
   // 문자열이라 값 비교 → memo에 안전
   const teamName = activeMenu.startsWith('team:') ? activeMenu.split(':')[1] : '';
-  // 프로젝트 화면(보드·캘린더)만 화면 높이에 맞춰 안에서 스크롤한다
-  const isProjectScreen = !['dashboard', 'myTasks'].includes(activeMenu) && !activeMenu.startsWith('team:');
+  const isProjectScreen = !GLOBAL_MENUS.includes(activeMenu) && !activeMenu.startsWith('team:');
+  // 안에서 스크롤하는 화면(보드·캘린더)은 높이가 확정돼야 한다 — 전체 일정도 달력이라
+  // 같은 처리가 필요하다(h-full이 없으면 달력이 화면 밖으로 흘러 띠가 잘린다)
+  const needsFullHeight = isProjectScreen || activeMenu === 'schedule';
 
   // 딥링크의 taskId → 데이터 준비 후 해당 업무 모달 오픈(존재 검증)
   useEffect(() => {
@@ -275,7 +282,7 @@ function WorkspaceShell() {
   // activeMenu/모달 상태 → URL(search params) 동기화 (대시보드/일반 뷰는 파라미터 제거)
   useEffect(() => {
     const params = new URLSearchParams();
-    const isProject = !['dashboard', 'myTasks'].includes(activeMenu) && !activeMenu.startsWith('team:');
+    const isProject = !GLOBAL_MENUS.includes(activeMenu) && !activeMenu.startsWith('team:');
     if (isProject) params.set('p', activeMenu);
     if (modalState.isOpen && modalState.task?.id) {
       if (modalState.task.projectId) params.set('p', modalState.task.projectId);
@@ -325,8 +332,9 @@ function WorkspaceShell() {
               흐르고, 넘친 부분에는 main의 padding-bottom이 적용되지 않아서
               마지막 줄이 하단 탭바에 가렸다(대시보드 '팀별 남은 업무', 팀 보드
               '참여 프로젝트'). */}
-          <div key={activeMenu} className={isProjectScreen ? 'h-full' : ''}>
+          <div key={activeMenu} className={needsFullHeight ? 'h-full' : ''}>
           {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
+          {activeMenu === 'schedule' && <ScheduleView onTaskClick={handleTaskClick} />}
           {activeMenu === "myTasks" && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {isProjectScreen && (

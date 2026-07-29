@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { CheckSquare, Clock, X, User, Hash, Wand2, CalendarRange, Trash2, Paperclip } from 'lucide-react';
+import { CheckSquare, Clock, X, User, Hash, Wand2, CalendarRange, Trash2, Paperclip, Check, Pin } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { formatDate, isMobileViewport, keepVisible } from '../utils.js';
+import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { AiService } from '../services/ai.js';
 import { RichText } from '../components/RichText.jsx';
+import { Bar } from '../views/dashboardParts.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { AttachmentSection } from './attachments.jsx';
 import { CommentPanel, ActivityPanel, CommentInput } from './comments.jsx';
@@ -14,9 +15,10 @@ const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').the
 const EditorSkeleton = () => <div className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none bg-surface-2/50 animate-pulse" />;
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
-import { getMemberNames, loadCardDetail } from '../services/cloudSync.js';
+import { getMemberNames, loadCardDetail, cardSummaryCloud } from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { showToast } from '../components/Toast.jsx';
 
 // ============================================================================
 // 업무 창 — 상세 보기 / 수정 폼 / 그 껍데기(TaskModalShell)
@@ -149,7 +151,10 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   );
   const detailBody = isEditMode
     ? <TaskEditor formData={formData} setFormData={setFormData} members={members} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />
-    : <TaskViewer formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />;
+    : <TaskViewer formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
+        // 체크 하나에 카드 전체를 저장한다 — 하위 업무만 따로 쓰는 경로를 만들 만큼
+        // 잦은 조작이 아니고, 저장 경로가 둘이면 활동 기록·실시간이 갈라진다
+        onSubtasksChange={(next) => onSave({ ...formData, subtasks: next })} />;
   const commentsPanel = listsReady
     ? <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} />
     : null;
@@ -313,6 +318,75 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
   );
 };
 
+// ── 하위 업무 (체크리스트) ────────────────────────────────────────────────
+// 사역 업무는 대개 여러 단계인데, 본문 마크다운 불릿으로 적으면 진척에 안 잡힌다.
+// cards.subtasks(jsonb) 컬럼 하나로 둔다 — 카드와 언제나 같이 읽고 쓰므로 조인
+// 테이블이 필요 없고, 컬럼 통째 쓰기라 저장이 겹쳐도 깨지지 않는다(0013에서
+// 담당자를 조인으로 옮겼다가 겹친 저장이 duplicate key로 깨졌던 것과 반대 성질).
+function SubtaskList({ value = [], onChange, readOnly = false }) {
+  const [draft, setDraft] = useState('');
+  const { total, done } = subtaskProgress(value);
+
+  const add = () => {
+    const t = draft.trim();
+    if (!t) return;
+    onChange([...value, { id: generateId(), title: t, done: false }]);
+    setDraft('');
+  };
+  const toggle = (id) => onChange(value.map(s => (s.id === id ? { ...s, done: !s.done } : s)));
+  const remove = (id) => onChange(value.filter(s => s.id !== id));
+
+  // 읽기 전용인데 항목도 없으면 자리만 차지한다
+  if (readOnly && !total) return null;
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-2 mb-1.5">
+        <label className="block text-xs text-fg-muted shrink-0">하위 업무</label>
+        {total > 0 && (
+          <span className="text-[11px] font-semibold text-fg-faint tabular-nums">{done}/{total}</span>
+        )}
+        <span className="flex-1 min-w-[40px]"><Bar ratio={total ? done / total : 0} color="var(--p-blue)" height={3} /></span>
+      </div>
+      <div className="divide-y divide-line/60 border-y border-line">
+        {value.map(s => (
+          <div key={s.id} className="flex items-center gap-2.5 py-2 group/sub">
+            {/* 보기 모드에서도 체크는 눌린다 — 하위 업무를 끝낼 때마다 수정 모드로
+                들어갔다 나오게 하면 아무도 쓰지 않는다 */}
+            <button
+              type="button" onClick={() => toggle(s.id)}
+              className="w-[18px] h-[18px] rounded-[5px] shrink-0 flex items-center justify-center transition-colors"
+              style={s.done
+                ? { background: 'var(--app-tag-green-fg)' }
+                : { border: '1.5px solid var(--app-line)' }}
+              aria-pressed={s.done} aria-label={`${s.title} ${s.done ? '완료 취소' : '완료'}`}
+            >
+              {s.done && <Check size={11} strokeWidth={3} className="text-white" />}
+            </button>
+            <span className={`flex-1 min-w-0 text-[13px] break-words ${s.done ? 'text-fg-faint line-through' : 'text-fg'}`}>{s.title}</span>
+            {!readOnly && (
+              <button type="button" onClick={() => remove(s.id)} title="삭제"
+                className="shrink-0 text-fg-faint hover:text-tag-red-fg transition-colors opacity-100 md:opacity-0 md:group-hover/sub:opacity-100">
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        ))}
+        {!total && <p className="py-2.5 text-[11px] text-fg-faint">단계를 나누면 여기에서 하나씩 체크할 수 있어요</p>}
+      </div>
+      {!readOnly && (
+        <input
+          value={draft} onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+          onBlur={add}
+          placeholder="단계를 입력하고 Enter"
+          className="w-full mt-2 text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint"
+        />
+      )}
+    </div>
+  );
+}
+
 const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
 
@@ -386,6 +460,11 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
         </Suspense>
       </div>
 
+      <SubtaskList
+        value={formData.subtasks || []}
+        onChange={(next) => setFormData(prev => ({ ...prev, subtasks: next }))}
+      />
+
       {cloudMode && (formData.id
         ? <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />
         : <p className="mt-4 text-[11px] text-fg-faint flex items-center gap-1.5"><Paperclip size={13} className="text-fg-faint" /> 저장 후 첨부할 수 있어요.</p>
@@ -394,15 +473,37 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
   );
 });
 
-const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity }) => {
+const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange }) => {
   const [summary, setSummary] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [pinning, setPinning] = useState(false);
+
+  // 고정된 요약이 있으면 그것이 먼저다 — AI를 부르지 않고 바로 보여준다.
+  // 요약은 기본적으로 각자 브라우저 메모리에만 캐시되므로, 잘 나온 것을 사람들이
+  // 같이 보게 하려면 카드에 남겨야 한다. 그 판단은 관리자만 한다(전원이 덮어쓰면
+  // 마지막 사람 것만 남는다).
+  const pinned = formData.aiSummary || '';
+  const shown = pinned || summary;
+  const canPin = cloudMode && isAdmin && !!formData.id;
 
   const handleSummarize = async () => {
     setIsAiLoading(true);
     const result = await AiService.summarizeTask(formData);
     setSummary(result);
     setIsAiLoading(false);
+  };
+
+  // 고정/해제 — 카드 폼과 분리된 경로다(요약 세 칸만 건드린다)
+  const setPinnedSummary = async (text) => {
+    setPinning(true);
+    store.dispatch({ type: 'SYNC_TASK', payload: { id: formData.id, aiSummary: text, aiSummaryBy: text ? '나' : '', aiSummaryAt: text ? new Date().toISOString() : '' } });
+    try {
+      await cardSummaryCloud(formData.id, text);
+    } catch (e) {
+      console.error('[cloud] 요약 고정 실패:', e);
+      showToast('요약을 고정하지 못했어요 · 잠시 후 다시 시도해주세요');
+    }
+    setPinning(false);
   };
 
   return (
@@ -420,16 +521,43 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
       </div>
 
       {/* 요약 섹션 — ✨(AI 상징)를 빼고 왼쪽 선으로 "본문이 아닌 덧말"임을 표시 */}
-      {(summary || isAiLoading) && (
+      {(shown || isAiLoading) && (
         <div className="mt-4 pl-3 border-l-2 border-tag-purple-fg/40 animate-in fade-in duration-200">
-          <div className="text-[10px] font-bold text-tag-purple-fg mb-1">3줄 요약</div>
-          {isAiLoading ? <div className="text-xs text-fg-muted animate-pulse">업무 내용과 댓글을 분석하고 있습니다...</div> : <div className="text-xs text-fg-secondary whitespace-pre-wrap"><RichText content={summary} /></div>}
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-[10px] font-bold text-tag-purple-fg">3줄 요약</span>
+            {pinned && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-fg-faint">
+                <Pin size={9} />고정{formData.aiSummaryBy ? ` · ${formData.aiSummaryBy}` : ''}
+              </span>
+            )}
+          </div>
+          {isAiLoading
+            ? <div className="text-xs text-fg-muted animate-pulse">업무 내용과 댓글을 분석하고 있습니다...</div>
+            : <div className="text-xs text-fg-secondary whitespace-pre-wrap"><RichText content={shown} /></div>}
+          {/* 고정은 관리자만 — 아무나 덮어쓰면 마지막 사람 것만 남는다 */}
+          {canPin && !isAiLoading && (
+            <div className="flex gap-2 mt-1.5">
+              {pinned ? (
+                <>
+                  <button onClick={() => setPinnedSummary('')} disabled={pinning}
+                    className="text-[10px] text-fg-faint hover:text-fg-muted transition-colors disabled:opacity-40">고정 해제</button>
+                  <button onClick={handleSummarize} disabled={pinning}
+                    className="text-[10px] text-accent-text hover:underline transition-colors disabled:opacity-40">다시 만들기</button>
+                </>
+              ) : (
+                <button onClick={() => setPinnedSummary(summary)} disabled={pinning || !summary}
+                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-accent-text hover:underline transition-colors disabled:opacity-40">
+                  <Pin size={9} />{pinning ? '고정하는 중...' : '이 요약 고정'}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
       {/* 요약 버튼은 hover로 숨기지 않는다 — 터치 기기에는 hover가 없어서 모바일에서
           이 기능이 아예 없는 것처럼 보였다. 본문 위 한 줄에 항상 둔다. */}
-      {!summary && formData.content && (
+      {!shown && formData.content && (
         <div className="flex justify-end mt-4 -mb-1">
           <button onClick={handleSummarize} disabled={isAiLoading} className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-tag-purple text-tag-purple-fg hover:opacity-80 rounded-xs text-[10px] font-bold transition active:scale-95 disabled:opacity-40">
             {isAiLoading ? <span className="animate-pulse">요약하는 중...</span> : <><Wand2 size={12} /> 3줄 요약</>}
@@ -439,6 +567,10 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
       <div className="prose prose-sm max-w-none mt-3 min-h-[120px]">
         <RichText content={formData.content} />
       </div>
+
+      {/* 보기 모드에서도 체크는 눌린다 — 하위 업무를 끝낼 때마다 수정 모드로 들어갔다
+          나오게 하면 아무도 쓰지 않는다. 항목 추가·삭제는 수정 모드에서만. */}
+      <SubtaskList value={formData.subtasks || []} onChange={onSubtasksChange} readOnly />
 
       {cloudMode && formData.id && (
         <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} readOnly />

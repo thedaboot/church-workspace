@@ -62,3 +62,11 @@ export const normalize = (array) => array.reduce((acc, item) => {
 // ref 콜백으로 쓴다: ref={i === activeIdx ? keepVisible : null}
 // (활성 항목이 바뀔 때만 호출되므로 useEffect가 필요 없다)
 export const keepVisible = (el) => el?.scrollIntoView({ block: 'nearest' });
+
+// 하위 업무(cards.subtasks) 진척 — 보드 카드와 업무 창이 같이 쓴다.
+// 순수 함수라 utils에 둔다(보드가 모달을 가져오는 방향이 되지 않게).
+export function subtaskProgress(list = []) {
+  const total = list.length;
+  const done = list.reduce((n, s) => n + (s.done ? 1 : 0), 0);
+  return { total, done, ratio: total ? done / total : 0 };
+}

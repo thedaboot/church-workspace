@@ -68,7 +68,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
     () => tasksList.filter(t => t.status === '완료' && t.updatedAt && ageDays(t.updatedAt, today) <= 7).length,
     [tasksList, today]);
 
-  // 팀원별 남은 업무 — 담당자별 집계. 팀별과 같은 기준(필터와 무관한 전체)으로 센다
+  // 청년별 남은 업무 — 담당자별 집계. 팀별과 같은 기준(필터와 무관한 전체)으로 센다
   const people = useMemo(() => personLoad(open, today), [open, today]);
 
   // 프로젝트별 상태 분포 — 4색 세그먼트 바.
@@ -216,7 +216,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
           </div>
 
           <div>
-            <SectionHead>팀원별 남은 업무</SectionHead>
+            <SectionHead>청년별 남은 업무</SectionHead>
             <PersonLoadGrid people={people} />
           </div>
         </div>
@@ -422,6 +422,59 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
         {viewMode === 'kanban'
           ? <Board tasks={filteredTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} />
           : <CalendarBoard tasks={filteredTasks} onTaskClick={onTaskClick} />}
+      </div>
+    </div>
+  );
+});
+
+// ── 전체 일정 ─────────────────────────────────────────────────────────────
+// 캘린더가 프로젝트 안에만 있어서, 한 주일에 여러 팀·여러 프로젝트 업무가 겹치는 것을
+// 보려면 프로젝트를 하나씩 들어가야 했다. 여기서는 워크스페이스 전체를 한 판에 본다.
+// 보관한 프로젝트의 업무도 나온다 — 지난 일정도 달력에서는 보여야 한다.
+//
+// 팀 필터는 TeamFilterBar 하나로 두 폭 모두 처리한다. 프로젝트 화면처럼 데스크톱용
+// 칩 줄을 따로 두지 않는 이유: 전체 일정은 팀이 일곱 개 다 나올 수 있어서 칩 줄이
+// 길고, 이 화면의 주인공은 달력이지 필터가 아니다.
+export const ScheduleView = React.memo(function ScheduleView({ onTaskClick }) {
+  const tasksList = useStore(selectTasksList);
+  const projectsMap = useStore(selectProjectsMap);
+  const [selectedTeams, setSelectedTeams] = useState([]);
+
+  const teamCounts = {};
+  tasksList.forEach(t => (t.teams || []).forEach(x => { teamCounts[x] = (teamCounts[x] || 0) + 1; }));
+  const teamChips = Object.keys(CONFIG.TEAMS).filter(n => teamCounts[n]);
+
+  const toggleTeam = (team) => setSelectedTeams(prev => prev.includes(team) ? prev.filter(t => t !== team) : [...prev, team]);
+  const shown = useMemo(
+    () => (selectedTeams.length ? tasksList.filter(t => (t.teams || []).some(x => selectedTeams.includes(x))) : tasksList),
+    [tasksList, selectedTeams]);
+
+  // 달력에 실제로 얹히는 것은 날짜가 있는 업무뿐 — 머리글 숫자도 그 기준으로 센다.
+  // 전체 건수를 쓰면 "84건"이라 해놓고 달력에는 12개만 보이는 화면이 된다.
+  const dated = shown.filter(t => t.startDate || t.dueDate);
+  const projectCount = new Set(dated.map(t => t.projectId).filter(id => projectsMap[id])).size;
+
+  return (
+    <div className="dc-screen h-full flex flex-col min-w-0">
+      <div className="flex items-end justify-between gap-4 flex-wrap pb-3" style={{ borderBottom: '1px solid var(--app-line)' }}>
+        <div className="min-w-0">
+          <h2 className="hidden md:block text-[23px] font-extrabold text-fg mb-[3px]" style={{ letterSpacing: '-0.7px' }}>전체 일정</h2>
+          <p className="text-[11px] text-fg-muted tabular-nums">
+            {dated.length}건이 달력에 있어요 · {projectCount}개 프로젝트
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2.5 py-[11px] shrink-0">
+        <TeamFilterBar
+          teams={teamChips} counts={teamCounts} total={tasksList.length}
+          shownCount={shown.length} selected={selectedTeams}
+          onToggle={toggleTeam} onClear={() => setSelectedTeams([])}
+        />
+      </div>
+
+      <div className="flex-1 min-h-0">
+        <CalendarBoard tasks={shown} onTaskClick={onTaskClick} />
       </div>
     </div>
   );

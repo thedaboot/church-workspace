@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useDeferredValue } from 'r
 import { createPortal } from 'react-dom';
 import {
   LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown,
-  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, Pencil, Users, Archive
+  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, Pencil, Users, Archive, CalendarDays
 } from 'lucide-react';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
@@ -158,6 +158,7 @@ export const TopNav = React.memo(({
         <div className="flex items-center gap-1 shrink-0">
           {gnav('dashboard', '전체 대시보드')}
           {gnav('myTasks', '내 업무', myTasksCount)}
+          {gnav('schedule', '전체 일정')}
         </div>
         <div className="flex-1 flex items-center justify-end gap-2 min-w-0">
           {/* Undo / Redo — 클라우드 모드에선 다른 사람과 상태가 어긋나므로 숨김 */}
@@ -261,6 +262,12 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
         ) : (
           <h2 className="flex-1 min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{title}</h2>
         )}
+        {/* 전체 일정도 헤더로 — 하단 탭 네 자리(프로젝트·내 업무·대시보드·팀)는
+            핸드오프 규격이라 다섯 번째를 끼우지 않는다. 설정과 같은 처리다. */}
+        <button
+          onClick={() => setActiveMenu('schedule')} title="전체 일정"
+          className={`p-2 rounded-md transition active:scale-95 shrink-0 ${activeMenu === 'schedule' ? 'text-accent-text bg-accent-weak' : 'text-fg-muted'}`}
+        ><CalendarDays size={19} strokeWidth={1.75} /></button>
         <SearchBox onSearchSelect={onSearchSelect} variant="icon" />
         {cloudMode && <NotificationBell onOpenTask={onOpenTask} />}
         {/* 설정은 상단 헤더로 — 하단 탭 네 자리는 프로젝트·내 업무·대시보드·팀이 쓴다 */}
@@ -327,6 +334,7 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
 function menuTitle(activeMenu, projectsMap, currentUser) {
   if (activeMenu === 'dashboard') return '전체 대시보드';
   if (activeMenu === 'myTasks') return `${currentUser?.name || '내'}님의 업무`;
+  if (activeMenu === 'schedule') return '전체 일정';
   if (activeMenu.startsWith('team:')) return `${activeMenu.split(':')[1]} 보드`;
   return projectsMap[activeMenu]?.title || '워크스페이스';
 }

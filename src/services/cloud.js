@@ -200,6 +200,17 @@ export async function updateCard(id, patch, teamIds, assigneeIds) {
   if (assigneeIds !== undefined) await resetCardJoin('card_assignees', 'profile_id', id, assigneeIds);
   return card;
 }
+// '이 요약 고정' — 폼 저장과 분리한다. 카드 폼에 실어 보내면 요약을 만든 사람이
+// 남의 편집을 같이 덮어쓰고, 반대로 아무나 카드를 저장할 때마다 요약이 따라 움직인다.
+// 여기서는 요약 세 칸만 건드린다. text가 비면 고정을 푼다.
+export async function setCardSummary(id, text) {
+  const { data: { user } } = await client().auth.getUser();
+  const patch = text
+    ? { ai_summary: text, ai_summary_at: new Date().toISOString(), ai_summary_by: user?.id || null }
+    : { ai_summary: null, ai_summary_at: null, ai_summary_by: null };
+  return unwrap(await client().from('cards').update(patch).eq('id', id).select().single());
+}
+
 export async function deleteCard(id) {
   const { error } = await client().from('cards').delete().eq('id', id);
   if (error) throw error;
