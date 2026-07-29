@@ -4,7 +4,7 @@ import { useWorkspaceController } from './hooks/controllers.js';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import { TopNav, MobileTopBar, MobileTabBar } from './components/layout.jsx';
 import { useIsMobile } from './hooks/useIsMobile.js';
-import { DashboardView, ProjectView, MyTasksView, TeamView, ScheduleView } from './views/views.jsx';
+import { DashboardView, ProjectView, MyTasksView, TeamView, ScheduleView, DASH_FILTERS, DASH_FILTER_DEFAULT } from './views/views.jsx';
 import { TaskModalShell } from './modals/modals.jsx';
 import { ProfileModal, ProjectModal } from './modals/settings.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
@@ -76,6 +76,12 @@ function WorkspaceShell() {
   const cloudMode = authEnabled && !!session;
   // 딥링크: /?p=<projectId>&t=<taskId>
   const [activeMenu, setActiveMenu] = useState(() => new URLSearchParams(window.location.search).get('p') || 'dashboard');
+  // 대시보드 필터는 URL과 맞물리므로 App이 들고 있다(프로젝트 viewMode와 같은 이유).
+  // 알 수 없는 값이 주소로 들어오면 기본값으로 떨어진다.
+  const [dashFilter, setDashFilter] = useState(() => {
+    const f = new URLSearchParams(window.location.search).get('f');
+    return DASH_FILTERS.includes(f) ? f : DASH_FILTER_DEFAULT;
+  });
   const pendingTaskIdRef = useRef(new URLSearchParams(window.location.search).get('t'));
   const [modalState, setModalState] = useState({ isOpen: false, task: null, isEditMode: false });
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -284,13 +290,17 @@ function WorkspaceShell() {
     const params = new URLSearchParams();
     const isProject = !GLOBAL_MENUS.includes(activeMenu) && !activeMenu.startsWith('team:');
     if (isProject) params.set('p', activeMenu);
+    // 대시보드 필터도 URL에 — 예전에는 '내 팀'을 골라놓고 새로고침하면 '전체'로
+    // 돌아갔다. 화면과 열린 업무는 URL에 있는데 필터만 빠져 있었다.
+    // '전체'는 기본값이라 적지 않는다(주소가 길어질 뿐이다).
+    if (activeMenu === 'dashboard' && dashFilter !== DASH_FILTER_DEFAULT) params.set('f', dashFilter);
     if (modalState.isOpen && modalState.task?.id) {
       if (modalState.task.projectId) params.set('p', modalState.task.projectId);
       params.set('t', modalState.task.id);
     }
     const qs = params.toString();
     window.history.replaceState(null, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
-  }, [activeMenu, modalState]);
+  }, [activeMenu, modalState, dashFilter]);
 
   if (cloudMode && loadError) return <CloudErrorScreen reason={loadError} onRetry={retryLoad} retrying={retrying} />;
   if (cloudMode && !cloudReady) return <CloudSplash />;
@@ -333,7 +343,7 @@ function WorkspaceShell() {
               마지막 줄이 하단 탭바에 가렸다(대시보드 '팀별 남은 업무', 팀 보드
               '참여 프로젝트'). */}
           <div key={activeMenu} className={needsFullHeight ? 'h-full' : ''}>
-          {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} />}
+          {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} filter={dashFilter} setFilter={setDashFilter} />}
           {activeMenu === 'schedule' && <ScheduleView onTaskClick={handleTaskClick} />}
           {activeMenu === "myTasks" && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}

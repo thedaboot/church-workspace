@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeftRight, CheckSquare } from 'lucide-react';
+import { ArrowLeftRight, CheckSquare, MessageSquare, Paperclip } from 'lucide-react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable, pointerWithin, rectIntersection,
@@ -42,6 +42,13 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action 
   const late = isLate(task);
   const rail = teamPaint(task.teams, true);
   const sub = subtaskProgress(task.subtasks || []);
+  // 클라우드에서는 트리거가 유지하는 개수 컬럼을, 게스트 모드에서는 실제 배열을 센다
+  // (게스트에는 서버가 없어 컬럼이 없다). 창을 연 카드는 배열이 더 최신일 수 있으니
+  // 둘 중 큰 값을 쓴다 — 방금 남긴 댓글이 카드에서 0으로 보이면 이상하다.
+  const counts = {
+    comments: Math.max(task.commentCount ?? 0, (task.comments || []).filter(c => !c.parentId).length),
+    files: Math.max(task.fileCount ?? 0, (task.attachments || []).length),
+  };
   return (
     <div className="flex gap-2.5">
       <span className="shrink-0 w-[3px] rounded-full my-0.5" style={rail} />
@@ -69,13 +76,28 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action 
           </span>
           <span className="shrink-0 inline-flex items-center gap-2">
             {/* 하위 업무 진척 — 카드를 열지 않아도 몇 단계 남았는지 보인다.
-                subtasks는 cards 컬럼이라 목록 로드에 이미 들어와 있다(댓글·첨부와
-                달리 따로 세는 경로가 필요 없다). 항목이 없으면 아무것도 안 그린다. */}
+                subtasks는 cards 컬럼이라 목록 로드에 이미 들어와 있다.
+                항목이 없으면 아무것도 안 그린다. */}
             {sub.total > 0 && (
               <span className="inline-flex items-center gap-1 text-[10.5px] tabular-nums"
                 style={{ color: sub.done === sub.total ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)' }}
                 title={`하위 업무 ${sub.done}/${sub.total}`}>
                 <CheckSquare size={10} strokeWidth={2} />{sub.done}/{sub.total}
+              </span>
+            )}
+            {/* 댓글·첨부는 업무 창을 열어야 보이는 데이터라, 개수만 카드가 들고 있다
+                (0016의 comment_count·file_count — 트리거가 DB에서 유지한다).
+                0이면 그리지 않는다: 대화가 없다는 것을 굳이 말할 필요가 없다. */}
+            {counts.comments > 0 && (
+              <span className="inline-flex items-center gap-1 text-[10.5px] tabular-nums text-fg-faint"
+                title={`댓글 ${counts.comments}`}>
+                <MessageSquare size={10} strokeWidth={2} />{counts.comments}
+              </span>
+            )}
+            {counts.files > 0 && (
+              <span className="inline-flex items-center gap-1 text-[10.5px] tabular-nums text-fg-faint"
+                title={`첨부 ${counts.files}`}>
+                <Paperclip size={10} strokeWidth={2} />{counts.files}
               </span>
             )}
             {task.dueDate && (

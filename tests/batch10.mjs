@@ -173,6 +173,28 @@ for (const w of [320, 390, 768, 1024, 1440, 1920]) {
   check(`${w}px 폭에서 가로 넘침 없음`, over <= 0, `초과 ${over}px`);
 }
 
+// ── 대시보드 필터가 URL에 담긴다 ──
+// 예전에는 '내 팀'을 골라놓고 새로고침하면 '전체'로 돌아갔다.
+// 화면(p)과 열린 업무(t)는 주소에 있는데 필터만 모든 기록에서 부려 있었다.
+await load(DESK, '/');
+await ev(`[...document.querySelectorAll('main button')].find(b=>/^내 팀 [0-9]+$/.test(b.textContent.trim()))?.click()`);
+await sleep(400);
+const urlPick = await ev(`location.search`);
+check('필터를 고르면 주소에 f가 붙는다', /f=/.test(urlPick), urlPick || '(빈 주소)');
+await send('Page.navigate',{url:URL_BASE+urlPick}); await wait('Page.loadEventFired'); await sleep(1500);
+const keptFilter = await ev(`(() => {
+  // 상단 내비에도 '전체 대시보드'·'내 업무'가 있어서 main 안 세그먼트로 좁힌다
+  const segs=[...document.querySelectorAll('main button')]
+    .filter(b=>/^(전체|내 업무|내 팀) [0-9]+$/.test(b.textContent.trim()));
+  const on=segs.find(b=>getComputedStyle(b).backgroundColor!=='rgba(0, 0, 0, 0)');
+  return on ? on.textContent.trim() : null;
+})()`);
+check('새로고침해도 고른 필터가 유지된다', /^내 팀/.test(keptFilter || ''), String(keptFilter));
+await ev(`[...document.querySelectorAll('main button')].find(b=>/^전체 [0-9]+$/.test(b.textContent.trim()))?.click()`);
+await sleep(400);
+const urlAll = await ev(`location.search`);
+check('기본값(전체)은 주소에 적지 않는다', !/f=/.test(urlAll), urlAll || '(빈 주소)');
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,5).join('\n'):'\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

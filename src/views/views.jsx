@@ -28,9 +28,10 @@ import { showToast } from '../components/Toast.jsx';
 // ── 전체 대시보드 ─────────────────────────────────────────────────────────
 // "얼마나 진행됐나"가 아니라 "지금 뭘 해야 하나"를 먼저 보여준다.
 // 마감 기준으로 묶은 목록이 주인공이고, 그 자리에서 완료 처리까지 한다.
-const DASH_FILTERS = ['전체', '내 업무', '내 팀'];
+export const DASH_FILTERS = ['전체', '내 업무', '내 팀'];
+export const DASH_FILTER_DEFAULT = DASH_FILTERS[0];
 
-export const DashboardView = React.memo(function DashboardView({ onNavigate, onTaskClick, onStatusChange }) {
+export const DashboardView = React.memo(function DashboardView({ onNavigate, onTaskClick, onStatusChange, filter, setFilter }) {
   const { teamStats } = useStore(selectDashboardStats);
   const currentUser = useStore(selectCurrentUser);
   const tasksList = useStore(selectTasksList);
@@ -38,7 +39,6 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   // '프로젝트 진행'은 지금 굴러가는 것만 — 끝나서 보관한 프로젝트가 계속 100%로
   // 남아 있으면 목록만 길어진다(업무는 여전히 세어져 KPI·마감 목록에는 들어간다)
   const projectsList = useStore(selectActiveProjectsList);
-  const [filter, setFilter] = useState('전체');
   const today = ISO_TODAY();
 
   // 소속 팀이 여럿이면 전부 합친다(대표 팀 하나만 보면 겸직한 사람 업무가 빠진다)

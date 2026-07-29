@@ -141,20 +141,31 @@ export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
           autoFocus
           onKeyDown={e => { if (e.key === 'Enter') submit(); }}
         />
+        {/* 보관은 눌러야 보이는 기능이라 회색 글자 한 줄로 두면 아무도 못 찾는다.
+            테두리와 아이콘 칩을 줘서 '누를 수 있는 것'으로 읽히게 한다. 다만 이 창의
+            주 행동은 '저장'이므로 구조색(accent)은 쓰지 않는다 — 노란 칩은 '잠시
+            치워둔다'는 뜻이고 빨강처럼 위험해 보이지 않는다.
+            설명은 짧은 두 줄로 끊는다. 한 문장으로 길게 쓰면 좁은 창에서
+            '검색과 보관함에서 / 찾을 수 있어요'처럼 구절 중간이 잘렸다. */}
         {renaming && onArchive && (
-          <div className="-mt-3 mb-5 pb-4 border-b border-line">
+          <div className="-mt-3 mb-5 pb-5 border-b border-line">
             <button
               onClick={() => { onArchive(project.id, !archived); onClose(); }}
-              className="w-full flex items-center gap-2 px-2.5 py-2.5 rounded-md text-[13px] text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors text-left"
+              className="w-full flex items-center gap-3 px-3 py-3 rounded-md border border-line bg-surface hover:bg-surface-hover transition-colors text-left active:scale-[0.99]"
             >
-              <Archive size={14} className="shrink-0" />
-              {archived ? '보관 해제' : '보관하기'}
+              <span className="w-7 h-7 rounded-md bg-tag-yellow text-tag-yellow-fg flex items-center justify-center shrink-0">
+                <Archive size={14} />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[13px] font-semibold text-fg">{archived ? '보관 해제' : '보관하기'}</span>
+                {(archived
+                  ? ['다시 상단 탭과 대시보드에 나와요']
+                  : ['상단 탭과 대시보드에서 빠져요', '업무는 그대로 남고, 보관함에서 찾을 수 있어요']
+                ).map(line => (
+                  <span key={line} className="block text-[11px] text-fg-muted mt-px text-pretty">{line}</span>
+                ))}
+              </span>
             </button>
-            <p className="px-2.5 mt-0.5 text-[11px] text-fg-faint leading-relaxed">
-              {archived
-                ? '다시 상단 탭과 대시보드에 나와요'
-                : '상단 탭과 대시보드에서 빠져요. 업무는 그대로 남고 검색과 보관함에서 찾을 수 있어요'}
-            </p>
           </div>
         )}
         <div className="flex gap-2">

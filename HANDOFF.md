@@ -8,8 +8,8 @@
 - 최근 작업은 `git log --oneline -15`로 봅니다 (여기에 커밋 해시를 적어 두면
   커밋마다 손으로 고쳐야 해서 금방 낡습니다 — 실제로 한 번 어긋나 있었습니다)
 - 배포: Vercel, `main` 푸시 시 자동
-- 검증: `npm run verify` → 21개 스위트 290 pass (약 6분).
-  290은 단정 개수이고 스위트는 21개입니다 — 평소에는 `npm run verify -- handoff navsmoke`처럼
+- 검증: `npm run verify` → 21개 스위트 293 pass (약 6분).
+  293은 단정 개수이고 스위트는 21개입니다 — 평소에는 `npm run verify -- handoff navsmoke`처럼
   골라 돌리고(수십 초), 푸시 직전에 한 번 전부 돌리는 흐름입니다.
 
 ### 이 문서 밖에 있는 것 (레포만 받아서는 알 수 없는 것)
@@ -263,7 +263,7 @@ CHROME=/path/to/chrome npm run verify
 
 ## 6. 데이터 · 스키마 · 비밀
 
-- 스키마는 `supabase/migrations/0001~0015`이고 **전부 라이브 DB에 적용**되어 있습니다
+- 스키마는 `supabase/migrations/0001~0016`이고 **전부 라이브 DB에 적용**되어 있습니다
   (0001~0005는 대시보드에서 수동, 0006~0011은 `npx supabase db push --db-url "$SUPABASE_DB_URL"`로.
   접속 문자열은 로컬 `.env`의 `SUPABASE_DB_URL`에 둡니다 — 대시보드 Connect의 Session pooler URI).
   0009~0011이 한 일:
@@ -283,6 +283,11 @@ CHROME=/path/to/chrome npm run verify
   빼는 것이고, 보관함은 `created_at`으로 연도를 묶습니다 — 연도 컬럼을 따로 두지 않습니다.
 - 0015: `cards.subtasks`(jsonb 체크리스트, 배열 제약 있음) + `cards.ai_summary`/`_at`/`_by`
   (관리자가 고정한 3줄 요약). 하위 업무를 조인 테이블이 아니라 컬럼으로 둔 이유는 §5의 29번.
+- 0016: `cards.comment_count`/`file_count` + `comments`·`files`에 붙은 재계산 트리거
+  (`recount_card`). 목록에서 카드를 열지 않고 대화·파일 유무를 보여주려고 **개수만**
+  들고 있습니다 — 개수를 세려고 댓글을 다시 읽으면 §5의 22번으로 되돌아갑니다.
+  앱이 세지 않고 트리거가 유지하므로 어느 경로로 들어와도 맞습니다(증감이 아니라
+  실제 행 수 재계산이라 어긋나도 자기 회복). 전부 다시 세려면 0016 맨 아래 update문.
 - 0008(`0008_profile_teams.sql`) 메모: 라이브에 적용됨 — 한 사람이 여러 팀에 속하는 조인 테이블 + RLS(읽기: 로그인 사용자,
   쓰기: 본인 행만) + 기존 `profiles.team_id` 복사. 기존 컬럼은 남겨 두었고
   (`currentUser.teams?.length ? teams : [team]` 패턴으로 양쪽을 봅니다), 적용 후 데이터

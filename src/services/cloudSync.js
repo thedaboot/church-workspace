@@ -152,6 +152,10 @@ const cardToTask = (card) => ({
   // 하위 업무는 컬럼(jsonb) 하나다 — 카드와 언제나 같이 읽고 쓴다. 배열이 아닌 값은
   // DB 제약이 막지만, 예전 카드에는 컬럼이 없을 수 있으므로 여기서도 배열로 못 박는다.
   subtasks: Array.isArray(card.subtasks) ? card.subtasks : [],
+  // 댓글·첨부 개수 — 0016 트리거가 DB에서 유지한다. 목록에서 카드를 열지 않고도
+  // 대화·파일이 있는지 보여주려고 둔 것이고, 개수를 세려고 댓글을 다시 읽지 않는다.
+  commentCount: card.comment_count ?? 0,
+  fileCount: card.file_count ?? (card.files?.length ?? 0),
   // 고정한 AI 요약 (관리자가 '이 요약 고정'을 누른 것)
   aiSummary: card.ai_summary || '',
   aiSummaryAt: card.ai_summary_at || '',
