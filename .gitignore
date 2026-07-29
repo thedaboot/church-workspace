@@ -8,3 +8,4 @@ tests/*.png
 .claude/
 .agents/
 skills-lock.json
+.vercel

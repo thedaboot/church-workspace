@@ -407,30 +407,32 @@ CHROME=/path/to/chrome npm run verify
   유니크 제약으로 막지 못하는 이유: `(created_at at time zone 'Asia/Seoul')::date`는
   immutable이 아니라 인덱스 식으로 못 씁니다.
 
-**남은 일 — 사용자만 할 수 있습니다:**
+**환경변수는 등록·배포까지 끝났습니다** (2026-07-29, Production).
+`VAPID_PUBLIC_KEY` / `VITE_VAPID_PUBLIC_KEY`(같은 값) / `VAPID_PRIVATE_KEY` /
+`VAPID_SUBJECT` / `CRON_SECRET` — 값은 Vercel 환경변수와 로컬 `.env`에만 있습니다.
+`VITE_` 값은 빌드 시점에 박히므로 **환경변수를 고치면 재배포가 필요합니다**
+(`npx vercel redeploy <배포 URL>`).
 
-1. `npx web-push generate-vapid-keys`
-2. Vercel 환경변수 4개 (로컬 `.env`에도 같이 두면 `vercel dev`로 확인할 수 있습니다)
-   - `VAPID_PUBLIC_KEY` + `VITE_VAPID_PUBLIC_KEY` — **같은 값**을 두 이름에.
-     클라이언트가 구독할 때도 이 키가 필요합니다
-   - `VAPID_PRIVATE_KEY` — **서버 전용**
-   - `VAPID_SUBJECT` — `mailto:` 주소
-   - `CRON_SECRET` — 아무 긴 임의 문자열. Vercel Cron이 `/api/push`를 깨울 때
-     이 값으로 인증합니다. **없으면 GET이 501이라 마감 임박이 아예 안 돕니다**
-3. 배포 후 직접 확인 (검증 스위트는 게스트 모드만 돕니다 — §서두 3번)
-   - 종 팝오버에 '이 기기로 알림 받기'가 보이는지 (키가 없으면 줄이 아예 숨습니다)
-   - 켜고 다른 계정으로 나를 담당자로 지정 → 잠금화면에 오는지, 눌러서 그 업무가 열리는지
-   - 아이폰은 **홈 화면에 추가한 뒤에** 켜야 합니다. 탭에서는 '홈 화면에 추가하면
-     알림을 받을 수 있어요' 안내만 보입니다
-   - 마감 임박은 손으로 부를 수 있습니다:
-     `curl -H "Authorization: Bearer $CRON_SECRET" https://church-workspace.vercel.app/api/push`
-     → `{cards, notified, sent, skipped}`를 돌려줍니다
+라이브에서 확인한 것:
+- 공개키가 클라이언트 번들에 실렸고 `/sw.js`는 200 + `application/javascript`
+- `GET /api/push`(크론 경로)가 `{cards:2, notified:2, sent:0}` — 마감 임박 알림 2건
+  실제로 생성. `sent:0`은 아직 아무도 푸시를 켜지 않아서입니다
+- 다시 부르면 `{notified:0, skipped:2}` — 20시간 중복 방지가 걸립니다
+- 시크릿 없는 GET, 인증 없는 POST 모두 401
 
-키를 넣지 않아도 앱은 그대로 돕니다 — POST가 501을 주고 '알림 받기' 줄이 숨어서
-**푸시만 빠집니다.** 마감 임박 배치(GET)는 VAPID 키를 보지 않고 앱 안 알림을 만들고
-발송만 건너뜁니다 — 키가 없다고 라우트 전체를 막으면 종에도 아무것도 안 떠서,
-"마감 임박이 아예 없는 것"과 구분이 안 됩니다. 그래서 GET에 필요한 것은 `CRON_SECRET`
-하나입니다.
+**남은 것 — 실기기 확인뿐입니다** (검증 스위트는 게스트 모드만 돕니다 — §서두 3번):
+- 종 팝오버의 '이 기기로 알림 받기'를 켜고, 다른 계정으로 나를 담당자로 지정 →
+  잠금화면에 오는지, 눌러서 그 업무가 열리는지
+- 아이폰은 **홈 화면에 추가한 뒤에** 켜야 합니다. 탭에서는 '홈 화면에 추가하면
+  알림을 받을 수 있어요' 안내만 보입니다
+- 마감 임박은 손으로도 부를 수 있습니다:
+  `curl -H "Authorization: Bearer $CRON_SECRET" https://church-workspace.vercel.app/api/push`
+
+참고 — 키가 없는 환경(로컬·프리뷰)에서도 앱은 돕니다. POST가 501을 주고 '알림 받기'
+줄이 숨어서 **푸시만 빠집니다.** 마감 임박 배치(GET)는 VAPID 키를 보지 않고 앱 안
+알림을 만들고 발송만 건너뜁니다 — 키가 없다고 라우트 전체를 막으면 종에도 아무것도
+안 떠서 "마감 임박이 아예 없는 것"과 구분이 안 됩니다. GET에 필요한 것은
+`CRON_SECRET` 하나입니다.
 
 ### 8.2 그 밖에 짚어둔 것
 
