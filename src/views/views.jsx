@@ -18,6 +18,7 @@ import { CalendarBoard } from '../components/calendar.jsx';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
+import { LinkIcon } from '../components/linkIcons.jsx';
 import { ConfirmPopover, useAnchoredPos } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 
@@ -338,23 +339,32 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   return (
     <div className="dc-screen h-full flex flex-col min-w-0">
       {/* ── 헤더: 제목 + 메타(건수·완료·D-day) + 링크 / 우측은 '새 업무'만 ── */}
-      <div className="flex items-end justify-between gap-4 flex-wrap pb-3" style={{ borderBottom: '1px solid var(--app-line)' }}>
-        <div className="min-w-0">
+      {/* 예전에는 이 줄에 flex-wrap이 걸려 있어서, 참고 링크를 하나 달면 메타 줄이
+          길어지고 '새 업무'가 아래로 떨어져 혼자 한 줄을 차지했다(모바일에서 특히
+          어색했다 — 제목은 상단바에 있으니 왼쪽에 메타 줄만 남는다). 지금은 감싸지
+          않고, 좁으면 메타 줄이 가로로 밀린다. */}
+      <div className="flex items-end justify-between gap-3 md:gap-4 pb-3" style={{ borderBottom: '1px solid var(--app-line)' }}>
+        <div className="min-w-0 flex-1">
           {/* 모바일은 상단바에 같은 제목(과 수정 연필)이 이미 있다 — 한 줄을 두 번 쓰지 않는다 */}
           <button onClick={() => onRenameProject?.(project)} className="group/title hidden md:inline-flex items-baseline gap-1.5 mb-[5px] text-left" title="프로젝트 이름 수정">
             <span className="text-[19px] md:text-[23px] font-extrabold text-fg" style={{ letterSpacing: '-0.7px' }}>{project.title}</span>
             <Pencil size={12} className="text-fg-faint md:opacity-0 md:group-hover/title:opacity-100 transition-opacity shrink-0" />
           </button>
-          <div className="flex items-center gap-[7px] flex-wrap">
-            <span className="text-[11px] text-fg-muted tabular-nums">{projectMeta}</span>
+          {/* 모바일: 감싸지 않고 가로로 민다(x-scroll-lock = 가로로 밀 때 세로 스크롤이
+              딸려가지 않게. index.css). 데스크톱은 예전처럼 감싼다. */}
+          <div className="flex items-center gap-[7px] flex-nowrap overflow-x-auto scrollbar-hide x-scroll-lock md:flex-wrap md:overflow-x-visible">
+            <span className="text-[11px] text-fg-muted tabular-nums whitespace-nowrap">{projectMeta}</span>
             <span className="w-0.5 h-0.5 rounded-full" style={{ background: 'var(--app-line)' }} />
             {project.pinnedLinks?.map(l => (
-              <span key={l.id} className="group/link inline-flex items-center gap-1">
-                <a href={l.url} target="_blank" rel="noreferrer" className="text-[11px] font-semibold text-accent-text hover:underline">{l.title}</a>
-                <button onClick={() => removeLink(l.id)} className="md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint" title="링크 삭제"><X size={10} /></button>
+              <span key={l.id} className="group/link inline-flex items-center gap-1 shrink-0">
+                {/* 아는 서비스면 이름 앞에 글자만 한 표시가 붙는다(linkIcons.jsx) */}
+                <a href={l.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-[3px] text-[11px] font-semibold text-accent-text hover:underline whitespace-nowrap">
+                  <LinkIcon url={l.url} />{l.title}
+                </a>
+                <button onClick={() => removeLink(l.id)} className="md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0" title="링크 삭제"><X size={10} /></button>
               </span>
             ))}
-            <span className="inline-flex" ref={linkPopRef}>
+            <span className="inline-flex shrink-0" ref={linkPopRef}>
               <span ref={linkBtnRef} className="inline-flex">
                 {/* 열기 전에 위치를 먼저 잡는다 — 안 그러면 첫 프레임이 {0,0}에 그려진다 */}
                 <button onClick={() => { placeLink(); setIsAddingLink(v => !v); }}
@@ -368,7 +378,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
             </span>
             {/* 공유·삭제는 메타 줄 끝에 — 헤더 우측은 '새 업무'만 두라는 규격을 지키면서도
                 기존 기능을 숨기지 않는다 */}
-            <span className="inline-flex items-center gap-0.5 ml-1">{shareBtn}{deleteBtn}</span>
+            <span className="inline-flex items-center gap-0.5 ml-1 shrink-0">{shareBtn}{deleteBtn}</span>
           </div>
         </div>
         <button onClick={onNewTask}

@@ -173,6 +173,51 @@ const outside = await ev(`(() => {
 if (outside) await clickAt(outside.x, outside.y);
 check('팝오버 바깥을 누르면 닫힌다', !!outside && (await linkPopOpen()) === false, outside ? '' : '메타 글자를 못 찾았다');
 
+// 아는 서비스면 이름 앞에 글자만 한 표시가 붙는다(linkIcons.jsx). 모르는 주소에는 안 붙는다.
+await openLinkPop();
+await send('Input.insertText', { text: '수련회 찬양 영상' });
+await typeInto('input[placeholder="https://..."]', 'https://www.youtube.com/watch?v=abc');
+const addBtn2 = await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='추가');
+  if(!b) return null; const r=b.getBoundingClientRect(); return {x:Math.round(r.left+r.width/2), y:Math.round(r.top+r.height/2)}; })()`);
+if (addBtn2) await clickAt(addBtn2.x, addBtn2.y);
+await sleep(400);
+const icons = await ev(`(() => {
+  const pick = (t) => [...document.querySelectorAll('a')].find(a => a.textContent.trim() === t);
+  const yt = pick('수련회 찬양 영상'), plain = pick('전세버스 견적서');
+  if (!yt || !plain) return null;
+  const svg = yt.querySelector('svg');
+  return { ytHasIcon: !!svg,
+           iconPx: svg ? Math.round(svg.getBoundingClientRect().width) : null,
+           // 색을 쓰지 않는다 — 글자와 같은 색으로 흐른다
+           iconFill: svg ? getComputedStyle(svg).fill : null,
+           linkColor: getComputedStyle(yt).color,
+           plainHasIcon: !!plain.querySelector('svg') };
+})()`);
+check('유튜브 링크에는 서비스 표시가 붙는다', icons?.ytHasIcon === true, JSON.stringify(icons));
+check('표시 크기가 글자만 하다(9~14px)', icons?.iconPx >= 9 && icons?.iconPx <= 14, String(icons?.iconPx));
+check('표시가 링크 글자색을 따른다(브랜드 색을 쓰지 않는다)', icons?.iconFill === icons?.linkColor, `${icons?.iconFill} vs ${icons?.linkColor}`);
+check('모르는 주소에는 표시를 붙이지 않는다', icons?.plainHasIcon === false, JSON.stringify(icons));
+
+// 링크가 붙은 뒤에도 '새 업무'가 메타 줄과 같은 줄에 남아야 한다.
+// 예전에는 헤더에 flex-wrap이 걸려 있어서 링크 하나에 버튼이 아래로 떨어지고 혼자 한 줄을
+// 차지했다(모바일에서 특히 어색했다 — 제목은 상단바에 있어 왼쪽에 메타 줄만 남는다).
+// 리로드하지 않고 폭만 좁힌다 — 방금 넣은 링크를 그대로 두고 보려면 이 방법뿐이다
+// (load()는 localStorage를 seed로 되돌린다). 앱은 matchMedia로 다시 그린다.
+for (const w of [1440, 375]) {
+  await send('Emulation.setDeviceMetricsOverride', { width: w, height: 812, deviceScaleFactor: 1, mobile: w < 768 });
+  await sleep(500);
+  const row = await ev(`(() => {
+    const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '새 업무');
+    const meta = [...document.querySelectorAll('span')].find(s => /건 · 완료/.test(s.textContent) && s.children.length === 0);
+    if (!btn || !meta) return null;
+    const b = btn.getBoundingClientRect(), m = meta.getBoundingClientRect();
+    return { sameRow: b.top < m.bottom && b.bottom > m.top, rightOfMeta: b.left >= m.left,
+             btnTop: Math.round(b.top), metaTop: Math.round(m.top), onScreen: b.right <= window.innerWidth + 1 };
+  })()`);
+  check(`${w}px: 참고 링크가 있어도 '새 업무'가 메타 줄과 같은 줄에 있다`,
+    row?.sameRow === true && row?.onScreen === true, JSON.stringify(row));
+}
+
 // ── 2) 모바일: 제목 눌러 수정 + 가로줄 스크롤 잠금 ──
 await load(MOB);
 const barBtn = await ev(`!!document.querySelector('button[title="프로젝트 이름 수정"]')`);
@@ -185,8 +230,9 @@ const lock = await ev(`(() => {
              touch: s.touchAction, overscrollX: s.overscrollBehaviorX, scrollable: d.scrollWidth > d.clientWidth };
   });
 })()`);
-// 리디자인 후 모바일 팀 필터는 칩 줄이 아니라 한 줄 버튼이라 가로 줄은 2개다
-check('가로 전용 줄이 2개 있다(프로젝트 탭·상태 칩)', lock.length === 2, JSON.stringify(lock.length));
+// 리디자인 후 모바일 팀 필터는 칩 줄이 아니라 한 줄 버튼이다. 가로 줄은 3개 —
+// 프로젝트 탭 · 프로젝트 헤더의 메타 줄(참고 링크가 늘어나는 자리) · 상태 칩.
+check('가로 전용 줄이 3개 있다(프로젝트 탭·메타 줄·상태 칩)', lock.length === 3, JSON.stringify(lock.length));
 check('전부 touch-action: pan-x', lock.every(r => r.touch === 'pan-x'), JSON.stringify(lock.map(r=>r.touch)));
 check('전부 overscroll-behavior-x: contain', lock.every(r => r.overscrollX === 'contain'), JSON.stringify(lock.map(r=>r.overscrollX)));
 const boardScroller = await ev(`(() => {
