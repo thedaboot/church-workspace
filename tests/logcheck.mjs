@@ -66,6 +66,27 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     { total: 3, done: 2, ratio: 2 / 3 });
   assert.deepStrictEqual(subtaskProgress([{ done: true }]), { total: 1, done: 1, ratio: 1 }, '전부 끝나면 1');
   console.log('PASS  하위 업무 진척 4가지');
+
+  // ── 대시보드 인사말이 세는 범위 (utils.myScope) ──
+  // 원래 버그: 인사말이 세그먼트를 따라가는 목록을 세서, 미디어팀 박지호의 지연 한 건이
+  // "노준석님, 밀린 업무부터 정리해봐요"로 떴다. 남의 지연을 내 이름으로 나무라는 문장.
+  const { myScope } = await import(pathToFileURL(f2).href);
+  const T = [
+    { id: 'a', title: '찬양 송폼 제작', assignees: ['노준석'] },
+    { id: 'b', title: '홍보 영상 편집', assignees: ['박지호'] },       // 남의 것
+    { id: 'c', title: '수련회 현수막', assignees: [] },                 // 담당자 없음 = 공통
+    { id: 'd', title: '차량 배차', assignees: ['노준석', '조준환'] },   // 같이 맡음
+    { id: 'e', title: '간식 준비' },                                    // assignees 자체가 없음
+  ];
+  const ids = myScope(T, '노준석').map(t => t.id);
+  assert.deepStrictEqual(ids, ['a', 'c', 'd', 'e'], '내 것 + 담당자 없는 것');
+  assert.ok(!ids.includes('b'), '남의 업무는 인사말에서 세지 않는다');
+  assert.deepStrictEqual(myScope(T, '박지호').map(t => t.id), ['b', 'c', 'e'], '사람이 바뀌면 따라온다');
+  assert.deepStrictEqual(myScope([], '노준석'), [], '빈 목록');
+  assert.deepStrictEqual(myScope(undefined, '노준석'), [], '인자가 없어도 안전하다');
+  // 이름이 비면 담당자 없는 것만 남는다(로그인 직후 이름이 흔들릴 때 남의 것이 섞이면 안 된다)
+  assert.deepStrictEqual(myScope(T, '').map(t => t.id), ['c', 'e'], '이름이 비면 공통만');
+  console.log('PASS  인사말 범위 6가지');
 }
 
 // ── 이번에 생긴 활동 기록만 저장한다 (TaskService.updateWithLogs) ──

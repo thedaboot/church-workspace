@@ -198,6 +198,40 @@ check('표시 크기가 글자만 하다(9~14px)', icons?.iconPx >= 9 && icons?.
 check('표시가 링크 글자색을 따른다(브랜드 색을 쓰지 않는다)', icons?.iconFill === icons?.linkColor, `${icons?.iconFill} vs ${icons?.linkColor}`);
 check('모르는 주소에는 표시를 붙이지 않는다', icons?.plainHasIcon === false, JSON.stringify(icons));
 
+// 공유·삭제는 링크가 미는 칸 **밖**에 있어야 한다. 예전에는 같은 칸 안에 있어서
+// 링크가 늘 때마다 삭제가 화면 밖으로 밀려났다(밀어야 나오는 삭제 = §7 위반).
+for (const w of [375, 414, 768]) {
+  await send('Emulation.setDeviceMetricsOverride', { width: w, height: 812, deviceScaleFactor: 1, mobile: w < 768 });
+  await sleep(450);
+  const acts = await ev(`(() => {
+    const del = document.querySelector('button[title="프로젝트 삭제"]');
+    if (!del) return null;
+    const r = del.getBoundingClientRect();
+    // 링크가 들어 있는 가로 스크롤 칸
+    const scroller = [...document.querySelectorAll('div')]
+      .find(d => typeof d.className === 'string' && /x-scroll-lock/.test(d.className) && d.querySelector('a'));
+    return {
+      onScreen: r.right <= window.innerWidth + 1 && r.left >= 0 && r.width > 0,
+      insideScroller: scroller ? scroller.contains(del) : null,
+      right: Math.round(r.right), vw: window.innerWidth,
+    };
+  })()`);
+  check(`${w}px: 삭제가 화면 안에 있다`, acts?.onScreen === true, JSON.stringify(acts));
+  check(`${w}px: 삭제가 링크 스크롤 칸 밖에 있다`, acts?.insideScroller === false, JSON.stringify(acts));
+}
+
+// 값 줄이 비어 보이지 않게 진척 바를 둔다(대시보드와 같은 부품)
+const headBar = await ev(`(() => {
+  const meta = [...document.querySelectorAll('span')].find(s => /건 · 완료/.test(s.textContent) && s.children.length === 0);
+  if (!meta) return null;
+  const row = meta.parentElement;
+  const fill = row.querySelector('.dc-bar-fill');
+  if (!fill) return { hasBar: false };
+  const w = Math.round(fill.parentElement.getBoundingClientRect().width);
+  return { hasBar: true, width: w, transform: getComputedStyle(fill).transform };
+})()`);
+check('값 줄에 진척 바가 있다', headBar?.hasBar === true && headBar.width > 20, JSON.stringify(headBar));
+
 // 링크가 붙은 뒤에도 '새 업무'가 메타 줄과 같은 줄에 남아야 한다.
 // 예전에는 헤더에 flex-wrap이 걸려 있어서 링크 하나에 버튼이 아래로 떨어지고 혼자 한 줄을
 // 차지했다(모바일에서 특히 어색했다 — 제목은 상단바에 있어 왼쪽에 메타 줄만 남는다).

@@ -63,6 +63,22 @@ export const normalize = (array) => array.reduce((acc, item) => {
 // (활성 항목이 바뀔 때만 호출되므로 useEffect가 필요 없다)
 export const keepVisible = (el) => el?.scrollIntoView({ block: 'nearest' });
 
+// 대시보드 인사말이 세는 범위 — "내 것 + 담당자 없는 것(공통)".
+//
+// 예전에는 인사말이 상단 세그먼트(전체/내 팀/내 업무)를 따라가는 목록을 셌다. 기본값이
+// '전체'라서, 미디어팀 박지호 건 하나가 지연이면 "노준석님, 밀린 업무부터 정리해봐요"가
+// 떴다 — 남의 지연을 내 이름으로 나무라는 문장이었다. 인사말은 나에게 말을 거는 문장이니
+// 내 것만 센다. KPI·목록은 그대로 세그먼트를 따라간다(그건 필터의 일이다).
+//
+// 담당자가 없는 업무를 내 것에 함께 세는 이유: 아무의 것도 아닌 일은 아무도 챙기지 않는다.
+// 인사말에서까지 빠지면 영원히 안 보인다.
+//
+// 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
+export const myScope = (openTasks, myName) => (openTasks || []).filter(t => {
+  const a = t?.assignees || [];
+  return a.length === 0 || a.includes(myName);
+});
+
 // 하위 업무(cards.subtasks) 진척 — 보드 카드와 업무 창이 같이 쓴다.
 // 순수 함수라 utils에 둔다(보드가 모달을 가져오는 방향이 되지 않게).
 export function subtaskProgress(list = []) {

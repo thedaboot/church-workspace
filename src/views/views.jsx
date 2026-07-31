@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, ChevronDown, Check, X, Trash2, Pencil } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
-import { generateId, avatarColor, groupBy } from '../utils.js';
+import { generateId, avatarColor, groupBy, myScope } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsMap, selectActiveProjectsList, selectMyTasks,
@@ -93,14 +93,23 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
     };
   }), [projectsList, tasksByProject, today]);
 
-  // 인사말은 지금 상태를 그대로 말한다 — 지연이 0인데 "오늘 할 일만 남았어요"라고
-  // 하면 남은 게 없는 날에도 할 일이 있는 것처럼 읽힌다
-  const greeting = overdueCount ? `${myName}님, 밀린 업무부터 정리해봐요`
-    : todayCount ? `${myName}님, 오늘 마감되는 업무만 남았어요`
-    : shown.length ? `${myName}님, 당장 급한 업무는 없어요`
+  // 인사말이 세는 범위는 '내 것 + 담당자 없는 것'이다 — 이유는 utils.myScope 주석에.
+  const myOpen = useMemo(() => myScope(open, myName), [open, myName]);
+  const myOverdue = myOpen.filter(t => t.dueDate && t.dueDate < today).length;
+  const myToday = myOpen.filter(t => t.dueDate === today).length;
+
+  // 지금 상태를 그대로 말한다 — 지연이 0인데 "오늘 할 일만 남았어요"라고 하면
+  // 남은 게 없는 날에도 할 일이 있는 것처럼 읽힌다
+  const greeting = myOverdue ? `${myName}님, 밀린 업무부터 정리해봐요`
+    : myToday ? `${myName}님, 오늘 마감되는 업무만 남았어요`
+    : myOpen.length ? `${myName}님, 당장 급한 업무는 없어요`
     : `${myName}님, 남은 업무가 없어요`;
-  const headline = overdueCount ? `지연된 업무 ${overdueCount}건이 남아 있어요`
-    : todayCount ? `오늘 마감되는 업무 ${todayCount}건만 정리하면 돼요` : '지연된 업무가 없네요 :)';
+  // 내 지연은 없는데 KPI의 '지연'에는 숫자가 있는 경우가 있다(남의 것). 그때
+  // "지연된 업무가 없네요"라고 하면 바로 아래 칸과 어긋나 보이므로 누구 것인지 밝힌다.
+  const headline = myOverdue ? `지연된 업무 ${myOverdue}건이 남아 있어요`
+    : myToday ? `오늘 마감되는 업무 ${myToday}건만 정리하면 돼요`
+    : overdueCount ? '내가 맡은 업무에는 지연이 없네요 :)'
+    : '지연된 업무가 없네요 :)';
   const todayText = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' });
   const counts = { '전체': open.length, '내 업무': mine.length, '내 팀': teamOpen.length };
 
@@ -343,22 +352,38 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
           길어지고 '새 업무'가 아래로 떨어져 혼자 한 줄을 차지했다(모바일에서 특히
           어색했다 — 제목은 상단바에 있으니 왼쪽에 메타 줄만 남는다). 지금은 감싸지
           않고, 좁으면 메타 줄이 가로로 밀린다. */}
-      <div className="flex items-end justify-between gap-3 md:gap-4 pb-3" style={{ borderBottom: '1px solid var(--app-line)' }}>
+      {/* 모바일은 위 줄에 '새 업무'가 붙어야 하므로 items-start(제목이 없으니 첫 줄이
+          값 줄이다). 데스크톱은 제목이 위에 있어서 예전처럼 아래(메타 줄)에 맞춘다. */}
+      <div className="flex items-start md:items-end justify-between gap-3 md:gap-4 pb-3" style={{ borderBottom: '1px solid var(--app-line)' }}>
         <div className="min-w-0 flex-1">
           {/* 모바일은 상단바에 같은 제목(과 수정 연필)이 이미 있다 — 한 줄을 두 번 쓰지 않는다 */}
           <button onClick={() => onRenameProject?.(project)} className="group/title hidden md:inline-flex items-baseline gap-1.5 mb-[5px] text-left" title="프로젝트 이름 수정">
             <span className="text-[19px] md:text-[23px] font-extrabold text-fg" style={{ letterSpacing: '-0.7px' }}>{project.title}</span>
             <Pencil size={12} className="text-fg-faint md:opacity-0 md:group-hover/title:opacity-100 transition-opacity shrink-0" />
           </button>
-          {/* 모바일: 감싸지 않고 가로로 민다(x-scroll-lock = 가로로 밀 때 세로 스크롤이
-              딸려가지 않게. index.css). 데스크톱은 예전처럼 감싼다. */}
-          <div className="flex items-center gap-[7px] flex-nowrap overflow-x-auto scrollbar-hide x-scroll-lock md:flex-wrap md:overflow-x-visible">
-            <span className="text-[11px] text-fg-muted tabular-nums whitespace-nowrap">{projectMeta}</span>
-            <span className="w-0.5 h-0.5 rounded-full" style={{ background: 'var(--app-line)' }} />
+          {/* 개수가 변하는 것(참고 링크)과 하나로 고정된 것(공유·삭제)을 같은 스크롤 칸에
+              두면, 링크가 늘 때마다 삭제가 화면 밖으로 밀려난다. 밀어야 나오는 삭제는
+              '기능을 숨기지 않는다'(§7)를 가로 스크롤로 어기는 것이다.
+              그래서 링크는 미는 칸 **안**, 공유·삭제는 그 칸 **밖**에 둔다.
+              모바일은 두 줄(값+새 업무 / 링크+액션), 데스크톱은 md:contents로 감싸개를
+              지워서 예전처럼 한 줄로 흐른다. */}
+          <div className="flex flex-col gap-[6px] md:flex-row md:items-center md:gap-[7px]">
+            {/* min-h는 '새 업무' 버튼 높이 — 모바일에서 값 줄이 버튼 가운데에 맞게 */}
+            <div className="flex items-center gap-2.5 min-w-0 min-h-[34px] md:min-h-0 md:gap-[7px] md:flex-none">
+              <span className="text-[11px] text-fg-muted tabular-nums whitespace-nowrap">{projectMeta}</span>
+              {/* 값만 있는 줄이 비어 보여서 진척 바로 채운다 — 대시보드가 쓰는 부품 그대로 */}
+              <span className="flex-1 max-w-[130px] md:w-14 md:flex-none">
+                <Bar ratio={projectTasks.length ? doneCount / projectTasks.length : 0} color="var(--p-blue)" height={3} />
+              </span>
+            </div>
+            <div className="flex items-center gap-2 min-w-0 md:contents">
+          <div className="flex items-center gap-[7px] flex-nowrap min-w-0 flex-1 overflow-x-auto scrollbar-hide x-scroll-lock md:flex-none md:flex-wrap md:overflow-x-visible">
             {project.pinnedLinks?.map(l => (
               <span key={l.id} className="group/link inline-flex items-center gap-1 shrink-0">
                 {/* 아는 서비스면 이름 앞에 글자만 한 표시가 붙는다(linkIcons.jsx) */}
-                <a href={l.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-[3px] text-[11px] font-semibold text-accent-text hover:underline whitespace-nowrap">
+                {/* gap은 공백 한 칸만큼(11px 글자에서 5px) — 3px로 붙였더니 표시가
+                    글자에 눌어붙어 보였다 */}
+                <a href={l.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-[5px] text-[11px] font-semibold text-accent-text hover:underline whitespace-nowrap">
                   <LinkIcon url={l.url} />{l.title}
                 </a>
                 <button onClick={() => removeLink(l.id)} className="md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0" title="링크 삭제"><X size={10} /></button>
@@ -376,9 +401,11 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
                   {linkForm}
                 </div>, document.body)}
             </span>
-            {/* 공유·삭제는 메타 줄 끝에 — 헤더 우측은 '새 업무'만 두라는 규격을 지키면서도
-                기존 기능을 숨기지 않는다 */}
-            <span className="inline-flex items-center gap-0.5 ml-1 shrink-0">{shareBtn}{deleteBtn}</span>
+          </div>
+              {/* 스크롤 칸 밖. 링크가 몇 개든 제자리다. 왼쪽 실선이 "여기가 끝"을 알려
+                  준다 — 미는 줄에서 끝을 못 보면 뭐가 더 있는지 짐작할 수 없다. */}
+              <span className="inline-flex items-center gap-0.5 shrink-0 pl-1.5 border-l border-line md:border-l-0 md:pl-0 md:ml-1">{shareBtn}{deleteBtn}</span>
+            </div>
           </div>
         </div>
         <button onClick={onNewTask}
