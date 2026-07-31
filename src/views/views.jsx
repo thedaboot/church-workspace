@@ -105,10 +105,13 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
     : myOpen.length ? `${myName}님, 당장 급한 업무는 없어요`
     : `${myName}님, 남은 업무가 없어요`;
   // 내 지연은 없는데 KPI의 '지연'에는 숫자가 있는 경우가 있다(남의 것). 그때
-  // "지연된 업무가 없네요"라고 하면 바로 아래 칸과 어긋나 보이므로 누구 것인지 밝힌다.
+  // "지연된 업무가 없네요"라고 하면 바로 아래 칸과 어긋나 보인다.
+  // 그렇다고 "내가 맡은 업무에는 없네요"라고 하면 남과 견주는 문장이 된다 — 여기는
+  // 같이 사역하는 사람들이 쓰는 화면이고, 누가 밀렸는지 가리키는 자리가 아니다.
+  // 내 상태만 말하고 전체 숫자에는 아무 주장을 하지 않는 문장으로 둔다.
   const headline = myOverdue ? `지연된 업무 ${myOverdue}건이 남아 있어요`
     : myToday ? `오늘 마감되는 업무 ${myToday}건만 정리하면 돼요`
-    : overdueCount ? '내가 맡은 업무에는 지연이 없네요 :)'
+    : overdueCount ? '잘하고 있어요!'
     : '지연된 업무가 없네요 :)';
   const todayText = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' });
   const counts = { '전체': open.length, '내 업무': mine.length, '내 팀': teamOpen.length };
