@@ -619,6 +619,19 @@ function NotificationBell({ onOpenTask }) {
     else showToast('업무를 찾을 수 없어요');
   };
 
+  // 알림 1건 지우기. 확인은 묻지 않는다 — 잃는 것이 알림 한 줄뿐이고, 지우려고
+  // 누르는 자리에 또 한 번 물으면 목록을 정리하는 일이 두 배로 는다.
+  // 실패하면 되돌린다(토스트만 띄우고 화면에서 지워두면 DB와 어긋난 채로 남는다).
+  const dismiss = (n) => {
+    setItems(prev => prev.filter(x => x.id !== n.id));
+    cloudSync.deleteNotification(n.id).catch(e => {
+      console.error('[cloud] 알림 삭제 실패:', e);
+      showToast('알림을 지우지 못했어요');
+      setItems(prev => (prev.some(x => x.id === n.id) ? prev : [n, ...prev]
+        .sort((a, b) => (a.read - b.read) || (new Date(b.created_at) - new Date(a.created_at)))));
+    });
+  };
+
   const readAll = () => {
     setItems(prev => prev.map(x => ({ ...x, read: true })));
     cloudSync.markAllNotificationsRead().catch(e => console.error('[cloud] 모두 읽음 실패:', e));
@@ -661,28 +674,40 @@ function NotificationBell({ onOpenTask }) {
             </div>
           ) : (
             <div className="divide-y divide-line/60">
+              {/* 줄 전체가 button이었는데 지우기 버튼이 그 안에 들어가야 해서 div로 바꿨다
+                  (button 안의 button은 유효하지 않다). 여는 영역만 button으로 남긴다. */}
               {items.map(n => (
-                <button
-                  key={n.id} onClick={() => openItem(n)}
-                  className={`w-full text-left px-3 py-2.5 flex items-start gap-2.5 hover:bg-surface-hover transition-colors ${n.read ? '' : 'bg-accent-weak/40'}`}
+                <div
+                  key={n.id}
+                  className={`flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-hover transition-colors ${n.read ? '' : 'bg-accent-weak/40'}`}
                 >
-                  {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2" />}
-                  {/* 마감 알림은 사람이 만든 게 아니라 배치가 만든다 — 아바타 대신 시계 */}
-                  {isSystemNotif(n.kind) ? (
-                    <span className="w-6 h-6 rounded-full bg-tag-yellow text-tag-yellow-fg flex items-center justify-center shrink-0"><CalendarClock size={12} strokeWidth={1.75} /></span>
-                  ) : (
-                    <span className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 ${avatarColor(n.actor_name)}`}>{n.actor_name?.[0]}</span>
-                  )}
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-[11px] text-fg-secondary leading-snug">
-                      {isSystemNotif(n.kind)
-                        ? notifLine(n.kind)
-                        : <><span className="font-semibold text-fg">{n.actor_name}</span>님이 {notifText(n.kind)}</>}
+                  <button onClick={() => openItem(n)} className="flex-1 min-w-0 flex items-start gap-2.5 text-left">
+                    {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2" />}
+                    {/* 마감 알림은 사람이 만든 게 아니라 배치가 만든다 — 아바타 대신 시계 */}
+                    {isSystemNotif(n.kind) ? (
+                      <span className="w-6 h-6 rounded-full bg-tag-yellow text-tag-yellow-fg flex items-center justify-center shrink-0"><CalendarClock size={12} strokeWidth={1.75} /></span>
+                    ) : (
+                      <span className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 ${avatarColor(n.actor_name)}`}>{n.actor_name?.[0]}</span>
+                    )}
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[11px] text-fg-secondary leading-snug">
+                        {isSystemNotif(n.kind)
+                          ? notifLine(n.kind)
+                          : <><span className="font-semibold text-fg">{n.actor_name}</span>님이 {notifText(n.kind)}</>}
+                      </span>
+                      {n.preview && <span className="block text-[10px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
+                      <span className="block text-[9px] text-fg-faint mt-0.5">{formatRelative(n.created_at)}</span>
                     </span>
-                    {n.preview && <span className="block text-[10px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
-                    <span className="block text-[9px] text-fg-faint mt-0.5">{formatRelative(n.created_at)}</span>
-                  </span>
-                </button>
+                  </button>
+                  {/* hover로 숨기지 않는다 — 터치 기기에는 hover가 없어서 이 기능이 아예
+                      없는 것처럼 보인다(§7) */}
+                  <button
+                    onClick={() => dismiss(n)} title="이 알림 지우기" aria-label="이 알림 지우기"
+                    className="shrink-0 -mr-1 p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
               ))}
             </div>
           )}

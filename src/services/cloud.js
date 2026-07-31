@@ -434,6 +434,12 @@ export async function markNotificationRead(id) {
   return unwrap(await client().from('notifications').update({ read: true }).eq('id', id).select().maybeSingle());
 }
 
+// 알림 1건 지우기. 0005의 delete 정책이 본인 수신 행만 허용하므로 남의 알림은 못 지운다.
+export async function deleteNotification(id) {
+  const { error } = await client().from('notifications').delete().eq('id', id);
+  if (error) throw error;
+}
+
 export async function markAllNotificationsRead() {
   const { data: { user } } = await client().auth.getUser();
   if (!user) return;

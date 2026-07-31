@@ -161,6 +161,7 @@ export const savePushSubscription = cloud.savePushSubscription;
 export const deletePushSubscription = cloud.deletePushSubscription;
 export const listMyNotifications = cloud.listMyNotifications;
 export const markNotificationRead = cloud.markNotificationRead;
+export const deleteNotification = cloud.deleteNotification;
 export const markAllNotificationsRead = cloud.markAllNotificationsRead;
 export const subscribeMyNotifications = cloud.subscribeMyNotifications;
 
