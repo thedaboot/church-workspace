@@ -212,6 +212,11 @@ for (const w of [375, 414, 768]) {
       .find(d => typeof d.className === 'string' && /x-scroll-lock/.test(d.className) && d.querySelector('a'));
     const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '새 업무');
     const glyph = del.querySelector('svg');
+    // 공유 왼쪽의 세로 실선. ConfirmPopover가 래퍼를 하나 더 만들므로 del.parentElement가
+    // 아니라 border-l이 달린 span을 직접 찾는다(처음에 이걸 잘못 잡아 헛measure했다)
+    const acts = [...document.querySelectorAll('span')]
+      .find(s => /border-l/.test(s.className || '') && s.contains(del));
+    const head = del.closest('div[style*="border-bottom"]');
     return {
       onScreen: r.right <= window.innerWidth + 1 && r.left >= 0 && r.width > 0,
       insideScroller: scroller ? scroller.contains(del) : null,
@@ -226,6 +231,11 @@ for (const w of [375, 414, 768]) {
         return Math.round(box.left + (bb.x + bb.width) * (box.width / 24));
       })(),
       btnRight: btn ? Math.round(btn.getBoundingClientRect().right) : null,
+      btnLeft: btn ? Math.round(btn.getBoundingClientRect().left) : null,
+      dividerLeft: acts ? Math.round(acts.getBoundingClientRect().left) : null,
+      // 헤더 아래 실선의 양 끝 — 위 요소들이 이 안에 있어야 한다
+      lineLeft: head ? Math.round(head.getBoundingClientRect().left) : null,
+      lineRight: head ? Math.round(head.getBoundingClientRect().right) : null,
     };
   })()`);
   check(`${w}px: 삭제가 화면 안에 있다`, acts?.onScreen === true, JSON.stringify(acts));
@@ -238,6 +248,15 @@ for (const w of [375, 414, 768]) {
     check(`${w}px: 공유·삭제가 오른쪽 끝에 붙어 있다`, acts && acts.vw - acts.right < 24, JSON.stringify(acts));
     check(`${w}px: 삭제 아이콘이 '새 업무' 버튼과 같은 오른쪽 선에 선다`,
       acts && Math.abs(acts.glyphRight - acts.btnRight) <= 1, JSON.stringify(acts));
+    // 공유 왼쪽 세로 실선은 바로 위 '새 업무' 버튼의 왼쪽 선과 같은 x에 서야 한다.
+    // 액션을 버튼과 **같은 그리드 칸**에 넣어서 맞춘 것이라, 아래 줄을 col-span-2로
+    // 되돌리면 실선이 21px 오른쪽으로 밀린다.
+    check(`${w}px: 공유 왼쪽 실선이 '새 업무' 버튼 왼쪽 선과 맞는다`,
+      acts && Math.abs(acts.dividerLeft - acts.btnLeft) <= 1, JSON.stringify(acts));
+    // 헤더 아래 실선 밖으로 삐져나오는 것이 없어야 한다(자획 기준)
+    check(`${w}px: 헤더 실선 안에 정렬돼 있다`,
+      acts && acts.glyphRight <= acts.lineRight + 1 && acts.btnRight <= acts.lineRight + 1,
+      JSON.stringify(acts));
   }
 }
 

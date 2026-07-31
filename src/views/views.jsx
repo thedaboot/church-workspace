@@ -413,7 +413,11 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
                 </span>
               )}
             </div>
-            <div className="col-span-2 flex items-center gap-2 min-w-0 md:contents">
+            {/* 감싸개를 지워 링크 줄과 액션이 각각 그리드 칸이 된다 — 링크는 왼쪽 칸(값 줄
+                아래), 액션은 오른쪽 칸('새 업무' 버튼 아래). 아래 줄을 두 칸에 걸치면
+                (col-span-2) 액션이 자기 자리를 못 잡아서 공유 왼쪽 실선이 버튼 왼쪽 선보다
+                21px 오른쪽에 섰다. 같은 칸에 두면 실선이 버튼 폭에 저절로 맞는다. */}
+            <div className="contents">
           <div className="flex items-center gap-[7px] flex-nowrap min-w-0 flex-1 overflow-x-auto scrollbar-hide x-scroll-lock md:flex-none md:flex-wrap md:overflow-x-visible">
             {project.pinnedLinks?.map(l => (
               <span key={l.id} className="group/link inline-flex items-center gap-1 shrink-0">
@@ -445,7 +449,11 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
                   좌우 여백(2px). 눈은 박스가 아니라 **자획**을 보므로 자획을 바로 위 '새 업무'
                   버튼의 오른쪽 선에 맞춘다(버튼은 배경이 있어 끝이 곧 경계다). 상쇄하지 않으면
                   8px 안쪽에 서서 두 줄이 어긋나 보인다 — 실제로 두 번 지적받았다. */}
-              <span className="inline-flex items-center gap-0.5 shrink-0 pl-1.5 -mr-2 border-l border-line md:border-l-0 md:pl-0 md:mr-0 md:ml-1">{shareBtn}{deleteBtn}</span>
+              {/* justify-end: 모바일에서 이 span은 '새 업무' 버튼과 같은 그리드 칸이라 칸 폭까지
+                  늘어난다(그래서 왼쪽 실선이 버튼 왼쪽 선에 저절로 맞는다). 늘어난 칸 안에서
+                  아이콘을 오른쪽으로 붙여야 오른쪽 선도 같이 맞는다 — 안 붙이면 왼쪽에 몰려서
+                  선 오른쪽 끝에서 23px 안쪽에 선다. */}
+              <span className="inline-flex items-center justify-end gap-0.5 shrink-0 pl-1.5 -mr-2 border-l border-line md:border-l-0 md:pl-0 md:mr-0 md:ml-1">{shareBtn}{deleteBtn}</span>
             </div>
           </div>
         </div>
