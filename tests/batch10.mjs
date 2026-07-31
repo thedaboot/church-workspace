@@ -28,10 +28,16 @@ const mk=(i,{teams,status,sd='',dd=''}) => ({ id:'t'+i, projectId:'p1', title:'�
   assignees:['노준석'], teams, startDate:sd, dueDate:dd, position:i, author:'노준석',
   createdAt:'2026-07-01T00:00:00Z', updatedAt:'2026-07-01T00:00:00Z', comments:[], activityLog:[], attachments:[] });
 const byId={},allIds=[];
-[[{teams:['워십팀','찬양팀'],status:'완료',sd:'2026-07-12',dd:'2026-07-20'}],
- [{teams:['찬양팀','엔지니어팀','미디어팀'],status:'진행 중',sd:'2026-07-21',dd:'2026-07-25'}],
- [{teams:['웰컴팀'],status:'시작 전',dd:'2026-07-28'}],
- [{teams:['임원진'],status:'시작 전',dd:'2026-08-05'}]].forEach(([o],i)=>{const t=mk(i,o);byId[t.id]=t;allIds.push(t.id);});
+// 캘린더는 늘 '이번 달'을 펼친다. 날짜를 2026-07로 박아 두었더니 8월이 되는 순간 띠가
+// 화면에서 사라져서 팀 분할 검사 네 개가 통째로 헛돌았다(FAIL로는 보였지만 앱은 멀쩡했다).
+// 날짜는 실행하는 달을 기준으로 만든다 — 시간이 지나 저절로 어긋나는 시드를 두지 않는다.
+const iso = dt => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+const thisMonth = n => { const d=new Date(); d.setDate(n); return iso(d); };
+const nextMonth = n => { const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()+1); d.setDate(n); return iso(d); };
+[[{teams:['워십팀','찬양팀'],status:'완료',sd:thisMonth(12),dd:thisMonth(20)}],
+ [{teams:['찬양팀','엔지니어팀','미디어팀'],status:'진행 중',sd:thisMonth(21),dd:thisMonth(25)}],
+ [{teams:['웰컴팀'],status:'시작 전',dd:thisMonth(28)}],
+ [{teams:['임원진'],status:'시작 전',dd:nextMonth(5)}]].forEach(([o],i)=>{const t=mk(i,o);byId[t.id]=t;allIds.push(t.id);});
 const st={currentUser:{name:'노준석',team:'찬양팀',teams:['찬양팀','임원진']},
   projects:{byId:{p1:{id:'p1',title:'2026 하계 수련회',pinnedLinks:[{id:'l1',title:'기획안',url:'https://e.com'}]},
                   p2:{id:'p2',title:'가을 전도 축제',pinnedLinks:[]}},allIds:['p1','p2']},
