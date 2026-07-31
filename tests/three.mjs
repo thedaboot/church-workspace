@@ -210,14 +210,35 @@ for (const w of [375, 414, 768]) {
     // 링크가 들어 있는 가로 스크롤 칸
     const scroller = [...document.querySelectorAll('div')]
       .find(d => typeof d.className === 'string' && /x-scroll-lock/.test(d.className) && d.querySelector('a'));
+    const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '새 업무');
+    const glyph = del.querySelector('svg');
     return {
       onScreen: r.right <= window.innerWidth + 1 && r.left >= 0 && r.width > 0,
       insideScroller: scroller ? scroller.contains(del) : null,
       right: Math.round(r.right), vw: window.innerWidth,
+      // 아이콘은 여백까지가 버튼이고 lucide는 16px 박스 안에서 좌우 2px을 더 비운다.
+      // 눈에 보이는 선은 **자획**이라 getBBox()로 잉크 상자를 재서 화면 좌표로 환산한다
+      // (svg의 rect로 재면 어긋난 채로도 맞다고 나온다).
+      glyphRight: (() => {
+        if (!glyph) return null;
+        const box = glyph.getBoundingClientRect();
+        const bb = glyph.getBBox();          // viewBox(24) 좌표
+        return Math.round(box.left + (bb.x + bb.width) * (box.width / 24));
+      })(),
+      btnRight: btn ? Math.round(btn.getBoundingClientRect().right) : null,
     };
   })()`);
   check(`${w}px: 삭제가 화면 안에 있다`, acts?.onScreen === true, JSON.stringify(acts));
   check(`${w}px: 삭제가 링크 스크롤 칸 밖에 있다`, acts?.insideScroller === false, JSON.stringify(acts));
+  // 모바일 아래 줄은 '새 업무' 아래를 지나 **화면 오른쪽 끝**까지 가야 한다. 예전에는
+  // 이 줄이 왼쪽 칸 안이라 버튼 왼쪽에서 끝났고, 공유·삭제가 화면 중간에 떠 보였다.
+  // 그리고 삭제 아이콘의 자획이 바로 위 '새 업무' 버튼의 오른쪽 선과 맞아야 한다
+  // (아이콘 버튼의 p-1.5를 상쇄하지 않으면 6px 안쪽에 서서 두 줄이 어긋나 보인다).
+  if (w < 768) {
+    check(`${w}px: 공유·삭제가 오른쪽 끝에 붙어 있다`, acts && acts.vw - acts.right < 24, JSON.stringify(acts));
+    check(`${w}px: 삭제 아이콘이 '새 업무' 버튼과 같은 오른쪽 선에 선다`,
+      acts && Math.abs(acts.glyphRight - acts.btnRight) <= 1, JSON.stringify(acts));
+  }
 }
 
 // 값 줄이 비어 보이지 않게 진척 바를 둔다(대시보드와 같은 부품)
@@ -231,6 +252,45 @@ const headBar = await ev(`(() => {
   return { hasBar: true, width: w, transform: getComputedStyle(fill).transform };
 })()`);
 check('값 줄에 진척 바가 있다', headBar?.hasBar === true && headBar.width > 20, JSON.stringify(headBar));
+
+// 값 줄에서 양보할 수 있는 것은 글자뿐이다. 메타에 nowrap만 걸려 있으면 flex 항목의 최소 폭이
+// 글자 폭으로 굳어서, 좁은 화면에 담당자 얼굴까지 서면 얼굴이 '새 업무' 버튼 밑으로 파고든다.
+// 가장 긴 메타('103일 지남')를 밀어 넣고 그 줄이 넘치지 않는지 본다 — truncate를 지우면 실패한다.
+await send('Emulation.setDeviceMetricsOverride', { width: 320, height: 812, deviceScaleFactor: 1, mobile: true });
+await sleep(450);
+const squeeze = await ev(`(() => {
+  const meta = [...document.querySelectorAll('span')].find(s => /건 · 완료/.test(s.textContent) && s.children.length === 0);
+  if (!meta) return null;
+  meta.textContent = '18건 · 완료 4건 · 103일 지남';
+  const row = meta.parentElement;
+  return { over: Math.round(row.scrollWidth - row.clientWidth), clip: getComputedStyle(meta).overflow };
+})()`);
+check('320px: 값 줄이 가장 긴 메타에도 넘치지 않는다(글자가 양보한다)',
+  squeeze?.over === 0, JSON.stringify(squeeze));
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 812, deviceScaleFactor: 1, mobile: false });
+await sleep(400);
+
+// 이 프로젝트에 누가 붙어 있는지 — 값 줄 오른쪽 끝의 담당자 얼굴. 진척 바 **뒤**여야 한다
+// (`완료 N건`과 바는 같은 사실이라 그 사이를 가르지 않는다). 세는 함수는 대시보드
+// '청년별 남은 업무'와 같은 personLoad라서, 여기서는 자리와 개수만 본다.
+const faces = await ev(`(() => {
+  const meta = [...document.querySelectorAll('span')].find(s => /건 · 완료/.test(s.textContent) && s.children.length === 0);
+  if (!meta) return null;
+  const row = meta.parentElement;
+  const fill = row.querySelector('.dc-bar-fill');
+  // 아바타 = 값 줄 안의 원형 + 글자 한 자
+  const av = [...row.querySelectorAll('span')].filter(s => /rounded-full/.test(s.className||'') && s.children.length === 0 && s.textContent.trim().length === 1);
+  if (!av.length) return { count: 0 };
+  const first = av[0].getBoundingClientRect();
+  return {
+    count: av.length, initials: av.map(s => s.textContent.trim()).join(''),
+    afterBar: fill ? first.left >= fill.getBoundingClientRect().right : null,
+    size: Math.round(first.width),
+  };
+})()`);
+// 시드는 모든 업무를 '노준석'이 맡는다 → 얼굴 하나
+check('값 줄에 담당자 얼굴이 있다', faces?.count === 1 && faces.initials === '노', JSON.stringify(faces));
+check('담당자 얼굴이 진척 바 뒤에 온다', faces?.afterBar === true, JSON.stringify(faces));
 
 // 링크가 붙은 뒤에도 '새 업무'가 메타 줄과 같은 줄에 남아야 한다.
 // 예전에는 헤더에 flex-wrap이 걸려 있어서 링크 하나에 버튼이 아래로 떨어지고 혼자 한 줄을

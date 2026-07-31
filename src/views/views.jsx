@@ -333,6 +333,10 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   projectTasks.forEach(t => (t.teams || []).forEach(x => { teamCounts[x] = (teamCounts[x] || 0) + 1; }));
   const teamChips = Object.keys(CONFIG.TEAMS).filter(n => teamCounts[n]);
   const doneCount = projectTasks.filter(t => t.status === '완료').length;
+  // 이 프로젝트에 누가 붙어 있나 — 대시보드의 '청년별 남은 업무'와 같은 함수다.
+  // 끝난 업무의 담당자는 세지 않는다: '붙어 있다'는 지금 맡고 있다는 뜻이고, 프로젝트를
+  // 다 끝내면 아무도 안 남는 것이 맞다(빈 자리는 다른 것으로 채우지 않는다).
+  const people = personLoad(projectTasks.filter(t => t.status !== '완료'));
   const openDues = projectTasks.filter(t => t.dueDate && t.status !== '완료').map(t => t.dueDate).sort();
   const dd = openDues[0] ? daysLeft(openDues[0], ISO_TODAY()) : null;
   const projectMeta = [
@@ -357,8 +361,14 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
           않고, 좁으면 메타 줄이 가로로 밀린다. */}
       {/* 모바일은 위 줄에 '새 업무'가 붙어야 하므로 items-start(제목이 없으니 첫 줄이
           값 줄이다). 데스크톱은 제목이 위에 있어서 예전처럼 아래(메타 줄)에 맞춘다. */}
-      <div className="flex items-start md:items-end justify-between gap-3 md:gap-4 pb-3" style={{ borderBottom: '1px solid var(--app-line)' }}>
-        <div className="min-w-0 flex-1">
+      {/* 모바일은 2×2 그리드다. flex로 두면 왼쪽 칸이 '새 업무' 버튼 **왼쪽에서** 끝나고,
+          아래 줄(링크 + 공유·삭제)도 그 칸 안이라 공유·삭제가 화면 오른쪽에 못 붙고
+          버튼 아래 어딘가에 떠 있었다. 그리드로 두면 아래 줄이 두 칸을 걸쳐 화면
+          오른쪽 끝까지 간다. 데스크톱은 md:flex로 예전처럼 한 줄이다. */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-[6px] md:flex md:items-end md:justify-between md:gap-4 pb-3" style={{ borderBottom: '1px solid var(--app-line)' }}>
+        {/* 모바일에서는 감싸개를 지워 안쪽 줄이 직접 그리드 칸이 되게 한다(§6-3 — 반응형으로
+            구조가 달라져도 컴포넌트를 두 벌 두지 않는다) */}
+        <div className="contents md:block md:min-w-0 md:flex-1">
           {/* 모바일은 상단바에 같은 제목(과 수정 연필)이 이미 있다 — 한 줄을 두 번 쓰지 않는다 */}
           <button onClick={() => onRenameProject?.(project)} className="group/title hidden md:inline-flex items-baseline gap-1.5 mb-[5px] text-left" title="프로젝트 이름 수정">
             <span className="text-[19px] md:text-[23px] font-extrabold text-fg" style={{ letterSpacing: '-0.7px' }}>{project.title}</span>
@@ -370,16 +380,40 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
               그래서 링크는 미는 칸 **안**, 공유·삭제는 그 칸 **밖**에 둔다.
               모바일은 두 줄(값+새 업무 / 링크+액션), 데스크톱은 md:contents로 감싸개를
               지워서 예전처럼 한 줄로 흐른다. */}
-          <div className="flex flex-col gap-[6px] md:flex-row md:items-center md:gap-[7px]">
+          <div className="contents md:flex md:flex-row md:items-center md:gap-[7px]">
             {/* min-h는 '새 업무' 버튼 높이 — 모바일에서 값 줄이 버튼 가운데에 맞게 */}
             <div className="flex items-center gap-2.5 min-w-0 min-h-[34px] md:min-h-0 md:gap-[7px] md:flex-none">
-              <span className="text-[11px] text-fg-muted tabular-nums whitespace-nowrap">{projectMeta}</span>
+              {/* truncate(+min-w-0): 이 줄에서 **양보할 수 있는 것은 글자뿐**이다. nowrap만 걸어
+                  두면 flex 항목의 최소 폭이 글자 폭으로 굳어서, 320px에 담당자 얼굴까지 서면
+                  얼굴이 '새 업무' 버튼 밑으로 파고들었다(실측). 좁으면 '103일 지남'의 꼬리를
+                  잃는 쪽이, 사람 얼굴이 버튼에 겹치는 것보다 낫다. */}
+              <span className="text-[11px] text-fg-muted tabular-nums whitespace-nowrap truncate min-w-0">{projectMeta}</span>
               {/* 값만 있는 줄이 비어 보여서 진척 바로 채운다 — 대시보드가 쓰는 부품 그대로 */}
-              <span className="flex-1 max-w-[130px] md:w-14 md:flex-none">
+              <span className="flex-1 max-w-[130px] min-w-[36px] md:w-14 md:flex-none">
                 <Bar ratio={projectTasks.length ? doneCount / projectTasks.length : 0} color="var(--p-blue)" height={3} />
               </span>
+              {/* 담당자 얼굴. 값·바 다음에 두는 이유: `완료 5건`과 진척 바는 같은 사실이라
+                  둘 사이를 다른 것으로 가르지 않는다.
+                  이름 글자를 쓰지 않는 것은 카드와 같은 판단이다 — 같은 11px 글자를 늘어
+                  놓으면 메타 값과 구분이 안 되고, 원형은 한눈에 '사람'으로 읽힌다.
+                  ponytail: 4명까지만 그리고 나머지는 `+N`. 다 그리면 사람이 늘 때마다
+                  375px에서 진척 바가 먼저 눌린다. 이름을 다 보여줄 자리가 필요해지면
+                  누르면 열리는 목록으로 올리세요(hover로만 나오게 두면 §8 위반입니다). */}
+              {people.length > 0 && (
+                <span className="flex items-center shrink-0" title={people.map(p => `${p.name} ${p.left}건`).join(' · ')}>
+                  {people.slice(0, 4).map(p => (
+                    <span key={p.name}
+                      className={`w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9px] font-bold -ml-[5px] first:ml-0 ${avatarColor(p.name)}`}
+                      /* 겹친 원끼리 붙어 보이지 않게 페이지 바탕색으로 테두리를 준다 */
+                      style={{ boxShadow: '0 0 0 1.5px var(--app-canvas)' }}>{p.name[0]}</span>
+                  ))}
+                  {people.length > 4 && (
+                    <span className="ml-[5px] text-[10.5px] text-fg-faint tabular-nums">+{people.length - 4}</span>
+                  )}
+                </span>
+              )}
             </div>
-            <div className="flex items-center gap-2 min-w-0 md:contents">
+            <div className="col-span-2 flex items-center gap-2 min-w-0 md:contents">
           <div className="flex items-center gap-[7px] flex-nowrap min-w-0 flex-1 overflow-x-auto scrollbar-hide x-scroll-lock md:flex-none md:flex-wrap md:overflow-x-visible">
             {project.pinnedLinks?.map(l => (
               <span key={l.id} className="group/link inline-flex items-center gap-1 shrink-0">
@@ -407,12 +441,18 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
           </div>
               {/* 스크롤 칸 밖. 링크가 몇 개든 제자리다. 왼쪽 실선이 "여기가 끝"을 알려
                   준다 — 미는 줄에서 끝을 못 보면 뭐가 더 있는지 짐작할 수 없다. */}
-              <span className="inline-flex items-center gap-0.5 shrink-0 pl-1.5 border-l border-line md:border-l-0 md:pl-0 md:ml-1">{shareBtn}{deleteBtn}</span>
+              {/* -mr-2 = 아이콘 버튼의 p-1.5(6px) + lucide 아이콘이 16px 박스 안에서 비워 두는
+                  좌우 여백(2px). 눈은 박스가 아니라 **자획**을 보므로 자획을 바로 위 '새 업무'
+                  버튼의 오른쪽 선에 맞춘다(버튼은 배경이 있어 끝이 곧 경계다). 상쇄하지 않으면
+                  8px 안쪽에 서서 두 줄이 어긋나 보인다 — 실제로 두 번 지적받았다. */}
+              <span className="inline-flex items-center gap-0.5 shrink-0 pl-1.5 -mr-2 border-l border-line md:border-l-0 md:pl-0 md:mr-0 md:ml-1">{shareBtn}{deleteBtn}</span>
             </div>
           </div>
         </div>
+        {/* 그리드에서는 첫 줄 오른쪽 칸을 명시한다 — 자동 배치에 맡기면 아래 줄 다음(3번째
+            줄)으로 떨어진다 */}
         <button onClick={onNewTask}
-          className="dc-press inline-flex items-center gap-1.5 pl-[11px] pr-3.5 py-[7px] rounded-[8px] text-[12.5px] font-bold text-white whitespace-nowrap shrink-0 hover:brightness-[1.07] transition-[filter]"
+          className="dc-press row-start-1 col-start-2 inline-flex items-center gap-1.5 pl-[11px] pr-3.5 py-[7px] rounded-[8px] text-[12.5px] font-bold text-white whitespace-nowrap shrink-0 hover:brightness-[1.07] transition-[filter]"
           style={{ background: 'var(--app-accent)', boxShadow: '0 1px 2px rgba(25,23,32,.18), inset 0 1px 0 rgba(255,255,255,.22)' }}>
           <Plus size={13} className="shrink-0 [stroke-width:2.2px]" />새 업무
         </button>
