@@ -365,7 +365,10 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
           아래 줄(링크 + 공유·삭제)도 그 칸 안이라 공유·삭제가 화면 오른쪽에 못 붙고
           버튼 아래 어딘가에 떠 있었다. 그리드로 두면 아래 줄이 두 칸을 걸쳐 화면
           오른쪽 끝까지 간다. 데스크톱은 md:flex로 예전처럼 한 줄이다. */}
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-[6px] md:flex md:items-end md:justify-between md:gap-4 pb-3" style={{ borderBottom: '1px solid var(--app-line)' }}>
+      {/* items-center: 아래 줄에서 링크 글자(17px)와 아이콘 버튼(24px)은 높이가 달라서, 칸을
+          위로 붙이면(items-start) 가운데선이 3~4px 어긋난다. 위 줄은 값 줄 min-h가 버튼 높이와
+          같아서 가운데 정렬이 아무것도 바꾸지 않는다. */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-[6px] md:flex md:items-end md:justify-between md:gap-4 pb-3" style={{ borderBottom: '1px solid var(--app-line)' }}>
         {/* 모바일에서는 감싸개를 지워 안쪽 줄이 직접 그리드 칸이 되게 한다(§6-3 — 반응형으로
             구조가 달라져도 컴포넌트를 두 벌 두지 않는다) */}
         <div className="contents md:block md:min-w-0 md:flex-1">
@@ -418,7 +421,14 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
                 (col-span-2) 액션이 자기 자리를 못 잡아서 공유 왼쪽 실선이 버튼 왼쪽 선보다
                 21px 오른쪽에 섰다. 같은 칸에 두면 실선이 버튼 폭에 저절로 맞는다. */}
             <div className="contents">
-          <div className="flex items-center gap-[7px] flex-nowrap min-w-0 flex-1 overflow-x-auto scrollbar-hide x-scroll-lock md:flex-none md:flex-wrap md:overflow-x-visible">
+          {/* 왼쪽 칸 = 미는 칸(링크들) + 제자리인 '+ 참고 링크'.
+              전에는 '+ 참고 링크'도 미는 칸 안이라 링크가 세 개쯤 되면 **점선 버튼이 반쯤
+              잘렸다** — 잘린 글자는 "오른쪽에 더 있다"는 신호로 읽히지만, 잘린 점선 상자는
+              깨진 것처럼 보인다. 그리고 밀어야 나오는 버튼은 §8(기능을 숨기지 않는다)에 걸린다.
+              칸 폭은 내용만큼만 잡되(flex-initial) 좁으면 줄어들어 링크가 스크롤된다 —
+              flex-1로 두면 링크가 없을 때도 칸이 늘어나 '+ 참고 링크'가 오른쪽으로 날아간다. */}
+          <div className="flex items-center gap-[7px] min-w-0 md:contents">
+          <div className="flex items-center gap-[7px] flex-nowrap min-w-0 overflow-x-auto scrollbar-hide x-scroll-lock md:flex-none md:flex-wrap md:overflow-x-visible">
             {project.pinnedLinks?.map(l => (
               <span key={l.id} className="group/link inline-flex items-center gap-1 shrink-0">
                 {/* 아는 서비스면 이름 앞에 글자만 한 표시가 붙는다(linkIcons.jsx) */}
@@ -430,6 +440,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
                 <button onClick={() => removeLink(l.id)} className="md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0" title="링크 삭제"><X size={10} /></button>
               </span>
             ))}
+          </div>
             <span className="inline-flex shrink-0" ref={linkPopRef}>
               <span ref={linkBtnRef} className="inline-flex">
                 {/* 열기 전에 위치를 먼저 잡는다 — 안 그러면 첫 프레임이 {0,0}에 그려진다 */}
@@ -444,16 +455,20 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
             </span>
           </div>
               {/* 스크롤 칸 밖. 링크가 몇 개든 제자리다. 왼쪽 실선이 "여기가 끝"을 알려
-                  준다 — 미는 줄에서 끝을 못 보면 뭐가 더 있는지 짐작할 수 없다. */}
-              {/* -mr-2 = 아이콘 버튼의 p-1.5(6px) + lucide 아이콘이 16px 박스 안에서 비워 두는
-                  좌우 여백(2px). 눈은 박스가 아니라 **자획**을 보므로 자획을 바로 위 '새 업무'
-                  버튼의 오른쪽 선에 맞춘다(버튼은 배경이 있어 끝이 곧 경계다). 상쇄하지 않으면
-                  8px 안쪽에 서서 두 줄이 어긋나 보인다 — 실제로 두 번 지적받았다. */}
-              {/* justify-end: 모바일에서 이 span은 '새 업무' 버튼과 같은 그리드 칸이라 칸 폭까지
-                  늘어난다(그래서 왼쪽 실선이 버튼 왼쪽 선에 저절로 맞는다). 늘어난 칸 안에서
-                  아이콘을 오른쪽으로 붙여야 오른쪽 선도 같이 맞는다 — 안 붙이면 왼쪽에 몰려서
-                  선 오른쪽 끝에서 23px 안쪽에 선다. */}
-              <span className="inline-flex items-center justify-end gap-0.5 shrink-0 pl-1.5 -mr-2 border-l border-line md:border-l-0 md:pl-0 md:mr-0 md:ml-1">{shareBtn}{deleteBtn}</span>
+                  준다 — 미는 줄에서 끝을 못 보면 뭐가 더 있는지 짐작할 수 없다.
+                  모바일에서 이 span은 '새 업무' 버튼과 같은 그리드 칸이라 칸 폭까지 늘어난다.
+                  실선·공유·삭제를 한 덩이로 묶어 그 칸의 **가운데**에 둔다(justify-center) —
+                  아이콘 묶음(56px)이 버튼(80px)보다 좁아서 한쪽 선에 붙이면 반대쪽에 구멍이
+                  생긴다. 실선을 칸의 테두리(border-l)로 두면 실선만 왼쪽 선에 남고 아이콘은
+                  멀찍이 떨어져 보였다 — 그래서 실선도 안쪽 요소로 넣어 아이콘과 같이 움직인다. */}
+              {/* -mr-2: 가운데를 잡을 때 마지막 아이콘의 오른쪽 여백 8px(p-1.5 + lucide가 16px
+                  박스 안에서 비우는 2px)은 자획이 아니다. 그대로 두면 눈에 보이는 묶음이 버튼
+                  가운데보다 4px 왼쪽에 선다 — 왼쪽은 실선이 칸 끝에 딱 붙어 시작하기 때문이다. */}
+              <span className="inline-flex items-center justify-center gap-0.5 shrink-0 -mr-2 md:mr-0 md:justify-start md:ml-1">
+                {/* 링크 줄이 여기서 끝난다는 표시. 높이는 아이콘 자획과 같은 16px */}
+                <span aria-hidden className="w-px h-4 mr-1.5 shrink-0 md:hidden" style={{ background: 'var(--app-line)' }} />
+                {shareBtn}{deleteBtn}
+              </span>
             </div>
           </div>
         </div>

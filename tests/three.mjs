@@ -212,51 +212,67 @@ for (const w of [375, 414, 768]) {
       .find(d => typeof d.className === 'string' && /x-scroll-lock/.test(d.className) && d.querySelector('a'));
     const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '새 업무');
     const glyph = del.querySelector('svg');
-    // 공유 왼쪽의 세로 실선. ConfirmPopover가 래퍼를 하나 더 만들므로 del.parentElement가
-    // 아니라 border-l이 달린 span을 직접 찾는다(처음에 이걸 잘못 잡아 헛measure했다)
-    const acts = [...document.querySelectorAll('span')]
-      .find(s => /border-l/.test(s.className || '') && s.contains(del));
     const head = del.closest('div[style*="border-bottom"]');
+    const addBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '+ 참고 링크');
+    const link1 = scroller ? scroller.querySelector('a') : null;
+    // 실선은 아이콘과 한 덩이로 움직여야 하므로 테두리가 아니라 안쪽 요소다.
+    // ConfirmPopover가 래퍼를 하나 더 만들어서 del에서 거슬러 올라가면 엉뚱한 span을 잡는다 —
+    // 헤더에 하나뿐인 aria-hidden(실선)에서 시작해 그 부모를 묶음으로 본다.
+    const div = head.querySelector('span[aria-hidden]');
+    const acts = div ? div.parentElement : del.parentElement;
+    const B = e => { const b = e.getBoundingClientRect(); return { l: b.left, r: b.right, cy: (b.top + b.bottom) / 2 }; };
+    // 아이콘은 여백까지가 버튼이고 lucide는 16px 박스 안에서 좌우 2px을 더 비운다.
+    // 눈에 보이는 선은 **자획**이라 getBBox()로 잉크 상자를 재서 화면 좌표로 환산한다
+    // (svg의 rect로 재면 어긋난 채로도 맞다고 나온다).
+    const inkR = (() => {
+      const box = glyph.getBoundingClientRect(), bb = glyph.getBBox();  // bb는 viewBox(24) 좌표
+      return box.left + (bb.x + bb.width) * (box.width / 24);
+    })();
     return {
       onScreen: r.right <= window.innerWidth + 1 && r.left >= 0 && r.width > 0,
       insideScroller: scroller ? scroller.contains(del) : null,
+      addInsideScroller: scroller && addBtn ? scroller.contains(addBtn) : null,
       right: Math.round(r.right), vw: window.innerWidth,
-      // 아이콘은 여백까지가 버튼이고 lucide는 16px 박스 안에서 좌우 2px을 더 비운다.
-      // 눈에 보이는 선은 **자획**이라 getBBox()로 잉크 상자를 재서 화면 좌표로 환산한다
-      // (svg의 rect로 재면 어긋난 채로도 맞다고 나온다).
-      glyphRight: (() => {
-        if (!glyph) return null;
-        const box = glyph.getBoundingClientRect();
-        const bb = glyph.getBBox();          // viewBox(24) 좌표
-        return Math.round(box.left + (bb.x + bb.width) * (box.width / 24));
-      })(),
-      btnRight: btn ? Math.round(btn.getBoundingClientRect().right) : null,
-      btnLeft: btn ? Math.round(btn.getBoundingClientRect().left) : null,
-      dividerLeft: acts ? Math.round(acts.getBoundingClientRect().left) : null,
+      // 눈에 보이는 묶음 = 실선 왼쪽 ~ 휴지통 자획 오른쪽
+      groupCx: div ? Math.round(((div.getBoundingClientRect().left + inkR) / 2) * 10) / 10 : null,
+      inkRight: Math.round(inkR * 10) / 10,
+      dividerLeft: div ? Math.round(div.getBoundingClientRect().left * 10) / 10 : null,
+      shareGap: div ? Math.round((acts.querySelectorAll('button')[0].getBoundingClientRect().left
+        - div.getBoundingClientRect().right) * 10) / 10 : null,
+      btn: btn ? { l: btn.getBoundingClientRect().left, r: btn.getBoundingClientRect().right,
+                   cx: Math.round(((btn.getBoundingClientRect().left + btn.getBoundingClientRect().right) / 2) * 10) / 10 } : null,
       // 헤더 아래 실선의 양 끝 — 위 요소들이 이 안에 있어야 한다
       lineLeft: head ? Math.round(head.getBoundingClientRect().left) : null,
       lineRight: head ? Math.round(head.getBoundingClientRect().right) : null,
+      // 세로: 링크 글자와 아이콘의 가운데선이 같아야 한다(높이가 17px vs 24px로 다르다)
+      linkCy: link1 ? Math.round(B(link1).cy * 10) / 10 : null,
+      delCy: Math.round(B(del).cy * 10) / 10,
+      metaLeft: Math.round(head.querySelector('span.tabular-nums').getBoundingClientRect().left),
+      addLeft: addBtn ? Math.round(addBtn.getBoundingClientRect().left) : null,
     };
   })()`);
   check(`${w}px: 삭제가 화면 안에 있다`, acts?.onScreen === true, JSON.stringify(acts));
   check(`${w}px: 삭제가 링크 스크롤 칸 밖에 있다`, acts?.insideScroller === false, JSON.stringify(acts));
-  // 모바일 아래 줄은 '새 업무' 아래를 지나 **화면 오른쪽 끝**까지 가야 한다. 예전에는
-  // 이 줄이 왼쪽 칸 안이라 버튼 왼쪽에서 끝났고, 공유·삭제가 화면 중간에 떠 보였다.
-  // 그리고 삭제 아이콘의 자획이 바로 위 '새 업무' 버튼의 오른쪽 선과 맞아야 한다
-  // (아이콘 버튼의 p-1.5를 상쇄하지 않으면 6px 안쪽에 서서 두 줄이 어긋나 보인다).
+  // 모바일 아래 줄: 실선·공유·삭제는 **한 덩이**로 '새 업무' 버튼 칸의 가운데에 선다.
+  // 아이콘 묶음이 버튼보다 좁아서 한쪽 선에 붙이면 반대쪽에 구멍이 생기고, 실선을 칸의
+  // 테두리로 두면 실선만 왼쪽에 남아 아이콘과 떨어져 보인다(둘 다 지적받았다).
   if (w < 768) {
-    check(`${w}px: 공유·삭제가 오른쪽 끝에 붙어 있다`, acts && acts.vw - acts.right < 24, JSON.stringify(acts));
-    check(`${w}px: 삭제 아이콘이 '새 업무' 버튼과 같은 오른쪽 선에 선다`,
-      acts && Math.abs(acts.glyphRight - acts.btnRight) <= 1, JSON.stringify(acts));
-    // 공유 왼쪽 세로 실선은 바로 위 '새 업무' 버튼의 왼쪽 선과 같은 x에 서야 한다.
-    // 액션을 버튼과 **같은 그리드 칸**에 넣어서 맞춘 것이라, 아래 줄을 col-span-2로
-    // 되돌리면 실선이 21px 오른쪽으로 밀린다.
-    check(`${w}px: 공유 왼쪽 실선이 '새 업무' 버튼 왼쪽 선과 맞는다`,
-      acts && Math.abs(acts.dividerLeft - acts.btnLeft) <= 1, JSON.stringify(acts));
+    check(`${w}px: 실선·공유·삭제 묶음이 '새 업무' 버튼 가운데에 선다`,
+      acts && Math.abs(acts.groupCx - acts.btn.cx) <= 1, JSON.stringify(acts));
+    check(`${w}px: 실선이 공유 아이콘에 붙어 있다`,
+      acts && acts.shareGap > 0 && acts.shareGap <= 10, JSON.stringify(acts));
+    check(`${w}px: 묶음이 '새 업무' 칸을 벗어나지 않는다`,
+      acts && acts.dividerLeft >= acts.btn.l - 1 && acts.inkRight <= acts.btn.r + 1, JSON.stringify(acts));
     // 헤더 아래 실선 밖으로 삐져나오는 것이 없어야 한다(자획 기준)
     check(`${w}px: 헤더 실선 안에 정렬돼 있다`,
-      acts && acts.glyphRight <= acts.lineRight + 1 && acts.btnRight <= acts.lineRight + 1,
-      JSON.stringify(acts));
+      acts && acts.inkRight <= acts.lineRight + 1 && acts.metaLeft === acts.lineLeft
+        && acts.addLeft >= acts.lineLeft, JSON.stringify(acts));
+    // 링크 글자(17px)와 아이콘 버튼(24px)은 높이가 달라서 칸을 위로 붙이면 가운데선이 어긋난다
+    check(`${w}px: 링크 줄과 아이콘의 가운데선이 같다`,
+      acts && acts.linkCy !== null && Math.abs(acts.linkCy - acts.delCy) <= 1, JSON.stringify(acts));
+    // '+ 참고 링크'는 미는 칸 **밖**이라 링크가 늘어도 잘리지 않는다(잘린 점선은 깨진 것처럼
+    // 보이고, 밀어야 나오는 버튼은 §8을 어긴다)
+    check(`${w}px: '+ 참고 링크'가 미는 칸 밖에 있다`, acts?.addInsideScroller === false, JSON.stringify(acts));
   }
 }
 
