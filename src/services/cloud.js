@@ -495,6 +495,9 @@ export function subscribeAll(onChange) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'resource_links' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'files' }, onChange)
+    // 새로 가입한 사람·이름 수정. 이걸 안 들으면 그 전에 열어 둔 화면은 그 사람을 영영
+    // 모르고, 활동 기록이 '알 수 없음'이 되는 것을 넘어 담당자까지 어긋난다(0018 참고)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, onChange)
     .subscribe();
   return () => c.removeChannel(channel);
 }

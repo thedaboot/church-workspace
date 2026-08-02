@@ -419,6 +419,9 @@ export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onFullR
       onCardDetail(row.card_id || old.card_id || null);
       return;
     }
+    // 나머지(projects · resource_links · profiles)는 전체 재조회.
+    // profiles가 여기로 오는 것이 중요하다 — primeMaps가 다시 돌아야 새로 가입한 사람의
+    // id→이름이 이 탭에 생긴다(0018). 카드 1건만 다시 읽는 경로로 옮기면 안 된다.
     onFullReload();
   });
 }
