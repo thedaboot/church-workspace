@@ -183,6 +183,70 @@ const stroke = await ev(`(() => {
 })()`);
 check('lucide 아이콘 획이 1.4px로 통일', stroke.widths.every(w => w === '1.4px' || w === '2px'), JSON.stringify(stroke));
 
+// 7) 보관: 방금 보관한 프로젝트가 탭에 남지 않고, 탭과 더보기에 동시에 보이지 않는다
+// 예전에는 보관해도 그 프로젝트에 그대로 머물렀다. 보관된 것을 열어 두면 탭에 끌어올리는
+// 규칙이 있어서 탭에 남았고, 보관함에도 같이 떠서 **같은 이름이 두 군데** 보였다.
+{
+  // 앞 단계가 모바일 390px + '내 업무'로 끝난다 → 데스크톱 2줄 내비로 돌아온다
+  // (탭·더보기는 md 이상에서만 마운트된다 — §6-3)
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' });
+  await wait('Page.loadEventFired'); await sleep(1400);
+
+  const clickMore = async () => {
+    await ev(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim().startsWith('더보기'))?.click()`);
+    await sleep(400);
+  };
+  const morePop = `[...document.body.children].find(c=>/z-\\[90\\]/.test(c.className||''))`;
+
+  // p8은 탭 밖(더보기)에 있는 프로젝트다 → 더보기에서 열고 나서 보관한다
+  await clickMore();
+  await ev(`(() => { const b=[...(${morePop}?.querySelectorAll('button')||[])]
+    .find(x=>x.textContent.trim()==='프로젝트 8'); b?.click(); })()`);
+  await sleep(700);
+
+  // 제목을 눌러 이름 수정 창 → '보관하기'
+  await ev(`document.querySelector('button[title="프로젝트 이름 수정"]')?.click()`);
+  await sleep(450);
+  const hasArchive = await ev(`!!([...document.querySelectorAll('span')].find(s=>s.textContent.trim()==='보관하기'))`);
+  check('이름 수정 창에 보관하기가 있다', hasArchive === true);
+  await ev(`(() => {
+    const label=[...document.querySelectorAll('span')].find(s=>s.textContent.trim()==='보관하기');
+    label?.closest('button')?.click();
+  })()`);
+  await sleep(800);
+
+  const after = await ev(`(() => {
+    const tabs=[...document.querySelectorAll('button')]
+      .filter(b=>/border-b-2/.test(b.className||'')).map(b=>b.textContent.trim());
+    const s=JSON.parse(localStorage.getItem('church_app_v4')||'{}');
+    return { tabs, archivedInStore: !!s.projects?.byId?.p8?.archived,
+             tabHasIt: tabs.includes('프로젝트 8'),
+             onDashboard: /전체 진척도/.test(document.querySelector('main')?.textContent||'') };
+  })()`);
+  check('보관하면 저장소에 archived로 남는다', after?.archivedInStore === true, JSON.stringify(after));
+  check('보관하면 그 프로젝트 탭에서 나간다', after?.tabHasIt === false, JSON.stringify(after?.tabs));
+  check('보관하면 대시보드로 돌아간다', after?.onDashboard === true, JSON.stringify(after?.onDashboard));
+
+  // 보관함에서 다시 열면 탭으로 올라오고, 그때 보관함 목록에는 없다(두 군데 금지)
+  await clickMore();
+  await ev(`(() => { const b=[...(${morePop}?.querySelectorAll('button')||[])]
+    .find(x=>/프로젝트 8/.test(x.textContent)); b?.click(); })()`);
+  await sleep(700);
+  await clickMore();
+  const both = await ev(`(() => {
+    const inMore=[...(${morePop}?.querySelectorAll('button')||[])]
+      .map(b=>b.textContent.trim()).filter(t=>/프로젝트 8/.test(t)).length;
+    const inTabs=[...document.querySelectorAll('button')]
+      .filter(b=>/border-b-2/.test(b.className||'')).map(b=>b.textContent.trim())
+      .filter(t=>t==='프로젝트 8').length;
+    return { inMore, inTabs };
+  })()`);
+  check('보관함에서 열면 탭에 하나만 있다', both?.inTabs === 1, JSON.stringify(both));
+  check('열어 둔 보관 프로젝트는 더보기에 다시 안 나온다', both?.inMore === 0, JSON.stringify(both));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.slice(0, 6).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

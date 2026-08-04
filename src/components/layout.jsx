@@ -138,6 +138,10 @@ export const TopNav = React.memo(({
   const allProjects = useStore(selectProjectsList);
   const activeProject = allProjects.find(p => p.id === activeMenu);
   const tabSource = activeProject?.archived ? [...projectsList, activeProject] : projectsList;
+  // 보관된 것을 열어 두면 위 줄이 그걸 탭으로 끌어올린다 — 그때 보관함 목록에도 그대로
+  // 두면 **같은 프로젝트가 탭과 더보기에 동시에** 보인다(실제로 그렇게 보였다).
+  // 지금 보고 있는 것은 이미 탭에 있으니 목록에서 뺀다.
+  const archivedForMore = archived.filter(p => p.id !== activeMenu);
   const myTasksCount = useStore(selectMyTasks).filter(t => t.status !== '완료').length;
   const { shown, rest } = splitProjectTabs(tabSource, activeMenu);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -191,7 +195,7 @@ export const TopNav = React.memo(({
             {p.title}
           </button>
         ))}
-        {(rest.length > 0 || archived.length > 0) && (
+        {(rest.length > 0 || archivedForMore.length > 0) && (
           <span ref={moreRootRef} className="inline-flex">
             <span ref={moreBtnRef} className="inline-flex">
               <button onClick={() => { placeMore(); setMoreOpen(o => !o); }} className="px-3 pt-2.5 pb-2 -mb-px inline-flex items-center gap-1 text-[13px] font-semibold text-fg-muted hover:text-fg border-b-2 border-transparent transition-colors">
@@ -205,7 +209,7 @@ export const TopNav = React.memo(({
                     <Hash size={14} className="shrink-0 text-fg-faint" /><span className="truncate">{p.title}</span>
                   </button>
                 ))}
-                <ArchivedProjects projects={archived} onPick={(id) => { setMoreOpen(false); setActiveMenu(id); }} />
+                <ArchivedProjects projects={archivedForMore} onPick={(id) => { setMoreOpen(false); setActiveMenu(id); }} />
               </div>,
               document.body
             )}

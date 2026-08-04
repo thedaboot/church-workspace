@@ -382,7 +382,14 @@ function WorkspaceShell() {
       {(isProjectModalOpen || renameTarget) && (
         <ProjectModal
           project={renameTarget}
-          onArchive={controller.handleArchiveProject}
+          /* 보관하면 보고 있던 그 화면에서 나간다 — 안 그러면 방금 보관한 프로젝트가
+             탭에 그대로 남아서 "보관함으로 들어갔다"는 것이 화면에 아무 데도 안 보인다
+             (보관된 것을 열어 두면 탭에 끌어올리는 규칙 때문이다). 보관 해제는 그 반대라
+             그 자리에 그대로 둔다 — 방금 되살린 것을 왜 떠나야 하는지 알 수 없다. */
+          onArchive={(id, archived) => {
+            controller.handleArchiveProject(id, archived);
+            if (archived && activeMenu === id) setActiveMenu('dashboard');
+          }}
           onClose={() => { setIsProjectModalOpen(false); setRenameTarget(null); }}
           onSave={(title) => {
             if (renameTarget) { controller.handleRenameProject(renameTarget.id, title); setRenameTarget(null); }

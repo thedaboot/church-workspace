@@ -26,7 +26,7 @@ CHROME=/path/to/chrome npm run verify   # 크롬 경로가 다를 때
 | `aictx` | AI 프롬프트에 실리는 주변 업무 컨텍스트 |
 | `errhunt` | 화면 × 데이터 상태 × 화면폭 64조합에서 ErrorBoundary·콘솔 오류 |
 | `handoff` | 핸드오프 규격(토큰·모션·4개 화면 구조·업무 상세/수정) |
-| `navsmoke` `onebar` `mobbits` | 내비 구조, 데스크톱/모바일 내비가 하나만 마운트되는지, 모바일 상단바 |
+| `navsmoke` `onebar` `mobbits` | 내비 구조, 데스크톱/모바일 내비가 하나만 마운트되는지, 모바일 상단바, **보관**(보관하면 그 탭에서 나가는지 · 열어 둔 보관 프로젝트가 탭과 더보기에 동시에 보이지 않는지) |
 | `bottomgap` | 모바일 각 탭에서 마지막 내용이 하단 탭바에 가리지 않는지 |
 | `modalclose` | 업무 상세 모달 바깥 클릭·드래그·닫기 |
 | `batch10` `batch11` `dashfix` `wide` | 대시보드·모바일 조작·문구·KPI 배치(320~1920px) |
