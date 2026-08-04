@@ -14,8 +14,12 @@ const patched = readFileSync(SRC, 'utf8')
     `const DB = { '시작 전':'todo', '진행 중':'doing', '보류 중':'hold', '완료':'done' };
      const statusToDb = s => DB[s] || 'todo';
      const statusFromDb = d => Object.keys(DB).find(k => DB[k] === d) || '시작 전';`)
-  .replace(/import \{ normalize \} from '\.\.\/utils\.js';/,
-    `const normalize = a => a.reduce((acc, i) => { acc.byId[i.id] = i; acc.allIds.push(i.id); return acc; }, { byId:{}, allIds:[] });`);
+  // utils에서 가져오는 이름이 늘어도 이 스위트가 깨지지 않게 **줄 전체**를 갈아치운다
+  // (예전에는 `import { normalize }`만 정확히 찾다가, httpsImage가 추가되자 못 찾고
+  //  임시 폴더에서 ../utils.js를 찾으려다 CRASH 났다)
+  .replace(/import \{[^}]*\} from '\.\.\/utils\.js';/,
+    `const normalize = a => a.reduce((acc, i) => { acc.byId[i.id] = i; acc.allIds.push(i.id); return acc; }, { byId:{}, allIds:[] });
+     const httpsImage = u => { const s = String(u || ''); return s.slice(0,7).toLowerCase() === 'http://' ? 'https://' + s.slice(7) : s; };`);
 
 const PROFILES = [
   { id: 'u1', display_name: '노준석', team_id: 'team-1' },

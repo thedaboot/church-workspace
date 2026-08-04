@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CONFIG, teamBar, teamColor } from '../config.js';
-import { avatarColor } from '../utils.js';
+import { Avatar } from '../components/Avatar.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 
 // ============================================================================
@@ -245,10 +245,8 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                       {/* mr-1.5: 채워진 원이라 글자와 달리 좌우 여백이 0이다. 오른쪽 끝에
                           그대로 붙이면 화면 가장자리에 눌린 것처럼 보인다(글자는 자획
                           바깥에 자연스러운 여백이 있어서 같은 x에 있어도 안 그렇다). */}
-                      <span className={`sm:hidden ml-auto mr-1.5 shrink-0 w-4 h-4 rounded-full inline-flex items-center justify-center text-[9px] font-bold ${avatarColor(t.assignees?.[0] || '')}`}
-                        title={t.assignees?.[0] || '미지정'}>
-                        {(t.assignees?.[0] || '?')[0]}
-                      </span>
+                      <Avatar name={t.assignees?.[0] || ''} title={t.assignees?.[0] || '미지정'}
+                        className="sm:hidden inline-flex ml-auto mr-1.5 w-4 h-4 text-[9px]" />
                     </span>
                   </span>
                   <span className="hidden sm:inline-flex shrink-0 items-center gap-1.5 pl-[7px] pr-[9px] py-[3px] rounded-[4px]"
@@ -257,10 +255,8 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                     <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_DOT_VAR[t.status] }} />
                     <span className="text-[11px] font-semibold" style={{ color: CONFIG.STATUS_FG_VAR[t.status] || 'var(--app-ink-muted)' }}>{t.status}</span>
                   </span>
-                  <span className={`hidden sm:flex shrink-0 w-[22px] h-[22px] rounded-full items-center justify-center text-[10.5px] font-bold ${avatarColor(t.assignees?.[0] || '')}`}
-                    title={t.assignees?.[0] || '미지정'}>
-                    {(t.assignees?.[0] || '?')[0]}
-                  </span>
+                  <Avatar name={t.assignees?.[0] || ''} title={t.assignees?.[0] || '미지정'}
+                    className="hidden sm:inline-flex w-[22px] h-[22px] text-[10.5px]" />
                 </button>
               </div>
             );
@@ -335,7 +331,7 @@ export function PersonLoadGrid({ people, onOpenPerson }) {
       {people.map(p => (
         <div key={p.name} className="min-w-0">
           <span className="flex items-center gap-1.5">
-            <span className={`w-[18px] h-[18px] rounded-full shrink-0 flex items-center justify-center text-[9px] font-bold ${avatarColor(p.name)}`}>{p.name[0]}</span>
+            <Avatar name={p.name} className="flex w-[18px] h-[18px] text-[9px]" />
             <span className="text-[11.5px] font-semibold text-fg truncate min-w-0">{p.name}</span>
             <span className="flex-1" />
             <span className="text-[11px] font-semibold text-fg tabular-nums shrink-0">{p.left}건</span>

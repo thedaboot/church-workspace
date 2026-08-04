@@ -1,15 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Check, Hash, Archive } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
 import { supabase } from '../services/supabaseClient.js';
+import * as cloud from '../services/cloud.js';
+import { Avatar } from '../components/Avatar.jsx';
 import { showToast } from '../components/Toast.jsx';
 
 // ============================================================================
-// 설정 창 — 내 정보(이름·소속 팀·연결된 계정) / 프로젝트 만들기·이름 수정
+// 설정 창 — 내 정보(사진·이름·소속 팀·연결된 계정) / 프로젝트 만들기·이름 수정
 // ============================================================================
+
+// 폰 사진을 그대로 올리면 5MB짜리가 18px 동그라미에 들어간다. 목록마다 수십 개가 뜨는
+// 이미지라 가운데를 정사각으로 잘라 256px jpeg로 줄여서 올린다.
+// 자르기 UI는 두지 않는다 — 얼굴은 대개 가운데에 있고, 원형으로 보여줄 거라 미세한
+// 위치는 티가 안 난다. 필요해지면 그때 붙이면 된다.
+const AVATAR_PX = 256;
+async function squareThumb(file) {
+  const bmp = await createImageBitmap(file);
+  const side = Math.min(bmp.width, bmp.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = AVATAR_PX;
+  canvas.getContext('2d').drawImage(
+    bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, AVATAR_PX, AVATAR_PX);
+  bmp.close?.();
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.85));
+  if (!blob) throw new Error('이미지를 바꾸지 못했어요');
+  return new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
+}
 
 export function ProfileModal({ onClose, onSave }) {
   const user = useStore(selectCurrentUser);
@@ -20,6 +40,28 @@ export function ProfileModal({ onClose, onSave }) {
   const [teams, setTeams] = useState(() => (user.teams?.length ? user.teams : [user.team]).filter(Boolean));
   const toggleTeam = (t) => setTeams(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
   const [linking, setLinking] = useState(null); // 연결 중인 provider
+  // 사진: 고르는 즉시 올려서 미리 보여주고, 실제 적용은 '저장'에서 한다.
+  // undefined = 안 건드림 / '' = 지움(다시 이름 첫 글자 원)
+  const [avatarUrl, setAvatarUrl] = useState(undefined);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+  const shownAvatar = avatarUrl !== undefined ? avatarUrl : (user.avatarUrl || '');
+
+  const pickPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';                       // 같은 파일을 다시 골라도 change가 나게
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('이미지 파일만 올릴 수 있어요.'); return; }
+    setUploading(true);
+    try {
+      const url = await cloud.uploadContentImage(await squareThumb(file));
+      setAvatarUrl(url);
+    } catch (err) {
+      showToast(`사진 업로드에 실패했어요: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const linkedProviders = (session?.user?.identities || []).map(i => i.provider);
   const linkProvider = async (provider) => {
@@ -53,6 +95,34 @@ export function ProfileModal({ onClose, onSave }) {
             ? <>워크스페이스에 표시될 이름과 소속 팀을 정해주세요.<br />팀은 여러 개 고를 수 있어요.</>
             : <>워크스페이스에 표시될 이름(닉네임)과 소속 팀이에요.<br />언제든 여기서 바꿀 수 있어요.</>}
         </p>
+
+        {/* 사진은 클라우드에서만 — 게스트 모드에는 올릴 곳이 없다.
+            가입할 때 구글·카카오 사진이 이미 들어와 있어서, 대부분은 여기서 아무것도
+            안 해도 얼굴이 보인다. 이 자리는 "그걸 내 것으로 바꾸는" 곳이다. */}
+        {cloudMode && (
+          <div className="mb-4">
+            <label className="block text-xs font-semibold text-fg-muted mb-1.5">사진</label>
+            <div className="flex items-center gap-3">
+              <Avatar name={name || user.name || ''} url={shownAvatar} className="flex w-14 h-14 text-lg" />
+              <div className="min-w-0">
+                <div className="flex gap-1.5">
+                  <button
+                    type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
+                    className="text-accent-text hover:bg-accent-weak rounded-md px-2 py-1 text-xs transition active:scale-95 disabled:opacity-50"
+                  >{uploading ? '올리는 중...' : '사진 변경'}</button>
+                  {shownAvatar && (
+                    <button
+                      type="button" onClick={() => setAvatarUrl('')} disabled={uploading}
+                      className="text-fg-muted hover:bg-surface-hover rounded-md px-2 py-1 text-xs transition active:scale-95 disabled:opacity-50"
+                    >기본으로</button>
+                  )}
+                </div>
+                <p className="text-[11px] text-fg-faint mt-1">가운데를 정사각형으로 잘라서 올려요</p>
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" onChange={pickPhoto} className="hidden" />
+            </div>
+          </div>
+        )}
 
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">이름</label>
         <input
@@ -106,8 +176,16 @@ export function ProfileModal({ onClose, onSave }) {
           {/* 첫 로그인에는 취소가 없다 — 이름·팀 없이 들어가면 멘션·팀 보드가 빈다 */}
           {!onboarding && <button onClick={onClose} className="flex-1 bg-surface-hover hover:bg-line text-fg-muted py-2.5 rounded-md text-sm font-medium transition active:scale-95">취소</button>}
           <button
-            onClick={() => { if (canSave) { onSave({ name: name.trim(), team: teams[0], teams }); onClose(); } }}
-            disabled={!canSave}
+            onClick={() => {
+              if (!canSave) return;
+              // 사진을 안 건드렸으면 키 자체를 빼야 한다 — UPDATE_USER가 payload를 그대로
+              // 펼치므로 avatarUrl: undefined를 넘기면 지금 사진이 사라진다
+              const payload = { name: name.trim(), team: teams[0], teams };
+              if (avatarUrl !== undefined) payload.avatarUrl = avatarUrl;
+              onSave(payload);
+              onClose();
+            }}
+            disabled={!canSave || uploading}
             className="flex-1 bg-accent hover:bg-accent-strong disabled:bg-line text-white py-2.5 rounded-md text-sm font-medium transition active:scale-95"
           >
             {onboarding ? '시작하기' : '저장'}

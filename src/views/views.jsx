@@ -2,7 +2,8 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, ChevronDown, Check, X, Trash2, Pencil } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
-import { generateId, avatarColor, groupBy, myScope } from '../utils.js';
+import { generateId, groupBy, myScope } from '../utils.js';
+import { Avatar } from '../components/Avatar.jsx';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsMap, selectActiveProjectsList, selectMyTasks,
@@ -404,11 +405,12 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
                   누르면 열리는 목록으로 올리세요(hover로만 나오게 두면 §8 위반입니다). */}
               {people.length > 0 && (
                 <span className="flex items-center shrink-0" title={people.map(p => `${p.name} ${p.left}건`).join(' · ')}>
+                  {/* ring: 겹친 원끼리 붙어 보이지 않게 페이지 바탕색으로 테두리를 준다.
+                      래퍼로 감싸면 안 된다 — Avatar가 자기 래퍼의 첫 자식이 되어
+                      first:ml-0이 전부에 걸리고 겹침이 사라진다. */}
                   {people.slice(0, 4).map(p => (
-                    <span key={p.name}
-                      className={`w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9px] font-bold -ml-[5px] first:ml-0 ${avatarColor(p.name)}`}
-                      /* 겹친 원끼리 붙어 보이지 않게 페이지 바탕색으로 테두리를 준다 */
-                      style={{ boxShadow: '0 0 0 1.5px var(--app-canvas)' }}>{p.name[0]}</span>
+                    <Avatar key={p.name} name={p.name}
+                      className="flex w-[18px] h-[18px] text-[9px] -ml-[5px] first:ml-0 ring-[1.5px] ring-canvas" />
                   ))}
                   {people.length > 4 && (
                     <span className="ml-[5px] text-[10.5px] text-fg-faint tabular-nums">+{people.length - 4}</span>
@@ -788,7 +790,7 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
           {members.slice(0, 5).map(m => (
             <span key={m.name} className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full"
               style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
-              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${avatarColor(m.name)}`}>{m.name[0]}</span>
+              <Avatar name={m.name} className="flex w-5 h-5 text-[10px]" />
               <span className="text-[11.5px] font-semibold text-fg">{m.name}</span>
               <span className="text-[11px] text-fg-faint tabular-nums">{m.left}</span>
             </span>

@@ -6,7 +6,8 @@ import {
   useDraggable, useDroppable, pointerWithin, rectIntersection,
 } from '@dnd-kit/core';
 import { CONFIG, teamPaint, teamColor } from '../config.js';
-import { avatarColor, subtaskProgress } from '../utils.js';
+import { subtaskProgress } from '../utils.js';
+import { Avatar } from './Avatar.jsx';
 import { STATUS_BAR, STATUS_DOT_VAR, byDue } from '../views/dashboardParts.jsx';
 import { useStore } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
@@ -69,7 +70,7 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action 
           <span className="inline-flex items-center gap-1.5 min-w-0">
             {task.assignees.length > 0 ? (
               <>
-                <span className={`w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9.5px] font-bold shrink-0 ${avatarColor(task.assignees[0])}`}>{task.assignees[0][0]}</span>
+                <Avatar name={task.assignees[0]} className="flex w-[18px] h-[18px] text-[9.5px]" />
                 <span className="text-[11px] text-fg-muted truncate">{task.assignees[0]}{task.assignees.length > 1 ? ` +${task.assignees.length - 1}` : ''}</span>
               </>
             ) : <span className="text-[11px] text-fg-faint truncate">담당자 미지정</span>}

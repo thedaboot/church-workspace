@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
-import { formatDate, avatarColor, isMobileViewport } from '../utils.js';
+import { formatDate, isMobileViewport } from '../utils.js';
+import { Avatar } from '../components/Avatar.jsx';
 import { RichText } from '../components/RichText.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { MentionInput } from '../components/MentionInput.jsx';
@@ -27,7 +28,7 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies }) => {
 
   return (
     <div className="flex items-start gap-2.5 group/comment">
-      <div className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5 ${avatarColor(c.author)}`}>{c.author?.[0]}</div>
+      <Avatar name={c.author || ''} className="flex w-6 h-6 text-[10px] mt-0.5" />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 mb-0.5">
           <span className="font-semibold text-[11px] text-fg">{c.author}</span>

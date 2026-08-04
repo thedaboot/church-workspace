@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 import { statusToDb, statusFromDb } from './cloud.js';
-import { normalize } from '../utils.js';
+import { normalize, httpsImage } from '../utils.js';
 
 // ============================================================================
 // 7. Cloud Sync Adapter — 클라우드(DB) ↔ 앱 스토어 모양 변환 + 쓰기 오케스트레이션
@@ -15,12 +15,18 @@ import { normalize } from '../utils.js';
 let teamIdToName = new Map();
 let teamNameToId = new Map();
 let profileIdToName = new Map();
+let nameToAvatar = new Map();
 let memberNames = [];
 
 const primeMaps = (teams, profiles) => {
   teamIdToName = new Map(teams.map(t => [t.id, t.name]));
   teamNameToId = new Map(teams.map(t => [t.name, t.id]));
   profileIdToName = new Map(profiles.map(p => [p.id, p.display_name || '']));
+  // 앱 안에서 사람은 표시명으로 다닌다(담당자·댓글 작성자·활동 기록 전부 이름) —
+  // 사진도 같은 열쇠로 찾게 둔다. 동명이인이 있으면 먼저 온 사람의 사진이 남는다.
+  nameToAvatar = new Map(profiles
+    .filter(p => p.display_name && p.avatar_url)
+    .map(p => [p.display_name, httpsImage(p.avatar_url)]));
   // 담당자·멘션 자동완성은 가나다순으로 보여준다(호출부 전체가 이 순서를 물려받음)
   memberNames = [...new Set(profiles.map(p => p.display_name).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'ko'));
@@ -28,6 +34,11 @@ const primeMaps = (teams, profiles) => {
 
 // 멘션·담당자 자동완성용 멤버 표시명 목록(클라우드 로드 후 프라이밍됨)
 export function getMemberNames() { return memberNames.slice(); }
+
+// 표시명 → 프로필 사진 주소. 없으면 빈 문자열 → 화면은 이름 첫 글자 원으로 떨어진다.
+// 게스트 모드에서는 표가 비어 있어 언제나 글자 원이다.
+// 이 표는 loadCloudState에서만 다시 만들어진다 — profiles를 실시간 구독하는 이유(§6-21-a).
+export function getAvatar(name) { return nameToAvatar.get(name) || ''; }
 
 // ── @멘션 추출 · 수신자 매핑 ────────────────────────────────────────────────
 // 텍스트에서 @이름을 뽑아 표시명 정확 일치로 profiles.id를 찾는다.
@@ -285,7 +296,8 @@ export async function loadCloudState() {
   const primaryTeam = myProfile?.team_id ? (teamIdToName.get(myProfile.team_id) || '') : '';
   const allTeams = [...new Set([primaryTeam, ...myTeamNames].filter(Boolean))];
   const currentUser = myProfile
-    ? { name: myProfile.display_name || '', team: primaryTeam || allTeams[0] || '', teams: allTeams }
+    ? { name: myProfile.display_name || '', team: primaryTeam || allTeams[0] || '', teams: allTeams,
+        avatarUrl: httpsImage(myProfile.avatar_url || '') }
     : { name: '', team: '', teams: [] };
 
   return {
@@ -384,9 +396,12 @@ export async function linkAddCloud(projectId, link) { return write(() => cloud.a
 export async function linkRemoveCloud(id) { return write(() => cloud.removeLink(id)); }
 
 // teams(여러 팀)를 주면 profile_teams까지 갱신한다. 대표 팀은 그 중 첫 번째.
-export async function profileUpdateCloud({ name, team, teams }) {
+export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {
   const list = (teams && teams.length ? teams : [team]).filter(Boolean);
   const patch = { display_name: name };
+  // undefined = 사진을 안 건드림. '기본으로'는 빈 문자열을 보내 null로 지운다
+  // (그러면 다시 이름 첫 글자 원이 된다).
+  if (avatarUrl !== undefined) patch.avatar_url = avatarUrl || null;
   const teamId = list[0] ? teamNameToId.get(list[0]) : null;
   if (teamId) patch.team_id = teamId;
   return write(async () => {

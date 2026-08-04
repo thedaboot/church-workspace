@@ -86,3 +86,10 @@ export function subtaskProgress(list = []) {
   const done = list.reduce((n, s) => n + (s.done ? 1 : 0), 0);
   return { total, done, ratio: total ? done / total : 0 };
 }
+
+// 프로필 사진 주소를 https로 올린다.
+// 카카오 로그인이 주는 주소가 http라서, https 페이지에서는 브라우저가 혼합 콘텐츠로
+// 막아 버린다(요청 자체가 안 나가서 onError도 늦게 온다). 카카오 CDN은 https로도 같은
+// 이미지를 준다. 구글 주소는 이미 https라 그대로다.
+// 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
+export const httpsImage = (url) => String(url || '').replace(/^http:\/\//i, 'https://');

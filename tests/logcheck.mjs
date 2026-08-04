@@ -115,3 +115,23 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(TaskService.updateWithLogs(opened, { ...form, title: base.title }, '노준석').logs, []);
   console.log('PASS  새 활동 기록만 저장 5가지');
 }
+
+// ── 프로필 사진 주소 https 승격 (utils.httpsImage) ──
+// 카카오 로그인이 http 주소를 준다. https 페이지에서 http 이미지는 브라우저가 혼합
+// 콘텐츠로 막아 버려서, 카카오로 가입한 사람만 사진이 안 보였다(구글은 이미 https).
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'img-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { httpsImage } = await import(pathToFileURL(f).href);
+  assert.strictEqual(httpsImage('http://k.kakaocdn.net/dn/a/b.jpg'), 'https://k.kakaocdn.net/dn/a/b.jpg');
+  assert.strictEqual(httpsImage('HTTP://img1.kakaocdn.net/x.png'), 'https://img1.kakaocdn.net/x.png', '대문자도');
+  assert.strictEqual(httpsImage('https://lh3.googleusercontent.com/a/x'), 'https://lh3.googleusercontent.com/a/x', '이미 https면 그대로');
+  assert.strictEqual(httpsImage(''), '', '빈 값은 빈 값 — 화면은 이름 첫 글자로 떨어진다');
+  assert.strictEqual(httpsImage(null), '', 'null도 안전하다');
+  assert.strictEqual(httpsImage(undefined), '', 'undefined도 안전하다');
+  // 주소 한가운데의 http는 건드리지 않는다(?url=http://... 같은 경우)
+  assert.strictEqual(httpsImage('https://x.com/i?u=http://y.com/a.png'), 'https://x.com/i?u=http://y.com/a.png');
+  console.log('PASS  프로필 사진 https 승격 7가지');
+}

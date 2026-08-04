@@ -11,7 +11,8 @@ import {
   selectProjectsMap, selectMyTasks, selectTasksList
 } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
-import { avatarColor, formatRelative } from '../utils.js';
+import { formatRelative } from '../utils.js';
+import { Avatar } from './Avatar.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import * as push from '../services/push.js';
 import { notifLine, notifText, isSystemNotif } from '../services/notifyText.js';
@@ -76,7 +77,11 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
         {/* 열기 전에 위치를 잡는다 — 첫 프레임이 {0,0}에 그려지면 좌상단에서 날아온다 */}
         <button onClick={() => { place(); setOpen(o => !o); }} className="inline-flex flex-1 justify-center transition active:scale-95" title="설정">
           {children || (
-            <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${CONFIG.TEAMS[currentUser.team] || avatarColor(currentUser.name)}`}>{currentUser.name[0]}</span>
+            /* 내 동그라미의 글자 배경만 대표 팀 색이다(남들은 이름 해시 색) — 사진이 있으면
+               사진이 이기지만, 없을 때의 색은 그대로 둔다 */
+            <Avatar name={currentUser.name} url={currentUser.avatarUrl}
+              fallbackClass={CONFIG.TEAMS[currentUser.team] || undefined}
+              className="flex w-7 h-7 text-xs" />
           )}
         </button>
       </span>
@@ -687,7 +692,7 @@ function NotificationBell({ onOpenTask }) {
                     {isSystemNotif(n.kind) ? (
                       <span className="w-6 h-6 rounded-full bg-tag-yellow text-tag-yellow-fg flex items-center justify-center shrink-0"><CalendarClock size={12} strokeWidth={1.75} /></span>
                     ) : (
-                      <span className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 ${avatarColor(n.actor_name)}`}>{n.actor_name?.[0]}</span>
+                      <Avatar name={n.actor_name || ''} className="flex w-6 h-6 text-[10px]" />
                     )}
                     <span className="flex-1 min-w-0">
                       <span className="block text-[11px] text-fg-secondary leading-snug">

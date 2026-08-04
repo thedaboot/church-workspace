@@ -59,8 +59,10 @@ const patched = readFileSync(SRC, 'utf8')
   .replace(/import \* as cloud from '\.\/cloud\.js';/, 'const cloud = globalThis.__CLOUD;')
   .replace(/import \{ statusToDb, statusFromDb \} from '\.\/cloud\.js';/,
     `const statusToDb = () => 'todo'; const statusFromDb = () => '시작 전';`)
-  .replace(/import \{ normalize \} from '\.\.\/utils\.js';/,
-    `const normalize = a => a.reduce((acc, i) => { acc.byId[i.id] = i; acc.allIds.push(i.id); return acc; }, { byId:{}, allIds:[] });`);
+  // utils에서 가져오는 이름이 늘어도 깨지지 않게 줄 전체를 갈아치운다(assignees.mjs와 같은 이유)
+  .replace(/import \{[^}]*\} from '\.\.\/utils\.js';/,
+    `const normalize = a => a.reduce((acc, i) => { acc.byId[i.id] = i; acc.allIds.push(i.id); return acc; }, { byId:{}, allIds:[] });
+     const httpsImage = u => { const s = String(u || ''); return s.slice(0,7).toLowerCase() === 'http://' ? 'https://' + s.slice(7) : s; };`);
 
 const PROFILES = [
   { id: 'u1', display_name: '노준석' },
