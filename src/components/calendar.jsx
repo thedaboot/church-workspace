@@ -239,7 +239,10 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
                   // 레인이 두 줄뿐이라(CAL_LANES) 생일이 업무 띠를 밀어내기 때문이다.
                   const bl = birthdaysOn(bdays, iso);
                   return (
-                    <span key={iso} className="px-1.5 flex items-center gap-1 min-w-0">
+                    /* gap-2: 날짜 숫자와 생일 얼굴 사이. 4px로 두었더니 숫자에 얼굴이
+                       눌어붙어 보였다 — 원은 채워진 도형이라 글자보다 여백을 더 먹는다
+                       (참고 링크 표시에서 같은 판단을 했다: 3px → 5px) */
+                    <span key={iso} className="px-1.5 flex items-center gap-2 min-w-0">
                       <span className="text-[10.5px] font-semibold tabular-nums shrink-0"
                         style={{ color: inMonth ? 'var(--app-ink-muted)' : 'var(--app-ink-faint)' }}>
                         {Number(iso.slice(8, 10))}
@@ -337,7 +340,7 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
               }}>
               {/* 날짜 숫자 + 생일 얼굴. 52px 칸이라 한 명까지만 그리고 나머지는 +N —
                   칸을 넘기면 아래 점(업무)이 밀려 내려간다 */}
-              <span className="flex items-center justify-center gap-[3px] min-w-0 px-0.5">
+              <span className="flex items-center justify-center gap-[6px] min-w-0 px-0.5">
                 <span className="text-[11px] font-semibold tabular-nums shrink-0"
                   style={{ color: inMonth ? 'var(--app-ink-muted)' : 'var(--app-ink-faint)' }}>{Number(iso.slice(8, 10))}</span>
                 {bl.slice(0, 1).map(p => (
