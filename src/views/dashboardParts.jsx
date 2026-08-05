@@ -4,6 +4,7 @@ import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { visitOrder, agoLabel, lastVisitOf } from '../utils.js';
 import { usePresence } from '../services/presence.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 
 // ============================================================================
@@ -594,8 +595,10 @@ export function ActivityFeed({ feed, tasksById, onOpenTask }) {
             <Avatar name={a.actorName} className="flex w-[22px] h-[22px] text-[10.5px] mt-px" />
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline gap-1.5 min-w-0">
-                {/* 카드가 지워졌으면 제목 없이 문장만 남는다 — 기록은 지워지지 않는다 */}
-                <span className="text-[11px] font-semibold text-fg truncate">{task ? task.title : a.actorName}</span>
+                {/* 카드가 지워졌으면 제목 없이 문장만 남는다 — 기록은 지워지지 않는다.
+                    min-w-0: flex 항목은 기본 최소 폭이 내용 폭이라, 없으면 긴 제목이
+                    시간 라벨을 오른쪽 끝에서 밀어낸다(줄마다 시간 x가 달라진다). */}
+                <span className="text-[11px] font-semibold text-fg truncate min-w-0">{task ? task.title : a.actorName}</span>
                 <span className="flex-1" />
                 <span className="text-[10px] text-fg-faint tabular-nums whitespace-nowrap shrink-0">{agoLabel(a.at)}</span>
               </span>
@@ -612,11 +615,17 @@ export function ActivityFeed({ feed, tasksById, onOpenTask }) {
              부속 정보이고, .dc-row는 마감 목록의 "행"이라는 뜻으로 검사들도 그 클래스로
              목록을 찾는다(여기 붙이면 피드 줄이 마감 목록 행으로 세어진다). */
           <button key={a.id} type="button" onClick={() => onOpenTask(task)}
-            className="w-full flex items-start gap-2 py-[7px] -mx-2 px-2 rounded-[8px] text-left hover:bg-surface-hover transition-colors border-t border-line/60 first-of-type:border-t-0">
+            /* 폭은 calc(100%+16px)이어야 한다. w-full(=100%)에 -mx-2를 얹으면 왼쪽으로만 8px
+               밀려 오른쪽이 16px 빈다(사용자가 지적한 공백). 그렇다고 w-full을 빼면 button은
+               폼 요소라 display:flex여도 **내용 폭으로 줄어든다** — 줄마다 폭이 달라져 시간
+               라벨이 제각각 섰다. 음수 마진만큼을 폭에 직접 더해 준다. */
+            className="w-[calc(100%+16px)] flex items-start gap-2 py-[7px] -mx-2 px-2 rounded-[8px] text-left hover:bg-surface-hover transition-colors border-t border-line/60 first-of-type:border-t-0">
             {inner}
           </button>
         ) : (
-          <div key={a.id} className="flex items-start gap-2 py-[7px] border-t border-line/60 first-of-type:border-t-0">
+          /* 버튼 줄과 같은 박스(-mx-2 px-2)를 준다 — 다르면 이 줄만 16px 좁아져서
+             시간 라벨이 다른 줄과 다른 x에 선다(정렬이 흐트러진 원인 중 하나) */
+          <div key={a.id} className="flex items-start gap-2 py-[7px] -mx-2 px-2 border-t border-line/60 first-of-type:border-t-0">
             {inner}
           </div>
         );
@@ -630,15 +639,26 @@ export function ActivityFeed({ feed, tasksById, onOpenTask }) {
 // force 시뮬레이션·측정(ResizeObserver) 없이 렌더와 같은 상수로 좌표를 계산한다.
 // 좁은 화면에서는 가로로 민다(그래프는 한 덩이 캔버스라 §8의 '숨긴 것'이 아니다 —
 // 프로젝트 탭과 같은 취급). 판정어 없음: 연결이 없는 사람도 그대로 보여준다.
-const NM = {
-  W: 640, ROW: 30, HEAD: 26, PAD: 10,
+// 데스크톱 좌표와 모바일 좌표 두 벌 — 모바일(카드 안폭 약 320px)은 열을 압축해서
+// **옆으로 밀지 않아도 전체가 보인다**(사용자 요청). 296px이면 375px 폰에 들어가고,
+// 320px 폰만 살짝 스크롤된다(안전망으로 overflow는 남긴다).
+const NM_DESK = {
+  W: 640, ROW: 30, HEAD: 26, PAD: 10, AV: 18, FONT: 11,
   P_X: 8, P_W: 150,          // 사람 열 (이름 오른쪽 정렬 — 선 시작점에 붙는다)
   T_X: 270, T_W: 76,         // 팀 열 — 라벨 폭('엔지니어팀')에 맞게 좁힌다.
                              // 넓으면 가운데 정렬된 글자와 양끝 점 사이가 떠서 끊겨 보인다
   J_X: 462, J_W: 170,        // 프로젝트 열
 };
+const NM_MOBILE = {
+  W: 296, ROW: 26, HEAD: 24, PAD: 8, AV: 15, FONT: 10,
+  P_X: 0, P_W: 92,
+  T_X: 118, T_W: 58,
+  J_X: 198, J_W: 98,
+};
 
 export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpenTeam, onOpenProject }) {
+  const compact = useIsMobile();
+  const NM = compact ? NM_MOBILE : NM_DESK;
   const rows = Math.max(members.length, teamsInUse.length, projects.length, 1);
   const H = NM.HEAD + rows * NM.ROW + NM.PAD;
   // 열 안 y 좌표 — 항목 수가 다른 열은 세로 가운데에 모은다(짧은 열이 위에 몰리면 선이 죄다 위로 쏠린다)
@@ -646,7 +666,8 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
   const pY = new Map(members.map((m, i) => [m.name, yOf(i, members.length)]));
   const tY = new Map(teamsInUse.map((t, i) => [t, yOf(i, teamsInUse.length)]));
   const jY = new Map(projects.map((p, i) => [p.id, yOf(i, projects.length)]));
-  const curve = (x1, y1, x2, y2) => `M ${x1} ${y1} C ${x1 + 46} ${y1}, ${x2 - 46} ${y2}, ${x2} ${y2}`;
+  const pull = compact ? 16 : 46;
+  const curve = (x1, y1, x2, y2) => `M ${x1} ${y1} C ${x1 + pull} ${y1}, ${x2 - pull} ${y2}, ${x2} ${y2}`;
   // 선이 글자에 닿지 않고 허공에서 시작하면 끊긴 그림이 된다(사용자 지적) —
   // 모든 선의 양끝에 점을 찍고, 노드 글자를 그 점에 붙인다(사람은 오른쪽 정렬).
   const edge = (key, x1, y1, x2, y2, color) => (
@@ -658,9 +679,8 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
   );
   return (
     <Card className="px-4 py-[15px]">
-      <div className="flex items-baseline justify-between pb-2.5">
+      <div className="pb-2.5">
         <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 연결 지도</h3>
-        <span className="text-[10.5px] text-fg-faint">사람 · 팀 · 프로젝트</span>
       </div>
       {/* 좁으면 가로 스크롤 — 축소하면 10px 글자가 5px가 되어 아무도 못 읽는다 */}
       <div className="overflow-x-auto scrollbar-hide">
@@ -674,29 +694,34 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
               ? edge(`${team}-${pid}`, NM.T_X + NM.T_W + 4, tY.get(team), NM.J_X - 4, jY.get(pid), teamColor(team))
               : null)}
           </svg>
-          {/* 열 머리 */}
-          <span className="absolute text-[10px] font-bold text-fg-faint" style={{ left: NM.P_X, top: 2 }}>사람</span>
-          <span className="absolute text-[10px] font-bold text-fg-faint" style={{ left: NM.T_X, top: 2 }}>팀</span>
-          <span className="absolute text-[10px] font-bold text-fg-faint" style={{ left: NM.J_X, top: 2 }}>프로젝트</span>
+          {/* 열 머리 — 노드와 같은 정렬로 둔다(사람은 오른쪽 정렬·팀은 가운데·프로젝트는
+              왼쪽). 전부 왼쪽에 두면 머리글이 노드 무리에서 뚝 떨어져 보인다(사용자 지적) */}
+          <span className="absolute text-[10px] font-bold text-fg-faint text-right"
+            style={{ left: NM.P_X, top: 2, width: NM.P_W }}>사람</span>
+          <span className="absolute text-[10px] font-bold text-fg-faint text-center"
+            style={{ left: NM.T_X, top: 2, width: NM.T_W }}>팀</span>
+          <span className="absolute text-[10px] font-bold text-fg-faint"
+            style={{ left: NM.J_X, top: 2 }}>프로젝트</span>
           {members.map((m) => (
             <span key={m.name} className="absolute flex items-center justify-end gap-1.5"
               style={{ left: NM.P_X, top: pY.get(m.name) - 11, width: NM.P_W, height: 22 }}>
-              <Avatar name={m.name} url={m.avatarUrl} className="flex w-[18px] h-[18px] text-[9px]" />
-              <span className="text-[11px] text-fg truncate">{m.name}</span>
+              <Avatar name={m.name} url={m.avatarUrl}
+                className={compact ? 'flex w-[15px] h-[15px] text-[8px]' : 'flex w-[18px] h-[18px] text-[9px]'} />
+              <span className="text-fg truncate" style={{ fontSize: NM.FONT }}>{m.name}</span>
             </span>
           ))}
           {teamsInUse.map(t => (
             <button key={t} type="button" onClick={() => onOpenTeam(t)} title={`${t} 보드로`}
               className="absolute flex items-center justify-center gap-1.5 hover:opacity-60 transition-opacity"
               style={{ left: NM.T_X, top: tY.get(t) - 11, width: NM.T_W, height: 22 }}>
-              <span className="text-[11px] font-semibold truncate" style={{ color: teamColor(t) }}>{t}</span>
+              <span className="font-semibold truncate" style={{ color: teamColor(t), fontSize: NM.FONT }}>{t}</span>
             </button>
           ))}
           {projects.map(p => (
             <button key={p.id} type="button" onClick={() => onOpenProject(p.id)} title={`${p.title} 열기`}
               className="absolute flex items-center hover:opacity-60 transition-opacity"
               style={{ left: NM.J_X, top: jY.get(p.id) - 11, width: NM.J_W, height: 22 }}>
-              <span className="text-[11px] font-semibold text-fg truncate">{p.title}</span>
+              <span className="font-semibold text-fg truncate" style={{ fontSize: NM.FONT }}>{p.title}</span>
             </button>
           ))}
         </div>

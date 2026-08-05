@@ -392,7 +392,8 @@ function DaySheet({ iso, list, onTaskClick, tight = false, birthdays = [] }) {
           const s = spanOf(t);
           return (
             <button key={t.id} onClick={() => onTaskClick(t)}
-              className="dc-row w-full flex items-center gap-2.5 py-2 text-left hover:bg-surface-hover rounded-[8px] px-2 -mx-2 transition-colors"
+              /* w-full+-mx-2는 왼쪽으로만 8px 밀린다(피드에서 잡은 함정 — §6-9-d) */
+              className="dc-row w-[calc(100%+16px)] flex items-center gap-2.5 py-2 text-left hover:bg-surface-hover rounded-[8px] px-2 -mx-2 transition-colors"
               style={{ animationDelay: `${Math.min(i, 12) * 22}ms` }}>
               <span className="shrink-0 w-[3px] h-7 rounded-full" style={teamPaint(t.teams, true)} />
               <span className="flex-1 min-w-0">

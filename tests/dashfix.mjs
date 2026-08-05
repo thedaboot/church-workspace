@@ -29,6 +29,8 @@ const mk=(i,status,dd)=>({id:'t'+i,projectId:'p1',title:'업무 '+i,content:'',s
 const byId={},allIds=[];
 [['시작 전','2026-07-28'],['진행 중','2026-07-30'],['보류 중','2026-07-29'],['완료','2026-07-27'],['시작 전','2026-07-20']]
   .forEach(([s,d],i)=>{const t=mk(i,s,d);byId[t.id]=t;allIds.push(t.id);});
+// 지워진 카드의 활동도 피드에 남는다(div 분기) — 버튼 줄과 박스가 같아야 시간이 정렬된다
+byId.t0.activityLog.push({id:'ghost',action:'댓글을 남겼습니다.',author:'노준석',timestamp:new Date(Date.now()-3*60e3).toISOString()});
 const st={currentUser:{name:'노준석',team:'찬양팀',teams:['찬양팀','임원진']},
   members:[{id:'u1',name:'노준석',avatarUrl:'',team:'찬양팀',teams:['찬양팀','임원진'],birthday:'',lastSeenAt:'',joinedAt:'2026-07-01T00:00:00Z'},
            {id:'u2',name:'조준환',avatarUrl:'',team:'엔지니어팀',teams:['엔지니어팀'],birthday:'',lastSeenAt:'',joinedAt:'2026-07-02T00:00:00Z'}],
@@ -115,6 +117,19 @@ const feed = await ev(`(() => {
 })()`);
 check('최근 활동 피드가 있다(게스트=활동 기록에서 파생)', !!feed && feed.rows>=3, JSON.stringify(feed));
 check('피드 줄에 상대 시간이 붙는다', feed?.hasAgo===true, JSON.stringify(feed));
+// 시간 라벨은 전부 같은 오른쪽 선에 서야 한다 — 줄 박스가 하나라도 다르면(버튼 vs div)
+// 그 줄만 시간이 다른 x에 서서 목록이 흐트러져 보인다(사용자 지적)
+const feedAlign = await ev(`(() => {
+  const h=[...document.querySelectorAll('h3')].find(x=>x.textContent==='최근 활동');
+  if(!h) return null;
+  const card=h.closest('div').parentElement;
+  const times=[...card.querySelectorAll('span')]
+    .filter(s=>/^([0-9]+(초|분|시간|일|주|개월|년) 전)$/.test(s.textContent.trim()))
+    .map(s=>Math.round(s.getBoundingClientRect().right));
+  return { times, uniq:[...new Set(times)] };
+})()`);
+check('피드 시간 라벨이 같은 오른쪽 선에 선다', !!feedAlign && feedAlign.times.length>=3 && feedAlign.uniq.length===1,
+  JSON.stringify(feedAlign));
 const map = await ev(`(() => {
   const h=[...document.querySelectorAll('h3')].find(x=>x.textContent==='프로젝트 연결 지도');
   if(!h) return null;
