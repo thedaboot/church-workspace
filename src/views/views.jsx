@@ -2,20 +2,21 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, ChevronDown, Check, X, Trash2, Pencil } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
-import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, joinedOrder } from '../utils.js';
+import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin } from '../utils.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsMap, selectActiveProjectsList, selectMyTasks,
-  selectDashboardStats, selectTasksList, selectMembers
+  selectDashboardStats, selectTasksList, selectMembers, selectActivityFeed, selectTasks
 } from '../store/selectors.js';
 import {
   ISO_TODAY, daysLeft, ageDays, groupByDue, KpiCell, Bar, StatusSegments,
-  DueGroupList, TeamLeftGrid, PersonLoadGrid, personLoad, SectionHead, Card, PeopleStrip, MembersModal,
+  DueGroupList, TeamLeftGrid, PersonLoadGrid, personLoad, SectionHead, Card, PeopleStrip, MembersModal, ActivityFeed, NetworkMap,
   STATUS_DOT_VAR, STATUS_BAR,
 } from './dashboardParts.jsx';
 import { Board } from '../components/boards.jsx';
 import { CalendarBoard } from '../components/calendar.jsx';
+import { DepGraph } from '../components/depgraph.jsx';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
@@ -80,9 +81,30 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   // 생일은 일주일 전부터, 환영은 사흘만 — 인사가 오래 걸려 있으면 낡는다(사용자 판단)
   const birthdayList = useMemo(() => birthdaysWithin(members, 7), [members]);
   const joinedList = useMemo(() => joinedWithin(members, 3), [members]);
-  // 머리줄의 'N명'을 누르면 열리는 전체 목록. 먼저 온 순서로 정렬해 둔다
+  // 머리줄의 'N명'을 누르면 열리는 전체 목록(정렬은 모달이 한다 — 접속 상태를 같이 본다)
   const [membersOpen, setMembersOpen] = useState(false);
-  const memberOrder = useMemo(() => joinedOrder(members), [members]);
+
+  // 최근 활동 피드(#3) — 클라우드는 서버 피드, 게스트는 tasks의 activityLog에서 파생
+  const feed = useStore(selectActivityFeed);
+  const tasksById = useStore(selectTasks).byId;
+
+  // 연결 지도(#28) — 업무가 있는 팀만(0건 팀을 늘어놓으면 선 없는 점만 남는다),
+  // 팀→프로젝트 선은 "그 팀 업무가 그 프로젝트에 있다"다. 한 번 훑어 쌍을 모은다.
+  const { teamsInUse, teamProjects } = useMemo(() => {
+    const teamSet = new Set();
+    const pairSet = new Set();
+    const pairs = [];
+    for (const t of tasksList) {
+      for (const team of (t.teams || [])) {
+        teamSet.add(team);
+        const key = `${team}|${t.projectId}`;
+        if (!pairSet.has(key)) { pairSet.add(key); pairs.push([team, t.projectId]); }
+      }
+    }
+    // 열 순서는 config의 팀 순서를 따른다(화면마다 팀 순서가 다르면 헷갈린다)
+    const inUse = Object.keys(CONFIG.TEAMS).filter(n => teamSet.has(n));
+    return { teamsInUse: inUse, teamProjects: pairs };
+  }, [tasksList]);
 
   // 프로젝트별 상태 분포 — 4색 세그먼트 바.
   // 프로젝트마다 목록 전체를 다시 훑지 않도록 한 번 묶고(groupBy) 한 번만 센다.
@@ -228,7 +250,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
               onOpenMembers={() => setMembersOpen(true)}
             />
             {membersOpen && (
-              <MembersModal members={memberOrder} myName={myName} onClose={() => setMembersOpen(false)} />
+              <MembersModal members={members} myName={myName} onClose={() => setMembersOpen(false)} />
             )}
           </div>
           <Card className="px-4 pt-[15px] pb-[3px]">
@@ -259,8 +281,27 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
             <SectionHead>청년별 남은 업무</SectionHead>
             <PersonLoadGrid people={people} />
           </div>
+
+          {/* 최근 활동 — activity는 쌓이고 있었는데 업무 창 안에만 갇혀 있었다.
+              모바일에서는 목록 뒤(원래 자리)로 간다: 피드는 둘러보는 정보라
+              '지금 해야 할 것'(마감 목록)보다 앞설 이유가 없다. */}
+          <ActivityFeed feed={feed} tasksById={tasksById} onOpenTask={onTaskClick} />
+
         </div>
       </div>
+
+      {/* 연결 지도(#28) — 내가 어디에 붙어 있는지 한 장. 세 열(사람·팀·프로젝트)이 640px을
+          쓰므로 사이드 칸(360px)에 넣으면 프로젝트 열이 잘린다 → 본문 아래 전폭으로 둔다.
+          클라우드에서만 그린다(멤버가 있어야 사람 열이 있다). */}
+      {members.length > 0 && (
+        <div className="pt-6">
+          <NetworkMap
+            members={members} teamsInUse={teamsInUse} projects={projectsList}
+            teamProjects={teamProjects}
+            onOpenTeam={(name) => onNavigate(`team:${name}`)} onOpenProject={onNavigate}
+          />
+        </div>
+      )}
     </div>
   );
 });
@@ -512,7 +553,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
       {/* ── 필터 줄: 보기 전환 + 팀 칩(데스크톱) / 한 줄 필터 버튼(모바일) ── */}
       <div className="flex items-center gap-2.5 py-[11px] flex-wrap shrink-0">
         <span className="flex p-[3px] rounded-[8px] shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
-          {[['kanban', '보드'], ['calendar', '캘린더']].map(([v, label]) => (
+          {[['kanban', '보드'], ['calendar', '캘린더'], ['graph', '그래프']].map(([v, label]) => (
             <button key={v} onClick={() => setViewMode(v)}
               className="px-3 py-[5px] rounded-[5px] text-[12.5px] font-semibold transition-colors"
               style={{
@@ -560,9 +601,10 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
       </div>
 
       <div className="flex-1 min-h-0">
-        {viewMode === 'kanban'
-          ? <Board tasks={filteredTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} />
-          : <CalendarBoard tasks={filteredTasks} onTaskClick={onTaskClick} />}
+        {viewMode === 'kanban' && <Board tasks={filteredTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} />}
+        {viewMode === 'calendar' && <CalendarBoard tasks={filteredTasks} onTaskClick={onTaskClick} />}
+        {/* 그래프(0020): 선후관계. 필터를 그대로 물려받는다 — 팀을 고르면 그 팀 순서만 남는다 */}
+        {viewMode === 'graph' && <DepGraph tasks={filteredTasks} onTaskClick={onTaskClick} />}
       </div>
     </div>
   );

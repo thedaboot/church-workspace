@@ -47,6 +47,12 @@ export const ActivityService = {
       const next = listOrNone(newData[key] || []);
       add(next ? `${label}${particle} ${next}(으)로 변경했습니다.` : `${label}${particle} 모두 비웠습니다.`);
     }
+    // 선행 업무(0020)는 id 배열이라 제목을 여기서 모른다 — 개수만 적는다.
+    // 제목을 적으려고 전체 목록을 이 계층까지 끌고 오면 순수 로직이 스토어에 물린다.
+    if (!sameItems(oldTask.dependsOn || [], newData.dependsOn || [])) {
+      const n = (newData.dependsOn || []).length;
+      add(n ? `선행 업무를 ${n}건으로 변경했습니다.` : '선행 업무를 모두 비웠습니다.');
+    }
     return logs;
   },
 };

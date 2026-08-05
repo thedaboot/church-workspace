@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { CheckSquare, Clock, X, User, Hash, Wand2, CalendarRange, Trash2, Paperclip, Check, Pin } from 'lucide-react';
+import { CheckSquare, Clock, X, User, Hash, Wand2, CalendarRange, Trash2, Paperclip, Check, Pin, ArrowLeftRight } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
@@ -213,7 +213,10 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
           <div className="p-5 md:p-8 flex-1">{detailBody}</div>
           <div className="sticky bottom-0 border-t border-line p-3 md:p-4 flex justify-between items-center gap-2 z-10 bg-surface-2">{footerInner}</div>
         </div>
-        {!isEditMode && task.id && (
+        {/* 수정 모드에도 사이드바를 그대로 둔다 — 없애면 본문이 전체 폭으로 늘어나
+            오른쪽이 통째로 비어 보이고(실제 지적), 댓글을 참조하면서 고치는 일이 흔하다.
+            편집 폼은 로컬 state라 댓글이 새로 와도 갈아치워지지 않는다. 새 카드만 없다. */}
+        {task.id && (
           <div className="w-full md:w-80 h-[40dvh] md:h-auto bg-surface-2 flex flex-col border-t md:border-t-0 md:border-l border-line shrink-0">
             <div className="flex border-b border-line bg-surface shrink-0">
               <button onClick={() => setActiveTab('comments')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'comments' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>댓글 ({commentCount})</button>
@@ -229,6 +232,76 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
 }
 
 // 노션 속성 행: 좌측 라벨 + 우측 값 레이아웃
+// 선행 업무 고르기 — 칩(빼기 X) + 네이티브 <select>(더하기).
+// 같은 프로젝트의 다른 업무만 후보다. 자기 자신·이미 고른 것은 목록에서 뺀다.
+// 한 단계 순환(A→B이면서 B→A)도 후보에서 뺀다 — depLayers가 끊어 주긴 하지만,
+// 만들 수 있게 두면 그래프가 "왜 이 모양이지"가 된다. 긴 순환(A→B→C→A)까지 막는
+// 탐색은 두지 않았다: 사람이 그걸 만들 확률보다 코드가 늘어나는 비용이 크다.
+function DependsRow({ formData, setFormData }) {
+  // 셀렉터가 매번 새 배열을 돌려주면 useSyncExternalStore가 무한 리렌더에 빠진다
+  // (selectMembers의 NO_MEMBERS와 같은 함정 — 실제로 여기서 한 번 터졌다).
+  // 안정된 참조(s.tasks)만 구독하고 파생은 useMemo로 한다.
+  const tasksState = useStore(s => s.tasks);
+  const candidates = useMemo(() => tasksState.allIds
+    .map(id => tasksState.byId[id])
+    .filter(t => t.projectId === formData.projectId && t.id !== formData.id),
+    [tasksState, formData.projectId, formData.id]);
+  const chosen = formData.dependsOn || [];
+  const byId = new Map(candidates.map(t => [t.id, t]));
+  const options = candidates.filter(t =>
+    !chosen.includes(t.id) && !(t.dependsOn || []).includes(formData.id));
+  const add = (id) => { if (id) setFormData(prev => ({ ...prev, dependsOn: [...(prev.dependsOn || []), id] })); };
+  const remove = (id) => setFormData(prev => ({ ...prev, dependsOn: (prev.dependsOn || []).filter(x => x !== id) }));
+  return (
+    <PropertyRow icon={<ArrowLeftRight size={13} className="text-fg-faint" />} label="선행 업무">
+      <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+        {chosen.map(id => (
+          <span key={id} className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-[11px] font-semibold bg-surface-hover text-fg max-w-[220px]">
+            {/* 지워진 카드를 가리키면 제목이 없다 — 그래도 칩은 남겨서 뺄 수 있게 한다 */}
+            <span className="truncate">{byId.get(id)?.title || '(지워진 업무)'}</span>
+            <button type="button" onClick={() => remove(id)} title="선행 업무 빼기"
+              className="text-fg-faint hover:text-tag-red-fg transition-colors shrink-0"><X size={11} /></button>
+          </span>
+        ))}
+        {options.length > 0 && (
+          <select value="" onChange={(e) => add(e.target.value)}
+            className="text-[11px] text-fg-muted bg-surface border border-line rounded-full px-2 py-1 outline-none focus:border-accent max-w-[200px]">
+            <option value="">{chosen.length ? '+ 더 추가' : '+ 먼저 끝나야 하는 업무'}</option>
+            {options.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+          </select>
+        )}
+        {!options.length && !chosen.length && (
+          <span className="text-[11px] text-fg-faint">이 프로젝트에 다른 업무가 생기면 고를 수 있어요</span>
+        )}
+      </div>
+    </PropertyRow>
+  );
+}
+
+// 보기 모드의 선행 업무 줄 — 있을 때만 그린다. 끝난 선행 업무에는 체크를 붙여서
+// "이제 시작해도 되는지"가 제목을 읽지 않아도 보이게 한다.
+function DependsViewRow({ dependsOn }) {
+  // DependsRow와 같은 이유 — 셀렉터에서 새 배열을 만들지 않는다
+  const tasksState = useStore(s => s.tasks);
+  const deps = useMemo(() => (dependsOn || []).map(id => tasksState.byId[id]).filter(Boolean),
+    [tasksState, dependsOn]);
+  if (!deps.length) return null;
+  return (
+    <div className="flex items-start gap-0 py-2.5">
+      <span className="w-24 shrink-0 text-fg-muted">선행 업무</span>
+      <span className="flex flex-wrap gap-x-3 gap-y-1 min-w-0">
+        {deps.map(d => (
+          <span key={d.id} className="inline-flex items-center gap-1 font-medium max-w-full"
+            style={{ color: d.status === '완료' ? 'var(--app-tag-green-fg)' : 'var(--app-ink)' }}>
+            {d.status === '완료' && <Check size={11} className="shrink-0" />}
+            <span className="truncate">{d.title}</span>
+          </span>
+        ))}
+      </span>
+    </div>
+  );
+}
+
 const PropertyRow = ({ icon, label, children }) => (
   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1.5 sm:gap-0 py-2">
     <div className="w-28 shrink-0 flex items-center gap-1.5 text-xs text-fg-muted">{icon}{label}</div>
@@ -472,6 +545,10 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
         <PropertyRow icon={<User size={13} className="text-fg-faint" />} label="담당자">
           <AssigneePicker value={formData.assignees || []} onChange={(next) => setFormData(prev => ({ ...prev, assignees: next }))} members={members} />
         </PropertyRow>
+        {/* 선행 업무(0020) — 이 업무보다 먼저 끝나야 하는 것. 같은 프로젝트 안에서만 고른다
+            (프로젝트를 건너 잇기 시작하면 그래프가 화면 하나에 안 담긴다).
+            네이티브 <select>다: 목록이 길어도 모바일에서 OS가 알아서 잘 굴려 준다. */}
+        <DependsRow formData={formData} setFormData={setFormData} />
       </div>
 
       <div>
@@ -583,6 +660,7 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
         <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">담당자</span><span className="font-medium text-fg">{formData.assignees?.join(', ') || '미지정'}</span></div>
         {formData.startDate && <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">시작일</span><span className="font-semibold text-fg">{new Date(formData.startDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</span></div>}
         {formData.dueDate && <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">마감일</span><span className="font-semibold text-fg">{new Date(formData.dueDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</span></div>}
+        <DependsViewRow dependsOn={formData.dependsOn} />
       </div>
 
       {/* 요약 섹션 — ✨(AI 상징)를 빼고 왼쪽 선으로 "본문이 아닌 덧말"임을 표시 */}

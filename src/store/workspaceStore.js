@@ -37,6 +37,11 @@ export class WorkspaceStore {
       case 'LOAD_STATE':
         nextState = action.payload;
         break;
+      // 대시보드 '최근 활동' 피드만 교체 — 실시간(activity)이 부른다. 내 조작이 아니므로
+      // 기록하지 않는다(SYNC_TASK와 같은 이유 — 아래 HYDRATE_TASK 분기에서 걸러진다)
+      case 'SET_ACTIVITY_FEED':
+        nextState = { ...currentState, activityFeed: action.payload };
+        break;
       // 서버에서 온 카드 1건 반영 — 있으면 필드만 덮어쓰고, 없으면(남이 새로 만든 카드) 넣는다.
       // UPSERT_TASK로 하면 통째로 교체돼서 그 카드에 담아둔 댓글·활동·첨부가 날아간다.
       case 'SYNC_TASK': {
@@ -133,7 +138,7 @@ export class WorkspaceStore {
     // 상태가 실제로 바뀐 경우에만 History(과거) 저장 (위 HISTORY_LIMIT 주석 참고)
     if (action.type === 'LOAD_STATE') {
       this.state = { past: [], present: nextState, future: [] };
-    } else if (action.type === 'HYDRATE_TASK') {
+    } else if (action.type === 'HYDRATE_TASK' || action.type === 'SET_ACTIVITY_FEED') {
       this.state = { ...this.state, present: nextState };
     } else {
       this.state = {
@@ -170,6 +175,7 @@ export class WorkspaceStore {
 export const emptyWorkspace = () => ({
   currentUser: { name: '', team: '' },
   members: [],                       // 클라우드 로드에서만 채워진다(게스트 모드는 빈 배열)
+  activityFeed: [],                  // 최근 활동(클라우드). 게스트는 셀렉터가 tasks에서 파생
   projects: { byId: {}, allIds: [] },
   tasks: { byId: {}, allIds: [] },
 });

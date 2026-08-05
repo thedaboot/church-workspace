@@ -24,11 +24,14 @@ const shot=async n=>{const{data}=await send('Page.captureScreenshot',{format:'pn
 const results=[];const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}${d?' — '+d:''}`);
 const mk=(i,status,dd)=>({id:'t'+i,projectId:'p1',title:'업무 '+i,content:'',status,assignees:['노준석'],
   teams:['찬양팀'],startDate:'',dueDate:dd,position:i,author:'노준석',createdAt:'2026-07-01T00:00:00Z',
-  updatedAt:'2026-07-01T00:00:00Z',comments:[],activityLog:[],attachments:[]});
+  updatedAt:'2026-07-01T00:00:00Z',comments:[],attachments:[],
+  activityLog:[{id:'a'+i,action:"상태를 '시작 전'에서 '진행 중'(으)로 변경했습니다.",author:'노준석',timestamp:new Date(Date.now()-(i+1)*7*60e3).toISOString()}]});
 const byId={},allIds=[];
 [['시작 전','2026-07-28'],['진행 중','2026-07-30'],['보류 중','2026-07-29'],['완료','2026-07-27'],['시작 전','2026-07-20']]
   .forEach(([s,d],i)=>{const t=mk(i,s,d);byId[t.id]=t;allIds.push(t.id);});
 const st={currentUser:{name:'노준석',team:'찬양팀',teams:['찬양팀','임원진']},
+  members:[{id:'u1',name:'노준석',avatarUrl:'',team:'찬양팀',teams:['찬양팀','임원진'],birthday:'',lastSeenAt:'',joinedAt:'2026-07-01T00:00:00Z'},
+           {id:'u2',name:'조준환',avatarUrl:'',team:'엔지니어팀',teams:['엔지니어팀'],birthday:'',lastSeenAt:'',joinedAt:'2026-07-02T00:00:00Z'}],
   projects:{byId:{p1:{id:'p1',title:'2026 하계 수련회',pinnedLinks:[]}},allIds:['p1']},tasks:{byId,allIds}};
 await send('Page.enable');await send('Runtime.enable');
 const load=async(m,theme)=>{
@@ -102,6 +105,27 @@ for (const [m,label,theme] of [[{width:390,height:844,deviceScaleFactor:2,mobile
   check(`${label}: 가로 넘침 없음`, over<=0, `초과 ${over}px`);
   await shot(label==='모바일'?'fix-mob-dashboard':'fix-desk-dashboard');
 }
+// ── 최근 활동 피드(#3) + 연결 지도(#28) ──
+// 게스트에서는 피드가 tasks의 activityLog에서 파생된다(셀렉터 폴백) — 시드에 기록을 넣었다.
+const feed = await ev(`(() => {
+  const h=[...document.querySelectorAll('h3')].find(x=>x.textContent==='최근 활동');
+  if(!h) return null;
+  const txt=h.closest('div').parentElement.textContent||'';
+  return { rows:(txt.match(/변경했습니다/g)||[]).length, hasAgo:/분 전|시간 전/.test(txt) };
+})()`);
+check('최근 활동 피드가 있다(게스트=활동 기록에서 파생)', !!feed && feed.rows>=3, JSON.stringify(feed));
+check('피드 줄에 상대 시간이 붙는다', feed?.hasAgo===true, JSON.stringify(feed));
+const map = await ev(`(() => {
+  const h=[...document.querySelectorAll('h3')].find(x=>x.textContent==='프로젝트 연결 지도');
+  if(!h) return null;
+  const wrap=h.closest('div').parentElement;
+  const t=wrap.textContent||'';
+  return { people:/노준석/.test(t)&&/조준환/.test(t), cols:/사람/.test(t)&&/프로젝트/.test(t),
+           lines: wrap.querySelectorAll('svg path').length };
+})()`);
+check('연결 지도에 세 열이 있다', map?.cols===true && map?.people===true, JSON.stringify(map));
+check('연결 지도에 사람→팀 선이 있다', !!map && map.lines>=2, JSON.stringify(map));
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,4).join('\n'):'\n콘솔 오류 없음');
 ws.close();chrome.kill();process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

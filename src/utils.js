@@ -151,24 +151,72 @@ export const joinedWithin = (members = [], days = 7, today = todayLocal()) =>
 const ageDaysLocal = (iso, today) =>
   Math.round((new Date(`${today}T00:00:00`) - new Date(`${iso}T00:00:00`)) / 86400000);
 
-// 가입한 순서대로 (먼저 온 사람이 위) + 며칠 전인지.
-// 날짜가 없는 사람도 **빼지 않고** 맨 뒤에 둔다(daysAgo = null) — 빼면 목록 수가 머리줄의
-// '7명'과 달라져서, 눌러 놓고 세어 보면 화면이 서로 다른 말을 한다.
-export const joinedOrder = (members = [], today = todayLocal()) =>
-  (members || [])
-    .map(m => {
-      const d = localDate(m.joinedAt);
-      return { ...m, daysAgo: d ? ageDaysLocal(d, today) : null };
-    })
-    .sort((a, b) => {
-      if (a.daysAgo === null) return 1;
-      if (b.daysAgo === null) return -1;
-      return b.daysAgo - a.daysAgo || a.name.localeCompare(b.name, 'ko');
-    });
+// 가입한 사람 목록의 순서 — **최근에 방문한 사람이 위**(사용자가 가입순에서 바꿨다).
+// 지금 접속해 있는 사람이 맨 위다: '지금'이 가장 최근이고, last_seen_at은 앱을 열 때
+// 한 번만 찍으므로 접속 중인 사람끼리는 그 값만으로 못 가른다. 방문 기록이 없는 사람은
+// 맨 뒤 — 그래도 **빼지 않는다**(빼면 목록 수가 머리줄의 'N명'과 달라진다).
+// 방문 기록이 없으면 가입 시각을 대신 쓴다 — 가입하던 순간에도 앱에 들어와 있었으니
+// 거짓이 아니고, 0019 이전 가입자에게 '아직 방문 전'이라고 하는 것이 오히려 틀린 말이다.
+export const lastVisitOf = (m) => m?.lastSeenAt || m?.joinedAt || '';
 
-// 며칠 전 → 사람이 읽는 말. 오늘·어제만 따로 부르고 나머지는 날 수 그대로.
-export const daysAgoLabel = (n) =>
-  n === null || n === undefined ? '' : n <= 0 ? '오늘' : n === 1 ? '어제' : `${n}일 전`;
+export const visitOrder = (members = [], onlineIds = new Set()) =>
+  (members || []).slice().sort((a, b) => {
+    const ao = onlineIds.has(a.id) ? 1 : 0, bo = onlineIds.has(b.id) ? 1 : 0;
+    if (ao !== bo) return bo - ao;
+    const at = lastVisitOf(a), bt = lastVisitOf(b);
+    if (at !== bt) return bt.localeCompare(at);       // ISO 문자열은 그대로 시간순
+    return a.name.localeCompare(b.name, 'ko');
+  });
+
+// 지난 시간 → 사람이 읽는 말. 초 → 분 → 시간 → 일 → 주 → 개월 → 년 순으로 단위를
+// 올린다(사용자가 정한 사다리). formatRelative와 달리 날짜로 바꾸지 않는다 —
+// "언제 다녀갔나"는 끝까지 상대 시간이 자연스럽다. 값이 없거나 미래면 빈 문자열.
+export function agoLabel(ts, now = Date.now()) {
+  if (!ts) return '';
+  const then = new Date(ts).getTime();
+  if (Number.isNaN(then) || then > now) return '';
+  const s = Math.floor((now - then) / 1000);
+  if (s < 60) return `${Math.max(1, s)}초 전`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}분 전`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}시간 전`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}일 전`;
+  if (d < 31) return `${Math.floor(d / 7)}주 전`;
+  if (d < 365) return `${Math.floor(d / 30.44)}개월 전`;
+  return `${Math.floor(d / 365)}년 전`;
+}
+
+// 선후관계 그래프의 열 배치 — 각 업무를 "선행 업무보다 오른쪽 열"에 둔다.
+// 반환: [[depth 0 업무들], [depth 1 업무들], ...] (열 안은 마감일순 — byDue와 같은 규칙).
+// 지워진 카드를 가리키는 id는 무시하고, 순환(A→B→A)은 그 자리에서 끊는다 —
+// 화면이 던지며 죽는 것보다 한 칸 어긋난 배치가 낫다.
+export function depLayers(tasks = []) {
+  const byId = new Map((tasks || []).map(t => [t.id, t]));
+  const memo = new Map();
+  const visiting = new Set();
+  const depthOf = (id) => {
+    if (memo.has(id)) return memo.get(id);
+    if (visiting.has(id)) return 0;               // 순환 — 여기서 끊는다
+    visiting.add(id);
+    const deps = (byId.get(id)?.dependsOn || []).filter(d => byId.has(d) && d !== id);
+    const d = deps.length ? Math.max(...deps.map(depthOf)) + 1 : 0;
+    visiting.delete(id);
+    memo.set(id, d);
+    return d;
+  };
+  const cols = [];
+  for (const t of tasks || []) {
+    const d = depthOf(t.id);
+    (cols[d] = cols[d] || []).push(t);
+  }
+  // 순환을 끊으면 중간 깊이가 빌 수 있다(A→B→A에서 A=2, B=1, 0층이 빔) → 빈 열을 걷어낸다.
+  // 걷어내지 않으면 희소 배열 구멍에서 sort가 던지고, 화면에는 빈 열이 남는다.
+  const packed = cols.filter(Boolean);
+  for (const col of packed) col.sort((a, b) => String(a.dueDate || '9999').localeCompare(String(b.dueDate || '9999')));
+  return packed;
+}
 
 // 생일을 'MM-DD' → 사람들 로 묶는다. 달력이 날짜 칸마다 물어보므로 한 번만 만든다
 // (12명 × 42칸을 매 렌더 훑지 않게).

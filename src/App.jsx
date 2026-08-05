@@ -11,6 +11,7 @@ import { AuthProvider, useAuth } from './services/auth.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
 import { ToastHost, showToast } from './components/Toast.jsx';
 import * as cloudSync from './services/cloudSync.js';
+import { setOnline } from './services/presence.js';
 import logoLight from './assets/logo-light.png';
 import logoDark from './assets/logo-dark.png';
 
@@ -175,18 +176,38 @@ function WorkspaceShell() {
   useEffect(() => {
     if (!cloudMode) return;
     let timer = null;
+    let feedTimer = null;
     const unsub = cloudSync.subscribeWorkspace({
       onCard: (id) => { if (isEditingRef.current) { pendingReloadRef.current = true; return; } syncCard(id); },
       onCardDelete: (id) => { if (id) store.dispatch({ type: 'DELETE_TASK', payload: id }); },
       onCardDetail: (id) => { if (!isEditingRef.current) syncCardDetail(id); },
+      // 최근 활동 피드만 다시 읽는다(쿼리 1개). 저장 한 번에 기록이 여러 건 생기므로
+      // 500ms 모아서 한 번만. 편집 중에도 막지 않는다 — 폼을 건드리는 갱신이 아니다.
+      onActivityFeed: () => {
+        clearTimeout(feedTimer);
+        feedTimer = setTimeout(() => {
+          cloudSync.loadActivityFeed()
+            .then(feed => store.dispatch({ type: 'SET_ACTIVITY_FEED', payload: feed }))
+            .catch(e => console.error('[cloud] 활동 피드 갱신 실패:', e));
+        }, 500);
+      },
       onFullReload: () => {
         if (isEditingRef.current) { pendingReloadRef.current = true; return; }
         clearTimeout(timer);
         timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e)); }, 300);
       },
     });
-    return () => { clearTimeout(timer); unsub(); };
+    return () => { clearTimeout(timer); clearTimeout(feedTimer); unsub(); };
   }, [cloudMode, reloadCloud, syncCard, syncCardDetail]);
+
+  // 지금 접속해 있는 사람(presence) — DB에 아무것도 쓰지 않고, 연결이 끊기면 서버가
+  // 바로 지운다. 값은 전용 미니 스토어로 흐른다(LOAD_STATE가 상태를 통째로 갈아치우는
+  // 워크스페이스 스토어에 섞으면 재조회마다 사라진다).
+  useEffect(() => {
+    if (!cloudMode) return;
+    const unsub = cloudSync.subscribePresence(setOnline);
+    return () => { unsub(); setOnline([]); };
+  }, [cloudMode]);
 
   // 편집 종료 시 보류된 재조회 1회 실행
   useEffect(() => {

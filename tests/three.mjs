@@ -438,6 +438,45 @@ const visibleEmpty = await ev(`(() => {
 })()`);
 check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visibleEmpty?.onScreen === true, JSON.stringify(visibleEmpty));
 
+// ── 그래프 보기(0020) — 선후관계 ──
+// t1이 t0에 걸리게 시드를 고쳐 넣고, 세 번째 보기에서 노드·선이 그려지는지 본다.
+{
+  const st2 = JSON.parse(JSON.stringify(st));
+  st2.tasks.byId.t1.dependsOn = ['t0'];
+  await send('Emulation.setDeviceMetricsOverride', DESK);
+  await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+  await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st2))})`);
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1400);
+  await ev(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='그래프')?.click()`);
+  await sleep(800);
+  const g = await ev(`(() => {
+    const m=document.querySelector('main');
+    const nodes=[...m.querySelectorAll('button')].filter(b=>/^업무 [0-9]+/.test((b.textContent||'').trim()));
+    // t1(선행 t0 미완료)로 들어오는 회색 선이 있어야 한다
+    const paths=m.querySelectorAll('svg path').length;
+    const cols=new Set(nodes.map(b=>Math.round(b.getBoundingClientRect().left))).size;
+    return { nodes:nodes.length, paths, cols };
+  })()`);
+  check('그래프 보기에 업무 노드가 전부 나온다', g.nodes === START_COUNT + 2, JSON.stringify(g));
+  check('선행 업무 선이 그려진다', g.paths >= 1, `path ${g.paths}개`);
+  check('선행이 있는 업무는 오른쪽 열로 밀린다', g.cols >= 2, `${g.cols}열`);
+  // 수정 폼에 '선행 업무' 칸이 있다
+  await ev(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='보드')?.click()`);
+  await sleep(600);
+  await ev(`document.querySelector('.board-card')?.click()`);
+  await sleep(800);
+  await ev(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='수정')?.click()`);
+  await sleep(700);
+  const dep = await ev(`(() => {
+    // PropertyRow의 라벨은 아이콘+글자가 든 div다 — 태그를 가리지 않고 찾는다
+    const label=[...document.querySelectorAll('div,span,label')].find(e=>e.textContent.trim()==='선행 업무');
+    const sel=[...document.querySelectorAll('select')].find(s=>/먼저 끝나야|더 추가/.test(s.textContent));
+    return { label: !!label, select: !!sel, options: sel ? sel.options.length : 0 };
+  })()`);
+  check('수정 폼에 선행 업무 칸이 있다', dep.label === true && dep.select === true, JSON.stringify(dep));
+  check('선행 업무 후보에 같은 프로젝트 업무가 나온다', dep.options > 1, `${dep.options}개`);
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n'+logs.slice(0,5).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

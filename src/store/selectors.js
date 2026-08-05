@@ -28,6 +28,25 @@ export const selectCurrentUser = state => state.currentUser;
 const NO_MEMBERS = [];
 export const selectMembers = state => state.members || NO_MEMBERS;
 
+// 최근 활동 피드 — 클라우드는 loadCloudState가 채운 activityFeed를, 게스트는 tasks에
+// 담긴 activityLog에서 파생한다(게스트에는 서버 피드가 없다). 클라우드에서 파생 쪽으로
+// 폴백하지 않는 이유: 클라우드의 task.activityLog는 창을 연 카드만 차 있어서(§6-20)
+// "열어 본 카드의 활동만 나오는" 반쪽짜리 피드가 된다.
+const selectRawFeed = state => state.activityFeed;
+export const selectActivityFeed = createSelector(
+  [selectRawFeed, selectTasks],
+  (feed, tasks) => {
+    if (feed && feed.length) return feed;
+    return tasks.allIds
+      .flatMap(id => (tasks.byId[id].activityLog || []).map(l => ({
+        id: l.id, actorName: l.author, action: l.action, cardId: id,
+        projectId: tasks.byId[id].projectId, at: l.timestamp,
+      })))
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+      .slice(0, 30);
+  }
+);
+
 // 파생 데이터 선택자 (Derived Selectors)
 export const selectTasksList = createSelector([selectTasks], (tasks) => tasks.allIds.map(id => tasks.byId[id]));
 export const selectProjectsList = createSelector([selectProjects], (projects) => projects.allIds.map(id => projects.byId[id]));

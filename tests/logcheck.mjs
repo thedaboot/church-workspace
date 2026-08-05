@@ -193,34 +193,45 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  사람 칸 14가지');
 }
 
-// ── 가입한 사람 전체 목록 (utils.joinedOrder / daysAgoLabel) ──
-// 머리줄 'N명'을 누르면 열리는 모달이 쓴다. 먼저 온 사람이 위여야 하고, 목록 수가
-// 머리줄 숫자와 **같아야** 한다 — 가입일이 없는 사람을 빼면 눌러 놓고 세어 봤을 때
+// ── 가입한 사람 전체 목록 (utils.visitOrder / agoLabel) ──
+// 머리줄 'N명'을 누르면 열리는 모달이 쓴다. 최근에 방문한 사람이 위, 접속 중이면 맨 위,
+// 목록 수는 머리줄 숫자와 **같아야** 한다 — 기록 없는 사람을 빼면 눌러 놓고 세어 봤을 때
 // 화면이 서로 다른 말을 한다.
 {
   const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
   const dir = mkdtempSync(join(tmpdir(), 'ord-'));
   const f = join(dir, 'utils.mjs');
   writeFileSync(f, src);
-  const { joinedOrder, daysAgoLabel, joinedWithin } = await import(pathToFileURL(f).href);
+  const { visitOrder, agoLabel, joinedWithin, lastVisitOf } = await import(pathToFileURL(f).href);
 
   const M = [
-    { name: '나중', joinedAt: '2026-08-04T00:00:00Z' },
-    { name: '처음', joinedAt: '2026-07-01T00:00:00Z' },
-    { name: '오늘', joinedAt: '2026-08-05T00:00:00Z' },
-    { name: '날짜없음' },
+    { id: 'a', name: '어제옴', lastSeenAt: '2026-08-04T10:00:00Z' },
+    { id: 'b', name: '방금옴', lastSeenAt: '2026-08-05T09:00:00Z' },
+    { id: 'c', name: '접속중', lastSeenAt: '2026-08-01T00:00:00Z' },   // 옛 기록이어도 접속 중이면 맨 위
+    { id: 'd', name: '기록없음' },
   ];
-  const o = joinedOrder(M, '2026-08-05');
-  assert.deepStrictEqual(o.map(m => m.name), ['처음', '나중', '오늘', '날짜없음'], '먼저 온 순 · 날짜 없는 사람은 맨 뒤');
+  const o = visitOrder(M, new Set(['c']));
+  assert.deepStrictEqual(o.map(m => m.name), ['접속중', '방금옴', '어제옴', '기록없음'],
+    '접속 중 → 최근 방문 → 기록 없음 순');
   assert.strictEqual(o.length, M.length, '아무도 빠지지 않는다(머리줄 숫자와 같아야 한다)');
-  assert.strictEqual(o[0].daysAgo, 35);
-  assert.strictEqual(o[2].daysAgo, 0);
-  assert.strictEqual(o[3].daysAgo, null);
+  assert.deepStrictEqual(visitOrder(M).map(m => m.name), ['방금옴', '어제옴', '접속중', '기록없음'],
+    '접속 정보가 없으면(게스트) 순수 방문순');
+  assert.deepStrictEqual(visitOrder([]), []);
+  assert.deepStrictEqual(visitOrder(undefined), [], '인자가 없어도 안전하다');
 
-  assert.strictEqual(daysAgoLabel(0), '오늘');
-  assert.strictEqual(daysAgoLabel(1), '어제');
-  assert.strictEqual(daysAgoLabel(5), '5일 전');
-  assert.strictEqual(daysAgoLabel(null), '', '날짜를 모르면 빈 문자열 → 화면이 "가입일 모름"으로 받는다');
+  // 초 → 분 → 시간 → 일 → 개월 → 년 (사용자가 정한 단위 사다리)
+  const NOW = new Date('2026-08-05T12:00:00Z').getTime();
+  const at = (ms) => new Date(NOW - ms).toISOString();
+  assert.strictEqual(agoLabel(at(30e3), NOW), '30초 전');
+  assert.strictEqual(agoLabel(at(0), NOW), '1초 전', '0초는 1초로 올린다(0초 전은 이상하다)');
+  assert.strictEqual(agoLabel(at(5 * 60e3), NOW), '5분 전');
+  assert.strictEqual(agoLabel(at(3 * 3600e3), NOW), '3시간 전');
+  assert.strictEqual(agoLabel(at(2 * 86400e3), NOW), '2일 전');
+  assert.strictEqual(agoLabel(at(10 * 86400e3), NOW), '1주 전', '7일부터는 주 단위(사용자 추가)');
+  assert.strictEqual(agoLabel(at(45 * 86400e3), NOW), '1개월 전');
+  assert.strictEqual(agoLabel(at(400 * 86400e3), NOW), '1년 전');
+  assert.strictEqual(agoLabel('', NOW), '', '값이 없으면 빈 문자열 → 화면이 "아직 방문 전"으로 받는다');
+  assert.strictEqual(agoLabel(at(-60e3), NOW), '', '미래 시각은 빈 문자열(시계가 어긋난 기기)');
 
   // 환영은 사흘만(사용자 판단) — 나흘 전은 빠진다
   const J = [
@@ -228,7 +239,51 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     { name: '나흘', joinedAt: '2026-08-01T00:00:00Z' },
   ];
   assert.deepStrictEqual(joinedWithin(J, 3, '2026-08-05').map(m => m.name), ['사흘']);
-  console.log('PASS  가입 순서·며칠 전 9가지');
+
+  // 방문 기록이 없으면 가입 시각으로 대신한다 — 가입하던 순간에도 앱에 있었다.
+  // 0019 이전 가입자에게 '아직 방문 전'이라고 하던 것이 틀린 말이었다(사용자 지적).
+  assert.strictEqual(lastVisitOf({ lastSeenAt: 'A', joinedAt: 'B' }), 'A');
+  assert.strictEqual(lastVisitOf({ joinedAt: 'B' }), 'B', '기록이 없으면 가입 시각');
+  assert.strictEqual(lastVisitOf({}), '');
+  const F = [
+    { id: 'x', name: '가입만', joinedAt: '2026-08-04T00:00:00Z' },
+    { id: 'y', name: '방문함', lastSeenAt: '2026-08-01T00:00:00Z' },
+  ];
+  assert.deepStrictEqual(visitOrder(F).map(m => m.name), ['가입만', '방문함'],
+    '가입 시각도 방문으로 세서 최근 순에 낀다');
+  console.log('PASS  방문 순서·시간 단위 20가지');
+}
+
+// ── 선후관계 열 배치 (utils.depLayers) ──
+// 프로젝트 '그래프' 보기가 쓴다. 선행 업무보다 오른쪽 열에 와야 하고, 지워진 카드를
+// 가리키는 id와 순환은 화면을 죽이지 말고 조용히 넘겨야 한다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'dep-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { depLayers } = await import(pathToFileURL(f).href);
+
+  const T = (id, deps = [], dueDate = '') => ({ id, title: id, dependsOn: deps, dueDate });
+  // 사슬: a → b → c (b는 a 뒤, c는 b 뒤)
+  const chain = depLayers([T('c', ['b']), T('a'), T('b', ['a'])]);
+  assert.deepStrictEqual(chain.map(col => col.map(t => t.id)), [['a'], ['b'], ['c']]);
+  // 갈래: d는 a·b 둘 다 끝나야 → 둘 중 깊은 쪽 + 1
+  const merge = depLayers([T('a'), T('b', ['a']), T('d', ['a', 'b'])]);
+  assert.deepStrictEqual(merge.map(col => col.map(t => t.id)), [['a'], ['b'], ['d']]);
+  // 지워진 카드를 가리키는 id는 무시한다
+  assert.strictEqual(depLayers([T('a', ['ghost'])]).length, 1, '없는 id는 깊이에 안 들어간다');
+  // 순환 — 던지지 않고 배치가 나온다
+  const cyc = depLayers([T('a', ['b']), T('b', ['a'])]);
+  assert.strictEqual(cyc.flat().length, 2, '순환이어도 두 업무 다 나온다');
+  // 자기 자신을 가리켜도 안전
+  assert.strictEqual(depLayers([T('a', ['a'])]).flat().length, 1);
+  // 열 안 정렬은 마감일순
+  const sorted = depLayers([T('x', [], '2026-09-01'), T('y', [], '2026-08-01')]);
+  assert.deepStrictEqual(sorted[0].map(t => t.id), ['y', 'x']);
+  assert.deepStrictEqual(depLayers([]), [], '빈 목록');
+  assert.deepStrictEqual(depLayers(undefined), [], '인자가 없어도 안전하다');
+  console.log('PASS  선후관계 배치 8가지');
 }
 
 // ── 달력에 얹는 생일 (utils.birthdayMap / birthdaysOn) ──
@@ -259,4 +314,15 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(birthdaysOn(undefined, '2026-08-07'), [], '표가 없어도 안전하다');
   assert.strictEqual(birthdayMap(undefined).size, 0);
   console.log('PASS  달력 생일 8가지');
+}
+
+// ── 선행 업무 변경도 활동 기록에 남는다 (ActivityService) ──
+{
+  const T = { ...base, dependsOn: ['d1'] };
+  assert.deepStrictEqual(msgs(T, { dependsOn: ['d1'] }), [], '같으면 기록 없음');
+  assert.deepStrictEqual(msgs(T, { dependsOn: ['d1', 'd2'] }), ['선행 업무를 2건으로 변경했습니다.']);
+  assert.deepStrictEqual(msgs(T, { dependsOn: [] }), ['선행 업무를 모두 비웠습니다.']);
+  // 순서만 바뀐 배열은 변경 아님(팀·담당자와 같은 규칙)
+  assert.deepStrictEqual(msgs({ ...T, dependsOn: ['d1', 'd2'] }, { dependsOn: ['d2', 'd1'] }), []);
+  console.log('PASS  선행 업무 활동 기록 4가지');
 }

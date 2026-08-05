@@ -72,6 +72,7 @@ const PROFILES = [
 const notified = [];
 globalThis.__CLOUD = {
   withClockSkewRetry: (fn) => fn(),
+  listRecentActivity: async () => [],   // 대시보드 피드(0020) — 이 스위트의 관심사가 아니다
   listTeams: async () => [],
   listProfiles: async () => PROFILES,
   listProjects: async () => [{ id: 'p1', name: '2026 하계 수련회' }],

@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
-import { daysAgoLabel } from '../utils.js';
+import { visitOrder, agoLabel, lastVisitOf } from '../utils.js';
+import { usePresence } from '../services/presence.js';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 
 // ============================================================================
@@ -482,9 +483,13 @@ export function PeopleStrip({ members, myName, seen, birthdays, joined, onOpenMe
 }
 
 // 가입한 사람 전체 — 머리줄의 'N명'을 누르면 열린다.
-// 순서는 **먼저 온 사람이 위**다(합류 순). 며칠 전에 왔는지만 적고 점수·순위는 두지 않는다.
+// 순서는 **최근에 방문한 사람이 위**다(사용자가 가입순에서 바꿨다). 지금 접속해 있는
+// 사람은 초록 원(presence — DB에 안 쓰고 연결이 끊기면 서버가 지운다)이 붙고 맨 위로 온다.
+// 순번을 매기지 않는다: 방문순에 번호를 붙이면 그 끝이 곧 "안 오는 사람" 순위가 된다(§8).
 // 목록이 길어질 것을 전제로 스크롤을 카드 안에 둔다(창이 화면을 넘지 않게 max-h).
 export function MembersModal({ members, myName, onClose }) {
+  const online = usePresence();
+  const ordered = React.useMemo(() => visitOrder(members, online), [members, online]);
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
@@ -498,26 +503,44 @@ export function MembersModal({ members, myName, onClose }) {
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-sm max-h-[80dvh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
         <div className="px-5 pt-5 pb-3 shrink-0">
-          <h3 className="font-bold text-fg tracking-[-0.25px]">가입한 사람 {members.length}명</h3>
-          <p className="text-xs text-fg-muted mt-1">먼저 온 순서예요</p>
+          <h3 className="font-bold text-fg tracking-[-0.25px]">가입한 사람 {ordered.length}명</h3>
         </div>
         {/* 스크롤은 이 안에서만 — 창이 길어져 화면 밖으로 나가면 닫기 버튼을 못 찾는다 */}
         <div className="flex-1 min-h-0 overflow-y-auto px-5 divide-y divide-line/60">
-          {members.map((m, i) => (
-            <div key={m.id || m.name} className="flex items-center gap-2.5 py-2.5">
-              <span className="text-[10.5px] text-fg-faint tabular-nums w-4 shrink-0 text-right">{i + 1}</span>
-              <Avatar name={m.name} url={m.avatarUrl} className="flex w-7 h-7 text-xs" />
-              <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-semibold text-fg truncate">
-                  {m.name}{m.name === myName && <span className="ml-1 text-[10px] font-normal text-fg-faint">나</span>}
+          {ordered.map(m => {
+            const isOnline = online.has(m.id);
+            return (
+              <div key={m.id || m.name} className="flex items-center gap-2.5 py-2.5">
+                {/* 접속 표시는 아바타 귀퉁이의 초록 원. 글자 배지보다 자리를 안 먹고,
+                    사진 위에서도 읽힌다(바탕색 테두리로 뗀다) */}
+                <span className="relative shrink-0 inline-flex">
+                  <Avatar name={m.name} url={m.avatarUrl} className="flex w-7 h-7 text-xs" />
+                  {isOnline && (
+                    <span aria-hidden className="absolute -bottom-px -right-px w-2.5 h-2.5 rounded-full"
+                      style={{ background: 'var(--app-tag-green-fg)', boxShadow: '0 0 0 2px var(--app-surface)' }} />
+                  )}
                 </span>
-                {m.team && <span className="block text-[11px] truncate" style={{ color: teamColor(m.team) }}>{m.team}</span>}
-              </span>
-              <span className="text-[11px] text-fg-muted tabular-nums whitespace-nowrap shrink-0">
-                {daysAgoLabel(m.daysAgo) || '가입일 모름'}
-              </span>
-            </div>
-          ))}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-semibold text-fg truncate">
+                    {m.name}{m.name === myName && <span className="ml-1 text-[10px] font-normal text-fg-faint">나</span>}
+                  </span>
+                  {/* 대표 팀만 보여주면 겸직(찬양팀+임원진)이 안 보인다 — 전부 적는다.
+                      색은 첫 팀(대표) 것 하나만: 글자마다 딴 색이면 태그 잔치가 된다 */}
+                  {(m.teams?.length || m.team) && (
+                    <span className="block text-[11px] truncate" style={{ color: teamColor((m.teams?.[0]) || m.team) }}>
+                      {[...new Set(m.teams?.length ? m.teams : [m.team])].join(' · ')}
+                    </span>
+                  )}
+                </span>
+                {/* 방문 기록이 없으면 가입 시각으로 — 가입하던 순간에도 앱에 있었다.
+                    (0019 이전 가입자에게 '아직 방문 전'은 틀린 말이었다 — 사용자 지적) */}
+                <span className="text-[11px] tabular-nums whitespace-nowrap shrink-0"
+                  style={{ color: isOnline ? 'var(--app-tag-green-fg)' : 'var(--app-ink-muted)' }}>
+                  {isOnline ? '접속 중' : (agoLabel(lastVisitOf(m)) || '기록 없음')}
+                </span>
+              </div>
+            );
+          })}
         </div>
         <div className="px-5 py-4 shrink-0">
           <button onClick={onClose}
@@ -526,5 +549,158 @@ export function MembersModal({ members, myName, onClose }) {
       </div>
     </div>,
     document.body
+  );
+}
+
+// ── 최근 활동 피드 (0020) ─────────────────────────────────────────────────────
+// activity는 이미 쌓이고 있었는데 업무 창 안에만 갇혀 있었다 — 꺼내기만 하면 되는
+// 데이터다. 클라우드는 서버 피드(activityFeed), 게스트는 tasks의 activityLog에서
+// 파생한다(selectActivityFeed). 카드 제목은 스토어의 tasks에서 찾는다 — 피드에 제목을
+// 박아 두면 제목을 바꿨을 때 피드만 옛 이름으로 남는다.
+//
+// **카드별로 묶는다.** 한 카드를 다듬으면 기록이 줄줄이 생겨서(제목·내용·상태가 각
+// 한 줄) 같은 제목이 여덟 줄 반복됐고, 그게 대시보드를 길게 만든 주범이었다(사용자
+// 지적). 카드마다 가장 최근 한 줄 + '외 N건'으로 접고, 다섯 카드까지만 그린다.
+// '내 업무만 보기'는 접었다 — 이 칸의 값은 남들이 움직이는 게 보이는 것이라,
+// 내 것만 남기면 참여를 부르는 자리가 내 메아리 방이 된다.
+const FEED_ROWS = 5;
+
+// 카드별 최근 한 줄 + 나머지 개수. 피드는 이미 최신순이라 처음 만나는 줄이 최근 것이다.
+function groupFeed(feed) {
+  const seen = new Map();
+  const out = [];
+  for (const a of feed) {
+    const key = a.cardId || a.id;
+    const head = seen.get(key);
+    if (head) { head.more += 1; continue; }
+    const row = { ...a, more: 0 };
+    seen.set(key, row);
+    out.push(row);
+  }
+  return out;
+}
+
+export function ActivityFeed({ feed, tasksById, onOpenTask }) {
+  if (!feed.length) return null;
+  return (
+    <Card className="px-4 py-[15px]">
+      <div className="pb-2">
+        <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">최근 활동</h3>
+      </div>
+      {groupFeed(feed).slice(0, FEED_ROWS).map(a => {
+        const task = a.cardId ? tasksById[a.cardId] : null;
+        const inner = (
+          <>
+            <Avatar name={a.actorName} className="flex w-[22px] h-[22px] text-[10.5px] mt-px" />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-baseline gap-1.5 min-w-0">
+                {/* 카드가 지워졌으면 제목 없이 문장만 남는다 — 기록은 지워지지 않는다 */}
+                <span className="text-[11px] font-semibold text-fg truncate">{task ? task.title : a.actorName}</span>
+                <span className="flex-1" />
+                <span className="text-[10px] text-fg-faint tabular-nums whitespace-nowrap shrink-0">{agoLabel(a.at)}</span>
+              </span>
+              <span className="block text-[11px] text-fg-muted truncate">
+                {task ? `${a.actorName}님이 ` : ''}{a.action}
+                {a.more > 0 && <span className="text-fg-faint"> 외 {a.more}건</span>}
+              </span>
+            </span>
+          </>
+        );
+        // 카드가 있으면 눌러서 연다. 없으면(지워진 카드) 그냥 줄이다
+        return task ? (
+          /* dc-row(줄 등장 애니메이션)를 쓰지 않는다 — 이 카드는 PeopleStrip처럼 정적인
+             부속 정보이고, .dc-row는 마감 목록의 "행"이라는 뜻으로 검사들도 그 클래스로
+             목록을 찾는다(여기 붙이면 피드 줄이 마감 목록 행으로 세어진다). */
+          <button key={a.id} type="button" onClick={() => onOpenTask(task)}
+            className="w-full flex items-start gap-2 py-[7px] -mx-2 px-2 rounded-[8px] text-left hover:bg-surface-hover transition-colors border-t border-line/60 first-of-type:border-t-0">
+            {inner}
+          </button>
+        ) : (
+          <div key={a.id} className="flex items-start gap-2 py-[7px] border-t border-line/60 first-of-type:border-t-0">
+            {inner}
+          </div>
+        );
+      })}
+    </Card>
+  );
+}
+
+// ── 연결 지도 — 사람 · 팀 · 프로젝트 (0019·0020 회차의 #28) ──────────────────
+// "내가 어디에 붙어 있나"를 한 장으로. 세 열을 고정 좌표로 두고 선만 SVG로 긋는다 —
+// force 시뮬레이션·측정(ResizeObserver) 없이 렌더와 같은 상수로 좌표를 계산한다.
+// 좁은 화면에서는 가로로 민다(그래프는 한 덩이 캔버스라 §8의 '숨긴 것'이 아니다 —
+// 프로젝트 탭과 같은 취급). 판정어 없음: 연결이 없는 사람도 그대로 보여준다.
+const NM = {
+  W: 640, ROW: 30, HEAD: 26, PAD: 10,
+  P_X: 8, P_W: 150,          // 사람 열 (이름 오른쪽 정렬 — 선 시작점에 붙는다)
+  T_X: 270, T_W: 76,         // 팀 열 — 라벨 폭('엔지니어팀')에 맞게 좁힌다.
+                             // 넓으면 가운데 정렬된 글자와 양끝 점 사이가 떠서 끊겨 보인다
+  J_X: 462, J_W: 170,        // 프로젝트 열
+};
+
+export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpenTeam, onOpenProject }) {
+  const rows = Math.max(members.length, teamsInUse.length, projects.length, 1);
+  const H = NM.HEAD + rows * NM.ROW + NM.PAD;
+  // 열 안 y 좌표 — 항목 수가 다른 열은 세로 가운데에 모은다(짧은 열이 위에 몰리면 선이 죄다 위로 쏠린다)
+  const yOf = (i, len) => NM.HEAD + ((rows - len) * NM.ROW) / 2 + i * NM.ROW + NM.ROW / 2;
+  const pY = new Map(members.map((m, i) => [m.name, yOf(i, members.length)]));
+  const tY = new Map(teamsInUse.map((t, i) => [t, yOf(i, teamsInUse.length)]));
+  const jY = new Map(projects.map((p, i) => [p.id, yOf(i, projects.length)]));
+  const curve = (x1, y1, x2, y2) => `M ${x1} ${y1} C ${x1 + 46} ${y1}, ${x2 - 46} ${y2}, ${x2} ${y2}`;
+  // 선이 글자에 닿지 않고 허공에서 시작하면 끊긴 그림이 된다(사용자 지적) —
+  // 모든 선의 양끝에 점을 찍고, 노드 글자를 그 점에 붙인다(사람은 오른쪽 정렬).
+  const edge = (key, x1, y1, x2, y2, color) => (
+    <g key={key} opacity="0.55">
+      <path d={curve(x1, y1, x2, y2)} fill="none" stroke={color} strokeWidth="1.1" />
+      <circle cx={x1} cy={y1} r="2" fill={color} />
+      <circle cx={x2} cy={y2} r="2" fill={color} />
+    </g>
+  );
+  return (
+    <Card className="px-4 py-[15px]">
+      <div className="flex items-baseline justify-between pb-2.5">
+        <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 연결 지도</h3>
+        <span className="text-[10.5px] text-fg-faint">사람 · 팀 · 프로젝트</span>
+      </div>
+      {/* 좁으면 가로 스크롤 — 축소하면 10px 글자가 5px가 되어 아무도 못 읽는다 */}
+      <div className="overflow-x-auto scrollbar-hide">
+        {/* 전폭 카드 안에서는 가운데로 — 640px 그림이 왼쪽에 몰리면 오른쪽이 통째로 빈다 */}
+        <div className="relative mx-auto" style={{ width: NM.W, height: H }}>
+          <svg className="absolute inset-0 pointer-events-none" width={NM.W} height={H} aria-hidden>
+            {members.flatMap(m => [...new Set((m.teams?.length ? m.teams : [m.team]).filter(Boolean))]
+              .filter(t => tY.has(t))
+              .map(t => edge(`${m.name}-${t}`, NM.P_X + NM.P_W + 4, pY.get(m.name), NM.T_X - 4, tY.get(t), teamColor(t))))}
+            {teamProjects.map(([team, pid]) => (jY.has(pid) && tY.has(team))
+              ? edge(`${team}-${pid}`, NM.T_X + NM.T_W + 4, tY.get(team), NM.J_X - 4, jY.get(pid), teamColor(team))
+              : null)}
+          </svg>
+          {/* 열 머리 */}
+          <span className="absolute text-[10px] font-bold text-fg-faint" style={{ left: NM.P_X, top: 2 }}>사람</span>
+          <span className="absolute text-[10px] font-bold text-fg-faint" style={{ left: NM.T_X, top: 2 }}>팀</span>
+          <span className="absolute text-[10px] font-bold text-fg-faint" style={{ left: NM.J_X, top: 2 }}>프로젝트</span>
+          {members.map((m) => (
+            <span key={m.name} className="absolute flex items-center justify-end gap-1.5"
+              style={{ left: NM.P_X, top: pY.get(m.name) - 11, width: NM.P_W, height: 22 }}>
+              <Avatar name={m.name} url={m.avatarUrl} className="flex w-[18px] h-[18px] text-[9px]" />
+              <span className="text-[11px] text-fg truncate">{m.name}</span>
+            </span>
+          ))}
+          {teamsInUse.map(t => (
+            <button key={t} type="button" onClick={() => onOpenTeam(t)} title={`${t} 보드로`}
+              className="absolute flex items-center justify-center gap-1.5 hover:opacity-60 transition-opacity"
+              style={{ left: NM.T_X, top: tY.get(t) - 11, width: NM.T_W, height: 22 }}>
+              <span className="text-[11px] font-semibold truncate" style={{ color: teamColor(t) }}>{t}</span>
+            </button>
+          ))}
+          {projects.map(p => (
+            <button key={p.id} type="button" onClick={() => onOpenProject(p.id)} title={`${p.title} 열기`}
+              className="absolute flex items-center hover:opacity-60 transition-opacity"
+              style={{ left: NM.J_X, top: jY.get(p.id) - 11, width: NM.J_W, height: 22 }}>
+              <span className="text-[11px] font-semibold text-fg truncate">{p.title}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </Card>
   );
 }

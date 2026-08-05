@@ -169,6 +169,7 @@ export async function notifyComment(text, { actorName, cardId, projectId, replyT
 }
 
 export const touchLastSeen = cloud.touchLastSeen;
+export const subscribePresence = cloud.subscribePresence;
 export const savePushSubscription = cloud.savePushSubscription;
 export const deletePushSubscription = cloud.deletePushSubscription;
 export const listMyNotifications = cloud.listMyNotifications;
@@ -203,6 +204,9 @@ const cardToTask = (card) => ({
   // 하위 업무는 컬럼(jsonb) 하나다 — 카드와 언제나 같이 읽고 쓴다. 배열이 아닌 값은
   // DB 제약이 막지만, 예전 카드에는 컬럼이 없을 수 있으므로 여기서도 배열로 못 박는다.
   subtasks: Array.isArray(card.subtasks) ? card.subtasks : [],
+  // 선행 업무 id들(0020). 지워진 카드를 가리키는 id가 남아 있어도 여기서 거르지 않는다 —
+  // 화면(depLayers)이 무시하고, 저장할 때 그대로 두면 나중에 그 카드가 복구돼도 이어진다.
+  dependsOn: Array.isArray(card.depends_on) ? card.depends_on : [],
   // 댓글·첨부 개수 — 0016 트리거가 DB에서 유지한다. 목록에서 카드를 열지 않고도
   // 대화·파일이 있는지 보여주려고 둔 것이고, 개수를 세려고 댓글을 다시 읽지 않는다.
   commentCount: card.comment_count ?? 0,
@@ -254,10 +258,10 @@ const projectToApp = (p, linksByProject) => ({
 // 기준으로도 댓글 수백 행·활동 수천 행이 되고, 그걸 실시간 변경마다 모든 접속자가
 // 다시 읽고 있었다.
 export async function loadCloudState() {
-  const [teams, profiles, projects, cards, links, files, initialProfile, sessionRes, profileTeams] = await cloud.withClockSkewRetry(() => Promise.all([
+  const [teams, profiles, projects, cards, links, files, initialProfile, sessionRes, profileTeams, activityRows] = await cloud.withClockSkewRetry(() => Promise.all([
     cloud.listTeams(), cloud.listProfiles(), cloud.listProjects(), cloud.listAllCards(),
     cloud.listAllLinks(), cloud.listAllFiles(), cloud.getMyProfile(),
-    cloud.getSession(), cloud.listProfileTeams(),
+    cloud.getSession(), cloud.listProfileTeams(), cloud.listRecentActivity(),
   ]));
 
   // 가입 트리거가 프로필 행을 못 만든 경우 클라이언트가 직접 자기 행을 생성(자가 복구)
@@ -304,23 +308,58 @@ export async function loadCloudState() {
   // 대시보드가 사람을 세우려면 프로필 목록이 화면까지 와야 한다(0019의 생일·다녀간 시각).
   // 모듈 캐시(profileIdToName 같은 것)로 두지 않고 스토어에 담는 이유: 모듈 변수는 반응형이
   // 아니라 값이 바뀌어도 다시 그려지지 않는다 — 그게 §6-21-a의 '알 수 없음'을 만든 구조다.
+  // 소속 팀 전체 — 가입한 사람 목록이 대표 팀만 보여주면 겸직(찬양팀+임원진)이 안 보인다
+  const teamsByProfile = new Map();
+  (profileTeams || []).forEach(r => {
+    const name = teamIdToName.get(r.team_id);
+    if (!name) return;
+    const list = teamsByProfile.get(r.profile_id);
+    if (list) list.push(name); else teamsByProfile.set(r.profile_id, [name]);
+  });
+
   const members = profiles
     .filter(p => p.display_name)
-    .map(p => ({
-      id: p.id,
-      name: p.display_name,
-      avatarUrl: httpsImage(p.avatar_url || ''),
-      birthday: p.birthday || '',            // 'MM-DD' (연도는 저장하지 않는다)
-      lastSeenAt: p.last_seen_at || '',
-      joinedAt: p.created_at || '',
-      team: p.team_id ? (teamIdToName.get(p.team_id) || '') : '',
-    }))
+    .map(p => {
+      const primary = p.team_id ? (teamIdToName.get(p.team_id) || '') : '';
+      return {
+        id: p.id,
+        name: p.display_name,
+        avatarUrl: httpsImage(p.avatar_url || ''),
+        birthday: p.birthday || '',            // 'MM-DD' (연도는 저장하지 않는다)
+        lastSeenAt: p.last_seen_at || '',
+        joinedAt: p.created_at || '',
+        team: primary,
+        // 대표 팀이 먼저 오게 — 그래야 목록의 첫 팀이 아바타 색 규칙과 어긋나지 않는다
+        teams: [...new Set([primary, ...(teamsByProfile.get(p.id) || [])].filter(Boolean))],
+      };
+    })
     .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
 
   return {
-    state: { currentUser, members, projects: normalize(projectsApp), tasks: normalize(tasks) },
+    state: {
+      currentUser, members,
+      activityFeed: (activityRows || []).map(activityFeedToApp),
+      projects: normalize(projectsApp), tasks: normalize(tasks),
+    },
     profile: myProfile,
   };
+}
+
+// 활동 한 건 → 피드 줄. 카드 제목은 여기서 붙이지 않는다 — 스토어의 tasks가 이미 알고,
+// 제목이 바뀌면 피드도 따라와야 하므로 화면에서 찾는 쪽이 맞다.
+const activityFeedToApp = (a) => ({
+  id: a.id,
+  actorName: profileIdToName.get(a.actor_id) || '알 수 없음',
+  action: a.action,
+  cardId: a.card_id || null,
+  projectId: a.project_id || null,
+  at: a.created_at,
+});
+
+// 피드만 다시 읽기 — activity 실시간 이벤트가 이걸 부른다(전체 재조회가 아니다, §6-21)
+export async function loadActivityFeed() {
+  const rows = await cloud.listRecentActivity();
+  return (rows || []).map(activityFeedToApp);
 }
 
 // ── 카드 1건 읽기 ────────────────────────────────────────────────────────────
@@ -360,6 +399,7 @@ const cardPatch = (task) => ({
   subtasks: (Array.isArray(task.subtasks) ? task.subtasks : [])
     .filter(s => s && String(s.title || '').trim())
     .map(s => ({ id: s.id, title: String(s.title).trim(), done: !!s.done })),
+  depends_on: Array.isArray(task.dependsOn) ? task.dependsOn : [],
 });
 
 // 모든 쓰기 경로도 시계 오차(PGRST303) 재시도로 감싼다
@@ -437,7 +477,7 @@ export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {
 //   그 외(projects·resource_links) → 전체 재조회 (드문 변경)
 // comments의 DELETE payload에는 card_id가 없다(replica identity가 PK뿐) → cardId가
 // 비면 "지금 열려 있는 카드"로 본다. 호출부가 그렇게 처리한다.
-export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onFullReload }) {
+export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActivityFeed, onFullReload }) {
   return cloud.subscribeAll((payload) => {
     const table = payload?.table;
     const row = payload?.new || {};
@@ -449,6 +489,12 @@ export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onFullR
     }
     if (table === 'comments' || table === 'files') {
       onCardDetail(row.card_id || old.card_id || null);
+      return;
+    }
+    // 활동은 대시보드 피드만 다시 읽는다(쿼리 1개). 전체 재조회로 흘리면 저장 한 번에
+    // 기록이 여러 건이라 모든 접속자가 그때마다 워크스페이스를 다시 읽게 된다.
+    if (table === 'activity') {
+      onActivityFeed?.();
       return;
     }
     // 나머지(projects · resource_links · profiles)는 전체 재조회.
