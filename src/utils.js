@@ -93,3 +93,97 @@ export function subtaskProgress(list = []) {
 // 이미지를 준다. 구글 주소는 이미 https라 그대로다.
 // 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
 export const httpsImage = (url) => String(url || '').replace(/^http:\/\//i, 'https://');
+
+// ── 대시보드 '사람' 칸 (0019) ────────────────────────────────────────────────
+// 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
+
+// 오늘 다녀간 사람. lastSeenAt(타임스탬프)의 **로컬 날짜**가 오늘과 같은지 본다.
+// UTC로 자르면 한국 시간 오전 9시 이전에 다녀간 사람이 어제로 밀린다.
+// 나는 언제나 포함한다 — 지금 이 화면을 보고 있는 사람이 나다(App이 찍는 last_seen_at은
+// 방금 읽은 목록에 아직 없다).
+export const seenToday = (members = [], myName = '', today = todayLocal()) =>
+  (members || []).filter(m => m.name === myName || localDate(m.lastSeenAt) === today);
+
+// 타임스탬프 → 'YYYY-MM-DD' (로컬 기준). **값이 없으면 빈 문자열이다.**
+//
+// 처음에는 이 함수 하나가 "오늘"과 "이 값 파싱"을 겸했다(인자가 없으면 오늘). 그래서
+// last_seen_at이 아직 없는 멤버의 `localDate(undefined)`가 오늘을 돌려주는 바람에,
+// **한 번도 안 다녀간 사람이 전부 "오늘 다녀간 사람"으로 셈해졌다**(검사가 잡았다).
+// 같은 실수가 joinedWithin에서 또 났다 — 그래서 두 일을 갈랐다.
+export function localDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+export const todayLocal = () => localDate(new Date());
+
+// 앞으로 며칠 안에 생일인 사람 (오늘 포함). 'MM-DD'만 저장하므로 연도를 빌려 비교한다.
+// 연말연시를 넘어가는 경우(12-30 → 01-02)를 위해 내년 것도 같이 본다 — 12월 31일에
+// 1월 2일 생일이 안 보이면 그게 가장 필요한 순간에 빠지는 것이다.
+export function birthdaysWithin(members = [], days = 7, now = new Date()) {
+  const y = now.getFullYear();
+  const midnight = new Date(y, now.getMonth(), now.getDate()).getTime();
+  const out = [];
+  for (const m of members || []) {
+    if (!/^\d{2}-\d{2}$/.test(m.birthday || '')) continue;
+    const [mm, dd] = m.birthday.split('-').map(Number);
+    // 올해와 내년 중 오늘 이후로 가장 먼저 오는 것
+    const cand = [new Date(y, mm - 1, dd).getTime(), new Date(y + 1, mm - 1, dd).getTime()]
+      .filter(t => t >= midnight).sort((a, b) => a - b)[0];
+    if (cand === undefined) continue;
+    const inDays = Math.round((cand - midnight) / 86400000);
+    if (inDays <= days) out.push({ ...m, inDays, month: mm, day: dd });
+  }
+  return out.sort((a, b) => a.inDays - b.inDays || a.name.localeCompare(b.name, 'ko'));
+}
+
+// 최근 며칠 안에 합류한 사람 (환영 줄). joinedAt은 프로필 생성 시각이다.
+export const joinedWithin = (members = [], days = 7, today = todayLocal()) =>
+  (members || []).filter(m => {
+    const d = localDate(m.joinedAt);
+    if (!d) return false;                    // 값이 없으면 '새로 온 사람'이 아니다
+    const age = ageDaysLocal(d, today);
+    return age >= 0 && age <= days;
+  });
+
+// 두 'YYYY-MM-DD' 사이의 날 수 (today - iso)
+const ageDaysLocal = (iso, today) =>
+  Math.round((new Date(`${today}T00:00:00`) - new Date(`${iso}T00:00:00`)) / 86400000);
+
+// 가입한 순서대로 (먼저 온 사람이 위) + 며칠 전인지.
+// 날짜가 없는 사람도 **빼지 않고** 맨 뒤에 둔다(daysAgo = null) — 빼면 목록 수가 머리줄의
+// '7명'과 달라져서, 눌러 놓고 세어 보면 화면이 서로 다른 말을 한다.
+export const joinedOrder = (members = [], today = todayLocal()) =>
+  (members || [])
+    .map(m => {
+      const d = localDate(m.joinedAt);
+      return { ...m, daysAgo: d ? ageDaysLocal(d, today) : null };
+    })
+    .sort((a, b) => {
+      if (a.daysAgo === null) return 1;
+      if (b.daysAgo === null) return -1;
+      return b.daysAgo - a.daysAgo || a.name.localeCompare(b.name, 'ko');
+    });
+
+// 며칠 전 → 사람이 읽는 말. 오늘·어제만 따로 부르고 나머지는 날 수 그대로.
+export const daysAgoLabel = (n) =>
+  n === null || n === undefined ? '' : n <= 0 ? '오늘' : n === 1 ? '어제' : `${n}일 전`;
+
+// 생일을 'MM-DD' → 사람들 로 묶는다. 달력이 날짜 칸마다 물어보므로 한 번만 만든다
+// (12명 × 42칸을 매 렌더 훑지 않게).
+export const birthdayMap = (members = []) => {
+  const m = new Map();
+  for (const p of members || []) {
+    if (!/^\d{2}-\d{2}$/.test(p.birthday || '')) continue;
+    const b = m.get(p.birthday);
+    if (b) b.push(p); else m.set(p.birthday, [p]);
+  }
+  return m;
+};
+
+// 'YYYY-MM-DD' → 그 날 생일인 사람. **연도는 보지 않는다**(생일에 연도가 없다).
+// 없으면 언제나 같은 빈 배열을 돌려준다 — 매번 새 배열이면 React가 계속 다시 그린다.
+const NO_BIRTHDAYS = [];
+export const birthdaysOn = (map, iso = '') =>
+  (map && map.get(String(iso).slice(5, 10))) || NO_BIRTHDAYS;

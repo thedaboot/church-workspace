@@ -135,3 +135,128 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(httpsImage('https://x.com/i?u=http://y.com/a.png'), 'https://x.com/i?u=http://y.com/a.png');
   console.log('PASS  프로필 사진 https 승격 7가지');
 }
+
+// ── 대시보드 사람 칸 (utils.seenToday / birthdaysWithin / joinedWithin) ──
+// 생일은 'MM-DD'만 저장하므로 연도를 빌려 비교한다 → 연말연시가 조용히 깨지기 쉽다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'ppl-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { seenToday, birthdaysWithin, joinedWithin, localDate } = await import(pathToFileURL(f).href);
+
+  // 오늘 다녀간 사람 — 나는 언제나 포함(App이 찍는 값은 방금 읽은 목록에 아직 없다)
+  const M = [
+    { name: '노준석', lastSeenAt: '' },                                  // 나 — 기록 없어도 포함
+    { name: '강희라', lastSeenAt: '2026-08-05T01:00:00Z' },              // 오늘
+    { name: '조준환', lastSeenAt: '2026-07-30T10:00:00Z' },              // 지난주
+    { name: '김윤주' },                                                   // 값 자체가 없음
+  ];
+  const names = (a) => a.map(m => m.name);
+  assert.deepStrictEqual(names(seenToday(M, '노준석', localDate('2026-08-05T09:00:00'))), ['노준석', '강희라']);
+  assert.deepStrictEqual(names(seenToday(M, '', localDate('2026-08-05T09:00:00'))), ['강희라'], '이름이 비면 나를 안 넣는다');
+  assert.deepStrictEqual(seenToday([], '노준석'), [], '빈 목록');
+  assert.deepStrictEqual(seenToday(undefined, '노준석'), [], '인자가 없어도 안전하다');
+
+  // 이번 주 생일 — 실제 값으로
+  const B = [
+    { name: '박지호', birthday: '08-07' }, { name: '조해리', birthday: '08-25' },
+    { name: '노준석', birthday: '05-26' }, { name: '없는사람', birthday: '' },
+    { name: '형식틀림', birthday: '8-7' },
+  ];
+  const r = birthdaysWithin(B, 7, new Date(2026, 7, 5));   // 2026-08-05
+  assert.deepStrictEqual(names(r), ['박지호'], '7일 안은 8월 7일 하나');
+  assert.strictEqual(r[0].inDays, 2);
+  assert.strictEqual(r[0].month, 8);
+  assert.strictEqual(r[0].day, 7);
+  // 오늘이 생일이면 0일
+  assert.strictEqual(birthdaysWithin(B, 7, new Date(2026, 7, 7))[0].inDays, 0, '오늘 생일은 0');
+  // 연말연시를 넘어간다 — 12월 31일에 1월 2일 생일이 보여야 한다(연도를 빌려 비교하므로
+  // 올해 것만 보면 이 줄이 통째로 빠진다. 가장 필요한 순간에 빠지는 실패다)
+  const NY = [{ name: '새해', birthday: '01-02' }];
+  const ny = birthdaysWithin(NY, 7, new Date(2026, 11, 31));
+  assert.deepStrictEqual(names(ny), ['새해'], '12/31에 1/2 생일이 보인다');
+  assert.strictEqual(ny[0].inDays, 2);
+  // 형식이 틀린 값은 조용히 뺀다(체크 제약이 DB에 있지만 옛 행이 섞일 수 있다)
+  assert.ok(!names(birthdaysWithin(B, 400, new Date(2026, 7, 5))).includes('형식틀림'));
+  assert.deepStrictEqual(birthdaysWithin([], 7), [], '빈 목록');
+  assert.deepStrictEqual(birthdaysWithin(undefined, 7), [], '인자가 없어도 안전하다');
+
+  // 새로 온 사람
+  const J = [
+    { name: '강희라', joinedAt: '2026-08-02T10:35:52Z' },
+    { name: '김윤주', joinedAt: '2026-07-26T10:59:33Z' },
+    { name: '값없음' },
+  ];
+  assert.deepStrictEqual(names(joinedWithin(J, 7, '2026-08-05')), ['강희라']);
+  assert.deepStrictEqual(joinedWithin(J, 7, '2026-08-20'), [], '2주 지나면 사라진다');
+  console.log('PASS  사람 칸 14가지');
+}
+
+// ── 가입한 사람 전체 목록 (utils.joinedOrder / daysAgoLabel) ──
+// 머리줄 'N명'을 누르면 열리는 모달이 쓴다. 먼저 온 사람이 위여야 하고, 목록 수가
+// 머리줄 숫자와 **같아야** 한다 — 가입일이 없는 사람을 빼면 눌러 놓고 세어 봤을 때
+// 화면이 서로 다른 말을 한다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'ord-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { joinedOrder, daysAgoLabel, joinedWithin } = await import(pathToFileURL(f).href);
+
+  const M = [
+    { name: '나중', joinedAt: '2026-08-04T00:00:00Z' },
+    { name: '처음', joinedAt: '2026-07-01T00:00:00Z' },
+    { name: '오늘', joinedAt: '2026-08-05T00:00:00Z' },
+    { name: '날짜없음' },
+  ];
+  const o = joinedOrder(M, '2026-08-05');
+  assert.deepStrictEqual(o.map(m => m.name), ['처음', '나중', '오늘', '날짜없음'], '먼저 온 순 · 날짜 없는 사람은 맨 뒤');
+  assert.strictEqual(o.length, M.length, '아무도 빠지지 않는다(머리줄 숫자와 같아야 한다)');
+  assert.strictEqual(o[0].daysAgo, 35);
+  assert.strictEqual(o[2].daysAgo, 0);
+  assert.strictEqual(o[3].daysAgo, null);
+
+  assert.strictEqual(daysAgoLabel(0), '오늘');
+  assert.strictEqual(daysAgoLabel(1), '어제');
+  assert.strictEqual(daysAgoLabel(5), '5일 전');
+  assert.strictEqual(daysAgoLabel(null), '', '날짜를 모르면 빈 문자열 → 화면이 "가입일 모름"으로 받는다');
+
+  // 환영은 사흘만(사용자 판단) — 나흘 전은 빠진다
+  const J = [
+    { name: '사흘', joinedAt: '2026-08-02T00:00:00Z' },
+    { name: '나흘', joinedAt: '2026-08-01T00:00:00Z' },
+  ];
+  assert.deepStrictEqual(joinedWithin(J, 3, '2026-08-05').map(m => m.name), ['사흘']);
+  console.log('PASS  가입 순서·며칠 전 9가지');
+}
+
+// ── 달력에 얹는 생일 (utils.birthdayMap / birthdaysOn) ──
+// 'MM-DD'만 저장하므로 ISO 날짜에서 연도를 떼고 견준다 — 자리를 잘못 자르면 조용히
+// 아무 날에도 안 뜨거나(4자리 어긋남) 엉뚱한 날에 뜬다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'cal-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { birthdayMap, birthdaysOn } = await import(pathToFileURL(f).href);
+
+  const M = [
+    { name: '박지호', birthday: '08-07' },
+    { name: '같은날', birthday: '08-07' },
+    { name: '조해리', birthday: '08-25' },
+    { name: '없음', birthday: '' },
+    { name: '형식틀림', birthday: '8-7' },
+  ];
+  const map = birthdayMap(M);
+  assert.strictEqual(map.size, 2, '형식이 맞는 날짜만 · 같은 날은 한 칸에 모인다');
+  assert.deepStrictEqual(birthdaysOn(map, '2026-08-07').map(m => m.name), ['박지호', '같은날']);
+  assert.deepStrictEqual(birthdaysOn(map, '2030-08-07').map(m => m.name), ['박지호', '같은날'], '연도는 보지 않는다');
+  assert.deepStrictEqual(birthdaysOn(map, '2026-08-06'), [], '다른 날은 비어 있다');
+  // 없을 때는 **언제나 같은 빈 배열** — 매번 새 배열이면 달력이 렌더마다 다시 그려진다
+  assert.strictEqual(birthdaysOn(map, '2026-08-06'), birthdaysOn(map, '2026-09-09'));
+  assert.deepStrictEqual(birthdaysOn(map, ''), []);
+  assert.deepStrictEqual(birthdaysOn(undefined, '2026-08-07'), [], '표가 없어도 안전하다');
+  assert.strictEqual(birthdayMap(undefined).size, 0);
+  console.log('PASS  달력 생일 8가지');
+}

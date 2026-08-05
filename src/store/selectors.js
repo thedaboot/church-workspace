@@ -22,6 +22,11 @@ export function createSelector(dependencies, combiner) {
 export const selectTasks = state => state.tasks;
 export const selectProjects = state => state.projects;
 export const selectCurrentUser = state => state.currentUser;
+// 워크스페이스 멤버(프로필) — 이름·사진·생일·다녀간 시각. 클라우드에서만 채워진다.
+// useSyncExternalStore는 반환값을 ===로 비교하므로 **매번 새 배열을 만들면 안 된다**
+// (`state.members || []`로 두면 게스트 모드에서 렌더마다 새 배열이 되어 무한 루프가 된다).
+const NO_MEMBERS = [];
+export const selectMembers = state => state.members || NO_MEMBERS;
 
 // 파생 데이터 선택자 (Derived Selectors)
 export const selectTasksList = createSelector([selectTasks], (tasks) => tasks.allIds.map(id => tasks.byId[id]));

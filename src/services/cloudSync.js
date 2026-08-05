@@ -168,6 +168,7 @@ export async function notifyComment(text, { actorName, cardId, projectId, replyT
   }
 }
 
+export const touchLastSeen = cloud.touchLastSeen;
 export const savePushSubscription = cloud.savePushSubscription;
 export const deletePushSubscription = cloud.deletePushSubscription;
 export const listMyNotifications = cloud.listMyNotifications;
@@ -300,8 +301,24 @@ export async function loadCloudState() {
         avatarUrl: httpsImage(myProfile.avatar_url || '') }
     : { name: '', team: '', teams: [] };
 
+  // 대시보드가 사람을 세우려면 프로필 목록이 화면까지 와야 한다(0019의 생일·다녀간 시각).
+  // 모듈 캐시(profileIdToName 같은 것)로 두지 않고 스토어에 담는 이유: 모듈 변수는 반응형이
+  // 아니라 값이 바뀌어도 다시 그려지지 않는다 — 그게 §6-21-a의 '알 수 없음'을 만든 구조다.
+  const members = profiles
+    .filter(p => p.display_name)
+    .map(p => ({
+      id: p.id,
+      name: p.display_name,
+      avatarUrl: httpsImage(p.avatar_url || ''),
+      birthday: p.birthday || '',            // 'MM-DD' (연도는 저장하지 않는다)
+      lastSeenAt: p.last_seen_at || '',
+      joinedAt: p.created_at || '',
+      team: p.team_id ? (teamIdToName.get(p.team_id) || '') : '',
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+
   return {
-    state: { currentUser, projects: normalize(projectsApp), tasks: normalize(tasks) },
+    state: { currentUser, members, projects: normalize(projectsApp), tasks: normalize(tasks) },
     profile: myProfile,
   };
 }

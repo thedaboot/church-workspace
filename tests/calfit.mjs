@@ -101,14 +101,28 @@ check('띠가 주 줄 밖으로 잘리지 않는다', side.clipped === 0, `${sid
 
 // 날짜 칸 아래쪽(띠 레인 영역)을 한 번 눌러도 바로 선택이 바뀌는지
 const before = await ev(`[...document.querySelectorAll('main h4')].find(h=>/[0-9]+월 [0-9]+일/.test(h.textContent)).textContent.trim()`);
+// 고정 좌표(둘째 주 수요일)로 누르면 **오늘이 하필 그 칸인 날** 선택이 안 바뀌어서
+// 검사가 스스로 실패한다(2026-08-05에 실제로 그랬다 — §6-42와 같은 시간 함정).
+// 지금 선택된 날짜가 아닌 칸을 골라서 누른다.
 const clicked = await ev(`(() => {
   const main=document.querySelector('main');
-  const weeks=[...main.querySelectorAll('div')].filter(d=>/flex-1 min-h-0 overflow-hidden/.test(d.className||''));
-  const w=weeks[1]; const r=w.getBoundingClientRect();
-  // 두 번째 주 수요일 칸의 아래쪽 1/4 지점
-  const x=r.left + r.width*(3.5/7), y=r.bottom - r.height*0.2;
-  const el=document.elementFromPoint(x,y);
-  return { tag:el?el.tagName:null, isCellBtn: !!(el&&el.tagName==='BUTTON'&&el.getAttribute('aria-label')), x:Math.round(x), y:Math.round(y) };
+  // 목록 제목은 '8월 5일', 칸의 aria-label은 '8. 5.' 꼴이다 → 숫자만 뽑아 견준다
+  const norm = (s) => ((s||'').match(/[0-9]+/g)||[]).slice(0,2).join('-');
+  const now=norm([...main.querySelectorAll('h4')].find(h=>/[0-9]+월 [0-9]+일/.test(h.textContent))?.textContent);
+  const cells=[...main.querySelectorAll('button[aria-label]')]
+    .filter(b=>/^[0-9]+[.] [0-9]+[.]$/.test((b.getAttribute('aria-label')||'').trim()));
+  // 선택된 날이 아닌 칸 중, 아래쪽 1/4 지점이 자기 자신에게 닿는 첫 칸
+  // (띠 레인이 클릭을 먹지 않는지도 같이 보는 검사다 — §6-14)
+  for (const b of cells) {
+    if (norm(b.getAttribute('aria-label')) === now) continue;
+    const r=b.getBoundingClientRect();
+    if (r.width < 10 || r.height < 10) continue;
+    const x=Math.round(r.left + r.width/2), y=Math.round(r.bottom - r.height*0.2);
+    const el=document.elementFromPoint(x,y);
+    if (el && el.tagName==='BUTTON' && el.getAttribute('aria-label'))
+      return { tag:el.tagName, isCellBtn:true, x, y, label:b.getAttribute('aria-label') };
+  }
+  return { tag:null, isCellBtn:false, x:0, y:0, cells:cells.length };
 })()`);
 check('칸 아래쪽도 날짜 버튼이 받는다(한 번에 선택)', clicked.isCellBtn === true, JSON.stringify(clicked));
 await send('Input.dispatchMouseEvent',{type:'mousePressed',x:clicked.x,y:clicked.y,button:'left',clickCount:1});

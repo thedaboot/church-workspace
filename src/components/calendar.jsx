@@ -3,6 +3,10 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { CONFIG, teamPaint, teamColor } from '../config.js';
 import { STATUS_BAR, STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useStore } from '../store/workspaceStore.js';
+import { selectMembers } from '../store/selectors.js';
+import { birthdayMap, birthdaysOn } from '../utils.js';
+import { Avatar } from './Avatar.jsx';
 
 // ============================================================================
 // 프로젝트 캘린더 (보드와 나란히 놓이는 또 하나의 보기)
@@ -76,6 +80,11 @@ function layoutWeek(weekStart, tasks, laneCount = CAL_LANES) {
 // 띠를 날짜 위에 절대 배치로 얹으면 날짜가 가려지고 다음 주로 넘친다(핸드오프 경고).
 export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
   const isMobile = useIsMobile();
+  // 생일도 달력에 얹는다(0019). 업무가 아니므로 건수에 세지 않고 띠 레인도 쓰지 않는다 —
+  // 날짜 숫자 옆의 작은 얼굴과, 그 날 목록의 첫 줄로만 나온다. 그래야 "업무가 없는 날"이
+  // 통째로 비어 보이지 않고, 띠 줄 수(CAL_LANES=2)를 생일이 잡아먹지도 않는다.
+  const members = useStore(selectMembers);
+  const bdays = React.useMemo(() => birthdayMap(members), [members]);
   const todayIso = isoOf(new Date());
   const [view, setView] = React.useState(() => {
     const d = new Date();
@@ -189,6 +198,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
           <MobileCalendar
             weekStarts={weekStarts} month={view.m} todayIso={todayIso} selected={selected} setSelected={setSelected}
             dayTasks={dayTasks} selectedList={selectedList} onTaskClick={onTaskClick}
+            bdays={bdays}
           />
         </>
       ) : (
@@ -225,10 +235,23 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
                 {Array.from({ length: 7 }, (_, i) => {
                   const iso = addDays(ws, i);
                   const inMonth = Number(iso.slice(5, 7)) === view.m + 1;
+                  // 생일은 날짜 숫자 **옆**에 작은 얼굴로. 띠 레인에 넣지 않는 이유는
+                  // 레인이 두 줄뿐이라(CAL_LANES) 생일이 업무 띠를 밀어내기 때문이다.
+                  const bl = birthdaysOn(bdays, iso);
                   return (
-                    <span key={iso} className="px-1.5 text-[10.5px] font-semibold tabular-nums"
-                      style={{ color: inMonth ? 'var(--app-ink-muted)' : 'var(--app-ink-faint)' }}>
-                      {Number(iso.slice(8, 10))}
+                    <span key={iso} className="px-1.5 flex items-center gap-1 min-w-0">
+                      <span className="text-[10.5px] font-semibold tabular-nums shrink-0"
+                        style={{ color: inMonth ? 'var(--app-ink-muted)' : 'var(--app-ink-faint)' }}>
+                        {Number(iso.slice(8, 10))}
+                      </span>
+                      {bl.slice(0, 2).map(p => (
+                        <Avatar key={p.id || p.name} name={p.name} url={p.avatarUrl}
+                          title={`${p.name}님 생일`}
+                          className="flex w-[14px] h-[14px] text-[8px] -ml-[3px] first:ml-0 ring-1 ring-surface" />
+                      ))}
+                      {bl.length > 2 && (
+                        <span className="text-[9px] text-fg-faint tabular-nums leading-none">+{bl.length - 2}</span>
+                      )}
                     </span>
                   );
                 })}
@@ -263,7 +286,8 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
         </div>
         {/* 고른 날의 목록 — 좁은 칸에서 못 읽는 제목·팀·기간을 여기서 읽는다 */}
         <div className="w-[300px] shrink-0 min-h-0 overflow-y-auto">
-          <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick} tight />
+          <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick} tight
+            birthdays={birthdaysOn(bdays, selected)} />
         </div>
         </div>
       )}
@@ -291,7 +315,7 @@ function CalBar({ bar, onClick }) {
 }
 
 // 모바일 캘린더 — 52px 고정 칸에 팀 색 점만 찍고, 날짜를 누르면 아래에 그날 목록
-function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, dayTasks, selectedList, onTaskClick }) {
+function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, dayTasks, selectedList, onTaskClick, bdays }) {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
       <div className="grid grid-cols-7 rounded-[10px] overflow-hidden shadow-soft"
@@ -302,6 +326,7 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
           const isToday = iso === todayIso;
           const isSel = iso === selected;
           const list = dayTasks(iso);
+          const bl = birthdaysOn(bdays, iso);
           return (
             <button key={iso} onClick={() => setSelected(iso)}
               className="flex flex-col items-center pt-1.5 gap-1 transition-colors"
@@ -310,8 +335,17 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
                   : inMonth ? 'var(--app-surface)' : 'var(--app-canvas)',
                 boxShadow: isSel && !isToday ? 'inset 0 0 0 1.5px var(--app-accent)' : 'none',
               }}>
-              <span className="text-[11px] font-semibold tabular-nums"
-                style={{ color: inMonth ? 'var(--app-ink-muted)' : 'var(--app-ink-faint)' }}>{Number(iso.slice(8, 10))}</span>
+              {/* 날짜 숫자 + 생일 얼굴. 52px 칸이라 한 명까지만 그리고 나머지는 +N —
+                  칸을 넘기면 아래 점(업무)이 밀려 내려간다 */}
+              <span className="flex items-center justify-center gap-[3px] min-w-0 px-0.5">
+                <span className="text-[11px] font-semibold tabular-nums shrink-0"
+                  style={{ color: inMonth ? 'var(--app-ink-muted)' : 'var(--app-ink-faint)' }}>{Number(iso.slice(8, 10))}</span>
+                {bl.slice(0, 1).map(p => (
+                  <Avatar key={p.id || p.name} name={p.name} url={p.avatarUrl}
+                    className="flex w-[13px] h-[13px] text-[7.5px]" />
+                ))}
+                {bl.length > 1 && <span className="text-[8px] text-fg-faint leading-none tabular-nums">+{bl.length - 1}</span>}
+              </span>
               <span className="flex items-center justify-center gap-[3px] flex-wrap px-1">
                 {list.slice(0, 3).map(t => (
                   <span key={t.id} className="w-[5px] h-[5px] rounded-full" style={{ background: teamColor(t.teams?.[0]) }} />
@@ -322,13 +356,14 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
           );
         }))}
       </div>
-      <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick} />
+      <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick}
+        birthdays={birthdaysOn(bdays, selected)} />
     </div>
   );
 }
 
 // 선택한 날의 목록 — 팀 레일 + 제목 + 팀·담당자·기간 + 상태 칩
-function DaySheet({ iso, list, onTaskClick, tight = false }) {
+function DaySheet({ iso, list, onTaskClick, tight = false, birthdays = [] }) {
   return (
     <div className={`${tight ? '' : 'pt-3'} shrink-0`}>
       <div className="flex items-center gap-2 pb-2">
@@ -336,8 +371,20 @@ function DaySheet({ iso, list, onTaskClick, tight = false }) {
         <span className="text-[11px] text-fg-faint tabular-nums">{list.length}건</span>
         <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
       </div>
+      {/* 생일 줄이 먼저. 업무가 아니라 건수에 세지 않는다 — 대신 이 줄이 있으면
+          '업무가 없어요'만 남는 빈 날이 사라진다(사용자 지적) */}
+      {birthdays.map(p => (
+        <div key={p.id || p.name} className="flex items-center gap-2.5 py-2">
+          <Avatar name={p.name} url={p.avatarUrl} className="flex w-7 h-7 text-xs" />
+          <span className="text-[13px] text-fg min-w-0 truncate">
+            <span className="font-semibold">{p.name}</span>님 생일이에요
+          </span>
+        </div>
+      ))}
       {list.length === 0
-        ? <p className="py-4 text-center text-[11px] text-fg-faint">해당 날짜에는 업무가 없어요</p>
+        ? (birthdays.length
+            ? null
+            : <p className="py-4 text-center text-[11px] text-fg-faint">해당 날짜에는 업무가 없어요</p>)
         : list.map((t, i) => {
           const s = spanOf(t);
           return (

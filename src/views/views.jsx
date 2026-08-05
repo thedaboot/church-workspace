@@ -2,16 +2,16 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, ChevronDown, Check, X, Trash2, Pencil } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
-import { generateId, groupBy, myScope } from '../utils.js';
+import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, joinedOrder } from '../utils.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsMap, selectActiveProjectsList, selectMyTasks,
-  selectDashboardStats, selectTasksList
+  selectDashboardStats, selectTasksList, selectMembers
 } from '../store/selectors.js';
 import {
   ISO_TODAY, daysLeft, ageDays, groupByDue, KpiCell, Bar, StatusSegments,
-  DueGroupList, TeamLeftGrid, PersonLoadGrid, personLoad, SectionHead, Card,
+  DueGroupList, TeamLeftGrid, PersonLoadGrid, personLoad, SectionHead, Card, PeopleStrip, MembersModal,
   STATUS_DOT_VAR, STATUS_BAR,
 } from './dashboardParts.jsx';
 import { Board } from '../components/boards.jsx';
@@ -72,6 +72,17 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
 
   // 청년별 남은 업무 — 담당자별 집계. 팀별과 같은 기준(필터와 무관한 전체)으로 센다
   const people = useMemo(() => personLoad(open, today), [open, today]);
+
+  // 사람 칸 (0019) — 오늘 다녀간 사람 · 이번 주 생일 · 새로 온 사람.
+  // 세 줄 다 필터와 무관하다: 사람은 업무 필터의 대상이 아니다(인사말과 같은 판단, §6-31).
+  const members = useStore(selectMembers);
+  const seenTodayList = useMemo(() => seenToday(members, myName), [members, myName]);
+  // 생일은 일주일 전부터, 환영은 사흘만 — 인사가 오래 걸려 있으면 낡는다(사용자 판단)
+  const birthdayList = useMemo(() => birthdaysWithin(members, 7), [members]);
+  const joinedList = useMemo(() => joinedWithin(members, 3), [members]);
+  // 머리줄의 'N명'을 누르면 열리는 전체 목록. 먼저 온 순서로 정렬해 둔다
+  const [membersOpen, setMembersOpen] = useState(false);
+  const memberOrder = useMemo(() => joinedOrder(members), [members]);
 
   // 프로젝트별 상태 분포 — 4색 세그먼트 바.
   // 프로젝트마다 목록 전체를 다시 훑지 않도록 한 번 묶고(groupBy) 한 번만 센다.
@@ -204,7 +215,22 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
           onComplete={complete} onOpen={onTaskClick}
           emptyHint={filter === '전체' ? '새 업무가 들어오면 여기에 쌓여요' : '다른 탭에는 아직 남은 업무가 있어요'}
         />
-        <div className="min-w-0 flex flex-col gap-[22px]">
+        {/* lg 미만에서는 감싸개를 지워 안쪽 칸이 직접 그리드 칸이 된다 — 그래야 사람 칸만
+            따로 맨 위로 올릴 수 있다(§6-3처럼 컴포넌트를 두 벌 두지 않는 방법).
+            1열로 쌓이면 이 칸이 업무 목록 **전부 아래**로 내려가서, 사람이 먼저 보이라고
+            만든 칸을 아무도 보지 못한다. */}
+        <div className="contents lg:flex lg:flex-col lg:min-w-0 lg:gap-[22px]">
+          {/* 사람이 먼저다. 멤버가 없으면(게스트 모드) 아무것도 안 그린다 */}
+          <div className="order-first lg:order-none min-w-0">
+            <PeopleStrip
+              members={members} myName={myName}
+              seen={seenTodayList} birthdays={birthdayList} joined={joinedList}
+              onOpenMembers={() => setMembersOpen(true)}
+            />
+            {membersOpen && (
+              <MembersModal members={memberOrder} myName={myName} onClose={() => setMembersOpen(false)} />
+            )}
+          </div>
           <Card className="px-4 pt-[15px] pb-[3px]">
             <div className="flex items-baseline justify-between pb-3">
               <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 진행</h3>

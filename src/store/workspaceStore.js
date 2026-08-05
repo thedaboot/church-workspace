@@ -169,6 +169,7 @@ export class WorkspaceStore {
 // 빈 워크스페이스 (클라우드 모드 초기값 — 스테일 로컬/Mock 노출 방지)
 export const emptyWorkspace = () => ({
   currentUser: { name: '', team: '' },
+  members: [],                       // 클라우드 로드에서만 채워진다(게스트 모드는 빈 배열)
   projects: { byId: {}, allIds: [] },
   tasks: { byId: {}, allIds: [] },
 });

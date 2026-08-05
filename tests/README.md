@@ -20,7 +20,7 @@ CHROME=/path/to/chrome npm run verify   # 크롬 경로가 다를 때
 
 | 파일 | 보는 것 |
 |---|---|
-| `logcheck` `mdcheck` | 활동 기록 · 하위 업무 진척 · 인사말이 세는 범위(`utils.myScope`) · 프로필 사진 주소 https 승격(`utils.httpsImage`) · 마크다운 라운드트립 (브라우저 없이 순수 로직) |
+| `logcheck` `mdcheck` | 활동 기록 · 하위 업무 진척 · 인사말이 세는 범위(`utils.myScope`) · 프로필 사진 주소 https 승격(`utils.httpsImage`) · 대시보드 사람 칸(다녀간·생일·합류·가입 순서) · 달력 생일 · 마크다운 라운드트립 (브라우저 없이 순수 로직) |
 | `push` | 알림 문구(앱·푸시 공용) · 마감 임박 배치의 KST 날짜 · 딥링크 · `insert`에 `.select()`가 붙지 않았는지 · 이전에 없던 담당자만 · 본인 제외 · 0017의 체크 제약 ↔ INSERT 정책 짝 · 크론 설정 · `sw.js`. 브라우저 없이 돈다 |
 | `assignees` | 담당자 ↔ 프로필 id 변환 (읽기: 조인·폴백·빈 값 / 쓰기: 신규·수정·미등록). `cloud.js`를 가짜로 바꿔치고 `cloudSync`만 노드에서 돌린다 — 게스트 모드로는 볼 수 없는 경로다 |
 | `aictx` | AI 프롬프트에 실리는 주변 업무 컨텍스트 |
