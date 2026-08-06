@@ -649,16 +649,21 @@ const NM_DESK = {
                              // 넓으면 가운데 정렬된 글자와 양끝 점 사이가 떠서 끊겨 보인다
   J_X: 462, J_W: 170,        // 프로젝트 열
 };
-const NM_MOBILE = {
-  W: 296, ROW: 26, HEAD: 24, PAD: 8, AV: 15, FONT: 10,
-  P_X: 0, P_W: 92,
-  T_X: 118, T_W: 58,
-  J_X: 198, J_W: 98,
+// 모바일 좌표는 화면 폭에서 계산한다. 296px 고정으로 두었더니 남는 폭이 양옆 여백으로
+// 죽고 곡선 구간이 26px뿐이라 답답했다(사용자 지적) — 글자 열(사람·팀·프로젝트)은 딱
+// 필요한 폭만 갖고, 남는 것은 전부 **선 구간**에 준다.
+const nmMobile = () => {
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 375;
+  const W = Math.min(420, vw - 40);          // 카드 패딩을 -mx-2로 물고 남는 실제 폭
+  const P_W = 80, T_W = 58, J_W = 100;
+  const J_X = W - J_W;
+  const T_X = Math.round((P_W + J_X) / 2 - T_W / 2);
+  return { W, ROW: 26, HEAD: 24, PAD: 8, AV: 15, FONT: 10, P_X: 0, P_W, T_X, T_W, J_X, J_W };
 };
 
 export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpenTeam, onOpenProject }) {
   const compact = useIsMobile();
-  const NM = compact ? NM_MOBILE : NM_DESK;
+  const NM = compact ? nmMobile() : NM_DESK;
   const rows = Math.max(members.length, teamsInUse.length, projects.length, 1);
   const H = NM.HEAD + rows * NM.ROW + NM.PAD;
   // 열 안 y 좌표 — 항목 수가 다른 열은 세로 가운데에 모은다(짧은 열이 위에 몰리면 선이 죄다 위로 쏠린다)
@@ -682,8 +687,9 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
       <div className="pb-2.5">
         <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 연결 지도</h3>
       </div>
-      {/* 좁으면 가로 스크롤 — 축소하면 10px 글자가 5px가 되어 아무도 못 읽는다 */}
-      <div className="overflow-x-auto scrollbar-hide">
+      {/* 좁으면 가로 스크롤(안전망) — 축소하면 10px 글자가 5px가 되어 아무도 못 읽는다.
+          모바일은 카드 패딩을 -mx-2로 살짝 물어 그만큼을 선 구간에 보탠다 */}
+      <div className={compact ? 'overflow-x-auto scrollbar-hide -mx-2' : 'overflow-x-auto scrollbar-hide'}>
         {/* 전폭 카드 안에서는 가운데로 — 640px 그림이 왼쪽에 몰리면 오른쪽이 통째로 빈다 */}
         <div className="relative mx-auto" style={{ width: NM.W, height: H }}>
           <svg className="absolute inset-0 pointer-events-none" width={NM.W} height={H} aria-hidden>
