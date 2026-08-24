@@ -28,6 +28,28 @@ import { isMobileViewport, keepVisible } from '../utils.js';
 // ============================================================================
 const MAX_SUGGESTIONS = 6;
 
+// 본문 이미지는 화면 표시용이라 올리기 전에 줄인다 — 폰 사진 원본(수 MB)을 그대로 두면
+// 그 카드를 여는 모두가 매번 그 크기를 내려받는다(아바타 squareThumb과 같은 판단,
+// Storage Egress의 큰 몫). 긴 변 1600px·jpeg 0.82. 더 작거나 실패하면 원본 그대로.
+// gif는 줄이면 애니메이션이 죽어서 건드리지 않는다. 원본이 필요한 파일은 첨부로 올린다.
+async function downscaleImage(file, maxDim = 1600) {
+  if (!(file.type || '').startsWith('image/') || file.type === 'image/gif') return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = maxDim / Math.max(bmp.width, bmp.height);
+    if (scale >= 1) return file;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.82));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], (file.name || 'image').replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch {
+    return file;
+  }
+}
+
 export function MarkdownEditor({ value, onChange, members = [], cloudMode = false, placeholder, className = '' }) {
   const lastEmitted = useRef(value ?? '');
   const editorRef = useRef(null);
@@ -76,7 +98,7 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
   const uploadImage = useCallback(async (file) => {
     setUploading(true);
     try {
-      const url = await uploadContentImage(file);
+      const url = await uploadContentImage(await downscaleImage(file));
       editorRef.current?.chain().focus().setImage({ src: url }).run();
     } catch (e) {
       console.error('[cloud] 본문 이미지 업로드 실패:', e);

@@ -316,9 +316,25 @@ export async function uploadContentImage(file) {
 }
 
 // 1시간 유효 서명 URL (private 버킷이라 직접 URL 불가)
+//
+// **같은 파일은 같은 URL을 다시 쓴다(50분).** 매번 새로 발급하면 토큰이 달라서 주소가
+// 바뀌고, 브라우저 캐시가 통째로 빗나가 같은 이미지를 열 때마다 다시 내려받았다 —
+// 업무 창을 여닫을 때마다 첨부 썸네일 전체가 다시 왔다(Storage Egress의 큰 몫).
+// 탭이 살아 있는 동안만 유효한 메모리 캐시라 권한 회수 걱정은 만료(1시간)와 같다.
+const SIGNED_TTL_S = 3600;
+const SIGNED_REUSE_MS = 50 * 60 * 1000;
+const signedUrlCache = new Map(); // storagePath → { url, at }
+const cachedSigned = (path) => {
+  const hit = signedUrlCache.get(path);
+  return hit && Date.now() - hit.at < SIGNED_REUSE_MS ? hit.url : null;
+};
+
 export async function getAttachmentUrl(storagePath) {
-  const { data, error } = await client().storage.from(ATTACH_BUCKET).createSignedUrl(storagePath, 3600);
+  const hit = cachedSigned(storagePath);
+  if (hit) return hit;
+  const { data, error } = await client().storage.from(ATTACH_BUCKET).createSignedUrl(storagePath, SIGNED_TTL_S);
   if (error) throw error;
+  signedUrlCache.set(storagePath, { url: data.signedUrl, at: Date.now() });
   return data.signedUrl;
 }
 
@@ -336,13 +352,23 @@ export async function getFileOpenUrl(row) {
 
 // 복수 서명 URL 일괄 발급 → { [storagePath]: signedUrl }
 // (행마다 개별 요청하면 모바일에서 요청 폭주로 느려지므로 한 번에 받는다)
+// 캐시에 있는 것은 빼고 발급한다 — 위 getAttachmentUrl과 같은 이유(브라우저 캐시 유지).
 export async function getAttachmentUrls(storagePaths = []) {
-  const paths = storagePaths.filter(Boolean);
-  if (!paths.length) return {};
-  const { data, error } = await client().storage.from(ATTACH_BUCKET).createSignedUrls(paths, 3600);
-  if (error) throw error;
   const map = {};
-  (data || []).forEach(d => { if (d?.path && d.signedUrl) map[d.path] = d.signedUrl; });
+  const need = [];
+  for (const p of storagePaths.filter(Boolean)) {
+    const hit = cachedSigned(p);
+    if (hit) map[p] = hit; else need.push(p);
+  }
+  if (!need.length) return map;
+  const { data, error } = await client().storage.from(ATTACH_BUCKET).createSignedUrls(need, SIGNED_TTL_S);
+  if (error) throw error;
+  (data || []).forEach(d => {
+    if (d?.path && d.signedUrl) {
+      map[d.path] = d.signedUrl;
+      signedUrlCache.set(d.path, { url: d.signedUrl, at: Date.now() });
+    }
+  });
   return map;
 }
 
