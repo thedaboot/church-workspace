@@ -78,7 +78,9 @@ function layoutWeek(weekStart, tasks, laneCount = CAL_LANES) {
 // 주 단위 행 구조: 각 주가 flex:1 / min-height:0 / overflow:hidden 이고,
 // 행 안은 ① 배경 셀 7칸(클릭 타깃) ② 날짜 숫자 줄 ③ 띠 레인 순서의 세로 흐름이다.
 // 띠를 날짜 위에 절대 배치로 얹으면 날짜가 가려지고 다음 주로 넘친다(핸드오프 경고).
-export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
+// onNewTask(iso)는 프로젝트 캘린더만 넘긴다 — 전체 일정에는 "어느 프로젝트에 만들지"가
+// 없어서 버튼을 두지 않는다(ScheduleView는 이 prop을 넘기지 않는다).
+export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
   const isMobile = useIsMobile();
   // 생일도 달력에 얹는다(0019). 업무가 아니므로 건수에 세지 않고 띠 레인도 쓰지 않는다 —
   // 날짜 숫자 옆의 작은 얼굴과, 그 날 목록의 첫 줄로만 나온다. 그래야 "업무가 없는 날"이
@@ -113,7 +115,10 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
     if (!el || isMobile) return;
     const calc = () => {
       const rowH = el.clientHeight / weekCount;
-      const DATE = 22, PAD = 8, OVER = 14, LANE = 21;  // 날짜 줄 / 여백 / +N건 줄 / 띠(18)+간격(3)
+      // 날짜 줄 / 레인 위아래 여백(pt-1 + pb-0.5 = 6) / +N건 줄(10px leading-none + 2) / 띠(18)+간격(3)
+      // 이 상수들은 아래 CSS와 한 쌍이다 — 실제보다 작게 잡으면 +N건이 줄 바닥에서 잘린다
+      // (실제로 잘렸다: OVER를 14로 두고 +N건 줄은 15px를 차지했다).
+      const DATE = 22, PAD = 6, OVER = 12, LANE = 21;
       setLaneFit(Math.max(1, Math.min(CAL_LANES, Math.floor((rowH - DATE - PAD - OVER) / LANE))));
     };
     calc();
@@ -198,7 +203,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
           <MobileCalendar
             weekStarts={weekStarts} month={view.m} todayIso={todayIso} selected={selected} setSelected={setSelected}
             dayTasks={dayTasks} selectedList={selectedList} onTaskClick={onTaskClick}
-            bdays={bdays}
+            bdays={bdays} onNewTask={onNewTask}
           />
         </>
       ) : (
@@ -262,7 +267,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
               {/* ③ 띠 레인 — 레인 영역 자체는 클릭을 통과시킨다.
                   안 그러면 칸의 아래 절반이 이 div에 먹혀서 날짜가 한 번에 안 눌렸다.
                   띠와 '+N건'만 다시 클릭을 받는다. */}
-              <div className="relative flex-1 min-h-0 flex flex-col gap-[3px] pt-1 pb-1 pointer-events-none">
+              <div className="relative flex-1 min-h-0 flex flex-col gap-[3px] pt-1 pb-0.5 pointer-events-none">
                 {Array.from({ length: laneFit }, (_, li) => (
                   <div key={li} className="grid grid-cols-7 shrink-0" style={{ gap: 1 }}>
                     {(lanes[li] || []).map(bar => (
@@ -271,12 +276,14 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
                   </div>
                 ))}
                 {overflowByCol.some(Boolean) && (
-                  <div className="grid grid-cols-7 shrink-0" style={{ gap: 1 }}>
+                  // leading-none + 고정 높이 — 글자 줄 높이(15px)가 laneFit 계산의 예약분을
+                  // 넘어서 +N건이 줄 바닥에 반쯤 잘려 보였다. 계산 상수(OVER)와 한 쌍.
+                  <div className="grid grid-cols-7 shrink-0 h-[12px]" style={{ gap: 1 }}>
                     {overflowByCol.map((n, i) => (
                       <span key={i} className="px-1.5">
                         {n > 0 && (
                           <button onClick={() => setSelected(addDays(ws, i))}
-                            className="pointer-events-auto text-[10px] font-semibold text-fg-faint hover:text-fg-muted transition-colors">+{n}건</button>
+                            className="pointer-events-auto block text-[10px] leading-none font-semibold text-fg-faint hover:text-fg-muted transition-colors">+{n}건</button>
                         )}
                       </span>
                     ))}
@@ -290,7 +297,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick }) => {
         {/* 고른 날의 목록 — 좁은 칸에서 못 읽는 제목·팀·기간을 여기서 읽는다 */}
         <div className="w-[300px] shrink-0 min-h-0 overflow-y-auto">
           <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick} tight
-            birthdays={birthdaysOn(bdays, selected)} />
+            birthdays={birthdaysOn(bdays, selected)} onNewTask={onNewTask} />
         </div>
         </div>
       )}
@@ -318,7 +325,7 @@ function CalBar({ bar, onClick }) {
 }
 
 // 모바일 캘린더 — 52px 고정 칸에 팀 색 점만 찍고, 날짜를 누르면 아래에 그날 목록
-function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, dayTasks, selectedList, onTaskClick, bdays }) {
+function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, dayTasks, selectedList, onTaskClick, bdays, onNewTask }) {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
       <div className="grid grid-cols-7 rounded-[10px] overflow-hidden shadow-soft"
@@ -360,19 +367,27 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
         }))}
       </div>
       <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick}
-        birthdays={birthdaysOn(bdays, selected)} />
+        birthdays={birthdaysOn(bdays, selected)} onNewTask={onNewTask} />
     </div>
   );
 }
 
 // 선택한 날의 목록 — 팀 레일 + 제목 + 팀·담당자·기간 + 상태 칩
-function DaySheet({ iso, list, onTaskClick, tight = false, birthdays = [] }) {
+function DaySheet({ iso, list, onTaskClick, tight = false, birthdays = [], onNewTask }) {
   return (
     <div className={`${tight ? '' : 'pt-3'} shrink-0`}>
       <div className="flex items-center gap-2 pb-2">
         <h4 className="text-[12.5px] font-bold text-fg">{Number(iso.slice(5, 7))}월 {Number(iso.slice(8, 10))}일</h4>
         <span className="text-[11px] text-fg-faint tabular-nums">{list.length}건</span>
         <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
+        {/* 고른 날짜가 마감일로 들어간 새 업무 창을 연다 — 달력에서 날짜를 이미 골랐는데
+            헤더의 '새 업무'로 가면 마감일을 다시 고르게 된다 */}
+        {onNewTask && (
+          <button type="button" onClick={() => onNewTask(iso)}
+            className="shrink-0 text-[11px] font-semibold text-accent-text hover:underline transition active:scale-95">
+            + 새 업무
+          </button>
+        )}
       </div>
       {/* 생일 줄이 먼저. 업무가 아니라 건수에 세지 않는다 — 대신 이 줄이 있으면
           '업무가 없어요'만 남는 빈 날이 사라진다(사용자 지적) */}

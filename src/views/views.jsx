@@ -602,7 +602,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
 
       <div className="flex-1 min-h-0">
         {viewMode === 'kanban' && <Board tasks={filteredTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} />}
-        {viewMode === 'calendar' && <CalendarBoard tasks={filteredTasks} onTaskClick={onTaskClick} />}
+        {viewMode === 'calendar' && <CalendarBoard tasks={filteredTasks} onTaskClick={onTaskClick} onNewTask={onNewTask} />}
         {/* 그래프(0020): 선후관계. 필터를 그대로 물려받는다 — 팀을 고르면 그 팀 순서만 남는다 */}
         {viewMode === 'graph' && <DepGraph tasks={filteredTasks} onTaskClick={onTaskClick} />}
       </div>
