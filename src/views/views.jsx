@@ -319,7 +319,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
 export const ProjectView = React.memo(function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask, onNavigate, onRenameProject, viewMode, setViewMode }) {
   const projectsMap = useStore(selectProjectsMap);
   const tasksList = useStore(selectTasksList);
-  const { isAdmin, enabled, session } = useAuth();
+  const { enabled, session } = useAuth();
   const cloudOn = enabled && !!session;
   // 특정 프로젝트의 Task만 필터링 (해당 View 내부에서만 필요한 연산)
   const projectTasks = useMemo(() => tasksList.filter(t => t.projectId === projectId), [tasksList, projectId]);
@@ -414,11 +414,13 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   ].join(' · ');
 
   const shareBtn = <ShareButton url={`${window.location.origin}/s/p/${project.id}`} what="프로젝트" />;
-  const deleteBtn = isAdmin ? (
+  // 삭제는 전원에게 연다(사용자 결정 2026-08-24, RLS도 0021에서 같이 열었다).
+  // 확인 팝오버는 그대로 — 프로젝트 삭제는 안의 업무까지 사라지는 되돌릴 수 없는 일이다.
+  const deleteBtn = (
     <ConfirmPopover message="프로젝트와 안의 모든 업무가 삭제돼요. 되돌릴 수 없어요." onConfirm={deleteProject}>
       <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95 shrink-0" title="프로젝트 삭제"><Trash2 size={16} /></button>
     </ConfirmPopover>
-  ) : null;
+  );
 
   return (
     <div className="dc-screen h-full flex flex-col min-w-0">
