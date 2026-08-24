@@ -430,8 +430,10 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
           {suggestions.map((name, i) => (
             <button key={name} type="button" onMouseDown={e => { e.preventDefault(); add(name); }}
               // 방향키로 목록 밖까지 내려가도 활성 항목이 보이게
+              // text-[13px]: 다른 메뉴(더보기·프로필)와 같은 크기 — text-sm(14px)은 12px
+              // 입력칸 옆에서 혼자 커 보였다(실제 지적)
               ref={i === activeIdx ? keepVisible : null}
-              className={`w-full flex items-center gap-2 px-2 py-2 rounded-md text-left text-sm transition-colors ${i === activeIdx ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:bg-surface-hover'}`}>
+              className={`w-full flex items-center gap-2 px-2 py-2 rounded-md text-left text-[13px] transition-colors ${i === activeIdx ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:bg-surface-hover'}`}>
               <span className="truncate">{name}</span>
             </button>
           ))}
@@ -789,7 +791,9 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
           </button>
         </div>
       )}
-      <div className="prose prose-sm max-w-none mt-3 min-h-[120px]">
+      {/* text-sm: RichText는 크기를 강제하지 않는다(댓글·요약은 12px로 써야 해서) —
+          본문의 기준 크기는 이 래퍼가 준다 */}
+      <div className="prose prose-sm max-w-none mt-3 min-h-[120px] text-sm">
         <RichText content={formData.content} onToggleTodo={onTodoToggle} />
       </div>
 

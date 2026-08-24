@@ -125,9 +125,11 @@ export function ProfileModal({ onClose, onSave }) {
         )}
 
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">이름</label>
+        {/* text-[13px]: 업무 창의 입력칸들(하위 업무·링크 13px)과 같은 크기 —
+            text-sm(14px)은 12px 라벨 옆에서 입력만 커 보였다(실제 지적) */}
         <input
           type="text" value={name} onChange={e => setName(e.target.value)}
-          className="w-full border border-line rounded-xs p-2 mb-4 text-sm bg-surface text-fg focus:ring-2 focus:ring-accent outline-none"
+          className="w-full border border-line rounded-xs p-2 mb-4 text-[13px] bg-surface text-fg focus:ring-2 focus:ring-accent outline-none"
         />
 
         {/* 한 사람이 두 팀 이상에 속하는 일이 흔하다(예: 찬양팀 + 임원진) → 다중 선택.
@@ -215,7 +217,7 @@ export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
         <input
           type="text" value={title} onChange={e => setTitle(e.target.value)}
           placeholder="예: 2026 하계 수련회"
-          className="w-full border border-line p-2.5 rounded-xs mb-6 text-sm bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none"
+          className="w-full border border-line p-2.5 rounded-xs mb-6 text-[13px] bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none"
           autoFocus
           onKeyDown={e => { if (e.key === 'Enter') submit(); }}
         />

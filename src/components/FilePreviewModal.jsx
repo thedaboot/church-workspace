@@ -149,7 +149,7 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
       if (text === null) return <Skeleton className="w-full h-full" />;
       const isMd = ['md', 'markdown'].includes(extOf(row.name));
       return (
-        <div className="w-full h-full max-w-3xl mx-auto bg-surface border border-line rounded-md p-4 overflow-auto">
+        <div className="w-full h-full max-w-3xl mx-auto bg-surface border border-line rounded-md p-4 overflow-auto text-sm">
           {isMd
             ? <RichText content={text} />
             : <pre className="text-xs text-fg-secondary whitespace-pre-wrap break-words font-mono leading-relaxed">{text}</pre>}

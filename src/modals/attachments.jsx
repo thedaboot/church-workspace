@@ -115,6 +115,10 @@ function InlineSheet({ row }) {
   const [err, setErr] = useState(null);
   const [ready, setReady] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
+  // '크게 보기' — 기본 높이는 업무 창 스크롤을 다 잡아먹지 않는 선(420px)이고,
+  // 표를 제대로 볼 때는 화면 높이 75%까지 늘린다. 버튼 토글이라 모바일에서도 된다
+  // (CSS resize 핸들은 터치에서 안 잡히고, 밀어야 나오는 조작은 §8에 걸린다).
+  const [tall, setTall] = useState(false);
   const settleRef = useRef(null);
   useEffect(() => {
     let alive = true;
@@ -133,7 +137,7 @@ function InlineSheet({ row }) {
   if (timedOut && !ready) return <p className="text-[11px] text-fg-faint py-2">미리보기가 응답하지 않아요 · 눈 모양(미리보기)으로 열어보세요</p>;
   return (
     <div className="pb-2">
-      <div className="relative w-full h-[320px] md:h-[420px]">
+      <div className={`relative w-full ${tall ? 'h-[75dvh]' : 'h-[320px] md:h-[420px]'}`}>
         {!ready && <PreparingFrame absolute />}
         {url && (
           <iframe
@@ -144,7 +148,13 @@ function InlineSheet({ row }) {
           />
         )}
       </div>
-      <p className="text-[10px] text-fg-faint mt-1">마이크로소프트 오피스 미리보기로 표시해요</p>
+      <div className="flex items-center justify-between gap-2 mt-1">
+        <p className="text-[10px] text-fg-faint min-w-0 truncate">마이크로소프트 오피스 미리보기로 표시해요</p>
+        <button type="button" onClick={() => setTall(t => !t)}
+          className="shrink-0 text-[10px] font-semibold text-accent-text hover:underline transition active:scale-95">
+          {tall ? '원래 높이로' : '크게 보기'}
+        </button>
+      </div>
     </div>
   );
 }

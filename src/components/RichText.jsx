@@ -125,7 +125,7 @@ export const RichText = React.memo(({ content, onToggleTodo }) => {
             return (
               <div key={block.key} className="mb-1 space-y-1">
                 {block.items.map(it => (
-                  <div key={it.key} className="flex items-start gap-2 text-sm leading-relaxed">
+                  <div key={it.key} className="flex items-start gap-2 leading-relaxed">
                     {/* 하위 업무 체크박스와 같은 표기(초록 채움 + 흰 체크) — 같은 뜻은 같은 모양 */}
                     <button
                       type="button" disabled={!onToggleTodo}
@@ -149,14 +149,17 @@ export const RichText = React.memo(({ content, onToggleTodo }) => {
             const Tag = `h${block.level}`;
             return <Tag key={block.key} className={HEADING_CLS[block.level]}>{renderInline(block.value, block.key)}</Tag>;
           }
+          // 글자 크기는 호출부가 정한다 — 여기서 text-sm을 박아 두면 댓글(11px 이름 옆),
+          // 요약(text-xs 래퍼) 안에서도 14px로 커져서 주변과 어긋났다(실제 지적).
+          // 본문은 TaskViewer 래퍼가 text-sm을 준다.
           case 'ul':
-            return <ul key={block.key} className="list-disc pl-5 mb-1 space-y-0.5 text-fg text-sm leading-relaxed">{block.items.map(it => <li key={it.key}>{renderInline(it.value, it.key)}</li>)}</ul>;
+            return <ul key={block.key} className="list-disc pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key}>{renderInline(it.value, it.key)}</li>)}</ul>;
           case 'ol':
-            return <ol key={block.key} className="list-decimal pl-5 mb-1 space-y-0.5 text-fg text-sm leading-relaxed">{block.items.map(it => <li key={it.key}>{renderInline(it.value, it.key)}</li>)}</ol>;
+            return <ol key={block.key} className="list-decimal pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key}>{renderInline(it.value, it.key)}</li>)}</ol>;
           case 'gap':
             return <div key={block.key} className="h-2" />;
           default:
-            return <p key={block.key} className="mb-1 text-fg leading-relaxed text-sm">{renderInline(block.value, block.key)}</p>;
+            return <p key={block.key} className="mb-1 text-fg leading-relaxed">{renderInline(block.value, block.key)}</p>;
         }
       })}
     </>

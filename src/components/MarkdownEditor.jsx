@@ -215,7 +215,8 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
               // 방향키로 목록 밖까지 내려가도 활성 항목이 보이게
               ref={i === activeIdx ? keepVisible : null}
               onMouseDown={(e) => { e.preventDefault(); pick(name); }}
-              className={`w-full flex items-center gap-2 px-2 py-2 rounded-md text-left text-sm transition-colors ${i === activeIdx ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:bg-surface-hover'}`}
+              // text-[13px]: 담당자 선택기·더보기 메뉴와 같은 크기(14px는 본문 옆에서 커 보였다)
+              className={`w-full flex items-center gap-2 px-2 py-2 rounded-md text-left text-[13px] transition-colors ${i === activeIdx ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:bg-surface-hover'}`}
             >
               <span className="text-accent-text font-semibold shrink-0">@</span>
               <span className="truncate">{name}</span>
