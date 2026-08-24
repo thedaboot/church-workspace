@@ -79,6 +79,16 @@ export function mdToDoc(md) {
     const h = raw.match(/^(#{1,4})\s+(.*)$/);
     if (h) { content.push({ type: 'heading', attrs: { level: h[1].length }, content: parseInline(h[2]) }); continue; }
 
+    // 체크리스트(- [ ] / - [x]) — 불릿보다 먼저 본다(불릿 패턴에도 걸리는 모양이라)
+    const todo = raw.match(/^\s*[-*]\s+\[( |x|X)\]\s?(.*)$/);
+    if (todo) {
+      const item = { type: 'taskItem', attrs: { checked: todo[1].toLowerCase() === 'x' }, content: [paragraph(todo[2])] };
+      const prev = content[content.length - 1];
+      if (prev?.type === 'taskList') prev.content.push(item);
+      else content.push({ type: 'taskList', content: [item] });
+      continue;
+    }
+
     // 불릿 — 연속되면 하나의 목록으로 묶음
     const ul = raw.match(/^\s*[-*]\s+(.*)$/);
     if (ul) {
@@ -178,6 +188,11 @@ function serializeBlock(block) {
     case 'bulletList':
     case 'orderedList':
       return serializeList(block, 0);
+    // 체크리스트 — 항목당 한 줄(- [ ] / - [x]). 항목 안은 문단 하나만 본다
+    // (에디터에서 taskItem에 문단을 더 쌓는 조작을 열어두지 않았다 — nested: false).
+    case 'taskList':
+      return (block.content || []).map(item =>
+        `- [${item.attrs?.checked ? 'x' : ' '}] ${serializeInlineContent(item.content?.[0]?.content)}`);
     case 'image':
       return [block.attrs?.src || ''];
     case 'paragraph':

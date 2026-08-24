@@ -408,7 +408,7 @@ function WorkspaceShell() {
             task={modalState.task} isEditMode={modalState.isEditMode}
             onClose={() => setModalState({ isOpen: false, task: null, isEditMode: false })}
             onEdit={() => setModalState(prev => ({ ...prev, isEditMode: true }))}
-            onSave={(newData) => { const saved = controller.handleSaveTask(newData, modalState.task.id ? liveModalTask() : null); setModalState({ isOpen: true, task: saved, isEditMode: false }); }}
+            onSave={(newData) => { const saved = controller.handleSaveTask(newData, modalState.task.id ? liveModalTask() : null); setModalState({ isOpen: true, task: saved, isEditMode: false }); return saved; }}
             onAddComment={(text, parentId = null) => { const updated = controller.handleAddComment(liveModalTask(), text, parentId); setModalState(prev => ({ ...prev, task: updated })); }}
             onUpdateComment={(commentId, newText) => { const updated = controller.handleUpdateComment(liveModalTask(), commentId, newText); setModalState(prev => ({ ...prev, task: updated })); }}
             onDeleteComment={(commentId) => { const updated = controller.handleDeleteComment(liveModalTask(), commentId); setModalState(prev => ({ ...prev, task: updated })); }}

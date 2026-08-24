@@ -4,9 +4,11 @@ import { StarterKit } from '@tiptap/starter-kit';
 import { Highlight } from '@tiptap/extension-highlight';
 import { Image } from '@tiptap/extension-image';
 import { Placeholder } from '@tiptap/extension-placeholder';
+// starter-kit이 이미 물고 있는 패키지라 새 다운로드가 없다(3.29.0 동일)
+import { TaskList, TaskItem } from '@tiptap/extension-list';
 import {
   Bold, Italic, Underline, Strikethrough, Highlighter,
-  Heading1, Heading2, Heading3, Heading4, List, ListOrdered, Link2, Unlink, Loader2,
+  Heading1, Heading2, Heading3, Heading4, List, ListOrdered, ListTodo, Link2, Unlink, Loader2,
 } from 'lucide-react';
 import { mdToDoc, docToMd } from '../services/markdown.js';
 import { uploadContentImage } from '../services/cloud.js';
@@ -94,6 +96,10 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
         link: { openOnClick: false, autolink: false, linkOnPaste: false },
       }),
       Highlight,
+      // 본문 체크리스트 — 저장 형식은 `- [ ]`/`- [x]` 한 줄(markdown.js).
+      // nested: false — 중첩 체크리스트는 서브셋에 없다(직렬화가 첫 문단만 본다).
+      TaskList,
+      TaskItem.configure({ nested: false }),
       Image.configure({ inline: false, allowBase64: false }),
       // dataAttribute 기본값은 'placeholder' — CSS content: attr(data-placeholder)와
       // 맞추기 위해 명시한다(index.css의 .tiptap 규칙과 한 쌍)
@@ -166,6 +172,7 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
       h1: ed.isActive('heading', { level: 1 }), h2: ed.isActive('heading', { level: 2 }),
       h3: ed.isActive('heading', { level: 3 }), h4: ed.isActive('heading', { level: 4 }),
       bullet: ed.isActive('bulletList'), ordered: ed.isActive('orderedList'),
+      todo: ed.isActive('taskList'),
     } : {},
   }) || {};
 
@@ -252,6 +259,7 @@ function Toolbar({ editor, active, uploading }) {
       <TB on={active.h4} onClick={() => chain().toggleHeading({ level: 4 }).run()} title="제목 4"><Heading4 size={15} /></TB>
       <TB on={active.bullet} onClick={() => chain().toggleBulletList().run()} title="불릿 목록"><List size={15} /></TB>
       <TB on={active.ordered} onClick={() => chain().toggleOrderedList().run()} title="번호 목록"><ListOrdered size={15} /></TB>
+      <TB on={active.todo} onClick={() => chain().toggleTaskList().run()} title="체크리스트"><ListTodo size={15} /></TB>
       <span className="w-px h-4 bg-line mx-1 shrink-0" />
       <span ref={linkRootRef} className="inline-flex">
         <span ref={linkBtnRef} className="inline-flex">

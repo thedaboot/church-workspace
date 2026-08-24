@@ -5,8 +5,8 @@ import {
 } from 'lucide-react';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
-import { uploadAttachment, getAttachmentUrls, deleteAttachment, listCardFiles } from '../services/cloud.js';
-import { FilePreviewModal } from '../components/FilePreviewModal.jsx';
+import { uploadAttachment, getAttachmentUrls, deleteAttachment, listCardFiles, getFileOpenUrl } from '../services/cloud.js';
+import { FilePreviewModal, officeSrc } from '../components/FilePreviewModal.jsx';
 import { SmartImage } from '../components/media.jsx';
 
 // ============================================================================
@@ -45,8 +45,92 @@ const fileKind = (name = '', mime = '') => {
   return { chip: 'bg-tag-gray text-tag-gray-fg', icon: <File size={16} strokeWidth={1.75} /> };
 };
 
+// 새 업무(저장 전) 첨부 — 파일은 카드 id가 있어야 올라간다(files가 카드를 참조).
+// 그래서 여기서는 File 객체를 골라 담아두기만 하고, 저장 직후 셸이 올린다.
+// 쓰는 사람에게는 "처음부터 첨부"와 같다.
+export const PendingAttachments = ({ files = [], onChange }) => {
+  const [dragOver, setDragOver] = useState(false);
+  const [rejected, setRejected] = useState([]);
+  const inputRef = useRef(null);
+  const add = (fileList) => {
+    const picked = Array.from(fileList || []);
+    const tooBig = picked.filter(f => f.size > MAX_UPLOAD_BYTES);
+    setRejected(tooBig.map(f => ({ name: f.name, size: f.size })));
+    tooBig.forEach(f => showToast(`'${f.name}'은(는) 25MB를 넘어 첨부하지 못했어요.`));
+    const ok = picked.filter(f => f.size <= MAX_UPLOAD_BYTES);
+    if (ok.length) onChange([...files, ...ok]);
+  };
+  const remove = (i) => onChange(files.filter((_, x) => x !== i));
+  return (
+    <div className="mt-5">
+      <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-fg-muted"><Paperclip size={13} className="text-fg-faint" /> 첨부 파일</div>
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => { e.preventDefault(); setDragOver(false); add(e.dataTransfer.files); }}
+        onClick={() => inputRef.current?.click()}
+        className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${dragOver ? 'border-accent bg-accent-weak/40' : 'border-line hover:bg-surface-2/50'}`}
+      >
+        <input ref={inputRef} type="file" multiple className="hidden" onChange={e => { add(e.target.files); e.target.value = ''; }} />
+        <UploadCloud size={20} strokeWidth={1.75} className="mx-auto text-fg-faint mb-1" />
+        <p className="text-[11px] text-fg-muted">파일을 끌어다 놓거나 클릭해서 선택하세요</p>
+        <p className="text-[10px] text-fg-faint mt-0.5">저장하면 올라가요 · 최대 25MB</p>
+      </div>
+      {rejected.length > 0 && (
+        <p className="mt-2 text-[11px] text-tag-red-fg">한 파일당 25MB까지 올릴 수 있어요 · {rejected.map(f => f.name).join(', ')}</p>
+      )}
+      {files.length > 0 && (
+        <div className="divide-y divide-line/60 mt-1">
+          {files.map((f, i) => {
+            const kind = fileKind(f.name, f.type);
+            return (
+              <div key={`${f.name}-${i}`} className="flex items-center gap-2.5 py-2 animate-in fade-in duration-200">
+                <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-fg truncate">{f.name}</p>
+                  <p className="text-[10px] text-fg-faint mt-0.5">{formatBytes(f.size)}</p>
+                </div>
+                <button type="button" onClick={() => remove(i)} className="p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95" title="빼기"><X size={14} /></button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 스토리지에 실체가 있는 엑셀만 펼칠 수 있다(드라이브로 옮긴 파일은 서명 URL이 없다).
+// csv는 오피스 뷰어가 못 그린다 — 미리보기(텍스트)로 본다.
+const isSheetRow = (row) => !!row.storage_path
+  && ['xls', 'xlsx'].includes((String(row.name || '').split('.').pop() || '').toLowerCase());
+
+// 엑셀을 행 바로 아래에 펼친다 — 노션식 임베드(읽기 전용, 미리보기와 같은 MS 뷰어).
+// 서명 URL은 펼칠 때마다 새로 받는다(만료가 있어서 담아두면 다음 날 깨진 화면이 남는다).
+function InlineSheet({ row }) {
+  const [url, setUrl] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    getFileOpenUrl(row)
+      .then(u => { if (alive) setUrl(u); })
+      .catch(e => { if (alive) setErr(e.message || String(e)); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row.id]);
+  if (err) return <p className="text-[11px] text-fg-faint py-2">펼쳐보기를 준비하지 못했어요 · {err}</p>;
+  return (
+    <div className="pb-2">
+      {url
+        ? <iframe src={officeSrc(url)} title={row.name} className="w-full h-[320px] md:h-[420px] rounded-md border border-line bg-surface" />
+        : <div className="w-full h-[320px] md:h-[420px] rounded-md border border-line bg-surface-2/50 animate-pulse" />}
+      <p className="text-[10px] text-fg-faint mt-1">마이크로소프트 오피스 미리보기로 표시해요</p>
+    </div>
+  );
+}
+
 // thumb(서명 URL)은 상위에서 일괄 발급받아 주입 — 행마다 개별 요청하지 않는다
-const AttachmentRow = ({ row, canDelete, thumb, onOpen, onRemove }) => {
+const AttachmentRow = ({ row, canDelete, thumb, onOpen, onRemove, embedded, onToggleEmbed }) => {
   // 썸네일은 스토리지 파일만(드라이브로 옮긴 파일은 서명 URL이 없으므로 아이콘)
   const isImage = (row.mime_type || '').startsWith('image/') && !!row.storage_path;
   const kind = fileKind(row.name, row.mime_type);
@@ -63,6 +147,13 @@ const AttachmentRow = ({ row, canDelete, thumb, onOpen, onRemove }) => {
         <p className="text-xs text-fg truncate">{row.name}</p>
         <p className="text-[10px] text-fg-faint mt-0.5">{formatBytes(row.size_bytes)}</p>
       </div>
+      {/* 엑셀은 행 아래로 바로 펼친다 — 글자 버튼: hover 뒤에 숨기지 않는다(§8) */}
+      {onToggleEmbed && (
+        <button type="button" onClick={onToggleEmbed}
+          className="shrink-0 px-1.5 py-1 rounded-md text-[11px] font-semibold text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95">
+          {embedded ? '접기' : '펼쳐보기'}
+        </button>
+      )}
       <button type="button" onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title="미리보기"><Eye size={14} /></button>
       {canDelete && (
         <ConfirmPopover message={`'${row.name}'을(를) 삭제할까요?`} onConfirm={onRemove}>
@@ -81,6 +172,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   const [uploadingName, setUploadingName] = useState(null);
   const [rejected, setRejected] = useState([]); // 용량 초과로 건너뛴 파일들
   const [preview, setPreview] = useState(null); // 미리보기로 열어둔 files 행
+  const [embedded, setEmbedded] = useState({}); // { files.id: true } — 펼쳐둔 엑셀
   const inputRef = useRef(null);
 
   // 첫 페인트 경쟁 방지: 네트워크는 유휴 시점으로 미룬다(모달은 로컬 데이터로 먼저 뜬다)
@@ -91,6 +183,13 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     });
     return () => { alive = false; cancelIdle(handle); };
   }, [task.id]);
+
+  // 생성 시 골라둔 첨부는 저장 **직후** 셸이 올려 스토어(task.attachments)로 들어온다 —
+  // 위 listCardFiles가 업로드가 끝나기 전에 다녀갔을 수 있어, 더 긴 목록이 오면 반영한다.
+  useEffect(() => {
+    const rows = task.attachments || [];
+    if (rows.length) setItems(prev => (prev.length >= rows.length ? prev : rows));
+  }, [task.attachments]);
 
   // 이미지 썸네일 서명 URL을 한 번에 발급 (이미지 없으면 스토리지 호출 없음)
   useEffect(() => {
@@ -186,7 +285,14 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
       )}
       {items.length > 0 && (
         <div className="divide-y divide-line/60 mt-1">
-          {items.map(row => <AttachmentRow key={row.id} row={row} thumb={thumbs[row.storage_path]} canDelete={!readOnly && (isAdmin || row.uploaded_by === userId)} onOpen={() => openFile(row)} onRemove={() => removeItem(row)} />)}
+          {items.map(row => (
+            <div key={row.id}>
+              <AttachmentRow row={row} thumb={thumbs[row.storage_path]} canDelete={!readOnly && (isAdmin || row.uploaded_by === userId)} onOpen={() => openFile(row)} onRemove={() => removeItem(row)}
+                embedded={!!embedded[row.id]}
+                onToggleEmbed={isSheetRow(row) ? () => setEmbedded(prev => ({ ...prev, [row.id]: !prev[row.id] })) : null} />
+              {embedded[row.id] && isSheetRow(row) && <InlineSheet row={row} />}
+            </div>
+          ))}
         </div>
       )}
       {preview && (

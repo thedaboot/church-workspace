@@ -50,3 +50,17 @@ assert.strictEqual(round('2 * 3 = 6'), '2 * 3 = 6');
 assert.deepStrictEqual(tokenizeInline('==**a**=='), [{ text: 'a', marks: ['highlight', 'bold'], href: null }]);
 
 console.log('마크다운 중첩 라운드트립 자체검증 통과 (30 asserts)');
+
+// ── 본문 체크리스트 (- [ ] / - [x]) ──
+// 에디터(taskList) ↔ 서브셋 문자열 라운드트립. 불릿보다 먼저 판정돼야 한다 —
+// 순서가 바뀌면 '- [ ] 일'이 불릿 "[ ] 일"로 저장돼 체크박스가 사라진다.
+{
+  const doc = mdToDoc('- [ ] 하나\n- [x] 둘\n- 그냥 불릿');
+  assert.strictEqual(doc.content[0].type, 'taskList', '체크리스트가 불릿으로 새지 않는다');
+  assert.strictEqual(doc.content[0].content.length, 2, '연속 항목은 한 목록');
+  assert.deepStrictEqual(doc.content[0].content.map(i => i.attrs.checked), [false, true]);
+  assert.strictEqual(doc.content[1].type, 'bulletList', '뒤의 불릿은 불릿 그대로');
+  assert.strictEqual(round('- [ ] 하나\n- [x] 둘'), '- [ ] 하나\n- [x] 둘');
+  assert.strictEqual(round('- [x] **굵은 할 일**'), '- [x] **굵은 할 일**', '항목 안 마크 유지');
+  console.log('본문 체크리스트 라운드트립 통과 (6 asserts)');
+}

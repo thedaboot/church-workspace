@@ -1,21 +1,22 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { CheckSquare, Clock, X, User, Hash, Wand2, CalendarRange, Trash2, Paperclip, Check, Pin, ArrowLeftRight, Maximize2, Minimize2 } from 'lucide-react';
+import { CheckSquare, Clock, X, User, Hash, Wand2, CalendarRange, Trash2, Check, Pin, ArrowLeftRight, Maximize2, Minimize2 } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress } from '../utils.js';
+import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress, toggleTodoLine } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { AiService } from '../services/ai.js';
 import { RichText } from '../components/RichText.jsx';
 import { Bar } from '../views/dashboardParts.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
-import { AttachmentSection } from './attachments.jsx';
+import { AttachmentSection, PendingAttachments } from './attachments.jsx';
+import { uploadAttachment } from '../services/cloud.js';
 import { CommentPanel, ActivityPanel, CommentInput } from './comments.jsx';
 // TipTap/ProseMirror는 무거워 초기 번들에서 분리한다 (업무 수정 모드에서만 필요)
 const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').then(m => ({ default: m.MarkdownEditor })));
 const EditorSkeleton = () => <div className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none bg-surface-2/50 animate-pulse" />;
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
-import { getMemberNames, loadCardDetail, cardSummaryCloud } from '../services/cloudSync.js';
+import { getMemberNames, loadCardDetail, cardSummaryCloud, activityAddCloud } from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { showToast } from '../components/Toast.jsx';
@@ -101,11 +102,37 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   // 다시 '수정'으로 들어오면 풀린다.
   const submittingRef = useRef(false);
   useEffect(() => { if (isEditMode) submittingRef.current = false; }, [isEditMode]);
+
+  // 새 업무에서 골라둔 첨부(File 객체) — 파일은 카드 id가 있어야 올라가므로(files가
+  // 카드를 참조) 저장 직후에 올린다. 쓰는 사람에게는 "처음부터 첨부"와 같다.
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const uploadPending = async (saved) => {
+    const files = pendingFiles;
+    setPendingFiles([]);
+    const rows = [];
+    for (const file of files) {
+      try {
+        rows.push(await uploadAttachment(file, { projectId: saved.projectId, cardId: saved.id }));
+      } catch (err) {
+        console.error('[cloud] 업로드 실패:', err);
+        showToast(`업로드 실패 (${file.name}) · ${err.message || err}`);
+      }
+    }
+    if (!rows.length) return;
+    // 방금 뜬 보기 화면의 첨부 목록으로 흘려보낸다(AttachmentSection이 스토어를 본다)
+    store.dispatch({ type: 'SYNC_TASK', payload: { id: saved.id, attachments: rows } });
+    activityAddCloud(
+      rows.map(r => ({ id: generateId(), action: `파일 '${r.name}'을(를) 첨부했습니다.` })),
+      saved.projectId, saved.id,
+    ).catch(err => console.error('[cloud] 첨부 활동 기록 실패:', err));
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (submittingRef.current) return;
     submittingRef.current = true;
-    onSave(formData);
+    const saved = onSave(formData);
+    if (!task.id && cloudMode && saved?.id && pendingFiles.length) uploadPending(saved);
   };
   const commentCount = (formData.comments || []).filter(c => !c.parentId).length;
   const metaLine = [
@@ -159,13 +186,16 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     </>
   );
   const detailBody = isEditMode
-    ? <TaskEditor formData={formData} setFormData={setFormData} members={members} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />
+    ? <TaskEditor formData={formData} setFormData={setFormData} members={members} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
+        pendingFiles={pendingFiles} setPendingFiles={setPendingFiles} />
     // key로 카드마다 새로 마운트한다 — 요약 state(펼침·이번에 만든 요약)가 카드
     // 사이에 남으면, 다른 카드를 열었을 때 앞 카드의 요약이 그대로 보인다
     : <TaskViewer key={formData.id} formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
         // 체크 하나에 카드 전체를 저장한다 — 하위 업무만 따로 쓰는 경로를 만들 만큼
         // 잦은 조작이 아니고, 저장 경로가 둘이면 활동 기록·실시간이 갈라진다
-        onSubtasksChange={(next) => onSave({ ...formData, subtasks: next })} />;
+        onSubtasksChange={(next) => onSave({ ...formData, subtasks: next })}
+        // 본문 체크리스트도 같은 길 — 보기 모드에서 바로 눌리고 content만 바뀐다
+        onTodoToggle={(idx) => onSave({ ...formData, content: toggleTodoLine(formData.content, idx) })} />;
   const commentsPanel = listsReady
     ? <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} />
     : null;
@@ -505,7 +535,7 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
   );
 }
 
-const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity }) => {
+const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity, pendingFiles = [], setPendingFiles }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
 
   const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -589,13 +619,14 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
 
       {cloudMode && (formData.id
         ? <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />
-        : <p className="mt-4 text-[11px] text-fg-faint flex items-center gap-1.5"><Paperclip size={13} className="text-fg-faint" /> 저장 후 첨부할 수 있어요.</p>
+        // 새 업무도 처음부터 첨부를 고를 수 있다 — 실제 업로드는 저장 직후(카드 id가 생긴 뒤)
+        : <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />
       )}
     </form>
   );
 });
 
-const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange }) => {
+const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange, onTodoToggle }) => {
   const [summary, setSummary] = useState('');      // 이번에 AI가 만든 것(고정 전)
   const [revealed, setRevealed] = useState(false); // 고정된 요약을 펼쳤는지
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -754,7 +785,7 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
         </div>
       )}
       <div className="prose prose-sm max-w-none mt-3 min-h-[120px]">
-        <RichText content={formData.content} />
+        <RichText content={formData.content} onToggleTodo={onTodoToggle} />
       </div>
 
       {/* 보기 모드에서도 체크는 눌린다 — 하위 업무를 끝낼 때마다 수정 모드로 들어갔다

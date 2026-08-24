@@ -326,3 +326,19 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(msgs({ ...T, dependsOn: ['d1', 'd2'] }, { dependsOn: ['d2', 'd1'] }), []);
   console.log('PASS  선행 업무 활동 기록 4가지');
 }
+
+// ── 본문 체크리스트 토글 (utils.toggleTodoLine) ──
+// 뷰어(RichText)의 체크박스가 n번째 체크 줄만 뒤집는지 — 다른 줄·불릿·본문은 그대로.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const d = mkdtempSync(join(tmpdir(), 'todo-'));
+  const f = join(d, 'utils.mjs');
+  writeFileSync(f, src);
+  const { toggleTodoLine } = await import(pathToFileURL(f).href);
+  const md = '설명\n- [ ] 하나\n- 그냥 불릿\n- [x] 둘';
+  assert.strictEqual(toggleTodoLine(md, 0), '설명\n- [x] 하나\n- 그냥 불릿\n- [x] 둘');
+  assert.strictEqual(toggleTodoLine(md, 1), '설명\n- [ ] 하나\n- 그냥 불릿\n- [ ] 둘');
+  assert.strictEqual(toggleTodoLine(md, 9), md, '없는 순번은 그대로');
+  assert.strictEqual(toggleTodoLine('', 0), '');
+  console.log('PASS  본문 체크리스트 토글 4가지');
+}

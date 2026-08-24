@@ -55,6 +55,7 @@ const HEADING_CLS = {
 const parseBlocks = (text) => {
   if (!text) return [];
   const blocks = [];
+  let todoIdx = -1;   // 본문 전체에서 몇 번째 체크 항목인지 — 토글(utils.toggleTodoLine)의 좌표
   for (const [i, line] of text.split('\n').entries()) {
     // [텍스트](URL) 형태의 링크 줄은 이미지로 오인하지 않고 단락으로(인라인에서 링크 렌더)
     const isMdLinkLine = MD_LINK_RE.test(line.trim());
@@ -64,6 +65,16 @@ const parseBlocks = (text) => {
     if (!isMdLinkLine && IMAGE_LINE_RE.test(line.trim())) { blocks.push({ type: 'image', value: line.trim(), key: i }); continue; }
     const h = line.match(/^(#{1,4})\s+(.*)$/);
     if (h) { blocks.push({ type: 'heading', level: h[1].length, value: h[2], key: i }); continue; }
+    // 체크리스트 — 불릿보다 먼저(불릿 패턴에도 걸린다). 판정 모양은 markdown.js와 한 쌍.
+    const todo = line.match(/^\s*[-*]\s+\[( |x|X)\]\s?(.*)$/);
+    if (todo) {
+      todoIdx++;
+      const item = { checked: todo[1].toLowerCase() === 'x', value: todo[2], key: i, idx: todoIdx };
+      const prev = blocks[blocks.length - 1];
+      if (prev?.type === 'todo') prev.items.push(item);
+      else blocks.push({ type: 'todo', items: [item], key: i });
+      continue;
+    }
     const ul = line.match(/^\s*[-*]\s+(.*)$/);
     if (ul) {
       const prev = blocks[blocks.length - 1];
@@ -100,7 +111,9 @@ function ContentImage({ src }) {
   );
 }
 
-export const RichText = React.memo(({ content }) => {
+// onToggleTodo(idx): 본문 체크리스트의 idx번째 항목을 뒤집는다 — 업무 창 보기 모드만
+// 넘긴다(하위 업무처럼 보기에서 바로 눌린다). 안 넘기면(댓글·요약 등) 읽기 전용이다.
+export const RichText = React.memo(({ content, onToggleTodo }) => {
   const blocks = useMemo(() => parseBlocks(content), [content]);
   return (
     <>
@@ -108,6 +121,30 @@ export const RichText = React.memo(({ content }) => {
         switch (block.type) {
           case 'image':
             return <div key={block.key} className="my-2"><ContentImage src={block.value} /></div>;
+          case 'todo':
+            return (
+              <div key={block.key} className="mb-1 space-y-1">
+                {block.items.map(it => (
+                  <div key={it.key} className="flex items-start gap-2 text-sm leading-relaxed">
+                    {/* 하위 업무 체크박스와 같은 표기(초록 채움 + 흰 체크) — 같은 뜻은 같은 모양 */}
+                    <button
+                      type="button" disabled={!onToggleTodo}
+                      onClick={() => onToggleTodo?.(it.idx)}
+                      className={`w-[16px] h-[16px] mt-[3px] rounded-[4px] shrink-0 flex items-center justify-center transition-colors ${onToggleTodo ? '' : 'cursor-default'}`}
+                      style={it.checked
+                        ? { background: 'var(--app-tag-green-fg)' }
+                        : { border: '1.5px solid var(--app-line)' }}
+                      aria-pressed={it.checked} aria-label={`${it.value || '체크 항목'} ${it.checked ? '완료 취소' : '완료'}`}
+                    >
+                      {it.checked && (
+                        <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                      )}
+                    </button>
+                    <span className={`min-w-0 ${it.checked ? 'text-fg-faint line-through' : 'text-fg'}`}>{renderInline(it.value, it.key)}</span>
+                  </div>
+                ))}
+              </div>
+            );
           case 'heading': {
             const Tag = `h${block.level}`;
             return <Tag key={block.key} className={HEADING_CLS[block.level]}>{renderInline(block.value, block.key)}</Tag>;

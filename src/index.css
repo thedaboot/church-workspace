@@ -270,6 +270,16 @@ svg.lucide { stroke-width: 1.4px; }
 .tiptap ol { list-style: decimal; padding-left: 1.25rem; margin: 0 0 .25rem; }
 .tiptap li { margin: .125rem 0; }
 .tiptap li > p { margin: 0; }
+/* 본문 체크리스트(taskList) — 불릿 스타일을 걷어내고 체크박스+글로 나란히.
+   체크박스 표기는 뷰어(RichText)·하위 업무와 같은 톤(초록 채움은 accent-color로). */
+.tiptap ul[data-type="taskList"] { list-style: none; padding-left: 0; }
+.tiptap ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: .5rem; }
+.tiptap ul[data-type="taskList"] li > label { flex: 0 0 auto; margin-top: .3125rem; user-select: none; }
+.tiptap ul[data-type="taskList"] li > div { flex: 1 1 auto; min-width: 0; }
+.tiptap ul[data-type="taskList"] input[type="checkbox"] {
+  width: 1rem; height: 1rem; accent-color: var(--app-tag-green-fg); cursor: pointer;
+}
+.tiptap ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--app-ink-faint); text-decoration: line-through; }
 .tiptap strong { font-weight: 700; }
 .tiptap s { opacity: .8; }
 .tiptap mark { background: var(--app-tag-yellow); color: var(--app-tag-yellow-fg); border-radius: 3px; padding: 0 .125rem; }

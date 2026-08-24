@@ -235,3 +235,18 @@ export const birthdayMap = (members = []) => {
 const NO_BIRTHDAYS = [];
 export const birthdaysOn = (map, iso = '') =>
   (map && map.get(String(iso).slice(5, 10))) || NO_BIRTHDAYS;
+
+// 본문 체크리스트의 n번째 항목을 뒤집은 마크다운을 돌려준다(0부터 센다).
+// 뷰어(RichText)가 체크박스를 누르면 이걸로 content를 바꿔 저장한다 — 하위 업무처럼
+// 보기 모드에서 바로 눌린다. 정규식은 markdown.js·RichText의 체크리스트 줄 판정과
+// 같은 모양이어야 한다(logcheck가 지킨다).
+export function toggleTodoLine(md, idx) {
+  let i = -1;
+  return String(md ?? '').split('\n').map(line => {
+    const m = line.match(/^(\s*[-*]\s+\[)( |x|X)(\]\s?.*)$/);
+    if (!m) return line;
+    i++;
+    if (i !== idx) return line;
+    return `${m[1]}${m[2].trim() ? ' ' : 'x'}${m[3]}`;
+  }).join('\n');
+}

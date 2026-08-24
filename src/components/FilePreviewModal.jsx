@@ -43,7 +43,8 @@ export function previewKind(row) {
   return 'none';
 }
 
-const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+// 첨부 목록의 엑셀 '펼쳐보기'(attachments.jsx)도 같은 뷰어 주소를 쓴다
+export const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
 const driveSrc = (row) => (row.drive_file_id ? `https://drive.google.com/file/d/${row.drive_file_id}/preview` : null);
 
 // row: files 테이블 행

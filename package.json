@@ -17,6 +17,7 @@
     "@supabase/supabase-js": "^2.110.8",
     "@tiptap/extension-highlight": "3.29.0",
     "@tiptap/extension-image": "3.29.0",
+    "@tiptap/extension-list": "3.29.0",
     "@tiptap/extension-placeholder": "3.29.0",
     "@tiptap/pm": "3.29.0",
     "@tiptap/react": "3.29.0",
