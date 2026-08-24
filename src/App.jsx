@@ -237,6 +237,15 @@ function WorkspaceShell() {
     setModalState({ isOpen: true, task, isEditMode });
   }, []);
 
+  // 업무 창 핸들러의 기준 카드는 모달을 연 시점의 스냅샷(modalState.task)이 아니라
+  // 스토어의 최신 카드여야 한다. 댓글·활동은 창을 연 **뒤에** 스토어로만 채워지므로
+  // (loadCardDetail·실시간), 스냅샷 위에서 댓글을 추가하면 방금 로드된 댓글들이 통째로
+  // 덮여 사라지고 실시간 재조회가 돌아와야 복구됐다 — "댓글이 나갔다 와야 보인다"의 원인.
+  const liveModalTask = () => {
+    const t = modalState.task;
+    return (t?.id && store.getState().tasks.byId[t.id]) || t;
+  };
+
   // ── 뷰·셸에 내려주는 핸들러는 전부 useCallback으로 고정 ──
   // 인라인 화살표로 내려주면 매 렌더마다 새 함수가 되어 React.memo가 무력해지고,
   // 모달을 열 때(setModalState) 활성 뷰의 카드 전체가 다시 렌더된다(150장 = 150회).
@@ -282,8 +291,13 @@ function WorkspaceShell() {
       },
     });
   }, [saveTask, cloudMode]);
-  const handleNewTask = useCallback(() => {
-    openTaskModal({ projectId: activeMenu, status: '시작 전', assignees: [], teams: [] }, true);
+  // dueDate: 캘린더의 날짜별 '+ 새 업무'가 그 날짜를 마감일로 넘긴다.
+  // 문자열만 받는 이유: 헤더 버튼의 onClick이 이벤트 객체를 첫 인자로 넘기기 때문.
+  const handleNewTask = useCallback((dueDate) => {
+    openTaskModal({
+      projectId: activeMenu, status: '시작 전', assignees: [], teams: [],
+      ...(typeof dueDate === 'string' ? { dueDate } : {}),
+    }, true);
   }, [openTaskModal, activeMenu]);
 
   // 통합 검색 선택: 프로젝트 → 이동 / 업무 → 이동 + 모달 오픈
@@ -394,11 +408,11 @@ function WorkspaceShell() {
             task={modalState.task} isEditMode={modalState.isEditMode}
             onClose={() => setModalState({ isOpen: false, task: null, isEditMode: false })}
             onEdit={() => setModalState(prev => ({ ...prev, isEditMode: true }))}
-            onSave={(newData) => { const saved = controller.handleSaveTask(newData, modalState.task.id ? modalState.task : null); setModalState({ isOpen: true, task: saved, isEditMode: false }); }}
-            onAddComment={(text, parentId = null) => { const updated = controller.handleAddComment(modalState.task, text, parentId); setModalState(prev => ({ ...prev, task: updated })); }}
-            onUpdateComment={(commentId, newText) => { const updated = controller.handleUpdateComment(modalState.task, commentId, newText); setModalState(prev => ({ ...prev, task: updated })); }}
-            onDeleteComment={(commentId) => { const updated = controller.handleDeleteComment(modalState.task, commentId); setModalState(prev => ({ ...prev, task: updated })); }}
-            onFileActivity={(action) => { const updated = controller.handleFileActivity(modalState.task, action); setModalState(prev => ({ ...prev, task: updated })); }}
+            onSave={(newData) => { const saved = controller.handleSaveTask(newData, modalState.task.id ? liveModalTask() : null); setModalState({ isOpen: true, task: saved, isEditMode: false }); }}
+            onAddComment={(text, parentId = null) => { const updated = controller.handleAddComment(liveModalTask(), text, parentId); setModalState(prev => ({ ...prev, task: updated })); }}
+            onUpdateComment={(commentId, newText) => { const updated = controller.handleUpdateComment(liveModalTask(), commentId, newText); setModalState(prev => ({ ...prev, task: updated })); }}
+            onDeleteComment={(commentId) => { const updated = controller.handleDeleteComment(liveModalTask(), commentId); setModalState(prev => ({ ...prev, task: updated })); }}
+            onFileActivity={(action) => { const updated = controller.handleFileActivity(liveModalTask(), action); setModalState(prev => ({ ...prev, task: updated })); }}
             onDelete={() => { controller.handleDeleteTask(modalState.task); setModalState({ isOpen: false, task: null, isEditMode: false }); }}
           />
         </ErrorBoundary>
