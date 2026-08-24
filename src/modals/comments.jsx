@@ -57,11 +57,27 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies }) => {
   );
 };
 
+// 상세(댓글·활동)를 읽어 오는 동안의 자리 — 아무것도 안 그리면 "첫 댓글을 남겨보세요!"
+// 같은 빈 상태가 먼저 번쩍였다가 내용이 나타난다. 빈 상태는 "정말 없다"를 뜻해야 한다.
+const ListSkeleton = ({ rows = 3 }) => (
+  <div className="space-y-4 py-1" aria-hidden>
+    {Array.from({ length: rows }, (_, i) => (
+      <div key={i} className="flex items-start gap-2.5">
+        <div className="w-6 h-6 rounded-full bg-surface-hover animate-pulse shrink-0" />
+        <div className="flex-1 min-w-0 space-y-1.5 pt-0.5">
+          <div className="h-2.5 w-24 rounded bg-surface-hover animate-pulse" />
+          <div className="h-2.5 max-w-[210px] rounded bg-surface-hover animate-pulse" style={{ width: `${86 - i * 18}%` }} />
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
 // 처음에는 최근 댓글만 그린다 — 60개짜리 업무를 열 때 모달 첫 페인트가
 // 1초 넘게 밀리던 원인(댓글 1건당 RichText 파싱 + 노드 수십 개)을 잘라낸다.
 const INITIAL_COMMENTS = 10;
 
-export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onDelete }) => {
+export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onDelete, loading = false }) => {
   const [replyingTo, setReplyingTo] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [showAll, setShowAll] = useState(false);
@@ -85,9 +101,12 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
     setReplyingTo(null);
   };
 
-  if (all.length === 0) return (
-    <p className="text-center mt-8 text-xs text-fg-faint">첫 댓글을 남겨보세요!</p>
-  );
+  // 읽는 중 + 아직 아무것도 없을 때만 스켈레톤 — 이미 담아둔 댓글이 있으면(재열람)
+  // 그대로 보여주고 조용히 갱신한다
+  if (all.length === 0) {
+    if (loading) return <ListSkeleton />;
+    return <p className="text-center mt-8 text-xs text-fg-faint">첫 댓글을 남겨보세요!</p>;
+  }
 
   return (
     <div className="divide-y divide-line/60">
@@ -144,7 +163,7 @@ const activityDotColor = (action = '') => {
 
 const INITIAL_LOGS = 20;
 
-export const ActivityPanel = React.memo(({ logs }) => {
+export const ActivityPanel = React.memo(({ logs, loading = false }) => {
   const [showAll, setShowAll] = useState(false);
   const all = logs || [];
   // 최신순 + 처음에는 상위 N개만
@@ -152,6 +171,7 @@ export const ActivityPanel = React.memo(({ logs }) => {
   const hiddenCount = showAll ? 0 : Math.max(0, ordered.length - INITIAL_LOGS);
   const shown = hiddenCount > 0 ? ordered.slice(0, INITIAL_LOGS) : ordered;
 
+  if (all.length === 0 && loading) return <ListSkeleton />;
   if (all.length === 0) return (
     <div className="text-center mt-6">
       <span className="inline-flex w-8 h-8 rounded-full bg-tag-purple text-tag-purple-fg items-center justify-center mb-2"><span className="w-1.5 h-1.5 rounded-full bg-current" /></span>

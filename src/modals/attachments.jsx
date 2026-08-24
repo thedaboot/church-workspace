@@ -6,7 +6,7 @@ import {
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { uploadAttachment, getAttachmentUrls, deleteAttachment, listCardFiles, getFileOpenUrl } from '../services/cloud.js';
-import { FilePreviewModal, officeSrc } from '../components/FilePreviewModal.jsx';
+import { FilePreviewModal, officeSrc, PreparingFrame, FRAME_SETTLE, OFFICE_TIMEOUT } from '../components/FilePreviewModal.jsx';
 import { SmartImage } from '../components/media.jsx';
 
 // ============================================================================
@@ -107,23 +107,43 @@ const isSheetRow = (row) => !!row.storage_path
 
 // 엑셀을 행 바로 아래에 펼친다 — 노션식 임베드(읽기 전용, 미리보기와 같은 MS 뷰어).
 // 서명 URL은 펼칠 때마다 새로 받는다(만료가 있어서 담아두면 다음 날 깨진 화면이 남는다).
+// 뷰어가 첫 페이지를 그릴 때까지 우리 스켈레톤으로 덮는다 — 안 덮으면 MS 뷰어의
+// 로딩 화면(남의 폰트·남의 스피너)이 그대로 비쳐서 앱이 아닌 화면처럼 보인다.
+// 미리보기 모달(FilePreviewModal)과 같은 값·같은 스켈레톤을 쓴다.
 function InlineSheet({ row }) {
   const [url, setUrl] = useState(null);
   const [err, setErr] = useState(null);
+  const [ready, setReady] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
+  const settleRef = useRef(null);
   useEffect(() => {
     let alive = true;
     getFileOpenUrl(row)
       .then(u => { if (alive) setUrl(u); })
       .catch(e => { if (alive) setErr(e.message || String(e)); });
-    return () => { alive = false; };
+    return () => { alive = false; clearTimeout(settleRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row.id]);
+  useEffect(() => {
+    if (!url || ready) return;
+    const t = setTimeout(() => setTimedOut(true), OFFICE_TIMEOUT);
+    return () => clearTimeout(t);
+  }, [url, ready]);
   if (err) return <p className="text-[11px] text-fg-faint py-2">펼쳐보기를 준비하지 못했어요 · {err}</p>;
+  if (timedOut && !ready) return <p className="text-[11px] text-fg-faint py-2">미리보기가 응답하지 않아요 · 눈 모양(미리보기)으로 열어보세요</p>;
   return (
     <div className="pb-2">
-      {url
-        ? <iframe src={officeSrc(url)} title={row.name} className="w-full h-[320px] md:h-[420px] rounded-md border border-line bg-surface" />
-        : <div className="w-full h-[320px] md:h-[420px] rounded-md border border-line bg-surface-2/50 animate-pulse" />}
+      <div className="relative w-full h-[320px] md:h-[420px]">
+        {!ready && <PreparingFrame absolute />}
+        {url && (
+          <iframe
+            src={officeSrc(url)} title={row.name}
+            // onLoad 직후엔 아직 첫 페이지가 안 그려져 있다 → 조금 뒤에 걷는다(모달과 동일)
+            onLoad={() => { clearTimeout(settleRef.current); settleRef.current = setTimeout(() => setReady(true), FRAME_SETTLE); }}
+            className={`w-full h-full rounded-md border border-line bg-surface ${ready ? '' : 'opacity-0'}`}
+          />
+        )}
+      </div>
       <p className="text-[10px] text-fg-faint mt-1">마이크로소프트 오피스 미리보기로 표시해요</p>
     </div>
   );

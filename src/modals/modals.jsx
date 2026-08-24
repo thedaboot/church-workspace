@@ -71,12 +71,17 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
 
   // 댓글·활동은 초기 로드에서 빼두고(목록 화면에는 나오지 않는 데이터다) 창을 열 때
   // 이 카드 것만 읽는다 — 첨부가 이미 쓰고 있던 방식과 같다(AttachmentSection).
+  // 읽는 동안은 detailLoading — 패널이 빈 상태("첫 댓글을 남겨보세요!") 대신 스켈레톤을
+  // 그린다. 빈 상태가 먼저 번쩍이면 "댓글이 없다"고 잘못 읽힌다.
+  const [detailLoading, setDetailLoading] = useState(false);
   useEffect(() => {
     if (!cloudMode || !task.id) return;
     let alive = true;
+    setDetailLoading(true);
     loadCardDetail(task.id)
       .then(detail => { if (alive) store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, ...detail } }); })
-      .catch(e => console.error('[cloud] 업무 상세 로드 실패:', e));
+      .catch(e => console.error('[cloud] 업무 상세 로드 실패:', e))
+      .finally(() => { if (alive) setDetailLoading(false); });
     return () => { alive = false; };
   }, [cloudMode, task.id]);
 
@@ -197,9 +202,9 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         // 본문 체크리스트도 같은 길 — 보기 모드에서 바로 눌리고 content만 바뀐다
         onTodoToggle={(idx) => onSave({ ...formData, content: toggleTodoLine(formData.content, idx) })} />;
   const commentsPanel = listsReady
-    ? <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} />
+    ? <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} loading={detailLoading} />
     : null;
-  const activityPanel = listsReady ? <ActivityPanel logs={formData.activityLog} /> : null;
+  const activityPanel = listsReady ? <ActivityPanel logs={formData.activityLog} loading={detailLoading} /> : null;
   const commentInputEl = <CommentInput onAdd={onAddComment} members={members} />;
 
   // ── 모바일: 풀스크린 + 세그먼트 탭 ──

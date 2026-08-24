@@ -25,10 +25,12 @@ const TEXT_EXT = ['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'log', 'xml', '
 const OFFICE_EXT = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
 const MAX_TEXT_BYTES = 512 * 1024;      // 텍스트는 이만큼만 내려받아 보여준다
 const MAX_PDF_PREFETCH = 15 * 1024 * 1024; // 이보다 크면 통째로 받지 않고 바로 스트리밍
-const OFFICE_TIMEOUT = 12000;           // 이 시간 안에 안 뜨면 안내로 대체
+// 첨부 목록의 엑셀 '펼쳐보기'(attachments.jsx)도 같은 값·같은 스켈레톤을 쓴다 —
+// 뷰어 iframe이 뜨는 동안 남의 로딩 화면(외부 폰트)이 비쳐 보이지 않게 가리는 값들이다.
+export const OFFICE_TIMEOUT = 12000;    // 이 시간 안에 안 뜨면 안내로 대체
 // iframe onLoad는 "문서가 전달된 시점"이라 뷰어가 첫 페이지를 그리기 전이다.
 // 그 사이 PDF 뷰어의 검은 배경이 그대로 보여서, 조금 더 기다렸다 스켈레톤을 걷는다.
-const FRAME_SETTLE = 260;
+export const FRAME_SETTLE = 260;
 
 export function previewKind(row) {
   const mime = row.mime_type || '';
@@ -216,7 +218,7 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
 }
 
 // 준비 중 자리(스켈레톤 + 안내). absolute=이미 자리를 잡은 컨테이너 위에 덮어씌울 때
-function PreparingFrame({ absolute = false }) {
+export function PreparingFrame({ absolute = false }) {
   return (
     <div className={absolute ? 'absolute inset-0' : 'relative w-full h-full'}>
       <Skeleton className="absolute inset-0 w-full h-full" />
