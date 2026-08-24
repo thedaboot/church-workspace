@@ -6,7 +6,7 @@ import { Image } from '@tiptap/extension-image';
 import { Placeholder } from '@tiptap/extension-placeholder';
 import {
   Bold, Italic, Underline, Strikethrough, Highlighter,
-  Heading1, Heading2, List, ListOrdered, Link2, Unlink, Loader2,
+  Heading1, Heading2, Heading3, Heading4, List, ListOrdered, Link2, Unlink, Loader2,
 } from 'lucide-react';
 import { mdToDoc, docToMd } from '../services/markdown.js';
 import { uploadContentImage } from '../services/cloud.js';
@@ -164,6 +164,7 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
       bold: ed.isActive('bold'), italic: ed.isActive('italic'), underline: ed.isActive('underline'),
       strike: ed.isActive('strike'), highlight: ed.isActive('highlight'), link: ed.isActive('link'),
       h1: ed.isActive('heading', { level: 1 }), h2: ed.isActive('heading', { level: 2 }),
+      h3: ed.isActive('heading', { level: 3 }), h4: ed.isActive('heading', { level: 4 }),
       bullet: ed.isActive('bulletList'), ordered: ed.isActive('orderedList'),
     } : {},
   }) || {};
@@ -246,6 +247,9 @@ function Toolbar({ editor, active, uploading }) {
       <span className="w-px h-4 bg-line mx-1 shrink-0" />
       <TB on={active.h1} onClick={() => chain().toggleHeading({ level: 1 }).run()} title="제목 1"><Heading1 size={15} /></TB>
       <TB on={active.h2} onClick={() => chain().toggleHeading({ level: 2 }).run()} title="제목 2"><Heading2 size={15} /></TB>
+      {/* 저장 형식(#~####)과 뷰어는 4단계까지 이미 지원하고 있었다 — 버튼만 없었다 */}
+      <TB on={active.h3} onClick={() => chain().toggleHeading({ level: 3 }).run()} title="제목 3"><Heading3 size={15} /></TB>
+      <TB on={active.h4} onClick={() => chain().toggleHeading({ level: 4 }).run()} title="제목 4"><Heading4 size={15} /></TB>
       <TB on={active.bullet} onClick={() => chain().toggleBulletList().run()} title="불릿 목록"><List size={15} /></TB>
       <TB on={active.ordered} onClick={() => chain().toggleOrderedList().run()} title="번호 목록"><ListOrdered size={15} /></TB>
       <span className="w-px h-4 bg-line mx-1 shrink-0" />

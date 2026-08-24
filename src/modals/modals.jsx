@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { CheckSquare, Clock, X, User, Hash, Wand2, CalendarRange, Trash2, Paperclip, Check, Pin, ArrowLeftRight } from 'lucide-react';
+import { CheckSquare, Clock, X, User, Hash, Wand2, CalendarRange, Trash2, Paperclip, Check, Pin, ArrowLeftRight, Maximize2, Minimize2 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
@@ -49,6 +49,9 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   const [formData, setFormData] = useState(task);
   const [activeTab, setActiveTab] = useState('comments'); // 데스크톱 우측 사이드바 탭
   const [mobileTab, setMobileTab] = useState('detail');    // 모바일 세그먼트 탭
+  // 데스크톱 전체 화면 — 본문이 긴 업무를 창 크기(max-w-5xl · 85dvh)에 갇혀 읽는
+  // 불편이 있었다. 모바일은 이미 풀스크린이라 버튼을 두지 않는다.
+  const [expanded, setExpanded] = useState(false);
   const isMobile = useIsMobile();
   // 바깥(딤) 클릭으로 닫기 판정용 — 누른 곳도 딤이어야 닫는다
   const overlayRef = useRef(null);
@@ -117,6 +120,12 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
       <div className="flex items-center gap-2 text-xs font-semibold text-fg-muted"><CheckSquare size={14} className="text-accent"/> {task.id ? '업무 세부 정보' : '새 업무 만들기'}</div>
       <div className="flex items-center gap-1">
         {task.id && <ShareButton url={`${window.location.origin}/s/t/${task.id}`} what="업무" />}
+        {!isMobile && (
+          <button onClick={() => setExpanded(e => !e)} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"
+            title={expanded ? '원래 크기로' : '전체 화면'}>
+            {expanded ? <Minimize2 size={16} strokeWidth={1.75}/> : <Maximize2 size={16} strokeWidth={1.75}/>}
+          </button>
+        )}
         <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>
       </div>
     </>
@@ -203,9 +212,11 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
       ref={overlayRef}
       onMouseDown={(e) => { downOnOverlay.current = e.target === overlayRef.current; }}
       onClick={(e) => { if (e.target === overlayRef.current && downOnOverlay.current) onClose(); }}
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-2 md:p-4 animate-in fade-in duration-200"
+      className={`fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-in fade-in duration-200 ${expanded ? 'p-0' : 'p-2 md:p-4'}`}
     >
-      <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-5xl h-[100dvh] md:h-[85dvh] flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      {/* 전체 화면이면 창이 뷰포트를 다 쓴다 — 딤·모서리·최대 폭이 전부 사라져야
+          "확대된 창"이 아니라 "전체 화면"으로 읽힌다. 복귀 버튼은 헤더의 같은 자리. */}
+      <div className={`bg-surface shadow-elevated border border-line w-full flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200 ${expanded ? 'max-w-none h-full rounded-none border-0' : 'max-w-5xl h-[100dvh] md:h-[85dvh] rounded-lg'}`}>
         <div className="flex-1 flex flex-col border-r-0 md:border-r border-line overflow-y-auto">
           {/* sticky 헤더·푸터에 backdrop-blur를 쓰면 스크롤 프레임마다 뒤 내용을
               다시 블러링해서 새 업무/수정 창 스크롤이 눌린다 → 불투명 배경으로 */}
@@ -323,7 +334,9 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
     const q = input.trim().toLowerCase();
     const uniq = [...new Set(members.filter(Boolean))].filter(m => !value.includes(m))
       .sort((a, b) => a.localeCompare(b, 'ko')); // 가나다순
-    return (q ? uniq.filter(m => m.toLowerCase().includes(q)) : uniq).slice(0, 6);
+    // 전원을 보여준다 — 6명에서 자르면 뒷순번 사람은 목록에 없는 것처럼 보였다
+    // (목록에 max-h + 스크롤이 있어 길어도 화면을 밀지 않는다)
+    return q ? uniq.filter(m => m.toLowerCase().includes(q)) : uniq;
   }, [input, members, value]);
 
   useEffect(() => {
