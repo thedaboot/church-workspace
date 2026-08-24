@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useDeferredValue } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
 import {
   LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown,
@@ -29,16 +29,57 @@ import logoDark from '../assets/logo-dark.png';
 // 2줄은 프로젝트 탭. 예전 좌측 사이드바가 두 가지 일을 겹쳐 하던 걸 분리한 것.
 // 모바일은 같은 역할을 위(프로젝트 탭)/아래(전역 탭바)로 나눠 가진다.
 
-const PROJECT_TAB_MAX = 5; // 2줄이 넘치지 않는 한계. 나머지는 '더보기'로
-
 // 활성 프로젝트는 언제나 탭에 보이게 — 6번째 프로젝트를 열었는데 탭에 아무것도
 // 선택돼 있지 않으면 지금 어디 있는지 알 수 없다.
-function splitProjectTabs(projectsList, activeMenu) {
-  const shown = projectsList.slice(0, PROJECT_TAB_MAX);
+// max는 탭 줄 폭에서 잰 값이다(useTabFit) — 예전에는 고정 5라서 넓은 화면에서
+// 자리가 남는데도 '더보기'로 밀어냈다.
+function splitProjectTabs(projectsList, activeMenu, max) {
+  const shown = projectsList.slice(0, max);
   const active = projectsList.find(p => p.id === activeMenu);
-  if (active && !shown.some(p => p.id === active.id)) shown[PROJECT_TAB_MAX - 1] = active;
+  if (active && !shown.some(p => p.id === active.id)) shown[max - 1] = active;
   const shownIds = new Set(shown.map(p => p.id));
   return { shown, rest: projectsList.filter(p => !shownIds.has(p.id)) };
+}
+
+// 탭 줄에 몇 개가 들어가는지 실제 폭으로 잰다. 보이지 않는 측정 줄(measureRef)에
+// 전체 탭 + '더보기' + '+ 프로젝트'를 같은 클래스로 그려 두고, 줄 폭 안에서
+// "탭 k개 + (남는 게 있으면) 더보기 + '+ 프로젝트'"가 들어가는 최대 k를 고른다.
+// 글자 폭 추정(폰트 상수 곱하기)으로 하지 않는 이유: 제목 길이가 제각각이라 반드시 어긋난다.
+function useTabFit(tabRowRef, measureRef, count, alwaysMore) {
+  const [fit, setFit] = useState(count);
+  useLayoutEffect(() => {
+    const row = tabRowRef.current;
+    if (!row) return;
+    const calc = () => {
+      const meas = measureRef.current;
+      if (!meas) return;
+      const kids = [...meas.children];              // [탭들…, 더보기, + 프로젝트]
+      const tabW = kids.slice(0, count).map(el => el.offsetWidth);
+      const moreW = kids[count]?.offsetWidth || 0;
+      const plusW = kids[count + 1]?.offsetWidth || 0;
+      const cs = getComputedStyle(row);
+      // -16: 측정 span과 실제 button 렌더 사이의 미세 오차(서브픽셀·보더) 여유.
+      // 딱 맞는 경계(800px에 670px 탭)에서 몇 px 넘쳐 '+ 프로젝트'가 잘렸다.
+      const avail = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - plusW - 16;
+      let used = 0, k = 0;
+      for (let i = 0; i < count; i++) {
+        const needMore = alwaysMore || i < count - 1;  // 이 뒤에 더보기가 서야 하나
+        if (used + tabW[i] + (needMore ? moreW : 0) > avail) break;
+        used += tabW[i]; k = i + 1;
+      }
+      setFit(Math.max(1, k));
+    };
+    calc();
+    const ro = new ResizeObserver(calc);
+    ro.observe(row);
+    // 폰트(SUIT)가 늦게 로드되면 탭 폭이 바뀌는데 줄 폭은 그대로라 ResizeObserver가
+    // 못 잡는다 — 로드 완료 시 한 번 다시 잰다. window resize도 같이 듣는다
+    // (헤드리스 에뮬레이션처럼 RO 콜백이 걸러지는 환경의 안전망).
+    document.fonts?.ready?.then(calc);
+    window.addEventListener('resize', calc);
+    return () => { ro.disconnect(); window.removeEventListener('resize', calc); };
+  }, [tabRowRef, measureRef, count, alwaysMore]);
+  return fit;
 }
 
 // 바깥 클릭 / Esc 로 닫히는 팝오버 (프로필 메뉴·프로젝트 더보기 공용)
@@ -143,7 +184,12 @@ export const TopNav = React.memo(({
   // 지금 보고 있는 것은 이미 탭에 있으니 목록에서 뺀다.
   const archivedForMore = archived.filter(p => p.id !== activeMenu);
   const myTasksCount = useStore(selectMyTasks).filter(t => t.status !== '완료').length;
-  const { shown, rest } = splitProjectTabs(tabSource, activeMenu);
+  // 몇 개까지 탭으로 보일지는 화면 폭이 정한다(useTabFit). 보관함이 있으면 탭이 다
+  // 들어가도 '더보기'는 남아야 하므로 그 폭까지 계산에 넣는다.
+  const tabRowRef = useRef(null);
+  const measureRef = useRef(null);
+  const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0);
+  const { shown, rest } = splitProjectTabs(tabSource, activeMenu, tabFit);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRootRef = useRef(null);
   const moreBtnRef = useRef(null);
@@ -186,7 +232,21 @@ export const TopNav = React.memo(({
         </div>
       </div>
 
-      <div className="flex items-end px-6 border-t border-line/70">
+      <div ref={tabRowRef} className="relative flex items-end px-6 border-t border-line/70 overflow-hidden">
+        {/* 측정 전용 줄 — 화면 밖(invisible)에 전체 탭을 실제 클래스로 그려 폭을 잰다.
+            aria-hidden + pointer-events-none: 보조기기·클릭에 잡히지 않는다. */}
+        {/* w-max + shrink-0: absolute 컨테이너는 조상 폭에 맞춰 줄어들고(shrink-to-fit)
+            그 안의 flex 항목도 같이 눌린다 — 눌린 폭을 재면 "다 들어간다"고 거짓말을 해서
+            좁은 화면에서 탭이 줄지 않았다. 실제 폭(max-content)으로 잰다. */}
+        {/* right-full: 왼쪽 바깥에 둔다 — left-0에 두면 이 줄의 폭(전체 탭 합)이 row의
+            scrollWidth를 늘려서 "탭 줄이 넘쳤다"로 잘못 측정된다(왼쪽 넘침은 안 잡힌다) */}
+        <div ref={measureRef} aria-hidden className="invisible absolute right-full top-0 w-max flex items-end pointer-events-none whitespace-nowrap">
+          {tabSource.map(p => (
+            <span key={p.id} className="shrink-0 inline-block px-3.5 pt-2.5 pb-2 text-[13px] font-semibold whitespace-nowrap max-w-[220px] truncate">{p.title}</span>
+          ))}
+          <span className="shrink-0 inline-flex items-center gap-1 px-3 pt-2.5 pb-2 text-[13px] font-semibold">더보기 <ChevronDown size={13} /></span>
+          <span className="shrink-0 inline-block px-3 pt-2.5 pb-2 text-[13px] font-semibold whitespace-nowrap">+ 프로젝트</span>
+        </div>
         {shown.map(p => (
           <button
             key={p.id} onClick={() => setActiveMenu(p.id)}

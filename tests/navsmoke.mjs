@@ -58,11 +58,15 @@ await wait('Page.loadEventFired');
 await sleep(1500);
 
 // 1) 사이드바 사라짐 / 상단 2줄 내비
-const nav = await ev(`(() => {
+// 탭 수는 이제 고정 상한(예전 PROJECT_TAB_MAX=5)이 아니라 **줄 폭이 정한다**(useTabFit).
+// 1440px에서는 8개가 다 들어가 더보기가 없어야 하고, 좁히면 들어가는 만큼 + 더보기다.
+// 탭은 button만 센다 — 측정 전용 줄(invisible)은 span이라 안 잡힌다.
+const readNav = `(() => {
   const side = [...document.querySelectorAll('div')].some(d => /(^| )w-64( |$)/.test(d.className));
   // 모바일 상단바도 DOM에는 있으니(md:hidden) 데스크톱 내비만 골라서 센다
   const desk = [...document.querySelectorAll('div')].find(d => /hidden md:block/.test(d.className) && d.querySelector('button[title="설정"]'));
   const gnav = [...(desk || document).querySelectorAll('button')].map(b => b.textContent.trim());
+  const row = desk?.querySelector('[class*="items-end"]');
   return {
     sidebar: side,
     hasDash: gnav.some(t => t === '전체 대시보드'),
@@ -72,23 +76,38 @@ const nav = await ev(`(() => {
     projTabs: gnav.filter(t => /^프로젝트 [0-9]+$/.test(t)).length,
     hasMore: gnav.some(t => t.startsWith('더보기')),
     hasAddProject: gnav.some(t => t === '+ 프로젝트'),
+    rowOverflow: row ? row.scrollWidth > row.clientWidth + 1 : null,
   };
-})()`);
+})()`;
+const nav = await ev(readNav);
 check('좌측 사이드바 제거', nav.sidebar === false);
 check('1줄: 전역 메뉴 2개(대시보드·내 업무)', nav.hasDash && nav.hasMine, JSON.stringify(nav));
 check('사용 가이드는 내비에서 사라졌다', nav.hasGuide === false, JSON.stringify(nav));
-check('2줄: 프로젝트 탭 5개 + 더보기', nav.projTabs === 5 && nav.hasMore, `탭 ${nav.projTabs}개, 더보기 ${nav.hasMore}`);
+check('넓은 화면(1440px)에서는 8개가 다 탭으로', nav.projTabs === 8 && !nav.hasMore, `탭 ${nav.projTabs}개, 더보기 ${nav.hasMore}`);
 check('2줄: + 프로젝트', nav.hasAddProject);
 
-// 2) 더보기 → 나머지 프로젝트 3개
-await ev(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim().startsWith('더보기')).click()`);
+// 좁히면(리로드 없이 — §6-41) 들어가는 만큼만 남고 나머지는 더보기로
+await send('Emulation.setDeviceMetricsOverride', { width: 800, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(600);
+const narrow = await ev(readNav);
+check('좁은 화면(800px)에서는 일부만 + 더보기', narrow.projTabs > 0 && narrow.projTabs < 8 && narrow.hasMore,
+  `탭 ${narrow.projTabs}개, 더보기 ${narrow.hasMore}`);
+check('좁아도 탭 줄이 넘치지 않는다', narrow.rowOverflow === false, JSON.stringify(narrow.rowOverflow));
+
+// 2) 더보기 → 탭에 못 들어간 나머지 전부
+// 못 찾으면 던지지 말고 FAIL로 남긴다(§6-40) — 던지면 러너가 CRASH로만 찍는다
+const moreClicked = await ev(`(() => {
+  const b = [...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('더보기'));
+  if (!b) return false; b.click(); return true;
+})()`);
+check('좁은 화면에 더보기 버튼이 있다', moreClicked === true, JSON.stringify(narrow));
 await sleep(350);
 const more = await ev(`(() => {
   const pops = [...document.body.children].filter(c => /z-\\[90\\]/.test(c.className || ''));
   const items = pops.flatMap(p => [...p.querySelectorAll('button')].map(b => b.textContent.trim()));
   return { count: items.filter(t => /^프로젝트 [0-9]+$/.test(t)).length, items };
 })()`);
-check('더보기에 나머지 프로젝트', more.count === 3, JSON.stringify(more.items));
+check('더보기에 나머지 프로젝트', more.count === 8 - narrow.projTabs, `더보기 ${more.count}개 · 탭 ${narrow.projTabs}개`);
 await ev(`(() => { const b=[...document.body.querySelectorAll('button')].find(x=>x.textContent.trim()==='프로젝트 8'); b && b.click(); })()`);
 await sleep(600);
 const active = await ev(`(() => {
@@ -189,7 +208,9 @@ check('lucide 아이콘 획이 1.4px로 통일', stroke.widths.every(w => w === 
 {
   // 앞 단계가 모바일 390px + '내 업무'로 끝난다 → 데스크톱 2줄 내비로 돌아온다
   // (탭·더보기는 md 이상에서만 마운트된다 — §6-3)
-  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  // 800px로 두는 이유: 이 단계는 더보기가 필요한데, 1440px에서는 8개가 다 탭에
+  // 들어가 더보기 자체가 없다(폭 기반 탭 이후).
+  await send('Emulation.setDeviceMetricsOverride', { width: 800, height: 900, deviceScaleFactor: 1, mobile: false });
   await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
   await send('Page.navigate', { url: URL_BASE + '/?p=p1' });
   await wait('Page.loadEventFired'); await sleep(1400);
