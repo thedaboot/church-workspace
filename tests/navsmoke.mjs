@@ -105,9 +105,12 @@ await sleep(350);
 const more = await ev(`(() => {
   const pops = [...document.body.children].filter(c => /z-\\[90\\]/.test(c.className || ''));
   const items = pops.flatMap(p => [...p.querySelectorAll('button')].map(b => b.textContent.trim()));
-  return { count: items.filter(t => /^프로젝트 [0-9]+$/.test(t)).length, items };
+  const heads = pops.flatMap(p => [...p.querySelectorAll('p')].map(x => x.textContent.trim()));
+  return { count: items.filter(t => /^프로젝트 [0-9]+$/.test(t)).length, items, heads };
 })()`);
 check('더보기에 나머지 프로젝트', more.count === 8 - narrow.projTabs, `더보기 ${more.count}개 · 탭 ${narrow.projTabs}개`);
+// 더보기는 연도 폴더다 — 게스트 시드에는 createdAt이 없어 '연도 모름' 아래에 선다
+check('더보기가 연도로 묶인다', more.heads.some(h => /^[0-9]{4}$|연도 모름/.test(h)), JSON.stringify(more.heads));
 await ev(`(() => { const b=[...document.body.querySelectorAll('button')].find(x=>x.textContent.trim()==='프로젝트 8'); b && b.click(); })()`);
 await sleep(600);
 const active = await ev(`(() => {

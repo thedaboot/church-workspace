@@ -197,6 +197,34 @@ export const TopNav = React.memo(({
   const [morePos, placeMore] = useAnchoredPos(moreBtnRef, moreOpen, 224, 260);
   useDismiss(moreOpen, () => setMoreOpen(false), [moreRootRef, morePopRef]);
 
+  // 탭 드래그로 순서 바꾸기(0021) — 네이티브 HTML5 DnD. dnd-kit sortable을 새로
+  // 들이지 않는 이유: 데스크톱 탭 한 줄에는 draggable 속성이면 충분하다.
+  // 모바일 탭 줄은 가로 스크롤과 겹쳐서 드래그를 두지 않는다(순서는 따라온다).
+  const [dragTabId, setDragTabId] = useState(null);
+  const dropTab = (targetId) => {
+    if (!dragTabId || dragTabId === targetId) return;
+    const ids = tabSource.map(p => p.id);
+    const from = ids.indexOf(dragTabId), to = ids.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    ids.splice(to, 0, ...ids.splice(from, 1));
+    // 활성 목록 순서대로 1부터 다시 매긴다. 보관된 프로젝트의 position은 안 건드린다 —
+    // 탭에 안 서고, 보관함은 연도·created_at으로 묶는다. 값이 겹쳐도 정렬 2차 키가 가른다.
+    const changed = [];
+    ids.forEach((pid, i) => {
+      const p = allProjects.find(x => x.id === pid);
+      if (p && (p.position ?? 0) !== i + 1) {
+        store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: pid, position: i + 1 } });
+        changed.push({ id: pid, position: i + 1 });
+      }
+    });
+    if (cloudMode && changed.length) {
+      cloudSync.projectOrderCloud(changed).catch(err => {
+        console.error('[cloud] 탭 순서 저장 실패:', err);
+        showToast('탭 순서를 저장하지 못했어요 · 잠시 후 다시 시도해주세요');
+      });
+    }
+  };
+
   const gnav = (menu, label, badge) => (
     <button
       onClick={() => setActiveMenu(menu)}
@@ -250,7 +278,12 @@ export const TopNav = React.memo(({
         {shown.map(p => (
           <button
             key={p.id} onClick={() => setActiveMenu(p.id)}
-            className={`px-3.5 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap max-w-[220px] truncate ${activeMenu === p.id ? 'text-fg border-fg' : 'text-fg-muted border-transparent hover:text-fg'}`}
+            draggable
+            onDragStart={() => setDragTabId(p.id)}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); dropTab(p.id); }}
+            onDragEnd={() => setDragTabId(null)}
+            className={`px-3.5 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap max-w-[220px] truncate ${activeMenu === p.id ? 'text-fg border-fg' : 'text-fg-muted border-transparent hover:text-fg'} ${dragTabId === p.id ? 'opacity-50' : ''}`}
           >
             {p.title}
           </button>
@@ -264,12 +297,7 @@ export const TopNav = React.memo(({
             </span>
             {moreOpen && createPortal(
               <div ref={morePopRef} style={{ position: 'fixed', left: morePos.left, top: morePos.top, width: 224 }} className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 max-h-72 overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
-                {rest.map(p => (
-                  <button key={p.id} onClick={() => { setMoreOpen(false); setActiveMenu(p.id); }} className="w-full flex items-center gap-2 px-2.5 py-2.5 rounded-md text-[13px] text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors text-left">
-                    <Hash size={14} className="shrink-0 text-fg-faint" /><span className="truncate">{p.title}</span>
-                  </button>
-                ))}
-                <ArchivedProjects projects={archivedForMore} onPick={(id) => { setMoreOpen(false); setActiveMenu(id); }} />
+                <YearFolders active={rest} archived={archivedForMore} onPick={(id) => { setMoreOpen(false); setActiveMenu(id); }} />
               </div>,
               document.body
             )}
@@ -281,26 +309,37 @@ export const TopNav = React.memo(({
   );
 });
 
-// 보관함 — 보관된 프로젝트를 연도로 묶어 보여준다. 연도 컬럼을 따로 두지 않고
-// projects.created_at으로 묶는다("2026 수련회" 같은 이름은 사람이 붙이던 대로 붙인다).
-function ArchivedProjects({ projects, onPick }) {
-  if (!projects.length) return null;
+// 더보기 = 연도 폴더 (사용자 결정 2026-08-24). 탭에 못 들어간 진행 중 프로젝트와
+// 보관된 프로젝트를 같은 연도 아래에서 함께 본다 — 예전에는 '보관'해야만 연도로
+// 묶여서, 지난 해 프로젝트를 찾으려면 먼저 보관부터 해야 했다.
+// 연도는 projects.created_at에서 파생한다(연도 컬럼을 따로 두지 않는다).
+// 보관된 것은 Archive 아이콘 + 흐린 글자로 가른다. 보관 해제는 열어서 이름 수정 창에서.
+function YearFolders({ active, archived, onPick }) {
+  const yearOf = (p) => String(p.createdAt || '').slice(0, 4) || '연도 모름';
   const byYear = new Map();
-  for (const p of projects) {
-    const year = String(p.createdAt || '').slice(0, 4) || '연도 모름';
-    if (!byYear.has(year)) byYear.set(year, []);
-    byYear.get(year).push(p);
-  }
+  const put = (p, isArchived) => {
+    const y = yearOf(p);
+    if (!byYear.has(y)) byYear.set(y, []);
+    byYear.get(y).push({ p, isArchived });
+  };
+  active.forEach(p => put(p, false));
+  archived.forEach(p => put(p, true));
+  // 최신 연도 먼저, '연도 모름'은 맨 뒤(글자라 숫자보다 크게 정렬되는 것을 손으로 뺀다)
+  const years = [...byYear.keys()].filter(y => y !== '연도 모름').sort((a, b) => b.localeCompare(a));
+  if (byYear.has('연도 모름')) years.push('연도 모름');
   return (
     <>
-      <p className="px-2.5 pt-2.5 pb-1 mt-1 border-t border-line text-[10px] font-bold text-fg-faint">보관함</p>
-      {[...byYear.entries()].map(([year, list]) => (
+      {years.map(year => (
         <div key={year}>
-          <p className="px-2.5 pt-1.5 pb-0.5 text-[10px] font-semibold text-fg-faint tabular-nums">{year}</p>
-          {list.map(p => (
+          <p className="px-2.5 pt-2 pb-0.5 text-[10px] font-bold text-fg-faint tabular-nums first:pt-1">{year}</p>
+          {byYear.get(year).map(({ p, isArchived }) => (
             <button key={p.id} onClick={() => onPick(p.id)}
-              className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-[13px] text-fg-faint hover:bg-surface-hover hover:text-fg-muted transition-colors text-left">
-              <Archive size={13} className="shrink-0" /><span className="truncate">{p.title}</span>
+              className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-[13px] transition-colors text-left ${isArchived ? 'text-fg-faint hover:text-fg-muted' : 'text-fg-muted hover:text-fg'} hover:bg-surface-hover`}>
+              {isArchived
+                ? <Archive size={13} className="shrink-0" />
+                : <Hash size={14} className="shrink-0 text-fg-faint" />}
+              <span className="truncate">{p.title}</span>
+              {isArchived && <span className="ml-auto shrink-0 text-[10px] text-fg-faint">보관됨</span>}
             </button>
           ))}
         </div>

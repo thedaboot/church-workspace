@@ -49,7 +49,12 @@ export const selectActivityFeed = createSelector(
 
 // 파생 데이터 선택자 (Derived Selectors)
 export const selectTasksList = createSelector([selectTasks], (tasks) => tasks.allIds.map(id => tasks.byId[id]));
-export const selectProjectsList = createSelector([selectProjects], (projects) => projects.allIds.map(id => projects.byId[id]));
+// 프로젝트는 탭 드래그가 정한 순서(position, 0021)로 선다. 같은 값이면 만든 순 —
+// position만 보면 옛 행(전부 0)에서 Postgres·객체 순회가 순서를 보장하지 않는다(§6-24).
+export const selectProjectsList = createSelector([selectProjects], (projects) =>
+  projects.allIds.map(id => projects.byId[id])
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0)
+      || String(a.createdAt || '').localeCompare(String(b.createdAt || ''))));
 export const selectProjectsMap = createSelector([selectProjects], (projects) => projects.byId);
 
 // 보관하지 않은 프로젝트 — 상단 탭·대시보드처럼 "지금 굴러가는 것"만 보여야 하는 곳.

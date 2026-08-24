@@ -246,9 +246,11 @@ const projectToApp = (p, linksByProject) => ({
   id: p.id,
   title: p.name,
   // 보관된 프로젝트는 탭·대시보드에서 빠지지만 지워진 것은 아니다(보관함에서 본다).
-  // createdAt은 보관함의 연도 묶음에 쓴다 — 연도 컬럼을 따로 두지 않는 이유다.
+  // createdAt은 보관함·더보기의 연도 묶음에 쓴다 — 연도 컬럼을 따로 두지 않는 이유다.
   archived: !!p.archived,
   createdAt: p.created_at,
+  // 탭 순서(0021, 드래그로 정한 전원 공유 순서). 마이그레이션 전 행은 0 → 만든 순.
+  position: p.position ?? 0,
   pinnedLinks: (linksByProject.get(p.id) || []).map(l => ({ id: l.id, title: l.title, url: l.url })),
 });
 
@@ -442,12 +444,20 @@ export async function commentUpdateCloud(commentId, text) { return write(() => c
 export async function commentDeleteCloud(commentId) { return write(() => cloud.deleteComment(commentId)); }
 
 export async function projectCreateCloud(project) {
-  return write(() => cloud.createProject({ id: project.id, name: project.title }));
+  return write(() => cloud.createProject({ id: project.id, name: project.title, position: project.position ?? 0 }));
 }
 // DB 컬럼명은 name (앱에서는 title로 부른다)
 export async function projectRenameCloud(id, title) { return write(() => cloud.updateProject(id, { name: title })); }
 export async function projectArchiveCloud(id, archived) { return write(() => cloud.updateProject(id, { archived })); }
 export async function projectDeleteCloud(id) { return write(() => cloud.deleteProject(id)); }
+
+// 탭 드래그가 정한 순서 저장 — 바뀐 행만 넘어온다(몇 건 안 된다).
+// 컬럼 하나짜리 갱신이라 겹쳐 써도 마지막 것이 남을 뿐 깨지지 않는다(§6-27과 같은 성질).
+export async function projectOrderCloud(orders) {
+  for (const { id, position } of orders) {
+    await write(() => cloud.updateProject(id, { position }));
+  }
+}
 
 export async function linkAddCloud(projectId, link) { return write(() => cloud.addLink(projectId, link.title, link.url, link.id)); }
 export async function linkRemoveCloud(id) { return write(() => cloud.removeLink(id)); }

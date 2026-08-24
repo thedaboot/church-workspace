@@ -130,7 +130,14 @@ export const useWorkspaceController = () => {
   }, [cloudOn]);
 
   const handleAddProject = useCallback((title) => {
-    const newProject = { id: generateId(), title, pinnedLinks: [] };
+    // position: 맨 뒤(가장 큰 값 + 1). createdAt은 더보기의 연도 묶음이 쓴다 —
+    // 서버 재조회 전에도 방금 만든 프로젝트가 '연도 모름'으로 뜨지 않게 여기서 넣는다.
+    const positions = Object.values(store.getState().projects.byId).map(p => p.position ?? 0);
+    const newProject = {
+      id: generateId(), title, pinnedLinks: [],
+      position: (positions.length ? Math.max(...positions) : 0) + 1,
+      createdAt: new Date().toISOString(),
+    };
     store.dispatch({ type: 'ADD_PROJECT', payload: newProject });
     if (cloudOn) cloudSync.projectCreateCloud(newProject).catch(reportCloudError('프로젝트 생성'));
     return newProject.id;

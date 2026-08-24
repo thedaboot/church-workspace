@@ -327,6 +327,31 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  선행 업무 활동 기록 4가지');
 }
 
+
+// ── 프로젝트 탭 순서 (selectors.selectProjectsList) ──
+// 0021의 position이 1차 키, created_at이 2차 키다. position이 전부 0인 옛 데이터에서
+// 만든 순이 유지되는지, 드래그로 바꾼 position이 이기는지를 본다.
+{
+  const { selectProjectsList } = await import(new URL('../src/store/selectors.js', import.meta.url));
+  const mk = (byId) => ({ projects: { byId, allIds: Object.keys(byId) } });
+  const s1 = mk({
+    b: { id: 'b', title: 'B', position: 0, createdAt: '2026-02-01' },
+    a: { id: 'a', title: 'A', position: 0, createdAt: '2026-01-01' },
+  });
+  assert.deepStrictEqual(selectProjectsList(s1).map(p => p.id), ['a', 'b'], 'position이 같으면 만든 순');
+  const s2 = mk({
+    a: { id: 'a', title: 'A', position: 2, createdAt: '2026-01-01' },
+    b: { id: 'b', title: 'B', position: 1, createdAt: '2026-02-01' },
+  });
+  assert.deepStrictEqual(selectProjectsList(s2).map(p => p.id), ['b', 'a'], '드래그로 정한 position이 이긴다');
+  const s3 = mk({
+    old: { id: 'old', title: '옛 행' },                                 // position·createdAt 없음(게스트)
+    neo: { id: 'neo', title: '새 행', position: 1, createdAt: '2026-03-01' },
+  });
+  assert.deepStrictEqual(selectProjectsList(s3).map(p => p.id), ['old', 'neo'], '값이 없어도 안전하다');
+  console.log('PASS  프로젝트 탭 순서 3가지');
+}
+
 // ── 본문 체크리스트 토글 (utils.toggleTodoLine) ──
 // 뷰어(RichText)의 체크박스가 n번째 체크 줄만 뒤집는지 — 다른 줄·불릿·본문은 그대로.
 {
