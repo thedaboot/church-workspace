@@ -203,25 +203,55 @@ export function ProfileModal({ onClose, onSave }) {
 // project를 넘기면 이름 수정, 없으면 새로 만들기 (창 하나로 둘 다)
 // 보관은 이름 수정일 때만 — 만들면서 보관할 일은 없다. 삭제(관리자 전용)와 달리
 // 되돌릴 수 있으므로 확인 팝오버를 두지 않는다.
+// 이름 앞의 네 자리 연도를 뽑는다(2000~2100). 이름 규칙이 이미 '2026 하계 수련회'라
+// 대부분 저절로 맞고, 아니면 올해로 둔다. 0025의 백필과 같은 규칙이다.
+export const yearFromTitle = (title) => {
+  const m = /^\s*(\d{4})/.exec(String(title || ''));
+  const y = m ? Number(m[1]) : NaN;
+  return y >= 2000 && y <= 2100 ? y : null;
+};
+
 export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
   const renaming = !!project;
   const [title, setTitle] = useState(project?.title || '');
+  const thisYear = new Date().getFullYear();
+  const [year, setYear] = useState(() => project?.year || yearFromTitle(project?.title) || thisYear);
+  // 만들 때는 이름을 치는 동안 연도를 따라가게 둔다 — '2027 …'을 치면 2027로.
+  // 이미 있는 프로젝트는 사람이 정한 값이므로 이름을 고쳐도 건드리지 않는다.
+  const onTitleChange = (v) => {
+    setTitle(v);
+    if (!renaming) { const y = yearFromTitle(v); if (y) setYear(y); }
+  };
   const clean = title.trim();
-  const unchanged = renaming && clean === (project.title || '').trim();
-  const submit = () => { if (clean && !unchanged) onSave(clean); };
+  const unchanged = renaming && clean === (project.title || '').trim()
+    && year === (project.year || yearFromTitle(project.title) || thisYear);
+  const submit = () => { if (clean && !unchanged) onSave(clean, year); };
   const archived = !!project?.archived;
+  // 올해 앞뒤로 넉넉히 — 지난 것을 정리하거나 내년 것을 미리 만드는 두 경우만 있다
+  const YEARS = [thisYear + 2, thisYear + 1, thisYear, thisYear - 1, thisYear - 2, thisYear - 3];
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
       <div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-200">
         <h3 className="font-bold text-fg mb-4 flex items-center gap-2"><Hash size={18} className="text-accent"/> {renaming ? '프로젝트 이름 수정' : '새 프로젝트 생성'}</h3>
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">프로젝트 이름</label>
         <input
-          type="text" value={title} onChange={e => setTitle(e.target.value)}
+          type="text" value={title} onChange={e => onTitleChange(e.target.value)}
           placeholder="예: 2026 하계 수련회"
-          className="w-full border border-line p-2.5 rounded-xs mb-6 text-[13px] bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none"
+          className="w-full border border-line p-2.5 rounded-xs mb-4 text-[13px] bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none"
           autoFocus
           onKeyDown={e => { if (e.key === 'Enter') submit(); }}
         />
+        {/* 연도는 **만든 날짜에서 뽑지 않는다.** 해가 바뀌기 전에 미리 만드는
+            프로젝트('2027 동계 수련회'를 2026년 8월에 만드는 일)가 실제로 있었고,
+            그때 엉뚱한 해에 들어갔다(사용자 지적 → 0025). 이름 앞 네 자리를 따라가되
+            사람이 고칠 수 있게 둔다. */}
+        <label className="block text-xs font-semibold text-fg-muted mb-1.5">연도</label>
+        <select
+          value={year} onChange={e => setYear(Number(e.target.value))}
+          className="w-full border border-line p-2.5 rounded-xs mb-6 text-[13px] bg-surface text-fg focus:ring-2 focus:ring-accent outline-none"
+        >
+          {YEARS.map(y => <option key={y} value={y}>{y}년</option>)}
+        </select>
         {/* 보관은 눌러야 보이는 기능이라 회색 글자 한 줄로 두면 아무도 못 찾는다.
             테두리와 아이콘 칩을 줘서 '누를 수 있는 것'으로 읽히게 한다. 다만 이 창의
             주 행동은 '저장'이므로 구조색(accent)은 쓰지 않는다 — 노란 칩은 '잠시

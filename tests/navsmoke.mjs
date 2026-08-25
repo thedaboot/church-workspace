@@ -30,7 +30,14 @@ const check = (n, p, d = '') => results.push(`${p ? 'PASS' : 'FAIL'}  ${n}${d ? 
 // 프로젝트 8개 = 탭 5개 + 더보기 3개, 멤버 12명 = 멘션 목록 스크롤
 const MEMBERS = ['강민수', '김승찬', '김윤주', '노준석', '문진혁', '박지호', '배현민', '양민혁', '이시온', '임재훈', '정민경', '조해리'];
 const projects = {}; const pids = [];
-for (let i = 1; i <= 8; i++) { const id = 'p' + i; pids.push(id); projects[id] = { id, title: `프로젝트 ${i}`, pinnedLinks: [] }; }
+// 폭 기반 탭 검사가 흔들리지 않게 시드는 전부 올해다. 연도 검사는 맨 아래에서
+// 자기 스스로 두 개를 내년으로 바꾸고 다시 읽는다(0025).
+const THIS_YEAR = new Date().getFullYear();
+for (let i = 1; i <= 8; i++) {
+  const id = 'p' + i; pids.push(id);
+  projects[id] = { id, title: `프로젝트 ${i}`, pinnedLinks: [],
+    createdAt: new Date().toISOString(), year: THIS_YEAR };
+}
 const byId = {}; const allIds = [];
 for (let i = 0; i < 6; i++) {
   const id = 't' + i;
@@ -275,7 +282,10 @@ check('lucide 아이콘 획이 1.4px로 통일', stroke.widths.every(w => w === 
 // ── 연도 고르기 (탭 줄 맨 앞) ──────────────────────────────────────────────
 // 되돌리기 검사: TopNav에서 <YearPicker/>를 지우면 첫 단정이 바로 깨진다.
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
-await sleep(600);
+// 앞 단계에서 다른 해 프로젝트를 열었으면 tab_year가 남아 있다 — 기본값을 보려면 지운다
+await ev(`localStorage.removeItem('tab_year')`);
+await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired');
+await sleep(1100);
 const yr = await ev(`(() => {
   const desk = [...document.querySelectorAll('div')].find(d => /hidden md:block/.test(d.className) && d.querySelector('button[title="설정"]'));
   const btn = [...(desk||document).querySelectorAll('button')].find(b => b.title === '연도 고르기');
@@ -299,6 +309,43 @@ const yrPop = await ev(`(() => {
 check('연도 목록이 열린다', yrPop.items.length >= 1, JSON.stringify(yrPop));
 await ev(`document.body.click()`);
 await sleep(200);
+await send('Emulation.clearDeviceMetricsOverride');
+
+
+// ── 연도는 만든 날짜가 아니라 **정한 값**을 따른다 (0025) ──────────────────
+// 시드의 createdAt은 전부 오늘이다. 7·8번만 year를 내년으로 바꿔 두고 다시 읽어,
+// 화면이 만든 날짜가 아니라 정한 값을 보는지 확인한다.
+// 되돌리기 검사: layout.jsx의 projectYear에서 p?.year를 빼면 두 단정이 깨진다.
+// 앞 블록이 화면 크기 지정을 해제해 두어서, 다시 잡지 않으면 모바일 레이아웃이
+// 마운트되고 데스크톱 내비를 못 찾는다(§6-3 — 한쪽만 마운트된다).
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+const nextYear = String(new Date().getFullYear() + 1);
+await ev(`(() => {
+  const s = JSON.parse(localStorage.getItem('church_app_v4'));
+  s.projects.byId.p7.year = ${Number(nextYear)};
+  s.projects.byId.p8.year = ${Number(nextYear)};
+  localStorage.setItem('church_app_v4', JSON.stringify(s));
+  localStorage.removeItem('tab_year');
+})()`);
+await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired');
+await sleep(1100);
+await ev(`[...document.querySelectorAll('button')].find(b => b.title === '연도 고르기').click()`);
+await sleep(350);
+const yrItems = await ev(`(() => {
+  const pops = [...document.body.children].filter(c => typeof c.className === 'string' && c.className.includes('z-[90]'));
+  return pops.flatMap(p => [...p.querySelectorAll('button')].map(b => b.textContent.trim())).filter(t => /^[0-9]{4}년$/.test(t));
+})()`);
+check('정한 연도가 목록에 뜬다(만든 날짜가 아니라)', yrItems.includes(nextYear + '년'), JSON.stringify(yrItems));
+await ev(`(() => {
+  const pops = [...document.body.children].filter(c => typeof c.className === 'string' && c.className.includes('z-[90]'));
+  const b = pops.flatMap(p => [...p.querySelectorAll('button')]).find(x => x.textContent.trim() === '${nextYear}년');
+  b && b.click();
+})()`);
+await sleep(800);
+const afterPick = await ev(readNav);
+// 7번(내년·진행중) + 보고 있는 p1(올해라도 남는다) = 2. 8번은 앞 단계에서 보관됐다.
+check('그 해 프로젝트만 탭에 선다', afterPick.projTabs === 2,
+  `탭 ${afterPick.projTabs}개`);
 await send('Emulation.clearDeviceMetricsOverride');
 
 console.log(results.join('\n'));

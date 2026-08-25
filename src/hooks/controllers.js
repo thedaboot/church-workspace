@@ -145,25 +145,28 @@ export const useWorkspaceController = () => {
     if (cloudOn) cloudSync.cardOrderCloud(changed).catch(reportCloudError('업무 순서를 저장하지 못했어요'));
   }, [cloudOn]);
 
-  const handleAddProject = useCallback((title) => {
-    // position: 맨 뒤(가장 큰 값 + 1). createdAt은 더보기의 연도 묶음이 쓴다 —
-    // 서버 재조회 전에도 방금 만든 프로젝트가 '연도 모름'으로 뜨지 않게 여기서 넣는다.
+  const handleAddProject = useCallback((title, year) => {
+    // position: 맨 뒤(가장 큰 값 + 1). createdAt은 활동 기록·정렬 2차 키가 쓴다.
+    // year는 **만든 날짜에서 뽑지 않는다**(0025) — 해가 바뀌기 전에 미리 만드는
+    // 프로젝트가 엉뚱한 해에 들어갔다. 창이 이름 앞 네 자리를 따라 채워 준다.
     const positions = Object.values(store.getState().projects.byId).map(p => p.position ?? 0);
     const newProject = {
       id: generateId(), title, pinnedLinks: [],
       position: (positions.length ? Math.max(...positions) : 0) + 1,
       createdAt: new Date().toISOString(),
+      year: year || new Date().getFullYear(),
     };
     store.dispatch({ type: 'ADD_PROJECT', payload: newProject });
     if (cloudOn) cloudSync.projectCreateCloud(newProject).catch(reportCloudError('프로젝트를 만들지 못했어요'));
     return newProject.id;
   }, [cloudOn]);
 
-  const handleRenameProject = useCallback((id, title) => {
+  const handleRenameProject = useCallback((id, title, year) => {
     const next = String(title || '').trim();
     if (!next) return;
-    store.dispatch({ type: 'UPDATE_PROJECT', payload: { id, title: next } });
-    if (cloudOn) cloudSync.projectRenameCloud(id, next).catch(reportCloudError('프로젝트 이름을 바꾸지 못했어요'));
+    const patch = { id, title: next, ...(year ? { year } : {}) };
+    store.dispatch({ type: 'UPDATE_PROJECT', payload: patch });
+    if (cloudOn) cloudSync.projectRenameCloud(id, next, year).catch(reportCloudError('프로젝트를 저장하지 못했어요'));
   }, [cloudOn]);
 
   // 프로젝트 보관/해제 — 지우는 것이 아니라 탭·대시보드에서만 빼는 것이다.

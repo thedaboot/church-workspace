@@ -439,9 +439,9 @@ function WorkspaceShell() {
             if (archived && activeMenu === id) setActiveMenu('dashboard');
           }}
           onClose={() => { setIsProjectModalOpen(false); setRenameTarget(null); }}
-          onSave={(title) => {
-            if (renameTarget) { controller.handleRenameProject(renameTarget.id, title); setRenameTarget(null); }
-            else { const newId = controller.handleAddProject(title); setActiveMenu(newId); setIsProjectModalOpen(false); }
+          onSave={(title, year) => {
+            if (renameTarget) { controller.handleRenameProject(renameTarget.id, title, year); setRenameTarget(null); }
+            else { const newId = controller.handleAddProject(title, year); setActiveMenu(newId); setIsProjectModalOpen(false); }
           }}
         />
       )}
