@@ -133,6 +133,36 @@ check('한 번 클릭으로 목록 날짜가 바뀐다', after !== before, `${be
 const emptyWord = await ev(`(() => { const t=document.querySelector('main').textContent;
   return { neu:/해당 날짜에는 업무가 없어요/.test(t), old:/이날은 잡힌 일이 없어요/.test(t) }; })()`);
 check("빈 날 문구가 '해당 날짜에는 업무가 없어요'", emptyWord.old === false, JSON.stringify(emptyWord));
+
+// ── 모바일: 달력 격자와 아래 목록이 같은 스크롤 통에 있으면 안 된다 ──
+// 한 통에 두면 목록을 읽으려고 미는 순간 달력이 위로 밀려 첫 주 줄이 잘린다
+// (사용자 스크린샷). 되돌리기 검사: MobileCalendar 격자의 shrink-0을 빼고
+// 목록의 스크롤 통을 없애면 아래 두 단정이 바로 깨진다.
+await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+await sleep(800);
+const mob = await ev(`(() => {
+  const main=document.querySelector('main');
+  const grid=[...main.querySelectorAll('div')].find(d=>/grid-cols-7/.test(d.className||'') && d.children.length>=35);
+  if (!grid) return { found:false };
+  const gr=grid.getBoundingClientRect();
+  let sc=grid.parentElement, scroller=null;
+  while (sc && sc!==document.body) {
+    if (/auto|scroll/.test(getComputedStyle(sc).overflowY)) { scroller=sc; break; }
+    sc=sc.parentElement;
+  }
+  return {
+    found:true,
+    // 격자를 품은 스크롤 통이 넘치면, 목록을 밀 때 격자가 같이 밀려 올라간다
+    gridScrolls: scroller ? scroller.scrollHeight > scroller.clientHeight + 1 : false,
+    gridBottom: Math.round(gr.bottom),
+    rows: grid.children.length / 7,
+  };
+})()`);
+check('모바일 달력 격자를 찾는다', mob.found === true, JSON.stringify(mob));
+check('격자가 스크롤 통 안에서 넘치지 않는다', mob.found && mob.gridScrolls === false, JSON.stringify(mob));
+check('격자 아래쪽이 화면 안에 있다', mob.found && mob.gridBottom <= 844, JSON.stringify(mob));
+await send('Emulation.clearDeviceMetricsOverride');
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.join('\n'):'\n콘솔 오류 없음');
 ws.close();chrome.kill();process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

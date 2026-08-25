@@ -326,9 +326,13 @@ function CalBar({ bar, onClick }) {
 
 // 모바일 캘린더 — 52px 고정 칸에 팀 색 점만 찍고, 날짜를 누르면 아래에 그날 목록
 function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, dayTasks, selectedList, onTaskClick, bdays, onNewTask }) {
+  // 격자와 목록을 **다른 스크롤 통**에 둔다. 한 통에 같이 두었더니 목록을 읽으려고
+  // 미는 순간 달력이 위로 밀려 첫 주 줄이 잘렸다(사용자 지적) — 달력은 "지금 어디를
+  // 보고 있나"를 알려주는 기준이라 목록을 볼 때도 자리에 있어야 한다.
+  // 데스크톱이 달력 왼쪽·목록 오른쪽으로 갈라 둔 것과 같은 판단이다.
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto">
-      <div className="grid grid-cols-7 rounded-[10px] overflow-hidden shadow-soft"
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="shrink-0 grid grid-cols-7 rounded-[10px] overflow-hidden shadow-soft"
         style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)', gridAutoRows: '52px' }}>
         {weekStarts.flatMap(ws => Array.from({ length: 7 }, (_, i) => {
           const iso = addDays(ws, i);
@@ -366,8 +370,10 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
           );
         }))}
       </div>
-      <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick}
-        birthdays={birthdaysOn(bdays, selected)} onNewTask={onNewTask} />
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick}
+          birthdays={birthdaysOn(bdays, selected)} onNewTask={onNewTask} />
+      </div>
     </div>
   );
 }
