@@ -1,10 +1,6 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useDeferredValue } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown,
-  Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users,
-  Archive, CalendarDays, CalendarClock, Smartphone
-} from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users, Archive, CalendarDays, CalendarClock, Smartphone } from 'lucide-react';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsList, selectActiveProjectsList, selectArchivedProjectsList,
@@ -58,10 +54,11 @@ function useTabFit(tabRowRef, measureRef, count, alwaysMore) {
       const tabW = kids.slice(0, count).map(el => el.offsetWidth);
       const moreW = kids[count]?.offsetWidth || 0;
       const plusW = kids[count + 1]?.offsetWidth || 0;
+      const yearW = kids[count + 2]?.offsetWidth || 0;   // 줄 맨 앞의 연도 버튼(항상 있다)
       const cs = getComputedStyle(row);
       // -16: 측정 span과 실제 button 렌더 사이의 미세 오차(서브픽셀·보더) 여유.
       // 딱 맞는 경계(800px에 670px 탭)에서 몇 px 넘쳐 '+ 프로젝트'가 잘렸다.
-      const avail = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - plusW - 16;
+      const avail = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - plusW - yearW - 16;
       let used = 0, k = 0;
       for (let i = 0; i < count; i++) {
         const needMore = alwaysMore || i < count - 1;  // 이 뒤에 더보기가 서야 하나
@@ -98,13 +95,14 @@ function useDismiss(open, close, refs) {
 
 // 프로필 아바타 → 내 정보·테마·로그아웃.
 // 사이드바 하단에 있던 것들이 전부 여기로 들어왔다(모바일 '내 정보' 탭도 이걸 쓴다).
-export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', children }) {
+function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', children , onOpenMembers }) {
   const currentUser = useStore(selectCurrentUser);
   const { enabled, session, signOut } = useAuth();
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const btnRef = useRef(null);
   const popRef = useRef(null);
+  const { isAdmin } = useAuth();
   // popRef를 넘겨 실제 높이로 위치를 다시 잡는다 — 추정 높이로만 잡으면
   // 아래에서 위로 뜨는 모바일 탭바 메뉴가 탭바에서 한참 떨어져 떠 보였다
   const [pos, place] = useAnchoredPos(btnRef, open, 224, 200, 8, popRef);
@@ -138,6 +136,11 @@ export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0',
             <p className="text-[11px] text-fg-muted truncate">{(currentUser.teams?.length ? currentUser.teams : [currentUser.team]).filter(Boolean).join(' · ') || '팀 미지정'}</p>
           </div>
           <button className={item} onClick={go(onOpenProfile)}><Settings size={15} /> 설정</button>
+          {/* 멤버는 관리자에게만. 하단 탭 네 자리는 핸드오프 규격이라 다섯 번째를
+              끼우지 않는다 — 설정·전체 일정과 같은 처리다(§4.6). */}
+          {isAdmin && enabled && session && onOpenMembers && (
+            <button className={item} onClick={go(onOpenMembers)}><Users size={15} /> 멤버</button>
+          )}
           <ThemeMenuItem className={item} />
           {enabled && session && (
             <button className={`${item} hover:text-tag-red-fg`} onClick={go(signOut)}><LogOut size={15} /> 로그아웃</button>
@@ -169,7 +172,7 @@ function ThemeMenuItem({ className }) {
 
 // 데스크톱 상단 2줄 내비
 export const TopNav = React.memo(({
-  activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenProfile, onOpenProject,
+  activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenProfile, onOpenProject, onOpenMembers,
   undo, redo, canUndo, canRedo, cloudMode,
 }) => {
   // 탭에는 보관하지 않은 프로젝트만. 보관된 것은 아래 '더보기' 안 보관함에서 연도별로 본다
@@ -179,17 +182,26 @@ export const TopNav = React.memo(({
   const archived = useStore(selectArchivedProjectsList);
   const allProjects = useStore(selectProjectsList);
   const activeProject = allProjects.find(p => p.id === activeMenu);
-  const tabSource = activeProject?.archived ? [...projectsList, activeProject] : projectsList;
+  // 연도 고르기 — 고른 해의 프로젝트만 탭에. 지금 보고 있는 것은 해가 달라도 남긴다
+  // (splitProjectTabs가 끌어올리지만, 애초에 목록에 없으면 끌어올릴 것도 없다).
+  const { year, setYear, years } = useTabYear(allProjects, activeMenu);
+  const yearList = projectsList.filter(p => projectYear(p) === year);
+  const tabBase = activeProject && !activeProject.archived && !yearList.some(p => p.id === activeMenu)
+    ? [...yearList, activeProject] : yearList;
+  const tabSource = activeProject?.archived ? [...tabBase, activeProject] : tabBase;
   // 보관된 것을 열어 두면 위 줄이 그걸 탭으로 끌어올린다 — 그때 보관함 목록에도 그대로
   // 두면 **같은 프로젝트가 탭과 더보기에 동시에** 보인다(실제로 그렇게 보였다).
   // 지금 보고 있는 것은 이미 탭에 있으니 목록에서 뺀다.
   const archivedForMore = archived.filter(p => p.id !== activeMenu);
+  // 더보기의 연도 폴더에는 **모든 해**의 진행 중 프로젝트가 들어간다 — 연도로 거른
+  // 탭에서 빠진 것들이 갈 곳이 여기뿐이다(rest에는 고른 해의 나머지만 있다).
+  const otherYears = projectsList.filter(p => projectYear(p) !== year && p.id !== activeMenu);
   const myTasksCount = useStore(selectMyTasks).filter(t => t.status !== '완료').length;
   // 몇 개까지 탭으로 보일지는 화면 폭이 정한다(useTabFit). 보관함이 있으면 탭이 다
   // 들어가도 '더보기'는 남아야 하므로 그 폭까지 계산에 넣는다.
   const tabRowRef = useRef(null);
   const measureRef = useRef(null);
-  const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0);
+  const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0 || otherYears.length > 0);
   const { shown, rest } = splitProjectTabs(tabSource, activeMenu, tabFit);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRootRef = useRef(null);
@@ -257,7 +269,7 @@ export const TopNav = React.memo(({
           )}
           <SearchBox onSearchSelect={onSearchSelect} variant="inline" />
           {cloudMode && <NotificationBell onOpenTask={onOpenTask} />}
-          <ProfileMenu onOpenProfile={onOpenProfile} />
+          <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} />
         </div>
       </div>
 
@@ -275,7 +287,12 @@ export const TopNav = React.memo(({
           ))}
           <span className="shrink-0 inline-flex items-center gap-1 px-3 pt-2.5 pb-2 text-[13px] font-semibold">더보기 <ChevronDown size={13} /></span>
           <span className="shrink-0 inline-block px-3 pt-2.5 pb-2 text-[13px] font-semibold whitespace-nowrap">+ 프로젝트</span>
+          {/* 연도 버튼도 같은 줄을 쓴다 — 폭 계산에 안 넣으면 탭이 한 칸씩 넘친다.
+              **맨 뒤**에 둔다: 앞에 끼우면 useTabFit의 kids 인덱스가 통째로 밀려
+              탭 폭이 엉뚱하게 잡힌다(800px에서 8개가 다 들어간다고 나왔다). */}
+          <span className="shrink-0 inline-flex items-center gap-1 pr-3 pt-2.5 pb-2 text-[13px] font-semibold tabular-nums">{year} <ChevronDown size={13} /></span>
         </div>
+        <YearPicker year={year} years={years} onPick={setYear} />
         {shown.map(p => (
           <button
             key={p.id} onClick={() => setActiveMenu(p.id)}
@@ -289,7 +306,7 @@ export const TopNav = React.memo(({
             {p.title}
           </button>
         ))}
-        {(rest.length > 0 || archivedForMore.length > 0) && (
+        {(rest.length > 0 || archivedForMore.length > 0 || otherYears.length > 0) && (
           <span ref={moreRootRef} className="inline-flex">
             <span ref={moreBtnRef} className="inline-flex">
               <button onClick={() => { placeMore(); setMoreOpen(o => !o); }} className="px-3 pt-2.5 pb-2 -mb-px inline-flex items-center gap-1 text-[13px] font-semibold text-fg-muted hover:text-fg border-b-2 border-transparent transition-colors">
@@ -298,7 +315,7 @@ export const TopNav = React.memo(({
             </span>
             {moreOpen && createPortal(
               <div ref={morePopRef} style={{ position: 'fixed', left: morePos.left, top: morePos.top, width: 224 }} className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 max-h-72 overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
-                <YearFolders active={rest} archived={archivedForMore} onPick={(id) => { setMoreOpen(false); setActiveMenu(id); }} />
+                <YearFolders active={[...rest, ...otherYears]} archived={archivedForMore} onPick={(id) => { setMoreOpen(false); setActiveMenu(id); }} />
               </div>,
               document.body
             )}
@@ -309,6 +326,68 @@ export const TopNav = React.memo(({
     </div>
   );
 });
+
+// ── 연도 고르기 ────────────────────────────────────────────────────────────
+// 프로젝트 탭 줄 앞의 `2026 ▾`. 고른 해의 프로젝트만 탭에 선다 — 해가 쌓일수록
+// 탭 줄이 넘쳐서 '더보기'로 밀려나기만 하던 문제까지 같이 푼다.
+// 연도는 projects.created_at에서 파생한다(연도 컬럼을 따로 두지 않는다 — 0014의 판단).
+const projectYear = (p) => String(p?.createdAt || '').slice(0, 4) || String(new Date().getFullYear());
+
+// 고른 해는 사람마다 다르고 서버가 알 필요가 없다 → localStorage.
+// 다른 해의 프로젝트를 열면(검색·알림·링크로) 그 해로 따라간다 — 안 그러면 지금
+// 보고 있는 프로젝트가 탭 줄 어디에도 없어서 "어디 있는지" 표시가 사라진다.
+function useTabYear(allProjects, activeMenu) {
+  const years = useMemo(() => {
+    const set = new Set(allProjects.map(projectYear));
+    set.add(String(new Date().getFullYear()));
+    return [...set].sort((a, b) => b.localeCompare(a));
+  }, [allProjects]);
+  const [year, setYear] = useState(() => {
+    try { return localStorage.getItem('tab_year') || String(new Date().getFullYear()); }
+    catch { return String(new Date().getFullYear()); }
+  });
+  const pick = useCallback((y) => {
+    setYear(y);
+    try { localStorage.setItem('tab_year', y); } catch { /* 프라이빗 모드 */ }
+  }, []);
+  const activeYear = allProjects.find(p => p.id === activeMenu) ? projectYear(allProjects.find(p => p.id === activeMenu)) : null;
+  useEffect(() => { if (activeYear && activeYear !== year) pick(activeYear); }, [activeYear]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 고른 해가 목록에 없으면(그 해 프로젝트를 다 지웠다) 가장 최근 해로 떨어진다
+  const safeYear = years.includes(year) ? year : years[0];
+  return { year: safeYear, setYear: pick, years };
+}
+
+// 연도 버튼 + 목록. 팝오버는 body 포털이 기본이다(§6-1).
+function YearPicker({ year, years, onPick, compact = false }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+  const [pos, place] = useAnchoredPos(btnRef, open, 112, 40 + years.length * 34);
+  useDismiss(open, () => setOpen(false), [rootRef, popRef]);
+  return (
+    <span ref={rootRef} className="inline-flex shrink-0">
+      <span ref={btnRef} className="inline-flex">
+        <button onClick={() => { place(); setOpen(o => !o); }} title="연도 고르기"
+          className={`inline-flex items-center gap-1 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-muted hover:text-fg transition-colors tabular-nums ${compact ? 'px-2 pt-2.5 pb-2' : 'pl-0 pr-3 pt-2.5 pb-2'}`}>
+          {year} <ChevronDown size={13} />
+        </button>
+      </span>
+      {open && createPortal(
+        <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: 112 }}
+          className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 max-h-72 overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+          {years.map(y => (
+            <button key={y} onClick={() => { setOpen(false); onPick(y); }}
+              className={`w-full px-2.5 py-2 rounded-md text-[13px] text-left tabular-nums transition-colors hover:bg-surface-hover ${y === year ? 'text-fg font-bold' : 'text-fg-muted'}`}>
+              {y}년
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </span>
+  );
+}
 
 // 더보기 = 연도 폴더 (사용자 결정 2026-08-24). 탭에 못 들어간 진행 중 프로젝트와
 // 보관된 프로젝트를 같은 연도 아래에서 함께 본다 — 예전에는 '보관'해야만 연도로
@@ -350,13 +429,17 @@ function YearFolders({ active, archived, onPick }) {
 }
 
 // 모바일 상단: 현재 화면 이름 + 검색·알림, 그 아래 프로젝트 탭(가로 스크롤)
-export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenProject, onRenameProject, onOpenProfile, cloudMode }) => {
+export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenProject, onRenameProject, onOpenProfile, onOpenMembers, cloudMode }) => {
   // 보관된 프로젝트는 탭 줄에서 빠진다. 다만 보관된 것을 열어 둔 상태라면 그 탭은
   // 보여야 한다 — 안 그러면 지금 어디 있는지 표시가 아무 데도 없다.
   const activeList = useStore(selectActiveProjectsList);
   const projectsMap = useStore(selectProjectsMap);
   const current = projectsMap[activeMenu];
-  const projectsList = current?.archived ? [...activeList, current] : activeList;
+  const allForYear = useStore(selectProjectsList);
+  const { year, setYear, years } = useTabYear(allForYear, activeMenu);
+  const yearList = activeList.filter(p => projectYear(p) === year);
+  const base = current && !current.archived && !yearList.some(p => p.id === activeMenu) ? [...yearList, current] : yearList;
+  const projectsList = current?.archived ? [...base, current] : base;
   const currentUser = useStore(selectCurrentUser);
   // 프로젝트 탭 줄은 프로젝트를 보고 있을 때만 — 내 업무·대시보드에서는 쓸 일이 없고
   // 좁은 화면에서 한 줄이 그대로 낭비된다(다른 프로젝트로는 하단 '프로젝트' 탭으로 간다)
@@ -383,11 +466,14 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
         <SearchBox onSearchSelect={onSearchSelect} variant="icon" />
         {cloudMode && <NotificationBell onOpenTask={onOpenTask} />}
         {/* 설정은 상단 헤더로 — 하단 탭 네 자리는 프로젝트·내 업무·대시보드·팀이 쓴다 */}
-        <ProfileMenu onOpenProfile={onOpenProfile} />
+        <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} />
       </div>
       {project && (
         // x-scroll-lock: 가로로 밀 때 세로 스크롤이 같이 딸려가지 않게 (index.css)
         <div className="flex items-end gap-0 px-2 overflow-x-auto scrollbar-hide x-scroll-lock border-t border-line/70">
+          {/* 연도는 미는 칸 **안**에 둔다 — 같은 종류가 이어지는 줄이고(§8), 밖으로
+              빼면 좁은 화면에서 탭이 시작하는 자리가 그만큼 밀린다 */}
+          <YearPicker year={year} years={years} onPick={setYear} compact />
           {projectsList.map(p => (
             <button
               key={p.id} onClick={() => setActiveMenu(p.id)}
@@ -447,6 +533,7 @@ function menuTitle(activeMenu, projectsMap, currentUser) {
   if (activeMenu === 'dashboard') return '전체 대시보드';
   if (activeMenu === 'myTasks') return `${currentUser?.name || '내'}님의 업무`;
   if (activeMenu === 'schedule') return '전체 일정';
+  if (activeMenu === 'members') return '멤버';
   if (activeMenu.startsWith('team:')) return `${activeMenu.split(':')[1]} 보드`;
   return projectsMap[activeMenu]?.title || '워크스페이스';
 }

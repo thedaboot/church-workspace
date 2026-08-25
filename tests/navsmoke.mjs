@@ -271,6 +271,36 @@ check('lucide 아이콘 획이 1.4px로 통일', stroke.widths.every(w => w === 
   check('열어 둔 보관 프로젝트는 더보기에 다시 안 나온다', both?.inMore === 0, JSON.stringify(both));
 }
 
+
+// ── 연도 고르기 (탭 줄 맨 앞) ──────────────────────────────────────────────
+// 되돌리기 검사: TopNav에서 <YearPicker/>를 지우면 첫 단정이 바로 깨진다.
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(600);
+const yr = await ev(`(() => {
+  const desk = [...document.querySelectorAll('div')].find(d => /hidden md:block/.test(d.className) && d.querySelector('button[title="설정"]'));
+  const btn = [...(desk||document).querySelectorAll('button')].find(b => b.title === '연도 고르기');
+  if (!btn) return { found:false };
+  const row = btn.closest('[class*="items-end"]');
+  const first = row ? [...row.querySelectorAll('button')][0] : null;
+  return { found:true, label: btn.textContent.trim(), isFirst: first === btn };
+})()`);
+check('탭 줄에 연도 고르기 버튼이 있다', yr.found === true, JSON.stringify(yr));
+check('연도가 탭보다 앞에 선다', yr.isFirst === true, JSON.stringify(yr));
+check('올해가 기본값', yr.found && yr.label.startsWith(String(new Date().getFullYear())), JSON.stringify(yr));
+// 눌러서 목록이 열리고, 연도가 하나씩 줄로 선다
+await ev(`[...document.querySelectorAll('button')].find(b => b.title === '연도 고르기').click()`);
+await sleep(300);
+const yrPop = await ev(`(() => {
+  // 이스케이프 대신 includes로 — 템플릿 리터럴 안에서 정규식 백슬래시가 한 겹 줄어든다
+  const pops = [...document.body.children].filter(c => typeof c.className === 'string' && c.className.includes('z-[90]'));
+  const items = pops.flatMap(p => [...p.querySelectorAll('button')].map(b => b.textContent.trim()));
+  return { items: items.filter(t => /^[0-9]{4}년$/.test(t)), pops: pops.length };
+})()`);
+check('연도 목록이 열린다', yrPop.items.length >= 1, JSON.stringify(yrPop));
+await ev(`document.body.click()`);
+await sleep(200);
+await send('Emulation.clearDeviceMetricsOverride');
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.slice(0, 6).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);
