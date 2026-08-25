@@ -104,9 +104,28 @@ function WorkspaceShell() {
   const canRedo = useCanRedo();
 
   // 클라우드 상태를 다시 읽어 스토어에 반영
+  // 열려 있는 업무 창의 카드 id — 댓글·첨부 변경은 이 카드일 때만 상세를 다시 읽는다
+  const openCardIdRef = useRef(null);
+  useEffect(() => { openCardIdRef.current = modalState.isOpen ? (modalState.task?.id || null) : null; }, [modalState]);
   const reloadCloud = useCallback(async () => {
     const { state, profile } = await cloudSync.loadCloudState();
     store.dispatch({ type: 'LOAD_STATE', payload: state });
+    // **전체 재조회는 모든 카드의 댓글·활동을 빈 배열로 되돌린다**(초기 로드가 읽지
+    // 않는 값이다 — §6-20). 업무 창이 열려 있으면 그 카드만 다시 읽어 채워 준다.
+    // 이게 없으면 창은 열려 있는데 카드 id가 그대로라 상세 효과가 다시 돌지 않아서,
+    // **댓글과 활동 기록이 빈 채로 남는다**(닫았다 열면 보인다 — 사용자 지적).
+    // 저장 직후에 특히 잘 났다: 내 저장이 실시간 cards 이벤트로 돌아오고, 편집
+    // 중이라 미뤄 둔 전체 재조회가 편집이 끝나는 순간 실행된다.
+    // 남이 프로젝트 이름을 바꿔도 같은 일이 난다 — 그쪽도 이 한 줄이 막는다.
+    const openId = openCardIdRef.current;
+    if (openId) {
+      try {
+        const detail = await cloudSync.loadCardDetail(openId);
+        store.dispatch({ type: 'SYNC_TASK', payload: { id: openId, ...detail } });
+      } catch (e) {
+        console.error('[cloud] 재조회 후 상세 복구 실패:', e);
+      }
+    }
     return profile;
   }, []);
 
@@ -152,11 +171,8 @@ function WorkspaceShell() {
   const isEditing = modalState.isOpen && modalState.isEditMode;
   const isEditingRef = useRef(isEditing);
   const pendingReloadRef = useRef(false);
+  const pendingCardsRef = useRef(new Set());   // 편집 중에 바뀐 카드들(그 카드만 다시 읽는다)
   useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
-
-  // 열려 있는 업무 창의 카드 id — 댓글·첨부 변경은 이 카드일 때만 상세를 다시 읽는다
-  const openCardIdRef = useRef(null);
-  useEffect(() => { openCardIdRef.current = modalState.isOpen ? (modalState.task?.id || null) : null; }, [modalState]);
 
   // 카드 1건만 다시 읽어 반영한다 — 예전에는 카드 한 장이 바뀌어도 워크스페이스
   // 전체를 다시 읽었다(쿼리 11개). 서버에서 사라진 카드면 로컬에서도 지운다.
@@ -184,7 +200,13 @@ function WorkspaceShell() {
     let timer = null;
     let feedTimer = null;
     const unsub = cloudSync.subscribeWorkspace({
-      onCard: (id) => { if (isEditingRef.current) { pendingReloadRef.current = true; return; } syncCard(id); },
+      // 편집 중이면 미뤘다가 **그 카드만** 다시 읽는다. 예전에는 전체 재조회를
+      // 예약했는데, 그러면 저장 한 번에 워크스페이스를 통째로 다시 읽고 그 과정에서
+      // 열려 있는 창의 댓글·활동이 비었다(위 reloadCloud 주석).
+      onCard: (id) => {
+        if (isEditingRef.current) { if (id) pendingCardsRef.current.add(id); return; }
+        syncCard(id);
+      },
       onCardDelete: (id) => { if (id) store.dispatch({ type: 'DELETE_TASK', payload: id }); },
       onCardDetail: (id) => { if (!isEditingRef.current) syncCardDetail(id); },
       // 최근 활동 피드만 다시 읽는다(쿼리 1개). 저장 한 번에 기록이 여러 건 생기므로
@@ -217,10 +239,17 @@ function WorkspaceShell() {
 
   // 편집 종료 시 보류된 재조회 1회 실행
   useEffect(() => {
-    if (!cloudMode || isEditing || !pendingReloadRef.current) return;
+    if (!cloudMode || isEditing) return;
+    const cards = pendingCardsRef.current;
+    if (cards.size) {
+      const ids = [...cards];
+      cards.clear();
+      ids.forEach(id => syncCard(id));
+    }
+    if (!pendingReloadRef.current) return;
     pendingReloadRef.current = false;
     reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e));
-  }, [cloudMode, isEditing, reloadCloud]);
+  }, [cloudMode, isEditing, reloadCloud, syncCard]);
 
   // Ctrl/⌘+Z · Shift+Ctrl/⌘+Z — 버튼 툴팁이 예전부터 이 단축키를 안내하고 있었는데
   // 정작 핸들러가 없었다. 버튼과 같은 조건(게스트 모드)에서만 받고,

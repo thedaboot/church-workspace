@@ -154,4 +154,38 @@ const sw = readFileSync(join(ROOT, 'public', 'sw.js'), 'utf8');
 assert.ok(/addEventListener\('push'/.test(sw) && /showNotification/.test(sw), 'sw가 푸시를 띄우지 않는다');
 assert.ok(/addEventListener\('notificationclick'/.test(sw), 'sw에 클릭 처리가 없다');
 
-console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·마이그레이션·크론·sw');
+// ── 전체 재조회가 열린 업무 창의 댓글·활동을 비우지 않는다 ──────────────────
+// 클라우드 전용 경로라 게스트 스위트가 볼 수 없다. LOAD_STATE는 모든 카드의
+// 댓글·활동을 빈 배열로 되돌리는데(초기 로드가 안 읽는 값이다 — §6-20), 창이
+// 열려 있으면 카드 id가 그대로라 상세 효과가 다시 돌지 않아 **빈 채로 남는다**.
+// 저장 직후에 특히 잘 났다: 내 저장이 실시간 cards 이벤트로 돌아오고, 편집 중이라
+// 미뤄 둔 재조회가 편집이 끝나는 순간 실행된다(사용자 지적, 두 번).
+{
+  const app = readFileSync(join(ROOT, 'src', 'App.jsx'), 'utf8');
+  const i = app.indexOf('const reloadCloud = useCallback');
+  assert.ok(i > 0, 'reloadCloud를 찾지 못했다');
+  const body = app.slice(i, app.indexOf('}, []);', i));
+  assert.ok(body.includes('LOAD_STATE'), 'reloadCloud가 LOAD_STATE를 안 쓴다');
+  assert.ok(body.includes('openCardIdRef'), '재조회 뒤 열린 창의 카드를 보지 않는다');
+  assert.ok(body.includes('loadCardDetail'), '재조회 뒤 상세를 다시 읽지 않는다');
+  // 편집 중 카드 이벤트는 전체 재조회가 아니라 그 카드만 다시 읽어야 한다
+  assert.ok(/onCard:[\s\S]{0,400}pendingCardsRef/.test(app),
+    '편집 중 카드 변경이 전체 재조회로 예약된다(그 카드만 다시 읽어야 한다)');
+}
+
+// ── 업무 저장이 댓글·활동·첨부를 덮지 않는다 (§6-22 · §6-28-a) ──────────────
+{
+  const ctrl = readFileSync(join(ROOT, 'src', 'hooks', 'controllers.js'), 'utf8');
+  const i = ctrl.indexOf('const handleSaveTask');
+  // handleSaveTask 다음에 오는 첫 const handle… 까지만 자른다 — 함수 순서가
+  // 바뀌어도 엉뚱하게 파일 끝까지 잡히지 않게(그러면 다른 UPSERT_TASK까지 센다)
+  const nextI = ctrl.indexOf('const handle', i + 20);
+  const body = ctrl.slice(i, nextI > 0 ? nextI : undefined);
+  assert.ok(/const \{ comments, activityLog, attachments, \.\.\.patch \} = task;/.test(body),
+    '저장이 댓글·활동·첨부를 payload에서 빼지 않는다');
+  assert.ok(body.includes("type: 'SYNC_TASK'"), '기존 카드 저장이 병합(SYNC_TASK)이 아니다');
+  const upserts = (body.match(/UPSERT_TASK/g) || []).length;
+  assert.strictEqual(upserts, 1, '새 카드에만 UPSERT_TASK를 써야 한다');
+}
+
+console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·마이그레이션·크론·sw·재조회 상세 복구·저장이 목록을 안 덮음');
