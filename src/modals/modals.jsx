@@ -16,7 +16,7 @@ const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').the
 const EditorSkeleton = () => <div className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none dc-skeleton" />;
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
-import { getMemberNames, loadCardDetail, cardSummaryCloud, activityAddCloud, cardWritePromise } from '../services/cloudSync.js';
+import { getMemberNames, loadCardDetail, cardSummaryCloud, activityAddCloud, cardWritePromise, ensureProjectFolder } from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { showToast } from '../components/Toast.jsx';
@@ -135,6 +135,9 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     // 먼저 올리면 외래키 위반으로 통째로 실패한다(handleSaveTask는 기다리지 않는다).
     // 카드 저장 자체가 실패했으면 여기서 멈춘다 — 그대로 올리면 첨부가
     // `files_card_id_fkey` 원문을 화면에 띄우는데, 그건 원인이 아니라 결과다.
+    // 드라이브 폴더는 첫 업로드 때 한 번만 확보한다(cloudSync가 id를 적어 둔다)
+    const proj = store.getState().projects.byId[saved.projectId];
+    const folderId = proj ? await ensureProjectFolder(proj) : null;
     if (!await cardWritePromise(saved.id)) {
       setUploadingNames([]);
       showToast('업무가 저장되지 않아 첨부 파일도 올리지 못했어요');
@@ -143,7 +146,10 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     const rows = [];
     for (const file of files) {
       try {
-        rows.push(await uploadAttachment(file, { projectId: saved.projectId, cardId: saved.id }));
+        rows.push(await uploadAttachment(file, {
+          projectId: saved.projectId, cardId: saved.id,
+          projectName: proj?.title, driveFolderId: folderId || proj?.driveFolderId,
+        }));
       } catch (err) {
         console.error('[cloud] 업로드 실패:', err);
         showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, err));

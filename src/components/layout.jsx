@@ -186,9 +186,11 @@ export const TopNav = React.memo(({
   // (splitProjectTabs가 끌어올리지만, 애초에 목록에 없으면 끌어올릴 것도 없다).
   const { year, setYear, years } = useTabYear(allProjects, activeMenu);
   const yearList = projectsList.filter(p => projectYear(p) === year);
-  const tabBase = activeProject && !activeProject.archived && !yearList.some(p => p.id === activeMenu)
+  // 지금 보고 있는 것은 해가 달라도, 보관됐어도 탭에 남는다 — 어디 있는지 표시가
+  // 화면에서 사라지면 안 된다. 갈래를 둘로 나눠 쓰면 **보관된 것을 다른 해에서
+  // 열었을 때 같은 탭이 두 번 들어간다**(navsmoke가 잡았다) — 한 번만 더한다.
+  const tabSource = activeProject && !yearList.some(p => p.id === activeMenu)
     ? [...yearList, activeProject] : yearList;
-  const tabSource = activeProject?.archived ? [...tabBase, activeProject] : tabBase;
   // 보관된 것을 열어 두면 위 줄이 그걸 탭으로 끌어올린다 — 그때 보관함 목록에도 그대로
   // 두면 **같은 프로젝트가 탭과 더보기에 동시에** 보인다(실제로 그렇게 보였다).
   // 지금 보고 있는 것은 이미 탭에 있으니 목록에서 뺀다.
@@ -331,7 +333,10 @@ export const TopNav = React.memo(({
 // 프로젝트 탭 줄 앞의 `2026 ▾`. 고른 해의 프로젝트만 탭에 선다 — 해가 쌓일수록
 // 탭 줄이 넘쳐서 '더보기'로 밀려나기만 하던 문제까지 같이 푼다.
 // 연도는 projects.created_at에서 파생한다(연도 컬럼을 따로 두지 않는다 — 0014의 판단).
-const projectYear = (p) => String(p?.createdAt || '').slice(0, 4) || String(new Date().getFullYear());
+// 연도는 **사람이 정한 값**이다(0025). 값이 없는 옛 행은 만든 해로 떨어진다 —
+// 그 폴백이 원래 규칙이었고, 해가 바뀌기 전에 미리 만드는 프로젝트를 못 견뎌서
+// 컬럼을 두게 됐다(2027 프로젝트 둘이 2026 폴더에 들어가 있었다 — 사용자 지적).
+const projectYear = (p) => String(p?.year || String(p?.createdAt || '').slice(0, 4) || new Date().getFullYear());
 
 // 고른 해는 사람마다 다르고 서버가 알 필요가 없다 → localStorage.
 // 다른 해의 프로젝트를 열면(검색·알림·링크로) 그 해로 따라간다 — 안 그러면 지금
@@ -395,7 +400,7 @@ function YearPicker({ year, years, onPick, compact = false }) {
 // 연도는 projects.created_at에서 파생한다(연도 컬럼을 따로 두지 않는다).
 // 보관된 것은 Archive 아이콘 + 흐린 글자로 가른다. 보관 해제는 열어서 이름 수정 창에서.
 function YearFolders({ active, archived, onPick }) {
-  const yearOf = (p) => String(p.createdAt || '').slice(0, 4) || '연도 모름';
+  const yearOf = (p) => projectYear(p) || '연도 모름';
   const byYear = new Map();
   const put = (p, isArchived) => {
     const y = yearOf(p);
