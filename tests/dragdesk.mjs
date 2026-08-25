@@ -131,6 +131,70 @@ if (col.found) {
   check('바뀐 순서가 저장된다(position)', saved.anyNonZero === true, JSON.stringify(saved));
 }
 
+
+// ── 같은 컬럼 맨 밑으로 옮기기 ─────────────────────────────────────────────
+// 컬럼의 빈 자리(마지막 카드 아래)에 놓으면 맨 밑으로 간다. 예전에는 같은 상태면
+// 그냥 돌아가서 **맨 밑으로 못 옮겼다**(사용자 지적).
+// 공용 시드는 컬럼마다 카드가 서른 장 넘어 화면 끝까지 차 있다 — 빈 자리가 없어서
+// 이 상황을 재현할 수 없다. 그래서 이 검사만 카드 셋짜리 시드를 쓴다.
+// 되돌리기 검사: boards.jsx의 `if (isChip && task.status === target) return;`을
+// `if (task.status === target) return;`으로 되돌리면 마지막 단정이 깨진다.
+{
+  const mkT = (n, due) => ({ id: 'z' + n, projectId: 'p1', title: '짧은 업무 ' + n, content: 'x',
+    status: '시작 전', assignees: ['노준석'], teams: ['찬양팀'], startDate: '', dueDate: due,
+    position: n, author: '노준석', createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z',
+    comments: [], activityLog: [], attachments: [] });
+  const small = {
+    currentUser: { name: '노준석', team: '임원진' },
+    projects: { byId: { p1: { id: 'p1', title: '짧은 프로젝트', pinnedLinks: [] } }, allIds: ['p1'] },
+    tasks: { byId: { z1: mkT(1, '2026-08-10'), z2: mkT(2, '2026-08-11'), z3: mkT(3, '2026-08-12') },
+             allIds: ['z1', 'z2', 'z3'] },
+  };
+  await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(small))})`);
+  await reload();
+  const probe = `(() => {
+    const cards = [...document.querySelectorAll('.board-card')];
+    const list = cards.map(c => {
+      const r = c.getBoundingClientRect();
+      return { title: c.querySelector('span[class*="text-sm"]').textContent.trim(),
+        x: Math.round(r.left + r.width / 2), top: Math.round(r.top), bottom: Math.round(r.bottom) };
+    }).filter(c => c.title.startsWith('짧은 업무'));
+    return { list };
+  })()`;
+  const before = await ev(probe);
+  check('짧은 시드에서 카드 셋이 보인다', before.list.length === 3, JSON.stringify(before.list.map(c => c.title)));
+  if (before.list.length === 3) {
+    const first = before.list[0], last = before.list[2];
+    const empty = await ev(`(() => {
+      const x = ${last.x};
+      for (let y = ${last.bottom} + 8; y < window.innerHeight - 20; y += 8) {
+        const el = document.elementFromPoint(x, y);
+        if (!el || el.closest('.board-card')) continue;
+        if (!el.closest('[class*="overflow-x-auto"]')) break;
+        return { x, y };
+      }
+      return null;
+    })()`);
+    check('컬럼에 빈 자리가 있다', !!empty, JSON.stringify(empty));
+    if (empty) {
+      const from = { x: first.x, y: first.top + 26 };
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from.x, y: from.y, button: 'left', clickCount: 1 });
+      for (let i = 1; i <= 16; i++) {
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', button: 'left',
+          x: from.x + (empty.x - from.x) * (i / 16), y: from.y + (empty.y - from.y) * (i / 16) });
+        await sleep(25);
+      }
+      await sleep(150);
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: empty.x, y: empty.y, button: 'left', clickCount: 1 });
+      await sleep(900);
+      const after = await ev(probe);
+      const names = after.list.map(c => c.title);
+      check('빈 자리에 놓으면 **맨 밑**으로 간다', names.length === 3 && names[2] === first.title,
+        `${first.title} → ${JSON.stringify(names)}`);
+    }
+  }
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);
