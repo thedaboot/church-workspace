@@ -277,8 +277,76 @@ export async function listCardFiles(cardId) {
   return unwrap(await client().from('files').select('*').eq('card_id', cardId).order('created_at', { ascending: true }));
 }
 
-// 파일 업로드: Storage 업로드 → files 테이블 참조 행 insert. DB 실패 시 객체 정리.
-export async function uploadAttachment(file, { projectId, cardId }) {
+// ── 개인 구글 드라이브 (docs/DRIVE.md) ──────────────────────────────────────
+// 첨부의 실체를 드라이브로 옮기고 DB에는 참조만 남긴다. 브라우저는 스크립트 URL을
+// 모르고 /api/drive가 대신 부른다. 드라이브가 설정되지 않은 환경(로컬·프리뷰)은
+// 501을 돌려주므로 부르는 쪽이 Storage로 되돌린다.
+async function driveCall(payload) {
+  const token = (await getSession())?.access_token;
+  if (!token) throw new Error('로그인이 필요해요');
+  const r = await fetch('/api/drive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  const out = await r.json().catch(() => ({}));
+  if (r.status === 501) { const e = new Error('드라이브 미설정'); e.notConfigured = true; throw e; }
+  if (!r.ok) throw new Error(out.error || `드라이브 오류 (${r.status})`);
+  return out;
+}
+
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  const fr = new FileReader();
+  fr.onerror = () => reject(fr.error || new Error('파일을 읽지 못했어요'));
+  // data:...;base64,XXXX → 앞머리를 떼고 보낸다
+  fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+  fr.readAsDataURL(file);
+});
+
+// 드라이브 파일의 그림 주소. 구글 이미지 CDN이 **줄여서** 내주므로 우리 대역폭이 0이다
+// (스크립트가 올릴 때 '링크를 아는 사람은 보기'로 열어 둔다 — 사용자 결정 2026-08-25).
+export const driveImageUrl = (fileId, size = 200) =>
+  `https://lh3.googleusercontent.com/d/${fileId}=w${size}-h${size}-c`;
+
+// 파일 업로드: 드라이브가 설정돼 있으면 드라이브로, 아니면 Storage로.
+// 읽기 경로는 files.source로 이미 갈라져 있어(getFileOpenUrl) 둘이 섞여 있어도 된다.
+export async function uploadAttachment(file, { projectId, cardId, projectName, driveFolderId }) {
+  const c = client();
+  try {
+    const up = await driveCall({
+      action: 'upload',
+      projectName: projectName || '기타',
+      folderId: driveFolderId || undefined,
+      name: file.name, mimeType: file.type || undefined,
+      dataBase64: await fileToBase64(file),
+    });
+    return unwrap(await c.from('files').insert({
+      project_id: projectId,
+      card_id: cardId,
+      name: file.name,
+      mime_type: file.type || null,
+      size_bytes: file.size ?? null,
+      source: 'drive',
+      drive_file_id: up.id,
+      web_view_link: up.url,
+    }).select().single());
+  } catch (e) {
+    if (!e.notConfigured) throw e;
+    // 드라이브가 없는 환경 — 예전 경로 그대로
+    return uploadAttachmentToStorage(file, { projectId, cardId });
+  }
+}
+
+// 드라이브 폴더 확보 — 프로젝트 하나에 폴더 하나(projects.drive_folder_id)
+export async function ensureDriveFolder(projectName, folderId) {
+  return driveCall({ action: 'ensureFolder', projectName, folderId: folderId || undefined });
+}
+export async function renameDriveFolder(folderId, newName) {
+  return driveCall({ action: 'renameFolder', folderId, newName });
+}
+
+// 예전 경로(Supabase Storage). 드라이브 이전 파일과 미설정 환경이 쓴다.
+async function uploadAttachmentToStorage(file, { projectId, cardId }) {
   const c = client();
   const safe = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = `${projectId}/${cardId}/${crypto.randomUUID()}-${safe}`;
@@ -470,6 +538,13 @@ export async function deleteAttachment(fileRow) {
   if (fileRow.storage_path) {
     const { error } = await c.storage.from(ATTACH_BUCKET).remove([fileRow.storage_path]);
     if (error) throw error;
+  }
+  // 드라이브 파일은 **휴지통으로** 보낸다(30일 복구 가능 — 사용자 결정).
+  // 실패해도 DB 행은 지운다: 화면에서 지웠는데 목록에 남아 있으면 고장으로 읽히고,
+  // 드라이브에 남은 파일은 소유자가 나중에 정리할 수 있다.
+  if (fileRow.source === 'drive' && fileRow.drive_file_id) {
+    try { await driveCall({ action: 'trash', fileId: fileRow.drive_file_id }); }
+    catch (e) { console.error('[drive] 휴지통 이동 실패:', e); }
   }
   const { error } = await c.from('files').delete().eq('id', fileRow.id);
   if (error) throw error;

@@ -111,23 +111,37 @@ function json(obj) {
 }
 ```
 
-## URL을 받은 뒤 우리가 할 것
+## 우리 쪽 (2026-08-26에 붙였다)
 
-1. Vercel 환경변수 등록 (**둘 다 서버 전용 — `VITE_` 접두사 금지**)
-   - `DRIVE_WEBAPP_URL`
-   - `DRIVE_WEBAPP_TOKEN`
-2. `api/drive.js` 추가 — 세션 토큰 검증 후 스크립트로 프록시
-   (브라우저가 스크립트 URL을 알 수 없게. `api/ai.js`와 같은 패턴)
-3. 신규 업로드 경로 전환: `uploadAttachment`가 Storage 대신 `api/drive`로
-   보내고 `source:'drive'`, `drive_file_id`, `web_view_link`로 행을 만든다
-4. 기존 파일 이관 스크립트 (1회 실행):
-   - `files where source='storage'` 조회
-   - Storage에서 내려받아 `api/drive`로 올림
-   - 행 갱신: `source='drive'`, `drive_file_id`, `web_view_link`,
-     `storage_path=null`, 그리고 `projects.drive_folder_id` 채우기
-   - 검증 후 Storage 객체 삭제
-5. 이관 중에도 서비스는 정상 — 읽기 경로가 행 단위로 분기하므로
-   절반은 Storage, 절반은 드라이브인 상태도 문제없이 동작한다
+1. **Vercel 환경변수** `DRIVE_WEBAPP_URL` · `DRIVE_WEBAPP_TOKEN`
+   (**둘 다 서버 전용 — `VITE_` 접두사 금지.** 붙이면 브라우저에 그대로 박힌다)
+   Production·Development 등록 완료. Preview는 남아 있다(프리뷰 배포에만 쓴다).
+2. **`api/drive.js`** — 세션 토큰을 검증하고 스크립트로 넘긴다(`api/ai.js`와 같은 패턴).
+   브라우저는 스크립트 URL·토큰을 모른다. **승인된 사람만** 통과시킨다(0022) —
+   RLS는 DB만 지키고 이 경로는 DB를 거치지 않는다.
+   키가 없는 환경(로컬·프리뷰)은 501을 주고, 부르는 쪽이 Storage로 되돌린다.
+3. **업로드 경로**: `cloud.uploadAttachment`가 드라이브로 보내고 `source:'drive'`,
+   `drive_file_id`, `web_view_link`로 행을 만든다. 501이면 예전 Storage 경로.
+4. **폴더는 프로젝트당 하나**(`projects.drive_folder_id`). 첫 업로드 때
+   `ensureProjectFolder`가 한 번 만들고 id를 적어 둔다 — 그 뒤로는 **이름이 아니라
+   id로** 올린다. 이름으로 찾으면 프로젝트 이름을 바꾼 순간 예전 파일과 새 파일이
+   두 폴더로 갈라진다.
+5. **CRUD 싱크**: 프로젝트 이름을 바꾸면 폴더 이름도 따라간다(폴더가 이미 있을 때만 —
+   파일을 한 번도 안 올린 프로젝트에 빈 폴더를 만들 이유가 없다). 앱에서 첨부를
+   지우면 드라이브에서는 **휴지통으로** 간다(30일 복구 가능). 프로젝트를 지워도
+   드라이브 폴더는 남긴다(안전 쪽).
+6. **썸네일**: 이미지 첨부는 `lh3.googleusercontent.com/d/<id>=w200-h200-c`로 붙는다.
+   구글 이미지 CDN이 줄여서 내주므로 **우리 대역폭이 0**이다. 스크립트가 올릴 때
+   '링크를 아는 사람은 보기'로 열어 두기 때문에 가능하다(사용자 결정).
+7. **엑셀 펼쳐보기**: 드라이브 파일은 구글 자체 미리보기
+   (`drive.google.com/file/d/<id>/preview`)를 쓴다 — 마이크로소프트로 주소가
+   나가지 않는다. Storage에 남은 파일만 MS 뷰어를 거친다.
+8. **기존 파일 이관**: `node scripts/migrate_to_drive.mjs` (인수 없이 돌리면 무엇을
+   옮길지만 보여준다, `--go`로 실행, `--go --limit 5`로 몇 건만).
+   한 건씩 처리하고 행을 즉시 갱신하므로 **끊겨도 다시 돌리면 이어서** 한다.
+   이관 중에도 서비스는 정상이다 — 읽기 경로가 행 단위로 갈라진다.
+   **Storage 객체는 지우지 않는다** — 눈으로 확인한 뒤 따로 지운다.
+   이 스크립트는 `.env`에 `SUPABASE_SECRET_KEY`가 필요하다(RLS 우회 + Storage 다운로드).
 
 ## 한계 (알고 넘어갈 것)
 

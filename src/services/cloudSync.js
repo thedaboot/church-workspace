@@ -251,6 +251,9 @@ const projectToApp = (p, linksByProject) => ({
   createdAt: p.created_at,
   // 탭 순서(0021, 드래그로 정한 전원 공유 순서). 마이그레이션 전 행은 0 → 만든 순.
   position: p.position ?? 0,
+  // 연도는 사람이 정한다(0025). 값이 없는 옛 행은 만든 해로 떨어진다.
+  driveFolderId: p.drive_folder_id || null,
+  year: p.year ?? (p.created_at ? Number(String(p.created_at).slice(0, 4)) : new Date().getFullYear()),
   pinnedLinks: (linksByProject.get(p.id) || []).map(l => ({ id: l.id, title: l.title, url: l.url })),
 });
 
@@ -458,10 +461,43 @@ export async function commentUpdateCloud(commentId, text) { return write(() => c
 export async function commentDeleteCloud(commentId) { return write(() => cloud.deleteComment(commentId)); }
 
 export async function projectCreateCloud(project) {
-  return write(() => cloud.createProject({ id: project.id, name: project.title, position: project.position ?? 0 }));
+  return write(() => cloud.createProject({
+    id: project.id, name: project.title, position: project.position ?? 0,
+    year: project.year ?? new Date().getFullYear(),
+  }));
 }
 // DB 컬럼명은 name (앱에서는 title로 부른다)
-export async function projectRenameCloud(id, title) { return write(() => cloud.updateProject(id, { name: title })); }
+export async function projectRenameCloud(id, title, year) {
+  const saved = await write(() => cloud.updateProject(id, { name: title, ...(year ? { year } : {}) }));
+  // 드라이브 폴더 이름도 따라간다(CRUD 싱크). 폴더가 아직 없으면 만들지 않는다 —
+  // 파일을 한 번도 안 올린 프로젝트에 빈 폴더를 만들 이유가 없다.
+  // 실패해도 이름 변경 자체는 성공이다(드라이브 미설정 환경도 있다).
+  if (saved?.drive_folder_id) {
+    cloud.renameDriveFolder(saved.drive_folder_id, title)
+      .catch(e => { if (!e.notConfigured) console.error('[drive] 폴더 이름 변경 실패:', e); });
+  }
+  return saved;
+}
+
+// 이 프로젝트의 드라이브 폴더를 확보하고 projects.drive_folder_id에 적어 둔다.
+// 첫 업로드 때 한 번만 돌면 되고, 그 뒤로는 id로 바로 올린다(이름을 바꿔도 안 갈라진다).
+export async function ensureProjectFolder(project) {
+  if (project?.driveFolderId) return project.driveFolderId;
+  try {
+    const { folderId } = await cloud.ensureDriveFolder(project.title, null);
+    if (!folderId) return null;
+    await write(() => cloud.updateProject(project.id, { drive_folder_id: folderId }));
+    // 스토어는 여기서 건드리지 않는다. cloudSync는 `cloud.js`만 가짜로 바꿔치고
+    // 노드에서 도는 검사(assignees·push)가 있어서, 스토어를 import하면 그 경로가
+    // 통째로 깨진다(실제로 깨져서 이 주석이 생겼다). projects는 실시간 구독이
+    // 전체 재조회로 받으므로 값은 곧 스토어에 들어오고, 이번 업로드는 방금 받은
+    // folderId를 지역 변수로 그대로 쓴다.
+    return folderId;
+  } catch (e) {
+    if (!e.notConfigured) console.error('[drive] 폴더 확보 실패:', e);
+    return null;
+  }
+}
 export async function projectArchiveCloud(id, archived) { return write(() => cloud.updateProject(id, { archived })); }
 export async function projectDeleteCloud(id) { return write(() => cloud.deleteProject(id)); }
 
