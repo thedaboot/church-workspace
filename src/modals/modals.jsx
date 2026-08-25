@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { CheckSquare, Clock, X, User, Hash, Wand2, CalendarRange, Trash2, Check, Pin, ArrowLeftRight, Maximize2, Minimize2 } from 'lucide-react';
+import { CheckSquare, Clock, X, User, Hash, Wand2, CalendarRange, Trash2, Check, Pin, ArrowLeftRight, Maximize2, Minimize2, PanelRight, PanelRightClose } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress, toggleTodoLine } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
@@ -13,7 +13,7 @@ import { uploadAttachment } from '../services/cloud.js';
 import { CommentPanel, ActivityPanel, CommentInput } from './comments.jsx';
 // TipTap/ProseMirror는 무거워 초기 번들에서 분리한다 (업무 수정 모드에서만 필요)
 const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').then(m => ({ default: m.MarkdownEditor })));
-const EditorSkeleton = () => <div className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none bg-surface-2/50 animate-pulse" />;
+const EditorSkeleton = () => <div className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none dc-skeleton" />;
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { getMemberNames, loadCardDetail, cardSummaryCloud, activityAddCloud, cardWritePromise } from '../services/cloudSync.js';
@@ -108,6 +108,16 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   // 다시 '수정'으로 들어오면 풀린다.
   const submittingRef = useRef(false);
   const titleRef = useRef(null);
+  // 댓글·활동 사이드바 접기. 본문을 넓게 보고 싶은 사람이 매번 접게 두면 번거로우니
+  // 창을 닫았다 열어도 기억한다(localStorage — 사람마다 다르고 서버가 알 필요가 없다).
+  // 모바일은 이미 세그먼트 탭으로 갈라져 있어 해당 없다.
+  const [sideOpen, setSideOpen] = useState(() => {
+    try { return localStorage.getItem('task_side_closed') !== '1'; } catch { return true; }
+  });
+  const toggleSide = () => setSideOpen(v => {
+    try { localStorage.setItem('task_side_closed', v ? '1' : '0'); } catch { /* 프라이빗 모드 */ }
+    return !v;
+  });
   useEffect(() => { if (isEditMode) submittingRef.current = false; }, [isEditMode]);
 
   // 새 업무에서 골라둔 첨부(File 객체) — 파일은 카드 id가 있어야 올라가므로(files가
@@ -179,6 +189,12 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
       <div className="flex items-center gap-2 text-xs font-semibold text-fg-muted"><CheckSquare size={14} className="text-accent"/> {task.id ? '업무 세부 정보' : '새 업무 만들기'}</div>
       <div className="flex items-center gap-1">
         {task.id && <ShareButton url={`${window.location.origin}/s/t/${task.id}`} what="업무" />}
+        {!isMobile && task.id && (
+          <button onClick={toggleSide} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"
+            title={sideOpen ? '댓글·활동 접기' : '댓글·활동 펴기'} aria-expanded={sideOpen}>
+            {sideOpen ? <PanelRightClose size={16} strokeWidth={1.75}/> : <PanelRight size={16} strokeWidth={1.75}/>}
+          </button>
+        )}
         {!isMobile && (
           <button onClick={() => setExpanded(e => !e)} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"
             title={expanded ? '원래 크기로' : '전체 화면'}>
@@ -290,14 +306,25 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         {/* 수정 모드에도 사이드바를 그대로 둔다 — 없애면 본문이 전체 폭으로 늘어나
             오른쪽이 통째로 비어 보이고(실제 지적), 댓글을 참조하면서 고치는 일이 흔하다.
             편집 폼은 로컬 state라 댓글이 새로 와도 갈아치워지지 않는다. 새 카드만 없다. */}
+        {/* 접을 때 언마운트하지 않는다 — 쓰다 만 댓글이 날아간다. 폭만 0으로 줄이고
+            overflow-hidden으로 가린다. 모션은 이 앱의 이징 하나(--ease-out-quint)로
+            폭만 움직인다(§4.2 — transform/opacity 원칙의 예외는 여기뿐이고, 폭이
+            줄어드는 것 자체가 이 조작의 뜻이라 대체할 방법이 없다). */}
         {task.id && (
-          <div className="w-full md:w-80 h-[40dvh] md:h-auto bg-surface-2 flex flex-col border-t md:border-t-0 md:border-l border-line shrink-0">
+          <div
+            style={{ transition: 'width .28s var(--ease-out-quint)' }}
+            className={`h-[40dvh] md:h-auto bg-surface-2 flex flex-col shrink-0 overflow-hidden ${
+              sideOpen ? 'w-full md:w-80 border-t md:border-t-0 md:border-l border-line' : 'w-full md:w-0 h-0 md:h-auto'}`}>
+          {/* 안쪽은 폭을 지킨다 — 감싸개만 줄이면 내용이 눌리면서 글자가 뭉개진다.
+              감싸개가 잘라 내니 밖에서 보면 옆으로 밀려 사라지는 모양이 된다. */}
+          <div className="w-full md:w-80 h-full flex flex-col shrink-0">
             <div className="flex border-b border-line bg-surface shrink-0">
               <button onClick={() => setActiveTab('comments')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'comments' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>댓글 ({commentCount})</button>
               <button onClick={() => setActiveTab('activity')} className={`flex-1 py-3 text-xs font-semibold transition-colors border-b-2 -mb-px ${activeTab === 'activity' ? 'border-accent text-accent-text' : 'border-transparent text-fg-muted hover:bg-surface-hover'}`}>활동 기록</button>
             </div>
             <div className="flex-1 overflow-y-auto p-4">{activeTab === 'comments' ? commentsPanel : activityPanel}</div>
             {activeTab === 'comments' && commentInputEl}
+          </div>
           </div>
         )}
       </div>

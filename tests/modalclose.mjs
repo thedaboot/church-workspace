@@ -178,6 +178,38 @@ await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim(
 await sleep(400);
 check('모바일 닫기 동작', (await isOpen()) === false);
 
+
+// ── 댓글·활동 사이드바 접기 (데스크톱) ──────────────────────────────────────
+// 되돌리기 검사: 헤더의 toggleSide 버튼을 지우거나 감싸개의 md:w-0을 빼면
+// 아래 단정이 깨진다. 접을 때 **언마운트하지 않는다**(쓰다 만 댓글이 날아간다).
+// 위 6)에서 모바일로 바꿔 두었으니 데스크톱으로 되돌리고 카드를 다시 연다
+await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await send('Page.navigate', { url: URL_BASE + '/?p=p1' });
+await wait('Page.loadEventFired');
+await sleep(1300);
+await openCard();
+const sideProbe = () => ev(`(() => {
+  const btn = [...document.querySelectorAll('button')].find(b => /댓글·활동/.test(b.title || ''));
+  if (!btn) return { found:false };
+  const tab = [...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('댓글 ('));
+  const wrap = tab ? tab.closest('div').parentElement.parentElement : null;
+  return { found:true, title: btn.title, width: wrap ? Math.round(wrap.getBoundingClientRect().width) : null,
+           tabMounted: !!tab };
+})()`);
+const before = await sideProbe();
+check('업무 창에 댓글·활동 접기 버튼이 있다', before.found === true, JSON.stringify(before));
+check('처음에는 펼쳐져 있다', before.found && before.width > 100, JSON.stringify(before));
+await ev(`[...document.querySelectorAll('button')].find(b => /댓글·활동/.test(b.title || '')).click()`);
+await sleep(500);
+const after = await sideProbe();
+check('접으면 폭이 0이 된다', after.found && after.width === 0, JSON.stringify(after));
+check('접어도 언마운트하지 않는다(쓰던 댓글 보존)', after.tabMounted === true, JSON.stringify(after));
+await ev(`[...document.querySelectorAll('button')].find(b => /댓글·활동/.test(b.title || '')).click()`);
+await sleep(500);
+const reopened = await sideProbe();
+check('다시 펴진다', reopened.found && reopened.width > 100, JSON.stringify(reopened));
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);
