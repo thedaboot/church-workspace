@@ -120,7 +120,8 @@ src/
 4. 첫 로그인 직후 표시 이름과 소속 팀을 정하는 창이 열립니다. 이후에는 헤더의 프로필 메뉴에서 바꿉니다.
 
 프로젝트 삭제는 관리자 전용입니다. `admins` 테이블의 이메일 화이트리스트로 판정하고,
-클라이언트 쪽 표시는 `VITE_ADMIN_EMAILS`를 봅니다. 게스트 모드에서는 제한이 없습니다.
+화면도 DB의 `admins` 표를 봅니다(`is_admin()` RPC — 0022에서 `VITE_ADMIN_EMAILS`를 없앴습니다).
+관리자 지정·해제는 전역 '멤버' 화면에서 하고, 재배포가 필요하지 않습니다. 게스트 모드에서는 제한이 없습니다.
 
 ```sql
 insert into admins (email) values ('admin@example.com');
@@ -171,13 +172,14 @@ private 버킷에 저장합니다(구글 드라이브 이관은 보류 — [`doc
 |---|---|---|
 | `VITE_SUPABASE_URL` | Supabase 프로젝트 URL | 클라이언트 |
 | `VITE_SUPABASE_ANON_KEY` | Supabase anon key | 클라이언트 |
-| `VITE_ADMIN_EMAILS` | 관리자 이메일(쉼표 구분) | 클라이언트 |
 | `VITE_VAPID_PUBLIC_KEY` | 웹 푸시 구독용 공개키 | 클라이언트 |
 | `GEMINI_API_KEY` | Gemini 호출 키 | **서버 전용** |
 | `SUPABASE_SECRET_KEY` | RLS 우회 조회 · 세션 검증 | **서버 전용** |
 | `VAPID_PUBLIC_KEY` | 발송 시 짝을 맞추는 공개키 | 서버 |
 | `VAPID_PRIVATE_KEY` | 웹 푸시 서명 | **서버 전용** |
 | `VAPID_SUBJECT` | 푸시 서비스 연락처 (`mailto:…`) | 서버 |
+| `DRIVE_WEBAPP_URL` | 개인 드라이브 첨부용 Apps Script 웹앱 주소 | 서버 전용 |
+| `DRIVE_WEBAPP_TOKEN` | 그 웹앱과 우리 서버만 아는 값 | 서버 전용 |
 | `CRON_SECRET` | Vercel Cron이 `/api/push`를 깨울 때의 인증 | **서버 전용** |
 
 VAPID 키는 `npx web-push generate-vapid-keys`로 한 번 만들어 Vercel 환경변수에 넣습니다

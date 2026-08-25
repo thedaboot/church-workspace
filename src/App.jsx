@@ -9,6 +9,7 @@ import { TaskModalShell } from './modals/modals.jsx';
 import { ProfileModal, ProjectModal } from './modals/settings.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
+import { MembersView } from './views/membersView.jsx';
 import { ToastHost, showToast } from './components/Toast.jsx';
 import * as cloudSync from './services/cloudSync.js';
 import { setOnline } from './services/presence.js';
@@ -18,7 +19,9 @@ import logoDark from './assets/logo-dark.png';
 // activeMenu에는 화면 이름이나 프로젝트 id가 들어간다 — 여기 없는 값은 프로젝트로 본다.
 // 새 전역 화면을 만들면 이 목록에도 넣어야 그 이름이 프로젝트 id로 오해되지 않는다
 // (오해되면 '없는 프로젝트'로 판정돼 대시보드로 튕긴다).
-const GLOBAL_MENUS = ['dashboard', 'myTasks', 'schedule'];
+// 새 전역 화면을 만들면 여기에도 넣는다 — 없으면 프로젝트 id로 오해돼
+// '없는 프로젝트'로 판정되고 대시보드로 튕긴다(§3).
+const GLOBAL_MENUS = ['dashboard', 'myTasks', 'schedule', 'members'];
 
 // 클라우드 초기 로드 중 미니멀 스플래시 (로고 + 살짝 pulse)
 function CloudSplash() {
@@ -64,9 +67,12 @@ export default function ChurchApp() {
 
 // Supabase 설정 시에만 로그인 요구, 미설정이면 게스트 모드
 function AuthGate() {
-  const { enabled, session, loading } = useAuth();
+  const { enabled, session, loading, approved } = useAuth();
   if (loading) return <div className="h-dvh bg-canvas" />;
   if (enabled && !session) return <LoginScreen />;
+  // 승인 전에는 워크스페이스를 아예 마운트하지 않는다 — DB도 막혀 있어서(0022)
+  // 들여보내 봐야 빈 화면에 오류만 뜬다. 무엇을 기다리는지 말해 주는 편이 맞다.
+  if (enabled && !approved) return <LoginScreen waiting />;
   return <WorkspaceShell />;
 }
 
@@ -361,13 +367,13 @@ function WorkspaceShell() {
           activeMenu={activeMenu} setActiveMenu={selectMenu}
           onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification}
           onOpenProject={openProjectModal} onRenameProject={openRenameProject}
-          onOpenProfile={openProfile} cloudMode={cloudMode}
+          onOpenProfile={openProfile} onOpenMembers={() => setActiveMenu('members')} cloudMode={cloudMode}
         />
       ) : (
         <TopNav
           activeMenu={activeMenu} setActiveMenu={selectMenu}
           onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification}
-          onOpenProfile={openProfile} onOpenProject={openProjectModal}
+          onOpenProfile={openProfile} onOpenMembers={() => setActiveMenu('members')} onOpenProject={openProjectModal}
           undo={controller.undo} redo={controller.redo} canUndo={canUndo} canRedo={canRedo} cloudMode={cloudMode}
         />
       )}
@@ -386,10 +392,11 @@ function WorkspaceShell() {
           <div key={activeMenu} className={needsFullHeight ? 'h-full' : ''}>
           {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} filter={dashFilter} setFilter={setDashFilter} />}
           {activeMenu === 'schedule' && <ScheduleView onTaskClick={handleTaskClick} />}
+          {activeMenu === 'members' && <MembersView isAdmin={isAdmin} />}
           {activeMenu === "myTasks" && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {isProjectScreen && (
-             <ProjectView projectId={activeMenu} onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNewTask={handleNewTask} onRenameProject={openRenameProject} viewMode={projectViewMode} setViewMode={setProjectViewMode} />
+             <ProjectView projectId={activeMenu} onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onReorder={controller.handleReorderTasks} onNewTask={handleNewTask} onRenameProject={openRenameProject} viewMode={projectViewMode} setViewMode={setProjectViewMode} />
           )}
           </div>
         </ErrorBoundary>

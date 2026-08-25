@@ -6,8 +6,11 @@ import logoLight from '../assets/logo-light.png';
 // 로그인 화면 (Supabase OAuth — 구글 / 카카오)
 // 웜 페이퍼 캔버스 + 스티커 팔레트 파스텔 글로우 (노션 daylight 톤)
 // ============================================================================
-export function LoginScreen() {
-  const { signIn } = useAuth();
+// 승인 대기 화면도 여기 있다 — 같은 배경·같은 상자를 쓴다. 따로 만들면 로그인
+// 직후에 화면이 통째로 갈아치워진 것처럼 보인다(사용자가 문구까지 정했다).
+export function LoginScreen({ waiting = false }) {
+  const { signIn, signOut, session } = useAuth();
+  const myName = session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.name || '';
 
   return (
     <div className="relative min-h-dvh flex items-center justify-center p-4 overflow-hidden bg-[#f6f5f7]">
@@ -22,6 +25,20 @@ export function LoginScreen() {
         <h1 className="text-xl font-bold text-[#2b2833] tracking-[-0.25px] mb-2">더다붓 워크스페이스</h1>
         <p className="text-sm text-[#6b6675] mb-10 leading-relaxed">함께 준비하고, 함께 섬기는 청년들의 공간<br />같이 만들어봐요!</p>
 
+        {waiting ? (
+          <div className="bg-white/80 backdrop-blur-md border border-[#dcd8dc] rounded-xl p-7 shadow-elevated">
+            <p className="text-sm text-[#2b2833] leading-relaxed">
+              가입 승인을 관리자에게 요청했어요.
+              <br /><br />
+              승인을 기다려주세요 !
+            </p>
+            {myName && <p className="text-[11px] text-[#a39e98] mt-5">{myName}님으로 로그인했어요</p>}
+            <button
+              onClick={signOut}
+              className="mt-5 w-full py-2.5 rounded-full border border-[#dcd8dc] bg-white text-[#6b6675] text-[13px] font-medium hover:bg-[#f6f5f7] transition active:scale-95"
+            >다른 계정으로 로그인</button>
+          </div>
+        ) : (
         <div className="bg-white/80 backdrop-blur-md border border-[#dcd8dc] rounded-xl p-6 shadow-elevated space-y-3">
           <button
             onClick={() => signIn('google')}
@@ -38,8 +55,11 @@ export function LoginScreen() {
             카카오로 계속하기
           </button>
         </div>
+        )}
 
-        <p className="text-[11px] text-[#a39e98] mt-8">로그인하면 팀별 프로젝트와 업무에 접근할 수 있어요.</p>
+        <p className="text-[11px] text-[#a39e98] mt-8">
+          {waiting ? '승인되면 바로 들어올 수 있어요.' : '로그인하면 팀별 프로젝트와 업무에 접근할 수 있어요.'}
+        </p>
       </div>
     </div>
   );
