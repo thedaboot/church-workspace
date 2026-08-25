@@ -227,8 +227,11 @@ export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
     && year === (project.year || yearFromTitle(project.title) || thisYear);
   const submit = () => { if (clean && !unchanged) onSave(clean, year); };
   const archived = !!project?.archived;
-  // 올해 앞뒤로 넉넉히 — 지난 것을 정리하거나 내년 것을 미리 만드는 두 경우만 있다
-  const YEARS = [thisYear + 2, thisYear + 1, thisYear, thisYear - 1, thisYear - 2, thisYear - 3];
+  // 올해부터 2년 뒤까지만(사용자 결정 2026-08-26). 지난 해는 목록에서 뺀다 —
+  // 프로젝트를 과거로 만들 일이 없고, 선택지가 길면 고르는 일이 번거로워진다.
+  // 다만 **이미 그 해로 정해진 프로젝트를 고칠 때는 그 해도 남긴다** — 안 그러면
+  // 이름만 고치려고 열었다가 연도가 조용히 올해로 바뀐다.
+  const YEARS = [...new Set([thisYear, thisYear + 1, thisYear + 2, year])].sort((a, b) => a - b);
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
       <div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-200">
