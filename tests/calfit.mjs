@@ -161,6 +161,22 @@ const mob = await ev(`(() => {
 check('모바일 달력 격자를 찾는다', mob.found === true, JSON.stringify(mob));
 check('격자가 스크롤 통 안에서 넘치지 않는다', mob.found && mob.gridScrolls === false, JSON.stringify(mob));
 check('격자 아래쪽이 화면 안에 있다', mob.found && mob.gridBottom <= 844, JSON.stringify(mob));
+// 아래 목록은 위아래로만 민다 — 줄이 -mx-2로 좌우를 넘치게 그려서 가로 스크롤이 생겼다
+const daySc = await ev(`(() => {
+  const h=[...document.querySelectorAll('main h4')].find(x=>/[0-9]+월 [0-9]+일/.test(x.textContent));
+  if (!h) return { found:false };
+  let el=h.parentElement;
+  while (el && el!==document.body) {
+    const st=getComputedStyle(el);
+    if (/auto|scroll/.test(st.overflowY)) break;
+    el=el.parentElement;
+  }
+  if (!el || el===document.body) return { found:false };
+  return { found:true, xScroll: el.scrollWidth > el.clientWidth + 1,
+           overflowX: getComputedStyle(el).overflowX };
+})()`);
+check('고른 날 목록의 스크롤 통을 찾는다', daySc.found === true, JSON.stringify(daySc));
+check('목록이 좌우로 밀리지 않는다', daySc.found && daySc.xScroll === false, JSON.stringify(daySc));
 await send('Emulation.clearDeviceMetricsOverride');
 
 console.log(results.join('\n'));

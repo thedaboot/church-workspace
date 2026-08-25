@@ -370,7 +370,10 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
           );
         }))}
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      {/* overflow-x-hidden: 목록 줄이 -mx-2로 좌우 8px씩 넘치게 그려져 있어서
+          (누르는 자리를 넓히려는 것) 그대로 두면 가로 스크롤이 생긴다. 이 줄에서
+          가로로 볼 것은 없다 — 위아래로만 민다(사용자 지적). */}
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 -mx-2">
         <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick}
           birthdays={birthdaysOn(bdays, selected)} onNewTask={onNewTask} />
       </div>
