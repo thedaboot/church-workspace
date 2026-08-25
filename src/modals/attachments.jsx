@@ -5,9 +5,10 @@ import {
 } from 'lucide-react';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
+import { failText } from '../services/errorText.js';
 import { uploadAttachment, getAttachmentUrls, deleteAttachment, listCardFiles, getFileOpenUrl } from '../services/cloud.js';
 import { FilePreviewModal, officeSrc, PreparingFrame, FRAME_SETTLE, OFFICE_TIMEOUT } from '../components/FilePreviewModal.jsx';
-import { SmartImage } from '../components/media.jsx';
+import { SmartImage, Skeleton } from '../components/media.jsx';
 
 // ============================================================================
 // 업무 창의 첨부 파일 영역 (클라우드 모드 전용)
@@ -197,6 +198,10 @@ const AttachmentRow = ({ row, canDelete, thumb, onOpen, onRemove, embedded, onTo
 export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = false, uploadingNames = [] }) => {
   // 이미 받아둔 attachments를 먼저 그리고(즉시 표시) 백그라운드로 갱신
   const [items, setItems] = useState(task.attachments || []);
+  // 목록 조회가 다녀오기 전인지. 이게 없으면 첨부가 있는 업무를 열었을 때
+  // 첨부 영역이 통째로 없다가 나중에 툭 나타난다(사용자 지적 — 이미지가 바로 안 보인다).
+  // 몇 개인지는 조회 전에도 안다(cards.file_count) → 그 수만큼 자리를 미리 잡는다.
+  const [listing, setListing] = useState(!(task.attachments || []).length);
   const [thumbs, setThumbs] = useState({}); // { storage_path: signedUrl }
   const [dragOver, setDragOver] = useState(false);
   const [uploadingName, setUploadingName] = useState(null);
@@ -215,7 +220,8 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
       // 그 경우가 드물고, 방금 올린 내 파일이 사라지는 쪽이 훨씬 자주 겪는 일이다.
       listCardFiles(task.id)
         .then(rows => { if (alive) setItems(prev => (rows.length >= prev.length ? rows : prev)); })
-        .catch(e => console.error('[cloud] 첨부 목록 로드 실패:', e));
+        .catch(e => console.error('[cloud] 첨부 목록 로드 실패:', e))
+        .finally(() => { if (alive) setListing(false); });
     });
     return () => { alive = false; cancelIdle(handle); };
   }, [task.id]);
@@ -232,12 +238,13 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     const need = items.filter(r => (r.mime_type || '').startsWith('image/') && r.storage_path && !thumbs[r.storage_path]).map(r => r.storage_path);
     if (!need.length) return;
     let alive = true;
-    const handle = whenIdle(() => {
-      getAttachmentUrls(need)
-        .then(map => { if (alive) setThumbs(prev => ({ ...prev, ...map })); })
-        .catch(e => console.error('[cloud] 썸네일 URL 발급 실패:', e));
-    });
-    return () => { alive = false; cancelIdle(handle); };
+    // 유휴까지 미루지 않는다 — 이 효과는 목록이 온 뒤에 도는 것이라 창은 이미 그려졌고,
+    // 서명 URL 발급은 네트워크라 첫 페인트와 다투지 않는다. 미뤄 두었더니 그만큼
+    // 썸네일이 늦게 떴다(사용자 지적).
+    getAttachmentUrls(need)
+      .then(map => { if (alive) setThumbs(prev => ({ ...prev, ...map })); })
+      .catch(e => console.error('[cloud] 썸네일 URL 발급 실패:', e));
+    return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
 
@@ -256,7 +263,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
         onFileActivity?.(`파일 '${row.name}'을(를) 첨부했습니다.`);
       } catch (e) {
         console.error('[cloud] 업로드 실패:', e);
-        showToast(`업로드 실패 (${file.name}) · ${e.message || e}`);
+        showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, e));
       } finally {
         setUploadingName(null);
       }
@@ -280,11 +287,15 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
       await deleteAttachment(row);
       setItems(prev => prev.filter(x => x.id !== row.id));
       onFileActivity?.(`파일 '${row.name}'을(를) 삭제했습니다.`);
-    } catch (e) { console.error('[cloud] 삭제 실패:', e); showToast('삭제 실패 · ' + (e.message || e)); }
+    } catch (e) { console.error('[cloud] 삭제 실패:', e); showToast(failText(`'${row.name}'을(를) 지우지 못했어요`, e)); }
   };
 
-  // 읽기 전용(뷰어)에서 첨부가 없으면 섹션 자체를 숨김 — 올라가는 중이면 자리를 남긴다
-  if (readOnly && items.length === 0 && !uploadingNames.length) return null;
+  // 목록이 오기 전이고 붙어 있는 파일이 있다면, 그 수만큼 스켈레톤 줄로 자리를 잡는다
+  const pendingRows = listing ? Math.min(task.fileCount || 0, 5) : 0;
+
+  // 읽기 전용(뷰어)에서 첨부가 없으면 섹션 자체를 숨김 — 올라가는 중이거나
+  // 아직 목록을 받는 중이면 자리를 남긴다
+  if (readOnly && items.length === 0 && !uploadingNames.length && !pendingRows) return null;
 
   return (
     <div className="mt-5">
@@ -331,6 +342,19 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-fg truncate">{name}</p>
                 <p className="text-[10px] text-fg-faint mt-0.5">올리는 중…</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {pendingRows > 0 && items.length === 0 && (
+        <div className="divide-y divide-line/60 mt-1">
+          {Array.from({ length: pendingRows }, (_, i) => (
+            <div key={i} className="flex items-center gap-2.5 py-2">
+              <Skeleton className="w-9 h-9 rounded-md shrink-0" />
+              <div className="flex-1 min-w-0 space-y-1">
+                <Skeleton className="h-3 w-2/5 rounded" />
+                <Skeleton className="h-2 w-12 rounded" />
               </div>
             </div>
           ))}

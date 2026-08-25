@@ -323,7 +323,33 @@ export async function uploadContentImage(file) {
 // 탭이 살아 있는 동안만 유효한 메모리 캐시라 권한 회수 걱정은 만료(1시간)와 같다.
 const SIGNED_TTL_S = 3600;
 const SIGNED_REUSE_MS = 50 * 60 * 1000;
+const SIGNED_STORE_KEY = 'church_signed_urls';
+
+// 메모리에만 두면 **새로고침 한 번에 전부 날아간다.** 그러면 같은 썸네일이라도 주소가
+// 새로 발급돼(토큰이 달라진다) 브라우저 HTTP 캐시가 통째로 빗나가고, 이미지가 매번
+// 다시 내려온다 — 느린 것도 Egress도 여기서 나왔다. sessionStorage에 같이 적어 두면
+// 탭이 살아 있는 동안은 새로고침해도 **같은 주소**라 브라우저 캐시가 그대로 맞는다.
+// 탭을 닫으면 사라지므로 유효기간(1시간)보다 오래 남지 않는다.
 const signedUrlCache = new Map(); // storagePath → { url, at }
+try {
+  const saved = JSON.parse(sessionStorage.getItem(SIGNED_STORE_KEY) || '{}');
+  const now = Date.now();
+  for (const [path, hit] of Object.entries(saved)) {
+    if (hit?.url && now - hit.at < SIGNED_REUSE_MS) signedUrlCache.set(path, hit);
+  }
+} catch { /* 사파리 프라이빗 등 — 캐시 없이 그냥 돈다 */ }
+
+let signedFlush = null;
+const rememberSigned = (path, url) => {
+  signedUrlCache.set(path, { url, at: Date.now() });
+  // 한 번에 여러 건이 들어오므로 쓰기는 한 프레임 뒤에 몰아서 한 번만
+  clearTimeout(signedFlush);
+  signedFlush = setTimeout(() => {
+    try { sessionStorage.setItem(SIGNED_STORE_KEY, JSON.stringify(Object.fromEntries(signedUrlCache))); }
+    catch { /* 용량 초과 등 — 메모리 캐시만으로도 동작한다 */ }
+  }, 0);
+};
+
 const cachedSigned = (path) => {
   const hit = signedUrlCache.get(path);
   return hit && Date.now() - hit.at < SIGNED_REUSE_MS ? hit.url : null;
@@ -334,7 +360,7 @@ export async function getAttachmentUrl(storagePath) {
   if (hit) return hit;
   const { data, error } = await client().storage.from(ATTACH_BUCKET).createSignedUrl(storagePath, SIGNED_TTL_S);
   if (error) throw error;
-  signedUrlCache.set(storagePath, { url: data.signedUrl, at: Date.now() });
+  rememberSigned(storagePath, data.signedUrl);
   return data.signedUrl;
 }
 
@@ -366,7 +392,7 @@ export async function getAttachmentUrls(storagePaths = []) {
   (data || []).forEach(d => {
     if (d?.path && d.signedUrl) {
       map[d.path] = d.signedUrl;
-      signedUrlCache.set(d.path, { url: d.signedUrl, at: Date.now() });
+      rememberSigned(d.path, d.signedUrl);
     }
   });
   return map;
