@@ -2,7 +2,11 @@
 <html lang="ko" data-seed-color-mode="system" data-seed-user-color-scheme="light">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- maximum-scale=1: iOS Safari가 16px 미만 입력을 탭할 때 화면을 자동으로 확대하는 것을
+         막는다. 예전에는 CSS로 모바일 입력을 전부 16px로 키워서 막았는데, 그러면 11~13px로
+         설계된 칸들이 라벨보다 커지고 제목 입력은 도리어 24px에서 16px로 줄었다(§6-9-d).
+         iOS 10부터 손가락으로 하는 확대는 이 값과 무관하게 계속 된다(접근성). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <title>더다붓 워크스페이스</title>
 

@@ -123,6 +123,39 @@ await ev(`(() => { const p=[...document.body.children].find(c=>/z-\\[90\\]/.test
 await sleep(450);
 check('다시 라이트로 돌아온다', (await ev(`document.documentElement.dataset.theme`)) === 'light');
 
+// ── 모바일 입력 글자 크기 (선언한 크기 그대로여야 한다) ──
+// 예전에는 index.css가 모바일 전체를 `font-size:16px !important`로 덮었다(iOS 자동 확대
+// 방지). 그 탓에 11~13px로 설계된 칸이 12px 라벨보다 커 보이고 text-2xl 제목 입력은
+// 도리어 16px로 줄었다(사용자 지적). 지금은 viewport의 maximum-scale=1이 확대를 막는다.
+// 이 검사가 무너지면 그 !important 규칙이 되살아난 것이다(§6-9-d).
+{
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1&t=t0' });
+  await wait('Page.loadEventFired'); await sleep(1400);
+  await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='수정'); b&&b.click(); })()`);
+  await sleep(1200);
+  const sizes = await ev(`(() => {
+    const px = el => el ? Math.round(parseFloat(getComputedStyle(el).fontSize)) : null;
+    const byPh = ph => [...document.querySelectorAll('input,textarea')].find(el => (el.placeholder||'').includes(ph));
+    return {
+      title: px(byPh('업무 제목')),
+      assignee: px(byPh('멤버 이름') || byPh('추가')),
+      depends: px(document.querySelector('select')),
+      subtask: px(byPh('포스터 시안')),
+      body: px(document.querySelector('.tiptap')),
+      forced16: [...document.querySelectorAll('input,textarea,select')]
+        .filter(el => el.type !== 'file' && Math.round(parseFloat(getComputedStyle(el).fontSize)) === 16).length,
+    };
+  })()`);
+  check('제목 입력이 모바일 제목 크기(20px)', sizes.title === 20, JSON.stringify(sizes));
+  check('담당자 입력이 12px', sizes.assignee === 12, JSON.stringify(sizes));
+  // 이 시드에는 같은 프로젝트에 다른 업무가 없어 선행 업무 select가 그려지지 않는다
+  // (있으면 11px여야 한다). 아래 forced16이 select까지 통째로 지킨다.
+  check('선행 업무 선택이 11px', sizes.depends === null || sizes.depends === 11, JSON.stringify(sizes));
+  check('하위 업무 입력이 13px', sizes.subtask === 13, JSON.stringify(sizes));
+  check('본문 에디터가 14px', sizes.body === 14, JSON.stringify(sizes));
+  check('16px로 강제된 입력이 없다', sizes.forced16 === 0, `16px인 입력 ${sizes.forced16}개`);
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.slice(0, 5).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

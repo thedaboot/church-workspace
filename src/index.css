@@ -293,8 +293,8 @@ svg.lucide { stroke-width: 1.4px; }
   float: left; height: 0; pointer-events: none;
 }
 
-/* iOS Safari는 16px 미만 입력을 탭하면 강제로 화면을 확대한다.
-   레이어 밖(unlayered) 규칙이라 Tailwind text-xs 등 유틸리티보다 항상 우선한다. */
-@media (max-width: 767px) {
-  input, textarea, select, [contenteditable='true'] { font-size: 16px !important; }
-}
+/* 입력 요소의 글자 크기는 **호출부의 유틸리티 클래스가 정한다.**
+   예전에는 여기서 모바일 전체를 16px !important로 덮었다(iOS가 16px 미만 입력을 탭하면
+   화면을 자동 확대하기 때문). 그 대가로 11~13px로 설계된 칸이 12px 라벨보다 커지고,
+   text-2xl 제목 입력은 도리어 16px로 줄어서 화면 전체의 글자 위계가 무너졌다(사용자 지적).
+   자동 확대는 이제 viewport의 maximum-scale=1이 막는다(index.html) — §6-9-d. */

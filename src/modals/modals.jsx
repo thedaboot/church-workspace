@@ -16,7 +16,7 @@ const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').the
 const EditorSkeleton = () => <div className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none bg-surface-2/50 animate-pulse" />;
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
-import { getMemberNames, loadCardDetail, cardSummaryCloud, activityAddCloud } from '../services/cloudSync.js';
+import { getMemberNames, loadCardDetail, cardSummaryCloud, activityAddCloud, cardWritePromise } from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { showToast } from '../components/Toast.jsx';
@@ -111,9 +111,17 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   // 새 업무에서 골라둔 첨부(File 객체) — 파일은 카드 id가 있어야 올라가므로(files가
   // 카드를 참조) 저장 직후에 올린다. 쓰는 사람에게는 "처음부터 첨부"와 같다.
   const [pendingFiles, setPendingFiles] = useState([]);
+  // 올리는 중인 파일 이름 — 저장하자마자 뜨는 보기 화면의 첨부 목록에 자리를 잡아 준다.
+  // 이게 없으면 업로드가 끝날 때까지 첨부 영역이 통째로 비어 있어서 "첨부가 안 됐다"로
+  // 읽혔다(사용자 지적 — 다시 들어가야 보였다).
+  const [uploadingNames, setUploadingNames] = useState([]);
   const uploadPending = async (saved) => {
     const files = pendingFiles;
     setPendingFiles([]);
+    setUploadingNames(files.map(f => f.name));
+    // 카드 행이 DB에 들어간 뒤에 올린다 — files.card_id가 cards를 참조하므로
+    // 먼저 올리면 외래키 위반으로 통째로 실패한다(handleSaveTask는 기다리지 않는다).
+    await cardWritePromise(saved.id);
     const rows = [];
     for (const file of files) {
       try {
@@ -121,6 +129,8 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
       } catch (err) {
         console.error('[cloud] 업로드 실패:', err);
         showToast(`업로드 실패 (${file.name}) · ${err.message || err}`);
+      } finally {
+        setUploadingNames(prev => prev.filter(n => n !== file.name));
       }
     }
     if (!rows.length) return;
@@ -200,7 +210,8 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         // 잦은 조작이 아니고, 저장 경로가 둘이면 활동 기록·실시간이 갈라진다
         onSubtasksChange={(next) => onSave({ ...formData, subtasks: next })}
         // 본문 체크리스트도 같은 길 — 보기 모드에서 바로 눌리고 content만 바뀐다
-        onTodoToggle={(idx) => onSave({ ...formData, content: toggleTodoLine(formData.content, idx) })} />;
+        onTodoToggle={(idx) => onSave({ ...formData, content: toggleTodoLine(formData.content, idx) })}
+        uploadingNames={uploadingNames} />;
   const commentsPanel = listsReady
     ? <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} loading={detailLoading} />
     : null;
@@ -560,7 +571,7 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
   return (
     <form className="space-y-4">
       {/* 모바일은 autoFocus 금지 — 열자마자 키보드가 화면 절반을 덮는다 */}
-      <input type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="업무 제목 입력" className="w-full text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus={!isMobileViewport()} />
+      <input type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="업무 제목 입력" className="w-full text-xl md:text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus={!isMobileViewport()} />
 
       <div className="border-y border-line divide-y divide-line/60">
         <PropertyRow icon={<CheckSquare size={13} className="text-fg-faint" />} label="상태">
@@ -633,7 +644,7 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
   );
 });
 
-const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange, onTodoToggle }) => {
+const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange, onTodoToggle, uploadingNames = [] }) => {
   const [summary, setSummary] = useState('');      // 이번에 AI가 만든 것(고정 전)
   const [revealed, setRevealed] = useState(false); // 고정된 요약을 펼쳤는지
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -802,7 +813,8 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
       <SubtaskList value={formData.subtasks || []} onChange={onSubtasksChange} readOnly />
 
       {cloudMode && formData.id && (
-        <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} readOnly />
+        <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
+          uploadingNames={uploadingNames} readOnly />
       )}
     </div>
   );

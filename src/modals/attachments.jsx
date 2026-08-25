@@ -194,7 +194,7 @@ const AttachmentRow = ({ row, canDelete, thumb, onOpen, onRemove, embedded, onTo
   );
 };
 
-export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = false }) => {
+export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = false, uploadingNames = [] }) => {
   // 이미 받아둔 attachments를 먼저 그리고(즉시 표시) 백그라운드로 갱신
   const [items, setItems] = useState(task.attachments || []);
   const [thumbs, setThumbs] = useState({}); // { storage_path: signedUrl }
@@ -209,7 +209,13 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   useEffect(() => {
     let alive = true;
     const handle = whenIdle(() => {
-      listCardFiles(task.id).then(rows => { if (alive) setItems(rows); }).catch(e => console.error('[cloud] 첨부 목록 로드 실패:', e));
+      // 새 업무는 저장 직후 첨부가 올라가는 중이라, 이 조회가 그 전에 다녀오면 빈 목록이
+      // 온다. 그걸 그대로 받으면 방금 올라온 파일을 도로 지운다 → 더 짧은 응답은 버린다.
+      // ponytail: 다른 사람이 지운 파일은 이 조회로 사라지지 않는다(다시 열면 맞는다) —
+      // 그 경우가 드물고, 방금 올린 내 파일이 사라지는 쪽이 훨씬 자주 겪는 일이다.
+      listCardFiles(task.id)
+        .then(rows => { if (alive) setItems(prev => (rows.length >= prev.length ? rows : prev)); })
+        .catch(e => console.error('[cloud] 첨부 목록 로드 실패:', e));
     });
     return () => { alive = false; cancelIdle(handle); };
   }, [task.id]);
@@ -277,8 +283,8 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     } catch (e) { console.error('[cloud] 삭제 실패:', e); showToast('삭제 실패 · ' + (e.message || e)); }
   };
 
-  // 읽기 전용(뷰어)에서 첨부가 없으면 섹션 자체를 숨김
-  if (readOnly && items.length === 0) return null;
+  // 읽기 전용(뷰어)에서 첨부가 없으면 섹션 자체를 숨김 — 올라가는 중이면 자리를 남긴다
+  if (readOnly && items.length === 0 && !uploadingNames.length) return null;
 
   return (
     <div className="mt-5">
@@ -311,6 +317,23 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
             <p className="text-[10px] text-tag-red-fg/80 mt-1">용량을 줄이거나 링크(리소스)로 공유해 주세요.</p>
           </div>
           <button type="button" onClick={() => setRejected([])} className="p-0.5 rounded text-tag-red-fg/70 hover:text-tag-red-fg transition shrink-0" title="닫기"><X size={13} /></button>
+        </div>
+      )}
+      {/* 저장 직후 올라가는 중인 파일 — 실제 행과 같은 자리·같은 높이로 둔다.
+          비워 두면 업로드가 끝날 때까지 '첨부가 안 됐다'로 읽힌다. */}
+      {uploadingNames.length > 0 && (
+        <div className="divide-y divide-line/60 mt-1">
+          {uploadingNames.map(name => (
+            <div key={name} className="flex items-center gap-2.5 py-2">
+              <span className="w-9 h-9 rounded-md bg-surface-hover flex items-center justify-center shrink-0">
+                <Loader2 size={14} className="animate-spin text-fg-faint" />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-fg truncate">{name}</p>
+                <p className="text-[10px] text-fg-faint mt-0.5">올리는 중…</p>
+              </div>
+            </div>
+          ))}
         </div>
       )}
       {items.length > 0 && (

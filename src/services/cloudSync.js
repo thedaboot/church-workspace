@@ -418,6 +418,13 @@ const assigneeIdsOf = (names = []) => {
   return [...new Set(names.map(n => nameToIds.get(n)?.[0]).filter(Boolean))];
 };
 
+// 카드 쓰기가 끝났는지 기다릴 수 있게 약속을 담아 둔다.
+// 컨트롤러는 화면을 먼저 그리려고 이 쓰기를 기다리지 않는데(handleSaveTask),
+// 새 업무의 첨부는 files.card_id가 cards를 참조하므로 **카드 행이 먼저 있어야** 한다.
+// 기다리지 않고 올리면 외래키 위반으로 첨부가 통째로 실패한다.
+const cardWrites = new Map();
+export function cardWritePromise(id) { return cardWrites.get(id) || Promise.resolve(); }
+
 export async function cardUpsertCloud(task, isNew) {
   const teamIds = (task.teams || []).map(n => teamNameToId.get(n)).filter(Boolean);
   // 프로필 맵이 비어 있으면(=아직 로드되지 않았다) 이름을 id로 바꿀 수 없다.
@@ -425,8 +432,13 @@ export async function cardUpsertCloud(task, isNew) {
   // 넘겨 "건드리지 말라"로 둔다. 지금 흐름에서는 로드 후에만 저장하지만,
   // 조용히 데이터가 지워지는 모양은 남겨두지 않는다.
   const assigneeIds = profileIdToName.size ? assigneeIdsOf(task.assignees) : undefined;
-  if (isNew) return write(() => cloud.createCard({ id: task.id, ...cardPatch(task) }, teamIds, assigneeIds));
-  return write(() => cloud.updateCard(task.id, cardPatch(task), teamIds, assigneeIds));
+  const p = isNew
+    ? write(() => cloud.createCard({ id: task.id, ...cardPatch(task) }, teamIds, assigneeIds))
+    : write(() => cloud.updateCard(task.id, cardPatch(task), teamIds, assigneeIds));
+  // 실패도 '끝남'으로 본다 — 기다리는 쪽(첨부 업로드)이 영영 매달리면 안 된다.
+  // 카드가 없으면 업로드가 자기 오류로 실패하고 그 문구가 화면에 뜬다.
+  cardWrites.set(task.id, p.catch(() => {}));
+  return p;
 }
 export async function cardDeleteCloud(id) { return write(() => cloud.deleteCard(id)); }
 export async function cardSummaryCloud(id, text) { return write(() => cloud.setCardSummary(id, text)); }

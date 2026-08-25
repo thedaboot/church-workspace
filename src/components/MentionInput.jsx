@@ -12,8 +12,6 @@ import { keepVisible } from '../utils.js';
 // - dropUp: 팝오버를 입력창 위로(댓글 입력처럼 화면 하단일 때)
 // - elementRef: 실제 textarea/input DOM 참조를 부모로 넘김(본문 이미지 붙여넣기 등)
 // ============================================================================
-const MAX_SUGGESTIONS = 6;
-
 export function MentionInput({
   as = 'textarea', value, onChange, members = [], className = '',
   onKeyDown, onPaste, dropUp = false, elementRef, ...rest
@@ -35,7 +33,9 @@ export function MentionInput({
     // 정확 일치 > 접두 일치 > 포함 순으로 정렬 — "노준석" 입력 시 "노준석_서브"가 앞서지 않게
     const rank = (n) => { const l = n.toLowerCase(); return l === q ? 0 : l.startsWith(q) ? 1 : 2; };
     // 동순위는 가나다순
-    return uniq.filter(n => n.toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ko')).slice(0, MAX_SUGGESTIONS);
+    // 목록은 max-h-48 안에서 스크롤된다 — 6명에서 자르면 뒷순번 사람이
+    // 아예 없는 것처럼 보였다(담당자 선택기와 같은 판단).
+    return uniq.filter(n => n.toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ko'));
   }, [mention, members]);
 
   const showPopover = !!mention && filtered.length > 0;
