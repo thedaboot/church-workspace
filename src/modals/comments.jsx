@@ -63,10 +63,10 @@ const ListSkeleton = ({ rows = 3 }) => (
   <div className="space-y-4 py-1" aria-hidden>
     {Array.from({ length: rows }, (_, i) => (
       <div key={i} className="flex items-start gap-2.5">
-        <div className="w-6 h-6 rounded-full bg-surface-hover animate-pulse shrink-0" />
+        <div className="w-6 h-6 rounded-full dc-skeleton shrink-0" />
         <div className="flex-1 min-w-0 space-y-1.5 pt-0.5">
-          <div className="h-2.5 w-24 rounded bg-surface-hover animate-pulse" />
-          <div className="h-2.5 max-w-[210px] rounded bg-surface-hover animate-pulse" style={{ width: `${86 - i * 18}%` }} />
+          <div className="h-2.5 w-24 rounded dc-skeleton" />
+          <div className="h-2.5 max-w-[210px] rounded dc-skeleton" style={{ width: `${86 - i * 18}%` }} />
         </div>
       </div>
     ))}

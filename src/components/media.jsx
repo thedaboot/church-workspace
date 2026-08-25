@@ -9,8 +9,10 @@ import { X } from 'lucide-react';
 // 이미지를 위해 이 조각들을 쓴다. 순환 import를 만들지 않으려고 여기에 따로 둔다.
 // ============================================================================
 
+// 훑고 지나가는 빛(index.css의 .dc-skeleton). animate-pulse는 흰 배경 위 옅은
+// 회색을 투명도만 흔들어서 "로딩 중"으로 읽히지 않았다(사용자 지적).
 export const Skeleton = ({ className = '' }) => (
-  <div className={`animate-pulse bg-surface-2 border border-line rounded-md ${className}`} />
+  <div className={`dc-skeleton border border-line rounded-md ${className}`} />
 );
 
 // 이미지가 실제로 그려지기 전까지 같은 자리에 스켈레톤을 둔다.
@@ -27,6 +29,8 @@ export function SmartImage({ src, alt = '', className = '', wrapperClassName = '
       {src && (
         <img
           src={src} alt={alt} title={title} onClick={onClick}
+          /* 사진이 여럿 붙은 업무에서 화면 밖 썸네일까지 한꺼번에 받지 않는다 */
+          loading="lazy" decoding="async"
           onLoad={() => setState('ready')} onError={() => setState('error')}
           className={`${className} ${state === 'ready' ? '' : 'opacity-0'} ${onClick ? 'cursor-zoom-in' : ''} transition-opacity duration-200`}
         />
