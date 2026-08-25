@@ -565,6 +565,8 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | `0022_approval_and_admins` | 가입 승인(`profiles.approved` + `is_approved()`) · SELECT/쓰기 정책을 승인된 사람으로 · `admins`를 화면에서 다루게 개방 · 가입 시 관리자 알림(`kind='approval'`) |
 | `0023_file_password` | `files.view_pw`/`_salt`/`_by` — 엑셀 첨부 **화면 가림** 비밀번호(파일 자체를 잠그지 않는다) |
 | `0024_card_position` | `cards.position` 백필 — 같은 상태 안에서 카드 순서를 손으로 정한다 |
+| `0025_project_year` | `projects.year` — 연도를 손으로 정한다(만든 날짜에서 뽑으면 미리 만드는 내년 프로젝트가 엉뚱한 해에 들어간다) |
+| `0026_card_drive_folder` | `cards.drive_folder_id` — 드라이브 업무 폴더를 id로 잡는다(제목을 바꿔도 파일이 갈라지지 않게) |
 
 알아둘 것:
 
@@ -789,6 +791,17 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     되돌려도 통과했다(`dragdesk`가 카드 셋짜리 시드를 따로 쓰는 이유다).
 
 ### 서비스 계층
+
+28-a. **수정 폼이 들고 있는 목록으로 스토어를 덮지 마세요.** 저장이 카드를 통째로
+    교체(`UPSERT_TASK`)하는데, 편집 폼(formData)은 '수정'을 누른 순간의 스냅샷이라
+    그때 아직 안 왔거나 그 뒤에 도착한 댓글·활동을 모른다. 클라우드는 이 둘을 창을
+    열 때 따로 읽으므로(§6-20) 폼에는 빈 배열이 실려 있기 십상이고, 그대로 저장하면
+    **저장하는 순간 댓글과 활동 기록이 화면에서 사라진다**(다시 들어가면
+    loadCardDetail이 읽어 와서 "나갔다 오면 보인다"가 된다 — 사용자 지적).
+    특히 **기록이 새로 안 생기는 수정**(팀만 바꾸거나 바뀐 것 없이 저장)이면 붙을
+    것조차 없어 활동이 통째로 0이 된다. 지금은 저장이 `comments`·`activityLog`·
+    `attachments`를 payload에서 빼고 `SYNC_TASK`로 병합한다 — 이 셋은 스토어의 것이
+    원본이다. §6-22의 다른 얼굴이고, `modalclose`가 되돌림까지 확인한다.
 
 29-a. **`services/cloudSync.js`에서 스토어를 import하지 마세요.** `assignees`·`push`는
     `cloud.js`만 가짜로 바꿔치고 cloudSync를 **노드에서** 돌린다. 스토어를 물면 그
