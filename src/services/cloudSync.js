@@ -423,7 +423,9 @@ const assigneeIdsOf = (names = []) => {
 // 새 업무의 첨부는 files.card_id가 cards를 참조하므로 **카드 행이 먼저 있어야** 한다.
 // 기다리지 않고 올리면 외래키 위반으로 첨부가 통째로 실패한다.
 const cardWrites = new Map();
-export function cardWritePromise(id) { return cardWrites.get(id) || Promise.resolve(); }
+// 성공이면 true, 실패면 false로 끝난다 — 기다리는 쪽이 "카드가 저장되지 않았다"를
+// 자기 문구로 말할 수 있어야 한다(예전에는 첨부가 files_card_id_fkey 원문을 그대로 띄웠다).
+export function cardWritePromise(id) { return cardWrites.get(id) || Promise.resolve(true); }
 
 export async function cardUpsertCloud(task, isNew) {
   const teamIds = (task.teams || []).map(n => teamNameToId.get(n)).filter(Boolean);
@@ -437,7 +439,7 @@ export async function cardUpsertCloud(task, isNew) {
     : write(() => cloud.updateCard(task.id, cardPatch(task), teamIds, assigneeIds));
   // 실패도 '끝남'으로 본다 — 기다리는 쪽(첨부 업로드)이 영영 매달리면 안 된다.
   // 카드가 없으면 업로드가 자기 오류로 실패하고 그 문구가 화면에 뜬다.
-  cardWrites.set(task.id, p.catch(() => {}));
+  cardWrites.set(task.id, p.then(() => true, () => false));
   return p;
 }
 export async function cardDeleteCloud(id) { return write(() => cloud.deleteCard(id)); }

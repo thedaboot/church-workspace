@@ -8,6 +8,7 @@ import { supabase } from '../services/supabaseClient.js';
 import * as cloud from '../services/cloud.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { showToast } from '../components/Toast.jsx';
+import { failText } from '../services/errorText.js';
 
 // ============================================================================
 // 설정 창 — 내 정보(사진·이름·소속 팀·연결된 계정) / 프로젝트 만들기·이름 수정
@@ -57,7 +58,7 @@ export function ProfileModal({ onClose, onSave }) {
       const url = await cloud.uploadContentImage(await squareThumb(file));
       setAvatarUrl(url);
     } catch (err) {
-      showToast(`사진 업로드에 실패했어요: ${err.message}`);
+      showToast(failText('사진을 올리지 못했어요', err));
     } finally {
       setUploading(false);
     }

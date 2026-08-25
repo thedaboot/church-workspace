@@ -17,6 +17,7 @@ import * as cloudSync from '../services/cloudSync.js';
 import * as push from '../services/push.js';
 import { notifLine, notifText, isSystemNotif } from '../services/notifyText.js';
 import { showToast } from './Toast.jsx';
+import { failText } from '../services/errorText.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { CONFIG } from '../config.js';
 import logoLight from '../assets/logo-light.png';
@@ -653,7 +654,7 @@ function PushRow() {
       setState(await push.getPushState());
     } catch (e) {
       console.error('[push] 설정 실패:', e);
-      showToast(e?.message || '알림 설정에 실패했어요');
+      showToast(failText('알림 설정을 바꾸지 못했어요', e));
       setState(await push.getPushState());
     } finally {
       setBusy(false);

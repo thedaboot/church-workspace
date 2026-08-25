@@ -23,6 +23,7 @@ import { ShareButton } from '../components/ShareButton.jsx';
 import { LinkIcon } from '../components/linkIcons.jsx';
 import { ConfirmPopover, useAnchoredPos } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
+import { failText } from '../services/errorText.js';
 
 // ============================================================================
 // 11. UI Views (데이터를 구독하는 프레젠테이션 컴포넌트)
@@ -363,25 +364,25 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
 
   if (!project) return null;
 
-  const cloudErr = (label) => (err) => { console.error(`[cloud] ${label} 실패:`, err); showToast(`저장에 실패했어요 (${label}) · ${cloudSync.formatCloudError(err)}`); };
+  const cloudErr = (what) => (err) => { console.error(`[cloud] ${what}:`, cloudSync.formatCloudError(err), err); showToast(failText(what, err)); };
 
   const saveLink = () => {
     if (!linkDraft.title.trim() || !linkDraft.url.trim()) return;
     const url = /^https?:\/\//.test(linkDraft.url) ? linkDraft.url : `https://${linkDraft.url}`;
     const newLink = { id: generateId(), title: linkDraft.title.trim(), url };
     store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, pinnedLinks: [...(project.pinnedLinks || []), newLink] } });
-    if (cloudOn) cloudSync.linkAddCloud(project.id, newLink).catch(cloudErr('리소스 추가'));
+    if (cloudOn) cloudSync.linkAddCloud(project.id, newLink).catch(cloudErr('참고 링크를 추가하지 못했어요'));
     setLinkDraft({ title: '', url: '' });
     setIsAddingLink(false);
   };
   const removeLink = (linkId) => {
     store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, pinnedLinks: (project.pinnedLinks || []).filter(l => l.id !== linkId) } });
-    if (cloudOn) cloudSync.linkRemoveCloud(linkId).catch(cloudErr('리소스 삭제'));
+    if (cloudOn) cloudSync.linkRemoveCloud(linkId).catch(cloudErr('참고 링크를 지우지 못했어요'));
   };
 
   const deleteProject = () => {
     store.dispatch({ type: 'DELETE_PROJECT', payload: project.id });
-    if (cloudOn) cloudSync.projectDeleteCloud(project.id).catch(cloudErr('프로젝트 삭제'));
+    if (cloudOn) cloudSync.projectDeleteCloud(project.id).catch(cloudErr('프로젝트를 삭제하지 못했어요'));
     onNavigate?.('dashboard');
   };
 

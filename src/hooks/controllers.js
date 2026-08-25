@@ -6,11 +6,15 @@ import { generateId } from '../utils.js';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { showToast } from '../components/Toast.jsx';
+import { failText } from '../services/errorText.js';
 
-// 클라우드 쓰기 실패 공통 처리(콘솔 전체 에러 + 원인 노출 알림)
-const reportCloudError = (label) => (err) => {
-  console.error(`[cloud] ${label} 실패:`, err);
-  showToast(`저장에 실패했어요 (${label}) · ${cloudSync.formatCloudError(err)}`);
+// 클라우드 쓰기 실패 공통 처리.
+// 화면에는 사람이 읽을 두 도막(`무엇을 못했다 · 무엇을 하면 된다`)만, 원문은 콘솔에만.
+// `what`은 이미 완결된 문장입니다 — 라벨을 괄호로 붙이면 "저장에 실패했어요 (업무 저장)"
+// 처럼 같은 말이 두 번 나옵니다(예전 문구).
+const reportCloudError = (what) => (err) => {
+  console.error(`[cloud] ${what}:`, cloudSync.formatCloudError(err), err);
+  showToast(failText(what, err));
 };
 
 // ============================================================================
@@ -63,7 +67,7 @@ export const useWorkspaceController = () => {
         .then(() => assignIds.length && cloudSync.notifyAssignees(assignIds, {
           actorName: currentUser.name, cardId: task.id, projectId: task.projectId, preview: task.title,
         }))
-        .catch(reportCloudError('업무 저장'));
+        .catch(reportCloudError('업무를 저장하지 못했어요'));
     }
     return task;
   }, [currentUser.name, cloudOn]);
@@ -82,7 +86,7 @@ export const useWorkspaceController = () => {
           actorName: currentUser.name, cardId: task.id, projectId: task.projectId,
           replyToName: parent?.author,
         }))
-        .catch(reportCloudError('댓글 등록'));
+        .catch(reportCloudError('댓글을 남기지 못했어요'));
     }
     return updated;
   }, [currentUser.name, cloudOn]);
@@ -95,7 +99,7 @@ export const useWorkspaceController = () => {
       const addedLogs = (updated.activityLog || []).slice((task.activityLog || []).length);
       cloudSync.commentUpdateCloud(commentId, newText)
         .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id))
-        .catch(reportCloudError('댓글 수정'));
+        .catch(reportCloudError('댓글을 고치지 못했어요'));
     }
     return updated;
   }, [currentUser.name, cloudOn]);
@@ -118,7 +122,7 @@ export const useWorkspaceController = () => {
     store.dispatch({ type: 'UPSERT_TASK', payload: updated });
     if (cloudOn) {
       const entry = updated.activityLog[updated.activityLog.length - 1];
-      cloudSync.activityAddCloud([entry], task.projectId, task.id).catch(reportCloudError('활동 기록'));
+      cloudSync.activityAddCloud([entry], task.projectId, task.id).catch(reportCloudError('활동 기록을 남기지 못했어요'));
     }
     return updated;
   }, [currentUser.name, cloudOn]);
@@ -126,7 +130,7 @@ export const useWorkspaceController = () => {
   const handleDeleteTask = useCallback((task) => {
     if (!task?.id) return;
     store.dispatch({ type: 'DELETE_TASK', payload: task.id });
-    if (cloudOn) cloudSync.cardDeleteCloud(task.id).catch(reportCloudError('업무 삭제'));
+    if (cloudOn) cloudSync.cardDeleteCloud(task.id).catch(reportCloudError('업무를 삭제하지 못했어요'));
   }, [cloudOn]);
 
   const handleAddProject = useCallback((title) => {
@@ -139,7 +143,7 @@ export const useWorkspaceController = () => {
       createdAt: new Date().toISOString(),
     };
     store.dispatch({ type: 'ADD_PROJECT', payload: newProject });
-    if (cloudOn) cloudSync.projectCreateCloud(newProject).catch(reportCloudError('프로젝트 생성'));
+    if (cloudOn) cloudSync.projectCreateCloud(newProject).catch(reportCloudError('프로젝트를 만들지 못했어요'));
     return newProject.id;
   }, [cloudOn]);
 
@@ -147,19 +151,19 @@ export const useWorkspaceController = () => {
     const next = String(title || '').trim();
     if (!next) return;
     store.dispatch({ type: 'UPDATE_PROJECT', payload: { id, title: next } });
-    if (cloudOn) cloudSync.projectRenameCloud(id, next).catch(reportCloudError('프로젝트 이름 변경'));
+    if (cloudOn) cloudSync.projectRenameCloud(id, next).catch(reportCloudError('프로젝트 이름을 바꾸지 못했어요'));
   }, [cloudOn]);
 
   // 프로젝트 보관/해제 — 지우는 것이 아니라 탭·대시보드에서만 빼는 것이다.
   // 안에 있는 업무는 그대로 남고 검색·보관함으로 계속 닿는다.
   const handleArchiveProject = useCallback((id, archived) => {
     store.dispatch({ type: 'UPDATE_PROJECT', payload: { id, archived } });
-    if (cloudOn) cloudSync.projectArchiveCloud(id, archived).catch(reportCloudError(archived ? '프로젝트 보관' : '보관 해제'));
+    if (cloudOn) cloudSync.projectArchiveCloud(id, archived).catch(reportCloudError(archived ? '프로젝트를 보관하지 못했어요' : '보관을 풀지 못했어요'));
   }, [cloudOn]);
 
   const handleUpdateUser = useCallback((profile) => {
     store.dispatch({ type: 'UPDATE_USER', payload: profile });
-    if (cloudOn) cloudSync.profileUpdateCloud(profile).catch(reportCloudError('프로필 저장'));
+    if (cloudOn) cloudSync.profileUpdateCloud(profile).catch(reportCloudError('내 정보를 저장하지 못했어요'));
   }, [cloudOn]);
 
   return { handleSaveTask, handleDeleteTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleRenameProject, handleArchiveProject, handleUpdateUser, undo: store.undo, redo: store.redo };

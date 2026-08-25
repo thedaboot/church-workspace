@@ -13,6 +13,7 @@ import {
 import { mdToDoc, docToMd } from '../services/markdown.js';
 import { uploadContentImage } from '../services/cloud.js';
 import { showToast } from './Toast.jsx';
+import { failText } from '../services/errorText.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { isMobileViewport, keepVisible } from '../utils.js';
 
@@ -102,7 +103,7 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
       editorRef.current?.chain().focus().setImage({ src: url }).run();
     } catch (e) {
       console.error('[cloud] 본문 이미지 업로드 실패:', e);
-      showToast('이미지 업로드에 실패했어요 · ' + (e.message || e));
+      showToast(failText('이미지를 올리지 못했어요', e));
     } finally {
       setUploading(false);
     }

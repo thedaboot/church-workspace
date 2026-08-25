@@ -367,3 +367,35 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(toggleTodoLine('', 0), '');
   console.log('PASS  본문 체크리스트 토글 4가지');
 }
+
+// ── 실패 문구 (services/errorText.js) ──
+// 화면에 Postgres 원문이 새지 않는지 + 흔한 코드마다 사람이 할 일을 말하는지.
+// 되돌리기 검사: errorReason의 23502 갈래를 지우면 첫 단정이 바로 깨진다.
+{
+  const { errorReason, failText, objectParticle } =
+    await import(new URL('../src/services/errorText.js', import.meta.url).href);
+
+  const notNull = { code: '23502', message: 'null value in column "title" of relation "cards" violates not-null constraint' };
+  assert.strictEqual(errorReason(notNull), '제목을 먼저 적어주세요');
+  assert.strictEqual(failText('업무를 저장하지 못했어요', notNull), '업무를 저장하지 못했어요 · 제목을 먼저 적어주세요');
+  assert.strictEqual(errorReason({ code: '23502', message: 'null value in column "zzz" of relation "cards"' }), '아직 채우지 않은 칸이 있어요');
+  assert.strictEqual(errorReason({ code: '23503', message: 'violates foreign key constraint "files_card_id_fkey"' }), '연결된 항목이 이미 지워졌어요 · 새로고침해주세요');
+  assert.strictEqual(errorReason({ code: '42501' }), '권한이 있어야 하는 일이에요');
+  assert.strictEqual(errorReason({ message: 'new row violates row-level security policy' }), '권한이 있어야 하는 일이에요');
+  assert.strictEqual(errorReason({ message: 'Failed to fetch' }), '인터넷 연결을 확인하고 다시 시도해주세요');
+  assert.strictEqual(errorReason({ status: 413, message: 'The object exceeded the maximum allowed size' }), '파일이 너무 커요');
+  assert.strictEqual(errorReason(null), '잠시 후 다시 시도해주세요');
+  assert.strictEqual(errorReason({ code: 'ZZZZZ', message: 'boom' }), '잠시 후 다시 시도해주세요');
+
+  // 원문이 한 글자도 섞이지 않아야 한다 — 이게 이번 요청의 핵심 단정이다
+  const raw = ['null value', 'constraint', 'relation', 'violates', 'code 2'];
+  for (const e of [notNull, { code: '23503', message: 'violates foreign key constraint "x"' }, { code: '23505', message: 'duplicate key value violates unique constraint' }]) {
+    const line = failText('업무를 저장하지 못했어요', e);
+    for (const r of raw) assert.ok(!line.includes(r), `원문이 화면에 샜다: ${line}`);
+  }
+
+  assert.strictEqual(objectParticle('제목'), '을');
+  assert.strictEqual(objectParticle('프로젝트'), '를');
+  assert.strictEqual(objectParticle('file.png'), '를', '한글이 아니면 를');
+  console.log('PASS  실패 문구 15가지');
+}

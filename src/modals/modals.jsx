@@ -20,6 +20,7 @@ import { getMemberNames, loadCardDetail, cardSummaryCloud, activityAddCloud, car
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { showToast } from '../components/Toast.jsx';
+import { failText } from '../services/errorText.js';
 
 // ============================================================================
 // 업무 창 — 상세 보기 / 수정 폼 / 그 껍데기(TaskModalShell)
@@ -106,6 +107,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   // 부딪히지 않지만, 애초에 두 번 보낼 이유가 없으니 여기서도 막는다.
   // 다시 '수정'으로 들어오면 풀린다.
   const submittingRef = useRef(false);
+  const titleRef = useRef(null);
   useEffect(() => { if (isEditMode) submittingRef.current = false; }, [isEditMode]);
 
   // 새 업무에서 골라둔 첨부(File 객체) — 파일은 카드 id가 있어야 올라가므로(files가
@@ -121,14 +123,20 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     setUploadingNames(files.map(f => f.name));
     // 카드 행이 DB에 들어간 뒤에 올린다 — files.card_id가 cards를 참조하므로
     // 먼저 올리면 외래키 위반으로 통째로 실패한다(handleSaveTask는 기다리지 않는다).
-    await cardWritePromise(saved.id);
+    // 카드 저장 자체가 실패했으면 여기서 멈춘다 — 그대로 올리면 첨부가
+    // `files_card_id_fkey` 원문을 화면에 띄우는데, 그건 원인이 아니라 결과다.
+    if (!await cardWritePromise(saved.id)) {
+      setUploadingNames([]);
+      showToast('업무가 저장되지 않아 첨부도 올리지 못했어요');
+      return;
+    }
     const rows = [];
     for (const file of files) {
       try {
         rows.push(await uploadAttachment(file, { projectId: saved.projectId, cardId: saved.id }));
       } catch (err) {
         console.error('[cloud] 업로드 실패:', err);
-        showToast(`업로드 실패 (${file.name}) · ${err.message || err}`);
+        showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, err));
       } finally {
         setUploadingNames(prev => prev.filter(n => n !== file.name));
       }
@@ -145,6 +153,15 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   const handleSubmit = (e) => {
     e.preventDefault();
     if (submittingRef.current) return;
+    // 제목 없이 저장하면 DB의 not-null에 막힌다(cards.title). 푸터의 '저장'은
+    // form 밖의 type="button"이라 input의 `required`가 걸리지 않아서, 실제로
+    // 제목 없는 업무가 저장까지 갔다가 실패했고 그 뒤 첨부도 외래키로 실패했다
+    // (사용자 스크린샷 두 장이 이 한 가지 원인이었다). 여기서 먼저 막는다.
+    if (!String(formData.title || '').trim()) {
+      showToast('업무 제목을 먼저 적어주세요');
+      titleRef.current?.focus();
+      return;
+    }
     submittingRef.current = true;
     const saved = onSave(formData);
     if (!task.id && cloudMode && saved?.id && pendingFiles.length) uploadPending(saved);
@@ -202,7 +219,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   );
   const detailBody = isEditMode
     ? <TaskEditor formData={formData} setFormData={setFormData} members={members} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
-        pendingFiles={pendingFiles} setPendingFiles={setPendingFiles} />
+        pendingFiles={pendingFiles} setPendingFiles={setPendingFiles} titleRef={titleRef} />
     // key로 카드마다 새로 마운트한다 — 요약 state(펼침·이번에 만든 요약)가 카드
     // 사이에 남으면, 다른 카드를 열었을 때 앞 카드의 요약이 그대로 보인다
     : <TaskViewer key={formData.id} formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
@@ -553,7 +570,7 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
   );
 }
 
-const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity, pendingFiles = [], setPendingFiles }) => {
+const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity, pendingFiles = [], setPendingFiles, titleRef }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
 
   const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -571,7 +588,7 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
   return (
     <form className="space-y-4">
       {/* 모바일은 autoFocus 금지 — 열자마자 키보드가 화면 절반을 덮는다 */}
-      <input type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="업무 제목 입력" className="w-full text-xl md:text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus={!isMobileViewport()} />
+      <input ref={titleRef} type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="업무 제목 입력" className="w-full text-xl md:text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus={!isMobileViewport()} />
 
       <div className="border-y border-line divide-y divide-line/60">
         <PropertyRow icon={<CheckSquare size={13} className="text-fg-faint" />} label="상태">
