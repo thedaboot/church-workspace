@@ -282,7 +282,13 @@ export async function uploadAttachment(file, { projectId, cardId }) {
   const c = client();
   const safe = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = `${projectId}/${cardId}/${crypto.randomUUID()}-${safe}`;
-  const up = await c.storage.from(ATTACH_BUCKET).upload(path, file, { contentType: file.type || undefined, upsert: false });
+  // cacheControl: 경로에 uuid가 박혀 있어 **같은 주소가 다른 그림이 될 수 없다.**
+  // 기본값은 1시간이라, 한 시간 뒤 다시 열면 (주소가 같아도) 되묻는 왕복이 생긴다.
+  // 30일로 두면 그 왕복도 사라진다. 이미 올라간 파일은 그대로 3600이고, 그쪽은
+  // ETag 덕에 304(본문 0바이트)로 끝난다.
+  const up = await c.storage.from(ATTACH_BUCKET).upload(path, file, {
+    contentType: file.type || undefined, upsert: false, cacheControl: '2592000',
+  });
   if (up.error) throw up.error;
   try {
     return unwrap(await c.from('files').insert({
@@ -321,39 +327,89 @@ export async function uploadContentImage(file) {
 // 바뀌고, 브라우저 캐시가 통째로 빗나가 같은 이미지를 열 때마다 다시 내려받았다 —
 // 업무 창을 여닫을 때마다 첨부 썸네일 전체가 다시 왔다(Storage Egress의 큰 몫).
 // 탭이 살아 있는 동안만 유효한 메모리 캐시라 권한 회수 걱정은 만료(1시간)와 같다.
-const SIGNED_TTL_S = 3600;
+// ── 서명 URL 캐시 ──────────────────────────────────────────────────────────
+// 브라우저 캐시는 **주소가 같을 때만** 맞는다. 매번 새 토큰을 발급하면 같은 그림도
+// 남남이 되어 통째로 다시 내려온다 — 느린 것도 Egress도 여기서 나왔다.
+//
+// 실측(2026-08-25): Storage 응답은 `cache-control: public, max-age=3600` + ETag이고
+// 앞에 Cloudflare가 있다. 즉 주소만 유지되면 1시간 뒤에도 304(본문 0바이트)로 끝난다.
+// 그래서 **주소를 오래 유지하는 것**이 이 캐시의 전부다.
+//
+// 파일 열기(미리보기·내려받기)는 1시간이면 충분하다. 썸네일은 다르다 — 목록을 열
+// 때마다 보이고, 파일이 바뀌지 않으며(경로에 uuid가 박힌다), 한 장이 원본 1.5MB짜리
+// 사진이다. 그래서 썸네일만 7일로 길게 서명하고 6일까지 재사용한다.
+//
+// 저장소는 localStorage다 — sessionStorage는 탭을 닫으면 사라져서, 다음에 열 때
+// 주소가 바뀌고 캐시가 다시 빗나간다. 서명 URL은 유효기간이 지나면 스스로 죽고,
+// 만료 검사도 여기서 한다.
+const SIGNED_TTL_S = 3600;                       // 파일 열기
 const SIGNED_REUSE_MS = 50 * 60 * 1000;
+const THUMB_TTL_S = 7 * 24 * 3600;               // 썸네일(바뀌지 않는 그림)
+const THUMB_REUSE_MS = 6 * 24 * 60 * 60 * 1000;
 const SIGNED_STORE_KEY = 'church_signed_urls';
 
-// 메모리에만 두면 **새로고침 한 번에 전부 날아간다.** 그러면 같은 썸네일이라도 주소가
-// 새로 발급돼(토큰이 달라진다) 브라우저 HTTP 캐시가 통째로 빗나가고, 이미지가 매번
-// 다시 내려온다 — 느린 것도 Egress도 여기서 나왔다. sessionStorage에 같이 적어 두면
-// 탭이 살아 있는 동안은 새로고침해도 **같은 주소**라 브라우저 캐시가 그대로 맞는다.
-// 탭을 닫으면 사라지므로 유효기간(1시간)보다 오래 남지 않는다.
-const signedUrlCache = new Map(); // storagePath → { url, at }
+const signedUrlCache = new Map(); // key → { url, at, ttl }
+const isThumbKey = (key) => key.startsWith('thumb:');
+const reuseMsFor = (key) => (isThumbKey(key) ? THUMB_REUSE_MS : SIGNED_REUSE_MS);
+
 try {
-  const saved = JSON.parse(sessionStorage.getItem(SIGNED_STORE_KEY) || '{}');
+  const saved = JSON.parse(localStorage.getItem(SIGNED_STORE_KEY) || '{}');
   const now = Date.now();
-  for (const [path, hit] of Object.entries(saved)) {
-    if (hit?.url && now - hit.at < SIGNED_REUSE_MS) signedUrlCache.set(path, hit);
+  for (const [key, hit] of Object.entries(saved)) {
+    if (hit?.url && now - hit.at < reuseMsFor(key)) signedUrlCache.set(key, hit);
   }
 } catch { /* 사파리 프라이빗 등 — 캐시 없이 그냥 돈다 */ }
 
 let signedFlush = null;
-const rememberSigned = (path, url) => {
-  signedUrlCache.set(path, { url, at: Date.now() });
-  // 한 번에 여러 건이 들어오므로 쓰기는 한 프레임 뒤에 몰아서 한 번만
+const rememberSigned = (key, url) => {
+  signedUrlCache.set(key, { url, at: Date.now() });
+  // 한 번에 여러 건이 들어오므로 쓰기는 한 프레임 뒤에 몰아서 한 번만.
+  // 만료된 것은 이때 걷어낸다 — 안 그러면 지운 파일의 주소가 영영 쌓인다.
   clearTimeout(signedFlush);
   signedFlush = setTimeout(() => {
-    try { sessionStorage.setItem(SIGNED_STORE_KEY, JSON.stringify(Object.fromEntries(signedUrlCache))); }
+    const now = Date.now();
+    for (const [k, v] of signedUrlCache) if (now - v.at >= reuseMsFor(k)) signedUrlCache.delete(k);
+    try { localStorage.setItem(SIGNED_STORE_KEY, JSON.stringify(Object.fromEntries(signedUrlCache))); }
     catch { /* 용량 초과 등 — 메모리 캐시만으로도 동작한다 */ }
   }, 0);
 };
 
-const cachedSigned = (path) => {
-  const hit = signedUrlCache.get(path);
-  return hit && Date.now() - hit.at < SIGNED_REUSE_MS ? hit.url : null;
+const cachedSigned = (key) => {
+  const hit = signedUrlCache.get(key);
+  return hit && Date.now() - hit.at < reuseMsFor(key) ? hit.url : null;
 };
+
+// 썸네일은 **원본을 받지 않는다.** 80px 상자에 1.5MB 원본을 그리고 있었고,
+// 사진 열 장짜리 업무를 LTE에서 열면 15MB가 내려와 스켈레톤이 끝나지 않았다
+// (사용자 지적 — "스켈레톤이 적용이 안 된 것 같다"의 진짜 원인).
+// 이 프로젝트는 Storage 이미지 변환이 켜져 있다(확인함: 9.5KB → 4.3KB).
+// 200px인 이유: 화면 상자가 80px이고 고해상도 화면은 2배로 그린다.
+// 변환은 서명 요청의 **본문**에 실려서 토큰에 묶이므로 묶음 발급(createSignedUrls)을
+// 쓸 수 없다 — 파일마다 한 번씩 서명한다(토큰 발급뿐이라 가볍고, 동시에 보낸다).
+const THUMB = { width: 200, height: 200, resize: 'cover' };
+
+export async function getAttachmentThumbUrls(storagePaths) {
+  const map = {};
+  const need = [];
+  for (const p of storagePaths.filter(Boolean)) {
+    const hit = cachedSigned(`thumb:${p}`);
+    if (hit) map[p] = hit; else need.push(p);
+  }
+  if (!need.length) return map;
+  await Promise.all(need.map(async (p) => {
+    try {
+      const { data, error } = await client().storage.from(ATTACH_BUCKET)
+        .createSignedUrl(p, THUMB_TTL_S, { transform: THUMB });
+      if (error) throw error;
+      map[p] = data.signedUrl;
+      rememberSigned(`thumb:${p}`, data.signedUrl);
+    } catch (e) {
+      // 변환이 꺼지면(요금제 변경 등) 여기서 걸린다 — 부르는 쪽이 원본으로 되돌린다
+      console.error('[cloud] 썸네일 서명 실패:', p, e);
+    }
+  }));
+  return map;
+}
 
 export async function getAttachmentUrl(storagePath) {
   const hit = cachedSigned(storagePath);
@@ -605,3 +661,71 @@ export function subscribeAll(onChange) {
   return () => c.removeChannel(channel);
 }
 
+
+// ── 첨부 비밀번호 (0023) ────────────────────────────────────────────────────
+// **화면을 가리는 잠금이다. 파일 자체를 잠그지 않는다.** 주소를 직접 아는 사람은
+// 그대로 열 수 있다 — 같이 일하는 사람들 사이에서 실수로 여는 것을 막는 수준이고,
+// 그 이상으로 읽히게 만들면 안 된다(0023 주석에 이유가 있다). 화면 문구에
+// '암호화'라는 말을 쓰지 않는 이유다.
+// 해시는 브라우저의 WebCrypto로 만든다(서버 왕복 없음). 소금은 파일마다 다르다.
+const sha256Hex = async (text) => {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+export async function setFilePassword(fileId, password) {
+  const c = client();
+  if (!password) {
+    return unwrap(await c.from('files')
+      .update({ view_pw: null, view_pw_salt: null, view_pw_by: null })
+      .eq('id', fileId).select().single());
+  }
+  const salt = crypto.randomUUID();
+  const me = (await getSession())?.user?.id ?? null;
+  return unwrap(await c.from('files')
+    .update({ view_pw: await sha256Hex(salt + password), view_pw_salt: salt, view_pw_by: me })
+    .eq('id', fileId).select().single());
+}
+
+export async function checkFilePassword(row, password) {
+  if (!row?.view_pw) return true;
+  return (await sha256Hex((row.view_pw_salt || '') + password)) === row.view_pw;
+}
+
+// 카드 순서만 쓴다 — 카드 폼 전체를 실어 보내면 순서를 바꾸는 사람이 남의 편집을
+// 같이 덮는다(요약 고정이 cardSummaryCloud로 세 칸만 쓰는 것과 같은 이유).
+export async function setCardPosition(id, position) {
+  return unwrap(await client().from('cards').update({ position }).eq('id', id).select('id').single());
+}
+
+// ── 멤버 관리 (0022) ────────────────────────────────────────────────────────
+// 전역 '멤버' 화면이 쓴다. 관리자만 의미가 있지만 정책이 DB에서 막으므로
+// 화면에서 감추는 것과 이중으로 걸린다(§4.5의 요약 고정과 다른 점이다).
+export async function listMembersAdmin() {
+  return unwrap(await client().from('profiles')
+    .select('id, display_name, avatar_url, approved, approved_at, created_at, last_seen_at, birthday')
+    .order('approved', { ascending: true })
+    .order('created_at', { ascending: true }));
+}
+
+// 승인·승인 취소(=내보내기). 내보내면 접근만 끊기고 지난 기록의 이름은 남는다.
+export async function setApproved(profileId, approved) {
+  const me = (await getSession())?.user?.id ?? null;
+  return unwrap(await client().from('profiles')
+    .update({ approved, approved_at: approved ? new Date().toISOString() : null, approved_by: approved ? me : null })
+    .eq('id', profileId).select('id, approved').single());
+}
+
+// 관리자 목록·지정·해제. admins는 이메일이 원본이고 profiles에는 email이 없어서
+// 화면은 auth 쪽 이메일을 손으로 넣는다(가입자 목록에서 고르는 길은 profiles에
+// 이메일이 없어 막혀 있다 — 0022 주석 참고).
+export async function listAdmins() {
+  return unwrap(await client().from('admins').select('email').order('email'));
+}
+export async function addAdmin(email) {
+  return unwrap(await client().from('admins').insert({ email: String(email).trim().toLowerCase() }).select('email').single());
+}
+export async function removeAdmin(email) {
+  const { error } = await client().from('admins').delete().eq('email', String(email).trim().toLowerCase());
+  if (error) throw error;
+}

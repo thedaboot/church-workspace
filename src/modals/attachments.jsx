@@ -1,12 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud,
-  Loader2, AlertTriangle, Eye, Trash2, X,
-} from 'lucide-react';
+import { FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, Loader2, AlertTriangle, Eye, Trash2, X, Lock, LockOpen } from 'lucide-react';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
-import { uploadAttachment, getAttachmentUrls, deleteAttachment, listCardFiles, getFileOpenUrl } from '../services/cloud.js';
+import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, getFileOpenUrl, setFilePassword, checkFilePassword } from '../services/cloud.js';
 import { FilePreviewModal, officeSrc, PreparingFrame, FRAME_SETTLE, OFFICE_TIMEOUT } from '../components/FilePreviewModal.jsx';
 import { SmartImage, Skeleton } from '../components/media.jsx';
 
@@ -101,6 +98,65 @@ export const PendingAttachments = ({ files = [], onChange }) => {
   );
 };
 
+// ── 첨부 비밀번호 (엑셀만 — 사용자 결정 2026-08-25) ────────────────────────
+// **화면을 가리는 잠금이다.** 주소를 직접 아는 사람은 그대로 열 수 있다(0023 주석).
+// 그래서 문구에 '암호화'라는 말을 쓰지 않고, 무엇을 막는지 그대로 적는다.
+function PasswordGate({ row, onUnlock }) {
+  const [pw, setPw] = useState('');
+  const [wrong, setWrong] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (await checkFilePassword(row, pw)) { onUnlock(); return; }
+    setWrong(true);
+  };
+  return (
+    <form onSubmit={submit} className="flex items-center gap-2 pb-2 pl-[46px]">
+      <input
+        type="password" value={pw} autoComplete="off"
+        onChange={(e) => { setPw(e.target.value); setWrong(false); }}
+        placeholder="비밀번호"
+        className="w-32 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"
+      />
+      <button type="submit" className="px-2.5 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11px] font-semibold transition active:scale-95">열기</button>
+      {wrong && <span className="text-[11px] text-tag-red-fg">비밀번호가 맞지 않아요</span>}
+    </form>
+  );
+}
+
+// 비밀번호를 걸거나 푸는 줄 — 올린 사람과 관리자만 본다
+function PasswordSetter({ row, onDone }) {
+  const [pw, setPw] = useState('');
+  const [busy, setBusy] = useState(false);
+  const save = async (next) => {
+    setBusy(true);
+    try { onDone(await setFilePassword(row.id, next)); }
+    catch (e) { console.error('[cloud] 첨부 비밀번호 저장 실패:', e); showToast(failText('비밀번호를 저장하지 못했어요', e)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="pb-2 pl-[46px]">
+      <div className="flex items-center gap-2">
+        <input
+          type="text" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="off"
+          placeholder={row.view_pw ? '새 비밀번호' : '비밀번호를 정해주세요'}
+          className="w-40 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"
+        />
+        <button type="button" disabled={busy || !pw} onClick={() => save(pw)}
+          className="px-2.5 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">저장</button>
+        {row.view_pw && (
+          <button type="button" disabled={busy} onClick={() => save('')}
+            className="px-2.5 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95">잠금 해제</button>
+        )}
+      </div>
+      {/* 무엇을 막는 잠금인지 그대로 적는다 — 더 세게 읽히면 안 된다 */}
+      <p className="mt-1.5 text-[10px] text-fg-faint leading-relaxed">
+        비밀번호를 아는 사람만 앱에서 열 수 있어요. 파일 주소를 직접 아는 사람은 그대로 볼 수 있으니,
+        정말 보이면 안 되는 파일은 올리지 말아주세요.
+      </p>
+    </div>
+  );
+}
+
 // 스토리지에 실체가 있는 엑셀만 펼칠 수 있다(드라이브로 옮긴 파일은 서명 URL이 없다).
 // csv는 오피스 뷰어가 못 그린다 — 미리보기(텍스트)로 본다.
 const isSheetRow = (row) => !!row.storage_path
@@ -161,7 +217,7 @@ function InlineSheet({ row }) {
 }
 
 // thumb(서명 URL)은 상위에서 일괄 발급받아 주입 — 행마다 개별 요청하지 않는다
-const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, embedded, onToggleEmbed }) => {
+const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, embedded, onToggleEmbed, locked, onToggleLockUI, canLock }) => {
   // 썸네일은 스토리지 파일만(드라이브로 옮긴 파일은 서명 URL이 없으므로 아이콘).
   // 주소 발급이 실패한 것도 아이콘으로 — 스켈레톤을 영원히 두면 "고장"으로 읽힌다.
   const isImage = (row.mime_type || '').startsWith('image/') && !!row.storage_path && !thumbFailed;
@@ -179,6 +235,15 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
         <p className="text-xs text-fg truncate">{row.name}</p>
         <p className="text-[10px] text-fg-faint mt-0.5">{formatBytes(row.size_bytes)}</p>
       </div>
+      {/* 잠긴 파일이라는 표시. 자물쇠는 '아는 사람만 본다'를 한눈에 말한다 */}
+      {row.view_pw && <Lock size={12} className="shrink-0 text-fg-faint" aria-label="비밀번호가 걸린 파일" />}
+      {canLock && (
+        <button type="button" onClick={onToggleLockUI}
+          className="shrink-0 p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95"
+          title={row.view_pw ? '비밀번호 바꾸기·풀기' : '비밀번호 걸기'}>
+          {row.view_pw ? <Lock size={14} /> : <LockOpen size={14} />}
+        </button>
+      )}
       {/* 엑셀은 행 아래로 바로 펼친다 — 글자 버튼: hover 뒤에 숨기지 않는다(§8) */}
       {onToggleEmbed && (
         <button type="button" onClick={onToggleEmbed}
@@ -186,7 +251,7 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
           {embedded ? '접기' : '펼쳐보기'}
         </button>
       )}
-      <button type="button" onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title="미리보기"><Eye size={14} /></button>
+      <button type="button" onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title={locked ? '비밀번호를 넣어야 열려요' : '미리보기'}><Eye size={14} /></button>
       {canDelete && (
         <ConfirmPopover message={`'${row.name}'을(를) 삭제할까요?`} onConfirm={onRemove}>
           <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95" title="삭제"><Trash2 size={14} /></button>
@@ -212,6 +277,9 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   const [rejected, setRejected] = useState([]); // 용량 초과로 건너뛴 파일들
   const [preview, setPreview] = useState(null); // 미리보기로 열어둔 files 행
   const [embedded, setEmbedded] = useState({}); // { files.id: true } — 펼쳐둔 엑셀
+  const [unlocked, setUnlocked] = useState({}); // { files.id: true } — 이번에 비밀번호를 맞춘 것
+  const [lockUI, setLockUI] = useState({});     // { files.id: true } — 비밀번호 설정 줄을 연 것
+  const [askPw, setAskPw] = useState({});       // { files.id: true } — 비밀번호를 물어야 하는 것
   const inputRef = useRef(null);
 
   // 첫 페인트 경쟁 방지: 네트워크는 유휴 시점으로 미룬다(모달은 로컬 데이터로 먼저 뜬다)
@@ -245,13 +313,19 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     // 유휴까지 미루지 않는다 — 이 효과는 목록이 온 뒤에 도는 것이라 창은 이미 그려졌고,
     // 서명 URL 발급은 네트워크라 첫 페인트와 다투지 않는다. 미뤄 두었더니 그만큼
     // 썸네일이 늦게 떴다(사용자 지적).
-    getAttachmentUrls(need)
-      .then(map => {
+    // 200px로 줄여 받는다(원본을 받으면 사진 한 장에 1.5MB다).
+    // 변환이 안 되는 경로만 원본 서명으로 한 번 더 시도한다.
+    getAttachmentThumbUrls(need)
+      .then(async map => {
+        const missing = need.filter(p => !map[p]);
+        if (missing.length) {
+          try { Object.assign(map, await getAttachmentUrls(missing)); }
+          catch (e) { console.error('[cloud] 원본 서명도 실패:', e); }
+        }
         if (!alive) return;
         setThumbs(prev => ({ ...prev, ...map }));
-        // 응답에 없는 경로는 실패로 본다 → 그 줄은 아이콘으로 돌아간다
-        const missing = need.filter(p => !map[p]);
-        if (missing.length) setThumbFailed(prev => ({ ...prev, ...Object.fromEntries(missing.map(p => [p, true])) }));
+        const dead = need.filter(p => !map[p]);
+        if (dead.length) setThumbFailed(prev => ({ ...prev, ...Object.fromEntries(dead.map(p => [p, true])) }));
       })
       .catch(e => {
         console.error('[cloud] 썸네일 URL 발급 실패:', e);
@@ -294,7 +368,13 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
 
   // 스토리지 링크를 새 탭으로 던지지 않고 앱 안 미리보기로 연다
   // (모달 안에 '새 탭에서 열기'·'내려받기'가 있다)
-  const openFile = (row) => setPreview(row);
+  // 이번 세션에 비밀번호를 맞췄거나, 애초에 안 걸려 있으면 열린다.
+  // 창을 닫으면 잊는다 — 한 번 푼 것을 계속 들고 있으면 '잠금'이라는 말이 무색해진다.
+  const isLocked = (row) => !!row.view_pw && !unlocked[row.id];
+  const openFile = (row) => {
+    if (isLocked(row)) { setAskPw(prev => ({ ...prev, [row.id]: true })); return; }
+    setPreview(row);
+  };
   const removeItem = async (row) => {
     try {
       await deleteAttachment(row);
@@ -384,8 +464,22 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
             <div key={row.id}>
               <AttachmentRow row={row} thumb={thumbs[row.storage_path]} thumbFailed={!!thumbFailed[row.storage_path]} canDelete={!readOnly && (isAdmin || row.uploaded_by === userId)} onOpen={() => openFile(row)} onRemove={() => removeItem(row)}
                 embedded={!!embedded[row.id]}
+                locked={isLocked(row)}
+                canLock={!readOnly && isSheetRow(row) && (isAdmin || row.uploaded_by === userId)}
+                onToggleLockUI={() => setLockUI(prev => ({ ...prev, [row.id]: !prev[row.id] }))}
                 onToggleEmbed={isSheetRow(row) ? () => setEmbedded(prev => ({ ...prev, [row.id]: !prev[row.id] })) : null} />
-              {embedded[row.id] && isSheetRow(row) && <InlineSheet row={row} />}
+              {lockUI[row.id] && (
+                <PasswordSetter row={row} onDone={(saved) => {
+                  setItems(prev => prev.map(x => (x.id === saved.id ? saved : x)));
+                  setLockUI(prev => ({ ...prev, [row.id]: false }));
+                  setUnlocked(prev => ({ ...prev, [row.id]: true }));   // 내가 건 잠금은 나에게 열려 있다
+                }} />
+              )}
+              {/* 잠겨 있으면 펼치기 전에 비밀번호부터 묻는다 */}
+              {isLocked(row) && (embedded[row.id] || askPw[row.id]) && (
+                <PasswordGate row={row} onUnlock={() => setUnlocked(prev => ({ ...prev, [row.id]: true }))} />
+              )}
+              {embedded[row.id] && isSheetRow(row) && !isLocked(row) && <InlineSheet row={row} />}
             </div>
           ))}
         </div>
@@ -394,7 +488,10 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
         <FilePreviewModal
           row={preview}
           // 목록에서 이미 받아둔 이미지가 있으면 그대로 넘겨 스켈레톤 없이 바로 띄운다
-          initialSrc={thumbs[preview.storage_path] || null}
+          /* 썸네일은 200px cover(잘린 정사각)라 미리보기 첫 화면으로 쓰면
+             사진이 잘려 보인다. 모달이 원본 주소를 스스로 받고 그동안 자기
+             스켈레톤을 띄운다. */
+          initialSrc={null}
           onClose={() => setPreview(null)}
         />
       )}
