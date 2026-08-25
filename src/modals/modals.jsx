@@ -127,7 +127,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     // `files_card_id_fkey` 원문을 화면에 띄우는데, 그건 원인이 아니라 결과다.
     if (!await cardWritePromise(saved.id)) {
       setUploadingNames([]);
-      showToast('업무가 저장되지 않아 첨부도 올리지 못했어요');
+      showToast('업무가 저장되지 않아 첨부 파일도 올리지 못했어요');
       return;
     }
     const rows = [];

@@ -387,14 +387,24 @@ export async function getAttachmentUrls(storagePaths = []) {
     if (hit) map[p] = hit; else need.push(p);
   }
   if (!need.length) return map;
-  const { data, error } = await client().storage.from(ATTACH_BUCKET).createSignedUrls(need, SIGNED_TTL_S);
-  if (error) throw error;
-  (data || []).forEach(d => {
-    if (d?.path && d.signedUrl) {
-      map[d.path] = d.signedUrl;
-      rememberSigned(d.path, d.signedUrl);
+  // 40개씩 나눠 보낸다 — 한 요청에 전부 실으면 그 요청이 실패할 때 그 업무의 썸네일이
+  // **통째로** 죽고, 첫 장이 그려지기까지 마지막 장을 기다린다(사진이 많은 업무에서
+  // 실제로 "이미지가 안 뜬다"로 보였다).
+  const CHUNK = 40;
+  for (let i = 0; i < need.length; i += CHUNK) {
+    const slice = need.slice(i, i + CHUNK);
+    const { data, error } = await client().storage.from(ATTACH_BUCKET).createSignedUrls(slice, SIGNED_TTL_S);
+    if (error) {
+      console.error('[cloud] 서명 URL 묶음 실패:', error);
+      continue;                                   // 나머지 묶음은 계속 시도한다
     }
-  });
+    (data || []).forEach(d => {
+      if (d?.path && d.signedUrl) {
+        map[d.path] = d.signedUrl;
+        rememberSigned(d.path, d.signedUrl);
+      }
+    });
+  }
   return map;
 }
 

@@ -161,9 +161,10 @@ function InlineSheet({ row }) {
 }
 
 // thumb(서명 URL)은 상위에서 일괄 발급받아 주입 — 행마다 개별 요청하지 않는다
-const AttachmentRow = ({ row, canDelete, thumb, onOpen, onRemove, embedded, onToggleEmbed }) => {
-  // 썸네일은 스토리지 파일만(드라이브로 옮긴 파일은 서명 URL이 없으므로 아이콘)
-  const isImage = (row.mime_type || '').startsWith('image/') && !!row.storage_path;
+const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, embedded, onToggleEmbed }) => {
+  // 썸네일은 스토리지 파일만(드라이브로 옮긴 파일은 서명 URL이 없으므로 아이콘).
+  // 주소 발급이 실패한 것도 아이콘으로 — 스켈레톤을 영원히 두면 "고장"으로 읽힌다.
+  const isImage = (row.mime_type || '').startsWith('image/') && !!row.storage_path && !thumbFailed;
   const kind = fileKind(row.name, row.mime_type);
   return (
     <div className="flex items-center gap-2.5 py-2 animate-in fade-in duration-200">
@@ -203,6 +204,9 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   // 몇 개인지는 조회 전에도 안다(cards.file_count) → 그 수만큼 자리를 미리 잡는다.
   const [listing, setListing] = useState(!(task.attachments || []).length);
   const [thumbs, setThumbs] = useState({}); // { storage_path: signedUrl }
+  // 서명 URL을 못 받은 경로. 이게 없으면 발급이 실패했을 때 스켈레톤이 영원히 남는다 —
+  // 이미지가 많을수록 한 요청이 커져서 걸릴 확률이 올라간다(사용자 지적).
+  const [thumbFailed, setThumbFailed] = useState({});
   const [dragOver, setDragOver] = useState(false);
   const [uploadingName, setUploadingName] = useState(null);
   const [rejected, setRejected] = useState([]); // 용량 초과로 건너뛴 파일들
@@ -242,8 +246,17 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     // 서명 URL 발급은 네트워크라 첫 페인트와 다투지 않는다. 미뤄 두었더니 그만큼
     // 썸네일이 늦게 떴다(사용자 지적).
     getAttachmentUrls(need)
-      .then(map => { if (alive) setThumbs(prev => ({ ...prev, ...map })); })
-      .catch(e => console.error('[cloud] 썸네일 URL 발급 실패:', e));
+      .then(map => {
+        if (!alive) return;
+        setThumbs(prev => ({ ...prev, ...map }));
+        // 응답에 없는 경로는 실패로 본다 → 그 줄은 아이콘으로 돌아간다
+        const missing = need.filter(p => !map[p]);
+        if (missing.length) setThumbFailed(prev => ({ ...prev, ...Object.fromEntries(missing.map(p => [p, true])) }));
+      })
+      .catch(e => {
+        console.error('[cloud] 썸네일 URL 발급 실패:', e);
+        if (alive) setThumbFailed(prev => ({ ...prev, ...Object.fromEntries(need.map(p => [p, true])) }));
+      });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
@@ -290,8 +303,10 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     } catch (e) { console.error('[cloud] 삭제 실패:', e); showToast(failText(`'${row.name}'을(를) 지우지 못했어요`, e)); }
   };
 
-  // 목록이 오기 전이고 붙어 있는 파일이 있다면, 그 수만큼 스켈레톤 줄로 자리를 잡는다
-  const pendingRows = listing ? Math.min(task.fileCount || 0, 5) : 0;
+  // 목록이 오기 전이고 붙어 있는 파일이 있다면, 그 수만큼 스켈레톤 줄로 자리를 잡는다.
+  // 개수를 자르지 않는다 — 다섯 줄만 잡아 두면 여덟 장짜리 업무에서 자리를 잡으나
+  // 마나였다(사용자 지적). 20줄에서만 끊는다(그 이상은 화면을 넘겨서 의미가 없다).
+  const pendingRows = listing ? Math.min(task.fileCount || 0, 20) : 0;
 
   // 읽기 전용(뷰어)에서 첨부가 없으면 섹션 자체를 숨김 — 올라가는 중이거나
   // 아직 목록을 받는 중이면 자리를 남긴다
@@ -350,9 +365,12 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
       {pendingRows > 0 && items.length === 0 && (
         <div className="divide-y divide-line/60 mt-1">
           {Array.from({ length: pendingRows }, (_, i) => (
+            // 높이는 **이미지 줄(80px)** 에 맞춘다 — 목록이 오기 전에는 무엇이 이미지인지
+            // 알 수 없는데, 낮은 쪽(아이콘 36px)에 맞추면 실제 줄이 들어올 때 두 배 넘게
+            // 밀린다. 자리를 잡는 것이 목적이니 넉넉한 쪽이 맞다.
             <div key={i} className="flex items-center gap-2.5 py-2">
-              <Skeleton className="w-9 h-9 rounded-md shrink-0" />
-              <div className="flex-1 min-w-0 space-y-1">
+              <Skeleton className="w-20 h-20 rounded-md shrink-0" />
+              <div className="flex-1 min-w-0 space-y-1.5">
                 <Skeleton className="h-3 w-2/5 rounded" />
                 <Skeleton className="h-2 w-12 rounded" />
               </div>
@@ -364,7 +382,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
         <div className="divide-y divide-line/60 mt-1">
           {items.map(row => (
             <div key={row.id}>
-              <AttachmentRow row={row} thumb={thumbs[row.storage_path]} canDelete={!readOnly && (isAdmin || row.uploaded_by === userId)} onOpen={() => openFile(row)} onRemove={() => removeItem(row)}
+              <AttachmentRow row={row} thumb={thumbs[row.storage_path]} thumbFailed={!!thumbFailed[row.storage_path]} canDelete={!readOnly && (isAdmin || row.uploaded_by === userId)} onOpen={() => openFile(row)} onRemove={() => removeItem(row)}
                 embedded={!!embedded[row.id]}
                 onToggleEmbed={isSheetRow(row) ? () => setEmbedded(prev => ({ ...prev, [row.id]: !prev[row.id] })) : null} />
               {embedded[row.id] && isSheetRow(row) && <InlineSheet row={row} />}
