@@ -274,10 +274,32 @@ svg.lucide { stroke-width: 1.4px; }
    체크박스 표기는 뷰어(RichText)·하위 업무와 같은 톤(초록 채움은 accent-color로). */
 .tiptap ul[data-type="taskList"] { list-style: none; padding-left: 0; }
 .tiptap ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: .5rem; }
-.tiptap ul[data-type="taskList"] li > label { flex: 0 0 auto; margin-top: .3125rem; user-select: none; }
+.tiptap ul[data-type="taskList"] li > label { flex: 0 0 auto; margin-top: 3px; user-select: none; display: flex; }
 .tiptap ul[data-type="taskList"] li > div { flex: 1 1 auto; min-width: 0; }
+/* 브라우저 기본 체크박스를 쓰지 않는다 — accent-color는 **체크된** 상태의 색만 바꾸고
+   빈 상자는 OS·브라우저·테마마다 제각각이라, 라이트 모드에서 새까만 네모가 떴다
+   (사용자 지적). 뷰어(RichText)·하위 업무와 같은 모양을 직접 그린다:
+   16px 둥근 사각, 안 한 것은 line 테두리, 한 것은 tag-green-fg 채움 + 흰 체크.
+   전부 토큰이라 다크 모드가 저절로 따라온다. */
 .tiptap ul[data-type="taskList"] input[type="checkbox"] {
-  width: 1rem; height: 1rem; accent-color: var(--app-tag-green-fg); cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  width: 16px; height: 16px; margin: 0; padding: 0;
+  border: 1.5px solid var(--app-line); border-radius: 4px;
+  background: transparent; cursor: pointer;
+  display: inline-grid; place-content: center;
+  transition: background-color .15s var(--ease-out-quint), border-color .15s var(--ease-out-quint);
+}
+.tiptap ul[data-type="taskList"] input[type="checkbox"]:hover { border-color: var(--app-ink-faint); }
+.tiptap ul[data-type="taskList"] input[type="checkbox"]:checked {
+  background: var(--app-tag-green-fg); border-color: var(--app-tag-green-fg);
+}
+/* 체크 표시 — SVG를 못 넣으므로 회전한 선 두 개(뷰어의 lucide 체크와 같은 획 굵기감) */
+.tiptap ul[data-type="taskList"] input[type="checkbox"]:checked::after {
+  content: ''; width: 4px; height: 8px; margin-top: -1px;
+  border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+.tiptap ul[data-type="taskList"] input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--app-accent); outline-offset: 1px;
 }
 .tiptap ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--app-ink-faint); text-decoration: line-through; }
 .tiptap strong { font-weight: 700; }
