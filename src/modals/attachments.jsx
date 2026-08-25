@@ -3,9 +3,12 @@ import { FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, 
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
-import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, getFileOpenUrl, setFilePassword, checkFilePassword } from '../services/cloud.js';
-import { FilePreviewModal, officeSrc, PreparingFrame, FRAME_SETTLE, OFFICE_TIMEOUT } from '../components/FilePreviewModal.jsx';
+import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, getFileOpenUrl, setFilePassword, checkFilePassword, driveImageUrl } from '../services/cloud.js';
+import { FilePreviewModal, officeSrc, driveSrc, PreparingFrame, FRAME_SETTLE, OFFICE_TIMEOUT } from '../components/FilePreviewModal.jsx';
 import { SmartImage, Skeleton } from '../components/media.jsx';
+import { useStore } from '../store/workspaceStore.js';
+import { selectProjectsMap } from '../store/selectors.js';
+import { ensureProjectFolder } from '../services/cloudSync.js';
 
 // ============================================================================
 // 업무 창의 첨부 파일 영역 (클라우드 모드 전용)
@@ -148,18 +151,17 @@ function PasswordSetter({ row, onDone }) {
             className="px-2.5 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95">잠금 해제</button>
         )}
       </div>
-      {/* 무엇을 막는 잠금인지 그대로 적는다 — 더 세게 읽히면 안 된다 */}
       <p className="mt-1.5 text-[10px] text-fg-faint leading-relaxed">
-        비밀번호를 아는 사람만 앱에서 열 수 있어요. 파일 주소를 직접 아는 사람은 그대로 볼 수 있으니,
-        정말 보이면 안 되는 파일은 올리지 말아주세요.
+        비밀번호를 아는 사람만 앱에서 열 수 있어요.
       </p>
     </div>
   );
 }
 
-// 스토리지에 실체가 있는 엑셀만 펼칠 수 있다(드라이브로 옮긴 파일은 서명 URL이 없다).
-// csv는 오피스 뷰어가 못 그린다 — 미리보기(텍스트)로 본다.
-const isSheetRow = (row) => !!row.storage_path
+// 엑셀은 어디에 있든 펼칠 수 있다. 드라이브 파일은 **구글 자체 미리보기**를 쓰므로
+// 마이크로소프트로 주소가 나가지 않는다(Storage 파일만 MS 뷰어를 거친다).
+// csv는 어느 뷰어도 표로 그리지 못한다 — 미리보기(텍스트)로 본다.
+const isSheetRow = (row) => (!!row.storage_path || (row.source === 'drive' && !!row.drive_file_id))
   && ['xls', 'xlsx'].includes((String(row.name || '').split('.').pop() || '').toLowerCase());
 
 // 엑셀을 행 바로 아래에 펼친다 — 노션식 임베드(읽기 전용, 미리보기와 같은 MS 뷰어).
@@ -177,7 +179,10 @@ function InlineSheet({ row }) {
   // (CSS resize 핸들은 터치에서 안 잡히고, 밀어야 나오는 조작은 §8에 걸린다).
   const [tall, setTall] = useState(false);
   const settleRef = useRef(null);
+  // 드라이브 파일은 주소를 받아올 필요가 없다 — id만으로 미리보기 주소가 나온다
+  const isDrive = row.source === 'drive' && !!row.drive_file_id;
   useEffect(() => {
+    if (isDrive) { setUrl(driveSrc(row)); return; }
     let alive = true;
     getFileOpenUrl(row)
       .then(u => { if (alive) setUrl(u); })
@@ -198,7 +203,7 @@ function InlineSheet({ row }) {
         {!ready && <PreparingFrame absolute />}
         {url && (
           <iframe
-            src={officeSrc(url)} title={row.name}
+            src={isDrive ? url : officeSrc(url)} title={row.name}
             // onLoad 직후엔 아직 첫 페이지가 안 그려져 있다 → 조금 뒤에 걷는다(모달과 동일)
             onLoad={() => { clearTimeout(settleRef.current); settleRef.current = setTimeout(() => setReady(true), FRAME_SETTLE); }}
             className={`w-full h-full rounded-md border border-line bg-surface ${ready ? '' : 'opacity-0'}`}
@@ -218,15 +223,19 @@ function InlineSheet({ row }) {
 
 // thumb(서명 URL)은 상위에서 일괄 발급받아 주입 — 행마다 개별 요청하지 않는다
 const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, embedded, onToggleEmbed, locked, onToggleLockUI, canLock }) => {
-  // 썸네일은 스토리지 파일만(드라이브로 옮긴 파일은 서명 URL이 없으므로 아이콘).
-  // 주소 발급이 실패한 것도 아이콘으로 — 스켈레톤을 영원히 두면 "고장"으로 읽힌다.
-  const isImage = (row.mime_type || '').startsWith('image/') && !!row.storage_path && !thumbFailed;
+  // 이미지 썸네일 — 스토리지는 200px 서명 URL, 드라이브는 구글 이미지 CDN이
+  // 줄여서 내준다(우리 대역폭 0). 주소 발급이 실패한 것은 아이콘으로 돌아간다:
+  // 스켈레톤을 영원히 두면 "고장"으로 읽힌다.
+  const src = row.source === 'drive'
+    ? (row.drive_file_id ? driveImageUrl(row.drive_file_id) : null)
+    : thumb;
+  const isImage = (row.mime_type || '').startsWith('image/') && !!src && !thumbFailed;
   const kind = fileKind(row.name, row.mime_type);
   return (
     <div className="flex items-center gap-2.5 py-2 animate-in fade-in duration-200">
       {isImage
         ? <SmartImage
-            src={thumb} alt={row.name} onClick={onOpen} title="미리보기"
+            src={src} alt={row.name} onClick={onOpen} title="미리보기"
             wrapperClassName="h-20 w-20 shrink-0 inline-block"
             className="h-20 w-20 object-cover rounded-md border border-line"
           />
@@ -262,6 +271,9 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
 };
 
 export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = false, uploadingNames = [] }) => {
+  // 드라이브는 프로젝트 하나에 폴더 하나다. 이름이 아니라 **폴더 id**를 넘겨야
+  // 프로젝트 이름을 바꿔도 예전 파일과 새 파일이 두 폴더로 갈라지지 않는다.
+  const project = useStore(selectProjectsMap)[task.projectId];
   // 이미 받아둔 attachments를 먼저 그리고(즉시 표시) 백그라운드로 갱신
   const [items, setItems] = useState(task.attachments || []);
   // 목록 조회가 다녀오기 전인지. 이게 없으면 첨부가 있는 업무를 열었을 때
@@ -345,7 +357,13 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
       if (file.size > MAX_UPLOAD_BYTES) { showToast(`'${file.name}'은(는) 25MB를 넘어 첨부하지 못했어요.`); continue; }
       try {
         setUploadingName(file.name);
-        const row = await uploadAttachment(file, { projectId: task.projectId, cardId: task.id });
+        // 폴더는 첫 업로드 때 한 번만 확보한다 — 그 뒤로는 id로 바로 올려서
+        // 프로젝트 이름을 바꿔도 파일이 두 폴더로 갈라지지 않는다
+        const folderId = project ? await ensureProjectFolder(project) : null;
+        const row = await uploadAttachment(file, {
+          projectId: task.projectId, cardId: task.id,
+          projectName: project?.title, driveFolderId: folderId || project?.driveFolderId,
+        });
         setItems(prev => [...prev, row]);
         onFileActivity?.(`파일 '${row.name}'을(를) 첨부했습니다.`);
       } catch (e) {
@@ -467,7 +485,13 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
                 locked={isLocked(row)}
                 canLock={!readOnly && isSheetRow(row) && (isAdmin || row.uploaded_by === userId)}
                 onToggleLockUI={() => setLockUI(prev => ({ ...prev, [row.id]: !prev[row.id] }))}
-                onToggleEmbed={isSheetRow(row) ? () => setEmbedded(prev => ({ ...prev, [row.id]: !prev[row.id] })) : null} />
+                onToggleEmbed={isSheetRow(row)
+                  // 잠긴 파일은 '펼쳐보기'가 곧장 비밀번호를 묻는다 — 펼침 상태로
+                  // 먼저 바꾸면 버튼이 '접기'로 바뀌어 열린 것처럼 읽힌다
+                  ? () => (isLocked(row)
+                      ? setAskPw(prev => ({ ...prev, [row.id]: !prev[row.id] }))
+                      : setEmbedded(prev => ({ ...prev, [row.id]: !prev[row.id] })))
+                  : null} />
               {lockUI[row.id] && (
                 <PasswordSetter row={row} onDone={(saved) => {
                   setItems(prev => prev.map(x => (x.id === saved.id ? saved : x)));
@@ -475,9 +499,13 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
                   setUnlocked(prev => ({ ...prev, [row.id]: true }));   // 내가 건 잠금은 나에게 열려 있다
                 }} />
               )}
-              {/* 잠겨 있으면 펼치기 전에 비밀번호부터 묻는다 */}
-              {isLocked(row) && (embedded[row.id] || askPw[row.id]) && (
-                <PasswordGate row={row} onUnlock={() => setUnlocked(prev => ({ ...prev, [row.id]: true }))} />
+              {/* 잠겨 있으면 펼치기 전에 비밀번호부터 묻는다. 맞추면 그 자리에서 펼쳐진다. */}
+              {isLocked(row) && askPw[row.id] && (
+                <PasswordGate row={row} onUnlock={() => {
+                  setUnlocked(prev => ({ ...prev, [row.id]: true }));
+                  setAskPw(prev => ({ ...prev, [row.id]: false }));
+                  if (isSheetRow(row)) setEmbedded(prev => ({ ...prev, [row.id]: true }));
+                }} />
               )}
               {embedded[row.id] && isSheetRow(row) && !isLocked(row) && <InlineSheet row={row} />}
             </div>
