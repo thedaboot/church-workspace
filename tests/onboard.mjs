@@ -39,10 +39,16 @@ const openModal = async (currentUser) => {
   await ev(`document.querySelector('button[title="설정"]').click()`); await sleep(350);
   await ev(`(() => { const p=[...document.body.children].find(c=>/z-\\[90\\]/.test(c.className||''));
     [...p.querySelectorAll('button')].find(b=>b.textContent.trim()==='설정').click(); })()`);
-  await sleep(500);
+  // 고정 대기가 아니라 창이 뜰 때까지 기다린다(부하가 걸리면 500ms로는 모자랐다)
+  for (let i = 0; i < 30; i++) {
+    if (await ev(`!!(${BOX} && ${BOX}.querySelector('h3'))`)) break;
+    await sleep(120);
+  }
   return ev(`(() => {
     const box=${BOX};
-    if(!box) return null;
+    // 못 찾으면 던지지 말고 값으로 돌려준다(§6-40) — 던지면 러너가 CRASH로만 찍어서
+    // 어느 단정에서 어긋났는지 안 보인다. 스위트를 여럿 동시에 돌리면 창이 늦게 뜬다.
+    if(!box || !box.querySelector('h3')) return { head:'(창을 못 찾음)', hasCancel:null, submit:null, chips:0, warn:false, namePlaceholder:null };
     const btns=[...box.querySelectorAll('button')].map(b=>({t:b.textContent.trim(),off:b.disabled}));
     return { head: box.querySelector('h3').textContent.trim(),
              hasCancel: btns.some(b=>b.t==='취소'),

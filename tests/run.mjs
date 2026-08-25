@@ -23,7 +23,7 @@ const ORDER = [
   'errhunt', 'handoff',
   'navsmoke', 'onebar', 'mobbits', 'bottomgap', 'modalclose',
   'batch10', 'batch11', 'dashfix', 'wide',
-  'share', 'onboard', 'three', 'calfit', 'drag', 'dragdesk',
+  'share', 'onboard', 'three', 'themefit', 'calfit', 'drag', 'dragdesk',
 ];
 
 const args = process.argv.slice(2);
