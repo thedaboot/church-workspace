@@ -210,6 +210,74 @@ await sleep(500);
 const reopened = await sideProbe();
 check('다시 펴진다', reopened.found && reopened.width > 100, JSON.stringify(reopened));
 
+
+// ── 업무를 수정·저장해도 댓글·활동이 비지 않는다 (§6-22) ───────────────────
+// 클라우드는 댓글·활동을 창을 열 때 따로 읽으므로(§6-20) 수정 폼에는 빈 배열이
+// 실려 있기 십상이다. 저장이 카드를 통째로 교체하면 **그 순간 화면에서 사라지고**,
+// 다시 들어가면 loadCardDetail이 읽어 와서 "나갔다 오면 보인다"가 된다(사용자 지적).
+// 게스트 모드에는 loadCardDetail이 없으므로, 그 도착을 스토어 디스패치로 흉내낸다.
+// 되돌리기 검사: controllers.js의 저장을 UPSERT_TASK 하나로 되돌리면 깨진다.
+{
+  const t = { id: 'w1', projectId: 'p1', title: '댓글 보존 확인', content: '본문', status: '진행 중',
+    assignees: ['노준석'], teams: ['찬양팀'], startDate: '', dueDate: '2026-09-01', position: 1,
+    author: '노준석', createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z',
+    comments: [], activityLog: [], attachments: [] };
+  const st = { currentUser: { name: '노준석', team: '임원진' },
+    projects: { byId: { p1: { id: 'p1', title: '보존 프로젝트', pinnedLinks: [], year: 2026 } }, allIds: ['p1'] },
+    tasks: { byId: { w1: t }, allIds: ['w1'] } };
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+  await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))})`);
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired');
+  await sleep(1300);
+  await ev(`document.querySelector('.board-card').click()`); await sleep(700);
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '수정').click()`); await sleep(500);
+  const seeded = await ev(`(() => {
+    if (!window.__store) return false;
+    window.__store.dispatch({ type: 'SYNC_TASK', payload: { id: 'w1',
+      comments: [{ id: 'c1', author: '조해리', text: '보존되어야 하는 댓글', timestamp: '2026-08-02T00:00:00Z', parentId: null }],
+      activityLog: [{ id: 'a1', action: '업무를 생성했습니다.', author: '노준석', timestamp: '2026-08-01T00:00:00Z' }] } });
+    return true;
+  })()`);
+  check('스토어를 통해 상세 도착을 흉내낼 수 있다', seeded === true, '개발 빌드에서 window.__store');
+  await sleep(400);
+  await ev(`(() => {
+    const i = document.querySelector('input[name="title"]');
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(i, '댓글 보존 확인 (고침)');
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await sleep(300);
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '저장').click()`);
+  await sleep(1200);
+  const after = await ev(`(() => {
+    const s = JSON.parse(localStorage.getItem('church_app_v4'));
+    const t = s.tasks.byId.w1;
+    const shown = [...document.querySelectorAll('*')].some(e => e.children.length === 0 && /보존되어야 하는 댓글/.test(e.textContent || ''));
+    return { title: t.title, comments: (t.comments || []).length, activity: (t.activityLog || []).length, shown };
+  })()`);
+  check('저장해도 댓글이 남는다', after.comments === 1, JSON.stringify(after));
+  check('저장해도 활동 기록이 남고 이번 기록이 붙는다', after.activity >= 2, JSON.stringify(after));
+  check('저장 직후 화면에도 댓글이 보인다', after.shown === true, JSON.stringify(after));
+  check('제목은 실제로 바뀐다', /고침/.test(after.title), after.title);
+
+  // **기록이 새로 안 생기는 수정**이 더 위험하다 — 붙일 것조차 없어서 활동이
+  // 통째로 0이 된다(사용자가 본 것이 이 경우다). 아무것도 안 바꾸고 저장해 본다.
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '수정').click()`);
+  await sleep(500);
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '저장').click()`);
+  await sleep(1200);
+  const after2 = await ev(`(() => {
+    const s = JSON.parse(localStorage.getItem('church_app_v4'));
+    const t = s.tasks.byId.w1;
+    const shown = [...document.querySelectorAll('*')].some(e => e.children.length === 0 && /보존되어야 하는 댓글/.test(e.textContent || ''));
+    return { comments: (t.comments || []).length, activity: (t.activityLog || []).length, shown };
+  })()`);
+  check('기록이 안 생기는 저장에도 활동이 남는다', after2.activity >= 2, JSON.stringify(after2));
+  check('기록이 안 생기는 저장에도 댓글이 남는다', after2.comments === 1 && after2.shown === true, JSON.stringify(after2));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

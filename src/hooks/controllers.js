@@ -48,7 +48,25 @@ export const useWorkspaceController = () => {
     const { task, logs } = isNew
       ? { task: TaskService.create(newData, currentUser.name), logs: null }
       : TaskService.updateWithLogs(oldData, newData, currentUser.name);
-    store.dispatch({ type: 'UPSERT_TASK', payload: task });
+
+    if (isNew) {
+      store.dispatch({ type: 'UPSERT_TASK', payload: task });
+    } else {
+      // **수정 폼이 들고 있는 댓글·활동·첨부로 스토어를 덮지 않는다.**
+      // 폼(formData)은 '수정'을 누른 순간의 스냅샷이라, 그때 아직 안 왔거나 그 뒤에
+      // 도착한 목록을 모른다. 클라우드에서는 댓글·활동을 창을 열 때 따로 읽으므로
+      // (§6-20) 폼에는 빈 배열이 실려 있기 십상이고, 통째로 교체하면 **저장하는
+      // 순간 댓글과 활동 기록이 화면에서 사라진다**(사용자 지적. 다시 들어가면
+      // loadCardDetail이 다시 읽어 와서 "나갔다 오면 보인다"가 된다).
+      // §6-22가 경고한 그 자리다 — 목록 세 가지는 스토어의 것이 원본이다.
+      const { comments, activityLog, attachments, ...patch } = task;
+      store.dispatch({ type: 'SYNC_TASK', payload: patch });
+      // 이번에 생긴 활동 기록만 살아 있는 목록 **뒤에** 붙인다
+      if (logs?.length) {
+        const live = store.getState().tasks.byId[task.id];
+        store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, activityLog: [...(live?.activityLog || []), ...logs] } });
+      }
+    }
     if (cloudOn) {
       // 새 카드는 생성 기록 하나가 전부다
       const addedLogs = logs ?? (task.activityLog || []);
@@ -59,6 +77,13 @@ export const useWorkspaceController = () => {
         : [];
       // 담당자로 새로 붙은 사람에게만 — 새 카드면 담당자 전원이 '새로 붙은' 것이다
       const assignIds = cloudSync.newAssigneesOnly(task.assignees, oldData?.assignees, currentUser.name);
+      // 업무 제목이 바뀌면 드라이브 폴더 이름도 따라간다(0026). 폴더가 아직 없으면
+      // 아무 일도 하지 않는다 — 파일을 한 번도 안 올린 업무에 빈 폴더를 만들 이유가
+      // 없다. 실패해도 저장 자체는 성공이다(드라이브 미설정 환경도 있다).
+      const folderId = oldData?.driveFolderId;
+      if (folderId && oldData?.title !== task.title) {
+        cloudSync.renameCardFolder(folderId, task.title);
+      }
       cloudSync.cardUpsertCloud(task, isNew)
         .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id))
         .then(() => mentionIds.length && cloudSync.notifyMentions(task.content, {
@@ -69,7 +94,9 @@ export const useWorkspaceController = () => {
         }))
         .catch(reportCloudError('업무를 저장하지 못했어요'));
     }
-    return task;
+    // 창에 돌려주는 것도 **스토어의 살아 있는 카드**다. task를 그대로 주면
+    // 폼의 빈 목록이 그대로 화면에 실린다(스토어는 위에서 지켰는데 화면만 비는 꼴).
+    return store.getState().tasks.byId[task.id] || task;
   }, [currentUser.name, cloudOn]);
 
   const handleAddComment = useCallback((task, text, parentId = null) => {

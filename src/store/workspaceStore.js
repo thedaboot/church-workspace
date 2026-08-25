@@ -204,3 +204,9 @@ export function useStore(selector) {
 // 버튼이 계속 비활성으로 남았다.
 export const useCanUndo = () => useSyncExternalStore(store.subscribe, store.canUndo);
 export const useCanRedo = () => useSyncExternalStore(store.subscribe, store.canRedo);
+
+// 개발·게스트 빌드에서만 스토어를 window에 노출한다. 검증 스크립트가 "실시간으로
+// 상세가 도착하는" 같은 상황을 실제로 만들어 보려면 디스패치할 길이 필요하다
+// (그렇지 않으면 클라우드에서만 나는 버그를 재현할 방법이 없다).
+// 운영 빌드에는 들어가지 않는다.
+if (import.meta.env?.DEV) window.__store = store;
