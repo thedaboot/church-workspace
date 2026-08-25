@@ -363,6 +363,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
         const row = await uploadAttachment(file, {
           projectId: task.projectId, cardId: task.id,
           projectName: project?.title, driveFolderId: folderId || project?.driveFolderId,
+          cardTitle: task.title, cardFolderId: task.driveFolderId,
         });
         setItems(prev => [...prev, row]);
         onFileActivity?.(`파일 '${row.name}'을(를) 첨부했습니다.`);

@@ -201,6 +201,7 @@ const cardToTask = (card) => ({
   startDate: card.start_date || '',
   dueDate: card.due_date || '',
   position: card.position ?? 0,
+  driveFolderId: card.drive_folder_id || null,   // 드라이브의 이 업무 폴더(0026)
   // 하위 업무는 컬럼(jsonb) 하나다 — 카드와 언제나 같이 읽고 쓴다. 배열이 아닌 값은
   // DB 제약이 막지만, 예전 카드에는 컬럼이 없을 수 있으므로 여기서도 배열로 못 박는다.
   subtasks: Array.isArray(card.subtasks) ? card.subtasks : [],
@@ -477,6 +478,13 @@ export async function projectRenameCloud(id, title, year) {
       .catch(e => { if (!e.notConfigured) console.error('[drive] 폴더 이름 변경 실패:', e); });
   }
   return saved;
+}
+
+// 업무 폴더 이름을 제목에 맞춘다(0026). 조용히 실패한다 — 이름이 안 맞는 것보다
+// 저장이 막히는 쪽이 훨씬 나쁘다.
+export function renameCardFolder(folderId, title) {
+  cloud.renameDriveFolder(folderId, title)
+    .catch(e => { if (!e.notConfigured) console.error('[drive] 업무 폴더 이름 변경 실패:', e); });
 }
 
 // 이 프로젝트의 드라이브 폴더를 확보하고 projects.drive_folder_id에 적어 둔다.

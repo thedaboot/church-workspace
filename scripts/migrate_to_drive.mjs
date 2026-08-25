@@ -53,7 +53,7 @@ const drive = async (payload) => {
 // ── 옮길 것 모으기 ──────────────────────────────────────────────────────────
 const { data: rows, error } = await db
   .from('files')
-  .select('id, name, mime_type, size_bytes, storage_path, project_id, source')
+  .select('id, name, mime_type, size_bytes, storage_path, project_id, card_id, source')
   .eq('source', 'storage')
   .not('storage_path', 'is', null)
   .order('created_at', { ascending: true });
@@ -61,6 +61,10 @@ if (error) { console.error('files 조회 실패:', error); process.exit(1); }
 
 const { data: projects } = await db.from('projects').select('id, name, drive_folder_id');
 const projById = new Map((projects || []).map(p => [p.id, p]));
+// 업무 제목 — 드라이브에서 `프로젝트 / 업무 / 파일`로 훑어보기 위해서다.
+// 파일 이름이 000001.JPG 같아서 구분이 안 된다는 지적에서 나왔다.
+const { data: cards } = await db.from('cards').select('id, title, drive_folder_id');
+const cardById = new Map((cards || []).map(c => [c.id, c]));
 
 const targets = LIMIT ? rows.slice(0, LIMIT) : rows;
 const totalMB = targets.reduce((a, r) => a + (r.size_bytes || 0), 0) / 1024 / 1024;
@@ -82,6 +86,7 @@ if (!GO) {
 // 프로젝트 폴더는 처음 한 번만 만든다. 같은 프로젝트의 다음 파일부터는 id로 넣어야
 // 이름이 같은 폴더가 여러 개 생기지 않는다.
 const folderCache = new Map();
+const cardFolderCache = new Map();
 let done = 0, failed = 0;
 
 for (const row of targets) {
@@ -91,19 +96,35 @@ for (const row of targets) {
     let folderId = folderCache.get(row.project_id) || proj?.drive_folder_id || null;
 
     const dl = await db.storage.from(BUCKET).download(row.storage_path);
+    if (!dl.data && !dl.error) throw new Error('Storage에서 파일을 받지 못했습니다');
     if (dl.error) throw dl.error;
     const buf = Buffer.from(await dl.data.arrayBuffer());
 
+    // 업무 폴더를 이미 안다면 그 폴더에 바로 넣는다(cardTitle을 보내면 그 안에
+    // 또 같은 이름 폴더를 판다). 모르면 만들게 하고 id를 적어 둔다(0026).
+    const card = cardById.get(row.card_id);
+    const cardFolderId = cardFolderCache.get(row.card_id) || card?.drive_folder_id || null;
     const up = await drive({
-      action: 'upload', projectName, folderId: folderId || undefined,
+      action: 'upload', projectName,
+      folderId: cardFolderId || folderId || undefined,
+      cardTitle: cardFolderId ? undefined : (card?.title || '기타'),
       name: row.name, mimeType: row.mime_type || undefined,
       dataBase64: buf.toString('base64'),
     });
+    if (!cardFolderId && up.folderId) {
+      cardFolderCache.set(row.card_id, up.folderId);
+      await db.from('cards').update({ drive_folder_id: up.folderId }).eq('id', row.card_id);
+    }
 
-    if (!folderId && up.folderId) {
-      folderId = up.folderId;
-      folderCache.set(row.project_id, folderId);
-      await db.from('projects').update({ drive_folder_id: folderId }).eq('id', row.project_id);
+    // up.folderId는 이제 **업무 폴더**다. 프로젝트 폴더는 따로 확보해 둔다 —
+    // 안 그러면 프로젝트마다 이름으로 다시 찾게 되고, 이름이 바뀌면 갈라진다.
+    if (!folderId) {
+      const ef = await drive({ action: 'ensureFolder', projectName });
+      if (ef.folderId) {
+        folderId = ef.folderId;
+        folderCache.set(row.project_id, folderId);
+        await db.from('projects').update({ drive_folder_id: folderId }).eq('id', row.project_id);
+      }
     }
 
     // 행을 즉시 갱신한다 — 여기서 끊겨도 다음 실행이 이어서 한다.

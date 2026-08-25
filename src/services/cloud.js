@@ -310,17 +310,25 @@ export const driveImageUrl = (fileId, size = 200) =>
 
 // 파일 업로드: 드라이브가 설정돼 있으면 드라이브로, 아니면 Storage로.
 // 읽기 경로는 files.source로 이미 갈라져 있어(getFileOpenUrl) 둘이 섞여 있어도 된다.
-export async function uploadAttachment(file, { projectId, cardId, projectName, driveFolderId }) {
+// 드라이브 구조는 `프로젝트 / 업무 / 파일`이다(v3 스크립트).
+//  · 업무 폴더 id를 이미 아는 경우 → 그 폴더에 바로 넣는다(cardTitle을 **보내지
+//    않는다** — 보내면 그 안에 또 같은 이름 폴더를 판다)
+//  · 모르는 경우 → 프로젝트 폴더 + 업무 제목으로 만들게 하고, 돌려받은 folderId를
+//    부르는 쪽이 cards.drive_folder_id에 적는다(0026)
+// id로 잡는 이유는 프로젝트와 같다 — 제목으로만 찾으면 제목을 바꾼 순간 한 업무의
+// 파일이 두 폴더로 갈라진다(사용자 지적).
+export async function uploadAttachment(file, { projectId, cardId, projectName, driveFolderId, cardTitle, cardFolderId }) {
   const c = client();
   try {
     const up = await driveCall({
       action: 'upload',
       projectName: projectName || '기타',
-      folderId: driveFolderId || undefined,
+      folderId: cardFolderId || driveFolderId || undefined,
+      cardTitle: cardFolderId ? undefined : (cardTitle || undefined),
       name: file.name, mimeType: file.type || undefined,
       dataBase64: await fileToBase64(file),
     });
-    return unwrap(await c.from('files').insert({
+    const row = unwrap(await c.from('files').insert({
       project_id: projectId,
       card_id: cardId,
       name: file.name,
@@ -330,6 +338,12 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
       drive_file_id: up.id,
       web_view_link: up.url,
     }).select().single());
+    // 이 업무의 폴더를 처음 만든 경우 id를 적어 둔다(다음 업로드부터 id로 넣는다)
+    if (!cardFolderId && up.folderId) {
+      try { await c.from('cards').update({ drive_folder_id: up.folderId }).eq('id', cardId); }
+      catch (e) { console.error('[drive] 업무 폴더 id 저장 실패:', e); }
+    }
+    return row;
   } catch (e) {
     if (!e.notConfigured) throw e;
     // 드라이브가 없는 환경 — 예전 경로 그대로

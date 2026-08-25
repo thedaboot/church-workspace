@@ -149,6 +149,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         rows.push(await uploadAttachment(file, {
           projectId: saved.projectId, cardId: saved.id,
           projectName: proj?.title, driveFolderId: folderId || proj?.driveFolderId,
+          cardTitle: saved.title, cardFolderId: saved.driveFolderId,
         }));
       } catch (err) {
         console.error('[cloud] 업로드 실패:', err);

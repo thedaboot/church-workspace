@@ -41,10 +41,10 @@
 6. 나온 **웹 앱 URL**과 `SHARED_TOKEN`을 전달 (채팅·메일로 보내지 말고 안전한 경로로)
 
 ```javascript
-// 더다붓 워크스페이스 → 개인 드라이브 파일 저장기 (v2)
-// v1과 달라진 것: ① 올린 파일을 '링크를 아는 사람은 보기'로 열어 둔다(앱 안에서
-// 썸네일·미리보기가 보이려면 필요하다) ② 폴더 id로 올릴 수 있다(프로젝트 이름을
-// 바꿔도 파일이 두 폴더로 갈라지지 않는다) ③ 지우기·폴더 이름 바꾸기를 받는다.
+// 더다붓 워크스페이스 → 개인 드라이브 파일 저장기 (v3)
+// v2와 달라진 것: 폴더를 **여러 겹**으로 만든다.
+//   더다붓 워크스페이스 / <프로젝트 이름> / <업무 제목> / 파일
+// 파일 이름이 000001.JPG 같아서 드라이브에서 구분이 안 됐다(사용자 지적).
 const ROOT_FOLDER_ID = 'PASTE_FOLDER_ID_HERE';
 const SHARED_TOKEN = 'PASTE_LONG_RANDOM_STRING_HERE';
 
@@ -65,27 +65,35 @@ function doPost(e) {
   }
 }
 
-// 폴더는 id가 있으면 id로, 없으면 이름으로 찾거나 만든다.
+// 폴더는 id가 있으면 id로, 없으면 path를 따라 내려가며 찾거나 만든다.
+// path: ['2026 하계 수련회', '포스터 만들기'] 처럼 위에서 아래로.
 // id를 먼저 보는 것이 중요하다 — 이름으로만 찾으면 프로젝트 이름을 바꾼 순간
 // 예전 파일은 옛 폴더에, 새 파일은 새 폴더에 쌓인다.
 function folderFor(body) {
   if (body.folderId) {
-    try { return DriveApp.getFolderById(body.folderId); } catch (err) { /* 지워졌으면 이름으로 */ }
+    try { return DriveApp.getFolderById(body.folderId); } catch (err) { /* 지워졌으면 path로 */ }
   }
-  const root = DriveApp.getFolderById(ROOT_FOLDER_ID);
-  const name = body.projectName || '기타';
-  const it = root.getFoldersByName(name);
-  return it.hasNext() ? it.next() : root.createFolder(name);
+  var f = DriveApp.getFolderById(ROOT_FOLDER_ID);
+  var path = body.path && body.path.length ? body.path : [body.projectName || '기타'];
+  for (var i = 0; i < path.length; i++) f = childFolder(f, String(path[i] || '기타'));
+  return f;
+}
+
+function childFolder(parent, name) {
+  var it = parent.getFoldersByName(name);
+  return it.hasNext() ? it.next() : parent.createFolder(name);
 }
 
 function upload(body) {
-  const folder = folderFor(body);
-  const blob = Utilities.newBlob(
+  // 업무 폴더는 프로젝트 폴더 **아래**다. 프로젝트 폴더 id를 주면 거기서 시작한다.
+  var folder = folderFor(body);
+  if (body.cardTitle) folder = childFolder(folder, String(body.cardTitle));
+  var blob = Utilities.newBlob(
     Utilities.base64Decode(body.dataBase64),
     body.mimeType || 'application/octet-stream',
     body.name || 'file'
   );
-  const file = folder.createFile(blob);
+  var file = folder.createFile(blob);
   // 링크를 아는 사람은 보기 — 앱이 lh3.googleusercontent.com/d/<id>로 썸네일을 붙인다.
   // 이 줄이 없으면 소유자만 열 수 있어서 앱 안 이미지가 전부 깨진다.
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
@@ -93,7 +101,7 @@ function upload(body) {
 }
 
 function renameFolder(body) {
-  const folder = folderFor(body);
+  var folder = folderFor(body);
   if (body.newName) folder.setName(body.newName);
   return { folderId: folder.getId(), name: folder.getName() };
 }
@@ -122,10 +130,15 @@ function json(obj) {
    키가 없는 환경(로컬·프리뷰)은 501을 주고, 부르는 쪽이 Storage로 되돌린다.
 3. **업로드 경로**: `cloud.uploadAttachment`가 드라이브로 보내고 `source:'drive'`,
    `drive_file_id`, `web_view_link`로 행을 만든다. 501이면 예전 Storage 경로.
-4. **폴더는 프로젝트당 하나**(`projects.drive_folder_id`). 첫 업로드 때
-   `ensureProjectFolder`가 한 번 만들고 id를 적어 둔다 — 그 뒤로는 **이름이 아니라
-   id로** 올린다. 이름으로 찾으면 프로젝트 이름을 바꾼 순간 예전 파일과 새 파일이
-   두 폴더로 갈라진다.
+4. **폴더는 `프로젝트 / 업무` 두 겹**이다. 프로젝트 폴더는
+   `projects.drive_folder_id`에 id로 적어 두고(첫 업로드 때 `ensureProjectFolder`가
+   한 번 만든다), 업무 폴더는 그 아래에 **제목으로** 찾거나 만든다.
+   프로젝트를 id로 잡는 이유: 이름으로만 찾으면 프로젝트 이름을 바꾼 순간 예전
+   파일과 새 파일이 두 폴더로 갈라진다.
+   **업무 폴더는 id를 두지 않았다** — 업무마다 컬럼 하나를 더 두고 제목이 바뀔
+   때마다 폴더 이름을 맞추는 것은, 훑어보기 편하자고 치르기에 큰 비용이다.
+   대신 **업무 제목을 바꾸면 그 뒤에 올리는 파일은 새 이름 폴더로 간다**(예전
+   파일은 옛 이름 폴더에 남는다). 이게 걸리면 그때 `cards.drive_folder_id`를 둔다.
 5. **CRUD 싱크**: 프로젝트 이름을 바꾸면 폴더 이름도 따라간다(폴더가 이미 있을 때만 —
    파일을 한 번도 안 올린 프로젝트에 빈 폴더를 만들 이유가 없다). 앱에서 첨부를
    지우면 드라이브에서는 **휴지통으로** 간다(30일 복구 가능). 프로젝트를 지워도
