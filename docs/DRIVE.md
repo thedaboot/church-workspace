@@ -41,7 +41,10 @@
 6. 나온 **웹 앱 URL**과 `SHARED_TOKEN`을 전달 (채팅·메일로 보내지 말고 안전한 경로로)
 
 ```javascript
-// 더다붓 워크스페이스 → 개인 드라이브 파일 저장기
+// 더다붓 워크스페이스 → 개인 드라이브 파일 저장기 (v2)
+// v1과 달라진 것: ① 올린 파일을 '링크를 아는 사람은 보기'로 열어 둔다(앱 안에서
+// 썸네일·미리보기가 보이려면 필요하다) ② 폴더 id로 올릴 수 있다(프로젝트 이름을
+// 바꿔도 파일이 두 폴더로 갈라지지 않는다) ③ 지우기·폴더 이름 바꾸기를 받는다.
 const ROOT_FOLDER_ID = 'PASTE_FOLDER_ID_HERE';
 const SHARED_TOKEN = 'PASTE_LONG_RANDOM_STRING_HERE';
 
@@ -50,23 +53,56 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents);
     if (body.token !== SHARED_TOKEN) return json({ error: 'unauthorized' });
 
-    const root = DriveApp.getFolderById(ROOT_FOLDER_ID);
-    const folder = getOrCreateFolder(root, body.projectName || '기타');
-    const blob = Utilities.newBlob(
-      Utilities.base64Decode(body.dataBase64),
-      body.mimeType || 'application/octet-stream',
-      body.name || 'file'
-    );
-    const file = folder.createFile(blob);
-    return json({ id: file.getId(), url: file.getUrl(), folderId: folder.getId() });
+    switch (body.action || 'upload') {
+      case 'upload':       return json(upload(body));
+      case 'ensureFolder': return json({ folderId: folderFor(body).getId() });
+      case 'renameFolder': return json(renameFolder(body));
+      case 'trash':        return json(trash(body));
+      default:             return json({ error: 'unknown action' });
+    }
   } catch (err) {
     return json({ error: String(err) });
   }
 }
 
-function getOrCreateFolder(parent, name) {
-  const it = parent.getFoldersByName(name);
-  return it.hasNext() ? it.next() : parent.createFolder(name);
+// 폴더는 id가 있으면 id로, 없으면 이름으로 찾거나 만든다.
+// id를 먼저 보는 것이 중요하다 — 이름으로만 찾으면 프로젝트 이름을 바꾼 순간
+// 예전 파일은 옛 폴더에, 새 파일은 새 폴더에 쌓인다.
+function folderFor(body) {
+  if (body.folderId) {
+    try { return DriveApp.getFolderById(body.folderId); } catch (err) { /* 지워졌으면 이름으로 */ }
+  }
+  const root = DriveApp.getFolderById(ROOT_FOLDER_ID);
+  const name = body.projectName || '기타';
+  const it = root.getFoldersByName(name);
+  return it.hasNext() ? it.next() : root.createFolder(name);
+}
+
+function upload(body) {
+  const folder = folderFor(body);
+  const blob = Utilities.newBlob(
+    Utilities.base64Decode(body.dataBase64),
+    body.mimeType || 'application/octet-stream',
+    body.name || 'file'
+  );
+  const file = folder.createFile(blob);
+  // 링크를 아는 사람은 보기 — 앱이 lh3.googleusercontent.com/d/<id>로 썸네일을 붙인다.
+  // 이 줄이 없으면 소유자만 열 수 있어서 앱 안 이미지가 전부 깨진다.
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return { id: file.getId(), url: file.getUrl(), folderId: folder.getId() };
+}
+
+function renameFolder(body) {
+  const folder = folderFor(body);
+  if (body.newName) folder.setName(body.newName);
+  return { folderId: folder.getId(), name: folder.getName() };
+}
+
+// 완전 삭제가 아니라 휴지통이다 — 30일 안에는 되돌릴 수 있다.
+// 앱에서 잘못 지운 것을 복구할 길이 없으면 그건 싱크가 아니라 유실이다.
+function trash(body) {
+  DriveApp.getFileById(body.fileId).setTrashed(true);
+  return { trashed: body.fileId };
 }
 
 function json(obj) {
@@ -97,7 +133,12 @@ function json(obj) {
 
 - Apps Script 웹앱은 요청 1건당 실행 시간·페이로드 제한이 있다.
   25MB 이하 파일 기준으로는 충분하지만, 대용량은 실패할 수 있다
-- 드라이브 파일 권한: 링크를 아는 사람이 열 수 있게 하려면 스크립트에서
-  `file.setSharing(...)`을 추가해야 한다. 기본은 소유자만 열 수 있다
-  → 워크스페이스 멤버가 열려면 이 설정이 필요하다(소유자 결정 사항)
-- 앱에서 파일을 지워도 드라이브 실체는 남는다(안전 쪽 선택)
+- **파일은 '링크를 아는 사람은 보기'로 열린다**(사용자 결정, 2026-08-25). 그래야
+  앱 안에서 썸네일·미리보기가 지금과 똑같이 보이고 우리 대역폭이 0이 된다. 대가는
+  주소를 아는 사람은 로그인 없이도 연다는 것이다 — 지금(비공개 버킷 + 1시간짜리
+  서명 URL)보다 약하다. 이 결정을 되돌리면 썸네일도 같이 포기해야 한다
+- **앱에서 지우면 드라이브에서는 휴지통으로 간다**(30일 복구 가능). 완전 삭제는
+  되돌릴 수 없고, 남겨 두기만 하는 것은 CRUD 싱크가 아니다
+- 본문 이미지·프로필 사진은 **옮기지 않는다**(사용자 결정) — 올릴 때 이미 줄여서
+  저장하고, 본문에는 주소가 글 안에 박히므로 주소 체계를 바꾸면 지난 글의 이미지가
+  구글 사정에 한꺼번에 끌려간다. 옮기는 것은 업무 첨부뿐이다
