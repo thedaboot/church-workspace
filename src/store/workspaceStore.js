@@ -13,7 +13,7 @@ import { isCloudEnabled } from '../services/supabaseClient.js';
 // 메모리가 계속 늘어났다(클라우드 모드는 실행 취소 버튼 자체를 숨기는데도).
 const HISTORY_LIMIT = 20;
 
-export class WorkspaceStore {
+class WorkspaceStore {
   constructor(initialState) {
     this.state = { past: [], present: initialState, future: [] };
     this.listeners = new Set();
@@ -172,7 +172,7 @@ export class WorkspaceStore {
 }
 
 // 빈 워크스페이스 (클라우드 모드 초기값 — 스테일 로컬/Mock 노출 방지)
-export const emptyWorkspace = () => ({
+const emptyWorkspace = () => ({
   currentUser: { name: '', team: '' },
   members: [],                       // 클라우드 로드에서만 채워진다(게스트 모드는 빈 배열)
   activityFeed: [],                  // 최근 활동(클라우드). 게스트는 셀렉터가 tasks에서 파생

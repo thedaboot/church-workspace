@@ -32,7 +32,7 @@ export const OFFICE_TIMEOUT = 12000;    // 이 시간 안에 안 뜨면 안내�
 // 그 사이 PDF 뷰어의 검은 배경이 그대로 보여서, 조금 더 기다렸다 스켈레톤을 걷는다.
 export const FRAME_SETTLE = 260;
 
-export function previewKind(row) {
+function previewKind(row) {
   const mime = row.mime_type || '';
   const ext = extOf(row.name);
   if (row.source === 'drive') return 'drive';

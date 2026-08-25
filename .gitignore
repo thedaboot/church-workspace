@@ -16,3 +16,6 @@ tests/*.png
 .agents/
 skills-lock.json
 .vercel
+
+# supabase CLI 부산물 (버전 캐시)
+supabase/.temp/

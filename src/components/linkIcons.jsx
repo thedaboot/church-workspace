@@ -40,7 +40,7 @@ const HOSTS = [
 ];
 
 // 못 알아보는 주소는 아무 표시도 붙이지 않는다(모르는 것에 가짜 표시를 달지 않는다).
-export function serviceOf(url) {
+function serviceOf(url) {
   let host;
   try { host = new URL(url).hostname.toLowerCase(); } catch { return null; }
   for (const [suffix, name] of HOSTS) {

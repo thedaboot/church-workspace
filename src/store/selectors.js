@@ -4,7 +4,7 @@ import { CONFIG } from '../config.js';
 // 3. Memoized Selectors (Reselect 패턴 직접 구현)
 // ============================================================================
 // Selector 캐싱을 통해 파생 데이터 연산(filter, map) 비용을 최소화합니다.
-export function createSelector(dependencies, combiner) {
+function createSelector(dependencies, combiner) {
   let lastArgs = null;
   let lastResult = null;
   return (state) => {
@@ -20,7 +20,7 @@ export function createSelector(dependencies, combiner) {
 
 // 기본 상태 접근자 (Base Selectors)
 export const selectTasks = state => state.tasks;
-export const selectProjects = state => state.projects;
+const selectProjects = state => state.projects;
 export const selectCurrentUser = state => state.currentUser;
 // 워크스페이스 멤버(프로필) — 이름·사진·생일·다녀간 시각. 클라우드에서만 채워진다.
 // useSyncExternalStore는 반환값을 ===로 비교하므로 **매번 새 배열을 만들면 안 된다**

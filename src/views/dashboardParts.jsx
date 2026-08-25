@@ -19,7 +19,7 @@ export const ISO_TODAY = () => {
 // 남은 날 수 (음수 = 지남). 자정 기준으로 비교해야 "오늘"이 시간대에 따라 흔들리지 않는다.
 export const daysLeft = (iso, today = ISO_TODAY()) =>
   Math.round((new Date(`${iso}T00:00:00`) - new Date(`${today}T00:00:00`)) / 86400000);
-export const mdLabel = (iso) => `${Number(iso.slice(5, 7))}. ${Number(iso.slice(8, 10))}.`;
+const mdLabel = (iso) => `${Number(iso.slice(5, 7))}. ${Number(iso.slice(8, 10))}.`;
 // 지난 날 수 (오늘 - 그날). ISO 날짜든 타임스탬프든 앞 10자만 본다.
 export const ageDays = (iso, today = ISO_TODAY()) => daysLeft(today, String(iso).slice(0, 10));
 
@@ -34,7 +34,7 @@ export const isStaleNoDue = (t, today = ISO_TODAY()) =>
 // '마감 미정'을 따로 두는 이유: 예전에는 '다음 주 이후'에 섞여 있어서 마감을 정하지
 // 않은 업무가 몇 건인지 아무 데도 안 보였다. 마감 중심 화면인데 마감이 없는 업무가
 // 가장 조용히 묻혔다.
-export const BUCKETS = [
+const BUCKETS = [
   { key: 'overdue', label: '지연', fg: 'var(--app-tag-red-fg)' },
   { key: 'today', label: '오늘 마감', fg: 'var(--app-ink)' },
   { key: 'week', label: '이번 주', fg: 'var(--app-ink)' },
@@ -42,7 +42,7 @@ export const BUCKETS = [
   { key: 'nodue', label: '마감 미정', fg: 'var(--app-ink-muted)' },
   { key: 'done', label: '끝낸 업무', fg: 'var(--app-tag-green-fg)' },
 ];
-export function bucketOf(task, today = ISO_TODAY()) {
+function bucketOf(task, today = ISO_TODAY()) {
   // 끝낸 업무는 마감이 지났어도 '지연'이 아니다 — 이미 끝난 일을 밀린 일로 세면
   // '내 업무'에서 완료 탭을 볼 때마다 전부 빨갛게 지연으로 보였다
   // 반환값은 BUCKETS의 인덱스다 — 배열 순서를 바꾸면 여기도 같이 고쳐야 한다
