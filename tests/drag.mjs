@@ -132,6 +132,57 @@ const layout = await ev(`(() => {
 check('마감일이 카드 오른쪽 끝에 정렬', !layout.error && layout.dueRightGap <= 16, JSON.stringify(layout));
 check('상태 옮기기 버튼이 상단으로 이동', layout.btnAboveDue === true, `btnAboveDue ${layout.btnAboveDue}`);
 
+
+// ── 모바일: 같은 상태 안에서 순서 바꾸기 (0024) ────────────────────────────
+// 데스크톱과 같은 조작이 터치에서도 되어야 한다. 그리고 **세로 스크롤을 죽이지
+// 않는 것**이 여기서 더 중요하다 — 카드가 드롭 대상이 되면서 손가락이 카드 위를
+// 지나가는 일이 잦아졌다(위 '빠른 세로 스와이프' 단정이 그 방어다).
+await reload();
+const colProbe = `(() => {
+  const cards = [...document.querySelectorAll('.board-card')];
+  const byX = new Map();
+  for (const c of cards) {
+    const r = c.getBoundingClientRect();
+    if (r.width < 10 || r.bottom < 0) continue;
+    const key = Math.round(r.left / 10);
+    if (!byX.has(key)) byX.set(key, []);
+    byX.get(key).push({ title: c.querySelector('span[class*="text-sm"]').textContent.trim(),
+      x: r.left + r.width / 2, top: r.top, bottom: r.bottom });
+  }
+  for (const [, arr] of byX) if (arr.length >= 2) return { found: true, cards: arr.slice(0, 6) };
+  return { found: false, count: cards.length };
+})()`;
+const mcol = await ev(colProbe);
+check('모바일에서 카드가 둘 이상인 컬럼이 있다', mcol.found === true, JSON.stringify(mcol).slice(0, 120));
+if (mcol.found) {
+  const a = mcol.cards[0], b = mcol.cards[1];
+  await touchDrag({ x: a.x, y: a.top + 24 }, { x: b.x, y: b.bottom - 6 });
+  const now = await ev(colProbe);
+  const before = mcol.cards.map(c => c.title);
+  const after = now.found ? now.cards.map(c => c.title) : [];
+  check('모바일 터치 드래그로 같은 상태 안 순서가 바뀐다',
+    after.length >= 2 && after[0] !== before[0], `${JSON.stringify(before.slice(0,3))} → ${JSON.stringify(after.slice(0,3))}`);
+  const saved = await ev(`(() => {
+    const s = JSON.parse(localStorage.getItem('church_app_v4'));
+    const ps = Object.values(s.tasks.byId).map(t => t.position ?? 0);
+    return { anyNonZero: ps.some(p => p > 0) };
+  })()`);
+  check('모바일에서도 순서가 저장된다', saved.anyNonZero === true, JSON.stringify(saved));
+}
+
+// 컬럼 안 세로 스크롤이 살아 있는지 — 카드가 드롭 대상이 된 뒤에도
+await reload();
+const scrolled = await ev(`(() => {
+  const col = [...document.querySelectorAll('div')].find(d => d.scrollHeight > d.clientHeight + 40 && d.querySelector('.board-card'));
+  if (!col) return { found: false };
+  const before = col.scrollTop;
+  col.scrollTop = 120;
+  const after = col.scrollTop;
+  col.scrollTop = before;
+  return { found: true, moved: after > before };
+})()`);
+check('컬럼 안 세로 스크롤이 살아 있다', scrolled.found === false || scrolled.moved === true, JSON.stringify(scrolled));
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

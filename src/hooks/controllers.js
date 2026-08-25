@@ -133,6 +133,18 @@ export const useWorkspaceController = () => {
     if (cloudOn) cloudSync.cardDeleteCloud(task.id).catch(reportCloudError('업무를 삭제하지 못했어요'));
   }, [cloudOn]);
 
+  // 보드 컬럼 안 순서(0024). 바뀐 카드만 넘어온다 — 화면은 바로 바꾸고 클라우드는 뒤따른다.
+  // SYNC_TASK로 병합한다(UPSERT_TASK로 바꾸면 담아둔 댓글·활동·첨부가 날아간다 — §6-22).
+  const handleReorderTasks = useCallback((orders) => {
+    const changed = orders.filter(({ id, position }) => {
+      const t = store.getState().tasks.byId[id];
+      return t && (t.position ?? 0) !== position;
+    });
+    if (!changed.length) return;
+    changed.forEach(({ id, position }) => store.dispatch({ type: 'SYNC_TASK', payload: { id, position } }));
+    if (cloudOn) cloudSync.cardOrderCloud(changed).catch(reportCloudError('업무 순서를 저장하지 못했어요'));
+  }, [cloudOn]);
+
   const handleAddProject = useCallback((title) => {
     // position: 맨 뒤(가장 큰 값 + 1). createdAt은 더보기의 연도 묶음이 쓴다 —
     // 서버 재조회 전에도 방금 만든 프로젝트가 '연도 모름'으로 뜨지 않게 여기서 넣는다.
@@ -166,6 +178,6 @@ export const useWorkspaceController = () => {
     if (cloudOn) cloudSync.profileUpdateCloud(profile).catch(reportCloudError('내 정보를 저장하지 못했어요'));
   }, [cloudOn]);
 
-  return { handleSaveTask, handleDeleteTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleRenameProject, handleArchiveProject, handleUpdateUser, undo: store.undo, redo: store.redo };
+  return { handleSaveTask, handleReorderTasks, handleDeleteTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleRenameProject, handleArchiveProject, handleUpdateUser, undo: store.undo, redo: store.redo };
 };
 

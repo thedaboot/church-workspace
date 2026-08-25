@@ -317,7 +317,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
 
 // viewMode(보드/캘린더)는 App이 들고 있다 — 프로젝트를 옮기면 이 컴포넌트가 리마운트되므로
 // 여기서 state로 두면 캘린더를 보다가 다른 프로젝트로 넘어갈 때마다 보드로 되돌아갔다.
-export const ProjectView = React.memo(function ProjectView({ projectId, onTaskClick, onStatusChange, onNewTask, onNavigate, onRenameProject, viewMode, setViewMode }) {
+export const ProjectView = React.memo(function ProjectView({ projectId, onTaskClick, onStatusChange, onReorder, onNewTask, onNavigate, onRenameProject, viewMode, setViewMode }) {
   const projectsMap = useStore(selectProjectsMap);
   const tasksList = useStore(selectTasksList);
   const { enabled, session } = useAuth();
@@ -604,7 +604,9 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
       </div>
 
       <div className="flex-1 min-h-0">
-        {viewMode === 'kanban' && <Board tasks={filteredTasks} onStatusChange={onStatusChange} onTaskClick={onTaskClick} />}
+        {/* 순서 바꾸기는 프로젝트 보드에서만 — 대시보드·내 업무·팀 보드는 여러
+            프로젝트가 섞여 있어서 "이 컬럼의 순서"라는 말이 성립하지 않는다 */}
+        {viewMode === 'kanban' && <Board tasks={filteredTasks} onStatusChange={onStatusChange} onReorder={onReorder} onTaskClick={onTaskClick} />}
         {viewMode === 'calendar' && <CalendarBoard tasks={filteredTasks} onTaskClick={onTaskClick} onNewTask={onNewTask} />}
         {/* 그래프(0020): 선후관계. 필터를 그대로 물려받는다 — 팀을 고르면 그 팀 순서만 남는다 */}
         {viewMode === 'graph' && <DepGraph tasks={filteredTasks} onTaskClick={onTaskClick} />}

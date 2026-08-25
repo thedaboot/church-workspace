@@ -74,7 +74,7 @@ export function resolveMentionRecipients(text, excludeName) {
 }
 
 // 표시명 하나 → 프로필 id들 (동명이면 전원). 답글 알림 대상 찾기용.
-export function resolveNameRecipients(name) {
+function resolveNameRecipients(name) {
   if (!name) return [];
   return [...new Set(nameToIdsMap().get(name) || [])];
 }
@@ -470,6 +470,13 @@ export async function projectDeleteCloud(id) { return write(() => cloud.deletePr
 export async function projectOrderCloud(orders) {
   for (const { id, position } of orders) {
     await write(() => cloud.updateProject(id, { position }));
+  }
+}
+
+// 보드 컬럼 안 순서(0024). 바뀐 카드만 넘어온다.
+export async function cardOrderCloud(orders) {
+  for (const { id, position } of orders) {
+    await write(() => cloud.setCardPosition(id, position));
   }
 }
 

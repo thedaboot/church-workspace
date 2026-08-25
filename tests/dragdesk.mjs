@@ -86,6 +86,51 @@ check('데스크톱 카드에도 상태 옮기기 버튼이 보인다', await ev
   return !!b && b.getBoundingClientRect().width > 0;
 })()`), '');
 
+
+// ── 같은 상태 안에서 순서 바꾸기 (0024) ────────────────────────────────────
+// 되돌리기 검사: boards.jsx의 'card:' 드롭 갈래를 빼면 아래 두 단정이 깨진다.
+await reload();
+const colProbe = `(() => {
+  const cards = [...document.querySelectorAll('.board-card')];
+  const byX = new Map();
+  for (const c of cards) {
+    const r = c.getBoundingClientRect();
+    const key = Math.round(r.left / 10);
+    if (!byX.has(key)) byX.set(key, []);
+    byX.get(key).push({ title: c.querySelector('span[class*="text-sm"]').textContent.trim(),
+      x: r.left + r.width / 2, top: r.top, bottom: r.bottom });
+  }
+  for (const [, arr] of byX) if (arr.length >= 2) return { found: true, cards: arr };
+  return { found: false, count: cards.length };
+})()`;
+const col = await ev(colProbe);
+check('카드가 둘 이상인 컬럼이 있다', col.found === true, JSON.stringify(col).slice(0, 140));
+if (col.found) {
+  const a = col.cards[0], b = col.cards[1];
+  const from = { x: a.x, y: a.top + 26 };
+  const to = { x: b.x, y: b.bottom - 6 };
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from.x, y: from.y, button: 'left', clickCount: 1 });
+  for (let i = 1; i <= 16; i++) {
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', button: 'left',
+      x: from.x + (to.x - from.x) * (i / 16), y: from.y + (to.y - from.y) * (i / 16) });
+    await sleep(25);
+  }
+  await sleep(150);
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: to.x, y: to.y, button: 'left', clickCount: 1 });
+  await sleep(900);
+  const now = await ev(colProbe);
+  const beforeOrder = col.cards.map(c => c.title);
+  const afterOrder = now.found ? now.cards.map(c => c.title) : [];
+  check('같은 상태 안에서 순서가 바뀐다', afterOrder.length >= 2 && afterOrder[0] !== beforeOrder[0],
+    `${JSON.stringify(beforeOrder)} → ${JSON.stringify(afterOrder)}`);
+  const saved = await ev(`(() => {
+    const s = JSON.parse(localStorage.getItem('church_app_v4'));
+    const ps = Object.values(s.tasks.byId).map(t => t.position ?? 0);
+    return { anyNonZero: ps.some(p => p > 0), positions: ps };
+  })()`);
+  check('바뀐 순서가 저장된다(position)', saved.anyNonZero === true, JSON.stringify(saved));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

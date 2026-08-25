@@ -189,14 +189,19 @@ function StatusMoveButton({ task, onStatusChange }) {
 // 드래그 가능한 카드 — 클릭(모달)과 드래그는 센서 activationConstraint(distance/delay)로 구분
 function DraggableCard({ task, index, projectsMap, showProjectBadge, onTaskClick, onStatusChange }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
+  // 카드도 드롭 대상이다 — 컬럼만 대상이면 "이 컬럼으로"밖에 말할 수 없어서 같은
+  // 상태 안에서는 순서를 바꿀 수가 없다. 'card:' 접두사로 컬럼·상태 칩과 가른다.
+  // dnd-kit은 ref를 하나만 받으므로 두 훅의 ref를 손으로 합친다.
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `card:${task.id}` });
+  const setRefs = React.useCallback((el) => { setNodeRef(el); setDropRef(el); }, [setNodeRef, setDropRef]);
   return (
     <div
-      ref={setNodeRef} {...attributes} {...listeners}
+      ref={setRefs} {...attributes} {...listeners}
       onClick={() => onTaskClick(task)}
       // 카드를 흰 상자로 세우지 않고 목록의 한 줄로 둔다 — 얇은 구분선만.
       // 상자 + 그림자 + 라운드를 카드마다 반복하면 화면이 자동 생성된 것처럼 읽힌다.
       style={{ animationDelay: `${Math.min(index ?? 0, 10) * 24}ms`, borderBottom: '1px solid var(--app-line)' }}
-      className={`board-card dc-card relative pr-2 pt-[11px] pb-3 cursor-grab active:cursor-grabbing hover:bg-surface-hover transition-colors ${isDragging ? 'opacity-40' : ''}`}
+      className={`board-card dc-card relative pr-2 pt-[11px] pb-3 cursor-grab active:cursor-grabbing hover:bg-surface-hover transition-colors ${isDragging ? 'opacity-40' : ''} ${isOver && !isDragging ? 'shadow-[inset_0_2px_0_0_var(--app-accent)]' : ''}`}
     >
       <TaskCardInner
         task={task} projectsMap={projectsMap} showProjectBadge={showProjectBadge}
@@ -277,19 +282,21 @@ function EmptyColumnMark() {
   );
 }
 
-export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProjectBadge }) => {
+export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick, showProjectBadge }) => {
   const projectsMap = useStore(selectProjectsMap);
   const [activeId, setActiveId] = React.useState(null);
   const scrollRef = React.useRef(null);
   const [visibleCol, setVisibleCol] = React.useState(0);
 
   // 상태별 그룹핑을 한 번만 — 컬럼마다 filter를 두 번씩 돌지 않게.
-  // 컬럼 안 순서는 마감일 순(마감 미정은 아래) — 마감 그룹 목록과 같은 비교 함수를 쓴다.
+  // 컬럼 안 순서는 **손으로 정한 순서**(cards.position, 0024)가 먼저고, 값이 같으면
+  // 예전처럼 마감일 순으로 떨어진다. 0024 백필 전에는 전부 0이라 예전과 똑같이 보인다
+  // — 값이 다 같을 때 Postgres가 순서를 보장하지 않는 함정(§6-24)을 2차 키가 막는다.
   const byStatus = React.useMemo(() => {
     const m = {};
     CONFIG.STATUSES.forEach(s => { m[s] = []; });
     tasks.forEach(t => { (m[t.status] || (m[t.status] = [])).push(t); });
-    Object.values(m).forEach(list => list.sort(byDue));
+    Object.values(m).forEach(list => list.sort((a, b) => ((a.position ?? 0) - (b.position ?? 0)) || byDue(a, b)));
     return m;
   }, [tasks]);
 
@@ -326,11 +333,40 @@ export const Board = React.memo(({ tasks, onStatusChange, onTaskClick, showProje
     const { active, over } = e;
     setActiveId(null);
     if (!over) return;
-    // 드롭 타깃은 컬럼('시작 전') 또는 모바일 상태 칩('chip:시작 전')
     const raw = String(over.id);
-    const target = raw.startsWith('chip:') ? raw.slice(5) : raw;
     const task = tasks.find(t => t.id === active.id);
-    if (task && task.status !== target) onStatusChange(task, target);
+    if (!task) return;
+
+    // ① 카드 위에 놓았다 → 그 카드 자리에 끼워 넣는다(같은 상태 안 순서 바꾸기).
+    //    다른 컬럼의 카드 위에 놓으면 상태도 같이 바뀌고 그 자리에 들어간다.
+    if (raw.startsWith('card:')) {
+      const overId = raw.slice(5);
+      if (overId === task.id) return;
+      const overTask = tasks.find(t => t.id === overId);
+      if (!overTask) return;
+      const destStatus = overTask.status;
+      const orig = byStatus[destStatus] || [];
+      const fromIdx = orig.findIndex(t => t.id === task.id);   // 다른 컬럼에서 왔으면 -1
+      const overIdx = orig.findIndex(t => t.id === overId);
+      const col = orig.filter(t => t.id !== task.id);
+      let at = col.findIndex(t => t.id === overId);
+      if (at < 0) at = col.length;
+      // **아래로 끌었으면 놓은 카드 뒤, 위로 끌었으면 앞.** 언제나 '앞'에 넣으면
+      // 아래로 끌 때 나를 뺀 만큼 자리가 당겨져 제자리로 돌아온다(테스트가 잡았다).
+      if (fromIdx > -1 && fromIdx < overIdx) at += 1;
+      col.splice(at, 0, task);
+      if (task.status !== destStatus) onStatusChange(task, destStatus);
+      onReorder?.(col.map((t, i) => ({ id: t.id, position: i + 1 })));
+      return;
+    }
+
+    // ② 컬럼('시작 전') 또는 모바일 상태 칩('chip:시작 전')에 놓았다 → 맨 아래로
+    const target = raw.startsWith('chip:') ? raw.slice(5) : raw;
+    if (task.status === target) return;
+    onStatusChange(task, target);
+    const col = (byStatus[target] || []).filter(t => t.id !== task.id);
+    col.push(task);
+    onReorder?.(col.map((t, i) => ({ id: t.id, position: i + 1 })));
   };
 
   return (
