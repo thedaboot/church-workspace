@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ExternalLink, Download, FileQuestion, Loader2 } from 'lucide-react';
+import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { RichText } from './RichText.jsx';
-import { getFileOpenUrl } from '../services/cloud.js';
+import { getFileOpenUrl, driveImageFullUrl } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { Skeleton, SmartImage } from './media.jsx';
 import { PdfView } from './PdfView.jsx';
@@ -35,8 +35,11 @@ export const FRAME_SETTLE = 260;
 function previewKind(row) {
   const mime = row.mime_type || '';
   const ext = extOf(row.name);
-  if (row.source === 'drive') return 'drive';
+  // 이미지는 드라이브 파일이어도 <img>로 직접 그린다 — 구글 이미지 CDN(lh3) 주소가
+  // 고정이라 브라우저가 캐싱하고(서명 URL과 달리 두 번째부터는 요청이 안 나간다),
+  // iframe 뷰어와 달리 사진 넘기기(이전/다음)가 된다.
   if (mime.startsWith('image/') || IMAGE_EXT.includes(ext)) return 'image';
+  if (row.source === 'drive') return 'drive';
   if (mime === 'application/pdf' || ext === 'pdf') return 'pdf';
   if (mime.startsWith('video/')) return 'video';
   if (mime.startsWith('audio/')) return 'audio';
@@ -47,17 +50,10 @@ function previewKind(row) {
 
 // 첨부 목록의 엑셀 '펼쳐보기'(attachments.jsx)도 같은 뷰어 주소를 쓴다
 export const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
-// 드라이브 파일 미리보기 주소 — **파일 뷰어**를 쓴다.
-// 스프레드시트 미리보기(`docs.google.com/spreadsheets/d/<id>/preview`)는 표를 잘
-// 그리지만 **갓 올린 파일에는 "Google Docs에 오류가 발생했습니다"가 뜬다**(구글이
-// 준비하는 데 시간이 걸린다 — 45초 뒤에도 그랬다). 파일 뷰어는 갓 올린 파일도
-// 바로 표를 그린다(헤드리스 브라우저로 둘을 나란히 재서 확인했다).
-// 주의: HTML 글자만 보고 판단하면 안 된다 — 파일 뷰어는 자바스크립트로 그리므로
-// 응답 본문에 표가 없다. 그것 때문에 한 번 반대로 판단했다.
-// 크게 보거나 편집하려면 '새 탭에서 열기'가 `web_view_link`(=구글 스프레드시트)로 간다.
-export const driveSrc = (row) => (row.drive_file_id
-  ? `https://drive.google.com/file/d/${row.drive_file_id}/preview`
-  : null);
+// 드라이브 미리보기 주소는 순수 함수라 utils에 있다(노드에서 바로 검사한다 — §2-5).
+// 부르는 쪽(attachments.jsx)이 이미 여기서 가져다 쓰고 있어 그대로 다시 내보낸다.
+import { driveSrc } from '../utils.js';
+export { driveSrc };
 
 // 어느 뷰어로 그리고 있는지 — 화면 아래 한 줄에 그대로 적는다.
 // 예전에는 이 문구가 조건 없이 '마이크로소프트 오피스 미리보기로 표시해요'였다.
@@ -67,12 +63,24 @@ export const viewerNote = (row) => (row.source === 'drive'
   ? '구글 드라이브 미리보기로 표시해요'
   : '마이크로소프트 오피스 미리보기로 표시해요 · 파일 주소가 마이크로소프트로 전달됩니다');
 
-// row: files 테이블 행
+// 드라이브 이미지의 <img> 주소 — 아니면 null(스토리지는 서명 URL을 따로 받는다)
+const imgSrcOf = (r) => (r?.source === 'drive' && r.drive_file_id ? driveImageFullUrl(r.drive_file_id) : null);
+
+// row: 처음 연 files 행
+// rows: 같은 목록의 나머지 행 — 사진 이전/다음 넘기기용. 잠긴(비밀번호) 파일은
+//       호출부가 걸러서 넘긴다(여기서 또 검사하면 비밀번호 로직이 두 벌이 된다).
 // initialSrc: 호출부가 이미 가진 URL. 이미지는 목록 썸네일이 같은 서명 URL이라
 //             그대로 넘기면 스켈레톤 없이 곧바로 뜬다(서명 재발급도 건너뜀).
-export function FilePreviewModal({ row, initialSrc = null, onClose }) {
+export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose }) {
   const isMobile = useIsMobile();
-  const kind = useMemo(() => previewKind(row), [row]);
+  // 사진 넘기기 — 지금 보는 파일이 이미지일 때, 같은 목록의 **이미지끼리만**.
+  // 문서·영상은 안 넘긴다: iframe 뷰어는 장마다 새로 뜨는 데 몇 초씩 걸려서
+  // "넘긴다"는 느낌이 안 난다. 사진(첨부의 대부분)만 즉시 넘어간다.
+  const [cur, setCur] = useState(row);
+  const kind = useMemo(() => previewKind(cur), [cur]);
+  const gallery = useMemo(() => (rows || []).filter(r => previewKind(r) === 'image'), [rows]);
+  const gi = gallery.findIndex(r => r.id === cur.id);
+  const canNav = kind === 'image' && gi >= 0 && gallery.length > 1;
   const [url, setUrl] = useState(initialSrc);
   const [text, setText] = useState(null);
   const [error, setError] = useState(null);
@@ -81,22 +89,37 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
   const [pdfSrc, setPdfSrc] = useState(null); // { blob } 또는 { src } — 준비가 끝난 뒤에만 렌더
   const timerRef = useRef(null);
   const settleRef = useRef(null);
+  const go = useCallback((d) => {
+    const next = canNav ? gallery[gi + d] : null;
+    if (!next) return;   // 끝에서는 멈춘다 — 빙글빙글 돌면 몇 장인지 감을 잃는다
+    setCur(next); setUrl(null); setText(null); setError(null);
+    setFrameReady(false); setTimedOut(false); setPdfSrc(null);
+  }, [canNav, gallery, gi]);
+  // 이웃 사진을 미리 받아 둔다 — lh3 주소는 고정이라 이게 곧 캐시를 채우는 일이고,
+  // 다음/이전을 눌렀을 때 스켈레톤 없이 바로 뜬다.
+  useEffect(() => {
+    if (!canNav) return;
+    [gallery[gi + 1], gallery[gi - 1]].forEach(r => {
+      const src = imgSrcOf(r);
+      if (src) { const im = new Image(); im.src = src; }
+    });
+  }, [canNav, gallery, gi]);
 
   // 서명 URL 확보 (이미 있으면 건너뜀)
   useEffect(() => {
     if (url) return;
     let alive = true;
-    getFileOpenUrl(row)
+    getFileOpenUrl(cur)
       .then(u => { if (alive) setUrl(u); })
       .catch(e => { if (alive) setError(e.message || String(e)); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [row.id]);
+  }, [cur.id]);
 
   // 텍스트/마크다운은 내려받아 그대로 보여준다
   useEffect(() => {
     if (kind !== 'text' || !url || text !== null) return;
-    if ((row.size_bytes ?? 0) > MAX_TEXT_BYTES) { setError('파일이 커서 미리보기를 건너뛰었어요.'); return; }
+    if ((cur.size_bytes ?? 0) > MAX_TEXT_BYTES) { setError('파일이 커서 미리보기를 건너뛰었어요.'); return; }
     let alive = true;
     fetch(url)
       .then(r => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -111,7 +134,7 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
   // 큰 파일은 통째로 기다리는 게 더 나빠서 주소로 바로 스트리밍한다.
   useEffect(() => {
     if (kind !== 'pdf' || !url || pdfSrc) return;
-    if ((row.size_bytes ?? 0) > MAX_PDF_PREFETCH) { setPdfSrc({ src: url }); return; }
+    if ((cur.size_bytes ?? 0) > MAX_PDF_PREFETCH) { setPdfSrc({ src: url }); return; }
     let alive = true;
     fetch(url)
       .then(r => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -131,15 +154,19 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
   }, [kind, url, frameReady]);
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowRight') go(1);
+      else if (e.key === 'ArrowLeft') go(-1);
+    };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, go]);
 
   const openExternal = () => { if (url) window.open(url, '_blank', 'noopener'); };
 
   const body = (() => {
-    if (error) return <Fallback row={row} message={error} onOpen={openExternal} />;
+    if (error) return <Fallback row={cur} message={error} onOpen={openExternal} />;
 
     if (kind === 'image') {
       // 가운데 정렬은 바깥 div가 한다 — SmartImage의 래퍼(inline-block)에 폭을 주면
@@ -147,7 +174,8 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
       return (
         <div className="w-full h-full flex items-center justify-center">
           <SmartImage
-            src={url} alt={row.name}
+            key={cur.id}
+            src={imgSrcOf(cur) || url} alt={cur.name}
             wrapperClassName="w-full h-full flex items-center justify-center"
             className="max-w-full max-h-full object-contain rounded-md"
             skeletonClassName="w-72 h-72"
@@ -165,7 +193,7 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
     }
     if (kind === 'text') {
       if (text === null) return <Skeleton className="w-full h-full" />;
-      const isMd = ['md', 'markdown'].includes(extOf(row.name));
+      const isMd = ['md', 'markdown'].includes(extOf(cur.name));
       return (
         <div className="w-full h-full max-w-3xl mx-auto bg-surface border border-line rounded-md p-4 overflow-auto text-sm">
           {isMd
@@ -185,15 +213,15 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
       );
     }
     if (kind === 'office' || kind === 'drive') {
-      const src = kind === 'drive' ? driveSrc(row) : (url && officeSrc(url));
+      const src = kind === 'drive' ? driveSrc(cur) : (url && officeSrc(url));
       // 파일을 받는 동안(src 없음)에도 같은 안내를 보여준다
       if (!src) return <PreparingFrame />;
-      if (timedOut && !frameReady) return <Fallback row={row} message="미리보기가 응답하지 않아요." onOpen={openExternal} />;
+      if (timedOut && !frameReady) return <Fallback row={cur} message="미리보기가 응답하지 않아요." onOpen={openExternal} />;
       return (
         <div className="relative w-full h-full">
           {!frameReady && <PreparingFrame absolute />}
           <iframe
-            src={src} title={row.name}
+            src={src} title={cur.name}
             // onLoad 직후엔 아직 첫 페이지가 안 그려져 있다(뷰어 배경만 보임) → 조금 뒤에 걷는다
             onLoad={() => { clearTimeout(settleRef.current); settleRef.current = setTimeout(() => setFrameReady(true), FRAME_SETTLE); }}
             className={`w-full h-full rounded-md border border-line bg-surface ${frameReady ? '' : 'opacity-0'}`}
@@ -201,7 +229,7 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
         </div>
       );
     }
-    return <Fallback row={row} message="이 형식은 앱에서 미리보기를 지원하지 않아요." onOpen={openExternal} />;
+    return <Fallback row={cur} message="이 형식은 앱에서 미리보기를 지원하지 않아요." onOpen={openExternal} />;
   })();
 
   return createPortal(
@@ -214,21 +242,39 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
       >
         <div className="shrink-0 flex items-center gap-2 px-3 py-2.5 border-b border-line bg-surface">
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-fg truncate">{row.name}</p>
+            <p className="text-xs font-semibold text-fg truncate">
+              {cur.name}
+              {canNav && <span className="ml-1.5 font-normal text-fg-faint tabular-nums">{gi + 1}/{gallery.length}</span>}
+            </p>
             {kind === 'office' && (
-              <p className="text-[10px] text-fg-faint mt-0.5">{viewerNote(row)}</p>
+              <p className="text-[10px] text-fg-faint mt-0.5">{viewerNote(cur)}</p>
             )}
           </div>
           <button type="button" onClick={openExternal} disabled={!url} className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 disabled:opacity-40" title="새 탭에서 열기"><ExternalLink size={16} /></button>
           <a
-            href={url || undefined} download={row.name} target="_blank" rel="noreferrer"
+            href={url || undefined} download={cur.name} target="_blank" rel="noreferrer"
             className={`p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 ${url ? '' : 'pointer-events-none opacity-40'}`}
             title="내려받기"
           ><Download size={16} /></a>
           <button type="button" onClick={onClose} className="p-2 rounded-md text-fg-faint hover:bg-surface-hover transition active:scale-95" title="닫기"><X size={18} /></button>
         </div>
         {/* 미리보기 영역은 남은 공간을 그대로 채운다(고정 dvh를 쓰면 창 크기에 안 맞는다) */}
-        <div className="flex-1 min-h-0 p-2 md:p-4 flex items-center justify-center overflow-hidden">{body}</div>
+        <div className="relative flex-1 min-h-0 p-2 md:p-4 flex items-center justify-center overflow-hidden">
+          {body}
+          {/* 사진 이전/다음 — hover 뒤에 숨기지 않는다(§8). 끝에서는 흐려진다 */}
+          {canNav && (
+            <>
+              <button type="button" onClick={() => go(-1)} disabled={gi === 0} title="이전 사진"
+                className="absolute left-2 md:left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/45 text-white hover:bg-black/65 transition active:scale-95 disabled:opacity-25 disabled:pointer-events-none">
+                <ChevronLeft size={20} />
+              </button>
+              <button type="button" onClick={() => go(1)} disabled={gi === gallery.length - 1} title="다음 사진"
+                className="absolute right-2 md:right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/45 text-white hover:bg-black/65 transition active:scale-95 disabled:opacity-25 disabled:pointer-events-none">
+                <ChevronRight size={20} />
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </div>,
     document.body

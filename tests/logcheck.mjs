@@ -409,3 +409,41 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(objectParticle('file.png'), '를', '한글이 아니면 를');
   console.log('PASS  실패 문구 19가지');
 }
+
+// ── 드라이브 엑셀 미리보기 뷰어 고르기 (utils.driveSrc) ──
+// 갓 올린 파일은 스프레드시트 미리보기가 "Google Docs에 오류가 발생했습니다"를
+// 띄운다(구글이 준비하는 데 시간이 걸린다). 그때는 파일 뷰어가 표를 그린다.
+// 조건을 반대로 쓰면 **올리자마자 펼쳐본 사람이 오류 화면을 본다** — 그 회귀를 잡는다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'drv-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { driveSrc, SHEET_READY_MS } = await import(pathToFileURL(f).href);
+
+  const now = Date.parse('2026-08-26T12:00:00Z');
+  const at = (msAgo) => new Date(now - msAgo).toISOString();
+  const row = (name, msAgo) => ({ drive_file_id: 'FID', name, created_at: at(msAgo) });
+  const sheet = 'https://docs.google.com/spreadsheets/d/FID/preview';
+  const viewer = 'https://drive.google.com/file/d/FID/preview';
+
+  // 갓 올린 엑셀 → 파일 뷰어(스프레드시트는 아직 오류를 띄운다)
+  assert.strictEqual(driveSrc(row('명단.xlsx', 0), now), viewer, '방금 올린 엑셀은 파일 뷰어');
+  assert.strictEqual(driveSrc(row('명단.xlsx', 45 * 1000), now), viewer, '45초는 실제로 실패했다');
+  assert.strictEqual(driveSrc(row('명단.xlsx', SHEET_READY_MS), now), viewer, '경계에서는 아직 파일 뷰어');
+  // 시간이 지난 엑셀 → 스프레드시트(글자가 크고 시트 탭이 진짜 탭이다)
+  assert.strictEqual(driveSrc(row('명단.xlsx', SHEET_READY_MS + 1), now), sheet, '지나면 스프레드시트');
+  assert.strictEqual(driveSrc(row('명단.XLSX', 3 * 864e5), now), sheet, '확장자 대문자도');
+  assert.strictEqual(driveSrc(row('결산.xls', 3 * 864e5), now), sheet, 'xls도');
+  assert.strictEqual(driveSrc(row('명단.csv', 3 * 864e5), now), sheet, 'csv도');
+  // 엑셀이 아니면 언제나 파일 뷰어 — pdf·이미지를 스프레드시트로 열면 오류다
+  assert.strictEqual(driveSrc(row('회의록.pdf', 3 * 864e5), now), viewer, 'pdf는 파일 뷰어');
+  assert.strictEqual(driveSrc(row('사진.png', 3 * 864e5), now), viewer, '이미지도 파일 뷰어');
+  assert.strictEqual(driveSrc(row('xlsx보고서.docx', 3 * 864e5), now), viewer, '이름에 xlsx가 섞였을 뿐');
+  // created_at이 없으면(옛 행) 나이를 모른다 → 1970년으로 읽혀 스프레드시트로 간다
+  assert.strictEqual(driveSrc({ drive_file_id: 'FID', name: 'a.xlsx' }, now), sheet, '옛 행은 오래된 것으로 본다');
+  // 드라이브 파일이 아니면 주소가 없다
+  assert.strictEqual(driveSrc({ name: 'a.xlsx' }, now), null);
+  assert.strictEqual(driveSrc(null, now), null, 'null도 안전하다');
+  console.log('PASS  드라이브 뷰어 고르기 14가지');
+}

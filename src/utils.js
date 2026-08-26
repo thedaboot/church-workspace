@@ -94,6 +94,34 @@ export function subtaskProgress(list = []) {
 // 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
 export const httpsImage = (url) => String(url || '').replace(/^http:\/\//i, 'https://');
 
+// 드라이브 첨부 미리보기 주소 — **뷰어가 둘이고 파일 나이로 고른다.**
+//
+// · 스프레드시트 미리보기(`docs.google.com/spreadsheets/d/<id>/preview`)가 더 좋다.
+//   글자가 크고, 행·열 머리글(A B C…) 없이 표만 그리고, 시트 탭이 진짜 탭이고,
+//   글자를 고를 수 있다. 확대·축소 알약도 안 뜬다.
+// · 그런데 **갓 올린 파일에는 "Google Docs에 오류가 발생했습니다"가 뜬다** — 구글이
+//   준비하는 데 시간이 걸린다(45초 뒤에도 그랬다). 파일 뷰어는 갓 올린 파일도 바로
+//   그린다. 올리고 바로 확인하는 것이 가장 흔한 동작이라 그때는 파일 뷰어를 쓴다.
+//
+// SHEET_READY_MS는 **실측한 값이 아니다.** 45초에 실패하는 것만 확인했고 언제부터
+// 되는지는 재지 않아 넉넉히 잡았다. 늦게 잡아도 잃는 것이 적다 — 그 사이에는 파일
+// 뷰어가 표를 제대로 그린다. 이르게 잡으면 오류 화면이 뜬다.
+// (3일 지난 파일로 둘을 나란히 재서 스프레드시트 쪽이 낫다는 것을 확인했다.)
+// 주의: HTML 글자만 보고 판단하면 안 된다 — 파일 뷰어는 자바스크립트로 그리므로
+// 응답 본문에 표가 없다. 그것 때문에 한 번 반대로 판단했다.
+// 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
+// ponytail: 시간으로 가른다. iframe 오류는 cross-origin이라 읽을 수 없어 감지할
+// 길이 없다. 이르게 뜨는 일이 생기면 SHEET_READY_MS를 늘리면 된다.
+export const SHEET_READY_MS = 30 * 60 * 1000;
+export const driveSrc = (row, now = Date.now()) => {
+  if (!row?.drive_file_id) return null;
+  const isSheet = /\.(xlsx|xls|csv)$/i.test(row.name || '');
+  const age = now - new Date(row.created_at || 0).getTime();
+  return (isSheet && age > SHEET_READY_MS)
+    ? `https://docs.google.com/spreadsheets/d/${row.drive_file_id}/preview`
+    : `https://drive.google.com/file/d/${row.drive_file_id}/preview`;
+};
+
 // ── 대시보드 '사람' 칸 (0019) ────────────────────────────────────────────────
 // 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
 

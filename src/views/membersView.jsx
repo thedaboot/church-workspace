@@ -217,10 +217,11 @@ export function MembersView({ isAdmin, isMaster }) {
             </Section>
           )}
 
+          {/* 마스터라는 말은 화면에 쓰지 않는다 — 사용자 결정("마스터 권한은 나만 알고
+              있을게"). 문구도 배지도 마스터에게만 보인다. 경계 자체는 DB가 막으므로
+              (0029) 감춰도 '화면만 감추는' 상태가 되지 않는다. */}
           <Section title="관리자" count={(admins || []).length}
-            hint={isMaster
-              ? '관리자는 가입 수락·환송과 업무 삭제를 할 수 있어요. AI 기능과 관리자 지정은 마스터만 합니다.'
-              : '관리자는 가입 수락·환송과 업무 삭제를 할 수 있어요. 관리자를 지정·해제하는 것은 마스터만 할 수 있어요.'}>
+            hint="관리자는 멤버 관리와 업무 삭제를 할 수 있어요.">
             {(admins || []).map(a => {
               // 같은 사람이 계정을 여럿 쓰면(구글·카카오) 행이 둘이다 — 이름으로 묶어 보여준다
               const who = (rows || []).find(r => (r.email || '').toLowerCase() === a.email);
@@ -232,7 +233,7 @@ export function MembersView({ isAdmin, isMaster }) {
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-semibold text-fg truncate">
                       {who?.display_name || a.email}
-                      {a.is_master && <span className="ml-1.5 text-[10px] font-bold text-accent-text">마스터</span>}
+                      {isMaster && a.is_master && <span className="ml-1.5 text-[10px] font-bold text-accent-text">마스터</span>}
                     </p>
                     <p className="text-[10.5px] text-fg-faint truncate">{a.email}</p>
                   </div>

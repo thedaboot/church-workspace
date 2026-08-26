@@ -402,16 +402,28 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     if (isLocked(row)) { setAskPw(prev => ({ ...prev, [row.id]: true })); return; }
     setPreview(row);
   };
+  // **줄을 먼저 지우고 나중에 서버에 알린다.** 드라이브 휴지통 이동은 왕복이라
+  // 응답을 기다리면 몇 초 동안 아무 일도 안 일어난 것처럼 보인다(사용자 지적 —
+  // "삭제되는 동안 기다리는 것 같다"). 스피너를 붙이는 대신 기다림을 없앴다.
+  // 실패하면 되돌린다 — 지워진 척하고 사라지면 파일을 잃은 것으로 읽힌다.
+  // **스토어(task.attachments)도 같이 고친다.** 여기만 지우면 창을 닫았다 열 때
+  // 되살아난다(사용자 지적 — "지웠는데 반영이 안 된다").
   const removeItem = async (row) => {
+    const before = items;
+    const next = items.filter(x => x.id !== row.id);
+    const put = (list) => {
+      setItems(list);
+      store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, attachments: list } });
+    };
+    put(next);
     try {
       await deleteAttachment(row);
-      const next = items.filter(x => x.id !== row.id);
-      setItems(next);
-      // **스토어에도 반영한다.** 여기만 지우면 창을 닫았다 열 때 task.attachments가
-      // 아직 그 파일을 들고 있어서 되살아난다(사용자 지적 — "지웠는데 반영이 안 된다").
-      store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, attachments: next } });
       onFileActivity?.(`파일 '${row.name}'을(를) 삭제했습니다.`);
-    } catch (e) { console.error('[cloud] 삭제 실패:', e); showToast(failText(`'${row.name}'을(를) 지우지 못했어요`, e)); }
+    } catch (e) {
+      put(before);
+      console.error('[cloud] 삭제 실패:', e);
+      showToast(failText(`'${row.name}'을(를) 지우지 못했어요`, e));
+    }
   };
 
   // 목록이 오기 전이고 붙어 있는 파일이 있다면, 그 수만큼 스켈레톤 줄로 자리를 잡는다.
@@ -528,6 +540,8 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
       {preview && (
         <FilePreviewModal
           row={preview}
+          /* 사진 이전/다음용 — 잠긴 파일은 넘기지 않는다(비밀번호를 안 풀고 넘겨보게 된다) */
+          rows={items.filter(r => !isLocked(r))}
           // 목록에서 이미 받아둔 이미지가 있으면 그대로 넘겨 스켈레톤 없이 바로 띄운다
           /* 썸네일은 200px cover(잘린 정사각)라 미리보기 첫 화면으로 쓰면
              사진이 잘려 보인다. 모달이 원본 주소를 스스로 받고 그동안 자기
