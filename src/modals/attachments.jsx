@@ -285,7 +285,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   // 이미지가 많을수록 한 요청이 커져서 걸릴 확률이 올라간다(사용자 지적).
   const [thumbFailed, setThumbFailed] = useState({});
   const [dragOver, setDragOver] = useState(false);
-  const [uploadingName, setUploadingName] = useState(null);
+  const [uploadingList, setUploadingList] = useState([]); // 지금 올라가는 파일 이름들(병렬)
   // 지금 올리는 중인지 — 위 조회가 업로드를 앞질렀는지 가르는 유일한 근거다
   const uploadingRef = useRef(false);
   const [rejected, setRejected] = useState([]); // 용량 초과로 건너뛴 파일들
@@ -359,28 +359,65 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     // (토스트는 몇 초 뒤 사라져서 "왜 안 올라갔지?"가 남는다)
     const tooBig = files.filter(f => f.size > MAX_UPLOAD_BYTES);
     setRejected(tooBig.map(f => ({ name: f.name, size: f.size })));
-    for (const file of files) {
-      if (file.size > MAX_UPLOAD_BYTES) { showToast(`'${file.name}'은(는) 25MB를 넘어 첨부하지 못했어요.`); continue; }
-      try {
-        uploadingRef.current = true;
-        setUploadingName(file.name);
-        // 폴더는 첫 업로드 때 한 번만 확보한다 — 그 뒤로는 id로 바로 올려서
-        // 프로젝트 이름을 바꿔도 파일이 두 폴더로 갈라지지 않는다
-        const folderId = project ? await ensureProjectFolder(project) : null;
+    tooBig.forEach(f => showToast(`'${f.name}'은(는) 25MB를 넘어 첨부하지 못했어요.`));
+    const ok = files.filter(f => f.size <= MAX_UPLOAD_BYTES);
+    if (!ok.length) return;
+
+    uploadingRef.current = true;
+    setUploadingList(prev => [...prev, ...ok.map(f => f.name)]);
+    try {
+      // 폴더는 첫 업로드 때 한 번만 확보한다 — 그 뒤로는 id로 바로 올려서
+      // 프로젝트 이름을 바꿔도 파일이 두 폴더로 갈라지지 않는다
+      const folderId = project ? await ensureProjectFolder(project) : null;
+      const uploadOne = async (file, cardFolderId) => {
         const row = await uploadAttachment(file, {
           projectId: task.projectId, cardId: task.id,
           projectName: project?.title, driveFolderId: folderId || project?.driveFolderId,
-          cardTitle: task.title, cardFolderId: task.driveFolderId,
+          cardTitle: task.title, cardFolderId,
         });
-        setItems(prev => [...prev, row]);
+        setItems(prev => {
+          const next = [...prev, row];
+          // 스토어도 같이 — 여기만 두면 창을 닫았다 열 때 새 파일이 잠깐 사라져 보인다
+          store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, attachments: next } });
+          return next;
+        });
+        setUploadingList(prev => { const i = prev.indexOf(file.name); return i < 0 ? prev : [...prev.slice(0, i), ...prev.slice(i + 1)]; });
         onFileActivity?.(`파일 '${row.name}'을(를) 첨부했습니다.`);
-      } catch (e) {
-        console.error('[cloud] 업로드 실패:', e);
-        showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, e));
-      } finally {
-        setUploadingName(null);
-        uploadingRef.current = false;
+        return row;
+      };
+      // **동시 3개** — 순차는 사진 열 장에 수십 초였다. 단, 업무 폴더가 아직 없으면
+      // 첫 파일이 혼자 폴더를 만들고 나머지가 병렬로 간다. 동시에 만들면 드라이브가
+      // 같은 이름 폴더를 여러 개 만든다(드라이브는 같은 이름 형제를 허용한다).
+      let queue = ok;
+      let cardFolderId = task.driveFolderId;
+      if (!cardFolderId && ok.length > 1) {
+        try {
+          const first = await uploadOne(ok[0], undefined);
+          cardFolderId = first?._driveFolderId || undefined;   // 없으면 이름으로 찾는다(스크립트 폴백)
+        } catch (e) {
+          console.error('[cloud] 업로드 실패:', e);
+          showToast(failText(`'${ok[0].name}'을(를) 올리지 못했어요`, e));
+          setUploadingList(prev => prev.filter(n => n !== ok[0].name));
+        }
+        queue = ok.slice(1);
       }
+      const LIMIT = 3;
+      let next = 0;
+      const worker = async () => {
+        while (next < queue.length) {
+          const file = queue[next++];
+          try { await uploadOne(file, cardFolderId); }
+          catch (e) {
+            console.error('[cloud] 업로드 실패:', e);
+            showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, e));
+            setUploadingList(prev => prev.filter(n => n !== file.name));
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(LIMIT, queue.length) }, worker));
+    } finally {
+      uploadingRef.current = false;
+      setUploadingList([]);
     }
   };
 
@@ -452,7 +489,9 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
           <p className="text-[10px] text-fg-faint mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 25MB</p>
         </div>
       )}
-      {!readOnly && uploadingName && <div className="flex items-center gap-2 mt-2 text-[11px] text-fg-muted"><Loader2 size={13} className="animate-spin" /> 업로드 중: {uploadingName}</div>}
+      {!readOnly && uploadingList.map(name => (
+        <div key={name} className="flex items-center gap-2 mt-2 text-[11px] text-fg-muted"><Loader2 size={13} className="animate-spin" /> 업로드 중: {name}</div>
+      ))}
       {!readOnly && rejected.length > 0 && (
         <div className="mt-2 flex items-start gap-2 rounded-md border border-tag-red-fg/30 bg-tag-red/60 px-2.5 py-2 animate-in fade-in duration-200">
           <AlertTriangle size={14} className="text-tag-red-fg shrink-0 mt-0.5" />

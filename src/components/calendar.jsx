@@ -213,10 +213,10 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
         {weekdayHeader}
         <div ref={gridRef} className="flex-1 min-h-0 flex flex-col rounded-[10px] overflow-hidden shadow-soft"
-          style={{ border: '1px solid var(--app-line)', background: 'var(--app-line)' }}>
+          style={{ border: '1px solid var(--app-line)', background: 'color-mix(in srgb, var(--app-line) 55%, var(--app-ink-faint))' }}>
           {weeks.map(({ ws, lanes, overflowByCol }, wi) => (
             <div key={ws} className="relative flex-1 min-h-0 overflow-hidden flex flex-col"
-              style={{ borderTop: wi ? '1px solid var(--app-line)' : 'none' }}>
+              style={{ borderTop: wi ? '1px solid color-mix(in srgb, var(--app-line) 55%, var(--app-ink-faint))' : 'none' }}>
               {/* ① 배경 셀 — 클릭 타깃 */}
               <div className="absolute inset-0 grid grid-cols-7" style={{ gap: 1 }}>
                 {Array.from({ length: 7 }, (_, i) => {
@@ -294,8 +294,11 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
           ))}
         </div>
         </div>
-        {/* 고른 날의 목록 — 좁은 칸에서 못 읽는 제목·팀·기간을 여기서 읽는다 */}
-        <div className="w-[300px] shrink-0 min-h-0 overflow-y-auto">
+        {/* 고른 날의 목록 — 좁은 칸에서 못 읽는 제목·팀·기간을 여기서 읽는다.
+            폭 316 = 내용 300 + 좌우 px-2. 줄이 hover 배경을 넓히려고 -mx-2로 8px씩
+            넘치게 그려져(§6-9-d) 그대로 두면 **가로 스크롤바가 생겼다**(사용자 지적).
+            모바일과 같은 처리 — 패딩만큼 상자를 키우고 음수 마진으로 자리는 그대로. */}
+        <div className="w-[316px] -mx-2 px-2 shrink-0 min-h-0 overflow-y-auto overflow-x-hidden">
           <DaySheet iso={selected} list={selectedList} onTaskClick={onTaskClick} tight
             birthdays={birthdaysOn(bdays, selected)} onNewTask={onNewTask} />
         </div>
@@ -333,7 +336,7 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="shrink-0 grid grid-cols-7 rounded-[10px] overflow-hidden shadow-soft"
-        style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)', gridAutoRows: '52px' }}>
+        style={{ gap: 1, background: 'color-mix(in srgb, var(--app-line) 55%, var(--app-ink-faint))', border: '1px solid var(--app-line)', gridAutoRows: '52px' }}>
         {weekStarts.flatMap(ws => Array.from({ length: 7 }, (_, i) => {
           const iso = addDays(ws, i);
           const inMonth = Number(iso.slice(5, 7)) === month + 1;
@@ -417,7 +420,7 @@ function DaySheet({ iso, list, onTaskClick, tight = false, birthdays = [], onNew
           return (
             <button key={t.id} onClick={() => onTaskClick(t)}
               /* w-full+-mx-2는 왼쪽으로만 8px 밀린다(피드에서 잡은 함정 — §6-9-d) */
-              className="dc-row w-[calc(100%+16px)] flex items-center gap-2.5 py-2 text-left hover:bg-surface-hover rounded-[8px] px-2 -mx-2 transition-colors"
+              className="dc-row w-[calc(100%+16px)] flex items-center gap-2.5 py-2 text-left hover:bg-surface-hover rounded-[8px] px-2 -mx-2 transition-colors border-t border-line/60 first-of-type:border-t-0"
               style={{ animationDelay: `${Math.min(i, 12) * 22}ms` }}>
               <span className="shrink-0 w-[3px] h-7 rounded-full" style={teamPaint(t.teams, true)} />
               <span className="flex-1 min-w-0">

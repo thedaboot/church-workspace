@@ -423,7 +423,9 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
           그 조상이 fixed의 기준 박스가 돼서 미리보기가 헤더+여백만큼(약 100px)
           아래로 밀려 떴다. body 밑이면 기준이 항상 뷰포트다. */}
       {createPortal(
-        <DragOverlay dropAnimation={null}>
+        // 놓으면 제자리로 미끄러져 들어간다 — null(즉시 사라짐)은 카드가 순간이동한
+        // 것처럼 보였다. 220ms면 끌던 손맛이 남고 다음 조작을 막지도 않는다.
+        <DragOverlay dropAnimation={{ duration: 220, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>
           {activeTask ? (
             // 끌고 있는 동안만 상자로 세운다 — 손에 들린 게 무엇인지 보여야 하니까
             <div className="bg-surface px-3.5 py-3 rounded-sm border border-line shadow-elevated rotate-1 scale-[.98] opacity-95 cursor-grabbing">

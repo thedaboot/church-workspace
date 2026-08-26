@@ -130,16 +130,24 @@ const feedAlign = await ev(`(() => {
 })()`);
 check('피드 시간 라벨이 같은 오른쪽 선에 선다', !!feedAlign && feedAlign.times.length>=3 && feedAlign.uniq.length===1,
   JSON.stringify(feedAlign));
+// 2026-08-26부터 목록형이 아니라 힘 기반 노드 그래프다 — 선은 <line>, 팀·프로젝트는
+// 클릭되는 버튼 노드. 높이는 사람 수와 무관하게 고정이어야 한다(그게 바꾼 이유다).
+await sleep(2800);   // 자리 잡는 모션(SETTLE_MS)이 끝난 뒤에 잰다
 const map = await ev(`(() => {
   const h=[...document.querySelectorAll('h3')].find(x=>x.textContent==='프로젝트 연결 지도');
   if(!h) return null;
   const wrap=h.closest('div').parentElement;
   const t=wrap.textContent||'';
-  return { people:/노준석/.test(t)&&/조준환/.test(t), cols:/사람/.test(t)&&/프로젝트/.test(t),
-           lines: wrap.querySelectorAll('svg path').length };
+  const canvas=wrap.querySelector('svg')?.parentElement;
+  return { people:/노준석/.test(t)&&/조준환/.test(t), hint:/사람/.test(t)&&/프로젝트/.test(t),
+           lines: wrap.querySelectorAll('svg line').length,
+           nodes: [...wrap.querySelectorAll('button')].length,
+           height: canvas ? Math.round(canvas.getBoundingClientRect().height) : 0 };
 })()`);
-check('연결 지도에 세 열이 있다', map?.cols===true && map?.people===true, JSON.stringify(map));
-check('연결 지도에 사람→팀 선이 있다', !!map && map.lines>=2, JSON.stringify(map));
+check('연결 지도에 사람 노드가 있다', map?.hint===true && map?.people===true, JSON.stringify(map));
+check('연결 지도에 연결선이 있다', !!map && map.lines>=2, JSON.stringify(map));
+check('팀·프로젝트 노드가 눌리는 버튼이다', !!map && map.nodes>=2, JSON.stringify(map));
+check('그래프 높이가 고정이다(사람 수만큼 쌓이지 않는다)', !!map && map.height>0 && map.height<=360, JSON.stringify(map));
 
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,4).join('\n'):'\n콘솔 오류 없음');

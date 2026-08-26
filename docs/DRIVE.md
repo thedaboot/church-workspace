@@ -41,10 +41,11 @@
 6. 나온 **웹 앱 URL**과 `SHARED_TOKEN`을 전달 (채팅·메일로 보내지 말고 안전한 경로로)
 
 ```javascript
-// 더다붓 워크스페이스 → 개인 드라이브 파일 저장기 (v3)
+// 더다붓 워크스페이스 → 개인 드라이브 파일 저장기 (v4)
 // v2와 달라진 것: 폴더를 **여러 겹**으로 만든다.
 //   더다붓 워크스페이스 / <프로젝트 이름> / <업무 제목> / 파일
 // 파일 이름이 000001.JPG 같아서 드라이브에서 구분이 안 됐다(사용자 지적).
+// v4와 달라진 것: trash가 폴더 id도 받는다(업무·프로젝트 삭제 시 폴더째 정리).
 const ROOT_FOLDER_ID = 'PASTE_FOLDER_ID_HERE';
 const SHARED_TOKEN = 'PASTE_LONG_RANDOM_STRING_HERE';
 
@@ -108,8 +109,11 @@ function renameFolder(body) {
 
 // 완전 삭제가 아니라 휴지통이다 — 30일 안에는 되돌릴 수 있다.
 // 앱에서 잘못 지운 것을 복구할 길이 없으면 그건 싱크가 아니라 유실이다.
+// v4: **폴더 id도 받는다** — 업무·프로젝트를 지울 때 폴더째 휴지통으로 보낸다
+// (getFileById는 폴더에 못 쓰므로 실패하면 getFolderById로 다시 시도한다).
 function trash(body) {
-  DriveApp.getFileById(body.fileId).setTrashed(true);
+  try { DriveApp.getFileById(body.fileId).setTrashed(true); }
+  catch (err) { DriveApp.getFolderById(body.fileId).setTrashed(true); }
   return { trashed: body.fileId };
 }
 

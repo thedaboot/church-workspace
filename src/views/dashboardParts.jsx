@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
@@ -128,7 +128,7 @@ export function KpiCell({ dot, label, value, unit = '건', note, ratio, bar, ale
 // 대시보드·내 업무·팀 보드가 같이 쓴다. meta로 프로젝트만/팀까지 표시를 고른다.
 const GROUP_LIMIT = 30;   // 한 구간에 먼저 그리는 줄 수. 나머지는 '더 보기'
 
-export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, showTeam = true, emptyHint }) {
+export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, onClaim, showTeam = true, emptyHint }) {
   const [expanded, setExpanded] = useState({});   // { [구간 key]: true }
 
   if (!groups.length) {
@@ -262,6 +262,21 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                   <Avatar name={t.assignees?.[0] || ''} title={t.assignees?.[0] || '미지정'}
                     className="hidden sm:inline-flex w-[22px] h-[22px] text-[10.5px]" />
                 </button>
+                {/* 「이거 제가 할게요」(§1.2) — 담당자 없는 업무를 줄 안에서 바로 자기 배정.
+                    카드를 새로 만들지 않는다(사용자 결정 — 대시보드가 이미 길다).
+                    onOpen 버튼 밖이다 — 버튼 안에 버튼을 넣을 수 없다. */}
+                {onClaim && !done && !(t.assignees?.length) && (
+                  <ConfirmPopover
+                    className="shrink-0 inline-flex" tone="ok" confirmLabel="제가 할게요"
+                    title="담당자로 들어가기" message={`'${t.title}'의 담당자로 들어갈까요?`}
+                    onConfirm={() => onClaim(t)}
+                  >
+                    <button type="button"
+                      className="text-[10.5px] font-bold text-accent-text whitespace-nowrap px-1.5 py-1 rounded-[6px] hover:bg-surface-hover transition active:scale-95">
+                      제가 할게요
+                    </button>
+                  </ConfirmPopover>
+                )}
               </div>
             );
           })}
@@ -637,100 +652,182 @@ export function ActivityFeed({ feed, tasksById, onOpenTask }) {
 // ── 연결 지도 — 사람 · 팀 · 프로젝트 (0019·0020 회차의 #28) ──────────────────
 // "내가 어디에 붙어 있나"를 한 장으로. 세 열을 고정 좌표로 두고 선만 SVG로 긋는다 —
 // force 시뮬레이션·측정(ResizeObserver) 없이 렌더와 같은 상수로 좌표를 계산한다.
-// 좁은 화면에서는 가로로 민다(그래프는 한 덩이 캔버스라 §8의 '숨긴 것'이 아니다 —
-// 프로젝트 탭과 같은 취급). 판정어 없음: 연결이 없는 사람도 그대로 보여준다.
-// 데스크톱 좌표와 모바일 좌표 두 벌 — 모바일(카드 안폭 약 320px)은 열을 압축해서
-// **옆으로 밀지 않아도 전체가 보인다**(사용자 요청). 296px이면 375px 폰에 들어가고,
-// 320px 폰만 살짝 스크롤된다(안전망으로 overflow는 남긴다).
-const NM_DESK = {
-  W: 640, ROW: 30, HEAD: 26, PAD: 10, AV: 18, FONT: 11,
-  P_X: 8, P_W: 150,          // 사람 열 (이름 오른쪽 정렬 — 선 시작점에 붙는다)
-  T_X: 270, T_W: 76,         // 팀 열 — 라벨 폭('엔지니어팀')에 맞게 좁힌다.
-                             // 넓으면 가운데 정렬된 글자와 양끝 점 사이가 떠서 끊겨 보인다
-  J_X: 462, J_W: 170,        // 프로젝트 열
-};
-// 모바일 좌표는 화면 폭에서 계산한다. 296px 고정으로 두었더니 남는 폭이 양옆 여백으로
-// 죽고 곡선 구간이 26px뿐이라 답답했다(사용자 지적) — 글자 열(사람·팀·프로젝트)은 딱
-// 필요한 폭만 갖고, 남는 것은 전부 **선 구간**에 준다.
-const nmMobile = () => {
-  const vw = typeof window !== 'undefined' ? window.innerWidth : 375;
-  const W = Math.min(420, vw - 40);          // 카드 패딩을 -mx-2로 물고 남는 실제 폭
-  const P_W = 80, T_W = 58, J_W = 100;
-  const J_X = W - J_W;
-  const T_X = Math.round((P_W + J_X) / 2 - T_W / 2);
-  return { W, ROW: 26, HEAD: 24, PAD: 8, AV: 15, FONT: 10, P_X: 0, P_W, T_X, T_W, J_X, J_W };
-};
+// ── 프로젝트 연결 지도 — 힘 기반 노드 그래프 (2026-08-26) ─────────────────────
+// 예전에는 사람·팀·프로젝트 3열 목록이었는데, 사람이 늘수록 **높이가 줄 수만큼
+// 쌓였다**(사용자 지적). 지금은 노드가 서로 밀고(반발) 연결선이 당기는(스프링)
+// 힘 배치라 높이가 고정이고, 자리 잡는 과정 자체가 모션이 된다.
+//  · 의미는 유지한다 — 사람은 왼쪽, 팀은 가운데, 프로젝트는 오른쪽으로 **약하게**
+//    끌어서(x 앵커) 3층 읽기가 남는다. 순수 force만 두면 어느 게 팀인지 한참 찾는다.
+//  · prefers-reduced-motion이면 애니메이션 없이 정착된 상태를 바로 그린다.
+//  · 판정어 없음(§8): 연결이 없는 사람도 그대로 보인다.
+// ponytail: d3-force 대신 손 시뮬 60줄 — 노드 30개 안팎이라 O(n²) 반발도 공짜다.
+//           노드가 수백이 되면 d3-force + 쿼드트리로 바꾼다.
+const FM = { H_DESK: 340, H_MOBILE: 300, SETTLE_MS: 2600 };
+
+function simStep(pos, vel, nodes, edges, W, H) {
+  const REPEL = 2400, SPRING = 0.028, ANCHOR_X = 0.02, CENTER_Y = 0.012, DAMP = 0.86;
+  for (let i = 0; i < nodes.length; i++) {
+    let fx = 0, fy = 0;
+    for (let j = 0; j < nodes.length; j++) {
+      if (i === j) continue;
+      const dx = pos[i].x - pos[j].x, dy = pos[i].y - pos[j].y;
+      const d2 = Math.max(120, dx * dx + dy * dy);
+      // 프로젝트 라벨은 제일 크다 — 서로는 더 세게 밀어야 안 겹친다
+      const f = (REPEL / d2) * (nodes[i].kind === 'project' && nodes[j].kind === 'project' ? 3 : 1);
+      const d = Math.sqrt(d2);
+      fx += (dx / d) * f; fy += (dy / d) * f;
+    }
+    // 종류별 x 앵커 — 사람 20% · 팀 50% · 프로젝트 80%
+    const ax = nodes[i].kind === 'member' ? W * 0.20 : nodes[i].kind === 'team' ? W * 0.5 : W * 0.80;
+    fx += (ax - pos[i].x) * ANCHOR_X;
+    fy += (H / 2 - pos[i].y) * CENTER_Y;
+    vel[i].x = (vel[i].x + fx) * DAMP; vel[i].y = (vel[i].y + fy) * DAMP;
+  }
+  for (const [a, b, L] of edges) {
+    const dx = pos[b].x - pos[a].x, dy = pos[b].y - pos[a].y;
+    const d = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+    const f = (d - L) * SPRING;
+    const ux = dx / d, uy = dy / d;
+    vel[a].x += ux * f; vel[a].y += uy * f;
+    vel[b].x -= ux * f; vel[b].y -= uy * f;
+  }
+  for (let i = 0; i < nodes.length; i++) {
+    pos[i].x = Math.min(W - nodes[i].pr, Math.max(nodes[i].pl, pos[i].x + vel[i].x));
+    pos[i].y = Math.min(H - 16, Math.max(20, pos[i].y + vel[i].y));
+  }
+}
 
 export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpenTeam, onOpenProject }) {
   const compact = useIsMobile();
-  const NM = compact ? nmMobile() : NM_DESK;
-  const rows = Math.max(members.length, teamsInUse.length, projects.length, 1);
-  const H = NM.HEAD + rows * NM.ROW + NM.PAD;
-  // 열 안 y 좌표 — 항목 수가 다른 열은 세로 가운데에 모은다(짧은 열이 위에 몰리면 선이 죄다 위로 쏠린다)
-  const yOf = (i, len) => NM.HEAD + ((rows - len) * NM.ROW) / 2 + i * NM.ROW + NM.ROW / 2;
-  const pY = new Map(members.map((m, i) => [m.name, yOf(i, members.length)]));
-  const tY = new Map(teamsInUse.map((t, i) => [t, yOf(i, teamsInUse.length)]));
-  const jY = new Map(projects.map((p, i) => [p.id, yOf(i, projects.length)]));
-  const pull = compact ? 16 : 46;
-  const curve = (x1, y1, x2, y2) => `M ${x1} ${y1} C ${x1 + pull} ${y1}, ${x2 - pull} ${y2}, ${x2} ${y2}`;
-  // 선이 글자에 닿지 않고 허공에서 시작하면 끊긴 그림이 된다(사용자 지적) —
-  // 모든 선의 양끝에 점을 찍고, 노드 글자를 그 점에 붙인다(사람은 오른쪽 정렬).
-  const edge = (key, x1, y1, x2, y2, color) => (
-    <g key={key} opacity="0.55">
-      <path d={curve(x1, y1, x2, y2)} fill="none" stroke={color} strokeWidth="1.1" />
-      <circle cx={x1} cy={y1} r="2" fill={color} />
-      <circle cx={x2} cy={y2} r="2" fill={color} />
-    </g>
-  );
+  const H = compact ? FM.H_MOBILE : FM.H_DESK;
+  const wrapRef = useRef(null);
+  const [cw, setCw] = useState(compact ? 340 : 640);
+  // 시뮬 폭은 760까지만 — 전폭 카드(1300px+)에서 그대로 돌리면 앵커가 양끝으로
+  // 찢어 놓거나 스프링이 이겨 가운데 왼쪽에 뭉친다. 남는 폭은 여백으로 가운데 정렬.
+  const W = Math.min(cw, 760);
+  const offX = Math.max(0, (cw - W) / 2);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setCw(Math.max(280, el.clientWidth)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // 노드·연결 목록 — pl/pr은 라벨이 카드 밖으로 나가지 않게 하는 좌우 여유다
+  const { nodes, edges } = useMemo(() => {
+    const nodes = [];
+    const idx = new Map();
+    const push = (n) => { idx.set(n.id, nodes.length); nodes.push(n); };
+    members.forEach(m => push({ id: `m:${m.name}`, kind: 'member', m, pl: 30, pr: 46 }));
+    teamsInUse.forEach(t => push({ id: `t:${t}`, kind: 'team', t, pl: 40, pr: 40 }));
+    projects.forEach(p => push({ id: `p:${p.id}`, kind: 'project', p, pl: 56, pr: 60 }));
+    const edges = [];
+    members.forEach(m => [...new Set((m.teams?.length ? m.teams : [m.team]).filter(Boolean))].forEach(t => {
+      if (idx.has(`t:${t}`)) edges.push([idx.get(`m:${m.name}`), idx.get(`t:${t}`), compact ? 62 : 92, teamColor(t)]);
+    }));
+    teamProjects.forEach(([team, pid]) => {
+      if (idx.has(`t:${team}`) && idx.has(`p:${pid}`)) edges.push([idx.get(`t:${team}`), idx.get(`p:${pid}`), compact ? 76 : 110, teamColor(team)]);
+    });
+    return { nodes, edges };
+  }, [members, teamsInUse, projects, teamProjects, compact]);
+
+  // 초기 자리는 결정적으로(층마다 세로 등분) — 새로고침마다 다른 그림이 되지 않게
+  const initPos = () => {
+    const byKind = { member: [], team: [], project: [] };
+    nodes.forEach(n => byKind[n.kind].push(n.id));
+    return nodes.map((n, i) => {
+      const layer = n.kind === 'member' ? 0.2 : n.kind === 'team' ? 0.5 : 0.8;
+      const mates = byKind[n.kind];
+      const k = mates.indexOf(n.id);
+      return { x: W * layer + ((i * 37) % 13) - 6, y: 24 + ((k + 0.5) / mates.length) * (H - 48) };
+    });
+  };
+  const [pos, setPos] = useState(initPos);
+  const [hi, setHi] = useState(null);   // 만지고 있는 노드 index
+
+  useEffect(() => {
+    const p = initPos();
+    const vel = p.map(() => ({ x: 0, y: 0 }));
+    const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (reduce) {
+      for (let i = 0; i < 320; i++) simStep(p, vel, nodes, edges, W, H);
+      setPos(p.map(o => ({ ...o })));
+      return;
+    }
+    let raf; const t0 = performance.now();
+    const tick = () => {
+      for (let k = 0; k < 3; k++) simStep(p, vel, nodes, edges, W, H);
+      setPos(p.map(o => ({ ...o })));
+      if (performance.now() - t0 < FM.SETTLE_MS) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, edges, W, H]);
+
+  // 만진 노드와 그 이웃만 또렷하게 — 나머지는 흐린다
+  const linked = useMemo(() => {
+    if (hi == null) return null;
+    const set = new Set([hi]);
+    edges.forEach(([a, b]) => { if (a === hi) set.add(b); if (b === hi) set.add(a); });
+    return set;
+  }, [hi, edges]);
+
   return (
     <Card className="px-4 py-[15px]">
-      <div className="pb-2.5">
+      <div className="flex items-center gap-2 pb-1">
         <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 연결 지도</h3>
+        <span className="text-[10px] text-fg-faint">사람 → 팀 → 프로젝트</span>
       </div>
-      {/* 좁으면 가로 스크롤(안전망) — 축소하면 10px 글자가 5px가 되어 아무도 못 읽는다.
-          모바일은 카드 패딩을 -mx-2로 살짝 물어 그만큼을 선 구간에 보탠다 */}
-      <div className={compact ? 'overflow-x-auto scrollbar-hide -mx-2' : 'overflow-x-auto scrollbar-hide'}>
-        {/* 전폭 카드 안에서는 가운데로 — 640px 그림이 왼쪽에 몰리면 오른쪽이 통째로 빈다 */}
-        <div className="relative mx-auto" style={{ width: NM.W, height: H }}>
-          <svg className="absolute inset-0 pointer-events-none" width={NM.W} height={H} aria-hidden>
-            {members.flatMap(m => [...new Set((m.teams?.length ? m.teams : [m.team]).filter(Boolean))]
-              .filter(t => tY.has(t))
-              .map(t => edge(`${m.name}-${t}`, NM.P_X + NM.P_W + 4, pY.get(m.name), NM.T_X - 4, tY.get(t), teamColor(t))))}
-            {teamProjects.map(([team, pid]) => (jY.has(pid) && tY.has(team))
-              ? edge(`${team}-${pid}`, NM.T_X + NM.T_W + 4, tY.get(team), NM.J_X - 4, jY.get(pid), teamColor(team))
-              : null)}
-          </svg>
-          {/* 열 머리 — 노드와 같은 정렬로 둔다(사람은 오른쪽 정렬·팀은 가운데·프로젝트는
-              왼쪽). 전부 왼쪽에 두면 머리글이 노드 무리에서 뚝 떨어져 보인다(사용자 지적) */}
-          <span className="absolute text-[10px] font-bold text-fg-faint text-right"
-            style={{ left: NM.P_X, top: 2, width: NM.P_W }}>사람</span>
-          <span className="absolute text-[10px] font-bold text-fg-faint text-center"
-            style={{ left: NM.T_X, top: 2, width: NM.T_W }}>팀</span>
-          <span className="absolute text-[10px] font-bold text-fg-faint"
-            style={{ left: NM.J_X, top: 2 }}>프로젝트</span>
-          {members.map((m) => (
-            <span key={m.name} className="absolute flex items-center justify-end gap-1.5"
-              style={{ left: NM.P_X, top: pY.get(m.name) - 11, width: NM.P_W, height: 22 }}>
-              <Avatar name={m.name} url={m.avatarUrl}
-                className={compact ? 'flex w-[15px] h-[15px] text-[8px]' : 'flex w-[18px] h-[18px] text-[9px]'} />
-              <span className="text-fg truncate" style={{ fontSize: NM.FONT }}>{m.name}</span>
-            </span>
-          ))}
-          {teamsInUse.map(t => (
-            <button key={t} type="button" onClick={() => onOpenTeam(t)} title={`${t} 보드로`}
-              className="absolute flex items-center justify-center gap-1.5 hover:opacity-60 transition-opacity"
-              style={{ left: NM.T_X, top: tY.get(t) - 11, width: NM.T_W, height: 22 }}>
-              <span className="font-semibold truncate" style={{ color: teamColor(t), fontSize: NM.FONT }}>{t}</span>
+      <div ref={wrapRef} className="relative select-none" style={{ height: H }}>
+        <svg className="absolute inset-0 pointer-events-none" width={cw} height={H} aria-hidden>
+          {edges.map(([a, b, , color], i) => {
+            const on = hi != null && (a === hi || b === hi);
+            const dim = hi != null && !on;
+            return (
+              <line key={i} x1={offX + (pos[a]?.x || 0)} y1={pos[a]?.y} x2={offX + (pos[b]?.x || 0)} y2={pos[b]?.y}
+                stroke={color} strokeWidth={on ? 1.6 : 1.1} opacity={dim ? 0.12 : on ? 0.85 : 0.45}
+                style={{ transition: 'opacity 200ms' }} />
+            );
+          })}
+        </svg>
+        {nodes.map((n, i) => {
+          const P = pos[i];
+          if (!P) return null;
+          const dim = linked && !linked.has(i);
+          const base = {
+            position: 'absolute', left: offX + P.x, top: P.y, transform: 'translate(-50%, -50%)',
+            opacity: dim ? 0.25 : 1, transition: 'opacity 200ms',
+          };
+          if (n.kind === 'member') {
+            return (
+              <span key={n.id} style={base} className="flex flex-col items-center gap-0.5"
+                onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}>
+                <Avatar name={n.m.name} url={n.m.avatarUrl} className="flex w-[20px] h-[20px] text-[9px]" />
+                <span className="text-[9px] leading-none text-fg-muted whitespace-nowrap">{n.m.name}</span>
+              </span>
+            );
+          }
+          if (n.kind === 'team') {
+            return (
+              <button key={n.id} type="button" title={`${n.t} 보드로`} style={base}
+                onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+                onClick={() => onOpenTeam(n.t)}
+                className="px-2 py-[3px] rounded-full text-[10.5px] font-bold whitespace-nowrap bg-surface border border-line transition hover:opacity-70">
+                <span style={{ color: teamColor(n.t) }}>{n.t}</span>
+              </button>
+            );
+          }
+          return (
+            <button key={n.id} type="button" title={`${n.p.title} 열기`} style={base}
+              onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+              onClick={() => onOpenProject(n.p.id)}
+              className="px-2.5 py-1 rounded-[8px] bg-surface shadow-soft border border-line text-[11.5px] font-bold text-fg whitespace-nowrap max-w-[180px] truncate transition hover:opacity-70">
+              {n.p.title}
             </button>
-          ))}
-          {projects.map(p => (
-            <button key={p.id} type="button" onClick={() => onOpenProject(p.id)} title={`${p.title} 열기`}
-              className="absolute flex items-center hover:opacity-60 transition-opacity"
-              style={{ left: NM.J_X, top: jY.get(p.id) - 11, width: NM.J_W, height: 22 }}>
-              <span className="font-semibold text-fg truncate" style={{ fontSize: NM.FONT }}>{p.title}</span>
-            </button>
-          ))}
-        </div>
+          );
+        })}
       </div>
     </Card>
   );

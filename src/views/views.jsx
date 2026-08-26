@@ -35,7 +35,7 @@ import { failText } from '../services/errorText.js';
 export const DASH_FILTERS = ['전체', '내 업무', '내 팀'];
 export const DASH_FILTER_DEFAULT = DASH_FILTERS[0];
 
-export const DashboardView = React.memo(function DashboardView({ onNavigate, onTaskClick, onStatusChange, filter, setFilter }) {
+export const DashboardView = React.memo(function DashboardView({ onNavigate, onTaskClick, onStatusChange, onClaim, filter, setFilter }) {
   const { teamStats } = useStore(selectDashboardStats);
   const currentUser = useStore(selectCurrentUser);
   const tasksList = useStore(selectTasksList);
@@ -235,7 +235,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
       <div className="grid gap-x-8 gap-y-6 pt-5 items-start dash-grid">
         <DueGroupList
           groups={groups} projectsMap={projectsMap} today={today}
-          onComplete={complete} onOpen={onTaskClick}
+          onComplete={complete} onOpen={onTaskClick} onClaim={onClaim}
           emptyHint={filter === '전체' ? '새 업무가 들어오면 여기에 쌓여요' : '다른 탭에는 아직 남은 업무가 있어요'}
         />
         {/* lg 미만에서는 감싸개를 지워 안쪽 칸이 직접 그리드 칸이 된다 — 그래야 사람 칸만

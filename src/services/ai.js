@@ -72,8 +72,9 @@ const fmtTask = (t) => [
 export function buildTaskContext(task) {
   const s = store.getState();
   const project = s.projects.byId[task.projectId];
+  const byId = s.tasks.byId;
   const siblings = (s.tasks.allIds || [])
-    .map(id => s.tasks.byId[id])
+    .map(id => byId[id])
     .filter(t => t && t.projectId === task.projectId && t.id !== task.id);
   // 같은 팀을 공유하는 업무가 조율 상대일 확률이 높다 → 그걸 먼저, 나머지는 일정 순
   const myTeams = new Set(task.teams || []);
@@ -81,17 +82,41 @@ export function buildTaskContext(task) {
   const rest = siblings.filter(t => !shared.includes(t));
   const byDate = (a, b) => String(a.dueDate || a.startDate || '9999').localeCompare(String(b.dueDate || b.startDate || '9999'));
   const picked = [...shared.sort(byDate), ...rest.sort(byDate)].slice(0, NEARBY_LIMIT);
-  // 이 업무 마감 뒤에 놓인 업무 = "다음 단계"의 1순위 후보
-  const after = task.dueDate
+
+  // 선후관계(§4.9)가 날짜 추측보다 정확한 "다음 단계"다 —
+  //  · 선행: 이 업무가 기다리는 업무(끝나야 시작할 수 있다)
+  //  · 후행: 이 업무를 기다리는 업무(이 업무가 끝나면 저기로 넘어간다)
+  const depTasks = (task.dependsOn || []).map(id => byId[id]).filter(Boolean);
+  const blockedBy = siblings.filter(t => (t.dependsOn || []).includes(task.id));
+  // 후행이 없을 때만 날짜로 짐작한다(예전 방식) — 연결이 있으면 그쪽이 답이다
+  const after = !blockedBy.length && task.dueDate
     ? picked.filter(t => String(t.dueDate || t.startDate || '') > task.dueDate).map(t => t.title)
     : [];
+
+  // 첨부는 이름만 — "포스터_시안2.png"가 있으면 시안 단계라는 뜻이다.
+  // 클라우드에서 목록을 아직 안 받았으면 개수(fileCount)라도 준다.
+  const fileNames = (task.attachments || []).map(a => (typeof a === 'string' ? a : a?.name)).filter(Boolean);
+  const fileLine = fileNames.length
+    ? `- 첨부 파일 ${fileNames.length}개: ${fileNames.slice(0, 10).join(', ')}${fileNames.length > 10 ? ' 외' : ''}`
+    : (task.fileCount ? `- 첨부 파일 ${task.fileCount}개(이름 미확인)` : '');
+
+  // 하위 업무 — 남은 항목이 곧 "챙길 것"의 재료다
+  const subs = task.subtasks || [];
+  const subsLeft = subs.filter(x => !x.done).map(x => x.text).filter(Boolean);
+  const subLine = subs.length
+    ? `- 하위 업무 ${subs.length - subsLeft.length}/${subs.length} 완료${subsLeft.length ? ` · 남은 것: ${subsLeft.slice(0, 8).join(', ')}` : ''}`
+    : '';
 
   return [
     '[지금 이 업무의 주변 상황]',
     project ? `- 소속 프로젝트: ${project.title}` : '',
     `- 이 업무: ${fmtTask(task)}`,
+    subLine,
+    fileLine,
+    depTasks.length ? `- 이 업무의 선행 업무(먼저 끝나야 함): ${depTasks.map(t => `${t.title}(${t.status})`).join(', ')}` : '',
+    blockedBy.length ? `- 이 업무를 기다리는 후행 업무: ${blockedBy.map(t => `${t.title}(${t.teams?.join('·') || '팀 미지정'} · ${t.assignees?.join(', ') || '담당자 미지정'})`).join(', ')}` : '',
     '- 같은 프로젝트의 다른 업무 (제목 | 상태 | 담당 팀 | 담당자 | 일정):',
-    picked.length ? picked.map(t => `  · ${fmtTask(t)}`).join('\n') : '  · (없음)',
+    picked.length ? picked.map(t => `  · ${fmtTask(t)}${(t.dependsOn || []).includes(task.id) ? ' | ★이 업무를 기다림' : ''}`).join('\n') : '  · (없음)',
     after.length ? `- 이 업무 마감 이후에 놓인 업무: ${after.join(', ')}` : '',
   ].filter(Boolean).join('\n');
 }
@@ -176,13 +201,16 @@ export const AiService = {
       '- 각 줄은 딱 한 문장, 존댓말 간결체(~해요/~예요체).',
       '- 예배·전도·수련회·양육 같은 사역 맥락과 용어를 자연스럽게 살려라.',
       '- 내용이 빈약하면 지어내지 말고 있는 것만 담백하게 적어라.',
+      '- "챙길 것"에는 남은 하위 업무·선행 업무가 있으면 그걸 먼저 써라. 첨부 파일 이름이 단계를 알려주면(예: 시안, 견적서, 최종본) 그 단계에 맞게 말해라.',
       '- "핵심"이라는 단어는 절대 쓰지 마라.',
       '',
       '"다음 단계" 규칙 (가장 중요):',
       '- 이 업무가 끝난 뒤 이어질 행동을 써라. 이 업무를 마감일까지 끝내라는 말은 절대 쓰지 마라',
       '  (예: 콘티 확정 업무에서 "마감일까지 콘티를 확정해 주세요"는 틀린 답이다).',
-      '- 1순위: 주변 상황에 적힌 "이 업무 마감 이후에 놓인 업무"를 지목하고, 그 담당 팀·담당자를 함께 불러라.',
-      '- 2순위: 이어질 업무가 목록에 없으면 사역별 진행 순서에서 바로 다음 단계 하나만 제안해라',
+      '- 1순위: "이 업무를 기다리는 후행 업무"가 있으면 그 업무를 지목하고, 그 담당 팀·담당자를 함께 불러라',
+      '  (선후관계는 팀원이 직접 연결한 것이라 날짜 추측보다 정확하다).',
+      '- 2순위: 후행 연결이 없으면 "이 업무 마감 이후에 놓인 업무"를 지목하고, 그 담당 팀·담당자를 함께 불러라.',
+      '- 3순위: 이어질 업무가 목록에 없으면 사역별 진행 순서에서 바로 다음 단계 하나만 제안해라',
       '  (예: 콘티 확정 → 악보·송폼 제작이나 파트별 연습 일정 잡기).',
       '- 담당 팀이 둘 이상이면 팀 사이에 무엇을 넘겨주고 받아야 하는지 한 마디로 적어라',
       '  (예: 찬양팀이 확정한 콘티를 엔지니어팀에 넘겨 사운드 세팅을 준비해요).',

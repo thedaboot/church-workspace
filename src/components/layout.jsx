@@ -184,7 +184,7 @@ export const TopNav = React.memo(({
   const activeProject = allProjects.find(p => p.id === activeMenu);
   // 연도 고르기 — 고른 해의 프로젝트만 탭에. 지금 보고 있는 것은 해가 달라도 남긴다
   // (splitProjectTabs가 끌어올리지만, 애초에 목록에 없으면 끌어올릴 것도 없다).
-  const { year, setYear, years } = useTabYear(allProjects, activeMenu);
+  const { year, setYear, years, yearCounts } = useTabYear(allProjects, activeMenu);
   const yearList = projectsList.filter(p => projectYear(p) === year);
   // 지금 보고 있는 것은 해가 달라도, 보관됐어도 탭에 남는다 — 어디 있는지 표시가
   // 화면에서 사라지면 안 된다. 갈래를 둘로 나눠 쓰면 **보관된 것을 다른 해에서
@@ -294,7 +294,7 @@ export const TopNav = React.memo(({
               탭 폭이 엉뚱하게 잡힌다(800px에서 8개가 다 들어간다고 나왔다). */}
           <span className="shrink-0 inline-flex items-center gap-1 pr-3 pt-2.5 pb-2 text-[13px] font-semibold tabular-nums">{year} <ChevronDown size={13} /></span>
         </div>
-        <YearPicker year={year} years={years} onPick={setYear} />
+        <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} />
         {shown.map(p => (
           <button
             key={p.id} onClick={() => setActiveMenu(p.id)}
@@ -342,10 +342,12 @@ const projectYear = (p) => String(p?.year || String(p?.createdAt || '').slice(0,
 // 다른 해의 프로젝트를 열면(검색·알림·링크로) 그 해로 따라간다 — 안 그러면 지금
 // 보고 있는 프로젝트가 탭 줄 어디에도 없어서 "어디 있는지" 표시가 사라진다.
 function useTabYear(allProjects, activeMenu) {
-  const years = useMemo(() => {
-    const set = new Set(allProjects.map(projectYear));
+  const { years, yearCounts } = useMemo(() => {
+    const counts = {};
+    allProjects.forEach(p => { const y = projectYear(p); counts[y] = (counts[y] || 0) + 1; });
+    const set = new Set(Object.keys(counts));
     set.add(String(new Date().getFullYear()));
-    return [...set].sort((a, b) => b.localeCompare(a));
+    return { years: [...set].sort((a, b) => b.localeCompare(a)), yearCounts: counts };
   }, [allProjects]);
   const [year, setYear] = useState(() => {
     try { return localStorage.getItem('tab_year') || String(new Date().getFullYear()); }
@@ -359,11 +361,11 @@ function useTabYear(allProjects, activeMenu) {
   useEffect(() => { if (activeYear && activeYear !== year) pick(activeYear); }, [activeYear]); // eslint-disable-line react-hooks/exhaustive-deps
   // 고른 해가 목록에 없으면(그 해 프로젝트를 다 지웠다) 가장 최근 해로 떨어진다
   const safeYear = years.includes(year) ? year : years[0];
-  return { year: safeYear, setYear: pick, years };
+  return { year: safeYear, setYear: pick, years, yearCounts };
 }
 
 // 연도 버튼 + 목록. 팝오버는 body 포털이 기본이다(§6-1).
-function YearPicker({ year, years, onPick, compact = false }) {
+function YearPicker({ year, years, yearCounts = {}, onPick, compact = false }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const btnRef = useRef(null);
@@ -383,8 +385,10 @@ function YearPicker({ year, years, onPick, compact = false }) {
           className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 max-h-72 overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
           {years.map(y => (
             <button key={y} onClick={() => { setOpen(false); onPick(y); }}
-              className={`w-full px-2.5 py-2 rounded-md text-[13px] text-left tabular-nums transition-colors hover:bg-surface-hover ${y === year ? 'text-fg font-bold' : 'text-fg-muted'}`}>
-              {y}년
+              className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-[13px] text-left tabular-nums transition-colors hover:bg-surface-hover ${y === year ? 'text-fg font-bold' : 'text-fg-muted'}`}>
+              <span className="flex-1">{y}년</span>
+              {/* 그 해 프로젝트 수 — 빈 해를 열어보고서야 아는 일이 없게 */}
+              {yearCounts[y] > 0 && <span className="text-[10.5px] text-fg-faint">{yearCounts[y]}</span>}
             </button>
           ))}
         </div>,
@@ -441,7 +445,7 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
   const projectsMap = useStore(selectProjectsMap);
   const current = projectsMap[activeMenu];
   const allForYear = useStore(selectProjectsList);
-  const { year, setYear, years } = useTabYear(allForYear, activeMenu);
+  const { year, setYear, years, yearCounts } = useTabYear(allForYear, activeMenu);
   const yearList = activeList.filter(p => projectYear(p) === year);
   const base = current && !current.archived && !yearList.some(p => p.id === activeMenu) ? [...yearList, current] : yearList;
   const projectsList = current?.archived ? [...base, current] : base;
@@ -478,7 +482,7 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
         <div className="flex items-end gap-0 px-2 overflow-x-auto scrollbar-hide x-scroll-lock border-t border-line/70">
           {/* 연도는 미는 칸 **안**에 둔다 — 같은 종류가 이어지는 줄이고(§8), 밖으로
               빼면 좁은 화면에서 탭이 시작하는 자리가 그만큼 밀린다 */}
-          <YearPicker year={year} years={years} onPick={setYear} compact />
+          <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} compact />
           {projectsList.map(p => (
             <button
               key={p.id} onClick={() => setActiveMenu(p.id)}
@@ -564,13 +568,21 @@ function SearchResults({ query, onPick }) {
   const deferred = useDeferredValue(query);
 
   const results = useMemo(() => {
-    const q = deferred.trim().toLowerCase();
+    // 공백을 지우고 비교한다 — "버스 견적"이 "전세버스 견적서"를 못 찾던 것(§1.3)이
+    // 대부분 띄어쓰기 차이였다. RAG 없이 잡히는 것부터 잡는다.
+    const norm = (x) => String(x || '').toLowerCase().replace(/\s+/g, '');
+    const q = norm(deferred);
     if (q.length < 2) return null;
-    const projectHits = projectsList.filter(p => (p.title || '').toLowerCase().includes(q));
+    const hit = (x) => norm(x).includes(q);
+    const projectHits = projectsList.filter(p => hit(p.title));
+    // 첨부 이름·댓글도 본다. 클라우드에서는 열어 본 카드만 채워져 있다(§6-20) —
+    // 그래도 없는 것보다 낫고, 게스트·최근에 연 카드에서는 온전히 잡힌다.
     const taskHits = tasksList.filter(t =>
-      (t.title || '').toLowerCase().includes(q) ||
-      (t.content || '').toLowerCase().includes(q) ||
-      (t.assignees || []).some(a => (a || '').toLowerCase().includes(q))
+      hit(t.title) || hit(t.content) ||
+      (t.assignees || []).some(hit) ||
+      (t.teams || []).some(hit) ||
+      (t.attachments || []).some(a => hit(typeof a === 'string' ? a : a?.name)) ||
+      (t.comments || []).some(c => hit(c?.text))
     );
     return { projectHits, taskHits };
   }, [deferred, projectsList, tasksList]);

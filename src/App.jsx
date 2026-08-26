@@ -291,6 +291,16 @@ function WorkspaceShell() {
   const handleTaskClick = useCallback((t) => openTaskModal(t), [openTaskModal]);
   const saveTask = controller.handleSaveTask;
 
+  // 「이거 제가 할게요」(§1.2) — 담당자 없는 업무에 나를 넣는다. 기존 담당자를
+  // 덮지 않도록 비어 있을 때만 부른다(버튼 자체가 그때만 뜬다). 활동 기록·알림은
+  // saveTask(TaskService.update)가 담당자 변경으로 처리한다.
+  const handleClaim = useCallback((t) => {
+    const me = store.getState().currentUser?.name;
+    if (!me) return;
+    saveTask({ ...t, assignees: [me] }, t);
+    showToast(`'${t.title}'의 담당자로 들어갔어요`);
+  }, [saveTask]);
+
   // 목록·보드에서 상태를 바꾸면 되돌리기 토스트를 띄운다.
   // 클라우드 모드에는 전역 실행 취소가 없다(다른 사람과 상태가 어긋나므로 숨겼다).
   // 그래서 실수로 옮긴 카드를 되돌릴 길이 손으로 다시 옮기기뿐이었다.
@@ -419,7 +429,7 @@ function WorkspaceShell() {
               마지막 줄이 하단 탭바에 가렸다(대시보드 '팀별 남은 업무', 팀 보드
               '참여 프로젝트'). */}
           <div key={activeMenu} className={needsFullHeight ? 'h-full' : ''}>
-          {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} filter={dashFilter} setFilter={setDashFilter} />}
+          {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onClaim={handleClaim} filter={dashFilter} setFilter={setDashFilter} />}
           {activeMenu === 'schedule' && <ScheduleView onTaskClick={handleTaskClick} />}
           {activeMenu === 'members' && <MembersView isAdmin={isAdmin} isMaster={isMaster} />}
           {activeMenu === "myTasks" && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}

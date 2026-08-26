@@ -93,6 +93,25 @@ captured = null;
 await AiService.polishText('그냥 초안');
 check('task 없이 부르면 주변 상황 없이도 동작', captured && !captured.prompt.includes('[지금 이 업무의 주변 상황]'));
 
+// ── 선후관계·첨부·하위 업무가 실리는지 (2026-08-26에 넓힌 컨텍스트) ──
+// 후행 연결이 있으면 날짜 짐작("마감 이후에 놓인 업무")은 접어야 한다 —
+// 연결은 팀원이 직접 그은 것이라 그쪽이 정답이다.
+{
+  const st = globalThis.__STATE;
+  st.tasks.byId.t1.dependsOn = ['t0'];                     // 악보 제작은 콘티 확정을 기다린다
+  st.tasks.byId.t0.attachments = [{ name: '콘티_시안2.pdf' }, '지난주_콘티.xlsx'];
+  st.tasks.byId.t0.subtasks = [{ text: '곡 목록 확정', done: true }, { text: '키 확인', done: false }];
+  const ctx2 = buildTaskContext(st.tasks.byId.t0);
+  check('후행 업무(이 업무를 기다리는)가 실린다', ctx2.includes('이 업무를 기다리는 후행 업무: 악보·송폼 제작'), '');
+  check('후행 연결이 있으면 날짜 짐작은 접는다', !ctx2.includes('마감 이후에 놓인 업무'));
+  check('목록 줄에도 기다림 표가 붙는다', ctx2.includes('★이 업무를 기다림'));
+  check('선행 업무가 실린다(악보 쪽에서 보면)', buildTaskContext(st.tasks.byId.t1).includes('선행 업무(먼저 끝나야 함): 찬양 콘티 결정(완료)'));
+  check('첨부 이름이 실린다(행 객체·문자열 모두)', ctx2.includes('첨부 파일 2개: 콘티_시안2.pdf, 지난주_콘티.xlsx'));
+  check('하위 업무 진척과 남은 것이 실린다', ctx2.includes('하위 업무 1/2 완료') && ctx2.includes('남은 것: 키 확인'));
+  // 되돌려 놓는다 — 위쪽 검사들이 이 상태를 전제하지 않게
+  delete st.tasks.byId.t1.dependsOn; st.tasks.byId.t0.attachments = []; delete st.tasks.byId.t0.subtasks;
+}
+
 console.log(results.join('\n'));
 console.log('\n--- 실제로 만들어진 주변 상황 블록 ---\n' + ctx);
 process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

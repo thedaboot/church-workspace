@@ -304,7 +304,8 @@ const yrPop = await ev(`(() => {
   // 이스케이프 대신 includes로 — 템플릿 리터럴 안에서 정규식 백슬래시가 한 겹 줄어든다
   const pops = [...document.body.children].filter(c => typeof c.className === 'string' && c.className.includes('z-[90]'));
   const items = pops.flatMap(p => [...p.querySelectorAll('button')].map(b => b.textContent.trim()));
-  return { items: items.filter(t => /^[0-9]{4}년$/.test(t)), pops: pops.length };
+  // 연도 줄에는 프로젝트 수가 붙는다(예: "2026년3") — 시작 패턴으로 본다
+  return { items: items.filter(t => /^[0-9]{4}년/.test(t)), pops: pops.length };
 })()`);
 check('연도 목록이 열린다', yrPop.items.length >= 1, JSON.stringify(yrPop));
 await ev(`document.body.click()`);
@@ -333,12 +334,14 @@ await ev(`[...document.querySelectorAll('button')].find(b => b.title === '연도
 await sleep(350);
 const yrItems = await ev(`(() => {
   const pops = [...document.body.children].filter(c => typeof c.className === 'string' && c.className.includes('z-[90]'));
-  return pops.flatMap(p => [...p.querySelectorAll('button')].map(b => b.textContent.trim())).filter(t => /^[0-9]{4}년$/.test(t));
+  return pops.flatMap(p => [...p.querySelectorAll('button')].map(b => b.textContent.trim())).filter(t => /^[0-9]{4}년/.test(t));
 })()`);
-check('정한 연도가 목록에 뜬다(만든 날짜가 아니라)', yrItems.includes(nextYear + '년'), JSON.stringify(yrItems));
+check('정한 연도가 목록에 뜬다(만든 날짜가 아니라)', yrItems.some(t => t.startsWith(nextYear + '년')), JSON.stringify(yrItems));
+// 연도 줄에 그 해 프로젝트 수가 붙는다(2026-08-26) — 내년에는 p7·p8 두 개를 옮겨 뒀다
+check('연도 줄에 프로젝트 수가 붙는다', yrItems.some(t => t === nextYear + '년2'), JSON.stringify(yrItems));
 await ev(`(() => {
   const pops = [...document.body.children].filter(c => typeof c.className === 'string' && c.className.includes('z-[90]'));
-  const b = pops.flatMap(p => [...p.querySelectorAll('button')]).find(x => x.textContent.trim() === '${nextYear}년');
+  const b = pops.flatMap(p => [...p.querySelectorAll('button')]).find(x => x.textContent.trim().startsWith('${nextYear}년'));
   b && b.click();
 })()`);
 await sleep(800);

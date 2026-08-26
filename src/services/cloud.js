@@ -129,8 +129,52 @@ export async function createProject(data) {
 export async function updateProject(id, patch) {
   return unwrap(await client().from('projects').update(patch).eq('id', id).select().single());
 }
+// 프로젝트를 지우면 DB는 카드까지 cascade로 지우지만 files.card_id는 set null이라
+// **드라이브에 폴더·파일이 고아로 남았다**(업무 삭제에서 이미 겪은 일 — deleteCard 주석).
+// 프로젝트 폴더 하나를 휴지통에 넣으면 안의 업무 폴더·파일이 전부 따라간다.
+// 정리에 실패해도 프로젝트 삭제는 진행한다 — 파일 때문에 삭제가 막히면 안 된다.
 export async function deleteProject(id) {
-  const { error } = await client().from('projects').delete().eq('id', id);
+  const c = client();
+  try {
+    const proj = unwrap(await c.from('projects').select('drive_folder_id').eq('id', id).single());
+    const cards = unwrap(await c.from('cards').select('id, drive_folder_id').eq('project_id', id)) || [];
+    const cardIds = cards.map(x => x.id);
+    const files = cardIds.length
+      ? unwrap(await c.from('files').select('*').in('card_id', cardIds)) || []
+      : [];
+    let projectTrashed = false;
+    if (proj?.drive_folder_id) {
+      try { await trashDriveId(proj.drive_folder_id); projectTrashed = true; }
+      catch (e) { console.error('[cloud] 프로젝트 폴더 휴지통 이동 실패(업무 단위로 전환):', e); }
+    }
+    if (!projectTrashed) {
+      const trashedCards = new Set();
+      for (const card of cards) {
+        if (!card.drive_folder_id) continue;
+        try { await trashDriveId(card.drive_folder_id); trashedCards.add(card.id); }
+        catch (e) { console.error('[cloud] 업무 폴더 휴지통 이동 실패:', e); }
+      }
+      for (const f of files) {
+        if (f.source === 'drive' && trashedCards.has(f.card_id)) continue;
+        try { await deleteAttachment(f); }
+        catch (e) { console.error('[cloud] 프로젝트 삭제 중 첨부 정리 실패:', f.name, e); }
+      }
+    } else {
+      // 폴더째 갔어도 Storage(레거시) 실체는 드라이브 밖이다 — 따로 지운다
+      for (const f of files) {
+        if (!f.storage_path) continue;
+        try { await c.storage.from(ATTACH_BUCKET).remove([f.storage_path]); }
+        catch (e) { console.error('[cloud] Storage 정리 실패:', f.name, e); }
+      }
+    }
+    if (cardIds.length) {
+      const { error } = await c.from('files').delete().in('card_id', cardIds);
+      if (error) console.error('[cloud] 첨부 행 정리 실패:', error);
+    }
+  } catch (e) {
+    console.error('[cloud] 프로젝트 삭제 중 드라이브 정리 실패:', e);
+  }
+  const { error } = await c.from('projects').delete().eq('id', id);
   if (error) throw error;
 }
 
@@ -230,11 +274,27 @@ export async function setCardSummary(id, text) {
 // 폴더로 들어갔다(사용자 지적 — "드라이브와 워크스페이스 싱크를 맞춰야 한다").
 // 드라이브 파일은 휴지통으로(30일 복구), Storage 객체는 삭제, 행은 삭제.
 // 실패해도 카드 삭제는 진행한다 — 파일 정리 때문에 지우기가 막히면 안 된다.
+// 드라이브 정리는 **폴더째**가 기본이다 — 폴더 하나를 휴지통에 넣으면 안의 파일이
+// 전부 따라간다(파일마다 Apps Script 왕복을 하면 사진 열 장짜리 업무 삭제가 십수 초다).
+// 폴더 휴지통은 스크립트 v4부터다(docs/DRIVE.md) — 옛 스크립트면 실패하므로
+// 그때는 파일 단위로 되돌아간다. 실패를 조용히 넘기면 드라이브에 고아가 남는다.
+async function trashDriveId(driveId) {
+  await driveCall({ action: 'trash', fileId: driveId });
+}
+
 export async function deleteCard(id) {
   const c = client();
   try {
+    const row = unwrap(await c.from('cards').select('drive_folder_id').eq('id', id).single());
     const files = unwrap(await c.from('files').select('*').eq('card_id', id));
+    let folderTrashed = false;
+    if (row?.drive_folder_id) {
+      try { await trashDriveId(row.drive_folder_id); folderTrashed = true; }
+      catch (e) { console.error('[cloud] 업무 폴더 휴지통 이동 실패(파일 단위로 전환):', e); }
+    }
     for (const f of files || []) {
+      // 폴더가 통째로 갔으면 안의 드라이브 파일은 이미 휴지통이다 — 행 삭제만 남는다(아래 blanket)
+      if (folderTrashed && f.source === 'drive') continue;
       try { await deleteAttachment(f); }
       catch (e) { console.error('[cloud] 업무 삭제 중 첨부 정리 실패:', f.name, e); }
     }
@@ -391,7 +451,9 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
       try { await c.from('cards').update({ drive_folder_id: up.folderId }).eq('id', cardId); }
       catch (e) { console.error('[drive] 업무 폴더 id 저장 실패:', e); }
     }
-    return row;
+    // 부르는 쪽(병렬 업로드)이 나머지 파일을 이 폴더 id로 바로 넣을 수 있게 실어 보낸다
+    // — files 컬럼이 아니라 임시 속성이다(DB에는 cards.drive_folder_id가 원본).
+    return Object.assign(row, { _driveFolderId: up.folderId });
   } catch (e) {
     if (!e.notConfigured) throw e;
     // 드라이브가 없는 환경 — 예전 경로 그대로
