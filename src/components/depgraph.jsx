@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { teamColor } from '../config.js';
+import { CONFIG, teamPaint } from '../config.js';
 import { depLayers } from '../utils.js';
 import { useForceGraph } from '../hooks/useForceGraph.js';
 import { STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
@@ -54,7 +54,7 @@ export function DepGraph({ tasks, onTaskClick }) {
     const gridCols = Math.max(2, Math.ceil(Math.sqrt(loose.length * 2)));
     const gridRows = Math.max(1, Math.ceil(loose.length / gridCols));
     const nodes = list.map(t => {
-      const base = { id: t.id, t, repel: 1.6, pl: 40, pr: 70, pt: 24, pb: 22 };
+      const base = { id: t.id, t, repel: 2.2, pl: 78, pr: 82, pt: 22, pb: 20 };
       if (linkedIds.has(t.id) && nCols > 1) {
         const y = rowOf.get(t.id);
         return { ...base, ax: 0.14 + 0.72 * (depthOf.get(t.id) || 0) / (nCols - 1), ay: y, iy: y };
@@ -66,7 +66,7 @@ export function DepGraph({ tasks, onTaskClick }) {
     const idx = new Map(nodes.map((n, i) => [n.id, i]));
     const edges = [];
     list.forEach(t => (t.dependsOn || []).forEach(d => {
-      if (idx.has(d) && d !== t.id) edges.push([idx.get(d), idx.get(t.id), compact ? 90 : 130]);
+      if (idx.has(d) && d !== t.id) edges.push([idx.get(d), idx.get(t.id), compact ? 120 : 180]);
     }));
     return { nodes, edges, byId: new Map(list.map(t => [t.id, t])) };
   }, [list, compact]);
@@ -85,11 +85,21 @@ export function DepGraph({ tasks, onTaskClick }) {
   }
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <p className="pb-2 text-[11px] text-fg-faint shrink-0">
-        {hasEdges
-          ? '왼쪽이 먼저 할 일이에요 · 선행이 끝난 연결은 초록 선 · 노드를 끌어서 정리할 수 있어요'
-          : "업무를 열어 '선행 업무'를 정하면 여기에 순서가 이어져요 · 노드를 끌어서 정리할 수 있어요"}
-      </p>
+      <div className="pb-2 shrink-0 flex items-center gap-2.5 flex-wrap">
+        <p className="text-[11px] text-fg-faint min-w-0">
+          {hasEdges
+            ? '왼쪽이 먼저 할 일이에요 · 선행이 끝난 연결은 초록 선 · 노드를 끌어서 정리할 수 있어요'
+            : "업무를 열어 '선행 업무'를 정하면 여기에 순서가 이어져요 · 노드를 끌어서 정리할 수 있어요"}
+        </p>
+        <span className="flex-1" />
+        <span className="hidden sm:flex items-center gap-2.5">
+          {CONFIG.STATUSES.map(st => (
+            <span key={st} className="inline-flex items-center gap-1.5 text-[10.5px] text-fg-muted">
+              <span className="w-2 h-2 rounded-full" style={{ background: STATUS_DOT_VAR[st] }} />{st}
+            </span>
+          ))}
+        </span>
+      </div>
       <div className="rounded-[10px] shadow-soft select-none"
         style={{ border: '1px solid var(--app-line)', background: 'var(--app-surface)' }}>
         <div ref={wrapRef} className="relative" style={{ height: H }}>
@@ -120,25 +130,24 @@ export function DepGraph({ tasks, onTaskClick }) {
             const t = n.t;
             const dim = linked && !linked.has(i);
             const drag = bindDrag(i);
+            const done = t.status === '완료';
             return (
               <button key={n.id} type="button" {...drag}
                 onClick={() => onTaskClick(t)}
                 onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
                 title={`${t.title}${t.assignees?.length ? ` · ${t.assignees.join(', ')}` : ''} · ${t.status}`}
-                className="absolute flex flex-col items-center gap-1 text-center"
+                // 연결 지도의 필과 같은 시각 언어 — [팀 레일 | 상태 점 | 제목].
+                // 맨 점 + 밑 글자는 허전하고 무엇을 누르는지도 흐렸다(사용자 지적).
+                className="absolute flex items-center gap-1.5 pl-1.5 pr-2.5 py-[5px] rounded-full bg-surface border border-line shadow-soft hover:shadow-elevated transition"
                 style={{
                   left: offX + P.x, top: P.y, transform: 'translate(-50%, -50%)', cursor: 'grab',
-                  opacity: dim ? 0.22 : 1, transition: 'opacity 200ms', ...drag.style,
+                  opacity: dim ? 0.2 : done ? 0.55 : 1, transition: 'opacity 200ms, box-shadow 150ms', ...drag.style,
                 }}>
-                {/* 점 = 상태색 채움 + 팀색 테두리. 완료는 흐려서 "남은 일"이 도드라진다 */}
-                <span className="rounded-full pointer-events-none"
-                  style={{
-                    width: 13, height: 13, background: STATUS_DOT_VAR[t.status],
-                    boxShadow: `0 0 0 2.5px ${teamColor(t.teams?.[0])}55, 0 0 0 1px var(--app-surface)`,
-                    opacity: t.status === '완료' ? 0.55 : 1,
-                  }} />
-                <span className="text-[10.5px] font-semibold leading-tight text-fg max-w-[110px] truncate pointer-events-none"
-                  style={{ opacity: t.status === '완료' ? 0.5 : 1 }}>{t.title}</span>
+                <span className="shrink-0 w-[3px] h-3.5 rounded-full pointer-events-none" style={teamPaint(t.teams, true)} />
+                <span className="shrink-0 w-2 h-2 rounded-full pointer-events-none" style={{ background: STATUS_DOT_VAR[t.status] }} />
+                <span className={`text-[11px] font-semibold leading-none text-fg truncate pointer-events-none ${compact ? 'max-w-[88px]' : 'max-w-[120px]'}`}>
+                  {t.title}
+                </span>
               </button>
             );
           })}
