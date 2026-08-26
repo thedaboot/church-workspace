@@ -6,7 +6,7 @@ import { store } from '../store/workspaceStore.js';
 // 인증 컨텍스트 (Supabase OAuth: 구글 / 카카오)
 // - supabase 미설정(.env 없음) 시 enabled=false → 게스트 모드로 통과
 // ============================================================================
-const AuthContext = createContext({ enabled: false, session: null, loading: false, isAdmin: true, approved: true, signIn: () => {}, signOut: () => {} });
+const AuthContext = createContext({ enabled: false, session: null, loading: false, isAdmin: true, isMaster: true, approved: true, signIn: () => {}, signOut: () => {} });
 
 export const useAuth = () => useContext(AuthContext);
 
@@ -18,7 +18,7 @@ export function AuthProvider({ children }) {
   // 따로 판정했는데, 빌드 시점에 박히는 값이라 관리자를 한 명 늘릴 때마다 재배포가
   // 필요했고 DB의 admins 표와 어긋나기도 했다(§4.5의 '둘 중 하나만 넣으면 어긋난다').
   // null = 아직 모름 — 이때 승인 화면을 띄우면 로그인 직후 한 번 번쩍인다.
-  const [perm, setPerm] = useState({ isAdmin: null, approved: null });
+  const [perm, setPerm] = useState({ isAdmin: null, isMaster: null, approved: null });
 
   useEffect(() => {
     if (!enabled) return;
@@ -40,17 +40,19 @@ export function AuthProvider({ children }) {
   // RLS를 우회해서 답하므로, 승인 대기자도 자기 상태는 알 수 있다.
   useEffect(() => {
     if (!enabled) return;
-    if (!session) { setPerm({ isAdmin: null, approved: null }); return; }
+    if (!session) { setPerm({ isAdmin: null, isMaster: null, approved: null }); return; }
     let alive = true;
     (async () => {
-      const [a, ap] = await Promise.all([
+      const [a, m, ap] = await Promise.all([
         supabase.rpc('is_admin'),
+        supabase.rpc('is_master'),
         supabase.rpc('is_approved'),
       ]);
       if (!alive) return;
       if (a.error) console.error('[auth] is_admin 실패:', a.error);
+      if (m.error) console.error('[auth] is_master 실패:', m.error);
       if (ap.error) console.error('[auth] is_approved 실패:', ap.error);
-      setPerm({ isAdmin: !!a.data, approved: !!ap.data });
+      setPerm({ isAdmin: !!a.data, isMaster: !!m.data, approved: !!ap.data });
     })();
     return () => { alive = false; };
   }, [enabled, session]);
@@ -67,9 +69,12 @@ export function AuthProvider({ children }) {
 
   // 게스트 모드(로컬)는 전원 관리자·전원 승인으로 취급한다 — 서버가 없다.
   const isAdmin = !enabled || perm.isAdmin === true;
+  // 마스터 = 관리자 중의 관리자(0028). AI 기능(요약 고정·고치기)과 관리자 지정·해제.
+  // 관리자는 멤버 관리(수락·환송)와 업무 삭제만 한다(사용자 결정).
+  const isMaster = !enabled || perm.isMaster === true;
   // 아직 모르는 동안(null)은 **승인된 것으로 본다** — 로그인 직후 한 프레임 동안
   // '승인을 기다려주세요'가 번쩍이면 이미 쓰고 있던 사람에게 사고처럼 보인다.
   const approved = !enabled || perm.approved !== false;
 
-  return <AuthContext.Provider value={{ enabled, session, loading, isAdmin, approved, signIn, signOut }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ enabled, session, loading, isAdmin, isMaster, approved, signIn, signOut }}>{children}</AuthContext.Provider>;
 }

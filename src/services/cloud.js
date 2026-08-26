@@ -836,7 +836,7 @@ export async function setCardPosition(id, position) {
 // 화면에서 감추는 것과 이중으로 걸린다(§4.5의 요약 고정과 다른 점이다).
 export async function listMembersAdmin() {
   return unwrap(await client().from('profiles')
-    .select('id, display_name, avatar_url, approved, approved_at, removed_at, created_at, last_seen_at, birthday')
+    .select('id, display_name, email, avatar_url, approved, approved_at, removed_at, created_at, last_seen_at, birthday')
     .order('created_at', { ascending: true }));
 }
 
@@ -857,7 +857,7 @@ export async function setApproved(profileId, approved) {
 // 화면은 auth 쪽 이메일을 손으로 넣는다(가입자 목록에서 고르는 길은 profiles에
 // 이메일이 없어 막혀 있다 — 0022 주석 참고).
 export async function listAdmins() {
-  return unwrap(await client().from('admins').select('email').order('email'));
+  return unwrap(await client().from('admins').select('email, is_master').order('email'));
 }
 export async function addAdmin(email) {
   return unwrap(await client().from('admins').insert({ email: String(email).trim().toLowerCase() }).select('email').single());

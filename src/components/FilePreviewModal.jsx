@@ -47,19 +47,17 @@ function previewKind(row) {
 
 // 첨부 목록의 엑셀 '펼쳐보기'(attachments.jsx)도 같은 뷰어 주소를 쓴다
 export const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
-// 드라이브 파일 미리보기 주소.
-// **스프레드시트는 파일 뷰어가 아니라 스프레드시트 미리보기로 연다** — 파일 뷰어
-// (`drive.google.com/file/d/…/preview`)는 xlsx를 그림처럼 보여줘서 시트 탭도, 표도
-// 제대로 안 나온다(실측: 그 응답에는 표 내용이 아예 없다). 스프레드시트 미리보기는
-// 표를 그대로 그린다. 사용자가 원한 화면이 이쪽이다.
-const SHEET_EXT = ['xls', 'xlsx', 'csv'];
-export const driveSrc = (row) => {
-  if (!row.drive_file_id) return null;
-  const ext = extOf(row.name);
-  return SHEET_EXT.includes(ext)
-    ? `https://docs.google.com/spreadsheets/d/${row.drive_file_id}/preview`
-    : `https://drive.google.com/file/d/${row.drive_file_id}/preview`;
-};
+// 드라이브 파일 미리보기 주소 — **파일 뷰어**를 쓴다.
+// 스프레드시트 미리보기(`docs.google.com/spreadsheets/d/<id>/preview`)는 표를 잘
+// 그리지만 **갓 올린 파일에는 "Google Docs에 오류가 발생했습니다"가 뜬다**(구글이
+// 준비하는 데 시간이 걸린다 — 45초 뒤에도 그랬다). 파일 뷰어는 갓 올린 파일도
+// 바로 표를 그린다(헤드리스 브라우저로 둘을 나란히 재서 확인했다).
+// 주의: HTML 글자만 보고 판단하면 안 된다 — 파일 뷰어는 자바스크립트로 그리므로
+// 응답 본문에 표가 없다. 그것 때문에 한 번 반대로 판단했다.
+// 크게 보거나 편집하려면 '새 탭에서 열기'가 `web_view_link`(=구글 스프레드시트)로 간다.
+export const driveSrc = (row) => (row.drive_file_id
+  ? `https://drive.google.com/file/d/${row.drive_file_id}/preview`
+  : null);
 
 // 어느 뷰어로 그리고 있는지 — 화면 아래 한 줄에 그대로 적는다.
 // 예전에는 이 문구가 조건 없이 '마이크로소프트 오피스 미리보기로 표시해요'였다.

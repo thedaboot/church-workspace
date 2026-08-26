@@ -6,7 +6,7 @@ import { failText } from '../services/errorText.js';
 import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, getFileOpenUrl, setFilePassword, checkFilePassword, driveImageUrl } from '../services/cloud.js';
 import { FilePreviewModal, officeSrc, driveSrc, viewerNote, PreparingFrame, FRAME_SETTLE, OFFICE_TIMEOUT } from '../components/FilePreviewModal.jsx';
 import { SmartImage, Skeleton } from '../components/media.jsx';
-import { useStore } from '../store/workspaceStore.js';
+import { useStore, store } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
 import { ensureProjectFolder } from '../services/cloudSync.js';
 
@@ -286,6 +286,8 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   const [thumbFailed, setThumbFailed] = useState({});
   const [dragOver, setDragOver] = useState(false);
   const [uploadingName, setUploadingName] = useState(null);
+  // 지금 올리는 중인지 — 위 조회가 업로드를 앞질렀는지 가르는 유일한 근거다
+  const uploadingRef = useRef(false);
   const [rejected, setRejected] = useState([]); // 용량 초과로 건너뛴 파일들
   const [preview, setPreview] = useState(null); // 미리보기로 열어둔 files 행
   const [embedded, setEmbedded] = useState({}); // { files.id: true } — 펼쳐둔 엑셀
@@ -299,11 +301,15 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     let alive = true;
     const handle = whenIdle(() => {
       // 새 업무는 저장 직후 첨부가 올라가는 중이라, 이 조회가 그 전에 다녀오면 빈 목록이
-      // 온다. 그걸 그대로 받으면 방금 올라온 파일을 도로 지운다 → 더 짧은 응답은 버린다.
-      // ponytail: 다른 사람이 지운 파일은 이 조회로 사라지지 않는다(다시 열면 맞는다) —
-      // 그 경우가 드물고, 방금 올린 내 파일이 사라지는 쪽이 훨씬 자주 겪는 일이다.
+      // 온다. 그걸 그대로 받으면 방금 올라온 파일을 도로 지운다.
+      // **다만 "짧으면 무조건 버린다"로 두면 지운 파일이 되살아난다**(사용자 지적).
+      // 올리는 중일 때만 버린다 — 그때가 조회가 앞질러 갈 수 있는 유일한 순간이다.
       listCardFiles(task.id)
-        .then(rows => { if (alive) setItems(prev => (rows.length >= prev.length ? rows : prev)); })
+        .then(rows => {
+          if (!alive) return;
+          const uploading = uploadingRef.current;
+          setItems(prev => (rows.length >= prev.length || !uploading ? rows : prev));
+        })
         .catch(e => console.error('[cloud] 첨부 목록 로드 실패:', e))
         .finally(() => { if (alive) setListing(false); });
     });
@@ -356,6 +362,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     for (const file of files) {
       if (file.size > MAX_UPLOAD_BYTES) { showToast(`'${file.name}'은(는) 25MB를 넘어 첨부하지 못했어요.`); continue; }
       try {
+        uploadingRef.current = true;
         setUploadingName(file.name);
         // 폴더는 첫 업로드 때 한 번만 확보한다 — 그 뒤로는 id로 바로 올려서
         // 프로젝트 이름을 바꿔도 파일이 두 폴더로 갈라지지 않는다
@@ -372,6 +379,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
         showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, e));
       } finally {
         setUploadingName(null);
+        uploadingRef.current = false;
       }
     }
   };
@@ -397,7 +405,11 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   const removeItem = async (row) => {
     try {
       await deleteAttachment(row);
-      setItems(prev => prev.filter(x => x.id !== row.id));
+      const next = items.filter(x => x.id !== row.id);
+      setItems(next);
+      // **스토어에도 반영한다.** 여기만 지우면 창을 닫았다 열 때 task.attachments가
+      // 아직 그 파일을 들고 있어서 되살아난다(사용자 지적 — "지웠는데 반영이 안 된다").
+      store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, attachments: next } });
       onFileActivity?.(`파일 '${row.name}'을(를) 삭제했습니다.`);
     } catch (e) { console.error('[cloud] 삭제 실패:', e); showToast(failText(`'${row.name}'을(를) 지우지 못했어요`, e)); }
   };

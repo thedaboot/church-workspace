@@ -712,7 +712,10 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
   // 고정된 상태에서 '다시 만들기'를 눌러도 화면이 옛 요약 그대로였다.
   const shown = summary || (revealed ? pinned : '');
   const showingPinned = !!pinned && shown === pinned;
-  const canPin = cloudMode && isAdmin && !!formData.id;
+  // AI 기능(요약 고정·고치기)은 **마스터만**(0028). 관리자를 늘려도 이건 안 번진다 —
+  // AI는 돈이 들고 워크스페이스 전체에 남는 글을 만든다(사용자 결정).
+  const { isMaster } = useAuth();
+  const canPin = cloudMode && isMaster && !!formData.id;
 
   const runAi = async () => {
     setIsAiLoading(true);

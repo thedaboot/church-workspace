@@ -79,7 +79,7 @@ function AuthGate() {
 function WorkspaceShell() {
   const controller = useWorkspaceController();
   const isMobile = useIsMobile();
-  const { enabled: authEnabled, session, isAdmin } = useAuth();
+  const { enabled: authEnabled, session, isAdmin, isMaster } = useAuth();
   const cloudMode = authEnabled && !!session;
   // 딥링크: /?p=<projectId>&t=<taskId>
   const [activeMenu, setActiveMenu] = useState(() => new URLSearchParams(window.location.search).get('p') || 'dashboard');
@@ -421,7 +421,7 @@ function WorkspaceShell() {
           <div key={activeMenu} className={needsFullHeight ? 'h-full' : ''}>
           {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} filter={dashFilter} setFilter={setDashFilter} />}
           {activeMenu === 'schedule' && <ScheduleView onTaskClick={handleTaskClick} />}
-          {activeMenu === 'members' && <MembersView isAdmin={isAdmin} />}
+          {activeMenu === 'members' && <MembersView isAdmin={isAdmin} isMaster={isMaster} />}
           {activeMenu === "myTasks" && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {isProjectScreen && (

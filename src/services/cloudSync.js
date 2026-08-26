@@ -324,6 +324,10 @@ export async function loadCloudState() {
   });
 
   const members = profiles
+    // 환송한 사람은 워크스페이스의 '사람'이 아니다(0027) — 대시보드 얼굴 줄·생일·
+    // '새로 온 사람'·담당자 선택기·멘션 후보에서 모두 빠진다. 환송했는데
+    // "OOO님이 함께하게 되었어요"가 그대로 떠 있었다(사용자 지적).
+    .filter(p => !p.removed_at)
     .filter(p => p.display_name)
     .map(p => {
       const primary = p.team_id ? (teamIdToName.get(p.team_id) || '') : '';
