@@ -17,6 +17,12 @@ import { ensureProjectFolder } from '../services/cloudSync.js';
 // 파일 실체는 Supabase Storage(private 버킷), DB에는 참조(files)만 있다.
 // ============================================================================
 
+// 이번 세션에 지운 첨부 id — **모듈 레벨**이라 수정 화면에서 지우고 바로 저장해
+// 보기 화면(다른 인스턴스)이 떠도 공유된다. 삭제가 DB에 닿기 전에 다녀간 조회가
+// 지운 파일을 되살리는 경합의 이중 방어다(1차 방어는 cloud.deleteAttachment가
+// DB 행을 먼저 지우는 것). 실패해서 되살릴 때는 도로 뺀다.
+const deletedFileIds = new Set();
+
 // 첫 페인트 이후(유휴)로 작업을 미루는 헬퍼 — requestIdleCallback 미지원 시 타이머 폴백.
 // 첨부 목록·썸네일 URL 발급은 모달이 뜬 뒤에 해도 되는 일이라 여기로 미룬다.
 const whenIdle = (fn) => (typeof requestIdleCallback === 'function'
@@ -307,6 +313,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
       listCardFiles(task.id)
         .then(rows => {
           if (!alive) return;
+          rows = rows.filter(r => !deletedFileIds.has(r.id));   // 방금 지운 것은 되살리지 않는다
           const uploading = uploadingRef.current;
           setItems(prev => (rows.length >= prev.length || !uploading ? rows : prev));
         })
@@ -319,7 +326,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   // 생성 시 골라둔 첨부는 저장 **직후** 셸이 올려 스토어(task.attachments)로 들어온다 —
   // 위 listCardFiles가 업로드가 끝나기 전에 다녀갔을 수 있어, 더 긴 목록이 오면 반영한다.
   useEffect(() => {
-    const rows = task.attachments || [];
+    const rows = (task.attachments || []).filter(r => !deletedFileIds.has(r.id));
     if (rows.length) setItems(prev => (prev.length >= rows.length ? prev : rows));
   }, [task.attachments]);
 
@@ -452,11 +459,13 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
       setItems(list);
       store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, attachments: list } });
     };
+    deletedFileIds.add(row.id);
     put(next);
     try {
       await deleteAttachment(row);
       onFileActivity?.(`파일 '${row.name}'을(를) 삭제했습니다.`);
     } catch (e) {
+      deletedFileIds.delete(row.id);
       put(before);
       console.error('[cloud] 삭제 실패:', e);
       showToast(failText(`'${row.name}'을(를) 지우지 못했어요`, e));

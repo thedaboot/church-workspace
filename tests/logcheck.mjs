@@ -447,3 +447,41 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(driveSrc(null, now), null, 'null도 안전하다');
   console.log('PASS  드라이브 뷰어 고르기 14가지');
 }
+
+// ── 힘 기반 그래프 한 스텝 (utils.forceStep) ──
+// 연결 지도·프로젝트 그래프 뷰가 같이 쓴다. 고정 노드(팀)와 끌리는 노드는 힘을
+// 받지 않아야 하고, 나머지는 경계 안에 있어야 한다 — 이게 깨지면 팀이 떠다니거나
+// 노드가 카드 밖으로 나간다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'fg-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { forceStep } = await import(pathToFileURL(f).href);
+
+  const W = 600, H = 300;
+  const nodes = [
+    { id: 'a', ax: 0.2 },                        // 떠 있는 노드
+    { id: 'b', ax: 0.8 },
+    { id: 'fix', fixed: { x: 300, y: 150 } },    // 팀(가운데 고정)
+    { id: 'drag', ax: 0.5 },                     // 손으로 끌고 있는 노드
+  ];
+  const pos = [{ x: 100, y: 100 }, { x: 500, y: 200 }, { x: 300, y: 150 }, { x: 250, y: 80 }];
+  const vel = pos.map(() => ({ x: 0, y: 0 }));
+  const edges = [[0, 1, 90]];
+  const before = pos.map(p => ({ ...p }));
+  for (let i = 0; i < 200; i++) forceStep(pos, vel, nodes, edges, W, H, 3);
+
+  assert.deepStrictEqual(pos[2], before[2], '고정 노드는 움직이지 않는다');
+  assert.deepStrictEqual(pos[3], before[3], '끌리는 노드는 시뮬이 못 움직인다');
+  assert.notDeepStrictEqual(pos[0], before[0], '떠 있는 노드는 힘을 받아 움직인다');
+  for (const i of [0, 1]) {
+    assert.ok(pos[i].x >= 20 && pos[i].x <= W - 20, `x 경계 안 (${i}: ${pos[i].x})`);
+    assert.ok(pos[i].y >= 20 && pos[i].y <= H - 16, `y 경계 안 (${i}: ${pos[i].y})`);
+  }
+  // 스프링: 연결된 두 노드는 400px에서 목표 길이(90) 쪽으로 당겨져야 한다
+  const d = Math.hypot(pos[1].x - pos[0].x, pos[1].y - pos[0].y);
+  const d0 = Math.hypot(before[1].x - before[0].x, before[1].y - before[0].y);
+  assert.ok(d < d0, `연결선이 당긴다 (${Math.round(d0)} → ${Math.round(d)})`);
+  console.log('PASS  힘 그래프 스텝 6가지');
+}

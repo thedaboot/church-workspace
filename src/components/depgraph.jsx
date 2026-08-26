@@ -1,83 +1,142 @@
-import React from 'react';
-import { CONFIG, teamPaint } from '../config.js';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { teamColor } from '../config.js';
 import { depLayers } from '../utils.js';
+import { useForceGraph } from '../hooks/useForceGraph.js';
 import { STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
 
 // ============================================================================
 // 프로젝트 '그래프' 보기 — 업무 선후관계 (0020의 cards.depends_on)
 // ----------------------------------------------------------------------------
-// 선행 업무보다 오른쪽 열에 오도록 배치한다(utils.depLayers). 열·행이 고정 크기라
-// 좌표를 렌더와 같은 상수로 계산한다 — force 시뮬레이션도, 측정도 없다.
-// 캔버스가 화면보다 크면 양방향 스크롤이다(보드가 가로로 밀리는 것과 같은 취급).
+// 예전에는 고정 열·행 배치라 **선행을 아무도 안 정하면 전부 0열에 세로로만
+// 쌓였다**(사용자 지적 — 업무가 늘수록 높이만 늘었다). 지금은 연결 지도와 같은
+// 힘 배치다(useForceGraph 공용): 높이 고정, 노드는 손으로 끌 수 있고,
+// 선후 깊이(depLayers)는 x 앵커로만 남아 "왼쪽이 먼저"라는 읽기는 유지된다.
+// 노드는 점 + 제목이다 — 카드 상자(190px)를 힘 배치에 그대로 두면 서로 밀어낼
+// 자리가 안 나온다. 상세는 클릭해서 업무 창으로.
 // ============================================================================
-
-const G = { COL_W: 210, GAP_X: 56, ROW_H: 64, NODE_W: 190, NODE_H: 52, PAD: 14 };
+const DG = { H_DESK: 440, H_MOBILE: 360 };
 
 export function DepGraph({ tasks, onTaskClick }) {
-  const cols = depLayers(tasks || []);
-  const hasEdges = (tasks || []).some(t => (t.dependsOn || []).length);
-  // 좌표: pos[id] = {x, y} (노드 왼쪽 위)
-  const pos = new Map();
-  cols.forEach((col, ci) => col.forEach((t, ri) => {
-    pos.set(t.id, { x: G.PAD + ci * (G.COL_W + G.GAP_X), y: G.PAD + ri * G.ROW_H });
-  }));
-  const W = G.PAD * 2 + Math.max(1, cols.length) * G.COL_W + Math.max(0, cols.length - 1) * G.GAP_X;
-  const H = G.PAD * 2 + Math.max(1, ...cols.map(c => c.length)) * G.ROW_H;
-  const byId = new Map((tasks || []).map(t => [t.id, t]));
+  const list = tasks || [];
+  const hasEdges = list.some(t => (t.dependsOn || []).length);
+  const compact = typeof window !== 'undefined' && window.innerWidth < 768;
+  const H = compact ? DG.H_MOBILE : DG.H_DESK;
+  const wrapRef = useRef(null);
+  const [cw, setCw] = useState(compact ? 340 : 760);
+  // 시뮬 폭은 980까지만 — 전폭(1400px)에 그대로 돌리면 깊이 앵커 사이가 너무 멀어
+  // 오른쪽이 통째로 빈다(연결 지도와 같은 판단). 남는 폭은 여백으로 가운데 정렬.
+  const W = Math.min(cw, 980);
+  const offX = Math.max(0, (cw - W) / 2);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setCw(Math.max(280, el.clientWidth)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
-  if (!(tasks || []).length) {
+  const { nodes, edges, byId } = useMemo(() => {
+    const cols = depLayers(list);
+    const depthOf = new Map();
+    cols.forEach((col, ci) => col.forEach(t => depthOf.set(t.id, ci)));
+    const rowOf = new Map();
+    cols.forEach(col => col.forEach((t, ri) => rowOf.set(t.id, (ri + 0.5) / col.length)));
+    const nCols = Math.max(1, cols.length);
+    // 앵커는 두 부류다 — 이 뷰를 바꾼 이유가 "연결 안 하면 높이만 쌓인다"였다.
+    //  · 선이 있는 업무: 깊이(depLayers) → x 앵커. 왼쪽이 먼저라는 읽기.
+    //  · 선이 없는 업무: 격자 앵커로 캔버스 전체에 편다(높이가 아니라 면으로).
+    const linkedIds = new Set();
+    list.forEach(t => (t.dependsOn || []).forEach(d => {
+      if (d !== t.id && list.some(x => x.id === d)) { linkedIds.add(t.id); linkedIds.add(d); }
+    }));
+    const loose = list.filter(t => !linkedIds.has(t.id));
+    const looseIdx = new Map(loose.map((t, k) => [t.id, k]));
+    const gridCols = Math.max(2, Math.ceil(Math.sqrt(loose.length * 2)));
+    const gridRows = Math.max(1, Math.ceil(loose.length / gridCols));
+    const nodes = list.map(t => {
+      const base = { id: t.id, t, repel: 1.6, pl: 40, pr: 70, pt: 24, pb: 22 };
+      if (linkedIds.has(t.id) && nCols > 1) {
+        const y = rowOf.get(t.id);
+        return { ...base, ax: 0.14 + 0.72 * (depthOf.get(t.id) || 0) / (nCols - 1), ay: y, iy: y };
+      }
+      const k = looseIdx.get(t.id) ?? 0;
+      const y = 0.1 + 0.8 * (Math.floor(k / gridCols) + 0.5) / gridRows;
+      return { ...base, ax: 0.12 + 0.76 * ((k % gridCols) + 0.5) / gridCols, ay: y, iy: y };
+    });
+    const idx = new Map(nodes.map((n, i) => [n.id, i]));
+    const edges = [];
+    list.forEach(t => (t.dependsOn || []).forEach(d => {
+      if (idx.has(d) && d !== t.id) edges.push([idx.get(d), idx.get(t.id), compact ? 90 : 130]);
+    }));
+    return { nodes, edges, byId: new Map(list.map(t => [t.id, t])) };
+  }, [list, compact]);
+
+  const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, offX });
+  const [hi, setHi] = useState(null);
+  const linked = useMemo(() => {
+    if (hi == null) return null;
+    const set = new Set([hi]);
+    edges.forEach(([a, b]) => { if (a === hi) set.add(b); if (b === hi) set.add(a); });
+    return set;
+  }, [hi, edges]);
+
+  if (!list.length) {
     return <p className="py-16 text-center text-[11px] text-fg-faint">아직 업무가 없어요</p>;
   }
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      {/* 아직 아무도 선후를 정하지 않았으면 사용법이 곧 빈 상태 안내다 */}
-      {!hasEdges && (
-        <p className="pb-2 text-[11px] text-fg-faint shrink-0">
-          업무를 열어 '선행 업무'를 정하면 여기에 순서가 이어져요
-        </p>
-      )}
-      <div className="flex-1 min-h-0 overflow-auto rounded-[10px] shadow-soft"
-        style={{ border: '1px solid var(--app-line)', background: 'var(--app-surface)', overscrollBehaviorX: 'none' }}>
-        <div className="relative" style={{ width: W, height: H }}>
-          <svg className="absolute inset-0 pointer-events-none" width={W} height={H} aria-hidden>
-            {(tasks || []).flatMap(t => (t.dependsOn || [])
-              .filter(d => pos.has(d) && d !== t.id)
-              .map(d => {
-                const from = pos.get(d), to = pos.get(t.id);
-                const x1 = from.x + G.NODE_W, y1 = from.y + G.NODE_H / 2;
-                const x2 = to.x, y2 = to.y + G.NODE_H / 2;
-                // 선행이 끝났으면 초록 실선, 아직이면 회색 — "여기가 막혀 있다"가 색으로 보인다
-                const done = byId.get(d)?.status === '완료';
-                return (
-                  <g key={`${d}-${t.id}`}>
-                    <path d={`M ${x1} ${y1} C ${x1 + G.GAP_X / 2} ${y1}, ${x2 - G.GAP_X / 2} ${y2}, ${x2} ${y2}`}
-                      fill="none" strokeWidth="1.3"
-                      stroke={done ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)'}
-                      opacity={done ? 0.75 : 0.55} />
-                    <circle cx={x2} cy={y2} r="2.4" fill={done ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)'} />
-                  </g>
-                );
-              }))}
+      <p className="pb-2 text-[11px] text-fg-faint shrink-0">
+        {hasEdges
+          ? '왼쪽이 먼저 할 일이에요 · 선행이 끝난 연결은 초록 선 · 노드를 끌어서 정리할 수 있어요'
+          : "업무를 열어 '선행 업무'를 정하면 여기에 순서가 이어져요 · 노드를 끌어서 정리할 수 있어요"}
+      </p>
+      <div className="rounded-[10px] shadow-soft select-none"
+        style={{ border: '1px solid var(--app-line)', background: 'var(--app-surface)' }}>
+        <div ref={wrapRef} className="relative" style={{ height: H }}>
+          <svg className="absolute inset-0 pointer-events-none" width={cw} height={H} aria-hidden>
+            {edges.map(([a, b], i) => {
+              // 선행이 끝났으면 초록, 아직이면 회색 — "여기가 막혀 있다"가 색으로 보인다
+              const done = byId.get(nodes[a].id)?.status === '완료';
+              const on = hi != null && (a === hi || b === hi);
+              const dim = hi != null && !on;
+              const color = done ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)';
+              return (
+                <g key={i} opacity={dim ? 0.12 : on ? 0.9 : done ? 0.75 : 0.5} style={{ transition: 'opacity 200ms' }}>
+                  <line x1={offX + (pos[a]?.x || 0)} y1={pos[a]?.y} x2={offX + (pos[b]?.x || 0)} y2={pos[b]?.y}
+                    stroke={color} strokeWidth={on ? 1.8 : 1.3} />
+                  <circle cx={offX + (pos[b]?.x || 0)} cy={pos[b]?.y} r="2.6" fill={color} />
+                </g>
+              );
+            })}
           </svg>
-          {cols.flatMap(col => col.map(t => {
-            const p = pos.get(t.id);
+          {nodes.map((n, i) => {
+            const P = pos[i];
+            if (!P) return null;
+            const t = n.t;
+            const dim = linked && !linked.has(i);
+            const drag = bindDrag(i);
             return (
-              <button key={t.id} type="button" onClick={() => onTaskClick(t)}
-                className="absolute flex items-center gap-2 px-2.5 text-left rounded-[8px] hover:bg-surface-hover transition-colors"
-                style={{ left: p.x, top: p.y, width: G.NODE_W, height: G.NODE_H,
-                  border: '1px solid var(--app-line)', background: 'var(--app-surface)' }}>
-                <span className="shrink-0 w-[3px] h-7 rounded-full" style={teamPaint(t.teams, true)} />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[12px] font-semibold text-fg truncate"
-                    style={{ opacity: t.status === '완료' ? 0.55 : 1 }}>{t.title}</span>
-                  <span className="inline-flex items-center gap-1 text-[10px] text-fg-faint">
-                    <span className="w-[5px] h-[5px] rounded-full" style={{ background: STATUS_DOT_VAR[t.status] }} />
-                    {t.status}{t.assignees?.[0] ? ` · ${t.assignees[0]}` : ''}
-                  </span>
-                </span>
+              <button key={n.id} type="button" {...drag}
+                onClick={() => onTaskClick(t)}
+                onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+                title={`${t.title}${t.assignees?.length ? ` · ${t.assignees.join(', ')}` : ''} · ${t.status}`}
+                className="absolute flex flex-col items-center gap-1 text-center"
+                style={{
+                  left: offX + P.x, top: P.y, transform: 'translate(-50%, -50%)', cursor: 'grab',
+                  opacity: dim ? 0.22 : 1, transition: 'opacity 200ms', ...drag.style,
+                }}>
+                {/* 점 = 상태색 채움 + 팀색 테두리. 완료는 흐려서 "남은 일"이 도드라진다 */}
+                <span className="rounded-full pointer-events-none"
+                  style={{
+                    width: 13, height: 13, background: STATUS_DOT_VAR[t.status],
+                    boxShadow: `0 0 0 2.5px ${teamColor(t.teams?.[0])}55, 0 0 0 1px var(--app-surface)`,
+                    opacity: t.status === '완료' ? 0.55 : 1,
+                  }} />
+                <span className="text-[10.5px] font-semibold leading-tight text-fg max-w-[110px] truncate pointer-events-none"
+                  style={{ opacity: t.status === '완료' ? 0.5 : 1 }}>{t.title}</span>
               </button>
             );
-          }))}
+          })}
         </div>
       </div>
     </div>

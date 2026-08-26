@@ -278,3 +278,45 @@ export function toggleTodoLine(md, idx) {
     return `${m[1]}${m[2].trim() ? ' ' : 'x'}${m[3]}`;
   }).join('\n');
 }
+
+// ── 힘 기반 그래프 한 스텝 (연결 지도·프로젝트 그래프 뷰가 같이 쓴다) ────────────
+// 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
+// pos·vel을 제자리에서 고친다(매 프레임 3번 돌므로 새 배열을 만들면 GC가 튄다).
+//  node: { ax?: 0..1 x 앵커 비율 · ay?: 0..1 · fixed?: {x,y} 고정 노드 ·
+//          repel?: 반발 배수(라벨이 큰 노드는 세게) · pl/pr/pt/pb?: 경계 여유 }
+//  edge: [aIdx, bIdx, 목표 길이(기본 90)]
+//  dragIdx: 지금 손으로 끌고 있는 노드 — 힘을 받지 않는다(자리는 포인터가 정한다)
+// ponytail: d3-force 대신 손 시뮬 — 노드 수십 개라 O(n²) 반발도 공짜다.
+//           수백이 되면 d3-force + 쿼드트리로 바꾼다.
+export function forceStep(pos, vel, nodes, edges, W, H, dragIdx = -1) {
+  const REPEL = 2400, SPRING = 0.028, ANCHOR_X = 0.02, ANCHOR_Y = 0.012, DAMP = 0.86;
+  const skip = (i) => nodes[i].fixed || i === dragIdx;
+  for (let i = 0; i < nodes.length; i++) {
+    if (skip(i)) continue;
+    let fx = 0, fy = 0;
+    for (let j = 0; j < nodes.length; j++) {
+      if (i === j) continue;
+      const dx = pos[i].x - pos[j].x, dy = pos[i].y - pos[j].y;
+      const d2 = Math.max(120, dx * dx + dy * dy);
+      const f = (REPEL * (nodes[i].repel || 1) * (nodes[j].repel || 1)) / d2;
+      const d = Math.sqrt(d2);
+      fx += (dx / d) * f; fy += (dy / d) * f;
+    }
+    fx += (W * (nodes[i].ax ?? 0.5) - pos[i].x) * ANCHOR_X;
+    fy += (H * (nodes[i].ay ?? 0.5) - pos[i].y) * ANCHOR_Y;
+    vel[i].x = (vel[i].x + fx) * DAMP; vel[i].y = (vel[i].y + fy) * DAMP;
+  }
+  for (const [a, b, L] of edges) {
+    const dx = pos[b].x - pos[a].x, dy = pos[b].y - pos[a].y;
+    const d = Math.max(1, Math.hypot(dx, dy));
+    const f = (d - (L || 90)) * SPRING;
+    const ux = dx / d, uy = dy / d;
+    if (!skip(a)) { vel[a].x += ux * f; vel[a].y += uy * f; }
+    if (!skip(b)) { vel[b].x -= ux * f; vel[b].y -= uy * f; }
+  }
+  for (let i = 0; i < nodes.length; i++) {
+    if (skip(i)) continue;
+    pos[i].x = Math.min(W - (nodes[i].pr ?? 20), Math.max(nodes[i].pl ?? 20, pos[i].x + vel[i].x));
+    pos[i].y = Math.min(H - (nodes[i].pb ?? 16), Math.max(nodes[i].pt ?? 20, pos[i].y + vel[i].y));
+  }
+}

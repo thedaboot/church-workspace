@@ -135,47 +135,50 @@ export async function updateProject(id, patch) {
 // 정리에 실패해도 프로젝트 삭제는 진행한다 — 파일 때문에 삭제가 막히면 안 된다.
 export async function deleteProject(id) {
   const c = client();
+  // 준비물 먼저 읽고 → 행 삭제(cascade가 카드까지) → 실체 정리. 순서 이유는 deleteCard와 같다.
+  let proj = null, cards = [], files = [];
   try {
-    const proj = unwrap(await c.from('projects').select('drive_folder_id').eq('id', id).single());
-    const cards = unwrap(await c.from('cards').select('id, drive_folder_id').eq('project_id', id)) || [];
+    proj = unwrap(await c.from('projects').select('drive_folder_id').eq('id', id).single());
+    cards = unwrap(await c.from('cards').select('id, drive_folder_id').eq('project_id', id)) || [];
     const cardIds = cards.map(x => x.id);
-    const files = cardIds.length
+    files = cardIds.length
       ? unwrap(await c.from('files').select('*').in('card_id', cardIds)) || []
       : [];
-    let projectTrashed = false;
-    if (proj?.drive_folder_id) {
-      try { await trashDriveId(proj.drive_folder_id); projectTrashed = true; }
-      catch (e) { console.error('[cloud] 프로젝트 폴더 휴지통 이동 실패(업무 단위로 전환):', e); }
-    }
-    if (!projectTrashed) {
-      const trashedCards = new Set();
-      for (const card of cards) {
-        if (!card.drive_folder_id) continue;
-        try { await trashDriveId(card.drive_folder_id); trashedCards.add(card.id); }
-        catch (e) { console.error('[cloud] 업무 폴더 휴지통 이동 실패:', e); }
-      }
-      for (const f of files) {
-        if (f.source === 'drive' && trashedCards.has(f.card_id)) continue;
-        try { await deleteAttachment(f); }
-        catch (e) { console.error('[cloud] 프로젝트 삭제 중 첨부 정리 실패:', f.name, e); }
-      }
-    } else {
-      // 폴더째 갔어도 Storage(레거시) 실체는 드라이브 밖이다 — 따로 지운다
-      for (const f of files) {
-        if (!f.storage_path) continue;
-        try { await c.storage.from(ATTACH_BUCKET).remove([f.storage_path]); }
-        catch (e) { console.error('[cloud] Storage 정리 실패:', f.name, e); }
-      }
-    }
-    if (cardIds.length) {
-      const { error } = await c.from('files').delete().in('card_id', cardIds);
-      if (error) console.error('[cloud] 첨부 행 정리 실패:', error);
-    }
   } catch (e) {
-    console.error('[cloud] 프로젝트 삭제 중 드라이브 정리 실패:', e);
+    console.error('[cloud] 프로젝트 삭제 준비(폴더·파일 조회) 실패:', e);
   }
   const { error } = await c.from('projects').delete().eq('id', id);
   if (error) throw error;
+  if (files.length) {
+    const { error: fe } = await c.from('files').delete().in('id', files.map(f => f.id));
+    if (fe) console.error('[cloud] 첨부 행 정리 실패:', fe);
+  }
+  // 프로젝트 폴더째 휴지통 — 안의 업무 폴더·파일이 한 번에 간다. 실패하면 업무 단위로.
+  let projectTrashed = false;
+  if (proj?.drive_folder_id) {
+    try { await trashDriveId(proj.drive_folder_id); projectTrashed = true; }
+    catch (e) { console.error('[cloud] 프로젝트 폴더 휴지통 이동 실패(업무 단위로 전환):', e); }
+  }
+  if (!projectTrashed) {
+    const trashedCards = new Set();
+    for (const card of cards) {
+      if (!card.drive_folder_id) continue;
+      try { await trashDriveId(card.drive_folder_id); trashedCards.add(card.id); }
+      catch (e) { console.error('[cloud] 업무 폴더 휴지통 이동 실패:', e); }
+    }
+    for (const f of files) {
+      if (f.source === 'drive' && f.drive_file_id && !trashedCards.has(f.card_id)) {
+        try { await driveCall({ action: 'trash', fileId: f.drive_file_id }); }
+        catch (e) { console.error('[drive] 휴지통 이동 실패:', f.name, e); }
+      }
+    }
+  }
+  // Storage(레거시) 실체는 드라이브 밖이라 언제나 따로 지운다
+  for (const f of files) {
+    if (!f.storage_path) continue;
+    try { await c.storage.from(ATTACH_BUCKET).remove([f.storage_path]); }
+    catch (e) { console.error('[cloud] Storage 정리 실패:', f.name, e); }
+  }
 }
 
 // ── cards ─────────────────────────────────────────────────────────────────────
@@ -284,27 +287,41 @@ async function trashDriveId(driveId) {
 
 export async function deleteCard(id) {
   const c = client();
+  // 정리에 필요한 것(폴더 id·파일 목록)을 **먼저 읽고**, 행을 지우고, 실체는 마지막에.
+  // 첨부 삭제(deleteAttachment)와 같은 순서 원칙이다 — 드라이브 왕복이 끝나기를
+  // 기다렸다 행을 지우면, 그 사이 재조회가 지운 업무를 화면에 되살린다.
+  let folderId = null, files = [];
   try {
     const row = unwrap(await c.from('cards').select('drive_folder_id').eq('id', id).single());
-    const files = unwrap(await c.from('files').select('*').eq('card_id', id));
-    let folderTrashed = false;
-    if (row?.drive_folder_id) {
-      try { await trashDriveId(row.drive_folder_id); folderTrashed = true; }
-      catch (e) { console.error('[cloud] 업무 폴더 휴지통 이동 실패(파일 단위로 전환):', e); }
-    }
-    for (const f of files || []) {
-      // 폴더가 통째로 갔으면 안의 드라이브 파일은 이미 휴지통이다 — 행 삭제만 남는다(아래 blanket)
-      if (folderTrashed && f.source === 'drive') continue;
-      try { await deleteAttachment(f); }
-      catch (e) { console.error('[cloud] 업무 삭제 중 첨부 정리 실패:', f.name, e); }
-    }
+    folderId = row?.drive_folder_id || null;
+    files = unwrap(await c.from('files').select('*').eq('card_id', id)) || [];
   } catch (e) {
-    console.error('[cloud] 업무 삭제 중 첨부 목록 조회 실패:', e);
+    console.error('[cloud] 업무 삭제 준비(폴더·파일 조회) 실패:', e);
   }
-  const { error } = await c.from('files').delete().eq('card_id', id);
-  if (error) console.error('[cloud] 남은 첨부 행 정리 실패:', error);
   const { error: delErr } = await c.from('cards').delete().eq('id', id);
   if (delErr) throw delErr;
+  // 파일 행 정리 — 카드 삭제로 card_id가 null이 됐으므로 모아둔 id로 지운다
+  if (files.length) {
+    const { error } = await c.from('files').delete().in('id', files.map(f => f.id));
+    if (error) console.error('[cloud] 첨부 행 정리 실패:', error);
+  }
+  // 실체 정리는 최선으로 — 폴더째 휴지통(안의 파일이 전부 따라간다), 실패하면 파일 단위
+  let folderTrashed = false;
+  if (folderId) {
+    try { await trashDriveId(folderId); folderTrashed = true; }
+    catch (e) { console.error('[cloud] 업무 폴더 휴지통 이동 실패(파일 단위로 전환):', e); }
+  }
+  for (const f of files) {
+    if (folderTrashed && f.source === 'drive') continue;
+    if (f.source === 'drive' && f.drive_file_id) {
+      try { await driveCall({ action: 'trash', fileId: f.drive_file_id }); }
+      catch (e) { console.error('[drive] 휴지통 이동 실패:', f.name, e); }
+    }
+    if (f.storage_path) {
+      try { await c.storage.from(ATTACH_BUCKET).remove([f.storage_path]); }
+      catch (e) { console.error('[cloud] Storage 정리 실패:', f.name, e); }
+    }
+  }
 }
 
 // ── comments (parent_id로 답글 지원) ────────────────────────────────────────
@@ -656,22 +673,24 @@ export async function getAttachmentUrls(storagePaths = []) {
   return map;
 }
 
-// 삭제: Storage 객체 + files 행
+// 삭제 — **DB 행부터 지운다.** 화면의 진실은 DB다: 드라이브 휴지통 왕복(1~2초)을
+// 먼저 하면, 그 사이 다른 조회(저장 직후 보기 화면의 listCardFiles)가 아직 남아 있는
+// 행을 읽어 와 **지운 파일이 화면에 되살아났다**(사용자 지적 — 엑셀 지우고 저장했더니
+// 그대로 있었다). 행이 먼저 사라지면 어떤 조회가 언제 다녀가도 그 파일은 없다.
+// 실체 정리(드라이브 휴지통·Storage)는 그 뒤 최선으로 — 실패해도 던지지 않는다.
+// 드라이브는 30일 복구가 되고(사용자 결정), 남은 실체는 소유자가 정리할 수 있다.
 export async function deleteAttachment(fileRow) {
   const c = client();
+  const { error } = await c.from('files').delete().eq('id', fileRow.id);
+  if (error) throw error;
   if (fileRow.storage_path) {
-    const { error } = await c.storage.from(ATTACH_BUCKET).remove([fileRow.storage_path]);
-    if (error) throw error;
+    try { await c.storage.from(ATTACH_BUCKET).remove([fileRow.storage_path]); }
+    catch (e) { console.error('[cloud] Storage 정리 실패:', e); }
   }
-  // 드라이브 파일은 **휴지통으로** 보낸다(30일 복구 가능 — 사용자 결정).
-  // 실패해도 DB 행은 지운다: 화면에서 지웠는데 목록에 남아 있으면 고장으로 읽히고,
-  // 드라이브에 남은 파일은 소유자가 나중에 정리할 수 있다.
   if (fileRow.source === 'drive' && fileRow.drive_file_id) {
     try { await driveCall({ action: 'trash', fileId: fileRow.drive_file_id }); }
     catch (e) { console.error('[drive] 휴지통 이동 실패:', e); }
   }
-  const { error } = await c.from('files').delete().eq('id', fileRow.id);
-  if (error) throw error;
 }
 
 // ── push_subscriptions (웹 푸시 구독) ───────────────────────────────────────

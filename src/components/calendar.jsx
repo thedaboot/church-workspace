@@ -58,6 +58,7 @@ function layoutWeek(weekStart, tasks, laneCount = CAL_LANES) {
 
   const lanes = [];                        // lanes[i] = bar[]
   const overflowByCol = Array(7).fill(0);
+  const overflowTasks = Array(7).fill(null);   // 칸마다 못 실린 업무들 — 팀색 점의 재료
   bars.forEach(bar => {
     let li = 0;
     while (li < laneCount) {
@@ -66,12 +67,15 @@ function layoutWeek(weekStart, tasks, laneCount = CAL_LANES) {
       li++;
     }
     if (li >= laneCount) {
-      for (let c = bar.col; c < bar.col + bar.span; c++) overflowByCol[c]++;
+      for (let c = bar.col; c < bar.col + bar.span; c++) {
+        overflowByCol[c]++;
+        (overflowTasks[c] = overflowTasks[c] || []).push(bar.task);
+      }
       return;
     }
     (lanes[li] = lanes[li] || []).push(bar);
   });
-  return { lanes, overflowByCol };
+  return { lanes, overflowByCol, overflowTasks };
 }
 
 // ── 캘린더 ────────────────────────────────────────────────────────────────
@@ -118,7 +122,9 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
       // 날짜 줄 / 레인 위아래 여백(pt-1 + pb-0.5 = 6) / +N건 줄(10px leading-none + 2) / 띠(18)+간격(3)
       // 이 상수들은 아래 CSS와 한 쌍이다 — 실제보다 작게 잡으면 +N건이 줄 바닥에서 잘린다
       // (실제로 잘렸다: OVER를 14로 두고 +N건 줄은 15px를 차지했다).
-      const DATE = 22, PAD = 6, OVER = 12, LANE = 21;
+      // 띠 16px + 간격 2px = LANE 18. 21이었을 때는 창 높이 745px에서 두 줄이
+      // 안 들어가 laneFit이 1로 떨어졌다(사용자 화면 — "+2건만 나온다").
+      const DATE = 22, PAD = 6, OVER = 12, LANE = 18;
       setLaneFit(Math.max(1, Math.min(CAL_LANES, Math.floor((rowH - DATE - PAD - OVER) / LANE))));
     };
     calc();
@@ -214,7 +220,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
         {weekdayHeader}
         <div ref={gridRef} className="flex-1 min-h-0 flex flex-col rounded-[10px] overflow-hidden shadow-soft"
           style={{ border: '1px solid var(--app-line)', background: 'color-mix(in srgb, var(--app-line) 55%, var(--app-ink-faint))' }}>
-          {weeks.map(({ ws, lanes, overflowByCol }, wi) => (
+          {weeks.map(({ ws, lanes, overflowByCol, overflowTasks }, wi) => (
             <div key={ws} className="relative flex-1 min-h-0 overflow-hidden flex flex-col"
               style={{ borderTop: wi ? '1px solid color-mix(in srgb, var(--app-line) 55%, var(--app-ink-faint))' : 'none' }}>
               {/* ① 배경 셀 — 클릭 타깃 */}
@@ -267,7 +273,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
               {/* ③ 띠 레인 — 레인 영역 자체는 클릭을 통과시킨다.
                   안 그러면 칸의 아래 절반이 이 div에 먹혀서 날짜가 한 번에 안 눌렸다.
                   띠와 '+N건'만 다시 클릭을 받는다. */}
-              <div className="relative flex-1 min-h-0 flex flex-col gap-[3px] pt-1 pb-0.5 pointer-events-none">
+              <div className="relative flex-1 min-h-0 flex flex-col gap-[2px] pt-1 pb-0.5 pointer-events-none">
                 {Array.from({ length: laneFit }, (_, li) => (
                   <div key={li} className="grid grid-cols-7 shrink-0" style={{ gap: 1 }}>
                     {(lanes[li] || []).map(bar => (
@@ -278,12 +284,19 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
                 {overflowByCol.some(Boolean) && (
                   // leading-none + 고정 높이 — 글자 줄 높이(15px)가 laneFit 계산의 예약분을
                   // 넘어서 +N건이 줄 바닥에 반쯤 잘려 보였다. 계산 상수(OVER)와 한 쌍.
+                  // '+N건' 글자만 있으면 일정이 있어도 빈 날처럼 읽혔다(사용자 지적) —
+                  // 못 실린 업무의 **팀색 점**을 앞에 찍는다(모바일 달력과 같은 언어).
                   <div className="grid grid-cols-7 shrink-0 h-[12px]" style={{ gap: 1 }}>
                     {overflowByCol.map((n, i) => (
                       <span key={i} className="px-1.5">
                         {n > 0 && (
-                          <button onClick={() => setSelected(addDays(ws, i))}
-                            className="pointer-events-auto block text-[10px] leading-none font-semibold text-fg-faint hover:text-fg-muted transition-colors">+{n}건</button>
+                          <button onClick={() => setSelected(addDays(ws, i))} title={`${n}건 더 — 눌러서 목록으로`}
+                            className="pointer-events-auto flex items-center gap-[3px] text-[10px] leading-none font-semibold text-fg-faint hover:text-fg-muted transition-colors">
+                            {(overflowTasks[i] || []).slice(0, 3).map((t, k) => (
+                              <span key={k} className="w-[5px] h-[5px] rounded-full shrink-0" style={{ background: teamColor(t.teams?.[0]) }} />
+                            ))}
+                            +{n}
+                          </button>
                         )}
                       </span>
                     ))}
@@ -314,7 +327,7 @@ function CalBar({ bar, onClick }) {
   return (
     <button
       onClick={onClick} title={`${task.title} (${mdOf(spanOf(task).start)} ~ ${mdOf(spanOf(task).end)})`}
-      className="pointer-events-auto min-w-0 h-[18px] px-1.5 flex items-center text-left hover:brightness-95 transition-[filter]"
+      className="pointer-events-auto min-w-0 h-[16px] px-1.5 flex items-center text-left hover:brightness-95 transition-[filter]"
       style={{
         gridColumn: `${col + 1} / span ${span}`,
         ...teamPaint(task.teams),
