@@ -385,7 +385,12 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(errorReason({ message: 'Failed to fetch' }), '인터넷 연결을 확인하고 다시 시도해주세요');
   assert.strictEqual(errorReason({ status: 413, message: 'The object exceeded the maximum allowed size' }), '파일이 너무 커요');
   assert.strictEqual(errorReason(null), '잠시 후 다시 시도해주세요');
-  assert.strictEqual(errorReason({ code: 'ZZZZZ', message: 'boom' }), '잠시 후 다시 시도해주세요');
+  // 아는 코드가 하나도 없으면 **원문이라도** 보여준다. 아무 단서도 없이
+  // '잠시 후 다시 시도해주세요'만 남으면 쓰는 사람도 고치는 사람도 원인을 못 본다
+  // (첨부가 안 올라가는데 이유를 못 찾아 두 번 헤맸다).
+  assert.strictEqual(errorReason({ code: 'ZZZZZ', message: 'boom' }), 'boom');
+  assert.strictEqual(errorReason({}), '잠시 후 다시 시도해주세요');
+  assert.ok(errorReason({ message: 'x'.repeat(200) }).length <= 91, '길면 잘라서 한 줄을 넘기지 않는다');
   // 우리 서버가 한국어로 이유를 준 경우에는 그것을 그대로 쓴다 — 버리면 화면에
   // '잠시 후 다시 시도해주세요'만 남아서 무엇이 막혔는지 아무도 모른다
   assert.strictEqual(errorReason({ human: '승인된 사용자만 파일을 올릴 수 있습니다.' }), '승인된 사용자만 파일을 올릴 수 있습니다.');
@@ -402,5 +407,5 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(objectParticle('제목'), '을');
   assert.strictEqual(objectParticle('프로젝트'), '를');
   assert.strictEqual(objectParticle('file.png'), '를', '한글이 아니면 를');
-  console.log('PASS  실패 문구 17가지');
+  console.log('PASS  실패 문구 19가지');
 }

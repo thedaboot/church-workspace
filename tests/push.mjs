@@ -188,4 +188,16 @@ assert.ok(/addEventListener\('notificationclick'/.test(sw), 'sw에 클릭 처리
   assert.strictEqual(upserts, 1, '새 카드에만 UPSERT_TASK를 써야 한다');
 }
 
+// ── getSession()을 한 겹 덜 벗기지 않았는지 (§6-29) ────────────────────────
+// cloud.getSession()은 supabase의 { data }를 이미 벗겨 { session, user }를 준다.
+// `.access_token`을 바로 꺼내면 언제나 undefined이고, 그 자리는 조용히 통과하는
+// 필터가 된다. 실제로 이 실수로 앱 첨부가 한 번도 드라이브로 못 갔다.
+{
+  const cloudSrc = readFileSync(join(ROOT, 'src', 'services', 'cloud.js'), 'utf8');
+  assert.ok(!/getSession\(\)\)\?\.access_token/.test(cloudSrc),
+    'getSession()에서 access_token을 한 겹 덜 벗겨 꺼내고 있다 (§6-29)');
+  assert.ok(/getSession\(\)\)\?\.session\?\.access_token/.test(cloudSrc),
+    'access_token은 session 아래에서 꺼내야 한다');
+}
+
 console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·마이그레이션·크론·sw·재조회 상세 복구·저장이 목록을 안 덮음');

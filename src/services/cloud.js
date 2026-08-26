@@ -300,8 +300,13 @@ export async function listCardFiles(cardId) {
 // 모르고 /api/drive가 대신 부른다. 드라이브가 설정되지 않은 환경(로컬·프리뷰)은
 // 501을 돌려주므로 부르는 쪽이 Storage로 되돌린다.
 async function driveCall(payload) {
-  const token = (await getSession())?.access_token;
-  if (!token) throw new Error('로그인이 필요해요');
+  // **`getSession()`은 supabase의 `{ data }`를 이미 벗겨서 `{ session, user }`를
+  // 돌려준다.** 여기서 `.access_token`을 바로 꺼내면 언제나 undefined였고, 그래서
+  // 앱에서 올리는 첨부가 **한 번도 드라이브로 가지 못했다**(§6-29와 같은 함정을
+  // 그대로 다시 밟았다 — 그 항목이 "한 겹 더 벗기면 조용히 undefined가 되고,
+  // 그 자리가 아무도 안 걸리는 필터가 된다"고 적어 둔 바로 그것이다).
+  const token = (await getSession())?.session?.access_token;
+  if (!token) { const e = new Error('로그인이 필요해요'); e.human = '로그인이 풀렸어요 · 새로고침하고 다시 로그인해주세요'; throw e; }
   const r = await fetch('/api/drive', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -323,7 +328,11 @@ async function driveCall(payload) {
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
   const fr = new FileReader();
-  fr.onerror = () => reject(fr.error || new Error('파일을 읽지 못했어요'));
+  fr.onerror = () => {
+    const e = fr.error || new Error('파일을 읽지 못했어요');
+    e.human = '파일을 읽지 못했어요 · 다른 파일로 해보시거나 다시 시도해주세요';
+    reject(e);
+  };
   // data:...;base64,XXXX → 앞머리를 떼고 보낸다
   fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
   fr.readAsDataURL(file);
@@ -354,7 +363,9 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
       name: file.name, mimeType: file.type || undefined,
       dataBase64: await fileToBase64(file),
     });
-    const row = unwrap(await c.from('files').insert({
+    let row;
+    try {
+      row = unwrap(await c.from('files').insert({
       project_id: projectId,
       card_id: cardId,
       name: file.name,
@@ -363,7 +374,14 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
       source: 'drive',
       drive_file_id: up.id,
       web_view_link: up.url,
-    }).select().single());
+      }).select().single());
+    } catch (e) {
+      // 드라이브에는 올라갔는데 DB 행을 못 만든 경우다. 어디서 막혔는지 말해 준다 —
+      // 여기가 조용하면 "드라이브에는 있는데 앱에는 없는" 상태를 아무도 설명 못 한다.
+      console.error('[drive] 올라갔지만 files 행 생성 실패:', e);
+      e.human = e.human || `파일은 드라이브에 올라갔는데 목록에 넣지 못했어요 · ${e.message || e}`;
+      throw e;
+    }
     // 이 업무의 폴더를 처음 만든 경우 id를 적어 둔다(다음 업로드부터 id로 넣는다)
     if (!cardFolderId && up.folderId) {
       try { await c.from('cards').update({ drive_folder_id: up.folderId }).eq('id', cardId); }
@@ -818,17 +836,21 @@ export async function setCardPosition(id, position) {
 // 화면에서 감추는 것과 이중으로 걸린다(§4.5의 요약 고정과 다른 점이다).
 export async function listMembersAdmin() {
   return unwrap(await client().from('profiles')
-    .select('id, display_name, avatar_url, approved, approved_at, created_at, last_seen_at, birthday')
-    .order('approved', { ascending: true })
+    .select('id, display_name, avatar_url, approved, approved_at, removed_at, created_at, last_seen_at, birthday')
     .order('created_at', { ascending: true }));
 }
 
 // 승인·승인 취소(=내보내기). 내보내면 접근만 끊기고 지난 기록의 이름은 남는다.
+// 환송(approved=false)은 `removed_at`을 같이 찍는다 — 그래야 '승인을 기다리는
+// 사람'으로 다시 올라오지 않는다(0027). 다시 부르면 지운다.
 export async function setApproved(profileId, approved) {
   const me = (await getSession())?.user?.id ?? null;
+  const now = new Date().toISOString();
   return unwrap(await client().from('profiles')
-    .update({ approved, approved_at: approved ? new Date().toISOString() : null, approved_by: approved ? me : null })
-    .eq('id', profileId).select('id, approved').single());
+    .update(approved
+      ? { approved: true, approved_at: now, approved_by: me, removed_at: null, removed_by: null }
+      : { approved: false, removed_at: now, removed_by: me })
+    .eq('id', profileId).select('id, approved, removed_at').single());
 }
 
 // 관리자 목록·지정·해제. admins는 이메일이 원본이고 profiles에는 email이 없어서

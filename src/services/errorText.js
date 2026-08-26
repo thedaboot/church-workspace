@@ -82,6 +82,13 @@ export function errorReason(err) {
   if (msg.includes('exceeded the maximum allowed size') || status === 413) return '파일이 너무 커요';
   if (status === 429) return '요청이 한꺼번에 몰렸어요 · 잠시 후 다시 시도해주세요';
   if (status >= 500) return '서버가 잠시 불안정해요 · 잠시 후 다시 시도해주세요';
+  // **아는 게 없으면 원문이라도 보여준다.** 처음에는 Postgres 원문이 코드처럼 뜨는
+  // 것이 문제였는데(그건 위에서 전부 사람 말로 바꿨다), 아는 코드가 하나도 없을 때
+  // '잠시 후 다시 시도해주세요'만 남으면 **쓰는 사람도 고치는 사람도 원인을 영영
+  // 못 본다.** 실제로 첨부가 안 올라가는데 단서가 하나도 없었다(사용자 지적, 두 번).
+  // 정보가 없는 것보다 낫다 — 다만 길면 잘라서 한 줄을 넘기지 않는다.
+  const raw = String(err.message || '').trim();
+  if (raw) return raw.length > 90 ? `${raw.slice(0, 90)}…` : raw;
   return '잠시 후 다시 시도해주세요';
 }
 

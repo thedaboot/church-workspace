@@ -139,7 +139,7 @@ function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', childr
           {/* 멤버는 관리자에게만. 하단 탭 네 자리는 핸드오프 규격이라 다섯 번째를
               끼우지 않는다 — 설정·전체 일정과 같은 처리다(§4.6). */}
           {isAdmin && enabled && session && onOpenMembers && (
-            <button className={item} onClick={go(onOpenMembers)}><Users size={15} /> 멤버</button>
+            <button className={item} onClick={go(onOpenMembers)}><Users size={15} /> 멤버 관리</button>
           )}
           <ThemeMenuItem className={item} />
           {enabled && session && (
@@ -538,7 +538,7 @@ function menuTitle(activeMenu, projectsMap, currentUser) {
   if (activeMenu === 'dashboard') return '전체 대시보드';
   if (activeMenu === 'myTasks') return `${currentUser?.name || '내'}님의 업무`;
   if (activeMenu === 'schedule') return '전체 일정';
-  if (activeMenu === 'members') return '멤버';
+  if (activeMenu === 'members') return '멤버 관리';
   if (activeMenu.startsWith('team:')) return `${activeMenu.split(':')[1]} 보드`;
   return projectsMap[activeMenu]?.title || '워크스페이스';
 }
