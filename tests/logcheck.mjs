@@ -386,6 +386,11 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(errorReason({ status: 413, message: 'The object exceeded the maximum allowed size' }), '파일이 너무 커요');
   assert.strictEqual(errorReason(null), '잠시 후 다시 시도해주세요');
   assert.strictEqual(errorReason({ code: 'ZZZZZ', message: 'boom' }), '잠시 후 다시 시도해주세요');
+  // 우리 서버가 한국어로 이유를 준 경우에는 그것을 그대로 쓴다 — 버리면 화면에
+  // '잠시 후 다시 시도해주세요'만 남아서 무엇이 막혔는지 아무도 모른다
+  assert.strictEqual(errorReason({ human: '승인된 사용자만 파일을 올릴 수 있습니다.' }), '승인된 사용자만 파일을 올릴 수 있습니다.');
+  assert.strictEqual(failText('파일을 올리지 못했어요', { human: '25MB를 넘는 파일은 올릴 수 없습니다.' }),
+    '파일을 올리지 못했어요 · 25MB를 넘는 파일은 올릴 수 없습니다.');
 
   // 원문이 한 글자도 섞이지 않아야 한다 — 이게 이번 요청의 핵심 단정이다
   const raw = ['null value', 'constraint', 'relation', 'violates', 'code 2'];
@@ -397,5 +402,5 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(objectParticle('제목'), '을');
   assert.strictEqual(objectParticle('프로젝트'), '를');
   assert.strictEqual(objectParticle('file.png'), '를', '한글이 아니면 를');
-  console.log('PASS  실패 문구 15가지');
+  console.log('PASS  실패 문구 17가지');
 }

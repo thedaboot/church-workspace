@@ -224,9 +224,27 @@ export async function setCardSummary(id, text) {
   return unwrap(await client().from('cards').update(patch).eq('id', id).select().single());
 }
 
+// 업무를 지우면 **그 업무의 첨부도 같이 정리한다.**
+// files.card_id는 `on delete set null`이라, 카드만 지우면 파일 행이 주인 없이 남고
+// 드라이브에는 실체가 그대로 남는다. 실제로 그렇게 남은 4건이 이관 때 '기타'
+// 폴더로 들어갔다(사용자 지적 — "드라이브와 워크스페이스 싱크를 맞춰야 한다").
+// 드라이브 파일은 휴지통으로(30일 복구), Storage 객체는 삭제, 행은 삭제.
+// 실패해도 카드 삭제는 진행한다 — 파일 정리 때문에 지우기가 막히면 안 된다.
 export async function deleteCard(id) {
-  const { error } = await client().from('cards').delete().eq('id', id);
-  if (error) throw error;
+  const c = client();
+  try {
+    const files = unwrap(await c.from('files').select('*').eq('card_id', id));
+    for (const f of files || []) {
+      try { await deleteAttachment(f); }
+      catch (e) { console.error('[cloud] 업무 삭제 중 첨부 정리 실패:', f.name, e); }
+    }
+  } catch (e) {
+    console.error('[cloud] 업무 삭제 중 첨부 목록 조회 실패:', e);
+  }
+  const { error } = await c.from('files').delete().eq('card_id', id);
+  if (error) console.error('[cloud] 남은 첨부 행 정리 실패:', error);
+  const { error: delErr } = await c.from('cards').delete().eq('id', id);
+  if (delErr) throw delErr;
 }
 
 // ── comments (parent_id로 답글 지원) ────────────────────────────────────────
@@ -291,7 +309,15 @@ async function driveCall(payload) {
   });
   const out = await r.json().catch(() => ({}));
   if (r.status === 501) { const e = new Error('드라이브 미설정'); e.notConfigured = true; throw e; }
-  if (!r.ok) throw new Error(out.error || `드라이브 오류 (${r.status})`);
+  if (!r.ok) {
+    // 서버가 한국어로 이유를 준다 — 그대로 화면에 실어야 무엇이 막혔는지 보인다.
+    // status도 같이 남긴다(로그에서 401/403/413/502를 가르기 위해).
+    const e = new Error(out.error || `드라이브 오류 (${r.status})`);
+    e.human = out.error || `드라이브가 응답하지 않았어요 (${r.status})`;
+    e.status = r.status;
+    console.error('[drive] 실패:', r.status, out);
+    throw e;
+  }
   return out;
 }
 

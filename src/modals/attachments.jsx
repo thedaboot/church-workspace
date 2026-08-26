@@ -4,7 +4,7 @@ import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, getFileOpenUrl, setFilePassword, checkFilePassword, driveImageUrl } from '../services/cloud.js';
-import { FilePreviewModal, officeSrc, driveSrc, PreparingFrame, FRAME_SETTLE, OFFICE_TIMEOUT } from '../components/FilePreviewModal.jsx';
+import { FilePreviewModal, officeSrc, driveSrc, viewerNote, PreparingFrame, FRAME_SETTLE, OFFICE_TIMEOUT } from '../components/FilePreviewModal.jsx';
 import { SmartImage, Skeleton } from '../components/media.jsx';
 import { useStore } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
@@ -211,7 +211,7 @@ function InlineSheet({ row }) {
         )}
       </div>
       <div className="flex items-center justify-between gap-2 mt-1">
-        <p className="text-[10px] text-fg-faint min-w-0 truncate">마이크로소프트 오피스 미리보기로 표시해요</p>
+        <p className="text-[10px] text-fg-faint min-w-0 truncate">{viewerNote(row)}</p>
         <button type="button" onClick={() => setTall(t => !t)}
           className="shrink-0 text-[10px] font-semibold text-accent-text hover:underline transition active:scale-95">
           {tall ? '원래 높이로' : '크게 보기'}

@@ -44,6 +44,11 @@ const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine ===
 // 에러 한 건 → 뒷도막 한 줄
 export function errorReason(err) {
   if (!err) return '잠시 후 다시 시도해주세요';
+  // 우리 서버(api/*)가 이미 사람이 읽을 이유를 한국어로 돌려준 경우에는 그것을 쓴다.
+  // 예전에는 이걸 버리고 기본 문구('잠시 후 다시 시도해주세요')로 떨어졌다 —
+  // 화면에 이유가 안 나오니 쓰는 사람도, 고치는 사람도 짐작만 하게 됐다
+  // (드라이브 업로드가 실패하는데 원인을 알 길이 없었다).
+  if (err.human) return String(err.human);
   const code = String(err.code ?? '');
   const msg = `${err.message ?? ''} ${err.details ?? ''} ${err.hint ?? ''}`.toLowerCase();
   const status = Number(err.status ?? err.statusCode ?? 0);

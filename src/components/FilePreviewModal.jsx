@@ -47,7 +47,27 @@ function previewKind(row) {
 
 // 첨부 목록의 엑셀 '펼쳐보기'(attachments.jsx)도 같은 뷰어 주소를 쓴다
 export const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
-export const driveSrc = (row) => (row.drive_file_id ? `https://drive.google.com/file/d/${row.drive_file_id}/preview` : null);
+// 드라이브 파일 미리보기 주소.
+// **스프레드시트는 파일 뷰어가 아니라 스프레드시트 미리보기로 연다** — 파일 뷰어
+// (`drive.google.com/file/d/…/preview`)는 xlsx를 그림처럼 보여줘서 시트 탭도, 표도
+// 제대로 안 나온다(실측: 그 응답에는 표 내용이 아예 없다). 스프레드시트 미리보기는
+// 표를 그대로 그린다. 사용자가 원한 화면이 이쪽이다.
+const SHEET_EXT = ['xls', 'xlsx', 'csv'];
+export const driveSrc = (row) => {
+  if (!row.drive_file_id) return null;
+  const ext = extOf(row.name);
+  return SHEET_EXT.includes(ext)
+    ? `https://docs.google.com/spreadsheets/d/${row.drive_file_id}/preview`
+    : `https://drive.google.com/file/d/${row.drive_file_id}/preview`;
+};
+
+// 어느 뷰어로 그리고 있는지 — 화면 아래 한 줄에 그대로 적는다.
+// 예전에는 이 문구가 조건 없이 '마이크로소프트 오피스 미리보기로 표시해요'였다.
+// 드라이브 파일은 구글로 그리고 있는데도 마이크로소프트라고 적혀 있어서, 무엇이
+// 어디로 나가는지 화면이 거짓말을 하고 있었다(사용자 지적).
+export const viewerNote = (row) => (row.source === 'drive'
+  ? '구글 드라이브 미리보기로 표시해요'
+  : '마이크로소프트 오피스 미리보기로 표시해요 · 파일 주소가 마이크로소프트로 전달됩니다');
 
 // row: files 테이블 행
 // initialSrc: 호출부가 이미 가진 URL. 이미지는 목록 썸네일이 같은 서명 URL이라
@@ -198,7 +218,7 @@ export function FilePreviewModal({ row, initialSrc = null, onClose }) {
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-fg truncate">{row.name}</p>
             {kind === 'office' && (
-              <p className="text-[10px] text-fg-faint mt-0.5">마이크로소프트 오피스 미리보기로 표시해요</p>
+              <p className="text-[10px] text-fg-faint mt-0.5">{viewerNote(row)}</p>
             )}
           </div>
           <button type="button" onClick={openExternal} disabled={!url} className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 disabled:opacity-40" title="새 탭에서 열기"><ExternalLink size={16} /></button>
