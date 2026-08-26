@@ -478,6 +478,24 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
   }
 }
 
+// 드라이브 파일 바이트 — PDF를 앱 안 pdf.js로 그릴 때 쓴다(/api/drive-file 주석).
+// 브라우저는 drive.google.com에 CORS로 막히므로 서버가 얇게 중계한다.
+export async function fetchDriveFileBlob(fileId) {
+  const { session } = await getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error('로그인이 필요합니다.');
+  const r = await fetch(`/api/drive-file?id=${encodeURIComponent(fileId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!r.ok) {
+    const out = await r.json().catch(() => ({}));
+    const e = new Error(out.error || `파일을 받아오지 못했어요 (${r.status})`);
+    e.human = out.error;
+    throw e;
+  }
+  return r.blob();
+}
+
 // 드라이브 폴더 확보 — 프로젝트 하나에 폴더 하나(projects.drive_folder_id)
 export async function ensureDriveFolder(projectName, folderId) {
   return driveCall({ action: 'ensureFolder', projectName, folderId: folderId || undefined });

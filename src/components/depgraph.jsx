@@ -86,11 +86,11 @@ export function DepGraph({ tasks, onTaskClick }) {
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="pb-2 shrink-0 flex items-center gap-2.5 flex-wrap">
-        <p className="text-[11px] text-fg-faint min-w-0">
-          {hasEdges
-            ? '왼쪽이 먼저 할 일이에요 · 선행이 끝난 연결은 초록 선 · 노드를 끌어서 정리할 수 있어요'
-            : "업무를 열어 '선행 업무'를 정하면 여기에 순서가 이어져요 · 노드를 끌어서 정리할 수 있어요"}
-        </p>
+        {/* 안내 줄은 빈 상태(연결이 하나도 없을 때)에만 — 그 외에는 붙이지 않는다
+            (사용자 결정 2026-08-27). */}
+        {!hasEdges && (
+          <p className="text-[11px] text-fg-faint min-w-0">업무를 열어 '선행 업무'를 정하면 여기에 순서가 이어져요</p>
+        )}
         <span className="flex-1" />
         <span className="hidden sm:flex items-center gap-2.5">
           {CONFIG.STATUSES.map(st => (

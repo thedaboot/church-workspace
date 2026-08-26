@@ -113,12 +113,20 @@ export const httpsImage = (url) => String(url || '').replace(/^http:\/\//i, 'htt
 // ponytail: 시간으로 가른다. iframe 오류는 cross-origin이라 읽을 수 없어 감지할
 // 길이 없다. 이르게 뜨는 일이 생기면 SHEET_READY_MS를 늘리면 된다.
 export const SHEET_READY_MS = 30 * 60 * 1000;
+// 확장자 → 구글 전용 뷰어 종류. 스프레드시트만이 아니라 문서·프레젠테이션도
+// 같은 편집기 미리보기가 있다(사용자 요청 — "엑셀처럼 다른 형식도").
+const DRIVE_EDITOR = {
+  xlsx: 'spreadsheets', xls: 'spreadsheets', csv: 'spreadsheets',
+  docx: 'document', doc: 'document',
+  pptx: 'presentation', ppt: 'presentation',
+};
 export const driveSrc = (row, now = Date.now()) => {
   if (!row?.drive_file_id) return null;
-  const isSheet = /\.(xlsx|xls|csv)$/i.test(row.name || '');
+  const ext = String(row.name || '').split('.').pop().toLowerCase();
+  const editor = DRIVE_EDITOR[ext];
   const age = now - new Date(row.created_at || 0).getTime();
-  return (isSheet && age > SHEET_READY_MS)
-    ? `https://docs.google.com/spreadsheets/d/${row.drive_file_id}/preview`
+  return (editor && age > SHEET_READY_MS)
+    ? `https://docs.google.com/${editor}/d/${row.drive_file_id}/preview`
     : `https://drive.google.com/file/d/${row.drive_file_id}/preview`;
 };
 

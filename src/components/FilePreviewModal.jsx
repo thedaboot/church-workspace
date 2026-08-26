@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom';
 import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { RichText } from './RichText.jsx';
-import { getFileOpenUrl, driveImageFullUrl } from '../services/cloud.js';
+import { getFileOpenUrl, driveImageFullUrl, fetchDriveFileBlob } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { Skeleton, SmartImage } from './media.jsx';
 import { PdfView } from './PdfView.jsx';
@@ -39,7 +39,19 @@ function previewKind(row) {
   // 고정이라 브라우저가 캐싱하고(서명 URL과 달리 두 번째부터는 요청이 안 나간다),
   // iframe 뷰어와 달리 사진 넘기기(이전/다음)가 된다.
   if (mime.startsWith('image/') || IMAGE_EXT.includes(ext)) return 'image';
-  if (row.source === 'drive') return 'drive';
+  if (row.source === 'drive') {
+    // 드라이브 파일도 형식별로 **가장 나은 뷰어**로 간다(사용자 요청) —
+    //  · 오피스류(엑셀·워드·PPT·csv): 구글 전용 편집기 미리보기(driveSrc가 시간 게이트)
+    //  · PDF·텍스트·영상·소리: 앱이 직접 그린다. 바이트는 /api/drive-file이 중계한다
+    //    (브라우저→drive.google.com 은 CORS가 막는다). 첨부 상한이 25MB라 통째로
+    //    받아도 된다. PDF만 프리페치 상한(15MB)을 넘으면 드라이브 뷰어로 남긴다.
+    if (OFFICE_EXT.includes(ext) || ext === 'csv') return 'drive';
+    if ((mime === 'application/pdf' || ext === 'pdf') && (row.size_bytes ?? 0) <= MAX_PDF_PREFETCH) return 'pdf';
+    if ((mime.startsWith('text/') || TEXT_EXT.includes(ext)) && (row.size_bytes ?? 0) <= MAX_TEXT_BYTES) return 'text';
+    if (mime.startsWith('video/') || ['mp4', 'mov', 'webm', 'm4v'].includes(ext)) return 'video';
+    if (mime.startsWith('audio/') || ['mp3', 'm4a', 'wav', 'ogg'].includes(ext)) return 'audio';
+    return 'drive';
+  }
   if (mime === 'application/pdf' || ext === 'pdf') return 'pdf';
   if (mime.startsWith('video/')) return 'video';
   if (mime.startsWith('audio/')) return 'audio';
@@ -118,31 +130,60 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
 
   // 텍스트/마크다운은 내려받아 그대로 보여준다
   useEffect(() => {
-    if (kind !== 'text' || !url || text !== null) return;
+    if (kind !== 'text' || text !== null) return;
     if ((cur.size_bytes ?? 0) > MAX_TEXT_BYTES) { setError('파일이 커서 미리보기를 건너뛰었어요.'); return; }
     let alive = true;
+    if (cur.source === 'drive' && cur.drive_file_id) {
+      fetchDriveFileBlob(cur.drive_file_id)
+        .then(b => b.text())
+        .then(t => { if (alive) setText(t); })
+        .catch(e => { if (alive) setError(e.human || e.message || String(e)); });
+      return () => { alive = false; };
+    }
+    if (!url) return;
     fetch(url)
       .then(r => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(t => { if (alive) setText(t); })
       .catch(e => { if (alive) setError(e.message || String(e)); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, url]);
+  }, [kind, url, cur.id]);
 
   // PDF는 파일을 먼저 통째로 받아두고 그 바이트로 그린다.
   // 주소만 넘기면 그리기 시작한 뒤에야 내려받기가 진행돼 빈 화면이 오래 보인다.
   // 큰 파일은 통째로 기다리는 게 더 나빠서 주소로 바로 스트리밍한다.
   useEffect(() => {
-    if (kind !== 'pdf' || !url || pdfSrc) return;
-    if ((cur.size_bytes ?? 0) > MAX_PDF_PREFETCH) { setPdfSrc({ src: url }); return; }
+    if (kind !== 'pdf' || pdfSrc) return;
     let alive = true;
+    // 드라이브 파일은 서버 중계로 바이트를 받는다(웹 주소는 HTML 페이지라 못 쓴다)
+    if (cur.source === 'drive' && cur.drive_file_id) {
+      fetchDriveFileBlob(cur.drive_file_id)
+        .then(b => { if (alive) setPdfSrc({ blob: b }); })
+        .catch(e => { if (alive) setError(e.human || e.message || String(e)); });
+      return () => { alive = false; };
+    }
+    if (!url) return;
+    if ((cur.size_bytes ?? 0) > MAX_PDF_PREFETCH) { setPdfSrc({ src: url }); return; }
     fetch(url)
       .then(r => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(b => { if (alive) setPdfSrc({ blob: b }); })
       .catch(() => { if (alive) setPdfSrc({ src: url }); }); // 실패하면 주소로
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, url]);
+  }, [kind, url, cur.id]);
+
+  // 드라이브 영상·소리 — 프록시로 통째로 받아 블롭 URL로 튼다(첨부 상한 25MB).
+  // <video src>에 웹 주소(web_view_link)를 주면 HTML 페이지라 못 튼다.
+  const [blobSrc, setBlobSrc] = useState(null);
+  useEffect(() => {
+    if ((kind !== 'video' && kind !== 'audio') || cur.source !== 'drive' || !cur.drive_file_id) return;
+    let alive = true; let obj = null;
+    fetchDriveFileBlob(cur.drive_file_id)
+      .then(b => { if (!alive) return; obj = URL.createObjectURL(b); setBlobSrc(obj); })
+      .catch(e => { if (alive) setError(e.human || e.message || String(e)); });
+    return () => { alive = false; if (obj) URL.revokeObjectURL(obj); setBlobSrc(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, cur.id]);
 
   useEffect(() => () => clearTimeout(settleRef.current), []);
 
@@ -184,12 +225,14 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
       );
     }
     if (kind === 'video') {
-      if (!url) return <Skeleton className="w-full h-full" />;
-      return <video src={url} controls className="max-w-full max-h-full rounded-md bg-black" />;
+      const src = cur.source === 'drive' ? blobSrc : url;
+      if (!src) return <Skeleton className="w-full h-full" />;
+      return <video src={src} controls className="max-w-full max-h-full rounded-md bg-black" />;
     }
     if (kind === 'audio') {
-      if (!url) return <Skeleton className="w-full h-16" />;
-      return <audio src={url} controls className="w-full" />;
+      const src = cur.source === 'drive' ? blobSrc : url;
+      if (!src) return <Skeleton className="w-full h-16" />;
+      return <audio src={src} controls className="w-full" />;
     }
     if (kind === 'text') {
       if (text === null) return <Skeleton className="w-full h-full" />;
@@ -242,10 +285,10 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
       >
         <div className="shrink-0 flex items-center gap-2 px-3 py-2.5 border-b border-line bg-surface">
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-fg truncate">
-              {cur.name}
-              {canNav && <span className="ml-1.5 font-normal text-fg-faint tabular-nums">{gi + 1}/{gallery.length}</span>}
-            </p>
+            <p className="text-xs font-semibold text-fg truncate">{cur.name}</p>
+            {/* 안내 줄은 office(마이크로소프트로 주소가 나가는 경우)에만 — 정보가
+                밖으로 나가니 알려야 한다. 그 외에는 붙이지 않는다(사용자 결정
+                2026-08-27 — 새 안내 줄은 먼저 물어보고 붙일 것). */}
             {kind === 'office' && (
               <p className="text-[10px] text-fg-faint mt-0.5">{viewerNote(cur)}</p>
             )}
@@ -261,18 +304,21 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
         {/* 미리보기 영역은 남은 공간을 그대로 채운다(고정 dvh를 쓰면 창 크기에 안 맞는다) */}
         <div className="relative flex-1 min-h-0 p-2 md:p-4 flex items-center justify-center overflow-hidden">
           {body}
-          {/* 사진 이전/다음 — hover 뒤에 숨기지 않는다(§8). 끝에서는 흐려진다 */}
+          {/* 사진 이전/다음 — 아래 가운데 필 하나로(앱의 surface·line 토큰).
+              사진 양옆의 검은 원은 우리 어디에도 없는 색이었고 가장자리를 가렸다
+              (사용자 지적). hover 뒤에 숨기지 않는다(§8). 끝에서는 흐려진다. */}
           {canNav && (
-            <>
-              <button type="button" onClick={() => go(-1)} disabled={gi === 0} title="이전 사진"
-                className="absolute left-2 md:left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/45 text-white hover:bg-black/65 transition active:scale-95 disabled:opacity-25 disabled:pointer-events-none">
-                <ChevronLeft size={20} />
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-surface border border-line shadow-elevated">
+              <button type="button" onClick={() => go(-1)} disabled={gi === 0} title="이전 사진 (←)"
+                className="p-1.5 rounded-full text-fg-muted hover:text-fg hover:bg-surface-hover transition active:scale-95 disabled:opacity-25 disabled:pointer-events-none">
+                <ChevronLeft size={16} />
               </button>
-              <button type="button" onClick={() => go(1)} disabled={gi === gallery.length - 1} title="다음 사진"
-                className="absolute right-2 md:right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/45 text-white hover:bg-black/65 transition active:scale-95 disabled:opacity-25 disabled:pointer-events-none">
-                <ChevronRight size={20} />
+              <span className="px-1 text-[11px] font-semibold text-fg-muted tabular-nums whitespace-nowrap">{gi + 1} / {gallery.length}</span>
+              <button type="button" onClick={() => go(1)} disabled={gi === gallery.length - 1} title="다음 사진 (→)"
+                className="p-1.5 rounded-full text-fg-muted hover:text-fg hover:bg-surface-hover transition active:scale-95 disabled:opacity-25 disabled:pointer-events-none">
+                <ChevronRight size={16} />
               </button>
-            </>
+            </div>
           )}
         </div>
       </div>

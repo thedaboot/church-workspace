@@ -713,7 +713,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
     <Card className="px-4 py-[15px]">
       <div className="flex items-center gap-2 pb-1">
         <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 연결 지도</h3>
-        <span className="text-[10px] text-fg-faint">사람 → 팀 → 프로젝트 · 노드를 끌어서 정리할 수 있어요</span>
+        <span className="text-[10px] text-fg-faint">사람 → 팀 → 프로젝트</span>
       </div>
       <div ref={wrapRef} className="relative select-none" style={{ height: H }}>
         {/* 열 머리글 — 예전 3열 지도의 읽기 보조를 남긴다. 팀 열(가운데)은 고정이라 정확하고,

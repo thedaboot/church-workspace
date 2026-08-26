@@ -425,6 +425,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const at = (msAgo) => new Date(now - msAgo).toISOString();
   const row = (name, msAgo) => ({ drive_file_id: 'FID', name, created_at: at(msAgo) });
   const sheet = 'https://docs.google.com/spreadsheets/d/FID/preview';
+  const docx = 'https://docs.google.com/document/d/FID/preview';
+  const slides = 'https://docs.google.com/presentation/d/FID/preview';
   const viewer = 'https://drive.google.com/file/d/FID/preview';
 
   // 갓 올린 엑셀 → 파일 뷰어(스프레드시트는 아직 오류를 띄운다)
@@ -436,16 +438,20 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(driveSrc(row('명단.XLSX', 3 * 864e5), now), sheet, '확장자 대문자도');
   assert.strictEqual(driveSrc(row('결산.xls', 3 * 864e5), now), sheet, 'xls도');
   assert.strictEqual(driveSrc(row('명단.csv', 3 * 864e5), now), sheet, 'csv도');
-  // 엑셀이 아니면 언제나 파일 뷰어 — pdf·이미지를 스프레드시트로 열면 오류다
+  // 오피스류는 전부 제 편집기 미리보기로 — 워드·PPT도 엑셀과 같은 시간 게이트다
+  assert.strictEqual(driveSrc(row('회의록.docx', 3 * 864e5), now), docx, '워드는 문서 미리보기');
+  assert.strictEqual(driveSrc(row('발표.pptx', 3 * 864e5), now), slides, 'PPT는 프레젠테이션 미리보기');
+  assert.strictEqual(driveSrc(row('회의록.docx', 45 * 1000), now), viewer, '갓 올린 워드는 아직 파일 뷰어');
+  // 편집기가 없는 형식은 언제나 파일 뷰어 — pdf·이미지를 편집기로 열면 오류다
   assert.strictEqual(driveSrc(row('회의록.pdf', 3 * 864e5), now), viewer, 'pdf는 파일 뷰어');
   assert.strictEqual(driveSrc(row('사진.png', 3 * 864e5), now), viewer, '이미지도 파일 뷰어');
-  assert.strictEqual(driveSrc(row('xlsx보고서.docx', 3 * 864e5), now), viewer, '이름에 xlsx가 섞였을 뿐');
+  assert.strictEqual(driveSrc(row('xlsx보고서.zip', 3 * 864e5), now), viewer, '이름에 xlsx가 섞였을 뿐');
   // created_at이 없으면(옛 행) 나이를 모른다 → 1970년으로 읽혀 스프레드시트로 간다
   assert.strictEqual(driveSrc({ drive_file_id: 'FID', name: 'a.xlsx' }, now), sheet, '옛 행은 오래된 것으로 본다');
   // 드라이브 파일이 아니면 주소가 없다
   assert.strictEqual(driveSrc({ name: 'a.xlsx' }, now), null);
   assert.strictEqual(driveSrc(null, now), null, 'null도 안전하다');
-  console.log('PASS  드라이브 뷰어 고르기 14가지');
+  console.log('PASS  드라이브 뷰어 고르기 17가지');
 }
 
 // ── 힘 기반 그래프 한 스텝 (utils.forceStep) ──
