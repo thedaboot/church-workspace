@@ -282,15 +282,24 @@ export function toggleTodoLine(md, idx) {
 // ── 힘 기반 그래프 한 스텝 (연결 지도·프로젝트 그래프 뷰가 같이 쓴다) ────────────
 // 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
 // pos·vel을 제자리에서 고친다(매 프레임 3번 돌므로 새 배열을 만들면 GC가 튄다).
+//
+// **alpha 냉각(d3-force식 — Injoy 그래프에서 가져온 판단):** 힘을 전부 alpha로
+// 스케일한다. 부르는 쪽이 alpha를 매 틱 줄이면 에너지가 잦아들며 출렁임 없이
+// 멈춘다. 상수 감쇠만으로는 깨울 때마다 풀 에너지로 진동했다(사용자 지적 — "탱글").
+//
 //  node: { ax?: 0..1 x 앵커 비율 · ay?: 0..1 · fixed?: {x,y} 고정 노드 ·
-//          repel?: 반발 배수(라벨이 큰 노드는 세게) · pl/pr/pt/pb?: 경계 여유 }
+//          repel?: 반발 배수 · pl/pr/pt/pb?: 경계 여유 ·
+//          zx?: [0..1, 0..1] — x를 이 영역(비율) 안에만 가둔다(사람은 왼쪽,
+//          프로젝트는 오른쪽 — 끌어도 남의 영역으로 못 나간다) }
 //  edge: [aIdx, bIdx, 목표 길이(기본 90)]
-//  dragIdx: 지금 손으로 끌고 있는 노드 — 힘을 받지 않는다(자리는 포인터가 정한다)
+//  opts: { alpha=1 · skip: 끌고 있거나 손으로 놓아둔(고정) 노드 index Set —
+//          힘을 받지 않지만 남을 밀어내는 데는 참여한다 }
 // ponytail: d3-force 대신 손 시뮬 — 노드 수십 개라 O(n²) 반발도 공짜다.
-//           수백이 되면 d3-force + 쿼드트리로 바꾼다.
-export function forceStep(pos, vel, nodes, edges, W, H, dragIdx = -1) {
-  const REPEL = 2400, SPRING = 0.028, ANCHOR_X = 0.02, ANCHOR_Y = 0.012, DAMP = 0.86;
-  const skip = (i) => nodes[i].fixed || i === dragIdx;
+export function forceStep(pos, vel, nodes, edges, W, H, opts = {}) {
+  const alpha = opts.alpha ?? 1;
+  const skipSet = opts.skip;
+  const REPEL = 2400, SPRING = 0.02, ANCHOR_X = 0.02, ANCHOR_Y = 0.012, DAMP = 0.8, MAX_V = 18;
+  const skip = (i) => nodes[i].fixed || (skipSet ? skipSet.has(i) : false);
   for (let i = 0; i < nodes.length; i++) {
     if (skip(i)) continue;
     let fx = 0, fy = 0;
@@ -298,25 +307,44 @@ export function forceStep(pos, vel, nodes, edges, W, H, dragIdx = -1) {
       if (i === j) continue;
       const dx = pos[i].x - pos[j].x, dy = pos[i].y - pos[j].y;
       const d2 = Math.max(120, dx * dx + dy * dy);
-      const f = (REPEL * (nodes[i].repel || 1) * (nodes[j].repel || 1)) / d2;
+      const f = (REPEL * (nodes[i].repel || 1) * (nodes[j].repel || 1) * alpha) / d2;
       const d = Math.sqrt(d2);
       fx += (dx / d) * f; fy += (dy / d) * f;
     }
-    fx += (W * (nodes[i].ax ?? 0.5) - pos[i].x) * ANCHOR_X;
-    fy += (H * (nodes[i].ay ?? 0.5) - pos[i].y) * ANCHOR_Y;
+    fx += (W * (nodes[i].ax ?? 0.5) - pos[i].x) * ANCHOR_X * alpha;
+    fy += (H * (nodes[i].ay ?? 0.5) - pos[i].y) * ANCHOR_Y * alpha;
     vel[i].x = (vel[i].x + fx) * DAMP; vel[i].y = (vel[i].y + fy) * DAMP;
   }
   for (const [a, b, L] of edges) {
     const dx = pos[b].x - pos[a].x, dy = pos[b].y - pos[a].y;
     const d = Math.max(1, Math.hypot(dx, dy));
-    const f = (d - (L || 90)) * SPRING;
+    const f = (d - (L || 90)) * SPRING * alpha;
     const ux = dx / d, uy = dy / d;
     if (!skip(a)) { vel[a].x += ux * f; vel[a].y += uy * f; }
     if (!skip(b)) { vel[b].x -= ux * f; vel[b].y -= uy * f; }
   }
   for (let i = 0; i < nodes.length; i++) {
     if (skip(i)) continue;
-    pos[i].x = Math.min(W - (nodes[i].pr ?? 20), Math.max(nodes[i].pl ?? 20, pos[i].x + vel[i].x));
-    pos[i].y = Math.min(H - (nodes[i].pb ?? 16), Math.max(nodes[i].pt ?? 20, pos[i].y + vel[i].y));
+    // 속도 상한 — 가까운 두 점의 척력 스파이크에 튕겨 나가지 않게(Injoy와 같은 이유)
+    const sp = Math.hypot(vel[i].x, vel[i].y);
+    if (sp > MAX_V) { vel[i].x *= MAX_V / sp; vel[i].y *= MAX_V / sp; }
+    const b = forceBounds(nodes[i], W, H);
+    let nx = pos[i].x + vel[i].x, ny = pos[i].y + vel[i].y;
+    // 벽에 닿으면 그 방향 속도를 죽인다 — 안 그러면 미는 힘에 눌려 가장자리에서 영영 떤다
+    if (nx <= b.x0 || nx >= b.x1) vel[i].x = 0;
+    if (ny <= b.y0 || ny >= b.y1) vel[i].y = 0;
+    pos[i].x = Math.min(b.x1, Math.max(b.x0, nx));
+    pos[i].y = Math.min(b.y1, Math.max(b.y0, ny));
   }
+}
+
+// 노드 하나의 이동 가능 범위 — 시뮬과 드래그가 같은 규칙을 본다
+// (드래그만 다른 규칙이면 끌어다 놓은 자리로는 못 가는 자리가 생긴다)
+export function forceBounds(node, W, H) {
+  return {
+    x0: Math.max(node.pl ?? 20, node.zx ? W * node.zx[0] : 0),
+    x1: Math.min(W - (node.pr ?? 20), node.zx ? W * node.zx[1] : W),
+    y0: node.pt ?? 20,
+    y1: H - (node.pb ?? 16),
+  };
 }

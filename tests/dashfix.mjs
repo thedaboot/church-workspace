@@ -140,7 +140,7 @@ const map = await ev(`(() => {
   const t=wrap.textContent||'';
   const canvas=wrap.querySelector('svg')?.parentElement;
   return { people:/노준석/.test(t)&&/조준환/.test(t), hint:/사람/.test(t)&&/프로젝트/.test(t),
-           lines: wrap.querySelectorAll('svg line').length,
+           lines: wrap.querySelectorAll('svg path').length,   // 에지는 곡선 path다(2026-08-27)
            nodes: [...wrap.querySelectorAll('button')].length,
            height: canvas ? Math.round(canvas.getBoundingClientRect().height) : 0 };
 })()`);

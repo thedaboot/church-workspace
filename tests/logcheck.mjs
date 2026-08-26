@@ -449,39 +449,48 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 }
 
 // ── 힘 기반 그래프 한 스텝 (utils.forceStep) ──
-// 연결 지도·프로젝트 그래프 뷰가 같이 쓴다. 고정 노드(팀)와 끌리는 노드는 힘을
-// 받지 않아야 하고, 나머지는 경계 안에 있어야 한다 — 이게 깨지면 팀이 떠다니거나
-// 노드가 카드 밖으로 나간다.
+// 연결 지도·프로젝트 그래프 뷰가 같이 쓴다. 고정·skip(끌거나 놓아둔) 노드는 힘을
+// 받지 않아야 하고, 영역(zx) 밖으로 못 나가야 하고, alpha가 식으면 멈춰야 한다 —
+// 이게 깨지면 팀이 떠다니거나, 사람이 프로젝트 영역으로 넘어가거나, 그래프가
+// 영원히 출렁인다(사용자 지적 — "탱글").
 {
   const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
   const dir = mkdtempSync(join(tmpdir(), 'fg-'));
   const f = join(dir, 'utils.mjs');
   writeFileSync(f, src);
-  const { forceStep } = await import(pathToFileURL(f).href);
+  const { forceStep, forceBounds } = await import(pathToFileURL(f).href);
 
   const W = 600, H = 300;
   const nodes = [
-    { id: 'a', ax: 0.2 },                        // 떠 있는 노드
-    { id: 'b', ax: 0.8 },
+    { id: 'a', ax: 0.2, zx: [0.02, 0.42] },      // 사람 — 왼쪽 영역
+    { id: 'b', ax: 0.8, zx: [0.58, 0.98] },      // 프로젝트 — 오른쪽 영역
     { id: 'fix', fixed: { x: 300, y: 150 } },    // 팀(가운데 고정)
-    { id: 'drag', ax: 0.5 },                     // 손으로 끌고 있는 노드
+    { id: 'pin', ax: 0.5 },                      // 끌고 있거나 놓아둔 노드
   ];
   const pos = [{ x: 100, y: 100 }, { x: 500, y: 200 }, { x: 300, y: 150 }, { x: 250, y: 80 }];
   const vel = pos.map(() => ({ x: 0, y: 0 }));
   const edges = [[0, 1, 90]];
   const before = pos.map(p => ({ ...p }));
-  for (let i = 0; i < 200; i++) forceStep(pos, vel, nodes, edges, W, H, 3);
+  let alpha = 1;
+  for (let i = 0; i < 300; i++) {
+    forceStep(pos, vel, nodes, edges, W, H, { alpha, skip: new Set([3]) });
+    alpha -= alpha * 0.0228;
+  }
 
   assert.deepStrictEqual(pos[2], before[2], '고정 노드는 움직이지 않는다');
-  assert.deepStrictEqual(pos[3], before[3], '끌리는 노드는 시뮬이 못 움직인다');
+  assert.deepStrictEqual(pos[3], before[3], 'skip(끌거나 놓아둔) 노드는 시뮬이 못 움직인다');
   assert.notDeepStrictEqual(pos[0], before[0], '떠 있는 노드는 힘을 받아 움직인다');
-  for (const i of [0, 1]) {
-    assert.ok(pos[i].x >= 20 && pos[i].x <= W - 20, `x 경계 안 (${i}: ${pos[i].x})`);
-    assert.ok(pos[i].y >= 20 && pos[i].y <= H - 16, `y 경계 안 (${i}: ${pos[i].y})`);
-  }
-  // 스프링: 연결된 두 노드는 400px에서 목표 길이(90) 쪽으로 당겨져야 한다
-  const d = Math.hypot(pos[1].x - pos[0].x, pos[1].y - pos[0].y);
-  const d0 = Math.hypot(before[1].x - before[0].x, before[1].y - before[0].y);
-  assert.ok(d < d0, `연결선이 당긴다 (${Math.round(d0)} → ${Math.round(d)})`);
-  console.log('PASS  힘 그래프 스텝 6가지');
+  // 영역: 사람은 0.42W(=252)를 못 넘고, 프로젝트는 0.58W(=348) 아래로 못 온다.
+  // 스프링(목표 90)이 둘을 강하게 당겨도 영역이 이긴다 — 그래서 이 단정이 유효하다.
+  assert.ok(pos[0].x <= W * 0.42 + 0.01, `사람은 자기 영역 안 (${Math.round(pos[0].x)})`);
+  assert.ok(pos[1].x >= W * 0.58 - 0.01, `프로젝트는 자기 영역 안 (${Math.round(pos[1].x)})`);
+  // 냉각: alpha가 식은 뒤에는 힘이 없다 — 한 스텝 더 돌려도 거의 안 움직인다("탱글" 방지)
+  const settled = pos.map(p => ({ ...p }));
+  for (let i = 0; i < 30; i++) forceStep(pos, vel, nodes, edges, W, H, { alpha: 0.001, skip: new Set([3]) });
+  const drift = Math.hypot(pos[0].x - settled[0].x, pos[0].y - settled[0].y);
+  assert.ok(drift < 1.5, `식으면 멈춘다 (30스텝 이동 ${drift.toFixed(2)}px)`);
+  // 드래그가 보는 이동 범위도 같은 규칙이다
+  const b = forceBounds(nodes[0], W, H);
+  assert.strictEqual(b.x1, W * 0.42, '드래그 상한 = 영역 상한');
+  console.log('PASS  힘 그래프 스텝 8가지');
 }

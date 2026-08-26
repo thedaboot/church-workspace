@@ -102,8 +102,13 @@ export function DepGraph({ tasks, onTaskClick }) {
               const color = done ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)';
               return (
                 <g key={i} opacity={dim ? 0.12 : on ? 0.9 : done ? 0.75 : 0.5} style={{ transition: 'opacity 200ms' }}>
-                  <line x1={offX + (pos[a]?.x || 0)} y1={pos[a]?.y} x2={offX + (pos[b]?.x || 0)} y2={pos[b]?.y}
-                    stroke={color} strokeWidth={on ? 1.8 : 1.3} />
+                  {(() => {
+                    const x1 = offX + (pos[a]?.x || 0), y1 = pos[a]?.y || 0;
+                    const x2 = offX + (pos[b]?.x || 0), y2 = pos[b]?.y || 0;
+                    const bend = Math.min(26, Math.hypot(x2 - x1, y2 - y1) * 0.12);
+                    return <path d={`M ${x1} ${y1} Q ${(x1 + x2) / 2} ${(y1 + y2) / 2 - bend} ${x2} ${y2}`}
+                      fill="none" stroke={color} strokeWidth={on ? 1.8 : 1.3} />;
+                  })()}
                   <circle cx={offX + (pos[b]?.x || 0)} cy={pos[b]?.y} r="2.6" fill={color} />
                 </g>
               );

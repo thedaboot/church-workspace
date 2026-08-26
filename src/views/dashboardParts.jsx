@@ -673,16 +673,19 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
     const push = (n) => { idx.set(n.id, nodes.length); nodes.push(n); };
     members.forEach((m, k) => push({
       id: `m:${m.name}`, kind: 'member', m, pl: 30, pr: 46,
-      ax: 0.2, iy: (k + 0.5) / members.length,
+      // zx: 사람은 왼쪽 영역 밖으로 못 나간다(끌어도) — 층 읽기가 안 깨진다(사용자 결정)
+      ax: compact ? 0.16 : 0.2, iy: (k + 0.5) / members.length, zx: compact ? [0.02, 0.36] : [0.02, 0.42],
     }));
-    // 팀은 가운데 열 고정 — 세로 등분
+    // 팀은 가운데 열 고정 — 세로 등분. 모바일은 살짝 왼쪽(0.44) — 프로젝트 라벨이
+    // 길어서 반반으로 나누면 오른쪽이 모자라 팀 위로 겹쳤다.
+    const teamX = W * (compact ? 0.44 : 0.5);
     teamsInUse.forEach((t, k) => push({
       id: `t:${t}`, kind: 'team', t,
-      fixed: { x: W / 2, y: 26 + ((k + 0.5) / teamsInUse.length) * (H - 52) },
+      fixed: { x: teamX, y: 26 + ((k + 0.5) / teamsInUse.length) * (H - 52) },
     }));
     projects.forEach((p, k) => push({
       id: `p:${p.id}`, kind: 'project', p, pl: 56, pr: 60,
-      ax: 0.8, iy: (k + 0.5) / projects.length,
+      ax: compact ? 0.8 : 0.85, iy: (k + 0.5) / projects.length, zx: compact ? [0.56, 0.98] : [0.62, 0.98],
       repel: 1.7,   // 라벨이 제일 크다 — 서로는 더 세게 밀어야 안 겹친다
     }));
     const edges = [];
@@ -690,7 +693,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
       if (idx.has(`t:${t}`)) edges.push([idx.get(`m:${m.name}`), idx.get(`t:${t}`), compact ? 62 : 92, teamColor(t)]);
     }));
     teamProjects.forEach(([team, pid]) => {
-      if (idx.has(`t:${team}`) && idx.has(`p:${pid}`)) edges.push([idx.get(`t:${team}`), idx.get(`p:${pid}`), compact ? 76 : 110, teamColor(team)]);
+      if (idx.has(`t:${team}`) && idx.has(`p:${pid}`)) edges.push([idx.get(`t:${team}`), idx.get(`p:${pid}`), compact ? 88 : 150, teamColor(team)]);
     });
     return { nodes, edges };
   }, [members, teamsInUse, projects, teamProjects, compact, W, H]);
@@ -713,13 +716,23 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
         <span className="text-[10px] text-fg-faint">사람 → 팀 → 프로젝트 · 노드를 끌어서 정리할 수 있어요</span>
       </div>
       <div ref={wrapRef} className="relative select-none" style={{ height: H }}>
+        {/* 열 머리글 — 예전 3열 지도의 읽기 보조를 남긴다. 팀 열(가운데)은 고정이라 정확하고,
+            사람·프로젝트는 영역(zx)의 가운데쯤이다 */}
+        <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * (compact ? 0.16 : 0.2), top: 0, transform: 'translateX(-50%)' }}>사람</span>
+        <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * (compact ? 0.44 : 0.5), top: 0, transform: 'translateX(-50%)' }}>팀</span>
+        <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * 0.8, top: 0, transform: 'translateX(-50%)' }}>프로젝트</span>
         <svg className="absolute inset-0 pointer-events-none" width={cw} height={H} aria-hidden>
           {edges.map(([a, b, , color], i) => {
             const on = hi != null && (a === hi || b === hi);
             const dim = hi != null && !on;
+            const x1 = offX + (pos[a]?.x || 0), y1 = pos[a]?.y || 0;
+            const x2 = offX + (pos[b]?.x || 0), y2 = pos[b]?.y || 0;
+            const bend = Math.min(26, Math.hypot(x2 - x1, y2 - y1) * 0.12);
             return (
-              <line key={i} x1={offX + (pos[a]?.x || 0)} y1={pos[a]?.y} x2={offX + (pos[b]?.x || 0)} y2={pos[b]?.y}
-                stroke={color} strokeWidth={on ? 1.6 : 1.1} opacity={dim ? 0.12 : on ? 0.85 : 0.45}
+              <path key={i}
+                d={`M ${x1} ${y1} Q ${(x1 + x2) / 2} ${(y1 + y2) / 2 - bend} ${x2} ${y2}`}
+                fill="none" stroke={color} strokeWidth={on ? 1.6 : 1.1}
+                opacity={dim ? 0.12 : on ? 0.85 : 0.45}
                 style={{ transition: 'opacity 200ms' }} />
             );
           })}
@@ -759,7 +772,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
               style={{ ...base, ...drag.style, cursor: 'grab' }}
               onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
               onClick={() => onOpenProject(n.p.id)}
-              className="px-2.5 py-1 rounded-[8px] bg-surface shadow-soft border border-line text-[11.5px] font-bold text-fg whitespace-nowrap max-w-[180px] truncate transition hover:opacity-70">
+              className={`px-2.5 py-1 rounded-[8px] bg-surface shadow-soft border border-line font-bold text-fg whitespace-nowrap truncate transition hover:opacity-70 ${compact ? 'text-[10.5px] max-w-[120px]' : 'text-[11.5px] max-w-[180px]'}`}>
               {n.p.title}
             </button>
           );
