@@ -286,17 +286,21 @@ src/index.css               토큰(--app-*, --p-*) · 모션(dc-*) · 그리드�
 src/config.js               팀·상태 상수, teamColor/teamBgColor/teamBar/teamPaint
 src/utils.js                순수 헬퍼. generateId · formatRelative · subtaskProgress ·
                             httpsImage · seenToday · birthdaysWithin · visitOrder · agoLabel ·
-                            birthdayMap · depLayers (전부 logcheck가 검사) ·
+                            birthdayMap · depLayers · driveSrc(첨부 뷰어 고르기) ·
+                            forceStep·forceBounds(그래프 물리) (전부 logcheck가 검사) ·
                             myScope(인사말이 세는 범위) — 브라우저 없이 검사되는 자리
 src/components/layout.jsx   TopNav(데스크톱 2줄) / MobileTopBar / MobileTabBar / ProfileMenu
                             / SearchBox / NotificationBell(+PushRow)
 src/components/boards.jsx   칸반 보드(dnd-kit) — 카드 · 상태 칩 · 컬럼 · DragOverlay
 src/components/calendar.jsx 캘린더(주 단위 행) — 띠 배치(layoutWeek) · 모바일 달력 · 날짜 목록
                             · 날짜 옆 생일 얼굴(§4.8)
-src/components/depgraph.jsx  프로젝트 '그래프' 보기 — 업무 선후관계 열 배치(utils.depLayers, §4.9)
+src/components/depgraph.jsx  프로젝트 '그래프' 보기 — 힘 배치 노드 그래프(useForceGraph 공용).
+                            깊이(utils.depLayers)는 x 앵커로만 남는다(§4.9)
 src/components/linkIcons.jsx 참고 링크 앞의 서비스 표시(노션·유튜브 등). 경로는 커밋된 데이터
 src/components/Avatar.jsx   사람 동그라미 — 사진 있으면 사진, 없거나 깨지면 이름 첫 글자(§4.7)
 src/components/ConfirmPopover.jsx  삭제 확인 팝오버 + useAnchoredPos(팝오버 위치 공용 훅)
+src/views/membersView.jsx   전역 '멤버' 화면(관리자만) — 가입 수락·환송·다시 초대·관리자
+                            지정(마스터만, 0028·0029). 줄에 접속 표시(usePresence)
 src/views/views.jsx         DashboardView / ProjectView / MyTasksView / TeamView / ScheduleView
                             / TeamFilterBar
 src/views/dashboardParts.jsx  여러 화면이 공유하는 부품: 마감 구간 계산(byDue·groupByDue·
@@ -316,9 +320,15 @@ src/services/               cloud.js(Supabase) · cloudSync.js(모양 변환 + �
                             · notifyText.js(알림 문구 — 앱과 api/push.js가 같이 본다)
                             · presence.js(지금 접속한 사람 — 워크스페이스 스토어 밖 미니 스토어)
 src/store/                  useSyncExternalStore 기반 커스텀 스토어 + 셀렉터
+src/hooks/                  controllers.js(저장·삭제 등 쓰기 경로) · useIsMobile.js ·
+                            useForceGraph.js(그래프 시뮬 루프·alpha 냉각·노드 드래그 —
+                            연결 지도와 그래프 뷰가 같이 쓴다, §4.9)
 public/sw.js                서비스 워커 — 푸시 표시 + 클릭 시 딥링크. 캐싱은 하지 않는다
 api/                        ai.js(Gemini 프록시) · share.js(OG 메타)
                             · push.js(POST=앱이 만든 알림을 푸시로, GET=마감 임박 배치)
+                            · drive.js(Apps Script 프록시 — 업로드·폴더·휴지통)
+                            · drive-file.js(드라이브 파일 바이트 중계 — 앱 안 뷰어용,
+                              브라우저는 drive.google.com에 CORS로 막힌다)
 scripts/subset_suit.py      폰트 조각 생성(한 번 돌리고 결과물을 커밋 — §4.2)
 tests/                      검증 스위트 + 러너
 ```
@@ -335,6 +345,8 @@ tests/                      검증 스위트 + 러너
 `src/store/`, `src/hooks/`, `supabase/`, 첨부 관련(`FilePreviewModal.jsx`, `PdfView.jsx`,
 `media.jsx`) — 디자인만 바꾸고 데이터 경로는 건드리지 않는다는 전제였습니다. 첨부·DB 동기화·
 공유는 리디자인 후 실제로 다시 검증했습니다(`tests/share.mjs`, `tests/handoff.mjs`).
+**이 문장은 리디자인 시점(2026-07)의 것입니다** — 그 뒤로 첨부는 드라이브로 통째로 옮겼고
+(`docs/DRIVE.md`), `src/hooks/`에는 `useForceGraph`가 새로 생겼습니다. 지금은 "안 건드린 영역"이 아닙니다.
 
 ---
 
@@ -601,20 +613,31 @@ flex로 두면 왼쪽 칸이 `새 업무` 버튼 **왼쪽에서** 끝나고 아�
   피드입니다. **실시간 라우팅**: activity 이벤트는 전체 재조회가 아니라 피드만 다시
   읽습니다(App에서 500ms 디바운스 — 저장 한 번에 기록이 여러 건 생깁니다).
   피드 줄에 `.dc-row`를 붙이지 마세요 — 검사들이 그 클래스로 마감 목록 행을 셉니다.
-- **프로젝트 연결 지도**(사람—팀—프로젝트)는 본문 아래 전폭입니다. **모바일 좌표는 화면 폭에서 계산합니다**(nmMobile — 글자 열은 딱 필요한 폭만 갖고 남는
-  것은 전부 선 구간에 줍니다. 고정 296px로 두었더니 양옆이 비고 곡선이 26px뿐이라 답답했습니다).
-  카드 패딩을 -mx-2로 물어 그만큼도 선에 보탭니다. 옆으로 밀지 않아도 전체가 보입니다
-  (안전망으로 overflow는 남겼습니다). 열 머리글은 노드와 같은 정렬입니다(사람
-  오른쪽·팀 가운데·프로젝트 왼쪽) — 전부 왼쪽 정렬하면 머리글이 노드 무리에서 떨어져 보입니다. 세 열이 640px을 써서
-  사이드 칸(360px)에 넣으면 프로젝트 열이 잘립니다(실제로 그랬습니다). 좌표는 측정 없이
-  렌더와 같은 상수(NM)로 계산하고, **선 양끝에 점을 찍고 사람 이름을 오른쪽 정렬**로 선
-  시작점에 붙입니다 — 선이 허공에서 시작하면 끊긴 그림이 됩니다(사용자 지적).
-  좁으면 가로로 밉니다(그래프는 한 덩이 캔버스라 §8의 '숨긴 것'이 아닙니다).
+- **프로젝트 연결 지도**(사람—팀—프로젝트)는 본문 아래 전폭이고, **힘 배치 노드
+  그래프**입니다(2026-08-26·27에 3열 목록에서 바꿨습니다 — 사람이 늘수록 높이가 줄 수만큼
+  쌓였습니다). 물리는 `utils.forceStep`, 루프·드래그는 `useForceGraph`이고 **프로젝트
+  그래프 뷰와 같은 코드를 씁니다**. 사용자가 정한 세 가지를 깨지 마세요:
+  · **팀은 가운데 열에 고정**(`fixed`) — 순수 force로 두면 어디가 팀인지 흔들립니다.
+    사람은 왼쪽, 프로젝트는 오른쪽 영역(`zx`) **밖으로 나갈 수 없습니다**(시뮬도 드래그도
+    `forceBounds` 하나를 같이 봅니다 — 규칙이 두 벌이면 끌어다 놓은 자리로 못 갑니다).
+  · **alpha 냉각**으로 멈춥니다(d3-force식 — Injoy 그래프에서 가져왔습니다). 힘 전체를
+    alpha로 스케일하고 매 틱 식히면 에너지가 잦아들며 멈춥니다. **상수 감쇠만 쓰면 깨울
+    때마다 풀 에너지로 진동합니다**(사용자 지적 — "탱글이 너무 세다"). 시간제한이 아니라
+    에너지로 끝냅니다(MAX_FRAMES는 백스톱일 뿐).
+  · **끌어다 놓은 노드는 그 자리에 고정**됩니다(`pinnedIds`) — 다시 제자리로 돌려보내지
+    마세요(사용자 결정). 고정돼도 남을 밀어내는 데는 참여합니다.
+  손잡이는 `useForceGraph`의 ALPHA_DECAY·ALPHA_DRAG와 `forceStep`의 REPEL·SPRING입니다.
+  참고 구현이 `C:\Users\노준석\Desktop\Injoy\src\pages\graph.astro`에 있습니다(속도
+  상한·벽 감쇠도 거기서 왔습니다). 모바일은 팀 열을 0.44로 옮기고 프로젝트 라벨을 줄입니다
+  — 반반으로 나누면 긴 프로젝트 이름이 팀 위로 겹칩니다.
 - **업무 선후관계**는 `cards.depends_on`(uuid[] 컬럼 — 조인이 아닌 이유는 §2-1·§6-27)이고,
   업무 수정 폼의 '선행 업무' 줄(네이티브 select + 칩)에서 정합니다. 프로젝트 화면의 세 번째
-  보기 '그래프'가 `utils.depLayers`로 열을 배치합니다 — 순환은 끊고(빈 열은 걷어냄, 희소
-  배열 구멍이 sort에서 던졌습니다), 지워진 카드를 가리키는 id는 무시합니다. 선행이 끝났으면
-  초록 선, 아직이면 회색 — "어디가 막혀 있나"가 색으로 보입니다.
+  보기 '그래프'도 위와 같은 힘 배치입니다 — `utils.depLayers`의 깊이는 **x 앵커로만** 남고
+  (왼쪽이 먼저), **선이 없는 업무는 격자 앵커로 면에 폅니다**. 예전에는 고정 열 배치라
+  아무도 선후를 안 정하면 전부 0열에 세로로 쌓였습니다(사용자 지적). depLayers는 순환을
+  끊고(빈 열은 걷어냄 — 희소 배열 구멍이 sort에서 던졌습니다), 지워진 카드를 가리키는 id는
+  무시합니다. 선행이 끝났으면 초록 선, 아직이면 회색 — "어디가 막혀 있나"가 색으로 보입니다.
+  노드는 연결 지도와 같은 필입니다(팀 레일 | 상태 점 | 제목).
 - **가입한 사람 모달**은 **최근 방문순**입니다(접속 중 → 최근 방문 → 기록 없음). 접속 중은
   Realtime presence(`services/presence.js` 미니 스토어 — LOAD_STATE가 상태를 통째로 갈아치우는
   워크스페이스 스토어에 섞으면 재조회마다 사라집니다)로 판정하고 아바타 귀퉁이 초록 원 +
@@ -910,19 +933,45 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     그리면서도 마이크로소프트라고 적혀 있었다 — 화면이 거짓말을 했고, 그것 때문에
     "왜 MS로 보이냐"는 지적을 받고서야 알았다. `viewerNote(row)`가 행을 보고 정한다.
 
-29-c. **드라이브의 스프레드시트는 파일 뷰어로 열지 마세요.**
-    `drive.google.com/file/d/<id>/preview`는 xlsx를 그림처럼 보여준다 — **그 응답에는
-    표 내용이 아예 없다**(실측). `docs.google.com/spreadsheets/d/<id>/preview`가
-    표를 그대로 그리고, 새 탭은 저장된 `web_view_link`(=`/edit`)로 스프레드시트가 열린다.
-    Drive가 xlsx를 올릴 때 `getUrl()`로 이미 스프레드시트 주소를 돌려준다.
+29-c. **드라이브 첨부의 뷰어는 파일 나이로 갈립니다 — 한쪽만 옳은 게 아닙니다.**
+    (이 항목은 2026-08-26에 **정반대로 적혀 있었습니다.** "스프레드시트는 파일 뷰어로
+    열지 말라"고만 되어 있었는데, 갓 올린 파일에서는 그 반대가 맞습니다.)
+    · `docs.google.com/<editor>/d/<id>/preview`(spreadsheets·document·presentation)가
+      **보기 좋습니다** — 글자가 크고 시트 탭이 진짜 탭이고 글자를 고를 수 있습니다.
+    · 그런데 **갓 올린 파일에는 "Google Docs에 오류가 발생했습니다"가 뜹니다**(구글이
+      준비하는 데 걸리는 시간 — 45초 뒤에도 그랬습니다). 파일 뷰어는 갓 올린 파일도
+      바로 그립니다. **올리고 바로 확인하는 것이 가장 흔한 동작이라 그때는 파일 뷰어**입니다.
+    · `utils.driveSrc`가 `SHEET_READY_MS`(30분)로 가릅니다. **실측한 값이 아닙니다** —
+      45초에 실패하는 것만 확인했고 언제부터 되는지는 재지 않아 넉넉히 잡았습니다.
+      늦게 잡아도 잃는 게 적고(그 사이 파일 뷰어가 제대로 그립니다), 이르게 잡으면
+      오류 화면이 뜹니다. iframe 오류는 cross-origin이라 감지할 길이 없습니다.
+    · PDF·텍스트·영상·소리는 구글에 전용 뷰가 없어 **앱이 직접 그립니다** — 바이트는
+      `/api/drive-file`이 중계합니다(브라우저→drive.google.com은 CORS가 막습니다).
+    · 새 탭은 저장된 `web_view_link`로 갑니다.
+    **주의: HTML 글자만 보고 판단하면 안 됩니다** — 파일 뷰어는 자바스크립트로 그려서
+    응답 본문에 표가 없습니다. 그것 때문에 한 번 반대로 판단했습니다. 헤드리스로
+    스크린샷을 찍어 눈으로 비교하세요.
 
 29-d. **업무를 지우면 첨부도 같이 정리해야 한다.** `files.card_id`는
     `on delete set null`이라 카드만 지우면 **파일 행이 주인 없이 남고 드라이브에는
     실체가 그대로 남는다.** 이관 때 그런 4건이 갈 곳이 없어 '기타' 폴더로 갔고,
     사용자가 "드라이브와 워크스페이스 싱크를 맞춰야 한다"고 지적했다.
-    지금은 `cloud.deleteCard`가 그 카드의 첨부를 먼저 정리한다(드라이브는 휴지통,
-    Storage 객체는 삭제, 행은 삭제). 정리가 실패해도 카드 삭제는 진행한다 —
-    파일 때문에 지우기가 막히면 안 된다.
+    지금은 `cloud.deleteCard`가 그 카드의 첨부까지 정리한다. 정리가 실패해도 카드
+    삭제는 진행한다 — 파일 때문에 지우기가 막히면 안 된다. **드라이브는 폴더째
+    휴지통으로** 보낸다(파일마다 왕복하면 사진 열 장짜리 업무 삭제가 십수 초다.
+    폴더 휴지통은 Apps Script v4부터 — `docs/DRIVE.md`). 프로젝트 삭제도 같다.
+    **순서는 아래 29-e를 보세요 — 행이 먼저입니다.**
+
+29-e. **지우는 일은 DB 행부터. 실체 정리는 그 뒤에 최선으로.**
+    첨부 삭제가 드라이브 휴지통 왕복(1~2초)을 **마친 뒤에** `files` 행을 지웠더니,
+    그 사이 다른 조회가 아직 남아 있는 행을 읽어 **지운 파일이 화면에 되살아났다**
+    (사용자 재현 — 엑셀을 올리고 지우고 저장했더니 그대로 있었다). 화면의 진실은
+    DB이므로 행이 먼저 사라져야 어떤 조회가 언제 다녀가도 그 파일은 없다.
+    `deleteAttachment`·`deleteCard`·`deleteProject` 전부 이 순서다(준비물을 먼저
+    읽고 → 행 삭제 → 드라이브·Storage 정리). 실체 정리 실패는 던지지 않는다 —
+    드라이브는 30일 복구가 되고, 남은 실체는 소유자가 정리할 수 있다.
+    이중 방어로 `attachments.jsx`가 **이번 세션에 지운 첨부 id를 모듈 레벨로 기억**해
+    (수정 화면과 보기 화면은 다른 인스턴스다) 어떤 조회가 이겨도 되살리지 않는다.
 
 29-d-2. **불리언 하나로 두 가지 상태를 겸하지 마세요.** 0022가 `approved` 하나로
     '아직 승인 안 함'과 '내보냄'을 겸했더니, **환송한 사람이 다시 '승인을 기다리는
