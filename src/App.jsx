@@ -15,6 +15,7 @@ import * as cloudSync from './services/cloudSync.js';
 import { setOnline } from './services/presence.js';
 import logoLight from './assets/logo-light.png';
 import logoDark from './assets/logo-dark.png';
+import { Analytics } from '@vercel/analytics/react';
 
 // activeMenu에는 화면 이름이나 프로젝트 id가 들어간다 — 여기 없는 값은 프로젝트로 본다.
 // 새 전역 화면을 만들면 이 목록에도 넣어야 그 이름이 프로젝트 id로 오해되지 않는다
@@ -61,6 +62,7 @@ export default function ChurchApp() {
         <AuthGate />
         <ToastHost />
       </AuthProvider>
+      <Analytics />
     </ErrorBoundary>
   );
 }
