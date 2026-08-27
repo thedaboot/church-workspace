@@ -18,7 +18,7 @@ npm run verify       # 브라우저 검증 스위트 (tests/README.md)
 ```
 
 `.env` 없이 실행하면 로그인 없는 게스트 모드로, 데이터는 브라우저 localStorage에 저장됩니다.
-`api/` 서버 함수(AI·공유 미리보기)까지 같이 띄우려면 `npx vercel dev`를 쓰세요.
+`api/` 서버 함수(AI·공유 미리보기·드라이브)까지 같이 띄우려면 `npx vercel dev`를 쓰세요.
 
 ## 기능
 
@@ -38,9 +38,13 @@ npm run verify       # 브라우저 검증 스위트 (tests/README.md)
 - WYSIWYG 상세 내용(TipTap) — 툴바로 쓰고, 마크다운 문법 입력도 그대로 먹습니다.
   **저장 형식은 마크다운 문자열**이라 뷰어·AI·기존 데이터와 호환됩니다.
 - 첨부 파일(클라우드 모드) — 수정 모드에서 드래그앤드롭·붙여넣기로 올립니다. 한 파일 25MB,
-  저장소는 Supabase Storage private 버킷. 앱 안 미리보기 모달에서 PDF(pdf.js)·이미지·영상·소리·
-  텍스트를 직접 그리고, 오피스 문서는 마이크로소프트 오피스 미리보기로 넘깁니다(서명 URL이
-  외부로 전달되며, 화면에 그 사실을 표기).
+  여러 장을 고르면 **동시 3개**로 올라갑니다. 실체는 **개인 구글 드라이브**에
+  `프로젝트 / 업무 / 파일` 폴더로 들어가고 DB에는 참조만 남습니다([`docs/DRIVE.md`](docs/DRIVE.md)).
+  업무·프로젝트를 지우면 드라이브 폴더도 **폴더째 휴지통**으로 갑니다(30일 복구).
+  앱 안 미리보기는 형식별로 가장 나은 뷰어를 씁니다 — PDF(pdf.js)·이미지·영상·소리·텍스트는
+  앱이 직접 그리고, 엑셀·워드·PPT는 구글 편집기 미리보기로 넘깁니다(단 **갓 올린 파일은
+  구글이 아직 준비 중이라** 30분 동안은 드라이브 파일 뷰어로 보여줍니다).
+  사진이 여러 장이면 미리보기에서 좌우로 넘길 수 있습니다.
 - 하위 업무 — 업무를 여러 개로 나눠 체크리스트로 만듭니다. 보기 모드에서도 체크가 되고,
   보드 카드에 `3/5` 진척이 붙습니다. 이름 수정·삭제는 수정 모드에서, 삭제는 확인을 거칩니다.
 - 댓글·@멘션 자동완성, 활동 기록(생성·상태·필드 변경·댓글·첨부).
@@ -57,7 +61,11 @@ npm run verify       # 브라우저 검증 스위트 (tests/README.md)
 - 대시보드 — 마감 구간(지연·오늘·이번 주·다음 주·**마감 미정**·끝낸 업무)별 할 일,
   프로젝트 진척도, 팀별·청년별 남은 업무, "지난 7일 간 N건 끝냈어요". 마감이 2주 넘게
   안 정해진 업무는 따로 표시합니다. 고른 필터(전체/내 업무/내 팀)는 주소에 남아
-  새로고침해도 유지됩니다.
+  새로고침해도 유지됩니다. 아래로는 **함께하는 사람**(접속 중이면 초록 원), **최근 활동**
+  피드, **프로젝트 연결 지도**가 있습니다.
+- 프로젝트 연결 지도 — 사람—팀—프로젝트를 잇는 노드 그래프. 팀은 가운데 열에 고정되고
+  사람·프로젝트는 서로 밀며 자리를 잡습니다. **노드를 끌어다 놓으면 그 자리에 남습니다.**
+  프로젝트 화면의 '그래프' 보기(업무 선후관계)도 같은 물리를 씁니다.
 - 전체 일정 — 프로젝트를 넘나드는 캘린더 하나. 팀으로 걸러 봅니다
   (데스크톱은 상단 메뉴 '전체 일정', 모바일은 상단바 달력 아이콘).
 - 통합 검색 — 두 글자 이상 입력하면 프로젝트와 업무를 함께 찾고, 고르면 해당 보드·업무 창까지 엽니다.
@@ -65,12 +73,13 @@ npm run verify       # 브라우저 검증 스위트 (tests/README.md)
 - Gemini AI — 업무 3줄 요약, 본문 구조화 다듬기(`api/ai.js` 경유, `gemini-3.1-flash-lite`).
   프롬프트에 조직도·사역 진행 순서·**교회 달력**(주일 4부 청년 예배 · 금요 열정 예배 · 절기)이
   실리고 날짜에는 요일이 붙습니다. 요약은 같은 카드를 다시 열면 다시 부르지 않고(캐시),
-  관리자가 '이 요약 고정'을 누르면 카드에 남아(`cards.ai_summary`) 모두가 같은 요약을 봅니다.
+  마스터가 '이 요약 고정'을 누르면 카드에 남아(`cards.ai_summary`) 모두가 같은 요약을 봅니다.
   고정해도 업무 창을 열자마자 펼쳐지지는 않습니다 — **'3줄 요약'을 눌렀을 때** 나옵니다.
   저장된 것을 보여주므로 AI를 다시 부르지는 않지만, 화면은 새로 만드는 것과 똑같이
   '분석하는 중'을 2초 지나서 나옵니다. 읽는 사람은 그게 저장된 글인지 알 수 없고,
-  '고정' 표시는 관리자에게만 보입니다. 관리자는 '고치기'로 저장된 요약의 한 줄만
-  손볼 수도 있습니다(다시 돌리면 딴 글이 나오니까요).
+  '고정' 표시와 '고치기'는 마스터에게만 보입니다(저장된 요약의 한 줄만 손볼 수 있습니다 —
+  다시 돌리면 딴 글이 나오니까요). AI 기능이 마스터 전용인 이유는 돈이 들고 워크스페이스
+  전체에 남는 글을 만들기 때문입니다.
 - 실행 취소/다시 실행 — 게스트 모드 전용(여러 사람이 함께 쓰는 클라우드 모드에서는 감춥니다).
   대신 목록·보드에서 상태를 옮기면 '되돌리기' 토스트가 뜨고, 누르면 DB까지 함께 되돌립니다
   (그 사이 다른 사람이 바꿨으면 덮지 않고 알려줍니다).
@@ -92,11 +101,13 @@ src/
 ├── config.js            팀·상태 상수, 팀 색
 ├── index.css            디자인 토큰 · 모션 · 그리드 유틸
 ├── store/               useSyncExternalStore 기반 커스텀 스토어 + 셀렉터
-├── services/            domain · cloud(Supabase) · cloudSync · markdown · ai · auth
-├── hooks/               controllers · useIsMobile
+├── services/            domain · cloud(Supabase) · cloudSync · markdown · ai · auth · presence
+├── hooks/               controllers · useIsMobile · useForceGraph(그래프 시뮬·드래그)
 ├── components/          layout(상단 2줄 내비 · 모바일 탭바) · boards(칸반) · calendar
-│                        MarkdownEditor · RichText · MentionInput · FilePreviewModal · PdfView 등
+│                        depgraph(업무 선후 그래프) · MarkdownEditor · RichText ·
+│                        MentionInput · FilePreviewModal · PdfView 등
 ├── views/               views(대시보드·프로젝트·내 업무·팀·전체 일정) · dashboardParts(공유 부품)
+│                        · membersView(가입 승인·관리자 지정)
 └── modals/              업무 상세·수정, 프로필, 프로젝트 생성/이름 변경
 ```
 
@@ -119,9 +130,19 @@ src/
 3. `.env.example`을 `.env`로 복사해 값을 채우고 개발 서버를 재시작합니다.
 4. 첫 로그인 직후 표시 이름과 소속 팀을 정하는 창이 열립니다. 이후에는 헤더의 프로필 메뉴에서 바꿉니다.
 
-프로젝트 삭제는 관리자 전용입니다. `admins` 테이블의 이메일 화이트리스트로 판정하고,
-화면도 DB의 `admins` 표를 봅니다(`is_admin()` RPC — 0022에서 `VITE_ADMIN_EMAILS`를 없앴습니다).
-관리자 지정·해제는 전역 '멤버' 화면에서 하고, 재배포가 필요하지 않습니다. 게스트 모드에서는 제한이 없습니다.
+권한은 세 층입니다(`admins` 테이블이 원본 — 0022에서 `VITE_ADMIN_EMAILS`를 없앴고,
+화면과 DB가 같은 `is_admin()`·`is_master()`를 봅니다. 재배포가 필요하지 않습니다).
+
+| | 할 수 있는 것 |
+|---|---|
+| 마스터 | AI 기능(3줄 요약 고정·고치기) + 관리자 지정·해제 |
+| 관리자 | 멤버 관리(가입 수락·환송) + 업무 삭제 |
+| 승인된 사람 | 그 밖의 모든 것(프로젝트 만들기·삭제 포함 — 0021에서 열었습니다) |
+
+새 가입자는 **승인을 기다립니다**(0022) — 관리자가 전역 '멤버' 화면에서 수락하기 전에는
+프로젝트도 업무도 보이지 않습니다. 관리자 지정은 가입한 사람 목록에서 고르고,
+그 버튼은 마스터에게만 보입니다(DB도 `is_master()`로 막습니다 — 0029).
+게스트 모드에서는 제한이 없습니다.
 
 ```sql
 insert into admins (email) values ('admin@example.com');
@@ -129,8 +150,10 @@ insert into admins (email) values ('admin@example.com');
 
 ## 클라우드 백엔드
 
-프로젝트·카드·댓글·팀·리소스 링크·알림은 Supabase Postgres에, 첨부 파일은 Supabase Storage
-private 버킷에 저장합니다(구글 드라이브 이관은 보류 — [`docs/DRIVE.md`](docs/DRIVE.md)).
+프로젝트·카드·댓글·팀·리소스 링크·알림은 Supabase Postgres에, **첨부 파일은 개인 구글
+드라이브**에 두고 DB에는 참조(`files`)만 남깁니다(2026-08-26에 이관을 마쳤습니다 —
+[`docs/DRIVE.md`](docs/DRIVE.md)). 본문 이미지와 프로필 사진은 Supabase Storage에 남습니다
+(올릴 때 이미 줄여 저장하고, 본문 이미지는 주소가 글 안에 박혀 있어 옮기면 지난 글이 깨집니다).
 모든 테이블은 RLS로 보호되고, 조회·작성은 로그인 사용자, 삭제는 작성 본인 또는 관리자입니다.
 다른 사람이 바꾼 내용은 Realtime 구독으로 반영됩니다.
 
@@ -157,6 +180,18 @@ private 버킷에 저장합니다(구글 드라이브 이관은 보류 — [`doc
 | `0015_subtasks_and_summary.sql` | `cards.subtasks`(체크리스트) + `cards.ai_summary`(고정한 요약) |
 | `0016_card_counts.sql` | `cards.comment_count`·`file_count` + 재계산 트리거 |
 | `0017_push_notifications.sql` | `notifications.kind`에 `assign`·`due_soon` + `push_subscriptions` |
+| `0018_profiles_realtime.sql` | 새 가입자가 열려 있는 화면에 바로 뜨게 — profiles 실시간 |
+| `0019_profile_visits.sql` | `profiles.last_seen_at`·`birthday` — 대시보드 '사람' 칸과 달력 생일 |
+| `0020_deps_and_activity.sql` | `cards.depends_on`(업무 선후관계) + 최근 활동 피드 |
+| `0021_open_project_delete.sql` | 프로젝트 삭제를 승인된 사람 전체에게 · 탭 순서(`projects.position`) |
+| `0022_member_approval.sql` | 가입 승인(`profiles.approved`) + `admins` 표로 권한 판정(`VITE_ADMIN_EMAILS` 제거) |
+| `0023_file_password.sql` | `files.view_pw` — 첨부 화면 가림(파일 자체를 잠그는 것이 아님) |
+| `0024_card_position.sql` | 컬럼 안 카드 순서 |
+| `0025_project_year.sql` | `projects.year` — 연도별로 프로젝트 탭을 가른다 |
+| `0026_card_drive_folder.sql` | `cards.drive_folder_id` — 제목을 바꿔도 드라이브 파일이 갈라지지 않게 |
+| `0027_profile_removed.sql` | `profiles.removed_at` — '환송한 사람'과 '아직 승인 안 한 사람'을 가른다 |
+| `0028_admin_pick_and_pin.sql` | `profiles.email` + `admins.is_master` — 관리자를 목록에서 고르고, AI는 마스터만 |
+| `0029_admin_grant_master_only.sql` | 관리자 지정·해제를 마스터만(`admins` 정책이 `is_master()`) |
 
 ## 딥링크 · 공유 · 환경변수
 
