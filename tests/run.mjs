@@ -16,10 +16,10 @@ const PORT = Number(process.env.VERIFY_PORT || 4390);
 const BASE = `http://localhost:${PORT}`;
 
 // 브라우저를 쓰지 않는 순수 로직 자체검증 (서버가 필요 없다)
-const NODE_ONLY = ['logcheck', 'mdcheck', 'assignees', 'push'];
+const NODE_ONLY = ['logcheck', 'mdcheck', 'assignees', 'push', 'sheet'];
 // 순서: 넓게 훑는 것부터. 드래그·캘린더는 타이밍에 민감해서 마지막에 조용히 돌린다.
 const ORDER = [
-  'logcheck', 'mdcheck', 'assignees', 'push', 'aictx',
+  'logcheck', 'mdcheck', 'sheet', 'assignees', 'push', 'aictx',
   'errhunt', 'handoff',
   'navsmoke', 'onebar', 'mobbits', 'bottomgap', 'modalclose',
   'batch10', 'batch11', 'dashfix', 'wide',

@@ -650,10 +650,25 @@ export async function getAttachmentUrl(storagePath) {
 // 파일 열기 URL — files.source로 저장소를 분기한다.
 // 개인 구글 드라이브로 실체를 옮긴 뒤에는 source='drive'로 바꾸고
 // drive_file_id/web_view_link만 채우면 앱 코드는 그대로 동작한다.
+// 확장자 → 구글 편집기. '새 탭에서 열기'가 **언제나 보기 좋은 화면**으로 가게 하는 표다.
+// 드라이브가 내주는 web_view_link는 오피스 파일이면 이미 편집기 주소
+// (docs.google.com/spreadsheets/d/…/edit)라서 그걸 그대로 쓰면 되는데,
+// 링크가 비어 있을 때 파일 뷰어(drive.google.com/file/d/…/view)로 떨어지면
+// 앱 안에서 없앤 바로 그 어두운 화면이 새 탭에서 다시 나온다. 그 자리를 막는다.
+const OPEN_EDITOR = {
+  xlsx: 'spreadsheets', xls: 'spreadsheets', csv: 'spreadsheets',
+  docx: 'document', doc: 'document',
+  pptx: 'presentation', ppt: 'presentation',
+};
 export async function getFileOpenUrl(row) {
   if (row.source === 'drive') {
     if (row.web_view_link) return row.web_view_link;
-    if (row.drive_file_id) return `https://drive.google.com/file/d/${row.drive_file_id}/view`;
+    if (row.drive_file_id) {
+      const editor = OPEN_EDITOR[String(row.name || '').split('.').pop().toLowerCase()];
+      return editor
+        ? `https://docs.google.com/${editor}/d/${row.drive_file_id}/edit`
+        : `https://drive.google.com/file/d/${row.drive_file_id}/view`;
+    }
     throw new Error('드라이브 링크가 없는 파일이에요');
   }
   return getAttachmentUrl(row.storage_path);

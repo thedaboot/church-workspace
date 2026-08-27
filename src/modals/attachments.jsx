@@ -3,8 +3,9 @@ import { FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, 
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
-import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, getFileOpenUrl, setFilePassword, checkFilePassword, driveImageUrl } from '../services/cloud.js';
-import { FilePreviewModal, officeSrc, driveSrc, viewerNote, PreparingFrame, FRAME_SETTLE, OFFICE_TIMEOUT } from '../components/FilePreviewModal.jsx';
+import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, getFileOpenUrl, setFilePassword, checkFilePassword, driveImageUrl, fetchDriveFileBlob } from '../services/cloud.js';
+import { FilePreviewModal } from '../components/FilePreviewModal.jsx';
+import { SheetView } from '../components/SheetView.jsx';
 import { SmartImage, Skeleton } from '../components/media.jsx';
 import { useStore, store } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
@@ -168,56 +169,48 @@ function PasswordSetter({ row, onDone }) {
 // 마이크로소프트로 주소가 나가지 않는다(Storage 파일만 MS 뷰어를 거친다).
 // csv는 어느 뷰어도 표로 그리지 못한다 — 미리보기(텍스트)로 본다.
 const isSheetRow = (row) => (!!row.storage_path || (row.source === 'drive' && !!row.drive_file_id))
-  && ['xls', 'xlsx'].includes((String(row.name || '').split('.').pop() || '').toLowerCase());
+  && ['xls', 'xlsx', 'csv'].includes((String(row.name || '').split('.').pop() || '').toLowerCase());
 
-// 엑셀을 행 바로 아래에 펼친다 — 노션식 임베드(읽기 전용, 미리보기와 같은 MS 뷰어).
-// 서명 URL은 펼칠 때마다 새로 받는다(만료가 있어서 담아두면 다음 날 깨진 화면이 남는다).
-// 뷰어가 첫 페이지를 그릴 때까지 우리 스켈레톤으로 덮는다 — 안 덮으면 MS 뷰어의
-// 로딩 화면(남의 폰트·남의 스피너)이 그대로 비쳐서 앱이 아닌 화면처럼 보인다.
-// 미리보기 모달(FilePreviewModal)과 같은 값·같은 스켈레톤을 쓴다.
+// 엑셀을 행 바로 아래에 펼친다 — 노션식 임베드(읽기 전용).
+// 예전에는 구글·마이크로소프트 뷰어를 iframe으로 물렸는데, 갓 올린 파일에서
+// 구글 편집기 preview가 오류를 뱉어 파일 나이 30분으로 뷰어를 갈라야 했다
+// (utils.driveSrc). "올리고 바로 펼쳐보기"가 가장 흔한 동작인데 그때가 제일
+// 못생겼다. 지금은 바이트를 받아 **우리가 직접 그린다**(SheetView) — 기다릴 것이
+// 없고, 라이트·다크도 따라간다. 미리보기 모달과 같은 컴포넌트다.
 function InlineSheet({ row }) {
-  const [url, setUrl] = useState(null);
+  const [src, setSrc] = useState(null);      // { blob } 또는 { text }(csv)
   const [err, setErr] = useState(null);
-  const [ready, setReady] = useState(false);
-  const [timedOut, setTimedOut] = useState(false);
   // '크게 보기' — 기본 높이는 업무 창 스크롤을 다 잡아먹지 않는 선(420px)이고,
   // 표를 제대로 볼 때는 화면 높이 75%까지 늘린다. 버튼 토글이라 모바일에서도 된다
   // (CSS resize 핸들은 터치에서 안 잡히고, 밀어야 나오는 조작은 §8에 걸린다).
   const [tall, setTall] = useState(false);
-  const settleRef = useRef(null);
-  // 드라이브 파일은 주소를 받아올 필요가 없다 — id만으로 미리보기 주소가 나온다
-  const isDrive = row.source === 'drive' && !!row.drive_file_id;
   useEffect(() => {
-    if (isDrive) { setUrl(driveSrc(row)); return; }
     let alive = true;
-    getFileOpenUrl(row)
-      .then(u => { if (alive) setUrl(u); })
-      .catch(e => { if (alive) setErr(e.message || String(e)); });
-    return () => { alive = false; clearTimeout(settleRef.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [row.id]);
-  useEffect(() => {
-    if (!url || ready) return;
-    const t = setTimeout(() => setTimedOut(true), OFFICE_TIMEOUT);
-    return () => clearTimeout(t);
-  }, [url, ready]);
+    setSrc(null); setErr(null);
+    const asCsv = (String(row.name || '').split('.').pop() || '').toLowerCase() === 'csv';
+    const take = (b) => (asCsv ? b.text().then(t => ({ text: t })) : Promise.resolve({ blob: b }));
+    const got = (v) => { if (alive) setSrc(v); };
+    const failed = (e) => { if (alive) setErr(e.human || e.message || String(e)); };
+    if (row.source === 'drive' && row.drive_file_id) {
+      fetchDriveFileBlob(row.drive_file_id).then(take).then(got).catch(failed);
+    } else {
+      getFileOpenUrl(row)
+        .then(u => fetch(u))
+        .then(r => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
+        .then(take).then(got).catch(failed);
+    }
+    return () => { alive = false; };
+  }, [row.id, row.name, row.source, row.drive_file_id]);
+
   if (err) return <p className="text-[11px] text-fg-faint py-2">펼쳐보기를 준비하지 못했어요 · {err}</p>;
-  if (timedOut && !ready) return <p className="text-[11px] text-fg-faint py-2">미리보기가 응답하지 않아요 · 눈 모양(미리보기)으로 열어보세요</p>;
   return (
     <div className="pb-2">
       <div className={`relative w-full ${tall ? 'h-[75dvh]' : 'h-[320px] md:h-[420px]'}`}>
-        {!ready && <PreparingFrame absolute />}
-        {url && (
-          <iframe
-            src={isDrive ? url : officeSrc(url)} title={row.name}
-            // onLoad 직후엔 아직 첫 페이지가 안 그려져 있다 → 조금 뒤에 걷는다(모달과 동일)
-            onLoad={() => { clearTimeout(settleRef.current); settleRef.current = setTimeout(() => setReady(true), FRAME_SETTLE); }}
-            className={`w-full h-full rounded-md border border-line bg-surface ${ready ? '' : 'opacity-0'}`}
-          />
-        )}
+        {src
+          ? <SheetView blob={src.blob} text={src.text ?? null} name={row.name} onError={(e) => setErr(e.message || String(e))} />
+          : <Skeleton className="w-full h-full" />}
       </div>
-      <div className="flex items-center justify-between gap-2 mt-1">
-        <p className="text-[10px] text-fg-faint min-w-0 truncate">{viewerNote(row)}</p>
+      <div className="flex items-center justify-end mt-1">
         <button type="button" onClick={() => setTall(t => !t)}
           className="shrink-0 text-[10px] font-semibold text-accent-text hover:underline transition active:scale-95">
           {tall ? '원래 높이로' : '크게 보기'}

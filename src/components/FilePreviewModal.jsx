@@ -6,6 +6,7 @@ import { getFileOpenUrl, driveImageFullUrl, fetchDriveFileBlob } from '../servic
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { Skeleton, SmartImage } from './media.jsx';
 import { PdfView } from './PdfView.jsx';
+import { SheetView } from './SheetView.jsx';
 
 // ============================================================================
 // 첨부 미리보기 — 새 탭으로 스토리지 링크를 던지지 않고 앱 안에서 본다.
@@ -22,7 +23,10 @@ const OFFICE_VIEWER = true; // false = 오피스 파일도 미리보기 없이 '
 const extOf = (name = '') => (name.split('.').pop() || '').toLowerCase();
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg'];
 const TEXT_EXT = ['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'log', 'xml', 'yml', 'yaml', 'html', 'css', 'js', 'jsx', 'ts', 'tsx', 'py', 'sql', 'sh'];
-const OFFICE_EXT = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+const OFFICE_EXT = ['doc', 'docx', 'ppt', 'pptx'];   // 앱이 못 그려서 구글 편집기 미리보기로 남는 것
+// 우리 표로 직접 그리는 것. csv는 파싱이 몇 줄이라 같이 본다.
+const SHEET_EXT = ['xlsx', 'xls', 'csv'];
+const MAX_SHEET_BYTES = 8 * 1024 * 1024;   // 이보다 크면 표로 그리지 않고 구글 뷰어로 넘긴다
 const MAX_TEXT_BYTES = 512 * 1024;      // 텍스트는 이만큼만 내려받아 보여준다
 const MAX_PDF_PREFETCH = 15 * 1024 * 1024; // 이보다 크면 통째로 받지 않고 바로 스트리밍
 // 첨부 목록의 엑셀 '펼쳐보기'(attachments.jsx)도 같은 값·같은 스켈레톤을 쓴다 —
@@ -39,13 +43,16 @@ function previewKind(row) {
   // 고정이라 브라우저가 캐싱하고(서명 URL과 달리 두 번째부터는 요청이 안 나간다),
   // iframe 뷰어와 달리 사진 넘기기(이전/다음)가 된다.
   if (mime.startsWith('image/') || IMAGE_EXT.includes(ext)) return 'image';
+  // 엑셀·csv는 저장소가 어디든 **우리가 직접 그린다**(SheetView) — 구글 뷰어는 갓 올린
+  // 파일을 못 그려서 파일 나이 30분으로 갈라야 했고, 그 30분이 가장 흔한 순간이었다.
+  if (SHEET_EXT.includes(ext) && (row.size_bytes ?? 0) <= MAX_SHEET_BYTES) return 'sheet';
   if (row.source === 'drive') {
     // 드라이브 파일도 형식별로 **가장 나은 뷰어**로 간다(사용자 요청) —
     //  · 오피스류(엑셀·워드·PPT·csv): 구글 전용 편집기 미리보기(driveSrc가 시간 게이트)
     //  · PDF·텍스트·영상·소리: 앱이 직접 그린다. 바이트는 /api/drive-file이 중계한다
     //    (브라우저→drive.google.com 은 CORS가 막는다). 첨부 상한이 25MB라 통째로
     //    받아도 된다. PDF만 프리페치 상한(15MB)을 넘으면 드라이브 뷰어로 남긴다.
-    if (OFFICE_EXT.includes(ext) || ext === 'csv') return 'drive';
+    if (OFFICE_EXT.includes(ext)) return 'drive';
     if ((mime === 'application/pdf' || ext === 'pdf') && (row.size_bytes ?? 0) <= MAX_PDF_PREFETCH) return 'pdf';
     if ((mime.startsWith('text/') || TEXT_EXT.includes(ext)) && (row.size_bytes ?? 0) <= MAX_TEXT_BYTES) return 'text';
     if (mime.startsWith('video/') || ['mp4', 'mov', 'webm', 'm4v'].includes(ext)) return 'video';
@@ -56,7 +63,7 @@ function previewKind(row) {
   if (mime.startsWith('video/')) return 'video';
   if (mime.startsWith('audio/')) return 'audio';
   if (mime.startsWith('text/') || TEXT_EXT.includes(ext)) return 'text';
-  if (OFFICE_EXT.includes(ext)) return OFFICE_VIEWER ? 'office' : 'none';
+  if (OFFICE_EXT.includes(ext) || SHEET_EXT.includes(ext)) return OFFICE_VIEWER ? 'office' : 'none';
   return 'none';
 }
 
@@ -99,13 +106,14 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
   const [frameReady, setFrameReady] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [pdfSrc, setPdfSrc] = useState(null); // { blob } 또는 { src } — 준비가 끝난 뒤에만 렌더
+  const [sheetSrc, setSheetSrc] = useState(null); // { blob } 또는 { text }(csv)
   const timerRef = useRef(null);
   const settleRef = useRef(null);
   const go = useCallback((d) => {
     const next = canNav ? gallery[gi + d] : null;
     if (!next) return;   // 끝에서는 멈춘다 — 빙글빙글 돌면 몇 장인지 감을 잃는다
     setCur(next); setUrl(null); setText(null); setError(null);
-    setFrameReady(false); setTimedOut(false); setPdfSrc(null);
+    setFrameReady(false); setTimedOut(false); setPdfSrc(null); setSheetSrc(null);
   }, [canNav, gallery, gi]);
   // 이웃 사진을 미리 받아 둔다 — lh3 주소는 고정이라 이게 곧 캐시를 채우는 일이고,
   // 다음/이전을 눌렀을 때 스켈레톤 없이 바로 뜬다.
@@ -144,6 +152,31 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
     fetch(url)
       .then(r => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(t => { if (alive) setText(t); })
+      .catch(e => { if (alive) setError(e.message || String(e)); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, url, cur.id]);
+
+  // 엑셀·csv는 바이트를 받아 SheetView가 직접 읽는다(구글 뷰어를 안 거친다).
+  // 드라이브 파일은 /api/drive-file 중계로만 받을 수 있다 — 브라우저에서
+  // drive.google.com에 직접 가면 CORS가 막는다(§6-29-c).
+  useEffect(() => {
+    if (kind !== 'sheet' || sheetSrc) return;
+    const asCsv = extOf(cur.name) === 'csv';
+    let alive = true;
+    const take = (b) => (asCsv ? b.text().then(t => ({ text: t })) : Promise.resolve({ blob: b }));
+    if (cur.source === 'drive' && cur.drive_file_id) {
+      fetchDriveFileBlob(cur.drive_file_id)
+        .then(take)
+        .then(v => { if (alive) setSheetSrc(v); })
+        .catch(e => { if (alive) setError(e.human || e.message || String(e)); });
+      return () => { alive = false; };
+    }
+    if (!url) return;
+    fetch(url)
+      .then(r => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(take)
+      .then(v => { if (alive) setSheetSrc(v); })
       .catch(e => { if (alive) setError(e.message || String(e)); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -243,6 +276,17 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
             ? <RichText content={text} />
             : <pre className="text-xs text-fg-secondary whitespace-pre-wrap break-words font-mono leading-relaxed">{text}</pre>}
         </div>
+      );
+    }
+    // 엑셀·csv는 우리 표로 그린다 — 시트 탭·병합·열 너비·서식을 살리고,
+    // 안 칠한 칸은 우리 토큰이라 다크 모드가 그대로 따라간다(SheetView 주석).
+    if (kind === 'sheet') {
+      if (!sheetSrc) return <PreparingFrame />;
+      return (
+        <SheetView
+          blob={sheetSrc.blob} text={sheetSrc.text ?? null} name={cur.name}
+          onError={(e) => setError(`표를 읽지 못했어요 · ${e.message || e}`)}
+        />
       );
     }
     // PDF는 pdf.js로 직접 그린다 — iOS 사파리는 iframe 안의 PDF를 첫 쪽만 보여준다.

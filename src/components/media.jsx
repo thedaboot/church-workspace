@@ -25,7 +25,17 @@ export function SmartImage({ src, alt = '', className = '', wrapperClassName = '
   // 줄 수 없어서, 안쪽 이미지의 max-h-full이 기준을 못 잡고 가로 화면에서 넘쳤다.
   return (
     <span className={`relative ${wrapperClassName}`}>
-      {state !== 'ready' && <Skeleton className={`absolute inset-0 w-full h-full ${skeletonClassName}`} />}
+      {/* 스켈레톤 크기는 **둘 중 하나만** 쓴다. 예전에는 `absolute inset-0 w-full h-full`과
+          호출부의 `w-72 h-72`를 같이 붙였는데, Tailwind는 클래스를 적은 순서가 아니라
+          스타일시트 순서로 이기므로 어느 쪽이 이길지 정해져 있지 않았고 inset-0이 네 변을
+          다 잡아서 **미리보기 창 전체가 통째로 반짝이다가** 사진이 가운데에 툭 나타났다
+          (사용자 지적). 크기를 받은 경우에는 그 크기로 가운데에 둔다 — 사진이 뜰 자리와
+          같은 자리다. 안 받으면 예전처럼 꽉 채운다(썸네일 자리가 그렇다). */}
+      {state !== 'ready' && (
+        <Skeleton className={skeletonClassName
+          ? `absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 ${skeletonClassName}`
+          : 'absolute inset-0 w-full h-full'} />
+      )}
       {src && (
         <img
           src={src} alt={alt} title={title} onClick={onClick}
