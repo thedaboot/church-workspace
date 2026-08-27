@@ -14,6 +14,8 @@
 // DOM을 쓰지 않는다 — 순수 함수라 노드에서 그대로 검사한다(tests/sheet.mjs, §2-5).
 // ============================================================================
 
+import { compile, evalRule, BLANK } from './formula.js';
+
 const u16 = (d, p) => d[p] | (d[p + 1] << 8);
 const u32 = (d, p) => (d[p] | (d[p + 1] << 8) | (d[p + 2] << 16) | (d[p + 3] << 24)) >>> 0;
 
@@ -143,6 +145,60 @@ function colorOf(tag, theme) {
   return null;
 }
 
+// 상대 밝기(sRGB). 화면(SheetView)도 같은 함수를 써야 '종이 판정'과 글자색 판정이
+// 두 벌로 갈라지지 않는다.
+export function luminance(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v => {
+    const x = v / 255;
+    return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+}
+// 작성자가 **뜻을 담아 고른 색**만 남긴다. 검정·흰색은 엑셀의 기본값이라
+// 그대로 쓰면 다크 모드에서 검은 테두리·검은 글자가 사라진다 — 그런 건 null로
+// 돌려서 화면이 우리 토큰으로 그리게 한다(칠에 쓰는 '종이 판정'과 같은 생각).
+export const chromatic = (hex) => {
+  if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
+  const l = luminance(hex);
+  return (l < 0.06 || l > 0.9) ? null : hex;
+};
+
+// 글꼴 한 벌. <font>과 조건부 서식의 <dxf><font>이 같은 모양이라 둘이 같이 쓴다.
+// `<b/>`(값 없음)와 `<b val="1"/>` 둘 다 참이고, `val="0"`이면 거짓이다.
+const onFlag = (xml, tag) => new RegExp(`<${tag}(\\s*/>|\\s+val="(1|true)")`).test(xml);
+function readFont(xml, theme) {
+  const src = xml || '';
+  return {
+    bold: onFlag(src, 'b'),
+    italic: onFlag(src, 'i'),
+    strike: onFlag(src, 'strike'),
+    under: /<u(\s*\/>|\s+val="(?!none))/.test(src),
+    color: colorOf((src.match(/<color[^>]*\/?>/) || [null])[0], theme),
+  };
+}
+
+// ── 테두리 ──────────────────────────────────────────────────────────────────
+// 굵기와 모양만 옮긴다. 색은 chromatic()을 지나서, 기본 검정이면 우리 선 색이 된다.
+const BORDER_W = {
+  hair: 1, thin: 1, dashed: 1, dotted: 1, dashDot: 1, dashDotDot: 1,
+  medium: 2, mediumDashed: 2, mediumDashDot: 2, mediumDashDotDot: 2, slantDashDot: 2,
+  thick: 3, double: 3,
+};
+const BORDER_S = {
+  double: 'double', dotted: 'dotted', hair: 'dotted',
+  dashed: 'dashed', mediumDashed: 'dashed', dashDot: 'dashed', dashDotDot: 'dashed',
+  mediumDashDot: 'dashed', mediumDashDotDot: 'dashed', slantDashDot: 'dashed',
+};
+function sideOf(borderXml, name, theme) {
+  const blk = [...blocks(borderXml, name)][0];
+  if (!blk) return null;
+  const st = attrs(blk.open).style;
+  if (!st || st === 'none') return null;
+  const tag = (blk.inner.match(/<color[^>]*\/?>/) || [null])[0];
+  return { w: BORDER_W[st] || 1, s: BORDER_S[st] || 'solid', c: chromatic(colorOf(tag, theme)) };
+}
+
 // ── 숫자 형식 ────────────────────────────────────────────────────────────────
 // ponytail: 전체 numFmt 엔진을 만들지 않는다. 실제로 쓰이는 것은 날짜·천단위·
 // 퍼센트·소수 자릿수 넷이다. 모르는 형식은 값을 그대로 보여준다 —
@@ -205,6 +261,255 @@ export const refToRC = (ref) => {
 // 엑셀 열 너비(글자 수) → px. 기본 글꼴에서 한 글자가 대략 7px이고 여백이 5px이다.
 export const widthToPx = (w) => Math.round(w * 7 + 5);
 
+// ── 조건부 서식 ──────────────────────────────────────────────────────────────
+// 규칙을 **파서에서 미리 적용**해서 화면에는 이미 칠해진 셀만 넘긴다. 색눈금·중복처럼
+// 범위 전체를 봐야 하는 규칙이 있어서, 값을 다 들고 있는 이쪽이 제자리다.
+//
+// ponytail: 수식 규칙(type="expression")과 아이콘 집합은 **적용하지 않는다.** 앞의 것은
+// 엑셀 수식 엔진이 필요하고(=우리가 만들 것이 아니다), 뒤의 것은 아이콘 세트를 통째로
+// 들여야 한다. 못 하는 규칙은 조용히 건너뛴다 — 틀린 색을 칠하는 것보다 안 칠하는 쪽이 낫다.
+const cmp = {
+  greaterThan: (v, a) => v > a,
+  lessThan: (v, a) => v < a,
+  greaterThanOrEqual: (v, a) => v >= a,
+  lessThanOrEqual: (v, a) => v <= a,
+  equal: (v, a) => v === a,
+  notEqual: (v, a) => v !== a,
+  between: (v, a, b) => v >= Math.min(a, b) && v <= Math.max(a, b),
+  notBetween: (v, a, b) => v < Math.min(a, b) || v > Math.max(a, b),
+};
+// "C4:C30 E4:E30" → [{r1,c1,r2,c2}, …]
+function parseSqref(s) {
+  const out = [];
+  for (const part of String(s || '').trim().split(/\s+/)) {
+    if (!part) continue;
+    const [a, b] = part.split(':');
+    const p = refToRC(a), q = refToRC(b || a);
+    if (p && q) out.push({ r1: Math.min(p.r, q.r), c1: Math.min(p.c, q.c), r2: Math.max(p.r, q.r), c2: Math.max(p.c, q.c) });
+  }
+  return out;
+}
+const numOf = (cell) => (cell && cell.n !== undefined && cell.n !== null ? cell.n : null);
+// cfvo(기준점) → 실제 숫자. min·max·percent·percentile·num을 안다.
+function cfvoValue(v, nums) {
+  if (!nums.length) return 0;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const lo = sorted[0], hi = sorted[sorted.length - 1];
+  const t = v.type;
+  if (t === 'min') return lo;
+  if (t === 'max') return hi;
+  const val = Number(v.val);
+  if (t === 'percent') return lo + (hi - lo) * (val / 100);
+  if (t === 'percentile') {
+    const i = (sorted.length - 1) * (val / 100);
+    const f = Math.floor(i);
+    return sorted[f] + (sorted[Math.min(f + 1, sorted.length - 1)] - sorted[f]) * (i - f);
+  }
+  return Number.isFinite(val) ? val : lo;
+}
+const mixHex = (a, b, t) => {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  const ch = [16, 8, 0].map(sh => Math.round((((pa >> sh) & 255) * (1 - t)) + (((pb >> sh) & 255) * t)));
+  return `#${ch.map(x => x.toString(16).padStart(2, '0')).join('')}`;
+};
+
+function readCfRules(xml, theme) {
+  const out = [];
+  for (const { open, inner } of blocks(xml, 'conditionalFormatting')) {
+    const ranges = parseSqref(attrs(open).sqref);
+    if (!ranges.length) continue;
+    for (const r of blocks(inner, 'cfRule')) {
+      const a = attrs(r.open);
+      const formulas = [...blocks(r.inner, 'formula')].map(f => unesc(f.inner));
+      const cfvo = [...blocks(r.inner, 'cfvo')].map(c => attrs(c.open));
+      const iset = attrs((r.inner.match(/<iconSet[^>]*\/?>/) || [''])[0]);
+      const colors = [...r.inner.matchAll(/<color[^>]*\/?>/g)].map(m => colorOf(m[0], theme)).filter(Boolean);
+      out.push({
+        ranges,
+        type: a.type, op: a.operator, text: a.text,
+        dxfId: a.dxfId !== undefined ? Number(a.dxfId) : null,
+        priority: Number(a.priority || 9999),
+        stopIfTrue: a.stopIfTrue === '1',
+        rank: Number(a.rank || 10), percent: a.percent === '1', bottom: a.bottom === '1',
+        aboveAverage: a.aboveAverage !== '0', equalAverage: a.equalAverage === '1',
+        formulas, cfvo, colors,
+        iconSet: iset.iconSet || '3TrafficLights1',
+        showValue: iset.showValue !== '0',
+        reverse: iset.reverse === '1',
+      });
+    }
+  }
+  return out.sort((x, y) => x.priority - y.priority);
+}
+
+// grid: Map(r → Map(c → cell)). 규칙이 맞는 칸의 bg·fg·bold·bar를 채운다.
+function applyCf(grid, rules, dxfs) {
+  for (const rule of rules) {
+    // 이 규칙이 덮는 칸을 한 번 모은다 — 범위 전체를 봐야 하는 규칙이 있다
+    const spots = [];
+    for (const rg of rule.ranges) {
+      for (let r = rg.r1; r <= rg.r2; r++) {
+        const row = grid.get(r);
+        if (!row) continue;
+        for (let c = rg.c1; c <= rg.c2; c++) {
+          const cell = row.get(c);
+          if (cell) spots.push({ cell, r, c });
+        }
+      }
+    }
+    if (!spots.length) continue;
+    const cells = spots.map(s => s.cell);
+    const nums = cells.map(numOf).filter(n => n !== null);
+    const dxf = rule.dxfId !== null ? dxfs[rule.dxfId] : null;
+
+    // 색눈금 · 데이터 막대는 dxf가 아니라 자기 색을 쓴다
+    if (rule.type === 'colorScale' && rule.colors.length >= 2 && nums.length) {
+      const stops = rule.cfvo.map(v => cfvoValue(v, nums));
+      for (const cell of cells) {
+        const n = numOf(cell);
+        if (n === null) continue;
+        cell.bg = scaleColor(n, stops, rule.colors);
+        cell.cf = true;
+      }
+      continue;
+    }
+    if (rule.type === 'dataBar' && rule.colors.length && nums.length) {
+      const [lo, hi] = [cfvoValue(rule.cfvo[0] || { type: 'min' }, nums), cfvoValue(rule.cfvo[1] || { type: 'max' }, nums)];
+      for (const cell of cells) {
+        const n = numOf(cell);
+        if (n === null || hi === lo) continue;
+        cell.bar = { ratio: Math.max(0, Math.min(1, (n - lo) / (hi - lo))), color: rule.colors[0] };
+      }
+      continue;
+    }
+    // 아이콘 집합 — 값이 어느 구간에 드는지만 정하고, 무엇을 그릴지는 화면이 정한다
+    // (엑셀의 초록/노랑/빨강을 그대로 쓰지 않고 우리 태그 색을 쓴다 — 다크 모드 때문).
+    if (rule.type === 'iconSet' && nums.length) {
+      const n = Number(String(rule.iconSet)[0]) || 3;
+      const stops = rule.cfvo.slice(0, n).map(v => cfvoValue(v, nums));
+      const gte = rule.cfvo.map(v => v.gte !== '0');
+      for (const { cell } of spots) {
+        const v = numOf(cell);
+        if (v === null) continue;
+        let idx = 0;
+        for (let i = 0; i < stops.length; i++) if (gte[i] ? v >= stops[i] : v > stops[i]) idx = i;
+        cell.icon = { set: rule.iconSet, idx: rule.reverse ? (n - 1 - idx) : idx, n, showValue: rule.showValue };
+      }
+      continue;
+    }
+
+    // 수식 규칙 — 규칙은 **범위의 왼쪽 위 칸 기준**으로 적혀 있고, 상대 참조는 칸마다
+    // 옮겨서 본다($가 붙은 쪽은 고정). 못 읽는 수식은 compile이 null이라 그냥 넘어간다.
+    if (rule.type === 'expression') {
+      const ast = compile(rule.formulas[0]);
+      if (!ast || !dxf) continue;
+      const anchor = rule.ranges[0];
+      const bounds = gridBounds(grid);
+      const get = (r, c) => {
+        const cell = grid.get(r)?.get(c);
+        if (!cell) return BLANK;
+        if (cell.n !== null && cell.n !== undefined) return cell.n;
+        return cell.v === '' ? BLANK : cell.v;
+      };
+      for (const { cell, r, c } of spots) {
+        if (cell.cfDone) continue;
+        const ok = evalRule(ast, { get, bounds, here: { r, c }, dr: r - anchor.r1, dc: c - anchor.c1 });
+        if (!ok) continue;
+        paintDxf(cell, dxf);
+        if (rule.stopIfTrue) cell.cfDone = true;
+      }
+      continue;
+    }
+
+    if (!dxf) continue;   // 나머지 규칙은 dxf가 있어야 칠할 것이 있다
+
+    const seen = new Map();
+    if (rule.type === 'duplicateValues' || rule.type === 'uniqueValues') {
+      for (const cell of cells) seen.set(cell.v, (seen.get(cell.v) || 0) + 1);
+    }
+    const avg = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+    let cutoff = null;
+    if (rule.type === 'top10' && nums.length) {
+      const sorted = [...nums].sort((a, b) => (rule.bottom ? a - b : b - a));
+      const k = Math.max(1, Math.min(sorted.length, rule.percent ? Math.ceil(sorted.length * rule.rank / 100) : rule.rank));
+      cutoff = sorted[k - 1];
+    }
+
+    for (const cell of cells) {
+      if (cell.cfDone) continue;                 // 앞선(우선순위 높은) 규칙이 이미 칠했다
+      if (matches(rule, cell, { seen, avg, cutoff })) {
+        paintDxf(cell, dxf);
+        if (rule.stopIfTrue) cell.cfDone = true;
+      }
+    }
+  }
+  // 화면에 안 쓰는 표시는 걷어낸다
+  for (const row of grid.values()) for (const cell of row.values()) delete cell.cfDone;
+}
+
+function paintDxf(cell, dxf) {
+  if (dxf.bg) cell.bg = dxf.bg;
+  if (dxf.fg) cell.fg = dxf.fg;
+  if (dxf.bold) cell.bold = true;
+  if (dxf.italic) cell.italic = true;
+  if (dxf.strike) cell.strike = true;
+  cell.cf = true;
+}
+
+// 열 전체 참조($A:$A)를 자를 실제 범위
+function gridBounds(grid) {
+  let r1 = Infinity, r2 = 0, c1 = Infinity, c2 = 0;
+  for (const [r, row] of grid) {
+    if (r < r1) r1 = r;
+    if (r > r2) r2 = r;
+    for (const c of row.keys()) { if (c < c1) c1 = c; if (c > c2) c2 = c; }
+  }
+  return Number.isFinite(r1) ? { r1, r2, c1, c2 } : { r1: 1, r2: 1, c1: 1, c2: 1 };
+}
+
+function scaleColor(n, stops, colors) {
+  if (stops.length >= 3 && colors.length >= 3) {
+    const [lo, mid, hi] = stops;
+    return n <= mid
+      ? mixHex(colors[0], colors[1], mid === lo ? 0 : (n - lo) / (mid - lo))
+      : mixHex(colors[1], colors[2], hi === mid ? 0 : (n - mid) / (hi - mid));
+  }
+  const [lo, hi] = stops;
+  return mixHex(colors[0], colors[1], hi === lo ? 0 : Math.max(0, Math.min(1, (n - lo) / (hi - lo))));
+}
+
+function matches(rule, cell, ctx) {
+  const s = String(cell.v ?? '');
+  const n = numOf(cell);
+  switch (rule.type) {
+    case 'cellIs': {
+      const f = rule.formulas.map(x => x.replace(/^"|"$/g, ''));
+      const asNum = f.map(Number);
+      if (n !== null && asNum.every(Number.isFinite)) return cmp[rule.op]?.(n, ...asNum) ?? false;
+      return cmp[rule.op]?.(s, ...f) ?? false;
+    }
+    case 'containsText': return s.includes(rule.text ?? '');
+    case 'notContainsText': return !s.includes(rule.text ?? '');
+    case 'beginsWith': return s.startsWith(rule.text ?? '');
+    case 'endsWith': return s.endsWith(rule.text ?? '');
+    case 'containsBlanks': return s.trim() === '';
+    case 'notContainsBlanks': return s.trim() !== '';
+    case 'containsErrors': return /^#(DIV\/0!|N\/A|NAME\?|NULL!|NUM!|REF!|VALUE!)$/.test(s);
+    case 'duplicateValues': return (ctx.seen.get(cell.v) || 0) > 1;
+    case 'uniqueValues': return (ctx.seen.get(cell.v) || 0) === 1;
+    case 'aboveAverage':
+      if (n === null) return false;
+      return rule.aboveAverage
+        ? (rule.equalAverage ? n >= ctx.avg : n > ctx.avg)
+        : (rule.equalAverage ? n <= ctx.avg : n < ctx.avg);
+    case 'top10':
+      if (n === null || ctx.cutoff === null) return false;
+      return rule.bottom ? n <= ctx.cutoff : n >= ctx.cutoff;
+    default:
+      return false;   // expression · iconSet · timePeriod 등은 건너뛴다
+  }
+}
+
 // ── 본체 ────────────────────────────────────────────────────────────────────
 // 돌려주는 모양:
 //   { sheets: [{ name, cols:[px|null], merges:[{r,c,rs,cs}], rows:[[cell|null]], truncated }] }
@@ -240,7 +545,7 @@ export async function parseXlsx(buf) {
     numFmts[Number(attr(open, 'numFmtId'))] = unesc(attr(open, 'formatCode') || '');
   }
   const fontsXml = (stXml.match(/<fonts[\s\S]*?<\/fonts>/) || [''])[0];
-  const bolds = [...blocks(fontsXml, 'font')].map(({ inner }) => /<b\s*\/>|<b val="(?:1|true)"/.test(inner));
+  const fonts = [...blocks(fontsXml, 'font')].map(({ inner }) => readFont(inner, theme));
   const fillsXml = (stXml.match(/<fills[\s\S]*?<\/fills>/) || [''])[0];
   const fills = [...blocks(fillsXml, 'fill')].map(({ inner }) => {
     // solid가 아닌 무늬(none·gray125)는 "칠하지 않음"으로 본다
@@ -248,14 +553,40 @@ export async function parseXlsx(buf) {
     const fg = (inner.match(/<fgColor[^>]*>/) || [null])[0];
     return colorOf(fg, theme);
   });
+  const bordersXml = (stXml.match(/<borders[\s\S]*?<\/borders>/) || [''])[0];
+  const borders = [...blocks(bordersXml, 'border')].map(({ inner }) => {
+    const bd = { t: sideOf(inner, 'top', theme), r: sideOf(inner, 'right', theme),
+      b: sideOf(inner, 'bottom', theme), l: sideOf(inner, 'left', theme) };
+    return (bd.t || bd.r || bd.b || bd.l) ? bd : null;
+  });
+
+  // 조건부 서식이 쓰는 서식 조각. **칠 색이 fgColor가 아니라 bgColor에 있다** —
+  // 보통 셀 칠과 반대라 여기서 한 번 걸린다.
+  const dxfsXml = (stXml.match(/<dxfs[\s\S]*?<\/dxfs>/) || [''])[0];
+  const dxfs = [...blocks(dxfsXml, 'dxf')].map(({ inner }) => {
+    const f = readFont((inner.match(/<font[\s\S]*?<\/font>/) || [''])[0], theme);
+    const fillXml = (inner.match(/<fill[\s\S]*?<\/fill>/) || [''])[0];
+    const tag = (fillXml.match(/<bgColor[^>]*\/?>/) || fillXml.match(/<fgColor[^>]*\/?>/) || [null])[0];
+    return { bg: colorOf(tag, theme), fg: f.color, bold: f.bold, italic: f.italic, strike: f.strike };
+  });
+
   const xfsXml = (stXml.match(/<cellXfs[\s\S]*?<\/cellXfs>/) || [''])[0];
-  const xfs = [...blocks(xfsXml, 'xf')].map(({ open, inner }) => ({
-    fmt: numFmts[Number(attr(open, 'numFmtId') || 0)] ?? 'General',
-    bold: bolds[Number(attr(open, 'fontId') || 0)] || false,
-    // applyFill이 없어도 fillId가 가리키는 칠이 있으면 엑셀은 칠해서 보여준다
-    bg: fills[Number(attr(open, 'fillId') || 0)] || null,
-    align: attr(inner.match(/<alignment[^>]*>/)?.[0] || '', 'horizontal'),
-  }));
+  const xfs = [...blocks(xfsXml, 'xf')].map(({ open, inner }) => {
+    const a = attrs(open);
+    const f = fonts[Number(a.fontId || 0)] || {};
+    const al = attrs(inner.match(/<alignment[^>]*\/?>/)?.[0] || '');
+    return {
+      fmt: numFmts[Number(a.numFmtId || 0)] ?? 'General',
+      bold: !!f.bold, italic: !!f.italic, strike: !!f.strike, under: !!f.under,
+      fg: f.color || null,
+      // applyFill이 없어도 fillId가 가리키는 칠이 있으면 엑셀은 칠해서 보여준다
+      bg: fills[Number(a.fillId || 0)] || null,
+      bd: borders[Number(a.borderId || 0)] || null,
+      align: al.horizontal || null,
+      valign: al.vertical || null,
+      wrap: al.wrapText === '1',
+    };
+  });
 
   // 시트 이름 ↔ 파일 경로. r:id로 rels를 거쳐야 순서가 어긋나지 않는다.
   const relPath = {};
@@ -271,12 +602,12 @@ export async function parseXlsx(buf) {
 
   const sheets = [];
   for (const def of sheetDefs) {
-    sheets.push(readSheet(await readEntry(entries, def.path), def.name, shared, xfs));
+    sheets.push(readSheet(await readEntry(entries, def.path), def.name, shared, xfs, dxfs, theme));
   }
   return { sheets };
 }
 
-function readSheet(xml, name, shared, xfs) {
+function readSheet(xml, name, shared, xfs, dxfs = [], theme = []) {
   // 열 너비·숨김. min~max가 구간이라 펼쳐서 담는다.
   const cols = [];
   const hiddenCols = new Set();
@@ -329,17 +660,29 @@ function readSheet(xml, name, shared, xfs) {
         v = formatNumber(vRaw, st.fmt);
         num = true;
       }
+      // 조건부 서식이 크기를 비교하려면 꾸미기 전 숫자가 필요하다
+      const n = num && Number.isFinite(Number(vRaw)) ? Number(vRaw) : null;
       // 값도 없고 칠하지도 않은 칸은 담지 않는다(빈 칸까지 담으면 표가 헛돈다).
       // 순백으로만 칠한 빈 칸도 버린다 — 엑셀 서식은 쓰지도 않는 넓은 구역을
       // 통째로 흰색으로 칠해 두는 일이 흔하고, 그걸 담으면 표 오른쪽에 빈 격자가
       // 수십 칸 딸려 나온다(실물 명단이 그랬다).
+      // 테두리만 있고 값이 없는 칸도 버린다 — 표 밖의 장식용 테두리가 격자를 늘린다
       if ((v === null || v === '') && (!st.bg || st.bg.toUpperCase() === '#FFFFFF')) continue;
       if (!grid.has(r)) grid.set(r, new Map());
-      grid.get(r).set(rc.c, { v: v ?? '', num, bold: !!st.bold, align: st.align || null, bg: st.bg || null });
+      grid.get(r).set(rc.c, {
+        v: v ?? '', n, num,
+        bold: !!st.bold, italic: !!st.italic, strike: !!st.strike, under: !!st.under,
+        align: st.align || null, valign: st.valign || null, wrap: !!st.wrap,
+        bg: st.bg || null, fg: chromatic(st.fg), bd: st.bd || null,
+      });
       if (r > maxR) maxR = r;
       if (rc.c > maxC) maxC = rc.c;
     }
   }
+
+  // 조건부 서식은 여백을 걷어내기 **전에** 적용한다 — sqref가 원본 좌표계다
+  const cfRules = readCfRules(xml, theme);
+  if (cfRules.length) applyCf(grid, cfRules, dxfs);
 
   // 위·왼쪽의 빈 여백은 걷어낸다 — 실제 파일은 B2에서 시작하는 일이 흔하고,
   // 그대로 두면 빈 행·빈 열이 표 앞에 붙는다.

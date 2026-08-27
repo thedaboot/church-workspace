@@ -1,5 +1,6 @@
 import assert from 'node:assert';
 import { attrs, blocks, parseXlsx, parseCsv, colToNum, refToRC, widthToPx } from '../src/services/xlsx.js';
+import { compile, evalRule, BLANK } from '../src/services/formula.js';
 
 // ============================================================================
 // 엑셀 파서 검사 — 브라우저가 필요 없다(순수 함수 + 네이티브 DecompressionStream).
@@ -69,11 +70,20 @@ function miniXlsx() {
     ['xl/styles.xml',
       '<styleSheet>'
       + '<numFmts><numFmt numFmtId="176" formatCode="#,##0"/></numFmts>'
-      + '<fonts><font/><font><b/></font></fonts>'
+      + '<fonts><font/><font><b/></font>'
+      + '<font><i/><strike/><color rgb="FF00B050"/></font></fonts>'
       + '<fills><fill><patternFill patternType="none"/></fill>'
       + '<fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/></patternFill></fill></fills>'
-      + '<cellXfs><xf numFmtId="0" fontId="0" fillId="0"/>'
-      + '<xf numFmtId="176" fontId="1" fillId="1"/></cellXfs>'
+      + '<borders><border/>'
+      + '<border><left style="medium"><color rgb="FFFF0000"/></left><bottom style="thin"/></border>'
+      + '</borders>'
+      // 조건부 서식이 쓰는 서식 조각 — 칠이 bgColor에 있다(셀 칠과 반대)
+      + '<dxfs><dxf><font><b/><color rgb="FF9C0006"/></font>'
+      + '<fill><patternFill><bgColor rgb="FFFFC7CE"/></patternFill></fill></dxf>'
+      + '<dxf><font><i/></font></dxf></dxfs>'
+      + '<cellXfs><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>'
+      + '<xf numFmtId="176" fontId="1" fillId="1" borderId="1"/>'
+      + '<xf numFmtId="0" fontId="2" fillId="0" borderId="0"/></cellXfs>'
       + '</styleSheet>'],
     ['xl/worksheets/sheet1.xml',
       '<worksheet><dimension ref="B2:C3"/>'
@@ -82,7 +92,27 @@ function miniXlsx() {
       + '<sheetData>'
       + '<row r="2"><c r="A2"/><c r="B2" s="0" t="s"><v>0</v></c></row>'
       + '<row r="3"><c r="A3"/><c r="B3" s="0" t="s"><v>1</v></c><c r="C3" s="1"><v>1234567</v></c><c r="D3" s="0"><v>9</v></c></row>'
-      + '</sheetData></worksheet>'],
+      + '<row r="4"><c r="B4" s="2" t="s"><v>0</v></c><c r="C4" s="0"><v>5000</v></c></row>'
+      + '<row r="5"><c r="B5" s="0"><v>10</v></c><c r="C5" s="0"><v>20</v></c></row>'
+      + '<row r="6"><c r="B6" s="0"><v>0</v></c><c r="C6" s="0"><v>100</v></c></row>'
+      + '</sheetData>'
+      // C4만 1000을 넘으니 dxf가 붙어야 한다. B5:C5는 두 색 눈금.
+      + '<conditionalFormatting sqref="C4:C4">'
+      + '<cfRule type="cellIs" dxfId="0" priority="1" operator="greaterThan"><formula>1000</formula></cfRule>'
+      + '</conditionalFormatting>'
+      + '<conditionalFormatting sqref="B5:C5"><cfRule type="colorScale" priority="2"><colorScale>'
+      + '<cfvo type="min"/><cfvo type="max"/><color rgb="FF0000FF"/><color rgb="FF00FF00"/>'
+      + '</colorScale></cfRule></conditionalFormatting>'
+      // 수식 규칙 — B5 기준으로 =B5>5. dxfId 1(기울임)을 쓴다.
+      + '<conditionalFormatting sqref="B5:B5">'
+      + '<cfRule type="expression" dxfId="1" priority="3"><formula>B5&gt;5</formula></cfRule>'
+      + '</conditionalFormatting>'
+      // 아이콘 집합 — 세 갈래 화살표
+      + '<conditionalFormatting sqref="B6:C6"><cfRule type="iconSet" priority="4">'
+      + '<iconSet iconSet="3Arrows" showValue="1">'
+      + '<cfvo type="percent" val="0"/><cfvo type="percent" val="33"/><cfvo type="percent" val="67"/>'
+      + '</iconSet></cfRule></conditionalFormatting>'
+      + '</worksheet>'],
   ];
   const enc = new TextEncoder();
   const chunks = [], central = [];
@@ -121,7 +151,7 @@ const sheet = book.sheets[0];
 check('xlsx: 시트 이름 · 여백 걷어내기', () => {
   assert.strictEqual(sheet.name, '표');
   // B열에서 시작하므로 A열(빈 칸)은 걷어내고 B가 0번 열이 된다
-  assert.strictEqual(sheet.rows.length, 2);
+  assert.strictEqual(sheet.rows.length, 5);
   assert.strictEqual(sheet.rows[0][0].v, '수입');
 });
 
@@ -147,6 +177,131 @@ check('xlsx: 숨긴 열은 빼고, 병합은 표 좌표로 옮긴다', () => {
 
 check('xlsx: 열 너비를 px로 옮긴다', () => {
   assert.strictEqual(sheet.cols[0], 64);   // 8.43자 → 64px
+});
+
+check('xlsx: 테두리 — 굵기·모양은 원본, 지정한 색만 남긴다', () => {
+  const bd = sheet.rows[1][1].bd;
+  assert.ok(bd, '테두리를 못 읽었다');
+  assert.deepStrictEqual(bd.l, { w: 2, s: 'solid', c: '#FF0000' });   // medium + 빨강
+  assert.deepStrictEqual(bd.b, { w: 1, s: 'solid', c: null });        // thin + 기본색 → null
+  assert.strictEqual(bd.t, null);
+  // 테두리가 없는 칸은 bd 자체가 null이라 화면이 옅은 격자선을 쓴다
+  assert.strictEqual(sheet.rows[0][0].bd, null);
+});
+
+check('xlsx: 기울임 · 취소선 · 글자색', () => {
+  const c = sheet.rows[2][0];
+  assert.strictEqual(c.italic, true);
+  assert.strictEqual(c.strike, true);
+  assert.strictEqual(c.fg, '#00B050');
+});
+
+check('조건부 서식: cellIs가 dxf의 칠·글자색·굵기를 입힌다', () => {
+  const hit = sheet.rows[2][1];          // C4 = 5000 > 1000
+  assert.strictEqual(hit.bg, '#FFC7CE', 'dxf의 칠은 fgColor가 아니라 bgColor에 있다');
+  assert.strictEqual(hit.fg, '#9C0006');
+  assert.strictEqual(hit.bold, true);
+  assert.strictEqual(hit.cf, true);
+  // 규칙 밖의 칸은 그대로여야 한다
+  assert.strictEqual(sheet.rows[1][1].bg, '#FFFF00');
+});
+
+check('조건부 서식: 색눈금이 최소·최대에 각 끝 색을 준다', () => {
+  const [lo, hi] = [sheet.rows[3][0], sheet.rows[3][1]];   // B5=10, C5=20
+  assert.strictEqual(lo.bg, '#0000ff');
+  assert.strictEqual(hi.bg, '#00ff00');
+});
+
+// ── 수식 계산기 ──────────────────────────────────────────────────────────────
+// 표: A1=10 B1=  (빈 칸)  C1='사과'
+//     A2=20 B2=5 C2='사과'
+//     A3=30 B3=7 C3='배'
+const GRID = {
+  '1,1': 10, '1,3': '사과',
+  '2,1': 20, '2,2': 5, '2,3': '사과',
+  '3,1': 30, '3,2': 7, '3,3': '배',
+};
+const ctxAt = (r, c, anchorR = 1, anchorC = 1) => ({
+  get: (rr, cc) => (GRID[`${rr},${cc}`] ?? BLANK),
+  bounds: { r1: 1, r2: 3, c1: 1, c2: 3 },
+  here: { r, c },
+  dr: r - anchorR, dc: c - anchorC,
+  today: new Date(Date.UTC(2026, 7, 27)),
+});
+const run = (src, r, c, aR = 1, aC = 1) => evalRule(compile(src), ctxAt(r, c, aR, aC));
+
+check('수식: 비교 · 상대 참조가 칸마다 옮겨간다', () => {
+  // 규칙은 A1 자리 기준으로 =A1>15 . 1행은 거짓, 2·3행은 참이어야 한다.
+  assert.strictEqual(run('=A1>15', 1, 1), false);
+  assert.strictEqual(run('=A1>15', 2, 1), true);
+  assert.strictEqual(run('=A1>15', 3, 1), true);
+});
+
+check('수식: $는 고정, 없는 쪽만 따라 움직인다', () => {
+  // $A1 은 열 고정 → 2열에서 판정해도 A열을 본다
+  assert.strictEqual(run('=$A1>15', 2, 2), true);
+  // A$1 은 행 고정 → 3행에서 판정해도 1행(10)을 본다
+  assert.strictEqual(run('=A$1>15', 3, 1), false);
+});
+
+check('수식: 빈 칸은 ""와 같고 0으로도 센다', () => {
+  // 규칙이 B1 자리에 적혀 있고 B1에서 판정 → 옮길 것이 없다(dr=dc=0)
+  assert.strictEqual(run('=B1=""', 1, 2, 1, 2), true);
+  assert.strictEqual(run('=B2=""', 2, 2, 2, 2), false);
+  assert.strictEqual(run('=ISBLANK(B1)', 1, 2, 1, 2), true);
+  // 앵커가 어긋나면 참조도 그만큼 밀린다 — 이게 상대 참조의 뜻이다.
+  // B1 기준 규칙을 C1에서 보면 C1('사과')을 읽으므로 빈 칸이 아니다.
+  assert.strictEqual(run('=B1=""', 1, 3, 1, 2), false);
+  assert.strictEqual(run('=B1+0=0', 1, 2, 1, 2), true);   // 빈 칸은 0으로도 센다
+});
+
+check('수식: AND · OR · NOT · IF', () => {
+  assert.strictEqual(run('=AND(A2>15,C2="사과")', 2, 1, 2, 1), true);
+  assert.strictEqual(run('=AND(A2>25,C2="사과")', 2, 1, 2, 1), false);
+  assert.strictEqual(run('=OR(A2>25,C2="사과")', 2, 1, 2, 1), true);
+  assert.strictEqual(run('=NOT(A2>25)', 2, 1, 2, 1), true);
+  assert.strictEqual(run('=IF(A2>15,TRUE,FALSE)', 2, 1, 2, 1), true);
+});
+
+check('수식: 범위 함수 · 열 전체 · COUNTIF', () => {
+  assert.strictEqual(run('=SUM(A1:A3)=60', 1, 1), true);
+  assert.strictEqual(run('=MAX(A1:A3)=30', 1, 1), true);
+  assert.strictEqual(run('=COUNTIF(C1:C3,"사과")=2', 1, 1), true);
+  assert.strictEqual(run('=COUNTIF($C:$C,"사과")>1', 1, 1), true);   // 열 전체
+  assert.strictEqual(run('=COUNTA(B1:B3)=2', 1, 1), true);           // 빈 칸은 안 센다
+});
+
+check('수식: MOD(ROW(),2) 같은 줄무늬 규칙', () => {
+  assert.strictEqual(run('=MOD(ROW(),2)=0', 2, 1), true);
+  assert.strictEqual(run('=MOD(ROW(),2)=0', 3, 1), false);
+});
+
+check('수식: 못 읽는 것은 null이고, 판정은 거짓이다', () => {
+  assert.strictEqual(compile('=Sheet2!A1>1'), null, '다른 시트 참조는 못 읽는다');
+  assert.strictEqual(compile('=VLOOKUP(A1,B:C,2,0)') && run('=VLOOKUP(A1,B:C,2,0)', 1, 1), false);
+  assert.strictEqual(compile('=((('), null);
+  assert.strictEqual(evalRule(null, ctxAt(1, 1)), false);
+});
+
+check('조건부 서식: 수식 규칙이 실제 셀에 적용된다', () => {
+  const hit = sheet.rows[3][0];      // B5 = 10 → 수식 규칙(=B5>5)이 참
+  assert.strictEqual(hit.italic, true, '수식 규칙의 dxf가 안 붙었다');
+});
+
+check('조건부 서식: 아이콘 집합이 구간을 나눈다', () => {
+  const [lo, hi] = [sheet.rows[4][0], sheet.rows[4][1]];   // B6=0, C6=100
+  assert.ok(lo.icon && hi.icon, '아이콘이 없다');
+  assert.strictEqual(lo.icon.n, 3);
+  assert.strictEqual(lo.icon.set, '3Arrows');
+  assert.strictEqual(lo.icon.idx, 0, '최솟값은 맨 아래 구간이어야 한다');
+  assert.strictEqual(hi.icon.idx, 2, '최댓값은 맨 위 구간이어야 한다');
+  assert.strictEqual(lo.icon.showValue, true);
+});
+
+check('조건부 서식: 규칙 없는 칸은 건드리지 않는다', () => {
+  // 수식 규칙(expression)·아이콘 집합은 적용하지 않는다 — 틀린 색을 칠하는 것보다
+  // 안 칠하는 쪽이 낫다. 규칙이 안 닿은 칸에 cf 표시가 붙으면 여기서 걸린다.
+  assert.strictEqual(sheet.rows[0][0].cf, undefined);
 });
 
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');

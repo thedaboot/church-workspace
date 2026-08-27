@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
 import { RichText } from './RichText.jsx';
 import { getFileOpenUrl, driveImageFullUrl, fetchDriveFileBlob } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -107,6 +107,8 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
   const [timedOut, setTimedOut] = useState(false);
   const [pdfSrc, setPdfSrc] = useState(null); // { blob } 또는 { src } — 준비가 끝난 뒤에만 렌더
   const [sheetSrc, setSheetSrc] = useState(null); // { blob } 또는 { text }(csv)
+  // 창을 화면 가득 넓히기. 모바일은 원래 전체화면이라 버튼을 두지 않는다(태블릿부터 보인다).
+  const [wide, setWide] = useState(false);
   const timerRef = useRef(null);
   const settleRef = useRef(null);
   const go = useCallback((d) => {
@@ -252,7 +254,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
             src={imgSrcOf(cur) || url} alt={cur.name}
             wrapperClassName="w-full h-full flex items-center justify-center"
             className="max-w-full max-h-full object-contain rounded-md"
-            skeletonClassName="w-72 h-72"
+              skeletonClassName="w-72 h-72" loadingText="미리보기를 준비하고 있어요"
           />
         </div>
       );
@@ -320,12 +322,18 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
   })();
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] bg-black/70 flex items-center justify-center p-0 md:p-6 animate-in fade-in duration-150" onClick={onClose}>
+    <div className={`fixed inset-0 z-[100] bg-black/70 flex items-center justify-center animate-in fade-in duration-150 ${wide ? 'p-0' : 'p-0 md:p-6'}`} onClick={onClose}>
       <div
         onClick={e => e.stopPropagation()}
         // 높이를 확정해 둔다 — max-h만 주면 안쪽 h-full(미리보기 영역)이 기준을 못 잡아
         // 파일 종류마다 크기가 들쭉날쭉해지고 모바일에서 잘려 보였다.
-        className={`bg-canvas border border-line shadow-elevated flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 ${isMobile ? 'w-full h-full' : 'w-full max-w-5xl h-[88dvh] rounded-lg'}`}
+        // 넓히기는 크기가 바뀌는 일이라 §4.2의 "transform/opacity만"에서 한 칸 비켜난다.
+        // 겹치는 요소가 이 창 하나뿐이고, 넓힐 길이 크기 말고는 없다(scale로 늘리면 글자까지
+        // 커진다). 이징은 앱에 하나뿐인 --ease-out-quint를 쓴다.
+        className={`bg-canvas border border-line shadow-elevated flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 transition-[max-width,height,border-radius] ${isMobile
+          ? 'w-full h-full'
+          : wide ? 'w-full max-w-[100vw] h-[100dvh]' : 'w-full max-w-5xl h-[88dvh] rounded-lg'}`}
+        style={{ transitionDuration: '220ms', transitionTimingFunction: 'var(--ease-out-quint)' }}
       >
         <div className="shrink-0 flex items-center gap-2 px-3 py-2.5 border-b border-line bg-surface">
           <div className="flex-1 min-w-0">
@@ -337,6 +345,13 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
               <p className="text-[10px] text-fg-faint mt-0.5">{viewerNote(cur)}</p>
             )}
           </div>
+          {!isMobile && (
+            <button type="button" onClick={() => setWide(w => !w)}
+              className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95"
+              title={wide ? '창 크기로' : '화면 가득'}>
+              {wide ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
+          )}
           <button type="button" onClick={openExternal} disabled={!url} className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 disabled:opacity-40" title="새 탭에서 열기"><ExternalLink size={16} /></button>
           <a
             href={url || undefined} download={cur.name} target="_blank" rel="noreferrer"
@@ -375,7 +390,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
 export function PreparingFrame({ absolute = false }) {
   return (
     <div className={absolute ? 'absolute inset-0' : 'relative w-full h-full'}>
-      <Skeleton className="absolute inset-0 w-full h-full" />
+      {/* Skeleton에 absolute를 주면 먹지 않는다(.dc-skeleton이 position: relative를
+          박는다 — index.css). 자리는 바깥 span이 잡는다. */}
+      <span className="absolute inset-0"><Skeleton className="w-full h-full" /></span>
       <span className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-fg-muted">
         <Loader2 size={14} className="animate-spin" /> 미리보기를 준비하고 있어요
       </span>

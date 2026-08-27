@@ -106,7 +106,9 @@ export function PdfView({ blob = null, src = null, onError }) {
       />
       {status === 'loading' && (
         <>
-          <Skeleton className="absolute inset-0 w-full h-full" />
+          {/* Skeleton에 absolute를 주면 먹지 않는다(.dc-skeleton이 position: relative를
+              박는다 — index.css). 자리는 바깥 span이 잡는다. */}
+          <span className="absolute inset-0"><Skeleton className="w-full h-full" /></span>
           <span className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-fg-muted">
             <Loader2 size={14} className="animate-spin" /> 미리보기를 준비하고 있어요
           </span>

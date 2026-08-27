@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 
 // ============================================================================
 // 이미지 표시 조각들 (스켈레톤 · 라이트박스)
@@ -17,7 +17,9 @@ export const Skeleton = ({ className = '' }) => (
 
 // 이미지가 실제로 그려지기 전까지 같은 자리에 스켈레톤을 둔다.
 // (src만 걸어두면 받는 동안 자리가 비었다가 툭 나타나서 화면이 끊겨 보인다)
-export function SmartImage({ src, alt = '', className = '', wrapperClassName = '', skeletonClassName = '', onClick, title }) {
+// loadingText: 스켈레톤 위에 얹을 '준비 중' 문구. 미리보기 창은 PDF·엑셀과 같은 줄을
+// 쓰라고 넘기고(형식마다 다른 로딩 화면이 되지 않게), 썸네일 자리는 넘기지 않는다.
+export function SmartImage({ src, alt = '', className = '', wrapperClassName = '', skeletonClassName = '', loadingText = '', onClick, title }) {
   const [state, setState] = useState('loading'); // loading | ready | error
   useEffect(() => { setState('loading'); }, [src]);
 
@@ -25,16 +27,23 @@ export function SmartImage({ src, alt = '', className = '', wrapperClassName = '
   // 줄 수 없어서, 안쪽 이미지의 max-h-full이 기준을 못 잡고 가로 화면에서 넘쳤다.
   return (
     <span className={`relative ${wrapperClassName}`}>
-      {/* 스켈레톤 크기는 **둘 중 하나만** 쓴다. 예전에는 `absolute inset-0 w-full h-full`과
-          호출부의 `w-72 h-72`를 같이 붙였는데, Tailwind는 클래스를 적은 순서가 아니라
-          스타일시트 순서로 이기므로 어느 쪽이 이길지 정해져 있지 않았고 inset-0이 네 변을
-          다 잡아서 **미리보기 창 전체가 통째로 반짝이다가** 사진이 가운데에 툭 나타났다
-          (사용자 지적). 크기를 받은 경우에는 그 크기로 가운데에 둔다 — 사진이 뜰 자리와
-          같은 자리다. 안 받으면 예전처럼 꽉 채운다(썸네일 자리가 그렇다). */}
+      {/* **Skeleton에 위치 유틸리티를 주지 마세요.** `.dc-skeleton`이 반짝임(::after)을
+          담으려고 `position: relative`를 박고 있어서, Tailwind의 `absolute`는 특정도가
+          같아 스타일시트 순서에 지고 **먹지 않습니다.** 그래서
+          · `absolute inset-0 w-full h-full` → inset-0이 무시되고 w-full h-full만 남아
+            **미리보기 창 전체가 통째로 반짝였고**(사용자 지적),
+          · `absolute top-1/2 left-1/2 -translate-…` → 절대 위치가 아니라 상대 오프셋이
+            되어 스켈레톤이 **오른쪽 아래로 밀려났습니다**(사용자 지적 — 두 번째).
+          자리는 바깥 span이 잡고, Skeleton은 크기만 받는다. */}
       {state !== 'ready' && (
-        <Skeleton className={skeletonClassName
-          ? `absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 ${skeletonClassName}`
-          : 'absolute inset-0 w-full h-full'} />
+        <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <Skeleton className={skeletonClassName || 'w-full h-full'} />
+          {loadingText && (
+            <span className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-fg-muted">
+              <Loader2 size={14} className="animate-spin" /> {loadingText}
+            </span>
+          )}
+        </span>
       )}
       {src && (
         <img

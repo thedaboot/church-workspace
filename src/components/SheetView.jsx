@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import {
+  Loader2, ArrowUp, ArrowDown, ArrowRight, ArrowUpRight, ArrowDownRight,
+  Circle, Flag, Check, X, TriangleAlert,
+} from 'lucide-react';
 import { Skeleton } from './media.jsx';
-import { parseXlsx, parseCsv } from '../services/xlsx.js';
+import { parseXlsx, parseCsv, luminance } from '../services/xlsx.js';
 
 // ============================================================================
 // 엑셀·csv 미리보기 — 구글 iframe 대신 앱이 직접 그린다.
@@ -18,18 +21,15 @@ import { parseXlsx, parseCsv } from '../services/xlsx.js';
 //     칠해 두는 일이 아주 흔하고(실제 파일의 명단 시트가 통째로 #FFFFFF다),
 //     그걸 그대로 두면 다크 모드에서 흰 표가 통째로 뜬다. 흰 칠은 강조가 아니라
 //     기본값이므로 우리 토큰으로 그린다.
-//   · 굵기·정렬·병합·열 너비는 언제나 원본을 따른다. 색과 달리 테마와 안 부딪힌다.
+//   · 굵기·기울임·취소선·정렬·병합·열 너비는 언제나 원본을 따른다. 테마와 안 부딪힌다.
+//   · **테두리**는 굵기와 모양만 원본을 따르고 색은 우리 선 색이다(검정 테두리를 그대로
+//     쓰면 다크에서 사라진다). 작성자가 색을 지정한 테두리만 그 색을 남긴다.
+//   · **글자색**은 색이 있는 글자만 살리되 `color-mix`로 현재 테마의 글자색을 섞는다 —
+//     라이트에서는 그대로 진하고, 다크에서는 같은 색상이 밝아진다. 검정·흰색 글자는
+//     엑셀의 기본값이라 우리 토큰에 맡긴다(xlsx.chromatic).
+//   · **조건부 서식**은 파서가 미리 적용해서 넘긴다. 수식 규칙과 아이콘 집합은 뺐다.
 // ============================================================================
 
-// 상대 밝기(sRGB) — 글자색 고르기와 '종이 판정'에 같이 쓴다
-function luminance(hex) {
-  const n = parseInt(hex.slice(1), 16);
-  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v => {
-    const x = v / 255;
-    return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
-}
 // 이보다 밝은 칠은 '흰 종이'로 보고 우리 토큰에 맡긴다.
 // 0.85로 두면 연한 하늘색(#dae3f3 · 실제 파일이 구분에 쓴다)까지 지워진다.
 const PAPER_L = 0.92;
@@ -39,6 +39,54 @@ const fillOf = (bg) => {
   if (l > PAPER_L) return null;
   return { background: bg, color: l > 0.45 ? '#191720' : '#f7f6f4' };
 };
+
+// 격자선은 실제 테두리보다 옅다 — 엑셀에서도 눈금선과 테두리는 다르게 보인다.
+// 이게 없으면 "테두리를 넣었다"가 화면에서 구분되지 않는다.
+const GRID = '1px solid color-mix(in srgb, var(--app-line) 55%, transparent)';
+const sideCss = (sd) => (sd ? `${sd.w}px ${sd.s} ${sd.c || 'var(--app-line)'}` : GRID);
+
+// 배경과 글자의 밝기 차 — 조건부 서식이 준 글자색을 쓸지 자동 대비로 덮을지 가른다
+const readable = (fg, bg) => Math.abs(luminance(fg) - luminance(bg)) > 0.28;
+
+// ── 조건부 서식의 아이콘 집합 ───────────────────────────────────────────────
+// 엑셀은 초록/노랑/빨강을 고정색으로 박지만 **우리는 태그 토큰을 쓴다** — 고정색을
+// 그대로 쓰면 다크 모드에서 톤이 어긋나고, 이 앱에 없는 색이 표 안에만 생긴다
+// (테두리·칠에 쓴 판단과 같다). 아이콘은 lucide만 쓴다(§4.2 — 이모지 금지).
+const ICON_COLORS = {
+  3: ['var(--app-tag-red-fg)', 'var(--app-status-hold)', 'var(--app-tag-green-fg)'],
+  4: ['var(--app-tag-red-fg)', 'var(--app-tag-orange-fg)', 'var(--app-status-hold)', 'var(--app-tag-green-fg)'],
+  5: ['var(--app-tag-red-fg)', 'var(--app-tag-orange-fg)', 'var(--app-status-hold)', 'var(--app-tag-green-fg)', 'var(--app-tag-green-fg)'],
+};
+const ARROWS = {
+  3: [ArrowDown, ArrowRight, ArrowUp],
+  4: [ArrowDown, ArrowDownRight, ArrowUpRight, ArrowUp],
+  5: [ArrowDown, ArrowDownRight, ArrowRight, ArrowUpRight, ArrowUp],
+};
+// 등급·조각은 채운 점 개수로 보여준다(별점처럼) — 아이콘 하나로는 단계가 안 읽힌다
+const DOTS = /Rating|Quarters|Boxes|Stars/i;
+
+function CellIcon({ icon }) {
+  const { set, idx, n } = icon;
+  const palette = ICON_COLORS[n] || ICON_COLORS[3];
+  const gray = /Gray|Black/i.test(set);
+  const color = gray ? 'var(--app-ink-muted)' : palette[Math.min(idx, palette.length - 1)];
+  if (DOTS.test(set)) {
+    return (
+      <span className="inline-flex items-center gap-[1px] align-[-1px]" aria-hidden="true">
+        {Array.from({ length: n }, (_, i) => (
+          <Circle key={i} size={7} style={{ color }} fill={i <= idx ? 'currentColor' : 'transparent'} />
+        ))}
+      </span>
+    );
+  }
+  let Mark;
+  if (/Arrows/i.test(set)) Mark = (ARROWS[n] || ARROWS[3])[Math.min(idx, n - 1)];
+  else if (/Flags/i.test(set)) Mark = Flag;
+  else if (/Symbols/i.test(set)) Mark = [X, TriangleAlert, Check][Math.min(idx, 2)];
+  else Mark = Circle;                                   // 신호등·표지판 계열
+  const filled = /TrafficLights|Signs|Flags/i.test(set);
+  return <Mark size={12} style={{ color }} fill={filled ? 'currentColor' : 'none'} className="inline align-[-2px] shrink-0" aria-hidden="true" />;
+}
 
 const DEFAULT_COL_PX = 64;   // 엑셀 기본 열 너비(8.43자)에 맞춘 값
 
@@ -88,7 +136,9 @@ export function SheetView({ blob, text = null, name = '', onError }) {
   if (!book || !sheet) {
     return (
       <div className="relative w-full h-full">
-        <Skeleton className="absolute inset-0 w-full h-full" />
+        {/* Skeleton에 absolute를 주면 먹지 않는다(.dc-skeleton이 position: relative를
+            박는다 — index.css). 자리는 바깥 span이 잡는다. */}
+        <span className="absolute inset-0"><Skeleton className="w-full h-full" /></span>
         <span className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-fg-muted">
           <Loader2 size={14} className="animate-spin" /> 미리보기를 준비하고 있어요
         </span>
@@ -119,7 +169,7 @@ export function SheetView({ blob, text = null, name = '', onError }) {
 
       {/* 표는 자기 상자 안에서 스크롤한다 — 모바일에서 화면 전체가 가로로 밀리면 안 된다.
           overscroll-contain이 표 끝에서 바깥(업무 창)이 따라 밀리는 것을 막는다. */}
-      <div className="flex-1 min-h-0 overflow-auto overscroll-contain rounded-md border border-line bg-surface">
+      <div key={tab} className="dc-sheet flex-1 min-h-0 overflow-auto overscroll-contain rounded-md border border-line bg-surface">
         <table className="border-collapse" style={{ tableLayout: 'fixed' }}>
           <colgroup>
             {Array.from({ length: width }, (_, i) => (
@@ -133,19 +183,56 @@ export function SheetView({ blob, text = null, name = '', onError }) {
                   if (covered.has(`${r},${c}`)) return null;
                   const g = spanAt.get(`${r},${c}`);
                   const paint = fillOf(cell?.bg);
+                  const bd = cell?.bd;
+                  const bar = cell?.bar;
+                  // 글자색: 칠이 있으면 그 배경에 맞춰 고르고(작성자가 준 색이 읽히면 그걸
+                  // 쓴다), 칠이 없으면 현재 테마의 글자색을 섞어 라이트·다크 모두에서 읽히게.
+                  const color = paint
+                    ? (cell.fg && readable(cell.fg, cell.bg) ? cell.fg : paint.color)
+                    : (cell?.fg ? `color-mix(in oklab, ${cell.fg} 72%, var(--app-ink))` : undefined);
                   return (
                     <td
                       key={c}
                       rowSpan={g?.rs > 1 ? g.rs : undefined}
                       colSpan={g?.cs > 1 ? g.cs : undefined}
-                      className="border border-line px-1.5 py-1 text-[11.5px] leading-[1.45] align-top whitespace-pre-wrap break-words text-fg"
+                      // 원본의 wrapText(줄바꿈 안 함)는 **따르지 않는다.** 엑셀은 넘치는
+                      // 글자를 옆 칸으로 흘리거나 잘라 버리는데, 미리보기에서 그러면
+                      // 비고 같은 긴 칸의 내용이 화면 밖으로 나가 안 보인다. 여기서는
+                      // 열 너비를 원본대로 두고 글자만 접는다 — 정보가 먼저다.
+                      className={`relative px-1.5 py-1 text-[11.5px] leading-[1.45] break-words text-fg whitespace-pre-wrap ${cell?.cf ? 'dc-cell-paint' : ''}`}
                       style={{
-                        ...(paint || {}),
+                        background: paint?.background,
+                        color,
+                        borderTop: sideCss(bd?.t), borderRight: sideCss(bd?.r),
+                        borderBottom: sideCss(bd?.b), borderLeft: sideCss(bd?.l),
                         fontWeight: cell?.bold ? 700 : 400,
+                        fontStyle: cell?.italic ? 'italic' : undefined,
+                        textDecoration: cell?.strike ? 'line-through' : cell?.under ? 'underline' : undefined,
                         textAlign: cell?.align || (cell?.num ? 'right' : 'left'),
+                        verticalAlign: cell?.valign === 'center' ? 'middle' : cell?.valign === 'bottom' ? 'bottom' : 'top',
                         fontVariantNumeric: cell?.num ? 'tabular-nums' : undefined,
                       }}
-                    >{cell?.v ?? ''}</td>
+                    >
+                      {/* 데이터 막대 — 글자 뒤에 깔고 왼쪽에서 자란다(scaleX, §4.2) */}
+                      {bar && (
+                        <span
+                          aria-hidden="true"
+                          className="dc-bar-grow absolute inset-y-[2px] left-[2px] rounded-[2px] pointer-events-none"
+                          style={{
+                            width: `calc(${(bar.ratio * 100).toFixed(1)}% - 4px)`,
+                            background: `color-mix(in srgb, ${bar.color} 45%, transparent)`,
+                          }}
+                        />
+                      )}
+                      {cell?.icon
+                        ? (
+                          <span className="relative inline-flex items-center gap-1 w-full" style={{ justifyContent: (cell.align || (cell.num ? 'right' : 'left')) === 'right' ? 'flex-end' : 'flex-start' }}>
+                            <CellIcon icon={cell.icon} />
+                            {cell.icon.showValue && <span>{cell.v}</span>}
+                          </span>
+                        )
+                        : <span className="relative">{cell?.v ?? ''}</span>}
+                    </td>
                   );
                 })}
               </tr>

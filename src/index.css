@@ -210,6 +210,11 @@
    훑고 지나가는 빛으로 바꾼다 — 움직이는 것이 있어야 기다리는 중임을 안다.
    움직이는 것은 ::after의 transform뿐이다(§4.2 — transform/opacity만 애니메이션).
    빛은 배경보다 밝은 쪽(surface)이라 라이트·다크 모두에서 같은 방향으로 보인다. */
+/* 훑고 지나가는 빛. **여기 position: relative 때문에 Skeleton에 Tailwind의 absolute를
+   줘도 먹지 않는다** — 특정도가 같아 나중에 오는 이 규칙이 이긴다. 실제로 두 번 데였다:
+   inset-0이 무시돼 미리보기 창이 통째로 반짝였고, top-1/2가 상대 오프셋이 되어
+   스켈레톤이 오른쪽 아래로 밀려났다. 자리는 **바깥 요소**가 잡아야 한다
+   (`<span className="absolute inset-0"><Skeleton className="w-full h-full"/></span>`). */
 .dc-skeleton { position: relative; overflow: hidden; background: var(--app-surface-hover); }
 .dc-skeleton::after {
   content: ''; position: absolute; inset: 0;
@@ -225,8 +230,21 @@
 
 *:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
 
+/* 엑셀 표가 뜰 때 · 시트 탭을 바꿀 때. transform/opacity만 움직인다(§4.2).
+   행마다 지연을 주는 방식은 쓰지 않는다 — 500줄이면 마지막 줄이 한참 뒤에 오고,
+   표는 "한 장"으로 읽혀야 한다. 표 전체가 한 번에 살짝 올라온다. */
+.dc-sheet { animation: dc-sheet 240ms var(--ease-out-quint) both; }
+@keyframes dc-sheet { from { opacity: 0; transform: translateY(6px); } }
+/* 조건부 서식·칠이 들어간 칸은 표가 자리를 잡은 뒤 색이 배어 나온다 */
+.dc-cell-paint { animation: dc-cell-paint 420ms var(--ease-out-quint) both; animation-delay: 120ms; }
+@keyframes dc-cell-paint { from { opacity: 0; } }
+/* 데이터 막대는 왼쪽에서 자란다(진행 바와 같은 결 — scaleX) */
+.dc-bar-grow { transform-origin: left center; animation: dc-bar-grow 520ms var(--ease-out-quint) both; animation-delay: 140ms; }
+@keyframes dc-bar-grow { from { transform: scaleX(0); } }
+
 @media (prefers-reduced-motion: reduce) {
   .dc-screen, .dc-row, .dc-card, .dc-kpi, .dc-pop { animation: none !important; }
+  .dc-sheet, .dc-cell-paint, .dc-bar-grow { animation: none !important; }
   .dc-bar-fill, .dc-press { transition: none !important; }
 }
 
