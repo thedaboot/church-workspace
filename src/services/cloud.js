@@ -376,7 +376,13 @@ export async function listCardFiles(cardId) {
 // 첨부의 실체를 드라이브로 옮기고 DB에는 참조만 남긴다. 브라우저는 스크립트 URL을
 // 모르고 /api/drive가 대신 부른다. 드라이브가 설정되지 않은 환경(로컬·프리뷰)은
 // 501을 돌려주므로 부르는 쪽이 Storage로 되돌린다.
-async function driveCall(payload) {
+// 여러 번 불러도 결과가 같은 액션들. 이것들만 재시도한다 —
+// upload은 스크립트가 파일을 **새로 만들기** 때문에 그냥 다시 보내면 파일이 두 개가 된다
+// (그래서 재시도는 열쇠를 아는 v5 스크립트에서 uploadWithRetry가 따로 한다).
+const IDEMPOTENT = new Set(['ensureFolder', 'renameFolder', 'trash', 'list']);
+const RETRY_WAITS = [400, 1200];     // 두 번까지, 점점 길게 (sleep은 위 시계-오차 재시도가 이미 두었다)
+
+async function driveOnce(payload) {
   // **`getSession()`은 supabase의 `{ data }`를 이미 벗겨서 `{ session, user }`를
   // 돌려준다.** 여기서 `.access_token`을 바로 꺼내면 언제나 undefined였고, 그래서
   // 앱에서 올리는 첨부가 **한 번도 드라이브로 가지 못했다**(§6-29와 같은 함정을
@@ -393,14 +399,36 @@ async function driveCall(payload) {
   if (r.status === 501) { const e = new Error('드라이브 미설정'); e.notConfigured = true; throw e; }
   if (!r.ok) {
     // 서버가 한국어로 이유를 준다 — 그대로 화면에 실어야 무엇이 막혔는지 보인다.
-    // status도 같이 남긴다(로그에서 401/403/413/502를 가르기 위해).
+    // status도 같이 남긴다(로그에서 401/403/413/502/504를 가르기 위해).
     const e = new Error(out.error || `드라이브 오류 (${r.status})`);
     e.human = out.error || `드라이브가 응답하지 않았어요 (${r.status})`;
     e.status = r.status;
+    e.timeout = !!out.timeout || r.status === 504;
     console.error('[drive] 실패:', r.status, out);
     throw e;
   }
   return out;
+}
+
+// 다시 해볼 만한 실패인가 — 시간 초과·게이트웨이 오류·네트워크 끊김.
+// 401(로그인)·403(미승인)·413(용량 초과)은 다시 해도 같으므로 바로 포기한다.
+const worthRetry = (e) => !e?.notConfigured
+  && (e?.timeout || e?.status === 502 || e?.status === 504 || e?.status === undefined);
+
+async function driveCall(payload) {
+  const action = payload?.action || 'upload';
+  if (!IDEMPOTENT.has(action)) return driveOnce(payload);
+  let last;
+  for (let i = 0; i <= RETRY_WAITS.length; i++) {
+    try { return await driveOnce(payload); }
+    catch (e) {
+      last = e;
+      if (i === RETRY_WAITS.length || !worthRetry(e)) throw e;
+      console.warn(`[drive] ${action} 재시도 ${i + 1}회 (${e.human || e.message})`);
+      await sleep(RETRY_WAITS[i]);
+    }
+  }
+  throw last;
 }
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -424,60 +452,6 @@ export const driveImageUrl = (fileId, size = 200) =>
 export const driveImageFullUrl = (fileId, size = 1600) =>
   `https://lh3.googleusercontent.com/d/${fileId}=s${size}`;
 
-// 파일 업로드: 드라이브가 설정돼 있으면 드라이브로, 아니면 Storage로.
-// 읽기 경로는 files.source로 이미 갈라져 있어(getFileOpenUrl) 둘이 섞여 있어도 된다.
-// 드라이브 구조는 `프로젝트 / 업무 / 파일`이다(v3 스크립트).
-//  · 업무 폴더 id를 이미 아는 경우 → 그 폴더에 바로 넣는다(cardTitle을 **보내지
-//    않는다** — 보내면 그 안에 또 같은 이름 폴더를 판다)
-//  · 모르는 경우 → 프로젝트 폴더 + 업무 제목으로 만들게 하고, 돌려받은 folderId를
-//    부르는 쪽이 cards.drive_folder_id에 적는다(0026)
-// id로 잡는 이유는 프로젝트와 같다 — 제목으로만 찾으면 제목을 바꾼 순간 한 업무의
-// 파일이 두 폴더로 갈라진다(사용자 지적).
-export async function uploadAttachment(file, { projectId, cardId, projectName, driveFolderId, cardTitle, cardFolderId }) {
-  const c = client();
-  try {
-    const up = await driveCall({
-      action: 'upload',
-      projectName: projectName || '기타',
-      folderId: cardFolderId || driveFolderId || undefined,
-      cardTitle: cardFolderId ? undefined : (cardTitle || undefined),
-      name: file.name, mimeType: file.type || undefined,
-      dataBase64: await fileToBase64(file),
-    });
-    let row;
-    try {
-      row = unwrap(await c.from('files').insert({
-      project_id: projectId,
-      card_id: cardId,
-      name: file.name,
-      mime_type: file.type || null,
-      size_bytes: file.size ?? null,
-      source: 'drive',
-      drive_file_id: up.id,
-      web_view_link: up.url,
-      }).select().single());
-    } catch (e) {
-      // 드라이브에는 올라갔는데 DB 행을 못 만든 경우다. 어디서 막혔는지 말해 준다 —
-      // 여기가 조용하면 "드라이브에는 있는데 앱에는 없는" 상태를 아무도 설명 못 한다.
-      console.error('[drive] 올라갔지만 files 행 생성 실패:', e);
-      e.human = e.human || `파일은 드라이브에 올라갔는데 목록에 넣지 못했어요 · ${e.message || e}`;
-      throw e;
-    }
-    // 이 업무의 폴더를 처음 만든 경우 id를 적어 둔다(다음 업로드부터 id로 넣는다)
-    if (!cardFolderId && up.folderId) {
-      try { await c.from('cards').update({ drive_folder_id: up.folderId }).eq('id', cardId); }
-      catch (e) { console.error('[drive] 업무 폴더 id 저장 실패:', e); }
-    }
-    // 부르는 쪽(병렬 업로드)이 나머지 파일을 이 폴더 id로 바로 넣을 수 있게 실어 보낸다
-    // — files 컬럼이 아니라 임시 속성이다(DB에는 cards.drive_folder_id가 원본).
-    return Object.assign(row, { _driveFolderId: up.folderId });
-  } catch (e) {
-    if (!e.notConfigured) throw e;
-    // 드라이브가 없는 환경 — 예전 경로 그대로
-    return uploadAttachmentToStorage(file, { projectId, cardId });
-  }
-}
-
 // 드라이브 파일 바이트 — PDF를 앱 안 pdf.js로 그릴 때 쓴다(/api/drive-file 주석).
 // 브라우저는 drive.google.com에 CORS로 막히므로 서버가 얇게 중계한다.
 export async function fetchDriveFileBlob(fileId) {
@@ -496,9 +470,110 @@ export async function fetchDriveFileBlob(fileId) {
   return r.blob();
 }
 
-// 드라이브 폴더 확보 — 프로젝트 하나에 폴더 하나(projects.drive_folder_id)
-export async function ensureDriveFolder(projectName, folderId) {
-  return driveCall({ action: 'ensureFolder', projectName, folderId: folderId || undefined });
+// 업로드 한 번의 **멱등 열쇠**. 스크립트 v5가 이 값을 파일 설명에 적어 두고,
+// 재시도일 때 같은 열쇠의 파일이 이미 있으면 새로 만들지 않고 그것을 돌려준다.
+// v4 스크립트는 이 값을 그냥 무시하므로 붙여 보내도 안전하다.
+const newKey = () => (globalThis.crypto?.randomUUID?.() || `k${Date.now()}${Math.random().toString(36).slice(2)}`);
+
+// 업로드는 **그냥 재시도하면 안 된다** — 스크립트가 파일을 새로 만들기 때문에
+// "타임아웃은 났지만 사실 올라갔던" 경우 파일이 두 개가 된다(사용자가 겪은 상황).
+// 그래서 실패하면 먼저 **정말 안 올라갔는지 확인**하고, 없을 때만 다시 보낸다.
+//  · v5 스크립트: list로 열쇠를 찾아본다 → 있으면 그 파일을 그대로 쓴다
+//  · v4 스크립트: list가 'unknown action'으로 떨어진다 → 재시도하지 않고 실패를 알린다
+//    (모르면 안 하는 쪽이 낫다 — 중복 파일은 사람이 지워야 한다)
+async function uploadOnceOrFind(payload, folderHint) {
+  try {
+    return await driveOnce(payload);
+  } catch (e) {
+    if (e.notConfigured || !worthRetry(e)) throw e;
+    let found = null;
+    let foundIn = null;
+    try {
+      const seen = await driveCall({ action: 'list', ...folderHint });
+      foundIn = seen?.folderId || null;
+      found = (seen?.files || []).find(f => f.key === payload.key) || null;
+    } catch (le) {
+      // list를 모르는 스크립트(v4)이거나 그것마저 실패 — 다시 보내지 않는다
+      console.warn('[drive] 업로드 확인 불가(스크립트가 list를 모르거나 실패):', le.human || le.message);
+      throw e;
+    }
+    if (found) {
+      console.warn('[drive] 타임아웃이었지만 파일은 올라가 있었다 — 그 파일을 쓴다:', found.name);
+      return { id: found.id, url: found.url, folderId: folderHint.folderId || foundIn || undefined, existing: true };
+    }
+    console.warn('[drive] 업로드가 정말 안 됐다 — 한 번 다시 보낸다');
+    return driveOnce({ ...payload, retry: true });
+  }
+}
+
+export async function uploadAttachment(file, { projectId, cardId, projectName, driveFolderId, cardTitle, cardFolderId }) {
+  const c = client();
+  const key = newKey();
+  // 업무 폴더 id를 이미 알면 그것만 보낸다(cardTitle을 같이 보내면 그 안에 또
+  // 같은 이름 폴더를 판다 — 0026). 폴더 만들기는 부르는 쪽이 미리 끝낸다.
+  const folderHint = cardFolderId
+    ? { folderId: cardFolderId }
+    : { folderId: driveFolderId || undefined, projectName: projectName || '기타', cardTitle: cardTitle || undefined };
+  let up;
+  try {
+    up = await uploadOnceOrFind({
+      action: 'upload',
+      ...folderHint,
+      key,
+      name: file.name, mimeType: file.type || undefined,
+      dataBase64: await fileToBase64(file),
+    }, folderHint);
+  } catch (e) {
+    if (!e.notConfigured) throw e;
+    // 드라이브가 없는 환경 — 예전 경로 그대로
+    return uploadAttachmentToStorage(file, { projectId, cardId });
+  }
+
+  let row;
+  try {
+    row = unwrap(await c.from('files').insert({
+      project_id: projectId,
+      card_id: cardId,
+      name: file.name,
+      mime_type: file.type || null,
+      size_bytes: file.size ?? null,
+      source: 'drive',
+      drive_file_id: up.id,
+      web_view_link: up.url,
+    }).select().single());
+  } catch (e) {
+    // 드라이브에는 올라갔는데 DB 행을 못 만든 경우다. **올린 파일을 도로 휴지통으로
+    // 보낸다** — 안 그러면 "드라이브에는 있는데 앱에는 없는" 파일이 영영 남고,
+    // 그건 싱크가 아니라 유실이다(사용자가 짚은 바로 그 어긋남).
+    console.error('[drive] 올라갔지만 files 행 생성 실패:', e);
+    try { await driveCall({ action: 'trash', fileId: up.id }); }
+    catch (te) { console.error('[drive] 되돌리기(휴지통)도 실패 — 드라이브에 파일이 남는다:', te); }
+    e.human = e.human || `파일을 목록에 넣지 못해 되돌렸어요 · ${e.message || e}`;
+    throw e;
+  }
+
+  // 이 업무의 폴더를 처음 만든 경우 id를 적어 둔다(다음 업로드부터 id로 넣는다).
+  // 실패하면 **알린다** — 조용히 넘기면 다음 업로드가 같은 이름 폴더를 하나 더 만들고
+  // 한 업무의 파일이 두 폴더로 갈라진다(드라이브는 같은 이름 형제를 허용한다).
+  if (!cardFolderId && up.folderId) {
+    try { unwrap(await c.from('cards').update({ drive_folder_id: up.folderId }).eq('id', cardId).select('id').single()); }
+    catch (e) { console.error('[drive] 업무 폴더 id 저장 실패 — 다음 업로드가 폴더를 또 만들 수 있다:', e); }
+  }
+  // 부르는 쪽(병렬 업로드)이 나머지 파일을 이 폴더 id로 바로 넣을 수 있게 실어 보낸다
+  // — files 컬럼이 아니라 임시 속성이다(DB에는 cards.drive_folder_id가 원본).
+  return Object.assign(row, { _driveFolderId: up.folderId });
+}
+
+// 업무 폴더 id만 적는다. 카드 폼을 통째로 보내지 않는다 — 그러면 저장 중인 남의
+// 편집을 같이 덮는다(§6-28-a와 같은 이유).
+export async function setCardFolder(cardId, folderId) {
+  return unwrap(await client().from('cards').update({ drive_folder_id: folderId }).eq('id', cardId).select('id').single());
+}
+
+// 폴더를 미리 확보한다. path를 주면 여러 겹을 **한 번에** 만든다
+// (프로젝트/업무 두 겹을 한 호출로 — 왕복이 하나 줄어든다).
+export async function ensureDriveFolder(projectName, folderId, path) {
+  return driveCall({ action: 'ensureFolder', projectName, folderId: folderId || undefined, path: path || undefined });
 }
 export async function renameDriveFolder(folderId, newName) {
   return driveCall({ action: 'renameFolder', folderId, newName });

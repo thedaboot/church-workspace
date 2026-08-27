@@ -1,8 +1,25 @@
 {
   "rewrites": [
-    { "source": "/s/:type/:id", "destination": "/api/share?type=:type&id=:id" }
+    {
+      "source": "/s/:type/:id",
+      "destination": "/api/share?type=:type&id=:id"
+    }
   ],
   "crons": [
-    { "path": "/api/push", "schedule": "0 22 * * *" }
-  ]
+    {
+      "path": "/api/push",
+      "schedule": "0 22 * * *"
+    }
+  ],
+  "functions": {
+    "api/drive.js": {
+      "maxDuration": 60
+    },
+    "api/drive-file.js": {
+      "maxDuration": 30
+    },
+    "api/ai.js": {
+      "maxDuration": 30
+    }
+  }
 }

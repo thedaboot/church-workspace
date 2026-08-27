@@ -41,13 +41,27 @@
 6. 나온 **웹 앱 URL**과 `SHARED_TOKEN`을 전달 (채팅·메일로 보내지 말고 안전한 경로로)
 
 ```javascript
-// 더다붓 워크스페이스 → 개인 드라이브 파일 저장기 (v4)
-// v2와 달라진 것: 폴더를 **여러 겹**으로 만든다.
-//   더다붓 워크스페이스 / <프로젝트 이름> / <업무 제목> / 파일
-// 파일 이름이 000001.JPG 같아서 드라이브에서 구분이 안 됐다(사용자 지적).
-// v4와 달라진 것: trash가 폴더 id도 받는다(업무·프로젝트 삭제 시 폴더째 정리).
+// 더다붓 워크스페이스 → 개인 드라이브 파일 저장기 (v5)
+//
+// v4에서 달라진 것 (2026-08-28):
+//  1) upload이 **멱등 열쇠(key)** 를 받는다. 재시도(retry:true)일 때 같은 열쇠의
+//     파일이 그 폴더에 이미 있으면 새로 만들지 않고 그것을 돌려준다.
+//     → 앱이 타임아웃을 봤지만 실제로는 올라갔던 경우, 다시 보내도 파일이 두 개가
+//       되지 않는다. **이것이 없으면 업로드에 재시도를 붙일 수 없다.**
+//     → 첫 시도에서는 폴더를 훑지 않는다(사진 서른 장짜리 업무에서 매번 훑으면
+//       그게 새 병목이 된다). 훑는 것은 재시도일 때뿐이다.
+//  2) **list** 액션 — 폴더 안 파일을 열쇠와 함께 돌려준다. 업로드가 끊겼을 때
+//     "정말 안 올라갔는지" 확인하고, DB와 드라이브를 맞춰보는 데 쓴다.
+//     list는 폴더를 **만들지 않는다**(없으면 files: []).
+//
+// 열쇠는 파일 설명(description)에 적는다 — DriveApp만으로 읽고 쓸 수 있어
+// 고급 서비스를 켤 필요가 없고, 드라이브에서 눈으로 봐도 방해되지 않는다.
+//
+// ROOT_FOLDER_ID · SHARED_TOKEN 두 줄은 **기존 값을 그대로** 두세요.
 const ROOT_FOLDER_ID = 'PASTE_FOLDER_ID_HERE';
 const SHARED_TOKEN = 'PASTE_LONG_RANDOM_STRING_HERE';
+
+const KEY_PREFIX = 'wskey:';
 
 function doPost(e) {
   try {
@@ -59,6 +73,7 @@ function doPost(e) {
       case 'ensureFolder': return json({ folderId: folderFor(body).getId() });
       case 'renameFolder': return json(renameFolder(body));
       case 'trash':        return json(trash(body));
+      case 'list':         return json(list(body));
       default:             return json({ error: 'unknown action' });
     }
   } catch (err) {
@@ -85,20 +100,74 @@ function childFolder(parent, name) {
   return it.hasNext() ? it.next() : parent.createFolder(name);
 }
 
+// 읽기 전용 조회용 — 없으면 null. list가 폴더를 만들어 버리면 안 된다.
+function childFolderIfExists(parent, name) {
+  var it = parent.getFoldersByName(name);
+  return it.hasNext() ? it.next() : null;
+}
+
+// 같은 열쇠를 가진 파일 찾기(재시도일 때만 부른다)
+function findByKey(folder, key) {
+  if (!key) return null;
+  var tag = KEY_PREFIX + key;
+  var it = folder.getFiles();
+  while (it.hasNext()) {
+    var f = it.next();
+    if (f.getDescription() === tag) return f;
+  }
+  return null;
+}
+
 function upload(body) {
   // 업무 폴더는 프로젝트 폴더 **아래**다. 프로젝트 폴더 id를 주면 거기서 시작한다.
   var folder = folderFor(body);
   if (body.cardTitle) folder = childFolder(folder, String(body.cardTitle));
+
+  // 재시도일 때만 훑는다 — 첫 시도에 훑으면 파일이 많은 폴더에서 그게 병목이다
+  if (body.retry) {
+    var found = findByKey(folder, body.key);
+    if (found) return { id: found.getId(), url: found.getUrl(), folderId: folder.getId(), existing: true };
+  }
+
   var blob = Utilities.newBlob(
     Utilities.base64Decode(body.dataBase64),
     body.mimeType || 'application/octet-stream',
     body.name || 'file'
   );
   var file = folder.createFile(blob);
+  if (body.key) file.setDescription(KEY_PREFIX + body.key);
   // 링크를 아는 사람은 보기 — 앱이 lh3.googleusercontent.com/d/<id>로 썸네일을 붙인다.
   // 이 줄이 없으면 소유자만 열 수 있어서 앱 안 이미지가 전부 깨진다.
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   return { id: file.getId(), url: file.getUrl(), folderId: folder.getId() };
+}
+
+// 폴더 안 파일 목록(열쇠 포함). 폴더를 만들지 않는다.
+function list(body) {
+  var folder;
+  if (body.folderId) {
+    try { folder = DriveApp.getFolderById(body.folderId); } catch (err) { return { files: [] }; }
+  } else {
+    folder = DriveApp.getFolderById(ROOT_FOLDER_ID);
+    var path = body.path && body.path.length ? body.path : [body.projectName || '기타'];
+    for (var i = 0; i < path.length && folder; i++) folder = childFolderIfExists(folder, String(path[i] || '기타'));
+    if (!folder) return { files: [] };
+  }
+  if (body.cardTitle) {
+    folder = childFolderIfExists(folder, String(body.cardTitle));
+    if (!folder) return { files: [] };
+  }
+  var out = [];
+  var it = folder.getFiles();
+  while (it.hasNext() && out.length < 500) {
+    var f = it.next();
+    var d = f.getDescription() || '';
+    out.push({
+      id: f.getId(), name: f.getName(), size: f.getSize(), url: f.getUrl(),
+      key: d.indexOf(KEY_PREFIX) === 0 ? d.slice(KEY_PREFIX.length) : null,
+    });
+  }
+  return { folderId: folder.getId(), files: out };
 }
 
 function renameFolder(body) {
@@ -109,7 +178,7 @@ function renameFolder(body) {
 
 // 완전 삭제가 아니라 휴지통이다 — 30일 안에는 되돌릴 수 있다.
 // 앱에서 잘못 지운 것을 복구할 길이 없으면 그건 싱크가 아니라 유실이다.
-// v4: **폴더 id도 받는다** — 업무·프로젝트를 지울 때 폴더째 휴지통으로 보낸다
+// v4부터 **폴더 id도 받는다** — 업무·프로젝트를 지울 때 폴더째 휴지통으로 보낸다
 // (getFileById는 폴더에 못 쓰므로 실패하면 getFolderById로 다시 시도한다).
 function trash(body) {
   try { DriveApp.getFileById(body.fileId).setTrashed(true); }

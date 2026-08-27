@@ -93,6 +93,12 @@ export function errorReason(err) {
 }
 
 // 토스트 한 줄. `what`은 이미 완결된 문장입니다 — '업무를 저장하지 못했어요'
+// 짧으면 한 줄(`무엇 · 왜`), 길면 줄을 나눈다. 토스트는 한눈에 읽혀야 하는데
+// 두 마디를 언제나 가운뎃점으로 붙이면 파일 이름이 긴 경우 줄이 넘쳐 흐른다
+// (사용자 지적). 토스트가 whitespace-pre-line이라 줄바꿈이 그대로 그려진다.
+const ONE_LINE_MAX = 30;
 export function failText(what, err) {
-  return `${what} · ${errorReason(err)}`;
+  const why = errorReason(err);
+  const sep = (what.length + why.length > ONE_LINE_MAX || why.includes('\n')) ? '\n' : ' · ';
+  return `${what}${sep}${why}`;
 }

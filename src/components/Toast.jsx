@@ -43,9 +43,14 @@ export function ToastHost() {
     <div className="fixed left-1/2 -translate-x-1/2 z-[100] pointer-events-none px-4 w-full flex justify-center bottom-[calc(6rem+env(safe-area-inset-bottom))] md:bottom-6">
       <div
         key={toast.id} role="status"
-        className={`bg-fg text-canvas rounded-lg shadow-elevated px-4 py-2.5 text-xs max-w-[calc(100vw-2rem)] leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-200 ${toast.action ? 'pointer-events-auto flex items-center gap-3 text-left' : 'text-center'}`}
+        // 폭을 묶는다 — max-w를 화면 폭으로 두면 데스크톱에서 긴 문구가 한 줄로
+        // 화면을 가로질러 한눈에 안 들어온다(사용자 지적). 28rem에서 접히고,
+        // 모바일에서는 화면 폭이 먼저 걸린다.
+        className={`bg-fg text-canvas rounded-lg shadow-elevated px-4 py-2.5 text-xs max-w-[min(28rem,calc(100vw-2rem))] leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-200 ${toast.action ? 'pointer-events-auto flex items-center gap-3 text-left' : 'text-center'}`}
       >
-        <span className="min-w-0">{toast.message}</span>
+        {/* 문구에 든 줄바꿈을 그대로 그린다 — 두 마디짜리 안내를 한 줄로 붙여 놓으면
+            길어져서 읽히지 않는다(failText가 긴 것만 줄을 나눈다) */}
+        <span className="min-w-0 whitespace-pre-line">{toast.message}</span>
         {toast.action && (
           <button
             type="button"

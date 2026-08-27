@@ -9,7 +9,7 @@ import { SheetView } from '../components/SheetView.jsx';
 import { SmartImage, Skeleton } from '../components/media.jsx';
 import { useStore, store } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
-import { ensureProjectFolder } from '../services/cloudSync.js';
+import { ensureProjectFolder, ensureCardFolder } from '../services/cloudSync.js';
 
 // ============================================================================
 // 업무 창의 첨부 파일 영역 (클라우드 모드 전용)
@@ -366,13 +366,26 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     uploadingRef.current = true;
     setUploadingList(prev => [...prev, ...ok.map(f => f.name)]);
     try {
-      // 폴더는 첫 업로드 때 한 번만 확보한다 — 그 뒤로는 id로 바로 올려서
-      // 프로젝트 이름을 바꿔도 파일이 두 폴더로 갈라지지 않는다
+      // **폴더를 파일보다 먼저** 확보한다(파일 바이트가 오가기 전에, 가벼운 호출로).
+      // 실측: 폴더 만들기 3.5초 · 3MB 파일 쓰기 8.5초. 예전에는 첫 업로드가 둘을 같이
+      // 해서 "새 프로젝트 → 새 업무 → 첫 첨부"가 가장 느렸고 거기서 시간 제한에
+      // 걸렸다(사용자 신고). 나눠 두면 무거운 호출이 파일 쓰기 하나만 한다.
       const folderId = project ? await ensureProjectFolder(project) : null;
-      const uploadOne = async (file, cardFolderId) => {
+      // 프로젝트 폴더 id를 스토어에도 넣는다 — cloudSync는 스토어를 물 수 없어서
+      // (노드에서 도는 검사가 깨진다) **부르는 쪽이** 넣어야 한다. 안 넣으면 이번
+      // 세션 내내 배치마다 폴더를 다시 찾는다(회당 1.5초쯤).
+      if (folderId && project && !project.driveFolderId) {
+        store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, driveFolderId: folderId } });
+      }
+      let cardFolderId = task.driveFolderId || await ensureCardFolder(
+        { ...(project || {}), driveFolderId: folderId || project?.driveFolderId }, task);
+      if (cardFolderId && !task.driveFolderId) {
+        store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, driveFolderId: cardFolderId } });
+      }
+      const uploadOne = async (file) => {
         const row = await uploadAttachment(file, {
           projectId: task.projectId, cardId: task.id,
-          projectName: project?.title, driveFolderId: folderId || project?.driveFolderId,
+          projectName: project?.name || project?.title, driveFolderId: folderId || project?.driveFolderId,
           cardTitle: task.title, cardFolderId,
         });
         setItems(prev => {
@@ -383,30 +396,20 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
         });
         setUploadingList(prev => { const i = prev.indexOf(file.name); return i < 0 ? prev : [...prev.slice(0, i), ...prev.slice(i + 1)]; });
         onFileActivity?.(`파일 '${row.name}'을(를) 첨부했습니다.`);
+        // 폴더를 미리 못 잡은 경우(스크립트가 이름으로 만든 경우) 첫 파일에서 받아 둔다
+        if (!cardFolderId && row._driveFolderId) cardFolderId = row._driveFolderId;
         return row;
       };
-      // **동시 3개** — 순차는 사진 열 장에 수십 초였다. 단, 업무 폴더가 아직 없으면
-      // 첫 파일이 혼자 폴더를 만들고 나머지가 병렬로 간다. 동시에 만들면 드라이브가
-      // 같은 이름 폴더를 여러 개 만든다(드라이브는 같은 이름 형제를 허용한다).
-      let queue = ok;
-      let cardFolderId = task.driveFolderId;
-      if (!cardFolderId && ok.length > 1) {
-        try {
-          const first = await uploadOne(ok[0], undefined);
-          cardFolderId = first?._driveFolderId || undefined;   // 없으면 이름으로 찾는다(스크립트 폴백)
-        } catch (e) {
-          console.error('[cloud] 업로드 실패:', e);
-          showToast(failText(`'${ok[0].name}'을(를) 올리지 못했어요`, e));
-          setUploadingList(prev => prev.filter(n => n !== ok[0].name));
-        }
-        queue = ok.slice(1);
-      }
+      // **동시 3개** — 순차는 사진 열 장에 수십 초였다. 폴더는 위에서 이미 확보했으므로
+      // 첫 파일을 혼자 보낼 이유가 없다(예전에는 동시에 보내면 드라이브가 같은 이름
+      // 폴더를 여러 개 만들어서, 첫 장을 따로 올려 폴더를 만들고 나머지를 병렬로 보냈다).
+      const queue = ok;
       const LIMIT = 3;
       let next = 0;
       const worker = async () => {
         while (next < queue.length) {
           const file = queue[next++];
-          try { await uploadOne(file, cardFolderId); }
+          try { await uploadOne(file); }
           catch (e) {
             console.error('[cloud] 업로드 실패:', e);
             showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, e));

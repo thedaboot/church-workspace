@@ -510,6 +510,36 @@ export async function ensureProjectFolder(project) {
     return null;
   }
 }
+// 업무 폴더를 **파일 바이트가 오가기 전에** 확보하고 cards.drive_folder_id에 적어 둔다.
+//
+// 왜 따로 빼나: 예전에는 업로드 한 번이 "업무 폴더 만들기 + 파일 쓰기"를 같이 했다.
+// 실측(2026-08-28)으로 폴더 만들기만 3.5초, 3MB 파일 쓰기가 8.5초다 — 둘을 한 호출에
+// 묶으면 가장 흔한 경로(새 프로젝트 → 새 업무 → 첫 첨부)가 제일 오래 걸리고, 그때
+// 시간 제한에 걸려 "드라이브가 응답하지 않아요"가 떴다(사용자 신고).
+// 나눠 두면 무거운 호출이 파일 쓰기 하나만 하고, 폴더 id가 **파일보다 먼저** 저장돼
+// 다음 업로드가 같은 이름 폴더를 또 만드는 일도 없어진다.
+//
+// 실패해도 null을 돌려주고 업로드는 진행한다 — 스크립트가 이름으로 폴더를 찾는
+// 폴백이 있어서 파일은 제자리에 간다. 폴더 id를 못 적는 것뿐이다.
+export async function ensureCardFolder(project, card) {
+  if (card?.driveFolderId) return card.driveFolderId;
+  if (!card?.id || !card?.title) return null;
+  try {
+    // path로 프로젝트/업무 두 겹을 한 번에 만든다(ensureFolder는 folderId를 주면
+    // 그 폴더 자체를 돌려주므로, 그 아래 한 겹을 더 파려면 path여야 한다).
+    const { folderId } = await cloud.ensureDriveFolder(
+      project?.name || project?.title, null,
+      [project?.name || project?.title || '기타', card.title],
+    );
+    if (!folderId) return null;
+    await write(() => cloud.setCardFolder(card.id, folderId));
+    return folderId;
+  } catch (e) {
+    if (!e.notConfigured) console.error('[drive] 업무 폴더 확보 실패:', e);
+    return null;
+  }
+}
+
 export async function projectArchiveCloud(id, archived) { return write(() => cloud.updateProject(id, { archived })); }
 export async function projectDeleteCloud(id) { return write(() => cloud.deleteProject(id)); }
 
