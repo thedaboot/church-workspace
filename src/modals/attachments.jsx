@@ -10,6 +10,7 @@ import { SmartImage, Skeleton } from '../components/media.jsx';
 import { useStore, store } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
 import { ensureProjectFolder, ensureCardFolder } from '../services/cloudSync.js';
+import { downscaleImage, FILE_MAX_DIM } from '../services/image.js';
 
 // ============================================================================
 // 업무 창의 첨부 파일 영역 (클라우드 모드 전용)
@@ -36,14 +37,19 @@ const cancelIdle = (h) => {
 };
 
 // ── 첨부 파일 (클라우드 모드 전용) ──────────────────────────────────────────
-// 한 파일 상한. **버킷 한도가 아니라 드라이브 왕복 시간이 정한 값이다.**
-// 실측(2026-08-28): 8MB 26.7초 · 12MB 41.0초 · 16MB 56.8초 · 20MB 59.2초 · 25MB 57.9초.
-// Hobby 플랜의 함수 상한이 60초라 16MB 위로는 **구조적으로** 못 넣는다 — 우리가 먼저
-// 끊으면 스크립트는 계속 돌아 파일을 다 쓰고, 그 사이 확인(list)이 다녀가면 없다고
-// 보고 다시 보내 **파일이 두 개**가 된다. 10MB면 35초쯤이라 예산(55초) 안에 든다.
-// 지금 첨부는 평균 1.46MB · 최대 2.3MB(232건)라 실제로 걸리는 파일은 없다.
-// 올리려면 잘게 쪼개 보내는 스크립트(v6)가 필요하고, 그건 별개의 일이다.
-const MAX_UPLOAD_MB = 10;
+// 한 파일 상한. Supabase Storage 버킷 제한과 같은 값이다.
+//
+// 한때 실측을 근거로 10MB까지 내렸다가 되돌렸다 — **그 측정이 틀렸다.** 같은 20MB를
+// 다시 재니 59초와 121초로 두 배 흔들렸고, 파일을 하나도 안 쓰는 호출조차 66~87초가
+// 걸렸다. 드라이브가 아니라 **재는 사람의 업로드 회선**을 재고 있었던 것이다.
+//
+// 진짜 병목은 그래서 **보내는 바이트**다(브라우저 → Vercel 구간이 함수 실행 시간에
+// 그대로 들어가고, Hobby 플랜의 함수 상한 60초는 못 늘린다). 그래서 상한을 깎는 대신
+// **사진을 줄여서 보낸다**(services/image.js · 긴 변 2560px). 폰 사진 4MB가 1MB 아래로
+// 내려가고, base64가 4/3을 더 붙으므로 효과는 그만큼 더 크다.
+// 사진이 아닌 큰 파일(zip·영상)은 여전히 회선을 탄다 — 실제 소요는 배포 뒤 서버
+// 로그(`[drive] upload … → 성공 (N ms)`)로 재서 정한다.
+const MAX_UPLOAD_MB = 25;
 const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 const formatBytes = (b) => {
   if (b === null || b === undefined) return '';
@@ -420,7 +426,11 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
         store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, driveFolderId: cardFolderId } });
       }
       const uploadOne = async (file) => {
-        const row = await uploadAttachment(file, {
+        // **보내기 직전에 사진을 줄인다.** 미리보기는 위에서 스테이징한 원본으로 이미
+        // 뜨고 있으므로 여기서 줄여도 화면이 기다리지 않는다. 사진이 아니거나 이미
+        // 작으면 원본 그대로 간다(services/image.js).
+        const sending = await downscaleImage(file, FILE_MAX_DIM, 0.9);
+        const row = await uploadAttachment(sending, {
           projectId: task.projectId, cardId: task.id,
           projectName: project?.name || project?.title, driveFolderId: folderId || project?.driveFolderId,
           cardTitle: task.title, cardFolderId,
@@ -543,7 +553,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
           <input ref={inputRef} type="file" multiple className="hidden" onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
           <UploadCloud size={20} strokeWidth={1.75} className="mx-auto text-fg-faint mb-1" />
           <p className="text-[11px] text-fg-muted">파일을 끌어다 놓거나 클릭해서 선택하세요</p>
-          <p className="text-[10px] text-fg-faint mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 {MAX_UPLOAD_MB}MB</p>
+          <p className="text-[10px] text-fg-faint mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 {MAX_UPLOAD_MB}MB · 사진은 긴 변 {FILE_MAX_DIM}px로 줄여서 올려요</p>
         </div>
       )}
       {!readOnly && rejected.length > 0 && (

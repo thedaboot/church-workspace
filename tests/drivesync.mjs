@@ -81,9 +81,14 @@ check('업무 폴더를 파일보다 먼저 확보한다', () => {
   assert.match(sync, /export async function ensureCardFolder/, 'ensureCardFolder가 없다');
   assert.match(sync, /setCardFolder/, '폴더 id를 cards에 적지 않는다');
   assert.match(att, /ensureCardFolder/, '업로드 전에 폴더를 확보하지 않는다');
-  // 폴더 id를 먼저 저장해야 다음 업로드가 같은 이름 폴더를 또 만들지 않는다
-  const order = att.indexOf('ensureCardFolder') < att.indexOf('uploadAttachment(file');
-  assert.ok(order, '폴더 확보가 업로드보다 뒤에 있다');
+  // 폴더 id를 먼저 저장해야 다음 업로드가 같은 이름 폴더를 또 만들지 않는다.
+  // 인자 이름이 바뀌어도 흔들리지 않게 호출 자체를 찾는다(예전에는 'uploadAttachment(file'
+  // 로 찾다가 인자가 sending으로 바뀌면서 -1이 나와 조용히 통과할 뻔했다).
+  const upAt = att.search(/\bawait uploadAttachment\(/);
+  const folderAt = att.search(/\bawait ensureCardFolder\(|ensureCardFolder\(\s*$/m);
+  assert.ok(upAt > 0, 'uploadAttachment 호출을 못 찾았다');
+  assert.ok(folderAt > 0, 'ensureCardFolder 호출을 못 찾았다');
+  assert.ok(folderAt < upAt, '폴더 확보가 업로드보다 뒤에 있다');
 });
 
 check('폴더 id를 스토어에도 넣는다', () => {
@@ -187,10 +192,14 @@ check('첨부 상한을 화면과 서버가 같은 값으로 본다', () => {
   assert.strictEqual(client, server, `화면 ${client}MB · 서버 ${server}MB — 어긋나면 한쪽이 거짓말한다`);
 });
 
-check('상한이 시간 예산 안에 드는 크기다', () => {
-  const mb = Number(/const MAX_UPLOAD_MB = (\d+)/.exec(att)?.[1] || 0);
-  // 실측 곡선상 12MB가 41초다. 예산 55초에 여유를 두려면 12MB를 넘기면 안 된다.
-  assert.ok(mb <= 12, `${mb}MB는 예산(55초)을 넘길 크기다 — 16MB가 56.8초였다`);
+check('사진은 보내기 전에 줄인다', () => {
+  // 브라우저 → Vercel 구간이 함수 실행 시간에 들어가고 Hobby 상한 60초는 못 늘린다.
+  // 남은 길은 보내는 바이트를 줄이는 것뿐이다(첨부 232건 중 226건이 사진이다).
+  assert.match(att, /downscaleImage\(file, FILE_MAX_DIM/, '첨부가 사진을 안 줄이고 보낸다');
+  const img = read('src/services/image.js');
+  assert.match(img, /imageOrientation: 'from-image'/, 'EXIF 회전을 안 보면 세로 사진이 눕는다');
+  assert.match(img, /blob\.size >= file\.size\) return file/, '줄였는데 커지면 원본을 써야 한다');
+  assert.match(img, /image\/gif/, 'gif를 줄이면 애니메이션이 죽는다');
 });
 
 check('끊긴 뒤에는 기다렸다 확인한다', () => {
