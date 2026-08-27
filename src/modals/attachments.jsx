@@ -36,7 +36,15 @@ const cancelIdle = (h) => {
 };
 
 // ── 첨부 파일 (클라우드 모드 전용) ──────────────────────────────────────────
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // Supabase Storage 버킷 제한과 동일
+// 한 파일 상한. **버킷 한도가 아니라 드라이브 왕복 시간이 정한 값이다.**
+// 실측(2026-08-28): 8MB 26.7초 · 12MB 41.0초 · 16MB 56.8초 · 20MB 59.2초 · 25MB 57.9초.
+// Hobby 플랜의 함수 상한이 60초라 16MB 위로는 **구조적으로** 못 넣는다 — 우리가 먼저
+// 끊으면 스크립트는 계속 돌아 파일을 다 쓰고, 그 사이 확인(list)이 다녀가면 없다고
+// 보고 다시 보내 **파일이 두 개**가 된다. 10MB면 35초쯤이라 예산(55초) 안에 든다.
+// 지금 첨부는 평균 1.46MB · 최대 2.3MB(232건)라 실제로 걸리는 파일은 없다.
+// 올리려면 잘게 쪼개 보내는 스크립트(v6)가 필요하고, 그건 별개의 일이다.
+const MAX_UPLOAD_MB = 10;
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 const formatBytes = (b) => {
   if (b === null || b === undefined) return '';
   if (b < 1024) return `${b} B`;
@@ -64,7 +72,7 @@ export const PendingAttachments = ({ files = [], onChange }) => {
     const picked = Array.from(fileList || []);
     const tooBig = picked.filter(f => f.size > MAX_UPLOAD_BYTES);
     setRejected(tooBig.map(f => ({ name: f.name, size: f.size })));
-    tooBig.forEach(f => showToast(`'${f.name}'은(는) 25MB를 넘어 첨부하지 못했어요.`));
+    tooBig.forEach(f => showToast(`'${f.name}'은(는) ${MAX_UPLOAD_MB}MB를 넘어 첨부하지 못했어요.`));
     const ok = picked.filter(f => f.size <= MAX_UPLOAD_BYTES);
     if (ok.length) onChange([...files, ...ok]);
   };
@@ -82,10 +90,10 @@ export const PendingAttachments = ({ files = [], onChange }) => {
         <input ref={inputRef} type="file" multiple className="hidden" onChange={e => { add(e.target.files); e.target.value = ''; }} />
         <UploadCloud size={20} strokeWidth={1.75} className="mx-auto text-fg-faint mb-1" />
         <p className="text-[11px] text-fg-muted">파일을 끌어다 놓거나 클릭해서 선택하세요</p>
-        <p className="text-[10px] text-fg-faint mt-0.5">저장하면 올라가요 · 최대 25MB</p>
+        <p className="text-[10px] text-fg-faint mt-0.5">저장하면 올라가요 · 최대 {MAX_UPLOAD_MB}MB</p>
       </div>
       {rejected.length > 0 && (
-        <p className="mt-2 text-[11px] text-tag-red-fg">한 파일당 25MB까지 올릴 수 있어요 · {rejected.map(f => f.name).join(', ')}</p>
+        <p className="mt-2 text-[11px] text-tag-red-fg">한 파일당 {MAX_UPLOAD_MB}MB까지 올릴 수 있어요 · {rejected.map(f => f.name).join(', ')}</p>
       )}
       {files.length > 0 && (
         <div className="divide-y divide-line/60 mt-1">
@@ -168,8 +176,10 @@ function PasswordSetter({ row, onDone }) {
 // 엑셀은 어디에 있든 펼칠 수 있다. 드라이브 파일은 **구글 자체 미리보기**를 쓰므로
 // 마이크로소프트로 주소가 나가지 않는다(Storage 파일만 MS 뷰어를 거친다).
 // csv는 어느 뷰어도 표로 그리지 못한다 — 미리보기(텍스트)로 본다.
+// 이름만 보는 판정 — 아직 저장 전(source:'local')인 파일에도 쓴다
+const isSheetName = (name) => ['xls', 'xlsx', 'csv'].includes((String(name || '').split('.').pop() || '').toLowerCase());
 const isSheetRow = (row) => (!!row.storage_path || (row.source === 'drive' && !!row.drive_file_id))
-  && ['xls', 'xlsx', 'csv'].includes((String(row.name || '').split('.').pop() || '').toLowerCase());
+  && isSheetName(row.name);
 
 // 엑셀을 행 바로 아래에 펼친다 — 노션식 임베드(읽기 전용).
 // 예전에는 구글·마이크로소프트 뷰어를 iframe으로 물렸는데, 갓 올린 파일에서
@@ -191,7 +201,9 @@ function InlineSheet({ row }) {
     const take = (b) => (asCsv ? b.text().then(t => ({ text: t })) : Promise.resolve({ blob: b }));
     const got = (v) => { if (alive) setSrc(v); };
     const failed = (e) => { if (alive) setErr(e.human || e.message || String(e)); };
-    if (row.source === 'drive' && row.drive_file_id) {
+    if (row.source === 'local' && row._file) {
+      take(row._file).then(got).catch(failed);          // 아직 올리는 중 — 고른 파일 그대로
+    } else if (row.source === 'drive' && row.drive_file_id) {
       fetchDriveFileBlob(row.drive_file_id).then(take).then(got).catch(failed);
     } else {
       getFileOpenUrl(row)
@@ -225,9 +237,14 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
   // 이미지 썸네일 — 스토리지는 200px 서명 URL, 드라이브는 구글 이미지 CDN이
   // 줄여서 내준다(우리 대역폭 0). 주소 발급이 실패한 것은 아이콘으로 돌아간다:
   // 스켈레톤을 영원히 두면 "고장"으로 읽힌다.
-  const src = row.source === 'drive'
-    ? (row.drive_file_id ? driveImageUrl(row.drive_file_id) : null)
-    : thumb;
+  // 아직 올리는 중인 파일(source: 'local')은 **고른 파일 자체**를 그린다 —
+  // 드라이브가 확정될 때까지 기다리지 않고 바로 보이게 하는 것이 이 줄의 요지다.
+  const src = row.source === 'local'
+    ? row._url
+    : row.source === 'drive'
+      ? (row.drive_file_id ? driveImageUrl(row.drive_file_id) : null)
+      : thumb;
+  const pending = row.source === 'local';
   const isImage = (row.mime_type || '').startsWith('image/') && !!src && !thumbFailed;
   const kind = fileKind(row.name, row.mime_type);
   return (
@@ -241,11 +258,16 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
         : <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>}
       <div className="flex-1 min-w-0">
         <p className="text-xs text-fg truncate">{row.name}</p>
-        <p className="text-[10px] text-fg-faint mt-0.5">{formatBytes(row.size_bytes)}</p>
+        {/* 올리는 중에도 크기는 그대로 말해 준다. '올리는 중'은 상태이지 안내가 아니다 —
+            이게 없으면 새 탭 버튼이 왜 없는지 아무도 모른다. */}
+        <p className="text-[10px] mt-0.5 flex items-center gap-1 text-fg-faint">
+          {pending && <Loader2 size={10} className="animate-spin shrink-0" />}
+          {pending ? `드라이브에 올리는 중 · ${formatBytes(row.size_bytes)}` : formatBytes(row.size_bytes)}
+        </p>
       </div>
       {/* 잠긴 파일이라는 표시. 자물쇠는 '아는 사람만 본다'를 한눈에 말한다 */}
-      {row.view_pw && <Lock size={12} className="shrink-0 text-fg-faint" aria-label="비밀번호가 걸린 파일" />}
-      {canLock && (
+      {!pending && row.view_pw && <Lock size={12} className="shrink-0 text-fg-faint" aria-label="비밀번호가 걸린 파일" />}
+      {!pending && canLock && (
         <button type="button" onClick={onToggleLockUI}
           className="shrink-0 p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95"
           title={row.view_pw ? '비밀번호 바꾸기·풀기' : '비밀번호 걸기'}>
@@ -260,7 +282,7 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
         </button>
       )}
       <button type="button" onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title={locked ? '비밀번호를 넣어야 열려요' : '미리보기'}><Eye size={14} /></button>
-      {canDelete && (
+      {!pending && canDelete && (
         <ConfirmPopover message={`'${row.name}'을(를) 삭제할까요?`} onConfirm={onRemove}>
           <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95" title="삭제"><Trash2 size={14} /></button>
         </ConfirmPopover>
@@ -284,7 +306,12 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   // 이미지가 많을수록 한 요청이 커져서 걸릴 확률이 올라간다(사용자 지적).
   const [thumbFailed, setThumbFailed] = useState({});
   const [dragOver, setDragOver] = useState(false);
-  const [uploadingList, setUploadingList] = useState([]); // 지금 올라가는 파일 이름들(병렬)
+  // 아직 드라이브에 안 올라간, 방금 고른 파일들. **고르자마자** 목록에 들어가서
+  // 미리보기·펼쳐보기가 로컬 바이트로 바로 된다(사용자 요청). 드라이브가 확정되면
+  // 여기서 빠지고 진짜 행이 items로 들어간다.
+  // 메모리에만 둔다 — 탭을 닫으면 사라진다(그때는 beforeunload가 먼저 묻는다).
+  // localStorage는 문자열 5MB라 사진 두 장도 못 담는다.
+  const [pending, setPending] = useState([]);   // [{ id, name, size_bytes, mime_type, source:'local', _file, _url }]
   // 지금 올리는 중인지 — 위 조회가 업로드를 앞질렀는지 가르는 유일한 근거다
   const uploadingRef = useRef(false);
   const [rejected, setRejected] = useState([]); // 용량 초과로 건너뛴 파일들
@@ -359,12 +386,22 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     // (토스트는 몇 초 뒤 사라져서 "왜 안 올라갔지?"가 남는다)
     const tooBig = files.filter(f => f.size > MAX_UPLOAD_BYTES);
     setRejected(tooBig.map(f => ({ name: f.name, size: f.size })));
-    tooBig.forEach(f => showToast(`'${f.name}'은(는) 25MB를 넘어 첨부하지 못했어요.`));
+    tooBig.forEach(f => showToast(`'${f.name}'은(는) ${MAX_UPLOAD_MB}MB를 넘어 첨부하지 못했어요.`));
     const ok = files.filter(f => f.size <= MAX_UPLOAD_BYTES);
     if (!ok.length) return;
 
     uploadingRef.current = true;
-    setUploadingList(prev => [...prev, ...ok.map(f => f.name)]);
+    // **고르자마자 목록에 넣는다.** 드라이브를 기다리지 않고 바로 보이고, 미리보기·
+    // 펼쳐보기가 이 로컬 바이트로 동작한다(사용자 요청). 새 탭·내려받기는 드라이브가
+    // 확정된 뒤에만 나온다 — 아직 없는 주소를 버튼으로 내놓으면 화면이 거짓말한다.
+    const staged = ok.map(f => ({
+      id: `local:${f.name}:${f.size}:${f.lastModified}:${Math.random().toString(36).slice(2, 8)}`,
+      name: f.name, size_bytes: f.size, mime_type: f.type || null,
+      source: 'local', _file: f,
+      _url: (f.type || '').startsWith('image/') ? URL.createObjectURL(f) : null,
+    }));
+    const stagedOf = new Map(ok.map((f, i) => [f, staged[i]]));
+    setPending(prev => [...prev, ...staged]);
     try {
       // **폴더를 파일보다 먼저** 확보한다(파일 바이트가 오가기 전에, 가벼운 호출로).
       // 실측: 폴더 만들기 3.5초 · 3MB 파일 쓰기 8.5초. 예전에는 첫 업로드가 둘을 같이
@@ -394,7 +431,9 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
           store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, attachments: next } });
           return next;
         });
-        setUploadingList(prev => { const i = prev.indexOf(file.name); return i < 0 ? prev : [...prev.slice(0, i), ...prev.slice(i + 1)]; });
+        const st = stagedOf.get(file);
+        if (st?._url) URL.revokeObjectURL(st._url);
+        setPending(prev => prev.filter(p => p.id !== st?.id));
         onFileActivity?.(`파일 '${row.name}'을(를) 첨부했습니다.`);
         // 폴더를 미리 못 잡은 경우(스크립트가 이름으로 만든 경우) 첫 파일에서 받아 둔다
         if (!cardFolderId && row._driveFolderId) cardFolderId = row._driveFolderId;
@@ -413,16 +452,29 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
           catch (e) {
             console.error('[cloud] 업로드 실패:', e);
             showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, e));
-            setUploadingList(prev => prev.filter(n => n !== file.name));
+            const st = stagedOf.get(file);
+            if (st?._url) URL.revokeObjectURL(st._url);
+            setPending(prev => prev.filter(p => p.id !== st?.id));
           }
         }
       };
       await Promise.all(Array.from({ length: Math.min(LIMIT, queue.length) }, worker));
     } finally {
       uploadingRef.current = false;
-      setUploadingList([]);
     }
   };
+
+  // 아직 올리는 중인데 탭을 닫으려 하면 묻는다. 이 파일들은 메모리에만 있어서
+  // 닫으면 드라이브에도 DB에도 남지 않는다 — 조용히 잃는 것보다 한 번 묻는 쪽이 낫다.
+  useEffect(() => {
+    if (!pending.length) return;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [pending.length]);
+
+  // 만들어 둔 blob 주소는 되돌려준다(안 하면 탭이 살아 있는 내내 메모리에 남는다)
+  useEffect(() => () => { pending.forEach(p => p._url && URL.revokeObjectURL(p._url)); }, [pending]);
 
   // 클립보드 이미지 붙여넣기 (수정 모드에서만; 본문 textarea 붙여넣기는 stopPropagation으로 제외)
   useEffect(() => {
@@ -491,17 +543,14 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
           <input ref={inputRef} type="file" multiple className="hidden" onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
           <UploadCloud size={20} strokeWidth={1.75} className="mx-auto text-fg-faint mb-1" />
           <p className="text-[11px] text-fg-muted">파일을 끌어다 놓거나 클릭해서 선택하세요</p>
-          <p className="text-[10px] text-fg-faint mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 25MB</p>
+          <p className="text-[10px] text-fg-faint mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 {MAX_UPLOAD_MB}MB</p>
         </div>
       )}
-      {!readOnly && uploadingList.map(name => (
-        <div key={name} className="flex items-center gap-2 mt-2 text-[11px] text-fg-muted"><Loader2 size={13} className="animate-spin" /> 업로드 중: {name}</div>
-      ))}
       {!readOnly && rejected.length > 0 && (
         <div className="mt-2 flex items-start gap-2 rounded-md border border-tag-red-fg/30 bg-tag-red/60 px-2.5 py-2 animate-in fade-in duration-200">
           <AlertTriangle size={14} className="text-tag-red-fg shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-semibold text-tag-red-fg">한 파일당 25MB까지 올릴 수 있어요</p>
+            <p className="text-[11px] font-semibold text-tag-red-fg">한 파일당 {MAX_UPLOAD_MB}MB까지 올릴 수 있어요</p>
             <ul className="mt-0.5 space-y-0.5">
               {rejected.map(f => (
                 <li key={f.name} className="text-[10px] text-tag-red-fg/90 truncate">{f.name} · {formatBytes(f.size)}</li>
@@ -545,8 +594,19 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
           ))}
         </div>
       )}
-      {items.length > 0 && (
+      {(items.length > 0 || pending.length > 0) && (
         <div className="divide-y divide-line/60 mt-1">
+          {/* 아직 올리는 중인 파일 — 진짜 행과 같은 자리·같은 모양이다. 다만 새 탭·
+              내려받기·삭제·잠금은 없다(드라이브에 아직 없으니 줄 수 없는 것들이다).
+              엑셀 펼쳐보기는 로컬 바이트로 그대로 된다. */}
+          {pending.map(row => (
+            <div key={row.id}>
+              <AttachmentRow row={row} onOpen={() => openFile(row)}
+                embedded={!!embedded[row.id]}
+                onToggleEmbed={isSheetName(row.name) ? () => setEmbedded(prev => ({ ...prev, [row.id]: !prev[row.id] })) : null} />
+              {embedded[row.id] && isSheetName(row.name) && <InlineSheet row={row} />}
+            </div>
+          ))}
           {items.map(row => (
             <div key={row.id}>
               <AttachmentRow row={row} thumb={thumbs[row.storage_path]} thumbFailed={!!thumbFailed[row.storage_path]} canDelete={!readOnly && (isAdmin || row.uploaded_by === userId)} onOpen={() => openFile(row)} onRemove={() => removeItem(row)}

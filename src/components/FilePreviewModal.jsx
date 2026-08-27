@@ -50,7 +50,7 @@ function previewKind(row) {
     // 드라이브 파일도 형식별로 **가장 나은 뷰어**로 간다(사용자 요청) —
     //  · 오피스류(엑셀·워드·PPT·csv): 구글 전용 편집기 미리보기(driveSrc가 시간 게이트)
     //  · PDF·텍스트·영상·소리: 앱이 직접 그린다. 바이트는 /api/drive-file이 중계한다
-    //    (브라우저→drive.google.com 은 CORS가 막는다). 첨부 상한이 25MB라 통째로
+    //    (브라우저→drive.google.com 은 CORS가 막는다). 첨부 상한이 10MB라 통째로
     //    받아도 된다. PDF만 프리페치 상한(15MB)을 넘으면 드라이브 뷰어로 남긴다.
     if (OFFICE_EXT.includes(ext)) return 'drive';
     if ((mime === 'application/pdf' || ext === 'pdf') && (row.size_bytes ?? 0) <= MAX_PDF_PREFETCH) return 'pdf';
@@ -83,7 +83,9 @@ export const viewerNote = (row) => (row.source === 'drive'
   : '마이크로소프트 오피스 미리보기로 표시해요 · 파일 주소가 마이크로소프트로 전달됩니다');
 
 // 드라이브 이미지의 <img> 주소 — 아니면 null(스토리지는 서명 URL을 따로 받는다)
-const imgSrcOf = (r) => (r?.source === 'drive' && r.drive_file_id ? driveImageFullUrl(r.drive_file_id) : null);
+const imgSrcOf = (r) => (r?.source === 'local'
+  ? (r._url || null)                                   // 목록이 이미 만들어 둔 blob 주소
+  : r?.source === 'drive' && r.drive_file_id ? driveImageFullUrl(r.drive_file_id) : null);
 
 // row: 처음 연 files 행
 // rows: 같은 목록의 나머지 행 — 사진 이전/다음 넘기기용. 잠긴(비밀번호) 파일은
@@ -127,9 +129,13 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
     });
   }, [canNav, gallery, gi]);
 
+  // 아직 올리는 중인 파일(source: 'local')은 **고른 파일 자체**로 그린다.
+  // 드라이브 주소가 아직 없으므로 받으러 가지 않는다.
+  const local = cur.source === 'local' ? (cur._file || null) : null;
+
   // 서명 URL 확보 (이미 있으면 건너뜀)
   useEffect(() => {
-    if (url) return;
+    if (url || local) return;
     let alive = true;
     getFileOpenUrl(cur)
       .then(u => { if (alive) setUrl(u); })
@@ -143,6 +149,10 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
     if (kind !== 'text' || text !== null) return;
     if ((cur.size_bytes ?? 0) > MAX_TEXT_BYTES) { setError('파일이 커서 미리보기를 건너뛰었어요.'); return; }
     let alive = true;
+    if (local) {
+      local.text().then(t => { if (alive) setText(t); }).catch(e => { if (alive) setError(e.message || String(e)); });
+      return () => { alive = false; };
+    }
     if (cur.source === 'drive' && cur.drive_file_id) {
       fetchDriveFileBlob(cur.drive_file_id)
         .then(b => b.text())
@@ -167,6 +177,10 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
     const asCsv = extOf(cur.name) === 'csv';
     let alive = true;
     const take = (b) => (asCsv ? b.text().then(t => ({ text: t })) : Promise.resolve({ blob: b }));
+    if (local) {
+      take(local).then(v => { if (alive) setSheetSrc(v); }).catch(e => { if (alive) setError(e.message || String(e)); });
+      return () => { alive = false; };
+    }
     if (cur.source === 'drive' && cur.drive_file_id) {
       fetchDriveFileBlob(cur.drive_file_id)
         .then(take)
@@ -190,6 +204,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
   useEffect(() => {
     if (kind !== 'pdf' || pdfSrc) return;
     let alive = true;
+    if (local) { setPdfSrc({ blob: local }); return () => { alive = false; }; }
     // 드라이브 파일은 서버 중계로 바이트를 받는다(웹 주소는 HTML 페이지라 못 쓴다)
     if (cur.source === 'drive' && cur.drive_file_id) {
       fetchDriveFileBlob(cur.drive_file_id)
@@ -207,11 +222,17 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, url, cur.id]);
 
-  // 드라이브 영상·소리 — 프록시로 통째로 받아 블롭 URL로 튼다(첨부 상한 25MB).
+  // 드라이브 영상·소리 — 프록시로 통째로 받아 블롭 URL로 튼다(첨부 상한 10MB).
   // <video src>에 웹 주소(web_view_link)를 주면 HTML 페이지라 못 튼다.
   const [blobSrc, setBlobSrc] = useState(null);
   useEffect(() => {
-    if ((kind !== 'video' && kind !== 'audio') || cur.source !== 'drive' || !cur.drive_file_id) return;
+    if (kind !== 'video' && kind !== 'audio') return;
+    if (local) {
+      const obj = URL.createObjectURL(local);
+      setBlobSrc(obj);
+      return () => { URL.revokeObjectURL(obj); setBlobSrc(null); };
+    }
+    if (cur.source !== 'drive' || !cur.drive_file_id) return;
     let alive = true; let obj = null;
     fetchDriveFileBlob(cur.drive_file_id)
       .then(b => { if (!alive) return; obj = URL.createObjectURL(b); setBlobSrc(obj); })
@@ -241,6 +262,17 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
 
   const openExternal = () => { if (url) window.open(url, '_blank', 'noopener'); };
 
+  // 내려받기용 로컬 주소. 이미지는 목록이 만들어 둔 것을 그대로 쓰고, 나머지는
+  // 창이 열려 있는 동안만 만들었다 되돌려준다.
+  const [madeHref, setMadeHref] = useState(null);
+  useEffect(() => {
+    if (!local || cur._url) { setMadeHref(null); return; }
+    const obj = URL.createObjectURL(local);
+    setMadeHref(obj);
+    return () => { URL.revokeObjectURL(obj); setMadeHref(null); };
+  }, [local, cur._url]);
+  const localHref = local ? (cur._url || madeHref) : null;
+
   const body = (() => {
     if (error) return <Fallback row={cur} message={error} onOpen={openExternal} />;
 
@@ -260,12 +292,12 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
       );
     }
     if (kind === 'video') {
-      const src = cur.source === 'drive' ? blobSrc : url;
+      const src = (cur.source === 'drive' || local) ? blobSrc : url;
       if (!src) return <Skeleton className="w-full h-full" />;
       return <video src={src} controls className="max-w-full max-h-full rounded-md bg-black" />;
     }
     if (kind === 'audio') {
-      const src = cur.source === 'drive' ? blobSrc : url;
+      const src = (cur.source === 'drive' || local) ? blobSrc : url;
       if (!src) return <Skeleton className="w-full h-16" />;
       return <audio src={src} controls className="w-full" />;
     }
@@ -344,6 +376,12 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
             {kind === 'office' && (
               <p className="text-[10px] text-fg-faint mt-0.5">{viewerNote(cur)}</p>
             )}
+            {/* 새 탭 버튼이 왜 없는지 말해 준다 — 상태를 그대로 말하는 줄이다 */}
+            {local && (
+              <p className="text-[10px] text-fg-faint mt-0.5 flex items-center gap-1">
+                <Loader2 size={10} className="animate-spin shrink-0" /> 드라이브에 올리는 중
+              </p>
+            )}
           </div>
           {!isMobile && (
             <button type="button" onClick={() => setWide(w => !w)}
@@ -352,10 +390,15 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
               {wide ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
           )}
-          <button type="button" onClick={openExternal} disabled={!url} className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 disabled:opacity-40" title="새 탭에서 열기"><ExternalLink size={16} /></button>
+          {/* '새 탭에서 열기'는 **드라이브에 올라간 뒤에만** 둔다 — 아직 주소가 없는데
+              버튼을 내놓으면 화면이 거짓말을 한다(사용자 결정). 내려받기는 고른 파일
+              그대로 되므로 올리는 중에도 둔다. */}
+          {!local && (
+            <button type="button" onClick={openExternal} disabled={!url} className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 disabled:opacity-40" title="새 탭에서 열기"><ExternalLink size={16} /></button>
+          )}
           <a
-            href={url || undefined} download={cur.name} target="_blank" rel="noreferrer"
-            className={`p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 ${url ? '' : 'pointer-events-none opacity-40'}`}
+            href={localHref || url || undefined} download={cur.name} target="_blank" rel="noreferrer"
+            className={`p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 ${(localHref || url) ? '' : 'pointer-events-none opacity-40'}`}
             title="내려받기"
           ><Download size={16} /></a>
           <button type="button" onClick={onClose} className="p-2 rounded-md text-fg-faint hover:bg-surface-hover transition active:scale-95" title="닫기"><X size={18} /></button>

@@ -10,11 +10,16 @@ import { createClient } from '@supabase/supabase-js';
 // (소유권도 용량도 가질 수 없다). 소유자 계정으로 실행되는 스크립트가 유일하게
 // 남는 길이다. 자세한 배경은 docs/DRIVE.md.
 //
-// 몸통 크기: Vercel 함수는 100MB까지 받지만 첨부 상한은 25MB이고, base64는
-// 원본의 약 4/3이라 요청은 34MB쯤이다. Apps Script 쪽 실행 시간이 먼저 걸린다.
+// 몸통 크기: Vercel 함수는 100MB까지 받지만 **첨부 상한은 10MB**이고, base64는
+// 원본의 약 4/3이라 요청은 13MB쯤이다. 크기를 정한 것은 버킷이 아니라 **Apps Script의
+// 왕복 시간**이다 — 아래 MAX_MB 주석 참고.
 // ============================================================================
 
-const MAX_BYTES = 25 * 1024 * 1024;
+// 클라이언트(attachments.jsx의 MAX_UPLOAD_MB)와 **같은 값이어야 한다.**
+// 여기가 더 크면 화면이 막지 않은 파일이 스크립트에서 시간 초과로 죽고, 더 작으면
+// 화면이 허락한 파일이 서버에서 거절된다. tests/drivesync.mjs가 둘을 맞춰 본다.
+const MAX_MB = 10;
+const MAX_BYTES = MAX_MB * 1024 * 1024;
 const ACTIONS = new Set(['upload', 'ensureFolder', 'renameFolder', 'trash', 'list']);
 
 // 스크립트가 이 시간 안에 답하지 않으면 **우리가 먼저 끊는다.**
@@ -25,7 +30,10 @@ const ACTIONS = new Set(['upload', 'ensureFolder', 'renameFolder', 'trash', 'lis
 // 실측(2026-08-28, 소유자 드라이브): 폴더 만들기 3.5초 · 100KB 4.3초 · 1MB 5.8초 ·
 // 3MB 8.5초 · 8MB 26.7초. 바닥값이 4초라 짧게 잡으면 정상 업로드가 끊긴다.
 // vercel.json의 maxDuration(60초)보다 짧아야 우리가 먼저 잡는다.
-const SCRIPT_BUDGET_MS = 50 * 1000;
+// **예산을 넘는 크기를 아예 받지 않는 것이 더 중요하다** — 끊어도 스크립트는 계속
+// 돌아 파일을 다 쓰기 때문에, 그 사이 확인이 다녀가면 중복이 생긴다. 그래서 상한을
+// 25MB에서 10MB로 내렸다(실측: 16MB 56.8초 · 20MB 59.2초로 60초 문턱에 붙는다).
+const SCRIPT_BUDGET_MS = 55 * 1000;
 // body는 그대로 넘긴다(projectName·path·cardTitle·folderId 등) — 폴더 구조를 바꿀 때
 // 여기를 같이 고칠 필요가 없다. 검사하는 것은 action과 파일 크기뿐이다.
 
@@ -73,7 +81,7 @@ export default async function handler(req, res) {
     // base64 길이로 원본 크기를 가늠한다(정확히 3/4). 여기서 막지 않으면 Apps
     // Script가 실행 시간 제한에 걸려 끝나는데, 그때는 원인을 알려줄 방법이 없다.
     if (!b64) { res.status(400).json({ error: '파일 내용이 없습니다.' }); return; }
-    if (b64.length * 0.75 > MAX_BYTES) { res.status(413).json({ error: '25MB를 넘는 파일은 올릴 수 없습니다.' }); return; }
+    if (b64.length * 0.75 > MAX_BYTES) { res.status(413).json({ error: `${MAX_MB}MB를 넘는 파일은 올릴 수 없어요` }); return; }
   }
 
   // 무엇이 막혔는지 서버에도 남긴다. 첨부가 안 올라가는데 화면에도 로그에도

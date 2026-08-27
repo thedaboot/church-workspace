@@ -138,5 +138,75 @@ check('failText: 짧으면 한 줄, 길면 줄을 나눈다', () => {
   assert.ok(failText('짧아요', { human: '첫 줄\n둘째 줄' }).startsWith('짧아요\n'), '여러 줄 이유를 가운뎃점으로 붙였다');
 });
 
+// ── 낙관적 업로드 (2026-08-28) ──────────────────────────────────────────────
+// 고른 파일이 **드라이브를 기다리지 않고** 바로 목록에 보이고 미리보기가 된다.
+// 대신 화면이 거짓말을 하면 안 된다 — 아직 없는 주소를 버튼으로 내놓지 않는다.
+const preview = read('src/components/FilePreviewModal.jsx');
+
+check('고른 파일이 드라이브를 기다리지 않고 바로 목록에 든다', () => {
+  assert.match(att, /const \[pending, setPending\]/, '대기 목록이 없다');
+  // 업로드를 기다린 뒤에 넣으면 그게 지금의 "기다려야 한다" 그대로다
+  const stage = att.indexOf('setPending(prev => [...prev, ...staged])');
+  const wait = att.indexOf('await ensureProjectFolder');
+  assert.ok(stage > 0, '대기 목록에 넣는 자리가 없다');
+  assert.ok(stage < wait, '대기 목록에 넣기가 드라이브 호출보다 뒤에 있다');
+});
+
+check('올리는 중에는 새 탭 버튼을 두지 않는다', () => {
+  // 드라이브 주소가 아직 없다. 버튼을 내놓으면 화면이 거짓말한다(사용자 결정).
+  assert.match(preview, /\{!local && \(/, '새 탭 버튼이 로컬 파일에서도 보인다');
+  assert.match(preview, /localHref/, '내려받기가 로컬 주소를 못 쓴다');
+});
+
+check('올리는 중에는 삭제·잠금을 두지 않는다', () => {
+  // 아직 DB에 없는 것을 지울 수 없고, 비밀번호는 files 행에 붙는 값이다
+  assert.match(att, /\{!pending && canDelete && \(/, '올리는 중에 삭제 버튼이 있다');
+  assert.match(att, /\{!pending && canLock && \(/, '올리는 중에 잠금 버튼이 있다');
+});
+
+check('로컬 바이트로 미리보기·펼쳐보기가 된다', () => {
+  assert.match(preview, /const local = cur\.source === 'local'/, '미리보기가 로컬 파일을 모른다');
+  assert.match(att, /row\.source === 'local' && row\._file/, '펼쳐보기가 로컬 파일을 모른다');
+});
+
+check('탭을 닫으려 하면 묻는다 · blob 주소를 되돌려준다', () => {
+  // 메모리에만 있어서 닫으면 드라이브에도 DB에도 남지 않는다
+  assert.match(att, /beforeunload/, '올리는 중에 탭을 닫아도 아무 말이 없다');
+  assert.match(att, /revokeObjectURL/, 'blob 주소를 되돌려주지 않는다');
+});
+
+// ── 큰 파일 (2026-08-28 실측) ───────────────────────────────────────────────
+// 8MB 26.7초 · 12MB 41.0초 · 16MB 56.8초 · 20MB 59.2초 · 25MB 57.9초.
+// Hobby 플랜의 함수 상한이 60초라 16MB 위는 구조적으로 못 넣는다. 그리고 예산으로
+// 끊어도 스크립트는 계속 돌아 파일을 다 쓰므로, **예산을 넘는 크기를 아예 받지
+// 않는 것**이 중복을 막는 유일한 길이다.
+check('첨부 상한을 화면과 서버가 같은 값으로 본다', () => {
+  const client = Number(/const MAX_UPLOAD_MB = (\d+)/.exec(att)?.[1] || 0);
+  const server = Number(/const MAX_MB = (\d+)/.exec(api)?.[1] || 0);
+  assert.ok(client > 0 && server > 0, '상한 상수를 못 찾았다');
+  assert.strictEqual(client, server, `화면 ${client}MB · 서버 ${server}MB — 어긋나면 한쪽이 거짓말한다`);
+});
+
+check('상한이 시간 예산 안에 드는 크기다', () => {
+  const mb = Number(/const MAX_UPLOAD_MB = (\d+)/.exec(att)?.[1] || 0);
+  // 실측 곡선상 12MB가 41초다. 예산 55초에 여유를 두려면 12MB를 넘기면 안 된다.
+  assert.ok(mb <= 12, `${mb}MB는 예산(55초)을 넘길 크기다 — 16MB가 56.8초였다`);
+});
+
+check('끊긴 뒤에는 기다렸다 확인한다', () => {
+  // 곧바로 확인하면 아직 쓰는 중이라 "없다"로 보고 다시 보내 파일이 두 개가 된다
+  assert.match(cloud, /VERIFY_WAIT_MS/, '확인 전 대기가 없다');
+  assert.match(cloud, /if \(e\.timeout\) await sleep\(VERIFY_WAIT_MS\)/, '시간 초과일 때 안 기다린다');
+});
+
+check('상한 문구를 손으로 두 벌 적지 않는다', () => {
+  // 숫자를 문구에 직접 박으면 상한을 바꿀 때 화면만 옛말이 된다.
+  // 주석은 뺀다 — 실측값을 적어 둔 줄에는 25MB가 정당하게 남아 있다.
+  const code = att.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+  const stale = code.match(/\d+MB/g)?.filter(m => m !== `${'$'}{MAX_UPLOAD_MB}MB`) || [];
+  assert.ok(!/(?<!\{)\b\d+MB/.test(code), `문구에 숫자가 직접 박혀 있다: ${stale.join(', ')}`);
+  assert.match(att, /\$\{MAX_UPLOAD_MB\}MB/, '문구가 상수에서 오지 않는다');
+});
+
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);

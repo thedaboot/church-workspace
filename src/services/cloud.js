@@ -380,6 +380,9 @@ export async function listCardFiles(cardId) {
 // upload은 스크립트가 파일을 **새로 만들기** 때문에 그냥 다시 보내면 파일이 두 개가 된다
 // (그래서 재시도는 열쇠를 아는 v5 스크립트에서 uploadWithRetry가 따로 한다).
 const IDEMPOTENT = new Set(['ensureFolder', 'renameFolder', 'trash', 'list']);
+// 끊긴 업로드가 실제로 끝났는지 확인하기 전에 기다리는 시간. 상한(10MB)이 35초쯤이고
+// 예산이 55초라 보통은 끊길 일이 없지만, 끊겼다면 스크립트가 마무리 중일 공산이 크다.
+const VERIFY_WAIT_MS = 4000;
 const RETRY_WAITS = [400, 1200];     // 두 번까지, 점점 길게 (sleep은 위 시계-오차 재시도가 이미 두었다)
 
 async function driveOnce(payload) {
@@ -486,6 +489,11 @@ async function uploadOnceOrFind(payload, folderHint) {
     return await driveOnce(payload);
   } catch (e) {
     if (e.notConfigured || !worthRetry(e)) throw e;
+    // **끊긴 뒤에는 잠깐 기다렸다 확인한다.** 우리가 시간 예산으로 끊어도 스크립트는
+    // 계속 돌아 파일을 다 쓴다. 곧바로 확인하면 아직 없어서 "안 올라갔다"로 보고
+    // 다시 보내게 되고, 그러면 파일이 두 개가 된다. 열쇠 검사는 **이미 다 쓰인 뒤**만
+    // 막아주므로, 그 사이를 기다려서 메운다.
+    if (e.timeout) await sleep(VERIFY_WAIT_MS);
     let found = null;
     let foundIn = null;
     try {
