@@ -349,5 +349,14 @@ check('문서의 스크립트가 uploadFromUrl을 안다 (v6)', () => {
   assert.match(drivemd, /getResponseCode\(\) >= 300/, '받아오기 실패를 안 가린다');
 });
 
+check('파일 중계는 불변 캐시다(재열람 왕복 0)', () => {
+  // drive_file_id의 바이트는 불변이다(첨부는 보기 링크 · 다시 올리면 id가 새로 생긴다).
+  // 1시간짜리로 되돌리면 다음 날 같은 3.8MB 결산안을 열 때마다 통째로 다시 받는다.
+  assert.match(filesvc, /Cache-Control', 'private, max-age=2592000, immutable'/, '불변 캐시가 아니다');
+  // public로 바꾸면 안 된다 — 승인 검사를 지난 응답이 공유 캐시(CDN)에 앉으면
+  // 그 검사가 비켜진다
+  assert.ok(!/Cache-Control', 'public/.test(filesvc), '공유 캐시에 앉히면 승인 검사가 비켜진다');
+});
+
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);

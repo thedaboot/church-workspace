@@ -47,7 +47,12 @@ export default async function handler(req, res) {
     const buf = Buffer.from(await r.arrayBuffer());
     if (buf.length > MAX_BYTES) { res.status(413).json({ error: '파일이 너무 큽니다. 새 탭에서 열어주세요.' }); return; }
     res.setHeader('Content-Type', type);
-    res.setHeader('Cache-Control', 'private, max-age=3600');
+    // 30일 + immutable — drive_file_id가 가리키는 바이트는 우리 흐름에서 **불변**이다
+    // (첨부는 '보기' 링크라 아무도 못 고치고, 파일을 다시 올리면 id가 새로 생긴다).
+    // 예전 1시간짜리는 다음 날 같은 결산안(3.8MB)을 열 때마다 통째로 다시 받았다.
+    // public이 아니라 private인 이유: 이 경로는 승인된 사용자 검사를 지나므로
+    // CDN(공유 캐시)에 앉히면 그 검사가 비켜진다 — 브라우저 캐시에만 앉힌다.
+    res.setHeader('Cache-Control', 'private, max-age=2592000, immutable');
     console.log(`[drive-file] ${id} ${Math.round(buf.length / 1024)}KB → 성공 (${Date.now() - t0}ms)`);
     res.status(200).send(buf);
   } catch (e) {
