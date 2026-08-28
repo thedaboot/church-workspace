@@ -216,13 +216,15 @@ function renderDate(d, code) {
     if (rest.startsWith('s')) { eat('s', String(d.getUTCSeconds())); continue; }
     if (rest.startsWith('mm') || rest.startsWith('m')) {
       const two = rest.startsWith('mm');
-      // 바로 앞 토큰이 시(h)면 분이다 — 'h:mm'의 mm은 월이 아니다
+      // 앞선 토큰이 시(h)면 분이다 — 'h:mm'의 mm은 월이 아니다
       const minute = prev === 'h';
       const v = minute ? d.getUTCMinutes() : d.getUTCMonth() + 1;
       eat(two ? 'mm' : 'm', two ? pad(v) : String(v));
       continue;
     }
-    out += ch; prev = ''; i += 1;
+    // 리터럴(콜론·공백 등)은 prev를 지우지 않는다 — 지우면 'h:mm'에서 콜론이
+    // h를 잊게 해 분이 월로 나온다("13:32"가 "13:02"가 됐다 — Fable 검증 R1)
+    out += ch; i += 1;
   }
   return out;
 }
@@ -278,8 +280,10 @@ function formatNumberEx(raw, code) {
   }
   const b = bare(sec);
   const { pre, post, parens } = sectionParts(sec);
-  // 숫자 자리가 아예 없는 구간은 리터럴만 보여준다 — 회계식의 0 구간("-")이 이 모양이다
-  if (!/[0#]/.test(b)) return { text: pre + post, red };
+  // 숫자 자리가 아예 없는 구간은 리터럴만 보여준다 — 회계식의 0 구간("-")이 이 모양이다.
+  // 단 @(텍스트 자리)가 있으면 값을 그 자리에 넣는다 — 숫자 셀에 텍스트 서식('@',
+  // 내장 49)이 걸린 경우, 빈 문자열을 돌리면 셀이 통째로 사라진다(Fable 검증 R2).
+  if (!/[0#]/.test(b)) return { text: b.includes('@') ? pre + String(raw) + post : pre + post, red };
   const pct = b.includes('%');
   const val = (pct ? n * 100 : n);
   const dm = b.match(/\.(0+)/);

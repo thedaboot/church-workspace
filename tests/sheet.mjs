@@ -376,6 +376,8 @@ const fidBook = await parseXlsx(zipOf([
     + '<xf numFmtId="0" fontId="1"/>'            // s=5 24pt 제목
     + '<xf numFmtId="0" fontId="0" borderId="1"/>'  // s=6 right 테두리만
     + '<xf numFmtId="0" fontId="0" borderId="2"/>'  // s=7 bottom 테두리만
+    + '<xf numFmtId="20" fontId="0"/>'              // s=8 h:mm (분/월 가르기)
+    + '<xf numFmtId="49" fontId="0"/>'              // s=9 @ (텍스트 서식이 걸린 숫자)
     + '</cellXfs>'
     + '</styleSheet>'],
   ['xl/worksheets/sheet1.xml',
@@ -390,6 +392,7 @@ const fidBook = await parseXlsx(zipOf([
     + '<row r="2"><c r="A2" s="1"><v>9000000</v></c><c r="B2" s="1"><v>-1234</v></c>'
     +   '<c r="C2"><v>99</v></c><c r="D2" s="2"><v>0</v></c></row>'
     + '<row r="3"><c r="A3" s="3"><v>46054</v></c><c r="B3" s="4"><v>46054</v></c><c r="D3" t="s"><v>1</v></c></row>'
+    + '<row r="4"><c r="A4" s="8"><v>46054.5639</v></c><c r="B4" s="9"><v>1235</v></c></row>'
     + '<row r="7"><c r="A7" t="s"><v>1</v></c><c r="B7" s="6"/><c r="D7" s="6"/></row>'
     + '<row r="8"><c r="A8" s="7"/></row>'
     // 값 영역 밖(H20)의 테두리-only 칸은 예전대로 버려진다
@@ -432,6 +435,12 @@ check('숫자 서식: ₩ 접두 · [Red] 괄호 음수 · 회계식 0은 "-"', 
 check('날짜: 한국어 내장 서식(58)과 요일(ddd)', () => {
   assert.strictEqual(cellAt(2, 0).v, '2월 1일', `일련번호가 날짜로 안 바뀌었다: ${cellAt(2, 0).v}`);
   assert.strictEqual(cellAt(2, 1).v, '02/01 일', `요일이 없다: ${cellAt(2, 1).v}`);
+  // 'h:mm'의 mm은 분이다 — 콜론(리터럴)이 h를 잊게 하면 분이 월로 나온다
+  // (46054.5639 = 2026-02-01 13:32). 시간 서식은 이 파일들에 없지만 옛 코드가 맞던 자리다.
+  assert.strictEqual(cellAt(3, 0).v, '13:32', `분이 월로 나온다: ${cellAt(3, 0).v}`);
+  // 숫자 셀에 텍스트 서식('@' · 내장 49)이 걸리면 값을 그대로 보여준다 — 빈 문자열을
+  // 돌리면 셀이 통째로 사라진다
+  assert.strictEqual(cellAt(3, 1).v, '1235', `'@' 서식 셀이 사라졌다: ${cellAt(3, 1)?.v}`);
 });
 check('시트 기본 열 너비를 읽는다', () => {
   assert.strictEqual(fid.defaultColPx, 106, '14.43자 = 106px이어야 한다');
