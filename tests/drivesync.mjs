@@ -23,6 +23,31 @@ const sync = read('src/services/cloudSync.js');
 const att = read('src/modals/attachments.jsx');
 const vercel = JSON.parse(read('vercel.json'));
 const drivemd = read('docs/DRIVE.md');
+const cfg = read('src/config.js');
+const filesvc = read('api/drive-file.js');
+const preview = read('src/components/FilePreviewModal.jsx');
+
+// ── 상한 ────────────────────────────────────────────────────────────────────
+// 세 곳이 같은 값을 봐야 한다. 어긋나면 "받아는 주는데 우리 뷰어로는 안 보이는
+// 파일"이 생긴다 — 미리보기가 15MB에서 갈라서 19MB PDF가 드라이브의 어두운 파일
+// 뷰어로 떨어졌다(사용자 신고 2026-08-28 — "이쁜 뷰로 안 보이는 이유는 뭐지").
+const mbIn = (src, name) => Number((new RegExp(name + String.raw`\s*=\s*(\d+)`).exec(src) || [])[1]);
+
+check('첨부 상한 · 중계 상한이 같은 값이다', () => {
+  const cap = mbIn(cfg, 'MAX_UPLOAD_MB');
+  const relay = mbIn(filesvc, 'MAX_BYTES');
+  assert.ok(cap > 0, 'config.js에서 MAX_UPLOAD_MB를 못 읽었다');
+  assert.strictEqual(relay, cap, `중계가 ${relay}MB인데 첨부 상한은 ${cap}MB다 — 그 사이 크기는 올라가고도 안 보인다`);
+});
+
+check('미리보기가 크기로 우리 뷰어를 포기하지 않는다', () => {
+  // PDF·텍스트는 크기와 무관하게 우리가 그린다. 큰 텍스트만 앞부분을 자른다.
+  assert.ok(!preview.includes('MAX_PDF_PREFETCH'), 'PDF에 크기 게이트가 다시 생겼다');
+  assert.ok(preview.includes("if (mime === 'application/pdf' || ext === 'pdf') return 'pdf';"),
+    '드라이브 PDF가 크기 조건 없이 pdf로 가야 한다');
+  assert.ok(preview.includes('slice(0, MAX_TEXT_CHARS)'), '큰 텍스트는 거절이 아니라 앞부분을 그린다');
+});
+
 
 // ── 시간 ────────────────────────────────────────────────────────────────────
 // 실측(2026-08-28): 폴더 만들기 3.5초 · 100KB 4.3초 · 1MB 5.8초 · 3MB 8.5초 · 8MB 26.7초.
@@ -146,15 +171,25 @@ check('failText: 짧으면 한 줄, 길면 줄을 나눈다', () => {
 // ── 낙관적 업로드 (2026-08-28) ──────────────────────────────────────────────
 // 고른 파일이 **드라이브를 기다리지 않고** 바로 목록에 보이고 미리보기가 된다.
 // 대신 화면이 거짓말을 하면 안 된다 — 아직 없는 주소를 버튼으로 내놓지 않는다.
-const preview = read('src/components/FilePreviewModal.jsx');
 
 check('고른 파일이 드라이브를 기다리지 않고 바로 목록에 든다', () => {
-  assert.match(att, /const \[pending, setPending\]/, '대기 목록이 없다');
   // 업로드를 기다린 뒤에 넣으면 그게 지금의 "기다려야 한다" 그대로다
-  const stage = att.indexOf('setPending(prev => [...prev, ...staged])');
+  const stage = att.indexOf('stageUploads(task.id, staged)');
   const wait = att.indexOf('await ensureProjectFolder');
   assert.ok(stage > 0, '대기 목록에 넣는 자리가 없다');
   assert.ok(stage < wait, '대기 목록에 넣기가 드라이브 호출보다 뒤에 있다');
+});
+
+check('올리는 중 표시가 업무 창을 닫아도 남는다', () => {
+  // 창을 닫아도 업로드는 계속 돈다. 목록이 컴포넌트 안에만 있으면 다시 열었을 때
+  // 그 줄이 사라져 화면이 "아무 일도 안 한다"고 거짓말한다(사용자 지적 2026-08-28).
+  assert.ok(att.includes('const uploadingByCard = new Map()'), '올리는 중 목록이 모듈 레벨이 아니다');
+  assert.ok(att.includes('useState(() => uploadingByCard.get(task.id)'), '다시 열 때 모듈 목록에서 시작하지 않는다');
+  assert.ok(att.includes('uploadWatchers.add(sync)'), '다른 인스턴스의 업로드를 따라가지 않는다');
+  // 탭 경고도 모듈에 있어야 한다 — 컴포넌트에 매달면 창을 닫는 순간 같이 풀린다
+  const warn = att.indexOf("window.addEventListener('beforeunload', warnUnload)");
+  const comp = att.indexOf('export const AttachmentSection');
+  assert.ok(warn > 0 && warn < comp, '탭 경고가 컴포넌트 안에 있다');
 });
 
 check('올리는 중에는 새 탭 버튼을 두지 않는다', () => {
@@ -186,8 +221,8 @@ check('탭을 닫으려 하면 묻는다 · blob 주소를 되돌려준다', () 
 // 끊어도 스크립트는 계속 돌아 파일을 다 쓰므로, **예산을 넘는 크기를 아예 받지
 // 않는 것**이 중복을 막는 유일한 길이다.
 check('첨부 상한을 화면과 서버가 같은 값으로 본다', () => {
-  const client = Number(/const MAX_UPLOAD_MB = (\d+)/.exec(att)?.[1] || 0);
-  const server = Number(/const MAX_MB = (\d+)/.exec(api)?.[1] || 0);
+  const client = mbIn(cfg, 'MAX_UPLOAD_MB');   // 상한은 config.js가 원본이다
+  const server = mbIn(api, 'MAX_MB');
   assert.ok(client > 0 && server > 0, '상한 상수를 못 찾았다');
   assert.strictEqual(client, server, `화면 ${client}MB · 서버 ${server}MB — 어긋나면 한쪽이 거짓말한다`);
 });

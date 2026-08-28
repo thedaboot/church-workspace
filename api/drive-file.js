@@ -15,7 +15,9 @@ import { createClient } from '@supabase/supabase-js';
 // 받아서 왕복이 없다(첨부 서명 URL 50분 재사용과 같은 판단 — §1.3 Egress).
 // ============================================================================
 
-const MAX_BYTES = 25 * 1024 * 1024;   // 첨부 상한과 같다
+// 첨부 상한과 같은 값이다(src/config.js의 MAX_UPLOAD_MB). 이쪽이 작으면 "올라는 갔는데
+// 미리보기가 안 되는" 파일이 생긴다. tests/drivesync가 두 값이 같은지 본다.
+const MAX_BYTES = 25 * 1024 * 1024;
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return; }
@@ -32,6 +34,9 @@ export default async function handler(req, res) {
   const { data: me } = await supabase.from('profiles').select('approved').eq('id', user.id).single();
   if (!me?.approved) { res.status(403).json({ error: '승인된 사용자만 볼 수 있습니다.' }); return; }
 
+  // 실제 소요는 여기 로그에만 남는다 — 브라우저에서 재면 보는 사람의 회선을 재게 된다
+  // (§6-29-l에서 업로드로 한 번 데인 길이다). 19MB PDF가 개발 회선에서 8-12초였다.
+  const t0 = Date.now();
   try {
     // uc?export=download 는 공개 파일이면 리다이렉트를 따라 실제 바이트에 닿는다
     const r = await fetch(`https://drive.google.com/uc?export=download&id=${id}`, { redirect: 'follow' });
@@ -43,6 +48,7 @@ export default async function handler(req, res) {
     if (buf.length > MAX_BYTES) { res.status(413).json({ error: '파일이 너무 큽니다. 새 탭에서 열어주세요.' }); return; }
     res.setHeader('Content-Type', type);
     res.setHeader('Cache-Control', 'private, max-age=3600');
+    console.log(`[drive-file] ${id} ${Math.round(buf.length / 1024)}KB → 성공 (${Date.now() - t0}ms)`);
     res.status(200).send(buf);
   } catch (e) {
     console.error('[drive-file] 중계 실패:', id, e);

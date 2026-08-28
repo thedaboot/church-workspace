@@ -10,6 +10,7 @@ import { useStore, store } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
 import { ensureProjectFolder, ensureCardFolder } from '../services/cloudSync.js';
 import { downscaleImage, FILE_MAX_DIM } from '../services/image.js';
+import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
 // 엑셀 표 그리기는 **펼쳐볼 때만** 필요하다 — 파서(xlsx.js)와 수식 계산기(formula.js)가
 // 같이 딸려 오는데, 메인 번들에 두면 첨부를 한 번도 안 여는 사람까지 내려받는다.
@@ -27,6 +28,32 @@ const SheetView = lazy(() => import('../components/SheetView.jsx').then(m => ({ 
 // 지운 파일을 되살리는 경합의 이중 방어다(1차 방어는 cloud.deleteAttachment가
 // DB 행을 먼저 지우는 것). 실패해서 되살릴 때는 도로 뺀다.
 const deletedFileIds = new Set();
+
+// 올리는 중인 파일 — 이것도 **모듈 레벨**이다. 업무 창을 닫아도 업로드는 계속 도는데
+// (예전부터 그랬다), 이 목록이 컴포넌트 안에만 있으면 창을 다시 열었을 때 그 줄이
+// 사라진다 — 드라이브에도 DB에도 아직 없어서 목록 조회에도 안 잡힌다. 그러면 화면이
+// **아무 일도 안 하고 있다고 거짓말한다**(사용자 지적 2026-08-28). 지금은 창을 닫았다
+// 열어도 "드라이브에 올리는 중"이 그대로 서 있다.
+// 탭을 닫으면 사라지는 것은 그대로다 — 바이트가 메모리에만 있다(§6-29-k).
+const uploadingByCard = new Map();     // cards.id → [고른 파일 줄]
+const uploadWatchers = new Set();      // 지금 떠 있는 첨부 영역들(보기·수정이 다른 인스턴스다)
+// 탭을 닫으려 하면 묻는 것도 여기서 건다. 업무 창이 아니라 **탭**이 기준이라
+// 컴포넌트에 매달아 두면 창을 닫는 순간 경고가 같이 풀렸다.
+const warnUnload = (e) => { e.preventDefault(); e.returnValue = ''; };
+const notifyUploads = () => {
+  if (uploadingByCard.size) window.addEventListener('beforeunload', warnUnload);
+  else window.removeEventListener('beforeunload', warnUnload);
+  uploadWatchers.forEach(fn => fn());
+};
+const stageUploads = (cardId, rows) => {
+  uploadingByCard.set(cardId, [...(uploadingByCard.get(cardId) || []), ...rows]);
+  notifyUploads();
+};
+const unstageUpload = (cardId, id) => {
+  const left = (uploadingByCard.get(cardId) || []).filter(p => p.id !== id);
+  if (left.length) uploadingByCard.set(cardId, left); else uploadingByCard.delete(cardId);
+  notifyUploads();
+};
 
 // 첫 페인트 이후(유휴)로 작업을 미루는 헬퍼 — requestIdleCallback 미지원 시 타이머 폴백.
 // 첨부 목록·썸네일 URL 발급은 모달이 뜬 뒤에 해도 되는 일이라 여기로 미룬다.
@@ -52,8 +79,8 @@ const cancelIdle = (h) => {
 // 내려가고, base64가 4/3을 더 붙으므로 효과는 그만큼 더 크다.
 // 사진이 아닌 큰 파일(zip·영상)은 여전히 회선을 탄다 — 실제 소요는 배포 뒤 서버
 // 로그(`[drive] upload … → 성공 (N ms)`)로 재서 정한다.
-const MAX_UPLOAD_MB = 25;
-const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+// 상한 값 자체는 config.js에 있다 — 미리보기(FilePreviewModal)와 중계(api/drive-file)가
+// 같은 값을 봐야 "받아는 주는데 우리 뷰어로는 안 보이는 파일"이 안 생긴다.
 const formatBytes = (b) => {
   if (b === null || b === undefined) return '';
   if (b < 1024) return `${b} B`;
@@ -324,9 +351,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   // 여기서 빠지고 진짜 행이 items로 들어간다.
   // 메모리에만 둔다 — 탭을 닫으면 사라진다(그때는 beforeunload가 먼저 묻는다).
   // localStorage는 문자열 5MB라 사진 두 장도 못 담는다.
-  const [pending, setPending] = useState([]);   // [{ id, name, size_bytes, mime_type, source:'local', _file, _url }]
-  // 지금 올리는 중인지 — 위 조회가 업로드를 앞질렀는지 가르는 유일한 근거다
-  const uploadingRef = useRef(false);
+  const [pending, setPending] = useState(() => uploadingByCard.get(task.id) || []);
   const [rejected, setRejected] = useState([]); // 용량 초과로 건너뛴 파일들
   const [preview, setPreview] = useState(null); // 미리보기로 열어둔 files 행
   const [embedded, setEmbedded] = useState({}); // { files.id: true } — 펼쳐둔 엑셀
@@ -334,6 +359,15 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   const [lockUI, setLockUI] = useState({});     // { files.id: true } — 비밀번호 설정 줄을 연 것
   const [askPw, setAskPw] = useState({});       // { files.id: true } — 비밀번호를 물어야 하는 것
   const inputRef = useRef(null);
+
+  // 모듈의 목록을 따라간다 — 이 업무의 업로드가 다른 인스턴스에서 시작됐어도(또는
+  // 창을 닫았다 다시 열었어도) 올리는 중인 줄이 그대로 보인다.
+  useEffect(() => {
+    const sync = () => setPending([...(uploadingByCard.get(task.id) || [])]);
+    uploadWatchers.add(sync);
+    sync();
+    return () => { uploadWatchers.delete(sync); };
+  }, [task.id]);
 
   // 첫 페인트 경쟁 방지: 네트워크는 유휴 시점으로 미룬다(모달은 로컬 데이터로 먼저 뜬다)
   useEffect(() => {
@@ -347,7 +381,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
         .then(rows => {
           if (!alive) return;
           rows = rows.filter(r => !deletedFileIds.has(r.id));   // 방금 지운 것은 되살리지 않는다
-          const uploading = uploadingRef.current;
+          const uploading = uploadingByCard.has(task.id);
           setItems(prev => (rows.length >= prev.length || !uploading ? rows : prev));
         })
         .catch(e => console.error('[cloud] 첨부 목록 로드 실패:', e))
@@ -403,7 +437,6 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     const ok = files.filter(f => f.size <= MAX_UPLOAD_BYTES);
     if (!ok.length) return;
 
-    uploadingRef.current = true;
     // **고르자마자 목록에 넣는다.** 드라이브를 기다리지 않고 바로 보이고, 미리보기·
     // 펼쳐보기가 이 로컬 바이트로 동작한다(사용자 요청). 새 탭·내려받기는 드라이브가
     // 확정된 뒤에만 나온다 — 아직 없는 주소를 버튼으로 내놓으면 화면이 거짓말한다.
@@ -414,7 +447,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
       _url: (f.type || '').startsWith('image/') ? URL.createObjectURL(f) : null,
     }));
     const stagedOf = new Map(ok.map((f, i) => [f, staged[i]]));
-    setPending(prev => [...prev, ...staged]);
+    stageUploads(task.id, staged);
     try {
       // **폴더를 파일보다 먼저** 확보한다(파일 바이트가 오가기 전에, 가벼운 호출로).
       // 실측: 폴더 만들기 3.5초 · 3MB 파일 쓰기 8.5초. 예전에는 첫 업로드가 둘을 같이
@@ -450,7 +483,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
         });
         const st = stagedOf.get(file);
         if (st?._url) URL.revokeObjectURL(st._url);
-        setPending(prev => prev.filter(p => p.id !== st?.id));
+        if (st) unstageUpload(task.id, st.id);
         onFileActivity?.(`파일 '${row.name}'을(를) 첨부했습니다.`);
         // 폴더를 미리 못 잡은 경우(스크립트가 이름으로 만든 경우) 첫 파일에서 받아 둔다
         if (!cardFolderId && row._driveFolderId) cardFolderId = row._driveFolderId;
@@ -471,27 +504,22 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
             showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, e));
             const st = stagedOf.get(file);
             if (st?._url) URL.revokeObjectURL(st._url);
-            setPending(prev => prev.filter(p => p.id !== st?.id));
+            if (st) unstageUpload(task.id, st.id);
           }
         }
       };
       await Promise.all(Array.from({ length: Math.min(LIMIT, queue.length) }, worker));
     } finally {
-      uploadingRef.current = false;
+      // 남은 줄이 있으면(폴더 확보 단계에서 던졌을 때) 여기서 치운다 — 안 그러면
+      // 끝나지 않는 '올리는 중'이 남는다.
+      staged.forEach(st => unstageUpload(task.id, st.id));
     }
   };
 
-  // 아직 올리는 중인데 탭을 닫으려 하면 묻는다. 이 파일들은 메모리에만 있어서
-  // 닫으면 드라이브에도 DB에도 남지 않는다 — 조용히 잃는 것보다 한 번 묻는 쪽이 낫다.
-  useEffect(() => {
-    if (!pending.length) return;
-    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [pending.length]);
-
-  // 만들어 둔 blob 주소는 되돌려준다(안 하면 탭이 살아 있는 내내 메모리에 남는다)
-  useEffect(() => () => { pending.forEach(p => p._url && URL.revokeObjectURL(p._url)); }, [pending]);
+  // 탭을 닫으려 할 때 묻는 것과 blob 주소 되돌리기는 **모듈 쪽으로 옮겼다**.
+  // 여기(컴포넌트)에 두면 업무 창을 닫는 순간 경고가 풀리고, 아직 올라가는 중인
+  // 파일의 blob 주소가 회수돼 창을 다시 열었을 때 미리보기가 죽는다.
+  // 되돌리기는 업로드가 끝나거나 실패하는 자리(uploadOne)에서 한다.
 
   // 클립보드 이미지 붙여넣기 (수정 모드에서만; 본문 textarea 붙여넣기는 stopPropagation으로 제외)
   useEffect(() => {
@@ -544,7 +572,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
 
   // 읽기 전용(뷰어)에서 첨부가 없으면 섹션 자체를 숨김 — 올라가는 중이거나
   // 아직 목록을 받는 중이면 자리를 남긴다
-  if (readOnly && items.length === 0 && !uploadingNames.length && !pendingRows) return null;
+  if (readOnly && items.length === 0 && !uploadingNames.length && !pendingRows && !pending.length) return null;
 
   return (
     <div className="mt-5">

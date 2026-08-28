@@ -31,8 +31,11 @@ const OFFICE_EXT = ['doc', 'docx', 'ppt', 'pptx'];   // 앱이 못 그려서 구
 // 우리 표로 직접 그리는 것. csv는 파싱이 몇 줄이라 같이 본다.
 const SHEET_EXT = ['xlsx', 'xls', 'csv'];
 const MAX_SHEET_BYTES = 8 * 1024 * 1024;   // 이보다 크면 표로 그리지 않고 구글 뷰어로 넘긴다
-const MAX_TEXT_BYTES = 512 * 1024;      // 텍스트는 이만큼만 내려받아 보여준다
-const MAX_PDF_PREFETCH = 15 * 1024 * 1024; // 이보다 크면 통째로 받지 않고 바로 스트리밍
+const MAX_TEXT_CHARS = 512 * 1024;      // 텍스트는 앞의 이만큼만 그린다(뒤는 잘렸다고 알린다)
+// **우리가 받아 주는 파일은 우리가 그린다.** 예전에는 여기 15MB가 박혀 있어서,
+// 25MB까지 받아 놓고 19MB PDF는 드라이브의 어두운 파일 뷰어로 떨어뜨렸다
+// (사용자 신고 2026-08-28 — "드라이브에 올라갔는데 왜 이쁜 뷰로 안 보이지").
+// 상한을 첨부 상한(config.MAX_UPLOAD_BYTES)에 묶어 두면 그 어긋남이 다시 안 생긴다.
 // 첨부 목록의 엑셀 '펼쳐보기'(attachments.jsx)도 같은 값·같은 스켈레톤을 쓴다 —
 // 뷰어 iframe이 뜨는 동안 남의 로딩 화면(외부 폰트)이 비쳐 보이지 않게 가리는 값들이다.
 export const OFFICE_TIMEOUT = 12000;    // 이 시간 안에 안 뜨면 안내로 대체
@@ -54,11 +57,11 @@ function previewKind(row) {
     // 드라이브 파일도 형식별로 **가장 나은 뷰어**로 간다(사용자 요청) —
     //  · 오피스류(엑셀·워드·PPT·csv): 구글 전용 편집기 미리보기(driveSrc가 시간 게이트)
     //  · PDF·텍스트·영상·소리: 앱이 직접 그린다. 바이트는 /api/drive-file이 중계한다
-    //    (브라우저→drive.google.com 은 CORS가 막는다). 첨부 상한이 10MB라 통째로
-    //    받아도 된다. PDF만 프리페치 상한(15MB)을 넘으면 드라이브 뷰어로 남긴다.
+    //    (브라우저→drive.google.com 은 CORS가 막는다). 첨부 상한이 25MB이고 중계도
+    //    같은 값이라 통째로 받아도 된다 — 실측 19MB PDF가 드라이브에서 8-12초다.
     if (OFFICE_EXT.includes(ext)) return 'drive';
-    if ((mime === 'application/pdf' || ext === 'pdf') && (row.size_bytes ?? 0) <= MAX_PDF_PREFETCH) return 'pdf';
-    if ((mime.startsWith('text/') || TEXT_EXT.includes(ext)) && (row.size_bytes ?? 0) <= MAX_TEXT_BYTES) return 'text';
+    if (mime === 'application/pdf' || ext === 'pdf') return 'pdf';
+    if (mime.startsWith('text/') || TEXT_EXT.includes(ext)) return 'text';
     if (mime.startsWith('video/') || ['mp4', 'mov', 'webm', 'm4v'].includes(ext)) return 'video';
     if (mime.startsWith('audio/') || ['mp3', 'm4a', 'wav', 'ogg'].includes(ext)) return 'audio';
     return 'drive';
@@ -151,23 +154,26 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
   // 텍스트/마크다운은 내려받아 그대로 보여준다
   useEffect(() => {
     if (kind !== 'text' || text !== null) return;
-    if ((cur.size_bytes ?? 0) > MAX_TEXT_BYTES) { setError('파일이 커서 미리보기를 건너뛰었어요.'); return; }
+    // 커도 **그린다** — 앞부분만 자르고 잘렸다고 아래 한 줄로 알린다(엑셀의 500줄 상한과
+    // 같은 판단이다). 예전에는 여기서 '파일이 커서 미리보기를 건너뛰었어요'로 끝냈는데,
+    // 큰 로그일수록 앞 몇 줄이 궁금한 법이라 아무것도 안 보여주는 쪽이 더 나빴다.
     let alive = true;
+    const put = (t) => { if (alive) setText(t.slice(0, MAX_TEXT_CHARS)); };
     if (local) {
-      local.text().then(t => { if (alive) setText(t); }).catch(e => { if (alive) setError(e.message || String(e)); });
+      local.text().then(put).catch(e => { if (alive) setError(e.message || String(e)); });
       return () => { alive = false; };
     }
     if (cur.source === 'drive' && cur.drive_file_id) {
       fetchDriveFileBlob(cur.drive_file_id)
         .then(b => b.text())
-        .then(t => { if (alive) setText(t); })
+        .then(put)
         .catch(e => { if (alive) setError(e.human || e.message || String(e)); });
       return () => { alive = false; };
     }
     if (!url) return;
     fetch(url)
       .then(r => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(t => { if (alive) setText(t); })
+      .then(put)
       .catch(e => { if (alive) setError(e.message || String(e)); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -217,7 +223,6 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
       return () => { alive = false; };
     }
     if (!url) return;
-    if ((cur.size_bytes ?? 0) > MAX_PDF_PREFETCH) { setPdfSrc({ src: url }); return; }
     fetch(url)
       .then(r => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(b => { if (alive) setPdfSrc({ blob: b }); })
@@ -313,6 +318,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
           {isMd
             ? <RichText content={text} />
             : <pre className="text-xs text-fg-secondary whitespace-pre-wrap break-words font-mono leading-relaxed">{text}</pre>}
+          {text.length >= MAX_TEXT_CHARS && (
+            <p className="pt-2 text-center text-[10px] text-fg-faint">앞부분만 보여줘요 · 전체는 새 탭에서 열기</p>
+          )}
         </div>
       );
     }
