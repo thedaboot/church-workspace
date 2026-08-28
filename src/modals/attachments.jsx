@@ -37,6 +37,10 @@ const deletedFileIds = new Set();
 // 탭을 닫으면 사라지는 것은 그대로다 — 바이트가 메모리에만 있다(§6-29-k).
 const uploadingByCard = new Map();     // cards.id → [고른 파일 줄]
 const uploadWatchers = new Set();      // 지금 떠 있는 첨부 영역들(보기·수정이 다른 인스턴스다)
+// 이번 세션에 **올라간** 행. 지운 것을 기억하는 것과 짝이다 — 업무 창이 첨부에 넘기는
+// task는 스토어가 아니라 폼 스냅샷(formData)이라, 올린 파일도 지운 파일과 똑같이
+// 그 스냅샷에 안 나타난다(§6-29-s). 조회가 다녀오기 전까지는 이 기억이 근거다.
+const addedByCard = new Map();         // cards.id → 이번 세션에 올라간 files 행
 // 탭을 닫으려 하면 묻는 것도 여기서 건다. 업무 창이 아니라 **탭**이 기준이라
 // 컴포넌트에 매달아 두면 창을 닫는 순간 경고가 같이 풀렸다.
 const warnUnload = (e) => { e.preventDefault(); e.returnValue = ''; };
@@ -54,6 +58,117 @@ const unstageUpload = (cardId, id) => {
   if (left.length) uploadingByCard.set(cardId, left); else uploadingByCard.delete(cardId);
   notifyUploads();
 };
+
+// 화면에 실제로 보일 목록 — 어디서 온 목록이든(폼 스냅샷·조회 결과·스토어) 이걸 지난다.
+// 지운 것은 빼고, 이번에 올라간 것은 더한다. 세 군데가 제각각 걸러서 한 군데만
+// 빠뜨렸던 것이 §6-29-s였다.
+export const mergeKnown = (cardId, rows) => {
+  const out = (rows || []).filter(r => !deletedFileIds.has(r.id));
+  const have = new Set(out.map(r => r.id));
+  for (const r of addedByCard.get(cardId) || []) {
+    if (!have.has(r.id) && !deletedFileIds.has(r.id)) out.push(r);
+  }
+  return out;
+};
+
+const addUploaded = (cardId, row) => {
+  const list = addedByCard.get(cardId) || [];
+  if (!list.some(r => r.id === row.id)) addedByCard.set(cardId, [...list, row]);
+  const prev = store.getState().tasks.byId[cardId]?.attachments || [];
+  if (!prev.some(r => r.id === row.id)) {
+    store.dispatch({ type: 'SYNC_TASK', payload: { id: cardId, attachments: [...prev, row] } });
+  }
+  notifyUploads();
+};
+
+// ============================================================================
+// 첨부 올리기 — **모든 첨부가 지나가는 하나의 길**.
+// ----------------------------------------------------------------------------
+// 예전에는 두 벌이었다: 업무 창에서 붙일 때(여기)와 새 업무를 만들면서 붙일 때
+// (modals.jsx의 uploadPending). 뒤엣것은 사진을 줄이지 않았고(29-m), 업무 폴더를
+// 미리 확보하지 않았고(29-h), 순차로 하나씩 올렸고, "올리는 중"도 이름만 있는
+// 다른 표시였다. 같은 일을 두 벌로 두면 고칠 때마다 한쪽만 고쳐진다
+// (사용자 지적 2026-08-28 — "모든 첨부 파일 대상으로 다 진행이 되어 있어야 해").
+// 파일 종류를 가리지 않는다 — 사진 줄이기만 사진에서 동작한다(services/image.js).
+// ============================================================================
+export async function startUploads({ task, project, files, onFileActivity }) {
+  const ok = Array.from(files || []);
+  if (!ok.length) return [];
+  // **고르자마자 목록에 넣는다.** 드라이브를 기다리지 않고 바로 보이고, 미리보기·
+  // 펼쳐보기가 이 로컬 바이트로 동작한다(사용자 요청). 새 탭·내려받기는 드라이브가
+  // 확정된 뒤에만 나온다 — 아직 없는 주소를 버튼으로 내놓으면 화면이 거짓말한다.
+  const staged = ok.map(f => ({
+    id: `local:${f.name}:${f.size}:${f.lastModified}:${Math.random().toString(36).slice(2, 8)}`,
+    name: f.name, size_bytes: f.size, mime_type: f.type || null,
+    source: 'local', _file: f,
+    _url: (f.type || '').startsWith('image/') ? URL.createObjectURL(f) : null,
+  }));
+  const stagedOf = new Map(ok.map((f, i) => [f, staged[i]]));
+  stageUploads(task.id, staged);
+  const done = [];
+  try {
+    // **폴더를 파일보다 먼저** 확보한다(파일 바이트가 오가기 전에, 가벼운 호출로).
+    // 실측: 폴더 만들기 3.5초 · 3MB 파일 쓰기 8.5초. 예전에는 첫 업로드가 둘을 같이
+    // 해서 "새 프로젝트 → 새 업무 → 첫 첨부"가 가장 느렸고 거기서 시간 제한에
+    // 걸렸다(사용자 신고). 나눠 두면 무거운 호출이 파일 쓰기 하나만 한다.
+    const folderId = project ? await ensureProjectFolder(project) : null;
+    // 프로젝트 폴더 id를 스토어에도 넣는다 — cloudSync는 스토어를 물 수 없어서
+    // (노드에서 도는 검사가 깨진다) **부르는 쪽이** 넣어야 한다. 안 넣으면 이번
+    // 세션 내내 배치마다 폴더를 다시 찾는다(회당 1.5초쯤).
+    if (folderId && project && !project.driveFolderId) {
+      store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, driveFolderId: folderId } });
+    }
+    let cardFolderId = task.driveFolderId || await ensureCardFolder(
+      { ...(project || {}), driveFolderId: folderId || project?.driveFolderId }, task);
+    if (cardFolderId && !task.driveFolderId) {
+      store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, driveFolderId: cardFolderId } });
+    }
+    const uploadOne = async (file) => {
+      // **보내기 직전에 사진을 줄인다.** 미리보기는 위에서 스테이징한 원본으로 이미
+      // 뜨고 있으므로 여기서 줄여도 화면이 기다리지 않는다. 사진이 아니거나 이미
+      // 작으면 원본 그대로 간다(services/image.js).
+      const sending = await downscaleImage(file, FILE_MAX_DIM, 0.9);
+      const row = await uploadAttachment(sending, {
+        projectId: task.projectId, cardId: task.id,
+        projectName: project?.name || project?.title, driveFolderId: folderId || project?.driveFolderId,
+        cardTitle: task.title, cardFolderId,
+      });
+      addUploaded(task.id, row);
+      const st = stagedOf.get(file);
+      if (st?._url) URL.revokeObjectURL(st._url);
+      if (st) unstageUpload(task.id, st.id);
+      onFileActivity?.(`파일 '${row.name}'을(를) 첨부했습니다.`);
+      // 폴더를 미리 못 잡은 경우(스크립트가 이름으로 만든 경우) 첫 파일에서 받아 둔다
+      if (!cardFolderId && row._driveFolderId) cardFolderId = row._driveFolderId;
+      done.push(row);
+      return row;
+    };
+    // **동시 3개** — 순차는 사진 열 장에 수십 초였다. 폴더는 위에서 이미 확보했으므로
+    // 첫 파일을 혼자 보낼 이유가 없다(예전에는 동시에 보내면 드라이브가 같은 이름
+    // 폴더를 여러 개 만들어서, 첫 장을 따로 올려 폴더를 만들고 나머지를 병렬로 보냈다).
+    const LIMIT = 3;
+    let next = 0;
+    const worker = async () => {
+      while (next < ok.length) {
+        const file = ok[next++];
+        try { await uploadOne(file); }
+        catch (e) {
+          console.error('[cloud] 업로드 실패:', e);
+          showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, e));
+          const st = stagedOf.get(file);
+          if (st?._url) URL.revokeObjectURL(st._url);
+          if (st) unstageUpload(task.id, st.id);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(LIMIT, ok.length) }, worker));
+  } finally {
+    // 남은 줄이 있으면(폴더 확보 단계에서 던졌을 때) 여기서 치운다 — 안 그러면
+    // 끝나지 않는 '올리는 중'이 남는다.
+    staged.forEach(st => unstageUpload(task.id, st.id));
+  }
+  return done;
+}
 
 // 첫 페인트 이후(유휴)로 작업을 미루는 헬퍼 — requestIdleCallback 미지원 시 타이머 폴백.
 // 첨부 목록·썸네일 URL 발급은 모달이 뜬 뒤에 해도 되는 일이라 여기로 미룬다.
@@ -331,7 +446,7 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
   );
 };
 
-export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = false, uploadingNames = [] }) => {
+export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = false }) => {
   // 드라이브는 프로젝트 하나에 폴더 하나다. 이름이 아니라 **폴더 id**를 넘겨야
   // 프로젝트 이름을 바꿔도 예전 파일과 새 파일이 두 폴더로 갈라지지 않는다.
   const project = useStore(selectProjectsMap)[task.projectId];
@@ -341,7 +456,8 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   // 저장하고 보기 화면이 새로 뜨는 순간 **지운 파일이 도로 한 줄 서 있었다**
   // (사용자 지적 2026-08-28 — "삭제하고 저장했는데 남아 있고, 껐다 켜니 없어졌다").
   // 아래 조회·스토어 반영은 이미 이 집합을 보고 있었는데 첫 값만 안 보고 있었다.
-  const visible = (task.attachments || []).filter(r => !deletedFileIds.has(r.id));
+  // 그리고 **이번에 올린 것은 더한다** — 같은 스냅샷 문제의 반대 얼굴이다.
+  const visible = mergeKnown(task.id, task.attachments);
   const [items, setItems] = useState(visible);
   // 목록 조회가 다녀오기 전인지. 이게 없으면 첨부가 있는 업무를 열었을 때
   // 첨부 영역이 통째로 없다가 나중에 툭 나타난다(사용자 지적 — 이미지가 바로 안 보인다).
@@ -369,7 +485,11 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   // 모듈의 목록을 따라간다 — 이 업무의 업로드가 다른 인스턴스에서 시작됐어도(또는
   // 창을 닫았다 다시 열었어도) 올리는 중인 줄이 그대로 보인다.
   useEffect(() => {
-    const sync = () => setPending([...(uploadingByCard.get(task.id) || [])]);
+    const sync = () => {
+      setPending([...(uploadingByCard.get(task.id) || [])]);
+      // 올라간 행도 같이 따라간다 — 업로드를 시작한 인스턴스가 이미 사라졌을 수 있다
+      setItems(prev => { const next = mergeKnown(task.id, prev); return next.length === prev.length ? prev : next; });
+    };
     uploadWatchers.add(sync);
     sync();
     return () => { uploadWatchers.delete(sync); };
@@ -386,7 +506,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
       listCardFiles(task.id)
         .then(rows => {
           if (!alive) return;
-          rows = rows.filter(r => !deletedFileIds.has(r.id));   // 방금 지운 것은 되살리지 않는다
+          rows = mergeKnown(task.id, rows);   // 방금 지운 것은 빼고, 방금 올린 것은 더한다
           const uploading = uploadingByCard.has(task.id);
           setItems(prev => (rows.length >= prev.length || !uploading ? rows : prev));
         })
@@ -399,7 +519,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   // 생성 시 골라둔 첨부는 저장 **직후** 셸이 올려 스토어(task.attachments)로 들어온다 —
   // 위 listCardFiles가 업로드가 끝나기 전에 다녀갔을 수 있어, 더 긴 목록이 오면 반영한다.
   useEffect(() => {
-    const rows = (task.attachments || []).filter(r => !deletedFileIds.has(r.id));
+    const rows = mergeKnown(task.id, task.attachments);
     if (rows.length) setItems(prev => (prev.length >= rows.length ? prev : rows));
   }, [task.attachments]);
 
@@ -433,7 +553,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
 
-  const uploadFiles = async (fileList) => {
+  const uploadFiles = (fileList) => {
     const files = Array.from(fileList || []);
     // 용량 초과 파일은 토스트로 알리고 + 업로드 영역에 계속 남는 경고로도 보여준다
     // (토스트는 몇 초 뒤 사라져서 "왜 안 올라갔지?"가 남는다)
@@ -442,84 +562,8 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     tooBig.forEach(f => showToast(`'${f.name}'은(는) ${MAX_UPLOAD_MB}MB를 넘어 첨부하지 못했어요.`));
     const ok = files.filter(f => f.size <= MAX_UPLOAD_BYTES);
     if (!ok.length) return;
-
-    // **고르자마자 목록에 넣는다.** 드라이브를 기다리지 않고 바로 보이고, 미리보기·
-    // 펼쳐보기가 이 로컬 바이트로 동작한다(사용자 요청). 새 탭·내려받기는 드라이브가
-    // 확정된 뒤에만 나온다 — 아직 없는 주소를 버튼으로 내놓으면 화면이 거짓말한다.
-    const staged = ok.map(f => ({
-      id: `local:${f.name}:${f.size}:${f.lastModified}:${Math.random().toString(36).slice(2, 8)}`,
-      name: f.name, size_bytes: f.size, mime_type: f.type || null,
-      source: 'local', _file: f,
-      _url: (f.type || '').startsWith('image/') ? URL.createObjectURL(f) : null,
-    }));
-    const stagedOf = new Map(ok.map((f, i) => [f, staged[i]]));
-    stageUploads(task.id, staged);
-    try {
-      // **폴더를 파일보다 먼저** 확보한다(파일 바이트가 오가기 전에, 가벼운 호출로).
-      // 실측: 폴더 만들기 3.5초 · 3MB 파일 쓰기 8.5초. 예전에는 첫 업로드가 둘을 같이
-      // 해서 "새 프로젝트 → 새 업무 → 첫 첨부"가 가장 느렸고 거기서 시간 제한에
-      // 걸렸다(사용자 신고). 나눠 두면 무거운 호출이 파일 쓰기 하나만 한다.
-      const folderId = project ? await ensureProjectFolder(project) : null;
-      // 프로젝트 폴더 id를 스토어에도 넣는다 — cloudSync는 스토어를 물 수 없어서
-      // (노드에서 도는 검사가 깨진다) **부르는 쪽이** 넣어야 한다. 안 넣으면 이번
-      // 세션 내내 배치마다 폴더를 다시 찾는다(회당 1.5초쯤).
-      if (folderId && project && !project.driveFolderId) {
-        store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, driveFolderId: folderId } });
-      }
-      let cardFolderId = task.driveFolderId || await ensureCardFolder(
-        { ...(project || {}), driveFolderId: folderId || project?.driveFolderId }, task);
-      if (cardFolderId && !task.driveFolderId) {
-        store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, driveFolderId: cardFolderId } });
-      }
-      const uploadOne = async (file) => {
-        // **보내기 직전에 사진을 줄인다.** 미리보기는 위에서 스테이징한 원본으로 이미
-        // 뜨고 있으므로 여기서 줄여도 화면이 기다리지 않는다. 사진이 아니거나 이미
-        // 작으면 원본 그대로 간다(services/image.js).
-        const sending = await downscaleImage(file, FILE_MAX_DIM, 0.9);
-        const row = await uploadAttachment(sending, {
-          projectId: task.projectId, cardId: task.id,
-          projectName: project?.name || project?.title, driveFolderId: folderId || project?.driveFolderId,
-          cardTitle: task.title, cardFolderId,
-        });
-        setItems(prev => {
-          const next = [...prev, row];
-          // 스토어도 같이 — 여기만 두면 창을 닫았다 열 때 새 파일이 잠깐 사라져 보인다
-          store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, attachments: next } });
-          return next;
-        });
-        const st = stagedOf.get(file);
-        if (st?._url) URL.revokeObjectURL(st._url);
-        if (st) unstageUpload(task.id, st.id);
-        onFileActivity?.(`파일 '${row.name}'을(를) 첨부했습니다.`);
-        // 폴더를 미리 못 잡은 경우(스크립트가 이름으로 만든 경우) 첫 파일에서 받아 둔다
-        if (!cardFolderId && row._driveFolderId) cardFolderId = row._driveFolderId;
-        return row;
-      };
-      // **동시 3개** — 순차는 사진 열 장에 수십 초였다. 폴더는 위에서 이미 확보했으므로
-      // 첫 파일을 혼자 보낼 이유가 없다(예전에는 동시에 보내면 드라이브가 같은 이름
-      // 폴더를 여러 개 만들어서, 첫 장을 따로 올려 폴더를 만들고 나머지를 병렬로 보냈다).
-      const queue = ok;
-      const LIMIT = 3;
-      let next = 0;
-      const worker = async () => {
-        while (next < queue.length) {
-          const file = queue[next++];
-          try { await uploadOne(file); }
-          catch (e) {
-            console.error('[cloud] 업로드 실패:', e);
-            showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, e));
-            const st = stagedOf.get(file);
-            if (st?._url) URL.revokeObjectURL(st._url);
-            if (st) unstageUpload(task.id, st.id);
-          }
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(LIMIT, queue.length) }, worker));
-    } finally {
-      // 남은 줄이 있으면(폴더 확보 단계에서 던졌을 때) 여기서 치운다 — 안 그러면
-      // 끝나지 않는 '올리는 중'이 남는다.
-      staged.forEach(st => unstageUpload(task.id, st.id));
-    }
+    // 실제로 올리는 일은 모듈의 startUploads가 한다 — 새 업무에서 붙일 때와 같은 길이다.
+    startUploads({ task, project, files: ok, onFileActivity });
   };
 
   // 탭을 닫으려 할 때 묻는 것과 blob 주소 되돌리기는 **모듈 쪽으로 옮겼다**.
@@ -578,7 +622,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
 
   // 읽기 전용(뷰어)에서 첨부가 없으면 섹션 자체를 숨김 — 올라가는 중이거나
   // 아직 목록을 받는 중이면 자리를 남긴다
-  if (readOnly && items.length === 0 && !uploadingNames.length && !pendingRows && !pending.length) return null;
+  if (readOnly && items.length === 0 && !pendingRows && !pending.length) return null;
 
   return (
     <div className="mt-5">
@@ -610,23 +654,6 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
             <p className="text-[10px] text-tag-red-fg/80 mt-1">용량을 줄이거나 링크(리소스)로 공유해 주세요.</p>
           </div>
           <button type="button" onClick={() => setRejected([])} className="p-0.5 rounded text-tag-red-fg/70 hover:text-tag-red-fg transition shrink-0" title="닫기"><X size={13} /></button>
-        </div>
-      )}
-      {/* 저장 직후 올라가는 중인 파일 — 실제 행과 같은 자리·같은 높이로 둔다.
-          비워 두면 업로드가 끝날 때까지 '첨부가 안 됐다'로 읽힌다. */}
-      {uploadingNames.length > 0 && (
-        <div className="divide-y divide-line/60 mt-1">
-          {uploadingNames.map(name => (
-            <div key={name} className="flex items-center gap-2.5 py-2">
-              <span className="w-9 h-9 rounded-md bg-surface-hover flex items-center justify-center shrink-0">
-                <Loader2 size={14} className="animate-spin text-fg-faint" />
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-fg truncate">{name}</p>
-                <p className="text-[10px] text-fg-faint mt-0.5">올리는 중…</p>
-              </div>
-            </div>
-          ))}
         </div>
       )}
       {pendingRows > 0 && items.length === 0 && (

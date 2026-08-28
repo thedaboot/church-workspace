@@ -46,6 +46,12 @@ check('미리보기가 크기로 우리 뷰어를 포기하지 않는다', () =>
   assert.ok(preview.includes("if (mime === 'application/pdf' || ext === 'pdf') return 'pdf';"),
     '드라이브 PDF가 크기 조건 없이 pdf로 가야 한다');
   assert.ok(preview.includes('slice(0, MAX_TEXT_CHARS)'), '큰 텍스트는 거절이 아니라 앞부분을 그린다');
+  // 스프레드시트도 같다 — 파서가 500줄에서 멈추므로 크기로 가를 이유가 없어졌다
+  assert.ok(preview.includes('const MAX_SHEET_BYTES = MAX_UPLOAD_BYTES;'),
+    '스프레드시트 상한이 첨부 상한과 따로 논다');
+  // 어쩌다 떨어지더라도 어두운 파일 뷰어가 아니라 구글 편집기 미리보기로 간다
+  assert.ok(preview.includes("if (OFFICE_EXT.includes(ext) || SHEET_EXT.includes(ext)) return 'drive';"),
+    '큰 스프레드시트가 어두운 파일 뷰어로 떨어진다');
 });
 
 
@@ -180,13 +186,31 @@ check('고른 파일이 드라이브를 기다리지 않고 바로 목록에 든
   assert.ok(stage < wait, '대기 목록에 넣기가 드라이브 호출보다 뒤에 있다');
 });
 
-check('지운 첨부는 첫 값에서도 걸러진다', () => {
-  // 부르는 쪽이 넘기는 task는 스토어가 아니라 업무 창의 폼 스냅샷(formData)이라
-  // 첨부를 지워도 안 바뀐다. 첫 값에서 안 거르면 저장하고 보기 화면이 뜨는 순간
-  // 지운 파일이 도로 한 줄 선다(사용자 지적 2026-08-28).
-  assert.ok(att.includes('const visible = (task.attachments || []).filter(r => !deletedFileIds.has(r.id));'),
-    '첫 값이 deletedFileIds를 안 본다');
-  assert.ok(att.includes('useState(visible)'), '첫 값이 걸러진 목록에서 시작하지 않는다');
+check('첨부 목록은 한 곳에서만 걸러진다', () => {
+  // 폼 스냅샷(formData)·조회 결과·스토어 세 갈래가 제각각 거르다가 **첫 값만**
+  // 빠뜨려서, 지우고 저장하면 그 파일이 도로 한 줄 섰다(§6-29-s).
+  assert.ok(att.includes('export const mergeKnown = (cardId, rows)'), '병합 자리가 없다');
+  assert.ok(att.includes('const visible = mergeKnown(task.id, task.attachments)'), '첫 값이 병합을 안 거친다');
+  assert.ok(att.includes('rows = mergeKnown(task.id, rows)'), '조회 결과가 병합을 안 거친다');
+  // 컴포넌트가 직접 거르는 자리가 새로 생기면 또 갈라진 것이다
+  const comp = att.indexOf('export const AttachmentSection');
+  for (const m of att.matchAll(/deletedFileIds.has/g)) {
+    assert.ok(m.index < comp, 'deletedFileIds를 컴포넌트에서 직접 본다 — mergeKnown 한 곳이어야 한다');
+  }
+});
+
+check('첨부 올리는 길이 하나다', () => {
+  // 새 업무에서 붙일 때가 두 번째 구현이었다: 사진을 안 줄이고, 업무 폴더를 미리
+  // 안 잡고, 순차로 올리고, '올리는 중'도 이름만 있는 다른 표시였다(사용자 지적).
+  const modals = read('src/modals/modals.jsx');
+  assert.ok(att.includes('export async function startUploads'), '공용 업로드 함수가 없다');
+  assert.ok(modals.includes('startUploads({ task: saved'), '새 업무 첨부가 공용 길을 안 쓴다');
+  assert.ok(!modals.includes('uploadAttachment('), 'modals에 두 번째 업로드 구현이 남아 있다');
+  assert.ok(!modals.includes('uploadingNames'), '이름만 있는 옛 올리는 중 표시가 남아 있다');
+  // 사진 줄이기·폴더 먼저는 그 하나의 길에 있어야 한다
+  const up = att.indexOf('export async function startUploads');
+  assert.ok(att.indexOf('downscaleImage(file, FILE_MAX_DIM') > up, '공용 길이 사진을 안 줄인다');
+  assert.ok(att.indexOf('await ensureCardFolder(') > up, '공용 길이 업무 폴더를 먼저 안 잡는다');
 });
 
 check('내려받기가 남의 출처에서도 진짜 내려받는다', () => {

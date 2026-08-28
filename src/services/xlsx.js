@@ -645,7 +645,11 @@ export async function parseXlsx(buf) {
   const sheetDefs = [...blocks(wbXml, 'sheet')].map(({ open }) => ({
     name: unesc(attr(open, 'name') || ''),
     path: relPath[attr(open, 'r:id') || attr(open, 'id')],
-    hidden: (attr(open, 'state') || '') !== '',
+    // **state가 있다고 숨긴 시트가 아니다.** 엑셀은 보이는 시트에 state를 아예 안 적지만
+    // 다른 도구(openpyxl·LibreOffice·구글 스프레드시트 내보내기)는 state="visible"을
+    // 적어 넣는다. "비어 있지 않으면 숨김"으로 보면 그런 파일은 시트가 **한 장도 없는**
+    // 것이 되어 미리보기가 빈 화면이었다. 숨김을 뜻하는 값은 둘뿐이다.
+    hidden: ['hidden', 'veryHidden'].includes(attr(open, 'state') || ''),
   })).filter(s => s.path && !s.hidden);
 
   const sheets = [];
@@ -678,11 +682,16 @@ function readSheet(xml, name, shared, xfs, dxfs = [], theme = []) {
 
   const data = (xml.match(/<sheetData[\s\S]*?<\/sheetData>/) || [''])[0];
   const grid = new Map();          // r → Map(c → cell)
+  let cutShort = false;            // 500줄에서 끊었나(뒤에 더 있다는 뜻)
   let maxR = 0, maxC = 0;
   for (const { open: rowTag, inner: rowXml } of blocks(data, 'row')) {
     const ra = attrs(rowTag);
     const r = Number(ra.r || 0);
     if (!r || ra.hidden === '1') continue;
+    // **500줄을 채우면 거기서 멈춘다.** 예전에는 시트를 끝까지 읽고 나서 잘랐다 —
+    // 어차피 안 그릴 줄까지 칸마다 서식을 붙였다는 뜻이다. 실측(2026-08-28): 6.4MB
+    // (6만 줄 × 12열)짜리가 **3.3초**였고 그동안 탭이 멎었다. 멈추면 60ms다.
+    if (grid.size >= MAX_ROWS) { cutShort = true; break; }
     for (const { open: cTag, inner: cXml } of blocks(rowXml, 'c')) {
       const ca = attrs(cTag);
       const rc = refToRC(ca.r || '');
@@ -745,7 +754,7 @@ function readSheet(xml, name, shared, xfs, dxfs = [], theme = []) {
   for (const m of grid.values()) for (const c of m.keys()) if (c > lastC) lastC = c;
   maxC = Math.max(lastC, firstC);
 
-  const truncated = maxR - firstR + 1 > MAX_ROWS;
+  const truncated = cutShort || maxR - firstR + 1 > MAX_ROWS;
   const lastR = Math.min(maxR, firstR + MAX_ROWS - 1);
   const rows = [];
   for (let r = firstR; r <= lastR; r++) {

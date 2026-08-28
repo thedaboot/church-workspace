@@ -8,19 +8,17 @@ import { AiService } from '../services/ai.js';
 import { RichText } from '../components/RichText.jsx';
 import { Bar } from '../views/dashboardParts.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
-import { AttachmentSection, PendingAttachments } from './attachments.jsx';
-import { uploadAttachment } from '../services/cloud.js';
+import { AttachmentSection, PendingAttachments, startUploads } from './attachments.jsx';
 import { CommentPanel, ActivityPanel, CommentInput } from './comments.jsx';
 // TipTap/ProseMirror는 무거워 초기 번들에서 분리한다 (업무 수정 모드에서만 필요)
 const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').then(m => ({ default: m.MarkdownEditor })));
 const EditorSkeleton = () => <div className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none dc-skeleton" />;
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
-import { getMemberNames, loadCardDetail, cardSummaryCloud, activityAddCloud, cardWritePromise, ensureProjectFolder } from '../services/cloudSync.js';
+import { getMemberNames, loadCardDetail, cardSummaryCloud, cardWritePromise } from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { showToast } from '../components/Toast.jsx';
-import { failText } from '../services/errorText.js';
 
 // ============================================================================
 // 업무 창 — 상세 보기 / 수정 폼 / 그 껍데기(TaskModalShell)
@@ -123,48 +121,23 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   // 새 업무에서 골라둔 첨부(File 객체) — 파일은 카드 id가 있어야 올라가므로(files가
   // 카드를 참조) 저장 직후에 올린다. 쓰는 사람에게는 "처음부터 첨부"와 같다.
   const [pendingFiles, setPendingFiles] = useState([]);
-  // 올리는 중인 파일 이름 — 저장하자마자 뜨는 보기 화면의 첨부 목록에 자리를 잡아 준다.
-  // 이게 없으면 업로드가 끝날 때까지 첨부 영역이 통째로 비어 있어서 "첨부가 안 됐다"로
-  // 읽혔다(사용자 지적 — 다시 들어가야 보였다).
-  const [uploadingNames, setUploadingNames] = useState([]);
+  // 새 업무의 첨부도 **업무 창에서 붙일 때와 같은 길**로 올린다(attachments.startUploads).
+  // 예전에는 여기 두 번째 구현이 있었는데 사진을 줄이지 않았고(29-m), 업무 폴더를 미리
+  // 확보하지 않았고(29-h), 하나씩 순차로 올렸고, "올리는 중"도 이름만 있는 다른 표시라
+  // 창을 닫으면 사라졌다. 같은 일을 두 벌로 두면 고칠 때마다 한쪽만 고쳐진다.
   const uploadPending = async (saved) => {
     const files = pendingFiles;
     setPendingFiles([]);
-    setUploadingNames(files.map(f => f.name));
     // 카드 행이 DB에 들어간 뒤에 올린다 — files.card_id가 cards를 참조하므로
     // 먼저 올리면 외래키 위반으로 통째로 실패한다(handleSaveTask는 기다리지 않는다).
     // 카드 저장 자체가 실패했으면 여기서 멈춘다 — 그대로 올리면 첨부가
     // `files_card_id_fkey` 원문을 화면에 띄우는데, 그건 원인이 아니라 결과다.
-    // 드라이브 폴더는 첫 업로드 때 한 번만 확보한다(cloudSync가 id를 적어 둔다)
-    const proj = store.getState().projects.byId[saved.projectId];
-    const folderId = proj ? await ensureProjectFolder(proj) : null;
     if (!await cardWritePromise(saved.id)) {
-      setUploadingNames([]);
       showToast('업무가 저장되지 않아 첨부 파일도 올리지 못했어요');
       return;
     }
-    const rows = [];
-    for (const file of files) {
-      try {
-        rows.push(await uploadAttachment(file, {
-          projectId: saved.projectId, cardId: saved.id,
-          projectName: proj?.title, driveFolderId: folderId || proj?.driveFolderId,
-          cardTitle: saved.title, cardFolderId: saved.driveFolderId,
-        }));
-      } catch (err) {
-        console.error('[cloud] 업로드 실패:', err);
-        showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, err));
-      } finally {
-        setUploadingNames(prev => prev.filter(n => n !== file.name));
-      }
-    }
-    if (!rows.length) return;
-    // 방금 뜬 보기 화면의 첨부 목록으로 흘려보낸다(AttachmentSection이 스토어를 본다)
-    store.dispatch({ type: 'SYNC_TASK', payload: { id: saved.id, attachments: rows } });
-    activityAddCloud(
-      rows.map(r => ({ id: generateId(), action: `파일 '${r.name}'을(를) 첨부했습니다.` })),
-      saved.projectId, saved.id,
-    ).catch(err => console.error('[cloud] 첨부 활동 기록 실패:', err));
+    const project = store.getState().projects.byId[saved.projectId];
+    await startUploads({ task: saved, project, files, onFileActivity });
   };
 
   const handleSubmit = (e) => {
@@ -251,7 +224,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         onSubtasksChange={(next) => onSave({ ...formData, subtasks: next })}
         // 본문 체크리스트도 같은 길 — 보기 모드에서 바로 눌리고 content만 바뀐다
         onTodoToggle={(idx) => onSave({ ...formData, content: toggleTodoLine(formData.content, idx) })}
-        uploadingNames={uploadingNames} />;
+        />;
   const commentsPanel = listsReady
     ? <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} loading={detailLoading} />
     : null;
@@ -695,7 +668,7 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
   );
 });
 
-const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange, onTodoToggle, uploadingNames = [] }) => {
+const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange, onTodoToggle }) => {
   const [summary, setSummary] = useState('');      // 이번에 AI가 만든 것(고정 전)
   const [revealed, setRevealed] = useState(false); // 고정된 요약을 펼쳤는지
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -867,8 +840,7 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
       <SubtaskList value={formData.subtasks || []} onChange={onSubtasksChange} readOnly />
 
       {cloudMode && formData.id && (
-        <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
-          uploadingNames={uploadingNames} readOnly />
+        <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} readOnly />
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import assert from 'node:assert';
+import { readFileSync } from 'node:fs';
 import { attrs, blocks, parseXlsx, parseCsv, colToNum, refToRC, widthToPx, viewColPx, COL_MAX_PX, VIEW_FONT_PX } from '../src/services/xlsx.js';
 import { compile, evalRule, BLANK } from '../src/services/formula.js';
 
@@ -181,6 +182,28 @@ check('xlsx: 숨긴 열은 빼고, 병합은 표 좌표로 옮긴다', () => {
   assert.deepStrictEqual(sheet.merges, [{ r: 0, c: 0, rs: 1, cs: 2 }]);
 });
 
+check('xlsx: state="visible"를 숨긴 시트로 보지 않는다', () => {
+  // 엑셀은 보이는 시트에 state를 안 적지만 다른 도구(openpyxl·LibreOffice·구글
+  // 스프레드시트 내보내기)는 visible을 적어 넣는다. "비어 있지 않으면 숨김"으로 보면
+  // 그런 파일은 시트가 **한 장도 없는** 것이 되어 미리보기가 빈 화면이었다.
+  const hiddenOf = (state) => ['hidden', 'veryHidden'].includes(state);
+  assert.strictEqual(hiddenOf('visible'), false, 'visible을 숨김으로 본다');
+  assert.strictEqual(hiddenOf(''), false, 'state가 없으면 보이는 시트다');
+  assert.strictEqual(hiddenOf('hidden'), true);
+  assert.strictEqual(hiddenOf('veryHidden'), true);
+  // 소스도 같이 본다 — 위 표는 규칙을 적은 것뿐이라 구현이 어긋나면 못 잡는다
+  const src = readFileSync(new URL('../src/services/xlsx.js', import.meta.url), 'utf8');
+  assert.ok(src.includes("hidden: ['hidden', 'veryHidden'].includes(attr(open, 'state') || '')"),
+    '숨김 판정이 값 두 개를 보지 않는다');
+});
+
+check('xlsx: 500줄을 채우면 거기서 멈춘다', () => {
+  // 끝까지 읽고 나서 자르면 안 그릴 줄까지 칸마다 서식을 붙인다. 실측: 6.4MB
+  // (6만 줄)짜리가 3.3초 → 0.36초.
+  const src = readFileSync(new URL('../src/services/xlsx.js', import.meta.url), 'utf8');
+  assert.ok(src.includes('if (grid.size >= MAX_ROWS) { cutShort = true; break; }'), '줄 수 상한에서 안 멈춘다');
+  assert.ok(src.includes('const truncated = cutShort ||'), '끊고서 잘렸다고 알리지 않는다');
+});
 check('xlsx: 열 너비를 px로 옮긴다', () => {
   assert.strictEqual(sheet.cols[0], 64);   // 8.43자 → 64px
 });

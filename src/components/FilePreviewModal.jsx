@@ -5,6 +5,7 @@ import { RichText } from './RichText.jsx';
 import { getFileOpenUrl, driveImageFullUrl, fetchDriveFileBlob } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { Skeleton, SmartImage } from './media.jsx';
+import { MAX_UPLOAD_BYTES } from '../config.js';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { PdfView } from './PdfView.jsx';
@@ -32,7 +33,11 @@ const TEXT_EXT = ['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'log', 'xml', '
 const OFFICE_EXT = ['doc', 'docx', 'ppt', 'pptx'];   // 앱이 못 그려서 구글 편집기 미리보기로 남는 것
 // 우리 표로 직접 그리는 것. csv는 파싱이 몇 줄이라 같이 본다.
 const SHEET_EXT = ['xlsx', 'xls', 'csv'];
-const MAX_SHEET_BYTES = 8 * 1024 * 1024;   // 이보다 크면 표로 그리지 않고 구글 뷰어로 넘긴다
+// 스프레드시트도 **우리가 받아 주는 크기면 우리가 그린다.** 예전에는 8MB에서 갈랐는데,
+// 파서가 시트를 끝까지 읽고 나서 500줄로 자르던 시절의 값이다 — 그때는 6.4MB짜리가
+// 3.3초 동안 탭을 멎게 했다. 지금은 500줄을 채우면 거기서 멈춘다(xlsx.js) — 같은 파일이
+// 0.36초다(실측 2026-08-28, 같은 실행에서 세 번씩). 그래서 상한을 첨부 상한에 묶는다.
+const MAX_SHEET_BYTES = MAX_UPLOAD_BYTES;
 const MAX_TEXT_CHARS = 512 * 1024;      // 텍스트는 앞의 이만큼만 그린다(뒤는 잘렸다고 알린다)
 // **우리가 받아 주는 파일은 우리가 그린다.** 예전에는 여기 15MB가 박혀 있어서,
 // 25MB까지 받아 놓고 19MB PDF는 드라이브의 어두운 파일 뷰어로 떨어뜨렸다
@@ -61,7 +66,10 @@ function previewKind(row) {
     //  · PDF·텍스트·영상·소리: 앱이 직접 그린다. 바이트는 /api/drive-file이 중계한다
     //    (브라우저→drive.google.com 은 CORS가 막는다). 첨부 상한이 25MB이고 중계도
     //    같은 값이라 통째로 받아도 된다 — 실측 19MB PDF가 드라이브에서 8-12초다.
-    if (OFFICE_EXT.includes(ext)) return 'drive';
+    // 워드·PPT는 앱이 못 그린다(우리 렌더러가 없다). 스프레드시트가 어쩌다 여기로
+    // 떨어지더라도 아래 'drive'(어두운 파일 뷰어) 대신 구글 **편집기 미리보기**로
+    // 간다 — PDF에서 겪은 실수를 같은 자리에 두 번 두지 않는다(utils.driveSrc).
+    if (OFFICE_EXT.includes(ext) || SHEET_EXT.includes(ext)) return 'drive';
     if (mime === 'application/pdf' || ext === 'pdf') return 'pdf';
     if (mime.startsWith('text/') || TEXT_EXT.includes(ext)) return 'text';
     if (mime.startsWith('video/') || ['mp4', 'mov', 'webm', 'm4v'].includes(ext)) return 'video';
@@ -72,7 +80,9 @@ function previewKind(row) {
   if (mime.startsWith('video/')) return 'video';
   if (mime.startsWith('audio/')) return 'audio';
   if (mime.startsWith('text/') || TEXT_EXT.includes(ext)) return 'text';
-  if (OFFICE_EXT.includes(ext) || SHEET_EXT.includes(ext)) return OFFICE_VIEWER ? 'office' : 'none';
+  // 오피스 뷰어는 **공개로 닿는 주소**를 넘겨야 그린다. 아직 올리는 중인 파일은
+  // 주소가 없어서 빈 iframe이 뜬다 — 파일 정보와 내려받기를 주는 쪽이 정직하다.
+  if (OFFICE_EXT.includes(ext) || SHEET_EXT.includes(ext)) return (OFFICE_VIEWER && row.source !== 'local') ? 'office' : 'none';
   return 'none';
 }
 
