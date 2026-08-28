@@ -644,6 +644,13 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
   return Object.assign(row, { _driveFolderId: up?.folderId });
 }
 
+// 첨부에서 뽑은 글자(0030). 그 한 칸만 건드린다 — 파일 행을 통째로 보내면
+// 같은 시각에 올라간 다른 정보를 덮는다(요약 고정이 세 칸만 쓰는 것과 같은 이유).
+// 업로드가 끝난 뒤에 따로 부르므로 실패해도 첨부 자체는 멀쩡하다.
+export async function setFileExcerpt(fileId, text) {
+  return unwrap(await client().from('files').update({ text_excerpt: text || null }).eq('id', fileId).select('id').single());
+}
+
 // 업무 폴더 id만 적는다. 카드 폼을 통째로 보내지 않는다 — 그러면 저장 중인 남의
 // 편집을 같이 덮는다(§6-28-a와 같은 이유).
 export async function setCardFolder(cardId, folderId) {

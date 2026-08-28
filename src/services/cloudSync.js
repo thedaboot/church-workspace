@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 import { statusToDb, statusFromDb } from './cloud.js';
-import { normalize, httpsImage } from '../utils.js';
+import { normalize, httpsImage, extractMentions } from '../utils.js';
 
 // ============================================================================
 // 7. Cloud Sync Adapter — 클라우드(DB) ↔ 앱 스토어 모양 변환 + 쓰기 오케스트레이션
@@ -41,14 +41,10 @@ export function getMemberNames() { return memberNames.slice(); }
 export function getAvatar(name) { return nameToAvatar.get(name) || ''; }
 
 // ── @멘션 추출 · 수신자 매핑 ────────────────────────────────────────────────
-// 텍스트에서 @이름을 뽑아 표시명 정확 일치로 profiles.id를 찾는다.
-// 표시명에 공백이 있는 경우는 다루지 않는다(@뒤 공백 없는 토큰만).
-export function extractMentions(text) {
-  const found = String(text || '').match(/@([^\s@]+)/g) || [];
-  // 앞의 '@' 제거 + 문장부호로 끝나는 경우 보정( "@민수," → "민수" )
-  const names = found.map(t => t.slice(1).replace(/[.,!?;:)\]}'"]+$/, '')).filter(Boolean);
-  return [...new Set(names)];
-}
+// 뽑는 규칙은 utils.js가 원본이다 — AI가 쓴 멘션을 검사하는 쪽(services/ai.js)도
+// 같은 규칙을 써야 하는데, ai.js는 노드에서 검사할 수 있어야 해서 이 파일(supabase를
+// 물고 있다)을 물면 안 된다. 여기서는 그대로 다시 내보내 부르는 쪽을 안 건드린다.
+export { extractMentions };
 
 // 표시명 → 프로필 id들 (정확 일치). 동명 프로필이 여럿이면 전원 매핑.
 // 본인 제외는 이름이 아니라 auth user id 기준으로 notifyMentions에서 최종 수행한다
@@ -338,6 +334,9 @@ export async function loadCloudState() {
         birthday: p.birthday || '',            // 'MM-DD' (연도는 저장하지 않는다)
         lastSeenAt: p.last_seen_at || '',
         joinedAt: p.created_at || '',
+        // 직함·역할(0030). AI가 "OOO 청년" 대신 "조해리 총무님"이라고 부르는 근거다.
+        // 화면은 쓰지 않는다 — 사람 목록에 직함을 붙이면 누가 위인지가 먼저 보인다(§8).
+        role: p.role_note || '',
         team: primary,
         // 대표 팀이 먼저 오게 — 그래야 목록의 첫 팀이 아바타 색 규칙과 어긋나지 않는다
         teams: [...new Set([primary, ...(teamsByProfile.get(p.id) || [])].filter(Boolean))],

@@ -581,7 +581,9 @@ function SearchResults({ query, onPick }) {
       hit(t.title) || hit(t.content) ||
       (t.assignees || []).some(hit) ||
       (t.teams || []).some(hit) ||
-      (t.attachments || []).some(a => hit(typeof a === 'string' ? a : a?.name)) ||
+      // 첨부는 이름뿐 아니라 **안에 든 글자**도 본다(files.text_excerpt, 0030).
+      // "야식 찬조"로 결산 엑셀이 잡힌다. 사진은 발췌가 없어 이름으로만 잡힌다.
+      (t.attachments || []).some(a => (typeof a === 'string' ? hit(a) : (hit(a?.name) || hit(a?.text_excerpt)))) ||
       (t.comments || []).some(c => hit(c?.text))
     );
     return { projectHits, taskHits };

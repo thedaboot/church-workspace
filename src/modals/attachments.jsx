@@ -3,7 +3,7 @@ import { FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, 
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
-import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, getFileOpenUrl, setFilePassword, checkFilePassword, driveImageUrl, fetchDriveFileBlob } from '../services/cloud.js';
+import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, getFileOpenUrl, setFilePassword, checkFilePassword, driveImageUrl, fetchDriveFileBlob, setFileExcerpt } from '../services/cloud.js';
 import { FilePreviewModal } from '../components/FilePreviewModal.jsx';
 import { SmartImage, Skeleton } from '../components/media.jsx';
 import { useStore, store } from '../store/workspaceStore.js';
@@ -81,6 +81,28 @@ const addUploaded = (cardId, row) => {
   notifyUploads();
 };
 
+// 첨부에서 글자를 뽑아 DB와 스토어에 붙인다(0030). 실패는 조용히 넘긴다 —
+// 발췌는 없어도 앱이 도는 값이고, 이것 때문에 첨부가 막히면 안 된다.
+// ponytail: 새로 올리는 파일만 채운다. 지난 232건(그중 글자가 든 것은 4건)은
+// 백필하지 않는다 — 드라이브에서 다시 받는 것은 Egress를 늘리는 일이다(§1.3).
+// 필요해지면 미리보기가 이미 받아 파싱한 바이트로 그 자리에서 채우면 된다.
+async function fillExcerpt(cardId, row, file) {
+  try {
+    const { extractFileText } = await import('../services/fileText.js');
+    const text = await extractFileText(file);
+    if (!text) return;
+    await setFileExcerpt(row.id, text);
+    // 스토어의 그 행에도 넣는다 — 새로고침 없이 바로 요약·검색이 본다
+    const prev = store.getState().tasks.byId[cardId]?.attachments || [];
+    if (prev.some(r => r.id === row.id)) {
+      store.dispatch({ type: 'SYNC_TASK', payload: { id: cardId,
+        attachments: prev.map(r => (r.id === row.id ? { ...r, text_excerpt: text } : r)) } });
+    }
+  } catch (e) {
+    console.warn('[fileText] 발췌를 저장하지 못했다:', row?.name, e?.message || e);
+  }
+}
+
 // ============================================================================
 // 첨부 올리기 — **모든 첨부가 지나가는 하나의 길**.
 // ----------------------------------------------------------------------------
@@ -134,6 +156,10 @@ export async function startUploads({ task, project, files, onFileActivity }) {
         cardTitle: task.title, cardFolderId,
       });
       addUploaded(task.id, row);
+      // 파일 안의 글자를 뽑아 붙인다(0030) — AI 요약과 검색이 읽는다. **기다리지 않는다.**
+      // 파싱은 수백 ms 걸릴 수 있고, 이것 때문에 다음 파일 업로드가 밀리면 안 된다.
+      // 사진은 뽑을 게 없어 빈 값으로 돌아오고 그때는 DB도 안 건드린다.
+      void fillExcerpt(task.id, row, file);
       const st = stagedOf.get(file);
       if (st?._url) URL.revokeObjectURL(st._url);
       if (st) unstageUpload(task.id, st.id);

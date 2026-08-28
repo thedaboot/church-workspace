@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { CheckSquare, Clock, X, User, Hash, Wand2, CalendarRange, Trash2, Check, Pin, ArrowLeftRight, Maximize2, Minimize2, PanelRight, PanelRightClose } from 'lucide-react';
+import { CheckSquare, Clock, X, User, Hash, Wand2, Undo2, CalendarRange, Trash2, Check, Pin, ArrowLeftRight, Maximize2, Minimize2, PanelRight, PanelRightClose } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress, toggleTodoLine } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
-import { AiService } from '../services/ai.js';
+import { AiService, isFallbackText } from '../services/ai.js';
 import { RichText } from '../components/RichText.jsx';
 import { Bar } from '../views/dashboardParts.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
@@ -579,6 +579,10 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
 
 const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity, pendingFiles = [], setPendingFiles, titleRef }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
+  // 다듬기 직전 본문. 있으면 '되돌리기'가 보인다. 창을 닫으면 잊는다 —
+  // "방금 다듬었는데 마음에 안 든다"가 실제 상황이고, 그 이상은 편집 이력 관리다.
+  // ponytail: 직전 하나만 기억한다. 두 번 다듬고 두 번 되돌릴 일은 아직 없었다.
+  const [beforePolish, setBeforePolish] = useState(null);
 
   const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   const toggleTeam = (team) => setFormData(prev => ({ ...prev, teams: (prev.teams || []).includes(team) ? prev.teams.filter(t => t !== team) : [...(prev.teams || []), team] }));
@@ -587,9 +591,19 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
   const handleAiPolish = async () => {
     if (!formData.content) return;
     setIsAiLoading(true);
-    const polished = await AiService.polishText(formData.content, formData);
-    if (polished) setFormData(prev => ({ ...prev, content: polished }));
+    const before = formData.content;
+    const polished = await AiService.polishText(before, formData);
     setIsAiLoading(false);
+    // **안내 문구를 본문에 넣지 않는다.** 안내 문구도 truthy한 문자열이라 예전에는
+    // 그대로 본문을 덮었다 — 게스트·로컬·세션 만료에서 '다듬기'를 누르면 쓰던 글이
+    // "AI 기능은 로그인 후 사용할 수 있어요." 한 줄로 갈아치워졌다.
+    if (!polished || isFallbackText(polished)) { showToast(polished || '다듬지 못했어요 · 잠시 후 다시 시도해주세요'); return; }
+    setBeforePolish(before);
+    setFormData(prev => ({ ...prev, content: polished }));
+  };
+  const undoPolish = () => {
+    setFormData(prev => ({ ...prev, content: beforePolish }));
+    setBeforePolish(null);
   };
 
   return (
@@ -639,9 +653,17 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
       <div>
         <div className="flex justify-between items-center gap-2 mb-1.5">
           <label className="block text-xs text-fg-muted shrink-0">상세 내용</label>
-          <button type="button" onClick={handleAiPolish} disabled={isAiLoading || !formData.content} className="flex items-center gap-1 px-2 py-1 bg-tag-purple text-tag-purple-fg hover:opacity-80 rounded-full text-[10px] font-bold transition active:scale-95 disabled:opacity-40 shrink-0">
-            {isAiLoading ? <span className="animate-pulse">다듬는 중...</span> : <><Wand2 size={12} /> AI 문맥 다듬기</>}
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* 다듬은 직후에만 보인다 — 되돌리면 사라진다 */}
+            {beforePolish !== null && !isAiLoading && (
+              <button type="button" onClick={undoPolish} className="flex items-center gap-1 px-2 py-1 bg-surface border border-line text-fg-muted hover:bg-surface-hover rounded-full text-[10px] font-bold transition active:scale-95">
+                <Undo2 size={12} /> 되돌리기
+              </button>
+            )}
+            <button type="button" onClick={handleAiPolish} disabled={isAiLoading || !formData.content} className="flex items-center gap-1 px-2 py-1 bg-tag-purple text-tag-purple-fg hover:opacity-80 rounded-full text-[10px] font-bold transition active:scale-95 disabled:opacity-40">
+              {isAiLoading ? <span className="animate-pulse">다듬는 중...</span> : <><Wand2 size={12} /> AI 문맥 다듬기</>}
+            </button>
+          </div>
         </div>
         <Suspense fallback={<EditorSkeleton />}>
           <MarkdownEditor

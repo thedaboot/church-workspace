@@ -7,6 +7,18 @@ export const generateId = () => typeof crypto !== 'undefined' && crypto.randomUU
 // 모바일에서 자동 포커스는 키보드가 튀어 올라 레이아웃을 덮으므로 피한다.
 export const isMobileViewport = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
 
+// ── @멘션 ───────────────────────────────────────────────────────────────────
+// 텍스트에서 @이름을 뽑는다. 표시명 **정확 일치**로 사람을 찾으므로(cloudSync의
+// resolveMentionRecipients) 뽑는 규칙이 한 벌이어야 한다. 알림을 만드는 쪽과
+// AI가 쓴 멘션을 검사하는 쪽(services/ai.js)이 같이 쓴다 — 여기가 원본이다.
+// 표시명에 공백이 있는 경우는 다루지 않는다(@뒤 공백 없는 토큰만).
+export const MENTION_TAIL = /[.,!?;:)\]}'"]+$/;   // "@민수," → "민수"
+export function extractMentions(text) {
+  const found = String(text || '').match(/@([^\s@]+)/g) || [];
+  const names = found.map(t => t.slice(1).replace(MENTION_TAIL, '')).filter(Boolean);
+  return [...new Set(names)];
+}
+
 export const formatDate = (dateString) => {
   if (!dateString) return '';
   return new Date(dateString).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
