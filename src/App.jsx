@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { store, useCanUndo, useCanRedo } from './store/workspaceStore.js';
 import { useWorkspaceController } from './hooks/controllers.js';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
@@ -61,6 +62,7 @@ export default function ChurchApp() {
         <AuthGate />
         <ToastHost />
       </AuthProvider>
+      <Analytics />
     </ErrorBoundary>
   );
 }
