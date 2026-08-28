@@ -16,10 +16,10 @@ const PORT = Number(process.env.VERIFY_PORT || 4390);
 const BASE = `http://localhost:${PORT}`;
 
 // 브라우저를 쓰지 않는 순수 로직 자체검증 (서버가 필요 없다)
-const NODE_ONLY = ['logcheck', 'mdcheck', 'assignees', 'push', 'sheet', 'drivesync'];
+const NODE_ONLY = ['logcheck', 'mdcheck', 'assignees', 'push', 'sheet', 'office', 'drivesync'];
 // 순서: 넓게 훑는 것부터. 드래그·캘린더는 타이밍에 민감해서 마지막에 조용히 돌린다.
 const ORDER = [
-  'logcheck', 'mdcheck', 'sheet', 'drivesync', 'assignees', 'push', 'aictx',
+  'logcheck', 'mdcheck', 'sheet', 'office', 'drivesync', 'assignees', 'push', 'aictx',
   'errhunt', 'handoff',
   'navsmoke', 'onebar', 'mobbits', 'bottomgap', 'modalclose',
   'batch10', 'batch11', 'dashfix', 'wide',
@@ -32,7 +32,10 @@ const ji = args.indexOf('--jobs');
 if (ji >= 0) { jobs = Math.max(1, Number(args[ji + 1]) || 1); args.splice(ji, 2); }
 const only = args.filter(a => !a.startsWith('-'));
 
-const found = readdirSync(HERE).filter(f => f.endsWith('.mjs') && f !== 'run.mjs').map(f => f.replace('.mjs', ''));
+// zip.mjs는 스위트가 아니라 sheet·office가 같이 쓰는 도구다 — 돌리면 PASS 줄이
+// 하나도 없어서 러너가 CRASH로 잡는다.
+const HELPERS = new Set(['run', 'zip']);
+const found = readdirSync(HERE).filter(f => f.endsWith('.mjs') && !HELPERS.has(f.replace('.mjs', ''))).map(f => f.replace('.mjs', ''));
 const missing = ORDER.filter(n => !found.includes(n));
 const extra = found.filter(n => !ORDER.includes(n));
 if (missing.length) console.log(`(목록에 있지만 파일이 없음: ${missing.join(', ')})`);

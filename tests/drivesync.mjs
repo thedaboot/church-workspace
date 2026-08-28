@@ -52,6 +52,11 @@ check('미리보기가 크기로 우리 뷰어를 포기하지 않는다', () =>
   // 어쩌다 떨어지더라도 어두운 파일 뷰어가 아니라 구글 편집기 미리보기로 간다
   assert.ok(preview.includes("if (OFFICE_EXT.includes(ext) || SHEET_EXT.includes(ext)) return 'drive';"),
     '큰 스프레드시트가 어두운 파일 뷰어로 떨어진다');
+  // 워드·PPT도 우리가 그린다 — 드라이브에서 온 것이든 아직 올리는 중이든 같다.
+  const docAt = [...preview.matchAll(/if \(ext === 'docx'\) return 'doc';/g)].length;
+  const sldAt = [...preview.matchAll(/if \(ext === 'pptx'\) return 'slide';/g)].length;
+  assert.strictEqual(docAt, 2, "docx가 드라이브·로컬 양쪽에서 우리 뷰로 가야 한다");
+  assert.strictEqual(sldAt, 2, "pptx가 드라이브·로컬 양쪽에서 우리 뷰로 가야 한다");
 });
 
 

@@ -16,91 +16,10 @@
 
 import { compile, evalRule, BLANK } from './formula.js';
 
-const u16 = (d, p) => d[p] | (d[p + 1] << 8);
-const u32 = (d, p) => (d[p] | (d[p + 1] << 8) | (d[p + 2] << 16) | (d[p + 3] << 24)) >>> 0;
-
-// ── zip ─────────────────────────────────────────────────────────────────────
-// 중앙 디렉터리를 걸어 항목을 모은다. 데이터 시작 위치는 **로컬 헤더에서 다시**
-// 읽는다 — 중앙 디렉터리와 로컬 헤더의 extra 길이가 다른 경우가 실제로 있다.
-function zipEntries(buf) {
-  const d = new Uint8Array(buf);
-  let eo = -1;
-  for (let i = d.length - 22; i >= Math.max(0, d.length - 65557); i--) {
-    if (u32(d, i) === 0x06054b50) { eo = i; break; }
-  }
-  if (eo < 0) throw new Error('엑셀 파일이 아니에요');
-  const count = u16(d, eo + 10);
-  let p = u32(d, eo + 16);
-  const out = new Map();
-  const dec = new TextDecoder();
-  for (let n = 0; n < count && p + 46 <= d.length; n++) {
-    if (u32(d, p) !== 0x02014b50) break;
-    const method = u16(d, p + 10);
-    const csize = u32(d, p + 20);
-    const fnLen = u16(d, p + 28);
-    const exLen = u16(d, p + 30);
-    const cmLen = u16(d, p + 32);
-    const lho = u32(d, p + 42);
-    const name = dec.decode(d.subarray(p + 46, p + 46 + fnLen));
-    const start = lho + 30 + u16(d, lho + 26) + u16(d, lho + 28);
-    out.set(name, { method, raw: d.subarray(start, start + csize) });
-    p += 46 + fnLen + exLen + cmLen;
-  }
-  return out;
-}
-
-async function readEntry(entries, name) {
-  const e = entries.get(name);
-  if (!e) return '';
-  if (e.method === 0) return new TextDecoder().decode(e.raw);
-  // deflate-raw는 브라우저·노드 모두 전역에 있다
-  const stream = new Blob([e.raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-  return new TextDecoder().decode(await new Response(stream).arrayBuffer());
-}
-
-// ── XML 조각 ─────────────────────────────────────────────────────────────────
-const ENT = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
-const unesc = (s) => s.replace(/&(#x?[0-9a-fA-F]+|\w+);/g, (m, k) => {
-  if (k[0] === '#') return String.fromCodePoint(parseInt(k[1] === 'x' ? k.slice(2) : k.slice(1), k[1] === 'x' ? 16 : 10));
-  return ENT[k] ?? m;
-});
-// 여는 태그의 속성을 한 번에 훑어 객체로 만든다.
-// 예전에는 이름마다 `new RegExp('\\b'+name+'="…"')`를 만들어 찾았는데, 그 방식이
-// **t 속성을 못 찾아서** 공유 문자열이 전부 인덱스 숫자로 나왔다(셀에 '156'처럼
-// 보였다). 이름을 문자열로 이어 붙여 정규식을 만드는 길은 이런 식으로 조용히
-// 어긋난다 — 한 번 훑어 담는 쪽이 빠르기도 하다(셀마다 정규식을 여러 번 만들지 않는다).
-const ATTR_RE = /([\w:.-]+)="([^"]*)"/g;
-export function attrs(tag) {
-  const o = {};
-  for (const m of tag.matchAll(ATTR_RE)) o[m[1]] = m[2];
-  return o;
-}
-// 한 번만 보는 자리(스타일·시트 목록 등)용 편의 함수. 셀처럼 여러 번 보는 자리는
-// attrs()로 한 번에 받아 쓴다 — 셀마다 태그를 다시 훑으면 큰 표에서 값을 치른다.
-const attr = (tag, name) => attrs(tag)[name] ?? null;
-// <이름 …>안</이름> 과 <이름 …/> 을 모두 훑는다. 자기 닫는 태그는 안이 빈 문자열.
-//
-// 함정: 자기 닫는 태그를 정규식의 `(/)?` 그룹으로 잡으려 하면 안 된다. 앞의
-// `[^>]*`가 탐욕적이라 **끝 슬래시까지 먹어버려서** 그 그룹이 언제나 비고, 태그가
-// "열린 것"으로 판정된다. 그러면 `</c>`를 찾아 **다음 셀을 통째로 안쪽 내용으로
-// 삼킨다** — 값이 한 칸 왼쪽으로 밀리고 t="s"를 잃어 공유 문자열이 인덱스 숫자로
-// 보였다(셀에 '156'). 닫힌 태그가 아예 없는 곳(<col/>·<mergeCell/>)에서는 우연히
-// 맞게 돌아서 더 늦게 드러났다. 문자열 끝을 보는 쪽이 정직하다.
-export function* blocks(xml, name) {
-  // `/?`가 있어야 **속성 없는 자기 닫는 태그**(<font/>)도 잡힌다. 속성이 있으면
-  // 앞의 [^>]*가 슬래시를 먹어서 우연히 맞지만, <font/>는 통째로 건너뛰어져
-  // 글꼴 목록이 한 칸 밀렸다(굵기가 엉뚱한 셀에 붙는다 — tests/sheet.mjs가 잡았다).
-  const re = new RegExp(`<${name}(\\s[^>]*)?/?>`, 'g');
-  let m;
-  while ((m = re.exec(xml))) {
-    const open = m[0];
-    if (open.endsWith('/>')) { yield { open, inner: '' }; continue; }
-    const close = xml.indexOf(`</${name}>`, re.lastIndex);
-    if (close < 0) { yield { open, inner: '' }; continue; }
-    yield { open, inner: xml.slice(re.lastIndex, close) };
-    re.lastIndex = close + name.length + 3;
-  }
-}
+// zip 풀기와 XML 훑기는 docx·pptx와 **같은 기계**다 — services/ooxml.js로 옮겼다.
+// 여기서 다시 내보내는 것은 검사(tests/sheet.mjs)가 이 이름으로 들여오기 때문이다.
+import { zipEntries, readEntry, unesc, attrs, attr, blocks } from './ooxml.js';
+export { attrs, blocks };
 
 // ── 색 ──────────────────────────────────────────────────────────────────────
 // rgb="FFFFFF00"(ARGB) · theme="4" tint="-0.2" · indexed=… 세 갈래.
@@ -566,7 +485,7 @@ export const MAX_ROWS = 500;      // 이 이상은 그리지 않고 잘렸다고
 export const MAX_COLS = 60;
 
 export async function parseXlsx(buf) {
-  const entries = zipEntries(buf);
+  const entries = zipEntries(buf, '엑셀 파일');
   const [wbXml, ssXml, stXml, thXml, relXml] = await Promise.all([
     readEntry(entries, 'xl/workbook.xml'),
     readEntry(entries, 'xl/sharedStrings.xml'),
