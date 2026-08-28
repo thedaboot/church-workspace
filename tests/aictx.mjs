@@ -166,6 +166,12 @@ check('요약에서는 @를 쓰지 말라고 한다', captured.sys.includes('사
   // 카드가 바뀌면(updatedAt 변경) 다시 만든다
   await AiService.summarizeTask({ ...t, updatedAt: '2026-07-21T00:00:00Z' });
   check('카드가 바뀌면 캐시가 무효가 된다', calls === 2, `${calls}회`);
+  // 하위 업무를 체크하면 updatedAt이 아직 그대로여도(서버 왕복 전) 다시 만든다 —
+  // 요약이 끝낸 것/남은 것을 갈라 말하므로 체크 하나가 답을 바꾼다
+  const subs = [{ text: '곡 목록', done: false }];
+  await AiService.summarizeTask({ ...t, updatedAt: '2026-07-21T00:00:00Z', subtasks: subs });
+  await AiService.summarizeTask({ ...t, updatedAt: '2026-07-21T00:00:00Z', subtasks: [{ text: '곡 목록', done: true }] });
+  check('하위 업무 체크가 캐시를 무효로 만든다(서버 왕복 전에도)', calls === 4, `${calls}회`);
   // 안내 문구는 캐시에 남지 않는다 — 로그인한 뒤에도 계속 그 문구가 나오면 안 된다
   AiService.clearSummaryCache();
   calls = 0;

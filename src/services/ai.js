@@ -306,7 +306,11 @@ export const isFallbackText = (text) => FALLBACKS.has(text);
 // ponytail: 탭을 닫으면 사라지는 메모리 캐시다. 사람들 사이에 공유하려면 카드에
 // 저장해야 하고, 그건 '이 요약 고정' 버튼이 하는 일이다(저장은 옵트인).
 const summaryCache = new Map();
-const summaryKey = (task) => `${task.id || 'new'}:${task.updatedAt || ''}`;
+// 키에 하위 업무 체크 상태도 넣는다 — updatedAt은 서버 왕복이 돌아와야 바뀌어서,
+// 체크하고 곧바로 다시 요약을 누르면 체크 전 요약이 캐시에서 나왔다. 요약이
+// 끝낸 것/남은 것을 갈라 말하는 이상 체크 하나가 답을 바꾼다(사용자 강조 2026-08-29).
+const subsFingerprint = (task) => (task.subtasks || []).map(x => (x.done ? '1' : '0')).join('');
+const summaryKey = (task) => `${task.id || 'new'}:${task.updatedAt || ''}:${subsFingerprint(task)}`;
 
 export const AiService = {
   callGemini: async (prompt, systemInstruction = "") => {
