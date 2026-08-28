@@ -553,6 +553,12 @@ check('렌더러가 새 값들을 실제로 쓴다(소스 단정)', () => {
   assert.ok(src.includes('overlayBoxes'), '그림·도형 오버레이를 안 그린다');
   assert.ok(src.includes("o.geom === 'ellipse'"), '타원 도형을 안 그린다');
   assert.ok(src.includes('sheet.frozenCols'), '열 고정을 안 붙인다');
+  // tableLayout: fixed는 표 폭이 auto면 무시된다(auto 배치로 떨어진다) — 그러면
+  // 열이 colgroup px와 어긋나 고정 열 left·오버레이 x가 전부 빗나간다(Fable 실측:
+  // 고정 칸 사이가 83px 벌어지고 타원이 43px 왼쪽에 그려졌다).
+  assert.ok(src.includes("tableLayout: 'fixed', width: colLefts[width]"), '표에 명시 폭이 없다');
+  // 탭 전환 직후 묵은 rowTops로 오버레이를 그리면 top이 NaN이 된다
+  assert.ok(src.includes('rowTops.length !== sheet.rows.length + 1'), '묵은 행 좌표를 거르지 않는다');
 });
 
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');

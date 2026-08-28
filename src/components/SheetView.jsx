@@ -192,6 +192,10 @@ export function SheetView({ blob, text = null, name = '', onError }) {
   // 가로는 colLefts(결정적), 세로는 rowTops(그려진 뒤 잰 것).
   const overlayBoxes = useMemo(() => {
     if (!rowTops || !sheet?.overlays?.length) return [];
+    // 탭을 바꾼 직후에는 rowTops가 **이전 시트** 것이다(재는 effect는 렌더 뒤에 돈다).
+    // 묵은 값으로 계산하면 top이 NaN이 되거나 한 프레임 엉뚱한 데 그려진다 —
+    // 행 수가 안 맞으면 이번 렌더는 오버레이를 접고, effect가 새로 재면 그려진다.
+    if (rowTops.length !== sheet.rows.length + 1) return [];
     const x = (p) => colLefts[p.c] + (colLefts[p.c + 1] - colLefts[p.c]) * p.fx;
     const y = (p) => rowTops[p.r] + ((rowTops[p.r + 1] ?? rowTops[p.r]) - rowTops[p.r]) * p.fy;
     const scale = VIEW_FONT_PX / 11.5;             // 크기(ext)로만 그릴 때의 확대 배율
@@ -229,7 +233,9 @@ export function SheetView({ blob, text = null, name = '', onError }) {
         <div className="shrink-0 flex items-center gap-1 overflow-x-auto scrollbar-hide x-scroll-lock pb-1.5">
           {book.sheets.map((s, i) => (
             <button
-              key={`${s.name}-${i}`} type="button" onClick={() => setTab(i)}
+              // rowTops(이전 시트의 행 위치)도 같이 접는다 — overlayBoxes의 행 수 검사와
+              // 겹으로, 행 수가 우연히 같은 두 시트 사이에서도 묵은 좌표를 안 쓰게
+              key={`${s.name}-${i}`} type="button" onClick={() => { setRowTops(null); setTab(i); }}
               className="dc-press shrink-0 px-2.5 py-1 rounded-[6px] text-[11.5px] font-semibold transition-colors whitespace-nowrap"
               style={{
                 background: i === tab ? 'var(--app-surface)' : 'transparent',
@@ -248,7 +254,11 @@ export function SheetView({ blob, text = null, name = '', onError }) {
             오버레이는 표 '위'에 떠 있으므로(원본 엑셀과 같음) 스크롤을 따라 움직이고,
             틀 고정 칸(z 2~4)이 그 위를 덮는다 — 엑셀에서도 고정 창이 그림을 덮는다. */}
         <div className="relative w-fit">
-        <table className="border-collapse" style={{ tableLayout: 'fixed' }}>
+        {/* 표에 **명시 폭**을 준다 — tableLayout: fixed는 표 폭이 auto면 무시되고
+            auto 배치로 떨어진다(css-tables-3). 그러면 열이 colgroup px와 어긋나는데,
+            열 고정의 sticky left와 오버레이 x좌표가 그 px를 참으로 믿는다.
+            실측: 이 폭이 없으면 26_계획의 고정 칸 사이가 83px 벌어져 본문이 비쳤다. */}
+        <table className="border-collapse" style={{ tableLayout: 'fixed', width: colLefts[width] }}>
           <colgroup>
             {Array.from({ length: width }, (_, i) => (
               // 시트가 기본 열 너비를 정해 두면(<sheetFormatPr>) 너비 없는 열은 그걸 쓴다 —
