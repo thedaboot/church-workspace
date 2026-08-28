@@ -406,7 +406,10 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
           // 세로 스크롤까지 막힌다(자손 전체에 적용되므로).
           // contain이 아니라 none: contain은 부모로 스크롤이 넘어가는 것만 막고 자기
           // 고무줄(바운스)은 남겨서, '완료' 오른쪽으로 더 넘어갈 것처럼 밀렸다.
-          className={`flex-1 min-h-0 flex gap-[14px] md:gap-[22px] pb-1.5 overflow-x-auto [overscroll-behavior-x:none] ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}
+          // overflow-y-hidden: overflow-x만 auto면 규격상 y도 auto가 계산돼 이 요소
+          // 자체가 세로로 흔들렸다(x-scroll-lock 주석 참고). 카드 목록의 세로 스크롤은
+          // 컬럼 **안**(ColumnDroppable)의 일이라 여기는 hidden이 맞다.
+          className={`flex-1 min-h-0 flex gap-[14px] md:gap-[22px] pb-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:none] ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}
         >
           {CONFIG.STATUSES.map(status => (
             <ColumnDroppable key={status} status={status} dragging={!!activeId} count={(byStatus[status] || []).length} share={tasks.length ? (byStatus[status] || []).length / tasks.length : 0} empty={(byStatus[status] || []).length === 0}>
