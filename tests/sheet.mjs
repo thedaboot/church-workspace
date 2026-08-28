@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { attrs, blocks, parseXlsx, parseCsv, colToNum, refToRC, widthToPx, viewColPx, COL_MAX_PX, VIEW_FONT_PX } from '../src/services/xlsx.js';
+import { attrs, blocks, parseXlsx, parseCsv, colToNum, refToRC, widthToPx, viewColPx, isPaper, COL_MAX_PX, VIEW_FONT_PX } from '../src/services/xlsx.js';
 import { compile, evalRule, BLANK } from '../src/services/formula.js';
 import { zipOf } from './zip.mjs';
 
@@ -356,7 +356,10 @@ const fidBook = await parseXlsx(zipOf([
     '<sst><si>'
     + '<r><rPr><sz val="10"/><color rgb="FF000000"/></rPr><t xml:space="preserve">(다과) 132,320 / </t></r>'
     + '<r><rPr><sz val="10"/><color rgb="FFC65911"/></rPr><t>(야식) 365,800 찬조</t></r>'
-    + '</si><si><t>서식 없는 런 아님</t></si></sst>'],
+    + '</si><si><t>서식 없는 런 아님</t></si>'
+    // 셀 글꼴이 주황일 때: 첫 구간은 rPr가 없고(셀 색 상속), 둘째 구간만 명시된 검정.
+    // 실물 '(다과 찬조) 132,320/ (약) 40,000…'이 이 무늬다 — 검정 구간이 주황이 되면 안 된다.
+    + '<si><r><t>상속 구간</t></r><r><rPr><color rgb="FF000000"/></rPr><t>검정 구간</t></r></si></sst>'],
   ['xl/styles.xml',
     '<styleSheet>'
     + '<numFmts>'
@@ -364,7 +367,7 @@ const fidBook = await parseXlsx(zipOf([
     + '<numFmt numFmtId="177" formatCode="_-* #,##0_-;\\-* #,##0_-;_-* &quot;-&quot;_-;_-@"/>'
     + '<numFmt numFmtId="178" formatCode="mm&quot;/&quot;dd&quot; &quot;ddd"/>'
     + '</numFmts>'
-    + '<fonts><font/><font><b/><sz val="24"/></font></fonts>'
+    + '<fonts><font/><font><b/><sz val="24"/></font><font><color rgb="FFC65911"/></font></fonts>'
     + '<fills><fill><patternFill patternType="none"/></fill></fills>'
     + '<borders><border/><border><right style="thin"/></border><border><bottom style="medium"/></border></borders>'
     + '<cellXfs>'
@@ -378,11 +381,12 @@ const fidBook = await parseXlsx(zipOf([
     + '<xf numFmtId="0" fontId="0" borderId="2"/>'  // s=7 bottom 테두리만
     + '<xf numFmtId="20" fontId="0"/>'              // s=8 h:mm (분/월 가르기)
     + '<xf numFmtId="49" fontId="0"/>'              // s=9 @ (텍스트 서식이 걸린 숫자)
+    + '<xf numFmtId="0" fontId="2"/>'               // s=10 주황 글꼴(셀 전체)
     + '</cellXfs>'
     + '</styleSheet>'],
   ['xl/worksheets/sheet1.xml',
     '<worksheet>'
-    + '<sheetViews><sheetView><pane ySplit="2" topLeftCell="A9" state="frozen"/></sheetView></sheetViews>'
+    + '<sheetViews><sheetView><pane xSplit="2" ySplit="2" topLeftCell="C9" state="frozen"/></sheetView></sheetViews>'
     + '<sheetFormatPr defaultColWidth="14.42578125" defaultRowHeight="15"/>'
     + '<cols><col min="3" max="3" width="0" hidden="1"/></cols>'
     // A7:B8 병합 — right는 B7에만, bottom은 A8에만(OOXML이 실제로 쓰는 나눠 적기)
@@ -394,6 +398,7 @@ const fidBook = await parseXlsx(zipOf([
     +   '<c r="C2"><v>99</v></c><c r="D2" s="2"><v>0</v></c></row>'
     + '<row r="3"><c r="A3" s="3"><v>46054</v></c><c r="B3" s="4"><v>46054</v></c><c r="D3" t="s"><v>1</v></c></row>'
     + '<row r="4"><c r="A4" s="8"><v>46054.5639</v></c><c r="B4" s="9"><v>1235</v></c></row>'
+    + '<row r="5"><c r="A5" s="10" t="s"><v>2</v></c></row>'
     + '<row r="7"><c r="A7" t="s"><v>1</v></c><c r="B7" s="6"/><c r="D7" s="6"/></row>'
     + '<row r="8"><c r="A8" s="7"/></row>'
     // 값 영역 밖(H20)의 테두리-only 칸은 예전대로 버려진다
@@ -409,6 +414,13 @@ const fidBook = await parseXlsx(zipOf([
     + '<xdr:from><xdr:col>1</xdr:col><xdr:row>1</xdr:row></xdr:from>'
     + '<xdr:to><xdr:col>3</xdr:col><xdr:row>2</xdr:row></xdr:to>'
     + '<xdr:pic><xdr:blipFill><a:blip r:embed="rId1"/></xdr:blipFill></xdr:pic>'
+    + '</xdr:twoCellAnchor>'
+    // 도형 — 결재란의 빨간 동그라미(실물 지출전표의 "타원 1"과 같은 무늬)
+    + '<xdr:twoCellAnchor>'
+    + '<xdr:from><xdr:col>0</xdr:col><xdr:colOff>50000</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>20000</xdr:rowOff></xdr:from>'
+    + '<xdr:to><xdr:col>1</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>2</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>'
+    + '<xdr:sp><xdr:spPr><a:prstGeom prst="ellipse"/><a:noFill/>'
+    + '<a:ln w="19050"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:ln></xdr:spPr></xdr:sp>'
     + '</xdr:twoCellAnchor></xdr:wsDr>'],
   ['xl/drawings/_rels/drawing1.xml.rels',
     '<Relationships><Relationship Id="rId1" Target="../media/image1.png"/></Relationships>'],
@@ -427,6 +439,25 @@ check('부분 서식: 구간별 색이 살아 있다', () => {
   // 서식 없는 문자열은 runs를 들고 다니지 않는다(대부분의 셀이 이 경로)
   assert.strictEqual(cellAt(2, 2).runs, null);
 });
+check('부분 서식: 명시된 검정은 셀 색을 상속하지 않는다 · 노랑 칠은 종이가 아니다', () => {
+  const c = cellAt(4, 0);                      // A5 — 셀 글꼴이 주황
+  assert.strictEqual(c.fg, '#C65911', '셀 글꼴색을 못 읽었다');
+  assert.ok(c.runs, 'runs가 없다');
+  // 첫 구간(rPr 없음)은 셀 색을 물려받고, 둘째 구간(명시 검정)은 기본 잉크로 되돌아간다
+  assert.strictEqual(c.runs[0].inkReset, false, '상속 구간이 되돌리기로 찍혔다');
+  assert.strictEqual(c.runs[1].inkReset, true, '명시된 검정 구간이 셀 색(주황)을 물려받는다');
+  assert.strictEqual(c.runs[1].color, null);
+  // 종이 판정 — 밝기만 보면 순노랑 강조가 사라진다. 종이는 밝고 **무채색**이다.
+  assert.strictEqual(isPaper('#FFFF00'), false, '노란 강조를 종이로 오판한다');
+  assert.strictEqual(isPaper('#FFFFFF'), true);
+  assert.strictEqual(isPaper('#FAFAFA'), true, '거의 흰 무채색은 종이다');
+  assert.strictEqual(isPaper('#dae3f3'), false, '연한 하늘색 구분이 지워진다');
+  // 렌더러가 실제로 이 두 값을 쓰는지
+  const src = readFileSync(new URL('../src/components/SheetView.jsx', import.meta.url), 'utf8');
+  assert.ok(src.includes('isPaper(bg)'), '칠 판정이 파서와 한 벌이 아니다');
+  assert.ok(src.includes('rn.inkReset ? resetInk'), '검정 구간을 기본 잉크로 안 되돌린다');
+});
+
 check('숫자 서식: ₩ 접두 · [Red] 괄호 음수 · 회계식 0은 "-"', () => {
   assert.strictEqual(cellAt(1, 0).v, '₩9,000,000', `₩가 사라졌다: ${cellAt(1, 0).v}`);
   assert.strictEqual(cellAt(1, 1).v, '(₩1,234)', `음수 괄호가 아니다: ${cellAt(1, 1).v}`);
@@ -484,19 +515,31 @@ check('자동 필터 자리가 실린다', () => {
   assert.ok(fid.filter, 'filter가 없다');
   assert.strictEqual(fid.filter.r, 1, `머리행: ${fid.filter?.r}`);
 });
-check('틀 고정(pane ySplit)이 실린다', () => {
+check('틀 고정(pane ySplit·xSplit)이 실린다', () => {
   assert.strictEqual(fid.frozenRows, 2, `고정 행: ${fid.frozenRows}`);
+  // 전체 폭 제목 병합(A1:E1)이 고정 행 안에 있으므로 열 고정을 꺼뜨리면 안 된다
+  assert.strictEqual(fid.frozenCols, 2, `고정 열: ${fid.frozenCols}`);
   // 렌더러가 실제로 sticky를 쓰는지 — JSX라 소스로 못 박는다
   const src = readFileSync(new URL('../src/components/SheetView.jsx', import.meta.url), 'utf8');
   assert.ok(src.includes('sheet.frozenRows') && src.includes("position: 'sticky'"), '고정 행을 sticky로 안 붙인다');
 });
-check('시트 위 그림: 앵커 셀과 걸친 범위', () => {
-  assert.strictEqual(fid.images.length, 1, `그림 수: ${fid.images.length}`);
-  const im = fid.images[0];
+check('도형(타원)이 오버레이로 실린다', () => {
+  const sp = fid.overlays.find(o => o.kind === 'shape');
+  assert.ok(sp, '도형이 없다');
+  assert.strictEqual(sp.geom, 'ellipse');
+  assert.strictEqual(sp.stroke, '#FF0000', `테두리 색: ${sp.stroke}`);
+  assert.strictEqual(sp.fill, null, 'noFill인데 채워졌다');
+  assert.ok(sp.strokeW >= 1, `테두리 굵기: ${sp.strokeW}`);
+});
+check('시트 위 그림: 앵커(셀+비율)와 끝 셀', () => {
+  const imgs = fid.overlays.filter(o => o.kind === 'img');
+  assert.strictEqual(imgs.length, 1, `그림 수: ${imgs.length}`);
+  const im = imgs[0];
   assert.ok(im.src.startsWith('data:image/png;base64,'), '그림이 data URL이 아니다');
-  assert.strictEqual(im.r, 1, `앵커 행: ${im.r}`);
-  assert.strictEqual(im.c, 1, `앵커 열: ${im.c}`);
-  assert.ok(im.c2 >= 2, 'to 열(폭 어림용)이 없다');
+  assert.strictEqual(im.a.r, 1, `앵커 행: ${im.a.r}`);
+  assert.strictEqual(im.a.c, 1, `앵커 열: ${im.a.c}`);
+  assert.ok(im.b && im.b.c >= 2, '끝 셀(to)이 없다 — 크기를 못 잡는다');
+  assert.ok(im.a.fx >= 0 && im.a.fx <= 1 && im.a.fy >= 0 && im.a.fy <= 1, '셀 안 비율이 0~1이 아니다');
 });
 // 렌더러 쪽은 JSX라 노드에서 못 돌린다 — 파서가 준 것을 실제로 쓰는지 소스로 못 박는다
 check('렌더러가 새 값들을 실제로 쓴다(소스 단정)', () => {
@@ -507,7 +550,9 @@ check('렌더러가 새 값들을 실제로 쓴다(소스 단정)', () => {
   assert.ok(src.includes('sheet.rowPx'), '행 높이를 안 쓴다');
   assert.ok(src.includes("cell?.valign === 'top' ? 'top' : 'bottom'"), '엑셀 기본 세로 정렬(bottom)이 아니다');
   assert.ok(src.includes('sheet.filter'), '필터 표시가 없다');
-  assert.ok(src.includes('imagesAt'), '그림을 안 그린다');
+  assert.ok(src.includes('overlayBoxes'), '그림·도형 오버레이를 안 그린다');
+  assert.ok(src.includes("o.geom === 'ellipse'"), '타원 도형을 안 그린다');
+  assert.ok(src.includes('sheet.frozenCols'), '열 고정을 안 붙인다');
 });
 
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');

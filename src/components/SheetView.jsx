@@ -4,7 +4,7 @@ import {
   Circle, Flag, Check, X, TriangleAlert, ChevronDown,
 } from 'lucide-react';
 import { Skeleton } from './media.jsx';
-import { parseXlsx, parseCsv, luminance, viewColPx, VIEW_FONT_PX } from '../services/xlsx.js';
+import { parseXlsx, parseCsv, luminance, isPaper, viewColPx, VIEW_FONT_PX } from '../services/xlsx.js';
 
 // ============================================================================
 // 엑셀·csv 미리보기 — 구글 iframe 대신 앱이 직접 그린다.
@@ -36,13 +36,11 @@ import { parseXlsx, parseCsv, luminance, viewColPx, VIEW_FONT_PX } from '../serv
 //   · 글자를 엑셀 기준보다 키우고, 같은 글자 수가 들어가게 열도 같은 비율로 넓힌다.
 // ============================================================================
 
-// 이보다 밝은 칠은 '흰 종이'로 보고 우리 토큰에 맡긴다.
-// 0.85로 두면 연한 하늘색(#dae3f3 · 실제 파일이 구분에 쓴다)까지 지워진다.
-const PAPER_L = 0.92;
+// '흰 종이' 칠은 우리 토큰에 맡긴다. 판정은 파서(xlsx.isPaper)와 한 벌이다 —
+// 밝기만 보면 순노랑 강조까지 종이로 오판한다(연한 하늘색 #dae3f3은 여전히 산다).
 const fillOf = (bg) => {
-  if (!bg || !/^#[0-9a-fA-F]{6}$/.test(bg)) return null;
+  if (!bg || !/^#[0-9a-fA-F]{6}$/.test(bg) || isPaper(bg)) return null;
   const l = luminance(bg);
-  if (l > PAPER_L) return null;
   return { background: bg, color: l > 0.45 ? '#191720' : '#f7f6f4' };
 };
 
@@ -65,13 +63,15 @@ const inkOf = (fg, bg, painted) => {
 
 // 부분 서식(rich text run) — 한 셀 안에서 구간마다 색·굵기·크기가 다르다.
 // 원본 엑셀의 '비고' 칸이 찬조 구간만 주황인 것이 이걸로 살아난다(사용자 지적).
-function CellText({ cell, painted }) {
+// resetInk: 명시된 검정/흰색 구간이 되돌아갈 기본 잉크 — 셀 글꼴이 유채색일 때
+// 그냥 상속하면 검정으로 적힌 구간까지 그 색이 된다.
+function CellText({ cell, painted, resetInk }) {
   if (!cell?.runs) return cell?.v ?? '';
   return cell.runs.map((rn, i) => (
     <span
       key={i}
       style={{
-        color: inkOf(rn.color, cell.bg, painted),
+        color: rn.color ? inkOf(rn.color, cell.bg, painted) : rn.inkReset ? resetInk : undefined,
         fontWeight: rn.bold ? 700 : undefined,
         fontStyle: rn.italic ? 'italic' : undefined,
         textDecoration: rn.strike ? 'line-through' : rn.under ? 'underline' : undefined,
@@ -126,17 +126,20 @@ function CellIcon({ icon }) {
 export function SheetView({ blob, text = null, name = '', onError }) {
   const [book, setBook] = useState(null);
   const [tab, setTab] = useState(0);
-  // 틀 고정(pane ySplit) — 고정 행 td를 sticky로 붙이려면 **실제 행 높이**가 필요하다
-  // (rowPx는 최소값일 뿐, 내용이 더 크면 행이 는다). 그려진 뒤 한 번 재서 top을 계산한다.
+  // 표의 실제 행 위치 — 틀 고정 top과 그림·도형 오버레이의 세로 좌표가 이걸 쓴다.
+  // 행 높이는 내용 따라 늘어나서(rowPx는 최소값) 그려진 뒤에만 알 수 있다.
+  // 열은 잴 필요가 없다 — colgroup이 px 고정이라 앞 열 너비의 합이 곧 왼쪽 좌표다.
   const bodyRef = React.useRef(null);
-  const [frozenTops, setFrozenTops] = useState(null);
+  const [rowTops, setRowTops] = useState(null);   // [행별 offsetTop..., 마지막은 표 끝]
   useEffect(() => {
-    const frozen = book?.sheets?.[tab]?.frozenRows || 0;
-    if (!frozen || !bodyRef.current) { setFrozenTops(null); return; }
+    const sh = book?.sheets?.[tab];
+    if (!sh || !bodyRef.current || (!sh.frozenRows && !(sh.overlays || []).length)) { setRowTops(null); return; }
     const trs = bodyRef.current.querySelectorAll('tr');
-    const tops = [0];
-    for (let i = 0; i < frozen - 1 && i < trs.length; i++) tops.push(tops[i] + trs[i].offsetHeight);
-    setFrozenTops(tops);
+    const tops = [];
+    for (const tr of trs) tops.push(tr.offsetTop);
+    const last = trs[trs.length - 1];
+    tops.push(last ? last.offsetTop + last.offsetHeight : 0);
+    setRowTops(tops);
   }, [book, tab]);
 
   useEffect(() => {
@@ -176,34 +179,33 @@ export function SheetView({ blob, text = null, name = '', onError }) {
     return m;
   }, [sheet]);
 
-  // 그림을 앵커 셀에 붙인다. 앵커가 병합에 덮인 자리면(그 td는 안 그려진다)
-  // 그 병합의 앵커 셀로 옮긴다.
-  const imagesAt = useMemo(() => {
-    const m = new Map();
-    for (const im of sheet?.images || []) {
-      let key = `${im.r},${im.c}`;
-      if (covered.has(key)) {
-        const g = (sheet?.merges || []).find(g =>
-          im.r >= g.r && im.r < g.r + g.rs && im.c >= g.c && im.c < g.c + g.cs);
-        if (g) key = `${g.r},${g.c}`;
-      }
-      if (!m.has(key)) m.set(key, []);
-      m.get(key).push(im);
-    }
-    return m;
-  }, [sheet, covered]);
-
-  // 그림 폭: 원본 크기(ext)가 있으면 화면 배율로, 없으면 걸친 열들의 너비 합으로 어림
+  // 열 왼쪽 좌표 — colgroup이 px 고정이라 셈으로 나온다(잴 필요 없음)
   const colPx = (i) => viewColPx(sheet?.cols[i] ?? sheet?.defaultColPx ?? null);
-  const imgWidth = (im) => {
-    if (im.wPx) return Math.round(im.wPx * (VIEW_FONT_PX / 11.5));
-    if (im.c2 && sheet) {
-      let w = 0;
-      for (let i = im.c; i < im.c2 && i < (sheet.rows[0]?.length || 0); i++) w += colPx(i);
-      return w || null;
-    }
-    return null;
-  };
+  const colLefts = useMemo(() => {
+    const out = [0];
+    const n = sheet?.rows[0]?.length || 0;
+    for (let i = 0; i < n; i++) out.push(out[i] + colPx(i));
+    return out;
+  }, [sheet]);
+
+  // 그림·도형의 오버레이 상자 — 앵커(셀 + 셀 안 비율)를 실제 표 좌표로 푼다.
+  // 가로는 colLefts(결정적), 세로는 rowTops(그려진 뒤 잰 것).
+  const overlayBoxes = useMemo(() => {
+    if (!rowTops || !sheet?.overlays?.length) return [];
+    const x = (p) => colLefts[p.c] + (colLefts[p.c + 1] - colLefts[p.c]) * p.fx;
+    const y = (p) => rowTops[p.r] + ((rowTops[p.r + 1] ?? rowTops[p.r]) - rowTops[p.r]) * p.fy;
+    const scale = VIEW_FONT_PX / 11.5;             // 크기(ext)로만 그릴 때의 확대 배율
+    return sheet.overlays.map(item => {
+      const left = x(item.a), top = y(item.a);
+      let w = item.b ? x(item.b) - left : (item.size ? item.size.w * scale : 0);
+      let h = item.b ? y(item.b) - top : (item.size ? item.size.h * scale : 0);
+      if (w <= 2 || h <= 2) {                      // to가 from과 같은 칸에 뭉친 경우 크기로 폴백
+        if (item.size) { w = item.size.w * scale; h = item.size.h * scale; }
+        else return null;
+      }
+      return { ...item, left, top, w, h };
+    }).filter(Boolean);
+  }, [sheet, rowTops, colLefts]);
 
   if (!book || !sheet) {
     return (
@@ -242,6 +244,10 @@ export function SheetView({ blob, text = null, name = '', onError }) {
       {/* 표는 자기 상자 안에서 스크롤한다 — 모바일에서 화면 전체가 가로로 밀리면 안 된다.
           overscroll-contain이 표 끝에서 바깥(업무 창)이 따라 밀리는 것을 막는다. */}
       <div key={tab} className="dc-sheet flex-1 min-h-0 overflow-auto overscroll-contain rounded-md border border-line bg-surface">
+        {/* 그림·도형 오버레이의 기준 좌표계 — 표와 같은 크기로 감싼다.
+            오버레이는 표 '위'에 떠 있으므로(원본 엑셀과 같음) 스크롤을 따라 움직이고,
+            틀 고정 칸(z 2~4)이 그 위를 덮는다 — 엑셀에서도 고정 창이 그림을 덮는다. */}
+        <div className="relative w-fit">
         <table className="border-collapse" style={{ tableLayout: 'fixed' }}>
           <colgroup>
             {Array.from({ length: width }, (_, i) => (
@@ -261,16 +267,23 @@ export function SheetView({ blob, text = null, name = '', onError }) {
                   const paint = fillOf(cell?.bg);
                   const bd = cell?.bd;
                   const bar = cell?.bar;
-                  const imgs = imagesAt.get(`${r},${c}`);
                   const hasFilter = sheet.filter && r === sheet.filter.r && c >= sheet.filter.c1 && c <= sheet.filter.c2;
-                  // 틀 고정 — 원본이 붙여 둔 위 행들은 스크롤해도 붙어 있는다.
-                  // sticky 칸은 바닥이 비치므로 칠이 없으면 표면색을 깐다. 마지막 고정
-                  // 행에는 경계선 그림자를 — border-collapse에서는 sticky td의 테두리가
-                  // 같이 안 붙는다(브라우저 한계).
-                  const frozen = frozenTops && r < (sheet.frozenRows || 0)
+                  // 틀 고정 — 원본이 붙여 둔 위 행·왼쪽 열은 스크롤해도 붙어 있는다.
+                  // sticky 칸은 바닥이 비치므로 칠이 없으면 표면색을 깐다. 경계에는
+                  // 그림자 선을 — border-collapse에서는 sticky td의 테두리가 같이
+                  // 안 붙는다(브라우저 한계). 행·열이 겹치는 왼쪽 위 모서리는 둘 다 붙인다.
+                  const fzRow = rowTops && r < (sheet.frozenRows || 0);
+                  const fzCol = c < (sheet.frozenCols || 0);
+                  const frozen = (fzRow || fzCol)
                     ? {
-                        position: 'sticky', top: frozenTops[r] ?? 0, zIndex: 2,
-                        boxShadow: r === sheet.frozenRows - 1 ? '0 1px 0 var(--app-line)' : undefined,
+                        position: 'sticky',
+                        ...(fzRow ? { top: rowTops[r] ?? 0 } : {}),
+                        ...(fzCol ? { left: colLefts[c] } : {}),
+                        zIndex: fzRow && fzCol ? 4 : fzRow ? 3 : 2,
+                        boxShadow: [
+                          fzRow && r === sheet.frozenRows - 1 ? '0 1px 0 var(--app-line)' : '',
+                          fzCol && c === sheet.frozenCols - 1 ? '1px 0 0 var(--app-line)' : '',
+                        ].filter(Boolean).join(', ') || undefined,
                       }
                     : null;
                   // 글자색: 칠이 있으면 그 배경에 맞춰 고르고(작성자가 준 색이 읽히면 그걸
@@ -323,19 +336,9 @@ export function SheetView({ blob, text = null, name = '', onError }) {
                             {cell.icon.showValue && <span>{cell.v}</span>}
                           </span>
                         )
-                        : <span className="relative"><CellText cell={cell} painted={!!paint} /></span>}
+                        : <span className="relative"><CellText cell={cell} painted={!!paint} resetInk={paint ? paint.color : 'var(--app-ink)'} /></span>}
                       {/* 자동 필터 — 원본 머리행의 ▼ 버튼 자리. 아이콘만, 문구 없이. */}
                       {hasFilter && <ChevronDown size={10} className="relative inline align-[-1px] ml-0.5 text-fg-faint shrink-0" aria-hidden="true" />}
-                      {/* 시트에 얹힌 그림(도장·서명 스캔 등) — 앵커 셀 안에 그린다.
-                          원본은 셀 위에 떠 있지만, 행 높이를 원본대로 다 재현하지 않는
-                          한 픽셀 좌표는 어차피 안 맞는다. "그 자리에 그 그림"이 먼저다. */}
-                      {imgs?.map((im, i) => (
-                        <img
-                          key={i} src={im.src} alt=""
-                          className="relative block max-w-full"
-                          style={{ width: imgWidth(im) ? `${imgWidth(im)}px` : undefined }}
-                        />
-                      ))}
                     </td>
                   );
                 })}
@@ -343,6 +346,30 @@ export function SheetView({ blob, text = null, name = '', onError }) {
             ))}
           </tbody>
         </table>
+        {/* 시트에 얹힌 그림(도장·서명 스캔)과 도형(결재란 동그라미) — 원본 앵커
+            (셀 + 셀 안 비율) 그대로 표 위에 띄운다. 세로는 그려진 행 위치(rowTops),
+            가로는 colgroup의 px 합이라 표가 어떻게 늘어나도 비례가 따라간다. */}
+        {overlayBoxes.map((o, i) => o.kind === 'img'
+          ? (
+            <img
+              key={i} src={o.src} alt="" aria-hidden="true"
+              className="absolute pointer-events-none"
+              style={{ left: o.left, top: o.top, width: o.w, height: o.h, zIndex: 1 }}
+            />
+          )
+          : (
+            <span
+              key={i} aria-hidden="true"
+              className="absolute pointer-events-none"
+              style={{
+                left: o.left, top: o.top, width: o.w, height: o.h, zIndex: 1,
+                borderRadius: o.geom === 'ellipse' ? '50%' : o.geom === 'roundRect' ? 6 : 0,
+                border: o.stroke ? `${o.strokeW}px solid ${o.stroke}` : undefined,
+                background: o.fill || undefined,
+              }}
+            />
+          ))}
+        </div>
       </div>
 
       {sheet.truncated && (

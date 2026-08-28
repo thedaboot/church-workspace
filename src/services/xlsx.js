@@ -115,6 +115,18 @@ export const chromatic = (hex) => {
   return (l < 0.06 || l > 0.9) ? null : hex;
 };
 
+// '흰 종이' 판정 — 밝기만 보면 안 된다. 순노랑(#FFFF00)은 밝기가 0.93이라 종이로
+// 오판돼 **강조 칠이 통째로 사라졌다**(실물 결산안의 3,458,780 강조 — 사용자 지적).
+// 종이는 밝고 **무채색**이다: 채널 차가 크면(노랑·연분홍 등) 작성자가 고른 강조색이다.
+export const PAPER_L = 0.92;
+export function isPaper(hex) {
+  if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) return true;
+  if (luminance(hex) <= PAPER_L) return false;
+  const n = parseInt(hex.slice(1), 16);
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  return Math.max(...ch) - Math.min(...ch) < 40;   // 밝아도 유채색이면 강조다
+}
+
 // 글꼴 한 벌. <font>과 조건부 서식의 <dxf><font>이 같은 모양이라 둘이 같이 쓴다.
 // `<b/>`(값 없음)와 `<b val="1"/>` 둘 다 참이고, `val="0"`이면 거짓이다.
 const onFlag = (xml, tag) => new RegExp(`<${tag}(\\s*/>|\\s+val="(1|true)")`).test(xml);
@@ -599,24 +611,50 @@ export function readRuns(body, theme) {
     const f = readFont(rPr, theme);
     runs.push({
       t: unesc([...inner.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => m[1]).join('')),
-      // 검정·흰색은 기본값이라 버린다(chromatic) — 셀 글자색과 같은 판단.
+      // 유채색만 남긴다(chromatic) — 셀 글자색과 같은 판단.
       color: chromatic(f.color),
+      // **명시된 검정·흰색은 상속이 아니다.** 셀 글꼴이 주황이고 이 구간만 검정으로
+      // 적혀 있으면, null로 버려서 셀 색을 물려받게 하면 온 셀이 주황이 된다
+      // (실물 '(다과 찬조) 132,320/ (약) 40,000…'이 통째로 주황이 됐다 — 사용자 지적).
+      // 기본 잉크로 되돌리라는 표시를 따로 든다.
+      inkReset: !!f.color && !chromatic(f.color),
       bold: f.bold, italic: f.italic, strike: f.strike, under: f.under,
       szPx: f.sz ? szToPx(f.sz) : null,
     });
   }
   // 서식이 하나도 없으면 구간을 들고 다닐 이유가 없다
-  const plain = runs.every(r => !r.color && !r.bold && !r.italic && !r.strike && !r.under && !r.szPx);
+  const plain = runs.every(r => !r.color && !r.inkReset && !r.bold && !r.italic && !r.strike && !r.under && !r.szPx);
   return plain ? null : runs.filter(r => r.t);
 }
 
-// ── 시트 위 그림 ─────────────────────────────────────────────────────────────
+// ── 시트 위 그림·도형 ────────────────────────────────────────────────────────
 // <drawing r:id>를 따라 xl/drawings/*.xml → xl/media/*를 읽는다. 전표의 도장·서명
-// 스캔이 여기 있다(실물 3.8MB 중 3.6MB가 그림). 좌표는 앵커 셀(왼쪽 위)만 쓴다 —
-// 행 높이를 원본대로 다 그리지 않는 이상 픽셀 좌표는 어차피 안 맞으므로,
-// "그 자리(셀)에 그림이 있다"를 보여주는 것이 1단계다. 도형(sp)은 건너뛴다.
+// 스캔과 결재란의 동그라미(타원 도형)가 여기 있다(실물 3.8MB 중 3.6MB가 그림).
+//
+// 좌표는 앵커 셀 번호 + **셀 안 비율**로 옮긴다. 원본 오프셋은 EMU(절대 길이)인데
+// 우리 표는 열 폭을 키우고(1.087배) 상한에서 자르며 행 높이는 내용 따라 늘어난다 —
+// 절대 px를 그대로 쓰면 다 어긋난다. "그 셀의 몇 %"는 표가 어떻게 변해도 따라간다.
+// 화면은 그려진 표의 실제 행 위치를 재서 이 비율로 오버레이를 놓는다(SheetView).
 const IMG_MAX_BYTES = 3_000_000;   // 이보다 큰 그림은 접는다 — data URL로 들면 메모리가 그림의 ~1.4배
-async function readDrawings(sheetXml, sheetPath, entries) {
+const anchorPoint = (xml) => ({
+  c: Number((xml.match(/<xdr:col>(\d+)<\/xdr:col>/) || [])[1] ?? -1) + 1,   // 0基 → 1基
+  r: Number((xml.match(/<xdr:row>(\d+)<\/xdr:row>/) || [])[1] ?? -1) + 1,
+  xOff: emuToPx((xml.match(/<xdr:colOff>(\d+)<\/xdr:colOff>/) || [])[1] || 0),
+  yOff: emuToPx((xml.match(/<xdr:rowOff>(\d+)<\/xdr:rowOff>/) || [])[1] || 0),
+});
+// 도형·그림이 쓰는 색 하나를 푼다 — srgbClr(직접 색)와 schemeClr(테마색) 두 갈래.
+// 테마 검정(tx1)은 chromatic이 버리므로 '기본 잉크'로 돌려 다크 모드를 따라가게 한다.
+const SCHEME_IDX = { tx1: 0, dk1: 0, bg1: 1, lt1: 1, tx2: 2, dk2: 2, bg2: 3, lt2: 3,
+  accent1: 4, accent2: 5, accent3: 6, accent4: 7, accent5: 8, accent6: 9 };
+function drawColor(xml, theme) {
+  const srgb = (xml.match(/<a:srgbClr val="([0-9A-Fa-f]{6})"/) || [])[1];
+  if (srgb) return chromatic(`#${srgb}`) || 'var(--app-ink)';
+  const scheme = (xml.match(/<a:schemeClr val="(\w+)"/) || [])[1];
+  if (scheme === undefined) return null;
+  const hex = theme?.scheme?.[SCHEME_IDX[scheme]];
+  return hex ? (chromatic(`#${hex}`) || 'var(--app-ink)') : 'var(--app-ink)';
+}
+async function readDrawings(sheetXml, sheetPath, entries, theme) {
   const rid = attr((sheetXml.match(/<drawing[^>]*\/?>/) || [''])[0] || '', 'r:id');
   if (!rid) return [];
   const baseDir = sheetPath.replace(/\/[^/]+$/, '');
@@ -629,29 +667,46 @@ async function readDrawings(sheetXml, sheetPath, entries) {
   const out = [];
   for (const kind of ['xdr:twoCellAnchor', 'xdr:oneCellAnchor']) {
     for (const { inner } of blocks(dXml, kind)) {
-      const from = (inner.match(/<xdr:from>[\s\S]*?<\/xdr:from>/) || [''])[0];
-      // xdr 좌표는 0부터 센다 → 우리 격자(1부터)로 옮긴다
-      const r = Number((from.match(/<xdr:row>(\d+)<\/xdr:row>/) || [])[1] || 0) + 1;
-      const c = Number((from.match(/<xdr:col>(\d+)<\/xdr:col>/) || [])[1] || 0) + 1;
-      const embed = (inner.match(/<a:blip[^>]*r:embed="([^"]+)"/) || [])[1];
-      if (!embed) continue;                        // 그림 없는 앵커(도형)다
-      const media = dRels[embed];
-      if (!media) continue;
-      const bytes = await readBytes(entries, media);
-      if (!bytes || bytes.length > IMG_MAX_BYTES) continue;
-      const src = dataUrl(bytes, media);
-      if (!src) continue;
+      const a = anchorPoint((inner.match(/<xdr:from>[\s\S]*?<\/xdr:from>/) || [''])[0]);
+      if (a.c < 1 || a.r < 1) continue;
+      const toXml = (inner.match(/<xdr:to>[\s\S]*?<\/xdr:to>/) || [''])[0];
+      const b = toXml ? anchorPoint(toXml) : null;
       const ext = inner.match(/<(?:a|xdr):ext[^>]*cx="(\d+)"[^>]*cy="(\d+)"/);
-      // twoCellAnchor에는 크기(ext)가 없는 파일이 있다(실물 전표의 도장 스캔이 0x0으로
-      // 왔다) — 그때는 끝 셀(to)을 실어 보내서 화면이 열 너비 합으로 폭을 어림한다.
-      const to = (inner.match(/<xdr:to>[\s\S]*?<\/xdr:to>/) || [''])[0];
-      const r2 = Number((to.match(/<xdr:row>(\d+)<\/xdr:row>/) || [])[1] ?? -1) + 1;
-      const c2 = Number((to.match(/<xdr:col>(\d+)<\/xdr:col>/) || [])[1] ?? -1) + 1;
-      out.push({
-        r, c, src,
-        wPx: ext ? emuToPx(ext[1]) : null, hPx: ext ? emuToPx(ext[2]) : null,
-        r2: r2 > r ? r2 : null, c2: c2 > c ? c2 : null,
-      });
+      // cx=0 cy=0인 ext는 크기가 아니다 — 실물 전표의 치워 둔 스캔이 이 모양이었다
+      const size = ext && Number(ext[1]) > 0 && Number(ext[2]) > 0
+        ? { w: emuToPx(ext[1]), h: emuToPx(ext[2]) } : null;
+
+      // from=to에 크기(ext)도 없으면 **원본 엑셀에서도 안 보이는** 그림이다 — 시트 밖에
+      // 치워 둔 것(실물 전표의 1.85MB 스캔이 이랬다). 바이트를 읽기 전에 거른다.
+      const parked = !size && b && b.c === a.c && b.r === a.r && b.xOff === a.xOff && b.yOff === a.yOff;
+      if (parked) continue;
+      const embed = (inner.match(/<a:blip[^>]*r:embed="([^"]+)"/) || [])[1];
+      if (embed) {
+        const media = dRels[embed];
+        if (!media) continue;
+        const bytes = await readBytes(entries, media);
+        if (!bytes || bytes.length > IMG_MAX_BYTES) continue;
+        const src = dataUrl(bytes, media);
+        if (src) out.push({ kind: 'img', src, a, b, size });
+        continue;
+      }
+      // 도형(xdr:sp) — 결재란의 동그라미 같은 표시다. 기본 꼴 세 가지만 그린다
+      // (타원·직사각형·둥근 직사각형). 그 밖의 꼴은 건너뛴다 — 틀리게 그리느니 안 그린다.
+      const sp = (inner.match(/<xdr:sp[\s\S]*?<\/xdr:sp>/) || [null])[0];
+      if (!sp) continue;
+      const geom = (sp.match(/<a:prstGeom[^>]*prst="([^"]+)"/) || [])[1];
+      if (!['ellipse', 'rect', 'roundRect'].includes(geom)) continue;
+      // 테두리 색·굵기(a:ln). srgbClr(직접)과 schemeClr(테마 — 실물 타원이 tx1 검정이다)
+      // 둘 다 푼다. 색이 아예 없으면 안 그린다 — 투명 도형일 수 있다.
+      const ln = (sp.match(/<a:ln[\s\S]*?<\/a:ln>/) || [''])[0];
+      const stroke = ln.includes('noFill') ? null : drawColor(ln, theme);
+      const strokeW = Math.max(1, Math.round(emuToPx((ln.match(/<a:ln[^>]*w="(\d+)"/) || [])[1] || 28575)));
+      // 채움(도형 몸통) — 없거나 noFill이면 속이 빈 도형이다
+      const bodyXml = sp.replace(/<a:ln[\s\S]*?<\/a:ln>/, '');
+      const fill = /<a:noFill\/>/.test(bodyXml) ? null
+        : drawColor((bodyXml.match(/<a:solidFill>[\s\S]*?<\/a:solidFill>/) || [''])[0], theme);
+      if (!stroke && !fill) continue;
+      out.push({ kind: 'shape', geom, stroke, strokeW, fill, a, b, size });
     }
   }
   return out;
@@ -766,7 +821,7 @@ export async function parseXlsx(buf) {
     // 그림은 비동기(zip 풀기)라 여기서 미리 읽어 넘긴다 — readSheet는 순수 동기다.
     // 못 읽는 그림(깨진 rels·너무 큰 파일)은 조용히 빠진다. 표가 그림 때문에 죽으면 안 된다.
     let images = [];
-    try { images = await readDrawings(xml, def.path, entries); }
+    try { images = await readDrawings(xml, def.path, entries, theme); }
     catch (e) { console.warn('[xlsx] 시트 그림을 읽지 못했다:', def.name, e?.message || e); }
     sheets.push(readSheet(xml, def.name, shared, xfs, dxfs, theme, images));
   }
@@ -948,19 +1003,33 @@ function readSheet(xml, name, shared, xfs, dxfs = [], theme = [], images = []) {
     rowPx.push(rowHt.has(r) ? rowHtToPx(rowHt.get(r)) : null);
   }
 
-  // 틀 고정 — 위 N행을 스크롤해도 붙여 둔다(26_결산이 113행인데 머리 2행이 고정이다).
-  // 열 고정(xSplit)은 안 한다 — 표가 자기 상자에서 가로 스크롤되는 우리 구조에서
-  // sticky 열은 병합과 자주 부딪히고, 실물 파일들이 쓰지도 않는다.
-  // 병합이 고정 경계에 걸쳐 있으면 접는다 — rowSpan이 경계를 넘으면 붙는 줄이 찢어진다.
+  // 틀 고정 — 원본이 붙여 둔 위 N행·왼쪽 N열을 스크롤해도 붙여 둔다.
+  // 병합이 고정 경계에 걸쳐 있으면 그쪽 고정은 접는다 — span이 경계를 넘으면
+  // 붙는 줄이 찢어진다.
   const pane = attrs((xml.match(/<pane[^>]*\/?>/) || [''])[0] || '');
   let frozenRows = 0;
-  if ((pane.state === 'frozen' || pane.state === 'frozenSplit') && Number(pane.ySplit) > 0) {
-    frozenRows = Math.max(0, Math.min(Number(pane.ySplit) - (firstR - 1), 5));
-    const crosses = merges.some(g => {
-      const r = g.r - firstR;
-      return r < frozenRows && r + g.rs > frozenRows;
-    });
-    if (crosses || frozenRows >= rows.length) frozenRows = 0;
+  let frozenCols = 0;
+  if (pane.state === 'frozen' || pane.state === 'frozenSplit') {
+    if (Number(pane.ySplit) > 0) {
+      frozenRows = Math.max(0, Math.min(Number(pane.ySplit) - (firstR - 1), 5));
+      const crosses = merges.some(g => {
+        const r = g.r - firstR;
+        return r < frozenRows && r + g.rs > frozenRows;
+      });
+      if (crosses || frozenRows >= rows.length) frozenRows = 0;
+    }
+    if (Number(pane.xSplit) > 0) {
+      // xSplit은 원본 열 기준 — 걷어낸 왼쪽 여백과 숨긴 열만큼 당긴다
+      frozenCols = Math.max(0, Math.min(mapC(Number(pane.xSplit) + 1), 4));
+      // 고정 행 안에 다 들어간 병합(전체 폭 제목이 흔하다)은 경계를 넘어도 된다 —
+      // 그 행들은 어차피 세로로 붙어 있어서 찢어질 것이 없다.
+      const crosses = merges.some(g => {
+        if ((g.r - firstR) + g.rs <= frozenRows) return false;
+        const c = mapC(g.c);
+        return c < frozenCols && c + (mapC(g.c + g.cs) - c) > frozenCols;
+      });
+      if (crosses || frozenCols >= visCols.length) frozenCols = 0;
+    }
   }
 
   // 자동 필터 — 조건은 이미 행 hidden으로 반영돼 있으므로(엑셀이 적어 둔다) 여기서는
@@ -996,17 +1065,25 @@ function readSheet(xml, name, shared, xfs, dxfs = [], theme = [], images = []) {
     rows,
     rowPx,
     frozenRows,
+    frozenCols,
     filter,
-    // 그림 — 앵커 셀 좌표를 화면 좌표로. 값 영역을 걷어낸 뒤 표 **밖**에 걸린 그림은
-    // 마지막 칸으로 끌어다 붙인다(실물 양육비 시트의 스캔이 표 오른쪽 K열에 떠 있었다).
-    // 자리를 잃는 것보다 "그 시트에 이 그림이 있다"가 먼저다.
-    images: rows.length ? (images || [])
-      .map(im => ({
-        ...im,
-        r: Math.max(0, Math.min(im.r - firstR, rows.length - 1)),
-        c: Math.max(0, Math.min(mapC(im.c), visCols.length - 1)),
-        c2: im.c2 ? Math.min(mapC(im.c2), visCols.length) : null,
-      })) : [],
+    // 그림·도형 — 앵커를 화면 좌표(셀 번호 + 셀 안 비율)로 옮긴다. 오프셋(EMU→px)은
+    // **원본 셀 크기 대비 비율**로 바꾼다: 우리 표는 열을 키우고 자르며 행은 내용
+    // 따라 늘어나므로 절대 px는 다 어긋나지만, "그 셀의 몇 %"는 그대로 따라간다.
+    // 값 영역 밖에 걸린 것은 가장자리 칸으로 끌어다 붙인다(실물 양육비 시트의 스캔이
+    // 표 오른쪽 K열에 떠 있었다) — 자리를 잃는 것보다 "여기 이게 있다"가 먼저다.
+    overlays: rows.length ? (images || []).map(item => {
+      const origColPx = (c) => cols[c - 1] ?? defaultColPx ?? widthToPx(8.43);
+      // 비율의 분모는 **원본 96dpi 크기**다(오프셋도 그 눈금이다) — 확대 배율을 곱하면 안 된다
+      const origRowPx = (r) => (rowHt.get(r) ?? 15) * (4 / 3);  // 엑셀 기본 행 15pt
+      const pt = (p) => p ? {
+        r: Math.max(0, Math.min(p.r - firstR, rows.length - 1)),
+        c: Math.max(0, Math.min(mapC(p.c), visCols.length - 1)),
+        fx: Math.max(0, Math.min(p.xOff / origColPx(p.c), 1)),
+        fy: Math.max(0, Math.min(p.yOff / origRowPx(p.r), 1)),
+      } : null;
+      return { ...item, a: pt(item.a), b: pt(item.b) };
+    }) : [],
     truncated,
   };
 }
