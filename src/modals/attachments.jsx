@@ -1,16 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, Loader2, AlertTriangle, Eye, Trash2, X, Lock, LockOpen } from 'lucide-react';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, getFileOpenUrl, setFilePassword, checkFilePassword, driveImageUrl, fetchDriveFileBlob } from '../services/cloud.js';
 import { FilePreviewModal } from '../components/FilePreviewModal.jsx';
-import { SheetView } from '../components/SheetView.jsx';
 import { SmartImage, Skeleton } from '../components/media.jsx';
 import { useStore, store } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
 import { ensureProjectFolder, ensureCardFolder } from '../services/cloudSync.js';
 import { downscaleImage, FILE_MAX_DIM } from '../services/image.js';
+
+// 엑셀 표 그리기는 **펼쳐볼 때만** 필요하다 — 파서(xlsx.js)와 수식 계산기(formula.js)가
+// 같이 딸려 오는데, 메인 번들에 두면 첨부를 한 번도 안 여는 사람까지 내려받는다.
+const SheetView = lazy(() => import('../components/SheetView.jsx').then(m => ({ default: m.SheetView })));
 
 // ============================================================================
 // 업무 창의 첨부 파일 영역 (클라우드 모드 전용)
@@ -225,7 +228,11 @@ function InlineSheet({ row }) {
     <div className="pb-2">
       <div className={`relative w-full ${tall ? 'h-[75dvh]' : 'h-[320px] md:h-[420px]'}`}>
         {src
-          ? <SheetView blob={src.blob} text={src.text ?? null} name={row.name} onError={(e) => setErr(e.message || String(e))} />
+          ? (
+            <Suspense fallback={<Skeleton className="w-full h-full" />}>
+              <SheetView blob={src.blob} text={src.text ?? null} name={row.name} onError={(e) => setErr(e.message || String(e))} />
+            </Suspense>
+          )
           : <Skeleton className="w-full h-full" />}
       </div>
       <div className="flex items-center justify-end mt-1">

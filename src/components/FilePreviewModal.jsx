@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
 import { RichText } from './RichText.jsx';
@@ -6,7 +6,11 @@ import { getFileOpenUrl, driveImageFullUrl, fetchDriveFileBlob } from '../servic
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { Skeleton, SmartImage } from './media.jsx';
 import { PdfView } from './PdfView.jsx';
-import { SheetView } from './SheetView.jsx';
+// 엑셀 표 그리기는 **엑셀을 열 때만** 필요하다 — 파서(xlsx.js)와 수식 계산기(formula.js)가
+// 같이 딸려 오는데, 메인 번들에 두면 엑셀을 한 번도 안 여는 사람까지 내려받는다.
+// 부르는 쪽은 그대로 <SheetView …/>를 쓴다 — 기다리는 자리는 여기서 한 번만 정한다.
+const SheetTable = lazy(() => import('./SheetView.jsx').then(m => ({ default: m.SheetView })));
+const SheetView = (props) => <Suspense fallback={<PreparingFrame />}><SheetTable {...props} /></Suspense>;
 
 // ============================================================================
 // 첨부 미리보기 — 새 탭으로 스토리지 링크를 던지지 않고 앱 안에서 본다.
