@@ -132,15 +132,47 @@ function applyTint(hex, tint) {
   });
   return ch.map(v => v.toString(16).padStart(2, '0')).join('');
 }
+// 옛 색 지정 방식(`<fgColor indexed="9"/>`). 엑셀 2003 시절의 고정 56색 팔레트이고,
+// **지금도 이 방식으로 쓰는 파일이 있다** — 실제로 워크스페이스의 결산안 하나가
+// 통째로 indexed였고, 이걸 몰라서 그 파일만 **배경색이 하나도 안 나왔다**(사용자 지적).
+// 0~7이 8~15에 그대로 한 번 더 나온다(스펙이 그렇다). 64·65는 자동(시스템) 색이라
+// 우리가 정할 값이 아니므로 null로 둔다.
+const INDEXED = [
+  '000000', 'FFFFFF', 'FF0000', '00FF00', '0000FF', 'FFFF00', 'FF00FF', '00FFFF',
+  '000000', 'FFFFFF', 'FF0000', '00FF00', '0000FF', 'FFFF00', 'FF00FF', '00FFFF',
+  '800000', '008000', '000080', '808000', '800080', '008080', 'C0C0C0', '808080',
+  '9999FF', '993366', 'FFFFCC', 'CCFFFF', '660066', 'FF8080', '0066CC', 'CCCCFF',
+  '000080', 'FF00FF', 'FFFF00', '00FFFF', '800080', '800000', '008080', '0000FF',
+  '00CCFF', 'CCFFFF', 'CCFFCC', 'FFFF99', '99CCFF', 'FF99CC', 'CC99FF', 'FFCC99',
+  '3366FF', '33CCCC', '99CC00', 'FFCC00', 'FF9900', 'FF6600', '666699', '969696',
+  '003366', '339966', '003300', '333300', '993300', '993366', '333399', '333333',
+];
+// 파일이 팔레트를 스스로 정해 두면 그것을 쓴다(<indexedColors>는 드물지만 스펙에 있고,
+// 실제로 워크스페이스의 결산안이 그렇다 — 그 표가 기본 팔레트와 다른 색을 쓴다).
+// **모듈 전역에 두지 않는다** — 파일 두 개를 동시에 열면 서로 덮는다.
+function readIndexedPalette(stXml) {
+  const block = (stXml.match(/<indexedColors>[\s\S]*?<\/indexedColors>/) || [''])[0];
+  const list = [...block.matchAll(/<rgbColor rgb="([0-9A-Fa-f]{6,8})"/g)].map(m => m[1].slice(-6));
+  return list.length ? list : INDEXED;
+}
+
+// theme = { scheme: [테마색…], indexed: [팔레트…] } — 파일 하나마다 만들어 넘긴다
 function colorOf(tag, theme) {
   if (!tag) return null;
+  if (attr(tag, 'auto') === '1') return null;            // 시스템 기본색 — 우리 토큰에 맡긴다
   const rgb = attr(tag, 'rgb');
   if (rgb) return `#${rgb.length === 8 ? rgb.slice(2) : rgb}`;   // ARGB → RGB
   const th = attr(tag, 'theme');
   if (th !== null) {
     const idx = THEME_ORDER[Number(th)] ?? Number(th);
-    const base = theme[idx];
+    const base = theme?.scheme?.[idx];
     if (base) return `#${applyTint(base, Number(attr(tag, 'tint') || 0))}`;
+  }
+  const ix = attr(tag, 'indexed');
+  if (ix !== null) {
+    const hex = (theme?.indexed || INDEXED)[Number(ix)];
+    // 64(전경)·65(배경)는 자동이라 팔레트에 없다 — 그때는 null이 맞다
+    if (hex) return `#${applyTint(hex, Number(attr(tag, 'tint') || 0))}`;
   }
   return null;
 }
@@ -537,7 +569,9 @@ export async function parseXlsx(buf) {
     shared.push(unesc([...body.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => m[1]).join('')));
   }
 
-  const theme = themeColors(thXml);
+  // 색을 푸는 데 필요한 것 두 벌 — 테마색과 옛 방식(indexed) 팔레트.
+  // 파일마다 만들어 넘긴다(전역에 두면 동시에 두 파일을 열 때 서로 덮는다).
+  const theme = { scheme: themeColors(thXml), indexed: readIndexedPalette(stXml) };
 
   // 스타일: numFmt · font(굵게) · fill(배경) 을 cellXfs 인덱스로 모은다
   const numFmts = { ...BUILTIN };

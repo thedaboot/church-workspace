@@ -553,7 +553,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
           <input ref={inputRef} type="file" multiple className="hidden" onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
           <UploadCloud size={20} strokeWidth={1.75} className="mx-auto text-fg-faint mb-1" />
           <p className="text-[11px] text-fg-muted">파일을 끌어다 놓거나 클릭해서 선택하세요</p>
-          <p className="text-[10px] text-fg-faint mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 {MAX_UPLOAD_MB}MB · 사진은 긴 변 {FILE_MAX_DIM}px로 줄여서 올려요</p>
+          <p className="text-[10px] text-fg-faint mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 {MAX_UPLOAD_MB}MB</p>
         </div>
       )}
       {!readOnly && rejected.length > 0 && (

@@ -41,7 +41,7 @@
 6. 나온 **웹 앱 URL**과 `SHARED_TOKEN`을 전달 (채팅·메일로 보내지 말고 안전한 경로로)
 
 ```javascript
-// 더다붓 워크스페이스 → 개인 드라이브 파일 저장기 (v5)
+// 더다붓 워크스페이스 → 개인 드라이브 파일 저장기 (v6)
 //
 // v4에서 달라진 것 (2026-08-28):
 //  1) upload이 **멱등 열쇠(key)** 를 받는다. 재시도(retry:true)일 때 같은 열쇠의
@@ -53,6 +53,16 @@
 //  2) **list** 액션 — 폴더 안 파일을 열쇠와 함께 돌려준다. 업로드가 끊겼을 때
 //     "정말 안 올라갔는지" 확인하고, DB와 드라이브를 맞춰보는 데 쓴다.
 //     list는 폴더를 **만들지 않는다**(없으면 files: []).
+//
+// v5에서 달라진 것 (2026-08-28):
+//  3) **uploadFromUrl** — 파일 내용 대신 **주소**를 받아 스크립트가 직접 받아 온다.
+//     왜: Vercel 함수는 요청 몸통을 **4.5MB**까지만 받는다(실측: 4MB 통과 · 4.4MB
+//     413 FUNCTION_PAYLOAD_TOO_LARGE). base64가 33%를 붙이니 실제 파일은 3.3MB가
+//     천장이었고, 그보다 큰 파일은 **함수에 닿지도 못하고** 잘렸다(사용자 신고:
+//     20MB PDF가 올리자마자 실패). 그래서 큰 파일은 브라우저가 Supabase Storage에
+//     **직접** 올리고(그 길에는 함수가 없다), 우리는 주소만 넘긴다. 바이트가 함수를
+//     지나가지 않으므로 한도가 사라지고 base64도 붙지 않는다.
+//     UrlFetchApp의 응답 한도는 50MB라 첨부 상한(25MB)에 넉넉하다.
 //
 // 열쇠는 파일 설명(description)에 적는다 — DriveApp만으로 읽고 쓸 수 있어
 // 고급 서비스를 켤 필요가 없고, 드라이브에서 눈으로 봐도 방해되지 않는다.
@@ -70,6 +80,7 @@ function doPost(e) {
 
     switch (body.action || 'upload') {
       case 'upload':       return json(upload(body));
+      case 'uploadFromUrl': return json(uploadFromUrl(body));
       case 'ensureFolder': return json({ folderId: folderFor(body).getId() });
       case 'renameFolder': return json(renameFolder(body));
       case 'trash':        return json(trash(body));
@@ -138,6 +149,29 @@ function upload(body) {
   if (body.key) file.setDescription(KEY_PREFIX + body.key);
   // 링크를 아는 사람은 보기 — 앱이 lh3.googleusercontent.com/d/<id>로 썸네일을 붙인다.
   // 이 줄이 없으면 소유자만 열 수 있어서 앱 안 이미지가 전부 깨진다.
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return { id: file.getId(), url: file.getUrl(), folderId: folder.getId() };
+}
+
+// 주소에서 받아 드라이브에 쓴다. upload과 같은 결과를 돌려준다.
+// 큰 파일 전용 — 바이트가 우리 함수를 지나가지 않는다(위 v6 설명 참고).
+function uploadFromUrl(body) {
+  var folder = folderFor(body);
+  if (body.cardTitle) folder = childFolder(folder, String(body.cardTitle));
+
+  if (body.retry) {
+    var found = findByKey(folder, body.key);
+    if (found) return { id: found.getId(), url: found.getUrl(), folderId: folder.getId(), existing: true };
+  }
+
+  var res = UrlFetchApp.fetch(String(body.url), { muteHttpExceptions: true, followRedirects: true });
+  if (res.getResponseCode() >= 300) {
+    return { error: '파일을 받아오지 못했습니다 (' + res.getResponseCode() + ')' };
+  }
+  var blob = res.getBlob().setName(body.name || 'file');
+  if (body.mimeType) blob = blob.setContentType(body.mimeType);
+  var file = folder.createFile(blob);
+  if (body.key) file.setDescription(KEY_PREFIX + body.key);
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   return { id: file.getId(), url: file.getUrl(), folderId: folder.getId() };
 }

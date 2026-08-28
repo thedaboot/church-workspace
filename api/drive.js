@@ -10,10 +10,12 @@ import { createClient } from '@supabase/supabase-js';
 // (소유권도 용량도 가질 수 없다). 소유자 계정으로 실행되는 스크립트가 유일하게
 // 남는 길이다. 자세한 배경은 docs/DRIVE.md.
 //
-// 몸통 크기: Vercel 함수는 100MB까지 받지만 첨부 상한은 25MB이고, base64는 원본의
-// 약 4/3이라 요청은 34MB쯤이다. **그 전송 시간이 함수 실행 시간에 들어간다** —
-// Hobby 플랜 상한이 60초라 늘릴 수 없어서, 사진은 올리기 전에 줄여서 보낸다
-// (src/services/image.js · 긴 변 2560px).
+// **몸통 한도가 4.5MB다**(실측 2026-08-28: 4MB는 함수까지 가고 4.4MB부터 413
+// FUNCTION_PAYLOAD_TOO_LARGE). base64가 33%를 붙이니 실제 파일은 3.3MB가 천장이고,
+// 그보다 크면 **이 함수에 닿지도 못한 채** 가장자리에서 잘린다 — 아래 한국어 이유가
+// 나올 기회조차 없다. 그래서 큰 파일은 브라우저가 Storage에 직접 올리고 여기로는
+// **주소만** 온다(action: 'uploadFromUrl' · cloud.uploadViaStorage).
+// 사진은 그와 별개로 올리기 전에 줄인다(src/services/image.js · 긴 변 2560px).
 // ============================================================================
 
 // 클라이언트(attachments.jsx의 MAX_UPLOAD_MB)와 **같은 값이어야 한다.**
@@ -21,7 +23,7 @@ import { createClient } from '@supabase/supabase-js';
 // 화면이 허락한 파일이 서버에서 거절된다. tests/drivesync.mjs가 둘을 맞춰 본다.
 const MAX_MB = 25;
 const MAX_BYTES = MAX_MB * 1024 * 1024;
-const ACTIONS = new Set(['upload', 'ensureFolder', 'renameFolder', 'trash', 'list']);
+const ACTIONS = new Set(['upload', 'uploadFromUrl', 'ensureFolder', 'renameFolder', 'trash', 'list']);
 
 // 스크립트가 이 시간 안에 답하지 않으면 **우리가 먼저 끊는다.**
 // 안 끊으면 함수가 죽을 때까지 매달리고, 그때 브라우저가 받는 것은 JSON이 아니라

@@ -114,6 +114,12 @@ function miniXlsx() {
       + '</iconSet></cfRule></conditionalFormatting>'
       + '</worksheet>'],
   ];
+  return zipOf(files);
+}
+
+// 파일 목록 → 압축 없이(stored) 담은 zip. 검사에 zip 라이브러리를 들이지 않으려는
+// 것이고, 파서의 stored 경로도 같이 지난다.
+function zipOf(files) {
   const enc = new TextEncoder();
   const chunks = [], central = [];
   let offset = 0;
@@ -302,6 +308,42 @@ check('조건부 서식: 규칙 없는 칸은 건드리지 않는다', () => {
   // 수식 규칙(expression)·아이콘 집합은 적용하지 않는다 — 틀린 색을 칠하는 것보다
   // 안 칠하는 쪽이 낫다. 규칙이 안 닿은 칸에 cf 표시가 붙으면 여기서 걸린다.
   assert.strictEqual(sheet.rows[0][0].cf, undefined);
+});
+
+// ── 옛 방식(indexed) 색 ─────────────────────────────────────────────────────
+// 워크스페이스의 결산안 하나가 통째로 indexed였고, 이걸 몰라서 그 파일만
+// **배경색이 하나도 안 나왔다**(사용자 지적 2026-08-28 — "우리 톤에 맞게 조정을
+// 하지 않았었나"). rgb·theme만 읽고 있었다.
+const idxBook = await parseXlsx(zipOf([
+  ['xl/workbook.xml', '<workbook><sheets><sheet name="색" sheetId="1" r:id="rId1"/></sheets></workbook>'],
+  ['xl/_rels/workbook.xml.rels', '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'],
+  ['xl/styles.xml',
+    '<styleSheet>'
+    // 파일이 팔레트를 스스로 정해 둔다 — 12번만 바꾼다(나머지는 기본 팔레트)
+    + '<colors><indexedColors>'
+    + Array.from({ length: 64 }, (_, i) => `<rgbColor rgb="00${i === 12 ? '123456' : (i === 10 ? 'FF0000' : '000000')}"/>`).join('')
+    + '</indexedColors></colors>'
+    + '<fonts><font/></fonts>'
+    + '<fills><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>'
+    + '<fill><patternFill patternType="solid"><fgColor indexed="10"/></patternFill></fill>'
+    + '<fill><patternFill patternType="solid"><fgColor indexed="12"/></patternFill></fill>'
+    + '<fill><patternFill patternType="solid"><fgColor auto="1"/></patternFill></fill></fills>'
+    + '<borders><border/></borders>'
+    + '<cellXfs><xf fillId="0"/><xf fillId="2"/><xf fillId="3"/><xf fillId="4"/></cellXfs>'
+    + '</styleSheet>'],
+  ['xl/worksheets/sheet1.xml',
+    '<worksheet><sheetData><row r="1">'
+    + '<c r="A1" s="1"><v>1</v></c><c r="B1" s="2"><v>2</v></c><c r="C1" s="3"><v>3</v></c>'
+    + '</row></sheetData></worksheet>'],
+]));
+
+check('색: 옛 방식(indexed)도 읽는다', () => {
+  const s2 = idxBook.sheets[0];
+  assert.strictEqual(s2.rows[0][0].bg, '#FF0000', 'indexed="10"을 못 읽었다');
+  // <indexedColors>로 팔레트를 바꿔 두면 그것을 따라야 한다
+  assert.strictEqual(s2.rows[0][1].bg, '#123456', '파일이 정한 팔레트를 안 봤다');
+  // auto="1"은 시스템 기본색 — 우리 토큰에 맡겨야 한다(칠하면 안 된다)
+  assert.strictEqual(s2.rows[0][2].bg, null, 'auto 색을 그대로 칠했다');
 });
 
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');

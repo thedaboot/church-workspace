@@ -514,6 +514,66 @@ async function uploadOnceOrFind(payload, folderHint) {
   }
 }
 
+// Vercel 함수가 받아 주는 요청 몸통의 한도. **실측**(2026-08-28, 배포된 함수에
+// 크기별로 던져 봄): 4MB는 401까지 가고 4.4MB부터 413 FUNCTION_PAYLOAD_TOO_LARGE다.
+// base64가 33%를 붙이니 실제 파일은 3.3MB가 천장이었고, 그보다 큰 파일은
+// **함수에 닿지도 못하고** 가장자리에서 잘렸다 — 우리가 준비한 한국어 이유조차
+// 나올 수 없었다(사용자 신고: 20MB PDF가 올리자마자 실패).
+// 여유를 두고 3MB로 잡는다. 이보다 크면 Storage를 거쳐 나른다(uploadViaStorage).
+const INLINE_MAX = 3 * 1024 * 1024;
+
+// 큰 파일 — 바이트가 **우리 함수를 지나가지 않는다.**
+// 브라우저가 Storage에 직접 올리고(그 길에는 함수가 없어 4.5MB 한도가 없다),
+// 스크립트에는 주소만 넘겨 받아 가게 한다.
+//
+// **스크립트가 v5면(uploadFromUrl을 모르면) 그 파일은 Storage에 그대로 둔다.**
+// 이 앱은 원래 Storage에 파일을 두던 구조이고 읽기 경로가 아직 파일 한 건 단위로
+// 갈라져 있어서(files.source), 그대로 두어도 미리보기·썸네일·새 탭이 전부 동작한다.
+// 스크립트를 못 고치는 상황에서도 큰 파일이 **올라가기는 해야 한다** — 실패하는 것보다
+// 낫고, 나중에 v6을 올리면 scripts/migrate_to_drive.mjs가 드라이브로 옮겨 준다.
+//
+// 돌려주는 것: { drive } 또는 { storagePath } 중 하나.
+async function uploadViaStorage(file, { projectId, cardId, key, folderHint }) {
+  const c = client();
+  const safe = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = `${projectId}/${cardId}/${newKey()}-${safe}`;
+  const put = await c.storage.from(ATTACH_BUCKET).upload(path, file, {
+    contentType: file.type || undefined, upsert: false, cacheControl: '2592000',
+  });
+  if (put.error) throw put.error;
+
+  let signed;
+  try {
+    const { data, error } = await c.storage.from(ATTACH_BUCKET).createSignedUrl(path, 600);
+    if (error) throw error;
+    signed = data.signedUrl;
+  } catch (e) {
+    console.warn('[drive] 주소를 못 만들어 Storage에 둔다:', e.message || e);
+    return { storagePath: path };
+  }
+
+  try {
+    const drive = await uploadOnceOrFind({
+      action: 'uploadFromUrl',
+      ...folderHint,
+      key,
+      url: signed,
+      name: file.name, mimeType: file.type || undefined,
+    }, folderHint);
+    // 드라이브로 갔으니 옮겨 담는 자리는 치운다. 실패해도 던지지 않는다 —
+    // 남은 사본은 용량만 차지하고, 그것 때문에 첨부가 막히면 안 된다.
+    c.storage.from(ATTACH_BUCKET).remove([path])
+      .then(r => { if (r.error) console.warn('[drive] 임시 사본 정리 실패:', r.error.message); })
+      .catch(e => console.warn('[drive] 임시 사본 정리 실패:', e));
+    return { drive };
+  } catch (e) {
+    // v5 스크립트는 'unknown action'을 돌려준다. 그 밖의 실패도 같이 받는다 —
+    // 파일은 이미 Storage에 올라가 있으므로 **버리지 않고 그대로 쓴다.**
+    console.warn('[drive] 드라이브로 못 옮겨 Storage에 둔다:', e.human || e.message || e);
+    return { storagePath: path };
+  }
+}
+
 export async function uploadAttachment(file, { projectId, cardId, projectName, driveFolderId, cardTitle, cardFolderId }) {
   const c = client();
   const key = newKey();
@@ -522,15 +582,22 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
   const folderHint = cardFolderId
     ? { folderId: cardFolderId }
     : { folderId: driveFolderId || undefined, projectName: projectName || '기타', cardTitle: cardTitle || undefined };
-  let up;
+  let up = null;          // 드라이브에 올라간 경우
+  let storagePath = null; // Storage에 남긴 경우(스크립트가 v5거나 옮기기 실패)
   try {
-    up = await uploadOnceOrFind({
-      action: 'upload',
-      ...folderHint,
-      key,
-      name: file.name, mimeType: file.type || undefined,
-      dataBase64: await fileToBase64(file),
-    }, folderHint);
+    if ((file.size ?? 0) > INLINE_MAX) {
+      const out = await uploadViaStorage(file, { projectId, cardId, key, folderHint });
+      up = out.drive || null;
+      storagePath = out.storagePath || null;
+    } else {
+      up = await uploadOnceOrFind({
+        action: 'upload',
+        ...folderHint,
+        key,
+        name: file.name, mimeType: file.type || undefined,
+        dataBase64: await fileToBase64(file),
+      }, folderHint);
+    }
   } catch (e) {
     if (!e.notConfigured) throw e;
     // 드라이브가 없는 환경 — 예전 경로 그대로
@@ -545,17 +612,19 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
       name: file.name,
       mime_type: file.type || null,
       size_bytes: file.size ?? null,
-      source: 'drive',
-      drive_file_id: up.id,
-      web_view_link: up.url,
+      ...(up
+        ? { source: 'drive', drive_file_id: up.id, web_view_link: up.url }
+        : { source: 'storage', storage_path: storagePath }),
     }).select().single());
   } catch (e) {
     // 드라이브에는 올라갔는데 DB 행을 못 만든 경우다. **올린 파일을 도로 휴지통으로
     // 보낸다** — 안 그러면 "드라이브에는 있는데 앱에는 없는" 파일이 영영 남고,
     // 그건 싱크가 아니라 유실이다(사용자가 짚은 바로 그 어긋남).
     console.error('[drive] 올라갔지만 files 행 생성 실패:', e);
-    try { await driveCall({ action: 'trash', fileId: up.id }); }
-    catch (te) { console.error('[drive] 되돌리기(휴지통)도 실패 — 드라이브에 파일이 남는다:', te); }
+    try {
+      if (up) await driveCall({ action: 'trash', fileId: up.id });
+      else if (storagePath) await c.storage.from(ATTACH_BUCKET).remove([storagePath]);
+    } catch (te) { console.error('[drive] 되돌리기도 실패 — 실체가 남는다:', te); }
     e.human = e.human || `파일을 목록에 넣지 못해 되돌렸어요 · ${e.message || e}`;
     throw e;
   }
@@ -563,13 +632,13 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
   // 이 업무의 폴더를 처음 만든 경우 id를 적어 둔다(다음 업로드부터 id로 넣는다).
   // 실패하면 **알린다** — 조용히 넘기면 다음 업로드가 같은 이름 폴더를 하나 더 만들고
   // 한 업무의 파일이 두 폴더로 갈라진다(드라이브는 같은 이름 형제를 허용한다).
-  if (!cardFolderId && up.folderId) {
+  if (up && !cardFolderId && up.folderId) {
     try { unwrap(await c.from('cards').update({ drive_folder_id: up.folderId }).eq('id', cardId).select('id').single()); }
     catch (e) { console.error('[drive] 업무 폴더 id 저장 실패 — 다음 업로드가 폴더를 또 만들 수 있다:', e); }
   }
   // 부르는 쪽(병렬 업로드)이 나머지 파일을 이 폴더 id로 바로 넣을 수 있게 실어 보낸다
   // — files 컬럼이 아니라 임시 속성이다(DB에는 cards.drive_folder_id가 원본).
-  return Object.assign(row, { _driveFolderId: up.folderId });
+  return Object.assign(row, { _driveFolderId: up?.folderId });
 }
 
 // 업무 폴더 id만 적는다. 카드 폼을 통째로 보내지 않는다 — 그러면 저장 중인 남의

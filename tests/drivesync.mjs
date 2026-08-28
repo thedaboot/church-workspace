@@ -217,5 +217,55 @@ check('상한 문구를 손으로 두 벌 적지 않는다', () => {
   assert.match(att, /\$\{MAX_UPLOAD_MB\}MB/, '문구가 상수에서 오지 않는다');
 });
 
+// ── 4.5MB 벽 (2026-08-28 실측) ──────────────────────────────────────────────
+// 배포된 함수에 크기별로 던져 봤다: 4MB는 401까지 가고 4.4MB부터 413
+// FUNCTION_PAYLOAD_TOO_LARGE다. base64가 33%를 붙이니 실제 파일은 3.3MB가 천장이고,
+// 그보다 크면 **함수에 닿지도 못한 채** 가장자리에서 잘린다 — 우리가 준비한 한국어
+// 이유가 나올 기회조차 없다(사용자 신고: 20MB PDF가 올리자마자 실패).
+check('큰 파일은 함수를 거치지 않고 Storage로 나른다', () => {
+  assert.match(cloud, /const INLINE_MAX = /, '몸통 한도 상수가 없다');
+  const mb = Number(/const INLINE_MAX = (\d+) \* 1024 \* 1024/.exec(cloud)?.[1] || 0);
+  // base64가 33%를 붙이므로 3.3MB가 실제 천장이다. 여유를 둬야 한다.
+  assert.ok(mb > 0 && mb <= 3, `INLINE_MAX가 ${mb}MB — base64를 붙이면 4.5MB 벽을 넘는다`);
+  assert.match(cloud, /uploadViaStorage/, 'Storage 경유 경로가 없다');
+  assert.match(cloud, /action: 'uploadFromUrl'/, '스크립트에 주소를 넘기지 않는다');
+  // 드라이브로 옮겨 갔으면 옮겨 담는 자리는 치워야 한다
+  assert.match(cloud, /\.remove\(\[path\]\)/, '임시 사본을 안 지운다');
+});
+
+check('스크립트가 v5여도 큰 파일은 올라간다', () => {
+  // uploadFromUrl을 모르는 스크립트에서 파일을 버리면 안 된다. 이 앱은 원래
+  // Storage에 파일을 두던 구조이고 읽기 경로가 파일 한 건 단위로 갈라져 있어서
+  // (files.source), 그대로 두어도 미리보기·썸네일·새 탭이 다 동작한다.
+  // 스크립트를 못 고치는 상황에서도 올라가기는 해야 한다(사용자가 모바일이었다).
+  const fn = /async function uploadViaStorage[\s\S]*?\n}/.exec(cloud)?.[0] || '';
+  assert.ok(fn, 'uploadViaStorage를 못 찾았다');
+  assert.match(fn, /return \{ storagePath: path \}/, '옮기기 실패 시 파일을 버린다');
+  // 실패를 받는 catch 블록 안에서는 파일을 지우면 안 된다 — 그게 유일한 사본이다
+  const lastCatch = fn.slice(fn.lastIndexOf('} catch (e) {'));
+  assert.ok(lastCatch.includes('storagePath: path'), '실패 경로가 Storage를 안 쓴다');
+  assert.ok(!lastCatch.includes('remove('), '실패 경로에서 파일을 지운다 — 그게 유일한 사본이다');
+  // 행을 만들 때 두 갈래를 모두 쓴다
+  assert.match(cloud, /source: 'storage', storage_path: storagePath/, 'Storage 행을 안 만든다');
+  assert.match(cloud, /source: 'drive', drive_file_id: up\.id/, '드라이브 행을 안 만든다');
+});
+
+check('uploadFromUrl도 그냥 재시도하면 안 된다', () => {
+  // upload과 같은 성질이다 — 스크립트가 파일을 새로 만든다
+  const set = /const IDEMPOTENT = new Set\(\[([^\]]*)\]\)/.exec(cloud)?.[1] || '';
+  assert.ok(!set.includes("'uploadFromUrl'"), 'uploadFromUrl이 멱등 목록에 있다 — 중복 파일이 생긴다');
+  // 대신 uploadOnceOrFind를 지나야 한다(열쇠 + 확인 후 재시도).
+  // 길이로 자르지 말 것 — 주석이 늘면 조용히 어긋난다. 함수 전체를 본다.
+  const fn = /async function uploadViaStorage[\s\S]*?\n}/.exec(cloud)?.[0] || '';
+  assert.ok(fn, 'uploadViaStorage를 못 찾았다');
+  assert.match(fn, /uploadOnceOrFind\(\{\s*\n?\s*action: 'uploadFromUrl'/, '확인 없이 보낸다');
+});
+
+check('문서의 스크립트가 uploadFromUrl을 안다 (v6)', () => {
+  assert.match(drivemd, /case 'uploadFromUrl'/, 'uploadFromUrl 액션이 없다');
+  assert.match(drivemd, /UrlFetchApp\.fetch/, '주소에서 받아오지 않는다');
+  assert.match(drivemd, /getResponseCode\(\) >= 300/, '받아오기 실패를 안 가린다');
+});
+
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);
