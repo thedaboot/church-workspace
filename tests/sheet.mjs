@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { attrs, blocks, parseXlsx, parseCsv, colToNum, refToRC, widthToPx } from '../src/services/xlsx.js';
+import { attrs, blocks, parseXlsx, parseCsv, colToNum, refToRC, widthToPx, viewColPx, COL_MAX_PX, VIEW_FONT_PX } from '../src/services/xlsx.js';
 import { compile, evalRule, BLANK } from '../src/services/formula.js';
 
 // ============================================================================
@@ -183,6 +183,15 @@ check('xlsx: 숨긴 열은 빼고, 병합은 표 좌표로 옮긴다', () => {
 
 check('xlsx: 열 너비를 px로 옮긴다', () => {
   assert.strictEqual(sheet.cols[0], 64);   // 8.43자 → 64px
+});
+
+// 가독성 규칙(SheetView 머리 주석). 원본을 그대로 따르지 않기로 한 자리라, 되돌리면
+// 실물 결산안의 '비고' 열이 다시 744px가 되어 표가 가로로 세 화면이 된다.
+check('view: 열 너비는 글자 크기만큼 넓히고 상한에서 자른다', () => {
+  assert.strictEqual(viewColPx(64), Math.round(64 * (VIEW_FONT_PX / 11.5)));  // 글자를 키운 만큼 넓다
+  assert.ok(viewColPx(64) > 64, '엑셀 폭 그대로면 글자만 커져 줄바꿈이 는다');
+  assert.strictEqual(viewColPx(744), COL_MAX_PX, '화면보다 넓은 열은 상한에서 잘려야 한다');
+  assert.strictEqual(viewColPx(null), viewColPx(64), '너비를 안 적은 열은 엑셀 기본값(8.43자)이다');
 });
 
 check('xlsx: 테두리 — 굵기·모양은 원본, 지정한 색만 남긴다', () => {

@@ -4,7 +4,7 @@ import {
   Circle, Flag, Check, X, TriangleAlert,
 } from 'lucide-react';
 import { Skeleton } from './media.jsx';
-import { parseXlsx, parseCsv, luminance } from '../services/xlsx.js';
+import { parseXlsx, parseCsv, luminance, viewColPx, VIEW_FONT_PX } from '../services/xlsx.js';
 
 // ============================================================================
 // 엑셀·csv 미리보기 — 구글 iframe 대신 앱이 직접 그린다.
@@ -27,7 +27,13 @@ import { parseXlsx, parseCsv, luminance } from '../services/xlsx.js';
 //   · **글자색**은 색이 있는 글자만 살리되 `color-mix`로 현재 테마의 글자색을 섞는다 —
 //     라이트에서는 그대로 진하고, 다크에서는 같은 색상이 밝아진다. 검정·흰색 글자는
 //     엑셀의 기본값이라 우리 토큰에 맡긴다(xlsx.chromatic).
-//   · **조건부 서식**은 파서가 미리 적용해서 넘긴다. 수식 규칙과 아이콘 집합은 뺐다.
+//   · **조건부 서식**은 파서가 미리 적용해서 넘긴다(수식 규칙·아이콘 집합 포함 — services/formula.js).
+//
+// 가독성이 서식보다 앞선다 (사용자 판단 2026-08-28 — "서식·테두리 다 챙기는 것도 좋은데,
+// 가독성이 더 중요해보임"). 원본과 어긋나더라도 읽히는 쪽을 고른 자리는 셋이다:
+//   · 넘치는 글자를 **접는다**(원본의 '줄바꿈 안 함'을 안 따른다 — 아래 td 주석).
+//   · 열 너비에 **상한**을 둔다. 접는 우리에게 화면보다 넓은 열은 의미가 없다(xlsx.viewColPx).
+//   · 글자를 엑셀 기준보다 키우고, 같은 글자 수가 들어가게 열도 같은 비율로 넓힌다.
 // ============================================================================
 
 // 이보다 밝은 칠은 '흰 종이'로 보고 우리 토큰에 맡긴다.
@@ -87,8 +93,6 @@ function CellIcon({ icon }) {
   const filled = /TrafficLights|Signs|Flags/i.test(set);
   return <Mark size={12} style={{ color }} fill={filled ? 'currentColor' : 'none'} className="inline align-[-2px] shrink-0" aria-hidden="true" />;
 }
-
-const DEFAULT_COL_PX = 64;   // 엑셀 기본 열 너비(8.43자)에 맞춘 값
 
 // onError: 그리지 못했을 때 부르는 쪽에 넘긴다(PdfView와 같은 모양) — 렌더 중에
 // 던지면 ErrorBoundary가 화면을 통째로 걷어가서, 미리보기 하나가 업무 창을 죽인다.
@@ -173,7 +177,7 @@ export function SheetView({ blob, text = null, name = '', onError }) {
         <table className="border-collapse" style={{ tableLayout: 'fixed' }}>
           <colgroup>
             {Array.from({ length: width }, (_, i) => (
-              <col key={i} style={{ width: `${sheet.cols[i] || DEFAULT_COL_PX}px` }} />
+              <col key={i} style={{ width: `${viewColPx(sheet.cols[i])}px` }} />
             ))}
           </colgroup>
           <tbody>
@@ -199,8 +203,9 @@ export function SheetView({ blob, text = null, name = '', onError }) {
                       // 글자를 옆 칸으로 흘리거나 잘라 버리는데, 미리보기에서 그러면
                       // 비고 같은 긴 칸의 내용이 화면 밖으로 나가 안 보인다. 여기서는
                       // 열 너비를 원본대로 두고 글자만 접는다 — 정보가 먼저다.
-                      className={`relative px-1.5 py-1 text-[11.5px] leading-[1.45] break-words text-fg whitespace-pre-wrap ${cell?.cf ? 'dc-cell-paint' : ''}`}
+                      className={`relative px-1.5 py-1 leading-[1.45] break-words text-fg whitespace-pre-wrap ${cell?.cf ? 'dc-cell-paint' : ''}`}
                       style={{
+                        fontSize: `${VIEW_FONT_PX}px`,
                         background: paint?.background,
                         color,
                         borderTop: sideCss(bd?.t), borderRight: sideCss(bd?.r),
