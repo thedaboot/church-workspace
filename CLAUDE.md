@@ -10,11 +10,12 @@
 
 ## 검증
 
-- **고친 것과 관련된 스위트만 돌리세요.** `npm run verify`(전체 25개, 약 7분)를 습관적으로
+- **고친 것과 관련된 스위트만 돌리세요.** `npm run verify`(전체 26개, 약 7분)를 습관적으로
   돌리지 마세요(사용자 지적 2026-08-27 — "해당 건에 대해서만 돌리라니까"). 개별 실행은
   `node tests/<이름>.mjs <서버주소>`이고, 브라우저 스위트는 게스트 서버가 필요합니다
   (`npx vite --mode guest --port 4598 --strictPort`).
-- 무엇이 무엇을 보는지: 순수 로직 `logcheck` · AI 프롬프트 `aictx` · 대시보드/연결 지도
+- 무엇이 무엇을 보는지: 순수 로직 `logcheck` · 엑셀 `sheet` · 워드/PPT `office` ·
+  드라이브·첨부 `drivesync` · AI 프롬프트 `aictx` · 대시보드/연결 지도
   `dashfix` · 내비/연도/탭 `navsmoke` · 달력 `calfit` · 드래그 `drag`·`dragdesk` ·
   문서 정합성 `handoff`·`mdcheck` · 다크/라이트 `themefit`. 목록은 `tests/README.md`.
 - 전체를 도는 것은 **푸시 직전 한 번**이면 충분합니다.
