@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const ROOT = join(import.meta.dirname, '..');
 const notify = await import('file://' + join(ROOT, 'src', 'services', 'notifyText.js').replace(/\\/g, '/'));
@@ -59,10 +60,10 @@ const patched = readFileSync(SRC, 'utf8')
   .replace(/import \* as cloud from '\.\/cloud\.js';/, 'const cloud = globalThis.__CLOUD;')
   .replace(/import \{ statusToDb, statusFromDb \} from '\.\/cloud\.js';/,
     `const statusToDb = () => 'todo'; const statusFromDb = () => '시작 전';`)
-  // utils에서 가져오는 이름이 늘어도 깨지지 않게 줄 전체를 갈아치운다(assignees.mjs와 같은 이유)
-  .replace(/import \{[^}]*\} from '\.\.\/utils\.js';/,
-    `const normalize = a => a.reduce((acc, i) => { acc.byId[i.id] = i; acc.allIds.push(i.id); return acc; }, { byId:{}, allIds:[] });
-     const httpsImage = u => { const s = String(u || ''); return s.slice(0,7).toLowerCase() === 'http://' ? 'https://' + s.slice(7) : s; };`);
+  // utils는 진짜 파일을 절대 경로로 문다(assignees.mjs와 같은 이유 — 가짜로 다시
+  // 적으면 cloudSync가 utils에서 가져오는 이름이 늘 때마다 여기가 같이 깨진다)
+  .replace(/import (\{[^}]*\}) from '\.\.\/utils\.js';/,
+    (m, names) => `import ${names} from '${pathToFileURL(join(ROOT, 'src', 'utils.js')).href}';`);
 
 const PROFILES = [
   { id: 'u1', display_name: '노준석' },
