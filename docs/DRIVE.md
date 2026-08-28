@@ -37,6 +37,10 @@
 2. [script.google.com](https://script.google.com) → 새 프로젝트 → 아래 코드 붙여넣기
 3. `ROOT_FOLDER_ID`에 1번 폴더 ID를 넣는다 (폴더 URL의 `/folders/` 뒤 문자열)
 4. `SHARED_TOKEN`을 아무 긴 랜덤 문자열로 바꾼다 (우리 서버만 아는 값)
+5. **v6부터**: 함수 목록에서 `권한승인`을 골라 **▶ 실행** → 권한 검토 →
+   (확인되지 않은 앱 경고가 나오면 **고급 → 이동**) → **"외부 서비스에 연결" 허용**.
+   이걸 안 하면 큰 파일(uploadFromUrl)이 권한 오류로 죽는다. 아무 함수나 실행해서는
+   창이 안 뜬다 — 그 권한을 실제로 쓰는 함수를 실행해야 구글이 묻는다.
 5. 배포 → 새 배포 → 유형 **웹 앱** / 실행 계정 **나** / 액세스 **모든 사용자**
 6. 나온 **웹 앱 URL**과 `SHARED_TOKEN`을 전달 (채팅·메일로 보내지 말고 안전한 경로로)
 
@@ -218,6 +222,17 @@ function trash(body) {
   try { DriveApp.getFileById(body.fileId).setTrashed(true); }
   catch (err) { DriveApp.getFolderById(body.fileId).setTrashed(true); }
   return { trashed: body.fileId };
+}
+
+// 권한 승인용 — **v6으로 올릴 때 한 번만** 실행한다.
+// uploadFromUrl이 UrlFetchApp을 쓰는데, 소유자가 그 권한(script.external_request)을
+// 승인한 적이 없으면 "UrlFetchApp.fetch을(를) 호출할 수 있는 권한이 없습니다"로 죽는다.
+// **에디터에서 아무 함수나 실행해도 승인 창이 안 뜬다** — 그 함수가 실제로 그 권한을
+// 쓰지 않으면 구글이 묻지 않기 때문이다(folderFor는 DriveApp만 써서 이미 승인돼 있다).
+// 그래서 이 함수를 두고 이것을 실행한다. 승인 뒤에는 지워도 되고 둬도 된다.
+function 권한승인() {
+  const r = UrlFetchApp.fetch('https://www.google.com');
+  Logger.log('외부 연결 권한 OK · 응답 코드 ' + r.getResponseCode());
 }
 
 function json(obj) {

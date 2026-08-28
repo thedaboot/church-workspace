@@ -5,8 +5,8 @@
 `PASS` / `FAIL` 줄을 찍고 종료 코드로 결과를 알린다.
 
 ```bash
-npm run verify                 # 전부 (게스트 모드 dev 서버를 알아서 띄운다)
-npm run verify -- calfit drag  # 골라서
+npm run verify -- calfit drag  # **골라서 — 고친 것과 관련된 것만. 이게 기본이다**
+npm run verify                 # 전부(약 7분). 푸시 직전 한 번이면 된다
 npm run verify -- --jobs 3     # 동시 실행 (스크립트마다 CDP 포트가 달라 충돌 없음)
 SHOTS=1 npm run verify         # 스크린샷도 저장
 CHROME=/path/to/chrome npm run verify   # 크롬 경로가 다를 때

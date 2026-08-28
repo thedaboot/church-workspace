@@ -407,6 +407,9 @@ async function driveOnce(payload) {
     e.human = out.error || `드라이브가 응답하지 않았어요 (${r.status})`;
     e.status = r.status;
     e.timeout = !!out.timeout || r.status === 504;
+    // 스크립트가 스스로 뱉은 오류는 다시 해도 같다(권한 부족·모르는 액션 등).
+    // 이 표시가 없으면 실패마다 확인·재시도가 한 번씩 더 붙어 헛왕복이 된다.
+    e.scriptError = !!out.scriptError;
     console.error('[drive] 실패:', r.status, out);
     throw e;
   }
@@ -415,7 +418,7 @@ async function driveOnce(payload) {
 
 // 다시 해볼 만한 실패인가 — 시간 초과·게이트웨이 오류·네트워크 끊김.
 // 401(로그인)·403(미승인)·413(용량 초과)은 다시 해도 같으므로 바로 포기한다.
-const worthRetry = (e) => !e?.notConfigured
+const worthRetry = (e) => !e?.notConfigured && !e?.scriptError
   && (e?.timeout || e?.status === 502 || e?.status === 504 || e?.status === undefined);
 
 async function driveCall(payload) {

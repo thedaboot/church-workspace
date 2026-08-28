@@ -107,7 +107,9 @@ export default async function handler(req, res) {
     // 스크립트는 실패해도 200으로 돌려주므로 error 키로 판정한다
     if (out.error) {
       console.error(`${tag} → 스크립트 오류(${Date.now() - started}ms):`, out.error, '| http', r.status);
-      res.status(502).json({ error: String(out.error) });
+      // 스크립트가 **스스로** 뱉은 오류다(권한 부족·모르는 액션 등) — 대개 다시 해도
+      // 같다. 부르는 쪽이 헛되이 재시도하지 않게 표시를 실어 보낸다.
+      res.status(502).json({ error: String(out.error), scriptError: true });
       return;
     }
     console.log(`${tag} → 성공 (${Date.now() - started}ms)`);
