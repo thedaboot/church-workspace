@@ -180,6 +180,23 @@ check('고른 파일이 드라이브를 기다리지 않고 바로 목록에 든
   assert.ok(stage < wait, '대기 목록에 넣기가 드라이브 호출보다 뒤에 있다');
 });
 
+check('지운 첨부는 첫 값에서도 걸러진다', () => {
+  // 부르는 쪽이 넘기는 task는 스토어가 아니라 업무 창의 폼 스냅샷(formData)이라
+  // 첨부를 지워도 안 바뀐다. 첫 값에서 안 거르면 저장하고 보기 화면이 뜨는 순간
+  // 지운 파일이 도로 한 줄 선다(사용자 지적 2026-08-28).
+  assert.ok(att.includes('const visible = (task.attachments || []).filter(r => !deletedFileIds.has(r.id));'),
+    '첫 값이 deletedFileIds를 안 본다');
+  assert.ok(att.includes('useState(visible)'), '첫 값이 걸러진 목록에서 시작하지 않는다');
+});
+
+check('내려받기가 남의 출처에서도 진짜 내려받는다', () => {
+  // download 속성은 같은 출처에서만 듣는다. 드라이브 주소에 걸면 브라우저가 그냥
+  // 새 탭으로 연다(사용자 신고 2026-08-28 — "새 탭으로 열기만 되고 있음").
+  assert.ok(!/download={cur.name}/.test(preview), 'download 속성에 다시 기대고 있다');
+  assert.ok(preview.includes('URL.createObjectURL(blob)'), '바이트를 받아 저장하지 않는다');
+  assert.ok(preview.includes('a.download = cur.name'), '저장할 이름을 안 준다');
+});
+
 check('올리는 중 표시가 업무 창을 닫아도 남는다', () => {
   // 창을 닫아도 업로드는 계속 돈다. 목록이 컴포넌트 안에만 있으면 다시 열었을 때
   // 그 줄이 사라져 화면이 "아무 일도 안 한다"고 거짓말한다(사용자 지적 2026-08-28).
@@ -195,7 +212,8 @@ check('올리는 중 표시가 업무 창을 닫아도 남는다', () => {
 check('올리는 중에는 새 탭 버튼을 두지 않는다', () => {
   // 드라이브 주소가 아직 없다. 버튼을 내놓으면 화면이 거짓말한다(사용자 결정).
   assert.match(preview, /\{!local && \(/, '새 탭 버튼이 로컬 파일에서도 보인다');
-  assert.match(preview, /localHref/, '내려받기가 로컬 주소를 못 쓴다');
+  // 내려받기는 올리는 중에도 둔다 — 고른 파일 그대로라 실제로 된다(주소가 아니라 바이트다)
+  assert.ok(preview.includes('const blob = local'), '올리는 중에 고른 파일로 내려받지 못한다');
 });
 
 check('올리는 중에는 삭제·잠금을 두지 않는다', () => {

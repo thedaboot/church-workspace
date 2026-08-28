@@ -5,6 +5,8 @@ import { RichText } from './RichText.jsx';
 import { getFileOpenUrl, driveImageFullUrl, fetchDriveFileBlob } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { Skeleton, SmartImage } from './media.jsx';
+import { showToast } from './Toast.jsx';
+import { failText } from '../services/errorText.js';
 import { PdfView } from './PdfView.jsx';
 // 엑셀 표 그리기는 **엑셀을 열 때만** 필요하다 — 파서(xlsx.js)와 수식 계산기(formula.js)가
 // 같이 딸려 오는데, 메인 번들에 두면 엑셀을 한 번도 안 여는 사람까지 내려받는다.
@@ -271,16 +273,36 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
 
   const openExternal = () => { if (url) window.open(url, '_blank', 'noopener'); };
 
-  // 내려받기용 로컬 주소. 이미지는 목록이 만들어 둔 것을 그대로 쓰고, 나머지는
-  // 창이 열려 있는 동안만 만들었다 되돌려준다.
-  const [madeHref, setMadeHref] = useState(null);
-  useEffect(() => {
-    if (!local || cur._url) { setMadeHref(null); return; }
-    const obj = URL.createObjectURL(local);
-    setMadeHref(obj);
-    return () => { URL.revokeObjectURL(obj); setMadeHref(null); };
-  }, [local, cur._url]);
-  const localHref = local ? (cur._url || madeHref) : null;
+  // 내려받기. **`download` 속성은 같은 출처에서만 듣는다.** 드라이브·Storage 주소는
+  // 남의 출처라 브라우저가 그 속성을 통째로 무시하고 그냥 새 탭으로 연다
+  // (사용자 신고 2026-08-28 — "다운로드 버튼이 새 탭으로 열기만 된다").
+  // 그래서 바이트를 우리가 받아 blob 주소로 저장한다. 드라이브는 /api/drive-file이
+  // 이미 중계하고 있고, 미리보기가 방금 받은 것은 브라우저 캐시에 있어 두 번 안 받는다.
+  const [saving, setSaving] = useState(false);
+  const canSave = !!(local || url || cur.drive_file_id);
+  const saveFile = async () => {
+    if (saving || !canSave) return;
+    setSaving(true);
+    try {
+      const blob = local
+        || (cur.source === 'drive' && cur.drive_file_id
+          ? await fetchDriveFileBlob(cur.drive_file_id)
+          : await fetch(url).then(r => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`)))));
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = cur.name || 'file';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // 바로 회수하면 브라우저가 저장을 시작하기도 전에 주소가 죽는다
+      setTimeout(() => URL.revokeObjectURL(href), 10000);
+    } catch (e) {
+      showToast(failText(`'${cur.name}'을(를) 내려받지 못했어요`, e));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const body = (() => {
     if (error) return <Fallback row={cur} message={error} onOpen={openExternal} />;
@@ -408,11 +430,11 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
           {!local && (
             <button type="button" onClick={openExternal} disabled={!url} className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 disabled:opacity-40" title="새 탭에서 열기"><ExternalLink size={16} /></button>
           )}
-          <a
-            href={localHref || url || undefined} download={cur.name} target="_blank" rel="noreferrer"
-            className={`p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 ${(localHref || url) ? '' : 'pointer-events-none opacity-40'}`}
+          <button
+            type="button" onClick={saveFile} disabled={!canSave || saving}
+            className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 disabled:opacity-40"
             title="내려받기"
-          ><Download size={16} /></a>
+          >{saving ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}</button>
           <button type="button" onClick={onClose} className="p-2 rounded-md text-fg-faint hover:bg-surface-hover transition active:scale-95" title="닫기"><X size={18} /></button>
         </div>
         {/* 미리보기 영역은 남은 공간을 그대로 채운다(고정 dvh를 쓰면 창 크기에 안 맞는다) */}

@@ -335,12 +335,18 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   // 드라이브는 프로젝트 하나에 폴더 하나다. 이름이 아니라 **폴더 id**를 넘겨야
   // 프로젝트 이름을 바꿔도 예전 파일과 새 파일이 두 폴더로 갈라지지 않는다.
   const project = useStore(selectProjectsMap)[task.projectId];
-  // 이미 받아둔 attachments를 먼저 그리고(즉시 표시) 백그라운드로 갱신
-  const [items, setItems] = useState(task.attachments || []);
+  // 이미 받아둔 attachments를 먼저 그리고(즉시 표시) 백그라운드로 갱신.
+  // **여기서도 방금 지운 것을 걸러야 한다.** 부르는 쪽이 넘기는 task는 스토어가 아니라
+  // 업무 창의 폼 스냅샷(formData)이고, 첨부를 지워도 그 스냅샷은 안 바뀐다. 그래서
+  // 저장하고 보기 화면이 새로 뜨는 순간 **지운 파일이 도로 한 줄 서 있었다**
+  // (사용자 지적 2026-08-28 — "삭제하고 저장했는데 남아 있고, 껐다 켜니 없어졌다").
+  // 아래 조회·스토어 반영은 이미 이 집합을 보고 있었는데 첫 값만 안 보고 있었다.
+  const visible = (task.attachments || []).filter(r => !deletedFileIds.has(r.id));
+  const [items, setItems] = useState(visible);
   // 목록 조회가 다녀오기 전인지. 이게 없으면 첨부가 있는 업무를 열었을 때
   // 첨부 영역이 통째로 없다가 나중에 툭 나타난다(사용자 지적 — 이미지가 바로 안 보인다).
   // 몇 개인지는 조회 전에도 안다(cards.file_count) → 그 수만큼 자리를 미리 잡는다.
-  const [listing, setListing] = useState(!(task.attachments || []).length);
+  const [listing, setListing] = useState(!visible.length);
   const [thumbs, setThumbs] = useState({}); // { storage_path: signedUrl }
   // 서명 URL을 못 받은 경로. 이게 없으면 발급이 실패했을 때 스켈레톤이 영원히 남는다 —
   // 이미지가 많을수록 한 요청이 커져서 걸릴 확률이 올라간다(사용자 지적).
