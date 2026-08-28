@@ -18,7 +18,7 @@ import { compile, evalRule, BLANK } from './formula.js';
 
 // zip 풀기와 XML 훑기는 docx·pptx와 **같은 기계**다 — services/ooxml.js로 옮겼다.
 // 여기서 다시 내보내는 것은 검사(tests/sheet.mjs)가 이 이름으로 들여오기 때문이다.
-import { zipEntries, readEntry, unesc, attrs, attr, blocks } from './ooxml.js';
+import { zipEntries, readEntry, readBytes, unesc, attrs, attr, blocks, relTargets, relsPathOf, emuToPx, dataUrl } from './ooxml.js';
 export { attrs, blocks };
 
 // ── 색 ──────────────────────────────────────────────────────────────────────
@@ -126,6 +126,9 @@ function readFont(xml, theme) {
     strike: onFlag(src, 'strike'),
     under: /<u(\s*\/>|\s+val="(?!none))/.test(src),
     color: colorOf((src.match(/<color[^>]*\/?>/) || [null])[0], theme),
+    // 글자 크기(pt). 실물 결산안이 8~24pt를 다 쓴다 — 없으면 24pt 제목이 본문 크기로
+    // 나와 위계가 사라진다. rPr(부분 서식)도 같은 모양이라 이 함수를 같이 쓴다.
+    sz: Number((src.match(/<sz val="([\d.]+)"/) || [])[1]) || null,
   };
 }
 
@@ -159,12 +162,23 @@ const BUILTIN = {
   9: '0%', 10: '0.00%', 11: '0.00E+00',
   14: 'yyyy-mm-dd', 15: 'yyyy-mm-dd', 16: 'mm-dd', 17: 'yyyy-mm', 18: 'h:mm', 19: 'h:mm:ss',
   20: 'h:mm', 21: 'h:mm:ss', 22: 'yyyy-mm-dd h:mm',
+  // 27~36·50~58은 동아시아 로케일 내장 날짜 서식이다 — 코드가 파일에 안 적히고 ID만
+  // 온다. 이 대역이 없으면 **날짜가 46054 같은 생 숫자로** 나온다(실물 결산안의
+  // 순지원금 머리행이 그랬다 — numFmtId 58). 로케일별로 조금씩 다른데 한국어 모양으로
+  // 통일한다 — 어차피 읽는 사람이 한국어다.
+  27: 'yyyy"년" m"월"', 28: 'm"월" d"일"', 29: 'm"월" d"일"', 30: 'yyyy-mm-dd',
+  31: 'yyyy"년" m"월" d"일"', 32: 'h:mm', 33: 'h:mm:ss', 34: 'h:mm', 35: 'h:mm:ss',
+  36: 'yyyy"년" m"월"',
   37: '#,##0', 38: '#,##0', 39: '#,##0.00', 40: '#,##0.00',
   45: 'h:mm', 46: 'h:mm:ss', 47: 'yyyy-mm-dd h:mm', 48: '0.0E+0', 49: '@',
+  50: 'yyyy"년" m"월" d"일"', 51: 'm"월" d"일"', 52: 'yyyy"년" m"월"', 53: 'm"월" d"일"',
+  54: 'm"월" d"일"', 55: 'yyyy"년" m"월"', 56: 'm"월" d"일"', 57: 'yyyy"년" m"월"',
+  58: 'm"월" d"일"',
 };
-// 따옴표 밖의 서식 문자만 본다("년"처럼 따옴표 안에 든 글자를 형식으로 읽지 않게)
-const bare = (code) => code.replace(/"[^"]*"/g, '').replace(/\\./g, '');
-const isDateFmt = (code) => /[ymdhs]/.test(bare(code).toLowerCase()) && !/[#?]/.test(bare(code));
+// 따옴표 밖의 서식 문자만 본다("년"처럼 따옴표 안에 든 글자를 형식으로 읽지 않게).
+// [Red]·[$-411] 같은 대괄호 지시자와 _x(자리 띄움)·*x(채움)도 서식 문자가 아니다.
+const bare = (code) => code.replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]/g, '').replace(/[_*]./g, '').replace(/\\./g, '');
+const isDateFmt = (code) => /[ymdhs]/.test(bare(code).toLowerCase()) && !/[#?0]/.test(bare(code));
 
 // 엑셀 날짜 일련번호 → ISO. 1900 윤년 버그(60번이 존재하지 않는 1900-02-29)를 반영한다.
 function serialToDate(n) {
@@ -173,30 +187,117 @@ function serialToDate(n) {
   return new Date(days * 86400000 + ms);
 }
 const pad = (v) => String(v).padStart(2, '0');
-function formatNumber(raw, code) {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return String(raw);
-  if (!code || code === 'General') return String(raw);
-  if (isDateFmt(code)) {
-    const d = serialToDate(n);
-    if (Number.isNaN(d.getTime())) return String(raw);
-    const b = bare(code).toLowerCase();
-    const date = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-    const time = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
-    if (!/[yd]/.test(b)) return time;
-    return /h/.test(b) ? `${date} ${time}` : date;
+
+// 날짜를 서식 코드 모양대로 그린다 — 따옴표 리터럴("년"·"월")을 지키고 yyyy·m·d·
+// h·s·요일(ddd/aaa) 토큰을 치환한다. 예전에는 코드 모양을 무시하고 무조건
+// yyyy-mm-dd로 그려서 "1월 27일"이 "2026-01-27"이 됐다.
+const KDOW = ['일', '월', '화', '수', '목', '금', '토'];
+function renderDate(d, code) {
+  let out = '';
+  let prev = '';                        // m이 분(minute)인지 월(month)인지 가르는 근거
+  for (let i = 0; i < code.length; ) {
+    const ch = code[i];
+    if (ch === '"') { const j = code.indexOf('"', i + 1); out += code.slice(i + 1, j === -1 ? code.length : j); i = j === -1 ? code.length : j + 1; continue; }
+    if (ch === '\\') { out += code[i + 1] || ''; i += 2; continue; }
+    if (ch === '[') { const j = code.indexOf(']', i); i = j === -1 ? code.length : j + 1; continue; }
+    if (ch === '_' || ch === '*') { i += 2; continue; }
+    const rest = code.slice(i).toLowerCase();
+    const eat = (t, s) => { out += s; prev = t[0]; i += t.length; };
+    if (rest.startsWith('yyyy')) { eat('yyyy', String(d.getUTCFullYear())); continue; }
+    if (rest.startsWith('yy')) { eat('yy', String(d.getUTCFullYear()).slice(-2)); continue; }
+    // dddd/aaaa = 요일 긴 이름, ddd/aaa = 요일. dd/d(날짜)보다 먼저 봐야 한다.
+    if (/^(dddd|aaaa)/.test(rest)) { eat('dddd', `${KDOW[d.getUTCDay()]}요일`); continue; }
+    if (/^(ddd|aaa)/.test(rest)) { eat('ddd', KDOW[d.getUTCDay()]); continue; }
+    if (rest.startsWith('dd')) { eat('dd', pad(d.getUTCDate())); continue; }
+    if (rest.startsWith('d')) { eat('d', String(d.getUTCDate())); continue; }
+    if (rest.startsWith('hh')) { eat('hh', pad(d.getUTCHours())); continue; }
+    if (rest.startsWith('h')) { eat('h', String(d.getUTCHours())); continue; }
+    if (rest.startsWith('ss')) { eat('ss', pad(d.getUTCSeconds())); continue; }
+    if (rest.startsWith('s')) { eat('s', String(d.getUTCSeconds())); continue; }
+    if (rest.startsWith('mm') || rest.startsWith('m')) {
+      const two = rest.startsWith('mm');
+      // 바로 앞 토큰이 시(h)면 분이다 — 'h:mm'의 mm은 월이 아니다
+      const minute = prev === 'h';
+      const v = minute ? d.getUTCMinutes() : d.getUTCMonth() + 1;
+      eat(two ? 'mm' : 'm', two ? pad(v) : String(v));
+      continue;
+    }
+    out += ch; prev = ''; i += 1;
   }
-  const pct = code.includes('%');
-  const val = pct ? n * 100 : n;
-  const dm = bare(code).match(/\.(0+)/);
+  return out;
+}
+
+// 구간(;) 나누기 — 따옴표 안의 ;는 구분자가 아니다. 엑셀 서식은
+// `양수;음수;0;문자` 네 구간까지 갖는다.
+function splitSections(code) {
+  const parts = [];
+  let cur = '';
+  let q = false;
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+    if (ch === '"') { q = !q; cur += ch; continue; }
+    if (ch === '\\') { cur += ch + (code[i + 1] || ''); i++; continue; }
+    if (ch === ';' && !q) { parts.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  parts.push(cur);
+  return parts;
+}
+
+// 구간 하나에서 따옴표 리터럴을 숫자 앞/뒤로 나눠 걷는다 — `"₩"#,##0`의 ₩,
+// `0"명"`의 명. 괄호는 음수 표기(회계식)라 따로 알린다.
+function sectionParts(sec) {
+  let pre = '', post = '', seenNum = false, parens = false;
+  for (let i = 0; i < sec.length; i++) {
+    const ch = sec[i];
+    if (ch === '"') { const j = sec.indexOf('"', i + 1); const lit = sec.slice(i + 1, j === -1 ? sec.length : j); if (seenNum) post += lit; else pre += lit; i = j === -1 ? sec.length : j; continue; }
+    if (ch === '\\') { const lit = sec[i + 1] || ''; if (lit === '(' || lit === ')') { parens = true; } else if (seenNum) post += lit; else pre += lit; i++; continue; }
+    if (ch === '[') { const j = sec.indexOf(']', i); i = j === -1 ? sec.length : j; continue; }
+    if (ch === '_' || ch === '*') { i++; continue; }
+    if (ch === '(' || ch === ')') { parens = true; continue; }
+    if (/[0#?]/.test(ch)) seenNum = true;
+  }
+  return { pre, post, parens };
+}
+
+// 값 하나를 서식대로. red는 [Red](음수 빨강)가 걸렸다는 뜻 — 부르는 쪽이 글자색을 정한다.
+function formatNumberEx(raw, code) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return { text: String(raw), red: false };
+  if (!code || code === 'General') return { text: String(raw), red: false };
+  // 구간 고르기: 음수 구간이 있으면 음수는 그쪽(부호는 구간이 정한다), 0 구간이 있으면 0은 그쪽
+  const secs = splitSections(code);
+  let sec = secs[0];
+  let negSection = false;
+  if (n < 0 && secs.length >= 2) { sec = secs[1]; negSection = true; }
+  else if (n === 0 && secs.length >= 3) sec = secs[2];
+  const red = /\[Red\]/i.test(sec);
+  if (isDateFmt(sec)) {
+    const d = serialToDate(n);
+    return { text: Number.isNaN(d.getTime()) ? String(raw) : renderDate(d, sec), red };
+  }
+  const b = bare(sec);
+  const { pre, post, parens } = sectionParts(sec);
+  // 숫자 자리가 아예 없는 구간은 리터럴만 보여준다 — 회계식의 0 구간("-")이 이 모양이다
+  if (!/[0#]/.test(b)) return { text: pre + post, red };
+  const pct = b.includes('%');
+  const val = (pct ? n * 100 : n);
+  const dm = b.match(/\.(0+)/);
   const digits = dm ? dm[1].length : 0;
   let s = Math.abs(val).toFixed(digits);
-  if (code.includes('#,##') || code.includes('#,#')) {
+  if (b.includes('#,#') || b.includes('0,0')) {
     const [i, f] = s.split('.');
     s = i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (f ? `.${f}` : '');
   }
-  return `${val < 0 ? '-' : ''}${s}${pct ? '%' : ''}`;
+  // 부호: 음수 구간을 골랐으면 부호는 구간 표기가 정한다(괄호거나, 아무것도 없거나).
+  // 구간이 하나뿐이면 평범하게 -를 붙인다.
+  const body = pre + s + (pct ? '%' : '') + post;
+  if (val < 0 && !negSection) return { text: `-${body}`, red };
+  if (negSection && parens) return { text: `(${body})`, red };
+  if (negSection && /-/.test(b)) return { text: `-${body}`, red };
+  return { text: body, red };
 }
+const formatNumber = (raw, code) => formatNumberEx(raw, code).text;
 
 // ── 셀 주소 ─────────────────────────────────────────────────────────────────
 export function colToNum(letters) {
@@ -222,6 +323,13 @@ export const widthToPx = (w) => Math.round(w * 7 + 5);
 // ponytail: 상한·글자 크기는 상수 두 개다. 좁다·넓다는 판단이 바뀌면 여기만 고친다.
 export const VIEW_FONT_PX = 12.5;
 export const COL_MAX_PX = 320;
+// 글자 크기(pt) → 화면 px. 엑셀 기본 11pt가 우리 기준 12.5px이므로 그 비율로 옮긴다.
+// 8pt 잔글씨(9px)부터 24pt 제목(27px)까지 위계가 살아난다. 상한은 두지 않는다 —
+// 실물에서 최대가 24pt고, 그보다 큰 제목이 있다면 그것도 작성자의 뜻이다.
+export const szToPx = (pt) => Math.round(pt * (VIEW_FONT_PX / 11));
+// 행 높이(pt) → 화면 px. 1pt = 4/3px에 열 너비와 같은 확대 비율을 곱한다(viewColPx의
+// 11.5 기준과 동일). 최소 높이로만 쓰므로(내용이 더 크면 행이 알아서 늘어난다) 안전하다.
+export const rowHtToPx = (pt) => Math.round(pt * (4 / 3) * (VIEW_FONT_PX / 11.5));
 const DEFAULT_COL_PX = widthToPx(8.43);          // 엑셀 기본 열 너비(8.43자) = 64px
 export const viewColPx = (px) =>
   Math.min(Math.round((px || DEFAULT_COL_PX) * (VIEW_FONT_PX / 11.5)), COL_MAX_PX);
@@ -475,6 +583,76 @@ function matches(rule, cell, ctx) {
   }
 }
 
+// ── 부분 서식(rich text run) ─────────────────────────────────────────────────
+// <si>(공유 문자열)나 <is>(인라인 문자열) 안의 <r> 구간들을 서식과 함께 걷는다.
+// 구간마다 색·굵기·크기가 다를 수 있다. 아무 구간에도 눈에 보이는 서식이 없으면
+// null을 돌려서 지금까지의 "글자 하나" 경로를 그대로 탄다(대부분의 셀이 이쪽이다).
+export function readRuns(body, theme) {
+  if (!/<r[ >]/.test(body)) return null;
+  const runs = [];
+  for (const { inner } of blocks(body, 'r')) {
+    const rPr = (inner.match(/<rPr>[\s\S]*?<\/rPr>/) || [''])[0];
+    const f = readFont(rPr, theme);
+    runs.push({
+      t: unesc([...inner.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => m[1]).join('')),
+      // 검정·흰색은 기본값이라 버린다(chromatic) — 셀 글자색과 같은 판단.
+      color: chromatic(f.color),
+      bold: f.bold, italic: f.italic, strike: f.strike, under: f.under,
+      szPx: f.sz ? szToPx(f.sz) : null,
+    });
+  }
+  // 서식이 하나도 없으면 구간을 들고 다닐 이유가 없다
+  const plain = runs.every(r => !r.color && !r.bold && !r.italic && !r.strike && !r.under && !r.szPx);
+  return plain ? null : runs.filter(r => r.t);
+}
+
+// ── 시트 위 그림 ─────────────────────────────────────────────────────────────
+// <drawing r:id>를 따라 xl/drawings/*.xml → xl/media/*를 읽는다. 전표의 도장·서명
+// 스캔이 여기 있다(실물 3.8MB 중 3.6MB가 그림). 좌표는 앵커 셀(왼쪽 위)만 쓴다 —
+// 행 높이를 원본대로 다 그리지 않는 이상 픽셀 좌표는 어차피 안 맞으므로,
+// "그 자리(셀)에 그림이 있다"를 보여주는 것이 1단계다. 도형(sp)은 건너뛴다.
+const IMG_MAX_BYTES = 3_000_000;   // 이보다 큰 그림은 접는다 — data URL로 들면 메모리가 그림의 ~1.4배
+async function readDrawings(sheetXml, sheetPath, entries) {
+  const rid = attr((sheetXml.match(/<drawing[^>]*\/?>/) || [''])[0] || '', 'r:id');
+  if (!rid) return [];
+  const baseDir = sheetPath.replace(/\/[^/]+$/, '');
+  const sheetRels = relTargets(await readEntry(entries, relsPathOf(sheetPath)), baseDir);
+  const drawPath = sheetRels[rid];
+  if (!drawPath) return [];
+  const dXml = await readEntry(entries, drawPath);
+  if (!dXml) return [];
+  const dRels = relTargets(await readEntry(entries, relsPathOf(drawPath)), drawPath.replace(/\/[^/]+$/, ''));
+  const out = [];
+  for (const kind of ['xdr:twoCellAnchor', 'xdr:oneCellAnchor']) {
+    for (const { inner } of blocks(dXml, kind)) {
+      const from = (inner.match(/<xdr:from>[\s\S]*?<\/xdr:from>/) || [''])[0];
+      // xdr 좌표는 0부터 센다 → 우리 격자(1부터)로 옮긴다
+      const r = Number((from.match(/<xdr:row>(\d+)<\/xdr:row>/) || [])[1] || 0) + 1;
+      const c = Number((from.match(/<xdr:col>(\d+)<\/xdr:col>/) || [])[1] || 0) + 1;
+      const embed = (inner.match(/<a:blip[^>]*r:embed="([^"]+)"/) || [])[1];
+      if (!embed) continue;                        // 그림 없는 앵커(도형)다
+      const media = dRels[embed];
+      if (!media) continue;
+      const bytes = await readBytes(entries, media);
+      if (!bytes || bytes.length > IMG_MAX_BYTES) continue;
+      const src = dataUrl(bytes, media);
+      if (!src) continue;
+      const ext = inner.match(/<(?:a|xdr):ext[^>]*cx="(\d+)"[^>]*cy="(\d+)"/);
+      // twoCellAnchor에는 크기(ext)가 없는 파일이 있다(실물 전표의 도장 스캔이 0x0으로
+      // 왔다) — 그때는 끝 셀(to)을 실어 보내서 화면이 열 너비 합으로 폭을 어림한다.
+      const to = (inner.match(/<xdr:to>[\s\S]*?<\/xdr:to>/) || [''])[0];
+      const r2 = Number((to.match(/<xdr:row>(\d+)<\/xdr:row>/) || [])[1] ?? -1) + 1;
+      const c2 = Number((to.match(/<xdr:col>(\d+)<\/xdr:col>/) || [])[1] ?? -1) + 1;
+      out.push({
+        r, c, src,
+        wPx: ext ? emuToPx(ext[1]) : null, hPx: ext ? emuToPx(ext[2]) : null,
+        r2: r2 > r ? r2 : null, c2: c2 > c ? c2 : null,
+      });
+    }
+  }
+  return out;
+}
+
 // ── 본체 ────────────────────────────────────────────────────────────────────
 // 돌려주는 모양:
 //   { sheets: [{ name, cols:[px|null], merges:[{r,c,rs,cs}], rows:[[cell|null]], truncated }] }
@@ -494,17 +672,23 @@ export async function parseXlsx(buf) {
     readEntry(entries, 'xl/_rels/workbook.xml.rels'),
   ]);
 
+  // 색을 푸는 데 필요한 것 두 벌 — 테마색과 옛 방식(indexed) 팔레트.
+  // 파일마다 만들어 넘긴다(전역에 두면 동시에 두 파일을 열 때 서로 덮는다).
+  // **공유 문자열보다 먼저** 만든다 — 부분 서식(run)의 색이 이걸 쓴다.
+  const theme = { scheme: themeColors(thXml), indexed: readIndexedPalette(stXml) };
+
   // 공유 문자열. <rPh>(한글·일본어 음차 덧말)는 걷어낸다 — 안 걷으면 "노준석노준석"처럼
-  // 같은 말이 두 번 붙는다. 서식 있는 글자는 <r><t>가 여럿이라 이어 붙인다.
+  // 같은 말이 두 번 붙는다. 서식 있는 글자(<r><rPr>…<t>)는 이어 붙인 전체 글과 함께
+  // **구간(run)별 서식도 남긴다** — 실물 결산안의 '비고'가 한 셀 안에서 찬조 구간만
+  // 주황인데, 이어 붙이기만 하면 그 구분이 통째로 사라진다(사용자 지적 2026-08-28).
   const shared = [];
   for (const { inner } of blocks(ssXml, 'si')) {
     const body = inner.replace(/<rPh[\s\S]*?<\/rPh>/g, '');
-    shared.push(unesc([...body.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => m[1]).join('')));
+    shared.push({
+      text: unesc([...body.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => m[1]).join('')),
+      runs: readRuns(body, theme),
+    });
   }
-
-  // 색을 푸는 데 필요한 것 두 벌 — 테마색과 옛 방식(indexed) 팔레트.
-  // 파일마다 만들어 넘긴다(전역에 두면 동시에 두 파일을 열 때 서로 덮는다).
-  const theme = { scheme: themeColors(thXml), indexed: readIndexedPalette(stXml) };
 
   // 스타일: numFmt · font(굵게) · fill(배경) 을 cellXfs 인덱스로 모은다
   const numFmts = { ...BUILTIN };
@@ -545,6 +729,7 @@ export async function parseXlsx(buf) {
     return {
       fmt: numFmts[Number(a.numFmtId || 0)] ?? 'General',
       bold: !!f.bold, italic: !!f.italic, strike: !!f.strike, under: !!f.under,
+      sz: f.sz || null,
       fg: f.color || null,
       // applyFill이 없어도 fillId가 가리키는 칠이 있으면 엑셀은 칠해서 보여준다
       bg: fills[Number(a.fillId || 0)] || null,
@@ -573,12 +758,24 @@ export async function parseXlsx(buf) {
 
   const sheets = [];
   for (const def of sheetDefs) {
-    sheets.push(readSheet(await readEntry(entries, def.path), def.name, shared, xfs, dxfs, theme));
+    const xml = await readEntry(entries, def.path);
+    // 그림은 비동기(zip 풀기)라 여기서 미리 읽어 넘긴다 — readSheet는 순수 동기다.
+    // 못 읽는 그림(깨진 rels·너무 큰 파일)은 조용히 빠진다. 표가 그림 때문에 죽으면 안 된다.
+    let images = [];
+    try { images = await readDrawings(xml, def.path, entries); }
+    catch (e) { console.warn('[xlsx] 시트 그림을 읽지 못했다:', def.name, e?.message || e); }
+    sheets.push(readSheet(xml, def.name, shared, xfs, dxfs, theme, images));
   }
   return { sheets };
 }
 
-function readSheet(xml, name, shared, xfs, dxfs = [], theme = []) {
+function readSheet(xml, name, shared, xfs, dxfs = [], theme = [], images = []) {
+  // 시트 기본값 — <col>이 없는 열의 너비가 여기 적혀 있다. 실물 결산안이 14.43자
+  // (106px)인데 이걸 안 읽으면 전부 공장 기본 8.43자(64px)로 그려져 표 비례가 무너진다.
+  const fmtPr = attrs((xml.match(/<sheetFormatPr[^>]*\/?>/) || [''])[0] || '');
+  const defColW = Number(fmtPr.defaultColWidth || 0);
+  const defaultColPx = defColW ? widthToPx(defColW) : null;
+
   // 열 너비·숨김. min~max가 구간이라 펼쳐서 담는다.
   const cols = [];
   const hiddenCols = new Set();
@@ -601,12 +798,16 @@ function readSheet(xml, name, shared, xfs, dxfs = [], theme = []) {
 
   const data = (xml.match(/<sheetData[\s\S]*?<\/sheetData>/) || [''])[0];
   const grid = new Map();          // r → Map(c → cell)
+  const pending = [];              // 테두리만 있는 빈 칸 — 값 영역 안이면 나중에 살린다
+  const bdMap = new Map();         // `r,c` → bd — 병합 테두리 합성용(끝 셀의 선을 앵커로)
+  const rowHt = new Map();         // r → 높이(pt) — 제목·간격 행이 납작해지지 않게
   let cutShort = false;            // 500줄에서 끊었나(뒤에 더 있다는 뜻)
   let maxR = 0, maxC = 0;
   for (const { open: rowTag, inner: rowXml } of blocks(data, 'row')) {
     const ra = attrs(rowTag);
     const r = Number(ra.r || 0);
     if (!r || ra.hidden === '1') continue;
+    if (ra.ht) rowHt.set(r, Number(ra.ht));
     // **500줄을 채우면 거기서 멈춘다.** 예전에는 시트를 끝까지 읽고 나서 잘랐다 —
     // 어차피 안 그릴 줄까지 칸마다 서식을 붙였다는 뜻이다. 실측(2026-08-28): 6.4MB
     // (6만 줄 × 12열)짜리가 **3.3초**였고 그동안 탭이 멎었다. 멈추면 60ms다.
@@ -620,12 +821,17 @@ function readSheet(xml, name, shared, xfs, dxfs = [], theme = []) {
       const vRaw = (cXml.match(/<v>([\s\S]*?)<\/v>/) || [null, null])[1];
       let v = null;
       let num = false;
+      let runs = null;
+      let fmtRed = false;                      // [Red] — 음수를 빨갛게(서식이 정한 색)
       if (t === 'inlineStr') {
         v = unesc([...cXml.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m => m[1]).join(''));
+        runs = readRuns(cXml, theme);
       } else if (vRaw === null) {
         v = null;
       } else if (t === 's') {
-        v = shared[Number(vRaw)] ?? '';
+        const sh = shared[Number(vRaw)];
+        v = sh?.text ?? '';
+        runs = sh?.runs || null;
       } else if (t === 'str') {
         v = unesc(vRaw);                       // 수식이 돌려준 글자
       } else if (t === 'b') {
@@ -633,33 +839,44 @@ function readSheet(xml, name, shared, xfs, dxfs = [], theme = []) {
       } else if (t === 'e') {
         v = unesc(vRaw);                       // #DIV/0! 같은 오류는 그대로 보여준다
       } else {
-        v = formatNumber(vRaw, st.fmt);
+        const fx = formatNumberEx(vRaw, st.fmt);
+        v = fx.text;
+        fmtRed = fx.red;
         num = true;
       }
       // 조건부 서식이 크기를 비교하려면 꾸미기 전 숫자가 필요하다
       const n = num && Number.isFinite(Number(vRaw)) ? Number(vRaw) : null;
-      // 값도 없고 칠하지도 않은 칸은 담지 않는다(빈 칸까지 담으면 표가 헛돈다).
+      const cell = {
+        v: v ?? '', n, num, runs,
+        bold: !!st.bold, italic: !!st.italic, strike: !!st.strike, under: !!st.under,
+        szPx: st.sz ? szToPx(st.sz) : null,
+        align: st.align || null, valign: st.valign || null, wrap: !!st.wrap,
+        bg: st.bg || null,
+        // 서식의 [Red](음수 빨강)는 글자색 지정이 따로 없을 때만 — 지정색이 이긴다
+        fg: chromatic(st.fg) || (fmtRed ? '#C00000' : null),
+        bd: st.bd || null,
+      };
+      if (st.bd) bdMap.set(`${r},${rc.c}`, st.bd);
+      // 값도 없고 칠하지도 않은 칸은 바로 담지 않는다(빈 칸까지 담으면 표가 헛돈다).
       // 순백으로만 칠한 빈 칸도 버린다 — 엑셀 서식은 쓰지도 않는 넓은 구역을
       // 통째로 흰색으로 칠해 두는 일이 흔하고, 그걸 담으면 표 오른쪽에 빈 격자가
       // 수십 칸 딸려 나온다(실물 명단이 그랬다).
-      // 테두리만 있고 값이 없는 칸도 버린다 — 표 밖의 장식용 테두리가 격자를 늘린다
-      if ((v === null || v === '') && (!st.bg || st.bg.toUpperCase() === '#FFFFFF')) continue;
+      // **테두리만 있는 빈 칸은 버리지 않고 옆에 모아 둔다** — 값 영역(경계 상자)
+      // 안이면 나중에 살린다. 지출전표 같은 폼은 상자 선 대부분이 빈 칸에 걸려
+      // 있어서, 통째로 버리면 폼이 옅은 격자선으로 무너진다(2026-08-29 분석).
+      // 값 영역 **밖**의 장식 테두리는 예전대로 버려진다.
+      if ((v === null || v === '') && (!st.bg || st.bg.toUpperCase() === '#FFFFFF')) {
+        if (st.bd) pending.push({ r, c: rc.c, cell });
+        continue;
+      }
       if (!grid.has(r)) grid.set(r, new Map());
-      grid.get(r).set(rc.c, {
-        v: v ?? '', n, num,
-        bold: !!st.bold, italic: !!st.italic, strike: !!st.strike, under: !!st.under,
-        align: st.align || null, valign: st.valign || null, wrap: !!st.wrap,
-        bg: st.bg || null, fg: chromatic(st.fg), bd: st.bd || null,
-      });
+      grid.get(r).set(rc.c, cell);
       if (r > maxR) maxR = r;
       if (rc.c > maxC) maxC = rc.c;
     }
   }
 
-  // 조건부 서식은 여백을 걷어내기 **전에** 적용한다 — sqref가 원본 좌표계다
-  const cfRules = readCfRules(xml, theme);
-  if (cfRules.length) applyCf(grid, cfRules, dxfs);
-
+  // 값·칠 있는 칸의 경계를 **먼저** 잰다 — 이 상자가 "표 안"의 기준이다.
   // 위·왼쪽의 빈 여백은 걷어낸다 — 실제 파일은 B2에서 시작하는 일이 흔하고,
   // 그대로 두면 빈 행·빈 열이 표 앞에 붙는다.
   const rowNums = [...grid.keys()].sort((a, b) => a - b);
@@ -667,30 +884,109 @@ function readSheet(xml, name, shared, xfs, dxfs = [], theme = []) {
   let firstC = maxC;
   for (const m of grid.values()) for (const c of m.keys()) if (c < firstC) firstC = c;
   if (!rowNums.length) firstC = 1;
-
-  // 오른쪽 끝의 완전히 빈 열은 걷어낸다 — 값이 있는 마지막 열까지만 그린다
   let lastC = firstC - 1;
   for (const m of grid.values()) for (const c of m.keys()) if (c > lastC) lastC = c;
   maxC = Math.max(lastC, firstC);
-
   const truncated = cutShort || maxR - firstR + 1 > MAX_ROWS;
   const lastR = Math.min(maxR, firstR + MAX_ROWS - 1);
+
+  // 테두리만 있는 빈 칸을 **경계 상자 안에서만** 살린다 — 전표류 폼의 상자 선.
+  // 상자 밖(오른쪽·아래의 장식 테두리)은 예전대로 버린다 — 그게 이 버리기의 원 목적이다.
+  for (const p of pending) {
+    if (p.r < firstR || p.r > lastR || p.c < firstC || p.c > maxC) continue;
+    if (!grid.has(p.r)) grid.set(p.r, new Map());
+    if (!grid.get(p.r).has(p.c)) grid.get(p.r).set(p.c, p.cell);
+  }
+
+  // 병합 칸의 테두리 합성 — OOXML은 병합 상자의 선을 구성 셀 각각에 나눠 적는다
+  // (앵커에 left/top, 오른쪽 끝 셀에 right, 아래 끝 셀에 bottom). 화면은 앵커 셀
+  // 하나만 그리므로, 끝 셀들의 선을 앵커로 모아 와야 상자가 닫힌다(실물 지출전표의
+  // 병합 53개 중 21개가 이 모양이었다).
+  for (const g of merges) {
+    const anchor = grid.get(g.r)?.get(g.c);
+    if (!anchor) continue;
+    const r2 = g.r + g.rs - 1, c2 = g.c + g.cs - 1;
+    const bd = { t: anchor.bd?.t || null, r: anchor.bd?.r || null, b: anchor.bd?.b || null, l: anchor.bd?.l || null };
+    const scan = (side, cells) => {
+      if (bd[side]) return;
+      for (const [rr, cc] of cells) {
+        const s = bdMap.get(`${rr},${cc}`);
+        if (s?.[side]) { bd[side] = s[side]; return; }
+      }
+    };
+    scan('r', Array.from({ length: g.rs }, (_, i) => [g.r + i, c2]));
+    scan('b', Array.from({ length: g.cs }, (_, i) => [r2, g.c + i]));
+    scan('l', Array.from({ length: g.rs }, (_, i) => [g.r + i, g.c]));
+    scan('t', Array.from({ length: g.cs }, (_, i) => [g.r, g.c + i]));
+    if (bd.t || bd.r || bd.b || bd.l) anchor.bd = bd;
+  }
+
+  // 조건부 서식은 좌표를 당기기 **전에** 적용한다 — sqref가 원본 좌표계다
+  const cfRules = readCfRules(xml, theme);
+  if (cfRules.length) applyCf(grid, cfRules, dxfs);
+
+  // 화면에 보일 열 목록 — **숨긴 열은 자리도 없앤다.** 예전에는 셀만 버려서 숨긴
+  // 열이 기본 너비의 텅 빈 유령 열로 남았다(실물 명단의 J열). 좌표를 여기서 한 번에
+  // 당기므로 병합·필터·그림도 같은 매핑을 쓴다.
+  const visCols = [];
+  const colIdx = new Map();          // 원본 열 번호 → 화면 열 번호(숨긴 열은 다음 보이는 자리)
+  for (let c = firstC; c <= maxC; c++) {
+    colIdx.set(c, visCols.length);
+    if (!hiddenCols.has(c)) visCols.push(c);
+  }
+  const mapC = (c) => (c < firstC ? 0 : c > maxC ? visCols.length : colIdx.get(c) ?? visCols.length);
+
   const rows = [];
+  const rowPx = [];                  // 행 최소 높이(px) — 내용이 크면 알아서 더 늘어난다
   for (let r = firstR; r <= lastR; r++) {
-    const line = [];
     const m = grid.get(r);
-    for (let c = firstC; c <= maxC; c++) line.push(m?.get(c) ?? null);
-    rows.push(line);
+    rows.push(visCols.map(c => m?.get(c) ?? null));
+    rowPx.push(rowHt.has(r) ? rowHtToPx(rowHt.get(r)) : null);
+  }
+
+  // 자동 필터 — 조건은 이미 행 hidden으로 반영돼 있으므로(엑셀이 적어 둔다) 여기서는
+  // 버튼 자리(머리행 범위)만 알려 준다. 화면은 아이콘만 붙인다 — 문구 없이.
+  const afRef = attr((xml.match(/<autoFilter[^>]*>/) || [''])[0] || '', 'ref');
+  let filter = null;
+  if (afRef) {
+    const [a, b] = afRef.split(':');
+    const p = refToRC(a), q = refToRC(b || a);
+    if (p && q && p.r >= firstR && p.r <= lastR) {
+      filter = { r: p.r - firstR, c1: mapC(Math.min(p.c, q.c)), c2: Math.min(mapC(Math.max(p.c, q.c)), visCols.length - 1) };
+    }
   }
 
   return {
     name,
-    cols: cols.slice(firstC - 1, maxC),
-    // 병합도 같은 만큼 당겨서 표의 좌표계와 맞춘다. 잘려나간 밖의 병합은 버린다.
+    cols: visCols.map(c => cols[c - 1] ?? null),
+    defaultColPx,
+    // 병합도 같은 매핑으로 당긴다. 잘려나간 밖의 병합은 버리고, 표 크기를 넘는
+    // rs·cs는 자른다 — colSpan이 colgroup을 넘으면 브라우저가 폭 없는 유령 열을
+    // 만든다(실물 예산신청서의 제목 병합이 데이터보다 오른쪽까지 걸쳐 있었다).
     merges: merges
-      .map(g => ({ ...g, r: g.r - firstR, c: g.c - firstC }))
-      .filter(g => g.r >= 0 && g.c >= 0 && g.r < rows.length),
+      .filter(g => g.r >= firstR && g.r <= lastR && g.c >= firstC && g.c <= maxC)
+      .map(g => {
+        const r = g.r - firstR, c = mapC(g.c);
+        return {
+          r, c,
+          rs: Math.max(1, Math.min(g.rs, rows.length - r)),
+          cs: Math.max(1, Math.min(mapC(g.c + g.cs) - c, visCols.length - c)),
+        };
+      })
+      .filter(g => g.c < visCols.length),
     rows,
+    rowPx,
+    filter,
+    // 그림 — 앵커 셀 좌표를 화면 좌표로. 값 영역을 걷어낸 뒤 표 **밖**에 걸린 그림은
+    // 마지막 칸으로 끌어다 붙인다(실물 양육비 시트의 스캔이 표 오른쪽 K열에 떠 있었다).
+    // 자리를 잃는 것보다 "그 시트에 이 그림이 있다"가 먼저다.
+    images: rows.length ? (images || [])
+      .map(im => ({
+        ...im,
+        r: Math.max(0, Math.min(im.r - firstR, rows.length - 1)),
+        c: Math.max(0, Math.min(mapC(im.c), visCols.length - 1)),
+        c2: im.c2 ? Math.min(mapC(im.c2), visCols.length) : null,
+      })) : [],
     truncated,
   };
 }

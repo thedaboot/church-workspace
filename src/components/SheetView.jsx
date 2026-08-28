@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Loader2, ArrowUp, ArrowDown, ArrowRight, ArrowUpRight, ArrowDownRight,
-  Circle, Flag, Check, X, TriangleAlert,
+  Circle, Flag, Check, X, TriangleAlert, ChevronDown,
 } from 'lucide-react';
 import { Skeleton } from './media.jsx';
 import { parseXlsx, parseCsv, luminance, viewColPx, VIEW_FONT_PX } from '../services/xlsx.js';
@@ -53,6 +53,33 @@ const sideCss = (sd) => (sd ? `${sd.w}px ${sd.s} ${sd.c || 'var(--app-line)'}` :
 
 // 배경과 글자의 밝기 차 — 조건부 서식이 준 글자색을 쓸지 자동 대비로 덮을지 가른다
 const readable = (fg, bg) => Math.abs(luminance(fg) - luminance(bg)) > 0.28;
+
+// 셀 글자색 정책 한 벌 — 칠이 있으면 그 배경에서 읽히는 색만 쓰고, 칠이 없으면
+// 현재 테마의 글자색을 섞는다(라이트에서는 진하고 다크에서는 같은 색상이 밝아진다).
+// 셀 전체 색과 부분 서식(run) 색이 **같은 정책**을 지나야 한 셀 안에서 톤이 안 어긋난다.
+const inkOf = (fg, bg, painted) => {
+  if (!fg) return undefined;
+  if (painted) return readable(fg, bg) ? fg : undefined;
+  return `color-mix(in oklab, ${fg} 72%, var(--app-ink))`;
+};
+
+// 부분 서식(rich text run) — 한 셀 안에서 구간마다 색·굵기·크기가 다르다.
+// 원본 엑셀의 '비고' 칸이 찬조 구간만 주황인 것이 이걸로 살아난다(사용자 지적).
+function CellText({ cell, painted }) {
+  if (!cell?.runs) return cell?.v ?? '';
+  return cell.runs.map((rn, i) => (
+    <span
+      key={i}
+      style={{
+        color: inkOf(rn.color, cell.bg, painted),
+        fontWeight: rn.bold ? 700 : undefined,
+        fontStyle: rn.italic ? 'italic' : undefined,
+        textDecoration: rn.strike ? 'line-through' : rn.under ? 'underline' : undefined,
+        fontSize: rn.szPx ? `${rn.szPx}px` : undefined,
+      }}
+    >{rn.t}</span>
+  ));
+}
 
 // ── 조건부 서식의 아이콘 집합 ───────────────────────────────────────────────
 // 엑셀은 초록/노랑/빨강을 고정색으로 박지만 **우리는 태그 토큰을 쓴다** — 고정색을
@@ -137,6 +164,35 @@ export function SheetView({ blob, text = null, name = '', onError }) {
     return m;
   }, [sheet]);
 
+  // 그림을 앵커 셀에 붙인다. 앵커가 병합에 덮인 자리면(그 td는 안 그려진다)
+  // 그 병합의 앵커 셀로 옮긴다.
+  const imagesAt = useMemo(() => {
+    const m = new Map();
+    for (const im of sheet?.images || []) {
+      let key = `${im.r},${im.c}`;
+      if (covered.has(key)) {
+        const g = (sheet?.merges || []).find(g =>
+          im.r >= g.r && im.r < g.r + g.rs && im.c >= g.c && im.c < g.c + g.cs);
+        if (g) key = `${g.r},${g.c}`;
+      }
+      if (!m.has(key)) m.set(key, []);
+      m.get(key).push(im);
+    }
+    return m;
+  }, [sheet, covered]);
+
+  // 그림 폭: 원본 크기(ext)가 있으면 화면 배율로, 없으면 걸친 열들의 너비 합으로 어림
+  const colPx = (i) => viewColPx(sheet?.cols[i] ?? sheet?.defaultColPx ?? null);
+  const imgWidth = (im) => {
+    if (im.wPx) return Math.round(im.wPx * (VIEW_FONT_PX / 11.5));
+    if (im.c2 && sheet) {
+      let w = 0;
+      for (let i = im.c; i < im.c2 && i < (sheet.rows[0]?.length || 0); i++) w += colPx(i);
+      return w || null;
+    }
+    return null;
+  };
+
   if (!book || !sheet) {
     return (
       <div className="relative w-full h-full">
@@ -177,23 +233,29 @@ export function SheetView({ blob, text = null, name = '', onError }) {
         <table className="border-collapse" style={{ tableLayout: 'fixed' }}>
           <colgroup>
             {Array.from({ length: width }, (_, i) => (
-              <col key={i} style={{ width: `${viewColPx(sheet.cols[i])}px` }} />
+              // 시트가 기본 열 너비를 정해 두면(<sheetFormatPr>) 너비 없는 열은 그걸 쓴다 —
+              // 실물 결산안이 106px인데 공장 기본 64px로 그리면 표 비례가 무너진다
+              <col key={i} style={{ width: `${viewColPx(sheet.cols[i] ?? sheet.defaultColPx ?? null)}px` }} />
             ))}
           </colgroup>
           <tbody>
             {sheet.rows.map((row, r) => (
-              <tr key={r}>
+              // 행 높이는 **최소값**이다 — 내용이 크면 행이 알아서 늘어난다.
+              // 제목 행(크게)과 간격용 빈 행(납작하게)이 원본 인상을 지킨다.
+              <tr key={r} style={sheet.rowPx?.[r] ? { height: `${sheet.rowPx[r]}px` } : undefined}>
                 {row.map((cell, c) => {
                   if (covered.has(`${r},${c}`)) return null;
                   const g = spanAt.get(`${r},${c}`);
                   const paint = fillOf(cell?.bg);
                   const bd = cell?.bd;
                   const bar = cell?.bar;
+                  const imgs = imagesAt.get(`${r},${c}`);
+                  const hasFilter = sheet.filter && r === sheet.filter.r && c >= sheet.filter.c1 && c <= sheet.filter.c2;
                   // 글자색: 칠이 있으면 그 배경에 맞춰 고르고(작성자가 준 색이 읽히면 그걸
                   // 쓴다), 칠이 없으면 현재 테마의 글자색을 섞어 라이트·다크 모두에서 읽히게.
                   const color = paint
-                    ? (cell.fg && readable(cell.fg, cell.bg) ? cell.fg : paint.color)
-                    : (cell?.fg ? `color-mix(in oklab, ${cell.fg} 72%, var(--app-ink))` : undefined);
+                    ? (cell?.fg && readable(cell.fg, cell.bg) ? cell.fg : paint.color)
+                    : inkOf(cell?.fg, cell?.bg, false);
                   return (
                     <td
                       key={c}
@@ -205,7 +267,8 @@ export function SheetView({ blob, text = null, name = '', onError }) {
                       // 열 너비를 원본대로 두고 글자만 접는다 — 정보가 먼저다.
                       className={`relative px-1.5 py-1 leading-[1.45] break-words text-fg whitespace-pre-wrap ${cell?.cf ? 'dc-cell-paint' : ''}`}
                       style={{
-                        fontSize: `${VIEW_FONT_PX}px`,
+                        // 글자 크기는 원본을 따른다(8pt 잔글씨~24pt 제목) — 없으면 기준 크기
+                        fontSize: `${cell?.szPx || VIEW_FONT_PX}px`,
                         background: paint?.background,
                         color,
                         borderTop: sideCss(bd?.t), borderRight: sideCss(bd?.r),
@@ -214,7 +277,8 @@ export function SheetView({ blob, text = null, name = '', onError }) {
                         fontStyle: cell?.italic ? 'italic' : undefined,
                         textDecoration: cell?.strike ? 'line-through' : cell?.under ? 'underline' : undefined,
                         textAlign: cell?.align || (cell?.num ? 'right' : 'left'),
-                        verticalAlign: cell?.valign === 'center' ? 'middle' : cell?.valign === 'bottom' ? 'bottom' : 'top',
+                        // 엑셀의 기본 세로 정렬은 top이 아니라 **bottom**이다
+                        verticalAlign: cell?.valign === 'center' ? 'middle' : cell?.valign === 'top' ? 'top' : 'bottom',
                         fontVariantNumeric: cell?.num ? 'tabular-nums' : undefined,
                       }}
                     >
@@ -236,7 +300,19 @@ export function SheetView({ blob, text = null, name = '', onError }) {
                             {cell.icon.showValue && <span>{cell.v}</span>}
                           </span>
                         )
-                        : <span className="relative">{cell?.v ?? ''}</span>}
+                        : <span className="relative"><CellText cell={cell} painted={!!paint} /></span>}
+                      {/* 자동 필터 — 원본 머리행의 ▼ 버튼 자리. 아이콘만, 문구 없이. */}
+                      {hasFilter && <ChevronDown size={10} className="relative inline align-[-1px] ml-0.5 text-fg-faint shrink-0" aria-hidden="true" />}
+                      {/* 시트에 얹힌 그림(도장·서명 스캔 등) — 앵커 셀 안에 그린다.
+                          원본은 셀 위에 떠 있지만, 행 높이를 원본대로 다 재현하지 않는
+                          한 픽셀 좌표는 어차피 안 맞는다. "그 자리에 그 그림"이 먼저다. */}
+                      {imgs?.map((im, i) => (
+                        <img
+                          key={i} src={im.src} alt=""
+                          className="relative block max-w-full"
+                          style={{ width: imgWidth(im) ? `${imgWidth(im)}px` : undefined }}
+                        />
+                      ))}
                     </td>
                   );
                 })}

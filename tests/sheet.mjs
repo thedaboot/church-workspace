@@ -346,5 +346,153 @@ check('색: 옛 방식(indexed)도 읽는다', () => {
   assert.strictEqual(s2.rows[0][2].bg, null, 'auto 색을 그대로 칠했다');
 });
 
+// ── 2026-08-29 회차: 원본과 같게 (실물 결산안 4개 대조에서 나온 격차들) ──────
+// 실물 파일은 레포에 못 둔다(명단·연락처) — 격차마다 같은 무늬의 최소 픽스처를 만든다.
+const fidBook = await parseXlsx(zipOf([
+  ['xl/workbook.xml', '<workbook><sheets><sheet name="결산" sheetId="1" r:id="rId1"/></sheets></workbook>'],
+  ['xl/_rels/workbook.xml.rels', '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'],
+  // A1 셀: 부분 서식 — "(야식) 365,800 찬조" 구간만 주황(실물 결산안의 비고와 같은 무늬)
+  ['xl/sharedStrings.xml',
+    '<sst><si>'
+    + '<r><rPr><sz val="10"/><color rgb="FF000000"/></rPr><t xml:space="preserve">(다과) 132,320 / </t></r>'
+    + '<r><rPr><sz val="10"/><color rgb="FFC65911"/></rPr><t>(야식) 365,800 찬조</t></r>'
+    + '</si><si><t>서식 없는 런 아님</t></si></sst>'],
+  ['xl/styles.xml',
+    '<styleSheet>'
+    + '<numFmts>'
+    + '<numFmt numFmtId="176" formatCode="&quot;₩&quot;#,##0_);[Red]\\(&quot;₩&quot;#,##0\\)"/>'
+    + '<numFmt numFmtId="177" formatCode="_-* #,##0_-;\\-* #,##0_-;_-* &quot;-&quot;_-;_-@"/>'
+    + '<numFmt numFmtId="178" formatCode="mm&quot;/&quot;dd&quot; &quot;ddd"/>'
+    + '</numFmts>'
+    + '<fonts><font/><font><b/><sz val="24"/></font></fonts>'
+    + '<fills><fill><patternFill patternType="none"/></fill></fills>'
+    + '<borders><border/><border><right style="thin"/></border><border><bottom style="medium"/></border></borders>'
+    + '<cellXfs>'
+    + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>'
+    + '<xf numFmtId="176" fontId="0"/>'          // s=1 ₩ · [Red] 괄호
+    + '<xf numFmtId="177" fontId="0"/>'          // s=2 회계식(0은 "-")
+    + '<xf numFmtId="58" fontId="0"/>'           // s=3 한국어 내장 날짜(m월 d일)
+    + '<xf numFmtId="178" fontId="0"/>'          // s=4 요일(ddd)
+    + '<xf numFmtId="0" fontId="1"/>'            // s=5 24pt 제목
+    + '<xf numFmtId="0" fontId="0" borderId="1"/>'  // s=6 right 테두리만
+    + '<xf numFmtId="0" fontId="0" borderId="2"/>'  // s=7 bottom 테두리만
+    + '</cellXfs>'
+    + '</styleSheet>'],
+  ['xl/worksheets/sheet1.xml',
+    '<worksheet>'
+    + '<sheetFormatPr defaultColWidth="14.42578125" defaultRowHeight="15"/>'
+    + '<cols><col min="3" max="3" width="0" hidden="1"/></cols>'
+    // A7:B8 병합 — right는 B7에만, bottom은 A8에만(OOXML이 실제로 쓰는 나눠 적기)
+    + '<mergeCells count="2"><mergeCell ref="A7:B8"/><mergeCell ref="A1:E1"/></mergeCells>'
+    + '<sheetData>'
+    + '<row r="1" ht="32.25"><c r="A1" s="5" t="s"><v>0</v></c></row>'
+    // C2(99)는 숨긴 C열에 있다 — 값째 사라지고 자리도 남으면 안 된다
+    + '<row r="2"><c r="A2" s="1"><v>9000000</v></c><c r="B2" s="1"><v>-1234</v></c>'
+    +   '<c r="C2"><v>99</v></c><c r="D2" s="2"><v>0</v></c></row>'
+    + '<row r="3"><c r="A3" s="3"><v>46054</v></c><c r="B3" s="4"><v>46054</v></c><c r="D3" t="s"><v>1</v></c></row>'
+    + '<row r="7"><c r="A7" t="s"><v>1</v></c><c r="B7" s="6"/><c r="D7" s="6"/></row>'
+    + '<row r="8"><c r="A8" s="7"/></row>'
+    // 값 영역 밖(H20)의 테두리-only 칸은 예전대로 버려진다
+    + '<row r="20"><c r="H20" s="6"/></row>'
+    + '</sheetData>'
+    + '<autoFilter ref="A2:D2"/>'
+    + '<drawing r:id="rId9"/>'
+    + '</worksheet>'],
+  ['xl/worksheets/_rels/sheet1.xml.rels',
+    '<Relationships><Relationship Id="rId9" Target="../drawings/drawing1.xml"/></Relationships>'],
+  ['xl/drawings/drawing1.xml',
+    '<xdr:wsDr><xdr:twoCellAnchor>'
+    + '<xdr:from><xdr:col>1</xdr:col><xdr:row>1</xdr:row></xdr:from>'
+    + '<xdr:to><xdr:col>3</xdr:col><xdr:row>2</xdr:row></xdr:to>'
+    + '<xdr:pic><xdr:blipFill><a:blip r:embed="rId1"/></xdr:blipFill></xdr:pic>'
+    + '</xdr:twoCellAnchor></xdr:wsDr>'],
+  ['xl/drawings/_rels/drawing1.xml.rels',
+    '<Relationships><Relationship Id="rId1" Target="../media/image1.png"/></Relationships>'],
+  ['xl/media/image1.png', 'PNG-BYTES'],
+]));
+const fid = fidBook.sheets[0];
+const cellAt = (r, c) => fid.rows[r]?.[c];
+// 숨긴 C열이 자리째 빠지므로 화면 열은 A,B,D,E… — D는 2번이 된다
+check('부분 서식: 구간별 색이 살아 있다', () => {
+  const c = cellAt(0, 0);
+  assert.ok(c.runs, 'runs가 없다 — 이어붙이기만 했다');
+  assert.strictEqual(c.runs.length, 2);
+  assert.strictEqual(c.runs[0].color, null, '검정 구간은 기본색(null)이어야 한다');
+  assert.strictEqual(c.runs[1].color, '#C65911', '찬조 구간의 주황이 사라졌다');
+  assert.ok(c.runs[1].t.includes('야식'));
+  // 서식 없는 문자열은 runs를 들고 다니지 않는다(대부분의 셀이 이 경로)
+  assert.strictEqual(cellAt(2, 2).runs, null);
+});
+check('숫자 서식: ₩ 접두 · [Red] 괄호 음수 · 회계식 0은 "-"', () => {
+  assert.strictEqual(cellAt(1, 0).v, '₩9,000,000', `₩가 사라졌다: ${cellAt(1, 0).v}`);
+  assert.strictEqual(cellAt(1, 1).v, '(₩1,234)', `음수 괄호가 아니다: ${cellAt(1, 1).v}`);
+  assert.strictEqual(cellAt(1, 1).fg, '#C00000', '[Red]가 글자색으로 안 옮았다');
+  assert.strictEqual(cellAt(1, 2).v, '-', `회계식 0이 "-"가 아니다: ${cellAt(1, 2)?.v}`);
+});
+check('날짜: 한국어 내장 서식(58)과 요일(ddd)', () => {
+  assert.strictEqual(cellAt(2, 0).v, '2월 1일', `일련번호가 날짜로 안 바뀌었다: ${cellAt(2, 0).v}`);
+  assert.strictEqual(cellAt(2, 1).v, '02/01 일', `요일이 없다: ${cellAt(2, 1).v}`);
+});
+check('시트 기본 열 너비를 읽는다', () => {
+  assert.strictEqual(fid.defaultColPx, 106, '14.43자 = 106px이어야 한다');
+});
+check('글자 크기: 24pt 제목이 커진다', () => {
+  assert.strictEqual(cellAt(0, 0).szPx, 27, '24pt → 27px');
+});
+check('숨긴 열은 자리째 빠진다(유령 열 없음)', () => {
+  // A,B,(C숨김),D → 화면은 A,B,D 세 자리. 숨긴 C의 값(99)은 사라지고,
+  // D2가 2번 자리로 당겨진다 — 예전에는 C 자리가 기본 너비의 빈 열로 남았다.
+  const vals = fid.rows[1].map(x => x?.v);
+  assert.ok(!vals.includes('99'), `숨긴 열의 값이 새어 나왔다: ${JSON.stringify(vals)}`);
+  assert.strictEqual(cellAt(1, 2)?.v, '-', `숨긴 열이 자리를 차지한다: ${JSON.stringify(vals)}`);
+});
+check('병합 테두리: 끝 셀의 선이 앵커로 합쳐진다', () => {
+  const anchor = fid.rows[6]?.[0];   // A7
+  assert.ok(anchor?.v === '서식 없는 런 아님', '병합 앵커(A7)를 못 찾았다');
+  assert.ok(anchor.bd?.r, 'B7의 right가 앵커로 안 왔다');
+  assert.ok(anchor.bd?.b, 'A8의 bottom이 앵커로 안 왔다');
+});
+check('테두리만 있는 빈 칸: 값 영역 안은 살고 밖은 버려진다', () => {
+  // D7(값 영역 안) — 화면 좌표로 6행 2열
+  const d7 = fid.rows[fid.rows.length >= 7 ? 6 : 0]?.[2];
+  assert.ok(d7?.bd?.r, '값 영역 안의 테두리 칸이 버려졌다(전표 폼이 무너진다)');
+  // H20(값 영역 밖) — 표가 20행·H열까지 늘어나면 안 된다
+  assert.ok(fid.rows.length < 15, `밖의 장식 테두리가 표를 늘렸다: ${fid.rows.length}행`);
+});
+check('병합이 표 크기를 넘지 않는다(colSpan 클램프)', () => {
+  const width = fid.rows[0].length;
+  for (const g of fid.merges) {
+    assert.ok(g.c + g.cs <= width, `병합이 표 폭을 넘는다: c=${g.c} cs=${g.cs} 폭=${width}`);
+    assert.ok(g.r + g.rs <= fid.rows.length, `병합이 표 높이를 넘는다`);
+  }
+});
+check('행 높이(ht)가 최소 높이로 실린다', () => {
+  assert.strictEqual(fid.rowPx[0], Math.round(32.25 * (4 / 3) * (VIEW_FONT_PX / 11.5)), `제목 행 높이: ${fid.rowPx[0]}`);
+  assert.strictEqual(fid.rowPx[1], null, 'ht 없는 행은 null(내용대로)');
+});
+check('자동 필터 자리가 실린다', () => {
+  assert.ok(fid.filter, 'filter가 없다');
+  assert.strictEqual(fid.filter.r, 1, `머리행: ${fid.filter?.r}`);
+});
+check('시트 위 그림: 앵커 셀과 걸친 범위', () => {
+  assert.strictEqual(fid.images.length, 1, `그림 수: ${fid.images.length}`);
+  const im = fid.images[0];
+  assert.ok(im.src.startsWith('data:image/png;base64,'), '그림이 data URL이 아니다');
+  assert.strictEqual(im.r, 1, `앵커 행: ${im.r}`);
+  assert.strictEqual(im.c, 1, `앵커 열: ${im.c}`);
+  assert.ok(im.c2 >= 2, 'to 열(폭 어림용)이 없다');
+});
+// 렌더러 쪽은 JSX라 노드에서 못 돌린다 — 파서가 준 것을 실제로 쓰는지 소스로 못 박는다
+check('렌더러가 새 값들을 실제로 쓴다(소스 단정)', () => {
+  const src = readFileSync(new URL('../src/components/SheetView.jsx', import.meta.url), 'utf8');
+  assert.ok(src.includes('cell?.runs'), '부분 서식(runs)을 안 그린다');
+  assert.ok(src.includes('sheet.defaultColPx'), '시트 기본 열 너비를 안 쓴다');
+  assert.ok(src.includes('cell?.szPx || VIEW_FONT_PX'), '글자 크기를 안 쓴다');
+  assert.ok(src.includes('sheet.rowPx'), '행 높이를 안 쓴다');
+  assert.ok(src.includes("cell?.valign === 'top' ? 'top' : 'bottom'"), '엑셀 기본 세로 정렬(bottom)이 아니다');
+  assert.ok(src.includes('sheet.filter'), '필터 표시가 없다');
+  assert.ok(src.includes('imagesAt'), '그림을 안 그린다');
+});
+
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);
