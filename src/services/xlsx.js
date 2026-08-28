@@ -948,6 +948,21 @@ function readSheet(xml, name, shared, xfs, dxfs = [], theme = [], images = []) {
     rowPx.push(rowHt.has(r) ? rowHtToPx(rowHt.get(r)) : null);
   }
 
+  // 틀 고정 — 위 N행을 스크롤해도 붙여 둔다(26_결산이 113행인데 머리 2행이 고정이다).
+  // 열 고정(xSplit)은 안 한다 — 표가 자기 상자에서 가로 스크롤되는 우리 구조에서
+  // sticky 열은 병합과 자주 부딪히고, 실물 파일들이 쓰지도 않는다.
+  // 병합이 고정 경계에 걸쳐 있으면 접는다 — rowSpan이 경계를 넘으면 붙는 줄이 찢어진다.
+  const pane = attrs((xml.match(/<pane[^>]*\/?>/) || [''])[0] || '');
+  let frozenRows = 0;
+  if ((pane.state === 'frozen' || pane.state === 'frozenSplit') && Number(pane.ySplit) > 0) {
+    frozenRows = Math.max(0, Math.min(Number(pane.ySplit) - (firstR - 1), 5));
+    const crosses = merges.some(g => {
+      const r = g.r - firstR;
+      return r < frozenRows && r + g.rs > frozenRows;
+    });
+    if (crosses || frozenRows >= rows.length) frozenRows = 0;
+  }
+
   // 자동 필터 — 조건은 이미 행 hidden으로 반영돼 있으므로(엑셀이 적어 둔다) 여기서는
   // 버튼 자리(머리행 범위)만 알려 준다. 화면은 아이콘만 붙인다 — 문구 없이.
   const afRef = attr((xml.match(/<autoFilter[^>]*>/) || [''])[0] || '', 'ref');
@@ -980,6 +995,7 @@ function readSheet(xml, name, shared, xfs, dxfs = [], theme = [], images = []) {
       .filter(g => g.c < visCols.length),
     rows,
     rowPx,
+    frozenRows,
     filter,
     // 그림 — 앵커 셀 좌표를 화면 좌표로. 값 영역을 걷어낸 뒤 표 **밖**에 걸린 그림은
     // 마지막 칸으로 끌어다 붙인다(실물 양육비 시트의 스캔이 표 오른쪽 K열에 떠 있었다).

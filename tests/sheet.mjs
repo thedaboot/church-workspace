@@ -382,6 +382,7 @@ const fidBook = await parseXlsx(zipOf([
     + '</styleSheet>'],
   ['xl/worksheets/sheet1.xml',
     '<worksheet>'
+    + '<sheetViews><sheetView><pane ySplit="2" topLeftCell="A9" state="frozen"/></sheetView></sheetViews>'
     + '<sheetFormatPr defaultColWidth="14.42578125" defaultRowHeight="15"/>'
     + '<cols><col min="3" max="3" width="0" hidden="1"/></cols>'
     // A7:B8 병합 — right는 B7에만, bottom은 A8에만(OOXML이 실제로 쓰는 나눠 적기)
@@ -482,6 +483,12 @@ check('행 높이(ht)가 최소 높이로 실린다', () => {
 check('자동 필터 자리가 실린다', () => {
   assert.ok(fid.filter, 'filter가 없다');
   assert.strictEqual(fid.filter.r, 1, `머리행: ${fid.filter?.r}`);
+});
+check('틀 고정(pane ySplit)이 실린다', () => {
+  assert.strictEqual(fid.frozenRows, 2, `고정 행: ${fid.frozenRows}`);
+  // 렌더러가 실제로 sticky를 쓰는지 — JSX라 소스로 못 박는다
+  const src = readFileSync(new URL('../src/components/SheetView.jsx', import.meta.url), 'utf8');
+  assert.ok(src.includes('sheet.frozenRows') && src.includes("position: 'sticky'"), '고정 행을 sticky로 안 붙인다');
 });
 check('시트 위 그림: 앵커 셀과 걸친 범위', () => {
   assert.strictEqual(fid.images.length, 1, `그림 수: ${fid.images.length}`);

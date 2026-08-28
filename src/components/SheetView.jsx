@@ -126,6 +126,18 @@ function CellIcon({ icon }) {
 export function SheetView({ blob, text = null, name = '', onError }) {
   const [book, setBook] = useState(null);
   const [tab, setTab] = useState(0);
+  // 틀 고정(pane ySplit) — 고정 행 td를 sticky로 붙이려면 **실제 행 높이**가 필요하다
+  // (rowPx는 최소값일 뿐, 내용이 더 크면 행이 는다). 그려진 뒤 한 번 재서 top을 계산한다.
+  const bodyRef = React.useRef(null);
+  const [frozenTops, setFrozenTops] = useState(null);
+  useEffect(() => {
+    const frozen = book?.sheets?.[tab]?.frozenRows || 0;
+    if (!frozen || !bodyRef.current) { setFrozenTops(null); return; }
+    const trs = bodyRef.current.querySelectorAll('tr');
+    const tops = [0];
+    for (let i = 0; i < frozen - 1 && i < trs.length; i++) tops.push(tops[i] + trs[i].offsetHeight);
+    setFrozenTops(tops);
+  }, [book, tab]);
 
   useEffect(() => {
     let alive = true;
@@ -238,7 +250,7 @@ export function SheetView({ blob, text = null, name = '', onError }) {
               <col key={i} style={{ width: `${viewColPx(sheet.cols[i] ?? sheet.defaultColPx ?? null)}px` }} />
             ))}
           </colgroup>
-          <tbody>
+          <tbody ref={bodyRef}>
             {sheet.rows.map((row, r) => (
               // 행 높이는 **최소값**이다 — 내용이 크면 행이 알아서 늘어난다.
               // 제목 행(크게)과 간격용 빈 행(납작하게)이 원본 인상을 지킨다.
@@ -251,6 +263,16 @@ export function SheetView({ blob, text = null, name = '', onError }) {
                   const bar = cell?.bar;
                   const imgs = imagesAt.get(`${r},${c}`);
                   const hasFilter = sheet.filter && r === sheet.filter.r && c >= sheet.filter.c1 && c <= sheet.filter.c2;
+                  // 틀 고정 — 원본이 붙여 둔 위 행들은 스크롤해도 붙어 있는다.
+                  // sticky 칸은 바닥이 비치므로 칠이 없으면 표면색을 깐다. 마지막 고정
+                  // 행에는 경계선 그림자를 — border-collapse에서는 sticky td의 테두리가
+                  // 같이 안 붙는다(브라우저 한계).
+                  const frozen = frozenTops && r < (sheet.frozenRows || 0)
+                    ? {
+                        position: 'sticky', top: frozenTops[r] ?? 0, zIndex: 2,
+                        boxShadow: r === sheet.frozenRows - 1 ? '0 1px 0 var(--app-line)' : undefined,
+                      }
+                    : null;
                   // 글자색: 칠이 있으면 그 배경에 맞춰 고르고(작성자가 준 색이 읽히면 그걸
                   // 쓴다), 칠이 없으면 현재 테마의 글자색을 섞어 라이트·다크 모두에서 읽히게.
                   const color = paint
@@ -269,7 +291,8 @@ export function SheetView({ blob, text = null, name = '', onError }) {
                       style={{
                         // 글자 크기는 원본을 따른다(8pt 잔글씨~24pt 제목) — 없으면 기준 크기
                         fontSize: `${cell?.szPx || VIEW_FONT_PX}px`,
-                        background: paint?.background,
+                        background: paint?.background || (frozen ? 'var(--app-surface)' : undefined),
+                        ...(frozen || {}),
                         color,
                         borderTop: sideCss(bd?.t), borderRight: sideCss(bd?.r),
                         borderBottom: sideCss(bd?.b), borderLeft: sideCss(bd?.l),
