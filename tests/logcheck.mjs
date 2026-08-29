@@ -118,6 +118,22 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(projectsOfYear(orphan, '2099'), [], '다른 해에는 서지 않는다');
   console.log('PASS  프로젝트 연도 11가지');
 
+  // ── 엑셀 미리보기 주소 (utils.sheetPreviewUrl) ──
+  // 구글은 .xlsx를 열어볼 때 게을리 변환해서 갓 올린 파일은 시트 미리보기가 오류를 냈다.
+  // 올릴 때 스크립트가 네이티브 시트 사본을 만들어 두면 기다릴 것이 없다(0031).
+  // 사본이 없으면 **null**이어야 한다 — 부르는 쪽이 그걸 보고 예전 길로 떨어진다.
+  const { sheetPreviewUrl } = await import(pathToFileURL(f2).href);
+  const u = sheetPreviewUrl({ preview_file_id: 'abc123', drive_file_id: 'zzz' });
+  assert.ok(u.includes('/spreadsheets/d/abc123/preview'), '변환 사본 id로 간다');
+  assert.ok(!u.includes('zzz'), '원본 id로 가지 않는다 — 그러면 30분 문제가 그대로다');
+  assert.ok(u.includes('rm=minimal'), '구글 머리줄을 걷어낸다');
+  assert.ok(u.includes('widget=true'), '시트 탭을 남긴다 — 없으면 첫 장밖에 못 본다');
+  assert.strictEqual(sheetPreviewUrl({ drive_file_id: 'zzz' }), null, '사본이 없으면 예전 길로');
+  assert.strictEqual(sheetPreviewUrl({ preview_file_id: '' }), null, '빈 문자열도 없는 것이다');
+  assert.strictEqual(sheetPreviewUrl(null), null, '값이 없어도 안전하다');
+  console.log('PASS  엑셀 미리보기 주소 7가지');
+
+
   // ── 달력에 얹히는 업무 (utils.datedTasks) ──
   // 원래 버그: 팀 칩이 전부를 세서 `웰컴팀 7`이라 해놓고 달력에는 띠가 3개만 떴다.
   // 실데이터에서 7건 중 4건이 마감 미정(9·10·11·12월 월례회)이었다 — 달력이 빠뜨린 것이

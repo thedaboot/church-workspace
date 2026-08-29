@@ -11,6 +11,7 @@ import { selectProjectsMap } from '../store/selectors.js';
 import { ensureProjectFolder, ensureCardFolder } from '../services/cloudSync.js';
 import { downscaleImage, FILE_MAX_DIM } from '../services/image.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
+import { sheetPreviewUrl } from '../utils.js';
 
 // 엑셀 표 그리기는 **펼쳐볼 때만** 필요하다 — 파서(xlsx.js)와 수식 계산기(formula.js)가
 // 같이 딸려 오는데, 메인 번들에 두면 첨부를 한 번도 안 여는 사람까지 내려받는다.
@@ -364,6 +365,12 @@ const isSheetRow = (row) => (!!row.storage_path || (row.source === 'drive' && !!
 // (utils.driveSrc). "올리고 바로 펼쳐보기"가 가장 흔한 동작인데 그때가 제일
 // 못생겼다. 지금은 바이트를 받아 **우리가 직접 그린다**(SheetView) — 기다릴 것이
 // 없고, 라이트·다크도 따라간다. 미리보기 모달과 같은 컴포넌트다.
+//
+// **2026-08-29부터는 변환 사본이 있으면 구글 시트 미리보기를 그대로 띄운다**
+// (사용자 결정 — "그냥 이 스프레드시트 뷰 그대로 보여주고 싶다"). 예전에 이 길을
+// 접었던 이유는 갓 올린 파일에서 오류가 났기 때문인데, 이제는 올릴 때 스크립트가
+// 네이티브 시트로 변환해 두므로 기다릴 것이 없다(0031 · files.preview_file_id).
+// 변환 사본이 없으면(옛 첨부·변환 실패·스크립트가 v7 미만) 아래 SheetView로 떨어진다.
 function InlineSheet({ row }) {
   const [src, setSrc] = useState(null);      // { blob } 또는 { text }(csv)
   const [err, setErr] = useState(null);
@@ -371,7 +378,9 @@ function InlineSheet({ row }) {
   // 표를 제대로 볼 때는 화면 높이 75%까지 늘린다. 버튼 토글이라 모바일에서도 된다
   // (CSS resize 핸들은 터치에서 안 잡히고, 밀어야 나오는 조작은 §8에 걸린다).
   const [tall, setTall] = useState(false);
+  const sheetUrl = sheetPreviewUrl(row);
   useEffect(() => {
+    if (sheetUrl) return undefined;          // 구글이 그린다 — 바이트를 받을 이유가 없다
     let alive = true;
     setSrc(null); setErr(null);
     const asCsv = (String(row.name || '').split('.').pop() || '').toLowerCase() === 'csv';
@@ -389,13 +398,22 @@ function InlineSheet({ row }) {
         .then(take).then(got).catch(failed);
     }
     return () => { alive = false; };
-  }, [row.id, row.name, row.source, row.drive_file_id]);
+  }, [row.id, row.name, row.source, row.drive_file_id, sheetUrl]);
 
   if (err) return <p className="text-[11px] text-fg-faint py-2">펼쳐보기를 준비하지 못했어요 · {err}</p>;
   return (
     <div className="pb-2">
       <div className={`relative w-full ${tall ? 'h-[75dvh]' : 'h-[320px] md:h-[420px]'}`}>
-        {src
+        {sheetUrl
+          ? (
+            /* 구글 시트 미리보기. 흰 바탕이 그대로 온다 — 작성자가 칠한 색을 원본대로
+               보여주는 것이 이 화면의 목적이라 다크 모드를 따라가지 않는다(사용자 결정). */
+            <iframe
+              src={sheetUrl} title={`${row.name} 미리보기`} loading="lazy"
+              className="w-full h-full rounded-md border border-line bg-white"
+            />
+          )
+          : src
           ? (
             <Suspense fallback={<Skeleton className="w-full h-full" />}>
               <SheetView blob={src.blob} text={src.text ?? null} name={row.name} onError={(e) => setErr(e.message || String(e))} />

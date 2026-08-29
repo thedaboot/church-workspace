@@ -536,7 +536,7 @@ const INLINE_MAX = 3 * 1024 * 1024;
 // 낫고, 나중에 v6을 올리면 scripts/migrate_to_drive.mjs가 드라이브로 옮겨 준다.
 //
 // 돌려주는 것: { drive } 또는 { storagePath } 중 하나.
-async function uploadViaStorage(file, { projectId, cardId, key, folderHint }) {
+async function uploadViaStorage(file, { projectId, cardId, key, folderHint, convert }) {
   const c = client();
   const safe = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = `${projectId}/${cardId}/${newKey()}-${safe}`;
@@ -559,7 +559,7 @@ async function uploadViaStorage(file, { projectId, cardId, key, folderHint }) {
     const drive = await uploadOnceOrFind({
       action: 'uploadFromUrl',
       ...folderHint,
-      key,
+      key, convert,
       url: signed,
       name: file.name, mimeType: file.type || undefined,
     }, folderHint);
@@ -577,9 +577,17 @@ async function uploadViaStorage(file, { projectId, cardId, key, folderHint }) {
   }
 }
 
+// 구글 시트로 변환한 사본을 만들 파일 — 구글이 표로 그릴 수 있는 것만.
+// 구글은 .xlsx를 **열어볼 때** 게을리 변환해서, 갓 올린 파일은 시트 미리보기가 오류를
+// 낸다(§6 · utils.SHEET_READY_MS). 올리는 김에 스크립트가 변환 사본을 만들어 두면
+// 기다릴 것이 없다. 원본은 그대로 둔다 — 내려받기·새 탭·첨부 내용 검색이 원본을 쓴다.
+const SHEET_EXT = new Set(['xlsx', 'xlsm', 'csv']);
+const wantsSheetPreview = (name) => SHEET_EXT.has(String(name || '').split('.').pop().toLowerCase());
+
 export async function uploadAttachment(file, { projectId, cardId, projectName, driveFolderId, cardTitle, cardFolderId }) {
   const c = client();
   const key = newKey();
+  const convert = wantsSheetPreview(file.name);
   // 업무 폴더 id를 이미 알면 그것만 보낸다(cardTitle을 같이 보내면 그 안에 또
   // 같은 이름 폴더를 판다 — 0026). 폴더 만들기는 부르는 쪽이 미리 끝낸다.
   const folderHint = cardFolderId
@@ -589,14 +597,14 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
   let storagePath = null; // Storage에 남긴 경우(스크립트가 v5거나 옮기기 실패)
   try {
     if ((file.size ?? 0) > INLINE_MAX) {
-      const out = await uploadViaStorage(file, { projectId, cardId, key, folderHint });
+      const out = await uploadViaStorage(file, { projectId, cardId, key, folderHint, convert });
       up = out.drive || null;
       storagePath = out.storagePath || null;
     } else {
       up = await uploadOnceOrFind({
         action: 'upload',
         ...folderHint,
-        key,
+        key, convert,
         name: file.name, mimeType: file.type || undefined,
         dataBase64: await fileToBase64(file),
       }, folderHint);
@@ -616,7 +624,9 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
       mime_type: file.type || null,
       size_bytes: file.size ?? null,
       ...(up
-        ? { source: 'drive', drive_file_id: up.id, web_view_link: up.url }
+        ? { source: 'drive', drive_file_id: up.id, web_view_link: up.url,
+            // 스크립트가 v7 미만이면 이 값이 없다 — 그때는 앱이 예전 길(SheetView)로 떨어진다
+            ...(up.previewId ? { preview_file_id: up.previewId } : {}) }
         : { source: 'storage', storage_path: storagePath }),
     }).select().single());
   } catch (e) {
@@ -881,6 +891,12 @@ export async function deleteAttachment(fileRow) {
   if (fileRow.storage_path) {
     try { await c.storage.from(ATTACH_BUCKET).remove([fileRow.storage_path]); }
     catch (e) { console.error('[cloud] Storage 정리 실패:', e); }
+  }
+  // 변환 사본도 같이 지운다 — 남기면 드라이브에 주인 없는 파일이 쌓인다.
+  // 원본보다 먼저 보낸다: 원본 삭제가 실패해도 사본만 남는 일이 없게.
+  if (fileRow.preview_file_id) {
+    try { await driveCall({ action: 'trash', fileId: fileRow.preview_file_id }); }
+    catch (e) { console.warn('[drive] 변환 사본 정리 실패:', e.human || e.message || e); }
   }
   if (fileRow.source === 'drive' && fileRow.drive_file_id) {
     try { await driveCall({ action: 'trash', fileId: fileRow.drive_file_id }); }

@@ -10,8 +10,9 @@ v6에서 네 가지를 고칩니다(2026-08-29 · 사용자가 직접 반영·�
 | B | 열쇠를 `description` 대신 `appProperties`로 | 폴더를 훑지 않고 **질의 한 번**으로 찾는다. 폴더가 커질수록 벌어진다 |
 | C | 폴더 만들기에 `LockService` | 사진 세 장이 동시에 올라가며 업무 폴더가 처음 생기면 같은 이름 폴더가 여럿 생길 수 있었다 |
 | D | `folderFor`의 `catch`를 좁힌다 | 권한·일시 오류까지 폴백으로 떨어져 **폴더 트리를 새로 팠다**. 이름이 같은 폴더가 둘 생기면 그때부터 파일이 갈린다 |
+| E | 엑셀을 올리면 **구글 시트 사본**을 같이 만든다 | 구글은 `.xlsx`를 열어볼 때 게을리 변환해서 갓 올린 파일은 시트 미리보기가 오류를 냈다. 올리는 김에 변환해 두면 **기다릴 것이 없다**(사용자 결정 2026-08-29) |
 
-E(루트 폴더 공유 상속)는 넣지 않았습니다 — 업로드 왕복 하나를 줄이는 대신
+루트 폴더 공유 상속은 넣지 않았습니다 — 업로드 왕복 하나를 줄이는 대신
 **폴더 링크로 전체 목록이 열립니다.** 지금은 파일 하나하나만 공개고 목록은 아닙니다.
 
 ---
@@ -211,7 +212,36 @@ function upload(body) {
   // 링크를 아는 사람은 보기 — 앱이 lh3.googleusercontent.com/d/<id>로 썸네일을 붙인다.
   // 이 줄이 없으면 소유자만 열 수 있어서 앱 안 이미지가 전부 깨진다.
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  return { id: file.getId(), url: file.getUrl(), folderId: folder.getId() };
+  return {
+    id: file.getId(), url: file.getUrl(), folderId: folder.getId(),
+    previewId: body.convert ? makeSheetCopy(file.getId(), file.getName(), folder.getId()) : null,
+  };
+}
+
+// **E: 엑셀을 구글 시트로 변환한 사본.**
+// 구글은 .xlsx를 **열어볼 때** 게을리 변환한다. 그래서 갓 올린 파일은
+// docs.google.com/spreadsheets/<id>/preview 가 "Google Docs에 오류가 발생했습니다"를
+// 낸다(45초 뒤에도 그랬다). Drive.Files.copy에 mimeType을 주면 **그 자리에서** 변환된
+// 네이티브 시트가 생기므로 기다릴 것이 없다.
+//
+// 원본 .xlsx는 그대로 둔다 — 내려받기·'새 탭에서 열기'·첨부 내용 검색이 원본을 쓴다.
+// 원본을 버리면 구글 변환에서 미묘하게 달라진 것을 되돌릴 길이 없다(결산 파일에는
+// 도장 스캔과 회계식 서식이 들어 있다).
+//
+// **실패해도 던지지 않는다.** 변환이 안 되는 파일(손상·형식 밖)이 있어도 첨부 자체는
+// 올라가야 한다. null을 돌려주면 앱이 예전 길(직접 그리기)로 떨어진다.
+function makeSheetCopy(fileId, name, folderId) {
+  try {
+    var copy = Drive.Files.copy(
+      { name: name + ' (표)', mimeType: MimeType.GOOGLE_SHEETS, parents: [folderId] },
+      fileId, { supportsAllDrives: true });
+    // 미리보기는 iframe으로 뜬다 — 링크로 볼 수 있어야 남들 화면에서도 그려진다
+    Drive.Permissions.create({ role: 'reader', type: 'anyone' }, copy.id, { supportsAllDrives: true });
+    return copy.id;
+  } catch (err) {
+    Logger.log('시트 변환 실패(첨부는 그대로 둔다): ' + err);
+    return null;
+  }
 }
 
 // 주소에서 받아 드라이브에 쓴다. upload과 같은 결과를 돌려준다.
@@ -234,7 +264,10 @@ function uploadFromUrl(body) {
   var file = folder.createFile(blob);
   stampKey(file.getId(), body.key);
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  return { id: file.getId(), url: file.getUrl(), folderId: folder.getId() };
+  return {
+    id: file.getId(), url: file.getUrl(), folderId: folder.getId(),
+    previewId: body.convert ? makeSheetCopy(file.getId(), file.getName(), folder.getId()) : null,
+  };
 }
 
 // ── 목록 ────────────────────────────────────────────────────────────────────
@@ -299,7 +332,12 @@ function 권한승인() {
 4. 앱에서 **10MB 넘는 파일** 하나 올리기(`uploadFromUrl` 경로).
 5. **첨부 하나 지우기** — 휴지통으로 가는지(`trash`가 고급 서비스로 바뀌었습니다).
 6. **업무 하나 지우기** — 업무 폴더가 통째로 휴지통에 들어가는지.
-7. `node scripts/drive_check.mjs` — 어긋남 0건이면 끝입니다.
+7. **엑셀(.xlsx) 하나 올리기 → 올린 그 자리에서 바로 '펼쳐보기'.**
+   구글이 그린 표가 뜨면 성공입니다(30분을 안 기다립니다). 드라이브의 업무 폴더에
+   `<원래이름> (표)`가 같이 생겨 있어야 합니다.
+   **안 뜨면** 앱이 예전 길(직접 그리기)로 떨어지므로 화면이 깨지지는 않습니다 —
+   그때는 알려주세요.
+8. `node scripts/drive_check.mjs` — 어긋남 0건이면 끝입니다.
 
 ## 되돌리려면
 

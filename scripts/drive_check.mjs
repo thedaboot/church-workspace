@@ -75,7 +75,7 @@ const { data: cards, error: ce } = await db
 if (ce) { console.error('업무 조회 실패:', ce.message); process.exit(1); }
 
 const { data: files, error: fe } = await db
-  .from('files').select('id, name, card_id, drive_file_id, source');
+  .from('files').select('id, name, card_id, drive_file_id, preview_file_id, source');
 if (fe) { console.error('첨부 조회 실패:', fe.message); process.exit(1); }
 
 const byCard = new Map();
@@ -102,7 +102,8 @@ for (const card of cards) {
   const inDrive = listed.files || [];
   const rows = byCard.get(card.id) || [];
   const driveIds = new Set(inDrive.map(f => f.id));
-  const rowIds = new Set(rows.map(r => r.drive_file_id));
+  // 변환 사본((표) — 0031)도 우리 파일이다. 고아로 세면 엑셀 첨부마다 한 줄씩 뜬다.
+  const rowIds = new Set(rows.flatMap(r => [r.drive_file_id, r.preview_file_id]).filter(Boolean));
 
   for (const r of rows) if (!driveIds.has(r.drive_file_id)) ghosts.push({ card, row: r });
   for (const f of inDrive) if (!rowIds.has(f.id)) orphans.push({ card, file: f });

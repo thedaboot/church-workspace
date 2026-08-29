@@ -113,6 +113,21 @@ export const projectYear = (p) =>
 export const projectsOfYear = (list, year) =>
   (list || []).filter(p => projectYear(p) === String(year));
 
+// 엑셀 첨부를 **구글이 그린 화면**으로 볼 주소. 변환 사본이 있을 때만 준다.
+//
+// 구글은 .xlsx를 열어볼 때 게을리 변환해서, 갓 올린 파일은 이 주소가 오류를 냈다
+// (그래서 예전에는 파일 나이 30분으로 뷰어를 갈랐고, 나중에 앱이 직접 표를 그렸다).
+// 지금은 올릴 때 스크립트가 **네이티브 구글 시트 사본**을 만들어 두므로 기다릴 것이
+// 없다(0031 · files.preview_file_id). 사본이 없으면 null이고, 부르는 쪽은 예전 길로
+// 떨어진다 — 옛 첨부·변환 실패·스크립트가 v7 미만인 경우다.
+//
+// rm=minimal은 구글 머리줄을 걷어내고, widget=true는 시트 탭을 남긴다 — 시트가 여럿인
+// 파일에서 탭이 없으면 첫 장밖에 못 본다.
+// 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
+export const sheetPreviewUrl = (row) => (row?.preview_file_id
+  ? `https://docs.google.com/spreadsheets/d/${row.preview_file_id}/preview?widget=true&rm=minimal`
+  : null);
+
 // 달력에 얹힐 수 있는 업무 — 시작일이든 마감일이든 하나는 있어야 한다.
 //
 // 팀 칩의 숫자가 **화면이 보여줄 수 있는 것**을 세게 하려고 뺐다. 예전에는 칩이 전부를

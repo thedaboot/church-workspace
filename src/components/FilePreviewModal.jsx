@@ -102,7 +102,7 @@ function previewKind(row) {
 export const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
 // 드라이브 미리보기 주소는 순수 함수라 utils에 있다(노드에서 바로 검사한다 — §2-5).
 // 부르는 쪽(attachments.jsx)이 이미 여기서 가져다 쓰고 있어 그대로 다시 내보낸다.
-import { driveSrc } from '../utils.js';
+import { driveSrc, sheetPreviewUrl } from '../utils.js';
 export { driveSrc };
 
 // 어느 뷰어로 그리고 있는지 — 화면 아래 한 줄에 그대로 적는다.
@@ -208,6 +208,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
   // drive.google.com에 직접 가면 CORS가 막는다(§6-29-c).
   useEffect(() => {
     if (!BYTE_KINDS.has(kind) || sheetSrc) return;
+    // 구글 시트로 그릴 파일은 바이트를 받을 이유가 없다 — 25MB를 통째로 내려받고
+    // 파싱한 결과를 안 쓰는 낭비가 된다(중계 대역폭도 같이 나간다)
+    if (kind === 'sheet' && sheetPreviewUrl(cur)) return;
     const asCsv = extOf(cur.name) === 'csv';
     let alive = true;
     const take = (b) => (asCsv ? b.text().then(t => ({ text: t })) : Promise.resolve({ blob: b }));
@@ -377,6 +380,21 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
       return <View blob={sheetSrc.blob} onError={(e) => setError(`${kind === 'doc' ? '문서' : '슬라이드'}를 읽지 못했어요 · ${e.message || e}`)} />;
     }
     if (kind === 'sheet') {
+      // 변환 사본이 있으면 **구글이 그린 화면**을 그대로 띄운다(사용자 결정 2026-08-29).
+      // 예전에 이 길을 접었던 이유는 갓 올린 파일에서 오류가 났기 때문인데, 이제는
+      // 올릴 때 스크립트가 네이티브 시트로 변환해 두므로 기다릴 것이 없다(0031).
+      // 흰 바탕이 그대로 온다 — 작성자가 칠한 색을 원본대로 보여주는 것이 이 화면의
+      // 목적이라 다크 모드를 따라가지 않는다.
+      const gsheet = sheetPreviewUrl(cur);
+      if (gsheet) {
+        return (
+          <iframe
+            src={gsheet} title={`${cur.name} 미리보기`}
+            className="w-full h-full rounded-md border border-line bg-white"
+          />
+        );
+      }
+      // 사본이 없으면 예전 길 — 옛 첨부·변환 실패·스크립트가 v7 미만인 경우다
       if (!sheetSrc) return <PreparingFrame />;
       return (
         <SheetView
