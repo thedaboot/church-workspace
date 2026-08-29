@@ -23,6 +23,9 @@ const sync = read('src/services/cloudSync.js');
 const att = read('src/modals/attachments.jsx');
 const vercel = JSON.parse(read('vercel.json'));
 const drivemd = read('docs/DRIVE.md');
+// **지금 배포된 스크립트는 v7이다**(docs/APPS_SCRIPT_v7.md). DRIVE.md는 배경 설명이고
+// 코드는 그 문서가 원본이다 — 액션 목록은 이쪽을 봐야 한다.
+const scriptmd = read('docs/APPS_SCRIPT_v7.md');
 const cfg = read('src/config.js');
 const filesvc = read('api/drive-file.js');
 const preview = read('src/components/FilePreviewModal.jsx');
@@ -136,17 +139,21 @@ check('폴더 id를 스토어에도 넣는다', () => {
 });
 
 // ── 스크립트 ────────────────────────────────────────────────────────────────
-check('문서의 스크립트가 멱등 열쇠와 list를 안다 (v5)', () => {
-  assert.match(drivemd, /case 'list'/, 'list 액션이 없다');
-  assert.match(drivemd, /KEY_PREFIX/, '열쇠를 적어 두지 않는다');
-  assert.match(drivemd, /if \(body\.retry\)/, '첫 시도에도 폴더를 훑으면 파일 많은 업무가 느려진다');
-  assert.match(drivemd, /childFolderIfExists/, 'list가 폴더를 만들어 버리면 안 된다');
+check('스크립트가 멱등 열쇠·list·시트 변환을 안다 (v7)', () => {
+  assert.match(scriptmd, /case 'list'/, 'list 액션이 없다');
+  assert.match(scriptmd, /KEY_PROP/, '열쇠를 appProperties에 안 적는다');
+  assert.match(scriptmd, /if \(body\.retry\)/, '첫 시도에도 폴더를 훑으면 파일 많은 업무가 느려진다');
+  assert.match(scriptmd, /childFolderIfExists/, 'list가 폴더를 만들어 버리면 안 된다');
+  assert.match(scriptmd, /makeSheetCopy/, '엑셀을 구글 시트로 변환하지 않는다(0031)');
+  // 사본이 원본의 열쇠를 물려받으면 findByKey가 사본을 원본으로 착각한다(2026-08-29)
+  assert.match(scriptmd, /wskey: null/, '사본에서 열쇠를 안 지운다');
+  assert.match(scriptmd, /LockService/, '폴더 만들기에 잠금이 없다 — 병렬 업로드에서 같은 폴더가 여럿 생긴다');
 });
 
 check('프록시가 아는 액션과 스크립트가 아는 액션이 같다', () => {
   const apiSet = new Set([...(/ACTIONS = new Set\(\[([^\]]*)\]\)/.exec(api)?.[1] || '')
     .matchAll(/'([a-zA-Z]+)'/g)].map(m => m[1]));
-  const scriptSet = new Set([...drivemd.matchAll(/case '([a-zA-Z]+)':\s+return json/g)].map(m => m[1]));
+  const scriptSet = new Set([...scriptmd.matchAll(/case '([a-zA-Z]+)':\s+return json/g)].map(m => m[1]));
   for (const a of scriptSet) assert.ok(apiSet.has(a), `스크립트는 ${a}를 아는데 프록시가 막는다`);
   for (const a of apiSet) assert.ok(scriptSet.has(a), `프록시는 ${a}를 통과시키는데 스크립트가 모른다`);
 });
@@ -251,9 +258,15 @@ check('올리는 중에는 삭제·잠금을 두지 않는다', () => {
   assert.match(att, /\{!pending && canLock && \(/, '올리는 중에 잠금 버튼이 있다');
 });
 
-check('로컬 바이트로 미리보기·펼쳐보기가 된다', () => {
+check('사진·PDF는 로컬 바이트로 바로 보이고, 엑셀은 안 보인다', () => {
+  // 사진·PDF는 고른 파일 그대로 그릴 수 있으니 드라이브를 안 기다린다.
   assert.match(preview, /const local = cur\.source === 'local'/, '미리보기가 로컬 파일을 모른다');
-  assert.match(att, /row\.source === 'local' && row\._file/, '펼쳐보기가 로컬 파일을 모른다');
+  // **엑셀은 다르다**(2026-08-30). 표는 이제 구글이 그리고, 그 화면은 드라이브에
+  // 변환 사본이 생긴 뒤에만 있다. 올리는 중에 열면 옛 화면이 잠깐 나왔다 바뀌어서
+  // 두 벌처럼 보였다(사용자 지적) — 그래서 미리보기·펼쳐보기 버튼을 아예 안 준다.
+  assert.match(att, /const sheetPending = pending && isSheetName\(row\.name\)/, '올리는 중인 엑셀을 가리지 않는다');
+  assert.match(att, /\{!sheetPending && \(/, '올리는 중인 엑셀에 미리보기 버튼이 남아 있다');
+  assert.ok(!/row\.source === 'local' && row\._file/.test(att), '펼쳐보기가 아직 로컬 바이트를 읽는다');
 });
 
 check('탭을 닫으려 하면 묻는다 · blob 주소를 되돌려준다', () => {

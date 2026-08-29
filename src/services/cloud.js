@@ -168,8 +168,12 @@ export async function deleteProject(id) {
     }
     for (const f of files) {
       if (f.source === 'drive' && f.drive_file_id && !trashedCards.has(f.card_id)) {
-        try { await driveCall({ action: 'trash', fileId: f.drive_file_id }); }
-        catch (e) { console.error('[drive] 휴지통 이동 실패:', f.name, e); }
+        // 변환 사본도 같이 — 폴더째 보낼 때는 안에 있어서 따라가지만, 파일 단위로
+        // 떨어지면 여기서 챙기지 않으면 주인 없는 사본이 드라이브에 남는다(0031)
+        for (const id of [f.preview_file_id, f.drive_file_id].filter(Boolean)) {
+          try { await driveCall({ action: 'trash', fileId: id }); }
+          catch (e) { console.error('[drive] 휴지통 이동 실패:', f.name, e); }
+        }
       }
     }
   }
@@ -314,8 +318,11 @@ export async function deleteCard(id) {
   for (const f of files) {
     if (folderTrashed && f.source === 'drive') continue;
     if (f.source === 'drive' && f.drive_file_id) {
-      try { await driveCall({ action: 'trash', fileId: f.drive_file_id }); }
-      catch (e) { console.error('[drive] 휴지통 이동 실패:', f.name, e); }
+      // 변환 사본도 같이(0031) — 폴더째 보낼 때는 따라가지만 여기는 파일 단위다
+      for (const id of [f.preview_file_id, f.drive_file_id].filter(Boolean)) {
+        try { await driveCall({ action: 'trash', fileId: id }); }
+        catch (e) { console.error('[drive] 휴지통 이동 실패:', f.name, e); }
+      }
     }
     if (f.storage_path) {
       try { await c.storage.from(ATTACH_BUCKET).remove([f.storage_path]); }
@@ -625,7 +632,7 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
       size_bytes: file.size ?? null,
       ...(up
         ? { source: 'drive', drive_file_id: up.id, web_view_link: up.url,
-            // 스크립트가 v7 미만이면 이 값이 없다 — 그때는 앱이 예전 길(SheetView)로 떨어진다
+            // 스크립트가 v7 미만이면 이 값이 없다 — 그때는 '표로 볼 수 없어요'가 뜬다
             ...(up.previewId ? { preview_file_id: up.previewId } : {}) }
         : { source: 'storage', storage_path: storagePath }),
     }).select().single());

@@ -11,9 +11,6 @@ import { failText } from '../services/errorText.js';
 import { PdfView } from './PdfView.jsx';
 // 엑셀 표 그리기는 **엑셀을 열 때만** 필요하다 — 파서(xlsx.js)와 수식 계산기(formula.js)가
 // 같이 딸려 오는데, 메인 번들에 두면 엑셀을 한 번도 안 여는 사람까지 내려받는다.
-// 부르는 쪽은 그대로 <SheetView …/>를 쓴다 — 기다리는 자리는 여기서 한 번만 정한다.
-const SheetTable = lazy(() => import('./SheetView.jsx').then(m => ({ default: m.SheetView })));
-const SheetView = (props) => <Suspense fallback={<PreparingFrame />}><SheetTable {...props} /></Suspense>;
 // 워드·PPT도 같다 — 파서(docx.js·pptx.js)가 딸려 오므로 열 때만 받는다.
 const DocLazy = lazy(() => import('./OfficeView.jsx').then(m => ({ default: m.DocView })));
 const SlideLazy = lazy(() => import('./OfficeView.jsx').then(m => ({ default: m.SlideView })));
@@ -64,8 +61,9 @@ function previewKind(row) {
   // 고정이라 브라우저가 캐싱하고(서명 URL과 달리 두 번째부터는 요청이 안 나간다),
   // iframe 뷰어와 달리 사진 넘기기(이전/다음)가 된다.
   if (mime.startsWith('image/') || IMAGE_EXT.includes(ext)) return 'image';
-  // 엑셀·csv는 저장소가 어디든 **우리가 직접 그린다**(SheetView) — 구글 뷰어는 갓 올린
-  // 파일을 못 그려서 파일 나이 30분으로 갈라야 했고, 그 30분이 가장 흔한 순간이었다.
+  // 엑셀·csv는 **구글이 그린 화면**을 iframe으로 띄운다(2026-08-29). 예전에는 우리가
+  // 직접 표를 그렸는데, 구글이 .xlsx를 사람이 열 때 게을리 변환하는 것이 문제였고
+  // 지금은 올릴 때 변환 사본을 만들어 두므로 기다릴 것이 없다(files.preview_file_id).
   if (SHEET_EXT.includes(ext) && (row.size_bytes ?? 0) <= MAX_SHEET_BYTES) return 'sheet';
   if (row.source === 'drive') {
     // 드라이브 파일도 형식별로 **가장 나은 뷰어**로 간다(사용자 요청) —
@@ -208,9 +206,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
   // drive.google.com에 직접 가면 CORS가 막는다(§6-29-c).
   useEffect(() => {
     if (!BYTE_KINDS.has(kind) || sheetSrc) return;
-    // 구글 시트로 그릴 파일은 바이트를 받을 이유가 없다 — 25MB를 통째로 내려받고
-    // 파싱한 결과를 안 쓰는 낭비가 된다(중계 대역폭도 같이 나간다)
-    if (kind === 'sheet' && sheetPreviewUrl(cur)) return;
+    // 엑셀은 이제 구글이 그린다 — 바이트를 받을 이유가 아예 없다(25MB를 통째로
+    // 내려받고 파싱한 결과를 안 쓰는 낭비였다). 워드·PPT만 바이트가 필요하다.
+    if (kind === 'sheet') return;
     const asCsv = extOf(cur.name) === 'csv';
     let alive = true;
     const take = (b) => (asCsv ? b.text().then(t => ({ text: t })) : Promise.resolve({ blob: b }));
@@ -371,9 +369,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
         </div>
       );
     }
-    // 엑셀·csv는 우리 표로 그린다 — 시트 탭·병합·열 너비·서식을 살리고,
-    // 안 칠한 칸은 우리 토큰이라 다크 모드가 그대로 따라간다(SheetView 주석).
-    // 워드·PPT도 우리가 그린다. 옛 형식(.doc·.ppt)만 구글 편집기로 남는다.
+    // 워드·PPT는 우리가 그린다. 옛 형식(.doc·.ppt)만 구글 편집기로 남는다.
     if (kind === 'doc' || kind === 'slide') {
       if (!sheetSrc?.blob) return <PreparingFrame />;
       const View = kind === 'doc' ? DocView : SlideView;
@@ -394,13 +390,14 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
           />
         );
       }
-      // 사본이 없으면 예전 길 — 옛 첨부·변환 실패·스크립트가 v7 미만인 경우다
-      if (!sheetSrc) return <PreparingFrame />;
+      // 사본이 없는 파일 — 변환에 실패했거나 아직 안 만들어졌다. 예전에는 여기서
+      // 우리가 표를 그렸는데(SheetView) 2026-08-30에 지웠다.
       return (
-        <SheetView
-          blob={sheetSrc.blob} text={sheetSrc.text ?? null} name={cur.name}
-          onError={(e) => setError(`표를 읽지 못했어요 · ${e.message || e}`)}
-        />
+        <div className="w-full h-full flex items-center justify-center">
+          <p className="text-xs text-fg-faint text-center leading-relaxed">
+            이 파일은 표로 볼 수 없어요<br />새 탭에서 열어주세요
+          </p>
+        </div>
       );
     }
     // PDF는 pdf.js로 직접 그린다 — iOS 사파리는 iframe 안의 PDF를 첫 쪽만 보여준다.

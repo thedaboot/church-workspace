@@ -15,7 +15,6 @@ import { sheetPreviewUrl } from '../utils.js';
 
 // 엑셀 표 그리기는 **펼쳐볼 때만** 필요하다 — 파서(xlsx.js)와 수식 계산기(formula.js)가
 // 같이 딸려 오는데, 메인 번들에 두면 첨부를 한 번도 안 여는 사람까지 내려받는다.
-const SheetView = lazy(() => import('../components/SheetView.jsx').then(m => ({ default: m.SheetView })));
 
 // ============================================================================
 // 업무 창의 첨부 파일 영역 (클라우드 모드 전용)
@@ -360,68 +359,37 @@ const isSheetRow = (row) => (!!row.storage_path || (row.source === 'drive' && !!
   && isSheetName(row.name);
 
 // 엑셀을 행 바로 아래에 펼친다 — 노션식 임베드(읽기 전용).
-// 예전에는 구글·마이크로소프트 뷰어를 iframe으로 물렸는데, 갓 올린 파일에서
-// 구글 편집기 preview가 오류를 뱉어 파일 나이 30분으로 뷰어를 갈라야 했다
-// (utils.driveSrc). "올리고 바로 펼쳐보기"가 가장 흔한 동작인데 그때가 제일
-// 못생겼다. 지금은 바이트를 받아 **우리가 직접 그린다**(SheetView) — 기다릴 것이
-// 없고, 라이트·다크도 따라간다. 미리보기 모달과 같은 컴포넌트다.
 //
-// **2026-08-29부터는 변환 사본이 있으면 구글 시트 미리보기를 그대로 띄운다**
-// (사용자 결정 — "그냥 이 스프레드시트 뷰 그대로 보여주고 싶다"). 예전에 이 길을
-// 접었던 이유는 갓 올린 파일에서 오류가 났기 때문인데, 이제는 올릴 때 스크립트가
-// 네이티브 시트로 변환해 두므로 기다릴 것이 없다(0031 · files.preview_file_id).
-// 변환 사본이 없으면(옛 첨부·변환 실패·스크립트가 v7 미만) 아래 SheetView로 떨어진다.
+// **구글이 그린 화면을 그대로 띄운다**(사용자 결정 2026-08-29 — "그냥 이 스프레드시트
+// 뷰 그대로 보여주고 싶다"). 예전에 이 길을 접었던 이유는 갓 올린 파일에서 구글이
+// 오류를 냈기 때문인데(구글은 .xlsx를 **사람이 열 때** 게을리 변환한다), 이제는 올릴 때
+// Apps Script가 네이티브 시트 사본을 만들어 둔다(0031 · files.preview_file_id).
+//
+// 그 사이 우리가 직접 표를 그리던 SheetView는 2026-08-30에 지웠다 — 같은 표를 두 벌로
+// 그리면 어느 쪽이 기준인지 화면에서 안 보이고, 실제로 올리는 중에만 옛 화면이 잠깐
+// 나왔다 바뀌어서 사용자가 짚었다.
 function InlineSheet({ row }) {
-  const [src, setSrc] = useState(null);      // { blob } 또는 { text }(csv)
-  const [err, setErr] = useState(null);
   // '크게 보기' — 기본 높이는 업무 창 스크롤을 다 잡아먹지 않는 선(420px)이고,
   // 표를 제대로 볼 때는 화면 높이 75%까지 늘린다. 버튼 토글이라 모바일에서도 된다
   // (CSS resize 핸들은 터치에서 안 잡히고, 밀어야 나오는 조작은 §8에 걸린다).
   const [tall, setTall] = useState(false);
   const sheetUrl = sheetPreviewUrl(row);
-  useEffect(() => {
-    if (sheetUrl) return undefined;          // 구글이 그린다 — 바이트를 받을 이유가 없다
-    let alive = true;
-    setSrc(null); setErr(null);
-    const asCsv = (String(row.name || '').split('.').pop() || '').toLowerCase() === 'csv';
-    const take = (b) => (asCsv ? b.text().then(t => ({ text: t })) : Promise.resolve({ blob: b }));
-    const got = (v) => { if (alive) setSrc(v); };
-    const failed = (e) => { if (alive) setErr(e.human || e.message || String(e)); };
-    if (row.source === 'local' && row._file) {
-      take(row._file).then(got).catch(failed);          // 아직 올리는 중 — 고른 파일 그대로
-    } else if (row.source === 'drive' && row.drive_file_id) {
-      fetchDriveFileBlob(row.drive_file_id).then(take).then(got).catch(failed);
-    } else {
-      getFileOpenUrl(row)
-        .then(u => fetch(u))
-        .then(r => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
-        .then(take).then(got).catch(failed);
-    }
-    return () => { alive = false; };
-  }, [row.id, row.name, row.source, row.drive_file_id, sheetUrl]);
-
-  if (err) return <p className="text-[11px] text-fg-faint py-2">펼쳐보기를 준비하지 못했어요 · {err}</p>;
+  // 사본이 없는 파일 — 변환에 실패했거나 아직 안 만들어졌다. 예전에는 여기서 우리가
+  // 표를 그렸는데(SheetView) 2026-08-30에 지웠다: 같은 표를 두 벌로 그리면 어느 쪽이
+  // 기준인지 화면에서 안 보인다. 백필은 scripts/backfill_sheet_preview.mjs가 한다.
+  if (!sheetUrl) {
+    return <p className="text-[11px] text-fg-faint py-2">이 파일은 표로 펼칠 수 없어요 · 새 탭에서 열어주세요</p>;
+  }
   return (
     <div className="pb-2">
       <div className={`relative w-full ${tall ? 'h-[75dvh]' : 'h-[320px] md:h-[420px]'}`}>
-        {sheetUrl
-          ? (
-            /* 구글 시트 미리보기. 흰 바탕이 그대로 온다 — 작성자가 칠한 색을 원본대로
-               보여주는 것이 이 화면의 목적이라 다크 모드를 따라가지 않는다(사용자 결정). */
-            /* loading="lazy"는 안 붙인다 — 펼쳐야 만들어지는 iframe이라 이미 화면 안이고,
-               지연시켜서 얻을 것이 없다 */
-            <iframe
-              src={sheetUrl} title={`${row.name} 미리보기`}
-              className="w-full h-full rounded-md border border-line bg-white"
-            />
-          )
-          : src
-          ? (
-            <Suspense fallback={<Skeleton className="w-full h-full" />}>
-              <SheetView blob={src.blob} text={src.text ?? null} name={row.name} onError={(e) => setErr(e.message || String(e))} />
-            </Suspense>
-          )
-          : <Skeleton className="w-full h-full" />}
+        {/* 구글 시트 미리보기. 흰 바탕이 그대로 온다 — 작성자가 칠한 색을 원본대로
+            보여주는 것이 이 화면의 목적이라 다크 모드를 따라가지 않는다(사용자 결정).
+            loading="lazy"는 안 붙인다 — 펼쳐야 만들어지므로 이미 화면 안이다. */}
+        <iframe
+          src={sheetUrl} title={`${row.name} 미리보기`}
+          className="w-full h-full rounded-md border border-line bg-white"
+        />
       </div>
       <div className="flex items-center justify-end mt-1">
         <button type="button" onClick={() => setTall(t => !t)}
@@ -446,6 +414,11 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
       ? (row.drive_file_id ? driveImageUrl(row.drive_file_id) : null)
       : thumb;
   const pending = row.source === 'local';
+  // 올리는 중인 엑셀은 **미리보기·펼쳐보기를 주지 않는다**(사용자 결정 2026-08-30).
+  // 표를 그리는 것은 이제 구글이고, 그 화면은 드라이브에 변환 사본이 생긴 뒤에만 있다.
+  // 그전에 열면 우리가 쓰던 옛 화면이 잠깐 나왔다 바뀌어서 두 벌처럼 보였다.
+  // 사진·PDF는 그대로 둔다 — 그건 고른 파일 바이트로 지금 바로 그릴 수 있다.
+  const sheetPending = pending && isSheetName(row.name);
   const isImage = (row.mime_type || '').startsWith('image/') && !!src && !thumbFailed;
   const kind = fileKind(row.name, row.mime_type);
   return (
@@ -482,7 +455,9 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
           {embedded ? '접기' : '펼쳐보기'}
         </button>
       )}
-      <button type="button" onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title={locked ? '비밀번호를 넣어야 열려요' : '미리보기'}><Eye size={14} /></button>
+      {!sheetPending && (
+        <button type="button" onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title={locked ? '비밀번호를 넣어야 열려요' : '미리보기'}><Eye size={14} /></button>
+      )}
       {!pending && canDelete && (
         <ConfirmPopover message={`'${row.name}'을(를) 삭제할까요?`} onConfirm={onRemove}>
           <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95" title="삭제"><Trash2 size={14} /></button>
@@ -722,13 +697,12 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
         <div className="divide-y divide-line/60 mt-1">
           {/* 아직 올리는 중인 파일 — 진짜 행과 같은 자리·같은 모양이다. 다만 새 탭·
               내려받기·삭제·잠금은 없다(드라이브에 아직 없으니 줄 수 없는 것들이다).
-              엑셀 펼쳐보기는 로컬 바이트로 그대로 된다. */}
+              **엑셀은 미리보기·펼쳐보기도 없다** — 표는 구글이 그리고, 그 화면은
+              드라이브에 변환 사본이 생긴 뒤에만 있다(2026-08-30). */}
           {pending.map(row => (
             <div key={row.id}>
-              <AttachmentRow row={row} onOpen={() => openFile(row)}
-                embedded={!!embedded[row.id]}
-                onToggleEmbed={isSheetName(row.name) ? () => setEmbedded(prev => ({ ...prev, [row.id]: !prev[row.id] })) : null} />
-              {embedded[row.id] && isSheetName(row.name) && <InlineSheet row={row} />}
+              {/* 엑셀은 펼쳐보기를 달지 않는다 — 위 sheetPending 주석 참고 */}
+              <AttachmentRow row={row} onOpen={() => openFile(row)} />
             </div>
           ))}
           {items.map(row => (
