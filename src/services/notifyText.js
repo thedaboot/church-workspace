@@ -11,6 +11,9 @@ const NOTIF_TEXT = {
   mention: '나를 멘션했어요',
   reply: '내 댓글에 답글을 남겼어요',
   assign: '나를 담당자로 지정했어요',
+  // 하트·따봉·체크 세 종류가 있지만 문구는 하나다(0032). 종류를 문구에 넣으면
+  // 알림 목록이 "따봉을 눌렀어요"처럼 읽히고, 어느 것을 눌렀는지는 댓글을 열면 보인다.
+  reaction: '내 댓글에 반응을 남겼어요',
 };
 
 export const isSystemNotif = (kind) => kind === 'due_soon';

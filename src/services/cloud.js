@@ -355,6 +355,38 @@ export async function deleteComment(id) {
   if (error) throw error;
 }
 
+// ── comment_reactions (0032 · 하트·따봉·체크) ───────────────────────────────
+// 카드 하나의 반응을 한 번에 읽는다. comment_reactions에는 card_id가 없으므로
+// comments를 inner join해 그 카드의 댓글에 달린 것만 가져온다(왕복 한 번 —
+// 댓글을 먼저 읽고 id 목록으로 다시 묻는 길은 업무 창 열림이 그만큼 늦어진다).
+// **부르는 쪽이 실패를 삼킨다** — 마이그레이션이 아직 안 나간 환경에서 이 조회가
+// 던지면 댓글·활동까지 통째로 못 읽는다(loadCardDetail이 Promise.all이다).
+export async function listCardReactions(cardId) {
+  return unwrap(await client().from('comment_reactions')
+    .select('comment_id, user_id, kind, comments!inner(card_id)')
+    .eq('comments.card_id', cardId));
+}
+
+// 켜기. user_id는 DB가 auth.uid()로 채운다(0032) — 클라이언트가 주인을 못 정한다.
+// 이미 눌러 둔 것(23505)은 성공으로 본다: 토글이 겹쳐 도착해도 화면이 오류를
+// 띄울 이유가 없다. .select()는 붙이지 않는다(§6-25와 같은 습관).
+export async function addCommentReaction(commentId, kind) {
+  const { error } = await client().from('comment_reactions')
+    .insert({ comment_id: commentId, kind });
+  if (error && error.code !== '23505') throw error;
+}
+
+// 끄기. RLS(0032)가 이미 자기 행만 지우게 막지만 여기서도 못 박는다 —
+// 조건이 하나 빠진 delete는 조용히 남의 것까지 지운다(§6-29의 반대편).
+export async function removeCommentReaction(commentId, kind) {
+  const { user } = await getSession();
+  let q = client().from('comment_reactions').delete()
+    .eq('comment_id', commentId).eq('kind', kind);
+  if (user?.id) q = q.eq('user_id', user.id);
+  const { error } = await q;
+  if (error) throw error;
+}
+
 // ── resource_links ──────────────────────────────────────────────────────────
 export async function listAllLinks() {
   return unwrap(await client().from('resource_links').select('*').order('created_at', { ascending: true }));
@@ -1086,6 +1118,9 @@ export function subscribeAll(onChange) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'cards' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, onChange)
+    // 댓글 반응(0032). comments와 같은 결 — 열려 있는 업무 창일 때만 상세를 다시 읽는다.
+    // 라우팅은 cloudSync.subscribeWorkspace에 같이 적었다(§6-21 — 안 적으면 전체 재조회다)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'comment_reactions' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'resource_links' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'files' }, onChange)
     // 새로 가입한 사람·이름 수정. 이걸 안 들으면 그 전에 열어 둔 화면은 그 사람을 영영

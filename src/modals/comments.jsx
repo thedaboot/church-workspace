@@ -1,21 +1,132 @@
-import React, { useState, useMemo } from 'react';
-import { Pencil, Trash2 } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Pencil, Trash2, Heart, ThumbsUp, Check } from 'lucide-react';
 import { formatDate, isMobileViewport } from '../utils.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { RichText } from '../components/RichText.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { MentionInput } from '../components/MentionInput.jsx';
+import { useAuth } from '../services/auth.jsx';
+import { store } from '../store/workspaceStore.js';
+import { showToast } from '../components/Toast.jsx';
+import { reactionSummary, toggleReaction, commentReactionCloud, notifyReaction } from '../services/cloudSync.js';
 
 // ============================================================================
 // 업무 창의 댓글 · 활동 기록 패널
 // ----------------------------------------------------------------------------
 // 둘 다 목록 화면에는 나오지 않는다 — 창을 열 때 그 카드 것만 읽어 온다
 // (cloudSync.loadCardDetail). 그래서 여기 오는 comments/logs는 이미 채워진 배열이다.
+// 댓글 반응(0032)도 같은 길로 실려 온다(comment.reactions).
 // ============================================================================
+
+// ── 댓글 반응 (0032) ────────────────────────────────────────────────────────
+// 세 종류뿐이고 **이모지가 아니라 lucide 아이콘**이다(§4.2 — 이모지 아이콘 금지).
+// 색은 토큰만 쓴다(Tailwind 기본 팔레트는 다크 모드에서 그대로 튄다 — §8).
+// 문구는 담백하게: 화면에 '따봉' 같은 말을 쓰지 않는다.
+// fill: 눌렀을 때 속을 채우는 아이콘. **체크는 채우지 않는다** — 선으로만 그린 모양이라
+// 채우면 갈고리가 뭉개져 딴 도형처럼 보인다(실제로 그렇게 보였다).
+const REACTIONS = [
+  { kind: 'heart', Icon: Heart, label: '하트', fill: true, on: 'bg-tag-red text-tag-red-fg border-tag-red' },
+  { kind: 'thumbsup', Icon: ThumbsUp, label: '좋아요', fill: true, on: 'bg-tag-blue text-tag-blue-fg border-tag-blue' },
+  { kind: 'check', Icon: Check, label: '확인', fill: false, on: 'bg-tag-green text-tag-green-fg border-tag-green' },
+];
+const reactionMeta = (kind) => REACTIONS.find(r => r.kind === kind) || REACTIONS[0];
+
+// 게스트 모드의 저장 자리. 게스트 댓글은 스토어(→ localStorage)에 남으므로 반응도
+// 같은 방식으로 브라우저에만 둔다. 클라우드에서는 이 표를 쓰지 않는다.
+const GUEST_KEY = 'guest_comment_reactions';
+const readGuestReactions = () => {
+  try { return JSON.parse(localStorage.getItem(GUEST_KEY) || '{}') || {}; } catch { return {}; }
+};
+const writeGuestReactions = (map) => {
+  try { localStorage.setItem(GUEST_KEY, JSON.stringify(map)); } catch { /* 프라이빗 모드 */ }
+};
+
+// 이 댓글이 실린 카드. 알림에 붙일 cardId·projectId를 찾는 자리다 —
+// 댓글은 창을 열 때 **그 카드 것만** 스토어에 채워지므로(§6-20) 후보가 하나뿐이다.
+const cardOfComment = (commentId) => {
+  const st = store.getState();
+  for (const id of st.tasks.allIds) {
+    const t = st.tasks.byId[id];
+    if ((t?.comments || []).some(c => c.id === commentId)) return t;
+  }
+  return null;
+};
+
+// 반응 줄. **hover로만 나타나게 두지 않는다**(§8 — 터치 기기에는 hover가 없어서
+// 기능이 아예 없는 것처럼 보인다. 수정·삭제에서 실제로 그랬다).
+// 아이콘을 누르면 토글, 숫자를 누르면 누른 사람 목록이 열린다.
+const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => (
+  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+    {reactionSummary(reactions, myKey).map(({ kind, count, mine }) => {
+      const { Icon, label, on, fill } = reactionMeta(kind);
+      return (
+        <span key={kind}
+          className={`inline-flex items-center rounded-full border transition-colors ${mine ? on : 'border-line text-fg-faint'}`}>
+          <button
+            type="button" onClick={() => onToggle(kind)} aria-pressed={mine}
+            title={mine ? `${label} 취소` : label} aria-label={mine ? `${label} 취소` : label}
+            className="flex items-center pl-2 pr-1.5 py-1.5 rounded-full transition active:scale-95 hover:bg-surface-hover"
+          >
+            <Icon size={12} {...(mine && fill ? { fill: 'currentColor' } : {})} />
+          </button>
+          {/* 숫자를 누르면 누른 사람 목록. aria에 조사를 붙이면 '확인를'이 되므로
+              라벨과 숫자를 가운뎃점으로 잇는다 */}
+          {count > 0 && (
+            <button
+              type="button" onClick={() => onOpen(kind)}
+              title="누른 사람 보기" aria-label={`${label} ${count}명 · 누른 사람 보기`}
+              className="pr-2 pl-0.5 py-1.5 text-[10px] font-semibold tabular-nums rounded-full transition active:scale-95 hover:bg-surface-hover"
+            >{count}</button>
+          )}
+        </span>
+      );
+    })}
+  </div>
+);
+
+// 누가 눌렀는지 — 대시보드의 '가입한 사람'(MembersModal)과 같은 결이다.
+// **body 포털이 기본**(§6-1): 업무 창은 transform 애니메이션이 걸린 조상이라
+// 그냥 fixed로 두면 뷰포트가 아니라 그 안쪽을 기준으로 박힌다.
+function ReactionPeopleModal({ kind, people, onClose }) {
+  const { Icon, label, on, fill } = reactionMeta(kind);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return createPortal(
+    // 업무 창이 z-50이라 그 위로 올린다
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4 animate-in fade-in duration-200"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-xs max-h-[80dvh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+        <div className="px-5 pt-5 pb-3 shrink-0 flex items-center gap-2">
+          <span className={`inline-flex w-6 h-6 rounded-full border items-center justify-center shrink-0 ${on}`}>
+            <Icon size={12} {...(fill ? { fill: 'currentColor' } : {})} />
+          </span>
+          <h3 className="font-bold text-fg tracking-[-0.25px]">{label} {people.length}명</h3>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 divide-y divide-line/60">
+          {people.map((p, i) => (
+            <div key={`${p.userId}-${i}`} className="flex items-center gap-2.5 py-2.5">
+              <Avatar name={p.name || ''} className="flex w-7 h-7 text-xs" />
+              <span className="text-[13px] font-semibold text-fg truncate">{p.name || '알 수 없음'}</span>
+            </div>
+          ))}
+        </div>
+        <div className="px-5 py-4 shrink-0">
+          <button onClick={onClose}
+            className="w-full bg-surface-hover hover:bg-line text-fg-muted py-2.5 rounded-md text-sm font-medium transition active:scale-95">닫기</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 // 노션 스타일 플랫 댓글: 아바타 + 이름·시간 + 본문, 카드 대신 헤어라인 구분
 // 작성자 본인일 때만 수정(인라인 textarea)·삭제(인라인 확인) 노출
-const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies }) => {
+const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions, myKey, onToggleReaction, onOpenReaction }) => {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(c.text);
   const isOwner = c.author === currentUser?.name;
@@ -52,6 +163,13 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies }) => {
         ) : (
           <div className="text-xs text-fg-secondary leading-relaxed"><RichText content={c.text} /></div>
         )}
+        {!editing && (
+          <ReactionRow
+            reactions={reactions} myKey={myKey}
+            onToggle={(kind) => onToggleReaction(c, kind)}
+            onOpen={(kind) => onOpenReaction(c, kind)}
+          />
+        )}
       </div>
     </div>
   );
@@ -82,6 +200,62 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
   const [replyText, setReplyText] = useState('');
   const [showAll, setShowAll] = useState(false);
   const all = comments || [];
+
+  // ── 반응 (0032) ──────────────────────────────────────────────────────────
+  // 클라우드: 서버가 원본이고 댓글에 실려 온다(loadCardDetail). local은 방금 누른
+  //   것을 서버 응답보다 먼저 보여주기 위한 덮개이고, 새 댓글 목록이 오면 버린다.
+  // 게스트: local이 곧 원본이고 localStorage에 남는다(댓글과 같은 방식).
+  const { enabled, session } = useAuth();
+  const cloudMode = enabled && !!session;
+  // 열쇠는 auth user id다 — 이름으로 판정하면 동명이인이 서로의 반응을 자기 것으로 본다
+  const me = useMemo(() => ({
+    userId: cloudMode ? (session?.user?.id || '') : 'guest',
+    name: currentUser?.name || '',
+  }), [cloudMode, session, currentUser?.name]);
+  const [local, setLocal] = useState(() => (cloudMode ? {} : readGuestReactions()));
+  const [peekAt, setPeekAt] = useState(null);   // { commentId, kind }
+
+  // 서버에서 새 목록이 오면 덮개를 버린다(서버가 원본이다). 게스트는 서버가 없다.
+  useEffect(() => {
+    if (!cloudMode) return;
+    setLocal(prev => (Object.keys(prev).length ? {} : prev));
+  }, [comments, cloudMode]);
+
+  const reactionsOf = (c) => local[c.id] || (cloudMode ? (c.reactions || []) : []);
+
+  const toggleFor = (c, kind) => {
+    const before = reactionsOf(c);
+    const next = toggleReaction(before, kind, me);
+    if (next === before) return;
+    const turnedOn = next.length > before.length;
+    setLocal(prev => ({ ...prev, [c.id]: next }));
+    if (!cloudMode) {
+      writeGuestReactions({ ...readGuestReactions(), [c.id]: next });
+      return;
+    }
+    const card = cardOfComment(c.id);
+    commentReactionCloud(c.id, kind, turnedOn)
+      // 취소는 아무에게도 알리지 않는다. 본인 제외는 notifyReaction이 auth user id로
+      // 최종 차단한다 — 이름으로 미리 거르지 않는 이유는 판정이 두 곳으로 갈라지면
+      // 한쪽이 조용히 어긋나기 때문이다(§6-29).
+      .then(() => turnedOn && notifyReaction(c.author, {
+        actorName: currentUser?.name, cardId: card?.id, projectId: card?.projectId,
+        preview: String(c.text || '').slice(0, 80),
+      }))
+      .catch(e => {
+        console.error('[cloud] 반응을 저장하지 못했습니다:', e);
+        setLocal(prev => ({ ...prev, [c.id]: before }));   // 화면이 거짓말하지 않게 되돌린다
+        showToast('반응을 남기지 못했어요 · 잠시 후 다시 시도해주세요');
+      });
+  };
+
+  const peekPeople = useMemo(() => {
+    if (!peekAt) return [];
+    const c = all.find(x => x.id === peekAt.commentId);
+    if (!c) return [];
+    return reactionSummary(reactionsOf(c), me.userId).find(s => s.kind === peekAt.kind)?.people || [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peekAt, all, local, cloudMode, me.userId]);
   const allTopLevel = all.filter(c => !c.parentId);
   const repliesByParent = useMemo(() => {
     const m = new Map();
@@ -118,7 +292,9 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
       )}
       {topLevel.map(c => (
         <div key={c.id} className="py-3 first:pt-0 group/c animate-in fade-in duration-200">
-          <CommentBody c={c} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete} hasReplies={getReplies(c.id).length > 0} />
+          <CommentBody c={c} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete} hasReplies={getReplies(c.id).length > 0}
+            reactions={reactionsOf(c)} myKey={me.userId} onToggleReaction={toggleFor}
+            onOpenReaction={(cc, kind) => setPeekAt({ commentId: cc.id, kind })} />
           <div className="pl-8 mt-1">
             <button
               onClick={() => { setReplyingTo(replyingTo === c.id ? null : c.id); setReplyText(''); }}
@@ -127,7 +303,13 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
           </div>
           {(getReplies(c.id).length > 0 || replyingTo === c.id) && (
             <div className="ml-8 mt-2 border-l border-line pl-3 space-y-3">
-              {getReplies(c.id).map(r => <div key={r.id} className="animate-in fade-in duration-200"><CommentBody c={r} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete} /></div>)}
+              {getReplies(c.id).map(r => (
+                <div key={r.id} className="animate-in fade-in duration-200">
+                  <CommentBody c={r} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete}
+                    reactions={reactionsOf(r)} myKey={me.userId} onToggleReaction={toggleFor}
+                    onOpenReaction={(cc, kind) => setPeekAt({ commentId: cc.id, kind })} />
+                </div>
+              ))}
               {replyingTo === c.id && (
                 <input
                   autoFocus={!isMobileViewport()} value={replyText} onChange={e => setReplyText(e.target.value)}
@@ -140,6 +322,9 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
           )}
         </div>
       ))}
+      {peekAt && peekPeople.length > 0 && (
+        <ReactionPeopleModal kind={peekAt.kind} people={peekPeople} onClose={() => setPeekAt(null)} />
+      )}
     </div>
   );
 });

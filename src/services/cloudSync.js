@@ -164,6 +164,22 @@ export async function notifyComment(text, { actorName, cardId, projectId, replyT
   }
 }
 
+// 댓글 반응 알림 (0032). 받는 사람은 그 **댓글을 쓴 사람 한 명**이고, 답글 알림이
+// replyToName으로 사람을 찾는 것과 같은 길이다(표시명 정확 일치 → 프로필 id).
+// 본인 제외는 여기서 auth user id로 최종 차단한다 — 내 댓글에 내가 눌러도 알림 없음.
+// 취소(다시 누르기)는 아무에게도 알리지 않는다: 부르는 쪽이 켤 때만 부른다.
+export async function notifyReaction(authorName, { actorName, cardId, projectId, preview }) {
+  const myId = await myUserId();
+  let ids = resolveNameRecipients(authorName);
+  if (myId) ids = ids.filter(id => id !== myId);
+  if (!ids.length) return;
+  try {
+    await cloud.insertNotifications(ids, { kind: 'reaction', actorName, cardId, projectId, preview });
+  } catch (e) {
+    console.error('[cloud] 반응 알림 생성 실패:', e);
+  }
+}
+
 export const touchLastSeen = cloud.touchLastSeen;
 export const subscribePresence = cloud.subscribePresence;
 export const savePushSubscription = cloud.savePushSubscription;
@@ -223,14 +239,50 @@ const cardToTask = (card) => ({
   attachments: [],
 });
 
-const commentToApp = (c) => ({
+const commentToApp = (c, reactionsBy) => ({
   id: c.id,
   author: profileIdToName.get(c.author_id) || '알 수 없음',
   text: c.body,
   timestamp: c.created_at,
   parentId: c.parent_id || null,
   edited: !!c.edited,
+  // 반응(0032). 담당자와 같은 판단이다 — DB는 id로 가리키고 **표시명은 읽을 때
+  // profiles에서 파생한다**(§6-26). 개수 컬럼을 두지 않으므로 화면이 이 배열을 센다.
+  reactions: (reactionsBy?.get(c.id) || []).map(r => ({
+    kind: r.kind,
+    userId: r.user_id,
+    name: profileIdToName.get(r.user_id) || '알 수 없음',
+  })),
 });
+
+// ── 댓글 반응 (0032) ────────────────────────────────────────────────────────
+// 세 종류뿐이고 순서도 화면 순서다. 여기가 원본이라 화면·검사가 같은 목록을 본다.
+export const REACTION_KINDS = ['heart', 'thumbsup', 'check'];
+
+// 반응 배열 → 종류별 요약. myKey는 클라우드면 auth user id, 게스트면 'guest'다.
+// **이름으로 판정하지 않는다** — 표시명은 로그인 직후 흔들릴 수 있고, 동명이인이면
+// 남이 누른 것을 내가 누른 것으로 읽는다(§6-26과 같은 이유).
+export function reactionSummary(reactions = [], myKey = '') {
+  return REACTION_KINDS.map(kind => {
+    const people = reactions.filter(r => r && r.kind === kind);
+    return {
+      kind,
+      count: people.length,
+      mine: !!myKey && people.some(r => r.userId === myKey),
+      people,
+    };
+  });
+}
+
+// 다시 누르면 취소, 다른 종류는 각각 따로 쌓인다(한 사람이 셋 다 누를 수 있다).
+// 낙관적 반영과 서버 쓰기가 같은 판정을 보게 순수 함수 하나로 둔다.
+export function toggleReaction(reactions = [], kind, me) {
+  if (!me?.userId || !REACTION_KINDS.includes(kind)) return reactions;
+  const mine = (r) => r && r.kind === kind && r.userId === me.userId;
+  return reactions.some(mine)
+    ? reactions.filter(r => !mine(r))
+    : [...reactions, { kind, userId: me.userId, name: me.name || '' }];
+}
 
 const activityToApp = (a) => ({
   id: a.id,
@@ -374,11 +426,20 @@ export async function loadActivityFeed() {
 // ── 카드 1건 읽기 ────────────────────────────────────────────────────────────
 // 업무 창을 열 때의 상세(댓글·활동). 초기 로드에서 빠진 것을 여기서 채운다.
 export async function loadCardDetail(cardId) {
-  const [comments, activity] = await cloud.withClockSkewRetry(() => Promise.all([
+  const [comments, activity, reactions] = await cloud.withClockSkewRetry(() => Promise.all([
     cloud.listComments(cardId), cloud.listCardActivity(cardId),
+    // 반응은 **없어도 되는 값**이라 실패를 여기서 삼킨다 — 마이그레이션(0032)이
+    // 아직 안 나간 환경에서 이 조회가 던지면 Promise.all이 통째로 깨져서
+    // 댓글·활동까지 안 보인다(업무 창이 빈 채로 열린다).
+    cloud.listCardReactions(cardId).catch(() => []),
   ]));
+  const reactionsBy = new Map();
+  for (const r of reactions || []) {
+    const list = reactionsBy.get(r.comment_id);
+    if (list) list.push(r); else reactionsBy.set(r.comment_id, [r]);
+  }
   return {
-    comments: (comments || []).map(commentToApp),
+    comments: (comments || []).map(c => commentToApp(c, reactionsBy)),
     activityLog: (activity || []).map(activityToApp),
   };
 }
@@ -462,6 +523,10 @@ export async function commentAddCloud(comment, cardId) {
   return write(() => cloud.addComment(cardId, comment.text, comment.parentId || null, comment.id));
 }
 export async function commentUpdateCloud(commentId, text) { return write(() => cloud.updateComment(commentId, text)); }
+// 반응 켜기·끄기(0032). 화면은 먼저 그려 두고 이걸 부른다 — 실패하면 부르는 쪽이 되돌린다.
+export async function commentReactionCloud(commentId, kind, on) {
+  return write(() => (on ? cloud.addCommentReaction(commentId, kind) : cloud.removeCommentReaction(commentId, kind)));
+}
 export async function commentDeleteCloud(commentId) { return write(() => cloud.deleteComment(commentId)); }
 
 export async function projectCreateCloud(project) {
@@ -581,7 +646,8 @@ export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {
 // 드래그하면 접속한 모든 사람이 전체를 다시 읽었다(쿼리 11개). 표에 따라 갈라
 // 필요한 만큼만 읽는다.
 //   cards        → 그 카드 1건만 다시 읽기 (삭제는 바로 제거)
-//   comments/files → 목록 화면에 안 나오는 데이터 → 열려 있는 업무 창일 때만 상세 갱신
+//   comments/files/comment_reactions → 목록 화면에 안 나오는 데이터
+//                → 열려 있는 업무 창일 때만 상세 갱신
 //   그 외(projects·resource_links) → 전체 재조회 (드문 변경)
 // comments의 DELETE payload에는 card_id가 없다(replica identity가 PK뿐) → cardId가
 // 비면 "지금 열려 있는 카드"로 본다. 호출부가 그렇게 처리한다.
@@ -595,7 +661,9 @@ export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActiv
       else onCard(row.id || old.id);
       return;
     }
-    if (table === 'comments' || table === 'files') {
+    // comment_reactions에는 card_id가 아예 없다(INSERT·DELETE 둘 다) — comments의
+    // DELETE와 같은 처리로 떨어진다: cardId가 비면 "지금 열려 있는 카드"다.
+    if (table === 'comments' || table === 'files' || table === 'comment_reactions') {
       onCardDetail(row.card_id || old.card_id || null);
       return;
     }

@@ -16,6 +16,10 @@ const api = await import('file://' + join(ROOT, 'api', 'push.js').replace(/\\/g,
 assert.equal(notify.notifLine('mention', '노준석'), '노준석님이 나를 멘션했어요');
 assert.equal(notify.notifLine('reply', '노준석'), '노준석님이 내 댓글에 답글을 남겼어요');
 assert.equal(notify.notifLine('assign', '노준석'), '노준석님이 나를 담당자로 지정했어요');
+// 댓글 반응(0032). 종류(하트·따봉·체크)는 문구에 넣지 않는다 — 목록이
+// "따봉을 눌렀어요"처럼 읽히고, 어느 것인지는 댓글을 열면 보인다.
+assert.equal(notify.notifLine('reaction', '노준석'), '노준석님이 내 댓글에 반응을 남겼어요');
+assert.ok(!notify.isSystemNotif('reaction'), '반응은 사람이 만드는 알림이다');
 // due_soon은 배치가 만든다 → '누가'가 없다. 이름이 섞여 들어가면 안 된다.
 assert.equal(notify.notifLine('due_soon', '더다붓'), '마감이 다가왔어요');
 assert.ok(notify.isSystemNotif('due_soon') && !notify.isSystemNotif('assign'));
@@ -85,6 +89,11 @@ globalThis.__CLOUD = {
   getSession: async () => ({ session: { user: { id: 'u1' } }, user: { id: 'u1' } }),
   listProfileTeams: async () => [],
   insertNotifications: async (ids, meta) => { notified.push({ ids, meta }); return ids.length; },
+  // 업무 창 상세(§6-20). 반응 조회는 아래에서 일부러 던지게 두어, 표가 아직 없는
+  // 환경(마이그레이션 0032 적용 전)에서도 댓글·활동이 뜨는지 본다.
+  listComments: async () => [{ id: 'cm1', card_id: 'c1', author_id: 'u2', body: '확인했습니다', created_at: '2026-08-30T00:00:00Z' }],
+  listCardActivity: async () => [],
+  listCardReactions: async () => { throw new Error('relation "comment_reactions" does not exist'); },
 };
 
 const dir = mkdtempSync(join(tmpdir(), 'push-'));
@@ -129,6 +138,60 @@ assert.equal(notified.length, 1);
 assert.deepStrictEqual(notified[0].ids, ['u2']);
 assert.equal(notified[0].meta.kind, 'reply');
 
+// ── 댓글 반응 (0032) ────────────────────────────────────────────────────────
+// 토글 판정은 순수 함수다. **이름이 아니라 auth user id로 가른다** — 이름으로
+// 판정하면 동명이인이 서로의 반응을 자기 것으로 본다.
+{
+  const me = { userId: 'u1', name: '노준석' };
+  const other = { kind: 'heart', userId: 'u2', name: '조준환' };
+  // 처음 누르면 켜진다
+  let list = sync.toggleReaction([other], 'heart', me);
+  assert.equal(list.length, 2);
+  // 같은 종류를 다시 누르면 취소 — 남의 것은 그대로 남는다
+  list = sync.toggleReaction(list, 'heart', me);
+  assert.deepStrictEqual(list, [other], '다시 누르면 내 것만 빠진다');
+  // 세 종류를 모두 누를 수 있다
+  let three = [];
+  for (const k of sync.REACTION_KINDS) three = sync.toggleReaction(three, k, me);
+  assert.deepStrictEqual(three.map(r => r.kind), ['heart', 'thumbsup', 'check']);
+  // 모르는 종류는 아무 일도 하지 않는다(DB 체크 제약이 막는 값이 화면에서 먼저 걸린다)
+  assert.strictEqual(sync.toggleReaction(three, 'fire', me), three);
+  // 로그인 전(userId 없음)에는 아무것도 담지 않는다 — 주인 없는 반응이 생기면 안 된다
+  assert.strictEqual(sync.toggleReaction(three, 'heart', { userId: '' }), three);
+
+  const sum = sync.reactionSummary(three.concat(other), 'u1');
+  assert.deepStrictEqual(sum.map(s => [s.kind, s.count, s.mine]),
+    [['heart', 2, true], ['thumbsup', 1, true], ['check', 1, true]]);
+  // 안 누른 사람에게는 mine이 전부 false여야 한다(그래야 화면에서 색이 안 켜진다)
+  assert.ok(sync.reactionSummary(three, 'u9').every(s => !s.mine));
+  assert.deepStrictEqual(sync.reactionSummary(three.concat(other), 'u1')[0].people.map(p => p.userId),
+    ['u1', 'u2'], '누른 사람 목록을 그대로 돌려줘야 얼굴·이름을 세울 수 있다');
+}
+
+// 반응 알림: 댓글 작성자 한 명에게, kind는 'reaction'.
+notified.length = 0;
+await sync.notifyReaction('조준환', { actorName: '노준석', cardId: 'c1', projectId: 'p1', preview: '확인했습니다' });
+assert.equal(notified.length, 1);
+assert.deepStrictEqual(notified[0].ids, ['u2']);
+assert.equal(notified[0].meta.kind, 'reaction');
+assert.equal(notified[0].meta.preview, '확인했습니다');
+// **자기 댓글에 자기가 누른 것은 알림이 없다.** 본인 제외는 통과가 기본값이라
+// 깨져도 아무 소리가 안 난다 — §6-29에서 통째로 죽어 있던 자리다.
+notified.length = 0;
+await sync.notifyReaction('노준석', { actorName: '노준석', cardId: 'c1', projectId: 'p1', preview: '확인했습니다' });
+assert.deepStrictEqual(notified, [], '내 댓글에 내가 반응하면 알림 없음');
+// 프로필에 없는 이름(환송한 사람 등)은 받을 계정이 없다
+await sync.notifyReaction('없는사람', { actorName: '노준석', cardId: 'c1', projectId: 'p1' });
+assert.deepStrictEqual(notified, []);
+
+// 반응 표가 아직 없어도(마이그레이션 전) 댓글·활동은 떠야 한다.
+// loadCardDetail이 Promise.all이라, 반응 조회가 던지면 업무 창이 통째로 빈다.
+{
+  const detail = await sync.loadCardDetail('c1');
+  assert.equal(detail.comments.length, 1, '반응 조회가 실패하면 댓글까지 못 읽는다');
+  assert.deepStrictEqual(detail.comments[0].reactions, [], '표가 없으면 반응은 빈 목록이다');
+}
+
 // ── 마이그레이션·크론 설정 ──────────────────────────────────────────────────
 // 0007에서 배운 것: 체크 제약과 INSERT 정책이 둘 다 kind를 열거하므로 양쪽을 같이
 // 넓혀야 한다. 한쪽만 고치면 알림이 RLS로 막힌다.
@@ -144,6 +207,50 @@ for (const k of ['mention', 'reply', 'assign']) {
 }
 // due_soon은 서버(service key)가 넣는다 — 로그인 사용자가 위조할 수 있으면 안 된다
 assert.ok(!withCheck.includes("'due_soon'"), 'due_soon은 INSERT 정책에 넣지 않는다');
+
+// 0032가 그 둘을 'reaction'까지 넓혔는지 — 한쪽만 고치면 반응 알림이 RLS로
+// 조용히 막힌다(0007·0017에서 이미 밟은 함정이다).
+{
+  const m32 = readFileSync(join(ROOT, 'supabase', 'migrations', '0032_comment_reactions.sql'), 'utf8');
+  const check32 = m32.slice(m32.indexOf('notifications_kind_check\n  check'), m32.indexOf('drop policy if exists "notifications_insert'));
+  for (const k of ['mention', 'reply', 'assign', 'due_soon', 'approval', 'reaction']) {
+    assert.ok(check32.includes(`'${k}'`), `0032의 체크 제약에 ${k}가 없다`);
+  }
+  const pol32 = m32.slice(m32.indexOf('create policy "notifications_insert_authenticated"'));
+  const wc32 = pol32.slice(0, pol32.indexOf(');'));
+  assert.ok(wc32.includes("'reaction'"), '반응은 사람이 만드는 알림이라 INSERT 정책에 있어야 한다');
+  assert.ok(!wc32.includes("'due_soon'") && !wc32.includes("'approval'"),
+    '서버·트리거가 만드는 종류를 INSERT 정책에 넣으면 로그인 사용자가 위조할 수 있다');
+
+  // 표·RLS. "승인된 사용자만 읽기·쓰기, **자기 행만 지우기**"가 스펙이다.
+  assert.ok(/primary key \(comment_id, user_id, kind\)/.test(m32),
+    '같은 종류를 두 번 못 누르게 막는 것은 이 기본키다');
+  assert.ok(/check \(kind in \('heart', 'thumbsup', 'check'\)\)/.test(m32), '반응 종류가 셋이 아니다');
+  assert.ok(/comment_reactions_select on public\.comment_reactions\s+for select using \(public\.is_approved\(\)\)/.test(m32),
+    '읽기가 승인된 사용자로 막혀 있지 않다');
+  assert.ok(/for insert with check \(public\.is_approved\(\) and user_id = auth\.uid\(\)\)/.test(m32),
+    '남의 이름으로 반응을 넣을 수 있다');
+  assert.ok(/for delete using \(user_id = auth\.uid\(\)\)/.test(m32), '남의 반응을 취소할 수 있다');
+  // 집계 컬럼을 두면 목록과 숫자가 어긋난다(주석으로 이유를 적어 두는 것은 괜찮다)
+  assert.ok(!/^\s*(alter table|create trigger)[^\n]*like_count/mi.test(m32),
+    'comments에 집계 컬럼을 붙이고 있다 — 개수는 클라이언트가 센다');
+  assert.ok(/add table public\.comment_reactions/.test(m32), 'Realtime 발행에 안 넣으면 상대 화면이 안 바뀐다');
+  assert.ok(/되돌리기/.test(m32) && /drop table if exists public\.comment_reactions/.test(m32),
+    '되돌리는 SQL이 파일에 없다');
+}
+
+// 발행에 넣었으면 구독도 들어야 하고, **라우팅에 적지 않으면 기본이 전체 재조회다**(§6-21).
+{
+  const cSrc = readFileSync(join(ROOT, 'src', 'services', 'cloud.js'), 'utf8');
+  assert.ok(/table: 'comment_reactions'/.test(cSrc), 'subscribeAll이 comment_reactions를 듣지 않는다');
+  const sSrc = readFileSync(join(ROOT, 'src', 'services', 'cloudSync.js'), 'utf8');
+  const route = sSrc.slice(sSrc.indexOf('export function subscribeWorkspace'));
+  const i = route.indexOf("table === 'comments'");
+  assert.ok(i > 0, 'comments 라우팅 분기를 찾지 못했다');
+  const detailBranch = route.slice(i, route.indexOf("table === 'activity'", i));
+  assert.ok(detailBranch.includes("'comment_reactions'"),
+    '반응 이벤트가 전체 재조회로 흐른다 — comments와 같은 결(열린 창일 때만 상세 갱신)이어야 한다');
+}
 
 const vercel = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8'));
 const cron = (vercel.crons || []).find(c => c.path === '/api/push');
@@ -254,4 +361,4 @@ assert.ok(/addEventListener\('notificationclick'/.test(sw), 'sw에 클릭 처리
     '뱃지 갱신이 waitUntil 밖이다 — 워커가 먼저 죽으면 숫자가 안 바뀐다');
 }
 
-console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·마이그레이션·크론·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수');
+console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅)·마이그레이션·크론·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수');
