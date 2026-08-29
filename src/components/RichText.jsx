@@ -123,7 +123,7 @@ export const RichText = React.memo(({ content, onToggleTodo }) => {
         switch (block.type) {
           case 'rule':
             // 본문 안의 선은 카드 테두리보다 옅다 — 글을 가르는 표시이지 상자가 아니다
-            return <hr key={b.key} className="my-3 border-0 h-px" style={{ background: 'var(--app-line)' }} />;
+            return <hr key={block.key} className="my-3 border-0 h-px" style={{ background: 'var(--app-line)' }} />;
           case 'image':
             return <div key={block.key} className="my-2"><ContentImage src={block.value} /></div>;
           case 'todo':
