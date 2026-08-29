@@ -184,6 +184,15 @@ assert.deepStrictEqual(notified, [], '내 댓글에 내가 반응하면 알림 �
 await sync.notifyReaction('없는사람', { actorName: '노준석', cardId: 'c1', projectId: 'p1' });
 assert.deepStrictEqual(notified, []);
 
+// 알림은 그 댓글의 **첫 반응 한 번만**(사용자 피드백 2026-08-30 — "너무 쌓일 것 같다").
+// 부르는 쪽(comments.jsx)이 반응이 이미 있던 댓글에는 notifyReaction을 부르지 않는다 —
+// 소스로 못 박는다(브라우저 스위트는 게스트라 알림 경로를 못 본다).
+{
+  const src = readFileSync(new URL('../src/modals/comments.jsx', import.meta.url), 'utf8');
+  assert.ok(/before\.length === 0 && notifyReaction/.test(src),
+    '반응 알림이 첫 반응(before가 빈 배열)일 때만 나가지 않는다 — 댓글마다 쌓인다');
+}
+
 // 반응 표가 아직 없어도(마이그레이션 전) 댓글·활동은 떠야 한다.
 // loadCardDetail이 Promise.all이라, 반응 조회가 던지면 업무 창이 통째로 빈다.
 {

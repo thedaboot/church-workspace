@@ -265,7 +265,11 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
       // 취소는 아무에게도 알리지 않는다. 본인 제외는 notifyReaction이 auth user id로
       // 최종 차단한다 — 이름으로 미리 거르지 않는 이유는 판정이 두 곳으로 갈라지면
       // 한쪽이 조용히 어긋나기 때문이다(§6-29).
-      .then(() => turnedOn && notifyReaction(c.author, {
+      // **알림은 그 댓글의 첫 반응 한 번만**(사용자 피드백 2026-08-30 — "너무 쌓일
+      // 것 같다"). 반응이 이미 있던 댓글(before가 비어 있지 않음)에는 보내지 않는다 —
+      // 몇 명이 눌렀는지는 댓글을 열면 얼굴로 보인다. before는 이미 화면이 들고 있는
+      // 배열이라 왕복이 늘지 않는다.
+      .then(() => turnedOn && before.length === 0 && notifyReaction(c.author, {
         actorName: currentUser?.name, cardId: card?.id, projectId: card?.projectId,
         preview: String(c.text || '').slice(0, 80),
       }))
