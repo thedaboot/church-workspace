@@ -23,14 +23,20 @@ import { reactionSummary, toggleReaction, commentReactionCloud, notifyReaction }
 // 세 종류뿐이고 **이모지가 아니라 lucide 아이콘**이다(§4.2 — 이모지 아이콘 금지).
 // 색은 토큰만 쓴다(Tailwind 기본 팔레트는 다크 모드에서 그대로 튄다 — §8).
 // 문구는 담백하게: 화면에 '따봉' 같은 말을 쓰지 않는다.
+// 라벨(2026-08-30 사용자 지적): 하트는 **'좋아요'** 다 — 모달 머리줄이 "하트 1명"으로
+// 떴는데 "좋아요 1명"을 기대했다. 그래서 thumbsup은 겹치지 않게 **'최고'** 로 옮겼다.
 // fill: 눌렀을 때 속을 채우는 아이콘. **체크는 채우지 않는다** — 선으로만 그린 모양이라
 // 채우면 갈고리가 뭉개져 딴 도형처럼 보인다(실제로 그렇게 보였다).
 const REACTIONS = [
-  { kind: 'heart', Icon: Heart, label: '하트', fill: true, on: 'bg-tag-red text-tag-red-fg border-tag-red' },
-  { kind: 'thumbsup', Icon: ThumbsUp, label: '좋아요', fill: true, on: 'bg-tag-blue text-tag-blue-fg border-tag-blue' },
+  { kind: 'heart', Icon: Heart, label: '좋아요', fill: true, on: 'bg-tag-red text-tag-red-fg border-tag-red' },
+  { kind: 'thumbsup', Icon: ThumbsUp, label: '최고', fill: true, on: 'bg-tag-blue text-tag-blue-fg border-tag-blue' },
   { kind: 'check', Icon: Check, label: '확인', fill: false, on: 'bg-tag-green text-tag-green-fg border-tag-green' },
 ];
 const reactionMeta = (kind) => REACTIONS.find(r => r.kind === kind) || REACTIONS[0];
+
+// 칩에 얼굴을 몇 개까지 세울지. 넘치면 +N이고 **그때만** 전체 목록 모달이 열린다 —
+// 세 명 이하는 얼굴이 곧 목록이라 창을 하나 더 띄울 이유가 없다.
+const FACES_MAX = 3;
 
 // 게스트 모드의 저장 자리. 게스트 댓글은 스토어(→ localStorage)에 남으므로 반응도
 // 같은 방식으로 브라우저에만 둔다. 클라우드에서는 이 표를 쓰지 않는다.
@@ -55,29 +61,49 @@ const cardOfComment = (commentId) => {
 
 // 반응 줄. **hover로만 나타나게 두지 않는다**(§8 — 터치 기기에는 hover가 없어서
 // 기능이 아예 없는 것처럼 보인다. 수정·삭제에서 실제로 그랬다).
-// 아이콘을 누르면 토글, 숫자를 누르면 누른 사람 목록이 열린다.
+//
+// 2026-08-30 재설계(사용자 피드백):
+// ① 아이콘 버튼은 **정사각(w-6 h-6) + justify-center**다. 예전에는 `pl-2 pr-1.5`로
+//    좌우가 어긋나서, 아무도 안 누른 원형 칩에서 아이콘이 왼쪽으로 치우쳐 보였다.
+//    이제 어느 상태(0명/N명 · 내가 누름/안 누름)에서도 아이콘이 자기 칸의 한가운데다.
+// ② **숫자 대신 누른 사람 얼굴**을 아이콘 바로 옆에 겹쳐 세운다("좋아요 N명"을 눌러
+//    창을 여는 흐름이 번거롭다는 지적). 대시보드 PeopleStrip · 프로젝트 탭의
+//    ViewerFaces와 같은 결이다 — 작은 원 겹치기 + ring-surface.
+//    셋을 넘으면 +N이고 그 버튼만 전체 목록을 연다. 셋 이하는 얼굴의 title이 이름이다.
+// ③ 얼굴이 붙고 떨어져도 **줄 높이가 안 변한다** — 칩 높이는 아이콘 버튼(24px)이
+//    정하고 얼굴은 15px + 링이라 그 안에 들어간다. 가로만 늘어난다.
 const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => (
-  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-    {reactionSummary(reactions, myKey).map(({ kind, count, mine }) => {
+  <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+    {reactionSummary(reactions, myKey).map(({ kind, count, mine, people }) => {
       const { Icon, label, on, fill } = reactionMeta(kind);
+      const shown = people.slice(0, FACES_MAX);
+      const extra = count - shown.length;
       return (
         <span key={kind}
           className={`inline-flex items-center rounded-full border transition-colors ${mine ? on : 'border-line text-fg-faint'}`}>
           <button
             type="button" onClick={() => onToggle(kind)} aria-pressed={mine}
             title={mine ? `${label} 취소` : label} aria-label={mine ? `${label} 취소` : label}
-            className="flex items-center pl-2 pr-1.5 py-1.5 rounded-full transition active:scale-95 hover:bg-surface-hover"
+            className="flex items-center justify-center w-6 h-6 rounded-full transition active:scale-95 hover:bg-surface-hover"
           >
             <Icon size={12} {...(mine && fill ? { fill: 'currentColor' } : {})} />
           </button>
-          {/* 숫자를 누르면 누른 사람 목록. aria에 조사를 붙이면 '확인를'이 되므로
-              라벨과 숫자를 가운뎃점으로 잇는다 */}
           {count > 0 && (
-            <button
-              type="button" onClick={() => onOpen(kind)}
-              title="누른 사람 보기" aria-label={`${label} ${count}명 · 누른 사람 보기`}
-              className="pr-2 pl-0.5 py-1.5 text-[10px] font-semibold tabular-nums rounded-full transition active:scale-95 hover:bg-surface-hover"
-            >{count}</button>
+            <span className={`flex items-center pl-0.5 ${extra > 0 ? 'pr-1' : 'pr-2'}`}>
+              {shown.map((p, i) => (
+                <Avatar key={`${p.userId}-${i}`} name={p.name || '알 수 없음'}
+                  className="flex w-[15px] h-[15px] text-[8.5px] -ml-[5px] first:ml-0 ring-[1.5px] ring-surface animate-in fade-in zoom-in-75 duration-200" />
+              ))}
+              {/* 넘치는 사람만 +N으로 접는다. aria에 조사를 붙이면 '확인를'이 되므로
+                  라벨과 숫자를 가운뎃점으로 잇는다 */}
+              {extra > 0 && (
+                <button
+                  type="button" onClick={() => onOpen(kind)}
+                  title="누른 사람 보기" aria-label={`${label} ${count}명 · 누른 사람 보기`}
+                  className="ml-1 px-1 py-1 text-[10px] font-semibold leading-none tabular-nums rounded-full transition active:scale-95 hover:bg-surface-hover"
+                >+{extra}</button>
+              )}
+            </span>
           )}
         </span>
       );
@@ -86,6 +112,7 @@ const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => (
 );
 
 // 누가 눌렀는지 — 대시보드의 '가입한 사람'(MembersModal)과 같은 결이다.
+// **+N을 눌렀을 때만 연다.** 세 명 이하는 칩에 얼굴이 다 서 있어서 창을 띄울 이유가 없다.
 // **body 포털이 기본**(§6-1): 업무 창은 transform 애니메이션이 걸린 조상이라
 // 그냥 fixed로 두면 뷰포트가 아니라 그 안쪽을 기준으로 박힌다.
 function ReactionPeopleModal({ kind, people, onClose }) {

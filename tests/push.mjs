@@ -16,8 +16,8 @@ const api = await import('file://' + join(ROOT, 'api', 'push.js').replace(/\\/g,
 assert.equal(notify.notifLine('mention', '노준석'), '노준석님이 나를 멘션했어요');
 assert.equal(notify.notifLine('reply', '노준석'), '노준석님이 내 댓글에 답글을 남겼어요');
 assert.equal(notify.notifLine('assign', '노준석'), '노준석님이 나를 담당자로 지정했어요');
-// 댓글 반응(0032). 종류(하트·따봉·체크)는 문구에 넣지 않는다 — 목록이
-// "따봉을 눌렀어요"처럼 읽히고, 어느 것인지는 댓글을 열면 보인다.
+// 댓글 반응(0032). 종류(좋아요·최고·확인)는 문구에 넣지 않는다 — 목록이
+// "최고를 눌렀어요"처럼 읽히고, 어느 것인지는 댓글을 열면 보인다.
 assert.equal(notify.notifLine('reaction', '노준석'), '노준석님이 내 댓글에 반응을 남겼어요');
 assert.ok(!notify.isSystemNotif('reaction'), '반응은 사람이 만드는 알림이다');
 // due_soon은 배치가 만든다 → '누가'가 없다. 이름이 섞여 들어가면 안 된다.
@@ -192,6 +192,49 @@ assert.deepStrictEqual(notified, []);
   assert.deepStrictEqual(detail.comments[0].reactions, [], '표가 없으면 반응은 빈 목록이다');
 }
 
+// ── 반응 칩 재설계 (comments.jsx · 2026-08-30 사용자 피드백) ────────────────
+// 브라우저 없이 도는 스위트라 소스를 읽어 단정한다(cloud.js 문장 모양과 같은 방식).
+// 되돌리기 검사: 아이콘 버튼을 `pl-2 pr-1.5`로 되돌리거나, 얼굴 대신 `{count}`
+// 숫자 버튼으로 되돌리거나, heart 라벨을 '하트'로 되돌리면 아래가 깨진다.
+{
+  const uiSrc = readFileSync(join(ROOT, 'src', 'modals', 'comments.jsx'), 'utf8');
+  const tblStart = uiSrc.indexOf('const REACTIONS = [');
+  assert.ok(tblStart > 0, 'REACTIONS 표를 찾지 못했다');
+  const table = uiSrc.slice(tblStart, uiSrc.indexOf('];', tblStart));
+
+  // ① 라벨. heart가 '좋아요'다(사용자 지적 — 모달 머리줄이 "하트 1명"으로 떴다).
+  //    그래서 thumbsup은 겹치지 않게 '최고'로 옮겼다. check는 '확인' 그대로.
+  assert.ok(/kind: 'heart',[^\n]*label: '좋아요'/.test(table), "heart 라벨은 '좋아요'다");
+  assert.ok(/kind: 'thumbsup',[^\n]*label: '최고'/.test(table), "thumbsup 라벨은 '최고'다('좋아요'와 겹치면 안 된다)");
+  assert.ok(/kind: 'check',[^\n]*label: '확인'/.test(table), "check 라벨은 '확인'이다");
+  assert.ok(!/label: '하트'/.test(uiSrc), "'하트'는 화면 라벨이 아니다");
+  assert.ok(!/label: '따봉'/.test(uiSrc), "화면에 '따봉'을 쓰지 않는다(§8)");
+  // 선으로만 그린 아이콘에 fill을 주면 갈고리가 뭉개진다(§4.2)
+  assert.ok(/kind: 'check',[^\n]*fill: false/.test(table), 'Check에 fill을 주면 안 된다');
+
+  const rowStart = uiSrc.indexOf('const ReactionRow');
+  const row = uiSrc.slice(rowStart, uiSrc.indexOf('function ReactionPeopleModal'));
+  assert.ok(rowStart > 0 && row.length > 200, 'ReactionRow를 찾지 못했다');
+
+  // ② 아이콘은 어느 상태에서도 자기 칸의 가운데다 — 좌우 패딩이 어긋나면
+  //    아무도 안 누른 원형 칩에서 아이콘이 왼쪽으로 치우쳐 보인다(스크린샷 지적).
+  const iconBtn = row.slice(row.indexOf('aria-pressed'), row.indexOf('<Icon'));
+  assert.ok(/justify-center/.test(iconBtn) && /\bw-6 h-6\b/.test(iconBtn),
+    '아이콘 버튼이 정사각 + justify-center가 아니다 — 원형 칩에서 아이콘이 치우친다');
+  assert.ok(!/\bp[lrxy]-\d/.test(iconBtn.replace(/py-\d/g, '')),
+    '아이콘 버튼에 좌우 비대칭 패딩이 다시 붙었다');
+
+  // ③ 숫자 대신 얼굴. 셋까지 겹쳐 세우고 넘치면 +N, +N만 전체 목록을 연다.
+  assert.ok(/const FACES_MAX = 3;/.test(uiSrc), '얼굴 상한(FACES_MAX)이 3이 아니다');
+  assert.ok(/<Avatar\b/.test(row), '반응 칩에 누른 사람 얼굴이 없다 — 숫자 버튼으로 되돌아갔다');
+  assert.ok(/people\.slice\(0, FACES_MAX\)/.test(row), '얼굴을 상한까지만 세우고 있지 않다');
+  assert.ok(/ring-surface/.test(row) && /-ml-\[5px\] first:ml-0/.test(row),
+    '얼굴 겹치기가 ViewerFaces·PeopleStrip과 다른 결이다');
+  assert.ok(/extra > 0[\s\S]{0,400}onOpen\(kind\)/.test(row),
+    '+N일 때만 모달이 열려야 한다(세 명 이하는 얼굴이 곧 목록이다)');
+  assert.ok(!/>\{count\}</.test(row), '숫자 버튼이 다시 붙었다 — 얼굴로 대체한 자리다');
+}
+
 // ── 마이그레이션·크론 설정 ──────────────────────────────────────────────────
 // 0007에서 배운 것: 체크 제약과 INSERT 정책이 둘 다 kind를 열거하므로 양쪽을 같이
 // 넓혀야 한다. 한쪽만 고치면 알림이 RLS로 막힌다.
@@ -361,4 +404,4 @@ assert.ok(/addEventListener\('notificationclick'/.test(sw), 'sw에 클릭 처리
     '뱃지 갱신이 waitUntil 밖이다 — 워커가 먼저 죽으면 숫자가 안 바뀐다');
 }
 
-console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅)·마이그레이션·크론·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수');
+console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수');
