@@ -246,8 +246,14 @@ export function buildTaskContext(task, now = new Date()) {
   // 하위 업무 — 끝난 것과 남은 것을 갈라서 준다. 남은 것만 주면 AI가 이미 끝낸 일을
   // 다시 "챙길 것"으로 올린다(사용자 요청 2026-08-28).
   const subs = task.subtasks || [];
-  const subDone = subs.filter(x => x.done).map(x => x.text).filter(Boolean);
-  const subLeft = subs.filter(x => !x.done).map(x => x.text).filter(Boolean);
+  // 하위 업무 항목의 키는 **title**이다({ id, title, done } — SubtaskList가 만드는 모양
+  // 그대로 cards.subtasks jsonb에 들어간다). 여기가 .text로 읽는 바람에 클라우드
+  // 카드에서는 남은 것도 끝낸 것도 **항상 빈 목록**이 되어, 4/5 카드의 프롬프트에
+  // "남은 하위 업무: 없음(전부 완료)"가 실렸다 — 모델이 아니라 이 한 글자가
+  // "모두 완료했어요" 요약의 진짜 원인이었다(사용자가 세 번 재현해 준 그 증상).
+  // 검사 픽스처도 text로 만들어서 못 잡았다 — 픽스처는 실제 모양을 베껴야 한다.
+  const subDone = subs.filter(x => x.done).map(x => x.title).filter(Boolean);
+  const subLeft = subs.filter(x => !x.done).map(x => x.title).filter(Boolean);
   // 남은 것을 **먼저, 제 줄로** 준다. 한 줄에 '끝낸 것 · 남은 것'으로 붙였더니
   // 라이브에서 모델이 둘을 섞어 이미 끝낸 항목을 "마무리해야 해요"로 올렸다
   // (사용자 신고 2026-08-29 — 4/5 완료 카드에서 완료된 연결 지도·파일 이관을 챙기라고 함).

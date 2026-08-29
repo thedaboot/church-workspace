@@ -170,9 +170,9 @@ check('요약에서는 @를 쓰지 말라고 한다', captured.sys.includes('사
   check('카드가 바뀌면 캐시가 무효가 된다', calls === 2, `${calls}회`);
   // 하위 업무를 체크하면 updatedAt이 아직 그대로여도(서버 왕복 전) 다시 만든다 —
   // 요약이 끝낸 것/남은 것을 갈라 말하므로 체크 하나가 답을 바꾼다
-  const subs = [{ text: '곡 목록', done: false }];
+  const subs = [{ id: 's1', title: '곡 목록', done: false }];
   await AiService.summarizeTask({ ...t, updatedAt: '2026-07-21T00:00:00Z', subtasks: subs });
-  await AiService.summarizeTask({ ...t, updatedAt: '2026-07-21T00:00:00Z', subtasks: [{ text: '곡 목록', done: true }] });
+  await AiService.summarizeTask({ ...t, updatedAt: '2026-07-21T00:00:00Z', subtasks: [{ id: 's1', title: '곡 목록', done: true }] });
   check('하위 업무 체크가 캐시를 무효로 만든다(서버 왕복 전에도)', calls === 4, `${calls}회`);
   // 안내 문구는 캐시에 남지 않는다 — 로그인한 뒤에도 계속 그 문구가 나오면 안 된다
   AiService.clearSummaryCache();
@@ -217,7 +217,7 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
   const st = globalThis.__STATE;
   st.tasks.byId.t1.dependsOn = ['t0'];                     // 악보 제작은 콘티 확정을 기다린다
   st.tasks.byId.t0.attachments = [{ name: '콘티_시안2.pdf' }, '지난주_콘티.xlsx'];
-  st.tasks.byId.t0.subtasks = [{ text: '곡 목록 확정', done: true }, { text: '키 확인', done: false }];
+  st.tasks.byId.t0.subtasks = [{ id: 's1', title: '곡 목록 확정', done: true }, { id: 's2', title: '키 확인', done: false }];
   const ctx2 = buildTaskContext(st.tasks.byId.t0, NOW);
   check('후행 업무(이 업무를 기다리는)가 실린다', ctx2.includes('이 업무를 기다리는 후행 업무: 악보·송폼 제작'), '');
   check('후행 연결이 있으면 날짜 짐작은 접는다', !ctx2.includes('마감 이후에 놓인 업무'));
