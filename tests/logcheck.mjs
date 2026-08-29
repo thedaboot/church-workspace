@@ -656,7 +656,9 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 // 프로젝트 탭 옆·업무 줄 오른쪽 얼굴이 보는 판정. 게스트 스위트는 presence 집합이
 // 언제나 비어 있어 화면으로는 못 보므로(§1.1) 여기서 지킨다.
 // 되돌리기 검사: viewersOf에서 `e.id === meId` 걸러내기를 빼면 '본인 제외' 단정이,
-// limit를 안 보면 '최대 세 명' 단정이 깨진다.
+// limit를 안 보면 '최대 세 명' 단정이, **at으로 하나만 남기는 부분**을 빼면
+// '한 사람은 한 곳에만'·'옮기면 옛 자리에서 즉시 빠진다' 단정이 깨진다.
+// 거르기(match)를 최신 meta 고르기보다 **먼저** 하도록 순서를 바꿔도 마찬가지다.
 {
   const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
   const dir = mkdtempSync(join(tmpdir(), 'vwr-'));
@@ -666,11 +668,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 
   const me = 'u-me';
   const entries = [
-    { id: me, projectId: 'p1', cardId: 'c1' },      // 나 — 언제나 빠진다
-    { id: 'u1', projectId: 'p1', cardId: 'c1' },
-    { id: 'u2', projectId: 'p1', cardId: null },
-    { id: 'u3', projectId: 'p2', cardId: 'c9' },
-    { id: 'u1', projectId: 'p2', cardId: null },    // 같은 사람의 다른 창(폰·노트북)
+    { id: me, projectId: 'p1', cardId: 'c1', at: 500 },   // 나 — 언제나 빠진다
+    { id: 'u1', projectId: 'p1', cardId: 'c1', at: 300 },
+    { id: 'u2', projectId: 'p1', cardId: null, at: 100 },
+    { id: 'u3', projectId: 'p2', cardId: 'c9', at: 100 },
   ];
   const opts = { meId: me, limit: 3 };
   // 프로젝트: 업무 창을 연 사람도 그 프로젝트를 보고 있는 것이 맞다
@@ -680,10 +681,45 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(viewersOf(entries, { projectId: 'p1', cardId: 'c1' }, opts), ['u1'], '업무를 물으면 업무로 본다');
   // 본인 제외 — 나만 보고 있으면 아무 얼굴도 안 뜬다
   assert.deepStrictEqual(viewersOf([{ id: me, projectId: 'p1' }], { projectId: 'p1' }, opts), [], '나만 있으면 빈 목록');
-  // 같은 사람이 창을 둘 열어도 한 번만
-  assert.deepStrictEqual(viewersOf(entries, { projectId: 'p2' }, opts), ['u3', 'u1'], '사람당 한 번');
+
+  // ── 한 사람은 최신 한 곳에만 (사용자 지적 2026-08-30) ──────────────────────
+  // 기기 두 대·탭 두 개면 meta가 그 수만큼 온다. 전부 그리면 같은 얼굴이 두 프로젝트
+  // 탭에, 또 두 업무 카드에 동시에 떴다. at이 가장 큰 것 하나만 그 사람의 자리다.
+  const twoTabs = [
+    { id: 'u1', projectId: 'p1', cardId: 'c1', at: 100 },   // 노트북 — 옛 자리
+    { id: 'u1', projectId: 'p2', cardId: 'c9', at: 900 },   // 폰 — 지금 자리
+  ];
+  assert.deepStrictEqual(viewersOf(twoTabs, { projectId: 'p2' }, opts), ['u1'], '최신 자리에는 뜬다');
+  assert.deepStrictEqual(viewersOf(twoTabs, { projectId: 'p1' }, opts), [], '옛 자리 프로젝트 탭에는 안 뜬다');
+  assert.deepStrictEqual(viewersOf(twoTabs, { cardId: 'c9' }, opts), ['u1'], '카드 판정도 최신 meta 기준');
+  assert.deepStrictEqual(viewersOf(twoTabs, { cardId: 'c1' }, opts), [], '옛 업무 카드에는 안 뜬다');
+  // 순서가 뒤집혀 와도(sync 스냅샷의 순서는 보장되지 않는다) 결과가 같아야 한다
+  assert.deepStrictEqual(viewersOf([...twoTabs].reverse(), { projectId: 'p1' }, opts), [], '들어온 순서와 무관하다');
+
+  // 업무 창을 닫으면 그 카드에서 **즉시** 빠진다 — 닫을 때 새 at으로 track이 나가므로
+  // 그 meta가 이긴다(사용자 요구: "다른 데로 가면 바로 아이콘이 빠지게").
+  const closed = [
+    { id: 'u1', projectId: 'p1', cardId: 'c1', at: 100 },
+    { id: 'u1', projectId: 'p1', cardId: null, at: 200 },
+  ];
+  assert.deepStrictEqual(viewersOf(closed, { cardId: 'c1' }, opts), [], '업무를 닫으면 그 카드에서 빠진다');
+  assert.deepStrictEqual(viewersOf(closed, { projectId: 'p1' }, opts), ['u1'], '프로젝트에는 그대로 남는다');
+  // 프로젝트를 떠나면(대시보드로 가면 projectId가 null) 옛 프로젝트 탭에서 빠진다
+  const left = [
+    { id: 'u1', projectId: 'p1', cardId: null, at: 100 },
+    { id: 'u1', projectId: null, cardId: null, at: 200 },
+  ];
+  assert.deepStrictEqual(viewersOf(left, { projectId: 'p1' }, opts), [], '프로젝트를 떠나면 그 탭에서 빠진다');
+  // at이 없는 옛 meta는 0으로 본다(배포 전환기 — 새 코드와 옛 탭이 섞인다)
+  const mixed = [
+    { id: 'u1', projectId: 'p1', cardId: null },            // 옛 탭 = 0
+    { id: 'u1', projectId: 'p2', cardId: null, at: 1 },
+  ];
+  assert.deepStrictEqual(viewersOf(mixed, { projectId: 'p2' }, opts), ['u1'], 'at 없는 옛 meta는 0');
+  assert.deepStrictEqual(viewersOf(mixed, { projectId: 'p1' }, opts), [], 'at 없는 옛 meta는 밀린다');
+
   // 최대 세 명
-  const many = ['a', 'b', 'c', 'd', 'e'].map(id => ({ id, projectId: 'p1', cardId: null }));
+  const many = ['a', 'b', 'c', 'd', 'e'].map(id => ({ id, projectId: 'p1', cardId: null, at: 1 }));
   assert.deepStrictEqual(viewersOf(many, { projectId: 'p1' }, opts), ['a', 'b', 'c'], '최대 세 명');
   assert.strictEqual(viewersOf(many, { projectId: 'p1' }, { meId: me, limit: 0 }).length, 5, 'limit 0이면 전부');
   // 게스트·초기 상태 — 집합이 비어 있어도 죽지 않는다
@@ -691,5 +727,37 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(viewersOf(null, { projectId: 'p1' }, opts), [], 'null도 안전하다');
   assert.deepStrictEqual(viewersOf(entries, {}, opts), [], '물은 곳이 없으면 아무도 아니다');
   assert.deepStrictEqual(viewersOf(entries, { projectId: 'p1' }, {}), ['u-me', 'u1', 'u2'], '내 id를 모르면 아무도 안 뺀다');
-  console.log('PASS  지금 보고 있는 사람 11가지');
+  console.log('PASS  지금 보고 있는 사람 20가지');
+}
+
+// ── presence가 자리와 함께 시각을 실어 보내는지 (services/presence.js 소스 단정) ──
+// viewersOf가 '최신 한 곳'을 고르려면 meta에 at이 있어야 한다. 이 파일은 supabase
+// 클라이언트를 import해서 노드에서 실행할 수 없으므로 소스로 지킨다(§6-31과 같은 방식).
+// 되돌리기 검사: trackWhere의 `at: Date.now()`를 빼면 첫 단정이,
+// entriesOf에서 at을 안 실으면 두 번째 단정이 깨진다.
+{
+  const src = readFileSync(new URL('../src/services/presence.js', import.meta.url), 'utf8');
+  assert.ok(/channel\.track\(\{\s*\.\.\.w,\s*at:\s*Date\.now\(\)\s*\}\)/.test(src),
+    'trackWhere가 자리와 함께 at을 실어 보낸다');
+  assert.ok(/ch\.track\(\{\s*\.\.\.where,\s*at:\s*Date\.now\(\)\s*\}\)/.test(src),
+    '채널에 붙는 첫 track에도 at이 실린다');
+  assert.ok(/at:\s*Number\(m\.at\)\s*\|\|\s*0/.test(src),
+    'entriesOf가 meta의 at을 넘긴다(없으면 0)');
+  console.log('PASS  presence가 at을 실어 보낸다 3가지');
+}
+
+// ── 본문 링크로 연 업무에서 뒤로가기 (App.jsx 소스 단정) ──────────────────────
+// 주소 쓰기는 기본이 replaceState라 history가 안 쌓이고, 본문 링크로 건너뛸 때만
+// 한 번 pushState라 뒤로가기가 보던 자리로 돌아온다. popstate는 주소를 다시 읽는다.
+// 되돌리기 검사: pushNextUrlRef를 안 올리면 첫 단정이, popstate 리스너를 지우면
+// 마지막 단정이 깨진다. (실제 동작은 브라우저로 확인한다 — 여기서는 배선만 지킨다.)
+{
+  const src = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.ok(/pushNextUrlRef\.current = true; setActiveMenu\(task\.projectId\); openTaskModal\(task\)/.test(src),
+    '본문 링크로 업무를 열 때 다음 주소를 push로 남긴다');
+  assert.ok(/window\.history\.pushState\(null, '', next\)[\s\S]{0,40}window\.history\.replaceState\(null, '', next\)/.test(src),
+    '주소 동기화는 push 한 번을 빼면 replaceState다');
+  assert.ok(/addEventListener\('popstate'/.test(src) && /removeEventListener\('popstate'/.test(src),
+    'popstate를 듣고 떼어낸다');
+  console.log('PASS  뒤로가기 배선 3가지');
 }

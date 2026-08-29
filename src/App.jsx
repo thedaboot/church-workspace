@@ -378,15 +378,51 @@ function WorkspaceShell() {
   // 그 글자를 누르면 곧바로 그 업무 창이 뜬다. 등록은 showToast와 같은 방식이다.
   // 여기서 열지 못했으면 false를 돌려준다 — 그러면 뷰어가 클릭을 안 막아서 평범한
   // 링크처럼 주소로 이동하고, 딥링크가 다시 판정한다(없는 프로젝트면 대시보드).
+  // 다음 주소 쓰기 한 번만 pushState로(아래 '뒤로가기' 주석 참고)
+  const pushNextUrlRef = useRef(false);
   useEffect(() => setTaskLinkOpener(({ projectId, taskId }) => {
     const s = store.getState();
     const task = taskId ? s.tasks.byId[taskId] : null;
-    if (task) { setActiveMenu(task.projectId); openTaskModal(task); return true; }
+    // 링크로 건너뛰기 전에 **지금 보던 자리를 history에 남긴다** — 그래야 브라우저
+    // 뒤로가기(모바일은 가장자리 스와이프)로 돌아올 수 있다. 실제 pushState는 아래
+    // URL 동기화 effect가 한 번만 한다(그 자리가 주소를 만드는 유일한 곳이다).
+    if (task) { pushNextUrlRef.current = true; setActiveMenu(task.projectId); openTaskModal(task); return true; }
     // 가리키던 업무가 사라졌다 — 주소로 옮겨 가 봐야 대시보드로 떨어지므로 여기서 말한다
     if (taskId) { showToast('업무가 이미 삭제되었어요'); return true; }
-    if (s.projects.byId[projectId]) { setActiveMenu(projectId); return true; }
+    if (s.projects.byId[projectId]) { pushNextUrlRef.current = true; setActiveMenu(projectId); return true; }
     return false;
   }), [openTaskModal]);
+
+  // 뒤로가기 — 링크로 건너뛴 뒤 이전 화면으로 돌아온다(사용자 요청 2026-08-30).
+  //
+  // 이 앱의 주소는 상태의 그림자다: activeMenu·모달·필터가 바뀌면 아래 effect가
+  // `?p=&t=&f=`를 다시 쓴다. 그 쓰기는 기본이 **replaceState**라 history에 자리가
+  // 늘지 않는다(탭을 옮길 때마다 뒤로가기가 한 칸씩 쌓이면 앱을 빠져나가기가 힘들어진다).
+  // 본문 링크로 **건너뛸 때만** pushNextUrlRef를 올려 그 한 번을 pushState로 바꾼다 —
+  // 새 주소가 새 자리로 들어가고, 보던 자리는 바로 뒤에 남는다.
+  //
+  // popstate가 오면 주소를 다시 읽어 화면·업무 창을 복원한다. 여기서 상태를 바꾸면
+  // 동기화 effect가 한 번 더 돌지만, **같은 상태에서 같은 주소가 나오므로**
+  // replaceState 한 번으로 끝난다(되돌아가는 루프가 생기지 않는다). history API는
+  // popstate를 다시 일으키지 않는다는 점도 같이 기댄다.
+  useEffect(() => {
+    const onPop = () => {
+      const q = new URLSearchParams(window.location.search);
+      const f = q.get('f');
+      setDashFilter(DASH_FILTERS.includes(f) ? f : DASH_FILTER_DEFAULT);
+      const s = store.getState();
+      // 스냅샷이 아니라 스토어의 카드를 넣는다 — 창을 연 뒤에 채워지는 댓글·활동이
+      // 낡은 사본에 덮이지 않게(openTaskModal 위 주석과 같은 이유).
+      const tid = q.get('t');
+      const task = tid ? s.tasks.byId[tid] : null;
+      if (task) { setActiveMenu(task.projectId); setModalState({ isOpen: true, task, isEditMode: false }); return; }
+      setModalState({ isOpen: false, task: null, isEditMode: false });
+      const pid = q.get('p');
+      setActiveMenu(pid && s.projects.byId[pid] ? pid : 'dashboard');
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   // activeMenu/모달 상태 → URL(search params) 동기화 (대시보드/일반 뷰는 파라미터 제거)
   useEffect(() => {
@@ -402,7 +438,15 @@ function WorkspaceShell() {
       params.set('t', modalState.task.id);
     }
     const qs = params.toString();
-    window.history.replaceState(null, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+    const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    // 기본은 replaceState(뒤로가기 자리를 늘리지 않는다). 본문 링크로 건너뛴 직후
+    // 한 번만 pushState라서 뒤로가기가 보던 자리로 돌아온다 — 위 '뒤로가기' 주석.
+    // 주소가 이미 같으면 밀지 않는다: 같은 자리를 두 번 쌓으면 뒤로가기를 두 번
+    // 눌러야 움직이는 것처럼 보인다.
+    const push = pushNextUrlRef.current;
+    pushNextUrlRef.current = false;
+    if (push && next !== `${window.location.pathname}${window.location.search}`) window.history.pushState(null, '', next);
+    else window.history.replaceState(null, '', next);
   }, [activeMenu, modalState, dashFilter]);
 
   if (cloudMode && loadError) return <CloudErrorScreen reason={loadError} onRetry={retryLoad} retrying={retrying} />;

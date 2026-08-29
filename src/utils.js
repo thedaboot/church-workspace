@@ -411,11 +411,19 @@ export function reorderIds(ids, fromId, toId) {
 }
 
 // ── 지금 누가 여기를 보고 있나 ─────────────────────────────────────────────
-// Realtime presence가 실어 온 것만 본다: entries는 [{ id, projectId, cardId }]이고
-// 한 사람이 창을 여럿 열면 그 수만큼 들어온다(폰과 노트북이 서로 다른 곳을 볼 수 있다).
+// Realtime presence가 실어 온 것만 본다: entries는 [{ id, projectId, cardId, at }]이고
+// 한 사람이 창을 여럿 열면 그 수만큼 들어온다(폰과 노트북, 탭 두 개).
 // cardId를 물으면 그 업무 창을 지금 열어 둔 사람, 아니면 그 프로젝트에 들어와 있는 사람이다
 // (업무 창을 연 사람도 그 프로젝트를 보고 있는 것이 맞다).
-// **본인은 뺀다** — 내가 보고 있는 건 나도 안다. 사람 단위로 한 번만 세고 최대 limit명.
+//
+// **한 사람은 언제나 한 곳에만 뜬다** — 사람마다 `at`(track할 때 찍은 시각)이 가장 큰
+// meta **하나만** 남기고 그것으로 판정한다. 전부 그리면 같은 얼굴이 '더다붓 예배'와
+// '회계 인수인계' 탭에, 또 '대표기도자'와 '헌금봉헌' 카드에 동시에 떴다(사용자 지적
+// 2026-08-30 · 스크린샷 두 장). 이 규칙 덕분에 **자리를 옮기는 즉시 옛 자리에서
+// 빠진다** — 업무 창을 닫거나 다른 프로젝트로 가면 새 at이 찍힌 meta가 이기기 때문이다.
+// `at`이 없는 옛 meta는 0으로 보고(배포 전환기), 같으면 나중에 온 것이 이긴다.
+//
+// **본인은 뺀다** — 내가 보고 있는 건 나도 안다. 최대 limit명.
 // 여기에는 지금 붙어 있는 연결만 들어온다 — 기록으로 남기거나 "며칠 전에 봤다"로
 // 바꾸는 순간 §7의 '카드별 조회 추적'이 된다(사용자가 판단해서 뺀 것).
 export function viewersOf(entries, match = {}, opts = {}) {
@@ -423,14 +431,19 @@ export function viewersOf(entries, match = {}, opts = {}) {
   const wantCard = match?.cardId || null;
   const wantProject = match?.projectId || null;
   if (!wantCard && !wantProject) return [];
-  const ids = [];
-  const seen = new Set();
+  // 사람마다 가장 최근 meta 하나만 — 거르기(match)보다 **먼저** 해야 한다.
+  // 거른 뒤에 하나만 남기면 "그 카드를 보는 옛 meta"가 살아남아 옛 자리에 얼굴이 남는다.
+  const latest = new Map();
   for (const e of entries || []) {
     const id = e?.id;
-    if (!id || id === meId || seen.has(id)) continue;
+    if (!id || id === meId) continue;
+    const cur = latest.get(id);
+    if (!cur || (Number(e.at) || 0) >= (Number(cur.at) || 0)) latest.set(id, e);
+  }
+  const ids = [];
+  for (const e of latest.values()) {
     if (wantCard ? e.cardId !== wantCard : e.projectId !== wantProject) continue;
-    seen.add(id);
-    ids.push(id);
+    ids.push(e.id);
     if (limit > 0 && ids.length >= limit) break;
   }
   return ids;

@@ -196,6 +196,14 @@ export function sanitizeMentions(text, knownNames) {
 const TASK_MARK_RE = /\[\[\s*업무\s*:\s*([^\]\n]+?)\s*\]\]/g;
 const appOrigin = () => (typeof window !== 'undefined' && window.location?.origin) || '';
 
+// **파일 이름은 링크로 만들지 않는다**(2026-08-30 · 라이브에서 다듬기가
+// `2026 하계 수련회-3.xlsx`라는 대목에 업무 링크를 걸었다). 첨부 이름은 프롬프트에
+// 그대로 실리므로 모델이 그걸 "다른 업무"로 착각해 표시를 감쌀 수 있고, 마침 그
+// 이름과 똑같은 제목의 업무가 있으면 엉뚱한 곳으로 가는 링크가 된다. 이 워크스페이스에서
+// 파일명이 제목인 업무는 링크로 열어 볼 값이 없다 — 프롬프트에서 한 겹(표시를 붙이지
+// 말라), 여기서 한 겹 막는다.
+const FILE_TITLE_RE = /\.[a-z0-9]{2,5}$/i;
+
 // 딥링크 주소 — App.jsx가 읽는 `?p=<projectId>&t=<taskId>` 그대로다
 function taskDeepLink(task, origin = appOrigin()) {
   if (!task?.id || !task?.projectId) return '';
@@ -215,6 +223,8 @@ export function resolveTaskLinks(text, task = null, { origin = appOrigin() } = {
     // 자기 자신을 가리키는 링크는 뜻이 없다(이미 그 업무를 보고 있다) → 글자로 둔다.
     // 제목에 대괄호가 있으면 `[제목](주소)` 문법을 만들 수 없다 → 그것도 글자로.
     if (/[[\]]/.test(title)) return title;
+    // 파일 확장자로 끝나면 제목이 맞더라도 글자로 둔다(위 FILE_TITLE_RE 주석)
+    if (FILE_TITLE_RE.test(title)) return title;
     const found = pool.find(t => String(t.title || '').trim() === title);
     if (!found || found.id === task?.id) return title;
     const href = taskDeepLink(found, origin);
@@ -552,6 +562,8 @@ export const AiService = {
       '- 제목은 주변 상황 목록에 적힌 **그대로** 한 글자도 바꾸지 말고 옮겨 적어라.',
       '  목록에 없는 업무를 지어내서 표시하지 마라. 표시가 목록의 제목과 다르면 그냥 글자로 남는다.',
       '- **지금 다듬고 있는 이 업무 자신은 표시하지 마라.**',
+      '- **첨부 파일 이름에는 표시를 붙이지 마라.** 파일은 업무가 아니다',
+      '  (예: `2026 하계 수련회-3.xlsx`, `결산안.pdf`는 그냥 글자로 둬라).',
       '- 원문에 이미 그 업무 이야기가 나올 때만 붙여라. 없던 업무를 새로 소개하려고 붙이지 마라.',
       '- 주소나 id를 직접 쓰지 마라. 표시만 쓰면 우리가 링크로 바꾼다.',
       '- 표시에 굵게(**)나 형광펜(==)을 겹쳐 쓰지 마라.',

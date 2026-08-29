@@ -58,11 +58,14 @@ let joined = false;
 let where = { projectId: null, cardId: null };
 
 // presenceState(): { [profile id]: [{ presence_ref, …실어 보낸 값 }, …] }
-// 메타는 그 사람이 열어 둔 창 수만큼 온다 — 하나로 줄이지 않고 그대로 편다
-// (폰으로는 프로젝트를, 노트북으로는 업무 창을 보고 있을 수 있다).
+// 메타는 그 사람이 열어 둔 창 수만큼 온다(폰과 노트북이 서로 다른 곳을 볼 수 있다) —
+// 여기서는 그대로 펴서 넘기고, **어느 하나를 고르는 일은 `utils.viewersOf`가 한다**
+// (`at`이 가장 큰 것 하나 · 순수 함수라 노드에서 검사한다). 전부 그리면 같은 얼굴이
+// 두 프로젝트 탭·두 업무 카드에 동시에 뜬다(사용자 지적 2026-08-30).
+// `at`은 track할 때 실어 보낸 시각이고, 없는 옛 meta는 0으로 본다(배포 전환기).
 const entriesOf = (state) => Object.entries(state || {}).flatMap(([id, metas]) =>
   (metas && metas.length ? metas : [{}]).map(m => ({
-    id, projectId: m.projectId || null, cardId: m.cardId || null,
+    id, projectId: m.projectId || null, cardId: m.cardId || null, at: Number(m.at) || 0,
   })));
 
 // 게스트 모드에서는 클라이언트가 없어 아무 일도 하지 않는다(집합은 계속 비어 있다).
@@ -84,7 +87,9 @@ export function subscribePresence() {
     ch.subscribe((status) => {
       if (status !== 'SUBSCRIBED') return;
       joined = true;
-      ch.track(where);   // 붙기 전에 정해진 자리도 여기서 한 번에 나간다
+      // 붙기 전에 정해진 자리도 여기서 한 번에 나간다. `at`을 같이 실어야
+      // viewersOf가 "이 사람의 지금 자리"를 고를 수 있다(기기·탭이 여럿일 때).
+      ch.track({ ...where, at: Date.now() });
     });
   })();
   return () => {
@@ -98,9 +103,14 @@ export function subscribePresence() {
 
 // 내가 지금 보고 있는 곳을 얹는다. 값이 그대로면 아무것도 안 보낸다 —
 // track 한 번이 접속한 모든 사람에게 sync 이벤트를 만든다.
+//
+// **자리가 바뀔 때마다 `at`이 새로 찍힌다** — 그래서 업무 창을 닫거나 다른 프로젝트로
+// 옮기는 순간, 이 기기의 meta가 그 사람의 '가장 최근'이 되어 옛 자리의 얼굴이 곧바로
+// 밀려난다(사용자 요구 2026-08-30 — "다른 데로 가면 바로 아이콘이 빠지게").
+// 비교는 자리(projectId·cardId)로만 한다 — at까지 비교하면 언제나 달라서 매번 보낸다.
 export function trackWhere(next) {
   const w = { projectId: next?.projectId || null, cardId: next?.cardId || null };
   if (w.projectId === where.projectId && w.cardId === where.cardId) return;
   where = w;
-  if (joined && channel) channel.track(w);
+  if (joined && channel) channel.track({ ...w, at: Date.now() });
 }
