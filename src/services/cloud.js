@@ -1086,23 +1086,8 @@ export async function insertActivity(row) {
 // 워크스페이스 전역 구독. onChange는 payload를 그대로 받는다 —
 // 표(payload.table)에 따라 "그 카드만 다시 읽기 / 전체 재조회"로 갈라진다
 // (cloudSync.subscribeWorkspace).
-// 지금 접속해 있는 사람 — Supabase Realtime presence. DB에 아무것도 쓰지 않는다.
-// last_seen_at으로 판정하지 않는 이유: 그건 앱을 열 때 한 번 찍는 값이라, 4분 전에 탭을
-// 닫은 사람도 "지금 접속"으로 보인다. presence는 연결이 끊기면 서버가 바로 지운다.
-// onChange는 접속 중인 profile id 배열을 받는다(나 포함).
-export function subscribePresence(onChange) {
-  const c = client();
-  let channel = null;
-  let stopped = false;
-  (async () => {
-    const { data: { user } } = await c.auth.getUser();
-    if (!user || stopped) return;
-    channel = c.channel('presence-workspace', { config: { presence: { key: user.id } } });
-    channel.on('presence', { event: 'sync' }, () => onChange(Object.keys(channel.presenceState())));
-    channel.subscribe((status) => { if (status === 'SUBSCRIBED') channel.track({}); });
-  })();
-  return () => { stopped = true; if (channel) c.removeChannel(channel); };
-}
+// 지금 접속해 있는 사람(presence)은 services/presence.js가 채널을 직접 소유한다 —
+// "지금 보고 있는 곳"을 track으로 다시 실어야 해서 채널 인스턴스가 필요하기 때문이다.
 
 // 최근 활동 — 대시보드 피드용. 표시는 이름·카드 제목으로 하므로 여기서는 행만 가져온다
 // (이름은 profileIdToName, 제목은 스토어의 tasks가 이미 안다 — 조인이 필요 없다).

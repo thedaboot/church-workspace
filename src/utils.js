@@ -393,6 +393,49 @@ export function toggleTodoLine(md, idx) {
   }).join('\n');
 }
 
+// ── 끌어다 놓은 자리로 순서 바꾸기 ─────────────────────────────────────────
+// 프로젝트 탭 순서(0021)를 데스크톱 드래그와 모바일 길게 눌러 끌기가 같이 쓴다.
+// **뒤로 끌면 놓은 것 뒤, 앞으로 끌면 앞**이다 — 언제나 '앞'에 끼우면 나를 목록에서
+// 뺀 만큼 뒤 항목이 당겨져 **제자리로 돌아온다**(§6-12-a. 눈으로는 "안 움직인다"로만
+// 보여서 보드 순서 바꾸기에서 검사가 먼저 잡았다).
+// 옮길 수 없으면(둘 중 하나가 목록에 없거나 같은 자리) null — 부르는 쪽은 저장을 건너뛴다.
+export function reorderIds(ids, fromId, toId) {
+  const list = ids || [];
+  const from = list.indexOf(fromId), to = list.indexOf(toId);
+  if (from < 0 || to < 0 || from === to) return null;
+  const next = list.slice();
+  // 먼저 빼고(splice가 인자로 먼저 실행된다) 그 자리에 넣는다 — 뒤로 끌었으면
+  // 뺀 만큼 당겨져 to가 놓은 것의 '뒤'가 되고, 앞으로 끌었으면 '앞'이 된다.
+  next.splice(to, 0, ...next.splice(from, 1));
+  return next;
+}
+
+// ── 지금 누가 여기를 보고 있나 ─────────────────────────────────────────────
+// Realtime presence가 실어 온 것만 본다: entries는 [{ id, projectId, cardId }]이고
+// 한 사람이 창을 여럿 열면 그 수만큼 들어온다(폰과 노트북이 서로 다른 곳을 볼 수 있다).
+// cardId를 물으면 그 업무 창을 지금 열어 둔 사람, 아니면 그 프로젝트에 들어와 있는 사람이다
+// (업무 창을 연 사람도 그 프로젝트를 보고 있는 것이 맞다).
+// **본인은 뺀다** — 내가 보고 있는 건 나도 안다. 사람 단위로 한 번만 세고 최대 limit명.
+// 여기에는 지금 붙어 있는 연결만 들어온다 — 기록으로 남기거나 "며칠 전에 봤다"로
+// 바꾸는 순간 §7의 '카드별 조회 추적'이 된다(사용자가 판단해서 뺀 것).
+export function viewersOf(entries, match = {}, opts = {}) {
+  const { meId = null, limit = 3 } = opts;
+  const wantCard = match?.cardId || null;
+  const wantProject = match?.projectId || null;
+  if (!wantCard && !wantProject) return [];
+  const ids = [];
+  const seen = new Set();
+  for (const e of entries || []) {
+    const id = e?.id;
+    if (!id || id === meId || seen.has(id)) continue;
+    if (wantCard ? e.cardId !== wantCard : e.projectId !== wantProject) continue;
+    seen.add(id);
+    ids.push(id);
+    if (limit > 0 && ids.length >= limit) break;
+  }
+  return ids;
+}
+
 // ── 힘 기반 그래프 한 스텝 (연결 지도·프로젝트 그래프 뷰가 같이 쓴다) ────────────
 // 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
 // pos·vel을 제자리에서 고친다(매 프레임 3번 돌므로 새 배열을 만들면 GC가 튄다).

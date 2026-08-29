@@ -8,6 +8,7 @@ import {
 import { CONFIG, teamPaint, teamColor } from '../config.js';
 import { subtaskProgress } from '../utils.js';
 import { Avatar } from './Avatar.jsx';
+import { ViewerFaces } from './layout.jsx';
 import { STATUS_BAR, STATUS_DOT_VAR, byDue } from '../views/dashboardParts.jsx';
 import { useStore } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
@@ -63,6 +64,10 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action 
               <span key={t} className="text-[10px] font-bold" style={{ letterSpacing: '.02em', color: teamColor(t) }}>{t}</span>
             ))}
           </span>
+          {/* 지금 이 업무 창을 열어 둔 사람(본인 제외·최대 3명). 팀 이름 칸이 flex-1이라
+              얼굴이 붙어도 오른쪽의 상태 옮기기 버튼·마감일 자리는 그대로다.
+              **아무 데도 남지 않는다** — 그 사람이 창을 닫으면 같이 사라진다(§7). */}
+          {task.id && <ViewerFaces cardId={task.id} className="shrink-0" />}
           {action}
         </span>
         <span className="block text-sm font-semibold text-fg" style={{ lineHeight: 1.4, letterSpacing: '-0.2px' }}>{task.title}</span>

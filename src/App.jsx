@@ -12,8 +12,9 @@ import { AuthProvider, useAuth } from './services/auth.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
 import { MembersView } from './views/membersView.jsx';
 import { ToastHost, showToast } from './components/Toast.jsx';
+import { setTaskLinkOpener } from './components/RichText.jsx';
 import * as cloudSync from './services/cloudSync.js';
-import { setOnline } from './services/presence.js';
+import { subscribePresence, trackWhere } from './services/presence.js';
 import logoLight from './assets/logo-light.png';
 import logoDark from './assets/logo-dark.png';
 
@@ -232,11 +233,11 @@ function WorkspaceShell() {
 
   // 지금 접속해 있는 사람(presence) — DB에 아무것도 쓰지 않고, 연결이 끊기면 서버가
   // 바로 지운다. 값은 전용 미니 스토어로 흐른다(LOAD_STATE가 상태를 통째로 갈아치우는
-  // 워크스페이스 스토어에 섞으면 재조회마다 사라진다).
+  // 워크스페이스 스토어에 섞으면 재조회마다 사라진다). 채널은 presence.js가 소유한다 —
+  // 접속 목록만이 아니라 "지금 보고 있는 곳"을 같이 실어 보내기 때문이다.
   useEffect(() => {
     if (!cloudMode) return;
-    const unsub = cloudSync.subscribePresence(setOnline);
-    return () => { unsub(); setOnline([]); };
+    return subscribePresence();
   }, [cloudMode]);
 
   // 편집 종료 시 보류된 재조회 1회 실행
@@ -353,6 +354,15 @@ function WorkspaceShell() {
   // 같은 처리가 필요하다(h-full이 없으면 달력이 화면 밖으로 흘러 띠가 잘린다)
   const needsFullHeight = isProjectScreen || activeMenu === 'schedule';
 
+  // 내가 지금 보고 있는 곳을 presence에 얹는다 — 프로젝트 탭 옆·업무 줄 오른쪽의 얼굴이
+  // 이 값을 본다. 갱신 지점은 둘뿐이다: 프로젝트를 옮길 때와 업무 창을 열고 닫을 때
+  // (track 한 번이 접속한 모두에게 sync 이벤트를 만든다 — 값이 같으면 안 보낸다).
+  const viewingCardId = modalState.isOpen ? (modalState.task?.id || null) : null;
+  useEffect(() => {
+    if (!cloudMode) return;
+    trackWhere({ projectId: isProjectScreen ? activeMenu : null, cardId: viewingCardId });
+  }, [cloudMode, isProjectScreen, activeMenu, viewingCardId]);
+
   // 딥링크의 taskId → 데이터 준비 후 해당 업무 모달 오픈(존재 검증)
   useEffect(() => {
     const tid = pendingTaskIdRef.current;
@@ -362,6 +372,21 @@ function WorkspaceShell() {
     if (task) { setActiveMenu(task.projectId); openTaskModal(task); }
     pendingTaskIdRef.current = null;
   }, [cloudMode, cloudReady, openTaskModal]);
+
+  // 본문 안의 우리 앱 링크(`?p=&t=`)를 눌렀을 때 — 새 창이 아니라 여기서 연다.
+  // AI 다듬기가 관련 업무를 `[제목](주소)`로 걸어 두므로(services/ai.js resolveTaskLinks)
+  // 그 글자를 누르면 곧바로 그 업무 창이 뜬다. 등록은 showToast와 같은 방식이다.
+  // 여기서 열지 못했으면 false를 돌려준다 — 그러면 뷰어가 클릭을 안 막아서 평범한
+  // 링크처럼 주소로 이동하고, 딥링크가 다시 판정한다(없는 프로젝트면 대시보드).
+  useEffect(() => setTaskLinkOpener(({ projectId, taskId }) => {
+    const s = store.getState();
+    const task = taskId ? s.tasks.byId[taskId] : null;
+    if (task) { setActiveMenu(task.projectId); openTaskModal(task); return true; }
+    // 가리키던 업무가 사라졌다 — 주소로 옮겨 가 봐야 대시보드로 떨어지므로 여기서 말한다
+    if (taskId) { showToast('업무가 이미 삭제되었어요'); return true; }
+    if (s.projects.byId[projectId]) { setActiveMenu(projectId); return true; }
+    return false;
+  }), [openTaskModal]);
 
   // activeMenu/모달 상태 → URL(search params) 동기화 (대시보드/일반 뷰는 파라미터 제거)
   useEffect(() => {

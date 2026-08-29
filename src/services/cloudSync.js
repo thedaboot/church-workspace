@@ -181,7 +181,6 @@ export async function notifyReaction(authorName, { actorName, cardId, projectId,
 }
 
 export const touchLastSeen = cloud.touchLastSeen;
-export const subscribePresence = cloud.subscribePresence;
 export const savePushSubscription = cloud.savePushSubscription;
 export const deletePushSubscription = cloud.deletePushSubscription;
 export const listMyNotifications = cloud.listMyNotifications;

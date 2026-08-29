@@ -620,3 +620,76 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(b.x1, W * 0.42, '드래그 상한 = 영역 상한');
   console.log('PASS  힘 그래프 스텝 8가지');
 }
+
+// ── 탭 순서 바꾸기 (utils.reorderIds) ──────────────────────────────────────
+// 데스크톱 드래그와 모바일 길게 눌러 끌기가 같이 쓴다. **뒤로 끄는 경우**가 핵심이다 —
+// 언제나 '앞'에 끼우면 나를 뺀 만큼 뒤가 당겨져 제자리로 돌아온다(§6-12-a).
+// 되돌리기 검사: reorderIds에서 splice를 `next.splice(to, 0, list[from])` 식으로
+// (먼저 빼지 않고) 쓰면 '뒤로 한 칸' 단정이 바로 깨진다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'ord-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { reorderIds } = await import(pathToFileURL(f).href);
+
+  const ids = ['a', 'b', 'c', 'd'];
+  // 뒤로 끌기 — 놓은 것 **뒤**에 들어간다(앞에 넣으면 a가 제자리로 돌아온다)
+  assert.deepStrictEqual(reorderIds(ids, 'a', 'c'), ['b', 'c', 'a', 'd'], '뒤로 끌면 놓은 것 뒤');
+  assert.deepStrictEqual(reorderIds(ids, 'a', 'b'), ['b', 'a', 'c', 'd'], '뒤로 한 칸도 실제로 움직인다');
+  assert.deepStrictEqual(reorderIds(ids, 'a', 'd'), ['b', 'c', 'd', 'a'], '맨 뒤로');
+  // 앞으로 끌기 — 놓은 것 **앞**에 들어간다
+  assert.deepStrictEqual(reorderIds(ids, 'd', 'b'), ['a', 'd', 'b', 'c'], '앞으로 끌면 놓은 것 앞');
+  assert.deepStrictEqual(reorderIds(ids, 'c', 'a'), ['c', 'a', 'b', 'd'], '맨 앞으로');
+  // 원본은 건드리지 않는다(스토어 상태를 제자리에서 고치면 안 된다)
+  assert.deepStrictEqual(ids, ['a', 'b', 'c', 'd'], '원본 배열은 그대로');
+  // 옮길 수 없으면 null — 부르는 쪽이 저장을 건너뛴다(없는 자리에 놓으면 전체를 다시
+  // 번호 매기는 저장이 헛돌아 남의 순서까지 흔든다)
+  assert.strictEqual(reorderIds(ids, 'a', 'a'), null, '제자리에 놓으면 아무 일도 없다');
+  assert.strictEqual(reorderIds(ids, 'a', 'z'), null, '목록에 없는 자리');
+  assert.strictEqual(reorderIds(ids, 'z', 'a'), null, '목록에 없는 것을 끌었다');
+  assert.strictEqual(reorderIds([], 'a', 'b'), null, '빈 목록도 안전하다');
+  console.log('PASS  탭 순서 바꾸기 10가지');
+}
+
+// ── 지금 여기를 보고 있는 사람 (utils.viewersOf) ───────────────────────────
+// 프로젝트 탭 옆·업무 줄 오른쪽 얼굴이 보는 판정. 게스트 스위트는 presence 집합이
+// 언제나 비어 있어 화면으로는 못 보므로(§1.1) 여기서 지킨다.
+// 되돌리기 검사: viewersOf에서 `e.id === meId` 걸러내기를 빼면 '본인 제외' 단정이,
+// limit를 안 보면 '최대 세 명' 단정이 깨진다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'vwr-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { viewersOf } = await import(pathToFileURL(f).href);
+
+  const me = 'u-me';
+  const entries = [
+    { id: me, projectId: 'p1', cardId: 'c1' },      // 나 — 언제나 빠진다
+    { id: 'u1', projectId: 'p1', cardId: 'c1' },
+    { id: 'u2', projectId: 'p1', cardId: null },
+    { id: 'u3', projectId: 'p2', cardId: 'c9' },
+    { id: 'u1', projectId: 'p2', cardId: null },    // 같은 사람의 다른 창(폰·노트북)
+  ];
+  const opts = { meId: me, limit: 3 };
+  // 프로젝트: 업무 창을 연 사람도 그 프로젝트를 보고 있는 것이 맞다
+  assert.deepStrictEqual(viewersOf(entries, { projectId: 'p1' }, opts), ['u1', 'u2'], '프로젝트를 보는 사람');
+  // 업무: 그 창을 지금 열어 둔 사람만
+  assert.deepStrictEqual(viewersOf(entries, { cardId: 'c1' }, opts), ['u1'], '그 업무 창을 연 사람');
+  assert.deepStrictEqual(viewersOf(entries, { projectId: 'p1', cardId: 'c1' }, opts), ['u1'], '업무를 물으면 업무로 본다');
+  // 본인 제외 — 나만 보고 있으면 아무 얼굴도 안 뜬다
+  assert.deepStrictEqual(viewersOf([{ id: me, projectId: 'p1' }], { projectId: 'p1' }, opts), [], '나만 있으면 빈 목록');
+  // 같은 사람이 창을 둘 열어도 한 번만
+  assert.deepStrictEqual(viewersOf(entries, { projectId: 'p2' }, opts), ['u3', 'u1'], '사람당 한 번');
+  // 최대 세 명
+  const many = ['a', 'b', 'c', 'd', 'e'].map(id => ({ id, projectId: 'p1', cardId: null }));
+  assert.deepStrictEqual(viewersOf(many, { projectId: 'p1' }, opts), ['a', 'b', 'c'], '최대 세 명');
+  assert.strictEqual(viewersOf(many, { projectId: 'p1' }, { meId: me, limit: 0 }).length, 5, 'limit 0이면 전부');
+  // 게스트·초기 상태 — 집합이 비어 있어도 죽지 않는다
+  assert.deepStrictEqual(viewersOf([], { projectId: 'p1' }, opts), [], '빈 집합');
+  assert.deepStrictEqual(viewersOf(null, { projectId: 'p1' }, opts), [], 'null도 안전하다');
+  assert.deepStrictEqual(viewersOf(entries, {}, opts), [], '물은 곳이 없으면 아무도 아니다');
+  assert.deepStrictEqual(viewersOf(entries, { projectId: 'p1' }, {}), ['u-me', 'u1', 'u2'], '내 id를 모르면 아무도 안 뺀다');
+  console.log('PASS  지금 보고 있는 사람 11가지');
+}

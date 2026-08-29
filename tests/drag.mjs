@@ -183,6 +183,63 @@ const scrolled = await ev(`(() => {
 })()`);
 check('컬럼 안 세로 스크롤이 살아 있다', scrolled.found === false || scrolled.moved === true, JSON.stringify(scrolled));
 
+// ── 모바일 프로젝트 탭 줄: 길게 눌러 순서 바꾸기 ───────────────────────────
+// 데스크톱은 네이티브 draggable로 이미 됐고, 모바일은 **가로 스크롤**과 부딪히지 않게
+// 길게 누르기로 시작한다(TouchSensor delay). 세 가지를 본다:
+//   ① 길게 눌러 뒤로 끌면 놓은 탭 **뒤**로 간다(§6-12-a — 앞에만 끼우면 제자리다)
+//   ② 짧게 누르면 여전히 그 프로젝트로 이동한다(드래그가 탭 누르기를 먹지 않는다)
+//   ③ 탭 줄의 가로 스크롤이 살아 있다(x-scroll-lock)
+await ev(`(() => {
+  const s = JSON.parse(localStorage.getItem('church_app_v4'));
+  s.projects.byId.p1.title = '탭 하나';
+  s.projects.byId.p2 = { id: 'p2', title: '탭 둘', pinnedLinks: [] };
+  s.projects.byId.p3 = { id: 'p3', title: '탭 셋', pinnedLinks: [] };
+  s.projects.allIds = ['p1', 'p2', 'p3'];
+  localStorage.setItem('church_app_v4', JSON.stringify(s));
+})()`);
+await reload();
+const tabRow = `(() => {
+  const row = [...document.querySelectorAll('div')].find(d => /x-scroll-lock/.test(d.className || ''));
+  if (!row) return { found: false };
+  const tabs = [...row.querySelectorAll('button')]
+    .filter(b => /^탭 (하나|둘|셋)$/.test(b.textContent.trim()))
+    .map(b => { const r = b.getBoundingClientRect();
+      return { title: b.textContent.trim(), x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  const order = Object.values(JSON.parse(localStorage.getItem('church_app_v4')).projects.byId)
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+    .map(p => p.title);
+  return { found: true, tabs, order, scrollable: row.scrollWidth > row.clientWidth };
+})()`;
+const t0 = await ev(tabRow);
+check('모바일 탭 줄에 프로젝트 탭 3개', t0.found && t0.tabs.length === 3, JSON.stringify(t0.tabs?.map(t => t.title)));
+if (t0.found && t0.tabs.length === 3) {
+  // ① 첫 탭을 세 번째 탭 위로 — 뒤로 끌었으므로 '탭 셋' **뒤**여야 한다
+  await touchDrag(t0.tabs[0], t0.tabs[2], { hold: 520, steps: 12 });
+  const t1 = await ev(tabRow);
+  check('길게 눌러 끌면 탭 순서가 바뀐다', t1.order.join() !== t0.order.join(), `${t0.order} → ${t1.order}`);
+  check('뒤로 끌면 놓은 탭 뒤에 들어간다(제자리로 안 돌아온다)',
+    t1.order.join() === ['탭 둘', '탭 셋', '탭 하나'].join(), JSON.stringify(t1.order));
+  // ② 짧게 누르면 그대로 그 프로젝트로 이동한다
+  const target = t1.tabs.find(t => t.title === '탭 둘');
+  await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: target.x, y: target.y, id: 1 }] });
+  await sleep(70);
+  await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await sleep(700);
+  const moved = await ev(`new URLSearchParams(location.search).get('p')`);
+  const t2 = await ev(tabRow);
+  check('짧게 누르면 그 프로젝트로 이동한다', moved === 'p2', `p=${moved}`);
+  check('짧은 탭은 순서를 바꾸지 않는다', t2.order.join() === t1.order.join(), JSON.stringify(t2.order));
+  // ③ 탭 줄 가로 스크롤(x-scroll-lock)이 살아 있다
+  const rowScroll = await ev(`(() => {
+    const row = [...document.querySelectorAll('div')].find(d => /x-scroll-lock/.test(d.className || ''));
+    if (!row) return { found: false };
+    if (row.scrollWidth <= row.clientWidth) return { found: true, noOverflow: true };
+    const before = row.scrollLeft; row.scrollLeft = 60; const after = row.scrollLeft; row.scrollLeft = before;
+    return { found: true, moved: after > before };
+  })()`);
+  check('탭 줄 가로 스크롤이 살아 있다', rowScroll.found && (rowScroll.noOverflow || rowScroll.moved), JSON.stringify(rowScroll));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

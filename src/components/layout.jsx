@@ -1,13 +1,18 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
 import { LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users, Archive, CalendarDays, CalendarClock, Smartphone } from 'lucide-react';
+import {
+  DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
+  useDraggable, useDroppable, pointerWithin, rectIntersection,
+} from '@dnd-kit/core';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsList, selectActiveProjectsList, selectArchivedProjectsList,
-  selectProjectsMap, selectMyTasks, selectTasksList
+  selectProjectsMap, selectMyTasks, selectTasksList, selectMembers
 } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
-import { formatRelative, projectYear } from '../utils.js';
+import { formatRelative, projectYear, reorderIds, viewersOf } from '../utils.js';
+import { usePresenceViews, presenceMe } from '../services/presence.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
 import { Avatar } from './Avatar.jsx';
 import * as cloudSync from '../services/cloudSync.js';
@@ -79,6 +84,54 @@ function useTabFit(tabRowRef, measureRef, count, alwaysMore) {
     return () => { ro.disconnect(); window.removeEventListener('resize', calc); };
   }, [tabRowRef, measureRef, count, alwaysMore]);
   return fit;
+}
+
+// 탭 순서 저장 — 데스크톱 드래그(네이티브 DnD)와 모바일 길게 눌러 끌기(dnd-kit)가
+// **같은 경로**를 쓴다(0021의 projects.position). 순서대로 1부터 다시 매긴다.
+// 보관된 프로젝트는 탭에 서지 않으므로 목록에 없고, 그래서 position도 안 건드린다 —
+// 보관함은 연도·created_at으로 묶는다. 값이 겹쳐도 정렬 2차 키가 가른다.
+function saveTabOrder(orderedIds, allProjects, cloudMode) {
+  const changed = [];
+  orderedIds.forEach((pid, i) => {
+    const p = allProjects.find(x => x.id === pid);
+    if (p && (p.position ?? 0) !== i + 1) {
+      store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: pid, position: i + 1 } });
+      changed.push({ id: pid, position: i + 1 });
+    }
+  });
+  if (cloudMode && changed.length) {
+    cloudSync.projectOrderCloud(changed).catch(err => {
+      console.error('[cloud] 탭 순서 저장 실패:', err);
+      showToast('탭 순서를 저장하지 못했어요 · 잠시 후 다시 시도해주세요');
+    });
+  }
+}
+
+// 지금 여기를 보고 있는 사람 얼굴 — 프로젝트 탭과 보드 카드가 같이 쓴다.
+// 판정은 `utils.viewersOf`(순수 함수, 본인 제외·사람당 한 번·최대 세 명)가 하고,
+// 값은 presence 미니 스토어에서 온다. **아무 데도 남지 않는다**(§7의 '카드별 조회
+// 추적'과 다른 점) — 그 사람이 나가면 얼굴도 같이 사라진다.
+// 게스트 모드에서는 집합이 언제나 비어 있어 아무것도 그리지 않는다.
+export function ViewerFaces({ projectId = null, cardId = null, className = '' }) {
+  const views = usePresenceViews();
+  const members = useStore(selectMembers);
+  const people = useMemo(() => {
+    const ids = viewersOf(views, { projectId, cardId }, { meId: presenceMe(), limit: 3 });
+    if (!ids.length) return [];
+    const byId = new Map(members.map(m => [m.id, m]));
+    // 이름을 못 찾은 id는 버린다 — 얼굴도 이름도 없는 동그라미는 그릴 이유가 없다
+    return ids.map(id => byId.get(id)).filter(Boolean);
+  }, [views, members, projectId, cardId]);
+  if (!people.length) return null;
+  return (
+    <span className={`inline-flex items-center ${className}`}
+      title={`${people.map(p => p.name).join(' · ')} 님이 지금 보고 있어요`}>
+      {people.map(m => (
+        <Avatar key={m.id} name={m.name} url={m.avatarUrl}
+          className="flex w-[15px] h-[15px] text-[8.5px] -ml-[5px] first:ml-0 ring-[1.5px] ring-surface" />
+      ))}
+    </span>
+  );
 }
 
 // 바깥 클릭 / Esc 로 닫히는 팝오버 (프로필 메뉴·프로젝트 더보기 공용)
@@ -215,30 +268,13 @@ export const TopNav = React.memo(({
 
   // 탭 드래그로 순서 바꾸기(0021) — 네이티브 HTML5 DnD. dnd-kit sortable을 새로
   // 들이지 않는 이유: 데스크톱 탭 한 줄에는 draggable 속성이면 충분하다.
-  // 모바일 탭 줄은 가로 스크롤과 겹쳐서 드래그를 두지 않는다(순서는 따라온다).
+  // 모바일은 가로 스크롤과 부딪히지 않게 **길게 눌러** 시작한다(MobileTopBar) —
+  // 끼워 넣는 규칙(utils.reorderIds)과 저장(saveTabOrder)은 양쪽이 같은 것을 쓴다.
   const [dragTabId, setDragTabId] = useState(null);
   const dropTab = (targetId) => {
     if (!dragTabId || dragTabId === targetId) return;
-    const ids = tabSource.map(p => p.id);
-    const from = ids.indexOf(dragTabId), to = ids.indexOf(targetId);
-    if (from < 0 || to < 0) return;
-    ids.splice(to, 0, ...ids.splice(from, 1));
-    // 활성 목록 순서대로 1부터 다시 매긴다. 보관된 프로젝트의 position은 안 건드린다 —
-    // 탭에 안 서고, 보관함은 연도·created_at으로 묶는다. 값이 겹쳐도 정렬 2차 키가 가른다.
-    const changed = [];
-    ids.forEach((pid, i) => {
-      const p = allProjects.find(x => x.id === pid);
-      if (p && (p.position ?? 0) !== i + 1) {
-        store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: pid, position: i + 1 } });
-        changed.push({ id: pid, position: i + 1 });
-      }
-    });
-    if (cloudMode && changed.length) {
-      cloudSync.projectOrderCloud(changed).catch(err => {
-        console.error('[cloud] 탭 순서 저장 실패:', err);
-        showToast('탭 순서를 저장하지 못했어요 · 잠시 후 다시 시도해주세요');
-      });
-    }
+    const next = reorderIds(tabSource.map(p => p.id), dragTabId, targetId);
+    if (next) saveTabOrder(next, allProjects, cloudMode);
   };
 
   const gnav = (menu, label, badge) => (
@@ -304,9 +340,13 @@ export const TopNav = React.memo(({
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => { e.preventDefault(); dropTab(p.id); }}
             onDragEnd={() => setDragTabId(null)}
-            className={`px-3.5 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap max-w-[220px] truncate ${activeMenu === p.id ? 'text-fg border-fg' : 'text-fg-muted border-transparent hover:text-fg'} ${dragTabId === p.id ? 'opacity-50' : ''}`}
+            className={`relative px-3.5 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap max-w-[220px] truncate ${activeMenu === p.id ? 'text-fg border-fg' : 'text-fg-muted border-transparent hover:text-fg'} ${dragTabId === p.id ? 'opacity-50' : ''}`}
           >
             {p.title}
+            {/* 지금 이 프로젝트를 보고 있는 사람. **자리를 차지하지 않게 얹는다** —
+                얼굴이 붙고 떨어질 때마다 탭 폭이 바뀌면 useTabFit이 다시 재서 탭이
+                옆으로 튀고, 누르려던 탭이 손가락 밑에서 빠져나간다. */}
+            <ViewerFaces projectId={p.id} className="absolute top-1 right-1" />
           </button>
         ))}
         {(rest.length > 0 || archivedForMore.length > 0 || otherYears.length > 0) && (
@@ -475,28 +515,109 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
         <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} />
       </div>
       {project && (
-        // x-scroll-lock: 가로로 밀 때 세로 스크롤이 같이 딸려가지 않게 (index.css)
-        <div className="flex items-end gap-0 px-2 overflow-x-auto scrollbar-hide x-scroll-lock border-t border-line/70">
-          {/* 연도는 미는 칸 **안**에 둔다 — 같은 종류가 이어지는 줄이고(§8), 밖으로
-              빼면 좁은 화면에서 탭이 시작하는 자리가 그만큼 밀린다 */}
-          <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} compact />
-          {projectsList.map(p => (
-            <button
-              key={p.id} onClick={() => setActiveMenu(p.id)}
-              // 활성 탭이 화면 밖이면 끌어온다 — 여기는 데스크톱과 달리 프로젝트를 전부
-              // 그려서(가로 스크롤), 프로젝트가 늘면 지금 보고 있는 탭이 오른쪽 밖에
-              // 있어도 아무 표시가 없었다. ref 콜백이라 활성 탭이 바뀔 때만 불린다.
-              ref={activeMenu === p.id ? (el) => el?.scrollIntoView({ inline: 'nearest', block: 'nearest' }) : null}
-              className={`shrink-0 px-3 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap ${activeMenu === p.id ? 'text-fg border-fg' : 'text-fg-muted border-transparent'}`}
-            >
-              {p.title}
-            </button>
-          ))}
-          {/* 데스크톱과 같은 이유로 투명 2px을 깐다(§6의 항목 참고) */}
-          <button onClick={onOpenProject} className="shrink-0 px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint whitespace-nowrap">+ 프로젝트</button>
-        </div>
+        <MobileProjectTabs
+          projectsList={projectsList} activeMenu={activeMenu} setActiveMenu={setActiveMenu}
+          onOpenProject={onOpenProject} allProjects={allForYear} cloudMode={cloudMode}
+          year={year} setYear={setYear} years={years} yearCounts={yearCounts}
+        />
       )}
     </div>
+  );
+});
+
+// 놓을 곳은 "손가락이 있는 곳" 기준이다. 포인터가 어떤 탭에도 안 걸치면(탭 사이 여백)
+// 기본 방식으로 되돌린다 — 그러지 않으면 끌던 것이 조용히 제자리로 돌아간다.
+const tabCollision = (args) => {
+  const hit = pointerWithin(args);
+  return hit.length ? hit : rectIntersection(args);
+};
+
+// 모바일 프로젝트 탭 한 개 — 끌 수도 있고(길게 누르기) 놓을 수도 있다.
+// dnd-kit은 ref를 하나만 받으므로 두 훅의 ref를 손으로 합친다(보드 카드와 같은 방식).
+// 'tab:' 접두사로 끌고 있는 것(active.id = 프로젝트 id)과 놓는 자리를 가른다.
+function MobileProjectTab({ project, active, onSelect }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: project.id });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `tab:${project.id}` });
+  const nodeRef = useRef(null);
+  // **ref 콜백에 조건을 넣지 않는다** — 콜백 신원이 바뀌면 React가 ref를 떼었다 다시
+  // 붙이는데, 끄는 도중이면 dnd-kit이 들고 있던 노드가 그 순간 사라진다.
+  const setRefs = useCallback((el) => { nodeRef.current = el; setNodeRef(el); setDropRef(el); }, [setNodeRef, setDropRef]);
+  // 활성 탭이 화면 밖이면 끌어온다 — 여기는 데스크톱과 달리 프로젝트를 전부 그려서
+  // (가로 스크롤), 프로젝트가 늘면 지금 보고 있는 탭이 오른쪽 밖에 있어도 아무 표시가
+  // 없었다. 활성 탭이 바뀔 때만 — 끄는 중에는 활성 탭이 바뀌지 않는다.
+  useEffect(() => { if (active) nodeRef.current?.scrollIntoView({ inline: 'nearest', block: 'nearest' }); }, [active]);
+  return (
+    <button
+      ref={setRefs} {...attributes} {...listeners}
+      onClick={() => onSelect(project.id)}
+      className={`relative shrink-0 px-3 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap ${active ? 'text-fg border-fg' : 'text-fg-muted border-transparent'} ${isDragging ? 'opacity-40' : ''} ${isOver && !isDragging ? 'bg-accent-weak rounded-t-md' : ''}`}
+    >
+      {project.title}
+      {/* 지금 이 프로젝트를 보고 있는 사람 — 데스크톱과 같은 이유로 얹기만 한다
+          (탭 폭이 바뀌면 줄이 밀려서 누르려던 탭이 손가락 밑에서 빠져나간다) */}
+      <ViewerFaces projectId={project.id} className="absolute top-1 right-1" />
+    </button>
+  );
+}
+
+// 모바일 프로젝트 탭 줄 — 가로로 밀어 넘기고, **길게 눌러** 순서를 바꾼다.
+// 데스크톱처럼 누르는 즉시 끌기로 두면 줄을 밀 수가 없다: 손이 닿는 자리가 곧 탭이라
+// 스크롤과 드래그가 같은 제스처를 두고 싸운다. 그래서 TouchSensor의 delay로 가른다.
+const MobileProjectTabs = React.memo(({
+  projectsList, activeMenu, setActiveMenu, onOpenProject, allProjects, cloudMode,
+  year, setYear, years, yearCounts,
+}) => {
+  const [dragId, setDragId] = useState(null);
+  // 터치와 마우스는 센서를 분리한다(§6-12) — 하나로 합치면 모바일에서 드래그가 아예
+  // 시작되지 않거나 스크롤과 싸운다. 터치는 **300ms**로 보드(200ms)보다 길게 잡는다:
+  // 이 줄의 기본 동작이 가로로 미는 것이라, 짧으면 넘기려던 손이 탭을 집어 든다.
+  // tolerance 8: 그 사이에 8px 넘게 움직이면 "미는 중"으로 보고 드래그를 접는다.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 300, tolerance: 8 } }),
+  );
+  const dragProject = dragId ? projectsList.find(p => p.id === dragId) : null;
+  const onDragEnd = ({ active, over }) => {
+    setDragId(null);
+    if (!over) return;
+    const targetId = String(over.id).replace(/^tab:/, '');
+    const next = reorderIds(projectsList.map(p => p.id), String(active.id), targetId);
+    if (next) saveTabOrder(next, allProjects, cloudMode);
+  };
+  return (
+    <DndContext
+      sensors={sensors} collisionDetection={tabCollision}
+      // 자동 스크롤을 통째로 끈다 — 손가락이 줄 끝에 가면 줄이 옆으로 밀려서, 놓으려던
+      // 탭이 손가락 밑에서 빠져나간다(§6-10에서 상태 칩에 실제로 그랬다). 화면 밖의
+      // 탭으로 옮기려면 먼저 줄을 밀어 그 탭을 보이게 하면 된다.
+      autoScroll={false}
+      onDragStart={(e) => setDragId(String(e.active.id))}
+      onDragEnd={onDragEnd} onDragCancel={() => setDragId(null)}
+    >
+      {/* x-scroll-lock: 가로로 밀 때 세로 스크롤이 같이 딸려가지 않게 (index.css) */}
+      <div className="flex items-end gap-0 px-2 overflow-x-auto scrollbar-hide x-scroll-lock border-t border-line/70">
+        {/* 연도는 미는 칸 **안**에 둔다 — 같은 종류가 이어지는 줄이고(§8), 밖으로
+            빼면 좁은 화면에서 탭이 시작하는 자리가 그만큼 밀린다 */}
+        <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} compact />
+        {projectsList.map(p => (
+          <MobileProjectTab key={p.id} project={p} active={activeMenu === p.id} onSelect={setActiveMenu} />
+        ))}
+        {/* 데스크톱과 같은 이유로 투명 2px을 깐다(§6의 항목 참고) */}
+        <button onClick={onOpenProject} className="shrink-0 px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint whitespace-nowrap">+ 프로젝트</button>
+      </div>
+      {/* 들어 올린 탭이 손가락을 따라온다. body 포털이 기본이다(§6-1) — 조상에 걸린
+          transform이 fixed의 기준 박스가 되면 미리보기가 엉뚱한 자리에 뜬다. */}
+      {createPortal(
+        <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>
+          {dragProject ? (
+            <span className="inline-flex items-center px-3 py-1.5 rounded-md bg-surface border border-line shadow-elevated text-[13px] font-semibold text-fg whitespace-nowrap">
+              {dragProject.title}
+            </span>
+          ) : null}
+        </DragOverlay>,
+        document.body
+      )}
+    </DndContext>
   );
 });
 
