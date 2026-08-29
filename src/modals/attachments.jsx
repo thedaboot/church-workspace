@@ -408,8 +408,10 @@ function InlineSheet({ row }) {
           ? (
             /* 구글 시트 미리보기. 흰 바탕이 그대로 온다 — 작성자가 칠한 색을 원본대로
                보여주는 것이 이 화면의 목적이라 다크 모드를 따라가지 않는다(사용자 결정). */
+            /* loading="lazy"는 안 붙인다 — 펼쳐야 만들어지는 iframe이라 이미 화면 안이고,
+               지연시켜서 얻을 것이 없다 */
             <iframe
-              src={sheetUrl} title={`${row.name} 미리보기`} loading="lazy"
+              src={sheetUrl} title={`${row.name} 미리보기`}
               className="w-full h-full rounded-md border border-line bg-white"
             />
           )

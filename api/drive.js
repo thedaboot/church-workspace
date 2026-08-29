@@ -23,7 +23,7 @@ import { createClient } from '@supabase/supabase-js';
 // 화면이 허락한 파일이 서버에서 거절된다. tests/drivesync.mjs가 둘을 맞춰 본다.
 const MAX_MB = 25;
 const MAX_BYTES = MAX_MB * 1024 * 1024;
-const ACTIONS = new Set(['upload', 'uploadFromUrl', 'ensureFolder', 'renameFolder', 'trash', 'list']);
+const ACTIONS = new Set(['upload', 'uploadFromUrl', 'ensureFolder', 'renameFolder', 'trash', 'list', 'convert']);
 
 // 스크립트가 이 시간 안에 답하지 않으면 **우리가 먼저 끊는다.**
 // 안 끊으면 함수가 죽을 때까지 매달리고, 그때 브라우저가 받는 것은 JSON이 아니라

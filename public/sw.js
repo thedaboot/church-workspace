@@ -22,14 +22,27 @@ self.addEventListener('push', (event) => {
   try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
 
   const title = data.title || '더다붓';
-  event.waitUntil(self.registration.showNotification(title, {
+  const shown = self.registration.showNotification(title, {
     body: data.body || '',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
     // 같은 업무에 대한 알림은 겹쳐 쌓이지 않고 마지막 것으로 갱신된다.
     tag: data.tag || 'thedaboot',
     data: { url: data.url || '/' },
-  }));
+  });
+
+  // 아이콘 위 숫자(안 읽은 알림 수). **아이폰 홈 화면 웹앱에서만 보인다** — 안드로이드
+  // 크롬에는 이 API가 없고, 알림이 와 있으면 OS가 알아서 점을 붙인다. 뱃지 API는 워커
+  // 안에서도 쓸 수 있어서, 앱이 닫혀 있는 동안 온 알림도 숫자에 들어간다(앱이 열려 있을
+  // 때는 NotificationBell이 같은 값을 다시 맞춘다).
+  // 서버가 세지 못했으면 null로 온다 — 그때는 손대지 않는다. 0으로 덮으면 남아 있던
+  // 숫자가 사라져서 "읽지도 않았는데 뱃지가 없어졌다"가 된다.
+  const n = data.appBadge;
+  const badged = (typeof n === 'number' && navigator.setAppBadge)
+    ? (n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {})
+    : Promise.resolve();
+
+  event.waitUntil(Promise.all([shown, badged]));
 });
 
 self.addEventListener('notificationclick', (event) => {

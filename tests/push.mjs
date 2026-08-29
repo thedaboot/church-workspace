@@ -232,4 +232,26 @@ assert.ok(/addEventListener\('notificationclick'/.test(sw), 'sw에 클릭 처리
   assert.ok(/isAndroid\(\)/.test(body), '안드로이드 안내가 아이폰에도 뜬다(iOS는 PushRow가 따로 안내한다)');
 }
 
-console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·마이그레이션·크론·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내');
+// ── 아이콘 뱃지 숫자 (안 읽은 알림 수) ──────────────────────────────────────
+// 아이폰 홈 화면 웹앱에서만 보이는 값이라, 틀려도 개발 중에는 아무도 못 본다.
+{
+  const apiSrc = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
+  // payload를 루프 밖에서 한 번만 만들면 **모두가 첫 사람의 숫자를 받는다.**
+  // 알림 자체는 멀쩡히 오기 때문에 숫자만 조용히 남의 것이 된다.
+  assert.ok(!/const payload = JSON\.stringify/.test(apiSrc),
+    'payload를 하나로 만들어 돌려쓰고 있다 — 뱃지가 남의 안 읽은 수가 된다');
+  assert.ok(/appBadge: unread\.get\(s\.profile_id\)/.test(apiSrc),
+    '뱃지 수를 그 구독의 주인으로 세지 않는다');
+  assert.ok(/select\('profile_id/.test(apiSrc),
+    '구독을 읽을 때 profile_id를 안 가져오면 사람별로 가를 수 없다');
+  assert.ok(/eq\('read', false\)/.test(apiSrc), '안 읽은 것만 세지 않는다');
+
+  // 서버가 못 세면 null이 온다. 그때 0으로 덮으면 남아 있던 숫자가 사라진다.
+  assert.ok(/typeof n === 'number'/.test(sw), 'sw가 서버 값이 없을 때도 뱃지를 건드린다');
+  assert.ok(/clearAppBadge/.test(sw), '0이 됐을 때 숫자를 지우지 않는다');
+  // 뱃지 갱신을 waitUntil 밖에 두면 워커가 먼저 종료돼 숫자가 안 바뀔 수 있다.
+  assert.ok(/waitUntil\(Promise\.all\(\[shown, badged\]\)\)/.test(sw),
+    '뱃지 갱신이 waitUntil 밖이다 — 워커가 먼저 죽으면 숫자가 안 바뀐다');
+}
+
+console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·마이그레이션·크론·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수');

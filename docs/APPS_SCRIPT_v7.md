@@ -19,7 +19,7 @@ v6에서 고친 것은 다섯 가지입니다.
 | B | 열쇠를 `description` 대신 `appProperties`로 | 폴더를 훑지 않고 **질의 한 번**으로 찾는다. 폴더가 커질수록 벌어진다 |
 | C | 폴더 만들기에 `LockService` | 사진 세 장이 동시에 올라가며 업무 폴더가 처음 생기면 같은 이름 폴더가 여럿 생길 수 있었다 |
 | D | `folderFor`의 `catch`를 좁힌다 | 권한·일시 오류까지 폴백으로 떨어져 **폴더 트리를 새로 팠다**. 이름이 같은 폴더가 둘 생기면 그때부터 파일이 갈린다 |
-| E | 엑셀을 올리면 **구글 시트 사본**을 같이 만든다 | 구글은 `.xlsx`를 열어볼 때 게을리 변환해서 갓 올린 파일은 시트 미리보기가 오류를 냈다. 올리는 김에 변환해 두면 **기다릴 것이 없다**(사용자 결정 2026-08-29) |
+| E | 엑셀을 올리면 **구글 시트 사본**을 같이 만든다(+ 옛 첨부용 `convert` 액션) | 구글은 `.xlsx`를 열어볼 때 게을리 변환해서 갓 올린 파일은 시트 미리보기가 오류를 냈다. 올리는 김에 변환해 두면 **기다릴 것이 없다**(사용자 결정 2026-08-29) |
 
 루트 폴더 공유 상속은 넣지 않았습니다 — 업로드 왕복 하나를 줄이는 대신
 **폴더 링크로 전체 목록이 열립니다.** 지금은 파일 하나하나만 공개고 목록은 아닙니다.
@@ -80,6 +80,7 @@ function doPost(e) {
       case 'renameFolder': return json(renameFolder(body));
       case 'trash':        return json(trash(body));
       case 'list':         return json(list(body));
+      case 'convert':      return json(convertExisting(body));
       default:             return json({ error: 'unknown action' });
     }
   } catch (err) {
@@ -287,6 +288,17 @@ function uploadFromUrl(body) {
     id: file.getId(), url: file.getUrl(), folderId: folder.getId(),
     previewId: body.convert ? makeSheetCopy(file.getId(), file.getName(), folder.getId()) : null,
   };
+}
+
+// **이미 올라가 있는 엑셀에 변환 사본을 붙인다**(옛 첨부 백필용 — 2026-08-29).
+// 구글은 .xlsx를 **사람이 열 때** 변환한다. 그래서 아무도 안 열어 본 파일은 몇 달이
+// 지나도 시트 미리보기가 오류를 낸다(실측: 같은 날 올린 두 파일 중 열어 본 것만 떴다).
+// 시간으로 가르던 옛 규칙(SHEET_READY_MS 30분)은 전제부터 틀렸다.
+// 사본은 **원본과 같은 폴더**에 만든다 — 업무 폴더 밖으로 나가면 정리가 어려워진다.
+function convertExisting(body) {
+  var f = Drive.Files.get(body.fileId, { fields: 'id,name,parents', supportsAllDrives: true });
+  var parent = (f.parents && f.parents[0]) || ROOT_FOLDER_ID;
+  return { previewId: makeSheetCopy(f.id, f.name, parent) };
 }
 
 // ── 목록 ────────────────────────────────────────────────────────────────────
