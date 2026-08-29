@@ -101,11 +101,15 @@ const popover = () => ev(`(() => {
   if (!d) return null;
   return { buttons: [...d.querySelectorAll('button')].map(b => b.textContent.trim()) };
 })()`);
-// 하위 업무 체크박스는 앱에서 aria-pressed를 쓰는 유일한 요소다
-const subCount = () => ev(`document.querySelectorAll('[aria-pressed]').length`);
+// 하위 업무 체크박스는 aria-label이 '완료'/'완료 취소'로 끝난다.
+// [aria-pressed]만으로 세면 안 된다 — 댓글 반응 토글(0032)도 aria-pressed를 쓴다
+// (실제로 이 검사 넷이 그렇게 깨졌다. "유일한 요소"라는 전제는 낡는다).
+const SUB_CB = `[...document.querySelectorAll('[aria-pressed]')]
+  .filter(b => /완료( 취소)?$/.test(b.getAttribute('aria-label') || ''))`;
+const subCount = () => ev(`${SUB_CB}.length`);
 const clickTrash = async () => {
   const r = await ev(`(() => {
-    const cb = document.querySelector('[aria-pressed]');
+    const cb = ${SUB_CB}[0];
     if (!cb) return null;
     const trash = [...cb.parentElement.querySelectorAll('button')].find(b => b !== cb);
     if (!trash) return null;
