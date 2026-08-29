@@ -248,10 +248,16 @@ export function buildTaskContext(task, now = new Date()) {
   const subs = task.subtasks || [];
   const subDone = subs.filter(x => x.done).map(x => x.text).filter(Boolean);
   const subLeft = subs.filter(x => !x.done).map(x => x.text).filter(Boolean);
+  // 남은 것을 **먼저, 제 줄로** 준다. 한 줄에 '끝낸 것 · 남은 것'으로 붙였더니
+  // 라이브에서 모델이 둘을 섞어 이미 끝낸 항목을 "마무리해야 해요"로 올렸다
+  // (사용자 신고 2026-08-29 — 4/5 완료 카드에서 완료된 연결 지도·파일 이관을 챙기라고 함).
   const subLine = subs.length
     ? [`- 하위 업무 ${subDone.length}/${subs.length} 완료`,
-       subDone.length ? `끝낸 것: ${subDone.slice(0, 8).join(', ')}` : '',
-       subLeft.length ? `남은 것: ${subLeft.slice(0, 8).join(', ')}` : ''].filter(Boolean).join(' · ')
+       subLeft.length
+         ? `- 남은 하위 업무(챙길 것은 이것뿐이다): ${subLeft.slice(0, 8).join(', ')}`
+         : '- 남은 하위 업무: 없음(전부 완료)',
+       subDone.length ? `- 이미 끝낸 하위 업무(끝났다 — 챙기라고 말하지 마라): ${subDone.slice(0, 8).join(', ')}` : '']
+        .filter(Boolean).join('\n')
     : '';
 
   // 프로젝트 진척 — 제목만 주면 이 업무가 프로젝트의 어디쯤인지 AI가 모른다
@@ -376,7 +382,7 @@ export const AiService = {
       '- 각 줄은 딱 한 문장, 존댓말 간결체(~해요/~예요체).',
       '- 예배·전도·수련회·양육 같은 사역 맥락과 용어를 자연스럽게 살려라.',
       '- 내용이 빈약하면 지어내지 말고 있는 것만 담백하게 적어라.',
-      '- "챙길 것"에는 남은 하위 업무·선행 업무가 있으면 그걸 먼저 써라. **이미 끝낸 하위 업무를 다시 챙기라고 하지 마라.**',
+      '- "챙길 것"에는 **"남은 하위 업무" 줄에 적힌 것만** 써라. "이미 끝낸 하위 업무" 줄의 항목을 챙기라거나 마무리하라고 쓰면 그 요약은 틀린 것이다.',
       '  첨부 파일 이름이나 그 안의 글이 단계를 알려주면(예: 시안, 견적서, 최종본) 그 단계에 맞게 말해라.',
       '- 사람을 부를 때 @를 붙이지 마라. 요약에서는 이름과 직함으로만 부른다.',
       '',

@@ -125,6 +125,8 @@ AiService.callGemini = async (prompt, sys) => { captured = { prompt, sys }; retu
 await AiService.summarizeTask(globalThis.__STATE.tasks.byId.t0);
 check('요약 프롬프트에 주변 상황이 들어간다', captured.prompt.includes('[지금 이 업무의 주변 상황]'));
 check('요약 프롬프트에 관련된 사람이 들어간다', captured.prompt.includes('[이 업무에 관련된 사람]'));
+check('챙길 것은 남은 하위 업무만 - 끝낸 것을 챙기라 하면 틀린 요약이다',
+  captured.sys.includes('"남은 하위 업무" 줄에 적힌 것만') && captured.sys.includes('그 요약은 틀린 것이다'));
 check('요약 규칙에 "마감일까지 끝내라는 말 금지"가 있다',
   captured.sys.includes('마감일까지 끝내라는 말은 절대 쓰지 마라'));
 check('요약 규칙에 사역 진행 순서가 있다',
@@ -222,10 +224,14 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
   check('목록 줄에도 기다림 표가 붙는다', ctx2.includes('★이 업무를 기다림'));
   check('선행 업무가 실린다(악보 쪽에서 보면)', buildTaskContext(st.tasks.byId.t1, NOW).includes('선행 업무(먼저 끝나야 함): 찬양 콘티 결정(완료)'));
   check('첨부 이름이 실린다(행 객체·문자열 모두)', ctx2.includes('첨부 파일 2개: 콘티_시안2.pdf, 지난주_콘티.xlsx'));
-  // 끝난 것과 남은 것을 갈라 준다 — 남은 것만 주면 AI가 이미 끝낸 일을 다시 챙기라고 한다
-  check('하위 업무를 끝난 것과 남은 것으로 가른다',
-    ctx2.includes('하위 업무 1/2 완료') && ctx2.includes('끝낸 것: 곡 목록 확정') && ctx2.includes('남은 것: 키 확인'),
-    (ctx2.split('\n').find(l=>l.includes('하위 업무')) || '(없음)'));
+  // 끝난 것과 남은 것을 **제 줄로 갈라** 준다 — 한 줄에 붙였더니 모델이 둘을 섞어
+  // 이미 끝낸 항목을 "마무리해야 해요"로 올렸다(라이브 재현 후 A/B 6회 전부로 확인).
+  check('하위 업무를 남은 것 먼저, 제 줄로 가른다',
+    ctx2.includes('하위 업무 1/2 완료')
+    && ctx2.includes('- 남은 하위 업무(챙길 것은 이것뿐이다): 키 확인')
+    && ctx2.includes('- 이미 끝낸 하위 업무(끝났다 — 챙기라고 말하지 마라): 곡 목록 확정')
+    && ctx2.indexOf('남은 하위 업무') < ctx2.indexOf('이미 끝낸 하위 업무'),
+    (ctx2.split('\n').filter(l=>l.includes('하위 업무')).join(' / ') || '(없음)'));
 
   // 첨부 발췌(0030) — 파일 3개·합계 3000자 상한에서 잘리는지
   const long = 'ㄱ'.repeat(2000);
