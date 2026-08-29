@@ -35,7 +35,16 @@ const HeadingExit = Extension.create({
         // splitBlock({ keepMarks: true })라야 형광펜·굵기 같은 서식이 따라온다 —
         // 그냥 splitBlock이면 뒤쪽이 맨 글자가 된다.
         // setNode는 **가른 뒤**에 부른다: 먼저 부르면 앞쪽 제목까지 본문이 된다.
-        return editor.chain().splitBlock({ keepMarks: true }).setNode('paragraph').run();
+        return editor.chain()
+          .splitBlock({ keepMarks: true })
+          // **줄 끝에서는 splitBlock이 이미 문단을 만들어 놓는다.** 그때 setNode를 또 부르면
+          // "바꿀 것이 없다"며 false가 나오고, 그 false가 이 단축키의 반환값이 되어
+          // ProseMirror가 **기본 Enter를 한 번 더 돌린다** → 빈 문단이 하나 더 생겼다
+          // (사용자 지적 2026-08-30 — "줄바꿈이 두 번 된다"). 가운데서 가른 경우에는
+          // 뒤쪽이 제목 그대로라 setNode가 실제로 일을 한다 — 그때만 부른다.
+          .command(({ state, commands }) =>
+            state.selection.$from.parent.type.name === 'paragraph' || commands.setNode('paragraph'))
+          .run();
       },
     };
   },
@@ -76,14 +85,28 @@ function useStickyTop(ref) {
       // 통 안에서 **위(top:0)에 붙는** 것들 중 에디터보다 앞에 있는 것의 높이.
       // 직계 자식만 보면 안 된다 — 모달 구조가 폭에 따라 달라져서 머리줄이 한 겹
       // 더 안쪽에 있는 경우가 있다(모바일에서 그래서 0이 나왔다).
+      // **에디터 안쪽은 세면 안 된다.** 서식 바 자신이 처음에는 top:0이라 이 그물에
+      // 걸렸고, 자기 키(37px)만큼 자기를 내려 세웠다 — 데스크톱은 머리줄(53px)이 더 커서
+      // 가려졌고 머리줄이 없는 모바일에서만 본문 한가운데에 떴다(사용자 지적 2026-08-30).
+      // `compareDocumentPosition`으로 **완전히 앞에 있는 것**만 고른다:
+      // FOLLOWING이면서 CONTAINED_BY가 아니어야 서로 품지 않는 앞선 형제다.
+      const AHEAD = Node.DOCUMENT_POSITION_FOLLOWING;
+      const INSIDE = Node.DOCUMENT_POSITION_CONTAINED_BY;
       let h = 0;
       for (const node of box.querySelectorAll('*')) {
-        if (node.contains(el)) continue;
+        const rel = node.compareDocumentPosition(el);
+        if (!(rel & AHEAD) || (rel & INSIDE)) continue;
         const cs = getComputedStyle(node);
         if (cs.position !== 'sticky' || parseFloat(cs.top || '0') !== 0) continue;
         h = Math.max(h, node.getBoundingClientRect().height);
       }
-      setTop(Math.round(h));
+      // sticky의 `top`은 통의 **콘텐츠 상자** 위에서 잰다 — 통에 위쪽 패딩이 있으면
+      // 0으로 둬도 그 패딩만큼 내려 서고, 그 틈으로 본문 글자가 지나가 보인다
+      // (모바일 업무 창은 본문 통이 `p-5`다). 머리줄이 없으면 패딩만큼 **올려** 세워
+      // 창 머리줄에 딱 붙인다. 머리줄이 있으면 그 머리줄도 같은 기준으로 서므로
+      // 높이를 그대로 쓰면 된다(데스크톱은 예전과 같은 값이다).
+      const pad = parseFloat(getComputedStyle(box).paddingTop || '0') || 0;
+      setTop(Math.round(h > 0 ? h : -pad));
     };
     calc();
     const ro = new ResizeObserver(calc);
@@ -227,8 +250,8 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
 
   useEffect(() => { editorRef.current = editor; }, [editor]);
 
-  // 서식 바가 화면 위에 붙었나 — 붙었을 때만 살짝 안쪽으로 들어가며 떠 보이게 한다.
-  // sticky만으로도 따라오지만 그러면 붙은 순간이 안 보여서 "왜 안 따라오지"가 된다.
+  // 서식 바가 화면 위에 붙었나 — 붙었을 때 본문과 나누는 아래 선 하나만 켠다.
+  // 그림자·블러 같은 '떠 있다' 연출은 없다(사용자 결정 2026-08-30).
   const [stuck, setStuck] = useState(false);
   const sentinelRef = useRef(null);
   const wrapRef = useRef(null);
@@ -236,10 +259,12 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || typeof IntersectionObserver === 'undefined') return undefined;
-    // rootMargin 위쪽을 stickyTop만큼 당긴다 — 바가 실제로 멈추는 자리가 그 지점이다
+    // rootMargin 위쪽을 stickyTop만큼 당긴다 — 바가 실제로 멈추는 자리가 그 지점이다.
+    // stickyTop이 **음수일 수 있다**(머리줄이 없는 모바일) — `-${…}`로 이어 붙이면
+    // `--20px`이라는 없는 값이 되어 관찰자가 통째로 던진다. 부호를 계산해서 넣는다.
     const io = new IntersectionObserver(
       ([entry]) => setStuck(!entry.isIntersecting && entry.boundingClientRect.top < 0),
-      { threshold: 0, rootMargin: `-${stickyTop}px 0px 0px 0px` },
+      { threshold: 0, rootMargin: `${-stickyTop}px 0px 0px 0px` },
     );
     io.observe(el);
     return () => io.disconnect();
@@ -405,19 +430,19 @@ function Toolbar({ editor, active, uploading, stuck = false, top = 0 }) {
   );
 
   return (
-    // 스크롤을 따라온다 — 붙는 순간 **살짝 안쪽으로 들어가며** 둥글어지고 반투명 블러가
-    // 깔린다(Injoy 글쓰기와 같은 방식. 그냥 sticky만 두면 붙은 것이 안 보인다).
+    // 스크롤을 따라온다 — 그뿐이다. 붙었을 때 **떠 있는 연출을 하지 않는다**
+    // (사용자 결정 2026-08-30 — "투명도 안 넣고 그냥 그대로 딸려오게만").
+    // 배경은 두 상태 모두 **완전 불투명**이다: 반투명·블러를 두면 밑으로 지나가는 글이
+    // 비쳐서 바가 글자 위에 얹힌 것처럼 보였다. 그림자도 뺐다.
     // overflow-x-auto: 좁은 화면에서 버튼이 줄바꿈으로 두 줄이 되면 바가 본문을 가린다 —
     // 같은 종류가 이어지는 줄이라 가로 스크롤이 §8에 걸리지 않는다(프로젝트 탭과 같은 결).
     <div
       style={{ top }}
-      className={`sticky z-[5] flex items-center gap-0.5 overflow-x-auto scrollbar-hide x-scroll-lock px-1.5 py-1 border border-line transition-all duration-200 ${
-        stuck
-          // 붙어도 **상세 내용 칸의 머리줄로 남는다** — 좌우로 빼거나 통째로 둥글게 하면
-          // 헤더 쪽에 떠 있는 별개의 바로 읽힌다(사용자 지적 2026-08-30).
-          // 달라지는 것은 "지금 떠 있다"는 표시뿐이다: 아래 선 + 그림자 + 반투명 블러.
-          ? 'rounded-t-md border-b border-line shadow-soft bg-surface/90 backdrop-blur-md supports-[backdrop-filter]:bg-surface/75'
-          : 'border-b-0 rounded-t-md bg-surface-2/60'
+      className={`sticky z-[5] flex items-center gap-0.5 overflow-x-auto scrollbar-hide x-scroll-lock px-1.5 py-1 rounded-t-md border border-line bg-surface-2 transition-colors duration-200 ${
+        // 붙어도 **상세 내용 칸의 머리줄로 남는다** — 좌우로 빼거나 통째로 둥글게 하면
+        // 헤더 쪽에 떠 있는 별개의 바로 읽힌다(사용자 지적 2026-08-30).
+        // 달라지는 것은 본문과 나누는 아래 선 하나뿐이다.
+        stuck ? 'border-b border-line' : 'border-b-0'
       }`}
     >
       <TB on={active.bold} onClick={() => chain().toggleBold().run()} title="굵게"><Bold size={14} /></TB>

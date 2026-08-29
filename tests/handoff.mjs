@@ -53,6 +53,12 @@ const load=async(m,path='/',theme='light')=>{
   await send('Page.navigate',{url:URL_BASE+path}); await wait('Page.loadEventFired'); await sleep(1600);
 };
 const clickText=t=>`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(t)})?.click()`;
+// 에디터에 진짜 키를 넣는다 — Enter는 char까지 보내야 브라우저가 치는 것과 같아진다
+const key=async(k,vk,text='')=>{
+  await send('Input.dispatchKeyEvent',{type:'rawKeyDown',key:k,code:k,windowsVirtualKeyCode:vk,nativeVirtualKeyCode:vk});
+  if(text)await send('Input.dispatchKeyEvent',{type:'char',key:k,code:k,text,unmodifiedText:text,windowsVirtualKeyCode:vk,nativeVirtualKeyCode:vk});
+  await send('Input.dispatchKeyEvent',{type:'keyUp',key:k,code:k,windowsVirtualKeyCode:vk,nativeVirtualKeyCode:vk});
+};
 
 // ── 토큰 ──
 await load(DESK);
@@ -298,30 +304,109 @@ check('업무 수정: 저장이 저장소에 반영된다', saved === true);
 }
 
 
+// ── 제목에서 Enter (2026-08-30) ─────────────────────────────────────────────
+// 제목에서 Enter를 치면 다음 줄은 본문이다(§6). 처음 나간 판은 **줄 끝에서 빈 문단을
+// 하나 더 만들었다**(사용자 지적 — "줄바꿈이 두 번 된다"). 줄 끝에서는 splitBlock이
+// 이미 문단을 만들어 두므로 setNode가 false를 돌려주고, 그 false가 단축키의 반환값이
+// 되어 ProseMirror의 기본 Enter가 한 번 더 갈랐다.
+// 저장된 문자열로 본다 — 사람이 다시 열었을 때 보는 것이 그것이다.
+{
+  const firstId = Object.keys(st.tasks.byId)[0];
+  const enterAt = async (content, lefts, typed) => {
+    st.tasks.byId[firstId].content = content;
+    await load(DESK, `/?p=p1&t=${firstId}`);
+    await ev(clickText('수정'));
+    await sleep(1400);
+    // 제목 줄을 눌러 커서를 넣고 End로 줄 끝까지 — 클릭 x좌표에 기대지 않는다
+    const p = await ev(`(() => { const h=document.querySelector('.tiptap h1,.tiptap h2');
+      if(!h) return null; const r=h.getBoundingClientRect();
+      return { x: Math.round(r.left+5), y: Math.round(r.top+r.height/2) }; })()`);
+    if (!p) return '(제목 없음)';
+    await send('Input.dispatchMouseEvent',{type:'mousePressed',x:p.x,y:p.y,button:'left',clickCount:1});
+    await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:p.x,y:p.y,button:'left',clickCount:1});
+    await sleep(250);
+    await key('End', 35);
+    for (let i = 0; i < lefts; i++) await key('ArrowLeft', 37);
+    await sleep(150);
+    await key('Enter', 13, '\r');
+    await sleep(300);
+    if (typed) { await send('Input.insertText',{text:typed}); await sleep(300); }
+    await ev(clickText('저장'));
+    await sleep(900);
+    return ev(`JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.${firstId}.content`);
+  };
+
+  const endMd = await enterAt('## 제목줄\n본문줄', 0, 'X');
+  check('제목 끝에서 Enter가 빈 문단을 만들지 않는다', endMd === '## 제목줄\nX\n본문줄', JSON.stringify(endMd));
+  const midMd = await enterAt('## 제목줄\n본문줄', 1, '');
+  check('제목 가운데서 Enter는 뒷부분을 본문으로 떨어뜨린다', midMd === '## 제목\n줄\n본문줄', JSON.stringify(midMd));
+  const markMd = await enterAt('## ==강조제목==\n본문줄', 0, 'Y');
+  check('제목에서 Enter 뒤에도 형광펜이 따라온다(keepMarks)', markMd === '## ==강조제목==\n==Y==\n본문줄', JSON.stringify(markMd));
+  const boldMd = await enterAt('## **굵은제목**\n본문줄', 0, 'Y');
+  check('제목에서 Enter 뒤에도 굵기가 따라온다(keepMarks)', boldMd === '## **굵은제목**\n**Y**\n본문줄', JSON.stringify(boldMd));
+  st.tasks.byId[firstId].content = '내용';   // 뒤 검사들이 쓰는 상태로 되돌린다
+}
+
+
 // ── 서식 바가 머리줄과 겹치지 않는다 (2026-08-30) ──────────────────────────
 // 처음 나간 판은 top:8px으로 박아서 바가 업무 창 머리줄 **위로 올라가 겹쳤다**
 // (사용자 지적 — "아예 헤더로 가면 어떻게 해"). 머리줄 높이는 폭·글자에 따라
 // 달라지므로 재서 맞춘다. 붙어도 상세 내용 칸의 머리줄로 남아야 한다.
+// 본문이 짧으면 바가 멈출 자리까지 올라가지도 못한다 — 길게 만들어 실제로 붙여 놓고 잰다
+const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 줄입니다`).join('\n');
 for (const [m, label] of [[DESK, '데스크톱'], [MOB, '모바일']]) {
   const firstId = Object.keys(st.tasks.byId)[0];
+  st.tasks.byId[firstId].content = 긴본문;
   await load(m, `/?p=p1&t=${firstId}`);
   await ev(clickText('수정'));
   await sleep(1400);
-  // 본문을 길게 만들어 스크롤이 생기게 한 뒤 끝까지 내린다
+  // 끝까지 내려 바를 붙인 뒤에 잰다(스크롤과 재기를 한 번에 하면 옛 자리가 나온다)
+  await ev(`(() => {
+    const bar = [...document.querySelectorAll('*')]
+      .find(e => getComputedStyle(e).position === 'sticky' && (e.className || '').includes('overflow-x-auto'));
+    const box = bar && (bar.closest('.overflow-y-auto') || bar.parentElement);
+    if (box) box.scrollTop = box.scrollHeight;
+  })()`);
+  await sleep(600);
   const tb = await ev(`(() => {
     const bar = [...document.querySelectorAll('*')]
       .find(e => getComputedStyle(e).position === 'sticky' && (e.className || '').includes('overflow-x-auto'));
     if (!bar) return null;
     const box = bar.closest('.overflow-y-auto') || bar.parentElement;
-    box.scrollTop = box.scrollHeight;
     const heads = [...document.querySelectorAll('*')].filter(e =>
       e !== bar && !e.contains(bar) && getComputedStyle(e).position === 'sticky'
       && parseFloat(getComputedStyle(e).top || '0') === 0 && e.getBoundingClientRect().height > 20);
     const barR = bar.getBoundingClientRect();
     const worst = heads.map(h => h.getBoundingClientRect()).reduce((a, r) => Math.max(a, r.bottom - barR.top), -999);
+    // 바가 멈춰야 하는 자리 = 위에 붙는 머리줄의 아래끝. 머리줄이 없으면(모바일 창은
+    // 머리줄이 스크롤 통 **밖**에 있다) 통의 맨 위가 그 자리다.
+    const 멈출자리 = heads.length
+      ? Math.max(...heads.map(h => h.getBoundingClientRect().bottom))
+      : box.getBoundingClientRect().top;
+    const cs = getComputedStyle(bar);
+    // 투명도 읽기 — 정규식을 안 쓴다(이 코드는 백틱 문자열로 넘어가서 역슬래시가
+    // 삼켜진다 · §6). 테일윈드 4는 rgba()가 아니라 **oklab(L a b / .9)** 로도 적는다 —
+    // 쉼표 네 조각만 보면 반투명을 불투명으로 잘못 읽는다(실제로 그랬다).
+    const bg = cs.backgroundColor;
+    const 알파 = (() => {
+      const open = bg.indexOf('(');
+      if (open < 0) return bg === 'transparent' ? 0 : 1;
+      const inside = bg.slice(open + 1, bg.lastIndexOf(')'));
+      const slash = inside.indexOf('/');
+      const raw = slash >= 0 ? inside.slice(slash + 1).trim()
+        : (inside.split(',').length === 4 ? inside.split(',')[3].trim() : '1');
+      const n = parseFloat(raw);
+      if (!isFinite(n)) return 1;
+      return raw.endsWith('%') ? n / 100 : n;
+    })();
     return {
       머리줄수: heads.length,
       겹침px: Math.round(worst),
+      떨어진px: Math.round(barR.top - 멈출자리),
+      배경: cs.backgroundColor,
+      알파,
+      블러: cs.backdropFilter,
+      그림자: cs.boxShadow,
       z바: Number(getComputedStyle(bar).zIndex) || 0,
       z머리: heads.length ? Math.max(...heads.map(h => Number(getComputedStyle(h).zIndex) || 0)) : 0,
       좌우가_본문과_같다: Math.abs(barR.left - (bar.nextElementSibling?.getBoundingClientRect().left ?? barR.left)) < 1.5,
@@ -332,6 +417,16 @@ for (const [m, label] of [[DESK, '데스크톱'], [MOB, '모바일']]) {
   // 모바일에는 위에 붙는 머리줄이 없다(창이 화면을 다 쓴다) — 그때는 볼 것이 없다
   check(`${label}: 머리줄이 더 위 층이다`, !!tb && (tb.머리줄수 === 0 || tb.z바 < tb.z머리), JSON.stringify(tb));
   check(`${label}: 붙어도 상세 내용 칸 폭 그대로다`, !!tb && tb.좌우가_본문과_같다 === true, JSON.stringify(tb));
+  // **머리줄 '바로' 아래여야 한다.** 처음 나간 판은 서식 바 자신이 top:0이라
+  // useStickyTop의 그물에 걸려 자기 키만큼 자기를 내려 세웠다 — 머리줄이 더 큰
+  // 데스크톱에서는 안 보였고, 머리줄이 없는 모바일에서만 본문 한가운데에 떴다
+  // (사용자 지적 2026-08-30). 위로 올라가지도, 아래로 내려가지도 않는다.
+  check(`${label}: 서식 바가 머리줄 바로 아래에 선다`, !!tb && Math.abs(tb.떨어진px) <= 1, JSON.stringify(tb));
+  // 밑으로 지나가는 글이 비치면 안 된다(사용자 결정 2026-08-30 —
+  // "투명도 안 넣고 그냥 그대로 딸려오게만"). 그림자·블러 같은 뜨는 연출도 없다.
+  check(`${label}: 서식 바 배경이 완전 불투명하다`, !!tb && tb.알파 === 1, JSON.stringify(tb));
+  check(`${label}: 서식 바에 블러·그림자가 없다`, !!tb && tb.블러 === 'none' && tb.그림자 === 'none', JSON.stringify(tb));
+  st.tasks.byId[firstId].content = '내용';
 }
 
 console.log(results.join('\n'));
