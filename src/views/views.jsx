@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, ChevronDown, Check, X, Trash2, Pencil } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
-import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear } from '../utils.js';
+import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear, datedTasks } from '../utils.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
 import { YearPicker } from '../components/layout.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -500,9 +500,15 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
     </div>
   );
 
-  // 업무가 있는 팀만 칩으로 — 0건 팀을 늘어놓으면 줄만 길어진다
+  // 업무가 있는 팀만 칩으로 — 0건 팀을 늘어놓으면 줄만 길어진다.
+  // **숫자는 지금 보기가 보여줄 수 있는 것만 센다.** 달력에는 마감 미정이 얹히지 않으므로
+  // 전부를 세면 `웰컴팀 7`이라 해놓고 띠는 3개만 뜬다(사용자 지적 2026-08-29).
+  // 보드·그래프는 마감이 없어도 다 그리므로 그때는 전부가 맞다.
+  const countable = useMemo(
+    () => (viewMode === 'calendar' ? datedTasks(projectTasks) : projectTasks),
+    [projectTasks, viewMode]);
   const teamCounts = {};
-  projectTasks.forEach(t => (t.teams || []).forEach(x => { teamCounts[x] = (teamCounts[x] || 0) + 1; }));
+  countable.forEach(t => (t.teams || []).forEach(x => { teamCounts[x] = (teamCounts[x] || 0) + 1; }));
   const teamChips = Object.keys(CONFIG.TEAMS).filter(n => teamCounts[n]);
   const doneCount = projectTasks.filter(t => t.status === '완료').length;
   // 이 프로젝트에 누가 붙어 있나 — 대시보드의 '청년별 남은 업무'와 같은 함수다.
@@ -700,8 +706,8 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
         {/* 모바일: 한 줄 필터 버튼 → 오버레이 카드 */}
         <TeamFilterBar
           className="md:hidden"
-          teams={teamChips} counts={teamCounts} total={projectTasks.length}
-          shownCount={filteredTasks.length} selected={selectedTeams}
+          teams={teamChips} counts={teamCounts} total={countable.length}
+          shownCount={(viewMode === 'calendar' ? datedTasks(filteredTasks) : filteredTasks).length} selected={selectedTeams}
           onToggle={toggleTeam} onClear={() => setSelectedTeams([])}
         />
       </div>
@@ -731,8 +737,12 @@ export const ScheduleView = React.memo(function ScheduleView({ onTaskClick }) {
   const projectsMap = useStore(selectProjectsMap);
   const [selectedTeams, setSelectedTeams] = useState([]);
 
+  // 이 화면은 통째로 달력이다 — 칩 숫자도 **달력에 얹히는 것만** 센다.
+  // 머리글은 이미 그 기준이었는데(`N건이 달력에 있어요`) 칩만 전부를 세고 있어서,
+  // 같은 화면에 기준이 다른 숫자가 둘이었다(사용자 지적 2026-08-29).
+  const datable = useMemo(() => datedTasks(tasksList), [tasksList]);
   const teamCounts = {};
-  tasksList.forEach(t => (t.teams || []).forEach(x => { teamCounts[x] = (teamCounts[x] || 0) + 1; }));
+  datable.forEach(t => (t.teams || []).forEach(x => { teamCounts[x] = (teamCounts[x] || 0) + 1; }));
   const teamChips = Object.keys(CONFIG.TEAMS).filter(n => teamCounts[n]);
 
   const toggleTeam = (team) => setSelectedTeams(prev => prev.includes(team) ? prev.filter(t => t !== team) : [...prev, team]);
@@ -742,7 +752,7 @@ export const ScheduleView = React.memo(function ScheduleView({ onTaskClick }) {
 
   // 달력에 실제로 얹히는 것은 날짜가 있는 업무뿐 — 머리글 숫자도 그 기준으로 센다.
   // 전체 건수를 쓰면 "84건"이라 해놓고 달력에는 12개만 보이는 화면이 된다.
-  const dated = shown.filter(t => t.startDate || t.dueDate);
+  const dated = datedTasks(shown);
   const projectCount = new Set(dated.map(t => t.projectId).filter(id => projectsMap[id])).size;
 
   return (
@@ -758,8 +768,8 @@ export const ScheduleView = React.memo(function ScheduleView({ onTaskClick }) {
 
       <div className="flex items-center gap-2.5 py-[11px] shrink-0">
         <TeamFilterBar
-          teams={teamChips} counts={teamCounts} total={tasksList.length}
-          shownCount={shown.length} selected={selectedTeams}
+          teams={teamChips} counts={teamCounts} total={datable.length}
+          shownCount={dated.length} selected={selectedTeams}
           onToggle={toggleTeam} onClear={() => setSelectedTeams([])}
         />
       </div>

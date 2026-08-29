@@ -118,6 +118,25 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(projectsOfYear(orphan, '2099'), [], '다른 해에는 서지 않는다');
   console.log('PASS  프로젝트 연도 11가지');
 
+  // ── 달력에 얹히는 업무 (utils.datedTasks) ──
+  // 원래 버그: 팀 칩이 전부를 세서 `웰컴팀 7`이라 해놓고 달력에는 띠가 3개만 떴다.
+  // 실데이터에서 7건 중 4건이 마감 미정(9·10·11·12월 월례회)이었다 — 달력이 빠뜨린 것이
+  // 아니라 같은 화면에 셈의 기준이 둘이었다(사용자 지적 2026-08-29).
+  const { datedTasks } = await import(pathToFileURL(f2).href);
+  const S = [
+    { id: 'a', title: '8월 월례회', dueDate: '2026-08-30' },
+    { id: 'b', title: '수련회 홍보용 슈링클스', startDate: '2026-07-10', dueDate: '' },
+    { id: 'c', title: '9월 월례회' },                                  // 마감 미정
+    { id: 'd', title: '10월 월례회', startDate: '', dueDate: '' },      // 빈 문자열도 미정이다
+    { id: 'e', title: '피드백 및 강평회', dueDate: '2026-08-31' },
+  ];
+  assert.deepStrictEqual(datedTasks(S).map(t => t.id), ['a', 'b', 'e'], '날짜가 하나라도 있어야 달력에 선다');
+  assert.strictEqual(datedTasks(S).length, 3, '실데이터와 같은 모양 — 7건 중 3건');
+  assert.deepStrictEqual(datedTasks([]), [], '빈 목록');
+  assert.deepStrictEqual(datedTasks(undefined), [], '인자가 없어도 안전하다');
+  assert.deepStrictEqual(datedTasks([null, { id: 'z', dueDate: '2026-01-01' }]).map(t => t.id), ['z'], '빈 칸이 섞여도 안 던진다');
+  console.log('PASS  달력에 얹히는 업무 5가지');
+
   // ── 대시보드 인사말이 세는 범위 (utils.myScope) ──
   // 원래 버그: 인사말이 세그먼트를 따라가는 목록을 세서, 미디어팀 박지호의 지연 한 건이
   // "노준석님, 밀린 업무부터 정리해봐요"로 떴다. 남의 지연을 내 이름으로 나무라는 문장.
