@@ -179,8 +179,10 @@ check('xlsx: 열 너비를 px로 옮긴다', () => {
 // 가독성 규칙(SheetView 머리 주석). 원본을 그대로 따르지 않기로 한 자리라, 되돌리면
 // 실물 결산안의 '비고' 열이 다시 744px가 되어 표가 가로로 세 화면이 된다.
 check('view: 열 너비는 글자 크기만큼 넓히고 상한에서 자른다', () => {
-  assert.strictEqual(viewColPx(64), Math.round(64 * (VIEW_FONT_PX / 11.5)));  // 글자를 키운 만큼 넓다
-  assert.ok(viewColPx(64) > 64, '엑셀 폭 그대로면 글자만 커져 줄바꿈이 는다');
+  // +10은 칸 안 여백 보정 — td 패딩(12px)이 폭을 먹어서 엑셀에서 들어가던 숫자가
+  // 자리수 중간에서 접혔다("16,500,00" 줄바꿈 "0"). 이 보정을 빼면 그 증상이 돌아온다.
+  assert.strictEqual(viewColPx(64), Math.round(64 * (VIEW_FONT_PX / 11.5)) + 10);
+  assert.ok(viewColPx(64) > 64 + 10, '엑셀 폭 그대로면 글자만 커져 줄바꿈이 는다');
   assert.strictEqual(viewColPx(744), COL_MAX_PX, '화면보다 넓은 열은 상한에서 잘려야 한다');
   assert.strictEqual(viewColPx(null), viewColPx(64), '너비를 안 적은 열은 엑셀 기본값(8.43자)이다');
 });
@@ -553,6 +555,9 @@ check('렌더러가 새 값들을 실제로 쓴다(소스 단정)', () => {
   assert.ok(src.includes('overlayBoxes'), '그림·도형 오버레이를 안 그린다');
   assert.ok(src.includes("o.geom === 'ellipse'"), '타원 도형을 안 그린다');
   assert.ok(src.includes('sheet.frozenCols'), '열 고정을 안 붙인다');
+  // 격자선은 inset이어야 한다 — solid면 border-collapse에서 이웃 칸에만 적힌
+  // 진짜 테두리(아래 칸의 top 등)를 위/왼쪽 칸의 옅은 격자선이 지워 얼룩이 진다
+  assert.ok(src.includes("'1px inset color-mix"), '격자선이 진짜 테두리를 지운다(collapse 우선순위)');
   // tableLayout: fixed는 표 폭이 auto면 무시된다(auto 배치로 떨어진다) — 그러면
   // 열이 colgroup px와 어긋나 고정 열 left·오버레이 x가 전부 빗나간다(Fable 실측:
   // 고정 칸 사이가 83px 벌어지고 타원이 43px 왼쪽에 그려졌다).

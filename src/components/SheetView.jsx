@@ -46,7 +46,15 @@ const fillOf = (bg) => {
 
 // 격자선은 실제 테두리보다 옅다 — 엑셀에서도 눈금선과 테두리는 다르게 보인다.
 // 이게 없으면 "테두리를 넣었다"가 화면에서 구분되지 않는다.
-const GRID = '1px solid color-mix(in srgb, var(--app-line) 55%, transparent)';
+//
+// **solid가 아니라 inset인 이유**: border-collapse의 충돌 규칙에서 같은 굵기·같은
+// 스타일이면 위/왼쪽 칸이 이긴다. 엑셀은 상자 선을 이웃 칸에 나눠 적는 일이 흔해서
+// (실물 결산(제출용)의 가로선 100개가 **아래 칸의 top에만** 적혀 있었다), 격자선을
+// solid로 두면 위 칸의 옅은 격자선이 아래 칸의 진짜 검은 선을 지워 테두리가
+// 얼룩덜룩해진다(사용자 지적 2026-08-29). inset은 스타일 우선순위가 solid·dashed·
+// dotted 전부보다 낮아서, 어느 쪽에 적힌 진짜 테두리든 격자선을 항상 이긴다.
+// 1px 회색 inset은 solid와 사실상 같아 보인다.
+const GRID = '1px inset color-mix(in srgb, var(--app-line) 55%, transparent)';
 const sideCss = (sd) => (sd ? `${sd.w}px ${sd.s} ${sd.c || 'var(--app-line)'}` : GRID);
 
 // 배경과 글자의 밝기 차 — 조건부 서식이 준 글자색을 쓸지 자동 대비로 덮을지 가른다

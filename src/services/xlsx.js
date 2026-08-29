@@ -339,6 +339,11 @@ export const widthToPx = (w) => Math.round(w * 7 + 5);
 // ponytail: 상한·글자 크기는 상수 두 개다. 좁다·넓다는 판단이 바뀌면 여기만 고친다.
 export const VIEW_FONT_PX = 12.5;
 export const COL_MAX_PX = 320;
+// 칸 안 여백 보정. 엑셀의 px(7w+5)에는 자기 여백 ~5px가 들어 있는데 우리 td는
+// 좌우 패딩 12px + 테두리를 그 폭 안에서 쓴다(고정 배치는 border-box다) — 그만큼
+// 글자 자리가 좁아져 **숫자가 자리수 중간에서 접혔다**("16,500,00" 줄바꿈 "0" —
+// 사용자 지적 2026-08-29). 그 차이를 되돌려 준다.
+const VIEW_COL_PAD = 10;
 // 글자 크기(pt) → 화면 px. 엑셀 기본 11pt가 우리 기준 12.5px이므로 그 비율로 옮긴다.
 // 8pt 잔글씨(9px)부터 24pt 제목(27px)까지 위계가 살아난다. 상한은 두지 않는다 —
 // 실물에서 최대가 24pt고, 그보다 큰 제목이 있다면 그것도 작성자의 뜻이다.
@@ -348,7 +353,7 @@ export const szToPx = (pt) => Math.round(pt * (VIEW_FONT_PX / 11));
 export const rowHtToPx = (pt) => Math.round(pt * (4 / 3) * (VIEW_FONT_PX / 11.5));
 const DEFAULT_COL_PX = widthToPx(8.43);          // 엑셀 기본 열 너비(8.43자) = 64px
 export const viewColPx = (px) =>
-  Math.min(Math.round((px || DEFAULT_COL_PX) * (VIEW_FONT_PX / 11.5)), COL_MAX_PX);
+  Math.min(Math.round((px || DEFAULT_COL_PX) * (VIEW_FONT_PX / 11.5)) + VIEW_COL_PAD, COL_MAX_PX);
 
 // ── 조건부 서식 ──────────────────────────────────────────────────────────────
 // 규칙을 **파서에서 미리 적용**해서 화면에는 이미 칠해진 셀만 넘긴다. 색눈금·중복처럼
