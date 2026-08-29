@@ -67,6 +67,17 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(subtaskProgress([{ done: true }]), { total: 1, done: 1, ratio: 1 }, '전부 끝나면 1');
   console.log('PASS  하위 업무 진척 4가지');
 
+  // ── 고정 요약이 낡았나 (utils.summaryOutdated) ──
+  // 고정 쓰기 자체가 updated_at을 올린다(트리거·서버 시계) — ai_summary_at은 클라이언트
+  // 시계라 방금 고정한 것이 시계 어긋남만큼 낡음으로 보일 수 있어 1분 여유를 둔다.
+  const { summaryOutdated } = await import(pathToFileURL(f2).href);
+  assert.strictEqual(summaryOutdated('2026-08-29T10:05:00Z', '2026-08-29T10:00:00Z'), true, '고정 뒤에 바뀌면 낡음');
+  assert.strictEqual(summaryOutdated('2026-08-29T10:00:30Z', '2026-08-29T10:00:00Z'), false, '1분 안(시계 어긋남)은 낡음이 아니다');
+  assert.strictEqual(summaryOutdated('2026-08-29T09:00:00Z', '2026-08-29T10:00:00Z'), false, '고정이 더 나중이면 낡음이 아니다');
+  assert.strictEqual(summaryOutdated('', '2026-08-29T10:00:00Z'), false, '시각이 없으면 조용히 거짓');
+  assert.strictEqual(summaryOutdated('2026-08-29T10:05:00Z', ''), false);
+  console.log('PASS  고정 요약 낡음 판정 5가지');
+
   // ── 대시보드 인사말이 세는 범위 (utils.myScope) ──
   // 원래 버그: 인사말이 세그먼트를 따라가는 목록을 세서, 미디어팀 박지호의 지연 한 건이
   // "노준석님, 밀린 업무부터 정리해봐요"로 떴다. 남의 지연을 내 이름으로 나무라는 문장.

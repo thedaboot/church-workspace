@@ -93,6 +93,16 @@ export const myScope = (openTasks, myName) => (openTasks || []).filter(t => {
 
 // 하위 업무(cards.subtasks) 진척 — 보드 카드와 업무 창이 같이 쓴다.
 // 순수 함수라 utils에 둔다(보드가 모달을 가져오는 방향이 되지 않게).
+// 고정된 요약이 낡았나 — 고정한 뒤에 카드가 바뀌었으면(체크·본문 수정) 참.
+// 고정 쓰기 자체도 updated_at을 올리는데(트리거·서버 시계) ai_summary_at은 클라이언트
+// 시계라, 시계가 어긋난 만큼 방금 고정한 것이 낡음으로 보일 수 있다 — 1분 여유를 둔다
+// (cloudSync.withClockSkewRetry가 있는 이유와 같은 어긋남이다).
+export function summaryOutdated(updatedAt, pinnedAt) {
+  if (!updatedAt || !pinnedAt) return false;
+  const gap = new Date(updatedAt) - new Date(pinnedAt);
+  return Number.isFinite(gap) && gap > 60000;
+}
+
 export function subtaskProgress(list = []) {
   const total = list.length;
   const done = list.reduce((n, s) => n + (s.done ? 1 : 0), 0);

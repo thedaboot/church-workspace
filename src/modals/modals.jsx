@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { CheckSquare, Clock, X, User, Hash, Wand2, Undo2, CalendarRange, Trash2, Check, Pin, ArrowLeftRight, Maximize2, Minimize2, PanelRight, PanelRightClose } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress, toggleTodoLine } from '../utils.js';
+import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress, summaryOutdated, toggleTodoLine } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { AiService, isFallbackText } from '../services/ai.js';
@@ -790,6 +790,13 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
               <span className="inline-flex items-center gap-1 text-[10px] text-fg-faint">
                 <Pin size={9} />고정
               </span>
+            )}
+            {/* 고정한 뒤에 카드가 바뀌었으면(체크·본문 수정) 마스터에게만 알려준다 —
+                이게 없어서 "다시 만들기를 눌러도 똑같다"는 혼선이 있었다(고정본은
+                일부러 재생성하지 않으므로, 낡았다는 사실은 눈에 보여야 한다).
+                문구는 사용자가 정했다(2026-08-29). */}
+            {showingPinned && canPin && summaryOutdated(formData.updatedAt, formData.aiSummaryAt) && (
+              <span className="text-[10px] text-fg-faint">· 고정한 뒤로 업무가 바뀌었어요</span>
             )}
           </div>
           {isAiLoading
