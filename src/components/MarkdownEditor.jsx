@@ -30,12 +30,12 @@ const HeadingExit = Extension.create({
       Enter: () => {
         const { editor } = this;
         if (!editor.isActive('heading')) return false;
-        const { $from, empty } = editor.state.selection;
-        // 줄 **끝**에서 친 Enter만 다음 줄을 만든다. 가운데서 치면 제목이 둘로 갈리는
-        // 기본 동작이 맞다 — 그때 뒤쪽까지 본문으로 바꾸면 글이 뭉개진다.
-        if (!empty || $from.parentOffset !== $from.parent.content.size) return false;
-        return editor.chain().insertContentAt($from.after(), { type: 'paragraph' })
-          .focus($from.after() + 1).run();
+        // **어디서 치든 다음 줄은 본문이다**(사용자 결정 2026-08-30 — 처음에는 줄 끝에서만
+        // 그렇게 했는데 가운데서도 같기를 원했다). 제목을 연달아 쓰는 일은 거의 없다.
+        // splitBlock({ keepMarks: true })라야 형광펜·굵기 같은 서식이 따라온다 —
+        // 그냥 splitBlock이면 뒤쪽이 맨 글자가 된다.
+        // setNode는 **가른 뒤**에 부른다: 먼저 부르면 앞쪽 제목까지 본문이 된다.
+        return editor.chain().splitBlock({ keepMarks: true }).setNode('paragraph').run();
       },
     };
   },
@@ -52,6 +52,46 @@ const HeadingExit = Extension.create({
 //   "쓸 수 있는 것 = 저장할 수 있는 것"을 일치시킨다
 // ============================================================================
 // 본문 이미지 줄이기는 services/image.js가 한다(첨부와 같은 코드를 쓴다).
+
+// 서식 바가 멈추는 자리 = **스크롤 통 안에서 위에 붙어 있는 것들의 높이**.
+// 업무 창은 머리줄이 `sticky top-0`이라, 0으로 두면 바가 머리줄 **위로 올라가 겹친다**
+// (2026-08-30에 실제로 그렇게 나갔다 — 사용자 지적 "아예 헤더로 가면 어떻게 해").
+// 높이를 재서 그만큼 내려 세운다: 머리줄 높이는 글자 크기·창 폭에 따라 달라져서
+// 상수로 박으면 어느 폭에선가 반드시 어긋난다.
+// z는 머리줄(z-10)보다 낮게 둔다 — 혹시 겹치더라도 머리줄이 이긴다.
+function useStickyTop(ref) {
+  const [top, setTop] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    // 이 에디터를 품은 스크롤 통을 찾는다(업무 창 본문)
+    let box = el.parentElement;
+    while (box && box !== document.body) {
+      const oy = getComputedStyle(box).overflowY;
+      if (oy === 'auto' || oy === 'scroll') break;
+      box = box.parentElement;
+    }
+    const calc = () => {
+      if (!box || box === document.body) { setTop(0); return; }
+      // 통 안에서 **위(top:0)에 붙는** 것들 중 에디터보다 앞에 있는 것의 높이.
+      // 직계 자식만 보면 안 된다 — 모달 구조가 폭에 따라 달라져서 머리줄이 한 겹
+      // 더 안쪽에 있는 경우가 있다(모바일에서 그래서 0이 나왔다).
+      let h = 0;
+      for (const node of box.querySelectorAll('*')) {
+        if (node.contains(el)) continue;
+        const cs = getComputedStyle(node);
+        if (cs.position !== 'sticky' || parseFloat(cs.top || '0') !== 0) continue;
+        h = Math.max(h, node.getBoundingClientRect().height);
+      }
+      setTop(Math.round(h));
+    };
+    calc();
+    const ro = new ResizeObserver(calc);
+    if (box && box !== document.body) ro.observe(box);
+    return () => ro.disconnect();
+  }, [ref]);
+  return top;
+}
 
 export function MarkdownEditor({ value, onChange, members = [], cloudMode = false, placeholder, className = '' }) {
   const lastEmitted = useRef(value ?? '');
@@ -192,17 +232,18 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
   const [stuck, setStuck] = useState(false);
   const sentinelRef = useRef(null);
   const wrapRef = useRef(null);
+  const stickyTop = useStickyTop(wrapRef);
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || typeof IntersectionObserver === 'undefined') return undefined;
-    // rootMargin 위쪽을 TOOLBAR_TOP만큼 당긴다 — 바가 실제로 멈추는 자리가 그 지점이다
+    // rootMargin 위쪽을 stickyTop만큼 당긴다 — 바가 실제로 멈추는 자리가 그 지점이다
     const io = new IntersectionObserver(
       ([entry]) => setStuck(!entry.isIntersecting && entry.boundingClientRect.top < 0),
-      { threshold: 0, rootMargin: `-${TOOLBAR_TOP}px 0px 0px 0px` },
+      { threshold: 0, rootMargin: `-${stickyTop}px 0px 0px 0px` },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, []);
+  }, [stickyTop]);
 
   const pick = useCallback((name) => {
     const m = mentionRef.current;
@@ -250,7 +291,7 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
       {/* 센티넬 — 서식 바가 '붙었는지'를 이걸로 잰다(Injoy 글쓰기와 같은 방식).
           scroll 이벤트로 매 프레임 재는 대신 IntersectionObserver 한 번이면 된다. */}
       <div ref={sentinelRef} aria-hidden="true" className="h-px" />
-      <Toolbar editor={editor} active={active} uploading={uploading} stuck={stuck} />
+      <Toolbar editor={editor} active={active} uploading={uploading} stuck={stuck} top={stickyTop} />
       {/* onMouseDown이라야 한다 — click은 선택이 이미 끝난 뒤라 커서가 안 옮겨진다 */}
       <div className={className} onMouseDown={focusEnd}>
         <EditorContent editor={editor} />
@@ -280,11 +321,8 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
 }
 
 // ── 툴바 ────────────────────────────────────────────────────────────────────
-// 서식 바가 멈추는 자리. 업무 창 머리줄 아래다 — 이보다 작으면 바가 머리줄에 가린다.
-// 창이 낮은 모바일에서는 더 위로 붙인다(머리줄이 얇다).
-export const TOOLBAR_TOP = 8;
 
-function Toolbar({ editor, active, uploading, stuck = false }) {
+function Toolbar({ editor, active, uploading, stuck = false, top = 0 }) {
   const [linkOpen, setLinkOpen] = useState(false);
   const [href, setHref] = useState('');
   // 단축키가 부르는 자리 — 훅은 early return보다 위에 있어야 하고 openLink는 아래에 있다
@@ -372,10 +410,13 @@ function Toolbar({ editor, active, uploading, stuck = false }) {
     // overflow-x-auto: 좁은 화면에서 버튼이 줄바꿈으로 두 줄이 되면 바가 본문을 가린다 —
     // 같은 종류가 이어지는 줄이라 가로 스크롤이 §8에 걸리지 않는다(프로젝트 탭과 같은 결).
     <div
-      style={{ top: TOOLBAR_TOP }}
-      className={`sticky z-30 flex items-center gap-0.5 overflow-x-auto scrollbar-hide x-scroll-lock px-1.5 py-1 border border-line transition-all duration-200 ${
+      style={{ top }}
+      className={`sticky z-[5] flex items-center gap-0.5 overflow-x-auto scrollbar-hide x-scroll-lock px-1.5 py-1 border border-line transition-all duration-200 ${
         stuck
-          ? 'mx-1 rounded-lg border-line shadow-elevated bg-surface/85 backdrop-blur-md supports-[backdrop-filter]:bg-surface/70'
+          // 붙어도 **상세 내용 칸의 머리줄로 남는다** — 좌우로 빼거나 통째로 둥글게 하면
+          // 헤더 쪽에 떠 있는 별개의 바로 읽힌다(사용자 지적 2026-08-30).
+          // 달라지는 것은 "지금 떠 있다"는 표시뿐이다: 아래 선 + 그림자 + 반투명 블러.
+          ? 'rounded-t-md border-b border-line shadow-soft bg-surface/90 backdrop-blur-md supports-[backdrop-filter]:bg-surface/75'
           : 'border-b-0 rounded-t-md bg-surface-2/60'
       }`}
     >
@@ -395,11 +436,11 @@ function Toolbar({ editor, active, uploading, stuck = false }) {
       <TB on={active.todo} onClick={() => chain().toggleTaskList().run()} title="체크리스트"><ListTodo size={15} /></TB>
       {/* 구분선 — 본문에 `---`를 쳐도 된다(입력 규칙). 버튼도 두는 이유는 §8이다:
           치는 법을 아는 사람만 쓸 수 있는 기능은 숨긴 것과 같다 */}
-      <TB onClick={() => chain().setHorizontalRule().run()} title="구분선 (--- 입력)"><Minus size={15} /></TB>
+      <TB onClick={() => chain().setHorizontalRule().run()} title="구분선"><Minus size={15} /></TB>
       <span className="w-px h-4 bg-line mx-1 shrink-0" />
       <span ref={linkRootRef} className="inline-flex">
         <span ref={linkBtnRef} className="inline-flex">
-          <TB on={active.link} onClick={openLink} title={picked ? `'${picked.slice(0, 12)}'에 링크 걸기` : '링크 (Ctrl/⌘+K)'}><Link2 size={14} /></TB>
+          <TB on={active.link} onClick={openLink} title={picked ? `'${picked.slice(0, 12)}'에 링크를 걸어요` : '링크 (Ctrl/⌘+K)'}><Link2 size={14} /></TB>
         </span>
         {linkOpen && (
           <div
@@ -409,7 +450,7 @@ function Toolbar({ editor, active, uploading, stuck = false }) {
             {/* 무엇에 링크가 걸리는지 먼저 말한다 — 고른 것이 없으면 주소가 그대로 글자가
                 된다는 것도 알려 준다(예전에는 눌러 봐야 알았다) */}
             <p className="text-[10.5px] text-fg-faint mb-1.5 truncate">
-              {picked ? <>‘<span className="text-fg-muted font-semibold">{picked}</span>’에 걸어요</> : '주소가 그대로 글자가 돼요'}
+              {picked ? <>‘<span className="text-fg-muted font-semibold">{picked}</span>’에 링크를 걸어요.</> : '주소가 그대로 글자가 돼요.'}
             </p>
             <input
               autoFocus={!isMobileViewport()} value={href} onChange={e => setHref(e.target.value)}

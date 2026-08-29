@@ -275,6 +275,65 @@ await sleep(900);
 const saved = await ev(`Object.values(JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId).some(t=>t.title==='저장 확인용 제목')`);
 check('업무 수정: 저장이 저장소에 반영된다', saved === true);
 
+
+// ── 본문 구분선이 실제로 그려지는가 (2026-08-30) ────────────────────────────
+// mdcheck는 markdown.js의 왕복만 본다. **그리는 쪽**(RichText)에 오타가 있어서
+// 구분선이 든 업무를 아예 못 열었다(사용자 신고 — 오류 경계로 떨어졌다).
+// 판정이 두 파일에 한 쌍으로 있으므로 그리는 쪽도 같이 봐야 한다.
+{
+  const first = Object.keys(st.tasks.byId)[0];
+  st.tasks.byId[first].content = '위 글\n---\n아래 글';
+  await load(DESK, `/?p=p1&t=${first}`);
+  const hr = await ev(`(() => {
+    const t = document.body.textContent || '';
+    return {
+      오류: /문제가 생겼어요|오류가 발생|다시 시도/.test(t),
+      위아래: /위 글/.test(t) && /아래 글/.test(t),
+      선: document.querySelectorAll('hr').length,
+    };
+  })()`);
+  check('구분선이 든 업무가 열린다', hr.오류 === false && hr.위아래 === true, JSON.stringify(hr));
+  check('구분선이 <hr>로 그려진다', hr.선 >= 1, JSON.stringify(hr));
+  st.tasks.byId[first].content = '내용';   // 뒤 검사들이 쓰는 상태로 되돌린다
+}
+
+
+// ── 서식 바가 머리줄과 겹치지 않는다 (2026-08-30) ──────────────────────────
+// 처음 나간 판은 top:8px으로 박아서 바가 업무 창 머리줄 **위로 올라가 겹쳤다**
+// (사용자 지적 — "아예 헤더로 가면 어떻게 해"). 머리줄 높이는 폭·글자에 따라
+// 달라지므로 재서 맞춘다. 붙어도 상세 내용 칸의 머리줄로 남아야 한다.
+for (const [m, label] of [[DESK, '데스크톱'], [MOB, '모바일']]) {
+  const firstId = Object.keys(st.tasks.byId)[0];
+  await load(m, `/?p=p1&t=${firstId}`);
+  await ev(clickText('수정'));
+  await sleep(1400);
+  // 본문을 길게 만들어 스크롤이 생기게 한 뒤 끝까지 내린다
+  const tb = await ev(`(() => {
+    const bar = [...document.querySelectorAll('*')]
+      .find(e => getComputedStyle(e).position === 'sticky' && (e.className || '').includes('overflow-x-auto'));
+    if (!bar) return null;
+    const box = bar.closest('.overflow-y-auto') || bar.parentElement;
+    box.scrollTop = box.scrollHeight;
+    const heads = [...document.querySelectorAll('*')].filter(e =>
+      e !== bar && !e.contains(bar) && getComputedStyle(e).position === 'sticky'
+      && parseFloat(getComputedStyle(e).top || '0') === 0 && e.getBoundingClientRect().height > 20);
+    const barR = bar.getBoundingClientRect();
+    const worst = heads.map(h => h.getBoundingClientRect()).reduce((a, r) => Math.max(a, r.bottom - barR.top), -999);
+    return {
+      머리줄수: heads.length,
+      겹침px: Math.round(worst),
+      z바: Number(getComputedStyle(bar).zIndex) || 0,
+      z머리: heads.length ? Math.max(...heads.map(h => Number(getComputedStyle(h).zIndex) || 0)) : 0,
+      좌우가_본문과_같다: Math.abs(barR.left - (bar.nextElementSibling?.getBoundingClientRect().left ?? barR.left)) < 1.5,
+    };
+  })()`);
+  await sleep(400);
+  check(`${label}: 서식 바가 머리줄과 안 겹친다`, !!tb && tb.겹침px <= 1, JSON.stringify(tb));
+  // 모바일에는 위에 붙는 머리줄이 없다(창이 화면을 다 쓴다) — 그때는 볼 것이 없다
+  check(`${label}: 머리줄이 더 위 층이다`, !!tb && (tb.머리줄수 === 0 || tb.z바 < tb.z머리), JSON.stringify(tb));
+  check(`${label}: 붙어도 상세 내용 칸 폭 그대로다`, !!tb && tb.좌우가_본문과_같다 === true, JSON.stringify(tb));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,6).join('\n'):'\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);
