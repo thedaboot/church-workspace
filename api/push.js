@@ -64,12 +64,23 @@ async function sendToProfiles(db, profileIds, { title, body, url, tag }) {
 
   const { data: subs, error } = await db
     .from('push_subscriptions')
-    .select('endpoint, p256dh, auth')
+    .select('profile_id, endpoint, p256dh, auth')
     .in('profile_id', ids);
   if (error) throw error;
   if (!subs?.length) return { sent: 0, dropped: 0 };
 
-  const payload = JSON.stringify({ title, body, url, tag });
+  // 아이콘 위 숫자(안 읽은 알림 수)는 **받는 사람마다 다르다** — payload를 하나로 만들어
+  // 돌려쓸 수 없다. 사람 수만큼 질의하지 않도록 한 번에 세어 Map에 담아 둔다.
+  // 이 시점에는 이 알림의 행이 이미 insert된 뒤다(insertNotifications도 배치도 그 순서다).
+  const unread = new Map();
+  {
+    const { data: rows, error: cntErr } = await db
+      .from('notifications').select('recipient_id').eq('read', false).in('recipient_id', ids);
+    // 못 세면 숫자만 빠진다 — 알림 자체는 보낸다.
+    if (cntErr) console.error('[push] 안 읽은 수 세기 실패:', cntErr);
+    else for (const r of rows || []) unread.set(r.recipient_id, (unread.get(r.recipient_id) || 0) + 1);
+  }
+
   const dead = [];
   let sent = 0;
 
@@ -77,7 +88,9 @@ async function sendToProfiles(db, profileIds, { title, body, url, tag }) {
     try {
       await webpush.sendNotification(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-        payload,
+        // appBadge는 showNotification의 badge(안드로이드 상태바 아이콘 주소)와 다른 값이다.
+        // 세지 못했으면 null — 워커가 그때는 숫자를 건드리지 않는다.
+        JSON.stringify({ title, body, url, tag, appBadge: unread.get(s.profile_id) ?? null }),
       );
       sent++;
     } catch (e) {
