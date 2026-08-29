@@ -75,6 +75,10 @@ export function mdToDoc(md) {
     // 이미지 단독 줄
     if (IMAGE_LINE_RE.test(line)) { content.push({ type: 'image', attrs: { src: line } }); continue; }
 
+    // 구분선 — `---` `***` `___` 셋 다 받는다(마크다운 관행). 우리가 쓰는 것은 `---`.
+    // **제목보다 먼저 본다** — `---`는 아래 문단 규칙에도 걸리는 모양이다.
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) { content.push({ type: 'horizontalRule' }); continue; }
+
     // 제목 (#~####)
     const h = raw.match(/^(#{1,4})\s+(.*)$/);
     if (h) { content.push({ type: 'heading', attrs: { level: h[1].length }, content: parseInline(h[2]) }); continue; }
@@ -195,6 +199,9 @@ function serializeBlock(block) {
         `- [${item.attrs?.checked ? 'x' : ' '}] ${serializeInlineContent(item.content?.[0]?.content)}`);
     case 'image':
       return [block.attrs?.src || ''];
+    // 구분선은 언제나 `---`로 적는다 — 읽을 때는 ***·___도 받지만(mdToDoc) 쓸 때는 한 벌이다
+    case 'horizontalRule':
+      return ['---'];
     case 'paragraph':
     default:
       return [serializeInlineContent(block.content)];

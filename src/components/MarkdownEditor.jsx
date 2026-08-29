@@ -8,7 +8,7 @@ import { Placeholder } from '@tiptap/extension-placeholder';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import {
   Bold, Italic, Underline, Strikethrough, Highlighter,
-  Heading1, Heading2, Heading3, Heading4, List, ListOrdered, ListTodo, Link2, Unlink, Loader2,
+  Heading1, Heading2, Heading3, Heading4, List, ListOrdered, ListTodo, Link2, Unlink, Loader2, Minus,
 } from 'lucide-react';
 import { mdToDoc, docToMd } from '../services/markdown.js';
 import { uploadContentImage } from '../services/cloud.js';
@@ -17,6 +17,29 @@ import { failText } from '../services/errorText.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { isMobileViewport, keepVisible } from '../utils.js';
 import { downscaleImage, BODY_MAX_DIM } from '../services/image.js';
+import { Extension } from '@tiptap/core';
+
+// 제목에서 Enter를 치면 **본문으로 떨어진다.** 기본 동작은 같은 제목이 이어지는데,
+// 제목을 연달아 쓰는 일은 거의 없고 대개 그 아래에 내용을 적는다(사용자 지적
+// 2026-08-30 — H1~H4 전부). 불릿·번호·체크는 그대로 이어진다: 그건 같은 종류가
+// 연달아 오는 것이 정상이고, 빈 항목에서 Enter를 치면 TipTap이 알아서 빠져나온다.
+const HeadingExit = Extension.create({
+  name: 'headingExit',
+  addKeyboardShortcuts() {
+    return {
+      Enter: () => {
+        const { editor } = this;
+        if (!editor.isActive('heading')) return false;
+        const { $from, empty } = editor.state.selection;
+        // 줄 **끝**에서 친 Enter만 다음 줄을 만든다. 가운데서 치면 제목이 둘로 갈리는
+        // 기본 동작이 맞다 — 그때 뒤쪽까지 본문으로 바꾸면 글이 뭉개진다.
+        if (!empty || $from.parentOffset !== $from.parent.content.size) return false;
+        return editor.chain().insertContentAt($from.after(), { type: 'paragraph' })
+          .focus($from.after() + 1).run();
+      },
+    };
+  },
+});
 
 // ============================================================================
 // 노션식 WYSIWYG 상세 내용 에디터 (TipTap)
@@ -95,7 +118,10 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4] },
         // 우리 마크다운 서브셋에 없는 블록·마크는 비활성화
-        blockquote: false, codeBlock: false, code: false, horizontalRule: false,
+        blockquote: false, codeBlock: false, code: false,
+        // 구분선 — `---`를 치면 바로 선이 된다(StarterKit의 입력 규칙). `***`·`___`도 같이
+        // 받는다. 저장 형식은 언제나 `---` 한 줄이다(markdown.js).
+        horizontalRule: {},
         // 생 URL은 평문으로 유지해야 하므로 자동 링크화 금지
         link: { openOnClick: false, autolink: false, linkOnPaste: false },
       }),
@@ -108,6 +134,7 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
       // dataAttribute 기본값은 'placeholder' — CSS content: attr(data-placeholder)와
       // 맞추기 위해 명시한다(index.css의 .tiptap 규칙과 한 쌍)
       Placeholder.configure({ placeholder: placeholder || '내용을 입력하세요...', dataAttribute: 'data-placeholder' }),
+      HeadingExit,
     ],
     content: mdToDoc(value),
     autofocus: false, // 모바일에서 키보드가 즉시 올라오는 것 방지
@@ -122,11 +149,22 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
         if (event.key === 'Escape') { closeMention(); return true; }
         return false;
       },
-      handlePaste: (_view, event) => {
+      handlePaste: (view, event) => {
         const img = Array.from(event.clipboardData?.files || []).find(f => (f.type || '').startsWith('image/'));
-        if (!img || !cloudModeRef.current) return false; // 게스트는 기존 동작(URL 텍스트)
+        if (img && cloudModeRef.current) {
+          event.preventDefault();
+          uploadImage(img);
+          return true;
+        }
+        // **글을 고른 채 주소를 붙여넣으면 그 글이 링크가 된다.** 가장 흔한 링크 넣기인데
+        // 예전에는 고른 글이 주소로 갈아치워졌다(사용자 요청 2026-08-30 — "링크 넣는
+        // 방식을 쉽게"). 고른 것이 없을 때는 손대지 않는다 — 생 URL은 평문으로 두는 것이
+        // 이 에디터의 규칙이고(autolink: false) RichText가 알아서 링크로 그린다.
+        const text = (event.clipboardData?.getData('text/plain') || '').trim();
+        if (!text || view.state.selection.empty) return false;
+        if (!/^https?:\/\/\S+$/i.test(text)) return false;
         event.preventDefault();
-        uploadImage(img);
+        editorRef.current?.chain().focus().setLink({ href: text }).run();
         return true;
       },
       handleDrop: (_view, event) => {
@@ -148,6 +186,23 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
   });
 
   useEffect(() => { editorRef.current = editor; }, [editor]);
+
+  // 서식 바가 화면 위에 붙었나 — 붙었을 때만 살짝 안쪽으로 들어가며 떠 보이게 한다.
+  // sticky만으로도 따라오지만 그러면 붙은 순간이 안 보여서 "왜 안 따라오지"가 된다.
+  const [stuck, setStuck] = useState(false);
+  const sentinelRef = useRef(null);
+  const wrapRef = useRef(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return undefined;
+    // rootMargin 위쪽을 TOOLBAR_TOP만큼 당긴다 — 바가 실제로 멈추는 자리가 그 지점이다
+    const io = new IntersectionObserver(
+      ([entry]) => setStuck(!entry.isIntersecting && entry.boundingClientRect.top < 0),
+      { threshold: 0, rootMargin: `-${TOOLBAR_TOP}px 0px 0px 0px` },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   const pick = useCallback((name) => {
     const m = mentionRef.current;
@@ -180,10 +235,24 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
     } : {},
   }) || {};
 
+  // 빈 공간을 눌러도 글이 써진다 — 예전에는 글자가 있는 자리를 정확히 눌러야 커서가
+  // 잡혀서, 아래 여백을 누르면 아무 일도 안 일어났다(사용자 지적 2026-08-30).
+  // .tiptap이 아닌 곳(감싸개의 패딩·남는 높이)을 누른 경우에만 문서 끝으로 보낸다 —
+  // 안 그러면 글 가운데를 눌러 커서를 옮기는 정상 동작을 뺏는다.
+  const focusEnd = (e) => {
+    if (!editor || e.target.closest('.tiptap')) return;
+    e.preventDefault();                       // 눌린 자리에서 선택이 시작되지 않게
+    editor.chain().focus('end').run();
+  };
+
   return (
-    <div>
-      <Toolbar editor={editor} active={active} uploading={uploading} />
-      <div className={className}>
+    <div ref={wrapRef} className="relative">
+      {/* 센티넬 — 서식 바가 '붙었는지'를 이걸로 잰다(Injoy 글쓰기와 같은 방식).
+          scroll 이벤트로 매 프레임 재는 대신 IntersectionObserver 한 번이면 된다. */}
+      <div ref={sentinelRef} aria-hidden="true" className="h-px" />
+      <Toolbar editor={editor} active={active} uploading={uploading} stuck={stuck} />
+      {/* onMouseDown이라야 한다 — click은 선택이 이미 끝난 뒤라 커서가 안 옮겨진다 */}
+      <div className={className} onMouseDown={focusEnd}>
         <EditorContent editor={editor} />
       </div>
       {mention && suggestions.length > 0 && (
@@ -211,9 +280,15 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
 }
 
 // ── 툴바 ────────────────────────────────────────────────────────────────────
-function Toolbar({ editor, active, uploading }) {
+// 서식 바가 멈추는 자리. 업무 창 머리줄 아래다 — 이보다 작으면 바가 머리줄에 가린다.
+// 창이 낮은 모바일에서는 더 위로 붙인다(머리줄이 얇다).
+export const TOOLBAR_TOP = 8;
+
+function Toolbar({ editor, active, uploading, stuck = false }) {
   const [linkOpen, setLinkOpen] = useState(false);
   const [href, setHref] = useState('');
+  // 단축키가 부르는 자리 — 훅은 early return보다 위에 있어야 하고 openLink는 아래에 있다
+  const openLinkRef = useRef(null);
   const linkBtnRef = useRef(null);
   const linkRootRef = useRef(null);
   const [linkPos, placeLink] = useAnchoredPos(linkBtnRef, linkOpen, 256, 110);
@@ -227,14 +302,56 @@ function Toolbar({ editor, active, uploading }) {
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [linkOpen]);
 
+  // Ctrl/⌘+K — 글을 고른 채 누르면 바로 주소 칸이 열린다(어느 편집기나 이 자리다).
+  // 에디터 DOM에 건다 — window에 걸면 업무 창 밖에서도 잡힌다.
+  useEffect(() => {
+    if (!editor) return undefined;
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return;
+      e.preventDefault();
+      openLinkRef.current?.();
+    };
+    // **`editor.view`는 뷰가 붙기 전에는 게터가 던진다** — 옵셔널 체이닝으로 못 막는다.
+    // 처음 렌더에서 실제로 터져서 업무 수정 창이 통째로 오류 화면이 됐다(2026-08-30).
+    // 붙었을 때 한 번 더 붙여 본다('create'는 뷰가 생긴 뒤에 온다).
+    let dom = null;
+    const attach = () => {
+      if (dom) return;
+      try { dom = editor.view.dom; } catch { dom = null; return; }
+      dom.addEventListener('keydown', onKey);
+    };
+    attach();
+    editor.on('create', attach);
+    return () => { editor.off('create', attach); dom?.removeEventListener('keydown', onKey); };
+  }, [editor]);
+
   if (!editor) return null;
   const chain = () => editor.chain().focus();
+
+  // 고른 글자 — 팝오버에 "무엇에 링크를 거는지" 그대로 보여준다.
+  // 예전에는 주소 칸만 있어서, 고른 것이 없을 때 무엇이 생기는지 눌러 봐야 알았다.
+  const { from, to, empty } = editor.state.selection;
+  const picked = empty ? '' : editor.state.doc.textBetween(from, to, ' ').trim();
+
+  const openLink = () => {
+    // 이미 링크가 걸린 자리면 그 주소를 채워 둔다 — 고치는 것이 흔한 일인데
+    // 빈 칸이 뜨면 주소를 다시 찾아 와야 했다
+    setHref(editor.getAttributes('link')?.href || '');
+    placeLink();
+    setLinkOpen(o => !o);
+  };
+  openLinkRef.current = openLink;
 
   const applyLink = () => {
     const url = href.trim();
     if (!url) return;
-    const full = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+    // 사람은 `naver.com`이라고 적는다 — https를 알아서 붙인다.
+    // 메일 주소는 mailto:로(그것도 링크다).
+    const full = /^(https?:\/\/|mailto:)/i.test(url)
+      ? url
+      : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(url) ? `mailto:${url}` : `https://${url}`;
     if (editor.state.selection.empty) {
+      // 고른 것이 없으면 주소를 글자로 넣고 그 글자에 링크를 건다
       chain().insertContent({ type: 'text', text: full, marks: [{ type: 'link', attrs: { href: full } }] }).run();
     } else {
       chain().setLink({ href: full }).run();
@@ -250,7 +367,18 @@ function Toolbar({ editor, active, uploading }) {
   );
 
   return (
-    <div className="flex flex-wrap items-center gap-0.5 border border-line border-b-0 rounded-t-md bg-surface-2/60 px-1.5 py-1">
+    // 스크롤을 따라온다 — 붙는 순간 **살짝 안쪽으로 들어가며** 둥글어지고 반투명 블러가
+    // 깔린다(Injoy 글쓰기와 같은 방식. 그냥 sticky만 두면 붙은 것이 안 보인다).
+    // overflow-x-auto: 좁은 화면에서 버튼이 줄바꿈으로 두 줄이 되면 바가 본문을 가린다 —
+    // 같은 종류가 이어지는 줄이라 가로 스크롤이 §8에 걸리지 않는다(프로젝트 탭과 같은 결).
+    <div
+      style={{ top: TOOLBAR_TOP }}
+      className={`sticky z-30 flex items-center gap-0.5 overflow-x-auto scrollbar-hide x-scroll-lock px-1.5 py-1 border border-line transition-all duration-200 ${
+        stuck
+          ? 'mx-1 rounded-lg border-line shadow-elevated bg-surface/85 backdrop-blur-md supports-[backdrop-filter]:bg-surface/70'
+          : 'border-b-0 rounded-t-md bg-surface-2/60'
+      }`}
+    >
       <TB on={active.bold} onClick={() => chain().toggleBold().run()} title="굵게"><Bold size={14} /></TB>
       <TB on={active.italic} onClick={() => chain().toggleItalic().run()} title="기울임"><Italic size={14} /></TB>
       <TB on={active.underline} onClick={() => chain().toggleUnderline().run()} title="밑줄"><Underline size={14} /></TB>
@@ -265,16 +393,24 @@ function Toolbar({ editor, active, uploading }) {
       <TB on={active.bullet} onClick={() => chain().toggleBulletList().run()} title="불릿 목록"><List size={15} /></TB>
       <TB on={active.ordered} onClick={() => chain().toggleOrderedList().run()} title="번호 목록"><ListOrdered size={15} /></TB>
       <TB on={active.todo} onClick={() => chain().toggleTaskList().run()} title="체크리스트"><ListTodo size={15} /></TB>
+      {/* 구분선 — 본문에 `---`를 쳐도 된다(입력 규칙). 버튼도 두는 이유는 §8이다:
+          치는 법을 아는 사람만 쓸 수 있는 기능은 숨긴 것과 같다 */}
+      <TB onClick={() => chain().setHorizontalRule().run()} title="구분선 (--- 입력)"><Minus size={15} /></TB>
       <span className="w-px h-4 bg-line mx-1 shrink-0" />
       <span ref={linkRootRef} className="inline-flex">
         <span ref={linkBtnRef} className="inline-flex">
-          <TB on={active.link} onClick={() => { setHref(''); placeLink(); setLinkOpen(o => !o); }} title="링크"><Link2 size={14} /></TB>
+          <TB on={active.link} onClick={openLink} title={picked ? `'${picked.slice(0, 12)}'에 링크 걸기` : '링크 (Ctrl/⌘+K)'}><Link2 size={14} /></TB>
         </span>
         {linkOpen && (
           <div
             style={{ position: 'fixed', left: linkPos.left, top: linkPos.top, width: 256 }}
             className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-2.5 animate-in fade-in zoom-in-95 duration-150"
           >
+            {/* 무엇에 링크가 걸리는지 먼저 말한다 — 고른 것이 없으면 주소가 그대로 글자가
+                된다는 것도 알려 준다(예전에는 눌러 봐야 알았다) */}
+            <p className="text-[10.5px] text-fg-faint mb-1.5 truncate">
+              {picked ? <>‘<span className="text-fg-muted font-semibold">{picked}</span>’에 걸어요</> : '주소가 그대로 글자가 돼요'}
+            </p>
             <input
               autoFocus={!isMobileViewport()} value={href} onChange={e => setHref(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyLink(); } }}

@@ -64,3 +64,21 @@ console.log('마크다운 중첩 라운드트립 자체검증 통과 (30 asserts
   assert.strictEqual(round('- [x] **굵은 할 일**'), '- [x] **굵은 할 일**', '항목 안 마크 유지');
   console.log('본문 체크리스트 라운드트립 통과 (6 asserts)');
 }
+
+// ── 구분선 (2026-08-30) ─────────────────────────────────────────────────────
+// `---`를 치면 선이 된다(에디터의 입력 규칙 + 저장 형식). 읽을 때는 ***·___도 받고
+// 쓸 때는 언제나 `---` 한 벌이다 — 판정 모양이 RichText와 한 쌍이어야 한다.
+{
+  for (const mark of ['---', '----', '***', '___']) {
+    const d = mdToDoc(`위\n${mark}\n아래`);
+    assert.strictEqual(d.content[1].type, 'horizontalRule', `${mark}가 선이 안 된다`);
+  }
+  assert.strictEqual(round('위\n---\n아래'), '위\n---\n아래');
+  assert.strictEqual(round('위\n***\n아래'), '위\n---\n아래', '쓸 때는 --- 한 벌이다');
+  // 글 안의 --- 는 선이 아니다 — 줄 전체일 때만
+  assert.strictEqual(mdToDoc('가--나').content[0].type, 'paragraph');
+  assert.strictEqual(mdToDoc('-- 둘').content[0].type, 'paragraph', '두 개는 선이 아니다');
+  // 불릿(`- 글`)을 선으로 잘못 보면 목록이 통째로 사라진다
+  assert.strictEqual(mdToDoc('- 하나').content[0].type, 'bulletList');
+  console.log('구분선 라운드트립 통과 (9 asserts)');
+}

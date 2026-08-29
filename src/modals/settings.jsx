@@ -32,6 +32,27 @@ async function squareThumb(file) {
   return new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
 }
 
+
+// 바깥을 눌러 닫기 — 업무 창과 **같은 방식**이다(사용자 요청 2026-08-30).
+// 누름(mousedown)이 딤에서 시작했을 때만 닫는다: 입력 칸에서 글자를 끌어 고르다가
+// 손가락이 딤 위에서 떨어지면, 그것만으로 창이 닫히면 쓰던 글이 날아간다.
+// Esc도 같이 받는다 — 창을 닫는 두 관행이다.
+function useDismissModal(onClose, enabled = true) {
+  const overlayRef = React.useRef(null);
+  const downOnOverlay = React.useRef(false);
+  React.useEffect(() => {
+    if (!enabled) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [enabled, onClose]);
+  return {
+    ref: overlayRef,
+    onMouseDown: (e) => { downOnOverlay.current = e.target === overlayRef.current; },
+    onClick: (e) => { if (enabled && e.target === overlayRef.current && downOnOverlay.current) onClose(); },
+  };
+}
+
 export function ProfileModal({ onClose, onSave }) {
   const user = useStore(selectCurrentUser);
   const { enabled, session } = useAuth();
@@ -86,9 +107,11 @@ export function ProfileModal({ onClose, onSave }) {
   // 한 번 채우고 나면 이 조건이 거짓이 되어 다시 뜨지 않는다.
   const onboarding = !user.name || !(user.teams?.length || user.team);
   const canSave = name.trim().length > 0 && teams.length > 0;
+  // 온보딩 중에는 바깥을 눌러도 안 닫힌다 — 취소 버튼도 그때는 없다(위 주석)
+  const dismiss = useDismissModal(onClose, !onboarding);
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+    <div {...dismiss} className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
       <div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm max-h-[90dvh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
         <h3 className="font-bold text-fg mb-1 tracking-[-0.25px]">{onboarding ? '반가워요! 먼저 알려주세요' : '내 정보'}</h3>
         <p className="text-xs text-fg-muted mb-4 leading-relaxed">
@@ -232,8 +255,10 @@ export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
   // 다만 **이미 그 해로 정해진 프로젝트를 고칠 때는 그 해도 남긴다** — 안 그러면
   // 이름만 고치려고 열었다가 연도가 조용히 올해로 바뀐다.
   const YEARS = [...new Set([thisYear, thisYear + 1, thisYear + 2, year])].sort((a, b) => a - b);
+  const dismiss = useDismissModal(onClose);
+
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+    <div {...dismiss} className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
       <div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-200">
         <h3 className="font-bold text-fg mb-4 flex items-center gap-2"><Hash size={18} className="text-accent"/> {renaming ? '프로젝트 이름 수정' : '새 프로젝트 생성'}</h3>
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">프로젝트 이름</label>

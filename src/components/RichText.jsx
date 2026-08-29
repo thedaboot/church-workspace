@@ -63,6 +63,8 @@ const parseBlocks = (text) => {
     // 예전에는 줄 안에 URL이 있으면 되던 탓에 "사진: https://….png"가 줄 전체를 src로
     // 넘겨 깨진 이미지가 되고 앞의 문장이 사라졌다.
     if (!isMdLinkLine && IMAGE_LINE_RE.test(line.trim())) { blocks.push({ type: 'image', value: line.trim(), key: i }); continue; }
+    // 구분선 — 판정 모양은 markdown.js와 한 쌍이다(읽기는 ---·***·___ 셋 다)
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) { blocks.push({ type: 'rule', key: i }); continue; }
     const h = line.match(/^(#{1,4})\s+(.*)$/);
     if (h) { blocks.push({ type: 'heading', level: h[1].length, value: h[2], key: i }); continue; }
     // 체크리스트 — 불릿보다 먼저(불릿 패턴에도 걸린다). 판정 모양은 markdown.js와 한 쌍.
@@ -119,6 +121,9 @@ export const RichText = React.memo(({ content, onToggleTodo }) => {
     <>
       {blocks.map(block => {
         switch (block.type) {
+          case 'rule':
+            // 본문 안의 선은 카드 테두리보다 옅다 — 글을 가르는 표시이지 상자가 아니다
+            return <hr key={b.key} className="my-3 border-0 h-px" style={{ background: 'var(--app-line)' }} />;
           case 'image':
             return <div key={block.key} className="my-2"><ContentImage src={block.value} /></div>;
           case 'todo':

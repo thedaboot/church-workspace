@@ -658,7 +658,10 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
         <button onClick={onNewTask}
           className="dc-press row-start-1 col-start-2 inline-flex items-center gap-1.5 pl-[11px] pr-3.5 py-[7px] rounded-[8px] text-[12.5px] font-bold text-white whitespace-nowrap shrink-0 hover:brightness-[1.07] transition-[filter]"
           style={{ background: 'var(--app-accent)', boxShadow: '0 1px 2px rgba(25,23,32,.18), inset 0 1px 0 rgba(255,255,255,.22)' }}>
-          <Plus size={13} className="shrink-0 [stroke-width:2.2px]" />새 업무
+          {/* -translate-y-px: 아이콘의 기하 중심이 글자 상자 중심보다 0.88px 아래에 앉는다
+              (실측 2026-08-30 — 사용자 지적 "정렬이 딱 안 맞는 느낌"). 1px 올리면 0.12px로
+              맞는다. translate라 버튼 높이는 그대로다(margin으로 올리면 줄이 밀린다). */}
+          <Plus size={13} className="shrink-0 [stroke-width:2.2px] -translate-y-px" />새 업무
         </button>
       </div>
 
