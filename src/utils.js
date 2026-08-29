@@ -128,6 +128,39 @@ export const sheetPreviewUrl = (row) => (row?.preview_file_id
   ? `https://docs.google.com/spreadsheets/d/${row.preview_file_id}/preview?widget=true&rm=minimal`
   : null);
 
+// 달력 7열의 폭 — **격자선을 장치 픽셀에 붙인다.**
+//
+// grid-cols-7 + gap:1px으로 두면 열 폭이 소수가 되고(164.703 · 164.719 …), 1px 선이
+// 장치 픽셀 두 개에 걸쳐 번진다. 걸치는 비율이 선마다 달라서 **어떤 선만 굵어 보인다**
+// — 실측 소수부가 .703 .422 .141 .844 .563 .281이었고, 0.5에 가장 가까운 두 선
+// (월|화 .422 · 목|금 .563)이 정확히 사용자가 짚은 자리였다(2026-08-29).
+//
+// 경계를 round(x * dpr) / dpr 로 붙이면 여섯 선이 **똑같이** 그려진다. dpr이 1.25면
+// 1px 선은 어차피 1.25 장치 픽셀이라 완전히 또렷할 수는 없지만, 여섯이 같은 모양이면
+// 눈에는 고른 격자로 보인다 — 우리가 고치려는 것은 선명함이 아니라 **들쭉날쭉함**이다.
+//
+// 폭을 못 재면(0) null을 준다 — 부르는 쪽이 1fr로 떨어진다.
+// 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
+export function snapCols(width, dpr = 1, gap = 1, n = 7) {
+  const w = Number(width) || 0;
+  const d = Number(dpr) > 0 ? Number(dpr) : 1;
+  if (w <= 0 || n <= 0) return null;
+  const inner = w - gap * (n - 1);          // 선을 뺀, 칸이 나눠 가질 폭
+  if (inner <= 0) return null;
+  const snap = (x) => Math.round(x * d) / d;
+  const cols = [];
+  let used = 0;
+  for (let i = 1; i < n; i++) {
+    // i번째 선이 시작하는 자리(칸 i-1까지 + 선 i-1개)를 장치 픽셀에 붙인다
+    const edge = snap((inner * i) / n + gap * (i - 1));
+    cols.push(Math.max(0, edge - used));
+    used = edge + gap;
+  }
+  cols.push(Math.max(0, w - used));         // 마지막 칸은 남는 것을 다 가진다
+  return cols;
+}
+
+
 // 달력에 얹힐 수 있는 업무 — 시작일이든 마감일이든 하나는 있어야 한다.
 //
 // 팀 칩의 숫자가 **화면이 보여줄 수 있는 것**을 세게 하려고 뺐다. 예전에는 칩이 전부를

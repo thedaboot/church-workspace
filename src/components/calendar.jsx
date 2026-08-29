@@ -5,7 +5,7 @@ import { STATUS_BAR, STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectMembers } from '../store/selectors.js';
-import { birthdayMap, birthdaysOn } from '../utils.js';
+import { birthdayMap, birthdaysOn, snapCols } from '../utils.js';
 import { Avatar } from './Avatar.jsx';
 
 // ============================================================================
@@ -114,6 +114,10 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
   // 실제 줄 높이를 재서 1~CAL_LANES 사이로 정하고, 넘치는 건 '+N건'으로 남긴다.
   const gridRef = React.useRef(null);
   const [laneFit, setLaneFit] = React.useState(CAL_LANES);
+  // 격자선이 장치 픽셀에 붙도록 열 폭을 직접 정한다(utils.snapCols) — 1fr로 두면
+  // 열 폭이 소수가 되어 어떤 선만 굵어 보인다(사용자 지적 2026-08-29).
+  // 요일 줄과 주 줄이 **같은 값**을 써야 세로줄이 위아래로 이어진다.
+  const [cols, setCols] = React.useState(null);
   React.useEffect(() => {
     const el = gridRef.current;
     if (!el || isMobile) return;
@@ -126,11 +130,14 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
       // 안 들어가 laneFit이 1로 떨어졌다(사용자 화면 — "+2건만 나온다").
       const DATE = 22, PAD = 6, OVER = 12, LANE = 18;
       setLaneFit(Math.max(1, Math.min(CAL_LANES, Math.floor((rowH - DATE - PAD - OVER) / LANE))));
+      const next = snapCols(el.clientWidth, window.devicePixelRatio);
+      setCols(prev => (prev && next && prev.join() === next.join() ? prev : next));
     };
     calc();
     const ro = new ResizeObserver(calc);
     ro.observe(el);
-    return () => ro.disconnect();
+    const offDpr = onDprChange(calc);
+    return () => { ro.disconnect(); offDpr(); };
   }, [weekCount, isMobile]);
 
   const weeks = React.useMemo(() => weekStarts.map(ws => ({ ws, ...layoutWeek(ws, tasks || [], laneFit) })),
@@ -163,12 +170,15 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
     });
     return m;
   }, [tasks]);
+  // 주 줄 안의 격자들이 같이 쓰는 열 폭. 못 재면 undefined라 grid-cols-7(1fr)이 남는다.
+  const colStyle = cols ? { gridTemplateColumns: cols.map(c => `${c}px`).join(' ') } : null;
   const dayTasks = (iso) => tasksByDate.get(iso) || [];
   const selectedList = dayTasks(selected);
 
   // 요일 줄은 달력 칸과 폭이 같아야 한다 → 데스크톱에선 달력 열 안에 들어간다
   const weekdayHeader = (
-    <div className="grid grid-cols-7 pb-1.5 shrink-0">
+    <div className="grid grid-cols-7 pb-1.5 shrink-0"
+      style={colStyle ? { ...colStyle, gap: 1, paddingLeft: 1, paddingRight: 1 } : undefined}>
       {WEEKDAYS.map((w, i) => (
         <span key={w} className="text-[10.5px] font-bold text-center"
           style={{ color: i === 0 ? 'var(--app-tag-red-fg)' : i === 6 ? 'var(--app-tag-blue-fg)' : 'var(--app-ink-faint)' }}>{w}</span>
@@ -224,7 +234,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
             <div key={ws} className="relative flex-1 min-h-0 overflow-hidden flex flex-col"
               style={{ borderTop: wi ? '1px solid color-mix(in srgb, var(--app-line) 55%, var(--app-ink-faint))' : 'none' }}>
               {/* ① 배경 셀 — 클릭 타깃 */}
-              <div className="absolute inset-0 grid grid-cols-7" style={{ gap: 1 }}>
+              <div className="absolute inset-0 grid grid-cols-7" style={{ gap: 1, ...colStyle }}>
                 {Array.from({ length: 7 }, (_, i) => {
                   const iso = addDays(ws, i);
                   const inMonth = Number(iso.slice(5, 7)) === view.m + 1;
@@ -242,7 +252,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
                 })}
               </div>
               {/* ② 날짜 숫자 */}
-              <div className="relative grid grid-cols-7 pt-1.5 shrink-0 pointer-events-none" style={{ gap: 1 }}>
+              <div className="relative grid grid-cols-7 pt-1.5 shrink-0 pointer-events-none" style={{ gap: 1, ...colStyle }}>
                 {Array.from({ length: 7 }, (_, i) => {
                   const iso = addDays(ws, i);
                   const inMonth = Number(iso.slice(5, 7)) === view.m + 1;
@@ -275,7 +285,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
                   띠와 '+N건'만 다시 클릭을 받는다. */}
               <div className="relative flex-1 min-h-0 flex flex-col gap-[2px] pt-1 pb-0.5 pointer-events-none">
                 {Array.from({ length: laneFit }, (_, li) => (
-                  <div key={li} className="grid grid-cols-7 shrink-0" style={{ gap: 1 }}>
+                  <div key={li} className="grid grid-cols-7 shrink-0" style={{ gap: 1, ...colStyle }}>
                     {(lanes[li] || []).map(bar => (
                       <CalBar key={bar.task.id} bar={bar} onClick={() => onTaskClick(bar.task)} />
                     ))}
@@ -286,7 +296,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
                   // 넘어서 +N건이 줄 바닥에 반쯤 잘려 보였다. 계산 상수(OVER)와 한 쌍.
                   // '+N건' 글자만 있으면 일정이 있어도 빈 날처럼 읽혔다(사용자 지적) —
                   // 못 실린 업무의 **팀색 점**을 앞에 찍는다(모바일 달력과 같은 언어).
-                  <div className="grid grid-cols-7 shrink-0 h-[12px]" style={{ gap: 1 }}>
+                  <div className="grid grid-cols-7 shrink-0 h-[12px]" style={{ gap: 1, ...colStyle }}>
                     {overflowByCol.map((n, i) => (
                       <span key={i} className="px-1.5">
                         {n > 0 && (
@@ -341,15 +351,52 @@ function CalBar({ bar, onClick }) {
 }
 
 // 모바일 캘린더 — 52px 고정 칸에 팀 색 점만 찍고, 날짜를 누르면 아래에 그날 목록
+// 배율(devicePixelRatio)이 바뀌면 알려준다 — ResizeObserver는 **크기만** 본다.
+// 브라우저 확대는 대개 폭도 같이 바꿔서 RO가 잡지만, 창을 배율이 다른 모니터로 옮기면
+// 폭은 그대로고 dpr만 바뀐다. 그때 열 폭을 다시 안 재면 격자선이 도로 들쭉날쭉해진다.
+// matchMedia는 지금 dpr에서만 유효하므로 콜백에서 다시 건다(한 번 쓰고 버리는 구독).
+function onDprChange(cb) {
+  let mq = null;
+  const arm = () => {
+    mq = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    mq.addEventListener('change', fire, { once: true });
+  };
+  const fire = () => { cb(); arm(); };
+  arm();
+  return () => mq?.removeEventListener('change', fire);
+}
+
+// 모바일 달력도 같은 격자다 — 열 폭을 안 붙이면 여기서도 어떤 세로선만 굵어 보인다.
+// 데스크톱은 laneFit을 재는 ResizeObserver에 얹었는데 여기는 잴 것이 이것뿐이라 따로 둔다.
+function useSnapCols(ref) {
+  const [cols, setCols] = React.useState(null);
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const calc = () => {
+      const next = snapCols(el.clientWidth, window.devicePixelRatio);
+      setCols(prev => (prev && next && prev.join() === next.join() ? prev : next));
+    };
+    calc();
+    const ro = new ResizeObserver(calc);
+    ro.observe(el);
+    const offDpr = onDprChange(calc);
+    return () => { ro.disconnect(); offDpr(); };
+  }, [ref]);
+  return cols ? { gridTemplateColumns: cols.map(c => `${c}px`).join(' ') } : null;
+}
+
 function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, dayTasks, selectedList, onTaskClick, bdays, onNewTask }) {
+  const gridRef = React.useRef(null);
+  const colStyle = useSnapCols(gridRef);
   // 격자와 목록을 **다른 스크롤 통**에 둔다. 한 통에 같이 두었더니 목록을 읽으려고
   // 미는 순간 달력이 위로 밀려 첫 주 줄이 잘렸다(사용자 지적) — 달력은 "지금 어디를
   // 보고 있나"를 알려주는 기준이라 목록을 볼 때도 자리에 있어야 한다.
   // 데스크톱이 달력 왼쪽·목록 오른쪽으로 갈라 둔 것과 같은 판단이다.
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className="shrink-0 grid grid-cols-7 rounded-[10px] overflow-hidden shadow-soft"
-        style={{ gap: 1, background: 'color-mix(in srgb, var(--app-line) 55%, var(--app-ink-faint))', border: '1px solid var(--app-line)', gridAutoRows: '52px' }}>
+      <div ref={gridRef} className="shrink-0 grid grid-cols-7 rounded-[10px] overflow-hidden shadow-soft"
+        style={{ gap: 1, background: 'color-mix(in srgb, var(--app-line) 55%, var(--app-ink-faint))', border: '1px solid var(--app-line)', gridAutoRows: '52px', ...colStyle }}>
         {weekStarts.flatMap(ws => Array.from({ length: 7 }, (_, i) => {
           const iso = addDays(ws, i);
           const inMonth = Number(iso.slice(5, 7)) === month + 1;

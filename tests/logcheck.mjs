@@ -134,6 +134,36 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  엑셀 미리보기 주소 7가지');
 
 
+  // ── 달력 열 폭 (utils.snapCols) ──
+  // 원래 버그: grid-cols-7 + gap:1px이면 열 폭이 소수가 되고(164.703 · 164.719 …)
+  // 1px 선이 장치 픽셀 두 개에 걸쳐 번진다. 걸치는 비율이 선마다 달라서 **어떤 선만
+  // 굵어 보였다** — 소수부가 .703 .422 .141 .844 .563 .281이었고, 0.5에 가장 가까운
+  // 둘(월|화·목|금)이 사용자가 짚은 자리였다(2026-08-29).
+  const { snapCols } = await import(pathToFileURL(f2).href);
+  const edges = (cols, dpr) => {
+    let x = 0; const out = [];
+    for (let i = 0; i < cols.length - 1; i++) { x += cols[i]; out.push(x * dpr); x += 1; }
+    return out;
+  };
+  for (const [w, dpr] of [[1159, 1], [1086, 1], [1086, 2], [1159, 4]]) {
+    const cols = snapCols(w, dpr);
+    assert.strictEqual(cols.length, 7, `${w}/${dpr}: 일곱 칸`);
+    // 폭 합 + 선 6개 = 통 폭. 안 맞으면 마지막 칸이 삐져나가거나 오른쪽이 빈다
+    assert.strictEqual(cols.reduce((a, b) => a + b, 0) + 6, w, `${w}/${dpr}: 폭이 딱 맞는다`);
+    for (const e of edges(cols, dpr)) {
+      assert.ok(Math.abs(e - Math.round(e)) < 1e-6, `${w}/${dpr}: 선이 장치 픽셀에 붙는다 (${e})`);
+    }
+  }
+  // dpr 1.25는 1px 선 자체가 1.25 장치 픽셀이라 정수가 될 수 없다 — 여섯이 **같은**
+  // 소수부를 갖는 것이 목표다(고르지 않은 것이 문제였지 흐린 것이 문제가 아니었다)
+  const f = edges(snapCols(1159, 1.25), 1.25).map(e => e - Math.floor(e));
+  assert.ok(Math.max(...f) - Math.min(...f) < 0.05, `dpr 1.25에서도 여섯이 고르다 (${f.map(x => x.toFixed(3))})`);
+  assert.strictEqual(snapCols(0, 1), null, '못 재면 null — 부르는 쪽이 1fr로 떨어진다');
+  assert.strictEqual(snapCols(4, 1), null, '선보다 좁으면 null');
+  assert.deepStrictEqual(snapCols(1159, 0), snapCols(1159, 1), 'dpr이 0이면 1로 본다 — 던지지 않는다');
+  console.log('PASS  달력 열 폭 (장치 픽셀 정렬)');
+
+
   // ── 달력에 얹히는 업무 (utils.datedTasks) ──
   // 원래 버그: 팀 칩이 전부를 세서 `웰컴팀 7`이라 해놓고 달력에는 띠가 3개만 떴다.
   // 실데이터에서 7건 중 4건이 마감 미정(9·10·11·12월 월례회)이었다 — 달력이 빠뜨린 것이

@@ -179,6 +179,39 @@ check('고른 날 목록의 스크롤 통을 찾는다', daySc.found === true, J
 check('목록이 좌우로 밀리지 않는다', daySc.found && daySc.xScroll === false, JSON.stringify(daySc));
 await send('Emulation.clearDeviceMetricsOverride');
 
+
+// ── 격자선이 고르게 그려지는가 (2026-08-29) ────────────────────────────────
+// grid-cols-7 + gap:1px으로 두면 열 폭이 소수가 되고(164.703 · 164.719 …), 1px 선이
+// 장치 픽셀 두 개에 걸쳐 번진다. 걸치는 비율이 선마다 달라서 **어떤 선만 굵어 보였다**
+// — 실측 소수부가 .703 .422 .141 .844 .563 .281이었고, 0.5에 가장 가까운 두 선
+// (월|화 · 목|금)이 정확히 사용자가 짚은 자리였다.
+// 고쳐야 할 것은 선명함이 아니라 **들쭉날쭉함**이다 — 여섯 선의 소수부가 같으면 된다.
+const lineSpread = () => ev(`(() => {
+  const main = document.querySelector('main');
+  const bg = [...main.querySelectorAll('.grid.grid-cols-7')].find(g => g.children.length === 7 && g.closest('.absolute'));
+  if (!bg) return null;
+  const cells = [...bg.children].map(c => c.getBoundingClientRect());
+  const d = window.devicePixelRatio;
+  const frac = [];
+  for (let i = 0; i < 6; i++) {
+    const dev = cells[i].right * d;
+    frac.push(dev - Math.floor(dev));
+  }
+  return { dpr: d, frac: frac.map(f => +f.toFixed(3)), spread: +(Math.max(...frac) - Math.min(...frac)).toFixed(3) };
+})()`);
+
+// 배율마다 **새로 그린다** — CDP의 배율 변경만으로는 matchMedia(resolution)가 울리지
+// 않아서 앱이 열 폭을 다시 재지 못한다(실제 브라우저에서는 울린다). 여기서 재려는 것은
+// 그 구독이 아니라 "그 배율에서 격자가 고른가"다.
+for (const dpr of [1, 1.25, 2]) {
+  await send('Emulation.setDeviceMetricsOverride', { width: 1513, height: 900, deviceScaleFactor: dpr, mobile: false });
+  await openCal();
+  const g = await lineSpread();
+  // 0.25는 넉넉한 선이다 — 고치기 전 실측이 0.72였고 고친 뒤가 0.05 미만이다.
+  // 레이아웃 단위(1/64px) 양자화 때문에 0은 될 수 없다.
+  check(`격자선이 고르다 (dpr ${dpr})`, !!g && g.spread <= 0.25, JSON.stringify(g));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.join('\n'):'\n콘솔 오류 없음');
 ws.close();chrome.kill();process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);
