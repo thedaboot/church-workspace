@@ -721,6 +721,23 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
 // 헤더 컴포넌트 로컬 state + realtime 구독으로 충분.
 // 종류별 문구는 services/notifyText.js에 있다 — 웹 푸시(api/push.js)가 같은 문구를 쓴다.
 
+// 안드로이드 설치 안내. **알림과는 별개다** — 안드로이드는 설치하지 않아도 브라우저
+// 탭에서 푸시가 온다(iOS만 설치가 전제 조건이라 그쪽은 PushRow의 'needs-pwa' 줄이
+// 다른 문구로 안내한다). 설치하고 아이콘으로 열면 display-mode가 standalone이 되어
+// 이 줄은 저절로 사라진다 — 닫기 버튼도, 닫았다는 기록도 두지 않는 이유다.
+function InstallRow() {
+  if (!push.isAndroid() || push.isStandalone()) return null;
+  return (
+    <div className="flex items-start gap-2 px-3 py-2.5 border-b border-line text-[10px] text-fg-muted">
+      <Smartphone size={13} strokeWidth={1.75} className="shrink-0 mt-px" />
+      <span>
+        크롬 <b className="font-semibold text-fg">⋮ → 앱 설치</b>를 누르면 앱처럼 쓸 수 있어요<br />
+        삼성 인터넷은 <b className="font-semibold text-fg">☰ → 현재 페이지 추가</b>
+      </span>
+    </div>
+  );
+}
+
 // 알림 종 팝오버 안의 '알림 받기' 줄. 여기서 권한을 묻는다 — 앱을 처음 열 때 물으면
 // 무슨 알림인지 모르는 상태에서 거부하기 쉽고, 한 번 거부되면 브라우저 설정에서
 // 손으로 되돌려야 한다.
@@ -789,6 +806,16 @@ function NotificationBell({ onOpenTask }) {
   const btnRef = useRef(null);
   const [pos, place] = useAnchoredPos(btnRef, open, 320, 240);
   const unread = items.filter(n => !n.read).length;
+
+  // 앱 아이콘 뱃지. **아이폰 홈 화면 웹앱에서만 보인다** — 안드로이드 크롬은 이 API가
+  // 아예 없고(대신 알림이 와 있으면 OS가 알아서 점을 붙인다), 데스크톱은 설치한 창에서만
+  // 보인다. 지원하지 않는 곳에서 navigator.setAppBadge는 undefined라 호출 전에 본다.
+  useEffect(() => {
+    if (!navigator.setAppBadge) return;
+    // 권한이 없거나 설치 상태가 아니면 거부될 수 있다 — 뱃지 하나 때문에 콘솔을 더럽히지 않는다.
+    const p = unread > 0 ? navigator.setAppBadge(unread) : navigator.clearAppBadge();
+    p?.catch(() => {});
+  }, [unread]);
 
   // 초기 로드
   useEffect(() => {
@@ -879,6 +906,7 @@ function NotificationBell({ onOpenTask }) {
               <button onClick={readAll} className="text-[10px] text-accent-text hover:bg-surface-hover rounded-md px-1.5 py-1 transition active:scale-95">모두 읽음</button>
             )}
           </div>
+          <InstallRow />
           <PushRow />
           {items.length === 0 ? (
             <div className="text-center py-8 px-3">

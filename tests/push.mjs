@@ -201,4 +201,35 @@ assert.ok(/addEventListener\('notificationclick'/.test(sw), 'sw에 클릭 처리
     'access_token은 session 아래에서 꺼내야 한다');
 }
 
-console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·마이그레이션·크론·sw·재조회 상세 복구·저장이 목록을 안 덮음');
+// ── PWA manifest (홈 화면에 추가) ───────────────────────────────────────────
+// 브라우저가 조용히 무시하는 자리라 어긋나도 화면에는 아무 표시가 안 난다.
+{
+  const mf = JSON.parse(readFileSync(join(ROOT, 'public', 'manifest.webmanifest'), 'utf8'));
+  assert.ok(mf.id, 'id가 없으면 start_url을 바꿀 때 설치된 앱이 다른 앱으로 취급된다');
+  assert.ok(mf.icons.some(i => i.purpose === 'maskable'), '안드로이드 아이콘이 흰 사각형 안에 갇힌다');
+  // orientation을 세로로 잠그면 설치한 사람은 엑셀 미리보기·대시보드를 가로로 못 본다.
+  assert.ok(!mf.orientation, 'manifest가 화면 방향을 잠그고 있다');
+
+  // 바로가기(아이콘 길게 누르기)의 ?p= 는 App.jsx가 그대로 activeMenu로 쓴다.
+  // 메뉴 키 이름이 바뀌면 바로가기는 조용히 대시보드로 떨어진다 — 눌러 보기 전에는 모른다.
+  const src = ['components/layout.jsx', 'App.jsx']
+    .map(f => readFileSync(join(ROOT, 'src', f), 'utf8')).join('\n');
+  const menus = new Set([...src.matchAll(/(?:setActiveMenu\(|activeMenu === )'([A-Za-z]+)'/g)].map(m => m[1]));
+  for (const sc of mf.shortcuts || []) {
+    const p = new URL(sc.url, 'https://x/').searchParams.get('p');
+    assert.ok(menus.has(p), `manifest 바로가기 '${sc.name}'의 ?p=${p} 를 아는 화면이 없다`);
+  }
+}
+
+// ── 설치 안내는 설치하면 사라져야 한다 ──────────────────────────────────────
+// 설치를 마친 사람에게 설치하라는 줄이 계속 뜨는 것이 이 줄의 유일한 실패 방식이다.
+{
+  const layout = readFileSync(join(ROOT, 'src', 'components', 'layout.jsx'), 'utf8');
+  const i = layout.indexOf('function InstallRow');
+  assert.ok(i > 0, 'InstallRow가 없다');
+  const body = layout.slice(i, layout.indexOf('\nfunction ', i + 20));
+  assert.ok(/isStandalone\(\)/.test(body), '설치 안내가 standalone을 보지 않아 설치 뒤에도 계속 뜬다');
+  assert.ok(/isAndroid\(\)/.test(body), '안드로이드 안내가 아이폰에도 뜬다(iOS는 PushRow가 따로 안내한다)');
+}
+
+console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·마이그레이션·크론·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내');
