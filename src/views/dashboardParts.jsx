@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
-import { visitOrder, agoLabel, lastVisitOf } from '../utils.js';
+import { visitOrder, agoLabel, lastVisitOf, teamsLabel } from '../utils.js';
 import { usePresence } from '../services/presence.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useForceGraph } from '../hooks/useForceGraph.js';
@@ -169,6 +169,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
             const done = t.status === '완료';
             const over = !done && t.dueDate && t.dueDate < today;
             const isToday = !done && t.dueDate === today;
+            const teams = teamsLabel(t.teams);
             return (
               <div
                 key={t.id}
@@ -236,10 +237,19 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                       </span>
                       <span className="sm:hidden shrink-0 w-0.5 h-0.5 rounded-full" style={{ background: 'var(--app-line)' }} />
                       <span className="text-[10.5px] text-fg-faint truncate">{projectsMap[t.projectId]?.title || '프로젝트 없음'}</span>
-                      {showTeam && t.teams?.length > 0 && (
+                      {/* 팀이 여럿이면 `웰컴팀 외 2팀`. 예전에는 teams[0] 하나만 그려서
+                          여러 팀이 붙은 업무는 나머지가 화면 어디에도 없었다 — "9월
+                          월례회는 웰컴팀 일"로 읽혔다(사용자 지적 2026-08-29).
+                          색은 대표 팀 색 하나로 간다(팀마다 색을 나눠 칠하면 이 줄이
+                          알록달록해져서 상태·프로젝트와 구분이 사라진다).
+                          shrink-0: 폭이 밀릴 때 양보하는 것은 프로젝트 이름 쪽이다. */}
+                      {showTeam && teams && (
                         <>
                           <span className="w-0.5 h-0.5 rounded-full shrink-0" style={{ background: 'var(--app-line)' }} />
-                          <span className="text-[10.5px] font-semibold whitespace-nowrap" style={{ color: teamColor(t.teams[0]) }}>{t.teams[0]}</span>
+                          <span className="text-[10.5px] font-semibold whitespace-nowrap shrink-0" style={{ color: teamColor(teams.lead) }}>
+                            {teams.lead}
+                            {teams.more > 0 && <span className="font-medium opacity-75"> 외 {teams.more}팀</span>}
+                          </span>
                         </>
                       )}
                       {/* 담당자도 좁은 화면에서는 여기 — 데스크톱처럼 제목 줄 오른쪽 끝에 두면

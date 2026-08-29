@@ -7,7 +7,8 @@ import {
   selectProjectsMap, selectMyTasks, selectTasksList
 } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
-import { formatRelative } from '../utils.js';
+import { formatRelative, projectYear } from '../utils.js';
+import { useProjectYear } from '../hooks/useProjectYear.js';
 import { Avatar } from './Avatar.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import * as push from '../services/push.js';
@@ -323,7 +324,11 @@ export const TopNav = React.memo(({
             )}
           </span>
         )}
-        <button onClick={onOpenProject} className="px-3 pt-2.5 pb-2 -mb-px text-[13px] font-semibold text-fg-faint hover:text-fg-muted transition-colors whitespace-nowrap">+ 프로젝트</button>
+        {/* border-b-2 border-transparent: 줄이 items-end라 **아래 테두리 두께만큼**
+            글자 자리가 정해진다. 탭·더보기·연도는 전부 투명 2px을 깔고 있는데 이 버튼만
+            없어서 글자가 2px 내려앉아 보였다(사용자 지적 2026-08-29). 폭에는 영향이
+            없어서 useTabFit의 측정 줄은 그대로 둔다. */}
+        <button onClick={onOpenProject} className="px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint hover:text-fg-muted transition-colors whitespace-nowrap">+ 프로젝트</button>
       </div>
     </div>
   );
@@ -333,12 +338,13 @@ export const TopNav = React.memo(({
 // 프로젝트 탭 줄 앞의 `2026 ▾`. 고른 해의 프로젝트만 탭에 선다 — 해가 쌓일수록
 // 탭 줄이 넘쳐서 '더보기'로 밀려나기만 하던 문제까지 같이 푼다.
 // 연도는 projects.created_at에서 파생한다(연도 컬럼을 따로 두지 않는다 — 0014의 판단).
-// 연도는 **사람이 정한 값**이다(0025). 값이 없는 옛 행은 만든 해로 떨어진다 —
-// 그 폴백이 원래 규칙이었고, 해가 바뀌기 전에 미리 만드는 프로젝트를 못 견뎌서
-// 컬럼을 두게 됐다(2027 프로젝트 둘이 2026 폴더에 들어가 있었다 — 사용자 지적).
-const projectYear = (p) => String(p?.year || String(p?.createdAt || '').slice(0, 4) || new Date().getFullYear());
+// 연도 규칙(값이 없는 옛 행은 만든 해로)은 **utils.projectYear 하나**다 — 대시보드의
+// '프로젝트 진행'도 같은 값을 봐야 해서 옮겼다. 규칙이 두 벌이면 탭에는 있는
+// 프로젝트가 대시보드에는 없는 해가 생긴다.
+// 폴백이 원래 규칙이었고, 해가 바뀌기 전에 미리 만드는 프로젝트를 못 견뎌서 컬럼을
+// 두게 됐다(2027 프로젝트 둘이 2026 폴더에 들어가 있었다 — 사용자 지적).
 
-// 고른 해는 사람마다 다르고 서버가 알 필요가 없다 → localStorage.
+// 고른 해는 사람마다 다르고 서버가 알 필요가 없다 → useProjectYear(localStorage).
 // 다른 해의 프로젝트를 열면(검색·알림·링크로) 그 해로 따라간다 — 안 그러면 지금
 // 보고 있는 프로젝트가 탭 줄 어디에도 없어서 "어디 있는지" 표시가 사라진다.
 function useTabYear(allProjects, activeMenu) {
@@ -349,17 +355,14 @@ function useTabYear(allProjects, activeMenu) {
     set.add(String(new Date().getFullYear()));
     return { years: [...set].sort((a, b) => b.localeCompare(a)), yearCounts: counts };
   }, [allProjects]);
-  const [year, setYear] = useState(() => {
-    try { return localStorage.getItem('tab_year') || String(new Date().getFullYear()); }
-    catch { return String(new Date().getFullYear()); }
-  });
-  const pick = useCallback((y) => {
-    setYear(y);
-    try { localStorage.setItem('tab_year', y); } catch { /* 프라이빗 모드 */ }
-  }, []);
+  const [year, pick] = useProjectYear();
   const activeYear = allProjects.find(p => p.id === activeMenu) ? projectYear(allProjects.find(p => p.id === activeMenu)) : null;
   useEffect(() => { if (activeYear && activeYear !== year) pick(activeYear); }, [activeYear]); // eslint-disable-line react-hooks/exhaustive-deps
-  // 고른 해가 목록에 없으면(그 해 프로젝트를 다 지웠다) 가장 최근 해로 떨어진다
+  // 고른 해가 목록에 없으면(그 해 프로젝트를 다 지웠다) 가장 최근 해로 떨어진다.
+  // **고쳐서 스토어에 되돌려 놓는다** — 예전에는 여기서만 갈아 끼웠는데, 지금은
+  // 대시보드가 같은 스토어를 보므로 되돌리지 않으면 탭과 대시보드가 다른 해를 본다.
+  // years에는 올해가 언제나 들어 있어서(위 set.add) 이 되돌림은 한 번에 멎는다.
+  useEffect(() => { if (!years.includes(year)) pick(years[0]); }, [years, year, pick]);
   const safeYear = years.includes(year) ? year : years[0];
   return { year: safeYear, setYear: pick, years, yearCounts };
 }
@@ -495,7 +498,8 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
               {p.title}
             </button>
           ))}
-          <button onClick={onOpenProject} className="shrink-0 px-3 pt-2.5 pb-2 -mb-px text-[13px] font-semibold text-fg-faint whitespace-nowrap">+ 프로젝트</button>
+          {/* 데스크톱과 같은 이유로 투명 2px을 깐다(§6의 항목 참고) */}
+          <button onClick={onOpenProject} className="shrink-0 px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint whitespace-nowrap">+ 프로젝트</button>
         </div>
       )}
     </div>

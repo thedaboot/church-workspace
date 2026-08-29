@@ -78,6 +78,46 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(summaryOutdated('2026-08-29T10:05:00Z', ''), false);
   console.log('PASS  고정 요약 낡음 판정 5가지');
 
+  // ── 업무 줄의 팀 표시 (utils.teamsLabel) ──
+  // 원래 버그: teams[0] 하나만 그려서 여러 팀이 붙은 업무는 나머지가 화면 어디에도
+  // 없었다 — "9월 월례회는 웰컴팀 일"로 읽혔다(사용자 지적 2026-08-29).
+  const { teamsLabel } = await import(pathToFileURL(f2).href);
+  assert.deepStrictEqual(teamsLabel(['웰컴팀']), { lead: '웰컴팀', more: 0 }, '한 팀이면 외 N팀이 없다');
+  assert.deepStrictEqual(teamsLabel(['웰컴팀', '찬양팀', '미디어팀']), { lead: '웰컴팀', more: 2 }, '세 팀이면 외 2팀');
+  // 같은 팀이 두 번 들어가면 '외 1팀'이 뜨는데, 화면에는 팀이 하나뿐이라 거짓말이 된다
+  assert.deepStrictEqual(teamsLabel(['웰컴팀', '웰컴팀']), { lead: '웰컴팀', more: 0 }, '중복은 한 팀으로 센다');
+  assert.deepStrictEqual(teamsLabel(['', '찬양팀']), { lead: '찬양팀', more: 0 }, '빈 값은 팀이 아니다');
+  assert.strictEqual(teamsLabel([]), null, '팀이 없으면 줄을 그리지 않는다');
+  assert.strictEqual(teamsLabel(undefined), null, '값이 없어도 안전하다');
+  console.log('PASS  업무 줄 팀 표시 6가지');
+
+  // ── 대시보드 '프로젝트 진행'의 연도 (utils.projectYear · projectsOfYear) ──
+  // 원래 버그: selectActiveProjectsList가 **보관 여부만** 걸러서, 보관하지 않은
+  // 프로젝트가 해마다 쌓이면 이 칸만 끝없이 길어졌다(사용자 지적 2026-08-29).
+  // 규칙은 탭 줄과 **한 벌**이어야 한다 — 두 벌이면 탭에는 있는데 대시보드에는 없는 해가 생긴다.
+  const { projectYear, projectsOfYear } = await import(pathToFileURL(f2).href);
+  const thisYear = String(new Date().getFullYear());
+  assert.strictEqual(projectYear({ year: 2027 }), '2027', '숫자 연도도 문자열로');
+  assert.strictEqual(projectYear({ year: '2027', createdAt: '2026-01-02T00:00:00Z' }), '2027', '사람이 정한 값이 만든 해를 이긴다');
+  assert.strictEqual(projectYear({ createdAt: '2025-03-04T00:00:00Z' }), '2025', '값이 없으면 만든 해로');
+  assert.strictEqual(projectYear({}), thisYear, '둘 다 없으면 올해로 — 목록에서 사라지지 않는다');
+  // 연도를 못 박은 것들만 — 해가 바뀌어도 이 단정은 안 흔들린다
+  const P = [
+    { id: 'p1', title: '9월 월례회', year: 2026 },
+    { id: 'p2', title: '2027 신년 감사예배', year: 2027 },
+    { id: 'p3', title: '옛 프로젝트', createdAt: '2025-05-05T00:00:00Z' },
+  ];
+  assert.deepStrictEqual(projectsOfYear(P, 2026).map(p => p.id), ['p1'], '숫자로 물어도 걸린다');
+  assert.deepStrictEqual(projectsOfYear(P, '2026').map(p => p.id), ['p1'], '문자열로 물어도 같다');
+  assert.deepStrictEqual(projectsOfYear(P, '2025').map(p => p.id), ['p3'], '만든 해로 떨어진 것도 걸린다');
+  assert.deepStrictEqual(projectsOfYear(P, '2099'), [], '그 해에 없으면 빈 목록');
+  assert.deepStrictEqual(projectsOfYear(undefined, '2026'), [], '인자가 없어도 안전하다');
+  // 연도도 만든 날짜도 없는 행은 **올해**에 선다 — 거르면 게스트 모드에서 목록이 통째로 빈다
+  const orphan = [{ id: 'p4', title: '연도가 아예 없는 것' }];
+  assert.deepStrictEqual(projectsOfYear(orphan, thisYear).map(p => p.id), ['p4'], '연도가 없는 것은 올해에 선다');
+  assert.deepStrictEqual(projectsOfYear(orphan, '2099'), [], '다른 해에는 서지 않는다');
+  console.log('PASS  프로젝트 연도 11가지');
+
   // ── 대시보드 인사말이 세는 범위 (utils.myScope) ──
   // 원래 버그: 인사말이 세그먼트를 따라가는 목록을 세서, 미디어팀 박지호의 지연 한 건이
   // "노준석님, 밀린 업무부터 정리해봐요"로 떴다. 남의 지연을 내 이름으로 나무라는 문장.

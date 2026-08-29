@@ -149,6 +149,100 @@ check('연결 지도에 연결선이 있다', !!map && map.lines>=2, JSON.string
 check('팀·프로젝트 노드가 눌리는 버튼이다', !!map && map.nodes>=2, JSON.stringify(map));
 check('그래프 높이가 고정이다(사람 수만큼 쌓이지 않는다)', !!map && map.height>0 && map.height<=360, JSON.stringify(map));
 
+
+// ── 모바일 세 탭 (2026-08-29) ───────────────────────────────────────────────
+// 예전에는 아홉 덩이가 세로로 쌓여서 뒤 네 덩이(팀별·청년별·최근 활동·연결 지도)는
+// 스크롤이 끝나지 않아 아무도 못 봤다. 탭은 **모바일에만** 있고 데스크톱은 2열 그대로다.
+await load({ width: 390, height: 844, deviceScaleFactor: 2, mobile: true }, 'light');
+const tabsOf = () => ev(`(() => {
+  const bar = document.querySelector('[role="tablist"][aria-label="대시보드"]');
+  if (!bar) return null;
+  const btns = [...bar.querySelectorAll('[role="tab"]')];
+  const seen = (t) => [...document.querySelectorAll('h3,div')]
+    .some(e => e.textContent.trim() === t && e.getBoundingClientRect().width > 0);
+  return {
+    labels: btns.map(b => b.textContent.trim()),
+    on: btns.find(b => b.getAttribute('aria-selected') === 'true')?.textContent.trim(),
+    // 숨긴 덩이는 DOM에 그대로 있다(display:none) — **보이는지**를 봐야 한다
+    due: [...document.querySelectorAll('.dc-row')].some(e => e.getBoundingClientRect().width > 0),
+    people: seen('팀별 남은 업무'),
+    map: seen('프로젝트 연결 지도'),
+  };
+})()`);
+const pickTab = (name) => ev(`(() => {
+  const b = [...document.querySelectorAll('[role="tab"]')].find(x => x.textContent.trim() === ${JSON.stringify(name)});
+  if (b) b.click();
+  return !!b;
+})()`);
+
+const tabsInit = await tabsOf();
+check('모바일 대시보드에 세 탭이 있다',
+  JSON.stringify(tabsInit?.labels) === JSON.stringify(['업무', '청년', '연결']), JSON.stringify(tabsInit));
+check('기본은 업무 탭이고 마감 목록이 보인다',
+  tabsInit?.on === '업무' && tabsInit?.due === true, JSON.stringify(tabsInit));
+check('업무 탭에서는 청년·연결 덩이가 안 보인다',
+  tabsInit?.people === false && tabsInit?.map === false, JSON.stringify(tabsInit));
+
+await pickTab('청년'); await sleep(350);
+const tabsPeople = await tabsOf();
+check('청년 탭이 팀별 남은 업무를 연다', tabsPeople?.people === true, JSON.stringify(tabsPeople));
+check('청년 탭에서는 마감 목록이 빠진다', tabsPeople?.due === false, JSON.stringify(tabsPeople));
+
+await pickTab('연결'); await sleep(350);
+const tabsMap = await tabsOf();
+check('연결 탭이 연결 지도를 연다', tabsMap?.map === true, JSON.stringify(tabsMap));
+check('연결 탭에서는 팀별 남은 업무가 빠진다', tabsMap?.people === false, JSON.stringify(tabsMap));
+
+// 데스크톱에는 탭 줄이 없다 — 있으면 2열 배치를 탭이 덮는다는 뜻이다
+await load({ width: 1440, height: 900, deviceScaleFactor: 2, mobile: false }, 'light');
+const deskTabs = await ev(`(() => {
+  const bar = document.querySelector('[role="tablist"][aria-label="대시보드"]');
+  return {
+    hidden: !bar || bar.getBoundingClientRect().width === 0,
+    due: [...document.querySelectorAll('.dc-row')].some(e => e.getBoundingClientRect().width > 0),
+    people: [...document.querySelectorAll('div')]
+      .some(e => e.textContent.trim() === '팀별 남은 업무' && e.getBoundingClientRect().width > 0),
+  };
+})()`);
+check('데스크톱에는 탭 줄이 없다', deskTabs?.hidden === true, JSON.stringify(deskTabs));
+check('데스크톱은 마감 목록과 청년 칸이 같이 보인다',
+  deskTabs?.due === true && deskTabs?.people === true, JSON.stringify(deskTabs));
+
+// ── 프로젝트 진행이 연도를 따라간다 (2026-08-29) ────────────────────────────
+// 예전에는 보관 여부만 걸러서 해가 쌓일수록 이 칸만 끝없이 길어졌다.
+const yearCard = await ev(`(() => {
+  const h = [...document.querySelectorAll('h3')].find(x => x.textContent === '프로젝트 진행');
+  if (!h) return null;
+  const card = h.closest('div').parentElement;
+  return {
+    year: h.parentElement.lastElementChild?.textContent.trim() || '',
+    total: /올해 전체/.test(card.textContent || ''),
+    // 예전 요약 줄(완료 3 · 진행 2 · …)이 남아 있으면 줄이는 것이 안 먹은 것이다
+    oldSummary: /완료 [0-9]+ · 진행 [0-9]+/.test(card.textContent || ''),
+  };
+})()`);
+check('프로젝트 진행 머리줄에 연도가 붙는다', /^[0-9]{4}$/.test(yearCard?.year || ''), JSON.stringify(yearCard));
+check('올해 전체 진척도 줄이 있다', yearCard?.total === true, JSON.stringify(yearCard));
+check('프로젝트 요약이 한 마디로 줄었다', yearCard?.oldSummary === false, JSON.stringify(yearCard));
+
+// ── 탭 줄의 '+ 프로젝트'가 이웃과 같은 줄에 선다 (2026-08-29) ───────────────
+// items-end 줄이라 **아래 테두리 두께만큼** 글자 자리가 정해진다. 탭·더보기·연도는
+// 투명 2px을 깔고 있는데 이 버튼만 없어서 글자가 2px 내려앉아 보였다(사용자 지적).
+const plusAlign = await ev(`(() => {
+  const plus = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '+ 프로젝트');
+  if (!plus) return null;
+  // 글자가 앉는 자리 = 박스 아래끝에서 아래 테두리를 뺀 값. 박스 아래끝은 items-end라
+  // 언제나 같아서, 테두리가 빠진 것은 **글자 자리로만** 드러난다.
+  const inkBottom = (el) => Math.round(
+    el.getBoundingClientRect().bottom - parseFloat(getComputedStyle(el).borderBottomWidth || 0));
+  const row = plus.parentElement;
+  const others = [...row.querySelectorAll('button')].filter(b => b !== plus && b.getBoundingClientRect().width > 0);
+  return { plus: inkBottom(plus), others: [...new Set(others.map(inkBottom))], n: others.length };
+})()`);
+check('+ 프로젝트가 이웃 버튼과 같은 밑선에 선다',
+  !!plusAlign && plusAlign.n > 0 && plusAlign.others.every(b => Math.abs(b - plusAlign.plus) <= 1),
+  JSON.stringify(plusAlign));
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,4).join('\n'):'\n콘솔 오류 없음');
 ws.close();chrome.kill();process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

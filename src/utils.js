@@ -91,6 +91,28 @@ export const myScope = (openTasks, myName) => (openTasks || []).filter(t => {
   return a.length === 0 || a.includes(myName);
 });
 
+// 업무 줄에 팀을 한 마디로 — `웰컴팀` · `웰컴팀 외 2팀`.
+// 예전에는 teams[0] 하나만 그렸다. 여러 팀이 붙은 업무는 나머지가 화면 어디에도 없어서,
+// "9월 월례회는 웰컴팀 일"로 읽혔다(사용자 지적 2026-08-29). 색은 대표 팀 색을 그대로
+// 쓰므로 여기서는 글자만 만든다 — 색까지 여기서 정하면 순수 함수가 아니게 된다.
+export function teamsLabel(teams) {
+  const list = [...new Set((teams || []).filter(Boolean))];
+  if (!list.length) return null;
+  return { lead: list[0], more: list.length - 1 };
+}
+
+// 연도는 **사람이 정한 값**이다(0025). 값이 없는 옛 행은 만든 해로 떨어진다.
+// 탭 줄과 대시보드가 **같은 규칙**을 봐야 한다 — 규칙이 두 벌이면 탭에는 있는
+// 프로젝트가 대시보드에는 없는 해가 생긴다. 그래서 layout.jsx가 이걸 가져다 쓴다.
+export const projectYear = (p) =>
+  String(p?.year || String(p?.createdAt || '').slice(0, 4) || new Date().getFullYear());
+
+// 그 해 프로젝트만 — 대시보드 '프로젝트 진행'이 상단 연도 선택을 따라간다.
+// 연도를 안 보면 보관하지 않은 프로젝트가 해마다 쌓여 이 칸만 끝없이 길어진다
+// (selectActiveProjectsList는 보관 여부만 걸렀다 — 사용자 지적 2026-08-29).
+export const projectsOfYear = (list, year) =>
+  (list || []).filter(p => projectYear(p) === String(year));
+
 // 하위 업무(cards.subtasks) 진척 — 보드 카드와 업무 창이 같이 쓴다.
 // 순수 함수라 utils에 둔다(보드가 모달을 가져오는 방향이 되지 않게).
 // 고정된 요약이 낡았나 — 고정한 뒤에 카드가 바뀌었으면(체크·본문 수정) 참.

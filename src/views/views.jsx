@@ -2,7 +2,8 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, ChevronDown, Check, X, Trash2, Pencil } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
-import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin } from '../utils.js';
+import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear } from '../utils.js';
+import { useProjectYear } from '../hooks/useProjectYear.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
@@ -33,6 +34,10 @@ import { failText } from '../services/errorText.js';
 // "얼마나 진행됐나"가 아니라 "지금 뭘 해야 하나"를 먼저 보여준다.
 // 마감 기준으로 묶은 목록이 주인공이고, 그 자리에서 완료 처리까지 한다.
 export const DASH_FILTERS = ['전체', '내 업무', '내 팀'];
+// 모바일 대시보드의 세 탭. 이름은 앱이 이미 쓰는 말로 맞추었다 — UI에서는 '작업'이
+// 아니라 **업무**이고(§8), 사람 칸은 '청년별 남은 업무'와 같은 **청년**이다.
+// 데스크톱은 이 탭을 쓰지 않는다 — 2열이 그대로다.
+const DASH_TABS = ['업무', '청년', '연결'];
 export const DASH_FILTER_DEFAULT = DASH_FILTERS[0];
 
 export const DashboardView = React.memo(function DashboardView({ onNavigate, onTaskClick, onStatusChange, filter, setFilter }) {
@@ -42,7 +47,13 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   const projectsMap = useStore(selectProjectsMap);
   // '프로젝트 진행'은 지금 굴러가는 것만 — 끝나서 보관한 프로젝트가 계속 100%로
   // 남아 있으면 목록만 길어진다(업무는 여전히 세어져 KPI·마감 목록에는 들어간다)
-  const projectsList = useStore(selectActiveProjectsList);
+  const activeProjects = useStore(selectActiveProjectsList);
+  // 그리고 **고른 해의 것만** — 보관은 사람이 챙겨서 하는 일이라 안 하면 해마다 쌓이고,
+  // 이 칸만 끝없이 길어진다(사용자 지적 2026-08-29). 탭 줄과 같은 값을 본다.
+  const [year] = useProjectYear();
+  const projectsList = useMemo(() => projectsOfYear(activeProjects, year), [activeProjects, year]);
+  // 연결 지도는 해로 거르지 않는다 — "내가 어디에 붙어 있는지" 한 장이고, 해로 자르면
+  // 작년까지 이어온 관계가 통째로 사라진다.
   const today = ISO_TODAY();
 
   // 소속 팀이 여럿이면 전부 합친다(대표 팀 하나만 보면 겸직한 사람 업무가 빠진다)
@@ -124,9 +135,16 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
       ...p, counts, total: list.length,
       dueLabel: nearest ? (dd < 0 ? `${-dd}일 지남` : dd === 0 ? '오늘 마감' : `D-${dd}`) : '마감 미정',
       urgent: dd !== null && dd <= 2,
-      summary: CONFIG.STATUSES.map(s => `${s === '시작 전' ? '시작 전' : s} ${counts[s]}`).join(' · '),
+      // 예전에는 `완료 7 · 진행 3 · 보류 0 · 시작 전 2`였다. 바로 위 세그먼트 바가
+      // 이미 같은 말을 색으로 하고 있어서, 이 줄은 모바일에서 높이만 먹었다.
+      summary: `${list.length}건 중 ${counts['완료'] || 0}건`,
     };
   }), [projectsList, tasksByProject, today]);
+
+  // 고른 해 전체 진척도 — 이 칸의 머리줄이다. 아래 프로젝트들과 같은 기준(그 해 업무)이라
+  // KPI의 '전체 진척도'(해와 무관한 전부)와는 다른 숫자다. 그래서 이름도 '올해 전체'다.
+  const yearDone = useMemo(() => projectStats.reduce((n, p) => n + (p.counts['완료'] || 0), 0), [projectStats]);
+  const yearTotal = useMemo(() => projectStats.reduce((n, p) => n + p.total, 0), [projectStats]);
 
   // 인사말이 세는 범위는 '내 것 + 담당자 없는 것'이다 — 이유는 utils.myScope 주석에.
   const myOpen = useMemo(() => myScope(open, myName), [open, myName]);
@@ -171,6 +189,25 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
       />
     </>
   );
+  // 모바일 탭. 데스크톱은 이 값을 쓰지 않는다 — 아래 pane()이 lg에서 언제나 contents다.
+  const [tab, setTab] = useState(DASH_TABS[0]);
+  // 덩이 하나를 그 탭에서만 보이게. **contents**여야 안쪽 칸이 직접 그리드/플렉스 칸이
+  // 된다 — 감싸개가 칸을 하나 차지하면 데스크톱 2열 배치가 어긋난다(§6-3과 같은 방법).
+  const pane = (name) => (tab === name ? 'contents' : 'hidden lg:contents');
+  // 필터 칩은 데스크톱(인사말 옆)과 모바일('업무' 탭 안) 두 자리에서 같은 것을 쓴다
+  const filterSegments = DASH_FILTERS.map(f => (
+    <button
+      key={f} onClick={() => setFilter(f)}
+      className="dc-press flex-1 lg:flex-none px-3 py-1.5 rounded-[5px] text-[12.5px] font-semibold transition-colors"
+      style={{
+        background: filter === f ? 'var(--app-surface)' : 'transparent',
+        color: filter === f ? 'var(--app-ink)' : 'var(--app-ink-muted)',
+      }}
+    >
+      {f} {counts[f]}
+    </button>
+  ));
+
   const progressCell = (
     <>
       <div className="flex items-center gap-1.5">
@@ -200,20 +237,34 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
             </p>
           )}
         </div>
-        <div className="flex items-center gap-1 shrink-0 p-[3px] rounded-[8px]" style={{ background: 'var(--app-surface-hover)' }}>
-          {DASH_FILTERS.map(f => (
-            <button
-              key={f} onClick={() => setFilter(f)}
-              className="dc-press px-3 py-1.5 rounded-[5px] text-[12.5px] font-semibold transition-colors"
-              style={{
-                background: filter === f ? 'var(--app-surface)' : 'transparent',
-                color: filter === f ? 'var(--app-ink)' : 'var(--app-ink-muted)',
-              }}
-            >
-              {f} {counts[f]}
-            </button>
-          ))}
+        {/* 이 필터가 실제로 건드리는 것은 KPI와 마감 목록뿐이다 — 사람 칸은 필터와
+            무관하다(§6-31). 그래서 모바일에서는 '업무' 탭 안으로 내려간다. */}
+        <div className="hidden lg:flex items-center gap-1 shrink-0 p-[3px] rounded-[8px]" style={{ background: 'var(--app-surface-hover)' }}>
+          {filterSegments}
         </div>
+      </div>
+
+      {/* 모바일 탭 — 예전에는 아홉 덩이가 세로로 쌓여서 뒤 네 덩이(팀별·청년별·최근
+          활동·연결 지도)는 스크롤이 끝나지 않아 아무도 못 봤다(사용자 지적 2026-08-29).
+          §8의 "기능을 숨기지 않습니다"와 부딪히지만, 탭 세 칸은 언제나 보이고 지금
+          상태는 이미 숨긴 것과 다름없다는 판단이다(사용자 결정).
+          데스크톱은 2열이 그대로라 이 줄이 없다. */}
+      <div role="tablist" aria-label="대시보드" className="flex lg:hidden items-center gap-1 p-[3px] mb-2.5 rounded-[8px]" style={{ background: 'var(--app-surface-hover)' }}>
+        {DASH_TABS.map(t => (
+          <button
+            key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
+            className="dc-press flex-1 py-1.5 rounded-[5px] text-[12.5px] font-semibold transition-colors"
+            style={{
+              background: tab === t ? 'var(--app-surface)' : 'transparent',
+              color: tab === t ? 'var(--app-ink)' : 'var(--app-ink-muted)',
+            }}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      <div className={`${tab === '업무' ? 'flex' : 'hidden'} lg:hidden items-center gap-1 mb-2.5 p-[3px] rounded-[8px]`} style={{ background: 'var(--app-surface-hover)' }}>
+        {filterSegments}
       </div>
 
       {/* KPI — 데스크톱은 좌 3칸(1px 격자) + 우 진척도로 아래 본문 2열과 경계가 맞고,
@@ -225,7 +276,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
         </div>
         <Card className="flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]">{progressCell}</Card>
       </div>
-      <div className="grid lg:hidden kpi-grid rounded-[10px] overflow-hidden shadow-soft"
+      <div className={`${tab === '업무' ? 'grid' : 'hidden'} lg:hidden kpi-grid rounded-[10px] overflow-hidden shadow-soft`}
         style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)' }}>
         {kpiCells}
         <div className="flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]" style={{ background: 'var(--app-surface)' }}>{progressCell}</div>
@@ -233,32 +284,51 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
 
       {/* 본문 — 좌: 마감 그룹, 우: 프로젝트 진행 + 팀별 남은 업무 */}
       <div className="grid gap-x-8 gap-y-6 pt-5 items-start dash-grid">
-        <DueGroupList
-          groups={groups} projectsMap={projectsMap} today={today}
-          onComplete={complete} onOpen={onTaskClick}
-          emptyHint={filter === '전체' ? '새 업무가 들어오면 여기에 쌓여요' : '다른 탭에는 아직 남은 업무가 있어요'}
-        />
-        {/* lg 미만에서는 감싸개를 지워 안쪽 칸이 직접 그리드 칸이 된다 — 그래야 사람 칸만
-            따로 맨 위로 올릴 수 있다(§6-3처럼 컴포넌트를 두 벌 두지 않는 방법).
-            1열로 쌓이면 이 칸이 업무 목록 **전부 아래**로 내려가서, 사람이 먼저 보이라고
-            만든 칸을 아무도 보지 못한다. */}
+        <div className={pane('업무')}>
+          <DueGroupList
+            groups={groups} projectsMap={projectsMap} today={today}
+            onComplete={complete} onOpen={onTaskClick}
+            emptyHint={filter === '전체' ? '새 업무가 들어오면 여기에 쌓여요' : '다른 탭에는 아직 남은 업무가 있어요'}
+          />
+        </div>
+        {/* lg 미만에서는 감싸개를 지워 안쪽 칸이 직접 그리드 칸이 된다 — 그래야 탭이
+            고른 덩이만 그 자리에 설 수 있다(§6-3처럼 컴포넌트를 두 벌 두지 않는 방법).
+            예전에는 여기서 사람 칸만 order-first로 끌어올렸는데, 지금은 사람 칸이
+            '청년' 탭으로 통째로 갔으므로 순서를 뒤집을 일이 없다. */}
         <div className="contents lg:flex lg:flex-col lg:min-w-0 lg:gap-[22px]">
           {/* 사람이 먼저다. 멤버가 없으면(게스트 모드) 아무것도 안 그린다 */}
-          <div className="order-first lg:order-none min-w-0">
-            <PeopleStrip
-              members={members} myName={myName}
-              seen={seenTodayList} birthdays={birthdayList} joined={joinedList}
-              onOpenMembers={() => setMembersOpen(true)}
-            />
-            {membersOpen && (
-              <MembersModal members={members} myName={myName} onClose={() => setMembersOpen(false)} />
-            )}
-          </div>
-          <Card className="px-4 pt-[15px] pb-[3px]">
-            <div className="flex items-baseline justify-between pb-3">
-              <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 진행</h3>
-              <span className="text-[10.5px] text-fg-faint">완료 · 진행 · 보류 · 시작 전</span>
+          <div className={pane('청년')}>
+            <div className="min-w-0">
+              <PeopleStrip
+                members={members} myName={myName}
+                seen={seenTodayList} birthdays={birthdayList} joined={joinedList}
+                onOpenMembers={() => setMembersOpen(true)}
+              />
+              {membersOpen && (
+                <MembersModal members={members} myName={myName} onClose={() => setMembersOpen(false)} />
+              )}
             </div>
+          </div>
+          <div className={pane('업무')}>
+          <Card className="px-4 pt-[15px] pb-[3px]">
+            <div className="flex items-baseline justify-between gap-2 pb-3">
+              <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 진행</h3>
+              {/* 연도는 여기서 고르지 않는다 — 탭 줄의 `2026 ▾` 하나가 기준이다.
+                  같은 값을 고르는 자리가 둘이면 어느 쪽이 참인지 화면에서 안 보인다. */}
+              <span className="text-[10.5px] text-fg-faint tabular-nums shrink-0">{year}</span>
+            </div>
+            {/* 그 해 전체 — 아래 프로젝트들의 합이다. 프로젝트가 없으면 그리지 않는다
+                (0건에 0%를 그리면 "다 안 했다"로 읽힌다). */}
+            {yearTotal > 0 && (
+              <div className="flex items-center gap-2.5 pb-3 mb-[11px] border-b border-line">
+                <span className="text-[11.5px] font-semibold text-fg-muted whitespace-nowrap shrink-0">올해 전체</span>
+                <span className="flex-1 min-w-0"><Bar ratio={yearDone / yearTotal} color="var(--p-blue)" /></span>
+                <span className="text-[15px] font-extrabold text-fg tabular-nums shrink-0" style={{ letterSpacing: '-0.6px' }}>
+                  {Math.round((yearDone / yearTotal) * 100)}%
+                </span>
+                <span className="text-[10.5px] text-fg-faint tabular-nums whitespace-nowrap shrink-0">{yearDone}/{yearTotal}건</span>
+              </div>
+            )}
             {projectStats.map(p => (
               <div key={p.id} className="pb-[13px]">
                 <div className="flex items-baseline justify-between gap-2.5 pb-1.5">
@@ -270,34 +340,45 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
                 <p className="mt-[5px] text-[10.5px] text-fg-faint tabular-nums">{p.summary}</p>
               </div>
             ))}
-            {!projectStats.length && <p className="pb-4 text-[11px] text-fg-faint">아직 프로젝트가 없어요</p>}
+            {/* 고른 해에 프로젝트가 없을 수 있다 — 다른 해에는 있다는 뜻이므로
+                '아직'이라고 하지 않는다(달력의 `해당 날짜에는 업무가 없어요`와 같은 결). */}
+            {!projectStats.length && <p className="pb-4 text-[11px] text-fg-faint">{year}년에는 프로젝트가 없어요</p>}
           </Card>
-
-          <div>
-            <SectionHead>팀별 남은 업무</SectionHead>
-            <TeamLeftGrid stats={teamStats} onOpenTeam={(name) => onNavigate(`team:${name}`)} />
           </div>
 
-          <div>
-            <SectionHead>청년별 남은 업무</SectionHead>
-            <PersonLoadGrid people={people} />
+          <div className={pane('청년')}>
+            <div>
+              <SectionHead>팀별 남은 업무</SectionHead>
+              <TeamLeftGrid stats={teamStats} onOpenTeam={(name) => onNavigate(`team:${name}`)} />
+            </div>
+          </div>
+
+          <div className={pane('청년')}>
+            <div>
+              <SectionHead>청년별 남은 업무</SectionHead>
+              <PersonLoadGrid people={people} />
+            </div>
           </div>
 
           {/* 최근 활동 — activity는 쌓이고 있었는데 업무 창 안에만 갇혀 있었다.
-              모바일에서는 목록 뒤(원래 자리)로 간다: 피드는 둘러보는 정보라
-              '지금 해야 할 것'(마감 목록)보다 앞설 이유가 없다. */}
-          <ActivityFeed feed={feed} tasksById={tasksById} onOpenTask={onTaskClick} />
+              모바일에서는 '청년' 탭 맨 끝이다: 피드는 둘러보는 정보라 '지금 해야
+              할 것'(마감 목록)보다 앞설 이유가 없다. */}
+          <div className={pane('청년')}>
+            <ActivityFeed feed={feed} tasksById={tasksById} onOpenTask={onTaskClick} />
+          </div>
 
         </div>
       </div>
 
       {/* 연결 지도(#28) — 내가 어디에 붙어 있는지 한 장. 세 열(사람·팀·프로젝트)이 640px을
           쓰므로 사이드 칸(360px)에 넣으면 프로젝트 열이 잘린다 → 본문 아래 전폭으로 둔다.
-          클라우드에서만 그린다(멤버가 있어야 사람 열이 있다). */}
+          클라우드에서만 그린다(멤버가 있어야 사람 열이 있다).
+          **해로 거르지 않는다** — "내가 어디에 붙어 있는지"가 이 그림의 일이고,
+          해로 자르면 작년까지 이어온 관계가 통째로 사라진다. */}
       {members.length > 0 && (
-        <div className="pt-6">
+        <div className={`${tab === '연결' ? 'block' : 'hidden'} lg:block pt-6`}>
           <NetworkMap
-            members={members} teamsInUse={teamsInUse} projects={projectsList}
+            members={members} teamsInUse={teamsInUse} projects={activeProjects}
             teamProjects={teamProjects}
             onOpenTeam={(name) => onNavigate(`team:${name}`)} onOpenProject={onNavigate}
           />
