@@ -105,20 +105,20 @@ export function ProfileModal({ onClose, onSave }) {
             <label className="block text-xs font-semibold text-fg-muted mb-1.5">사진</label>
             <div className="flex items-center gap-3">
               <Avatar name={name || user.name || ''} url={shownAvatar} className="flex w-14 h-14 text-lg" />
-              <div className="min-w-0">
-                <div className="flex gap-1.5">
+              {/* 안내 줄("가운데를 정사각형으로 잘라서 올려요")은 뺐다(사용자 요청
+                  2026-08-29) — 자르는 방식은 올려 보면 바로 보이는 것이라 글이 필요
+                  없다. 줄이 빠진 만큼 버튼을 아바타 세로 중앙에 맞춘다. */}
+              <div className="min-w-0 flex gap-1.5 items-center">
+                <button
+                  type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
+                  className="text-accent-text hover:bg-accent-weak rounded-md px-2 py-1 text-xs transition active:scale-95 disabled:opacity-50"
+                >{uploading ? '올리는 중...' : '사진 변경'}</button>
+                {shownAvatar && (
                   <button
-                    type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-                    className="text-accent-text hover:bg-accent-weak rounded-md px-2 py-1 text-xs transition active:scale-95 disabled:opacity-50"
-                  >{uploading ? '올리는 중...' : '사진 변경'}</button>
-                  {shownAvatar && (
-                    <button
-                      type="button" onClick={() => setAvatarUrl('')} disabled={uploading}
-                      className="text-fg-muted hover:bg-surface-hover rounded-md px-2 py-1 text-xs transition active:scale-95 disabled:opacity-50"
-                    >기본으로</button>
-                  )}
-                </div>
-                <p className="text-[11px] text-fg-faint mt-1">가운데를 정사각형으로 잘라서 올려요</p>
+                    type="button" onClick={() => setAvatarUrl('')} disabled={uploading}
+                    className="text-fg-muted hover:bg-surface-hover rounded-md px-2 py-1 text-xs transition active:scale-95 disabled:opacity-50"
+                  >기본으로</button>
+                )}
               </div>
               <input ref={fileRef} type="file" accept="image/*" onChange={pickPhoto} className="hidden" />
             </div>
