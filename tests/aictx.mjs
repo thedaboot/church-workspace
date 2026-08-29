@@ -45,7 +45,7 @@ globalThis.__STATE = {
     t6: mk('t6','작년 포스터 제작',['미디어팀'],'완료','2025-06-01','2025-06-20',['시온'],'p3'),
   }, allIds:['t0','t1','t2','t3','t4','t5','t6'] },
 };
-const { buildTaskContext, peopleContext, sanitizeMentions, AiService } = await import(pathToFileURL(file).href);
+const { buildTaskContext, peopleContext, sanitizeMentions, resolveTaskLinks, AiService } = await import(pathToFileURL(file).href);
 const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}${d?' — '+d:''}`);
 
 const NOW = new Date('2026-07-24T10:00:00');   // 콘티 마감(7/26) 이틀 전
@@ -199,6 +199,50 @@ check('우리 표현으로 바꾸라는 표가 있다',
   captured.sys.includes('3층 본당') && captured.sys.includes('셀·소그룹 → 순'));
 check('원문에 없는 사람을 멘션하지 말라는 규칙이 있다', captured.sys.includes('원문에 나오지 않은 사람은 멘션하지 마라'));
 check('다듬기 프롬프트에 멘션 표기가 실린다', captured.prompt.includes('멘션은 @노준석'));
+
+// ── 관련 업무 링크 (2026-08-30) ────────────────────────────────────────────
+// 모델에게 uuid를 쓰게 하면 지어내서 죽은 링크가 된다. 표시만 쓰게 하고 제목 정확
+// 일치로 우리가 id를 찾는다 — 멘션이 표시명 정확 일치로 사람을 찾는 것과 같은 방식.
+check('다듬기에 관련 업무를 [[업무:제목]]로 쓰라는 지시가 있다',
+  captured.sys.includes('[[업무:제목]]') && captured.sys.includes('한 글자도 바꾸지 말고'));
+check('업무 표시에 주소·id를 직접 쓰지 말라고 한다',
+  captured.sys.includes('주소나 id를 직접 쓰지 마라'));
+check('지금 다듬는 업무 자신은 표시하지 말라고 한다',
+  captured.sys.includes('지금 다듬고 있는 이 업무 자신은 표시하지 마라'));
+{
+  const ORG = 'https://x.app';
+  const t0 = globalThis.__STATE.tasks.byId.t0;      // '찬양 콘티 결정' (p1)
+  const link = (s) => resolveTaskLinks(s, t0, { origin: ORG });
+  check('제목이 정확히 맞으면 링크가 된다',
+    link('송폼은 [[업무:악보·송폼 제작]]에서 이어가요')
+      === `송폼은 [악보·송폼 제작](${ORG}/?p=p1&t=t1)에서 이어가요`,
+    link('송폼은 [[업무:악보·송폼 제작]]에서 이어가요'));
+  check('다른 프로젝트의 업무도 링크가 된다',
+    link('[[업무:체육대회 물품 준비]]') === `[체육대회 물품 준비](${ORG}/?p=p2&t=t4)`,
+    link('[[업무:체육대회 물품 준비]]'));
+  // 못 찾으면 표시만 벗기고 글자로 둔다 — 본문에 [[…]]가 남으면 그게 죽은 표시다
+  check('없는 업무는 표시를 벗겨 글자로 둔다',
+    link('[[업무:있지도 않은 업무]] 확인') === '있지도 않은 업무 확인',
+    link('[[업무:있지도 않은 업무]] 확인'));
+  check('제목이 한 글자라도 다르면 링크가 아니다',
+    link('[[업무:악보 송폼 제작]]') === '악보 송폼 제작', link('[[업무:악보 송폼 제작]]'));
+  // 자기 자신을 가리키는 링크는 뜻이 없다(이미 그 업무를 보고 있다)
+  check('자기 자신은 링크로 만들지 않는다',
+    link('이 업무는 [[업무:찬양 콘티 결정]]이에요') === '이 업무는 찬양 콘티 결정이에요',
+    link('이 업무는 [[업무:찬양 콘티 결정]]이에요'));
+  check('표시가 없는 글은 그대로 둔다', link('그냥 문장이에요') === '그냥 문장이에요');
+  // 다듬기 결과가 실제로 이 변환을 거쳐 나오는지 (본문에 [[…]]가 남으면 안 된다).
+  // 주소는 절대 주소여야 한다 — 저장 형식의 링크 문법이 http(s)만 받는다(markdown.js).
+  // 그래서 브라우저처럼 origin이 있는 상태를 만들어 준다.
+  globalThis.window = { location: { origin: ORG } };
+  AiService.callGemini = async () => '- [[업무:악보·송폼 제작]]로 넘겨요\n- [[업무:없는 것]]은 그대로';
+  const polished = await AiService.polishText('초안', t0);
+  check('다듬기 결과가 링크로 바뀌어 나온다',
+    polished.includes(`[악보·송폼 제작](${ORG}/?p=p1&t=t1)`) && !polished.includes('[[업무:'),
+    polished.replace(/\n/g, ' / '));
+  delete globalThis.window;
+  AiService.callGemini = async (prompt, sys) => { captured = { prompt, sys }; return ''; };
+}
 // 안내 문구는 그대로 돌려줘야 부르는 쪽이 걸러낼 수 있다(본문을 덮어쓰던 버그)
 {
   AiService.callGemini = async () => 'AI 기능은 로그인 후 사용할 수 있어요.';

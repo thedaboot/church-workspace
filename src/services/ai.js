@@ -184,6 +184,44 @@ export function sanitizeMentions(text, knownNames) {
   });
 }
 
+// AI가 쓴 `[[업무:제목]]` 표시를 **앱 안에서 열리는 링크**로 바꾼다.
+// 모델에게 uuid를 쓰게 하면 지어내서 죽은 링크가 된다 — 그래서 표시만 쓰게 하고
+// 여기서 **제목 정확 일치**로 id를 찾는다(멘션이 표시명 정확 일치로만 사람을 찾는
+// sanitizeMentions·resolveMentionRecipients와 같은 철학이다). 못 찾으면 표시를 벗겨
+// 그냥 글자로 둔다 — 본문에 `[[…]]`가 남으면 그것이 곧 죽은 표시다.
+//
+// 주소를 **절대 주소**로 만드는 이유: 저장 형식의 링크 문법(markdown.js MD_LINK_RE)이
+// `http(s)`로 시작하는 주소만 받는다. `/?p=…`로 적으면 링크가 아니라 글자 그대로 남는다.
+// 같은 origin이면 RichText가 `_blank`를 떼고 앱 안에서 그 업무 창을 연다(App이 연다).
+const TASK_MARK_RE = /\[\[\s*업무\s*:\s*([^\]\n]+?)\s*\]\]/g;
+const appOrigin = () => (typeof window !== 'undefined' && window.location?.origin) || '';
+
+// 딥링크 주소 — App.jsx가 읽는 `?p=<projectId>&t=<taskId>` 그대로다
+function taskDeepLink(task, origin = appOrigin()) {
+  if (!task?.id || !task?.projectId) return '';
+  return `${origin}/?p=${encodeURIComponent(task.projectId)}&t=${encodeURIComponent(task.id)}`;
+}
+
+export function resolveTaskLinks(text, task = null, { origin = appOrigin() } = {}) {
+  const s = store.getState();
+  const byId = s.tasks?.byId || {};
+  const all = (s.tasks?.allIds || Object.keys(byId)).map(id => byId[id]).filter(Boolean);
+  // 같은 프로젝트를 먼저 본다 — 제목이 같은 업무가 둘이면 지금 보고 있는 쪽이 맞다
+  const pool = task?.projectId
+    ? [...all.filter(t => t.projectId === task.projectId), ...all.filter(t => t.projectId !== task.projectId)]
+    : all;
+  return String(text || '').replace(TASK_MARK_RE, (whole, rawTitle) => {
+    const title = rawTitle.trim();
+    // 자기 자신을 가리키는 링크는 뜻이 없다(이미 그 업무를 보고 있다) → 글자로 둔다.
+    // 제목에 대괄호가 있으면 `[제목](주소)` 문법을 만들 수 없다 → 그것도 글자로.
+    if (/[[\]]/.test(title)) return title;
+    const found = pool.find(t => String(t.title || '').trim() === title);
+    if (!found || found.id === task?.id) return title;
+    const href = taskDeepLink(found, origin);
+    return /^https?:\/\//.test(href) ? `[${title}](${href})` : title;
+  });
+}
+
 export function buildTaskContext(task, now = new Date()) {
   const today = isoOf(now);
   const s = store.getState();
@@ -507,6 +545,17 @@ export const AiService = {
       '  표기가 이름과 다를 수 있다(예: 이시온을 @시온으로 부른다). 적힌 대로 써라.',
       '- **원문에 나오지 않은 사람은 멘션하지 마라.** 멘션은 그 사람에게 알림을 보낸다.',
       '- 목록에 없는 사람에게는 @를 붙이지 마라. 그냥 이름으로 써라.',
+      '',
+      '관련 업무 표시:',
+      '- 원문이 주변 상황에 적힌 **다른 업무**를 가리키면 그 대목을 `[[업무:제목]]`으로 감싸라',
+      '  (예: 콘티는 [[업무:찬양 콘티 결정]]에서 정했어요).',
+      '- 제목은 주변 상황 목록에 적힌 **그대로** 한 글자도 바꾸지 말고 옮겨 적어라.',
+      '  목록에 없는 업무를 지어내서 표시하지 마라. 표시가 목록의 제목과 다르면 그냥 글자로 남는다.',
+      '- **지금 다듬고 있는 이 업무 자신은 표시하지 마라.**',
+      '- 원문에 이미 그 업무 이야기가 나올 때만 붙여라. 없던 업무를 새로 소개하려고 붙이지 마라.',
+      '- 주소나 id를 직접 쓰지 마라. 표시만 쓰면 우리가 링크로 바꾼다.',
+      '- 표시에 굵게(**)나 형광펜(==)을 겹쳐 쓰지 마라.',
+      '',
       DASH_RULE,
       '- "핵심"이라는 단어는 절대 쓰지 마라.',
       '',
@@ -525,6 +574,7 @@ export const AiService = {
     ].join('\n');
     const out = await AiService.callGemini(prompt, sysPrompt);
     // 안내 문구는 그대로 돌려준다 — 부르는 쪽이 isFallbackText로 걸러 본문을 지킨다.
-    return isFallbackText(out) ? out : sanitizeMentions(out);
+    // 죽은 멘션을 되돌리고, `[[업무:제목]]` 표시를 링크로 바꾼 뒤에 본문으로 나간다.
+    return isFallbackText(out) ? out : resolveTaskLinks(sanitizeMentions(out), task);
   }
 };

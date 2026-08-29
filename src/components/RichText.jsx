@@ -11,6 +11,45 @@ import { SmartImage, ImageLightbox } from './media.jsx';
 // ============================================================================
 
 const LINK_CLS = 'text-accent-text underline mx-0.5 break-all hover:text-accent-strong';
+
+// 우리 앱을 가리키는 링크(`?p=<projectId>&t=<taskId>`)는 새 창이 아니라 **앱 안에서**
+// 그 업무 창을 연다. App이 여는 함수를 여기 등록한다 — showToast(Toast.jsx)와 같은
+// 모듈 스코프 한 칸이다(뷰어는 본문 어디에나 있어서 프롭으로 내려주면 전부를 지나야 한다).
+// 등록 전이거나 앱 밖(딴 배포·딴 도메인)이면 평범한 링크 그대로 두므로, 눌러도
+// 주소로 이동해서 딥링크가 받는다 — 어느 쪽이든 그 업무가 열린다.
+let openTaskDeepLink = null;
+export function setTaskLinkOpener(fn) {
+  openTaskDeepLink = fn;
+  return () => { if (openTaskDeepLink === fn) openTaskDeepLink = null; };
+}
+
+// 같은 origin이고 ?p= 가 있으면 { projectId, taskId }, 아니면 null
+const parseDeepLink = (href) => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const u = new URL(href, window.location.href);
+    if (u.origin !== window.location.origin) return null;
+    const projectId = u.searchParams.get('p');
+    return projectId ? { projectId, taskId: u.searchParams.get('t') } : null;
+  } catch { return null; }
+};
+
+// 본문의 링크 하나. 앱 안 링크만 클릭을 가로챈다 — 새 탭으로 열려는 누름
+// (⌘/Ctrl·가운데 버튼)은 브라우저에 그대로 넘긴다.
+function InlineLink({ href, children }) {
+  const deep = parseDeepLink(href);
+  if (!deep) return <a href={href} target="_blank" rel="noreferrer" className={LINK_CLS}>{children}</a>;
+  return (
+    <a
+      href={href} className={LINK_CLS}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+        // App이 열었을 때만 클릭을 막는다 — 못 열었으면 주소로 가서 딥링크가 받는다
+        if (openTaskDeepLink?.(deep)) e.preventDefault();
+      }}
+    >{children}</a>
+  );
+}
 // 마크 → 태그·클래스 (에디터 .tiptap 스타일과 같은 톤)
 const MARK_TAG = { bold: 'strong', italic: 'em', underline: 'u', strike: 's', highlight: 'mark' };
 const MARK_CLS = {
@@ -24,7 +63,7 @@ const PLAIN_RE = /(@\S+|https?:\/\/\S+)/g;
 const renderPlain = (text, key) => text.split(PLAIN_RE).filter(Boolean).map((p, i) => {
   const k = `${key}-p${i}`;
   if (/^@\S+$/.test(p)) return <span key={k} className="text-accent-text font-semibold bg-accent-weak px-1 rounded-xs mx-0.5">{p}</span>;
-  if (/^https?:\/\/\S+$/.test(p)) return <a key={k} href={p} target="_blank" rel="noreferrer" className={LINK_CLS}>{p}</a>;
+  if (/^https?:\/\/\S+$/.test(p)) return <InlineLink key={k} href={p}>{p}</InlineLink>;
   return <React.Fragment key={k}>{p}</React.Fragment>;
 });
 
@@ -34,7 +73,7 @@ const renderInline = (text, keyBase) => {
     const key = `${keyBase}-${i}`;
     // 안쪽부터: 링크 or 평문 → 마크로 감싸 올라간다
     let node = seg.href
-      ? <a href={seg.href} target="_blank" rel="noreferrer" className={LINK_CLS}>{seg.text}</a>
+      ? <InlineLink href={seg.href}>{seg.text}</InlineLink>
       : renderPlain(seg.text, key);
     for (const m of [...seg.marks].reverse()) {
       const Tag = MARK_TAG[m];
