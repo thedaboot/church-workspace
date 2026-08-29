@@ -3,12 +3,13 @@ import { Plus, ChevronDown, Check, X, Trash2, Pencil } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
 import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear } from '../utils.js';
-import { useProjectYear } from '../hooks/useProjectYear.js';
+import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
+import { YearPicker } from '../components/layout.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsMap, selectActiveProjectsList, selectMyTasks,
-  selectDashboardStats, selectTasksList, selectMembers, selectActivityFeed, selectTasks
+  selectDashboardStats, selectTasksList, selectMembers, selectActivityFeed, selectTasks, selectProjectsList
 } from '../store/selectors.js';
 import {
   ISO_TODAY, daysLeft, ageDays, groupByDue, KpiCell, Bar, StatusSegments,
@@ -50,7 +51,10 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   const activeProjects = useStore(selectActiveProjectsList);
   // 그리고 **고른 해의 것만** — 보관은 사람이 챙겨서 하는 일이라 안 하면 해마다 쌓이고,
   // 이 칸만 끝없이 길어진다(사용자 지적 2026-08-29). 탭 줄과 같은 값을 본다.
-  const [year] = useProjectYear();
+  const [year, setYear] = useProjectYear();
+  // 고를 수 있는 해는 탭 줄과 같은 목록이다(보관된 것까지 세는 것도 같다)
+  const allProjectsForYears = useStore(selectProjectsList);
+  const { years, yearCounts } = useYearOptions(allProjectsForYears);
   const projectsList = useMemo(() => projectsOfYear(activeProjects, year), [activeProjects, year]);
   // 연결 지도는 해로 거르지 않는다 — "내가 어디에 붙어 있는지" 한 장이고, 해로 자르면
   // 작년까지 이어온 관계가 통째로 사라진다.
@@ -60,20 +64,33 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   const myTeams = currentUser.teams?.length ? currentUser.teams : [currentUser.team].filter(Boolean);
   const myName = currentUser.name;
 
+  // 전체 · 내 업무 · 내 팀은 **끝난 업무까지 포함해** 먼저 자른다. 예전에는 남은 업무에만
+  // 걸려 있어서, '내 업무'를 골라도 KPI의 '전체 진척도'와 프로젝트 진행 바는 워크스페이스
+  // 전부를 세고 있었다 — 같은 화면에서 한 필터가 어떤 칸에는 걸리고 어떤 칸에는 안 걸렸다
+  // (사용자 지적 2026-08-29). 필터 하나가 이 화면의 숫자 전부를 지배한다.
+  const scoped = useMemo(() => {
+    if (filter === '내 업무') return tasksList.filter(t => (t.assignees || []).includes(myName));
+    if (filter === '내 팀') return tasksList.filter(t => (t.teams || []).some(x => myTeams.includes(x)));
+    return tasksList;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasksList, filter, myName, myTeams.join(',')]);
+
+  // 필터와 무관한 전체 — 인사말·팀별·청년별이 본다(사람은 업무 필터의 대상이 아니다, §6-31)
   const open = useMemo(() => tasksList.filter(t => t.status !== '완료'), [tasksList]);
+  // 세그먼트 칩에 붙는 숫자는 **고르기 전에** 알아야 하므로 필터 밖에서 센다
   const mine = useMemo(() => open.filter(t => (t.assignees || []).includes(myName)), [open, myName]);
   const teamOpen = useMemo(() => open.filter(t => (t.teams || []).some(x => myTeams.includes(x))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [open, myTeams.join(',')]);
-  const shown = filter === '내 업무' ? mine : filter === '내 팀' ? teamOpen : open;
+  const shown = useMemo(() => scoped.filter(t => t.status !== '완료'), [scoped]);
 
   const overdueCount = shown.filter(t => t.dueDate && t.dueDate < today).length;
   const todayCount = shown.filter(t => t.dueDate === today).length;
   const weekCount = shown.filter(t => t.dueDate && t.dueDate > today && daysLeft(t.dueDate, today) <= 6).length;
   const groups = useMemo(() => groupByDue(shown, today), [shown, today]);
 
-  const doneAll = tasksList.length - open.length;
-  const progress = tasksList.length ? Math.round((doneAll / tasksList.length) * 100) : 0;
+  const doneAll = scoped.length - shown.length;
+  const progress = scoped.length ? Math.round((doneAll / scoped.length) * 100) : 0;
 
   // 지난 7일 간 끝낸 건수 — 이 화면은 앞만 보기 때문에 정리한 성과가 바로 사라진다.
   // ponytail: 완료 시각을 따로 저장하지 않으므로 updatedAt을 대신 쓴다. 끝낸 뒤에
@@ -120,7 +137,8 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
 
   // 프로젝트별 상태 분포 — 4색 세그먼트 바.
   // 프로젝트마다 목록 전체를 다시 훑지 않도록 한 번 묶고(groupBy) 한 번만 센다.
-  const tasksByProject = useMemo(() => groupBy(tasksList, t => t.projectId), [tasksList]);
+  // **scoped**를 쓴다 — 상단 필터가 이 칸에도 걸려야 화면의 숫자가 한 벌이 된다
+  const tasksByProject = useMemo(() => groupBy(scoped, t => t.projectId), [scoped]);
   const projectStats = useMemo(() => projectsList.map(p => {
     const list = tasksByProject.get(p.id) || [];
     const counts = {};
@@ -141,8 +159,8 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
     };
   }), [projectsList, tasksByProject, today]);
 
-  // 고른 해 전체 진척도 — 이 칸의 머리줄이다. 아래 프로젝트들과 같은 기준(그 해 업무)이라
-  // KPI의 '전체 진척도'(해와 무관한 전부)와는 다른 숫자다. 그래서 이름도 '올해 전체'다.
+  // 고른 해 전체 진척도 — 이 칸의 머리줄이다. 아래 프로젝트들의 합이고, 상단 필터도
+  // 같이 걸려 있다. KPI의 '전체 진척도'와 다른 점은 **해로 한 번 더 자른다**는 것뿐이다.
   const yearDone = useMemo(() => projectStats.reduce((n, p) => n + (p.counts['완료'] || 0), 0), [projectStats]);
   const yearTotal = useMemo(() => projectStats.reduce((n, p) => n + p.total, 0), [projectStats]);
 
@@ -217,9 +235,9 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
       <div className="flex items-baseline gap-[5px]">
         <span className="text-[34px] font-extrabold leading-none tabular-nums text-fg" style={{ letterSpacing: '-1.8px' }}>{progress}%</span>
         <span className="flex-1" />
-        <span className="text-[10.5px] text-fg-faint tabular-nums whitespace-nowrap">{doneAll}/{tasksList.length}건</span>
+        <span className="text-[10.5px] text-fg-faint tabular-nums whitespace-nowrap">{doneAll}/{scoped.length}건</span>
       </div>
-      <Bar ratio={tasksList.length ? doneAll / tasksList.length : 0} color="var(--p-blue)" />
+      <Bar ratio={scoped.length ? doneAll / scoped.length : 0} color="var(--p-blue)" />
     </>
   );
 
@@ -313,15 +331,19 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
           <Card className="px-4 pt-[15px] pb-[3px]">
             <div className="flex items-baseline justify-between gap-2 pb-3">
               <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 진행</h3>
-              {/* 연도는 여기서 고르지 않는다 — 탭 줄의 `2026 ▾` 하나가 기준이다.
-                  같은 값을 고르는 자리가 둘이면 어느 쪽이 참인지 화면에서 안 보인다. */}
-              <span className="text-[10.5px] text-fg-faint tabular-nums shrink-0">{year}</span>
+              {/* 연도를 **여기서 직접** 고른다(사용자 결정 2026-08-29). 탭 줄의 `2026 ▾`와
+                  같은 값이라 한쪽을 바꾸면 다른 쪽도 따라간다 — 값이 하나이므로 어느 쪽이
+                  참인지 헷갈릴 일은 없다. compact는 탭 줄용 여백이라 여기서는 안 쓴다. */}
+              <span className="shrink-0 -my-1">
+                <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} compact />
+              </span>
             </div>
             {/* 그 해 전체 — 아래 프로젝트들의 합이다. 프로젝트가 없으면 그리지 않는다
                 (0건에 0%를 그리면 "다 안 했다"로 읽힌다). */}
             {yearTotal > 0 && (
               <div className="flex items-center gap-2.5 pb-3 mb-[11px] border-b border-line">
-                <span className="text-[11.5px] font-semibold text-fg-muted whitespace-nowrap shrink-0">올해 전체</span>
+                {/* '올해 전체'라고 못 박으면 2027을 골랐을 때 거짓말이 된다 */}
+                <span className="text-[11.5px] font-semibold text-fg-muted whitespace-nowrap shrink-0 tabular-nums">{year}년 전체</span>
                 <span className="flex-1 min-w-0"><Bar ratio={yearDone / yearTotal} color="var(--p-blue)" /></span>
                 <span className="text-[15px] font-extrabold text-fg tabular-nums shrink-0" style={{ letterSpacing: '-0.6px' }}>
                   {Math.round((yearDone / yearTotal) * 100)}%

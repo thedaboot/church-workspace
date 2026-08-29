@@ -8,7 +8,7 @@ import {
 } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
 import { formatRelative, projectYear } from '../utils.js';
-import { useProjectYear } from '../hooks/useProjectYear.js';
+import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
 import { Avatar } from './Avatar.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import * as push from '../services/push.js';
@@ -348,13 +348,7 @@ export const TopNav = React.memo(({
 // 다른 해의 프로젝트를 열면(검색·알림·링크로) 그 해로 따라간다 — 안 그러면 지금
 // 보고 있는 프로젝트가 탭 줄 어디에도 없어서 "어디 있는지" 표시가 사라진다.
 function useTabYear(allProjects, activeMenu) {
-  const { years, yearCounts } = useMemo(() => {
-    const counts = {};
-    allProjects.forEach(p => { const y = projectYear(p); counts[y] = (counts[y] || 0) + 1; });
-    const set = new Set(Object.keys(counts));
-    set.add(String(new Date().getFullYear()));
-    return { years: [...set].sort((a, b) => b.localeCompare(a)), yearCounts: counts };
-  }, [allProjects]);
+  const { years, yearCounts } = useYearOptions(allProjects);
   const [year, pick] = useProjectYear();
   const activeYear = allProjects.find(p => p.id === activeMenu) ? projectYear(allProjects.find(p => p.id === activeMenu)) : null;
   useEffect(() => { if (activeYear && activeYear !== year) pick(activeYear); }, [activeYear]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -368,7 +362,7 @@ function useTabYear(allProjects, activeMenu) {
 }
 
 // 연도 버튼 + 목록. 팝오버는 body 포털이 기본이다(§6-1).
-function YearPicker({ year, years, yearCounts = {}, onPick, compact = false }) {
+export function YearPicker({ year, years, yearCounts = {}, onPick, compact = false }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const btnRef = useRef(null);

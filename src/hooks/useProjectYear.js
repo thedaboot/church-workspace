@@ -1,4 +1,5 @@
-import { useSyncExternalStore } from 'react';
+import { useSyncExternalStore, useMemo } from 'react';
+import { projectYear } from '../utils.js';
 
 // 고른 해(0025) — **탭 줄과 대시보드가 같은 값을 본다.**
 // 예전에는 useTabYear 안의 useState였다. 그러면 값이 컴포넌트마다 따로 놀아서, 탭에서
@@ -30,4 +31,17 @@ const getSnapshot = () => value;
 // setProjectYear는 모듈 스코프라 이미 안정 참조다 — useCallback으로 감싸지 않는다.
 export function useProjectYear() {
   return [useSyncExternalStore(subscribe, getSnapshot, getSnapshot), setProjectYear];
+}
+
+// 고를 수 있는 해 목록과 해마다의 프로젝트 수. 탭 줄과 대시보드가 같은 목록을 봐야
+// 한쪽에만 있는 해가 생기지 않는다. 올해는 프로젝트가 없어도 언제나 목록에 있다 —
+// 해가 바뀐 직후에 고를 수 있는 해가 하나도 없으면 안 된다.
+export function useYearOptions(allProjects) {
+  return useMemo(() => {
+    const counts = {};
+    (allProjects || []).forEach(p => { const y = projectYear(p); counts[y] = (counts[y] || 0) + 1; });
+    const set = new Set(Object.keys(counts));
+    set.add(thisYear());
+    return { years: [...set].sort((a, b) => b.localeCompare(a)), yearCounts: counts };
+  }, [allProjects]);
 }

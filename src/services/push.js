@@ -28,6 +28,10 @@ export const isIos = () => /iPad|iPhone|iPod/.test(navigator.userAgent)
   // 아이패드는 데스크톱 UA를 쓴다 — 터치 가능한 Mac은 아이패드로 본다.
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
+// 안드로이드는 **설치하지 않아도** 브라우저 탭에서 푸시가 온다(iOS와 정반대다).
+// 그래서 이 판정은 알림이 아니라 '앱처럼 쓰기' 안내에만 쓴다.
+export const isAndroid = () => /Android/.test(navigator.userAgent);
+
 // 홈 화면에서 띄운 상태인지 (iOS는 navigator.standalone, 나머지는 display-mode)
 export const isStandalone = () => window.navigator.standalone === true
   || window.matchMedia('(display-mode: standalone)').matches;

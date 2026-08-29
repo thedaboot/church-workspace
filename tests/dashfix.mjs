@@ -215,14 +215,17 @@ const yearCard = await ev(`(() => {
   if (!h) return null;
   const card = h.closest('div').parentElement;
   return {
-    year: h.parentElement.lastElementChild?.textContent.trim() || '',
-    total: /올해 전체/.test(card.textContent || ''),
+    // 연도는 이제 **누를 수 있는 버튼**이다(탭 줄이 아니라 여기서 고른다)
+    year: h.parentElement.querySelector('button')?.textContent.replace(/[^0-9]/g, '') || '',
+    yearIsButton: !!h.parentElement.querySelector('button'),
+    total: /[0-9]{4}년 전체/.test(card.textContent || ''),
     // 예전 요약 줄(완료 3 · 진행 2 · …)이 남아 있으면 줄이는 것이 안 먹은 것이다
     oldSummary: /완료 [0-9]+ · 진행 [0-9]+/.test(card.textContent || ''),
   };
 })()`);
 check('프로젝트 진행 머리줄에 연도가 붙는다', /^[0-9]{4}$/.test(yearCard?.year || ''), JSON.stringify(yearCard));
-check('올해 전체 진척도 줄이 있다', yearCard?.total === true, JSON.stringify(yearCard));
+check('그 해 전체 진척도 줄이 있다', yearCard?.total === true, JSON.stringify(yearCard));
+check('연도를 그 칸에서 고를 수 있다', yearCard?.yearIsButton === true, JSON.stringify(yearCard));
 check('프로젝트 요약이 한 마디로 줄었다', yearCard?.oldSummary === false, JSON.stringify(yearCard));
 
 // ── 탭 줄의 '+ 프로젝트'가 이웃과 같은 줄에 선다 (2026-08-29) ───────────────
@@ -242,6 +245,52 @@ const plusAlign = await ev(`(() => {
 check('+ 프로젝트가 이웃 버튼과 같은 밑선에 선다',
   !!plusAlign && plusAlign.n > 0 && plusAlign.others.every(b => Math.abs(b - plusAlign.plus) <= 1),
   JSON.stringify(plusAlign));
+
+
+// ── 필터 하나가 화면의 숫자 전부를 지배한다 (2026-08-29) ────────────────────
+// 예전에는 전체·내 업무·내 팀이 **남은 업무에만** 걸려서, '내 업무'를 골라도 KPI의
+// '전체 진척도'와 프로젝트 진행 바는 워크스페이스 전부를 세고 있었다(사용자 지적).
+// 이 검사에만 **남의 업무**를 섞은 상태를 쓴다 — 공용 픽스처는 전부 노준석·찬양팀이라
+// '전체'와 '내 업무'가 같은 숫자여서 필터가 걸렸는지 아닌지를 가릴 수 없다.
+// (공용 픽스처를 건드리면 위쪽 행 수·상태 배열 단정이 전부 밀린다)
+const stMix = JSON.parse(JSON.stringify(st));
+['x1', 'x2', 'x3'].forEach((id, i) => {
+  stMix.tasks.byId[id] = { ...mk(90 + i, i === 0 ? '완료' : '진행 중', '2026-07-31'),
+    id, title: '남의 업무 ' + i, assignees: ['조준환'], teams: ['엔지니어팀'] };
+  stMix.tasks.allIds.push(id);
+});
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(stMix))}); localStorage.setItem('theme','light')`);
+await send('Page.navigate', { url: URL_BASE + '/' }); await wait('Page.loadEventFired'); await sleep(1500);
+const scopeOf = () => ev(`(() => {
+  const cell = [...document.querySelectorAll('div')]
+    .find(d => d.children.length && [...d.children].some(c => c.textContent.trim() === '전체 진척도'));
+  const box = cell ? cell.parentElement.textContent : '';
+  const sub = box.match(/([0-9]+)[/]([0-9]+)건/) || [];
+  const h = [...document.querySelectorAll('h3')].find(x => x.textContent === '프로젝트 진행');
+  const card = h ? h.closest('div').parentElement.textContent : '';
+  const proj = card.match(/([0-9]+)건 중 ([0-9]+)건/) || [];
+  return { total: sub[2] || null, projTotal: proj[1] || null };
+})()`);
+const pickFilter = (label) => ev(`(() => {
+  const b = [...document.querySelectorAll('button')]
+    .find(x => x.textContent.trim().startsWith(${JSON.stringify('')}) && x.textContent.trim().replace(/ [0-9]+$/, '') === ${JSON.stringify('__L__')});
+  if (b) b.click();
+  return !!b;
+})()`.replace('__L__', label));
+
+const scopeAll = await scopeOf();
+const clicked = await pickFilter('내 업무');
+await sleep(400);
+const scopeMine = await scopeOf();
+check('내 업무 칩이 눌린다', clicked === true, String(clicked));
+check('전체 진척도가 필터를 따라간다',
+  !!scopeAll?.total && !!scopeMine?.total && scopeAll.total !== scopeMine.total,
+  JSON.stringify({ scopeAll, scopeMine }));
+check('프로젝트 진행 바도 같은 필터를 따라간다',
+  !!scopeAll?.projTotal && !!scopeMine?.projTotal && scopeAll.projTotal !== scopeMine.projTotal,
+  JSON.stringify({ scopeAll, scopeMine }));
 
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,4).join('\n'):'\n콘솔 오류 없음');
