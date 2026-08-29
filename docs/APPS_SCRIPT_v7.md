@@ -166,6 +166,7 @@ function filesIn(folderId, limit) {
         size: Number(f.size || 0),
         url: f.webViewLink,
         key: keyOf(f),
+        role: (f.appProperties && f.appProperties.wsrole) || null,   // 'sheetpreview' = 변환 사본
         md5: f.md5Checksum || null,
         modifiedTime: f.modifiedTime || null,
       });
@@ -255,6 +256,13 @@ function makeSheetCopy(fileId, name, folderId) {
     var copy = Drive.Files.copy(
       { name: name + ' (표)', mimeType: MimeType.GOOGLE_SHEETS, parents: [folderId] },
       fileId, { supportsAllDrives: true });
+    // **열쇠를 물려받으면 안 된다.** Drive.Files.copy는 appProperties·description까지
+    // 그대로 베낀다(실측 2026-08-29 — 사본과 원본에 같은 wskey가 붙었다). 그러면
+    // findByKey가 **사본을 원본으로 착각**할 수 있고(끊긴 업로드를 확인하는 자리다)
+    // drive_file_id에 시트 id가 들어가 내려받기·새 탭이 깨진다. drive_check도 중복으로 센다.
+    // 대신 wsrole을 붙여 둔다 — 이름(' (표)')이 아니라 이 표시로 사본을 알아본다.
+    Drive.Files.update({ appProperties: { wskey: null, wsrole: 'sheetpreview' }, description: '' },
+      copy.id, null, { supportsAllDrives: true });
     // 미리보기는 iframe으로 뜬다 — 링크로 볼 수 있어야 남들 화면에서도 그려진다
     Drive.Permissions.create({ role: 'reader', type: 'anyone' }, copy.id, { supportsAllDrives: true });
     return copy.id;
@@ -352,6 +360,16 @@ function 권한승인() {
 ```
 
 ---
+
+## 이미 만들어진 사본은 다시 만듭니다
+
+v7 첫 판이 만든 사본은 원본의 열쇠를 물려받았습니다. 스크립트를 올린 뒤
+어시스턴트가 이렇게 정리합니다(사람이 할 일은 없습니다):
+
+1. 그 사본들을 휴지통으로 (`action: 'trash'`)
+2. `files.preview_file_id`를 비우고
+3. `node scripts/backfill_sheet_preview.mjs --fix`로 다시 만든다
+4. `node scripts/drive_check.mjs`가 조용해지는지 확인
 
 ## 올린 뒤 확인할 것
 
