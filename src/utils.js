@@ -330,6 +330,15 @@ export function agoLabel(ts, now = Date.now()) {
   return `${Math.floor(d / 365)}년 전`;
 }
 
+// 다녀간 시각(profiles.last_seen_at) 심장박동의 간격.
+// 예전에는 앱을 열 때 한 번만 찍어서, 두 시간을 계속 쓰고 있어도 남들 화면에는
+// '2시간 전 다녀감'으로 보였다(사용자 지적 2026-08-30).
+// **쓰기 비용**: 사람당 5분에 UPDATE 한 번이다(§1.3). 화면이 숨겨져 있으면 아예 안 찍고,
+// 다시 보일 때도 이 간격을 넘겼을 때만 찍는다 — 탭을 자주 오가는 것이 곧 쓰기가 되면 안 된다.
+export const HEARTBEAT_MS = 5 * 60 * 1000;
+export const dueForHeartbeat = (lastAt, now = Date.now(), everyMs = HEARTBEAT_MS) =>
+  !lastAt || (now - lastAt) >= everyMs;
+
 // 선후관계 그래프의 열 배치 — 각 업무를 "선행 업무보다 오른쪽 열"에 둔다.
 // 반환: [[depth 0 업무들], [depth 1 업무들], ...] (열 안은 마감일순 — byDue와 같은 규칙).
 // 지워진 카드를 가리키는 id는 무시하고, 순환(A→B→A)은 그 자리에서 끊는다 —

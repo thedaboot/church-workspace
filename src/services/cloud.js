@@ -68,6 +68,10 @@ export async function listProfiles() {
   return unwrap(await client().from('profiles').select('*'));
 }
 // 다녀갔다고 찍기 — 대시보드의 '오늘 다녀간 사람'이 보는 값(0019).
+// **부르는 쪽이 빈도를 정한다**: 앱을 열 때 한 번(App.initialLoad) + 화면이 보이는 동안
+// 5분마다 한 번(App의 심장박동 effect · utils.dueForHeartbeat). 즉 **사람당 5분에
+// UPDATE 1회**가 상한이다 — 숨겨진 탭은 아예 안 찍는다(§1.3 쓰기·Egress 비용).
+// 여기에 자체 스로틀을 또 두지 않는다. 빈도가 두 군데에 적히면 어느 쪽이 진짜인지 모른다.
 // 실패를 삼킨다: 이건 화면에 얼굴 하나가 덜 뜨는 일이고, 그것 때문에 앱을 못 쓰게 하지 않는다.
 // update로 둔다(upsert 아님) — 행이 없다면 그건 프로필 자가 복구가 할 일이고,
 // 여기서 만들면 display_name 없는 빈 행이 생겨 '알 수 없음'이 하나 늘어난다.

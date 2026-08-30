@@ -15,6 +15,7 @@ import { ToastHost, showToast } from './components/Toast.jsx';
 import { setTaskLinkOpener } from './components/RichText.jsx';
 import * as cloudSync from './services/cloudSync.js';
 import { subscribePresence, trackWhere } from './services/presence.js';
+import { dueForHeartbeat } from './utils.js';
 import logoLight from './assets/logo-light.png';
 import logoDark from './assets/logo-dark.png';
 
@@ -238,6 +239,30 @@ function WorkspaceShell() {
   useEffect(() => {
     if (!cloudMode) return;
     return subscribePresence();
+  }, [cloudMode]);
+
+  // 다녀간 시각 심장박동(0019 · 2026-08-30) — 예전에는 앱을 열 때 한 번뿐이라,
+  // 두 시간을 쓰고 있어도 남들에게는 '2시간 전 다녀감'이었다(사용자 지적).
+  // **앱이 보이는 동안 5분에 한 번**만 찍는다(utils.dueForHeartbeat).
+  //   · 숨겨지면 멈춘다 — 탭이 뒤에 있는 사람은 '지금 있는 사람'이 아니다.
+  //   · 다시 보이면 그 자리에서 한 번(단, 간격을 넘겼을 때만 — 탭을 자주 오가는 것이
+  //     곧 쓰기가 되면 안 된다).
+  //   · **쓰기 비용은 사람당 5분에 UPDATE 1회**다(§1.3). 1분마다 깨어나되 실제 쓰기는
+  //     간격 판정을 통과할 때뿐이라, 모바일이 타이머를 늦춰도 값이 어긋나지 않는다.
+  // profiles는 Realtime 발행 목록에 있으므로(0018) 남의 화면의 '다녀감'도 따라 갱신된다.
+  useEffect(() => {
+    if (!cloudMode) return;
+    // 첫 한 번은 initialLoad가 이미 찍었다 — 여기서 또 찍으면 접속마다 쓰기가 두 번이다
+    let lastAt = Date.now();
+    const beat = () => {
+      if (document.hidden || !dueForHeartbeat(lastAt)) return;
+      lastAt = Date.now();
+      cloudSync.touchLastSeen();
+    };
+    const timer = setInterval(beat, 60000);
+    const onVisible = () => beat();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
   }, [cloudMode]);
 
   // 편집 종료 시 보류된 재조회 1회 실행

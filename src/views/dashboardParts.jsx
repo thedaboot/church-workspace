@@ -5,6 +5,7 @@ import { Avatar } from '../components/Avatar.jsx';
 import { visitOrder, agoLabel, lastVisitOf, teamsLabel } from '../utils.js';
 import { usePresence } from '../services/presence.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import { useForceGraph } from '../hooks/useForceGraph.js';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 
@@ -501,6 +502,8 @@ export function PeopleStrip({ members, myName, seen, birthdays, joined, onOpenMe
 // 목록이 길어질 것을 전제로 스크롤을 카드 안에 둔다(창이 화면을 넘지 않게 max-h).
 export function MembersModal({ members, myName, onClose }) {
   const online = usePresence();
+  // 오른쪽 끝의 'N분 전'은 그릴 때의 시각으로 굳는다 — 창을 열어 둔 동안 같이 늙게 한다
+  useMinuteTick();
   const ordered = React.useMemo(() => visitOrder(members, online), [members, online]);
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -593,6 +596,9 @@ function groupFeed(feed) {
 }
 
 export function ActivityFeed({ feed, tasksById, onOpenTask }) {
+  // 줄 오른쪽의 'N분 전'이 굳지 않게 — 대시보드는 켜 둔 채로 오래 보는 화면이다.
+  // 훅은 조건부 return보다 **먼저** 불러야 한다(리액트 규칙).
+  useMinuteTick();
   if (!feed.length) return null;
   return (
     <Card className="px-4 py-[15px]">

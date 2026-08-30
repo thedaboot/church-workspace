@@ -7,6 +7,7 @@ import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { agoLabel, visitOrder } from '../utils.js';
 import { usePresence } from '../services/presence.js';
+import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import * as cloud from '../services/cloud.js';
 
 // ============================================================================
@@ -56,6 +57,8 @@ export function MembersView({ isAdmin, isMaster }) {
   const [busy, setBusy] = useState({});         // { profileId|email: true }
   const [pickOpen, setPickOpen] = useState(false);   // 관리자로 지정할 사람 고르기
   const online = usePresence();
+  // 줄마다 'N분 전 가입 · N분 전 다녀감'이 있다 — 이 화면을 열어 두면 그 글자가 굳는다
+  useMinuteTick();
 
   const load = useCallback(async () => {
     try {

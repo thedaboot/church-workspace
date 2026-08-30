@@ -746,6 +746,74 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  presence가 at을 실어 보낸다 3가지');
 }
 
+// ── presence 연결 수명 (services/presence.js 소스 단정) ──────────────────────
+// 실제 동작은 노드 하네스로 실측했다(2026-08-30). 여기서는 그 결론이 코드에서 빠지지
+// 않게 배선만 지킨다 — 셋 중 하나라도 사라지면 '새로고침해야 반영되는' 자리로 돌아간다.
+// 되돌리기 검사: healRefs 두 줄 중 하나를 지우면 첫 단정이, joined를 안 내리면 두 번째가,
+// visibilitychange를 지우면 세 번째가 깨진다.
+{
+  const src = readFileSync(new URL('../src/services/presence.js', import.meta.url), 'utf8');
+  // 라이브러리가 지운 phx_ref를 되살리지 않으면 leave가 영영 안 먹어서 나간 사람이 안 사라진다.
+  // join·leave 둘 다 걸어야 한다 — 같은 diff 안에서 join이 먼저 처리되기 때문이다.
+  assert.ok(/m\.phx_ref = m\.presence_ref/.test(src), '지워진 phx_ref를 되살린다');
+  assert.ok(/event: 'join' \}, healRefs/.test(src) && /event: 'leave' \}, healRefs/.test(src),
+    'join과 leave 둘 다에서 되살린다');
+  assert.ok(/if \(status !== 'SUBSCRIBED'\) \{ joined = false; return; \}/.test(src),
+    '끊기면 joined를 내린다(다시 붙을 때 최신 where가 한 번에 나간다)');
+  assert.ok(/addEventListener\('visibilitychange'/.test(src) && /removeEventListener\('visibilitychange'/.test(src),
+    '탭이 다시 보일 때 연결을 확인하고, 떼어낼 때 리스너도 뗀다');
+  console.log('PASS  presence 연결 수명 4가지');
+}
+
+// ── 다녀간 시각 심장박동 간격 (utils.dueForHeartbeat) ────────────────────────
+// 앱을 열 때 한 번만 찍던 것을 '보이는 동안 5분마다'로 바꿨다(사용자 지적 2026-08-30).
+// 쓰기 비용이 걸린 판정이라 경계를 못으로 박는다 — 5분에 UPDATE 한 번을 넘기면 안 된다.
+// 되돌리기 검사: HEARTBEAT_MS를 1분으로 줄이면 두 번째 단정이, `>=`를 `>`로 바꾸면
+// 세 번째 단정이 깨진다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'beat-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { dueForHeartbeat, HEARTBEAT_MS } = await import(pathToFileURL(f).href);
+  const NOW = 1_000_000_000;
+  assert.strictEqual(HEARTBEAT_MS, 5 * 60 * 1000, '간격은 5분(사용자와 정한 값)');
+  assert.strictEqual(dueForHeartbeat(NOW - 4 * 60e3, NOW), false, '4분 전이면 아직 안 찍는다');
+  assert.strictEqual(dueForHeartbeat(NOW - 5 * 60e3, NOW), true, '딱 5분이면 찍는다(경계 포함)');
+  assert.strictEqual(dueForHeartbeat(NOW - 60 * 60e3, NOW), true, '한참 지났으면 당연히 찍는다');
+  assert.strictEqual(dueForHeartbeat(0, NOW), true, '한 번도 안 찍었으면 찍는다');
+  assert.strictEqual(dueForHeartbeat(null, NOW), true, '값이 없어도 안전하다');
+  console.log('PASS  심장박동 간격 6가지');
+}
+
+// ── 상대 시간 라벨이 스스로 늙는가 (hooks/useMinuteTick.js) ──────────────────
+// 멤버 모달·대시보드를 열어 두면 'N분 전'이 그릴 때 값으로 굳었다(사용자 지적 2026-08-30).
+// 틱 값은 **숫자 하나**여야 한다 — 매번 새 객체를 state로 두면 §4.9의 무한 리렌더가 된다.
+// 되돌리기 검사: minuteOf의 60000을 1000으로 바꾸면 경계 단정이, 화면에서
+// useMinuteTick()을 빼면 그 자리 단정이 깨진다.
+{
+  const raw = readFileSync(new URL('../src/hooks/useMinuteTick.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'tick-'));
+  const f = join(dir, 'tick.mjs');
+  // react import만 걷어내면 순수 부분(minuteOf)을 노드에서 그대로 부를 수 있다
+  writeFileSync(f, raw.replace(/^import .*from 'react';\s*$/m, ''));
+  const { minuteOf } = await import(pathToFileURL(f).href);
+  assert.strictEqual(minuteOf(0), 0);
+  assert.strictEqual(minuteOf(59_999), 0, '1분 안에서는 값이 그대로다(헛렌더가 없다)');
+  assert.strictEqual(minuteOf(60_000), 1, '1분이 지나면 값이 바뀐다 → 라벨이 다시 그려진다');
+  assert.strictEqual(typeof minuteOf(), 'number', '틱은 숫자 하나다(새 객체가 아니다)');
+  assert.ok(/setInterval\(\(\) => setMinute\(minuteOf\(\)\), 60000\)/.test(raw), '1분 간격이다');
+  assert.ok(/clearInterval/.test(raw), '언마운트하면 타이머를 끈다');
+
+  // 훅이 붙어 있어야 하는 자리 — 빠지면 그 화면의 'N분 전'이 다시 굳는다
+  const members = readFileSync(new URL('../src/views/membersView.jsx', import.meta.url), 'utf8');
+  assert.ok(/useMinuteTick\(\)/.test(members), '멤버 관리 화면이 1분 틱을 쓴다');
+  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  assert.strictEqual((parts.match(/useMinuteTick\(\)/g) || []).length, 2,
+    '가입한 사람 모달과 최근 활동 피드 둘 다 1분 틱을 쓴다');
+  console.log('PASS  1분 틱 8가지');
+}
+
 // ── 본문 링크로 연 업무에서 뒤로가기 (App.jsx 소스 단정) ──────────────────────
 // 주소 쓰기는 기본이 replaceState라 history가 안 쌓이고, 본문 링크로 건너뛸 때만
 // 한 번 pushState라 뒤로가기가 보던 자리로 돌아온다. popstate는 주소를 다시 읽는다.

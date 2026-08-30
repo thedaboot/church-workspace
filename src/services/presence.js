@@ -57,6 +57,27 @@ let channel = null;
 let joined = false;
 let where = { projectId: null, cardId: null };
 
+// **realtime-js 2.110.8의 presence 버그를 여기서 되돌린다.**
+// presenceAdapter는 join·leave 콜백을 부르기 전에 meta를 `transformState`로 훑으면서
+// `phx_ref`를 지우고 `presence_ref`로 옮긴다. 그런데 그 meta 객체들은 **로컬 presence
+// 상태 안에 그대로 들어 있는 바로 그 객체들**이라(phoenix syncDiff가 참조로 옮겨 담는다),
+// 한 번 join diff를 받은 사람의 meta는 `phx_ref`를 영영 잃는다. 그다음부터 서버가 보내는
+// leave diff는 ref로 짝을 찾지 못해 **아무것도 지우지 못한다.** 결과:
+//   · 자리를 옮길 때마다 meta가 지워지지 않고 **쌓인다**(track 4번 → meta 4개)
+//   · **나간 사람이 영영 안 사라진다** — 브라우저를 닫아도 남들 화면에는 계속 '접속 중'이고
+//     얼굴도 마지막에 보던 자리에 붙어 있다. 새로고침해야 없어진다(사용자 지적 2026-08-30).
+// 노드 하네스로 재현·확인했다: 고치기 전 = meta 1→4로 쌓이고 나가도 4개 그대로,
+// 고친 뒤 = 언제나 meta 1개, 나가면 0개.
+// 콜백이 넘겨주는 `currentPresences`가 **바로 그 살아 있는 meta 객체들**이라 여기서
+// 되살릴 수 있다. join이 leave보다 먼저 처리되므로(같은 diff 안에서) join에서 되살려야
+// 그 자리의 leave가 먹는다 — sync에서만 고치면 늦는다.
+// 라이브러리가 고쳐지면 `phx_ref`가 살아 있어서 이 함수는 아무 일도 하지 않는다.
+const healRefs = ({ currentPresences }) => {
+  for (const m of currentPresences || []) {
+    if (m && m.phx_ref === undefined && m.presence_ref !== undefined) m.phx_ref = m.presence_ref;
+  }
+};
+
 // presenceState(): { [profile id]: [{ presence_ref, …실어 보낸 값 }, …] }
 // 메타는 그 사람이 열어 둔 창 수만큼 온다(폰과 노트북이 서로 다른 곳을 볼 수 있다) —
 // 여기서는 그대로 펴서 넘기고, **어느 하나를 고르는 일은 `utils.viewersOf`가 한다**
@@ -68,11 +89,41 @@ const entriesOf = (state) => Object.entries(state || {}).flatMap(([id, metas]) =
     id, projectId: m.projectId || null, cardId: m.cardId || null, at: Number(m.at) || 0,
   })));
 
+// ── 탭이 다시 보일 때 (모바일에서 오래 백그라운드에 있다가 돌아오는 경우) ──────
+// 노드 하네스 실측(2026-08-30)으로 자동으로 되는 것과 안 되는 것을 갈랐다:
+//  · 소켓이 **깨끗하게 끊기면** supabase-js가 스스로 1.4초 만에 다시 붙고, 채널의
+//    subscribe 콜백이 SUBSCRIBED로 **다시 불린다** — 아래 재-track이 그대로 실려
+//    자리까지 복구된다. 여기에 덧댈 코드가 없다.
+//  · 안 되는 것은 **좀비 소켓**이다. readyState는 OPEN인데 아무것도 안 흐르는 상태로,
+//    모바일이 백그라운드에 오래 있다 깨어날 때 생긴다. 라이브러리는 심장박동
+//    두 번(25초 × 2)이 지나야 알아채서, 실측 **47초** 동안 남들 화면이 낡은 채 남았다.
+//  · 그래서 다시 보이는 순간 심장박동을 한 번 보내고 유예 뒤 한 번 더 보낸다.
+//    두 번째 호출은 **첫 번째의 답이 안 왔으면 그 자리에서 소켓을 끊는다**(라이브러리
+//    규칙) → 곧바로 재접속·재-track. 실측 47초 → 9.5초. 건강한 소켓에는 심장박동
+//    두 번이 더 나갈 뿐 아무 일도 안 일어난다(대조군으로 확인 — 오진 없음).
+// 소켓은 cloud.subscribeAll과 함께 쓰는 하나뿐이라, 여기서 되살리면 데이터 실시간도 같이 산다.
+const WAKE_GRACE_MS = 8000;
+let wakeTimer = null;
+
+function nudgeConnection() {
+  const c = supabase;
+  if (!c || !channel || document.hidden) return;
+  // 물러난 backoff(최대 10초)를 기다리지 않고 지금 붙는다
+  if (!c.realtime.isConnected()) { c.realtime.connect(); return; }
+  c.realtime.sendHeartbeat();
+  clearTimeout(wakeTimer);
+  wakeTimer = setTimeout(() => {
+    if (!document.hidden && supabase?.realtime.isConnected()) supabase.realtime.sendHeartbeat();
+  }, WAKE_GRACE_MS);
+}
+
 // 게스트 모드에서는 클라이언트가 없어 아무 일도 하지 않는다(집합은 계속 비어 있다).
 export function subscribePresence() {
   const c = supabase;
   if (!c) return () => {};
   let stopped = false;
+  const onVisible = () => { if (!document.hidden) nudgeConnection(); };
+  document.addEventListener('visibilitychange', onVisible);
   (async () => {
     const { data: { user } } = await c.auth.getUser();
     if (!user || stopped) return;
@@ -84,8 +135,14 @@ export function subscribePresence() {
     const ch = c.channel(TOPIC, { config: { presence: { key: user.id } } });
     channel = ch;
     ch.on('presence', { event: 'sync' }, () => setPresence(entriesOf(ch.presenceState()), user.id));
+    // join·leave는 화면에 쓰지 않는다 — 라이브러리가 지워 버린 ref를 되살리려고 듣는다.
+    // join이 leave보다 먼저 처리되므로 둘 다 걸어야 같은 diff 안의 leave가 먹는다.
+    ch.on('presence', { event: 'join' }, healRefs);
+    ch.on('presence', { event: 'leave' }, healRefs);
     ch.subscribe((status) => {
-      if (status !== 'SUBSCRIBED') return;
+      // 끊기면 joined를 내린다 — 그 사이의 trackWhere는 where만 바꿔 두고, 다시 붙을 때
+      // 아래에서 최신 where가 한 번에 나간다(실측: 재접속 때 이 콜백이 다시 불린다).
+      if (status !== 'SUBSCRIBED') { joined = false; return; }
       joined = true;
       // 붙기 전에 정해진 자리도 여기서 한 번에 나간다. `at`을 같이 실어야
       // viewersOf가 "이 사람의 지금 자리"를 고를 수 있다(기기·탭이 여럿일 때).
@@ -96,6 +153,8 @@ export function subscribePresence() {
     stopped = true;
     joined = false;
     where = { projectId: null, cardId: null };
+    document.removeEventListener('visibilitychange', onVisible);
+    clearTimeout(wakeTimer);
     if (channel) { c.removeChannel(channel); channel = null; }
     setPresence([], null);
   };
