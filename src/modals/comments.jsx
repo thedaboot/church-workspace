@@ -95,7 +95,7 @@ const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => (
             <span className={`flex items-center pl-0.5 ${extra > 0 ? 'pr-1' : 'pr-2'}`}>
               {shown.map((p, i) => (
                 <Avatar key={`${p.userId}-${i}`} name={p.name || '알 수 없음'}
-                  className="flex w-[15px] h-[15px] text-[8.5px] -ml-[5px] first:ml-0 ring-[1.5px] ring-surface animate-in fade-in zoom-in-75 duration-200" />
+                  className="flex w-[15px] h-[15px] text-[8.5px] leading-none -ml-[5px] first:ml-0 ring-[1.5px] ring-surface animate-in fade-in zoom-in-75 duration-200" />
               ))}
               {/* 넘치는 사람만 +N으로 접는다. aria에 조사를 붙이면 '확인를'이 되므로
                   라벨과 숫자를 가운뎃점으로 잇는다 */}

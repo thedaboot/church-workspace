@@ -128,7 +128,9 @@ export function ViewerFaces({ projectId = null, cardId = null, className = '' })
       title={`${people.map(p => p.name).join(' · ')} 님이 지금 보고 있어요`}>
       {people.map(m => (
         <Avatar key={m.id} name={m.name} url={m.avatarUrl}
-          className="flex w-[15px] h-[15px] text-[8.5px] -ml-[5px] first:ml-0 ring-[1.5px] ring-surface" />
+          // leading-none: 이 크기(15px 원 · 8.5px 글자)에서는 기본 줄높이가 글자를
+          // 위로 밀어 첫 글자가 원의 가운데에서 벗어나 보인다(사용자 지적 2026-08-30)
+          className="flex w-[15px] h-[15px] text-[8.5px] leading-none -ml-[5px] first:ml-0 ring-[1.5px] ring-surface" />
       ))}
     </span>
   );
@@ -349,11 +351,12 @@ export const TopNav = React.memo(({
             {/* 지금 이 프로젝트를 보고 있는 사람. **자리를 차지하지 않게 얹는다** —
                 얼굴이 붙고 떨어질 때마다 탭 폭이 바뀌면 useTabFit이 다시 재서 탭이
                 옆으로 튀고, 누르려던 탭이 손가락 밑에서 빠져나간다.
-                오른쪽 경계에 **반쯤 걸쳐** 세운다(-right-2.5) — 탭 안쪽(right-1)에
-                두면 제목 끝 글자를 가린다(사용자 지적 2026-08-30). 탭 사이에는
+                오른쪽 경계에 **살짝 걸쳐** 세운다(-right-1) — 탭 안쪽(right-1)에
+                두면 제목 끝 글자를 가리고(사용자 지적 2026-08-30), 더 빼면(-right-2.5)
+                탭에서 떨어져 남의 것처럼 보인다(같은 날 두 번째 지적). 탭 사이에는
                 좌우 패딩 28px의 빈 땅이 있어 얼굴 한둘은 글자에 닿지 않는다.
                 z-[1]: 뒤 형제 탭이 나중에 그려져 걸친 부분을 덮는 것을 막는다. */}
-            <ViewerFaces projectId={p.id} className="absolute top-1 -right-2.5 z-[1]" />
+            <ViewerFaces projectId={p.id} className="absolute top-1 -right-1 z-[1]" />
           </button>
         ))}
         {(rest.length > 0 || archivedForMore.length > 0 || otherYears.length > 0) && (
@@ -563,7 +566,7 @@ function MobileProjectTab({ project, active, onSelect }) {
       {/* 지금 이 프로젝트를 보고 있는 사람 — 데스크톱과 같은 이유로 얹기만 하고,
           같은 이유로 오른쪽 경계에 반쯤 걸친다(제목 끝 글자를 가리지 않게 —
           사용자 지적 2026-08-30). z-[1]은 뒤 형제 탭에 덮이지 않게. */}
-      <ViewerFaces projectId={project.id} className="absolute top-1 -right-2.5 z-[1]" />
+      <ViewerFaces projectId={project.id} className="absolute top-1 -right-1 z-[1]" />
     </button>
   );
 }
