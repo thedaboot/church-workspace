@@ -383,10 +383,16 @@ function WorkspaceShell() {
   // 이 값을 본다. 갱신 지점은 둘뿐이다: 프로젝트를 옮길 때와 업무 창을 열고 닫을 때
   // (track 한 번이 접속한 모두에게 sync 이벤트를 만든다 — 값이 같으면 안 보낸다).
   const viewingCardId = modalState.isOpen ? (modalState.task?.id || null) : null;
+  // **업무 창이 열려 있으면 프로젝트는 그 업무의 것이다.** 내 업무·대시보드·검색에서
+  // 연 사람은 isProjectScreen이 false라 projectId가 null로 나갔고, 그래서 카드에는
+  // 얼굴이 붙는데 프로젝트 탭 집계에서는 빠졌다(사용자 지적 2026-08-30 — "업무는
+  // 3명인데 탭은 1명"). 업무를 보고 있다는 것은 그 프로젝트를 보고 있다는 뜻이다.
+  const viewingProjectId = (modalState.isOpen && modalState.task?.projectId)
+    || (isProjectScreen ? activeMenu : null);
   useEffect(() => {
     if (!cloudMode) return;
-    trackWhere({ projectId: isProjectScreen ? activeMenu : null, cardId: viewingCardId });
-  }, [cloudMode, isProjectScreen, activeMenu, viewingCardId]);
+    trackWhere({ projectId: viewingProjectId, cardId: viewingCardId });
+  }, [cloudMode, viewingProjectId, viewingCardId]);
 
   // 딥링크의 taskId → 데이터 준비 후 해당 업무 모달 오픈(존재 검증)
   useEffect(() => {

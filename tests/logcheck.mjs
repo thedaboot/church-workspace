@@ -827,5 +827,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '주소 동기화는 push 한 번을 빼면 replaceState다');
   assert.ok(/addEventListener\('popstate'/.test(src) && /removeEventListener\('popstate'/.test(src),
     'popstate를 듣고 떼어낸다');
-  console.log('PASS  뒤로가기 배선 3가지');
+  // 업무 창이 열려 있으면 프로젝트는 그 업무의 것 — 내 업무·대시보드·검색에서 연
+  // 사람은 isProjectScreen이 false라 projectId가 null로 나가서, 카드에는 얼굴이
+  // 붙는데 프로젝트 탭 집계에서는 빠졌다(2026-08-30 — "업무는 3명인데 탭은 1명").
+  assert.ok(/modalState\.isOpen && modalState\.task\?\.projectId\)\s*\|\|\s*\(isProjectScreen \? activeMenu : null\)/.test(src),
+    '업무 창이 열려 있으면 그 업무의 프로젝트로 track한다(탭·카드 집계가 어긋나지 않게)');
+  console.log('PASS  뒤로가기·트래킹 배선 4가지');
 }
