@@ -340,9 +340,12 @@ export const TopNav = React.memo(({
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => { e.preventDefault(); dropTab(p.id); }}
             onDragEnd={() => setDragTabId(null)}
-            className={`relative px-3.5 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap max-w-[220px] truncate ${activeMenu === p.id ? 'text-fg border-fg' : 'text-fg-muted border-transparent hover:text-fg'} ${dragTabId === p.id ? 'opacity-50' : ''}`}
+            // truncate(overflow-hidden)를 버튼에 직접 주면 **경계에 걸친 얼굴이 잘린다**
+            // (실제로 반이 잘려 나갔다 — 2026-08-30). 말줄임은 안쪽 span이 맡고
+            // 버튼은 클리핑하지 않는다.
+            className={`relative px-3.5 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap max-w-[220px] ${activeMenu === p.id ? 'text-fg border-fg' : 'text-fg-muted border-transparent hover:text-fg'} ${dragTabId === p.id ? 'opacity-50' : ''}`}
           >
-            {p.title}
+            <span className="block max-w-full truncate">{p.title}</span>
             {/* 지금 이 프로젝트를 보고 있는 사람. **자리를 차지하지 않게 얹는다** —
                 얼굴이 붙고 떨어질 때마다 탭 폭이 바뀌면 useTabFit이 다시 재서 탭이
                 옆으로 튀고, 누르려던 탭이 손가락 밑에서 빠져나간다.

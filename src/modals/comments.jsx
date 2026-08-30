@@ -73,14 +73,17 @@ const cardOfComment = (commentId) => {
 // ③ 얼굴이 붙고 떨어져도 **줄 높이가 안 변한다** — 칩 높이는 아이콘 버튼(24px)이
 //    정하고 얼굴은 15px + 링이라 그 안에 들어간다. 가로만 늘어난다.
 const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => (
-  <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+  // 줄바꿈하지 않는다 — 좁은 사이드바에서 확인 칩만 둘째 줄로 떨어져 어색했다
+  // (사용자 지적 2026-08-30). 같은 종류가 이어지는 줄이라 가로 스크롤이 §8에
+  // 걸리지 않는다(프로젝트 탭·상태 칩과 같은 결). 스크롤바는 숨긴다.
+  <div className="flex items-center gap-1.5 mt-1.5 flex-nowrap max-w-full overflow-x-auto scrollbar-hide x-scroll-lock">
     {reactionSummary(reactions, myKey).map(({ kind, count, mine, people }) => {
       const { Icon, label, on, fill } = reactionMeta(kind);
       const shown = people.slice(0, FACES_MAX);
       const extra = count - shown.length;
       return (
         <span key={kind}
-          className={`inline-flex items-center rounded-full border transition-colors ${mine ? on : 'border-line text-fg-faint'}`}>
+          className={`inline-flex items-center shrink-0 rounded-full border transition-colors ${mine ? on : 'border-line text-fg-faint'}`}>
           <button
             type="button" onClick={() => onToggle(kind)} aria-pressed={mine}
             title={mine ? `${label} 취소` : label} aria-label={mine ? `${label} 취소` : label}
