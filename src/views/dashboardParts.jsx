@@ -731,6 +731,11 @@ const FM = {
   // 위로 들어왔다(모바일에서 특히). 끌기는 세로로는 그대로 자유롭다.
   ZX_DESK: { m: [0.02, 0.20], p: [0.78, 0.99] },
   ZX_MOB: { m: [0.02, 0.30], p: [0.76, 0.99] },
+  // 끌 때만 쓰는 넓은 범위(utils.forceBounds의 drag). 시뮬 범위로 끌면 몇십 px에서
+  // 벽에 부딪혀 뻑뻑하다(사용자 지적 2026-08-31). **층 밖으로는 여전히 못 나간다**
+  // (사용자 결정 2026-08-27) — 넓어진 것은 자기 층 안에서의 여유뿐이다.
+  ZXD_DESK: { m: [0.02, 0.40], p: [0.58, 0.99] },
+  ZXD_MOB: { m: [0.02, 0.42], p: [0.52, 0.99] },
 };
 // 선의 목표 길이 = 두 층의 앵커 간격. 스프링이 앵커와 싸우지 않으므로 가로로는
 // 가만히 있고 **세로로만** 이어진 짝을 끌어당긴다 — 그게 이 그림이 원하는 힘이다.
@@ -739,22 +744,34 @@ const EDGE_OF = (a, b, W) => Math.max(48, (b - a) * W);
 export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLeft = {}, memberLoad, onOpenTeam, onOpenProject }) {
   const compact = useIsMobile();
   const wrapRef = useRef(null);
-  const [cw, setCw] = useState(compact ? 340 : 640);
+  // **폭을 재기 전에는 배치하지 않는다**(cw = 0 · 2026-08-31 사용자 지적 — "모바일에서
+  // 렌더링될 때 뚜둑하면서 펼쳐지는 느낌"). 예전에는 짐작한 폭(340/640)으로 한 번
+  // 배치하고, ResizeObserver가 진짜 폭을 알려주면 W가 바뀌어 **처음부터 다시** 배치했다.
+  // 그 두 번째 배치가 눈에 보이는 "뚜둑"이었다. 모바일은 더 심했다 — '연결' 탭이
+  // 숨어 있는 동안 clientWidth가 0이라 하한(280)으로 한 번 더 배치됐다.
+  const [cw, setCw] = useState(0);
   // 가장 붐비는 층이 높이를 정한다 — 라벨이 겹치지 않을 만큼만 키우고 상한에서 멈춘다
   const rows = Math.max(members.length, teamsInUse.length, projects.length, 1);
   const H = compact
     ? Math.min(FM.H_MAX_MOB, Math.max(FM.H_MIN_MOB, rows * FM.ROW_MOB + 60))
     : Math.min(FM.H_MAX_DESK, Math.max(FM.H_MIN_DESK, rows * FM.ROW_DESK + 60));
-  // 데스크톱은 카드 폭을 거의 다 쓴다(상한 1400 — 그보다 넓으면 세 열이 너무 벌어져
-  // 선이 화면을 가로지르는 그림이 된다). 남는 폭은 여백으로 가운데 정렬.
   const W = cw;   // 카드 폭을 그대로 쓴다(좌우 여백을 만들지 않는다)
-  const offX = Math.max(0, (cw - W) / 2);
+  const offX = 0;
   const AX = compact ? FM.AX_MOB : FM.AX_DESK;
   const ZX = compact ? FM.ZX_MOB : FM.ZX_DESK;
+  const ZXD = compact ? FM.ZXD_MOB : FM.ZXD_DESK;
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setCw(Math.max(280, el.clientWidth)));
+    // 숨어 있는 동안(clientWidth 0)은 0으로 둔다 — 하한으로 배치해 두면 보일 때
+    // 다시 배치되고 그게 "뚜둑"이다. 창을 몇 px 흔드는 것으로 다시 배치되지 않게
+    // 8px 단위로 끊는다(회전·창 크기 변경은 그대로 따라간다).
+    const read = () => {
+      const w = el.clientWidth;
+      setCw(w < 200 ? 0 : Math.round(w / 8) * 8);
+    };
+    read();
+    const ro = new ResizeObserver(read);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -768,6 +785,10 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
   // ay를 안 주면 forceStep이 **전부 세로 가운데로** 끌어당깁니다(기본 0.5) — 그것도
   // 순서를 흐트러뜨리던 원인이었습니다.
   const { nodes, edges, bands } = useMemo(() => {
+    // 폭을 아직 모르면 **아무것도 만들지 않는다.** 노드를 만들어 두면 그 폭으로 한 번
+    // 배치되고 자리가 posById에 기억돼서, 진짜 폭이 들어올 때 그 자리에서 다시
+    // 움직인다 — 그게 "뚜둑"이다. 빈 목록이면 시뮬이 기억할 것도 없다.
+    if (!W) return { nodes: [], edges: [], bands: [] };
     const nodes = [];
     const idx = new Map();
     const push = (n) => { idx.set(n.id, nodes.length); nodes.push(n); };
@@ -808,7 +829,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
       push({
         id: `m:${m.name}`, kind: 'member', m, pl: 30, pr: 46,
         // zx: 사람은 왼쪽 영역 밖으로 못 나간다 — 층 읽기가 안 깨진다(사용자 결정)
-        ax: AX.m, zx: ZX.m,
+        ax: AX.m, zx: ZX.m, zxDrag: ZXD.m,
         ay: r.k >= 0 ? inBand(r.k, r.j, r.n) : spread(r.j, r.n),
         iy: r.k >= 0 ? inBand(r.k, r.j, r.n) : spread(r.j, r.n),
       });
@@ -831,7 +852,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
         // **한 열로 세운다.** 두 열(홀짝 지그재그)로 벌려 봤더니 선이 오히려 더
         // 엇갈려 보였다 — 겹침은 그릴 때 떼어놓는 쪽(spreadLabels)이 확실하다.
         ax: AX.p,
-        ay: y, iy: y, zx: ZX.p,
+        ay: y, iy: y, zx: ZX.p, zxDrag: ZXD.p,
         repel: 1.7,   // 라벨이 제일 크다 — 서로는 더 세게 밀어야 안 겹친다
       });
     });
@@ -855,7 +876,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
       }
     });
     return { nodes, edges, bands };
-  }, [members, teamsInUse, projects, teamProjects, teamLeft, memberLoad, compact, W, H, AX, ZX]);
+  }, [members, teamsInUse, projects, teamProjects, teamLeft, memberLoad, compact, W, H, AX, ZX, ZXD]);
 
   // 엔진은 프로젝트 그래프 뷰(depgraph)와 **같은 useForceGraph/forceStep**이다
   // (사용자 지시 2026-08-31 — "힘 엔진은 같이 가져가라"). 상수·미리 돌리기·선 길이

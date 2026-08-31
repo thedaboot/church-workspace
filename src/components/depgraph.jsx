@@ -16,6 +16,39 @@ import { STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
 // ============================================================================
 const DG = { H_DESK: 440, H_MOBILE: 360 };
 
+// 업무가 하나도 없을 때 — 남는 공간의 **정가운데**에 표식과 함께 선다(사용자 요청
+// 2026-08-31 — "글자만 위에 덩그러니가 아니라 로티 느낌으로 가운데에"). 로티 파일을
+// 물리지 않고 SVG 한 장을 선으로 그린다(대시보드 '다 정리되었어요'와 같은 방식).
+// 그림은 이 화면의 언어다 — 점 둘과 그 사이를 잇는 선(= 선후관계).
+// 순서: 왼쪽 점 → 선 → 오른쪽 점. `.dc-draw-ring`(.28s) 다음에 선(.dc-draw)이
+// 그려지고, 오른쪽 점은 선이 끝난 뒤다(§4.2 — 순서가 있는 애니메이션은 앞이 끝난 뒤).
+function GraphEmptyMark() {
+  return (
+    <svg viewBox="0 0 96 48" className="w-24 h-12 mx-auto" aria-hidden="true">
+      <circle className="dc-draw-ring" cx="16" cy="24" r="9"
+        fill="var(--app-surface-hover)" stroke="var(--app-line)" strokeWidth="1.6"
+        style={{ transformOrigin: '16px 24px' }} />
+      <path className="dc-draw" pathLength="1" d="M27 24H69" style={{ animationDelay: '.28s' }}
+        fill="none" stroke="var(--app-line)" strokeWidth="1.6" strokeLinecap="round" />
+      <circle className="dc-draw-ring" cx="80" cy="24" r="9"
+        fill="var(--app-surface-hover)" stroke="var(--app-line)" strokeWidth="1.6"
+        style={{ transformOrigin: '80px 24px', animationDelay: '.72s' }} />
+    </svg>
+  );
+}
+
+// 빈 화면은 **남는 공간의 정가운데**다 — 위쪽에 붙어 있으면 아래가 통째로 비어
+// 보인다(대시보드 마감 목록의 빈 상태와 같은 판단).
+export function GraphEmpty() {
+  return (
+    <div className="flex-1 min-h-[46vh] flex flex-col items-center justify-center text-center">
+      <GraphEmptyMark />
+      <p className="text-[13.5px] font-semibold text-fg mb-1 mt-3">아직 업무가 없어요</p>
+      <p className="text-xs text-fg-faint">업무를 만들고 '선행 업무'를 정하면 여기에 순서가 이어져요</p>
+    </div>
+  );
+}
+
 export function DepGraph({ tasks, onTaskClick }) {
   const list = tasks || [];
   const hasEdges = list.some(t => (t.dependsOn || []).length);
@@ -89,7 +122,7 @@ export function DepGraph({ tasks, onTaskClick }) {
   }, [hi, edges]);
 
   if (!list.length) {
-    return <p className="py-16 text-center text-[11px] text-fg-faint">아직 업무가 없어요</p>;
+    return <GraphEmpty />;
   }
   return (
     <div className="flex-1 min-h-0 flex flex-col">

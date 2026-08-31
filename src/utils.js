@@ -584,10 +584,16 @@ export function spreadLabels(items, minGap, y0, y1) {
 
 // 노드 하나의 이동 가능 범위 — 시뮬과 드래그가 같은 규칙을 본다
 // (드래그만 다른 규칙이면 끌어다 놓은 자리로는 못 가는 자리가 생긴다)
-export function forceBounds(node, W, H) {
+// drag=true면 **넓은 범위**(node.zxDrag)를 본다. 시뮬 범위(zx)는 층이 열로 읽히게
+// 좁혀 두었는데 그 값으로 끌면 몇십 px에서 벽에 부딪혀 뻑뻑하다(사용자 지적
+// 2026-08-31 — "드래그가 인위적"). 규칙이 둘이어도 안전한 이유: 놓은 노드는
+// pinnedIds로 고정되므로 시뮬이 그 자리를 되돌리지 않는다. **층 밖으로는 여전히
+// 못 나간다**(사용자 결정 2026-08-27) — 넓어진 것은 자기 층 안에서의 여유뿐이다.
+export function forceBounds(node, W, H, drag = false) {
+  const zx = (drag ? node.zxDrag : null) || node.zx;
   return {
-    x0: Math.max(node.pl ?? 20, node.zx ? W * node.zx[0] : 0),
-    x1: Math.min(W - (node.pr ?? 20), node.zx ? W * node.zx[1] : W),
+    x0: Math.max(node.pl ?? 20, zx ? W * zx[0] : 0),
+    x1: Math.min(W - (node.pr ?? 20), zx ? W * zx[1] : W),
     y0: node.pt ?? 20,
     y1: H - (node.pb ?? 16),
   };

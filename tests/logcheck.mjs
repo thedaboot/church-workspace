@@ -1083,3 +1083,51 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/const W = cw;/.test(parts), '데스크톱이 카드 폭을 다 쓴다');
   console.log('PASS  라벨 떼어놓기 12가지');
 }
+
+// ── 지도가 한 번만 배치되나 · 끌기 손맛 · 빈 그래프 (소스 단정) ───────────────
+// 앞의 셋은 **소스로만** 지킨다. 브라우저로 재보려 했지만 측정 창이 이미 두 배치가
+// 끝난 뒤에 열려서 그 순간을 못 봤다 — 숫자로 못 재는 것에 숫자를 대지 않는다(§1.3).
+// 되돌리기 검사: 각 단정은 그 줄을 되돌리면 깨진다.
+{
+  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  // ① 폭을 재기 전에는 배치하지 않는다 — 짐작한 폭으로 배치하면 진짜 폭이 들어올 때
+  //    처음부터 다시 배치되고, 그 두 번째가 눈에 보이는 "뚜둑"이다(사용자 지적).
+  assert.ok(/const \[cw, setCw\] = useState\(0\);/.test(parts),
+    '폭은 0에서 시작한다(짐작한 폭으로 배치하지 않는다)');
+  assert.ok(/if \(!W\) return \{ nodes: \[\], edges: \[\], bands: \[\] \};/.test(parts),
+    '폭을 모르면 노드를 만들지 않는다(자리가 posById에 기억되면 다시 움직인다)');
+  assert.ok(/setCw\(w < 200 \? 0 : Math\.round\(w \/ 8\) \* 8\)/.test(parts),
+    '숨어 있는 동안은 0이고 폭은 8px 단위다(몇 px 흔들림에 다시 배치되지 않게)');
+
+  const hook = readFileSync(new URL('../src/hooks/useForceGraph.js', import.meta.url), 'utf8');
+  // ② 잡은 지점과 노드 중심의 차이를 유지한다 — 예전에는 중심이 손가락으로 순간이동했다
+  assert.ok(/gx: rect && p \? \(e\.clientX - rect\.left - offX\) - p\.x : 0/.test(hook),
+    '끌기가 잡은 지점을 기억한다(노드 중심이 손가락으로 순간이동하지 않는다)');
+  assert.ok(/- d\.gx\)\)/.test(hook) && /- d\.gy\)\)/.test(hook), '움직일 때 그 차이를 그대로 쓴다');
+  // ③ 끌 때는 넓은 범위를 본다(시뮬 범위로 끌면 몇십 px에서 벽에 부딪힌다)
+  assert.ok(/forceBounds\(nodes\[i\], W, H, true\)/.test(hook), '끌기는 넓은 범위를 본다');
+  assert.ok(/zxDrag: ZXD\.m/.test(parts) && /zxDrag: ZXD\.p/.test(parts),
+    '층마다 끌기용 넓은 범위가 있다');
+
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'fb-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { forceBounds } = await import(pathToFileURL(f).href);
+  const n = { zx: [0.76, 0.99], zxDrag: [0.52, 0.99], pl: 56, pr: 66 };
+  const sim = forceBounds(n, 400, 300);
+  const drg = forceBounds(n, 400, 300, true);
+  assert.strictEqual(Math.round(sim.x0), 304, '시뮬은 좁은 범위');
+  assert.strictEqual(Math.round(drg.x0), 208, '끌기는 넓은 범위');
+  assert.ok(drg.x0 < sim.x0, '끌 때 왼쪽으로 더 갈 수 있다');
+  assert.strictEqual(drg.x1, sim.x1, '오른쪽 끝(카드 경계)은 같다 — 층 밖으로는 못 나간다');
+  assert.strictEqual(forceBounds({ pl: 10, pr: 10 }, 400, 300, true).x0, 10, 'zx가 없으면 여백만 본다');
+
+  // ④ 빈 그래프 뷰는 표식과 함께 가운데에 선다(사용자 요청 2026-08-31)
+  const dep = readFileSync(new URL('../src/components/depgraph.jsx', import.meta.url), 'utf8');
+  assert.ok(/function GraphEmptyMark\(\)/.test(dep) && /items-center justify-center/.test(dep),
+    '업무가 없을 때 표식 + 가운데 정렬');
+  assert.ok(/animationDelay: '\.28s'/.test(dep) && /animationDelay: '\.72s'/.test(dep),
+    '표식도 순서대로 그려진다(원 → 선 → 원, §4.2)');
+  console.log('PASS  지도 한 번 배치·끌기 손맛·빈 그래프 12가지');
+}

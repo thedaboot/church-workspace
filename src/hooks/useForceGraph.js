@@ -131,7 +131,17 @@ export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact =
       style: { touchAction: 'none' },   // 터치에서 스크롤이 드래그를 뺏지 않게
       onPointerDown: (e) => {
         e.currentTarget.setPointerCapture?.(e.pointerId);
-        dragRef.current = { i, sx: e.clientX, sy: e.clientY, moved: false };
+        // **잡은 지점과 노드 중심의 차이를 기억한다**(2026-08-31 사용자 지적 — "드래그가
+        // 인위적인 느낌"). 예전에는 노드 **중심**을 손가락 좌표에 그대로 앉혀서, 라벨
+        // 귀퉁이를 잡으면 라벨이 손가락으로 순간이동했다. 그 텔레포트가 인위적이었다.
+        // 차이를 유지하면 잡은 자리가 손가락에 붙어 따라온다.
+        const rect = wrapRef.current?.getBoundingClientRect();
+        const p = pRef.current[i];
+        dragRef.current = {
+          i, sx: e.clientX, sy: e.clientY, moved: false,
+          gx: rect && p ? (e.clientX - rect.left - offX) - p.x : 0,
+          gy: rect && p ? (e.clientY - rect.top) - p.y : 0,
+        };
         kick(ALPHA_DRAG);
       },
       onPointerMove: (e) => {
@@ -140,9 +150,13 @@ export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact =
         if (Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) > 4) d.moved = true;
         if (!d.moved || !wrapRef.current) return;
         const rect = wrapRef.current.getBoundingClientRect();
-        const b = forceBounds(nodes[i], W, H);
-        pRef.current[i].x = Math.min(b.x1, Math.max(b.x0, e.clientX - rect.left - offX));
-        pRef.current[i].y = Math.min(b.y1, Math.max(b.y0, e.clientY - rect.top));
+        // 끌 때는 **넓은 범위**를 본다(forceBounds의 drag). 시뮬 범위(zx)는 층이 열로
+        // 읽히게 좁혀 두었는데, 그 좁은 값으로 끌면 몇십 px에서 벽에 부딪혀 뻑뻑하다.
+        // 놓은 노드는 고정되므로(pinnedIds) 시뮬이 되돌리지 않는다 — 규칙이 갈라져도
+        // "끌어다 놓은 자리로 못 가는" 옛 문제가 생기지 않는 이유다.
+        const b = forceBounds(nodes[i], W, H, true);
+        pRef.current[i].x = Math.min(b.x1, Math.max(b.x0, e.clientX - rect.left - offX - d.gx));
+        pRef.current[i].y = Math.min(b.y1, Math.max(b.y0, e.clientY - rect.top - d.gy));
         velRef.current[i].x = 0; velRef.current[i].y = 0;
         if (reduce) bump(x => x + 1); else kick(ALPHA_DRAG);
       },
