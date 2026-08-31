@@ -34,7 +34,8 @@ for (const w of [320,360,390,430,768,1024,1280,1920]) {
     const progLabel=[...document.querySelectorAll('main span')]
       .find(s=>s.textContent.trim()==='전체 진척도' && vis(s));
     const progCell=progLabel?progLabel.parentElement.parentElement:null;
-    const all=progCell?[...cells,progCell]:cells;
+    // 진척도 칸도 .dc-kpi다(2026-08-31 — 순번 애니메이션) → Set으로 두 번 세지 않는다
+    const all=progCell?[...new Set([...cells,progCell])]:cells;
     const tops=all.map(c=>c.getBoundingClientRect().top).sort((a,b)=>a-b);
     const rows=tops.filter((t,i)=>i===0||t-tops[i-1]>14).length;
     // 라벨·숫자가 칸을 넘치는지

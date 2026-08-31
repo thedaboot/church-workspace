@@ -2,10 +2,11 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
-import { visitOrder, agoLabel, lastVisitOf, teamsLabel } from '../utils.js';
+import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byRecent } from '../utils.js';
 import { usePresence } from '../services/presence.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
+import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { useForceGraph } from '../hooks/useForceGraph.js';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 
@@ -58,10 +59,14 @@ function bucketOf(task, today = ISO_TODAY()) {
 // 칸반 컬럼 안 순서도 이걸 쓴다 — 목록과 보드가 서로 다른 순서를 보이면 안 된다.
 export const byDue = (a, b) => String(a.dueDate || '9999').localeCompare(String(b.dueDate || '9999'));
 
+// '끝낸 업무'만 마감일이 아니라 **최근에 끝낸 것부터** 선다(사용자 결정 2026-08-31).
+// 나머지 구간은 "앞으로 무엇이 급한가"라 마감일 오름차순이 맞지만, 끝낸 업무는
+// 앞으로 할 일이 아니라 기록이고 방금 끝낸 것이 맨 위여야 한다 — 예전에는
+// '내 업무'에서 완료를 누를 때마다 그 줄이 몇 년 전 업무들 아래로 사라졌다.
 export function groupByDue(tasks, today = ISO_TODAY()) {
   return BUCKETS.map((b, i) => ({
     ...b,
-    items: tasks.filter(t => bucketOf(t, today) === i).sort(byDue),
+    items: tasks.filter(t => bucketOf(t, today) === i).sort(b.key === 'done' ? byRecent : byDue),
   })).filter(g => g.items.length);
 }
 
@@ -132,6 +137,9 @@ const GROUP_LIMIT = 30;   // 한 구간에 먼저 그리는 줄 수. 나머지�
 
 export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, showTeam = true, emptyHint }) {
   const [expanded, setExpanded] = useState({});   // { [구간 key]: true }
+  // 순차 등장은 처음 열 때만 — 그 뒤에 구간을 옮겨 다시 마운트되는 줄(완료로 옮긴 업무,
+  // '더 보기'로 펼친 줄)은 지연 없이 바로 나타나야 한다(useEnterStagger 주석).
+  const stagger = useEnterStagger();
 
   if (!groups.length) {
     // 빈 화면은 남는 공간의 정가운데에 — 위쪽에 붙어 있으면 아래가 통째로 비어 보인다
@@ -166,7 +174,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
             <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
           </div>
           {shown.map(t => {
-            const delay = `${Math.min(seen++, 12) * 22}ms`;
+            const delay = stagger ? `${Math.min(seen++, 12) * 22}ms` : '0ms';
             const done = t.status === '완료';
             const over = !done && t.dueDate && t.dueDate < today;
             const isToday = !done && t.dueDate === today;
@@ -290,14 +298,16 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
   );
 }
 
-// 다 끝난 화면의 표식 — 원이 살짝 커지며 나타나고 체크가 그려진다.
+// 다 끝난 화면의 표식 — 원이 살짝 커지며 나타나고 **그 뒤에** 체크가 그려진다.
 // 로티 파일을 물리는 대신 SVG 한 장으로 같은 인상을 낸다(의존성·네트워크 없음).
+// 체크의 지연은 원(.dc-draw-ring)의 길이와 같아야 한다 — .dc-draw의 기본 지연은
+// .1s라서, 그대로 두면 원이 아직 커지는 중에 체크가 겹쳐 그려졌다(순서가 없었다).
 function AllClearMark() {
   return (
     <svg viewBox="0 0 48 48" className="w-12 h-12 mx-auto" aria-hidden="true">
       <circle className="dc-draw-ring" cx="24" cy="24" r="21" fill="var(--app-tag-green)" style={{ transformOrigin: 'center' }} />
       <path
-        className="dc-draw" pathLength="1" d="M15 24.5 21.5 31 34 18"
+        className="dc-draw" pathLength="1" d="M15 24.5 21.5 31 34 18" style={{ animationDelay: '.28s' }}
         fill="none" stroke="var(--app-tag-green-fg)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
       />
     </svg>

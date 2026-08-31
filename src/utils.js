@@ -182,6 +182,20 @@ export function summaryOutdated(updatedAt, pinnedAt) {
   return Number.isFinite(gap) && gap > 60000;
 }
 
+// 최근에 **만든** 것부터 — 선행 업무 후보 목록이 쓴다(사용자 결정 2026-08-31).
+// 예전에는 스토어의 allIds 순서(=created_at 오름차순)라 맨 위가 가장 오래된 업무였고,
+// 방금 만든 업무를 고르려면 목록 끝까지 내려가야 했다.
+// 여기서 updatedAt을 보지 않는 이유: 남이 옛 업무의 제목만 고쳐도 후보 순서가 흔들리면
+// 고르는 사람이 같은 자리를 두 번 찾지 못한다. 만든 순서는 변하지 않는다.
+export const byNewest = (a, b) => String(b?.createdAt || '').localeCompare(String(a?.createdAt || ''));
+
+// 최근에 **손댄** 것부터 — 마감 목록의 '끝낸 업무' 구간이 쓴다(사용자 결정 2026-08-31).
+// 끝낸 업무에서 "최신"은 만든 때가 아니라 **끝낸 때**이고, 완료로 옮기는 것도 저장이라
+// updatedAt이 그 시각으로 갱신된다(클라우드는 0010 트리거, 게스트는 TaskService).
+// 옛 행에 updatedAt이 없으면 createdAt으로, 그것도 없으면 뒤로 보낸다.
+export const byRecent = (a, b) =>
+  String(b?.updatedAt || b?.createdAt || '').localeCompare(String(a?.updatedAt || a?.createdAt || ''));
+
 export function subtaskProgress(list = []) {
   const total = list.length;
   const done = list.reduce((n, s) => n + (s.done ? 1 : 0), 0);

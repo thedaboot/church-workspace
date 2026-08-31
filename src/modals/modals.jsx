@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { CheckSquare, Clock, X, User, Hash, Wand2, Undo2, CalendarRange, Trash2, Check, Pin, ArrowLeftRight, Maximize2, Minimize2, PanelRight, PanelRightClose } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress, summaryOutdated, toggleTodoLine } from '../utils.js';
+import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress, summaryOutdated, toggleTodoLine, byNewest } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { AiService, isFallbackText } from '../services/ai.js';
@@ -226,7 +226,8 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         onTodoToggle={(idx) => onSave({ ...formData, content: toggleTodoLine(formData.content, idx) })}
         />;
   const commentsPanel = listsReady
-    ? <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} loading={detailLoading} />
+    /* members: 답글 입력창도 댓글 입력창과 같은 @멘션 자동완성을 쓴다 */
+    ? <CommentPanel comments={formData.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} loading={detailLoading} members={members} />
     : null;
   const activityPanel = listsReady ? <ActivityPanel logs={formData.activityLog} loading={detailLoading} /> : null;
   const commentInputEl = <CommentInput onAdd={onAddComment} members={members} />;
@@ -323,9 +324,12 @@ function DependsRow({ formData, setFormData }) {
   // (selectMembers의 NO_MEMBERS와 같은 함정 — 실제로 여기서 한 번 터졌다).
   // 안정된 참조(s.tasks)만 구독하고 파생은 useMemo로 한다.
   const tasksState = useStore(s => s.tasks);
+  // 최근에 만든 업무가 맨 위다(utils.byNewest) — allIds 순서를 그대로 쓰면 맨 위가
+  // 가장 오래된 업무여서, 방금 만든 업무를 고르려면 목록 끝까지 내려가야 했다.
   const candidates = useMemo(() => tasksState.allIds
     .map(id => tasksState.byId[id])
-    .filter(t => t.projectId === formData.projectId && t.id !== formData.id),
+    .filter(t => t.projectId === formData.projectId && t.id !== formData.id)
+    .sort(byNewest),
     [tasksState, formData.projectId, formData.id]);
   const chosen = formData.dependsOn || [];
   const byId = new Map(candidates.map(t => [t.id, t]));

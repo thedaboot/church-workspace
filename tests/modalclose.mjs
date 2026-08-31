@@ -282,6 +282,108 @@ check('다시 펴진다', reopened.found && reopened.width > 100, JSON.stringify
   check('기록이 안 생기는 저장에도 댓글이 남는다', after2.comments === 1 && after2.shown === true, JSON.stringify(after2));
 }
 
+// ── 답글 UX (2026-08-31 사용자 요청 — "댓글은 좋은데 답글도 챙겨줘") ──────────
+// 예전에는 답글 입력이 맨 <input> 한 줄이었다. 이 스위트가 지키는 것:
+//  ① '답글' 버튼이 hover 없이 **언제나 보이고** 답글 수를 같이 적는다
+//  ② 열면 누구에게 다는 답글인지 이름이 뜬다
+//  ③ 입력은 textarea + @멘션 자동완성(댓글 입력과 같은 MentionInput)이라 Shift+Enter로
+//     줄바꿈이 되고 이름을 손으로 안 쳐도 된다 — 표시명이 어긋나면 멘션 알림이
+//     **조용히** 빗나갔던 자리다(notifyComment는 정확 일치로 사람을 찾는다)
+//  ④ **취소·답글 버튼이 있다** — 모바일에는 Enter/Esc가 없어서 조작 자체가 없었다
+//  ⑤ 접어도 쓰던 글이 남는다(초안이 댓글별이다)
+// 되돌리기 검사: comments.jsx의 MentionInput을 <input>으로 되돌리면 ③이,
+// replyDrafts를 replyText 하나로 되돌리면 ⑤가 깨진다.
+{
+  const t = { id: 'r1', projectId: 'p1', title: '답글 UX 확인', content: '본문', status: '진행 중',
+    assignees: ['노준석'], teams: ['찬양팀'], startDate: '', dueDate: '2026-09-01', position: 1,
+    author: '노준석', createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z',
+    comments: [
+      { id: 'p1c', author: '조해리', text: '첫 댓글', timestamp: '2026-08-02T00:00:00Z', parentId: null },
+      { id: 'p2c', author: '조준환', text: '둘째 댓글', timestamp: '2026-08-03T00:00:00Z', parentId: null },
+      { id: 'p1r', author: '노준석', text: '이미 달린 답글', timestamp: '2026-08-04T00:00:00Z', parentId: 'p1c' },
+    ],
+    activityLog: [], attachments: [] };
+  const st = { currentUser: { name: '노준석', team: '임원진' },
+    projects: { byId: { p1: { id: 'p1', title: '답글 프로젝트', pinnedLinks: [], year: 2026 } }, allIds: ['p1'] },
+    tasks: { byId: { r1: t }, allIds: ['r1'] } };
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+  await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))})`);
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired');
+  await sleep(1300);
+  await ev(`document.querySelector('.board-card').click()`); await sleep(800);
+
+  // 답글 여닫기 버튼·작성칸을 찾는 헬퍼. 작성칸은 '○○님에게 답글' 줄의 형제들이다 —
+  // 등록 버튼도 글자가 '답글'이라 문서 전체에서 찾으면 여는 버튼과 헷갈린다.
+  const OPEN = `[...document.querySelectorAll('button')].filter(b => /^답글( [0-9]+)?( · 작성 중)?$/.test(b.textContent.trim()))`;
+  const BOX = `(() => { const p = [...document.querySelectorAll('p')].find(x => /님에게 답글$/.test(x.textContent.trim()));
+    return p ? { head: p, box: p.parentElement } : null; })()`;
+
+  const btns = await ev(`(() => {
+    const bs = ${OPEN};
+    return { n: bs.length, labels: bs.map(b => b.textContent.trim()),
+             visible: bs.every(b => { const c = getComputedStyle(b); return c.opacity === '1' && c.display !== 'none'; }) };
+  })()`);
+  check('답글 버튼이 댓글마다 있다', btns.n === 2, JSON.stringify(btns));
+  check('답글 버튼은 hover 없이 보인다', btns.visible === true, JSON.stringify(btns));
+  check('답글이 있으면 개수를 적는다', btns.labels.includes('답글 1'), JSON.stringify(btns.labels));
+
+  const openReply = (label) => ev(`(() => { const b = ${OPEN}.find(x => x.textContent.trim() === ${JSON.stringify('')} + ${JSON.stringify(label)}); if (b) b.click(); return !!b; })()`);
+  // 셀렉터를 못 찾으면 **던지지 말고 false**다(§4.1 — 던지면 CRASH가 되어 어느
+  // 단정에서 어긋났는지 안 보인다. 실제로 되돌리기 검사에서 이 함수가 터졌다).
+  const setBox = (text) => ev(`(() => { const r = ${BOX}; if (!r) return false;
+    const ta = r.box.querySelector('textarea');
+    if (!ta) return false;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(ta, ${JSON.stringify('')} + ${JSON.stringify(text)});
+    ta.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+  const boxAct = (label) => ev(`(() => { const r = ${BOX}; if (!r) return false;
+    const b = [...r.box.querySelectorAll('button')].find(x => x.textContent.trim() === ${JSON.stringify('')} + ${JSON.stringify(label)});
+    if (b) b.click(); return !!b; })()`);
+
+  check('답글 열기가 눌린다', (await openReply('답글 1')) === true);
+  await sleep(400);
+  const open1 = await ev(`(() => { const r = ${BOX}; if (!r) return null;
+    const ta = r.box.querySelector('textarea');
+    return { to: r.head.textContent.trim(), textarea: !!ta, ph: ta ? ta.placeholder : null,
+             acts: [...r.box.querySelectorAll('button')].map(b => b.textContent.trim()) }; })()`);
+  check('누구에게 다는 답글인지 보인다', open1?.to === '조해리님에게 답글', JSON.stringify(open1));
+  check('답글 입력은 textarea다(Shift+Enter 줄바꿈)', open1?.textarea === true, JSON.stringify(open1));
+  check('멘션 안내가 댓글 입력과 같다', /@이름/.test(open1?.ph || ''), String(open1?.ph));
+  check('취소·답글 버튼이 있다(모바일에도 조작이 있다)',
+    !!open1 && open1.acts.includes('취소') && open1.acts.includes('답글'), JSON.stringify(open1?.acts));
+
+  // @을 치면 멤버 제안이 뜬다
+  check('답글 작성칸에 글을 넣을 수 있다', (await setBox('@노')) === true, 'textarea가 없으면 false');
+  await sleep(400);
+  const sug = await ev(`(() => { const r = ${BOX}; if (!r) return [];
+    return [...r.box.querySelectorAll('button')].filter(b => b.getBoundingClientRect().width > 0)
+      .map(b => b.textContent.trim()).filter(s => /^@/.test(s)); })()`);
+  check('@을 치면 멤버 제안이 뜬다', sug.some(s => /노준석/.test(s)), JSON.stringify(sug));
+
+  // 접어도 초안이 남는다 — 예전에는 replyText 하나였고 접거나 다른 댓글로 옮기면 날아갔다
+  await setBox('쓰다가 만 답글'); await sleep(250);
+  check('취소가 눌린다', (await boxAct('취소')) === true);
+  await sleep(350);
+  const mark = await ev(`${OPEN}.map(b => b.textContent.trim())`);
+  check('접으면 작성 중임을 알려준다', mark.includes('답글 1 · 작성 중'), JSON.stringify(mark));
+  await openReply('답글 1 · 작성 중'); await sleep(400);
+  const kept = await ev(`(() => { const r = ${BOX}; return r ? r.box.querySelector('textarea').value : null; })()`);
+  check('다시 열면 쓰던 글이 그대로 있다', kept === '쓰다가 만 답글', String(kept));
+
+  // 등록
+  await setBox('등록되는 답글'); await sleep(250);
+  check('답글 등록이 눌린다', (await boxAct('답글')) === true);
+  await sleep(900);
+  const after = await ev(`(() => {
+    const s = JSON.parse(localStorage.getItem('church_app_v4'));
+    const replies = (s.tasks.byId.r1.comments || []).filter(c => c.parentId === 'p1c');
+    return { n: replies.length, last: replies[replies.length - 1]?.text, box: !!${BOX} }; })()`);
+  check('답글이 실제로 등록된다', after.n === 2 && after.last === '등록되는 답글', JSON.stringify(after));
+  check('등록하면 입력창이 닫힌다', after.box === false, JSON.stringify(after));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

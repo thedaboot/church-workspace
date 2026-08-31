@@ -13,6 +13,7 @@ import { STATUS_BAR, STATUS_DOT_VAR, byDue } from '../views/dashboardParts.jsx';
 import { useStore } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { useEnterStagger } from '../hooks/useEnterStagger.js';
 
 // ============================================================================
 // 칸반 보드 (dnd-kit) — 카드 · 상태 칩 · 컬럼
@@ -292,6 +293,7 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
   const [activeId, setActiveId] = React.useState(null);
   const scrollRef = React.useRef(null);
   const [visibleCol, setVisibleCol] = React.useState(0);
+  const stagger = useEnterStagger();
 
   // 상태별 그룹핑을 한 번만 — 컬럼마다 filter를 두 번씩 돌지 않게.
   // 컬럼 안 순서는 **손으로 정한 순서**(cards.position, 0024)가 먼저고, 값이 같으면
@@ -419,7 +421,10 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
           {CONFIG.STATUSES.map(status => (
             <ColumnDroppable key={status} status={status} dragging={!!activeId} count={(byStatus[status] || []).length} share={tasks.length ? (byStatus[status] || []).length / tasks.length : 0} empty={(byStatus[status] || []).length === 0}>
               {(byStatus[status] || []).map((task, i) => (
-                <DraggableCard key={task.id} task={task} index={i} projectsMap={projectsMap} showProjectBadge={showProjectBadge} onTaskClick={onTaskClick} onStatusChange={onStatusChange} />
+                /* 순번 지연은 보드를 처음 열 때만 — 컬럼을 옮겨 다시 마운트되는 카드에
+                   순번을 주면 드롭 연출이 끝난 뒤에도 최대 240ms 더 사라져 있었다
+                   (useEnterStagger 주석) */
+                <DraggableCard key={task.id} task={task} index={stagger ? i : 0} projectsMap={projectsMap} showProjectBadge={showProjectBadge} onTaskClick={onTaskClick} onStatusChange={onStatusChange} />
               ))}
             </ColumnDroppable>
           ))}

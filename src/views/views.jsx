@@ -292,12 +292,15 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
           style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)' }}>
           {kpiCells}
         </div>
-        <Card className="flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]">{progressCell}</Card>
+        {/* 진척도도 KPI 칸이다 — .dc-kpi와 순번 지연(앞 3칸 0·40·80 다음)을 같이 준다.
+            예전에는 이 칸만 애니메이션이 없어서, 왼쪽 세 칸이 차례로 들어오는 동안
+            네 번째 칸은 이미 자리에 있었다(순서가 어긋나 보인 자리 중 하나). */}
+        <Card className="dc-kpi flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]" style={{ animationDelay: '120ms' }}>{progressCell}</Card>
       </div>
       <div className={`${tab === '업무' ? 'grid' : 'hidden'} lg:hidden kpi-grid rounded-[10px] overflow-hidden shadow-soft`}
         style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)' }}>
         {kpiCells}
-        <div className="flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]" style={{ background: 'var(--app-surface)' }}>{progressCell}</div>
+        <div className="dc-kpi flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]" style={{ background: 'var(--app-surface)', animationDelay: '120ms' }}>{progressCell}</div>
       </div>
 
       {/* 본문 — 좌: 마감 그룹, 우: 프로젝트 진행 + 팀별 남은 업무 */}
@@ -999,8 +1002,9 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
               dot={STATUS_DOT_VAR[s]} bar={STATUS_BAR[s]} ratio={teamTasks.length ? counts[s] / teamTasks.length : 0} />
           ))}
         </div>
-        <div className="rounded-[10px] shadow-soft flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]"
-          style={{ background: 'var(--app-tag-green)', border: '1px solid var(--app-line)' }}>
+        {/* 대시보드 진척도 칸과 같은 이유로 .dc-kpi + 순번 지연 (앞 3칸 다음) */}
+        <div className="dc-kpi rounded-[10px] shadow-soft flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]"
+          style={{ background: 'var(--app-tag-green)', border: '1px solid var(--app-line)', animationDelay: '120ms' }}>
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--app-tag-green-fg)' }} />
             <span className="text-[11.5px] font-semibold whitespace-nowrap" style={{ color: 'var(--app-tag-green-fg)' }}>완료</span>

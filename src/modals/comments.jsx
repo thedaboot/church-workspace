@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Pencil, Trash2, Heart, ThumbsUp, Check } from 'lucide-react';
-import { formatDate, isMobileViewport } from '../utils.js';
+import { formatDate, isMobileViewport, keepVisible } from '../utils.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { RichText } from '../components/RichText.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
@@ -225,9 +225,12 @@ const ListSkeleton = ({ rows = 3 }) => (
 // 1초 넘게 밀리던 원인(댓글 1건당 RichText 파싱 + 노드 수십 개)을 잘라낸다.
 const INITIAL_COMMENTS = 10;
 
-export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onDelete, loading = false }) => {
+export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onDelete, loading = false, members = [] }) => {
   const [replyingTo, setReplyingTo] = useState(null);
-  const [replyText, setReplyText] = useState('');
+  // 초안은 **원 댓글별로** 들고 있는다. 하나의 replyText 하나였을 때는 답글을 쓰다가
+  // 다른 댓글의 '답글'을 누르면 쓰던 글이 말없이 사라졌다(§8 — 사람이 쓴 것을
+  // 잃게 하지 않는다). 창을 닫을 때까지만 남는 로컬 state다.
+  const [replyDrafts, setReplyDrafts] = useState({});   // { [parentId]: '작성 중인 글' }
   const [showAll, setShowAll] = useState(false);
   const all = comments || [];
 
@@ -302,11 +305,19 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
   const hiddenCount = showAll ? 0 : Math.max(0, allTopLevel.length - INITIAL_COMMENTS);
   const topLevel = hiddenCount > 0 ? allTopLevel.slice(-INITIAL_COMMENTS) : allTopLevel;
 
+  const setDraft = (parentId, text) => setReplyDrafts(prev => ({ ...prev, [parentId]: text }));
   const submitReply = (parentId) => {
-    if (!replyText.trim()) return;
-    onReply(replyText, parentId);
-    setReplyText('');
+    const text = (replyDrafts[parentId] || '').trim();
+    if (!text) return;
+    onReply(text, parentId);
+    setDraft(parentId, '');
     setReplyingTo(null);
+  };
+  // 닫기는 초안을 지우지 않는다 — 실수로 접었을 때 다시 열면 쓰던 글이 그대로 있다.
+  // 비어 있을 때만 아예 지워서 '작성 중' 표시가 남지 않게 한다.
+  const closeReply = (parentId) => {
+    setReplyingTo(null);
+    if (!(replyDrafts[parentId] || '').trim()) setDraft(parentId, '');
   };
 
   // 읽는 중 + 아직 아무것도 없을 때만 스켈레톤 — 이미 담아둔 댓글이 있으면(재열람)
@@ -325,15 +336,23 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
         >이전 댓글 {hiddenCount}개 더 보기</button>
       )}
       {topLevel.map(c => (
-        <div key={c.id} className="py-3 first:pt-0 group/c animate-in fade-in duration-200">
+        <div key={c.id} className="py-3 first:pt-0 animate-in fade-in duration-200">
           <CommentBody c={c} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete} hasReplies={getReplies(c.id).length > 0}
             reactions={reactionsOf(c)} myKey={me.userId} onToggleReaction={toggleFor}
             onOpenReaction={(cc, kind) => setPeekAt({ commentId: cc.id, kind })} />
+          {/* 답글 버튼은 **언제나 보인다.** 예전에는 데스크톱에서 hover해야 나타났는데,
+              그러면 답글이라는 기능 자체가 마우스를 올려 본 사람에게만 있다(§8).
+              답글이 있으면 개수를 같이 적는다 — 아래 접힌 줄이 몇 개인지 눌러 보지
+              않고도 안다. 접었는데 쓰던 글이 남아 있으면 그것도 말해 준다. */}
           <div className="pl-8 mt-1">
             <button
-              onClick={() => { setReplyingTo(replyingTo === c.id ? null : c.id); setReplyText(''); }}
-              className={`text-[10px] text-fg-faint hover:text-accent-text transition-opacity ${replyingTo === c.id ? 'opacity-100' : 'opacity-100 md:opacity-0 md:group-hover/c:opacity-100'}`}
-            >답글</button>
+              onClick={() => (replyingTo === c.id ? closeReply(c.id) : setReplyingTo(c.id))}
+              aria-expanded={replyingTo === c.id}
+              className={`text-[10px] transition-colors ${replyingTo === c.id ? 'text-accent-text font-semibold' : 'text-fg-faint hover:text-accent-text'}`}
+            >
+              답글{getReplies(c.id).length > 0 ? ` ${getReplies(c.id).length}` : ''}
+              {replyingTo !== c.id && (replyDrafts[c.id] || '').trim() ? ' · 작성 중' : ''}
+            </button>
           </div>
           {(getReplies(c.id).length > 0 || replyingTo === c.id) && (
             <div className="ml-8 mt-2 border-l border-line pl-3 space-y-3">
@@ -345,12 +364,39 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
                 </div>
               ))}
               {replyingTo === c.id && (
-                <input
-                  autoFocus={!isMobileViewport()} value={replyText} onChange={e => setReplyText(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submitReply(c.id); } if (e.key === 'Escape') { setReplyingTo(null); setReplyText(''); } }}
-                  placeholder="답글 입력 후 Enter (Esc 취소)"
-                  className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg placeholder:text-fg-faint focus:border-accent focus:shadow-soft outline-none transition-all"
-                />
+                // 답글 입력도 댓글 입력과 **같은 부품·같은 규칙**이다(사용자 요청
+                // 2026-08-31 — "답글 UX도 챙겨야 한다"). 예전에는 맨 <input> 한 줄이라
+                // ① @멘션 자동완성이 없었다. 이름을 손으로 쳐야 했고 표시명이 조금만
+                //    어긋나면(`@해리`) 알림이 **조용히** 안 갔다(notifyComment는 표시명
+                //    정확 일치로 사람을 찾는다). 이게 겉모양이 아니라 기능 문제였다.
+                // ② 줄바꿈이 안 됐다(Enter가 곧 등록).
+                // ③ 버튼이 없어서 모바일에는 'Enter로 등록·Esc로 취소'가 아예 없는
+                //    조작이었다(자동 초점도 모바일에서는 끄는 자리다).
+                // ④ 누구에게 다는 답글인지 화면에 없었다.
+                // keepVisible: 모바일에서 키보드가 올라와도 입력칸이 가려지지 않게
+                // 열릴 때 한 번 스크롤해 준다(담당자·멘션 팝오버와 같은 헬퍼).
+                <div ref={keepVisible} className="animate-in fade-in duration-200">
+                  <p className="text-[10px] text-fg-faint mb-1">
+                    <span className="font-semibold text-fg-muted">{c.author}</span>님에게 답글
+                  </p>
+                  <MentionInput
+                    as="textarea" value={replyDrafts[c.id] || ''} onChange={(v) => setDraft(c.id, v)}
+                    members={members} autoFocus={!isMobileViewport()}
+                    placeholder="@이름 으로 멘션..."
+                    className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg placeholder:text-fg-faint resize-none h-14 focus:border-accent focus:shadow-soft outline-none transition-all"
+                    onKeyDown={e => {
+                      // 댓글 입력과 같다 — Enter는 등록, Shift+Enter는 줄바꿈
+                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitReply(c.id); }
+                      if (e.key === 'Escape') closeReply(c.id);
+                    }}
+                  />
+                  <div className="flex justify-end items-center gap-1.5 mt-1.5">
+                    <button type="button" onClick={() => closeReply(c.id)}
+                      className="px-2.5 py-1.5 rounded-md text-[10px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95">취소</button>
+                    <button type="button" onClick={() => submitReply(c.id)} disabled={!(replyDrafts[c.id] || '').trim()}
+                      className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-3 py-1.5 rounded-md text-[10px] font-bold transition active:scale-95">답글</button>
+                  </div>
+                </div>
               )}
             </div>
           )}

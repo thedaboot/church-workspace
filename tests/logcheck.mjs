@@ -834,3 +834,60 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '업무 창이 열려 있으면 그 업무의 프로젝트로 track한다(탭·카드 집계가 어긋나지 않게)');
   console.log('PASS  뒤로가기·트래킹 배선 4가지');
 }
+
+// ── 최신순 정렬 (utils.byNewest / byRecent) ────────────────────────────────────
+// 사용자 결정 2026-08-31: 선행 업무 후보와 '끝낸 업무' 목록은 맨 위가 가장 최신이어야
+// 한다. 예전에는 후보가 allIds 순서(만든 순 오름차순)라 맨 위가 가장 오래된 업무였고,
+// 완료를 누르면 그 줄이 몇 년 전 업무들 아래로 사라졌다.
+// 되돌리기 검사: byNewest/byRecent의 a·b를 뒤집으면 첫 단정이, 호출부에서 .sort를
+// 빼면 마지막 두 단정이 깨진다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'recent-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { byNewest, byRecent } = await import(pathToFileURL(f).href);
+
+  const mk = (id, createdAt, updatedAt) => ({ id, createdAt, updatedAt });
+  const L = [
+    mk('old', '2026-01-02T00:00:00Z', '2026-08-30T00:00:00Z'),   // 오래 전에 만들고 어제 손댔다
+    mk('new', '2026-08-29T00:00:00Z', '2026-08-29T00:00:00Z'),   // 최근에 만들었다
+    mk('mid', '2026-05-05T00:00:00Z', '2026-05-05T00:00:00Z'),
+  ];
+  assert.deepStrictEqual([...L].sort(byNewest).map(t => t.id), ['new', 'mid', 'old'],
+    '후보 목록은 만든 순 내림차순 — 남이 옛 업무를 고쳐도 순서가 흔들리지 않는다');
+  assert.deepStrictEqual([...L].sort(byRecent).map(t => t.id), ['old', 'new', 'mid'],
+    "'끝낸 업무'는 손댄 순 내림차순 — 방금 완료로 옮긴 줄이 맨 위다");
+  assert.deepStrictEqual(
+    [...[mk('a', '2026-01-01T00:00:00Z'), mk('b')]].sort(byRecent).map(t => t.id), ['a', 'b'],
+    'updatedAt이 없으면 createdAt으로, 그것도 없으면 뒤로');
+  assert.strictEqual(byNewest(undefined, undefined), 0, '빈 칸이 섞여도 안 던진다');
+
+  // 호출부 배선 — 순수 함수만 맞아도 화면이 안 쓰면 아무 일도 일어나지 않는다
+  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  assert.ok(/\.sort\(b\.key === 'done' \? byRecent : byDue\)/.test(parts),
+    "groupByDue가 '끝낸 업무' 구간만 byRecent로 정렬한다");
+  const modals = readFileSync(new URL('../src/modals/modals.jsx', import.meta.url), 'utf8');
+  assert.ok(/\.sort\(byNewest\)/.test(modals), '선행 업무 후보가 byNewest로 정렬된다');
+  console.log('PASS  최신순 정렬 6가지');
+}
+
+// ── 등장 순차 애니메이션은 첫 마운트에서만 (hooks/useEnterStagger) ─────────────
+// 원래 버그(사용자 지적 2026-08-31 — "순차 애니메이션 순서가 종종 이상하다"):
+// `.dc-row`/`.dc-card`는 fill-mode가 both라 animationDelay 동안 투명하다. 목록이 뜬
+// 뒤에 새로 붙는 줄(완료로 옮긴 업무, 컬럼을 옮긴 카드)에도 순번 지연을 주면 그 줄만
+// 수백 ms 뒤에 혼자 나타나서 지각으로 읽혔다. 순번은 첫 렌더에서만 준다.
+// 되돌리기 검사: 훅에서 useEffect를 빼면 첫 단정이, 호출부의 삼항을 지우면 뒤 두 개가 깨진다.
+{
+  const hook = readFileSync(new URL('../src/hooks/useEnterStagger.js', import.meta.url), 'utf8');
+  assert.ok(/useRef\(true\)/.test(hook) && /useEffect\(\(\) => \{ first\.current = false; \}, \[\]\)/.test(hook),
+    '첫 렌더에서만 true — 마운트 뒤에는 false다');
+  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  assert.ok(/const stagger = useEnterStagger\(\);/.test(parts)
+    && /stagger \? `\$\{Math\.min\(seen\+\+, 12\) \* 22\}ms` : '0ms'/.test(parts),
+    '마감 목록은 첫 렌더에서만 순번 지연을 준다');
+  const boards = readFileSync(new URL('../src/components/boards.jsx', import.meta.url), 'utf8');
+  assert.ok(/const stagger = useEnterStagger\(\);/.test(boards) && /index=\{stagger \? i : 0\}/.test(boards),
+    '보드 카드도 첫 렌더에서만 순번 지연을 준다');
+  console.log('PASS  순차 등장 배선 3가지');
+}

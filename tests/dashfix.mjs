@@ -52,11 +52,13 @@ for (const [m,label,theme] of [[{width:390,height:844,deviceScaleFactor:2,mobile
     const vis=e=>e.getBoundingClientRect().width>0;
     // KPI 칸(.dc-kpi) 3개 + 진척도 칸. '지연/오늘 마감/이번 주'는 마감 그룹 제목에도
     // 쓰이므로 칸 안쪽으로 한정해서 센다.
+    // 진척도 칸도 2026-08-31부터 .dc-kpi다(순번 애니메이션을 같이 받는다) — 두 번
+    // 세지 않게 Set으로 합친다.
     const cells=[...document.querySelectorAll('main .dc-kpi')].filter(vis);
     const progLabel=[...document.querySelectorAll('main span')]
       .find(s=>s.textContent.trim()==='전체 진척도' && vis(s));
     const progCell=progLabel?progLabel.parentElement.parentElement:null;
-    const all=progCell?[...cells,progCell]:cells;
+    const all=progCell?[...new Set([...cells,progCell])]:cells;
     const rows=all.map(t=>t.getBoundingClientRect().top).sort((a,b)=>a-b)
       .filter((t,i,a)=>i===0||t-a[i-1]>14).length;
     const num=progCell?[...progCell.querySelectorAll('span')].find(s=>/^[0-9]+%$/.test(s.textContent.trim())):null;
