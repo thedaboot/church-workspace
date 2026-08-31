@@ -1160,3 +1160,47 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     "문구는 '여기서 순서를 볼 수 있어요'다(사용자 결정 2026-08-31)");
   console.log('PASS  강조가 안 튀는지 13가지');
 }
+// ── 연결 지도의 연도 고르기 (전체 대시보드) ───────────────────────────────────
+// 사용자 결정 2026-08-31 — 해가 쌓이면 프로젝트 층이 넘쳐 라벨이 겹치므로 지도도
+// 고른 해만 본다. 값은 '프로젝트 진행'·탭 줄과 **같은 하나**(useProjectYear 모듈
+// 스토어)여서 한 곳에서 바꾸면 셋 다 따라간다.
+// 예전 주석에는 "연결 지도는 해로 거르지 않는다"고 적혀 있었다 — 뒤집힌 결정이다.
+// 되돌리기 검사: 아래 각 줄을 되돌리면 그 단정이 깨진다.
+{
+  const views = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');
+  assert.ok(/projects=\{projectsList\}/.test(views),
+    '지도가 고른 해의 프로젝트만 받는다(activeProjects 전체가 아니다)');
+  assert.ok(/year=\{year\} years=\{years\} yearCounts=\{yearCounts\} onPickYear=\{setYear\}/.test(views),
+    '지도에 연도 고르기를 넘긴다 — 값은 프로젝트 진행·탭 줄과 같은 하나다');
+  assert.ok(/if \(!yearProjectIds\.has\(t\.projectId\)\) continue;/.test(views),
+    '팀 목록·팀별 남은 수·선 굵기도 그 해 업무만 센다(딴 해 팀이 빈 줄로 남지 않게)');
+  assert.ok(!/연결 지도는 해로 거르지 않는다/.test(views), '뒤집힌 옛 주석이 남아 있지 않다');
+
+  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  assert.ok(/import \{ YearPicker \} from '\.\.\/components\/layout\.jsx';/.test(parts),
+    "'프로젝트 진행' 칸과 **같은 부품**을 쓴다(연도 고르기를 두 벌 만들지 않는다)");
+  assert.ok(/onPick=\{onPickYear\} compact \/>/.test(parts), '지도 머리줄에 연도 고르기가 있다');
+  assert.ok(/\{year\}년에는 프로젝트가 없어요/.test(parts),
+    "그 해에 프로젝트가 없으면 그림 대신 한 줄('아직'이라고 하지 않는다)");
+
+  // 몇 개까지 겹치지 않나 — 상한을 바꿀 때 이 계산을 다시 하라.
+  // room = (H - 16) - 38, 라벨 높이 27~28px. 균등 분배 간격이 라벨보다 좁아지면 겹친다.
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'cap-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { spreadLabels } = await import(pathToFileURL(f).href);
+  const fits = (n, H) => {
+    const items = Array.from({ length: n }, (_, k) => ({ i: k, y: 38 + k * 4 }));
+    const m = spreadLabels(items, 30, 38, H - 16);
+    const ys = items.map(it => m.get(it.i)).sort((a, b) => a - b);
+    let min = Infinity;
+    for (let k = 1; k < ys.length; k++) min = Math.min(min, ys[k] - ys[k - 1]);
+    return min;
+  };
+  assert.ok(fits(15, 580) >= 30, '모바일 상한(580)에서 15개는 넉넉하다');
+  assert.ok(fits(19, 580) >= 27, '19개까지는 라벨이 안 닿는다');
+  assert.ok(fits(30, 580) < 27, '30개면 좁아진다 — 겹치기 시작하는 자리(터지지는 않는다)');
+  assert.ok(fits(30, 580) > 0, '자리가 모자라도 같은 y에 뭉치지 않는다(균등 분배)');
+  console.log('PASS  지도 연도 고르기 11가지');
+}

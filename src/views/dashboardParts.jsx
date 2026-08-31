@@ -9,6 +9,7 @@ import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { useForceGraph } from '../hooks/useForceGraph.js';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
+import { YearPicker } from '../components/layout.jsx';
 
 // ============================================================================
 // 리디자인 공용 조각 — 대시보드 / 내 업무 / 팀 보드가 같은 부품을 쓴다.
@@ -741,7 +742,8 @@ const FM = {
 // 가만히 있고 **세로로만** 이어진 짝을 끌어당긴다 — 그게 이 그림이 원하는 힘이다.
 const EDGE_OF = (a, b, W) => Math.max(48, (b - a) * W);
 
-export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLeft = {}, memberLoad, onOpenTeam, onOpenProject }) {
+export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLeft = {}, memberLoad,
+  year, years, yearCounts, onPickYear, onOpenTeam, onOpenProject }) {
   const compact = useIsMobile();
   const wrapRef = useRef(null);
   // **폭을 재기 전에는 배치하지 않는다**(cw = 0 · 2026-08-31 사용자 지적 — "모바일에서
@@ -940,10 +942,24 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
     <Card className="px-4 py-[15px]">
       <div className="flex items-center gap-2 pb-1">
         <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 연결 지도</h3>
-        <span className="text-[10px] text-fg-faint">사람 → 팀 → 프로젝트</span>
+        <span className="text-[10px] text-fg-faint truncate">사람 → 팀 → 프로젝트</span>
+        {/* 연도 고르기 — **'프로젝트 진행' 칸·탭 줄과 같은 하나의 값**이다
+            (useProjectYear 모듈 스토어). 여기서 바꾸면 그 둘도 따라간다.
+            해가 쌓일수록 프로젝트 층이 넘쳐 라벨이 겹치므로 이 칸에도 필요해졌다
+            (사용자 결정 2026-08-31). 데스크톱·모바일 같은 자리다. */}
+        {onPickYear && (
+          <span className="shrink-0 ml-auto -my-1">
+            <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={onPickYear} compact />
+          </span>
+        )}
       </div>
+      {/* 고른 해에 프로젝트가 없을 수 있다 — 다른 해에는 있다는 뜻이므로 '아직'이라고
+          하지 않는다('프로젝트 진행' 칸과 같은 문장). 사람 층만 남은 그림은 뜻이 없다. */}
+      {!projects.length && (
+        <p className="py-10 text-center text-[11px] text-fg-faint">{year}년에는 프로젝트가 없어요</p>
+      )}
       {/* 빈 데를 누르면 탭 포커스가 풀린다 */}
-      <div ref={wrapRef} className="relative select-none" style={{ height: H }}
+      <div ref={wrapRef} className={`relative select-none ${projects.length ? '' : 'hidden'}`} style={{ height: H }}
         onClick={(e) => { if (e.target === e.currentTarget) setPinId(null); }}
         onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHiId(null); }}>
         {/* 팀 띠 — 사람·프로젝트가 자기 팀 높이에 서므로, 옅은 가로 띠가 "이 줄은 이 팀"을

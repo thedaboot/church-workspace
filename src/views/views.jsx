@@ -56,8 +56,11 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   const allProjectsForYears = useStore(selectProjectsList);
   const { years, yearCounts } = useYearOptions(allProjectsForYears);
   const projectsList = useMemo(() => projectsOfYear(activeProjects, year), [activeProjects, year]);
-  // 연결 지도는 해로 거르지 않는다 — "내가 어디에 붙어 있는지" 한 장이고, 해로 자르면
-  // 작년까지 이어온 관계가 통째로 사라진다.
+  // **연결 지도도 고른 해만 본다**(사용자 결정 2026-08-31 — 해가 쌓이면 프로젝트 층이
+  // 넘쳐 라벨이 겹친다). 예전 주석에는 "해로 거르지 않는다 — 해로 자르면 작년까지
+  // 이어온 관계가 사라진다"고 적어 두었는데 사용자가 뒤집었습니다: 연도를 바꾸면
+  // 그 해가 보이므로 사라지는 것이 아니고, 한 화면에 다 밀어 넣는 쪽이 더 나쁩니다.
+  // 값은 '프로젝트 진행'·탭 줄과 **같은 하나**(useProjectYear 모듈 스토어)입니다.
   const today = ISO_TODAY();
 
   // 소속 팀이 여럿이면 전부 합친다(대표 팀 하나만 보면 겸직한 사람 업무가 빠진다)
@@ -125,12 +128,16 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   // **사람→팀 선 자체는 프로필의 팀(멤버십)에서 나옵니다** — 업무 수로 선을 만들면
   // 맡은 일이 없는 사람이 팀에서 사라집니다(§8 — 연결이 없는 사람도 그대로 보인다).
   // 업무 수는 굵기로만 씁니다(0건이면 가장 얇은 선).
+  // 지도가 쓰는 값들은 **고른 해 프로젝트의 업무만** 훑는다 — 안 그러면 딴 해에만
+  // 있는 팀이 빈 줄로 남고, 팀 칩의 남은 수도 딴 해 업무를 같이 센다.
+  const yearProjectIds = useMemo(() => new Set(projectsList.map(p => p.id)), [projectsList]);
   const { teamsInUse, teamProjects, teamLeft, memberLoad } = useMemo(() => {
     const teamSet = new Set();
     const pairCount = new Map();      // `팀|프로젝트` → 업무 수
     const left = {};                  // 팀 → 남은(미완료) 업무 수
     const load = new Map();           // `이름|팀` → 업무 수
     for (const t of tasksList) {
+      if (!yearProjectIds.has(t.projectId)) continue;
       for (const team of (t.teams || [])) {
         teamSet.add(team);
         const key = `${team}|${t.projectId}`;
@@ -149,7 +156,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
       return [k.slice(0, i), k.slice(i + 1), n];
     });
     return { teamsInUse: inUse, teamProjects: pairs, teamLeft: left, memberLoad: load };
-  }, [tasksList]);
+  }, [tasksList, yearProjectIds]);
 
   // 프로젝트별 상태 분포 — 4색 세그먼트 바.
   // 프로젝트마다 목록 전체를 다시 훑지 않도록 한 번 묶고(groupBy) 한 번만 센다.
@@ -419,8 +426,9 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
       {members.length > 0 && (
         <div className={`${tab === '연결' ? 'block' : 'hidden'} lg:block pt-6`}>
           <NetworkMap
-            members={members} teamsInUse={teamsInUse} projects={activeProjects}
+            members={members} teamsInUse={teamsInUse} projects={projectsList}
             teamProjects={teamProjects} teamLeft={teamLeft} memberLoad={memberLoad}
+            year={year} years={years} yearCounts={yearCounts} onPickYear={setYear}
             onOpenTeam={(name) => onNavigate(`team:${name}`)} onOpenProject={onNavigate}
           />
         </div>
