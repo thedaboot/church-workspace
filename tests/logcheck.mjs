@@ -1179,7 +1179,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
   assert.ok(/import \{ YearPicker \} from '\.\.\/components\/layout\.jsx';/.test(parts),
     "'프로젝트 진행' 칸과 **같은 부품**을 쓴다(연도 고르기를 두 벌 만들지 않는다)");
-  assert.ok(/onPick=\{onPickYear\} compact \/>/.test(parts), '지도 머리줄에 연도 고르기가 있다');
+  // 2026-08-31: onPick은 스크롤 보정을 거치는 pickYear다(그 아래 블록)
+  assert.ok(/onPick=\{pickYear\} compact \/>/.test(parts), '지도 머리줄에 연도 고르기가 있다');
   assert.ok(/\{year\}년에는 프로젝트가 없어요/.test(parts),
     "그 해에 프로젝트가 없으면 그림 대신 한 줄('아직'이라고 하지 않는다)");
 
@@ -1203,4 +1204,35 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(fits(30, 580) < 27, '30개면 좁아진다 — 겹치기 시작하는 자리(터지지는 않는다)');
   assert.ok(fits(30, 580) > 0, '자리가 모자라도 같은 y에 뭉치지 않는다(균등 분배)');
   console.log('PASS  지도 연도 고르기 11가지');
+}
+// ── 연도를 바꿔도 지도가 제자리인가 (스크롤 보정) ─────────────────────────────
+// 사용자 지적 2026-08-31 — "2027로 바꿨을 때 갑자기 위로 스크롤이 올라간다".
+// 원인: 연도를 바꾸면 위쪽 칸('프로젝트 진행')이 크게 줄어 페이지가 짧아진다.
+// 지도를 보려고 끝까지 내려온 상태면 스크롤이 잘려서 튄다 — 브라우저의 scroll
+// anchoring은 스크롤 끝에서 잘리는 이 경우를 못 잡는다.
+// 브라우저 실측(사람 15 · 프로젝트 13→2): 보정 전 지도가 24px 움직이고 스크롤이
+// 720px 줄었다(스크롤 높이는 696px만 줄었으니 24px이 여분의 튐이다).
+// 보정 뒤 **지도는 0px** 움직이고 스크롤 감소가 높이 감소와 정확히 같다(696=696).
+// 되돌아오는 방향(2027→2026)도 0px이다.
+// 되돌리기 검사: onPick을 pickYear에서 onPickYear로 되돌리면 다시 24px 튄다.
+{
+  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  assert.ok(/const pickYear = \(y\) => \{/.test(parts), '연도 고르기를 감싸는 보정이 있다');
+  assert.ok(/const before = el\?\.getBoundingClientRect\(\)\.top;/.test(parts),
+    '바꾸기 전 지도 카드의 화면 위치를 재둔다');
+  assert.ok(/scrollParentOf\(now\)\?\.scrollBy\(\{ top: d, behavior: 'instant' \}\)/.test(parts),
+    '다음 프레임에 그만큼 되돌린다(창이 아니라 실제 스크롤러를 잡는다)');
+  assert.ok(/onPick=\{pickYear\}/.test(parts) && !/onPick=\{onPickYear\}/.test(parts),
+    '지도의 연도 고르기가 보정을 거친다');
+  // 그 해에 프로젝트가 없어도 칸이 통째로 접히지 않는다 — 접히면 위 보정으로도 못 막는다
+  assert.ok(/className="relative select-none" style=\{\{ height: H \}\}/.test(parts),
+    '지도 칸의 높이는 프로젝트가 없어도 그대로다');
+  assert.ok(/absolute inset-0 flex items-center justify-center text-\[11px\] text-fg-faint/.test(parts),
+    '빈 줄은 그 높이 안 가운데에 선다');
+
+  const utils = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  assert.ok(/export function scrollParentOf\(el\)/.test(utils), '스크롤러를 찾는 헬퍼가 있다');
+  assert.ok(/이 앱은 창이 아니라 `main`이 스크롤한다/.test(utils),
+    'window.scrollBy로는 아무 일도 안 일어난다는 것을 적어 둔다');
+  console.log('PASS  연도 바꿀 때 스크롤 보정 8가지');
 }

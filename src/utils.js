@@ -547,6 +547,19 @@ export function forceStep(pos, vel, nodes, edges, W, H, opts = {}) {
   }
 }
 
+// 이 요소를 실제로 스크롤하는 조상. 이 앱은 창이 아니라 `main`이 스크롤한다
+// (App.jsx의 레이아웃) — `window.scrollBy`로는 아무 일도 일어나지 않는다.
+// 없으면 문서 스크롤러로 떨어진다.
+export function scrollParentOf(el) {
+  let n = el?.parentElement;
+  while (n && n !== document.documentElement) {
+    const st = getComputedStyle(n);
+    if (/(auto|scroll)/.test(st.overflowY) && n.scrollHeight > n.clientHeight + 4) return n;
+    n = n.parentElement;
+  }
+  return document.scrollingElement;
+}
+
 // ── 같은 층 라벨을 세로로 떼어놓기 (연결 지도가 그릴 때만 쓴다) ────────────────
 // **힘 배치는 겹치지 않음을 보장할 수 없다.** 척력을 세게 하면 노드가 영역 밖으로
 // 밀리고, 약하면 라벨이 겹친다 — 실측으로 15개 프로젝트에서 4~9건이 겹쳤다

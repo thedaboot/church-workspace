@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
-import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byCompleted, completedTime, spreadLabels } from '../utils.js';
+import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byCompleted, completedTime, spreadLabels, scrollParentOf } from '../utils.js';
 import { usePresence } from '../services/presence.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
@@ -938,6 +938,26 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
   }
   const yOf = (i) => drawY.get(i) ?? (pos[i]?.y ?? 0);
 
+  // 연도를 바꾸면 **위쪽 칸('프로젝트 진행')이 크게 줄어서** 페이지가 짧아지고, 지도를
+  // 보려고 끝까지 내려온 상태에서는 스크롤이 위로 튄다(사용자 지적 2026-08-31 —
+  // 실측으로 스크롤 높이 −696px · 스크롤 −720px). 브라우저의 scroll anchoring은
+  // 스크롤 끝에서 잘리는 이 경우를 못 잡는다.
+  // 그래서 **지도 카드가 화면에서 있던 자리를 지킨다** — 바꾸기 전 top을 재두고,
+  // 다음 프레임에 그만큼 되돌린다. 페이지가 더 짧아져 되돌릴 스크롤이 없으면
+  // 남는 만큼은 어쩔 수 없다(그때는 지도가 화면 아래에 온전히 보인다).
+  const pickYear = (y) => {
+    const el = wrapRef.current;
+    const before = el?.getBoundingClientRect().top;
+    onPickYear(y);
+    if (before == null) return;
+    requestAnimationFrame(() => {
+      const now = wrapRef.current;
+      if (!now) return;
+      const d = now.getBoundingClientRect().top - before;
+      if (Math.abs(d) > 1) scrollParentOf(now)?.scrollBy({ top: d, behavior: 'instant' });
+    });
+  };
+
   return (
     <Card className="px-4 py-[15px]">
       <div className="flex items-center gap-2 pb-1">
@@ -949,22 +969,26 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
             (사용자 결정 2026-08-31). 데스크톱·모바일 같은 자리다. */}
         {onPickYear && (
           <span className="shrink-0 ml-auto -my-1">
-            <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={onPickYear} compact />
+            <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={pickYear} compact />
           </span>
         )}
       </div>
       {/* 고른 해에 프로젝트가 없을 수 있다 — 다른 해에는 있다는 뜻이므로 '아직'이라고
-          하지 않는다('프로젝트 진행' 칸과 같은 문장). 사람 층만 남은 그림은 뜻이 없다. */}
-      {!projects.length && (
-        <p className="py-10 text-center text-[11px] text-fg-faint">{year}년에는 프로젝트가 없어요</p>
-      )}
-      {/* 빈 데를 누르면 탭 포커스가 풀린다 */}
-      <div ref={wrapRef} className={`relative select-none ${projects.length ? '' : 'hidden'}`} style={{ height: H }}
+          하지 않는다('프로젝트 진행' 칸과 같은 문장). 사람 층만 남은 그림은 뜻이 없다.
+          **칸의 높이는 그대로 둔다**(통째로 접으면 페이지가 확 짧아져서 위 스크롤
+          보정으로도 못 막는다). 빈 줄을 그 높이 안 가운데에 세운다.
+          빈 데를 누르면 탭 포커스가 풀린다. */}
+      <div ref={wrapRef} className="relative select-none" style={{ height: H }}
         onClick={(e) => { if (e.target === e.currentTarget) setPinId(null); }}
         onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHiId(null); }}>
         {/* 팀 띠 — 사람·프로젝트가 자기 팀 높이에 서므로, 옅은 가로 띠가 "이 줄은 이 팀"을
             말해 준다(2026-08-31 읽기 보조). 홀수 띠만 칠해서 줄무늬로 읽히게 하고, 고른
             팀의 띠는 그 팀 색으로 한 겹 더 밝힌다. 선 아래에 깔린다(pointer-events 없음). */}
+        {!projects.length && (
+          <p className="absolute inset-0 flex items-center justify-center text-[11px] text-fg-faint">
+            {year}년에는 프로젝트가 없어요
+          </p>
+        )}
         {bands.map((b, k) => {
           const isCur = cur != null && nodes[cur]?.kind === 'team' && nodes[cur].t === b.team;
           const near = cur != null && linked && [...linked].some(j => nodes[j]?.kind === 'team' && nodes[j].t === b.team);
