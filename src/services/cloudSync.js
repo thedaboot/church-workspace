@@ -27,8 +27,12 @@ const primeMaps = (teams, profiles) => {
   nameToAvatar = new Map(profiles
     .filter(p => p.display_name && p.avatar_url)
     .map(p => [p.display_name, httpsImage(p.avatar_url)]));
-  // 담당자·멘션 자동완성은 가나다순으로 보여준다(호출부 전체가 이 순서를 물려받음)
-  memberNames = [...new Set(profiles.map(p => p.display_name).filter(Boolean))]
+  // 담당자·멘션 자동완성은 가나다순으로 보여준다(호출부 전체가 이 순서를 물려받음).
+  // **환송한 사람(0027)은 후보에서 뺀다**(사용자 지적 2026-08-30 — 스토어의 members는
+  // 걸렀는데 이 모듈 캐시는 안 걸러서, 멘션·담당자 목록에만 환송한 사람이 남아 있었다).
+  // 위의 profileIdToName·nameToAvatar는 **일부러 안 거른다** — 환송한 사람이 남긴
+  // 지난 댓글·활동의 이름과 사진은 그대로 보여야 한다(내용은 남는다는 규칙).
+  memberNames = [...new Set(profiles.filter(p => !p.removed_at).map(p => p.display_name).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'ko'));
 };
 

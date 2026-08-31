@@ -73,6 +73,8 @@ const PROFILES = [
   { id: 'u1', display_name: '노준석' },
   { id: 'u2', display_name: '조준환' },
   { id: 'u3', display_name: '천진영' },
+  // 환송한 사람(0027) — 멘션·담당자 후보에서 빠져야 한다(아래 단정)
+  { id: 'u4', display_name: '환송된사람', removed_at: '2026-08-01T00:00:00Z' },
 ];
 const notified = [];
 globalThis.__CLOUD = {
@@ -101,6 +103,13 @@ const file = join(dir, 'cloudSync.mjs');
 writeFileSync(file, patched);
 const sync = await import('file://' + file.replace(/\\/g, '/'));
 await sync.loadCloudState(); // 이름 → 프로필 id 맵 프라이밍
+
+// 환송한 사람(0027)은 멘션·담당자 자동완성 후보에서 빠진다 — 스토어의 members는
+// 걸렀는데 이 모듈 캐시(memberNames)는 안 걸러서 목록에 남아 있었다(사용자 지적
+// 2026-08-30). 지난 댓글의 이름·사진 표시는 그대로여야 하므로 profileIdToName·
+// nameToAvatar는 일부러 안 거른다.
+assert.deepStrictEqual(sync.getMemberNames(), ['노준석', '조준환', '천진영'],
+  '환송한 사람이 멘션·담당자 후보에 남아 있다');
 
 const only = (next, prev) => sync.newAssigneesOnly(next, prev, '노준석');
 
