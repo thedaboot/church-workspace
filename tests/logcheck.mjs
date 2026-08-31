@@ -1131,3 +1131,32 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '표식도 순서대로 그려진다(원 → 선 → 원, §4.2)');
   console.log('PASS  지도 한 번 배치·끌기 손맛·빈 그래프 12가지');
 }
+// ── 강조가 엉뚱한 노드로 옮겨가지 않나 (연결 지도 · 그래프 뷰) ────────────────
+// 사용자 지적 2026-08-31 — "가끔 다른 프로젝트가 갑자기 강조가 된다". 원인이 둘이었다:
+//  ① 고른 노드를 **인덱스**로 들고 있었다. 목록이 다시 만들어지면(사람 가입 ·
+//     실시간 재조회 · 폭 변경) 같은 번호가 딴 노드를 가리킨다 → id로 바꿨다.
+//  ② 터치에서도 브라우저가 onMouseEnter를 흉내내 발생시키는데 onMouseLeave는
+//     안 오는 경우가 있어서 강조가 그대로 남았다 → pointerType으로 걸렀다.
+// 되돌리기 검사: 어느 한 줄을 되돌리면 그 단정이 깨진다.
+{
+  for (const f of ['../src/views/dashboardParts.jsx', '../src/components/depgraph.jsx']) {
+    const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+    const who = f.includes('depgraph') ? '그래프 뷰' : '연결 지도';
+    assert.ok(/onPointerEnter: \(e\) => \{ if \(e\.pointerType === 'mouse'\) setHiId\(id\); \}/.test(src),
+      who + ': 호버는 진짜 마우스에만 켠다');
+    assert.ok(/onPointerLeave: \(e\) => \{ if \(e\.pointerType === 'mouse'\) setHiId\(null\); \}/.test(src),
+      who + ': 호버를 끄는 것도 마우스에만');
+    assert.ok(!/onMouseEnter=/.test(src), who + ': onMouseEnter를 안 쓴다(터치에서 흉내로 발생한다)');
+    assert.ok(/nodes\.findIndex\(n => n\.id === /.test(src),
+      who + ': 고른 노드를 id로 찾는다(인덱스로 들고 있으면 딴 노드를 가리킨다)');
+    assert.ok(/setHiId\(null\); \}\}>/.test(src), who + ': 지도 밖으로 마우스가 빠지면 강조를 끈다');
+  }
+  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  assert.ok(/const picked = pinId === n\.id;/.test(parts), '탭해 둔 사람도 id로 판정한다');
+  assert.ok(/setPinId\(picked \? null : n\.id\)/.test(parts), '다시 누르면 풀린다');
+  assert.ok(/if \(e\.target === e\.currentTarget\) setPinId\(null\)/.test(parts), '빈 데를 누르면 풀린다');
+  const dep = readFileSync(new URL('../src/components/depgraph.jsx', import.meta.url), 'utf8');
+  assert.ok(/여기서 순서를 볼 수 있어요/.test(dep) && !/여기에 순서가 이어져요/.test(dep),
+    "문구는 '여기서 순서를 볼 수 있어요'다(사용자 결정 2026-08-31)");
+  console.log('PASS  강조가 안 튀는지 13가지');
+}

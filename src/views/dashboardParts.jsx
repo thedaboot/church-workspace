@@ -885,9 +885,27 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
   const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, offX, compact });
   // hover(데스크톱) 또는 탭(모바일)으로 고른 노드. 사람 노드는 갈 곳이 없으므로
   // **탭이 곧 포커스**다 — 터치 기기에는 hover가 없어서 이 기능이 아예 없었다(§8).
-  const [hi, setHi] = useState(null);
-  const [pin, setPin] = useState(null);
-  const cur = hi ?? pin;
+  // **고른 노드는 인덱스가 아니라 id로 기억한다.** 인덱스로 들고 있으면 목록이 다시
+  // 만들어질 때(사람이 가입하거나 실시간 재조회가 오거나 폭이 바뀔 때) 같은 번호가
+  // **딴 노드**를 가리켜서, 아무것도 안 했는데 엉뚱한 프로젝트가 강조됐다
+  // (사용자 지적 2026-08-31 — "가끔 다른 프로젝트가 갑자기 강조가 된다").
+  // 그 노드가 사라졌으면 강조도 사라진다(찾지 못하면 null).
+  const [hiId, setHiId] = useState(null);
+  const [pinId, setPinId] = useState(null);
+  const curId = hiId ?? pinId;
+  const curIdx = curId == null ? -1 : nodes.findIndex(n => n.id === curId);
+  const cur = curIdx >= 0 ? curIdx : null;
+  // **호버는 진짜 마우스에만.** `onMouseEnter`는 터치에서도 브라우저가 흉내내 발생하고
+  // `onMouseLeave`는 안 오는 경우가 있어서, 폰에서 한 번 만진 노드의 강조가 그대로
+  // 남았다 — 스크롤하거나 딴 데를 눌러도 "갑자기 다른 프로젝트가 강조되는" 것으로
+  // 보였다(사용자 지적 2026-08-31). pointerType으로 걸러서 **터치에는 호버가 아예
+  // 없게** 한다. 터치에서 강조를 보는 길은 사람 노드를 눌러 두는 것(pin)뿐이고,
+  // 그건 기준이 분명하다(누르면 켜지고 다시 누르거나 빈 데를 누르면 꺼진다).
+  const hoverProps = (id) => ({
+    onPointerEnter: (e) => { if (e.pointerType === 'mouse') setHiId(id); },
+    onPointerLeave: (e) => { if (e.pointerType === 'mouse') setHiId(null); },
+  });
+
 
   // 만진(또는 탭해 둔) 노드와 그 이웃만 또렷하게 — 나머지는 흐린다
   const linked = useMemo(() => {
@@ -926,7 +944,8 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
       </div>
       {/* 빈 데를 누르면 탭 포커스가 풀린다 */}
       <div ref={wrapRef} className="relative select-none" style={{ height: H }}
-        onClick={(e) => { if (e.target === e.currentTarget) setPin(null); }}>
+        onClick={(e) => { if (e.target === e.currentTarget) setPinId(null); }}
+        onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHiId(null); }}>
         {/* 팀 띠 — 사람·프로젝트가 자기 팀 높이에 서므로, 옅은 가로 띠가 "이 줄은 이 팀"을
             말해 준다(2026-08-31 읽기 보조). 홀수 띠만 칠해서 줄무늬로 읽히게 하고, 고른
             팀의 띠는 그 팀 색으로 한 겹 더 밝힌다. 선 아래에 깔린다(pointer-events 없음). */}
@@ -980,7 +999,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
           };
           if (n.kind === 'member') {
             const drag = bindDrag(i);
-            const picked = pin === i;
+            const picked = pinId === n.id;
             return (
               // 사람 노드는 갈 곳이 없어서 예전에는 눌러도 아무 일이 없었다 → **탭이 포커스**다.
               // 터치 기기에는 hover가 없어서 "그 사람의 연결만 보기"가 아예 없는 기능이었다(§8).
@@ -989,8 +1008,8 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
                 aria-pressed={picked}
                 title={`${n.m.name} — 눌러서 이 사람의 연결만 보기`}
                 className="flex flex-col items-center gap-0.5"
-                onClick={() => setPin(picked ? null : i)}
-                onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}>
+                onClick={() => setPinId(picked ? null : n.id)}
+                {...hoverProps(n.id)}>
                 <Avatar name={n.m.name} url={n.m.avatarUrl}
                   className={`flex w-[20px] h-[20px] text-[9px] pointer-events-none ${picked ? 'ring-2 ring-accent' : ''}`} />
                 <span className={`text-[9px] leading-none whitespace-nowrap pointer-events-none ${picked ? 'text-fg font-bold' : 'text-fg-muted'}`}>{n.m.name}</span>
@@ -1002,7 +1021,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
               // 남은 업무 수를 칩 안에 붙인다(사용자 결정 2026-08-31) — 연결과 부담을
               // 한 번에 읽는다. 0건이면 숫자를 쓰지 않는다(없는 것을 굳이 말하지 않는다).
               <button key={n.id} type="button" title={`${n.t} 보드로${n.left ? ` · 남은 업무 ${n.left}건` : ''}`} style={base}
-                onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+                {...hoverProps(n.id)}
                 onClick={() => onOpenTeam(n.t)}
                 className="inline-flex items-center gap-1 pl-2 pr-[7px] py-[3px] rounded-full text-[10.5px] font-bold whitespace-nowrap bg-surface border border-line shadow-soft transition hover:opacity-70">
                 <span style={{ color: teamColor(n.t) }}>{n.t}</span>
@@ -1016,7 +1035,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
           return (
             <button key={n.id} type="button" title={`${n.p.title} 열기`} {...drag}
               style={{ ...base, ...drag.style, cursor: 'grab' }}
-              onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+              {...hoverProps(n.id)}
               onClick={() => onOpenProject(n.p.id)}
               className={`px-2.5 py-1 rounded-[8px] bg-surface shadow-soft border border-line font-bold text-fg whitespace-nowrap truncate transition hover:opacity-70 ${compact ? 'text-[10.5px] max-w-[128px]' : 'text-[11.5px] max-w-[200px]'}`}>
               {n.p.title}

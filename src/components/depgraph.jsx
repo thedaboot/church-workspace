@@ -44,7 +44,7 @@ export function GraphEmpty() {
     <div className="flex-1 min-h-[46vh] flex flex-col items-center justify-center text-center">
       <GraphEmptyMark />
       <p className="text-[13.5px] font-semibold text-fg mb-1 mt-3">아직 업무가 없어요</p>
-      <p className="text-xs text-fg-faint">업무를 만들고 '선행 업무'를 정하면 여기에 순서가 이어져요</p>
+      <p className="text-xs text-fg-faint">업무를 만들고 '선행 업무'를 정하면 여기서 순서를 볼 수 있어요</p>
     </div>
   );
 }
@@ -113,7 +113,25 @@ export function DepGraph({ tasks, onTaskClick }) {
   }, [list, compact, W]);
 
   const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, offX, compact });
-  const [hi, setHi] = useState(null);
+  // **고른 노드는 인덱스가 아니라 id로 기억한다.** 인덱스로 들고 있으면 목록이 다시
+  // 만들어질 때(사람이 가입하거나 실시간 재조회가 오거나 폭이 바뀔 때) 같은 번호가
+  // **딴 노드**를 가리켜서, 아무것도 안 했는데 엉뚱한 프로젝트가 강조됐다
+  // (사용자 지적 2026-08-31 — "가끔 다른 프로젝트가 갑자기 강조가 된다").
+  // 그 노드가 사라졌으면 강조도 사라진다(찾지 못하면 null).
+  const [hiId, setHiId] = useState(null);
+  const hiIdx = hiId == null ? -1 : nodes.findIndex(n => n.id === hiId);
+  const hi = hiIdx >= 0 ? hiIdx : null;
+  // **호버는 진짜 마우스에만.** `onMouseEnter`는 터치에서도 브라우저가 흉내내 발생하고
+  // `onMouseLeave`는 안 오는 경우가 있어서, 폰에서 한 번 만진 노드의 강조가 그대로
+  // 남았다 — 스크롤하거나 딴 데를 눌러도 "갑자기 다른 프로젝트가 강조되는" 것으로
+  // 보였다(사용자 지적 2026-08-31). pointerType으로 걸러서 **터치에는 호버가 아예
+  // 없게** 한다. 터치에서 강조를 보는 길은 업무를 눌러 창을 여는 것이고,
+  // 이 화면은 강조 자체가 마우스용 보조다(연결 지도와 같은 규칙 — 갈라 두지 말 것).
+  const hoverProps = (id) => ({
+    onPointerEnter: (e) => { if (e.pointerType === 'mouse') setHiId(id); },
+    onPointerLeave: (e) => { if (e.pointerType === 'mouse') setHiId(null); },
+  });
+
   const linked = useMemo(() => {
     if (hi == null) return null;
     const set = new Set([hi]);
@@ -130,7 +148,7 @@ export function DepGraph({ tasks, onTaskClick }) {
         {/* 안내 줄은 빈 상태(연결이 하나도 없을 때)에만 — 그 외에는 붙이지 않는다
             (사용자 결정 2026-08-27). */}
         {!hasEdges && (
-          <p className="text-[11px] text-fg-faint min-w-0">업무를 열어 '선행 업무'를 정하면 여기에 순서가 이어져요</p>
+          <p className="text-[11px] text-fg-faint min-w-0">업무를 열어 '선행 업무'를 정하면 여기서 순서를 볼 수 있어요</p>
         )}
         <span className="flex-1" />
         <span className="hidden sm:flex items-center gap-2.5">
@@ -143,7 +161,8 @@ export function DepGraph({ tasks, onTaskClick }) {
       </div>
       <div className="rounded-[10px] shadow-soft select-none"
         style={{ border: '1px solid var(--app-line)', background: 'var(--app-surface)' }}>
-        <div ref={wrapRef} className="relative" style={{ height: H }}>
+        <div ref={wrapRef} className="relative" style={{ height: H }}
+          onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHiId(null); }}>
           <svg className="absolute inset-0 pointer-events-none" width={cw} height={H} aria-hidden>
             {edges.map(([a, b], i) => {
               // 선행이 끝났으면 초록, 아직이면 회색 — "여기가 막혀 있다"가 색으로 보인다
@@ -175,7 +194,7 @@ export function DepGraph({ tasks, onTaskClick }) {
             return (
               <button key={n.id} type="button" {...drag}
                 onClick={() => onTaskClick(t)}
-                onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+                {...hoverProps(n.id)}
                 title={`${t.title}${t.assignees?.length ? ` · ${t.assignees.join(', ')}` : ''} · ${t.status}`}
                 // 연결 지도의 필과 같은 시각 언어 — [팀 레일 | 상태 점 | 제목].
                 // 맨 점 + 밑 글자는 허전하고 무엇을 누르는지도 흐렸다(사용자 지적).
