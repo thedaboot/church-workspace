@@ -16,8 +16,10 @@ import { forceStep, forceBounds } from '../utils.js';
 // ============================================================================
 const ALPHA_DECAY = 0.0228;   // ≈300틱에 수렴(d3 기본)
 const ALPHA_MIN = 0.002;      // 이보다 식으면 정착 — 루프 종료
-const ALPHA_DRAG = 0.2;       // 드래그 중 유지할 온기
-const ALPHA_WAKE = 0.3;       // 깨울 때 — 너무 높으면 튄다(Injoy와 같은 값)
+// 만질 때의 온기도 낮췄다(2026-08-31 · forceStep의 상수와 같은 이유) — 노드를 잡으면
+// 이웃이 우르르 튀어 오르는 것이 "탄성"으로 읽혔다. 이웃은 따라오지만 느리게 온다.
+const ALPHA_DRAG = 0.14;      // 드래그 중 유지할 온기
+const ALPHA_WAKE = 0.2;       // 깨울 때 — 너무 높으면 튄다
 const MAX_FRAMES = 900;       // 무한 rAF 방지 백스톱
 
 export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0 }) {

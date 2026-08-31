@@ -689,6 +689,52 @@ const highlight = (text, q) => {
 
 const SEARCH_LIMIT = 8; // 그룹당 최대 표시 수
 
+// ── 검색창 안내 문구 (사용자 결정 2026-08-31) ────────────────────────────────
+// 셋을 2초씩 돌린다. 첫 줄만으로는 **첨부 안 글자와 댓글까지 찾는다는 걸 아무도
+// 모르는** 상태였다(그게 이 검색의 숨은 값이다). 셋을 한 줄에 이어 붙이면 320px
+// 칸에서 잘리므로 돌린다.
+const SEARCH_HINTS = [
+  '프로젝트나 업무를 검색해봐요!',
+  '댓글이나 첨부 파일도 검색 가능해요.',
+  '무엇을 찾고 계신가요?',
+];
+const HINT_HOLD_MS = 2000;   // 떠 있는 시간
+const HINT_FADE_MS = 300;    // 사라지고 나타나는 시간
+
+// 돌아가는 문구. **input의 placeholder 속성은 첫 줄로 고정**하고(스크린 리더와
+// 검사가 그걸 본다) 눈에 보이는 글자는 겹쳐 놓은 span이 그린다 — placeholder
+// 가상 요소는 브라우저마다 전환이 제각각이라 opacity를 믿을 수 없다.
+// `on`이 false면(글자를 쳤거나 reduced-motion) 첫 줄에서 멈춘다.
+function useRotatingHint(on) {
+  const [i, setI] = useState(0);
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    if (!on) { setI(0); setVisible(true); return; }
+    let t;
+    const fadeOut = () => { setVisible(false); t = setTimeout(swap, HINT_FADE_MS); };
+    const swap = () => { setI(n => (n + 1) % SEARCH_HINTS.length); setVisible(true); t = setTimeout(fadeOut, HINT_HOLD_MS); };
+    t = setTimeout(fadeOut, HINT_HOLD_MS);
+    return () => clearTimeout(t);
+  }, [on]);
+  return { text: SEARCH_HINTS[i], visible };
+}
+
+// 겹쳐 놓은 안내 글자. 부모가 relative여야 하고, 왼쪽 여백(아이콘 폭)은 부모가 정한다.
+const SearchHint = ({ show, left, size }) => {
+  // 움직임을 줄이라고 한 사람에게는 돌리지 않는다(§4.2) — 첫 줄만 가만히 보여준다
+  const still = typeof window !== 'undefined'
+    && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const { text, visible } = useRotatingHint(show && !still);
+  if (!show) return null;
+  return (
+    <span aria-hidden
+      className={`pointer-events-none absolute top-1/2 -translate-y-1/2 right-3 truncate text-fg-faint transition-opacity ${size}`}
+      style={{ left, opacity: visible ? 1 : 0, transitionDuration: `${HINT_FADE_MS}ms` }}>
+      {text}
+    </span>
+  );
+};
+
 // 결과 계산 + 렌더 (검색 중일 때만 마운트 → store 구독·계산도 그때만 발생)
 // useDeferredValue로 타이핑 입력과 무거운 결과 렌더를 분리해 렉 방지
 function SearchResults({ query, onPick }) {
@@ -810,9 +856,11 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-fg-faint" />
                   <input
                     autoFocus type="text" value={query} onChange={e => setQuery(e.target.value)}
-                    placeholder="프로젝트나 업무를 검색해봐요!"
-                    className="pl-9 pr-3 py-2 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all"
+                    /* 속성은 첫 줄로 고정하고 보이는 글자는 SearchHint가 그린다 */
+                    placeholder={SEARCH_HINTS[0]}
+                    className="pl-9 pr-3 py-2 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all placeholder:text-transparent"
                   />
+                  <SearchHint show={!query} left="2.25rem" size="text-sm" />
                 </div>
                 <button onClick={closeMobile} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0"><X size={18} /></button>
               </div>
@@ -836,9 +884,10 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
         type="text" value={query}
         onChange={e => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        placeholder="프로젝트나 업무를 검색해봐요!"
-        className="pl-8 pr-3 h-8 text-[12.5px] bg-surface/60 border border-line rounded-sm focus:bg-surface focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all"
+        placeholder={SEARCH_HINTS[0]}
+        className="pl-8 pr-3 h-8 text-[12.5px] bg-surface/60 border border-line rounded-sm focus:bg-surface focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all placeholder:text-transparent"
       />
+      <SearchHint show={!query} left="2rem" size="text-[12.5px]" />
       {open && active && (
         <div className="absolute left-0 top-full z-50 mt-1 w-full max-h-80 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 animate-in fade-in zoom-in-95 duration-150">
           <SearchResults query={query} onPick={pick} />

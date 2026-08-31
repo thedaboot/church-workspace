@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
-import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byRecent } from '../utils.js';
+import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byCompleted, completedTime } from '../utils.js';
 import { usePresence } from '../services/presence.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
@@ -14,6 +14,12 @@ import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 // 리디자인 공용 조각 — 대시보드 / 내 업무 / 팀 보드가 같은 부품을 쓴다.
 // (핸드오프 문서의 "마감 그룹 리스트", "KPI 카드", 진행 바 규격)
 // ============================================================================
+
+// 움직임을 줄여 달라고 한 사람 — index.css가 애니메이션·전환을 통째로 끄므로
+// (§4.2) 자라는 연출을 붙이는 자리는 처음부터 최종 값으로 그려야 한다.
+// 안 그러면 전환이 없어서 0에 멈춘 빈 바가 남는다.
+export const prefersReducedMotion = () => typeof window !== 'undefined'
+  && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 export const ISO_TODAY = () => {
   const d = new Date();
@@ -63,12 +69,20 @@ export const byDue = (a, b) => String(a.dueDate || '9999').localeCompare(String(
 // 나머지 구간은 "앞으로 무엇이 급한가"라 마감일 오름차순이 맞지만, 끝낸 업무는
 // 앞으로 할 일이 아니라 기록이고 방금 끝낸 것이 맨 위여야 한다 — 예전에는
 // '내 업무'에서 완료를 누를 때마다 그 줄이 몇 년 전 업무들 아래로 사라졌다.
+// **그 구간은 날짜 칸도 마감일이 아니라 끝낸 날이다**(아래 dateOf) — 정렬 기준이
+// 화면에 없으면 목록이 뒤죽박죽으로 읽힌다(사용자 지적 2026-08-31).
 export function groupByDue(tasks, today = ISO_TODAY()) {
   return BUCKETS.map((b, i) => ({
     ...b,
-    items: tasks.filter(t => bucketOf(t, today) === i).sort(b.key === 'done' ? byRecent : byDue),
+    items: tasks.filter(t => bucketOf(t, today) === i).sort(b.key === 'done' ? byCompleted : byDue),
   })).filter(g => g.items.length);
 }
+
+// 줄 왼쪽 날짜 칸에 무엇을 쓰나. '끝낸 업무'는 끝낸 날(정렬 기준과 같은 값),
+// 나머지는 마감일. 끝낸 날을 모르는 옛 데이터는 마감일로 떨어진다.
+export const rowDate = (t, bucketKey) => (bucketKey === 'done'
+  ? (completedTime(t).slice(0, 10) || t.dueDate || '')
+  : (t.dueDate || ''));
 
 // 상태 → 진행 바 파스텔
 export const STATUS_BAR = {
@@ -86,11 +100,25 @@ export const STATUS_DOT_VAR = {
 };
 
 // ── 진행 바 (scaleX) ───────────────────────────────────────────────────────
+// **화면이 뜰 때 0에서 자란다**(사용자 결정 2026-08-31). 전환(transition)은 마운트에서
+// 돌지 않으므로 첫 그림은 scaleX(0)으로 두고, 잠깐 뒤에 실제 값으로 바꿔서 이미 걸려
+// 있는 `.dc-bar-fill` 전환(.55s)이 그때 돌게 한다. 예전에는 KPI 숫자가 순번대로
+// 들어오는 동안 바만 이미 꽉 차 있어서 순서가 어긋나 보였다.
+// 값이 바뀔 때(상태를 옮기거나 필터를 바꿀 때)는 지연 없이 바로 이어진다.
+const BAR_MOUNT_DELAY = 160;   // KPI 칸 등장(320ms)의 중간쯤 — 숫자가 먼저 읽힌다
 export function Bar({ ratio, color, height = 4 }) {
+  const target = Math.max(0, Math.min(1, ratio || 0));
+  const grown = useRef(false);
+  const [shown, setShown] = useState(() => (prefersReducedMotion() ? target : 0));
+  useEffect(() => {
+    if (grown.current || prefersReducedMotion()) { setShown(target); return; }
+    const id = setTimeout(() => { grown.current = true; setShown(target); }, BAR_MOUNT_DELAY);
+    return () => clearTimeout(id);
+  }, [target]);
   return (
     <span className="block rounded-full overflow-hidden" style={{ height, background: 'var(--p-track)' }}>
       <span className="dc-bar-fill block h-full rounded-full"
-        style={{ background: color, transform: `scaleX(${Math.max(0, Math.min(1, ratio || 0)).toFixed(3)})` }} />
+        style={{ background: color, transform: `scaleX(${shown.toFixed(3)})` }} />
     </span>
   );
 }
@@ -221,15 +249,20 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                 <button type="button" onClick={() => onOpen(t)} className="flex-1 min-w-0 flex items-center gap-3 text-left">
                   {/* 마감이 2주 넘게 안 정해진 건은 '미정'을 노란색으로 — 구간 제목의
                       건수와 같은 색이라 어느 줄이 그건지 눈으로 이어진다 */}
+                  {/* '끝낸 업무' 구간은 마감일이 아니라 **끝낸 날**이다 — 이 구간의
+                      정렬 기준이 그 값이고, 칸에 안 보여주면 날짜가 뒤죽박죽으로
+                      읽힌다(사용자 지적 2026-08-31). title로 마감일도 같이 알려준다. */}
                   <span className="shrink-0 w-11 text-[11.5px] font-bold tabular-nums"
-                    title={isStaleNoDue(t, today) ? `${STALE_NODUE_DAYS / 7}주 넘게 마감이 정해지지 않았어요` : undefined}
+                    title={done
+                      ? (t.dueDate ? `끝낸 날 · 마감은 ${mdLabel(t.dueDate)}였어요` : '끝낸 날')
+                      : isStaleNoDue(t, today) ? `${STALE_NODUE_DAYS / 7}주 넘게 마감이 정해지지 않았어요` : undefined}
                     style={{
                       color: over ? 'var(--app-tag-red-fg)'
                         : isToday ? 'var(--app-ink)'
                         : isStaleNoDue(t, today) ? 'var(--app-status-hold)'
                         : 'var(--app-ink-muted)',
                     }}>
-                    {t.dueDate ? mdLabel(t.dueDate) : '미정'}
+                    {rowDate(t, g.key) ? mdLabel(rowDate(t, g.key)) : '미정'}
                   </span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-[13.5px] font-semibold text-fg truncate" style={{ letterSpacing: '-0.2px' }}>{t.title}</span>
@@ -672,17 +705,46 @@ export function ActivityFeed({ feed, tasksById, onOpenTask }) {
 //  · **사람·프로젝트 노드는 손으로 끌 수 있다**(사용자 요청 — 겹치면 직접 편다).
 //    시뮬·드래그·클릭 삼킴은 useForceGraph가 한다(그래프 뷰와 공용).
 //  · 판정어 없음(§8): 연결이 없는 사람도 그대로 보인다.
-const FM = { H_DESK: 340, H_MOBILE: 300 };
+// 배치 상수 한 곳 — **노드 앵커 · 열 머리글 · 선의 목표 길이가 같은 값을 본다.**
+// 예전에는 세 군데에 숫자를 흩뿌려서 '프로젝트' 머리글(0.8)과 실제 앵커(0.85)가
+// 어긋나 있었다.
+const FM = {
+  // 높이는 **줄 수를 따라간다**(2026-08-31). 340px에 프로젝트 15개를 넣으면 한 칸이
+  // 22px인데 라벨이 26px이라 겹칠 수밖에 없었다(사용자 스크린샷의 그 상태다).
+  H_MIN_DESK: 340, H_MAX_DESK: 540, ROW_DESK: 30,
+  H_MIN_MOB: 300, H_MAX_MOB: 470, ROW_MOB: 26,
+  // 시뮬 폭 — 데스크톱은 카드를 거의 다 쓴다(2026-08-31 사용자 지적 — "좌우 공간이
+  // 많이 남는다"). 예전에 760으로 묶어 둔 이유는 "넓으면 앵커가 양끝으로 찢는다"였는데,
+  // 그건 폭 탓이 아니라 **선의 목표 길이가 고정(92·150px)이라 앵커 간격과 싸운 것**
+  // 이었다. 지금은 목표 길이를 앵커 간격에서 뽑으므로(EDGE_OF) 폭에 따라 같이 늘고,
+  // 넓어질수록 오히려 조용해진다(실측: 총이동 168 → 52px/노드).
+  W_MAX_DESK: 1400,
+  // x 앵커(폭 비율): 사람 · 팀 · 프로젝트
+  AX_DESK: { m: 0.2, t: 0.5, p: 0.85 },
+  AX_MOB: { m: 0.16, t: 0.44, p: 0.8 },
+  // 프로젝트 라벨은 폭이 가장 커서 한 x에 몰리면 두 열이 될 수 없다 → 홀짝으로
+  // 앵커를 살짝 벌린다. **데스크톱만** — 모바일은 프로젝트 영역이 140px밖에 안 되어
+  // 두 열이 안 들어가고, 재보니 겹침이 오히려 늘었다(4 → 6).
+  STAGGER_DESK: 0.05,
+};
+// 선의 목표 길이 = 두 층의 앵커 간격. 스프링이 앵커와 싸우지 않으므로 가로로는
+// 가만히 있고 **세로로만** 이어진 짝을 끌어당긴다 — 그게 이 그림이 원하는 힘이다.
+const EDGE_OF = (a, b, W) => Math.max(48, (b - a) * W);
 
 export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpenTeam, onOpenProject }) {
   const compact = useIsMobile();
-  const H = compact ? FM.H_MOBILE : FM.H_DESK;
   const wrapRef = useRef(null);
   const [cw, setCw] = useState(compact ? 340 : 640);
-  // 시뮬 폭은 760까지만 — 전폭 카드(1300px+)에서 그대로 돌리면 가운데 왼쪽에
-  // 뭉치거나 앵커가 양끝으로 찢는다. 남는 폭은 여백으로 가운데 정렬.
-  const W = Math.min(cw, 760);
+  // 가장 붐비는 층이 높이를 정한다 — 라벨이 겹치지 않을 만큼만 키우고 상한에서 멈춘다
+  const rows = Math.max(members.length, teamsInUse.length, projects.length, 1);
+  const H = compact
+    ? Math.min(FM.H_MAX_MOB, Math.max(FM.H_MIN_MOB, rows * FM.ROW_MOB + 60))
+    : Math.min(FM.H_MAX_DESK, Math.max(FM.H_MIN_DESK, rows * FM.ROW_DESK + 60));
+  // 데스크톱은 카드 폭을 거의 다 쓴다(상한 1400 — 그보다 넓으면 세 열이 너무 벌어져
+  // 선이 화면을 가로지르는 그림이 된다). 남는 폭은 여백으로 가운데 정렬.
+  const W = compact ? cw : Math.min(cw, FM.W_MAX_DESK);
   const offX = Math.max(0, (cw - W) / 2);
+  const AX = compact ? FM.AX_MOB : FM.AX_DESK;
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -700,29 +762,38 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
     members.forEach((m, k) => push({
       id: `m:${m.name}`, kind: 'member', m, pl: 30, pr: 46,
       // zx: 사람은 왼쪽 영역 밖으로 못 나간다(끌어도) — 층 읽기가 안 깨진다(사용자 결정)
-      ax: compact ? 0.16 : 0.2, iy: (k + 0.5) / members.length, zx: compact ? [0.02, 0.36] : [0.02, 0.42],
+      ax: AX.m, iy: (k + 0.5) / members.length, zx: compact ? [0.02, 0.36] : [0.02, 0.42],
     }));
     // 팀은 가운데 열 고정 — 세로 등분. 모바일은 살짝 왼쪽(0.44) — 프로젝트 라벨이
     // 길어서 반반으로 나누면 오른쪽이 모자라 팀 위로 겹쳤다.
-    const teamX = W * (compact ? 0.44 : 0.5);
+    const teamX = W * AX.t;
     teamsInUse.forEach((t, k) => push({
       id: `t:${t}`, kind: 'team', t,
       fixed: { x: teamX, y: 26 + ((k + 0.5) / teamsInUse.length) * (H - 52) },
     }));
     projects.forEach((p, k) => push({
-      id: `p:${p.id}`, kind: 'project', p, pl: 56, pr: 60,
-      ax: compact ? 0.8 : 0.85, iy: (k + 0.5) / projects.length, zx: compact ? [0.56, 0.98] : [0.62, 0.98],
+      id: `p:${p.id}`, kind: 'project', p,
+      // pr = 라벨 반폭 + 여유. 이 값이 라벨 폭보다 작으면 좁은 데스크톱(offX가 0인
+      // 폭)에서 라벨 오른쪽이 카드 밖으로 나간다.
+      pl: 56, pr: compact ? 66 : 96,
+      // 홀짝으로 앵커를 벌려 두 열이 되게 한다(데스크톱만 — FM.STAGGER_DESK 주석)
+      ax: AX.p + (compact ? 0 : (k % 2 ? FM.STAGGER_DESK : -FM.STAGGER_DESK)),
+      iy: (k + 0.5) / projects.length, zx: compact ? [0.56, 0.98] : [0.62, 0.98],
       repel: 1.7,   // 라벨이 제일 크다 — 서로는 더 세게 밀어야 안 겹친다
     }));
     const edges = [];
+    // 목표 길이는 앵커 간격이다(EDGE_OF) — 고정값이면 폭이 넓어질수록 스프링이
+    // 앵커를 이기려 들어 그래프가 계속 출렁인다(실측: 방향 반전 4.9 → 1.0회/노드).
+    const lenMT = EDGE_OF(AX.m, AX.t, W);
+    const lenTP = EDGE_OF(AX.t, AX.p, W);
     members.forEach(m => [...new Set((m.teams?.length ? m.teams : [m.team]).filter(Boolean))].forEach(t => {
-      if (idx.has(`t:${t}`)) edges.push([idx.get(`m:${m.name}`), idx.get(`t:${t}`), compact ? 62 : 92, teamColor(t)]);
+      if (idx.has(`t:${t}`)) edges.push([idx.get(`m:${m.name}`), idx.get(`t:${t}`), lenMT, teamColor(t)]);
     }));
     teamProjects.forEach(([team, pid]) => {
-      if (idx.has(`t:${team}`) && idx.has(`p:${pid}`)) edges.push([idx.get(`t:${team}`), idx.get(`p:${pid}`), compact ? 88 : 150, teamColor(team)]);
+      if (idx.has(`t:${team}`) && idx.has(`p:${pid}`)) edges.push([idx.get(`t:${team}`), idx.get(`p:${pid}`), lenTP, teamColor(team)]);
     });
     return { nodes, edges };
-  }, [members, teamsInUse, projects, teamProjects, compact, W, H]);
+  }, [members, teamsInUse, projects, teamProjects, compact, W, H, AX]);
 
   const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, offX });
   const [hi, setHi] = useState(null);   // 만지고 있는 노드 index
@@ -744,9 +815,9 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
       <div ref={wrapRef} className="relative select-none" style={{ height: H }}>
         {/* 열 머리글 — 예전 3열 지도의 읽기 보조를 남긴다. 팀 열(가운데)은 고정이라 정확하고,
             사람·프로젝트는 영역(zx)의 가운데쯤이다 */}
-        <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * (compact ? 0.16 : 0.2), top: 0, transform: 'translateX(-50%)' }}>사람</span>
-        <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * (compact ? 0.44 : 0.5), top: 0, transform: 'translateX(-50%)' }}>팀</span>
-        <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * 0.8, top: 0, transform: 'translateX(-50%)' }}>프로젝트</span>
+        <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * AX.m, top: 0, transform: 'translateX(-50%)' }}>사람</span>
+        <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * AX.t, top: 0, transform: 'translateX(-50%)' }}>팀</span>
+        <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * AX.p, top: 0, transform: 'translateX(-50%)' }}>프로젝트</span>
         <svg className="absolute inset-0 pointer-events-none" width={cw} height={H} aria-hidden>
           {edges.map(([a, b, , color], i) => {
             const on = hi != null && (a === hi || b === hi);

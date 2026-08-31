@@ -189,12 +189,17 @@ export function summaryOutdated(updatedAt, pinnedAt) {
 // 고르는 사람이 같은 자리를 두 번 찾지 못한다. 만든 순서는 변하지 않는다.
 export const byNewest = (a, b) => String(b?.createdAt || '').localeCompare(String(a?.createdAt || ''));
 
-// 최근에 **손댄** 것부터 — 마감 목록의 '끝낸 업무' 구간이 쓴다(사용자 결정 2026-08-31).
-// 끝낸 업무에서 "최신"은 만든 때가 아니라 **끝낸 때**이고, 완료로 옮기는 것도 저장이라
-// updatedAt이 그 시각으로 갱신된다(클라우드는 0010 트리거, 게스트는 TaskService).
-// 옛 행에 updatedAt이 없으면 createdAt으로, 그것도 없으면 뒤로 보낸다.
-export const byRecent = (a, b) =>
-  String(b?.updatedAt || b?.createdAt || '').localeCompare(String(a?.updatedAt || a?.createdAt || ''));
+// 최근에 **끝낸** 것부터 — 마감 목록의 '끝낸 업무' 구간이 쓴다(사용자 결정 2026-08-31).
+// 값은 `completedAt`(0033/0034가 만든 cards.completed_at)이고 **날짜 칸에 그대로
+// 보여준다** — 정렬 기준이 화면에 안 보이면 목록이 "날짜가 왔다갔다" 하는 것으로
+// 읽힌다(사용자 지적 2026-08-31: 칸은 마감일인데 정렬은 updatedAt이었다).
+//
+// updatedAt으로 정렬하지 않는 이유: 완료된 업무에 첨부를 하나 올리거나 제목을
+// 고치면 updatedAt이 그때로 바뀐다. 그 값을 '끝낸 날'이라고 부르면 거짓이 된다.
+// 폴백(updatedAt → createdAt)은 completedAt이 아직 없는 자리를 위한 것이다 —
+// 배포 전환기의 옛 탭, 그리고 게스트 모드의 옛 localStorage.
+export const completedTime = (t) => String(t?.completedAt || t?.updatedAt || t?.createdAt || '');
+export const byCompleted = (a, b) => completedTime(b).localeCompare(completedTime(a));
 
 export function subtaskProgress(list = []) {
   const total = list.length;
@@ -491,7 +496,18 @@ export function viewersOf(entries, match = {}, opts = {}) {
 export function forceStep(pos, vel, nodes, edges, W, H, opts = {}) {
   const alpha = opts.alpha ?? 1;
   const skipSet = opts.skip;
-  const REPEL = 2400, SPRING = 0.02, ANCHOR_X = 0.02, ANCHOR_Y = 0.012, DAMP = 0.8, MAX_V = 18;
+  // **부드럽게**(사용자 지적 2026-08-31 — "모바일에서 탄성이 엄청난 그래프처럼 된다").
+  // 같은 실행 안에서 상수만 바꿔 재고 골랐다(§1.3의 A/B 규칙). 사람 15·팀 7·프로젝트 15,
+  // 옛 상수(SPRING .02 · DAMP .8 · MAX_V 18) → 지금:
+  //   최고 속도  52~54 → 18 px/프레임   (초기 폭발이 "탄성"으로 읽힌 주범)
+  //   방향 반전  3.5~4.9 → 1.0~1.3 회/노드 (= 출렁임)
+  //   총 이동    87~168 → 52~66 px/노드
+  // 세 개가 각자 하는 일: DAMP(마찰)가 오버슈트를 먹고, MAX_V가 초기 폭발의 상한을
+  // 낮추고, SPRING이 약해져 진동이 줄어든다. **냉각(alpha)은 그대로다** — 그건
+  // 2026-08-27에 이미 고른 방식이고 여기서 바꾸는 것은 '한 틱이 얼마나 세냐'뿐이다.
+  // REPEL은 안 낮췄다: 낮추면 라벨 겹침이 늘어난다(겹침은 지금 9 → 4로 줄었다).
+  // 재보는 스크립트는 커밋하지 않았다 — 다시 재려면 §1.3대로 상수만 바꿔 한 실행 안에서.
+  const REPEL = 2400, SPRING = 0.013, ANCHOR_X = 0.022, ANCHOR_Y = 0.014, DAMP = 0.66, MAX_V = 6;
   const skip = (i) => nodes[i].fixed || (skipSet ? skipSet.has(i) : false);
   for (let i = 0; i < nodes.length; i++) {
     if (skip(i)) continue;

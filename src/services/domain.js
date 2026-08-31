@@ -67,6 +67,9 @@ export const TaskService = {
     author,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    // 만들자마자 '완료'인 업무도 있다(가져오기·이미 끝난 일 기록). DB는 0033의
+    // insert 트리거가 같은 일을 한다.
+    completedAt: (data.status || '시작 전') === '완료' ? new Date().toISOString() : '',
     comments: [],
     activityLog: [ActivityService.createLog('업무를 생성했습니다.', author)]
   }),
@@ -79,11 +82,23 @@ export const TaskService = {
   // slice(0)이 되어 서버에 이미 있는 기록까지 새 것으로 보고 다시 넣었다
   // → activity_pkey 중복 → 카드는 저장됐는데 "저장에 실패했어요"가 떴다.
   // 만든 자리에서 같이 돌려주면 그 계산 자체가 사라진다.
+  // 끝낸 시각 — 클라우드는 DB 트리거가 채우고(0033/0034), 게스트는 여기서 채운다.
+  // 규칙이 같아야 한다: 완료로 **들어올 때만** 찍고, 완료에서 나가면 비우고,
+  // 완료 → 완료(제목·첨부 수정)는 손대지 않는다(끝낸 날은 그날이다).
+  completedAtFor: (oldStatus, newStatus, before) => {
+    if (newStatus === '완료' && oldStatus !== '완료') return new Date().toISOString();
+    if (newStatus !== '완료' && oldStatus === '완료') return '';
+    return before || '';
+  },
   updateWithLogs: (oldTask, newData, author) => {
     // updatedBy — 작성자와 마지막으로 고친 사람이 다를 때 창에서 구분해 보여준다.
     // 클라우드에서는 트리거(cards.updated_by)가 채운 값을 다시 받지만, 저장 직후에도
     // 바로 보이려면 여기서도 넣어야 한다. newData 뒤에 둬서 폼에 실려온 옛 값을 덮는다.
-    const updated = { ...oldTask, ...newData, updatedAt: new Date().toISOString(), updatedBy: author };
+    const updated = {
+      ...oldTask, ...newData,
+      updatedAt: new Date().toISOString(), updatedBy: author,
+      completedAt: TaskService.completedAtFor(oldTask.status, newData.status, oldTask.completedAt),
+    };
     const logs = [];
     if (oldTask.status !== newData.status) logs.push(ActivityService.generateStatusLog(oldTask.status, newData.status, author));
     logs.push(...ActivityService.generateFieldLogs(oldTask, newData, author));

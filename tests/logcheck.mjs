@@ -835,7 +835,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  뒤로가기·트래킹 배선 4가지');
 }
 
-// ── 최신순 정렬 (utils.byNewest / byRecent) ────────────────────────────────────
+// ── 최신순 정렬 (utils.byNewest / byCompleted) ─────────────────────────────────
 // 사용자 결정 2026-08-31: 선행 업무 후보와 '끝낸 업무' 목록은 맨 위가 가장 최신이어야
 // 한다. 예전에는 후보가 allIds 순서(만든 순 오름차순)라 맨 위가 가장 오래된 업무였고,
 // 완료를 누르면 그 줄이 몇 년 전 업무들 아래로 사라졌다.
@@ -846,30 +846,38 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const dir = mkdtempSync(join(tmpdir(), 'recent-'));
   const f = join(dir, 'utils.mjs');
   writeFileSync(f, src);
-  const { byNewest, byRecent } = await import(pathToFileURL(f).href);
+  const { byNewest, byCompleted, completedTime } = await import(pathToFileURL(f).href);
 
-  const mk = (id, createdAt, updatedAt) => ({ id, createdAt, updatedAt });
+  const mk = (id, createdAt, updatedAt, completedAt) => ({ id, createdAt, updatedAt, completedAt });
   const L = [
-    mk('old', '2026-01-02T00:00:00Z', '2026-08-30T00:00:00Z'),   // 오래 전에 만들고 어제 손댔다
-    mk('new', '2026-08-29T00:00:00Z', '2026-08-29T00:00:00Z'),   // 최근에 만들었다
-    mk('mid', '2026-05-05T00:00:00Z', '2026-05-05T00:00:00Z'),
+    mk('old', '2026-01-02T00:00:00Z', '2026-08-30T00:00:00Z', '2026-02-01T00:00:00Z'),
+    mk('new', '2026-08-29T00:00:00Z', '2026-08-29T00:00:00Z', '2026-08-29T00:00:00Z'),
+    mk('mid', '2026-05-05T00:00:00Z', '2026-05-05T00:00:00Z', '2026-05-05T00:00:00Z'),
   ];
   assert.deepStrictEqual([...L].sort(byNewest).map(t => t.id), ['new', 'mid', 'old'],
     '후보 목록은 만든 순 내림차순 — 남이 옛 업무를 고쳐도 순서가 흔들리지 않는다');
-  assert.deepStrictEqual([...L].sort(byRecent).map(t => t.id), ['old', 'new', 'mid'],
-    "'끝낸 업무'는 손댄 순 내림차순 — 방금 완료로 옮긴 줄이 맨 위다");
-  assert.deepStrictEqual(
-    [...[mk('a', '2026-01-01T00:00:00Z'), mk('b')]].sort(byRecent).map(t => t.id), ['a', 'b'],
-    'updatedAt이 없으면 createdAt으로, 그것도 없으면 뒤로');
+  // 'old'는 어제 손댔지만(updatedAt) 끝낸 건 2월이다 → 맨 아래여야 한다.
+  // updatedAt으로 정렬하면 맨 위로 올라온다 — 그게 화면에 보이는 날짜와 어긋난 버그였다.
+  assert.deepStrictEqual([...L].sort(byCompleted).map(t => t.id), ['new', 'mid', 'old'],
+    "'끝낸 업무'는 끝낸 순 내림차순 — 완료 뒤에 손댄 것이 위로 올라오지 않는다");
+  assert.strictEqual(completedTime(L[0]).slice(0, 10), '2026-02-01',
+    '날짜 칸이 쓰는 값도 같은 함수에서 나온다(정렬 기준 = 보이는 날짜)');
+  // 폴백: completedAt이 없는 옛 데이터는 updatedAt → createdAt 순으로 떨어진다
+  assert.strictEqual(completedTime({ updatedAt: 'u', createdAt: 'c' }), 'u');
+  assert.strictEqual(completedTime({ createdAt: 'c' }), 'c');
+  assert.strictEqual(completedTime({}), '', '아무것도 없으면 빈 문자열(뒤로 간다)');
   assert.strictEqual(byNewest(undefined, undefined), 0, '빈 칸이 섞여도 안 던진다');
+  assert.strictEqual(byCompleted(undefined, undefined), 0, '빈 칸이 섞여도 안 던진다');
 
   // 호출부 배선 — 순수 함수만 맞아도 화면이 안 쓰면 아무 일도 일어나지 않는다
   const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
-  assert.ok(/\.sort\(b\.key === 'done' \? byRecent : byDue\)/.test(parts),
-    "groupByDue가 '끝낸 업무' 구간만 byRecent로 정렬한다");
+  assert.ok(/\.sort\(b\.key === 'done' \? byCompleted : byDue\)/.test(parts),
+    "groupByDue가 '끝낸 업무' 구간만 byCompleted로 정렬한다");
+  assert.ok(/rowDate = \(t, bucketKey\)/.test(parts) && /mdLabel\(rowDate\(t, g\.key\)\)/.test(parts),
+    "날짜 칸이 rowDate를 쓴다 — '끝낸 업무'는 마감일이 아니라 끝낸 날이다");
   const modals = readFileSync(new URL('../src/modals/modals.jsx', import.meta.url), 'utf8');
   assert.ok(/\.sort\(byNewest\)/.test(modals), '선행 업무 후보가 byNewest로 정렬된다');
-  console.log('PASS  최신순 정렬 6가지');
+  console.log('PASS  최신순 정렬 10가지');
 }
 
 // ── 등장 순차 애니메이션은 첫 마운트에서만 (hooks/useEnterStagger) ─────────────
@@ -890,4 +898,101 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/const stagger = useEnterStagger\(\);/.test(boards) && /index=\{stagger \? i : 0\}/.test(boards),
     '보드 카드도 첫 렌더에서만 순번 지연을 준다');
   console.log('PASS  순차 등장 배선 3가지');
+}
+
+
+// ── 끝낸 시각 (domain.completedAtFor + DB 0033/0034) ──────────────────────────
+// 게스트와 클라우드가 **같은 규칙**이어야 한다: 완료로 들어올 때만 찍고, 완료에서
+// 나가면 비우고, 완료 → 완료(제목·첨부 수정)는 그대로 둔다.
+// 0033의 첫 트리거는 마지막 갈래를 `new.completed_at = old.completed_at`으로 써서
+// **백필 UPDATE를 스스로 덮었다**(0034가 그 else를 뺐다).
+// 되돌리기 검사: completedAtFor의 두 if를 지우면 첫 두 단정이 깨진다.
+{
+  const f = TaskService.completedAtFor;
+  assert.ok(f('진행 중', '완료', '').length > 0, '완료로 들어오면 시각을 찍는다');
+  assert.strictEqual(f('완료', '진행 중', '2026-08-01T00:00:00Z'), '', '완료에서 나가면 비운다');
+  assert.strictEqual(f('완료', '완료', '2026-08-01T00:00:00Z'), '2026-08-01T00:00:00Z',
+    '완료 → 완료는 그대로 — 끝낸 업무의 제목을 고쳐도 끝낸 날은 그날이다');
+  assert.strictEqual(f('시작 전', '진행 중', ''), '', '완료와 무관한 전환은 빈 값 그대로');
+
+  const b2 = { id: 'x', status: '진행 중', title: 'T', assignees: [], teams: [], activityLog: [], comments: [] };
+  const done = TaskService.update(b2, { ...b2, status: '완료' }, '노준석');
+  assert.ok(done.completedAt, '완료로 저장하면 completedAt이 채워진다');
+  assert.strictEqual(TaskService.update(done, { ...done, status: '진행 중' }, '노준석').completedAt, '',
+    '되돌리면 비워진다');
+  assert.strictEqual(TaskService.update(done, { ...done, title: 'T2' }, '노준석').completedAt, done.completedAt,
+    '완료된 업무 제목만 고치면 안 바뀐다');
+  assert.ok(TaskService.create({ projectId: 'p', title: 'A', status: '완료' }, '노준석').completedAt,
+    '만들 때부터 완료면 그때가 끝낸 날이다(DB는 0033의 insert 트리거)');
+  assert.strictEqual(TaskService.create({ projectId: 'p', title: 'B' }, '노준석').completedAt, '',
+    '완료가 아니면 비어 있다');
+
+  // 마이그레이션이 같은 규칙을 담고 있는지 — 트리거가 앱과 갈라지면 클라우드만 어긋난다
+  const mig = readFileSync(new URL('../supabase/migrations/0034_fix_completed_at_backfill.sql', import.meta.url), 'utf8');
+  assert.ok(/new\.status = 'done' and old\.status <> 'done' then\s+new\.completed_at = now\(\)/.test(mig),
+    'DB도 완료로 들어올 때만 찍는다');
+  // 주석에는 "예전에 이렇게 썼다"로 그 줄이 인용돼 있다 → **주석을 걷어내고** 본다
+  const migCode = mig.split(/\r?\n/).filter(l => !l.trim().startsWith('--')).join(' ; ');
+  assert.ok(!/else\s+new\.completed_at = old\.completed_at/.test(migCode),
+    '0033이 백필을 덮었던 else 갈래가 없다(0034가 뺀 자리)');
+  assert.ok(/disable trigger trg_cards_updated_meta/.test(mig) && /enable trigger trg_cards_updated_meta/.test(mig),
+    '값을 손보는 UPDATE는 트리거를 끄고 돌린다(안 끄면 updated_at이 오늘로 밀린다)');
+  console.log('PASS  끝낸 시각 12가지');
+}
+
+// ── 그래프가 부드러운지 (utils.forceStep 상수) ────────────────────────────────
+// 사용자 지적 2026-08-31 — "모바일에서 탄성이 엄청난 그래프처럼 된다".
+// 실제 규모(사람 15·팀 7·프로젝트 15)로 돌려서 **초기 폭발**과 **방향 반전**을 잰다.
+// 옛 상수(SPRING .02 · DAMP .8 · MAX_V 18)에서는 최고 52px/프레임 · 반전 3.5회였다.
+// 되돌리기 검사: utils.js의 DAMP를 0.8, MAX_V를 18로 되돌리면 앞 두 단정이 깨진다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'soft-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { forceStep } = await import(pathToFileURL(f).href);
+
+  const W = 340, H = 460, M = 15, T = 7, P = 15;   // 모바일 · 지금 워크스페이스 규모
+  const nodes = [], edges = [];
+  for (let k = 0; k < M; k++) nodes.push({ id: `m${k}`, ax: 0.16, iy: (k + 0.5) / M, zx: [0.02, 0.36] });
+  for (let k = 0; k < T; k++) nodes.push({ id: `t${k}`, fixed: { x: W * 0.44, y: 26 + ((k + 0.5) / T) * (H - 52) } });
+  for (let k = 0; k < P; k++) nodes.push({ id: `p${k}`, ax: 0.8, iy: (k + 0.5) / P, zx: [0.56, 0.98], repel: 1.7 });
+  const lenMT = (0.44 - 0.16) * W, lenTP = (0.8 - 0.44) * W;
+  for (let k = 0; k < M; k++) edges.push([k, M + (k % T), lenMT]);
+  for (let k = 0; k < P; k++) edges.push([M + (k % T), M + T + k, lenTP]);
+  const pos = nodes.map((n, i) => n.fixed ? { ...n.fixed }
+    : { x: W * n.ax + ((i * 37) % 13) - 6, y: 24 + n.iy * (H - 48) });
+  const vel = nodes.map(() => ({ x: 0, y: 0 }));
+
+  let alpha = 1, maxStep = 0, reversals = 0, frames = 0;
+  const sign = nodes.map(() => ({ x: 0, y: 0 }));
+  while (alpha > 0.002 && frames < 900) {
+    const was = pos.map(p => ({ ...p }));
+    for (let k = 0; k < 3; k++) { forceStep(pos, vel, nodes, edges, W, H, { alpha }); alpha -= alpha * 0.0228; }
+    frames++;
+    nodes.forEach((n, i) => {
+      if (n.fixed) return;
+      const dx = pos[i].x - was[i].x, dy = pos[i].y - was[i].y, sp = Math.hypot(dx, dy);
+      if (sp > maxStep) maxStep = sp;
+      if (sp > 0.5) {
+        if (sign[i].x && Math.sign(dx) && Math.sign(dx) !== sign[i].x) reversals++;
+        if (sign[i].y && Math.sign(dy) && Math.sign(dy) !== sign[i].y) reversals++;
+        sign[i].x = Math.sign(dx); sign[i].y = Math.sign(dy);
+      }
+    });
+  }
+  const perNode = reversals / (M + P);
+  assert.ok(maxStep <= 26, `초기 폭발이 잦다 — 최고 ${maxStep.toFixed(1)}px/프레임 (옛 상수 52)`);
+  assert.ok(perNode <= 2.2, `출렁임이 적다 — 방향 반전 ${perNode.toFixed(1)}회/노드 (옛 상수 3.5)`);
+  assert.ok(frames <= 200, `그래도 멈춘다 — ${frames}프레임`);
+
+  // 선의 목표 길이가 앵커 간격에서 나오는지(화면 코드) — 고정값이면 스프링이 앵커와 싸운다
+  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  assert.ok(/const EDGE_OF = \(a, b, W\)/.test(parts) && /EDGE_OF\(AX\.m, AX\.t, W\)/.test(parts),
+    '연결 지도의 선 길이 = 앵커 간격');
+  assert.ok(/W_MAX_DESK: 1400/.test(parts), '데스크톱은 카드 폭을 거의 다 쓴다(좌우 여백 낭비를 줄인 자리)');
+  assert.ok(/rows \* FM\.ROW_DESK \+ 60/.test(parts), '높이가 줄 수를 따라간다(라벨 겹침의 원인)');
+  const dep = readFileSync(new URL('../src/components/depgraph.jsx', import.meta.url), 'utf8');
+  assert.ok(/colGap \* span/.test(dep), '프로젝트 그래프 뷰도 열 간격으로 선 길이를 잡는다');
+  console.log('PASS  그래프 부드러움 7가지');
 }

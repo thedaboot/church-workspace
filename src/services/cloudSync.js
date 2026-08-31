@@ -235,6 +235,10 @@ const cardToTask = (card) => ({
   created_by: card.created_by || null,
   createdAt: card.created_at,
   updatedAt: card.updated_at,
+  // 끝낸 시각(0033). **트리거가 유일한 주인**이다 — cardPatch가 이 칸을 보내지
+  // 않으므로 앱이 실수로 덮을 자리가 없다. 마감 목록의 '끝낸 업무' 구간이
+  // 이 값으로 정렬하고 이 값을 날짜 칸에 보여준다(§4.12).
+  completedAt: card.completed_at || '',
   // 마지막으로 고친 사람 (0010 트리거가 채운다). 한 번도 수정되지 않았으면 빈 값
   updatedBy: card.updated_by ? (profileIdToName.get(card.updated_by) || '') : '',
   comments: [],

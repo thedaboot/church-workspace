@@ -65,11 +65,19 @@ export function DepGraph({ tasks, onTaskClick }) {
     });
     const idx = new Map(nodes.map((n, i) => [n.id, i]));
     const edges = [];
+    // 선의 목표 길이는 **깊이 앵커 사이 간격**이다(연결 지도와 같은 수정 2026-08-31).
+    // 고정값(180px)이면 열 간격(넓은 화면에서 350px 넘는다)과 싸워서 그래프가 계속
+    // 출렁였다 — 실측으로 방향 반전이 노드당 4.9회에서 1회로 줄어든 그 자리다.
+    // 두 열 이상 건너뛰는 선은 그만큼 길게 잡는다.
+    const colGap = nCols > 1 ? (0.72 * W) / (nCols - 1) : 0;
     list.forEach(t => (t.dependsOn || []).forEach(d => {
-      if (idx.has(d) && d !== t.id) edges.push([idx.get(d), idx.get(t.id), compact ? 120 : 180]);
+      if (!idx.has(d) || d === t.id) return;
+      const span = Math.max(1, (depthOf.get(t.id) ?? 0) - (depthOf.get(d) ?? 0));
+      edges.push([idx.get(d), idx.get(t.id), Math.max(compact ? 110 : 150, colGap * span)]);
     }));
     return { nodes, edges, byId: new Map(list.map(t => [t.id, t])) };
-  }, [list, compact]);
+    // W가 들어온 이유: 선의 목표 길이가 열 간격(폭에 비례)에서 나온다
+  }, [list, compact, W]);
 
   const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, offX });
   const [hi, setHi] = useState(null);
