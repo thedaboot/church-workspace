@@ -119,20 +119,36 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
 
   // 연결 지도(#28) — 업무가 있는 팀만(0건 팀을 늘어놓으면 선 없는 점만 남는다),
   // 팀→프로젝트 선은 "그 팀 업무가 그 프로젝트에 있다"다. 한 번 훑어 쌍을 모은다.
-  const { teamsInUse, teamProjects } = useMemo(() => {
+  // 선 굵기(가중치)와 팀별 남은 수도 같이 센다(사용자 결정 2026-08-31) — 한 번 훑어
+  // 다 모은다. 가중치는 **업무 수**다: 팀→프로젝트는 그 프로젝트에 있는 그 팀 업무 수,
+  // 사람→팀은 그 사람이 그 팀에서 맡은 업무 수.
+  // **사람→팀 선 자체는 프로필의 팀(멤버십)에서 나옵니다** — 업무 수로 선을 만들면
+  // 맡은 일이 없는 사람이 팀에서 사라집니다(§8 — 연결이 없는 사람도 그대로 보인다).
+  // 업무 수는 굵기로만 씁니다(0건이면 가장 얇은 선).
+  const { teamsInUse, teamProjects, teamLeft, memberLoad } = useMemo(() => {
     const teamSet = new Set();
-    const pairSet = new Set();
-    const pairs = [];
+    const pairCount = new Map();      // `팀|프로젝트` → 업무 수
+    const left = {};                  // 팀 → 남은(미완료) 업무 수
+    const load = new Map();           // `이름|팀` → 업무 수
     for (const t of tasksList) {
       for (const team of (t.teams || [])) {
         teamSet.add(team);
         const key = `${team}|${t.projectId}`;
-        if (!pairSet.has(key)) { pairSet.add(key); pairs.push([team, t.projectId]); }
+        pairCount.set(key, (pairCount.get(key) || 0) + 1);
+        if (t.status !== '완료') left[team] = (left[team] || 0) + 1;
+        for (const a of (t.assignees || [])) {
+          const k2 = `${a}|${team}`;
+          load.set(k2, (load.get(k2) || 0) + 1);
+        }
       }
     }
     // 열 순서는 config의 팀 순서를 따른다(화면마다 팀 순서가 다르면 헷갈린다)
     const inUse = Object.keys(CONFIG.TEAMS).filter(n => teamSet.has(n));
-    return { teamsInUse: inUse, teamProjects: pairs };
+    const pairs = [...pairCount.entries()].map(([k, n]) => {
+      const i = k.indexOf('|');
+      return [k.slice(0, i), k.slice(i + 1), n];
+    });
+    return { teamsInUse: inUse, teamProjects: pairs, teamLeft: left, memberLoad: load };
   }, [tasksList]);
 
   // 프로젝트별 상태 분포 — 4색 세그먼트 바.
@@ -404,7 +420,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
         <div className={`${tab === '연결' ? 'block' : 'hidden'} lg:block pt-6`}>
           <NetworkMap
             members={members} teamsInUse={teamsInUse} projects={activeProjects}
-            teamProjects={teamProjects}
+            teamProjects={teamProjects} teamLeft={teamLeft} memberLoad={memberLoad}
             onOpenTeam={(name) => onNavigate(`team:${name}`)} onOpenProject={onNavigate}
           />
         </div>

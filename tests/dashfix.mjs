@@ -149,7 +149,10 @@ const map = await ev(`(() => {
 check('연결 지도에 사람 노드가 있다', map?.hint===true && map?.people===true, JSON.stringify(map));
 check('연결 지도에 연결선이 있다', !!map && map.lines>=2, JSON.stringify(map));
 check('팀·프로젝트 노드가 눌리는 버튼이다', !!map && map.nodes>=2, JSON.stringify(map));
-check('그래프 높이가 고정이다(사람 수만큼 쌓이지 않는다)', !!map && map.height>0 && map.height<=360, JSON.stringify(map));
+// 2026-08-31: 높이는 **고정이 아니라 줄 수를 따라가고 상한이 있다**. 340px에 프로젝트
+// 15개를 넣으면 한 칸이 22px인데 라벨이 26px이라 겹칠 수밖에 없었다(사용자 스크린샷).
+// 지킬 것은 "사람 수만큼 무한히 쌓이지 않는다" — 그래서 상한(모바일 580 · 데스크톱 540)을 본다.
+check('그래프 높이에 상한이 있다(사람 수만큼 쌓이지 않는다)', !!map && map.height>0 && map.height<=580, JSON.stringify(map));
 
 
 // ── 모바일 세 탭 (2026-08-29) ───────────────────────────────────────────────

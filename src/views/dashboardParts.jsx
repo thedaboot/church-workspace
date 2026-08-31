@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
-import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byCompleted, completedTime } from '../utils.js';
+import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byCompleted, completedTime, spreadLabels } from '../utils.js';
 import { usePresence } from '../services/presence.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
@@ -712,26 +712,31 @@ const FM = {
   // 높이는 **줄 수를 따라간다**(2026-08-31). 340px에 프로젝트 15개를 넣으면 한 칸이
   // 22px인데 라벨이 26px이라 겹칠 수밖에 없었다(사용자 스크린샷의 그 상태다).
   H_MIN_DESK: 340, H_MAX_DESK: 540, ROW_DESK: 30,
-  H_MIN_MOB: 300, H_MAX_MOB: 470, ROW_MOB: 26,
-  // 시뮬 폭 — 데스크톱은 카드를 거의 다 쓴다(2026-08-31 사용자 지적 — "좌우 공간이
-  // 많이 남는다"). 예전에 760으로 묶어 둔 이유는 "넓으면 앵커가 양끝으로 찢는다"였는데,
+  H_MIN_MOB: 300, H_MAX_MOB: 580, ROW_MOB: 30,
+  // 시뮬 폭 — **데스크톱은 카드를 다 쓴다**(2026-08-31 사용자 지적 — "좌우 공간이 많이
+  // 남는다"). 예전에 760으로 묶어 둔 이유는 "넓으면 앵커가 양끝으로 찢는다"였는데,
   // 그건 폭 탓이 아니라 **선의 목표 길이가 고정(92·150px)이라 앵커 간격과 싸운 것**
   // 이었다. 지금은 목표 길이를 앵커 간격에서 뽑으므로(EDGE_OF) 폭에 따라 같이 늘고,
   // 넓어질수록 오히려 조용해진다(실측: 총이동 168 → 52px/노드).
-  W_MAX_DESK: 1400,
-  // x 앵커(폭 비율): 사람 · 팀 · 프로젝트
-  AX_DESK: { m: 0.2, t: 0.5, p: 0.85 },
-  AX_MOB: { m: 0.16, t: 0.44, p: 0.8 },
-  // 프로젝트 라벨은 폭이 가장 커서 한 x에 몰리면 두 열이 될 수 없다 → 홀짝으로
-  // 앵커를 살짝 벌린다. **데스크톱만** — 모바일은 프로젝트 영역이 140px밖에 안 되어
-  // 두 열이 안 들어가고, 재보니 겹침이 오히려 늘었다(4 → 6).
-  STAGGER_DESK: 0.05,
+  // 1400으로 한 번 묶어 봤더니 1858px 카드에서 좌우 229px씩 또 남았다 → 상한을 없앤다.
+  // x 앵커(폭 비율): 사람 · 팀 · 프로젝트.
+  // 프로젝트 라벨이 180px까지라 0.84에 세우면 오른쪽 끝(+90)이 카드 경계에 딱 맞는다.
+  AX_DESK: { m: 0.09, t: 0.44, p: 0.84 },
+  AX_MOB: { m: 0.16, t: 0.44, p: 0.84 },
+  // 라벨 최소 간격 — 그릴 때 utils.spreadLabels가 이만큼은 띄운다(층별)
+  GAP_DESK: { m: 36, t: 22, p: 30 },
+  GAP_MOB: { m: 36, t: 20, p: 30 },
+  // 층이 가로로 헤맬 수 있는 범위(폭 비율). 겹침은 그릴 때 y로 풀므로 가로 흔들림은
+  // 그냥 잡음이다 — 좁혀서 **열로 읽히게** 한다. 넓게 뒀더니 프로젝트 라벨이 팀 열
+  // 위로 들어왔다(모바일에서 특히). 끌기는 세로로는 그대로 자유롭다.
+  ZX_DESK: { m: [0.02, 0.20], p: [0.78, 0.99] },
+  ZX_MOB: { m: [0.02, 0.30], p: [0.76, 0.99] },
 };
 // 선의 목표 길이 = 두 층의 앵커 간격. 스프링이 앵커와 싸우지 않으므로 가로로는
 // 가만히 있고 **세로로만** 이어진 짝을 끌어당긴다 — 그게 이 그림이 원하는 힘이다.
 const EDGE_OF = (a, b, W) => Math.max(48, (b - a) * W);
 
-export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpenTeam, onOpenProject }) {
+export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLeft = {}, memberLoad, onOpenTeam, onOpenProject }) {
   const compact = useIsMobile();
   const wrapRef = useRef(null);
   const [cw, setCw] = useState(compact ? 340 : 640);
@@ -742,9 +747,10 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
     : Math.min(FM.H_MAX_DESK, Math.max(FM.H_MIN_DESK, rows * FM.ROW_DESK + 60));
   // 데스크톱은 카드 폭을 거의 다 쓴다(상한 1400 — 그보다 넓으면 세 열이 너무 벌어져
   // 선이 화면을 가로지르는 그림이 된다). 남는 폭은 여백으로 가운데 정렬.
-  const W = compact ? cw : Math.min(cw, FM.W_MAX_DESK);
+  const W = cw;   // 카드 폭을 그대로 쓴다(좌우 여백을 만들지 않는다)
   const offX = Math.max(0, (cw - W) / 2);
   const AX = compact ? FM.AX_MOB : FM.AX_DESK;
+  const ZX = compact ? FM.ZX_MOB : FM.ZX_DESK;
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -753,58 +759,143 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
     return () => ro.disconnect();
   }, []);
 
-  // 노드·연결 목록 — pl/pr은 라벨이 카드 밖으로 나가지 않게 하는 좌우 여유다.
-  // iy: 층 안 세로 등분(결정적 초기 자리 — 새로고침마다 다른 그림이 되지 않게)
-  const { nodes, edges } = useMemo(() => {
+  // ── 노드·연결 목록 ─────────────────────────────────────────────────────────
+  // **사람과 프로젝트를 자기 팀의 띠(밴드) 높이에 세운다**(2026-08-31 읽기 보조).
+  // 예전에는 세로 등분이라 순서가 팀과 아무 상관이 없었고, 그래서 선 40개가 서로를
+  // 가로질렀습니다 — 가독성을 망친 것은 라벨 겹침이 아니라 **교차**였습니다.
+  // 팀을 여럿 맡은 사람은 **첫 팀** 띠에 서고 나머지 팀으로 가는 선만 띠를 건넙니다
+  // (그게 실제로 겸직이라는 사실이라 숨기지 않습니다).
+  // ay를 안 주면 forceStep이 **전부 세로 가운데로** 끌어당깁니다(기본 0.5) — 그것도
+  // 순서를 흐트러뜨리던 원인이었습니다.
+  const { nodes, edges, bands } = useMemo(() => {
     const nodes = [];
     const idx = new Map();
     const push = (n) => { idx.set(n.id, nodes.length); nodes.push(n); };
-    members.forEach((m, k) => push({
-      id: `m:${m.name}`, kind: 'member', m, pl: 30, pr: 46,
-      // zx: 사람은 왼쪽 영역 밖으로 못 나간다(끌어도) — 층 읽기가 안 깨진다(사용자 결정)
-      ax: AX.m, iy: (k + 0.5) / members.length, zx: compact ? [0.02, 0.36] : [0.02, 0.42],
-    }));
-    // 팀은 가운데 열 고정 — 세로 등분. 모바일은 살짝 왼쪽(0.44) — 프로젝트 라벨이
-    // 길어서 반반으로 나누면 오른쪽이 모자라 팀 위로 겹쳤다.
+    const T = Math.max(1, teamsInUse.length);
+    const slot = new Map(teamsInUse.map((t, i) => [t, i]));
+    // 띠 = 세로를 팀 수로 나눈 칸. 팀 칩은 그 칸의 가운데에 고정된다.
+    const top = 26, span = H - 52;
+    const bandTop = (k) => top + (k / T) * span;
+    const bandH = span / T;
+    const bands = teamsInUse.map((t, k) => ({ team: t, y0: bandTop(k), y1: bandTop(k) + bandH }));
+
+    // 한 띠 안에서 j번째(총 n개)면 어디에 서나 — 등분해서 겹치지 않게
+    const inBand = (k, j, n) => (bandTop(k) + ((j + 0.5) / Math.max(1, n)) * bandH) / H;
+    // 팀이 없거나 목록에 없는 팀이면 전체 높이에 편다(마지막 띠 아래로 밀지 않는다)
+    const spread = (j, n) => (top + ((j + 0.5) / Math.max(1, n)) * span) / H;
+
+    // 층별로 "같은 띠에 몇 번째인가"를 먼저 센다 — 그래야 등분할 수 있다
+    const rank = (list, teamOf) => {
+      const seen = new Map();
+      return list.map((x) => {
+        const k = slot.has(teamOf(x)) ? slot.get(teamOf(x)) : -1;
+        const j = seen.get(k) || 0;
+        seen.set(k, j + 1);
+        return { k, j };
+      }).map((r, i, all) => ({ ...r, n: all.filter(o => o.k === r.k).length, i }));
+    };
+    const firstTeam = (m) => (m.teams?.length ? m.teams : [m.team]).filter(Boolean)[0];
+    const mainTeamOfProject = (pr) => {
+      const hit = teamProjects.filter(([, pid]) => pid === pr.id);
+      if (!hit.length) return null;
+      // 업무가 가장 많은 팀을 그 프로젝트의 자리로 본다
+      return hit.slice().sort((a, b) => (b[2] || 1) - (a[2] || 1))[0][0];
+    };
+
+    const mRank = rank(members, firstTeam);
+    members.forEach((m, k) => {
+      const r = mRank[k];
+      push({
+        id: `m:${m.name}`, kind: 'member', m, pl: 30, pr: 46,
+        // zx: 사람은 왼쪽 영역 밖으로 못 나간다 — 층 읽기가 안 깨진다(사용자 결정)
+        ax: AX.m, zx: ZX.m,
+        ay: r.k >= 0 ? inBand(r.k, r.j, r.n) : spread(r.j, r.n),
+        iy: r.k >= 0 ? inBand(r.k, r.j, r.n) : spread(r.j, r.n),
+      });
+    });
+    // 팀은 가운데 열 고정 — 자기 띠의 가운데. 모바일은 살짝 왼쪽(0.44).
     const teamX = W * AX.t;
     teamsInUse.forEach((t, k) => push({
-      id: `t:${t}`, kind: 'team', t,
-      fixed: { x: teamX, y: 26 + ((k + 0.5) / teamsInUse.length) * (H - 52) },
+      id: `t:${t}`, kind: 'team', t, left: teamLeft[t] || 0,
+      fixed: { x: teamX, y: bandTop(k) + bandH / 2 },
     }));
-    projects.forEach((p, k) => push({
-      id: `p:${p.id}`, kind: 'project', p,
-      // pr = 라벨 반폭 + 여유. 이 값이 라벨 폭보다 작으면 좁은 데스크톱(offX가 0인
-      // 폭)에서 라벨 오른쪽이 카드 밖으로 나간다.
-      pl: 56, pr: compact ? 66 : 96,
-      // 홀짝으로 앵커를 벌려 두 열이 되게 한다(데스크톱만 — FM.STAGGER_DESK 주석)
-      ax: AX.p + (compact ? 0 : (k % 2 ? FM.STAGGER_DESK : -FM.STAGGER_DESK)),
-      iy: (k + 0.5) / projects.length, zx: compact ? [0.56, 0.98] : [0.62, 0.98],
-      repel: 1.7,   // 라벨이 제일 크다 — 서로는 더 세게 밀어야 안 겹친다
-    }));
+    const pRank = rank(projects, mainTeamOfProject);
+    projects.forEach((pr, k) => {
+      const r = pRank[k];
+      const y = r.k >= 0 ? inBand(r.k, r.j, r.n) : spread(r.j, r.n);
+      push({
+        id: `p:${pr.id}`, kind: 'project', p: pr,
+        // pr = 라벨 반폭 + 여유. 이 값이 라벨 폭보다 작으면 좁은 데스크톱(offX가 0인
+        // 폭)에서 라벨 오른쪽이 카드 밖으로 나간다.
+        pl: 56, pr: compact ? 66 : 96,
+        // **한 열로 세운다.** 두 열(홀짝 지그재그)로 벌려 봤더니 선이 오히려 더
+        // 엇갈려 보였다 — 겹침은 그릴 때 떼어놓는 쪽(spreadLabels)이 확실하다.
+        ax: AX.p,
+        ay: y, iy: y, zx: ZX.p,
+        repel: 1.7,   // 라벨이 제일 크다 — 서로는 더 세게 밀어야 안 겹친다
+      });
+    });
+
     const edges = [];
     // 목표 길이는 앵커 간격이다(EDGE_OF) — 고정값이면 폭이 넓어질수록 스프링이
     // 앵커를 이기려 들어 그래프가 계속 출렁인다(실측: 방향 반전 4.9 → 1.0회/노드).
     const lenMT = EDGE_OF(AX.m, AX.t, W);
     const lenTP = EDGE_OF(AX.t, AX.p, W);
+    // 선 굵기 = 같이 맡은 업무 수(사용자 결정 2026-08-31). **선이 있냐 없냐는 멤버십**
+    // 이고 굵기만 업무 수다 — 업무 수로 선을 만들면 맡은 일이 없는 사람이 팀에서
+    // 사라집니다(§8).
     members.forEach(m => [...new Set((m.teams?.length ? m.teams : [m.team]).filter(Boolean))].forEach(t => {
-      if (idx.has(`t:${t}`)) edges.push([idx.get(`m:${m.name}`), idx.get(`t:${t}`), lenMT, teamColor(t)]);
+      if (!idx.has(`t:${t}`)) return;
+      edges.push([idx.get(`m:${m.name}`), idx.get(`t:${t}`), lenMT, teamColor(t),
+        memberLoad?.get?.(`${m.name}|${t}`) || 0]);
     }));
-    teamProjects.forEach(([team, pid]) => {
-      if (idx.has(`t:${team}`) && idx.has(`p:${pid}`)) edges.push([idx.get(`t:${team}`), idx.get(`p:${pid}`), lenTP, teamColor(team)]);
+    teamProjects.forEach(([team, pid, n]) => {
+      if (idx.has(`t:${team}`) && idx.has(`p:${pid}`)) {
+        edges.push([idx.get(`t:${team}`), idx.get(`p:${pid}`), lenTP, teamColor(team), n || 0]);
+      }
     });
-    return { nodes, edges };
-  }, [members, teamsInUse, projects, teamProjects, compact, W, H, AX]);
+    return { nodes, edges, bands };
+  }, [members, teamsInUse, projects, teamProjects, teamLeft, memberLoad, compact, W, H, AX, ZX]);
 
-  const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, offX });
-  const [hi, setHi] = useState(null);   // 만지고 있는 노드 index
+  // 엔진은 프로젝트 그래프 뷰(depgraph)와 **같은 useForceGraph/forceStep**이다
+  // (사용자 지시 2026-08-31 — "힘 엔진은 같이 가져가라"). 상수·미리 돌리기·선 길이
+  // 규칙을 여기서 고치면 그 화면도 같이 따라온다. 갈라 두지 마세요.
+  // **끌기는 그대로 둡니다**(사용자 지시 2026-08-31 — "끌기는 왜 빼").
+  const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, offX, compact });
+  // hover(데스크톱) 또는 탭(모바일)으로 고른 노드. 사람 노드는 갈 곳이 없으므로
+  // **탭이 곧 포커스**다 — 터치 기기에는 hover가 없어서 이 기능이 아예 없었다(§8).
+  const [hi, setHi] = useState(null);
+  const [pin, setPin] = useState(null);
+  const cur = hi ?? pin;
 
-  // 만진 노드와 그 이웃만 또렷하게 — 나머지는 흐린다
+  // 만진(또는 탭해 둔) 노드와 그 이웃만 또렷하게 — 나머지는 흐린다
   const linked = useMemo(() => {
-    if (hi == null) return null;
-    const set = new Set([hi]);
-    edges.forEach(([a, b]) => { if (a === hi) set.add(b); if (b === hi) set.add(a); });
+    if (cur == null) return null;
+    const set = new Set([cur]);
+    edges.forEach(([a, b]) => { if (a === cur) set.add(b); if (b === cur) set.add(a); });
     return set;
-  }, [hi, edges]);
+  }, [cur, edges]);
+  // 선 굵기의 기준 — 가장 굵은 연결이 상한이 된다(절대 굵기를 박으면 업무가 늘 때 다 굵어진다)
+  const maxW = useMemo(() => Math.max(1, ...edges.map(e => e[4] || 0)), [edges]);
+
+  // **그릴 때 같은 층 라벨을 떼어놓는다**(utils.spreadLabels · 2026-08-31).
+  // 힘 배치는 겹치지 않음을 보장할 수 없다 — 척력을 세게 하면 노드가 영역 밖으로
+  // 밀리고, 약하면 라벨이 겹친다(실측 4~9건). 시뮬 좌표(pos)는 건드리지 않고
+  // 화면 y만 민다: 끌기는 여전히 자기 좌표를 따라가고, 보이는 것만 안 겹친다.
+  // useMemo를 쓰지 않는다 — pos는 ref 배열이라 참조가 안 바뀌어서 의존성으로 못 쓴다.
+  // 노드 37개 × 층 3개짜리 정렬이라 매 프레임 돌아도 공짜다.
+  const GAP = compact ? FM.GAP_MOB : FM.GAP_DESK;
+  const drawY = new Map();
+  for (const [kind, key] of [['member', 'm'], ['team', 't'], ['project', 'p']]) {
+    const items = nodes.map((n, i) => ({ n, i }))
+      .filter(({ n }) => n.kind === kind)
+      .map(({ i }) => ({ i, y: pos[i]?.y ?? 0 }));
+    if (!items.length) continue;
+    // 위 경계 38: 열 머리글(9.5px, 위에 붙어 있다) 아래다 — 20으로 뒀더니 첫 노드가
+    // 머리글을 덮었다(실측 '사람'·'프로젝트' 둘 다).
+    spreadLabels(items, GAP[key], 38, H - 16).forEach((y, i) => drawY.set(i, y));
+  }
+  const yOf = (i) => drawY.get(i) ?? (pos[i]?.y ?? 0);
 
   return (
     <Card className="px-4 py-[15px]">
@@ -812,25 +903,49 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
         <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 연결 지도</h3>
         <span className="text-[10px] text-fg-faint">사람 → 팀 → 프로젝트</span>
       </div>
-      <div ref={wrapRef} className="relative select-none" style={{ height: H }}>
-        {/* 열 머리글 — 예전 3열 지도의 읽기 보조를 남긴다. 팀 열(가운데)은 고정이라 정확하고,
-            사람·프로젝트는 영역(zx)의 가운데쯤이다 */}
+      {/* 빈 데를 누르면 탭 포커스가 풀린다 */}
+      <div ref={wrapRef} className="relative select-none" style={{ height: H }}
+        onClick={(e) => { if (e.target === e.currentTarget) setPin(null); }}>
+        {/* 팀 띠 — 사람·프로젝트가 자기 팀 높이에 서므로, 옅은 가로 띠가 "이 줄은 이 팀"을
+            말해 준다(2026-08-31 읽기 보조). 홀수 띠만 칠해서 줄무늬로 읽히게 하고, 고른
+            팀의 띠는 그 팀 색으로 한 겹 더 밝힌다. 선 아래에 깔린다(pointer-events 없음). */}
+        {bands.map((b, k) => {
+          const isCur = cur != null && nodes[cur]?.kind === 'team' && nodes[cur].t === b.team;
+          const near = cur != null && linked && [...linked].some(j => nodes[j]?.kind === 'team' && nodes[j].t === b.team);
+          return (
+            <span key={b.team} aria-hidden className="absolute pointer-events-none"
+              style={{
+                left: offX, top: b.y0, width: W, height: b.y1 - b.y0,
+                background: isCur || near
+                  ? `color-mix(in srgb, ${teamColor(b.team)} 12%, transparent)`
+                  : k % 2 ? 'var(--app-surface-hover)' : 'transparent',
+                opacity: isCur || near ? 1 : 0.55,
+                transition: 'background 200ms, opacity 200ms',
+              }} />
+          );
+        })}
+        {/* 열 머리글 — 팀 열(가운데)은 고정이라 정확하고, 사람·프로젝트는 영역(zx)의 가운데쯤이다 */}
         <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * AX.m, top: 0, transform: 'translateX(-50%)' }}>사람</span>
         <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * AX.t, top: 0, transform: 'translateX(-50%)' }}>팀</span>
         <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * AX.p, top: 0, transform: 'translateX(-50%)' }}>프로젝트</span>
         <svg className="absolute inset-0 pointer-events-none" width={cw} height={H} aria-hidden>
-          {edges.map(([a, b, , color], i) => {
-            const on = hi != null && (a === hi || b === hi);
-            const dim = hi != null && !on;
-            const x1 = offX + (pos[a]?.x || 0), y1 = pos[a]?.y || 0;
-            const x2 = offX + (pos[b]?.x || 0), y2 = pos[b]?.y || 0;
+          {edges.map(([a, b, , color, weight], i) => {
+            const on = cur != null && (a === cur || b === cur);
+            const dim = cur != null && !on;
+            const x1 = offX + (pos[a]?.x || 0), y1 = yOf(a);
+            const x2 = offX + (pos[b]?.x || 0), y2 = yOf(b);
             const bend = Math.min(26, Math.hypot(x2 - x1, y2 - y1) * 0.12);
+            // 굵기 = 같이 맡은 업무 수(사용자 결정 2026-08-31). 0.9~3.2px 사이로 누른다 —
+            // 상한이 없으면 업무가 많은 한 줄이 화면을 갈라 버리고, 하한이 없으면
+            // 0건 연결이 사라져 "그 팀 사람이 아닌 것"처럼 보인다.
+            const wpx = 0.9 + Math.min(1, (weight || 0) / maxW) * 2.3;
             return (
               <path key={i}
                 d={`M ${x1} ${y1} Q ${(x1 + x2) / 2} ${(y1 + y2) / 2 - bend} ${x2} ${y2}`}
-                fill="none" stroke={color} strokeWidth={on ? 1.6 : 1.1}
-                opacity={dim ? 0.12 : on ? 0.85 : 0.45}
-                style={{ transition: 'opacity 200ms' }} />
+                fill="none" stroke={color} strokeWidth={on ? wpx + 0.7 : wpx}
+                strokeLinecap="round"
+                opacity={dim ? 0.1 : on ? 0.9 : 0.42}
+                style={{ transition: 'opacity 200ms, stroke-width 200ms' }} />
             );
           })}
         </svg>
@@ -839,27 +954,40 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
           if (!P) return null;
           const dim = linked && !linked.has(i);
           const base = {
-            position: 'absolute', left: offX + P.x, top: P.y, transform: 'translate(-50%, -50%)',
-            opacity: dim ? 0.25 : 1, transition: 'opacity 200ms',
+            position: 'absolute', left: offX + P.x, top: yOf(i), transform: 'translate(-50%, -50%)',
+            opacity: dim ? 0.22 : 1, transition: 'opacity 200ms',
           };
           if (n.kind === 'member') {
             const drag = bindDrag(i);
+            const picked = pin === i;
             return (
-              <span key={n.id} {...drag} style={{ ...base, ...drag.style, cursor: 'grab' }}
+              // 사람 노드는 갈 곳이 없어서 예전에는 눌러도 아무 일이 없었다 → **탭이 포커스**다.
+              // 터치 기기에는 hover가 없어서 "그 사람의 연결만 보기"가 아예 없는 기능이었다(§8).
+              <button key={n.id} type="button" {...drag}
+                style={{ ...base, ...drag.style, cursor: 'grab' }}
+                aria-pressed={picked}
+                title={`${n.m.name} — 눌러서 이 사람의 연결만 보기`}
                 className="flex flex-col items-center gap-0.5"
+                onClick={() => setPin(picked ? null : i)}
                 onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}>
-                <Avatar name={n.m.name} url={n.m.avatarUrl} className="flex w-[20px] h-[20px] text-[9px] pointer-events-none" />
-                <span className="text-[9px] leading-none text-fg-muted whitespace-nowrap pointer-events-none">{n.m.name}</span>
-              </span>
+                <Avatar name={n.m.name} url={n.m.avatarUrl}
+                  className={`flex w-[20px] h-[20px] text-[9px] pointer-events-none ${picked ? 'ring-2 ring-accent' : ''}`} />
+                <span className={`text-[9px] leading-none whitespace-nowrap pointer-events-none ${picked ? 'text-fg font-bold' : 'text-fg-muted'}`}>{n.m.name}</span>
+              </button>
             );
           }
           if (n.kind === 'team') {
             return (
-              <button key={n.id} type="button" title={`${n.t} 보드로`} style={base}
+              // 남은 업무 수를 칩 안에 붙인다(사용자 결정 2026-08-31) — 연결과 부담을
+              // 한 번에 읽는다. 0건이면 숫자를 쓰지 않는다(없는 것을 굳이 말하지 않는다).
+              <button key={n.id} type="button" title={`${n.t} 보드로${n.left ? ` · 남은 업무 ${n.left}건` : ''}`} style={base}
                 onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
                 onClick={() => onOpenTeam(n.t)}
-                className="px-2 py-[3px] rounded-full text-[10.5px] font-bold whitespace-nowrap bg-surface border border-line transition hover:opacity-70">
+                className="inline-flex items-center gap-1 pl-2 pr-[7px] py-[3px] rounded-full text-[10.5px] font-bold whitespace-nowrap bg-surface border border-line shadow-soft transition hover:opacity-70">
                 <span style={{ color: teamColor(n.t) }}>{n.t}</span>
+                {n.left > 0 && (
+                  <span className="text-[9.5px] font-semibold tabular-nums text-fg-faint">{n.left}</span>
+                )}
               </button>
             );
           }
@@ -869,7 +997,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, onOpen
               style={{ ...base, ...drag.style, cursor: 'grab' }}
               onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
               onClick={() => onOpenProject(n.p.id)}
-              className={`px-2.5 py-1 rounded-[8px] bg-surface shadow-soft border border-line font-bold text-fg whitespace-nowrap truncate transition hover:opacity-70 ${compact ? 'text-[10.5px] max-w-[120px]' : 'text-[11.5px] max-w-[180px]'}`}>
+              className={`px-2.5 py-1 rounded-[8px] bg-surface shadow-soft border border-line font-bold text-fg whitespace-nowrap truncate transition hover:opacity-70 ${compact ? 'text-[10.5px] max-w-[128px]' : 'text-[11.5px] max-w-[200px]'}`}>
               {n.p.title}
             </button>
           );

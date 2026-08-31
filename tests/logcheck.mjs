@@ -981,6 +981,42 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
       }
     });
   }
+  // **눈에 보이는 것은 첫 프레임들이다.** 상수를 부드럽게 잡은 뒤에도 남아 있던
+  // "촥 펼쳐지는" 느낌의 정체가 그것이었다(사용자 지적 2026-08-31 2차) — 노드가 거의
+  // 같은 x에 쌓여 시작하니 척력이 30프레임쯤 옆으로 밀어낸다. useForceGraph가 그 구간을
+  // **첫 페인트 전에** 흘려보낸다. 여기서는 같은 방식으로 재서 효과를 못 박는다.
+  const visibleMove = (settle) => {
+    const p2 = nodes.map((n, i) => n.fixed ? { ...n.fixed }
+      : { x: W * n.ax + ((i * 37) % 13) - 6, y: 24 + n.iy * (H - 48) });
+    const v2 = nodes.map(() => ({ x: 0, y: 0 }));
+    let a = 1, guard = 0;
+    while (a > settle && guard++ < 400) {
+      for (let k = 0; k < 3; k++) { forceStep(p2, v2, nodes, edges, W, H, { alpha: a }); a -= a * 0.0228; }
+    }
+    let moved = 0, top = 0;
+    for (let fr = 0; fr < 20 && a > 0.002; fr++) {
+      const was = p2.map(q => ({ ...q }));
+      for (let k = 0; k < 3; k++) { forceStep(p2, v2, nodes, edges, W, H, { alpha: a }); a -= a * 0.0228; }
+      nodes.forEach((n, i) => {
+        if (n.fixed) return;
+        const sp = Math.hypot(p2[i].x - was[i].x, p2[i].y - was[i].y);
+        moved += sp; if (sp > top) top = sp;
+      });
+    }
+    return { per: moved / (M + P), top };
+  };
+  const raw = visibleMove(1);      // 미리 안 돌린 것 = 예전 동작
+  const pre = visibleMove(0.3);    // 모바일 SETTLE_MOBILE
+  assert.ok(raw.per > 40, `미리 안 돌리면 첫 20프레임이 요란하다 (${Math.round(raw.per)}px/노드)`);
+  assert.ok(pre.per < raw.per / 5,
+    `미리 돌리면 보이는 폭발이 5분의 1 미만 (${Math.round(raw.per)} → ${Math.round(pre.per)}px/노드)`);
+  assert.ok(pre.top < 4, `보이는 최고 속도가 낮다 (${pre.top.toFixed(1)}px/프레임)`);
+  const hook = readFileSync(new URL('../src/hooks/useForceGraph.js', import.meta.url), 'utf8');
+  assert.ok(/while \(alphaRef\.current > settle/.test(hook) && /kick\(alphaRef\.current\)/.test(hook),
+    '첫 페인트 전에 미리 돌리고 남은 온기로만 애니메이션한다');
+  assert.ok(/SETTLE_MOBILE = 0\.3/.test(hook) && /SETTLE_DESK = 0\.55/.test(hook),
+    '모바일을 더 낮게 둔다 — 폭이 좁아 같은 힘에도 더 크게 흔들려 보인다');
+
   const perNode = reversals / (M + P);
   assert.ok(maxStep <= 26, `초기 폭발이 잦다 — 최고 ${maxStep.toFixed(1)}px/프레임 (옛 상수 52)`);
   assert.ok(perNode <= 2.2, `출렁임이 적다 — 방향 반전 ${perNode.toFixed(1)}회/노드 (옛 상수 3.5)`);
@@ -990,9 +1026,60 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
   assert.ok(/const EDGE_OF = \(a, b, W\)/.test(parts) && /EDGE_OF\(AX\.m, AX\.t, W\)/.test(parts),
     '연결 지도의 선 길이 = 앵커 간격');
-  assert.ok(/W_MAX_DESK: 1400/.test(parts), '데스크톱은 카드 폭을 거의 다 쓴다(좌우 여백 낭비를 줄인 자리)');
+  // 1400 상한도 1858px 카드에서 좌우 229px씩 남겼다 → 상한을 없애고 카드 폭을 그대로 쓴다
+  assert.ok(/const W = cw;/.test(parts), '데스크톱은 카드 폭을 다 쓴다(좌우 여백 낭비를 줄인 자리)');
   assert.ok(/rows \* FM\.ROW_DESK \+ 60/.test(parts), '높이가 줄 수를 따라간다(라벨 겹침의 원인)');
   const dep = readFileSync(new URL('../src/components/depgraph.jsx', import.meta.url), 'utf8');
   assert.ok(/colGap \* span/.test(dep), '프로젝트 그래프 뷰도 열 간격으로 선 길이를 잡는다');
-  console.log('PASS  그래프 부드러움 7가지');
+  console.log('PASS  그래프 부드러움 12가지');
+}
+
+// ── 같은 층 라벨 떼어놓기 (utils.spreadLabels) ─────────────────────────────────
+// 연결 지도가 **그릴 때** 쓴다. 힘 배치는 겹치지 않음을 보장할 수 없어서(척력을
+// 세게 하면 노드가 영역 밖으로 밀린다) 화면 y만 최소 간격을 지키게 민다.
+// 첫판은 아래로 넘칠 때 "넘친 양을 빼고 y0로 클램프"였는데 **위 두 개가 경계에
+// 뭉쳤다** — 실제로 브라우저에서 '2026 워크스페이스 개선'과 '2026 월례회'가 같은
+// y에 겹쳐 있었다. 지금은 위→아래, 아래→위 두 방향 훑기다.
+// 되돌리기 검사: 아래→위 패스를 지우면 "아래 경계를 안 넘는다"가 깨진다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'lbl-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { spreadLabels } = await import(pathToFileURL(f).href);
+
+  const ys = (m, items) => items.map(it => Math.round(m.get(it.i)));
+  // 같은 y에 몰린 둘 — 최소 간격만큼 벌어져야 한다
+  const two = [{ i: 'a', y: 58 }, { i: 'b', y: 58 }];
+  const r2 = spreadLabels(two, 30, 20, 500);
+  assert.deepStrictEqual(ys(r2, two), [58, 88], '같은 y에 몰린 둘을 벌린다');
+
+  // 자연스러운 자리가 넓게 퍼져 아래로 넘치는 경우 — 되밀어도 뭉치지 않아야 한다
+  const wide = [40, 60, 200, 260, 330, 400, 470, 495].map((y, k) => ({ i: k, y }));
+  const rw = spreadLabels(wide, 60, 20, 500);
+  const got = ys(rw, wide);
+  for (let k = 1; k < got.length; k++) {
+    assert.ok(got[k] - got[k - 1] >= 59.9, `간격 유지 (${got.join(',')})`);
+  }
+  assert.ok(Math.max(...got) <= 500.1, `아래 경계를 안 넘는다 (${Math.max(...got)})`);
+  assert.ok(Math.min(...got) >= 19.9, `위 경계를 안 넘는다 (${Math.min(...got)})`);
+
+  // 자리가 정말 모자라면 균등 분배(겹치더라도 같은 간격) — 뭉치지는 않는다
+  const many = Array.from({ length: 20 }, (_, k) => ({ i: k, y: 100 }));
+  const rm = spreadLabels(many, 40, 0, 100);   // 19*40=760 > 100
+  const gm = ys(rm, many);
+  assert.deepStrictEqual([...new Set(gm)].length, 20, '모자라도 같은 y에 뭉치지 않는다');
+  assert.ok(Math.max(...gm) <= 100.1 && Math.min(...gm) >= -0.1, '경계 안에 있다');
+
+  assert.strictEqual(spreadLabels([], 30, 0, 100).size, 0, '빈 목록');
+  assert.strictEqual(spreadLabels([{ i: 'x', y: 5 }], 30, 20, 100).get('x'), 20, '하나면 위 경계로');
+
+  // 화면이 실제로 쓰는지 — 순수 함수만 맞아도 안 쓰면 아무 일도 안 일어난다
+  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  assert.ok(/spreadLabels\(items, GAP\[key\], 38, H - 16\)/.test(parts),
+    '연결 지도가 층별로 라벨을 떼어놓는다(위 경계는 열 머리글 아래다)');
+  assert.ok(/top: yOf\(i\)/.test(parts) && /const yOf = \(i\)/.test(parts),
+    '노드와 선이 떼어놓은 y로 그려진다(시뮬 좌표는 안 건드린다 — 끌기가 어긋나지 않게)');
+  assert.ok(/const W = cw;/.test(parts), '데스크톱이 카드 폭을 다 쓴다');
+  console.log('PASS  라벨 떼어놓기 12가지');
 }

@@ -547,6 +547,41 @@ export function forceStep(pos, vel, nodes, edges, W, H, opts = {}) {
   }
 }
 
+// ── 같은 층 라벨을 세로로 떼어놓기 (연결 지도가 그릴 때만 쓴다) ────────────────
+// **힘 배치는 겹치지 않음을 보장할 수 없다.** 척력을 세게 하면 노드가 영역 밖으로
+// 밀리고, 약하면 라벨이 겹친다 — 실측으로 15개 프로젝트에서 4~9건이 겹쳤다
+// (사용자 스크린샷의 그 상태). 그래서 **그릴 때** 한 번 떼어놓는다: 시뮬의 좌표는
+// 그대로 두고(끌기가 어긋나지 않게) 화면에 앉히는 y만 최소 간격을 지키게 민다.
+//
+// 방법은 한 방향 훑기 두 번이다 — 위에서 아래로 밀어 간격을 벌리고, 아래가 넘치면
+// 위로 되민다. 순서를 바꾸지 않으므로 팀별로 묶어 둔 배치가 흐트러지지 않는다.
+// items: [{ i, y }] (y 오름차순일 필요 없음) → Map(i → 새 y)
+export function spreadLabels(items, minGap, y0, y1) {
+  const list = items.slice().sort((a, b) => a.y - b.y);
+  const out = new Map();
+  const n = list.length;
+  if (!n) return out;
+  const room = Math.max(0, y1 - y0);
+  // 자리가 모자라면 균등 분배가 최선이다 — 간격을 줄여서라도 겹치지 않게 한다
+  if ((n - 1) * minGap > room) {
+    const g = n > 1 ? room / (n - 1) : 0;
+    list.forEach((it, k) => out.set(it.i, y0 + k * g));
+    return out;
+  }
+  const y = list.map(it => it.y);
+  // ① 위 → 아래: 간격을 벌린다
+  y[0] = Math.max(y[0], y0);
+  for (let k = 1; k < n; k++) y[k] = Math.max(y[k], y[k - 1] + minGap);
+  // ② 아래 → 위: 아래 경계를 넘긴 만큼 되민다. **간격을 지키면서** 되밀어야 한다 —
+  //    예전에는 넘친 양을 한꺼번에 빼고 y0로 클램프했더니 **위 두 개가 경계에 뭉쳤다**
+  //    (실측으로 '2026 워크스페이스 개선'과 '2026 월례회'가 같은 y였다).
+  //    ①에서 자리가 충분함을 이미 걸렀으므로 이 패스가 y0 아래로 내려갈 수 없다.
+  y[n - 1] = Math.min(y[n - 1], y1);
+  for (let k = n - 2; k >= 0; k--) y[k] = Math.min(y[k], y[k + 1] - minGap);
+  for (let k = 0; k < n; k++) out.set(list[k].i, Math.max(y0, y[k]));
+  return out;
+}
+
 // 노드 하나의 이동 가능 범위 — 시뮬과 드래그가 같은 규칙을 본다
 // (드래그만 다른 규칙이면 끌어다 놓은 자리로는 못 가는 자리가 생긴다)
 export function forceBounds(node, W, H) {

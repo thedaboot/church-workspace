@@ -22,7 +22,19 @@ const ALPHA_DRAG = 0.14;      // 드래그 중 유지할 온기
 const ALPHA_WAKE = 0.2;       // 깨울 때 — 너무 높으면 튄다
 const MAX_FRAMES = 900;       // 무한 rAF 방지 백스톱
 
-export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0 }) {
+// **첫 페인트 전에 조용히 미리 돌린다**(2026-08-31 · 사용자 지적 "모바일에서 갑자기
+// 촥 펼쳐지는 느낌, 탄성이 엄청 느껴진다"). 상수를 부드럽게 잡은 뒤에도 남아 있던
+// 것은 **초기 폭발**이었다 — 노드가 거의 같은 x에 쌓여 시작하니 척력이 30프레임쯤
+// 옆으로 밀어내고, 그 구간이 "펼쳐짐"으로 읽혔다. 실측(사람 15·팀 7·프로젝트 15):
+//   보이는 첫 20프레임 이동 57px/노드 → (미리 0.3까지) 6px · 최고 18 → 3.7px/프레임
+// alpha가 이 값까지 식을 동안은 안 그리고, **잦아드는 꼬리만** 애니메이션으로 보인다.
+// 그래서 "자리 잡는 모션"은 남고(사용자가 좋다고 한 것) 폭발만 사라진다.
+// 모바일을 더 낮게 두는 이유: 폭이 좁아 같은 힘에도 노드가 더 크게 흔들려 보인다.
+const SETTLE_DESK = 0.55;
+const SETTLE_MOBILE = 0.3;
+const PRE_GUARD = 400;        // 미리 돌리는 루프의 백스톱
+
+export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact = false }) {
   const pRef = useRef([]);
   const velRef = useRef([]);
   const posById = useRef(new Map());     // 데이터가 바뀔 때 자리를 물려주기 위한 기억
@@ -92,14 +104,25 @@ export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0 }) {
       }
       bump(x => x + 1);
     } else {
-      kick(1);
+      // 폭발 구간을 첫 페인트 전에 흘려보낸다(SETTLE_* 주석). 37개 노드로 16프레임쯤
+      // 이라 몇 ms다 — rAF 밖에서 돌아도 화면이 밀리지 않는다.
+      const settle = compact ? SETTLE_MOBILE : SETTLE_DESK;
+      const skip = skipSet();
+      let guard = 0;
+      while (alphaRef.current > settle && guard++ < PRE_GUARD) {
+        for (let k = 0; k < 3; k++) {
+          forceStep(pRef.current, velRef.current, nodes, edges, W, H, { alpha: alphaRef.current, skip });
+          alphaRef.current -= alphaRef.current * ALPHA_DECAY;
+        }
+      }
+      kick(alphaRef.current);   // 남은 온기로만 애니메이션 — 잦아드는 꼬리다
     }
     return () => {
       nodes.forEach((n, i) => { if (!n.fixed && pRef.current[i]) posById.current.set(n.id, pRef.current[i]); });
       cancelAnimationFrame(rafRef.current); rafRef.current = 0;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, edges, W, H]);
+  }, [nodes, edges, W, H, compact]);
 
   // 노드에 펼쳐 붙이는 드래그 핸들러. fixed 노드는 빈 객체(끌 수 없다).
   const bindDrag = (i) => {

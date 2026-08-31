@@ -79,7 +79,7 @@ export function DepGraph({ tasks, onTaskClick }) {
     // W가 들어온 이유: 선의 목표 길이가 열 간격(폭에 비례)에서 나온다
   }, [list, compact, W]);
 
-  const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, offX });
+  const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, offX, compact });
   const [hi, setHi] = useState(null);
   const linked = useMemo(() => {
     if (hi == null) return null;
