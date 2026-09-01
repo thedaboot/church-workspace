@@ -250,16 +250,16 @@ export const TopNav = React.memo(({
   // 보관된 것을 열어 두면 위 줄이 그걸 탭으로 끌어올린다 — 그때 보관함 목록에도 그대로
   // 두면 **같은 프로젝트가 탭과 더보기에 동시에** 보인다(실제로 그렇게 보였다).
   // 지금 보고 있는 것은 이미 탭에 있으니 목록에서 뺀다.
-  const archivedForMore = archived.filter(p => p.id !== activeMenu);
-  // 더보기의 연도 폴더에는 **모든 해**의 진행 중 프로젝트가 들어간다 — 연도로 거른
-  // 탭에서 빠진 것들이 갈 곳이 여기뿐이다(rest에는 고른 해의 나머지만 있다).
-  const otherYears = projectsList.filter(p => projectYear(p) !== year && p.id !== activeMenu);
+  // 더보기에는 **고른 해의 것만** 들어간다 — 보관된 프로젝트도 그 해 것만
+  // (사용자 결정 2026-09-01, 2026-08-24의 "모든 해" 결정을 대체). 다른 해는
+  // 연도 버튼으로 바꿔 보고, 검색·알림으로 열면 useTabYear가 그 해로 따라간다.
+  const archivedForMore = archived.filter(p => p.id !== activeMenu && projectYear(p) === year);
   const myTasksCount = useStore(selectMyTasks).filter(t => t.status !== '완료').length;
   // 몇 개까지 탭으로 보일지는 화면 폭이 정한다(useTabFit). 보관함이 있으면 탭이 다
   // 들어가도 '더보기'는 남아야 하므로 그 폭까지 계산에 넣는다.
   const tabRowRef = useRef(null);
   const measureRef = useRef(null);
-  const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0 || otherYears.length > 0);
+  const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0);
   const { shown, rest } = splitProjectTabs(tabSource, activeMenu, tabFit);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRootRef = useRef(null);
@@ -363,7 +363,7 @@ export const TopNav = React.memo(({
             <ViewerFaces projectId={p.id} className="absolute top-1 -right-1 z-[1]" />
           </button>
         ))}
-        {(rest.length > 0 || archivedForMore.length > 0 || otherYears.length > 0) && (
+        {(rest.length > 0 || archivedForMore.length > 0) && (
           <span ref={moreRootRef} className="inline-flex">
             <span ref={moreBtnRef} className="inline-flex">
               <button onClick={() => { placeMore(); setMoreOpen(o => !o); }} className="px-3 pt-2.5 pb-2 -mb-px inline-flex items-center gap-1 text-[13px] font-semibold text-fg-muted hover:text-fg border-b-2 border-transparent transition-colors">
@@ -372,7 +372,7 @@ export const TopNav = React.memo(({
             </span>
             {moreOpen && createPortal(
               <div ref={morePopRef} style={{ position: 'fixed', left: morePos.left, top: morePos.top, width: 224 }} className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 max-h-72 overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
-                <YearFolders active={[...rest, ...otherYears]} archived={archivedForMore} onPick={(id) => { setMoreOpen(false); setActiveMenu(id); }} />
+                <YearFolders active={rest} archived={archivedForMore} onPick={(id) => { setMoreOpen(false); setActiveMenu(id); }} />
               </div>,
               document.body
             )}
@@ -455,6 +455,8 @@ export function YearPicker({ year, years, yearCounts = {}, onPick, compact = fal
 // 더보기 = 연도 폴더 (사용자 결정 2026-08-24). 탭에 못 들어간 진행 중 프로젝트와
 // 보관된 프로젝트를 같은 연도 아래에서 함께 본다 — 예전에는 '보관'해야만 연도로
 // 묶여서, 지난 해 프로젝트를 찾으려면 먼저 보관부터 해야 했다.
+// 2026-09-01부터는 **고른 해의 것만** 받는다(사용자 결정) — 그래서 사실상 폴더가
+// 하나지만, 연도 머리글이 "이건 몇 년 것"을 말해 주므로 묶는 모양은 그대로 둔다.
 // 연도는 projects.created_at에서 파생한다(연도 컬럼을 따로 두지 않는다).
 // 보관된 것은 Archive 아이콘 + 흐린 글자로 가른다. 보관 해제는 열어서 이름 수정 창에서.
 function YearFolders({ active, archived, onPick }) {

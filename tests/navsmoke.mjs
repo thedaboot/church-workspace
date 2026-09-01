@@ -349,6 +349,22 @@ const afterPick = await ev(readNav);
 // 7번(내년·진행중) + 보고 있는 p1(올해라도 남는다) = 2. 8번은 앞 단계에서 보관됐다.
 check('그 해 프로젝트만 탭에 선다', afterPick.projTabs === 2,
   `탭 ${afterPick.projTabs}개`);
+
+// ── 더보기에는 고른 해의 것만 — 보관 포함 (사용자 결정 2026-09-01) ──────────
+// 지금 내년을 보고 있다: 더보기에는 내년 보관(p8)만 있어야 하고, 올해 프로젝트가
+// 섞이면 안 된다(예전에는 모든 해의 진행 중이 연도 폴더로 들어갔다 — 대체된 결정).
+// 되돌리기 검사: layout.jsx의 archivedForMore에서 연도 조건을 빼거나 YearFolders의
+// active에 다른 해를 다시 섞으면 두 번째 단정이 깨진다.
+await ev(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim().startsWith('더보기')); b && b.click(); })()`);
+await sleep(350);
+const moreYear = await ev(`(() => {
+  const pops = [...document.body.children].filter(c => typeof c.className === 'string' && c.className.includes('z-[90]'));
+  const items = pops.flatMap(p => [...p.querySelectorAll('button')].map(b => b.textContent.trim()));
+  // 보관 줄은 "제목" + "보관됨" 라벨이 한 버튼에 붙어 나온다 — 라벨을 떼고 센다
+  return items.map(t => t.replace(/보관됨$/, '')).filter(t => /^프로젝트 [0-9]+$/.test(t));
+})()`);
+check('더보기에 그 해 보관 프로젝트가 있다', moreYear.includes('프로젝트 8'), JSON.stringify(moreYear));
+check('더보기에 다른 해 프로젝트가 안 섞인다', moreYear.every(t => t === '프로젝트 8'), JSON.stringify(moreYear));
 await send('Emulation.clearDeviceMetricsOverride');
 
 console.log(results.join('\n'));
