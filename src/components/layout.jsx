@@ -695,6 +695,9 @@ function menuTitle(activeMenu, projectsMap, currentUser) {
   if (activeMenu === 'myTasks') return `${currentUser?.name || '내'}님의 업무`;
   if (activeMenu === 'schedule') return '전체 일정';
   if (activeMenu === 'members') return '멤버 관리';
+  if (activeMenu === 'worship') return '예배';
+  if (activeMenu === 'word') return '말씀';
+  if (activeMenu === 'groups') return '모임';
   if (activeMenu.startsWith('team:')) return `${activeMenu.split(':')[1]} 보드`;
   return projectsMap[activeMenu]?.title || '워크스페이스';
 }
