@@ -37,6 +37,24 @@ const TABS = [
   { id: 'notices', label: '광고' },
 ];
 
+// 저절로 저장되는 칸들(주보 편집 · 내 예배 노트 · 출석 메모)이 함께 쓰는 상태 표시.
+// state는 '' | 'saving' | 'saved'.
+//
+// 끝난 것만 **연한 초록 칩**이다(사용자 결정 2026-09-02) — 누르지 않아도 저장되는 화면이라
+// 저장이 끝난 순간이 눈에 들어와야 안심이 된다. '저장하는 중'은 지나가는 상태라 무채색이다.
+// 라벨은 부르는 쪽이 정한다: 아직 발행 전인 주보는 '임시 저장되었어요'(발행해야 남들이
+// 본다는 뜻이 담긴다), 이미 발행된 주보를 고치는 중이면 그 글자가 거짓이 되므로
+// '저장되었어요'다.
+export function SaveState({ state, savedLabel = '저장되었어요' }) {
+  const done = state === 'saved';
+  return (
+    <span className={`worship-save-state text-[10.5px] ${
+      done ? 'px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg font-bold' : 'text-fg-faint'}`}>
+      {done ? savedLabel : (state === 'saving' ? '저장하는 중' : '')}
+    </span>
+  );
+}
+
 // 배열 한 칸 옮기기 (담당자·찬양·광고 공용). 끝에서는 그대로 둔다.
 const moveAt = (list, from, to) => {
   if (to < 0 || to >= list.length) return list;
@@ -304,7 +322,7 @@ function NoticesEdit({ rows, onChange }) {
 function MyNote({ note, onSave }) {
   const [body, setBody] = useState(note?.body || '');
   const [shared, setShared] = useState(!!note?.shared_to_sun);
-  const [state, setState] = useState('');       // '' | '저장하는 중' | '저장했어요'
+  const [state, setState] = useState('');       // '' | 'saving' | 'saved'
   const dirty = useRef(false);
 
   useEffect(() => { setBody(note?.body || ''); setShared(!!note?.shared_to_sun); dirty.current = false; }, [note]);
@@ -313,9 +331,9 @@ function MyNote({ note, onSave }) {
   useEffect(() => {
     if (!dirty.current) return undefined;
     const t = setTimeout(async () => {
-      setState('저장하는 중');
+      setState('saving');
       const ok = await onSave({ body, sharedToSun: shared });
-      setState(ok ? '저장했어요' : '');
+      setState(ok ? 'saved' : '');
     }, SAVE_DELAY);
     return () => clearTimeout(t);
   }, [body, shared, onSave]);
@@ -323,9 +341,9 @@ function MyNote({ note, onSave }) {
   const toggleShare = async () => {
     const next = !shared;
     setShared(next); dirty.current = true;
-    setState('저장하는 중');
+    setState('saving');
     const ok = await onSave({ body, sharedToSun: next });
-    setState(ok ? '저장했어요' : '');
+    setState(ok ? 'saved' : '');
   };
 
   return (
@@ -333,7 +351,8 @@ function MyNote({ note, onSave }) {
       <div className="flex items-center gap-2 pb-2.5">
         <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">내 예배 노트</h3>
         <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
-        <span className="text-[10.5px] text-fg-faint">{state}</span>
+        {/* 노트는 발행이라는 것이 없다 — 저장되면 그것으로 끝이라 '임시'가 아니다 */}
+        <SaveState state={state} />
       </div>
       <textarea
         value={body}
@@ -364,7 +383,7 @@ export function ServiceDetail({
   const [tab, setTab] = useState('word');
   const [draft, setDraft] = useState(null);     // null이면 보기 모드
   const [busy, setBusy] = useState(false);
-  const [saveState, setSaveState] = useState('');   // '' | '저장하는 중' | '저장했어요'
+  const [saveState, setSaveState] = useState('');   // '' | 'saving' | 'saved'
   const dirty = useRef(false);
   const editing = draft !== null;
   const shown = editing ? draft : service;
@@ -391,9 +410,9 @@ export function ServiceDetail({
   useEffect(() => {
     if (!editing || !dirty.current) return undefined;
     const t = setTimeout(async () => {
-      setSaveState('저장하는 중');
+      setSaveState('saving');
       const ok = await onSave(patchOf(draft));
-      setSaveState(ok ? '저장했어요' : '');
+      setSaveState(ok ? 'saved' : '');
       if (ok) dirty.current = false;
     }, SAVE_DELAY);
     return () => clearTimeout(t);
@@ -406,10 +425,10 @@ export function ServiceDetail({
   // 기다리지 않고 지금 저장하고 보기 모드로
   const saveNow = async () => {
     setBusy(true);
-    setSaveState('저장하는 중');
+    setSaveState('saving');
     const ok = await onSave(patchOf(draft));
     setBusy(false);
-    setSaveState(ok ? '저장했어요' : '');
+    setSaveState(ok ? 'saved' : '');
     if (ok) { dirty.current = false; setDraft(null); }
   };
 
@@ -442,8 +461,9 @@ export function ServiceDetail({
             <button type="button" className="px-2.5 py-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">삭제</button>
           </ConfirmPopover>
         )}
-        {/* 저장은 저절로 되므로 그 사실이 눈에 보여야 한다(노트 라벨과 같은 톤) */}
-        <span className="worship-save-state text-[10.5px] text-fg-faint">{saveState}</span>
+        {/* 저장은 저절로 되므로 그 사실이 눈에 보여야 한다(노트 라벨과 같은 톤).
+            발행 전에는 '임시' — 저장은 됐지만 아직 나만 본다는 뜻이 같이 담긴다 */}
+        <SaveState state={saveState} savedLabel={isDraft ? '임시 저장되었어요' : '저장되었어요'} />
         <span className="flex-1" />
         <button type="button" onClick={leave}
           className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">

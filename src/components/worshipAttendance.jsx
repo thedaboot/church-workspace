@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronDown, Plus } from 'lucide-react';
 import { groupRoster, countPresent, canToggleGroup, kindLabel, formatServiceDate } from '../services/worship.js';
+import { SaveState } from './worshipDetail.jsx';
 
 // ============================================================================
 // 예배 출석 체크 (docs/V2.md 결정 6 · 0035·0036)
@@ -48,9 +49,9 @@ export function AttendanceScreen({
   useEffect(() => {
     if (!dirty.current) return undefined;
     const t = setTimeout(async () => {
-      setNoteState('저장하는 중');
+      setNoteState('saving');
       const ok = await onSaveNote(note);
-      setNoteState(ok ? '저장했어요' : '');
+      setNoteState(ok ? 'saved' : '');
     }, NOTE_DELAY);
     return () => clearTimeout(t);
   }, [note, onSaveNote]);
@@ -145,7 +146,8 @@ export function AttendanceScreen({
         <div className="flex items-center gap-2 pb-2.5">
           <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">출석 메모</h3>
           <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
-          <span className="text-[10.5px] text-fg-faint">{noteState}</span>
+          {/* 주보 편집·예배 노트와 같은 저장 표시 한 벌(worshipDetail의 SaveState) */}
+          <SaveState state={noteState} />
         </div>
         <textarea
           value={note} onChange={e => { dirty.current = true; setNote(e.target.value); }}

@@ -100,10 +100,22 @@ const typeIn = (sel, v, tag = 'HTMLInputElement') => `(() => {
   Object.getOwnPropertyDescriptor(${tag}.prototype, 'value').set.call(el, ${JSON.stringify(v)});
   el.dispatchEvent(new Event('input', { bubbles: true }));
 })()`;
-const pickIn = (sel, v) => `(() => {
-  const el = document.querySelector(${JSON.stringify(sel)});
-  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, ${JSON.stringify(String(v))});
-  el.dispatchEvent(new Event('change', { bubbles: true }));
+// 본문 선택 — 책은 자동완성 입력칸, 장·절은 숫자 그리드 팝오버(둘 다 우리 부품이다)
+const typeBook = (v) => typeIn('.worship-book input', v);
+const firstBook = `document.querySelector('.worship-book-list button')`;
+const openNum = (label) => `document.querySelector('button[aria-label=${JSON.stringify(label)}]').click()`;
+const pickNum = (n) => `[...document.querySelectorAll('.worship-num-pop button')]
+  .find(b => b.textContent.trim() === ${JSON.stringify(String(n))}).click()`;
+// 팝오버 바깥을 눌러서 닫는다(바깥 판정에 body 포털로 나간 팝오버 자신도 들어 있다)
+const clickAway = `document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`;
+// 토큰 색을 실제로 그려 보고 견준다 — 테마가 바뀌어도 이 비교는 그대로 선다
+const tokenColor = (name) => `(() => {
+  const el = document.createElement('span');
+  el.style.background = 'var(${name})';
+  document.body.appendChild(el);
+  const c = getComputedStyle(el).backgroundColor;
+  el.remove();
+  return c;
 })()`;
 
 await send('Page.enable'); await send('Runtime.enable');
@@ -337,8 +349,12 @@ check('미등록 출석자를 그 자리에서 명단에 올리고 출석 처리
 // 출석 메모는 자동 저장(디바운스)
 await ev(typeIn('textarea[aria-label="출석 메모"]', '오늘은 새신자가 한 명 왔어요', 'HTMLTextAreaElement'));
 await sleep(1600);
-const noteSaved = await ev(`JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.id === 's1').attendance_note`);
-check('출석 메모가 저절로 저장된다', noteSaved === '오늘은 새신자가 한 명 왔어요', String(noteSaved));
+const noteSaved = await ev(`(() => ({
+  text: JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.id === 's1').attendance_note,
+  state: document.querySelector('.worship-attendance .worship-save-state')?.textContent.trim() || '',
+}))()`);
+check('출석 메모가 저절로 저장된다', noteSaved.text === '오늘은 새신자가 한 명 왔어요', String(noteSaved.text));
+check('출석 메모도 같은 저장 라벨을 쓴다', noteSaved.state === '저장되었어요', noteSaved.state);
 
 // ── 4) 내 예배 노트 ─────────────────────────────────────────────────────────
 await ev(`${byText('주보로')}.click()`); await sleep(700);
@@ -348,9 +364,11 @@ await ev(`document.querySelector('.worship-note button[role="switch"]').click()`
 const noteRow = await ev(`(() => {
   const rows = JSON.parse(localStorage.getItem('church_worship_v1')).service_notes;
   return { n: rows.length, body: rows[0]?.body || '', shared: rows[0]?.shared_to_sun,
-    aria: document.querySelector('.worship-note button[role="switch"]').getAttribute('aria-checked') };
+    aria: document.querySelector('.worship-note button[role="switch"]').getAttribute('aria-checked'),
+    state: document.querySelector('.worship-note .worship-save-state')?.textContent.trim() || '' };
 })()`);
 check('내 예배 노트가 예배당 한 건으로 저장된다', noteRow.n === 1 && noteRow.body.startsWith('기쁨은'), JSON.stringify(noteRow));
+check("노트는 발행이 없으니 '임시'가 붙지 않는다", noteRow.state === '저장되었어요', noteRow.state);
 check("'내 순에 공유' 토글이 저장된다", noteRow.shared === true && noteRow.aria === 'true', JSON.stringify(noteRow));
 
 // ── 5) 만들기 → 바로 수정 화면 ──────────────────────────────────────────────
@@ -407,27 +425,69 @@ check("편집 중 도구 줄은 저장·삭제 / 목록으로(자동 저장이�
 // ── 6) 말씀 — 구절은 범위로 고르고, 저장은 저절로 ──────────────────────────
 await ev(typeIn('input[aria-label="설교 제목"]', '다시 세우시는 손'));
 await sleep(1700);
-const autoSaved = await ev(`(() => ({
-  title: JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.kind === '성탄절 예배').title,
-  state: document.querySelector('.worship-save-state')?.textContent.trim() || '',
-}))()`);
+const autoSaved = await ev(`(() => {
+  const el = document.querySelector('.worship-save-state');
+  return {
+    title: JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.kind === '성탄절 예배').title,
+    state: el?.textContent.trim() || '',
+    bg: el ? getComputedStyle(el).backgroundColor : '',
+    green: ${tokenColor('--app-tag-green')},
+  };
+})()`);
 check('편집 중에는 누르지 않아도 저장된다', autoSaved.title === '다시 세우시는 손', String(autoSaved.title));
-check("저장 상태가 머리 쪽에 보인다", autoSaved.state === '저장했어요', autoSaved.state);
+check("저장 상태가 머리 쪽에 보인다 — 발행 전이면 '임시 저장되었어요'",
+  autoSaved.state === '임시 저장되었어요', autoSaved.state);
+check('저장 라벨은 연한 초록 칩이다', autoSaved.bg === autoSaved.green, `${autoSaved.bg} / ${autoSaved.green}`);
 
-check('본문 구절은 글자 입력이 아니라 범위 선택이다',
-  (await ev(`!document.querySelector('input[aria-label="본문 구절"]') && !!document.querySelector('select[aria-label="성경 책"]')`)) === true);
-await ev(pickIn('select[aria-label="성경 책"]', 'isa')); await sleep(900);
-await ev(pickIn('select[aria-label="시작 장"]', 32)); await sleep(350);
-await ev(pickIn('select[aria-label="시작 절"]', 9)); await sleep(300);
-await ev(pickIn('select[aria-label="끝 절"]', 20)); await sleep(1700);
+// 본문 선택은 전부 우리 부품이다 — 네이티브 select도, 글자로 적는 칸도 없다
+check('본문 선택에 네이티브 select가 없다',
+  (await ev(`!document.querySelector('input[aria-label="본문 구절"]')
+    && document.querySelectorAll('.worship-passage-pick select').length === 0
+    && !!document.querySelector('input[aria-label="본문 선택"]')`)) === true);
+
+// 약칭으로도 걸린다 — '엡'은 에베소서의 약칭이고 이름에는 그 글자가 없다
+await ev(typeBook('엡')); await sleep(400);
+const abbrHit = await ev(`(() => ({
+  n: document.querySelectorAll('.worship-book-list button').length,
+  first: ${firstBook}?.textContent.trim() || '',
+}))()`);
+check('책 이름을 치면 자동완성이 뜨고 약칭도 걸린다',
+  abbrHit.n === 1 && abbrHit.first === '에베소서', JSON.stringify(abbrHit));
+
+await ev(typeBook('이사야')); await sleep(400);
+await ev(`${firstBook}.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`);
+await sleep(900);
+await ev(openNum('시작 장')); await sleep(300);
+await ev(pickNum(32)); await sleep(500);
+await ev(openNum('시작 절')); await sleep(300);
+await ev(pickNum(9)); await sleep(400);
+await ev(openNum('끝 절')); await sleep(300);
+await ev(pickNum(20)); await sleep(1700);
 const picked = await ev(`(() => ({
   ref: JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.kind === '성탄절 예배').passage_ref,
   verses: document.querySelectorAll('.worship-verse').length,
-  ends: [...document.querySelectorAll('select[aria-label="끝 장"] option')].map(o => +o.value)[0],
+  labels: [...document.querySelectorAll('.worship-num')].map(b => b.textContent.trim()),
 }))()`);
 check('고른 범위가 지금까지와 같은 구절 문자열로 저장된다', picked.ref === '이사야 32:9-20', String(picked.ref));
 check('편집 중에도 고른 범위의 본문이 아래에 펼쳐진다', picked.verses === 12, `${picked.verses}절`);
-check('끝은 시작보다 앞설 수 없다', picked.ends === 32, `끝 장 첫 항목 ${picked.ends}`);
+check('고른 장·절이 칸에 그대로 선다',
+  JSON.stringify(picked.labels) === '["32장","9절","32장","20절"]', JSON.stringify(picked.labels));
+
+// 장·절 팝오버는 body 포털이라 어디에 있든 잘리지 않는다(§6-1)
+await ev(openNum('끝 장')); await sleep(350);
+const pop = await ev(`(() => {
+  const p = document.querySelector('.worship-num-pop');
+  const r = p.getBoundingClientRect();
+  return {
+    inBody: p.parentElement === document.body,
+    first: p.querySelector('button').textContent.trim(),
+    fits: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+  };
+})()`);
+check('끝은 시작보다 앞설 수 없다', pop.first === '32', `끝 장 첫 항목 ${pop.first}`);
+check('장·절 팝오버는 body 포털이고 화면 안에 들어온다',
+  pop.inBody === true && pop.fits === true, JSON.stringify(pop));
+await ev(clickAway); await sleep(300);
 
 await ev(typeIn('input[aria-label="설교자"]', '임성빈 전도사님')); await sleep(300);
 const holders = await ev(`(() => ({
@@ -537,6 +597,20 @@ check('발행하면 작성 중 배지가 사라지고 전체 공개가 된다',
   published.status === 'published' && published.badge === false && !published.toolbar.includes('발행하기'), JSON.stringify(published));
 check('발행해도 예배 날짜 전이면 출석 진입이 없다', published.att === false, JSON.stringify(published));
 
+// 발행된 주보를 고칠 때는 저장이 곧 공개본에 반영된다 — 거기에 '임시'라고 쓰면 거짓말이다
+await ev(`${byText('수정')}.click()`); await sleep(500);
+await tabClick('말씀'); await sleep(300);
+// 글자가 실제로 달라져야 React가 onChange를 흘린다(같은 값이면 아무 일도 안 일어난다)
+await ev(typeIn('input[aria-label="설교 제목"]', '다시 세우시는 손을 붙들고')); await sleep(1700);
+const pubSave = await ev(`(() => {
+  const el = document.querySelector('.worship-save-state');
+  return { state: el?.textContent.trim() || '', bg: el ? getComputedStyle(el).backgroundColor : '',
+    green: ${tokenColor('--app-tag-green')} };
+})()`);
+check("발행본을 고칠 때는 '임시'가 빠진다", pubSave.state === '저장되었어요', pubSave.state);
+check('발행본 저장 라벨도 같은 초록 칩', pubSave.bg === pubSave.green, `${pubSave.bg} / ${pubSave.green}`);
+await ev(`${byText('저장')}.click()`); await sleep(800);
+
 // ── 9) 자격 없는 사람 · 순장 ────────────────────────────────────────────────
 await ev(plant({ canEdit: false, canCheckAll: false, ledGroupIds: [], canCheck: false }));
 await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
@@ -635,8 +709,18 @@ check('다크 — 주보 본문이 읽힌다', darkDetail.lowCount === 0, JSON.s
 check('다크 — 가로로 넘치지 않는다', darkDetail.x === 0, `${darkDetail.x}px`);
 await ev(`${byText('수정')}.click()`); await sleep(1400);
 const darkEdit = await ev(PROBE);
-check('다크 — 편집 화면(구절 고르기 · 담당자 칸)도 읽힌다',
+check('다크 — 편집 화면(본문 선택 · 담당자 칸)도 읽힌다',
   darkEdit.lowCount === 0 && darkEdit.bannedCount === 0, JSON.stringify([darkEdit.low, darkEdit.banned]));
+
+// 네이티브 select를 걷어낸 이유가 이것이다 — 팝오버는 테마를 따라간다
+await ev(openNum('시작 장')); await sleep(400);
+const darkPop = await ev(`(() => {
+  const p = document.querySelector('.worship-num-pop');
+  return { bg: getComputedStyle(p).backgroundColor, surface: ${tokenColor('--app-surface')} };
+})()`);
+check('다크 — 장·절 팝오버도 앱 표면색을 따른다', darkPop.bg === darkPop.surface, JSON.stringify(darkPop));
+await ev(clickAway); await sleep(250);
+
 await ev(`${byText('저장')}.click()`); await sleep(900);
 await ev(`document.documentElement.setAttribute('data-theme', 'light')`); await sleep(300);
 
@@ -656,9 +740,24 @@ await ev(`${byText('수정')}.click()`); await sleep(900);
 const mobEdit = await ev(`(() => ({
   overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   selects: document.querySelectorAll('.worship-passage-pick select').length,
+  nums: document.querySelectorAll('.worship-num').length,
+  book: !!document.querySelector('input[aria-label="본문 선택"]'),
 }))()`);
-check('모바일 375px — 구절 고르기가 가로로 넘치지 않는다',
-  mobEdit.overflow <= 0 && mobEdit.selects === 5, JSON.stringify(mobEdit));
+check('모바일 375px — 본문 선택이 가로로 넘치지 않는다',
+  mobEdit.overflow <= 0 && mobEdit.selects === 0 && mobEdit.nums === 4 && mobEdit.book === true,
+  JSON.stringify(mobEdit));
+
+// 좁은 화면에서도 팝오버가 잘리지 않아야 한다 — 이게 body 포털을 쓰는 이유다
+await ev(openNum('끝 절')); await sleep(400);
+const mobPop = await ev(`(() => {
+  const r = document.querySelector('.worship-num-pop').getBoundingClientRect();
+  return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top),
+    bottom: Math.round(r.bottom), vw: innerWidth, vh: innerHeight };
+})()`);
+check('모바일 375px — 장·절 팝오버가 화면 밖으로 잘리지 않는다',
+  mobPop.left >= 0 && mobPop.right <= mobPop.vw && mobPop.top >= 0 && mobPop.bottom <= mobPop.vh,
+  JSON.stringify(mobPop));
+await ev(clickAway); await sleep(250);
 await ev(`${byText('목록으로')}.click()`); await sleep(800);
 const mobList = await ev(`(() => ({
   overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,

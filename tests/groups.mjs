@@ -125,6 +125,8 @@ const setText = (sel, v) => ev(`(() => {
 // ── 네이티브 select를 걷어낸 뒤의 조작 도구들 ───────────────────────────────
 // 사람 고르기: 칸에 포커스를 주면 자동완성이 열리고, 뜬 줄을 누르면 골라진다.
 // 줄 글자는 '아바타 첫 글자 + 이름'이라 endsWith로 본다('조' + '조해리').
+// **목록은 body 포털이라 칸의 자손이 아니다**(§6-1) — document에서 찾는다. 한 번에
+// 하나만 열리므로 클래스만으로 충분하다.
 const sel = (tag, label) => `${tag}[aria-label=` + JSON.stringify(label) + ']';
 const pickPerson = (label, name) => ev(`(async () => {
   const w = ms => new Promise(r => setTimeout(r, ms));
@@ -133,7 +135,7 @@ const pickPerson = (label, name) => ev(`(async () => {
   // 이미 포커스가 있으면 focus()는 아무 이벤트도 내지 않는다 — 한 번 떼고 다시 준다
   input.blur(); await w(60); input.focus();
   await w(220);
-  const o = [...input.closest('.person-pick').querySelectorAll('.person-pick-option')]
+  const o = [...document.querySelectorAll('.person-pick-option')]
     .find(b => b.textContent.trim().endsWith(${JSON.stringify(name)}));
   if (!o) return 'no-option';
   o.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
@@ -148,7 +150,7 @@ const pickOptions = (label) => ev(`(async () => {
   input.blur(); await w(60); input.focus();
   await w(220);
   // 줄은 '아바타 + 이름'이라 이름은 마지막 칸이다
-  const names = [...input.closest('.person-pick').querySelectorAll('.person-pick-option')]
+  const names = [...document.querySelectorAll('.person-pick-option')]
     .map(b => b.lastElementChild.textContent.trim());
   document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
   await w(120);
@@ -161,7 +163,7 @@ const pickMenu = (label, text) => ev(`(async () => {
   if (!btn) return 'no-btn';
   btn.click();
   await w(220);
-  const o = [...btn.parentElement.querySelectorAll('.menu-pick-option')]
+  const o = [...document.querySelectorAll('.menu-pick-option')]
     .find(b => b.textContent.trim() === ${JSON.stringify(text)});
   if (!o) return 'no-option';
   o.click();
@@ -212,6 +214,35 @@ const pickDate = (root, y, m, d) => ev(`(async () => {
   await w(160);
   return 'ok';
 })()`, true);
+
+// 열려 있는 팝오버가 **온전히 보이는가**(§6-1 body 포털). rect만 재면 덮인 것을 놓친다 —
+// 네 변과 가운데를 실제로 눌렀을 때 그 점에 잡히는 요소가 팝오버 자신이어야 한다.
+// absolute로 두면 `.dc-row`의 등장 애니메이션이 남긴 identity transform 때문에 카드마다
+// 쌓임 맥락이 생겨서, 바로 아래 순 카드가 목록을 덮는다(사용자 지적 2026-09-02).
+// 모서리 안쪽 3px 같은 점은 쓰지 않는다 — 목록의 `rounded-lg`가 12px이라 그 점은
+// 둥근 모서리 **밖**이고, 가려지지 않았는데도 아래 것이 잡힌다(처음에 그렇게 짰다가
+// 멀쩡한 화면에서 FAIL이 났다). 변 위의 점만 쓰고 모서리는 반지름만큼 비켜 간다.
+const uncovered = (q) => ev(`(() => {
+  const m = document.querySelector(${JSON.stringify(q)});
+  if (!m) return 'no-menu';
+  const r = m.getBoundingClientRect();
+  if (r.width < 40 || r.height < 32) return 'too-small';
+  const R = 14, E = 4;
+  const pts = [
+    [r.left + R, r.top + E], [r.right - R, r.top + E],
+    [r.left + E, r.top + R], [r.right - E, r.top + R],
+    [r.left + R, r.bottom - E], [r.right - R, r.bottom - E],
+    [r.left + E, r.bottom - R], [r.right - E, r.bottom - R],
+    [(r.left + r.right) / 2, (r.top + r.bottom) / 2],
+  ];
+  const bad = [];
+  for (const [x, y] of pts) {
+    if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) { bad.push('화면 밖'); continue; }
+    const el = document.elementFromPoint(x, y);
+    if (!m.contains(el)) bad.push((el?.className || el?.tagName || '?').split(' ')[0]);
+  }
+  return bad.length ? bad.join(',') : 'ok';
+})()`);
 
 // 아이콘이 든 버튼 전수 점검(사용자 지적 — "+와 글자가 안 맞는 곳이 있다").
 // · 아이콘만 든 버튼: svg가 글자 baseline에 앉지 않고 상자 한가운데 서야 한다
@@ -619,6 +650,22 @@ check('순장은 옮기기·빼기 대상이 아니다(순장 칸에서 바꾼�
   JSON.stringify(leaderRow[0]) === '[true,false,false]' && JSON.stringify(leaderRow[1]) === '[false,true,true]',
   JSON.stringify(leaderRow));
 
+// 화살표는 눌리는 것이어야 한다 — 예전에는 그냥 놓인 아이콘이라 눌러도 아무 일이 없었다
+// (사용자 지적 2026-09-02). 빈 입력으로 명단 전체가 열린다.
+const chevron = await ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const btn = document.querySelector('.sun-leader-pick .person-pick-toggle');
+  if (!btn) return 'no-btn';
+  btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  await w(300);
+  const n = document.querySelectorAll('.person-pick-option').length;
+  const expanded = btn.getAttribute('aria-expanded');
+  document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  await w(200);
+  return n + '/' + expanded;
+})()`, true);
+check('순장 칸의 화살표를 누르면 명단 전체가 열린다', chevron === '8/true', String(chevron));
+
 check('순원 추가는 이름을 쳐서 고른다', (await pickPerson('꼬순 순원 추가', '조해리')) === 'ok');
 await sleep(1000);
 const added = await ev(`(() => ({
@@ -672,6 +719,22 @@ const madeSun = await ev(`(() => {
 })()`);
 check('새 순은 고른 해로 만들어진다', madeSun.made === true && madeSun.year === Y && madeSun.rows === 3, JSON.stringify(madeSun));
 check('순장을 정하면 그 순의 구성원으로도 들어간다', madeSun.leader === 'p8' && madeSun.member === true, JSON.stringify(madeSun));
+
+// ── 5-1) 팝오버는 카드 밖으로 온전히 보인다(잘림 0) ─────────────────────────
+// 순이 셋이라 맨 위 줄 아래에 카드가 두 장 있다 — 목록은 그 위로 나와야 한다.
+await ev(`(() => { const i = document.querySelector('input[aria-label="꼬순이 순원 추가"]');
+  i.scrollIntoView({ block: 'center' }); i.focus(); })()`);
+await sleep(450);
+const addPop = await uncovered('.person-pick-menu');
+check('순원 추가 목록이 아래 순 카드에 잘리지 않는다', addPop === 'ok', addPop);
+await ev(`document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`); await sleep(300);
+
+await ev(`(() => { const b = document.querySelector('[aria-label="천진영 순 옮기기"]');
+  b.scrollIntoView({ block: 'center' }); b.click(); })()`);
+await sleep(400);
+const movePop = await uncovered('.menu-pick-menu');
+check('순 옮기기 목록도 아래 순 카드에 잘리지 않는다', movePop === 'ok', movePop);
+await ev(`document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`); await sleep(300);
 
 // 아이콘이 든 버튼 전수 점검 — 순 편성 쪽(빼기·순 옮기기)도 같은 기준으로
 const sunBtns = await ev(ICON_AUDIT);

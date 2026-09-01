@@ -27,8 +27,10 @@ import {
 // 사람들이 본다(§7 '랭킹·점수·배지·스트릭'). 순장도 순원의 잔디를 볼 수 없어서
 // 애초에 남의 기록은 묻지도 않는다(fetchMyEntryDates는 내 것만 읽는다).
 //
-// 묵상은 기본 비공개이고 '나누기'를 켠 글만 그날 나눔에 오른다(결정 11). 경계는
-// 화면이 아니라 RLS가 지킨다(0036).
+// 묵상은 기본 비공개이고 '더다붓에 공유하기'를 켠 글만 그날 나눔에 오른다(결정 11).
+// 경계는 화면이 아니라 RLS가 지킨다(0036). **'나누기'가 아니라 '더다붓에 공유하기'다**
+// (사용자 피드백 2026-09-02 — 어디로 나가는지가 이름에 있어야 한다). 토글·저장 토스트가
+// 같은 말을 쓴다. 피드 제목 '오늘의 나눔'은 그대로다 — 그건 올라온 글들의 이름이다.
 //
 // **날짜를 바꿔도 자리는 그대로 있어야 한다**(사용자 피드백 2026-09-01 — "화면 전체가
 // 새로 그려지며 움직인다"). 본문·묵상·나눔 세 칸 모두 기다리는 동안 같은 자리에
@@ -155,7 +157,7 @@ function QtTab() {
       setSaved(draft);
       setFeed(await fetchSharedEntries(date));
       reloadGrass();
-      showToast(draft.shared ? '묵상을 저장하고 나눔에 올렸어요' : '묵상을 저장했어요');
+      showToast(draft.shared ? '묵상을 저장하고 더다붓에 공유했어요' : '묵상을 저장했어요');
     } catch (e) {
       console.error('[word] 묵상 저장 실패:', e);
       showToast(failText('묵상을 저장하지 못했어요', e));
@@ -206,7 +208,7 @@ function QtTab() {
           {date !== today && (
             <button onClick={() => go(today)}
               className="ml-1 px-2.5 h-8 rounded-md text-[11.5px] font-semibold text-accent-text bg-accent-weak transition active:scale-95">
-              오늘로
+              오늘
             </button>
           )}
         </div>
@@ -231,7 +233,9 @@ function QtTab() {
               </Suspense>
             ) : <EditorSkeleton />}
           </div>
-          <div className="flex items-center gap-2 mt-2.5">
+          {/* 이름이 길어졌으므로(→ '더다붓에 공유하기') 좁은 폭에서는 줄을 바꾼다.
+              spacer는 basis 0이라 자리가 있는 한 셋이 한 줄에 그대로 선다 */}
+          <div className="flex flex-wrap items-center gap-2 mt-2.5">
             <button onClick={save} disabled={!dirty || saving}
               className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
               저장
@@ -263,13 +267,13 @@ function QtTab() {
   );
 }
 
-// ── 나만 보기 / 나누기 ──────────────────────────────────────────────────────
+// ── 나만 보기 / 더다붓에 공유하기 ───────────────────────────────────────────
 // **이미 그 상태인 쪽을 눌러도 아무 일도 일어나지 않는다**(사용자 지적 2026-09-01 —
 // 예전에는 한 버튼이 상태를 표시하면서 누르면 뒤집혀서, 지금 상태를 확인하려고 누른
 // 사람이 값을 바꿔 놓고 저장 버튼을 켰다). 두 쪽을 나란히 두고 값이 실제로 달라질
 // 때만 draft를 새로 만든다 — 같은 객체를 돌려주면 리렌더도 dirty도 없다.
 function ShareToggle({ value, disabled, onChange }) {
-  const OPTIONS = [[false, '나만 보기', Lock], [true, '나누기', Users]];
+  const OPTIONS = [[false, '나만 보기', Lock], [true, '더다붓에 공유하기', Users]];
   return (
     <span className={`flex p-[3px] rounded-[8px] shrink-0 ${disabled ? 'opacity-40' : ''}`}
       style={{ background: 'var(--app-surface-hover)' }}>

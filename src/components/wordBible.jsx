@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Bookmark, Search, X, Highlighter } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ChevronLeft, ChevronRight, ChevronDown, Bookmark, Search, X, Highlighter, Eraser } from 'lucide-react';
 import { loadBibleIndex, loadBook } from '../services/bible.js';
 import { parseRef } from '../services/bibleRef.js';
 import {
   loadBibleState, saveBibleState, loadFontStep, saveFontStep,
   chapterKey, parseChapterKey, verseKey, parseVerseKey,
 } from '../services/word.js';
+import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { SectionHead, Card, prefersReducedMotion } from '../views/dashboardParts.jsx';
 import { Skeleton } from './media.jsx';
 
@@ -43,17 +45,40 @@ const FONT_STEPS = [
 // 자리로 되돌려 놓고(렌더 중 setState — 그 렌더가 곧바로 다시 돈다), 그림이 나간
 // 뒤(useEffect)에 제자리로 보낸다. 움직이는 것은 transform·opacity뿐이다(§4.2).
 // dir: 1 다음 · -1 이전 · 0 방향 없음(그때는 세로로 아주 조금).
+//
+// **거리를 키웠다**(사용자 피드백 2026-09-02 — "이전/다음 장 애니메이션이 안 보인다").
+// 12px·.26s는 스크롤 한 칸보다 작아서, 장이 바뀐 것은 알아도 어느 쪽으로 갔는지가
+// 눈에 남지 않았다. 28px·.3s면 방향이 읽히고 §4.2의 결(이징 하나 · transform/opacity만)
+// 안에 그대로 있다. prefers-reduced-motion이면 전환 자체가 없다.
+const SWAP_SHIFT = 28;    // px — 방향이 보이는 최소치. 이보다 작으면 없는 것과 같았다
+const SWAP_LIFT = 8;      // px — 방향이 없을 때(dir 0)의 세로 이동
+const SWAP_MS = 300;      // ms — §4.2의 .dc-screen(260ms)과 같은 결
+
 export function Swap({ k, dir = 0, className = '', children }) {
   const [seen, setSeen] = useState(k);
   const [shown, setShown] = useState(true);
+  const nodeRef = useRef(null);
   const reduce = prefersReducedMotion();
 
   if (seen !== k) { setSeen(k); if (!reduce) setShown(false); }
-  useEffect(() => { if (!shown) setShown(true); }, [shown]);
+  useEffect(() => {
+    if (shown) return;
+    // **이 줄이 애니메이션의 전부다.** 시작 자리를 브라우저에 한 번 '보여 주고' 나서
+    // 제자리로 보낸다 — offsetHeight를 읽으면 그 자리로 스타일이 확정되고, 그래야
+    // 다음 값이 전환의 끝점이 된다. 없으면 두 값이 같은 스타일 갱신 안에서 처리되어
+    // **전환이 아예 시작되지 않는다**(사용자 피드백 2026-09-02 "애니메이션이 눈에
+    // 안 잡힌다"의 진짜 원인 — 거리가 작아서가 아니라 안 돌고 있었다). 지우지 말 것.
+    void nodeRef.current?.offsetHeight;
+    setShown(true);
+  }, [shown]);
 
-  const off = dir === 0 ? 'translate3d(0, 5px, 0)' : `translate3d(${dir > 0 ? 12 : -12}px, 0, 0)`;
+  const off = dir === 0
+    ? `translate3d(0, ${SWAP_LIFT}px, 0)`
+    : `translate3d(${dir > 0 ? SWAP_SHIFT : -SWAP_SHIFT}px, 0, 0)`;
+  const ease = `${SWAP_MS}ms var(--ease-out-quint)`;
   return (
     <div
+      ref={nodeRef}
       className={className}
       data-swap={String(k)}
       style={reduce ? undefined : {
@@ -61,7 +86,7 @@ export function Swap({ k, dir = 0, className = '', children }) {
         transform: shown ? 'none' : off,
         // 되돌릴 때는 전환을 끄고 튕겨 놓는다 — 안 그러면 나가는 것과 들어오는 것이
         // 같은 자리에서 서로 되감겨 흐릿하게 흔들린다.
-        transition: shown ? 'opacity .26s var(--ease-out-quint), transform .26s var(--ease-out-quint)' : 'none',
+        transition: shown ? `opacity ${ease}, transform ${ease}` : 'none',
       }}
     >{children}</div>
   );
@@ -89,15 +114,20 @@ export function PassageSkeleton({ lines = 8, step = 1 }) {
 }
 
 // ── 본문 한 덩이 (QT 탭도 같이 쓴다) ───────────────────────────────────────
-// marks: 형광펜이 켜진 절의 '장:절' 집합 · onMark: 절을 눌렀을 때(리더에서만 준다)
-export function PassageText({ verses, step = 1, showChapter = false, focus = null, marks = null, onMark = null }) {
+// marks: 형광펜이 켜진 절의 '장:절' 집합
+// onPickVerse(chapter, verse, el): 절을 눌렀을 때(리더에서만 준다). **여기서 칠하지
+//   않는다** — 부른 쪽이 그 절에 선택 팝오버를 띄운다(VerseMarkMenu).
+// picked: 지금 팝오버가 열려 있는 절의 '장:절'(aria-expanded용)
+export function PassageText({
+  verses, step = 1, showChapter = false, focus = null, marks = null, onPickVerse = null, picked = null,
+}) {
   const f = FONT_STEPS[step] || FONT_STEPS[1];
-  // 글을 끌어 고르고 손을 뗀 자리에도 click이 온다 — 고른 것이 있으면 형광펜을 켜지
-  // 않는다(복사하려고 고른 것을 형광펜으로 알아들으면 지우러 다시 눌러야 한다).
-  const hit = (chapter, verse) => {
+  // 글을 끌어 고르고 손을 뗀 자리에도 click이 온다 — 고른 것이 있으면 팝오버를 띄우지
+  // 않는다(복사하려고 고른 것을 형광펜으로 알아들으면 고른 것이 풀린다).
+  const hit = (chapter, verse, el) => {
     const sel = typeof window !== 'undefined' ? window.getSelection?.() : null;
     if (sel && !sel.isCollapsed && String(sel).trim()) return;
-    onMark(chapter, verse);
+    onPickVerse(chapter, verse, el);
   };
   return (
     <div className="flex flex-col" style={{ gap: f.gap }}>
@@ -117,16 +147,17 @@ export function PassageText({ verses, step = 1, showChapter = false, focus = nul
             data-verse={key}
             data-focus={on ? '1' : undefined}
             data-mark={lit ? '1' : undefined}
-            role={onMark ? 'button' : undefined}
-            tabIndex={onMark ? 0 : undefined}
-            aria-pressed={onMark ? lit : undefined}
-            onClick={onMark ? () => hit(v.chapter, v.verse) : undefined}
-            onKeyDown={onMark ? (e) => {
+            role={onPickVerse ? 'button' : undefined}
+            tabIndex={onPickVerse ? 0 : undefined}
+            aria-haspopup={onPickVerse ? 'menu' : undefined}
+            aria-expanded={onPickVerse ? picked === key : undefined}
+            onClick={onPickVerse ? (e) => hit(v.chapter, v.verse, e.currentTarget) : undefined}
+            onKeyDown={onPickVerse ? (e) => {
               if (e.key !== 'Enter' && e.key !== ' ') return;
-              e.preventDefault(); onMark(v.chapter, v.verse);
+              e.preventDefault(); onPickVerse(v.chapter, v.verse, e.currentTarget);
             } : undefined}
             className={`rounded-[4px] transition-colors ${blank ? 'text-fg-faint' : 'text-fg-secondary'} ${
-              lit || on ? '-mx-1.5 px-1.5' : ''} ${on && !lit ? 'bg-accent-weak' : ''} ${onMark ? 'cursor-pointer' : ''}`}
+              lit || on ? '-mx-1.5 px-1.5' : ''} ${on && !lit ? 'bg-accent-weak' : ''} ${onPickVerse ? 'cursor-pointer' : ''}`}
             style={style}
           >
             {/* 형광펜이 켜지면 절 번호도 그 색을 옅게 쓴다 — 회색을 그대로 두면 노랑 위에서
@@ -139,6 +170,54 @@ export function PassageText({ verses, step = 1, showChapter = false, focus = nul
         );
       })}
     </div>
+  );
+}
+
+// ── 절을 눌렀을 때의 선택 팝오버 ────────────────────────────────────────────
+// **누르자마자 칠하지 않는다**(사용자 피드백 2026-09-02). 본문을 읽다 보면 손이
+// 스치기만 해도 절이 노래졌고, 되돌리려면 같은 자리를 또 눌러야 했다. 절을 누르면
+// 무엇을 할지 먼저 묻는다 — 이미 그어져 있으면 [형광펜 지우기], 아니면 [형광펜 긋기].
+// 취소는 바깥 누름과 Esc다(따로 '취소' 줄을 두지 않는다 — 잃는 것이 없다).
+//
+// **여기는 색이 늘 자리다.** 지금은 줄이 하나뿐이지만 노랑 말고 다른 색이 붙으면
+// 이 목록에 색 줄을 더하고 highlights 항목에 색 값을 얹으면 된다(services/word.js의
+// verseKey는 그대로 두고 { ref, at, color } 꼴로 늘린다). 그때도 [지우기]는 맨 아래다.
+//
+// 자리 잡기는 공용 훅(useAnchoredPos)이 한다 — body 포털이라 본문이 스크롤·리사이즈로
+// 움직여도 절을 따라온다. 항목 톤은 프로필 메뉴 줄과 같다(layout.jsx의 `item`).
+const MENU_W = 176;
+const MENU_H = 52;
+const menuItem = 'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors text-left';
+
+export function VerseMarkMenu({ anchorRef, lit, label, onPick, onClose }) {
+  const popRef = useRef(null);
+  const [pos] = useAnchoredPos(anchorRef, true, MENU_W, MENU_H, 8, popRef);
+
+  useEffect(() => {
+    // 앵커(그 절)도 '안'으로 친다 — 같은 절을 다시 누르면 여는 쪽이 닫는다.
+    // 여기서 닫아 버리면 mousedown이 닫고 click이 곧바로 다시 여는 꼴이 된다.
+    const onDown = (e) => {
+      if (popRef.current?.contains(e.target) || anchorRef.current?.contains(e.target)) return;
+      onClose();
+    };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [anchorRef, onClose]);
+
+  return createPortal(
+    <div
+      ref={popRef} role="menu" aria-label={`${label} 형광펜`} data-verse-menu={label}
+      style={{ position: 'fixed', left: pos.left, top: pos.top, width: MENU_W }}
+      className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 animate-in fade-in zoom-in-95 duration-150"
+    >
+      <button type="button" role="menuitem" className={menuItem} onClick={onPick}>
+        {lit ? <Eraser size={15} className="shrink-0" /> : <Highlighter size={15} className="shrink-0" />}
+        {lit ? '형광펜 지우기' : '형광펜 긋기'}
+      </button>
+    </div>,
+    document.body,
   );
 }
 
@@ -198,6 +277,12 @@ export function BibleTab({ initialRef = '' }) {
   const searchToken = useRef(0);
   const bodyRef = useRef(null);
 
+  // 형광펜 선택 팝오버 — { chapter, verse }. 앵커는 눌린 절 <p> 자체다(ref 객체 모양을
+  // 그대로 맞춰 useAnchoredPos에 넘긴다).
+  const [pick, setPick] = useState(null);
+  const anchorRef = useRef(null);
+  const closePick = useCallback(() => setPick(null), []);
+
   const bookOf = useCallback((id) => books.find(b => b.id === id) || null, [books]);
 
   // 첫 진입 — 책 목록 · 내 상태(이어읽기·북마크·형광펜) · 글자 크기
@@ -248,6 +333,7 @@ export function BibleTab({ initialRef = '' }) {
     setDir(delta);
     setPlace({ bookId, chapter });
     setFocus(at);
+    setPick(null);      // 자리를 옮기면 앵커였던 절이 사라진다 — 팝오버도 같이 내린다
     setQuery(''); setTyped(''); setResults([]); setProgress(null);
     searchToken.current++;
     update({ ...state, lastRef: chapterKey(bookId, chapter) });
@@ -328,15 +414,25 @@ export function BibleTab({ initialRef = '' }) {
     return set;
   }, [state.highlights, place]);
 
-  const toggleHighlight = (chapter, verse) => {
-    if (!place) return;
-    const ref = verseKey(place.bookId, chapter, verse);
-    const lit = (state.highlights || []).some(h => h?.ref === ref);
+  // 절을 누르면 그 절에 선택 팝오버를 띄운다 — 칠하는 것은 팝오버가 시킬 때다.
+  // 같은 절을 다시 누르면 닫는다(VerseMarkMenu가 앵커를 '안'으로 쳐서 바깥 누름이
+  // 먼저 닫아 버리지 않는다).
+  const pickVerse = (chapter, verse, el) => {
+    anchorRef.current = el;
+    setPick(p => (p && p.chapter === chapter && p.verse === verse ? null : { chapter, verse }));
+  };
+
+  const pickRef = pick && place ? verseKey(place.bookId, pick.chapter, pick.verse) : '';
+  const pickLit = !!pickRef && (state.highlights || []).some(h => h?.ref === pickRef);
+
+  const toggleHighlight = () => {
+    if (!pickRef) return;
+    setPick(null);
     update({
       ...state,
-      highlights: lit
-        ? state.highlights.filter(h => h?.ref !== ref)
-        : [...(state.highlights || []), { ref, at: new Date().toISOString() }],
+      highlights: pickLit
+        ? state.highlights.filter(h => h?.ref !== pickRef)
+        : [...(state.highlights || []), { ref: pickRef, at: new Date().toISOString() }],
     });
   };
 
@@ -408,9 +504,17 @@ export function BibleTab({ initialRef = '' }) {
 
               <Card className="p-4 md:p-5">
                 {loaded
-                  ? <PassageText verses={verses} step={step} focus={focus} marks={marks} onMark={toggleHighlight} />
+                  ? <PassageText verses={verses} step={step} focus={focus} marks={marks}
+                      onPickVerse={pickVerse} picked={pick ? `${pick.chapter}:${pick.verse}` : null} />
                   : <PassageSkeleton lines={10} step={step} />}
               </Card>
+              {pick && loaded && (
+                <VerseMarkMenu
+                  anchorRef={anchorRef} lit={pickLit}
+                  label={`${here?.name || ''} ${pick.chapter}:${pick.verse}`.trim()}
+                  onPick={toggleHighlight} onClose={closePick}
+                />
+              )}
 
               <div className="flex items-center gap-2 pt-3.5">
                 <button onClick={() => move(-1)} className={`${btn} flex-1 h-10 text-fg-muted hover:bg-surface-hover`}
@@ -440,81 +544,168 @@ export function BibleTab({ initialRef = '' }) {
 
 // ── 내 기록 (북마크 · 형광펜) ───────────────────────────────────────────────
 // 누르면 그 자리로 간다. 형광펜은 절까지 데려가고 그 절이 화면 가운데에 선다.
-// 절 본문을 여기서 같이 보여 주지 않는 이유: 표시하려면 그 책 파일을 전부 받아야 해서
-// 형광펜이 여러 권에 걸린 사람은 목록 하나에 몇 MB를 받게 된다.
-const MarkChip = ({ label, onOpen, onRemove, removeLabel }) => (
-  <span className="inline-flex items-center rounded-full overflow-hidden"
-    style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
-    <button onClick={onOpen}
-      className="pl-3 pr-1.5 py-1.5 text-[11.5px] font-semibold text-fg hover:bg-surface-hover transition-colors">
-      {label}
-    </button>
-    <button onClick={onRemove} aria-label={removeLabel}
-      className="pr-2.5 pl-1 py-1.5 text-fg-faint hover:text-fg transition-colors">
-      <X size={12} />
-    </button>
-  </span>
-);
+//
+// **책으로 묶는다**(사용자 피드백 2026-09-02 — "북마크·형광펜이 계속 쌓인다").
+// 평평한 칩 목록은 스무 개만 넘어가도 어디가 어디인지 안 보였다. 정경 순으로 책마다
+// 묶고, 책 머리글에 개수를 적고, 책 단위로 접었다 편다.
+//
+// **펼친 책의 파일만 그때 받는다.** 형광펜 줄에 절 미리보기를 한 줄 붙이려면 그 책
+// 파일이 필요한데, 목록 전체를 미리 받으면 여러 권에 걸친 사람은 목록 하나에 몇 MB를
+// 받는다. 그래서 펼칠 때 loadBook 한 권만 부른다(services/bible.js가 캐시하므로 두 번째
+// 부터는 즉시 온다). 북마크는 장 제목이면 되므로 파일이 필요 없다 — 받지 않는다.
+//
+// **기본 펼침/접힘의 기준**: 책이 두 권까지면 펼쳐 둔다. 그때는 접힌 껍데기가 오히려
+// 손을 한 번 더 쓰게 만든다(줄이 서너 개인데 머리글만 보이는 꼴). 세 권부터는 접어
+// 둔다 — 그 정도면 목록이 화면을 넘기고, 무엇이 어느 책에 있는지가 먼저 궁금해진다.
+// 사람이 직접 접거나 편 책은 그 선택이 이긴다(open에 남는다).
+const AUTO_OPEN_BOOKS = 2;
+
+// 책별로 묶어 정경 순으로 돌려준다 — [{ book, items }]
+function groupByBook(entries, books, parse) {
+  const bag = new Map();
+  for (const e of entries) {
+    const at = parse(e?.ref);
+    if (!at) continue;
+    if (!bag.has(at.bookId)) bag.set(at.bookId, []);
+    bag.get(at.bookId).push({ ...e, at });
+  }
+  // books가 곧 정경 순이다(index.json). 책 안에서는 장·절 순 — 읽는 차례와 같다.
+  return books
+    .filter(b => bag.has(b.id))
+    .map(b => ({
+      book: b,
+      items: bag.get(b.id).sort((x, y) => (x.at.chapter - y.at.chapter) || ((x.at.verse || 0) - (y.at.verse || 0))),
+    }));
+}
+
+const markRow = 'flex-1 min-w-0 text-left px-2 py-1.5 rounded-md hover:bg-surface-hover transition-colors';
+
+// 책 하나 — 머리글(개수) + 펼쳤을 때의 줄들. kind: 'bookmark' | 'highlight'
+function MarkBookGroup({ book, items, kind, open, onToggle, onOpenItem, onRemoveItem }) {
+  const [chapters, setChapters] = useState(null);   // 형광펜 미리보기용 절 본문
+  const reduce = prefersReducedMotion();
+  const needsText = kind === 'highlight';
+
+  // 펼친 책만, 펼친 그때 받는다
+  useEffect(() => {
+    if (!open || !needsText || chapters) return undefined;
+    let alive = true;
+    loadBook(book.id)
+      .then(d => { if (alive) setChapters(d.chapters || []); })
+      .catch(() => { if (alive) setChapters([]); });   // 못 받아도 참조 줄은 남는다
+    return () => { alive = false; };
+  }, [open, needsText, chapters, book.id]);
+
+  return (
+    <div className="min-w-0">
+      <button
+        onClick={onToggle} aria-expanded={open} data-book-group={`${kind}:${book.id}`}
+        className="w-full flex items-center gap-1.5 px-2 -mx-2 py-1.5 rounded-md hover:bg-surface-hover transition-colors text-left"
+      >
+        <ChevronDown
+          size={13} className="shrink-0 text-fg-faint"
+          style={{ transform: open ? 'none' : 'rotate(-90deg)', transition: reduce ? 'none' : 'transform .18s var(--ease-out-quint)' }}
+        />
+        <span className="flex-1 min-w-0 truncate text-[11.5px] font-bold text-fg">{book.name}</span>
+        <span className="shrink-0 text-[11px] text-fg-faint tabular-nums">
+          {items.length}{kind === 'bookmark' ? '장' : '절'}
+        </span>
+      </button>
+
+      {open && (
+        <div className="pl-[18px] flex flex-col">
+          {items.map(it => {
+            const { chapter, verse } = it.at;
+            const label = kind === 'bookmark'
+              ? (it.label || `${book.name} ${chapter}장`)
+              : `${book.name} ${chapter}:${verse}`;
+            // 형광펜 미리보기 한 줄. 아직 안 왔으면 자리만 잡아 둔다(오면서 밀지 않게)
+            const preview = needsText && chapters ? (chapters[chapter - 1]?.[verse - 1] || '') : '';
+            return (
+              <span key={it.ref} className="flex items-center gap-0.5">
+                <button data-goto={it.ref} onClick={() => onOpenItem(it.at)} className={markRow}>
+                  {kind === 'bookmark' ? (
+                    <span className="block truncate text-[11.5px] font-semibold text-fg">{chapter}장</span>
+                  ) : (
+                    <span className="block truncate">
+                      <span className="text-[11px] font-bold text-accent-text tabular-nums">{chapter}:{verse}</span>
+                      {needsText && !chapters
+                        ? <span className="inline-flex align-middle ml-1.5 w-24 h-3"><Skeleton className="w-full h-full rounded-[3px]" /></span>
+                        : <span className="ml-1.5 text-[11.5px] text-fg-secondary">{preview}</span>}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => onRemoveItem(it.ref)}
+                  aria-label={`${label} ${kind === 'bookmark' ? '북마크' : '형광펜'} 지우기`}
+                  className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 한 칸(북마크 또는 형광펜) — 제목 · 총 개수 · 책 그룹들, 비었으면 한 줄
+function MarkSection({ title, unit, empty, emptyIcon, groups, total, kind, onOpenItem, onRemoveItem }) {
+  // 사람이 직접 접거나 편 책만 남는다 — 나머지는 책 수에 따라 기본값을 따른다
+  const [open, setOpen] = useState({});
+  const auto = groups.length <= AUTO_OPEN_BOOKS;
+
+  return (
+    <div>
+      <SectionHead right={total
+        ? <span className="text-[11px] text-fg-faint tabular-nums shrink-0">{total}{unit}</span> : null}>
+        {title}
+      </SectionHead>
+      {!total ? (
+        <p className="text-[11.5px] text-fg-faint inline-flex items-center gap-1.5">
+          {emptyIcon}{empty}
+        </p>
+      ) : (
+        <div className="flex flex-col">
+          {groups.map(g => (
+            <MarkBookGroup
+              key={g.book.id} book={g.book} items={g.items} kind={kind}
+              open={open[g.book.id] ?? auto}
+              onToggle={() => setOpen(o => ({ ...o, [g.book.id]: !(o[g.book.id] ?? auto) }))}
+              onOpenItem={onOpenItem} onRemoveItem={onRemoveItem}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function MyMarks({ books, bookmarks = [], highlights = [], onOpenChapter, onOpenVerse, onRemoveBookmark, onRemoveHighlight }) {
-  const nameOf = (id) => books.find(b => b.id === id)?.name || '';
-  // 최근에 그은 것이 위로 — 목록이 길어지면 방금 그은 것을 다시 찾기 어렵다
-  const lit = useMemo(() => [...highlights]
-    .map(h => ({ ...h, at: h?.at || '' }))
-    .sort((a, b) => String(b.at).localeCompare(String(a.at))), [highlights]);
+  const bookGroups = useMemo(() => groupByBook(bookmarks, books, parseChapterKey), [bookmarks, books]);
+  const litGroups = useMemo(() => groupByBook(highlights, books, parseVerseKey), [highlights, books]);
+  // 파싱이 안 되는 옛 값이 섞여 있으면 그룹에는 못 들어간다 — 개수는 실제로 그린 줄로 센다
+  const bookTotal = bookGroups.reduce((n, g) => n + g.items.length, 0);
+  const litTotal = litGroups.reduce((n, g) => n + g.items.length, 0);
 
   return (
     <div className="min-w-0 flex flex-col gap-6">
-      <div>
-        <SectionHead right={bookmarks.length
-          ? <span className="text-[11px] text-fg-faint tabular-nums shrink-0">{bookmarks.length}장</span> : null}>
-          북마크
-        </SectionHead>
-        {bookmarks.length === 0 ? (
-          <p className="text-[11.5px] text-fg-faint">북마크한 장이 여기 모입니다</p>
-        ) : (
-          <div className="flex flex-wrap gap-1.5">
-            {bookmarks.map(m => {
-              const at = parseChapterKey(m.ref);
-              const label = m.label || (at ? `${nameOf(at.bookId)} ${at.chapter}장` : m.ref);
-              return (
-                <MarkChip
-                  key={m.ref} label={label} removeLabel={`${label} 북마크 지우기`}
-                  onOpen={() => at && onOpenChapter(at.bookId, at.chapter)}
-                  onRemove={() => onRemoveBookmark(m.ref)}
-                />
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      <div>
-        <SectionHead right={lit.length
-          ? <span className="text-[11px] text-fg-faint tabular-nums shrink-0">{lit.length}절</span> : null}>
-          형광펜
-        </SectionHead>
-        {lit.length === 0 ? (
-          <p className="text-[11.5px] text-fg-faint inline-flex items-center gap-1.5">
-            <Highlighter size={13} className="shrink-0" />형광펜을 그은 절이 여기 모입니다
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-1.5">
-            {lit.map(h => {
-              const at = parseVerseKey(h.ref);
-              if (!at) return null;
-              const label = `${nameOf(at.bookId)} ${at.chapter}:${at.verse}`;
-              return (
-                <MarkChip
-                  key={h.ref} label={label} removeLabel={`${label} 형광펜 지우기`}
-                  onOpen={() => onOpenVerse(at.bookId, at.chapter, at.verse)}
-                  onRemove={() => onRemoveHighlight(h.ref)}
-                />
-              );
-            })}
-          </div>
-        )}
-      </div>
+      <MarkSection
+        title="북마크" unit="장" kind="bookmark" groups={bookGroups} total={bookTotal}
+        empty="북마크한 장을 여기서 볼 수 있어요"
+        emptyIcon={<Bookmark size={13} className="shrink-0" />}
+        onOpenItem={at => onOpenChapter(at.bookId, at.chapter)}
+        onRemoveItem={onRemoveBookmark}
+      />
+      <MarkSection
+        title="형광펜" unit="절" kind="highlight" groups={litGroups} total={litTotal}
+        empty="형광펜을 칠한 절은 여기서 볼 수 있어요"
+        emptyIcon={<Highlighter size={13} className="shrink-0" />}
+        onOpenItem={at => onOpenVerse(at.bookId, at.chapter, at.verse)}
+        onRemoveItem={onRemoveHighlight}
+      />
     </div>
   );
 }

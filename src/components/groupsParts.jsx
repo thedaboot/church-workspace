@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, X } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
+import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { keepVisible } from '../utils.js';
 
 // ============================================================================
@@ -49,10 +51,13 @@ export function PersonTag({ person, badge, right, className = '' }) {
 
 // 바깥 누름 · Esc로 닫기(layout.jsx의 useDismiss와 같은 규칙 — 그쪽은 내보내지 않는다).
 // touchstart까지 듣는다: 터치 기기에는 mousedown이 늦게(또는 아예 안) 온다.
-function useDismiss(open, close, ref) {
+// **ref를 여러 개 받는다** — 목록이 body 포털로 나가 있으면 앵커의 자손이 아니라서,
+// 앵커만 보면 목록 안을 누르는 것이 '바깥'으로 잡힌다(§6-0). mousedown에서 닫히면
+// 그 뒤의 click은 사라진 버튼에 닿지 않아 순 옮기기가 한 건도 안 먹었을 것이다.
+function useDismiss(open, close, ...refs) {
   useEffect(() => {
     if (!open) return undefined;
-    const onDown = (e) => { if (!ref.current?.contains(e.target)) close(); };
+    const onDown = (e) => { if (!refs.some(r => r.current?.contains(e.target))) close(); };
     const onKey = (e) => { if (e.key === 'Escape') close(); };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('touchstart', onDown);
@@ -65,6 +70,17 @@ function useDismiss(open, close, ref) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 }
+
+// 이 파일의 피커 목록은 **body 포털이 기본**이다(§6-1). absolute + z-50으로 두었더니
+// `.dc-row`·`.dc-card`의 등장 애니메이션이 `animation-fill-mode: both`로 끝난 뒤에도
+// identity transform을 남겨서(계산값이 none이 아니라 matrix(1,0,0,1,0,0)) 카드마다
+// **쌓임 맥락**이 생겼고, 순 편성에서 목록이 바로 아래 순 카드에 덮여 잘렸다(사용자
+// 지적 2026-09-02 · 실측 5개 점 중 2~4개가 아래 카드에 가려짐). 같은 transform이
+// fixed의 기준 박스도 되므로 포털 없이 fixed로 바꾸는 것으로는 풀리지 않는다.
+// 자리는 ConfirmPopover의 useAnchoredPos가 잡는다 — 화면 아래쪽에서 열면 위로 뒤집고
+// 좌우도 뷰포트 안으로 클램프한다(모바일 375px).
+const MENU_MAX_H = 208;  // max-h-52 — 실제 높이는 그려진 뒤 measuredRef로 다시 잰다
+const MENU_EST_W = 176;  // MenuPick 첫 배치용 추정 폭(내용 폭을 잰 뒤 다시 잡는다)
 
 // 명단에서 고르기 — **입력하면 자동완성이 뜨는 피커**(멘션·담당자 지정과 같은 톤).
 // 네이티브 <select>를 걷어낸 자리다(사용자 지적 2026-09-01 "슬라이더처럼 보인다"):
@@ -81,11 +97,25 @@ export function PersonPick({
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(0);
+  const [boxW, setBoxW] = useState(0);
   const rootRef = useRef(null);
   const inputRef = useRef(null);
+  const menuRef = useRef(null);
   const selected = useMemo(() => people.find(p => p.id === value) || null, [people, value]);
 
-  useDismiss(open, () => { setOpen(false); setQuery(''); }, rootRef);
+  const close = () => { setOpen(false); setQuery(''); };
+  useDismiss(open, close, rootRef, menuRef);
+
+  // 목록의 폭은 칸의 폭이다 — 포털로 나가면 w-full이 뜻을 잃으므로 재서 넘긴다.
+  // useAnchoredPos는 `앵커 오른쪽 - 폭`을 왼쪽으로 잡으니, 폭이 같으면 칸에 딱 맞게 선다.
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    const measure = () => setBoxW(rootRef.current?.getBoundingClientRect().width || 0);
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [open]);
+  const [pos] = useAnchoredPos(rootRef, open && boxW > 0, boxW, MENU_MAX_H, 8, menuRef);
 
   // 정확 일치 > 접두 일치 > 포함. 동순위는 가나다순(MentionInput과 같은 규칙).
   const hits = useMemo(() => {
@@ -109,14 +139,24 @@ export function PersonPick({
     else if (e.key === 'Enter') {
       e.preventDefault();
       if (open && hits.length) pick(hits[Math.min(idx, hits.length - 1)]);
-    } else if (e.key === 'Escape') { setOpen(false); setQuery(''); }
+    } else if (e.key === 'Escape') { close(); }
+  };
+
+  // 화살표는 **누르면 열린다**. 예전에는 그냥 놓인 아이콘이라 눌러도 아무 일이 없었다
+  // (사용자 지적 2026-09-02) — 보이는 것은 눌려야 하고, 안 눌릴 것은 보이지 않아야 한다.
+  // 빈 입력으로 전체 후보를 연다. 닫을 때 칸의 포커스도 같이 뗀다 — 포커스를 쥔 채
+  // 닫으면 그 칸을 다시 눌러도 focus 이벤트가 없어 목록이 열리지 않는다.
+  const toggle = (e) => {
+    e.preventDefault();
+    if (open) { close(); inputRef.current?.blur(); return; }
+    setQuery(''); setIdx(0); setOpen(true); inputRef.current?.focus();
   };
 
   // 고른 사람의 이름은 placeholder 자리에 진한 글자로 둔다 — 칸을 누르는 순간
   // 빈 칸이 되어 바로 찾을 수 있고, 지우고 다시 치는 손이 필요 없다.
   const showName = !!selected && !query;
   return (
-    <div ref={rootRef} className={`person-pick relative ${className}`}>
+    <div ref={rootRef} className={`person-pick ${className}`}>
       <div className={`${FIELD} flex items-center gap-1.5 ${open ? 'border-accent' : ''}`}>
         {showName && <PersonFace person={selected} className="w-[18px] h-[18px] text-[9.5px] shrink-0" />}
         <input ref={inputRef} aria-label={label} value={query} autoComplete="off"
@@ -130,10 +170,14 @@ export function PersonPick({
             onMouseDown={e => { e.preventDefault(); setQuery(''); onChange(''); }}
             className={`${ICON_BTN} p-0.5 -mr-0.5`}><X size={12} /></button>
         )}
-        <ChevronDown size={13} className="shrink-0 text-fg-faint" />
+        <button type="button" aria-label={`${label} 목록`} aria-expanded={open}
+          onMouseDown={toggle} className={`person-pick-toggle ${ICON_BTN} p-0.5 -mr-0.5`}>
+          <ChevronDown size={13} />
+        </button>
       </div>
-      {open && (
-        <div className="person-pick-menu absolute left-0 top-full z-50 mt-1 w-full min-w-[9rem] max-h-52 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150">
+      {open && boxW > 0 && createPortal(
+        <div ref={menuRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: boxW }}
+          className="person-pick-menu z-[90] max-h-52 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150">
           {hits.map((p, i) => (
             <button key={p.id} type="button"
               // 방향키로 목록 밖까지 내려가도 활성 항목이 보이게(담당자 선택기와 같다)
@@ -146,7 +190,8 @@ export function PersonPick({
             </button>
           ))}
           {!hits.length && <p className="px-2 py-2 text-[12px] text-fg-muted">명단에 없는 이름이에요</p>}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -156,22 +201,30 @@ export function PersonPick({
 // items는 [{ id, name }]. 트리거 글자는 children으로 받는다.
 export function MenuPick({ items = [], onPick, label, empty, children, className = '' }) {
   const [open, setOpen] = useState(false);
+  const [w, setW] = useState(MENU_EST_W);
   const rootRef = useRef(null);
-  useDismiss(open, () => setOpen(false), rootRef);
+  const menuRef = useRef(null);
+  useDismiss(open, () => setOpen(false), rootRef, menuRef);
+  // 폭은 내용이 정한다(w-max). 그린 뒤 실제 폭으로 다시 재야 오른쪽 끝이 트리거에 맞는다 —
+  // 레이아웃 패스 안에서 다시 잡으므로 자리가 튀어 보이지 않는다.
+  useLayoutEffect(() => { if (open) setW(menuRef.current?.offsetWidth || MENU_EST_W); }, [open, items.length]);
+  const [pos] = useAnchoredPos(rootRef, open, w, MENU_MAX_H, 8, menuRef);
   return (
-    <span ref={rootRef} className={`relative inline-flex ${className}`}>
+    <span ref={rootRef} className={`inline-flex ${className}`}>
       <button type="button" aria-label={label} aria-expanded={open} onClick={() => setOpen(o => !o)}
         className="menu-pick inline-flex items-center gap-1 px-1.5 py-1 rounded-xs border border-line bg-surface text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95">
         <span>{children}</span><ChevronDown size={11} className="shrink-0" />
       </button>
-      {open && (
-        <div className="menu-pick-menu absolute right-0 top-full z-50 mt-1 w-max min-w-[7rem] max-w-[min(14rem,80vw)] max-h-52 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150">
+      {open && createPortal(
+        <div ref={menuRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
+          className="menu-pick-menu z-[90] w-max min-w-[7rem] max-w-[min(14rem,80vw)] max-h-52 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150">
           {items.map(it => (
             <button key={it.id} type="button" onClick={() => { setOpen(false); onPick(it.id); }}
               className="menu-pick-option w-full block px-2 py-1.5 rounded-md text-left text-[12.5px] text-fg-muted hover:bg-surface-hover transition-colors truncate">{it.name}</button>
           ))}
           {!items.length && empty && <p className="px-2 py-2 text-[12px] text-fg-muted">{empty}</p>}
-        </div>
+        </div>,
+        document.body,
       )}
     </span>
   );
