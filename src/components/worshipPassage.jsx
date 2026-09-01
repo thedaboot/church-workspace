@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 import { loadBibleIndex, loadBook, loadPassage } from '../services/bible.js';
@@ -57,12 +57,26 @@ function useDismiss(open, close, refs) {
 // 숫자 하나를 고르는 그리드 팝오버(장·절 공용).
 // 시편 119편처럼 176절짜리도 있어서 목록은 스크롤한다 — 열 때 고른 번호가 보이게
 // keepVisible을 건다(담당자 자동완성이 활성 항목에 거는 것과 같은 한 벌).
+//
+// **처음 열 때 위에서 떨어지듯 내려오던 것**(사용자 지적 2026-09-02)의 원인은 두 겹이다.
+// 자리는 두 번 잡힌다 — 누를 때 한 번(추정 높이 NUM_EST_H)과 그려진 뒤 한 번(실제 높이,
+// useAnchoredPos의 레이아웃 이펙트). 절이 몇 개뿐인 팝오버는 실제 높이가 추정치보다
+// 한참 낮아서 두 자리가 200px 넘게 벌어진다. 그런데 `duration-150`은 애니메이션 길이만
+// 정하는 것이 아니라 **transition-duration도 같이 정하고**, CSS의 transition-property
+// 기본값이 `all`이라 그 200px이 top 트랜지션으로 그려졌다. 그래서 두 가지를 건다:
+//   · `transition-none` — 자리 보정은 애니메이션이 아니다(fade/zoom은 그대로 남는다)
+//   · 자리가 잡히기 전 프레임은 visibility로 숨긴다(ProfileMenu의 '열기 전에 place()'와
+//     같은 취지 — 그 place()는 이미 있었지만 추정 높이라 그것만으로는 모자랐다)
 function NumberPicker({ label, value, suffix, options, onPick }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const btnRef = useRef(null);
   const popRef = useRef(null);
   const [pos, place] = useAnchoredPos(btnRef, open, NUM_W, NUM_EST_H, 8, popRef);
+  // 이 훅은 useAnchoredPos **다음에** 선언한다 — 레이아웃 이펙트는 선언 순서대로 도니
+  // 실제 높이로 다시 잡은 뒤에야 보이게 된다(그리기 전 같은 패스에서 끝난다)
+  const [placed, setPlaced] = useState(false);
+  useLayoutEffect(() => { setPlaced(open); }, [open]);
   useDismiss(open, () => setOpen(false), [rootRef, popRef]);
 
   return (
@@ -74,8 +88,9 @@ function NumberPicker({ label, value, suffix, options, onPick }) {
         </button>
       </span>
       {open && createPortal(
-        <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: NUM_W }}
-          className={`worship-num-pop ${LIST} p-2 max-h-64 overflow-y-auto`}>
+        <div ref={popRef}
+          style={{ position: 'fixed', left: pos.left, top: pos.top, width: NUM_W, visibility: placed ? undefined : 'hidden' }}
+          className={`worship-num-pop ${LIST} transition-none p-2 max-h-64 overflow-y-auto`}>
           <div className="grid grid-cols-6 gap-0.5">
             {options.map(n => (
               <button key={n} type="button" ref={n === value ? keepVisible : null}

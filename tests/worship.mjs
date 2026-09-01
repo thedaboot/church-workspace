@@ -118,6 +118,26 @@ const tokenColor = (name) => `(() => {
   return c;
 })()`;
 
+// 빈 상태 — 기존 마크(SVG 선 그리기)와 함께 남는 공간의 세로·가로 가운데인지 잰다.
+// 내용(마크 + 글자)을 감싼 상자의 가운데와 빈 상태 칸의 가운데가 같아야 한다.
+const EMPTY = `(() => {
+  const box = document.querySelector('.worship-empty');
+  if (!box) return null;
+  const b = box.getBoundingClientRect();
+  const kids = [...box.children].map(k => k.getBoundingClientRect());
+  const top = Math.min(...kids.map(k => k.top)), bottom = Math.max(...kids.map(k => k.bottom));
+  const left = Math.min(...kids.map(k => k.left)), right = Math.max(...kids.map(k => k.right));
+  return {
+    mark: !!box.querySelector('svg'),
+    marks: box.querySelectorAll('svg').length,
+    h: Math.round(b.height), vh: innerHeight,
+    dy: Math.round((top + bottom) / 2 - (b.top + b.bottom) / 2),
+    dx: Math.round((left + right) / 2 - (b.left + b.right) / 2),
+    text: box.innerText.trim(),
+  };
+})()`;
+const centered = (e) => !!e && e.mark === true && e.h >= e.vh * 0.4 && Math.abs(e.dy) <= 2 && Math.abs(e.dx) <= 2;
+
 await send('Page.enable'); await send('Runtime.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 await send('Page.navigate', { url: URL_BASE });
@@ -152,10 +172,13 @@ const pure = await ev(`(async () => {
     toggleMine: m.canToggleGroup({ canCheckAll: false, ledGroupIds: ['g1'] }, 'g1'),
     toggleOther: m.canToggleGroup({ canCheckAll: false, ledGroupIds: ['g1'] }, 'g2'),
     toggleUnassigned: m.canToggleGroup({ canCheckAll: false, ledGroupIds: ['g1'] }, null),
+    // 순장(한결)은 가나다순으로는 맨 뒤인데도 맨 앞이어야 하고, 나머지는 준 순서가
+    // 아니라 가나다순이어야 한다. '순 미지정'도 같다.
     buckets: m.groupRoster({
-      people: [{ id: 'a', name: '가' }, { id: 'b', name: '나' }, { id: 'c', name: '다' }],
+      people: [{ id: 'a', name: '한결' }, { id: 'b', name: '나리' }, { id: 'c', name: '가온' },
+        { id: 'd', name: '정후' }, { id: 'e', name: '다솔' }],
       groups: [{ id: 'g1', name: '꼬순', leader_person_id: 'a' }],
-      members: [{ group_id: 'g1', person_id: 'b' }],
+      members: [{ group_id: 'g1', person_id: 'b' }, { group_id: 'g1', person_id: 'c' }],
     }).map(g => [g.name, g.people.map(p => p.name).join(',')]),
   };
 })()`, true);
@@ -173,8 +196,10 @@ check('마스터는 주보 작성', pure.master[0] === true, JSON.stringify(pure
 check('순장은 출석만, 그것도 전체는 아니다', JSON.stringify(pure.sunjang) === '[false,false,true]', JSON.stringify(pure.sunjang));
 check('순장은 자기 순만 만진다', pure.toggleMine === true && pure.toggleOther === false, `${pure.toggleMine}/${pure.toggleOther}`);
 check("'순 미지정'은 전체 자격자만 만진다", pure.toggleUnassigned === false);
-check('순장은 편성 명단에 없어도 자기 순에 선다', pure.buckets[0][1] === '가,나', JSON.stringify(pure.buckets));
-check("어느 순에도 없는 사람은 '순 미지정'으로", JSON.stringify(pure.buckets[1]) === '["순 미지정","다"]', JSON.stringify(pure.buckets));
+check('순장은 편성 명단에 없어도 자기 순에 선다', pure.buckets[0][1].startsWith('한결'), JSON.stringify(pure.buckets));
+check('순 안 순서는 순장 먼저, 나머지는 가나다순', pure.buckets[0][1] === '한결,가온,나리', JSON.stringify(pure.buckets));
+check("어느 순에도 없는 사람은 '순 미지정'으로, 거기도 가나다순",
+  JSON.stringify(pure.buckets[1]) === '["순 미지정","다솔,정후"]', JSON.stringify(pure.buckets));
 check('출석은 발행된 뒤 · 예배 날짜가 지난(오늘 포함) 뒤에만 연다',
   pure.attPast === true && pure.attToday === true && pure.attFuture === false && pure.attDraft === false,
   `과거${pure.attPast}/오늘${pure.attToday}/미래${pure.attFuture}/작성중${pure.attDraft}`);
@@ -228,6 +253,15 @@ const draftList = await ev(`(() => ({
 }))()`);
 check('작성 중 줄로 임시저장 목록에 들어간다', draftList.cards.length === 1 && draftList.badges === 1, JSON.stringify(draftList));
 
+// 빈 목록 — 작성 중 + '그 밖의 예배'는 한 건도 없다(작성 중인 것은 주일예배뿐)
+await ev(`[...document.querySelectorAll('.worship-kind-chip')].find(c => c.textContent.trim() === '그 밖의 예배').click()`);
+await sleep(400);
+const emptyList = await ev(EMPTY);
+check('빈 목록은 마크와 함께 남는 공간의 가운데에 선다', centered(emptyList), JSON.stringify(emptyList));
+check("빈 목록 문구는 지금 보고 있는 줄을 따른다", emptyList?.text === '작성 중인 주보가 아직 없어요', JSON.stringify(emptyList?.text));
+await ev(`[...document.querySelectorAll('.worship-kind-chip')].find(c => c.textContent.trim() === '전체').click()`);
+await sleep(300);
+
 // 작성 중인 주보에는 출석 진입이 없다 — 발행 전이기 때문(자격과는 별개)
 await ev(`document.querySelector('.worship-card').click()`); await sleep(1000);
 const draftDetail = await ev(`(() => ({
@@ -237,6 +271,23 @@ const draftDetail = await ev(`(() => ({
 check('작성 중인 주보에는 출석 진입이 없다(발행 전)', draftDetail.att === false, JSON.stringify(draftDetail));
 check('상시 도구 줄 — 확정 왼쪽 / 나가기 오른쪽',
   JSON.stringify(draftDetail.toolbar) === '["수정","발행하기","목록으로"]', JSON.stringify(draftDetail.toolbar));
+
+// 빈 탭 — 갓 만든 주보는 네 탭이 전부 비어 있다. 전부 같은 빈 상태 한 벌을 쓴다.
+const emptyWord = await ev(EMPTY);
+check('빈 말씀 탭도 마크와 함께 가운데', centered(emptyWord) && emptyWord.text === '설교 제목과 본문 구절을 아직 적지 않았어요',
+  JSON.stringify(emptyWord));
+check('마크는 새로 그리지 않고 기존 SVG 선 그리기 한 장이다',
+  emptyWord?.marks === 1 && (await ev(`document.querySelectorAll('.worship-empty svg path.dc-draw').length`)) === 3,
+  JSON.stringify(emptyWord?.marks));
+const emptyTabs = [];
+for (const t of ['담당자', '찬양', '광고']) {
+  await ev(`[...document.querySelectorAll('.worship-tab')].find(x => x.textContent.trim() === ${JSON.stringify(t)}).click()`);
+  await sleep(300);
+  emptyTabs.push(await ev(EMPTY));
+}
+check('담당자·찬양·광고 빈 탭도 같은 자리·같은 마크',
+  emptyTabs.every(centered) && emptyTabs.map(e => e.text).join('|') === '담당자를 아직 정하지 않았어요|찬양을 아직 정하지 않았어요|광고를 아직 적지 않았어요',
+  JSON.stringify(emptyTabs.map(e => [e && e.text, e && e.dy, e && e.dx])));
 // 목록으로 돌아오면 목록은 다시 발행본만 보여 준다(ServiceList가 새로 선다)
 await ev(`${byText('목록으로')}.click()`); await sleep(700);
 
@@ -303,12 +354,20 @@ const att = await ev(`(() => ({
   groups: [...document.querySelectorAll('.att-group-head')].map(h => h.innerText.replace(/\\s+/g, ' ')),
   chips: document.querySelectorAll('.att-chip').length,
   on: [...document.querySelectorAll('.att-chip')].filter(c => c.getAttribute('aria-pressed') === 'true').map(c => c.textContent.trim()),
+  order: [...document.querySelectorAll('.worship-attendance section')]
+    .filter(s => s.querySelector('.att-group-head'))
+    .map(s => [...s.querySelectorAll('.att-chip')].map(c => c.textContent.trim())),
 }))()`);
 check('출석 화면이 열린다', att.open === true);
 check('상단 집계 전체 n/m', att.total === '전체 1/8', att.total);
 check('순별 목록 + 순 미지정 묶음',
   att.groups.length === 3 && att.groups[0].includes('꼬순 1/3') && att.groups[2].includes('순 미지정 0/2'), JSON.stringify(att.groups));
 check('이미 체크된 사람이 켜져 있다', JSON.stringify(att.on) === '["천진영"]', JSON.stringify(att.on));
+// 순장(김윤주·노준석)이 맨 앞, 나머지는 가나다순 — 시드가 준 순서와 다르다
+// (꼬순은 천진영·김승찬 순으로, 순 미지정은 조해리·양민혁 순으로 심었다)
+check('순 안 사람 칩은 순장 먼저 · 나머지는 가나다순',
+  JSON.stringify(att.order) === JSON.stringify([['김윤주', '김승찬', '천진영'], ['노준석', '배현민', '임재훈'], ['양민혁', '조해리']]),
+  JSON.stringify(att.order));
 
 const head0 = `document.querySelectorAll('.att-group-head')[0]`;
 await ev(`${head0}.click()`); await sleep(300);
@@ -488,6 +547,36 @@ check('끝은 시작보다 앞설 수 없다', pop.first === '32', `끝 장 첫 
 check('장·절 팝오버는 body 포털이고 화면 안에 들어온다',
   pop.inBody === true && pop.fits === true, JSON.stringify(pop));
 await ev(clickAway); await sleep(300);
+
+// 처음 열 때 자리가 튀지 않는다 — 자리는 두 번 잡힌다(누를 때 추정 높이 · 그려진 뒤
+// 실제 높이). 화면을 낮춰 그 둘이 갈리는 자리를 만들고, 열자마자 rAF 프레임마다 top을
+// 본다. **보이는 프레임의 top은 전부 같아야** 한다(추정 자리가 한 프레임도 그려지면 안 된다).
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 420, deviceScaleFactor: 1, mobile: false });
+await sleep(700);
+const jump = await ev(`(async () => {
+  window.scrollTo(0, 0);
+  const btn = document.querySelector('button[aria-label="끝 절"]');
+  const anchor = btn.getBoundingClientRect();
+  btn.click();
+  const frames = [];
+  for (let i = 0; i < 8; i++) {
+    await new Promise(r => requestAnimationFrame(r));
+    const p = document.querySelector('.worship-num-pop');
+    if (!p) { frames.push(null); continue; }
+    const cs = getComputedStyle(p);
+    frames.push({ top: cs.top, vis: cs.visibility, h: p.offsetHeight });
+  }
+  const shown = frames.filter(f => f && f.vis !== 'hidden');
+  return { tops: [...new Set(shown.map(f => f.top))], shown: shown.length,
+    h: frames[frames.length - 1]?.h, gap: Math.round(innerHeight - anchor.bottom), est: 210 };
+})()`, true);
+check('피커는 처음 열릴 때도 제자리에서 나타난다(위에서 떨어지지 않는다)',
+  jump.tops.length === 1 && jump.shown >= 5, JSON.stringify(jump));
+check('추정 높이와 실제 높이가 실제로 갈리는 자리에서 쟀다',
+  jump.h < 210 && jump.gap < 210 + 8, JSON.stringify(jump));
+await ev(clickAway); await sleep(250);
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(500);
 
 await ev(typeIn('input[aria-label="설교자"]', '임성빈 전도사님')); await sleep(300);
 const holders = await ev(`(() => ({

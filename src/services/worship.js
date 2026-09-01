@@ -94,23 +94,36 @@ export function worshipPerms({ isMaster = false, isAdmin = false, myPerson = nul
 export const canToggleGroup = (perms, groupId) =>
   !!perms?.canCheckAll || (!!groupId && (perms?.ledGroupIds || []).includes(groupId));
 
+// 이름 가나다순. localeCompare('ko')라야 'ㄱㄴㄷ'이 맞는다 — 기본 비교는 코드포인트
+// 순서라 한글도 얼추 맞지만 자모 조합·영문 섞임에서 어긋난다.
+const byKoName = (a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'ko');
+
 // 순별로 묶은 명단. 순장은 편성 명단에 없어도 자기 순에 세운다(0036 same_sun과 같다).
 // 어느 순에도 없는 사람은 맨 끝 '순 미지정' 묶음으로 — 새신자가 여기로 들어온다.
+//
+// **묶음 안 순서는 순장 먼저, 나머지는 가나다순**이다(사용자 결정 2026-09-02).
+// 예전에는 group_members가 돌아온 순서 그대로였는데, 그 순서는 DB가 보장하지 않아
+// 출석을 부를 때마다 사람 자리가 달라졌다. '순 미지정'도 같은 가나다순이다.
 export function groupRoster({ people = [], groups = [], members = [] } = {}) {
   const byId = new Map(people.map(p => [p.id, p]));
   const placed = new Set();
   const buckets = groups.map(g => {
-    const ids = members.filter(m => m.group_id === g.id).map(m => m.person_id);
-    if (g.leader_person_id) ids.unshift(g.leader_person_id);
+    // 같은 묶음에 두 번 서지 않게 — 순장이 편성 명단에도 들어 있는 경우가 흔하다
     const seen = new Set();
-    const list = [];
-    for (const id of ids) {
-      if (seen.has(id) || !byId.has(id)) continue;
-      seen.add(id); placed.add(id); list.push(byId.get(id));
-    }
-    return { id: g.id, name: g.name, leaderPersonId: g.leader_person_id, people: list };
+    const take = (id) => {
+      if (seen.has(id) || !byId.has(id)) return null;
+      seen.add(id); placed.add(id);
+      return byId.get(id);
+    };
+    const leader = g.leader_person_id ? take(g.leader_person_id) : null;
+    const rest = members.filter(m => m.group_id === g.id)
+      .map(m => take(m.person_id)).filter(Boolean).sort(byKoName);
+    return {
+      id: g.id, name: g.name, leaderPersonId: g.leader_person_id,
+      people: leader ? [leader, ...rest] : rest,
+    };
   });
-  const rest = people.filter(p => !placed.has(p.id));
+  const rest = people.filter(p => !placed.has(p.id)).sort(byKoName);
   if (rest.length) buckets.push({ id: null, name: UNASSIGNED, leaderPersonId: null, people: rest });
   return buckets;
 }

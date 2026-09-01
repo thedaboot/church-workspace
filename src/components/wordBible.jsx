@@ -185,6 +185,15 @@ export function PassageText({
 //
 // 자리 잡기는 공용 훅(useAnchoredPos)이 한다 — body 포털이라 본문이 스크롤·리사이즈로
 // 움직여도 절을 따라온다. 항목 톤은 프로필 메뉴 줄과 같다(layout.jsx의 `item`).
+//
+// **`transition-none`을 지우지 말 것**(2026-09-02 3차 점검). 지우면 팝오버가 화면 왼쪽
+// 위에서 절 옆으로 150ms 동안 날아온다. `duration-150`은 animate-in의 시간이면서 동시에
+// `transition-duration`이고, `transition-property`의 초기값이 `all`이라 left·top까지
+// 전환 대상이 된다. 자리는 useAnchoredPos가 그리기 전에(useLayoutEffect) 잡지만 그 안에서
+// 팝오버 높이를 재느라(offsetHeight) 배치가 한 번 확정되고, 그래서 아직 값이 없던 {0,0}이
+// 전환의 시작점으로 남는다. 다른 팝오버(ConfirmPopover·프로필 메뉴)는 열기 전에 place()를
+// 불러 이 시작점이 아예 없다 — 여기는 눌린 절이 앵커라 열기 전에 부를 자리가 없다.
+// 나타나는 결(fade-in·zoom-in-95)은 전환이 아니라 애니메이션이라 그대로 남는다.
 const MENU_W = 176;
 const MENU_H = 52;
 const menuItem = 'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors text-left';
@@ -210,7 +219,7 @@ export function VerseMarkMenu({ anchorRef, lit, label, onPick, onClose }) {
     <div
       ref={popRef} role="menu" aria-label={`${label} 형광펜`} data-verse-menu={label}
       style={{ position: 'fixed', left: pos.left, top: pos.top, width: MENU_W }}
-      className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 animate-in fade-in zoom-in-95 duration-150"
+      className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 animate-in fade-in zoom-in-95 duration-150 transition-none"
     >
       <button type="button" role="menuitem" className={menuItem} onClick={onPick}>
         {lit ? <Eraser size={15} className="shrink-0" /> : <Highlighter size={15} className="shrink-0" />}
@@ -242,9 +251,10 @@ export function FontSteps({ step, onChange }) {
 }
 
 // 빈 화면 표식 — 펼친 책. 왼쪽 면 → 오른쪽 면 → 가운데 선 순서로 그려진다(§4.2)
-export function EmptyBookMark() {
+// 크기는 밖에서 준다 — 본문 자리(48px)와 옆 칸 '내 기록'(36px)이 쓰는 자리가 다르다.
+export function EmptyBookMark({ className = 'w-12 h-12 mx-auto' }) {
   return (
-    <svg viewBox="0 0 48 48" className="w-12 h-12 mx-auto" aria-hidden="true">
+    <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
       <path className="dc-draw" pathLength="1" d="M24 15c-4.6-3.2-9.8-3.6-15.5-1.2v21c5.7-2.4 10.9-2 15.5 1.2"
         fill="none" stroke="var(--app-ink-faint)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       <path className="dc-draw dc-draw-2" pathLength="1" d="M24 15c4.6-3.2 9.8-3.6 15.5-1.2v21c-5.7-2.4-10.9-2-15.5 1.2"
@@ -651,8 +661,8 @@ function MarkBookGroup({ book, items, kind, open, onToggle, onOpenItem, onRemove
   );
 }
 
-// 한 칸(북마크 또는 형광펜) — 제목 · 총 개수 · 책 그룹들, 비었으면 한 줄
-function MarkSection({ title, unit, empty, emptyIcon, groups, total, kind, onOpenItem, onRemoveItem }) {
+// 한 칸(북마크 또는 형광펜) — 제목 · 총 개수 · 책 그룹들, 비었으면 마크와 한 줄
+function MarkSection({ title, unit, empty, groups, total, kind, onOpenItem, onRemoveItem }) {
   // 사람이 직접 접거나 편 책만 남는다 — 나머지는 책 수에 따라 기본값을 따른다
   const [open, setOpen] = useState({});
   const auto = groups.length <= AUTO_OPEN_BOOKS;
@@ -664,9 +674,13 @@ function MarkSection({ title, unit, empty, emptyIcon, groups, total, kind, onOpe
         {title}
       </SectionHead>
       {!total ? (
-        <p className="text-[11.5px] text-fg-faint inline-flex items-center gap-1.5">
-          {emptyIcon}{empty}
-        </p>
+        // 빈 칸도 남는 자리의 가운데에 마크와 함께 선다(§8). 옆 칸은 좁으므로 마크는
+        // 작게 그린다 — 예전에는 줄 왼쪽에 붙은 작은 아이콘 하나였고, 무엇이 북마크
+        // 칸이고 무엇이 형광펜 칸인지는 어차피 바로 위 제목이 말해 준다.
+        <div className="min-h-[92px] flex flex-col items-center justify-center text-center">
+          <EmptyBookMark className="w-9 h-9 mx-auto" />
+          <p className="text-[11.5px] text-fg-faint mt-2">{empty}</p>
+        </div>
       ) : (
         <div className="flex flex-col">
           {groups.map(g => (
@@ -695,14 +709,12 @@ function MyMarks({ books, bookmarks = [], highlights = [], onOpenChapter, onOpen
       <MarkSection
         title="북마크" unit="장" kind="bookmark" groups={bookGroups} total={bookTotal}
         empty="북마크한 장을 여기서 볼 수 있어요"
-        emptyIcon={<Bookmark size={13} className="shrink-0" />}
         onOpenItem={at => onOpenChapter(at.bookId, at.chapter)}
         onRemoveItem={onRemoveBookmark}
       />
       <MarkSection
         title="형광펜" unit="절" kind="highlight" groups={litGroups} total={litTotal}
         empty="형광펜을 칠한 절은 여기서 볼 수 있어요"
-        emptyIcon={<Highlighter size={13} className="shrink-0" />}
         onOpenItem={at => onOpenVerse(at.bookId, at.chapter, at.verse)}
         onRemoveItem={onRemoveHighlight}
       />

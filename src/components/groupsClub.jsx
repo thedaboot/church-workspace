@@ -10,7 +10,7 @@ import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { DatePicker } from './DatePicker.jsx';
 import {
   CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, WITH_ICON,
-  PersonTag, PersonPick, Empty,
+  PersonTag, PersonPick, Empty, PeopleMark, MeetMark,
 } from './groupsParts.jsx';
 import { groupPeople, canManageClub, myGroupIds, notInGroup } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
@@ -140,7 +140,9 @@ function ClubList({ clubs, people, members, apps, perms, creating, onCloseCreate
           document.body,
         )}
       </DndContext>
-      {!clubs.length && <Empty title="아직 만들어진 동아리가 없어요" />}
+      {!clubs.length && (
+        <Empty className="club-empty" mark={<PeopleMark />} title="아직 만들어진 동아리가 없어요" />
+      )}
     </div>
   );
 }
@@ -316,7 +318,12 @@ function ClubDetail({
               <MeetingRow key={m.id} meeting={m} list={list} manage={manage} onToggle={onToggleMeeting} />
             ))}
           </div>
-          {!meetings.length && <p className="club-meet-empty py-8 text-center text-[12px] text-fg-faint">예정된 모임이 아직 없어요</p>}
+          {/* 이 빈 자리는 화면 한 판이 아니라 카드 아래에 딸린 구역이라 세로를 줄여
+              잡는다 — 46vh를 그대로 쓰면 동아리 카드 뒤로 빈 화면이 한 판 더 붙는다 */}
+          {!meetings.length && (
+            <Empty className="club-meet-empty" mark={<MeetMark />} minH="28vh"
+              title="예정된 모임이 아직 없어요" />
+          )}
         </div>
       )}
     </div>

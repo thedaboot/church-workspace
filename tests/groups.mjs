@@ -96,9 +96,12 @@ const seed = {
   ],
 };
 
-const plant = (me, theme = 'light') => `(() => {
+// mut은 심기 직전에 시드를 손보는 한 줄이다 — '동아리가 하나도 없는 화면' 같은
+// 빈 상태를 보려면 시드에서 그 종류를 덜어내야 한다.
+const plant = (me, theme = 'light', mut = '') => `(() => {
   const g = JSON.parse(${JSON.stringify(JSON.stringify(seed))});
   ${me ? `g.me = ${JSON.stringify(me)};` : ''}
+  ${mut}
   localStorage.setItem('church_groups_v1', JSON.stringify(g));
   localStorage.setItem('church_worship_v1', JSON.stringify({
     people: g.people, groups: g.groups, group_members: g.group_members,
@@ -274,11 +277,112 @@ const ICON_AUDIT = `(() => {
   }
   return bad;
 })()`;
-const enter = async (me, theme) => {
-  await ev(plant(me, theme));
+const enter = async (me, theme, mut) => {
+  await ev(plant(me, theme, mut));
   await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1500);
   await ev(GO); await sleep(1200);
 };
+
+// ── 팝오버가 첫 프레임부터 제자리인가 (사용자 지적 2026-09-02) ───────────────
+// "피커가 처음 열릴 때 위에서 뚝 떨어진다." 원인은 위치를 열고 나서 잡은 것이다 —
+// 첫 렌더가 {0,0}에 놓였다가 제자리로 옮겨지는데, 그 이동이 **transition을 탔다**:
+// `duration-150`은 `--tw-duration`(등장 애니메이션 길이)만이 아니라
+// `transition-duration`도 같이 놓고, CSS에서 `transition-property`의 초깃값은 `all`이라
+// 위치까지 전이 대상이 된다(실측 2 → 33 → 104 → 305 → 307px).
+// 그래서 두 가지를 본다: 열자마자의 rAF 프레임이 자리 잡은 뒤와 같은가, 그리고
+// 위치가 전이 대상이 아닌가(우리 목록만 — 확인 팝오버·연도 목록은 남의 파일이다).
+//
+// **자리는 getBoundingClientRect가 아니라 계산된 `top`으로 잰다.** 등장 확대
+// (zoom-in-95)는 transform이라 상자의 rect를 최대 5px 흔든다(높이 208px의 5%의 절반) —
+// 그건 의도한 등장이고 우리가 찾는 '떨어짐'이 아니다. 반대로 전이 중인 속성의
+// 계산값은 **지금 보간된 값**이라, transition을 타는 top은 여기서 그대로 드러난다.
+//
+// 프레임만으로는 부족하다 — 위치를 열고 나서 잡아도 리액트가 그리기 전에 한 번 더
+// 그려서 rAF에는 이미 제자리로 보인다. 그러니 **붙는 순간의 자리가 곧 최종 자리인가**를
+// 같이 본다: 목록이 body에 붙은 뒤에 top을 다시 쓰면 그 사이에 {0,0}이 있었다는 뜻이고,
+// 전이 클래스 하나가 다시 붙는 순간 '위에서 떨어지는' 모양이 그대로 되살아난다.
+// (left는 보지 않는다 — MenuPick의 폭은 내용이 정해서 그린 뒤에야 알 수 있다.)
+//
+// **둘을 한 번의 열기에서 잰다.** 한 번 열었던 피커는 자리를 기억하므로 두 번째
+// 열기로 재면 고치기 전에도 통과한다.
+const DRIFT_OK = 1;
+const drift = (openExpr, findExpr, cls, n = 12) => ev(`(async () => {
+  const find = () => (${findExpr});
+  const hit = (x) => x && x.nodeType === 1 && typeof x.className === 'string'
+    && x.className.includes(${JSON.stringify(cls || '')});
+  const recs = [];
+  const obs = new MutationObserver(rs => recs.push(...rs));
+  obs.observe(document.body, { childList: true, subtree: true,
+    attributes: true, attributeFilter: ['style'], attributeOldValue: true });
+  ${openExpr};
+  const tops = [];
+  for (let i = 0; i < ${n}; i++) {
+    await new Promise(r => requestAnimationFrame(r));
+    const m = find();
+    tops.push(m ? parseFloat(getComputedStyle(m).top) : null);
+  }
+  obs.disconnect();
+  const seen = tops.filter(t => t !== null && !Number.isNaN(t));
+  if (!seen.length) return { err: '안 열림' };
+  const settled = seen[seen.length - 1];
+  const m = find();
+  return {
+    first: Math.round(seen[0]), settled: Math.round(settled),
+    gap: Math.round(Math.max(...seen.map(t => Math.abs(t - settled)))),
+    trans: m ? getComputedStyle(m).transitionDuration : '',
+    born: recs.some(r => r.type === 'childList' && [...r.addedNodes].some(hit)),
+    moved: recs.filter(r => r.type === 'attributes' && hit(r.target)).map(r => {
+      const before = (String(r.oldValue || '').match(/top:\\s*([^;]+)/) || [, ''])[1].trim();
+      const after = String(r.target.style.top || '').trim();
+      return before === after ? null : (before || '없음') + ' → ' + after;
+    }).filter(Boolean),
+  };
+})()`, true);
+// 클래스가 없는 body 포털 팝오버(확인 팝오버·연도 목록) — 포털은 body의 바로 아래 자식이다
+const POPOVER = `[...document.body.children].find(el => el.tagName === 'DIV'
+  && typeof el.className === 'string' && el.className.includes('z-[90]'))`;
+const shut = async () => {
+  await ev(`document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();`);
+  await sleep(320);
+};
+// 우리 목록(PersonPick·MenuPick)은 '위치가 전이 대상이 아니다'와 '붙는 순간이 곧
+// 최종 자리다'까지 못 박는다. 확인 팝오버·연도 목록은 남의 파일이라 눈에 보이는 것만.
+const noJump = async (name, openExpr, findExpr, ours = true) => {
+  const cls = ours ? (findExpr.includes('menu-pick') ? 'menu-pick-menu' : 'person-pick-menu') : '';
+  const d = await drift(openExpr, findExpr, cls);
+  check(`${name} — 첫 프레임부터 제자리`,
+    !d.err && d.gap <= DRIFT_OK && (!ours || d.trans === '0s'), JSON.stringify(d));
+  if (ours) {
+    check(`${name} — 붙는 순간이 곧 최종 자리(열기 전에 place)`,
+      d.born === true && d.moved.length === 0, JSON.stringify({ born: d.born, moved: d.moved }));
+  }
+  await shut();
+};
+
+// ── 빈 자리가 마크와 함께 남는 공간의 가운데인가(§8) ────────────────────────
+// 마크(SVG 선 그리기)가 있고, 안의 내용이 그 구역의 세로·가로 정가운데에 서고,
+// 구역이 남는 공간을 실제로 쓰는가. 위쪽에 붙어 있으면 아래가 통째로 비어 보인다.
+const centered = (sel) => ev(`(() => {
+  const e = document.querySelector(${JSON.stringify(sel)});
+  if (!e) return { err: 'no-el' };
+  const kids = [...e.children];
+  if (!kids.length) return { err: 'no-kids' };
+  const r = e.getBoundingClientRect();
+  const b = kids.map(k => k.getBoundingClientRect());
+  const top = Math.min(...b.map(x => x.top)), bottom = Math.max(...b.map(x => x.bottom));
+  const left = Math.min(...b.map(x => x.left)), right = Math.max(...b.map(x => x.right));
+  return {
+    mark: !!e.querySelector('svg'),
+    h: Math.round(r.height),
+    dy: Math.round((top + bottom) / 2 - (r.top + r.bottom) / 2),
+    dx: Math.round((left + right) / 2 - (r.left + r.right) / 2),
+    text: e.innerText.replace(/\\n+/g, ' | ').trim(),
+  };
+})()`);
+const isCentered = (name, c, minH = 180) => check(`${name} — 마크와 함께 남는 공간의 가운데`,
+  !c.err && c.mark === true && Math.abs(c.dy) <= 2 && Math.abs(c.dx) <= 2 && c.h >= minH,
+  JSON.stringify(c));
 
 await send('Page.enable'); await send('Runtime.enable');
 // 헤드리스는 창에 포커스가 없어서 focus()·blur()가 이벤트를 안 낸다(activeElement만 바뀐다).
@@ -301,10 +405,17 @@ const pure = await ev(`(async () => {
     lead: perms({ myRoles: ['lead_sunjang'] }),
     officer: perms({ myRoles: ['officer'] }),
     club: [m.canManageClub(led, 'gc1'), m.canManageClub(led, 'gc2'), m.canManageClub({ isMaster: true, ledClubIds: [] }, 'gc2')],
+    // 리더가 맨 앞, 나머지는 **가나다순**(들어온 차례가 아니다) · 겹치는 사람은 하나로
     people: m.groupPeople({
       people: [{ id: 'a', name: '가' }, { id: 'b', name: '나' }, { id: 'c', name: '다' }],
       group: { id: 'g', leader_person_id: 'b' },
-      members: [{ group_id: 'g', person_id: 'a' }, { group_id: 'g', person_id: 'b' }],
+      members: [{ group_id: 'g', person_id: 'c' }, { group_id: 'g', person_id: 'a' }, { group_id: 'g', person_id: 'b' }],
+    }).map(p => p.name),
+    // 한글은 localeCompare('ko')라야 ㄱㄴㄷ으로 선다(코드포인트 정렬이 아니다)
+    sorted: m.groupPeople({
+      people: [{ id: 'a', name: '천진영' }, { id: 'b', name: '김승찬' }, { id: 'c', name: '양민혁' }, { id: 'd', name: '노준석' }],
+      group: { id: 'g', leader_person_id: 'a' },
+      members: [{ group_id: 'g', person_id: 'c' }, { group_id: 'g', person_id: 'b' }, { group_id: 'g', person_id: 'd' }],
     }).map(p => p.name),
     sunLeader: m.mySun({ id: 'b' }, sunOnly, [])?.id || null,
     sunMember: m.mySun({ id: 'a' }, sunOnly, [{ group_id: 'g', person_id: 'a' }])?.id || null,
@@ -338,7 +449,10 @@ check('교역자는 순 편성만(동아리 개설은 마스터만)', JSON.strin
 check('리더순장은 순 편성만', JSON.stringify(pure.lead) === '[true,false]', JSON.stringify(pure.lead));
 check('임원 줄만으로는 순 편성 자격이 아니다', JSON.stringify(pure.officer) === '[false,false]', JSON.stringify(pure.officer));
 check('동아리 관리는 그 동아리 리더 또는 마스터', JSON.stringify(pure.club) === '[true,false,true]', JSON.stringify(pure.club));
-check('리더가 맨 앞에 서고 겹치는 사람은 하나로', JSON.stringify(pure.people) === '["나","가"]', JSON.stringify(pure.people));
+check('리더가 맨 앞에 서고 겹치는 사람은 하나로, 나머지는 가나다순',
+  JSON.stringify(pure.people) === '["나","가","다"]', JSON.stringify(pure.people));
+check('사람 목록은 리더 먼저 · 나머지 ㄱㄴㄷ(localeCompare ko)',
+  JSON.stringify(pure.sorted) === '["천진영","김승찬","노준석","양민혁"]', JSON.stringify(pure.sorted));
 check('내 순 — 순장도 순원도 자기 순을 찾는다', pure.sunLeader === 'g' && pure.sunMember === 'g', `${pure.sunLeader}/${pure.sunMember}`);
 check('어느 순에도 없으면 내 순이 없다', pure.sunNone === null, String(pure.sunNone));
 check('출석 기준은 발행된 주일 예배 중 가장 최근 한 건', pure.latest === 'b', String(pure.latest));
@@ -371,9 +485,12 @@ check('모임 화면이 열린다', mine.open === true);
 check('일반 순원에게는 탭이 둘', JSON.stringify(mine.tabs) === '["내 순","동아리"]', JSON.stringify(mine.tabs));
 check('내 순 카드에 순 이름과 순장', mine.name === '꼬순' && mine.leader === '순장 김윤주', `${mine.name}/${mine.leader}`);
 // 아바타가 글자 원이라 텍스트 맨 앞에 첫 글자가 한 번 더 들어간다('김' + '김윤주')
+// 순장(김윤주) 다음은 **가나다순**이다 — 편성에 들어온 차례(천진영 → 김승찬)가 아니다
 check('구성원은 순장이 맨 앞이고 순장 표시가 붙는다',
   mine.members.length === 3 && mine.members[0].includes('김윤주') && mine.members[0].includes('순장')
-  && mine.members[1].includes('천진영'), JSON.stringify(mine.members));
+  && mine.members[1].includes('김승찬'), JSON.stringify(mine.members));
+check('순 구성원은 순장 다음이 ㄱㄴㄷ',
+  mine.members[1].includes('김승찬') && mine.members[2].includes('천진영'), JSON.stringify(mine.members));
 check('최근 주일 예배 출석 n/m', mine.att === '8월 30일 (일) 예배 출석 2/3', mine.att);
 check('내 순에 공유된 예배 노트가 뜬다',
   mine.notes.length === 1 && mine.notes[0].includes('천진영') && mine.notes[0].includes('기쁨은 상황이 아니라'), JSON.stringify(mine.notes));
@@ -553,6 +670,11 @@ const accepted = await ev(`(() => ({
 }))()`);
 check('가입 신청을 수락하면 그 자리에서 동아리 명단에 들어간다',
   accepted.joined === true && accepted.members.length === 3 && accepted.apps === 0, JSON.stringify(accepted));
+// 동아리 구성원도 **동아리장 먼저, 나머지 가나다순**이다(들어온 차례가 아니다)
+check('동아리 구성원은 동아리장 먼저 · 나머지 ㄱㄴㄷ',
+  accepted.members[0].includes('노준석') && accepted.members[0].includes('동아리장')
+  && accepted.members[1].includes('김윤주') && accepted.members[2].includes('천진영'),
+  JSON.stringify(accepted.members));
 check('수락한 신청은 대기에서 빠진다', accepted.status === 'accepted', accepted.status);
 
 // 멤버 추가 — 그 동아리장(또는 마스터)만. 가입 신청을 기다리지 않고 여기서 바로 넣는다.
@@ -569,6 +691,9 @@ check("'명단은 동아리장이 채운다' 문구는 화면에 없다",
 const addable = await pickOptions('통통 멤버 추가');
 check('멤버 추가 후보에서 이미 든 사람은 빠진다',
   Array.isArray(addable) && !addable.includes('천진영') && addable.includes('양민혁'), JSON.stringify(addable));
+check('멤버 추가 후보도 가나다순',
+  Array.isArray(addable) && JSON.stringify(addable) === JSON.stringify([...addable].sort((a, b) => a.localeCompare(b, 'ko'))),
+  JSON.stringify(addable));
 check('멤버를 고르면 명단에 들어간다', (await pickPerson('통통 멤버 추가', '양민혁')) === 'ok');
 await sleep(900);
 const afterAdd = await ev(`(() => ({
@@ -621,6 +746,8 @@ check('동아리장은 그 동아리의 구성원으로도 들어간다', madeCl
 await openClub('달리기'); await sleep(800);
 const emptyMeet = await ev(`document.querySelector('.club-meet-empty')?.textContent.trim() || ''`);
 check('모임이 없을 때 문구', emptyMeet === '예정된 모임이 아직 없어요', emptyMeet);
+// 이 자리는 카드 아래에 딸린 구역이라 세로를 줄여 잡는다(minH 28vh) — 화면 한 판이 아니다
+isCentered('예정된 모임이 없는 자리', await centered('.club-meet-empty'), 140);
 await ev(`${byText('목록으로')}.click()`); await sleep(500);
 
 // ── 5) 순 편성 (리더순장 — 마스터가 아니다) ─────────────────────────────────
@@ -640,8 +767,9 @@ check('순 편성 구역이 열리고 기본은 올해', admin.open === true && 
 check('지난 편성이 있는 해도 고를 수 있다', adminYears.includes(`${Y - 1}년`), JSON.stringify(adminYears));
 check('올해 순만 줄로 선다', JSON.stringify(admin.rows) === '["꼬순","TT순"]', JSON.stringify(admin.rows));
 check('순별 구성원 수', JSON.stringify(admin.members) === '[3,3]', JSON.stringify(admin.members));
-check('순원 추가 후보는 어느 순에도 없는 사람뿐',
-  JSON.stringify(adminAdd) === '["조해리","양민혁"]', JSON.stringify(adminAdd));
+// 후보 목록은 명단이 온 차례가 아니라 **전부 가나다순**이다(사용자 지시 2026-09-02)
+check('순원 추가 후보는 어느 순에도 없는 사람뿐, 그리고 가나다순',
+  JSON.stringify(adminAdd) === '["양민혁","조해리"]', JSON.stringify(adminAdd));
 const leaderRow = await ev(`(() => {
   const rows = [...document.querySelectorAll('.sun-row')[0].querySelectorAll('.sun-member')];
   return rows.map(r => [r.textContent.includes('순장'), !!r.querySelector('.sun-move'), !!r.querySelector('.sun-drop')]);
@@ -763,7 +891,62 @@ check('연도를 바꾸면 그 해 편성을 본다', JSON.stringify(lastYear) =
 check('고른 해가 연도 칸에 남는다',
   (await ev(`document.querySelector('.sun-year button').textContent.trim()`)) === String(Y - 1));
 
-// ── 6) 명단에 안 이어진 계정 ────────────────────────────────────────────────
+// 아직 아무것도 안 짠 해 — 빈 자리는 마크와 함께 남는 공간의 가운데다(§8)
+check('다음 해로 넘어간다', (await pickYear(Y + 1)) === 'ok');
+await sleep(1100);
+const sunEmpty = await centered('.sun-empty');
+isCentered('순 편성이 빈 해', sunEmpty);
+check('빈 순 편성 문구에 고른 해가 들어간다',
+  sunEmpty.text === `${Y + 1}년 순 편성이 아직 비어 있어요`, sunEmpty.text);
+
+// ── 5-2) 팝오버 첫 등장 — 위에서 떨어지지 않는다(전수) ──────────────────────
+// **한 번 열었던 피커는 자리를 기억한다** — 그래서 이 구역은 새로 들어와서 각 피커를
+// 딱 한 번씩만 연다. 두 번째 열기로 재면 고치기 전에도 통과한다.
+await enter({ personId: 'p3', isMaster: true, roles: ['lead_sunjang'] });
+await tab('순 편성'); await sleep(900);
+await noJump('순장 지정 목록',
+  `document.querySelector('.sun-leader-pick .person-pick-toggle').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))`,
+  `document.querySelector('.person-pick-menu')`);
+await noJump('순원 추가 목록',
+  `document.querySelector('input[aria-label="꼬순 순원 추가"]').focus()`,
+  `document.querySelector('.person-pick-menu')`);
+await noJump('순 옮기기 목록',
+  `document.querySelector('[aria-label="천진영 순 옮기기"]').click()`,
+  `document.querySelector('.menu-pick-menu')`);
+// 확인 팝오버·연도 목록은 남의 파일(ConfirmPopover·layout.jsx)이라 자리만 본다 —
+// 그쪽은 이미 '열기 전에 place()'라서 첫 프레임이 제자리다. 우리가 따라간 패턴이다.
+await noJump('빼기 확인 팝오버', `document.querySelector('[aria-label="천진영 빼기"]').click()`, POPOVER, false);
+await noJump('연도 목록', `document.querySelector('.sun-year button').click()`, POPOVER, false);
+await ev(`document.querySelector('.sun-new-open').click()`); await sleep(350);
+await noJump('새 순의 순장 목록',
+  `document.querySelector('input[aria-label="새 순의 순장"]').focus()`,
+  `document.querySelector('.person-pick-menu')`);
+await ev(`${byText('취소')}.click()`); await sleep(350);
+
+await tab('동아리'); await sleep(800);
+await ev(`document.querySelector('.club-new-open').click()`); await sleep(350);
+await noJump('새 동아리의 동아리장 목록',
+  `document.querySelector('input[aria-label="동아리장"]').focus()`,
+  `document.querySelector('.person-pick-menu')`);
+await ev(`${byText('취소')}.click()`); await sleep(350);
+await openClub('통통'); await sleep(800);
+await noJump('멤버 추가 목록',
+  `document.querySelector('input[aria-label="통통 멤버 추가"]').focus()`,
+  `document.querySelector('.person-pick-menu')`);
+await noJump('내보내기 확인 팝오버',
+  `document.querySelector('.club-drop').click()`, POPOVER, false);
+
+// 모바일 375px에서도 첫 프레임이 제자리여야 한다(좌우 클램프가 걸리는 폭이다)
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+await enter({ personId: 'p3', isMaster: true, roles: ['lead_sunjang'] });
+await tab('순 편성'); await sleep(900);
+await ev(`document.querySelector('input[aria-label="꼬순 순원 추가"]').scrollIntoView({ block: 'center' })`); await sleep(250);
+await noJump('모바일 375px 순원 추가 목록',
+  `document.querySelector('input[aria-label="꼬순 순원 추가"]').focus()`,
+  `document.querySelector('.person-pick-menu')`);
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+
+// ── 6) 명단에 안 이어진 계정 · 아무것도 없는 화면 ──────────────────────────
 await enter({ personId: null, isMaster: false, roles: [] });
 const orphan = await ev(`(() => ({
   empty: document.querySelector('.mysun-empty')?.innerText.replace(/\\n+/g, ' | ') || '',
@@ -771,6 +954,14 @@ const orphan = await ev(`(() => ({
 }))()`);
 check('명단에 안 이어진 계정에는 담백한 빈 자리',
   orphan.card === false && orphan.empty.includes('명단에 이어지지 않은') && orphan.empty.includes('관리자에게 알려주세요'), orphan.empty);
+isCentered('명단에 안 이어진 계정', await centered('.mysun-empty'));
+
+// 동아리가 하나도 없는 화면 — 시드에서 동아리를 덜어내고 본다
+await enter({ personId: 'p6', isMaster: true, roles: [] }, 'light', `g.groups = g.groups.filter(x => x.type !== 'club');`);
+await tab('동아리'); await sleep(800);
+const clubEmpty = await centered('.club-empty');
+isCentered('동아리가 하나도 없는 화면', clubEmpty);
+check('동아리가 없을 때 문구', clubEmpty.text === '아직 만들어진 동아리가 없어요', clubEmpty.text);
 
 // ── 7) 모바일 375px ─────────────────────────────────────────────────────────
 await enter({ personId: 'p3', isMaster: false, roles: ['lead_sunjang'] });

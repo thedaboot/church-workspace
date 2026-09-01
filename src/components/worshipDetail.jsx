@@ -4,6 +4,7 @@ import { Avatar } from './Avatar.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { keepVisible } from '../utils.js';
 import { PassagePicker, PassageBody } from './worshipPassage.jsx';
+import { EmptyBookMark } from './wordBible.jsx';
 import { kindLabel, formatServiceDate, attendanceOpen } from '../services/worship.js';
 
 // ============================================================================
@@ -55,6 +56,22 @@ export function SaveState({ state, savedLabel = '저장되었어요' }) {
   );
 }
 
+// 예배 화면의 빈 상태 한 벌 — **마크와 함께 남는 공간의 세로·가로 가운데**(§8 ·
+// 사용자 지적 2026-09-02: 글자만 위에 붙어 있으면 아래가 통째로 비어 보인다).
+//
+// 마크는 새로 그리지 않는다. 대시보드의 AllClearMark(체크)·EmptyColumnMark(카드)는
+// export가 없고 그 파일들은 이 회차에서 못 건드리므로, 이미 export된 같은 한 벌인
+// 말씀 화면의 EmptyBookMark(펼친 책)를 그대로 쓴다 — 주보·본문 화면이라 그림도 맞는다.
+// 안내 줄은 붙이지 않는다(§8) — 한 줄이 전부다.
+export function WorshipEmpty({ text }) {
+  return (
+    <div className="worship-empty min-h-[46vh] flex flex-col items-center justify-center text-center">
+      <EmptyBookMark />
+      <p className="mt-3 text-[13.5px] font-semibold text-fg">{text}</p>
+    </div>
+  );
+}
+
 // 배열 한 칸 옮기기 (담당자·찬양·광고 공용). 끝에서는 그대로 둔다.
 const moveAt = (list, from, to) => {
   if (to < 0 || to >= list.length) return list;
@@ -73,7 +90,7 @@ const patchOf = (d) => ({
 // ── 보기 ─────────────────────────────────────────────────────────────────────
 function WordTab({ service }) {
   const has = service.title || service.passage_ref || service.preacher;
-  if (!has) return <p className="text-[12.5px] text-fg-faint py-6">설교 제목과 본문 구절을 아직 적지 않았어요</p>;
+  if (!has) return <WorshipEmpty text="설교 제목과 본문 구절을 아직 적지 않았어요" />;
   return (
     <div>
       {service.title && <h3 className="text-[16px] font-extrabold text-fg tracking-[-0.3px]">{service.title}</h3>}
@@ -87,7 +104,7 @@ function WordTab({ service }) {
 
 function RolesTab({ rows, people }) {
   const byId = useMemo(() => new Map((people || []).map(p => [p.id, p])), [people]);
-  if (!rows.length) return <p className="text-[12.5px] text-fg-faint py-6">담당자를 아직 정하지 않았어요</p>;
+  if (!rows.length) return <WorshipEmpty text="담당자를 아직 정하지 않았어요" />;
   return (
     <ul className={LIST}>
       {rows.map((r, i) => {
@@ -107,7 +124,7 @@ function RolesTab({ rows, people }) {
 }
 
 function SongsTab({ rows }) {
-  if (!rows.length) return <p className="text-[12.5px] text-fg-faint py-6">찬양을 아직 정하지 않았어요</p>;
+  if (!rows.length) return <WorshipEmpty text="찬양을 아직 정하지 않았어요" />;
   return (
     <ul className={LIST}>
       {rows.map((s, i) => (
@@ -127,7 +144,7 @@ function SongsTab({ rows }) {
 }
 
 function NoticesTab({ rows }) {
-  if (!rows.length) return <p className="text-[12.5px] text-fg-faint py-6">광고를 아직 적지 않았어요</p>;
+  if (!rows.length) return <WorshipEmpty text="광고를 아직 적지 않았어요" />;
   return (
     <ol className={`${LIST} space-y-3.5`}>
       {rows.map((n, i) => (

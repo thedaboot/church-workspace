@@ -76,7 +76,7 @@ const readNav = `(() => {
   const row = desk?.querySelector('[class*="items-end"]');
   return {
     sidebar: side,
-    hasDash: gnav.some(t => t === '전체 대시보드'),
+    hasDash: gnav.some(t => t === '업무 대시보드'),
     hasMine: gnav.some(t => t.startsWith('내 업무')),
     hasGuide: gnav.some(t => t === '사용 가이드'),   // 이제 없어야 한다
     profileItems: null,
@@ -197,8 +197,25 @@ const bar = await ev(`(() => {
   };
 })()`);
 check('모바일 하단 탭바가 화면 아래 고정', bar.atBottom === true, JSON.stringify(bar));
-check('탭 4개(아이콘 4개)', bar.icons === 4, `svg ${bar.icons}개`);
+// 프로젝트(업무 축)에서는 업무 바 5칸: 홈·프로젝트·내 업무·대시보드·팀 (A안, 2026-09-02)
+check('업무 바 5칸(홈·프로젝트·내 업무·대시보드·팀)', bar.icons === 5 && bar.labels.includes('홈') && bar.labels.includes('프로젝트'), `svg ${bar.icons}개 · ${JSON.stringify(bar.labels)}`);
 check('탭바에 이모지 없음(선 아이콘만)', bar.emoji === false);
+// 홈으로 나가면 교회 바(홈·예배·말씀·모임·업무)로 통째로 바뀐다 — 겹을 안 늘리는 모드 전환
+await ev(`(() => { const n=document.querySelector('nav'); const b=[...n.querySelectorAll('button')].find(x=>x.textContent.trim()==='홈'); b && b.click(); })()`);
+await sleep(600);
+const churchBar = await ev(`(() => {
+  const nav = document.querySelector('nav');
+  return [...nav.querySelectorAll('span')].map(s => s.textContent.trim()).filter(t => t && t.length <= 5);
+})()`);
+check('홈에서는 교회 바(예배·말씀·모임·업무)', ['예배','말씀','모임','업무'].every(l => churchBar.includes(l)), JSON.stringify(churchBar));
+// 다시 '업무'를 누르면 보던 업무 화면(프로젝트)으로 돌아온다
+await ev(`(() => { const n=document.querySelector('nav'); const b=[...n.querySelectorAll('button')].find(x=>x.textContent.trim()==='업무'); b && b.click(); })()`);
+await sleep(600);
+const backBar = await ev(`(() => {
+  const nav = document.querySelector('nav');
+  return [...nav.querySelectorAll('span')].map(s => s.textContent.trim()).filter(t => t && t.length <= 5);
+})()`);
+check("'업무'로 돌아오면 업무 바 + 보던 화면", backBar.includes('프로젝트'), JSON.stringify(backBar));
 await ev(`(() => { const n=document.querySelector('nav'); const b=[...n.querySelectorAll('button')].find(x=>/내 업무/.test(x.textContent)); b.click(); })()`);
 await sleep(700);
 const title = await ev(`document.querySelector('main h2')?.textContent.trim() || document.querySelector('h2')?.textContent.trim()`);

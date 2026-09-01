@@ -63,19 +63,33 @@ export function groupPerms({ isMaster = false, myPerson = null, myRoles = [], le
 export const canManageClub = (perms, groupId) =>
   !!perms?.isMaster || (!!groupId && (perms?.ledClubIds || []).includes(groupId));
 
-// 그 모임의 사람들 — 리더가 맨 앞이고, 편성 명단에 없어도 세운다(0037의 관례와 같다).
+// 이름 순서는 한 군데서 정한다 — 화면마다 다르면 같은 사람이 자리를 옮겨 다닌다.
+// localeCompare('ko')라야 한글이 ㄱㄴㄷ으로 선다(기본 정렬은 유니코드 코드포인트라
+// 겹받침·한자 이름에서 어긋난다).
+export const byName = (a, b) =>
+  String(a?.name || '').localeCompare(String(b?.name || ''), 'ko');
+
+// 그 모임의 사람들 — **리더가 맨 앞, 나머지는 가나다순**이고, 편성 명단에 없어도
+// 세운다(0037의 관례와 같다). 예전에는 group_members가 온 차례 그대로여서 넣은
+// 순서대로 쌓였고, 한 사람을 넣고 뺄 때마다 명단의 줄이 통째로 바뀌어 보였다
+// (사용자 지적 2026-09-02). 리더만 예외로 위에 두는 이유: 그 자리는 이름이 아니라
+// 역할로 찾는다.
 export function groupPeople({ people = [], group = null, members = [] } = {}) {
   if (!group) return [];
   const byId = new Map(people.map(p => [p.id, p]));
-  const ids = members.filter(m => m.group_id === group.id).map(m => m.person_id);
-  if (group.leader_person_id) ids.unshift(group.leader_person_id);
   const seen = new Set();
-  const list = [];
-  for (const id of ids) {
-    if (seen.has(id) || !byId.has(id)) continue;
-    seen.add(id); list.push(byId.get(id));
-  }
-  return list;
+  const take = (id) => {
+    if (seen.has(id) || !byId.has(id)) return null;
+    seen.add(id);
+    return byId.get(id);
+  };
+  const leader = group.leader_person_id ? take(group.leader_person_id) : null;
+  const rest = members
+    .filter(m => m.group_id === group.id)
+    .map(m => take(m.person_id))
+    .filter(Boolean)
+    .sort(byName);
+  return leader ? [leader, ...rest] : rest;
 }
 
 // 내가 든 순(그 해). 순장은 편성 명단에 없어도 자기 순이다.

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
-import { LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users, Archive, CalendarDays, CalendarClock, Smartphone, Church, BookOpen, HeartHandshake } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users, Archive, CalendarDays, CalendarClock, Smartphone, Church, BookOpen, HeartHandshake, Home, Briefcase } from 'lucide-react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable, pointerWithin, rectIntersection,
@@ -151,7 +151,7 @@ function useDismiss(open, close, refs) {
 
 // 프로필 아바타 → 내 정보·테마·로그아웃.
 // 사이드바 하단에 있던 것들이 전부 여기로 들어왔다(모바일 '내 정보' 탭도 이걸 쓴다).
-function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', children , onOpenMembers, onNavigate }) {
+function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', children , onOpenMembers }) {
   const currentUser = useStore(selectCurrentUser);
   const { enabled, session, signOut } = useAuth();
   const [open, setOpen] = useState(false);
@@ -191,15 +191,6 @@ function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', childr
             <p className="text-[13px] font-semibold text-fg truncate">{currentUser.name}</p>
             <p className="text-[11px] text-fg-muted truncate">{(currentUser.teams?.length ? currentUser.teams : [currentUser.team]).filter(Boolean).join(' · ') || '팀 미지정'}</p>
           </div>
-          {/* v2 임시 진입로(모바일만 — MobileTopBar가 onNavigate를 넘긴다).
-              회차 3 IA 재편에서 하단 바 5칸으로 옮기고 이 줄들은 뺀다(docs/V2.md §3) */}
-          {onNavigate && (
-            <>
-              <button className={item} onClick={go(() => onNavigate('worship'))}><Church size={15} /> 예배</button>
-              <button className={item} onClick={go(() => onNavigate('word'))}><BookOpen size={15} /> 말씀</button>
-              <button className={item} onClick={go(() => onNavigate('groups'))}><HeartHandshake size={15} /> 모임</button>
-            </>
-          )}
           <button className={item} onClick={go(onOpenProfile)}><Settings size={15} /> 설정</button>
           {/* 멤버는 관리자에게만. 하단 탭 네 자리는 핸드오프 규격이라 다섯 번째를
               끼우지 않는다 — 설정·전체 일정과 같은 처리다(§4.6). */}
@@ -270,8 +261,8 @@ export const TopNav = React.memo(({
   const measureRef = useRef(null);
   const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0);
   const { shown, rest } = splitProjectTabs(tabSource, activeMenu, tabFit);
-  // 프로젝트 탭 줄은 업무 축 화면에서만 — 교회 생활 화면(예배·말씀·모임)에서는 접힌다
-  const showProjectRow = !['worship', 'word', 'groups'].includes(activeMenu);
+  // 프로젝트 탭 줄은 업무 축 화면에서만 — 교회 생활 화면(홈·예배·말씀·모임)에서는 접힌다
+  const showProjectRow = !['home', 'worship', 'word', 'groups'].includes(activeMenu);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRootRef = useRef(null);
   const moreBtnRef = useRef(null);
@@ -302,19 +293,19 @@ export const TopNav = React.memo(({
   return (
     <div className="hidden md:block shrink-0 border-b border-line/70 z-20">
       <div className="flex items-center gap-5 px-6 h-[52px]">
-        <button onClick={() => setActiveMenu('dashboard')} className="shrink-0 transition active:scale-95" title="홈(대시보드)으로">
+        <button onClick={() => setActiveMenu('home')} className="shrink-0 transition active:scale-95" title="홈으로">
           <img src={logoLight} alt="더다붓" className="h-7 w-auto dark:hidden" />
           <img src={logoDark} alt="더다붓" className="h-7 w-auto hidden dark:block" />
         </button>
         <div className="flex items-center gap-1 shrink-0">
-          {/* 교회 생활(예배·말씀·모임) | 업무(대시보드·내 업무·일정) — 두 축을 구분선으로
-              가른다(사용자 요청 2026-09-01, docs/V2.md §3의 데스크톱 그림). 회차 3에서
-              '홈'이 교회 축 맨 앞에 붙는다 */}
+          {/* 교회 생활(홈·예배·말씀·모임) | 업무(대시보드·내 업무·일정) — 두 축을
+              구분선으로 가른다(docs/V2.md §3 A안 데스크톱 그림) */}
+          {gnav('home', '홈')}
           {gnav('worship', '예배')}
           {gnav('word', '말씀')}
           {gnav('groups', '모임')}
           <span aria-hidden className="w-px h-4 bg-line mx-1.5 shrink-0" />
-          {gnav('dashboard', '전체 대시보드')}
+          {gnav('dashboard', '업무 대시보드')}
           {gnav('myTasks', '내 업무', myTasksCount)}
           {gnav('schedule', '전체 일정')}
         </div>
@@ -557,7 +548,7 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
         <SearchBox onSearchSelect={onSearchSelect} variant="icon" />
         {cloudMode && <NotificationBell onOpenTask={onOpenTask} />}
         {/* 설정은 상단 헤더로 — 하단 탭 네 자리는 프로젝트·내 업무·대시보드·팀이 쓴다 */}
-        <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} onNavigate={setActiveMenu} />
+        <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} />
       </div>
       {project && (
         <MobileProjectTabs
@@ -669,6 +660,9 @@ const MobileProjectTabs = React.memo(({
 
 // 모바일 하단 탭바 — 프로젝트 / 내 업무 / 대시보드 / 팀 (핸드오프 규격).
 // 설정은 상단 헤더로 올라갔다.
+// 교회 생활 화면 목록 — 하단 바 모드 판정과 데스크톱 탭 줄 접기가 같이 본다
+const CHURCH_MENUS = ['home', 'worship', 'word', 'groups'];
+
 export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProject }) => {
   // '프로젝트' 탭이 새로 골라 주는 것은 보관하지 않은 것 중 첫 번째.
   // 하지만 지금 보고 있는 것이 보관된 프로젝트여도 탭은 켜져 있어야 한다(전체로 판정).
@@ -686,6 +680,16 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
   };
   // 팀이 없는 사람은 팀 보드로 갈 곳이 없으니 프로필 설정으로 안내한다
   const goTeam = () => { if (myTeam) setActiveMenu(`team:${myTeam}`); else showToast('설정에서 소속 팀을 먼저 정해주세요'); };
+
+  // ── 두 벌의 바 (docs/V2.md §3 A안 — 사용자가 목업으로 확정) ──────────────
+  // 교회 생활(홈·예배·말씀·모임·업무)과 업무(홈·프로젝트·내 업무·대시보드·팀).
+  // '업무'에 들어가면 바가 통째로 기존 네 칸(+홈)으로 바뀌어 손 습관이 남고,
+  // 겹(상단 줄 수)은 늘지 않는다. '홈'으로 돌아온다.
+  const inChurch = CHURCH_MENUS.includes(activeMenu);
+  // 업무 모드에서 마지막으로 보던 화면 — '업무' 탭이 여기로 돌려보낸다
+  const lastWork = useRef('dashboard');
+  useEffect(() => { if (!inChurch) lastWork.current = activeMenu; }, [activeMenu, inChurch]);
+
   const tab = (on, icon, label, onClick, badge) => (
     <button onClick={onClick} className={`flex-1 flex flex-col items-center gap-1 py-1 transition-colors ${on ? 'text-fg' : 'text-fg-faint'}`}>
       <span className="relative">{icon}{badge > 0 && <span className="absolute -top-0.5 -right-1.5 w-1.5 h-1.5 rounded-full bg-accent" />}</span>
@@ -694,17 +698,31 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
   );
   return (
     <nav className="md:hidden fixed inset-x-0 bottom-0 z-40 flex bg-surface border-t border-line pt-2 pb-[calc(0.875rem+env(safe-area-inset-bottom))]">
-      {tab(isProject, <Hash size={20} />, '프로젝트', goProject)}
-      {tab(activeMenu === 'myTasks', <CheckSquare size={20} />, '내 업무', () => setActiveMenu('myTasks'), myTasksCount)}
-      {tab(activeMenu === 'dashboard', <LayoutDashboard size={20} />, '대시보드', () => setActiveMenu('dashboard'))}
-      {tab(activeMenu.startsWith('team:'), <Users size={20} />, '팀', goTeam)}
+      {inChurch ? (
+        <>
+          {tab(activeMenu === 'home', <Home size={20} />, '홈', () => setActiveMenu('home'))}
+          {tab(activeMenu === 'worship', <Church size={20} />, '예배', () => setActiveMenu('worship'))}
+          {tab(activeMenu === 'word', <BookOpen size={20} />, '말씀', () => setActiveMenu('word'))}
+          {tab(activeMenu === 'groups', <HeartHandshake size={20} />, '모임', () => setActiveMenu('groups'))}
+          {tab(false, <Briefcase size={20} />, '업무', () => setActiveMenu(lastWork.current || 'dashboard'), myTasksCount)}
+        </>
+      ) : (
+        <>
+          {tab(false, <Home size={20} />, '홈', () => setActiveMenu('home'))}
+          {tab(isProject, <Hash size={20} />, '프로젝트', goProject)}
+          {tab(activeMenu === 'myTasks', <CheckSquare size={20} />, '내 업무', () => setActiveMenu('myTasks'), myTasksCount)}
+          {tab(activeMenu === 'dashboard', <LayoutDashboard size={20} />, '대시보드', () => setActiveMenu('dashboard'))}
+          {tab(activeMenu.startsWith('team:'), <Users size={20} />, '팀', goTeam)}
+        </>
+      )}
     </nav>
   );
 });
 
 // 화면 이름 (모바일 상단 제목) — 뷰 안의 제목은 모바일에서 숨기고 여기 하나만 쓴다
 function menuTitle(activeMenu, projectsMap, currentUser) {
-  if (activeMenu === 'dashboard') return '전체 대시보드';
+  if (activeMenu === 'home') return '홈';
+  if (activeMenu === 'dashboard') return '업무 대시보드';
   if (activeMenu === 'myTasks') return `${currentUser?.name || '내'}님의 업무`;
   if (activeMenu === 'schedule') return '전체 일정';
   if (activeMenu === 'members') return '멤버 관리';

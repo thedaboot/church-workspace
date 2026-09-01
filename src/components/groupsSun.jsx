@@ -5,7 +5,7 @@ import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { YearPicker } from './layout.jsx';
 import {
   CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN,
-  PersonTag, PersonPick, MenuPick, Empty,
+  PersonTag, PersonPick, MenuPick, Empty, PeopleMark,
 } from './groupsParts.jsx';
 import { groupPeople, presentCount } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
@@ -35,12 +35,15 @@ export function MySunPanel({ myPerson, sun, people, members, service, present, n
 
   if (!myPerson) {
     return (
-      <Empty className="mysun-empty" title="아직 명단에 이어지지 않은 계정이에요"
-        hint="관리자에게 알려주세요" />
+      <Empty className="mysun-empty" mark={<PeopleMark />}
+        title="아직 명단에 이어지지 않은 계정이에요" hint="관리자에게 알려주세요" />
     );
   }
   if (!sun) {
-    return <Empty className="mysun-empty" title="올해 순 편성에 아직 이름이 올라 있지 않아요" />;
+    return (
+      <Empty className="mysun-empty" mark={<PeopleMark />}
+        title="올해 순 편성에 아직 이름이 올라 있지 않아요" />
+    );
   }
 
   // 출석은 '가장 최근 발행 주일 예배' 한 건이다. 그런 예배가 없으면 줄을 그리지 않는다.
@@ -146,7 +149,10 @@ export function SunAdminPanel({
             onAddMember={onAddMember} onMoveMember={onMoveMember} onRemoveMember={onRemoveMember} />
         ))}
       </div>
-      {!suns.length && <Empty title={`${year}년 순 편성이 아직 비어 있어요`} />}
+      {!suns.length && (
+        <Empty className="sun-empty" mark={<PeopleMark />}
+          title={`${year}년 순 편성이 아직 비어 있어요`} />
+      )}
     </div>
   );
 }

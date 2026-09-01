@@ -42,6 +42,22 @@ const load=async(m,theme)=>{
   await send('Page.navigate',{url:URL_BASE});await wait('Page.loadEventFired');
   await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))}); localStorage.setItem('theme','${theme}')`);
   await send('Page.navigate',{url:URL_BASE+'/'});await wait('Page.loadEventFired');await sleep(1500);
+  // 첫 화면이 홈(교회 생활)이 되면서(2026-09-02, A안) 대시보드로 한 번 이동한다.
+  // 모바일은 데스크톱 내비가 마운트되지 않으므로(§6-3) 하단 바 '업무' → '대시보드'로 간다.
+  await ev(`(() => {
+    const desk=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='업무 대시보드');
+    if (desk) { desk.click(); return; }
+    const nav=document.querySelector('nav');
+    const work=[...(nav?.querySelectorAll('button')||[])].find(x=>x.textContent.trim()==='업무');
+    work && work.click();
+  })()`);
+  await sleep(500);
+  await ev(`(() => {
+    const nav=document.querySelector('nav');
+    const d=[...(nav?.querySelectorAll('button')||[])].find(x=>x.textContent.trim()==='대시보드');
+    d && d.click();
+  })()`);
+  await sleep(800);
 };
 // 핸드오프 대시보드: 도넛 대신 진척도 막대, KPI 4칸(모바일 2×2 / 데스크톱 3+1),
 // 마감 그룹 리스트의 각 행에 상태 배지(점 + 글자)
@@ -268,6 +284,9 @@ await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, dev
 await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
 await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(stMix))}); localStorage.setItem('theme','light')`);
 await send('Page.navigate', { url: URL_BASE + '/' }); await wait('Page.loadEventFired'); await sleep(1500);
+// 첫 화면이 홈이라(2026-09-02) 대시보드로 한 번 이동한다(데스크톱 1440px — gnav가 있다)
+await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='업무 대시보드'); b && b.click(); })()`);
+await sleep(800);
 const scopeOf = () => ev(`(() => {
   const cell = [...document.querySelectorAll('div')]
     .find(d => d.children.length && [...d.children].some(c => c.textContent.trim() === '전체 진척도'));

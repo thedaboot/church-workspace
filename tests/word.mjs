@@ -17,6 +17,12 @@
 //   · 장 전환 슬라이드가 실제로 프레임을 돈다 → transform 값을 rAF로 훑어 확인
 //   · 절을 눌러도 바로 안 칠해진다 — 그 절 옆 선택 팝오버(긋기/지우기)를 거친다
 //   · '내 기록'이 책별로 묶이고, 펼친 책의 파일만 그때 받는다(리소스 타이밍으로 확인)
+//
+// 3차 점검에서 본 것:
+//   · 형광펜 선택 팝오버가 **첫 프레임부터** 그 절 옆에 선다 — 자리를 잡기 전 한 번
+//     그려지면 화면 구석에서 날아온다. 열자마자 rAF로 top·left를 훑어 확인한다
+//   · 빈 상태는 남는 자리의 세로·가로 가운데에 마크와 함께 선다(§8) — 자리와 상자의
+//     가운데가 같은지, 마크(.dc-draw)가 있는지를 실제 좌표로 잰다
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -226,6 +232,20 @@ const empty = await ev(`(() => ({
   verses: document.querySelectorAll('p[data-verse]').length,
 }))()`);
 check('본문이 없는 날은 빈 상태 + 표식', empty.msg && empty.mark && empty.verses === 0, JSON.stringify(empty));
+// 빈 상태는 **본문이 쓰던 자리를 그대로 받아** 그 한가운데에 선다(§8 · 3차 점검).
+// 예전에는 자리가 320px인데 빈 상태만 220px이라 마크가 위로 붙고 아래가 비어 보였다.
+const emptyFit = await ev(`(() => {
+  const p = [...document.querySelectorAll('p')].find(x => x.textContent.includes('본문이 아직 올라오지'));
+  const box = p && p.parentElement;
+  const swap = box && box.closest('[data-swap]');
+  const slot = swap && swap.parentElement;
+  if (!slot) return null;
+  const b = box.getBoundingClientRect(), s = slot.getBoundingClientRect();
+  return { gap: Math.round(s.height - b.height),
+           off: Math.round((b.top + b.height / 2) - (s.top + s.height / 2)) };
+})()`);
+check('빈 상태가 본문 자리의 세로 가운데에 선다', !!emptyFit && emptyFit.gap === 0 && emptyFit.off === 0,
+  JSON.stringify(emptyFit));
 await clickText('오늘');
 await sleep(900);
 
@@ -304,6 +324,29 @@ check("북마크 빈 상태 문구", toc.empty.includes('북마크한 장을 여
   && !toc.empty.includes('북마크한 장이 여기 모입니다'));
 check("형광펜 빈 상태 문구", toc.empty.includes('형광펜을 칠한 절은 여기서 볼 수 있어요')
   && !toc.empty.includes('형광펜을 그은 절이 여기 모입니다'));
+// 빈 상태는 마크와 함께 가운데에 선다(§8 · 3차 점검) — 예전에는 줄 왼쪽에 붙은 작은
+// 아이콘 하나에 왼쪽 정렬이었다. 보이는 쪽(넓은 화면은 옆 칸)만 잰다.
+const emptyMarks = await ev(`(() => {
+  const out = {};
+  for (const [k, t] of [['bm', '북마크한 장을'], ['hl', '형광펜을 칠한 절은']]) {
+    const p = [...document.querySelectorAll('p')].filter(x => x.textContent.includes(t))
+      .find(x => x.offsetParent !== null);
+    if (!p) { out[k] = null; continue; }
+    const box = p.parentElement, svg = box.querySelector('svg');
+    const b = box.getBoundingClientRect();
+    out[k] = {
+      mark: !!(svg && svg.querySelector('path.dc-draw')),
+      align: getComputedStyle(p).textAlign,
+      // 마크는 상자의 가로 한가운데 · 위아래 여백은 같아야 한다
+      dx: svg ? Math.round((svg.getBoundingClientRect().left + svg.getBoundingClientRect().width / 2) - (b.left + b.width / 2)) : null,
+      dy: svg ? Math.round((svg.getBoundingClientRect().top - b.top) - (b.bottom - p.getBoundingClientRect().bottom)) : null,
+    };
+  }
+  return out;
+})()`);
+const centered = v => v && v.mark && v.align === 'center' && Math.abs(v.dx) <= 1 && Math.abs(v.dy) <= 1;
+check("'내 기록' 빈 상태가 마크와 함께 가운데에 선다",
+  centered(emptyMarks.bm) && centered(emptyMarks.hl), JSON.stringify(emptyMarks));
 
 check('창세기', await clickText('창세기'));
 await sleep(500);
@@ -335,8 +378,37 @@ check('고른 글자 크기가 기기에 남는다', fonts.stored === '0', Strin
 
 // 형광펜 — **절을 눌러도 바로 칠해지지 않는다**(2026-09-02). 그 절 옆에 선택 팝오버가
 // 뜨고, 거기서 고를 때 칠해진다. 취소는 바깥 누름과 Esc.
-await ev(`(() => { document.querySelector('p[data-verse="1:3"]').click(); })()`);
-await sleep(400);
+//
+// **첫 프레임부터 그 절 옆에 서야 한다**(3차 점검). 자리는 useAnchoredPos가 그리기 전에
+// 잡지만, 팝오버에 걸린 전환이 left·top까지 물면 아직 자리가 없던 {0,0}이 전환의 시작점이
+// 되어 화면 왼쪽 위에서 150ms 동안 날아온다. 여는 순간부터 rAF로 좌표를 훑어, 잰 자리에서
+// 얼마나 벗어나는지를 본다 — 나타나는 결(zoom-in-95)만큼(≈4.4px)은 벗어나도 된다.
+const pop = await ev(`(async () => {
+  const seen = [];
+  let stop = false;
+  const tick = () => {
+    const m = document.querySelector('[data-verse-menu]');
+    if (m) { const b = m.getBoundingClientRect(); seen.push([b.top, b.left]); }
+    if (!stop) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  await new Promise(r => setTimeout(r, 60));
+  const p = document.querySelector('p[data-verse="1:3"]');
+  const r = p.getBoundingClientRect();
+  p.click();
+  await new Promise(r2 => setTimeout(r2, 500));
+  stop = true;
+  const W = 176, H = 52, GAP = 8;   // wordBible.jsx의 MENU_W · MENU_H · 가장자리 여백
+  const want = [
+    (innerHeight - r.bottom) < H + GAP ? Math.max(GAP, r.top - H - 4) : r.bottom + 4,
+    Math.min(Math.max(r.right - W, GAP), innerWidth - W - GAP),
+  ];
+  const off = v => Math.max(Math.abs(v[0] - want[0]), Math.abs(v[1] - want[1]));
+  return { frames: seen.length, want: want.map(v => +v.toFixed(1)),
+           first: seen[0] ? seen[0].map(v => +v.toFixed(1)) : null,
+           drift: seen.length ? +Math.max(...seen.map(off)).toFixed(1) : -1 };
+})()`, true);
+await sleep(250);
 const menu = await ev(`(() => {
   const p = document.querySelector('p[data-verse="1:3"]');
   const m = document.querySelector('[data-verse-menu]');
@@ -350,6 +422,9 @@ check('절을 눌러도 바로 칠해지지 않는다', menu.painted === false &
 check('그 절 옆에 선택 팝오버가 뜬다', menu.open && menu.label === '형광펜 긋기'
   && menu.expanded === 'true', JSON.stringify(menu));
 check('팝오버는 body 포털이다', menu.portal === true);
+// 전환이 left·top을 물면 drift가 수백 px이 된다(화면 구석에서 날아온다)
+check('팝오버가 첫 프레임부터 그 절 옆에 선다', pop.frames > 3 && pop.drift >= 0 && pop.drift <= 8,
+  JSON.stringify(pop));
 
 // 바깥을 누르면 닫힌다(팝오버는 document의 mousedown을 듣는다)
 await ev(`(() => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })))()`);

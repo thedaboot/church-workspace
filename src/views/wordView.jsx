@@ -51,6 +51,11 @@ const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').the
 const EDITOR_H = 197;
 const EditorSkeleton = () => <div className="dc-skeleton border border-line rounded-md" style={{ height: EDITOR_H }} />;
 
+// 본문이 차지할 자리. **빈 상태도 이 자리를 그대로 받는다**(사용자 피드백 2026-09-02 3차)
+// — 자리는 320px인데 빈 상태만 220px이라, 본문이 없는 날에는 마크가 위로 올라붙고 아래
+// 100px이 통째로 비어 보였다. 두 값을 하나로 묶어 둔다(§8 '빈 상태는 남는 자리의 가운데').
+const PASSAGE_MIN_H = 320;
+
 // 주보의 본문 구절에서 넘어오는 자리를 위해 initialTab·initialRef를 받는다
 // (App.jsx는 지금 <WordView />로만 부른다 — 회차 3 IA 재편에서 이어 붙인다).
 export function WordView({ initialTab = 'qt', initialRef = '' }) {
@@ -214,7 +219,7 @@ function QtTab() {
         </div>
 
         {/* 본문 — 기다리는 동안에도 같은 자리에 같은 크기로 서 있는다 */}
-        <div className="min-h-[320px]">
+        <div style={{ minHeight: PASSAGE_MIN_H }}>
           <Swap k={date} dir={dir}><QtPassage day={day} /></Swap>
         </div>
 
@@ -298,7 +303,7 @@ export function QtPassage({ day }) {
   if (day.loading) return <Card className="p-4 md:p-5"><PassageSkeleton lines={8} /></Card>;
   if (!day.schedule) {
     return (
-      <div className="min-h-[220px] flex flex-col items-center justify-center text-center">
+      <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: PASSAGE_MIN_H }}>
         <EmptyBookMark />
         <p className="text-[13.5px] font-semibold text-fg mt-3">이 날짜의 본문이 아직 올라오지 않았어요</p>
       </div>

@@ -5,7 +5,7 @@ import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { useAuth } from '../services/auth.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
-import { ServiceDetail } from '../components/worshipDetail.jsx';
+import { ServiceDetail, WorshipEmpty } from '../components/worshipDetail.jsx';
 import { AttendanceScreen } from '../components/worshipAttendance.jsx';
 import {
   SUNDAY_KIND, kindLabel, formatServiceDate, nextSundayDate, serviceYear, worshipPerms,
@@ -154,9 +154,7 @@ export function ServiceList({ services, perms, onOpen, onCreate }) {
         {shown.map(s => <ServiceCard key={s.id} service={s} onOpen={onOpen} />)}
       </div>
       {!shown.length && (
-        <p className="py-16 text-center text-[12.5px] text-fg-faint">
-          {draftsOnly ? '작성 중인 주보가 아직 없어요' : '발행된 주보가 아직 없어요'}
-        </p>
+        <WorshipEmpty text={draftsOnly ? '작성 중인 주보가 아직 없어요' : '발행된 주보가 아직 없어요'} />
       )}
     </div>
   );
