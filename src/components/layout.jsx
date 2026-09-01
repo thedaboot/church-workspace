@@ -64,8 +64,8 @@ function useTabFit(tabRowRef, measureRef, count, alwaysMore) {
       const cs = getComputedStyle(row);
       // -16: 측정 span과 실제 button 렌더 사이의 미세 오차(서브픽셀·보더) 여유.
       // 딱 맞는 경계(800px에 670px 탭)에서 몇 px 넘쳐 '+ 프로젝트'가 잘렸다.
-      // 탭 묶음의 ml-auto(오른쪽 몰기)는 남는 폭만 먹으므로 여기 계산과 무관하다.
-      const avail = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - plusW - yearW - 16;
+      // -8: 연도와 첫 탭 사이 간격(첫 탭의 ml-2). offsetWidth는 마진을 안 재서 따로 뺀다.
+      const avail = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - plusW - yearW - 16 - 8;
       let used = 0, k = 0;
       for (let i = 0; i < count; i++) {
         const needMore = alwaysMore || i < count - 1;  // 이 뒤에 더보기가 서야 하나
@@ -346,11 +346,11 @@ export const TopNav = React.memo(({
             // truncate(overflow-hidden)를 버튼에 직접 주면 **경계에 걸친 얼굴이 잘린다**
             // (실제로 반이 잘려 나갔다 — 2026-08-30). 말줄임은 안쪽 span이 맡고
             // 버튼은 클리핑하지 않는다.
-            // 첫 탭의 ml-auto: 탭 묶음(탭·더보기·+ 프로젝트)을 통째로 오른쪽 끝에
-            // 몰고, 남는 폭은 연도와 탭 사이에 둔다(사용자 요청 2026-09-01 — "더보기와
-            // 프로젝트도 그만큼"). 줄이 꽉 차면 남는 폭이 0이라 지금까지와 같다.
-            // 탭이 하나도 없으면 이 자리가 없으므로 더보기·+ 프로젝트가 이어받는다.
-            className={`relative px-3.5 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap max-w-[220px] ${i === 0 ? 'ml-auto' : ''} ${activeMenu === p.id ? 'text-fg border-fg' : 'text-fg-muted border-transparent hover:text-fg'} ${dragTabId === p.id ? 'opacity-50' : ''}`}
+            // 첫 탭의 ml-2: 연도 버튼과 탭 사이 숨 고르기. 탭은 **왼쪽 정렬**이고
+            // 들어가는 만큼 최대한 세운 뒤 넘칠 것만 더보기로 접는다(사용자 확정
+            // 2026-09-01 — 오른쪽 몰기로 갔다가 되돌렸다. 공백은 더보기와
+            // + 프로젝트 사이에 남는 것이 맞다). avail이 이 8px을 같이 뺀다.
+            className={`relative px-3.5 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap max-w-[220px] ${i === 0 ? 'ml-2' : ''} ${activeMenu === p.id ? 'text-fg border-fg' : 'text-fg-muted border-transparent hover:text-fg'} ${dragTabId === p.id ? 'opacity-50' : ''}`}
           >
             <span className="block max-w-full truncate">{p.title}</span>
             {/* 지금 이 프로젝트를 보고 있는 사람. **자리를 차지하지 않게 얹는다** —
@@ -365,7 +365,7 @@ export const TopNav = React.memo(({
           </button>
         ))}
         {(rest.length > 0 || archivedForMore.length > 0 || otherYears.length > 0) && (
-          <span ref={moreRootRef} className={`inline-flex ${shown.length === 0 ? 'ml-auto' : ''}`}>
+          <span ref={moreRootRef} className="inline-flex">
             <span ref={moreBtnRef} className="inline-flex">
               <button onClick={() => { placeMore(); setMoreOpen(o => !o); }} className="px-3 pt-2.5 pb-2 -mb-px inline-flex items-center gap-1 text-[13px] font-semibold text-fg-muted hover:text-fg border-b-2 border-transparent transition-colors">
                 더보기 <ChevronDown size={13} />
@@ -383,10 +383,10 @@ export const TopNav = React.memo(({
             글자 자리가 정해진다. 탭·더보기·연도는 전부 투명 2px을 깔고 있는데 이 버튼만
             없어서 글자가 2px 내려앉아 보였다(사용자 지적 2026-08-29). 폭에는 영향이
             없어서 useTabFit의 측정 줄은 그대로 둔다. */}
-        {/* 오른쪽 몰기(ml-auto)는 묶음의 **첫 항목 하나**만 가진다 — 둘 이상이 가지면
-            남는 폭이 auto 마진들에 나눠져 묶음이 갈라진다. 보통은 첫 탭이,
-            탭이 없으면 더보기가, 그마저 없으면 이 버튼이 이어받는다. */}
-        <button onClick={onOpenProject} className={`px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint hover:text-fg-muted transition-colors whitespace-nowrap ${shown.length === 0 && !(rest.length > 0 || archivedForMore.length > 0 || otherYears.length > 0) ? 'ml-auto' : ''}`}>+ 프로젝트</button>
+        {/* ml-auto: 이 버튼만 오른쪽 끝에 붙인다. 탭·더보기는 왼쪽 정렬 그대로라
+            남는 폭은 더보기와 이 버튼 사이에 선다(사용자 확정 2026-09-01).
+            폭 계산(avail)이 이 버튼 폭을 빼고 있어 탭과 겹칠 일은 없다. */}
+        <button onClick={onOpenProject} className="ml-auto px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint hover:text-fg-muted transition-colors whitespace-nowrap">+ 프로젝트</button>
       </div>
     </div>
   );
