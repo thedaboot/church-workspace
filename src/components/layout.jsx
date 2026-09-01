@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
-import { LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users, Archive, CalendarDays, CalendarClock, Smartphone } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users, Archive, CalendarDays, CalendarClock, Smartphone, Church, BookOpen, HeartHandshake } from 'lucide-react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable, pointerWithin, rectIntersection,
@@ -151,7 +151,7 @@ function useDismiss(open, close, refs) {
 
 // 프로필 아바타 → 내 정보·테마·로그아웃.
 // 사이드바 하단에 있던 것들이 전부 여기로 들어왔다(모바일 '내 정보' 탭도 이걸 쓴다).
-function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', children , onOpenMembers }) {
+function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', children , onOpenMembers, onNavigate }) {
   const currentUser = useStore(selectCurrentUser);
   const { enabled, session, signOut } = useAuth();
   const [open, setOpen] = useState(false);
@@ -191,6 +191,15 @@ function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', childr
             <p className="text-[13px] font-semibold text-fg truncate">{currentUser.name}</p>
             <p className="text-[11px] text-fg-muted truncate">{(currentUser.teams?.length ? currentUser.teams : [currentUser.team]).filter(Boolean).join(' · ') || '팀 미지정'}</p>
           </div>
+          {/* v2 임시 진입로(모바일만 — MobileTopBar가 onNavigate를 넘긴다).
+              회차 3 IA 재편에서 하단 바 5칸으로 옮기고 이 줄들은 뺀다(docs/V2.md §3) */}
+          {onNavigate && (
+            <>
+              <button className={item} onClick={go(() => onNavigate('worship'))}><Church size={15} /> 예배</button>
+              <button className={item} onClick={go(() => onNavigate('word'))}><BookOpen size={15} /> 말씀</button>
+              <button className={item} onClick={go(() => onNavigate('groups'))}><HeartHandshake size={15} /> 모임</button>
+            </>
+          )}
           <button className={item} onClick={go(onOpenProfile)}><Settings size={15} /> 설정</button>
           {/* 멤버는 관리자에게만. 하단 탭 네 자리는 핸드오프 규격이라 다섯 번째를
               끼우지 않는다 — 설정·전체 일정과 같은 처리다(§4.6). */}
@@ -299,6 +308,10 @@ export const TopNav = React.memo(({
           {gnav('dashboard', '전체 대시보드')}
           {gnav('myTasks', '내 업무', myTasksCount)}
           {gnav('schedule', '전체 일정')}
+          {/* v2 임시 진입로 — 회차 3 IA 재편에서 '홈·예배·말씀·모임 | …' 한 줄로 재배치한다(docs/V2.md §3) */}
+          {gnav('worship', '예배')}
+          {gnav('word', '말씀')}
+          {gnav('groups', '모임')}
         </div>
         <div className="flex-1 flex items-center justify-end gap-2 min-w-0">
           {/* Undo / Redo — 클라우드 모드에선 다른 사람과 상태가 어긋나므로 숨김 */}
@@ -531,7 +544,7 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
         <SearchBox onSearchSelect={onSearchSelect} variant="icon" />
         {cloudMode && <NotificationBell onOpenTask={onOpenTask} />}
         {/* 설정은 상단 헤더로 — 하단 탭 네 자리는 프로젝트·내 업무·대시보드·팀이 쓴다 */}
-        <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} />
+        <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} onNavigate={setActiveMenu} />
       </div>
       {project && (
         <MobileProjectTabs

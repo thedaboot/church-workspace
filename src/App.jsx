@@ -11,6 +11,10 @@ import { ProfileModal, ProjectModal } from './modals/settings.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
 import { MembersView } from './views/membersView.jsx';
+// v2 화면 (docs/V2.md §3) — 회차 2 세 줄기가 각자 자기 파일만 채운다
+import { WorshipView } from './views/worshipView.jsx';
+import { WordView } from './views/wordView.jsx';
+import { GroupsView } from './views/groupsView.jsx';
 import { ToastHost, showToast } from './components/Toast.jsx';
 import { setTaskLinkOpener } from './components/RichText.jsx';
 import * as cloudSync from './services/cloudSync.js';
@@ -24,7 +28,7 @@ import logoDark from './assets/logo-dark.png';
 // (오해되면 '없는 프로젝트'로 판정돼 대시보드로 튕긴다).
 // 새 전역 화면을 만들면 여기에도 넣는다 — 없으면 프로젝트 id로 오해돼
 // '없는 프로젝트'로 판정되고 대시보드로 튕긴다(§3).
-const GLOBAL_MENUS = ['dashboard', 'myTasks', 'schedule', 'members'];
+const GLOBAL_MENUS = ['dashboard', 'myTasks', 'schedule', 'members', 'worship', 'word', 'groups'];
 
 // 클라우드 초기 로드 중 미니멀 스플래시 (로고 + 살짝 pulse)
 function CloudSplash() {
@@ -524,6 +528,9 @@ function WorkspaceShell() {
           {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} filter={dashFilter} setFilter={setDashFilter} />}
           {activeMenu === 'schedule' && <ScheduleView onTaskClick={handleTaskClick} />}
           {activeMenu === 'members' && <MembersView isAdmin={isAdmin} isMaster={isMaster} />}
+          {activeMenu === 'worship' && <WorshipView />}
+          {activeMenu === 'word' && <WordView />}
+          {activeMenu === 'groups' && <GroupsView />}
           {activeMenu === "myTasks" && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {isProjectScreen && (
