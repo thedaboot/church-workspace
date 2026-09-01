@@ -270,6 +270,8 @@ export const TopNav = React.memo(({
   const measureRef = useRef(null);
   const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0);
   const { shown, rest } = splitProjectTabs(tabSource, activeMenu, tabFit);
+  // 프로젝트 탭 줄은 업무 축 화면에서만 — 교회 생활 화면(예배·말씀·모임)에서는 접힌다
+  const showProjectRow = !['worship', 'word', 'groups'].includes(activeMenu);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRootRef = useRef(null);
   const moreBtnRef = useRef(null);
@@ -305,13 +307,16 @@ export const TopNav = React.memo(({
           <img src={logoDark} alt="더다붓" className="h-7 w-auto hidden dark:block" />
         </button>
         <div className="flex items-center gap-1 shrink-0">
-          {gnav('dashboard', '전체 대시보드')}
-          {gnav('myTasks', '내 업무', myTasksCount)}
-          {gnav('schedule', '전체 일정')}
-          {/* v2 임시 진입로 — 회차 3 IA 재편에서 '홈·예배·말씀·모임 | …' 한 줄로 재배치한다(docs/V2.md §3) */}
+          {/* 교회 생활(예배·말씀·모임) | 업무(대시보드·내 업무·일정) — 두 축을 구분선으로
+              가른다(사용자 요청 2026-09-01, docs/V2.md §3의 데스크톱 그림). 회차 3에서
+              '홈'이 교회 축 맨 앞에 붙는다 */}
           {gnav('worship', '예배')}
           {gnav('word', '말씀')}
           {gnav('groups', '모임')}
+          <span aria-hidden className="w-px h-4 bg-line mx-1.5 shrink-0" />
+          {gnav('dashboard', '전체 대시보드')}
+          {gnav('myTasks', '내 업무', myTasksCount)}
+          {gnav('schedule', '전체 일정')}
         </div>
         <div className="flex-1 flex items-center justify-end gap-2 min-w-0">
           {/* Undo / Redo — 클라우드 모드에선 다른 사람과 상태가 어긋나므로 숨김 */}
@@ -327,6 +332,12 @@ export const TopNav = React.memo(({
         </div>
       </div>
 
+      {/* 예배·말씀·모임에서는 프로젝트 탭 줄이 서지 않는다 — 업무 축의 물건이다
+          (사용자 요청 2026-09-01). grid-rows 0fr↔1fr 전환으로 자연스럽게 접고 편다 —
+          max-height 방식은 값을 추정해야 해서 끝에서 뚝 끊긴다. 모션 최소화 설정은 뺀다. */}
+      <div className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+        style={{ gridTemplateRows: showProjectRow ? '1fr' : '0fr' }}>
+      <div className="min-h-0 overflow-hidden">
       <div ref={tabRowRef} className="relative flex items-end px-6 border-t border-line/70 overflow-hidden">
         {/* 측정 전용 줄 — 화면 밖(invisible)에 전체 탭을 실제 클래스로 그려 폭을 잰다.
             aria-hidden + pointer-events-none: 보조기기·클릭에 잡히지 않는다. */}
@@ -399,6 +410,8 @@ export const TopNav = React.memo(({
             남는 폭은 더보기와 이 버튼 사이에 선다(사용자 확정 2026-09-01).
             폭 계산(avail)이 이 버튼 폭을 빼고 있어 탭과 겹칠 일은 없다. */}
         <button onClick={onOpenProject} className="ml-auto px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint hover:text-fg-muted transition-colors whitespace-nowrap">+ 프로젝트</button>
+      </div>
+      </div>
       </div>
     </div>
   );
