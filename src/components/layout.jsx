@@ -64,8 +64,7 @@ function useTabFit(tabRowRef, measureRef, count, alwaysMore) {
       const cs = getComputedStyle(row);
       // -16: 측정 span과 실제 button 렌더 사이의 미세 오차(서브픽셀·보더) 여유.
       // 딱 맞는 경계(800px에 670px 탭)에서 몇 px 넘쳐 '+ 프로젝트'가 잘렸다.
-      // -8: 연도와 첫 탭 사이 간격(첫 탭의 ml-2). offsetWidth는 마진을 안 재서 따로 뺀다.
-      const avail = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - plusW - yearW - 16 - 8;
+      const avail = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - plusW - yearW - 16;
       let used = 0, k = 0;
       for (let i = 0; i < count; i++) {
         const needMore = alwaysMore || i < count - 1;  // 이 뒤에 더보기가 서야 하나
@@ -332,10 +331,10 @@ export const TopNav = React.memo(({
           {/* 연도 버튼도 같은 줄을 쓴다 — 폭 계산에 안 넣으면 탭이 한 칸씩 넘친다.
               **맨 뒤**에 둔다: 앞에 끼우면 useTabFit의 kids 인덱스가 통째로 밀려
               탭 폭이 엉뚱하게 잡힌다(800px에서 8개가 다 들어간다고 나왔다). */}
-          <span className="shrink-0 inline-flex items-center gap-1 pr-3 pt-2.5 pb-2 text-[13px] font-semibold tabular-nums">{year} <ChevronDown size={13} /></span>
+          <span className="shrink-0 inline-flex items-center gap-1 pr-1.5 pt-2.5 pb-2 text-[13px] font-semibold tabular-nums">{year} <ChevronDown size={13} /></span>
         </div>
         <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} />
-        {shown.map((p, i) => (
+        {shown.map(p => (
           <button
             key={p.id} onClick={() => setActiveMenu(p.id)}
             draggable
@@ -346,11 +345,11 @@ export const TopNav = React.memo(({
             // truncate(overflow-hidden)를 버튼에 직접 주면 **경계에 걸친 얼굴이 잘린다**
             // (실제로 반이 잘려 나갔다 — 2026-08-30). 말줄임은 안쪽 span이 맡고
             // 버튼은 클리핑하지 않는다.
-            // 첫 탭의 ml-2: 연도 버튼과 탭 사이 숨 고르기. 탭은 **왼쪽 정렬**이고
-            // 들어가는 만큼 최대한 세운 뒤 넘칠 것만 더보기로 접는다(사용자 확정
-            // 2026-09-01 — 오른쪽 몰기로 갔다가 되돌렸다. 공백은 더보기와
-            // + 프로젝트 사이에 남는 것이 맞다). avail이 이 8px을 같이 뺀다.
-            className={`relative px-3.5 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap max-w-[220px] ${i === 0 ? 'ml-2' : ''} ${activeMenu === p.id ? 'text-fg border-fg' : 'text-fg-muted border-transparent hover:text-fg'} ${dragTabId === p.id ? 'opacity-50' : ''}`}
+            // 탭은 **왼쪽 정렬** — 들어가는 만큼 최대한 세운 뒤 넘칠 것만 더보기로
+            // 접고, 공백은 더보기와 + 프로젝트 사이에 남는다(사용자 확정 2026-09-01).
+            // 연도와 첫 탭 사이 간격은 YearPicker의 pr-1.5 + 탭 px-3.5가 전부다 —
+            // 더 벌리고 싶으면 마진이 아니라 그 둘을 만져야 measure와 안 어긋난다.
+            className={`relative px-3.5 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap max-w-[220px] ${activeMenu === p.id ? 'text-fg border-fg' : 'text-fg-muted border-transparent hover:text-fg'} ${dragTabId === p.id ? 'opacity-50' : ''}`}
           >
             <span className="block max-w-full truncate">{p.title}</span>
             {/* 지금 이 프로젝트를 보고 있는 사람. **자리를 차지하지 않게 얹는다** —
@@ -431,7 +430,7 @@ export function YearPicker({ year, years, yearCounts = {}, onPick, compact = fal
     <span ref={rootRef} className="inline-flex shrink-0">
       <span ref={btnRef} className="inline-flex">
         <button onClick={() => { place(); setOpen(o => !o); }} title="연도 고르기"
-          className={`inline-flex items-center gap-1 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-muted hover:text-fg transition-colors tabular-nums ${compact ? 'px-2 pt-2.5 pb-2' : 'pl-0 pr-3 pt-2.5 pb-2'}`}>
+          className={`inline-flex items-center gap-1 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-muted hover:text-fg transition-colors tabular-nums ${compact ? 'px-2 pt-2.5 pb-2' : 'pl-0 pr-1.5 pt-2.5 pb-2'}`}>
           {year} <ChevronDown size={13} />
         </button>
       </span>
