@@ -397,6 +397,13 @@
   - **동아리 신청/수락.** 일반 계정으로 신청 → 그 동아리 리더 계정에서 수락 → 구성원에 들어가는지.
   - **모바일 하단 바.** 실기기에서 첫 화면이 홈인지, '업무'를 누르면 바가 업무 바로 바뀌고 '홈'으로 돌아오는지.
   - **주보 구절 → 성경 읽기.** 발행된 주보의 본문 구절을 누르면 성경 읽기가 그 장에서 열리는지.
+  - **(4차 · 0039) 관리자(마스터 아님) 계정**으로 남의 동아리 이름·설명 수정이 통과하는지 · **교역자 계정**에
+    순 편성 탭이 없는지 · **순장 계정**이 내 순 탭 맨 위에서 순모임 가이드를 읽는지, 마스터·관리자·리더순장이
+    'AI로 만들기'로 생성→다듬기→저장이 되는지(GEMINI 키가 있는 배포에서만 — 게스트는 실패 경로만 봤습니다).
+  - **(4차) 찬양 유튜브 가져오기.** 재생목록 주소로 곡이 들어오는지(최신 15곡 상한), 영상 주소를 링크 칸에 붙이면
+    제목이 채워지는지 — `api/yt.js`는 배포에서만 돕니다.
+  - **(4차) 예배 노트 저장 버튼.** 저장 뒤 새로고침해서 남는지, '내 순에 공유'를 켜고 저장하면 순장의 내 순에 뜨는지.
+  - **(4차) QT 공유 토글 즉시 저장**(`qt_entries.shared`) · 나눔에서 지우면 공유만 해제되고 내 묵상은 남는지.
 
 ### 1.2 다음에 만들 것 (사용자가 고른 것)
 
@@ -599,6 +606,10 @@ src/components/groups*.jsx  (v2) groupsSun(내 순·순 편성) · groupsClub(�
                             · groupsParts(공용 — CARD·BTN·FIELD 클래스, PersonPick·MenuPick 피커,
                               PersonTag, Empty 빈 상태, useDismiss. **roster.jsx도 이 클래스를 쓴다**)
 src/components/roster.jsx   (v2) 명단 관리 — 멤버 화면의 [계정 | 명단] 탭 중 '명단'(마스터+관리자)
+src/components/sunGuide.jsx (v2) 순모임 가이드 패널 — 내 순 탭 맨 위. AI가 채운 템플릿 3장(주일 본문 ·
+                            말씀 요약 · 포인트 3 · 나눔 질문 3)을 보고, 자격이 있으면 만들고·다듬고·다시 만든다
+src/components/DatePicker.jsx 노션 톤 데이트피커 — children(트리거 대체)·triggerClassName·allowClear를 받는다
+                            (QT 날짜가 트리거를 대체해 쓴다. 기본값은 예전 호출부와 같다)
 src/views/views.jsx         DashboardView / ProjectView / MyTasksView / TeamView / ScheduleView
                             / TeamFilterBar
 src/views/dashboardParts.jsx  여러 화면이 공유하는 부품: 마감 구간 계산(byDue·groupByDue·
@@ -634,7 +645,8 @@ src/services/               cloud.js(Supabase) · cloudSync.js(모양 변환 + �
                               · worship.js(주보·출석·노트·자격) · word.js(QT 일정·묵상·bible_state)
                               · groups.js(순·동아리·신청·모임·groupPerms) · roster.js(명단 쓰기·계정 연결)
                               · bibleRef.js(구절 파서 — 주보·QT·리더가 한 벌) · bible.js(public/bible
-                              로더·캐시). 워크스페이스 스토어에 넣지 않는다(people.js 머리말)
+                              로더·캐시) · sunGuide.js(순모임 가이드 — 프롬프트·JSON 파싱·글자수 맞춤
+                              `fitGuide`·`sun_guides` 저장. §4.4). 워크스페이스 스토어에 넣지 않는다(people.js 머리말)
 src/store/                  useSyncExternalStore 기반 커스텀 스토어 + 셀렉터
 src/hooks/                  controllers.js(저장·삭제 등 쓰기 경로) · useIsMobile.js ·
                             useForceGraph.js(그래프 시뮬 루프·alpha 냉각·노드 드래그 —
@@ -643,6 +655,9 @@ src/hooks/                  controllers.js(저장·삭제 등 쓰기 경로) · 
                             useEnterStagger.js(순차 등장은 첫 마운트만, §4.2)
                             (useForceGraph는 연결 지도와 프로젝트 그래프 뷰가
                             **한 벌로** 쓴다 — 갈라 두지 말 것, §4.9)
+public/chars/               (v2) 캐릭터 28컷(webp, 투명 배경) — `public/chars.png` 시트를 알파 덩어리 기준으로
+                            잘랐다. 홈 히어로(시각별 coffee·sleep·hug-side)가 쓴다. 원본 크기(177~225px)
+                            이상으로 키우지 말 것. `char.png`는 배경이 불투명한 원본 — 화면에 쓰지 않는다
 public/bible/               (v2) 개역한글 66권 json(책 단위 청크 · 31,103절) + index.json. 정합 검사는
                             scripts/bible_check.mjs · tests/bibleref
 public/sw.js                서비스 워커 — 푸시 표시 + 클릭 시 딥링크. 캐싱은 하지 않는다
@@ -651,6 +666,8 @@ api/                        ai.js(Gemini 프록시) · share.js(OG 메타)
                             · drive.js(Apps Script 프록시 — 업로드·폴더·휴지통)
                             · drive-file.js(드라이브 파일 바이트 중계 — 앱 안 뷰어용,
                               브라우저는 drive.google.com에 CORS로 막힌다)
+                            · yt.js(유튜브 재생목록 RSS·oEmbed 중계 — API 키 없이 재생목록 최신 15곡과
+                              영상 제목을 받는다. ai.js와 같은 Bearer 인증, id만 받아 열린 프록시가 아니다)
 scripts/subset_suit.py      폰트 조각 생성(한 번 돌리고 결과물을 커밋 — §4.2)
 tests/                      검증 스위트 + 러너
 docs/V2.md                  v2 설계·진행 기록 정본 — §5부터 읽는다
@@ -837,6 +854,15 @@ FAIL로 남기세요**(그래야 어느 단정에서 어긋났는지 보입니�
   프롬프트에 그대로 실려서 모델이 파일명을 "다른 업무"로 감싸는 일이 실제로 있었고
   (`2026 하계 수련회-3.xlsx`), 프롬프트에도 "첨부 파일 이름에는 표시를 붙이지 마라"가
   같이 들어 있습니다(두 겹).
+
+**순모임 가이드(2026-09-02 · `services/sunGuide.js`)** — 주보 한 건을 받아 템플릿(주일 본문 · 말씀
+요약 · 포인트 3 · 오늘의 나눔 질문 3)을 **JSON으로만** 채우게 한다. 프롬프트에는 설교 제목·구절·설교자와
+**개역한글 본문 전문**(`bible.js`, 60절에서 자르고 그렇다고 적음)이 실리고, 상한(`LIMITS` — 요약 380 ·
+소제목 24 · 단락 260 · 질문 80자)을 숫자로 말해 준다. 응답은 `isFallbackText`로 안내 문구를 먼저 거르고
+첫 `{`~마지막 `}`만 파싱해 모양을 검증한 뒤 `fitGuide`가 **문장 경계에서** 자른다(배열은 항상 3). 번호와
+'Q.'는 화면이 붙인다 — 글에 넣으면 모델이 번호를 어긋나게 매기고 상한도 번호가 잡아먹는다. `passage.ref`는
+모델 값이 아니라 **주보 값으로 덮어쓴다**(순장이 읽어 주는 줄이 주보와 어긋나면 안 된다). 저장은
+`sun_guides`(0039), 자격은 만들기 = `can_manage_sun`, 보기 = 순장. tests/sunguide가 검사한다.
 
 ### 4.5 권한이 어디서 막히나
 
@@ -1286,7 +1312,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 
 ## 5. 데이터 · 스키마 · 비밀
 
-스키마는 `supabase/migrations/0001~0038`이고 **전부 라이브 DB에 적용**되어 있습니다
+스키마는 `supabase/migrations/0001~0039`이고 **전부 라이브 DB에 적용**되어 있습니다
 (0001~0005는 대시보드에서 수동, 이후는 `npx supabase db push --db-url "$SUPABASE_DB_URL"`).
 
 | 파일 | 한 일 |
@@ -1329,6 +1355,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | `0036_worship_and_word` | v2 기반 ②: `services`(주보 draft→published) · `attendance`(사람 축은 person) · `service_notes` · `qt_schedule` · `qt_entries` · `bible_state`. 읽기는 승인 멤버, 쓰기는 `docs/V2.md` 권한 표대로 **DB에서도** 막는다 |
 | `0037_roster_seed` | 사용자가 준 명단 그대로 — 53명(순 6 · 임원 6 · 팀 배정 · 동아리 5) + `leads_sun_of` 보강 |
 | `0038_qt_plan_and_polish` | QT 읽기표 2026·2027 **730일** 시드(사용자가 준 이미지를 어시스턴트가 옮겨 적음 — 새해 표도 같은 방식, 화면의 붙여넣기 도구는 뺐다) · `groups.position`(동아리 카드 순서) · `bible_state.highlights`(절 형광펜) |
+| `0039_sun_guides_and_perms` | 4차 피드백(2026-09-02): `can_manage_sun()` = **마스터 + 관리자 + 리더순장**(교역자 빠짐 — 사용자 결정 "우선") · `groups_update`(동아리)를 관리자·리더에게 · `sun_guides`(주보 한 건당 순모임 가이드 한 벌, body jsonb — AI가 채운 템플릿. 읽기 = 순장(`leads_any_sun`)+만드는 사람, 쓰기 = `can_manage_sun`) |
 
 알아둘 것:
 
@@ -1655,6 +1682,19 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
   끌어 고르다 손을 딤 위에서 떼는 것만으로 닫히면 쓰던 글이 날아간다.
   **온보딩 중에는 안 닫힌다**(이름·팀을 채우기 전에는 못 닫는 규칙 그대로).
 
+9-h. **빈 상태의 `min-h-[46vh]` 같은 고정값은 화면마다 어긋난다** — 위에 선 것(헤더·탭 줄·모바일 상단 바)의
+    높이가 화면마다 달라, 어떤 화면에서는 아래가 통째로 비고 어떤 화면에서는 스크롤이 생긴다. 스크롤 박스
+    (App의 `main`) 안에서 **제 자리를 재서 남는 만큼을 min-height로만** 준다(`worshipDetail.jsx`의
+    `useFillRest`) — min-height만 주면 자기 top이 안 바뀌어 재측정 루프가 없고, 창 크기가 바뀔 때만 다시 잰다.
+    **자기 아래에 깔린 것**(감싸개의 `pb-*`, 뒤에 오는 형제)도 빼야 스크롤이 안 생긴다. groupsParts `Empty`의
+    `minH`는 아직 고정값이다(홈은 히어로가 채워서 18vh로만 낮췄다).
+9-i. **형광펜·강조 배경은 블록이 아니라 인라인 요소에** — `<p>`에 배경을 주면 줄 전체가 칠해진다. 글자를
+    `<mark>`로 감싸고 `box-decoration-break: clone`을 주면 여러 줄로 감겨도 글자 폭만 칠해진다
+    (`wordBible.jsx` HL_STYLE). 절 번호는 mark 밖에 둔다.
+9-j. **눌릴 것처럼 보이는 화살표는 눌려야 한다** — 본문 선택 피커의 책 칸 ▾가 장식용 SVG여서 아무 데도
+    붙어 있지 않았다(2026-09-02 지적). 검사는 `el.click()`이 아니라 **실제 mousedown**으로 해야 잡힌다
+    (`worshipPassage.jsx`).
+
 ### dnd-kit
 
 10. **가로 자동 스크롤이 드롭 타깃을 빗나가게 만든다** — 손가락이 화면 오른쪽 20%에 들어가면
@@ -1698,6 +1738,9 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     `measuredRef`를 넘기면 실제 높이로 다시 잡는다. 추정 높이만 쓰면 위로 뜨는 팝오버가
     트리거에서 100px 떠 보인다. 여는 순간 `place()`를 먼저 호출해야 첫 프레임이 `{0,0}`에
     안 그려진다.
+17-c. **위치를 state로 든 팝오버는 앵커가 바뀌면 `key`로 새로 마운트한다.** `useAnchoredPos`의 deps는
+    `open`뿐이라, 열려 있는 채 다른 절을 누르면 같은 컴포넌트가 재사용되어 **앞 절 좌표에 그대로** 남는다
+    (형광펜 팝오버가 엉뚱한 자리에 뜨던 진짜 원인 — `wordBible.jsx` `key={pickRef}`).
 17-b. **tailwind `duration-150`은 `transition-duration`만 정한다.** `transition-property`의 초깃값이
     `all`이라, 위치를 state로 잡는 팝오버에 `duration-*`만 걸면 **top/left까지 전이되어 첫 배치에서
     미끄러져 들어온다**(성경 읽기의 형광펜 팝오버에서 봤다, 2026-09-02). 팝오버에는 `transition-none`을
@@ -2211,6 +2254,8 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 - **`/`는 v2(2026-09)부터 홈이다.** 업무 화면(대시보드·보드·달력)을 보는 스위트는 `/?p=dashboard`나
   `/?p=<프로젝트>`로 들어가야 한다. 시드 날짜를 고정값으로 두면 달이 바뀐 뒤 달력 막대가 0개가
   된다(calfit) — 오늘 기준으로 만든다.
+- **"남는 공간을 채웠나"를 칸의 부모로 재면 늘 0이 나와 통과한다** — 일부러 되돌려도 안 잡혔다. 화면
+  감싸개의 끝과 스크롤 박스 바닥으로 재야 한다(worship '빈 목록 칸이 남는 공간을 그대로 차지한다').
 
 32. 페이지에 주입하는 문자열은 JS 템플릿 리터럴이라 `\d`가 `d`로 죽는다 → `[0-9]`.
 33. Chrome은 `linear-gradient` 직렬화에서 `180deg`를 생략한다 → 가로 판정은 `to right`/`90deg`로.

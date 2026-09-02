@@ -18,6 +18,18 @@
 //   · 절을 눌러도 바로 안 칠해진다 — 그 절 옆 선택 팝오버(긋기/지우기)를 거친다
 //   · '내 기록'이 책별로 묶이고, 펼친 책의 파일만 그때 받는다(리소스 타이밍으로 확인)
 //
+// 2026-09-02 4차 피드백(7~12)에서 바뀐 것:
+//   · QT 상단 날짜가 데이트피커 트리거다(이전/다음 화살표는 그대로)
+//   · 날짜를 넘길 때 본문 자리를 **넘기기 직전 높이로 붙잡아** 둔다 — 묵상 칸이
+//     위로 올라왔다 내려가지 않고, 묵상 에디터도 언마운트되지 않는다
+//   · 공유 토글은 dirty를 건드리지 않고 shared 칸만 즉시 저장한다(칩으로 표시)
+//   · 나눔 줄의 지우기 = **공유 해제**(내 기록에는 남는다) · 진짜 삭제는 '내 묵상' 칸
+//   · 잔디 칸 13px(날짜 숫자 대신 요일 머리글·월·title)
+//   · 성경 읽기: [목차 | 북마크 | 형광펜] 세그먼트 · 리더 되돌아가기는 '책 목록'
+//   · 형광펜은 절 상자가 아니라 **글자에만** 칠해진다(인라인 mark + box-decoration-break)
+//   · 형광펜 팝오버는 다른 절을 눌러도 그 절을 따라간다(절마다 key로 새로 마운트)
+//   · '형광펜 긋기' → '형광펜 칠하기'
+//
 // 3차 점검에서 본 것:
 //   · 형광펜 선택 팝오버가 **첫 프레임부터** 그 절 옆에 선다 — 자리를 잡기 전 한 번
 //     그려지면 화면 구석에서 날아온다. 열자마자 rAF로 top·left를 훑어 확인한다
@@ -178,6 +190,24 @@ const grass = await ev(`(() => {
 check('잔디 집계 문구', grass.line === `이번 주 ${expWeek}번, 이번 달 ${expMonth}번 기록했어요`,
   `${grass.line} / 기대 이번 주 ${expWeek} · 이번 달 ${expMonth}`);
 check("'연속'·배지·순위는 화면에 없다", grass.streak === false);
+// 칸 크기(4차 피드백 9) — 12~14px 정사각. 숫자는 안 들어가므로 날짜는 title·요일 머리글·월이 말한다
+const cells = await ev(`(() => {
+  const list = [...document.querySelectorAll('button[title]')].filter(b => /^\\d+월 \\d+일 \\([일월화수목금토]\\)$/.test(b.title));
+  if (!list.length) return null;
+  const r = list[0].getBoundingClientRect();
+  return { n: list.length, w: Math.round(r.width), h: Math.round(r.height),
+    numbered: list.some(b => b.textContent.trim() !== ''),
+    labelled: list.every(b => (b.getAttribute('aria-label') || '') === b.title),
+    week: [...document.querySelectorAll('span')].filter(s => ['일','월','화','수','목','금','토'].includes(s.textContent.trim())).length };
+})()`);
+const monthLen = word.monthDays(today).days.length;
+check('잔디 칸이 12~14px로 줄었다', !!cells && cells.w >= 12 && cells.w <= 14 && cells.h === cells.w,
+  JSON.stringify(cells));
+check('잔디는 그 달의 날 수만큼 서고 칸마다 날짜가 붙는다',
+  !!cells && cells.n === monthLen && cells.labelled && !cells.numbered, JSON.stringify(cells));
+check('요일 머리글과 연·월이 함께 보인다',
+  !!cells && cells.week >= 7 && (await ev(`document.body.innerText.includes(${JSON.stringify(`${word.monthDays(today).year}년 ${word.monthDays(today).month}월`)})`)) === true,
+  JSON.stringify(cells));
 
 // 5) 본문표 붙여넣기 도구는 없다(0038 시드로 대체) — 마스터에게도 안 보인다
 const noPaste = await ev(`(() => ({
@@ -196,9 +226,42 @@ const editor = await ev(`(() => ({
 check('묵상 칸이 마크다운 에디터로 바뀌었다', editor.tiptap && !editor.textarea, JSON.stringify(editor));
 check('서식 바가 같이 온다(굵게·형광펜·제목·체크리스트)', editor.bar === 4, String(editor.bar));
 
-// 7) 날짜 이동 — 어제 / 오늘. 기다리는 자리는 스켈레톤이 지킨다
+// 7) 날짜 이동 — 어제 / 오늘. 기다리는 자리는 스켈레톤이 지킨다.
+// **넘기는 동안 아래 칸이 위로 올라오면 안 된다**(4차 피드백 7). 본문 자리를 넘기기
+// 직전 높이로 붙잡아 두므로, 본문이 도착하기 전(절이 0개인 프레임들) 동안 '내 묵상'
+// 머리글의 y는 그대로여야 한다. 예전에는 자리가 320px로 줄어 300px쯤 위로 뛰었다.
+// 에디터가 그 사이 언마운트되지 않는지도 같이 본다(표식을 심어 두고 살아 있는지 확인).
 await watchSkeleton();
-await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.getAttribute('aria-label')==='어제'); b && b.click(); })()`);
+const steady = await ev(`(async () => {
+  const head = () => [...document.querySelectorAll('h3')].find(h => h.textContent.trim() === '내 묵상');
+  const tip = document.querySelector('.tiptap');
+  if (tip) tip.dataset.probe = '1';
+  const before = head().getBoundingClientRect().top;
+  const seen = [];
+  let stop = false;
+  const tick = () => {
+    const h = head();
+    if (h) seen.push([h.getBoundingClientRect().top, document.querySelectorAll('p[data-verse]').length]);
+    if (!stop) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  const b = [...document.querySelectorAll('button')].find(x => x.getAttribute('aria-label') === '어제');
+  b.click();
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 16));
+    if (document.querySelectorAll('p[data-verse]').length) break;
+  }
+  stop = true;
+  const waiting = seen.filter(([, n]) => n === 0).map(([t]) => t);
+  return { before, frames: seen.length, waited: waiting.length,
+    up: waiting.length ? +(before - Math.min(...waiting)).toFixed(1) : -1,
+    kept: (document.querySelector('.tiptap') || {}).dataset?.probe === '1' };
+})()`, true);
+// 게스트에서는 기다리는 시간이 짧아 표본이 두세 프레임뿐이다 — 그래도 자리가 320px로
+// 줄면 그 두 프레임에 300px 가까이 뛰므로 걸린다
+check('날짜를 넘기는 동안 묵상 칸이 위로 올라오지 않는다',
+  steady.waited >= 2 && steady.up <= 8, JSON.stringify(steady));
+check('날짜가 바뀌어도 묵상 에디터는 그대로 서 있는다', steady.kept === true, JSON.stringify(steady));
 await sleep(900);
 const yest = await ev(`(() => ({
   date: (document.body.innerText.match(/\\d+년 \\d+월 \\d+일 \\([일월화수목금토]\\)/) || [])[0] || '',
@@ -222,6 +285,38 @@ await clickText('오늘');
 await sleep(900);
 check("'오늘'이 오늘로 되돌린다",
   (await ev(`(document.body.innerText.match(/\\d+년 \\d+월 \\d+일 \\([일월화수목금토]\\)/)||[''])[0]`)) === word.dayLabel(today));
+
+// 7-b) 상단 날짜가 데이트피커다(4차 피드백 10) — 화살표는 그대로 남아 있다
+const openedPicker = await clickSel('button[aria-label="QT 날짜 고르기"]');
+await sleep(350);
+const picker = await ev(`(() => {
+  const p = document.querySelector('[data-datepicker]');
+  if (!p) return null;
+  const r = p.getBoundingClientRect();
+  return {
+    days: [...p.querySelectorAll('button')].filter(b => /^\\d+$/.test(b.textContent.trim())).length,
+    clear: p.innerText.includes('지우기'),
+    inView: r.left >= -1 && r.right <= innerWidth + 1,
+    arrows: [...document.querySelectorAll('button[aria-label]')]
+      .filter(b => ['어제', '내일'].includes(b.getAttribute('aria-label'))).length,
+  };
+})()`);
+check('상단 날짜를 누르면 데이트피커가 뜬다', openedPicker === true && !!picker && picker.days >= 28,
+  JSON.stringify(picker));
+check('QT 데이트피커에는 지우기가 없다', !!picker && picker.clear === false, JSON.stringify(picker));
+check('데이트피커가 화면 안에 든다', !!picker && picker.inView === true, JSON.stringify(picker));
+check('이전·다음 화살표는 그대로 있다', !!picker && picker.arrows === 2, JSON.stringify(picker));
+const picked15 = await ev(`(() => {
+  const p = document.querySelector('[data-datepicker]');
+  const b = [...p.querySelectorAll('button')].find(x => x.textContent.trim() === '15');
+  if (!b) return false; b.click(); return true;
+})()`);
+await sleep(1000);
+check('데이트피커에서 고른 날로 간다', picked15 === true
+  && (await ev(`(document.body.innerText.match(/\\d+년 \\d+월 \\d+일 \\([일월화수목금토]\\)/)||[''])[0]`)) === word.dayLabel(`${monthOf}-15`),
+  word.dayLabel(`${monthOf}-15`));
+await clickText('오늘');
+await sleep(900);
 
 // 8) 등록 없는 날 — 빈 상태
 await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.getAttribute('aria-label')==='내일'); b && b.click(); })()`);
@@ -249,7 +344,8 @@ check('빈 상태가 본문 자리의 세로 가운데에 선다', !!emptyFit &&
 await clickText('오늘');
 await sleep(900);
 
-// 9) 내 나눔 — 수정·삭제는 내 글에만, 삭제는 확인 팝오버를 거친다
+// 9) 내 나눔 — 고치기는 '내 묵상' 칸으로, **지우기는 공유 해제**(4차 피드백 8)
+const seedBody = seed.entries[today].body;
 const mineRow = await ev(`(() => ({
   edit: !!document.querySelector('button[aria-label="내 나눔 고치기"]'),
   del: !!document.querySelector('button[aria-label="내 나눔 지우기"]'),
@@ -262,46 +358,81 @@ check('고치기는 내 묵상 칸에 커서를 준다',
   await ev(`!!document.activeElement && !!document.activeElement.closest('.tiptap')`));
 await ev(`(() => { document.querySelector('button[aria-label="내 나눔 지우기"]').click(); })()`);
 await sleep(300);
-const confirmSeen = await ev(`document.body.innerText.includes('이 날 묵상을 지울까요')`);
-check('지우기는 확인 팝오버를 거친다', confirmSeen === true);
-await clickText('삭제');
-await sleep(800);
-const afterDelete = await ev(`(() => ({
+const confirmSeen = await ev(`document.body.innerText.includes('이 날의 묵상을 지우고 내 기록에만 남겨둘까요?')`);
+check('나눔 지우기는 내 기록에 남는다고 묻는다', confirmSeen === true);
+await clickText('지우기');
+await sleep(900);
+const afterUnshare = await ev(`(() => ({
   stored: JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}] || null,
   feedEmpty: document.body.innerText.includes('이 날짜에 올라온 나눔이 아직 없어요'),
+  inEditor: (document.querySelector('.tiptap') || {}).innerText || '',
 }))()`);
-check('지우면 그 날 묵상이 사라진다', afterDelete.stored === null && afterDelete.feedEmpty,
-  JSON.stringify(afterDelete));
+check('나눔 지우기는 공유만 내린다(묵상은 남는다)',
+  !!afterUnshare.stored && afterUnshare.stored.shared === false
+  && afterUnshare.stored.body === seedBody && afterUnshare.feedEmpty,
+  JSON.stringify(afterUnshare));
+check('내 묵상 칸의 글은 그대로다', afterUnshare.inEditor.includes(seedBody), afterUnshare.inEditor);
+check('공유를 내려도 저장 버튼은 꺼져 있다', (await saveDisabled()) === true);
 
-// 10) 나만 보기 / 더다붓에 공유하기 — 이미 그 상태인 쪽을 눌러도 저장이 켜지지 않는다
-// 이름이 '나누기'에서 바뀌었다(2026-09-02) — 어디로 나가는지가 이름에 있어야 한다
+// 10) 나만 보기 / 더다붓에 공유하기 — **토글은 편집 상태를 건드리지 않는다**(4차 피드백 8)
+// 이름은 '나누기'에서 바뀌었다(2026-09-02) — 어디로 나가는지가 이름에 있어야 한다
 const shareLabels = await ev(`(() => {
   const t = [...document.querySelectorAll('button')].map(b => b.textContent.trim());
   return { now: t.includes('더다붓에 공유하기'), old: t.includes('나누기') };
 })()`);
 check("공유 토글은 '더다붓에 공유하기'다", shareLabels.now === true, JSON.stringify(shareLabels));
 check("'나누기'라는 이름은 남아 있지 않다", shareLabels.old === false);
-check('고칠 것이 없으면 저장은 꺼져 있다', (await saveDisabled()) === true);
 await clickText('나만 보기');       // 지금 이미 '나만 보기'다
 await sleep(250);
 check("이미 그 상태인 쪽을 눌러도 저장이 안 켜진다", (await saveDisabled()) === true);
 await clickText('더다붓에 공유하기');
-await sleep(250);
-check('값이 실제로 달라지면 저장이 켜진다', (await saveDisabled()) === false);
+await sleep(900);
+const shared = await ev(`(() => ({
+  stored: JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}] || null,
+  chip: (document.querySelector('[data-share-chip]') || {}).textContent || '',
+  feed: document.body.innerText.includes(${JSON.stringify(seedBody)}),
+}))()`);
+check('공유 토글은 저장 버튼을 켜지 않는다', (await saveDisabled()) === true);
+check('공유 토글이 그 자리에서 shared만 저장한다',
+  !!shared.stored && shared.stored.shared === true && shared.stored.body === seedBody,
+  JSON.stringify(shared.stored));
+check('공유했다는 칩이 뜬다', shared.chip.includes('더다붓에 공유했어요'), shared.chip);
+check('공유를 켜면 나눔에 다시 오른다', shared.feed === true);
 
-// 11) 묵상 저장 — 마크다운 에디터에 쳐 넣고 저장한다
+// 11) 묵상 저장 — 마크다운 에디터에 쳐 넣고 저장한다(그때만 저장이 켜진다)
 await ev(`(() => { const el = document.querySelector('.tiptap'); el.focus(); })()`);
-await send('Input.insertText', { text: '오늘 남긴 한 줄' });
+await send('Input.insertText', { text: ' 그리고 한 줄 더' });
 await sleep(400);
+check('글을 고치면 저장이 켜진다', (await saveDisabled()) === false);
 await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='저장'); b && b.click(); })()`);
 await sleep(900);
 const mine = await ev(`JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}]`);
 check('묵상과 공유 상태가 같이 저장된다',
-  mine && mine.body === '오늘 남긴 한 줄' && mine.shared === true, JSON.stringify(mine));
+  mine && mine.body.includes('그리고 한 줄 더') && mine.shared === true, JSON.stringify(mine));
 check('저장하고 나면 저장이 다시 꺼진다', (await saveDisabled()) === true);
 // 토스트도 토글과 같은 말을 쓴다 — '나눔에 올렸어요'가 아니다
 const toast = await ev(`(document.querySelector('[role="status"]') || {}).textContent || ''`);
 check('저장 토스트가 토글과 같은 말을 쓴다', toast.includes('더다붓에 공유했어요'), toast);
+
+// 11-b) 진짜 삭제는 '내 묵상' 칸에서만(4차 피드백 8) — 지운 뒤에는 공유할 것이 없다
+await ev(`(() => { const b=document.querySelector('button[aria-label="내 묵상 지우기"]'); b && b.click(); })()`);
+await sleep(350);
+check('내 묵상 지우기는 무엇이 없어지는지 묻는다',
+  (await ev(`document.body.innerText.includes('이 날 묵상을 지울까요? 나눔에서도 내려가고 내 기록에서도 빠져요.')`)) === true);
+await clickText('삭제');
+await sleep(900);
+const gone = await ev(`(() => ({
+  stored: JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}] || null,
+  feedEmpty: document.body.innerText.includes('이 날짜에 올라온 나눔이 아직 없어요'),
+  editor: (document.querySelector('.tiptap') || {}).innerText || '',
+  toggleOff: [...document.querySelectorAll('button')]
+    .filter(b => ['나만 보기', '더다붓에 공유하기'].includes(b.textContent.trim())).every(b => b.disabled),
+  trash: !!document.querySelector('button[aria-label="내 묵상 지우기"]'),
+}))()`);
+check('진짜 삭제는 그 날 묵상을 없앤다', gone.stored === null && gone.feedEmpty && !gone.editor.trim(),
+  JSON.stringify(gone));
+check('저장된 글이 없으면 공유 토글은 꺼져 있다', gone.toggleOff === true, JSON.stringify(gone));
+check('지울 것이 없으면 휴지통도 없다', gone.trash === false, JSON.stringify(gone));
 
 // ── 성경 읽기 ───────────────────────────────────────────────────────────────
 check('세그먼트 전환', await clickText('성경 읽기'));
@@ -311,43 +442,59 @@ const toc = await ev(`(() => {
   const heads = [...document.querySelectorAll('h3')].map(h => h.textContent.trim());
   return { ot: heads.includes('구약'), nt: heads.includes('신약'),
            gen: t.includes('창세기'), rev: t.includes('요한계시록'), aa: t.filter(x => x === 'Aa').length,
-           marks: heads.includes('북마크') && heads.includes('형광펜'),
-           empty: document.body.innerText,
+           panes: [...document.querySelectorAll('[data-pane]')].map(b => b.textContent.trim()),
+           active: (document.querySelector('[data-pane][aria-pressed="true"]') || {}).dataset?.pane || '',
+           marks: heads.includes('북마크') || heads.includes('형광펜'),
+           text: document.body.innerText,
            hint: (document.querySelector('input[aria-label="본문 검색"]') || {}).placeholder || '' };
 })()`);
 check('목차가 구약·신약으로 갈린다', toc.ot && toc.nt && toc.gen && toc.rev, JSON.stringify(toc));
 check('글자 크기 Aa 3단계', toc.aa === 3, String(toc.aa));
-check("'내 기록'에 북마크·형광펜 칸이 선다", toc.marks === true);
 check("검색 자리표는 '본문 검색'", toc.hint === '본문 검색', toc.hint);
-// 빈 상태 문구(2026-09-02) — '여기 모입니다'가 아니라 '여기서 볼 수 있어요'
-check("북마크 빈 상태 문구", toc.empty.includes('북마크한 장을 여기서 볼 수 있어요')
-  && !toc.empty.includes('북마크한 장이 여기 모입니다'));
-check("형광펜 빈 상태 문구", toc.empty.includes('형광펜을 칠한 절은 여기서 볼 수 있어요')
-  && !toc.empty.includes('형광펜을 그은 절이 여기 모입니다'));
-// 빈 상태는 마크와 함께 가운데에 선다(§8 · 3차 점검) — 예전에는 줄 왼쪽에 붙은 작은
-// 아이콘 하나에 왼쪽 정렬이었다. 보이는 쪽(넓은 화면은 옆 칸)만 잰다.
-const emptyMarks = await ev(`(() => {
-  const out = {};
-  for (const [k, t] of [['bm', '북마크한 장을'], ['hl', '형광펜을 칠한 절은']]) {
-    const p = [...document.querySelectorAll('p')].filter(x => x.textContent.includes(t))
-      .find(x => x.offsetParent !== null);
-    if (!p) { out[k] = null; continue; }
-    const box = p.parentElement, svg = box.querySelector('svg');
-    const b = box.getBoundingClientRect();
-    out[k] = {
-      mark: !!(svg && svg.querySelector('path.dc-draw')),
-      align: getComputedStyle(p).textAlign,
-      // 마크는 상자의 가로 한가운데 · 위아래 여백은 같아야 한다
-      dx: svg ? Math.round((svg.getBoundingClientRect().left + svg.getBoundingClientRect().width / 2) - (b.left + b.width / 2)) : null,
-      dy: svg ? Math.round((svg.getBoundingClientRect().top - b.top) - (b.bottom - p.getBoundingClientRect().bottom)) : null,
-    };
-  }
-  return out;
-})()`);
-const centered = v => v && v.mark && v.align === 'center' && Math.abs(v.dx) <= 1 && Math.abs(v.dy) <= 1;
-check("'내 기록' 빈 상태가 마크와 함께 가운데에 선다",
-  centered(emptyMarks.bm) && centered(emptyMarks.hl), JSON.stringify(emptyMarks));
+// 4차 피드백 12 — 목차 · 북마크 · 형광펜은 세그먼트로 갈린다. 목차 화면에 두 목록이
+// 같이 서 있으면 안 된다(예전에는 좁은 폭에서 목차 위에, 넓은 폭에서 옆 칸에 있었다)
+check('목차·북마크·형광펜 세그먼트로 갈린다',
+  toc.panes.join('|') === '목차|북마크|형광펜' && toc.active === 'toc', JSON.stringify(toc.panes));
+check('목차 화면에는 북마크·형광펜 목록이 없다', toc.marks === false,
+  JSON.stringify({ marks: toc.marks }));
 
+// 빈 상태 문구(2026-09-02) — '여기 모입니다'가 아니라 '여기서 볼 수 있어요'.
+// 각 칸은 자기 세그먼트에서 본다.
+// 빈 상태는 마크와 함께 남는 자리의 가운데에 선다(§8 · 3차 점검) — 지금 보이는 칸만 잰다
+const markEmptyFit = (needle) => ev(`(() => {
+  const p = [...document.querySelectorAll('p')].filter(x => x.textContent.includes(${JSON.stringify(needle)}))
+    .find(x => x.offsetParent !== null);
+  if (!p) return null;
+  const box = p.parentElement, svg = box.querySelector('svg');
+  const b = box.getBoundingClientRect();
+  return {
+    mark: !!(svg && svg.querySelector('path.dc-draw')),
+    align: getComputedStyle(p).textAlign,
+    dx: svg ? Math.round((svg.getBoundingClientRect().left + svg.getBoundingClientRect().width / 2) - (b.left + b.width / 2)) : null,
+    dy: svg ? Math.round((svg.getBoundingClientRect().top - b.top) - (b.bottom - p.getBoundingClientRect().bottom)) : null,
+  };
+})()`);
+const centered = v => !!v && v.mark && v.align === 'center' && Math.abs(v.dx) <= 1 && Math.abs(v.dy) <= 1;
+
+check('북마크 칸으로 간다', await clickSel('[data-pane="bookmark"]'));
+await sleep(500);
+const bmEmpty = await ev(`document.body.innerText`);
+const bmFit = await markEmptyFit('북마크한 장을');
+check("북마크 빈 상태 문구", bmEmpty.includes('북마크한 장을 여기서 볼 수 있어요')
+  && !bmEmpty.includes('북마크한 장이 여기 모입니다'));
+check('북마크 칸에는 형광펜 목록이 없다', !bmEmpty.includes('형광펜을 칠한 절은 여기서'));
+check('형광펜 칸으로 간다', await clickSel('[data-pane="highlight"]'));
+await sleep(500);
+const hlEmpty = await ev(`document.body.innerText`);
+check("형광펜 빈 상태 문구", hlEmpty.includes('형광펜을 칠한 절은 여기서 볼 수 있어요')
+  && !hlEmpty.includes('형광펜을 그은 절이 여기 모입니다'));
+check('형광펜 칸에는 북마크 목록이 없다', !hlEmpty.includes('북마크한 장을 여기서'));
+const hlFit = await markEmptyFit('형광펜을 칠한 절은');
+check('북마크·형광펜 빈 상태가 마크와 함께 가운데에 선다',
+  centered(bmFit) && centered(hlFit), JSON.stringify({ bmFit, hlFit }));
+
+check('목차 칸으로 돌아간다', await clickSel('[data-pane="toc"]'));
+await sleep(500);
 check('창세기', await clickText('창세기'));
 await sleep(500);
 check('1장', await clickText('1'));
@@ -419,12 +566,34 @@ const menu = await ev(`(() => {
            painted: p.dataset.mark === '1', stored: (st.highlights || []).length };
 })()`);
 check('절을 눌러도 바로 칠해지지 않는다', menu.painted === false && menu.stored === 0, JSON.stringify(menu));
-check('그 절 옆에 선택 팝오버가 뜬다', menu.open && menu.label === '형광펜 긋기'
+check('그 절 옆에 선택 팝오버가 뜬다', menu.open && menu.label === '형광펜 칠하기'
   && menu.expanded === 'true', JSON.stringify(menu));
+check("'형광펜 긋기'라는 이름은 남아 있지 않다", menu.label.includes('긋기') === false, menu.label);
 check('팝오버는 body 포털이다', menu.portal === true);
 // 전환이 left·top을 물면 drift가 수백 px이 된다(화면 구석에서 날아온다)
 check('팝오버가 첫 프레임부터 그 절 옆에 선다', pop.frames > 3 && pop.drift >= 0 && pop.drift <= 8,
   JSON.stringify(pop));
+
+// **열려 있는 채로 다른 절을 누르면 그 절로 옮겨 간다**(4차 피드백 11 — "형광펜 팝오버가
+// 엉뚱한 위치에 뜬다"). 같은 컴포넌트를 재사용하면 useAnchoredPos의 배치가 다시 돌지 않아
+// 앞 절의 좌표가 그대로 남는다 — 절마다 key로 새로 마운트해야 한다.
+const moved = await ev(`(async () => {
+  const p = document.querySelector('p[data-verse="1:5"]');
+  p.click();
+  await new Promise(r => setTimeout(r, 400));
+  const m = document.querySelector('[data-verse-menu]');
+  if (!m) return null;
+  const b = m.getBoundingClientRect(), r = p.getBoundingClientRect();
+  const old = document.querySelector('p[data-verse="1:3"]').getBoundingClientRect();
+  return {
+    label: m.dataset.verseMenu || '',
+    near: Math.abs(b.top - r.bottom) <= 12 || Math.abs(b.bottom - r.top) <= 12,
+    atOld: Math.abs(b.top - old.bottom) <= 12,
+  };
+})()`, true);
+check('열려 있는 채로 다른 절을 누르면 팝오버가 그 절로 간다',
+  !!moved && moved.label.includes('1:5') && moved.near === true && moved.atOld === false,
+  JSON.stringify(moved));
 
 // 바깥을 누르면 닫힌다(팝오버는 document의 mousedown을 듣는다)
 await ev(`(() => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })))()`);
@@ -440,28 +609,51 @@ const escaped = await ev(`(() => ({ open: !!document.querySelector('[data-verse-
   painted: document.querySelector('p[data-verse="1:3"]').dataset.mark === '1' }))()`);
 check('Esc로 취소된다', escaped.open === false && escaped.painted === false, JSON.stringify(escaped));
 
-// [형광펜 긋기]를 눌러야 그때 칠해진다
+// [형광펜 칠하기]를 눌러야 그때 칠해진다
 await ev(`(() => { document.querySelector('p[data-verse="1:3"]').click(); })()`);
 await sleep(250);
-check('[형광펜 긋기]를 고른다', await clickText('형광펜 긋기'));
+check('[형광펜 칠하기]를 고른다', await clickText('형광펜 칠하기'));
 await sleep(600);
+// **글자가 있는 자리만 칠해진다**(4차 피드백 11). 절 상자의 배경은 투명하고, 색은 절 안의
+// 인라인 mark가 든다 — 짧은 절이면 그 폭이 상자보다 확실히 좁다(예전에는 상자째 노랬다).
 const lit = await ev(`(() => {
   const p = document.querySelector('p[data-verse="1:3"]');
   const st = JSON.parse(localStorage.getItem('word_bible_state') || '{}');
-  const g = document.querySelector('[data-book-group="highlight:gen"]');
+  const m = p.querySelector('mark[data-lit]');
+  const box = p.getBoundingClientRect();
+  const cs = m ? getComputedStyle(m) : null;
   return { on: p.dataset.mark === '1', bg: getComputedStyle(p).backgroundColor,
+           inline: !!m, markBg: cs ? cs.backgroundColor : '',
+           clone: cs ? (cs.boxDecorationBreak || cs.webkitBoxDecorationBreak || '') : '',
+           narrower: m ? Math.round(box.width - m.getBoundingClientRect().width) : -1,
            refs: (st.highlights || []).map(h => h.ref),
-           closed: !document.querySelector('[data-verse-menu]'),
-           row: !!document.querySelector('[data-goto="gen 1:3"]'),
-           groupOpen: g ? g.getAttribute('aria-expanded') : '' };
+           closed: !document.querySelector('[data-verse-menu]') };
 })()`);
 check('고를 때 비로소 형광펜이 켜진다', lit.on === true, JSON.stringify(lit));
 check('고르고 나면 팝오버는 닫힌다', lit.closed === true);
 check("형광펜은 절 단위로 남는다('gen 1:3')", JSON.stringify(lit.refs) === JSON.stringify(['gen 1:3']),
   JSON.stringify(lit.refs));
-check("'내 기록'에 그 절이 선다", lit.row === true);
+check('형광펜은 절 상자가 아니라 글자에 칠해진다',
+  lit.inline === true && /rgba\(0, 0, 0, 0\)|transparent/.test(lit.bg) && lit.narrower > 40,
+  JSON.stringify({ bg: lit.bg, markBg: lit.markBg, narrower: lit.narrower }));
+check('여러 줄로 감겨도 줄마다 글자 폭만 칠해진다(box-decoration-break)',
+  lit.clone === 'clone', lit.clone);
+
+// '내 기록'은 형광펜 칸에서 본다(세그먼트) — 책이 한 권이면 기본은 펼침
+check('형광펜 칸으로 간다', await clickSel('[data-pane="highlight"]'));
+await sleep(900);
+const litRow = await ev(`(() => {
+  const g = document.querySelector('[data-book-group="highlight:gen"]');
+  const row = document.querySelector('[data-goto="gen 1:3"]');
+  return { row: !!row, groupOpen: g ? g.getAttribute('aria-expanded') : '',
+           colored: !!(row && row.querySelector('mark[data-lit]')) };
+})()`);
+check("형광펜 칸에 그 절이 선다", litRow.row === true, JSON.stringify(litRow));
 // 책이 두 권까지면 접힌 껍데기가 오히려 손이 더 간다 — 기본 펼침
-check('책이 두 권까지면 기본은 펼침', lit.groupOpen === 'true', String(lit.groupOpen));
+check('책이 두 권까지면 기본은 펼침', litRow.groupOpen === 'true', String(litRow.groupOpen));
+check('형광펜 줄의 발췌에 색이 보인다', litRow.colored === true, JSON.stringify(litRow));
+check('목차 칸으로 돌아간다', await clickSel('[data-pane="toc"]'));
+await sleep(700);
 
 // 이미 그어져 있으면 지우는 쪽을 준다 · 같은 절을 다시 누르면 닫힌다
 await ev(`(() => { document.querySelector('p[data-verse="1:3"]').click(); })()`);
@@ -518,18 +710,27 @@ check('장 전환 슬라이드가 눈에 보일 만큼 움직인다', slide.max 
 check('슬라이드가 실제로 프레임을 돈다(전환이 시작된다)', slide.steps >= 4,
   JSON.stringify(slide));
 
-// '내 기록'의 형광펜을 누르면 그 절로 돌아간다
-check("'내 기록'에 그 절 줄이 남아 있다", await clickSel('[data-goto="gen 1:3"]'));
+// 형광펜 줄을 누르면 그 절로 돌아간다 — **본문을 읽는 중에도 세그먼트는 그 자리에 있다**
+// (4차 피드백 11 — 예전에는 좁은 폭에서 리더에 있는 동안 두 목록에 닿을 길이 없었다)
+check('본문을 읽는 중에도 형광펜 칸으로 갈 수 있다', await clickSel('[data-pane="highlight"]'));
 await sleep(1000);
+check("형광펜 칸에 그 절 줄이 남아 있다", await clickSel('[data-goto="gen 1:3"]'));
+await sleep(1200);
 const back = await ev(`(() => ({ head: (document.querySelector('h3')||{}).textContent || '',
-  focus: (document.querySelector('[data-focus="1"]')||{}).dataset?.verse || '' }))()`);
-check("'내 기록'의 형광펜을 누르면 그 절로 간다", back.head === '창세기 1장' && back.focus === '1:3',
+  focus: (document.querySelector('[data-focus="1"]')||{}).dataset?.verse || '',
+  pane: (document.querySelector('[data-pane][aria-pressed="true"]') || {}).dataset?.pane || '' }))()`);
+check('형광펜 줄을 누르면 그 절로 간다', back.head === '창세기 1장' && back.focus === '1:3',
   JSON.stringify(back));
+check('줄을 누르면 본문 칸으로 돌아온다', back.pane === 'toc', back.pane);
 
-check('목차로', await clickText('목차'));
-await sleep(500);
-check('목차에서도 북마크가 보인다',
+check('북마크 칸에 그 장이 있다', await clickSel('[data-pane="bookmark"]'));
+await sleep(700);
+check('북마크한 장이 북마크 칸에 선다',
   await ev(`!!document.querySelector('[data-goto="gen 1"]')`));
+await clickSel('[data-pane="toc"]');
+await sleep(500);
+check('책 목록으로', await clickText('책 목록'));
+await sleep(500);
 
 // '(없음)' — 데이터는 그대로 두고 화면에서만 흐리게(public/bible/README.md)
 check('마가복음', await clickText('마가복음'));
@@ -572,9 +773,10 @@ const jumped = await ev(`(() => ({ head: (document.querySelector('h3')||{}).text
 check('결과를 누르면 그 장으로 간다', jumped.head === '창세기 1장' && jumped.focus.includes('태초에'),
   JSON.stringify(jumped));
 
-// ── '내 기록'이 쌓였을 때 (2026-09-02) ──────────────────────────────────────
-// 북마크·형광펜을 여러 권에 걸쳐 심어 두고 다시 연다. 책으로 묶이는지 · 정경 순인지 ·
+// ── 북마크·형광펜이 쌓였을 때 (2026-09-02) ─────────────────────────────────
+// 여러 권에 걸쳐 심어 두고 다시 연다. 책으로 묶이는지 · 정경 순인지 ·
 // 세 권부터는 접혀 있는지 · **펼친 책의 파일만 그때 받는지**를 본다.
+// 두 목록은 이제 각자의 세그먼트에 있으므로 칸을 옮겨 가며 본다(4차 피드백 12).
 // 리소스 타이밍은 새로 연 문서마다 비어 있으므로 앞의 전권 검색은 섞이지 않는다.
 await ev(`(() => {
   localStorage.setItem('word_bible_state', JSON.stringify({
@@ -599,28 +801,38 @@ await clickText('말씀');
 await sleep(1400);
 await clickText('성경 읽기');
 await sleep(1600);
-const stacked = await ev(`(() => {
-  const g = (pre) => [...document.querySelectorAll('[data-book-group^="' + pre + '"]')];
-  const books = (pre) => g(pre).map(b => b.dataset.bookGroup.split(':')[1]);
+const marksOf = () => ev(`(() => {
+  const g = [...document.querySelectorAll('[data-book-group]')];
   return {
-    bm: books('bookmark:'), hl: books('highlight:'),
-    open: [...g('bookmark:'), ...g('highlight:')].map(b => b.getAttribute('aria-expanded')),
-    counts: g('highlight:').map(b => b.textContent.trim()),
+    books: g.map(b => b.dataset.bookGroup),
+    open: g.map(b => b.getAttribute('aria-expanded')),
+    heads: g.map(b => b.textContent.trim()),
     rows: [...document.querySelectorAll('[data-goto]')].length,
     files: performance.getEntriesByType('resource').map(e => e.name).filter(n => n.includes('/bible/')).map(n => n.split('/').pop()),
   };
 })()`);
-check('북마크·형광펜이 책으로 묶인다', stacked.bm.length === 3 && stacked.hl.length === 3,
-  JSON.stringify({ bm: stacked.bm, hl: stacked.hl }));
-check('책은 정경 순으로 선다', stacked.bm.join() === 'gen,exo,psa' && stacked.hl.join() === 'gen,exo,jhn',
-  JSON.stringify({ bm: stacked.bm, hl: stacked.hl }));
-check('책 머리글에 개수가 붙는다', stacked.counts.join('|') === '창세기2절|출애굽기1절|요한복음1절',
-  JSON.stringify(stacked.counts));
-check('책이 셋을 넘으면 기본은 접힘', stacked.open.every(v => v === 'false') && stacked.rows === 0,
-  JSON.stringify({ open: stacked.open, rows: stacked.rows }));
+await clickSel('[data-pane="bookmark"]');
+await sleep(900);
+const stackedBm = await marksOf();
+await clickSel('[data-pane="highlight"]');
+await sleep(900);
+const stackedHl = await marksOf();
+check('북마크·형광펜이 책으로 묶인다',
+  stackedBm.books.length === 3 && stackedHl.books.length === 3,
+  JSON.stringify({ bm: stackedBm.books, hl: stackedHl.books }));
+check('책은 정경 순으로 선다',
+  stackedBm.books.join() === 'bookmark:gen,bookmark:exo,bookmark:psa'
+  && stackedHl.books.join() === 'highlight:gen,highlight:exo,highlight:jhn',
+  JSON.stringify({ bm: stackedBm.books, hl: stackedHl.books }));
+check('책 머리글에 개수가 붙는다', stackedHl.heads.join('|') === '창세기2절|출애굽기1절|요한복음1절',
+  JSON.stringify(stackedHl.heads));
+check('책이 셋을 넘으면 기본은 접힘',
+  [...stackedBm.open, ...stackedHl.open].every(v => v === 'false')
+  && stackedBm.rows === 0 && stackedHl.rows === 0,
+  JSON.stringify({ open: [...stackedBm.open, ...stackedHl.open], rows: stackedHl.rows }));
 check('접혀 있는 동안에는 그 책 파일을 받지 않는다',
-  !stacked.files.includes('exo.json') && !stacked.files.includes('psa.json') && !stacked.files.includes('jhn.json'),
-  JSON.stringify(stacked.files));
+  !stackedHl.files.includes('exo.json') && !stackedHl.files.includes('psa.json') && !stackedHl.files.includes('jhn.json'),
+  JSON.stringify(stackedHl.files));
 
 // 한 책을 펼치면 그때 그 책만 받고, 절 미리보기가 한 줄 붙는다
 check('요한복음 형광펜 묶음을 편다', await clickSel('[data-book-group="highlight:jhn"]'));
@@ -628,7 +840,7 @@ await sleep(1600);
 const opened = await ev(`(() => ({
   rows: [...document.querySelectorAll('[data-goto]')].map(b => ({ ref: b.dataset.goto, text: b.textContent.trim() })),
   files: performance.getEntriesByType('resource').map(e => e.name).filter(n => n.includes('/bible/')).map(n => n.split('/').pop()),
-  others: [...document.querySelectorAll('[data-book-group="highlight:exo"], [data-book-group="bookmark:exo"]')]
+  others: [...document.querySelectorAll('[data-book-group="highlight:exo"], [data-book-group="highlight:gen"]')]
     .map(b => b.getAttribute('aria-expanded')),
 }))()`);
 check('펼친 책만 줄이 선다', opened.rows.length === 1 && opened.rows[0].ref === 'jhn 3:16',
@@ -641,6 +853,8 @@ check('펼친 책의 파일만 그때 받는다',
 check('펼치지 않은 책은 그대로 접혀 있다', opened.others.every(v => v === 'false'), JSON.stringify(opened.others));
 
 // 북마크는 장 제목이면 되므로 펼쳐도 책 파일을 받지 않는다
+await clickSel('[data-pane="bookmark"]');
+await sleep(700);
 check('시편 북마크 묶음을 편다', await clickSel('[data-book-group="bookmark:psa"]'));
 await sleep(1200);
 const bmOpen = await ev(`(() => ({
@@ -667,32 +881,84 @@ check('모바일에서도 말씀으로 갈 수 있다', await clickText('말씀'
 await sleep(1600);
 const mob = await ev(`(() => {
   const d = document.documentElement;
+  const picker = document.querySelector('button[aria-label="QT 날짜 고르기"]');
+  const row = picker ? picker.parentElement.parentElement : null;
   return { over: d.scrollWidth > d.clientWidth + 1, verses: document.querySelectorAll('p[data-verse]').length,
            seg: [...document.querySelectorAll('button')].some(b => b.textContent.trim() === '성경 읽기'),
-           tiptap: !!document.querySelector('.tiptap') };
+           tiptap: !!document.querySelector('.tiptap'),
+           // 날짜 줄(화살표 · 데이트피커 · 오늘)이 한 줄에 들어간다
+           dateRow: row ? Math.round(row.getBoundingClientRect().width) : -1,
+           dateFits: !!row && row.getBoundingClientRect().right <= d.clientWidth + 1,
+           share: [...document.querySelectorAll('button')].filter(b => ['나만 보기', '더다붓에 공유하기'].includes(b.textContent.trim()))
+             .every(b => b.getBoundingClientRect().right <= d.clientWidth + 1) };
 })()`);
 check('모바일 375px에서 가로로 넘치지 않는다', mob.over === false, JSON.stringify(mob));
 check('모바일에서도 본문과 묵상 칸이 뜬다', mob.verses > 0 && mob.seg && mob.tiptap, JSON.stringify(mob));
+check('모바일에서 날짜 줄과 공유 토글이 화면 안에 든다',
+  mob.dateFits === true && mob.share === true, JSON.stringify(mob));
 await clickText('성경 읽기');
-await sleep(1200);
+await sleep(1600);
+// 4차 피드백 11 — **본문을 읽는 중에도** 목차·북마크·형광펜에 닿을 수 있어야 하고,
+// 리더 헤더의 버튼(책 목록 · 북마크)이 좁은 폭에서 밀려나지 않아야 한다(44px 터치 타깃).
 const mobRead = await ev(`(() => {
   const d = document.documentElement;
-  const heads = [...document.querySelectorAll('h3')].map(h => h.textContent.trim());
-  return { over: d.scrollWidth > d.clientWidth + 1, marks: heads.includes('북마크') && heads.includes('형광펜') };
+  const panes = [...document.querySelectorAll('[data-pane]')].filter(b => b.offsetParent !== null);
+  const back = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '책 목록');
+  const bm = [...document.querySelectorAll('button[aria-label]')].find(b => (b.getAttribute('aria-label') || '').includes('북마크'));
+  const box = e => (e ? e.getBoundingClientRect() : null);
+  const b1 = box(back), b2 = box(bm);
+  return { over: d.scrollWidth > d.clientWidth + 1,
+           panes: panes.map(b => b.textContent.trim()),
+           reader: !!document.querySelector('p[data-verse]'),
+           back: b1 ? { h: Math.round(b1.height), inView: b1.left >= 0 } : null,
+           bookmark: b2 ? { w: Math.round(b2.width), h: Math.round(b2.height), inView: b2.right <= d.clientWidth + 1 } : null,
+           sameRow: b1 && b2 ? Math.abs(b1.top - b2.top) <= 2 : false };
 })()`);
 check('모바일 성경 읽기도 가로로 안 넘친다', mobRead.over === false, JSON.stringify(mobRead));
-check("모바일에서도 '내 기록'을 볼 수 있다", mobRead.marks === true, JSON.stringify(mobRead));
-// 좁은 화면에서 '내 기록'이 실제로 서는 자리는 목차 위다 — 묶인 목록도 거기서 본다
-await clickText('목차');
+check('모바일에서도 목차·북마크·형광펜 세그먼트가 늘 보인다',
+  mobRead.panes.join('|') === '목차|북마크|형광펜', JSON.stringify(mobRead.panes));
+check('좁은 폭에서도 리더 헤더의 책 목록·북마크가 한 줄에 남는다',
+  mobRead.reader === true && !!mobRead.back && !!mobRead.bookmark
+  && mobRead.back.inView && mobRead.bookmark.inView && mobRead.sameRow,
+  JSON.stringify(mobRead));
+check('리더 헤더 버튼은 44px 터치 타깃이다',
+  !!mobRead.bookmark && mobRead.bookmark.w >= 44 && mobRead.bookmark.h >= 44 && mobRead.back.h >= 44,
+  JSON.stringify({ back: mobRead.back, bookmark: mobRead.bookmark }));
+// 묶인 목록도 모바일에서 그대로 본다
+check('모바일에서 형광펜 칸으로 간다', await clickSel('[data-pane="highlight"]'));
 await sleep(1200);
-const mobToc = await ev(`(() => {
+const mobMarks = await ev(`(() => {
   const d = document.documentElement;
   const seen = [...document.querySelectorAll('[data-book-group]')].filter(b => b.offsetParent !== null);
   return { over: d.scrollWidth > d.clientWidth + 1, groups: seen.length,
            label: seen[0] ? seen[0].textContent.trim() : '' };
 })()`);
-check('모바일 목차 위의 묶인 목록도 가로로 안 넘친다', mobToc.over === false, JSON.stringify(mobToc));
-check('모바일에서도 책 묶음이 보인다', mobToc.groups > 0, JSON.stringify(mobToc));
+check('모바일 형광펜 목록도 가로로 안 넘친다', mobMarks.over === false, JSON.stringify(mobMarks));
+check('모바일에서도 책 묶음이 보인다', mobMarks.groups > 0, JSON.stringify(mobMarks));
+
+// ── 태블릿 768px (4차 피드백 7 — 375·768·1440 셋 다 본다) ───────────────────
+await send('Emulation.setDeviceMetricsOverride', { width: 768, height: 900, deviceScaleFactor: 1, mobile: false });
+await send('Page.navigate', { url: URL_BASE });
+await wait('Page.loadEventFired');
+await sleep(1500);
+await clickText('말씀');
+await sleep(1700);
+const tabQt = await ev(`(() => {
+  const d = document.documentElement;
+  const wide = [...document.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > d.clientWidth + 1).length;
+  return { over: d.scrollWidth > d.clientWidth + 1, wide, verses: document.querySelectorAll('p[data-verse]').length };
+})()`);
+check('768px QT가 가로로 넘치지 않는다', tabQt.over === false && tabQt.wide === 0, JSON.stringify(tabQt));
+await clickText('성경 읽기');
+await sleep(1700);
+const tabRead = await ev(`(() => {
+  const d = document.documentElement;
+  const wide = [...document.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > d.clientWidth + 1).length;
+  return { over: d.scrollWidth > d.clientWidth + 1, wide,
+           panes: [...document.querySelectorAll('[data-pane]')].length };
+})()`);
+check('768px 성경 읽기도 가로로 넘치지 않는다',
+  tabRead.over === false && tabRead.wide === 0 && tabRead.panes === 3, JSON.stringify(tabRead));
 await send('Emulation.clearDeviceMetricsOverride');
 
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 2).join(' | '));

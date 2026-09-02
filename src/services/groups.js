@@ -7,11 +7,13 @@ import { generateId } from '../utils.js';
 // v2 모임 — 내 순 · 동아리(가입 신청 · 모임 출석) · 순 편성
 // ----------------------------------------------------------------------------
 // 스펙 정본은 docs/V2.md §1(결정 1·2·3·7)·§2·§3, 저장 자리는 0035(groups ·
-// group_members · club_applications · group_meetings)와 0036(service_notes)이다.
+// group_members · club_applications · group_meetings)와 0036(service_notes)이고
+// 자격은 0039가 마지막으로 갈아 끼웠다(can_manage_sun · groups_update).
 //
 // **RLS가 권한의 진실이고 화면은 그걸 비춘다.** 여기 있는 판정(groupPerms ·
-// canManageClub)은 0035의 can_manage_sun()·groups_insert·group_members_write를
-// 그대로 옮긴 것이다 — 버튼을 감추는 용도이지 막는 용도가 아니다. 어긋나면 DB가 이긴다.
+// canManageClub)은 0035·0039의 can_manage_sun()·groups_insert·groups_update·
+// group_members_write를 그대로 옮긴 것이다 — 버튼을 감추는 용도이지 막는 용도가
+// 아니다. 어긋나면 DB가 이긴다.
 //
 // 명단·모임 읽기는 people.js 한 벌을 쓰고(다시 만들지 않는다), 예배 출석은 예배 줄기의
 // worship.js를 그대로 부른다. 이 파일은 그 위에 모임 화면이 필요로 하는 것만 얹는다:
@@ -38,18 +40,28 @@ const { all: guestAll, rows: guestRows, set: guestSet } = guestStore('church_gro
 
 // ── 순수 헬퍼 (브라우저 없이도 검사된다 — §2-5) ─────────────────────────────
 
-// 자격 한 벌. 0035의 함수와 같은 식이다.
-//   순 편성(만들기·순장 지정·연도 개편) = 마스터 + 교역자 + 올해 리더순장  (can_manage_sun)
+// 자격 한 벌. 0039(그전에는 0035)의 함수와 같은 식이다.
+//   순 편성(만들기·순장 지정·연도 개편) = 마스터 + 관리자 + 올해 리더순장  (can_manage_sun)
 //   동아리 개설·리더 지정              = 마스터만                          (groups_insert)
 //   동아리 명단·모임                   = 마스터 또는 그 동아리 리더        (group_members_write)
-export function groupPerms({ isMaster = false, myPerson = null, myRoles = [], ledClubIds = [] } = {}) {
-  const pastor = !!myPerson?.is_pastor;
+//   동아리 이름·설명 고치기            = 마스터·관리자 또는 그 동아리 리더 (groups_update)
+//
+// **순 편성에서 교역자가 빠지고 관리자가 들어왔다**(사용자 결정 2026-09-02 "마스터/
+// 관리자/리더순장만 우선"). 0039가 can_manage_sun()을 그렇게 갈아 끼웠고 여기가 그 거울이다.
+// 교역자(is_pastor)는 예배 쪽 자격에만 남는다(worship.js worshipPerms).
+export function groupPerms({ isMaster = false, isAdmin = false, myPerson = null, myRoles = [], ledClubIds = [] } = {}) {
+  const master = !!isMaster;
+  const admin = master || !!isAdmin;   // 마스터는 admins 표의 한 행이다(0028) — 언제나 관리자다
   return {
     myPerson,
-    isMaster: !!isMaster,
-    canManageSun: !!isMaster || pastor || (myRoles || []).includes('lead_sunjang'),
-    canCreateClub: !!isMaster,
+    isMaster: master,
+    isAdmin: admin,
+    canManageSun: master || admin || (myRoles || []).includes('lead_sunjang'),
+    canCreateClub: master,
     ledClubIds: ledClubIds || [],
+    // 이름·설명은 그 동아리 리더도 고친다 — 명단·모임(canManageClub)과 자격이 다르다:
+    // 그쪽은 마스터+리더, 이쪽은 관리자+리더다(0039 groups_update).
+    canEditClub: (club) => admin || (!!club?.leader_person_id && club.leader_person_id === myPerson?.id),
   };
 }
 
@@ -178,24 +190,28 @@ export async function fetchGroupsRoster(year) {
   return { people, suns, clubs, members, allGroups: [...everySun, ...clubs] };
 }
 
-// 자격. 마스터는 로그인 계정 속성이라 호출부(useAuth)가 준다.
+// 자격. 마스터·관리자는 로그인 계정 속성이라 호출부(useAuth)가 준다.
 // 게스트 모드에는 로그인이 없다 — 시드의 me가 그 자리를 대신한다(worship.js와 같은 방식).
-export async function fetchGroupPerms(year, { isMaster = false } = {}) {
+// 시드가 isAdmin을 따로 말하지 않으면 **마스터 여부를 따른다** — 마스터는 관리자이고
+// (0028), 자격을 낮춰 심은 시드가 관리자 권한을 뒷문으로 얻으면 안 된다.
+export async function fetchGroupPerms(year, { isMaster = false, isAdmin = false } = {}) {
   if (!supabase) {
     const me = guestAll().me || {};
     const people = guestRows('people');
     const myPerson = me.personId ? people.find(p => p.id === me.personId) || null : null;
     const clubs = guestRows('groups').filter(g => g.type === 'club' && !g.removed_at);
     const ledClubIds = myPerson ? clubs.filter(c => c.leader_person_id === myPerson.id).map(c => c.id) : [];
+    const master = me.isMaster === undefined ? true : !!me.isMaster;
     return groupPerms({
-      isMaster: me.isMaster === undefined ? true : !!me.isMaster,
+      isMaster: master,
+      isAdmin: me.isAdmin === undefined ? master : !!me.isAdmin,
       myPerson, myRoles: me.roles || [], ledClubIds,
     });
   }
   const [myPerson, roles, clubs] = await Promise.all([fetchMyPerson(), fetchRoles(year), fetchClubs()]);
   const myRoles = myPerson ? roles.filter(r => r.person_id === myPerson.id).map(r => r.role) : [];
   const ledClubIds = myPerson ? clubs.filter(c => c.leader_person_id === myPerson.id).map(c => c.id) : [];
-  return groupPerms({ isMaster, myPerson, myRoles, ledClubIds });
+  return groupPerms({ isMaster, isAdmin, myPerson, myRoles, ledClubIds });
 }
 
 // 대기 중인 동아리 가입 신청. RLS가 범위를 지킨다(0035) — 내 신청 + 내가 리더인
@@ -317,6 +333,17 @@ export async function reorderClubs(ids = []) {
   }
   const { error } = await supabase.rpc('reorder_clubs', { ids });
   if (error) throw error;
+}
+
+// 동아리 이름·설명 고치기(0039 groups_update — 관리자 또는 그 동아리 리더).
+// **새 함수가 아니라 saveGroup 한 벌을 쓴다** — 클라우드·게스트 두 길이 이미 그 안에
+// 있다. 여기서 하는 일은 값을 다듬는 것뿐이다: 이름은 비울 수 없고(비우면 카드에
+// 제목이 없는 동아리가 남는다), 설명은 비우면 null이다(빈 문자열이 남으면 카드와
+// 상세에 빈 줄이 한 칸 선다).
+export async function saveClubInfo(id, { name, note }) {
+  const clean = String(name || '').trim();
+  if (!clean) return null;
+  return saveGroup(id, { name: clean, note: String(note || '').trim() || null });
 }
 
 export async function saveGroup(id, patch) {

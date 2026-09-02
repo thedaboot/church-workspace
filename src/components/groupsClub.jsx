@@ -1,6 +1,6 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Trash2, Check, X } from 'lucide-react';
+import { Plus, Trash2, Check, X, Pencil } from 'lucide-react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable, pointerWithin, rectIntersection,
@@ -21,11 +21,14 @@ import { reorderIds } from '../utils.js';
 // ----------------------------------------------------------------------------
 // 그리는 일만 한다. 통신은 views/groupsView.jsx가 한다.
 //
-// 권한(docs/V2.md 권한 표 · 0035 RLS):
-//   · 동아리 개설·동아리장 지정 = **마스터만**       → '새 동아리'는 마스터에게만
-//   · 명단·모임·신청 수락 = 마스터 또는 그 동아리장  → 리더 도구가 그때만 선다
-//   · 가입 신청·취소 = 본인                          → 명단에 이어진 계정만
+// 권한(docs/V2.md 권한 표 · 0035·0039 RLS):
+//   · 동아리 개설·동아리장 지정 = **마스터만**         → '새 동아리'는 마스터에게만
+//   · 명단·모임·신청 수락 = 마스터 또는 그 동아리장    → 리더 도구가 그때만 선다
+//   · 이름·설명 고치기 = 관리자 또는 그 동아리장       → 머리줄의 연필이 그때만 선다
+//   · 가입 신청·취소 = 본인                            → 명단에 이어진 계정만
 // 화면은 이 경계를 비추기만 한다. 어긋나면 DB가 이긴다.
+// **이름·설명과 명단은 자격이 다르다**(0039 groups_update vs 0035 group_members_write) —
+// 관리자는 남의 동아리 이름을 고칠 수 있지만 마스터가 아니면 명단은 못 만진다.
 //
 // **카드 순서만 예외로 누구나 바꾼다** — 프로젝트 탭·칸반과 같은 '공유 순서'라서,
 // 0038이 position만 만지는 definer 함수를 승인 멤버 전체에게 열어 두었다.
@@ -42,7 +45,7 @@ const dropCollision = (args) => {
 
 export function ClubsPanel({
   clubs, people, members, apps, perms, openClub, meetings, creating, onCloseCreate,
-  onOpen, onBack, onCreateClub, onApply, onCancelApply, onAccept, onDecline,
+  onOpen, onBack, onCreateClub, onEditClub, onApply, onCancelApply, onAccept, onDecline,
   onAddMember, onRemoveMember, onReorder, onCreateMeeting, onToggleMeeting,
 }) {
   if (openClub) {
@@ -50,7 +53,7 @@ export function ClubsPanel({
       <ClubDetail club={openClub} people={people} members={members} apps={apps} perms={perms}
         meetings={meetings} onBack={onBack} onApply={onApply} onCancelApply={onCancelApply}
         onAccept={onAccept} onDecline={onDecline} onAddMember={onAddMember} onRemoveMember={onRemoveMember}
-        onCreateMeeting={onCreateMeeting} onToggleMeeting={onToggleMeeting} />
+        onEditClub={onEditClub} onCreateMeeting={onCreateMeeting} onToggleMeeting={onToggleMeeting} />
     );
   }
   return (
@@ -190,11 +193,17 @@ function ClubCard({ club, people, members, joined, pending, onOpen }) {
 // ── 상세 ────────────────────────────────────────────────────────────────────
 function ClubDetail({
   club, people, members, apps, perms, meetings, onBack, onApply, onCancelApply,
-  onAccept, onDecline, onAddMember, onRemoveMember, onCreateMeeting, onToggleMeeting,
+  onAccept, onDecline, onAddMember, onRemoveMember, onEditClub, onCreateMeeting, onToggleMeeting,
 }) {
   const [adding, setAdding] = useState(false);
+  // 오늘(한국 시간)을 미리 채운다 — 모임은 대개 오늘이나 이번 주에 잡는다.
   const [date, setDate] = useState(() => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }));
   const [title, setTitle] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ name: '', note: '' });
+  // 다른 동아리로 옮겨 가면 편집을 닫는다 — 목록을 거쳐도 이 컴포넌트는 그대로 살아
+  // 있어서(같은 자리) 앞 동아리의 열린 칸이 다음 동아리의 머리줄에 남는다.
+  useEffect(() => { setEditing(false); }, [club.id]);
 
   const list = useMemo(() => groupPeople({ people, group: club, members }), [people, club, members]);
   const byId = useMemo(() => new Map(people.map(p => [p.id, p])), [people]);
@@ -209,6 +218,20 @@ function ClubDetail({
   const submitMeeting = async () => {
     const ok = await onCreateMeeting(club, { date, title: title.trim() });
     if (ok) { setAdding(false); setTitle(''); }
+  };
+
+  // 이름·설명 고치기. 값은 **열 때** 담는다 — 상태를 club과 계속 맞춰 두면 저장 뒤
+  // 한 벌을 다시 읽는 사이에 타이핑 중인 칸이 되돌아간다.
+  const canEdit = !!perms.canEditClub?.(club);
+  const openEdit = () => { setDraft({ name: club.name, note: club.note || '' }); setEditing(true); };
+  const submitEdit = async () => {
+    const name = draft.name.trim();
+    const note = draft.note.trim();
+    if (!name) return;
+    // 그대로면 저장하러 가지 않는다(순 이름과 같은 판단) — 바뀐 게 없는데 토스트가 뜬다
+    if (name === club.name && note === (club.note || '')) { setEditing(false); return; }
+    const ok = await onEditClub(club, { name, note });
+    if (ok) setEditing(false);
   };
 
   return (
@@ -229,8 +252,35 @@ function ClubDetail({
       </div>
 
       <div className={`p-4 ${CARD}`} style={CARD_STYLE}>
-        <h2 className="text-[17px] font-extrabold text-fg tracking-[-0.3px]">{club.name}</h2>
-        {club.note && <p className="mt-1 text-[12.5px] text-fg-secondary break-words">{club.note}</p>}
+        {/* 이름·설명은 머리줄에서 그 자리에 고친다 — 따로 창을 띄우면 무엇을 고치는
+            중인지가 화면에서 사라진다. 확정은 오른쪽 끝(§8 대화창 규칙). */}
+        {editing ? (
+          <div className="club-edit-form flex flex-wrap items-center gap-1.5">
+            <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+              aria-label="동아리 이름 고치기" placeholder="예: 통통"
+              className={`${FIELD} font-bold w-full sm:w-40`} />
+            <input value={draft.note} onChange={e => setDraft(d => ({ ...d, note: e.target.value }))}
+              aria-label="동아리 설명 고치기" placeholder="예: 통기타 동아리"
+              onKeyDown={e => { if (e.key === 'Enter') submitEdit(); }}
+              className={`${FIELD} flex-1 min-w-[8rem] sm:max-w-[26rem]`} />
+            <button type="button" onClick={submitEdit} disabled={!draft.name.trim()}
+              className={`club-edit-save shrink-0 ${BTN}`}>저장</button>
+            <span className="flex-1" />
+            <button type="button" onClick={() => setEditing(false)}
+              className={`club-edit-cancel shrink-0 ${BTN_QUIET}`}>취소</button>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-1">
+              <h2 className="club-title text-[17px] font-extrabold text-fg tracking-[-0.3px] break-words">{club.name}</h2>
+              {canEdit && (
+                <button type="button" onClick={openEdit} aria-label={`${club.name} 정보 고치기`}
+                  className={`club-edit ${ICON_BTN}`}><Pencil size={13} /></button>
+              )}
+            </div>
+            {club.note && <p className="mt-1 text-[12.5px] text-fg-secondary break-words">{club.note}</p>}
+          </>
+        )}
 
         <div className="mt-4">
           <SectionHead>구성원 {list.length}명</SectionHead>
@@ -291,20 +341,26 @@ function ClubDetail({
             </button>
           )}>모임</SectionHead>
 
+          {/* 한 줄짜리 생성기 — 날짜는 오늘이 이미 채워져 있어서 **한 번 눌러 만든다**.
+              예전에는 날짜·제목·버튼이 저마다 한 줄을 차지해 세 줄이었고, 정작 채울 것은
+              하나(제목, 그것도 선택)뿐이었다(사용자 지적 2026-09-02 — 새 주보와 같은 문제).
+              데스크톱은 한 줄, 375px에서는 버튼이 둘째 줄로 접힌다(최대 두 줄).
+              날짜는 업무 날짜와 같은 픽커다 — 네이티브 date 입력은 기기마다 다른 달력이
+              뜨고, 우리 화면의 다른 날짜 칸과 생김새가 달랐다. */}
           {adding && (
-            <div className={`club-meet-new p-3.5 mb-2 ${CARD}`} style={CARD_STYLE}>
-              {/* 업무 날짜와 같은 픽커다 — 네이티브 date 입력은 기기마다 다른 달력이
-                  뜨고, 우리 화면의 다른 날짜 칸과 생김새가 달랐다. */}
-              <div className="club-meet-date">
+            <div className={`club-meet-new p-2.5 mb-2 flex flex-wrap items-center gap-1.5 ${CARD}`} style={CARD_STYLE}>
+              <div className="club-meet-date shrink-0">
                 <DatePicker value={date} onChange={setDate} />
               </div>
               <input value={title} onChange={e => setTitle(e.target.value)} aria-label="모임 제목"
-                placeholder="예: 9월 첫 모임" className={`w-full sm:w-96 mt-2.5 ${FIELD}`} />
-              <div className="flex items-center gap-1.5 mt-3">
-                <button type="button" onClick={submitMeeting} disabled={!date} className={BTN}>만들기</button>
-                <span className="flex-1" />
-                <button type="button" onClick={() => setAdding(false)} className={BTN_QUIET}>취소</button>
-              </div>
+                placeholder="예: 9월 첫 모임" onKeyDown={e => { if (e.key === 'Enter') submitMeeting(); }}
+                className={`${FIELD} flex-1 min-w-[7rem] sm:max-w-[26rem]`} />
+              {/* 확정 왼쪽 / 나가기 오른쪽(§8) — 새 주보·새 동아리·새 순과 같은 자리다.
+                  두 모드에서 자리가 같아야 손가락 밑의 버튼이 뜻을 바꾸지 않는다. */}
+              <button type="button" onClick={submitMeeting} disabled={!date}
+                className={`club-meet-make shrink-0 ${BTN}`}>만들기</button>
+              <span className="flex-1" />
+              <button type="button" onClick={() => setAdding(false)} className={`shrink-0 ${BTN_QUIET}`}>취소</button>
             </div>
           )}
         </div>

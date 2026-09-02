@@ -94,7 +94,9 @@ export function MySunPanel({ myPerson, sun, people, members, service, present, n
   );
 }
 
-// ── 순 편성 (can_manage_sun 자격자만 — 마스터 · 교역자 · 리더순장) ──────────
+// ── 순 편성 (can_manage_sun 자격자만 — 마스터 · 관리자 · 리더순장) ──────────
+// 교역자는 0039에서 빠졌다(사용자 결정 2026-09-02 "마스터/관리자/리더순장만 우선") —
+// 탭 자체가 서지 않으므로 이 구역에 오는 사람은 이미 자격자다.
 // 순장을 지정하면 그 순의 구성원으로도 들어간다(services/groups.js saveGroup) —
 // 출석 정책 leads_sun_of()가 group_members를 보기 때문이다(0037).
 export function SunAdminPanel({

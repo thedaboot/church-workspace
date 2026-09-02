@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
-import { ChevronLeft, ChevronRight, Users, Lock, Pencil, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Users, Lock, Pencil, Trash2, EyeOff } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
 import { selectMembers, selectCurrentUser } from '../store/selectors.js';
 import { Avatar } from '../components/Avatar.jsx';
@@ -7,6 +7,7 @@ import { RichText } from '../components/RichText.jsx';
 import { Skeleton } from '../components/media.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
+import { DatePicker } from '../components/DatePicker.jsx';
 import { failText } from '../services/errorText.js';
 import { SectionHead, Card } from './dashboardParts.jsx';
 import { loadPassage } from '../services/bible.js';
@@ -32,9 +33,25 @@ import {
 // (사용자 피드백 2026-09-02 — 어디로 나가는지가 이름에 있어야 한다). 토글·저장 토스트가
 // 같은 말을 쓴다. 피드 제목 '오늘의 나눔'은 그대로다 — 그건 올라온 글들의 이름이다.
 //
+// **공유 토글은 저장 버튼을 켜지 않는다**(사용자 피드백 2026-09-02 4차 — "누르자마자
+// 저장이 활성화된다"). 공유는 고치는 일이 아니라 이미 저장된 글을 어디까지 보이게 할지
+// 정하는 일이라, 토글은 편집 상태(dirty)를 건드리지 않고 shared 칸만 그 자리에서 저장하고
+// 칩으로 알린다. 그래서 **아직 저장 전이면 토글은 꺼져 있다** — 없는 글을 공유할 수는 없다.
+// 지우기는 두 자리로 갈린다: 나눔 줄의 지우기는 **공유 해제**(내 기록에는 남는다),
+// 진짜 삭제는 '내 묵상' 칸의 휴지통이다.
+//
 // **날짜를 바꿔도 자리는 그대로 있어야 한다**(사용자 피드백 2026-09-01 — "화면 전체가
 // 새로 그려지며 움직인다"). 본문·묵상·나눔 세 칸 모두 기다리는 동안 같은 자리에
 // 스켈레톤을 세우고 최소 높이를 잡아 둔다. 바뀌는 것은 안의 내용뿐이다.
+//
+// 그 자리는 **넘기기 직전의 높이**로 잡는다(사용자 피드백 2026-09-02 4차 — "말씀이
+// 렌더되기 전에 묵상이 잠깐 위로 올라왔다가 내려간다"). 최소 높이만 320px로 두면 열네 절짜리
+// 본문(700px 남짓)에서 넘기는 순간 자리가 320으로 줄어 아래 것들이 통째로 올라왔다가
+// 새 본문이 도착할 때 다시 내려갔다. 그래서 넘길 때 지금 높이를 재어 두고, 기다리는 동안
+// 그 높이만큼 스켈레톤을 세운다(`hold`). 묵상 에디터는 **언마운트하지 않는다** — 날짜마다
+// 새로 마운트하면 TipTap이 붙는 사이 197px 껍데기로 줄어들어 같은 출렁임이 한 번 더 났다.
+// MarkdownEditor는 밖에서 value가 바뀌면 문서를 갈아 끼우므로(그 파일의 '외부에서 value가
+// 바뀐 경우') 같은 에디터에 새 날짜의 글을 넣기만 하면 된다.
 //
 // **본문표 붙여넣기 도구는 없다** — 읽기표 730일치가 0038로 qt_schedule에 들어 있다
 // (services/word.js 머리말). 되살리지 말 것.
@@ -99,15 +116,21 @@ function QtTab() {
   const [date, setDate] = useState(today);
   const [dir, setDir] = useState(0);
   const [day, setDay] = useState({ loading: true, schedule: null, passage: null });
-  const [draft, setDraft] = useState(null);        // { body, shared } — null이면 아직 안 읽음
-  const [saved, setSaved] = useState({ body: '', shared: false });
+  // 저장된 묵상 — **어느 날짜의 것인지 같이 들고 있는다**(본문이 그러는 것과 같은 이유).
+  // null이면 아직 한 번도 안 읽었다. { date, body, shared, exists }
+  const [entry, setEntry] = useState(null);
+  const [body, setBody] = useState('');            // 지금 에디터에 있는 글
   const [saving, setSaving] = useState(false);
+  const [shareState, setShareState] = useState(''); // '' | 'saving' | 'saved' (공유 칩)
   const [feed, setFeed] = useState(null);          // null이면 아직 안 읽음
   const [grass, setGrass] = useState([]);
   const editorRef = useRef(null);
+  const slotRef = useRef(null);
+  const [hold, setHold] = useState(0);             // 넘기기 직전 본문 자리의 높이(px)
 
   const go = (next) => {
     if (next === date) return;
+    setHold(slotRef.current?.offsetHeight || 0);
     setDir(next > date ? 1 : -1);
     setDate(next);
   };
@@ -127,21 +150,29 @@ function QtTab() {
     return () => { alive = false; };
   }, [date]);
 
-  // 내 묵상 · 그날 나눔
+  // 내 묵상 · 그날 나눔. **entry·body를 비우지 않는다** — 비우면 에디터가 언마운트되어
+  // 자리가 197px로 줄고, 도착할 때 아래 것들이 다시 밀린다(머리말).
   useEffect(() => {
     let alive = true;
-    setDraft(null); setFeed(null);
+    setFeed(null); setShareState('');
     (async () => {
       const [mine, shared] = await Promise.all([fetchMyEntry(date), fetchSharedEntries(date)]);
       if (!alive) return;
-      const next = { body: mine?.body || '', shared: !!mine?.shared };
-      setDraft(next); setSaved(next); setFeed(shared);
+      const next = { date, body: mine?.body || '', shared: !!mine?.shared, exists: !!mine };
+      setEntry(next); setBody(next.body); setFeed(shared);
     })().catch(() => {
       if (!alive) return;
-      setDraft({ body: '', shared: false }); setSaved({ body: '', shared: false }); setFeed([]);
+      setEntry({ date, body: '', shared: false, exists: false }); setBody(''); setFeed([]);
     });
     return () => { alive = false; };
   }, [date]);
+
+  // 저장한 뒤 잠깐만 남는 칩(공유 토글) — 상태 표시라 계속 서 있을 이유가 없다
+  useEffect(() => {
+    if (shareState !== 'saved') return undefined;
+    const t = setTimeout(() => setShareState(''), 2600);
+    return () => clearTimeout(t);
+  }, [shareState]);
 
   // 잔디 — 이번 달 + 이번 주가 걸친 만큼만 읽는다(달을 넘나드는 주가 있다)
   const month = useMemo(() => monthDays(today), [today]);
@@ -153,16 +184,22 @@ function QtTab() {
   }, [month, weekStart, weekEnd]);
   useEffect(() => { reloadGrass(); }, [reloadGrass]);
 
-  const dirty = !!draft && (draft.body !== saved.body || draft.shared !== saved.shared);
+  // 지금 화면의 날짜와 읽어 온 날짜가 같을 때에만 저장·공유를 연다 — 넘긴 직후
+  // 한 순간은 앞 날짜의 글이 에디터에 남아 있으므로, 그때 저장하면 엉뚱한 날에 쓴다
+  const ready = !!entry && entry.date === date;
+  const dirty = ready && body !== entry.body;
+  // 공유는 저장된 글에만 걸 수 있다(머리말) — 빈 글은 나눔에 올라가지도 않는다
+  const canShare = ready && entry.exists && !!entry.body.trim();
+
   const save = async () => {
-    if (!draft || saving) return;
+    if (!ready || saving) return;
     setSaving(true);
     try {
-      await saveMyEntry(date, draft);
-      setSaved(draft);
+      await saveMyEntry(date, { body, shared: entry.shared });
+      setEntry({ date, body, shared: entry.shared, exists: true });
       setFeed(await fetchSharedEntries(date));
       reloadGrass();
-      showToast(draft.shared ? '묵상을 저장하고 더다붓에 공유했어요' : '묵상을 저장했어요');
+      showToast(entry.shared ? '묵상을 저장하고 더다붓에 공유했어요' : '묵상을 저장했어요');
     } catch (e) {
       console.error('[word] 묵상 저장 실패:', e);
       showToast(failText('묵상을 저장하지 못했어요', e));
@@ -171,12 +208,43 @@ function QtTab() {
     }
   };
 
-  // 나눔에서 내 글을 지운다 — 그 날 묵상 자체가 없어지므로 잔디에서도 빠진다
+  // 공유 칸만 그 자리에서 저장한다. **저장된 본문을 그대로 다시 쓴다** — 고치던 글을
+  // 같이 올리면 저장 버튼을 누르지 않았는데 글이 나가 버린다(그래서 dirty도 그대로 남는다).
+  const setShared = async (v) => {
+    if (!canShare || v === entry.shared || shareState === 'saving') return;
+    setShareState('saving');
+    try {
+      await saveMyEntry(date, { body: entry.body, shared: v });
+      setEntry(e => ({ ...e, shared: v }));
+      setFeed(await fetchSharedEntries(date));
+      setShareState('saved');
+    } catch (e) {
+      console.error('[word] 공유 상태 저장 실패:', e);
+      setShareState('');
+      showToast(failText(v ? '더다붓에 공유하지 못했어요' : '공유를 내리지 못했어요', e));
+    }
+  };
+
+  // 나눔 줄의 지우기 = **공유 해제**. 묵상은 내 기록에 그대로 남는다(잔디도 그대로)
+  const unshareMine = async () => {
+    if (!ready) return;
+    try {
+      await saveMyEntry(date, { body: entry.body, shared: false });
+      setEntry(e => ({ ...e, shared: false }));
+      setFeed(await fetchSharedEntries(date));
+      showToast('나눔에서 내렸어요');
+    } catch (e) {
+      console.error('[word] 공유 해제 실패:', e);
+      showToast(failText('나눔에서 내리지 못했어요', e));
+    }
+  };
+
+  // 진짜 삭제는 '내 묵상' 칸에서만 — 그 날 묵상 자체가 없어지므로 잔디에서도 빠진다
   const removeMine = async () => {
     try {
       await deleteMyEntry(date);
-      const blank = { body: '', shared: false };
-      setDraft(blank); setSaved(blank);
+      setEntry({ date, body: '', shared: false, exists: false });
+      setBody('');
       setFeed(await fetchSharedEntries(date));
       reloadGrass();
       showToast('묵상을 지웠어요');
@@ -195,43 +263,55 @@ function QtTab() {
     box.querySelector('.tiptap')?.focus();
   };
 
+  // 기다리는 동안 잡아 둘 자리 — 넘기기 직전 높이가 있으면 그만큼(머리말)
+  const slotH = day.loading ? Math.max(PASSAGE_MIN_H, hold) : PASSAGE_MIN_H;
+
   return (
-    <div className="grid gap-x-7 gap-y-6 items-start side-grid">
+    // 넓은 화면에서 잔디가 본문 옆에 **붙어** 선다(사용자 피드백 2026-09-02 4차 —
+    // 1fr + 300px이면 본문 열이 46rem에서 끊긴 뒤 1440px에서 둘 사이가 370px 벌어져
+    // 잔디만 화면 오른쪽에 떨어져 있었다). 본문 열의 상한이 곧 첫 칸의 폭이다.
+    <div className="grid gap-x-7 gap-y-6 items-start lg:grid-cols-[minmax(0,46rem)_300px]">
       {/* 읽는 폭은 46rem에서 끊는다 — 본문은 오래 읽는 글이라 한 줄이 길면 눈이 샌다 */}
       <div className="min-w-0 max-w-[46rem]">
-        {/* 날짜 이동 */}
+        {/* 날짜 이동 — 날짜 글자가 곧 데이트피커 트리거다(사용자 피드백 2026-09-02) */}
         <div className="flex items-center gap-1 pb-3">
           <button onClick={() => go(shiftDay(date, -1))} aria-label="어제"
-            className="w-9 h-9 flex items-center justify-center rounded-md text-fg-muted hover:bg-surface-hover transition active:scale-95">
+            className="w-9 h-9 shrink-0 flex items-center justify-center rounded-md text-fg-muted hover:bg-surface-hover transition active:scale-95">
             <ChevronLeft size={17} />
           </button>
-          <span className="text-[13.5px] font-bold text-fg tabular-nums px-1">{dayLabel(date)}</span>
+          <DatePicker
+            value={date} onChange={d => d && go(d)} allowClear={false} ariaLabel="QT 날짜 고르기"
+            triggerClassName="inline-flex items-center gap-1 h-9 px-1.5 rounded-md hover:bg-surface-hover outline-none transition-colors"
+          >
+            <span className="text-[13.5px] font-bold text-fg tabular-nums">{dayLabel(date)}</span>
+            <ChevronDown size={13} className="shrink-0 text-fg-faint" />
+          </DatePicker>
           <button onClick={() => go(shiftDay(date, 1))} aria-label="내일"
-            className="w-9 h-9 flex items-center justify-center rounded-md text-fg-muted hover:bg-surface-hover transition active:scale-95">
+            className="w-9 h-9 shrink-0 flex items-center justify-center rounded-md text-fg-muted hover:bg-surface-hover transition active:scale-95">
             <ChevronRight size={17} />
           </button>
           {date !== today && (
             <button onClick={() => go(today)}
-              className="ml-1 px-2.5 h-8 rounded-md text-[11.5px] font-semibold text-accent-text bg-accent-weak transition active:scale-95">
+              className="ml-1 shrink-0 px-2.5 h-8 rounded-md text-[11.5px] font-semibold text-accent-text bg-accent-weak transition active:scale-95">
               오늘
             </button>
           )}
         </div>
 
         {/* 본문 — 기다리는 동안에도 같은 자리에 같은 크기로 서 있는다 */}
-        <div style={{ minHeight: PASSAGE_MIN_H }}>
-          <Swap k={date} dir={dir}><QtPassage day={day} /></Swap>
+        <div ref={slotRef} style={{ minHeight: slotH }}>
+          <Swap k={date} dir={dir}><QtPassage day={day} minH={slotH} /></Swap>
         </div>
 
         {/* 내 묵상 */}
         <div className="mt-6" ref={editorRef}>
           <SectionHead>내 묵상</SectionHead>
           <div style={{ minHeight: EDITOR_H }}>
-            {draft ? (
+            {entry ? (
               <Suspense fallback={<EditorSkeleton />}>
                 <MarkdownEditor
-                  value={draft.body}
-                  onChange={(md) => setDraft(d => (d ? { ...d, body: md } : d))}
+                  value={body}
+                  onChange={setBody}
                   placeholder="오늘 본문에서 마음에 남은 것"
                   className="min-h-40 border border-line rounded-md rounded-t-none p-3 bg-surface focus-within:border-accent focus-within:shadow-soft transition-all"
                 />
@@ -239,17 +319,26 @@ function QtTab() {
             ) : <EditorSkeleton />}
           </div>
           {/* 이름이 길어졌으므로(→ '더다붓에 공유하기') 좁은 폭에서는 줄을 바꾼다.
-              spacer는 basis 0이라 자리가 있는 한 셋이 한 줄에 그대로 선다 */}
+              spacer는 basis 0이라 자리가 있는 한 넷이 한 줄에 그대로 선다 */}
           <div className="flex flex-wrap items-center gap-2 mt-2.5">
             <button onClick={save} disabled={!dirty || saving}
               className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
               저장
             </button>
+            <ShareChip state={shareState} label={entry?.shared ? '더다붓에 공유했어요' : '나만 보기로 바꿨어요'} />
             <span className="flex-1" />
-            <ShareToggle
-              value={!!draft?.shared} disabled={!draft}
-              onChange={v => setDraft(d => (d && d.shared !== v ? { ...d, shared: v } : d))}
-            />
+            <ShareToggle value={!!entry?.shared} disabled={!canShare} onChange={setShared} />
+            {canShare && (
+              <ConfirmPopover
+                message="이 날 묵상을 지울까요? 나눔에서도 내려가고 내 기록에서도 빠져요."
+                onConfirm={removeMine}
+              >
+                <button aria-label="내 묵상 지우기"
+                  className="w-9 h-9 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
+                  <Trash2 size={14} />
+                </button>
+              </ConfirmPopover>
+            )}
           </div>
         </div>
 
@@ -260,7 +349,7 @@ function QtTab() {
             {feed === null
               ? <FeedSkeleton />
               : <ShareFeed entries={feed} members={members} myName={currentUser?.name || ''}
-                  onEdit={editMine} onDelete={removeMine} />}
+                  onEdit={editMine} onUnshare={unshareMine} />}
           </div>
         </div>
       </div>
@@ -272,11 +361,27 @@ function QtTab() {
   );
 }
 
+// 공유 칸이 그 자리에서 저장됐음을 알리는 칩 — 예배 화면의 SaveState와 같은 결
+// (worshipDetail.jsx). 저장이 끝난 것만 연한 초록이고, 지나가는 상태는 무채색이다.
+function ShareChip({ state, label }) {
+  if (!state) return null;
+  const done = state === 'saved';
+  return (
+    <span data-share-chip={state} className={`text-[10.5px] ${
+      done ? 'px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg font-bold' : 'text-fg-faint'}`}>
+      {done ? label : '저장하는 중'}
+    </span>
+  );
+}
+
 // ── 나만 보기 / 더다붓에 공유하기 ───────────────────────────────────────────
 // **이미 그 상태인 쪽을 눌러도 아무 일도 일어나지 않는다**(사용자 지적 2026-09-01 —
 // 예전에는 한 버튼이 상태를 표시하면서 누르면 뒤집혀서, 지금 상태를 확인하려고 누른
 // 사람이 값을 바꿔 놓고 저장 버튼을 켰다). 두 쪽을 나란히 두고 값이 실제로 달라질
-// 때만 draft를 새로 만든다 — 같은 객체를 돌려주면 리렌더도 dirty도 없다.
+// 때만 부른다 — 부르는 쪽(setShared)이 같은 값이면 되돌아 나온다.
+//
+// 값은 **저장된 것**을 그대로 비춘다(고치던 상태가 아니다). 그래서 이 토글은 저장 버튼을
+// 켜지 않고, 눌리면 그 자리에서 shared 칸만 저장된다(QtTab 머리말).
 function ShareToggle({ value, disabled, onChange }) {
   const OPTIONS = [[false, '나만 보기', Lock], [true, '더다붓에 공유하기', Users]];
   return (
@@ -299,8 +404,17 @@ function ShareToggle({ value, disabled, onChange }) {
 }
 
 // ── 그날 본문 ───────────────────────────────────────────────────────────────
-export function QtPassage({ day }) {
-  if (day.loading) return <Card className="p-4 md:p-5"><PassageSkeleton lines={8} /></Card>;
+// minH: 기다리는 동안 채워야 할 자리의 높이. 카드가 자리보다 짧으면 그 차이만큼
+// 아래 칸들이 올라왔다 내려간다(QtTab 머리말) — 줄 수도 자리에 맞춰 늘린다.
+export function QtPassage({ day, minH = PASSAGE_MIN_H }) {
+  if (day.loading) {
+    const lines = Math.max(8, Math.round((minH - 44) / 34));
+    return (
+      <Card className="p-4 md:p-5" style={{ minHeight: minH }}>
+        <PassageSkeleton lines={lines} />
+      </Card>
+    );
+  }
   if (!day.schedule) {
     return (
       <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: PASSAGE_MIN_H }}>
@@ -339,7 +453,7 @@ function FeedSkeleton() {
   );
 }
 
-export function ShareFeed({ entries, members = [], myName = '', onEdit, onDelete }) {
+export function ShareFeed({ entries, members = [], myName = '', onEdit, onUnshare }) {
   const byId = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   if (!entries.length) {
     return <p className="text-[11.5px] text-fg-faint">이 날짜에 올라온 나눔이 아직 없어요</p>;
@@ -366,13 +480,16 @@ export function ShareFeed({ entries, members = [], myName = '', onEdit, onDelete
                       className="w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
                       <Pencil size={12} />
                     </button>
+                    {/* **여기서 지우는 것은 나눔에서만이다**(사용자 피드백 2026-09-02 4차).
+                        묵상은 내 기록에 그대로 남으므로 잃는 것이 없고(tone 'ok'), 진짜
+                        삭제는 위의 '내 묵상' 칸 휴지통이 한다 */}
                     <ConfirmPopover
-                      message="이 날 묵상을 지울까요? 나눔에서도 내려가고 내 기록에서도 빠져요."
-                      onConfirm={onDelete}
+                      message="이 날의 묵상을 지우고 내 기록에만 남겨둘까요?"
+                      confirmLabel="지우기" tone="ok" onConfirm={onUnshare}
                     >
                       <button aria-label="내 나눔 지우기"
                         className="w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
-                        <Trash2 size={12} />
+                        <EyeOff size={12} />
                       </button>
                     </ConfirmPopover>
                   </span>
@@ -390,7 +507,17 @@ export function ShareFeed({ entries, members = [], myName = '', onEdit, onDelete
 }
 
 // ── 내 기록 (잔디 — 개인 전용) ──────────────────────────────────────────────
+// **칸을 잔디만큼 줄였다**(사용자 피드백 2026-09-02 4차 — "모바일과 아래쪽 뷰에서 너무
+// 크다"). 예전에는 칸이 `aspect-square`라 폭을 나눠 가졌고, 모바일 전체 폭에서는 한 칸이
+// 41px·1440px 옆 칸에서는 35px이었다 — 달력만큼 커져서 '기록 달력'이 아니라 달력으로
+// 읽혔다. 13px 고정·3px 간격이면 한 달이 116px에 들어가고, 남는 폭은 집계 한 줄이 쓴다.
+//
+// 칸이 13px이면 날짜 숫자가 못 들어간다. 그래서 날짜는 **머리글(요일) · 제목 옆(월) ·
+// 칸의 title/aria-label**이 말한다. 숫자를 넣으려면 칸이 20px은 되어야 하는데, 그건 다시
+// 너무 크다는 그 크기다.
 const WEEK_HEAD = ['일', '월', '화', '수', '목', '금', '토'];
+const CELL = 13;   // px — 칸 한 변
+const GAP = 3;     // px — 칸 사이
 
 export function Grass({ month, today, dates, weekStart, weekEnd, onPick }) {
   const set = useMemo(() => new Set(dates), [dates]);
@@ -398,34 +525,36 @@ export function Grass({ month, today, dates, weekStart, weekEnd, onPick }) {
   const inWeek = dates.filter(d => d >= weekStart && d <= weekEnd).length;
   return (
     <div>
-      <SectionHead right={<span className="text-[11px] text-fg-faint tabular-nums shrink-0">{month.month}월</span>}>
+      <SectionHead right={<span className="text-[11px] text-fg-faint tabular-nums shrink-0">{month.year}년 {month.month}월</span>}>
         내 기록
       </SectionHead>
       <Card className="p-3.5">
-        <div className="grid grid-cols-7 gap-1">
-          {WEEK_HEAD.map(w => (
-            <span key={w} className="text-[9.5px] font-semibold text-fg-faint text-center pb-0.5">{w}</span>
-          ))}
-          {Array.from({ length: month.lead }, (_, i) => <span key={`b${i}`} />)}
-          {month.days.map(d => {
-            const has = set.has(d);
-            return (
-              <button
-                key={d} onClick={() => onPick(d)} title={shortDayLabel(d)}
-                className="aspect-square rounded-[4px] flex items-center justify-center text-[10px] font-semibold tabular-nums transition active:scale-95"
-                style={{
-                  background: has ? 'var(--app-tag-green)' : 'var(--app-surface-hover)',
-                  color: has ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)',
-                  opacity: d > today ? 0.45 : 1,
-                  boxShadow: d === today ? 'inset 0 0 0 1.5px var(--app-accent)' : undefined,
-                }}
-              >{+d.slice(8)}</button>
-            );
-          })}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+          <div className="grid shrink-0" style={{ gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP }}>
+            {WEEK_HEAD.map(w => (
+              <span key={w} className="text-[9px] font-semibold text-fg-faint text-center leading-none pb-px">{w}</span>
+            ))}
+            {Array.from({ length: month.lead }, (_, i) => <span key={`b${i}`} />)}
+            {month.days.map(d => {
+              const has = set.has(d);
+              return (
+                <button
+                  key={d} onClick={() => onPick(d)} title={shortDayLabel(d)} aria-label={shortDayLabel(d)}
+                  className="rounded-[3px] transition active:scale-90"
+                  style={{
+                    width: CELL, height: CELL,
+                    background: has ? 'var(--app-tag-green)' : 'var(--app-surface-hover)',
+                    opacity: d > today ? 0.45 : 1,
+                    boxShadow: d === today ? 'inset 0 0 0 1.5px var(--app-accent)' : undefined,
+                  }}
+                />
+              );
+            })}
+          </div>
+          <p className="flex-1 min-w-[9rem] text-[11.5px] text-fg-muted tabular-nums">
+            이번 주 {inWeek}번, 이번 달 {inMonth}번 기록했어요
+          </p>
         </div>
-        <p className="text-[11.5px] text-fg-muted tabular-nums mt-3">
-          이번 주 {inWeek}번, 이번 달 {inMonth}번 기록했어요
-        </p>
       </Card>
     </div>
   );

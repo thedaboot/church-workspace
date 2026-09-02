@@ -67,7 +67,11 @@ function useDismiss(open, close, refs) {
 //   · `transition-none` — 자리 보정은 애니메이션이 아니다(fade/zoom은 그대로 남는다)
 //   · 자리가 잡히기 전 프레임은 visibility로 숨긴다(ProfileMenu의 '열기 전에 place()'와
 //     같은 취지 — 그 place()는 이미 있었지만 추정 높이라 그것만으로는 모자랐다)
-function NumberPicker({ label, value, suffix, options, onPick }) {
+//
+// 칸은 **부르는 쪽이 준 폭을 꽉 채운다**(className) — 모바일에서는 세로로 쌓이고
+// 데스크톱에서는 한 줄에 나란히 서는데, 어느 쪽이든 칸이 열 폭을 남기지 않아야 한다
+// (사용자 지적 2026-09-02: 칸들이 왼쪽에만 몰려 있었다).
+function NumberPicker({ label, value, suffix, options, onPick, className = '' }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const btnRef = useRef(null);
@@ -80,10 +84,10 @@ function NumberPicker({ label, value, suffix, options, onPick }) {
   useDismiss(open, () => setOpen(false), [rootRef, popRef]);
 
   return (
-    <span ref={rootRef} className="inline-flex">
-      <span ref={btnRef} className="inline-flex">
+    <span ref={rootRef} className={`inline-flex min-w-0 ${className}`}>
+      <span ref={btnRef} className="inline-flex flex-1 min-w-0">
         <button type="button" aria-label={label} aria-expanded={open}
-          onClick={() => { place(); setOpen(o => !o); }} className={`worship-num ${TRIGGER}`}>
+          onClick={() => { place(); setOpen(o => !o); }} className={`worship-num ${TRIGGER} w-full justify-between`}>
           {value}{suffix} <ChevronDown size={12} className="text-fg-faint shrink-0" />
         </button>
       </span>
@@ -111,11 +115,16 @@ function NumberPicker({ label, value, suffix, options, onPick }) {
 // 책 칸 — 담당자 이름 칸과 같은 자동완성이다. 다른 점 하나: 여기서는 목록 밖 글자를
 // 받지 않는다(성경 책은 66권으로 정해져 있다). 그래서 닫힐 때 고른 책 이름으로 되돌린다 —
 // 칸에는 '요한'이 적혀 있는데 아래 장·절은 이사야인 어긋남이 남지 않게.
-function BookInput({ books, book, onPick, onClear }) {
+//
+// **오른쪽 화살표는 눌리는 버튼이다.** 처음에는 장식용 SVG였고, 장·절 칸의 화살표는
+// 버튼 안에 있어 눌리는데 이것만 아무 반응이 없었다(사용자 지적 2026-09-02 —
+// "화살표가 동작하지 않는다"). 목록을 여는 자리로 보이는 것이면 실제로 열려야 한다.
+function BookInput({ books, book, onPick, onClear, className = '' }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(book?.name || '');
   const [activeIdx, setActiveIdx] = useState(0);
   const rootRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => { setText(book?.name || ''); }, [book?.id, book?.name]);
   useDismiss(open, () => { setOpen(false); setText(book?.name || ''); }, [rootRef]);
@@ -137,20 +146,34 @@ function BookInput({ books, book, onPick, onClear }) {
     else if (e.key === 'Enter') { e.preventDefault(); choose(suggestions[activeIdx] ?? suggestions[0]); }
   };
 
+  // 화살표는 열고 닫는다. 닫을 때 칸에 다시 focus를 주면 onFocus가 곧바로 다시
+  // 열어 버리므로, 열 때만 focus를 옮긴다(칸을 눌러서 여는 길과 같은 자리로 온다).
+  const toggle = (e) => {
+    e.preventDefault();
+    if (open) { setOpen(false); return; }
+    setOpen(true); setActiveIdx(0);
+    inputRef.current?.focus();
+  };
+
   return (
-    <div className="worship-book relative shrink-0" ref={rootRef}>
-      <div className={`${BOX} w-[8.5rem]`}>
+    <div className={`worship-book relative min-w-0 ${className}`} ref={rootRef}>
+      <div className={`${BOX} w-full`}>
         <input
+          ref={inputRef}
           value={text} aria-label="본문 선택" placeholder="본문 선택"
           onChange={e => { setText(e.target.value); setOpen(true); setActiveIdx(0); if (!e.target.value.trim()) onClear(); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
           className="flex-1 min-w-0 bg-transparent text-[13px] text-fg placeholder:text-fg-faint outline-none py-0.5"
         />
-        <ChevronDown size={12} className="text-fg-faint shrink-0" />
+        <button type="button" tabIndex={-1} aria-label="책 목록" aria-expanded={open}
+          onMouseDown={toggle}
+          className="worship-book-arrow shrink-0 p-0.5 -mr-0.5 rounded-xs text-fg-faint hover:text-fg transition-colors">
+          <ChevronDown size={12} />
+        </button>
       </div>
       {open && suggestions.length > 0 && (
-        <div className={`worship-book-list ${LIST} absolute left-0 top-full mt-1 w-max min-w-[8.5rem] max-w-[min(16rem,90vw)] max-h-56 overflow-y-auto p-1`}>
+        <div className={`worship-book-list ${LIST} absolute left-0 top-full mt-1 w-max min-w-full max-w-[min(16rem,90vw)] max-h-56 overflow-y-auto p-1`}>
           {suggestions.map((b, i) => (
             <button key={b.id} type="button" onMouseDown={e => { e.preventDefault(); choose(b); }}
               ref={i === activeIdx ? keepVisible : null}
@@ -229,9 +252,14 @@ export function PassagePicker({ value, onChange }) {
   // 절 수를 아직 모르면 고른 절 하나만 — 목록이 비면 고른 번호가 어디에도 없게 된다
   const verseOptions = (ch, cur) => (versesIn(ch) ? range(versesIn(ch)) : [cur]);
 
+  // 모바일은 세로로 쌓이고(칸마다 한 줄을 다 쓴다), sm부터 한 줄에 나란히 선다.
+  // 예전에는 `flex-wrap`에 폭 고정 칸만 모여 있어서 375px에서는 칸이 세 줄로 접히고
+  // 1440px에서는 왼쪽 1/3에만 몰려 있었다(사용자 지적 2026-09-02).
+  const half = 'flex items-center gap-1 min-w-0 sm:flex-1';
   return (
-    <div className="worship-passage-pick flex flex-wrap items-center gap-1.5">
-      <BookInput books={books} book={book} onPick={chooseBook} onClear={clearBook} />
+    <div className="worship-passage-pick flex flex-col gap-1.5 sm:flex-row sm:items-center">
+      <BookInput books={books} book={book} onPick={chooseBook} onClear={clearBook}
+        className="w-full sm:w-auto sm:flex-1 sm:max-w-[11rem]" />
 
       {/* 예전에 자유 표기로 적어 둔 구절('주보 특별 순서')은 파서가 못 읽는다 —
           고르기 전까지 그 글자를 그대로 보여 준다(모르는 사이에 지워지지 않게) */}
@@ -239,21 +267,21 @@ export function PassagePicker({ value, onChange }) {
 
       {book && pick && (
         <>
-          <span className="inline-flex items-center gap-1">
-            <NumberPicker label="시작 장" value={pick.c1} suffix="장"
+          <span className={half}>
+            <NumberPicker className="flex-1" label="시작 장" value={pick.c1} suffix="장"
               options={range(book.chapters)} onPick={c => put({ c1: c, v1: 1 })} />
-            <NumberPicker label="시작 절" value={pick.v1} suffix="절"
+            <NumberPicker className="flex-1" label="시작 절" value={pick.v1} suffix="절"
               options={verseOptions(pick.c1, pick.v1)} onPick={v => put({ v1: v })} />
+            <span className="shrink-0 text-[12px] text-fg-faint px-0.5">부터</span>
           </span>
-          <span className="text-[12px] text-fg-faint px-0.5">부터</span>
-          <span className="inline-flex items-center gap-1">
-            <NumberPicker label="끝 장" value={pick.c2} suffix="장"
+          <span className={half}>
+            <NumberPicker className="flex-1" label="끝 장" value={pick.c2} suffix="장"
               options={range(book.chapters).filter(c => c >= pick.c1)} onPick={c => put({ c2: c, v2: 1 })} />
-            <NumberPicker label="끝 절" value={pick.v2} suffix="절"
+            <NumberPicker className="flex-1" label="끝 절" value={pick.v2} suffix="절"
               options={verseOptions(pick.c2, pick.v2).filter(v => pick.c2 > pick.c1 || v >= pick.v1)}
               onPick={v => put({ v2: v })} />
+            <span className="shrink-0 text-[12px] text-fg-faint px-0.5">까지</span>
           </span>
-          <span className="text-[12px] text-fg-faint px-0.5">까지</span>
         </>
       )}
     </div>

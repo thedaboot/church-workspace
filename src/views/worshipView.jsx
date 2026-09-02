@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, PencilLine } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, PencilLine, ChevronDown } from 'lucide-react';
 import { Skeleton } from '../components/media.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
@@ -8,9 +8,10 @@ import { DatePicker } from '../components/DatePicker.jsx';
 import { ServiceDetail, WorshipEmpty } from '../components/worshipDetail.jsx';
 import { AttendanceScreen } from '../components/worshipAttendance.jsx';
 import {
-  SUNDAY_KIND, kindLabel, formatServiceDate, nextSundayDate, serviceYear, worshipPerms,
+  SUNDAY_KIND, kindLabel, formatServiceDate, nextSundayDate, serviceYear, worshipPerms, mergeSongs,
   fetchServices, fetchWorshipPerms, fetchRoster, createService, saveService, publishService, removeService,
   fetchAttendance, checkIn, checkOut, addRosterPerson, fetchMyNote, saveMyNote,
+  fetchPlaylistSongs, fetchVideoTitle,
 } from '../services/worship.js';
 
 // ============================================================================
@@ -32,6 +33,9 @@ const KINDS = [
   { id: 'sunday', label: '주일예배' },
   { id: 'other', label: '그 밖의 예배' },
 ];
+
+// 종류 피커의 두 번째 줄 — 고르면 이름 칸이 나온다(이벤트성 예배)
+const OTHER_LABEL = '다른 예배…';
 
 const CARD = 'rounded-[10px] shadow-soft transition active:scale-[.995]';
 const CARD_STYLE = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
@@ -56,43 +60,83 @@ function ServiceCard({ service, onOpen }) {
   );
 }
 
-// 새 주보 — 기본은 주일 4부 청년 예배, 날짜는 다가오는 주일이다(결정 14).
+// 예배 종류 — 고르는 것은 둘뿐이다(주일 4부 젊은이 예배 / 그 밖의 자유 이름).
+// 칩 두 개로 두면 종류 이름이 길어서 줄 하나를 통째로 먹었다 — 지금은 한 칸이다.
+function KindPicker({ other, onPick }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  // 트리거 바로 아래에 붙는 팝오버라 자리를 state로 잡지 않는다 — 그래서 §6-17-b의
+  // 'top이 전이되어 미끄러진다'가 생기지 않는다(날짜 픽커와 같은 방식).
+  return (
+    <div className="relative shrink-0" ref={rootRef}>
+      <button type="button" aria-label="예배 종류" aria-expanded={open} onClick={() => setOpen(o => !o)}
+        className="worship-kind-pick inline-flex items-center gap-1.5 border border-line rounded-xs bg-surface px-2 py-1.5 text-xs text-fg hover:bg-surface-hover focus:border-accent focus:shadow-soft outline-none transition-all">
+        {other ? OTHER_LABEL : kindLabel(SUNDAY_KIND)}
+        <ChevronDown size={12} className="text-fg-faint shrink-0" />
+      </button>
+      {open && (
+        <div className="worship-kind-list absolute left-0 top-full z-50 mt-1 w-max min-w-full bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150">
+          {[[false, kindLabel(SUNDAY_KIND)], [true, OTHER_LABEL]].map(([v, label]) => (
+            <button key={label} type="button" onClick={() => { onPick(v); setOpen(false); }}
+              className={`w-full px-2 py-1.5 rounded-md text-left text-[12.5px] transition-colors ${
+                v === other ? 'bg-surface-hover text-fg font-semibold' : 'text-fg-muted hover:bg-surface-hover'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 새 주보 — 기본은 주일 4부 젊은이 예배, 날짜는 다가오는 주일이다(결정 14).
 // 이벤트성 예배는 종류 이름을 그대로 적는다('금요 열정 예배'·'성탄절 예배').
+//
+// **한 줄짜리 생성기다**(사용자 지적 2026-09-02: "날짜와 그 밖의 예배만 정하고 만들
+// 것이라면 세 줄로 쪼갤 이유가 없다"). 종류·날짜가 기본값으로 채워져 있어서 열자마자
+// '만들기' 한 번이면 끝나고, 이름 칸은 '다른 예배'를 고를 때만 나온다.
 function NewServiceForm({ onCreate, onCancel }) {
-  const [sunday, setSunday] = useState(true);
+  const [other, setOther] = useState(false);
   const [name, setName] = useState('');
   const [date, setDate] = useState(() => nextSundayDate());
   const [busy, setBusy] = useState(false);
-  const chip = (on) => `px-3 py-1.5 rounded-full text-[11.5px] font-semibold transition active:scale-95 ${on ? 'bg-accent text-white' : 'bg-surface border border-line text-fg-muted'}`;
 
   const submit = async () => {
     if (busy) return;
     setBusy(true);
-    await onCreate({ kind: sunday ? SUNDAY_KIND : name.trim(), serviceDate: date });
+    await onCreate({ kind: other ? name.trim() : SUNDAY_KIND, serviceDate: date });
     setBusy(false);
   };
 
   return (
-    <div className={`worship-new p-3.5 mb-4 ${CARD}`} style={CARD_STYLE}>
+    <div className={`worship-new p-3 mb-4 ${CARD}`} style={CARD_STYLE}>
       <div className="flex flex-wrap items-center gap-1.5">
-        <button type="button" className={chip(sunday)} onClick={() => setSunday(true)}>{kindLabel(SUNDAY_KIND)}</button>
-        <button type="button" className={chip(!sunday)} onClick={() => setSunday(false)}>그 밖의 예배</button>
-      </div>
-      {!sunday && (
-        <input value={name} onChange={e => setName(e.target.value)} aria-label="예배 이름" placeholder="예: 금요 열정 예배"
-          className="w-full max-w-[24rem] mt-2.5 text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
-      )}
-      {/* 업무의 날짜 픽커 한 벌을 그대로 쓴다 — 브라우저마다 다르게 그려지는
-          <input type="date">와 달리 다크 모드·모바일에서 같은 모양이다(사용자 지적) */}
-      <div className="worship-new-date mt-2.5">
-        <DatePicker value={date} onChange={setDate} />
-      </div>
-      <div className="flex items-center gap-1.5 mt-3">
-        <button type="button" onClick={submit} disabled={busy || (!sunday && !name.trim()) || !date}
-          className="px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40">만들기</button>
+        <KindPicker other={other} onPick={setOther} />
+        {other && (
+          <input value={name} onChange={e => setName(e.target.value)} aria-label="예배 이름" placeholder="예: 금요 열정 예배"
+            autoFocus onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+            className="flex-1 basis-40 min-w-0 max-w-[16rem] text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
+        )}
+        {/* 업무의 날짜 픽커 한 벌을 그대로 쓴다 — 브라우저마다 다르게 그려지는
+            <input type="date">와 달리 다크 모드·모바일에서 같은 모양이다(사용자 지적) */}
+        <div className="worship-new-date shrink-0">
+          <DatePicker value={date} onChange={setDate} />
+        </div>
+        <button type="button" onClick={submit} disabled={busy || (other && !name.trim()) || !date}
+          className="worship-new-make shrink-0 px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40">만들기</button>
         <span className="flex-1" />
         <button type="button" onClick={onCancel}
-          className="px-2.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">취소</button>
+          className="shrink-0 px-2.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">취소</button>
       </div>
     </div>
   );
@@ -323,6 +367,31 @@ export function WorshipView({ onOpenBible } = {}) {
 
   const saveAttendanceNote = useCallback((text) => save({ attendance_note: text }), [save]);
 
+  // 유튜브 재생목록 → 찬양 목록. 통신은 이 파일이 갖고(worshipDetail 머리말) 화면은
+  // 돌려받은 목록을 그대로 쓴다. 게스트·로컬 vite에는 /api/yt가 없으니 조용히
+  // 토스트 한 줄로 떨군다 — 그때는 쓰는 사람이 할 수 있는 일이 없다.
+  const pullPlaylist = useCallback(async (url, rows) => {
+    try {
+      const picked = await fetchPlaylistSongs(url);
+      const next = mergeSongs(rows, picked);
+      const added = next.length - (rows || []).length;
+      showToast(added ? `${added}곡을 가져왔어요` : '이미 다 들어 있어요');
+      return added ? next : null;
+    } catch (e) {
+      // 서버 함수가 없는 환경(게스트·로컬 vite)이나 주소를 잘못 붙인 것은 고장이
+      // 아니다 — 토스트 한 줄로 끝내고 콘솔에는 남기지 않는다(worship.js의 quiet)
+      if (!e?.quiet) console.error('[worship] 재생목록 가져오기 실패:', e);
+      showToast(e?.human || '지금은 가져올 수 없어요');
+      return null;
+    }
+  }, []);
+
+  // 링크만 붙였을 때 제목을 채운다. 실패하면 아무 말도 하지 않는다 — 사람이 부탁한
+  // 일이 아니라 곁들이는 일이고, 제목은 손으로 적으면 된다.
+  const lookupTitle = useCallback(async (url) => {
+    try { return await fetchVideoTitle(url); } catch { return ''; }
+  }, []);
+
   if (!perms || services === null) return LOADING;
 
   if (screen === 'attendance' && service) {
@@ -344,6 +413,7 @@ export function WorshipView({ onOpenBible } = {}) {
         onSave={save} onPublish={publish} onDelete={drop} onSaveNote={saveNote}
         onOpenAttendance={() => setScreen('attendance')}
         onOpenBible={onOpenBible}
+        onPullPlaylist={pullPlaylist} onLookupTitle={lookupTitle}
       />
     );
   }

@@ -7,13 +7,14 @@ import { useAuth } from '../services/auth.jsx';
 import { MySunPanel, SunAdminPanel } from '../components/groupsSun.jsx';
 import { ClubsPanel } from '../components/groupsClub.jsx';
 import { WITH_ICON } from '../components/groupsParts.jsx';
+import { SunGuidePanel } from '../components/sunGuide.jsx';
 import { fetchServices, fetchAttendance } from '../services/worship.js';
 import {
   fetchGroupPerms, fetchGroupsRoster, fetchApplications, fetchSunSharedNotes, fetchMeetings,
-  createGroup, saveGroup, addMember, removeMember, moveMember, reorderClubs,
+  createGroup, saveGroup, saveClubInfo, addMember, removeMember, moveMember, reorderClubs,
   applyToClub, cancelApplication, acceptApplication, declineApplication,
   createMeeting, saveMeetingAttendance,
-  mySun, latestSunday, toggleAttendance, yearOptions,
+  groupPerms, mySun, latestSunday, toggleAttendance, yearOptions,
 } from '../services/groups.js';
 
 // ============================================================================
@@ -23,8 +24,10 @@ import {
 // groupsClub이 props로 받아서 한다 — 그래야 검사가 가짜 순·동아리·신청으로
 // 화면을 그대로 눌러 볼 수 있다(tests/groups.mjs).
 //
-// 자격 판정(groups.js fetchGroupPerms)은 0035의 can_manage_sun()·groups_insert·
-// group_members_write를 옮긴 것이고 **버튼을 감추는 용도**다. 어긋나도 DB가 이긴다.
+// 자격 판정(groups.js fetchGroupPerms)은 0035·0039의 can_manage_sun()·groups_insert·
+// groups_update·group_members_write를 옮긴 것이고 **버튼을 감추는 용도**다. 어긋나도
+// DB가 이긴다. 마스터·관리자 여부는 로그인 계정 속성이라 useAuth가 준다 — App.jsx가
+// props 없이 부르는 화면이지만 그 두 값은 컨텍스트에 있다(worshipView와 같은 길).
 //
 // 연도가 둘인 이유: '내 순'과 동아리는 언제나 **올해**를 본다(순은 해마다 다시 짜고,
 // 내가 지금 속한 순은 올해 편성이다). 순 편성 구역만 연도를 골라 지난 편성을 손본다.
@@ -50,7 +53,7 @@ const LOADING = (
 );
 
 export function GroupsView() {
-  const { isMaster } = useAuth();
+  const { isMaster, isAdmin } = useAuth();
   const [state, setState] = useState(null);          // 올해 한 벌 + 자격 + 대기 신청
   const [admin, setAdmin] = useState(null);          // { year, people, suns, members } — 순 편성
   const [year, setYear] = useState(THIS_YEAR);
@@ -63,19 +66,21 @@ export function GroupsView() {
   // ── 읽기 ──────────────────────────────────────────────────────────────────
   const loadBase = useCallback(async () => {
     const [perms, roster, apps] = await Promise.all([
-      fetchGroupPerms(THIS_YEAR, { isMaster }),
+      fetchGroupPerms(THIS_YEAR, { isMaster, isAdmin }),
       fetchGroupsRoster(THIS_YEAR),
       fetchApplications(),
     ]);
     setState({ perms, apps, ...roster });
-  }, [isMaster]);
+  }, [isMaster, isAdmin]);
 
   useEffect(() => {
     loadBase().catch(e => {
       console.error('[groups] 모임 목록 실패:', e);
       showToast(failText('모임을 받지 못했어요', e));
-      setState({ perms: { myPerson: null, isMaster: false, canManageSun: false, canCreateClub: false, ledClubIds: [] },
-        apps: [], people: [], suns: [], clubs: [], members: [], allGroups: [] });
+      // 실패했을 때의 자격은 groupPerms() 기본값이다 — 손으로 적은 한 벌을 두면
+      // 자격이 하나 늘 때마다 이 줄이 뒤처져서, 아무것도 못 하는 화면이 아니라
+      // 되지 않을 버튼이 선 화면이 된다.
+      setState({ perms: groupPerms(), apps: [], people: [], suns: [], clubs: [], members: [], allGroups: [] });
     });
   }, [loadBase]);
 
@@ -98,6 +103,9 @@ export function GroupsView() {
   }, [loadBase, loadAdmin, year]);
 
   // 내 순 소식 — 최근 주일 예배 출석 · 내 순에 공유된 노트. 명단에 이어진 사람만.
+  // ponytail: 순모임 가이드의 기준 예배도 이 한 벌에서 온다. 그래서 명단에 이어지지
+  // 않은 관리자 계정에는 기준 예배가 없어 가이드를 만들 자리도 없다 — 관리자·마스터는
+  // 명단에 이어져 있는 것이 전제다(0035 my_person_id도 같은 전제). 어긋나면 그때 푼다.
   const myPersonId = state?.perms?.myPerson?.id || null;
   useEffect(() => {
     if (!myPersonId) return undefined;
@@ -179,6 +187,11 @@ export function GroupsView() {
   const newClub = useCallback(({ name, note, leaderPersonId }) => run('동아리를 만들지 못했어요',
     () => createGroup({ type: 'club', name, note, leaderPersonId }), '새 동아리를 만들었어요'), [run]);
 
+  // 동아리 이름·설명 고치기 — 마스터·관리자 또는 그 동아리장(0039 groups_update).
+  // 순 이름 바꾸기와 같은 결의 조작이라 문구도 같은 결로 둔다.
+  const editClub = useCallback((club, { name, note }) => run('동아리 정보를 바꾸지 못했어요',
+    () => saveClubInfo(club.id, { name, note }), '동아리 정보를 바꿨어요'), [run]);
+
   const newMeeting = useCallback(async (club, { date, title }) => {
     try {
       await createMeeting(club.id, { date, title });
@@ -247,6 +260,18 @@ export function GroupsView() {
     return list;
   }, [perms]);
 
+  // 순모임 가이드는 **순장에게 보이고 순 편성 자격자가 만든다**(0039 sun_guides —
+  // leads_any_sun 또는 can_manage_sun이 읽고, can_manage_sun이 쓴다). 올해 어느 순의
+  // 순장인지는 이미 읽어 둔 한 벌로 알 수 있다 — 따로 묻지 않는다.
+  const leadsASun = useMemo(
+    () => !!me && (state?.suns || []).some(g => g.leader_person_id === me.id),
+    [me, state],
+  );
+  const guidePerms = useMemo(
+    () => ({ canCreate: !!perms?.canManageSun, canView: leadsASun || !!perms?.canManageSun }),
+    [perms, leadsASun],
+  );
+
   if (!state) return LOADING;
   const active = tabs.some(([k]) => k === tab) ? tab : 'mine';
 
@@ -283,9 +308,15 @@ export function GroupsView() {
         )}
       </div>
 
+      {/* 가이드는 내 순 카드보다 위다 — 순모임을 앞두고 여는 화면에서 먼저 볼 것은
+          이번 주 나눔거리이고, 명단은 그 아래에 있어도 찾을 수 있다. 기준 예배는
+          '가장 최근 발행 주일 예배' 한 건으로, 출석 줄이 쓰는 것과 같다(extra.service). */}
       {active === 'mine' && (
-        <MySunPanel myPerson={me} sun={sun} people={state.people} members={state.members}
-          service={extra.service} present={extra.present} notes={extra.notes} />
+        <>
+          <SunGuidePanel service={extra.service} perms={guidePerms} />
+          <MySunPanel myPerson={me} sun={sun} people={state.people} members={state.members}
+            service={extra.service} present={extra.present} notes={extra.notes} />
+        </>
       )}
 
       {active === 'club' && (
@@ -293,7 +324,7 @@ export function GroupsView() {
           perms={perms} openClub={openClub} meetings={meetings}
           creating={creating === 'club'} onCloseCreate={() => setCreating(null)}
           onOpen={g => setOpenClubId(g.id)} onBack={() => setOpenClubId(null)}
-          onCreateClub={newClub} onApply={apply} onCancelApply={cancelApply}
+          onCreateClub={newClub} onEditClub={editClub} onApply={apply} onCancelApply={cancelApply}
           onAccept={accept} onDecline={decline}
           onAddMember={addClubMember} onRemoveMember={dropClubMember} onReorder={reorderClubList}
           onCreateMeeting={newMeeting} onToggleMeeting={toggleMeeting} />

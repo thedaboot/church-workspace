@@ -70,6 +70,57 @@ export function attendanceOpen(service, today = kstToday()) {
   return /^\d{4}-\d{2}-\d{2}$/.test(d) && d <= today;
 }
 
+// ── 유튜브 주소 (순수 — 노드에서 바로 검사된다) ────────────────────────────
+// 재생목록·영상 id를 주소에서 뽑는다. **호스트를 먼저 본다** — 이 값이 그대로 서버
+// 함수(api/yt.js)로 가기 때문에, 아무 주소나 받으면 우리 서버가 남의 심부름을 하는
+// 열린 프록시가 된다(api/ai.js가 세션을 먼저 보는 것과 같은 취지).
+const YT_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be', 'www.youtu.be']);
+const LIST_ID = /^[A-Za-z0-9_-]{10,64}$/;
+const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
+const ytUrl = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  try {
+    const u = new URL(/^https?:\/\//i.test(s) ? s : `https://${s}`);
+    return YT_HOSTS.has(u.hostname.toLowerCase()) ? u : null;
+  } catch { return null; }
+};
+
+// 'watch?v=..&list=..' · 'playlist?list=..' 둘 다 list 하나에서 온다.
+export function youtubeListId(raw) {
+  const id = ytUrl(raw)?.searchParams.get('list') || '';
+  return LIST_ID.test(id) ? id : null;
+}
+
+// 'watch?v=' · 'youtu.be/..' · 'shorts/..' · 'embed/..' · 'live/..'
+export function youtubeVideoId(raw) {
+  const u = ytUrl(raw);
+  if (!u) return null;
+  const host = u.hostname.toLowerCase();
+  let id = '';
+  if (host.endsWith('youtu.be')) id = u.pathname.slice(1).split('/')[0];
+  else if (u.pathname === '/watch') id = u.searchParams.get('v') || '';
+  else id = (/^\/(?:shorts|embed|live|v)\/([^/?#]+)/.exec(u.pathname) || [])[1] || '';
+  return VIDEO_ID.test(id) ? id : null;
+}
+
+export const youtubeWatchUrl = (videoId) => `https://www.youtube.com/watch?v=${videoId}`;
+
+// 가져온 곡을 기존 목록 뒤에 붙인다 — **같은 영상은 한 번만**(link 기준).
+// 두 번 가져와도 같은 곡이 겹치지 않아야 한다(재생목록을 고쳐서 다시 누르는 일이 흔하다).
+export function mergeSongs(rows = [], picked = []) {
+  const have = new Set((rows || []).map(s => String(s?.link || '').trim()).filter(Boolean));
+  const add = [];
+  for (const p of picked || []) {
+    const link = String(p?.link || '').trim();
+    if (!link || have.has(link)) continue;
+    have.add(link);
+    add.push({ title: p.title || '', link });
+  }
+  return [...(rows || []), ...add];
+}
+
 // 자격 판정 — 0035·0036의 함수와 같은 식이다.
 //   주보 작성·발행 = 마스터 + 교역자 + 올해 회장            (can_edit_service)
 //   출석 전체      = 관리자 + 교역자 + 올해 임원 아무 역할  (can_check_all_attendance)
@@ -239,6 +290,55 @@ export async function checkOut(serviceId, personId) {
   }
   const { error } = await supabase.from('attendance').delete().eq('service_id', serviceId).eq('person_id', personId);
   if (error) throw error;
+}
+
+// ── 유튜브 가져오기 (서버 함수 경유) ───────────────────────────────────────
+// 재생목록은 RSS로, 영상 제목은 oEmbed로 받는다. 둘 다 api/yt.js가 대신 받아 온다 —
+// 브라우저에서 바로 부르면 CORS가 막고, 나중에 키를 쓰는 길로 가더라도 서버만 바뀐다.
+// **게스트·로컬 vite에는 /api/yt가 없다**(404) — 그때는 사람이 할 수 있는 일이 없으니
+// 부르는 쪽이 조용히 토스트 한 줄로 떨군다(AiService가 같은 자리에서 같은 판단을 한다).
+// `quiet`는 '콘솔에 오류로 남길 일이 아니다'는 뜻이다 — 서버 함수가 없는 환경
+// (게스트·로컬 vite)이나 주소를 잘못 붙인 경우가 그렇다. 고장이 아니라 환경이거나
+// 사람이 고칠 수 있는 일이라 화면의 토스트 한 줄로 끝난다. 서버가 실제로 실패한
+// 경우만 console.error로 남긴다(cloud.js가 501을 notConfigured로 가르는 것과 같은 취지).
+const CANT = '지금은 가져올 수 없어요';
+const cantErr = (why = CANT, quiet = false) => {
+  const e = new Error('yt');
+  e.human = why;
+  if (quiet) e.quiet = true;
+  return e;
+};
+
+async function ytFetch(body) {
+  if (!supabase) throw cantErr(CANT, true);
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw cantErr(CANT, true);
+  const r = await fetch('/api/yt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  const out = await r.json().catch(() => ({}));
+  // 서버가 한국어로 이유를 주면 그것을 그대로 화면에 싣는다(errorText의 err.human 경로)
+  if (!r.ok) throw cantErr(out.error || CANT, r.status === 404 && !out.error);
+  return out;
+}
+
+// 재생목록 주소 → [{ title, link }]. 곡 목록에 그대로 붙일 모양으로 돌려준다.
+export async function fetchPlaylistSongs(url) {
+  const listId = youtubeListId(url);
+  if (!listId) throw cantErr('유튜브 재생목록 주소를 붙여주세요', true);
+  const { items = [] } = await ytFetch({ listId });
+  return items.filter(v => v?.videoId).map(v => ({ title: v.title || '', link: youtubeWatchUrl(v.videoId) }));
+}
+
+// 영상 주소 → 제목. 제목 칸이 비어 있을 때만 쓴다(적어 둔 제목을 덮지 않는다).
+export async function fetchVideoTitle(url) {
+  const videoId = youtubeVideoId(url);
+  if (!videoId) return '';
+  const { title = '' } = await ytFetch({ videoId });
+  return title;
 }
 
 // ── 내 예배 노트 ────────────────────────────────────────────────────────────

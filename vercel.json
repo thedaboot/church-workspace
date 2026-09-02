@@ -20,6 +20,9 @@
     },
     "api/ai.js": {
       "maxDuration": 30
+    },
+    "api/yt.js": {
+      "maxDuration": 15
     }
   }
 }

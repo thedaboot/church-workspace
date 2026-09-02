@@ -23,10 +23,18 @@ import { Skeleton } from './media.jsx';
 // 진행을 그린다(첫 검색은 4.5MB를 받으므로 그 사이 화면이 멈춰 보이면 안 된다).
 // 받은 책은 loadBook이 캐시하므로 두 번째 검색부터는 빠르다.
 //
-// **폭**: 본문 열만 46rem에서 끊고 화면의 남는 폭은 '내 기록'(북마크·형광펜)이 쓴다
-// (사용자 피드백 2026-09-01 — "레이아웃을 화면 폭에 맞게, 본문 열은 읽기 폭 유지").
-// 좁은 화면에는 옆 칸이 설 자리가 없으므로 같은 부품을 목차 위에 세운다 — 예전에
-// 북마크가 있던 그 자리다.
+// **목차 · 북마크 · 형광펜은 세 화면이다**(사용자 피드백 2026-09-02 4차 — "목차 화면에
+// 북마크·형광펜 목록이 같이 보인다"). 예전에는 넓은 화면에서 옆 칸(300px)에, 좁은
+// 화면에서는 목차 위에 '내 기록'을 세웠다. 그래서 ① 책을 고르러 온 사람이 북마크 목록을
+// 지나쳐야 했고 ② 좁은 폭에서 **본문을 읽는 동안에는 두 목록에 닿을 길이 아예 없었다**
+// (옆 칸은 lg에서만 서고, 목차 위 자리는 목차 화면에만 있었다). 지금은 검색 줄 아래
+// 세그먼트가 어느 폭에서도 늘 서 있고, 고른 것 하나만 그린다.
+//
+// **폭**: 본문 열(리더·검색 결과)은 46rem에서 끊는다 — 오래 읽는 글이라 한 줄이 길면
+// 다음 줄 첫 글자를 눈이 못 찾는다. 목차 격자는 화면 폭을 그대로 쓰고(66권을 한눈에),
+// 북마크·형광펜 목록도 46rem 안에서 두 열이다 — 1400px을 가로지르면 책 이름과 개수 사이가
+// 400px 벌어져 한 줄로 읽히지 않는다(사용자 피드백 2026-09-01 "레이아웃을 화면 폭에 맞게,
+// 본문 열은 읽기 폭 유지").
 // ============================================================================
 
 const OT_COUNT = 39;               // 정경 순서 — index.json의 앞 39권이 구약
@@ -100,9 +108,12 @@ const SKEL_W = ['92%', '86%', '96%', '78%', '90%', '84%', '94%', '72%', '88%', '
 
 export function PassageSkeleton({ lines = 8, step = 1 }) {
   const f = FONT_STEPS[step] || FONT_STEPS[1];
+  // 줄 길이 열두 개를 돌려 쓴다 — QT는 넘기기 직전 높이만큼 자리를 채우므로(wordView의
+  // QtPassage) 열두 줄로는 긴 본문의 자리가 덜 차서 카드 아래가 비어 보인다
+  const widths = Array.from({ length: Math.max(1, lines) }, (_, i) => SKEL_W[i % SKEL_W.length]);
   return (
     <div className="flex flex-col" style={{ gap: f.gap }} aria-hidden="true">
-      {SKEL_W.slice(0, lines).map((w, i) => (
+      {widths.map((w, i) => (
         // 크기는 **바깥**이 잡는다 — Skeleton은 className만 받고, `.dc-skeleton`이
         // position:relative를 박고 있어 위치 유틸은 어차피 먹지 않는다(media.jsx 머리말)
         <div key={i} style={{ width: w, height: `calc(${f.size} * ${f.line})` }}>
@@ -111,6 +122,27 @@ export function PassageSkeleton({ lines = 8, step = 1 }) {
       ))}
     </div>
   );
+}
+
+// ── 형광펜 한 벌 ────────────────────────────────────────────────────────────
+// **글자가 있는 자리만 칠한다**(사용자 피드백 2026-09-02 4차 — "칠할 때 그 줄 블록
+// 전체가 칠해진다"). 예전에는 절 <p>에 배경을 줘서, 짧은 절도 카드 오른쪽 끝까지
+// 노랗게 그어졌다. 배경을 절 안의 인라인 요소로 내리고 `box-decoration-break: clone`을
+// 걸면 여러 줄로 감기는 절도 **각 줄의 글자 폭만** 칠해진다(안 걸면 마지막 줄 끝까지
+// 한 덩이로 이어진다). 좌우 padding은 같은 값의 음수 margin으로 상쇄해 글자 자리가
+// 밀리지 않게 한다. 색은 업무 본문의 ==형광펜==과 같은 토큰이다(RichText·.tiptap mark).
+const HL_STYLE = {
+  background: 'var(--app-tag-yellow)',
+  color: 'var(--app-tag-yellow-fg)',
+  borderRadius: '3px',
+  padding: '1px 2px',
+  margin: '0 -2px',
+  boxDecorationBreak: 'clone',
+  WebkitBoxDecorationBreak: 'clone',
+};
+
+function Hl({ children }) {
+  return <mark data-lit="1" style={HL_STYLE}>{children}</mark>;
 }
 
 // ── 본문 한 덩이 (QT 탭도 같이 쓴다) ───────────────────────────────────────
@@ -138,8 +170,7 @@ export function PassageText({
         const key = `${v.chapter}:${v.verse}`;
         const lit = !!marks?.has(key);
         const style = { fontSize: f.size, lineHeight: f.line };
-        // 형광펜 색은 업무 본문의 ==형광펜==과 같은 토큰이다(RichText·.tiptap mark)
-        if (lit) { style.background = 'var(--app-tag-yellow)'; style.color = 'var(--app-tag-yellow-fg)'; }
+        // 형광펜은 절 상자가 아니라 글자에 걸린다(HL_STYLE) — 여기서 배경을 주지 말 것
         if (on) style.boxShadow = 'inset 0 0 0 1.5px var(--app-accent)';
         return (
           <p
@@ -157,15 +188,15 @@ export function PassageText({
               e.preventDefault(); onPickVerse(v.chapter, v.verse, e.currentTarget);
             } : undefined}
             className={`rounded-[4px] transition-colors ${blank ? 'text-fg-faint' : 'text-fg-secondary'} ${
-              lit || on ? '-mx-1.5 px-1.5' : ''} ${on && !lit ? 'bg-accent-weak' : ''} ${onPickVerse ? 'cursor-pointer' : ''}`}
+              on ? '-mx-1.5 px-1.5 bg-accent-weak' : ''} ${onPickVerse ? 'cursor-pointer' : ''}`}
             style={style}
           >
-            {/* 형광펜이 켜지면 절 번호도 그 색을 옅게 쓴다 — 회색을 그대로 두면 노랑 위에서
-                탁해 보이고, 진하게 두면 번호가 본문보다 세진다 */}
-            <span className={`mr-1.5 tabular-nums font-bold ${lit ? 'opacity-70' : 'text-fg-faint'}`} style={{ fontSize: f.mark }}>
+            {/* 절 번호는 칠하지 않는다 — 형광펜은 읽은 글에 긋는 것이고, 번호까지 노래지면
+                본문이 어디서 시작하는지가 흐려진다 */}
+            <span className="mr-1.5 tabular-nums font-bold text-fg-faint" style={{ fontSize: f.mark }}>
               {showChapter ? `${v.chapter}:${v.verse}` : v.verse}
             </span>
-            {v.text}
+            {lit ? <Hl>{v.text}</Hl> : v.text}
           </p>
         );
       })}
@@ -176,7 +207,8 @@ export function PassageText({
 // ── 절을 눌렀을 때의 선택 팝오버 ────────────────────────────────────────────
 // **누르자마자 칠하지 않는다**(사용자 피드백 2026-09-02). 본문을 읽다 보면 손이
 // 스치기만 해도 절이 노래졌고, 되돌리려면 같은 자리를 또 눌러야 했다. 절을 누르면
-// 무엇을 할지 먼저 묻는다 — 이미 그어져 있으면 [형광펜 지우기], 아니면 [형광펜 긋기].
+// 무엇을 할지 먼저 묻는다 — 이미 칠해져 있으면 [형광펜 지우기], 아니면 [형광펜 칠하기]
+// ('긋기'에서 바뀐 이름 — 사용자 피드백 2026-09-02 4차. 색을 입히는 일이라 '칠하기'다).
 // 취소는 바깥 누름과 Esc다(따로 '취소' 줄을 두지 않는다 — 잃는 것이 없다).
 //
 // **여기는 색이 늘 자리다.** 지금은 줄이 하나뿐이지만 노랑 말고 다른 색이 붙으면
@@ -185,6 +217,13 @@ export function PassageText({
 //
 // 자리 잡기는 공용 훅(useAnchoredPos)이 한다 — body 포털이라 본문이 스크롤·리사이즈로
 // 움직여도 절을 따라온다. 항목 톤은 프로필 메뉴 줄과 같다(layout.jsx의 `item`).
+//
+// **부르는 쪽이 절마다 key를 준다**(사용자 피드백 2026-09-02 4차 — "팝오버가 엉뚱한
+// 위치에 뜬다"). 앵커는 눌린 <p>를 ref에 직접 넣어 넘기는데, 열려 있는 상태에서 **다른
+// 절**을 누르면 이 컴포넌트가 그대로 재사용되어 useAnchoredPos의 배치 훅(deps: open)이
+// 다시 돌지 않는다 — 앵커만 바뀌고 좌표는 앞 절의 것이 남아, 팝오버가 방금 누른 절이
+// 아니라 이전 절 옆에 서 있었다. key를 절로 주면 절마다 새로 마운트되어 첫 프레임부터
+// 제자리다. 위치를 state로 들고 있는 팝오버에 앵커를 갈아 끼우지 말 것(§6-17).
 //
 // **`transition-none`을 지우지 말 것**(2026-09-02 3차 점검). 지우면 팝오버가 화면 왼쪽
 // 위에서 절 옆으로 150ms 동안 날아온다. `duration-150`은 animate-in의 시간이면서 동시에
@@ -223,7 +262,7 @@ export function VerseMarkMenu({ anchorRef, lit, label, onPick, onClose }) {
     >
       <button type="button" role="menuitem" className={menuItem} onClick={onPick}>
         {lit ? <Eraser size={15} className="shrink-0" /> : <Highlighter size={15} className="shrink-0" />}
-        {lit ? '형광펜 지우기' : '형광펜 긋기'}
+        {lit ? '형광펜 지우기' : '형광펜 칠하기'}
       </button>
     </div>,
     document.body,
@@ -267,6 +306,10 @@ export function EmptyBookMark({ className = 'w-12 h-12 mx-auto' }) {
 
 const btn = 'inline-flex items-center justify-center gap-1 rounded-md text-[12px] font-semibold transition active:scale-95';
 
+// 목차 · 북마크 · 형광펜 — 세그먼트 모양은 말씀 화면의 [QT | 성경 읽기]와 같은 한 벌이다
+const PANES = [['toc', '목차'], ['bookmark', '북마크'], ['highlight', '형광펜']];
+const paneIndex = (key) => PANES.findIndex(p => p[0] === key);
+
 // ── 성경 읽기 탭 ────────────────────────────────────────────────────────────
 export function BibleTab({ initialRef = '' }) {
   const [books, setBooks] = useState([]);
@@ -274,6 +317,7 @@ export function BibleTab({ initialRef = '' }) {
   const [step, setStep] = useState(1);
   const [ready, setReady] = useState(false);
 
+  const [pane, setPane] = useState('toc');       // 'toc' | 'bookmark' | 'highlight'
   const [place, setPlace] = useState(null);      // { bookId, chapter } — 없으면 목차
   const [pickedBook, setPickedBook] = useState(null);  // 목차에서 고른 책(장 그리드)
   const [focus, setFocus] = useState(null);      // 검색 결과·형광펜 목록에서 들어온 절
@@ -341,6 +385,7 @@ export function BibleTab({ initialRef = '' }) {
   const update = (next) => { setState(next); saveBibleState(next); };
   const goto = (bookId, chapter, at = null, delta = 0) => {
     setDir(delta);
+    setPane('toc');          // 북마크·형광펜 줄에서 왔어도 이제 보는 것은 본문이다
     setPlace({ bookId, chapter });
     setFocus(at);
     setPick(null);      // 자리를 옮기면 앵커였던 절이 사라진다 — 팝오버도 같이 내린다
@@ -365,6 +410,7 @@ export function BibleTab({ initialRef = '' }) {
     const q = raw.trim();
     const token = ++searchToken.current;
     setQuery(q);
+    setPane('toc');           // 결과는 본문 열의 자리에 그린다
     setFocus(null);
     setDir(0);
     if (!q) { setResults([]); setProgress(null); return; }
@@ -448,112 +494,144 @@ export function BibleTab({ initialRef = '' }) {
 
   const searching = !!progress && progress.done < progress.total && results.length < RESULT_LIMIT;
 
-  const myMarks = (
-    <MyMarks
-      books={books} bookmarks={state.bookmarks} highlights={state.highlights || []}
-      onOpenChapter={(bookId, chapter) => goto(bookId, chapter)}
-      onOpenVerse={(bookId, chapter, verse) => goto(bookId, chapter, { chapter, verse })}
-      onRemoveBookmark={ref => update({ ...state, bookmarks: state.bookmarks.filter(b => b.ref !== ref) })}
-      onRemoveHighlight={ref => update({ ...state, highlights: state.highlights.filter(h => h?.ref !== ref) })}
-    />
-  );
+  // 북마크·형광펜 — 책으로 묶어 정경 순으로. 파싱이 안 되는 옛 값은 그룹에 못 들어가므로
+  // 개수는 실제로 그린 줄로 센다
+  const bookGroups = useMemo(() => groupByBook(state.bookmarks || [], books, parseChapterKey), [state.bookmarks, books]);
+  const litGroups = useMemo(() => groupByBook(state.highlights || [], books, parseVerseKey), [state.highlights, books]);
+  const bookTotal = bookGroups.reduce((n, g) => n + g.items.length, 0);
+  const litTotal = litGroups.reduce((n, g) => n + g.items.length, 0);
+
+  const pickPane = (key) => {
+    if (key === pane) return;
+    setDir(paneIndex(key) > paneIndex(pane) ? 1 : -1);
+    setPane(key);
+  };
 
   // 화면이 바뀌는 단위 — 이 값이 달라지면 Swap이 새로 들여보낸다
-  const viewKey = query ? `q:${query}` : place ? `p:${placeKey}` : pickedBook ? `b:${pickedBook}` : 'toc';
+  const viewKey = pane !== 'toc' ? `m:${pane}`
+    : query ? `q:${query}` : place ? `p:${placeKey}` : pickedBook ? `b:${pickedBook}` : 'toc';
 
   return (
-    // 화면 폭을 다 쓴다 — 본문 열은 46rem에서 끊고(오래 읽는 글이라 한 줄이 길면
-    // 다음 줄 첫 글자를 눈이 못 찾는다) 남는 폭은 '내 기록'이 받는다.
-    <div className="grid gap-x-7 gap-y-6 items-start side-grid">
-      <div className="min-w-0">
-        {/* 검색 · 글자 크기 — 목차에서도 리더에서도 같은 자리 */}
-        <div className="flex items-center gap-2 pb-3.5 max-w-[46rem]">
-          <form
-            onSubmit={e => { e.preventDefault(); runSearch(typed); }}
-            className="flex-1 min-w-0 flex items-center gap-1.5 px-2.5 h-9 rounded-md"
-            style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}
-          >
-            <Search size={14} className="shrink-0 text-fg-faint" />
-            <input
-              value={typed} onChange={e => setTyped(e.target.value)}
-              placeholder="본문 검색" aria-label="본문 검색"
-              className="flex-1 min-w-0 bg-transparent text-[12.5px] text-fg placeholder:text-fg-faint outline-none"
-            />
-            {(typed || query) && (
-              <button type="button" onClick={clearSearch} aria-label="검색어 지우기"
-                className="shrink-0 p-1 -mr-1 rounded text-fg-faint hover:text-fg transition-colors">
-                <X size={13} />
-              </button>
-            )}
-          </form>
-          <FontSteps step={step} onChange={n => { setStep(n); saveFontStep(n); }} />
-        </div>
-
-        <Swap k={viewKey} dir={dir} className="min-w-0">
-          {query ? (
-            <SearchResults
-              query={query} results={results} progress={progress} searching={searching}
-              onOpen={r => goto(r.bookId, r.chapter, { chapter: r.chapter, verse: r.verse })}
-            />
-          ) : place ? (
-            <div ref={bodyRef} className="min-w-0 max-w-[46rem]">
-              <div className="flex items-center gap-2 pb-3">
-                <button onClick={() => { setDir(-1); setPlace(null); setPickedBook(null); }}
-                  className={`${btn} shrink-0 pl-1.5 pr-2.5 h-8 text-fg-muted hover:bg-surface-hover`}>
-                  <ChevronLeft size={14} />목차
-                </button>
-                <h3 className="bible-place flex-1 min-w-0 truncate text-[15px] font-extrabold text-fg tracking-[-0.3px]">
-                  {here?.name} {place.chapter}장
-                </h3>
-                <button onClick={toggleBookmark} title={marked ? '북마크 지우기' : '북마크에 넣기'}
-                  aria-label={marked ? '북마크 지우기' : '북마크에 넣기'}
-                  className={`${btn} shrink-0 w-8 h-8 ${marked ? 'text-accent-text bg-accent-weak' : 'text-fg-muted hover:bg-surface-hover'}`}>
-                  <Bookmark size={15} fill={marked ? 'currentColor' : 'none'} />
-                </button>
-              </div>
-
-              <Card className="p-4 md:p-5">
-                {loaded
-                  ? <PassageText verses={verses} step={step} focus={focus} marks={marks}
-                      onPickVerse={pickVerse} picked={pick ? `${pick.chapter}:${pick.verse}` : null} />
-                  : <PassageSkeleton lines={10} step={step} />}
-              </Card>
-              {pick && loaded && (
-                <VerseMarkMenu
-                  anchorRef={anchorRef} lit={pickLit}
-                  label={`${here?.name || ''} ${pick.chapter}:${pick.verse}`.trim()}
-                  onPick={toggleHighlight} onClose={closePick}
-                />
-              )}
-
-              <div className="flex items-center gap-2 pt-3.5">
-                <button onClick={() => move(-1)} className={`${btn} flex-1 h-10 text-fg-muted hover:bg-surface-hover`}
-                  style={{ border: '1px solid var(--app-line)' }}>
-                  <ChevronLeft size={14} />이전 장
-                </button>
-                <button onClick={() => move(1)} className={`${btn} flex-1 h-10 text-fg-muted hover:bg-surface-hover`}
-                  style={{ border: '1px solid var(--app-line)' }}>
-                  다음 장<ChevronRight size={14} />
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="min-w-0 flex flex-col gap-6">
-              {/* 옆 칸이 설 자리가 없는 폭에서는 목차 위가 '내 기록'의 자리다 */}
-              <div className="lg:hidden">{myMarks}</div>
-              <Toc books={books} ready={ready} picked={pickedBook} setPicked={id => { setDir(id ? 1 : -1); setPickedBook(id); }} onOpen={goto} />
-            </div>
+    <div className="min-w-0">
+      {/* 검색 · 글자 크기 — 목차에서도 리더에서도 같은 자리 */}
+      <div className="flex items-center gap-2 pb-2.5 max-w-[46rem]">
+        <form
+          onSubmit={e => { e.preventDefault(); runSearch(typed); }}
+          className="flex-1 min-w-0 flex items-center gap-1.5 px-2.5 h-9 rounded-md"
+          style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}
+        >
+          <Search size={14} className="shrink-0 text-fg-faint" />
+          <input
+            value={typed} onChange={e => setTyped(e.target.value)}
+            placeholder="본문 검색" aria-label="본문 검색"
+            className="flex-1 min-w-0 bg-transparent text-[12.5px] text-fg placeholder:text-fg-faint outline-none"
+          />
+          {(typed || query) && (
+            <button type="button" onClick={clearSearch} aria-label="검색어 지우기"
+              className="shrink-0 p-1 -mr-1 rounded text-fg-faint hover:text-fg transition-colors">
+              <X size={13} />
+            </button>
           )}
-        </Swap>
+        </form>
+        <FontSteps step={step} onChange={n => { setStep(n); saveFontStep(n); }} />
       </div>
 
-      <div className="min-w-0 hidden lg:block">{myMarks}</div>
+      {/* 목차 · 북마크 · 형광펜 — 어느 폭에서도, 본문을 읽는 중에도 늘 여기 있다 */}
+      <div className="flex items-center gap-2 pb-3.5">
+        <span className="flex p-[3px] rounded-[8px] shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
+          {PANES.map(([key, label]) => (
+            <button
+              key={key} data-pane={key} onClick={() => pickPane(key)} aria-pressed={pane === key}
+              className="px-3 py-[6px] rounded-[5px] text-[12px] font-semibold transition-colors"
+              style={{
+                background: pane === key ? 'var(--app-surface)' : 'transparent',
+                color: pane === key ? 'var(--app-ink)' : 'var(--app-ink-muted)',
+              }}
+            >{label}</button>
+          ))}
+        </span>
+      </div>
+
+      <Swap k={viewKey} dir={dir} className="min-w-0">
+        {pane === 'bookmark' ? (
+          <MarkSection
+            title="북마크" unit="장" kind="bookmark" groups={bookGroups} total={bookTotal}
+            empty="북마크한 장을 여기서 볼 수 있어요"
+            onOpenItem={at => goto(at.bookId, at.chapter)}
+            onRemoveItem={ref => update({ ...state, bookmarks: state.bookmarks.filter(b => b.ref !== ref) })}
+          />
+        ) : pane === 'highlight' ? (
+          <MarkSection
+            title="형광펜" unit="절" kind="highlight" groups={litGroups} total={litTotal}
+            empty="형광펜을 칠한 절은 여기서 볼 수 있어요"
+            onOpenItem={at => goto(at.bookId, at.chapter, { chapter: at.chapter, verse: at.verse })}
+            onRemoveItem={ref => update({ ...state, highlights: (state.highlights || []).filter(h => h?.ref !== ref) })}
+          />
+        ) : query ? (
+          <SearchResults
+            query={query} results={results} progress={progress} searching={searching}
+            onOpen={r => goto(r.bookId, r.chapter, { chapter: r.chapter, verse: r.verse })}
+          />
+        ) : place ? (
+          <div ref={bodyRef} className="min-w-0 max-w-[46rem]">
+            {/* 좁은 폭에서도 셋이 한 줄에 그대로 선다 — 제목만 줄어들고(min-w-0 truncate)
+                양쪽 버튼은 shrink-0에 44px 터치 타깃이다(사용자 피드백 2026-09-02 4차) */}
+            <div className="flex items-center gap-1.5 pb-3">
+              {/* 세그먼트가 '목차'라는 이름을 가져갔으므로 이 버튼은 **책 목록**이다 —
+                  한 화면에 같은 이름의 버튼이 둘이면 어느 쪽이 어디로 가는지 알 수 없다
+                  (장 그리드의 되돌아가는 버튼이 이미 '책 목록'이라 이름도 한 벌이 된다) */}
+              <button onClick={() => { setDir(-1); setPlace(null); setPickedBook(null); }}
+                className={`${btn} shrink-0 pl-2 pr-3 h-11 text-fg-muted hover:bg-surface-hover`}>
+                <ChevronLeft size={15} />책 목록
+              </button>
+              <h3 className="bible-place flex-1 min-w-0 truncate text-[15px] font-extrabold text-fg tracking-[-0.3px]">
+                {here?.name} {place.chapter}장
+              </h3>
+              <button onClick={toggleBookmark} title={marked ? '북마크 지우기' : '북마크에 넣기'}
+                aria-label={marked ? '북마크 지우기' : '북마크에 넣기'}
+                className={`${btn} shrink-0 w-11 h-11 ${marked ? 'text-accent-text bg-accent-weak' : 'text-fg-muted hover:bg-surface-hover'}`}>
+                <Bookmark size={16} fill={marked ? 'currentColor' : 'none'} />
+              </button>
+            </div>
+
+            <Card className="p-4 md:p-5">
+              {loaded
+                ? <PassageText verses={verses} step={step} focus={focus} marks={marks}
+                    onPickVerse={pickVerse} picked={pick ? `${pick.chapter}:${pick.verse}` : null} />
+                : <PassageSkeleton lines={10} step={step} />}
+            </Card>
+            {pick && loaded && (
+              <VerseMarkMenu
+                key={pickRef}
+                anchorRef={anchorRef} lit={pickLit}
+                label={`${here?.name || ''} ${pick.chapter}:${pick.verse}`.trim()}
+                onPick={toggleHighlight} onClose={closePick}
+              />
+            )}
+
+            <div className="flex items-center gap-2 pt-3.5">
+              <button onClick={() => move(-1)} className={`${btn} flex-1 h-10 text-fg-muted hover:bg-surface-hover`}
+                style={{ border: '1px solid var(--app-line)' }}>
+                <ChevronLeft size={14} />이전 장
+              </button>
+              <button onClick={() => move(1)} className={`${btn} flex-1 h-10 text-fg-muted hover:bg-surface-hover`}
+                style={{ border: '1px solid var(--app-line)' }}>
+                다음 장<ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <Toc books={books} ready={ready} picked={pickedBook}
+            setPicked={id => { setDir(id ? 1 : -1); setPickedBook(id); }} onOpen={goto} />
+        )}
+      </Swap>
     </div>
   );
 }
 
-// ── 내 기록 (북마크 · 형광펜) ───────────────────────────────────────────────
-// 누르면 그 자리로 간다. 형광펜은 절까지 데려가고 그 절이 화면 가운데에 선다.
+// ── 북마크 · 형광펜 목록 ────────────────────────────────────────────────────
+// 세그먼트로 고른 것 하나만 그린다(BibleTab 머리말). 누르면 그 자리로 간다 — 형광펜은
+// 절까지 데려가고 그 절이 화면 가운데에 선다.
 //
 // **책으로 묶는다**(사용자 피드백 2026-09-02 — "북마크·형광펜이 계속 쌓인다").
 // 평평한 칩 목록은 스무 개만 넘어가도 어디가 어디인지 안 보였다. 정경 순으로 책마다
@@ -639,9 +717,11 @@ function MarkBookGroup({ book, items, kind, open, onToggle, onOpenItem, onRemove
                   ) : (
                     <span className="block truncate">
                       <span className="text-[11px] font-bold text-accent-text tabular-nums">{chapter}:{verse}</span>
+                      {/* 발췌는 리더에서 칠한 그 색으로 그린다 — 색이 곧 '무엇으로
+                          칠했는지'다(색이 늘면 항목의 색 값을 그대로 넘긴다) */}
                       {needsText && !chapters
                         ? <span className="inline-flex align-middle ml-1.5 w-24 h-3"><Skeleton className="w-full h-full rounded-[3px]" /></span>
-                        : <span className="ml-1.5 text-[11.5px] text-fg-secondary">{preview}</span>}
+                        : <span className="ml-1.5 text-[11.5px]">{preview ? <Hl>{preview}</Hl> : ''}</span>}
                     </span>
                   )}
                 </button>
@@ -661,28 +741,29 @@ function MarkBookGroup({ book, items, kind, open, onToggle, onOpenItem, onRemove
   );
 }
 
-// 한 칸(북마크 또는 형광펜) — 제목 · 총 개수 · 책 그룹들, 비었으면 마크와 한 줄
+// 한 칸(북마크 또는 형광펜) — 제목 · 총 개수 · 책 그룹들, 비었으면 마크와 한 줄.
+// 책 묶음은 넓은 화면에서 여러 열로 선다 — 목록은 격자라 읽기 폭에 갇힐 이유가 없다.
 function MarkSection({ title, unit, empty, groups, total, kind, onOpenItem, onRemoveItem }) {
   // 사람이 직접 접거나 편 책만 남는다 — 나머지는 책 수에 따라 기본값을 따른다
   const [open, setOpen] = useState({});
   const auto = groups.length <= AUTO_OPEN_BOOKS;
 
   return (
-    <div>
+    // 목록도 46rem에서 끊는다 — 1400px을 가로지르면 책 이름과 개수 사이가 400px 벌어져
+    // 한 줄로 읽히지 않는다. 두 열이면 이름과 개수가 한눈에 붙어 있다.
+    <div className="min-w-0 max-w-[46rem]">
       <SectionHead right={total
         ? <span className="text-[11px] text-fg-faint tabular-nums shrink-0">{total}{unit}</span> : null}>
         {title}
       </SectionHead>
       {!total ? (
-        // 빈 칸도 남는 자리의 가운데에 마크와 함께 선다(§8). 옆 칸은 좁으므로 마크는
-        // 작게 그린다 — 예전에는 줄 왼쪽에 붙은 작은 아이콘 하나였고, 무엇이 북마크
-        // 칸이고 무엇이 형광펜 칸인지는 어차피 바로 위 제목이 말해 준다.
-        <div className="min-h-[92px] flex flex-col items-center justify-center text-center">
-          <EmptyBookMark className="w-9 h-9 mx-auto" />
-          <p className="text-[11.5px] text-fg-faint mt-2">{empty}</p>
+        // 빈 칸도 남는 자리의 가운데에 마크와 함께 선다(§8)
+        <div className="min-h-[38vh] flex flex-col items-center justify-center text-center">
+          <EmptyBookMark />
+          <p className="text-[13.5px] font-semibold text-fg mt-3">{empty}</p>
         </div>
       ) : (
-        <div className="flex flex-col">
+        <div className="grid gap-x-7 items-start sm:grid-cols-2">
           {groups.map(g => (
             <MarkBookGroup
               key={g.book.id} book={g.book} items={g.items} kind={kind}
@@ -693,31 +774,6 @@ function MarkSection({ title, unit, empty, groups, total, kind, onOpenItem, onRe
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function MyMarks({ books, bookmarks = [], highlights = [], onOpenChapter, onOpenVerse, onRemoveBookmark, onRemoveHighlight }) {
-  const bookGroups = useMemo(() => groupByBook(bookmarks, books, parseChapterKey), [bookmarks, books]);
-  const litGroups = useMemo(() => groupByBook(highlights, books, parseVerseKey), [highlights, books]);
-  // 파싱이 안 되는 옛 값이 섞여 있으면 그룹에는 못 들어간다 — 개수는 실제로 그린 줄로 센다
-  const bookTotal = bookGroups.reduce((n, g) => n + g.items.length, 0);
-  const litTotal = litGroups.reduce((n, g) => n + g.items.length, 0);
-
-  return (
-    <div className="min-w-0 flex flex-col gap-6">
-      <MarkSection
-        title="북마크" unit="장" kind="bookmark" groups={bookGroups} total={bookTotal}
-        empty="북마크한 장을 여기서 볼 수 있어요"
-        onOpenItem={at => onOpenChapter(at.bookId, at.chapter)}
-        onRemoveItem={onRemoveBookmark}
-      />
-      <MarkSection
-        title="형광펜" unit="절" kind="highlight" groups={litGroups} total={litTotal}
-        empty="형광펜을 칠한 절은 여기서 볼 수 있어요"
-        onOpenItem={at => onOpenVerse(at.bookId, at.chapter, at.verse)}
-        onRemoveItem={onRemoveHighlight}
-      />
     </div>
   );
 }

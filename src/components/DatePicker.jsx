@@ -6,6 +6,11 @@ import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 // - onChange(nextValue): 선택/지우기 시 호출
 // - 선택 가능 범위: 작년 1월 ~ 2030년 12월
 //   (작년까지 내려두는 이유: 이미 시작한 업무를 나중에 등록하면 시작일이 작년이다)
+//
+// 여는 버튼의 모양은 부르는 쪽이 바꿔 쓸 수 있다(children · triggerClassName) —
+// 말씀 화면의 QT는 **상단 날짜 글자 자체가 트리거**다(사용자 피드백 2026-09-02).
+// 넘기지 않으면 지금까지 쓰던 [달력 아이콘 + 날짜] 버튼 그대로다.
+// allowClear=false면 '지우기'가 없다 — QT처럼 날짜가 비어 있을 수 없는 자리를 위해서다.
 const MIN_YEAR = new Date().getFullYear() - 1;
 const MAX_YEAR = 2030;
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -20,7 +25,9 @@ const parseValue = (v) => {
 const pad = (n) => String(n).padStart(2, '0');
 const toValue = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
 
-export function DatePicker({ value, onChange }) {
+const TRIGGER = 'inline-flex items-center gap-1.5 border border-line rounded-xs bg-surface px-2 py-1.5 text-xs text-fg hover:bg-surface-hover focus:border-accent focus:shadow-soft outline-none transition-all';
+
+export function DatePicker({ value, onChange, children = null, triggerClassName = TRIGGER, allowClear = true, ariaLabel = '날짜 선택' }) {
   const [open, setOpen] = useState(false);
   const parsed = parseValue(value);
   const today = new Date();
@@ -78,14 +85,20 @@ export function DatePicker({ value, onChange }) {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="inline-flex items-center gap-1.5 border border-line rounded-xs bg-surface px-2 py-1.5 text-xs text-fg hover:bg-surface-hover focus:border-accent focus:shadow-soft outline-none transition-all"
+        aria-label={ariaLabel} aria-expanded={open} aria-haspopup="dialog"
+        className={triggerClassName}
       >
-        <Calendar size={13} className="text-fg-faint shrink-0" />
-        {label ? <span>{label}</span> : <span className="text-fg-faint">날짜 선택</span>}
+        {children || (
+          <>
+            <Calendar size={13} className="text-fg-faint shrink-0" />
+            {label ? <span>{label}</span> : <span className="text-fg-faint">날짜 선택</span>}
+          </>
+        )}
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-max bg-surface border border-line rounded-lg shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150">
+        <div data-datepicker="" role="dialog" aria-label={ariaLabel}
+          className="absolute left-0 top-full z-50 mt-1 w-max bg-surface border border-line rounded-lg shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150">
           <div className="flex items-center justify-between mb-2">
             <button type="button" onClick={goPrev} disabled={!canPrev} className={`p-1 rounded-md text-fg-muted transition active:scale-95 ${canPrev ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`}><ChevronLeft size={16} /></button>
             <span className="text-xs font-semibold text-fg tracking-[-0.25px] whitespace-nowrap px-2">{view.y}년 {view.m + 1}월</span>
@@ -116,7 +129,9 @@ export function DatePicker({ value, onChange }) {
             })}
           </div>
           <div className="flex items-center justify-between mt-2 pt-2 border-t border-line">
-            <button type="button" onClick={clear} className="text-[11px] text-fg-faint hover:text-fg-muted px-1.5 py-1 rounded-md hover:bg-surface-hover transition active:scale-95">지우기</button>
+            {allowClear
+              ? <button type="button" onClick={clear} className="text-[11px] text-fg-faint hover:text-fg-muted px-1.5 py-1 rounded-md hover:bg-surface-hover transition active:scale-95">지우기</button>
+              : <span />}
             <button type="button" onClick={jumpToday} className="text-[11px] text-accent-text hover:bg-surface-hover px-1.5 py-1 rounded-md transition active:scale-95">오늘</button>
           </div>
         </div>

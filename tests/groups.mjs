@@ -96,9 +96,24 @@ const seed = {
   ],
 };
 
+// 순모임 가이드는 **다른 키에 산다**(church_sunguide_v1 — components/sunGuide.jsx의
+// 저장 자리 계약). 한 벌은 주보 한 건에 붙고, body는 화면이 한 덩이로 읽고 쓴다.
+const GUIDE = {
+  passage: { ref: '빌립보서 4:4-7', title: '항상 기뻐하라' },
+  summary: '기쁨은 상황이 아니라 우리를 붙드시는 분에게서 온다',
+  points: [
+    { title: '기뻐하라', body: '명령이자 약속이다' },
+    { title: '염려하지 말라', body: '기도로 옮겨 놓는다' },
+    { title: '지키시는 평강', body: '이해를 넘어선다' },
+  ],
+  questions: ['이번 주 가장 염려한 일은 무엇이었나요', '그 염려를 기도로 옮겨 보았나요', '오늘 감사한 한 가지를 나눠 주세요'],
+};
+
 // mut은 심기 직전에 시드를 손보는 한 줄이다 — '동아리가 하나도 없는 화면' 같은
 // 빈 상태를 보려면 시드에서 그 종류를 덜어내야 한다.
-const plant = (me, theme = 'light', mut = '') => `(() => {
+// guide는 순모임 가이드 한 벌을 심는다. **끄면 빈 벌로 덮는다** — 앞 회차에서 심은
+// 것이 남아 다음 화면에 끼면 그 검사가 무엇을 봤는지 알 수 없다.
+const plant = (me, theme = 'light', mut = '', guide = false) => `(() => {
   const g = JSON.parse(${JSON.stringify(JSON.stringify(seed))});
   ${me ? `g.me = ${JSON.stringify(me)};` : ''}
   ${mut}
@@ -106,6 +121,9 @@ const plant = (me, theme = 'light', mut = '') => `(() => {
   localStorage.setItem('church_worship_v1', JSON.stringify({
     people: g.people, groups: g.groups, group_members: g.group_members,
     services: g.services, attendance: g.attendance, service_notes: [],
+  }));
+  localStorage.setItem('church_sunguide_v1', JSON.stringify({
+    sun_guides: ${guide} ? [{ service_id: 's1', body: ${JSON.stringify(GUIDE)} }] : [],
   }));
   localStorage.setItem('theme', ${JSON.stringify(theme)});
 })()`;
@@ -277,11 +295,32 @@ const ICON_AUDIT = `(() => {
   }
   return bad;
 })()`;
-const enter = async (me, theme, mut) => {
-  await ev(plant(me, theme, mut));
+const enter = async (me, theme, mut, guide) => {
+  await ev(plant(me, theme, mut, guide));
   await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1500);
   await ev(GO); await sleep(1200);
 };
+// 지금 서 있는 탭 줄 — 자격에 따라 '순 편성'이 붙거나 안 붙는다
+const TABS = `[...document.querySelectorAll('.groups-tab')].map(t => t.textContent.trim()).join(',')`;
+// 모임 생성기가 한 줄인가 — 세로 가운데가 같은 것끼리 묶어 줄 수를 센다. 상자 높이가
+// 저마다 달라(날짜 버튼 28px · 칸 30px) top으로 재면 한 줄도 여러 줄로 잡힌다.
+const meetRows = () => ev(`(() => {
+  const box = document.querySelector('.club-meet-new');
+  if (!box) return { err: 'no-form' };
+  // 날짜 픽커의 팝업 속 버튼은 세지 않는다(닫혀 있으면 트리거 하나뿐이다)
+  const parts = [...box.querySelectorAll('input, button')].filter(e => !e.closest('[data-datepicker]'));
+  if (parts.length < 4) return { err: '부품 ' + parts.length + '개' };
+  const mids = parts.map(p => { const r = p.getBoundingClientRect(); return (r.top + r.bottom) / 2; });
+  const rows = mids.reduce((acc, y) => (acc.some(v => Math.abs(v - y) < 6) ? acc : [...acc, y]), []).length;
+  return { rows, parts: parts.length,
+    date: box.querySelector('.club-meet-date button').textContent.trim(),
+    over: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+})()`);
+// 오늘(한국 시간)의 DatePicker 라벨 앞머리 — '2026. 9. 2. (수)'의 '2026. 9. 2.'
+const TODAY_LABEL = (() => {
+  const [y, m, d] = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).split('-').map(Number);
+  return `${y}. ${m}. ${d}.`;
+})();
 
 // ── 팝오버가 첫 프레임부터 제자리인가 (사용자 지적 2026-09-02) ───────────────
 // "피커가 처음 열릴 때 위에서 뚝 떨어진다." 원인은 위치를 열고 나서 잡은 것이다 —
@@ -401,10 +440,21 @@ const pure = await ev(`(async () => {
   return {
     plain: perms({}),
     master: perms({ isMaster: true }),
+    admin: perms({ isAdmin: true }),
     pastor: perms({ myPerson: { is_pastor: true } }),
     lead: perms({ myRoles: ['lead_sunjang'] }),
     officer: perms({ myRoles: ['officer'] }),
     club: [m.canManageClub(led, 'gc1'), m.canManageClub(led, 'gc2'), m.canManageClub({ isMaster: true, ledClubIds: [] }, 'gc2')],
+    // 이름·설명 고치기(0039 groups_update) — 관리자 또는 **그** 동아리장. 명단
+    // 자격(canManageClub = 마스터 + 그 리더)과 경계가 다르다.
+    editClub: (() => {
+      const c1 = { id: 'gc1', leader_person_id: 'p6' };
+      const c2 = { id: 'gc2', leader_person_id: 'p3' };
+      const leader = m.groupPerms({ myPerson: { id: 'p6' } });
+      const member = m.groupPerms({ myPerson: { id: 'p9' } });
+      const admin = m.groupPerms({ isAdmin: true, myPerson: { id: 'p9' } });
+      return [leader.canEditClub(c1), leader.canEditClub(c2), member.canEditClub(c1), admin.canEditClub(c2)];
+    })(),
     // 리더가 맨 앞, 나머지는 **가나다순**(들어온 차례가 아니다) · 겹치는 사람은 하나로
     people: m.groupPeople({
       people: [{ id: 'a', name: '가' }, { id: 'b', name: '나' }, { id: 'c', name: '다' }],
@@ -445,10 +495,14 @@ const pure = await ev(`(async () => {
 })()`, true);
 check('일반 멤버는 순 편성도 동아리 개설도 못 한다', JSON.stringify(pure.plain) === '[false,false]', JSON.stringify(pure.plain));
 check('마스터는 순 편성 + 동아리 개설', JSON.stringify(pure.master) === '[true,true]', JSON.stringify(pure.master));
-check('교역자는 순 편성만(동아리 개설은 마스터만)', JSON.stringify(pure.pastor) === '[true,false]', JSON.stringify(pure.pastor));
+check('관리자는 순 편성만(동아리 개설은 마스터만)', JSON.stringify(pure.admin) === '[true,false]', JSON.stringify(pure.admin));
+// 0039에서 교역자가 빠졌다 — 사용자 결정 2026-09-02 "마스터/관리자/리더순장만 우선"
+check('교역자만으로는 순 편성 자격이 아니다(0039에서 빠졌다)', JSON.stringify(pure.pastor) === '[false,false]', JSON.stringify(pure.pastor));
 check('리더순장은 순 편성만', JSON.stringify(pure.lead) === '[true,false]', JSON.stringify(pure.lead));
 check('임원 줄만으로는 순 편성 자격이 아니다', JSON.stringify(pure.officer) === '[false,false]', JSON.stringify(pure.officer));
 check('동아리 관리는 그 동아리 리더 또는 마스터', JSON.stringify(pure.club) === '[true,false,true]', JSON.stringify(pure.club));
+check('동아리 이름·설명은 그 동아리장 또는 관리자만 고친다',
+  JSON.stringify(pure.editClub) === '[true,false,false,true]', JSON.stringify(pure.editClub));
 check('리더가 맨 앞에 서고 겹치는 사람은 하나로, 나머지는 가나다순',
   JSON.stringify(pure.people) === '["나","가","다"]', JSON.stringify(pure.people));
 check('사람 목록은 리더 먼저 · 나머지 ㄱㄴㄷ(localeCompare ko)',
@@ -496,7 +550,41 @@ check('내 순에 공유된 예배 노트가 뜬다',
   mine.notes.length === 1 && mine.notes[0].includes('천진영') && mine.notes[0].includes('기쁨은 상황이 아니라'), JSON.stringify(mine.notes));
 check('공유하지 않은 남의 노트는 오지 않는다', mine.hidden === false);
 
+// ── 1-1) 순모임 가이드 자리 (components/sunGuide.jsx) ───────────────────────
+// 가이드는 내 순 탭 맨 위에 선다. **보는 사람이 갈린다**(0039 sun_guides_select —
+// leads_any_sun 또는 can_manage_sun): 순장은 보고 일반 순원은 못 본다. 순원의
+// 나눔 질문을 미리 보여주면 모임에서 처음 듣는 말이 없어진다.
+// 가이드 한 벌은 church_sunguide_v1에 심는다(그 파일의 저장 자리 계약).
+await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'light', '', true);
+const guideLeader = await ev(`!!document.querySelector('.sun-guide')`);
+await enter({ personId: 'p2', isMaster: false, isAdmin: false, roles: [] }, 'light', '', true);
+const guidePlain = await ev(`!!document.querySelector('.sun-guide')`);
+check('순모임 가이드는 순장에게 보이고 일반 순원에게는 안 보인다',
+  guideLeader === true && guidePlain === false, `순장 ${guideLeader} / 순원 ${guidePlain}`);
+
+// ── 1-2) 순 편성 탭은 마스터·관리자·리더순장만 (0039 can_manage_sun) ────────
+// 교역자는 여기서 빠졌다(사용자 결정 2026-09-02). 교역자 여부는 명단 속성이라
+// (people.is_pastor) 시드의 한 사람을 교역자로 세워 본다.
+await enter({ personId: 'p3', isMaster: false, isAdmin: true, roles: [] });
+const adminTabs = await ev(TABS);
+check('관리자에게는 순 편성 탭이 보인다', adminTabs === '내 순,동아리,순 편성', adminTabs);
+// 이름·설명과 명단은 자격이 다르다 — 0039 groups_update는 관리자에게 열려 있지만
+// 0035 group_members_write는 마스터와 그 동아리장만이다(p3은 통통의 리더가 아니다).
+await tab('동아리'); await sleep(600);
+await openClub('통통'); await sleep(700);
+const adminClub = await ev(`(() => ({
+  edit: !!document.querySelector('.club-edit'),
+  tools: !!document.querySelector('.club-leader-tools'),
+}))()`);
+check('관리자는 남의 동아리 이름은 고치지만 명단은 만지지 못한다',
+  adminClub.edit === true && adminClub.tools === false, JSON.stringify(adminClub));
+await enter({ personId: 'p2', isMaster: false, isAdmin: false, roles: [] }, 'light',
+  `g.people = g.people.map(p => (p.id === 'p2' ? { ...p, is_pastor: true } : p));`);
+const pastorTabs = await ev(TABS);
+check('교역자에게는 순 편성 탭이 없다', pastorTabs === '내 순,동아리', pastorTabs);
+
 // ── 2) 동아리 목록 · 가입 신청 ──────────────────────────────────────────────
+await enter({ personId: 'p1', isMaster: false, roles: [] });
 await tab('동아리'); await sleep(600);
 const list = await ev(`(() => ({
   cards: [...document.querySelectorAll('.club-card')].map(c => c.innerText.replace(/\\n+/g, ' | ')),
@@ -517,12 +605,14 @@ const before = await ev(`(() => ({
   apply: !!document.querySelector('.club-apply'),
   cancel: !!document.querySelector('.club-cancel'),
   tools: !!document.querySelector('.club-leader-tools'),
+  edit: !!document.querySelector('.club-edit'),
   members: [...document.querySelectorAll('.club-member')].map(m => m.textContent.trim()),
 }))()`);
 check('동아리 상세가 열리고 구성원에 동아리장 표시',
   before.detail === true && before.members.length === 1 && before.members[0].includes('동아리장'), JSON.stringify(before.members));
 check('내가 안 든 동아리에는 가입 신청 버튼', before.apply === true && before.cancel === false);
 check('리더가 아니면 리더 도구가 없다', before.tools === false);
+check('일반 멤버에게는 이름 고치기 연필이 없다', before.edit === false);
 
 await ev(`document.querySelector('.club-apply').click()`); await sleep(900);
 const applied = await ev(`(() => ({
@@ -648,6 +738,21 @@ check('다시 누르면 출석이 취소된다', untoggled.count === '1/2' && un
 await ev(`document.querySelector('.club-meet-new-open').click()`); await sleep(350);
 check('모임 날짜는 네이티브 date 입력이 아니다',
   (await ev(`!document.querySelector('.club-meet-new input[type="date"]') && !!document.querySelector('.club-meet-date button')`)) === true);
+
+// 한 줄짜리 컴팩트 생성기 — 채울 것은 제목(선택) 하나뿐이라 날짜·제목·버튼이 같은
+// 줄에 서고 오늘 날짜가 이미 채워져 있다(사용자 지적 2026-09-02 — 세 줄로 줄바꿈됐다).
+const meetDesk = await meetRows();
+check('모임 생성기는 데스크톱에서 한 줄이다', meetDesk.rows === 1, JSON.stringify(meetDesk));
+check('모임 날짜는 오늘이 미리 채워져 있다',
+  typeof meetDesk.date === 'string' && meetDesk.date.startsWith(TODAY_LABEL), `${meetDesk.date} ← ${TODAY_LABEL}`);
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+await sleep(450);
+const meetMob = await meetRows();
+check('모바일 375px — 모임 생성기는 최대 두 줄이고 넘치지 않는다',
+  meetMob.rows <= 2 && meetMob.over <= 0, JSON.stringify(meetMob));
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(450);
+
 check('모임 날짜를 달력에서 고른다', (await pickDate('.club-meet-date', Y, 9, 8)) === 'ok');
 await setText('input[aria-label="모임 제목"]', '9월 첫 모임');
 await sleep(200);
@@ -709,6 +814,34 @@ check('구성원 수가 추가에 맞춰 그 자리에서 늘어난다',
 const clubBtns = await ev(ICON_AUDIT);
 check('동아리 화면의 아이콘 버튼 정렬(잉크 상자 기준)', clubBtns.length === 0, clubBtns.join(' / '));
 
+// 이름·설명 고치기 — 그 동아리장도 한다(0039 groups_update). 이 검사를 마지막에 두는
+// 이유: 이름을 바꾸면 뒤따르는 조작의 aria-label('통통 멤버 추가')이 달라진다.
+check('동아리장에게 이름 고치기 연필이 선다', (await ev(`!!document.querySelector('.club-edit')`)) === true);
+await ev(`document.querySelector('.club-edit').click()`); await sleep(350);
+const editRow = await ev(`(() => {
+  const box = document.querySelector('.club-edit-form');
+  if (!box) return { err: 'no-form' };
+  const parts = [...box.querySelectorAll('input, button')];
+  const mids = parts.map(p => { const r = p.getBoundingClientRect(); return (r.top + r.bottom) / 2; });
+  return { rows: mids.reduce((a, y) => (a.some(v => Math.abs(v - y) < 6) ? a : [...a, y]), []).length,
+    name: box.querySelector('input[aria-label="동아리 이름 고치기"]')?.value,
+    note: box.querySelector('input[aria-label="동아리 설명 고치기"]')?.value };
+})()`);
+check('연필을 누르면 지금 값이 담긴 칸이 그 자리에 한 줄로 열린다',
+  editRow.rows === 1 && editRow.name === '통통' && editRow.note === '통기타 동아리', JSON.stringify(editRow));
+await setText('input[aria-label="동아리 이름 고치기"]', '통통기타');
+await setText('input[aria-label="동아리 설명 고치기"]', '통기타 치는 사람들');
+await ev(`document.querySelector('.club-edit-save').click()`); await sleep(1100);
+const edited = await ev(`(() => {
+  const g = ${store('groups')}.find(x => x.id === 'gc1');
+  return { title: document.querySelector('.club-title')?.textContent.trim() || '',
+    form: !!document.querySelector('.club-edit-form'),
+    stored: [g?.name, g?.note] };
+})()`);
+check('동아리장이 이름·설명을 고치면 그대로 남는다',
+  edited.title === '통통기타' && edited.form === false
+  && JSON.stringify(edited.stored) === '["통통기타","통기타 치는 사람들"]', JSON.stringify(edited));
+
 await ev(`${byText('목록으로')}.click()`); await sleep(600);
 await openClub('말씀읽기'); await sleep(700);
 check('남의 동아리에서는 멤버 추가 칸도 없다',
@@ -725,6 +858,7 @@ check('마스터에게만 새 동아리 버튼', (await ev(`!!document.querySele
 await openClub('말씀읽기'); await sleep(700);
 check('마스터는 남의 동아리도 관리한다',
   (await ev(`!!document.querySelector('.club-leader-tools')`)) === true);
+check('마스터는 남의 동아리 이름도 고친다', (await ev(`!!document.querySelector('.club-edit')`)) === true);
 await ev(`${byText('목록으로')}.click()`); await sleep(600);
 await ev(`document.querySelector('.club-new-open').click()`); await sleep(350);
 await setText('input[aria-label="동아리 이름"]', '달리기');

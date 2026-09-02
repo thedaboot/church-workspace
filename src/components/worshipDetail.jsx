@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck } from 'lucide-react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck, ListMusic } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { keepVisible } from '../utils.js';
@@ -38,7 +38,8 @@ const TABS = [
   { id: 'notices', label: '광고' },
 ];
 
-// 저절로 저장되는 칸들(주보 편집 · 내 예배 노트 · 출석 메모)이 함께 쓰는 상태 표시.
+// 저장 상태를 말하는 칩 한 벌. 저절로 저장되는 칸(주보 편집 · 출석 메모)과 눌러서
+// 저장하는 칸(내 예배 노트 — 사용자 결정 2026-09-02)이 같은 것을 쓴다.
 // state는 '' | 'saving' | 'saved'.
 //
 // 끝난 것만 **연한 초록 칩**이다(사용자 결정 2026-09-02) — 누르지 않아도 저장되는 화면이라
@@ -63,9 +64,53 @@ export function SaveState({ state, savedLabel = '저장되었어요' }) {
 // export가 없고 그 파일들은 이 회차에서 못 건드리므로, 이미 export된 같은 한 벌인
 // 말씀 화면의 EmptyBookMark(펼친 책)를 그대로 쓴다 — 주보·본문 화면이라 그림도 맞는다.
 // 안내 줄은 붙이지 않는다(§8) — 한 줄이 전부다.
+//
+// 남는 공간은 **재서** 차지한다. 46vh 고정값으로 두었더니, 이 자리 위에 무엇이 몇
+// 픽셀 서 있는지가 화면마다 달라서(목록 머리줄·상세 도구 줄·탭 줄·모바일 상단 바)
+// 1440x900에서는 아래로 274px이 남고 낮은 화면에서는 도리어 넘쳤다 — 글자가 위쪽에
+// 붙어 보였다(사용자 지적 2026-09-02). 그래서 스크롤 박스(App의 `main`) 안에서 제
+// 자리를 재고 그 아래 남는 만큼을 min-height로 가진다.
+//
+// **min-height만 준다** — 자기 top은 그대로이므로 재고 나서 다시 잴 일이 없다(그래서
+// ResizeObserver도 필요 없다). 창 크기가 바뀔 때만 다시 잰다.
+const FILL_MIN = 200;
+
+function useFillRest() {
+  const ref = useRef(null);
+  const [minH, setMinH] = useState(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const measure = () => {
+      let sc = el.parentElement;
+      while (sc && sc !== document.body && !/(auto|scroll)/.test(getComputedStyle(sc).overflowY)) sc = sc.parentElement;
+      if (!sc || sc === document.body) { setMinH(null); return; }
+      const cs = getComputedStyle(sc);
+      const pt = parseFloat(cs.paddingTop) || 0;
+      const pb = parseFloat(cs.paddingBottom) || 0;
+      // 스크롤된 상태에서도 같은 답이 나오게 scrollTop을 되돌려 잰다
+      const top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - pt;
+      // 이 자리 **아래**에 있는 것도 뺀다 — 화면 감싸개의 pb-8처럼 우리 밑에 깔린
+      // 여백을 세지 않으면 그만큼 스크롤이 생긴다. 어느 겹이든 el과 함께 밀리므로
+      // 차이(= 그 겹에서 el 아래 남은 만큼)는 min-height를 줘도 그대로다.
+      let below = 0;
+      for (let node = el; node.parentElement && node.parentElement !== sc; node = node.parentElement) {
+        below += node.parentElement.getBoundingClientRect().bottom - node.getBoundingClientRect().bottom;
+      }
+      setMinH(Math.max(FILL_MIN, Math.round(sc.clientHeight - pt - pb - top - below)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+  return [ref, minH];
+}
+
 export function WorshipEmpty({ text }) {
+  const [ref, minH] = useFillRest();
   return (
-    <div className="worship-empty min-h-[46vh] flex flex-col items-center justify-center text-center">
+    <div ref={ref} className="worship-empty flex flex-col items-center justify-center text-center"
+      style={{ minHeight: minH === null ? '46vh' : `${minH}px` }}>
       <EmptyBookMark />
       <p className="mt-3 text-[13.5px] font-semibold text-fg">{text}</p>
     </div>
@@ -194,16 +239,32 @@ const AddRow = ({ label, onClick }) => (
   </button>
 );
 
+// 칸마다 이름을 붙인다 — 자리 글(placeholder)만 있으면 '흔들리지 않는 기쁨'이
+// 무엇의 예시인지 알 수 없었다(사용자 지적 2026-09-02). 라벨은 사용법 안내가 아니라
+// **그 칸이 무엇을 받는 칸인지**라 §8의 '안내 줄 금지'와 다르다.
+const Field = ({ label, children, wide = false }) => (
+  <div className={`worship-field min-w-0 ${wide ? 'sm:col-span-2' : ''}`}>
+    <span className="worship-field-label block mb-1 text-xs text-fg-muted">{label}</span>
+    {children}
+  </div>
+);
+
 function WordEdit({ draft, set }) {
   return (
-    <div className="space-y-2.5">
-      <input className={`${INPUT} w-full max-w-[42rem]`} value={draft.title || ''} onChange={e => set({ title: e.target.value })}
-        aria-label="설교 제목" placeholder="예: 흔들리지 않는 기쁨" />
-      <PassagePicker value={draft.passage_ref || ''} onChange={v => set({ passage_ref: v })} />
-      <input className={`${INPUT} w-full max-w-[42rem]`} value={draft.preacher || ''} onChange={e => set({ preacher: e.target.value })}
-        aria-label="설교자" placeholder="예: 임성빈 전도사님" />
+    <div className={`worship-word-edit ${LIST} grid gap-3 sm:grid-cols-2`}>
+      <Field label="설교 제목">
+        <input className={`${INPUT} w-full`} value={draft.title || ''} onChange={e => set({ title: e.target.value })}
+          aria-label="설교 제목" placeholder="예: 흔들리지 않는 기쁨" />
+      </Field>
+      <Field label="설교자">
+        <input className={`${INPUT} w-full`} value={draft.preacher || ''} onChange={e => set({ preacher: e.target.value })}
+          aria-label="설교자" placeholder="예: 임성빈 전도사님" />
+      </Field>
+      <Field label="본문 구절" wide>
+        <PassagePicker value={draft.passage_ref || ''} onChange={v => set({ passage_ref: v })} />
+      </Field>
       {/* 고르는 대로 아래에 본문이 펼쳐진다 */}
-      <PassageBody refStr={draft.passage_ref} />
+      <div className="sm:col-span-2 min-w-0"><PassageBody refStr={draft.passage_ref} /></div>
     </div>
   );
 }
@@ -297,17 +358,53 @@ function RolesEdit({ rows, people, onChange }) {
   );
 }
 
-function SongsEdit({ rows, onChange }) {
+// 찬양은 한 곡씩 옮겨 적지 않는다(사용자 결정 2026-09-02) — 재생목록 주소를 붙이면
+// 그 목록의 곡이 한꺼번에 들어온다(RSS라 키가 필요 없고, 최신 15개까지다 — api/yt.js).
+// 곡 하나의 링크 칸에 영상 주소를 붙였을 때도 같은 서버 함수로 제목을 받아 **비어
+// 있을 때만** 채운다(적어 둔 제목을 덮지 않는다).
+//
+// 통신은 부르는 쪽이 가진다(이 파일의 머리말) — 여기 오는 것은 손잡이 두 개뿐이다.
+function SongsEdit({ rows, onChange, onPullPlaylist, onLookupTitle }) {
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
   const set = (i, patch) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+
+  const pull = async () => {
+    if (busy || !url.trim() || !onPullPlaylist) return;
+    setBusy(true);
+    const next = await onPullPlaylist(url, rows);
+    setBusy(false);
+    if (next) { onChange(next); setUrl(''); }
+  };
+
+  // 링크를 다 적은 뒤(칸을 떠날 때) 한 번만 물어본다 — 글자마다 물으면 한 곡에
+  // 스무 번을 부르게 된다
+  const fillTitle = async (i, s) => {
+    if (!onLookupTitle || (s.title || '').trim() || !(s.link || '').trim()) return;
+    const title = await onLookupTitle(s.link);
+    if (title) set(i, { title });
+  };
+
   return (
     <div className={LIST}>
+      <div className="worship-song-import flex flex-wrap items-center gap-1.5 pb-3">
+        <input className={`${INPUT} flex-1 basis-full sm:basis-0 min-w-0`} value={url} aria-label="유튜브 재생목록 주소"
+          onChange={e => setUrl(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); pull(); } }}
+          placeholder="예: https://www.youtube.com/playlist?list=..." />
+        <button type="button" onClick={pull} disabled={busy || !url.trim()}
+          className="worship-song-pull shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40">
+          <ListMusic size={13} /> {busy ? '가져오는 중' : '유튜브 재생목록에서 가져오기'}
+        </button>
+      </div>
       {rows.map((s, i) => (
-        <div key={i} className="flex flex-wrap items-center gap-1.5 py-2" style={{ borderBottom: '1px solid var(--app-line)' }}>
-          <input className={`${INPUT} flex-1 basis-40`} value={s.title || ''} aria-label="찬양 제목"
+        <div key={i} className="worship-song-row flex flex-wrap items-center gap-1.5 py-2" style={{ borderBottom: '1px solid var(--app-line)' }}>
+          <input className={`${INPUT} basis-full sm:basis-0 sm:flex-1 min-w-0`} value={s.title || ''} aria-label="찬양 제목"
             onChange={e => set(i, { title: e.target.value })} placeholder="예: 주 은혜임을" />
-          <input className={`${INPUT} flex-1 basis-40`} value={s.link || ''} aria-label="찬양 링크"
-            onChange={e => set(i, { link: e.target.value })} placeholder="링크(선택)" />
-          <span className={`${ROW} shrink-0`}>
+          {/* 두 칸은 데스크톱에서 폭이 같다(basis-0) — basis를 다르게 주면 한 칸만 넓어진다 */}
+          <input className={`${INPUT} flex-1 basis-40 sm:basis-0 min-w-0`} value={s.link || ''} aria-label="찬양 링크"
+            onChange={e => set(i, { link: e.target.value })} onBlur={() => fillTitle(i, s)} placeholder="링크(선택)" />
+          <span className={`${ROW} shrink-0 ml-auto`}>
             <RowTools index={i} total={rows.length} what="찬양"
               onMove={(a, b) => onChange(moveAt(rows, a, b))}
               onRemove={k => onChange(rows.filter((_, x) => x !== k))} />
@@ -323,16 +420,20 @@ function NoticesEdit({ rows, onChange }) {
   const set = (i, patch) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
   return (
     <div className={LIST}>
+      {/* 제목 칸은 열을 꽉 채운다. 모바일에서는 순서·삭제 도구가 아래 줄 오른쪽으로
+          내려간다 — 375px에서 한 줄에 다 세우면 제목 칸이 글자 두 개 폭으로 눌렸다 */}
       {rows.map((n, i) => (
-        <div key={i} className="py-2.5" style={{ borderBottom: '1px solid var(--app-line)' }}>
-          <div className={`${ROW}`}>
-            <input className={`${INPUT} flex-1 max-w-[42rem]`} value={n.title || ''} aria-label="광고 제목"
+        <div key={i} className="worship-notice-row py-2.5" style={{ borderBottom: '1px solid var(--app-line)' }}>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <input className={`${INPUT} basis-full sm:basis-0 sm:flex-1 min-w-0`} value={n.title || ''} aria-label="광고 제목"
               onChange={e => set(i, { title: e.target.value })} placeholder="예: 겨울 수련회 신청" />
-            <RowTools index={i} total={rows.length} what="광고"
-              onMove={(a, b) => onChange(moveAt(rows, a, b))}
-              onRemove={k => onChange(rows.filter((_, x) => x !== k))} />
+            <span className={`${ROW} shrink-0 ml-auto`}>
+              <RowTools index={i} total={rows.length} what="광고"
+                onMove={(a, b) => onChange(moveAt(rows, a, b))}
+                onRemove={k => onChange(rows.filter((_, x) => x !== k))} />
+            </span>
           </div>
-          <textarea className={`${INPUT} w-full max-w-[42rem] mt-1.5 resize-y min-h-[3.5rem]`} value={n.body || ''} aria-label="광고 내용"
+          <textarea className={`${INPUT} w-full mt-1.5 resize-y min-h-[3.5rem]`} value={n.body || ''} aria-label="광고 내용"
             onChange={e => set(i, { body: e.target.value })} placeholder="예: 1월 20일까지 순장에게 신청해주세요" />
         </div>
       ))}
@@ -343,35 +444,33 @@ function NoticesEdit({ rows, onChange }) {
 
 // ── 내 예배 노트 ─────────────────────────────────────────────────────────────
 // 예배마다 한 건, 기본은 나만 본다. 남의 노트는 여기 오지 않는다(결정 7).
+//
+// **노트는 저장 버튼을 눌러야 저장된다**(사용자 결정 2026-09-02). 예전에는 주보 편집과
+// 같은 디바운스 자동 저장이었는데, 그러면 '내 순에 공유' 토글을 만질 때마다 글까지
+// 함께 서버로 갔고(토글은 즉시 저장이었다) 아직 다듬는 중인 글이 자꾸 저장되었다.
+// 저절로 저장되는 것은 주보 편집(발행 전 임시 저장)뿐이다 — 그쪽은 여러 사람이
+// 나눠 채우는 문서라 잃는 것이 더 크다.
 function MyNote({ note, onSave }) {
   const [body, setBody] = useState(note?.body || '');
   const [shared, setShared] = useState(!!note?.shared_to_sun);
   const [state, setState] = useState('');       // '' | 'saving' | 'saved'
-  const dirty = useRef(false);
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => { setBody(note?.body || ''); setShared(!!note?.shared_to_sun); dirty.current = false; }, [note]);
+  // 저장 뒤에도 이 이펙트가 돈다(부르는 쪽이 note를 새로 준다) — 그래서 여기서
+  // state를 지우지 않는다. 지우면 방금 뜬 '저장되었어요' 칩이 바로 사라진다.
+  useEffect(() => { setBody(note?.body || ''); setShared(!!note?.shared_to_sun); setDirty(false); }, [note]);
 
-  // 글은 디바운스, 공유 토글은 바로 — 토글은 한 번 누르는 조작이라 기다릴 이유가 없다
-  useEffect(() => {
-    if (!dirty.current) return undefined;
-    const t = setTimeout(async () => {
-      setState('saving');
-      const ok = await onSave({ body, sharedToSun: shared });
-      setState(ok ? 'saved' : '');
-    }, SAVE_DELAY);
-    return () => clearTimeout(t);
-  }, [body, shared, onSave]);
-
-  const toggleShare = async () => {
-    const next = !shared;
-    setShared(next); dirty.current = true;
-    setState('saving');
-    const ok = await onSave({ body, sharedToSun: next });
-    setState(ok ? 'saved' : '');
+  const save = async () => {
+    if (busy) return;
+    setBusy(true); setState('saving');
+    const ok = await onSave({ body, sharedToSun: shared });
+    setBusy(false); setState(ok ? 'saved' : '');
+    if (ok) setDirty(false);
   };
 
   return (
-    <section className="worship-note mt-7 max-w-[42rem]">
+    <section className="worship-note mt-7">
       <div className="flex items-center gap-2 pb-2.5">
         <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">내 예배 노트</h3>
         <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
@@ -380,21 +479,27 @@ function MyNote({ note, onSave }) {
       </div>
       <textarea
         value={body}
-        onChange={e => { dirty.current = true; setBody(e.target.value); }}
+        onChange={e => { setDirty(true); setState(''); setBody(e.target.value); }}
         aria-label="내 예배 노트"
         placeholder="예: 오늘 말씀에서 마음에 남은 구절"
         className={`${INPUT} w-full resize-y min-h-[7rem] leading-relaxed`}
       />
-      <label className="mt-2 inline-flex items-center gap-2 cursor-pointer select-none">
-        <button type="button" role="switch" aria-checked={shared} aria-label="내 순에 공유"
-          onClick={toggleShare}
-          className="w-9 h-5 rounded-full transition-colors relative shrink-0"
-          style={{ background: shared ? 'var(--app-accent)' : 'var(--app-line)' }}>
-          <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
-            style={{ left: shared ? '1.125rem' : '0.125rem' }} />
-        </button>
-        <span className="text-[12px] text-fg-secondary">내 순에 공유</span>
-      </label>
+      {/* 확정 왼쪽(§8). 토글도 저장 버튼을 눌러야 남는다 — 글과 함께 한 번에 간다 */}
+      <div className="flex items-center gap-2 mt-2">
+        <button type="button" onClick={save} disabled={!dirty || busy}
+          className="worship-note-save px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40">저장</button>
+        <span className="flex-1" />
+        <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+          <button type="button" role="switch" aria-checked={shared} aria-label="내 순에 공유"
+            onClick={() => { setShared(v => !v); setDirty(true); setState(''); }}
+            className="w-9 h-5 rounded-full transition-colors relative shrink-0"
+            style={{ background: shared ? 'var(--app-accent)' : 'var(--app-line)' }}>
+            <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
+              style={{ left: shared ? '1.125rem' : '0.125rem' }} />
+          </button>
+          <span className="text-[12px] text-fg-secondary">내 순에 공유</span>
+        </label>
+      </div>
     </section>
   );
 }
@@ -403,6 +508,7 @@ function MyNote({ note, onSave }) {
 export function ServiceDetail({
   service, people = [], perms = {}, note = null, canWriteNote = false, startEditing = false,
   onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
+  onPullPlaylist, onLookupTitle,
 }) {
   const [tab, setTab] = useState('word');
   const [draft, setDraft] = useState(null);     // null이면 보기 모드
@@ -528,7 +634,8 @@ export function ServiceDetail({
           ? <RolesEdit rows={rows('roles')} people={people} onChange={v => set({ roles: v })} />
           : <RolesTab rows={rows('roles')} people={people} />)}
         {tab === 'songs' && (editing
-          ? <SongsEdit rows={rows('songs')} onChange={v => set({ songs: v })} />
+          ? <SongsEdit rows={rows('songs')} onChange={v => set({ songs: v })}
+              onPullPlaylist={onPullPlaylist} onLookupTitle={onLookupTitle} />
           : <SongsTab rows={rows('songs')} />)}
         {tab === 'notices' && (editing
           ? <NoticesEdit rows={rows('notices')} onChange={v => set({ notices: v })} />

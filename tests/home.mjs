@@ -1,5 +1,6 @@
-// 홈 — 앱의 첫 화면(모바일 하단 바 첫 탭). 인사말 · 카드 넷(오늘의 QT · 이번 주 예배 ·
-// 내 업무 · 내 순) · 카드마다의 이동 · 스켈레톤 · 빈 자리 · 375px · 다크.
+// 홈 — 앱의 첫 화면(모바일 하단 바 첫 탭). 히어로(캐릭터 마크 · 공동체 이름 · 인사말 ·
+// 태그라인) · 카드 넷(오늘의 QT · 이번 주 예배 · 내 업무 · 내 순) · 카드마다의 이동 ·
+// 스켈레톤 · 빈 자리 · 375px · 다크.
 //
 // 홈은 자기 저장 자리가 없다 — 말씀(word_qt_schedule·word_qt_entries) · 예배
 // (church_worship_v1) · 모임(church_groups_v1) · 업무(church_app_v4) **네 곳에 심고**
@@ -172,12 +173,22 @@ const pure = await ev(`(async () => {
     past: m.pickService([list[0]], '2026-09-02')?.id || null,
     bad: m.pickService([list[3]], '2026-09-02'),
     none: m.pickService([], '2026-09-02'),
+    cuts: [0, 4, 5, 9, 10, 14, 21, 22, 23].map(h => m.heroCut(h)),
   };
 })()`, true);
 check('다가오는 예배 중 가장 이른 것이 선다', pure.ahead === 'b', String(pure.ahead));
 check('오늘 예배는 아직 지나간 것이 아니다', pure.onDay === 'b', String(pure.onDay));
 check('앞으로 잡힌 것이 없으면 가장 최근에 지난 예배', pure.past === 'a', String(pure.past));
 check('날짜가 없는 행은 세지 않는다', pure.bad === null && pure.none === null, `${pure.bad}/${pure.none}`);
+// 캐릭터 컷은 시각으로 갈린다 — 새벽·밤은 자는 컷, 아침은 커피, 그 밖은 껴안은 컷.
+// 경계(5시·10시·22시)가 어긋나면 밤 컷이 하루 종일 남는다.
+check('캐릭터 컷은 한국 시간의 시각으로 갈린다',
+  JSON.stringify(pure.cuts) === JSON.stringify([
+    '/chars/sleep.webp', '/chars/sleep.webp',
+    '/chars/coffee.webp', '/chars/coffee.webp',
+    '/chars/hug-side.webp', '/chars/hug-side.webp', '/chars/hug-side.webp',
+    '/chars/sleep.webp', '/chars/sleep.webp',
+  ]), JSON.stringify(pure.cuts));
 
 // ── 1) 첫 화면이 홈이다 ─────────────────────────────────────────────────────
 await enter();
@@ -191,6 +202,37 @@ check('앱을 열면 아무것도 누르지 않아도 홈이다', head.screen ==
 check('머리줄에 이름이 있다', head.greeting === '노준석님, 안녕하세요', head.greeting);
 check('머리줄 날짜는 한국 시간 오늘이다', head.date === shortDayLabel(TODAY), `${head.date} / ${shortDayLabel(TODAY)}`);
 check('기다리는 동안 같은 자리에 스켈레톤이 선다', head.skel === true && head.skelN === 4, `${head.skel}/${head.skelN}`);
+
+// ── 1b) 히어로 (사용자 피드백 2026-09-02 — "홈의 특성이 없고 너무 휑하다") ──
+// 그림은 `public/chars/*.webp` 중 한 컷이다(시각에 따라 바뀐다) — 어느 컷이든
+// **실제로 그려졌는지**를 본다. src만 걸려 있고 파일이 없으면 naturalWidth가 0이다.
+const hero = await ev(`(() => {
+  const art = document.querySelector('.home-hero-art');
+  const t = (s) => document.querySelector(s)?.textContent.trim() || '';
+  return {
+    src: art?.getAttribute('src') || '',
+    drawn: !!art && art.complete && art.naturalWidth > 0,
+    name: t('.home-hero-name'), tagline: t('.home-tagline'),
+    box: art ? (({ width, height }) => ({ w: Math.round(width), h: Math.round(height) }))(art.getBoundingClientRect()) : null,
+  };
+})()`);
+check('히어로에 캐릭터 마크가 그려진다',
+  hero.src.includes('chars/') && hero.drawn === true, `${hero.src} / drawn ${hero.drawn}`);
+check('마크는 인사말 옆의 마크 크기다(그림이 주가 아니다)',
+  hero.box && hero.box.h > 60 && hero.box.h <= 170 && hero.box.w <= 220, JSON.stringify(hero.box));
+check('히어로에 공동체 이름과 태그라인이 있다',
+  hero.name === '더다붓' && hero.tagline.length > 6, JSON.stringify(hero));
+// 데스크톱에서는 글 왼쪽·마크 오른쪽이고, **인사말의 왼쪽 선이 카드의 왼쪽 선과 같다**
+// (마크를 글 앞에 두면 인사말이 밀려 화면에 왼쪽 기준선이 둘 생긴다)
+const heroWide = await ev(`(() => {
+  const a = document.querySelector('.home-hero-art').getBoundingClientRect();
+  const t = document.querySelector('.home-hero-text').getBoundingClientRect();
+  const g = document.querySelector('.home-greeting').getBoundingClientRect();
+  const c = document.querySelector('.home-card').getBoundingClientRect();
+  return { artLeft: Math.round(a.left), textRight: Math.round(t.right), gap: Math.round(g.left - c.left) };
+})()`);
+check('데스크톱은 글 왼쪽 · 마크 오른쪽 한 줄', heroWide.artLeft >= heroWide.textRight, JSON.stringify(heroWide));
+check('인사말이 카드의 왼쪽 선에 맞는다', Math.abs(heroWide.gap) <= 1, `${heroWide.gap}px`);
 
 // ── 2) 카드 넷 ──────────────────────────────────────────────────────────────
 const order = await cardClasses();
@@ -329,14 +371,22 @@ check('카드 줄이 화면 폭을 그대로 쓴다(따로 좁히지 않는다)'
 
 await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
 await sleep(900);
-const mob = await ev(`(() => ({
-  over: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-  cards: document.querySelectorAll('.home-card').length,
-  wide: [...document.querySelectorAll('.home-card')].some(c => c.getBoundingClientRect().right > window.innerWidth + 0.5),
-}))()`);
+const mob = await ev(`(() => {
+  const a = document.querySelector('.home-hero-art').getBoundingClientRect();
+  const t = document.querySelector('.home-hero-text').getBoundingClientRect();
+  return {
+    over: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    cards: document.querySelectorAll('.home-card').length,
+    wide: [...document.querySelectorAll('.home-card')].some(c => c.getBoundingClientRect().right > window.innerWidth + 0.5),
+    artOver: Math.round(a.right - window.innerWidth),
+    artAbove: a.bottom <= t.top + 1,
+  };
+})()`);
 const mobCols = await cols('.home-cards');
 check('모바일 375px — 가로로 넘치지 않는다', mob.over <= 0, `넘침 ${mob.over}px`);
 check('모바일 375px — 카드가 한 줄에 하나씩', mobCols === 1 && mob.cards === 4 && mob.wide === false, `${mobCols}열 / ${mob.cards}장`);
+check('모바일 375px — 마크가 글 위에 서고 화면을 넘지 않는다',
+  mob.artAbove === true && mob.artOver <= 0, `위 ${mob.artAbove} / 넘침 ${mob.artOver}px`);
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 
 // ── 7) 다크 — 색을 박아 두지 않았는가 ───────────────────────────────────────
@@ -348,6 +398,9 @@ const paint = () => ev(`(() => {
     card: grab('.home-card'), ref: grab('.home-qt-ref'), title: grab('.home-worship-title'),
     count: grab('.home-task-count'), sun: grab('.home-sun-name'), date: grab('.home-date'),
     done: grab('.home-qt-done'),
+    // 히어로는 카드가 아니라 **화면 바탕** 위에 선다 — 배경은 body에서 잰다
+    page: { bg: getComputedStyle(document.body).backgroundColor, fg: '' },
+    greeting: grab('.home-greeting'), tagline: grab('.home-tagline'), heroName: grab('.home-hero-name'),
   };
 })()`);
 const lum = (s) => {
@@ -371,6 +424,18 @@ const dc = [
 ];
 check('다크에서도 카드 글자가 배경에 묻히지 않는다', dc.every(([, v]) => v >= 2),
   dc.map(([n, v]) => `${n} ${v.toFixed(1)}`).join(' · '));
+// 히어로는 카드 밖(화면 바탕 위)이라 따로 잰다 — 여기서 색을 박아 두면 다크에서
+// 인사말이 바탕에 묻힌다(캐릭터 그림은 투명 배경이라 그대로 얹힌다).
+const dh = [
+  ['인사말', contrast(darkPaint.greeting.fg, darkPaint.page.bg)],
+  ['태그라인', contrast(darkPaint.tagline.fg, darkPaint.page.bg)],
+  ['공동체 이름', contrast(darkPaint.heroName.fg, darkPaint.page.bg)],
+];
+check('다크에서도 히어로 글자가 바탕에 묻히지 않는다', dh.every(([, v]) => v >= 2),
+  dh.map(([n, v]) => `${n} ${v.toFixed(1)}`).join(' · '));
+check('다크에서 히어로 글자도 색을 바꾼다(토큰을 쓴다)',
+  darkPaint.greeting.fg !== lightPaint.greeting.fg && darkPaint.tagline.fg !== lightPaint.tagline.fg,
+  `${lightPaint.greeting?.fg} → ${darkPaint.greeting?.fg}`);
 
 await send('Emulation.clearDeviceMetricsOverride');
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));

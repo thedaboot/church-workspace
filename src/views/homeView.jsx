@@ -31,7 +31,39 @@ import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople } from '../servi
 //
 // 카드 껍데기(CARD·CARD_STYLE)는 예배·모임 화면과 같은 한 벌이고 값은
 // dashboardParts의 Card와 같다 — 화면마다 카드 모서리·선이 달라지지 않게.
+//
+// **머리에 히어로가 선다**(사용자 피드백 2026-09-02 — "홈의 특성이 없고 너무 휑해서
+// 놀랐다 … 웹앱의 대표 홈페이지다"). 카드 넷만 있던 화면은 데스크톱에서 아래 2/3이
+// 통째로 비었다. 히어로는 상자를 두르지 않는다 — App.jsx가 화면 위쪽에 이미 파스텔
+// 글로우(`.app-glow`)를 깔아 두었고, 그 위에 불투명한 판을 얹으면 그 글로우가 히어로
+// 자리에서만 사라져 오히려 어긋난다. 캐릭터 그림이 배경 없는 투명 webp라서 라이트·
+// 다크 어디에 놓아도 그대로 얹힌다.
 // ============================================================================
+
+// 캐릭터 마크 — `public/chars/*.webp`(사용자가 준 `public/chars.png` 시트에서 컷마다
+// 잘라 둔 28장, 배경 투명, 170~225px 남짓). **큰 일러스트 한 장으로 쓰지 않는다**
+// (사용자 지적 2026-09-03 — "캐릭터가 너무 크다"). 인사말 옆에 앉는 마크다.
+//
+// **크기는 높이로만 준다.** 컷마다 원본 폭이 다르기 때문에(177~225) 폭으로 잡으면
+// 시각별로 마크의 세로 덩치가 달라지고, 어떤 컷은 원본보다 커져 흐려진다.
+//
+// 시각에 따라 컷을 바꾼다 — 아침에는 커피, 밤에는 자는 컷이다. 홈은 하루에 여러 번
+// 여는 첫 화면이라 같은 그림만 있으면 배경처럼 읽힌다. 기준은 QT·예배 카드와 같은
+// 한국 시간이다(브라우저 시간대로 재면 나라마다 다른 그림이 뜬다).
+const HERO_CUTS = { morning: '/chars/coffee.webp', night: '/chars/sleep.webp', day: '/chars/hug-side.webp' };
+export function heroCut(hour) {
+  if (hour >= 5 && hour < 10) return HERO_CUTS.morning;
+  if (hour >= 22 || hour < 5) return HERO_CUTS.night;
+  return HERO_CUTS.day;
+}
+const kstHour = () => Number(new Date().toLocaleString('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', hour12: false }));
+// 공동체 이름. 앱 안에서 이미 쓰는 표기다('더다붓에 공유하기' · 템플릿 푸터의
+// THE DABOOT MINISTRY). 뜻은 ai.js의 배경 지식에 적혀 있다 — "다붓하다"는 매우
+// 가깝게 붙어 있다는 뜻이고, 더다붓은 "더 다붓해지자"다.
+const COMMUNITY = '더다붓';
+// ponytail: 태그라인은 **사용자 확정 대기**다. 캐릭터 둘이 껴안은 그림과 '다붓하다'의
+// 뜻을 그대로 받은 한 줄로 두었다. 과장·비교 없는 담백한 문장이어야 한다(§8).
+const TAGLINE = '가까이 붙어 함께 걷는 청년 공동체';
 
 // 홈에 세울 예배 한 건 — **다가오는 것 중 가장 이른 것**, 그런 것이 없으면 가장 최근에
 // 지난 것. 종류는 가리지 않는다: 이번 주에 금요 예배만 잡혀 있으면 그것이 이번 주
@@ -226,22 +258,45 @@ export function HomeView({ onNavigate, onTaskClick }) {
 
   return (
     <div className="home-screen dc-screen pb-8">
-      <div className="pb-3.5">
-        <h2 className="home-greeting text-[19px] md:text-[23px] font-extrabold text-fg mb-[3px]" style={{ letterSpacing: '-0.7px' }}>
-          {name ? `${name}님, 안녕하세요` : '안녕하세요'}
-        </h2>
-        {/* 날짜는 QT·예배 카드와 같은 한국 시간이다 — 카드는 오늘 본문인데 머리줄만
-            하루 어긋나면 그 화면을 믿을 수 없게 된다 */}
-        <p className="home-date text-[12.5px] text-fg-muted">{shortDayLabel(day)}</p>
-      </div>
+      {/* 히어로 — 모바일은 마크 위·글 아래로 가운데, 데스크톱은 글 왼쪽·마크 오른쪽
+          끝이다(DOM 차례가 모바일 차례이고 데스크톱에서 order로 뒤집는다). 데스크톱에서
+          마크를 글 앞에 두면 인사말이 오른쪽으로 밀려 **아래 카드의 왼쪽 선과 어긋난다** —
+          같은 화면 안에서 두 개의 왼쪽 기준선이 생긴다. */}
+      <section className="home-hero flex flex-col items-center gap-2.5 pt-1 pb-5 text-center md:flex-row md:gap-6 md:pt-2 md:pb-7 md:text-left">
+        <img
+          src={heroCut(kstHour())} alt="" aria-hidden="true" draggable="false"
+          className="home-hero-art md:order-2 md:ml-auto shrink-0 w-auto h-[108px] md:h-[140px] select-none pointer-events-none"
+        />
+        <div className="home-hero-text md:order-1 min-w-0 md:max-w-[560px]">
+          <p className="home-hero-name text-[11.5px] font-bold text-accent-text" style={{ letterSpacing: '1.4px' }}>
+            {COMMUNITY}
+          </p>
+          <h2 className="home-greeting text-[22px] md:text-[30px] font-extrabold text-fg mt-1 mb-[3px]" style={{ letterSpacing: '-0.9px' }}>
+            {name ? `${name}님, 안녕하세요` : '안녕하세요'}
+          </h2>
+          {/* 날짜는 QT·예배 카드와 같은 한국 시간이다 — 카드는 오늘 본문인데 머리줄만
+              하루 어긋나면 그 화면을 믿을 수 없게 된다 */}
+          <p className="home-date text-[12.5px] text-fg-muted">{shortDayLabel(day)}</p>
+          <p className="home-tagline mt-2.5 text-[13px] md:text-[14px] text-fg-secondary">{TAGLINE}</p>
+        </div>
+      </section>
 
       {!church ? LOADING : cards.length ? (
         <div className="home-cards grid gap-3 md:grid-cols-2">
           {cards.map(([key, render], i) => <React.Fragment key={key}>{render(i * 40)}</React.Fragment>)}
         </div>
       ) : (
-        <Empty className="home-empty" title="예배 · 말씀 · 모임 소식이 아직 올라오지 않았어요" />
+        // 히어로가 이미 화면을 채우므로 빈 자리는 마크 없이 한 줄이고 높이도 줄인다 —
+        // 여기에 46vh를 그대로 두면 히어로 아래가 통째로 비어 보인다(§8 · 작은 구역의
+        // 빈 자리는 글자 한 줄).
+        <Empty className="home-empty" minH="18vh" title="예배 · 말씀 · 모임 소식이 아직 올라오지 않았어요" />
       )}
+
+      {/* 대표 홈페이지의 발문 — 랜딩 느낌을 닫는 한 줄이다(순모임 가이드 템플릿 푸터와
+          같은 표기). 사용법을 알려주는 안내 줄이 아니다. */}
+      <p className="home-mark mt-9 text-center text-[10px] font-semibold text-fg-faint" style={{ letterSpacing: '2.6px' }}>
+        THE DABOOT MINISTRY
+      </p>
     </div>
   );
 }
