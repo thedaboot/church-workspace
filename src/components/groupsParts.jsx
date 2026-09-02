@@ -17,7 +17,7 @@ export const CARD = 'rounded-[10px] shadow-soft';
 export const CARD_STYLE = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
 
 export const BTN = 'px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';
-export const BTN_QUIET = 'px-2.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95';
+export const BTN_QUIET = 'px-2.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';
 export const FIELD = 'text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint';
 
 // **아이콘이 든 버튼은 이 두 개만 쓴다.** 아이콘 하나뿐인 버튼에 flex를 안 주면 svg가

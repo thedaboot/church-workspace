@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient.js';
-import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers } from './people.js';
+import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, guestStore } from './people.js';
 import { generateId } from '../utils.js';
 
 // ============================================================================
@@ -98,15 +98,8 @@ export function personBadges(person, roleSet) {
 }
 
 // ── 게스트 저장 자리 ────────────────────────────────────────────────────────
-const GUEST_KEY = 'church_roster_v1';
 const cloudOn = () => !!supabase;
-const guestAll = () => {
-  try { return JSON.parse(localStorage.getItem(GUEST_KEY)) || {}; } catch { return {}; }
-};
-const guestRows = (table) => guestAll()[table] || [];
-const guestSet = (table, rows) => {
-  try { localStorage.setItem(GUEST_KEY, JSON.stringify({ ...guestAll(), [table]: rows })); } catch { /* 사파리 비공개 모드 */ }
-};
+const { rows: guestRows, set: guestSet } = guestStore('church_roster_v1');
 const guestPatch = (id, patch) => {
   const rows = guestRows('people').map(p => (p.id === id ? { ...p, ...patch } : p));
   guestSet('people', rows);

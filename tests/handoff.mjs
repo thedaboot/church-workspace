@@ -45,7 +45,8 @@ const st={currentUser:{name:'노준석',team:'찬양팀',teams:['찬양팀','임
 const DESK={width:1440,height:900,deviceScaleFactor:1,mobile:false};
 const MOB={width:390,height:844,deviceScaleFactor:2,mobile:true};
 await send('Page.enable'); await send('Runtime.enable');
-const load=async(m,path='/',theme='light')=>{
+// 기본 경로는 대시보드다 — '/'는 v2부터 홈이라 ?p=dashboard로 간다
+const load=async(m,path='/?p=dashboard',theme='light')=>{
   await send('Emulation.setDeviceMetricsOverride',m);
   await send('Emulation.setTouchEmulationEnabled',{enabled:!!m.mobile,maxTouchPoints:5});
   await send('Page.navigate',{url:URL_BASE}); await wait('Page.loadEventFired');
@@ -242,7 +243,7 @@ check('모션: KPI stagger', motion.kpiDelay === '0s' || /ms|s/.test(motion.kpiD
 
 // reduced motion에서 애니메이션이 꺼지는지
 await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
-await send('Page.navigate', { url: URL_BASE + '/' }); await wait('Page.loadEventFired'); await sleep(1200);
+await send('Page.navigate', { url: URL_BASE + '/?p=dashboard' }); await wait('Page.loadEventFired'); await sleep(1200);
 const rm = await ev(`(() => { const s=document.querySelector('main .dc-screen'); const b=document.querySelector('main .dc-bar-fill');
   return { anim: s?getComputedStyle(s).animationName:null, trans: b?getComputedStyle(b).transitionDuration:null }; })()`);
 check('모션: reduced-motion에서 전부 해제', rm.anim === 'none' && rm.trans === '0s', JSON.stringify(rm));

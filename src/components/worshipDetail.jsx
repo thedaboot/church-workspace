@@ -88,14 +88,21 @@ const patchOf = (d) => ({
 });
 
 // ── 보기 ─────────────────────────────────────────────────────────────────────
-function WordTab({ service }) {
+function WordTab({ service, onOpenBible }) {
   const has = service.title || service.passage_ref || service.preacher;
   if (!has) return <WorshipEmpty text="설교 제목과 본문 구절을 아직 적지 않았어요" />;
+  // 구절은 누르면 성경 읽기의 그 장으로 간다(App.jsx의 openBible → WordView initialRef).
+  const ref = service.passage_ref;
   return (
     <div>
       {service.title && <h3 className="text-[16px] font-extrabold text-fg tracking-[-0.3px]">{service.title}</h3>}
       <p className="mt-1 text-[12px] text-fg-muted">
-        {[service.passage_ref, service.preacher].filter(Boolean).join(' · ')}
+        {ref && (onOpenBible
+          ? <button type="button" onClick={() => onOpenBible(ref)}
+              className="worship-open-bible underline decoration-dotted underline-offset-2 hover:text-fg transition">{ref}</button>
+          : ref)}
+        {ref && service.preacher && ' · '}
+        {service.preacher}
       </p>
       <PassageBody refStr={service.passage_ref} />
     </div>
@@ -395,7 +402,7 @@ function MyNote({ note, onSave }) {
 // ── 상세 ─────────────────────────────────────────────────────────────────────
 export function ServiceDetail({
   service, people = [], perms = {}, note = null, canWriteNote = false, startEditing = false,
-  onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance,
+  onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
 }) {
   const [tab, setTab] = useState('word');
   const [draft, setDraft] = useState(null);     // null이면 보기 모드
@@ -516,7 +523,7 @@ export function ServiceDetail({
       </div>
 
       <div className="worship-tabpanel">
-        {tab === 'word' && (editing ? <WordEdit draft={draft} set={set} /> : <WordTab service={service} />)}
+        {tab === 'word' && (editing ? <WordEdit draft={draft} set={set} /> : <WordTab service={service} onOpenBible={onOpenBible} />)}
         {tab === 'roles' && (editing
           ? <RolesEdit rows={rows('roles')} people={people} onChange={v => set({ roles: v })} />
           : <RolesTab rows={rows('roles')} people={people} />)}

@@ -57,7 +57,7 @@ const EditorSkeleton = () => <div className="dc-skeleton border border-line roun
 const PASSAGE_MIN_H = 320;
 
 // 주보의 본문 구절에서 넘어오는 자리를 위해 initialTab·initialRef를 받는다
-// (App.jsx는 지금 <WordView />로만 부른다 — 회차 3 IA 재편에서 이어 붙인다).
+// (App.jsx가 예배 화면의 onOpenBible → wordRef로 이어 준다. 말씀 화면을 떠나면 비운다).
 export function WordView({ initialTab = 'qt', initialRef = '' }) {
   const [tab, setTab] = useState(initialRef ? 'read' : initialTab);
   const [dir, setDir] = useState(0);

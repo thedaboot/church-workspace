@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient.js';
-import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, fetchMyPerson } from './people.js';
+import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, fetchMyPerson, guestStore } from './people.js';
 import { SUNDAY_KIND } from './worship.js';
 import { generateId } from '../utils.js';
 
@@ -34,14 +34,7 @@ const APP_COLS = 'id, group_id, person_id, status, created_at';
 const MEETING_COLS = 'id, group_id, meeting_date, title, attendance, note';
 
 // ── 게스트 저장 자리 ────────────────────────────────────────────────────────
-const GUEST_KEY = 'church_groups_v1';
-const guestAll = () => {
-  try { return JSON.parse(localStorage.getItem(GUEST_KEY)) || {}; } catch { return {}; }
-};
-const guestRows = (table) => guestAll()[table] || [];
-const guestSet = (table, rows) => {
-  try { localStorage.setItem(GUEST_KEY, JSON.stringify({ ...guestAll(), [table]: rows })); } catch { /* 사파리 비공개 모드 */ }
-};
+const { all: guestAll, rows: guestRows, set: guestSet } = guestStore('church_groups_v1');
 
 // ── 순수 헬퍼 (브라우저 없이도 검사된다 — §2-5) ─────────────────────────────
 

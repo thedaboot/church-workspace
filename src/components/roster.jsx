@@ -3,6 +3,7 @@ import { Plus, Check, Link2, Link2Off, UserX, Undo2, Loader2, Pencil, X } from '
 import { Avatar } from './Avatar.jsx';
 import { Skeleton } from './media.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
+import { BTN as BTN_BASE, BTN_QUIET as BTN_QUIET_BASE, FIELD as FIELD_BASE, WITH_ICON } from './groupsParts.jsx';
 import { CONFIG } from '../config.js';
 import { objectParticle } from '../services/errorText.js';
 import {
@@ -25,9 +26,10 @@ import {
 // person_id로 매달려 있다(services/roster.js 머리말).
 // ============================================================================
 
-const FIELD = 'min-w-0 text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint';
-const BTN = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 disabled:opacity-40';
-const BTN_QUIET = 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[11px] font-semibold transition active:scale-95 disabled:opacity-40';
+// 버튼·입력칸은 모임 화면(groupsParts)과 한 벌이다. 여기 버튼은 전부 아이콘이 들어 WITH_ICON을 얹는다.
+const FIELD = `min-w-0 ${FIELD_BASE}`;
+const BTN = `${WITH_ICON} ${BTN_BASE}`;
+const BTN_QUIET = `${WITH_ICON} ${BTN_QUIET_BASE}`;
 const ROW = { borderBottom: '1px solid var(--app-line)' };
 
 // 고를 수 있는 팀은 **사역 팀만**이다. CONFIG.TEAMS의 '임원진'·'교역자'는 팀이 아니라

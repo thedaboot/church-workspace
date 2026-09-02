@@ -27,6 +27,7 @@ writeFileSync(join(tmp, 'people.mjs'), [
   'export const fetchRoles = async () => [];',
   'export const fetchGroups = async () => [];',
   'export const fetchGroupMembers = async () => [];',
+  'export const guestStore = () => ({ all: () => ({}), rows: () => [], set: () => {} });',
 ].join('\n'));
 const rosterSrc = readFileSync(new URL('src/services/roster.js', ROOT), 'utf8')
   .replace("import { supabase } from './supabaseClient.js';", 'const supabase = null;')

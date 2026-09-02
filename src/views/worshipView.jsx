@@ -171,7 +171,7 @@ const LOADING = (
   </div>
 );
 
-export function WorshipView() {
+export function WorshipView({ onOpenBible } = {}) {
   const { enabled, session, isMaster, isAdmin } = useAuth();
   const [perms, setPerms] = useState(null);
   const [services, setServices] = useState(null);
@@ -343,6 +343,7 @@ export function WorshipView() {
         onBack={() => { setScreen('list'); setOpenId(null); setEditOnOpen(false); }}
         onSave={save} onPublish={publish} onDelete={drop} onSaveNote={saveNote}
         onOpenAttendance={() => setScreen('attendance')}
+        onOpenBible={onOpenBible}
       />
     );
   }

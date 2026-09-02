@@ -106,6 +106,11 @@ function WorkspaceShell() {
   const [renameTarget, setRenameTarget] = useState(null); // 이름 수정할 프로젝트
   // 보드/캘린더 선택은 프로젝트를 옮겨도 유지한다(ProjectView는 프로젝트마다 리마운트됨)
   const [projectViewMode, setProjectViewMode] = useState('kanban');
+  // 주보의 본문 구절 → 성경 읽기(WordView initialRef). 말씀 화면을 떠나면 비운다 —
+  // 안 비우면 다음에 '말씀'을 눌렀을 때 QT가 아니라 옛 구절로 열린다.
+  const [wordRef, setWordRef] = useState('');
+  useEffect(() => { if (activeMenu !== 'word' && wordRef) setWordRef(''); }, [activeMenu, wordRef]);
+  const openBible = useCallback((ref) => { setWordRef(ref || ''); setActiveMenu('word'); }, []);
   const [cloudReady, setCloudReady] = useState(!cloudMode);
   const [loadError, setLoadError] = useState(null);
   const [retrying, setRetrying] = useState(false);
@@ -469,7 +474,8 @@ function WorkspaceShell() {
     // 대시보드 필터도 URL에 — 예전에는 '내 팀'을 골라놓고 새로고침하면 '전체'로
     // 돌아갔다. 화면과 열린 업무는 URL에 있는데 필터만 빠져 있었다.
     // '전체'는 기본값이라 적지 않는다(주소가 길어질 뿐이다).
-    if (activeMenu === 'dashboard' && dashFilter !== DASH_FILTER_DEFAULT) params.set('f', dashFilter);
+    // p도 같이 적는다 — v2부터 '/'는 홈이라, f만 있는 주소를 새로고침하면 홈으로 열려 필터가 사라진다.
+    if (activeMenu === 'dashboard' && dashFilter !== DASH_FILTER_DEFAULT) { params.set('p', 'dashboard'); params.set('f', dashFilter); }
     if (modalState.isOpen && modalState.task?.id) {
       if (modalState.task.projectId) params.set('p', modalState.task.projectId);
       params.set('t', modalState.task.id);
@@ -531,8 +537,8 @@ function WorkspaceShell() {
           {activeMenu === 'schedule' && <ScheduleView onTaskClick={handleTaskClick} />}
           {activeMenu === 'members' && <MembersView isAdmin={isAdmin} isMaster={isMaster} />}
           {activeMenu === 'home' && <HomeView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} />}
-          {activeMenu === 'worship' && <WorshipView />}
-          {activeMenu === 'word' && <WordView />}
+          {activeMenu === 'worship' && <WorshipView onOpenBible={openBible} />}
+          {activeMenu === 'word' && <WordView initialRef={wordRef} />}
           {activeMenu === 'groups' && <GroupsView />}
           {activeMenu === "myTasks" && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}

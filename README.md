@@ -22,6 +22,15 @@ npm run verify       # 브라우저 검증 스위트 (tests/README.md)
 
 ## 기능
 
+**교회 생활** (v2 · 2026-09) — 청년 ~50명이 매일 쓰는 화면. 모바일 첫 화면은 **홈**이고, 하단 바의
+'업무'를 누르면 바가 지금까지의 업무 바로 바뀝니다(모드 전환). 설계·결정은 `docs/V2.md`.
+- 홈 — 오늘의 QT · 이번 주 예배 · 내 업무 · 내 순.
+- 예배 — 주보(말씀·담당자·찬양·광고)를 작성해 발행하고, 예배일이 지나면 순장이 자기 순의 출석을
+  체크합니다. 본문 구절은 개역한글 본문이 자동으로 붙고, 누르면 성경 읽기로 갑니다.
+- 말씀 — QT(읽기표 본문 → 묵상 → 더다붓에 공유하기 · 나만 보는 잔디) · 성경 읽기(목차·검색·북마크·절 형광펜).
+- 모임 — 내 순(구성원·출석·공유된 노트) · 동아리(가입 신청·모임) · 순 편성.
+- 명단 — 계정 없이도 청년 전체를 등록하고, 가입한 사람을 명단에 연결합니다(멤버 화면의 '명단' 탭).
+
 **프로젝트**
 - 칸반 보드 — 시작 전 / 진행 중 / 보류 중 / 완료. 드래그 앤 드롭(마우스·터치)으로 상태를 옮기고,
   모바일에서는 카드의 ⇄ 버튼으로 한 번에 바꿉니다. 팀 필터는 여러 개를 함께 고를 수 있습니다(OR).
@@ -135,13 +144,18 @@ src/
 ├── index.css            디자인 토큰 · 모션 · 그리드 유틸
 ├── store/               useSyncExternalStore 기반 커스텀 스토어 + 셀렉터
 ├── services/            domain · cloud(Supabase) · cloudSync · markdown · ai · auth · presence
+│                        · (v2) people · worship · word · groups · roster · bibleRef · bible
 ├── hooks/               controllers · useIsMobile · useForceGraph(그래프 시뮬·드래그)
 ├── components/          layout(상단 2줄 내비 · 모바일 탭바) · boards(칸반) · calendar
 │                        depgraph(업무 선후 그래프) · MarkdownEditor · RichText ·
 │                        MentionInput · FilePreviewModal · PdfView 등
+│                        · (v2) worshipDetail·worshipPassage·worshipAttendance · wordBible ·
+│                          groupsSun·groupsClub·groupsParts · roster
 ├── views/               views(대시보드·프로젝트·내 업무·팀·전체 일정) · dashboardParts(공유 부품)
-│                        · membersView(가입 승인·관리자 지정)
+│                        · membersView(가입 승인·관리자 지정 · 명단 탭)
+│                        · (v2) homeView · worshipView · wordView · groupsView
 └── modals/              업무 상세·수정, 프로필, 프로젝트 생성/이름 변경
+public/bible/            개역한글 66권 json(책 단위 청크) — 주보 본문·QT·성경 읽기가 같이 읽습니다
 ```
 
 상태는 `{ byId, allIds }`로 정규화해 Map 룩업으로 읽고, 화면(views) → 컨트롤러(hooks) →
@@ -226,6 +240,11 @@ insert into admins (email) values ('admin@example.com');
 | `0028_admin_pick_and_pin.sql` | `profiles.email` + `admins.is_master` — 관리자를 목록에서 고르고, AI는 마스터만 |
 | `0029_admin_grant_master_only.sql` | 관리자 지정·해제를 마스터만(`admins` 정책이 `is_master()`) |
 | `0030_ai_context.sql` | `profiles.role_note`(AI가 부를 직함 — 개명해도 안 끊기고 코드에 개인 정보를 안 남긴다) · `files.text_excerpt`(첨부에서 뽑은 글 — 요약과 검색이 같이 읽는다) |
+| `0031`~`0034` | 엑셀 미리보기 사본 id · 댓글 반응 · 업무 끝낸 시각(+백필 수정) — 자세한 것은 `HANDOFF.md` §5 |
+| `0035_people_and_groups.sql` | v2 명단(`people` — 계정 없이도 등록) · 연도별 직분 · 순·동아리 한 벌(`groups`) · 가입 신청 · 모임 |
+| `0036_worship_and_word.sql` | v2 예배(주보 `services` · `attendance` · 예배 노트) · 말씀(QT 일정·묵상 · `bible_state`) |
+| `0037_roster_seed.sql` | 명단 시드 53명(순 6 · 동아리 5 · 직분) |
+| `0038_qt_plan_and_polish.sql` | QT 읽기표 2026·2027 시드 · 동아리 카드 순서 · 절 형광펜 |
 
 ## 딥링크 · 공유 · 환경변수
 

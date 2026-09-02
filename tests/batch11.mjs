@@ -46,7 +46,8 @@ const st={currentUser:{name:'노준석',team:'찬양팀',teams:['찬양팀','임
 const DESK={width:1440,height:900,deviceScaleFactor:1,mobile:false};
 const MOB={width:390,height:844,deviceScaleFactor:2,mobile:true};
 await send('Page.enable'); await send('Runtime.enable');
-const load=async(m,path='/')=>{
+// 기본 경로는 대시보드다 — '/'는 v2부터 홈이라 ?p=dashboard로 간다
+const load=async(m,path='/?p=dashboard')=>{
   await send('Emulation.setDeviceMetricsOverride',m);
   await send('Emulation.setTouchEmulationEnabled',{enabled:!!m.mobile,maxTouchPoints:5});
   await send('Page.navigate',{url:URL_BASE}); await wait('Page.loadEventFired');
@@ -55,7 +56,7 @@ const load=async(m,path='/')=>{
 };
 const clickText=t=>`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(t)})?.click()`;
 
-// ── 1·2. 모바일: 설정은 헤더, 하단 탭은 프로젝트·내 업무·대시보드·팀 ──
+// ── 1·2. 모바일: 설정은 헤더, 하단 탭(업무 바)은 홈·프로젝트·내 업무·대시보드·팀 ──
 await load(MOB);
 const nav = await ev(`(() => {
   const bar=document.querySelector('nav');
@@ -66,7 +67,7 @@ const nav = await ev(`(() => {
            barH: bar.getBoundingClientRect().height,
            mainPB: parseFloat(getComputedStyle(document.querySelector('main')).paddingBottom) };
 })()`);
-check('모바일 하단 탭 = 프로젝트·내 업무·대시보드·팀', JSON.stringify(nav.tabs.map(t=>t.replace(/[0-9]/g,'')))===JSON.stringify(['프로젝트','내 업무','대시보드','팀']), JSON.stringify(nav.tabs));
+check('모바일 하단 탭(업무 바) = 홈·프로젝트·내 업무·대시보드·팀', JSON.stringify(nav.tabs.map(t=>t.replace(/[0-9]/g,'')))===JSON.stringify(['홈','프로젝트','내 업무','대시보드','팀']), JSON.stringify(nav.tabs));
 check('모바일 하단 탭에 설정이 없다', nav.tabHasSettings===false);
 check('모바일 헤더에 설정 버튼이 있다', nav.headBtns.includes('설정'), JSON.stringify(nav.headBtns));
 check('모바일 본문 아래 여백 > 탭바 높이', nav.mainPB > nav.barH, `pb ${nav.mainPB}px > 탭바 ${Math.round(nav.barH)}px`);
@@ -143,7 +144,7 @@ check("'마감 없음' 표현이 사라졌다", dash.noDueOld===false, JSON.stri
 // 지연 0건 상태로 만들어 KPI 문구 확인
 await ev(`(() => { const s=JSON.parse(localStorage.getItem('church_app_v4'));
   s.tasks.byId.t1.dueDate='${D(5)}'; localStorage.setItem('church_app_v4',JSON.stringify(s)); })()`);
-await send('Page.navigate',{url:URL_BASE}); await wait('Page.loadEventFired'); await sleep(1500);
+await send('Page.navigate',{url:URL_BASE+'/?p=dashboard'}); await wait('Page.loadEventFired'); await sleep(1500);
 const zero = await ev(`(() => { const t=document.querySelector('main').textContent;
   return { note:/전부 기한 내/.test(t), old:/없어요/.test(t.slice(0, t.indexOf('오늘 마감'))) }; })()`);
 check("지연 0건 문구가 '전부 기한 내'", zero.note===true && zero.old===false, JSON.stringify(zero));

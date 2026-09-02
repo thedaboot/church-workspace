@@ -502,7 +502,7 @@ export function BibleTab({ initialRef = '' }) {
                   className={`${btn} shrink-0 pl-1.5 pr-2.5 h-8 text-fg-muted hover:bg-surface-hover`}>
                   <ChevronLeft size={14} />목차
                 </button>
-                <h3 className="flex-1 min-w-0 truncate text-[15px] font-extrabold text-fg tracking-[-0.3px]">
+                <h3 className="bible-place flex-1 min-w-0 truncate text-[15px] font-extrabold text-fg tracking-[-0.3px]">
                   {here?.name} {place.chapter}장
                 </h3>
                 <button onClick={toggleBookmark} title={marked ? '북마크 지우기' : '북마크에 넣기'}

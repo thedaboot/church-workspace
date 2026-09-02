@@ -15,8 +15,10 @@ const send=(m,p={})=>new Promise((res,rej)=>{const i=++id;pend.set(i,{res,rej});
 const wait=async(m,to=25000)=>{const s=Date.now();while(Date.now()-s<to){const i=evs.findIndex(e=>e.method===m);if(i>=0)return evs.splice(i,1)[0];await sleep(50);}throw new Error(m);};
 const ev=async(e,a=false)=>{const r=await send('Runtime.evaluate',{expression:e,awaitPromise:a,returnByValue:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description);return r.result.value;};
 const results=[];const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}${d?' — '+d:''}`);
+// 시드 날짜는 오늘이다 — 달력은 이번 달을 열기 때문에 고정 날짜(2026-07)는 달이 바뀌면 막대가 0개가 된다
+const TODAY=(d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)(new Date());
 const mk=(id,title,teams,s,e)=>({id,projectId:'p1',title,content:'x',status:'진행 중',assignees:['노준석'],teams,startDate:s,dueDate:e,position:0,author:'노준석',createdAt:'2026-07-01T00:00:00Z',updatedAt:'2026-07-01T00:00:00Z',comments:[],activityLog:[],attachments:[]});
-const list=[mk('t1','슈링클스 제작',['미디어팀'],'2026-07-26','2026-07-26'),mk('t2','간식',['웰컴팀'],'2026-07-26','2026-07-26'),mk('t3','포스터',['워십팀'],'2026-07-26','2026-07-26'),mk('t4','버스',['찬양팀'],'2026-07-26','2026-07-26'),mk('t5','방배정',['교역자'],'2026-07-26','2026-07-26')];
+const list=[mk('t1','슈링클스 제작',['미디어팀'],TODAY,TODAY),mk('t2','간식',['웰컴팀'],TODAY,TODAY),mk('t3','포스터',['워십팀'],TODAY,TODAY),mk('t4','버스',['찬양팀'],TODAY,TODAY),mk('t5','방배정',['교역자'],TODAY,TODAY)];
 const byId={};list.forEach(t=>{byId[t.id]=t;});
 const st={currentUser:{name:'노준석',team:'임원진'},projects:{byId:{p1:{id:'p1',title:'2026 하계 수련회',pinnedLinks:[]}},allIds:['p1']},tasks:{byId,allIds:list.map(t=>t.id)}};
 await send('Page.enable');await send('Runtime.enable');

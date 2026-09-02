@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient.js';
-import { fetchPeople, fetchGroups, fetchGroupMembers, fetchMyPerson, fetchRoles } from './people.js';
+import { fetchPeople, fetchGroups, fetchGroupMembers, fetchMyPerson, fetchRoles, guestStore } from './people.js';
 import { generateId } from '../utils.js';
 
 // ============================================================================
@@ -27,14 +27,7 @@ export const SUNDAY_LABEL = '주일 4부 젊은이 예배';
 export const UNASSIGNED = '순 미지정';
 
 // ── 게스트 시드 (클라우드가 없을 때의 저장 자리) ────────────────────────────
-const GUEST_KEY = 'church_worship_v1';
-const guestAll = () => {
-  try { return JSON.parse(localStorage.getItem(GUEST_KEY)) || {}; } catch { return {}; }
-};
-const guestRows = (table) => guestAll()[table] || [];
-const guestSet = (table, rows) => {
-  try { localStorage.setItem(GUEST_KEY, JSON.stringify({ ...guestAll(), [table]: rows })); } catch { /* 사파리 비공개 모드 */ }
-};
+const { all: guestAll, rows: guestRows, set: guestSet } = guestStore('church_worship_v1');
 
 // ── 순수 헬퍼 (브라우저 없이도 검사된다) ────────────────────────────────────
 

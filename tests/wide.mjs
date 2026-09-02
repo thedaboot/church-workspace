@@ -23,7 +23,8 @@ await send('Page.enable');await send('Runtime.enable');
 await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
 await send('Page.navigate',{url:URL_BASE});await wait('Page.loadEventFired');
 await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))}); localStorage.setItem('theme','light')`);
-await send('Page.navigate',{url:URL_BASE});await wait('Page.loadEventFired');await sleep(1500);
+// '/'는 홈(v2)이다 — 대시보드는 ?p=dashboard로 바로 간다
+await send('Page.navigate',{url:URL_BASE+'/?p=dashboard'});await wait('Page.loadEventFired');await sleep(1500);
 for (const w of [320,360,390,430,768,1024,1280,1920]) {
   await send('Emulation.setDeviceMetricsOverride',{width:w,height:900,deviceScaleFactor:1,mobile:w<768});
   await sleep(450);

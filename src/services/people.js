@@ -56,6 +56,19 @@ export async function fetchGroupMembers(groupIds) {
 }
 
 // 내 명단 행(로그인 계정과 이어진 사람). 없으면 null — 아직 관리자가 안 이었다.
+// 게스트 저장 자리(클라우드가 없을 때) — 서비스마다 localStorage 한 키에 표들을 둔다.
+// 키는 서비스별로 따로다(church_worship_v1 · church_groups_v1 · church_roster_v1).
+// ponytail: 한 키로 합치지 않는다 — 시드의 `me`(자격) 모양이 서비스마다 달라 겹치면
+// 서로 덮어쓴다. 게스트에서 한 명단을 셋이 같이 봐야 할 때 합친다.
+export function guestStore(key) {
+  const all = () => { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch { return {}; } };
+  const rows = (table) => all()[table] || [];
+  const set = (table, list) => {
+    try { localStorage.setItem(key, JSON.stringify({ ...all(), [table]: list })); } catch { /* 사파리 비공개 모드 */ }
+  };
+  return { all, rows, set };
+}
+
 export async function fetchMyPerson() {
   if (!supabase) return null;
   const { data: { user } = {} } = await supabase.auth.getUser();

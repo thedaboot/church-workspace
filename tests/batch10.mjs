@@ -152,8 +152,8 @@ const after = await ev(`(() => ({ cal: !!document.querySelector('.grid.grid-cols
   onTab: [...document.querySelectorAll('button')].find(b=>/border-fg($| )/.test(b.className))?.textContent.trim() }))()`);
 check('다른 프로젝트로 옮겨도 캘린더 유지', after.cal === true, JSON.stringify(after));
 
-// ── 5) 대시보드 ──
-await load(DESK, '/');
+// ── 5) 대시보드 ── ('/'는 v2부터 홈이라 ?p=dashboard로 간다)
+await load(DESK, '/?p=dashboard');
 // 핸드오프 리디자인 후: 도넛 대신 진척도 막대, '마감이 가까운' 섹션 대신 마감 그룹 리스트
 const dash = await ev(`(() => {
   const txt=document.querySelector('main').textContent;
@@ -182,14 +182,14 @@ for (const w of [320, 390, 768, 1024, 1440, 1920]) {
 // ── 대시보드 필터가 URL에 담긴다 ──
 // 예전에는 '내 팀'을 골라놓고 새로고침하면 '전체'로 돌아갔다.
 // 화면(p)과 열린 업무(t)는 주소에 있는데 필터만 모든 기록에서 부려 있었다.
-await load(DESK, '/');
+await load(DESK, '/?p=dashboard');
 await ev(`[...document.querySelectorAll('main button')].find(b=>/^내 팀 [0-9]+$/.test(b.textContent.trim()))?.click()`);
 await sleep(400);
 const urlPick = await ev(`location.search`);
 check('필터를 고르면 주소에 f가 붙는다', /f=/.test(urlPick), urlPick || '(빈 주소)');
 await send('Page.navigate',{url:URL_BASE+urlPick}); await wait('Page.loadEventFired'); await sleep(1500);
 const keptFilter = await ev(`(() => {
-  // 상단 내비에도 '전체 대시보드'·'내 업무'가 있어서 main 안 세그먼트로 좁힌다
+  // 상단 내비에도 '업무 대시보드'·'내 업무'가 있어서 main 안 세그먼트로 좁힌다
   const segs=[...document.querySelectorAll('main button')]
     .filter(b=>/^(전체|내 업무|내 팀) [0-9]+$/.test(b.textContent.trim()));
   const on=segs.find(b=>getComputedStyle(b).backgroundColor!=='rgba(0, 0, 0, 0)');

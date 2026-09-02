@@ -864,6 +864,13 @@ check('모바일 375px에서 출석 화면이 가로로 넘치지 않는다', mo
 check('모바일에서도 사람 칩이 그대로 선다', mob.chips === 8, String(mob.chips));
 await send('Emulation.clearDeviceMetricsOverride');
 
+// ── 주보의 본문 구절 → 성경 읽기 (App.jsx openBible → WordView initialRef) ───────
+await ev(`${byText('주보로')}.click()`); await sleep(700);
+const bibleLink = await ev(`document.querySelector('.worship-open-bible')?.textContent || ''`);
+await ev(`document.querySelector('.worship-open-bible')?.click()`); await sleep(1500);
+const biblePlace = await ev(`(document.querySelector('.bible-place')?.textContent || '').replace(/\s+/g, ' ').trim()`);
+check('주보의 본문 구절을 누르면 성경 읽기의 그 장이 열린다', bibleLink === '이사야 32:9-20' && biblePlace === '이사야 32장', `${bibleLink} → ${biblePlace}`);
+
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 
 console.log(results.join('\n'));
