@@ -18,7 +18,7 @@ export function ShareButton({ url, what = '', className = '' }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      showToast('복사에 실패했어요 · ' + url);
+      showToast('복사에 실패했어요\n' + url);
     }
   };
 

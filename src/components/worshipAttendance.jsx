@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronDown, Plus } from 'lucide-react';
 import { groupRoster, countPresent, canToggleGroup, kindLabel, formatServiceDate } from '../services/worship.js';
 import { SaveState } from './worshipDetail.jsx';
+import { Cut } from './groupsParts.jsx';
 
 // ============================================================================
 // 예배 출석 체크 (docs/V2.md 결정 6 · 0035·0036)
@@ -87,6 +88,15 @@ export function AttendanceScreen({
           전체 <span className="text-accent-text">{here}</span>/{total}
         </p>
       </header>
+
+      {/* 컷 한 장. 부를 사람이 아직 없으면 물음표, 다 불렀으면 하트다(사용자 결정
+          2026-09-03 — 화면당 한두 장, 순 목록 안에는 넣지 않는다). 두 경우는 함께
+          성립하지 않으므로 이 화면에 컷은 언제나 한 장 이하다. 문구는 붙이지 않는다(§8) */}
+      {!total ? (
+        <div className="att-cut flex justify-center py-6"><Cut name="question" h={96} /></div>
+      ) : here === total ? (
+        <div className="att-cut flex justify-center pb-4"><Cut name="hearts" h={80} /></div>
+      ) : null}
 
       {buckets.map(g => {
         const open = !closed.has(String(g.id));

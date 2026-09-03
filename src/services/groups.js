@@ -200,6 +200,29 @@ export function leaderPlan({ group, personId, people = [], suns = [], members = 
   return { ok: true, addMember: true, name };
 }
 
+// ── 같은 이름 막기 (0041) ───────────────────────────────────────────────────
+// unique index (type, name, coalesce(year,0)) where removed_at is null.
+// 순은 **같은 해 안에서만** 유일하다(26년 오순도순과 27년 오순도순은 공존한다) —
+// 순은 해마다 다시 짜고 지난 편성을 그대로 남기기 때문이다(§1 결정 2). 동아리는
+// 해가 없으니(coalesce로 0) 전체에서 유일하고, 환송한 모임은 셈에서 빠진다.
+//
+// 화면이 **저장하러 가기 전에** 같은 이름을 찾아 말한다 — DB까지 갔다 오면 사람은
+// 23505를 받고 우리는 그걸 다시 사람 말로 옮겨야 한다. 경합으로 그래도 위반이 오면
+// dupReason이 같은 문장을 얹는다.
+export const dupNameText = (type, year) => (type === 'sun'
+  ? `${year}년에 같은 이름의 순이 이미 있어요`
+  : '같은 이름의 동아리가 이미 있어요');
+
+// 이미 있으면 그 이유 한 줄, 없으면 null. exceptId는 이름을 고치는 자기 자신이다.
+export function duplicateName({ groups = [], type, name, year = null, exceptId = null } = {}) {
+  const clean = String(name || '').trim();
+  if (!clean) return null;
+  const sameYear = (g) => (type !== 'sun' ? true : (g.year ?? null) === (year ?? null));
+  const hit = groups.some(g => g.id !== exceptId && !g.removed_at && g.type === type
+    && String(g.name || '').trim() === clean && sameYear(g));
+  return hit ? dupNameText(type, year) : null;
+}
+
 // 유니크 위반(23505)의 이유는 **부르는 쪽만 안다** — '이미 신청해 두었어요'인지
 // '이미 그 순의 순원이에요'인지. errorText.js는 화면 전체가 같이 쓰는 파일이라
 // 거기에 모임 화면의 사정을 넣지 않고, 그 한 줄을 여기서 얹는다(errorReason이

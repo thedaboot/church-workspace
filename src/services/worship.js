@@ -308,7 +308,7 @@ export async function checkOut(serviceId, personId) {
 // 경우만 console.error로 남긴다(cloud.js가 501을 notConfigured로 가르는 것과 같은 취지).
 const WHY_GUEST = '게스트 모드에서는 유튜브에 닿을 수 없어요';
 const WHY_DEPLOY = '배포된 앱에서만 되는 기능이에요';
-const WHY_LOGIN = '로그인이 풀렸어요 · 새로고침하고 다시 로그인해주세요';
+const WHY_LOGIN = '로그인이 풀렸어요\n새로고침하고 다시 로그인해주세요';
 const WHY_NOT_LIST = '붙인 주소가 유튜브 재생목록 링크가 아니에요';
 
 const cantErr = (why, quiet = false) => {
@@ -334,7 +334,7 @@ async function ytFetch(body) {
   // 없는 것이고(로컬 vite), 401은 세션이 끊긴 것이라 우리가 이유를 만든다.
   if (r.status === 401) throw cantErr(WHY_LOGIN, true);
   if (r.status === 404 && !out.error) throw cantErr(WHY_DEPLOY, true);
-  throw cantErr(out.error || '유튜브가 응답하지 않았어요 · 잠시 후 다시 시도해주세요');
+  throw cantErr(out.error || '유튜브가 응답하지 않았어요\n잠시 후 다시 시도해주세요');
 }
 
 // 재생목록 주소 → [{ title, link }]. 곡 목록에 그대로 붙일 모양으로 돌려준다.

@@ -356,7 +356,7 @@ function WorkspaceShell() {
             if (fresh.status !== status) { showToast(`다른 사람이 이미 ${fresh.status}로 바꿨어요`); return; }
           } catch (e) {
             console.error('[cloud] 되돌리기 전 확인 실패:', e);
-            showToast('지금은 되돌릴 수 없어요 · 잠시 후 다시 시도해주세요');
+            showToast('지금은 되돌릴 수 없어요\n잠시 후 다시 시도해주세요');
             return;
           }
         }

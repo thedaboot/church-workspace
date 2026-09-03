@@ -118,24 +118,34 @@ const tokenColor = (name) => `(() => {
   return c;
 })()`;
 
-// 빈 상태 — 기존 마크(SVG 선 그리기)와 함께 남는 공간의 세로·가로 가운데인지 잰다.
-// 내용(마크 + 글자)을 감싼 상자의 가운데와 빈 상태 칸의 가운데가 같아야 한다.
+// 빈 상태 — **캐릭터 컷**과 함께 남는 공간의 세로·가로 가운데인지 잰다(사용자 결정
+// 2026-09-03: 빈 자리의 SVG 마크를 컷으로 바꿨다). 내용(컷 + 글자)을 감싼 상자의
+// 가운데와 빈 상태 칸의 가운데가 같아야 하고, **컷은 원본보다 커지지 않아야** 한다.
 //
 // 그리고 **그 칸이 남는 공간을 실제로 차지하는지**도 같이 잰다(fill = 화면 감싸개의
 // 끝과 스크롤 박스 바닥 사이). 46vh 고정값이던 때는 칸 안에서는 가운데였지만 칸이
 // 화면보다 작아서 **아래로 250~270px이 통째로 비었다**(사용자 지적 2026-09-02).
 // 칸 자신의 아래를 재면 안 된다 — 상세 화면은 그 아래에 노트가 오므로 늘 0이 나온다.
-const EMPTY = `(() => {
+const EMPTY = `(async () => {
   const box = document.querySelector('.worship-empty');
   if (!box) return null;
+  const img = box.querySelector('img');
+  if (img) { try { await img.decode(); } catch {} }
   const b = box.getBoundingClientRect();
   const main = document.querySelector('main');
   const kids = [...box.children].map(k => k.getBoundingClientRect());
   const top = Math.min(...kids.map(k => k.top)), bottom = Math.max(...kids.map(k => k.bottom));
   const left = Math.min(...kids.map(k => k.left)), right = Math.max(...kids.map(k => k.right));
   return {
-    mark: !!box.querySelector('svg'),
-    marks: box.querySelectorAll('svg').length,
+    mark: !!box.querySelector('img'),
+    marks: box.querySelectorAll('img').length,
+    cut: (box.querySelector('img')?.getAttribute('src') || '').replace('/chars/', '').replace('.webp', ''),
+    over: (() => {
+      const im = box.querySelector('img');
+      if (!im) return null;
+      return [Math.round(im.getBoundingClientRect().height - im.naturalHeight),
+        Math.round(im.getBoundingClientRect().width - im.naturalWidth)];
+    })(),
     h: Math.round(b.height), vh: innerHeight,
     dy: Math.round((top + bottom) / 2 - (b.top + b.bottom) / 2),
     dx: Math.round((left + right) / 2 - (b.left + b.right) / 2),
@@ -146,6 +156,8 @@ const EMPTY = `(() => {
   };
 })()`;
 const centered = (e) => !!e && e.mark === true && e.h >= e.vh * 0.4 && Math.abs(e.dy) <= 2 && Math.abs(e.dx) <= 2;
+// 컷은 원본 크기를 넘지 않는다(늘려 그리면 뭉개진다 — 그림이 작은 편이 낫다)
+const notBlownUp = (e) => !!e && Array.isArray(e.over) && e.over[0] <= 0 && e.over[1] <= 0;
 // 남는 공간을 차지했나 — 화면이 스크롤 박스 바닥까지 닿고(빈 자리가 아래에 남지 않고),
 // 그렇다고 넘쳐서 스크롤이 생기지도 않아야 한다(감싸개의 pb까지 세야 딱 맞는다)
 const fills = (e) => !!e && e.fill >= 0 && e.fill <= 4 && e.scroll <= 0;
@@ -304,11 +316,13 @@ check('작성 중 줄로 임시저장 목록에 들어간다', draftList.cards.l
 // 빈 목록 — 작성 중 + '그 밖의 예배'는 한 건도 없다(작성 중인 것은 주일예배뿐)
 await ev(`[...document.querySelectorAll('.worship-kind-chip')].find(c => c.textContent.trim() === '그 밖의 예배').click()`);
 await sleep(400);
-const emptyList = await ev(EMPTY);
-check('빈 목록은 마크와 함께 남는 공간의 가운데에 선다', centered(emptyList), JSON.stringify(emptyList));
+const emptyList = await ev(EMPTY, true);
+check('빈 목록은 컷과 함께 남는 공간의 가운데에 선다', centered(emptyList), JSON.stringify(emptyList));
 check('빈 목록 칸이 남는 공간을 그대로 차지한다(아래가 통째로 비지 않는다)',
   fills(emptyList), JSON.stringify(emptyList));
 check("빈 목록 문구는 지금 보고 있는 줄을 따른다", emptyList?.text === '작성 중인 주보가 아직 없어요', JSON.stringify(emptyList?.text));
+check('작성 중이 없는 빈 목록 컷은 stand · 원본보다 크지 않다',
+  emptyList?.cut === 'stand' && notBlownUp(emptyList), JSON.stringify([emptyList?.cut, emptyList?.over]));
 await ev(`[...document.querySelectorAll('.worship-kind-chip')].find(c => c.textContent.trim() === '전체').click()`);
 await sleep(300);
 
@@ -323,21 +337,25 @@ check('상시 도구 줄 — 확정 왼쪽 / 나가기 오른쪽',
   JSON.stringify(draftDetail.toolbar) === '["수정","발행하기","목록으로"]', JSON.stringify(draftDetail.toolbar));
 
 // 빈 탭 — 갓 만든 주보는 네 탭이 전부 비어 있다. 전부 같은 빈 상태 한 벌을 쓴다.
-const emptyWord = await ev(EMPTY);
-check('빈 말씀 탭도 마크와 함께 가운데', centered(emptyWord) && emptyWord.text === '설교 제목과 본문 구절을 아직 적지 않았어요',
+const emptyWord = await ev(EMPTY, true);
+check('빈 말씀 탭도 컷과 함께 가운데', centered(emptyWord) && emptyWord.text === '설교 제목과 본문 구절을 아직 적지 않았어요',
   JSON.stringify(emptyWord));
-check('마크는 새로 그리지 않고 기존 SVG 선 그리기 한 장이다',
-  emptyWord?.marks === 1 && (await ev(`document.querySelectorAll('.worship-empty svg path.dc-draw').length`)) === 3,
-  JSON.stringify(emptyWord?.marks));
+check('말씀 탭 컷은 펼친 책(book) 한 장이다',
+  emptyWord?.marks === 1 && emptyWord?.cut === 'book' && notBlownUp(emptyWord),
+  JSON.stringify([emptyWord?.cut, emptyWord?.marks, emptyWord?.over]));
 const emptyTabs = [];
 for (const t of ['담당자', '찬양', '광고']) {
   await ev(`[...document.querySelectorAll('.worship-tab')].find(x => x.textContent.trim() === ${JSON.stringify(t)}).click()`);
   await sleep(300);
-  emptyTabs.push(await ev(EMPTY));
+  emptyTabs.push(await ev(EMPTY, true));
 }
-check('담당자·찬양·광고 빈 탭도 같은 자리·같은 마크',
+check('담당자·찬양·광고 빈 탭도 같은 자리에 선다',
   emptyTabs.every(centered) && emptyTabs.map(e => e.text).join('|') === '담당자를 아직 정하지 않았어요|찬양을 아직 정하지 않았어요|광고를 아직 적지 않았어요',
   JSON.stringify(emptyTabs.map(e => [e && e.text, e && e.dy, e && e.dx])));
+// 탭마다 그 자리에 어울리는 컷이 온다(빈 자리가 전부 같은 그림이면 컷을 쓴 뜻이 없다)
+check('탭마다 어울리는 컷 — 담당자 shoulder · 찬양 sparkle-wave · 광고 point',
+  emptyTabs.map(e => e && e.cut).join('|') === 'shoulder|sparkle-wave|point' && emptyTabs.every(notBlownUp),
+  JSON.stringify(emptyTabs.map(e => [e && e.cut, e && e.over])));
 check('빈 탭 칸도 탭 줄 아래 남는 공간을 그대로 차지한다',
   emptyTabs.every(fills), JSON.stringify(emptyTabs.map(e => [e && e.fill, e && e.scroll])));
 // 목록으로 돌아오면 목록은 다시 발행본만 보여 준다(ServiceList가 새로 선다)
@@ -1066,6 +1084,67 @@ const bibleLink = await ev(`document.querySelector('.worship-open-bible')?.textC
 await ev(`document.querySelector('.worship-open-bible')?.click()`); await sleep(1500);
 const biblePlace = await ev(`(document.querySelector('.bible-place')?.textContent || '').replace(/\s+/g, ' ').trim()`);
 check('주보의 본문 구절을 누르면 성경 읽기의 그 장이 열린다', bibleLink === '이사야 32:9-20' && biblePlace === '이사야 32장', `${bibleLink} → ${biblePlace}`);
+
+
+// ── 12) 남은 컷 자리 — 발행본 없는 목록 · 출석 화면 ─────────────────────────
+// 빈 자리가 전부 같은 그림이면 컷을 쓴 뜻이 없다. 그리고 출석 화면의 컷은 **두 경우
+// 중 하나만** 뜬다(부를 사람이 없으면 물음표, 다 불렀으면 하트) — 순 목록 안에는
+// 컷을 넣지 않는다(사용자 결정 2026-09-03: 화면당 한두 장).
+const cutPlant = (o) => `(() => {
+  const g = JSON.parse(localStorage.getItem('church_worship_v1')) || {};
+  Object.assign(g, ${JSON.stringify(o)});
+  localStorage.setItem('church_worship_v1', JSON.stringify(g));
+})()`;
+const ATT_CUT = `(async () => {
+  const im = document.querySelector('.att-cut img');
+  if (im) { try { await im.decode(); } catch {} }
+  return {
+    cuts: document.querySelectorAll('.att-cut img').length,
+    cut: (im?.getAttribute('src') || '').replace('/chars/', '').replace('.webp', ''),
+    over: im ? Math.round(im.getBoundingClientRect().height - im.naturalHeight) : null,
+    total: document.querySelector('.att-total')?.innerText.replace(/\\s+/g, ' ') || '',
+  };
+})()`;
+const reopen = async () => { await ev(`${byText('홈')}.click()`); await sleep(600); await ev(GO); await sleep(1300); };
+
+await ev(cutPlant({ services: [{ id: 'd1', kind: 'sunday', service_date: SOON, status: 'draft',
+  title: '', passage_ref: '', preacher: '', roles: [], songs: [], notices: [] }] }));
+await reopen();
+const welcomeCut = await ev(EMPTY, true);
+check('발행된 주보가 하나도 없으면 맞이하는 컷(welcome)이다',
+  welcomeCut?.cut === 'welcome' && welcomeCut?.text === '발행된 주보가 아직 없어요'
+  && centered(welcomeCut) && notBlownUp(welcomeCut),
+  JSON.stringify([welcomeCut?.cut, welcomeCut?.text, welcomeCut?.over]));
+
+await ev(cutPlant({
+  services: [{ id: 'c1', kind: 'sunday', service_date: PAST1, status: 'published', title: '함께 드리는 예배',
+    passage_ref: '', preacher: '', roles: [], songs: [], notices: [], attendance_note: '' }],
+  people: [], groups: [], group_members: [], attendance: [],
+}));
+await reopen();
+await ev(`document.querySelector('.worship-card').click()`); await sleep(1100);
+await ev(`document.querySelector('.worship-att-open').click()`); await sleep(800);
+const noRoster = await ev(ATT_CUT, true);
+check('부를 사람이 아직 없는 출석 화면은 물음표 컷 한 장',
+  noRoster.cuts === 1 && noRoster.cut === 'question' && noRoster.over <= 0 && noRoster.total === '전체 0/0',
+  JSON.stringify(noRoster));
+
+await ev(cutPlant({
+  people: [{ id: 'q1', name: '김윤주', profile_id: null }, { id: 'q2', name: '천진영', profile_id: null }],
+  groups: [{ id: 'gq', type: 'sun', name: '꼬순', year: Y, leader_person_id: 'q1' }],
+  group_members: [{ group_id: 'gq', person_id: 'q2' }],
+  attendance: [{ service_id: 'c1', person_id: 'q1' }, { service_id: 'c1', person_id: 'q2' }],
+}));
+await reopen();
+await ev(`document.querySelector('.worship-card').click()`); await sleep(1100);
+await ev(`document.querySelector('.worship-att-open').click()`); await sleep(800);
+const allIn = await ev(ATT_CUT, true);
+check('다 불렀으면 하트 컷 한 장(문구는 붙이지 않는다)',
+  allIn.cuts === 1 && allIn.cut === 'hearts' && allIn.over <= 0 && allIn.total === '전체 2/2', JSON.stringify(allIn));
+await ev(`[...document.querySelectorAll('.att-chip')].find(c => c.textContent.trim() === '천진영').click()`);
+await sleep(600);
+const partial = await ev(ATT_CUT, true);
+check('한 명이라도 빠지면 컷을 띄우지 않는다', partial.cuts === 0 && partial.total === '전체 1/2', JSON.stringify(partial));
 
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 

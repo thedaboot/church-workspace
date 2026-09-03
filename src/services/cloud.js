@@ -435,7 +435,7 @@ async function driveOnce(payload) {
   // 그대로 다시 밟았다 — 그 항목이 "한 겹 더 벗기면 조용히 undefined가 되고,
   // 그 자리가 아무도 안 걸리는 필터가 된다"고 적어 둔 바로 그것이다).
   const token = (await getSession())?.session?.access_token;
-  if (!token) { const e = new Error('로그인이 필요해요'); e.human = '로그인이 풀렸어요 · 새로고침하고 다시 로그인해주세요'; throw e; }
+  if (!token) { const e = new Error('로그인이 필요해요'); e.human = '로그인이 풀렸어요\n새로고침하고 다시 로그인해주세요'; throw e; }
   const r = await fetch('/api/drive', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -484,7 +484,7 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
   const fr = new FileReader();
   fr.onerror = () => {
     const e = fr.error || new Error('파일을 읽지 못했어요');
-    e.human = '파일을 읽지 못했어요 · 다른 파일로 해보시거나 다시 시도해주세요';
+    e.human = '파일을 읽지 못했어요\n다른 파일로 해보시거나 다시 시도해주세요';
     reject(e);
   };
   // data:...;base64,XXXX → 앞머리를 떼고 보낸다
@@ -681,7 +681,7 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
       if (up) await driveCall({ action: 'trash', fileId: up.id });
       else if (storagePath) await c.storage.from(ATTACH_BUCKET).remove([storagePath]);
     } catch (te) { console.error('[drive] 되돌리기도 실패 — 실체가 남는다:', te); }
-    e.human = e.human || `파일을 목록에 넣지 못해 되돌렸어요 · ${e.message || e}`;
+    e.human = e.human || `파일을 목록에 넣지 못해 되돌렸어요\n${e.message || e}`;
     throw e;
   }
 

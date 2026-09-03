@@ -9,6 +9,7 @@ import {
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { SectionHead, Card, prefersReducedMotion } from '../views/dashboardParts.jsx';
+import { Empty } from './groupsParts.jsx';
 import { Skeleton } from './media.jsx';
 
 // ============================================================================
@@ -39,6 +40,7 @@ import { Skeleton } from './media.jsx';
 // ============================================================================
 
 const OT_COUNT = 39;               // 정경 순서 — index.json의 앞 39권이 구약
+const SWIPE_MIN = 60;              // px — 이만큼 가로로 쓸면 장을 넘긴다(모바일)
 const RESULT_LIMIT = 50;           // 결과 상한(스펙). 넘으면 거기서 멈춘다
 
 // 글자 크기 3단계. 계정이 아니라 기기에 남긴다(같은 사람도 폰과 노트북이 다르다).
@@ -409,15 +411,46 @@ export function BibleTab({ initialRef = '' }) {
   };
 
   // 장을 옮긴다. 책의 끝을 넘으면 다음 책 1장으로 이어진다(성경은 한 권이다).
+  // **넘긴 뒤에는 본문 맨 위로 돌아온다**(사용자 피드백 2026-09-03 — 아래쪽에서 넘기면
+  // 새 장의 중간부터 보였다). 검색·형광펜에서 절을 물고 들어오는 goto와 달리 여기는
+  // 언제나 첫 절부터 읽는 자리다.
   const move = (delta) => {
     if (!place) return;
     const idx = books.findIndex(b => b.id === place.bookId);
     const at = books[idx];
     const next = place.chapter + delta;
-    if (next >= 1 && next <= at.chapters) return goto(place.bookId, next, null, delta);
     const nb = books[idx + delta];
-    if (!nb) return;
-    goto(nb.id, delta > 0 ? 1 : nb.chapters, null, delta);
+    if (next >= 1 && next <= at.chapters) goto(place.bookId, next, null, delta);
+    else if (nb) goto(nb.id, delta > 0 ? 1 : nb.chapters, null, delta);
+    else return;
+    bodyRef.current?.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  };
+
+  // 성경의 처음(창세기 1장)·끝(요한계시록 마지막 장)에서는 그쪽 화살표를 세우지 않는다
+  const bookIdx = place ? books.findIndex(b => b.id === place.bookId) : -1;
+  const canPrev = !!place && bookIdx >= 0 && !(bookIdx === 0 && place.chapter === 1);
+  const canNext = !!place && bookIdx >= 0
+    && !(bookIdx === books.length - 1 && place.chapter === (books[bookIdx]?.chapters || 1));
+
+  // 모바일은 **쓸어서** 넘긴다(사용자 피드백 2026-09-03 — 화살표가 맨 아래라 스크롤을 다
+  // 내려야 넘길 수 있었다). 가로 이동이 60px을 넘고 세로보다 커야 장이 바뀐다 — 읽다가
+  // 위아래로 훑는 손짓과 갈라야 한다. 쓸고 난 뒤의 click은 절 선택으로 세지 않는다
+  // (터치 기기는 손을 떼는 자리에 click을 한 번 더 보낸다).
+  const touchAt = useRef(null);
+  const swipedAt = useRef(0);
+  const onTouchStart = (e) => {
+    const t = e.touches && e.touches[0];
+    touchAt.current = t ? { x: t.clientX, y: t.clientY } : null;
+  };
+  const onTouchEnd = (e) => {
+    const from = touchAt.current;
+    touchAt.current = null;
+    const t = e.changedTouches && e.changedTouches[0];
+    if (!from || !t) return;
+    const dx = t.clientX - from.x, dy = t.clientY - from.y;
+    if (Math.abs(dx) > 10) swipedAt.current = Date.now();
+    if (Math.abs(dx) < SWIPE_MIN || Math.abs(dy) > Math.abs(dx)) return;   // 세로로 더 움직였으면 스크롤이다
+    if (dx < 0 ? canNext : canPrev) move(dx < 0 ? 1 : -1);
   };
 
   const runSearch = async (raw) => {
@@ -488,6 +521,7 @@ export function BibleTab({ initialRef = '' }) {
   // 절을 누르면 그 절에 도구 줄을 붙인다 — 칠하는 것은 도구 줄이 시킬 때다.
   // 같은 절을 다시 누르면 닫는다.
   const pickVerse = (chapter, verse) => {
+    if (Date.now() - swipedAt.current < 400) return;   // 방금 쓸었다면 그건 넘기려던 손이다
     setPick(p => (p && p.chapter === chapter && p.verse === verse ? null : { chapter, verse }));
   };
 
@@ -589,7 +623,7 @@ export function BibleTab({ initialRef = '' }) {
         {pane === 'bookmark' ? (
           <MarkSection
             title="북마크" unit="장" kind="bookmark" groups={bookGroups} total={bookTotal}
-            empty="북마크한 장을 여기서 볼 수 있어요"
+            empty="북마크한 장을 여기서 볼 수 있어요" cut="book"
             onOpenItem={at => goto(at.bookId, at.chapter)}
             onRemoveItem={ref => update({ ...state, bookmarks: state.bookmarks.filter(b => b.ref !== ref) },
               '북마크를 지우지 못했어요')}
@@ -597,7 +631,7 @@ export function BibleTab({ initialRef = '' }) {
         ) : pane === 'highlight' ? (
           <MarkSection
             title="형광펜" unit="절" kind="highlight" groups={litGroups} total={litTotal}
-            empty="형광펜을 칠한 절은 여기서 볼 수 있어요"
+            empty="형광펜을 칠한 절은 여기서 볼 수 있어요" cut="hug-warm"
             onOpenItem={at => goto(at.bookId, at.chapter, { chapter: at.chapter, verse: at.verse })}
             onRemoveItem={ref => update({ ...state, highlights: (state.highlights || []).filter(h => h?.ref !== ref) },
               '형광펜을 지우지 못했어요')}
@@ -629,7 +663,23 @@ export function BibleTab({ initialRef = '' }) {
               </button>
             </div>
 
-            <Card className="p-4 md:p-5">
+            {/* **화살표는 본문 옆에서 따라다닌다**(사용자 피드백 2026-09-03 — 데스크톱).
+                44px 원형 버튼이 양옆 칸에서 `sticky`로 화면 가운데 높이에 머문다: 스크롤을
+                아무리 내려도 눈높이에 있고, 본문 가장자리 밖이라 글자를 가리지 않는다.
+                좁은 화면에는 그 칸이 없다 — 거기서는 쓸어서 넘긴다(onTouchEnd). */}
+            <div data-chap-swipe="" className="flex items-stretch gap-1.5"
+              onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+              <div className="hidden md:flex w-11 shrink-0 justify-center">
+                {canPrev && (
+                  <button data-chap-nav="prev" onClick={() => move(-1)} aria-label="이전 장" title="이전 장"
+                    className="sticky w-11 h-11 flex items-center justify-center rounded-full bg-surface border border-line shadow-soft text-fg-muted hover:bg-surface-hover hover:text-fg transition active:scale-95"
+                    style={{ top: '45vh' }}>
+                    <ChevronLeft size={18} />
+                  </button>
+                )}
+              </div>
+
+              <Card className="flex-1 min-w-0 p-4 md:p-5">
               {loaded && !verses.length ? (
                 <p className="text-[12.5px] text-fg-muted whitespace-pre-line">
                   {chap?.failed
@@ -648,14 +698,29 @@ export function BibleTab({ initialRef = '' }) {
                     ) : null}
                   />
                 : <PassageSkeleton lines={10} step={step} />}
-            </Card>
+              </Card>
 
+              <div className="hidden md:flex w-11 shrink-0 justify-center">
+                {canNext && (
+                  <button data-chap-nav="next" onClick={() => move(1)} aria-label="다음 장" title="다음 장"
+                    className="sticky w-11 h-11 flex items-center justify-center rounded-full bg-surface border border-line shadow-soft text-fg-muted hover:bg-surface-hover hover:text-fg transition active:scale-95"
+                    style={{ top: '45vh' }}>
+                    <ChevronRight size={18} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 아래쪽 두 버튼은 그대로 둔다(사용자 결정 2026-09-03) — 끝에서는 누를 것이
+                없으므로 그쪽만 꺼 둔다 */}
             <div className="flex items-center gap-2 pt-3.5">
-              <button onClick={() => move(-1)} className={`${btn} flex-1 h-10 text-fg-muted hover:bg-surface-hover`}
+              <button onClick={() => move(-1)} disabled={!canPrev} aria-label="이전 장"
+                className={`${btn} flex-1 h-10 text-fg-muted hover:bg-surface-hover disabled:opacity-40 disabled:hover:bg-transparent`}
                 style={{ border: '1px solid var(--app-line)' }}>
                 <ChevronLeft size={14} />이전 장
               </button>
-              <button onClick={() => move(1)} className={`${btn} flex-1 h-10 text-fg-muted hover:bg-surface-hover`}
+              <button onClick={() => move(1)} disabled={!canNext} aria-label="다음 장"
+                className={`${btn} flex-1 h-10 text-fg-muted hover:bg-surface-hover disabled:opacity-40 disabled:hover:bg-transparent`}
                 style={{ border: '1px solid var(--app-line)' }}>
                 다음 장<ChevronRight size={14} />
               </button>
@@ -787,7 +852,7 @@ function MarkBookGroup({ book, items, kind, open, onToggle, onOpenItem, onRemove
 
 // 한 칸(북마크 또는 형광펜) — 제목 · 총 개수 · 책 그룹들, 비었으면 마크와 한 줄.
 // 책 묶음은 넓은 화면에서 여러 열로 선다 — 목록은 격자라 읽기 폭에 갇힐 이유가 없다.
-function MarkSection({ title, unit, empty, groups, total, kind, onOpenItem, onRemoveItem }) {
+function MarkSection({ title, unit, empty, cut, groups, total, kind, onOpenItem, onRemoveItem }) {
   // 사람이 직접 접거나 편 책만 남는다 — 나머지는 책 수에 따라 기본값을 따른다
   const [open, setOpen] = useState({});
   const auto = groups.length <= AUTO_OPEN_BOOKS;
@@ -799,11 +864,9 @@ function MarkSection({ title, unit, empty, groups, total, kind, onOpenItem, onRe
         {title}
       </SectionHead>
       {!total ? (
-        // 빈 칸도 남는 자리의 가운데에 마크와 함께 선다(§8)
-        <div className="min-h-[38vh] flex flex-col items-center justify-center text-center">
-          <EmptyBookMark />
-          <p className="text-[13.5px] font-semibold text-fg mt-3">{empty}</p>
-        </div>
+        // 빈 칸은 남는 자리의 가운데에 **캐릭터 컷과 함께** 선다(사용자 결정 2026-09-03).
+        // 목록 안에는 넣지 않는다 — 줄이 하나라도 있으면 컷은 사라진다.
+        <Empty cut={cut} title={empty} minH="38vh" />
       ) : (
         <div className="grid gap-x-7 items-start sm:grid-cols-2 xl:grid-cols-3">
           {groups.map(g => (
@@ -921,10 +984,7 @@ function SearchResults({ query, results, progress, searching, onOpen }) {
         searching
           ? <PassageSkeleton lines={5} />
           : (
-            <div className="min-h-[38vh] flex flex-col items-center justify-center text-center">
-              <EmptyBookMark />
-              <p className="text-[13px] font-semibold text-fg mt-3">개역한글 본문에서 그 말이 그대로 나오는 절을 찾지 못했어요</p>
-            </div>
+            <Empty cut="question" title="개역한글 본문에서 그 말이 그대로 나오는 절을 찾지 못했어요" minH="38vh" />
           )
       ) : (
         <div className="flex flex-col">

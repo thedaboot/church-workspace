@@ -493,9 +493,9 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 
   const notNull = { code: '23502', message: 'null value in column "title" of relation "cards" violates not-null constraint' };
   assert.strictEqual(errorReason(notNull), '제목을 먼저 적어주세요');
-  assert.strictEqual(failText('업무를 저장하지 못했어요', notNull), '업무를 저장하지 못했어요 · 제목을 먼저 적어주세요');
+  assert.strictEqual(failText('업무를 저장하지 못했어요', notNull), '업무를 저장하지 못했어요\n제목을 먼저 적어주세요');
   assert.strictEqual(errorReason({ code: '23502', message: 'null value in column "zzz" of relation "cards"' }), '아직 채우지 않은 칸이 있어요');
-  assert.strictEqual(errorReason({ code: '23503', message: 'violates foreign key constraint "files_card_id_fkey"' }), '연결된 항목이 이미 지워졌어요 · 새로고침해주세요');
+  assert.strictEqual(errorReason({ code: '23503', message: 'violates foreign key constraint "files_card_id_fkey"' }), '연결된 항목이 이미 지워졌어요\n새로고침해주세요');
   assert.strictEqual(errorReason({ code: '42501' }), '권한이 있어야 하는 일이에요');
   assert.strictEqual(errorReason({ message: 'new row violates row-level security policy' }), '권한이 있어야 하는 일이에요');
   assert.strictEqual(errorReason({ message: 'Failed to fetch' }), '인터넷 연결을 확인하고 다시 시도해주세요');
@@ -513,7 +513,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // failText는 짧으면 한 줄(`무엇 · 왜`), 길면 줄을 나눈다(2026-08-28) — 토스트가
   // 한눈에 읽혀야 하는데 두 마디를 언제나 가운뎃점으로 붙이면 줄이 흘러넘친다.
   // 줄을 나누는 규칙 자체는 tests/drivesync.mjs가 본다.
-  assert.strictEqual(failText('저장 실패', { human: '다시 시도해주세요' }), '저장 실패 · 다시 시도해주세요');
+  assert.strictEqual(failText('저장 실패', { human: '다시 시도해주세요' }), '저장 실패\n다시 시도해주세요');
   assert.strictEqual(failText('파일을 올리지 못했어요', { human: '25MB를 넘는 파일은 올릴 수 없습니다.' }),
     '파일을 올리지 못했어요\n25MB를 넘는 파일은 올릴 수 없습니다.');
 

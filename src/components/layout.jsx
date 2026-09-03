@@ -102,7 +102,7 @@ function saveTabOrder(orderedIds, allProjects, cloudMode) {
   if (cloudMode && changed.length) {
     cloudSync.projectOrderCloud(changed).catch(err => {
       console.error('[cloud] 탭 순서 저장 실패:', err);
-      showToast('탭 순서를 저장하지 못했어요 · 잠시 후 다시 시도해주세요');
+      showToast('탭 순서를 저장하지 못했어요\n잠시 후 다시 시도해주세요');
     });
   }
 }

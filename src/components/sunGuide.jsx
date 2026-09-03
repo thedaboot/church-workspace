@@ -63,8 +63,8 @@ function Rich({ text, className = '' }) {
 }
 
 // 빨간 소제목 — 템플릿의 번호 소제목. 색은 토큰(tag-red-fg)이다.
-const Sub = ({ children }) => (
-  <p className="sun-guide-sub text-[12.5px] font-bold text-tag-red-fg">{children}</p>
+const Sub = ({ children, className = '' }) => (
+  <p className={`sun-guide-sub text-[12.5px] font-bold text-tag-red-fg ${className}`}>{children}</p>
 );
 
 // ── 편집 ────────────────────────────────────────────────────────────────────
@@ -104,6 +104,8 @@ function Editor({ draft, setDraft, onSave, onRegen, onCancel, busy }) {
     <div className="sun-guide-edit space-y-3">
       <Field label="본문 한 마디" value={draft.passage.title} rows={1}
         onChange={(v) => set({ passage: { ...draft.passage, title: v } })} />
+      <Field label="요약이 다루는 구절" value={draft.summaryRef} limit={LIMITS.summaryRef} rows={1}
+        onChange={(v) => set({ summaryRef: v })} />
       <Field label="말씀 요약" value={draft.summary} limit={LIMITS.summary} rows={6}
         onChange={(v) => set({ summary: v })} />
       {draft.points.map((p, i) => (
@@ -153,6 +155,10 @@ function Sheet({ guide, dateLabel }) {
             )}
           </p>
           <SheetHead className="mt-4">말씀 요약</SheetHead>
+          {/* 요약이 다루는 구절 범위. 템플릿의 '[요한복음 8:1~11 배경 요약]' 자리이고,
+              주일 본문의 **앞 문맥**일 때가 많아 본문 구절로 만들어 낼 수 없다.
+              값이 없으면 소제목을 아예 두지 않는다 — 빈 대괄호가 남으면 안 된다. */}
+          {guide.summaryRef && <Sub className="mt-1.5">{`[${guide.summaryRef} 배경 요약]`}</Sub>}
           <Rich text={guide.summary} className="mt-1.5" />
         </article>
 

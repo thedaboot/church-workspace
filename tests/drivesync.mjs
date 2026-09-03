@@ -177,11 +177,12 @@ check('토스트가 줄바꿈을 그리고 폭이 묶여 있다', () => {
 });
 
 const { failText } = await import('../src/services/errorText.js');
-check('failText: 짧으면 한 줄, 길면 줄을 나눈다', () => {
+check('failText: 무엇과 왜는 언제나 줄을 바꿔 잇는다', () => {
   assert.strictEqual(failText('저장하지 못했어요', { human: '인터넷을 확인해주세요' }),
-    '저장하지 못했어요 · 인터넷을 확인해주세요');
+    '저장하지 못했어요\n인터넷을 확인해주세요');
   const long = failText("'2026 하계 수련회 견적서.xlsx'을(를) 올리지 못했어요", { human: '드라이브에 파일을 올리는 데 문제가 있어요' });
   assert.ok(long.includes('\n'), '긴 문구를 한 줄로 붙였다');
+  assert.ok(!long.includes(' · '), '가운뎃점으로 이었다');
   // 이유 자체가 여러 줄이면 언제나 나눈다
   assert.ok(failText('짧아요', { human: '첫 줄\n둘째 줄' }).startsWith('짧아요\n'), '여러 줄 이유를 가운뎃점으로 붙였다');
 });

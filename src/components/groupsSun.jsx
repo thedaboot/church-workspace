@@ -5,7 +5,7 @@ import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { YearPicker } from './layout.jsx';
 import {
   CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN,
-  PersonTag, PersonPick, MenuPick, Empty, PeopleMark,
+  PersonTag, PersonPick, MenuPick, Empty,
 } from './groupsParts.jsx';
 import { groupPeople, presentCount, sunCandidates } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
@@ -35,13 +35,13 @@ export function MySunPanel({ myPerson, sun, people, members, service, present, n
 
   if (!myPerson) {
     return (
-      <Empty className="mysun-empty" mark={<PeopleMark />}
+      <Empty className="mysun-empty" cut="stand"
         title="아직 명단에 이어지지 않은 계정이에요" hint="관리자에게 알려주세요" />
     );
   }
   if (!sun) {
     return (
-      <Empty className="mysun-empty" mark={<PeopleMark />}
+      <Empty className="mysun-empty" cut="stand"
         title="올해 순 편성에 아직 이름이 올라 있지 않아요" />
     );
   }
@@ -75,9 +75,12 @@ export function MySunPanel({ myPerson, sun, people, members, service, present, n
         </div>
       </div>
 
-      {notes.length > 0 && (
-        <div className="mt-6">
-          <SectionHead>내 순에 공유된 예배 노트</SectionHead>
+      {/* 공유된 노트 — **없을 때도 구역은 남긴다**(사용자 결정 2026-09-03 캐릭터 컷).
+          예전에는 하나도 없으면 구역이 통째로 사라져서, 순장이 '노트가 공유되면 어디에
+          뜨는지'를 알 길이 없었다. 순원의 비공개 노트는 여전히 오지 않는다(결정 7). */}
+      <div className="mt-6">
+        <SectionHead>내 순에 공유된 예배 노트</SectionHead>
+        {notes.length > 0 ? (
           <div className="space-y-2">
             {notes.map(n => (
               <div key={n.id} className={`mysun-note dc-row p-3.5 ${CARD}`} style={CARD_STYLE}>
@@ -88,8 +91,11 @@ export function MySunPanel({ myPerson, sun, people, members, service, present, n
               </div>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <Empty className="mysun-note-empty" cut="book" minH="20vh"
+            title="아직 순에 공유된 예배 노트가 없어요" />
+        )}
+      </div>
     </div>
   );
 }
@@ -164,8 +170,14 @@ export function SunAdminPanel({
         ))}
       </div>
       {!suns.length && (
-        <Empty className="sun-empty" mark={<PeopleMark />}
+        <Empty className="sun-empty" cut="welcome"
           title={`${year}년 순 편성이 아직 비어 있어요`} />
+      )}
+      {/* 남은 사람이 없으면 각 줄의 '순원 추가'는 고를 것이 없는 빈 칸이다 —
+          칸을 접고 한 번만 말한다(사용자 결정 2026-09-03 캐릭터 컷 hearts). */}
+      {!!suns.length && !unplaced.length && (
+        <Empty className="sun-placed" cut="hearts" minH="22vh"
+          title="올해 청년이 모두 순에 들어갔어요" />
       )}
     </div>
   );
@@ -179,10 +191,13 @@ function SunRow({ group, suns, people, members, unplaced, leaderPool, onRename, 
   const others = useMemo(() => suns.filter(g => g.id !== group.id), [suns, group]);
 
   // 이름은 칸을 떠날 때(또는 Enter) 저장한다 — 글자마다 서버를 부르지 않는다.
-  const commit = () => {
+  // **막히면 칸을 되돌린다**(0041 같은 이름) — 저장되지 않은 이름이 칸에 남아 있으면
+  // 화면과 저장된 것이 어긋나고, 다음에 그 칸을 떠날 때 또 같은 실패가 뜬다.
+  const commit = async () => {
     const next = draft.trim();
     if (!next || next === group.name) { setDraft(group.name); return; }
-    onRename(group, next);
+    const ok = await onRename(group, next);
+    if (!ok) setDraft(group.name);
   };
 
   return (
@@ -223,9 +238,11 @@ function SunRow({ group, suns, people, members, unplaced, leaderPool, onRename, 
         ))}
       </div>
 
-      <PersonPick label={`${group.name} 순원 추가`} people={unplaced} value=""
-        onChange={id => id && onAddMember(group, id)} placeholder="순원 추가"
-        className="sun-add mt-3 w-full sm:w-64" />
+      {unplaced.length > 0 && (
+        <PersonPick label={`${group.name} 순원 추가`} people={unplaced} value=""
+          onChange={id => id && onAddMember(group, id)} placeholder="순원 추가"
+          className="sun-add mt-3 w-full sm:w-64" />
+      )}
     </div>
   );
 }

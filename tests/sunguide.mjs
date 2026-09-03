@@ -52,6 +52,7 @@ const VERSES = [
 ];
 const GUIDE = {
   passage: { ref: '요한복음 8:12-20', title: '세상의 빛으로 오신 예수님' },
+  summaryRef: '요한복음 8:1~11',
   summary: '예수님은 성전에서 사람들을 가르치셨습니다. 바리새인들은 예수님을 시험하려 했습니다.',
   points: [
     { title: '생명의 빛', body: '예수님은 **나는 세상의 빛이니**라고 말씀하셨습니다.' },
@@ -77,6 +78,11 @@ check('프롬프트가 글자수 상한을 숫자로 말한다',
   prompt.includes(String(G.LIMITS.summary)) && prompt.includes(String(G.LIMITS.pointBody))
   && prompt.includes(String(G.LIMITS.question)));
 check('프롬프트가 번호·Q.를 붙이지 말라고 말한다', prompt.includes('"Q."를 붙이지 마라'));
+// 요약이 다루는 구절 범위 — 템플릿 1장의 빨간 소제목('[요한복음 8:1~11 배경 요약]').
+// 주일 본문의 앞 문맥일 때가 많아서 모델에게 따로 물어야 한다.
+check('프롬프트가 요약이 다루는 구절 범위를 따로 묻는다',
+  prompt.includes('"summaryRef"') && prompt.includes('앞 문맥')
+  && prompt.includes(String(G.LIMITS.summaryRef)));
 check('시스템 프롬프트가 §8 문구 톤을 싣는다',
   system.includes('견주는') && system.includes('핵심') && system.includes('지어내지 마라'), system.slice(0, 120));
 check('시스템 프롬프트가 코드펜스를 금지한다', system.includes('코드펜스'));
@@ -109,6 +115,19 @@ check('passage.ref가 없으면 null', G.parseGuide(json({ ...GUIDE, passage: {}
 check('questions에 문자열이 아닌 것이 섞이면 null',
   G.parseGuide(json({ ...GUIDE, questions: ['ㄱ', 3, 'ㄴ'] })) === null);
 check('빈 객체(0039의 기본값)는 가이드가 아니다', G.isGuideShape({}) === false);
+// summaryRef는 **선택 필드**다 — 이 필드가 없는 지난 가이드도, C가 심는 게스트 시드도
+// 그대로 열려야 한다. 있으면 문자열이어야 한다.
+const { summaryRef: _drop, ...NO_REF } = GUIDE;
+check('summaryRef가 없어도 가이드로 읽힌다',
+  G.isGuideShape(NO_REF) === true && G.parseGuide(json(NO_REF))?.summaryRef === '',
+  JSON.stringify(G.parseGuide(json(NO_REF))?.summaryRef));
+check('summaryRef가 문자열이 아니면 가이드가 아니다',
+  G.isGuideShape({ ...GUIDE, summaryRef: 8 }) === false);
+check('summaryRef를 읽어 들인다',
+  G.parseGuide(json(GUIDE))?.summaryRef === '요한복음 8:1~11');
+check('summaryRef도 상한에 맞춰 잘린다',
+  G.fitGuide({ ...GUIDE, summaryRef: '가'.repeat(60) }).summaryRef.length <= G.LIMITS.summaryRef,
+  String(G.fitGuide({ ...GUIDE, summaryRef: '가'.repeat(60) }).summaryRef.length));
 
 // ── 3) 글자수 — 문장 경계에서 자른다 ───────────────────────────────────────
 const SENT = '예수님은 세상의 빛이라고 말씀하셨습니다. ';
@@ -146,7 +165,8 @@ check('넷째부터는 버린다',
   many.points.length === 3 && many.questions.length === 3
   && !many.points.some(p => p.title === '넷') && !many.questions.includes('넷'));
 check('모양이 아닌 값을 넣어도 빈 가이드가 나온다(화면이 깨지지 않는다)',
-  json(G.fitGuide(null)) === json(G.fitGuide('가이드')), json(G.fitGuide(null)));
+  json(G.fitGuide(null)) === json(G.fitGuide('가이드'))
+  && G.fitGuide(null).summaryRef === '', json(G.fitGuide(null)));
 const capped = G.parseGuide(json({ ...GUIDE, summary: over, points: GUIDE.points.map(p => ({ ...p, body: over })) }));
 check('읽어 들일 때 상한이 걸린다',
   capped.summary.length <= G.LIMITS.summary && capped.points.every(p => p.body.length <= G.LIMITS.pointBody),

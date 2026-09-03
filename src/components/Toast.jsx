@@ -42,7 +42,7 @@ export function ToastHost() {
   return (
     <div className="fixed left-1/2 -translate-x-1/2 z-[100] pointer-events-none px-4 w-full flex justify-center bottom-[calc(6rem+env(safe-area-inset-bottom))] md:bottom-6">
       <div
-        key={toast.id} role="status"
+        key={toast.id} role="status" data-toast=""
         // 폭을 묶는다 — max-w를 화면 폭으로 두면 데스크톱에서 긴 문구가 한 줄로
         // 화면을 가로질러 한눈에 안 들어온다(사용자 지적). 28rem에서 접히고,
         // 모바일에서는 화면 폭이 먼저 걸린다.

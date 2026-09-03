@@ -10,6 +10,7 @@ import { showToast } from '../components/Toast.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { failText } from '../services/errorText.js';
 import { SectionHead, Card } from './dashboardParts.jsx';
+import { Empty } from '../components/groupsParts.jsx';
 import { loadPassage } from '../services/bible.js';
 import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap } from '../components/wordBible.jsx';
 import {
@@ -238,7 +239,8 @@ function QtTab() {
       await saveMyEntry(date, { body: entry.body, shared: false });
       setEntry(e => ({ ...e, shared: false }));
       setFeed(await fetchSharedEntries(date));
-      showToast('나눔에서 내렸어요, 묵상은 내 기록에 그대로 있어요');
+      // 두 문장은 **줄을 바꿔** 잇는다(사용자 결정 2026-09-03 — failText와 같은 규칙).
+      showToast('나눔에서 내렸어요\n묵상은 내 기록에 그대로 있어요');
     } catch (e) {
       console.error('[word] 공유 해제 실패:', e);
       showToast(failText('묵상을 나눔에서 내리지 못했어요', e));
@@ -423,17 +425,19 @@ export function QtPassage({ day, minH = PASSAGE_MIN_H }) {
     );
   }
   if (!day.schedule) {
-    return (
-      <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: PASSAGE_MIN_H }}>
-        <EmptyBookMark />
-        {/* 못 읽은 것과 아직 없는 것을 갈라 말한다(사용자 피드백 2026-09-03) */}
-        <p className="text-[13.5px] font-semibold text-fg mt-3 whitespace-pre-line">
-          {day.failed
-            ? failText('이 날짜의 본문을 불러오지 못했어요', day.failed)
-            : '이 날짜의 본문이 아직 올라오지 않았어요'}
-        </p>
-      </div>
-    );
+    // 못 읽은 것과 아직 없는 것을 갈라 말한다(사용자 피드백 2026-09-03). **컷은 '아직
+    // 없는' 쪽에만** 붙인다 — 실패는 다시 해 보라는 자리라 캐릭터가 웃고 있을 자리가 아니다.
+    if (day.failed) {
+      return (
+        <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: PASSAGE_MIN_H }}>
+          <EmptyBookMark />
+          <p className="text-[13.5px] font-semibold text-fg mt-3 whitespace-pre-line">
+            {failText('이 날짜의 본문을 불러오지 못했어요', day.failed)}
+          </p>
+        </div>
+      );
+    }
+    return <Empty cut="sit" title="이 날짜의 본문이 아직 올라오지 않았어요" minH={PASSAGE_MIN_H} />;
   }
   const { schedule, passage } = day;
   return (
@@ -468,7 +472,9 @@ function FeedSkeleton() {
 function ShareFeed({ entries, members = [], myName = '', onEdit, onUnshare }) {
   const byId = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   if (!entries.length) {
-    return <p className="text-[11.5px] text-fg-faint">이 날짜에 올라온 나눔이 아직 없어요</p>;
+    // 나눔이 비어 있는 자리에 캐릭터 컷 한 장(사용자 결정 2026-09-03 — 대기 항목 ④의 답).
+    // 목록 안이 아니라 **목록이 없는 자리**에만 선다.
+    return <Empty cut="whisper" title="이 날짜에 올라온 나눔이 아직 없어요" minH={168} />;
   }
   return (
     <div className="flex flex-col">
@@ -522,13 +528,14 @@ function ShareFeed({ entries, members = [], myName = '', onEdit, onUnshare }) {
 // **칸을 잔디만큼 줄였다**(사용자 피드백 2026-09-02 4차 — "모바일과 아래쪽 뷰에서 너무
 // 크다"). 예전에는 칸이 `aspect-square`라 폭을 나눠 가졌고, 모바일 전체 폭에서는 한 칸이
 // 41px·1440px 옆 칸에서는 35px이었다 — 달력만큼 커져서 '기록 달력'이 아니라 달력으로
-// 읽혔다. 13px 고정·3px 간격이면 한 달이 116px에 들어가고, 남는 폭은 집계 한 줄이 쓴다.
+// 읽혔다. 칸을 고정 크기로 못 박으면 어느 폭에서도 같은 크기다.
 //
-// 칸이 13px이면 날짜 숫자가 못 들어간다. 그래서 날짜는 **머리글(요일) · 제목 옆(월) ·
-// 칸의 title/aria-label**이 말한다. 숫자를 넣으려면 칸이 20px은 되어야 하는데, 그건 다시
-// 너무 크다는 그 크기다.
+// **날짜 숫자는 다시 들어왔다**(사용자 결정 2026-09-03 — "숫자가 있어도 좋을 것 같다,
+// 살짝만 키워라"). 13px에는 숫자가 못 들어가서 20px로 올렸다 — 한 달이 158px(7×20 + 6×3)
+// 이라 375px 화면에도 여유가 있고, 예전 41px의 절반이다. 요일 머리글·월 표시는 그대로
+// 두고(숫자만으로는 무슨 요일인지 모른다) 칸마다 title·aria-label도 유지한다.
 const WEEK_HEAD = ['일', '월', '화', '수', '목', '금', '토'];
-const CELL = 13;   // px — 칸 한 변
+const CELL = 20;   // px — 칸 한 변(숫자가 들어가는 최소 크기)
 const GAP = 3;     // px — 칸 사이
 
 function Grass({ month, today, dates, weekStart, weekEnd, onPick }) {
@@ -552,14 +559,17 @@ function Grass({ month, today, dates, weekStart, weekEnd, onPick }) {
               return (
                 <button
                   key={d} onClick={() => onPick(d)} title={shortDayLabel(d)} aria-label={shortDayLabel(d)}
-                  className="rounded-[3px] transition active:scale-90"
+                  className="rounded-[4px] flex items-center justify-center text-[9.5px] font-semibold tabular-nums leading-none transition active:scale-90"
                   style={{
                     width: CELL, height: CELL,
                     background: has ? 'var(--app-tag-green)' : 'var(--app-surface-hover)',
+                    // 기록한 날은 초록 위의 짙은 초록, 안 한 날은 옅은 바닥 위의 무채색 —
+                    // 9.5px이라 faint로 두면 안 읽힌다(대비를 한 단계 올렸다)
+                    color: has ? 'var(--app-tag-green-fg)' : 'var(--app-ink-muted)',
                     opacity: d > today ? 0.45 : 1,
                     boxShadow: d === today ? 'inset 0 0 0 1.5px var(--app-accent)' : undefined,
                   }}
-                />
+                >{+d.slice(8)}</button>
               );
             })}
           </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Church, ChevronRight, ListChecks, Users } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser, selectMyTasks } from '../store/selectors.js';
@@ -80,10 +80,13 @@ const kstHour = () => Number(new Date().toLocaleString('en-GB', { timeZone: 'Asi
 
 // 히어로의 컷 무리. 가운데(`slot: true`)만 시각에 따라 바뀌고 나머지는 고정 배역이다 —
 // 배역에 coffee·sleep·hug-side를 넣지 않는다(가운데와 같은 컷이 두 장 서게 된다).
+// **아래 쇼케이스의 컷과도 겹치지 않는다** — 같은 그림이 한 화면에 두 번 있으면 둘 다
+// 배경으로 읽힌다(그래서 읽는 컷 `book`은 쇼케이스의 '말씀'에 주고 여기는 `walk`다,
+// 태그라인의 '함께 걷는'과도 맞는다). tests/home.mjs가 겹침을 본다.
 // dy는 바닥선에서 살짝 내려앉히는 값(px), lap은 왼쪽 컷과 겹치는 폭(px)이다.
 // `mob`이 아닌 컷은 모바일에서 빠진다 — 375px에 다섯이 서면 가로로 넘친다.
 const CROWD = [
-  { key: 'book', src: '/chars/book.webp', h: 'md:h-[124px]', dy: 7, lap: 0, mob: false },
+  { key: 'walk', src: '/chars/walk.webp', h: 'md:h-[124px]', dy: 7, lap: 0, mob: false },
   { key: 'welcome', src: '/chars/welcome.webp', h: 'h-[84px] md:h-[136px]', dy: 3, lap: 18, mob: true },
   { key: 'slot', src: null, h: 'h-[96px] md:h-[150px]', dy: 0, lap: 18, mob: true },
   { key: 'hearts', src: '/chars/hearts.webp', h: 'h-[84px] md:h-[134px]', dy: 4, lap: 18, mob: true },
@@ -182,6 +185,136 @@ function TasksCard({ tasks, today, onOpenList, onOpenTask, delay }) {
         <p className="home-tasks-clear mt-1.5 text-[12.5px] text-fg-muted">다 정리되었어요</p>
       )}
     </div>
+  );
+}
+
+// ── 랜딩 쇼케이스 ───────────────────────────────────────────────────────────
+// 카드 넷 아래에 서는 네 블록(예배 · 말씀 · 모임 · 업무). 사용자 요청 2026-09-03 —
+// "카드 아래 남는 부분에 랜딩 페이지 같은 인터랙션·모션 그래픽으로 '우리 서비스로
+// 이걸 할 수 있다' 느낌." 카드가 **오늘 무엇이 있는지**를 말하고, 이 블록은 **여기서
+// 무엇을 할 수 있는지**를 말한다. 그래서 카드가 하나도 없는 날에도 이건 선다.
+//
+// 숫자를 세지 않는다 — 통계·랭킹은 §1 원칙에서 금지다. 블록은 눌러서 그 화면으로 간다.
+//
+// **모션은 CSS만으로 돈다.** 자바스크립트 타이머로 프레임을 돌리면 홈이 떠 있는 동안
+// 계속 리렌더가 돈다. 키프레임은 `index.css`가 아니라 이 화면이 들고 있다 — 그 파일은
+// 이 회차의 소유가 아니어서 건드리지 않았다(옮길 자리는 §4.2의 모션 절이다).
+// 규칙은 그대로 지킨다: **transform·opacity만** 움직이고, 색은 토큰만 쓰고,
+// `prefers-reduced-motion`이면 전부 멈춘다.
+const SHOWCASE_CSS = `
+@keyframes home-mo-fade-a { 0%,40% { opacity: 1 } 50%,90% { opacity: 0 } 100% { opacity: 1 } }
+@keyframes home-mo-fade-b { 0%,40% { opacity: 0 } 50%,90% { opacity: 1 } 100% { opacity: 0 } }
+@keyframes home-mo-cell   { 0%,8% { opacity: .18 } 22%,64% { opacity: 1 } 86%,100% { opacity: .18 } }
+@keyframes home-mo-dot    { 0%,10% { transform: translateX(var(--mo-x)) } 44%,64% { transform: none } 96%,100% { transform: translateX(var(--mo-x)) } }
+@keyframes home-mo-kan    { 0%,10% { transform: none } 32%,44% { transform: translateX(32px) } 64%,86% { transform: translateX(64px) } 98%,100% { transform: none } }
+.home-mo-a    { animation: home-mo-fade-a 4s var(--ease-out-quint) infinite }
+.home-mo-b    { animation: home-mo-fade-b 4s var(--ease-out-quint) infinite }
+.home-mo-cell { animation: home-mo-cell 3.2s var(--ease-out-quint) infinite }
+.home-mo-dot  { animation: home-mo-dot 4s var(--ease-out-quint) infinite }
+.home-mo-kan  { animation: home-mo-kan 4s var(--ease-out-quint) infinite }
+@media (prefers-reduced-motion: reduce) {
+  .home-mo-a, .home-mo-b, .home-mo-cell, .home-mo-dot, .home-mo-kan { animation: none !important; transform: none !important }
+  .home-mo-a { opacity: 0 }
+  .home-mo-cell { opacity: 1 }
+}
+`;
+
+// 모션 넷. 전부 26px 높이 안에서 돈다 — 블록마다 이 줄의 높이가 같아야 제목·설명이
+// 네 칸에서 같은 자리에 선다.
+const MO = 'home-mo relative flex items-center h-[26px]';
+
+const MoWorship = () => (
+  // 주보가 '작성 중'에서 '발행'으로 바뀌는 한 순간(예배 화면의 실제 칩과 같은 토큰)
+  <span className={`${MO} home-mo-worship`}>
+    <span className="home-mo-a absolute left-0 px-2 py-0.5 rounded-full bg-tag-yellow text-tag-yellow-fg text-[10px] font-bold">작성 중</span>
+    <span className="home-mo-b absolute left-0 px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg text-[10px] font-bold">발행</span>
+  </span>
+);
+
+const MoWord = () => (
+  // 잔디 한 줄이 차례로 켜진다(말씀 화면의 개인 기록 달력)
+  <span className={`${MO} home-mo-word gap-1`} aria-hidden="true">
+    {[0, 1, 2, 3, 4, 5, 6].map(i => (
+      <span key={i} className="home-mo-cell w-[11px] h-[11px] rounded-[3px]"
+        style={{ background: 'var(--app-tag-green-fg)', animationDelay: `${i * 0.16}s` }} />
+    ))}
+  </span>
+);
+
+const MoGroups = () => (
+  // 흩어져 있던 사람들이 한 순으로 모인다
+  <span className={`${MO} home-mo-groups gap-1`} aria-hidden="true">
+    {[-2, -1, 0, 1, 2].map(i => (
+      <span key={i} className="home-mo-dot w-[12px] h-[12px] rounded-full"
+        style={{
+          background: i ? 'var(--p-blue)' : 'var(--app-accent)',
+          '--mo-x': `${i * 11}px`,
+          animationDelay: `${Math.abs(i) * 0.08}s`,
+        }} />
+    ))}
+  </span>
+);
+
+const MoTasks = () => (
+  // 카드 한 장이 칸반의 열을 옮겨 간다
+  <span className={`${MO} home-mo-tasks w-[92px]`} aria-hidden="true">
+    {[0, 32, 64].map(x => (
+      <span key={x} className="absolute top-[3px] w-[28px] h-[20px] rounded-[5px]"
+        style={{ left: x, background: 'var(--app-surface-hover)' }} />
+    ))}
+    <span className="home-mo-kan absolute top-[3px] left-0 w-[28px] h-[20px] rounded-[5px]"
+      style={{ background: 'var(--app-accent)' }} />
+  </span>
+);
+
+// 컷은 히어로 무리와 겹치지 않는 것으로 고른다 — 같은 그림이 한 화면에 두 번 있으면
+// 무리 쪽이 배경으로 읽힌다. 높이는 원본(156~160px) 이하다.
+const SHOWCASE = [
+  { key: 'worship', to: 'worship', cut: '/chars/heart.webp', title: '예배',
+    desc: '이번 주 주보를 펴고 예배 노트를 남겨요', Mo: MoWorship },
+  { key: 'word', to: 'word', cut: '/chars/book.webp', title: '말씀',
+    desc: '오늘 QT 본문을 읽고 묵상을 기록해요', Mo: MoWord },
+  { key: 'groups', to: 'groups', cut: '/chars/shoulder.webp', title: '모임',
+    desc: '내 순 명단과 순모임 가이드를 봐요', Mo: MoGroups },
+  { key: 'work', to: 'dashboard', cut: '/chars/laptop.webp', title: '업무',
+    desc: '맡은 업무와 프로젝트를 이어서 해요', Mo: MoTasks },
+];
+
+function Showcase({ onNavigate }) {
+  const ref = useRef(null);
+  // 스크롤로 내려올 때 한 번 나타난다. 처음부터 세워 두면 카드 넷과 함께 이미 다 서
+  // 있어서 '내려오다 만나는' 인상이 없다. **한 번 보이면 관찰을 끊는다** — 오르내릴
+  // 때마다 다시 나타나면 스크롤이 덜컹거린다(§4.2 — 순번 지연은 첫 마운트만).
+  const [seen, setSeen] = useState(() => typeof IntersectionObserver === 'undefined');
+  useEffect(() => {
+    if (seen || !ref.current) return undefined;
+    const ob = new IntersectionObserver((rows) => {
+      if (rows.some(r => r.isIntersecting)) { setSeen(true); ob.disconnect(); }
+    }, { rootMargin: '-40px' });
+    ob.observe(ref.current);
+    return () => ob.disconnect();
+  }, [seen]);
+
+  return (
+    <section className="home-show mt-9 md:mt-11" ref={ref}>
+      <style>{SHOWCASE_CSS}</style>
+      <h3 className="home-show-title text-[12.5px] font-bold text-fg-muted pb-3">더다붓에서 할 수 있는 것</h3>
+      <div className="home-show-grid grid gap-3 md:gap-3.5 md:grid-cols-4">
+        {SHOWCASE.map(({ key, to, cut, title, desc, Mo }, i) => (
+          <button
+            key={key} type="button" onClick={() => onNavigate(to)}
+            className={`home-show-item home-show-${key} ${seen ? 'dc-card' : 'opacity-0'} w-full text-left p-4 md:p-[18px] ${CARD} transition active:scale-[.995]`}
+            style={{ ...CARD_STYLE, animationDelay: `${i * 70}ms` }}
+          >
+            <img src={cut} alt="" aria-hidden="true" draggable="false"
+              className="home-show-cut block mx-auto w-auto h-[84px] md:h-[92px] select-none pointer-events-none" />
+            <span className="home-show-name block mt-2 text-[14px] font-extrabold text-fg tracking-[-0.3px]">{title}</span>
+            <span className="home-show-desc block mt-0.5 text-[12px] leading-[1.6] text-fg-muted">{desc}</span>
+            <span className="block mt-2.5"><Mo /></span>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -364,6 +497,8 @@ export function HomeView({ onNavigate, onTaskClick }) {
         // 빈 자리는 글자 한 줄).
         <Empty className="home-empty" minH="18vh" title="예배 · 말씀 · 모임 소식이 아직 올라오지 않았어요" />
       )}
+
+      <Showcase onNavigate={onNavigate} />
 
       {/* 대표 홈페이지의 발문 — 랜딩 느낌을 닫는 한 줄이다(순모임 가이드 템플릿 푸터와
           같은 표기). 사용법을 알려주는 안내 줄이 아니다. */}

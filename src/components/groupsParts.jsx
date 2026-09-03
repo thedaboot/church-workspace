@@ -311,11 +311,19 @@ export function MeetMark() {
 // 마감 목록·그래프의 빈 화면과 같은 판단). 위쪽에 붙여 두면 아래가 통째로 비어 보인다.
 // minH는 그 구역이 실제로 차지할 만한 높이다 — 화면 한 판을 다 쓰는 빈 자리는 기본값,
 // 카드 아래에 딸린 작은 구역(동아리 상세의 모임)은 호출부가 줄여 준다.
-export function Empty({ mark, title, hint, minH = '46vh', className = '' }) {
+// 캐릭터 컷 — design/chars.png 시트에서 자른 public/chars/<name>.webp(투명 배경, 원본 177~225px).
+// **원본보다 키우지 않는다**(흐려진다) — 높이로만 준다. 교회 화면의 빈 상태·틈에 쓴다(사용자 결정
+// 2026-09-03 — 업무 화면은 dc-draw 마크 유지).
+export function Cut({ name, h = 112, className = '', alt = '' }) {
+  return <img src={`/chars/${name}.webp`} alt={alt} draggable={false} className={`select-none ${className}`}
+    style={{ height: h, width: 'auto', maxWidth: '100%' }} />;
+}
+
+export function Empty({ mark, cut, title, hint, minH = '46vh', className = '' }) {
   return (
     <div className={`flex flex-col items-center justify-center text-center ${className}`}
       style={{ minHeight: minH }}>
-      {mark}
+      {cut ? <Cut name={cut} /> : mark}
       <p className="text-[13.5px] font-semibold text-fg mt-3">{title}</p>
       {hint && <p className="mt-1 text-xs text-fg-faint">{hint}</p>}
     </div>

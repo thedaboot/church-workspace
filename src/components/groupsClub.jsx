@@ -10,7 +10,7 @@ import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { DatePicker } from './DatePicker.jsx';
 import {
   CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, WITH_ICON,
-  PersonTag, PersonPick, LabeledField, Empty, PeopleMark, MeetMark,
+  PersonTag, PersonPick, LabeledField, Empty,
 } from './groupsParts.jsx';
 import { groupPeople, canManageClub, myGroupIds, notInGroup } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
@@ -166,7 +166,7 @@ function ClubList({ clubs, people, members, apps, perms, creating, onCloseCreate
         )}
       </DndContext>
       {!clubs.length && (
-        <Empty className="club-empty" mark={<PeopleMark />} title="아직 만들어진 동아리가 없어요" />
+        <Empty className="club-empty" cut="coffee" title="아직 만들어진 동아리가 없어요" />
       )}
     </div>
   );
@@ -334,9 +334,16 @@ function ClubDetail({
       {/* 리더 도구 — 그 동아리장 또는 마스터에게만(0035 group_members_write) */}
       {manage && (
         <div className="club-leader-tools mt-6">
-          {waiting.length > 0 && (
-            <div className="mb-6">
-              <SectionHead>가입 신청 {waiting.length}건</SectionHead>
+          {/* 가입 신청 — **대기가 없어도 구역은 남긴다**(사용자 결정 2026-09-03 캐릭터 컷).
+              동아리장이 '신청이 오면 어디에 뜨는지'를 알 수 있어야 하고, 그 자리가
+              비어 있다는 것도 정보다. 높이는 카드에 딸린 구역만큼만 잡는다. */}
+          <div className="mb-6">
+            <SectionHead>{waiting.length ? `가입 신청 ${waiting.length}건` : '가입 신청'}</SectionHead>
+            {waiting.length === 0 && (
+              <Empty className="club-app-empty" cut="question" minH="20vh"
+                title="아직 들어온 가입 신청이 없어요" />
+            )}
+            {waiting.length > 0 && (
               <div className="space-y-2">
                 {waiting.map(a => (
                   <div key={a.id} className={`club-app-row dc-row flex items-center gap-2 p-3 ${CARD}`} style={CARD_STYLE}>
@@ -353,8 +360,8 @@ function ClubDetail({
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <SectionHead right={!adding && (
             <button type="button" onClick={() => setAdding(true)}
@@ -399,7 +406,7 @@ function ClubDetail({
           {/* 이 빈 자리는 화면 한 판이 아니라 카드 아래에 딸린 구역이라 세로를 줄여
               잡는다 — 46vh를 그대로 쓰면 동아리 카드 뒤로 빈 화면이 한 판 더 붙는다 */}
           {!meetings.length && (
-            <Empty className="club-meet-empty" mark={<MeetMark />} minH="28vh"
+            <Empty className="club-meet-empty" cut="walk" minH="28vh"
               title="예정된 모임이 아직 없어요" />
           )}
         </div>

@@ -102,6 +102,6 @@ export default async function handler(req, res) {
     // AbortError(8초 초과)도 여기로 온다 — 화면에는 초 단위를 내보내지 않는다(§8).
     // 이 글은 화면에서 '왜 안 됐나' 자리에 실린다(services/worship.js의 err.human).
     console.error('[yt] 유튜브 요청 실패:', e);
-    res.status(502).json({ error: '유튜브가 제때 답하지 않았어요 · 잠시 후 다시 시도해주세요' });
+    res.status(502).json({ error: '유튜브가 제때 답하지 않았어요\n잠시 후 다시 시도해주세요' });
   }
 }

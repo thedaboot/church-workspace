@@ -601,7 +601,7 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
     // **안내 문구를 본문에 넣지 않는다.** 안내 문구도 truthy한 문자열이라 예전에는
     // 그대로 본문을 덮었다 — 게스트·로컬·세션 만료에서 '다듬기'를 누르면 쓰던 글이
     // "AI 기능은 로그인 후 사용할 수 있어요." 한 줄로 갈아치워졌다.
-    if (!polished || isFallbackText(polished)) { showToast(polished || '다듬지 못했어요 · 잠시 후 다시 시도해주세요'); return; }
+    if (!polished || isFallbackText(polished)) { showToast(polished || '다듬지 못했어요\n잠시 후 다시 시도해주세요'); return; }
     setBeforePolish(before);
     setFormData(prev => ({ ...prev, content: polished }));
   };
@@ -748,7 +748,7 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
       setRevealed(!!text);
     } catch (e) {
       console.error('[cloud] 요약 고정 실패:', e);
-      showToast('요약을 고정하지 못했어요 · 잠시 후 다시 시도해주세요');
+      showToast('요약을 고정하지 못했어요\n잠시 후 다시 시도해주세요');
     }
     setPinning(false);
   };

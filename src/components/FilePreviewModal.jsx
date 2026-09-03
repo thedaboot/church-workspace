@@ -406,7 +406,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
       return (
         <PdfView
           blob={pdfSrc.blob} src={pdfSrc.src}
-          onError={(e) => setError(`미리보기를 그릴 수 없어요 · ${e.message || e}`)}
+          onError={(e) => setError(`미리보기를 그릴 수 없어요\n${e.message || e}`)}
         />
       );
     }

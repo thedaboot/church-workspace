@@ -45,9 +45,11 @@ const OTHER_LABEL = '다른 예배…';
 // 이 화면만 안다.** 그래서 아는 코드는 여기서 사람 말로 바꾸고, 모르는 것(오프라인·
 // 로그인 끊김·서버 불안정)은 그대로 공용 문구에 맡긴다(앱 전체가 같은 말을 해야 한다).
 //
-// 두 도막을 잇는 것은 failText다 — 짧으면 ' · ', 길면 줄을 바꾼다(§8).
+// 두 도막을 잇는 것은 failText이고 **언제나 줄을 바꾼다**(사용자 결정 2026-09-03).
+// 이유 안에서 문장이 또 나뉘면 거기도 줄바꿈이다 — 가운뎃점은 한 문장 안의 나열
+// ('회장·교역자·마스터')에만 쓴다.
 const NEED_EDIT = '주보는 회장·교역자·마스터만 쓸 수 있어요';
-const GONE = '이 주보가 이미 지워졌어요 · 새로고침해주세요';
+const GONE = '이 주보가 이미 지워졌어요\n새로고침해주세요';
 const fail = (what, err, byCode = {}) => {
   const why = err?.human || byCode[String(err?.code ?? '')];
   return failText(what, why ? { human: why } : err);
@@ -213,8 +215,11 @@ function ServiceList({ services, perms, onOpen, onCreate }) {
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {shown.map(s => <ServiceCard key={s.id} service={s} onOpen={onOpen} />)}
       </div>
-      {!shown.length && (
-        <WorshipEmpty text={draftsOnly ? '작성 중인 주보가 아직 없어요' : '발행된 주보가 아직 없어요'} />
+      {/* 컷은 그 자리에 어울리는 것으로 — 아직 아무것도 없는 목록은 맞이하는 그림
+          (welcome), 작성 중인 것이 없다는 것은 그냥 서 있는 그림(stand)이다 */}
+      {!shown.length && (draftsOnly
+        ? <WorshipEmpty cut="stand" text="작성 중인 주보가 아직 없어요" />
+        : <WorshipEmpty cut="welcome" text="발행된 주보가 아직 없어요" />
       )}
     </div>
   );
@@ -374,9 +379,9 @@ export function WorshipView({ onOpenBible } = {}) {
         return s;
       });
       showToast(fail(next ? `${who}님을 출석으로 표시하지 못했어요` : `${who}님의 출석을 취소하지 못했어요`, e, {
-        23505: '이미 출석으로 표시되어 있어요 · 새로고침해주세요',
-        42501: '내 순 청년만 출석을 만질 수 있어요 · 다른 순은 임원·교역자가 체크해요',
-        23503: '이 주보나 명단이 이미 지워졌어요 · 새로고침해주세요',
+        23505: '이미 출석으로 표시되어 있어요\n새로고침해주세요',
+        42501: '내 순 청년만 출석을 만질 수 있어요\n다른 순은 임원·교역자가 체크해요',
+        23503: '이 주보나 명단이 이미 지워졌어요\n새로고침해주세요',
       }));
     }
   }, [openId, roster.people]);
@@ -406,7 +411,7 @@ export function WorshipView({ onOpenBible } = {}) {
     } catch (e) {
       console.error('[worship] 미등록 출석자 출석 실패:', e);
       showToast(fail(`${made.name}님을 명단에는 올렸지만 출석으로 표시하지 못했어요`, e, {
-        42501: '내 순 청년만 출석을 만질 수 있어요 · 다른 순은 임원·교역자가 체크해요',
+        42501: '내 순 청년만 출석을 만질 수 있어요\n다른 순은 임원·교역자가 체크해요',
       }));
     }
     return made;
@@ -423,7 +428,7 @@ export function WorshipView({ onOpenBible } = {}) {
       const picked = await fetchPlaylistSongs(url);
       const next = mergeSongs(rows, picked);
       const added = next.length - (rows || []).length;
-      showToast(added ? `${added}곡을 가져왔어요` : '가져올 새 곡이 없어요 · 재생목록의 곡이 이미 다 들어 있어요');
+      showToast(added ? `${added}곡을 가져왔어요` : '가져올 새 곡이 없어요\n재생목록의 곡이 이미 다 들어 있어요');
       return added ? next : null;
     } catch (e) {
       // 서버 함수가 없는 환경(게스트·로컬 vite)이나 주소를 잘못 붙인 것은 고장이

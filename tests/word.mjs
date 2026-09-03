@@ -202,15 +202,22 @@ const cells = await ev(`(() => {
   if (!list.length) return null;
   const r = list[0].getBoundingClientRect();
   return { n: list.length, w: Math.round(r.width), h: Math.round(r.height),
-    numbered: list.some(b => b.textContent.trim() !== ''),
+    numbers: list.map(b => b.textContent.trim()),
+    gridW: Math.round(list[0].parentElement.getBoundingClientRect().width),
     labelled: list.every(b => (b.getAttribute('aria-label') || '') === b.title),
     week: [...document.querySelectorAll('span')].filter(s => ['일','월','화','수','목','금','토'].includes(s.textContent.trim())).length };
 })()`);
 const monthLen = word.monthDays(today).days.length;
-check('잔디 칸이 12~14px로 줄었다', !!cells && cells.w >= 12 && cells.w <= 14 && cells.h === cells.w,
+const month31 = word.monthDays(today).days.map(d => String(+d.slice(8))).join(',');
+// 20px(사용자 결정 2026-09-03 — "숫자가 있어도 좋겠다, 살짝만") · 예전 41px의 절반이다
+check('잔디 칸이 18~20px이다', !!cells && cells.w >= 18 && cells.w <= 20 && cells.h === cells.w,
   JSON.stringify(cells));
 check('잔디는 그 달의 날 수만큼 서고 칸마다 날짜가 붙는다',
-  !!cells && cells.n === monthLen && cells.labelled && !cells.numbered, JSON.stringify(cells));
+  !!cells && cells.n === monthLen && cells.labelled, JSON.stringify(cells));
+check('칸 안에 날짜 숫자가 보인다',
+  !!cells && cells.numbers.join(',') === month31, JSON.stringify(cells.numbers && cells.numbers.slice(0, 5)));
+check('한 달이 좁은 화면 폭에도 든다(그리드 200px 이하)',
+  !!cells && cells.gridW > 0 && cells.gridW <= 200, JSON.stringify(cells));
 check('요일 머리글과 연·월이 함께 보인다',
   !!cells && cells.week >= 7 && (await ev(`document.body.innerText.includes(${JSON.stringify(`${word.monthDays(today).year}년 ${word.monthDays(today).month}월`)})`)) === true,
   JSON.stringify(cells));
@@ -329,10 +336,12 @@ await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.ge
 await sleep(900);
 const empty = await ev(`(() => ({
   msg: document.body.innerText.includes('이 날짜의 본문이 아직 올라오지 않았어요'),
-  mark: !!document.querySelector('svg path.dc-draw'),
+  cut: (document.querySelector('img[src*="/chars/"]') || {}).src || '',
   verses: document.querySelectorAll('p[data-verse]').length,
 }))()`);
-check('본문이 없는 날은 빈 상태 + 표식', empty.msg && empty.mark && empty.verses === 0, JSON.stringify(empty));
+// 표식은 이제 캐릭터 컷이다(사용자 결정 2026-09-03) — 본문 없는 날은 sit
+check('본문이 없는 날은 빈 상태 + 캐릭터 컷', empty.msg && empty.cut.endsWith('/chars/sit.webp')
+  && empty.verses === 0, JSON.stringify(empty));
 // 빈 상태는 **본문이 쓰던 자리를 그대로 받아** 그 한가운데에 선다(§8 · 3차 점검).
 // 예전에는 자리가 320px인데 빈 상태만 220px이라 마크가 위로 붙고 아래가 비어 보였다.
 const emptyFit = await ev(`(() => {
@@ -383,6 +392,10 @@ const unshareToast = await ev(`(document.querySelector('[role="status"]') || {})
 check('공유 해제 토스트가 묵상이 남는다고 말한다',
   unshareToast.includes('나눔에서 내렸어요') && unshareToast.includes('내 기록에 그대로 있어요'),
   unshareToast);
+// 두 문장은 **줄을 바꿔** 잇는다(사용자 결정 2026-09-03 — ' · '도 마침표도 아니다)
+check('두 문장짜리 토스트는 줄을 바꾼다',
+  unshareToast.includes(String.fromCharCode(10)) && !unshareToast.includes(' · '),
+  JSON.stringify(unshareToast));
 check('공유를 내려도 저장 버튼은 꺼져 있다', (await saveDisabled()) === true);
 
 // 10) 나만 보기 / 더다붓에 공유하기 — **토글은 편집 상태를 건드리지 않는다**(4차 피드백 8)
@@ -442,6 +455,13 @@ const gone = await ev(`(() => ({
 }))()`);
 check('진짜 삭제는 그 날 묵상을 없앤다', gone.stored === null && gone.feedEmpty && !gone.editor.trim(),
   JSON.stringify(gone));
+// 나눔이 빈 자리에는 whisper 컷이 선다(사용자 결정 2026-09-03) — 목록 안이 아니라 빈 자리에만
+const feedCut = await ev(`(() => {
+  const p = [...document.querySelectorAll('p')].find(x => x.textContent.includes('올라온 나눔이 아직 없어요'));
+  const img = p && p.parentElement.querySelector('img[src*="/chars/"]');
+  return { cut: img ? img.getAttribute('src') : '', rows: document.querySelectorAll('[role="status"]').length };
+})()`);
+check('나눔 빈 자리에 whisper 컷이 선다', feedCut.cut === '/chars/whisper.webp', JSON.stringify(feedCut));
 check('저장된 글이 없으면 공유 토글은 꺼져 있다', gone.toggleOff === true, JSON.stringify(gone));
 check('지울 것이 없으면 휴지통도 없다', gone.trash === false, JSON.stringify(gone));
 
@@ -476,16 +496,18 @@ const markEmptyFit = (needle) => ev(`(() => {
   const p = [...document.querySelectorAll('p')].filter(x => x.textContent.includes(${JSON.stringify(needle)}))
     .find(x => x.offsetParent !== null);
   if (!p) return null;
-  const box = p.parentElement, svg = box.querySelector('svg');
+  const box = p.parentElement, img = box.querySelector('img[src*="/chars/"]');
   const b = box.getBoundingClientRect();
   return {
-    mark: !!(svg && svg.querySelector('path.dc-draw')),
+    cut: img ? img.getAttribute('src') : '',
+    grew: img ? (img.naturalHeight > 0 && img.getBoundingClientRect().height <= img.naturalHeight + 1) : null,
     align: getComputedStyle(p).textAlign,
-    dx: svg ? Math.round((svg.getBoundingClientRect().left + svg.getBoundingClientRect().width / 2) - (b.left + b.width / 2)) : null,
-    dy: svg ? Math.round((svg.getBoundingClientRect().top - b.top) - (b.bottom - p.getBoundingClientRect().bottom)) : null,
+    dx: img ? Math.round((img.getBoundingClientRect().left + img.getBoundingClientRect().width / 2) - (b.left + b.width / 2)) : null,
+    dy: img ? Math.round((img.getBoundingClientRect().top - b.top) - (b.bottom - p.getBoundingClientRect().bottom)) : null,
   };
 })()`);
-const centered = v => !!v && v.mark && v.align === 'center' && Math.abs(v.dx) <= 1 && Math.abs(v.dy) <= 1;
+// 컷은 상자의 가로 한가운데 · 위아래 여백이 같아야 하고, **원본보다 커지지 않는다**
+const centered = v => !!v && !!v.cut && v.align === 'center' && Math.abs(v.dx) <= 1 && Math.abs(v.dy) <= 1;
 
 check('북마크 칸으로 간다', await clickSel('[data-pane="bookmark"]'));
 await sleep(500);
@@ -501,8 +523,14 @@ check("형광펜 빈 상태 문구", hlEmpty.includes('형광펜을 칠한 절�
   && !hlEmpty.includes('형광펜을 그은 절이 여기 모입니다'));
 check('형광펜 칸에는 북마크 목록이 없다', !hlEmpty.includes('북마크한 장을 여기서'));
 const hlFit = await markEmptyFit('형광펜을 칠한 절은');
-check('북마크·형광펜 빈 상태가 마크와 함께 가운데에 선다',
+check('북마크·형광펜 빈 상태가 컷과 함께 가운데에 선다',
   centered(bmFit) && centered(hlFit), JSON.stringify({ bmFit, hlFit }));
+// 어느 컷을 어디에 썼는지 못 박는다(사용자 결정 2026-09-03) — 북마크 book · 형광펜 hug-warm
+check('북마크는 book 컷, 형광펜은 hug-warm 컷',
+  bmFit?.cut === '/chars/book.webp' && hlFit?.cut === '/chars/hug-warm.webp',
+  JSON.stringify({ bm: bmFit?.cut, hl: hlFit?.cut }));
+check('컷을 원본보다 키우지 않는다', bmFit?.grew !== false && hlFit?.grew !== false,
+  JSON.stringify({ bm: bmFit?.grew, hl: hlFit?.grew }));
 
 check('목차 칸으로 돌아간다', await clickSel('[data-pane="toc"]'));
 await sleep(500);
@@ -516,6 +544,65 @@ const reader = await ev(`(() => {
            first: vs[0] ? vs[0].textContent : '' };
 })()`);
 check('창세기 1장이 열린다', reader.head === '창세기 1장' && reader.n === 31, JSON.stringify(reader));
+
+// ── 장 넘기기: 데스크톱은 따라다니는 화살표(사용자 피드백 2026-09-03) ───────
+// 예전에는 이전/다음 장이 본문 **맨 아래**에만 있어서 스크롤을 다 내려야 넘길 수 있었다.
+// 이제 본문 양옆 칸에 44px 원형 버튼이 sticky로 서서, 스크롤을 내려도 눈높이에 남는다.
+// 성경의 처음(창세기 1장)에는 ◀가 아예 없다.
+const scrollTo = (px) => ev(`(() => {
+  const el = [...document.querySelectorAll('*')].find(e => {
+    const o = getComputedStyle(e).overflowY;
+    return (o === 'auto' || o === 'scroll') && e.scrollHeight > e.clientHeight + 40;
+  });
+  const s = el || document.scrollingElement;
+  s.scrollTop = ${px};
+  return Math.round(s.scrollTop);
+})()`);
+const navBox = () => ev(`(() => {
+  const one = (sel) => {
+    const e = document.querySelector(sel);
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left),
+             right: Math.round(r.right), w: Math.round(r.width), h: Math.round(r.height),
+             sticky: getComputedStyle(e).position };
+  };
+  const card = document.querySelector('[data-chap-swipe] > div:nth-child(2)');
+  const cr = card ? card.getBoundingClientRect() : null;
+  return { prev: one('[data-chap-nav="prev"]'), next: one('[data-chap-nav="next"]'),
+           card: cr ? { left: Math.round(cr.left), right: Math.round(cr.right) } : null,
+           vh: innerHeight, scroll: Math.round((document.scrollingElement || {}).scrollTop || 0) };
+})()`);
+const navAt1 = await navBox();
+check('창세기 1장에는 이전 장 화살표가 없다', navAt1.prev === null, JSON.stringify(navAt1.prev));
+check('다음 장 화살표는 44px이고 본문 오른쪽 밖에 선다',
+  !!navAt1.next && navAt1.next.w >= 44 && navAt1.next.h >= 44 && navAt1.next.sticky === 'sticky'
+  && !!navAt1.card && navAt1.next.left >= navAt1.card.right - 2,
+  JSON.stringify(navAt1));
+await scrollTo(700);
+await sleep(400);
+const navScrolled = await navBox();
+check('스크롤을 내려도 화살표가 눈높이에 남는다',
+  !!navScrolled.next && navScrolled.next.top >= 0 && navScrolled.next.bottom <= navScrolled.vh + 1,
+  JSON.stringify(navScrolled.next));
+check('화살표를 누르면 다음 장으로 간다', await clickSel('[data-chap-nav="next"]'));
+await sleep(1200);
+const afterArrow = await ev(`(() => {
+  const first = document.querySelector('p[data-verse]');
+  return { head: (document.querySelector('h3') || {}).textContent || '',
+           firstTop: first ? Math.round(first.getBoundingClientRect().top) : -1,
+           prev: !!document.querySelector('[data-chap-nav="prev"]') };
+})()`);
+check('화살표로 넘기면 그 장이 열린다', afterArrow.head === '창세기 2장', JSON.stringify(afterArrow));
+check('넘긴 뒤에는 본문 맨 위로 돌아온다', afterArrow.firstTop > 0 && afterArrow.firstTop < 400,
+  JSON.stringify(afterArrow));
+check('첫 장이 아니면 이전 장 화살표가 생긴다', afterArrow.prev === true);
+check('이전 장 화살표로 되돌아온다', await clickSel('[data-chap-nav="prev"]'));
+await sleep(1200);
+check('되돌아오면 창세기 1장이다',
+  (await ev(`(document.querySelector('h3')||{}).textContent || ''`)) === '창세기 1장');
+await scrollTo(0);
+await sleep(300);
 check("창세기 1:1에 '태초에 하나님이'", reader.first.includes('태초에 하나님이 천지를 창조하시니라'), reader.first);
 
 // 글자 크기 3단계 — 실제 font-size가 바뀌고 기기에 남는다
@@ -773,6 +860,32 @@ const jumped = await ev(`(() => ({ head: (document.querySelector('h3')||{}).text
 check('결과를 누르면 그 장으로 간다', jumped.head === '창세기 1장' && jumped.focus.includes('태초에'),
   JSON.stringify(jumped));
 
+// 못 찾았을 때의 빈 자리 — question 컷(사용자 결정 2026-09-03). 책 파일은 이미 받아 둔
+// 것이라 두 번째 검색은 훑기만 한다.
+await ev(`(() => {
+  const i = document.querySelector('input[aria-label="본문 검색"]');
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '없는말없는말');
+  i.dispatchEvent(new Event('input', { bubbles: true }));
+  i.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+})()`);
+const noHit = await ev(`(async () => {
+  for (let i = 0; i < 90; i++) {
+    if (!document.body.innerText.includes('훑는 중')) {
+      const p = [...document.querySelectorAll('p')].find(x => x.textContent.includes('그대로 나오는 절을 찾지 못했어요'));
+      if (p) {
+        const img = p.parentElement.querySelector('img[src*="/chars/"]');
+        return { said: true, cut: img ? img.getAttribute('src') : '' };
+      }
+    }
+    await new Promise(r => setTimeout(r, 400));
+  }
+  return { said: false, cut: '' };
+})()`, true);
+check('못 찾으면 왜 못 찾았는지까지 말한다', noHit.said === true, JSON.stringify(noHit));
+check('검색 빈 자리에 question 컷이 선다', noHit.cut === '/chars/question.webp', JSON.stringify(noHit));
+await clickSel('button[aria-label="검색어 지우기"]');
+await sleep(600);
+
 // ── 북마크·형광펜이 쌓였을 때 (2026-09-02) ─────────────────────────────────
 // 여러 권에 걸쳐 심어 두고 다시 연다. 책으로 묶이는지 · 정경 순인지 ·
 // 세 권부터는 접혀 있는지 · **펼친 책의 파일만 그때 받는지**를 본다.
@@ -921,6 +1034,50 @@ check('좁은 폭에서도 리더 헤더의 책 목록·북마크가 한 줄에 
   mobRead.reader === true && !!mobRead.back && !!mobRead.bookmark
   && mobRead.back.inView && mobRead.bookmark.inView && mobRead.sameRow,
   JSON.stringify(mobRead));
+// ── 모바일은 쓸어서 넘긴다(사용자 피드백 2026-09-03) ───────────────────────
+// 데스크톱 화살표가 없는 폭에서는 이것이 유일한 '언제나 넘길 수 있는' 길이다.
+// 터치 이벤트를 합성해 ① 60px을 넘는 가로 쓸기는 장을 넘기고 ② 짧은 쓸기와
+// ③ 세로가 더 큰 쓸기는 아무 일도 하지 않는지 본다. 넘긴 뒤 본문은 맨 위다.
+const swipeAt = (dx, dy) => ev(`(async () => {
+  const area = document.querySelector('[data-chap-swipe]');
+  if (!area) return null;
+  const r = area.getBoundingClientRect();
+  const x0 = Math.round(r.left + r.width - 30), y0 = Math.round(Math.max(r.top + 40, 80));
+  const pt = (x, y) => [new Touch({ identifier: 7, target: area, clientX: x, clientY: y })];
+  const send = (type, list) => area.dispatchEvent(new TouchEvent(type, {
+    bubbles: true, cancelable: true, touches: type === 'touchend' ? [] : list,
+    targetTouches: type === 'touchend' ? [] : list, changedTouches: list,
+  }));
+  send('touchstart', pt(x0, y0));
+  send('touchend', pt(x0 + ${dx}, y0 + ${dy}));
+  await new Promise(r2 => setTimeout(r2, 1300));
+  const first = document.querySelector('p[data-verse]');
+  return { head: (document.querySelector('h3') || {}).textContent || '',
+           firstTop: first ? Math.round(first.getBoundingClientRect().top) : -1 };
+})()`, true);
+const headNow = () => ev(`(document.querySelector('h3')||{}).textContent || ''`);
+const swipeFrom = await headNow();
+const small = await swipeAt(-30, 0);
+check('짧게 쓸면 장이 바뀌지 않는다', !!small && small.head === swipeFrom,
+  JSON.stringify({ swipeFrom, small }));
+const vertical = await swipeAt(-90, -160);
+check('세로로 더 많이 움직이면 장이 바뀌지 않는다', !!vertical && vertical.head === swipeFrom,
+  JSON.stringify({ swipeFrom, vertical }));
+await scrollTo(500);
+await sleep(300);
+const swiped = await swipeAt(-200, 10);
+check('왼쪽으로 쓸면 다음 장으로 넘어간다', !!swiped && swiped.head !== swipeFrom && !!swiped.head,
+  JSON.stringify({ swipeFrom, swiped }));
+check('쓸어 넘긴 뒤에도 본문 맨 위로 돌아온다',
+  !!swiped && swiped.firstTop > 0 && swiped.firstTop < 400, JSON.stringify(swiped));
+const swipedBack = await swipeAt(200, -10);
+check('오른쪽으로 쓸면 이전 장으로 돌아온다', !!swipedBack && swipedBack.head === swipeFrom,
+  JSON.stringify({ swipeFrom, swipedBack }));
+// 화살표는 `hidden md:flex`라 좁은 폭에서도 DOM에는 남는다 — **보이는지**로 잰다
+// (있는지로 재면 display:none인 것을 '있다'고 세어 이 검사가 늘 실패한다)
+check('좁은 폭에서는 화살표가 보이지 않는다',
+  (await ev(`[...document.querySelectorAll('[data-chap-nav]')].every(e => e.offsetParent === null)`)) === true);
+
 check('리더 헤더 버튼은 44px 터치 타깃이다',
   !!mobRead.bookmark && mobRead.bookmark.w >= 44 && mobRead.bookmark.h >= 44 && mobRead.back.h >= 44,
   JSON.stringify({ back: mobRead.back, bookmark: mobRead.bookmark }));
@@ -1010,6 +1167,7 @@ for (const w of [768, 1024, 1160, 1440]) {
 await send('Emulation.clearDeviceMetricsOverride');
 
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 2).join(' | '));
+logs.length = 0;   // 아래는 일부러 실패를 만드는 자리다 — 여기서 낸 오류는 세지 않는다
 
 // ── 예외 문구 (사용자 피드백 2026-09-03) ────────────────────────────────────
 // **못 한 일과 그 이유가 한 문장에 있어야 한다.** 여기부터는 일부러 실패를 만들므로

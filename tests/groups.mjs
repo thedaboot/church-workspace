@@ -145,6 +145,7 @@ const setText = (sel, v) => ev(`(() => {
   el.dispatchEvent(new Event('input', { bubbles: true }));
   return true;
 })()`);
+// 토스트는 [data-toast]로 잡는다 — 동아리 목록의 dnd-kit이 role="status" 라이브 리전을 먼저 세운다
 // ── 네이티브 select를 걷어낸 뒤의 조작 도구들 ───────────────────────────────
 // 사람 고르기: 칸에 포커스를 주면 자동완성이 열리고, 뜬 줄을 누르면 골라진다.
 // 줄 글자는 '아바타 첫 글자 + 이름'이라 endsWith로 본다('조' + '조해리').
@@ -305,7 +306,7 @@ const enter = async (me, theme, mut, guide) => {
 // 지금 서 있는 탭 줄 — 자격에 따라 '순 편성'이 붙거나 안 붙는다
 const TABS = `[...document.querySelectorAll('.groups-tab')].map(t => t.textContent.trim()).join(',')`;
 // 지금 떠 있는 토스트 한 줄(Toast.jsx는 role=status 하나만 세운다)
-const toast = () => ev(`(document.querySelector('[role="status"]') || {}).innerText || ''`);
+const toast = () => ev(`(document.querySelector('[data-toast]') || {}).innerText || ''`);
 // 순모임 가이드가 **내 순 카드와 같은 열**에 서는가(사용자 지적 2026-09-03 —
 // "중앙으로 딱 정렬돼서 보이게"). 좌우 끝이 카드와 같고, 종이는 그 안에서 가운데다.
 const guideBox = () => ev(`(() => {
@@ -443,7 +444,9 @@ const centered = (sel) => ev(`(() => {
   const top = Math.min(...b.map(x => x.top)), bottom = Math.max(...b.map(x => x.bottom));
   const left = Math.min(...b.map(x => x.left)), right = Math.max(...b.map(x => x.right));
   return {
-    mark: !!e.querySelector('svg'),
+    // 빈 자리의 그림은 SVG 마크이거나 캐릭터 컷(img)이다(사용자 결정 2026-09-03)
+    mark: !!e.querySelector('svg, img'),
+    cut: (e.querySelector('img')?.getAttribute('src') || '').split('/').pop().replace('.webp', ''),
     h: Math.round(r.height),
     dy: Math.round((top + bottom) / 2 - (r.top + r.bottom) / 2),
     dx: Math.round((left + right) / 2 - (r.left + r.right) / 2),
@@ -537,6 +540,26 @@ const pure = await ev(`(async () => {
         exempt: one(plan('p9')), clear: one(plan('')),
       };
     })(),
+    // 같은 이름(0041) — 순은 같은 해 안에서만, 동아리는 전체에서 유일하다
+    dupName: (() => {
+      const groups = [
+        { id: 'g1', type: 'sun', name: '꼬순', year: 2026 },
+        { id: 'g0', type: 'sun', name: '지난 순', year: 2025 },
+        { id: 'gx', type: 'sun', name: '없어진 순', year: 2026, removed_at: '2026-01-01' },
+        { id: 'gc1', type: 'club', name: '통통', year: null },
+      ];
+      const d = (o) => m.duplicateName({ groups, ...o }) || null;
+      return {
+        sameYear: d({ type: 'sun', name: '꼬순', year: 2026 }),
+        otherYear: d({ type: 'sun', name: '꼬순', year: 2027 }),
+        self: d({ type: 'sun', name: '꼬순', year: 2026, exceptId: 'g1' }),
+        removed: d({ type: 'sun', name: '없어진 순', year: 2026 }),
+        club: d({ type: 'club', name: '통통' }),
+        clubSelf: d({ type: 'club', name: '통통', exceptId: 'gc1' }),
+        clubNew: d({ type: 'club', name: '달리기' }),
+        trimmed: d({ type: 'club', name: '  통통  ' }),
+      };
+    })(),
     // 유니크 위반만 부르는 쪽의 이유로 갈아 끼운다 — 다른 오류는 그대로 둔다
     dup: [
       m.dupReason({ code: '23505', message: 'dup' }, '이미 신청해 두었어요').human || '',
@@ -576,6 +599,15 @@ check('동아리는 손으로 정한 순서대로, 값이 없는 것은 차례�
   JSON.stringify(pure.order) === '["a","b","c","x","y"]', JSON.stringify(pure.order));
 check('멤버 추가 후보에서 이미 든 사람과 리더는 빠진다',
   JSON.stringify(pure.left) === '["c","d"]', JSON.stringify(pure.left));
+// 0041 — 순은 같은 해 안에서만 유일하다(26년 오순도순과 27년 오순도순은 공존)
+check('같은 해 같은 이름의 순은 막고, 다른 해는 통과한다',
+  pure.dupName.sameYear === '2026년에 같은 이름의 순이 이미 있어요'
+  && pure.dupName.otherYear === null && pure.dupName.self === null
+  && pure.dupName.removed === null, JSON.stringify(pure.dupName));
+check('동아리는 해가 없어 전체에서 유일하다',
+  pure.dupName.club === '같은 이름의 동아리가 이미 있어요' && pure.dupName.clubSelf === null
+  && pure.dupName.clubNew === null && pure.dupName.trimmed === '같은 이름의 동아리가 이미 있어요',
+  JSON.stringify(pure.dupName));
 check("유니크 위반에만 '무엇이 이미 있는지'를 넣는다",
   JSON.stringify(pure.dup) === '["이미 신청해 두었어요","없음","23505"]', JSON.stringify(pure.dup));
 // 0040 — 부장님·전도사님은 순 후보에서만 빠진다(동아리 가입은 그대로)
@@ -673,7 +705,7 @@ check('가이드가 없으면 머리줄 오른쪽 끝에 만들기 버튼이 선
 await ev(`document.querySelector('.sun-guide-create').click()`); await sleep(2200);
 const gMake = await ev(`(() => ({
   edit: !!document.querySelector('.sun-guide-edit'),
-  toast: (document.querySelector('[role="status"]') || {}).innerText || '',
+  toast: (document.querySelector('[data-toast]') || {}).innerText || '',
 }))()`);
 check('AI로 만들기는 편집 화면을 열거나, 왜 못 만드는지 말한다',
   gMake.edit === true || /만들 수 없어요|만들지 못했어요/.test(gMake.toast), JSON.stringify(gMake));
@@ -682,7 +714,7 @@ if (gMake.edit) {
   const gSaved = await ev(`(() => ({
     sheet: !!document.querySelector('.sun-guide-sheet'),
     rows: (JSON.parse(localStorage.getItem('church_sunguide_v1')) || {}).sun_guides?.length || 0,
-    toast: (document.querySelector('[role="status"]') || {}).innerText || '',
+    toast: (document.querySelector('[data-toast]') || {}).innerText || '',
   }))()`);
   check('만든 가이드를 저장하면 종이가 서고 저장 자리에 남는다',
     gSaved.sheet === true && gSaved.rows === 1 && gSaved.toast.includes('저장했어요'), JSON.stringify(gSaved));
@@ -1019,6 +1051,20 @@ const mobClubNew = await (async () => {
 })();
 check('모바일 375px — 새 동아리 카드는 칸마다 한 줄 + 도구 줄, 넘치지 않는다',
   !mobClubNew.err && mobClubNew.rows <= 4 && mobClubNew.over <= 0, JSON.stringify(mobClubNew));
+// 같은 이름은 저장하러 가기 전에 막는다(0041) — 이름 칸만 채워 눌러 본다
+await setText('input[aria-label="동아리 이름"]', '통통');
+await sleep(150);
+await ev(`document.querySelector('.club-new-make').click()`); await sleep(900);
+const clubDup = await ev(`(() => ({
+  toast: (document.querySelector('[data-toast]') || {}).innerText || '',
+  count: ${store('groups')}.filter(g => g.type === 'club' && g.name === '통통').length,
+  open: !!document.querySelector('.club-new'),
+}))()`);
+check('같은 이름의 동아리는 만들어지지 않고 왜인지 말한다',
+  clubDup.count === 1 && clubDup.open === true
+  && clubDup.toast.includes('동아리를 만들지 못했어요')
+  && clubDup.toast.includes('같은 이름의 동아리가 이미 있어요'), JSON.stringify(clubDup));
+
 await setText('input[aria-label="동아리 이름"]', '달리기');
 await setText('input[aria-label="동아리 설명"]', '토요일 아침 러닝');
 check('동아리장은 자동완성 피커로 고른다', (await pickPerson('동아리장', '조해리')) === 'ok');
@@ -1042,7 +1088,12 @@ await openClub('달리기'); await sleep(800);
 const emptyMeet = await ev(`document.querySelector('.club-meet-empty')?.textContent.trim() || ''`);
 check('모임이 없을 때 문구', emptyMeet === '예정된 모임이 아직 없어요', emptyMeet);
 // 이 자리는 카드 아래에 딸린 구역이라 세로를 줄여 잡는다(minH 28vh) — 화면 한 판이 아니다
-isCentered('예정된 모임이 없는 자리', await centered('.club-meet-empty'), 140);
+const meetEmpty = await centered('.club-meet-empty');
+isCentered('예정된 모임이 없는 자리', meetEmpty, 140);
+check('모임 없음 = walk 컷', meetEmpty.cut === 'walk', meetEmpty.cut);
+const appEmpty = await centered('.club-app-empty');
+isCentered('가입 신청이 없는 자리', appEmpty, 120);
+check('가입 신청 없음 = question 컷', appEmpty.cut === 'question', appEmpty.cut);
 await ev(`${byText('목록으로')}.click()`); await sleep(500);
 
 // ── 5) 순 편성 (리더순장 — 마스터가 아니다) ─────────────────────────────────
@@ -1136,7 +1187,7 @@ check('③ 다른 순의 순원은 세우지 않고 먼저 옮기라고 말한�
 
 await pickPerson('꼬순 순장', '천진영'); await sleep(1100);
 const swapped = await ev(`(() => ({
-  toast: (document.querySelector('[role="status"]') || {}).innerText || '',
+  toast: (document.querySelector('[data-toast]') || {}).innerText || '',
   leader: (${store('groups')}.find(g => g.id === 'g1') || {}).leader_person_id,
   members: ${store('group_members')}.filter(m => m.group_id === 'g1').map(m => m.person_id).sort(),
   badge: [...document.querySelectorAll('.sun-row')[0].querySelectorAll('.sun-member')]
@@ -1163,6 +1214,20 @@ const renamed = await ev(`(() => ({
 check('순 이름을 바꾸면 그대로 남는다',
   renamed.stored === '꼬순이' && renamed.rows[0] === '꼬순이', JSON.stringify(renamed));
 
+// 이름 수정도 같은 확인을 거친다 — 같은 해의 다른 순 이름으로 바꾸려 하면 막힌다
+await ev(`document.querySelector('input[aria-label="꼬순이 순 이름"]').focus()`);
+await setText('input[aria-label="꼬순이 순 이름"]', 'TT순');
+await ev(`document.querySelector('input[aria-label="꼬순이 순 이름"]').blur()`); await sleep(1000);
+const renameDup = await ev(`(() => ({
+  toast: (document.querySelector('[data-toast]') || {}).innerText || '',
+  stored: (${store('groups')}.find(g => g.id === 'g1') || {}).name,
+  shown: document.querySelector('.sun-row .sun-name')?.value,
+}))()`);
+check('이름 수정도 같은 이름이면 막고, 칸을 되돌린다',
+  renameDup.stored === '꼬순이' && renameDup.shown === '꼬순이'
+  && renameDup.toast.includes('순 이름을 바꾸지 못했어요')
+  && renameDup.toast.includes(`${Y}년에 같은 이름의 순이 이미 있어요`), JSON.stringify(renameDup));
+
 await ev(`document.querySelector('.sun-new-open').click()`); await sleep(450);
 // 한 줄 생성기 — 이름과 순장이 같은 줄에 선다(사용자 지적 2026-09-03
 // "쓸데없는 줄바꿈으로 나누지 말라")
@@ -1183,6 +1248,21 @@ check('모바일 375px — 새 순 생성기는 최대 두 줄이고 넘치지 �
 const newSunPool = await pickOptions('새 순의 순장');
 check('새 순의 순장 후보는 아직 어느 순에도 없는 사람뿐(순 편성 제외자도 빠진다)',
   JSON.stringify(newSunPool) === '["양민혁","조해리"]', JSON.stringify(newSunPool));
+// 같은 해에 같은 이름은 막는다(0041) — 순은 해마다 다시 짜므로 해가 다르면 통과다.
+// 꼬순은 위에서 '꼬순이'로 바뀌었으니 아직 그대로인 TT순으로 본다.
+await setText('input[aria-label="새 순 이름"]', 'TT순');
+await sleep(150);
+await ev(`document.querySelector('.sun-new-make').click()`); await sleep(900);
+const sunDup = await ev(`(() => ({
+  toast: (document.querySelector('[data-toast]') || {}).innerText || '',
+  count: ${store('groups')}.filter(g => g.type === 'sun' && g.name === 'TT순' && g.year === ${Y}).length,
+  open: !!document.querySelector('.sun-new'),
+}))()`);
+check('같은 해 같은 이름의 순은 만들어지지 않고 어느 해인지 말한다',
+  sunDup.count === 1 && sunDup.open === true
+  && sunDup.toast.includes('순을 만들지 못했어요')
+  && sunDup.toast.includes(`${Y}년에 같은 이름의 순이 이미 있어요`), JSON.stringify(sunDup));
+
 await setText('input[aria-label="새 순 이름"]', '새싹순');
 check('새 순의 순장도 자동완성 피커로 고른다', (await pickPerson('새 순의 순장', '양민혁')) === 'ok');
 await sleep(200);
@@ -1246,6 +1326,22 @@ const sunEmpty = await centered('.sun-empty');
 isCentered('순 편성이 빈 해', sunEmpty);
 check('빈 순 편성 문구에 고른 해가 들어간다',
   sunEmpty.text === `${Y + 1}년 순 편성이 아직 비어 있어요`, sunEmpty.text);
+check('빈 해의 컷은 welcome', sunEmpty.cut === 'welcome', sunEmpty.cut);
+
+// 다른 해에는 같은 이름의 순이 서도 된다(순은 해마다 다시 짠다 — 0041의 coalesce(year,0))
+await ev(`document.querySelector('.sun-new-open').click()`); await sleep(450);
+await setText('input[aria-label="새 순 이름"]', 'TT순');
+await sleep(150);
+await ev(`document.querySelector('.sun-new-make').click()`); await sleep(1200);
+const crossYear = await ev(`(() => ({
+  rows: [...document.querySelectorAll('.sun-row')].map(r => r.querySelector('.sun-name').value),
+  years: ${store('groups')}.filter(g => g.type === 'sun' && g.name === 'TT순').map(g => g.year).sort(),
+  toast: (document.querySelector('[data-toast]') || {}).innerText || '',
+}))()`);
+check('다른 해에는 같은 이름의 순을 만들 수 있다',
+  JSON.stringify(crossYear.years) === JSON.stringify([Y, Y + 1])
+  && JSON.stringify(crossYear.rows) === '["TT순"]' && !crossYear.toast.includes('못했'),
+  JSON.stringify(crossYear));
 
 // ── 5-2) 팝오버 첫 등장 — 위에서 떨어지지 않는다(전수) ──────────────────────
 // **한 번 열었던 피커는 자리를 기억한다** — 그래서 이 구역은 새로 들어와서 각 피커를
@@ -1302,7 +1398,9 @@ const orphan = await ev(`(() => ({
 }))()`);
 check('명단에 안 이어진 계정에는 담백한 빈 자리',
   orphan.card === false && orphan.empty.includes('명단에 이어지지 않은') && orphan.empty.includes('관리자에게 알려주세요'), orphan.empty);
-isCentered('명단에 안 이어진 계정', await centered('.mysun-empty'));
+const orphanEmpty = await centered('.mysun-empty');
+isCentered('명단에 안 이어진 계정', orphanEmpty);
+check('내 순 빈 자리 = stand 컷', orphanEmpty.cut === 'stand', orphanEmpty.cut);
 
 // 동아리가 하나도 없는 화면 — 시드에서 동아리를 덜어내고 본다
 await enter({ personId: 'p6', isMaster: true, roles: [] }, 'light', `g.groups = g.groups.filter(x => x.type !== 'club');`);
@@ -1310,6 +1408,39 @@ await tab('동아리'); await sleep(800);
 const clubEmpty = await centered('.club-empty');
 isCentered('동아리가 하나도 없는 화면', clubEmpty);
 check('동아리가 없을 때 문구', clubEmpty.text === '아직 만들어진 동아리가 없어요', clubEmpty.text);
+check('동아리 없음 = coffee 컷', clubEmpty.cut === 'coffee', clubEmpty.cut);
+
+// ── 6-1) 컷이 붙은 나머지 빈 자리 · 명단에 안 이어진 마스터 ────────────────
+// 공유된 노트 없음(book) · 전부 배정(hearts) · 그리고 마스터가 명단에 이어져 있지
+// 않아도 순모임 가이드 자리는 선다(사용자 지적 2026-09-03).
+await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'light',
+  `g.service_notes = [];`);
+const noteEmpty = await centered('.mysun-note-empty');
+isCentered('공유된 노트가 없는 자리', noteEmpty, 120);
+check('공유된 노트 없음 = book 컷', noteEmpty.cut === 'book', noteEmpty.cut);
+
+await enter({ personId: 'p3', isMaster: false, isAdmin: false, roles: ['lead_sunjang'] }, 'light',
+  `g.group_members = [...g.group_members, { group_id: 'g1', person_id: 'p7' }, { group_id: 'g2', person_id: 'p8' }];`);
+await tab('순 편성'); await sleep(900);
+const placed = await ev(`(() => ({
+  cut: (document.querySelector('.sun-placed img')?.getAttribute('src') || '').split('/').pop(),
+  text: document.querySelector('.sun-placed')?.innerText.trim() || '',
+  pickers: document.querySelectorAll('.sun-add').length,
+}))()`);
+check('모두 배정되면 순원 추가 칸을 접고 한 번만 말한다(hearts 컷)',
+  placed.cut === 'hearts.webp' && placed.pickers === 0
+  && placed.text.includes('모두 순에 들어갔어요'), JSON.stringify(placed));
+
+await enter({ personId: null, isMaster: true, isAdmin: true, roles: [] }, 'light', '', true);
+const orphanMaster = await ev(`(() => ({
+  guide: !!document.querySelector('.sun-guide'),
+  sheet: !!document.querySelector('.sun-guide-sheet'),
+  card: !!document.querySelector('.mysun-card'),
+  empty: (document.querySelector('.mysun-empty img')?.getAttribute('src') || '').split('/').pop(),
+}))()`);
+check('마스터가 명단에 이어져 있지 않아도 순모임 가이드 자리가 보인다',
+  orphanMaster.guide === true && orphanMaster.sheet === true
+  && orphanMaster.card === false && orphanMaster.empty === 'stand.webp', JSON.stringify(orphanMaster));
 
 // ── 7) 모바일 375px ─────────────────────────────────────────────────────────
 await enter({ personId: 'p3', isMaster: false, roles: ['lead_sunjang'] });

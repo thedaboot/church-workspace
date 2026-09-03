@@ -384,6 +384,68 @@ check('인사말은 남고 빈 자리는 한 줄이다',
   empty.greeting === wantGreeting
   && empty.empty === '예배 · 말씀 · 모임 소식이 아직 올라오지 않았어요', JSON.stringify(empty));
 
+// ── 5b) 랜딩 쇼케이스 (사용자 요청 2026-09-03) ──────────────────────────────
+// 카드 넷 아래 네 블록(예배 · 말씀 · 모임 · 업무). **카드가 하나도 없는 날에도 선다** —
+// 여기는 '오늘 무엇이 있는지'가 아니라 '여기서 무엇을 할 수 있는지'를 말하는 자리다.
+// 화면 밖에서는 안 보이는 것이 정상이라(스크롤로 내려올 때 한 번 나타난다) 먼저
+// 굴려 놓고 묻는다.
+const showAt = async () => {
+  await ev(`document.querySelector('.home-show').scrollIntoView({ block: 'center' })`);
+  await sleep(900);
+  return ev(`(() => {
+    const items = [...document.querySelectorAll('.home-show-item')];
+    return {
+      keys: items.map(b => [...b.classList].find(k => k.startsWith('home-show-') && k !== 'home-show-item')),
+      shown: items.filter(b => Number(getComputedStyle(b).opacity) > 0.9).length,
+      cuts: items.map(b => b.querySelector('img')?.getAttribute('src') || ''),
+      drawn: items.every(b => { const i = b.querySelector('img'); return i && i.complete && i.naturalWidth > 0; }),
+      upscaled: items.filter(b => { const i = b.querySelector('img');
+        return i && Math.round(i.getBoundingClientRect().height) > i.naturalHeight + 1; }).length,
+      titles: items.map(b => b.querySelector('.home-show-name')?.textContent.trim() || ''),
+      descs: items.map(b => b.querySelector('.home-show-desc')?.textContent.trim() || ''),
+      motions: items.map(b => b.querySelectorAll('.home-mo').length),
+      running: [...document.querySelectorAll('.home-mo-a, .home-mo-cell, .home-mo-dot, .home-mo-kan')]
+        .filter(e => getComputedStyle(e).animationName !== 'none').length,
+      cols: getComputedStyle(document.querySelector('.home-show-grid')).gridTemplateColumns.split(' ').filter(Boolean).length,
+      over: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  })()`);
+};
+const show = await showAt();
+check('쇼케이스는 예배 · 말씀 · 모임 · 업무 네 블록이다',
+  JSON.stringify(show.keys) === '["home-show-worship","home-show-word","home-show-groups","home-show-work"]',
+  JSON.stringify(show.keys));
+check('스크롤로 내려오면 네 블록이 다 나타난다', show.shown === 4, `${show.shown}장`);
+check('블록마다 캐릭터 컷이 그려지고 원본보다 크지 않다',
+  show.drawn === true && show.upscaled === 0 && show.cuts.every(c => c.includes('chars/')),
+  `${JSON.stringify(show.cuts)} / 확대 ${show.upscaled}`);
+check('블록의 컷은 히어로 무리와 겹치지 않는다',
+  show.cuts.every(c => !hero.srcs.includes(c)), `${JSON.stringify(show.cuts)} / ${JSON.stringify(hero.srcs)}`);
+check('블록마다 제목 한 줄과 설명 한 줄',
+  JSON.stringify(show.titles) === '["예배","말씀","모임","업무"]'
+  && show.descs.every(d => d.length > 6), JSON.stringify(show.descs));
+check('블록마다 모션 그래픽이 하나 돈다',
+  show.motions.every(n => n === 1) && show.running >= 4, `${JSON.stringify(show.motions)} / 도는 것 ${show.running}`);
+check('데스크톱은 4열이고 가로로 넘치지 않는다', show.cols === 4 && show.over <= 0, `${show.cols}열 / 넘침 ${show.over}px`);
+
+// 블록을 누르면 그 화면으로 간다. '업무'는 업무 대시보드다(하단 바가 업무 모드로 바뀐다).
+await ev(`document.querySelector('.home-show-word').click()`); await sleep(1200);
+const showToWord = await ev(`(() => { const t = [...document.querySelectorAll('button')].map(b => b.textContent.trim());
+  return t.includes('QT') && t.includes('성경 읽기'); })()`);
+check('쇼케이스 블록을 누르면 그 화면으로 간다', showToWord === true);
+await goHome();
+await ev(`document.querySelector('.home-show').scrollIntoView({ block: 'center' })`); await sleep(500);
+await ev(`document.querySelector('.home-show-work').click()`); await sleep(1200);
+check("'업무' 블록은 업무 대시보드로 간다",
+  (await ev(`document.body.innerText.includes('업무 대시보드') || !!document.querySelector('.kpi-grid')`)) === true);
+await goHome();
+
+// 소식이 하나도 없는 날 — 카드는 없어도 쇼케이스는 남는다
+await enter({ app: APP_NO_TASKS, qt: null, entries: null, worship: null, groups: null });
+const showEmpty = await showAt();
+check('소식이 없는 날에도 쇼케이스는 선다',
+  showEmpty.keys.length === 4 && showEmpty.shown === 4, JSON.stringify(showEmpty.keys));
+
 // ── 6) 폭 — 데스크톱 2열 · 375px 1열 ────────────────────────────────────────
 await enter();
 const cols = (sel) => ev(`(() => {
@@ -424,6 +486,8 @@ const mob = await ev(`(() => {
 const mobCols = await cols('.home-cards');
 check('모바일 375px — 가로로 넘치지 않는다', mob.over <= 0, `넘침 ${mob.over}px`);
 check('모바일 375px — 카드가 한 줄에 하나씩', mobCols === 1 && mob.cards === 4 && mob.wide === false, `${mobCols}열 / ${mob.cards}장`);
+const showCols = await cols('.home-show-grid');
+check('모바일 375px — 쇼케이스는 한 줄에 하나씩', showCols === 1, `${showCols}열`);
 check('모바일 375px — 컷은 셋만 서고 가로로 넘치지 않는다',
   mob.cuts === 3 && mob.cutOver <= 0 && mob.crowdBelow === true,
   `${mob.cuts}장 / 넘침 ${mob.cutOver}px`);

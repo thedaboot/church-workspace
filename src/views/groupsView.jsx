@@ -15,6 +15,7 @@ import {
   applyToClub, cancelApplication, acceptApplication, declineApplication,
   createMeeting, saveMeetingAttendance,
   groupPerms, mySun, latestSunday, toggleAttendance, yearOptions, leaderPlan, dupReason,
+  duplicateName, dupNameText,
 } from '../services/groups.js';
 
 // ============================================================================
@@ -107,17 +108,25 @@ export function GroupsView() {
   // 않은 관리자 계정에는 기준 예배가 없어 가이드를 만들 자리도 없다 — 관리자·마스터는
   // 명단에 이어져 있는 것이 전제다(0035 my_person_id도 같은 전제). 어긋나면 그때 푼다.
   const myPersonId = state?.perms?.myPerson?.id || null;
+  const ready = !!state;
   useEffect(() => {
-    if (!myPersonId) return undefined;
+    if (!ready) return undefined;
     let alive = true;
     (async () => {
-      const [notes, services] = await Promise.all([fetchSunSharedNotes(), fetchServices()]);
+      // **기준 예배는 명단 연결과 무관하게 읽는다**(사용자 지적 2026-09-03) — 순모임
+      // 가이드가 이 예배 한 건에 매달려 있고, 마스터·관리자 계정이 명단에 이어지지
+      // 않은 경우가 실제로 있다. 그때 가이드 자리까지 사라지면 만들 길이 없다.
+      // 노트·출석은 '내 순 소식'이라 명단이 이어진 사람만 묻는다.
+      const [services, notes] = await Promise.all([
+        fetchServices(),
+        myPersonId ? fetchSunSharedNotes() : Promise.resolve([]),
+      ]);
       const service = latestSunday(services);
-      const present = service ? new Set(await fetchAttendance(service.id)) : new Set();
+      const present = (service && myPersonId) ? new Set(await fetchAttendance(service.id)) : new Set();
       if (alive) setExtra({ notes, service, present });
     })().catch(e => console.error('[groups] 내 순 소식 실패:', e));
     return () => { alive = false; };
-  }, [myPersonId]);
+  }, [ready, myPersonId]);
 
   useEffect(() => {
     if (!openClubId) { setMeetings([]); return undefined; }
@@ -153,10 +162,7 @@ export function GroupsView() {
 
   // 저장하러 가기 전에 막힌 경우 — 서버에 물어볼 것도 없이 이유가 분명하다.
   // 문구 모양은 실패 토스트와 같다(errorText가 err.human을 가장 먼저 본다).
-  const refuse = useCallback((what, why) => {
-    showToast(failText(what, { human: why }));
-    return false;
-  }, []);
+  const refuse = useCallback((what, why) => { showToast(failText(what, { human: why })); return false; }, []);
 
   const perms = state?.perms;
   const me = perms?.myPerson || null;
@@ -202,14 +208,23 @@ export function GroupsView() {
     }
   }, [refresh]);
 
-  const newClub = useCallback(({ name, note, leaderPersonId }) => run('동아리를 만들지 못했어요',
-    () => createGroup({ type: 'club', name, note, leaderPersonId }),
-    `${name}${objectParticle(name)} 만들었어요`), [run]);
+  // 같은 이름은 0041이 DB에서 막는다 — 화면은 저장하러 가기 전에 같은 말을 한다.
+  const newClub = useCallback(({ name, note, leaderPersonId }) => {
+    const taken = duplicateName({ groups: state?.allGroups || [], type: 'club', name });
+    if (taken) return refuse('동아리를 만들지 못했어요', taken);
+    return run('동아리를 만들지 못했어요',
+      () => createGroup({ type: 'club', name, note, leaderPersonId }),
+      `${name}${objectParticle(name)} 만들었어요`, dupNameText('club'));
+  }, [run, refuse, state]);
 
   // 동아리 이름·설명 고치기 — 마스터·관리자 또는 그 동아리장(0039 groups_update).
   // 순 이름 바꾸기와 같은 결의 조작이라 문구도 같은 결로 둔다.
-  const editClub = useCallback((club, { name, note }) => run('동아리 정보를 바꾸지 못했어요',
-    () => saveClubInfo(club.id, { name, note }), '동아리 정보를 바꿨어요'), [run]);
+  const editClub = useCallback((club, { name, note }) => {
+    const taken = duplicateName({ groups: state?.allGroups || [], type: 'club', name, exceptId: club.id });
+    if (taken) return refuse('동아리 정보를 바꾸지 못했어요', taken);
+    return run('동아리 정보를 바꾸지 못했어요',
+      () => saveClubInfo(club.id, { name, note }), '동아리 정보를 바꿨어요', dupNameText('club'));
+  }, [run, refuse, state]);
 
   const newMeeting = useCallback(async (club, { date, title }) => {
     try {
@@ -247,12 +262,22 @@ export function GroupsView() {
       people: adminData?.people || [], suns: adminData?.suns || [], members: adminData?.members || [],
     });
     if (!plan.ok) return refuse('순을 만들지 못했어요', plan.why);
+    // 순은 **같은 해 안에서만** 유일하다(0041) — 지난 해에 같은 이름이 있어도 만든다
+    const taken = duplicateName({ groups: state?.allGroups || [], type: 'sun', name, year });
+    if (taken) return refuse('순을 만들지 못했어요', taken);
     return run('순을 만들지 못했어요',
-      () => createGroup({ type: 'sun', name, year, leaderPersonId }), `${name}${objectParticle(name)} 만들었어요`);
-  }, [run, refuse, year, adminData]);
+      () => createGroup({ type: 'sun', name, year, leaderPersonId }),
+      `${name}${objectParticle(name)} 만들었어요`, dupNameText('sun', year));
+  }, [run, refuse, year, adminData, state]);
 
-  const renameSun = useCallback((group, name) => run('순 이름을 바꾸지 못했어요',
-    () => saveGroup(group.id, { name }), '순 이름을 바꿨어요'), [run]);
+  const renameSun = useCallback((group, name) => {
+    const taken = duplicateName({
+      groups: state?.allGroups || [], type: 'sun', name, year: group.year, exceptId: group.id,
+    });
+    if (taken) return refuse('순 이름을 바꾸지 못했어요', taken);
+    return run('순 이름을 바꾸지 못했어요',
+      () => saveGroup(group.id, { name }), '순 이름을 바꿨어요', dupNameText('sun', group.year));
+  }, [run, refuse, state]);
 
   // 순장 지정 — **저장하러 가기 전에 네 갈래를 판정한다**(groups.js leaderPlan · 사용자
   // 지시 2026-09-03). 이미 다른 순의 순장이거나 다른 순의 순원이면 세우지 않고 이유를

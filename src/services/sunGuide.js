@@ -28,12 +28,18 @@ import { kindLabel, formatServiceDate } from './worship.js';
 
 // 본문(body)의 모양 — **화면·검사·모임 화면이 같이 쓰는 계약이다.** 여기 필드를
 // 늘리려면 components/sunGuide.jsx와 tests/sunguide.mjs를 같이 고쳐야 한다.
-//   { passage: { ref, title }, summary, points: [{ title, body } ×3], questions: [string ×3] }
+//   { passage: { ref, title }, summaryRef?, summary, points: [{ title, body } ×3], questions: [string ×3] }
+//
+// `summaryRef`는 **선택 필드**다(사용자가 준 템플릿 1장의 빨간 소제목
+// '[요한복음 8:1~11 배경 요약]'). 그 소제목이 말하는 것은 요약이 다루는 구절 범위이고,
+// 주일 본문(8:12-20)의 **앞 문맥**일 때가 많아서 본문 구절로는 만들어 낼 수 없다.
+// 없어도 통하는 값이라 모양 검증에서 빠져 있다 — 이 필드가 없는 지난 가이드도 그대로
+// 열려야 한다(있으면 문자열이어야 한다).
 //
 // 글자수 상한은 사용자가 준 템플릿(세로 카드 3장)에서 그 자리가 실제로 담는 만큼이다.
 // 소제목의 번호('1.')와 질문의 'Q.'는 **화면이 붙인다** — 글에 넣으면 모델이 번호를
 // 어긋나게 매기고, 상한도 번호가 잡아먹는다.
-export const LIMITS = { summary: 380, pointTitle: 24, pointBody: 260, question: 80 };
+export const LIMITS = { summaryRef: 30, summary: 380, pointTitle: 24, pointBody: 260, question: 80 };
 export const POINTS = 3;
 const QUESTIONS = 3;
 
@@ -76,6 +82,8 @@ export function fitGuide(body) {
   const questions = Array.isArray(b.questions) ? b.questions : [];
   return {
     passage: { ref: str(p.ref), title: str(p.title) },
+    // 없으면 빈 글이다 — 화면은 빈 글이면 소제목을 아예 그리지 않는다
+    summaryRef: fitText(b.summaryRef, LIMITS.summaryRef),
     summary: fitText(b.summary, LIMITS.summary),
     points: Array.from({ length: POINTS }, (_, i) => ({
       title: fitText(points[i]?.title, LIMITS.pointTitle),
@@ -91,6 +99,8 @@ export function isGuideShape(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
   if (typeof v.summary !== 'string' || !v.summary.trim()) return false;
   if (!v.passage || typeof v.passage !== 'object' || typeof v.passage.ref !== 'string') return false;
+  // summaryRef는 선택이다 — 없는 것은 통과, 있으면 문자열이어야 한다
+  if (v.summaryRef != null && typeof v.summaryRef !== 'string') return false;
   const every = (a, f) => Array.isArray(a) && a.length > 0 && a.every(f);
   if (!every(v.points, (x) => x && typeof x.title === 'string' && typeof x.body === 'string')) return false;
   return every(v.questions, (x) => typeof x === 'string');
@@ -172,6 +182,7 @@ export function buildGuidePrompt({ service, passageText = '' } = {}) {
     '[만들 것 — 아래 모양의 JSON 하나]',
     '{',
     '  "passage": { "ref": "본문 구절을 그대로", "title": "본문을 한 마디로 (12자 이내)" },',
+    `  "summaryRef": "아래 말씀 요약이 다루는 구절 범위 (${LIMITS.summaryRef}자 이내, 예 '요한복음 8:1~11')",`,
     `  "summary": "본문의 배경과 흐름을 한 단락으로 (${LIMITS.summary}자 이내)",`,
     '  "points": [',
     `    { "title": "소제목 (${LIMITS.pointTitle}자 이내, 번호는 붙이지 마라)", "body": "그 대목의 설명 (${LIMITS.pointBody}자 이내)" },`,
@@ -186,6 +197,7 @@ export function buildGuidePrompt({ service, passageText = '' } = {}) {
     '}',
     '',
     `- points는 반드시 ${POINTS}개이고 본문의 흐름을 차례로 따라간다.`,
+    '- summaryRef는 summary가 실제로 다루는 구절 범위다. 앞 문맥을 요약했으면 그 앞 구절 범위를 적는다.',
     `- questions는 반드시 ${QUESTIONS}개이고, **첫 질문은 본문 이야기가 아니라 지난 한 주 일상을 나누는 질문**이다.`,
     '- 질문 앞에 "Q."를 붙이지 마라. 소제목 앞에 번호를 붙이지 마라. 화면이 붙인다.',
     '- 글자수 상한을 넘기지 마라. 넘기면 문장이 잘려 나간다.',
@@ -212,6 +224,7 @@ export function parseGuide(text) {
 // 사용자가 준 순모임 가이드 템플릿 원문(2026-03-01분) — 개발 모드의 미리보기 전용 예시
 const SAMPLE_GUIDE = {
   passage: { ref: '요한복음 8:12-20', title: '(예시) 세상의 빛으로 오신 예수님' },
+  summaryRef: '요한복음 8:1~11',
   summary: '서기관과 바리새인들이 간음하다 현장에서 잡힌 여인을 끌고 와, 율법대로 돌로 칠 것인지 물으며 예수님을 시험에 빠뜨리려 합니다. 예수님은 "너희 중에 죄 없는 자가 먼저 돌로 치라"는 말씀으로, 타인을 정죄하던 사람들의 시선을 본인들의 죄된 내면으로 돌리게 하십니다. 양심에 가책을 느낀 사람들은 하나둘씩 떠나가고, 그 자리에는 오직 예수님과 여인만이 남게 됩니다. 죄 없으신 유일한 심판자이신 예수님은 여인을 정죄하는 대신 "나도 너를 정죄하지 않으니 다시는 죄를 범하지 말라"며 생명의 기회를 주십니다.',
   points: [
     { title: '생명의 빛', body: '예수님은 자신을 **"세상의 빛"**이라고 선언하십니다. 여기서 말하는 빛은 "생명"과 "길"을 의미합니다. 빛이신 예수님을 따르는 사람은 육체의 회복 뿐만 아니라 정체성 또한 회복할 수 있습니다. 즉, 우리 내면의 죽어가는 생명을 살려내는 근원적인 힘입니다.' },

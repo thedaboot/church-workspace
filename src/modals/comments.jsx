@@ -282,7 +282,7 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
       .catch(e => {
         console.error('[cloud] 반응을 저장하지 못했습니다:', e);
         setLocal(prev => ({ ...prev, [c.id]: before }));   // 화면이 거짓말하지 않게 되돌린다
-        showToast('반응을 남기지 못했어요 · 잠시 후 다시 시도해주세요');
+        showToast('반응을 남기지 못했어요\n잠시 후 다시 시도해주세요');
       });
   };
 

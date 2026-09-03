@@ -4,7 +4,7 @@ import { Avatar } from './Avatar.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { keepVisible } from '../utils.js';
 import { PassagePicker, PassageBody } from './worshipPassage.jsx';
-import { EmptyBookMark } from './wordBible.jsx';
+import { Cut } from './groupsParts.jsx';
 import { kindLabel, formatServiceDate, attendanceOpen } from '../services/worship.js';
 
 // ============================================================================
@@ -60,10 +60,11 @@ export function SaveState({ state, savedLabel = '저장되었어요' }) {
 // 예배 화면의 빈 상태 한 벌 — **마크와 함께 남는 공간의 세로·가로 가운데**(§8 ·
 // 사용자 지적 2026-09-02: 글자만 위에 붙어 있으면 아래가 통째로 비어 보인다).
 //
-// 마크는 새로 그리지 않는다. 대시보드의 AllClearMark(체크)·EmptyColumnMark(카드)는
-// export가 없고 그 파일들은 이 회차에서 못 건드리므로, 이미 export된 같은 한 벌인
-// 말씀 화면의 EmptyBookMark(펼친 책)를 그대로 쓴다 — 주보·본문 화면이라 그림도 맞는다.
-// 안내 줄은 붙이지 않는다(§8) — 한 줄이 전부다.
+// 그림은 **캐릭터 컷**이다(사용자 결정 2026-09-03) — SVG 선 그리기 마크를 대신한다.
+// 컷은 모임 화면과 같은 한 벌(groupsParts의 Cut → public/chars/<name>.webp)이고, 빈
+// 자리마다 어울리는 것을 부르는 쪽이 고른다(발행본 없음=welcome, 말씀=book …).
+// **원본보다 키우지 않는다**(Cut의 기본 높이 112px, 원본은 150~170px).
+// 안내 줄은 붙이지 않는다(§8) — 컷 아래 한 줄이 전부다.
 //
 // 남는 공간은 **재서** 차지한다. 46vh 고정값으로 두었더니, 이 자리 위에 무엇이 몇
 // 픽셀 서 있는지가 화면마다 달라서(목록 머리줄·상세 도구 줄·탭 줄·모바일 상단 바)
@@ -106,12 +107,12 @@ function useFillRest() {
   return [ref, minH];
 }
 
-export function WorshipEmpty({ text }) {
+export function WorshipEmpty({ text, cut = 'stand' }) {
   const [ref, minH] = useFillRest();
   return (
     <div ref={ref} className="worship-empty flex flex-col items-center justify-center text-center"
       style={{ minHeight: minH === null ? '46vh' : `${minH}px` }}>
-      <EmptyBookMark />
+      <Cut name={cut} />
       <p className="mt-3 text-[13.5px] font-semibold text-fg">{text}</p>
     </div>
   );
@@ -135,7 +136,7 @@ const patchOf = (d) => ({
 // ── 보기 ─────────────────────────────────────────────────────────────────────
 function WordTab({ service, onOpenBible }) {
   const has = service.title || service.passage_ref || service.preacher;
-  if (!has) return <WorshipEmpty text="설교 제목과 본문 구절을 아직 적지 않았어요" />;
+  if (!has) return <WorshipEmpty cut="book" text="설교 제목과 본문 구절을 아직 적지 않았어요" />;
   // 구절은 누르면 성경 읽기의 그 장으로 간다(App.jsx의 openBible → WordView initialRef).
   const ref = service.passage_ref;
   return (
@@ -156,7 +157,7 @@ function WordTab({ service, onOpenBible }) {
 
 function RolesTab({ rows, people }) {
   const byId = useMemo(() => new Map((people || []).map(p => [p.id, p])), [people]);
-  if (!rows.length) return <WorshipEmpty text="담당자를 아직 정하지 않았어요" />;
+  if (!rows.length) return <WorshipEmpty cut="shoulder" text="담당자를 아직 정하지 않았어요" />;
   return (
     <ul className={LIST}>
       {rows.map((r, i) => {
@@ -176,7 +177,7 @@ function RolesTab({ rows, people }) {
 }
 
 function SongsTab({ rows }) {
-  if (!rows.length) return <WorshipEmpty text="찬양을 아직 정하지 않았어요" />;
+  if (!rows.length) return <WorshipEmpty cut="sparkle-wave" text="찬양을 아직 정하지 않았어요" />;
   return (
     <ul className={LIST}>
       {rows.map((s, i) => (
@@ -196,7 +197,7 @@ function SongsTab({ rows }) {
 }
 
 function NoticesTab({ rows }) {
-  if (!rows.length) return <WorshipEmpty text="광고를 아직 적지 않았어요" />;
+  if (!rows.length) return <WorshipEmpty cut="point" text="광고를 아직 적지 않았어요" />;
   return (
     <ol className={`${LIST} space-y-3.5`}>
       {rows.map((n, i) => (
