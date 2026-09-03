@@ -109,15 +109,20 @@ export async function setMyTeams(teamIds) {
   if (ins.error) console.warn('[cloud] profile_teams 저장 실패:', ins.error.message);
 }
 
-// 프로필 행이 없을 때 클라이언트가 직접 자기 행을 생성(RLS상 본인 insert 허용)
+// 프로필 행이 없을 때 클라이언트가 직접 자기 행을 생성(RLS상 본인 insert 허용).
+// **있는 행은 건드리지 않는다** — 예전 upsert는 getMyProfile이 잠깐 비어 돌아온 순간 OAuth 메타(카카오·
+// 구글 기본 사진, 가입 때 이름)로 사용자가 바꿔 둔 사진·이름을 덮어썼다(2026-09-03 지적 — "내 프로필 사진이
+// 갑자기 카카오 프로필로 바뀌었다"). 자가 복구는 '없으면 만들기'까지만이다.
 export async function ensureMyProfile(user) {
   const meta = user.user_metadata || {};
+  const existing = await client().from('profiles').select('*').eq('id', user.id).maybeSingle();
+  if (existing.data) return existing.data;
   const row = {
     id: user.id,
     display_name: meta.full_name || meta.name || null,
     avatar_url: meta.avatar_url || null,
   };
-  return unwrap(await client().from('profiles').upsert(row, { onConflict: 'id' }).select().single());
+  return unwrap(await client().from('profiles').upsert(row, { onConflict: 'id', ignoreDuplicates: true }).select().single());
 }
 export async function listTeams() {
   return unwrap(await client().from('teams').select('*').order('name', { ascending: true }));

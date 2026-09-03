@@ -3,7 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 // ============================================================================
 // /api/yt — 유튜브 재생목록·영상 제목 프록시. **키가 필요 없는 공개 경로만** 쓴다.
 //   요구: Authorization: Bearer <supabase access token> (getUser로 검증 — api/ai.js와 같다)
-//   { listId }  → https://www.youtube.com/feeds/videos.xml?playlist_id=<id>  (RSS)
+//   { listId }  → YOUTUBE_API_KEY가 있으면 Data API playlistItems(50개씩 페이지 넘김, 전체)
+//                 없으면 https://www.youtube.com/feeds/videos.xml?playlist_id=<id>  (RSS, 최신 15곡)
 //                 → { items: [{ title, videoId }] }
 //   { videoId } → https://www.youtube.com/oembed?url=...&format=json
 //                 → { title }
@@ -74,6 +75,30 @@ export default async function handler(req, res) {
 
   try {
     if (LIST_ID.test(String(listId || ''))) {
+      const key = process.env.YOUTUBE_API_KEY;
+      if (key) {
+        // Data API — 비공개·삭제된 영상은 제목이 'Private video'/'Deleted video'로 오고 재생할 수 없어 뺀다.
+        // ponytail: 상한 500곡(10페이지) — 예배 찬양 목록이 그 이상일 일은 없다. 할당량은 페이지당 1단위.
+        const items = []; let pageToken = '';
+        for (let page = 0; page < 10; page++) {
+          const url = 'https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50'
+            + `&playlistId=${listId}&key=${key}${pageToken ? `&pageToken=${pageToken}` : ''}`;
+          const { status, text } = await getText(url);
+          if (status === 404) { res.status(404).json({ error: '그 재생목록이 없거나 비공개예요' }); return; }
+          if (status !== 200) { console.error('[yt] Data API', status, text.slice(0, 200)); res.status(502).json({ error: '유튜브가 재생목록을 주지 않았어요' }); return; }
+          let data; try { data = JSON.parse(text); } catch { data = {}; }
+          for (const it of data.items || []) {
+            const sn = it.snippet || {}; const vid = sn.resourceId?.videoId || '';
+            if (!VIDEO_ID.test(vid) || /^(Private|Deleted) video$/.test(sn.title || '')) continue;
+            items.push({ title: String(sn.title || '').trim(), videoId: vid });
+          }
+          pageToken = data.nextPageToken || '';
+          if (!pageToken) break;
+        }
+        if (!items.length) { res.status(404).json({ error: '그 재생목록에 영상이 한 곡도 없어요' }); return; }
+        res.status(200).json({ items, complete: true });
+        return;
+      }
       const { status, text } = await getText(`https://www.youtube.com/feeds/videos.xml?playlist_id=${listId}`);
       if (status === 404) { res.status(404).json({ error: '그 재생목록이 없거나 비공개예요' }); return; }
       if (status !== 200) { res.status(502).json({ error: '유튜브가 재생목록을 주지 않았어요' }); return; }
