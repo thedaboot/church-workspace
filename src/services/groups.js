@@ -1,6 +1,6 @@
 import { supabase } from './supabaseClient.js';
 import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, fetchMyPerson, guestStore } from './people.js';
-import { SUNDAY_KIND } from './worship.js';
+import { SUNDAY_KIND, fetchMyNote, saveMyNote } from './worship.js';
 import { generateId } from '../utils.js';
 
 // ============================================================================
@@ -59,11 +59,15 @@ export function groupPerms({ isMaster = false, isAdmin = false, myPerson = null,
     canManageSun: master || admin || (myRoles || []).includes('lead_sunjang'),
     canCreateClub: master,
     ledClubIds: ledClubIds || [],
-    // 이름·설명은 그 동아리 리더도 고친다 — 명단·모임(canManageClub)과 자격이 다르다:
-    // 그쪽은 마스터+리더, 이쪽은 관리자+리더다(0039 groups_update).
-    canEditClub: (club) => admin || (!!club?.leader_person_id && club.leader_person_id === myPerson?.id),
   };
 }
+
+// 동아리 이름·설명을 고칠 수 있나 — 관리자(마스터 포함) 또는 **그** 동아리장이다
+// (0039 groups_update). 명단·모임(canManageClub = 마스터 + 그 리더)과 경계가 다르다.
+// **perms의 메서드가 아니라 바깥 함수다**(canManageClub과 같은 모양) — 자격 한 벌이
+// 캐시(services/cache.js)를 거쳐 JSON으로 오가는데, 함수는 그 길에서 사라진다.
+export const canEditClub = (perms, club) => !!perms?.isAdmin
+  || (!!club?.leader_person_id && club.leader_person_id === perms?.myPerson?.id);
 
 export const canManageClub = (perms, groupId) =>
   !!perms?.isMaster || (!!groupId && (perms?.ledClubIds || []).includes(groupId));
@@ -304,25 +308,50 @@ export async function fetchApplications() {
   return data ?? [];
 }
 
-// 내 순에 공유된 예배 노트. **shared_to_sun = true로만 묻는다** — 남의 비공개 노트를
-// 묻는 문장이 있어서는 안 된다(결정 7). 올해 같은 순인지는 0036의 same_sun()이 가른다.
+// 내 순에 공유된 예배 노트 + **내 노트는 비공개여도 나에게는 온다**(사용자 결정
+// 2026-09-03 — 그 줄에서 바로 공유를 켜고 끈다). 남의 비공개 노트를 묻는 문장은
+// 여기 없다(결정 7): 조회는 `공유된 것` 또는 `내 것`으로만 좁히고, '올해 같은 순'을
+// 가르는 것은 0036의 same_sun()이다. 순장이라도 순원의 비공개 노트는 볼 수 없다.
+//
+// 돌려주는 줄에는 화면이 필요한 것만 붙인다: shared(지금 공유 상태) · mine(내 것인가) ·
+// serviceId(공유를 켤 때 어느 예배의 노트인지).
+async function myProfileId() {
+  if (!supabase) return null;
+  const { data: { user } = {} } = await supabase.auth.getUser();
+  return user?.id || null;
+}
+
+// 게스트에는 로그인이 없다 — 시드의 me가 가리키는 명단 항목의 profile_id가 내 것이다.
+function guestProfileId() {
+  const me = guestAll().me || {};
+  if (!me.personId) return null;
+  return guestRows('people').find(p => p.id === me.personId)?.profile_id || null;
+}
+
 export async function fetchSunSharedNotes() {
   if (!supabase) {
+    const uid = guestProfileId();
     const services = guestRows('services');
     return guestRows('service_notes')
-      .filter(n => n.shared_to_sun && String(n.body || '').trim())
+      .filter(n => (n.shared_to_sun || (!!uid && n.profile_id === uid)) && String(n.body || '').trim())
       .map(n => ({
         id: n.id || `${n.service_id}-${n.profile_id || ''}`,
         body: n.body,
         name: n.author_name || '',
         avatarUrl: '',
+        serviceId: n.service_id,
+        shared: !!n.shared_to_sun,
+        mine: !!uid && n.profile_id === uid,
         serviceDate: services.find(s => s.id === n.service_id)?.service_date || '',
       }))
       .sort((a, b) => String(b.serviceDate).localeCompare(String(a.serviceDate)));
   }
-  const { data, error } = await supabase.from('service_notes')
-    .select('id, body, updated_at, service_id, services(service_date), profiles(display_name, avatar_url)')
-    .eq('shared_to_sun', true).order('updated_at', { ascending: false });
+  const uid = await myProfileId();
+  let q = supabase.from('service_notes')
+    .select('id, body, shared_to_sun, updated_at, service_id, profile_id, services(service_date), profiles(display_name, avatar_url)');
+  // 공유된 것 **또는 내 것**. RLS가 같은 경계를 한 번 더 긋는다(0036).
+  q = uid ? q.or(`shared_to_sun.eq.true,profile_id.eq.${uid}`) : q.eq('shared_to_sun', true);
+  const { data, error } = await q.order('updated_at', { ascending: false });
   if (error) throw error;
   return (data ?? [])
     .filter(r => String(r.body || '').trim())
@@ -331,8 +360,27 @@ export async function fetchSunSharedNotes() {
       body: r.body,
       name: r.profiles?.display_name || '',
       avatarUrl: r.profiles?.avatar_url || '',
+      serviceId: r.service_id,
+      shared: !!r.shared_to_sun,
+      mine: !!uid && r.profile_id === uid,
       serviceDate: r.services?.service_date || '',
     }));
+}
+
+// 내 노트의 공유 여부만 바꾼다. 본문은 그대로 다시 넘긴다 — 예배 쪽 저장이 upsert 한
+// 벌이라 body를 빠뜨리면 글이 지워진다(worship.js saveMyNote). worship.js에
+// setNoteShared가 생기면 이 함수는 그걸 부르기만 하면 된다(보고서).
+// 게스트는 **모임 화면의 저장 자리**를 직접 고친다 — worship.js의 게스트 저장은 그
+// 예배의 노트를 한 벌로 갈아 끼워서 남의 줄까지 지우고, 키도 다르다(church_worship_v1).
+export async function setNoteShared(serviceId, shared) {
+  if (!supabase) {
+    const uid = guestProfileId();
+    guestSet('service_notes', guestRows('service_notes').map(n => (
+      n.service_id === serviceId && n.profile_id === uid ? { ...n, shared_to_sun: !!shared } : n)));
+    return;
+  }
+  const mine = await fetchMyNote(serviceId);
+  await saveMyNote(serviceId, { body: mine?.body || '', sharedToSun: !!shared });
 }
 
 export async function fetchMeetings(groupId) {

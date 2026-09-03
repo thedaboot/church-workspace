@@ -30,6 +30,12 @@ import {
 // 부르는 쪽(모임 화면)이 `perms = { canCreate, canView }`로 넘긴다. 진실은 RLS다
 // (0039: 보는 사람 = 순장 + can_manage_sun, 만드는 사람 = can_manage_sun).
 //
+// **읽기는 두 갈래다.** 바깥이 이미 캐시에서 읽어 두었으면 `initialGuide`로 넘기고
+// (`loading`이 참인 동안은 이 패널이 아무것도 그리지 않는다 — 컨테이너의 스켈레톤
+// 한 덩이가 그 자리를 맡는다), 안 넘기면 패널이 스스로 loadGuide를 부른다.
+// 저장이 끝나면 `onSaved(body)`로 알려서 바깥이 캐시를 갱신한다. 자세한 계약은
+// SunGuidePanel 바로 위 주석에 적어 두었다.
+//
 // 소제목 번호('1.')와 질문의 'Q.'는 **여기서 붙인다** — body에 넣으면 모델이 번호를
 // 어긋나게 매기고 글자수 상한도 번호가 잡아먹는다(sunGuide.js 주석).
 // ============================================================================
@@ -203,17 +209,31 @@ const SKELETON = (
 );
 
 // ── 패널 ────────────────────────────────────────────────────────────────────
-export function SunGuidePanel({ service, perms }) {
+// props (모임 화면과의 계약):
+//   service · perms      — 주보 한 건과 자격 { canCreate, canView }
+//   initialGuide         — 바깥이 **이미 캐시에서 읽어 둔** body, 또는 없으면 null.
+//                          `undefined`면 "바깥이 안 준다"는 뜻이라 여기서 직접 읽는다.
+//                          그래서 `!== undefined`로 가른다 — null과 undefined가 다른 뜻이다.
+//   loading              — 바깥이 아직 읽는 중. 이때는 **아무것도 그리지 않는다** —
+//                          바깥 컨테이너가 한 덩이 스켈레톤을 그리므로, 여기서 또 그리면
+//                          스켈레톤이 두 겹이 된다.
+//   onSaved(body)        — 저장이 끝난 뒤. 바깥이 자기 캐시를 갱신할 수 있게 알린다
+//                          (안 주면 안 부른다 — 옵셔널).
+export function SunGuidePanel({ service, perms, initialGuide, loading = false, onSaved }) {
   const canView = !!perms?.canView;
   const canCreate = !!perms?.canCreate;
   const serviceId = service?.id || '';
-  const [state, setState] = useState('load');   // load | none | view | edit | make
-  const [guide, setGuide] = useState(null);
+  // 바깥이 값을 대신 읽어 주는가. 그러면 이 패널은 읽지 않고 받은 것만 그린다.
+  const external = initialGuide !== undefined;
+  const [state, setState] = useState(() => (external ? (initialGuide ? 'view' : 'none') : 'load'));
+  const [guide, setGuide] = useState(() => (external ? (initialGuide || null) : null));
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!serviceId || !canView) return undefined;
+    // 바깥이 주는 경우에는 **여기서 또 읽지 않는다** — 같은 행을 두 번 읽고, 늦게
+    // 도착한 쪽이 이겨서 화면이 한 번 깜빡인다.
+    if (external || !serviceId || !canView) return undefined;
     let alive = true;
     setState('load'); setGuide(null); setDraft(null);
     loadGuide(serviceId)
@@ -228,7 +248,19 @@ export function SunGuidePanel({ service, perms }) {
         if (alive) setState('none');
       });
     return () => { alive = false; };
-  }, [serviceId, canView]);
+  }, [external, serviceId, canView]);
+
+  // 바깥의 값이 갈리면(캐시 revalidate) 따라간다. **편집·생성 중에는 손대지 않는다** —
+  // 쓰던 초안을 캐시가 덮으면 사람이 다듬던 글을 잃는다.
+  // 의존성을 값의 지문으로 잡는 이유: 바깥이 매 렌더 새 객체를 만들어 넘겨도 내용이
+  // 같으면 여기서 setState가 돌지 않아야 한다(돌면 렌더가 서로를 부른다).
+  const extFingerprint = external ? JSON.stringify(initialGuide ?? null) : '';
+  useEffect(() => {
+    if (!external) return;
+    setGuide(initialGuide || null);
+    setState(s => (s === 'edit' || s === 'make' ? s : (initialGuide ? 'view' : 'none')));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [external, extFingerprint, serviceId]);
 
   // 왜 못 만들었는지를 말한다(사용자 지적 2026-09-03 — "가이드는 지금 만들지 못하는
   // 건지?"). generateGuide는 막힌 이유를 null 하나로 돌려주므로(AI 계층의 안내 문구는
@@ -263,6 +295,9 @@ export function SunGuidePanel({ service, perms }) {
     try {
       const saved = await saveGuide(serviceId, draft);
       setGuide(saved); setDraft(null); setState('view');
+      // 바깥이 캐시를 들고 있으면 갱신하라고 알린다 — 안 알리면 다른 탭에 갔다 오면
+      // 저장 전 값이 먼저 그려진다.
+      onSaved?.(saved);
       showToast('순모임 가이드를 저장했어요');
     } catch (e) {
       console.error('[sunGuide] 가이드를 저장하지 못했어요:', e);
@@ -271,8 +306,10 @@ export function SunGuidePanel({ service, perms }) {
   };
 
   if (!service || !canView) return null;
-  // 읽는 동안에는 아무것도 두지 않는다 — 여기 빈 카드를 세우면 가이드가 없는 순장
-  // (대다수)에게 카드가 한 번 떴다가 사라진다. 한 행을 읽는 일이라 금방 끝난다.
+  // 바깥이 읽는 중이면 자리를 비운다 — 컨테이너가 한 덩이 스켈레톤을 그린다.
+  if (loading) return null;
+  // 스스로 읽는 동안에도 아무것도 두지 않는다 — 여기 빈 카드를 세우면 가이드가 없는
+  // 순장(대다수)에게 카드가 한 번 떴다가 사라진다. 한 행을 읽는 일이라 금방 끝난다.
   if (state === 'load') return null;
   if (state === 'none' && !canCreate) return null;
 

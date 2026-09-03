@@ -50,7 +50,10 @@ const seed = {
     { id: 'p2', name: '천진영', profile_id: null },
     { id: 'p3', name: '김승찬', profile_id: 'u3' },
     { id: 'p4', name: '배현민', profile_id: null },
-    { id: 'p5', name: '임재훈', profile_id: null },
+    // 계정이 이어진 사람은 **계정 표시명**으로 부른다(사용자 결정 2026-09-03) —
+    // services/people.js가 name을 표시명으로 덮고 명단 이름을 roster_name에 남긴다.
+    // 게스트 시드는 그 '덮은 뒤'의 모양이다(클라우드에서 화면이 받는 것과 같다).
+    { id: 'p5', name: '말감이', roster_name: '임재훈', profile_id: 'u5' },
     { id: 'p6', name: '노준석', profile_id: 'u2' },
     { id: 'p7', name: '조해리', profile_id: null },
     { id: 'p8', name: '양민혁', profile_id: null },
@@ -91,10 +94,14 @@ const seed = {
     { service_id: 's0', person_id: 'p3' },
   ],
   service_notes: [
+    // 노트는 마크다운으로 쓴다 — 뷰어가 원문을 글자로 흘리지 않는지 함께 본다
     { id: 'n1', service_id: 's1', profile_id: 'u9', shared_to_sun: true, author_name: '천진영',
-      body: '기쁨은 상황이 아니라 붙드시는 손에서 온다' },
+      body: '## 오늘 남은 말씀\n**기쁨**은 상황이 아니라 붙드시는 손에서 온다\n- 빌립보서 4:4' },
     { id: 'n2', service_id: 's1', profile_id: 'u8', shared_to_sun: false, author_name: '양민혁',
       body: '이 줄은 비공개라 모임 화면에 오면 안 된다' },
+    // **내 노트는 비공개여도 나에게는 온다**(사용자 결정 2026-09-03) — p1의 계정이 u1이다
+    { id: 'n3', service_id: 's1', profile_id: 'u1', shared_to_sun: false, author_name: '김윤주',
+      body: '아직 나만 보는 묵상' },
   ],
 };
 
@@ -298,10 +305,18 @@ const ICON_AUDIT = `(() => {
   }
   return bad;
 })()`;
+// 들어가서 **화면이 실제로 설 때까지 기다린다.** 한 번 누르고 정해진 시간만 쉬면,
+// 첫 페인트가 늦은 판(모바일 폭 전환 직후·다른 에이전트가 저장해서 HMR이 도는 중)에서
+// 진입로를 못 눌러 뒤따르는 검사가 통째로 넘어졌다 — 실제로 두 번 그랬다.
 const enter = async (me, theme, mut, guide) => {
   await ev(plant(me, theme, mut, guide));
-  await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1500);
-  await ev(GO); await sleep(1200);
+  await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1200);
+  for (let i = 0; i < 20; i++) {
+    await ev(GO);
+    await sleep(i ? 300 : 1200);
+    if (await ev(`!!document.querySelector('.groups-screen')`)) return;
+  }
+  throw new Error('모임 화면이 열리지 않았어요');
 };
 // 지금 서 있는 탭 줄 — 자격에 따라 '순 편성'이 붙거나 안 붙는다
 const TABS = `[...document.querySelectorAll('.groups-tab')].map(t => t.textContent.trim()).join(',')`;
@@ -444,9 +459,10 @@ const centered = (sel) => ev(`(() => {
   const top = Math.min(...b.map(x => x.top)), bottom = Math.max(...b.map(x => x.bottom));
   const left = Math.min(...b.map(x => x.left)), right = Math.max(...b.map(x => x.right));
   return {
-    // 빈 자리의 그림은 SVG 마크이거나 캐릭터 컷(img)이다(사용자 결정 2026-09-03)
-    mark: !!e.querySelector('svg, img'),
-    cut: (e.querySelector('img')?.getAttribute('src') || '').split('/').pop().replace('.webp', ''),
+    // 빈 자리의 그림은 **SVG 선 그리기 마크**다(§8) — 캐릭터 컷을 잠깐 썼다가
+    // 되돌렸다(사용자 결정 2026-09-03 "홈 제외하고는 캐릭터를 넣지 말라").
+    mark: !!e.querySelector('svg'),
+    img: !!e.querySelector('img'),
     h: Math.round(r.height),
     dy: Math.round((top + bottom) / 2 - (r.top + r.bottom) / 2),
     dx: Math.round((left + right) / 2 - (r.left + r.right) / 2),
@@ -487,7 +503,9 @@ const pure = await ev(`(async () => {
       const leader = m.groupPerms({ myPerson: { id: 'p6' } });
       const member = m.groupPerms({ myPerson: { id: 'p9' } });
       const admin = m.groupPerms({ isAdmin: true, myPerson: { id: 'p9' } });
-      return [leader.canEditClub(c1), leader.canEditClub(c2), member.canEditClub(c1), admin.canEditClub(c2)];
+      // 자격 한 벌은 캐시(JSON)를 거치므로 메서드가 아니라 **바깥 함수**로 판정한다
+      return [m.canEditClub(leader, c1), m.canEditClub(leader, c2),
+        m.canEditClub(member, c1), m.canEditClub(admin, c2)];
     })(),
     // 리더가 맨 앞, 나머지는 **가나다순**(들어온 차례가 아니다) · 겹치는 사람은 하나로
     people: m.groupPeople({
@@ -656,9 +674,47 @@ check('구성원은 순장이 맨 앞이고 순장 표시가 붙는다',
   && mine.members[1].includes('김승찬'), JSON.stringify(mine.members));
 check('순 구성원은 순장 다음이 ㄱㄴㄷ',
   mine.members[1].includes('김승찬') && mine.members[2].includes('천진영'), JSON.stringify(mine.members));
-check('최근 주일 예배 출석 n/m', mine.att === '8월 30일 (일) 예배 출석 2/3', mine.att);
+// 날짜 표기는 예배 줄기의 formatServiceDate 한 벌이 정한다(해가 붙기도 한다) —
+// 그 모양까지 여기서 못 박으면 그쪽이 바뀔 때마다 이 검사가 헛으로 넘어진다.
+check('최근 주일 예배 출석 n/m',
+  mine.att.includes('8월 30일') && mine.att.endsWith('예배 출석 2/3'), mine.att);
 check('내 순에 공유된 예배 노트가 뜬다',
-  mine.notes.length === 1 && mine.notes[0].includes('천진영') && mine.notes[0].includes('기쁨은 상황이 아니라'), JSON.stringify(mine.notes));
+  mine.notes.length === 2 && mine.notes[0].includes('천진영') && mine.notes[0].includes('기쁨은 상황이 아니라'), JSON.stringify(mine.notes));
+// 내 비공개 노트는 나에게만 보이고, 그 줄에서 바로 공유를 켠다
+const myNote = await ev(`(() => {
+  const rows = [...document.querySelectorAll('.mysun-note')];
+  const mineRow = rows.find(r => r.innerText.includes('아직 나만 보는 묵상'));
+  return { rows: rows.length, lock: !!mineRow?.querySelector('.mysun-note-lock'),
+    btn: mineRow?.querySelector('.mysun-note-share')?.textContent.trim() || '',
+    others: rows.filter(r => r.querySelector('.mysun-note-share')).length };
+})()`);
+check('내 비공개 노트는 잠금 표시와 함께 나에게만 보인다',
+  myNote.rows === 2 && myNote.lock === true && myNote.btn === '순에 공유하기'
+  && myNote.others === 1, JSON.stringify(myNote));
+await ev(`(() => { const r = [...document.querySelectorAll('.mysun-note')]
+  .find(x => x.innerText.includes('아직 나만 보는 묵상'));
+  r.querySelector('.mysun-note-share').click(); })()`);
+await sleep(1000);
+const shared = await ev(`(() => {
+  const r = [...document.querySelectorAll('.mysun-note')].find(x => x.innerText.includes('아직 나만 보는 묵상'));
+  return { said: r?.querySelector('.mysun-note-said')?.textContent.trim() || '',
+    lock: !!r?.querySelector('.mysun-note-lock'),
+    btn: r?.querySelector('.mysun-note-share')?.textContent.trim() || '',
+    stored: (${store('service_notes')}.find(n => n.id === 'n3') || {}).shared_to_sun };
+})()`);
+check('그 줄에서 공유를 켜면 초록 칩으로 말하고 그대로 저장된다',
+  shared.said === '우리 순에 공유할게요' && shared.lock === false
+  && shared.btn === '나만 보기' && shared.stored === true, JSON.stringify(shared));
+// 예배 노트는 마크다운 편집기로 쓴다(예배 화면) — 원문 기호가 글자로 남으면 안 된다
+const noteMd = await ev(`(() => {
+  const b = document.querySelector('.mysun-note-body');
+  if (!b) return { err: 'no-body' };
+  return { h: b.querySelectorAll('h1, h2, h3').length, strong: b.querySelectorAll('strong').length,
+    li: b.querySelectorAll('li').length, raw: b.innerText };
+})()`);
+check('공유된 노트는 마크다운으로 그린다(원문 기호가 글자로 남지 않는다)',
+  !noteMd.err && noteMd.strong >= 1 && (noteMd.h + noteMd.li) >= 1
+  && !noteMd.raw.includes('**') && !noteMd.raw.includes('## '), JSON.stringify(noteMd));
 check('공유하지 않은 남의 노트는 오지 않는다', mine.hidden === false);
 
 // ── 1-1) 순모임 가이드 자리 (components/sunGuide.jsx) ───────────────────────
@@ -741,6 +797,118 @@ await enter({ personId: 'p2', isMaster: false, isAdmin: false, roles: [] }, 'lig
 const pastorTabs = await ev(TABS);
 check('교역자에게는 순 편성 탭이 없다', pastorTabs === '내 순,동아리', pastorTabs);
 
+// ── 1-2-b) 딸린 섹션도 자리를 잡고 나온다 (사용자 지적 2026-09-03) ─────────
+// "공유된 노트·순모임 가이드가 뒤늦게 뚝 나타난다." 첫 진입에는 그 자리에 스켈레톤을
+// 두고(레이아웃이 밀리지 않게), 다음 진입에는 캐시가 있어 스켈레톤을 거치지 않는다.
+await ev(plant({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'light', '', true));
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1500);
+// **게스트에서는 스켈레톤이 한 프레임도 안 보이는 것이 정상이다** — 읽는 곳이
+// localStorage라 한 마이크로태스크에 끝나서 React가 같은 프레임에 최종 화면을 그린다.
+// 그래서 여기서 보는 것은 '스켈레톤이 떴는가'가 아니라 **틀린 상태가 스쳤는가**다:
+// 노트가 있는데 '없어요'가 한 프레임이라도 보이면 그것이 사용자가 본 그 증상이다.
+// (스켈레톤 자체는 클라우드처럼 읽기가 늦을 때만 보인다 — 사람이 확인할 몫이다.)
+// **프레임을 훑지 않고 DOM 삽입을 본다.** 게스트에서는 읽는 곳이 localStorage라
+// 중간 상태가 한 프레임도 그려지지 않을 수 있는데(React가 같은 프레임에 최종 화면을
+// 만든다) 그래도 DOM에는 한 번 꽂힌다 — MutationObserver는 그것까지 잡는다.
+// 프레임만 훑으면 같은 코드가 돌 때마다 붙었다 떨어졌다 한다(실제로 그랬다).
+const firstPaint = await ev(`(async () => {
+  const rAF = () => new Promise(r => requestAnimationFrame(r));
+  const hits = { skel: 0, empty: 0, note: 0 };
+  const mark = (n) => {
+    if (n.nodeType !== 1) return;
+    const c = typeof n.className === 'string' ? n.className : '';
+    if (c.includes('mine-skeleton')) hits.skel += 1;
+    if (c.includes('mysun-note-empty') || n.querySelector?.('.mysun-note-empty')) hits.empty += 1;
+    if (c.includes('mysun-note') || n.querySelector?.('.mysun-note')) hits.note += 1;
+  };
+  const obs = new MutationObserver(rs => rs.forEach(r => r.addedNodes.forEach(mark)));
+  obs.observe(document.body, { childList: true, subtree: true });
+  [...document.querySelectorAll('button')].filter(x => x.textContent.trim() === '모임')[0].click();
+  for (let i = 0; i < 25; i++) await rAF();
+  obs.disconnect();
+  return { wrongEmpty: hits.empty > 0, note: hits.note > 0, skelInserts: hits.skel };
+})()`, true);
+await sleep(1200);
+check('첫 진입에 노트 자리가 빈 상태로 스치지 않는다(자리를 잡고 나온다)',
+  firstPaint.wrongEmpty === false && firstPaint.note === true, JSON.stringify(firstPaint));
+// 노트와 가이드는 **한 덩이**로 뜬다 — 스켈레톤이 둘로 갈리면 자리가 두 번 흔들린다
+check('딸린 두 섹션의 스켈레톤은 하나다(두 벌로 갈리지 않는다)',
+  firstPaint.skelInserts === 1, JSON.stringify(firstPaint));
+const settled = await ev(`(() => ({
+  note: !!document.querySelector('.mysun-note'),
+  skel: document.querySelectorAll('.mine-skeleton').length,
+  left: document.querySelectorAll('.groups-screen .dc-skeleton').length,
+  guide: !!document.querySelector('.sun-guide'),
+}))()`);
+check('내용이 뜬 뒤 남는 스켈레톤은 0이다',
+  settled.note === true && settled.guide === true && settled.skel === 0 && settled.left === 0,
+  JSON.stringify(settled));
+
+// ── 1-3) 다시 들어올 때 스켈레톤이 아니라 캐시된 값 (사용자 요청 2026-09-03) ──
+// "매번 스켈레톤이 아니라 캐시된 값이 먼저 보이게." 화면을 떠나면 GroupsView는
+// 언마운트되지만 services/cache.js가 마지막 한 벌을 들고 있어서, 돌아올 때 첫 프레임에
+// 이미 순 카드가 서 있어야 한다(스켈레톤 `.groups-loading`이 한 번도 뜨지 않는다).
+// 게스트에서는 메모리만 캐시라 새로고침하면 초기화된다 — 그래서 **한 세션 안에서** 본다.
+const revisit = await ev(`(async () => {
+  const hit = (t) => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === t);
+  const rAF = () => new Promise(r => requestAnimationFrame(r));
+  hit('홈').click();
+  await new Promise(r => setTimeout(r, 800));
+  const left = !document.querySelector('.groups-screen');
+  hit('모임').click();
+  let skeleton = false, painted = false;
+  for (let i = 0; i < 15; i++) {
+    await rAF();
+    if (document.querySelector('.groups-loading')) skeleton = true;
+    if (document.querySelector('.mine-skeleton')) skeleton = true;
+    if (document.querySelector('.mysun-card')) painted = true;
+  }
+  return { left, skeleton, painted, name: document.querySelector('.mysun-name')?.textContent.trim() || '' };
+})()`, true);
+check('모임을 다시 열 때 스켈레톤 없이 캐시된 값이 먼저 그려진다',
+  revisit.left === true && revisit.skeleton === false && revisit.painted === true
+  && revisit.name === '꼬순', JSON.stringify(revisit));
+
+// ── 1-4) 만들기 칸이 뚝 나타나지 않는가 (사용자 지적 2026-09-03) ───────────
+// 등장은 화면의 카드 등장 토큰(dc-card)을 그대로 타고, 닫을 때는 짧게 접힌다(EXIT).
+// 애니메이션 이름·길이를 계산값에서 본다 — 클래스만 보면 CSS가 빠졌을 때를 놓친다.
+await enter({ personId: 'p6', isMaster: true, isAdmin: true, roles: ['lead_sunjang'] });
+await tab('동아리'); await sleep(700);
+await ev(`document.querySelector('.club-new-open').click()`);
+await sleep(60);
+const openMotion = await ev(`(() => {
+  const box = document.querySelector('.club-new');
+  if (!box) return { err: 'no-box' };
+  const cs = getComputedStyle(box);
+  return { cls: box.className.includes('dc-card'), name: cs.animationName,
+    ms: Math.round(parseFloat(cs.animationDuration) * 1000) };
+})()`);
+check('새 동아리 칸은 카드 등장 애니메이션을 타고 나온다',
+  openMotion.cls === true && openMotion.name === 'dc-card-in' && openMotion.ms >= 150,
+  JSON.stringify(openMotion));
+await sleep(500);
+await ev(`[...document.querySelectorAll('.club-new button')].find(b => b.textContent.trim() === '취소').click()`);
+await sleep(60);
+const closeMotion = await ev(`(() => {
+  const box = document.querySelector('.club-new');
+  if (!box) return { gone: true };
+  const cs = getComputedStyle(box);
+  return { gone: false, exit: box.className.includes('animate-out'), name: cs.animationName };
+})()`);
+check('닫을 때는 곧 사라지지 않고 짧게 접힌다',
+  closeMotion.gone === false && closeMotion.exit === true, JSON.stringify(closeMotion));
+await sleep(400);
+check('접힘이 끝나면 칸이 사라진다', (await ev(`!document.querySelector('.club-new')`)) === true);
+
+// 순 편성의 새 순 칸도 같은 결이다
+await tab('순 편성'); await sleep(800);
+await ev(`document.querySelector('.sun-new-open').click()`); await sleep(60);
+const sunMotion = await ev(`(() => {
+  const box = document.querySelector('.sun-new');
+  return box ? { name: getComputedStyle(box).animationName } : { err: 'no-box' };
+})()`);
+check('새 순 칸도 같은 등장을 탄다', sunMotion.name === 'dc-card-in', JSON.stringify(sunMotion));
+
 // ── 2) 동아리 목록 · 가입 신청 ──────────────────────────────────────────────
 await enter({ personId: 'p1', isMaster: false, roles: [] });
 await tab('동아리'); await sleep(600);
@@ -754,6 +922,16 @@ check('동아리 카드에 이름·설명·동아리장·인원',
   list.cards.length === 3 && list.cards[0].includes('통통') && list.cards[0].includes('통기타 동아리')
   && list.cards[0].includes('동아리장 노준석') && list.cards[0].includes('2명'), JSON.stringify(list.cards[0]));
 check('내가 든 동아리에 참여 중 표시', JSON.stringify(list.mine) === '["말씀읽기"]', JSON.stringify(list.mine));
+// 계정이 이어진 사람은 표시명으로 부른다 — 리더 라벨도 같은 필드(people.name)를 쓴다
+const shownName = await ev(`(() => {
+  const card = [...document.querySelectorAll('.club-card')]
+    .find(c => c.querySelector('.club-name').textContent.trim() === '서부버튼');
+  return { leader: card ? card.innerText : '',
+    roster: document.querySelector('.groups-screen').innerText.includes('임재훈') };
+})()`);
+check('리더 라벨은 계정 표시명으로 나온다(명단 이름은 새지 않는다)',
+  shownName.leader.includes('동아리장 말감이') && shownName.roster === false,
+  JSON.stringify(shownName));
 check('신청해 둔 동아리에 대기 표시', JSON.stringify(list.pending) === '["통통"]', JSON.stringify(list.pending));
 check('마스터가 아니면 새 동아리 버튼이 없다', list.newBtn === false);
 
@@ -910,6 +1088,13 @@ check('모바일 375px — 모임 생성기는 최대 두 줄이고 넘치지 �
   meetMob.rows <= 2 && meetMob.over <= 0, JSON.stringify(meetMob));
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 await sleep(450);
+
+// 생성기 카드의 등장 transform이 쌓임 맥락을 만들어서, 안의 날짜 패널이 아래 모임
+// 카드에 덮인 적이 있다(예배 화면에서 먼저 발견 — 생성기에 relative z-20을 준다).
+await ev(`document.querySelector('.club-meet-date button').click()`); await sleep(300);
+const datePop = await uncovered('.club-meet-new [data-datepicker]');
+check('날짜 패널이 아래 카드에 덮이지 않는다', datePop === 'ok', datePop);
+await ev(`document.querySelector('.club-meet-date button').click()`); await sleep(250);
 
 check('모임 날짜를 달력에서 고른다', (await pickDate('.club-meet-date', Y, 9, 8)) === 'ok');
 await setText('input[aria-label="모임 제목"]', '9월 첫 모임');
@@ -1090,10 +1275,8 @@ check('모임이 없을 때 문구', emptyMeet === '예정된 모임이 아직 �
 // 이 자리는 카드 아래에 딸린 구역이라 세로를 줄여 잡는다(minH 28vh) — 화면 한 판이 아니다
 const meetEmpty = await centered('.club-meet-empty');
 isCentered('예정된 모임이 없는 자리', meetEmpty, 140);
-check('모임 없음 = walk 컷', meetEmpty.cut === 'walk', meetEmpty.cut);
 const appEmpty = await centered('.club-app-empty');
 isCentered('가입 신청이 없는 자리', appEmpty, 120);
-check('가입 신청 없음 = question 컷', appEmpty.cut === 'question', appEmpty.cut);
 await ev(`${byText('목록으로')}.click()`); await sleep(500);
 
 // ── 5) 순 편성 (리더순장 — 마스터가 아니다) ─────────────────────────────────
@@ -1113,6 +1296,16 @@ check('순 편성 구역이 열리고 기본은 올해', admin.open === true && 
 check('지난 편성이 있는 해도 고를 수 있다', adminYears.includes(`${Y - 1}년`), JSON.stringify(adminYears));
 check('올해 순만 줄로 선다', JSON.stringify(admin.rows) === '["꼬순","TT순"]', JSON.stringify(admin.rows));
 check('순별 구성원 수', JSON.stringify(admin.members) === '[3,3]', JSON.stringify(admin.members));
+const sunShown = await ev(`(() => {
+  const rows = [...document.querySelectorAll('.sun-row')];
+  const tt = rows.find(r => r.querySelector('.sun-name').value === 'TT순');
+  return { members: [...tt.querySelectorAll('.sun-member')].map(m => m.textContent.trim()),
+    move: !!document.querySelector('[aria-label="말감이 순 옮기기"]'),
+    roster: document.querySelector('.sun-admin').innerText.includes('임재훈') };
+})()`);
+check('순 편성의 구성원·조작 라벨도 표시명을 쓴다',
+  sunShown.members.some(m => m.includes('말감이')) && sunShown.move === true
+  && sunShown.roster === false, JSON.stringify(sunShown));
 // 후보 목록은 명단이 온 차례가 아니라 **전부 가나다순**이다(사용자 지시 2026-09-02)
 check('순원 추가 후보는 어느 순에도 없는 사람뿐, 그리고 가나다순',
   JSON.stringify(adminAdd) === '["양민혁","조해리"]', JSON.stringify(adminAdd));
@@ -1172,7 +1365,7 @@ check('빼기는 확인을 거쳐 지운다', JSON.stringify(dropped.counts) ===
 // ── 5-0) 순장 지정 네 갈래 (사용자 지적 2026-09-03) ────────────────────────
 // "순장을 다른 사람으로 바꿨는데 '순장을 정하지 못했어요'라고 하면서 실제로는 이미
 // 바뀌어 있다." 지금은 저장하러 가기 전에 판정하고, 되는 경우에는 토스트도 성공이다.
-// 이 자리의 편성: 꼬순 = 김윤주(순장)·천진영·김승찬 / TT순 = 노준석(순장)·배현민·임재훈
+// 이 자리의 편성: 꼬순 = 김윤주(순장)·천진영·김승찬 / TT순 = 노준석(순장)·배현민·말감이
 const leaderOf = (id) => ev(`(${store('groups')}.find(g => g.id === ${JSON.stringify(id)}) || {}).leader_person_id || null`);
 await pickPerson('꼬순 순장', '노준석'); await sleep(900);
 const asLeader = { toast: await toast(), stored: await leaderOf('g1') };
@@ -1326,7 +1519,6 @@ const sunEmpty = await centered('.sun-empty');
 isCentered('순 편성이 빈 해', sunEmpty);
 check('빈 순 편성 문구에 고른 해가 들어간다',
   sunEmpty.text === `${Y + 1}년 순 편성이 아직 비어 있어요`, sunEmpty.text);
-check('빈 해의 컷은 welcome', sunEmpty.cut === 'welcome', sunEmpty.cut);
 
 // 다른 해에는 같은 이름의 순이 서도 된다(순은 해마다 다시 짠다 — 0041의 coalesce(year,0))
 await ev(`document.querySelector('.sun-new-open').click()`); await sleep(450);
@@ -1400,7 +1592,6 @@ check('명단에 안 이어진 계정에는 담백한 빈 자리',
   orphan.card === false && orphan.empty.includes('명단에 이어지지 않은') && orphan.empty.includes('관리자에게 알려주세요'), orphan.empty);
 const orphanEmpty = await centered('.mysun-empty');
 isCentered('명단에 안 이어진 계정', orphanEmpty);
-check('내 순 빈 자리 = stand 컷', orphanEmpty.cut === 'stand', orphanEmpty.cut);
 
 // 동아리가 하나도 없는 화면 — 시드에서 동아리를 덜어내고 본다
 await enter({ personId: 'p6', isMaster: true, roles: [] }, 'light', `g.groups = g.groups.filter(x => x.type !== 'club');`);
@@ -1408,39 +1599,38 @@ await tab('동아리'); await sleep(800);
 const clubEmpty = await centered('.club-empty');
 isCentered('동아리가 하나도 없는 화면', clubEmpty);
 check('동아리가 없을 때 문구', clubEmpty.text === '아직 만들어진 동아리가 없어요', clubEmpty.text);
-check('동아리 없음 = coffee 컷', clubEmpty.cut === 'coffee', clubEmpty.cut);
 
-// ── 6-1) 컷이 붙은 나머지 빈 자리 · 명단에 안 이어진 마스터 ────────────────
-// 공유된 노트 없음(book) · 전부 배정(hearts) · 그리고 마스터가 명단에 이어져 있지
-// 않아도 순모임 가이드 자리는 선다(사용자 지적 2026-09-03).
+// ── 6-1) 나머지 빈 자리 · 명단에 안 이어진 마스터 ──────────────────────────
+// 공유된 노트 없음 · 미배정이 없을 때 · 그리고 마스터가 명단에 이어져 있지 않아도
+// 순모임 가이드 자리는 선다(사용자 지적 2026-09-03).
 await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'light',
   `g.service_notes = [];`);
 const noteEmpty = await centered('.mysun-note-empty');
 isCentered('공유된 노트가 없는 자리', noteEmpty, 120);
-check('공유된 노트 없음 = book 컷', noteEmpty.cut === 'book', noteEmpty.cut);
 
 await enter({ personId: 'p3', isMaster: false, isAdmin: false, roles: ['lead_sunjang'] }, 'light',
   `g.group_members = [...g.group_members, { group_id: 'g1', person_id: 'p7' }, { group_id: 'g2', person_id: 'p8' }];`);
 await tab('순 편성'); await sleep(900);
 const placed = await ev(`(() => ({
-  cut: (document.querySelector('.sun-placed img')?.getAttribute('src') || '').split('/').pop(),
-  text: document.querySelector('.sun-placed')?.innerText.trim() || '',
+  block: !!document.querySelector('.sun-placed'),
   pickers: document.querySelectorAll('.sun-add').length,
+  said: document.querySelector('.sun-admin').innerText.includes('모두 순에'),
 }))()`);
-check('모두 배정되면 순원 추가 칸을 접고 한 번만 말한다(hearts 컷)',
-  placed.cut === 'hearts.webp' && placed.pickers === 0
-  && placed.text.includes('모두 순에 들어갔어요'), JSON.stringify(placed));
+// 미배정이 없을 때 **아무 것도 그리지 않는다**(사용자 결정 2026-09-03 — 잠깐 두었던
+// '모두 순에 들어갔어요' 빈 자리를 걷었다). 순원 추가 칸은 그대로 선다.
+check('미배정이 없으면 빈 자리 문구를 그리지 않는다',
+  placed.block === false && placed.said === false && placed.pickers === 2, JSON.stringify(placed));
 
 await enter({ personId: null, isMaster: true, isAdmin: true, roles: [] }, 'light', '', true);
 const orphanMaster = await ev(`(() => ({
   guide: !!document.querySelector('.sun-guide'),
   sheet: !!document.querySelector('.sun-guide-sheet'),
   card: !!document.querySelector('.mysun-card'),
-  empty: (document.querySelector('.mysun-empty img')?.getAttribute('src') || '').split('/').pop(),
+  empty: !!document.querySelector('.mysun-empty svg'),
 }))()`);
 check('마스터가 명단에 이어져 있지 않아도 순모임 가이드 자리가 보인다',
   orphanMaster.guide === true && orphanMaster.sheet === true
-  && orphanMaster.card === false && orphanMaster.empty === 'stand.webp', JSON.stringify(orphanMaster));
+  && orphanMaster.card === false && orphanMaster.empty === true, JSON.stringify(orphanMaster));
 
 // ── 7) 모바일 375px ─────────────────────────────────────────────────────────
 await enter({ personId: 'p3', isMaster: false, roles: ['lead_sunjang'] });

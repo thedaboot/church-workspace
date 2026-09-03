@@ -133,6 +133,8 @@ check('다시 라이트로 돌아온다', (await ev(`document.documentElement.da
   await wait('Page.loadEventFired'); await sleep(1400);
   await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='수정'); b&&b.click(); })()`);
   await sleep(1200);
+  // 본문 편집기(tiptap)는 lazy 청크라 차가운 dev 서버에서 늦게 붙는다 — 재기 전에 기다린다(병렬 실행 때 흔들림)
+  for (let i = 0; i < 40 && !(await ev(`!!document.querySelector('.tiptap')`)); i++) await sleep(150);
   const sizes = await ev(`(() => {
     const px = el => el ? Math.round(parseFloat(getComputedStyle(el).fontSize)) : null;
     const byPh = ph => [...document.querySelectorAll('input,textarea')].find(el => (el.placeholder||'').includes(ph));

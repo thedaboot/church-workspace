@@ -15,6 +15,7 @@ import { MembersView } from './views/membersView.jsx';
 import { HomeView } from './views/homeView.jsx';
 import { WorshipView } from './views/worshipView.jsx';
 import { WordView } from './views/wordView.jsx';
+import { setCacheScope } from './services/cache.js';
 import { GroupsView } from './views/groupsView.jsx';
 import { ToastHost, showToast } from './components/Toast.jsx';
 import { setTaskLinkOpener } from './components/RichText.jsx';
@@ -77,6 +78,8 @@ export default function ChurchApp() {
 // Supabase 설정 시에만 로그인 요구, 미설정이면 게스트 모드
 function AuthGate() {
   const { enabled, session, loading, approved } = useAuth();
+  // 화면 데이터 캐시는 사용자별이다(services/cache.js) — 계정이 바뀌면 남의 값이 보이면 안 된다.
+  useEffect(() => { setCacheScope(session?.user?.id); }, [session?.user?.id]);
   if (loading) return <div className="h-dvh bg-canvas" />;
   if (enabled && !session) return <LoginScreen />;
   // 승인 전에는 워크스페이스를 아예 마운트하지 않는다 — DB도 막혀 있어서(0022)

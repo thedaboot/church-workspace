@@ -17,12 +17,21 @@ import { supabase } from './supabaseClient.js';
 export async function fetchPeople({ includeRemoved = false } = {}) {
   if (!supabase) return [];
   let q = supabase.from('people')
-    .select('id, name, birthday, teams, is_pastor, sun_exempt, profile_id, note, removed_at')
+    .select('id, name, birthday, teams, is_pastor, sun_exempt, profile_id, note, removed_at, profiles:profile_id(display_name)')
     .order('name');
   if (!includeRemoved) q = q.is('removed_at', null);
   const { data, error } = await q;
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).map(withDisplayName);
+}
+
+// 계정이 이어진 사람은 **계정 표시명**으로 부른다(사용자 결정 2026-09-03 — 명단의 '임재훈'은
+// 앱 안에서 '말감이'다). 명단에 적힌 이름은 roster_name으로 남겨 명단 관리가 볼 수 있게 한다.
+// 순장·동아리장·출석 칩·홈 등 사람 이름을 그리는 자리는 전부 fetchPeople을 거치므로 여기 한 곳이면 된다.
+function withDisplayName(p) {
+  const { profiles, ...rest } = p;
+  const shown = profiles?.display_name?.trim();
+  return { ...rest, roster_name: p.name, name: shown || p.name };
 }
 
 // 올해(또는 지정 연도) 직분 — [{ person_id, year, role }]
@@ -74,8 +83,8 @@ export async function fetchMyPerson() {
   const { data: { user } = {} } = await supabase.auth.getUser();
   if (!user) return null;
   const { data, error } = await supabase.from('people')
-    .select('id, name, birthday, teams, is_pastor, sun_exempt, profile_id')
+    .select('id, name, birthday, teams, is_pastor, sun_exempt, profile_id, profiles:profile_id(display_name)')
     .eq('profile_id', user.id).is('removed_at', null).maybeSingle();
   if (error) throw error;
-  return data ?? null;
+  return data ? withDisplayName(data) : null;
 }

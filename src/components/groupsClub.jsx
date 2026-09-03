@@ -9,10 +9,10 @@ import { SectionHead } from '../views/dashboardParts.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { DatePicker } from './DatePicker.jsx';
 import {
-  CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, WITH_ICON,
-  PersonTag, PersonPick, LabeledField, Empty,
+  CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, WITH_ICON, EXIT, useClosing,
+  PersonTag, PersonPick, LabeledField, Empty, PeopleMark, MeetMark,
 } from './groupsParts.jsx';
-import { groupPeople, canManageClub, myGroupIds, notInGroup } from '../services/groups.js';
+import { groupPeople, canManageClub, canEditClub, myGroupIds, notInGroup } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
 import { reorderIds } from '../utils.js';
 
@@ -44,7 +44,7 @@ const dropCollision = (args) => {
 };
 
 export function ClubsPanel({
-  clubs, people, members, apps, perms, openClub, meetings, creating, onCloseCreate,
+  clubs, people, members, apps, perms, openClub, meetings, creating, closingCreate, onCloseCreate,
   onOpen, onBack, onCreateClub, onEditClub, onApply, onCancelApply, onAccept, onDecline,
   onAddMember, onRemoveMember, onReorder, onCreateMeeting, onToggleMeeting,
 }) {
@@ -58,13 +58,13 @@ export function ClubsPanel({
   }
   return (
     <ClubList clubs={clubs} people={people} members={members} apps={apps} perms={perms}
-      creating={creating} onCloseCreate={onCloseCreate} onOpen={onOpen}
+      creating={creating} closingCreate={closingCreate} onCloseCreate={onCloseCreate} onOpen={onOpen}
       onCreateClub={onCreateClub} onReorder={onReorder} />
   );
 }
 
 // ── 목록 ────────────────────────────────────────────────────────────────────
-function ClubList({ clubs, people, members, apps, perms, creating, onCloseCreate, onOpen, onCreateClub, onReorder }) {
+function ClubList({ clubs, people, members, apps, perms, creating, closingCreate, onCloseCreate, onOpen, onCreateClub, onReorder }) {
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [leaderId, setLeaderId] = useState('');
@@ -107,7 +107,7 @@ function ClubList({ clubs, people, members, apps, perms, creating, onCloseCreate
           둘을 한 행에 나란히, 선택인 설명을 그 아래 한 행에 둔다. 이름에 포커스가
           있고 Enter로 바로 만들어진다. 375px에서는 두 칸이 위아래로 접혀 세 줄이다. */}
       {creating && (
-        <div className={`club-new p-3.5 mb-4 ${CARD}`} style={CARD_STYLE}>
+        <div className={`club-new ${closingCreate ? EXIT : 'dc-card'} relative z-20 p-3.5 mb-4 ${CARD}`} style={CARD_STYLE}>
           {/* 칸의 폭을 묶는다 — 1440px 카드에 칸을 그대로 늘리면 이름 한 줄을 적는
               자리가 690px이 되어 '빈 칸'처럼 보인다. 카드 자체는 아래 목록과 같은
               폭에 그대로 서고(왼쪽 선이 맞는다), 칸만 사람이 쓸 만한 너비다. */}
@@ -166,7 +166,7 @@ function ClubList({ clubs, people, members, apps, perms, creating, onCloseCreate
         )}
       </DndContext>
       {!clubs.length && (
-        <Empty className="club-empty" cut="coffee" title="아직 만들어진 동아리가 없어요" />
+        <Empty className="club-empty" mark={<PeopleMark />} title="아직 만들어진 동아리가 없어요" />
       )}
     </div>
   );
@@ -218,6 +218,7 @@ function ClubDetail({
   onAccept, onDecline, onAddMember, onRemoveMember, onEditClub, onCreateMeeting, onToggleMeeting,
 }) {
   const [adding, setAdding] = useState(false);
+  const [closingMeet, closeMeet] = useClosing();
   // 오늘(한국 시간)을 미리 채운다 — 모임은 대개 오늘이나 이번 주에 잡는다.
   const [date, setDate] = useState(() => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }));
   const [title, setTitle] = useState('');
@@ -239,12 +240,12 @@ function ClubDetail({
 
   const submitMeeting = async () => {
     const ok = await onCreateMeeting(club, { date, title: title.trim() });
-    if (ok) { setAdding(false); setTitle(''); }
+    if (ok) { closeMeet(() => { setAdding(false); setTitle(''); }); }
   };
 
   // 이름·설명 고치기. 값은 **열 때** 담는다 — 상태를 club과 계속 맞춰 두면 저장 뒤
   // 한 벌을 다시 읽는 사이에 타이핑 중인 칸이 되돌아간다.
-  const canEdit = !!perms.canEditClub?.(club);
+  const canEdit = canEditClub(perms, club);
   const openEdit = () => { setDraft({ name: club.name, note: club.note || '' }); setEditing(true); };
   const submitEdit = async () => {
     const name = draft.name.trim();
@@ -340,7 +341,7 @@ function ClubDetail({
           <div className="mb-6">
             <SectionHead>{waiting.length ? `가입 신청 ${waiting.length}건` : '가입 신청'}</SectionHead>
             {waiting.length === 0 && (
-              <Empty className="club-app-empty" cut="question" minH="20vh"
+              <Empty className="club-app-empty" mark={<PeopleMark />} minH="20vh"
                 title="아직 들어온 가입 신청이 없어요" />
             )}
             {waiting.length > 0 && (
@@ -375,9 +376,13 @@ function ClubDetail({
               하나(제목, 그것도 선택)뿐이었다(사용자 지적 2026-09-02 — 새 주보와 같은 문제).
               데스크톱은 한 줄, 375px에서는 버튼이 둘째 줄로 접힌다(최대 두 줄).
               날짜는 업무 날짜와 같은 픽커다 — 네이티브 date 입력은 기기마다 다른 달력이
-              뜨고, 우리 화면의 다른 날짜 칸과 생김새가 달랐다. */}
+              뜨고, 우리 화면의 다른 날짜 칸과 생김새가 달랐다.
+              **relative z-20**은 날짜 패널 몫이다 — 이 카드의 등장 애니메이션(transform)이
+              쌓임 맥락을 만들어서 안의 z-50이 카드 밖으로 나가지 못하고, 아래 모임
+              카드들(저마다 같은 이유로 맥락을 갖는다)이 패널을 덮었다(예배 화면에서
+              먼저 발견 · §6-1과 같은 뿌리). */}
           {adding && (
-            <div className={`club-meet-new p-2.5 mb-2 flex flex-wrap items-center gap-1.5 ${CARD}`} style={CARD_STYLE}>
+            <div className={`club-meet-new ${closingMeet ? EXIT : 'dc-card'} relative z-20 p-2.5 mb-2 flex flex-wrap items-center gap-1.5 ${CARD}`} style={CARD_STYLE}>
               <div className="club-meet-date shrink-0">
                 <DatePicker value={date} onChange={setDate} />
               </div>
@@ -406,7 +411,7 @@ function ClubDetail({
           {/* 이 빈 자리는 화면 한 판이 아니라 카드 아래에 딸린 구역이라 세로를 줄여
               잡는다 — 46vh를 그대로 쓰면 동아리 카드 뒤로 빈 화면이 한 판 더 붙는다 */}
           {!meetings.length && (
-            <Empty className="club-meet-empty" cut="walk" minH="28vh"
+            <Empty className="club-meet-empty" mark={<MeetMark />} minH="28vh"
               title="예정된 모임이 아직 없어요" />
           )}
         </div>

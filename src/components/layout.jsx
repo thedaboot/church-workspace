@@ -541,14 +541,20 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
         )}
         {/* 전체 일정도 헤더로 — 하단 탭 네 자리(프로젝트·내 업무·대시보드·팀)는
             핸드오프 규격이라 다섯 번째를 끼우지 않는다. 설정과 같은 처리다. */}
-        <button
-          onClick={() => setActiveMenu('schedule')} title="전체 일정"
-          className={`p-2 rounded-md transition active:scale-95 shrink-0 ${activeMenu === 'schedule' ? 'text-accent-text bg-accent-weak' : 'text-fg-muted'}`}
-        ><CalendarDays size={19} strokeWidth={1.75} /></button>
-        <SearchBox onSearchSelect={onSearchSelect} variant="icon" />
-        {cloudMode && <NotificationBell onOpenTask={onOpenTask} />}
-        {/* 설정은 상단 헤더로 — 하단 탭 네 자리는 프로젝트·내 업무·대시보드·팀이 쓴다 */}
-        <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} />
+        {/* 오른쪽 아이콘 넷은 **같은 36px 칸**에 앉힌다(사용자 지적 2026-09-03 — 버튼마다 패딩·flex-1이
+            달라 간격이 들쭉날쭉했다). 칸이 크기를 정하니 안의 버튼 패딩은 상관없다. */}
+        <div className="ml-auto flex items-center gap-0.5 shrink-0">
+          <span className="w-9 h-9 flex items-center justify-center">
+            <button
+              onClick={() => setActiveMenu('schedule')} title="전체 일정"
+              className={`w-9 h-9 flex items-center justify-center rounded-md transition active:scale-95 ${activeMenu === 'schedule' ? 'text-accent-text bg-accent-weak' : 'text-fg-muted'}`}
+            ><CalendarDays size={19} strokeWidth={1.75} /></button>
+          </span>
+          <span className="w-9 h-9 flex items-center justify-center"><SearchBox onSearchSelect={onSearchSelect} variant="icon" /></span>
+          {cloudMode && <span className="w-9 h-9 flex items-center justify-center"><NotificationBell onOpenTask={onOpenTask} /></span>}
+          {/* 설정은 상단 헤더로 — 하단 탭 네 자리는 프로젝트·내 업무·대시보드·팀이 쓴다 */}
+          <span className="w-9 h-9 flex items-center justify-center"><ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} /></span>
+        </div>
       </div>
       {project && (
         <MobileProjectTabs

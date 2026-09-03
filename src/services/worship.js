@@ -44,15 +44,17 @@ export function nextSundayDate(from = new Date()) {
 
 const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
 
-// '2026-09-06' → '9월 6일 (일)'. 올해가 아니면 연도를 앞에 붙인다.
+// '2026-09-06' → '26년 9월 6일 (일)'. **연도를 두 자리로 늘 붙인다**(사용자 결정
+// 2026-09-03). 예전에는 올해면 생략했는데, 지난 예배를 훑을 때 어느 해인지가 카드마다
+// 달라 헷갈렸다. 두 자리인 이유는 목록 카드의 메타 한 줄이 짧아야 해서다.
 // 날짜 문자열을 그대로 쪼갠다 — new Date('2026-09-06')은 UTC 자정이라 시간대에 따라
 // 하루가 밀린다(0019의 'MM-DD' 관례와 같은 이유).
-export function formatServiceDate(iso, now = new Date()) {
+export function formatServiceDate(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
   if (!m) return String(iso || '');
   const [y, mo, day] = [+m[1], +m[2], +m[3]];
   const w = WEEKDAY[new Date(y, mo - 1, day).getDay()];
-  return `${y === now.getFullYear() ? '' : `${y}년 `}${mo}월 ${day}일 (${w})`;
+  return `${String(y).slice(2)}년 ${mo}월 ${day}일 (${w})`;
 }
 
 export const serviceYear = (iso) => Number(String(iso || '').slice(0, 4)) || new Date().getFullYear();
@@ -107,6 +109,14 @@ export function youtubeVideoId(raw) {
 
 export const youtubeWatchUrl = (videoId) => `https://www.youtube.com/watch?v=${videoId}`;
 
+// 영상 주소 → 썸네일 주소. i.ytimg.com은 **키도 서버 함수도 필요 없는 공개 주소**라
+// 게스트·로컬에서도 그대로 뜬다(mqdefault = 320x180, 곡 줄에 쓰기 딱 맞다).
+// 유튜브 주소가 아니면 null — 화면은 그때 음표 아이콘으로 떨어진다.
+export const youtubeThumb = (raw) => {
+  const id = youtubeVideoId(raw);
+  return id ? `https://i.ytimg.com/vi/${id}/mqdefault.jpg` : null;
+};
+
 // 가져온 곡을 기존 목록 뒤에 붙인다 — **같은 영상은 한 번만**(link 기준).
 // 두 번 가져와도 같은 곡이 겹치지 않아야 한다(재생목록을 고쳐서 다시 누르는 일이 흔하다).
 export function mergeSongs(rows = [], picked = []) {
@@ -121,14 +131,21 @@ export function mergeSongs(rows = [], picked = []) {
   return [...(rows || []), ...add];
 }
 
-// 자격 판정 — 0035·0036의 함수와 같은 식이다.
-//   주보 작성·발행 = 마스터 + 교역자 + 올해 회장            (can_edit_service)
-//   출석 전체      = 관리자 + 교역자 + 올해 임원 아무 역할  (can_check_all_attendance)
-//   출석 자기 순   = 올해 그 순의 순장                      (leads_sun_of)
+// 자격 판정 — 0035·0036·**0042**의 함수와 같은 식이다.
+//   주보 작성·발행 = 관리자(마스터 포함) + 올해 회장 + **미디어팀**  (can_edit_service)
+//   출석 전체      = 관리자 + 교역자 + 올해 임원 아무 역할           (can_check_all_attendance)
+//   출석 자기 순   = 올해 그 순의 순장                               (leads_sun_of)
+//
+// **주보 자격에서 교역자가 빠지고 미디어팀이 들어왔다**(사용자 결정 2026-09-03 · 0042).
+// 미디어팀은 명단 속성(people.teams)이라 연도와 무관하고, 회장은 연도별 직분이다.
+// 나머지 사람은 발행된 주보를 읽기만 한다 — 화면에서 버튼을 감추지만 경계는 RLS다.
+const MEDIA_TEAM = '미디어팀';
+
 export function worshipPerms({ isMaster = false, isAdmin = false, myPerson = null, myRoles = [], ledGroupIds = [] } = {}) {
   const roles = myRoles || [];
   const pastor = !!myPerson?.is_pastor;
-  const canEdit = !!isMaster || pastor || roles.includes('president');
+  const media = (myPerson?.teams || []).includes(MEDIA_TEAM);
+  const canEdit = !!isMaster || !!isAdmin || roles.includes('president') || media;
   const canCheckAll = !!isAdmin || pastor || roles.length > 0;
   const led = ledGroupIds || [];
   return { canEdit, canCheckAll, ledGroupIds: led, canCheck: canCheckAll || led.length > 0 };
@@ -290,6 +307,18 @@ export async function checkOut(serviceId, personId) {
   }
   const { error } = await supabase.from('attendance').delete().eq('service_id', serviceId).eq('person_id', personId);
   if (error) throw error;
+}
+
+// 공유 상태만 바꾼다 — **글은 건드리지 않는다.**
+//   setNoteShared(serviceId, shared) → 갱신된 행 { id?, body, shared_to_sun } | null
+// 노트가 없으면 아무것도 만들지 않고 null을 준다(공유할 글이 없으니 뜻이 없다).
+// 이 함수는 예배 화면의 노트 구역과 **모임 화면의 '공유된 노트' 목록이 같이 쓴다** —
+// 그쪽에서 내 비공개 노트를 그 자리에서 공유로 바꿀 때도 이 한 벌을 부르면 된다.
+// RLS(0036 service_notes_write)가 profile_id = auth.uid()로 자기 것만 허용한다.
+export async function setNoteShared(serviceId, shared) {
+  const cur = await fetchMyNote(serviceId);
+  if (!cur) return null;
+  return saveMyNote(serviceId, { body: cur.body || '', sharedToSun: !!shared });
 }
 
 // ── 유튜브 가져오기 (서버 함수 경유) ───────────────────────────────────────

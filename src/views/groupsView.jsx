@@ -4,16 +4,18 @@ import { Skeleton } from '../components/media.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText, objectParticle } from '../services/errorText.js';
 import { useAuth } from '../services/auth.jsx';
-import { MySunPanel, SunAdminPanel } from '../components/groupsSun.jsx';
+import { useCached, dropCache } from '../services/cache.js';
+import { MySunPanel, SunNotesSection, SunAdminPanel } from '../components/groupsSun.jsx';
 import { ClubsPanel } from '../components/groupsClub.jsx';
-import { WITH_ICON } from '../components/groupsParts.jsx';
+import { WITH_ICON, useClosing, useSettled } from '../components/groupsParts.jsx';
 import { SunGuidePanel } from '../components/sunGuide.jsx';
+import { loadGuide } from '../services/sunGuide.js';
 import { fetchServices, fetchAttendance } from '../services/worship.js';
 import {
   fetchGroupPerms, fetchGroupsRoster, fetchApplications, fetchSunSharedNotes, fetchMeetings,
   createGroup, saveGroup, saveClubInfo, addMember, removeMember, moveMember, reorderClubs,
   applyToClub, cancelApplication, acceptApplication, declineApplication,
-  createMeeting, saveMeetingAttendance,
+  createMeeting, saveMeetingAttendance, setNoteShared,
   groupPerms, mySun, latestSunday, toggleAttendance, yearOptions, leaderPlan, dupReason,
   duplicateName, dupNameText,
 } from '../services/groups.js';
@@ -45,89 +47,147 @@ import {
 
 const THIS_YEAR = new Date().getFullYear();
 
+// 스켈레톤은 **캐시가 하나도 없는 첫 진입**에만 나온다(services/cache.js).
 const LOADING = (
-  <div className="dc-screen pb-8 space-y-2">
+  <div className="groups-loading dc-screen pb-8 space-y-2">
     <Skeleton className="h-8 w-40 rounded-md mb-4" />
     <Skeleton className="h-[120px] w-full rounded-[10px]" />
     <Skeleton className="h-[86px] w-full rounded-[10px]" />
   </div>
 );
 
+// 내 순의 딸린 섹션(공유된 노트 + 순모임 가이드) 자리. **한 덩이다** — 둘이 저마다
+// 스켈레톤을 들면 자리가 두 번 흔들린다(사용자 지적 2026-09-03). 종이는 한 장 몫만
+// 잡는다: 세 장을 다 그리면 가이드가 없는 순장(대다수)에게 큰 빈 상자가 떴다가 접힌다.
+const MINE_SKELETON = (
+  <div className="mine-skeleton mt-6 space-y-3">
+    <Skeleton className="h-4 w-40 rounded-md" />
+    <Skeleton className="w-full h-[86px] rounded-[10px]" />
+    <Skeleton className="w-full h-[120px] rounded-[20px]" />
+  </div>
+);
+
+// 읽지 못했을 때의 한 벌 — 자격은 groupPerms() 기본값이다. 손으로 적은 한 벌을 두면
+// 자격이 하나 늘 때마다 이 줄이 뒤처져서, 아무것도 못 하는 화면이 아니라 **되지 않을
+// 버튼이 선 화면**이 된다.
+const EMPTY_BUNDLE = { perms: groupPerms(), apps: [], people: [], suns: [], clubs: [], members: [], allGroups: [] };
+
 export function GroupsView() {
   const { isMaster, isAdmin } = useAuth();
-  const [state, setState] = useState(null);          // 올해 한 벌 + 자격 + 대기 신청
-  const [admin, setAdmin] = useState(null);          // { year, people, suns, members } — 순 편성
   const [year, setYear] = useState(THIS_YEAR);
   const [tab, setTab] = useState('mine');
-  const [extra, setExtra] = useState({ notes: [], service: null, present: new Set() });
   const [openClubId, setOpenClubId] = useState(null);
   const [meetings, setMeetings] = useState([]);
+  const [clubOrder, setClubOrder] = useState(null);  // 끌어 놓은 직후의 순서(아래 주석)
   const [creating, setCreating] = useState(null);    // null | 'club' | 'sun' — 만들기 칸은 머리줄에서 연다
+  // 만들기 칸은 닫힐 때 짧게 접힌다 — 그 150ms 동안 칸을 살려 둔다(groupsParts useClosing)
+  const [closingCreate, closeCreate] = useClosing();
+  const shutCreate = useCallback(() => closeCreate(() => setCreating(null)), [closeCreate]);
 
   // ── 읽기 ──────────────────────────────────────────────────────────────────
-  const loadBase = useCallback(async () => {
-    const [perms, roster, apps] = await Promise.all([
-      fetchGroupPerms(THIS_YEAR, { isMaster, isAdmin }),
-      fetchGroupsRoster(THIS_YEAR),
-      fetchApplications(),
-    ]);
-    setState({ perms, apps, ...roster });
+  // **캐시가 있으면 그것을 먼저 그린다**(사용자 요청 2026-09-03 — "매번 스켈레톤이
+  // 아니라 캐시된 값이 먼저 보이게"). 홈과 같은 훅이다(services/cache.js) — 마지막에
+  // 읽은 한 벌을 즉시 돌려주고 뒤에서 다시 읽어 갈아 끼운다. 스켈레톤은 캐시가 없는
+  // 첫 진입에만 나온다. 실패는 **다시 던진다** — 빈 값을 캐시에 넣으면 다음 진입에서
+  // 그 빈 화면이 먼저 그려진다.
+  //
+  // 캐시는 JSON을 거치므로 **한 벌에 함수를 담지 않는다** — 자격 판정은 바깥 함수다
+  // (groups.js canEditClub·canManageClub). 예전에 perms가 메서드를 들고 있었다.
+  const baseQ = useCached(`groups:all:${THIS_YEAR}`, async () => {
+    try {
+      const [perms, roster, apps] = await Promise.all([
+        fetchGroupPerms(THIS_YEAR, { isMaster, isAdmin }),
+        fetchGroupsRoster(THIS_YEAR),
+        fetchApplications(),
+      ]);
+      return { perms, apps, ...roster };
+    } catch (e) {
+      console.error('[groups] 모임 목록 실패:', e);
+      throw e;
+    }
   }, [isMaster, isAdmin]);
 
-  useEffect(() => {
-    loadBase().catch(e => {
-      console.error('[groups] 모임 목록 실패:', e);
-      showToast(failText('내 순과 동아리를 불러오지 못했어요', e));
-      // 실패했을 때의 자격은 groupPerms() 기본값이다 — 손으로 적은 한 벌을 두면
-      // 자격이 하나 늘 때마다 이 줄이 뒤처져서, 아무것도 못 하는 화면이 아니라
-      // 되지 않을 버튼이 선 화면이 된다.
-      setState({ perms: groupPerms(), apps: [], people: [], suns: [], clubs: [], members: [], allGroups: [] });
-    });
-  }, [loadBase]);
-
-  // 고른 해의 순 편성. 올해면 이미 읽어 둔 한 벌을 그대로 쓴다.
-  const loadAdmin = useCallback(async (y) => {
-    if (y === THIS_YEAR) { setAdmin(null); return; }
+  // 고른 해의 순 편성. **올해는 위의 한 벌이 이미 들고 있다** — 그때는 읽지 않는다
+  // (loader가 null을 돌려주면 캐시에도 null이 남아 스켈레톤이 뜨지 않는다).
+  const adminQ = useCached(`groups:roster:${year}`, async () => {
+    if (year === THIS_YEAR) return null;
     try {
-      const r = await fetchGroupsRoster(y);
-      setAdmin({ year: y, ...r });
+      return { year, ...await fetchGroupsRoster(year) };
     } catch (e) {
       console.error('[groups] 순 편성 연도 실패:', e);
-      showToast(failText('그 해 순 편성을 불러오지 못했어요', e));
+      throw e;
     }
-  }, []);
-  useEffect(() => { loadAdmin(year); }, [year, loadAdmin]);
+  }, [year]);
 
-  const refresh = useCallback(async () => {
-    await loadBase();
-    if (year !== THIS_YEAR) await loadAdmin(year);
-  }, [loadBase, loadAdmin, year]);
+  const state = baseQ.data || (baseQ.error ? EMPTY_BUNDLE : null);
+  const admin = adminQ.data || null;
 
-  // 내 순 소식 — 최근 주일 예배 출석 · 내 순에 공유된 노트. 명단에 이어진 사람만.
-  // ponytail: 순모임 가이드의 기준 예배도 이 한 벌에서 온다. 그래서 명단에 이어지지
-  // 않은 관리자 계정에는 기준 예배가 없어 가이드를 만들 자리도 없다 — 관리자·마스터는
-  // 명단에 이어져 있는 것이 전제다(0035 my_person_id도 같은 전제). 어긋나면 그때 푼다.
-  const myPersonId = state?.perms?.myPerson?.id || null;
-  const ready = !!state;
+  // 읽기 실패는 한 번만 말한다 — 캐시된 값이 있으면 화면은 그대로 서 있다.
   useEffect(() => {
-    if (!ready) return undefined;
-    let alive = true;
-    (async () => {
-      // **기준 예배는 명단 연결과 무관하게 읽는다**(사용자 지적 2026-09-03) — 순모임
-      // 가이드가 이 예배 한 건에 매달려 있고, 마스터·관리자 계정이 명단에 이어지지
-      // 않은 경우가 실제로 있다. 그때 가이드 자리까지 사라지면 만들 길이 없다.
-      // 노트·출석은 '내 순 소식'이라 명단이 이어진 사람만 묻는다.
-      const [services, notes] = await Promise.all([
-        fetchServices(),
-        myPersonId ? fetchSunSharedNotes() : Promise.resolve([]),
-      ]);
-      const service = latestSunday(services);
-      const present = (service && myPersonId) ? new Set(await fetchAttendance(service.id)) : new Set();
-      if (alive) setExtra({ notes, service, present });
-    })().catch(e => console.error('[groups] 내 순 소식 실패:', e));
-    return () => { alive = false; };
-  }, [ready, myPersonId]);
+    if (baseQ.error) showToast(failText('내 순과 동아리를 불러오지 못했어요', baseQ.error));
+  }, [baseQ.error]);
+  useEffect(() => {
+    if (adminQ.error) showToast(failText('그 해 순 편성을 불러오지 못했어요', adminQ.error));
+  }, [adminQ.error]);
 
+  // 쓰기 뒤에는 **캐시를 비우고 다시 읽는다** — 비우지 않으면 저장 직후 옛 값이
+  // 한 번 깜빡인다(cache.js 주석).
+  const refresh = useCallback(async () => {
+    dropCache('groups');
+    await Promise.all([baseQ.refresh(), adminQ.refresh()]);
+  }, [baseQ.refresh, adminQ.refresh]);
+
+  // ── 내 순의 딸린 섹션은 **한 벌로 읽는다** (사용자 지적 2026-09-03) ──────
+  // "공유된 예배 노트와 순모임 가이드가 각각 따로 스켈레톤이 된다." 키를 나눠 두면
+  // 둘이 저마다 다른 프레임에 도착해서 자리가 두 번 흔들린다. 한 키에 Promise.all로
+  // 묶으면 스켈레톤도 한 덩이고 한 번에 실제 내용으로 바뀐다.
+  //
+  // 기준 예배(가장 최근 발행 주일 예배)는 **명단 연결과 무관하게 읽는다** — 마스터·
+  // 관리자 계정이 명단에 이어지지 않은 경우가 실제로 있고, 그때 가이드 자리까지
+  // 사라지면 만들 길이 없다. 출석·노트는 '내 순 소식'이라 명단이 이어진 사람만.
+  //
+  // 가이드는 볼 자격이 있을 때만 묻는다(0039 sun_guides_select) — 자격이 없으면 어차피
+  // 행이 오지 않는데 질의 한 번이 더 붙는다.
+  const perms = state?.perms;
+  const me = perms?.myPerson || null;
+  const myPersonId = me?.id || null;
+  const sun = useMemo(() => mySun(me, state?.suns || [], state?.members || []), [me, state]);
+  const sunId = sun?.id || '';
+  const leadsASun = useMemo(
+    () => !!me && (state?.suns || []).some(g => g.leader_person_id === me.id),
+    [me, state],
+  );
+  const guidePerms = useMemo(
+    () => ({ canCreate: !!perms?.canManageSun, canView: leadsASun || !!perms?.canManageSun }),
+    [perms, leadsASun],
+  );
+  const canViewGuide = guidePerms.canView;
+
+  const mineKey = `groups:mine:${sunId || 'none'}:${myPersonId || 'anon'}`;
+  const mineQ = useCached(mineKey, async () => {
+    try {
+      const service = latestSunday(await fetchServices()) || null;
+      const [present, notes, guide] = await Promise.all([
+        service && myPersonId ? fetchAttendance(service.id) : [],
+        myPersonId ? fetchSunSharedNotes() : [],
+        // 가이드는 곁가지다 — 못 읽어도 나머지는 서야 한다(패널이 다시 읽는다)
+        service && canViewGuide ? loadGuide(service.id).catch(() => null) : null,
+      ]);
+      return { service, present, notes, guide };
+    } catch (e) {
+      console.error('[groups] 내 순 소식을 받지 못했어요:', e);
+      throw e;
+    }
+  }, [sunId, myPersonId, canViewGuide]);
+  // 한 프레임이라도 앞 키의 값으로 그리지 않는다(groupsParts useSettled 주석)
+  const mineSettled = useSettled(mineKey, mineQ.loading);
+  const service = mineQ.data?.service || null;
+  // Set은 JSON으로 담기지 않는다 — 캐시에는 배열로 두고 여기서 Set으로 세운다
+  const present = useMemo(() => new Set(mineQ.data?.present || []), [mineQ.data]);
+
+  // 동아리 상세를 열 때 그 동아리의 모임을 읽는다. **캐시에 넣지 않는다** — 출석을
+  // 누르면 그 자리에서 바뀌는 값이라(toggleMeeting) 캐시와 화면이 갈리기 쉽고,
+  // 상세로 들어가는 한 번의 조작에 딸린 짧은 읽기다.
   useEffect(() => {
     if (!openClubId) { setMeetings([]); return undefined; }
     let alive = true;
@@ -136,6 +196,21 @@ export function GroupsView() {
       .catch(e => console.error('[groups] 모임 일정 실패:', e));
     return () => { alive = false; };
   }, [openClubId]);
+
+  // 내 노트의 공유를 그 줄에서 켜고 끈다(사용자 결정 2026-09-03). 노트 한 벌만
+  // 다시 읽는다 — 순·동아리는 그대로다.
+  const shareNote = useCallback(async (note, next) => {
+    try {
+      await setNoteShared(note.serviceId, next);
+      dropCache('groups:mine');
+      await mineQ.refresh();
+      return true;
+    } catch (e) {
+      console.error('[groups] 노트 공유를 바꾸지 못했어요:', e);
+      showToast(failText('노트 공유를 바꾸지 못했어요', e));
+      return false;
+    }
+  }, [mineQ.refresh]);
 
   // 지금 순 편성 화면이 보고 있는 한 벌(올해면 state, 지난 해면 admin). 순장 지정
   // 판정이 이것을 보므로 **쓰기보다 위에** 둔다 — 아래에 두면 useCallback의 의존성이
@@ -163,9 +238,6 @@ export function GroupsView() {
   // 저장하러 가기 전에 막힌 경우 — 서버에 물어볼 것도 없이 이유가 분명하다.
   // 문구 모양은 실패 토스트와 같다(errorText가 err.human을 가장 먼저 본다).
   const refuse = useCallback((what, why) => { showToast(failText(what, { human: why })); return false; }, []);
-
-  const perms = state?.perms;
-  const me = perms?.myPerson || null;
 
   const apply = useCallback((club) => run('가입 신청을 보내지 못했어요',
     () => applyToClub(club.id, me.id), '가입 신청을 보냈어요',
@@ -196,14 +268,17 @@ export function GroupsView() {
 
   // 순서는 먼저 화면에 반영한다 — 저장을 기다렸다 다시 읽으면 놓은 카드가 잠깐
   // 제자리로 돌아갔다 온다. 실패했을 때만 한 벌을 다시 읽어 되돌린다.
+  // 한 벌은 이제 캐시가 들고 있어서(useCached) 직접 고쳐 넣을 수 없다 — **놓은 순서를
+  // 따로 들고 있다가 그릴 때 얹는다.** 저장이 성공하면 다음에 읽어 온 한 벌도 같은
+  // 순서라 이 값은 그대로 맞고, 실패하면 비우고 다시 읽어 되돌린다.
   const reorderClubList = useCallback(async (ids) => {
-    const at = new Map(ids.map((id, i) => [id, i]));
-    setState(s => (s ? { ...s, clubs: [...s.clubs].sort((a, b) => (at.get(a.id) ?? 0) - (at.get(b.id) ?? 0)) } : s));
+    setClubOrder(ids);
     try {
       await reorderClubs(ids);
     } catch (e) {
       console.error('[groups] 동아리 순서 저장 실패:', e);
       showToast(failText('동아리 순서를 저장하지 못했어요', e));
+      setClubOrder(null);
       await refresh();
     }
   }, [refresh]);
@@ -313,10 +388,16 @@ export function GroupsView() {
 
   // ── 그리기 ────────────────────────────────────────────────────────────────
   const years = useMemo(() => yearOptions(state?.allGroups || []), [state]);
-  const sun = useMemo(() => mySun(me, state?.suns || [], state?.members || []), [me, state]);
+  // 끌어 놓은 순서가 있으면 그것으로 세운다(위 reorderClubList 주석)
+  const clubs = useMemo(() => {
+    const list = state?.clubs || [];
+    if (!clubOrder) return list;
+    const at = new Map(clubOrder.map((id, i) => [id, i]));
+    return [...list].sort((a, b) => (at.get(a.id) ?? 0) - (at.get(b.id) ?? 0));
+  }, [state, clubOrder]);
   const openClub = useMemo(
-    () => (state?.clubs || []).find(c => c.id === openClubId) || null,
-    [state, openClubId],
+    () => clubs.find(c => c.id === openClubId) || null,
+    [clubs, openClubId],
   );
 
   const tabs = useMemo(() => {
@@ -324,18 +405,6 @@ export function GroupsView() {
     if (perms?.canManageSun) list.push(['sun', '순 편성']);
     return list;
   }, [perms]);
-
-  // 순모임 가이드는 **순장에게 보이고 순 편성 자격자가 만든다**(0039 sun_guides —
-  // leads_any_sun 또는 can_manage_sun이 읽고, can_manage_sun이 쓴다). 올해 어느 순의
-  // 순장인지는 이미 읽어 둔 한 벌로 알 수 있다 — 따로 묻지 않는다.
-  const leadsASun = useMemo(
-    () => !!me && (state?.suns || []).some(g => g.leader_person_id === me.id),
-    [me, state],
-  );
-  const guidePerms = useMemo(
-    () => ({ canCreate: !!perms?.canManageSun, canView: leadsASun || !!perms?.canManageSun }),
-    [perms, leadsASun],
-  );
 
   if (!state) return LOADING;
   const active = tabs.some(([k]) => k === tab) ? tab : 'mine';
@@ -380,15 +449,28 @@ export function GroupsView() {
       {active === 'mine' && (
         <>
           <MySunPanel myPerson={me} sun={sun} people={state.people} members={state.members}
-            service={extra.service} present={extra.present} notes={extra.notes} />
-          <SunGuidePanel service={extra.service} perms={guidePerms} />
+            service={service} present={present} />
+          {/* 노트와 가이드는 **한 덩이로** 뜬다(한 키·한 스켈레톤 — 위 주석). 순 카드
+              밑이다: 이 탭의 주인은 내 순이고 가이드는 그 순으로 무엇을 할지다. 위에
+              두면 탭을 열자마자 AI 종이 세 장이 화면을 채우고 명단이 접혀 내려갔다. */}
+          {mineSettled ? (
+            <>
+              {!!sun && <SunNotesSection notes={mineQ.data?.notes || []} onShare={shareNote} />}
+              {/* 가이드는 위 mineQ가 이미 읽어 왔다 — 패널이 다시 읽지 않게 넘긴다(undefined면 스스로 읽음).
+                  저장하면 캐시를 비우고 한 벌을 다시 읽어 다음 진입에도 새 값이 먼저 선다. */}
+              <SunGuidePanel service={service} perms={guidePerms}
+                initialGuide={mineQ.data ? (mineQ.data.guide ?? null) : undefined}
+                loading={mineQ.loading}
+                onSaved={() => { dropCache('groups:mine'); mineQ.refresh(); }} />
+            </>
+          ) : MINE_SKELETON}
         </>
       )}
 
       {active === 'club' && (
-        <ClubsPanel clubs={state.clubs} people={state.people} members={state.members} apps={state.apps}
+        <ClubsPanel clubs={clubs} people={state.people} members={state.members} apps={state.apps}
           perms={perms} openClub={openClub} meetings={meetings}
-          creating={creating === 'club'} onCloseCreate={() => setCreating(null)}
+          creating={creating === 'club'} closingCreate={closingCreate} onCloseCreate={shutCreate}
           onOpen={g => setOpenClubId(g.id)} onBack={() => setOpenClubId(null)}
           onCreateClub={newClub} onEditClub={editClub} onApply={apply} onCancelApply={cancelApply}
           onAccept={accept} onDecline={decline}
@@ -400,7 +482,7 @@ export function GroupsView() {
         ? (
           <SunAdminPanel year={year} years={years} suns={adminData.suns} people={adminData.people}
             members={adminData.members} onYear={setYear}
-            creating={creating === 'sun'} onCloseCreate={() => setCreating(null)}
+            creating={creating === 'sun'} closingCreate={closingCreate} onCloseCreate={shutCreate}
             onCreateSun={newSun} onRenameSun={renameSun} onSetLeader={setLeader}
             onAddMember={addSunMember} onMoveMember={moveSunMember} onRemoveMember={dropSunMember} />
         )

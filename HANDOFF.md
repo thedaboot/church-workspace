@@ -611,6 +611,9 @@ src/components/groups*.jsx  (v2) groupsSun(내 순·순 편성) · groupsClub(�
 src/components/roster.jsx   (v2) 명단 관리 — 멤버 화면의 [계정 | 명단] 탭 중 '명단'(마스터+관리자)
 src/components/sunGuide.jsx (v2) 순모임 가이드 패널 — 내 순 탭 맨 위. AI가 채운 템플릿 3장(주일 본문 ·
                             말씀 요약 · 포인트 3 · 나눔 질문 3)을 보고, 자격이 있으면 만들고·다듬고·다시 만든다
+src/components/ShareToggle.jsx 공유 토글 한 벌 — '나만 보기 | …공유하기' 세그먼트 + 초록 확정 칩("나만 볼게요" /
+                            "…공유할게요"). **말씀 묵상과 예배 노트가 같은 부품을 쓴다**(사용자 요구 2026-09-03 —
+                            로직 동일: 저장된 글이 있을 때만, 토글은 shared만 즉시 저장, 비공개 글도 내 줄엔 잠금 표시)
 src/components/DatePicker.jsx 노션 톤 데이트피커 — children(트리거 대체)·triggerClassName·allowClear를 받는다
                             (QT 날짜가 트리거를 대체해 쓴다. 기본값은 예전 호출부와 같다)
 src/views/views.jsx         DashboardView / ProjectView / MyTasksView / TeamView / ScheduleView
@@ -648,7 +651,10 @@ src/services/               cloud.js(Supabase) · cloudSync.js(모양 변환 + �
                               · worship.js(주보·출석·노트·자격) · word.js(QT 일정·묵상·bible_state)
                               · groups.js(순·동아리·신청·모임·groupPerms) · roster.js(명단 쓰기·계정 연결)
                               · bibleRef.js(구절 파서 — 주보·QT·리더가 한 벌) · bible.js(public/bible
-                              로더·캐시) · sunGuide.js(순모임 가이드 — 프롬프트·JSON 파싱·글자수 맞춤
+                              로더·캐시) · cache.js(**화면 데이터 캐시** — 메모리+localStorage, 사용자별,
+                              게스트는 메모리만. `useCached(key, loader, deps)`: 캐시가 있으면 즉시 그리고
+                              뒤에서 갈아 끼움, 스켈레톤은 첫 진입만. 쓰기 뒤 `dropCache(prefix)`)
+                              · sunGuide.js(순모임 가이드 — 프롬프트·JSON 파싱·글자수 맞춤
                               `fitGuide`·`sun_guides` 저장. §4.4). 워크스페이스 스토어에 넣지 않는다(people.js 머리말)
 src/store/                  useSyncExternalStore 기반 커스텀 스토어 + 셀렉터
 src/hooks/                  controllers.js(저장·삭제 등 쓰기 경로) · useIsMobile.js ·
@@ -1316,7 +1322,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 
 ## 5. 데이터 · 스키마 · 비밀
 
-스키마는 `supabase/migrations/0001~0041`이고 **전부 라이브 DB에 적용**되어 있습니다
+스키마는 `supabase/migrations/0001~0042`이고 **전부 라이브 DB에 적용**되어 있습니다
 (0001~0005는 대시보드에서 수동, 이후는 `npx supabase db push --db-url "$SUPABASE_DB_URL"`).
 
 | 파일 | 한 일 |
@@ -1362,6 +1368,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | `0039_sun_guides_and_perms` | 4차 피드백(2026-09-02): `can_manage_sun()` = **마스터 + 관리자 + 리더순장**(교역자 빠짐 — 사용자 결정 "우선") · `groups_update`(동아리)를 관리자·리더에게 · `sun_guides`(주보 한 건당 순모임 가이드 한 벌, body jsonb — AI가 채운 템플릿. 읽기 = 순장(`leads_any_sun`)+만드는 사람, 쓰기 = `can_manage_sun`) |
 | `0040_people_sun_exempt` | `people.sun_exempt` — 순 편성 대상이 아닌 사역자(부장·전도사: 신효진·임성빈 true). 순원 추가·순장 후보·미배정 목록에서 빠지고 동아리 가입은 그대로. 이름을 코드에 박지 않기 위한 칸(§6-26) |
 | `0041_groups_unique_name` | `groups (type, name, coalesce(year,0)) where removed_at is null` 유니크 — 순은 **같은 해 안에서만** 이름이 유일(26년·27년 오순도순 공존), 동아리는 전체. 화면이 저장 전에 미리 확인하고 이 색인은 마지막 방어선 |
+| `0042_service_edit_perms` | `can_edit_service()` = **관리자(마스터 포함) + 회장 + 미디어팀**(`people.teams`) — 교역자 빠짐(사용자 결정 2026-09-03). 나머지는 발행된 주보만 읽는다 |
 
 알아둘 것:
 
@@ -1704,6 +1711,13 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     `<p>`를 새로 만들어 선택·포커스가 끊긴다 — 언제나 같은 모양으로 감싼다(`wordBible.jsx` PassageText).
 9-m. **위치를 재는 팝오버보다 문서 흐름 배치를 먼저 검토한다.** 형광펜 도구 줄은 두 번 어긋난 뒤(17-b·17-c)
     결국 눌린 절의 **다음 형제**로 흐름 안에 그려 해결했다 — 잴 것이 없으면 어긋날 자리도 없다.
+9-n. **캐시 훅으로 화면을 채울 때는 "어느 키의 값인지"를 값에 담아라.** 날짜가 먼저 바뀌고 캐시 값이 한
+    프레임 늦게 와서 **앞 날짜 값이 새 날짜를 덮어** 묵상이 빈 칸이 됐다(2026-09-03). 묶음에 `date`를 같이
+    담고 `qt.date === date`일 때만 반영(`wordView`), 모임은 `useSettled(key, loading)`로 첫 프레임을 막는다.
+9-o. **등장 애니메이션(transform)은 쌓임 문맥을 만든다.** 아래 카드들의 `animate-in`이 위 생성기의 데이트피커
+    패널을 덮었다 — 패널을 가진 컨테이너에 `relative z-20`(worshipView·groupsClub 생성기).
+9-p. **캐시 값을 첫 렌더부터 써라(`useState` 초기값).** 이펙트에 맡기면 한 프레임 스켈레톤이 그려진다
+    (`useCached`가 그렇게 되어 있다 — 직접 `readCache`를 쓰는 곳도 같은 규칙).
 9-j. **눌릴 것처럼 보이는 화살표는 눌려야 한다** — 본문 선택 피커의 책 칸 ▾가 장식용 SVG여서 아무 데도
     붙어 있지 않았다(2026-09-02 지적). 검사는 `el.click()`이 아니라 **실제 mousedown**으로 해야 잡힌다
     (`worshipPassage.jsx`).
@@ -2278,6 +2292,9 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 - **`/`는 v2(2026-09)부터 홈이다.** 업무 화면(대시보드·보드·달력)을 보는 스위트는 `/?p=dashboard`나
   `/?p=<프로젝트>`로 들어가야 한다. 시드 날짜를 고정값으로 두면 달이 바뀐 뒤 달력 막대가 0개가
   된다(calfit) — 오늘 기준으로 만든다.
+- **CDP 스위트에서 `Page.navigate` 전에 이벤트 큐를 비워라.** 묶여 있던 옛 `loadEventFired`를 `wait()`가 집어
+  `about:blank`에서 `localStorage`를 읽고 SecurityError로 죽는다(word.mjs `reload()` 헬퍼). 그리고 lazy 청크
+  (tiptap)가 붙기 전에 `querySelector(...).click()`을 하면 스위트가 통째로 CRASH — `waitFor`로 기다린다.
 - **토스트는 `[data-toast]`로 잡는다.** `[role="status"]`는 dnd-kit이 정렬 목록마다 세우는 라이브 리전
   (`DndLiveRegion`)이 먼저 잡혀 innerText가 빈 문자열로 나온다 — 동아리 목록이 dnd를 쓰게 된 뒤 '같은 이름'
   토스트 검사가 이유 없이 비어 보였다(2026-09-03).

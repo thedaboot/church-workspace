@@ -99,6 +99,12 @@ ws.addEventListener('message', e => {
 });
 const send = (m, p = {}) => new Promise((res, rej) => { const i = ++id; pend.set(i, { res, rej }); ws.send(JSON.stringify({ id: i, method: m, params: p })); });
 const wait = async (m, to = 20000) => { const s = Date.now(); while (Date.now() - s < to) { const i = evs.findIndex(e => e.method === m); if (i >= 0) return evs.splice(i, 1)[0]; await sleep(50); } throw new Error(m); };
+const reload = async () => {
+  evs.length = 0;
+  await send('Page.navigate', { url: URL_BASE });
+  await wait('Page.loadEventFired');
+  await sleep(300);
+};
 const ev = async (e, a = false) => { const r = await send('Runtime.evaluate', { expression: e, awaitPromise: a, returnByValue: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description); return r.result.value; };
 
 // 화면에서 글자로 버튼을 찾는다 — 못 찾으면 던지지 말고 false를 돌려준다(§6-40)
@@ -112,6 +118,15 @@ const clickSel = (sel) => ev(`(() => {
   const b = document.querySelector(${JSON.stringify(sel)});
   if (!b) return false; b.click(); return true;
 })()`);
+// 무언가 나타날 때까지 기다린다 — 차가운 dev 서버에서는 lazy 청크(TipTap)가 몇 초 늦다
+const waitFor = async (expr, ms = 12000) => {
+  const s0 = Date.now();
+  while (Date.now() - s0 < ms) {
+    if (await ev(`!!(${expr})`)) return true;
+    await sleep(200);
+  }
+  return false;
+};
 const saveDisabled = () => ev(`(() => {
   const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '저장');
   return b ? b.disabled : null;
@@ -142,8 +157,7 @@ const seed = {
 
 await send('Page.enable'); await send('Runtime.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
-await send('Page.navigate', { url: URL_BASE });
-await wait('Page.loadEventFired');
+await reload();
 await ev(`(() => {
   localStorage.setItem('theme', 'light');
   localStorage.setItem('word_qt_schedule', ${JSON.stringify(JSON.stringify(seed.schedule))});
@@ -151,8 +165,7 @@ await ev(`(() => {
   localStorage.removeItem('word_bible_state');
   localStorage.removeItem('word_bible_font');
 })()`);
-await send('Page.navigate', { url: URL_BASE });
-await wait('Page.loadEventFired');
+await reload();
 await sleep(1400);
 
 // 1) 말씀 화면 진입 (데스크톱 상단 '말씀')
@@ -197,6 +210,7 @@ check('잔디 집계 문구', grass.line === `이번 주 ${expWeek}번, 이번 �
   `${grass.line} / 기대 이번 주 ${expWeek} · 이번 달 ${expMonth}`);
 check("'연속'·배지·순위는 화면에 없다", grass.streak === false);
 // 칸 크기(4차 피드백 9) — 12~14px 정사각. 숫자는 안 들어가므로 날짜는 title·요일 머리글·월이 말한다
+await waitFor(`[...document.querySelectorAll('button[title]')].some(b => b.title.indexOf('일 (') > 0)`);
 const cells = await ev(`(() => {
   const list = [...document.querySelectorAll('button[title]')].filter(b => /^\\d+월 \\d+일 \\([일월화수목금토]\\)$/.test(b.title));
   if (!list.length) return null;
@@ -215,7 +229,7 @@ check('잔디 칸이 18~20px이다', !!cells && cells.w >= 18 && cells.w <= 20 &
 check('잔디는 그 달의 날 수만큼 서고 칸마다 날짜가 붙는다',
   !!cells && cells.n === monthLen && cells.labelled, JSON.stringify(cells));
 check('칸 안에 날짜 숫자가 보인다',
-  !!cells && cells.numbers.join(',') === month31, JSON.stringify(cells.numbers && cells.numbers.slice(0, 5)));
+  !!cells && cells.numbers.join(',') === month31, JSON.stringify(cells && cells.numbers.slice(0, 5)));
 check('한 달이 좁은 화면 폭에도 든다(그리드 200px 이하)',
   !!cells && cells.gridW > 0 && cells.gridW <= 200, JSON.stringify(cells));
 check('요일 머리글과 연·월이 함께 보인다',
@@ -231,6 +245,7 @@ check('본문표 붙여넣기 도구가 화면에 없다', noPaste.box === false
   JSON.stringify(noPaste));
 
 // 6) 묵상 칸은 업무 본문과 같은 에디터(TipTap)다
+await waitFor(`document.querySelector('.tiptap')`);
 const editor = await ev(`(() => ({
   tiptap: !!document.querySelector('.tiptap'),
   textarea: !!document.querySelector('textarea[aria-label="내 묵상"]'),
@@ -238,6 +253,29 @@ const editor = await ev(`(() => ({
 }))()`);
 check('묵상 칸이 마크다운 에디터로 바뀌었다', editor.tiptap && !editor.textarea, JSON.stringify(editor));
 check('서식 바가 같이 온다(굵게·형광펜·제목·체크리스트)', editor.bar === 4, String(editor.bar));
+// **빈 공간을 눌러도 입력된다**(사용자 피드백 2026-09-03). 자리를 잡는 일은
+// MarkdownEditor의 focusEnd가 하고(`.tiptap` 밖을 누르면 문서 끝으로), 상자 크기는
+// 업무 수정 창과 같은 한 벌이다 — 데스크톱에서 누를 빈 자리가 그만큼 넓다.
+await ev(`(() => { const t = document.querySelector('.tiptap'); t && t.scrollIntoView({ block: 'center' }); })()`);
+await sleep(500);
+const boxAt = await ev(`(() => {
+  const t = document.querySelector('.tiptap');
+  const box = t && t.parentElement.parentElement;   // className을 받은 감싸개
+  if (!box) return null;
+  const r = box.getBoundingClientRect();
+  return { x: Math.round(r.left + r.width / 2), y: Math.round(r.bottom - 10),
+           blank: Math.round(r.height - t.getBoundingClientRect().height), h: Math.round(r.height) };
+})()`);
+// **진짜 마우스로 누른다** — 합성 MouseEvent로는 ProseMirror가 커서를 잡지 않는다
+if (boxAt) {
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: boxAt.x, y: boxAt.y, button: 'left', clickCount: 1 });
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: boxAt.x, y: boxAt.y, button: 'left', clickCount: 1 });
+  await sleep(300);
+}
+const boxFocused = await ev(`!!document.activeElement && !!document.activeElement.closest('.tiptap')`);
+check('묵상 상자의 빈 자리를 눌러도 커서가 잡힌다', boxFocused === true, JSON.stringify(boxAt));
+check('묵상 상자가 업무 수정 창만큼 넉넉하다', !!boxAt && boxAt.h >= 220 && boxAt.blank >= 150,
+  JSON.stringify(boxAt));
 
 // 7) 날짜 이동 — 어제 / 오늘. 기다리는 자리는 스켈레톤이 지킨다.
 // **넘기는 동안 아래 칸이 위로 올라오면 안 된다**(4차 피드백 7). 본문 자리를 넘기기
@@ -245,10 +283,12 @@ check('서식 바가 같이 온다(굵게·형광펜·제목·체크리스트)',
 // 머리글의 y는 그대로여야 한다. 예전에는 자리가 320px로 줄어 300px쯤 위로 뛰었다.
 // 에디터가 그 사이 언마운트되지 않는지도 같이 본다(표식을 심어 두고 살아 있는지 확인).
 await watchSkeleton();
+await waitFor(`[...document.querySelectorAll('h3')].some(h => h.textContent.trim() === '내 묵상')`);
 const steady = await ev(`(async () => {
   const head = () => [...document.querySelectorAll('h3')].find(h => h.textContent.trim() === '내 묵상');
   const tip = document.querySelector('.tiptap');
   if (tip) tip.dataset.probe = '1';
+  if (!head()) return { before: -1, frames: 0, waited: 0, up: -1, kept: false };
   const before = head().getBoundingClientRect().top;
   const seen = [];
   let stop = false;
@@ -259,6 +299,7 @@ const steady = await ev(`(async () => {
   };
   requestAnimationFrame(tick);
   const b = [...document.querySelectorAll('button')].find(x => x.getAttribute('aria-label') === '어제');
+  if (!b) return { before, frames: 0, waited: 0, up: -1, kept: false };
   b.click();
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 16));
@@ -270,10 +311,10 @@ const steady = await ev(`(async () => {
     up: waiting.length ? +(before - Math.min(...waiting)).toFixed(1) : -1,
     kept: (document.querySelector('.tiptap') || {}).dataset?.probe === '1' };
 })()`, true);
-// 게스트에서는 기다리는 시간이 짧아 표본이 두세 프레임뿐이다 — 그래도 자리가 320px로
-// 줄면 그 두 프레임에 300px 가까이 뛰므로 걸린다
+// 기다리는 프레임이 하나도 없을 수도 있다 — 캐시가 있으면 스켈레톤 없이 바로 그린다
+// (그때는 애초에 튈 자리가 없다). 기다리는 동안 자리가 줄면 300px 가까이 뛰므로 걸린다.
 check('날짜를 넘기는 동안 묵상 칸이 위로 올라오지 않는다',
-  steady.waited >= 2 && steady.up <= 8, JSON.stringify(steady));
+  steady.before > 0 && steady.up <= 8, JSON.stringify(steady));
 check('날짜가 바뀌어도 묵상 에디터는 그대로 서 있는다', steady.kept === true, JSON.stringify(steady));
 await sleep(900);
 const yest = await ev(`(() => ({
@@ -300,8 +341,10 @@ check("'오늘'이 오늘로 되돌린다",
   (await ev(`(document.body.innerText.match(/\\d+년 \\d+월 \\d+일 \\([일월화수목금토]\\)/)||[''])[0]`)) === word.dayLabel(today));
 
 // 7-b) 상단 날짜가 데이트피커다(4차 피드백 10) — 화살표는 그대로 남아 있다
+await waitFor(`document.querySelector('button[aria-label="QT 날짜 고르기"]')`);
 const openedPicker = await clickSel('button[aria-label="QT 날짜 고르기"]');
-await sleep(350);
+await waitFor(`document.querySelector('[data-datepicker]')`, 4000);
+await sleep(300);
 const picker = await ev(`(() => {
   const p = document.querySelector('[data-datepicker]');
   if (!p) return null;
@@ -321,6 +364,7 @@ check('데이트피커가 화면 안에 든다', !!picker && picker.inView === t
 check('이전·다음 화살표는 그대로 있다', !!picker && picker.arrows === 2, JSON.stringify(picker));
 const picked15 = await ev(`(() => {
   const p = document.querySelector('[data-datepicker]');
+  if (!p) return false;
   const b = [...p.querySelectorAll('button')].find(x => x.textContent.trim() === '15');
   if (!b) return false; b.click(); return true;
 })()`);
@@ -331,17 +375,32 @@ check('데이트피커에서 고른 날로 간다', picked15 === true
 await clickText('오늘');
 await sleep(900);
 
+// 7-c) **한 번 본 날짜로 되돌아오면 스켈레톤이 없다**(사용자 요청 2026-09-03 —
+// "매번 스켈레톤이 아니라 캐시된 값이 먼저"). 어제로 갔다가 오늘로 돌아오는 길에서
+// 관찰자를 다시 켜고, 그 사이 .dc-skeleton이 한 번도 안 붙는지 본다.
+await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.getAttribute('aria-label')==='어제'); b && b.click(); })()`);
+await sleep(1000);
+await watchSkeleton();
+await clickText('오늘');
+await sleep(1000);
+const cached = await ev(`(() => ({ skel: window.__skel,
+  date: (document.body.innerText.match(/\\d+년 \\d+월 \\d+일 \\([일월화수목금토]\\)/) || [])[0] || '',
+  verses: document.querySelectorAll('p[data-verse]').length }))()`);
+check('본 날짜로 돌아오면 스켈레톤 없이 바로 그린다',
+  cached.skel === 0 && cached.date === word.dayLabel(today) && cached.verses > 0,
+  JSON.stringify(cached));
+
 // 8) 등록 없는 날 — 빈 상태
 await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.getAttribute('aria-label')==='내일'); b && b.click(); })()`);
 await sleep(900);
 const empty = await ev(`(() => ({
   msg: document.body.innerText.includes('이 날짜의 본문이 아직 올라오지 않았어요'),
-  cut: (document.querySelector('img[src*="/chars/"]') || {}).src || '',
+  mark: !!document.querySelector('svg path.dc-draw'),
   verses: document.querySelectorAll('p[data-verse]').length,
 }))()`);
-// 표식은 이제 캐릭터 컷이다(사용자 결정 2026-09-03) — 본문 없는 날은 sit
-check('본문이 없는 날은 빈 상태 + 캐릭터 컷', empty.msg && empty.cut.endsWith('/chars/sit.webp')
-  && empty.verses === 0, JSON.stringify(empty));
+// 표식은 SVG 선 그리기다 — 캐릭터 컷은 홈에만 둔다(사용자 결정 2026-09-03)
+check('본문이 없는 날은 빈 상태 + 표식', empty.msg && empty.mark && empty.verses === 0,
+  JSON.stringify(empty));
 // 빈 상태는 **본문이 쓰던 자리를 그대로 받아** 그 한가운데에 선다(§8 · 3차 점검).
 // 예전에는 자리가 320px인데 빈 상태만 220px이라 마크가 위로 붙고 아래가 비어 보였다.
 const emptyFit = await ev(`(() => {
@@ -367,25 +426,43 @@ const mineRow = await ev(`(() => ({
 }))()`);
 check('내 나눔에 고치기·지우기가 붙는다', mineRow.edit && mineRow.del, JSON.stringify(mineRow));
 // 고치기는 같은 글을 두 자리에서 고치지 않는다 — 위의 '내 묵상' 칸으로 데려간다
-await ev(`(() => { document.querySelector('button[aria-label="내 나눔 고치기"]').click(); })()`);
+await waitFor(`document.querySelector('button[aria-label="내 나눔 고치기"]')`);
+await clickSel('button[aria-label="내 나눔 고치기"]');
 await sleep(600);
 check('고치기는 내 묵상 칸에 커서를 준다',
   await ev(`!!document.activeElement && !!document.activeElement.closest('.tiptap')`));
-await ev(`(() => { document.querySelector('button[aria-label="내 나눔 지우기"]').click(); })()`);
+await clickSel('button[aria-label="내 나눔 지우기"]');
 await sleep(300);
 const confirmSeen = await ev(`document.body.innerText.includes('이 날의 묵상을 지우고 내 기록에만 남겨둘까요?')`);
 check('나눔 지우기는 내 기록에 남는다고 묻는다', confirmSeen === true);
 await clickText('지우기');
 await sleep(900);
-const afterUnshare = await ev(`(() => ({
-  stored: JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}] || null,
-  feedEmpty: document.body.innerText.includes('이 날짜에 올라온 나눔이 아직 없어요'),
-  inEditor: (document.querySelector('.tiptap') || {}).innerText || '',
-}))()`);
+const afterUnshare = await ev(`(() => {
+  const row = document.querySelector('[data-feed-row="mine-private"]');
+  return {
+    stored: JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}] || null,
+    inEditor: (document.querySelector('.tiptap') || {}).innerText || '',
+    // 비공개가 된 내 묵상은 **내 피드에는 남는다**(사용자 결정 2026-09-03)
+    privateRow: !!row,
+    badge: row ? !!row.querySelector('[data-private]') : false,
+    badgeText: row ? row.textContent.includes('나만 보기') : false,
+    body: row ? row.textContent.includes(${JSON.stringify(seed.entries[today].body)}) : false,
+    others: document.querySelectorAll('[data-feed-row="other"]').length,
+    toggle: row ? row.querySelectorAll('button[aria-pressed]').length : 0,
+  };
+})()`);
 check('나눔 지우기는 공유만 내린다(묵상은 남는다)',
   !!afterUnshare.stored && afterUnshare.stored.shared === false
-  && afterUnshare.stored.body === seedBody && afterUnshare.feedEmpty,
+  && afterUnshare.stored.body === seedBody,
   JSON.stringify(afterUnshare));
+// ② 비공개 묵상도 내 피드에 선다 — '나만 보기' 표시와 그 줄의 토글까지(사용자 결정 2026-09-03)
+check('비공개 묵상이 내 나눔 피드에 남는다',
+  afterUnshare.privateRow && afterUnshare.body && afterUnshare.others === 0,
+  JSON.stringify(afterUnshare));
+check("그 줄에 '나만 보기' 표시가 붙는다",
+  afterUnshare.badge && afterUnshare.badgeText, JSON.stringify(afterUnshare));
+check('그 줄에서 바로 공개 범위를 정할 수 있다', afterUnshare.toggle === 2,
+  String(afterUnshare.toggle));
 check('내 묵상 칸의 글은 그대로다', afterUnshare.inEditor.includes(seedBody), afterUnshare.inEditor);
 // 토스트도 **무엇이 남았는지**까지 말한다(사용자 피드백 2026-09-03 — 예외·안내 문구 검토)
 const unshareToast = await ev(`(document.querySelector('[role="status"]') || {}).textContent || ''`);
@@ -397,6 +474,29 @@ check('두 문장짜리 토스트는 줄을 바꾼다',
   unshareToast.includes(String.fromCharCode(10)) && !unshareToast.includes(' · '),
   JSON.stringify(unshareToast));
 check('공유를 내려도 저장 버튼은 꺼져 있다', (await saveDisabled()) === true);
+// 나눔 줄의 토글이 실제로 shared를 바꾸고, 칩은 **그 줄에** 뜬다
+check('나눔 줄의 공유 토글을 누른다',
+  await clickSel('[data-feed-row="mine-private"] button[aria-pressed="false"]'));
+await sleep(1000);
+const feedShare = await ev(`(() => {
+  const mine = document.querySelector('[data-feed-row="mine"]');
+  return {
+    stored: (JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}] || {}).shared,
+    row: !!mine,
+    chip: mine ? (mine.querySelector('[data-share-chip]') || {}).textContent || '' : '',
+    stillPrivate: !!document.querySelector('[data-feed-row="mine-private"]'),
+    save: (() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='저장'); return b ? b.disabled : null; })(),
+  };
+})()`);
+check('나눔 줄 토글로 공유가 켜진다',
+  feedShare.stored === true && feedShare.row === true && feedShare.stillPrivate === false,
+  JSON.stringify(feedShare));
+check("나눔 줄 칩도 '더다붓에 공유할게요'라고 말한다",
+  feedShare.chip.includes('더다붓에 공유할게요'), feedShare.chip);
+check('나눔 줄 토글도 저장 버튼을 켜지 않는다', feedShare.save === true, String(feedShare.save));
+// 다시 나만 보기로 되돌려 다음 검사의 출발점을 맞춘다
+await clickSel('[data-feed-row="mine"] button[aria-pressed="false"]');
+await sleep(1000);
 
 // 10) 나만 보기 / 더다붓에 공유하기 — **토글은 편집 상태를 건드리지 않는다**(4차 피드백 8)
 // 이름은 '나누기'에서 바뀌었다(2026-09-02) — 어디로 나가는지가 이름에 있어야 한다
@@ -406,9 +506,19 @@ const shareLabels = await ev(`(() => {
 })()`);
 check("공유 토글은 '더다붓에 공유하기'다", shareLabels.now === true, JSON.stringify(shareLabels));
 check("'나누기'라는 이름은 남아 있지 않다", shareLabels.old === false);
-await clickText('나만 보기');       // 지금 이미 '나만 보기'다
-await sleep(250);
-check("이미 그 상태인 쪽을 눌러도 저장이 안 켜진다", (await saveDisabled()) === true);
+// **고른 쪽은 확정형**이다(사용자 결정 2026-09-03) — 지금은 '나만 보기'가 골라져 있다
+const labelsBefore = await ev(`(() => {
+  const bs = [...document.querySelectorAll('button[aria-pressed]')]
+    .filter(b => /나만|더다붓/.test(b.textContent));
+  return { texts: [...new Set(bs.map(b => b.textContent.trim()))],
+           pressed: bs.map(b => b.getAttribute('aria-pressed')), n: bs.length };
+})()`);
+// **세그먼트 라벨은 고정이다**(사용자 정정 2026-09-03 — 확정형은 칩이 말한다)
+check('세그먼트 라벨은 상태와 무관하게 고정이다',
+  labelsBefore.texts.sort().join('|') === '나만 보기|더다붓에 공유하기'
+  && labelsBefore.pressed.slice(0, 2).join('|') === 'true|false', JSON.stringify(labelsBefore));
+check('이미 그 상태인 쪽을 눌러도 저장이 안 켜진다',
+  (await clickText('나만 보기')) === true && (await saveDisabled()) === true);
 await clickText('더다붓에 공유하기');
 await sleep(900);
 const shared = await ev(`(() => ({
@@ -420,7 +530,16 @@ check('공유 토글은 저장 버튼을 켜지 않는다', (await saveDisabled(
 check('공유 토글이 그 자리에서 shared만 저장한다',
   !!shared.stored && shared.stored.shared === true && shared.stored.body === seedBody,
   JSON.stringify(shared.stored));
-check('공유했다는 칩이 뜬다', shared.chip.includes('더다붓에 공유했어요'), shared.chip);
+// 칩이 확정형으로 말한다(사용자 정정 2026-09-03) — '공유했어요'가 아니라 '공유할게요'
+check("공유하면 칩이 '더다붓에 공유할게요'라고 말한다",
+  shared.chip.includes('더다붓에 공유할게요') && !shared.chip.includes('공유했어요'), shared.chip);
+const labelsAfter = await ev(`(() => {
+  const bs = [...document.querySelectorAll('button[aria-pressed]')]
+    .filter(b => /나만|더다붓/.test(b.textContent));
+  return { texts: [...new Set(bs.map(b => b.textContent.trim()))] };
+})()`);
+check('공유를 골라도 라벨은 그대로다',
+  labelsAfter.texts.sort().join('|') === '나만 보기|더다붓에 공유하기', JSON.stringify(labelsAfter));
 check('공유를 켜면 나눔에 다시 오른다', shared.feed === true);
 
 // 11) 묵상 저장 — 마크다운 에디터에 쳐 넣고 저장한다(그때만 저장이 켜진다)
@@ -455,13 +574,8 @@ const gone = await ev(`(() => ({
 }))()`);
 check('진짜 삭제는 그 날 묵상을 없앤다', gone.stored === null && gone.feedEmpty && !gone.editor.trim(),
   JSON.stringify(gone));
-// 나눔이 빈 자리에는 whisper 컷이 선다(사용자 결정 2026-09-03) — 목록 안이 아니라 빈 자리에만
-const feedCut = await ev(`(() => {
-  const p = [...document.querySelectorAll('p')].find(x => x.textContent.includes('올라온 나눔이 아직 없어요'));
-  const img = p && p.parentElement.querySelector('img[src*="/chars/"]');
-  return { cut: img ? img.getAttribute('src') : '', rows: document.querySelectorAll('[role="status"]').length };
-})()`);
-check('나눔 빈 자리에 whisper 컷이 선다', feedCut.cut === '/chars/whisper.webp', JSON.stringify(feedCut));
+check('나눔이 비면 한 줄로 말한다',
+  (await ev(`(() => { const p=[...document.querySelectorAll('p')].find(x=>x.textContent.includes('올라온 나눔이 아직 없어요')); return !!p && !p.parentElement.querySelector('img[src*="/chars/"]'); })()`)) === true);
 check('저장된 글이 없으면 공유 토글은 꺼져 있다', gone.toggleOff === true, JSON.stringify(gone));
 check('지울 것이 없으면 휴지통도 없다', gone.trash === false, JSON.stringify(gone));
 
@@ -496,18 +610,17 @@ const markEmptyFit = (needle) => ev(`(() => {
   const p = [...document.querySelectorAll('p')].filter(x => x.textContent.includes(${JSON.stringify(needle)}))
     .find(x => x.offsetParent !== null);
   if (!p) return null;
-  const box = p.parentElement, img = box.querySelector('img[src*="/chars/"]');
+  const box = p.parentElement, svg = box.querySelector('svg');
   const b = box.getBoundingClientRect();
   return {
-    cut: img ? img.getAttribute('src') : '',
-    grew: img ? (img.naturalHeight > 0 && img.getBoundingClientRect().height <= img.naturalHeight + 1) : null,
+    mark: !!(svg && svg.querySelector('path.dc-draw')),
     align: getComputedStyle(p).textAlign,
-    dx: img ? Math.round((img.getBoundingClientRect().left + img.getBoundingClientRect().width / 2) - (b.left + b.width / 2)) : null,
-    dy: img ? Math.round((img.getBoundingClientRect().top - b.top) - (b.bottom - p.getBoundingClientRect().bottom)) : null,
+    dx: svg ? Math.round((svg.getBoundingClientRect().left + svg.getBoundingClientRect().width / 2) - (b.left + b.width / 2)) : null,
+    dy: svg ? Math.round((svg.getBoundingClientRect().top - b.top) - (b.bottom - p.getBoundingClientRect().bottom)) : null,
   };
 })()`);
-// 컷은 상자의 가로 한가운데 · 위아래 여백이 같아야 하고, **원본보다 커지지 않는다**
-const centered = v => !!v && !!v.cut && v.align === 'center' && Math.abs(v.dx) <= 1 && Math.abs(v.dy) <= 1;
+// 마크는 상자의 가로 한가운데 · 위아래 여백이 같아야 한다
+const centered = v => !!v && v.mark && v.align === 'center' && Math.abs(v.dx) <= 1 && Math.abs(v.dy) <= 1;
 
 check('북마크 칸으로 간다', await clickSel('[data-pane="bookmark"]'));
 await sleep(500);
@@ -523,14 +636,11 @@ check("형광펜 빈 상태 문구", hlEmpty.includes('형광펜을 칠한 절�
   && !hlEmpty.includes('형광펜을 그은 절이 여기 모입니다'));
 check('형광펜 칸에는 북마크 목록이 없다', !hlEmpty.includes('북마크한 장을 여기서'));
 const hlFit = await markEmptyFit('형광펜을 칠한 절은');
-check('북마크·형광펜 빈 상태가 컷과 함께 가운데에 선다',
+check('북마크·형광펜 빈 상태가 마크와 함께 가운데에 선다',
   centered(bmFit) && centered(hlFit), JSON.stringify({ bmFit, hlFit }));
-// 어느 컷을 어디에 썼는지 못 박는다(사용자 결정 2026-09-03) — 북마크 book · 형광펜 hug-warm
-check('북마크는 book 컷, 형광펜은 hug-warm 컷',
-  bmFit?.cut === '/chars/book.webp' && hlFit?.cut === '/chars/hug-warm.webp',
-  JSON.stringify({ bm: bmFit?.cut, hl: hlFit?.cut }));
-check('컷을 원본보다 키우지 않는다', bmFit?.grew !== false && hlFit?.grew !== false,
-  JSON.stringify({ bm: bmFit?.grew, hl: hlFit?.grew }));
+// 말씀 화면에는 캐릭터 컷을 두지 않는다(사용자 결정 2026-09-03 — 홈만 쓴다)
+check('말씀 화면에 캐릭터 컷이 없다',
+  (await ev(`document.querySelectorAll('img[src*="/chars/"]').length`)) === 0);
 
 check('목차 칸으로 돌아간다', await clickSel('[data-pane="toc"]'));
 await sleep(500);
@@ -573,6 +683,7 @@ const navBox = () => ev(`(() => {
            card: cr ? { left: Math.round(cr.left), right: Math.round(cr.right) } : null,
            vh: innerHeight, scroll: Math.round((document.scrollingElement || {}).scrollTop || 0) };
 })()`);
+await waitFor(`document.querySelector('[data-chap-nav="next"]')`);
 const navAt1 = await navBox();
 check('창세기 1장에는 이전 장 화살표가 없다', navAt1.prev === null, JSON.stringify(navAt1.prev));
 check('다음 장 화살표는 44px이고 본문 오른쪽 밖에 선다',
@@ -585,16 +696,60 @@ const navScrolled = await navBox();
 check('스크롤을 내려도 화살표가 눈높이에 남는다',
   !!navScrolled.next && navScrolled.next.top >= 0 && navScrolled.next.bottom <= navScrolled.vh + 1,
   JSON.stringify(navScrolled.next));
-check('화살표를 누르면 다음 장으로 간다', await clickSel('[data-chap-nav="next"]'));
+// **넘기는 동안 자리가 줄지 않는다**(사용자 피드백 2026-09-03 — 본문이 비었다가 채워지며
+// 높이가 튀고 스크롤이 점프했다). 스켈레톤이 이전 높이를 붙잡으므로 문서 높이가 아래로
+// 꺼지지 않고, sticky 화살표도 제자리에 있어야 한다.
+const jump = await ev(`(async () => {
+  const card = document.querySelector('[data-chap-swipe] > div:nth-child(2)');
+  const arrow = () => document.querySelector('[data-chap-nav="next"]');
+  if (!card || !arrow()) return null;
+  const doc = () => Math.round(document.documentElement.scrollHeight);
+  const before = { h: doc(), card: Math.round(card.getBoundingClientRect().height),
+                   arrow: Math.round(arrow().getBoundingClientRect().top) };
+  const seen = [];
+  let stop = false;
+  const tick = () => {
+    const a = arrow();
+    seen.push({ h: doc(), verses: document.querySelectorAll('p[data-verse]').length,
+                arrow: a ? Math.round(a.getBoundingClientRect().top) : -1 });
+    if (!stop) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  arrow().click();
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 16));
+    if (document.querySelectorAll('p[data-verse]').length) break;
+  }
+  stop = true;
+  const waiting = seen.filter(x => x.verses === 0);
+  return {
+    before,
+    waited: waiting.length,
+    minH: waiting.length ? Math.min(...waiting.map(x => x.h)) : -1,
+    arrowDrift: waiting.length ? Math.max(...waiting.map(x => Math.abs(x.arrow - before.arrow))) : -1,
+  };
+})()`, true);
+// 책 파일이 이미 캐시에 있으면 기다리는 프레임이 없다(그때는 꺼질 자리도 없다)
+check('넘기는 동안 문서 높이가 꺼지지 않는다',
+  !!jump && (jump.waited === 0 || jump.minH >= jump.before.h - 8), JSON.stringify(jump));
+check('넘기는 동안 화살표가 제자리에 있다',
+  !!jump && (jump.waited === 0 || jump.arrowDrift <= 2), JSON.stringify(jump));
 await sleep(1200);
 const afterArrow = await ev(`(() => {
   const first = document.querySelector('p[data-verse]');
+  const headRow = document.querySelector('[data-chap-head]');
   return { head: (document.querySelector('h3') || {}).textContent || '',
            firstTop: first ? Math.round(first.getBoundingClientRect().top) : -1,
+           headTop: headRow ? Math.round(headRow.getBoundingClientRect().top) : -1,
+           place: !!document.querySelector('[data-chap-head] .bible-place'),
            prev: !!document.querySelector('[data-chap-nav="prev"]') };
 })()`);
 check('화살표로 넘기면 그 장이 열린다', afterArrow.head === '창세기 2장', JSON.stringify(afterArrow));
-check('넘긴 뒤에는 본문 맨 위로 돌아온다', afterArrow.firstTop > 0 && afterArrow.firstTop < 400,
+// 넘긴 뒤 눈이 닿는 자리는 **장 제목 줄**이다(사용자 피드백 2026-09-03 — 1절이 아니다).
+// 화면 위에 붙은 내비 밑으로 들어가지 않게 여유를 두므로 0~80px 안에 선다.
+check('넘긴 뒤 장 제목 줄이 화면 위쪽에 선다',
+  afterArrow.headTop >= 0 && afterArrow.headTop <= 80, JSON.stringify(afterArrow));
+check('본문 첫 절도 화면 안에 있다', afterArrow.firstTop > 0 && afterArrow.firstTop < 400,
   JSON.stringify(afterArrow));
 check('첫 장이 아니면 이전 장 화살표가 생긴다', afterArrow.prev === true);
 check('이전 장 화살표로 되돌아온다', await clickSel('[data-chap-nav="prev"]'));
@@ -609,6 +764,7 @@ check("창세기 1:1에 '태초에 하나님이'", reader.first.includes('태초
 const fonts = await ev(`(async () => {
   const size = () => getComputedStyle(document.querySelector('p[data-verse]')).fontSize;
   const aa = [...document.querySelectorAll('button[aria-label]')].filter(b => b.getAttribute('aria-label').startsWith('글자'));
+  if (aa.length < 3) return { mid: '0px', big: '0px', small: '0px', stored: '' };
   const out = { mid: size() };
   aa[2].click(); await new Promise(r => setTimeout(r, 150)); out.big = size();
   aa[0].click(); await new Promise(r => setTimeout(r, 150)); out.small = size();
@@ -629,7 +785,9 @@ check('고른 글자 크기가 기기에 남는다', fonts.stored === '0', Strin
 // 그래서 검사도 "절의 bottom과 도구 줄의 top이 8px 안"인지를 잰다 — 어긋나면 그 자리에
 // 없는 것이다. 대상 절에는 표시(dc-verse-picked · data-picked)가 붙는다.
 const tool = await ev(`(async () => {
-  document.querySelector('p[data-verse="1:3"]').click();
+  const p0 = document.querySelector('p[data-verse="1:3"]');
+  if (!p0) return null;
+  p0.click();
   await new Promise(r => setTimeout(r, 250));   // 리액트가 도구 줄을 그릴 틈
   const p = document.querySelector('p[data-verse="1:3"]');   // 그린 뒤의 그 절을 다시 잡는다
   const t = document.querySelector('[data-verse-tool]');
@@ -643,7 +801,13 @@ const tool = await ev(`(async () => {
     inFlow: t.parentElement && t.parentElement.parentElement === p.parentElement,
     sameLeft: Math.round(b.left - r.left),
     fixed: getComputedStyle(t).position,
-    chip: !!t.querySelector('[data-hl-color]'),
+    chips: [...t.querySelectorAll('[data-hl-color]')].map(c => c.dataset.hlColor),
+    chipTag: [...t.querySelectorAll('[data-hl-color]')].map(c => c.tagName),
+    chipPad: (() => {
+      const cs = [...t.querySelectorAll('[data-hl-color]')];
+      const last = cs[cs.length - 1];
+      return last ? Math.round(t.getBoundingClientRect().right - last.getBoundingClientRect().right) : 0;
+    })(),
     picked: p.dataset.picked === '1' && p.className.includes('dc-verse-picked'),
     expanded: p.getAttribute('aria-expanded'),
     painted: p.dataset.mark === '1', stored: (st.highlights || []).length,
@@ -657,14 +821,20 @@ check('도구 줄이 눌린 절 바로 아래에 붙는다',
 check('도구 줄은 절과 같은 왼쪽에서 시작한다', !!tool && Math.abs(tool.sameLeft) <= 8, JSON.stringify(tool));
 check('대상 절에 표시가 붙는다', !!tool && tool.picked === true && tool.expanded === 'true',
   JSON.stringify(tool));
-check('도구 줄에 [형광펜 칠하기]와 색 칩이 있다',
-  !!tool && tool.text.includes('형광펜 칠하기') && tool.chip === true, JSON.stringify(tool));
+// 색 네 가지(빨·파·노·초)가 **누르면 칠하는 버튼**이고, 오른쪽에 여백이 있다
+check('도구 줄에 색 칩 네 개가 버튼으로 있다',
+  !!tool && tool.chips.join(',') === 'red,blue,yellow,green' && tool.chipTag.every(t => t === 'BUTTON'),
+  JSON.stringify({ chips: tool && tool.chips, tag: tool && tool.chipTag }));
+check('마지막 칩 오른쪽에 여백이 있다', !!tool && tool.chipPad >= 6, String(tool && tool.chipPad));
 check("'형광펜 긋기'라는 이름은 남아 있지 않다", !!tool && tool.text.includes('긋기') === false, tool && tool.text);
 check('도구 줄이 어느 절의 것인지 이름에 있다', !!tool && tool.label.includes('1:3'), tool && tool.label);
 
-// **다른 절을 누르면 그 절로 옮겨 간다**(좌표를 안 재므로 어긋날 자리가 없다)
+// **다른 절을 누르면 범위가 된다**(사용자 결정 2026-09-03 — 앵커 방식). 도구 줄은 범위의
+// 마지막 절 아래로 옮겨 가고, 좌표를 안 재므로 어긋날 자리가 없다.
 const moved = await ev(`(async () => {
-  document.querySelector('p[data-verse="1:5"]').click();
+  const p1 = document.querySelector('p[data-verse="1:5"]');
+  if (!p1) return null;
+  p1.click();
   await new Promise(r => setTimeout(r, 300));
   const p = document.querySelector('p[data-verse="1:5"]');
   const t = document.querySelector('[data-verse-tool]');
@@ -677,9 +847,9 @@ const moved = await ev(`(async () => {
     marked: [...document.querySelectorAll('p[data-picked="1"]')].map(x => x.dataset.verse),
   };
 })()`, true);
-check('다른 절을 누르면 도구 줄이 그 절로 간다',
-  !!moved && moved.label.includes('1:5') && moved.gap >= 0 && moved.gap <= 8
-  && moved.only === 1 && JSON.stringify(moved.marked) === JSON.stringify(['1:5']),
+check('다른 절을 누르면 범위가 되고 도구 줄이 그 끝으로 간다',
+  !!moved && moved.label.includes('1:3~5') && moved.gap >= 0 && moved.gap <= 8
+  && moved.only === 1 && moved.marked.join(',') === '1:3,1:4,1:5',
   JSON.stringify(moved));
 
 // 바깥을 누르면 닫힌다(도구 줄은 document의 mousedown을 듣는다)
@@ -688,7 +858,7 @@ await sleep(250);
 check('바깥 누름으로 도구 줄이 닫힌다', (await ev(`!document.querySelector('[data-verse-tool]')`)) === true);
 
 // Esc로도 닫힌다 — 그래도 아무것도 안 칠해져 있다
-await ev(`(() => { document.querySelector('p[data-verse="1:3"]').click(); })()`);
+await clickSel('p[data-verse="1:3"]');
 await sleep(250);
 await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
 await sleep(250);
@@ -697,9 +867,9 @@ const escaped = await ev(`(() => ({ open: !!document.querySelector('[data-verse-
 check('Esc로 취소된다', escaped.open === false && escaped.painted === false, JSON.stringify(escaped));
 
 // [형광펜 칠하기]를 눌러야 그때 칠해진다
-await ev(`(() => { document.querySelector('p[data-verse="1:3"]').click(); })()`);
+await clickSel('p[data-verse="1:3"]');
 await sleep(250);
-check('[형광펜 칠하기]를 고른다', await clickText('형광펜 칠하기'));
+check('노랑 칩을 눌러 칠한다', await clickSel('[data-verse-tool] [data-hl-color="yellow"]'));
 await sleep(600);
 // **글자가 있는 자리만 칠해진다**(4차 피드백 11). 절 상자의 배경은 투명하고, 색은 절 안의
 // 인라인 mark가 든다 — 짧은 절이면 그 폭이 상자보다 확실히 좁다(예전에는 상자째 노랬다).
@@ -714,12 +884,16 @@ const lit = await ev(`(() => {
            clone: cs ? (cs.boxDecorationBreak || cs.webkitBoxDecorationBreak || '') : '',
            narrower: m ? Math.round(box.width - m.getBoundingClientRect().width) : -1,
            refs: (st.highlights || []).map(h => h.ref),
+           colors: (st.highlights || []).map(h => h.color || ''),
+           markColor: m ? m.dataset.lit : '',
            closed: !document.querySelector('[data-verse-tool]') };
 })()`);
 check('고를 때 비로소 형광펜이 켜진다', lit.on === true, JSON.stringify(lit));
 check('고르고 나면 팝오버는 닫힌다', lit.closed === true);
 check("형광펜은 절 단위로 남는다('gen 1:3')", JSON.stringify(lit.refs) === JSON.stringify(['gen 1:3']),
   JSON.stringify(lit.refs));
+check('고른 색이 함께 남는다', lit.colors.join(',') === 'yellow' && lit.markColor === 'yellow',
+  JSON.stringify({ colors: lit.colors, mark: lit.markColor }));
 check('형광펜은 절 상자가 아니라 글자에 칠해진다',
   lit.inline === true && /rgba\(0, 0, 0, 0\)|transparent/.test(lit.bg) && lit.narrower > 40,
   JSON.stringify({ bg: lit.bg, markBg: lit.markBg, narrower: lit.narrower }));
@@ -742,12 +916,107 @@ check('형광펜 줄의 발췌에 색이 보인다', litRow.colored === true, JS
 check('목차 칸으로 돌아간다', await clickSel('[data-pane="toc"]'));
 await sleep(700);
 
+// ── 범위 고르기(사용자 결정 2026-09-03) ────────────────────────────────────
+// 앵커 방식: 첫 클릭이 앵커, 다음 클릭이 그 사이를 범위로 만든다. 늘리기와 줄이기가
+// 같은 손짓이고(1~6에서 5를 누르면 1~5), 앵커를 다시 누르면 해제다.
+const clickVerses = (list) => ev(`(async () => {
+  for (const v of ${JSON.stringify(list)}) {
+    const p = document.querySelector('p[data-verse="1:' + v + '"]');
+    if (p) p.click();
+    await new Promise(r => setTimeout(r, 220));
+  }
+  const marked = [...document.querySelectorAll('p[data-picked="1"]')].map(x => x.dataset.verse);
+  const t = document.querySelector('[data-verse-tool]');
+  const at = t ? t.parentElement.previousElementSibling : null;
+  return { marked, label: t ? t.dataset.verseTool : '', toolAfter: at ? at.dataset.verse : '' };
+})()`, true);
+const esc = async () => {
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+  await sleep(250);
+};
+// 4 → 1: 앵커가 4라도 범위는 1~4
+const r41 = await clickVerses([4, 1]);
+check('4를 누른 뒤 1을 누르면 1~4가 된다',
+  r41.marked.join(',') === '1:1,1:2,1:3,1:4' && r41.label.includes('1:1~4'), JSON.stringify(r41));
+check('도구 줄은 범위의 마지막 절 아래에 선다', r41.toolAfter === '1:4', JSON.stringify(r41));
+await esc();
+check('Esc로 범위가 해제된다',
+  (await ev(`document.querySelectorAll('p[data-picked="1"]').length`)) === 0);
+// 1 → 4: 같은 범위
+const r14 = await clickVerses([1, 4]);
+check('1을 누른 뒤 4를 누르면 1~4가 된다',
+  r14.marked.join(',') === '1:1,1:2,1:3,1:4' && r14.label.includes('1:1~4'), JSON.stringify(r14));
+// 1~4에서 6을 누르면 1~6으로 늘어난다
+const r6 = await clickVerses([6]);
+check('범위 밖을 누르면 그만큼 늘어난다',
+  r6.marked.length === 6 && r6.label.includes('1:1~6'), JSON.stringify(r6));
+// 1~6에서 5를 누르면 1~5로 줄어든다(역으로 취소)
+const r5 = await clickVerses([5]);
+check('범위 안을 누르면 그만큼 줄어든다',
+  r5.marked.join(',') === '1:1,1:2,1:3,1:4,1:5' && r5.label.includes('1:1~5'), JSON.stringify(r5));
+// 앵커(1)를 다시 누르면 해제
+const rOff = await clickVerses([1]);
+check('앵커를 다시 누르면 해제된다', rOff.marked.length === 0 && rOff.label === '',
+  JSON.stringify(rOff));
+
+// 범위 전체를 한 번에 칠하고 지운다 — 색은 파랑으로
+const r24 = await clickVerses([2, 4]);
+check('2~4를 고른다', r24.marked.length === 3, JSON.stringify(r24));
+check('파랑 칩으로 범위를 칠한다', await clickSel('[data-verse-tool] [data-hl-color="blue"]'));
+await sleep(800);
+const painted = await ev(`(() => {
+  const st = JSON.parse(localStorage.getItem('word_bible_state') || '{}');
+  const marks = [...document.querySelectorAll('p[data-verse] mark[data-lit]')]
+    .map(m => m.closest('p').dataset.verse + ':' + m.dataset.lit);
+  return { stored: (st.highlights || []).filter(h => /1:[234]$/.test(h.ref)).map(h => h.ref + '=' + (h.color || '')),
+           marks, closed: !document.querySelector('[data-verse-tool]'),
+           picked: document.querySelectorAll('p[data-picked="1"]').length };
+})()`);
+check('범위 전체가 그 색으로 칠해진다',
+  painted.stored.join(',') === 'gen 1:2=blue,gen 1:3=blue,gen 1:4=blue', JSON.stringify(painted.stored));
+check('덧칠하면 같은 절이 두 번 남지 않는다',
+  painted.marks.filter(m => m.startsWith('1:3')).length === 1, JSON.stringify(painted.marks));
+check('칠한 뒤에는 선택과 도구 줄이 사라진다', painted.closed && painted.picked === 0,
+  JSON.stringify(painted));
+// 지우기도 범위 전체다
+const rErase = await clickVerses([2, 4]);
+check('다시 2~4를 고르면 [형광펜 지우기]가 뜬다',
+  rErase.marked.length === 3
+  && (await ev(`((document.querySelector('[data-verse-tool]')||{}).textContent||'').includes('형광펜 지우기')`)) === true,
+  JSON.stringify(rErase));
+check('지금 색이 칩에 표시된다',
+  (await ev(`(document.querySelector('[data-verse-tool] [data-hl-color="blue"]')||{}).getAttribute?.('aria-pressed')`)) === 'true');
+await clickText('형광펜 지우기');
+await sleep(800);
+const erased = await ev(`(() => {
+  const st = JSON.parse(localStorage.getItem('word_bible_state') || '{}');
+  return { left: (st.highlights || []).map(h => h.ref),
+           marks: document.querySelectorAll('p[data-verse] mark[data-lit]').length };
+})()`);
+check('범위 전체의 형광펜이 지워진다', erased.left.length === 0 && erased.marks === 0,
+  JSON.stringify(erased));
+
+// 색 칸이 없는 예전 항목은 노랑으로 읽는다(0038로 들어간 항목에는 색이 없다)
+await ev(`(() => {
+  const st = JSON.parse(localStorage.getItem('word_bible_state') || '{}');
+  st.highlights = [{ ref: 'gen 1:3', at: '2026-09-01T00:00:00Z' }];
+  localStorage.setItem('word_bible_state', JSON.stringify(st));
+})()`);
+await reload();
+await sleep(1500);
+await clickText('말씀'); await sleep(1400);
+await clickText('성경 읽기'); await sleep(1800);
+await waitFor(`document.querySelector('p[data-verse="1:3"]')`);
+check('색이 없는 예전 형광펜은 노랑으로 보인다',
+  (await ev(`(document.querySelector('p[data-verse="1:3"] mark[data-lit]')||{}).dataset?.lit`)) === 'yellow');
+
 // 이미 그어져 있으면 지우는 쪽을 준다 · 같은 절을 다시 누르면 닫힌다
-await ev(`(() => { document.querySelector('p[data-verse="1:3"]').click(); })()`);
+await waitFor(`document.querySelector('p[data-verse="1:3"]')`);
+await clickSel('p[data-verse="1:3"]');
 await sleep(300);
 check('이미 그어져 있으면 [형광펜 지우기]가 뜬다',
   (await ev(`((document.querySelector('[data-verse-tool]')||{}).textContent || '').trim()`)) === '형광펜 지우기');
-await ev(`(() => { document.querySelector('p[data-verse="1:3"]').click(); })()`);
+await clickSel('p[data-verse="1:3"]');
 await sleep(300);
 check('같은 절을 다시 누르면 닫힌다', (await ev(`!document.querySelector('[data-verse-tool]')`)) === true);
 
@@ -853,7 +1122,7 @@ const found = await ev(`(async () => {
 })()`, true);
 check('본문 검색이 절을 찾는다', found.n > 0 && found.first === 'gen 1:1', JSON.stringify(found));
 check('찾은 말이 결과에 표시된다', found.marks > 0, String(found.marks));
-await ev(`(() => { document.querySelector('button[data-hit]').click(); })()`);
+await clickSel('button[data-hit]');
 await sleep(1000);
 const jumped = await ev(`(() => ({ head: (document.querySelector('h3')||{}).textContent || '',
   focus: (document.querySelector('[data-focus="1"]')||{}).textContent || '' }))()`);
@@ -873,16 +1142,16 @@ const noHit = await ev(`(async () => {
     if (!document.body.innerText.includes('훑는 중')) {
       const p = [...document.querySelectorAll('p')].find(x => x.textContent.includes('그대로 나오는 절을 찾지 못했어요'));
       if (p) {
-        const img = p.parentElement.querySelector('img[src*="/chars/"]');
-        return { said: true, cut: img ? img.getAttribute('src') : '' };
+        const svg = p.parentElement.querySelector('svg path.dc-draw');
+        return { said: true, mark: !!svg };
       }
     }
     await new Promise(r => setTimeout(r, 400));
   }
-  return { said: false, cut: '' };
+  return { said: false, mark: false };
 })()`, true);
 check('못 찾으면 왜 못 찾았는지까지 말한다', noHit.said === true, JSON.stringify(noHit));
-check('검색 빈 자리에 question 컷이 선다', noHit.cut === '/chars/question.webp', JSON.stringify(noHit));
+check('검색 빈 자리도 마크로 그린다', noHit.mark === true, JSON.stringify(noHit));
 await clickSel('button[aria-label="검색어 지우기"]');
 await sleep(600);
 
@@ -907,8 +1176,7 @@ await ev(`(() => {
     ],
   }));
 })()`);
-await send('Page.navigate', { url: URL_BASE });
-await wait('Page.loadEventFired');
+await reload();
 await sleep(1400);
 await clickText('말씀');
 await sleep(1400);
@@ -985,8 +1253,7 @@ check('묶인 줄을 눌러도 그 자리로 간다',
 
 // ── 모바일 375px ────────────────────────────────────────────────────────────
 await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
-await send('Page.navigate', { url: URL_BASE });
-await wait('Page.loadEventFired');
+await reload();
 await sleep(1400);
 await ev(`(() => { const g=document.querySelector('button[title="설정"]'); g && g.click(); })()`);
 await sleep(400);
@@ -1052,8 +1319,16 @@ const swipeAt = (dx, dy) => ev(`(async () => {
   send('touchend', pt(x0 + ${dx}, y0 + ${dy}));
   await new Promise(r2 => setTimeout(r2, 1300));
   const first = document.querySelector('p[data-verse]');
+  const headRow = document.querySelector('[data-chap-head]');
+  // 스크롤할 자리가 없는 짧은 장에서는 올라갈 수도 없다 — 그건 통이 알려 준다
+  let box = headRow && headRow.parentElement;
+  while (box && box !== document.body) { const oy = getComputedStyle(box).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && box.scrollHeight > box.clientHeight + 8) break; box = box.parentElement; }
+  const sc = (box && box !== document.body) ? box : (document.scrollingElement || document.documentElement);
   return { head: (document.querySelector('h3') || {}).textContent || '',
-           firstTop: first ? Math.round(first.getBoundingClientRect().top) : -1 };
+           firstTop: first ? Math.round(first.getBoundingClientRect().top) : -1,
+           headTop: headRow ? Math.round(headRow.getBoundingClientRect().top) : -1,
+           roomy: sc.scrollHeight > sc.clientHeight + 120 };
 })()`, true);
 const headNow = () => ev(`(document.querySelector('h3')||{}).textContent || ''`);
 const swipeFrom = await headNow();
@@ -1075,6 +1350,28 @@ check('오른쪽으로 쓸면 이전 장으로 돌아온다', !!swipedBack && sw
   JSON.stringify({ swipeFrom, swipedBack }));
 // 화살표는 `hidden md:flex`라 좁은 폭에서도 DOM에는 남는다 — **보이는지**로 잰다
 // (있는지로 재면 display:none인 것을 '있다'고 세어 이 검사가 늘 실패한다)
+// 실제 터치 기기에서도 도는지: ① 핸들러가 **본문 칸**(카드를 감싼 [data-chap-swipe])에
+// 걸려 있고 ② 조상 어디에도 세로 스크롤을 막는 touch-action이 없어야 한다(§6-7 —
+// touch-action은 자손 전체에 걸린다). 가로 쓸기는 우리가 좌표로 재므로 브라우저의
+// 팬 동작과 다투지 않는다(touchmove에 preventDefault를 걸지 않는다).
+const touchOk = await ev(`(() => {
+  const area = document.querySelector('[data-chap-swipe]');
+  if (!area) return null;
+  const hasCard = !!area.querySelector('p[data-verse]');
+  const chain = [];
+  let e = area;
+  while (e && e !== document.documentElement) { chain.push(getComputedStyle(e).touchAction); e = e.parentElement; }
+  return { hasCard, chain: [...new Set(chain)] };
+})()`);
+check('쓸기 영역이 본문 칸을 품고 있다', !!touchOk && touchOk.hasCard === true, JSON.stringify(touchOk));
+check('세로 스크롤을 막는 touch-action이 없다',
+  !!touchOk && !touchOk.chain.includes('none') && !touchOk.chain.includes('pan-x'),
+  JSON.stringify(touchOk));
+// 쓸어 넘긴 뒤에도 눈이 닿는 자리는 장 제목 줄이다(스크롤할 자리가 있는 장에서)
+check('모바일에서 쓸어 넘긴 뒤에도 장 제목 줄이 위쪽에 선다',
+  !!swiped && (!swiped.roomy || (swiped.headTop >= 0 && swiped.headTop <= 80)),
+  JSON.stringify(swiped));
+
 check('좁은 폭에서는 화살표가 보이지 않는다',
   (await ev(`[...document.querySelectorAll('[data-chap-nav]')].every(e => e.offsetParent === null)`)) === true);
 
@@ -1113,11 +1410,15 @@ const fits = (v) => !!v && v.gapRight <= 24 && v.gapRight >= -1;
 
 for (const w of [768, 1024, 1160, 1440]) {
   await send('Emulation.setDeviceMetricsOverride', { width: w, height: 900, deviceScaleFactor: 1, mobile: false });
-  await send('Page.navigate', { url: URL_BASE });
-  await wait('Page.loadEventFired');
+  await reload();
   await sleep(1500);
+  await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === '말씀')`);
   await clickText('말씀');
-  await sleep(1700);
+  if (!await waitFor(`document.querySelector('[data-col="qt"]')`, 6000)) {
+    await clickText('말씀');                       // 첫 렌더가 늦으면 클릭이 허공에 간다
+    await waitFor(`document.querySelector('[data-col="qt"]')`, 8000);
+  }
+  await sleep(900);
   const qtFit = await colFit('[data-col="qt"]');
   const over = await ev(`(() => {
     const d = document.documentElement;
@@ -1128,7 +1429,11 @@ for (const w of [768, 1024, 1160, 1440]) {
   check(`${w}px QT가 가로로 넘치지 않는다`, over.over === false && over.wide === 0, JSON.stringify(over));
 
   await clickText('성경 읽기');
-  await sleep(1800);
+  if (!await waitFor(`document.querySelector('[data-col="read"], [data-col="toc"]')`, 6000)) {
+    await clickText('성경 읽기');
+    await waitFor(`document.querySelector('[data-col="read"], [data-col="toc"]')`, 8000);
+  }
+  await sleep(900);
   const barFit = await colFit('[data-col="searchbar"]');
   const readFit = await colFit('[data-col="read"]');
   const inputFill = await ev(`(() => {
@@ -1175,8 +1480,7 @@ logs.length = 0;   // 아래는 일부러 실패를 만드는 자리다 — 여�
 //
 // ① 책 파일을 못 받았을 때: 예전에는 빈 절 배열로 떨어져 카드 안이 통째로 비고 화면은
 //    아무 말도 안 했다. 이제 '…장의 본문을 불러오지 못했어요 · <이유>'가 그 자리에 선다.
-await send('Page.navigate', { url: URL_BASE });
-await wait('Page.loadEventFired');
+await reload();
 await ev(`(() => {
   const real = window.fetch;
   window.fetch = (u, ...rest) => {
@@ -1191,7 +1495,9 @@ await ev(`(() => {
 await clickText('말씀');
 await sleep(1400);
 await clickText('성경 읽기');
-await sleep(1800);
+await sleep(600);
+await waitFor(`document.body.innerText.includes('불러오지 못했어요') || document.querySelector('p[data-verse]')`);
+await sleep(600);
 const readFail = await ev(`(() => {
   const t = document.body.innerText;
   return { said: /본문을 불러오지 못했어요/.test(t),
@@ -1202,36 +1508,14 @@ check('책 파일을 못 받으면 못 받았다고 말한다',
   readFail.said === true && readFail.lied === false, JSON.stringify(readFail));
 check('실패 문구에 이유가 붙는다', readFail.why === true, JSON.stringify(readFail));
 
-// ①-b 목차(책 목록)를 못 받았을 때: '구약 0권'으로 그리지 않는다
-await ev(`(() => {
-  const real = window.fetch;
-  window.fetch = (u, ...rest) => {
-    const url = String((u && u.url) || u || '');
-    if (url.includes('/bible/')) return Promise.reject(new Error('Failed to fetch'));
-    return real(u, ...rest);
-  };
-})()`);
-await send('Page.navigate', { url: URL_BASE });
-await wait('Page.loadEventFired');
-await ev(`(() => {
-  const real = window.fetch;
-  window.fetch = (u, ...rest) => {
-    const url = String((u && u.url) || u || '');
-    if (url.includes('/bible/')) return Promise.reject(new Error('Failed to fetch'));
-    return real(u, ...rest);
-  };
-  localStorage.removeItem('word_bible_state');
-})()`);
-await clickText('말씀');
-await sleep(1400);
-await clickText('성경 읽기');
-await sleep(1800);
-const tocFail = await ev(`(() => {
-  const t = document.body.innerText;
-  return { said: /성경 목차를 불러오지 못했어요/.test(t), zero: /0권/.test(t) };
-})()`);
-check('목차를 못 받으면 0권으로 그리지 않는다',
-  tocFail.said === true && tocFail.zero === false, JSON.stringify(tocFail));
+// ①-b 목차(책 목록)를 못 받은 경우: 브라우저에서 이 길을 만들려면 앱이 뜨기 전에
+//    fetch를 갈아야 해서(부팅 자체가 흔들린다) **배선을 소스로 지킨다** — 못 받으면
+//    '구약 0권'으로 그리지 않고 이유를 말한다. 책 파일(①)은 위에서 실제로 막아 봤다.
+const bibleSrc = readFileSync(new URL('src/components/wordBible.jsx', ROOT), 'utf8');
+check('목차를 못 받으면 0권이 아니라 이유를 말한다',
+  bibleSrc.includes('setLoadErr(err || true)')
+  && bibleSrc.includes("failText('성경 목차를 불러오지 못했어요', failed)")
+  && bibleSrc.includes('if (!books.length)'));
 
 // ② QT 본문 일정을 못 읽은 경우는 게스트에서 만들 수 없다 — services/word.js가
 //    localStorage 예외까지 삼키고 빈 값을 돌려주기 때문이다(사파리 비공개 모드용). 그래서
@@ -1239,7 +1523,7 @@ check('목차를 못 받으면 0권으로 그리지 않는다',
 //    '아직 올라오지 않았어요'가 아니라 '불러오지 못했어요 + 이유'가 그려져야 한다.
 const viewSrc = readFileSync(new URL('src/views/wordView.jsx', ROOT), 'utf8');
 check('QT 본문 읽기 실패를 빈 상태와 갈라 표시한다',
-  viewSrc.includes('failed: err || true')
+  viewSrc.includes('failed: qtError')
   && viewSrc.includes("failText('이 날짜의 본문을 불러오지 못했어요', day.failed)")
   && viewSrc.includes('이 날짜의 본문이 아직 올라오지 않았어요'));
 // 실패를 삼키지 않고 부르는 쪽에 넘긴다 — 북마크·형광펜이 안 남았는데 화면만 칠해져

@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, X } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
@@ -12,6 +12,39 @@ import { keepVisible } from '../utils.js';
 // 순·동아리·순 편성 세 구역이 같은 모양을 세 번 들고 있지 않도록 여기 모은다.
 // 전부 **props로 받은 것만 그린다** — 통신은 views/groupsView.jsx가 한다.
 // ============================================================================
+
+// ── 열고 닫는 칸의 등장·퇴장 (§4.2) ────────────────────────────────────────
+// 만들기 칸이 아무 것도 없이 뚝 나타났다(사용자 지적 2026-09-03). 등장은 화면의 카드
+// 등장 토큰을 그대로 탄다(`dc-card` = opacity + 5px, 280ms — prefers-reduced-motion에서
+// index.css가 알아서 끈다). **퇴장은 그 짝이 없어서** tw-animate로 짧게 주고,
+// `motion-safe:`로 감싸 모션을 꺼 둔 사람에게는 걸리지 않게 한다.
+// `duration-*`는 붙이지 않는다 — 그 클래스는 transition-duration까지 정하고
+// transition-property의 초깃값이 all이라 위치까지 전이 대상이 된다(§6-17-b).
+// tw-animate의 기본 길이가 이미 .15s다.
+export const EXIT = 'motion-safe:animate-out motion-safe:fade-out motion-safe:slide-out-to-top-1';
+
+// 닫는 동안(150ms) 칸을 살려 두는 최소 상태. `close(끝나고 할 일)`로 쓴다.
+export function useClosing(ms = 150) {
+  const [closing, setClosing] = useState(false);
+  const close = useCallback((done) => {
+    setClosing(true);
+    setTimeout(() => { setClosing(false); done?.(); }, ms);
+  }, [ms]);
+  return [closing, close];
+}
+
+// 캐시 훅(services/cache.js)이 **새 키의 값을 아직 들고 있지 않은 한 프레임**도
+// '읽는 중'으로 본다. useCached는 키가 바뀌면 effect에서 상태를 되돌리는데, effect는
+// 그림을 그린 **뒤에** 돌기 때문에 그 한 프레임에는 앞 키의 값(빈 배열 따위)이 그대로
+// 화면에 찍힌다 — 노트가 있는데 '없어요'가 한 번 스친 것이 그것이다(사용자 지적
+// 2026-09-03). settled가 false인 동안은 스켈레톤으로 자리만 잡는다.
+export function useSettled(key, loading) {
+  // 캐시가 이미 있으면(loading=false로 시작) **첫 프레임부터 자리를 잡은 것**이다 —
+  // null로 두면 다시 들어올 때마다 한 프레임씩 스켈레톤이 스친다.
+  const at = useRef(loading ? null : key);
+  useEffect(() => { if (!loading) at.current = key; }, [key, loading]);
+  return !loading && at.current === key;
+}
 
 export const CARD = 'rounded-[10px] shadow-soft';
 export const CARD_STYLE = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
@@ -290,6 +323,21 @@ export function PeopleMark() {
         fill="none" stroke="var(--app-line)" strokeWidth="1.6" strokeLinecap="round" />
       <path className="dc-draw dc-draw-3" pathLength="1" d="M42 39a9 9 0 0 1 12-6.4"
         fill="none" stroke="var(--app-line)" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// 노트 한 장 — 종이 테두리 → 글줄 둘(같은 dc-draw 언어). '공유된 예배 노트'가 아직
+// 없는 자리에 쓴다. 캐릭터 컷을 잠깐 썼다가 되돌린 자리다(사용자 결정 2026-09-03 —
+// "홈 제외하고는 캐릭터를 넣지 말라").
+export function NoteMark() {
+  return (
+    <svg viewBox="0 0 48 48" className="w-12 h-12 mx-auto" aria-hidden="true"
+      fill="none" stroke="var(--app-line)" strokeWidth="1.6" strokeLinecap="round">
+      <path className="dc-draw" pathLength="1"
+        d="M13 9.5h17.5L37 16v22.5a2 2 0 0 1-2 2H13a2 2 0 0 1-2-2v-27a2 2 0 0 1 2-2Z" />
+      <path className="dc-draw dc-draw-2" pathLength="1" d="M17.5 25.5h13" />
+      <path className="dc-draw dc-draw-3" pathLength="1" d="M17.5 31.5h9" />
     </svg>
   );
 }

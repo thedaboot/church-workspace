@@ -33,7 +33,21 @@ const send = (m, p = {}) => new Promise((res, rej) => { const i = ++id; pend.set
 const wait = async (m, to = 20000) => { const s = Date.now(); while (Date.now() - s < to) { const i = evs.findIndex(e => e.method === m); if (i >= 0) return evs.splice(i, 1)[0]; await sleep(50); } throw new Error(m); };
 const ev = async (e, a = false) => { const r = await send('Runtime.evaluate', { expression: e, awaitPromise: a, returnByValue: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description); return r.result.value; };
 const results = [];
+const byText = (t) => `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(t)})`;
 const check = (n, p, d = '') => results.push(`${p ? 'PASS' : 'FAIL'}  ${n}${d ? ' — ' + d : ''}`);
+// 화면이 그려질 때까지 기다린다. 고정 sleep만으로는 흔들린다 — 개발 서버가 처음
+// 변환하는 청크(마크다운 편집기는 tiptap을 통째로 물고 온다)는 첫 진입에서 몇 초가
+// 걸리고, 그동안 `querySelector(...).click()`은 null·undefined에 걸려 스위트가 통째로
+// 죽는다(검사 하나가 FAIL 나는 것과 달리 결과가 아예 안 나온다).
+const waitFor = async (expr, to = 12000) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < to) { if (await ev(expr)) return true; await sleep(120); }
+  return false;
+};
+const HAS_CARD = `!!document.querySelector('.worship-card')`;
+const HAS_DETAIL = `!!document.querySelector('.worship-detail .worship-tabpanel')`;
+const HAS_EDIT = `!!${byText('수정')}`;
+const HAS_ATT = `!!document.querySelector('.worship-att-open')`;
 
 // ── 가짜 주보·명단 ──────────────────────────────────────────────────────────
 const pad = n => String(n).padStart(2, '0');
@@ -67,7 +81,7 @@ const seed = {
     { id: 's1', kind: 'sunday', service_date: PAST1, status: 'published',
       title: '흔들리지 않는 기쁨', passage_ref: '이사야 32:9-20', preacher: '임성빈 전도사님',
       roles: [{ role: '대표기도', personId: 'p1', name: '김윤주' }, { role: '헌금봉헌', personId: null, name: '한상록 강사님' }],
-      songs: [{ title: '주 은혜임을', link: 'https://example.com/song' }, { title: '나의 반석이신 하나님' }],
+      songs: [{ title: '주 은혜임을', link: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }, { title: '나의 반석이신 하나님' }],
       notices: [{ title: '겨울 수련회 신청', body: '1월 20일까지 순장에게 신청해주세요' }],
       attendance_note: '' },
     { id: 's2', kind: '금요 열정 예배', service_date: PAST2, status: 'published',
@@ -93,7 +107,6 @@ const GO = `(() => {
   const b = [...document.querySelectorAll('button')].filter(x => x.textContent.trim() === '예배')[0];
   if (!b) return false; b.click(); return true;
 })()`;
-const byText = (t) => `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(t)})`;
 // React가 듣는 것은 네이티브 setter가 아니라 input 이벤트다 — 값과 이벤트를 같이 준다
 const typeIn = (sel, v, tag = 'HTMLInputElement') => `(() => {
   const el = document.querySelector(${JSON.stringify(sel)});
@@ -118,34 +131,26 @@ const tokenColor = (name) => `(() => {
   return c;
 })()`;
 
-// 빈 상태 — **캐릭터 컷**과 함께 남는 공간의 세로·가로 가운데인지 잰다(사용자 결정
-// 2026-09-03: 빈 자리의 SVG 마크를 컷으로 바꿨다). 내용(컷 + 글자)을 감싼 상자의
-// 가운데와 빈 상태 칸의 가운데가 같아야 하고, **컷은 원본보다 커지지 않아야** 한다.
+// 빈 상태 — 마크(SVG 선 그리기)와 함께 남는 공간의 세로·가로 가운데인지 잰다.
+// 내용(마크 + 글자)을 감싼 상자의 가운데와 빈 상태 칸의 가운데가 같아야 한다.
+// 캐릭터 컷을 잠깐 얹었다가 걷어냈다(사용자 결정 2026-09-03 — 홈 말고는 캐릭터 없음).
 //
 // 그리고 **그 칸이 남는 공간을 실제로 차지하는지**도 같이 잰다(fill = 화면 감싸개의
 // 끝과 스크롤 박스 바닥 사이). 46vh 고정값이던 때는 칸 안에서는 가운데였지만 칸이
 // 화면보다 작아서 **아래로 250~270px이 통째로 비었다**(사용자 지적 2026-09-02).
 // 칸 자신의 아래를 재면 안 된다 — 상세 화면은 그 아래에 노트가 오므로 늘 0이 나온다.
-const EMPTY = `(async () => {
+const EMPTY = `(() => {
   const box = document.querySelector('.worship-empty');
   if (!box) return null;
-  const img = box.querySelector('img');
-  if (img) { try { await img.decode(); } catch {} }
   const b = box.getBoundingClientRect();
   const main = document.querySelector('main');
   const kids = [...box.children].map(k => k.getBoundingClientRect());
   const top = Math.min(...kids.map(k => k.top)), bottom = Math.max(...kids.map(k => k.bottom));
   const left = Math.min(...kids.map(k => k.left)), right = Math.max(...kids.map(k => k.right));
   return {
-    mark: !!box.querySelector('img'),
-    marks: box.querySelectorAll('img').length,
-    cut: (box.querySelector('img')?.getAttribute('src') || '').replace('/chars/', '').replace('.webp', ''),
-    over: (() => {
-      const im = box.querySelector('img');
-      if (!im) return null;
-      return [Math.round(im.getBoundingClientRect().height - im.naturalHeight),
-        Math.round(im.getBoundingClientRect().width - im.naturalWidth)];
-    })(),
+    mark: !!box.querySelector('svg'),
+    marks: box.querySelectorAll('svg').length,
+    chars: box.querySelectorAll('img[src*="/chars/"]').length,
     h: Math.round(b.height), vh: innerHeight,
     dy: Math.round((top + bottom) / 2 - (b.top + b.bottom) / 2),
     dx: Math.round((left + right) / 2 - (b.left + b.right) / 2),
@@ -155,9 +160,9 @@ const EMPTY = `(async () => {
     text: box.innerText.trim(),
   };
 })()`;
-const centered = (e) => !!e && e.mark === true && e.h >= e.vh * 0.4 && Math.abs(e.dy) <= 2 && Math.abs(e.dx) <= 2;
-// 컷은 원본 크기를 넘지 않는다(늘려 그리면 뭉개진다 — 그림이 작은 편이 낫다)
-const notBlownUp = (e) => !!e && Array.isArray(e.over) && e.over[0] <= 0 && e.over[1] <= 0;
+// 문턱이 0.35인 이유: 상세 화면의 빈 탭은 아래에 '내 예배 노트'(서식 바 + 편집기)가
+// 실제로 자리를 차지한다 — 그래도 화면의 3분의 1은 넘어야 '넓은 빈 자리'다.
+const centered = (e) => !!e && e.mark === true && e.h >= e.vh * 0.35 && Math.abs(e.dy) <= 2 && Math.abs(e.dx) <= 2;
 // 남는 공간을 차지했나 — 화면이 스크롤 박스 바닥까지 닿고(빈 자리가 아래에 남지 않고),
 // 그렇다고 넘쳐서 스크롤이 생기지도 않아야 한다(감싸개의 pb까지 세야 딱 맞는다)
 const fills = (e) => !!e && e.fill >= 0 && e.fill <= 4 && e.scroll <= 0;
@@ -179,14 +184,17 @@ const pure = await ev(`(async () => {
   return {
     sunOnSat: m.nextSundayDate(new Date(2026, 8, 5)),     // 토 → 다음날
     sunOnSun: m.nextSundayDate(new Date(2026, 8, 6)),     // 주일 당일은 그날
-    date: m.formatServiceDate('2026-09-06', new Date(2026, 0, 1)),
-    dateOtherYear: m.formatServiceDate('2025-12-25', new Date(2026, 0, 1)),
+    date: m.formatServiceDate('2026-09-06'),
+    dateOtherYear: m.formatServiceDate('2025-12-25'),
     label: [m.kindLabel('sunday'), m.kindLabel('금요 열정 예배')],
     plain: perms({}),
     president: perms({ myRoles: ['president'] }),
     pastor: perms({ myPerson: { is_pastor: true } }),
     officer: perms({ myRoles: ['officer'] }),
     master: perms({ isMaster: true }),
+    admin: perms({ isAdmin: true }),
+    media: perms({ myPerson: { teams: ['미디어팀'] } }),
+    otherTeam: perms({ myPerson: { teams: ['찬양팀'] } }),
     sunjang: perms({ ledGroupIds: ['g1'] }),
     attPast: att('published', '2026-08-30'),
     attToday: att('published', '2026-09-01'),
@@ -230,13 +238,21 @@ const pure = await ev(`(async () => {
 })()`, true);
 check('다가오는 주일 — 토요일이면 다음 날', pure.sunOnSat === '2026-09-06', pure.sunOnSat);
 check('다가오는 주일 — 주일 당일은 그날', pure.sunOnSun === '2026-09-06', pure.sunOnSun);
-check('날짜 표기(올해는 연도를 빼고 요일을 붙인다)', pure.date === '9월 6일 (일)', pure.date);
-check('지난 해 예배는 연도가 붙는다', pure.dateOtherYear === '2025년 12월 25일 (목)', pure.dateOtherYear);
+// 연도는 **늘 두 자리로** 붙는다(사용자 결정 2026-09-03 — 지난 예배를 훑을 때 어느
+// 해인지가 카드마다 달라 헷갈렸다)
+check('날짜 표기 — 두 자리 연도 + 요일', pure.date === '26년 9월 6일 (일)', pure.date);
+check('지난 해 예배도 같은 모양', pure.dateOtherYear === '25년 12월 25일 (목)', pure.dateOtherYear);
 check('종류 이름 — sunday는 주일 4부 젊은이 예배, 나머지는 적은 그대로',
   pure.label[0] === '주일 4부 젊은이 예배' && pure.label[1] === '금요 열정 예배', JSON.stringify(pure.label));
 check('일반 멤버는 작성도 출석도 못 한다', JSON.stringify(pure.plain) === '[false,false,false]', JSON.stringify(pure.plain));
 check('회장은 주보 작성 + 전체 출석', JSON.stringify(pure.president) === '[true,true,true]', JSON.stringify(pure.president));
-check('교역자는 주보 작성 + 전체 출석', JSON.stringify(pure.pastor) === '[true,true,true]', JSON.stringify(pure.pastor));
+// 0042 — 주보 자격에서 교역자가 빠지고 **미디어팀**이 들어왔다(사용자 결정 2026-09-03)
+check('교역자는 전체 출석만(주보는 이제 못 쓴다)',
+  JSON.stringify(pure.pastor) === '[false,true,true]', JSON.stringify(pure.pastor));
+check('미디어팀은 주보를 쓴다(명단 teams 갈래)',
+  pure.media[0] === true && pure.otherTeam[0] === false,
+  JSON.stringify([pure.media, pure.otherTeam]));
+check('관리자는 주보 작성 + 전체 출석', JSON.stringify(pure.admin) === '[true,true,true]', JSON.stringify(pure.admin));
 check('임원은 전체 출석만(주보 작성은 아니다)', JSON.stringify(pure.officer) === '[false,true,true]', JSON.stringify(pure.officer));
 check('마스터는 주보 작성', pure.master[0] === true, JSON.stringify(pure.master));
 check('순장은 출석만, 그것도 전체는 아니다', JSON.stringify(pure.sunjang) === '[false,false,true]', JSON.stringify(pure.sunjang));
@@ -273,7 +289,7 @@ const DL = await ev(`(async () => {
 
 // ── 1) 목록 ─────────────────────────────────────────────────────────────────
 check('데스크톱 상단에 예배 진입로가 있다', (await ev(GO)) === true);
-await sleep(1200);
+await waitFor(HAS_CARD); await sleep(400);
 const list = await ev(`(() => {
   const root = document.querySelector('.worship-list');
   return {
@@ -291,17 +307,48 @@ check('예배 화면이 열린다', list.open === true);
 check('레이아웃은 대시보드와 같은 폭을 쓴다(가운데 좁은 기둥이 아니다)',
   list.width >= list.parent - 1 && list.width > 900, `${list.width}px / 부모 ${list.parent}px`);
 check('종류 칩 세 개', JSON.stringify(list.chips) === '["전체","주일예배","그 밖의 예배"]', JSON.stringify(list.chips));
-check('목록은 발행본만, 최신순', list.cards.length === 2 && list.cards[0].includes(DL.p1), JSON.stringify(list.cards));
+check('목록은 발행본만, 최신순', list.cards.length === 2 && (list.cards[0] || '').includes(DL.p1), JSON.stringify(list.cards));
+const card0 = list.cards[0] || '';
 check('카드에 종류·날짜·설교 제목·본문·설교자',
-  list.cards[0].includes('주일 4부 젊은이 예배') && list.cards[0].includes('흔들리지 않는 기쁨')
-  && list.cards[0].includes('이사야 32:9-20') && list.cards[0].includes('임성빈 전도사님'), list.cards[0]);
+  card0.includes('주일 4부 젊은이 예배') && card0.includes('흔들리지 않는 기쁨')
+  && card0.includes('이사야 32:9-20') && card0.includes('임성빈 전도사님'), card0);
 check('발행본에는 작성 중 배지가 없다', list.draftBadges === 0, String(list.draftBadges));
+
+// 카드는 **두 줄**이다(사용자 지적 2026-09-03 — 줄바꿈이 많아 무엇을 봐야 할지 모른다).
+// 첫 줄은 설교 제목, 둘째 줄은 날짜·종류·본문·설교자를 가운뎃점으로 이은 한 줄이다.
+const shape = await ev(`(() => {
+  const cards = [...document.querySelectorAll('.worship-card')];
+  const c = cards[0];
+  const title = c.querySelector('.worship-card-title');
+  const meta = c.querySelector('.worship-card-meta');
+  const lines = (el) => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
+  return {
+    blocks: c.children.length,
+    title: title.textContent.trim(),
+    meta: meta.textContent.trim(),
+    titleLines: lines(title), metaLines: lines(meta),
+    sameRow: Math.abs(title.getBoundingClientRect().top - meta.getBoundingClientRect().top) > 4,
+    heights: cards.map(x => Math.round(x.getBoundingClientRect().height)),
+    fontSize: parseFloat(getComputedStyle(title).fontSize),
+  };
+})()`);
+check('카드는 제목 한 줄 + 메타 한 줄이다',
+  shape.blocks === 2 && shape.titleLines === 1 && shape.metaLines === 1 && shape.sameRow === true,
+  JSON.stringify(shape));
+check('메타 한 줄에 날짜 · 종류 · 본문 · 설교자가 가운뎃점으로 이어진다',
+  shape.meta === `${DL.p1} · 주일 4부 젊은이 예배 · 본문 이사야 32:9-20 · 임성빈 전도사님`, shape.meta);
+check('제목이 초점이다(15px 이상 · 굵게)', shape.fontSize >= 15, String(shape.fontSize));
+check('카드 높이가 줄마다 같다', new Set(shape.heights).size === 1, JSON.stringify(shape.heights));
 check('편집 자격자에게 새 주보 · 작성 중 줄', list.newBtn === true && list.drafts === '작성 중 1', `${list.newBtn}/${list.drafts}`);
 
 await ev(`[...document.querySelectorAll('.worship-kind-chip')].find(c => c.textContent.trim() === '그 밖의 예배').click()`);
 await sleep(300);
-const other = await ev(`[...document.querySelectorAll('.worship-card')].map(c => c.innerText.split('\\n')[0])`);
-check('종류 칩으로 거른다', JSON.stringify(other) === '["금요 열정 예배"]', JSON.stringify(other));
+const other = await ev(`[...document.querySelectorAll('.worship-card')].map(c => [
+  c.querySelector('.worship-card-title').textContent.trim(),
+  c.querySelector('.worship-card-meta').textContent.trim()])`);
+check('종류 칩으로 거른다',
+  other.length === 1 && other[0][0] === '깨어 기도하라' && other[0][1].includes('금요 열정 예배'),
+  JSON.stringify(other));
 await ev(`[...document.querySelectorAll('.worship-kind-chip')].find(c => c.textContent.trim() === '전체').click()`);
 await sleep(250);
 
@@ -316,13 +363,11 @@ check('작성 중 줄로 임시저장 목록에 들어간다', draftList.cards.l
 // 빈 목록 — 작성 중 + '그 밖의 예배'는 한 건도 없다(작성 중인 것은 주일예배뿐)
 await ev(`[...document.querySelectorAll('.worship-kind-chip')].find(c => c.textContent.trim() === '그 밖의 예배').click()`);
 await sleep(400);
-const emptyList = await ev(EMPTY, true);
-check('빈 목록은 컷과 함께 남는 공간의 가운데에 선다', centered(emptyList), JSON.stringify(emptyList));
+const emptyList = await ev(EMPTY);
+check('빈 목록은 마크와 함께 남는 공간의 가운데에 선다', centered(emptyList), JSON.stringify(emptyList));
 check('빈 목록 칸이 남는 공간을 그대로 차지한다(아래가 통째로 비지 않는다)',
   fills(emptyList), JSON.stringify(emptyList));
 check("빈 목록 문구는 지금 보고 있는 줄을 따른다", emptyList?.text === '작성 중인 주보가 아직 없어요', JSON.stringify(emptyList?.text));
-check('작성 중이 없는 빈 목록 컷은 stand · 원본보다 크지 않다',
-  emptyList?.cut === 'stand' && notBlownUp(emptyList), JSON.stringify([emptyList?.cut, emptyList?.over]));
 await ev(`[...document.querySelectorAll('.worship-kind-chip')].find(c => c.textContent.trim() === '전체').click()`);
 await sleep(300);
 
@@ -334,28 +379,41 @@ const draftDetail = await ev(`(() => ({
 }))()`);
 check('작성 중인 주보에는 출석 진입이 없다(발행 전)', draftDetail.att === false, JSON.stringify(draftDetail));
 check('상시 도구 줄 — 확정 왼쪽 / 나가기 오른쪽',
-  JSON.stringify(draftDetail.toolbar) === '["수정","발행하기","목록으로"]', JSON.stringify(draftDetail.toolbar));
+  JSON.stringify(draftDetail.toolbar) === '["발행하기","목록으로"]', JSON.stringify(draftDetail.toolbar));
+// 수정은 **머리줄 오른쪽의 채운 버튼**이다(사용자 지적 2026-09-03: 눈에 안 띈다)
+const editBtn = await ev(`(() => {
+  const b = document.querySelector('.worship-edit-open');
+  if (!b) return null;
+  const head = document.querySelector('.worship-detail header');
+  const cs = getComputedStyle(b);
+  return {
+    inHead: !!head && head.contains(b),
+    right: Math.round(head.getBoundingClientRect().right - b.getBoundingClientRect().right),
+    text: b.textContent.trim(),
+    accent: cs.backgroundColor === ${tokenColor('--app-accent')},
+    icon: !!b.querySelector('svg'),
+  };
+})()`);
+check('수정은 머리줄 오른쪽에서 accent 채운 버튼이다',
+  !!editBtn && editBtn.inHead === true && editBtn.right <= 1 && editBtn.text === '수정'
+  && editBtn.accent === true && editBtn.icon === true, JSON.stringify(editBtn));
 
 // 빈 탭 — 갓 만든 주보는 네 탭이 전부 비어 있다. 전부 같은 빈 상태 한 벌을 쓴다.
-const emptyWord = await ev(EMPTY, true);
-check('빈 말씀 탭도 컷과 함께 가운데', centered(emptyWord) && emptyWord.text === '설교 제목과 본문 구절을 아직 적지 않았어요',
+const emptyWord = await ev(EMPTY);
+check('빈 말씀 탭도 마크와 함께 가운데', centered(emptyWord) && emptyWord.text === '설교 제목과 본문 구절을 아직 적지 않았어요',
   JSON.stringify(emptyWord));
-check('말씀 탭 컷은 펼친 책(book) 한 장이다',
-  emptyWord?.marks === 1 && emptyWord?.cut === 'book' && notBlownUp(emptyWord),
-  JSON.stringify([emptyWord?.cut, emptyWord?.marks, emptyWord?.over]));
+check('마크는 새로 그리지 않고 기존 SVG 선 그리기 한 장이다',
+  emptyWord?.marks === 1 && (await ev(`document.querySelectorAll('.worship-empty svg path.dc-draw').length`)) === 3,
+  JSON.stringify(emptyWord?.marks));
 const emptyTabs = [];
 for (const t of ['담당자', '찬양', '광고']) {
   await ev(`[...document.querySelectorAll('.worship-tab')].find(x => x.textContent.trim() === ${JSON.stringify(t)}).click()`);
   await sleep(300);
-  emptyTabs.push(await ev(EMPTY, true));
+  emptyTabs.push(await ev(EMPTY));
 }
-check('담당자·찬양·광고 빈 탭도 같은 자리에 선다',
+check('담당자·찬양·광고 빈 탭도 같은 자리·같은 마크',
   emptyTabs.every(centered) && emptyTabs.map(e => e.text).join('|') === '담당자를 아직 정하지 않았어요|찬양을 아직 정하지 않았어요|광고를 아직 적지 않았어요',
   JSON.stringify(emptyTabs.map(e => [e && e.text, e && e.dy, e && e.dx])));
-// 탭마다 그 자리에 어울리는 컷이 온다(빈 자리가 전부 같은 그림이면 컷을 쓴 뜻이 없다)
-check('탭마다 어울리는 컷 — 담당자 shoulder · 찬양 sparkle-wave · 광고 point',
-  emptyTabs.map(e => e && e.cut).join('|') === 'shoulder|sparkle-wave|point' && emptyTabs.every(notBlownUp),
-  JSON.stringify(emptyTabs.map(e => [e && e.cut, e && e.over])));
 check('빈 탭 칸도 탭 줄 아래 남는 공간을 그대로 차지한다',
   emptyTabs.every(fills), JSON.stringify(emptyTabs.map(e => [e && e.fill, e && e.scroll])));
 // 목록으로 돌아오면 목록은 다시 발행본만 보여 준다(ServiceList가 새로 선다)
@@ -375,6 +433,10 @@ const detail = await ev(`(() => {
     att: !!att,
     attInHead: !!(att && head && head.contains(att)),
     attRight: att ? Math.round(head.getBoundingClientRect().right - att.getBoundingClientRect().right) : -1,
+    editRight: (() => {
+      const e = document.querySelector('.worship-edit-open');
+      return e && head ? Math.round(head.getBoundingClientRect().right - e.getBoundingClientRect().right) : -1;
+    })(),
     bodyWidth: Math.round(document.querySelector('.worship-passage')?.getBoundingClientRect().width || 0),
     note: !!document.querySelector('.worship-note'),
   };
@@ -385,8 +447,12 @@ check('말씀 탭에 제목·구절·설교자',
   detail.panel.slice(0, 80));
 check('구절만 정하면 본문이 펼쳐진다(개역한글)', detail.verses === 12, `${detail.verses}절`);
 check('본문 열은 읽는 폭을 지킨다', detail.bodyWidth > 300 && detail.bodyWidth <= 674, `${detail.bodyWidth}px`);
-check('출석 체크는 머리줄 오른쪽에 있다', detail.att === true && detail.attInHead === true && detail.attRight <= 1,
-  `${detail.attInHead}/오른쪽 여백 ${detail.attRight}px`);
+// 출석 체크와 수정이 머리줄 오른쪽에 나란히 선다 — 맨 오른쪽은 **수정**이다
+// (사용자 지적 2026-09-03: 수정이 눈에 안 띈다 → 채운 버튼으로 머리줄로 올렸다)
+check('출석 체크와 수정이 머리줄 오른쪽에 나란히 선다',
+  detail.att === true && detail.attInHead === true && detail.editRight <= 1
+  && detail.attRight > detail.editRight && detail.attRight <= 110,
+  `att ${detail.attRight}px / edit ${detail.editRight}px`);
 check('내 예배 노트', detail.note === true);
 
 const tabClick = (n) => ev(`[...document.querySelectorAll('.worship-tab')].find(t => t.textContent.trim() === ${JSON.stringify(n)}).click()`);
@@ -403,10 +469,42 @@ const songs = await ev(`(() => ({
 }))()`);
 check('찬양 목록 · 링크는 새 탭', songs.text.includes('주 은혜임을') && songs.text.includes('나의 반석이신 하나님')
   && JSON.stringify(songs.blank) === '["_blank"]', JSON.stringify(songs));
+// 링크가 있으면 **제목 자체가 링크**다(예전에는 오른쪽 끝의 '듣기'가 따로 있었다)
+const songLink = await ev(`(() => {
+  const a = document.querySelector('.worship-song-link');
+  if (!a) return null;
+  return { text: a.textContent.trim(), accent: getComputedStyle(a).color === ${tokenColor('--app-accent-text')},
+    icons: a.querySelectorAll('svg').length, plain: [...document.querySelectorAll('.worship-song-view')]
+      .filter(li => !li.querySelector('a')).map(li => li.textContent.trim().replace(/^\\d+/, '')) };
+})()`);
+check('링크가 있는 찬양은 제목이 링크색으로 서고 아이콘이 붙는다',
+  !!songLink && songLink.text.includes('주 은혜임을') && songLink.accent === true && songLink.icons === 1,
+  JSON.stringify(songLink));
+check('링크가 없는 찬양은 그냥 글자다',
+  !!songLink && songLink.plain.length === 1 && songLink.plain[0] === '나의 반석이신 하나님', JSON.stringify(songLink && songLink.plain));
 
 await tabClick('광고'); await sleep(300);
 const notices = await ev(`document.querySelector('.worship-tabpanel').innerText.replace(/\\n+/g, ' | ')`);
 check('광고는 순번 목록', notices.includes('1') && notices.includes('겨울 수련회 신청') && notices.includes('1월 20일까지'), notices);
+// 광고 한 건은 **카드 한 장**이다 — 제목이 굵고, 본문은 두 줄에서 접힌다(넘칠 때만
+// 펼치기가 붙는다 · 사용자 지적 2026-09-03)
+const noticeCard = await ev(`(() => {
+  const card = document.querySelector('.worship-notice-card');
+  if (!card) return null;
+  const title = card.querySelector('.worship-notice-title');
+  const body = card.querySelector('.worship-notice-body');
+  return {
+    boxed: getComputedStyle(card).borderTopWidth !== '0px',
+    bold: Number(getComputedStyle(title).fontWeight) >= 700,
+    clamp: getComputedStyle(body).webkitLineClamp || getComputedStyle(body).getPropertyValue('-webkit-line-clamp'),
+    more: !!card.querySelector('.worship-notice-more'),
+    body: body.textContent.trim(),
+  };
+})()`);
+check('광고는 카드 한 장 · 제목이 굵다',
+  !!noticeCard && noticeCard.boxed === true && noticeCard.bold === true, JSON.stringify(noticeCard));
+check('짧은 광고에는 펼치기가 붙지 않는다(누를 것이 없는 버튼을 두지 않는다)',
+  !!noticeCard && noticeCard.more === false && noticeCard.clamp === '2', JSON.stringify(noticeCard));
 
 // 못 읽는 구절은 손대지 않고 글자 그대로 둔다
 await ev(`${byText('목록으로')}.click()`); await sleep(700);
@@ -417,7 +515,7 @@ await ev(`${byText('목록으로')}.click()`); await sleep(700);
 
 // ── 3) 출석 체크 ────────────────────────────────────────────────────────────
 await ev(`document.querySelector('.worship-card').click()`); await sleep(1200);
-await ev(`document.querySelector('.worship-att-open').click()`); await sleep(700);
+await waitFor(HAS_ATT); await ev(`document.querySelector('.worship-att-open').click()`); await sleep(700);
 const att = await ev(`(() => ({
   open: !!document.querySelector('.worship-attendance'),
   total: document.querySelector('.att-total')?.innerText.replace(/\\s+/g, ' ') || '',
@@ -486,40 +584,138 @@ check('출석 메모가 저절로 저장된다', noteSaved.text === '오늘은 �
 check('출석 메모도 같은 저장 라벨을 쓴다', noteSaved.state === '저장되었어요', noteSaved.state);
 
 // ── 4) 내 예배 노트 ─────────────────────────────────────────────────────────
-// 노트는 **저장 버튼을 눌러야** 저장된다(사용자 결정 2026-09-02) — 글도 공유 토글도
-// 그때 한 번에 간다. 예전에는 디바운스 자동 저장이라 토글을 만질 때마다 저장이 돌았다.
-await ev(`${byText('주보로')}.click()`); await sleep(700);
-const noteIdle = await ev(`document.querySelector('.worship-note-save').disabled`);
-check('아무것도 고치지 않았으면 저장 버튼이 눌리지 않는다', noteIdle === true, String(noteIdle));
+// **말씀의 내 묵상과 같은 구조**다(사용자 결정 2026-09-03): 편집기 아래
+// `[저장] … [나만 보기 | 순에 공유하기]`. 글은 저장 버튼으로만 나가고(빈 노트는 저장할
+// 것이 없어 잠긴다), 공유는 **저장된 노트의 상태만** 그 자리에서 바꾼다.
+await ev(`${byText('주보로')}.click()`); await sleep(1200);
+await waitFor(`!!document.querySelector('.worship-note .tiptap')`);
+const noteIdle = await ev(`(() => ({
+  save: document.querySelector('.worship-note-save').disabled,
+  share: [...document.querySelectorAll('.worship-note button[aria-pressed]')].every(b => b.disabled),
+  labels: [...document.querySelectorAll('.worship-note button[aria-pressed]')].map(b => b.textContent.trim()),
+}))()`);
+check('빈 노트에서는 저장할 것이 없다(버튼 잠김)', noteIdle.save === true, String(noteIdle.save));
+check('저장한 노트가 없으면 공유 세그먼트도 잠긴다', noteIdle.share === true, String(noteIdle.share));
+// 세그먼트는 **고를 것의 이름**을 그대로 둔다 — 바뀐 결과를 말하는 것은 옆의 초록
+// 칩이다('나만 볼게요' / '우리 순에 공유할게요' · 사용자 정정 2026-09-03)
+check("공유 세그먼트 라벨은 '나만 보기 | 순에 공유하기'",
+  JSON.stringify(noteIdle.labels) === '["나만 보기","순에 공유하기"]', JSON.stringify(noteIdle.labels));
 
-await ev(typeIn('textarea[aria-label="내 예배 노트"]', '기쁨은 상황이 아니라 붙드시는 손에서 온다', 'HTMLTextAreaElement'));
-await sleep(1700);
-await ev(`document.querySelector('.worship-note button[role="switch"]').click()`); await sleep(700);
+
+// 노트 칸은 **업무 본문과 같은 편집기**다 — 맨 textarea가 아니라 서식 바가 붙은
+// 마크다운 편집기이고, 저장되는 값은 그대로 마크다운 문자열이다.
+const noteEditor = await ev(`(() => ({
+  tiptap: !!document.querySelector('.worship-note .tiptap'),
+  textarea: !!document.querySelector('.worship-note textarea'),
+  bar: [...document.querySelectorAll('.worship-note button[title]')]
+    .map(b => b.title).filter(t => ['굵게', '형광펜', '제목 1', '체크리스트'].includes(t)).length,
+}))()`);
+check('내 예배 노트가 업무 본문과 같은 마크다운 편집기다',
+  noteEditor.tiptap === true && noteEditor.textarea === false, JSON.stringify(noteEditor));
+check('노트에도 서식 바가 같이 온다(굵게·형광펜·제목·체크리스트)', noteEditor.bar === 4, String(noteEditor.bar));
+
+// **빈 자리를 눌러도 글이 써진다** — 글자가 있는 자리를 정확히 눌러야 커서가 잡히면
+// 아래 여백을 누른 사람은 아무 일도 안 일어난 것으로 안다(§6 · MarkdownEditor의 focusEnd)
+await ev(`(() => {
+  // 클릭 대상은 .tiptap을 감싼 상자다(그 상자에 onMouseDown이 걸려 있다) — 바깥
+  // 감싸개에 보내면 이벤트가 안쪽으로 내려가지 않는다(버블은 바깥으로만 흐른다)
+  const box = document.querySelector('.worship-note-editor .tiptap').parentElement;
+  const r = box.getBoundingClientRect();
+  box.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true,
+    clientX: r.right - 12, clientY: r.bottom - 6 }));
+})()`);
+await sleep(300);
+check('편집기 빈 자리를 눌러도 커서가 잡힌다',
+  (await ev(`!!document.activeElement && !!document.activeElement.closest('.worship-note .tiptap')`)) === true);
+
+await ev(`document.querySelector('.worship-note .tiptap').focus()`);
+await send('Input.insertText', { text: '기쁨은 상황이 아니라 붙드시는 손에서 온다' });
+await sleep(500);
 const beforeSave = await ev(`(() => ({
   rows: JSON.parse(localStorage.getItem('church_worship_v1')).service_notes.length,
   can: !document.querySelector('.worship-note-save').disabled,
-  state: document.querySelector('.worship-note .worship-save-state')?.textContent.trim() || '',
+  share: [...document.querySelectorAll('.worship-note button[aria-pressed]')].every(b => b.disabled),
 }))()`);
-check('저장을 누르기 전에는 글도 공유 토글도 저장되지 않는다',
-  beforeSave.rows === 0 && beforeSave.can === true && beforeSave.state === '', JSON.stringify(beforeSave));
+check('글을 쓰면 저장 버튼이 열린다(아직 저장은 안 됐다)',
+  beforeSave.rows === 0 && beforeSave.can === true, JSON.stringify(beforeSave));
+check('저장 전에는 공유가 잠겨 있다(공유할 것이 아직 없다)', beforeSave.share === true, String(beforeSave.share));
 
 await ev(`document.querySelector('.worship-note-save').click()`); await sleep(900);
 const noteRow = await ev(`(() => {
   const rows = JSON.parse(localStorage.getItem('church_worship_v1')).service_notes;
   return { n: rows.length, body: rows[0]?.body || '', shared: rows[0]?.shared_to_sun,
-    aria: document.querySelector('.worship-note button[role="switch"]').getAttribute('aria-checked'),
     again: document.querySelector('.worship-note-save').disabled,
+    share: [...document.querySelectorAll('.worship-note button[aria-pressed]')].every(b => b.disabled),
     state: document.querySelector('.worship-note .worship-save-state')?.textContent.trim() || '' };
 })()`);
 check('내 예배 노트가 예배당 한 건으로 저장된다', noteRow.n === 1 && noteRow.body.startsWith('기쁨은'), JSON.stringify(noteRow));
 check("노트는 발행이 없으니 '임시'가 붙지 않는다", noteRow.state === '저장되었어요', noteRow.state);
-check("'내 순에 공유'도 저장 버튼 한 번에 같이 저장된다",
-  noteRow.shared === true && noteRow.aria === 'true', JSON.stringify(noteRow));
 check('저장한 뒤에는 다시 눌릴 것이 없다', noteRow.again === true, String(noteRow.again));
+check('저장하고 나면 공유 세그먼트가 열린다', noteRow.share === false, String(noteRow.share));
+check('저장만으로는 공유되지 않는다(기본은 나만 보기)', noteRow.shared !== true, String(noteRow.shared));
+
+// 공유는 **그 자리에서** 저장된다(묵상과 같다) — 글은 건드리지 않는다
+await ev(`document.querySelectorAll('.worship-note button[aria-pressed]')[1].click()`);   // 공유 쪽(라벨과 무관하게 자리로)
+await sleep(900);
+const shareRow = await ev(`(() => {
+  const rows = JSON.parse(localStorage.getItem('church_worship_v1')).service_notes;
+  return { shared: rows[0]?.shared_to_sun, body: rows[0]?.body || '',
+    chip: document.querySelector('.worship-note [data-share-chip]')?.textContent.trim() || '',
+    pressed: [...document.querySelectorAll('.worship-note button[aria-pressed]')]
+      .map(b => b.getAttribute('aria-pressed')) };
+})()`);
+check("'순에 공유하기'를 누르면 그 자리에서 저장된다",
+  shareRow.shared === true && shareRow.body.startsWith('기쁨은'), JSON.stringify(shareRow));
+check('공유 칩이 확정형으로 말한다', shareRow.chip === '우리 순에 공유할게요', shareRow.chip);
+check('고른 쪽이 눌린 상태로 남는다', JSON.stringify(shareRow.pressed) === '["false","true"]', JSON.stringify(shareRow.pressed));
+const shareLabels = await ev(`[...document.querySelectorAll('.worship-note button[aria-pressed]')]
+  .map(b => b.textContent.trim())`);
+check('세그먼트 라벨은 고른 뒤에도 그대로다(바뀌는 것은 칩이다)',
+  JSON.stringify(shareLabels) === '["나만 보기","순에 공유하기"]', JSON.stringify(shareLabels));
+
+// 되돌리면 칩도 되돌아 말한다 — 글은 그대로 남는다(services의 setNoteShared)
+await ev(`document.querySelectorAll('.worship-note button[aria-pressed]')[0].click()`);   // 나만 보기 쪽
+await sleep(900);
+const backRow = await ev(`(() => {
+  const rows = JSON.parse(localStorage.getItem('church_worship_v1')).service_notes;
+  return { shared: rows[0]?.shared_to_sun, body: rows[0]?.body || '',
+    chip: document.querySelector('.worship-note [data-share-chip]')?.textContent.trim() || '' };
+})()`);
+check("'나만 보기'로 되돌리면 칩이 '나만 볼게요'다",
+  backRow.shared === false && backRow.chip === '나만 볼게요' && backRow.body.startsWith('기쁨은'),
+  JSON.stringify(backRow));
+
+// 서비스 계약 — setNoteShared(serviceId, shared)는 **글을 건드리지 않고** 공유만 바꾸고,
+// 노트가 없으면 아무것도 만들지 않는다(모임 화면이 같은 함수를 쓴다)
+const contract = await ev(`(async () => {
+  const m = await import('/src/services/worship.js');
+  const back = await m.setNoteShared('s1', true);
+  const rows = JSON.parse(localStorage.getItem('church_worship_v1')).service_notes;
+  const none = await m.setNoteShared('s2', true);
+  return { back, stored: rows.find(r => r.service_id === 's1'), none,
+    thumb: m.youtubeThumb('https://www.youtube.com/watch?v=dQw4w9WgXcQ'),
+    thumbBad: m.youtubeThumb('https://vimeo.com/watch?v=dQw4w9WgXcQ') };
+})()`, true);
+check('setNoteShared는 공유만 바꾸고 글은 그대로 둔다',
+  contract.back?.shared_to_sun === true && contract.back?.body.startsWith('기쁨은')
+  && contract.stored?.shared_to_sun === true, JSON.stringify(contract.back));
+check('노트가 없는 주보에는 아무것도 만들지 않는다(null)', contract.none === null, JSON.stringify(contract.none));
+check('썸네일 주소는 키 없이 만들어진다',
+  contract.thumb === 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg' && contract.thumbBad === null,
+  JSON.stringify([contract.thumb, contract.thumbBad]));
 
 // ── 5) 만들기 → 바로 수정 화면 ──────────────────────────────────────────────
 await ev(`${byText('목록으로')}.click()`); await sleep(700);
-await ev(`document.querySelector('.worship-new-open').click()`); await sleep(350);
+await ev(`document.querySelector('.worship-new-open').click()`); await sleep(120);
+// '뚝 하고 나온다'는 지적(2026-09-03) — 생성기는 §4.2의 등장 토큰을 탄다
+const newAnim = await ev(`(() => {
+  const el = document.querySelector('.worship-new');
+  const cs = getComputedStyle(el);
+  return { name: cs.animationName, dur: cs.animationDuration, props: cs.animationTimingFunction };
+})()`);
+check('새 주보 생성기는 등장 애니메이션을 탄다(뚝 나오지 않는다)',
+  newAnim.name !== 'none' && newAnim.name !== '' && parseFloat(newAnim.dur) > 0, JSON.stringify(newAnim));
+await sleep(300);
 const expectLabel = await ev(`(async () => {
   const m = await import('/src/services/worship.js');
   const v = m.nextSundayDate();
@@ -562,6 +758,30 @@ await sleep(250);
 await ev(`document.querySelector('.worship-new-date button').click()`); await sleep(300);
 const cal = await ev(`(() => ({ days: document.querySelectorAll('.worship-new-date .grid-cols-7 button').length }))()`);
 check('날짜 픽커가 달력을 편다', cal.days > 28, `${cal.days}칸`);
+// 패널이 **카드 밑으로 깔리지 않아야** 한다 — 카드마다 등장 애니메이션(transform)으로
+// 쌓임 문맥이 생겨서 절대 위치 패널이 그 아래로 들어갔다(사용자 스크린샷 2026-09-03).
+// 패널 rect 안의 점에서 실제로 무엇이 잡히는지를 본다.
+const zOrder = await ev(`(() => {
+  const panel = document.querySelector('.worship-new-date .absolute');
+  if (!panel) return null;
+  const r = panel.getBoundingClientRect();
+  // 패널과 **겹치는** 카드를 찾아 그 겹친 영역의 가운데를 찍는다 — 패널 아래쪽 빈
+  // 자리를 찍으면 z-순서와 무관하게 늘 패널이 잡혀서 검사가 아무것도 못 본다
+  const card = [...document.querySelectorAll('.worship-card')].find(c => {
+    const b = c.getBoundingClientRect();
+    return r.bottom > b.top && r.top < b.bottom && r.right > b.left && r.left < b.right;
+  });
+  if (!card) return { overlapsCard: false };
+  const b = card.getBoundingClientRect();
+  const x = Math.round((Math.max(r.left, b.left) + Math.min(r.right, b.right)) / 2);
+  const y = Math.round((Math.max(r.top, b.top) + Math.min(r.bottom, b.bottom)) / 2);
+  const el = document.elementFromPoint(x, y);
+  return { overlapsCard: true, inPanel: !!el && panel.contains(el),
+    onCard: !!el && !!el.closest('.worship-card'), at: [x, y] };
+})()`);
+check('날짜 픽커 패널이 주보 카드 위로 뜬다',
+  !!zOrder && zOrder.overlapsCard === true && zOrder.inPanel === true && zOrder.onCard === false,
+  JSON.stringify(zOrder));
 await ev(`document.querySelectorAll('.worship-new-date .absolute > div:first-child button')[1].click()`); await sleep(250);
 await ev(`[...document.querySelectorAll('.worship-new-date .grid-cols-7 button')].find(b => b.textContent.trim() === '15').click()`);
 await sleep(300);
@@ -596,8 +816,43 @@ check('이벤트성 예배는 종류 이름을 자유로 적는다', made.kind =
 check('고른 날짜(다음 달 15일)로 만들어진다', made.future === true, String(made.future));
 check('만들면 목록이 아니라 그 주보의 수정 화면으로 바로 간다',
   made.detail === true && made.badge === true && made.titleBox === true, JSON.stringify(made));
-check("편집 중 도구 줄은 저장·삭제 / 목록으로(자동 저장이라 '취소'가 없다)",
-  JSON.stringify(made.toolbar) === '["저장","삭제","목록으로"]', JSON.stringify(made.toolbar));
+// 편집 확정(저장·삭제)은 **머리줄 오른쪽**으로 갔고, 도구 줄에는 나가기만 남는다
+// (모바일은 화면 아래 고정 줄 · 사용자 결정 2026-09-03)
+check("편집 중 도구 줄에는 나가기만 남는다(자동 저장이라 '취소'가 없다)",
+  JSON.stringify(made.toolbar) === '["목록으로"]', JSON.stringify(made.toolbar));
+const editBar = await ev(`(() => {
+  const head = document.querySelector('.worship-detail header');
+  const save = document.querySelector('.worship-save');
+  const chip = document.querySelector('.worship-detail header .worship-save-state');
+  const del = [...document.querySelectorAll('.worship-detail header button')].find(b => b.textContent.trim() === '삭제');
+  const bar = document.querySelector('.worship-edit-bar');
+  return {
+    saveInHead: !!save && !!head && head.contains(save),
+    chipInHead: !!chip, delInHead: !!del,
+    order: [...document.querySelectorAll('.worship-detail header button')].map(b => b.textContent.trim()),
+    barHidden: !!bar && getComputedStyle(bar).display === 'none',
+    barFixed: !!bar && getComputedStyle(bar).position === 'fixed',
+    chips: document.querySelectorAll('.worship-detail .worship-save-state').length,
+  };
+})()`);
+check('편집 중 저장·삭제·저장 상태 칩이 머리줄 오른쪽에 선다',
+  editBar.saveInHead === true && editBar.chipInHead === true && editBar.delInHead === true
+  && JSON.stringify(editBar.order) === '["저장","삭제"]', JSON.stringify(editBar));
+check('데스크톱에서는 아래 고정 줄이 뜨지 않는다(모바일 것이다)',
+  editBar.barHidden === true && editBar.barFixed === true && editBar.chips === 1, JSON.stringify(editBar));
+
+// 삭제 확인은 두 줄이다 — 무엇이 사라지는지 먼저 말하고 신중하라고 덧붙인다
+// (사용자 결정 2026-09-03)
+await ev(`${byText('삭제')}.click()`); await sleep(400);
+const askService = await ev(`document.body.innerText`);
+check('주보 삭제 확인은 두 줄로 묻는다',
+  askService.includes('이 주보를 삭제할까요?') && askService.includes('모든 내용이 같이 사라지니 신중하게 선택해주세요'),
+  askService.includes('이 주보를 삭제할까요?') ? '두 번째 줄 없음' : '첫 줄 없음');
+await ev(`(() => {
+  const b = [...document.body.querySelectorAll('button')].filter(x => x.textContent.trim() === '취소');
+  b[b.length - 1].click();
+})()`);
+await sleep(300);
 
 // ── 6) 말씀 — 구절은 범위로 고르고, 저장은 저절로 ──────────────────────────
 await ev(typeIn('input[aria-label="설교 제목"]', '다시 세우시는 손'));
@@ -694,8 +949,10 @@ check('본문 선택 칸이 열 폭을 채운다(데스크톱 한 줄 · 오른�
 
 // 장·절 팝오버는 body 포털이라 어디에 있든 잘리지 않는다(§6-1)
 await ev(openNum('끝 장')); await sleep(350);
+await waitFor(`!!document.querySelector('.worship-num-pop')`, 4000);
 const pop = await ev(`(() => {
   const p = document.querySelector('.worship-num-pop');
+  if (!p) return { inBody: false, first: '', fits: false };
   const r = p.getBoundingClientRect();
   return {
     inBody: p.parentElement === document.body,
@@ -802,6 +1059,17 @@ const byKey = await ev(`JSON.parse(localStorage.getItem('church_worship_v1')).se
 check('방향키·Enter로도 고를 수 있다',
   byKey.length === 3 && byKey[2].personId === 'p3' && byKey[2].name === '김승찬', JSON.stringify(byKey.slice(2)));
 
+// 삭제 확인은 **무엇을 지우는지**를 말한다 — '이 담당자 줄을'이 아니라 '이 담당자를'
+// (사용자 결정 2026-09-03). 조사는 이름에 맞춘다(담당자를 · 찬양을 · 광고를).
+await ev(`document.querySelector('button[aria-label="담당자 삭제"]').click()`); await sleep(400);
+const askRole = await ev(`document.body.innerText.includes('이 담당자를 삭제할까요?')`);
+check("담당자 삭제 확인은 '이 담당자를 삭제할까요?'", askRole === true, String(askRole));
+await ev(`(() => {
+  const b = [...document.body.querySelectorAll('button')].filter(x => x.textContent.trim() === '취소');
+  b[b.length - 1].click();
+})()`);
+await sleep(300);
+
 // ── 7-b) 찬양 — 유튜브 재생목록에서 가져오기 ────────────────────────────────
 // 게스트·로컬 vite에는 /api/yt가 없다. 그때 화면이 하는 일은 **토스트 한 줄**이고
 // 콘솔에 오류를 남기지 않는다(고장이 아니라 환경이다 — worship.js의 quiet).
@@ -834,6 +1102,19 @@ check('가져올 수 없는 환경이면 그 이유를 말한다(게스트 모�
   noApi.toast.includes('재생목록을 가져오지 못했어요') && noApi.toast.includes('게스트 모드')
   && noApi.songs === 0, JSON.stringify(noApi));
 
+// 받침이 있는 이름에는 '을'이 붙는다(errorText의 objectParticle 한 벌을 쓴다)
+await ev(`${byText('찬양 추가')}.click()`); await sleep(350);
+await ev(`document.querySelector('button[aria-label="찬양 삭제"]').click()`); await sleep(400);
+const askSong = await ev(`document.body.innerText.includes('이 찬양을 삭제할까요?')`);
+check("확인 문구의 조사는 이름에 맞춘다 — '이 찬양을 삭제할까요?'", askSong === true, String(askSong));
+await ev(`(() => {
+  const b = [...document.body.querySelectorAll('button')].filter(x => x.textContent.trim() === '삭제');
+  b[b.length - 1].click();
+})()`);
+await sleep(700);
+check('확인을 누르면 그 줄이 지워진다',
+  (await ev(`document.querySelectorAll('.worship-song-row').length`)) === 0);
+
 // 광고 자리 글
 await tabClick('광고'); await sleep(250);
 await ev(`${byText('광고 추가')}.click()`); await sleep(300);
@@ -850,12 +1131,13 @@ await ev(`${byText('저장')}.click()`); await sleep(1000);
 const saved = await ev(`(() => {
   const row = JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.kind === '성탄절 예배');
   return { title: row.title, ref: row.passage_ref,
+    editBtn: !!document.querySelector('.worship-edit-open'),
     toolbar: [...document.querySelectorAll('.worship-detail > div:first-child button')].map(b => b.textContent.trim()),
     shown: [...document.querySelectorAll('.worship-role-row')].map(x => x.innerText.replace(/\\n+/g, ' | ')) };
 })()`);
 check('저장하면 보기 모드로 돌아간다',
-  JSON.stringify(saved.toolbar) === '["수정","발행하기","목록으로"]' && saved.title === '다시 세우시는 손',
-  JSON.stringify(saved.toolbar));
+  JSON.stringify(saved.toolbar) === '["발행하기","목록으로"]' && saved.title === '다시 세우시는 손'
+  && saved.editBtn === true, JSON.stringify([saved.toolbar, saved.editBtn]));
 
 await tabClick('담당자'); await sleep(300);
 const shownRoles = await ev(`[...document.querySelectorAll('.worship-role-row')].map(x => x.innerText.replace(/\\n+/g, ' | '))`);
@@ -916,7 +1198,7 @@ await ev(plant({ canEdit: false, canCheckAll: false, ledGroupIds: ['g1'], canChe
 await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
 await ev(GO); await sleep(1200);
 await ev(`document.querySelector('.worship-card').click()`); await sleep(1200);
-await ev(`document.querySelector('.worship-att-open').click()`); await sleep(700);
+await waitFor(HAS_ATT); await ev(`document.querySelector('.worship-att-open').click()`); await sleep(700);
 const sunjang = await ev(`(() => {
   const secs = [...document.querySelectorAll('.worship-attendance section')];
   return secs.slice(0, 3).map(s => [s.querySelector('.att-group-head')?.innerText.replace(/\\s+/g, ' ').replace(/ \\d+\\/\\d+$/, ''),
@@ -980,23 +1262,26 @@ await ev(plant(null));
 await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
 await ev(`document.documentElement.setAttribute('data-theme', 'dark')`);
 await sleep(1400);
-await ev(GO); await sleep(1200);
+await ev(GO); await waitFor(HAS_CARD); await sleep(400);
 const darkList = await ev(PROBE);
 check('다크 — 목록에서 글자가 배경에 묻히지 않는다', darkList.lowCount === 0, JSON.stringify(darkList.low));
 check('다크 — 목록이 테마를 안 따르는 팔레트를 쓰지 않는다', darkList.bannedCount === 0, JSON.stringify(darkList.banned));
-await ev(`document.querySelector('.worship-card').click()`); await sleep(1400);
+await ev(`document.querySelector('.worship-card').click()`); await waitFor(HAS_DETAIL); await sleep(500);
 const darkDetail = await ev(PROBE);
 check('다크 — 주보 본문이 읽힌다', darkDetail.lowCount === 0, JSON.stringify(darkDetail.low));
 check('다크 — 가로로 넘치지 않는다', darkDetail.x === 0, `${darkDetail.x}px`);
-await ev(`${byText('수정')}.click()`); await sleep(1400);
+await waitFor(HAS_EDIT);
+await ev(`${byText('수정')}.click()`); await sleep(1200);
 const darkEdit = await ev(PROBE);
 check('다크 — 편집 화면(본문 선택 · 담당자 칸)도 읽힌다',
   darkEdit.lowCount === 0 && darkEdit.bannedCount === 0, JSON.stringify([darkEdit.low, darkEdit.banned]));
 
 // 네이티브 select를 걷어낸 이유가 이것이다 — 팝오버는 테마를 따라간다
 await ev(openNum('시작 장')); await sleep(400);
+await waitFor(`!!document.querySelector('.worship-num-pop')`, 4000);
 const darkPop = await ev(`(() => {
   const p = document.querySelector('.worship-num-pop');
+  if (!p) return { bg: 'none', surface: 'x' };
   return { bg: getComputedStyle(p).backgroundColor, surface: ${tokenColor('--app-surface')} };
 })()`);
 check('다크 — 장·절 팝오버도 앱 표면색을 따른다', darkPop.bg === darkPop.surface, JSON.stringify(darkPop));
@@ -1041,13 +1326,16 @@ check('모바일 375px — 말씀 칸은 한 칸으로 쌓이고 본문 선택�
 
 // 좁은 화면에서도 팝오버가 잘리지 않아야 한다 — 이게 body 포털을 쓰는 이유다
 await ev(openNum('끝 절')); await sleep(400);
+await waitFor(`!!document.querySelector('.worship-num-pop')`, 4000);
 const mobPop = await ev(`(() => {
-  const r = document.querySelector('.worship-num-pop').getBoundingClientRect();
+  const p = document.querySelector('.worship-num-pop');
+  if (!p) return null;
+  const r = p.getBoundingClientRect();
   return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top),
     bottom: Math.round(r.bottom), vw: innerWidth, vh: innerHeight };
 })()`);
 check('모바일 375px — 장·절 팝오버가 화면 밖으로 잘리지 않는다',
-  mobPop.left >= 0 && mobPop.right <= mobPop.vw && mobPop.top >= 0 && mobPop.bottom <= mobPop.vh,
+  !!mobPop && mobPop.left >= 0 && mobPop.right <= mobPop.vw && mobPop.top >= 0 && mobPop.bottom <= mobPop.vh,
   JSON.stringify(mobPop));
 await ev(clickAway); await sleep(250);
 await ev(`${byText('목록으로')}.click()`); await sleep(800);
@@ -1069,7 +1357,7 @@ check('모바일 375px — 새 주보 생성기는 두 줄까지', mobNew.rows <
 await ev(`${byText('취소')}.click()`); await sleep(300);
 
 await ev(`document.querySelector('.worship-card').click()`); await sleep(1200);
-await ev(`document.querySelector('.worship-att-open').click()`); await sleep(800);
+await waitFor(HAS_ATT); await ev(`document.querySelector('.worship-att-open').click()`); await sleep(800);
 const mob = await ev(`(() => ({
   overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   chips: document.querySelectorAll('.att-chip').length,
@@ -1082,69 +1370,211 @@ await send('Emulation.clearDeviceMetricsOverride');
 await ev(`${byText('주보로')}.click()`); await sleep(700);
 const bibleLink = await ev(`document.querySelector('.worship-open-bible')?.textContent || ''`);
 await ev(`document.querySelector('.worship-open-bible')?.click()`); await sleep(1500);
-const biblePlace = await ev(`(document.querySelector('.bible-place')?.textContent || '').replace(/\s+/g, ' ').trim()`);
+const biblePlace = await ev(`(document.querySelector('.bible-place')?.textContent || '').replace(/\\s+/g, ' ').trim()`);
 check('주보의 본문 구절을 누르면 성경 읽기의 그 장이 열린다', bibleLink === '이사야 32:9-20' && biblePlace === '이사야 32장', `${bibleLink} → ${biblePlace}`);
 
 
-// ── 12) 남은 컷 자리 — 발행본 없는 목록 · 출석 화면 ─────────────────────────
-// 빈 자리가 전부 같은 그림이면 컷을 쓴 뜻이 없다. 그리고 출석 화면의 컷은 **두 경우
-// 중 하나만** 뜬다(부를 사람이 없으면 물음표, 다 불렀으면 하트) — 순 목록 안에는
-// 컷을 넣지 않는다(사용자 결정 2026-09-03: 화면당 한두 장).
-const cutPlant = (o) => `(() => {
+// ── 12) 발행본이 하나도 없는 목록 · 캐릭터는 어디에도 없다 ─────────────────
+// 캐릭터 컷을 잠깐 얹었다가 전부 걷어냈다(사용자 결정 2026-09-03: "홈 제외하고는
+// 캐릭터 넣지 말라"). 그래서 이 화면 어디에도 /chars/ 그림이 없어야 한다.
+const rePlant = (o) => `(() => {
   const g = JSON.parse(localStorage.getItem('church_worship_v1')) || {};
   Object.assign(g, ${JSON.stringify(o)});
   localStorage.setItem('church_worship_v1', JSON.stringify(g));
 })()`;
-const ATT_CUT = `(async () => {
-  const im = document.querySelector('.att-cut img');
-  if (im) { try { await im.decode(); } catch {} }
-  return {
-    cuts: document.querySelectorAll('.att-cut img').length,
-    cut: (im?.getAttribute('src') || '').replace('/chars/', '').replace('.webp', ''),
-    over: im ? Math.round(im.getBoundingClientRect().height - im.naturalHeight) : null,
-    total: document.querySelector('.att-total')?.innerText.replace(/\\s+/g, ' ') || '',
-  };
-})()`;
-const reopen = async () => { await ev(`${byText('홈')}.click()`); await sleep(600); await ev(GO); await sleep(1300); };
+// 다시 들어오는 길은 **업무 대시보드**를 거친다 — 홈은 지금 다른 회차에서 고치는
+// 중이고, 그 화면이 콘솔에 오류를 내면 우리 '콘솔 오류 0'이 같이 무너진다.
+const reopen = async () => { await ev(`${byText('업무 대시보드')}.click()`); await sleep(700); await ev(GO); await sleep(900); };
+const CHARS = `document.querySelectorAll('main img[src*="/chars/"]').length`;
 
-await ev(cutPlant({ services: [{ id: 'd1', kind: 'sunday', service_date: SOON, status: 'draft',
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(400);
+await ev(rePlant({ services: [{ id: 'd1', kind: 'sunday', service_date: SOON, status: 'draft',
   title: '', passage_ref: '', preacher: '', roles: [], songs: [], notices: [] }] }));
 await reopen();
-const welcomeCut = await ev(EMPTY, true);
-check('발행된 주보가 하나도 없으면 맞이하는 컷(welcome)이다',
-  welcomeCut?.cut === 'welcome' && welcomeCut?.text === '발행된 주보가 아직 없어요'
-  && centered(welcomeCut) && notBlownUp(welcomeCut),
-  JSON.stringify([welcomeCut?.cut, welcomeCut?.text, welcomeCut?.over]));
+const noneYet = await ev(EMPTY);
+check('발행된 주보가 하나도 없으면 마크와 함께 그렇게 말한다',
+  noneYet?.text === '발행된 주보가 아직 없어요' && centered(noneYet) && fills(noneYet),
+  JSON.stringify(noneYet));
+check('목록에 캐릭터 그림이 없다', (await ev(CHARS)) === 0 && noneYet?.chars === 0, String(noneYet?.chars));
 
-await ev(cutPlant({
+// 상세·출석까지 훑어도 캐릭터는 없다(출석 화면에 잠깐 얹었던 두 컷도 걷어냈다)
+await ev(rePlant({
   services: [{ id: 'c1', kind: 'sunday', service_date: PAST1, status: 'published', title: '함께 드리는 예배',
     passage_ref: '', preacher: '', roles: [], songs: [], notices: [], attendance_note: '' }],
-  people: [], groups: [], group_members: [], attendance: [],
-}));
-await reopen();
-await ev(`document.querySelector('.worship-card').click()`); await sleep(1100);
-await ev(`document.querySelector('.worship-att-open').click()`); await sleep(800);
-const noRoster = await ev(ATT_CUT, true);
-check('부를 사람이 아직 없는 출석 화면은 물음표 컷 한 장',
-  noRoster.cuts === 1 && noRoster.cut === 'question' && noRoster.over <= 0 && noRoster.total === '전체 0/0',
-  JSON.stringify(noRoster));
-
-await ev(cutPlant({
   people: [{ id: 'q1', name: '김윤주', profile_id: null }, { id: 'q2', name: '천진영', profile_id: null }],
   groups: [{ id: 'gq', type: 'sun', name: '꼬순', year: Y, leader_person_id: 'q1' }],
   group_members: [{ group_id: 'gq', person_id: 'q2' }],
   attendance: [{ service_id: 'c1', person_id: 'q1' }, { service_id: 'c1', person_id: 'q2' }],
 }));
 await reopen();
-await ev(`document.querySelector('.worship-card').click()`); await sleep(1100);
-await ev(`document.querySelector('.worship-att-open').click()`); await sleep(800);
-const allIn = await ev(ATT_CUT, true);
-check('다 불렀으면 하트 컷 한 장(문구는 붙이지 않는다)',
-  allIn.cuts === 1 && allIn.cut === 'hearts' && allIn.over <= 0 && allIn.total === '전체 2/2', JSON.stringify(allIn));
-await ev(`[...document.querySelectorAll('.att-chip')].find(c => c.textContent.trim() === '천진영').click()`);
+await waitFor(HAS_CARD);
+await ev(`document.querySelector('.worship-card').click()`); await waitFor(HAS_DETAIL); await sleep(400);
+const detailChars = await ev(CHARS);
+await waitFor(HAS_ATT); await ev(`document.querySelector('.worship-att-open').click()`); await sleep(800);
+const attChars = await ev(`(() => ({ chars: ${CHARS}, cut: document.querySelectorAll('.att-cut').length,
+  total: document.querySelector('.att-total')?.innerText.replace(/\\s+/g, ' ') || '' }))()`);
+check('주보 상세·출석 화면에도 캐릭터 그림이 없다',
+  detailChars === 0 && attChars.chars === 0 && attChars.cut === 0, JSON.stringify([detailChars, attChars]));
+check('다 불러도(전체 2/2) 그림 하나 늘지 않는다', attChars.total === '전체 2/2', attChars.total);
+
+// ── 13) 두 번째 진입은 캐시부터 그린다 ─────────────────────────────────────
+// "매번 스켈레톤이 아니라 캐시된 값이 먼저 보이게"(사용자 요청 2026-09-03).
+// 게스트에서는 캐시가 메모리에만 있으므로(services/cache.js) 새로고침 없이 화면을
+// 오갈 때 그 효과가 보인다 — 첫 진입에서 캐시를 채우고, 홈으로 나갔다 다시 들어온다.
+await ev(plant(null));
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
+await ev(GO); await waitFor(HAS_CARD);
+await ev(`document.querySelector('.worship-card').click()`); await waitFor(HAS_DETAIL);
+await waitFor(HAS_ATT); await ev(`document.querySelector('.worship-att-open').click()`); await sleep(800);
+await ev(`${byText('주보로')}.click()`); await sleep(500);
+await ev(`${byText('목록으로')}.click()`); await sleep(500);
+await ev(`${byText('업무 대시보드')}.click()`); await sleep(900);
+
+const frames = await ev(`(async () => {
+  ${byText('예배')}.click();
+  const out = [];
+  for (let i = 0; i < 10; i++) {
+    await new Promise(r => requestAnimationFrame(r));
+    out.push([document.querySelectorAll('.worship-loading').length, document.querySelectorAll('.worship-card').length]);
+  }
+  return out;
+})()`, true);
+check('두 번째 진입은 스켈레톤 없이 캐시된 목록을 바로 그린다',
+  frames.every(f => f[0] === 0) && frames.slice(0, 3).some(f => f[1] === 2),
+  JSON.stringify(frames.slice(0, 4)));
+
+// 지난번에 열어 본 주보는 명단·출석도 캐시에서 먼저 온다(빈 목록이 한 번 스치지 않게)
+const attFrames = await ev(`(async () => {
+  document.querySelector('.worship-card').click();
+  let btn = null;
+  for (let i = 0; i < 60 && !btn; i++) { await new Promise(r => requestAnimationFrame(r)); btn = document.querySelector('.worship-att-open'); }
+  if (!btn) return null;
+  btn.click();
+  const out = [];
+  for (let i = 0; i < 6; i++) {
+    await new Promise(r => requestAnimationFrame(r));
+    out.push([document.querySelectorAll('.att-chip').length,
+      (document.querySelector('.att-total')?.innerText || '').replace(/\s+/g, ' ')]);
+  }
+  return out;
+})()`, true);
+check('지난번에 열어 본 주보는 명단·출석을 캐시에서 먼저 그린다',
+  Array.isArray(attFrames) && attFrames.every(f => f[0] === 8) && attFrames[0][1] === '전체 1/8',
+  JSON.stringify(attFrames && attFrames.slice(0, 3)));
+
+// ── 14) 편집 탭 반응형 · 썸네일 · 모바일 고정 도구 줄 ──────────────────────
+// 편집 화면을 다섯 폭에서 훑는다(사용자 요청 2026-09-03). 재는 것은 세 가지다:
+// 가로 넘침 0 · 칸이 화면 밖으로 나가지 않음 · 칸이 짜부라지지 않음(60px 미만 금지).
+await ev(plant(null));
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
+await ev(GO); await waitFor(HAS_CARD);
+await ev(`document.querySelector('.worship-card').click()`); await waitFor(HAS_DETAIL);
+await waitFor(HAS_EDIT);
+await ev(`document.querySelector('.worship-edit-open').click()`); await sleep(900);
+
+const RESP = `(() => {
+  const panel = document.querySelector('.worship-tabpanel');
+  if (!panel) return null;
+  const els = [...panel.querySelectorAll('input, textarea, button.worship-num, .worship-song-linkbox')]
+    .filter(e => e.getBoundingClientRect().width > 0);
+  const w = (e) => Math.round(e.getBoundingClientRect().width);
+  return {
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    n: els.length,
+    narrow: els.length ? Math.min(...els.map(w)) : 0,
+    outside: els.filter(e => e.getBoundingClientRect().right > innerWidth - 2).length,
+  };
+})()`;
+
+const respRows = [];
+for (const width of [375, 414, 768, 1024, 1440]) {
+  await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width < 768 });
+  await sleep(450);
+  for (const tab of ['말씀', '담당자', '찬양', '광고']) {
+    await tabClick(tab); await sleep(320);
+    const r = await ev(RESP);
+    respRows.push([width, tab, r && r.overflow, r && r.narrow, r && r.outside, r && r.n]);
+  }
+}
+const respBad = respRows.filter(r => !(r[2] <= 0 && r[3] >= 60 && r[4] === 0 && r[5] > 0));
+check('편집 탭 네 개가 375·414·768·1024·1440에서 넘치지 않고 칸이 짜부라지지 않는다',
+  respBad.length === 0, JSON.stringify(respBad.length ? respBad : respRows.filter(r => r[0] === 375)));
+
+// 모바일에서는 저장·삭제가 **화면 아래 고정 줄**에 있고 하단 탭바 위에 앉는다
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
 await sleep(600);
-const partial = await ev(ATT_CUT, true);
-check('한 명이라도 빠지면 컷을 띄우지 않는다', partial.cuts === 0 && partial.total === '전체 1/2', JSON.stringify(partial));
+const mobBar = await ev(`(() => {
+  const bar = document.querySelector('.worship-edit-bar');
+  if (!bar) return null;
+  const cs = getComputedStyle(bar);
+  const r = bar.getBoundingClientRect();
+  return {
+    shown: cs.display !== 'none', fixed: cs.position === 'fixed',
+    buttons: [...bar.querySelectorAll('button')].map(b => b.textContent.trim()),
+    bottomGap: Math.round(innerHeight - r.bottom),
+    full: Math.round(r.width) === innerWidth,
+    headSave: !!document.querySelector('.worship-save') && getComputedStyle(document.querySelector('.worship-save')).display === 'none',
+  };
+})()`);
+check('모바일에서는 저장·삭제가 화면 아래 고정 줄에 있다',
+  !!mobBar && mobBar.shown === true && mobBar.fixed === true && mobBar.full === true
+  && JSON.stringify(mobBar.buttons) === '["저장","삭제"]', JSON.stringify(mobBar));
+check('고정 줄은 하단 탭바 위에 앉고, 머리줄 버튼은 모바일에서 숨는다',
+  !!mobBar && mobBar.bottomGap >= 60 && mobBar.headSave === true, JSON.stringify(mobBar));
+
+// ── 찬양 썸네일 — 키 없이 뜨는 공개 주소(i.ytimg.com) ─────────────────────
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(500);
+await tabClick('찬양'); await sleep(400);
+const editThumb = await ev(`(() => {
+  const rows = [...document.querySelectorAll('.worship-song-row')];
+  return rows.map(r => {
+    const img = r.querySelector('img.worship-song-thumb');
+    return img ? [img.getAttribute('src'), img.getAttribute('loading'), Math.round(img.getBoundingClientRect().width)]
+      : [!!r.querySelector('.worship-song-thumb-fallback') ? 'fallback' : null];
+  });
+})()`);
+check('편집 줄에도 작은 썸네일이 붙고, 링크가 없으면 음표로 떨어진다',
+  editThumb.length === 2 && editThumb[0][0] === 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg'
+  && editThumb[0][1] === 'lazy' && editThumb[1][0] === 'fallback', JSON.stringify(editThumb));
+
+await ev(`${byText('저장')}.click()`); await sleep(1000);
+await tabClick('찬양'); await sleep(400);
+const viewThumb = await ev(`(() => {
+  const rows = [...document.querySelectorAll('.worship-song-view')];
+  const img = rows[0]?.querySelector('img.worship-song-thumb');
+  const a = rows[0]?.querySelector('a.worship-song-link');
+  return {
+    src: img?.getAttribute('src') || null, lazy: img?.getAttribute('loading') || null,
+    size: img ? [Math.round(img.getBoundingClientRect().width), Math.round(img.getBoundingClientRect().height)] : null,
+    href: a?.getAttribute('href') || null, target: a?.getAttribute('target') || null,
+    fallback: !!rows[1]?.querySelector('.worship-song-thumb-fallback'),
+  };
+})()`);
+check('보기 목록의 곡 줄에 64x36 썸네일이 붙는다',
+  viewThumb.src === 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg' && viewThumb.lazy === 'lazy'
+  && JSON.stringify(viewThumb.size) === '[64,36]', JSON.stringify(viewThumb));
+check('제목을 누르면 그 유튜브 영상이 새 탭으로 열린다',
+  viewThumb.href === 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' && viewThumb.target === '_blank',
+  JSON.stringify([viewThumb.href, viewThumb.target]));
+check('링크 없는 곡은 썸네일 자리에 음표가 앉는다', viewThumb.fallback === true, String(viewThumb.fallback));
+await send('Emulation.clearDeviceMetricsOverride');
+
+// 예배 노트와 말씀 묵상은 **같은 부품**을 쓴다(사용자 재강조 2026-09-03).
+// 지역 사본을 다시 만들면 두 화면이 조용히 갈라지므로 소스로 못 박는다.
+const sameParts = await ev(`(async () => {
+  const one = async (u) => (await fetch(u)).text();
+  const [wor, word] = await Promise.all([one('/src/components/worshipDetail.jsx'), one('/src/views/wordView.jsx')]);
+  const has = (t) => t.includes('/src/components/ShareToggle.jsx');
+  const local = (t) => /function ShareToggle\\s*\\(/.test(t);
+  return { worImports: has(wor), wordImports: has(word), worLocal: local(wor), wordLocal: local(word) };
+})()`, true);
+check('예배 노트와 말씀 묵상이 같은 공유 부품을 import한다',
+  sameParts.worImports === true && sameParts.wordImports === true, JSON.stringify(sameParts));
+check('어느 화면에도 지역 사본이 남아 있지 않다',
+  sameParts.worLocal === false && sameParts.wordLocal === false, JSON.stringify(sameParts));
 
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 

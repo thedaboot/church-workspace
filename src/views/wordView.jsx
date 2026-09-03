@@ -9,8 +9,9 @@ import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { failText } from '../services/errorText.js';
+import { useCached, dropCache } from '../services/cache.js';
+import { ShareChip, ShareToggle } from '../components/ShareToggle.jsx';
 import { SectionHead, Card } from './dashboardParts.jsx';
-import { Empty } from '../components/groupsParts.jsx';
 import { loadPassage } from '../services/bible.js';
 import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap } from '../components/wordBible.jsx';
 import {
@@ -66,8 +67,17 @@ const SEGMENTS = [['qt', 'QT'], ['read', '성경 읽기']];
 const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').then(m => ({ default: m.MarkdownEditor })));
 // 서식 바(37px) + 본문 칸(min-h-40 = 160px). 에디터가 붙기 전에도 같은 높이를 잡아
 // 두어야 도착하는 순간 아래 것들이 밀리지 않는다.
-const EDITOR_H = 197;
-const EditorSkeleton = () => <div className="dc-skeleton border border-line rounded-md" style={{ height: EDITOR_H }} />;
+// **업무 수정 창과 같은 상자다**(사용자 피드백 2026-09-03 — "빈 공간을 눌러도 입력되게").
+// 빈 자리를 눌러 커서를 잡는 일은 MarkdownEditor가 이미 한다(그 파일의 focusEnd —
+// `.tiptap` 밖을 누르면 문서 끝으로 보낸다). 다른 점은 상자 높이뿐이어서, 업무 수정과
+// 같은 `min-h-40 md:min-h-56`으로 맞췄다 — 데스크톱에서 누를 빈 자리가 160 → 224px이 된다.
+const EDITOR_BOX = 'min-h-40 md:min-h-56';
+// 서식 바(37px) + 본문 칸. 에디터가 붙기 전에도 같은 높이를 잡아 두어야 도착하는 순간
+// 아래 것들이 밀리지 않는다.
+const EDITOR_SLOT = 'min-h-[197px] md:min-h-[261px]';
+const EditorSkeleton = () => (
+  <div className={`dc-skeleton border border-line rounded-md ${EDITOR_SLOT}`} />
+);
 
 // 본문이 차지할 자리. **빈 상태도 이 자리를 그대로 받는다**(사용자 피드백 2026-09-02 3차)
 // — 자리는 320px인데 빈 상태만 220px이라, 본문이 없는 날에는 마크가 위로 올라붙고 아래
@@ -123,6 +133,7 @@ function QtTab() {
   const [body, setBody] = useState('');            // 지금 에디터에 있는 글
   const [saving, setSaving] = useState(false);
   const [shareState, setShareState] = useState(''); // '' | 'saving' | 'saved' (공유 칩)
+  const [shareAt, setShareAt] = useState('editor');  // 칩이 설 자리 — 'editor' | 'feed'
   const [feed, setFeed] = useState(null);          // null이면 아직 안 읽음
   const [grass, setGrass] = useState([]);
   const editorRef = useRef(null);
@@ -136,43 +147,66 @@ function QtTab() {
     setDate(next);
   };
 
-  // 그날 본문 — 일정 한 줄을 읽고, 구절이 있으면 본문까지 편다
+  // ── 그날의 QT 한 묶음 (일정 · 내 묵상 · 나눔) ──────────────────────────────
+  // **캐시가 있으면 스켈레톤 없이 그 값으로 먼저 그린다**(사용자 요청 2026-09-03 —
+  // "매번 스켈레톤이 아니라 캐시된 값이 먼저"). 한 번 본 날짜로 되돌아오면 기다림이
+  // 아예 없다. 뒤에서 다시 읽어 갈아 끼우는 것은 useCached가 한다(services/cache.js).
+  // 셋을 한 열쇠로 묶는 이유: 화면에서 늘 같이 쓰이고, 저장·삭제 뒤 비울 때도 같이 비운다.
+  // 본문(절 텍스트)은 여기 넣지 않는다 — 그건 bible.js가 이미 책 단위로 캐시한다.
+  const qtKey = `word:qt:${date}`;
+  const { data: qt, loading: qtLoading, error: qtError, refresh: refreshQt } = useCached(
+    qtKey,
+    async () => {
+      const [schedule, mine, shared] = await Promise.all([
+        fetchSchedule(date), fetchMyEntry(date), fetchSharedEntries(date),
+      ]);
+      // 어느 날짜의 묶음인지 같이 들고 있는다 — 날짜가 먼저 바뀌고 값이 한 프레임 늦게
+      // 오므로, 이걸 안 보면 **앞 날짜의 값을 새 날짜에 적어 버린다**(빈 묵상으로 덮였다)
+      return { date, schedule: schedule ?? null, mine: mine ?? null, shared: shared || [] };
+    },
+    [date],
+  );
+
+  // 일정이 정해지면 그 구절의 본문을 편다(책 파일은 bible.js 캐시라 두 번째부터 즉시다)
   useEffect(() => {
     let alive = true;
-    setDay({ loading: true, schedule: null, passage: null });
-    (async () => {
-      const schedule = await fetchSchedule(date);
-      if (!alive) return;
-      if (!schedule) { setDay({ loading: false, schedule: null, passage: null }); return; }
-      let passage = null;
-      try { passage = await loadPassage(schedule.passage_ref); } catch { /* 못 읽으면 구절만 보여준다 */ }
-      if (alive) setDay({ loading: false, schedule, passage });
+    if (qt && qt.date !== date) return undefined;   // 아직 앞 날짜의 값이다 — 그대로 둔다
+    const ref = qt?.schedule?.passage_ref || '';
+    if (qtLoading) { setDay({ loading: true, schedule: null, passage: null }); return undefined; }
     // **못 읽은 것과 없는 것은 다르다**(사용자 피드백 2026-09-03 — 예외 문구 검토).
     // 예전에는 읽기가 실패해도 '아직 올라오지 않았어요'가 떠서 화면이 거짓말을 했다(§6-29-b).
-    })().catch(err => alive && setDay({ loading: false, schedule: null, passage: null, failed: err || true }));
+    if (qtError) { setDay({ loading: false, schedule: null, passage: null, failed: qtError }); return undefined; }
+    if (!ref) { setDay({ loading: false, schedule: qt?.schedule || null, passage: null }); return undefined; }
+    setDay(d => (d.schedule?.passage_ref === ref ? d : { loading: true, schedule: null, passage: null }));
+    (async () => {
+      let passage = null;
+      try { passage = await loadPassage(ref); } catch { /* 못 읽으면 구절만 보여준다 */ }
+      if (alive) setDay({ loading: false, schedule: qt.schedule, passage });
+    })();
     return () => { alive = false; };
-  }, [date]);
+  }, [qt, qtLoading, qtError, date]);
 
   // 내 묵상 · 그날 나눔. **entry·body를 비우지 않는다** — 비우면 에디터가 언마운트되어
-  // 자리가 197px로 줄고, 도착할 때 아래 것들이 다시 밀린다(머리말).
+  // 자리가 줄고, 도착할 때 아래 것들이 다시 밀린다(머리말).
+  // 뒤에서 새로 읽어 온 값이 **고치던 글을 덮지 않게**, body는 날짜가 바뀐 때만 갈아 끼운다.
+  const syncedFor = useRef('');
   useEffect(() => {
-    let alive = true;
-    setFeed(null); setShareState('');
-    (async () => {
-      const [mine, shared] = await Promise.all([fetchMyEntry(date), fetchSharedEntries(date)]);
-      if (!alive) return;
-      const next = { date, body: mine?.body || '', shared: !!mine?.shared, exists: !!mine };
-      setEntry(next); setBody(next.body); setFeed(shared);
-    })().catch(err => {
-      if (!alive) return;
-      setEntry({ date, body: '', shared: false, exists: false }); setBody(''); setFeed([]);
-      // 조용히 빈 칸을 세우면 **이미 써 둔 묵상이 없는 것처럼 보인다**(그 상태로 저장하면
-      // 덮어쓴다). 무엇을 못 읽었는지 이유까지 말한다(사용자 피드백 2026-09-03).
-      console.error('[word] 묵상·나눔 읽기 실패:', err);
-      showToast(failText('이 날 묵상과 나눔을 불러오지 못했어요', err));
-    });
-    return () => { alive = false; };
-  }, [date]);
+    if (!qt || qt.date !== date) return;
+    const next = { date, body: qt.mine?.body || '', shared: !!qt.mine?.shared, exists: !!qt.mine };
+    setEntry(next);
+    setFeed(qt.shared || []);
+    if (syncedFor.current !== date) { setBody(next.body); setShareState(''); syncedFor.current = date; }
+  }, [qt, date]);
+
+  useEffect(() => {
+    if (!qtError) return;
+    // 조용히 빈 칸을 세우면 **이미 써 둔 묵상이 없는 것처럼 보인다**(그 상태로 저장하면
+    // 덮어쓴다). 무엇을 못 읽었는지 이유까지 말한다(사용자 피드백 2026-09-03).
+    console.error('[word] 묵상·나눔 읽기 실패:', qtError);
+    setEntry({ date, body: '', shared: false, exists: false }); setFeed([]);
+    if (syncedFor.current !== date) { setBody(''); syncedFor.current = date; }
+    showToast(failText('이 날 묵상과 나눔을 불러오지 못했어요', qtError));
+  }, [qtError, date]);
 
   // 저장한 뒤 잠깐만 남는 칩(공유 토글) — 상태 표시라 계속 서 있을 이유가 없다
   useEffect(() => {
@@ -205,6 +239,7 @@ function QtTab() {
       await saveMyEntry(date, { body, shared: entry.shared });
       setEntry({ date, body, shared: entry.shared, exists: true });
       setFeed(await fetchSharedEntries(date));
+      dropCache(qtKey); refreshQt();   // 옛 값이 먼저 그려지지 않게 그 날짜만 비운다
       reloadGrass();
       showToast(entry.shared ? '묵상을 저장하고 더다붓에 공유했어요' : '묵상을 저장했어요');
     } catch (e) {
@@ -217,13 +252,17 @@ function QtTab() {
 
   // 공유 칸만 그 자리에서 저장한다. **저장된 본문을 그대로 다시 쓴다** — 고치던 글을
   // 같이 올리면 저장 버튼을 누르지 않았는데 글이 나가 버린다(그래서 dirty도 그대로 남는다).
-  const setShared = async (v) => {
+  // from: 누른 자리('editor' | 'feed') — 칩은 그 자리에만 뜬다(두 곳에 같은 칩이 겹치면
+  // 무엇이 방금 바뀐 것인지가 오히려 흐려진다)
+  const setShared = async (v, from = 'editor') => {
     if (!canShare || v === entry.shared || shareState === 'saving') return;
+    setShareAt(from);
     setShareState('saving');
     try {
       await saveMyEntry(date, { body: entry.body, shared: v });
       setEntry(e => ({ ...e, shared: v }));
       setFeed(await fetchSharedEntries(date));
+      dropCache(qtKey); refreshQt();
       setShareState('saved');
     } catch (e) {
       console.error('[word] 공유 상태 저장 실패:', e);
@@ -239,6 +278,7 @@ function QtTab() {
       await saveMyEntry(date, { body: entry.body, shared: false });
       setEntry(e => ({ ...e, shared: false }));
       setFeed(await fetchSharedEntries(date));
+      dropCache(qtKey); refreshQt();
       // 두 문장은 **줄을 바꿔** 잇는다(사용자 결정 2026-09-03 — failText와 같은 규칙).
       showToast('나눔에서 내렸어요\n묵상은 내 기록에 그대로 있어요');
     } catch (e) {
@@ -254,6 +294,7 @@ function QtTab() {
       setEntry({ date, body: '', shared: false, exists: false });
       setBody('');
       setFeed(await fetchSharedEntries(date));
+      dropCache(qtKey); refreshQt();
       reloadGrass();
       showToast('이 날 묵상을 지웠어요');
     } catch (e) {
@@ -315,14 +356,14 @@ function QtTab() {
         {/* 내 묵상 */}
         <div className="mt-6" ref={editorRef}>
           <SectionHead>내 묵상</SectionHead>
-          <div style={{ minHeight: EDITOR_H }}>
+          <div className={EDITOR_SLOT}>
             {entry ? (
               <Suspense fallback={<EditorSkeleton />}>
                 <MarkdownEditor
                   value={body}
                   onChange={setBody}
                   placeholder="오늘 본문에서 마음에 남은 것"
-                  className="min-h-40 border border-line rounded-md rounded-t-none p-3 bg-surface focus-within:border-accent focus-within:shadow-soft transition-all"
+                  className={`${EDITOR_BOX} border border-line rounded-md rounded-t-none p-3 bg-surface focus-within:border-accent focus-within:shadow-soft transition-all`}
                 />
               </Suspense>
             ) : <EditorSkeleton />}
@@ -334,7 +375,9 @@ function QtTab() {
               className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
               저장
             </button>
-            <ShareChip state={shareState} label={entry?.shared ? '더다붓에 공유했어요' : '나만 보기로 바꿨어요'} />
+            {shareAt === 'editor' && (
+              <ShareChip state={shareState} label={entry?.shared ? '더다붓에 공유할게요' : '나만 볼게요'} />
+            )}
             <span className="flex-1" />
             <ShareToggle value={!!entry?.shared} disabled={!canShare} onChange={setShared} />
             {canShare && (
@@ -357,7 +400,16 @@ function QtTab() {
           <div className="min-h-[72px]">
             {feed === null
               ? <FeedSkeleton />
-              : <ShareFeed entries={feed} members={members} myName={currentUser?.name || ''}
+              : <ShareFeed
+                  entries={feed} members={members} myName={currentUser?.name || ''}
+                  // 공유하지 않은 내 묵상도 **나에게는** 이 자리에 선다(사용자 결정
+                  // 2026-09-03). 피드 자체는 공유된 글만 읽으므로(RLS와 같은 경계),
+                  // 내 것 한 줄을 화면에서 얹는다 — 남에게는 여전히 안 보인다.
+                  privateMine={ready && entry.exists && entry.body.trim() && !entry.shared
+                    ? { id: 'mine-private', body: entry.body, mine: true, private: true }
+                    : null}
+                  shared={!!entry?.shared} canShare={canShare} onShare={setShared}
+                  shareState={shareAt === 'feed' ? shareState : ''}
                   onEdit={editMine} onUnshare={unshareMine} />}
           </div>
         </div>
@@ -372,46 +424,6 @@ function QtTab() {
 
 // 공유 칸이 그 자리에서 저장됐음을 알리는 칩 — 예배 화면의 SaveState와 같은 결
 // (worshipDetail.jsx). 저장이 끝난 것만 연한 초록이고, 지나가는 상태는 무채색이다.
-function ShareChip({ state, label }) {
-  if (!state) return null;
-  const done = state === 'saved';
-  return (
-    <span data-share-chip={state} className={`text-[10.5px] ${
-      done ? 'px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg font-bold' : 'text-fg-faint'}`}>
-      {done ? label : '저장하는 중'}
-    </span>
-  );
-}
-
-// ── 나만 보기 / 더다붓에 공유하기 ───────────────────────────────────────────
-// **이미 그 상태인 쪽을 눌러도 아무 일도 일어나지 않는다**(사용자 지적 2026-09-01 —
-// 예전에는 한 버튼이 상태를 표시하면서 누르면 뒤집혀서, 지금 상태를 확인하려고 누른
-// 사람이 값을 바꿔 놓고 저장 버튼을 켰다). 두 쪽을 나란히 두고 값이 실제로 달라질
-// 때만 부른다 — 부르는 쪽(setShared)이 같은 값이면 되돌아 나온다.
-//
-// 값은 **저장된 것**을 그대로 비춘다(고치던 상태가 아니다). 그래서 이 토글은 저장 버튼을
-// 켜지 않고, 눌리면 그 자리에서 shared 칸만 저장된다(QtTab 머리말).
-function ShareToggle({ value, disabled, onChange }) {
-  const OPTIONS = [[false, '나만 보기', Lock], [true, '더다붓에 공유하기', Users]];
-  return (
-    <span className={`flex p-[3px] rounded-[8px] shrink-0 ${disabled ? 'opacity-40' : ''}`}
-      style={{ background: 'var(--app-surface-hover)' }}>
-      {OPTIONS.map(([v, label, Icon]) => (
-        <button
-          key={label} onClick={() => onChange(v)} disabled={disabled} aria-pressed={value === v}
-          className="inline-flex items-center gap-1.5 px-2.5 py-[5px] rounded-[5px] text-[11.5px] font-semibold transition-colors"
-          style={{
-            background: value === v ? 'var(--app-surface)' : 'transparent',
-            color: value === v ? 'var(--app-ink)' : 'var(--app-ink-muted)',
-          }}
-        >
-          <Icon size={12.5} />{label}
-        </button>
-      ))}
-    </span>
-  );
-}
-
 // ── 그날 본문 ───────────────────────────────────────────────────────────────
 // minH: 기다리는 동안 채워야 할 자리의 높이. 카드가 자리보다 짧으면 그 차이만큼
 // 아래 칸들이 올라왔다 내려간다(QtTab 머리말) — 줄 수도 자리에 맞춰 늘린다.
@@ -425,19 +437,18 @@ export function QtPassage({ day, minH = PASSAGE_MIN_H }) {
     );
   }
   if (!day.schedule) {
-    // 못 읽은 것과 아직 없는 것을 갈라 말한다(사용자 피드백 2026-09-03). **컷은 '아직
-    // 없는' 쪽에만** 붙인다 — 실패는 다시 해 보라는 자리라 캐릭터가 웃고 있을 자리가 아니다.
-    if (day.failed) {
-      return (
-        <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: PASSAGE_MIN_H }}>
-          <EmptyBookMark />
-          <p className="text-[13.5px] font-semibold text-fg mt-3 whitespace-pre-line">
-            {failText('이 날짜의 본문을 불러오지 못했어요', day.failed)}
-          </p>
-        </div>
-      );
-    }
-    return <Empty cut="sit" title="이 날짜의 본문이 아직 올라오지 않았어요" minH={PASSAGE_MIN_H} />;
+    // 못 읽은 것과 아직 없는 것을 갈라 말한다(사용자 피드백 2026-09-03).
+    // **표식은 SVG 마크다**(사용자 결정 2026-09-03 — "홈 말고는 캐릭터를 넣지 말라").
+    return (
+      <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: PASSAGE_MIN_H }}>
+        <EmptyBookMark />
+        <p className="text-[13.5px] font-semibold text-fg mt-3 whitespace-pre-line">
+          {day.failed
+            ? failText('이 날짜의 본문을 불러오지 못했어요', day.failed)
+            : '이 날짜의 본문이 아직 올라오지 않았어요'}
+        </p>
+      </div>
+    );
   }
   const { schedule, passage } = day;
   return (
@@ -469,27 +480,40 @@ function FeedSkeleton() {
   );
 }
 
-function ShareFeed({ entries, members = [], myName = '', onEdit, onUnshare }) {
+// **비공개 묵상도 내 피드에는 선다**(사용자 결정 2026-09-03). 그 줄에는 '나만 보기'
+// 표시가 붙고, 같은 토글로 그 자리에서 공유하거나 되돌릴 수 있다 — 칩 문구도 같다.
+// 남에게는 여전히 안 보인다: 피드 데이터는 공유된 글만 읽고(RLS와 같은 경계) 이 줄은
+// 화면에서 내 것 하나를 얹은 것이다.
+function ShareFeed({
+  entries, members = [], myName = '', privateMine = null,
+  shared = false, canShare = false, shareState = '', onShare, onEdit, onUnshare,
+}) {
   const byId = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
-  if (!entries.length) {
-    // 나눔이 비어 있는 자리에 캐릭터 컷 한 장(사용자 결정 2026-09-03 — 대기 항목 ④의 답).
-    // 목록 안이 아니라 **목록이 없는 자리**에만 선다.
-    return <Empty cut="whisper" title="이 날짜에 올라온 나눔이 아직 없어요" minH={168} />;
+  const rows = privateMine ? [privateMine, ...entries] : entries;
+  if (!rows.length) {
+    return <p className="text-[11.5px] text-fg-faint">이 날짜에 올라온 나눔이 아직 없어요</p>;
   }
   return (
     <div className="flex flex-col">
-      {entries.map(e => {
+      {rows.map(e => {
         // 이름·사진의 원본은 워크스페이스 멤버 목록이다(profiles에서 온다).
         // 게스트 모드의 로컬 나눔은 언제나 내 글이라 프로필이 붙지 않는다.
         const m = byId.get(e.profile_id);
         const name = m?.name || e.name || myName;
         const url = m?.avatarUrl || e.avatarUrl || '';
         return (
-          <div key={e.id} className="dc-row flex items-start gap-2.5 py-2.5">
+          <div key={e.id} data-feed-row={e.mine ? (e.private ? 'mine-private' : 'mine') : 'other'}
+            className="dc-row flex items-start gap-2.5 py-2.5">
             <Avatar name={name} url={url || undefined} className="flex w-7 h-7 text-[11px] shrink-0 mt-px" />
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <p className="text-[11.5px] font-bold text-fg truncate min-w-0">{name}</p>
+                {/* 지금 이 줄이 나만 보는 글임을 그 자리에서 말한다 */}
+                {e.private && (
+                  <span data-private="1" className="inline-flex items-center gap-1 shrink-0 px-1.5 py-px rounded-full bg-surface-hover text-[10.5px] font-bold text-fg-muted">
+                    <Lock size={10} />나만 보기
+                  </span>
+                )}
                 {/* 내 글에만 붙고 **언제나 보인다** — hover로만 뜨면 터치 기기에서는
                     없는 기능이 된다(§8) */}
                 {e.mine && (
@@ -500,16 +524,26 @@ function ShareFeed({ entries, members = [], myName = '', onEdit, onUnshare }) {
                     </button>
                     {/* **여기서 지우는 것은 나눔에서만이다**(사용자 피드백 2026-09-02 4차).
                         묵상은 내 기록에 그대로 남으므로 잃는 것이 없고(tone 'ok'), 진짜
-                        삭제는 위의 '내 묵상' 칸 휴지통이 한다 */}
-                    <ConfirmPopover
-                      message="이 날의 묵상을 지우고 내 기록에만 남겨둘까요?"
-                      confirmLabel="지우기" tone="ok" onConfirm={onUnshare}
-                    >
-                      <button aria-label="내 나눔 지우기"
-                        className="w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
-                        <EyeOff size={12} />
-                      </button>
-                    </ConfirmPopover>
+                        삭제는 위의 '내 묵상' 칸 휴지통이 한다. 이미 나만 보는 글에는
+                        내릴 것이 없으므로 그때는 토글만 둔다 */}
+                    {!e.private && (
+                      <ConfirmPopover
+                        message="이 날의 묵상을 지우고 내 기록에만 남겨둘까요?"
+                        confirmLabel="지우기" tone="ok" onConfirm={onUnshare}
+                      >
+                        <button aria-label="내 나눔 지우기"
+                          className="w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
+                          <EyeOff size={12} />
+                        </button>
+                      </ConfirmPopover>
+                    )}
+                  </span>
+                )}
+                {/* 이 줄에서 바로 공개 범위를 정한다 — 위 '내 묵상' 칸과 같은 토글·같은 칩 */}
+                {e.mine && onShare && (
+                  <span className="flex items-center gap-1.5 ml-auto">
+                    <ShareChip state={shareState} label={shared ? '더다붓에 공유할게요' : '나만 볼게요'} />
+                    <ShareToggle value={shared} disabled={!canShare} onChange={v => onShare(v, 'feed')} />
                   </span>
                 )}
               </div>

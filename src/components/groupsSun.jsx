@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Lock } from 'lucide-react';
 import { SectionHead } from '../views/dashboardParts.jsx';
+import { RichText } from './RichText.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { YearPicker } from './layout.jsx';
 import {
-  CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN,
-  PersonTag, PersonPick, MenuPick, Empty,
+  CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, EXIT,
+  PersonTag, PersonPick, MenuPick, Empty, PeopleMark, NoteMark,
 } from './groupsParts.jsx';
 import { groupPeople, presentCount, sunCandidates } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
@@ -26,7 +27,7 @@ import { formatServiceDate } from '../services/worship.js';
 // ============================================================================
 
 // ── 내 순 ───────────────────────────────────────────────────────────────────
-export function MySunPanel({ myPerson, sun, people, members, service, present, notes = [] }) {
+export function MySunPanel({ myPerson, sun, people, members, service, present }) {
   const list = useMemo(() => groupPeople({ people, group: sun, members }), [people, sun, members]);
   const leaderName = useMemo(
     () => people.find(p => p.id === sun?.leader_person_id)?.name || '',
@@ -35,13 +36,13 @@ export function MySunPanel({ myPerson, sun, people, members, service, present, n
 
   if (!myPerson) {
     return (
-      <Empty className="mysun-empty" cut="stand"
+      <Empty className="mysun-empty" mark={<PeopleMark />}
         title="아직 명단에 이어지지 않은 계정이에요" hint="관리자에게 알려주세요" />
     );
   }
   if (!sun) {
     return (
-      <Empty className="mysun-empty" cut="stand"
+      <Empty className="mysun-empty" mark={<PeopleMark />}
         title="올해 순 편성에 아직 이름이 올라 있지 않아요" />
     );
   }
@@ -75,26 +76,79 @@ export function MySunPanel({ myPerson, sun, people, members, service, present, n
         </div>
       </div>
 
-      {/* 공유된 노트 — **없을 때도 구역은 남긴다**(사용자 결정 2026-09-03 캐릭터 컷).
-          예전에는 하나도 없으면 구역이 통째로 사라져서, 순장이 '노트가 공유되면 어디에
-          뜨는지'를 알 길이 없었다. 순원의 비공개 노트는 여전히 오지 않는다(결정 7). */}
-      <div className="mt-6">
-        <SectionHead>내 순에 공유된 예배 노트</SectionHead>
-        {notes.length > 0 ? (
-          <div className="space-y-2">
-            {notes.map(n => (
-              <div key={n.id} className={`mysun-note dc-row p-3.5 ${CARD}`} style={CARD_STYLE}>
-                <p className="text-[11.5px] text-fg-muted">
-                  {[n.serviceDate ? formatServiceDate(n.serviceDate) : '', n.name].filter(Boolean).join(' · ')}
-                </p>
-                <p className="mt-1 text-[13px] text-fg-secondary leading-relaxed whitespace-pre-line break-words">{n.body}</p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <Empty className="mysun-note-empty" cut="book" minH="20vh"
-            title="아직 순에 공유된 예배 노트가 없어요" />
+    </div>
+  );
+}
+
+// ── 내 순에 공유된 예배 노트 ────────────────────────────────────────────────
+// **카드 밖으로 나와 있다** — 이 섹션과 순모임 가이드는 같은 한 벌로 읽히고(캐시 키
+// groups:mine:…) 스켈레톤도 하나로 묶여야 해서, 부르는 쪽이 두 섹션을 나란히 세운다
+// (사용자 지적 2026-09-03 — "각각 따로 스켈레톤이 된다").
+// 없을 때도 구역은 남긴다: 순장이 '노트가 공유되면 어디에 뜨는지'를 알 수 있어야 하고,
+// 그 자리가 비어 있다는 것도 정보다. 순원의 비공개 노트는 여전히 오지 않는다(결정 7).
+export function SunNotesSection({ notes = [], onShare }) {
+  return (
+    <div className="mysun-notes mt-6">
+      <SectionHead>내 순에 공유된 예배 노트</SectionHead>
+      {notes.length > 0 ? (
+        <div className="space-y-2">
+          {notes.map(n => <NoteRow key={n.id} note={n} onShare={onShare} />)}
+        </div>
+      ) : (
+        <Empty className="mysun-note-empty" mark={<NoteMark />} minH="20vh"
+          title="아직 순에 공유된 예배 노트가 없어요" />
+      )}
+    </div>
+  );
+}
+
+// 노트 한 줄. **내 노트는 비공개여도 여기 온다**(사용자 결정 2026-09-03) — 그 줄에서
+// 바로 공유를 켜고 끈다. 남의 비공개 노트는 애초에 오지 않는다(결정 7 · groups.js).
+// 바꾼 뒤에는 초록 칩으로 지금 상태를 말한다 — 토스트로 띄우면 목록의 어느 줄이
+// 바뀐 것인지 알 수 없다.
+function NoteRow({ note, onShare }) {
+  const [said, setSaid] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!said) return undefined;
+    const t = setTimeout(() => setSaid(''), 2600);
+    return () => clearTimeout(t);
+  }, [said]);
+
+  const toggle = async () => {
+    if (busy || !onShare) return;
+    setBusy(true);
+    const next = !note.shared;
+    const ok = await onShare(note, next);
+    setBusy(false);
+    if (ok) setSaid(next ? '우리 순에 공유할게요' : '나만 볼게요');
+  };
+
+  return (
+    <div className={`mysun-note dc-row p-3.5 ${CARD}`} style={CARD_STYLE}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-[11.5px] text-fg-muted">
+          {[note.serviceDate ? formatServiceDate(note.serviceDate) : '', note.name].filter(Boolean).join(' · ')}
+        </p>
+        {note.mine && !note.shared && (
+          <span className="mysun-note-lock inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tag-yellow text-tag-yellow-fg text-[10px] font-bold">
+            <Lock size={9} /><span>나만 보기</span>
+          </span>
         )}
+        {said && (
+          <span className="mysun-note-said px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg text-[10px] font-bold">{said}</span>
+        )}
+        <span className="flex-1" />
+        {note.mine && (
+          <button type="button" onClick={toggle} disabled={busy}
+            className={`mysun-note-share ${BTN_QUIET}`}>{note.shared ? '나만 보기' : '순에 공유하기'}</button>
+        )}
+      </div>
+      {/* 노트는 **마크다운으로 쓴다**(예배 화면이 MarkdownEditor로 바뀌었다) — 원문을
+          그대로 글자로 두면 '## 제목'·'- 항목'·'**굵게**'가 그대로 보인다. 업무 본문·
+          댓글과 같은 뷰어 한 벌을 쓴다(components/RichText.jsx). */}
+      <div className="mysun-note-body mt-1 text-[13px] text-fg-secondary leading-relaxed break-words">
+        <RichText content={note.body} />
       </div>
     </div>
   );
@@ -106,7 +160,7 @@ export function MySunPanel({ myPerson, sun, people, members, service, present, n
 // 순장을 지정하면 그 순의 구성원으로도 들어간다(services/groups.js saveGroup) —
 // 출석 정책 leads_sun_of()가 group_members를 보기 때문이다(0037).
 export function SunAdminPanel({
-  year, years, suns, people, members, creating, onCloseCreate,
+  year, years, suns, people, members, creating, closingCreate, onCloseCreate,
   onYear, onCreateSun, onRenameSun, onSetLeader, onAddMember, onMoveMember, onRemoveMember,
 }) {
   const [name, setName] = useState('');
@@ -147,7 +201,7 @@ export function SunAdminPanel({
           375px에서는 버튼이 둘째 줄로 접힌다. 순장 후보는 아직 아무 순에도 없는
           사람들이다 — 이미 편성된 사람을 새 순의 순장으로 세우면 두 순에 동시에 든다. */}
       {creating && (
-        <div className={`sun-new p-2.5 mb-4 flex flex-wrap items-center gap-1.5 ${CARD}`} style={CARD_STYLE}>
+        <div className={`sun-new ${closingCreate ? EXIT : 'dc-card'} relative z-20 p-2.5 mb-4 flex flex-wrap items-center gap-1.5 ${CARD}`} style={CARD_STYLE}>
           <input value={name} onChange={e => setName(e.target.value)} aria-label="새 순 이름"
             placeholder="예: 꼬순" autoFocus
             onKeyDown={e => { if (e.key === 'Enter' && name.trim()) submit(); }}
@@ -170,14 +224,8 @@ export function SunAdminPanel({
         ))}
       </div>
       {!suns.length && (
-        <Empty className="sun-empty" cut="welcome"
+        <Empty className="sun-empty" mark={<PeopleMark />}
           title={`${year}년 순 편성이 아직 비어 있어요`} />
-      )}
-      {/* 남은 사람이 없으면 각 줄의 '순원 추가'는 고를 것이 없는 빈 칸이다 —
-          칸을 접고 한 번만 말한다(사용자 결정 2026-09-03 캐릭터 컷 hearts). */}
-      {!!suns.length && !unplaced.length && (
-        <Empty className="sun-placed" cut="hearts" minH="22vh"
-          title="올해 청년이 모두 순에 들어갔어요" />
       )}
     </div>
   );
@@ -238,11 +286,9 @@ function SunRow({ group, suns, people, members, unplaced, leaderPool, onRename, 
         ))}
       </div>
 
-      {unplaced.length > 0 && (
-        <PersonPick label={`${group.name} 순원 추가`} people={unplaced} value=""
-          onChange={id => id && onAddMember(group, id)} placeholder="순원 추가"
-          className="sun-add mt-3 w-full sm:w-64" />
-      )}
+      <PersonPick label={`${group.name} 순원 추가`} people={unplaced} value=""
+        onChange={id => id && onAddMember(group, id)} placeholder="순원 추가"
+        className="sun-add mt-3 w-full sm:w-64" />
     </div>
   );
 }
