@@ -277,7 +277,7 @@ export function localDate(ts) {
   if (Number.isNaN(d.getTime())) return '';
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
-export const todayLocal = () => localDate(new Date());
+const todayLocal = () => localDate(new Date());
 
 // 앞으로 며칠 안에 생일인 사람 (오늘 포함). 'MM-DD'만 저장하므로 연도를 빌려 비교한다.
 // 연말연시를 넘어가는 경우(12-30 → 01-02)를 위해 내년 것도 같이 본다 — 12월 31일에

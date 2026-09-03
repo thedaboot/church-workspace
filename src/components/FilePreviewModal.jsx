@@ -49,10 +49,10 @@ const MAX_TEXT_CHARS = 512 * 1024;      // 텍스트는 앞의 이만큼만 그�
 // 상한을 첨부 상한(config.MAX_UPLOAD_BYTES)에 묶어 두면 그 어긋남이 다시 안 생긴다.
 // 첨부 목록의 엑셀 '펼쳐보기'(attachments.jsx)도 같은 값·같은 스켈레톤을 쓴다 —
 // 뷰어 iframe이 뜨는 동안 남의 로딩 화면(외부 폰트)이 비쳐 보이지 않게 가리는 값들이다.
-export const OFFICE_TIMEOUT = 12000;    // 이 시간 안에 안 뜨면 안내로 대체
+const OFFICE_TIMEOUT = 12000;    // 이 시간 안에 안 뜨면 안내로 대체
 // iframe onLoad는 "문서가 전달된 시점"이라 뷰어가 첫 페이지를 그리기 전이다.
 // 그 사이 PDF 뷰어의 검은 배경이 그대로 보여서, 조금 더 기다렸다 스켈레톤을 걷는다.
-export const FRAME_SETTLE = 260;
+const FRAME_SETTLE = 260;
 
 function previewKind(row) {
   const mime = row.mime_type || '';
@@ -97,7 +97,7 @@ function previewKind(row) {
 }
 
 // 첨부 목록의 엑셀 '펼쳐보기'(attachments.jsx)도 같은 뷰어 주소를 쓴다
-export const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
 // 드라이브 미리보기 주소는 순수 함수라 utils에 있다(노드에서 바로 검사한다 — §2-5).
 // 부르는 쪽(attachments.jsx)이 이미 여기서 가져다 쓰고 있어 그대로 다시 내보낸다.
 import { driveSrc, sheetPreviewUrl } from '../utils.js';
@@ -107,7 +107,7 @@ export { driveSrc };
 // 예전에는 이 문구가 조건 없이 '마이크로소프트 오피스 미리보기로 표시해요'였다.
 // 드라이브 파일은 구글로 그리고 있는데도 마이크로소프트라고 적혀 있어서, 무엇이
 // 어디로 나가는지 화면이 거짓말을 하고 있었다(사용자 지적).
-export const viewerNote = (row) => (row.source === 'drive'
+const viewerNote = (row) => (row.source === 'drive'
   ? '구글 드라이브 미리보기로 표시해요'
   : '마이크로소프트 오피스 미리보기로 표시해요 · 파일 주소가 마이크로소프트로 전달됩니다');
 
@@ -507,7 +507,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
 }
 
 // 준비 중 자리(스켈레톤 + 안내). absolute=이미 자리를 잡은 컨테이너 위에 덮어씌울 때
-export function PreparingFrame({ absolute = false }) {
+function PreparingFrame({ absolute = false }) {
   return (
     <div className={absolute ? 'absolute inset-0' : 'relative w-full h-full'}>
       {/* Skeleton에 absolute를 주면 먹지 않는다(.dc-skeleton이 position: relative를

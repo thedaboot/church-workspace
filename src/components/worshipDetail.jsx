@@ -587,7 +587,7 @@ export function ServiceDetail({
           </ConfirmPopover>
         )}
         {perms.canEdit && editing && (
-          <ConfirmPopover message="이 주보를 삭제할까요? 적어 둔 내용도 같이 사라져요." onConfirm={onDelete}>
+          <ConfirmPopover message="이 주보를 삭제할까요? 적어 둔 말씀·담당자·찬양·광고와 출석 기록이 같이 사라져요." onConfirm={onDelete}>
             <button type="button" className="px-2.5 py-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">삭제</button>
           </ConfirmPopover>
         )}

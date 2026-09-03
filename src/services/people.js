@@ -17,7 +17,7 @@ import { supabase } from './supabaseClient.js';
 export async function fetchPeople({ includeRemoved = false } = {}) {
   if (!supabase) return [];
   let q = supabase.from('people')
-    .select('id, name, birthday, teams, is_pastor, profile_id, note, removed_at')
+    .select('id, name, birthday, teams, is_pastor, sun_exempt, profile_id, note, removed_at')
     .order('name');
   if (!includeRemoved) q = q.is('removed_at', null);
   const { data, error } = await q;
@@ -74,7 +74,7 @@ export async function fetchMyPerson() {
   const { data: { user } = {} } = await supabase.auth.getUser();
   if (!user) return null;
   const { data, error } = await supabase.from('people')
-    .select('id, name, birthday, teams, is_pastor, profile_id')
+    .select('id, name, birthday, teams, is_pastor, sun_exempt, profile_id')
     .eq('profile_id', user.id).is('removed_at', null).maybeSingle();
   if (error) throw error;
   return data ?? null;

@@ -24,7 +24,7 @@ const urlBase64ToUint8Array = (base64) => {
   return Uint8Array.from(raw, (ch) => ch.charCodeAt(0));
 };
 
-export const isIos = () => /iPad|iPhone|iPod/.test(navigator.userAgent)
+const isIos = () => /iPad|iPhone|iPod/.test(navigator.userAgent)
   // 아이패드는 데스크톱 UA를 쓴다 — 터치 가능한 Mac은 아이패드로 본다.
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
@@ -36,7 +36,7 @@ export const isAndroid = () => /Android/.test(navigator.userAgent);
 export const isStandalone = () => window.navigator.standalone === true
   || window.matchMedia('(display-mode: standalone)').matches;
 
-export const pushConfigured = () => !!VAPID_PUBLIC;
+const pushConfigured = () => !!VAPID_PUBLIC;
 
 const apiSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 

@@ -75,10 +75,10 @@ export default async function handler(req, res) {
   try {
     if (LIST_ID.test(String(listId || ''))) {
       const { status, text } = await getText(`https://www.youtube.com/feeds/videos.xml?playlist_id=${listId}`);
-      if (status === 404) { res.status(404).json({ error: '그 재생목록을 찾지 못했어요' }); return; }
-      if (status !== 200) { res.status(502).json({ error: '재생목록을 받지 못했어요' }); return; }
+      if (status === 404) { res.status(404).json({ error: '그 재생목록이 없거나 비공개예요' }); return; }
+      if (status !== 200) { res.status(502).json({ error: '유튜브가 재생목록을 주지 않았어요' }); return; }
       const items = parseFeed(text);
-      if (!items.length) { res.status(404).json({ error: '재생목록에 영상이 없어요' }); return; }
+      if (!items.length) { res.status(404).json({ error: '그 재생목록에 영상이 한 곡도 없어요' }); return; }
       res.status(200).json({ items });
       return;
     }
@@ -86,17 +86,22 @@ export default async function handler(req, res) {
     if (VIDEO_ID.test(String(videoId || ''))) {
       const url = `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`;
       const { status, text } = await getText(url);
-      if (status !== 200) { res.status(status === 404 ? 404 : 502).json({ error: '영상 제목을 받지 못했어요' }); return; }
+      if (status !== 200) {
+        res.status(status === 404 ? 404 : 502)
+          .json({ error: status === 404 ? '그 영상이 없거나 비공개예요' : '유튜브가 제목을 주지 않았어요' });
+        return;
+      }
       let title = '';
       try { title = JSON.parse(text).title || ''; } catch { title = ''; }
       res.status(200).json({ title });
       return;
     }
 
-    res.status(400).json({ error: '유튜브 재생목록 주소를 붙여주세요' });
+    res.status(400).json({ error: '보낸 주소에서 재생목록을 찾지 못했어요' });
   } catch (e) {
-    // AbortError(8초 초과)도 여기로 온다 — 화면에는 초 단위를 내보내지 않는다(§8)
+    // AbortError(8초 초과)도 여기로 온다 — 화면에는 초 단위를 내보내지 않는다(§8).
+    // 이 글은 화면에서 '왜 안 됐나' 자리에 실린다(services/worship.js의 err.human).
     console.error('[yt] 유튜브 요청 실패:', e);
-    res.status(502).json({ error: '유튜브에서 받아오지 못했어요' });
+    res.status(502).json({ error: '유튜브가 제때 답하지 않았어요 · 잠시 후 다시 시도해주세요' });
   }
 }

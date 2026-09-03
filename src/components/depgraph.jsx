@@ -39,7 +39,7 @@ function GraphEmptyMark() {
 
 // 빈 화면은 **남는 공간의 정가운데**다 — 위쪽에 붙어 있으면 아래가 통째로 비어
 // 보인다(대시보드 마감 목록의 빈 상태와 같은 판단).
-export function GraphEmpty() {
+function GraphEmpty() {
   return (
     <div className="flex-1 min-h-[46vh] flex flex-col items-center justify-center text-center">
       <GraphEmptyMark />

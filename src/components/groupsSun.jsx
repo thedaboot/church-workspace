@@ -7,7 +7,7 @@ import {
   CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN,
   PersonTag, PersonPick, MenuPick, Empty, PeopleMark,
 } from './groupsParts.jsx';
-import { groupPeople, presentCount } from '../services/groups.js';
+import { groupPeople, presentCount, sunCandidates } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
 
 // ============================================================================
@@ -108,14 +108,20 @@ export function SunAdminPanel({
 
   // 그 해 어느 순에도 없는 사람만 '순원 추가'에 올린다 — 이미 편성된 사람은 '순 옮기기'로
   // 옮긴다. 그러지 않으면 한 사람이 두 순에 동시에 들어간다.
+  // **sun_exempt(부장님·전도사님)는 아예 후보가 아니다**(0040 · sunCandidates) —
+  // 순원 추가·순장 지정·새 순의 순장, 순 편성의 세 후보 목록이 같은 규칙을 쓴다.
   const unplaced = useMemo(() => {
     const placed = new Set();
     for (const g of suns) {
       if (g.leader_person_id) placed.add(g.leader_person_id);
       for (const m of members) if (m.group_id === g.id) placed.add(m.person_id);
     }
-    return people.filter(p => !placed.has(p.id));
+    return sunCandidates(people).filter(p => !placed.has(p.id));
   }, [people, suns, members]);
+  // 순장 후보 — 순 편성 대상인 사람 전체(이미 편성된 사람도 자기 순의 순장이 될 수 있다).
+  // 세울 수 있는지는 고른 뒤에 판정한다(groups.js leaderPlan) — 목록에서 미리 빼면
+  // '왜 안 보이는지'를 화면이 말해 줄 수 없다.
+  const leaderPool = useMemo(() => sunCandidates(people), [people]);
 
   const submit = async () => {
     const ok = await onCreateSun({ name: name.trim(), leaderPersonId: leaderId || null });
@@ -130,23 +136,29 @@ export function SunAdminPanel({
         <YearPicker year={year} years={years} onPick={onYear} compact />
       </div>
 
+      {/* 한 줄짜리 생성기 — 이름과 순장은 같은 줄에 선다(사용자 지적 2026-09-03
+          "쓸데없는 줄바꿈으로 나누지 말라"). 새 주보·모임 만들기와 같은 결이고,
+          375px에서는 버튼이 둘째 줄로 접힌다. 순장 후보는 아직 아무 순에도 없는
+          사람들이다 — 이미 편성된 사람을 새 순의 순장으로 세우면 두 순에 동시에 든다. */}
       {creating && (
-        <div className={`sun-new p-3.5 mb-4 ${CARD}`} style={CARD_STYLE}>
+        <div className={`sun-new p-2.5 mb-4 flex flex-wrap items-center gap-1.5 ${CARD}`} style={CARD_STYLE}>
           <input value={name} onChange={e => setName(e.target.value)} aria-label="새 순 이름"
-            placeholder="예: 꼬순" className={`w-full sm:w-72 ${FIELD}`} />
-          <PersonPick label="새 순의 순장" people={people} value={leaderId} onChange={setLeaderId}
-            placeholder="순장 지정" allowClear className="w-full sm:w-72 mt-2.5" />
-          <div className="flex items-center gap-1.5 mt-3">
-            <button type="button" onClick={submit} disabled={!name.trim()} className={BTN}>만들기</button>
-            <span className="flex-1" />
-            <button type="button" onClick={onCloseCreate} className={BTN_QUIET}>취소</button>
-          </div>
+            placeholder="예: 꼬순" autoFocus
+            onKeyDown={e => { if (e.key === 'Enter' && name.trim()) submit(); }}
+            className={`${FIELD} w-full sm:w-40`} />
+          <PersonPick label="새 순의 순장" people={unplaced} value={leaderId} onChange={setLeaderId}
+            placeholder="순장 지정" allowClear className="flex-1 min-w-[9rem] sm:max-w-[13rem]" />
+          <button type="button" onClick={submit} disabled={!name.trim()}
+            className={`sun-new-make shrink-0 ${BTN}`}>만들기</button>
+          <span className="flex-1" />
+          <button type="button" onClick={onCloseCreate} className={`shrink-0 ${BTN_QUIET}`}>취소</button>
         </div>
       )}
 
       <div className="space-y-2.5">
         {suns.map(g => (
-          <SunRow key={g.id} group={g} suns={suns} people={people} members={members} unplaced={unplaced}
+          <SunRow key={g.id} group={g} suns={suns} people={people} members={members}
+            unplaced={unplaced} leaderPool={leaderPool}
             onRename={onRenameSun} onSetLeader={onSetLeader}
             onAddMember={onAddMember} onMoveMember={onMoveMember} onRemoveMember={onRemoveMember} />
         ))}
@@ -159,7 +171,7 @@ export function SunAdminPanel({
   );
 }
 
-function SunRow({ group, suns, people, members, unplaced, onRename, onSetLeader, onAddMember, onMoveMember, onRemoveMember }) {
+function SunRow({ group, suns, people, members, unplaced, leaderPool, onRename, onSetLeader, onAddMember, onMoveMember, onRemoveMember }) {
   const [draft, setDraft] = useState(group.name);
   useEffect(() => { setDraft(group.name); }, [group.name]);
 
@@ -179,7 +191,7 @@ function SunRow({ group, suns, people, members, unplaced, onRename, onSetLeader,
         <input value={draft} onChange={e => setDraft(e.target.value)} onBlur={commit}
           onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
           aria-label={`${group.name} 순 이름`} className={`sun-name ${FIELD} font-bold w-[9.5rem]`} />
-        <PersonPick label={`${group.name} 순장`} people={people} value={group.leader_person_id || ''}
+        <PersonPick label={`${group.name} 순장`} people={leaderPool} value={group.leader_person_id || ''}
           onChange={id => onSetLeader(group, id)} placeholder="순장 지정" allowClear
           className="sun-leader-pick w-[11rem]" />
         <span className="flex-1" />

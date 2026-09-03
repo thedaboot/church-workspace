@@ -17,7 +17,7 @@ let value = (() => {
 })();
 const subs = new Set();
 
-export function setProjectYear(y) {
+function setProjectYear(y) {
   const next = String(y);
   if (next === value) return;
   value = next;

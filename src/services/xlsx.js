@@ -190,7 +190,7 @@ export const refToRC = (ref) => {
 // 엑셀 열 너비(글자 수) → px. 기본 글꼴에서 한 글자가 대략 7px이고 여백이 5px이다.
 
 export const MAX_ROWS = 500;      // 발췌는 앞부분이면 충분하다 — 6만 줄을 읽으면 3.3초다
-export const MAX_COLS = 60;
+const MAX_COLS = 60;
 
 export async function parseXlsx(buf) {
   const entries = zipEntries(buf, '엑셀 파일');

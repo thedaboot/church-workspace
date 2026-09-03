@@ -853,7 +853,7 @@ export async function getAttachmentThumbUrls(storagePaths) {
   return map;
 }
 
-export async function getAttachmentUrl(storagePath) {
+async function getAttachmentUrl(storagePath) {
   const hit = cachedSigned(storagePath);
   if (hit) return hit;
   const { data, error } = await client().storage.from(ATTACH_BUCKET).createSignedUrl(storagePath, SIGNED_TTL_S);

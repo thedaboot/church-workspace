@@ -25,7 +25,7 @@ import {
   relTargets, relsPathOf, hundredthPtToPx, emuToPx, dataUrl,
 } from './ooxml.js';
 
-export const MAX_SLIDES = 60;     // 이보다 많으면 앞부분만 그린다
+const MAX_SLIDES = 60;     // 이보다 많으면 앞부분만 그린다
 
 const DEFAULT_W = 9144000;        // 4:3 기본값(10인치 × 7.5인치)
 const DEFAULT_H = 6858000;

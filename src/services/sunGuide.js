@@ -35,7 +35,7 @@ import { kindLabel, formatServiceDate } from './worship.js';
 // 어긋나게 매기고, 상한도 번호가 잡아먹는다.
 export const LIMITS = { summary: 380, pointTitle: 24, pointBody: 260, question: 80 };
 export const POINTS = 3;
-export const QUESTIONS = 3;
+const QUESTIONS = 3;
 
 const str = (v) => String(v ?? '').trim();
 
@@ -209,6 +209,22 @@ export function parseGuide(text) {
 
 // 주보 한 건으로 초안 만들기. 실패(게스트·로그인 없음·모양 깨짐)는 **null**이다.
 // 본문을 못 읽어도 멈추지 않는다 — 구절만 싣고 만든다(주보에 구절이 아직 없을 수 있다).
+// 사용자가 준 순모임 가이드 템플릿 원문(2026-03-01분) — 개발 모드의 미리보기 전용 예시
+const SAMPLE_GUIDE = {
+  passage: { ref: '요한복음 8:12-20', title: '(예시) 세상의 빛으로 오신 예수님' },
+  summary: '서기관과 바리새인들이 간음하다 현장에서 잡힌 여인을 끌고 와, 율법대로 돌로 칠 것인지 물으며 예수님을 시험에 빠뜨리려 합니다. 예수님은 "너희 중에 죄 없는 자가 먼저 돌로 치라"는 말씀으로, 타인을 정죄하던 사람들의 시선을 본인들의 죄된 내면으로 돌리게 하십니다. 양심에 가책을 느낀 사람들은 하나둘씩 떠나가고, 그 자리에는 오직 예수님과 여인만이 남게 됩니다. 죄 없으신 유일한 심판자이신 예수님은 여인을 정죄하는 대신 "나도 너를 정죄하지 않으니 다시는 죄를 범하지 말라"며 생명의 기회를 주십니다.',
+  points: [
+    { title: '생명의 빛', body: '예수님은 자신을 **"세상의 빛"**이라고 선언하십니다. 여기서 말하는 빛은 "생명"과 "길"을 의미합니다. 빛이신 예수님을 따르는 사람은 육체의 회복 뿐만 아니라 정체성 또한 회복할 수 있습니다. 즉, 우리 내면의 죽어가는 생명을 살려내는 근원적인 힘입니다.' },
+    { title: '육체의 시선 VS 하나님의 증언', body: '바리새인들은 예수님이 스스로를 증언하니 가짜라고 비판합니다. 이에 예수님은 그들의 한계를 꼬집으십니다. **바리새인들은 인간적인 기준, 겉모습, 혈통 등 "육체"를 따라 예수님을 판단했습니다.** 그래서 그분이 어디서 오셨는지 알지 못했습니다. 예수님은 자기 자신과 나를 보내신 아버지가 함께 증언하고 계심을 강조하십니다.' },
+    { title: '하나님을 아는 유일한 통로', body: '바리새인들은 "네 아버지가 어디 있느냐"며 눈에 보이는 증거만을 요구했지만, 예수님은 "나를 알았더라면 내 아버지도 알았으리라"고 답하십니다. 하나님을 아는 것은 단순한 정보가 아니라, 예수 그리스도라는 "빛"을 통해 세상을 바라보는 **"시선의 변화"**임을 의미합니다.' },
+  ],
+  questions: [
+    '지난 한주 어떠한 삶을 보냈는지 일상을 나눠봅시다!',
+    '오늘 말씀의 바리새인들처럼 내가 내려놓아야 할 "정죄의 돌"은 무엇인가요?',
+    '사순절을 맞아 이번 한주간, "생명의 빛"을 전하기 위해 구체적으로 누구에게 어떤 행동을 할 것인지 순원들과 나누어봅시다 : )',
+  ],
+};
+
 export async function generateGuide(service) {
   if (!service) return null;
   let passageText = '';
@@ -221,7 +237,11 @@ export async function generateGuide(service) {
     }
   }
   const { prompt, system } = buildGuidePrompt({ service, passageText });
-  const body = parseGuide(await AiService.callGemini(prompt, system));
+  let body = parseGuide(await AiService.callGemini(prompt, system));
+  // ponytail: 로컬 vite에는 /api/ai 서버 함수가 없어 AI가 늘 실패한다. 개발 모드에서만 사용자가
+  // 준 템플릿 원문(요한복음 8장 예시)을 그대로 돌려 **틀과 편집 흐름을 볼 수 있게** 한다.
+  // 배포 빌드에서는 이 줄이 통째로 죽는다(import.meta.env.DEV = false).
+  if (!body && import.meta.env?.DEV) body = fitGuide(structuredClone(SAMPLE_GUIDE));
   if (!body) return null;
   // 구절은 주보가 진실이다 — 모델이 옮겨 적다가 틀리면 화면의 '주일 본문'이 주보와
   // 어긋난다(순장이 그걸 읽어 준다).

@@ -30,6 +30,12 @@
 //   · 형광펜 팝오버는 다른 절을 눌러도 그 절을 따라간다(절마다 key로 새로 마운트)
 //   · '형광펜 긋기' → '형광펜 칠하기'
 //
+// 2026-09-03 피드백에서 바뀐 것:
+//   · 폭 상한(46rem)을 없앴다 — 어느 폭에서도 칸이 자기 자리를 다 쓴다([data-col])
+//   · 형광펜 도구 줄은 포털 팝오버가 아니라 **눌린 절 다음 형제**(문서 흐름 안)
+//   · 대상 절에 표시(dc-verse-picked) · 도구 줄에 색 칩
+//   · 예외 문구: 못 읽은 것과 없는 것을 갈라 말하고, 이유를 한 문장에 붙인다
+//
 // 3차 점검에서 본 것:
 //   · 형광펜 선택 팝오버가 **첫 프레임부터** 그 절 옆에 선다 — 자리를 잡기 전 한 번
 //     그려지면 화면 구석에서 날아온다. 열자마자 rAF로 top·left를 훑어 확인한다
@@ -372,6 +378,11 @@ check('나눔 지우기는 공유만 내린다(묵상은 남는다)',
   && afterUnshare.stored.body === seedBody && afterUnshare.feedEmpty,
   JSON.stringify(afterUnshare));
 check('내 묵상 칸의 글은 그대로다', afterUnshare.inEditor.includes(seedBody), afterUnshare.inEditor);
+// 토스트도 **무엇이 남았는지**까지 말한다(사용자 피드백 2026-09-03 — 예외·안내 문구 검토)
+const unshareToast = await ev(`(document.querySelector('[role="status"]') || {}).textContent || ''`);
+check('공유 해제 토스트가 묵상이 남는다고 말한다',
+  unshareToast.includes('나눔에서 내렸어요') && unshareToast.includes('내 기록에 그대로 있어요'),
+  unshareToast);
 check('공유를 내려도 저장 버튼은 꺼져 있다', (await saveDisabled()) === true);
 
 // 10) 나만 보기 / 더다붓에 공유하기 — **토글은 편집 상태를 건드리지 않는다**(4차 피드백 8)
@@ -523,89 +534,78 @@ check('Aa 3단계가 본문 크기를 바꾼다',
   JSON.stringify(fonts));
 check('고른 글자 크기가 기기에 남는다', fonts.stored === '0', String(fonts.stored));
 
-// 형광펜 — **절을 눌러도 바로 칠해지지 않는다**(2026-09-02). 그 절 옆에 선택 팝오버가
-// 뜨고, 거기서 고를 때 칠해진다. 취소는 바깥 누름과 Esc.
+// 형광펜 — **절을 눌러도 바로 칠해지지 않는다**(2026-09-02). 그 절 **바로 아래**에 도구
+// 줄이 붙고, 거기서 고를 때 칠해진다. 취소는 바깥 누름과 Esc.
 //
-// **첫 프레임부터 그 절 옆에 서야 한다**(3차 점검). 자리는 useAnchoredPos가 그리기 전에
-// 잡지만, 팝오버에 걸린 전환이 left·top까지 물면 아직 자리가 없던 {0,0}이 전환의 시작점이
-// 되어 화면 왼쪽 위에서 150ms 동안 날아온다. 여는 순간부터 rAF로 좌표를 훑어, 잰 자리에서
-// 얼마나 벗어나는지를 본다 — 나타나는 결(zoom-in-95)만큼(≈4.4px)은 벗어나도 된다.
-const pop = await ev(`(async () => {
-  const seen = [];
-  let stop = false;
-  const tick = () => {
-    const m = document.querySelector('[data-verse-menu]');
-    if (m) { const b = m.getBoundingClientRect(); seen.push([b.top, b.left]); }
-    if (!stop) requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
-  await new Promise(r => setTimeout(r, 60));
-  const p = document.querySelector('p[data-verse="1:3"]');
-  const r = p.getBoundingClientRect();
-  p.click();
-  await new Promise(r2 => setTimeout(r2, 500));
-  stop = true;
-  const W = 176, H = 52, GAP = 8;   // wordBible.jsx의 MENU_W · MENU_H · 가장자리 여백
-  const want = [
-    (innerHeight - r.bottom) < H + GAP ? Math.max(GAP, r.top - H - 4) : r.bottom + 4,
-    Math.min(Math.max(r.right - W, GAP), innerWidth - W - GAP),
-  ];
-  const off = v => Math.max(Math.abs(v[0] - want[0]), Math.abs(v[1] - want[1]));
-  return { frames: seen.length, want: want.map(v => +v.toFixed(1)),
-           first: seen[0] ? seen[0].map(v => +v.toFixed(1)) : null,
-           drift: seen.length ? +Math.max(...seen.map(off)).toFixed(1) : -1 };
-})()`, true);
-await sleep(250);
-const menu = await ev(`(() => {
-  const p = document.querySelector('p[data-verse="1:3"]');
-  const m = document.querySelector('[data-verse-menu]');
+// **도구 줄은 좌표를 재지 않는다**(2026-09-03 — "형광펜 칠하기 버튼이 아직도 엉뚱한 곳에
+// 뜬다"). 포털+useAnchoredPos를 버리고 눌린 절의 다음 형제로 문서 흐름 안에 그린다.
+// 그래서 검사도 "절의 bottom과 도구 줄의 top이 8px 안"인지를 잰다 — 어긋나면 그 자리에
+// 없는 것이다. 대상 절에는 표시(dc-verse-picked · data-picked)가 붙는다.
+const tool = await ev(`(async () => {
+  document.querySelector('p[data-verse="1:3"]').click();
+  await new Promise(r => setTimeout(r, 250));   // 리액트가 도구 줄을 그릴 틈
+  const p = document.querySelector('p[data-verse="1:3"]');   // 그린 뒤의 그 절을 다시 잡는다
+  const t = document.querySelector('[data-verse-tool]');
+  if (!t) return null;
+  const b = t.getBoundingClientRect(), r = p.getBoundingClientRect();
   const st = JSON.parse(localStorage.getItem('word_bible_state') || '{}');
-  return { open: !!m, label: m ? m.textContent.trim() : '',
-           portal: !!m && m.parentElement === document.body,
-           expanded: p.getAttribute('aria-expanded'),
-           painted: p.dataset.mark === '1', stored: (st.highlights || []).length };
-})()`);
-check('절을 눌러도 바로 칠해지지 않는다', menu.painted === false && menu.stored === 0, JSON.stringify(menu));
-check('그 절 옆에 선택 팝오버가 뜬다', menu.open && menu.label === '형광펜 칠하기'
-  && menu.expanded === 'true', JSON.stringify(menu));
-check("'형광펜 긋기'라는 이름은 남아 있지 않다", menu.label.includes('긋기') === false, menu.label);
-check('팝오버는 body 포털이다', menu.portal === true);
-// 전환이 left·top을 물면 drift가 수백 px이 된다(화면 구석에서 날아온다)
-check('팝오버가 첫 프레임부터 그 절 옆에 선다', pop.frames > 3 && pop.drift >= 0 && pop.drift <= 8,
-  JSON.stringify(pop));
-
-// **열려 있는 채로 다른 절을 누르면 그 절로 옮겨 간다**(4차 피드백 11 — "형광펜 팝오버가
-// 엉뚱한 위치에 뜬다"). 같은 컴포넌트를 재사용하면 useAnchoredPos의 배치가 다시 돌지 않아
-// 앞 절의 좌표가 그대로 남는다 — 절마다 key로 새로 마운트해야 한다.
-const moved = await ev(`(async () => {
-  const p = document.querySelector('p[data-verse="1:5"]');
-  p.click();
-  await new Promise(r => setTimeout(r, 400));
-  const m = document.querySelector('[data-verse-menu]');
-  if (!m) return null;
-  const b = m.getBoundingClientRect(), r = p.getBoundingClientRect();
-  const old = document.querySelector('p[data-verse="1:3"]').getBoundingClientRect();
   return {
-    label: m.dataset.verseMenu || '',
-    near: Math.abs(b.top - r.bottom) <= 12 || Math.abs(b.bottom - r.top) <= 12,
-    atOld: Math.abs(b.top - old.bottom) <= 12,
+    label: t.dataset.verseTool || '',
+    text: t.textContent.trim(),
+    gap: Math.round(b.top - r.bottom),
+    inFlow: t.parentElement && t.parentElement.parentElement === p.parentElement,
+    sameLeft: Math.round(b.left - r.left),
+    fixed: getComputedStyle(t).position,
+    chip: !!t.querySelector('[data-hl-color]'),
+    picked: p.dataset.picked === '1' && p.className.includes('dc-verse-picked'),
+    expanded: p.getAttribute('aria-expanded'),
+    painted: p.dataset.mark === '1', stored: (st.highlights || []).length,
   };
 })()`, true);
-check('열려 있는 채로 다른 절을 누르면 팝오버가 그 절로 간다',
-  !!moved && moved.label.includes('1:5') && moved.near === true && moved.atOld === false,
+check('절을 눌러도 바로 칠해지지 않는다', !!tool && tool.painted === false && tool.stored === 0,
+  JSON.stringify(tool));
+check('도구 줄이 눌린 절 바로 아래에 붙는다',
+  !!tool && tool.gap >= 0 && tool.gap <= 8 && tool.inFlow === true && tool.fixed === 'static',
+  JSON.stringify(tool));
+check('도구 줄은 절과 같은 왼쪽에서 시작한다', !!tool && Math.abs(tool.sameLeft) <= 8, JSON.stringify(tool));
+check('대상 절에 표시가 붙는다', !!tool && tool.picked === true && tool.expanded === 'true',
+  JSON.stringify(tool));
+check('도구 줄에 [형광펜 칠하기]와 색 칩이 있다',
+  !!tool && tool.text.includes('형광펜 칠하기') && tool.chip === true, JSON.stringify(tool));
+check("'형광펜 긋기'라는 이름은 남아 있지 않다", !!tool && tool.text.includes('긋기') === false, tool && tool.text);
+check('도구 줄이 어느 절의 것인지 이름에 있다', !!tool && tool.label.includes('1:3'), tool && tool.label);
+
+// **다른 절을 누르면 그 절로 옮겨 간다**(좌표를 안 재므로 어긋날 자리가 없다)
+const moved = await ev(`(async () => {
+  document.querySelector('p[data-verse="1:5"]').click();
+  await new Promise(r => setTimeout(r, 300));
+  const p = document.querySelector('p[data-verse="1:5"]');
+  const t = document.querySelector('[data-verse-tool]');
+  if (!t) return null;
+  const b = t.getBoundingClientRect(), r = p.getBoundingClientRect();
+  return {
+    label: t.dataset.verseTool || '',
+    gap: Math.round(b.top - r.bottom),
+    only: document.querySelectorAll('[data-verse-tool]').length,
+    marked: [...document.querySelectorAll('p[data-picked="1"]')].map(x => x.dataset.verse),
+  };
+})()`, true);
+check('다른 절을 누르면 도구 줄이 그 절로 간다',
+  !!moved && moved.label.includes('1:5') && moved.gap >= 0 && moved.gap <= 8
+  && moved.only === 1 && JSON.stringify(moved.marked) === JSON.stringify(['1:5']),
   JSON.stringify(moved));
 
-// 바깥을 누르면 닫힌다(팝오버는 document의 mousedown을 듣는다)
+// 바깥을 누르면 닫힌다(도구 줄은 document의 mousedown을 듣는다)
 await ev(`(() => document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })))()`);
 await sleep(250);
-check('바깥 누름으로 취소된다', (await ev(`!document.querySelector('[data-verse-menu]')`)) === true);
+check('바깥 누름으로 도구 줄이 닫힌다', (await ev(`!document.querySelector('[data-verse-tool]')`)) === true);
 
 // Esc로도 닫힌다 — 그래도 아무것도 안 칠해져 있다
 await ev(`(() => { document.querySelector('p[data-verse="1:3"]').click(); })()`);
 await sleep(250);
 await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
 await sleep(250);
-const escaped = await ev(`(() => ({ open: !!document.querySelector('[data-verse-menu]'),
+const escaped = await ev(`(() => ({ open: !!document.querySelector('[data-verse-tool]'),
   painted: document.querySelector('p[data-verse="1:3"]').dataset.mark === '1' }))()`);
 check('Esc로 취소된다', escaped.open === false && escaped.painted === false, JSON.stringify(escaped));
 
@@ -627,7 +627,7 @@ const lit = await ev(`(() => {
            clone: cs ? (cs.boxDecorationBreak || cs.webkitBoxDecorationBreak || '') : '',
            narrower: m ? Math.round(box.width - m.getBoundingClientRect().width) : -1,
            refs: (st.highlights || []).map(h => h.ref),
-           closed: !document.querySelector('[data-verse-menu]') };
+           closed: !document.querySelector('[data-verse-tool]') };
 })()`);
 check('고를 때 비로소 형광펜이 켜진다', lit.on === true, JSON.stringify(lit));
 check('고르고 나면 팝오버는 닫힌다', lit.closed === true);
@@ -659,10 +659,10 @@ await sleep(700);
 await ev(`(() => { document.querySelector('p[data-verse="1:3"]').click(); })()`);
 await sleep(300);
 check('이미 그어져 있으면 [형광펜 지우기]가 뜬다',
-  (await ev(`((document.querySelector('[data-verse-menu]')||{}).textContent || '').trim()`)) === '형광펜 지우기');
+  (await ev(`((document.querySelector('[data-verse-tool]')||{}).textContent || '').trim()`)) === '형광펜 지우기');
 await ev(`(() => { document.querySelector('p[data-verse="1:3"]').click(); })()`);
 await sleep(300);
-check('같은 절을 다시 누르면 닫힌다', (await ev(`!document.querySelector('[data-verse-menu]')`)) === true);
+check('같은 절을 다시 누르면 닫힌다', (await ev(`!document.querySelector('[data-verse-tool]')`)) === true);
 
 // 북마크 · 이어읽기
 await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>(x.getAttribute('aria-label')||'').includes('북마크')); b && b.click(); })()`);
@@ -936,32 +936,159 @@ const mobMarks = await ev(`(() => {
 check('모바일 형광펜 목록도 가로로 안 넘친다', mobMarks.over === false, JSON.stringify(mobMarks));
 check('모바일에서도 책 묶음이 보인다', mobMarks.groups > 0, JSON.stringify(mobMarks));
 
-// ── 태블릿 768px (4차 피드백 7 — 375·768·1440 셋 다 본다) ───────────────────
-await send('Emulation.setDeviceMetricsOverride', { width: 768, height: 900, deviceScaleFactor: 1, mobile: false });
-await send('Page.navigate', { url: URL_BASE });
-await wait('Page.loadEventFired');
-await sleep(1500);
-await clickText('말씀');
-await sleep(1700);
-const tabQt = await ev(`(() => {
-  const d = document.documentElement;
-  const wide = [...document.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > d.clientWidth + 1).length;
-  return { over: d.scrollWidth > d.clientWidth + 1, wide, verses: document.querySelectorAll('p[data-verse]').length };
+// ── 폭 채우기 768 · 1024 · 1160 · 1440 (사용자 피드백 2026-09-03) ───────────
+// **어느 폭에서도 빈 띠가 없어야 한다.** 사용자 스크린샷(1000px 남짓)에서 본문·묵상·나눔이
+// 46rem에서 끊기고 오른쪽 230px이 빈 채 '내 기록'은 그 아래에 있었다. 그래서 칸마다
+// `data-col`을 달고 **자기 그리드 트랙(또는 부모 폭)을 다 쓰는지**를 잰다 — 상한이 다시
+// 붙으면 그 차이가 200px대로 벌어져 여기서 걸린다. 1024가 lg 경계라 옆 칸이 붙는 첫 폭이다.
+const colFit = (sel) => ev(`(() => {
+  const el = document.querySelector(${JSON.stringify(sel)});
+  if (!el) return null;
+  const parent = el.parentElement;
+  const gt = getComputedStyle(parent).gridTemplateColumns;
+  const avail = gt && gt !== 'none'
+    ? parseFloat(gt.split(' ')[0])
+    : parent.getBoundingClientRect().width;
+  const w = el.getBoundingClientRect().width;
+  return { gapRight: Math.round(avail - w), w: Math.round(w) };
 })()`);
-check('768px QT가 가로로 넘치지 않는다', tabQt.over === false && tabQt.wide === 0, JSON.stringify(tabQt));
-await clickText('성경 읽기');
-await sleep(1700);
-const tabRead = await ev(`(() => {
-  const d = document.documentElement;
-  const wide = [...document.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > d.clientWidth + 1).length;
-  return { over: d.scrollWidth > d.clientWidth + 1, wide,
-           panes: [...document.querySelectorAll('[data-pane]')].length };
-})()`);
-check('768px 성경 읽기도 가로로 넘치지 않는다',
-  tabRead.over === false && tabRead.wide === 0 && tabRead.panes === 3, JSON.stringify(tabRead));
+const fits = (v) => !!v && v.gapRight <= 24 && v.gapRight >= -1;
+
+for (const w of [768, 1024, 1160, 1440]) {
+  await send('Emulation.setDeviceMetricsOverride', { width: w, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Page.navigate', { url: URL_BASE });
+  await wait('Page.loadEventFired');
+  await sleep(1500);
+  await clickText('말씀');
+  await sleep(1700);
+  const qtFit = await colFit('[data-col="qt"]');
+  const over = await ev(`(() => {
+    const d = document.documentElement;
+    return { over: d.scrollWidth > d.clientWidth + 1,
+             wide: [...document.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > d.clientWidth + 1).length };
+  })()`);
+  check(`${w}px QT 열이 자리를 다 쓴다`, fits(qtFit), JSON.stringify({ qtFit, over }));
+  check(`${w}px QT가 가로로 넘치지 않는다`, over.over === false && over.wide === 0, JSON.stringify(over));
+
+  await clickText('성경 읽기');
+  await sleep(1800);
+  const barFit = await colFit('[data-col="searchbar"]');
+  const readFit = await colFit('[data-col="read"]');
+  const inputFill = await ev(`(() => {
+    const bar = document.querySelector('[data-col="searchbar"]');
+    const form = bar && bar.querySelector('form');
+    if (!form) return null;
+    return Math.round(bar.getBoundingClientRect().width - form.getBoundingClientRect().width);
+  })()`);
+  check(`${w}px 검색 줄이 자리를 다 쓴다`, fits(barFit), JSON.stringify(barFit));
+  check(`${w}px 검색 입력칸이 글자 크기 버튼만 남기고 채운다`,
+    inputFill !== null && inputFill <= 140, String(inputFill));
+  check(`${w}px 리더가 자리를 다 쓴다`, fits(readFit), JSON.stringify(readFit));
+
+  await clickSel('[data-pane="bookmark"]');
+  await sleep(900);
+  const bmFitW = await colFit('[data-col="bookmark"]');
+  await clickSel('[data-pane="highlight"]');
+  await sleep(900);
+  const hlFitW = await colFit('[data-col="highlight"]');
+  await clickSel('[data-pane="toc"]');
+  await sleep(700);
+  await clickText('책 목록');
+  await sleep(700);
+  const tocFitW = await colFit('[data-col="toc"]');
+  check(`${w}px 북마크·형광펜·목차가 자리를 다 쓴다`,
+    fits(bmFitW) && fits(hlFitW) && fits(tocFitW),
+    JSON.stringify({ bmFitW, hlFitW, tocFitW }));
+  const overRead = await ev(`(() => {
+    const d = document.documentElement;
+    return { over: d.scrollWidth > d.clientWidth + 1,
+             wide: [...document.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > d.clientWidth + 1).length };
+  })()`);
+  check(`${w}px 성경 읽기가 가로로 넘치지 않는다`, overRead.over === false && overRead.wide === 0,
+    JSON.stringify(overRead));
+}
 await send('Emulation.clearDeviceMetricsOverride');
 
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 2).join(' | '));
+
+// ── 예외 문구 (사용자 피드백 2026-09-03) ────────────────────────────────────
+// **못 한 일과 그 이유가 한 문장에 있어야 한다.** 여기부터는 일부러 실패를 만들므로
+// 콘솔 오류 검사보다 뒤에 둔다(우리가 낸 오류가 그 검사를 깨면 안 된다).
+//
+// ① 책 파일을 못 받았을 때: 예전에는 빈 절 배열로 떨어져 카드 안이 통째로 비고 화면은
+//    아무 말도 안 했다. 이제 '…장의 본문을 불러오지 못했어요 · <이유>'가 그 자리에 선다.
+await send('Page.navigate', { url: URL_BASE });
+await wait('Page.loadEventFired');
+await ev(`(() => {
+  const real = window.fetch;
+  window.fetch = (u, ...rest) => {
+    const url = String((u && u.url) || u || '');
+    // 목차(index.json)는 살려 둔다 — 책 목록이 없으면 리더 자체가 열리지 않는다
+    if (url.includes('/bible/') && !url.includes('index.json')) {
+      return Promise.reject(new Error('Failed to fetch'));
+    }
+    return real(u, ...rest);
+  };
+})()`);
+await clickText('말씀');
+await sleep(1400);
+await clickText('성경 읽기');
+await sleep(1800);
+const readFail = await ev(`(() => {
+  const t = document.body.innerText;
+  return { said: /본문을 불러오지 못했어요/.test(t),
+           why: /인터넷 연결을 확인하고|잠시 후 다시|Failed to fetch/.test(t),
+           lied: /본문이 들어 있지 않아요/.test(t), verses: document.querySelectorAll('p[data-verse]').length };
+})()`);
+check('책 파일을 못 받으면 못 받았다고 말한다',
+  readFail.said === true && readFail.lied === false, JSON.stringify(readFail));
+check('실패 문구에 이유가 붙는다', readFail.why === true, JSON.stringify(readFail));
+
+// ①-b 목차(책 목록)를 못 받았을 때: '구약 0권'으로 그리지 않는다
+await ev(`(() => {
+  const real = window.fetch;
+  window.fetch = (u, ...rest) => {
+    const url = String((u && u.url) || u || '');
+    if (url.includes('/bible/')) return Promise.reject(new Error('Failed to fetch'));
+    return real(u, ...rest);
+  };
+})()`);
+await send('Page.navigate', { url: URL_BASE });
+await wait('Page.loadEventFired');
+await ev(`(() => {
+  const real = window.fetch;
+  window.fetch = (u, ...rest) => {
+    const url = String((u && u.url) || u || '');
+    if (url.includes('/bible/')) return Promise.reject(new Error('Failed to fetch'));
+    return real(u, ...rest);
+  };
+  localStorage.removeItem('word_bible_state');
+})()`);
+await clickText('말씀');
+await sleep(1400);
+await clickText('성경 읽기');
+await sleep(1800);
+const tocFail = await ev(`(() => {
+  const t = document.body.innerText;
+  return { said: /성경 목차를 불러오지 못했어요/.test(t), zero: /0권/.test(t) };
+})()`);
+check('목차를 못 받으면 0권으로 그리지 않는다',
+  tocFail.said === true && tocFail.zero === false, JSON.stringify(tocFail));
+
+// ② QT 본문 일정을 못 읽은 경우는 게스트에서 만들 수 없다 — services/word.js가
+//    localStorage 예외까지 삼키고 빈 값을 돌려주기 때문이다(사파리 비공개 모드용). 그래서
+//    **갈라 말하는 배선이 살아 있는지**를 소스로 지킨다: 실패는 failed로 표시되고, 그때는
+//    '아직 올라오지 않았어요'가 아니라 '불러오지 못했어요 + 이유'가 그려져야 한다.
+const viewSrc = readFileSync(new URL('src/views/wordView.jsx', ROOT), 'utf8');
+check('QT 본문 읽기 실패를 빈 상태와 갈라 표시한다',
+  viewSrc.includes('failed: err || true')
+  && viewSrc.includes("failText('이 날짜의 본문을 불러오지 못했어요', day.failed)")
+  && viewSrc.includes('이 날짜의 본문이 아직 올라오지 않았어요'));
+// 실패를 삼키지 않고 부르는 쪽에 넘긴다 — 북마크·형광펜이 안 남았는데 화면만 칠해져
+// 있으면 새로 열 때 사라진다. 게스트(supabase 없음)에서는 언제나 ok다.
+check('saveBibleState가 성공·실패를 답으로 돌려준다',
+  (await word.saveBibleState({ lastRef: 'gen 1', bookmarks: [], highlights: [] }))?.ok === true);
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.slice(0, 6).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill();

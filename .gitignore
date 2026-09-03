@@ -19,3 +19,7 @@ skills-lock.json
 
 # supabase CLI 부산물 (버전 캐시)
 supabase/.temp/
+
+# 로그·OS 부산물
+*.log
+Thumbs.db

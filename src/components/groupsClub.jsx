@@ -10,7 +10,7 @@ import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { DatePicker } from './DatePicker.jsx';
 import {
   CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, WITH_ICON,
-  PersonTag, PersonPick, Empty, PeopleMark, MeetMark,
+  PersonTag, PersonPick, LabeledField, Empty, PeopleMark, MeetMark,
 } from './groupsParts.jsx';
 import { groupPeople, canManageClub, myGroupIds, notInGroup } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
@@ -101,16 +101,38 @@ function ClubList({ clubs, people, members, apps, perms, creating, onCloseCreate
 
   return (
     <div className="club-list dc-screen pb-8">
+      {/* 만들기 카드 — 채울 것이 셋(이름·동아리장·설명)이라 한 줄에 담기지 않는다.
+          그래서 **줄을 쌓는 대신 짜임을 준다**(사용자 지적 2026-09-03 "+ 새 동아리가
+          별로 좋지 않다"): 프로젝트 만들기 창처럼 칸마다 라벨을 얹고, 꼭 채워야 하는
+          둘을 한 행에 나란히, 선택인 설명을 그 아래 한 행에 둔다. 이름에 포커스가
+          있고 Enter로 바로 만들어진다. 375px에서는 두 칸이 위아래로 접혀 세 줄이다. */}
       {creating && (
         <div className={`club-new p-3.5 mb-4 ${CARD}`} style={CARD_STYLE}>
-          <input value={name} onChange={e => setName(e.target.value)} aria-label="동아리 이름"
-            placeholder="예: 통통" className={`w-full sm:w-72 ${FIELD}`} />
-          <input value={note} onChange={e => setNote(e.target.value)} aria-label="동아리 설명"
-            placeholder="예: 통기타 동아리" className={`w-full sm:w-96 mt-2.5 ${FIELD}`} />
-          <PersonPick label="동아리장" people={people} value={leaderId} onChange={setLeaderId}
-            placeholder="동아리장 지정" allowClear className="w-full sm:w-72 mt-2.5" />
-          <div className="flex items-center gap-1.5 mt-3">
-            <button type="button" onClick={submit} disabled={!name.trim()} className={BTN}>만들기</button>
+          {/* 칸의 폭을 묶는다 — 1440px 카드에 칸을 그대로 늘리면 이름 한 줄을 적는
+              자리가 690px이 되어 '빈 칸'처럼 보인다. 카드 자체는 아래 목록과 같은
+              폭에 그대로 서고(왼쪽 선이 맞는다), 칸만 사람이 쓸 만한 너비다. */}
+          <div className="grid gap-2.5 sm:grid-cols-2 sm:max-w-[46rem]">
+            <LabeledField label="동아리 이름" className="club-new-name">
+              <input value={name} onChange={e => setName(e.target.value)} aria-label="동아리 이름"
+                placeholder="예: 통통" autoFocus
+                onKeyDown={e => { if (e.key === 'Enter' && name.trim()) submit(); }}
+                className={`${FIELD} w-full`} />
+            </LabeledField>
+            <LabeledField label="동아리장" className="club-new-leader">
+              <PersonPick label="동아리장" people={people} value={leaderId} onChange={setLeaderId}
+                placeholder="명단에서 고르기" allowClear className="w-full" />
+            </LabeledField>
+          </div>
+          <LabeledField label="설명 (선택)" className="club-new-note mt-2.5 sm:max-w-[46rem]">
+            <input value={note} onChange={e => setNote(e.target.value)} aria-label="동아리 설명"
+              placeholder="예: 통기타 동아리"
+              onKeyDown={e => { if (e.key === 'Enter' && name.trim()) submit(); }}
+              className={`${FIELD} w-full`} />
+          </LabeledField>
+          {/* 확정 왼쪽 / 나가기 오른쪽(§8) — 이 화면의 다른 도구 줄과 같은 자리다 */}
+          <div className="flex items-center gap-1.5 mt-3.5">
+            <button type="button" onClick={submit} disabled={!name.trim()}
+              className={`club-new-make ${BTN}`}>만들기</button>
             <span className="flex-1" />
             <button type="button" onClick={onCloseCreate} className={BTN_QUIET}>취소</button>
           </div>

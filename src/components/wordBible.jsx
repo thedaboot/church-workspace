@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, ChevronDown, Bookmark, Search, X, Highlighter, Eraser } from 'lucide-react';
 import { loadBibleIndex, loadBook } from '../services/bible.js';
 import { parseRef } from '../services/bibleRef.js';
@@ -7,7 +6,8 @@ import {
   loadBibleState, saveBibleState, loadFontStep, saveFontStep,
   chapterKey, parseChapterKey, verseKey, parseVerseKey,
 } from '../services/word.js';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { showToast } from './Toast.jsx';
+import { failText } from '../services/errorText.js';
 import { SectionHead, Card, prefersReducedMotion } from '../views/dashboardParts.jsx';
 import { Skeleton } from './media.jsx';
 
@@ -30,11 +30,12 @@ import { Skeleton } from './media.jsx';
 // (옆 칸은 lg에서만 서고, 목차 위 자리는 목차 화면에만 있었다). 지금은 검색 줄 아래
 // 세그먼트가 어느 폭에서도 늘 서 있고, 고른 것 하나만 그린다.
 //
-// **폭**: 본문 열(리더·검색 결과)은 46rem에서 끊는다 — 오래 읽는 글이라 한 줄이 길면
-// 다음 줄 첫 글자를 눈이 못 찾는다. 목차 격자는 화면 폭을 그대로 쓰고(66권을 한눈에),
-// 북마크·형광펜 목록도 46rem 안에서 두 열이다 — 1400px을 가로지르면 책 이름과 개수 사이가
-// 400px 벌어져 한 줄로 읽히지 않는다(사용자 피드백 2026-09-01 "레이아웃을 화면 폭에 맞게,
-// 본문 열은 읽기 폭 유지").
+// **폭: 어느 화면도 상한을 두지 않는다**(사용자 피드백 2026-09-03 — "어느 폭에서도 빈
+// 구간 없이 채울 것"). 검색 줄·리더·검색 결과·목차·북마크·형광펜 전부 컨테이너를 채운다.
+// 예전에는 읽기 폭을 46rem에서 끊었는데(한 줄이 길면 다음 줄 첫 글자를 눈이 못 찾는다),
+// 1000px 남짓에서 오른쪽에 230px 빈 띠가 남는 쪽이 더 거슬렸다 — 사용자 결정이 이긴다.
+// 대신 목록은 폭이 넓어질수록 열을 늘려(2 → 3열) 한 열이 너무 길어지지 않게 하고, 책
+// 머리글의 개수는 이름 **바로 옆**에 붙인다(오른쪽 끝에 붙이면 넓은 열에서 400px 떨어진다).
 // ============================================================================
 
 const OT_COUNT = 39;               // 정경 순서 — index.json의 앞 39권이 구약
@@ -148,10 +149,11 @@ function Hl({ children }) {
 // ── 본문 한 덩이 (QT 탭도 같이 쓴다) ───────────────────────────────────────
 // marks: 형광펜이 켜진 절의 '장:절' 집합
 // onPickVerse(chapter, verse, el): 절을 눌렀을 때(리더에서만 준다). **여기서 칠하지
-//   않는다** — 부른 쪽이 그 절에 선택 팝오버를 띄운다(VerseMarkMenu).
-// picked: 지금 팝오버가 열려 있는 절의 '장:절'(aria-expanded용)
+//   않는다** — 부른 쪽이 도구 줄(VerseTool)을 넘겨 준다.
+// picked: 지금 고른 절의 '장:절' — 그 절에 표시를 주고, 그 **다음 형제로** tool을 그린다
 export function PassageText({
   verses, step = 1, showChapter = false, focus = null, marks = null, onPickVerse = null, picked = null,
+  tool = null,
 }) {
   const f = FONT_STEPS[step] || FONT_STEPS[1];
   // 글을 끌어 고르고 손을 뗀 자리에도 click이 온다 — 고른 것이 있으면 팝오버를 띄우지
@@ -169,26 +171,31 @@ export function PassageText({
         const on = focus && focus.chapter === v.chapter && focus.verse === v.verse;
         const key = `${v.chapter}:${v.verse}`;
         const lit = !!marks?.has(key);
+        const isPicked = picked === key;
         const style = { fontSize: f.size, lineHeight: f.line };
         // 형광펜은 절 상자가 아니라 글자에 걸린다(HL_STYLE) — 여기서 배경을 주지 말 것
         if (on) style.boxShadow = 'inset 0 0 0 1.5px var(--app-accent)';
-        return (
+        // **지금 도구 줄이 무엇을 대상으로 하는지 절이 말한다**(사용자 피드백 2026-09-03).
+        // 왼쪽 accent 선 + 옅은 바닥. 형광펜(노랑, 글자)·검색 도착(테두리)과 안 겹친다.
+        if (isPicked) { style.boxShadow = 'inset 2px 0 0 var(--app-accent)'; style.background = 'var(--app-surface-hover)'; }
+        const line = (
           <p
             key={key}
             data-verse={key}
             data-focus={on ? '1' : undefined}
             data-mark={lit ? '1' : undefined}
+            data-picked={isPicked ? '1' : undefined}
             role={onPickVerse ? 'button' : undefined}
             tabIndex={onPickVerse ? 0 : undefined}
-            aria-haspopup={onPickVerse ? 'menu' : undefined}
-            aria-expanded={onPickVerse ? picked === key : undefined}
+            aria-expanded={onPickVerse ? isPicked : undefined}
             onClick={onPickVerse ? (e) => hit(v.chapter, v.verse, e.currentTarget) : undefined}
             onKeyDown={onPickVerse ? (e) => {
               if (e.key !== 'Enter' && e.key !== ' ') return;
               e.preventDefault(); onPickVerse(v.chapter, v.verse, e.currentTarget);
             } : undefined}
-            className={`rounded-[4px] transition-colors ${blank ? 'text-fg-faint' : 'text-fg-secondary'} ${
-              on ? '-mx-1.5 px-1.5 bg-accent-weak' : ''} ${onPickVerse ? 'cursor-pointer' : ''}`}
+            className={`dc-verse rounded-[4px] transition-colors ${blank ? 'text-fg-faint' : 'text-fg-secondary'} ${
+              on || isPicked ? '-mx-1.5 px-1.5' : ''} ${on && !isPicked ? 'bg-accent-weak' : ''} ${
+              isPicked ? 'dc-verse-picked' : ''} ${onPickVerse ? 'cursor-pointer' : ''}`}
             style={style}
           >
             {/* 절 번호는 칠하지 않는다 — 형광펜은 읽은 글에 긋는 것이고, 번호까지 노래지면
@@ -199,78 +206,71 @@ export function PassageText({
             {lit ? <Hl>{v.text}</Hl> : v.text}
           </p>
         );
+        // **도구 줄은 눌린 절 바로 다음 형제다**(사용자 피드백 2026-09-03 — 좌표를 재는
+        // 팝오버는 어긋날 길이 여러 개였다. 문서 흐름 안에 있으면 어긋날 자리가 없다).
+        // 칸 사이 간격(f.gap)만큼 음수 마진으로 당겨, 글자 크기를 바꿔도 절에 붙어 선다.
+        //
+        // **언제나 Fragment로 감싼다.** 고른 절만 감싸면 그 자리의 타입이 p ↔ Fragment로
+        // 바뀌어 리액트가 <p>를 새로 만든다 — 누르는 순간 절 요소가 갈려서 그 절에 걸린
+        // 것(선택·포커스·검사가 쥔 참조)이 통째로 끊긴다.
+        return (
+          <React.Fragment key={key}>
+            {line}
+            {tool && isPicked ? <div style={{ marginTop: `calc(2px - ${f.gap})` }}>{tool}</div> : null}
+          </React.Fragment>
+        );
       })}
     </div>
   );
 }
 
-// ── 절을 눌렀을 때의 선택 팝오버 ────────────────────────────────────────────
+// ── 절을 눌렀을 때의 도구 줄 ────────────────────────────────────────────────
 // **누르자마자 칠하지 않는다**(사용자 피드백 2026-09-02). 본문을 읽다 보면 손이
 // 스치기만 해도 절이 노래졌고, 되돌리려면 같은 자리를 또 눌러야 했다. 절을 누르면
 // 무엇을 할지 먼저 묻는다 — 이미 칠해져 있으면 [형광펜 지우기], 아니면 [형광펜 칠하기]
-// ('긋기'에서 바뀐 이름 — 사용자 피드백 2026-09-02 4차. 색을 입히는 일이라 '칠하기'다).
+// ('긋기'에서 바뀐 이름 — 2026-09-02 4차. 색을 입히는 일이라 '칠하기'다).
 // 취소는 바깥 누름과 Esc다(따로 '취소' 줄을 두지 않는다 — 잃는 것이 없다).
 //
-// **여기는 색이 늘 자리다.** 지금은 줄이 하나뿐이지만 노랑 말고 다른 색이 붙으면
-// 이 목록에 색 줄을 더하고 highlights 항목에 색 값을 얹으면 된다(services/word.js의
-// verseKey는 그대로 두고 { ref, at, color } 꼴로 늘린다). 그때도 [지우기]는 맨 아래다.
+// **좌표를 재지 않는다**(사용자 피드백 2026-09-03 — "형광펜 칠하기 버튼이 아직도 엉뚱한
+// 곳에 뜬다"). 예전에는 body 포털 + useAnchoredPos로 눌린 절 옆에 fixed로 세웠는데,
+// 어긋날 자리가 세 군데였다: ① 위치가 state라 tailwind `duration-*`이 top/left까지 전이
+// (§6-17-b) ② 앵커를 갈아 끼우면 배치 훅이 다시 안 돈다 ③ 스크롤·리사이즈·주소 줄
+// 접힘처럼 rect가 바뀌는 순간마다 다시 재야 한다. 지금은 **눌린 절의 다음 형제**로
+// 문서 흐름 안에 그린다(PassageText의 `tool`) — 잴 것이 없으니 어긋날 수도 없다.
+// 대상이 무엇인지는 절 자신이 말한다(왼쪽 accent 선 + 옅은 바닥, `dc-verse-picked`).
 //
-// 자리 잡기는 공용 훅(useAnchoredPos)이 한다 — body 포털이라 본문이 스크롤·리사이즈로
-// 움직여도 절을 따라온다. 항목 톤은 프로필 메뉴 줄과 같다(layout.jsx의 `item`).
-//
-// **부르는 쪽이 절마다 key를 준다**(사용자 피드백 2026-09-02 4차 — "팝오버가 엉뚱한
-// 위치에 뜬다"). 앵커는 눌린 <p>를 ref에 직접 넣어 넘기는데, 열려 있는 상태에서 **다른
-// 절**을 누르면 이 컴포넌트가 그대로 재사용되어 useAnchoredPos의 배치 훅(deps: open)이
-// 다시 돌지 않는다 — 앵커만 바뀌고 좌표는 앞 절의 것이 남아, 팝오버가 방금 누른 절이
-// 아니라 이전 절 옆에 서 있었다. key를 절로 주면 절마다 새로 마운트되어 첫 프레임부터
-// 제자리다. 위치를 state로 들고 있는 팝오버에 앵커를 갈아 끼우지 말 것(§6-17).
-//
-// **`transition-none`을 지우지 말 것**(2026-09-02 3차 점검). 지우면 팝오버가 화면 왼쪽
-// 위에서 절 옆으로 150ms 동안 날아온다. `duration-150`은 animate-in의 시간이면서 동시에
-// `transition-duration`이고, `transition-property`의 초기값이 `all`이라 left·top까지
-// 전환 대상이 된다. 자리는 useAnchoredPos가 그리기 전에(useLayoutEffect) 잡지만 그 안에서
-// 팝오버 높이를 재느라(offsetHeight) 배치가 한 번 확정되고, 그래서 아직 값이 없던 {0,0}이
-// 전환의 시작점으로 남는다. 다른 팝오버(ConfirmPopover·프로필 메뉴)는 열기 전에 place()를
-// 불러 이 시작점이 아예 없다 — 여기는 눌린 절이 앵커라 열기 전에 부를 자리가 없다.
-// 나타나는 결(fade-in·zoom-in-95)은 전환이 아니라 애니메이션이라 그대로 남는다.
-const MENU_W = 176;
-const MENU_H = 52;
-const menuItem = 'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors text-left';
+// **여기는 색이 늘 자리다.** 지금은 노랑 하나라 칩이 '무슨 색으로 칠하는지'를 보여 주는
+// 표시다. 색이 늘면 칩을 색마다 하나씩 두고 각 칩이 그 색으로 칠하게 하면 된다
+// (services/word.js의 verseKey는 그대로 두고 highlights 항목을 { ref, at, color }로 늘린다).
+const toolBtn = 'inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[12px] font-semibold text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors';
 
-export function VerseMarkMenu({ anchorRef, lit, label, onPick, onClose }) {
-  const popRef = useRef(null);
-  const [pos] = useAnchoredPos(anchorRef, true, MENU_W, MENU_H, 8, popRef);
-
-  useEffect(() => {
-    // 앵커(그 절)도 '안'으로 친다 — 같은 절을 다시 누르면 여는 쪽이 닫는다.
-    // 여기서 닫아 버리면 mousedown이 닫고 click이 곧바로 다시 여는 꼴이 된다.
-    const onDown = (e) => {
-      if (popRef.current?.contains(e.target) || anchorRef.current?.contains(e.target)) return;
-      onClose();
-    };
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-  }, [anchorRef, onClose]);
-
-  return createPortal(
-    <div
-      ref={popRef} role="menu" aria-label={`${label} 형광펜`} data-verse-menu={label}
-      style={{ position: 'fixed', left: pos.left, top: pos.top, width: MENU_W }}
-      className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 animate-in fade-in zoom-in-95 duration-150 transition-none"
+function VerseTool({ label, lit, onPaint, onErase }) {
+  return (
+    <span
+      data-verse-tool={label} role="group" aria-label={`${label} 형광펜`}
+      className="inline-flex items-center gap-1 p-1 rounded-lg bg-surface border border-line shadow-soft animate-in fade-in duration-150"
     >
-      <button type="button" role="menuitem" className={menuItem} onClick={onPick}>
-        {lit ? <Eraser size={15} className="shrink-0" /> : <Highlighter size={15} className="shrink-0" />}
-        {lit ? '형광펜 지우기' : '형광펜 칠하기'}
-      </button>
-    </div>,
-    document.body,
+      {/* 칠할 수 없는 것을 지우는 버튼은 아무 일도 못 한다 — 한 번에 한 쪽만 세운다 */}
+      {lit ? (
+        <button type="button" onClick={onErase} className={toolBtn}>
+          <Eraser size={13} className="shrink-0" />형광펜 지우기
+        </button>
+      ) : (
+        <button type="button" onClick={onPaint} className={toolBtn}>
+          <Highlighter size={13} className="shrink-0" />형광펜 칠하기
+        </button>
+      )}
+      <span
+        data-hl-color="yellow" title="형광펜 색 노랑" aria-label="형광펜 색 노랑"
+        className="shrink-0 w-4 h-4 rounded-[4px] border border-line"
+        style={{ background: 'var(--app-tag-yellow)' }}
+      />
+    </span>
   );
 }
 
 // ── 글자 크기 Aa 3단계 ─────────────────────────────────────────────────────
-export function FontSteps({ step, onChange }) {
+function FontSteps({ step, onChange }) {
   return (
     <span className="flex p-[3px] rounded-[8px] shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
       {FONT_STEPS.map((f, i) => (
@@ -316,6 +316,7 @@ export function BibleTab({ initialRef = '' }) {
   const [state, setState] = useState({ lastRef: '', bookmarks: [], highlights: [] });
   const [step, setStep] = useState(1);
   const [ready, setReady] = useState(false);
+  const [loadErr, setLoadErr] = useState(null);   // 책 목록을 못 받았을 때의 이유
 
   const [pane, setPane] = useState('toc');       // 'toc' | 'bookmark' | 'highlight'
   const [place, setPlace] = useState(null);      // { bookId, chapter } — 없으면 목차
@@ -331,11 +332,9 @@ export function BibleTab({ initialRef = '' }) {
   const searchToken = useRef(0);
   const bodyRef = useRef(null);
 
-  // 형광펜 선택 팝오버 — { chapter, verse }. 앵커는 눌린 절 <p> 자체다(ref 객체 모양을
-  // 그대로 맞춰 useAnchoredPos에 넘긴다).
+  // 형광펜 도구 줄이 붙은 절 — { chapter, verse }. 자리는 문서 흐름이 잡으므로 앵커가
+  // 없다(VerseTool 머리말).
   const [pick, setPick] = useState(null);
-  const anchorRef = useRef(null);
-  const closePick = useCallback(() => setPick(null), []);
 
   const bookOf = useCallback((id) => books.find(b => b.id === id) || null, [books]);
 
@@ -355,7 +354,12 @@ export function BibleTab({ initialRef = '' }) {
         : parseChapterKey(saved.lastRef);
       if (last && list.some(b => b.id === last.bookId)) setPlace(last);
       setReady(true);
-    })().catch(() => setReady(true));
+    })().catch(err => {
+      // 예전에는 조용히 빈 목록으로 떨어져 '구약 0권 · 신약 0권'이 떴다 — 화면이
+      // 거짓말을 하지 않게 이유를 들고 있는다(사용자 피드백 2026-09-03).
+      console.error('[word] 성경 목차 읽기 실패:', err);
+      setLoadErr(err || true); setReady(true);
+    });
     return () => { alive = false; };
   }, [initialRef]);
 
@@ -367,7 +371,9 @@ export function BibleTab({ initialRef = '' }) {
     let alive = true;
     loadBook(place.bookId)
       .then(data => { if (alive) setChap({ key, verses: data.chapters[place.chapter - 1] || [] }); })
-      .catch(() => { if (alive) setChap({ key, verses: [] }); });
+      // **못 받았으면 못 받았다고 말한다**(사용자 피드백 2026-09-03 — 예외 문구 검토).
+      // 예전에는 빈 절 배열로 떨어져서 카드 안이 통째로 비었고, 화면은 아무 말도 안 했다.
+      .catch(err => { if (alive) setChap({ key, verses: [], failed: err || true }); });
     return () => { alive = false; };
   }, [place]);
 
@@ -382,7 +388,15 @@ export function BibleTab({ initialRef = '' }) {
     el?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
   }, [focus, loaded]);
 
-  const update = (next) => { setState(next); saveBibleState(next); };
+  // what을 주면 **못 남겼을 때 이유까지 말한다**(사용자 피드백 2026-09-03 — 예외 문구).
+  // 예전에는 saveBibleState가 실패를 삼켜서, 클라우드에 안 남은 형광펜이 화면에는
+  // 칠해져 있었다(새로 열면 사라진다). 이어읽기(lastRef)만 바뀌는 호출은 조용히 넘긴다.
+  const update = (next, what = '') => {
+    setState(next);
+    saveBibleState(next).then(r => {
+      if (what && r && r.ok === false) showToast(failText(what, r.error));
+    }).catch(() => {});
+  };
   const goto = (bookId, chapter, at = null, delta = 0) => {
     setDir(delta);
     setPane('toc');          // 북마크·형광펜 줄에서 왔어도 이제 보는 것은 본문이다
@@ -455,7 +469,8 @@ export function BibleTab({ initialRef = '' }) {
     const bookmarks = marked
       ? state.bookmarks.filter(b => b.ref !== placeKey)
       : [...state.bookmarks, { ref: placeKey, label: `${here.name} ${place.chapter}장`, at: new Date().toISOString() }];
-    update({ ...state, bookmarks });
+    update({ ...state, bookmarks },
+      marked ? `${here.name} ${place.chapter}장을 북마크에서 빼지 못했어요` : `${here.name} ${place.chapter}장을 북마크에 넣지 못했어요`);
   };
 
   // 이 장에 켜진 형광펜 — PassageText는 '장:절'로 본다
@@ -470,26 +485,44 @@ export function BibleTab({ initialRef = '' }) {
     return set;
   }, [state.highlights, place]);
 
-  // 절을 누르면 그 절에 선택 팝오버를 띄운다 — 칠하는 것은 팝오버가 시킬 때다.
-  // 같은 절을 다시 누르면 닫는다(VerseMarkMenu가 앵커를 '안'으로 쳐서 바깥 누름이
-  // 먼저 닫아 버리지 않는다).
-  const pickVerse = (chapter, verse, el) => {
-    anchorRef.current = el;
+  // 절을 누르면 그 절에 도구 줄을 붙인다 — 칠하는 것은 도구 줄이 시킬 때다.
+  // 같은 절을 다시 누르면 닫는다.
+  const pickVerse = (chapter, verse) => {
     setPick(p => (p && p.chapter === chapter && p.verse === verse ? null : { chapter, verse }));
   };
+
+  // 바깥을 누르거나 Esc면 닫는다. **고른 절과 도구 줄은 '안'이다** — 여기서 닫아 버리면
+  // mousedown이 닫고 곧바로 click이 다시 여는 꼴이 된다.
+  useEffect(() => {
+    if (!pick) return undefined;
+    const onDown = (e) => {
+      if (e.target?.closest?.('[data-verse-tool], [data-picked="1"]')) return;
+      setPick(null);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setPick(null); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [pick]);
 
   const pickRef = pick && place ? verseKey(place.bookId, pick.chapter, pick.verse) : '';
   const pickLit = !!pickRef && (state.highlights || []).some(h => h?.ref === pickRef);
 
-  const toggleHighlight = () => {
-    if (!pickRef) return;
+  // 도구 줄의 두 갈래. 이름이 하는 일을 그대로 말한다(예전 toggleHighlight 한 벌은
+  // 지금 상태에 따라 반대로 도는 함수라 도구 줄의 두 버튼에 그대로 걸 수 없었다).
+  const paintVerse = () => {
+    if (!pickRef || pickLit) return;
+    const label = `${here?.name || ''} ${pick.chapter}:${pick.verse}`.trim();
     setPick(null);
-    update({
-      ...state,
-      highlights: pickLit
-        ? state.highlights.filter(h => h?.ref !== pickRef)
-        : [...(state.highlights || []), { ref: pickRef, at: new Date().toISOString() }],
-    });
+    update({ ...state, highlights: [...(state.highlights || []), { ref: pickRef, at: new Date().toISOString() }] },
+      `${label}에 형광펜을 칠하지 못했어요`);
+  };
+  const eraseVerse = () => {
+    if (!pickRef || !pickLit) return;
+    const label = `${here?.name || ''} ${pick.chapter}:${pick.verse}`.trim();
+    setPick(null);
+    update({ ...state, highlights: (state.highlights || []).filter(h => h?.ref !== pickRef) },
+      `${label}의 형광펜을 지우지 못했어요`);
   };
 
   const searching = !!progress && progress.done < progress.total && results.length < RESULT_LIMIT;
@@ -514,7 +547,7 @@ export function BibleTab({ initialRef = '' }) {
   return (
     <div className="min-w-0">
       {/* 검색 · 글자 크기 — 목차에서도 리더에서도 같은 자리 */}
-      <div className="flex items-center gap-2 pb-2.5 max-w-[46rem]">
+      <div data-col="searchbar" className="flex items-center gap-2 pb-2.5">
         <form
           onSubmit={e => { e.preventDefault(); runSearch(typed); }}
           className="flex-1 min-w-0 flex items-center gap-1.5 px-2.5 h-9 rounded-md"
@@ -558,14 +591,16 @@ export function BibleTab({ initialRef = '' }) {
             title="북마크" unit="장" kind="bookmark" groups={bookGroups} total={bookTotal}
             empty="북마크한 장을 여기서 볼 수 있어요"
             onOpenItem={at => goto(at.bookId, at.chapter)}
-            onRemoveItem={ref => update({ ...state, bookmarks: state.bookmarks.filter(b => b.ref !== ref) })}
+            onRemoveItem={ref => update({ ...state, bookmarks: state.bookmarks.filter(b => b.ref !== ref) },
+              '북마크를 지우지 못했어요')}
           />
         ) : pane === 'highlight' ? (
           <MarkSection
             title="형광펜" unit="절" kind="highlight" groups={litGroups} total={litTotal}
             empty="형광펜을 칠한 절은 여기서 볼 수 있어요"
             onOpenItem={at => goto(at.bookId, at.chapter, { chapter: at.chapter, verse: at.verse })}
-            onRemoveItem={ref => update({ ...state, highlights: (state.highlights || []).filter(h => h?.ref !== ref) })}
+            onRemoveItem={ref => update({ ...state, highlights: (state.highlights || []).filter(h => h?.ref !== ref) },
+              '형광펜을 지우지 못했어요')}
           />
         ) : query ? (
           <SearchResults
@@ -573,7 +608,7 @@ export function BibleTab({ initialRef = '' }) {
             onOpen={r => goto(r.bookId, r.chapter, { chapter: r.chapter, verse: r.verse })}
           />
         ) : place ? (
-          <div ref={bodyRef} className="min-w-0 max-w-[46rem]">
+          <div ref={bodyRef} data-col="read" className="min-w-0">
             {/* 좁은 폭에서도 셋이 한 줄에 그대로 선다 — 제목만 줄어들고(min-w-0 truncate)
                 양쪽 버튼은 shrink-0에 44px 터치 타깃이다(사용자 피드백 2026-09-02 4차) */}
             <div className="flex items-center gap-1.5 pb-3">
@@ -595,19 +630,25 @@ export function BibleTab({ initialRef = '' }) {
             </div>
 
             <Card className="p-4 md:p-5">
-              {loaded
-                ? <PassageText verses={verses} step={step} focus={focus} marks={marks}
-                    onPickVerse={pickVerse} picked={pick ? `${pick.chapter}:${pick.verse}` : null} />
+              {loaded && !verses.length ? (
+                <p className="text-[12.5px] text-fg-muted whitespace-pre-line">
+                  {chap?.failed
+                    ? failText(`${here?.name || ''} ${place.chapter}장의 본문을 불러오지 못했어요`, chap.failed)
+                    : '이 장에는 본문이 들어 있지 않아요'}
+                </p>
+              ) : loaded
+                ? <PassageText
+                    verses={verses} step={step} focus={focus} marks={marks}
+                    onPickVerse={pickVerse} picked={pick ? `${pick.chapter}:${pick.verse}` : null}
+                    tool={pick ? (
+                      <VerseTool
+                        label={`${here?.name || ''} ${pick.chapter}:${pick.verse}`.trim()}
+                        lit={pickLit} onPaint={paintVerse} onErase={eraseVerse}
+                      />
+                    ) : null}
+                  />
                 : <PassageSkeleton lines={10} step={step} />}
             </Card>
-            {pick && loaded && (
-              <VerseMarkMenu
-                key={pickRef}
-                anchorRef={anchorRef} lit={pickLit}
-                label={`${here?.name || ''} ${pick.chapter}:${pick.verse}`.trim()}
-                onPick={toggleHighlight} onClose={closePick}
-              />
-            )}
 
             <div className="flex items-center gap-2 pt-3.5">
               <button onClick={() => move(-1)} className={`${btn} flex-1 h-10 text-fg-muted hover:bg-surface-hover`}
@@ -621,7 +662,7 @@ export function BibleTab({ initialRef = '' }) {
             </div>
           </div>
         ) : (
-          <Toc books={books} ready={ready} picked={pickedBook}
+          <Toc books={books} ready={ready} failed={loadErr} picked={pickedBook}
             setPicked={id => { setDir(id ? 1 : -1); setPickedBook(id); }} onOpen={goto} />
         )}
       </Swap>
@@ -694,10 +735,13 @@ function MarkBookGroup({ book, items, kind, open, onToggle, onOpenItem, onRemove
           size={13} className="shrink-0 text-fg-faint"
           style={{ transform: open ? 'none' : 'rotate(-90deg)', transition: reduce ? 'none' : 'transform .18s var(--ease-out-quint)' }}
         />
-        <span className="flex-1 min-w-0 truncate text-[11.5px] font-bold text-fg">{book.name}</span>
+        {/* 개수는 이름 **바로 옆**이다 — 오른쪽 끝에 붙이면 열이 넓어질수록 이름과 개수가
+            멀어져 한 줄로 읽히지 않는다(폭 상한을 없앤 2026-09-03 회차) */}
+        <span className="min-w-0 truncate text-[11.5px] font-bold text-fg">{book.name}</span>
         <span className="shrink-0 text-[11px] text-fg-faint tabular-nums">
           {items.length}{kind === 'bookmark' ? '장' : '절'}
         </span>
+        <span className="flex-1" />
       </button>
 
       {open && (
@@ -749,9 +793,7 @@ function MarkSection({ title, unit, empty, groups, total, kind, onOpenItem, onRe
   const auto = groups.length <= AUTO_OPEN_BOOKS;
 
   return (
-    // 목록도 46rem에서 끊는다 — 1400px을 가로지르면 책 이름과 개수 사이가 400px 벌어져
-    // 한 줄로 읽히지 않는다. 두 열이면 이름과 개수가 한눈에 붙어 있다.
-    <div className="min-w-0 max-w-[46rem]">
+    <div data-col={kind} className="min-w-0">
       <SectionHead right={total
         ? <span className="text-[11px] text-fg-faint tabular-nums shrink-0">{total}{unit}</span> : null}>
         {title}
@@ -763,7 +805,7 @@ function MarkSection({ title, unit, empty, groups, total, kind, onOpenItem, onRe
           <p className="text-[13.5px] font-semibold text-fg mt-3">{empty}</p>
         </div>
       ) : (
-        <div className="grid gap-x-7 items-start sm:grid-cols-2">
+        <div className="grid gap-x-7 items-start sm:grid-cols-2 xl:grid-cols-3">
           {groups.map(g => (
             <MarkBookGroup
               key={g.book.id} book={g.book} items={g.items} kind={kind}
@@ -779,8 +821,19 @@ function MarkSection({ title, unit, empty, groups, total, kind, onOpenItem, onRe
 }
 
 // ── 목차 (책 목록 → 장 그리드) ──────────────────────────────────────────────
-function Toc({ books, ready, picked, setPicked, onOpen }) {
+function Toc({ books, ready, failed = null, picked, setPicked, onOpen }) {
   if (!ready) return <TocSkeleton />;
+  // 못 받은 것을 '0권'으로 그리지 않는다(사용자 피드백 2026-09-03 — 예외 문구)
+  if (!books.length) {
+    return (
+      <div data-col="toc" className="min-h-[38vh] flex flex-col items-center justify-center text-center">
+        <EmptyBookMark />
+        <p className="text-[13.5px] font-semibold text-fg mt-3 whitespace-pre-line">
+          {failed ? failText('성경 목차를 불러오지 못했어요', failed) : '성경 목차가 아직 준비되지 않았어요'}
+        </p>
+      </div>
+    );
+  }
 
   if (picked) {
     const b = books.find(x => x.id === picked);
@@ -809,7 +862,7 @@ function Toc({ books, ready, picked, setPicked, onOpen }) {
   }
 
   return (
-    <div className="min-w-0 flex flex-col gap-6">
+    <div data-col="toc" className="min-w-0 flex flex-col gap-6">
       {[['구약', books.slice(0, OT_COUNT)], ['신약', books.slice(OT_COUNT)]].map(([title, list]) => (
         <div key={title}>
           <SectionHead right={<span className="text-[11px] text-fg-faint tabular-nums shrink-0">{list.length}권</span>}>
@@ -853,7 +906,7 @@ function TocSkeleton() {
 function SearchResults({ query, results, progress, searching, onOpen }) {
   const capped = results.length >= RESULT_LIMIT;
   return (
-    <div className="min-w-0 max-w-[46rem]">
+    <div data-col="search" className="min-w-0">
       <div className="flex items-center gap-2 pb-2.5">
         <span className="text-[12.5px] font-bold text-fg truncate min-w-0">{query}</span>
         <span className="text-[11.5px] text-fg-faint tabular-nums shrink-0">
@@ -870,7 +923,7 @@ function SearchResults({ query, results, progress, searching, onOpen }) {
           : (
             <div className="min-h-[38vh] flex flex-col items-center justify-center text-center">
               <EmptyBookMark />
-              <p className="text-[13px] font-semibold text-fg mt-3">그 말이 나오는 절을 찾지 못했어요</p>
+              <p className="text-[13px] font-semibold text-fg mt-3">개역한글 본문에서 그 말이 그대로 나오는 절을 찾지 못했어요</p>
             </div>
           )
       ) : (

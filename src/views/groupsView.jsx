@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Skeleton } from '../components/media.jsx';
 import { showToast } from '../components/Toast.jsx';
-import { failText } from '../services/errorText.js';
+import { failText, objectParticle } from '../services/errorText.js';
 import { useAuth } from '../services/auth.jsx';
 import { MySunPanel, SunAdminPanel } from '../components/groupsSun.jsx';
 import { ClubsPanel } from '../components/groupsClub.jsx';
@@ -14,7 +14,7 @@ import {
   createGroup, saveGroup, saveClubInfo, addMember, removeMember, moveMember, reorderClubs,
   applyToClub, cancelApplication, acceptApplication, declineApplication,
   createMeeting, saveMeetingAttendance,
-  groupPerms, mySun, latestSunday, toggleAttendance, yearOptions,
+  groupPerms, mySun, latestSunday, toggleAttendance, yearOptions, leaderPlan, dupReason,
 } from '../services/groups.js';
 
 // ============================================================================
@@ -76,7 +76,7 @@ export function GroupsView() {
   useEffect(() => {
     loadBase().catch(e => {
       console.error('[groups] 모임 목록 실패:', e);
-      showToast(failText('모임을 받지 못했어요', e));
+      showToast(failText('내 순과 동아리를 불러오지 못했어요', e));
       // 실패했을 때의 자격은 groupPerms() 기본값이다 — 손으로 적은 한 벌을 두면
       // 자격이 하나 늘 때마다 이 줄이 뒤처져서, 아무것도 못 하는 화면이 아니라
       // 되지 않을 버튼이 선 화면이 된다.
@@ -92,7 +92,7 @@ export function GroupsView() {
       setAdmin({ year: y, ...r });
     } catch (e) {
       console.error('[groups] 순 편성 연도 실패:', e);
-      showToast(failText('그 해의 순 편성을 받지 못했어요', e));
+      showToast(failText('그 해 순 편성을 불러오지 못했어요', e));
     }
   }, []);
   useEffect(() => { loadAdmin(year); }, [year, loadAdmin]);
@@ -128,9 +128,17 @@ export function GroupsView() {
     return () => { alive = false; };
   }, [openClubId]);
 
+  // 지금 순 편성 화면이 보고 있는 한 벌(올해면 state, 지난 해면 admin). 순장 지정
+  // 판정이 이것을 보므로 **쓰기보다 위에** 둔다 — 아래에 두면 useCallback의 의존성이
+  // 선언 전 변수를 읽어 TDZ로 죽는다.
+  const adminData = year === THIS_YEAR ? state : (admin?.year === year ? admin : null);
+
   // ── 쓰기 ──────────────────────────────────────────────────────────────────
   // 한 벌로 감싼다 — 실패는 콘솔에 원문, 화면에는 무엇이 안 됐는지만(§8 · errorText).
-  const run = useCallback(async (what, fn, done) => {
+  // dup은 **유니크 위반일 때만** 쓰는 한 줄이다(무엇이 이미 있는지는 부르는 쪽만
+  // 안다 — groups.js dupReason). 사용자 지적 2026-09-03: "'이미 같은 것이 있어요'는
+  // 무슨 말인지 모르겠다."
+  const run = useCallback(async (what, fn, done, dup) => {
     try {
       await fn();
       await refresh();
@@ -138,16 +146,24 @@ export function GroupsView() {
       return true;
     } catch (e) {
       console.error(`[groups] ${what} 실패:`, e);
-      showToast(failText(what, e));
+      showToast(failText(what, dupReason(e, dup)));
       return false;
     }
   }, [refresh]);
+
+  // 저장하러 가기 전에 막힌 경우 — 서버에 물어볼 것도 없이 이유가 분명하다.
+  // 문구 모양은 실패 토스트와 같다(errorText가 err.human을 가장 먼저 본다).
+  const refuse = useCallback((what, why) => {
+    showToast(failText(what, { human: why }));
+    return false;
+  }, []);
 
   const perms = state?.perms;
   const me = perms?.myPerson || null;
 
   const apply = useCallback((club) => run('가입 신청을 보내지 못했어요',
-    () => applyToClub(club.id, me.id), '가입 신청을 보냈어요'), [run, me]);
+    () => applyToClub(club.id, me.id), '가입 신청을 보냈어요',
+    `${club.name}에는 이미 신청해 두었어요`), [run, me]);
 
   const cancelApply = useCallback((app) => run('가입 신청을 취소하지 못했어요',
     () => cancelApplication(app.id), '가입 신청을 취소했어요'), [run]);
@@ -155,7 +171,8 @@ export function GroupsView() {
   const accept = useCallback((app) => {
     const name = state?.people.find(p => p.id === app.person_id)?.name || '';
     return run('가입 신청을 수락하지 못했어요', () => acceptApplication(app),
-      name ? `${name}님을 동아리 명단에 넣었어요` : '동아리 명단에 넣었어요');
+      name ? `${name}님을 동아리 명단에 넣었어요` : '동아리 명단에 넣었어요',
+      name ? `${name}님은 이미 그 동아리 멤버예요` : '이미 그 동아리 멤버예요');
   }, [run, state]);
 
   const decline = useCallback((app) => run('가입 신청을 거절하지 못했어요',
@@ -166,8 +183,9 @@ export function GroupsView() {
 
   const addClubMember = useCallback((club, personId) => {
     const name = state?.people.find(p => p.id === personId)?.name || '';
-    return run('멤버를 넣지 못했어요', () => addMember(club.id, personId),
-      name ? `${name}님을 ${club.name}에 넣었어요` : '멤버를 넣었어요');
+    return run('동아리 멤버로 넣지 못했어요', () => addMember(club.id, personId),
+      name ? `${name}님을 ${club.name}에 넣었어요` : '멤버를 넣었어요',
+      name ? `${name}님은 이미 ${club.name} 멤버예요` : `이미 ${club.name} 멤버예요`);
   }, [run, state]);
 
   // 순서는 먼저 화면에 반영한다 — 저장을 기다렸다 다시 읽으면 놓은 카드가 잠깐
@@ -185,7 +203,8 @@ export function GroupsView() {
   }, [refresh]);
 
   const newClub = useCallback(({ name, note, leaderPersonId }) => run('동아리를 만들지 못했어요',
-    () => createGroup({ type: 'club', name, note, leaderPersonId }), '새 동아리를 만들었어요'), [run]);
+    () => createGroup({ type: 'club', name, note, leaderPersonId }),
+    `${name}${objectParticle(name)} 만들었어요`), [run]);
 
   // 동아리 이름·설명 고치기 — 마스터·관리자 또는 그 동아리장(0039 groups_update).
   // 순 이름 바꾸기와 같은 결의 조작이라 문구도 같은 결로 둔다.
@@ -219,34 +238,55 @@ export function GroupsView() {
     }
   }, []);
 
-  const newSun = useCallback(({ name, leaderPersonId }) => run('순을 만들지 못했어요',
-    () => createGroup({ type: 'sun', name, year, leaderPersonId }), '새 순을 만들었어요'), [run, year]);
+  // 새 순의 순장도 같은 판정을 거친다(사용자 지시 2026-09-03). 피커가 이미 '어느 순에도
+  // 없는 사람'만 올리므로 화면에서는 걸릴 일이 없고, 목록이 낡았을 때의 마지막 방어선이다.
+  // 아직 없는 순이라 id가 없는 껍데기를 넘긴다 — 어느 구성원 줄과도 맞지 않는다.
+  const newSun = useCallback(({ name, leaderPersonId }) => {
+    const plan = leaderPlan({
+      group: { id: null, name, leader_person_id: null }, personId: leaderPersonId,
+      people: adminData?.people || [], suns: adminData?.suns || [], members: adminData?.members || [],
+    });
+    if (!plan.ok) return refuse('순을 만들지 못했어요', plan.why);
+    return run('순을 만들지 못했어요',
+      () => createGroup({ type: 'sun', name, year, leaderPersonId }), `${name}${objectParticle(name)} 만들었어요`);
+  }, [run, refuse, year, adminData]);
 
   const renameSun = useCallback((group, name) => run('순 이름을 바꾸지 못했어요',
     () => saveGroup(group.id, { name }), '순 이름을 바꿨어요'), [run]);
 
-  // 순장을 정하면 그 순의 구성원으로도 들어간다(saveGroup) — 출석 정책이 구성원을 본다.
+  // 순장 지정 — **저장하러 가기 전에 네 갈래를 판정한다**(groups.js leaderPlan · 사용자
+  // 지시 2026-09-03). 이미 다른 순의 순장이거나 다른 순의 순원이면 세우지 않고 이유를
+  // 말하고, 이 순의 순원이면 그대로 세우고(구성원 추가를 건너뛴다), 아무 순에도 없으면
+  // 세운 뒤 이 순 구성원에 넣는다. 출석 정책(leads_sun_of)이 구성원을 보기 때문에
+  // '리더인데 구성원이 아닌' 상태를 남기지 않는다(0037).
   const setLeader = useCallback((group, personId) => {
-    const name = state?.people.find(p => p.id === personId)?.name || '';
-    return run('순장을 정하지 못했어요',
-      () => saveGroup(group.id, { leader_person_id: personId || null }),
-      name ? `${name}님을 순장으로 정했어요` : '순장을 비웠어요');
-  }, [run, state]);
+    const plan = leaderPlan({
+      group, personId, people: adminData?.people || [],
+      suns: adminData?.suns || [], members: adminData?.members || [],
+    });
+    if (!plan.ok) return refuse('순장을 지정하지 못했어요', plan.why);
+    if (plan.same) return true;
+    return run('순장을 지정하지 못했어요', async () => {
+      await saveGroup(group.id, { leader_person_id: personId || null });
+      if (plan.addMember) await addMember(group.id, personId);
+    }, plan.name ? `${plan.name}님을 ${group.name} 순장으로 지정했어요` : '순장을 비웠어요');
+  }, [run, refuse, adminData]);
 
   const addSunMember = useCallback((group, personId) => {
     const name = state?.people.find(p => p.id === personId)?.name || '';
     return run('순원을 넣지 못했어요', () => addMember(group.id, personId),
-      name ? `${name}님을 ${group.name}에 넣었어요` : '순원을 넣었어요');
+      name ? `${name}님을 ${group.name}에 넣었어요` : '순원을 넣었어요',
+      name ? `${name}님은 이미 ${group.name} 순원이에요` : '이미 그 순의 순원이에요');
   }, [run, state]);
 
   const moveSunMember = useCallback((group, toGroupId, person) => run('순을 옮기지 못했어요',
-    () => moveMember(group.id, toGroupId, person.id), `${person.name}님의 순을 옮겼어요`), [run]);
+    () => moveMember(group.id, toGroupId, person.id), `${person.name}님의 순을 옮겼어요`,
+    `${person.name}님은 이미 그 순의 순원이에요`), [run]);
 
   const dropSunMember = useCallback((group, person) => run('순원을 빼지 못했어요',
     () => removeMember(group.id, person.id), `${person.name}님을 순에서 뺐어요`), [run]);
 
   // ── 그리기 ────────────────────────────────────────────────────────────────
-  const adminData = year === THIS_YEAR ? state : (admin?.year === year ? admin : null);
   const years = useMemo(() => yearOptions(state?.allGroups || []), [state]);
   const sun = useMemo(() => mySun(me, state?.suns || [], state?.members || []), [me, state]);
   const openClub = useMemo(
@@ -308,14 +348,15 @@ export function GroupsView() {
         )}
       </div>
 
-      {/* 가이드는 내 순 카드보다 위다 — 순모임을 앞두고 여는 화면에서 먼저 볼 것은
-          이번 주 나눔거리이고, 명단은 그 아래에 있어도 찾을 수 있다. 기준 예배는
-          '가장 최근 발행 주일 예배' 한 건으로, 출석 줄이 쓰는 것과 같다(extra.service). */}
+      {/* 가이드는 **순 카드 밑**이다(사용자 지시 2026-09-03 — 처음에는 위에 두었다).
+          이 탭의 주인은 내 순이고, 가이드는 그 순으로 무엇을 할지에 대한 딸린 섹션이다.
+          위에 두면 탭을 열자마자 AI 종이 세 장이 화면을 채우고 순 명단이 접혀 내려갔다.
+          기준 예배는 '가장 최근 발행 주일 예배' 한 건으로, 출석 줄이 쓰는 것과 같다. */}
       {active === 'mine' && (
         <>
-          <SunGuidePanel service={extra.service} perms={guidePerms} />
           <MySunPanel myPerson={me} sun={sun} people={state.people} members={state.members}
             service={extra.service} present={extra.present} notes={extra.notes} />
+          <SunGuidePanel service={extra.service} perms={guidePerms} />
         </>
       )}
 

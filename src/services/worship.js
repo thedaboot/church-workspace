@@ -23,8 +23,8 @@ import { generateId } from '../utils.js';
 const COLS = 'id, kind, service_date, status, title, passage_ref, preacher, roles, songs, notices, attendance_note, created_at, updated_at';
 
 export const SUNDAY_KIND = 'sunday';
-export const SUNDAY_LABEL = '주일 4부 젊은이 예배';
-export const UNASSIGNED = '순 미지정';
+const SUNDAY_LABEL = '주일 4부 젊은이 예배';
+const UNASSIGNED = '순 미지정';
 
 // ── 게스트 시드 (클라우드가 없을 때의 저장 자리) ────────────────────────────
 const { all: guestAll, rows: guestRows, set: guestSet } = guestStore('church_worship_v1');
@@ -295,14 +295,23 @@ export async function checkOut(serviceId, personId) {
 // ── 유튜브 가져오기 (서버 함수 경유) ───────────────────────────────────────
 // 재생목록은 RSS로, 영상 제목은 oEmbed로 받는다. 둘 다 api/yt.js가 대신 받아 온다 —
 // 브라우저에서 바로 부르면 CORS가 막고, 나중에 키를 쓰는 길로 가더라도 서버만 바뀐다.
-// **게스트·로컬 vite에는 /api/yt가 없다**(404) — 그때는 사람이 할 수 있는 일이 없으니
-// 부르는 쪽이 조용히 토스트 한 줄로 떨군다(AiService가 같은 자리에서 같은 판단을 한다).
+// **게스트·로컬 vite에는 /api/yt가 없다**(404) — 그때는 토스트 한 줄로 끝낸다.
+//
+// **왜 안 됐는지를 원인마다 다르게 말한다**(사용자 지시 2026-09-03: '지금은 가져올 수
+// 없어요'로는 무엇을 하면 되는지 알 수 없다). 여기서 만드는 글은 **뒷도막(이유)** 이고
+// 앞도막('재생목록을 가져오지 못했어요')은 부르는 화면이 붙인다 — failText가 그 둘을
+// 잇는다(errorText.js의 err.human 경로).
+//
 // `quiet`는 '콘솔에 오류로 남길 일이 아니다'는 뜻이다 — 서버 함수가 없는 환경
 // (게스트·로컬 vite)이나 주소를 잘못 붙인 경우가 그렇다. 고장이 아니라 환경이거나
 // 사람이 고칠 수 있는 일이라 화면의 토스트 한 줄로 끝난다. 서버가 실제로 실패한
 // 경우만 console.error로 남긴다(cloud.js가 501을 notConfigured로 가르는 것과 같은 취지).
-const CANT = '지금은 가져올 수 없어요';
-const cantErr = (why = CANT, quiet = false) => {
+const WHY_GUEST = '게스트 모드에서는 유튜브에 닿을 수 없어요';
+const WHY_DEPLOY = '배포된 앱에서만 되는 기능이에요';
+const WHY_LOGIN = '로그인이 풀렸어요 · 새로고침하고 다시 로그인해주세요';
+const WHY_NOT_LIST = '붙인 주소가 유튜브 재생목록 링크가 아니에요';
+
+const cantErr = (why, quiet = false) => {
   const e = new Error('yt');
   e.human = why;
   if (quiet) e.quiet = true;
@@ -310,25 +319,28 @@ const cantErr = (why = CANT, quiet = false) => {
 };
 
 async function ytFetch(body) {
-  if (!supabase) throw cantErr(CANT, true);
+  if (!supabase) throw cantErr(WHY_GUEST, true);
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
-  if (!token) throw cantErr(CANT, true);
+  if (!token) throw cantErr(WHY_LOGIN, true);
   const r = await fetch('/api/yt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
   });
   const out = await r.json().catch(() => ({}));
-  // 서버가 한국어로 이유를 주면 그것을 그대로 화면에 싣는다(errorText의 err.human 경로)
-  if (!r.ok) throw cantErr(out.error || CANT, r.status === 404 && !out.error);
-  return out;
+  if (r.ok) return out;
+  // 서버가 한국어로 이유를 주면 그것을 그대로 싣는다. 이유가 없는 404는 함수 자체가
+  // 없는 것이고(로컬 vite), 401은 세션이 끊긴 것이라 우리가 이유를 만든다.
+  if (r.status === 401) throw cantErr(WHY_LOGIN, true);
+  if (r.status === 404 && !out.error) throw cantErr(WHY_DEPLOY, true);
+  throw cantErr(out.error || '유튜브가 응답하지 않았어요 · 잠시 후 다시 시도해주세요');
 }
 
 // 재생목록 주소 → [{ title, link }]. 곡 목록에 그대로 붙일 모양으로 돌려준다.
 export async function fetchPlaylistSongs(url) {
   const listId = youtubeListId(url);
-  if (!listId) throw cantErr('유튜브 재생목록 주소를 붙여주세요', true);
+  if (!listId) throw cantErr(WHY_NOT_LIST, true);
   const { items = [] } = await ytFetch({ listId });
   return items.filter(v => v?.videoId).map(v => ({ title: v.title || '', link: youtubeWatchUrl(v.videoId) }));
 }

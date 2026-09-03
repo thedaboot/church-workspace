@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Heart } from 'lucide-react';
+import { Heart, Pencil, Wand2 } from 'lucide-react';
 import { Skeleton } from './media.jsx';
-import { BTN, BTN_QUIET, CARD_STYLE } from './groupsParts.jsx';
+import { SectionHead } from '../views/dashboardParts.jsx';
+import { BTN, BTN_QUIET, CARD_STYLE, WITH_ICON } from './groupsParts.jsx';
 import { showToast } from './Toast.jsx';
+import { supabase } from '../services/supabaseClient.js';
 import { failText } from '../services/errorText.js';
 import {
   LIMITS, POINTS,
@@ -10,7 +12,14 @@ import {
 } from '../services/sunGuide.js';
 
 // ============================================================================
-// 순모임 가이드 카드 — 내 순 탭 맨 위 (docs/V2.md · 0039 · services/sunGuide.js)
+// 순모임 가이드 섹션 — 내 순 탭의 **순 카드 밑** (docs/V2.md · 0039 · services/sunGuide.js)
+// ----------------------------------------------------------------------------
+// 자리와 머리줄은 사용자 지적으로 두 번째 판이다(2026-09-03 — "버튼 배치를 왜 이렇게
+// 해놨나, 섹션은 순 카드 밑으로"). 처음에는 카드 위에 놓고, 제목과 버튼을 종이 폭
+// (560px)에 맞춰 화면 가운데에 띄웠다 — 그래서 제목이 순 카드의 어느 선과도 맞지
+// 않고 버튼만 허공에 떠 보였다. 지금은 **화면의 다른 섹션과 같은 머리줄**이다:
+// SectionHead(제목 왼쪽 · 가로선 · 동작 버튼 오른쪽 끝) — '구성원 3명'·'모임'·
+// '가입 신청 1건'과 한 벌이고, 종이는 그 머리줄 왼쪽 끝에서 시작한다.
 // ----------------------------------------------------------------------------
 // 사용자가 준 템플릿(세로 카드 3장 · 상단 좌 날짜 / 우 '순모임 가이드' · 하단
 // THE DABOOT MINISTRY)을 우리 토큰으로 옮긴 것이다. 원본은 베이지 배경 + 흰 블롭
@@ -30,8 +39,9 @@ const HEART = <Heart size={11} className="fill-current shrink-0" style={{ color:
 // 카드 한 장 — 큰 radius의 종이. 템플릿의 흰 블롭 카드 자리다.
 const PAGE = 'sun-guide-page rounded-[20px] px-5 py-5 md:px-6 md:py-6';
 
-// 섹션 머리 — 하트 + 이름. 템플릿의 '♥ 주일 본문' 그대로.
-function SectionHead({ children, className = '' }) {
+// 종이 안의 머리 — 하트 + 이름. 템플릿의 '♥ 주일 본문' 그대로다.
+// (화면 섹션의 머리줄은 dashboardParts의 SectionHead다 — 이름이 겹치지 않게 나눈다.)
+function SheetHead({ children, className = '' }) {
   return (
     <p className={`sun-guide-head flex items-center gap-1.5 text-[12.5px] font-bold text-fg ${className}`}>
       {HEART}<span>{children}</span>
@@ -108,10 +118,13 @@ function Editor({ draft, setDraft, onSave, onRegen, onCancel, busy }) {
         <Field key={i} label={`나눔 질문 ${i + 1}`} value={q} limit={LIMITS.question} rows={2}
           onChange={(v) => setQuestion(i, v)} />
       ))}
-      {/* 상시 도구 줄은 확정 왼쪽 / 나가기 오른쪽(§8) — 저장이 손가락 자리를 지킨다 */}
-      <div className="flex items-center gap-2 pt-0.5">
+      {/* 도구 줄 — 모임 화면의 다른 도구 줄과 같은 짜임이다(§8 · gap-1.5 ·
+          확정 왼쪽 / 나가기 오른쪽). 저장이 손가락 자리를 지킨다. */}
+      <div className="sun-guide-tools flex items-center gap-1.5 pt-1">
         <button type="button" className={`sun-guide-save ${BTN}`} disabled={busy} onClick={onSave}>저장</button>
-        <button type="button" className={`sun-guide-regen ${BTN_QUIET}`} disabled={busy} onClick={onRegen}>다시 만들기</button>
+        <button type="button" className={`sun-guide-regen ${WITH_ICON} ${BTN_QUIET}`} disabled={busy} onClick={onRegen}>
+          <Wand2 size={12} /><span>다시 만들기</span>
+        </button>
         <span className="flex-1" />
         <button type="button" className={`sun-guide-cancel ${BTN_QUIET}`} disabled={busy} onClick={onCancel}>취소</button>
       </div>
@@ -124,22 +137,22 @@ function Sheet({ guide, dateLabel }) {
   const [p1, p2, p3] = guide.points;
   return (
     <div className="sun-guide-sheet">
+      {/* 템플릿의 머리 줄. 오른쪽에 있던 '순모임 가이드'는 **섹션 머리줄로 올라갔다** —
+          바로 위에 같은 글자가 두 번 있으면 그중 하나는 실수처럼 보인다. */}
       <div className="sun-guide-top flex items-baseline gap-2 px-1 pb-2">
         <span className="text-[11px] font-semibold text-fg-muted tabular-nums">{dateLabel}</span>
-        <span className="flex-1" />
-        <span className="text-[11px] font-semibold text-fg-muted">순모임 가이드</span>
       </div>
 
       <div className="space-y-3">
         <article className={PAGE} style={CARD_STYLE}>
-          <SectionHead>주일 본문</SectionHead>
+          <SheetHead>주일 본문</SheetHead>
           <p className="sun-guide-ref mt-1.5 text-[14px] font-extrabold text-fg break-words">
             {guide.passage.ref}
             {guide.passage.title && (
               <span className="sun-guide-ref-title font-bold text-accent-text"> [{guide.passage.title}]</span>
             )}
           </p>
-          <SectionHead className="mt-4">말씀 요약</SectionHead>
+          <SheetHead className="mt-4">말씀 요약</SheetHead>
           <Rich text={guide.summary} className="mt-1.5" />
         </article>
 
@@ -155,7 +168,7 @@ function Sheet({ guide, dateLabel }) {
         <article className={PAGE} style={CARD_STYLE}>
           <Sub>{`${POINTS}. ${p3.title}`}</Sub>
           <Rich text={p3.body} className="mt-1.5" />
-          <SectionHead className="mt-4">오늘의 나눔 질문</SectionHead>
+          <SheetHead className="mt-4">오늘의 나눔 질문</SheetHead>
           <div className="mt-1.5 space-y-2">
             {guide.questions.map((q, i) => (
               <p key={i} className="sun-guide-q flex gap-1.5 text-[12.5px] leading-[1.7] text-fg-secondary">
@@ -211,14 +224,29 @@ export function SunGuidePanel({ service, perms }) {
     return () => { alive = false; };
   }, [serviceId, canView]);
 
+  // 왜 못 만들었는지를 말한다(사용자 지적 2026-09-03 — "가이드는 지금 만들지 못하는
+  // 건지?"). generateGuide는 막힌 이유를 null 하나로 돌려주므로(AI 계층의 안내 문구는
+  // 그 안에서 걸러진다) 화면에서 짚을 수 있는 것을 짚는다: 로그인이 없거나, 로컬
+  // 서버에 /api/ai가 없거나, 그 밖의 실패다. 원문은 콘솔에 남는다(ai.js).
+  const whyCannotMake = async () => {
+    const session = supabase ? (await supabase.auth.getSession()).data?.session : null;
+    if (!session) return 'AI는 로그인한 다음에 쓸 수 있어요';
+    if (import.meta.env?.DEV) return 'AI 서버는 배포된 주소에서만 닿아요';
+    return 'AI가 답을 주지 않았어요 · 잠시 뒤 다시 눌러 주세요';
+  };
+
   const make = async () => {
     setBusy(true); setState('make');
     try {
       const body = await generateGuide(service);
-      // 게스트·로그인 없음·모양 깨짐이 전부 null이다 — 무엇이 막혔는지는 콘솔에 있다
-      if (!body) { showToast('지금은 가이드를 만들 수 없어요'); setState(guide ? 'view' : 'none'); return; }
+      if (!body) {
+        showToast(failText('지금은 가이드를 만들 수 없어요', { human: await whyCannotMake() }));
+        setState(guide ? 'view' : 'none');
+        return;
+      }
       setDraft(body); setState('edit');
     } catch (e) {
+      console.error('[sunGuide] 가이드를 만들지 못했어요:', e);
       showToast(failText('가이드를 만들지 못했어요', e));
       setState(guide ? 'view' : 'none');
     } finally { setBusy(false); }
@@ -231,6 +259,7 @@ export function SunGuidePanel({ service, perms }) {
       setGuide(saved); setDraft(null); setState('view');
       showToast('순모임 가이드를 저장했어요');
     } catch (e) {
+      console.error('[sunGuide] 가이드를 저장하지 못했어요:', e);
       showToast(failText('가이드를 저장하지 못했어요', e));
     } finally { setBusy(false); }
   };
@@ -242,32 +271,47 @@ export function SunGuidePanel({ service, perms }) {
   if (state === 'none' && !canCreate) return null;
 
   const dateLabel = guideDateLabel(service.service_date);
-  // 카드 세 장이 세로로 이어지는 종이라 데스크톱에서는 폭을 묶어 가운데 세운다 —
-  // 1440px을 가로로 다 쓰면 한 줄이 화면을 가로지른다(토스트 폭 상한과 같은 판단, §8).
-  // 편집 화면도 같은 폭이다 — 미리보기와 편집이 같은 종이여야 자리가 안 흔들린다.
-  return (
-    <section className="sun-guide dc-card w-full max-w-[560px] mx-auto">
-      <div className="flex items-center gap-2 pb-2.5">
-        <h3 className="text-[13.5px] font-bold text-fg">순모임 가이드</h3>
-        <span className="flex-1" />
-        {state === 'view' && canCreate && (
-          <>
-            <button type="button" className={`sun-guide-editbtn ${BTN_QUIET}`}
-              onClick={() => { setDraft(fitGuide(guide)); setState('edit'); }}>수정</button>
-            <button type="button" className={`sun-guide-regen ${BTN_QUIET}`} disabled={busy} onClick={make}>다시 만들기</button>
-          </>
-        )}
-      </div>
+  // 동작 버튼은 **머리줄 오른쪽 끝**에 선다 — '모임' 섹션의 '모임 만들기'와 같은 자리다.
+  // 가이드가 아직 없으면 만들기 하나(확정이라 accent), 있으면 수정·다시 만들기 둘
+  // (이미 있는 것을 손대는 일이라 조용한 버튼)이다.
+  const actions = state === 'none' && canCreate
+    ? (
+      <button type="button" className={`sun-guide-create ${WITH_ICON} ${BTN}`} disabled={busy} onClick={make}>
+        <Wand2 size={12} /><span>AI로 만들기</span>
+      </button>
+    )
+    : (state === 'view' && canCreate ? (
+      <>
+        <button type="button" className={`sun-guide-editbtn ${WITH_ICON} ${BTN_QUIET}`}
+          onClick={() => { setDraft(fitGuide(guide)); setState('edit'); }}>
+          <Pencil size={12} /><span>수정</span>
+        </button>
+        <button type="button" className={`sun-guide-regen ${WITH_ICON} ${BTN_QUIET}`} disabled={busy} onClick={make}>
+          <Wand2 size={12} /><span>다시 만들기</span>
+        </button>
+      </>
+    ) : null);
 
-      {state === 'make' && SKELETON}
-      {state === 'none' && canCreate && (
-        <button type="button" className={`sun-guide-create ${BTN}`} disabled={busy} onClick={make}>AI로 만들기</button>
-      )}
-      {state === 'edit' && draft && (
-        <Editor draft={draft} setDraft={setDraft} busy={busy} onSave={save} onRegen={make}
-          onCancel={() => { setDraft(null); setState(guide ? 'view' : 'none'); }} />
-      )}
-      {state === 'view' && guide && <Sheet guide={guide} dateLabel={dateLabel} />}
+  // **폭은 내 순 카드와 같다.** 섹션 자신에게 max-w를 주지 않으므로 이 화면의 다른
+  // 섹션과 같은 열에 서고, 왼쪽·오른쪽 끝이 위 카드와 같은 선에 떨어진다
+  // (사용자 지적 2026-09-03 — 처음에는 섹션 전체가 `max-w-[560px] mx-auto`여서
+  // 제목과 버튼이 카드의 어느 선과도 맞지 않고 화면 가운데에 떠 있었다).
+  // 종이만 상한을 두고 **그 카드 폭 안에서 가운데**로 세운다(mx-auto) — 카드 세 장이
+  // 세로로 이어지는 인쇄물이라 1440px을 가로로 다 쓰면 한 줄이 화면을 가로지른다
+  // (토스트 폭 상한과 같은 판단, §8). 좌우 여백이 같아야 인쇄물처럼 보인다.
+  // 편집 화면도 같은 폭·같은 가운데다 — 미리보기와 편집이 같은 종이여야 자리가
+  // 안 흔들린다.
+  return (
+    <section className="sun-guide dc-card pt-1">
+      <SectionHead right={actions}>순모임 가이드</SectionHead>
+      <div className="sun-guide-body-wrap w-full max-w-[560px] mx-auto">
+        {state === 'make' && SKELETON}
+        {state === 'edit' && draft && (
+          <Editor draft={draft} setDraft={setDraft} busy={busy} onSave={save} onRegen={make}
+            onCancel={() => { setDraft(null); setState(guide ? 'view' : 'none'); }} />
+        )}
+        {state === 'view' && guide && <Sheet guide={guide} dateLabel={dateLabel} />}
+      </div>
     </section>
   );
 }

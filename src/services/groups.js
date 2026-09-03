@@ -142,13 +142,70 @@ export function sortClubs(list = []) {
     .map(x => x.g);
 }
 
+// 순 편성 후보 — **sun_exempt인 사람은 빠진다**(0040). 부장님·전도사님은 명단에는
+// 있어야 하지만(출석·직분·생일) 순원·순장 후보에 오르면 안 된다(사용자 지시
+// 2026-09-03). 이름을 코드에 박지 않고 명단 속성 한 칸으로 가른다(§6-26).
+// **동아리는 이 규칙을 쓰지 않는다** — 동아리 가입은 제외 대상이 아니다.
+export const sunCandidates = (people = []) => people.filter(p => !p?.sun_exempt);
+
 // 그 모임에 아직 없는 사람들 — '멤버 추가'·'순원 추가' 후보.
+// 순이면 sun_exempt를 함께 걸러 낸다(위 주석) — 순 후보를 만드는 자리가 셋이라
+// 규칙은 sunCandidates 한 곳에만 둔다.
 export function notInGroup(people = [], group = null, members = []) {
   if (!group) return people;
+  const pool = group.type === 'sun' ? sunCandidates(people) : people;
   const inside = new Set(members.filter(m => m.group_id === group.id).map(m => m.person_id));
   if (group.leader_person_id) inside.add(group.leader_person_id);
-  return people.filter(p => !inside.has(p.id));
+  return pool.filter(p => !inside.has(p.id));
 }
+
+// ── 순장 지정 판정 (사용자 지시 2026-09-03) ─────────────────────────────────
+// "순장을 다른 사람으로 바꿨는데 '순장을 정하지 못했어요'라고 하면서 실제로는 이미
+// 바뀌어 있다." 원인은 두 걸음이었다: 리더 update는 성공하고, 뒤따르는 구성원 추가가
+// **유니크 위반**(group_members의 PK는 (group_id, person_id) — 0035)으로 죽었다.
+// 그래서 두 가지를 고쳤다.
+//   · addMember가 '이미 구성원'을 실패로 보지 않는다(아래).
+//   · 저장하러 가기 **전에** 네 갈래를 판정한다 — DB 오류는 마지막 방어선일 뿐이다.
+//
+// 네 갈래(사용자가 정한 정책):
+//   1. 이미 **다른 순의 순장**      → 세우지 않는다
+//   2. **이 순의 순원**             → 세운다 (구성원 추가는 건너뛴다)
+//   3. **다른 순의 순원**           → 세우지 않고, 먼저 이 순으로 옮기라고 말한다
+//                                     (옮기는 일은 사람이 판단한다 — 편성이므로)
+//   4. 아무 순에도 없음             → 세우고 이 순 구성원에 넣는다
+// 이전 순장은 그대로 순원으로 남는다 — 리더 자리만 바뀐다.
+export function leaderPlan({ group, personId, people = [], suns = [], members = [] } = {}) {
+  if (!group) return { ok: false, why: '순을 찾지 못했어요' };
+  // 비우기는 언제나 된다 — 구성원은 그대로 남는다
+  if (!personId) return { ok: true, addMember: false, name: '' };
+  if (personId === group.leader_person_id) return { ok: true, addMember: false, same: true, name: '' };
+
+  const person = people.find(p => p.id === personId);
+  const name = person?.name || '';
+  if (!person) return { ok: false, why: '명단에서 그 청년을 찾지 못했어요' };
+  if (person.sun_exempt) return { ok: false, why: `${name}님은 순 편성 대상이 아니에요` };
+
+  const leads = suns.find(g => g.id !== group.id && g.leader_person_id === personId);
+  if (leads) return { ok: false, why: `${name}님은 이미 ${leads.name}의 순장이에요` };
+
+  const sunIds = new Set(suns.map(g => g.id));
+  const here = members.some(m => m.group_id === group.id && m.person_id === personId);
+  if (here) return { ok: true, addMember: false, name };
+
+  const elsewhere = members.find(m => m.person_id === personId && m.group_id !== group.id && sunIds.has(m.group_id));
+  if (elsewhere) {
+    const other = suns.find(g => g.id === elsewhere.group_id);
+    return { ok: false, why: `${name}님은 ${other?.name || '다른 순'} 순원이라, 먼저 이 순으로 순원 추가(이동)를 해 주세요` };
+  }
+  return { ok: true, addMember: true, name };
+}
+
+// 유니크 위반(23505)의 이유는 **부르는 쪽만 안다** — '이미 신청해 두었어요'인지
+// '이미 그 순의 순원이에요'인지. errorText.js는 화면 전체가 같이 쓰는 파일이라
+// 거기에 모임 화면의 사정을 넣지 않고, 그 한 줄을 여기서 얹는다(errorReason이
+// err.human을 가장 먼저 본다).
+export const dupReason = (err, human) =>
+  (err && String(err.code) === '23505' && human) ? { code: err.code, message: err.message, human } : err;
 
 // 연도 고르기의 후보 — 편성이 있는 해 + 올해(+ 다음 해 개편을 미리 짤 수 있게).
 export function yearOptions(groups = [], now = new Date().getFullYear()) {
@@ -275,7 +332,11 @@ export async function addMember(groupId, personId) {
     return;
   }
   const { error } = await supabase.from('group_members').insert({ group_id: groupId, person_id: personId });
-  if (error) throw error;
+  // **이미 구성원인 것은 실패가 아니다.** PK가 (group_id, person_id)라 두 번 넣으면
+  // 23505가 나는데(0035), 넣으려던 상태는 이미 참이다. 이 한 줄이 없어서 순장을
+  // 바꿀 때마다 '순장을 정하지 못했어요'가 떴다 — 리더는 이미 바뀐 뒤였다
+  // (사용자 지적 2026-09-03). 게스트 경로는 위에서 이미 걸러 낸다.
+  if (error && String(error.code) !== '23505') throw error;
 }
 
 export async function removeMember(groupId, personId) {
@@ -346,16 +407,18 @@ export async function saveClubInfo(id, { name, note }) {
   return saveGroup(id, { name: clean, note: String(note || '').trim() || null });
 }
 
+// **여기서 구성원을 손대지 않는다.** 예전에는 리더를 담은 patch가 오면 곧바로
+// addMember를 불렀는데, 그 두 걸음 중 뒤가 유니크 위반으로 죽으면 '못 했어요'가 떴다
+// (리더는 이미 바뀐 뒤였다 — 사용자 지적 2026-09-03). 지금은 부르는 쪽이 leaderPlan으로
+// 먼저 판정하고, 넣어야 할 때만 넣는다(groupsView setLeader).
 export async function saveGroup(id, patch) {
   if (!supabase) {
     const rows = guestRows('groups').map(g => (g.id === id ? { ...g, ...patch } : g));
     guestSet('groups', rows);
-    if (patch.leader_person_id) await addMember(id, patch.leader_person_id);
     return rows.find(g => g.id === id);
   }
   const { data, error } = await supabase.from('groups').update(patch).eq('id', id).select(GROUP_COLS).single();
   if (error) throw error;
-  if (patch.leader_person_id) await addMember(id, patch.leader_person_id);
   return data;
 }
 
@@ -423,11 +486,5 @@ export async function saveMeetingAttendance(meetingId, ids) {
     return;
   }
   const { error } = await supabase.from('group_meetings').update({ attendance: ids }).eq('id', meetingId);
-  if (error) throw error;
-}
-
-export async function removeMeeting(meetingId) {
-  if (!supabase) { guestSet('group_meetings', guestRows('group_meetings').filter(m => m.id !== meetingId)); return; }
-  const { error } = await supabase.from('group_meetings').delete().eq('id', meetingId);
   if (error) throw error;
 }

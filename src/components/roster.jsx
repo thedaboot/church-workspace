@@ -46,7 +46,7 @@ const BADGE_STYLE = {
 };
 
 // '05-26' → '5월 26일'. 저장 값은 언제나 MM-DD다(0019·0035의 관례).
-export const birthdayLabel = (mmdd) => {
+const birthdayLabel = (mmdd) => {
   const m = /^(\d{2})-(\d{2})$/.exec(String(mmdd || ''));
   return m ? `${+m[1]}월 ${+m[2]}일` : '';
 };

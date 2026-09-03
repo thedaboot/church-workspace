@@ -20,7 +20,7 @@ import {
   relTargets, relsPathOf, halfPtToPx, emuToPx, dataUrl,
 } from './ooxml.js';
 
-export const MAX_BLOCKS = 1200;   // 이보다 길면 앞부분만 그린다(엑셀의 500줄과 같은 판단)
+const MAX_BLOCKS = 1200;   // 이보다 길면 앞부분만 그린다(엑셀의 500줄과 같은 판단)
 
 // 워드는 켜짐을 <w:b/> 또는 <w:b w:val="1"/>로 적고, **끔**을 w:val="0"으로 적는다.
 // 그냥 태그 유무만 보면 "굵게 껐다"가 굵게로 뒤집힌다(스타일에서 물려받은 굵기를

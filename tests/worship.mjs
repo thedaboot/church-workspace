@@ -801,8 +801,9 @@ await ev(typeIn('input[aria-label="유튜브 재생목록 주소"]', 'https://vi
 await sleep(250);
 await ev(`document.querySelector('.worship-song-pull').click()`); await sleep(600);
 const badUrl = await ev(`document.querySelector('[role="status"]')?.innerText.trim() || ''`);
-check('유튜브가 아닌 주소를 붙이면 그렇게 말해 준다',
-  badUrl === '유튜브 재생목록 주소를 붙여주세요', badUrl);
+// 실패 문구는 **무엇을 못 했는지 + 왜**가 같이 있어야 한다(사용자 지시 2026-09-03)
+check('유튜브가 아닌 주소를 붙이면 무엇을 못 했는지와 이유를 같이 말한다',
+  badUrl.includes('재생목록을 가져오지 못했어요') && badUrl.includes('유튜브 재생목록 링크가 아니에요'), badUrl);
 
 await ev(typeIn('input[aria-label="유튜브 재생목록 주소"]', 'https://www.youtube.com/playlist?list=PLl2Yb-KJTF0Zq'));
 await sleep(250);
@@ -811,8 +812,9 @@ const noApi = await ev(`(() => ({
   toast: document.querySelector('[role="status"]')?.innerText.trim() || '',
   songs: (JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.kind === '성탄절 예배').songs || []).length,
 }))()`);
-check('서버 함수가 없는 환경에서는 조용히 토스트로 알린다',
-  noApi.toast === '지금은 가져올 수 없어요' && noApi.songs === 0, JSON.stringify(noApi));
+check('가져올 수 없는 환경이면 그 이유를 말한다(게스트 모드)',
+  noApi.toast.includes('재생목록을 가져오지 못했어요') && noApi.toast.includes('게스트 모드')
+  && noApi.songs === 0, JSON.stringify(noApi));
 
 // 광고 자리 글
 await tabClick('광고'); await sleep(250);

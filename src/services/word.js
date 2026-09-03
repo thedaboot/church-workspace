@@ -33,7 +33,7 @@ export function shiftDay(iso, days) {
   return d.toISOString().slice(0, 10);
 }
 
-export const weekdayOf = (iso) => WEEK[utc(iso).getUTCDay()];
+const weekdayOf = (iso) => WEEK[utc(iso).getUTCDay()];
 export const dayLabel = (iso) =>
   `${+iso.slice(0, 4)}년 ${+iso.slice(5, 7)}월 ${+iso.slice(8, 10)}일 (${weekdayOf(iso)})`;
 export const shortDayLabel = (iso) => `${+iso.slice(5, 7)}월 ${+iso.slice(8, 10)}일 (${weekdayOf(iso)})`;
@@ -196,13 +196,17 @@ export async function loadBibleState() {
   }
 }
 
+// **못 남긴 것을 부르는 쪽에 알려준다**(사용자 피드백 2026-09-03 — 예외 문구 검토).
+// 여기서 던지지는 않는다(읽던 자리 하나 때문에 본문이 멈추면 안 된다) 대신
+// `{ ok, error }`를 돌려주고, 북마크·형광펜처럼 사람이 **한 일이 사라지는** 경우에만
+// 부르는 쪽이 이유까지 붙여 말한다(wordBible의 update). 이어읽기는 조용히 넘긴다.
 export async function saveBibleState(next) {
   lsSet(LS.bible, next);   // 로그인해도 로컬에 같이 남긴다 — 클라우드가 흔들려도 읽던 자리는 지킨다
-  if (!supabase) return;
+  if (!supabase) return { ok: true };
   try {
     const uid = await myId();
-    if (!uid) return;
-    await supabase.from('bible_state').upsert(
+    if (!uid) return { ok: true };   // 로그인 전이면 기기에만 남는 것이 정상이다
+    const { error } = await supabase.from('bible_state').upsert(
       {
         profile_id: uid, last_ref: next.lastRef || null,
         bookmarks: arr(next.bookmarks), highlights: arr(next.highlights),
@@ -210,7 +214,12 @@ export async function saveBibleState(next) {
       },
       { onConflict: 'profile_id' },
     );
-  } catch { /* 이어읽기는 못 남겨도 읽는 데 지장이 없다 */ }
+    if (error) throw error;
+    return { ok: true };
+  } catch (error) {
+    console.error('[word] 성경 상태 저장 실패:', error);
+    return { ok: false, error };
+  }
 }
 
 // 글자 크기는 기기의 취향이라 계정을 따라다니지 않는다(같은 사람도 폰과 노트북이 다르다)

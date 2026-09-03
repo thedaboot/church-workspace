@@ -36,8 +36,8 @@ export const ageDays = (iso, today = ISO_TODAY()) => daysLeft(today, String(iso)
 // 마감이 정해지지 않은 채 이만큼 지나면 표시한다 — 마감 미정은 막지 않지만
 // 조용히 묻히게 두지도 않는다(마감을 필수로 만들면 아무 날짜나 넣어서 '지연'
 // 숫자가 거짓이 된다).
-export const STALE_NODUE_DAYS = 14;
-export const isStaleNoDue = (t, today = ISO_TODAY()) =>
+const STALE_NODUE_DAYS = 14;
+const isStaleNoDue = (t, today = ISO_TODAY()) =>
   !t.dueDate && t.status !== '완료' && !!t.createdAt && ageDays(t.createdAt, today) >= STALE_NODUE_DAYS;
 
 // 마감 기준 구간 — 지연 / 오늘 / 이번 주(6일 내) / 그 이후 / 마감 미정 / 완료

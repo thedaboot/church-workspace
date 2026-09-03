@@ -37,6 +37,22 @@ const KINDS = [
 // 종류 피커의 두 번째 줄 — 고르면 이름 칸이 나온다(이벤트성 예배)
 const OTHER_LABEL = '다른 예배…';
 
+// ── 실패 문구 ───────────────────────────────────────────────────────────────
+// **'무엇을 못 했는지'에 '왜'를 붙여 한 줄로 말한다**(사용자 지시 2026-09-03:
+// "'순장을 정하지 못했어요 · 이미 같은 것이 있어요'보다 '순장을 지정하지 못했어요.
+// 그 청년은 이미 자리가 배정되어 있어요'처럼 명확하게"). 공용 errorReason은 표와
+// 코드만 알아서 '이미 같은 것이 있어요'까지밖에 말하지 못한다 — **무엇이 겹쳤는지는
+// 이 화면만 안다.** 그래서 아는 코드는 여기서 사람 말로 바꾸고, 모르는 것(오프라인·
+// 로그인 끊김·서버 불안정)은 그대로 공용 문구에 맡긴다(앱 전체가 같은 말을 해야 한다).
+//
+// 두 도막을 잇는 것은 failText다 — 짧으면 ' · ', 길면 줄을 바꾼다(§8).
+const NEED_EDIT = '주보는 회장·교역자·마스터만 쓸 수 있어요';
+const GONE = '이 주보가 이미 지워졌어요 · 새로고침해주세요';
+const fail = (what, err, byCode = {}) => {
+  const why = err?.human || byCode[String(err?.code ?? '')];
+  return failText(what, why ? { human: why } : err);
+};
+
 const CARD = 'rounded-[10px] shadow-soft transition active:scale-[.995]';
 const CARD_STYLE = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
 
@@ -142,7 +158,7 @@ function NewServiceForm({ onCreate, onCancel }) {
   );
 }
 
-export function ServiceList({ services, perms, onOpen, onCreate }) {
+function ServiceList({ services, perms, onOpen, onCreate }) {
   const [kind, setKind] = useState('all');
   const [draftsOnly, setDraftsOnly] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -243,7 +259,7 @@ export function WorshipView({ onOpenBible } = {}) {
       } catch (e) {
         console.error('[worship] 주보 목록 실패:', e);
         if (!alive) return;
-        showToast(failText('주보를 받지 못했어요', e));
+        showToast(fail('주보 목록을 받지 못했어요', e, { 42501: '승인된 멤버만 주보를 볼 수 있어요' }));
         setPerms(worshipPerms({ isMaster, isAdmin })); setServices([]);
       }
     })();
@@ -262,7 +278,7 @@ export function WorshipView({ onOpenBible } = {}) {
       setRoster(r); setPresent(new Set(att)); setNote(n);
     } catch (e) {
       console.error('[worship] 주보 상세 실패:', e);
-      showToast(failText('주보를 여는 데 문제가 있어요', e));
+      showToast(fail('주보에 딸린 명단과 출석을 받지 못했어요', e, { 42501: '승인된 멤버만 명단을 볼 수 있어요' }));
     }
   }, [canWriteNote]);
 
@@ -276,7 +292,10 @@ export function WorshipView({ onOpenBible } = {}) {
       return true;
     } catch (e) {
       console.error('[worship] 주보 만들기 실패:', e);
-      showToast(failText('주보를 만들지 못했어요', e));
+      showToast(fail('주보를 만들지 못했어요', e, {
+        23505: '그 날짜의 주일 예배 주보가 이미 있어요',
+        42501: '주보는 회장·교역자·마스터만 만들 수 있어요',
+      }));
       return false;
     }
   }, [open]);
@@ -288,7 +307,7 @@ export function WorshipView({ onOpenBible } = {}) {
       return true;
     } catch (e) {
       console.error('[worship] 주보 저장 실패:', e);
-      showToast(failText('주보를 저장하지 못했어요', e));
+      showToast(fail('주보를 저장하지 못했어요', e, { 42501: NEED_EDIT, PGRST116: GONE }));
       return false;
     }
   }, [openId]);
@@ -300,7 +319,7 @@ export function WorshipView({ onOpenBible } = {}) {
       showToast('주보를 발행했어요');
     } catch (e) {
       console.error('[worship] 주보 발행 실패:', e);
-      showToast(failText('주보를 발행하지 못했어요', e));
+      showToast(fail('주보를 발행하지 못했어요', e, { 42501: NEED_EDIT, PGRST116: GONE }));
     }
   }, [openId]);
 
@@ -312,7 +331,10 @@ export function WorshipView({ onOpenBible } = {}) {
       setOpenId(null); setScreen('list');
     } catch (e) {
       console.error('[worship] 주보 삭제 실패:', e);
-      showToast(failText('주보를 삭제하지 못했어요', e));
+      showToast(fail('주보를 삭제하지 못했어요', e, {
+        42501: NEED_EDIT, PGRST116: GONE,
+        23503: '이 주보에 딸린 출석 기록이 아직 남아 있어요',
+      }));
     }
   }, [openId]);
 
@@ -323,7 +345,10 @@ export function WorshipView({ onOpenBible } = {}) {
       return true;
     } catch (e) {
       console.error('[worship] 예배 노트 저장 실패:', e);
-      showToast(failText('예배 노트를 저장하지 못했어요', e));
+      showToast(fail('예배 노트를 저장하지 못했어요', e, {
+        42501: '노트는 로그인한 본인만 쓸 수 있어요',
+        PGRST116: GONE,
+      }));
       return false;
     }
   }, [openId]);
@@ -331,6 +356,9 @@ export function WorshipView({ onOpenBible } = {}) {
   // 출석은 먼저 화면에 반영하고 실패하면 되돌린다 — 한 명씩 누르는 조작이라
   // 서버를 기다리면 목록 전체가 굼떠 보인다.
   const toggle = useCallback(async (personId, next) => {
+    // 누구의 출석인지까지 말한다 — 칩 여러 개를 잇달아 누르면 어느 것이 실패했는지
+    // 토스트만 보고는 알 수 없다(이름은 이미 명단에 있다)
+    const who = (roster.people || []).find(p => p.id === personId)?.name || '그 청년';
     setPresent(prev => {
       const s = new Set(prev);
       if (next) s.add(personId); else s.delete(personId);
@@ -345,43 +373,63 @@ export function WorshipView({ onOpenBible } = {}) {
         if (next) s.delete(personId); else s.add(personId);
         return s;
       });
-      showToast(failText(next ? '출석으로 바꾸지 못했어요' : '출석을 되돌리지 못했어요', e));
+      showToast(fail(next ? `${who}님을 출석으로 표시하지 못했어요` : `${who}님의 출석을 취소하지 못했어요`, e, {
+        23505: '이미 출석으로 표시되어 있어요 · 새로고침해주세요',
+        42501: '내 순 청년만 출석을 만질 수 있어요 · 다른 순은 임원·교역자가 체크해요',
+        23503: '이 주보나 명단이 이미 지워졌어요 · 새로고침해주세요',
+      }));
     }
-  }, [openId]);
+  }, [openId, roster.people]);
 
+  // 미등록 출석자 — **두 걸음이라 실패도 두 가지다**(명단에 올리기 → 출석으로 표시).
+  // 한 덩이로 묶어 두면 이미 명단에 올라간 뒤에 출석만 실패했는데도 '명단에 올리지
+  // 못했어요'라고 거짓말을 하게 된다(사용자 지시 2026-09-03 — 무엇을 못 했는지가
+  // 정확해야 한다).
   const addPerson = useCallback(async (name) => {
+    const clean = String(name || '').trim();
+    let made = null;
     try {
-      const made = await addRosterPerson(name);
+      made = await addRosterPerson(clean);
       if (!made) return null;
       setRoster(r => ({ ...r, people: [...(r.people || []), made] }));
+    } catch (e) {
+      console.error('[worship] 미등록 출석자 추가 실패:', e);
+      showToast(fail(`${clean}님을 명단에 올리지 못했어요`, e, {
+        42501: '출석을 체크할 수 있는 사람만 명단에 올릴 수 있어요',
+      }));
+      return null;
+    }
+    try {
       await checkIn(openId, made.id);
       setPresent(prev => new Set(prev).add(made.id));
       showToast(`${made.name}님을 명단에 올리고 출석으로 표시했어요`);
-      return made;
     } catch (e) {
-      console.error('[worship] 미등록 출석자 추가 실패:', e);
-      showToast(failText('명단에 올리지 못했어요', e));
-      return null;
+      console.error('[worship] 미등록 출석자 출석 실패:', e);
+      showToast(fail(`${made.name}님을 명단에는 올렸지만 출석으로 표시하지 못했어요`, e, {
+        42501: '내 순 청년만 출석을 만질 수 있어요 · 다른 순은 임원·교역자가 체크해요',
+      }));
     }
+    return made;
   }, [openId]);
 
   const saveAttendanceNote = useCallback((text) => save({ attendance_note: text }), [save]);
 
   // 유튜브 재생목록 → 찬양 목록. 통신은 이 파일이 갖고(worshipDetail 머리말) 화면은
-  // 돌려받은 목록을 그대로 쓴다. 게스트·로컬 vite에는 /api/yt가 없으니 조용히
-  // 토스트 한 줄로 떨군다 — 그때는 쓰는 사람이 할 수 있는 일이 없다.
+  // 돌려받은 목록을 그대로 쓴다. **왜 안 됐는지는 원인마다 다르다** — 주소가 아닌지,
+  // 게스트 모드인지, 배포된 앱이 아닌지, 재생목록이 비공개인지(services/worship.js가
+  // 이유를 만들고 여기서 '무엇을 못 했는지'를 앞에 붙인다).
   const pullPlaylist = useCallback(async (url, rows) => {
     try {
       const picked = await fetchPlaylistSongs(url);
       const next = mergeSongs(rows, picked);
       const added = next.length - (rows || []).length;
-      showToast(added ? `${added}곡을 가져왔어요` : '이미 다 들어 있어요');
+      showToast(added ? `${added}곡을 가져왔어요` : '가져올 새 곡이 없어요 · 재생목록의 곡이 이미 다 들어 있어요');
       return added ? next : null;
     } catch (e) {
       // 서버 함수가 없는 환경(게스트·로컬 vite)이나 주소를 잘못 붙인 것은 고장이
       // 아니다 — 토스트 한 줄로 끝내고 콘솔에는 남기지 않는다(worship.js의 quiet)
       if (!e?.quiet) console.error('[worship] 재생목록 가져오기 실패:', e);
-      showToast(e?.human || '지금은 가져올 수 없어요');
+      showToast(fail('재생목록을 가져오지 못했어요', e));
       return null;
     }
   }, []);

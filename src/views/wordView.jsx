@@ -146,7 +146,9 @@ function QtTab() {
       let passage = null;
       try { passage = await loadPassage(schedule.passage_ref); } catch { /* 못 읽으면 구절만 보여준다 */ }
       if (alive) setDay({ loading: false, schedule, passage });
-    })().catch(() => alive && setDay({ loading: false, schedule: null, passage: null }));
+    // **못 읽은 것과 없는 것은 다르다**(사용자 피드백 2026-09-03 — 예외 문구 검토).
+    // 예전에는 읽기가 실패해도 '아직 올라오지 않았어요'가 떠서 화면이 거짓말을 했다(§6-29-b).
+    })().catch(err => alive && setDay({ loading: false, schedule: null, passage: null, failed: err || true }));
     return () => { alive = false; };
   }, [date]);
 
@@ -160,9 +162,13 @@ function QtTab() {
       if (!alive) return;
       const next = { date, body: mine?.body || '', shared: !!mine?.shared, exists: !!mine };
       setEntry(next); setBody(next.body); setFeed(shared);
-    })().catch(() => {
+    })().catch(err => {
       if (!alive) return;
       setEntry({ date, body: '', shared: false, exists: false }); setBody(''); setFeed([]);
+      // 조용히 빈 칸을 세우면 **이미 써 둔 묵상이 없는 것처럼 보인다**(그 상태로 저장하면
+      // 덮어쓴다). 무엇을 못 읽었는지 이유까지 말한다(사용자 피드백 2026-09-03).
+      console.error('[word] 묵상·나눔 읽기 실패:', err);
+      showToast(failText('이 날 묵상과 나눔을 불러오지 못했어요', err));
     });
     return () => { alive = false; };
   }, [date]);
@@ -221,7 +227,7 @@ function QtTab() {
     } catch (e) {
       console.error('[word] 공유 상태 저장 실패:', e);
       setShareState('');
-      showToast(failText(v ? '더다붓에 공유하지 못했어요' : '공유를 내리지 못했어요', e));
+      showToast(failText(v ? '묵상을 더다붓에 공유하지 못했어요' : '묵상을 나만 보기로 바꾸지 못했어요', e));
     }
   };
 
@@ -232,10 +238,10 @@ function QtTab() {
       await saveMyEntry(date, { body: entry.body, shared: false });
       setEntry(e => ({ ...e, shared: false }));
       setFeed(await fetchSharedEntries(date));
-      showToast('나눔에서 내렸어요');
+      showToast('나눔에서 내렸어요, 묵상은 내 기록에 그대로 있어요');
     } catch (e) {
       console.error('[word] 공유 해제 실패:', e);
-      showToast(failText('나눔에서 내리지 못했어요', e));
+      showToast(failText('묵상을 나눔에서 내리지 못했어요', e));
     }
   };
 
@@ -247,10 +253,10 @@ function QtTab() {
       setBody('');
       setFeed(await fetchSharedEntries(date));
       reloadGrass();
-      showToast('묵상을 지웠어요');
+      showToast('이 날 묵상을 지웠어요');
     } catch (e) {
       console.error('[word] 묵상 삭제 실패:', e);
-      showToast(failText('묵상을 지우지 못했어요', e));
+      showToast(failText('이 날 묵상을 지우지 못했어요', e));
     }
   };
 
@@ -267,12 +273,13 @@ function QtTab() {
   const slotH = day.loading ? Math.max(PASSAGE_MIN_H, hold) : PASSAGE_MIN_H;
 
   return (
-    // 넓은 화면에서 잔디가 본문 옆에 **붙어** 선다(사용자 피드백 2026-09-02 4차 —
-    // 1fr + 300px이면 본문 열이 46rem에서 끊긴 뒤 1440px에서 둘 사이가 370px 벌어져
-    // 잔디만 화면 오른쪽에 떨어져 있었다). 본문 열의 상한이 곧 첫 칸의 폭이다.
-    <div className="grid gap-x-7 gap-y-6 items-start lg:grid-cols-[minmax(0,46rem)_300px]">
-      {/* 읽는 폭은 46rem에서 끊는다 — 본문은 오래 읽는 글이라 한 줄이 길면 눈이 샌다 */}
-      <div className="min-w-0 max-w-[46rem]">
+    // **어느 폭에서도 빈 띠가 없다**(사용자 피드백 2026-09-03 — 1000px 남짓에서 본문이
+    // 46rem에서 끊기고 오른쪽 230px이 빈 채로 '내 기록'은 그 아래에 있었다). 읽기 폭
+    // 상한(46rem)을 없애고 첫 칸이 컨테이너를 채운다 — 옆 칸 300px은 lg에서만 붙는다
+    // (그게 `.side-grid`다. 대시보드·내 업무와 같은 정의를 쓰면 좌우 경계도 저절로 맞는다).
+    <div className="grid gap-x-7 gap-y-6 items-start side-grid">
+      {/* data-col: 검사(tests/word.mjs)가 이 칸이 자기 트랙을 다 쓰는지 잰다 */}
+      <div data-col="qt" className="min-w-0">
         {/* 날짜 이동 — 날짜 글자가 곧 데이트피커 트리거다(사용자 피드백 2026-09-02) */}
         <div className="flex items-center gap-1 pb-3">
           <button onClick={() => go(shiftDay(date, -1))} aria-label="어제"
@@ -419,7 +426,12 @@ export function QtPassage({ day, minH = PASSAGE_MIN_H }) {
     return (
       <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: PASSAGE_MIN_H }}>
         <EmptyBookMark />
-        <p className="text-[13.5px] font-semibold text-fg mt-3">이 날짜의 본문이 아직 올라오지 않았어요</p>
+        {/* 못 읽은 것과 아직 없는 것을 갈라 말한다(사용자 피드백 2026-09-03) */}
+        <p className="text-[13.5px] font-semibold text-fg mt-3 whitespace-pre-line">
+          {day.failed
+            ? failText('이 날짜의 본문을 불러오지 못했어요', day.failed)
+            : '이 날짜의 본문이 아직 올라오지 않았어요'}
+        </p>
       </div>
     );
   }
@@ -433,7 +445,7 @@ export function QtPassage({ day, minH = PASSAGE_MIN_H }) {
       <div className="mt-3.5">
         {passage?.verses?.length
           ? <PassageText verses={passage.verses} showChapter={passage.verses[0].chapter !== passage.verses.at(-1).chapter} />
-          : <p className="text-[12.5px] text-fg-faint">적어 둔 구절을 성경에서 찾지 못했어요</p>}
+          : <p className="text-[12.5px] text-fg-faint">읽기표에 적힌 구절을 성경에서 찾지 못했어요</p>}
       </div>
     </Card>
   );
@@ -453,7 +465,7 @@ function FeedSkeleton() {
   );
 }
 
-export function ShareFeed({ entries, members = [], myName = '', onEdit, onUnshare }) {
+function ShareFeed({ entries, members = [], myName = '', onEdit, onUnshare }) {
   const byId = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   if (!entries.length) {
     return <p className="text-[11.5px] text-fg-faint">이 날짜에 올라온 나눔이 아직 없어요</p>;
@@ -519,7 +531,7 @@ const WEEK_HEAD = ['일', '월', '화', '수', '목', '금', '토'];
 const CELL = 13;   // px — 칸 한 변
 const GAP = 3;     // px — 칸 사이
 
-export function Grass({ month, today, dates, weekStart, weekEnd, onPick }) {
+function Grass({ month, today, dates, weekStart, weekEnd, onPick }) {
   const set = useMemo(() => new Set(dates), [dates]);
   const inMonth = month.days.filter(d => set.has(d)).length;
   const inWeek = dates.filter(d => d >= weekStart && d <= weekEnd).length;

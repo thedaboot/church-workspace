@@ -228,7 +228,7 @@ export function ProfileModal({ onClose, onSave }) {
 // 되돌릴 수 있으므로 확인 팝오버를 두지 않는다.
 // 이름 앞의 네 자리 연도를 뽑는다(2000~2100). 이름 규칙이 이미 '2026 하계 수련회'라
 // 대부분 저절로 맞고, 아니면 올해로 둔다. 0025의 백필과 같은 규칙이다.
-export const yearFromTitle = (title) => {
+const yearFromTitle = (title) => {
   const m = /^\s*(\d{4})/.exec(String(title || ''));
   const y = m ? Number(m[1]) : NaN;
   return y >= 2000 && y <= 2100 ? y : null;

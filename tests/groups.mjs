@@ -54,6 +54,8 @@ const seed = {
     { id: 'p6', name: '노준석', profile_id: 'u2' },
     { id: 'p7', name: '조해리', profile_id: null },
     { id: 'p8', name: '양민혁', profile_id: null },
+    // 순 편성 대상이 아닌 사역자(0040 sun_exempt) — 명단에는 있고 순 후보에는 없다
+    { id: 'p9', name: '신효진', profile_id: null, sun_exempt: true },
   ],
   groups: [
     { id: 'g1', type: 'sun', name: '꼬순', year: Y, leader_person_id: 'p1' },
@@ -302,6 +304,35 @@ const enter = async (me, theme, mut, guide) => {
 };
 // 지금 서 있는 탭 줄 — 자격에 따라 '순 편성'이 붙거나 안 붙는다
 const TABS = `[...document.querySelectorAll('.groups-tab')].map(t => t.textContent.trim()).join(',')`;
+// 지금 떠 있는 토스트 한 줄(Toast.jsx는 role=status 하나만 세운다)
+const toast = () => ev(`(document.querySelector('[role="status"]') || {}).innerText || ''`);
+// 순모임 가이드가 **내 순 카드와 같은 열**에 서는가(사용자 지적 2026-09-03 —
+// "중앙으로 딱 정렬돼서 보이게"). 좌우 끝이 카드와 같고, 종이는 그 안에서 가운데다.
+const guideBox = () => ev(`(() => {
+  const card = document.querySelector('.mysun-card');
+  const sec = document.querySelector('.sun-guide');
+  const page = document.querySelector('.sun-guide-page');
+  if (!card || !sec) return { err: 'no-el' };
+  const c = card.getBoundingClientRect(), s = sec.getBoundingClientRect();
+  const out = { dl: Math.round(s.left - c.left), dr: Math.round(s.right - c.right),
+    below: Math.round(s.top - c.bottom) };
+  if (page) {
+    const p = page.getBoundingClientRect();
+    out.pad = Math.round((p.left - s.left) - (s.right - p.right));
+  }
+  return out;
+})()`);
+// 한 줄인가 — 세로 가운데가 같은 것끼리 묶어 줄 수를 센다(상자 높이가 저마다 다르다)
+const rowsOf = (box, sels) => ev(`(() => {
+  const root = document.querySelector(${JSON.stringify(box)});
+  if (!root) return { err: 'no-box' };
+  const parts = ${JSON.stringify(sels)}.flatMap(q => [...root.querySelectorAll(q)]);
+  if (parts.length < 3) return { err: '부품 ' + parts.length + '개' };
+  const mids = parts.map(e => { const r = e.getBoundingClientRect(); return (r.top + r.bottom) / 2; });
+  return { rows: mids.reduce((a, y) => (a.some(v => Math.abs(v - y) < 6) ? a : [...a, y]), []).length,
+    parts: parts.length,
+    over: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+})()`);
 // 모임 생성기가 한 줄인가 — 세로 가운데가 같은 것끼리 묶어 줄 수를 센다. 상자 높이가
 // 저마다 달라(날짜 버튼 28px · 칸 30px) top으로 재면 한 줄도 여러 줄로 잡힌다.
 const meetRows = () => ev(`(() => {
@@ -485,6 +516,33 @@ const pure = await ev(`(async () => {
       { id: 'c', position: 3 }, { id: 'x', position: null }, { id: 'a', position: 1 },
       { id: 'y' }, { id: 'b', position: 2 },
     ]).map(g => g.id),
+    // 순 편성 제외(0040) — 순 후보에서만 빠지고 동아리는 그대로다
+    exempt: m.sunCandidates([{ id: 'a' }, { id: 'b', sun_exempt: true }]).map(p => p.id),
+    exemptSun: m.notInGroup([{ id: 'a' }, { id: 'b', sun_exempt: true }], { id: 'g', type: 'sun' }, []).map(p => p.id),
+    exemptClub: m.notInGroup([{ id: 'a' }, { id: 'b', sun_exempt: true }], { id: 'gc', type: 'club' }, []).map(p => p.id),
+    // 순장 지정 네 갈래(사용자 지시 2026-09-03). 꼬순: p1(순장)·p2, TT순: p6(순장)·p4
+    leader: (() => {
+      const people = [{ id: 'p1', name: '김윤주' }, { id: 'p2', name: '천진영' },
+        { id: 'p4', name: '배현민' }, { id: 'p6', name: '노준석' }, { id: 'p7', name: '조해리' },
+        { id: 'p9', name: '신효진', sun_exempt: true }];
+      const suns = [{ id: 'g1', name: '꼬순', leader_person_id: 'p1' },
+        { id: 'g2', name: 'TT순', leader_person_id: 'p6' }];
+      const members = [{ group_id: 'g1', person_id: 'p1' }, { group_id: 'g1', person_id: 'p2' },
+        { group_id: 'g2', person_id: 'p6' }, { group_id: 'g2', person_id: 'p4' }];
+      const plan = (personId) => m.leaderPlan({ group: suns[0], personId, people, suns, members });
+      const one = (r) => (r.ok ? 'ok:' + r.addMember : r.why);
+      return {
+        otherLeader: one(plan('p6')), hereMember: one(plan('p2')),
+        elsewhere: one(plan('p4')), free: one(plan('p7')),
+        exempt: one(plan('p9')), clear: one(plan('')),
+      };
+    })(),
+    // 유니크 위반만 부르는 쪽의 이유로 갈아 끼운다 — 다른 오류는 그대로 둔다
+    dup: [
+      m.dupReason({ code: '23505', message: 'dup' }, '이미 신청해 두었어요').human || '',
+      m.dupReason({ code: '23502', message: 'null' }, '이미 신청해 두었어요').human || '없음',
+      m.dupReason({ code: '23505', message: 'dup' }, '').code || '',
+    ],
     // 이미 든 사람(리더 포함)은 '멤버 추가' 후보가 아니다
     left: m.notInGroup(
       [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }],
@@ -518,6 +576,27 @@ check('동아리는 손으로 정한 순서대로, 값이 없는 것은 차례�
   JSON.stringify(pure.order) === '["a","b","c","x","y"]', JSON.stringify(pure.order));
 check('멤버 추가 후보에서 이미 든 사람과 리더는 빠진다',
   JSON.stringify(pure.left) === '["c","d"]', JSON.stringify(pure.left));
+check("유니크 위반에만 '무엇이 이미 있는지'를 넣는다",
+  JSON.stringify(pure.dup) === '["이미 신청해 두었어요","없음","23505"]', JSON.stringify(pure.dup));
+// 0040 — 부장님·전도사님은 순 후보에서만 빠진다(동아리 가입은 그대로)
+check('순 편성 제외자는 순 후보에서 빠지고 동아리 후보에는 남는다',
+  JSON.stringify(pure.exempt) === '["a"]' && JSON.stringify(pure.exemptSun) === '["a"]'
+  && JSON.stringify(pure.exemptClub) === '["a","b"]',
+  `${JSON.stringify(pure.exemptSun)} / ${JSON.stringify(pure.exemptClub)}`);
+// 순장 지정 네 갈래 — 문구까지 못 박는다(사용자가 정한 정책 2026-09-03)
+check('① 이미 다른 순의 순장이면 세우지 않고 어느 순인지 말한다',
+  pure.leader.otherLeader === '노준석님은 이미 TT순의 순장이에요', pure.leader.otherLeader);
+check('② 이 순의 순원이면 그대로 세운다(구성원 추가는 건너뛴다)',
+  pure.leader.hereMember === 'ok:false', pure.leader.hereMember);
+check('③ 다른 순의 순원이면 먼저 옮기라고 말한다',
+  pure.leader.elsewhere === '배현민님은 TT순 순원이라, 먼저 이 순으로 순원 추가(이동)를 해 주세요',
+  pure.leader.elsewhere);
+check('④ 아무 순에도 없으면 세우고 구성원으로 넣는다',
+  pure.leader.free === 'ok:true', pure.leader.free);
+check('순 편성 제외자는 순장으로도 세우지 않는다',
+  pure.leader.exempt === '신효진님은 순 편성 대상이 아니에요', pure.leader.exempt);
+check('순장 비우기는 언제나 되고 구성원은 건드리지 않는다',
+  pure.leader.clear === 'ok:false', pure.leader.clear);
 
 // ── 1) 내 순 (일반 순원 · 꼬순) ─────────────────────────────────────────────
 await ev(plant({ personId: 'p1', isMaster: false, roles: [] }));
@@ -557,10 +636,57 @@ check('공유하지 않은 남의 노트는 오지 않는다', mine.hidden === f
 // 가이드 한 벌은 church_sunguide_v1에 심는다(그 파일의 저장 자리 계약).
 await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'light', '', true);
 const guideLeader = await ev(`!!document.querySelector('.sun-guide')`);
+// 자리와 정렬 — 처음에는 섹션 전체가 max-w-560 + mx-auto라 제목과 버튼이 순 카드의
+// 어느 선과도 맞지 않고 화면 가운데에 떠 있었다(사용자 지적 2026-09-03, 두 번).
+const gDesk = await guideBox();
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+await sleep(600);
+const gMob = await guideBox();
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(500);
 await enter({ personId: 'p2', isMaster: false, isAdmin: false, roles: [] }, 'light', '', true);
 const guidePlain = await ev(`!!document.querySelector('.sun-guide')`);
 check('순모임 가이드는 순장에게 보이고 일반 순원에게는 안 보인다',
   guideLeader === true && guidePlain === false, `순장 ${guideLeader} / 순원 ${guidePlain}`);
+check('가이드는 내 순 카드 아래에, 카드와 같은 좌우 끝에 선다',
+  !gDesk.err && Math.abs(gDesk.dl) <= 1 && Math.abs(gDesk.dr) <= 1 && gDesk.below > 0,
+  JSON.stringify(gDesk));
+check('가이드 종이는 그 안에서 좌우 여백이 같다(가운데)',
+  !gDesk.err && Math.abs(gDesk.pad) <= 1, JSON.stringify(gDesk));
+check('모바일 375px에서도 카드와 같은 열에 서고 종이가 가운데다',
+  !gMob.err && Math.abs(gMob.dl) <= 1 && Math.abs(gMob.dr) <= 1 && gMob.below > 0
+  && Math.abs(gMob.pad) <= 1, JSON.stringify(gMob));
+
+// 가이드가 아직 없는 순장(만들 자격까지) — 머리줄 오른쪽 끝의 'AI로 만들기'가 선다.
+// **누르면 편집 화면이 열리거나, 왜 못 만드는지 말한다**(사용자 물음 2026-09-03
+// "가이드는 지금 만들지 못하는 건지?" — 예전에는 이유 없이 '만들 수 없어요'만 떴다).
+await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: ['lead_sunjang'] });
+const gNone = await ev(`(() => {
+  const sec = document.querySelector('.sun-guide');
+  const btn = document.querySelector('.sun-guide-create');
+  if (!sec || !btn) return { err: 'no-btn' };
+  const s = sec.getBoundingClientRect(), b = btn.getBoundingClientRect();
+  return { right: Math.round(s.right - b.right), head: sec.querySelector('h3').textContent.trim() };
+})()`);
+check('가이드가 없으면 머리줄 오른쪽 끝에 만들기 버튼이 선다',
+  !gNone.err && Math.abs(gNone.right) <= 2 && gNone.head === '순모임 가이드', JSON.stringify(gNone));
+await ev(`document.querySelector('.sun-guide-create').click()`); await sleep(2200);
+const gMake = await ev(`(() => ({
+  edit: !!document.querySelector('.sun-guide-edit'),
+  toast: (document.querySelector('[role="status"]') || {}).innerText || '',
+}))()`);
+check('AI로 만들기는 편집 화면을 열거나, 왜 못 만드는지 말한다',
+  gMake.edit === true || /만들 수 없어요|만들지 못했어요/.test(gMake.toast), JSON.stringify(gMake));
+if (gMake.edit) {
+  await ev(`document.querySelector('.sun-guide-save').click()`); await sleep(1200);
+  const gSaved = await ev(`(() => ({
+    sheet: !!document.querySelector('.sun-guide-sheet'),
+    rows: (JSON.parse(localStorage.getItem('church_sunguide_v1')) || {}).sun_guides?.length || 0,
+    toast: (document.querySelector('[role="status"]') || {}).innerText || '',
+  }))()`);
+  check('만든 가이드를 저장하면 종이가 서고 저장 자리에 남는다',
+    gSaved.sheet === true && gSaved.rows === 1 && gSaved.toast.includes('저장했어요'), JSON.stringify(gSaved));
+}
 
 // ── 1-2) 순 편성 탭은 마스터·관리자·리더순장만 (0039 can_manage_sun) ────────
 // 교역자는 여기서 빠졌다(사용자 결정 2026-09-02). 교역자 여부는 명단 속성이라
@@ -860,12 +986,47 @@ check('마스터는 남의 동아리도 관리한다',
   (await ev(`!!document.querySelector('.club-leader-tools')`)) === true);
 check('마스터는 남의 동아리 이름도 고친다', (await ev(`!!document.querySelector('.club-edit')`)) === true);
 await ev(`${byText('목록으로')}.click()`); await sleep(600);
-await ev(`document.querySelector('.club-new-open').click()`); await sleep(350);
+await ev(`document.querySelector('.club-new-open').click()`); await sleep(450);
+// 만들기 카드 — 라벨 붙은 칸 셋, 꼭 채울 둘이 한 행, 설명은 그 아래 한 행,
+// 이름에 포커스(사용자 지적 2026-09-03 "+ 새 동아리가 별로 좋지 않다").
+const clubNew = await ev(`(() => {
+  const box = document.querySelector('.club-new');
+  if (!box) return { err: 'no-form' };
+  const name = box.querySelector('input[aria-label="동아리 이름"]');
+  const leader = box.querySelector('input[aria-label="동아리장"]');
+  const note = box.querySelector('input[aria-label="동아리 설명"]');
+  if (!name || !leader || !note) return { err: '칸 없음' };
+  const mid = (e) => { const r = e.getBoundingClientRect(); return (r.top + r.bottom) / 2; };
+  return {
+    labels: [...box.querySelectorAll('.labeled-field > span')].map(x => x.textContent.trim()),
+    sameRow: Math.abs(mid(name) - mid(leader)) < 6,
+    noteBelow: mid(note) > mid(name) + 6,
+    focused: document.activeElement === name,
+  };
+})()`);
+check('새 동아리는 라벨 붙은 칸으로, 이름과 동아리장이 한 행에 선다',
+  JSON.stringify(clubNew.labels) === '["동아리 이름","동아리장","설명 (선택)"]'
+  && clubNew.sameRow === true && clubNew.noteBelow === true, JSON.stringify(clubNew));
+check('새 동아리 카드는 이름 칸에 포커스를 두고 열린다', clubNew.focused === true, JSON.stringify(clubNew));
+const mobClubNew = await (async () => {
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+  await sleep(500);
+  const r = await rowsOf('.club-new', ['input[aria-label="동아리 이름"]', 'input[aria-label="동아리장"]',
+    'input[aria-label="동아리 설명"]', ':scope > div:last-child > button']);
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(500);
+  return r;
+})();
+check('모바일 375px — 새 동아리 카드는 칸마다 한 줄 + 도구 줄, 넘치지 않는다',
+  !mobClubNew.err && mobClubNew.rows <= 4 && mobClubNew.over <= 0, JSON.stringify(mobClubNew));
 await setText('input[aria-label="동아리 이름"]', '달리기');
 await setText('input[aria-label="동아리 설명"]', '토요일 아침 러닝');
 check('동아리장은 자동완성 피커로 고른다', (await pickPerson('동아리장', '조해리')) === 'ok');
 await sleep(200);
-await ev(`${byText('만들기')}.click()`); await sleep(1100);
+// Enter로도 만들어진다(프로젝트 만들기 창과 같은 손버릇)
+await ev(`(() => { const i = document.querySelector('input[aria-label="동아리 이름"]');
+  i.focus(); i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); })()`);
+await sleep(1100);
 const madeClub = await ev(`(() => {
   const g = ${store('groups')}.find(x => x.name === '달리기');
   return { made: !!g, leader: g?.leader_person_id,
@@ -957,6 +1118,40 @@ const dropped = await ev(`(() => ({
 }))()`);
 check('빼기는 확인을 거쳐 지운다', JSON.stringify(dropped.counts) === '[3,3]' && dropped.stored === false, JSON.stringify(dropped));
 
+// ── 5-0) 순장 지정 네 갈래 (사용자 지적 2026-09-03) ────────────────────────
+// "순장을 다른 사람으로 바꿨는데 '순장을 정하지 못했어요'라고 하면서 실제로는 이미
+// 바뀌어 있다." 지금은 저장하러 가기 전에 판정하고, 되는 경우에는 토스트도 성공이다.
+// 이 자리의 편성: 꼬순 = 김윤주(순장)·천진영·김승찬 / TT순 = 노준석(순장)·배현민·임재훈
+const leaderOf = (id) => ev(`(${store('groups')}.find(g => g.id === ${JSON.stringify(id)}) || {}).leader_person_id || null`);
+await pickPerson('꼬순 순장', '노준석'); await sleep(900);
+const asLeader = { toast: await toast(), stored: await leaderOf('g1') };
+check('① 다른 순의 순장은 세우지 못하고, 어느 순인지 말한다',
+  asLeader.stored === 'p1' && asLeader.toast.includes('순장을 지정하지 못했어요')
+  && asLeader.toast.includes('노준석님은 이미 TT순의 순장이에요'), JSON.stringify(asLeader));
+
+await pickPerson('꼬순 순장', '배현민'); await sleep(900);
+const asMember = { toast: await toast(), stored: await leaderOf('g1') };
+check('③ 다른 순의 순원은 세우지 않고 먼저 옮기라고 말한다',
+  asMember.stored === 'p1' && asMember.toast.includes('배현민님은 TT순 순원이라'), JSON.stringify(asMember));
+
+await pickPerson('꼬순 순장', '천진영'); await sleep(1100);
+const swapped = await ev(`(() => ({
+  toast: (document.querySelector('[role="status"]') || {}).innerText || '',
+  leader: (${store('groups')}.find(g => g.id === 'g1') || {}).leader_person_id,
+  members: ${store('group_members')}.filter(m => m.group_id === 'g1').map(m => m.person_id).sort(),
+  badge: [...document.querySelectorAll('.sun-row')[0].querySelectorAll('.sun-member')]
+    .filter(r => r.textContent.includes('순장')).map(r => r.textContent.trim()),
+}))()`);
+check('② 이 순의 순원은 그대로 순장이 되고 실패라고 하지 않는다',
+  swapped.leader === 'p2' && swapped.toast.includes('천진영님을 꼬순 순장으로 지정했어요')
+  && !swapped.toast.includes('못했'), JSON.stringify(swapped));
+check('순장이 바뀌어도 이전 순장은 그 순의 순원으로 남는다',
+  JSON.stringify(swapped.members) === '["p1","p2","p3"]'
+  && swapped.badge.length === 1 && swapped.badge[0].includes('천진영'), JSON.stringify(swapped));
+// 되돌려 둔다 — 뒤따르는 검사들이 '김윤주가 순장인 꼬순'을 본다
+await pickPerson('꼬순 순장', '김윤주'); await sleep(1000);
+check('되돌리기도 같은 판정을 거쳐 그대로 된다', (await leaderOf('g1')) === 'p1');
+
 // 이름은 칸을 떠날 때 저장한다 — 포커스를 실제로 줬다 뺀다(focus 없이 blur()는 아무 일도 안 한다)
 await ev(`document.querySelector('input[aria-label="꼬순 순 이름"]').focus()`);
 await setText('input[aria-label="꼬순 순 이름"]', '꼬순이');
@@ -968,7 +1163,26 @@ const renamed = await ev(`(() => ({
 check('순 이름을 바꾸면 그대로 남는다',
   renamed.stored === '꼬순이' && renamed.rows[0] === '꼬순이', JSON.stringify(renamed));
 
-await ev(`document.querySelector('.sun-new-open').click()`); await sleep(350);
+await ev(`document.querySelector('.sun-new-open').click()`); await sleep(450);
+// 한 줄 생성기 — 이름과 순장이 같은 줄에 선다(사용자 지적 2026-09-03
+// "쓸데없는 줄바꿈으로 나누지 말라")
+const sunNewRows = await rowsOf('.sun-new',
+  ['input[aria-label="새 순 이름"]', 'input[aria-label="새 순의 순장"]', ':scope > button']);
+check('새 순 생성기는 데스크톱에서 한 줄이다', sunNewRows.rows === 1, JSON.stringify(sunNewRows));
+const sunNewMob = await (async () => {
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+  await sleep(500);
+  const r = await rowsOf('.sun-new',
+    ['input[aria-label="새 순 이름"]', 'input[aria-label="새 순의 순장"]', ':scope > button']);
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(500);
+  return r;
+})();
+check('모바일 375px — 새 순 생성기는 최대 두 줄이고 넘치지 않는다',
+  !sunNewMob.err && sunNewMob.rows <= 2 && sunNewMob.over <= 0, JSON.stringify(sunNewMob));
+const newSunPool = await pickOptions('새 순의 순장');
+check('새 순의 순장 후보는 아직 어느 순에도 없는 사람뿐(순 편성 제외자도 빠진다)',
+  JSON.stringify(newSunPool) === '["양민혁","조해리"]', JSON.stringify(newSunPool));
 await setText('input[aria-label="새 순 이름"]', '새싹순');
 check('새 순의 순장도 자동완성 피커로 고른다', (await pickPerson('새 순의 순장', '양민혁')) === 'ok');
 await sleep(200);

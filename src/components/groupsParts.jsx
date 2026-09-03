@@ -28,10 +28,23 @@ export const FIELD = 'text-[13px] px-2 py-1.5 bg-surface border border-line roun
 export const ICON_BTN = 'inline-flex items-center justify-center p-1 rounded text-fg-faint hover:text-fg hover:bg-surface-hover transition active:scale-95';
 export const WITH_ICON = 'inline-flex items-center gap-1.5';
 
+// 라벨이 붙은 칸 한 자리 — 만들기 카드에서 쓴다(새 동아리). 프로젝트 만들기 창의
+// `라벨 + 칸` 짜임을 그대로 옮긴 것이다(modals/settings.jsx). **label 태그가 아니라
+// div다** — 안에 PersonPick처럼 버튼이 든 부품이 오면 라벨 누름이 그 버튼까지
+// 흔든다. 칸들은 이미 aria-label을 들고 있어서 읽는 순서는 그대로다.
+export function LabeledField({ label, className = '', children }) {
+  return (
+    <div className={`labeled-field ${className}`}>
+      <span className="block mb-1 text-[11px] font-semibold text-fg-muted">{label}</span>
+      {children}
+    </div>
+  );
+}
+
 // 사람 동그라미. **계정이 이어진 사람만 사진**이고 나머지는 이름 글자다 — 명단(people)에는
 // 가입하지 않은 청년이 더 많고(결정 1), 사진은 계정에만 있다. url을 null로 못 박아
 // 이름으로 사진을 찾는 길(Avatar 기본값)을 아예 닫는다.
-export function PersonFace({ person, className = 'w-7 h-7 text-[11px]' }) {
+function PersonFace({ person, className = 'w-7 h-7 text-[11px]' }) {
   return <Avatar name={person?.name || ''} url={person?.profile_id ? undefined : null}
     className={`flex ${className}`} />;
 }

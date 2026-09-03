@@ -11,7 +11,7 @@
 // components/SheetView·OfficeView이고 그쪽이 원본이다.
 // ============================================================================
 
-export const EXCERPT_MAX = 2000;   // DB에 넣는 상한. 프롬프트 예산과 같은 판단이다.
+const EXCERPT_MAX = 2000;   // DB에 넣는 상한. 프롬프트 예산과 같은 판단이다.
 const PDF_PAGES = 10;              // PDF는 앞 10쪽까지만 훑는다
 
 const extOf = (name) => (String(name || '').match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
