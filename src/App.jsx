@@ -21,7 +21,7 @@ import { ToastHost, showToast } from './components/Toast.jsx';
 import { setTaskLinkOpener } from './components/RichText.jsx';
 import * as cloudSync from './services/cloudSync.js';
 import { subscribePresence, trackWhere } from './services/presence.js';
-import { dueForHeartbeat } from './utils.js';
+import { dueForHeartbeat, LEAVE_STAMP_MS } from './utils.js';
 import logoLight from './assets/logo-light.png';
 import logoDark from './assets/logo-dark.png';
 
@@ -237,6 +237,10 @@ function WorkspaceShell() {
             .catch(e => console.error('[cloud] 활동 피드 갱신 실패:', e));
         }, 500);
       },
+      // 다녀간 시각만 바뀐 profiles UPDATE(심장박동)는 그 사람 한 칸만 고친다 — 쿼리 0개.
+      // 전체 재조회로 흘리면 접속자 전원이 5분마다 워크스페이스를 통째로 다시 읽는다.
+      // 편집 중에도 막지 않는다: 폼을 건드리지 않는 갱신이다(활동 피드와 같은 판단).
+      onMemberSeen: (patch) => store.dispatch({ type: 'SYNC_MEMBER_SEEN', payload: patch }),
       onFullReload: () => {
         if (isEditingRef.current) { pendingReloadRef.current = true; return; }
         clearTimeout(timer);
@@ -273,10 +277,27 @@ function WorkspaceShell() {
       lastAt = Date.now();
       cloudSync.touchLastSeen();
     };
+    // **떠나는 순간 한 번 더 찍는다**(2026-09-05). 박동만 두면 마지막 박동과 실제로
+    // 떠난 시각 사이가 최대 5분 비어서, 남들 화면의 'N분 전 다녀감'이 그만큼 낡는다.
+    // 하한은 LEAVE_STAMP_MS(1분) — 탭을 자주 오가는 것이 곧 쓰기가 되면 안 된다.
+    // 접속해 있는 동안은 presence가 '접속 중'으로 덮으므로, 이 값이 실제로 읽히는 때는
+    // **떠난 뒤**다. 그래서 떠나는 순간의 정확도가 이 라벨의 정확도다.
+    const stampLeave = () => {
+      if (!dueForHeartbeat(lastAt, Date.now(), LEAVE_STAMP_MS)) return;
+      lastAt = Date.now();
+      cloudSync.touchLastSeen();
+    };
     const timer = setInterval(beat, 60000);
-    const onVisible = () => beat();
+    const onVisible = () => (document.hidden ? stampLeave() : beat());
     document.addEventListener('visibilitychange', onVisible);
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+    // 탭을 닫거나 다른 페이지로 갈 때. visibilitychange가 먼저 오는 경우가 많아 대개
+    // 하한에 걸려 아무 일도 안 하고, 그것이 안 오는 경로(모바일 사파리)에서만 실제로 찍는다.
+    window.addEventListener('pagehide', stampLeave);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('pagehide', stampLeave);
+    };
   }, [cloudMode]);
 
   // 편집 종료 시 보류된 재조회 1회 실행

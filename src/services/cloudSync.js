@@ -1,6 +1,6 @@
 import * as cloud from './cloud.js';
 import { statusToDb, statusFromDb } from './cloud.js';
-import { normalize, httpsImage, extractMentions } from '../utils.js';
+import { normalize, httpsImage, extractMentions, isoTime, seenOnlyChange } from '../utils.js';
 
 // ============================================================================
 // 7. Cloud Sync Adapter — 클라우드(DB) ↔ 앱 스토어 모양 변환 + 쓰기 오케스트레이션
@@ -17,6 +17,10 @@ let teamNameToId = new Map();
 let profileIdToName = new Map();
 let nameToAvatar = new Map();
 let memberNames = [];
+// 마지막으로 읽은 profiles 행 그대로(컬럼째로). 실시간으로 온 UPDATE가 '다녀간 시각만
+// 바뀐 것(심장박동)'인지 가리는 데만 쓴다 — 그 판정에는 **직전 행**이 필요하고,
+// payload.old에는 id밖에 없다(replica identity가 PK뿐 · §6-21). 화면은 이 표를 안 본다.
+let profileRows = new Map();
 
 const primeMaps = (teams, profiles) => {
   teamIdToName = new Map(teams.map(t => [t.id, t.name]));
@@ -34,6 +38,7 @@ const primeMaps = (teams, profiles) => {
   // 지난 댓글·활동의 이름과 사진은 그대로 보여야 한다(내용은 남는다는 규칙).
   memberNames = [...new Set(profiles.filter(p => !p.removed_at).map(p => p.display_name).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'ko'));
+  profileRows = new Map(profiles.map(p => [p.id, p]));
 };
 
 // 멘션·담당자 자동완성용 멤버 표시명 목록(클라우드 로드 후 프라이밍됨)
@@ -391,8 +396,11 @@ export async function loadCloudState() {
         name: p.display_name,
         avatarUrl: httpsImage(p.avatar_url || ''),
         birthday: p.birthday || '',            // 'MM-DD' (연도는 저장하지 않는다)
-        lastSeenAt: p.last_seen_at || '',
-        joinedAt: p.created_at || '',
+        // 시각은 **한 가지 글자 모양으로** 담는다(utils.isoTime) — 이 두 칸은 실시간
+        // payload에서도 들어오는데(SYNC_MEMBER_SEEN) 그쪽 모양이 달라서, 섞이면
+        // visitOrder의 문자열 비교가 어긋난다.
+        lastSeenAt: isoTime(p.last_seen_at),
+        joinedAt: isoTime(p.created_at),
         // 직함·역할(0030). AI가 "OOO 청년" 대신 "조해리 총무님"이라고 부르는 근거다.
         // 화면은 쓰지 않는다 — 사람 목록에 직함을 붙이면 누가 위인지가 먼저 보인다(§8).
         role: p.role_note || '',
@@ -655,10 +663,13 @@ export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {
 //   cards        → 그 카드 1건만 다시 읽기 (삭제는 바로 제거)
 //   comments/files/comment_reactions → 목록 화면에 안 나오는 데이터
 //                → 열려 있는 업무 창일 때만 상세 갱신
+//   activity     → 대시보드 피드만 다시 읽기
+//   profiles     → 다녀간 시각만 바뀐 UPDATE(심장박동)면 그 사람 한 칸만 스토어에 얹기,
+//                  그 밖의 변경(가입·이름·사진·팀·승인)은 전체 재조회
 //   그 외(projects·resource_links) → 전체 재조회 (드문 변경)
 // comments의 DELETE payload에는 card_id가 없다(replica identity가 PK뿐) → cardId가
 // 비면 "지금 열려 있는 카드"로 본다. 호출부가 그렇게 처리한다.
-export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActivityFeed, onFullReload }) {
+export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActivityFeed, onMemberSeen, onFullReload }) {
   return cloud.subscribeAll((payload) => {
     const table = payload?.table;
     const row = payload?.new || {};
@@ -679,6 +690,19 @@ export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActiv
     if (table === 'activity') {
       onActivityFeed?.();
       return;
+    }
+    // **다녀간 시각만 바뀐 profiles UPDATE는 심장박동이다**(§4.8 · 사람마다 5분에 한 번).
+    // 그것까지 전체 재조회로 흘리면 접속자 전원이 5분마다 워크스페이스를 통째로 다시
+    // 읽는다(§1.3 Egress). 그 사람의 그 칸만 스토어에 얹고 끝낸다 — 이름·사진·팀·승인
+    // 같은 다른 칸이 같이 바뀌었으면 seenOnlyChange가 false라 아래 전체 재조회로 간다.
+    // 직전 행이 필요해서 profileRows(마지막으로 읽은 행)를 같이 본다.
+    if (table === 'profiles' && payload.eventType === 'UPDATE' && onMemberSeen) {
+      const prev = profileRows.get(row.id);
+      if (prev && seenOnlyChange(prev, row)) {
+        profileRows.set(row.id, row);
+        onMemberSeen({ id: row.id, lastSeenAt: isoTime(row.last_seen_at) });
+        return;
+      }
     }
     // 나머지(projects · resource_links · profiles)는 전체 재조회.
     // profiles가 여기로 오는 것이 중요하다 — primeMaps가 다시 돌아야 새로 가입한 사람의

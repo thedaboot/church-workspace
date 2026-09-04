@@ -42,6 +42,22 @@ class WorkspaceStore {
       case 'SET_ACTIVITY_FEED':
         nextState = { ...currentState, activityFeed: action.payload };
         break;
+      // 다녀간 시각만 바뀐 사람 한 칸 — profiles의 심장박동(§4.8)이 실시간으로 올 때.
+      // 전체 재조회(LOAD_STATE)로 흘리면 5분마다 사람마다 워크스페이스를 통째로 다시
+      // 읽는다. 라우팅은 cloudSync.subscribeWorkspace가 하고, '심장박동뿐인가'는
+      // utils.seenOnlyChange가 판정한다 — 다른 칸이 같이 바뀌었으면 여기로 안 온다.
+      // 내 조작이 아니므로 되돌리기 기록에 남기지 않는다(SET_ACTIVITY_FEED와 같은 이유).
+      case 'SYNC_MEMBER_SEEN': {
+        const { id, lastSeenAt } = action.payload || {};
+        const list = currentState.members || [];
+        const i = list.findIndex(m => m.id === id);
+        // 모르는 사람이면 아무것도 안 한다 — 부르는 쪽이 전체 재조회를 이미 갈랐다
+        if (i < 0 || list[i].lastSeenAt === lastSeenAt) return;
+        const members = list.slice();
+        members[i] = { ...members[i], lastSeenAt };
+        nextState = { ...currentState, members };
+        break;
+      }
       // 서버에서 온 카드 1건 반영 — 있으면 필드만 덮어쓰고, 없으면(남이 새로 만든 카드) 넣는다.
       // UPSERT_TASK로 하면 통째로 교체돼서 그 카드에 담아둔 댓글·활동·첨부가 날아간다.
       case 'SYNC_TASK': {
@@ -138,7 +154,8 @@ class WorkspaceStore {
     // 상태가 실제로 바뀐 경우에만 History(과거) 저장 (위 HISTORY_LIMIT 주석 참고)
     if (action.type === 'LOAD_STATE') {
       this.state = { past: [], present: nextState, future: [] };
-    } else if (action.type === 'HYDRATE_TASK' || action.type === 'SET_ACTIVITY_FEED') {
+    } else if (action.type === 'HYDRATE_TASK' || action.type === 'SET_ACTIVITY_FEED'
+      || action.type === 'SYNC_MEMBER_SEEN') {
       this.state = { ...this.state, present: nextState };
     } else {
       this.state = {
