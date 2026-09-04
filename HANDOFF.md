@@ -399,9 +399,9 @@
   - **주보 구절 → 성경 읽기.** 발행된 주보의 본문 구절을 누르면 성경 읽기가 그 장에서 열리는지.
   - **(4차 · 0039) 관리자(마스터 아님) 계정**으로 남의 동아리 이름·설명 수정이 통과하는지 · **교역자 계정**에
     순 편성 탭이 없는지 · **순장 계정**이 내 순 탭 맨 위에서 순모임 가이드를 읽는지, 마스터·관리자·리더순장이
-    'AI로 만들기'로 생성→다듬기→저장이 되는지(GEMINI 키가 있는 배포에서만 — 게스트는 실패 경로만 봤습니다).
+    'AI로 만들기'로 생성→다듬기→저장이 되는지(게스트는 실패 경로만 봤습니다. 2026-09-05부터 dev 서버도 `/api`를 돌린다).
   - **(4차) 찬양 유튜브 가져오기.** 재생목록 주소로 곡이 들어오는지(최신 15곡 상한), 영상 주소를 링크 칸에 붙이면
-    제목이 채워지는지 — `api/yt.js`는 배포에서만 돕니다.
+    제목이 채워지는지 — `api/yt.js`는 배포와 **로그인한 dev**(2026-09-05 미들웨어)에서 돕니다.
   - **(4차) 예배 노트 저장 버튼.** 저장 뒤 새로고침해서 남는지, '내 순에 공유'를 켜고 저장하면 순장의 내 순에 뜨는지.
   - **(4차) QT 공유 토글 즉시 저장**(`qt_entries.shared`) · 나눔에서 지우면 공유만 해제되고 내 묵상은 남는지.
   - **(5차 · 0040) 순장 교체**가 실제 DB에서 토스트까지 성공으로 뜨는지(23505 관용은 클라우드 경로) · 다른 순의
@@ -414,6 +414,25 @@
     `church_cache_v1:<uid>:…` 키) · 예배 노트·묵상의 **공유 토글**이 저장된 글에서만 켜지고 내 비공개 글이 내 순·나눔에
     잠금 표시로 보이는지 · 유튜브 재생목록 **전체**(키 있음 — 15곡 넘는 목록으로) 가져오기와 썸네일 · **프로필 사진**이
     카카오/구글로 다시 로그인해도 직접 올린 사진으로 남는지(`ensureMyProfile` 수정 확인) · 홈 인사말이 시각대로 바뀌는지.
+- **2026-09-05 회차분 · v2 회차 9 + 8차 개선**(마이그레이션 `0043`은 이미 라이브에 적용돼 있고, 전부 로컬 커밋 — 사용자가
+  dev(5173)로 본 뒤 푸시합니다. dev 서버에서 이제 `/api/*`가 돌므로(§6 드라이브·첨부 "dev 미들웨어") 아래 중 여럿은 로그인한
+  dev에서도 미리 볼 수 있습니다):
+  - **HTML 첨부 미리보기.** '대림절 특별예배 TF팀 킥스타트 미팅' 업무의 '2026 대림절 예배 기획 킥오프 워크북.html'이 sandbox
+    iframe에서 Tailwind 스타일·chart.js 그래프까지 그려지는지(dev에서 이미 문서가 뜨는 것은 확인 — 사용자 "html 자체는 잘 뜬다").
+    받는 동안·iframe load 전까지 '미리보기를 준비하고 있어요'가 서는지.
+  - **카카오톡 인앱 브라우저.** 카카오톡으로 받은 업무 링크를 열면 버튼 없이 카카오 로그인이 시작되고, 돌아와서 홈이 아니라
+    **그 업무 창**이 열리는지 · 카카오 인증을 취소하고 돌아오면 버튼이 정상으로 보이고 다시 자동 시작하지 않는지(iOS·Android) ·
+    구글 계정 사용자는 인앱에서 구글 로그인이 막힐 수 있음(구글 정책, 기존 제약).
+  - **접속 시각 싱크.** 두 브라우저로 로그인해 한쪽 탭을 닫으면 다른 쪽의 대시보드 '가입한 사람'과 멤버 관리 화면이 **새로고침 없이**
+    같은 값으로 바뀌는지 · 그때 네트워크 탭에 전체 재조회(쿼리 11개)가 안 뜨는지(뜨면 realtime payload에 컬럼이 덜 온다는 뜻 — 값은
+    맞지만 Egress 이득이 없으니 알려 주세요) · 탭을 닫은 직후 psql로 `profiles.last_seen_at`이 닫은 시각인지.
+  - **청년 명단(0043).** 신효진 부장 · 조준환·박지호 리더팀장 · 조해리 총무 배지 · 새 직분 칩으로 저장할 때 `people_roles` RLS 통과 ·
+    계정이 연결된 사람(말감이=임재훈 · 시온=이시온)의 수정 폼에 **명단 이름**이 뜨는지(계정 표시명으로 덮이던 버그) · 연결 후보 문구
+    (환송한 강예본 때문에 "연결할 수 있는 가입자가 없어요"가 맞음) · 로그인 경로에서 명단 첫 진입 뒤 두 번째 진입이 캐시로 바로 뜨는지.
+  - **말씀.** 성경 읽기에서 범위(예: 4→1)를 골라 칠하고 새로고침해도 남는지 · 형광펜 모아보기에 그 범위가 **한 줄**(1:1~4)로 서고 X로
+    통째 지워지는지 · QT 본문에서 칠한 것이 그날에만 보이고 모아보기·리더에는 안 오르는지(`bible_state.highlights`에 `qt:<날짜> …` ref).
+  - **예배.** 주보 카드 메타 줄이 어느 폭에서도 1줄인지 · 주보 편집(담당자·찬양·광고·말씀)이 데스크톱에서 폭을 채우고 모바일에서
+    하단 저장 줄과 겹치지 않는지.
 
 ### 1.2 다음에 만들 것 (사용자가 고른 것)
 
@@ -601,8 +620,9 @@ src/components/depgraph.jsx  프로젝트 '그래프' 보기 — 힘 배치 노�
 src/components/linkIcons.jsx 참고 링크 앞의 서비스 표시(노션·유튜브 등). 경로는 커밋된 데이터
 src/components/Avatar.jsx   사람 동그라미 — 사진 있으면 사진, 없거나 깨지면 이름 첫 글자(§4.7)
 src/components/ConfirmPopover.jsx  삭제 확인 팝오버 + useAnchoredPos(팝오버 위치 공용 훅)
-src/views/membersView.jsx   전역 '멤버' 화면(관리자만) — 가입 수락·환송·다시 초대·관리자
-                            지정(마스터만, 0028·0029). 줄에 접속 표시(usePresence)
+src/views/membersView.jsx   전역 '멤버' 화면(관리자만) — [가입자 | 청년 명단] 탭. 가입자: 가입 수락·환송·다시 초대·관리자
+                            지정(마스터만, 0028·0029). 줄의 접속 표시(usePresence)와 '다녀감'은 **스토어 members를 겹쳐 쓴다**
+                            (자체 조회는 열 때 한 번뿐인 스냅샷 — §4.8). 청년 명단은 roster.jsx
 src/views/homeView.jsx      (v2) 홈 — 첫 화면. 인사말 + 카드 넷(오늘의 QT · 이번 주 예배 · 내 업무 ·
                             내 순). 자기 저장 자리가 없다 — 말씀·예배·모임·업무 서비스를 그대로 읽는다
 src/views/worshipView.jsx   (v2) 예배 — 주보 목록(ServiceList) → 상세/작성/발행 → 출석 체크 화면 전환.
@@ -611,18 +631,26 @@ src/views/wordView.jsx      (v2) 말씀 — [QT | 성경 읽기] 세그먼트. i
 src/views/groupsView.jsx    (v2) 모임 — 내 순 · 동아리 · 순 편성(자격이 있을 때만)
 src/components/worship*.jsx (v2) worshipDetail(주보 상세·편집·SaveState·빈 상태) · worshipPassage(본문
                             선택 피커 + PassageBody) · worshipAttendance(출석 체크 — 순별 칩·미등록 출석자)
-src/components/wordBible.jsx (v2) 성경 리더 — 목차·장 넘김·검색·북마크·이어읽기·절 형광펜(+모아보기)
+src/components/wordBible.jsx (v2) 성경 리더 — [본문 | 북마크 | 형광펜] 세그먼트(되돌아가기는 '목차') · 장 넘김·검색·이어읽기 ·
+                            절 형광펜은 useVersePaint 훅(앵커 범위 · 4색 · 도구 줄)이고 **QT 본문(wordView QtPassage)도 같은 훅**을
+                            쓴다. 모아보기는 한 번에 칠한 범위를 mergeRuns로 한 줄(1:2~4)로 접는다
 src/components/groups*.jsx  (v2) groupsSun(내 순·순 편성) · groupsClub(동아리 카드·신청·리더 도구·dnd 순서)
                             · groupsParts(공용 — CARD·BTN·FIELD 클래스, PersonPick·MenuPick 피커,
                               PersonTag, Empty 빈 상태, useDismiss. **roster.jsx도 이 클래스를 쓴다**)
-src/components/roster.jsx   (v2) 명단 관리 — 멤버 화면의 [계정 | 명단] 탭 중 '명단'(마스터+관리자)
-src/components/sunGuide.jsx (v2) 순모임 가이드 패널 — 내 순 탭 맨 위. AI가 채운 템플릿 3장(주일 본문 ·
-                            말씀 요약 · 포인트 3 · 나눔 질문 3)을 보고, 자격이 있으면 만들고·다듬고·다시 만든다
+src/components/roster.jsx   (v2) 청년 명단 — 멤버 화면의 [가입자 | 청년 명단] 탭 중 '청년 명단'(마스터+관리자). 연도 세그먼트
+                            [2026|2027|2028] · 직분 6종(0043, services/roster.js ROLE_LABEL) · 캐시 roster:<연도>(services/cache.js)
+                            · 계정 연결 후보는 roster.accountLinkState(loading/none/pick)
+src/components/sunGuide.jsx (v2) 순모임 가이드 패널 — **지금은 화면에서 빠져 있다**(services/sunGuide.js `SUN_GUIDE_ON=false`,
+                            사용자 지시 2026-09-05 "나랑 맞춰봐야 해". 그때 폼은 브랜치 keep/sunguide-2026-09-05). 켜면 내 순 카드 밑에
+                            AI가 채운 템플릿 3장(주일 본문 · 말씀 요약 · 포인트 3 · 나눔 질문 3)이 서고 자격이 있으면 만들고·다듬는다
 src/components/ShareToggle.jsx 공유 토글 한 벌 — '나만 보기 | …공유하기' 세그먼트 + 초록 확정 칩("나만 볼게요" /
-                            "…공유할게요"). **말씀 묵상과 예배 노트가 같은 부품을 쓴다**(사용자 요구 2026-09-03 —
-                            로직 동일: 저장된 글이 있을 때만, 토글은 shared만 즉시 저장, 비공개 글도 내 줄엔 잠금 표시)
+                            "…공유할게요"). **말씀 묵상·예배 노트·내 순 노트 목록이 같은 부품을 쓴다**(사용자 요구 2026-09-03 —
+                            로직 동일: 저장된 글이 있을 때만, 토글은 shared만 즉시 저장, 비공개 글도 내 줄엔 잠금 표시).
+                            **조작 가능한 토글은 화면에 한 벌**(2026-09-05): 말씀은 '내 묵상' 편집기 줄에만(나눔 피드의 내 줄은
+                            잠금 표시만, 눈가림 아이콘 없음) · 내 순 노트 목록은 편집기가 없는 화면이라 줄에 토글
 src/components/DatePicker.jsx 노션 톤 데이트피커 — children(트리거 대체)·triggerClassName·allowClear를 받는다
-                            (QT 날짜가 트리거를 대체해 쓴다. 기본값은 예전 호출부와 같다)
+                            (QT 날짜가 트리거를 대체해 쓴다. 기본값은 예전 호출부와 같다). `yearless` 모드(2026-09-05)는
+                            명단 생일용 — 값 MM-DD, 연도 글자·이동 없음, 요일 줄 없음(연도를 모르면 요일도 모른다), 2월 29일까지
 src/views/views.jsx         DashboardView / ProjectView / MyTasksView / TeamView / ScheduleView
                             / TeamFilterBar
 src/views/dashboardParts.jsx  여러 화면이 공유하는 부품: 마감 구간 계산(byDue·groupByDue·
@@ -635,7 +663,9 @@ src/modals/modals.jsx       업무 창 — 껍데기(TaskModalShell) · 보기(T
 src/modals/attachments.jsx  업무 창의 첨부 영역(업로드·미리보기 열기·삭제)
 src/modals/comments.jsx     업무 창의 댓글 · 활동 기록 패널
 src/modals/settings.jsx     내 정보(사진·이름·팀·연결된 계정) / 프로젝트 만들기·이름 수정
-src/services/               cloud.js(Supabase) · cloudSync.js(모양 변환 + 실시간 라우팅)
+src/services/               cloud.js(Supabase) · cloudSync.js(모양 변환 + 실시간 라우팅 — profiles UPDATE는 §6 "데이터 로드")
+                            · previewKind.js(첨부 미리보기 종류 판정 — 순수 함수, FilePreviewModal에서 뽑아 노드 검사 logcheck)
+                            · auth.jsx(OAuth — 로그인 전 자리 기억·카카오 인앱 자동 시작, §6 "RLS · 저장")
                             · ai.js(Gemini 프롬프트+컨텍스트+요약 캐시 — 배경 지식의
                               원본은 docs/AI.md) · fileText.js(첨부에서 글자 뽑기) · markdown.js
                             · ooxml.js(zip 풀기 + XML 훑기 — **xlsx·docx·pptx 공용**.
@@ -681,9 +711,13 @@ api/                        ai.js(Gemini 프록시) · share.js(OG 메타)
                             · push.js(POST=앱이 만든 알림을 푸시로, GET=마감 임박 배치)
                             · drive.js(Apps Script 프록시 — 업로드·폴더·휴지통)
                             · drive-file.js(드라이브 파일 바이트 중계 — 앱 안 뷰어용,
-                              브라우저는 drive.google.com에 CORS로 막힌다)
+                              브라우저는 drive.google.com에 CORS로 막힌다. text/html 응답은 Content-Disposition으로
+                              경고 페이지/실제 .html 첨부를 가른다 — §6 드라이브·첨부)
                             · yt.js(유튜브 재생목록 RSS·oEmbed 중계 — API 키 없이 재생목록 최신 15곡과
                               영상 제목을 받는다. ai.js와 같은 Bearer 인증, id만 받아 열린 프록시가 아니다)
+vite.config.js              dev 전용 `/api/<name>` 미들웨어(2026-09-05) — api/<name>.js 핸들러를 Vercel 모양(req.query·body ·
+                            res.status().json())으로 부른다. .env의 서버 키를 process.env에 싣고, 게스트 모드에는 붙지 않는다.
+                            **전에는 dev에서 /api 요청에 Vite가 소스 파일을 돌려줬다**(HTML 미리보기 iframe에 drive-file.js 코드가 뜸)
 scripts/subset_suit.py      폰트 조각 생성(한 번 돌리고 결과물을 커밋 — §4.2)
 tests/                      검증 스위트 + 러너
 design/                     원본 시트(chars.png · char.png) — 화면은 public/chars/ 컷만 쓴다. 배포에 안 실림
@@ -1019,6 +1053,12 @@ flex로 두면 왼쪽 칸이 `새 업무` 버튼 **왼쪽에서** 끝나고 아�
   돌아왔을 때도 간격을 넘겼을 때만 찍습니다. **쓰기는 사람당 5분에 UPDATE 1회**가
   상한입니다(§1.3). 빈도를 `cloud.touchLastSeen` 안으로 옮기지 마세요 — 두 군데에
   적히면 어느 쪽이 진짜인지 모릅니다.
+  **2026-09-05에 두 가지를 더했습니다.** ① **떠날 때 한 번 더** 찍습니다(`visibilitychange` hidden · `pagehide`,
+  하한 1분 = `utils.LEAVE_STAMP_MS`) — 접속 중에는 presence가 '접속 중'으로 덮으므로 이 값이 읽히는 때는 떠난 뒤이고,
+  5분 간격을 줄이는 대신 그 지점만 메웠습니다. ② 다른 사람의 심장박동 UPDATE는 **그 사람 한 칸만** 바꿉니다
+  (`cloudSync` → `SYNC_MEMBER_SEEN`, 판정은 `utils.seenOnlyChange`) — 전에는 전체 재조회(쿼리 11개)로 떨어져 접속자 전원이
+  사람마다 5분에 한 번 워크스페이스를 통째로 다시 읽었습니다. 멤버 관리 화면의 '다녀감'은 자체 스냅샷이 아니라 이 스토어 값을
+  겹쳐 씁니다(두 화면이 어긋나던 원인 — 자체 조회는 열 때 한 번이고 `useMinuteTick`이 그 굳은 값을 늙히기만 했습니다).
 - **`activity`로 세지 않은 이유**: 거기에는 행동만 남습니다(제목 바꿈·댓글). 들어와서 보기만 한
   사람은 아무 데도 안 남아 얼굴 줄이 실제보다 훨씬 적게 나옵니다. 카드별 조회를 추적하면
   "누가 무엇을 봤는지"가 남는데, 같이 사역하는 사람들이 쓰는 화면에서 그건 감시처럼 읽힙니다
@@ -1329,7 +1369,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 
 ## 5. 데이터 · 스키마 · 비밀
 
-스키마는 `supabase/migrations/0001~0042`이고 **전부 라이브 DB에 적용**되어 있습니다
+스키마는 `supabase/migrations/0001~0043`이고 **전부 라이브 DB에 적용**되어 있습니다
 (0001~0005는 대시보드에서 수동, 이후는 `npx supabase db push --db-url "$SUPABASE_DB_URL"`).
 
 | 파일 | 한 일 |
@@ -1376,6 +1416,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | `0040_people_sun_exempt` | `people.sun_exempt` — 순 편성 대상이 아닌 사역자(부장·전도사: 신효진·임성빈 true). 순원 추가·순장 후보·미배정 목록에서 빠지고 동아리 가입은 그대로. 이름을 코드에 박지 않기 위한 칸(§6-26) |
 | `0041_groups_unique_name` | `groups (type, name, coalesce(year,0)) where removed_at is null` 유니크 — 순은 **같은 해 안에서만** 이름이 유일(26년·27년 오순도순 공존), 동아리는 전체. 화면이 저장 전에 미리 확인하고 이 색인은 마지막 방어선 |
 | `0042_service_edit_perms` | `can_edit_service()` = **관리자(마스터 포함) + 회장 + 미디어팀**(`people.teams`) — 교역자 빠짐(사용자 결정 2026-09-03). 나머지는 발행된 주보만 읽는다 |
+| `0043_people_roles_split` | `people_roles.role`을 `officer` 하나에서 **director(부장) · president(회장) · treasurer(총무) · lead_sunjang(리더순장) · lead_team(리더팀장)** 으로(교역자는 `people.is_pastor`). CHECK를 떼고 → 데이터 옮기고(신효진 부장 · 조준환·박지호 리더팀장 · 조해리 총무) → 새 CHECK — 순서를 바꾸면 양쪽 다 실패한다. `is_officer()`와 클라이언트 권한은 값이 아니라 '그 해 줄이 있는가'만 보므로 그대로(사용자 결정 2026-09-05) |
 
 알아둘 것:
 
@@ -1714,6 +1755,15 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 9-k. **`max-w`는 그리드 트랙 안에서 빈 띠를 만든다.** 말씀 화면의 본문 열에 `max-w-[46rem]`이 남아
     1000px 창에서 오른쫽 216px이 비었다(2026-09-03 지적 — "반응형이 안 먹는 구간"). 칸은 자기 트랙을 다
     쓰게 두고, 폭을 줄이고 싶으면 트랙 정의(`minmax`)로 한다. 읽기 폭 상한은 사용자 결정으로 폐기.
+    **같은 일이 주보 편집에서 또 났다**(2026-09-05) — 담당자·찬양·광고 목록의 `max-w-[46rem]`(회차 5 임시)이 1440에서
+    오른쪽 662~672px을 비웠다. 걷어내고, "이름·역할이 양 끝으로 갈라진다"는 폭이 아니라 **줄 안의 배치**로 막았다
+    (`[번호][역할 칩][이름 입력 flex-1][▲▼][🗑]` — 입력이 남는 폭을 먹으니 도구가 입력 바로 옆에 선다).
+9-p. **한 줄에 안 들어가는 메타는 접거나 자르지 말고 도막을 뺀다 — 기준은 화면 폭이 아니라 그 상자 폭.** 주보 카드의
+    메타(날짜 · 종류 · 본문 · 설교자, 402~462px)가 카드 폭 321~669px에서 여러 구간 두 줄로 꺾였다(사용자 재강조
+    2026-09-05 "가독성이 중요해서 줄바꿈 안 되게"). `.worship-card-meta`에 **컨테이너 쿼리**로 ≥30rem 넷 · ≥24rem 종류 빠짐 ·
+    그 아래 날짜·본문만. 구분점은 각 도막 **앞**에 붙여 도막이 빠지면 같이 빠진다. `truncate`는 규칙이 아니라 마지막
+    안전망(예상 못 한 긴 값). 카드 폭은 화면 폭에 비례하지 않는다 — 3열이 1280부터라 1280에서 카드가 569→409로 **좁아지며**
+    도막이 도리어 떨어졋다 → 3열은 1536(`2xl`)부터. 폰(375~430)은 설교자가 빠진다(문턱 24rem, `index.css` 한 군데).
 9-l. **조건부 Fragment는 그 자리의 DOM 노드를 새로 만든다.** 고른 절만 `<>…</>`로 감싸면 리액트가 그
     `<p>`를 새로 만들어 선택·포커스가 끊긴다 — 언제나 같은 모양으로 감싼다(`wordBible.jsx` PassageText).
 9-m. **위치를 재는 팝오버보다 문서 흐름 배치를 먼저 검토한다.** 형광펜 도구 줄은 두 번 어긋난 뒤(17-b·17-c)
@@ -1788,6 +1838,11 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     새 글이 들어오는데 화면은 옛 요약 그대로였고, 새로 만든 것을 고정할 방법도 없었다.
     지금은 `summary || (revealed ? pinned : '')`이고, 버튼 줄과 배지는 **지금 보고 있는 것이
     저장된 것인지**(`showingPinned`)로 갈린다.
+20. **'바깥 누름으로 닫기'의 바깥 판정에 "다음에 누를 수 있는 것"이 빠지면 그 기능은 조용히 죽는다.**
+    형광펜 범위 선택(첫 절=앵커, 다음 절=범위)이 실물에서 한 번도 안 됐다(2026-09-05). 문서 `mousedown` 핸들러가
+    `[data-verse-tool], [data-picked]`만 '안'으로 쳐서 **두 번째 절**의 mousedown이 선택을 풀고, 곧 오는 click이 새 앵커를
+    잡았다. 검사는 `p.click()`만 쏴서(mousedown 없음) 통과했다. 지금은 절 전체(`[data-verse]`)가 '안'이고, `tests/word.mjs`의
+    `clickVerses`는 mousedown을 먼저 보낸다. **바깥 클릭 닫기를 검사할 때는 click()이 아니라 mousedown→click을 쏘세요.**
 
 ### 데이터 로드 · 실시간
 
@@ -1827,6 +1882,15 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     자리는 다르다. 그리고 이 검사는 **카드가 화면을 채우지 않는 시드**로만 만들 수
     있다 — 공용 시드는 컬럼마다 서른 장이 넘어 빈 자리가 아예 없어서, 처음 두 판은
     되돌려도 통과했다(`dragdesk`가 카드 셋짜리 시드를 따로 쓰는 이유다).
+12-d. **`profiles` UPDATE를 전부 전체 재조회로 보내면 심장박동이 곧 폭풍이다.** `last_seen_at`은 사람마다 5분에 한 번
+    UPDATE되는데(§4.8) 그것이 `onFullReload`(쿼리 11개)로 떨어져, 접속자 N명이 각자 5분마다 전부를 다시 읽고 있었다
+    (2026-09-05에 발견). 지금은 `utils.seenOnlyChange(prev, next)`가 "다녀간 시각만 바뀐 UPDATE"를 가르고 그때만
+    `SYNC_MEMBER_SEEN`(사람 한 칸)이다 — **키를 열거하지 않고** 모르는 키가 다르면 false로 떨어져 전체 재조회로 안전하게 간다
+    (`updated_at`은 트리거가 올리므로 제외). 직전 행은 `cloudSync.profileRows`에 들고 있다(`payload.old`에는 id뿐이다).
+12-e. **realtime의 timestamptz는 PostgREST와 글자 모양이 다르다.** `realtime-js`의 `convertCell`은 timestamptz를 손대지 않아
+    `'2026-09-04 15:27:43.769+00'`(공백·`+00`)로 오고, PostgREST는 `'…T…+00:00'`이다. 둘을 섞어 문자열로 비교하면
+    `visitOrder`가 **같은 날 안에서 뒤집힌다**(공백 < `T`). 스토어에 담기 전 `utils.isoTime`으로 한 모양을 만든다 —
+    `tests/logcheck`가 두 모양이 같은 글자가 되는지 본다.
 
 ### 드라이브 · 첨부
 
@@ -2207,6 +2271,21 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     사용자가 브라우저 콘솔을 열어 보고서야 원인이 나왔다).
     원인을 못 찾겠으면 **먼저 실패를 읽을 수 있게 만드세요** — 짐작으로 고치는
     것은 §1.3에서 두 번 데인 길이다.
+29-q. **HTML 첨부(2026-09-05).** 종류 판정은 `services/previewKind.js`(`text/html` 또는 .html/.htm → `'html'`, **text보다 먼저**
+    — 전에는 TEXT_EXT에 있어 소스가 `<pre>`로 떴다). 그린다: `<iframe sandbox="allow-scripts" srcDoc referrerPolicy="no-referrer">`.
+    허용은 **allow-scripts 하나뿐** — 기준 파일(대림절 워크북 29KB)이 Tailwind CDN·chart.js로 짜여 스크립트가 CSS를 만들기
+    때문이다. **`allow-same-origin`은 절대 함께 주지 마세요**(둘을 같이 주면 sandbox를 벗을 수 있고, 불투명 출처라야 우리
+    localStorage의 세션 토큰에 닿지 못한다). `tests/drivesync`가 허용 목록이 정확히 그 하나인지 본다. 받는 동안·iframe `load`
+    전까지 `PreparingFrame`으로 덮는다(Tailwind가 CSS를 만들기 전엔 흰 종이다).
+29-r. **중계(`api/drive-file`)가 `text/html`을 무조건 "바이러스 검사 경고 페이지"로 보고 502를 내면 .html 첨부는 전부 막힌다.**
+    실제 파일 바이트는 `Content-Disposition: attachment`로 오고 경고 페이지는 그 머리줄이 없다 — 그것으로 가른다. (실측:
+    워크북은 `application/octet-stream` + attachment로 와서 종류만 보던 옛 게이트에 걸리지도 않았지만, 다른 .html은 걸릴 수 있다.)
+29-s. **dev 서버(`vite`)에는 Vercel 함수가 없다 — `/api/…` 요청에 Vite가 `api/….js` 소스를 JS로 변환해 돌려준다.** HTML 미리보기
+    iframe에 `drive-file.js` 코드가 그대로 떴다(사용자가 실물로 잡음, 2026-09-05). 그동안 PDF·유튜브·AI·첨부 미리보기가 dev에서
+    확인 불가였던 이유다. 지금은 `vite.config.js`의 dev 전용 미들웨어가 `/api/<name>`을 핸들러로 넘긴다(`configureServer`가
+    정적 서빙보다 먼저 잡는다 · `.env` 전체를 `loadEnv(mode, root, '')`로 읽어 없는 키만 process.env에 · 핸들러는
+    `import(file + '?t=' + mtime)`로 고치면 다시 읽힘 · **게스트 모드에는 붙지 않는다**). `vercel.json`의 rewrite(`/s/:type/:id`)는
+    dev에 없다 — 공유 카드는 `/api/share?type=…&id=…`로 직접 부른다.
 
 ### 서비스 계층
 
@@ -2293,6 +2372,18 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
   돌아온 순간 OAuth 메타(카카오·구글 기본 사진, 가입 때 이름)로 사용자가 바꿔 둔 사진·이름을 덮어썼다 — 구글과
   카카오를 한 계정에 연결한 사람은 마지막에 쓴 제공자의 사진이 메타에 들어와 "내 사진이 카카오 프로필로
   바뀌었다"(2026-09-03). 지금은 있는 행을 먼저 읽고 없을 때만 insert(ignoreDuplicates).
+
+- **로그인 전 자리 복원은 `setSession` 앞에서, 저장소는 sessionStorage(2026-09-05 · `auth.jsx`).** 카카오톡으로 받은 링크를
+  인앱 브라우저에서 열면 세션이 없어 로그인 화면이 뜨고, OAuth가 origin으로 돌려보내 가려던 업무를 잃었다. `signIn` 직전에
+  `pathname+search`(hash 제외 — 거기는 auth-js가 토큰·오류를 싣는다)를 `sessionStorage['auth.returnTo']`에 적고, `getSession()`
+  응답에서 **`setSession`보다 먼저** `history.replaceState`로 되돌린다 — `WorkspaceShell`이 `?p=&t=`를 useState 초기값으로 **한 번만**
+  읽기 때문에 그 뒤에 주소를 고치면 화면이 따라오지 않는다. `redirectTo`에 쿼리를 싣지 않은 이유: Supabase 대시보드 Redirect URL
+  허용 목록에 와일드카드가 없으면 조용히 Site URL로 떨어져 같은 증상이 난다(코드로 확인 불가). **카카오 자동 시작 표식
+  (`auth.autoKakaoTried`)은 지우는 경로가 없다** — 로그아웃 → 자동 재로그인 고리를 막기 위해서다. URL에 OAuth 오류
+  (`authErrorInUrl`)가 있으면 표식이 없어도 시작하지 않는다.
+- **명단 수정 폼의 이름 초깃값은 `roster_name`이다(2026-09-05).** `people.js withDisplayName`이 계정이 연결된 사람의 `name`을
+  계정 표시명으로 덮어 화면에 보여 주는데, 편집 폼이 그 `name`을 초깃값으로 쓰면 저장 한 번에 `people.name`이 표시명으로
+  덮인다(라이브에서 실제로 임재훈→'말감이', 이시온→'시온' 두 건이 그렇게 돌아가 있었다 — 0043과 함께 되돌림).
 
 ### 테스트 스크립트 작성 시
 
