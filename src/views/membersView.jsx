@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { UserCheck, UserX, ShieldCheck, Shield, Plus, Loader2 } from 'lucide-react';
 import { Avatar } from '../components/Avatar.jsx';
 import { Skeleton } from '../components/media.jsx';
@@ -6,11 +6,14 @@ import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { RosterPanel } from '../components/roster.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText, objectParticle } from '../services/errorText.js';
-import { agoLabel, visitOrder } from '../utils.js';
+import { agoLabel, visitOrder, isoTime } from '../utils.js';
 import { usePresence } from '../services/presence.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
+import { useStore } from '../store/workspaceStore.js';
+import { selectMembers } from '../store/selectors.js';
 import * as cloud from '../services/cloud.js';
 import { isCloudEnabled } from '../services/supabaseClient.js';
+import { readCache, writeCache } from '../services/cache.js';
 import * as roster from '../services/roster.js';
 
 // ============================================================================
@@ -31,22 +34,33 @@ import * as roster from '../services/roster.js';
 // `profiles.email`을 채워서 얼굴·이름으로 고를 수 있게 됐다. 지정·해제 버튼은
 // **마스터에게만 보인다** — DB도 막는다(0029). 화면만 감추는 상태를 만들지 않는다.
 //
-// ── v2에서 붙은 '명단' 탭 (docs/V2.md 결정 1·13 · 권한 표: 마스터 + 관리자) ──
+// ── v2에서 붙은 '청년 명단' 탭 (docs/V2.md 결정 1·13 · 권한 표: 마스터 + 관리자) ──
 // 청년 ~50명은 대부분 계정이 없다. 그래서 사람의 축이 둘이다 —
-//   **계정**(profiles) = 워크스페이스에 가입한 사람. 위의 네 가지가 그대로다.
-//   **명단**(people)   = 청년부 전체. 출석·순 편성이 이 축을 쓴다.
-// 둘을 잇는 것이 `people.profile_id`이고, **관리자가 눈으로 골라** 잇는다.
-// 이름이 같아도 자동으로 잇지 않는다(§6-26).
+//   **가입자**(profiles)   = 워크스페이스에 가입한 사람. 위의 네 가지가 그대로다.
+//   **청년 명단**(people)  = 청년부 전체. 출석·순 편성이 이 축을 쓴다.
+// 둘을 잇는 열쇠가 `people.profile_id`이고, **관리자가 눈으로 골라** 연결한다.
+// 이름이 같아도 자동으로 연결하지 않는다(§6-26).
+// (탭 이름은 사용자가 정했다 — 2026-09-05 '계정' → '가입자' · '명단' → '청년 명단'.)
 //
 // 명단 쪽 통신은 전부 여기서 하고(services/roster.js), 화면은 props만 받는
 // components/roster.jsx가 그린다 — 게스트 스위트가 가짜 명단으로 눌러 볼 수 있게.
 // 게스트 모드에는 클라우드가 없으므로 계정 목록도 roster.guestProfiles()로 떨어진다
 // (예전에는 여기서 던져서 콘솔 오류와 토스트가 같이 났다).
+//
+// **명단 한 벌은 캐시를 먼저 그린다**(services/cache.js — 홈·예배·말씀과 같은 방식).
+// 예전에는 탭을 누를 때마다 `setBook(null)`로 되돌려 네 번의 왕복을 기다리는 동안
+// 스켈레톤이 다시 떴다(사용자 지적 2026-09-05 — "명단이 계속 스켈레톤으로 나온다").
+// 지금은 두 번째 진입·연도 되돌리기에서 지난 값이 바로 그려지고 새 값이 뒤에서 온다.
 // ============================================================================
 
-const TABS = [['account', '계정'], ['roster', '명단']];
+const TABS = [['account', '가입자'], ['roster', '청년 명단']];
 const THIS_YEAR = new Date().getFullYear();
-const YEARS = [THIS_YEAR - 1, THIS_YEAR, THIS_YEAR + 1];
+// 직분(people_roles)과 순 편성(groups)은 연도별이다. 고를 수 있는 해는 **올해와 다음 두
+// 해**다(사용자 지시 2026-09-05 — 2026·2027·2028). 명단이 시작된 2026보다 앞선 해는
+// 두지 않는다 — 그 해에는 아무 줄도 없어서 빈 화면이 거짓말처럼 읽힌다(0035·0037).
+const ROSTER_FIRST_YEAR = 2026;
+const YEARS = [0, 1, 2].map(i => Math.max(THIS_YEAR, ROSTER_FIRST_YEAR) + i);
+const EMPTY_BOOK = { people: [], roles: [], suns: [], groupMembers: [] };
 const byName = (a, b) => String(a.name).localeCompare(String(b.name), 'ko');
 
 const Section = ({ title, count, children, hint }) => (
@@ -77,11 +91,30 @@ export function MembersView({ isAdmin, isMaster }) {
   const [admins, setAdmins] = useState(null);
   const [busy, setBusy] = useState({});         // { profileId|email|personId|'add': true }
   const [pickOpen, setPickOpen] = useState(false);   // 관리자로 지정할 사람 고르기
-  const [year, setYear] = useState(THIS_YEAR);
-  const [book, setBook] = useState(null);       // 명단 — null = 아직 받는 중
+  const [year, setYear] = useState(YEARS[0]);
+  // 명단 한 벌. **어느 해의 것인지 같이 들고 있는다** — 연도를 바꾼 첫 프레임에 지난 해의
+  // 값이 스치지 않게(§6의 캐시 훅 한 프레임 함정과 같은 이유. groupsParts.useSettled).
+  const [book, setBook] = useState(null);       // { key, data } | null
   const online = usePresence();
   // 줄마다 'N분 전 가입 · N분 전 다녀감'이 있다 — 이 화면을 열어 두면 그 글자가 굳는다
   useMinuteTick();
+  // **'다녀감'은 대시보드와 같은 값이어야 한다**(사용자 지적 2026-09-05 — 두 화면의
+  // 싱크). 이 화면의 목록(cloud.listMembersAdmin)은 열 때 한 번 받는 스냅샷이라 그대로
+  // 두면 그 시각이 굳고, 위의 useMinuteTick이 굳은 값을 늙히기까지 해서 열어 둔 만큼
+  // 대시보드와 벌어졌다. 스토어의 members는 profiles 실시간을 타므로(§6-21의 profiles
+  // 라우팅) 거기서 **다녀간 시각만** 겹쳐 쓴다 — 같은 값·같은 경로다.
+  // 목록 자체를 스토어로 갈지 않는 이유: 이 화면은 승인 대기·환송한 사람과 이메일까지
+  // 다루는데 스토어의 members는 그들을 걸러 낸다(0027).
+  const storeMembers = useStore(selectMembers);
+  const seenById = useMemo(
+    () => new Map(storeMembers.map(m => [m.id, m.lastSeenAt || ''])), [storeMembers]);
+  // 둘 중 나중 것. 스토어를 항상 믿지 않는 이유는 업무 창을 편집하는 동안 전체 재조회가
+  // 보류될 수 있어서다(App). 두 값 다 isoTime을 지나 같은 모양이라 글자 비교로 된다.
+  const seenAt = (row) => {
+    const live = seenById.get(row.id) || '';
+    const mine = isoTime(row.last_seen_at);
+    return live > mine ? live : mine;
+  };
 
   const load = useCallback(async () => {
     // 게스트 모드에는 클라우드가 없다 — 던지게 두면 화면을 열 때마다 콘솔 오류다
@@ -98,21 +131,33 @@ export function MembersView({ isAdmin, isMaster }) {
   }, []);
   useEffect(() => { if (isAdmin) load(); }, [isAdmin, load]);
 
-  // 명단은 '명단' 탭을 열 때 처음 받는다 — 계정만 보러 온 사람에게 네 번의 왕복을
-  // 미리 물리지 않는다. 연도를 바꾸면 그 해의 직분·순 편성을 다시 받는다.
+  // 명단은 '청년 명단' 탭을 열 때 처음 받는다 — 가입자만 보러 온 사람에게 네 번의
+  // 왕복을 미리 물리지 않는다. 연도를 바꾸면 그 해의 직분·순 편성을 다시 받는다.
+  //
+  // **캐시가 있으면 그것이 첫 화면이다.** readCache는 render에서 읽는다(effect는 그림을
+  // 그린 뒤에 돌아서, effect에서 채우면 매 진입마다 스켈레톤이 한 프레임 스친다).
+  const bookKey = `roster:${year}`;
+  const shownBook = book?.key === bookKey ? book.data : readCache(bookKey);
+  const putBook = (data) => { writeCache(bookKey, data); setBook({ key: bookKey, data }); };
+
   useEffect(() => {
-    if (!isAdmin || tab !== 'roster') return;
+    if (!isAdmin || tab !== 'roster') return undefined;
+    const key = `roster:${year}`;
     let alive = true;
-    setBook(null);
     (async () => {
       try {
         const data = await roster.loadRoster(year);
-        if (alive) setBook({ ...data, people: [...data.people].sort(byName) });
+        const next = { ...data, people: [...data.people].sort(byName) };
+        // 캐시는 끊긴 뒤에도 채운다 — 받아 온 값은 여전히 그 해의 값이다
+        writeCache(key, next);
+        if (alive) setBook({ key, data: next });
       } catch (e) {
         console.error('[roster] 명단 조회 실패:', e);
         if (!alive) return;
         showToast(failText('명단을 받지 못했어요', e));
-        setBook({ people: [], roles: [], suns: [], groupMembers: [] });
+        // 캐시도 없을 때만 빈 명단으로 앉힌다 — 아무것도 안 하면 스켈레톤이 걷히지
+        // 않고, 캐시를 덮으면 지난 값이 사라진다.
+        if (readCache(key) === undefined) setBook({ key, data: EMPTY_BOOK });
       }
     })();
     return () => { alive = false; };
@@ -173,11 +218,18 @@ export function MembersView({ isAdmin, isMaster }) {
   };
 
   // ── 명단 ──────────────────────────────────────────────────────────────────
-  // 쓰기가 성공하면 그 줄만 갈아 끼운다(목록을 통째로 다시 받지 않는다 — 계정 쪽
+  // 쓰기가 성공하면 그 줄만 갈아 끼운다(목록을 통째로 다시 받지 않는다 — 가입자 쪽
   // approve와 같은 방식). 막히면 화면은 그대로 두고 토스트만 낸다 — RLS가 진실이다.
-  const patchPerson = (id, patch) => setBook(prev => (prev
-    ? { ...prev, people: prev.people.map(p => (p.id === id ? { ...p, ...patch } : p)) }
-    : prev));
+  // **고친 값이 곧 다음 진입의 첫 화면이다** — 화면과 캐시를 같이 갈아 끼운다.
+  // 비우고 다시 받지 않는 이유: 왕복 네 번을 다시 물면 방금 고친 줄이 한 번 깜빡인다.
+  const editBook = (fn) => {
+    const base = shownBook;
+    if (!base) return;
+    putBook(fn(base));
+  };
+  const patchPerson = (id, patch) => editBook(prev => ({
+    ...prev, people: prev.people.map(p => (p.id === id ? { ...p, ...patch } : p)),
+  }));
 
   // 한 벌로 쓰는 쓰기 껍데기 — busy 표시 · 성공 토스트 · 실패 토스트가 전부 같다
   const write = async (key, run, done, whatFailed) => {
@@ -196,9 +248,9 @@ export function MembersView({ isAdmin, isMaster }) {
   const rosterOn = {
     year: setYear,
     add: (row) => write('add', () => roster.addPerson(row), (made) => {
-      setBook(prev => (prev ? { ...prev, people: [...prev.people, made].sort(byName) } : prev));
-      showToast(`${made.name}${objectParticle(made.name)} 명단에 올렸어요`);
-    }, '명단에 올리지 못했어요'),
+      editBook(prev => ({ ...prev, people: [...prev.people, made].sort(byName) }));
+      showToast(`${made.name}${objectParticle(made.name)} 청년 명단에 올렸어요`);
+    }, '청년 명단에 올리지 못했어요'),
 
     save: (p, patch) => write(p.id, () => roster.updatePerson(p.id, patch), () => {
       patchPerson(p.id, patch);
@@ -209,13 +261,13 @@ export function MembersView({ isAdmin, isMaster }) {
       patchPerson(p.id, { removed_at: next ? new Date().toISOString() : null });
       showToast(next
         ? `${p.name}${objectParticle(p.name)} 환송했어요`
-        : `${p.name}${objectParticle(p.name)} 명단으로 되돌렸어요`);
+        : `${p.name}${objectParticle(p.name)} 청년 명단으로 되돌렸어요`);
     }, next ? '환송하지 못했어요' : '되돌리지 못했어요'),
 
     link: (p, profileId) => write(p.id, () => roster.linkProfile(p.id, profileId), () => {
       patchPerson(p.id, { profile_id: profileId || null });
-      showToast(profileId ? '계정을 이었어요' : '계정 연결을 해제했어요');
-    }, profileId ? '계정을 잇지 못했어요' : '계정 연결을 해제하지 못했어요'),
+      showToast(profileId ? '계정을 연결했어요' : '계정 연결을 해제했어요');
+    }, profileId ? '계정을 연결하지 못했어요' : '계정 연결을 해제하지 못했어요'),
 
     pastor: (p, next) => write(p.id, () => roster.setPastor(p.id, next), () => {
       patchPerson(p.id, { is_pastor: next });
@@ -224,12 +276,12 @@ export function MembersView({ isAdmin, isMaster }) {
 
     role: (p, role, next) => write(p.id, () => roster.setYearRole(p.id, year, role, next), () => {
       const label = roster.ROLE_LABEL[role];
-      setBook(prev => (prev ? {
+      editBook(prev => ({
         ...prev,
         roles: next
           ? [...prev.roles, { person_id: p.id, year, role }]
           : prev.roles.filter(r => !(r.person_id === p.id && r.year === year && r.role === role)),
-      } : prev));
+      }));
       showToast(next ? `${year}년 ${label}으로 지정했어요` : `${year}년 ${label} 지정을 해제했어요`);
     }, next ? '직분을 지정하지 못했어요' : '직분 지정을 해제하지 못했어요'),
   };
@@ -240,9 +292,12 @@ export function MembersView({ isAdmin, isMaster }) {
   const removed = (rows || []).filter(r => !r.approved && r.removed_at);
   // 함께하는 사람은 **다녀간 순**이다 — 대시보드 '가입한 사람' 목록과 같은 정렬
   // (utils.visitOrder). 가입순으로 두면 오래 안 온 사람이 계속 맨 위에 선다.
+  // 접속 중인 사람이 맨 위인 것까지 같다 — 그 자리를 안 넘기면 같은 목록이 두 화면에서
+  // 다른 순서로 선다(MembersModal은 넘긴다).
   const members = visitOrder(
     (rows || []).filter(r => r.approved)
-      .map(r => ({ ...r, name: r.display_name || '', lastSeenAt: r.last_seen_at, joinedAt: r.created_at })),
+      .map(r => ({ ...r, name: r.display_name || '', lastSeenAt: seenAt(r), joinedAt: r.created_at })),
+    online,
   );
 
   // 접속 표시는 대시보드 '가입한 사람' 목록(MembersModal)과 같은 모양이다 — 아바타
@@ -250,6 +305,10 @@ export function MembersView({ isAdmin, isMaster }) {
   // 어색하다(사용자 지적).
   const MemberRow = ({ row, action }) => {
     const isOnline = online.has(row.id);
+    // 방문 기록이 없으면 '다녀감' 줄을 아예 안 그린다 — 그 사람의 가장 최근 시각은
+    // 가입 시각이고(대시보드 목록이 lastVisitOf로 그것을 쓴다), 이 화면은 그 값을 이미
+    // 왼쪽의 'N분 전 가입'으로 보여주고 있다. 같은 값을 두 번 적지 않는다.
+    const at = seenAt(row);
     return (
     <div className="flex items-center gap-2.5 py-2.5" style={{ borderBottom: '1px solid var(--app-line)' }}>
       <span className="relative shrink-0 inline-flex">
@@ -263,7 +322,7 @@ export function MembersView({ isAdmin, isMaster }) {
         <p className="text-[13px] font-semibold text-fg truncate">{row.display_name || '이름 없음'}</p>
         <p className="text-[10.5px] truncate" style={{ color: isOnline ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)' }}>
           {[row.created_at && `${agoLabel(row.created_at)} 가입`,
-            isOnline ? '접속 중' : (row.last_seen_at && `${agoLabel(row.last_seen_at)} 다녀감`)].filter(Boolean).join(' · ')}
+            isOnline ? '접속 중' : (at && `${agoLabel(at)} 다녀감`)].filter(Boolean).join(' · ')}
         </p>
       </div>
       {action}
@@ -275,7 +334,7 @@ export function MembersView({ isAdmin, isMaster }) {
     <div className="dc-screen max-w-3xl mx-auto pb-8">
       <div className="mb-4">
         <h2 className="text-lg md:text-xl font-extrabold text-fg tracking-[-0.4px]">멤버 관리</h2>
-        <p className="text-[11.5px] text-fg-muted mt-1">가입 수락·관리자 지정과 청년 명단을 여기서 합니다.</p>
+        <p className="text-[11.5px] text-fg-muted mt-1">가입 수락, 관리자 지정을 할 수 있고, 청년 명단을 확인할 수 있습니다.</p>
       </div>
 
       {/* 사람의 축이 둘이다 — 가입한 '계정'과 청년부 전체 '명단'(파일 머리말) */}
@@ -293,8 +352,8 @@ export function MembersView({ isAdmin, isMaster }) {
       </div>
 
       {tab === 'roster' ? (
-        <RosterPanel {...(book || {})} profiles={rows || []} year={year} years={YEARS}
-          busy={busy} loading={book === null} on={rosterOn} />
+        <RosterPanel {...(shownBook || {})} profiles={rows || []} profilesReady={rows !== null}
+          year={year} years={YEARS} busy={busy} loading={!shownBook} on={rosterOn} />
       ) : rows === null ? (
         <><RowSkeleton /><RowSkeleton /><RowSkeleton /></>
       ) : (

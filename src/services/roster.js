@@ -9,9 +9,9 @@ import { generateId } from '../utils.js';
 // **관리자가 손을 대는 길**만 얹는다: 사람 추가·수정 · 환송/되돌리기 · 계정 연결 ·
 // 직분 지정(people_roles 연도별 · people.is_pastor).
 //
-// **계정 연결은 사람이 눈으로 골라서 잇는다.** 이름이 같아도 자동으로 잇지 않는다 —
+// **계정 연결은 사람이 눈으로 골라서 한다.** 이름이 같아도 자동으로 연결하지 않는다 —
 // 이름으로 사람을 매다는 방식은 §6-26에서 이미 깨졌다(동명이인·개명). 0037 시드가
-// 이름으로 이은 것은 사람이 검수한 일회성 목록이고, 앱 런타임에는 그 길이 없다.
+// 이름으로 연결한 것은 사람이 검수한 일회성 목록이고, 앱 런타임에는 그 길이 없다.
 //
 // **행을 지우는 길은 두지 않는다.** 출석(attendance)이 person_id로 매달려 있어서
 // 지우면 지난 기록이 같이 사라진다. 환송은 removed_at을 찍을 뿐이고, 되돌리면
@@ -28,9 +28,20 @@ import { generateId } from '../utils.js';
 
 const COLS = 'id, name, birthday, teams, is_pastor, profile_id, note, removed_at';
 
-// 권한에 쓰이는 직분만 구조화한다(docs/V2.md §1). 나머지 직함은 role_note 자유 텍스트다.
-export const ROLE_LABEL = { president: '회장', lead_sunjang: '리더순장', officer: '임원' };
-export const YEAR_ROLES = ['president', 'lead_sunjang', 'officer'];
+// 직분 — 사용자가 정한 여섯이다(2026-09-05): 교역자 · 부장 · 회장 · 총무 · 리더순장 ·
+// 리더팀장. 화면의 칩도 이 순서다. 교역자만 연도와 무관한 명단 속성(people.is_pastor)이고
+// 나머지 다섯은 연도별(people_roles — 임원진이 해마다 바뀐다).
+//
+// 0043 전에는 부장·총무·리더팀장 자리가 `officer`(임원) 한 값이었다 — 네 사람이 같은
+// 배지를 나눠 써서 누가 무엇인지 화면에서 알 수 없었다. 0043이 값을 갈랐고 `officer`는
+// 사라졌다. **권한은 그대로다**: DB의 is_officer()는 그 해 줄이 있는지만 보고 값을 보지
+// 않는다(0035) — 새 값들도 임원과 같은 자리를 맡는다.
+// 팀장 같은 나머지 직함은 지금처럼 role_note 자유 텍스트다.
+export const ROLE_LABEL = {
+  director: '부장', president: '회장', treasurer: '총무',
+  lead_sunjang: '리더순장', lead_team: '리더팀장',
+};
+export const YEAR_ROLES = ['director', 'president', 'treasurer', 'lead_sunjang', 'lead_team'];
 export const PASTOR_LABEL = '교역자';
 
 // ── 순수 헬퍼 (브라우저 없이도 검사된다 — tests/roster.mjs 앞부분) ───────────
@@ -62,10 +73,24 @@ export function searchPeople(people, q) {
   return (people || []).filter(p => norm(p.name).includes(s));
 }
 
-// 아직 명단에 안 이어진 계정. 환송했거나 승인 대기인 계정은 후보가 아니다.
+// 아직 명단에 연결되지 않은 계정. 환송했거나 승인 대기인 계정은 후보가 아니다.
 export function unlinkedProfiles(profiles, people) {
   const taken = new Set((people || []).map(p => p.profile_id).filter(Boolean));
   return (profiles || []).filter(pr => pr && pr.approved && !pr.removed_at && !taken.has(pr.id));
+}
+
+// 계정 연결 칸이 무엇을 그려야 하나 — **"후보가 없다"와 "모두 연결됐다"는 다른 말이다.**
+// 예전 화면은 `candidates.length === 0`을 "가입한 계정이 모두 명단에 이어져 있어요"로
+// 읽었는데 그게 거짓이었다(사용자 지적 2026-09-05). 두 가지가 겹쳐 있었다:
+//   ① 승인 대기·환송한 계정은 **후보가 아니면서 명단에 연결되어 있지도 않다** —
+//      라이브에 실제로 그런 계정이 있다(환송한 계정 하나, people 행 없음).
+//   ② 계정 목록(profiles)이 아직 안 왔을 때도 빈 배열이라 같은 문장이 떴다.
+// 그래서 '아직 받는 중'과 '연결할 수 있는 후보가 없다'를 갈라 돌려준다. 화면은 앞의 것에
+// 스켈레톤을, 뒤의 것에 사실만 말하는 문구를 놓는다.
+export function accountLinkState({ profiles, people, ready = true } = {}) {
+  if (!ready) return { status: 'loading', candidates: [] };
+  const candidates = unlinkedProfiles(profiles, people);
+  return { status: candidates.length ? 'pick' : 'none', candidates };
 }
 
 // person_id → ['꼬순', …]. 한 사람이 두 순에 있을 일은 없지만 배열로 둔다.
@@ -179,7 +204,7 @@ export async function setPastor(personId, on) {
   return one(supabase.from('people').update(patch).eq('id', personId).select(COLS).single());
 }
 
-// 회장·리더순장·임원은 **연도별**이다 — 임원진이 해마다 바뀐다.
+// 부장·회장·총무·리더순장·리더팀장은 **연도별**이다 — 임원진이 해마다 바뀐다.
 export async function setYearRole(personId, year, role, on) {
   if (!YEAR_ROLES.includes(role)) throw new Error(`모르는 직분: ${role}`);
   const row = { person_id: personId, year, role };
