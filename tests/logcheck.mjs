@@ -1236,3 +1236,190 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     'window.scrollBy로는 아무 일도 안 일어난다는 것을 적어 둔다');
   console.log('PASS  연도 바꿀 때 스크롤 보정 8가지');
 }
+
+// ── 첨부 미리보기 종류 (services/previewKind.js) ────────────────────────────
+// 2026-09-05에 FilePreviewModal에서 순수 모듈로 옮겼다 — 그 전에는 JSX 안에 있어 노드에서
+// 부를 수 없었고 소스 문자열 단정(tests/drivesync.mjs)만 있었다. HTML 첨부가 그 계기다:
+// 'html'이 TEXT_EXT에 들어 있어 소스가 <pre>로 떴고, mime 'text/html'은 text/*에 먹혔다.
+// 되돌리기 검사: html 판정 줄을 text 뒤로 내리면 mime 케이스가, TEXT_EXT에 'html'을 되넣으면
+// 확장자 케이스가 깨진다.
+{
+  const { previewKind } = await import(new URL('../src/services/previewKind.js', import.meta.url).href);
+  const drive = (name, mime_type = '') => ({ name, mime_type, source: 'drive', drive_file_id: 'f1' });
+  assert.strictEqual(previewKind(drive('주보.html')), 'html', '드라이브 .html은 html');
+  // 실물 기준 파일 — 이름에 공백·한글이 있고 드라이브 중계로 내려온다
+  assert.strictEqual(previewKind({ name: '2026 대림절 예배 기획 킥오프 워크북.html', mime_type: 'text/html', source: 'drive', drive_file_id: 'f1', size_bytes: 180000 }), 'html', '공백·한글 이름의 실물 파일');
+  assert.strictEqual(previewKind(drive('안내.htm', 'text/html')), 'html', '.htm도 html');
+  assert.strictEqual(previewKind(drive('page.HTML')), 'html', '대문자 확장자도');
+  assert.strictEqual(previewKind(drive('index', 'text/html')), 'html', '확장자가 없어도 mime이 html이면 html');
+  assert.strictEqual(previewKind({ name: 'page.html', mime_type: 'text/html', source: 'local' }), 'html', '올리는 중인 로컬 파일도 html');
+  assert.strictEqual(previewKind({ name: 'page.html' }), 'html', 'Storage 행도 html');
+  // 글자로 남는 것들 — html을 앞에 끼워 넣어도 text가 그대로다
+  assert.strictEqual(previewKind(drive('README.md')), 'text', 'md는 text(RichText)');
+  assert.strictEqual(previewKind(drive('log.txt', 'text/plain')), 'text', 'text/plain은 text');
+  assert.strictEqual(previewKind(drive('a.xml', 'text/xml')), 'text', 'text/xml은 text');
+  // 다른 종류가 밀리지 않았는지
+  assert.strictEqual(previewKind(drive('사진.jpg', 'image/jpeg')), 'image');
+  assert.strictEqual(previewKind(drive('결산.pdf', 'application/pdf')), 'pdf');
+  assert.strictEqual(previewKind(drive('명단.xlsx')), 'sheet');
+  assert.strictEqual(previewKind(drive('문서.docx')), 'doc');
+  assert.strictEqual(previewKind(drive('발표.pptx')), 'slide');
+  assert.strictEqual(previewKind(drive('옛문서.doc')), 'drive', '옛 형식은 구글 편집기 미리보기');
+  assert.strictEqual(previewKind(drive('영상.mp4', 'video/mp4')), 'video');
+  assert.strictEqual(previewKind(drive('묶음.zip')), 'drive', '드라이브의 모르는 형식은 파일 뷰어');
+  assert.strictEqual(previewKind({ name: '묶음.zip' }), 'none', 'Storage의 모르는 형식은 none');
+  assert.strictEqual(previewKind({ name: '옛문서.doc', source: 'local' }), 'none', '올리는 중인 옛 형식은 주소가 없어 none');
+  assert.strictEqual(previewKind(null), 'none', '값이 없어도 안전하다');
+  console.log('PASS  첨부 미리보기 종류 21가지');
+}
+
+// ── 공유 링크로 들어온 로그인 (utils.isKakaoInApp · returnToOf · authErrorInUrl) ──
+// 카카오톡으로 공유한 링크를 인앱 브라우저에서 열면 로그인 화면이 뜨고, OAuth가 origin으로
+// 돌려보내 가려던 자리를 잃었다(2026-09-05). 자리는 sessionStorage에 적어 두고(auth.jsx),
+// 인앱 브라우저면 카카오 로그인을 한 번 자동으로 시작한다.
+// 되돌리기 검사: returnToOf가 hash까지 붙이면 '#access_token' 케이스가, authErrorInUrl이
+// hash를 안 보면 '#error=' 케이스가 깨진다. 배선 단정은 auth.jsx가 signInWithOAuth 앞에서
+// 자리를 적는지 · 세션을 넣기 전에 복원하는지 · 로그인 화면이 waiting을 걸러 자동 시작하는지.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'kakao-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { isKakaoInApp, returnToOf, authErrorInUrl } = await import(pathToFileURL(f).href);
+  const KAKAO_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 KAKAOTALK 10.8.0';
+  const CHROME_UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36';
+  assert.strictEqual(isKakaoInApp(KAKAO_UA), true, '카카오톡 인앱 UA');
+  assert.strictEqual(isKakaoInApp(CHROME_UA), false, '일반 크롬은 아니다');
+  assert.strictEqual(isKakaoInApp(''), false, '빈 값도 안전하다');
+  assert.strictEqual(isKakaoInApp(undefined), false, '값이 없어도 안전하다');
+
+  assert.strictEqual(returnToOf({ pathname: '/', search: '?p=p1&t=t1' }), '/?p=p1&t=t1', '딥링크는 그대로');
+  assert.strictEqual(returnToOf({ pathname: '/', search: '' }), null, '홈이면 기억할 것이 없다');
+  assert.strictEqual(returnToOf({ pathname: '/', search: '?p=p1', hash: '#access_token=abc' }), '/?p=p1', 'hash는 싣지 않는다 — 토큰 자리다');
+  assert.strictEqual(returnToOf(null), null, '값이 없어도 안전하다');
+
+  assert.strictEqual(authErrorInUrl('https://x.app/#error=access_denied&error_description=user+cancelled'), true, 'hash의 오류');
+  assert.strictEqual(authErrorInUrl('https://x.app/?error=server_error'), true, '쿼리의 오류');
+  assert.strictEqual(authErrorInUrl('https://x.app/#error_code=400'), true, 'error_code만 있어도');
+  assert.strictEqual(authErrorInUrl('https://x.app/?p=p1&t=t1'), false, '딥링크는 오류가 아니다');
+  assert.strictEqual(authErrorInUrl('https://x.app/#access_token=a&refresh_token=b'), false, '토큰은 오류가 아니다');
+  assert.strictEqual(authErrorInUrl(''), false, '빈 값도 안전하다');
+
+  const auth = readFileSync(new URL('../src/services/auth.jsx', import.meta.url), 'utf8');
+  assert.ok(/rememberReturnTo\(\);\s*\n\s*return supabase\.auth\.signInWithOAuth\(/.test(auth), '떠나기 전에 자리를 적는다');
+  assert.ok(/if \(data\.session\) consumeReturnTo\(\);\s*\n\s*setSession\(data\.session\)/.test(auth), '세션을 넣기 전에 자리를 복원한다(WorkspaceShell이 주소를 한 번만 읽는다)');
+  assert.ok(/if \(event === 'SIGNED_IN' && newSession\) consumeReturnTo\(\);/.test(auth), 'SIGNED_IN에서도 복원한다');
+  assert.ok(/if \(ss\.get\(AUTO_KAKAO_KEY\)\) return false;\s*\n\s*ss\.set\(AUTO_KAKAO_KEY, '1'\);\s*\n\s*signIn\('kakao'\)/.test(auth), '자동 시작은 표식을 먼저 놓고 한 번만');
+  assert.ok(/if \(authErrorInUrl\(window\.location\.href\)\) return false;/.test(auth), '오류로 돌아온 뒤에는 자동으로 다시 시작하지 않는다');
+  assert.ok(!/sessionStorage\.removeItem\(AUTO_KAKAO_KEY\)|ss\.del\(AUTO_KAKAO_KEY\)/.test(auth), '표식을 지우는 길이 생겼다 — 로그아웃 → 자동 로그인 고리');
+  const login = readFileSync(new URL('../src/components/LoginScreen.jsx', import.meta.url), 'utf8');
+  assert.ok(/useEffect\(\(\) => \{ if \(!waiting && autoSignInKakao\(\)\) setAuto\(true\); \}/.test(login), '로그인 화면이 마운트될 때 한 번, 승인 대기 화면은 제외');
+  console.log('PASS  공유 링크 로그인 21가지');
+}
+
+// ── 두 화면의 '몇 분 전 다녀감'을 한 값으로 (2026-09-05) ─────────────────────
+// 대시보드 사람 칸과 멤버 관리 화면이 다른 값을 보여 줬다(사용자 지적). 원인이 둘이다:
+//   ① 멤버 화면은 열 때 한 번 받은 스냅샷을 쓰고 실시간을 안 들었다(굳은 값을
+//      useMinuteTick이 늙히기까지 해서 열어 둔 만큼 벌어졌다) → 스토어의 members를 겹쳐 쓴다.
+//   ② 실시간 payload의 timestamptz는 PostgREST와 글자 모양이 다르다 → isoTime으로 한 모양.
+// 되돌리기 검사(실제로 해 봤다): isoTime을 그냥 `raw`를 돌려주게 바꾸면 '두 모양이 같은
+// 값이 된다'가 깨지고, seenOnlyChange에서 `updated_at`을 무시 목록에서 빼면 '심장박동은
+// 다녀간 시각만 바뀐 것'이 깨지고, membersView에서 online을 안 넘기면 정렬 단정이 깨진다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'seen-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { isoTime, seenOnlyChange, LEAVE_STAMP_MS, dueForHeartbeat, visitOrder } =
+    await import(pathToFileURL(f).href);
+
+  // ① 글자 모양 — 실시간(공백·'+00')과 PostgREST('T'·'+00:00')가 같은 값이 된다
+  const RT = '2026-09-04 15:27:43.769+00';        // realtime-js는 timestamptz를 손대지 않는다
+  const PG = '2026-09-04T15:27:43.769+00:00';     // PostgREST
+  assert.strictEqual(isoTime(RT), isoTime(PG), '같은 시각이면 같은 글자가 된다');
+  assert.strictEqual(isoTime(RT), '2026-09-04T15:27:43.769Z');
+  assert.strictEqual(isoTime('2026-09-04T15:27:43.769456+00:00'), '2026-09-04T15:27:43.769Z',
+    '마이크로초는 밀리초로 자른다(그래도 두 경로가 같은 값이다)');
+  assert.strictEqual(isoTime(''), '', '값이 없으면 빈 문자열 — agoLabel이 그걸 안다');
+  assert.strictEqual(isoTime(null), '');
+  assert.strictEqual(isoTime('어제'), '', '못 읽는 값도 빈 문자열(던지지 않는다)');
+  // 왜 굳이 맞추나: visitOrder는 ISO 문자열을 그대로 비교한다. 날짜가 같으면 그다음
+  // 글자에서 갈리는데 공백이 'T'보다 작아서, 손대지 않고 섞으면 **같은 날 방금 다녀간
+  // 사람이 오전에 다녀간 사람보다 아래로 간다**.
+  const EARLIER = '2026-09-04T09:00:00.000+00:00';   // 같은 날 오전(PostgREST 모양)
+  const raw = visitOrder([{ id: 'a', name: '방금', lastSeenAt: RT },
+    { id: 'b', name: '오전', lastSeenAt: EARLIER }]);
+  assert.deepStrictEqual(raw.map(m => m.name), ['오전', '방금'], '섞으면 순서가 뒤집힌다(고치는 이유)');
+  const fixed = visitOrder([{ id: 'a', name: '방금', lastSeenAt: isoTime(RT) },
+    { id: 'b', name: '오전', lastSeenAt: isoTime(EARLIER) }]);
+  assert.deepStrictEqual(fixed.map(m => m.name), ['방금', '오전'], 'isoTime을 지나면 제대로 선다');
+
+  // ② 심장박동인가 — 다녀간 시각 말고는 아무것도 안 바뀌었나
+  const row = {
+    id: 'u1', display_name: '노준석', avatar_url: null, team_id: 't1', birthday: '05-26',
+    approved: true, removed_at: null, email: 'a@x.com', role_note: '',
+    created_at: '2026-07-24T13:45:33.771182+00:00',
+    updated_at: '2026-09-04T15:22:00.000+00:00', last_seen_at: '2026-09-04T15:22:00.000+00:00',
+  };
+  // 실제 심장박동: last_seen_at과 updated_at(트리거)이 같이 올라간다
+  const beat = { ...row, last_seen_at: RT, updated_at: '2026-09-04 15:27:43.808+00' };
+  assert.strictEqual(seenOnlyChange(row, beat), true, '심장박동은 다녀간 시각만 바뀐 것');
+  assert.strictEqual(seenOnlyChange(row, { ...beat, display_name: '노준석1' }), false,
+    '이름이 같이 바뀌면 전체 재조회로 보낸다(§6-21-a)');
+  assert.strictEqual(seenOnlyChange(row, { ...beat, avatar_url: 'https://x/y.jpg' }), false, '사진도');
+  assert.strictEqual(seenOnlyChange(row, { ...beat, approved: false }), false, '승인도');
+  assert.strictEqual(seenOnlyChange(row, { ...beat, removed_at: RT }), false, '환송도');
+  assert.strictEqual(seenOnlyChange(row, row), false, '안 바뀌었으면 얹을 것도 없다');
+  assert.strictEqual(seenOnlyChange(row, { ...row, last_seen_at: null }), false, '값이 비면 아니다');
+  assert.strictEqual(seenOnlyChange(null, beat), false, '직전 행을 모르면 아니다(전체 재조회)');
+  // 컬럼이 늘면(모르는 키) 안전한 쪽 — 느린 쪽으로 실패한다
+  assert.strictEqual(seenOnlyChange(row, { ...beat, phone: '010' }), false, '모르는 키가 생기면 아니다');
+  // 같은 시각이 다른 모양으로 온 다른 칸은 '바뀐 것'이 아니다
+  assert.strictEqual(seenOnlyChange(row, { ...beat, created_at: '2026-07-24 13:45:33.771182+00' }), true,
+    '같은 시각의 다른 글자 모양은 변경이 아니다');
+
+  // ③ 떠날 때 한 번 더 찍기 — 간격만 바꿔 dueForHeartbeat를 그대로 쓴다
+  const NOW = 1_000_000_000;
+  assert.strictEqual(LEAVE_STAMP_MS, 60 * 1000, '떠날 때의 하한은 1분');
+  assert.strictEqual(dueForHeartbeat(NOW - 30e3, NOW, LEAVE_STAMP_MS), false, '30초 전에 찍었으면 안 찍는다');
+  assert.strictEqual(dueForHeartbeat(NOW - 90e3, NOW, LEAVE_STAMP_MS), true, '1분을 넘겼으면 찍는다');
+  console.log('PASS  다녀간 시각 한 값으로 22가지');
+}
+
+// ── 그 값이 화면까지 오는 배선 (스토어 · 실시간 라우팅 · 두 화면) ────────────
+// 순수 함수만 맞아도 배선이 빠지면 다시 '새로고침해야 보이는' 자리로 돌아간다.
+// 되돌리기 검사: 아래 단정마다 해당 줄을 지우면 그 단정이 깨진다(하나씩 확인했다).
+{
+  const store = readFileSync(new URL('../src/store/workspaceStore.js', import.meta.url), 'utf8');
+  assert.ok(/case 'SYNC_MEMBER_SEEN'/.test(store), '스토어가 사람 한 칸만 고치는 액션을 안다');
+  assert.ok(/action\.type === 'SYNC_MEMBER_SEEN'/.test(store),
+    '되돌리기 기록에 남기지 않는다(내 조작이 아니다)');
+  assert.ok(/if \(i < 0 \|\| list\[i\]\.lastSeenAt === lastSeenAt\) return;/.test(store),
+    '모르는 사람이거나 값이 같으면 아무것도 안 한다(헛렌더 금지)');
+
+  const sync = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
+  assert.ok(/profileRows = new Map\(profiles\.map\(p => \[p\.id, p\]\)\)/.test(sync),
+    '직전 profiles 행을 들고 있다(payload.old에는 id밖에 없다)');
+  assert.ok(/table === 'profiles' && payload\.eventType === 'UPDATE' && onMemberSeen/.test(sync)
+    && /seenOnlyChange\(prev, row\)/.test(sync),
+    '다녀간 시각만 바뀐 UPDATE는 전체 재조회로 안 간다');
+  assert.ok(/lastSeenAt: isoTime\(/.test(sync), '스토어에 담기 전에 글자 모양을 맞춘다');
+
+  const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.ok(/onMemberSeen: \(patch\) => store\.dispatch\(\{ type: 'SYNC_MEMBER_SEEN'/.test(app),
+    '실시간 라우팅이 스토어까지 이어져 있다');
+  assert.ok(/dueForHeartbeat\(lastAt, Date\.now\(\), LEAVE_STAMP_MS\)/.test(app),
+    '떠날 때의 판정은 같은 함수에 간격만 바꿔 넘긴다');
+  assert.ok(/document\.hidden \? stampLeave\(\) : beat\(\)/.test(app), '탭이 숨겨지는 순간 한 번 찍는다');
+  assert.ok(/addEventListener\('pagehide', stampLeave\)/.test(app)
+    && /removeEventListener\('pagehide', stampLeave\)/.test(app), 'pagehide도 듣고 뗀다');
+
+  const mv = readFileSync(new URL('../src/views/membersView.jsx', import.meta.url), 'utf8');
+  assert.ok(/useStore\(selectMembers\)/.test(mv), '멤버 화면이 스토어의 members를 같이 본다');
+  assert.ok(/lastSeenAt: seenAt\(r\)/.test(mv) && /const at = seenAt\(row\)/.test(mv),
+    '정렬과 라벨이 같은 값을 쓴다');
+  assert.ok(/\)\s*,\s*\n\s*online,\s*\n\s*\);/.test(mv) || /visitOrder\([\s\S]{0,400}?online,/.test(mv),
+    '접속 중인 사람이 맨 위 — MembersModal과 같은 순서');
+  assert.ok(!/agoLabel\(row\.last_seen_at\)/.test(mv), '스냅샷 값을 그대로 그리는 자리가 남아 있다');
+  console.log('PASS  다녀간 시각 배선 13가지');
+}

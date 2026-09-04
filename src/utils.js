@@ -255,6 +255,34 @@ export const driveSrc = (row, now = Date.now()) => {
     : `https://drive.google.com/file/d/${row.drive_file_id}/preview`;
 };
 
+// ── 공유 링크로 들어온 로그인 (auth.jsx · LoginScreen.jsx) ─────────────────────
+// 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
+
+// 카카오톡 인앱 브라우저인가. 카카오톡으로 공유한 링크는 대부분 여기서 열리는데,
+// 세션이 없어 로그인 화면이 뜬다 — 그 자리에서는 카카오 로그인을 자동으로 시작한다
+// (구글은 인앱 웹뷰에서 OAuth를 막는다 — disallowed_useragent). UA 표식은 'KAKAOTALK'.
+export const isKakaoInApp = (ua = '') => /KAKAOTALK/i.test(String(ua || ''));
+
+// 로그인 뒤 돌아갈 자리. 딥링크는 쿼리(?p=&t=&f=)에만 실리므로 pathname+search만 본다 —
+// hash는 OAuth가 토큰·오류를 싣는 자리라 저장하면 안 된다. 홈('/')이면 null(기억할 것이 없다).
+export const returnToOf = (loc) => {
+  const path = String(loc?.pathname || '/');
+  const search = String(loc?.search || '');
+  const to = path + search;
+  return to === '/' || to === '' ? null : to;
+};
+
+// OAuth가 실패해서 돌아왔나. Supabase는 오류를 hash(#error=…&error_description=…)에 싣고
+// (auth-js는 오류일 때 hash를 지우지 않는다), 쿼리(?error=)로 오는 제공자도 있어 둘 다 본다.
+// 참이면 자동 로그인을 다시 시작하지 않는다 — 안 그러면 실패 → 자동 시작 → 실패의 고리다.
+export function authErrorInUrl(href = '') {
+  let u;
+  try { u = new URL(String(href), 'http://x'); } catch { return false; }
+  const keys = ['error', 'error_description', 'error_code'];
+  const has = (qs) => { const p = new URLSearchParams(qs); return keys.some(k => p.has(k)); };
+  return has(u.search) || has(u.hash.replace(/^#/, ''));
+}
+
 // ── 대시보드 '사람' 칸 (0019) ────────────────────────────────────────────────
 // 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
 
@@ -357,6 +385,49 @@ export function agoLabel(ts, now = Date.now()) {
 export const HEARTBEAT_MS = 5 * 60 * 1000;
 export const dueForHeartbeat = (lastAt, now = Date.now(), everyMs = HEARTBEAT_MS) =>
   !lastAt || (now - lastAt) >= everyMs;
+
+// **떠날 때 한 번 더 찍는다**(App의 visibilitychange·pagehide). 5분 간격의 박동만 두면
+// 마지막 박동과 실제로 떠난 시각 사이가 최대 5분 비어서, 남들 화면의 'N분 전 다녀감'이
+// 그만큼 낡는다(사용자 지적 2026-09-05 — 두 화면의 값이 안 맞는다). 판정은
+// dueForHeartbeat에 간격만 바꿔 넘긴다 — 규칙을 두 벌 쓰지 않는다. 하한을 두는 이유는
+// 탭을 자주 오가는 것이 곧 쓰기가 되면 안 되기 때문이다(1분에 UPDATE 1회가 상한).
+export const LEAVE_STAMP_MS = 60 * 1000;
+
+// 시각 한 칸을 **한 가지 글자 모양**으로. 실시간 payload의 timestamptz는 PostgREST와
+// 모양이 다르다 — realtime-js는 timestamptz를 손대지 않고 넘기므로
+// '2026-09-04 15:27:43.769+00'(공백·'+00')이고, PostgREST는
+// '2026-09-04T15:27:43.769+00:00'이다. 두 모양이 스토어에 섞이면 **visitOrder가 깨진다**:
+// 그 정렬은 ISO 문자열을 그대로 비교하는데 공백(0x20)이 'T'보다 작아서, 방금 다녀간
+// 사람이 목록 맨 아래로 간다. 그래서 스토어에 넣기 전에 여기를 지나게 한다.
+// 값이 없거나 못 읽으면 빈 문자열 — agoLabel·localDate가 ''를 이미 안다.
+export const isoTime = (raw) => {
+  if (!raw) return '';
+  const t = new Date(raw).getTime();
+  return Number.isNaN(t) ? '' : new Date(t).toISOString();
+};
+
+// 이 profiles UPDATE가 **심장박동뿐인가** — 다녀간 시각 말고는 아무것도 안 바뀌었나.
+// 맞으면 부르는 쪽(cloudSync.subscribeWorkspace)이 전체 재조회 대신 스토어의 그 사람
+// 한 칸만 고친다. 5분마다 사람마다 오는 이벤트라, 전체 재조회로 흘리면 접속자 전원이
+// 그때마다 워크스페이스를 통째로 다시 읽는다(§1.3 Egress · §6-21 라우팅).
+// `updated_at`은 트리거가 같이 올리므로 셈에서 뺀다.
+// **볼 키를 열거하지 않는다**: 열거하면 나중에 컬럼이 늘 때 그 변경을 놓친다(§6-21-a의
+// '알 수 없음'과 같은 길이다). 모르는 키가 하나라도 다르면 false이고, 그러면 부르는 쪽이
+// 전체 재조회로 떨어진다 — 틀리는 쪽이 아니라 느린 쪽으로 실패한다.
+const SEEN_ONLY_IGNORE = new Set(['last_seen_at', 'updated_at']);
+export function seenOnlyChange(prev, next) {
+  if (!prev || !next) return false;
+  if (!next.last_seen_at || String(next.last_seen_at) === String(prev.last_seen_at)) return false;
+  for (const k of new Set([...Object.keys(prev), ...Object.keys(next)])) {
+    if (SEEN_ONLY_IGNORE.has(k)) continue;
+    const a = prev[k], b = next[k];
+    if ((a ?? '') === (b ?? '')) continue;
+    // 같은 시각이 다른 글자 모양으로 올 수 있다(위 isoTime) — 시각으로 한 번 더 본다
+    const ta = Date.parse(a), tb = Date.parse(b);
+    if (Number.isNaN(ta) || ta !== tb) return false;
+  }
+  return true;
+}
 
 // 선후관계 그래프의 열 배치 — 각 업무를 "선행 업무보다 오른쪽 열"에 둔다.
 // 반환: [[depth 0 업무들], [depth 1 업무들], ...] (열 안은 마감일순 — byDue와 같은 규칙).

@@ -5,7 +5,6 @@ import { RichText } from './RichText.jsx';
 import { getFileOpenUrl, driveImageFullUrl, fetchDriveFileBlob } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { Skeleton, SmartImage } from './media.jsx';
-import { MAX_UPLOAD_BYTES } from '../config.js';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { PdfView } from './PdfView.jsx';
@@ -22,80 +21,27 @@ const SlideView = (props) => <Suspense fallback={<PreparingFrame />}><SlideLazy 
 // ----------------------------------------------------------------------------
 // 형식별 처리
 //   이미지·PDF·영상·소리·텍스트(md 포함): 브라우저가 직접 그린다(외부 전송 없음)
+//   HTML(.html·.htm): sandbox iframe에 srcdoc으로 넣는다. 허용은 allow-scripts 하나뿐이고
+//     allow-same-origin은 절대 함께 주지 않는다 — 출처가 불투명해야 우리 localStorage의
+//     세션 토큰에 닿지 못한다. 문서 안의 외부 이미지·CSS·스크립트는 브라우저가 그대로
+//     받아온다(그 주소로 요청이 나간다 — 링크를 여는 것과 같다).
 //   워드·엑셀·파워포인트: 브라우저가 못 그리므로 Office Online 임베드 뷰어를 쓴다
 //     → 서명 URL이 마이크로소프트 쪽으로 전달된다. 화면에 그 사실을 표시하고,
 //       원치 않으면 OFFICE_VIEWER를 false로 두면 '열기'만 노출된다.
 //   hwp·zip 등: 미리보기 수단이 없어 파일 정보 + 열기/내려받기만 제공
 // ============================================================================
-const OFFICE_VIEWER = true; // false = 오피스 파일도 미리보기 없이 '열기'만
-
-const extOf = (name = '') => (name.split('.').pop() || '').toLowerCase();
-const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg'];
-const TEXT_EXT = ['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'log', 'xml', 'yml', 'yaml', 'html', 'css', 'js', 'jsx', 'ts', 'tsx', 'py', 'sql', 'sh'];
-const OFFICE_EXT = ['doc', 'docx', 'ppt', 'pptx'];   // 앱이 못 그려서 구글 편집기 미리보기로 남는 것
-// 우리 표로 직접 그리는 것. csv는 파싱이 몇 줄이라 같이 본다.
-const SHEET_EXT = ['xlsx', 'xls', 'csv'];
-// 스프레드시트도 **우리가 받아 주는 크기면 우리가 그린다.** 예전에는 8MB에서 갈랐는데,
-// 파서가 시트를 끝까지 읽고 나서 500줄로 자르던 시절의 값이다 — 그때는 6.4MB짜리가
-// 3.3초 동안 탭을 멎게 했다. 지금은 500줄을 채우면 거기서 멈춘다(xlsx.js) — 같은 파일이
-// 0.36초다(실측 2026-08-28, 같은 실행에서 세 번씩). 그래서 상한을 첨부 상한에 묶는다.
-const MAX_SHEET_BYTES = MAX_UPLOAD_BYTES;
+// 종류 판정(previewKind)과 확장자 목록은 services/previewKind.js에 있다 — 순수 함수라
+// 노드에서 검사한다(tests/logcheck.mjs). 여기는 그리는 쪽만 남았다.
+import { previewKind, extOf } from '../services/previewKind.js';
 // 바이트를 받아 우리가 직접 그리는 형식들 — 셋이 같은 길을 쓴다.
 const BYTE_KINDS = new Set(['sheet', 'doc', 'slide']);
 const MAX_TEXT_CHARS = 512 * 1024;      // 텍스트는 앞의 이만큼만 그린다(뒤는 잘렸다고 알린다)
-// **우리가 받아 주는 파일은 우리가 그린다.** 예전에는 여기 15MB가 박혀 있어서,
-// 25MB까지 받아 놓고 19MB PDF는 드라이브의 어두운 파일 뷰어로 떨어뜨렸다
-// (사용자 신고 2026-08-28 — "드라이브에 올라갔는데 왜 이쁜 뷰로 안 보이지").
-// 상한을 첨부 상한(config.MAX_UPLOAD_BYTES)에 묶어 두면 그 어긋남이 다시 안 생긴다.
 // 첨부 목록의 엑셀 '펼쳐보기'(attachments.jsx)도 같은 값·같은 스켈레톤을 쓴다 —
 // 뷰어 iframe이 뜨는 동안 남의 로딩 화면(외부 폰트)이 비쳐 보이지 않게 가리는 값들이다.
 const OFFICE_TIMEOUT = 12000;    // 이 시간 안에 안 뜨면 안내로 대체
 // iframe onLoad는 "문서가 전달된 시점"이라 뷰어가 첫 페이지를 그리기 전이다.
 // 그 사이 PDF 뷰어의 검은 배경이 그대로 보여서, 조금 더 기다렸다 스켈레톤을 걷는다.
 const FRAME_SETTLE = 260;
-
-function previewKind(row) {
-  const mime = row.mime_type || '';
-  const ext = extOf(row.name);
-  // 이미지는 드라이브 파일이어도 <img>로 직접 그린다 — 구글 이미지 CDN(lh3) 주소가
-  // 고정이라 브라우저가 캐싱하고(서명 URL과 달리 두 번째부터는 요청이 안 나간다),
-  // iframe 뷰어와 달리 사진 넘기기(이전/다음)가 된다.
-  if (mime.startsWith('image/') || IMAGE_EXT.includes(ext)) return 'image';
-  // 엑셀·csv는 **구글이 그린 화면**을 iframe으로 띄운다(2026-08-29). 예전에는 우리가
-  // 직접 표를 그렸는데, 구글이 .xlsx를 사람이 열 때 게을리 변환하는 것이 문제였고
-  // 지금은 올릴 때 변환 사본을 만들어 두므로 기다릴 것이 없다(files.preview_file_id).
-  if (SHEET_EXT.includes(ext) && (row.size_bytes ?? 0) <= MAX_SHEET_BYTES) return 'sheet';
-  if (row.source === 'drive') {
-    // 드라이브 파일도 형식별로 **가장 나은 뷰어**로 간다(사용자 요청) —
-    //  · 오피스류(엑셀·워드·PPT·csv): 구글 전용 편집기 미리보기(driveSrc가 시간 게이트)
-    //  · PDF·텍스트·영상·소리: 앱이 직접 그린다. 바이트는 /api/drive-file이 중계한다
-    //    (브라우저→drive.google.com 은 CORS가 막는다). 첨부 상한이 25MB이고 중계도
-    //    같은 값이라 통째로 받아도 된다 — 실측 19MB PDF가 드라이브에서 8-12초다.
-    // 옛 형식(.doc·.ppt)만 구글 편집기 미리보기로 남는다 — 그건 OOXML(zip+XML)이
-    // 아니라 옛 바이너리라 우리 파서가 읽을 수 없다. 스프레드시트가 어쩌다 여기로
-    // 떨어지더라도 아래 'drive'(어두운 파일 뷰어) 대신 편집기 미리보기로 간다.
-    if (ext === 'docx') return 'doc';
-    if (ext === 'pptx') return 'slide';
-    if (OFFICE_EXT.includes(ext) || SHEET_EXT.includes(ext)) return 'drive';
-    if (mime === 'application/pdf' || ext === 'pdf') return 'pdf';
-    if (mime.startsWith('text/') || TEXT_EXT.includes(ext)) return 'text';
-    if (mime.startsWith('video/') || ['mp4', 'mov', 'webm', 'm4v'].includes(ext)) return 'video';
-    if (mime.startsWith('audio/') || ['mp3', 'm4a', 'wav', 'ogg'].includes(ext)) return 'audio';
-    return 'drive';
-  }
-  if (mime === 'application/pdf' || ext === 'pdf') return 'pdf';
-  if (mime.startsWith('video/')) return 'video';
-  if (mime.startsWith('audio/')) return 'audio';
-  if (mime.startsWith('text/') || TEXT_EXT.includes(ext)) return 'text';
-  // 올리는 중이어도 우리 파서는 고른 파일 그대로 읽는다 — 엑셀과 같다.
-  if (ext === 'docx') return 'doc';
-  if (ext === 'pptx') return 'slide';
-  // 옛 형식은 오피스 뷰어뿐인데, 그건 **공개로 닿는 주소**를 넘겨야 그린다. 아직
-  // 올리는 중인 파일은 주소가 없어 빈 iframe이 뜬다 — 정보와 내려받기가 정직하다.
-  if (OFFICE_EXT.includes(ext) || SHEET_EXT.includes(ext)) return (OFFICE_VIEWER && row.source !== 'local') ? 'office' : 'none';
-  return 'none';
-}
-
 // 첨부 목록의 엑셀 '펼쳐보기'(attachments.jsx)도 같은 뷰어 주소를 쓴다
 const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
 // 드라이브 미리보기 주소는 순수 함수라 utils에 있다(노드에서 바로 검사한다 — §2-5).
@@ -137,6 +83,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
   const [frameReady, setFrameReady] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [pdfSrc, setPdfSrc] = useState(null); // { blob } 또는 { src } — 준비가 끝난 뒤에만 렌더
+  const [htmlReady, setHtmlReady] = useState(false); // HTML iframe이 load를 알렸나(그 전까지 준비 중 자리)
   const [sheetSrc, setSheetSrc] = useState(null); // { blob } 또는 { text }(csv)
   // 창을 화면 가득 넓히기. 모바일은 원래 전체화면이라 버튼을 두지 않는다(태블릿부터 보인다).
   const [wide, setWide] = useState(false);
@@ -145,7 +92,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
   const go = useCallback((d) => {
     const next = canNav ? gallery[gi + d] : null;
     if (!next) return;   // 끝에서는 멈춘다 — 빙글빙글 돌면 몇 장인지 감을 잃는다
-    setCur(next); setUrl(null); setText(null); setError(null);
+    setCur(next); setUrl(null); setText(null); setError(null); setHtmlReady(false);
     setFrameReady(false); setTimedOut(false); setPdfSrc(null); setSheetSrc(null);
   }, [canNav, gallery, gi]);
   // 이웃 사진을 미리 받아 둔다 — lh3 주소는 고정이라 이게 곧 캐시를 채우는 일이고,
@@ -175,7 +122,8 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
 
   // 텍스트/마크다운은 내려받아 그대로 보여준다
   useEffect(() => {
-    if (kind !== 'text' || text !== null) return;
+    // html도 같은 길로 받는다 — iframe에 srcdoc으로 넣을 글자가 필요한 것은 같다.
+    if ((kind !== 'text' && kind !== 'html') || text !== null) return;
     // 커도 **그린다** — 앞부분만 자르고 잘렸다고 아래 한 줄로 알린다(엑셀의 500줄 상한과
     // 같은 판단이다). 예전에는 여기서 '파일이 커서 미리보기를 건너뛰었어요'로 끝냈는데,
     // 큰 로그일수록 앞 몇 줄이 궁금한 법이라 아무것도 안 보여주는 쪽이 더 나빴다.
@@ -363,6 +311,39 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
           {isMd
             ? <RichText content={text} />
             : <pre className="text-xs text-fg-secondary whitespace-pre-wrap break-words font-mono leading-relaxed">{text}</pre>}
+          {text.length >= MAX_TEXT_CHARS && (
+            <p className="pt-2 text-center text-[10px] text-fg-faint">앞부분만 보여줘요 · 전체는 새 탭에서 열기</p>
+          )}
+        </div>
+      );
+    }
+    if (kind === 'html') {
+      // 받는 동안도, 받은 뒤 iframe이 문서를 그리는 동안도 '준비하고 있어요'다(사용자 요청
+      // 2026-09-05). Tailwind CDN 문서는 스크립트가 CSS를 만들기 전까지 흰 종이라 load
+      // 이벤트까지 덮어 둔다 — 그 전에 걷으면 빈 흰 칸이 잠깐 보인다.
+      if (text === null) return <PreparingFrame />;
+      // sandbox 허용 목록은 **allow-scripts 하나뿐이다.** 폼·팝업·상위 창 이동은 막히고
+      // 출처가 불투명해서 우리 쿠키·localStorage·Supabase 세션에 닿지 못한다.
+      // **allow-same-origin은 절대 함께 주지 않는다** — 둘을 같이 주면 문서가 자기 자신의
+      // sandbox 속성을 지우고 다시 띄워 벗어날 수 있고, 우리 출처가 되어 세션 토큰을 읽는다.
+      // 스크립트를 왜 여나: 처음에는 sandbox=""(권한 0)이었는데, 기준으로 받아 본 실물
+      // 첨부('2026 대림절 예배 기획 킥오프 워크북.html', 29KB)가 <script src=
+      // "cdn.tailwindcss.com">·chart.js로 짜인 문서였다. Tailwind CDN은 **자바스크립트가
+      // CSS를 만들어** 주므로 스크립트를 막으면 스타일이 하나도 없는 글 덩이가 된다
+      // (2026-09-05 실물 확인). referrerPolicy는 문서 안의 외부 이미지·CSS·스크립트
+      // 요청에 우리 주소(?p=&t=)가 실려 나가지 않게 한다.
+      // srcdoc 문서의 바탕은 투명이라 흰 바탕을 깔아 준다 — 시트 iframe과 같은 판단이다
+      // (문서는 흰 종이에 맞춰 쓰였고 다크 모드를 따라가지 않는다).
+      return (
+        <div className="w-full h-full flex flex-col">
+          <div className="relative flex-1 min-h-0">
+            <iframe
+              sandbox="allow-scripts" srcDoc={text} referrerPolicy="no-referrer" title={cur.name}
+              onLoad={() => setHtmlReady(true)}
+              className="w-full h-full rounded-md border border-line bg-white"
+            />
+            {!htmlReady && <PreparingFrame absolute />}
+          </div>
           {text.length >= MAX_TEXT_CHARS && (
             <p className="pt-2 text-center text-[10px] text-fg-faint">앞부분만 보여줘요 · 전체는 새 탭에서 열기</p>
           )}

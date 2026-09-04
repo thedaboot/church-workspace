@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { useAuth } from '../services/auth.jsx';
 import logoLight from '../assets/logo-light.png';
 
@@ -9,8 +10,15 @@ import logoLight from '../assets/logo-light.png';
 // 승인 대기 화면도 여기 있다 — 같은 배경·같은 상자를 쓴다. 따로 만들면 로그인
 // 직후에 화면이 통째로 갈아치워진 것처럼 보인다(사용자가 문구까지 정했다).
 export function LoginScreen({ waiting = false }) {
-  const { signIn, signOut, session } = useAuth();
+  const { signIn, signOut, session, autoSignInKakao } = useAuth();
   const myName = session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.name || '';
+  // 카카오톡 인앱 브라우저면 카카오 로그인을 자동으로 시작한다(한 번만 — auth.jsx 주석).
+  // 승인 대기 화면(waiting)은 이미 로그인한 상태라 해당 없다. 시작했으면 그 버튼을
+  // 로딩으로 보여 준다 — 떠나기 전 잠깐 동안 두 번 눌리지 않게.
+  const [auto, setAuto] = useState(false);
+  // autoSignInKakao는 렌더마다 새 함수라 deps에 넣으면 효과가 매 렌더 돈다(표식 덕에 무해하지만 헛일이다)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!waiting && autoSignInKakao()) setAuto(true); }, [waiting]);
 
   return (
     <div className="relative min-h-dvh flex items-center justify-center p-4 overflow-hidden bg-[#f6f5f7]">
@@ -48,10 +56,12 @@ export function LoginScreen({ waiting = false }) {
             구글로 계속하기
           </button>
           <button
-            onClick={() => signIn('kakao')}
-            className="w-full flex items-center justify-center gap-2.5 bg-[#fee500] text-[#191919] text-sm font-medium py-3 rounded-full shadow-soft hover:bg-[#f6dc00] transition active:scale-95"
+            onClick={() => signIn('kakao')} disabled={auto}
+            className="w-full flex items-center justify-center gap-2.5 bg-[#fee500] text-[#191919] text-sm font-medium py-3 rounded-full shadow-soft hover:bg-[#f6dc00] transition active:scale-95 disabled:opacity-70"
           >
-            <svg width="17" height="17" viewBox="0 0 24 24"><path fill="#191919" d="M12 3C6.48 3 2 6.54 2 10.9c0 2.8 1.86 5.26 4.66 6.65l-1.19 4.4c-.1.39.34.7.68.47l5.23-3.47c.2.01.41.02.62.02 5.52 0 10-3.54 10-7.9S17.52 3 12 3z"/></svg>
+            {auto
+              ? <Loader2 size={17} className="animate-spin" />
+              : <svg width="17" height="17" viewBox="0 0 24 24"><path fill="#191919" d="M12 3C6.48 3 2 6.54 2 10.9c0 2.8 1.86 5.26 4.66 6.65l-1.19 4.4c-.1.39.34.7.68.47l5.23-3.47c.2.01.41.02.62.02 5.52 0 10-3.54 10-7.9S17.52 3 12 3z"/></svg>}
             카카오로 계속하기
           </button>
         </div>

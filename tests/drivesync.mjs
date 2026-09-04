@@ -29,6 +29,8 @@ const scriptmd = read('docs/APPS_SCRIPT_v7.md');
 const cfg = read('src/config.js');
 const filesvc = read('api/drive-file.js');
 const preview = read('src/components/FilePreviewModal.jsx');
+// 종류 판정은 2026-09-05부터 순수 모듈이다(노드에서 직접 부르는 검사는 tests/logcheck.mjs)
+const kinds = read('src/services/previewKind.js');
 
 // ── 상한 ────────────────────────────────────────────────────────────────────
 // 세 곳이 같은 값을 봐야 한다. 어긋나면 "받아는 주는데 우리 뷰어로는 안 보이는
@@ -45,23 +47,55 @@ check('첨부 상한 · 중계 상한이 같은 값이다', () => {
 
 check('미리보기가 크기로 우리 뷰어를 포기하지 않는다', () => {
   // PDF·텍스트는 크기와 무관하게 우리가 그린다. 큰 텍스트만 앞부분을 자른다.
-  assert.ok(!preview.includes('MAX_PDF_PREFETCH'), 'PDF에 크기 게이트가 다시 생겼다');
-  assert.ok(preview.includes("if (mime === 'application/pdf' || ext === 'pdf') return 'pdf';"),
+  assert.ok(!(preview + kinds).includes('MAX_PDF_PREFETCH'), 'PDF에 크기 게이트가 다시 생겼다');
+  assert.ok(kinds.includes("if (mime === 'application/pdf' || ext === 'pdf') return 'pdf';"),
     '드라이브 PDF가 크기 조건 없이 pdf로 가야 한다');
   assert.ok(preview.includes('slice(0, MAX_TEXT_CHARS)'), '큰 텍스트는 거절이 아니라 앞부분을 그린다');
   // 스프레드시트도 같다 — 파서가 500줄에서 멈추므로 크기로 가를 이유가 없어졌다
-  assert.ok(preview.includes('const MAX_SHEET_BYTES = MAX_UPLOAD_BYTES;'),
+  assert.ok(kinds.includes('const MAX_SHEET_BYTES = MAX_UPLOAD_BYTES;'),
     '스프레드시트 상한이 첨부 상한과 따로 논다');
   // 어쩌다 떨어지더라도 어두운 파일 뷰어가 아니라 구글 편집기 미리보기로 간다
-  assert.ok(preview.includes("if (OFFICE_EXT.includes(ext) || SHEET_EXT.includes(ext)) return 'drive';"),
+  assert.ok(kinds.includes("if (OFFICE_EXT.includes(ext) || SHEET_EXT.includes(ext)) return 'drive';"),
     '큰 스프레드시트가 어두운 파일 뷰어로 떨어진다');
   // 워드·PPT도 우리가 그린다 — 드라이브에서 온 것이든 아직 올리는 중이든 같다.
-  const docAt = [...preview.matchAll(/if \(ext === 'docx'\) return 'doc';/g)].length;
-  const sldAt = [...preview.matchAll(/if \(ext === 'pptx'\) return 'slide';/g)].length;
+  const docAt = [...kinds.matchAll(/if \(ext === 'docx'\) return 'doc';/g)].length;
+  const sldAt = [...kinds.matchAll(/if \(ext === 'pptx'\) return 'slide';/g)].length;
   assert.strictEqual(docAt, 2, "docx가 드라이브·로컬 양쪽에서 우리 뷰로 가야 한다");
   assert.strictEqual(sldAt, 2, "pptx가 드라이브·로컬 양쪽에서 우리 뷰로 가야 한다");
 });
 
+
+// ── HTML 첨부 (2026-09-05) ──────────────────────────────────────────────────
+// 남이 올린 HTML을 **우리 출처 안에서** 연다. 실물 첨부가 Tailwind CDN(자바스크립트가
+// CSS를 만든다)으로 짜여 있어 스크립트는 열어 줬지만, allow-same-origin이 함께 들어오면
+// 문서가 sandbox를 스스로 벗고 우리 세션(localStorage의 Supabase 토큰)을 읽는다 —
+// 허용 목록이 allow-scripts 하나인지가 방어선이다.
+check('HTML 첨부는 allow-scripts 하나만 준 sandbox iframe으로 그린다', () => {
+  assert.match(preview, /<iframe\s+sandbox="allow-scripts"\s+srcDoc=\{text\}/, 'sandbox="allow-scripts" + srcdoc이 아니다');
+  // 속성 값만 본다 — 주석은 지우고 센다(주석이 sandbox=""를 인용하는 것은 괜찮다)
+  const code = preview.replace(/^[ \t]*\/\/.*$/gm, '');
+  for (const [, v] of code.matchAll(/sandbox="([^"]*)"/g)) {
+    const tokens = v.split(/\s+/).filter(Boolean);
+    assert.deepStrictEqual(tokens, ['allow-scripts'],
+      'sandbox 허용 목록이 allow-scripts 하나가 아니다(' + v + ') — allow-same-origin이 같이 들어오면 남의 HTML이 우리 세션을 읽는다');
+  }
+  assert.match(preview, /referrerPolicy="no-referrer"/, '문서 안 외부 요청에 우리 주소(?p=&t=)가 실려 나간다');
+  // 종류 판정: html은 text보다 **먼저**여야 한다(mime 'text/html'이 text/*에 먹힌다)
+  // return 'html'로 자르면 [앞·드라이브 가지·로컬 가지] 셋이다 — 앞에는 text가 없고, 뒤 둘에는 있다
+  const parts = kinds.split("return 'html'");
+  assert.strictEqual(parts.length, 3, '드라이브·로컬 양쪽에 html 판정이 하나씩');
+  assert.ok(!parts[0].includes("return 'text'"), 'html보다 앞에 text 판정이 있다');
+  assert.ok(parts[1].includes("return 'text'") && parts[2].includes("return 'text'"), '드라이브·로컬 양쪽에서 html 판정이 text보다 앞이어야 한다');
+  assert.ok(!/TEXT_EXT = \[[^\]]*'html'/.test(kinds), 'html이 TEXT_EXT에 남아 있으면 소스가 <pre>로 뜬다');
+});
+
+check('중계가 HTML 첨부를 경고 페이지로 오판하지 않는다', () => {
+  // 구글의 바이러스 검사 경고도 text/html이다. 종류만 보고 끊으면 .html 첨부가 전부 막힌다 —
+  // 실제 파일은 Content-Disposition: attachment로 오고 경고 페이지는 그 머리줄이 없다.
+  assert.match(filesvc, /content-disposition/i, '중계가 Content-Disposition을 보지 않는다');
+  assert.match(filesvc, /type\.startsWith\('text\/html'\) && !\/attachment\/i\.test\(disposition\)/,
+    'text/html 거절이 attachment 머리줄로 가려지지 않는다');
+});
 
 // ── 시간 ────────────────────────────────────────────────────────────────────
 // 실측(2026-08-28): 폴더 만들기 3.5초 · 100KB 4.3초 · 1MB 5.8초 · 3MB 8.5초 · 8MB 26.7초.

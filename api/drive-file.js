@@ -42,8 +42,12 @@ export default async function handler(req, res) {
     const r = await fetch(`https://drive.google.com/uc?export=download&id=${id}`, { redirect: 'follow' });
     if (!r.ok) { res.status(502).json({ error: `드라이브가 파일을 주지 않았습니다 (${r.status}).` }); return; }
     const type = r.headers.get('content-type') || 'application/octet-stream';
-    // 큰 파일이면 구글이 바이러스 검사 경고 HTML을 준다 — 그건 파일이 아니다
-    if (type.startsWith('text/html')) { res.status(502).json({ error: '파일이 커서 드라이브가 바로 주지 않아요. 새 탭에서 열어주세요.' }); return; }
+    // 큰 파일이면 구글이 바이러스 검사 경고 HTML을 준다 — 그건 파일이 아니다.
+    // 다만 **첨부 자체가 .html일 수도 있다**(2026-09-05부터 sandbox iframe으로 미리보기).
+    // 둘을 가르는 것은 Content-Disposition이다 — 실제 파일 바이트는 attachment로 오고,
+    // 경고 페이지는 그 머리줄이 없다. 종류(text/html)만 보고 끊으면 HTML 첨부가 전부 막힌다.
+    const disposition = r.headers.get('content-disposition') || '';
+    if (type.startsWith('text/html') && !/attachment/i.test(disposition)) { res.status(502).json({ error: '파일이 커서 드라이브가 바로 주지 않아요. 새 탭에서 열어주세요.' }); return; }
     const buf = Buffer.from(await r.arrayBuffer());
     if (buf.length > MAX_BYTES) { res.status(413).json({ error: '파일이 너무 큽니다. 새 탭에서 열어주세요.' }); return; }
     res.setHeader('Content-Type', type);

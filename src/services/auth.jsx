@@ -1,14 +1,48 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from './supabaseClient.js';
 import { store } from '../store/workspaceStore.js';
+import { isKakaoInApp, returnToOf, authErrorInUrl } from '../utils.js';
 
 // ============================================================================
 // 인증 컨텍스트 (Supabase OAuth: 구글 / 카카오)
 // - supabase 미설정(.env 없음) 시 enabled=false → 게스트 모드로 통과
 // ============================================================================
-const AuthContext = createContext({ enabled: false, session: null, loading: false, isAdmin: true, isMaster: true, approved: true, signIn: () => {}, signOut: () => {} });
+const AuthContext = createContext({ enabled: false, session: null, loading: false, isAdmin: true, isMaster: true, approved: true, signIn: () => {}, signOut: () => {}, autoSignInKakao: () => false });
 
 export const useAuth = () => useContext(AuthContext);
+
+// ── 로그인 전 자리 기억 (2026-09-05) ─────────────────────────────────────────
+// 카카오톡으로 공유한 링크(/s/t/<id> → /?p=&t=)를 인앱 브라우저에서 열면 세션이 없어
+// 로그인 화면이 뜨고, OAuth가 origin('/')으로 돌려보내서 가려던 업무를 잃었다.
+// 왜 sessionStorage인가(redirectTo에 실어 보내지 않고):
+//  · redirectTo는 Supabase 대시보드의 허용 목록에 있어야 한다. 지금 목록은 origin이고,
+//    쿼리가 붙은 주소를 통과시키려면 와일드카드(`/**`)를 등록해야 한다 — 코드만 봐서는
+//    등록 여부를 알 수 없고, 목록에 없으면 조용히 Site URL로 떨어져 **아무 표시 없이**
+//    같은 증상이 난다. 저장소는 그 설정에 기대지 않는다.
+//  · OAuth 왕복은 같은 탭 안에서 일어나므로(인앱 웹뷰도 같다) sessionStorage가 살아 있고,
+//    탭을 닫으면 같이 사라져서 다른 날 다른 자리로 튀는 일이 없다.
+//  · hash는 저장하지 않는다(returnToOf) — 거기는 auth-js가 토큰·오류를 싣는 자리다.
+// 인앱 브라우저가 저장소를 막아 두면 던진다 — 그때는 자리 기억만 포기하고 로그인은 한다.
+const RETURN_KEY = 'auth.returnTo';
+const AUTO_KAKAO_KEY = 'auth.autoKakaoTried';
+const ss = {
+  get: (k) => { try { return window.sessionStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { window.sessionStorage.setItem(k, v); } catch { /* 막힌 저장소 */ } },
+  del: (k) => { try { window.sessionStorage.removeItem(k); } catch { /* 막힌 저장소 */ } },
+};
+const rememberReturnTo = () => {
+  const to = returnToOf(window.location);
+  if (to) ss.set(RETURN_KEY, to); else ss.del(RETURN_KEY);
+};
+// 세션이 생긴 직후, WorkspaceShell이 마운트되기 **전에** 부른다 — 그쪽은 `?p=&t=`를
+// useState 초기값으로 한 번만 읽으므로 그 뒤에 주소를 고치면 화면이 따라오지 않는다.
+// auth-js가 hash를 지운 자리(`/#`)도 이 replaceState가 같이 정리한다.
+const consumeReturnTo = () => {
+  const to = ss.get(RETURN_KEY);
+  if (!to) return;
+  ss.del(RETURN_KEY);
+  if (to !== window.location.pathname + window.location.search) window.history.replaceState(null, '', to);
+};
 
 export function AuthProvider({ children }) {
   const enabled = !!supabase;
@@ -22,8 +56,17 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (!enabled) return;
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false); });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => setSession(newSession));
+    // getSession은 클라이언트 초기화(주소의 토큰 읽기 → 세션 저장 → hash 지우기)를 기다린
+    // 뒤 답하므로, OAuth에서 돌아온 첫 로드에서도 여기서 세션이 잡힌다. 그래서 자리
+    // 복원은 setSession보다 **먼저**다(위 consumeReturnTo 주석).
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) consumeReturnTo();
+      setSession(data.session); setLoading(false);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (event === 'SIGNED_IN' && newSession) consumeReturnTo();
+      setSession(newSession);
+    });
     return () => sub.subscription.unsubscribe();
   }, [enabled]);
 
@@ -57,15 +100,36 @@ export function AuthProvider({ children }) {
     return () => { alive = false; };
   }, [enabled, session]);
 
-  const signIn = (provider) => supabase.auth.signInWithOAuth({
-    provider,
-    options: {
-      redirectTo: window.location.origin,
-      // 구글: 매번 전체 동의 화면 대신 계정 선택만
-      ...(provider === 'google' ? { queryParams: { prompt: 'select_account' } } : {}),
-    },
-  });
+  const signIn = (provider) => {
+    // 떠나기 전에 지금 자리를 적어 둔다 — 돌아오면 consumeReturnTo가 그 자리로 보낸다
+    rememberReturnTo();
+    return supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: window.location.origin,
+        // 구글: 매번 전체 동의 화면 대신 계정 선택만
+        ...(provider === 'google' ? { queryParams: { prompt: 'select_account' } } : {}),
+      },
+    });
+  };
   const signOut = () => supabase.auth.signOut();
+
+  // 카카오톡 인앱 브라우저에서 로그인 화면이 뜨면 카카오 로그인을 **한 번** 자동으로 시작한다.
+  // 카카오톡으로 받은 링크를 여는 사람은 이미 카카오에 로그인돼 있어 버튼 한 번이 그냥 절차다.
+  // 한 번만인 이유(sessionStorage 표식): 실패·취소로 돌아왔을 때 또 시작하면 빠져나올 수
+  // 없는 고리가 된다. 표식은 탭이 살아 있는 동안 남으므로 로그아웃 뒤에도 자동으로 다시
+  // 들어가지 않는다(그때는 버튼을 눌러야 한다 — '다른 계정으로 로그인'이 뜻하는 바다).
+  // 주소에 OAuth 오류가 실려 있으면(authErrorInUrl) 표식이 없어도 시작하지 않는다.
+  // 돌려주는 값: 시작했으면 true — 화면이 그 버튼을 로딩 상태로 보여 준다.
+  const autoSignInKakao = () => {
+    if (!enabled) return false;
+    if (!isKakaoInApp(navigator.userAgent)) return false;
+    if (authErrorInUrl(window.location.href)) return false;
+    if (ss.get(AUTO_KAKAO_KEY)) return false;
+    ss.set(AUTO_KAKAO_KEY, '1');
+    signIn('kakao');
+    return true;
+  };
 
   // 게스트 모드(로컬)는 전원 관리자·전원 승인으로 취급한다 — 서버가 없다.
   const isAdmin = !enabled || perm.isAdmin === true;
@@ -76,5 +140,5 @@ export function AuthProvider({ children }) {
   // '승인을 기다려주세요'가 번쩍이면 이미 쓰고 있던 사람에게 사고처럼 보인다.
   const approved = !enabled || perm.approved !== false;
 
-  return <AuthContext.Provider value={{ enabled, session, loading, isAdmin, isMaster, approved, signIn, signOut }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ enabled, session, loading, isAdmin, isMaster, approved, signIn, signOut, autoSignInKakao }}>{children}</AuthContext.Provider>;
 }
