@@ -39,6 +39,12 @@ import { kindLabel, formatServiceDate } from './worship.js';
 // 글자수 상한은 사용자가 준 템플릿(세로 카드 3장)에서 그 자리가 실제로 담는 만큼이다.
 // 소제목의 번호('1.')와 질문의 'Q.'는 **화면이 붙인다** — 글에 넣으면 모델이 번호를
 // 어긋나게 매기고, 상한도 번호가 잡아먹는다.
+// 화면에서 잠시 뺀다(사용자 지시 2026-09-05 — "순모임 가이드는 나랑 맞춰봐야 해. 일단 화면에서도
+// 제외"). 코드·검사·저장 자리는 그대로 두고 이 스위치만 끈다. 그때의 폼은 브랜치
+// keep/sunguide-2026-09-05에도 있다. 다시 켤 때는 true로 — groupsView가 패널을 그리고 가이드를
+// 읽으며, tests/groups.mjs의 가이드 검사도 이 값을 읽어 같이 살아난다.
+export const SUN_GUIDE_ON = false;
+
 export const LIMITS = { summaryRef: 30, summary: 380, pointTitle: 24, pointBody: 260, question: 80 };
 export const POINTS = 3;
 const QUESTIONS = 3;

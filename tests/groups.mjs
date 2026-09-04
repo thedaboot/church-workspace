@@ -10,7 +10,7 @@
 // 'church_worship_v1'). 두 키에 같은 표를 심는 이유가 그것이다 — 클라우드에서는
 // 한 DB의 같은 표다.
 import { spawn } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const URL_BASE = process.argv[2] || 'http://localhost:4174';
@@ -680,31 +680,40 @@ check('최근 주일 예배 출석 n/m',
   mine.att.includes('8월 30일') && mine.att.endsWith('예배 출석 2/3'), mine.att);
 check('내 순에 공유된 예배 노트가 뜬다',
   mine.notes.length === 2 && mine.notes[0].includes('천진영') && mine.notes[0].includes('기쁨은 상황이 아니라'), JSON.stringify(mine.notes));
-// 내 비공개 노트는 나에게만 보이고, 그 줄에서 바로 공유를 켠다
+// 내 비공개 노트는 나에게만 보이고, 그 줄에서 바로 공유를 켠다.
+// **공유 칸은 말씀·예배와 같은 한 부품이다**(components/ShareToggle.jsx · 회차 8) —
+// 두 쪽이 나란히 서고 **라벨은 상태와 무관하게 고정**이다(사용자 결정 2026-09-05 —
+// 예전에는 누를 때마다 이름이 뒤집히는 버튼 하나였다). 이 화면에는 노트 편집기가
+// 없으므로 조작은 이 줄에 남는다(말씀 나눔 피드에서는 편집기 것만 남기고 뺐다).
 const myNote = await ev(`(() => {
   const rows = [...document.querySelectorAll('.mysun-note')];
   const mineRow = rows.find(r => r.innerText.includes('아직 나만 보는 묵상'));
+  const segs = [...(mineRow?.querySelectorAll('.mysun-note-share button[aria-pressed]') || [])];
   return { rows: rows.length, lock: !!mineRow?.querySelector('.mysun-note-lock'),
-    btn: mineRow?.querySelector('.mysun-note-share')?.textContent.trim() || '',
+    segs: segs.map(b => b.textContent.trim() + ':' + b.getAttribute('aria-pressed')).join('|'),
     others: rows.filter(r => r.querySelector('.mysun-note-share')).length };
 })()`);
 check('내 비공개 노트는 잠금 표시와 함께 나에게만 보인다',
-  myNote.rows === 2 && myNote.lock === true && myNote.btn === '순에 공유하기'
-  && myNote.others === 1, JSON.stringify(myNote));
+  myNote.rows === 2 && myNote.lock === true && myNote.others === 1, JSON.stringify(myNote));
+check('그 줄의 공유 칸은 두 쪽짜리 토글이고 지금은 나만 보기다',
+  myNote.segs === '나만 보기:true|순에 공유하기:false', myNote.segs);
 await ev(`(() => { const r = [...document.querySelectorAll('.mysun-note')]
   .find(x => x.innerText.includes('아직 나만 보는 묵상'));
-  r.querySelector('.mysun-note-share').click(); })()`);
+  r.querySelector('.mysun-note-share button[aria-pressed="false"]').click(); })()`);
 await sleep(1000);
 const shared = await ev(`(() => {
   const r = [...document.querySelectorAll('.mysun-note')].find(x => x.innerText.includes('아직 나만 보는 묵상'));
-  return { said: r?.querySelector('.mysun-note-said')?.textContent.trim() || '',
+  const segs = [...(r?.querySelectorAll('.mysun-note-share button[aria-pressed]') || [])];
+  return { said: r?.querySelector('[data-share-chip]')?.textContent.trim() || '',
     lock: !!r?.querySelector('.mysun-note-lock'),
-    btn: r?.querySelector('.mysun-note-share')?.textContent.trim() || '',
+    segs: segs.map(b => b.textContent.trim() + ':' + b.getAttribute('aria-pressed')).join('|'),
     stored: (${store('service_notes')}.find(n => n.id === 'n3') || {}).shared_to_sun };
 })()`);
 check('그 줄에서 공유를 켜면 초록 칩으로 말하고 그대로 저장된다',
   shared.said === '우리 순에 공유할게요' && shared.lock === false
-  && shared.btn === '나만 보기' && shared.stored === true, JSON.stringify(shared));
+  && shared.stored === true, JSON.stringify(shared));
+check('공유를 켜도 토글 라벨은 그대로고 고른 쪽만 바뀐다',
+  shared.segs === '나만 보기:false|순에 공유하기:true', shared.segs);
 // 예배 노트는 마크다운 편집기로 쓴다(예배 화면) — 원문 기호가 글자로 남으면 안 된다
 const noteMd = await ev(`(() => {
   const b = document.querySelector('.mysun-note-body');
@@ -718,12 +727,18 @@ check('공유된 노트는 마크다운으로 그린다(원문 기호가 글자�
 check('공유하지 않은 남의 노트는 오지 않는다', mine.hidden === false);
 
 // ── 1-1) 순모임 가이드 자리 (components/sunGuide.jsx) ───────────────────────
+// 가이드는 화면에서 잠시 빠져 있다(services/sunGuide.js SUN_GUIDE_ON — 사용자 지시 2026-09-05).
+// 스위치가 꺼져 있으면 "아무에게도 안 보인다"만 보고, 켜면 아래 검사가 그대로 살아난다.
+const GUIDE_ON = /export const SUN_GUIDE_ON = true;/.test(readFileSync(new URL('../src/services/sunGuide.js', import.meta.url), 'utf8'));
 // 가이드는 내 순 탭 맨 위에 선다. **보는 사람이 갈린다**(0039 sun_guides_select —
 // leads_any_sun 또는 can_manage_sun): 순장은 보고 일반 순원은 못 본다. 순원의
 // 나눔 질문을 미리 보여주면 모임에서 처음 듣는 말이 없어진다.
 // 가이드 한 벌은 church_sunguide_v1에 심는다(그 파일의 저장 자리 계약).
 await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'light', '', true);
 const guideLeader = await ev(`!!document.querySelector('.sun-guide')`);
+if (!GUIDE_ON) {
+  check('가이드 스위치가 꺼져 있으면 순장에게도 안 보인다', guideLeader === false, String(guideLeader));
+} else {
 // 자리와 정렬 — 처음에는 섹션 전체가 max-w-560 + mx-auto라 제목과 버튼이 순 카드의
 // 어느 선과도 맞지 않고 화면 가운데에 떠 있었다(사용자 지적 2026-09-03, 두 번).
 const gDesk = await guideBox();
@@ -774,6 +789,7 @@ if (gMake.edit) {
   }))()`);
   check('만든 가이드를 저장하면 종이가 서고 저장 자리에 남는다',
     gSaved.sheet === true && gSaved.rows === 1 && gSaved.toast.includes('저장했어요'), JSON.stringify(gSaved));
+}
 }
 
 // ── 1-2) 순 편성 탭은 마스터·관리자·리더순장만 (0039 can_manage_sun) ────────
@@ -841,7 +857,7 @@ const settled = await ev(`(() => ({
   guide: !!document.querySelector('.sun-guide'),
 }))()`);
 check('내용이 뜬 뒤 남는 스켈레톤은 0이다',
-  settled.note === true && settled.guide === true && settled.skel === 0 && settled.left === 0,
+  settled.note === true && settled.guide === GUIDE_ON && settled.skel === 0 && settled.left === 0,
   JSON.stringify(settled));
 
 // ── 1-3) 다시 들어올 때 스켈레톤이 아니라 캐시된 값 (사용자 요청 2026-09-03) ──
@@ -1629,7 +1645,7 @@ const orphanMaster = await ev(`(() => ({
   empty: !!document.querySelector('.mysun-empty svg'),
 }))()`);
 check('마스터가 명단에 이어져 있지 않아도 순모임 가이드 자리가 보인다',
-  orphanMaster.guide === true && orphanMaster.sheet === true
+  orphanMaster.guide === GUIDE_ON && orphanMaster.sheet === GUIDE_ON
   && orphanMaster.card === false && orphanMaster.empty === true, JSON.stringify(orphanMaster));
 
 // ── 7) 모바일 375px ─────────────────────────────────────────────────────────

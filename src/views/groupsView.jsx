@@ -9,7 +9,7 @@ import { MySunPanel, SunNotesSection, SunAdminPanel } from '../components/groups
 import { ClubsPanel } from '../components/groupsClub.jsx';
 import { WITH_ICON, useClosing, useSettled } from '../components/groupsParts.jsx';
 import { SunGuidePanel } from '../components/sunGuide.jsx';
-import { loadGuide } from '../services/sunGuide.js';
+import { loadGuide, SUN_GUIDE_ON } from '../services/sunGuide.js';
 import { fetchServices, fetchAttendance } from '../services/worship.js';
 import {
   fetchGroupPerms, fetchGroupsRoster, fetchApplications, fetchSunSharedNotes, fetchMeetings,
@@ -158,7 +158,8 @@ export function GroupsView() {
     [me, state],
   );
   const guidePerms = useMemo(
-    () => ({ canCreate: !!perms?.canManageSun, canView: leadsASun || !!perms?.canManageSun }),
+    // SUN_GUIDE_ON이 꺼져 있으면 아무도 못 본다 — 패널도 안 그리고 가이드도 안 읽는다(services/sunGuide.js)
+    () => ({ canCreate: !!perms?.canManageSun, canView: SUN_GUIDE_ON && (leadsASun || !!perms?.canManageSun) }),
     [perms, leadsASun],
   );
   const canViewGuide = guidePerms.canView;
@@ -458,10 +459,12 @@ export function GroupsView() {
               {!!sun && <SunNotesSection notes={mineQ.data?.notes || []} onShare={shareNote} />}
               {/* 가이드는 위 mineQ가 이미 읽어 왔다 — 패널이 다시 읽지 않게 넘긴다(undefined면 스스로 읽음).
                   저장하면 캐시를 비우고 한 벌을 다시 읽어 다음 진입에도 새 값이 먼저 선다. */}
-              <SunGuidePanel service={service} perms={guidePerms}
-                initialGuide={mineQ.data ? (mineQ.data.guide ?? null) : undefined}
-                loading={mineQ.loading}
-                onSaved={() => { dropCache('groups:mine'); mineQ.refresh(); }} />
+              {SUN_GUIDE_ON && (
+                <SunGuidePanel service={service} perms={guidePerms}
+                  initialGuide={mineQ.data ? (mineQ.data.guide ?? null) : undefined}
+                  loading={mineQ.loading}
+                  onSaved={() => { dropCache('groups:mine'); mineQ.refresh(); }} />
+              )}
             </>
           ) : MINE_SKELETON}
         </>
