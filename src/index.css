@@ -178,6 +178,25 @@
 .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (min-width: 1024px) { .kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 
+/* 주보 카드의 메타 한 줄 — **절대 접지 않고, 안 들어가면 덜 중요한 도막을 뺀다**
+   (사용자 결정 2026-09-05: "카드는 초점 1줄 + 메타 1줄" · 재강조 "이건 결국 가독성이
+   중요해서.. 줄바꿈 안 되게끔"). 520px 카드에서 설교자만 다음 줄로 내려갔던 자리다.
+   남기는 순서는 **날짜·본문 > 설교자 > 종류**다. 남는 도막은 잘리지 않고 온전히
+   읽혀야 한다 — 말줄임은 규칙이 아니라 마지막 안전망이다(줄이 늘어나는 것보다는
+   말줄임이 낫다).
+   재는 것은 **화면 폭이 아니라 카드 폭**이다 — 카드가 1·2·3열로 서기 때문에 화면이
+   넓어지는데 카드는 좁아지는 구간이 있다(열이 늘어나는 자리). 미디어 쿼리로는 규칙을
+   세울 수 없어 컨테이너 쿼리다.
+   자리는 실측(12.5px SUIT · 구분점 12px)에서 왔고 **긴 책 이름까지 견디게** 잡았다:
+   날짜 111 · 종류 104 · 본문 93~145 · 설교자 79.
+     · 넷 다 = 402~462px  → 30rem(480)부터 종류를 보인다
+     · 종류 빼고 셋 = 286~347px → 24rem(384)부터 설교자를 보인다
+     · 날짜+본문 = 195~256px → 그 아래에서도 한 줄로 남는다
+   구분점은 각 도막 앞에 붙어 있어서 도막이 빠지면 같이 빠진다. */
+.worship-card-meta { container-type: inline-size; }
+@container (width < 30rem) { .worship-card-meta .worship-meta-kind { display: none; } }
+@container (width < 24rem) { .worship-card-meta .worship-meta-preacher { display: none; } }
+
 /* 진행 바는 width가 아니라 scaleX로 늘린다(레이아웃 재계산 없음) */
 .dc-bar-fill {
   width: 100%; transform-origin: left;

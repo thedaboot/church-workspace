@@ -258,8 +258,11 @@ export function PassagePicker({ value, onChange }) {
   const half = 'flex items-center gap-1 min-w-0 sm:flex-1';
   return (
     <div className="worship-passage-pick flex flex-col gap-1.5 sm:flex-row sm:items-center">
+      {/* 책 칸도 남는 폭을 나눠 갖는다 — 11rem 상한이 있던 때는 편집 폼의 폭 상한
+          (46rem)이 걷히자 이 칸만 좁게 남아 장·절 피커가 200px씩 늘어났다
+          (2026-09-05). 셋이 같은 flex-1이라 어느 폭에서도 고르게 나뉜다. */}
       <BookInput books={books} book={book} onPick={chooseBook} onClear={clearBook}
-        className="w-full sm:w-auto sm:flex-1 sm:max-w-[11rem]" />
+        className="w-full sm:w-auto sm:flex-1" />
 
       {/* 예전에 자유 표기로 적어 둔 구절('주보 특별 순서')은 파서가 못 읽는다 —
           고르기 전까지 그 글자를 그대로 보여 준다(모르는 사이에 지워지지 않게) */}

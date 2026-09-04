@@ -70,13 +70,22 @@ const CARD_STYLE = { background: 'var(--app-surface)', border: '1px solid var(--
 //   1줄 — **설교 제목**(초점). 작성 중일 때만 오른쪽에 작은 칩.
 //   2줄 — 날짜 · 종류 · 본문 · 설교자를 가운뎃점으로 이어 한 줄로(없는 값은 빠진다).
 // 종류를 칩에서 글자로 내린 이유: 칩은 눈을 먼저 끄는데 목록에서 먼저 읽어야 하는
-// 것은 제목이다. 좁은 화면에서는 둘째 줄이 자연스럽게 접힌다.
-const cardMeta = (service) => [
-  formatServiceDate(service.service_date),
-  kindLabel(service.kind),
-  service.passage_ref ? `본문 ${service.passage_ref}` : null,
-  service.preacher || null,
-].filter(Boolean).join(' · ');
+// 것은 제목이다.
+//
+// **메타가 한 줄에 안 들어갈 때의 규칙**(사용자 결정 2026-09-05 — 520px 카드에서
+// 설교자만 다음 줄로 내려갔다 · 재강조 "줄바꿈 안 되게끔"): 줄을 늘리지 않고
+// **덜 중요한 도막을 통째로 뺀다.** 남기는 순서는 날짜·본문 > 설교자 > 종류다 —
+// 종류는 위 칩으로 이미 거르고 있고 거의 모든 주보가 '주일 4부 젊은이 예배'라
+// 카드마다 되풀이되는 값이다. **남은 도막은 잘리지 않고 온전히 읽힌다.**
+// 떨어뜨리는 자리는 카드 폭이 정한다(컨테이너 쿼리 · 자리와 실측은 index.css의
+// `.worship-card-meta`). truncate는 그 규칙이 아니라 **마지막 안전망**이다 —
+// 어떤 값이 와도 두 줄이 되지 않게 nowrap을 걸어 두는 것이 본래 목적이다.
+const metaParts = (service) => [
+  ['date', formatServiceDate(service.service_date)],
+  ['kind', kindLabel(service.kind)],
+  ['ref', service.passage_ref ? `본문 ${service.passage_ref}` : null],
+  ['preacher', service.preacher || null],
+].filter(([, v]) => !!v);
 
 function ServiceCard({ service, onOpen }) {
   const isDraft = service.status !== 'published';
@@ -91,7 +100,12 @@ function ServiceCard({ service, onOpen }) {
           <span className="worship-draft-badge shrink-0 mt-0.5 px-2 py-0.5 rounded-full bg-tag-yellow text-tag-yellow-fg text-[10.5px] font-bold">작성 중</span>
         )}
       </div>
-      <p className="worship-card-meta mt-1 text-[12.5px] leading-relaxed text-fg-muted break-words">{cardMeta(service)}</p>
+      {/* 도막마다 span이고 구분점은 그 앞에 붙는다 — 도막이 빠지면 구분점도 같이 빠진다 */}
+      <p className="worship-card-meta mt-1 text-[12.5px] leading-relaxed text-fg-muted truncate">
+        {metaParts(service).map(([k, v], i) => (
+          <span key={k} className={`worship-meta-${k}`}>{i ? ' · ' : ''}{v}</span>
+        ))}
+      </p>
     </button>
   );
 }
@@ -244,8 +258,12 @@ function ServiceList({ services, perms, onOpen, onCreate }) {
       )}
 
       {/* 넓은 폭에서는 카드가 옆으로 선다 — 한 줄짜리 카드를 1440px에 늘여 놓으면
-          글자는 왼쪽 끝에 몰리고 오른쪽은 비어 있다(사용자 지적) */}
-      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+          글자는 왼쪽 끝에 몰리고 오른쪽은 비어 있다(사용자 지적).
+          3열은 **2xl(1536px)부터**다(예전에는 xl 1280). 1280에서 3열이 되면 카드가
+          569 → 409px으로 **좁아져서** 메타 도막이 도리어 떨어져 나갔다 — 화면을
+          넓혔는데 정보가 줄어드는 구간이 생긴다. 1536부터는 3열에서도 카드가 491px이라
+          날짜·종류·본문·설교자가 다 한 줄에 선다(index.css의 메타 규칙과 한 벌이다). */}
+      <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
         {shown.map(s => <ServiceCard key={s.id} service={s} onOpen={onOpen} />)}
       </div>
       {!shown.length && (
@@ -259,7 +277,7 @@ function ServiceList({ services, perms, onOpen, onCreate }) {
 const LOADING = (
   <div className="worship-loading pb-8">
     <Skeleton className="h-8 w-24 rounded-md mb-4" />
-    <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
       <Skeleton className="h-[86px] w-full rounded-[10px]" />
       <Skeleton className="h-[86px] w-full rounded-[10px]" />
       <Skeleton className="h-[86px] w-full rounded-[10px]" />

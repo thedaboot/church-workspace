@@ -190,7 +190,7 @@ const pure = await ev(`(async () => {
     plain: perms({}),
     president: perms({ myRoles: ['president'] }),
     pastor: perms({ myPerson: { is_pastor: true } }),
-    officer: perms({ myRoles: ['officer'] }),
+    treasurer: perms({ myRoles: ['treasurer'] }),
     master: perms({ isMaster: true }),
     admin: perms({ isAdmin: true }),
     media: perms({ myPerson: { teams: ['미디어팀'] } }),
@@ -253,7 +253,9 @@ check('미디어팀은 주보를 쓴다(명단 teams 갈래)',
   pure.media[0] === true && pure.otherTeam[0] === false,
   JSON.stringify([pure.media, pure.otherTeam]));
 check('관리자는 주보 작성 + 전체 출석', JSON.stringify(pure.admin) === '[true,true,true]', JSON.stringify(pure.admin));
-check('임원은 전체 출석만(주보 작성은 아니다)', JSON.stringify(pure.officer) === '[false,true,true]', JSON.stringify(pure.officer));
+// 0043이 임원(officer)을 부장·총무·리더팀장으로 갈랐다 — **권한은 그대로다**(그 해
+// people_roles 줄이 있으면 전체 출석. is_officer()는 값을 보지 않는다).
+check('회장 아닌 직분은 전체 출석만(주보 작성은 아니다)', JSON.stringify(pure.treasurer) === '[false,true,true]', JSON.stringify(pure.treasurer));
 check('마스터는 주보 작성', pure.master[0] === true, JSON.stringify(pure.master));
 check('순장은 출석만, 그것도 전체는 아니다', JSON.stringify(pure.sunjang) === '[false,false,true]', JSON.stringify(pure.sunjang));
 check('순장은 자기 순만 만진다', pure.toggleMine === true && pure.toggleOther === false, `${pure.toggleMine}/${pure.toggleOther}`);
@@ -339,6 +341,72 @@ check('메타 한 줄에 날짜 · 종류 · 본문 · 설교자가 가운뎃점
   shape.meta === `${DL.p1} · 주일 4부 젊은이 예배 · 본문 이사야 32:9-20 · 임성빈 전도사님`, shape.meta);
 check('제목이 초점이다(15px 이상 · 굵게)', shape.fontSize >= 15, String(shape.fontSize));
 check('카드 높이가 줄마다 같다', new Set(shape.heights).size === 1, JSON.stringify(shape.heights));
+
+// 메타는 **어느 폭에서도 한 줄이고 글자가 잘리지 않는다**(사용자 지적 2026-09-05:
+// 520px 카드에서 '임성빈 전도사님'만 다음 줄로 내려갔다 · 재강조 "가독성이 중요해서
+// 줄바꿈 안 되게끔"). 규칙은 접는 것도 자르는 것도 아니라 **덜 중요한 도막을 빼는
+// 것**이다 — 남는 순서는 날짜·본문 > 설교자 > 종류이고, 자리는 카드 폭이 정한다
+// (컨테이너 쿼리 · index.css의 .worship-card-meta).
+//
+// 재는 폭에 1536이 있는 이유: 카드는 1·2·3열로 서고 **열이 늘어나는 자리에서 카드가
+// 좁아진다.** 화면 폭만 훑으면 그 구간을 지나친다.
+const META_AT = `(() => {
+  const cards = [...document.querySelectorAll('.worship-card')];
+  return {
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    rows: cards.map(c => {
+      const m = c.querySelector('.worship-card-meta');
+      const cs = getComputedStyle(m);
+      return {
+        w: Math.round(m.getBoundingClientRect().width),
+        lines: Math.round(m.getBoundingClientRect().height / parseFloat(cs.lineHeight)),
+        clip: m.scrollWidth - m.clientWidth,
+        shown: m.innerText.replace(/\s+/g, ' ').trim(),
+      };
+    }),
+  };
+})()`;
+const metaAt = {};
+for (const w of [375, 768, 1024, 1440, 1536]) {
+  await send('Emulation.setDeviceMetricsOverride', { width: w, height: 900, deviceScaleFactor: 1, mobile: w < 768 });
+  await sleep(450);
+  metaAt[w] = await ev(META_AT);
+}
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(450);
+const metaBad = Object.entries(metaAt).filter(([, v]) => !v || !v.rows.length || v.overflow > 0
+  || v.rows.some(r => r.lines !== 1 || r.clip > 0));
+check('카드 메타는 375~1536 어디서도 한 줄이고 글자가 잘리지 않는다',
+  metaBad.length === 0, JSON.stringify(metaBad.length ? metaBad : metaAt));
+const metaDates = [DL.p1, DL.p2];
+check('어느 폭에서도 날짜와 본문은 남는다',
+  Object.values(metaAt).every(v => v.rows.every((r, i) => r.shown.startsWith(metaDates[i]) && r.shown.includes('본문 '))),
+  JSON.stringify(Object.entries(metaAt).map(([w, v]) => [w, v.rows.map(r => r.shown)])));
+// 규칙(도막 빼기)을 다 걸어도 **남는 도막이 칸보다 긴 값**이 올 수 있다(아주 긴 책
+// 이름을 두 군데 적은 구절 같은 것). 그때도 줄은 늘지 않고 말줄임으로 끝난다 —
+// 사용자 요구는 "절대 두 줄로 꺾이지 않는 것"이다(2026-09-05). 주보를 하나 더 심으면
+// 목록 개수를 세는 다른 검사가 흔들리므로, 그 자리 글자만 잠깐 길게 바꿔 재고 되돌린다.
+const longMeta = await ev(`(() => {
+  const m = document.querySelector('.worship-card-meta');
+  const ref = m.querySelector('.worship-meta-ref');
+  if (!ref) return null;
+  const keep = ref.textContent;
+  ref.textContent = '본문 데살로니가전서 5:12-28 · 데살로니가후서 3:1-18 · 요한계시록 22:1-21 · 사도행전 27:13-44 · 역대하 34:1-33';
+  const cs = getComputedStyle(m);
+  const r = {
+    lines: Math.round(m.getBoundingClientRect().height / parseFloat(cs.lineHeight)),
+    clip: m.scrollWidth - m.clientWidth,
+  };
+  ref.textContent = keep;
+  return r;
+})()`);
+check('규칙을 다 걸어도 남는 긴 값은 말줄임으로 끝난다(두 줄이 되지 않는다)',
+  !!longMeta && longMeta.lines === 1 && longMeta.clip > 0, JSON.stringify(longMeta));
+check('좁아지면 종류 → 설교자 순으로 빠진다',
+  metaAt[375].rows[0].shown === `${DL.p1} · 본문 이사야 32:9-20`
+  && metaAt[1024].rows[0].shown === `${DL.p1} · 본문 이사야 32:9-20 · 임성빈 전도사님`
+  && metaAt[1440].rows[0].shown === `${DL.p1} · 주일 4부 젊은이 예배 · 본문 이사야 32:9-20 · 임성빈 전도사님`,
+  JSON.stringify([metaAt[375].rows[0].shown, metaAt[1024].rows[0].shown, metaAt[1440].rows[0].shown]));
 check('편집 자격자에게 새 주보 · 작성 중 줄', list.newBtn === true && list.drafts === '작성 중 1', `${list.newBtn}/${list.drafts}`);
 
 await ev(`[...document.querySelectorAll('.worship-kind-chip')].find(c => c.textContent.trim() === '그 밖의 예배').click()`);
@@ -1488,7 +1556,32 @@ const RESP = `(() => {
   };
 })()`;
 
+// 편집 폼이 **폭을 채우는지**도 같은 자리에서 잰다. 46rem 상한이 있던 때는 1440px에서
+// 폼이 736px에서 멈춰 오른쪽 672px이 통째로 비었다(사용자 결정 2026-09-05: "다 반응형으로
+// 메워야 한다"). 두 가지를 본다:
+//   · panelGap — 폼 컨테이너가 탭 판 폭을 다 쓰는가
+//   · rowGap — **첫 입력 줄**의 오른쪽 끝이 그 컨테이너 오른쪽에서 24px 이내인가
+// 줄 상자(li·grid 칸)는 내용과 상관없이 늘어나므로 **줄 안의 컨트롤**로 잰다 — 그래야
+// '상자만 넓고 칸은 왼쪽에 몰린' 상태가 조용히 통과하지 않는다.
+const FILLS = `(() => {
+  const panel = document.querySelector('.worship-tabpanel');
+  const box = panel && panel.firstElementChild;
+  if (!box) return null;
+  const ctl = [...box.querySelectorAll('input, textarea, button, .worship-song-linkbox')]
+    .filter(e => e.getBoundingClientRect().width > 0);
+  if (!ctl.length) return null;
+  const top = Math.min(...ctl.map(e => Math.round(e.getBoundingClientRect().top)));
+  const first = ctl.filter(e => Math.round(e.getBoundingClientRect().top) - top < 10);
+  const b = box.getBoundingClientRect();
+  return {
+    panelGap: Math.round(panel.getBoundingClientRect().right - b.right),
+    rowGap: Math.round(b.right - Math.max(...first.map(e => e.getBoundingClientRect().right))),
+    n: first.length,
+  };
+})()`;
+
 const respRows = [];
+const fillRows = [];
 for (const width of [375, 414, 768, 1024, 1440]) {
   await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width < 768 });
   await sleep(450);
@@ -1496,11 +1589,16 @@ for (const width of [375, 414, 768, 1024, 1440]) {
     await tabClick(tab); await sleep(320);
     const r = await ev(RESP);
     respRows.push([width, tab, r && r.overflow, r && r.narrow, r && r.outside, r && r.n]);
+    const f = await ev(FILLS);
+    fillRows.push([width, tab, f && f.panelGap, f && f.rowGap, f && f.n]);
   }
 }
 const respBad = respRows.filter(r => !(r[2] <= 0 && r[3] >= 60 && r[4] === 0 && r[5] > 0));
 check('편집 탭 네 개가 375·414·768·1024·1440에서 넘치지 않고 칸이 짜부라지지 않는다',
   respBad.length === 0, JSON.stringify(respBad.length ? respBad : respRows.filter(r => r[0] === 375)));
+const fillBad = fillRows.filter(r => !(r[2] !== null && r[2] <= 1 && r[3] <= 24 && r[4] > 0));
+check('편집 폼이 탭 판 폭을 다 쓰고 첫 입력 줄이 오른쪽 끝에 닿는다(빈 곳 없음)',
+  fillBad.length === 0, JSON.stringify(fillBad.length ? fillBad : fillRows.filter(r => r[0] === 1440)));
 
 // 모바일에서는 저장·삭제가 **화면 아래 고정 줄**에 있고 하단 탭바 위에 앉는다
 await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });

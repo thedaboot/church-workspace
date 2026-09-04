@@ -42,9 +42,15 @@ const EditorSkeleton = () => <div className="min-h-40 border border-line rounded
 // 감싸개 클래스도 그 화면들과 같다 — MarkdownEditor는 이 상자의 **빈 자리를 눌러도**
 // 문서 끝으로 커서를 보낸다(그 파일의 focusEnd).
 const EDITOR_BOX = 'min-h-40 border border-line rounded-md rounded-t-none p-3 bg-surface focus-within:border-accent focus-within:shadow-soft transition-all';
-// 이름과 역할이 화면 양 끝으로 갈라지지 않게, 줄 목록은 한 눈에 읽히는 폭까지만 넓힌다
-// (화면 틀·머리줄·탭은 대시보드와 같은 전체 폭을 쓴다 — §3의 넓은 레이아웃)
-const LIST = 'max-w-[46rem]';
+// 목록·편집 줄은 **트랙을 다 쓴다**(사용자 결정 2026-09-05: "다 반응형으로 메워야
+// 한다. 모바일·데스크톱 모두 잘 나오게"). 예전에는 46rem 상한이 있었다 — 이름과
+// 역할이 화면 양 끝으로 갈라져 보인다는 지적(회차 5 '결정 대기 ⑪')을 폭으로 눌러 둔
+// 것이었는데, 그 대가로 1440px에서 오른쪽 40%가 통째로 비었다(§6-9-k와 같은 함정:
+// max-w는 트랙 안에 빈 띠를 만든다).
+// 갈라짐은 이제 **줄 안의 배치**로 막는다 — 남는 폭은 입력칸이 먹고, 조작 버튼은
+// 그 입력칸 바로 옆에 선다(오른쪽 끝에 따로 떨어뜨리지 않는다). 보기 줄도 같은
+// 문법이다: 역할 칩과 이름을 붙여 두고 남는 폭은 뒤에 남긴다.
+const LIST = 'min-w-0';
 
 const TABS = [
   { id: 'word', label: '말씀' },
@@ -190,10 +196,15 @@ function RolesTab({ rows, people }) {
         const name = person?.name || r.name || '';
         return (
           <li key={i} className="worship-role-row flex items-center gap-2.5 py-2.5" style={{ borderBottom: '1px solid var(--app-line)' }}>
+            <span className={NUM}>{i + 1}</span>
             {/* 계정이 이어진 사람만 사진이 있다 — 나머지는 이름 글자 원이다(§4.7) */}
             <Avatar name={name} {...(person?.profile_id ? {} : { url: null })} className="flex w-7 h-7 text-[12px] shrink-0" />
-            <span className="flex-1 min-w-0 text-[13px] font-semibold text-fg truncate">{name || '이름 없음'}</span>
-            <span className="shrink-0 text-[11.5px] text-fg-muted">{r.role || ''}</span>
+            {/* 역할은 편집 줄과 같은 자리·같은 칩이다. 예전에는 오른쪽 끝에 밀어 뒀는데,
+                폭 상한을 걷어내니 이름과 역할이 화면 양 끝으로 갈라졌다(회차 5 지적의
+                재발). 붙여 두면 어느 폭에서도 '누가 무엇을' 한 눈에 읽힌다. */}
+            {r.role && <span className={`${ROLE_VIEW} shrink-0`}>{r.role}</span>}
+            <span className="min-w-0 text-[13px] font-semibold text-fg truncate">{name || '이름 없음'}</span>
+            <span className="flex-1" />
           </li>
         );
       })}
@@ -204,6 +215,9 @@ function RolesTab({ rows, people }) {
 const ROW_LINE = { borderBottom: '1px solid var(--app-line)' };
 const CARD_BOX = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
 const NUM = 'w-5 shrink-0 text-[11px] font-bold text-fg-faint tabular-nums';
+// 보기 줄의 역할 칩 — 편집 줄의 ROLE_CHIP과 같은 색·같은 모양이되 입력칸이 아니다
+// (누를 수 없는 것에 focus 스타일을 달아 두면 눌러 보게 된다).
+const ROLE_VIEW = 'px-2.5 py-0.5 rounded-full bg-accent-weak text-accent-text text-[11.5px] font-semibold';
 
 // 유튜브 썸네일 — **키도 서버 함수도 필요 없다**(i.ytimg.com 공개 주소, services의
 // youtubeThumb). 그래서 게스트·로컬에서도 그림이 뜬다. 못 받으면(비공개 영상·인터넷
@@ -445,6 +459,9 @@ function RolesEdit({ rows, people, onChange }) {
             {/* 역할은 칩처럼 — 이름 칸과 생김새가 같으면 어느 쪽이 무엇인지 매번 읽어야 한다 */}
             <input className={`${ROLE_CHIP} w-[7rem] shrink-0`} value={r.role || ''} aria-label="역할"
               onChange={e => set(i, { role: e.target.value })} placeholder="예: 대표기도" />
+            {/* 이름 칸이 남는 폭을 먹는다(flex-1) — 그래서 넓은 화면에서도 도구는
+                입력칸 **바로 옆**에 붙어 서고, ml-auto는 좁은 화면에서 도구만 다음
+                줄로 접혔을 때 오른쪽에 세우는 용도로만 남는다 */}
             <PersonNameInput row={r} people={people} onPick={v => set(i, v)} />
             <span className={`${ROW} shrink-0 ml-auto ${TOOLS}`}>
               <RowTools index={i} total={rows.length} what="담당자"
@@ -543,6 +560,11 @@ function SongsEdit({ rows, onChange, onPullPlaylist, onLookupTitle }) {
 
 // 광고는 카드 한 장에 라벨 붙은 칸 둘이다 — 줄로 늘어놓으면 어느 제목에 딸린 본문인지
 // 눈으로 이어야 했다(사용자 지적 2026-09-03).
+//
+// 넓은 폭에서 **2열로 놓지 않고 한 열로 폭을 채운다**(사용자가 "판단해서 한 가지로"라고
+// 맡긴 자리 · 2026-09-05). 2열이면 광고가 한 건일 때 카드가 왼쪽 절반만 차지해서 지금
+// 고치고 있는 '오른쪽이 빈다'가 그대로 되살아나고, 번호가 붙은 순서 목록이 좌우로 흘러
+// 읽는 순서가 흐려진다. 대신 제목 칸과 내용 textarea가 카드 폭을 다 쓴다.
 function NoticesEdit({ rows, onChange }) {
   const set = (i, patch) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
   return (
