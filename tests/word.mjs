@@ -23,9 +23,9 @@
 //   · 날짜를 넘길 때 본문 자리를 **넘기기 직전 높이로 붙잡아** 둔다 — 묵상 칸이
 //     위로 올라왔다 내려가지 않고, 묵상 에디터도 언마운트되지 않는다
 //   · 공유 토글은 dirty를 건드리지 않고 shared 칸만 즉시 저장한다(칩으로 표시)
-//   · 나눔 줄의 지우기 = **공유 해제**(내 기록에는 남는다) · 진짜 삭제는 '내 묵상' 칸
+//   · 나눔 줄의 지우기 = **공유 해제**(2026-09-05에 폐기 — 아래) · 진짜 삭제는 '내 묵상' 칸
 //   · 잔디 칸 13px(날짜 숫자 대신 요일 머리글·월·title)
-//   · 성경 읽기: [목차 | 북마크 | 형광펜] 세그먼트 · 리더 되돌아가기는 '책 목록'
+//   · 성경 읽기: [본문 | 북마크 | 형광펜] 세그먼트 · 리더 되돌아가기는 '목차'(2026-09-05)
 //   · 형광펜은 절 상자가 아니라 **글자에만** 칠해진다(인라인 mark + box-decoration-break)
 //   · 형광펜 팝오버는 다른 절을 눌러도 그 절을 따라간다(절마다 key로 새로 마운트)
 //   · '형광펜 긋기' → '형광펜 칠하기'
@@ -35,6 +35,11 @@
 //   · 형광펜 도구 줄은 포털 팝오버가 아니라 **눌린 절 다음 형제**(문서 흐름 안)
 //   · 대상 절에 표시(dc-verse-picked) · 도구 줄에 색 칩
 //   · 예외 문구: 못 읽은 것과 없는 것을 갈라 말하고, 이유를 한 문장에 붙인다
+//
+// 2026-09-05 피드백에서 바뀐 것:
+//   · 나눔 줄의 **눈 가리기(공유 해제)가 없어졌다** — 공유는 토글로만 조절한다
+//   · **조작 가능한 공유 토글은 화면에 한 벌**(내 묵상 칸) — 나눔 줄의 토글·칩을 뺐다.
+//     그 줄은 상태만 말한다: 비공개면 잠금 표시, 표시가 없으면 공유 중이라는 뜻
 //
 // 3차 점검에서 본 것:
 //   · 형광펜 선택 팝오버가 **첫 프레임부터** 그 절 옆에 선다 — 자리를 잡기 전 한 번
@@ -463,27 +468,50 @@ check('빈 상태가 본문 자리의 세로 가운데에 선다', !!emptyFit &&
 await clickText('오늘');
 await sleep(900);
 
-// 9) 내 나눔 — 고치기는 '내 묵상' 칸으로, **지우기는 공유 해제**(4차 피드백 8)
+// 9) 내 나눔 줄 — 고치기는 '내 묵상' 칸으로, **공유를 조작하는 칸은 그 줄에 없다**
+// (사용자 결정 2026-09-05 — "굳이 이 날의 나눔은 눈 표시가 없어도 되지 않을까?" ·
+// "토글이 위랑 아래랑 두 번 나온다"). 눈 가리기(공유 해제)와 줄의 토글이 같이 없어졌고,
+// 그 줄은 상태만 말한다(비공개면 잠금 표시). 회차 5의 '나눔 지우기 = 공유 해제' 폐기.
 const seedBody = seed.entries[today].body;
-const mineRow = await ev(`(() => ({
-  edit: !!document.querySelector('button[aria-label="내 나눔 고치기"]'),
-  del: !!document.querySelector('button[aria-label="내 나눔 지우기"]'),
-}))()`);
-check('내 나눔에 고치기·지우기가 붙는다', mineRow.edit && mineRow.del, JSON.stringify(mineRow));
+const mineRow = await ev(`(() => {
+  const row = document.querySelector('[data-feed-row="mine"]');
+  return {
+    row: !!row,
+    edit: !!document.querySelector('button[aria-label="내 나눔 고치기"]'),
+    eye: !!document.querySelector('button[aria-label="내 나눔 지우기"]'),
+    rowToggle: row ? row.querySelectorAll('button[aria-pressed]').length : 0,
+    rowChip: row ? row.querySelectorAll('[data-share-chip]').length : 0,
+  };
+})()`);
+check('내 나눔 줄에 고치기가 붙는다', mineRow.row && mineRow.edit, JSON.stringify(mineRow));
+check('내 나눔 줄에 눈 가리기(공유 해제)가 없다', mineRow.eye === false, JSON.stringify(mineRow));
+check('내 나눔 줄에는 공유 토글·칩이 없다',
+  mineRow.rowToggle === 0 && mineRow.rowChip === 0, JSON.stringify(mineRow));
+// **조작 가능한 공유 토글은 이 화면에 한 벌뿐이다**(같은 결정) — '내 묵상' 칸의 것.
+// 한 벌은 두 쪽(나만 보기·더다붓에 공유하기)이라 벌 수로 센다.
+const onlyToggle = await ev(`(() => {
+  const bs = [...document.querySelectorAll('button[aria-pressed]')]
+    .filter(b => ['나만 보기', '더다붓에 공유하기'].includes(b.textContent.trim()));
+  const sets = [...new Set(bs.map(b => b.parentElement))];
+  return { buttons: bs.length, sets: sets.length,
+    inFeed: sets.filter(s => s.closest('[data-feed-row]')).length,
+    inEditor: sets.filter(s => !!s.closest('[data-col="qt"]') && !s.closest('[data-feed-row]')).length };
+})()`);
+check('조작 가능한 공유 토글은 화면에 한 벌뿐이다',
+  onlyToggle.sets === 1 && onlyToggle.buttons === 2
+  && onlyToggle.inFeed === 0 && onlyToggle.inEditor === 1, JSON.stringify(onlyToggle));
 // 고치기는 같은 글을 두 자리에서 고치지 않는다 — 위의 '내 묵상' 칸으로 데려간다
 await waitFor(`document.querySelector('button[aria-label="내 나눔 고치기"]')`);
 await clickSel('button[aria-label="내 나눔 고치기"]');
 await sleep(600);
 check('고치기는 내 묵상 칸에 커서를 준다',
   await ev(`!!document.activeElement && !!document.activeElement.closest('.tiptap')`));
-await clickSel('button[aria-label="내 나눔 지우기"]');
-await sleep(300);
-const confirmSeen = await ev(`document.body.innerText.includes('이 날의 묵상을 지우고 내 기록에만 남겨둘까요?')`);
-check('나눔 지우기는 내 기록에 남는다고 묻는다', confirmSeen === true);
-await clickText('지우기');
-await sleep(900);
+// 공유를 내리는 길도 그 토글 하나다 — 나눔 줄에서 내리는 버튼은 없어졌다
+check("편집기 토글의 '나만 보기'를 누른다", (await clickText('나만 보기')) === true);
+await sleep(1000);
 const afterUnshare = await ev(`(() => {
   const row = document.querySelector('[data-feed-row="mine-private"]');
+  const chip = document.querySelector('[data-share-chip]');
   return {
     stored: JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}] || null,
     inEditor: (document.querySelector('.tiptap') || {}).innerText || '',
@@ -494,54 +522,29 @@ const afterUnshare = await ev(`(() => {
     body: row ? row.textContent.includes(${JSON.stringify(seed.entries[today].body)}) : false,
     others: document.querySelectorAll('[data-feed-row="other"]').length,
     toggle: row ? row.querySelectorAll('button[aria-pressed]').length : 0,
+    chips: document.querySelectorAll('[data-share-chip]').length,
+    chipText: chip ? chip.textContent : '',
+    chipInFeed: chip ? !!chip.closest('[data-feed-row]') : false,
   };
 })()`);
-check('나눔 지우기는 공유만 내린다(묵상은 남는다)',
+check('편집기 토글로 공유만 내린다(묵상은 남는다)',
   !!afterUnshare.stored && afterUnshare.stored.shared === false
   && afterUnshare.stored.body === seedBody,
   JSON.stringify(afterUnshare));
-// ② 비공개 묵상도 내 피드에 선다 — '나만 보기' 표시와 그 줄의 토글까지(사용자 결정 2026-09-03)
+// ② 비공개 묵상도 내 피드에 선다 — '나만 보기' 표시까지(사용자 결정 2026-09-03)
 check('비공개 묵상이 내 나눔 피드에 남는다',
   afterUnshare.privateRow && afterUnshare.body && afterUnshare.others === 0,
   JSON.stringify(afterUnshare));
 check("그 줄에 '나만 보기' 표시가 붙는다",
   afterUnshare.badge && afterUnshare.badgeText, JSON.stringify(afterUnshare));
-check('그 줄에서 바로 공개 범위를 정할 수 있다', afterUnshare.toggle === 2,
+check('비공개가 된 줄에도 공유 토글은 없다', afterUnshare.toggle === 0,
   String(afterUnshare.toggle));
 check('내 묵상 칸의 글은 그대로다', afterUnshare.inEditor.includes(seedBody), afterUnshare.inEditor);
-// 토스트도 **무엇이 남았는지**까지 말한다(사용자 피드백 2026-09-03 — 예외·안내 문구 검토)
-const unshareToast = await ev(`(document.querySelector('[role="status"]') || {}).textContent || ''`);
-check('공유 해제 토스트가 묵상이 남는다고 말한다',
-  unshareToast.includes('나눔에서 내렸어요') && unshareToast.includes('내 기록에 그대로 있어요'),
-  unshareToast);
-// 두 문장은 **줄을 바꿔** 잇는다(사용자 결정 2026-09-03 — ' · '도 마침표도 아니다)
-check('두 문장짜리 토스트는 줄을 바꾼다',
-  unshareToast.includes(String.fromCharCode(10)) && !unshareToast.includes(' · '),
-  JSON.stringify(unshareToast));
+// 칩은 **한 자리에서만** 말한다 — 토글 옆(편집기)이다
+check("칩이 편집기 옆에서 '나만 볼게요'라고 말한다",
+  afterUnshare.chips === 1 && afterUnshare.chipInFeed === false
+  && afterUnshare.chipText.includes('나만 볼게요'), JSON.stringify(afterUnshare));
 check('공유를 내려도 저장 버튼은 꺼져 있다', (await saveDisabled()) === true);
-// 나눔 줄의 토글이 실제로 shared를 바꾸고, 칩은 **그 줄에** 뜬다
-check('나눔 줄의 공유 토글을 누른다',
-  await clickSel('[data-feed-row="mine-private"] button[aria-pressed="false"]'));
-await sleep(1000);
-const feedShare = await ev(`(() => {
-  const mine = document.querySelector('[data-feed-row="mine"]');
-  return {
-    stored: (JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}] || {}).shared,
-    row: !!mine,
-    chip: mine ? (mine.querySelector('[data-share-chip]') || {}).textContent || '' : '',
-    stillPrivate: !!document.querySelector('[data-feed-row="mine-private"]'),
-    save: (() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='저장'); return b ? b.disabled : null; })(),
-  };
-})()`);
-check('나눔 줄 토글로 공유가 켜진다',
-  feedShare.stored === true && feedShare.row === true && feedShare.stillPrivate === false,
-  JSON.stringify(feedShare));
-check("나눔 줄 칩도 '더다붓에 공유할게요'라고 말한다",
-  feedShare.chip.includes('더다붓에 공유할게요'), feedShare.chip);
-check('나눔 줄 토글도 저장 버튼을 켜지 않는다', feedShare.save === true, String(feedShare.save));
-// 다시 나만 보기로 되돌려 다음 검사의 출발점을 맞춘다
-await clickSel('[data-feed-row="mine"] button[aria-pressed="false"]');
-await sleep(1000);
 
 // 10) 나만 보기 / 더다붓에 공유하기 — **토글은 편집 상태를 건드리지 않는다**(4차 피드백 8)
 // 이름은 '나누기'에서 바뀌었다(2026-09-02) — 어디로 나가는지가 이름에 있어야 한다
@@ -644,7 +647,7 @@ check("검색 자리표는 '본문 검색'", toc.hint === '본문 검색', toc.h
 // 4차 피드백 12 — 목차 · 북마크 · 형광펜은 세그먼트로 갈린다. 목차 화면에 두 목록이
 // 같이 서 있으면 안 된다(예전에는 좁은 폭에서 목차 위에, 넓은 폭에서 옆 칸에 있었다)
 check('목차·북마크·형광펜 세그먼트로 갈린다',
-  toc.panes.join('|') === '목차|북마크|형광펜' && toc.active === 'toc', JSON.stringify(toc.panes));
+  toc.panes.join('|') === '본문|북마크|형광펜' && toc.active === 'toc', JSON.stringify(toc.panes));
 check('목차 화면에는 북마크·형광펜 목록이 없다', toc.marks === false,
   JSON.stringify({ marks: toc.marks }));
 
@@ -1175,7 +1178,7 @@ check('북마크한 장이 북마크 칸에 선다',
   await ev(`!!document.querySelector('[data-goto="gen 1"]')`));
 await clickSel('[data-pane="toc"]');
 await sleep(500);
-check('책 목록으로', await clickText('책 목록'));
+check('책 목록으로', await clickText('목차'));
 await sleep(500);
 
 // '(없음)' — 데이터는 그대로 두고 화면에서만 흐리게(public/bible/README.md)
@@ -1373,7 +1376,7 @@ await sleep(1600);
 const mobRead = await ev(`(() => {
   const d = document.documentElement;
   const panes = [...document.querySelectorAll('[data-pane]')].filter(b => b.offsetParent !== null);
-  const back = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '책 목록');
+  const back = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '목차');
   const bm = [...document.querySelectorAll('button[aria-label]')].find(b => (b.getAttribute('aria-label') || '').includes('북마크'));
   const box = e => (e ? e.getBoundingClientRect() : null);
   const b1 = box(back), b2 = box(bm);
@@ -1386,7 +1389,7 @@ const mobRead = await ev(`(() => {
 })()`);
 check('모바일 성경 읽기도 가로로 안 넘친다', mobRead.over === false, JSON.stringify(mobRead));
 check('모바일에서도 목차·북마크·형광펜 세그먼트가 늘 보인다',
-  mobRead.panes.join('|') === '목차|북마크|형광펜', JSON.stringify(mobRead.panes));
+  mobRead.panes.join('|') === '본문|북마크|형광펜', JSON.stringify(mobRead.panes));
 check('좁은 폭에서도 리더 헤더의 책 목록·북마크가 한 줄에 남는다',
   mobRead.reader === true && !!mobRead.back && !!mobRead.bookmark
   && mobRead.back.inView && mobRead.bookmark.inView && mobRead.sameRow,
@@ -1545,7 +1548,7 @@ for (const w of [768, 1024, 1160, 1440]) {
   const hlFitW = await colFit('[data-col="highlight"]');
   await clickSel('[data-pane="toc"]');
   await sleep(700);
-  await clickText('책 목록');
+  await clickText('목차');
   await sleep(700);
   const tocFitW = await colFit('[data-col="toc"]');
   check(`${w}px 북마크·형광펜·목차가 자리를 다 쓴다`,

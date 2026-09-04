@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, Users, Lock, Pencil, Trash2, EyeOff } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Lock, Pencil, Trash2 } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
 import { selectMembers, selectCurrentUser } from '../store/selectors.js';
 import { Avatar } from '../components/Avatar.jsx';
@@ -39,8 +39,15 @@ import {
 // 저장이 활성화된다"). 공유는 고치는 일이 아니라 이미 저장된 글을 어디까지 보이게 할지
 // 정하는 일이라, 토글은 편집 상태(dirty)를 건드리지 않고 shared 칸만 그 자리에서 저장하고
 // 칩으로 알린다. 그래서 **아직 저장 전이면 토글은 꺼져 있다** — 없는 글을 공유할 수는 없다.
-// 지우기는 두 자리로 갈린다: 나눔 줄의 지우기는 **공유 해제**(내 기록에는 남는다),
-// 진짜 삭제는 '내 묵상' 칸의 휴지통이다.
+// **공유를 조작하는 자리는 한 곳이다 — '내 묵상' 칸의 토글**(사용자 결정 2026-09-05 —
+// "토글이 위랑 아래랑 두 번 나온다"). 편집기 바로 아래에 나눔 피드가 붙어 있어서 같은
+// 글의 공개 범위를 정하는 칸이 한 화면에 두 벌 서 있었다. 글을 쓰고 저장하는 자리에만
+// 남기고, 피드의 내 줄은 **상태만 말한다** — 비공개면 잠금 표시가 붙고, 그 표시가 없이
+// 줄이 서 있다는 것이 곧 공유 중이라는 뜻이다(피드는 공유된 글만 읽는다). 조작하려면
+// 그 줄의 연필이 편집기로 데려간다.
+// 나눔 줄의 눈 가리기(공유 해제)도 같은 결정으로 없앴다 — "토글로 조절할 수 있는 거면
+// 눈 표시는 없애도 될 듯". 회차 5의 '나눔 지우기 = 공유 해제'를 이 결정이 대체한다.
+// 지우기는 '내 묵상' 칸의 휴지통 하나뿐이다(그 날 묵상 자체가 없어진다).
 //
 // **날짜를 바꿔도 자리는 그대로 있어야 한다**(사용자 피드백 2026-09-01 — "화면 전체가
 // 새로 그려지며 움직인다"). 본문·묵상·나눔 세 칸 모두 기다리는 동안 같은 자리에
@@ -133,7 +140,6 @@ function QtTab() {
   const [body, setBody] = useState('');            // 지금 에디터에 있는 글
   const [saving, setSaving] = useState(false);
   const [shareState, setShareState] = useState(''); // '' | 'saving' | 'saved' (공유 칩)
-  const [shareAt, setShareAt] = useState('editor');  // 칩이 설 자리 — 'editor' | 'feed'
   const [feed, setFeed] = useState(null);          // null이면 아직 안 읽음
   const [grass, setGrass] = useState([]);
   const editorRef = useRef(null);
@@ -252,11 +258,9 @@ function QtTab() {
 
   // 공유 칸만 그 자리에서 저장한다. **저장된 본문을 그대로 다시 쓴다** — 고치던 글을
   // 같이 올리면 저장 버튼을 누르지 않았는데 글이 나가 버린다(그래서 dirty도 그대로 남는다).
-  // from: 누른 자리('editor' | 'feed') — 칩은 그 자리에만 뜬다(두 곳에 같은 칩이 겹치면
-  // 무엇이 방금 바뀐 것인지가 오히려 흐려진다)
-  const setShared = async (v, from = 'editor') => {
+  // 부르는 자리는 '내 묵상' 칸의 토글 하나다(머리말) — 칩도 그 옆에만 선다.
+  const setShared = async (v) => {
     if (!canShare || v === entry.shared || shareState === 'saving') return;
-    setShareAt(from);
     setShareState('saving');
     try {
       await saveMyEntry(date, { body: entry.body, shared: v });
@@ -268,22 +272,6 @@ function QtTab() {
       console.error('[word] 공유 상태 저장 실패:', e);
       setShareState('');
       showToast(failText(v ? '묵상을 더다붓에 공유하지 못했어요' : '묵상을 나만 보기로 바꾸지 못했어요', e));
-    }
-  };
-
-  // 나눔 줄의 지우기 = **공유 해제**. 묵상은 내 기록에 그대로 남는다(잔디도 그대로)
-  const unshareMine = async () => {
-    if (!ready) return;
-    try {
-      await saveMyEntry(date, { body: entry.body, shared: false });
-      setEntry(e => ({ ...e, shared: false }));
-      setFeed(await fetchSharedEntries(date));
-      dropCache(qtKey); refreshQt();
-      // 두 문장은 **줄을 바꿔** 잇는다(사용자 결정 2026-09-03 — failText와 같은 규칙).
-      showToast('나눔에서 내렸어요\n묵상은 내 기록에 그대로 있어요');
-    } catch (e) {
-      console.error('[word] 공유 해제 실패:', e);
-      showToast(failText('묵상을 나눔에서 내리지 못했어요', e));
     }
   };
 
@@ -375,9 +363,7 @@ function QtTab() {
               className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
               저장
             </button>
-            {shareAt === 'editor' && (
-              <ShareChip state={shareState} label={entry?.shared ? '더다붓에 공유할게요' : '나만 볼게요'} />
-            )}
+            <ShareChip state={shareState} label={entry?.shared ? '더다붓에 공유할게요' : '나만 볼게요'} />
             <span className="flex-1" />
             <ShareToggle value={!!entry?.shared} disabled={!canShare} onChange={setShared} />
             {canShare && (
@@ -408,9 +394,7 @@ function QtTab() {
                   privateMine={ready && entry.exists && entry.body.trim() && !entry.shared
                     ? { id: 'mine-private', body: entry.body, mine: true, private: true }
                     : null}
-                  shared={!!entry?.shared} canShare={canShare} onShare={setShared}
-                  shareState={shareAt === 'feed' ? shareState : ''}
-                  onEdit={editMine} onUnshare={unshareMine} />}
+                  onEdit={editMine} />}
           </div>
         </div>
       </div>
@@ -422,8 +406,6 @@ function QtTab() {
   );
 }
 
-// 공유 칸이 그 자리에서 저장됐음을 알리는 칩 — 예배 화면의 SaveState와 같은 결
-// (worshipDetail.jsx). 저장이 끝난 것만 연한 초록이고, 지나가는 상태는 무채색이다.
 // ── 그날 본문 ───────────────────────────────────────────────────────────────
 // minH: 기다리는 동안 채워야 할 자리의 높이. 카드가 자리보다 짧으면 그 차이만큼
 // 아래 칸들이 올라왔다 내려간다(QtTab 머리말) — 줄 수도 자리에 맞춰 늘린다.
@@ -495,13 +477,13 @@ function FeedSkeleton() {
 }
 
 // **비공개 묵상도 내 피드에는 선다**(사용자 결정 2026-09-03). 그 줄에는 '나만 보기'
-// 표시가 붙고, 같은 토글로 그 자리에서 공유하거나 되돌릴 수 있다 — 칩 문구도 같다.
-// 남에게는 여전히 안 보인다: 피드 데이터는 공유된 글만 읽고(RLS와 같은 경계) 이 줄은
-// 화면에서 내 것 하나를 얹은 것이다.
-function ShareFeed({
-  entries, members = [], myName = '', privateMine = null,
-  shared = false, canShare = false, shareState = '', onShare, onEdit, onUnshare,
-}) {
+// 표시가 붙는다. 남에게는 여전히 안 보인다: 피드 데이터는 공유된 글만 읽고(RLS와 같은
+// 경계) 이 줄은 화면에서 내 것 하나를 얹은 것이다.
+//
+// **이 줄에는 공유를 바꾸는 칸이 없다**(사용자 결정 2026-09-05 — 머리말 '공유를 조작하는
+// 자리는 한 곳'). 표시(잠금)와 고치기(연필)만 두고, 공개 범위는 위 '내 묵상' 칸의 토글이
+// 정한다 — 연필이 그 칸으로 데려간다.
+function ShareFeed({ entries, members = [], myName = '', privateMine = null, onEdit }) {
   const byId = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   const rows = privateMine ? [privateMine, ...entries] : entries;
   if (!rows.length) {
@@ -530,35 +512,11 @@ function ShareFeed({
                 )}
                 {/* 내 글에만 붙고 **언제나 보인다** — hover로만 뜨면 터치 기기에서는
                     없는 기능이 된다(§8) */}
-                {e.mine && (
-                  <span className="flex items-center gap-0.5 shrink-0">
-                    <button onClick={onEdit} aria-label="내 나눔 고치기"
-                      className="w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
-                      <Pencil size={12} />
-                    </button>
-                    {/* **여기서 지우는 것은 나눔에서만이다**(사용자 피드백 2026-09-02 4차).
-                        묵상은 내 기록에 그대로 남으므로 잃는 것이 없고(tone 'ok'), 진짜
-                        삭제는 위의 '내 묵상' 칸 휴지통이 한다. 이미 나만 보는 글에는
-                        내릴 것이 없으므로 그때는 토글만 둔다 */}
-                    {!e.private && (
-                      <ConfirmPopover
-                        message="이 날의 묵상을 지우고 내 기록에만 남겨둘까요?"
-                        confirmLabel="지우기" tone="ok" onConfirm={onUnshare}
-                      >
-                        <button aria-label="내 나눔 지우기"
-                          className="w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
-                          <EyeOff size={12} />
-                        </button>
-                      </ConfirmPopover>
-                    )}
-                  </span>
-                )}
-                {/* 이 줄에서 바로 공개 범위를 정한다 — 위 '내 묵상' 칸과 같은 토글·같은 칩 */}
-                {e.mine && onShare && (
-                  <span className="flex items-center gap-1.5 ml-auto">
-                    <ShareChip state={shareState} label={shared ? '더다붓에 공유할게요' : '나만 볼게요'} />
-                    <ShareToggle value={shared} disabled={!canShare} onChange={v => onShare(v, 'feed')} />
-                  </span>
+                {e.mine && onEdit && (
+                  <button onClick={onEdit} aria-label="내 나눔 고치기"
+                    className="w-6 h-6 shrink-0 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
+                    <Pencil size={12} />
+                  </button>
                 )}
               </div>
               <div className="text-[13px] leading-relaxed text-fg-secondary break-words mt-0.5">

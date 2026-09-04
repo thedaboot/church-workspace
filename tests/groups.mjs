@@ -493,7 +493,7 @@ const pure = await ev(`(async () => {
     admin: perms({ isAdmin: true }),
     pastor: perms({ myPerson: { is_pastor: true } }),
     lead: perms({ myRoles: ['lead_sunjang'] }),
-    officer: perms({ myRoles: ['officer'] }),
+    treasurer: perms({ myRoles: ['treasurer'] }),
     club: [m.canManageClub(led, 'gc1'), m.canManageClub(led, 'gc2'), m.canManageClub({ isMaster: true, ledClubIds: [] }, 'gc2')],
     // 이름·설명 고치기(0039 groups_update) — 관리자 또는 **그** 동아리장. 명단
     // 자격(canManageClub = 마스터 + 그 리더)과 경계가 다르다.
@@ -598,7 +598,7 @@ check('관리자는 순 편성만(동아리 개설은 마스터만)', JSON.strin
 // 0039에서 교역자가 빠졌다 — 사용자 결정 2026-09-02 "마스터/관리자/리더순장만 우선"
 check('교역자만으로는 순 편성 자격이 아니다(0039에서 빠졌다)', JSON.stringify(pure.pastor) === '[false,false]', JSON.stringify(pure.pastor));
 check('리더순장은 순 편성만', JSON.stringify(pure.lead) === '[true,false]', JSON.stringify(pure.lead));
-check('임원 줄만으로는 순 편성 자격이 아니다', JSON.stringify(pure.officer) === '[false,false]', JSON.stringify(pure.officer));
+check('총무·리더팀장 줄만으로는 순 편성 자격이 아니다(0043)', JSON.stringify(pure.treasurer) === '[false,false]', JSON.stringify(pure.treasurer));
 check('동아리 관리는 그 동아리 리더 또는 마스터', JSON.stringify(pure.club) === '[true,false,true]', JSON.stringify(pure.club));
 check('동아리 이름·설명은 그 동아리장 또는 관리자만 고친다',
   JSON.stringify(pure.editClub) === '[true,false,false,true]', JSON.stringify(pure.editClub));

@@ -3,6 +3,7 @@ import { Trash2, Lock } from 'lucide-react';
 import { SectionHead } from '../views/dashboardParts.jsx';
 import { RichText } from './RichText.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
+import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { YearPicker } from './layout.jsx';
 import {
   CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, EXIT,
@@ -106,22 +107,31 @@ export function SunNotesSection({ notes = [], onShare }) {
 // 바로 공유를 켜고 끈다. 남의 비공개 노트는 애초에 오지 않는다(결정 7 · groups.js).
 // 바꾼 뒤에는 초록 칩으로 지금 상태를 말한다 — 토스트로 띄우면 목록의 어느 줄이
 // 바뀐 것인지 알 수 없다.
+//
+// **공유는 말씀·예배와 같은 한 부품이다**(components/ShareToggle.jsx · 회차 8 '공유
+// 토글은 한 부품'). 예전에는 이 줄만 누를 때마다 이름이 뒤집히는 버튼('순에 공유하기'
+// ↔ '나만 보기')이라, 공유된 줄에 적힌 '나만 보기'가 지금 상태인지 누르면 될 일인지
+// 알 수 없었다(2026-09-01에 다른 화면에서 지적받은 것과 같은 문제). 두 쪽을 나란히
+// 두면 라벨이 손 밑에서 바뀌지 않는다.
+// **이 화면에는 편집기가 없으므로 조작은 이 줄에 남는다**(사용자 결정 2026-09-05 —
+// 말씀 나눔 피드에서는 편집기 토글 하나만 남기고 줄에서는 뺐다). 노트를 쓰는 자리는
+// 예배 상세 화면이고, 거기 토글과 여기 토글은 서로 다른 화면에 한 벌씩이다.
 function NoteRow({ note, onShare }) {
+  const [state, setState] = useState('');   // '' | 'saving' | 'saved' (공유 칩)
   const [said, setSaid] = useState('');
-  const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (!said) return undefined;
-    const t = setTimeout(() => setSaid(''), 2600);
+    if (state !== 'saved') return undefined;
+    const t = setTimeout(() => setState(''), 2600);
     return () => clearTimeout(t);
-  }, [said]);
+  }, [state]);
 
-  const toggle = async () => {
-    if (busy || !onShare) return;
-    setBusy(true);
-    const next = !note.shared;
-    const ok = await onShare(note, next);
-    setBusy(false);
-    if (ok) setSaid(next ? '우리 순에 공유할게요' : '나만 볼게요');
+  // 이미 그 상태인 쪽을 눌러도 아무 일도 일어나지 않는다(ShareToggle 머리말)
+  const setShare = async (v) => {
+    if (!onShare || v === !!note.shared || state === 'saving') return;
+    setSaid(v ? '우리 순에 공유할게요' : '나만 볼게요');
+    setState('saving');
+    const ok = await onShare(note, v);
+    setState(ok ? 'saved' : '');
   };
 
   return (
@@ -135,13 +145,15 @@ function NoteRow({ note, onShare }) {
             <Lock size={9} /><span>나만 보기</span>
           </span>
         )}
-        {said && (
-          <span className="mysun-note-said px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg text-[10px] font-bold">{said}</span>
+        {!!state && (
+          <span className="mysun-note-said"><ShareChip state={state} label={said} /></span>
         )}
         <span className="flex-1" />
         {note.mine && (
-          <button type="button" onClick={toggle} disabled={busy}
-            className={`mysun-note-share ${BTN_QUIET}`}>{note.shared ? '나만 보기' : '순에 공유하기'}</button>
+          <span className="mysun-note-share shrink-0">
+            <ShareToggle value={!!note.shared} disabled={state === 'saving'}
+              onChange={setShare} shareLabel="순에 공유하기" />
+          </span>
         )}
       </div>
       {/* 노트는 **마크다운으로 쓴다**(예배 화면이 MarkdownEditor로 바뀌었다) — 원문을

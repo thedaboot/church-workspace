@@ -335,7 +335,9 @@ const chapNav = 'sticky w-11 h-11 flex items-center justify-center rounded-full 
   + 'transition-[opacity,background-color,color] duration-150 active:scale-95';
 
 // 목차 · 북마크 · 형광펜 — 세그먼트 모양은 말씀 화면의 [QT | 성경 읽기]와 같은 한 벌이다
-const PANES = [['toc', '목차'], ['bookmark', '북마크'], ['highlight', '형광펜']];
+// 세그먼트 이름은 '본문'(사용자 결정 2026-09-05 — 전에는 '목차'였고, 그때는 리더의 되돌아가기가
+// '책 목록'이었다). 이제 되돌아가기 버튼이 '목차'다.
+const PANES = [['toc', '본문'], ['bookmark', '북마크'], ['highlight', '형광펜']];
 const paneIndex = (key) => PANES.findIndex(p => p[0] === key);
 
 // ── 성경 읽기 탭 ────────────────────────────────────────────────────────────
@@ -776,12 +778,11 @@ export function BibleTab({ initialRef = '' }) {
             {/* 좁은 폭에서도 셋이 한 줄에 그대로 선다 — 제목만 줄어들고(min-w-0 truncate)
                 양쪽 버튼은 shrink-0에 44px 터치 타깃이다(사용자 피드백 2026-09-02 4차) */}
             <div ref={headRef} data-chap-head="" className="flex items-center gap-1.5 pb-3">
-              {/* 세그먼트가 '목차'라는 이름을 가져갔으므로 이 버튼은 **책 목록**이다 —
-                  한 화면에 같은 이름의 버튼이 둘이면 어느 쪽이 어디로 가는지 알 수 없다
-                  (장 그리드의 되돌아가는 버튼이 이미 '책 목록'이라 이름도 한 벌이 된다) */}
+              {/* 되돌아가기는 **목차**다(사용자 결정 2026-09-05 — 세그먼트가 '본문'이 되면서
+                  '목차'가 비었다). 장 그리드의 되돌아가는 버튼도 같은 이름이라 한 벌이다 */}
               <button onClick={() => { setDir(-1); setPlace(null); setPickedBook(null); }}
                 className={`${btn} shrink-0 pl-2 pr-3 h-11 text-fg-muted hover:bg-surface-hover`}>
-                <ChevronLeft size={15} />책 목록
+                <ChevronLeft size={15} />목차
               </button>
               <h3 className="bible-place flex-1 min-w-0 truncate text-[15px] font-extrabold text-fg tracking-[-0.3px]">
                 {here?.name} {place.chapter}장
@@ -1073,7 +1074,7 @@ function Toc({ books, ready, failed = null, picked, setPicked, onOpen }) {
         <div className="flex items-center gap-2 pb-3">
           <button onClick={() => setPicked(null)}
             className={`${btn} shrink-0 pl-1.5 pr-2.5 h-8 text-fg-muted hover:bg-surface-hover`}>
-            <ChevronLeft size={14} />책 목록
+            <ChevronLeft size={14} />목차
           </button>
           <h3 className="flex-1 min-w-0 truncate text-[15px] font-extrabold text-fg tracking-[-0.3px]">{b.name}</h3>
           <span className="shrink-0 text-[11.5px] text-fg-faint tabular-nums">{b.chapters}장</span>
