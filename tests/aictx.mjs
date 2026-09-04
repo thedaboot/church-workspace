@@ -135,7 +135,7 @@ check('요약 규칙에 팀 간 인수인계 지시가 있다',
   captured.sys.includes('넘겨주고 받아야'));
 check('요약 규칙에 교회 달력이 있다',
   captured.sys.includes('[교회 일정의 기본 리듬]')
-  && captured.sys.includes('주일 4부 청년 예배') && captured.sys.includes('금요 열정 예배'));
+  && captured.sys.includes('주일 4부 젊은이 예배') && captured.sys.includes('금요 열정 예배'));
 // 우리 교회에 없는 일정은 넣지 않는다 (수요 예배는 안 한다)
 check('수요 예배는 달력에 없다', !captured.sys.includes('수요 예배'));
 check('없는 절기를 지어내지 말라는 규칙이 있다', captured.sys.includes('지어내지 마라'));

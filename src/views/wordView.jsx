@@ -13,7 +13,7 @@ import { useCached, dropCache } from '../services/cache.js';
 import { ShareChip, ShareToggle } from '../components/ShareToggle.jsx';
 import { SectionHead, Card } from './dashboardParts.jsx';
 import { loadPassage } from '../services/bible.js';
-import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap } from '../components/wordBible.jsx';
+import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap, useBibleState, useVersePaint, marksFor } from '../components/wordBible.jsx';
 import {
   kstToday, shiftDay, dayLabel, shortDayLabel, monthDays, weekRange,
   fetchSchedule, fetchMyEntry, saveMyEntry, deleteMyEntry, fetchSharedEntries, fetchMyEntryDates,
@@ -350,7 +350,7 @@ function QtTab() {
 
         {/* 본문 — 기다리는 동안에도 같은 자리에 같은 크기로 서 있는다 */}
         <div ref={slotRef} style={{ minHeight: slotH }}>
-          <Swap k={date} dir={dir}><QtPassage day={day} minH={slotH} /></Swap>
+          <Swap k={date} dir={dir}><QtPassage day={day} date={date} minH={slotH} /></Swap>
         </div>
 
         {/* 내 묵상 */}
@@ -427,7 +427,18 @@ function QtTab() {
 // ── 그날 본문 ───────────────────────────────────────────────────────────────
 // minH: 기다리는 동안 채워야 할 자리의 높이. 카드가 자리보다 짧으면 그 차이만큼
 // 아래 칸들이 올라왔다 내려간다(QtTab 머리말) — 줄 수도 자리에 맞춰 늘린다.
-export function QtPassage({ day, minH = PASSAGE_MIN_H }) {
+export function QtPassage({ day, date, minH = PASSAGE_MIN_H }) {
+  // QT 본문 형광펜(사용자 결정 2026-09-05). **그날의 것**이다 — "따로 모아두지 말고, 보려면
+  // 해당 날짜를 보면 된다". bible_state.highlights에 같이 두되 ref 앞에 `qt:<날짜>`를 붙여
+  // 리더의 형광펜·모아보기와 갈라 둔다(parseVerseKey가 못 읽는 모양이라 모아보기에 오르지
+  // 않고, 리더는 '책 ' 접두로만 걸러 본다 — marksFor).
+  const [hl, updateHl] = useBibleState();
+  const prefix = `qt:${date} ${day.passage?.ref?.bookId || ''} `;
+  const paint = useVersePaint({
+    state: hl, update: updateHl, name: day.passage?.book?.name,
+    refOf: (chapter, verse) => `${prefix}${chapter}:${verse}`,
+  });
+  const marks = useMemo(() => marksFor(hl.highlights, prefix), [hl.highlights, prefix]);
   if (day.loading) {
     const lines = Math.max(8, Math.round((minH - 44) / 34));
     return (
@@ -459,7 +470,10 @@ export function QtPassage({ day, minH = PASSAGE_MIN_H }) {
       <p className={`text-[12px] font-bold text-accent-text ${schedule.label ? 'mt-0.5' : ''}`}>{schedule.passage_ref}</p>
       <div className="mt-3.5">
         {passage?.verses?.length
-          ? <PassageText verses={passage.verses} showChapter={passage.verses[0].chapter !== passage.verses.at(-1).chapter} />
+          ? <PassageText
+              verses={passage.verses} showChapter={passage.verses[0].chapter !== passage.verses.at(-1).chapter}
+              marks={marks} onPickVerse={paint.onPickVerse} picked={paint.picked} toolAt={paint.toolAt} tool={paint.tool}
+            />
           : <p className="text-[12.5px] text-fg-faint">읽기표에 적힌 구절을 성경에서 찾지 못했어요</p>}
       </div>
     </Card>

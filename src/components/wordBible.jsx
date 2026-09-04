@@ -339,13 +339,120 @@ const PANES = [['toc', '목차'], ['bookmark', '북마크'], ['highlight', '형�
 const paneIndex = (key) => PANES.findIndex(p => p[0] === key);
 
 // ── 성경 읽기 탭 ────────────────────────────────────────────────────────────
+// ── 상태 저장 · 형광펜 칠하기 — 리더(BibleTab)와 QT 본문(wordView QtPassage)이 같이 쓴다 ──
+const EMPTY_STATE = { lastRef: '', bookmarks: [], highlights: [] };
+
+// what을 주면 **못 남겼을 때 이유까지 말한다**(사용자 피드백 2026-09-03 — 예외 문구).
+// 예전에는 saveBibleState가 실패를 삼켜서, 클라우드에 안 남은 형광펜이 화면에는
+// 칠해져 있었다(새로 열면 사라진다). 이어읽기(lastRef)만 바뀌는 호출은 조용히 넘긴다.
+function persistState(next, what = '') {
+  writeCache(STATE_KEY, next);   // 고친 값이 곧 다음 진입의 첫 화면이다
+  saveBibleState(next).then(r => {
+    if (what && r && r.ok === false) showToast(failText(what, r.error));
+  }).catch(() => {});
+}
+
+// 형광펜만 필요한 자리(QT 본문)의 상태 — 캐시로 시작하고 한 번 읽어 온다.
+export function useBibleState() {
+  const [state, setState] = useState(() => readCache(STATE_KEY) || EMPTY_STATE);
+  useEffect(() => {
+    let alive = true;
+    loadBibleState().then(saved => { if (alive) { setState(saved); writeCache(STATE_KEY, saved); } }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const update = (next, what = '') => { setState(next); persistState(next, what); };
+  return [state, update];
+}
+
+// highlights 중 prefix로 시작하는 것 → Map('장:절' → 색). PassageText의 marks 모양이다.
+export function marksFor(highlights, prefix) {
+  const map = new Map();
+  for (const h of highlights || []) {
+    const ref = String(h?.ref || '');
+    if (ref.startsWith(prefix)) map.set(ref.slice(prefix.length), hlColor(h?.color));
+  }
+  return map;
+}
+
+// ── 범위 고르기(사용자 결정 2026-09-03) ────────────────────────────────────
+// **앵커 방식**이다. 첫 클릭이 앵커고, 다음 클릭은 앵커와 그 절 사이를 범위로 만든다:
+// 4 → 1이면 1~4, 1 → 4도 1~4, 1~3에서 6을 누르면 1~6, 1~6에서 5를 누르면 1~5로
+// **줄어든다**(역으로 취소). 앵커를 다시 누르면 해제. 늘리기와 취소가 같은 손짓이라
+// '범위 시작/끝' 두 모드를 만들지 않아도 된다. 다른 장의 절을 누르면 거기서 새로 시작한다
+// (QT 본문은 장을 넘어갈 수 있다).
+// refOf(chapter, verse) → highlights에 남길 ref · name → 라벨 앞머리(책 이름) ·
+// guard() → true면 이번 클릭을 무시한다(리더의 스와이프 직후).
+// 돌려주는 것은 PassageText에 그대로 꽂는 네 가지(onPickVerse·picked·toolAt·tool)와 clear.
+export function useVersePaint({ state, update, refOf, name, guard = null }) {
+  const [sel, setSel] = useState(null);   // { chapter, anchor, from, to }
+  const pickVerse = (chapter, verse) => {
+    if (guard?.()) return;
+    setSel(prev => {
+      if (!prev || prev.chapter !== chapter) return { chapter, anchor: verse, from: verse, to: verse };
+      if (verse === prev.anchor) return null;
+      return { ...prev, from: Math.min(prev.anchor, verse), to: Math.max(prev.anchor, verse) };
+    });
+  };
+
+  // 바깥을 누르거나 Esc면 해제한다. **절과 도구 줄은 '안'이다** — 다른 절의 mousedown이
+  // 여기서 닫아 버리면 곧 오는 click이 새 앵커를 잡아 범위가 절대 만들어지지 않는다
+  // (2026-09-05 실물에서 잡힘 — 고른 절만 '안'으로 쳤고, 테스트는 p.click()만 쏴서
+  // mousedown 없이 통과했었다. 지금은 tests/word.mjs가 mousedown을 먼저 보낸다).
+  useEffect(() => {
+    if (!sel) return undefined;
+    const onDown = (e) => {
+      if (e.target?.closest?.('[data-verse-tool], [data-verse]')) return;
+      setSel(null);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setSel(null); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [sel]);
+
+  // 고른 범위 — 화면에 줄 표시(Set) · 저장에 쓸 참조 목록 · 지금 색 · 라벨
+  const range = sel ? Array.from({ length: sel.to - sel.from + 1 }, (_, i) => sel.from + i) : [];
+  const picked = sel ? new Set(range.map(v => `${sel.chapter}:${v}`)) : null;
+  const selRefs = range.map(v => refOf(sel.chapter, v));
+  const selHits = selRefs.map(ref => (state.highlights || []).find(h => h?.ref === ref)).filter(Boolean);
+  const selLit = selHits.length > 0;
+  const selColor = selLit ? hlColor(selHits[0].color) : null;
+  const selLabel = sel
+    ? `${name || ''} ${sel.chapter}:${sel.from}${sel.to > sel.from ? `~${sel.to}` : ''}`.trim()
+    : '';
+  // 도구 줄은 **범위의 마지막 절 아래**에 선다(사용자 결정 2026-09-03)
+  const toolAt = sel ? `${sel.chapter}:${sel.to}` : null;
+
+  // 범위 전체를 그 색으로 칠한다 — 이미 다른 색이면 **덧칠**이다(같은 절이 두 번 남지
+  // 않게 먼저 걷어내고 다시 넣는다).
+  const paintRange = (color) => {
+    if (!selRefs.length) return;
+    const at = new Date().toISOString();
+    const rest = (state.highlights || []).filter(h => !selRefs.includes(h?.ref));
+    setSel(null);
+    update({ ...state, highlights: [...rest, ...selRefs.map(ref => ({ ref, at, color }))] },
+      `${selLabel}에 형광펜을 칠하지 못했어요`);
+  };
+  const eraseRange = () => {
+    if (!selRefs.length || !selLit) return;
+    setSel(null);
+    update({ ...state, highlights: (state.highlights || []).filter(h => !selRefs.includes(h?.ref)) },
+      `${selLabel}의 형광펜을 지우지 못했어요`);
+  };
+
+  const tool = sel
+    ? <VerseTool label={selLabel} current={selColor} lit={selLit} onPaint={paintRange} onErase={eraseRange} />
+    : null;
+  return { onPickVerse: pickVerse, picked, toolAt, tool, clear: () => setSel(null) };
+}
+
 export function BibleTab({ initialRef = '' }) {
   const [books, setBooks] = useState([]);
   // **캐시가 있으면 그 값으로 시작한다**(사용자 요청 2026-09-03 — "매번 스켈레톤이 아니라
   // 캐시된 값이 먼저"). 이어읽기·북마크·형광펜은 이 화면이 직접 고치기도 해서
   // useCached(읽기 전용 훅)가 아니라 readCache/writeCache 한 쌍을 쓴다 — 고친 값을
   // 그 자리에서 캐시에 얹어야 다음 진입이 최신이다(update).
-  const [state, setState] = useState(() => readCache(STATE_KEY) || { lastRef: '', bookmarks: [], highlights: [] });
+  const [state, setState] = useState(() => readCache(STATE_KEY) || EMPTY_STATE);
   const [step, setStep] = useState(1);
   const [ready, setReady] = useState(false);
   const [loadErr, setLoadErr] = useState(null);   // 책 목록을 못 받았을 때의 이유
@@ -363,10 +470,6 @@ export function BibleTab({ initialRef = '' }) {
   const [progress, setProgress] = useState(null);     // { done, total } · null이면 안 돌고 있다
   const searchToken = useRef(0);
   const bodyRef = useRef(null);
-
-  // 형광펜 도구 줄이 붙은 **범위** — { anchor, from, to }(장 안의 절 번호).
-  // 자리는 문서 흐름이 잡으므로 앵커 좌표가 없다(VerseTool 머리말).
-  const [sel, setSel] = useState(null);
 
   // **장을 넘길 때 자리를 붙잡는다**(사용자 피드백 2026-09-03 — 본문이 비었다가 채워지며
   // 높이가 튀고 스크롤이 점프했다). QT가 하는 것과 같은 방식이다(wordView 머리말):
@@ -466,23 +569,21 @@ export function BibleTab({ initialRef = '' }) {
   // 기다리는 동안 세울 스켈레톤 줄 수 — 붙잡아 둔 높이를 채운다(한 줄 ≈ 34px)
   const holdLines = holdH ? Math.max(8, Math.round((holdH - 44) / 34)) : 10;
 
-  // what을 주면 **못 남겼을 때 이유까지 말한다**(사용자 피드백 2026-09-03 — 예외 문구).
-  // 예전에는 saveBibleState가 실패를 삼켜서, 클라우드에 안 남은 형광펜이 화면에는
-  // 칠해져 있었다(새로 열면 사라진다). 이어읽기(lastRef)만 바뀌는 호출은 조용히 넘긴다.
-  const update = (next, what = '') => {
-    setState(next);
-    writeCache(STATE_KEY, next);   // 고친 값이 곧 다음 진입의 첫 화면이다
-
-    saveBibleState(next).then(r => {
-      if (what && r && r.ok === false) showToast(failText(what, r.error));
-    }).catch(() => {});
-  };
+  const update = (next, what = '') => { setState(next); persistState(next, what); };
+  const swipedAt = useRef(0);   // 마지막 스와이프 시각(onTouchEnd가 적는다)
+  // 형광펜 범위 고르기·칠하기 — 도구 줄까지 훅이 만든다(useVersePaint 머리말).
+  // ref는 '책 장:절'(services/word.js verseKey — bible_state.highlights의 모양).
+  const paint = useVersePaint({
+    state, update, name: here?.name,
+    refOf: (chapter, verse) => verseKey(place.bookId, chapter, verse),
+    guard: () => Date.now() - swipedAt.current < 400,   // 방금 쓸었다면 그건 넘기려던 손이다
+  });
   const goto = (bookId, chapter, at = null, delta = 0) => {
     setDir(delta);
     setPane('toc');          // 북마크·형광펜 줄에서 왔어도 이제 보는 것은 본문이다
     setPlace({ bookId, chapter });
     setFocus(at);
-    setSel(null);       // 자리를 옮기면 고른 절이 사라진다 — 선택도 같이 내린다
+    paint.clear();      // 자리를 옮기면 고른 절이 사라진다 — 선택도 같이 내린다
     setQuery(''); setTyped(''); setResults([]); setProgress(null);
     searchToken.current++;
     update({ ...state, lastRef: chapterKey(bookId, chapter) });
@@ -516,7 +617,6 @@ export function BibleTab({ initialRef = '' }) {
   // 위아래로 훑는 손짓과 갈라야 한다. 쓸고 난 뒤의 click은 절 선택으로 세지 않는다
   // (터치 기기는 손을 떼는 자리에 click을 한 번 더 보낸다).
   const touchAt = useRef(null);
-  const swipedAt = useRef(0);
   const onTouchStart = (e) => {
     const t = e.touches && e.touches[0];
     touchAt.current = t ? { x: t.clientX, y: t.clientY } : null;
@@ -585,92 +685,18 @@ export function BibleTab({ initialRef = '' }) {
       marked ? `${here.name} ${place.chapter}장을 북마크에서 빼지 못했어요` : `${here.name} ${place.chapter}장을 북마크에 넣지 못했어요`);
   };
 
-  // 이 장에 켜진 형광펜 — PassageText는 '장:절' → 색 Map으로 본다
-  const marks = useMemo(() => {
-    if (!place) return null;
-    const pre = `${place.bookId} ${place.chapter}:`;
-    const map = new Map();
-    for (const h of state.highlights || []) {
-      const ref = String(h?.ref || '');
-      if (ref.startsWith(pre)) map.set(ref.slice(place.bookId.length + 1), hlColor(h?.color));
-    }
-    return map;
-  }, [state.highlights, place]);
-
-  // ── 범위 고르기(사용자 결정 2026-09-03) ────────────────────────────────────
-  // **앵커 방식**이다. 첫 클릭이 앵커고, 다음 클릭은 앵커와 그 절 사이를 범위로 만든다:
-  // 4 → 1이면 1~4, 1 → 4도 1~4, 1~3에서 6을 누르면 1~6, 1~6에서 5를 누르면 1~5로
-  // **줄어든다**(역으로 취소). 앵커를 다시 누르면 해제. 늘리기와 취소가 같은 손짓이라
-  // '범위 시작/끝' 두 모드를 만들지 않아도 된다.
-  const pickVerse = (chapter, verse) => {
-    if (Date.now() - swipedAt.current < 400) return;   // 방금 쓸었다면 그건 넘기려던 손이다
-    setSel(prev => {
-      if (!prev) return { anchor: verse, from: verse, to: verse };
-      if (verse === prev.anchor) return null;
-      return { anchor: prev.anchor, from: Math.min(prev.anchor, verse), to: Math.max(prev.anchor, verse) };
-    });
-  };
-
-  // 바깥을 누르거나 Esc면 해제한다. **고른 절과 도구 줄은 '안'이다** — 여기서 닫아 버리면
-  // mousedown이 닫고 곧바로 click이 다시 여는 꼴이 된다.
-  useEffect(() => {
-    if (!sel) return undefined;
-    const onDown = (e) => {
-      if (e.target?.closest?.('[data-verse-tool], [data-picked="1"]')) return;
-      setSel(null);
-    };
-    const onKey = (e) => { if (e.key === 'Escape') setSel(null); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-  }, [sel]);
-
-  // 고른 범위 — 화면에 줄 표시(Set) · 저장에 쓸 참조 목록 · 지금 색 · 라벨
-  const selKeys = useMemo(() => {
-    if (!sel || !place) return null;
-    const set = new Set();
-    for (let v = sel.from; v <= sel.to; v++) set.add(`${place.chapter}:${v}`);
-    return set;
-  }, [sel, place]);
-  const selRefs = useMemo(() => (!sel || !place ? []
-    : Array.from({ length: sel.to - sel.from + 1 }, (_, i) => verseKey(place.bookId, place.chapter, sel.from + i))),
-  [sel, place]);
-  const selHits = selRefs.map(ref => (state.highlights || []).find(h => h?.ref === ref)).filter(Boolean);
-  const selLit = selHits.length > 0;
-  const selColor = selLit ? hlColor(selHits[0].color) : null;
-  const selLabel = sel
-    ? `${here?.name || ''} ${place.chapter}:${sel.from}${sel.to > sel.from ? `~${sel.to}` : ''}`.trim()
-    : '';
-  // 도구 줄은 **범위의 마지막 절 아래**에 선다(사용자 결정 2026-09-03)
-  const toolAt = sel && place ? `${place.chapter}:${sel.to}` : null;
-
-  // 범위 전체를 그 색으로 칠한다 — 이미 다른 색이면 **덧칠**이다(같은 절이 두 번 남지
-  // 않게 먼저 걷어내고 다시 넣는다).
-  const paintRange = (color) => {
-    if (!selRefs.length) return;
-    const at = new Date().toISOString();
-    const rest = (state.highlights || []).filter(h => !selRefs.includes(h?.ref));
-    const label = selLabel;
-    setSel(null);
-    update({ ...state, highlights: [...rest, ...selRefs.map(ref => ({ ref, at, color }))] },
-      `${label}에 형광펜을 칠하지 못했어요`);
-  };
-  const eraseRange = () => {
-    if (!selRefs.length || !selLit) return;
-    const label = selLabel;
-    setSel(null);
-    update({ ...state, highlights: (state.highlights || []).filter(h => !selRefs.includes(h?.ref)) },
-      `${label}의 형광펜을 지우지 못했어요`);
-  };
+  // 이 책에 켜진 형광펜 — PassageText는 '장:절' → 색 Map으로 본다
+  const marks = useMemo(() => (place ? marksFor(state.highlights, `${place.bookId} `) : null), [state.highlights, place]);
 
   const searching = !!progress && progress.done < progress.total && results.length < RESULT_LIMIT;
 
   // 북마크·형광펜 — 책으로 묶어 정경 순으로. 파싱이 안 되는 옛 값은 그룹에 못 들어가므로
   // 개수는 실제로 그린 줄로 센다
   const bookGroups = useMemo(() => groupByBook(state.bookmarks || [], books, parseChapterKey), [state.bookmarks, books]);
-  const litGroups = useMemo(() => groupByBook(state.highlights || [], books, parseVerseKey), [state.highlights, books]);
-  const bookTotal = bookGroups.reduce((n, g) => n + g.items.length, 0);
-  const litTotal = litGroups.reduce((n, g) => n + g.items.length, 0);
+  // 형광펜만 범위를 한 줄로 묶는다(mergeRuns) — 총 개수는 묶기 전 절 수(count)로 센다
+  const litGroups = useMemo(() => groupByBook(state.highlights || [], books, parseVerseKey, true), [state.highlights, books]);
+  const bookTotal = bookGroups.reduce((n, g) => n + g.count, 0);
+  const litTotal = litGroups.reduce((n, g) => n + g.count, 0);
 
   const pickPane = (key) => {
     if (key === pane) return;
@@ -729,7 +755,7 @@ export function BibleTab({ initialRef = '' }) {
             title="북마크" unit="장" kind="bookmark" groups={bookGroups} total={bookTotal}
             empty="북마크한 장을 여기서 볼 수 있어요"
             onOpenItem={at => goto(at.bookId, at.chapter)}
-            onRemoveItem={ref => update({ ...state, bookmarks: state.bookmarks.filter(b => b.ref !== ref) },
+            onRemoveItem={refs => update({ ...state, bookmarks: state.bookmarks.filter(b => !refs.includes(b.ref)) },
               '북마크를 지우지 못했어요')}
           />
         ) : pane === 'highlight' ? (
@@ -737,7 +763,7 @@ export function BibleTab({ initialRef = '' }) {
             title="형광펜" unit="절" kind="highlight" groups={litGroups} total={litTotal}
             empty="형광펜을 칠한 절은 여기서 볼 수 있어요"
             onOpenItem={at => goto(at.bookId, at.chapter, { chapter: at.chapter, verse: at.verse })}
-            onRemoveItem={ref => update({ ...state, highlights: (state.highlights || []).filter(h => h?.ref !== ref) },
+            onRemoveItem={refs => update({ ...state, highlights: (state.highlights || []).filter(h => !refs.includes(h?.ref)) },
               '형광펜을 지우지 못했어요')}
           />
         ) : query ? (
@@ -799,13 +825,7 @@ export function BibleTab({ initialRef = '' }) {
               ) : loaded
                 ? <PassageText
                     verses={verses} step={step} focus={focus} marks={marks}
-                    onPickVerse={pickVerse} picked={selKeys} toolAt={toolAt}
-                    tool={sel ? (
-                      <VerseTool
-                        label={selLabel} current={selColor} lit={selLit}
-                        onPaint={paintRange} onErase={eraseRange}
-                      />
-                    ) : null}
+                    onPickVerse={paint.onPickVerse} picked={paint.picked} toolAt={paint.toolAt} tool={paint.tool}
                   />
                 : <PassageSkeleton lines={holdLines} step={step} />}
               </Card>
@@ -864,28 +884,57 @@ export function BibleTab({ initialRef = '' }) {
 // 사람이 직접 접거나 편 책은 그 선택이 이긴다(open에 남는다).
 const AUTO_OPEN_BOOKS = 2;
 
-// 책별로 묶어 정경 순으로 돌려준다 — [{ book, items }]
-function groupByBook(entries, books, parse) {
+// 책별로 묶어 정경 순으로 돌려준다 — [{ book, items, count }].
+// count는 **절(장) 수**다. items는 범위로 묶여 줄이 그보다 적을 수 있으므로(mergeRuns)
+// 머리글의 '3절'은 items.length가 아니라 이 값으로 센다.
+// 항목에 얹는 것: at = 파싱한 자리(bookId·chapter·verse) · stamp = 항목이 들고 있던 시각 ·
+// to·refs = 이 줄이 품은 마지막 절 번호와 참조들(묶이지 않았으면 자기 하나뿐이다).
+function groupByBook(entries, books, parse, merge = false) {
   const bag = new Map();
   for (const e of entries) {
     const at = parse(e?.ref);
     if (!at) continue;
     if (!bag.has(at.bookId)) bag.set(at.bookId, []);
-    bag.get(at.bookId).push({ ...e, at });
+    bag.get(at.bookId).push({ ...e, at, stamp: String(e?.at || ''), to: at.verse, refs: [e.ref] });
   }
   // books가 곧 정경 순이다(index.json). 책 안에서는 장·절 순 — 읽는 차례와 같다.
   return books
     .filter(b => bag.has(b.id))
-    .map(b => ({
-      book: b,
-      items: bag.get(b.id).sort((x, y) => (x.at.chapter - y.at.chapter) || ((x.at.verse || 0) - (y.at.verse || 0))),
-    }));
+    .map(b => {
+      const sorted = bag.get(b.id)
+        .sort((x, y) => (x.at.chapter - y.at.chapter) || ((x.at.verse || 0) - (y.at.verse || 0)));
+      return { book: b, items: merge ? mergeRuns(sorted) : sorted, count: sorted.length };
+    });
+}
+
+// **한 번에 칠한 범위는 한 줄이다**(사용자 지시 2026-09-05 — "형광펜 범위로 칠했을 때,
+// 형광펜 섹션에 절마다 죄다 들어가는 게 아니라 해당 범위가 형광펜 섹션에 들어가게").
+// 저장 모양은 절 단위 { ref, at, color } 그대로다 — 리더의 marks·지우기·이어읽기가 모두
+// 절 하나를 열쇠로 쓰므로 **보여줄 때만** 묶는다.
+// 묶는 기준은 paintRange가 남긴 자취다: 그 함수는 범위의 모든 절에 **같은 at**을 찍으므로
+// (장 · at · 색)이 같고 절 번호가 이어지면 그것이 곧 한 번의 손짓이다. 따로따로 칠한
+// 이웃 절은 at이 달라 묶이지 않고, 범위의 일부를 덧칠하면 at이 갈려 저절로 둘로 쪼개진다.
+// 들어오는 목록은 장·절 순으로 서 있어야 한다(groupByBook이 세워 준다).
+function mergeRuns(items) {
+  const out = [];
+  for (const it of items) {
+    const prev = out[out.length - 1];
+    if (prev && prev.at.chapter === it.at.chapter && prev.stamp === it.stamp
+      && (prev.color || '') === (it.color || '') && prev.to + 1 === it.at.verse) {
+      prev.to = it.at.verse;
+      prev.refs.push(it.ref);
+      continue;
+    }
+    out.push({ ...it, refs: [...it.refs] });
+  }
+  return out;
 }
 
 const markRow = 'flex-1 min-w-0 text-left px-2 py-1.5 rounded-md hover:bg-surface-hover transition-colors';
 
 // 책 하나 — 머리글(개수) + 펼쳤을 때의 줄들. kind: 'bookmark' | 'highlight'
-function MarkBookGroup({ book, items, kind, open, onToggle, onOpenItem, onRemoveItem }) {
+// onRemoveItem은 **참조 목록**을 받는다 — 범위로 묶인 줄은 절 여럿을 한꺼번에 지운다.
+function MarkBookGroup({ book, items, count, kind, open, onToggle, onOpenItem, onRemoveItem }) {
   const [chapters, setChapters] = useState(null);   // 형광펜 미리보기용 절 본문
   const reduce = prefersReducedMotion();
   const needsText = kind === 'highlight';
@@ -914,7 +963,7 @@ function MarkBookGroup({ book, items, kind, open, onToggle, onOpenItem, onRemove
             멀어져 한 줄로 읽히지 않는다(폭 상한을 없앤 2026-09-03 회차) */}
         <span className="min-w-0 truncate text-[11.5px] font-bold text-fg">{book.name}</span>
         <span className="shrink-0 text-[11px] text-fg-faint tabular-nums">
-          {items.length}{kind === 'bookmark' ? '장' : '절'}
+          {count}{kind === 'bookmark' ? '장' : '절'}
         </span>
         <span className="flex-1" />
       </button>
@@ -923,11 +972,16 @@ function MarkBookGroup({ book, items, kind, open, onToggle, onOpenItem, onRemove
         <div className="pl-[18px] flex flex-col">
           {items.map(it => {
             const { chapter, verse } = it.at;
+            // 범위로 묶인 줄은 '1:2~4'다(mergeRuns) — 절 하나면 그대로 '1:2'
+            const span = it.to > verse ? `${chapter}:${verse}~${it.to}` : `${chapter}:${verse}`;
             const label = kind === 'bookmark'
               ? (it.label || `${book.name} ${chapter}장`)
-              : `${book.name} ${chapter}:${verse}`;
-            // 형광펜 미리보기 한 줄. 아직 안 왔으면 자리만 잡아 둔다(오면서 밀지 않게)
-            const preview = needsText && chapters ? (chapters[chapter - 1]?.[verse - 1] || '') : '';
+              : `${book.name} ${span}`;
+            // 형광펜 미리보기 한 줄. 아직 안 왔으면 자리만 잡아 둔다(오면서 밀지 않게).
+            // 범위면 그 절들을 이어 붙인다 — 한 줄에 truncate로 잘려 앞머리만 보인다.
+            const preview = needsText && chapters
+              ? (chapters[chapter - 1] || []).slice(verse - 1, it.to).join(' ')
+              : '';
             return (
               <span key={it.ref} className="flex items-center gap-0.5">
                 <button data-goto={it.ref} onClick={() => onOpenItem(it.at)} className={markRow}>
@@ -935,7 +989,7 @@ function MarkBookGroup({ book, items, kind, open, onToggle, onOpenItem, onRemove
                     <span className="block truncate text-[11.5px] font-semibold text-fg">{chapter}장</span>
                   ) : (
                     <span className="block truncate">
-                      <span className="text-[11px] font-bold text-accent-text tabular-nums">{chapter}:{verse}</span>
+                      <span className="text-[11px] font-bold text-accent-text tabular-nums">{span}</span>
                       {/* 발췌는 리더에서 칠한 그 색으로 그린다 — 색이 곧 '무엇으로
                           칠했는지'다(색이 늘면 항목의 색 값을 그대로 넘긴다) */}
                       {needsText && !chapters
@@ -945,7 +999,7 @@ function MarkBookGroup({ book, items, kind, open, onToggle, onOpenItem, onRemove
                   )}
                 </button>
                 <button
-                  onClick={() => onRemoveItem(it.ref)}
+                  onClick={() => onRemoveItem(it.refs)}
                   aria-label={`${label} ${kind === 'bookmark' ? '북마크' : '형광펜'} 지우기`}
                   className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors"
                 >
@@ -984,7 +1038,7 @@ function MarkSection({ title, unit, empty, groups, total, kind, onOpenItem, onRe
         <div className="grid gap-x-7 items-start sm:grid-cols-2 xl:grid-cols-3">
           {groups.map(g => (
             <MarkBookGroup
-              key={g.book.id} book={g.book} items={g.items} kind={kind}
+              key={g.book.id} book={g.book} items={g.items} count={g.count} kind={kind}
               open={open[g.book.id] ?? auto}
               onToggle={() => setOpen(o => ({ ...o, [g.book.id]: !(o[g.book.id] ?? auto) }))}
               onOpenItem={onOpenItem} onRemoveItem={onRemoveItem}

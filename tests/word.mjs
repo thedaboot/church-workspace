@@ -194,6 +194,51 @@ check('일정의 제목이 제목으로 선다', qt.label.includes('사귐의 �
 check('구절이 본문으로 펼쳐진다(절 14개)', qt.verses === 14 && qt.ref, JSON.stringify(qt));
 check('절 번호가 붙는다', qt.first.startsWith('1온 백성이'), qt.first.slice(0, 20));
 
+// 2b) QT 본문 형광펜(사용자 결정 2026-09-05) — 범위로 칠하고, **그날의 것**으로만 남는다
+// (모아보기에 오르지 않는다 — ref가 'qt:<날짜> 책 장:절'이라 parseVerseKey가 못 읽는다)
+const qtHl = await ev(`(async () => {
+  const tap = (k) => { const p = document.querySelector('p[data-verse="' + k + '"]');
+    p.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); p.click(); };
+  tap('4:2'); await new Promise(r => setTimeout(r, 200));
+  tap('4:4'); await new Promise(r => setTimeout(r, 200));
+  const picked = [...document.querySelectorAll('p[data-picked="1"]')].map(x => x.dataset.verse);
+  const t = document.querySelector('[data-verse-tool]');
+  const label = t ? t.dataset.verseTool : '';
+  const chip = document.querySelector('[data-verse-tool] [data-hl-color="green"]');
+  if (chip) chip.click();
+  await new Promise(r => setTimeout(r, 250));
+  const lit = [...document.querySelectorAll('p[data-mark="1"]')].map(x => x.dataset.verse);
+  const st = JSON.parse(localStorage.getItem('word_bible_state') || '{}');
+  return { picked, label, lit, refs: (st.highlights || []).map(h => h.ref), closed: !document.querySelector('[data-verse-tool]') };
+})()`, true);
+check('QT 본문에서 절 둘을 누르면 범위가 된다', qtHl.picked.join(',') === '4:2,4:3,4:4' && qtHl.label === '여호수아 4:2~4',
+  JSON.stringify(qtHl));
+check('초록 칩으로 칠하면 세 절이 켜지고 도구 줄이 닫힌다', qtHl.lit.join(',') === '4:2,4:3,4:4' && qtHl.closed,
+  JSON.stringify(qtHl));
+check('QT 형광펜은 그날 열쇠로 남고 모아보기용 열쇠가 아니다',
+  qtHl.refs.length === 3 && qtHl.refs.every(r => r === `qt:${today} jos ` + r.split(' ').at(-1) && word.parseVerseKey(r) === null),
+  JSON.stringify(qtHl.refs));
+
+// 지우기도 리더와 같은 훅을 탄다 — 같은 범위를 다시 골라 [형광펜 지우기].
+// **이 검사가 상태를 원복하는 몫도 한다.** qt: 항목을 남겨 두면 word_bible_state를
+// 그대로 세는 뒤의 리더 검사(형광펜이 절 단위로 남는다 · 고른 색 · 범위 전체 지우기)가
+// 셋씩 더 세어 깨진다(2026-09-05 — 실제로 그렇게 넷이 빨개졌다).
+const qtOff = await ev(`(async () => {
+  const tap = (k) => { const p = document.querySelector('p[data-verse="' + k + '"]');
+    p.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); p.click(); };
+  tap('4:2'); await new Promise(r => setTimeout(r, 200));
+  tap('4:4'); await new Promise(r => setTimeout(r, 200));
+  const btn = [...document.querySelectorAll('[data-verse-tool] button')]
+    .find(b => b.textContent.trim() === '형광펜 지우기');
+  if (btn) btn.click();
+  await new Promise(r => setTimeout(r, 300));
+  const st = JSON.parse(localStorage.getItem('word_bible_state') || '{}');
+  return { had: !!btn, lit: document.querySelectorAll('p[data-mark="1"]').length,
+           refs: (st.highlights || []).map(h => h.ref) };
+})()`, true);
+check('QT에서도 범위를 다시 골라 형광펜을 지운다',
+  qtOff.had === true && qtOff.lit === 0 && qtOff.refs.length === 0, JSON.stringify(qtOff));
+
 // 3) 나눔 — '나누기'를 켠 글만. 본문은 업무 본문과 같은 마크다운 뷰어가 그린다
 const feed = await ev(`(() => document.body.innerText.includes(${JSON.stringify(seed.entries[today].body)}))()`);
 check('나누기를 켠 묵상이 나눔에 오른다', feed === true);
@@ -922,7 +967,9 @@ await sleep(700);
 const clickVerses = (list) => ev(`(async () => {
   for (const v of ${JSON.stringify(list)}) {
     const p = document.querySelector('p[data-verse="1:' + v + '"]');
-    if (p) p.click();
+    // 실제 손처럼 mousedown을 먼저 보낸다 — 바깥 누름 감지가 절을 '바깥'으로 알아듣던
+    // 버그(2026-09-05)는 click()만으로는 안 보였다
+    if (p) { p.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); p.click(); }
     await new Promise(r => setTimeout(r, 220));
   }
   const marked = [...document.querySelectorAll('p[data-picked="1"]')].map(x => x.dataset.verse);
@@ -978,6 +1025,49 @@ check('덧칠하면 같은 절이 두 번 남지 않는다',
   painted.marks.filter(m => m.startsWith('1:3')).length === 1, JSON.stringify(painted.marks));
 check('칠한 뒤에는 선택과 도구 줄이 사라진다', painted.closed && painted.picked === 0,
   JSON.stringify(painted));
+
+// ── 모아보기에는 범위가 한 줄이다(사용자 지시 2026-09-05) ──────────────────
+// 저장은 절 단위지만 paintRange가 범위의 모든 절에 같은 at을 찍으므로 이어진 절은 한 줄로
+// 묶인다(wordBible mergeRuns). 그 줄의 X는 범위 전체를 지운다. 지운 뒤에는 뒤 검사가 볼
+// 상태를 되돌려 놓는다(리더에서 같은 범위를 다시 칠한다).
+check('범위를 칠한 뒤 형광펜 칸으로 간다', await clickSel('[data-pane="highlight"]'));
+await sleep(900);
+const runRow = await ev(`(() => {
+  const rows = [...document.querySelectorAll('[data-goto]')];
+  const g = document.querySelector('[data-book-group="highlight:gen"]');
+  const x = rows[0] ? rows[0].parentElement.querySelector('button[aria-label]') : null;
+  return { n: rows.length, goto: rows[0] ? rows[0].dataset.goto : '',
+           num: rows[0] ? (rows[0].querySelector('span.tabular-nums') || {}).textContent : '',
+           head: g ? g.textContent.trim() : '',
+           x: x ? x.getAttribute('aria-label') : '' };
+})()`);
+check('범위로 칠한 것은 형광펜 칸에 한 줄로 선다', runRow.n === 1 && runRow.goto === 'gen 1:2',
+  JSON.stringify(runRow));
+check('그 줄의 이름이 범위다(1:2~4)',
+  runRow.num === '1:2~4' && runRow.x === '창세기 1:2~4 형광펜 지우기', JSON.stringify(runRow));
+check('머리글 개수는 줄이 아니라 절로 센다', runRow.n === 1 && runRow.head === '창세기3절',
+  JSON.stringify(runRow));
+check('범위 줄의 X를 누른다', (await ev(`(() => {
+  const row = document.querySelector('[data-goto="gen 1:2"]');
+  const x = row && row.parentElement.querySelector('button[aria-label]');
+  if (!x) return false;
+  x.click(); return true;
+})()`)) === true);
+await sleep(900);
+const runGone = await ev(`(() => ({
+  left: (JSON.parse(localStorage.getItem('word_bible_state') || '{}').highlights || []).map(h => h.ref),
+  rows: document.querySelectorAll('[data-goto]').length,
+}))()`);
+check('범위 줄을 지우면 그 범위의 절이 다 사라진다',
+  runGone.left.length === 0 && runGone.rows === 0, JSON.stringify(runGone));
+// 뒤 검사(지우기도 범위 전체다)가 볼 상태로 되돌린다
+check('리더로 돌아간다', await clickSel('[data-pane="toc"]'));
+await sleep(700);
+const again = await clickVerses([2, 4]);
+check('같은 범위를 다시 고른다', again.marked.length === 3, JSON.stringify(again));
+check('파랑으로 다시 칠한다', await clickSel('[data-verse-tool] [data-hl-color="blue"]'));
+await sleep(800);
+
 // 지우기도 범위 전체다
 const rErase = await clickVerses([2, 4]);
 check('다시 2~4를 고르면 [형광펜 지우기]가 뜬다',
