@@ -21,14 +21,16 @@ import { reorderIds } from '../utils.js';
 // ----------------------------------------------------------------------------
 // 그리는 일만 한다. 통신은 views/groupsView.jsx가 한다.
 //
-// 권한(docs/V2.md 권한 표 · 0035·0039 RLS):
+// 권한(docs/V2.md 권한 표 · 0035·0039·0045 RLS):
 //   · 동아리 개설·동아리장 지정 = **마스터만**         → '새 동아리'는 마스터에게만
-//   · 명단·모임·신청 수락 = 마스터 또는 그 동아리장    → 리더 도구가 그때만 선다
+//   · 명단·모임 = 관리자 또는 그 동아리장              → 리더 도구가 그때만 선다
 //   · 이름·설명 고치기 = 관리자 또는 그 동아리장       → 머리줄의 연필이 그때만 선다
+//   · 신청 수락·거절 = **마스터** 또는 그 동아리장     → 그 구역만 따로 잰다(manageApps)
 //   · 가입 신청·취소 = 본인                            → 명단에 이어진 계정만
 // 화면은 이 경계를 비추기만 한다. 어긋나면 DB가 이긴다.
-// **이름·설명과 명단은 자격이 다르다**(0039 groups_update vs 0035 group_members_write) —
-// 관리자는 남의 동아리 이름을 고칠 수 있지만 마스터가 아니면 명단은 못 만진다.
+// **명단과 신청 수락은 자격이 다르다**(0045 group_members_write vs 0035
+// club_applications_update) — 관리자는 사람을 넣고 뺄 수 있지만 신청 수락은 마스터·
+// 동아리장의 일이다. 이름·설명은 0039부터 관리자까지 열려 있다.
 //
 // **카드 순서만 예외로 누구나 바꾼다** — 프로젝트 탭·칸반과 같은 '공유 순서'라서,
 // 0038이 position만 만지는 definer 함수를 승인 멤버 전체에게 열어 두었다.
@@ -231,6 +233,10 @@ function ClubDetail({
   const list = useMemo(() => groupPeople({ people, group: club, members }), [people, club, members]);
   const byId = useMemo(() => new Map(people.map(p => [p.id, p])), [people]);
   const manage = canManageClub(perms, club.id);
+  // 신청 수락·거절만 아직 **마스터 + 그 동아리장**이다(0035 club_applications_update).
+  // 0045는 멤버 추가·제거(group_members_write)와 모임(group_meetings_write)만 관리자까지
+  // 열었으므로 이 자리는 따로 잰다 — 자격이 없는데 버튼이 보이면 눌렀을 때 RLS가 막는다.
+  const manageApps = !!perms.isMaster || (perms.ledClubIds || []).includes(club.id);
   const me = perms.myPerson;
   const joined = !!me && list.some(p => p.id === me.id);
   const myApp = me ? apps.find(a => a.group_id === club.id && a.person_id === me.id) : null;
@@ -332,12 +338,15 @@ function ClubDetail({
         </div>
       </div>
 
-      {/* 리더 도구 — 그 동아리장 또는 마스터에게만(0035 group_members_write) */}
+      {/* 리더 도구 — 그 동아리장 또는 관리자에게만(0045 group_members_write) */}
       {manage && (
         <div className="club-leader-tools mt-6">
           {/* 가입 신청 — **대기가 없어도 구역은 남긴다**(사용자 결정 2026-09-03 캐릭터 컷).
               동아리장이 '신청이 오면 어디에 뜨는지'를 알 수 있어야 하고, 그 자리가
-              비어 있다는 것도 정보다. 높이는 카드에 딸린 구역만큼만 잡는다. */}
+              비어 있다는 것도 정보다. 높이는 카드에 딸린 구역만큼만 잡는다.
+              수락·거절 자격만 아직 마스터 + 그 동아리장이라(위 manageApps) 이 구역은
+              관리자에게 서지 않는다. */}
+          {manageApps && (
           <div className="mb-6">
             <SectionHead>{waiting.length ? `가입 신청 ${waiting.length}건` : '가입 신청'}</SectionHead>
             {waiting.length === 0 && (
@@ -363,6 +372,7 @@ function ClubDetail({
               </div>
             )}
           </div>
+          )}
 
           <SectionHead right={!adding && (
             <button type="button" onClick={() => setAdding(true)}

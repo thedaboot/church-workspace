@@ -40,6 +40,9 @@
 //   · 나눔 줄의 **눈 가리기(공유 해제)가 없어졌다** — 공유는 토글로만 조절한다
 //   · **조작 가능한 공유 토글은 화면에 한 벌**(내 묵상 칸) — 나눔 줄의 토글·칩을 뺐다.
 //     그 줄은 상태만 말한다: 비공개면 잠금 표시, 표시가 없으면 공유 중이라는 뜻
+//   · **마스터는 남의 나눔 줄을 지운다**(0045) — 공유 해제가 아니라 그 사람의 그날 묵상
+//     행이 없어진다. 게스트에는 남이 없어서 word.js가 게스트 자리를 하나 더 본다
+//     (word_qt_shared) — 거기 한 줄 심어 버튼·문구·삭제를 실제로 눌러 본다(11-c)
 //
 // 3차 점검에서 본 것:
 //   · 형광펜 선택 팝오버가 **첫 프레임부터** 그 절 옆에 선다 — 자리를 잡기 전 한 번
@@ -680,6 +683,56 @@ check('나눔이 비면 한 줄로 말한다',
   (await ev(`(() => { const p=[...document.querySelectorAll('p')].find(x=>x.textContent.includes('올라온 나눔이 아직 없어요')); return !!p && !p.parentElement.querySelector('img[src*="/chars/"]'); })()`)) === true);
 check('저장된 글이 없으면 공유 토글은 꺼져 있다', gone.toggleOff === true, JSON.stringify(gone));
 check('지울 것이 없으면 휴지통도 없다', gone.trash === false, JSON.stringify(gone));
+
+// 11-c) 남의 나눔은 **마스터만** 지운다(사용자 결정 2026-09-05 · 0045
+// qt_entries_delete_master). 공유 해제가 아니라 그 사람의 그날 묵상 행이 없어지므로
+// 문구도 그걸 말해야 한다.
+// 게스트에는 로그인이 없어 언제나 마스터다(auth.jsx `isMaster = !enabled || …`) — 그래서
+// **마스터가 아닌 화면은 만들 수 없다.** 그 갈래는 판정 함수로 보고, 버튼·팝오버·실제
+// 삭제는 아래에서 눌러 본다.
+const delWho = await ev(`(async () => {
+  const m = await import('/src/views/wordView.jsx');
+  const other = { id: 'o1', mine: false };
+  const mineRow = { id: 'mine', mine: true };
+  return [m.canDeleteShared(other, true), m.canDeleteShared(other, false), m.canDeleteShared(mineRow, true)];
+})()`, true);
+check('남의 나눔 삭제는 마스터에게만, 내 줄에는 안 붙는다',
+  JSON.stringify(delWho) === '[true,false,false]', JSON.stringify(delWho));
+
+// 남의 줄을 하나 심는다 — 게스트의 나눔 피드는 여태 내 글 하나뿐이었다(word.js LS.shared)
+await ev(`localStorage.setItem('word_qt_shared', ${JSON.stringify(JSON.stringify({ [word.kstToday()]: [{ id: 'other-1', name: '조해리', body: '남이 공유한 묵상 한 줄' }] }))})`);
+await reload();
+await sleep(1200);
+check('다시 말씀으로', await clickText('말씀'));
+await sleep(1400);
+const otherRow = await ev(`(() => {
+  const row = document.querySelector('[data-feed-row="other"]');
+  return {
+    row: !!row,
+    body: row ? row.textContent.includes('남이 공유한 묵상 한 줄') : false,
+    del: !!document.querySelector('button[aria-label="이 나눔 지우기"]'),
+    // 내 줄에는 안 붙는다 — 그 자리는 '내 묵상' 칸의 휴지통이 맡는다
+    mineRows: document.querySelectorAll('[data-feed-row^="mine"]').length,
+    edit: !!document.querySelector('button[aria-label="내 나눔 고치기"]'),
+  };
+})()`);
+check('남이 공유한 묵상이 나눔에 선다', otherRow.row && otherRow.body, JSON.stringify(otherRow));
+check('마스터에게 남의 줄 삭제 버튼이 붙는다', otherRow.del === true, JSON.stringify(otherRow));
+await clickSel('button[aria-label="이 나눔 지우기"]');
+await sleep(350);
+// 공유 해제가 아니라 그 사람의 묵상이 지워진다는 것을 문구가 말한다
+check('남의 나눔 삭제는 무엇이 없어지는지 묻는다',
+  (await ev(`document.body.innerText.includes('이 나눔을 지울까요? 공유만 내려가는 게 아니라 그 사람의 이 날 묵상이 지워져요.')`)) === true);
+await clickText('삭제');
+await sleep(900);
+const otherGone = await ev(`(() => ({
+  stored: (JSON.parse(localStorage.getItem('word_qt_shared') || '{}')[${JSON.stringify(word.kstToday())}] || []).length,
+  rows: document.querySelectorAll('[data-feed-row]').length,
+  empty: document.body.innerText.includes('이 날짜에 올라온 나눔이 아직 없어요'),
+}))()`);
+check('마스터가 지우면 그 줄이 사라진다',
+  otherGone.stored === 0 && otherGone.rows === 0 && otherGone.empty, JSON.stringify(otherGone));
+await ev(`localStorage.removeItem('word_qt_shared')`);
 
 // ── 성경 읽기 ───────────────────────────────────────────────────────────────
 check('세그먼트 전환', await clickText('성경 읽기'));

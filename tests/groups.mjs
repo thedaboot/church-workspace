@@ -494,9 +494,14 @@ const pure = await ev(`(async () => {
     pastor: perms({ myPerson: { is_pastor: true } }),
     lead: perms({ myRoles: ['lead_sunjang'] }),
     treasurer: perms({ myRoles: ['treasurer'] }),
-    club: [m.canManageClub(led, 'gc1'), m.canManageClub(led, 'gc2'), m.canManageClub({ isMaster: true, ledClubIds: [] }, 'gc2')],
-    // 이름·설명 고치기(0039 groups_update) — 관리자 또는 **그** 동아리장. 명단
-    // 자격(canManageClub = 마스터 + 그 리더)과 경계가 다르다.
+    // 멤버 추가·제거(0045 group_members_write) — 관리자(마스터 포함) 또는 **그** 동아리장.
+    // 자격 한 벌은 groupPerms가 만든다(마스터는 거기서 isAdmin이 켜진다 — 0028).
+    club: [m.canManageClub(led, 'gc1'), m.canManageClub(led, 'gc2'),
+      m.canManageClub(m.groupPerms({ isMaster: true }), 'gc2'),
+      m.canManageClub(m.groupPerms({ isAdmin: true }), 'gc2'),
+      m.canManageClub(m.groupPerms({}), 'gc2')],
+    // 이름·설명 고치기(0039 groups_update) — 관리자 또는 **그** 동아리장. 0045부터
+    // 명단 자격(canManageClub)과 같은 경계다.
     editClub: (() => {
       const c1 = { id: 'gc1', leader_person_id: 'p6' };
       const c2 = { id: 'gc2', leader_person_id: 'p3' };
@@ -596,10 +601,13 @@ check('일반 멤버는 순 편성도 동아리 개설도 못 한다', JSON.stri
 check('마스터는 순 편성 + 동아리 개설', JSON.stringify(pure.master) === '[true,true]', JSON.stringify(pure.master));
 check('관리자는 순 편성만(동아리 개설은 마스터만)', JSON.stringify(pure.admin) === '[true,false]', JSON.stringify(pure.admin));
 // 0039에서 교역자가 빠졌다 — 사용자 결정 2026-09-02 "마스터/관리자/리더순장만 우선"
-check('교역자만으로는 순 편성 자격이 아니다(0039에서 빠졌다)', JSON.stringify(pure.pastor) === '[false,false]', JSON.stringify(pure.pastor));
+// 0045가 교역자를 되돌렸다(0035에 있었고 0039가 뺐다 — 사용자 결정 2026-09-05)
+check('교역자는 순 편성만(동아리 개설은 아니다)', JSON.stringify(pure.pastor) === '[true,false]', JSON.stringify(pure.pastor));
 check('리더순장은 순 편성만', JSON.stringify(pure.lead) === '[true,false]', JSON.stringify(pure.lead));
 check('총무·리더팀장 줄만으로는 순 편성 자격이 아니다(0043)', JSON.stringify(pure.treasurer) === '[false,false]', JSON.stringify(pure.treasurer));
-check('동아리 관리는 그 동아리 리더 또는 마스터', JSON.stringify(pure.club) === '[true,false,true]', JSON.stringify(pure.club));
+// 0045 — 예전에는 마스터 + 그 리더라, 관리자가 이름·설명은 고치면서 사람은 못 넣었다
+check('동아리 멤버 추가·제거는 그 동아리장 + 관리자(마스터 포함)',
+  JSON.stringify(pure.club) === '[true,false,true,true,false]', JSON.stringify(pure.club));
 check('동아리 이름·설명은 그 동아리장 또는 관리자만 고친다',
   JSON.stringify(pure.editClub) === '[true,false,false,true]', JSON.stringify(pure.editClub));
 check('리더가 맨 앞에 서고 겹치는 사람은 하나로, 나머지는 가나다순',
@@ -792,26 +800,35 @@ if (gMake.edit) {
 }
 }
 
-// ── 1-2) 순 편성 탭은 마스터·관리자·리더순장만 (0039 can_manage_sun) ────────
-// 교역자는 여기서 빠졌다(사용자 결정 2026-09-02). 교역자 여부는 명단 속성이라
-// (people.is_pastor) 시드의 한 사람을 교역자로 세워 본다.
+// ── 1-2) 순 편성 탭은 마스터·관리자·리더순장·교역자 (0045 can_manage_sun) ──
+// 교역자는 0035에 있었고 0039가 뺐다가 0045가 되돌렸다(사용자 결정 2026-09-05).
+// 교역자 여부는 명단 속성이라(people.is_pastor) 시드의 한 사람을 교역자로 세워 본다.
 await enter({ personId: 'p3', isMaster: false, isAdmin: true, roles: [] });
 const adminTabs = await ev(TABS);
 check('관리자에게는 순 편성 탭이 보인다', adminTabs === '내 순,동아리,순 편성', adminTabs);
-// 이름·설명과 명단은 자격이 다르다 — 0039 groups_update는 관리자에게 열려 있지만
-// 0035 group_members_write는 마스터와 그 동아리장만이다(p3은 통통의 리더가 아니다).
+// 0045부터 이름·설명과 명단이 같은 경계다 — 관리자는 남의 동아리에 사람을 넣고 뺀다.
+// **신청 수락만 아직 마스터·동아리장이다**(0035 club_applications_update) — p3은 통통의
+// 리더가 아니므로 리더 도구는 서되 가입 신청 구역은 없어야 한다.
 await tab('동아리'); await sleep(600);
 await openClub('통통'); await sleep(700);
 const adminClub = await ev(`(() => ({
   edit: !!document.querySelector('.club-edit'),
   tools: !!document.querySelector('.club-leader-tools'),
+  add: !!document.querySelector('.club-add'),
+  drop: !!document.querySelector('.club-drop'),
+  // '가입 신청'이라는 글자는 신청 버튼에도 있다 — 수락 구역은 자리(class)로 잰다
+  apps: !!document.querySelector('.club-app-empty, .club-app-row'),
 }))()`);
-check('관리자는 남의 동아리 이름은 고치지만 명단은 만지지 못한다',
-  adminClub.edit === true && adminClub.tools === false, JSON.stringify(adminClub));
+check('관리자는 남의 동아리 이름도 명단도 만진다(0045)',
+  adminClub.edit === true && adminClub.tools === true && adminClub.add === true,
+  JSON.stringify(adminClub));
+check('그래도 가입 신청 수락은 관리자에게 안 열린다(마스터·동아리장)',
+  adminClub.apps === false, JSON.stringify(adminClub));
 await enter({ personId: 'p2', isMaster: false, isAdmin: false, roles: [] }, 'light',
   `g.people = g.people.map(p => (p.id === 'p2' ? { ...p, is_pastor: true } : p));`);
 const pastorTabs = await ev(TABS);
-check('교역자에게는 순 편성 탭이 없다', pastorTabs === '내 순,동아리', pastorTabs);
+check('교역자에게 순 편성 탭이 보인다(0045에서 돌아왔다)',
+  pastorTabs === '내 순,동아리,순 편성', pastorTabs);
 
 // ── 1-2-b) 딸린 섹션도 자리를 잡고 나온다 (사용자 지적 2026-09-03) ─────────
 // "공유된 노트·순모임 가이드가 뒤늦게 뚝 나타난다." 첫 진입에는 그 자리에 스켈레톤을

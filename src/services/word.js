@@ -57,6 +57,10 @@ export function weekRange(iso) {
 const LS = {
   schedule: 'word_qt_schedule',   // { 'YYYY-MM-DD': { passage_ref, label } }
   entries: 'word_qt_entries',     // { 'YYYY-MM-DD': { body, shared } }  — 내 것만
+  // 남이 공유한 묵상. 클라우드에서는 qt_entries의 shared 행들이 이 자리다 — 게스트에는
+  // 사람이 나 하나뿐이라 나눔 피드에 **남의 줄이 아예 없었고**, 마스터의 삭제 같은
+  // '남의 줄'에 붙는 것을 브라우저 스위트가 볼 수 없었다(tests/word.mjs).
+  shared: 'word_qt_shared',       // { 'YYYY-MM-DD': [{ id, name, avatarUrl?, body }] }
   bible: 'word_bible_state',      // { lastRef, bookmarks }
   font: 'word_bible_font',        // 0 | 1 | 2
 };
@@ -134,15 +138,43 @@ export async function deleteMyEntry(date) {
   if (error) throw error;
 }
 
+// 남의 나눔을 지운다 — **마스터만**(사용자 결정 2026-09-05 · 0045
+// qt_entries_delete_master). 공유 해제가 아니라 **그 사람의 그날 묵상 행 자체**가
+// 없어지므로 그 사람의 잔디에서도 빠진다. 부르는 자리의 문구가 그걸 말해야 한다.
+//
+// 자격은 RLS가 지킨다. 마스터가 아니면 지워지는 행이 0개일 뿐 오류가 나지 않으므로
+// (정책이 걸러 낸 행은 애초에 delete의 대상이 아니다) **화면이 버튼을 감추는 것**이
+// 사람에게 보이는 경계다(wordView canDeleteShared).
+export async function deleteEntryAsMaster(id) {
+  if (!supabase) {
+    const all = lsGet(LS.shared, {});
+    for (const d of Object.keys(all)) {
+      const rest = (all[d] || []).filter(r => r.id !== id);
+      if (rest.length) all[d] = rest; else delete all[d];
+    }
+    lsSet(LS.shared, all);
+    return;
+  }
+  const { error } = await supabase.from('qt_entries').delete().eq('id', id);
+  if (error) throw error;
+}
+
 // 그 날의 나눔 — '나누기'를 켠 글만. RLS도 같은 경계를 본다(0036).
 // `mine`은 화면이 수정·삭제를 열어 줄 자리를 고르는 데 쓴다 — 이름 비교로는 동명이인이
 // 섞이므로 auth uid로 가른다(게스트의 로컬 나눔은 언제나 내 글이다).
 export async function fetchSharedEntries(date) {
   if (!supabase) {
+    const others = (lsGet(LS.shared, {})[date] || [])
+      .filter(r => (r?.body || '').trim())
+      .map(r => ({
+        id: r.id, profile_id: r.profile_id || '', name: r.name || '',
+        avatarUrl: r.avatarUrl || '', body: r.body, mine: false,
+      }));
     const row = lsGet(LS.entries, {})[date];
-    return row?.shared && row.body
+    const mine = row?.shared && row.body
       ? [{ id: 'local', profile_id: '', name: '', avatarUrl: '', body: row.body, mine: true }]
       : [];
+    return [...others, ...mine];
   }
   const uid = await myId();
   const { data, error } = await supabase.from('qt_entries')

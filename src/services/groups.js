@@ -8,10 +8,11 @@ import { generateId } from '../utils.js';
 // ----------------------------------------------------------------------------
 // 스펙 정본은 docs/V2.md §1(결정 1·2·3·7)·§2·§3, 저장 자리는 0035(groups ·
 // group_members · club_applications · group_meetings)와 0036(service_notes)이고
-// 자격은 0039가 마지막으로 갈아 끼웠다(can_manage_sun · groups_update).
+// 자격은 0045가 마지막으로 갈아 끼웠다(can_manage_sun에 교역자 · group_members_write의
+// 동아리 갈래를 관리자까지).
 //
 // **RLS가 권한의 진실이고 화면은 그걸 비춘다.** 여기 있는 판정(groupPerms ·
-// canManageClub)은 0035·0039의 can_manage_sun()·groups_insert·groups_update·
+// canManageClub)은 0035·0039·0045의 can_manage_sun()·groups_insert·groups_update·
 // group_members_write를 그대로 옮긴 것이다 — 버튼을 감추는 용도이지 막는 용도가
 // 아니다. 어긋나면 DB가 이긴다.
 //
@@ -40,15 +41,14 @@ const { all: guestAll, rows: guestRows, set: guestSet } = guestStore('church_gro
 
 // ── 순수 헬퍼 (브라우저 없이도 검사된다 — §2-5) ─────────────────────────────
 
-// 자격 한 벌. 0039(그전에는 0035)의 함수와 같은 식이다.
-//   순 편성(만들기·순장 지정·연도 개편) = 마스터 + 관리자 + 올해 리더순장  (can_manage_sun)
+// 자격 한 벌. 0045(그전에는 0039·0035)의 함수와 같은 식이다.
+//   순 편성(만들기·순장 지정·연도 개편) = 마스터 + 관리자 + 교역자 + 올해 리더순장 (can_manage_sun)
 //   동아리 개설·리더 지정              = 마스터만                          (groups_insert)
-//   동아리 명단·모임                   = 마스터 또는 그 동아리 리더        (group_members_write)
-//   동아리 이름·설명 고치기            = 마스터·관리자 또는 그 동아리 리더 (groups_update)
+//   동아리 명단·모임                   = 관리자 또는 그 동아리 리더        (group_members_write)
+//   동아리 이름·설명 고치기            = 관리자 또는 그 동아리 리더        (groups_update)
 //
-// **순 편성에서 교역자가 빠지고 관리자가 들어왔다**(사용자 결정 2026-09-02 "마스터/
-// 관리자/리더순장만 우선"). 0039가 can_manage_sun()을 그렇게 갈아 끼웠고 여기가 그 거울이다.
-// 교역자(is_pastor)는 예배 쪽 자격에만 남는다(worship.js worshipPerms).
+// **순 편성의 교역자는 나갔다 돌아왔다.** 0035에 있었고 0039가 뺐다가(그때 결정은 "마스터/
+// 관리자/리더순장만 **우선**") 0045가 다시 넣었다(사용자 결정 2026-09-05). 여기는 그 거울이다.
 export function groupPerms({ isMaster = false, isAdmin = false, myPerson = null, myRoles = [], ledClubIds = [] } = {}) {
   const master = !!isMaster;
   const admin = master || !!isAdmin;   // 마스터는 admins 표의 한 행이다(0028) — 언제나 관리자다
@@ -56,21 +56,24 @@ export function groupPerms({ isMaster = false, isAdmin = false, myPerson = null,
     myPerson,
     isMaster: master,
     isAdmin: admin,
-    canManageSun: master || admin || (myRoles || []).includes('lead_sunjang'),
+    canManageSun: master || admin || !!myPerson?.is_pastor || (myRoles || []).includes('lead_sunjang'),
     canCreateClub: master,
     ledClubIds: ledClubIds || [],
   };
 }
 
 // 동아리 이름·설명을 고칠 수 있나 — 관리자(마스터 포함) 또는 **그** 동아리장이다
-// (0039 groups_update). 명단·모임(canManageClub = 마스터 + 그 리더)과 경계가 다르다.
+// (0039 groups_update). 0045부터 명단·모임(canManageClub)도 같은 경계다.
 // **perms의 메서드가 아니라 바깥 함수다**(canManageClub과 같은 모양) — 자격 한 벌이
 // 캐시(services/cache.js)를 거쳐 JSON으로 오가는데, 함수는 그 길에서 사라진다.
 export const canEditClub = (perms, club) => !!perms?.isAdmin
   || (!!club?.leader_person_id && club.leader_person_id === perms?.myPerson?.id);
 
+// 동아리 멤버 추가·제거 — **관리자(마스터 포함) + 그 동아리장**(사용자 결정 2026-09-05 ·
+// 0045 group_members_write). 예전에는 마스터 + 그 리더라, 관리자가 이름·설명은 고치면서
+// 사람은 못 넣는 어긋난 자리가 있었다.
 export const canManageClub = (perms, groupId) =>
-  !!perms?.isMaster || (!!groupId && (perms?.ledClubIds || []).includes(groupId));
+  !!perms?.isAdmin || (!!groupId && (perms?.ledClubIds || []).includes(groupId));
 
 // 이름 순서는 한 군데서 정한다 — 화면마다 다르면 같은 사람이 자리를 옮겨 다닌다.
 // localeCompare('ko')라야 한글이 ㄱㄴㄷ으로 선다(기본 정렬은 유니코드 코드포인트라

@@ -17,7 +17,8 @@ import { loadPassage } from '../services/bible.js';
 import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap, useBibleState, useVersePaint, marksFor } from '../components/wordBible.jsx';
 import {
   kstToday, shiftDay, dayLabel, shortDayLabel, monthDays, weekRange,
-  fetchSchedule, fetchMyEntry, saveMyEntry, deleteMyEntry, fetchSharedEntries, fetchMyEntryDates,
+  fetchSchedule, fetchMyEntry, saveMyEntry, deleteMyEntry, deleteEntryAsMaster,
+  fetchSharedEntries, fetchMyEntryDates,
 } from '../services/word.js';
 
 // ============================================================================
@@ -49,6 +50,8 @@ import {
 // 나눔 줄의 눈 가리기(공유 해제)도 같은 결정으로 없앴다 — "토글로 조절할 수 있는 거면
 // 눈 표시는 없애도 될 듯". 회차 5의 '나눔 지우기 = 공유 해제'를 이 결정이 대체한다.
 // 지우기는 '내 묵상' 칸의 휴지통 하나뿐이다(그 날 묵상 자체가 없어진다).
+// **예외로 마스터는 남의 줄도 지운다**(사용자 결정 2026-09-05 · 0045
+// qt_entries_delete_master) — 공유 해제가 아니라 그 사람의 그날 묵상 행이 없어진다.
 //
 // 그래서 **피드의 내 줄은 공유 목록이 아니라 지금 내 묵상 상태에서 나온다**(mergeFeed).
 // 토글은 내 상태를 먼저 바꾸고 목록은 그 다음에 다시 읽어 오므로, 둘을 그냥 이어 붙이면
@@ -134,7 +137,7 @@ export function WordView({ initialTab = 'qt', initialRef = '' }) {
 function QtTab() {
   const members = useStore(selectMembers);
   const currentUser = useStore(selectCurrentUser);
-  const { session } = useAuth();
+  const { session, isMaster } = useAuth();
   const today = kstToday();
 
   const [date, setDate] = useState(today);
@@ -311,6 +314,20 @@ function QtTab() {
     }
   };
 
+  // 남의 나눔 지우기 — **마스터만**(사용자 결정 2026-09-05 · 0045
+  // qt_entries_delete_master). 공유를 내리는 것이 아니라 그 사람의 그날 묵상이 없어진다.
+  const removeShared = async (row) => {
+    try {
+      await deleteEntryAsMaster(row.id);
+      setFeed(await fetchSharedEntries(date));
+      dropCache(qtKey); refreshQt();
+      showToast('이 나눔을 지웠어요');
+    } catch (e) {
+      console.error('[word] 남의 나눔 삭제 실패:', e);
+      showToast(failText('이 나눔을 지우지 못했어요', e));
+    }
+  };
+
   // 고치기는 위의 '내 묵상' 칸이 한다 — 같은 글을 두 자리에서 고칠 수 있으면
   // 어느 쪽이 진짜인지 알 수 없다. 그 칸으로 데려가고 커서를 준다.
   const editMine = () => {
@@ -410,7 +427,7 @@ function QtTab() {
             {feed === null
               ? <FeedSkeleton />
               : <ShareFeed rows={feedRows} members={members} myName={currentUser?.name || ''}
-                  onEdit={editMine} />}
+                  onEdit={editMine} isMaster={isMaster} onDeleteOther={removeShared} />}
           </div>
         </div>
       </div>
@@ -528,7 +545,13 @@ export function mergeFeed(shared, mine) {
 // **이 줄에는 공유를 바꾸는 칸이 없다**(사용자 결정 2026-09-05 — 머리말 '공유를 조작하는
 // 자리는 한 곳'). 표시(잠금)와 고치기(연필)만 두고, 공개 범위는 위 '내 묵상' 칸의 토글이
 // 정한다 — 연필이 그 칸으로 데려간다.
-function ShareFeed({ rows = [], members = [], myName = '', onEdit }) {
+//
+// **남의 줄을 지우는 것은 마스터만이다**(사용자 결정 2026-09-05 · 0045
+// qt_entries_delete_master). 내 줄에는 붙지 않는다 — 내 것은 위 '내 묵상' 칸의 휴지통이
+// 지우고, 거기는 잔디까지 같이 비운다.
+export const canDeleteShared = (row, isMaster) => !!isMaster && !row?.mine;
+
+function ShareFeed({ rows = [], members = [], myName = '', onEdit, isMaster = false, onDeleteOther }) {
   const byId = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   if (!rows.length) {
     return <p className="text-[11.5px] text-fg-faint">이 날짜에 올라온 나눔이 아직 없어요</p>;
@@ -561,6 +584,17 @@ function ShareFeed({ rows = [], members = [], myName = '', onEdit }) {
                     className="w-6 h-6 shrink-0 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
                     <Pencil size={12} />
                   </button>
+                )}
+                {/* 공유 해제가 아니라 그 사람의 그날 묵상이 없어진다 — 문구가 그걸 말한다 */}
+                {canDeleteShared(e, isMaster) && onDeleteOther && (
+                  <ConfirmPopover
+                    message="이 나눔을 지울까요? 공유만 내려가는 게 아니라 그 사람의 이 날 묵상이 지워져요."
+                    onConfirm={() => onDeleteOther(e)}>
+                    <button aria-label="이 나눔 지우기"
+                      className="w-6 h-6 shrink-0 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
+                      <Trash2 size={12} />
+                    </button>
+                  </ConfirmPopover>
                 )}
               </div>
               <div className="text-[13px] leading-relaxed text-fg-secondary break-words mt-0.5">
