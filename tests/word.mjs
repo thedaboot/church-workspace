@@ -468,6 +468,54 @@ check('빈 상태가 본문 자리의 세로 가운데에 선다', !!emptyFit &&
 await clickText('오늘');
 await sleep(900);
 
+// 8-b) 나눔 피드 합치기(mergeFeed) — 공유 목록과 '지금 내 묵상 상태'는 **다른 시각의
+// 값**이다. 토글은 내 상태를 먼저 바꾸고 목록은 그 다음에 다시 읽어 오므로, 그냥 이어
+// 붙이면 사이의 한 프레임에서 같은 글이 두 줄로 섰다(사용자 관찰 2026-09-05 — "공유하기
+// 에서 나만 보기로 넘길 때 잠깐 두 개로 보였다가 하나로"). 게스트에서는 목록이 즉시
+// 돌아와 그 프레임이 아예 안 나므로, 화면을 흔들지 말고 **합치는 함수에 그 상태를 직접**
+// 넣어 본다(homeView.pickService를 페이지 안에서 부르는 것과 같은 방식).
+const merged = await ev(`(async () => {
+  const m = await import('/src/views/wordView.jsx');
+  const a = { id: 'o1', profile_id: 'p2', name: '가', body: '남의 묵상', mine: false };
+  const b = { id: 'o2', profile_id: 'p3', name: '나', body: '남의 묵상 2', mine: false };
+  const dbMine = { id: 'db1', profile_id: 'p1', name: '노준석', avatarUrl: 'me.png', body: '내 묵상', mine: true };
+  const on = { id: 'mine', profile_id: 'p1', body: '내 묵상', mine: true, private: false };
+  const off = { id: 'mine', profile_id: 'p1', body: '내 묵상', mine: true, private: true };
+  // 되돌아간 코드에서는 내 줄이 아예 없을 수도 있다 — 던지지 말고 답을 돌려준다(§6-40)
+  const at = (rows) => rows.findIndex(r => r.mine);
+  const mines = (rows) => rows.filter(r => r.mine).length;
+  const my = (rows) => rows[at(rows)] || {};
+  const stale = m.mergeFeed([a, dbMine, b], off);   // 공유 → 나만 보기 직후(목록이 아직 옛것)
+  const back = m.mergeFeed([a, b], on);             // 나만 보기 → 공유 직후(목록에 내 글이 없다)
+  const rest = m.mergeFeed([a, dbMine, b], on);     // 목록이 따라온 뒤
+  return {
+    staleN: stale.length, staleMine: mines(stale), staleAt: at(stale),
+    stalePrivate: !!my(stale).private, staleName: my(stale).name, staleAvatar: my(stale).avatarUrl,
+    staleId: my(stale).id,
+    backN: back.length, backMine: mines(back), backAt: at(back), backId: my(back).id,
+    restN: rest.length, restMine: mines(rest), restAt: at(rest), restId: my(rest).id,
+    unknown: m.mergeFeed([a, dbMine], undefined).map(r => r.id).join(','),
+    removed: m.mergeFeed([a, dbMine], null).map(r => r.id).join(','),
+  };
+})()`, true);
+check('공유를 내린 직후에도 내 묵상은 한 줄이다',
+  merged.staleN === 3 && merged.staleMine === 1 && merged.stalePrivate === true,
+  JSON.stringify(merged));
+check('그 한 줄은 맨 위에 서고 이름·사진을 그대로 이어받는다',
+  merged.staleAt === 0 && merged.staleName === '노준석' && merged.staleAvatar === 'me.png',
+  JSON.stringify(merged));
+check('공유를 켠 직후에도 한 줄이다(목록이 늦어도 사라지지 않는다)',
+  merged.backN === 3 && merged.backMine === 1 && merged.backAt === 2, JSON.stringify(merged));
+// 목록이 따라오면 자리는 목록이 정한 그대로다 — 새 목록이 왔다고 줄이 움직이지 않는다
+check('목록이 따라와도 내 줄의 자리는 그대로다',
+  merged.restN === 3 && merged.restMine === 1 && merged.restAt === 1, JSON.stringify(merged));
+// 열쇠가 공개 범위를 타면 같은 줄이 언마운트됐다 다시 붙는다(그 자리가 깜빡인다)
+check('내 줄의 열쇠는 공개 범위와 상관없이 하나다',
+  merged.staleId === 'mine' && merged.backId === 'mine' && merged.restId === 'mine',
+  JSON.stringify(merged));
+check('아직 내 묵상을 못 읽었으면 목록을 그대로 둔다', merged.unknown === 'o1,db1', merged.unknown);
+check('지운 뒤에는 목록에 남은 내 줄도 걷어낸다', merged.removed === 'o1', merged.removed);
+
 // 9) 내 나눔 줄 — 고치기는 '내 묵상' 칸으로, **공유를 조작하는 칸은 그 줄에 없다**
 // (사용자 결정 2026-09-05 — "굳이 이 날의 나눔은 눈 표시가 없어도 되지 않을까?" ·
 // "토글이 위랑 아래랑 두 번 나온다"). 눈 가리기(공유 해제)와 줄의 토글이 같이 없어졌고,
@@ -521,6 +569,7 @@ const afterUnshare = await ev(`(() => {
     badgeText: row ? row.textContent.includes('나만 보기') : false,
     body: row ? row.textContent.includes(${JSON.stringify(seed.entries[today].body)}) : false,
     others: document.querySelectorAll('[data-feed-row="other"]').length,
+    mineRows: document.querySelectorAll('[data-feed-row^="mine"]').length,
     toggle: row ? row.querySelectorAll('button[aria-pressed]').length : 0,
     chips: document.querySelectorAll('[data-share-chip]').length,
     chipText: chip ? chip.textContent : '',
@@ -535,6 +584,9 @@ check('편집기 토글로 공유만 내린다(묵상은 남는다)',
 check('비공개 묵상이 내 나눔 피드에 남는다',
   afterUnshare.privateRow && afterUnshare.body && afterUnshare.others === 0,
   JSON.stringify(afterUnshare));
+// 두 줄로 보였다가 하나로 합쳐지던 자리다(8-b) — 넘긴 뒤에도 내 줄은 하나뿐이다
+check('공유를 내려도 내 줄은 하나뿐이다', afterUnshare.mineRows === 1,
+  String(afterUnshare.mineRows));
 check("그 줄에 '나만 보기' 표시가 붙는다",
   afterUnshare.badge && afterUnshare.badgeText, JSON.stringify(afterUnshare));
 check('비공개가 된 줄에도 공유 토글은 없다', afterUnshare.toggle === 0,
@@ -573,6 +625,7 @@ const shared = await ev(`(() => ({
   stored: JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}] || null,
   chip: (document.querySelector('[data-share-chip]') || {}).textContent || '',
   feed: document.body.innerText.includes(${JSON.stringify(seedBody)}),
+  mineRows: document.querySelectorAll('[data-feed-row^="mine"]').length,
 }))()`);
 check('공유 토글은 저장 버튼을 켜지 않는다', (await saveDisabled()) === true);
 check('공유 토글이 그 자리에서 shared만 저장한다',
@@ -589,6 +642,7 @@ const labelsAfter = await ev(`(() => {
 check('공유를 골라도 라벨은 그대로다',
   labelsAfter.texts.sort().join('|') === '나만 보기|더다붓에 공유하기', JSON.stringify(labelsAfter));
 check('공유를 켜면 나눔에 다시 오른다', shared.feed === true);
+check('공유를 켜도 내 줄은 하나뿐이다', shared.mineRows === 1, String(shared.mineRows));
 
 // 11) 묵상 저장 — 마크다운 에디터에 쳐 넣고 저장한다(그때만 저장이 켜진다)
 await ev(`(() => { const el = document.querySelector('.tiptap'); el.focus(); })()`);

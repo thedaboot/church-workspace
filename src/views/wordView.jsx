@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspens
 import { ChevronLeft, ChevronRight, ChevronDown, Lock, Pencil, Trash2 } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
 import { selectMembers, selectCurrentUser } from '../store/selectors.js';
+import { useAuth } from '../services/auth.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { RichText } from '../components/RichText.jsx';
 import { Skeleton } from '../components/media.jsx';
@@ -48,6 +49,10 @@ import {
 // 나눔 줄의 눈 가리기(공유 해제)도 같은 결정으로 없앴다 — "토글로 조절할 수 있는 거면
 // 눈 표시는 없애도 될 듯". 회차 5의 '나눔 지우기 = 공유 해제'를 이 결정이 대체한다.
 // 지우기는 '내 묵상' 칸의 휴지통 하나뿐이다(그 날 묵상 자체가 없어진다).
+//
+// 그래서 **피드의 내 줄은 공유 목록이 아니라 지금 내 묵상 상태에서 나온다**(mergeFeed).
+// 토글은 내 상태를 먼저 바꾸고 목록은 그 다음에 다시 읽어 오므로, 둘을 그냥 이어 붙이면
+// 넘기는 순간 같은 글이 두 줄로 섰다(사용자 관찰 2026-09-05).
 //
 // **날짜를 바꿔도 자리는 그대로 있어야 한다**(사용자 피드백 2026-09-01 — "화면 전체가
 // 새로 그려지며 움직인다"). 본문·묵상·나눔 세 칸 모두 기다리는 동안 같은 자리에
@@ -129,6 +134,7 @@ export function WordView({ initialTab = 'qt', initialRef = '' }) {
 function QtTab() {
   const members = useStore(selectMembers);
   const currentUser = useStore(selectCurrentUser);
+  const { session } = useAuth();
   const today = kstToday();
 
   const [date, setDate] = useState(today);
@@ -237,6 +243,20 @@ function QtTab() {
   const dirty = ready && body !== entry.body;
   // 공유는 저장된 글에만 걸 수 있다(머리말) — 빈 글은 나눔에 올라가지도 않는다
   const canShare = ready && entry.exists && !!entry.body.trim();
+
+  // 피드에 설 내 줄 — **지금 저장된 내 묵상**에서 만든다(mergeFeed 머리말).
+  // profile_id를 실어 보내야 비공개로 넘어가 목록에서 빠진 뒤에도 같은 이름·사진으로
+  // 서 있는다(피드는 profile_id로 멤버 프로필을 찾는다). 게스트에는 세션이 없다.
+  const myProfileId = session?.user?.id || '';
+  const myRow = useMemo(() => {
+    if (!ready) return undefined;                       // 아직 이 날의 내 묵상을 모른다
+    if (!entry.exists || !entry.body.trim()) return null;
+    return {
+      id: MY_ROW, profile_id: myProfileId,
+      body: entry.body, mine: true, private: !entry.shared,
+    };
+  }, [ready, entry, myProfileId]);
+  const feedRows = useMemo(() => mergeFeed(feed, myRow), [feed, myRow]);
 
   const save = async () => {
     if (!ready || saving) return;
@@ -384,16 +404,12 @@ function QtTab() {
         <div className="mt-6">
           <SectionHead>{date === today ? '오늘의 나눔' : '이 날의 나눔'}</SectionHead>
           <div className="min-h-[72px]">
+            {/* 공유하지 않은 내 묵상도 **나에게는** 이 자리에 선다(사용자 결정
+                2026-09-03). 피드 자체는 공유된 글만 읽으므로(RLS와 같은 경계),
+                내 것 한 줄은 화면에서 얹는다 — 남에게는 여전히 안 보인다(mergeFeed). */}
             {feed === null
               ? <FeedSkeleton />
-              : <ShareFeed
-                  entries={feed} members={members} myName={currentUser?.name || ''}
-                  // 공유하지 않은 내 묵상도 **나에게는** 이 자리에 선다(사용자 결정
-                  // 2026-09-03). 피드 자체는 공유된 글만 읽으므로(RLS와 같은 경계),
-                  // 내 것 한 줄을 화면에서 얹는다 — 남에게는 여전히 안 보인다.
-                  privateMine={ready && entry.exists && entry.body.trim() && !entry.shared
-                    ? { id: 'mine-private', body: entry.body, mine: true, private: true }
-                    : null}
+              : <ShareFeed rows={feedRows} members={members} myName={currentUser?.name || ''}
                   onEdit={editMine} />}
           </div>
         </div>
@@ -476,16 +492,44 @@ function FeedSkeleton() {
   );
 }
 
+// 내 줄의 열쇠는 공개 범위와 상관없이 하나다 — 토글할 때마다 key가 바뀌면 같은 줄이
+// 언마운트됐다 다시 붙어서, 고쳐 놓은 두 줄 문제 대신 한 줄이 깜빡인다.
+const MY_ROW = 'mine';
+
+// 나눔 피드에 설 줄들 — 그 날 **공유 목록**(fetchSharedEntries)과 **지금 내 묵상 상태**를
+// 합친다. 이 둘은 서로 다른 시각의 값이다: 토글은 내 상태를 먼저 바꾸고 목록은 그 다음에
+// 다시 읽어 오므로, 그 사이 한 프레임에서는 같은 글이 양쪽에 다 있다. 예전처럼 그냥 이어
+// 붙이면 **공유 → 나만 보기로 넘길 때 내 묵상이 두 줄로 보였다가 하나로** 합쳐졌고
+// (사용자 관찰 2026-09-05), 반대로 넘길 때는 목록이 도착하기 전까지 한 줄도 없어서
+// '올라온 나눔이 아직 없어요'가 스쳤다. 그래서 **내 줄은 지금 내 상태에서 한 줄만 만들고**
+// 목록에서 온 내 줄은 걷어낸다.
+//   mine: undefined = 아직 이 날 내 묵상을 못 읽었다(목록을 그대로 둔다)
+//         null      = 이 날 내 묵상이 없다(지우고 나서 목록이 늦게 오는 경우도 여기다)
+//         { … }     = 내 줄 한 줄
+// 자리: 비공개면 맨 위다(남에게는 안 보이는 줄이라 목록의 시간 순서에 낄 자리가 없다).
+// 공유 중이면 목록이 준 자리 그대로 두고, 목록에 아직 없으면 맨 뒤에 세운다 — 목록은
+// updated_at 오름차순이고 방금 저장한 글이 갈 자리가 거기라, 새 목록이 와도 줄이 안 움직인다.
+export function mergeFeed(shared, mine) {
+  const rows = shared || [];
+  if (mine === undefined) return rows;
+  const others = rows.filter(e => !e.mine);
+  if (!mine) return others;
+  // 이름·사진은 목록에 있던 내 줄에서 이어받는다(없으면 프로필에서 찾는다 — profile_id)
+  const at = rows.findIndex(e => e.mine);
+  const row = { ...(at < 0 ? null : rows[at]), ...mine };
+  if (mine.private) return [row, ...others];
+  return at < 0 ? [...others, row] : [...others.slice(0, at), row, ...others.slice(at)];
+}
+
 // **비공개 묵상도 내 피드에는 선다**(사용자 결정 2026-09-03). 그 줄에는 '나만 보기'
 // 표시가 붙는다. 남에게는 여전히 안 보인다: 피드 데이터는 공유된 글만 읽고(RLS와 같은
-// 경계) 이 줄은 화면에서 내 것 하나를 얹은 것이다.
+// 경계) 이 줄은 화면에서 내 것 하나를 얹은 것이다(mergeFeed).
 //
 // **이 줄에는 공유를 바꾸는 칸이 없다**(사용자 결정 2026-09-05 — 머리말 '공유를 조작하는
 // 자리는 한 곳'). 표시(잠금)와 고치기(연필)만 두고, 공개 범위는 위 '내 묵상' 칸의 토글이
 // 정한다 — 연필이 그 칸으로 데려간다.
-function ShareFeed({ entries, members = [], myName = '', privateMine = null, onEdit }) {
+function ShareFeed({ rows = [], members = [], myName = '', onEdit }) {
   const byId = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
-  const rows = privateMine ? [privateMine, ...entries] : entries;
   if (!rows.length) {
     return <p className="text-[11.5px] text-fg-faint">이 날짜에 올라온 나눔이 아직 없어요</p>;
   }
