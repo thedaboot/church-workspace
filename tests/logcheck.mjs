@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { TaskService, ActivityService } from 'file:///C:/Users/%EB%85%B8%EC%A4%80%EC%84%9D/Desktop/church_workspace/src/services/domain.js';
+const { TaskService, ActivityService } = await import(new URL('../src/services/domain.js', import.meta.url).href);
 
 const base = { id: 't1', projectId: 'p1', title: '수련회 준비', content: '내용', status: '시작 전',
   assignees: ['노준석'], teams: ['미디어팀'], startDate: '2026-08-01', dueDate: '2026-08-10', activityLog: [], comments: [] };
@@ -718,6 +718,29 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(viewersOf(mixed, { projectId: 'p2' }, opts), ['u1'], 'at 없는 옛 meta는 0');
   assert.deepStrictEqual(viewersOf(mixed, { projectId: 'p1' }, opts), [], 'at 없는 옛 meta는 밀린다');
 
+  // ── 재접속한 백그라운드 탭이 지금 보는 탭을 이기면 안 된다 (2026-09-05 사용자 지적) ──
+  // presence 열쇠가 user.id라 한 사람의 탭·기기 meta가 한 열쇠에 같이 산다. 예전에는
+  // 재접속(SUBSCRIBED가 다시 불림)마다 at을 새로 찍어서, **자리를 안 옮긴** 옛 탭이
+  // 가장 큰 at을 갖고 이겼다 — "임원진 회의를 보고 있는데 가을 체육대회로 나온다".
+  // 지금 규칙은 at이 '자리를 옮긴 시각'이라 재접속으로는 안 바뀐다(nextWhereMeta).
+  const reconnected = [
+    { id: 'u1', projectId: '가을체육대회', cardId: null, at: 100, seq: 1 },  // 켜 둔 채 재접속한 탭
+    { id: 'u1', projectId: '임원진회의', cardId: null, at: 900, seq: 1 },    // 지금 보는 탭
+  ];
+  assert.deepStrictEqual(viewersOf(reconnected, { projectId: '임원진회의' }, opts), ['u1'],
+    '재접속해도 지금 보고 있는 자리에 뜬다');
+  assert.deepStrictEqual(viewersOf(reconnected, { projectId: '가을체육대회' }, opts), [],
+    '켜 두기만 한 옛 탭에는 안 뜬다');
+  // 같은 밀리초에 두 번 옮기면 seq가 순서를 정한다(한 클라이언트 안에서만 뜻이 있다)
+  const sameMs = [
+    { id: 'u1', projectId: 'p1', cardId: null, at: 500, seq: 7 },
+    { id: 'u1', projectId: 'p2', cardId: null, at: 500, seq: 8 },
+  ];
+  assert.deepStrictEqual(viewersOf(sameMs, { projectId: 'p2' }, opts), ['u1'], '같은 at이면 seq가 큰 쪽');
+  assert.deepStrictEqual(viewersOf(sameMs, { projectId: 'p1' }, opts), [], '같은 at이면 seq가 작은 쪽은 밀린다');
+  assert.deepStrictEqual(viewersOf([...sameMs].reverse(), { projectId: 'p2' }, opts), ['u1'],
+    'seq 판정도 들어온 순서와 무관하다');
+
   // 최대 세 명
   const many = ['a', 'b', 'c', 'd', 'e'].map(id => ({ id, projectId: 'p1', cardId: null, at: 1 }));
   assert.deepStrictEqual(viewersOf(many, { projectId: 'p1' }, opts), ['a', 'b', 'c'], '최대 세 명');
@@ -727,23 +750,59 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(viewersOf(null, { projectId: 'p1' }, opts), [], 'null도 안전하다');
   assert.deepStrictEqual(viewersOf(entries, {}, opts), [], '물은 곳이 없으면 아무도 아니다');
   assert.deepStrictEqual(viewersOf(entries, { projectId: 'p1' }, {}), ['u-me', 'u1', 'u2'], '내 id를 모르면 아무도 안 뺀다');
-  console.log('PASS  지금 보고 있는 사람 20가지');
+  console.log('PASS  지금 보고 있는 사람 25가지');
 }
 
 // ── presence가 자리와 함께 시각을 실어 보내는지 (services/presence.js 소스 단정) ──
 // viewersOf가 '최신 한 곳'을 고르려면 meta에 at이 있어야 한다. 이 파일은 supabase
 // 클라이언트를 import해서 노드에서 실행할 수 없으므로 소스로 지킨다(§6-31과 같은 방식).
-// 되돌리기 검사: trackWhere의 `at: Date.now()`를 빼면 첫 단정이,
-// entriesOf에서 at을 안 실으면 두 번째 단정이 깨진다.
+//
+// **`at`은 "자리를 옮긴 시각"이지 "연결이 살아 있다고 알린 시각"이 아니다**(2026-09-06).
+// 예전에는 track할 때마다 `Date.now()`를 새로 찍었고 **재접속에서도** 그랬다 — 옛
+// 프로젝트를 켜 둔 백그라운드 탭이 재접속하는 것만으로 지금 보고 있는 탭을 이겼다
+// (사용자 지적 2026-09-05 — "임원진 회의를 보고 있는데 가을 체육대회로 나온다").
+// 되돌리기 검사: `ch.track(meta)`를 `ch.track({ ...meta, at: Date.now() })`로 되돌리면
+// 세 번째 단정이 깨진다. teardown에 `meta = {`를 되살리면 네 번째가 깨진다.
 {
   const src = readFileSync(new URL('../src/services/presence.js', import.meta.url), 'utf8');
-  assert.ok(/channel\.track\(\{\s*\.\.\.w,\s*at:\s*Date\.now\(\)\s*\}\)/.test(src),
-    'trackWhere가 자리와 함께 at을 실어 보낸다');
-  assert.ok(/ch\.track\(\{\s*\.\.\.where,\s*at:\s*Date\.now\(\)\s*\}\)/.test(src),
-    '채널에 붙는 첫 track에도 at이 실린다');
-  assert.ok(/at:\s*Number\(m\.at\)\s*\|\|\s*0/.test(src),
-    'entriesOf가 meta의 at을 넘긴다(없으면 0)');
-  console.log('PASS  presence가 at을 실어 보낸다 3가지');
+  assert.ok(/nextWhereMeta\(meta, next\)/.test(src),
+    'trackWhere가 자리 판정·meta 만들기를 순수 함수(utils.nextWhereMeta)에 맡긴다');
+  assert.ok(/at:\s*Number\(m\.at\)\s*\|\|\s*0/.test(src) && /seq:\s*Number\(m\.seq\)\s*\|\|\s*0/.test(src),
+    'entriesOf가 meta의 at·seq를 넘긴다(없으면 0)');
+  assert.ok(!/track\([^)]*Date\.now\(\)/.test(src),
+    'track에 그 자리에서 찍은 시각을 실지 않는다 — 재접속이 옛 자리를 되살린다');
+  // 구독을 떼면서 자리를 지우면, 다시 붙었을 때 App의 trackWhere effect는 자리가
+  // 그대로라 다시 불리지 않아 `{null, null}`이 나간다 → 얼굴이 통째로 사라진다.
+  const teardown = src.slice(src.lastIndexOf('return () => {'));
+  assert.ok(!/^\s*meta = \{/m.test(teardown) && !/^\s*where = \{/m.test(teardown),
+    '구독을 뗄 때 보고 있는 자리를 지우지 않는다(연결만 소유한다)');
+  console.log('PASS  presence가 자리와 시각을 실어 보낸다 4가지');
+}
+
+// ── 자리를 옮겼나 · 옮겼으면 어떤 meta인가 (utils.nextWhereMeta) ─────────────
+// presence.js에서 떼어낸 순수 판정. 재접속 때는 이 함수를 **부르지 않고** 마지막 meta를
+// 그대로 다시 보내는 것이 규칙이라, at은 오직 여기서만 새로 찍힌다.
+// 되돌리기 검사: 같은 자리에서 null을 안 돌려주면 두 번째 단정이(track 한 번이 접속한
+// 모두에게 sync를 만든다), seq를 안 올리면 마지막 단정이 깨진다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'nwm-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { nextWhereMeta } = await import(pathToFileURL(f).href);
+
+  const first = nextWhereMeta(null, { projectId: 'p1', cardId: null }, 100);
+  assert.deepStrictEqual(first, { projectId: 'p1', cardId: null, at: 100, seq: 1 }, '첫 자리');
+  assert.strictEqual(nextWhereMeta(first, { projectId: 'p1' }, 200), null, '같은 자리면 아무것도 안 보낸다');
+  assert.strictEqual(nextWhereMeta(first, { projectId: 'p1', cardId: null }, 200), null, 'null과 undefined는 같은 자리');
+  const moved = nextWhereMeta(first, { projectId: 'p2', cardId: 'c9' }, 300);
+  assert.deepStrictEqual(moved, { projectId: 'p2', cardId: 'c9', at: 300, seq: 2 }, '옮기면 새 at·다음 seq');
+  const leftAll = nextWhereMeta(moved, { projectId: null, cardId: null }, 400);
+  assert.deepStrictEqual(leftAll, { projectId: null, cardId: null, at: 400, seq: 3 },
+    '교회 화면(홈·예배·말씀·모임)으로 가면 자리가 비고, 그것도 이동이다');
+  assert.strictEqual(nextWhereMeta(leftAll, {}, 500), null, '빈 자리에서 빈 자리로는 안 보낸다');
+  assert.strictEqual(nextWhereMeta(leftAll, undefined, 500), null, '인자가 없어도 안전하다');
+  console.log('PASS  자리 이동 판정 7가지');
 }
 
 // ── presence 연결 수명 (services/presence.js 소스 단정) ──────────────────────
@@ -784,6 +843,77 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(dueForHeartbeat(0, NOW), true, '한 번도 안 찍었으면 찍는다');
   assert.strictEqual(dueForHeartbeat(null, NOW), true, '값이 없어도 안전하다');
   console.log('PASS  심장박동 간격 6가지');
+}
+
+// ── 쓰기는 곧 '지금'이다 (utils.WRITE_STAMP_MS · mergeActivitySeen) ──────────
+// 증상(사용자 2026-09-05): "1분 전에 업무를 수정했다고 뜨는데, 그 사람 현황을 보면
+// 4분 전에 떠났다고 뜬다." 라이브에서 실제로 activity가 last_seen_at보다 **225초 뒤**였다.
+// 5분 박동은 *아무것도 안 하는 사람*의 상한이라 그 사이의 쓰기가 통째로 안 보였다.
+// 고친 규칙 한 줄: **presence(접속 중) > max(last_seen_at, 그 사람의 최근 활동)**.
+// 되돌리기 검사: mergeActivitySeen에서 `at <= (m.lastSeenAt || '')` 비교를 지우면 첫
+// 단정이, 바뀐 것이 없을 때 같은 배열을 안 돌려주면 '같은 배열' 단정이 깨진다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'wrote-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { WRITE_STAMP_MS, dueForHeartbeat, mergeActivitySeen, lastVisitOf, visitOrder } =
+    await import(pathToFileURL(f).href);
+
+  // 쓰기 스탬프는 1분에 한 번 — 저장 한 번이 카드·팀·담당자 쓰기를 여러 번 만든다.
+  assert.strictEqual(WRITE_STAMP_MS, 60 * 1000, '쓰기 스탬프는 1분에 한 번');
+  const T = 1_000_000_000;
+  assert.strictEqual(dueForHeartbeat(T - 59e3, T, WRITE_STAMP_MS), false, '59초면 아직 안 찍는다');
+  assert.strictEqual(dueForHeartbeat(T - 60e3, T, WRITE_STAMP_MS), true, '딱 1분이면 찍는다');
+
+  // 사용자가 본 그 장면을 그대로 — 다녀감은 15:54, 그런데 15:58에 업무를 고쳤다.
+  const M = [
+    { id: 'u1', name: '박지호', lastSeenAt: '2026-09-05T15:54:49.293Z' },
+    { id: 'u2', name: '조해리', lastSeenAt: '2026-09-05T14:15:01.243Z' },
+    { id: 'u3', name: '기록없음' },
+  ];
+  const feed = [
+    { id: 'a1', actorId: 'u1', at: '2026-09-05T15:58:34.026269+00:00', action: '상세 내용을 수정했습니다.' },
+    { id: 'a2', actorId: 'u2', at: '2026-09-01T02:47:41.040559+00:00', action: '댓글을 남겼습니다.' },
+  ];
+  const merged = mergeActivitySeen(M, feed);
+  assert.strictEqual(lastVisitOf(merged[0]), '2026-09-05T15:58:34.026Z',
+    '활동이 더 최근이면 그 시각이 다녀간 시각이 된다');
+  assert.strictEqual(lastVisitOf(merged[1]), '2026-09-05T14:15:01.243Z',
+    '다녀간 시각이 더 최근이면 그대로 둔다(옛 활동이 시간을 되돌리면 안 된다)');
+  assert.strictEqual(merged[2].lastSeenAt, undefined, '활동이 없는 사람은 손대지 않는다');
+  // 그리고 그 값이 목록 순서에도 그대로 먹는다(두 화면이 같은 함수를 쓴다)
+  assert.deepStrictEqual(visitOrder(merged).map(m => m.name), ['박지호', '조해리', '기록없음']);
+
+  // **바뀐 것이 없으면 받은 배열 그대로** — 아니면 남이 저장할 때마다 연결 지도가 다시 배치된다
+  assert.strictEqual(mergeActivitySeen(M, []), M, '피드가 비면 그대로');
+  assert.strictEqual(mergeActivitySeen(M, feed.slice(1)), M, '옛 활동뿐이면 그대로');
+  assert.strictEqual(mergeActivitySeen(M, [{ id: 'g1', actorName: '노준석', at: '2027-01-01T00:00:00Z' }]), M,
+    '게스트 피드(id 없이 이름뿐)는 아무도 안 밀어낸다');
+  assert.notStrictEqual(mergeActivitySeen(M, feed), M, '실제로 밀린 사람이 있으면 새 배열');
+  assert.deepStrictEqual(mergeActivitySeen([], feed), [], '멤버가 없어도 안전하다');
+  assert.deepStrictEqual(mergeActivitySeen(undefined, undefined), [], '인자가 없어도 안전하다');
+  console.log('PASS  쓰기는 곧 지금 12가지');
+}
+
+// ── 다녀간 시각을 찍는 자리가 하나인가 (services/cloudSync.js · App.jsx 소스 단정) ──
+// 넷이 같은 값을 찍는다(앱 열 때 · 5분 박동 · 떠날 때 · 쓰기). 마지막으로 찍은 시각을
+// 한 곳에서 들고 있지 않으면 방금 저장한 사람에게 박동이 또 쓰고, 어느 쪽이 진짜인지 모른다.
+// 되돌리기 검사: setWriteObserver 등록을 지우면 첫 단정이, App이 다시 자기 lastAt을
+// 들면 마지막 단정이 깨진다.
+{
+  const sync = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const client = readFileSync(new URL('../src/services/supabaseClient.js', import.meta.url), 'utf8');
+  assert.ok(/^setWriteObserver\(\(\) => markSeen\(WRITE_STAMP_MS\)\);/m.test(sync),
+    '쓰기 한 번마다 다녀간 시각을 찍는다(1분 스로틀)');
+  assert.ok(/global: \{ fetch: observedFetch \}/.test(client),
+    '쓰기를 보는 자리는 클라이언트가 실제로 내보내는 요청 하나다');
+  assert.ok(client.includes('is_admin|is_master|is_approved|touch_last_seen'),
+    '자격 확인·다녀간 시각 자신은 쓰기로 세지 않는다(스탬프가 스스로를 부른다)');
+  assert.ok(/lastSeenStampAt/.test(sync) && !/let lastAt = Date\.now\(\)/.test(app),
+    '마지막으로 찍은 시각은 cloudSync 한 곳만 들고 있다');
+  console.log('PASS  다녀간 시각을 찍는 자리 4가지');
 }
 
 // ── 상대 시간 라벨이 스스로 늙는가 (hooks/useMinuteTick.js) ──────────────────
@@ -1386,6 +1516,75 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  다녀간 시각 한 값으로 22가지');
 }
 
+// ── 공유 카드 메타 (api/share.js) ───────────────────────────────────────────
+// 크롤러가 읽는 OG 메타이자 **사람이 눌렀을 때 가는 주소**를 만드는 자리다. 조회가
+// 실패하면 제목이 기본값으로 떨어지고 appUrl이 '/'로 남아 딥링크가 통째로 사라지는데,
+// 크롤러 말고는 아무도 안 보는 화면이라 증상이 밖으로 안 난다. 실제로 없는 컬럼
+// (projects.description — 0009에서 지웠다)을 고르고 있어서 42703으로 늘 실패했다.
+// 되돌리기 검사: select('name')을 select('name, description')으로 되돌리거나
+// STATUS_KO에서 hold를 빼면 아래가 깨진다.
+{
+  const src = readFileSync(new URL('../api/share.js', import.meta.url), 'utf8');
+  assert.ok(/from\('projects'\)\.select\('name'\)/.test(src),
+    "projects에 없는 컬럼을 고르고 있다(description은 0009에서 지웠다)");
+  assert.ok(!/select\('name, description'\)/.test(src), 'description이 다시 들어왔다');
+  // 조회 오류를 버리면 같은 고장이 또 조용히 지나간다
+  assert.ok((src.match(/console\.error\('\[share\]/g) || []).length >= 3,
+    '조회 실패를 로그로 남기지 않는 갈래가 있다');
+
+  // 상태 라벨은 앱과 같은 글자여야 한다 — DB는 todo/doing/hold/done 네 가지다(0006).
+  const { CONFIG } = await import(new URL('../src/config.js', import.meta.url).href);
+  const ko = Object.fromEntries(
+    [...src.matchAll(/(todo|doing|hold|done): '([^']+)'/g)].map(m => [m[1], m[2]]));
+  const want = Object.fromEntries(Object.entries(CONFIG.STATUS_DB).map(([k, v]) => [v, k]));
+  assert.deepStrictEqual(ko, want, '공유 카드의 상태 글자가 config.js의 STATUSES와 다르다');
+  console.log('PASS  공유 카드 메타 5가지');
+}
+
+// ── 되돌리기 기록에 안 쌓이는 액션 (store/workspaceStore.js) ────────────────
+// 서버가 보내 준 카드 1건(SYNC_TASK)은 내 조작이 아니라 past에 남으면 안 된다.
+// 머리 주석은 처음부터 SYNC_TASK라고 적혀 있었는데 분기가 'HYDRATE_TASK'(없는 액션)를
+// 보고 있어서, 실시간 재조회가 잦은 탭에서 past가 계속 늘었다 — 화면에는 아무 표시가
+// 없는 종류의 고장이다(클라우드 모드는 실행 취소 버튼 자체를 숨긴다).
+// 스토어는 supabaseClient(import.meta.env)와 react를 물기 때문에 노드에서 그대로
+// import할 수 없다 — 그 두 줄만 바꿔 임시 파일로 돌린다(errorText·utils와 같은 방식).
+// react 훅은 렌더에서만 불리므로 여기서는 자리만 채운다.
+// 되돌리기 검사: 분기를 'HYDRATE_TASK'로 되돌리면 첫 단정이 깨진다.
+{
+  const src = readFileSync(new URL('../src/store/workspaceStore.js', import.meta.url), 'utf8')
+    .replace(/import \{ useSyncExternalStore \} from 'react';/, 'const useSyncExternalStore = () => {};')
+    .replace(/import \{ isCloudEnabled \} from '\.\.\/services\/supabaseClient\.js';/,
+      'const isCloudEnabled = () => false;')
+    .replace("'../services/domain.js'", JSON.stringify(new URL('../src/services/domain.js', import.meta.url).href));
+  const d = mkdtempSync(join(tmpdir(), 'store-'));
+  const f = join(d, 'store.mjs');
+  writeFileSync(f, src);
+  // 게스트 초기값은 localStorage를 읽는다 — 노드에는 없어서 스토어가 console.error를
+  // 한 줄 뱉는다(동작은 멀쩡하다). 그 소음만 막고 바로 걷는다.
+  globalThis.localStorage = { getItem: () => null };
+  const { store } = await import(pathToFileURL(f).href);
+  delete globalThis.localStorage;
+
+  const blank = { currentUser: { name: '나' }, members: [], activityFeed: [],
+    projects: { byId: {}, allIds: [] }, tasks: { byId: { t1: { id: 't1', title: '가' } }, allIds: ['t1'] } };
+  store.dispatch({ type: 'LOAD_STATE', payload: blank });   // 기록 비움
+  assert.strictEqual(store.canUndo(), false, 'LOAD_STATE 뒤에는 되돌릴 것이 없다');
+
+  store.dispatch({ type: 'SYNC_TASK', payload: { id: 't1', title: '나' } });
+  assert.strictEqual(store.getState().tasks.byId.t1.title, '나', 'SYNC_TASK가 카드를 못 고쳤다');
+  assert.strictEqual(store.canUndo(), false, 'SYNC_TASK가 past에 쌓였다');
+
+  store.dispatch({ type: 'SET_ACTIVITY_FEED', payload: [{ id: 'a1' }] });
+  assert.strictEqual(store.canUndo(), false, 'SET_ACTIVITY_FEED가 past에 쌓였다');
+
+  // 내 조작은 그대로 쌓인다 — 위 분기가 넓어지면 실행 취소가 통째로 죽는다
+  store.dispatch({ type: 'UPSERT_TASK', payload: { id: 't2', title: '내가 만든 업무' } });
+  assert.strictEqual(store.canUndo(), true, '내 조작까지 기록에서 빠졌다');
+  store.undo();
+  assert.ok(!store.getState().tasks.byId.t2, '되돌리기가 안 먹었다');
+  console.log('PASS  SYNC_TASK는 past에 쌓이지 않는다 6가지');
+}
+
 // ── 그 값이 화면까지 오는 배선 (스토어 · 실시간 라우팅 · 두 화면) ────────────
 // 순수 함수만 맞아도 배선이 빠지면 다시 '새로고침해야 보이는' 자리로 돌아간다.
 // 되돌리기 검사: 아래 단정마다 해당 줄을 지우면 그 단정이 깨진다(하나씩 확인했다).
@@ -1408,8 +1607,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
   assert.ok(/onMemberSeen: \(patch\) => store\.dispatch\(\{ type: 'SYNC_MEMBER_SEEN'/.test(app),
     '실시간 라우팅이 스토어까지 이어져 있다');
-  assert.ok(/dueForHeartbeat\(lastAt, Date\.now\(\), LEAVE_STAMP_MS\)/.test(app),
-    '떠날 때의 판정은 같은 함수에 간격만 바꿔 넘긴다');
+  assert.ok(/dueForHeartbeat\(lastSeenStampAt, now, LEAVE_STAMP_MS\)/.test(sync),
+    '떠날 때의 판정은 같은 함수에 간격만 바꿔 넘긴다(자리는 cloudSync 하나)');
+  assert.ok(/cloud\.stampLeaveBeacon\(\)/.test(sync),
+    '떠나는 한 번만 다른 길로 나간다 — 평범한 fetch는 탭이 닫히며 취소된다');
   assert.ok(/document\.hidden \? stampLeave\(\) : beat\(\)/.test(app), '탭이 숨겨지는 순간 한 번 찍는다');
   assert.ok(/addEventListener\('pagehide', stampLeave\)/.test(app)
     && /removeEventListener\('pagehide', stampLeave\)/.test(app), 'pagehide도 듣고 뗀다');
@@ -1421,5 +1622,246 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/\)\s*,\s*\n\s*online,\s*\n\s*\);/.test(mv) || /visitOrder\([\s\S]{0,400}?online,/.test(mv),
     '접속 중인 사람이 맨 위 — MembersModal과 같은 순서');
   assert.ok(!/agoLabel\(row\.last_seen_at\)/.test(mv), '스냅샷 값을 그대로 그리는 자리가 남아 있다');
-  console.log('PASS  다녀간 시각 배선 13가지');
+  console.log('PASS  다녀간 시각 배선 14가지');
+}
+
+// ── v2 실시간 라우팅 (services/liveV2.js · 0049) ─────────────────────────────
+// 0049 전까지 v2 표는 발행에도 구독에도 없어서, 남이 주보를 발행해도 나눔을 올려도
+// 그 화면에 머무는 동안은 영영 몰랐다. liveV2는 행 단위 리듀서를 만들지 않고
+// "표 → 캐시 접두를 비우고 → 그 화면이 떠 있으면 재조회"만 한다.
+// 되돌리기 검사(하나씩 실제로 돌려 확인했다): TABLE_CACHE에서 attendance의
+// 'groups:mine'을 빼면 첫 묶음이, arm() 대신 그 자리에서 notify하면 디바운스 단정이,
+// createGate.signal의 else 가지를 지우면 enabled 단정이, subscribe 콜백의 pushAll을
+// 지우면 재접속 단정이, 아래 뷰의 훅 호출 줄을 지우면 배선 단정이 깨진다.
+{
+  const raw = readFileSync(new URL('../src/services/liveV2.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'live2-'));
+  const f = join(dir, 'liveV2.mjs');
+  // react·supabase·cache import만 걷어내면 순수 부분을 노드에서 그대로 부를 수 있다
+  // (supabaseClient는 import.meta.env를 읽어서 노드에서 던진다)
+  writeFileSync(f, raw.replace(/^import .*from '(react|\.\/supabaseClient\.js|\.\/cache\.js)';\s*$/gm, ''));
+  const { prefixesOf, kindsOf, V2_TABLES, ALL_KINDS, createSignalQueue, createGate } =
+    await import(pathToFileURL(f).href);
+
+  // ① 표 → 캐시 접두 · kind는 접두의 첫 마디
+  assert.deepStrictEqual(prefixesOf('services'), ['worship', 'home']);
+  assert.deepStrictEqual(kindsOf('services'), ['worship', 'home']);
+  assert.deepStrictEqual(kindsOf('qt_entries'), ['word', 'home'],
+    '나눔은 말씀 화면과 홈 카드를 같이 흔든다');
+  assert.ok(V2_TABLES.every(t => !prefixesOf(t).some(p => p.startsWith('home:'))),
+    '홈은 접두를 쪼개지 않는다 — 카드 열쇠 이름이 바뀌어도 낡지 않게');
+  assert.ok(prefixesOf('attendance').includes('groups:mine'),
+    '출석은 모임 화면의 내 순 소식(참석 수)도 낡게 한다');
+  assert.deepStrictEqual(kindsOf('people'), ['groups', 'roster', 'worship', 'home'],
+    '명단이 바뀌면 출석 명단도 바뀐다 — 주보 상세까지 같이 다시 읽는다');
+  assert.deepStrictEqual(prefixesOf('cards'), [], 'v1 표는 이 채널이 손대지 않는다');
+  assert.strictEqual(V2_TABLES.length, 9, '0049가 발행에 넣은 표 아홉 개');
+  assert.deepStrictEqual([...ALL_KINDS].sort(), ['groups', 'home', 'roster', 'word', 'worship']);
+
+  // ② 디바운스 — 연속 이벤트가 한 번의 알림으로 합쳐진다(주보 저장 한 번이 UPDATE 여러 건)
+  {
+    const dropped = [];
+    const calls = [];
+    const q = createSignalQueue({ drop: p => dropped.push(p), notify: ks => calls.push(ks), delay: 5 });
+    assert.strictEqual(q.push('cards'), false, '모르는 표는 아무 일도 하지 않는다');
+    assert.strictEqual(q.push('services'), true);
+    q.push('attendance'); q.push('qt_entries');
+    assert.deepStrictEqual(calls, [], '디바운스가 끝나기 전에는 알리지 않는다');
+    assert.ok(dropped.includes('worship') && dropped.includes('word:qt'),
+      '캐시는 화면이 떠 있든 아니든 바로 비운다(다음 진입의 첫 프레임이 옛 값이면 안 된다)');
+    await new Promise(r => setTimeout(r, 30));
+    assert.strictEqual(calls.length, 1, '세 이벤트가 재조회 한 번으로 합쳐진다');
+    assert.deepStrictEqual([...calls[0]].sort(), ['groups', 'home', 'word', 'worship']);
+    // 재접속 — 끊겨 있던 동안의 이벤트는 오지 않았으니 전부 한 번 다시 읽는다
+    q.pushAll();
+    await new Promise(r => setTimeout(r, 30));
+    assert.strictEqual(calls.length, 2);
+    assert.deepStrictEqual([...calls[1]].sort(), [...ALL_KINDS].sort());
+  }
+
+  // ③ enabled가 false면 건너뛰고, 다시 켜질 때 한 번만 흘린다(편집 중인 주보 보호)
+  {
+    let n = 0;
+    const g = createGate(() => { n += 1; });
+    g.signal(true);
+    assert.strictEqual(n, 1, '켜져 있으면 바로 재조회');
+    g.signal(false); g.signal(false);
+    assert.strictEqual(n, 1, '편집 중에는 재조회로 덮지 않는다');
+    assert.strictEqual(g.missed(), true, '대신 기억해 둔다');
+    g.enable(true);
+    assert.strictEqual(n, 2, '나오면 한 번만 흐른다(두 번 왔어도 한 번)');
+    g.enable(true);
+    assert.strictEqual(n, 2, '기억이 없으면 아무 일도 없다');
+  }
+
+  // ④ 채널 규칙 — 게스트 no-op · 로그인 뒤에만 · 같은 topic 걷어내기(§6-3)
+  assert.ok(/if \(!c \|\| channel \|\| opening\) return;/.test(raw), '게스트 모드에서는 채널을 열지 않는다');
+  assert.ok(/if \(!data\?\.session/.test(raw), '로그인 전에는 열지 않는다(RLS가 아무것도 안 준다)');
+  assert.ok(/getChannels\(\)[\s\S]{0,160}removeChannel/.test(raw),
+    '같은 topic 채널을 먼저 걷어낸다 — 이미 subscribe된 채널에 .on을 붙이면 예외다');
+  assert.ok(/if \(wasDown\) \{ wasDown = false; queue\.pushAll\(\); \}/.test(raw),
+    '다시 붙으면 끊겨 있던 동안을 메운다');
+
+  // ⑤ 뷰 배선 — 빠지면 다시 '나갔다 들어와야 보이는' 자리로 돌아간다
+  const view = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const worship = view('../src/views/worshipView.jsx');
+  assert.ok(/useLiveRefresh\('worship', invalidate, screen === 'list'\)/.test(worship),
+    '예배 목록은 실시간으로 갱신하되 상세·출석 화면에서는 건너뛴다');
+  assert.ok(/useLiveRefresh\('word', refreshQt\)/.test(view('../src/views/wordView.jsx')),
+    '그날 나눔 피드가 실시간이다');
+  // **그 화면의 useCached를 하나도 빠뜨리지 않는지**를 소스에서 센다 — 카드를 하나 더
+  // 붙이고 여기에 안 적으면 그 칸만 낡은 채 남는다(이름을 못 박으면 검사가 먼저 낡는다).
+  const allRefreshed = (src, kind) => {
+    const line = (src.split('\n').find(l => l.includes(`useLiveRefresh('${kind}',`)) || '');
+    const names = [...src.matchAll(/const (\w+) = useCached\(/g)].map(m => m[1]);
+    return names.length > 1 && names.every(n => line.includes(`${n}.refresh()`));
+  };
+  assert.ok(allRefreshed(view('../src/views/groupsView.jsx'), 'groups'),
+    '모임 화면의 useCached 묶음이 하나도 빠짐없이 다시 읽는다');
+  assert.ok(allRefreshed(view('../src/views/homeView.jsx'), 'home'),
+    '홈 카드가 하나도 빠짐없이 다시 읽는다');
+  const members = view('../src/views/membersView.jsx');
+  assert.ok(/const rosterTick = useLiveTick\('roster'\)/.test(members)
+    && /\[isAdmin, tab, year, rosterTick\]/.test(members),
+    '명단은 effect가 읽으므로 틱을 deps에 얹는다');
+  console.log('PASS  v2 실시간 라우팅 31가지');
+}
+
+// ── 화면 데이터 캐시의 계약 (services/cache.js · 2026-09-06) ─────────────────
+// 이 파일에는 검사가 하나도 없었다. 캐시는 "빨리 보이게" 하는 곁가지 같지만, 열쇠
+// 네임스페이스가 어긋나면 **남의 계정 값이 보이고**, 접두를 짧게 주면 **엉뚱한 갈래가
+// 같이 지워지고**, 한도에 걸리면 **모든 쓰기가 조용히 실패해 캐시가 옛 값에 굳는다.**
+// 셋 다 화면에서는 "가끔 이상하다"로만 보여서 눈으로는 못 잡는다.
+//
+// 노드에는 localStorage도 supabase도 없다 — import 두 줄을 걷어 내고(순수 계약만 본다)
+// persist()를 켠 다음, 브라우저 저장소를 흉내 낸 스텁을 전역에 놓는다.
+// 되돌리기 검사(실제로 해 봤다): setCacheScope의 purgeKeys 줄을 지우면 '옛 scope 키를
+// 치운다'가 깨지고, writeCache의 재시도를 지우면 '한도에 걸려도 다음 쓰기가 산다'가 깨진다.
+{
+  const raw = readFileSync(new URL('../src/services/cache.js', import.meta.url), 'utf8');
+  const src = raw
+    .replace(/^import[^\n]*\n/gm, '')                                 // react · supabaseClient
+    .replace('const persist = () => !!supabase;', 'const persist = () => true;');
+  const dir = mkdtempSync(join(tmpdir(), 'cache-'));
+  const f = join(dir, 'cache.mjs');
+  writeFileSync(f, src);
+
+  // localStorage 스텁 — quota를 켜면 setItem이 브라우저처럼 던진다
+  const store = new Map();
+  let quota = Infinity;
+  globalThis.localStorage = {
+    get length() { return store.size; },
+    key: (i) => [...store.keys()][i] ?? null,
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => {
+      if (store.size >= quota && !store.has(k)) { const e = new Error('quota'); e.name = 'QuotaExceededError'; throw e; }
+      store.set(k, String(v));
+    },
+    removeItem: (k) => { store.delete(k); },
+  };
+
+  const { setCacheScope, readCache, writeCache, dropCache } = await import(pathToFileURL(f).href);
+  const keys = () => [...store.keys()].sort();
+
+  // ① 열쇠는 사용자별 네임스페이스 안에 있다
+  setCacheScope('u1');
+  writeCache('worship:list:2026', { a: 1 });
+  assert.deepStrictEqual(keys(), ['church_cache_v1:u1:worship:list:2026'], 'scope가 열쇠에 박힌다');
+  assert.deepStrictEqual(readCache('worship:list:2026'), { a: 1 }, '넣은 값이 그대로 나온다');
+
+  // ② scope를 바꾸면 남의 값은 보이지도 남지도 않는다
+  writeCache('groups:all:2026', { b: 2 });
+  setCacheScope('u2');
+  assert.strictEqual(readCache('worship:list:2026'), undefined, '계정을 바꾸면 앞사람 값이 안 보인다');
+  assert.deepStrictEqual(keys(), [], '옛 scope 키는 저장소에서도 치운다(무한 증가 방지)');
+  writeCache('worship:list:2026', { c: 3 });
+  setCacheScope('u2');   // 같은 scope면 아무 일도 하지 않는다
+  assert.deepStrictEqual(readCache('worship:list:2026'), { c: 3 }, '같은 scope는 비우지 않는다');
+
+  // ③ dropCache는 접두다 — 짧게 주면 이웃까지 간다(그래서 갈래마다 첫 도막이 다르다)
+  writeCache('worship:svc:s1', { d: 4 });
+  writeCache('word:qt:2026-09-06', { e: 5 });
+  writeCache('bible:state', { f: 6 });
+  dropCache('worship:list');
+  assert.strictEqual(readCache('worship:list:2026'), undefined, '접두로 지운다');
+  assert.deepStrictEqual(readCache('worship:svc:s1'), { d: 4 }, '옆 갈래(상세)는 남는다');
+  dropCache('word');
+  assert.strictEqual(readCache('word:qt:2026-09-06'), undefined, "dropCache('word')는 묵상을 지우고");
+  assert.deepStrictEqual(readCache('bible:state'), { f: 6 }, "성경 상태는 'bible:'이라 살아남는다");
+
+  // ④ 한도에 걸려도 다음 쓰기가 산다 — 이 scope를 비우고 한 번만 다시 넣는다
+  dropCache('');
+  quota = 2;
+  writeCache('a', 1); writeCache('b', 2);
+  assert.strictEqual(store.size, 2, '한도까지는 그대로 쌓인다');
+  writeCache('c', 3);
+  assert.ok(store.has('church_cache_v1:u2:c'), '한도를 넘어도 방금 쓴 값은 저장소까지 들어간다');
+  assert.strictEqual(store.size, 1, '한도에 걸리면 이 scope를 비우고 다시 넣는다');
+  quota = Infinity;
+
+  // ⑤ 담을 수 없는 값·깨진 값은 '값'이 아니다
+  dropCache('');
+  const circular = {}; circular.self = circular;
+  writeCache('bad', circular);                       // JSON.stringify가 던진다 — 삼킨다
+  assert.deepStrictEqual(keys(), [], '직렬화 못 하는 값은 저장소에 안 들어간다');
+  store.set('church_cache_v1:u2:broken', '{oops');
+  assert.strictEqual(readCache('broken'), undefined, '깨진 JSON은 undefined다(던지지 않는다)');
+
+  // ⑥ 실패한 조회 결과는 캐시에 들어가지 않는다 — 들어가면 다음 진입의 첫 화면이 빈 값이다
+  assert.ok(/const v = await loader\(\);[\s\S]{0,120}writeCache\(k, v\);/.test(raw),
+    '성공한 값만 캐시에 넣는다');
+  assert.ok(/catch \(e\) \{\s*\n\s*if \(my !== token\.current\) return;\s*\n\s*setState\(s => \(\{ \.\.\.s, loading: false, error: e \}\)\);/.test(raw),
+    '실패는 error만 담고 캐시에는 손대지 않는다');
+
+  delete globalThis.localStorage;
+  console.log('PASS  화면 데이터 캐시 계약 17가지');
+}
+
+// ── 새로 읽어 온 묵상을 에디터에 넣어도 되나 (word.shouldAdoptBody · §6-9-n) ──
+// 캐시가 낡아 있으면 옛 글이 에디터에 남고, 그 상태로 저장하면 **서버의 새 글을 덮는다**
+// (2026-09-06 지적). 그렇다고 도착할 때마다 넣으면 쓰던 글을 뺏는다.
+// 되돌리기 검사: `return body === lastSynced`를 `return false`로 바꾸면 '안 고쳤으면
+// 신선한 값으로 간다'가 깨지고, `true`로 바꾸면 '고치던 글은 지킨다'가 깨진다.
+{
+  const src = readFileSync(new URL('../src/services/word.js', import.meta.url), 'utf8')
+    .replace(/import \{ supabase \} from '\.\/supabaseClient\.js';/, 'const supabase = null;');
+  const dir = mkdtempSync(join(tmpdir(), 'wordad-'));
+  const f = join(dir, 'word.mjs');
+  writeFileSync(f, src);
+  const { shouldAdoptBody } = await import(pathToFileURL(f).href);
+
+  assert.strictEqual(shouldAdoptBody({ dateChanged: true, body: '쓰던 글', lastSynced: '', next: '' }), true,
+    '날짜가 바뀌면 언제나 갈아 끼운다(다른 날의 글이다)');
+  assert.strictEqual(shouldAdoptBody({ body: '옛 글', lastSynced: '옛 글', next: '새 글' }), true,
+    '캐시로 넣어 준 글 그대로면 신선한 값으로 간다(stale이 새 글을 덮던 자리)');
+  assert.strictEqual(shouldAdoptBody({ body: '고치던 글', lastSynced: '옛 글', next: '새 글' }), false,
+    '한 글자라도 고쳤으면 그대로 둔다');
+  assert.strictEqual(shouldAdoptBody({ body: '같은 글', lastSynced: '아무거나', next: '같은 글' }), false,
+    '넣어 봐야 같은 글이면 건드리지 않는다(헛렌더 금지)');
+  assert.strictEqual(shouldAdoptBody({ body: '', lastSynced: '', next: '남이 쓴 새 글' }), true,
+    '빈 칸이면 도착한 글로 채운다');
+  assert.strictEqual(shouldAdoptBody(), false, '아무것도 안 주면 아무 일도 안 한다');
+
+  // 화면이 실제로 그 판정을 쓰고 있나(순수 함수만 맞아도 배선이 빠지면 그대로다)
+  const view = readFileSync(new URL('../src/views/wordView.jsx', import.meta.url), 'utf8');
+  assert.ok(/shouldAdoptBody\(\{ dateChanged, body: bodyRef\.current, lastSynced: syncedBody\.current, next: next\.body \}\)/.test(view),
+    'wordView가 그 판정으로 body를 갈아 끼운다');
+  assert.ok(/syncedBody\.current = body;/.test(view), '저장하면 기준도 그 글로 옮긴다');
+  // 재조회 실패가 캐시 화면을 '묵상 없음'으로 만들지 않는다
+  assert.ok(/if \(!qt \|\| qt\.date !== date\) \{\s*\n\s*setEntry\(\{ date, body: '', shared: false, exists: false \}\)/.test(view),
+    '캐시가 있으면 빈 칸을 세우지 않고 토스트만 한다');
+  assert.ok(/if \(qtError && !ref\) \{ setDay\(/.test(view),
+    '본문도 같다 — 캐시된 구절이 있으면 그것을 그린다');
+
+  // 형광펜: 로딩 중에 칠한 것을 도착값이 덮지 않는다(ref 플래그)
+  const bible = readFileSync(new URL('../src/components/wordBible.jsx', import.meta.url), 'utf8');
+  assert.strictEqual((bible.match(/edited\.current = true;/g) || []).length, 2,
+    'update 둘(useBibleState · BibleTab)이 모두 표식을 놓는다');
+  assert.ok(/if \(!alive \|\| edited\.current\) return;/.test(bible),
+    'useBibleState: 내가 고쳤으면 도착값을 버린다');
+  assert.ok(/if \(!edited\.current\) \{ setState\(saved\); writeCache\(STATE_KEY, saved\); \}/.test(bible),
+    'BibleTab: 첫 진입 이펙트도 같은 판단');
+  assert.ok(/const STATE_KEY = 'bible:state';/.test(bible),
+    "성경 상태 열쇠는 'bible:'로 시작한다 — dropCache('word')에 쓸려가지 않게");
+  console.log('PASS  묵상 본문 동기화 · 성경 상태 14가지');
 }

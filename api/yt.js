@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 // ============================================================================
-// /api/yt — 유튜브 재생목록·영상 제목 프록시. **키가 필요 없는 공개 경로만** 쓴다.
+// /api/yt — 유튜브 재생목록·영상 제목 프록시.
 //   요구: Authorization: Bearer <supabase access token> (getUser로 검증 — api/ai.js와 같다)
 //   { listId }  → YOUTUBE_API_KEY가 있으면 Data API playlistItems(50개씩 페이지 넘김, 전체)
 //                 없으면 https://www.youtube.com/feeds/videos.xml?playlist_id=<id>  (RSS, 최신 15곡)
@@ -14,10 +14,10 @@ import { createClient } from '@supabase/supabase-js';
 // 통과한 것만 유튜브 주소로 조립한다. 주소를 그대로 받아 그대로 fetch하면 로그인만
 // 있으면 우리 서버로 남의 심부름을 시킬 수 있는 열린 프록시가 된다.
 //
-// ponytail: RSS는 **최신 15개까지만** 준다(유튜브가 정한 상한). 한 예배에 부르는
-// 찬양이 그보다 많은 경우는 없어서 이대로 둔다. 더 필요해지면 YouTube Data API 키를
-// 받아 playlistItems.list(maxResults=50 · 페이지 넘김)로 바꾸면 되고, 그때 바뀌는
-// 것은 이 파일과 환경변수뿐이다(화면·서비스 계층은 그대로).
+// 재생목록을 받는 길이 둘인 이유: 키가 있으면 Data API가 **전체**를 주고, 없으면 RSS가
+// **최신 15개까지만** 준다(유튜브가 정한 상한). 키는 YOUTUBE_API_KEY 하나뿐이고 없어도
+// 동작하므로, 환경변수를 안 넣은 배포·로컬에서도 화면은 그대로 돈다. 돌려주는 모양은
+// 두 길이 같다({ items: [{ title, videoId }] }) — 화면·서비스 계층은 어느 쪽인지 모른다.
 // ============================================================================
 const TIMEOUT_MS = 8000;
 const LIST_ID = /^[A-Za-z0-9_-]{10,64}$/;
@@ -96,7 +96,7 @@ export default async function handler(req, res) {
           if (!pageToken) break;
         }
         if (!items.length) { res.status(404).json({ error: '그 재생목록에 영상이 한 곡도 없어요' }); return; }
-        res.status(200).json({ items, complete: true });
+        res.status(200).json({ items });
         return;
       }
       const { status, text } = await getText(`https://www.youtube.com/feeds/videos.xml?playlist_id=${listId}`);

@@ -57,33 +57,53 @@ export const deepLink = (projectId, cardId) => {
 // profileIds(= auth.users.id)의 모든 기기로 보낸다. 한 사람이 여러 기기를 가질 수 있다.
 // 410/404는 "그 구독은 죽었다"는 뜻이므로 행을 지운다 — 안 지우면 앱을 지운 기기로
 // 매번 보내고, 그 실패가 로그를 가려서 진짜 실패를 못 본다.
-async function sendToProfiles(db, profileIds, { title, body, url, tag }) {
-  if (!pushReady()) return { sent: 0, dropped: 0 };
+//
+// **준비(질의)와 발송을 갈라 둔 이유**: 마감 임박 배치는 한 번 돌 때 알림이 여러 건이고,
+// 예전에는 그 한 건마다 sendToProfiles를 불러 구독 조회 + 안 읽은 수 집계를 **다시** 했다
+// (알림 N건 → 왕복 2N번, 그것도 순차 await). 지금은 받는 사람 전부를 한 번에 읽어
+// 사람별 Map으로 들고, 카드별 발송은 그 Map만 본다.
+
+// 구독 · 안 읽은 알림 수를 한 번에 읽어 사람별로 묶는다.
+async function loadTargets(db, profileIds) {
   const ids = [...new Set((profileIds || []).filter(Boolean))];
-  if (!ids.length) return { sent: 0, dropped: 0 };
+  const byProfile = new Map();
+  const unread = new Map();
+  if (!ids.length) return { byProfile, unread };
 
   const { data: subs, error } = await db
     .from('push_subscriptions')
     .select('profile_id, endpoint, p256dh, auth')
     .in('profile_id', ids);
   if (error) throw error;
-  if (!subs?.length) return { sent: 0, dropped: 0 };
+  for (const s of subs || []) {
+    const list = byProfile.get(s.profile_id);
+    if (list) list.push(s); else byProfile.set(s.profile_id, [s]);
+  }
+  if (!byProfile.size) return { byProfile, unread };
 
   // 아이콘 위 숫자(안 읽은 알림 수)는 **받는 사람마다 다르다** — payload를 하나로 만들어
   // 돌려쓸 수 없다. 사람 수만큼 질의하지 않도록 한 번에 세어 Map에 담아 둔다.
   // 이 시점에는 이 알림의 행이 이미 insert된 뒤다(insertNotifications도 배치도 그 순서다).
-  const unread = new Map();
-  {
-    const { data: rows, error: cntErr } = await db
-      .from('notifications').select('recipient_id').eq('read', false).in('recipient_id', ids);
-    // 못 세면 숫자만 빠진다 — 알림 자체는 보낸다.
-    if (cntErr) console.error('[push] 안 읽은 수 세기 실패:', cntErr);
-    else for (const r of rows || []) unread.set(r.recipient_id, (unread.get(r.recipient_id) || 0) + 1);
-  }
+  const { data: rows, error: cntErr } = await db
+    .from('notifications').select('recipient_id').eq('read', false).in('recipient_id', ids);
+  // 못 세면 숫자만 빠진다 — 알림 자체는 보낸다.
+  if (cntErr) console.error('[push] 안 읽은 수 세기 실패:', cntErr);
+  else for (const r of rows || []) unread.set(r.recipient_id, (unread.get(r.recipient_id) || 0) + 1);
 
-  const dead = [];
+  return { byProfile, unread };
+}
+
+// 준비된 구독으로 한 건 보낸다. 죽은 구독은 dead에 모으고, 지우는 것은 부르는 쪽이
+// 마지막에 한 번만 한다(같은 기기가 여러 알림에 걸려도 삭제는 한 번).
+async function pushWith(targets, profileIds, { title, body, url, tag }, dead) {
+  const { byProfile, unread } = targets;
+  const deadSet = new Set(dead);
+  const subs = [...new Set((profileIds || []).filter(Boolean))]
+    .flatMap(id => byProfile.get(id) || [])
+    .filter(s => !deadSet.has(s.endpoint));
+  if (!subs.length) return 0;
+
   let sent = 0;
-
   await Promise.all(subs.map(async (s) => {
     try {
       await webpush.sendNotification(
@@ -98,12 +118,27 @@ async function sendToProfiles(db, profileIds, { title, body, url, tag }) {
       else console.error('[push] 발송 실패:', e?.statusCode, e?.body || e?.message);
     }
   }));
+  return sent;
+}
 
-  if (dead.length) {
-    const { error: delErr } = await db.from('push_subscriptions').delete().in('endpoint', dead);
-    if (delErr) console.error('[push] 죽은 구독 정리 실패:', delErr);
-  }
-  return { sent, dropped: dead.length };
+async function dropDead(db, dead) {
+  const gone = [...new Set(dead)];
+  if (!gone.length) return 0;
+  const { error } = await db.from('push_subscriptions').delete().in('endpoint', gone);
+  if (error) console.error('[push] 죽은 구독 정리 실패:', error);
+  return gone.length;
+}
+
+// 한 건짜리 입구(POST)용 — 준비와 발송을 한 번에.
+async function sendToProfiles(db, profileIds, payload) {
+  if (!pushReady()) return { sent: 0, dropped: 0 };
+  const ids = [...new Set((profileIds || []).filter(Boolean))];
+  if (!ids.length) return { sent: 0, dropped: 0 };
+
+  const targets = await loadTargets(db, ids);
+  const dead = [];
+  const sent = await pushWith(targets, ids, payload, dead);
+  return { sent, dropped: await dropDead(db, dead) };
 }
 
 // ── POST: 앱이 만든 알림을 푸시로 한 번 더 ──────────────────────────────────
@@ -196,16 +231,22 @@ async function handleDueSoon(req, res) {
   })));
   if (insErr) { console.error('[push] due_soon 생성 실패:', insErr); res.status(502).json({ error: '알림 생성 실패' }); return; }
 
-  // 푸시는 카드별로 보낸다(제목이 카드마다 다르므로 한 번에 묶을 수 없다).
+  // 푸시는 카드별로 보낸다(제목이 카드마다 다르므로 한 번에 묶을 수 없다). 하지만
+  // **구독·안 읽은 수는 한 번만 읽는다** — 알림마다 다시 물으면 왕복이 알림 수의 두 배가
+  // 된다(N+1). 안 읽은 수는 위 insert가 끝난 뒤의 값이라 루프 도중에 바뀌지 않는다.
   let sent = 0;
-  for (const w of fresh) {
-    const r = await sendToProfiles(db, [w.recipientId], {
-      title: notifLine('due_soon'),
-      body: w.preview,
-      url: deepLink(w.projectId, w.cardId),
-      tag: `card:${w.cardId}`,
-    });
-    sent += r.sent;
+  if (pushReady()) {
+    const targets = await loadTargets(db, fresh.map(w => w.recipientId));
+    const dead = [];
+    for (const w of fresh) {
+      sent += await pushWith(targets, [w.recipientId], {
+        title: notifLine('due_soon'),
+        body: w.preview,
+        url: deepLink(w.projectId, w.cardId),
+        tag: `card:${w.cardId}`,
+      }, dead);
+    }
+    await dropDead(db, dead);
   }
   res.status(200).json({ cards: cards.length, notified: fresh.length, sent, skipped: wanted.length - fresh.length });
 }

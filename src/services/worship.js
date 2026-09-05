@@ -1,5 +1,7 @@
 import { supabase } from './supabaseClient.js';
 import { fetchPeople, fetchGroups, fetchGroupMembers, fetchMyPerson, fetchRoles, guestStore } from './people.js';
+import { listServiceFiles, uploadServiceFile as uploadServiceFileToDrive, ensureServiceFolder, deleteAttachment } from './cloud.js';
+import { downscaleImage, FILE_MAX_DIM } from './image.js';
 import { generateId } from '../utils.js';
 
 // ============================================================================
@@ -20,7 +22,7 @@ import { generateId } from '../utils.js';
 // 경로(RLS·실데이터)는 사람이 확인해야 한다 — HANDOFF §2-6.
 // ============================================================================
 
-const COLS = 'id, kind, service_date, status, title, passage_ref, preacher, roles, songs, notices, praise_leader, praise_playlist_url, attendance_note, created_at, updated_at';
+const COLS = 'id, kind, service_date, status, title, passage_ref, preacher, roles, songs, notices, praise_leader, praise_playlist_url, attendance_note, drive_folder_id, created_at, updated_at';
 
 export const SUNDAY_KIND = 'sunday';
 const SUNDAY_LABEL = '주일 4부 젊은이 예배';
@@ -258,6 +260,63 @@ export async function removeService(id) {
   if (error) throw error;
 }
 
+// ── 송폼 (주보에 붙는 파일 · 0047) ──────────────────────────────────────────
+// 저장 자리는 업무 첨부와 **같은 files 표**다(축만 card_id → service_id로 바뀐다).
+// 드라이브도 같은 길이라(cloud.uploadServiceFile → uploadOwnedFile) 3MB 갈래·멱등
+// 열쇠·미리보기·내려받기·휴지통이 전부 그대로 동작한다. 여기서 가르는 것은
+// 게스트/클라우드뿐이다.
+//
+// **게스트 모드에는 드라이브도 Storage도 없다.** 행만 localStorage에 남기고 바이트는
+// 메모리에 둔다(§6-29-k와 같은 이유 — localStorage는 문자열 5MB라 PDF 한 장도 못 담는다).
+// 새로고침하면 줄은 남고 미리보기만 못 연다.
+const guestBytes = new Map();   // files.id → 고른 File (게스트 세션 동안만)
+
+export async function fetchServiceFiles(serviceId) {
+  if (!supabase) {
+    return guestRows('files')
+      .filter(f => f.service_id === serviceId)
+      .map(f => (guestBytes.has(f.id) ? { ...f, _file: guestBytes.get(f.id) } : f));
+  }
+  return listServiceFiles(serviceId);
+}
+
+// 드라이브 폴더는 **파일 바이트가 오가기 전에** 한 번만 확보한다(§6-29-h).
+// 게스트에는 폴더가 없다 — null이면 부르는 쪽이 그냥 올린다.
+export async function ensureServiceDriveFolder(service) {
+  if (!supabase) return null;
+  return ensureServiceFolder(service);
+}
+
+export async function uploadServiceFile(service, file, folderId = null) {
+  if (!supabase) {
+    const row = {
+      id: generateId(), service_id: service.id, name: file.name,
+      size_bytes: file.size ?? null, mime_type: file.type || null, source: 'local',
+    };
+    guestBytes.set(row.id, file);
+    guestSet('files', [...guestRows('files'), row]);
+    return { ...row, _file: file };
+  }
+  // 사진으로 찍어 온 송폼도 있다 — 첨부와 같이 보내기 직전에 줄인다(§6-29-m).
+  // 사진이 아니거나 이미 작으면 원본 그대로 간다.
+  const sending = await downscaleImage(file, FILE_MAX_DIM, 0.9);
+  return uploadServiceFileToDrive(sending, {
+    serviceId: service.id,
+    serviceDate: service.service_date,
+    serviceFolderId: folderId || service.drive_folder_id || null,
+  });
+}
+
+// 지우는 길은 업무 첨부와 한 벌이다 — **DB 행부터, 실체는 그 뒤 최선으로**(§6-29-e).
+export async function removeServiceFile(row) {
+  if (!supabase) {
+    guestBytes.delete(row.id);
+    guestSet('files', guestRows('files').filter(f => f.id !== row.id));
+    return;
+  }
+  return deleteAttachment(row);
+}
+
 // ── 명단 · 자격 ─────────────────────────────────────────────────────────────
 
 // 그 예배 날짜의 연도 순 편성. 순은 해마다 다시 짜므로 '올해'가 아니라 그 예배의 해다.
@@ -304,6 +363,28 @@ export async function addRosterPerson(name) {
   return data;
 }
 
+// 갓 올린 사람을 **그 순의 명단에 넣는다**(0035 group_members · 0050).
+// 왜 여기 있나: `attendance_insert`는 `leads_sun_of(person_id)` — "그 사람이 내 순의
+// 순원인가"를 묻는데, 방금 만든 사람은 어느 순에도 없다. 그래서 순장이 올린 새신자는
+// 명단에만 오르고 출석이 42501로 막혔다(순장 계정으로 재현 2026-09-06). 순장에게는
+// 사람을 만들 자격만 있고(people_insert의 leads_any_sun) 자기 순에 넣을 자격이 없었다 —
+// 그 한 칸을 0050이 연다.
+//
+// **이미 구성원인 것은 실패가 아니다** — PK가 (group_id, person_id)라 두 번 넣으면
+// 23505가 나는데 넣으려던 상태는 이미 참이다(groups.addMember와 같은 판단 · §6의 23505).
+// 게스트에서는 groups.addMember(church_groups_v1)가 아니라 **예배 저장 자리**에 넣는다 —
+// 출석 화면의 명단(fetchRoster)이 읽는 곳이 그쪽이다(people.js guestStore 주석).
+export async function addToSun(groupId, personId) {
+  if (!groupId || !personId) return;
+  if (!supabase) {
+    const rows = guestRows('group_members').filter(m => !(m.group_id === groupId && m.person_id === personId));
+    guestSet('group_members', [...rows, { group_id: groupId, person_id: personId }]);
+    return;
+  }
+  const { error } = await supabase.from('group_members').insert({ group_id: groupId, person_id: personId });
+  if (error && String(error.code) !== '23505') throw error;
+}
+
 // ── 출석 ────────────────────────────────────────────────────────────────────
 // 행이 있으면 출석, 지우면 취소(0036). 화면은 낙관적으로 먼저 바꾸고 실패하면 되돌린다.
 
@@ -314,13 +395,21 @@ export async function fetchAttendance(serviceId) {
   return (data ?? []).map(r => r.person_id);
 }
 
+// **"이미 출석"은 실패가 아니다**(§6의 23505 항목과 같은 판단). PK가 (service_id,
+// person_id)라 두 번 찍으면 23505가 나는데, 넣으려던 상태는 이미 참이다. 예전에는
+// 화면이 켠 칩을 도로 끄고 '표시하지 못했어요'라고 말했다 — DB에는 있는데 화면만
+// 없다고 하는, 정확히 반대로 된 답이었다(2026-09-06 지적). upsert + ignoreDuplicates가
+// 그 왕복을 아예 없앤다(존재하면 아무 일도 하지 않는다).
 export async function checkIn(serviceId, personId) {
   if (!supabase) {
     const rows = guestRows('attendance').filter(a => !(a.service_id === serviceId && a.person_id === personId));
     guestSet('attendance', [...rows, { service_id: serviceId, person_id: personId }]);
     return;
   }
-  const { error } = await supabase.from('attendance').insert({ service_id: serviceId, person_id: personId });
+  const { error } = await supabase.from('attendance').upsert(
+    { service_id: serviceId, person_id: personId },
+    { onConflict: 'service_id,person_id', ignoreDuplicates: true },
+  );
   if (error) throw error;
 }
 

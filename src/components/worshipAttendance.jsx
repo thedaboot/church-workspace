@@ -160,18 +160,25 @@ export function AttendanceScreen({
         )}
       </div>
 
-      <section className="mt-7 max-w-[42rem]">
-        <div className="flex items-center gap-2 pb-2.5">
-          <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">출석 메모</h3>
-          <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
-          {/* 주보 편집·예배 노트와 같은 저장 표시 한 벌(worshipDetail의 SaveState) */}
-          <SaveState state={noteState} />
-        </div>
-        <textarea
-          value={note} onChange={e => { dirty.current = true; setNote(e.target.value); }}
-          aria-label="출석 메모" placeholder="예: 오늘은 새신자가 두 명 왔어요"
-          className="w-full resize-y min-h-[4.5rem] text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint leading-relaxed" />
-      </section>
+      {/* 출석 메모는 **주보 편집 자격자만** 쓴다(2026-09-06). 저장 자리가 주보 행의
+          `services.attendance_note`라 저장 경로가 saveService → services_write
+          (can_edit_service)다. 칸은 누구에게나 보이는데 저장은 순장에게 42501이라,
+          순장이 쓴 메모는 한 줄도 남지 않고 '이미 지워졌어요' 토스트만 떴다.
+          자격을 넓히는 것은 사용자 결정이 필요한 자리라(0042·0045) 화면을 자격에 맞춘다. */}
+      {perms.canEdit && (
+        <section className="mt-7 max-w-[42rem]">
+          <div className="flex items-center gap-2 pb-2.5">
+            <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">출석 메모</h3>
+            <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
+            {/* 주보 편집·예배 노트와 같은 저장 표시 한 벌(worshipDetail의 SaveState) */}
+            <SaveState state={noteState} />
+          </div>
+          <textarea
+            value={note} onChange={e => { dirty.current = true; setNote(e.target.value); }}
+            aria-label="출석 메모" placeholder="예: 오늘은 새신자가 두 명 왔어요"
+            className="w-full resize-y min-h-[4.5rem] text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint leading-relaxed" />
+        </section>
+      )}
     </div>
   );
 }

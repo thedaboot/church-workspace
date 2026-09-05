@@ -53,6 +53,20 @@ export function weekRange(iso) {
   return [start, shiftDay(start, 6)];
 }
 
+// ── 편집기에 새로 읽어 온 글을 넣어도 되나 (§6-9-n의 짝) ────────────────────
+// 화면은 캐시된 묵상을 먼저 그리고 뒤에서 다시 읽어 갈아 끼운다(services/cache.js).
+// 예전에는 **날짜가 바뀔 때만** 에디터에 글을 넣어서, 캐시가 낡아 있으면 옛 글이 그대로
+// 남았고 그 상태로 저장하면 서버의 새 글을 옛 글로 덮었다(2026-09-06 지적).
+// 그렇다고 도착할 때마다 넣으면 쓰던 글을 뺏는다. 그래서 셋으로 가른다:
+//   · 날짜가 바뀌었으면 → 언제나 넣는다(다른 날의 글이다)
+//   · 사람이 아직 안 고쳤으면(지금 글 === 마지막으로 넣어 준 글) → 신선한 값으로 간다
+//   · 한 글자라도 고쳤으면 → 그대로 둔다
+export function shouldAdoptBody({ dateChanged = false, body = '', lastSynced = '', next = '' } = {}) {
+  if (dateChanged) return true;
+  if (next === body) return false;     // 넣어 봐야 같은 글이다
+  return body === lastSynced;          // 손대지 않았으면 새 값이 맞다
+}
+
 // ── 게스트(로컬) 저장 ───────────────────────────────────────────────────────
 const LS = {
   schedule: 'word_qt_schedule',   // { 'YYYY-MM-DD': { passage_ref, label } }
@@ -155,8 +169,18 @@ export async function deleteEntryAsMaster(id) {
     lsSet(LS.shared, all);
     return;
   }
-  const { error } = await supabase.from('qt_entries').delete().eq('id', id);
+  // **지워진 행 수를 확인한다.** 정책이 걸러 낸 행은 delete의 대상이 아니라서 오류가
+  // 나지 않는다 — 마스터가 아닌 사람이 눌러도 성공으로 돌아왔고, 화면은 '지웠어요'라고
+  // 말한 뒤 다시 읽어 온 목록에 그 줄이 그대로 서 있었다(2026-09-06 지적).
+  // 여기서 `.select()`는 안전하다(§6-25와 다르다) — qt_entries의 SELECT 정책은 공유된
+  // 글을 모두에게 열어 두므로 방금 지운 행을 되읽을 수 있다.
+  const { data, error } = await supabase.from('qt_entries').delete().eq('id', id).select('id');
   if (error) throw error;
+  if (!(data || []).length) {
+    const err = new Error(`qt_entries delete affected 0 rows (id=${id})`);
+    err.human = '이미 지워졌거나 지울 자격이 없어요\n새로고침해주세요';   // errorText가 human을 먼저 본다
+    throw err;
+  }
 }
 
 // 그 날의 나눔 — '나누기'를 켠 글만. RLS도 같은 경계를 본다(0036).
@@ -214,17 +238,25 @@ export async function fetchMyEntryDates(from, to) {
 const EMPTY_STATE = { lastRef: '', bookmarks: [], highlights: [] };
 const arr = (v) => (Array.isArray(v) ? v : []);
 
+// 성경 상태의 로컬 자리는 **사용자별**이다(2026-09-06). 예전에는 'word_bible_state' 한 키라,
+// 한 기기에서 계정을 바꾸면 클라우드가 흔들리는 순간 폴백이 **앞사람의 북마크·형광펜**을
+// 집어 왔다(그리고 그 값이 그대로 다시 저장됐다). 게스트(supabase 없음)에는 계정이 없으므로
+// 예전 키를 그대로 쓴다 — 브라우저 스위트가 심는 자리도 그쪽이다(tests/word.mjs).
+const bibleKey = (uid) => (uid ? `${LS.bible}:${uid}` : LS.bible);
+
 export async function loadBibleState() {
   if (!supabase) return { ...EMPTY_STATE, ...lsGet(LS.bible, EMPTY_STATE) };
+  let uid = null;
   try {
-    const uid = await myId();
+    uid = await myId();
     if (!uid) return { ...EMPTY_STATE };
     const { data, error } = await supabase.from('bible_state')
       .select('last_ref, bookmarks, highlights').eq('profile_id', uid).maybeSingle();
     if (error) throw error;
     return { lastRef: data?.last_ref || '', bookmarks: arr(data?.bookmarks), highlights: arr(data?.highlights) };
   } catch {
-    return { ...EMPTY_STATE, ...lsGet(LS.bible, EMPTY_STATE) };
+    // 누구인지 모르면 폴백도 없다 — 모르는 채로 로컬을 읽으면 남의 값을 보여 준다
+    return uid ? { ...EMPTY_STATE, ...lsGet(bibleKey(uid), EMPTY_STATE) } : { ...EMPTY_STATE };
   }
 }
 
@@ -233,10 +265,11 @@ export async function loadBibleState() {
 // `{ ok, error }`를 돌려주고, 북마크·형광펜처럼 사람이 **한 일이 사라지는** 경우에만
 // 부르는 쪽이 이유까지 붙여 말한다(wordBible의 update). 이어읽기는 조용히 넘긴다.
 export async function saveBibleState(next) {
-  lsSet(LS.bible, next);   // 로그인해도 로컬에 같이 남긴다 — 클라우드가 흔들려도 읽던 자리는 지킨다
-  if (!supabase) return { ok: true };
+  if (!supabase) { lsSet(LS.bible, next); return { ok: true }; }
+  let uid = null;
+  try { uid = await myId(); } catch { /* 세션을 못 물어봐도 로컬에는 남긴다 */ }
+  lsSet(bibleKey(uid), next);   // 로그인해도 로컬에 같이 남긴다 — 클라우드가 흔들려도 읽던 자리는 지킨다
   try {
-    const uid = await myId();
     if (!uid) return { ok: true };   // 로그인 전이면 기기에만 남는 것이 정상이다
     const { error } = await supabase.from('bible_state').upsert(
       {

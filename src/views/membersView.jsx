@@ -6,14 +6,15 @@ import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { RosterPanel } from '../components/roster.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText, objectParticle } from '../services/errorText.js';
-import { agoLabel, visitOrder, isoTime } from '../utils.js';
+import { agoLabel, visitOrder, isoTime, mergeActivitySeen } from '../utils.js';
 import { usePresence } from '../services/presence.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import { useStore } from '../store/workspaceStore.js';
-import { selectMembers } from '../store/selectors.js';
+import { selectMembers, selectActivityFeed } from '../store/selectors.js';
 import * as cloud from '../services/cloud.js';
 import { isCloudEnabled } from '../services/supabaseClient.js';
-import { readCache, writeCache } from '../services/cache.js';
+import { readCache, writeCache, dropCache } from '../services/cache.js';
+import { useLiveTick } from '../services/liveV2.js';
 import * as roster from '../services/roster.js';
 
 // ============================================================================
@@ -105,7 +106,11 @@ export function MembersView({ isAdmin, isMaster }) {
   // 라우팅) 거기서 **다녀간 시각만** 겹쳐 쓴다 — 같은 값·같은 경로다.
   // 목록 자체를 스토어로 갈지 않는 이유: 이 화면은 승인 대기·환송한 사람과 이메일까지
   // 다루는데 스토어의 members는 그들을 걸러 낸다(0027).
-  const storeMembers = useStore(selectMembers);
+  // **활동까지 같이 본다**(2026-09-06 · 사용자 지적 "1분 전 수정 · 4분 전 다녀감").
+  // 대시보드 사람 칸과 **같은 함수**(utils.mergeActivitySeen)를 지나야 두 화면이 같이 움직인다.
+  const storeMembersRaw = useStore(selectMembers);
+  const feed = useStore(selectActivityFeed);
+  const storeMembers = useMemo(() => mergeActivitySeen(storeMembersRaw, feed), [storeMembersRaw, feed]);
   const seenById = useMemo(
     () => new Map(storeMembers.map(m => [m.id, m.lastSeenAt || ''])), [storeMembers]);
   // 둘 중 나중 것. 스토어를 항상 믿지 않는 이유는 업무 창을 편집하는 동안 전체 재조회가
@@ -136,9 +141,21 @@ export function MembersView({ isAdmin, isMaster }) {
   //
   // **캐시가 있으면 그것이 첫 화면이다.** readCache는 render에서 읽는다(effect는 그림을
   // 그린 뒤에 돌아서, effect에서 채우면 매 진입마다 스켈레톤이 한 프레임 스친다).
+  // 남이 명단·직분·순 편성을 고치면 신호가 온다(0049 · services/liveV2.js). 여기는
+  // useCached가 아니라 effect가 읽으므로 **숫자 하나**를 받아 deps에 얹는다.
+  const rosterTick = useLiveTick('roster');
   const bookKey = `roster:${year}`;
   const shownBook = book?.key === bookKey ? book.data : readCache(bookKey);
-  const putBook = (data) => { writeCache(bookKey, data); setBook({ key: bookKey, data }); };
+  // 명단을 고치면 **명단을 읽는 다른 화면의 캐시도 비운다**(2026-09-06). 사람·직분·순
+  // 편성은 여기서만 고치는데, 모임(groups:*)과 예배 상세(worship:svc:* — 출석 명단)는
+  // 그 값을 각자 캐시해 두고 있다. 안 비우면 순장을 바꾸거나 새 청년을 넣은 뒤 예배·모임
+  // 화면이 **다음 진입에서 옛 명단을 먼저** 그린다(그 자리에서 출석을 체크하면 사라진
+  // 사람이 서 있다). 여기서는 비우기만 한다 — 그 화면들이 열릴 때 스스로 다시 읽는다.
+  const putBook = (data) => {
+    writeCache(bookKey, data);
+    setBook({ key: bookKey, data });
+    dropCache('groups'); dropCache('worship:svc'); dropCache('home');
+  };
 
   useEffect(() => {
     if (!isAdmin || tab !== 'roster') return undefined;
@@ -161,7 +178,7 @@ export function MembersView({ isAdmin, isMaster }) {
       }
     })();
     return () => { alive = false; };
-  }, [isAdmin, tab, year]);
+  }, [isAdmin, tab, year, rosterTick]);
 
   if (!isAdmin) {
     return (

@@ -5,6 +5,7 @@ import { showToast } from '../components/Toast.jsx';
 import { failText, objectParticle } from '../services/errorText.js';
 import { useAuth } from '../services/auth.jsx';
 import { useCached, dropCache } from '../services/cache.js';
+import { useLiveRefresh } from '../services/liveV2.js';
 import { MySunPanel, SunNotesSection, SunAdminPanel } from '../components/groupsSun.jsx';
 import { ClubsPanel } from '../components/groupsClub.jsx';
 import { WITH_ICON, useClosing, useSettled } from '../components/groupsParts.jsx';
@@ -130,13 +131,6 @@ export function GroupsView() {
     if (adminQ.error) showToast(failText('그 해 순 편성을 불러오지 못했어요', adminQ.error));
   }, [adminQ.error]);
 
-  // 쓰기 뒤에는 **캐시를 비우고 다시 읽는다** — 비우지 않으면 저장 직후 옛 값이
-  // 한 번 깜빡인다(cache.js 주석).
-  const refresh = useCallback(async () => {
-    dropCache('groups');
-    await Promise.all([baseQ.refresh(), adminQ.refresh()]);
-  }, [baseQ.refresh, adminQ.refresh]);
-
   // ── 내 순의 딸린 섹션은 **한 벌로 읽는다** (사용자 지적 2026-09-03) ──────
   // "공유된 예배 노트와 순모임 가이드가 각각 따로 스켈레톤이 된다." 키를 나눠 두면
   // 둘이 저마다 다른 프레임에 도착해서 자리가 두 번 흔들린다. 한 키에 Promise.all로
@@ -185,6 +179,25 @@ export function GroupsView() {
   const service = mineQ.data?.service || null;
   // Set은 JSON으로 담기지 않는다 — 캐시에는 배열로 두고 여기서 Set으로 세운다
   const present = useMemo(() => new Set(mineQ.data?.present || []), [mineQ.data]);
+
+  // 쓰기 뒤에는 **캐시를 비우고 다시 읽는다** — 비우지 않으면 저장 직후 옛 값이
+  // 한 번 깜빡인다(cache.js 주석).
+  //
+  // **비운 것은 셋인데 다시 읽는 것이 둘이었다**(2026-09-06). dropCache('groups')는 접두
+  // 비교라 `groups:mine:…`까지 가져가는데 mineQ만 refresh를 안 받아서, '내 순 소식'은
+  // 화면에는 옛 값이 남고 캐시는 비어 있는 상태가 됐다 — 다음에 이 화면에 들어오면
+  // 캐시가 없어 **스켈레톤부터 다시**다(캐시를 둔 이유가 사라진다).
+  // mineQ보다 아래에 선언하는 이유는 adminData와 같다 — 위에 두면 의존성이 선언 전
+  // 변수를 읽어 TDZ로 죽는다.
+  const refresh = useCallback(async () => {
+    dropCache('groups');
+    await Promise.all([baseQ.refresh(), adminQ.refresh(), mineQ.refresh()]);
+  }, [baseQ.refresh, adminQ.refresh, mineQ.refresh]);
+
+  // 남이 순을 편성하거나 동아리에 신청·수락하면 몇 초 안에 이 화면에 뜬다
+  // (0049 · services/liveV2.js — 캐시는 liveV2가 이미 비웠다). 끌어 놓은 동아리 순서는
+  // 안전하다 — clubOrder는 그릴 때 얹는 값이라 한 벌을 다시 읽어도 그대로다.
+  useLiveRefresh('groups', () => { baseQ.refresh(); adminQ.refresh(); mineQ.refresh(); });
 
   // 동아리 상세를 열 때 그 동아리의 모임을 읽는다. **캐시에 넣지 않는다** — 출석을
   // 누르면 그 자리에서 바뀌는 값이라(toggleMeeting) 캐시와 화면이 갈리기 쉽고,
@@ -272,10 +285,15 @@ export function GroupsView() {
   // 한 벌은 이제 캐시가 들고 있어서(useCached) 직접 고쳐 넣을 수 없다 — **놓은 순서를
   // 따로 들고 있다가 그릴 때 얹는다.** 저장이 성공하면 다음에 읽어 온 한 벌도 같은
   // 순서라 이 값은 그대로 맞고, 실패하면 비우고 다시 읽어 되돌린다.
+  // 성공한 뒤에는 **한 벌 캐시를 비운다**(2026-09-06). clubOrder는 이 화면이 살아 있는
+  // 동안만 얹히는 값이라, 캐시를 그대로 두면 다음 진입에서 **놓기 전 순서**가 먼저
+  // 그려졌다가 다시 읽어 온 뒤에 제자리로 뛴다. 다시 읽지는 않는다 — 지금 화면은 이미
+  // 맞는 순서다(여기서 refresh를 부르면 놓은 카드가 잠깐 되돌아간다).
   const reorderClubList = useCallback(async (ids) => {
     setClubOrder(ids);
     try {
       await reorderClubs(ids);
+      dropCache('groups:all');
     } catch (e) {
       console.error('[groups] 동아리 순서 저장 실패:', e);
       showToast(failText('동아리 순서를 저장하지 못했어요', e));

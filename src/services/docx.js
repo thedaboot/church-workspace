@@ -16,7 +16,7 @@
 // ============================================================================
 
 import {
-  zipEntries, readEntry, readBytes, unesc, attrs, attr, blocks, topLevel,
+  zipEntries, readEntry, readBytes, unesc, attr, blocks, topLevel,
   relTargets, relsPathOf, halfPtToPx, emuToPx, dataUrl,
 } from './ooxml.js';
 

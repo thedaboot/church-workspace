@@ -38,7 +38,7 @@ class WorkspaceStore {
         nextState = action.payload;
         break;
       // 대시보드 '최근 활동' 피드만 교체 — 실시간(activity)이 부른다. 내 조작이 아니므로
-      // 기록하지 않는다(SYNC_TASK와 같은 이유 — 아래 HYDRATE_TASK 분기에서 걸러진다)
+      // 기록하지 않는다(SYNC_TASK와 같은 이유 — 아래 '기록 안 하는 액션' 분기에서 걸러진다)
       case 'SET_ACTIVITY_FEED':
         nextState = { ...currentState, activityFeed: action.payload };
         break;
@@ -154,7 +154,10 @@ class WorkspaceStore {
     // 상태가 실제로 바뀐 경우에만 History(과거) 저장 (위 HISTORY_LIMIT 주석 참고)
     if (action.type === 'LOAD_STATE') {
       this.state = { past: [], present: nextState, future: [] };
-    } else if (action.type === 'HYDRATE_TASK' || action.type === 'SET_ACTIVITY_FEED'
+    // 'HYDRATE_TASK'라고 적혀 있던 자리다 — **그런 액션은 없다.** 머리 주석이 말하는
+    // 이름은 SYNC_TASK이고, 오타 때문에 서버에서 온 카드 1건이 되돌리기 기록에 그대로
+    // 쌓였다(실시간 재조회가 잦은 탭에서 past가 계속 늘어나는 바로 그 증상).
+    } else if (action.type === 'SYNC_TASK' || action.type === 'SET_ACTIVITY_FEED'
       || action.type === 'SYNC_MEMBER_SEEN') {
       this.state = { ...this.state, present: nextState };
     } else {

@@ -11,7 +11,8 @@
 --     이제 리더팀장·총무·부장으로 갈라 이름과 자리가 맞는다.
 --   · **`officer`는 값에서 완전히 사라진다.** 네 줄 전부 새 값으로 옮기므로 남는 행이
 --     없다(아래 do 블록이 확인한다).
---   · **권한은 그대로다.** `is_officer()`는 "그 해 people_roles 줄이 하나라도 있는가"만
+--   · **권한은 그대로다(이 마이그레이션 시점).** 같은 날 0045가 전체 출석을 리더순장만으로 좁혔고
+--     순 편성·주보에 교역자를 넣었다 — 지금 자격은 0045가 기준. `is_officer()`는 "그 해 people_roles 줄이 하나라도 있는가"만
 --     본다(0035) — 값을 보지 않으므로 새 네 값도 임원과 같은 자리를 그대로 맡는다.
 --     예배 전체 출석 체크(`can_check_all_attendance`)·순 편성 자격(`can_manage_sun`)의
 --     판정이 바뀌지 않는다. docs/V2.md §1 권한 표의 '임원'은 이제 이 다섯 값
@@ -74,10 +75,13 @@ commit;
 --   select name from public.people where sun_exempt;         -- 신효진 · 임성빈(0040 그대로)
 
 -- ── 되돌리기 ────────────────────────────────────────────────────────────────
+-- **줄을 먼저 옮기고 제약을 건다.** 반대로 하면 새 제약이 아직 남아 있는
+-- director·treasurer·lead_team 줄에 걸려 add constraint에서 통째로 죽는다
+-- (제약은 걸리는 순간 기존 행을 전부 검사한다).
 -- begin;
 -- alter table public.people_roles drop constraint people_roles_role_check;
--- alter table public.people_roles add constraint people_roles_role_check
---   check (role in ('president', 'lead_sunjang', 'officer'));
 -- update public.people_roles set role = 'officer'
 --   where role in ('director', 'treasurer', 'lead_team');
+-- alter table public.people_roles add constraint people_roles_role_check
+--   check (role in ('president', 'lead_sunjang', 'officer'));
 -- commit;

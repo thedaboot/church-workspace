@@ -370,6 +370,27 @@ export async function fetchSunSharedNotes() {
     }));
 }
 
+// 같은 목록의 **개수만** 필요할 때(홈의 메타 줄). 본문·이름·사진까지 다 실어 와서
+// .length만 읽던 자리를 count(head) 한 번으로 바꾼다 — 조건은 위와 글자 그대로 같다
+// (공유된 것 또는 내 것). head:true라 행은 오지 않고 숫자만 온다.
+// 본문이 빈 노트는 위 목록이 걸러 내는데 count는 못 거른다 → 서버에서 같이 좁힌다.
+export async function countSunSharedNotes() {
+  if (!supabase) {
+    const uid = guestProfileId();
+    return guestRows('service_notes')
+      .filter(n => (n.shared_to_sun || (!!uid && n.profile_id === uid)) && String(n.body || '').trim())
+      .length;
+  }
+  const uid = await myProfileId();
+  let q = supabase.from('service_notes')
+    .select('id', { count: 'exact', head: true })
+    .not('body', 'is', null).neq('body', '');
+  q = uid ? q.or(`shared_to_sun.eq.true,profile_id.eq.${uid}`) : q.eq('shared_to_sun', true);
+  const { count, error } = await q;
+  if (error) throw error;
+  return count ?? 0;
+}
+
 // 내 노트의 공유 여부만 바꾼다. 본문은 그대로 다시 넘긴다 — 예배 쪽 저장이 upsert 한
 // 벌이라 body를 빠뜨리면 글이 지워진다(worship.js saveMyNote). worship.js에
 // setNoteShared가 생기면 이 함수는 그걸 부르기만 하면 된다(보고서).
@@ -518,14 +539,20 @@ export async function cancelApplication(id) {
   if (error) throw error;
 }
 
+// decided_by는 **누가 수락·거절했는가**를 남기는 감사값이다(0035). 표에 칸만 있고
+// 아무도 안 쓰고 있었다 — 지금은 결정하는 사람의 프로필 id를 같이 적는다. 못 읽었으면
+// 결정 자체는 그대로 하고 칸만 비운다(이름을 못 남긴다고 신청이 막히면 안 된다).
 async function decide(id, status) {
   if (!supabase) {
+    const by = guestProfileId();
     guestSet('club_applications', guestRows('club_applications')
-      .map(a => (a.id === id ? { ...a, status, decided_at: new Date().toISOString() } : a)));
+      .map(a => (a.id === id ? { ...a, status, decided_at: new Date().toISOString(), decided_by: by } : a)));
     return;
   }
-  const { error } = await supabase.from('club_applications')
-    .update({ status, decided_at: new Date().toISOString() }).eq('id', id);
+  const by = await myProfileId().catch(() => null);
+  const patch = { status, decided_at: new Date().toISOString() };
+  if (by) patch.decided_by = by;
+  const { error } = await supabase.from('club_applications').update(patch).eq('id', id);
   if (error) throw error;
 }
 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
-import { LayoutDashboard, CheckSquare, Search, Plus, X, Hash, ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users, Archive, CalendarDays, CalendarClock, Smartphone, Church, BookOpen, HeartHandshake, Home, Briefcase } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Search, X, Hash, ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users, Archive, CalendarDays, CalendarClock, Smartphone, Church, BookOpen, HeartHandshake, Home, Briefcase } from 'lucide-react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable, pointerWithin, rectIntersection,

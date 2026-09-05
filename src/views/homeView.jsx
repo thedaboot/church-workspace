@@ -7,9 +7,10 @@ import { CARD, CARD_STYLE, Empty } from '../components/groupsParts.jsx';
 import { ISO_TODAY, byDue } from './dashboardParts.jsx';
 import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry } from '../services/word.js';
 import { loadPassage } from '../services/bible.js';
-import { kindLabel, formatServiceDate, fetchServices, fetchAttendance } from '../services/worship.js';
-import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, fetchSunSharedNotes, latestSunday } from '../services/groups.js';
+import { kindLabel, fetchServices, fetchAttendance } from '../services/worship.js';
+import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotes, latestSunday } from '../services/groups.js';
 import { useCached } from '../services/cache.js';
+import { useLiveRefresh } from '../services/liveV2.js';
 import logoLight from '../assets/logo-light.png';
 import logoDark from '../assets/logo-dark.png';
 
@@ -387,8 +388,14 @@ export function HomeView({ onNavigate, onTaskClick }) {
     return { qt: qt || null, first, written: !!String(entry?.body || '').trim() };
   }), [day]);
 
-  const wsQ = useCached(`home:worship:${day}`, loud('예배 목록', async () => {
-    return pickService(await fetchServices(), day) || null;
+  // **주보 목록은 한 번만 읽는다.** 예전에는 여기서 한 번, 아래 '내 순'에서 지난 주일을
+  // 찾느라 또 한 번 불렀다 — 같은 목록을 홈 한 판에 두 번 받아 오는 낭비였다. 이번 주
+  // 예배(pickService)와 지난 주일(latestSunday)은 **같은 목록에서 파생되는 값**이라
+  // 캐시 키도 하나다. 갈래를 나눈 이유는 실패를 가르기 위해서지 조회를 가르기 위해서가
+  // 아니다(이 파일 머리 주석).
+  const svcQ = useCached(`home:services:${day}`, loud('예배 목록', async () => {
+    const list = await fetchServices();
+    return { service: pickService(list, day) || null, latest: latestSunday(list) || null };
   }), [day]);
 
   // 메타 줄의 재료를 싣는다: 인원 · 지난 주일 참석 수 · 공유된 예배 노트 수.
@@ -401,34 +408,44 @@ export function HomeView({ onNavigate, onTaskClick }) {
     const sun = me && roster ? mySun(me, roster.suns, roster.members) : null;
     if (!sun) return null;
     const people = groupPeople({ people: roster.people, group: sun, members: roster.members });
-    const ids = new Set(people.map(p => p.id));
-    // 지난 주일 주보의 우리 순 참석 수. 발행된 주일 예배가 없으면 null(그 도막을 뺀다).
-    const svc = latestSunday(await fetchServices().catch(() => []));
-    let present = null;
-    if (svc) {
-      const ok = await fetchAttendance(svc.id).catch(() => []);
-      present = ok.filter(id => ids.has(id)).length;
-    }
-    const notes = await fetchSunSharedNotes().catch(() => []);
+    // 나눔은 **개수만** 쓴다 — 본문·이름·사진까지 실어 와서 .length를 읽던 자리다.
+    const notes = await countSunSharedNotes().catch(() => 0);
     return {
       sun,
+      ids: people.map(p => p.id),
       count: people.length,
       leaderName: roster.people.find(p => p.id === sun.leader_person_id)?.name || '',
-      present,
-      notes: notes.length,
+      notes,
     };
   }), [year]);
 
+  // 지난 주일 주보의 **우리 순** 참석 수. 주보 목록(svcQ)과 명단(sunQ)이 둘 다 와야
+  // 셀 수 있어서 갈래를 따로 뒀다 — 내 순 안에서 세면 주보가 도착할 때마다 명단 조회가
+  // 통째로 다시 돈다. 발행된 주일 예배가 없거나 내 순이 없으면 null(그 도막을 뺀다).
+  const lastSundayId = svcQ.data?.latest?.id || '';
+  const sunIds = sunQ.data?.ids || null;
+  const attQ = useCached(`home:present:${lastSundayId}:${sunQ.data?.sun?.id || ''}`,
+    loud('지난 주일 참석', async () => {
+      if (!lastSundayId || !sunIds?.length) return null;
+      const ok = await fetchAttendance(lastSundayId).catch(() => []);
+      const mine = new Set(sunIds);
+      return ok.filter(id => mine.has(id)).length;
+    }), [lastSundayId, sunIds?.join(',') || '']);
+
+  // 홈은 첫 화면이라 여기가 가장 오래 떠 있다 — 주보 발행·나눔·명단이 바뀌면 카드
+  // 셋을 같이 다시 읽는다(0049 · services/liveV2.js).
+  useLiveRefresh('home', () => { qtQ.refresh(); svcQ.refresh(); sunQ.refresh(); attQ.refresh(); });
+
   // 셋 다 캐시가 없을 때만 스켈레톤이다 — 하나라도 값이 있으면 그 카드를 먼저 세운다.
-  const firstLoad = qtQ.loading && wsQ.loading && sunQ.loading;
+  const firstLoad = qtQ.loading && svcQ.loading && sunQ.loading;
   const church = firstLoad ? null : {
     qt: qtQ.data?.qt || null,
     written: !!qtQ.data?.written,
-    service: wsQ.data || null,
+    service: svcQ.data?.service || null,
     sun: sunQ.data?.sun || null,
     sunCount: sunQ.data?.count || 0,
     leaderName: sunQ.data?.leaderName || '',
-    sunPresent: sunQ.data?.present ?? null,
+    sunPresent: attQ.data ?? null,
     sunNotes: sunQ.data?.notes || 0,
     qtFirst: qtQ.data?.first || '',
   };

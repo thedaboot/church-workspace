@@ -93,6 +93,9 @@ const seed = {
   ],
   attendance: [{ service_id: 's1', person_id: 'p2' }],
   service_notes: [],
+  // 송폼(0047) — files 표를 업무 첨부와 같이 쓴다. 게스트에는 드라이브가 없어
+  // 행만 남고 바이트는 메모리에 있다(services/worship.js의 guestBytes).
+  files: [{ id: 'f1', service_id: 's1', name: '2026-09-06 송폼.pdf', size_bytes: 1048576, mime_type: 'application/pdf', source: 'local' }],
 };
 
 const plant = (me) => `(() => {
@@ -611,6 +614,31 @@ check('발행본 찬양 탭에 팀 이름과 인도자가 곡 목록 앞 한 줄
 check('재생목록을 가져왔으면 그 줄에서 재생목록을 통째로 연다',
   JSON.stringify(praiseView.playlist) === JSON.stringify(['재생목록 열기', 'https://www.youtube.com/playlist?list=PLl2Yb-KJTF0Zq', '_blank']),
   JSON.stringify(praiseView.playlist));
+
+// 송폼 — 주보에 붙은 파일(0047). **보기 화면에는 줄만 선다**: 올리기 버튼도 삭제도
+// 수정 화면 것이다(담당자·찬양·광고와 같은 문법). 파일 줄 모양은 업무 첨부와 한 벌이다.
+const formView = await ev(`(() => {
+  const sec = document.querySelector('.worship-songforms');
+  if (!sec) return null;
+  const row = sec.querySelector('.worship-songform-row');
+  const lastSong = [...document.querySelectorAll('.worship-song-view')].pop();
+  return {
+    label: sec.innerText.split('\\n')[0].trim(),
+    add: !!sec.querySelector('.worship-songform-add'),
+    rows: sec.querySelectorAll('.worship-songform-row').length,
+    name: row?.querySelector('.worship-songform-name')?.textContent.trim() || '',
+    meta: row?.querySelector('.worship-songform-meta')?.textContent.trim() || '',
+    open: !!row?.querySelector('.worship-songform-open'),
+    del: !!row?.querySelector('button[aria-label$="삭제"]'),
+    afterSongs: !!lastSong && sec.getBoundingClientRect().top >= lastSong.getBoundingClientRect().bottom - 1,
+  };
+})()`);
+check('발행본 찬양 탭 아래에 송폼 줄이 선다(이름 · 크기 · 미리보기)',
+  !!formView && formView.label === '송폼' && formView.rows === 1
+  && formView.name === '2026-09-06 송폼.pdf' && formView.meta === '1.0 MB'
+  && formView.open === true && formView.afterSongs === true, JSON.stringify(formView));
+check('보기 화면의 송폼에는 올리기·삭제가 없다',
+  formView.add === false && formView.del === false, JSON.stringify(formView));
 
 await tabClick('광고'); await sleep(300);
 const notices = await ev(`document.querySelector('.worship-tabpanel').innerText.replace(/\\n+/g, ' | ')`);
@@ -1285,6 +1313,79 @@ const praiseSaved = await ev(`(() => {
 check('인도자를 고르면 그 이름이 주보에 저절로 저장된다',
   praiseSaved.leader === '김승찬' && praiseSaved.songs === 0, JSON.stringify(praiseSaved));
 
+// ── 7-d) 송폼 — 주보에 붙는 파일 (0047 · HANDOFF §1.3의 검토 결론) ──────────
+// 저장 자리(files.service_id)와 드라이브 길은 업무 첨부와 한 벌이다 — 그쪽은
+// tests/drivesync.mjs가 소스로 본다. 여기서 보는 것은 **화면**이다: 수정 화면에
+// 올리기 버튼이 서고, 고른 파일이 바로 줄로 들어오고, 지울 때 제 이름을 부른다.
+const formEdit = await ev(`(() => {
+  const sec = document.querySelector('.worship-songforms');
+  if (!sec) return null;
+  return {
+    text: sec.innerText.replace(/\\s+/g, ' ').trim(),
+    add: sec.querySelector('.worship-songform-add')?.textContent.trim() || '',
+    input: !!sec.querySelector('input[type=file]'),
+    rows: sec.querySelectorAll('.worship-songform-row').length,
+    belowSongs: (() => {
+      const add = document.querySelector('.worship-add-card');   // '찬양 추가' 점선 카드
+      return !!add && sec.getBoundingClientRect().top >= add.getBoundingClientRect().bottom - 1;
+    })(),
+  };
+})()`);
+check('수정 화면 찬양 탭 아래에 송폼 올리기 버튼이 선다',
+  !!formEdit && formEdit.add === '파일 올리기' && formEdit.input === true
+  && formEdit.rows === 0 && formEdit.belowSongs === true, JSON.stringify(formEdit));
+// 붙은 파일이 없어도 **안내 줄을 두지 않는다**(§8) — 라벨과 버튼이 전부다
+check('붙은 파일이 없어도 사용법 안내 줄이 붙지 않는다',
+  formEdit.text === '송폼 파일 올리기', JSON.stringify(formEdit.text));
+
+// 파일을 고른다. 게스트에는 드라이브가 없어 행만 localStorage에 남는다.
+await ev(`(() => {
+  const el = document.querySelector('.worship-songforms input[type=file]');
+  const dt = new DataTransfer();
+  dt.items.add(new File(['%PDF-1.4 song form'], '성탄절 송폼.pdf', { type: 'application/pdf' }));
+  el.files = dt.files;
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+})()`);
+await sleep(900);
+const formAdded = await ev(`(() => {
+  const rows = [...document.querySelectorAll('.worship-songform-row')];
+  const g = JSON.parse(localStorage.getItem('church_worship_v1'));
+  const svc = g.services.find(s => s.kind === '성탄절 예배');
+  return {
+    rows: rows.length,
+    name: rows[0]?.querySelector('.worship-songform-name')?.textContent.trim() || '',
+    del: !!rows[0]?.querySelector('button[aria-label$="삭제"]'),
+    stored: (g.files || []).filter(f => f.service_id === svc.id).map(f => f.name),
+    // 업무 축(card_id)으로 새지 않는다 — files 한 표를 둘이 나눠 쓴다(0047 배타 CHECK)
+    cardAxis: (g.files || []).some(f => f.card_id),
+  };
+})()`);
+check('고른 파일이 바로 줄로 들어오고 주보 축(service_id)으로 저장된다',
+  formAdded.rows === 1 && formAdded.name === '성탄절 송폼.pdf'
+  && JSON.stringify(formAdded.stored) === '["성탄절 송폼.pdf"]' && formAdded.cardAxis === false,
+  JSON.stringify(formAdded));
+check('수정 화면에서는 그 줄에 삭제가 붙는다', formAdded.del === true, JSON.stringify(formAdded));
+
+// 삭제 확인 문구 — 담당자·찬양·광고와 같은 톤이다('이 OO을(를) 삭제할까요?')
+await ev(`document.querySelector('.worship-songform-row button[aria-label$="삭제"]').click()`);
+await sleep(400);
+const askForm = await ev(`document.body.innerText.includes('이 송폼을 삭제할까요?')`);
+check("확인 문구는 '이 송폼을 삭제할까요?'", askForm === true, String(askForm));
+// 확인창은 body 포털이라(§6-1) 문구를 짚어 그 안의 '삭제'를 누른다
+await ev(`(() => {
+  const p = [...document.querySelectorAll('p')].find(x => x.textContent.trim() === '이 송폼을 삭제할까요?');
+  [...p.parentElement.querySelectorAll('button')].pop().click();
+})()`);
+await sleep(700);
+const formGone = await ev(`(() => {
+  const g = JSON.parse(localStorage.getItem('church_worship_v1'));
+  const svc = g.services.find(s => s.kind === '성탄절 예배');
+  return { rows: document.querySelectorAll('.worship-songform-row').length,
+    stored: (g.files || []).filter(f => f.service_id === svc.id).length };
+})()`);
+check('지우면 화면에서도 저장 자리에서도 사라진다',
+  formGone.rows === 0 && formGone.stored === 0, JSON.stringify(formGone));
+
 // 광고 자리 글
 await tabClick('광고'); await sleep(250);
 await ev(`${byText('광고 추가')}.click()`); await sleep(300);
@@ -1397,6 +1498,24 @@ check('자격이 없으면 출석 체크 진입 버튼 자체가 없다', plainD
 check('자격이 없어도 발행된 주보와 내 노트는 본다',
   JSON.stringify(plainDetail.toolbar) === '["목록으로"]' && plainDetail.note === true, JSON.stringify(plainDetail));
 
+// 송폼도 같다 — 발행본에 붙은 파일은 읽고 열 수 있고, 붙이거나 지울 수는 없다.
+// 화면이 감추는 것이고 경계는 RLS다(0047의 files_insert·files_delete가 can_edit_service).
+await ev(`[...document.querySelectorAll('.worship-tab')].find(t => t.textContent.trim() === '찬양').click()`);
+await sleep(350);
+const plainForm = await ev(`(() => {
+  const sec = document.querySelector('.worship-songforms');
+  if (!sec) return null;
+  return { rows: sec.querySelectorAll('.worship-songform-row').length,
+    open: !!sec.querySelector('.worship-songform-open'),
+    add: !!sec.querySelector('.worship-songform-add'),
+    input: !!sec.querySelector('input[type=file]'),
+    del: !!sec.querySelector('button[aria-label$="삭제"]') };
+})()`);
+check('자격이 없으면 송폼은 읽고 열기만 — 올리기 칸도 삭제도 없다',
+  !!plainForm && plainForm.rows === 1 && plainForm.open === true
+  && plainForm.add === false && plainForm.input === false && plainForm.del === false,
+  JSON.stringify(plainForm));
+
 await ev(plant({ canEdit: false, canCheckAll: false, ledGroupIds: ['g1'], canCheck: true }));
 await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
 await ev(GO); await sleep(1200);
@@ -1409,6 +1528,42 @@ const sunjang = await ev(`(() => {
 })()`);
 check('순장은 자기 순만 누를 수 있고 다른 순은 보이되 비활성',
   JSON.stringify(sunjang) === '[["꼬순",true],["TT순",false],["순 미지정",false]]', JSON.stringify(sunjang));
+
+// 출석 메모는 **주보 편집 자격자만** 쓴다(2026-09-06). 저장 자리가 주보 행이라
+// (services.attendance_note → saveService → can_edit_service) 순장이 쓰면 한 글자도
+// 안 남고 토스트만 떴다. 저장이 안 되는 칸은 세우지 않는다.
+const sunjangNote = await ev(`(() => ({
+  box: !!document.querySelector('textarea[aria-label="출석 메모"]'),
+  head: document.body.innerText.includes('출석 메모'),
+}))()`);
+check('순장에게는 출석 메모 칸이 서지 않는다', sunjangNote.box === false && sunjangNote.head === false,
+  JSON.stringify(sunjangNote));
+
+// 순장이 올린 새신자는 **그 순의 명단에도 들어간다**(0050 · worship.addToSun).
+// 안 들어가면 attendance_insert의 leads_sun_of(person_id)가 false라 사람만 생기고
+// 출석이 42501로 막힌다 — 순장 계정에서 이 기능이 반만 되던 자리다(2026-09-06).
+await ev(`document.querySelector('.att-add-open').click()`); await sleep(300);
+await ev(typeIn('input[aria-label="미등록 출석자 이름"]', '한새싹'));
+await sleep(200);
+await ev(`${byText('추가')}.click()`); await sleep(900);
+const sunAdd = await ev(`(() => {
+  const g = JSON.parse(localStorage.getItem('church_worship_v1'));
+  const made = g.people.find(p => p.name === '한새싹');
+  const secs = [...document.querySelectorAll('.worship-attendance section')];
+  const chip = [...secs[0].querySelectorAll('.att-chip')].find(c => c.textContent.trim() === '한새싹');
+  return {
+    inSun: !!made && (g.group_members || []).some(m => m.group_id === 'g1' && m.person_id === made.id),
+    attended: !!made && (g.attendance || []).some(a => a.service_id === 's1' && a.person_id === made.id),
+    head: secs[0]?.querySelector('.att-group-head')?.innerText.replace(/\\s+/g, ' ') || '',
+    on: !!chip && chip.getAttribute('aria-pressed') === 'true' && !chip.disabled,
+    unassigned: secs[2]?.querySelector('.att-group-head')?.innerText.replace(/\\s+/g, ' ') || '',
+  };
+})()`);
+check('순장이 올린 새신자는 자기 순(첫 순)의 명단에 함께 들어간다',
+  sunAdd.inSun === true && sunAdd.attended === true, JSON.stringify(sunAdd));
+check('그래서 순 미지정이 아니라 그 순 묶음에 출석으로 선다',
+  sunAdd.on === true && sunAdd.head.includes('꼬순 2/4') && sunAdd.unassigned.includes('순 미지정 0/2'),
+  JSON.stringify(sunAdd));
 
 // ── 10) 다크 모드 훑기 ──────────────────────────────────────────────────────
 // 글자가 배경에 묻히지 않는지, 테마를 안 따라가는 팔레트를 쓰지 않는지만 본다
@@ -1504,6 +1659,28 @@ const mobDetail = await ev(`(() => ({
 check('모바일 375px — 주보 상세가 가로로 넘치지 않는다', mobDetail.overflow <= 0, `넘침 ${mobDetail.overflow}px`);
 check('모바일에서도 머리줄 출석 체크와 본문이 그대로 선다',
   mobDetail.att === true && mobDetail.verses === 12, JSON.stringify(mobDetail));
+
+// 송폼 줄도 375에서 한 열로 서고 넘치지 않는다 — 파일 이름이 길어도 줄 안에서
+// 접힌다(min-w-0 + break-words). 이름이 잘려 나가면 어느 파일인지 알 수 없다.
+await tabClick('찬양'); await sleep(400);
+const mobForm = await ev(`(() => {
+  const sec = document.querySelector('.worship-songforms');
+  const row = sec?.querySelector('.worship-songform-row');
+  if (!row) return null;
+  const r = row.getBoundingClientRect();
+  const name = row.querySelector('.worship-songform-name');
+  return {
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    right: Math.round(r.right), vw: innerWidth,
+    // 이름·크기가 아이콘 오른쪽에 한 덩이로 쌓인다(줄 자체는 한 줄이다)
+    nameFits: name.scrollWidth <= name.clientWidth + 1,
+    open: !!row.querySelector('.worship-songform-open'),
+  };
+})()`);
+check('모바일 375px — 송폼 줄이 가로로 넘치지 않고 이름이 잘리지 않는다',
+  !!mobForm && mobForm.overflow <= 0 && mobForm.right <= mobForm.vw
+  && mobForm.nameFits === true && mobForm.open === true, JSON.stringify(mobForm));
+await tabClick('말씀'); await sleep(300);
 
 await ev(`${byText('수정')}.click()`); await sleep(900);
 const mobEdit = await ev(`(() => {
@@ -1756,6 +1933,28 @@ check('모바일에서는 저장·삭제가 화면 아래 고정 줄에 있다',
   && JSON.stringify(mobBar.buttons) === '["저장","삭제"]', JSON.stringify(mobBar));
 check('고정 줄은 하단 탭바 위에 앉고, 머리줄 버튼은 모바일에서 숨는다',
   !!mobBar && mobBar.bottomGap >= 60 && mobBar.headSave === true, JSON.stringify(mobBar));
+
+// 송폼은 찬양 탭의 **맨 아래**에 있다 — 끝까지 내렸을 때 그 구역이 고정 도구 줄에
+// 가리면 '파일 올리기'를 누를 수 없다(화면 아래 pb-24가 그 자리를 비워 둔다).
+await tabClick('찬양'); await sleep(450);
+const mobFormBar = await ev(`(() => {
+  const sec = document.querySelector('.worship-songforms');
+  const bar = document.querySelector('.worship-edit-bar');
+  if (!sec || !bar) return null;
+  let sc = sec.parentElement;
+  while (sc && sc !== document.body && !/(auto|scroll)/.test(getComputedStyle(sc).overflowY)) sc = sc.parentElement;
+  const box = (sc && sc !== document.body) ? sc : document.scrollingElement;
+  box.scrollTop = box.scrollHeight;
+  const add = sec.querySelector('.worship-songform-add');
+  return {
+    gap: Math.round(bar.getBoundingClientRect().top - sec.getBoundingClientRect().bottom),
+    addGap: add ? Math.round(bar.getBoundingClientRect().top - add.getBoundingClientRect().bottom) : null,
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+})()`);
+check('모바일 편집 — 송폼 구역이 하단 저장 줄에 가리지 않는다',
+  !!mobFormBar && mobFormBar.gap >= 0 && mobFormBar.addGap >= 0 && mobFormBar.overflow <= 0,
+  JSON.stringify(mobFormBar));
 
 // ── 찬양 썸네일 — 키 없이 뜨는 공개 주소(i.ytimg.com) ─────────────────────
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });

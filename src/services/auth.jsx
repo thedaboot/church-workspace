@@ -37,12 +37,24 @@ const rememberReturnTo = () => {
 // 세션이 생긴 직후, WorkspaceShell이 마운트되기 **전에** 부른다 — 그쪽은 `?p=&t=`를
 // useState 초기값으로 한 번만 읽으므로 그 뒤에 주소를 고치면 화면이 따라오지 않는다.
 // auth-js가 hash를 지운 자리(`/#`)도 이 replaceState가 같이 정리한다.
+// 저장소에서 온 글자라 그대로 믿지 않는다. `//evil.example`은 브라우저가 **다른 origin**의
+// 주소로 읽는다(scheme-relative) — replaceState는 같은 origin만 받아서 던지고, 그 예외가
+// getSession의 then 안에서 나면 setSession까지 못 가서 **로그인이 통째로 멈춘다.**
+// 우리 자리('/'로 시작하고 '//'가 아닌 것)만 복원하고, 그래도 던지면 자리만 포기한다.
 const consumeReturnTo = () => {
   const to = ss.get(RETURN_KEY);
   if (!to) return;
   ss.del(RETURN_KEY);
-  if (to !== window.location.pathname + window.location.search) window.history.replaceState(null, '', to);
+  if (!to.startsWith('/') || to.startsWith('//')) return;
+  if (to === window.location.pathname + window.location.search) return;
+  try { window.history.replaceState(null, '', to); } catch { /* 막힌 히스토리 */ }
 };
+
+// 카카오 자동 로그인을 이미 한 번 시도했나. sessionStorage와 **둘 다** 본다 —
+// 인앱 웹뷰가 저장소를 막아 두면 ss.get이 언제나 null이라 표식이 없는 것과 같고,
+// 그러면 로그아웃 → 자동 재로그인 고리에서 빠져나올 수 없다(모듈 변수는 탭이 살아
+// 있는 동안 남으므로 그 경우의 마지막 방어선이다).
+let autoKakaoTried = false;
 
 export function AuthProvider({ children }) {
   const enabled = !!supabase;
@@ -112,7 +124,21 @@ export function AuthProvider({ children }) {
       },
     });
   };
-  const signOut = () => supabase.auth.signOut();
+  // 로그아웃은 **자리와 표식을 같이 치운다**(2026-09-06).
+  //  · 카카오 표식을 여기서 **놓는다**(지우지 않는다 — 지우는 길이 생기면 로그아웃 →
+  //    자동 재로그인 고리가 돌아온다). 자동 시작은 인앱 브라우저에서 처음 온 사람을 위한
+  //    것이고, 방금 나간 사람은 '다른 계정으로 로그인'을 하려는 것이다.
+  //  · 돌아갈 자리(returnTo)도 지운다. 안 지우면 다음 로그인이 **먼저 사람이 가려던 곳**이
+  //    아니라 지난 세션의 딥링크로 데려간다.
+  //  · 주소의 `?p=&t=`도 함께 내린다 — WorkspaceShell이 그 값을 useState 초기값으로 한 번만
+  //    읽으므로, 남겨 두면 로그인 화면 뒤에 지난 업무가 그대로 열린다.
+  const signOut = () => {
+    autoKakaoTried = true;
+    ss.set(AUTO_KAKAO_KEY, '1');
+    ss.del(RETURN_KEY);
+    try { window.history.replaceState(null, '', '/'); } catch { /* 막힌 히스토리 */ }
+    return supabase.auth.signOut();
+  };
 
   // 카카오톡 인앱 브라우저에서 로그인 화면이 뜨면 카카오 로그인을 **한 번** 자동으로 시작한다.
   // 카카오톡으로 받은 링크를 여는 사람은 이미 카카오에 로그인돼 있어 버튼 한 번이 그냥 절차다.
@@ -125,6 +151,8 @@ export function AuthProvider({ children }) {
     if (!enabled) return false;
     if (!isKakaoInApp(navigator.userAgent)) return false;
     if (authErrorInUrl(window.location.href)) return false;
+    if (autoKakaoTried) return false;   // 저장소가 막힌 웹뷰에서도 한 번만(위 주석)
+    autoKakaoTried = true;
     if (ss.get(AUTO_KAKAO_KEY)) return false;
     ss.set(AUTO_KAKAO_KEY, '1');
     signIn('kakao');

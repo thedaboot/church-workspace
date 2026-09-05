@@ -5,7 +5,8 @@ import { createClient } from '@supabase/supabase-js';
 //   type: 'p'(프로젝트) | 't'(카드).  SUPABASE_SECRET_KEY로 RLS 우회 조회(읽기 전용).
 // ============================================================================
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const STATUS_KO = { todo: '시작 전', doing: '진행 중', done: '완료' };
+// 라벨은 config.js의 STATUSES와 같은 글자다 — 한쪽만 고치면 공유 카드와 앱이 갈린다.
+const STATUS_KO = { todo: '시작 전', doing: '진행 중', hold: '보류 중', done: '완료' };
 const esc = (s = '') => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -24,14 +25,19 @@ export default async function handler(req, res) {
     try {
       const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
       if (type === 'p') {
-        const { data } = await supabase.from('projects').select('name, description').eq('id', id).maybeSingle();
+        // projects에 description 컬럼은 없다(0009에서 지웠다 — HANDOFF §5). 없는 칸을
+        // 고르면 PostgREST가 42703으로 던지고 data가 null이 되어, OG 제목이 기본값으로
+        // 떨어지고 appUrl이 '/'로 남아 **딥링크까지 사라졌다**.
+        const { data, error } = await supabase.from('projects').select('name').eq('id', id).maybeSingle();
+        if (error) console.error('[share] 프로젝트 조회 실패:', error);
         if (data) {
           title = `더다붓 · ${data.name}`;
-          description = data.description || '팀과 함께 준비하는 프로젝트예요.';
+          description = '팀과 함께 준비하는 프로젝트예요.';
           appUrl = `/?p=${id}`;
         }
       } else {
-        const { data } = await supabase.from('cards').select('title, status, due_date, project_id').eq('id', id).maybeSingle();
+        const { data, error } = await supabase.from('cards').select('title, status, due_date, project_id').eq('id', id).maybeSingle();
+        if (error) console.error('[share] 업무 조회 실패:', error);
         if (data) {
           title = `더다붓 · ${data.title}`;
           const parts = [STATUS_KO[data.status] || ''];

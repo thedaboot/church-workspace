@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-const M = await import('file:///C:/Users/%EB%85%B8%EC%A4%80%EC%84%9D/Desktop/church_workspace/src/services/markdown.js');
+const M = await import(new URL('../src/services/markdown.js', import.meta.url).href);
 const { mdToDoc, docToMd, tokenizeInline } = M;
 
 const marksOf = (md) => mdToDoc(md).content[0].content.map(n => ({

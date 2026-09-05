@@ -41,7 +41,11 @@ import { Skeleton } from './media.jsx';
 
 const OT_COUNT = 39;               // 정경 순서 — index.json의 앞 39권이 구약
 const SWIPE_MIN = 60;              // px — 이만큼 가로로 쓸면 장을 넘긴다(모바일)
-const STATE_KEY = 'word:state';    // 캐시 열쇠 — 이어읽기·북마크·형광펜(services/cache.js)
+// 캐시 열쇠 — 이어읽기·북마크·형광펜(services/cache.js).
+// **'word:'로 시작하지 않는다.** dropCache는 그냥 접두 비교라, 묵상을 저장할 때 부르는
+// dropCache('word'…)가 이 값까지 가져갔다(그러면 다음 진입에서 형광펜이 통째로 다시
+// 로딩된다). 갈래가 다르면 열쇠의 첫 도막도 다르게 짓는다.
+const STATE_KEY = 'bible:state';
 const RESULT_LIMIT = 50;           // 결과 상한(스펙). 넘으면 거기서 멈춘다
 
 // 글자 크기 3단계. 계정이 아니라 기기에 남긴다(같은 사람도 폰과 노트북이 다르다).
@@ -147,7 +151,7 @@ const HL_STYLE = {
 // 다크 모드에서도 따라온다(Tailwind 기본 팔레트를 쓰면 themefit이 잡는다). 저장은
 // bible_state.highlights 항목의 `color`이고, **색이 없는 예전 항목은 노랑으로 읽는다**
 // (0038로 들어간 항목에는 색 칸이 없었다 — 마이그레이션 없이 화면에서 흡수한다).
-export const HL_COLORS = [['red', '빨강'], ['blue', '파랑'], ['yellow', '노랑'], ['green', '초록']];
+const HL_COLORS = [['red', '빨강'], ['blue', '파랑'], ['yellow', '노랑'], ['green', '초록']];
 const HL_TOKEN = {
   red: ['var(--app-tag-red)', 'var(--app-tag-red-fg)'],
   blue: ['var(--app-tag-blue)', 'var(--app-tag-blue-fg)'],
@@ -262,7 +266,7 @@ export function PassageText({
 // (services/word.js의 verseKey는 그대로 두고 highlights 항목을 { ref, at, color }로 늘린다).
 const toolBtn = 'inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[12px] font-semibold text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors';
 
-export function VerseTool({ label, current, lit, onPaint, onErase }) {
+function VerseTool({ label, current, lit, onPaint, onErase }) {
   return (
     // `pr-2`·`ml-1`이 칩 오른쪽 여백이다(사용자 지적 2026-09-03 — 칩이 테두리에 붙어 있었다)
     <span
@@ -355,14 +359,24 @@ function persistState(next, what = '') {
 }
 
 // 형광펜만 필요한 자리(QT 본문)의 상태 — 캐시로 시작하고 한 번 읽어 온다.
+//
+// **읽어 온 값이 그 사이에 칠한 형광펜을 덮으면 안 된다**(2026-09-06). 클라우드 왕복이
+// 한 박자 늦게 끝나므로, 로딩 중에 칠한 절이 도착값으로 통째로 되돌아갔다(사람에게는
+// "칠했는데 사라졌다"로 보인다 — 게다가 그 되돌아간 값이 다음 저장에 그대로 올라간다).
+// 한 번이라도 내가 고쳤으면 도착값은 버린다(edited) — 어차피 update가 그 자리에서
+// 저장했으므로 서버도 곧 같은 값이다.
 export function useBibleState() {
   const [state, setState] = useState(() => readCache(STATE_KEY) || EMPTY_STATE);
+  const edited = useRef(false);
   useEffect(() => {
     let alive = true;
-    loadBibleState().then(saved => { if (alive) { setState(saved); writeCache(STATE_KEY, saved); } }).catch(() => {});
+    loadBibleState().then(saved => {
+      if (!alive || edited.current) return;
+      setState(saved); writeCache(STATE_KEY, saved);
+    }).catch(() => {});
     return () => { alive = false; };
   }, []);
-  const update = (next, what = '') => { setState(next); persistState(next, what); };
+  const update = (next, what = '') => { edited.current = true; setState(next); persistState(next, what); };
   return [state, update];
 }
 
@@ -455,6 +469,7 @@ export function BibleTab({ initialRef = '' }) {
   // useCached(읽기 전용 훅)가 아니라 readCache/writeCache 한 쌍을 쓴다 — 고친 값을
   // 그 자리에서 캐시에 얹어야 다음 진입이 최신이다(update).
   const [state, setState] = useState(() => readCache(STATE_KEY) || EMPTY_STATE);
+  const edited = useRef(false);   // 한 번이라도 내가 고쳤나(아래 첫 진입 이펙트가 본다)
   const [step, setStep] = useState(1);
   const [ready, setReady] = useState(false);
   const [loadErr, setLoadErr] = useState(null);   // 책 목록을 못 받았을 때의 이유
@@ -517,8 +532,9 @@ export function BibleTab({ initialRef = '' }) {
       const [list, saved] = await Promise.all([loadBibleIndex(), loadBibleState()]);
       if (!alive) return;
       setBooks(list);
-      setState(saved);
-      writeCache(STATE_KEY, saved);
+      // 기다리는 동안 칠한 형광펜·북마크는 덮지 않는다(useBibleState의 edited와 같은 판단).
+      // 이어읽기 자리(saved.lastRef)는 그래도 쓴다 — 아래는 '어느 장을 펼까'라 다른 값이다.
+      if (!edited.current) { setState(saved); writeCache(STATE_KEY, saved); }
       setStep(loadFontStep());
       // 주보·QT에서 넘어온 구절이 먼저다. 없으면 마지막으로 읽던 자리로 이어간다.
       const fromRef = initialRef ? parseRef(initialRef, list) : null;
@@ -571,7 +587,7 @@ export function BibleTab({ initialRef = '' }) {
   // 기다리는 동안 세울 스켈레톤 줄 수 — 붙잡아 둔 높이를 채운다(한 줄 ≈ 34px)
   const holdLines = holdH ? Math.max(8, Math.round((holdH - 44) / 34)) : 10;
 
-  const update = (next, what = '') => { setState(next); persistState(next, what); };
+  const update = (next, what = '') => { edited.current = true; setState(next); persistState(next, what); };
   const swipedAt = useRef(0);   // 마지막 스와이프 시각(onTouchEnd가 적는다)
   // 형광펜 범위 고르기·칠하기 — 도구 줄까지 훅이 만든다(useVersePaint 머리말).
   // ref는 '책 장:절'(services/word.js verseKey — bible_state.highlights의 모양).

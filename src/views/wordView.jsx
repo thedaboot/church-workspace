@@ -11,12 +11,13 @@ import { showToast } from '../components/Toast.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { failText } from '../services/errorText.js';
 import { useCached, dropCache } from '../services/cache.js';
+import { useLiveRefresh } from '../services/liveV2.js';
 import { ShareChip, ShareToggle } from '../components/ShareToggle.jsx';
 import { SectionHead, Card } from './dashboardParts.jsx';
 import { loadPassage } from '../services/bible.js';
 import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap, useBibleState, useVersePaint, marksFor } from '../components/wordBible.jsx';
 import {
-  kstToday, shiftDay, dayLabel, shortDayLabel, monthDays, weekRange,
+  kstToday, shiftDay, dayLabel, shortDayLabel, monthDays, weekRange, shouldAdoptBody,
   fetchSchedule, fetchMyEntry, saveMyEntry, deleteMyEntry, deleteEntryAsMaster,
   fetchSharedEntries, fetchMyEntryDates,
 } from '../services/word.js';
@@ -182,6 +183,11 @@ function QtTab() {
     [date],
   );
 
+  // 남이 그날 나눔을 올리거나 지우면 피드에 몇 초 안에 뜬다(0049 · services/liveV2.js).
+  // 고치던 글은 안전하다 — 아래 동기화가 body를 **아직 손대지 않았을 때만** 갈아 끼운다
+  // (word.js shouldAdoptBody).
+  useLiveRefresh('word', refreshQt);
+
   // 일정이 정해지면 그 구절의 본문을 편다(책 파일은 bible.js 캐시라 두 번째부터 즉시다)
   useEffect(() => {
     let alive = true;
@@ -190,7 +196,9 @@ function QtTab() {
     if (qtLoading) { setDay({ loading: true, schedule: null, passage: null }); return undefined; }
     // **못 읽은 것과 없는 것은 다르다**(사용자 피드백 2026-09-03 — 예외 문구 검토).
     // 예전에는 읽기가 실패해도 '아직 올라오지 않았어요'가 떠서 화면이 거짓말을 했다(§6-29-b).
-    if (qtError) { setDay({ loading: false, schedule: null, passage: null, failed: qtError }); return undefined; }
+    // 다만 **캐시에 그날 구절이 이미 있으면 그것을 그린다**(2026-09-06) — 재조회 한 번이
+    // 실패했다고 이미 읽고 있던 본문을 걷어 내면, 화면이 또 다른 거짓말을 한다.
+    if (qtError && !ref) { setDay({ loading: false, schedule: null, passage: null, failed: qtError }); return undefined; }
     if (!ref) { setDay({ loading: false, schedule: qt?.schedule || null, passage: null }); return undefined; }
     setDay(d => (d.schedule?.passage_ref === ref ? d : { loading: true, schedule: null, passage: null }));
     (async () => {
@@ -203,14 +211,25 @@ function QtTab() {
 
   // 내 묵상 · 그날 나눔. **entry·body를 비우지 않는다** — 비우면 에디터가 언마운트되어
   // 자리가 줄고, 도착할 때 아래 것들이 다시 밀린다(머리말).
-  // 뒤에서 새로 읽어 온 값이 **고치던 글을 덮지 않게**, body는 날짜가 바뀐 때만 갈아 끼운다.
+  //
+  // 뒤에서 새로 읽어 온 값을 **에디터에 넣어도 되는지**는 word.js의 shouldAdoptBody가
+  // 정한다(§6-9-n의 짝). 예전에는 '날짜가 바뀔 때 한 번'이라, 캐시가 낡아 있으면 첫
+  // 프레임의 옛 글이 그대로 남았고 그 상태로 저장하면 **서버의 새 글을 덮었다**
+  // (2026-09-06 지적). 지금은 아직 손대지 않은 글만 갈아 끼운다.
   const syncedFor = useRef('');
+  const syncedBody = useRef('');   // 마지막으로 넣어 준 글 — '아직 안 고쳤나'의 기준
+  const bodyRef = useRef('');
+  bodyRef.current = body;          // 이펙트가 지금 에디터의 글을 볼 수 있게(렌더마다)
   useEffect(() => {
     if (!qt || qt.date !== date) return;
     const next = { date, body: qt.mine?.body || '', shared: !!qt.mine?.shared, exists: !!qt.mine };
     setEntry(next);
     setFeed(qt.shared || []);
-    if (syncedFor.current !== date) { setBody(next.body); setShareState(''); syncedFor.current = date; }
+    const dateChanged = syncedFor.current !== date;
+    if (shouldAdoptBody({ dateChanged, body: bodyRef.current, lastSynced: syncedBody.current, next: next.body })) {
+      setBody(next.body); syncedBody.current = next.body;
+    }
+    if (dateChanged) { setShareState(''); syncedFor.current = date; }
   }, [qt, date]);
 
   useEffect(() => {
@@ -218,10 +237,15 @@ function QtTab() {
     // 조용히 빈 칸을 세우면 **이미 써 둔 묵상이 없는 것처럼 보인다**(그 상태로 저장하면
     // 덮어쓴다). 무엇을 못 읽었는지 이유까지 말한다(사용자 피드백 2026-09-03).
     console.error('[word] 묵상·나눔 읽기 실패:', qtError);
-    setEntry({ date, body: '', shared: false, exists: false }); setFeed([]);
-    if (syncedFor.current !== date) { setBody(''); syncedFor.current = date; }
+    // **캐시가 있으면 화면은 그대로 두고 말만 한다**(2026-09-06). 예전에는 재조회 한 번이
+    // 실패해도 빈 칸을 세워서, 캐시로 잘 그려져 있던 묵상이 '없음'으로 바뀌었다 — 바로 그
+    // 위 주석이 막으려던 일을 이 이펙트가 하고 있었다. 한 번도 못 읽었을 때만 빈 자리다.
+    if (!qt || qt.date !== date) {
+      setEntry({ date, body: '', shared: false, exists: false }); setFeed([]);
+      if (syncedFor.current !== date) { setBody(''); syncedBody.current = ''; syncedFor.current = date; }
+    }
     showToast(failText('이 날 묵상과 나눔을 불러오지 못했어요', qtError));
-  }, [qtError, date]);
+  }, [qtError, qt, date]);
 
   // 저장한 뒤 잠깐만 남는 칩(공유 토글) — 상태 표시라 계속 서 있을 이유가 없다
   useEffect(() => {
@@ -267,8 +291,10 @@ function QtTab() {
     try {
       await saveMyEntry(date, { body, shared: entry.shared });
       setEntry({ date, body, shared: entry.shared, exists: true });
+      syncedBody.current = body;       // 방금 이 글로 맞췄다(다음 도착값 판정의 기준)
       setFeed(await fetchSharedEntries(date));
       dropCache(qtKey); refreshQt();   // 옛 값이 먼저 그려지지 않게 그 날짜만 비운다
+      dropCache('home');               // 홈의 '오늘의 QT' 카드가 '오늘 썼나'를 센다(homeView)
       reloadGrass();
       showToast(entry.shared ? '묵상을 저장하고 더다붓에 공유했어요' : '묵상을 저장했어요');
     } catch (e) {
@@ -290,6 +316,7 @@ function QtTab() {
       setEntry(e => ({ ...e, shared: v }));
       setFeed(await fetchSharedEntries(date));
       dropCache(qtKey); refreshQt();
+      dropCache('home');   // 모임·홈이 공유된 묵상을 같이 센다
       setShareState('saved');
     } catch (e) {
       console.error('[word] 공유 상태 저장 실패:', e);
@@ -303,9 +330,10 @@ function QtTab() {
     try {
       await deleteMyEntry(date);
       setEntry({ date, body: '', shared: false, exists: false });
-      setBody('');
+      setBody(''); syncedBody.current = '';
       setFeed(await fetchSharedEntries(date));
       dropCache(qtKey); refreshQt();
+      dropCache('home');
       reloadGrass();
       showToast('이 날 묵상을 지웠어요');
     } catch (e) {

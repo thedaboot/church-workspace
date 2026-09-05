@@ -8,16 +8,16 @@ import { MAX_UPLOAD_BYTES } from '../config.js';
 // 예전에는 이 판정이 그 파일 안에 있어서 노드에서 import가 안 됐고(JSX·React),
 // 검사가 소스 문자열 단정(tests/drivesync.mjs)으로만 남아 있었다.
 // ============================================================================
-export const OFFICE_VIEWER = true; // false = 오피스 파일도 미리보기 없이 '열기'만
+const OFFICE_VIEWER = true; // false = 오피스 파일도 미리보기 없이 '열기'만
 
 export const extOf = (name = '') => (String(name).split('.').pop() || '').toLowerCase();
-export const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg'];
+const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg'];
 // html·htm은 여기 없다 — 글자가 아니라 **문서**로 그린다(아래 HTML_EXT).
 export const TEXT_EXT = ['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'log', 'xml', 'yml', 'yaml', 'css', 'js', 'jsx', 'ts', 'tsx', 'py', 'sql', 'sh'];
 // HTML 첨부는 sandbox iframe으로 그린다(2026-09-05). 허용은 allow-scripts 하나뿐이고
 // allow-same-origin은 함께 주지 않는다 — 왜 그렇게 갈랐는지는 FilePreviewModal의
 // kind === 'html' 자리에 적어 두었다. 예전에는 TEXT_EXT에 들어 있어서 소스가 <pre>로 떴다.
-export const HTML_EXT = ['html', 'htm'];
+const HTML_EXT = ['html', 'htm'];
 export const OFFICE_EXT = ['doc', 'docx', 'ppt', 'pptx'];   // 앱이 못 그려서 구글 편집기 미리보기로 남는 것
 // 우리 표로 직접 그리는 것. csv는 파싱이 몇 줄이라 같이 본다.
 export const SHEET_EXT = ['xlsx', 'xls', 'csv'];

@@ -36,4 +36,6 @@ comment on column public.services.praise_leader is
 --   --   rollback;
 
 -- ── 되돌리기 ────────────────────────────────────────────────────────────────
+-- **코드(services/worship.js의 COLS)에서 이 칸을 먼저 빼고 배포한 뒤에** 지운다 —
+-- 돌아가는 앱이 없는 칸을 select하면 주보 목록이 통째로 42703으로 안 온다.
 -- alter table public.services drop column if exists praise_leader;
