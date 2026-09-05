@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, ChevronDown, Check, X, Trash2, Pencil } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
-import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear, datedTasks } from '../utils.js';
+import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear, datedTasks, mergeActivitySeen } from '../utils.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
 import { YearPicker } from '../components/layout.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -106,18 +106,25 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   // 청년별 남은 업무 — 담당자별 집계. 팀별과 같은 기준(필터와 무관한 전체)으로 센다
   const people = useMemo(() => personLoad(open, today), [open, today]);
 
+  // 최근 활동 피드(#3) — 클라우드는 서버 피드, 게스트는 tasks의 activityLog에서 파생
+  const feed = useStore(selectActivityFeed);
+
   // 사람 칸 (0019) — 오늘 다녀간 사람 · 이번 주 생일 · 새로 온 사람.
   // 세 줄 다 필터와 무관하다: 사람은 업무 필터의 대상이 아니다(인사말과 같은 판단, §6-31).
-  const members = useStore(selectMembers);
+  //
+  // **'다녀감'과 '활동'은 같은 시각을 봐야 한다**(사용자 지적 2026-09-05 — "1분 전에
+  // 수정했다고 뜨는데 현황은 4분 전에 떠났다고 뜬다"). 그래서 피드에 남은 그 사람의
+  // 마지막 움직임을 다녀간 시각에 겹쳐 쓴다 — 서버 왕복이 없고(피드는 이미 여기 있다),
+  // 두 값이 어긋난 화면이 구조적으로 안 나온다. 아무도 안 밀렸으면 **같은 배열**이
+  // 그대로 나와서 아래 연결 지도가 저장 한 번마다 다시 배치되지 않는다.
+  const storeMembers = useStore(selectMembers);
+  const members = useMemo(() => mergeActivitySeen(storeMembers, feed), [storeMembers, feed]);
   const seenTodayList = useMemo(() => seenToday(members, myName), [members, myName]);
   // 생일은 일주일 전부터, 환영은 사흘만 — 인사가 오래 걸려 있으면 낡는다(사용자 판단)
   const birthdayList = useMemo(() => birthdaysWithin(members, 7), [members]);
   const joinedList = useMemo(() => joinedWithin(members, 3), [members]);
   // 머리줄의 'N명'을 누르면 열리는 전체 목록(정렬은 모달이 한다 — 접속 상태를 같이 본다)
   const [membersOpen, setMembersOpen] = useState(false);
-
-  // 최근 활동 피드(#3) — 클라우드는 서버 피드, 게스트는 tasks의 activityLog에서 파생
-  const feed = useStore(selectActivityFeed);
   const tasksById = useStore(selectTasks).byId;
 
   // 연결 지도(#28) — 업무가 있는 팀만(0건 팀을 늘어놓으면 선 없는 점만 남는다),

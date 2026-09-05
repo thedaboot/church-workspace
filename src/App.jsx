@@ -21,7 +21,6 @@ import { ToastHost, showToast } from './components/Toast.jsx';
 import { setTaskLinkOpener } from './components/RichText.jsx';
 import * as cloudSync from './services/cloudSync.js';
 import { subscribePresence, trackWhere } from './services/presence.js';
-import { dueForHeartbeat, LEAVE_STAMP_MS } from './utils.js';
 import logoLight from './assets/logo-light.png';
 import logoDark from './assets/logo-dark.png';
 
@@ -158,7 +157,8 @@ function WorkspaceShell() {
       // 방금 읽은 목록에는 이 값이 없다(로드가 먼저 끝났다) — 그래서 화면은 **나를 언제나
       // 다녀간 사람으로 센다**. 지금 이 화면을 보고 있는 사람이 나이기 때문이다.
       // 기다렸다가 로드하는 쪽으로 바꾸면 첫 화면이 그만큼 늦어진다.
-      cloudSync.touchLastSeen();
+      // 간격 0 = 무조건 한 번. 그 뒤로는 cloudSync가 마지막으로 찍은 시각을 들고 있다.
+      cloudSync.markSeen(0);
       // 첫 설정이 안 끝난 사람에게만 띄운다 — 이름과 팀이 둘 다 있으면 다시 뜨지 않는다.
       // 팀까지 보는 이유: 이름만 있고 팀이 비면 팀 보드·'내 팀 업무'가 계속 빈다.
       const me = store.getState().currentUser;
@@ -268,25 +268,23 @@ function WorkspaceShell() {
   //   · **쓰기 비용은 사람당 5분에 UPDATE 1회**다(§1.3). 1분마다 깨어나되 실제 쓰기는
   //     간격 판정을 통과할 때뿐이라, 모바일이 타이머를 늦춰도 값이 어긋나지 않는다.
   // profiles는 Realtime 발행 목록에 있으므로(0018) 남의 화면의 '다녀감'도 따라 갱신된다.
+  //   · **쓰기를 한 사람에게는 이 박동이 필요 없다**(2026-09-06). 마지막으로 찍은 시각을
+  //     cloudSync가 한 곳에서 들고 있어서, 방금 저장한 사람에게 박동이 또 쓰지 않는다.
   useEffect(() => {
     if (!cloudMode) return;
     // 첫 한 번은 initialLoad가 이미 찍었다 — 여기서 또 찍으면 접속마다 쓰기가 두 번이다
-    let lastAt = Date.now();
     const beat = () => {
-      if (document.hidden || !dueForHeartbeat(lastAt)) return;
-      lastAt = Date.now();
-      cloudSync.touchLastSeen();
+      if (document.hidden) return;
+      cloudSync.markSeen();
     };
     // **떠나는 순간 한 번 더 찍는다**(2026-09-05). 박동만 두면 마지막 박동과 실제로
     // 떠난 시각 사이가 최대 5분 비어서, 남들 화면의 'N분 전 다녀감'이 그만큼 낡는다.
     // 하한은 LEAVE_STAMP_MS(1분) — 탭을 자주 오가는 것이 곧 쓰기가 되면 안 된다.
     // 접속해 있는 동안은 presence가 '접속 중'으로 덮으므로, 이 값이 실제로 읽히는 때는
     // **떠난 뒤**다. 그래서 떠나는 순간의 정확도가 이 라벨의 정확도다.
-    const stampLeave = () => {
-      if (!dueForHeartbeat(lastAt, Date.now(), LEAVE_STAMP_MS)) return;
-      lastAt = Date.now();
-      cloudSync.touchLastSeen();
-    };
+    // **평범한 fetch로는 이 한 번이 자주 안 남았다** — 탭이 닫히면서 취소된다(라이브에서
+    // 마지막 쓰기보다 last_seen_at이 225초 뒤처져 있었다). keepalive로 직접 보낸다.
+    const stampLeave = () => { cloudSync.markSeenLeaving(); };
     const timer = setInterval(beat, 60000);
     const onVisible = () => (document.hidden ? stampLeave() : beat());
     document.addEventListener('visibilitychange', onVisible);

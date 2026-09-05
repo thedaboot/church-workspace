@@ -1,6 +1,10 @@
 import * as cloud from './cloud.js';
 import { statusToDb, statusFromDb } from './cloud.js';
-import { normalize, httpsImage, extractMentions, isoTime, seenOnlyChange } from '../utils.js';
+import { setWriteObserver } from './supabaseClient.js';
+import {
+  normalize, httpsImage, extractMentions, isoTime, seenOnlyChange,
+  dueForHeartbeat, HEARTBEAT_MS, LEAVE_STAMP_MS, WRITE_STAMP_MS,
+} from '../utils.js';
 
 // ============================================================================
 // 7. Cloud Sync Adapter — 클라우드(DB) ↔ 앱 스토어 모양 변환 + 쓰기 오케스트레이션
@@ -53,7 +57,6 @@ export function getAvatar(name) { return nameToAvatar.get(name) || ''; }
 // 뽑는 규칙은 utils.js가 원본이다 — AI가 쓴 멘션을 검사하는 쪽(services/ai.js)도
 // 같은 규칙을 써야 하는데, ai.js는 노드에서 검사할 수 있어야 해서 이 파일(supabase를
 // 물고 있다)을 물면 안 된다. 여기서는 그대로 다시 내보내 부르는 쪽을 안 건드린다.
-export { extractMentions };
 
 // 표시명 → 프로필 id들 (정확 일치). 동명 프로필이 여럿이면 전원 매핑.
 // 본인 제외는 이름이 아니라 auth user id 기준으로 notifyMentions에서 최종 수행한다
@@ -189,9 +192,33 @@ export async function notifyReaction(authorName, { actorName, cardId, projectId,
   }
 }
 
+// ── 다녀간 시각을 찍는 유일한 자리 ──────────────────────────────────────────
+// 부르는 데가 넷이다: 앱을 열 때(App.initialLoad · 간격 0 = 무조건) · 보이는 동안
+// 5분마다(App의 심장박동) · 떠날 때(markSeenLeaving) · **쓰기가 성공할 때마다**
+// (아래 setWriteObserver · 1분에 한 번). 마지막으로 찍은 시각을 **여기 한 곳**에서
+// 들고 있어야 넷이 서로를 밀어준다 — 방금 저장한 사람에게 5분 박동이 또 쓰지 않는다.
+//
+// **쓰기는 곧 '지금'이다**(2026-09-06 · 사용자 지적 2026-09-05): 5분 박동은
+// *아무것도 안 하는 사람*의 상한이라, 그 사이에 업무를 고친 사람이 남들 화면에서는
+// "1분 전 수정 · 4분 전 다녀감"이라는 모순으로 보였다(라이브에서 225초 어긋나 있었다).
+// 쓰기 한 번에 UPDATE 한 칸을 얹는 값은 거의 없다(§1.3 — 실측 활동량으로 하루 11건쯤).
+let lastSeenStampAt = 0;
+export function markSeen(everyMs = HEARTBEAT_MS, now = Date.now()) {
+  if (!dueForHeartbeat(lastSeenStampAt, now, everyMs)) return false;
+  lastSeenStampAt = now;
+  cloud.touchLastSeen();
+  return true;
+}
+// 떠나는 순간의 한 번만 다른 길로 나간다 — 평범한 fetch는 탭이 닫히며 취소된다(cloud).
+export function markSeenLeaving(now = Date.now()) {
+  if (!dueForHeartbeat(lastSeenStampAt, now, LEAVE_STAMP_MS)) return false;
+  lastSeenStampAt = now;
+  cloud.stampLeaveBeacon();
+  return true;
+}
+setWriteObserver(() => markSeen(WRITE_STAMP_MS));
+
 export const touchLastSeen = cloud.touchLastSeen;
-export const savePushSubscription = cloud.savePushSubscription;
-export const deletePushSubscription = cloud.deletePushSubscription;
 export const listMyNotifications = cloud.listMyNotifications;
 export const markNotificationRead = cloud.markNotificationRead;
 export const deleteNotification = cloud.deleteNotification;
@@ -425,6 +452,10 @@ export async function loadCloudState() {
 // 제목이 바뀌면 피드도 따라와야 하므로 화면에서 찾는 쪽이 맞다.
 const activityFeedToApp = (a) => ({
   id: a.id,
+  // 이름 말고 **id도** 싣는다 — 화면이 "이 사람이 마지막으로 움직인 시각"을 그 사람의
+  // '다녀감'에 겹쳐 쓴다(utils.mergeActivitySeen). 이름으로 짝을 지으면 동명이인에서
+  // 어긋나고, 이름이 바뀐 사람은 짝을 잃는다.
+  actorId: a.actor_id || null,
   actorName: profileIdToName.get(a.actor_id) || '알 수 없음',
   action: a.action,
   cardId: a.card_id || null,
@@ -682,6 +713,11 @@ export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActiv
     // comment_reactions에는 card_id가 아예 없다(INSERT·DELETE 둘 다) — comments의
     // DELETE와 같은 처리로 떨어진다: cardId가 비면 "지금 열려 있는 카드"다.
     if (table === 'comments' || table === 'files' || table === 'comment_reactions') {
+      // files에는 주보 송폼도 들어 있다(0047 · service_id). 그건 업무 화면과 아무
+      // 상관이 없으므로 여기서 끝낸다 — 안 그러면 송폼 한 장에 접속자 전원이 열어 둔
+      // 업무의 상세를 다시 읽는다. (DELETE payload에는 PK뿐이라 못 가리는데, 그때는
+      // 지금까지의 '열려 있는 카드 다시 읽기'와 같은 값이라 손해가 없다.)
+      if (row.service_id) return;
       onCardDetail(row.card_id || old.card_id || null);
       return;
     }

@@ -62,6 +62,8 @@ assert.ok(/requestPush\(ids/.test(insertStmt), '알림을 넣은 자리에서 �
 const SRC = join(ROOT, 'src', 'services', 'cloudSync.js');
 const patched = readFileSync(SRC, 'utf8')
   .replace(/import \* as cloud from '\.\/cloud\.js';/, 'const cloud = globalThis.__CLOUD;')
+  // supabaseClient의 쓰기 관찰 지점(2026-09-05 — 다녀간 시각)은 여기서 필요 없다
+  .replace(/import \{ setWriteObserver \} from '\.\/supabaseClient\.js';/, 'const setWriteObserver = () => {};')
   .replace(/import \{ statusToDb, statusFromDb \} from '\.\/cloud\.js';/,
     `const statusToDb = () => 'todo'; const statusFromDb = () => '시작 전';`)
   // utils는 진짜 파일을 절대 경로로 문다(assignees.mjs와 같은 이유 — 가짜로 다시
@@ -422,4 +424,20 @@ assert.ok(/addEventListener\('notificationclick'/.test(sw), 'sw에 클릭 처리
     '뱃지 갱신이 waitUntil 밖이다 — 워커가 먼저 죽으면 숫자가 안 바뀐다');
 }
 
-console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수');
+// ── 마감 임박 배치가 알림마다 다시 묻지 않는다 (N+1) ───────────────────────
+// 예전에는 알림 한 건마다 sendToProfiles를 불러 **구독 조회 + 안 읽은 수 집계**를 다시
+// 했다(알림 N건 → 왕복 2N번, 순차 await). 동작이 같아서 화면으로는 절대 안 보이는 낭비다.
+// 되돌리기 검사: 루프를 sendToProfiles(db, [w.recipientId], …) 로 되돌리면 아래가 깨진다.
+{
+  const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
+  const fn = src.slice(src.indexOf('async function handleDueSoon'), src.indexOf('export default'));
+  assert.ok(fn.length > 0, 'handleDueSoon을 못 찾았다');
+  const at = fn.indexOf('for (const w of fresh)');
+  assert.ok(at > 0, '마감 임박 발송 루프가 없다');
+  assert.ok(/loadTargets\(/.test(fn.slice(0, at)),
+    '구독·안 읽은 수를 루프 밖에서 한 번에 읽지 않는다');
+  assert.ok(!/\.from\(|loadTargets\(|sendToProfiles\(/.test(fn.slice(at)),
+    '알림 한 건마다 DB를 다시 묻고 있다 (N+1)');
+}
+
+console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수·마감 배치 N+1 없음');

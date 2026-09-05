@@ -11,6 +11,8 @@ const SRC = join(import.meta.dirname, '..', 'src', 'services', 'cloudSync.js');
 const patched = readFileSync(SRC, 'utf8')
   // 네트워크를 타는 계층만 가짜로. 나머지(모양 변환)는 실제 코드를 그대로 돌린다.
   .replace(/import \* as cloud from '\.\/cloud\.js';/, 'const cloud = globalThis.__CLOUD;')
+  // supabaseClient의 쓰기 관찰 지점(2026-09-05 — 다녀간 시각)은 여기서 필요 없다
+  .replace(/import \{ setWriteObserver \} from '\.\/supabaseClient\.js';/, 'const setWriteObserver = () => {};')
   .replace(/import \{ statusToDb, statusFromDb \} from '\.\/cloud\.js';/,
     `const DB = { '시작 전':'todo', '진행 중':'doing', '보류 중':'hold', '완료':'done' };
      const statusToDb = s => DB[s] || 'todo';
@@ -99,7 +101,8 @@ assert.deepStrictEqual(writes.at(-1).patch.assignees, ['없는사람'], '그래�
 // 실패했다(라이브에서 재현 확인). 순서에 상관없는 모양인지 여기서 못 박는다.
 const SB_SRC = join(import.meta.dirname, '..', 'src', 'services', 'cloud.js');
 const sbPatched = readFileSync(SB_SRC, 'utf8')
-  .replace(/import \{ supabase \} from '\.\/supabaseClient\.js';/, 'const supabase = globalThis.__SB;')
+  // cloud.js는 supabase 외에 URL·키도 같이 가져온다(2026-09-05 — keepalive PATCH용) — 이름이 늘어도 한 줄로 받는다
+  .replace(/import \{[^}]*supabase[^}]*\} from '\.\/supabaseClient\.js';/, 'const supabase = globalThis.__SB; const SUPABASE_URL = \"\"; const SUPABASE_ANON_KEY = \"\";')
   .replace(/import \{ CONFIG \} from '\.\.\/config\.js';/,
     `const CONFIG = { STATUS_DB: { '시작 전':'todo', '진행 중':'doing', '보류 중':'hold', '완료':'done' }, STATUSES: ['시작 전'] };`);
 

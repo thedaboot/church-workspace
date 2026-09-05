@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { supabase } from './supabaseClient.js';
+import { nextWhereMeta } from '../utils.js';
 
 // ============================================================================
 // 지금 접속해 있는 사람 · 지금 누가 어디를 보고 있나 (Realtime presence)
@@ -21,7 +22,7 @@ import { supabase } from './supabaseClient.js';
 const TOPIC = 'presence-workspace';
 
 let online = new Set();     // profile id들. 게스트 모드에서는 언제나 빈 집합
-let views = [];             // [{ id, projectId, cardId }] — 사람마다 열어 둔 창 수만큼
+let views = [];             // [{ id, projectId, cardId, at, seq }] — 사람마다 열어 둔 창 수만큼
 let meId = null;            // 내 profile id(= auth user id). 본인 얼굴을 빼는 데 쓴다
 const listeners = new Set();
 const NO_VIEWS = [];
@@ -55,7 +56,16 @@ export function usePresenceViews() {
 // ── 채널 ────────────────────────────────────────────────────────────────────
 let channel = null;
 let joined = false;
-let where = { projectId: null, cardId: null };
+// 내가 지금 보고 있는 곳 + 그 자리에 **언제** 왔나(presence에 그대로 실린다).
+// **`at`은 "자리를 옮긴 시각"이지 "연결이 살아 있다고 알린 시각"이 아니다**(2026-09-06).
+// 예전에는 track할 때마다 `Date.now()`를 새로 찍었고 재접속(SUBSCRIBED가 다시 불림)에서도
+// 그랬다. presence 열쇠가 user.id라 한 사람의 탭·기기 meta가 한 열쇠에 같이 사는데,
+// **옛 프로젝트를 켜 둔 백그라운드 탭이 재접속하는 것만으로 at이 가장 커져**
+// `utils.viewersOf`(사람마다 at 최댓값 하나)에서 지금 보고 있는 탭을 이겼다 — 사용자가 본
+// "임원진 회의를 보고 있는데 가을 체육대회로 나온다"가 이것이다(2026-09-05).
+// 지금은 자리가 **실제로 바뀔 때만** 새로 찍고(`utils.nextWhereMeta`), 재-track은 그때
+// 만든 meta를 **그대로** 다시 보낸다 — 자리가 안 바뀌었으니 나이도 안 바뀐다.
+let meta = { projectId: null, cardId: null, at: 0, seq: 0 };
 
 // **realtime-js 2.110.8의 presence 버그를 여기서 되돌린다.**
 // presenceAdapter는 join·leave 콜백을 부르기 전에 meta를 `transformState`로 훑으면서
@@ -86,7 +96,8 @@ const healRefs = ({ currentPresences }) => {
 // `at`은 track할 때 실어 보낸 시각이고, 없는 옛 meta는 0으로 본다(배포 전환기).
 const entriesOf = (state) => Object.entries(state || {}).flatMap(([id, metas]) =>
   (metas && metas.length ? metas : [{}]).map(m => ({
-    id, projectId: m.projectId || null, cardId: m.cardId || null, at: Number(m.at) || 0,
+    id, projectId: m.projectId || null, cardId: m.cardId || null,
+    at: Number(m.at) || 0, seq: Number(m.seq) || 0,
   })));
 
 // ── 탭이 다시 보일 때 (모바일에서 오래 백그라운드에 있다가 돌아오는 경우) ──────
@@ -140,19 +151,23 @@ export function subscribePresence() {
     ch.on('presence', { event: 'join' }, healRefs);
     ch.on('presence', { event: 'leave' }, healRefs);
     ch.subscribe((status) => {
-      // 끊기면 joined를 내린다 — 그 사이의 trackWhere는 where만 바꿔 두고, 다시 붙을 때
-      // 아래에서 최신 where가 한 번에 나간다(실측: 재접속 때 이 콜백이 다시 불린다).
+      // 끊기면 joined를 내린다 — 그 사이의 trackWhere는 meta만 바꿔 두고, 다시 붙을 때
+      // 아래에서 최신 meta가 한 번에 나간다(실측: 재접속 때 이 콜백이 다시 불린다).
       if (status !== 'SUBSCRIBED') { joined = false; return; }
       joined = true;
       // 붙기 전에 정해진 자리도 여기서 한 번에 나간다. `at`을 같이 실어야
       // viewersOf가 "이 사람의 지금 자리"를 고를 수 있다(기기·탭이 여럿일 때).
-      ch.track({ ...where, at: Date.now() });
+      // **여기서 at을 새로 찍지 않는다** — 위 meta 주석의 그 버그다.
+      ch.track(meta);
     });
   })();
   return () => {
     stopped = true;
     joined = false;
-    where = { projectId: null, cardId: null };
+    // **여기서 `where`를 지우지 않는다**(2026-09-06). App의 trackWhere effect는
+    // 보고 있는 자리(projectId·cardId)에만 의존해서, 이 구독이 다시 걸려도 자리가 그대로면
+    // 다시 불리지 않는다 — 지우면 재구독 직후 `{null, null}`로 track되어 **얼굴이 통째로
+    // 사라진다.** 자리는 화면이 소유하고 이 함수는 연결만 소유한다.
     document.removeEventListener('visibilitychange', onVisible);
     clearTimeout(wakeTimer);
     if (channel) { c.removeChannel(channel); channel = null; }
@@ -168,8 +183,8 @@ export function subscribePresence() {
 // 밀려난다(사용자 요구 2026-08-30 — "다른 데로 가면 바로 아이콘이 빠지게").
 // 비교는 자리(projectId·cardId)로만 한다 — at까지 비교하면 언제나 달라서 매번 보낸다.
 export function trackWhere(next) {
-  const w = { projectId: next?.projectId || null, cardId: next?.cardId || null };
-  if (w.projectId === where.projectId && w.cardId === where.cardId) return;
-  where = w;
-  if (joined && channel) channel.track({ ...w, at: Date.now() });
+  const m = nextWhereMeta(meta, next);
+  if (!m) return;                      // 같은 자리다 — 아무것도 안 보낸다
+  meta = m;
+  if (joined && channel) channel.track(meta);
 }

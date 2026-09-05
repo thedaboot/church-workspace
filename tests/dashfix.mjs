@@ -316,6 +316,80 @@ check('프로젝트 진행 바도 같은 필터를 따라간다',
   !!scopeAll?.projTotal && !!scopeMine?.projTotal && scopeAll.projTotal !== scopeMine.projTotal,
   JSON.stringify({ scopeAll, scopeMine }));
 
+// ── '다녀감'과 '활동'이 같은 시각을 본다 (2026-09-06) ────────────────────────
+// 증상(사용자 2026-09-05): "특정 인물이 1분 전에 업무 세부 정보를 수정했다고 뜨는데,
+// 그 사람 현황을 보면 4분 전에 떠났다고 뜬다." 라이브에서 실제로 activity가
+// last_seen_at보다 225초 뒤였다 — 5분 심장박동이 그 사이의 쓰기를 통째로 못 봤다.
+// 이제 화면이 **presence(접속 중) > max(last_seen_at, 그 사람의 최근 활동)**을 본다.
+// 여기서는 스토어에 그 상황을 그대로 심는다: 조준환은 40분 전에 다녀갔다고 적혀 있고
+// 피드에는 2분 전 활동이 있다. 되돌리기 검사: views.jsx에서 mergeActivitySeen을 빼면
+// '40분 전'이 뜨면서 아래 두 단정이 깨진다.
+const agoIso = (min) => new Date(Date.now() - min * 60e3).toISOString();
+const stSeen = JSON.parse(JSON.stringify(st));
+stSeen.members = [
+  { id: 'u1', name: '노준석', avatarUrl: '', team: '찬양팀', teams: ['찬양팀'], birthday: '', lastSeenAt: agoIso(1), joinedAt: '2026-07-01T00:00:00Z' },
+  { id: 'u2', name: '조준환', avatarUrl: '', team: '엔지니어팀', teams: ['엔지니어팀'], birthday: '', lastSeenAt: agoIso(40), joinedAt: '2026-07-02T00:00:00Z' },
+  { id: 'u3', name: '박지호', avatarUrl: '', team: '미디어팀', teams: ['미디어팀'], birthday: '', lastSeenAt: agoIso(40), joinedAt: '2026-07-03T00:00:00Z' },
+];
+// 서버 피드(클라우드 모양) — actorId가 있어야 사람과 짝이 지어진다
+stSeen.activityFeed = [
+  { id: 'f1', actorId: 'u2', actorName: '조준환', action: '상세 내용을 수정했습니다.', cardId: 't0', projectId: 'p1', at: agoIso(2) },
+];
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(stSeen))}); localStorage.setItem('theme','light')`);
+await send('Page.navigate', { url: URL_BASE + '/' }); await wait('Page.loadEventFired'); await sleep(1500);
+await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='업무 대시보드'); b && b.click(); })()`);
+await sleep(800);
+// 머리줄의 'N명'을 눌러 가입한 사람 전체 목록을 연다
+await ev(`(() => {
+  const h=[...document.querySelectorAll('h3')].find(x=>x.textContent==='현재까지 가입한 사람');
+  const b=h?h.parentElement.querySelector('button'):null;
+  if (b) b.click();
+  return !!b;
+})()`);
+await sleep(400);
+const seenRows = await ev(`(() => {
+  const h=[...document.querySelectorAll('h3')].find(x=>/^가입한 사람 [0-9]+명$/.test(x.textContent.trim()));
+  if(!h) return null;
+  const box=h.closest('div').parentElement;
+  const out={};
+  [...box.querySelectorAll('span')].forEach(cell=>{
+    const nameEl=[...cell.querySelectorAll('span')]
+      .find(x=>!x.children.length && /^(노준석|조준환|박지호)$/.test(x.textContent.trim().replace(/나$/,'').trim()));
+    if(!nameEl) return;
+    const row=cell.parentElement;
+    if(!row) return;
+    const time=[...row.querySelectorAll('span')]
+      .filter(x=>!x.children.length && /^([0-9]+(초|분|시간|일|주|개월|년) 전|기록 없음|접속 중)$/.test(x.textContent.trim()))
+      .map(x=>x.textContent.trim());
+    if(time.length) out[nameEl.textContent.trim().replace(/나$/,'').trim()]=time[time.length-1];
+  });
+  return out;
+})()`);
+check('활동이 더 최근이면 그 시각이 다녀감으로 뜬다',
+  seenRows && seenRows['조준환'] === '2분 전', JSON.stringify(seenRows));
+check('활동이 없는 사람은 다녀간 시각 그대로',
+  seenRows && seenRows['박지호'] === '40분 전', JSON.stringify(seenRows));
+// 그리고 **피드와 같은 글자**여야 한다 — 두 값이 한 화면에서 서로 다른 말을 하면 안 된다
+await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='닫기'); b && b.click(); })()`);
+await sleep(300);
+const feedAgo = await ev(`(() => {
+  const h=[...document.querySelectorAll('h3')].find(x=>x.textContent==='최근 활동');
+  if(!h) return null;
+  const card=h.closest('div').parentElement;
+  const txt=card.textContent||'';
+  const t=[...card.querySelectorAll('span')]
+    .filter(x=>!x.children.length && /^[0-9]+(초|분|시간|일|주|개월|년) 전$/.test(x.textContent.trim()))
+    .map(x=>x.textContent.trim());
+  return { has: /조준환/.test(txt), times: t };
+})()`);
+check('피드의 그 활동과 다녀감이 같은 시각을 말한다',
+  !!feedAgo && feedAgo.has === true && feedAgo.times.includes('2분 전')
+    && seenRows && seenRows['조준환'] === '2분 전',
+  JSON.stringify({ feedAgo, viewer: seenRows && seenRows['조준환'] }));
+
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,4).join('\n'):'\n콘솔 오류 없음');
 ws.close();chrome.kill();process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

@@ -393,6 +393,47 @@ export const dueForHeartbeat = (lastAt, now = Date.now(), everyMs = HEARTBEAT_MS
 // 탭을 자주 오가는 것이 곧 쓰기가 되면 안 되기 때문이다(1분에 UPDATE 1회가 상한).
 export const LEAVE_STAMP_MS = 60 * 1000;
 
+// **쓰기는 곧 '지금'이다**(2026-09-06). 5분 박동은 *아무것도 안 하는 사람*의 상한이라,
+// 그 사이에 업무를 고친 사람은 남들 화면에서 "1분 전 수정 · 4분 전 다녀감"이라는
+// 모순으로 보였다(사용자 지적 2026-09-05 · 라이브에서 실제로 225초 어긋나 있었다).
+// 그래서 쓰기가 성공할 때마다 다녀간 시각을 같이 찍되 **1분에 한 번**으로 묶는다 —
+// 저장 한 번이 UPDATE 여럿을 만들지 않게(같은 저장에 카드·팀·담당자 쓰기가 줄줄이 난다).
+// 판정은 dueForHeartbeat에 간격만 바꿔 넘긴다 — 규칙을 두 벌 쓰지 않는다.
+export const WRITE_STAMP_MS = 60 * 1000;
+
+// 그 사람의 **최근 활동 시각**을 다녀간 시각에 겹쳐 쓴다(2026-09-06).
+// 위의 쓰기 스탬프가 서버에 닿기 전(또는 그 사람이 옛 배포를 쓰는 동안)에도 두 값이
+// 어긋나 보이지 않게 하는 화면 쪽 안전망이고, **서버 왕복이 없다** — 활동 피드는
+// 이미 스토어에 있다. 우선순위는 presence(접속 중) > max(last_seen_at, 최근 활동)이고,
+// 접속 중 판정은 부르는 쪽(visitOrder·화면)이 이미 따로 한다.
+//
+// **바뀐 것이 없으면 받은 배열을 그대로 돌려준다** — 활동 피드는 남이 저장할 때마다
+// 새로 오는데, 여기서 매번 새 배열을 만들면 그 배열을 보는 연결 지도가 저장 한 번마다
+// 다시 배치된다(useMemo 의존성이 참조로 비교된다).
+export function mergeActivitySeen(members = [], feed = []) {
+  const list = members || [];
+  if (!list.length || !feed?.length) return list;
+  const latest = new Map();
+  for (const a of feed) {
+    const id = a?.actorId;
+    if (!id) continue;                       // 게스트 피드에는 id가 없다(이름뿐) — 그냥 넘긴다
+    const at = isoTime(a.at);
+    if (!at) continue;
+    const cur = latest.get(id);
+    if (!cur || at > cur) latest.set(id, at);
+  }
+  if (!latest.size) return list;
+  let changed = false;
+  const next = list.map(m => {
+    const at = latest.get(m.id);
+    // 두 값 다 isoTime을 지나 같은 글자 모양이라 문자열 비교로 된다(§6-12-e)
+    if (!at || at <= (m.lastSeenAt || '')) return m;
+    changed = true;
+    return { ...m, lastSeenAt: at };
+  });
+  return changed ? next : list;
+}
+
 // 시각 한 칸을 **한 가지 글자 모양**으로. 실시간 payload의 timestamptz는 PostgREST와
 // 모양이 다르다 — realtime-js는 timestamptz를 손대지 않고 넘기므로
 // '2026-09-04 15:27:43.769+00'(공백·'+00')이고, PostgREST는
@@ -520,11 +561,36 @@ export function reorderIds(ids, fromId, toId) {
 // '회계 인수인계' 탭에, 또 '대표기도자'와 '헌금봉헌' 카드에 동시에 떴다(사용자 지적
 // 2026-08-30 · 스크린샷 두 장). 이 규칙 덕분에 **자리를 옮기는 즉시 옛 자리에서
 // 빠진다** — 업무 창을 닫거나 다른 프로젝트로 가면 새 at이 찍힌 meta가 이기기 때문이다.
-// `at`이 없는 옛 meta는 0으로 보고(배포 전환기), 같으면 나중에 온 것이 이긴다.
+// `at`이 없는 옛 meta는 0으로 보고(배포 전환기), 같으면 seq가 큰 쪽이 이긴다(isNewerWhere).
 //
 // **본인은 뺀다** — 내가 보고 있는 건 나도 안다. 최대 limit명.
 // 여기에는 지금 붙어 있는 연결만 들어온다 — 기록으로 남기거나 "며칠 전에 봤다"로
 // 바꾸는 순간 §7의 '카드별 조회 추적'이 된다(사용자가 판단해서 뺀 것).
+
+// 자리를 옮겼나 · 옮겼으면 presence에 실을 meta 한 벌. 옮기지 않았으면 null이다
+// (track 한 번이 접속한 모두에게 sync 이벤트를 만든다 — 같은 자리를 다시 알릴 이유가 없다).
+// **재접속에서는 이 함수를 부르지 않는다** — 마지막에 만든 meta를 **그대로** 다시 보낸다.
+// 그래야 `at`이 "자리를 옮긴 시각"으로 남는다(presence.js의 그 주석).
+export function nextWhereMeta(cur, next, now = Date.now()) {
+  const projectId = next?.projectId || null;
+  const cardId = next?.cardId || null;
+  if (cur && projectId === (cur.projectId || null) && cardId === (cur.cardId || null)) return null;
+  return { projectId, cardId, at: now, seq: (Number(cur?.seq) || 0) + 1 };
+}
+
+// 같은 사람의 meta 둘을 견주는 값. **`at`은 "자리를 옮긴 시각"이지 "연결이 살아 있다고
+// 알린 시각"이 아니다**(presence.js) — 예전에는 재접속마다 at이 새로 찍혀서, 옛 프로젝트를
+// 켜 둔 백그라운드 탭이 재접속하는 것만으로 지금 보고 있는 탭을 이겼다(사용자 지적
+// 2026-09-05 — "임원진 회의를 보고 있는데 가을 체육대회로 나온다").
+// `seq`는 **한 클라이언트 안에서만** 뜻이 있는 증가 번호다. 같은 밀리초에 두 번 옮겼을 때
+// 순서를 확정하는 데만 쓴다(기기가 다르면 시계가 달라 어차피 at으로 갈린다).
+// (한 숫자로 합치지 않는다 — at은 이미 1.7e12라 자리를 붙이면 안전 정수를 넘는다)
+const isNewerWhere = (a, b) => {
+  const ta = Number(a?.at) || 0, tb = Number(b?.at) || 0;
+  if (ta !== tb) return ta > tb;
+  return (Number(a?.seq) || 0) >= (Number(b?.seq) || 0);
+};
+
 export function viewersOf(entries, match = {}, opts = {}) {
   const { meId = null, limit = 3 } = opts;
   const wantCard = match?.cardId || null;
@@ -537,7 +603,7 @@ export function viewersOf(entries, match = {}, opts = {}) {
     const id = e?.id;
     if (!id || id === meId) continue;
     const cur = latest.get(id);
-    if (!cur || (Number(e.at) || 0) >= (Number(cur.at) || 0)) latest.set(id, e);
+    if (!cur || isNewerWhere(e, cur)) latest.set(id, e);
   }
   const ids = [];
   for (const e of latest.values()) {
