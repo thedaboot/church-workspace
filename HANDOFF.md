@@ -433,6 +433,15 @@
     통째 지워지는지 · QT 본문에서 칠한 것이 그날에만 보이고 모아보기·리더에는 안 오르는지(`bible_state.highlights`에 `qt:<날짜> …` ref).
   - **예배.** 주보 카드 메타 줄이 어느 폭에서도 1줄인지 · 주보 편집(담당자·찬양·광고·말씀)이 데스크톱에서 폭을 채우고 모바일에서
     하단 저장 줄과 겹치지 않는지.
+  - **찬양(0044·0046).** 실제 주보에서 인도자·재생목록을 저장 → 새로고침 → 발행본에 "Re:born 워십 · 인도 ○○○ · 재생목록 열기"가
+    서는지(게스트 검사는 localStorage라 `COLS`를 타지 않는다) · `/api/yt`로 재생목록을 가져오면 `praise_playlist_url`이
+    `playlist?list=…` 모양인지 · 곡 썸네일(링크 있는 곡).
+  - **출석 13:30.** 주일 주보에서 13:30 전에는 명단이 보이되 칩이 잠기고 "아직 예배 전이에요"가 서는지, 13:30을 넘기면 화면이
+    새로고침 없이 열리는지.
+  - **권한(0045) 계정별.** 교역자 계정으로 주보 작성·순 편성이 열리는지 · 총무/부장/리더팀장 계정은 전체 출석에서 빠지고 자기 순만
+    (순장이면) 남는지 · 리더순장은 전체 출석 · 관리자 계정으로 동아리 멤버 추가 · 마스터로 남의 나눔 삭제(그 사람 묵상 행이 지워짐).
+  - **나눔 토글 깜빡임.** 남의 글이 있는 날 '공유 → 나만 보기'와 그 반대를 넘길 때 내 줄이 두 줄/빈 줄로 스치지 않는지 · 비공개 내 줄에
+    내 사진·이름이 붙는지(전에는 이니셜).
 
 ### 1.2 다음에 만들 것 (사용자가 고른 것)
 
@@ -465,6 +474,14 @@
 
 ### 1.3 짚어둔 것 (급하지 않음)
 
+- **출석 13:30 게이트는 클라이언트만입니다**(2026-09-05). `attendance_insert` 정책은 시간을 보지 않으므로 자격자가 API를 직접
+  부르면 예배 전에도 체크됩니다. DB에도 걸지는 별도 결정(0047 후보 — `service_date + 13:30 KST <= now()`).
+- **송폼 PDF를 주보에 첨부하는 것(검토만, 2026-09-05).** 가능하고 Apps Script는 고칠 것이 없다(`folderFor`가 `path` 배열로 멱등하게
+  판다). 조건 넷: `files.service_id`(nullable, `card_id`와 배타 CHECK) · `files` RLS 4개를 주보 갈래로 가르기(지금은 승인 멤버 전원 쓰기라
+  작성 중 주보의 첨부가 안 가려진다) · `uploadViaStorage`/`uploadAttachment`의 카드 축에 주보 갈래 · 첨부 UI는 새로(`AttachmentSection`은
+  redux·task에 묶여 있다). 권장: 별도 표 대신 `files.service_id` 한 칸 + `services.drive_folder_id`, 드라이브는 `예배/<YYYY-MM-DD>/`,
+  화면은 찬양 탭 아래 '송폼' 줄(붙이기 = `can_edit_service()`, 보기 = 발행본 읽는 사람), 미리보기는 `FilePreviewModal` 재사용.
+  3~5MB는 INLINE_MAX(3MB) 때문에 거의 Storage 경유(실측 3MB 4.6초). 에이전트 하나가 한 회차. 사용자가 부르면 시작.
 - **`DatePicker`/`AssigneePicker` 드롭다운만 portal이 아니라 `absolute`** 입니다. 업무 창
   본문이 `overflow-y-auto`라 잘릴 수 있습니다(지금 깨지지는 않습니다). §6-1대로 body 포털이
   기본이어야 합니다.
@@ -629,8 +646,10 @@ src/views/worshipView.jsx   (v2) 예배 — 주보 목록(ServiceList) → 상�
                             App이 onOpenBible을 넘겨 주보 구절 → 말씀(성경 읽기)으로 잇는다
 src/views/wordView.jsx      (v2) 말씀 — [QT | 성경 읽기] 세그먼트. initialRef가 있으면 성경 읽기로 연다
 src/views/groupsView.jsx    (v2) 모임 — 내 순 · 동아리 · 순 편성(자격이 있을 때만)
-src/components/worship*.jsx (v2) worshipDetail(주보 상세·편집·SaveState·빈 상태) · worshipPassage(본문
-                            선택 피커 + PassageBody) · worshipAttendance(출석 체크 — 순별 칩·미등록 출석자)
+src/components/worship*.jsx (v2) worshipDetail(주보 상세·편집·SaveState·빈 상태 · 찬양 머리 "Re:born 워십 · 인도 ○○○ ·
+                            재생목록 열기"(0044·0046, `PRAISE_TEAM`) · 출석 진입은 `attendanceVisible`=발행 여부) · worshipPassage(본문
+                            선택 피커 + PassageBody) · worshipAttendance(출석 체크 — 순별 칩·미등록 출석자 · 체크는 `attendanceOpen`=
+                            그날 13:30 KST부터(`ATTEND_OPEN_HM`), 그 전엔 잠금+"아직 예배 전이에요", useMinuteTick으로 스스로 넘음)
 src/components/wordBible.jsx (v2) 성경 리더 — [본문 | 북마크 | 형광펜] 세그먼트(되돌아가기는 '목차') · 장 넘김·검색·이어읽기 ·
                             절 형광펜은 useVersePaint 훅(앵커 범위 · 4색 · 도구 줄)이고 **QT 본문(wordView QtPassage)도 같은 훅**을
                             쓴다. 모아보기는 한 번에 칠한 범위를 mergeRuns로 한 줄(1:2~4)로 접는다
@@ -1369,7 +1388,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 
 ## 5. 데이터 · 스키마 · 비밀
 
-스키마는 `supabase/migrations/0001~0043`이고 **전부 라이브 DB에 적용**되어 있습니다
+스키마는 `supabase/migrations/0001~0046`이고 **전부 라이브 DB에 적용**되어 있습니다
 (0001~0005는 대시보드에서 수동, 이후는 `npx supabase db push --db-url "$SUPABASE_DB_URL"`).
 
 | 파일 | 한 일 |
@@ -1416,7 +1435,10 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | `0040_people_sun_exempt` | `people.sun_exempt` — 순 편성 대상이 아닌 사역자(부장·전도사: 신효진·임성빈 true). 순원 추가·순장 후보·미배정 목록에서 빠지고 동아리 가입은 그대로. 이름을 코드에 박지 않기 위한 칸(§6-26) |
 | `0041_groups_unique_name` | `groups (type, name, coalesce(year,0)) where removed_at is null` 유니크 — 순은 **같은 해 안에서만** 이름이 유일(26년·27년 오순도순 공존), 동아리는 전체. 화면이 저장 전에 미리 확인하고 이 색인은 마지막 방어선 |
 | `0042_service_edit_perms` | `can_edit_service()` = **관리자(마스터 포함) + 회장 + 미디어팀**(`people.teams`) — 교역자 빠짐(사용자 결정 2026-09-03). 나머지는 발행된 주보만 읽는다 |
-| `0043_people_roles_split` | `people_roles.role`을 `officer` 하나에서 **director(부장) · president(회장) · treasurer(총무) · lead_sunjang(리더순장) · lead_team(리더팀장)** 으로(교역자는 `people.is_pastor`). CHECK를 떼고 → 데이터 옮기고(신효진 부장 · 조준환·박지호 리더팀장 · 조해리 총무) → 새 CHECK — 순서를 바꾸면 양쪽 다 실패한다. `is_officer()`와 클라이언트 권한은 값이 아니라 '그 해 줄이 있는가'만 보므로 그대로(사용자 결정 2026-09-05) |
+| `0043_people_roles_split` | `people_roles.role`을 `officer` 하나에서 **director(부장) · president(회장) · treasurer(총무) · lead_sunjang(리더순장) · lead_team(리더팀장)** 으로(교역자는 `people.is_pastor`). CHECK를 떼고 → 데이터 옮기고(신효진 부장 · 조준환·박지호 리더팀장 · 조해리 총무) → 새 CHECK — 순서를 바꾸면 양쪽 다 실패한다. `is_officer()`와 클라이언트 권한은 값이 아니라 '그 해 줄이 있는가'만 보므로 그대로(사용자 결정 2026-09-05) — **같은 날 0045가 전체 출석을 리더순장만으로 좁혔다** |
+| `0044_services_praise_leader` | `services.praise_leader text` — 찬양 인도자(이름 text 하나, personId 없음). 정책은 행 단위라 컬럼 추가만으로 덮인다 |
+| `0045_perms_2026_09_05` | 함수·정책만: `can_edit_service()` += 교역자 · `can_check_all_attendance()` = 관리자·교역자·**리더순장**(is_officer 제거 — `people_insert` 새신자 등록도 같이 좁아짐) · `can_manage_sun()` += 교역자 · `group_members_write` 동아리 갈래 is_master→is_admin · `qt_entries_delete_master`(마스터가 남의 묵상 행 삭제). `is_officer()`는 부르는 곳이 없지만 남겨 둠 |
+| `0046_services_praise_playlist` | `services.praise_playlist_url text` — 재생목록으로 가져올 때 `playlist?list=…`로 정규화해 저장(watch?v=…&list=…를 그대로 두면 '재생목록 열기'가 첫 곡 재생으로 튄다) |
 
 알아둘 것:
 
@@ -1843,6 +1865,13 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     `[data-verse-tool], [data-picked]`만 '안'으로 쳐서 **두 번째 절**의 mousedown이 선택을 풀고, 곧 오는 click이 새 앵커를
     잡았다. 검사는 `p.click()`만 쏴서(mousedown 없음) 통과했다. 지금은 절 전체(`[data-verse]`)가 '안'이고, `tests/word.mjs`의
     `clickVerses`는 mousedown을 먼저 보낸다. **바깥 클릭 닫기를 검사할 때는 click()이 아니라 mousedown→click을 쏘세요.**
+21. **낙관적 갱신과 서버 목록을 "이어 붙이면" 그 사이 프레임이 거짓말한다.** 나눔 피드는 공유 목록(서버)과 내 묵상(상태)을 합쳐
+    그리는데, 토글이 내 상태를 먼저 바꾸고(`setEntry`) 목록은 뒤에 오므로(`await fetchSharedEntries`) 그 사이 옛 목록의 내 글(uuid 키)과
+    내 비공개 줄('mine-private' 키)이 **두 줄**로 섰고, 반대 방향은 **빈 줄**이었다(사용자 실물 관찰 2026-09-05). 지금은
+    `wordView.mergeFeed(shared, mine)`이 내 줄을 언제나 내 상태에서 한 줄만 만들고 목록의 내 글은 걷어내며 키는 `'mine'` 고정이다.
+    게스트는 응답이 즉시라 재현되지 않으므로 순수 함수 검사가 지킨다.
+22. **map 안에서 바깥 변수와 같은 이름을 쓰면 잠금이 조용히 풀린다.** 출석 화면의 묶음 map에 `const open`(펼침)이 이미 있어서
+    13:30 게이트를 같은 이름으로 넘기자 map 안에서 펼침 값이 이겨 **칩이 하나도 안 잠겼다**(2026-09-05). `checkOpen`으로 갈랐다.
 
 ### 데이터 로드 · 실시간
 
