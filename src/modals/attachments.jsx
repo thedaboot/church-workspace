@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { FileText, File, FileSpreadsheet, Presentation, Paperclip, UploadCloud, Loader2, AlertTriangle, Eye, Trash2, X, Lock, LockOpen } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Paperclip, UploadCloud, Loader2, AlertTriangle, Eye, Trash2, X, Lock, LockOpen } from 'lucide-react';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
+// 크기 표기·종류 칩은 주보 송폼(0047)과 **같은 한 벌**이다 — components/fileRow.jsx
+import { formatBytes, fileKind } from '../components/fileRow.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
-import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, getFileOpenUrl, setFilePassword, checkFilePassword, driveImageUrl, fetchDriveFileBlob, setFileExcerpt } from '../services/cloud.js';
+import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, setFilePassword, checkFilePassword, driveImageUrl, setFileExcerpt } from '../services/cloud.js';
 import { FilePreviewModal } from '../components/FilePreviewModal.jsx';
 import { SmartImage, Skeleton } from '../components/media.jsx';
 import { useStore, store } from '../store/workspaceStore.js';
@@ -222,21 +224,9 @@ const cancelIdle = (h) => {
 // 로그(`[drive] upload … → 성공 (N ms)`)로 재서 정한다.
 // 상한 값 자체는 config.js에 있다 — 미리보기(FilePreviewModal)와 중계(api/drive-file)가
 // 같은 값을 봐야 "받아는 주는데 우리 뷰어로는 안 보이는 파일"이 안 생긴다.
-const formatBytes = (b) => {
-  if (b === null || b === undefined) return '';
-  if (b < 1024) return `${b} B`;
-  if (b < 1024 * 1024) return `${Math.round(b / 1024)} KB`;
-  return `${(b / 1024 / 1024).toFixed(1)} MB`;
-};
-const fileKind = (name = '', mime = '') => {
-  const ext = (name.split('.').pop() || '').toLowerCase();
-  const has = (m) => (mime || '').includes(m);
-  if (ext === 'pdf' || has('pdf')) return { chip: 'bg-tag-red text-tag-red-fg', icon: <FileText size={16} strokeWidth={1.75} /> };
-  if (['doc', 'docx'].includes(ext) || has('word')) return { chip: 'bg-tag-blue text-tag-blue-fg', icon: <FileText size={16} strokeWidth={1.75} /> };
-  if (['ppt', 'pptx'].includes(ext) || has('presentation')) return { chip: 'bg-tag-orange text-tag-orange-fg', icon: <Presentation size={16} strokeWidth={1.75} /> };
-  if (['xls', 'xlsx', 'csv'].includes(ext) || has('sheet') || has('excel') || has('csv')) return { chip: 'bg-tag-green text-tag-green-fg', icon: <FileSpreadsheet size={16} strokeWidth={1.75} /> };
-  return { chip: 'bg-tag-gray text-tag-gray-fg', icon: <File size={16} strokeWidth={1.75} /> };
-};
+// 크기 표기(formatBytes)와 종류 칩(fileKind)은 components/fileRow.jsx로 옮겼다 —
+// 주보 송폼(0047)이 같은 줄 모양을 써야 해서다. 두 벌로 두면 같은 PDF가 화면마다
+// 다른 칩으로 선다.
 
 // 새 업무(저장 전) 첨부 — 파일은 카드 id가 있어야 올라간다(files가 카드를 참조).
 // 그래서 여기서는 File 객체를 골라 담아두기만 하고, 저장 직후 셸이 올린다.

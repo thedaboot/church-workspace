@@ -397,6 +397,71 @@ check('문서의 스크립트가 uploadFromUrl을 안다 (v6)', () => {
   assert.match(drivemd, /getResponseCode\(\) >= 300/, '받아오기 실패를 안 가린다');
 });
 
+// ── 주보 송폼 (0047) ────────────────────────────────────────────────────────
+// 주보에도 파일이 붙는다. **업무 첨부와 같은 files 표·같은 업로드 한 벌**을 쓰는 것이
+// 이 기능의 전제다 — 두 벌로 갈라지면 3MB 갈래·멱등 열쇠·되돌리기 중 어느 하나가
+// 한쪽에만 고쳐진다(§6-29 머리말의 그 함정, 2026-08-28에 실제로 겪었다).
+const view = read('src/views/worshipView.jsx');
+const wsvc = read('src/services/worship.js');
+const mig = read('supabase/migrations/0047_service_files.sql');
+
+check('송폼이 업무 첨부와 같은 업로드 한 벌을 지난다', () => {
+  assert.match(cloud, /async function uploadOwnedFile\(file, \{ folderHint, owner, prefix, rememberFolder \}\)/,
+    '공용 업로드 함수(uploadOwnedFile)가 없다');
+  // 3MB 갈래를 판정하는 자리가 둘이면 한쪽만 고쳐진다
+  const gates = [...cloud.matchAll(/> INLINE_MAX/g)].length;
+  assert.strictEqual(gates, 1, `INLINE_MAX 갈래가 ${gates}군데다 — 한 곳이어야 두 갈래가 같이 고쳐진다`);
+  const attach = /export async function uploadAttachment[\s\S]*?\n}/.exec(cloud)?.[0] || '';
+  const svc = /export async function uploadServiceFile[\s\S]*?\n}/.exec(cloud)?.[0] || '';
+  assert.match(attach, /return uploadOwnedFile\(/, '업무 첨부가 공용 길을 안 쓴다');
+  assert.match(svc, /return uploadOwnedFile\(/, '송폼이 공용 길을 안 쓴다');
+  assert.match(svc, /owner: \{ service_id: serviceId \}/, '송폼 행의 주인 칸이 service_id가 아니다');
+  // 지우는 길도 한 벌이다 — DB 행부터, 실체는 그 뒤 최선으로(§6-29-e)
+  assert.match(wsvc, /return deleteAttachment\(row\)/, '송폼 삭제가 두 번째 구현이다');
+});
+
+check('송폼 드라이브 자리는 예배/<날짜> 한 벌이고 폴더가 파일보다 먼저다', () => {
+  assert.match(cloud, /export const SERVICE_DRIVE_ROOT = '예배'/, '드라이브 뿌리 이름이 상수가 아니다');
+  assert.match(cloud, /serviceFolderPath = \(serviceDate\) => \[SERVICE_DRIVE_ROOT, String\(serviceDate/,
+    'path가 [예배, 날짜] 두 겹이 아니다 — 주보마다 폴더가 갈리거나 한 폴더에 다 쌓인다');
+  assert.match(cloud, /export async function ensureServiceFolder/, '주보 폴더를 미리 확보하지 않는다');
+  assert.match(cloud, /await setServiceFolder\(service\.id, folderId\)/,
+    '폴더 id를 services에 안 적는다 — 다음 업로드가 같은 이름 폴더를 또 만든다');
+  // §6-29-h: 무거운 호출(파일 쓰기)이 폴더 만들기까지 겸하면 첫 업로드가 가장 느리다
+  const folderAt = view.search(/ensureServiceDriveFolder\(service\)/);
+  const upAt = view.search(/await uploadServiceFile\(service/);
+  assert.ok(folderAt > 0, 'ensureServiceDriveFolder 호출을 못 찾았다');
+  assert.ok(upAt > 0, 'uploadServiceFile 호출을 못 찾았다');
+  assert.ok(folderAt < upAt, '폴더 확보가 업로드보다 뒤에 있다');
+});
+
+check('초기 로드가 주보 송폼까지 끌어오지 않는다', () => {
+  // files 한 표를 업무와 주보가 같이 쓴다(0047). 안 거르면 워크스페이스 스토어가
+  // 주보 파일까지 지고 다니고, 주보가 쌓일수록 첫 로드가 그만큼 무거워진다.
+  assert.match(cloud, /from\('files'\)\.select\('\*'\)\.is\('service_id', null\)/,
+    'listAllFiles가 service_id로 안 거른다');
+  assert.match(sync, /if \(!f\.card_id\) return;/, 'filesByCard가 card_id 없는 행을 안 거른다');
+  // 실시간도 같다 — 송폼 한 장에 접속자 전원이 열어 둔 업무를 다시 읽으면 안 된다
+  assert.match(sync, /if \(row\.service_id\) return;/, 'files 실시간이 주보 갈래를 안 가른다');
+});
+
+check('files RLS 넷이 전부 주보 갈래로 갈라져 있다 (0047)', () => {
+  for (const p of ['files_select', 'files_insert', 'files_update', 'files_delete']) {
+    const at = mig.indexOf(`create policy ${p} on public.files`);
+    assert.ok(at > 0, `${p} 정책을 못 찾았다`);
+    const body = mig.slice(at, mig.indexOf('\n\n', at));
+    assert.ok(body.includes('service_id'), `${p}가 주보 갈래를 안 가른다 — 작성 중 주보의 송폼이 새어 나간다`);
+  }
+  // 쓰기 셋은 can_edit_service, 읽기는 발행 여부까지 본다
+  const sel = mig.slice(mig.indexOf('create policy files_select'));
+  assert.match(sel.slice(0, sel.indexOf('\n\n')), /s\.status = 'published' or public\.can_edit_service\(\)/,
+    '작성 중 주보의 송폼이 발행 전에도 읽힌다');
+  assert.match(mig, /check \(\(card_id is null\) <> \(service_id is null\)\)/, '주인 배타 CHECK가 없다');
+  // set null이면 업무를 지우는 순간 card_id·service_id가 둘 다 null이 되어 그 CHECK에 걸린다
+  assert.match(mig, /references public\.cards\(id\) on delete cascade/,
+    'card_id가 아직 set null이다 — 배타 CHECK 때문에 업무 삭제가 23514로 죽는다');
+});
+
 check('파일 중계는 불변 캐시다(재열람 왕복 0)', () => {
   // drive_file_id의 바이트는 불변이다(첨부는 보기 링크 · 다시 올리면 id가 새로 생긴다).
   // 1시간짜리로 되돌리면 다음 날 같은 3.8MB 결산안을 열 때마다 통째로 다시 받는다.

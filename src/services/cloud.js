@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient.js';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabaseClient.js';
 import { CONFIG } from '../config.js';
 
 // ============================================================================
@@ -68,21 +68,51 @@ export async function listProfiles() {
   return unwrap(await client().from('profiles').select('*'));
 }
 // 다녀갔다고 찍기 — 대시보드의 '오늘 다녀간 사람'이 보는 값(0019).
-// **부르는 쪽이 빈도를 정한다**: 앱을 열 때 한 번(App.initialLoad) + 화면이 보이는 동안
-// 5분마다 한 번(App의 심장박동 effect · utils.dueForHeartbeat). 즉 **사람당 5분에
-// UPDATE 1회**가 상한이다 — 숨겨진 탭은 아예 안 찍는다(§1.3 쓰기·Egress 비용).
+// **부르는 쪽이 빈도를 정한다**: 앱을 열 때 한 번(App.initialLoad) · 화면이 보이는 동안
+// 5분마다 한 번(App의 심장박동 effect · utils.dueForHeartbeat) · 떠날 때 한 번 ·
+// **쓰기가 성공할 때마다(1분에 한 번 · cloudSync.markWrote · 2026-09-06)**.
 // 여기에 자체 스로틀을 또 두지 않는다. 빈도가 두 군데에 적히면 어느 쪽이 진짜인지 모른다.
 // 실패를 삼킨다: 이건 화면에 얼굴 하나가 덜 뜨는 일이고, 그것 때문에 앱을 못 쓰게 하지 않는다.
-// update로 둔다(upsert 아님) — 행이 없다면 그건 프로필 자가 복구가 할 일이고,
-// 여기서 만들면 display_name 없는 빈 행이 생겨 '알 수 없음'이 하나 늘어난다.
+//
+// **시각은 서버가 정한다**(0048의 `touch_last_seen()`). 예전에는 브라우저가
+// `new Date()`로 만들어 보냈는데, 같은 화면에서 나란히 비교되는 `activity.created_at`은
+// DB의 now()라 기기 시계가 어긋난 만큼 "1분 전 수정 · 4분 전 다녀감"이 됐다
+// (이 앱은 기기 시계가 어긋난다는 것을 이미 안다 — 위 withClockSkewRetry).
+// 함수가 아직 없는 환경(마이그레이션 전 미리보기 배포)에서는 예전 update로 떨어진다.
 export async function touchLastSeen() {
   try {
+    const { error } = await client().rpc('touch_last_seen');
+    if (!error) return;
+    if (error.code !== 'PGRST202' && !/touch_last_seen/.test(error.message || '')) throw error;
     const { data: { user } } = await client().auth.getUser();
     if (!user) return;
     await client().from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', user.id);
   } catch (e) {
     console.warn('[cloud] 접속 시각 기록 생략:', e.message);
   }
+}
+
+// **탭을 닫는 순간의 한 번**(App의 pagehide·visibilitychange hidden).
+// 평범한 fetch는 페이지가 사라지면서 취소된다 — 그래서 '떠날 때 찍기'(2026-09-05)가
+// 실제로는 자주 안 남았다(라이브 확인: 마지막 쓰기보다 last_seen_at이 225초 뒤처져 있었다).
+// `keepalive`는 문서가 사라진 뒤에도 요청을 끝까지 보내라는 뜻이라 이 자리에만 쓴다.
+// supabase-js로는 이 옵션을 실을 수 없어 REST를 직접 부른다 — 그래서 세션 토큰도 직접 붙인다
+// (`getSession`은 저장소에서 읽으므로 네트워크를 타지 않는다 · 떠나는 길에 왕복하면 늦다).
+export async function stampLeaveBeacon() {
+  try {
+    if (!supabase || !SUPABASE_URL) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return;
+    await fetch(`${SUPABASE_URL}/rest/v1/rpc/touch_last_seen`, {
+      method: 'POST', keepalive: true, body: '{}',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+    });
+  } catch { /* 떠나는 길이다 — 실패해도 남길 화면이 없다 */ }
 }
 // 가입 트리거가 발화하지 않아 프로필 행이 없을 수 있으므로 update 대신 upsert(행 없어도 성공)
 export async function updateMyProfile(patch) {
@@ -413,11 +443,20 @@ export async function removeLink(id) {
 // ── files / 첨부 파일 (Supabase Storage: private 버킷 'attachments') ──────────
 const ATTACH_BUCKET = 'attachments';
 
+// 초기 로드가 읽는 것은 **업무 첨부뿐**이다. 0047부터 files에는 주보 송폼도 들어 있는데
+// (service_id), 그것까지 끌어오면 워크스페이스 스토어가 업무와 상관없는 행을 지고 다닌다
+// — cloudSync가 card_id 없는 행을 어차피 버리므로 순전히 낭비다(그리고 주보가 쌓일수록
+// 늘어난다). 거르는 자리는 조회 한 곳이면 된다.
 export async function listAllFiles() {
-  return unwrap(await client().from('files').select('*').order('created_at', { ascending: true }));
+  return unwrap(await client().from('files').select('*').is('service_id', null).order('created_at', { ascending: true }));
 }
 export async function listCardFiles(cardId) {
   return unwrap(await client().from('files').select('*').eq('card_id', cardId).order('created_at', { ascending: true }));
+}
+// 주보 한 건에 붙은 송폼(0047). 업무 첨부와 같은 표·같은 행 모양이라 미리보기·
+// 내려받기·삭제가 전부 그대로 동작한다.
+export async function listServiceFiles(serviceId) {
+  return unwrap(await client().from('files').select('*').eq('service_id', serviceId).order('created_at', { ascending: true }));
 }
 
 // ── 개인 구글 드라이브 (docs/DRIVE.md) ──────────────────────────────────────
@@ -584,10 +623,12 @@ const INLINE_MAX = 3 * 1024 * 1024;
 // 낫고, 나중에 v6을 올리면 scripts/migrate_to_drive.mjs가 드라이브로 옮겨 준다.
 //
 // 돌려주는 것: { drive } 또는 { storagePath } 중 하나.
-async function uploadViaStorage(file, { projectId, cardId, key, folderHint, convert }) {
+// `prefix`는 Storage에 둘 자리의 앞머리다 — 업무 첨부는 `<프로젝트>/<업무>`,
+// 주보 송폼은 `services/<주보>`(0047). 부르는 쪽이 정한다.
+async function uploadViaStorage(file, { prefix, key, folderHint, convert }) {
   const c = client();
   const safe = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path = `${projectId}/${cardId}/${newKey()}-${safe}`;
+  const path = `${prefix}/${newKey()}-${safe}`;
   const put = await c.storage.from(ATTACH_BUCKET).upload(path, file, {
     contentType: file.type || undefined, upsert: false, cacheControl: '2592000',
   });
@@ -632,20 +673,27 @@ async function uploadViaStorage(file, { projectId, cardId, key, folderHint, conv
 const SHEET_EXT = new Set(['xlsx', 'xlsm', 'csv']);
 const wantsSheetPreview = (name) => SHEET_EXT.has(String(name || '').split('.').pop().toLowerCase());
 
-export async function uploadAttachment(file, { projectId, cardId, projectName, driveFolderId, cardTitle, cardFolderId }) {
+// ============================================================================
+// 첨부 한 건이 지나가는 **하나의 길**. 업무 첨부와 주보 송폼(0047)이 이것을 같이 쓴다.
+// ----------------------------------------------------------------------------
+// 두 갈래가 다른 것은 셋뿐이다:
+//   folderHint     — 드라이브의 어느 폴더로 갈지
+//   owner          — files 행의 주인 칸(`{project_id, card_id}` 또는 `{service_id}`)
+//   prefix         — Storage를 거칠 때 임시 사본을 둘 자리
+//   rememberFolder — 스크립트가 폴더를 새로 판 경우 그 id를 어디에 적을지(0026·0047)
+// 나머지 — 3MB 갈래(INLINE_MAX) · 멱등 열쇠 · 타임아웃 뒤 확인 · 시트 변환 사본 ·
+// 행을 못 만들면 올린 파일 되돌리기 — 는 **두 갈래가 똑같아야 하는 것들**이라 여기
+// 한 벌로 둔다. 두 벌로 두면 고칠 때마다 한쪽만 고쳐진다(§6-29 머리말의 그 함정).
+// ============================================================================
+async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder }) {
   const c = client();
   const key = newKey();
   const convert = wantsSheetPreview(file.name);
-  // 업무 폴더 id를 이미 알면 그것만 보낸다(cardTitle을 같이 보내면 그 안에 또
-  // 같은 이름 폴더를 판다 — 0026). 폴더 만들기는 부르는 쪽이 미리 끝낸다.
-  const folderHint = cardFolderId
-    ? { folderId: cardFolderId }
-    : { folderId: driveFolderId || undefined, projectName: projectName || '기타', cardTitle: cardTitle || undefined };
   let up = null;          // 드라이브에 올라간 경우
   let storagePath = null; // Storage에 남긴 경우(스크립트가 v5거나 옮기기 실패)
   try {
     if ((file.size ?? 0) > INLINE_MAX) {
-      const out = await uploadViaStorage(file, { projectId, cardId, key, folderHint, convert });
+      const out = await uploadViaStorage(file, { prefix, key, folderHint, convert });
       up = out.drive || null;
       storagePath = out.storagePath || null;
     } else {
@@ -660,14 +708,13 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
   } catch (e) {
     if (!e.notConfigured) throw e;
     // 드라이브가 없는 환경 — 예전 경로 그대로
-    return uploadAttachmentToStorage(file, { projectId, cardId });
+    return uploadToStorageOnly(file, { owner, prefix });
   }
 
   let row;
   try {
     row = unwrap(await c.from('files').insert({
-      project_id: projectId,
-      card_id: cardId,
+      ...owner,
       name: file.name,
       mime_type: file.type || null,
       size_bytes: file.size ?? null,
@@ -690,16 +737,72 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
     throw e;
   }
 
-  // 이 업무의 폴더를 처음 만든 경우 id를 적어 둔다(다음 업로드부터 id로 넣는다).
+  // 폴더를 이번에 처음 판 경우 id를 적어 둔다(다음 업로드부터 id로 넣는다).
   // 실패하면 **알린다** — 조용히 넘기면 다음 업로드가 같은 이름 폴더를 하나 더 만들고
-  // 한 업무의 파일이 두 폴더로 갈라진다(드라이브는 같은 이름 형제를 허용한다).
-  if (up && !cardFolderId && up.folderId) {
-    try { unwrap(await c.from('cards').update({ drive_folder_id: up.folderId }).eq('id', cardId).select('id').single()); }
-    catch (e) { console.error('[drive] 업무 폴더 id 저장 실패 — 다음 업로드가 폴더를 또 만들 수 있다:', e); }
+  // 한 주인의 파일이 두 폴더로 갈라진다(드라이브는 같은 이름 형제를 허용한다).
+  if (up?.folderId && rememberFolder) {
+    try { await rememberFolder(up.folderId); }
+    catch (e) { console.error('[drive] 폴더 id 저장 실패 — 다음 업로드가 폴더를 또 만들 수 있다:', e); }
   }
   // 부르는 쪽(병렬 업로드)이 나머지 파일을 이 폴더 id로 바로 넣을 수 있게 실어 보낸다
-  // — files 컬럼이 아니라 임시 속성이다(DB에는 cards.drive_folder_id가 원본).
+  // — files 컬럼이 아니라 임시 속성이다(DB에는 cards/services.drive_folder_id가 원본).
   return Object.assign(row, { _driveFolderId: up?.folderId });
+}
+
+export async function uploadAttachment(file, { projectId, cardId, projectName, driveFolderId, cardTitle, cardFolderId }) {
+  // 업무 폴더 id를 이미 알면 그것만 보낸다(cardTitle을 같이 보내면 그 안에 또
+  // 같은 이름 폴더를 판다 — 0026). 폴더 만들기는 부르는 쪽이 미리 끝낸다.
+  const folderHint = cardFolderId
+    ? { folderId: cardFolderId }
+    : { folderId: driveFolderId || undefined, projectName: projectName || '기타', cardTitle: cardTitle || undefined };
+  return uploadOwnedFile(file, {
+    folderHint,
+    owner: { project_id: projectId, card_id: cardId },
+    prefix: `${projectId}/${cardId}`,
+    rememberFolder: cardFolderId ? null : (folderId) => setCardFolder(cardId, folderId),
+  });
+}
+
+// ── 주보 송폼 (0047) ────────────────────────────────────────────────────────
+// 드라이브 자리는 `더다붓 워크스페이스/예배/<YYYY-MM-DD>/`다. Apps Script는 고칠 것이
+// 없다 — folderFor가 path 배열을 따라 내려가며 없으면 만든다(v7 · 이름으로 찾으므로
+// 멱등하다). 두 번째 업로드부터는 services.drive_folder_id로 곧장 간다.
+export const SERVICE_DRIVE_ROOT = '예배';
+export const serviceFolderPath = (serviceDate) => [SERVICE_DRIVE_ROOT, String(serviceDate || '날짜 미정')];
+
+// 주보 폴더 id만 적는다 — 주보 폼을 통째로 보내지 않는다(저장 중인 남의 편집을
+// 같이 덮는다 · setCardFolder와 같은 이유).
+export async function setServiceFolder(serviceId, folderId) {
+  return unwrap(await client().from('services').update({ drive_folder_id: folderId }).eq('id', serviceId).select('id').single());
+}
+
+// 폴더를 **파일 바이트가 오가기 전에** 확보한다(§6-29-h — 업무 폴더와 같은 이유).
+// 실패해도 null을 돌려주고 업로드는 진행한다: 스크립트가 path로 폴더를 찾는 폴백이
+// 있어서 파일은 제자리에 간다. 폴더 id를 못 적는 것뿐이다.
+export async function ensureServiceFolder(service) {
+  if (service?.drive_folder_id) return service.drive_folder_id;
+  if (!service?.id || !service?.service_date) return null;
+  try {
+    const { folderId } = await ensureDriveFolder(null, null, serviceFolderPath(service.service_date));
+    if (!folderId) return null;
+    await setServiceFolder(service.id, folderId);
+    return folderId;
+  } catch (e) {
+    if (!e.notConfigured) console.error('[drive] 주보 폴더 확보 실패:', e);
+    return null;
+  }
+}
+
+export async function uploadServiceFile(file, { serviceId, serviceDate, serviceFolderId }) {
+  const folderHint = serviceFolderId
+    ? { folderId: serviceFolderId }
+    : { path: serviceFolderPath(serviceDate) };
+  return uploadOwnedFile(file, {
+    folderHint,
+    owner: { service_id: serviceId },
+    prefix: `services/${serviceId}`,
+    rememberFolder: serviceFolderId ? null : (folderId) => setServiceFolder(serviceId, folderId),
+  });
 }
 
 // 첨부에서 뽑은 글자(0030). 그 한 칸만 건드린다 — 파일 행을 통째로 보내면
@@ -725,10 +828,11 @@ export async function renameDriveFolder(folderId, newName) {
 }
 
 // 예전 경로(Supabase Storage). 드라이브 이전 파일과 미설정 환경이 쓴다.
-async function uploadAttachmentToStorage(file, { projectId, cardId }) {
+// owner·prefix는 위 uploadOwnedFile이 넘긴다 — 업무 첨부든 주보 송폼이든 같은 길이다.
+async function uploadToStorageOnly(file, { owner, prefix }) {
   const c = client();
   const safe = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path = `${projectId}/${cardId}/${crypto.randomUUID()}-${safe}`;
+  const path = `${prefix}/${crypto.randomUUID()}-${safe}`;
   // cacheControl: 경로에 uuid가 박혀 있어 **같은 주소가 다른 그림이 될 수 없다.**
   // 기본값은 1시간이라, 한 시간 뒤 다시 열면 (주소가 같아도) 되묻는 왕복이 생긴다.
   // 30일로 두면 그 왕복도 사라진다. 이미 올라간 파일은 그대로 3600이고, 그쪽은
@@ -739,8 +843,7 @@ async function uploadAttachmentToStorage(file, { projectId, cardId }) {
   if (up.error) throw up.error;
   try {
     return unwrap(await c.from('files').insert({
-      project_id: projectId,
-      card_id: cardId,
+      ...owner,
       name: file.name,
       mime_type: file.type || null,
       storage_path: path,

@@ -1,10 +1,12 @@
 import React, { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck,
-  ListMusic, PencilLine, Music, Loader2 } from 'lucide-react';
+  ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
+import { FilePreviewModal } from './FilePreviewModal.jsx';
+import { formatBytes, fileKind } from './fileRow.jsx';
 import { keepVisible } from '../utils.js';
 import { PassagePicker, PassageBody } from './worshipPassage.jsx';
 import { EmptyBookMark } from './wordBible.jsx';
@@ -298,6 +300,80 @@ function SongsTab({ rows, leader, playlistUrl }) {
         ))}
       </ul>
     </>
+  );
+}
+
+// ── 송폼 (찬양 탭 아래 · 0047) ──────────────────────────────────────────────
+// 주보에 붙는 파일이다. 업무 첨부와 **같은 files 표·같은 드라이브 길**을 쓰고
+// (services/worship.js → cloud.uploadServiceFile), 줄 모양도 그 화면과 한 벌이다
+// (components/fileRow.jsx의 formatBytes·fileKind) — 같은 앱에서 파일 줄이 화면마다
+// 다르게 생길 이유가 없다. 미리보기는 첨부와 같은 FilePreviewModal이라 PDF는 앱 안
+// pdf.js로 그려지고 새 탭·내려받기도 그대로 딸려 온다.
+//
+// **빈 상태 문구를 두지 않는다.** 붙은 파일도 없고 붙일 자격도 없으면 이 구역 자체가
+// 뜨지 않는다 — 없는 것을 설명하는 줄은 §8의 안내 줄 금지에 걸린다.
+// 올리기·삭제는 **수정 화면에서만**이다(담당자·찬양·광고와 같은 문법).
+function SongFormRow({ row, canDelete, onOpen, onRemove }) {
+  // 아직 드라이브에 안 올라간 줄 — 고르자마자 선다(§6-29-k). 삭제는 주지 않는다:
+  // DB에 행이 없어서 지울 것이 없고, 버튼을 내놓으면 화면이 거짓말을 한다.
+  const pending = !!row._pending;
+  const kind = fileKind(row.name, row.mime_type);
+  return (
+    <li className="worship-songform-row flex items-center gap-2.5 py-2.5" style={ROW_LINE}>
+      <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>
+      <div className="min-w-0 flex-1">
+        <p className="worship-songform-name text-[13px] text-fg break-words">{row.name}</p>
+        {/* 올리는 중에도 크기는 그대로 말해 준다 — '올리는 중'은 상태이지 안내가 아니다 */}
+        <p className="worship-songform-meta mt-0.5 flex items-center gap-1 text-[10.5px] text-fg-faint">
+          {pending && <Loader2 size={10} className="shrink-0 animate-spin" />}
+          {pending ? `드라이브에 올리는 중 · ${formatBytes(row.size_bytes)}` : formatBytes(row.size_bytes)}
+        </p>
+      </div>
+      <button type="button" onClick={onOpen} title="미리보기" aria-label={`${row.name} 미리보기`}
+        className={`worship-songform-open shrink-0 ${ICON_BTN}`}><Eye size={14} /></button>
+      {!pending && canDelete && (
+        <ConfirmPopover className="shrink-0 inline-flex" title="송폼 삭제"
+          message="이 송폼을 삭제할까요?" onConfirm={onRemove}>
+          <button type="button" aria-label={`${row.name} 삭제`}
+            className="shrink-0 p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors">
+            <Trash2 size={13} />
+          </button>
+        </ConfirmPopover>
+      )}
+    </li>
+  );
+}
+
+function SongForms({ files = [], canEdit, onPick, onOpen, onRemove }) {
+  const inputRef = useRef(null);
+  if (!canEdit && !files.length) return null;
+  return (
+    <section className="worship-songforms mt-4 pt-3" style={{ borderTop: '1px solid var(--app-line)' }}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Paperclip size={13} className="shrink-0 text-fg-faint" />
+        <span className="text-xs font-semibold text-fg-muted">송폼</span>
+        <span className="flex-1" />
+        {canEdit && (
+          <>
+            {/* 칸 자체는 안 보인다 — 버튼이 대신 연다(첨부 영역과 같은 방식) */}
+            <input ref={inputRef} type="file" multiple className="hidden" tabIndex={-1} aria-hidden="true"
+              onChange={e => { onPick(e.target.files); e.target.value = ''; }} />
+            <button type="button" onClick={() => inputRef.current?.click()}
+              className={`worship-songform-add shrink-0 ${WITH_ICON} ${BTN}`}>
+              <UploadCloud size={13} /><span>파일 올리기</span>
+            </button>
+          </>
+        )}
+      </div>
+      {files.length > 0 && (
+        <ul className={`${LIST} mt-1`}>
+          {files.map(row => (
+            <SongFormRow key={row.id} row={row} canDelete={canEdit}
+              onOpen={() => onOpen(row)} onRemove={() => onRemove(row)} />
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -729,12 +805,13 @@ function MyNote({ note, onSave, onShare }) {
 // ── 상세 ─────────────────────────────────────────────────────────────────────
 export function ServiceDetail({
   service, people = [], perms = {}, note = null, canWriteNote = false, startEditing = false,
-  onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
-  onPullPlaylist, onLookupTitle, onShareNote,
+  files = [], onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
+  onPullPlaylist, onLookupTitle, onShareNote, onUploadFiles, onRemoveFile,
 }) {
   const [tab, setTab] = useState('word');
   const [draft, setDraft] = useState(null);     // null이면 보기 모드
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState(null);     // 미리보기로 열어 둔 송폼 행
   const [saveState, setSaveState] = useState('');   // '' | 'saving' | 'saved'
   const dirty = useRef(false);
   const editing = draft !== null;
@@ -752,7 +829,7 @@ export function ServiceDetail({
   // 만들자마자 수정 화면으로 들어온다(사용자 결정) — 새 주보는 열자마자 빈 칸이라
   // '수정'을 한 번 더 누르게 할 이유가 없다.
   useEffect(() => {
-    dirty.current = false; setSaveState(''); setTab('word');
+    dirty.current = false; setSaveState(''); setTab('word'); setPreview(null);
     setDraft(startEditing && perms.canEdit ? draftOf(service) : null);
     // 주보가 바뀔 때만 — startEditing은 그때 부르는 쪽이 정해서 넘긴다
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -869,19 +946,34 @@ export function ServiceDetail({
         {tab === 'roles' && (editing
           ? <RolesEdit rows={rows('roles')} people={people} onChange={v => set({ roles: v })} />
           : <RolesTab rows={rows('roles')} people={people} />)}
-        {tab === 'songs' && (editing
-          ? <SongsEdit rows={rows('songs')} people={people} onChange={v => set({ songs: v })}
-              leader={draft.praise_leader || ''} onLeader={v => set({ praise_leader: v })}
-              onPlaylist={v => set({ praise_playlist_url: v })}
-              onPullPlaylist={onPullPlaylist} onLookupTitle={onLookupTitle} />
-          : <SongsTab rows={rows('songs')} leader={service.praise_leader || ''}
-              playlistUrl={service.praise_playlist_url || ''} />)}
+        {tab === 'songs' && (
+          <>
+            {editing
+              ? <SongsEdit rows={rows('songs')} people={people} onChange={v => set({ songs: v })}
+                  leader={draft.praise_leader || ''} onLeader={v => set({ praise_leader: v })}
+                  onPlaylist={v => set({ praise_playlist_url: v })}
+                  onPullPlaylist={onPullPlaylist} onLookupTitle={onLookupTitle} />
+              : <SongsTab rows={rows('songs')} leader={service.praise_leader || ''}
+                  playlistUrl={service.praise_playlist_url || ''} />}
+            {/* 송폼은 찬양 목록 바로 아래 한 구역이다(0047). 붙이고 지우는 것은 수정
+                화면에서, 보기 화면에는 줄만 선다 — 담당자·찬양·광고와 같은 문법이다. */}
+            <SongForms files={files} canEdit={!!(editing && perms.canEdit)}
+              onPick={onUploadFiles} onOpen={setPreview} onRemove={onRemoveFile} />
+          </>
+        )}
         {tab === 'notices' && (editing
           ? <NoticesEdit rows={rows('notices')} onChange={v => set({ notices: v })} />
           : <NoticesTab rows={rows('notices')} />)}
       </div>
 
       {canWriteNote && !editing && <MyNote note={note} onSave={onSaveNote} onShare={onShareNote} />}
+
+      {/* 송폼 미리보기 — 업무 첨부와 **같은 창**이다. PDF는 앱 안 pdf.js로 그려지고
+          새 탭·내려받기도 그 창이 준다(§6-29-q). 사진 넘기기는 이미지끼리만 도는데
+          송폼은 대개 한 장이라 그냥 목록을 그대로 넘긴다. */}
+      {preview && (
+        <FilePreviewModal row={preview} rows={files} initialSrc={null} onClose={() => setPreview(null)} />
+      )}
 
       {/* 모바일 편집 도구 줄 — 화면 아래에 붙는다. 하단 탭바(4.5rem + safe-area) 위에
           얹고, 편집 중에만 뜬다. 긴 주보를 고칠 때 저장 버튼을 찾아 위로 올라가지
