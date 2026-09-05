@@ -54,7 +54,7 @@ const CLOSE_MS = 150;
 // 두 도막을 잇는 것은 failText이고 **언제나 줄을 바꾼다**(사용자 결정 2026-09-03).
 // 이유 안에서 문장이 또 나뉘면 거기도 줄바꿈이다 — 가운뎃점은 한 문장 안의 나열
 // ('회장·교역자·마스터')에만 쓴다.
-const NEED_EDIT = '주보는 회장·미디어팀·관리자만 쓸 수 있어요';
+const NEED_EDIT = '주보는 회장·교역자·미디어팀·관리자만 쓸 수 있어요';
 const GONE = '이 주보가 이미 지워졌어요\n새로고침해주세요';
 const fail = (what, err, byCode = {}) => {
   const why = err?.human || byCode[String(err?.code ?? '')];
@@ -366,7 +366,7 @@ export function WorshipView({ onOpenBible } = {}) {
       console.error('[worship] 주보 만들기 실패:', e);
       showToast(fail('주보를 만들지 못했어요', e, {
         23505: '그 날짜의 주일 예배 주보가 이미 있어요',
-        42501: '주보는 회장·미디어팀·관리자만 만들 수 있어요',
+        42501: '주보는 회장·교역자·미디어팀·관리자만 만들 수 있어요',
       }));
       return false;
     }
@@ -452,7 +452,7 @@ export function WorshipView({ onOpenBible } = {}) {
       });
       showToast(fail(next ? `${who}님을 출석으로 표시하지 못했어요` : `${who}님의 출석을 취소하지 못했어요`, e, {
         23505: '이미 출석으로 표시되어 있어요\n새로고침해주세요',
-        42501: '내 순 청년만 출석을 만질 수 있어요\n다른 순은 임원·교역자가 체크해요',
+        42501: '내 순 청년만 출석을 만질 수 있어요\n다른 순은 리더순장·교역자가 체크해요',
         23503: '이 주보나 명단이 이미 지워졌어요\n새로고침해주세요',
       }));
     }
@@ -484,7 +484,7 @@ export function WorshipView({ onOpenBible } = {}) {
     } catch (e) {
       console.error('[worship] 미등록 출석자 출석 실패:', e);
       showToast(fail(`${made.name}님을 명단에는 올렸지만 출석으로 표시하지 못했어요`, e, {
-        42501: '내 순 청년만 출석을 만질 수 있어요\n다른 순은 임원·교역자가 체크해요',
+        42501: '내 순 청년만 출석을 만질 수 있어요\n다른 순은 리더순장·교역자가 체크해요',
       }));
     }
     return made;
@@ -549,13 +549,16 @@ export function WorshipView({ onOpenBible } = {}) {
   }
 
   if (screen === 'detail' && service) {
+    // 출석에 다녀오면 **보기 모드로 돌아온다**(onOpenAttendance가 editOnOpen을 끈다) —
+    // 갓 만든 주보는 그 표시가 켜져 있어서, 그대로 두면 ServiceDetail이 다시 마운트될 때
+    // 수정 화면으로 들어간다. 출석은 보기 모드에서만 들어가므로 꺼도 잃는 것이 없다.
     return (
       <ServiceDetail
         service={service} people={roster.people} perms={perms} note={note} canWriteNote={canWriteNote}
         startEditing={editOnOpen}
         onBack={() => { setScreen('list'); setOpenId(null); setEditOnOpen(false); }}
         onSave={save} onPublish={publish} onDelete={drop} onSaveNote={saveNote}
-        onOpenAttendance={() => setScreen('attendance')}
+        onOpenAttendance={() => { setEditOnOpen(false); setScreen('attendance'); }}
         onOpenBible={onOpenBible}
         onPullPlaylist={pullPlaylist} onLookupTitle={lookupTitle} onShareNote={shareNote}
       />

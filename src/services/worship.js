@@ -20,11 +20,17 @@ import { generateId } from '../utils.js';
 // 경로(RLS·실데이터)는 사람이 확인해야 한다 — HANDOFF §2-6.
 // ============================================================================
 
-const COLS = 'id, kind, service_date, status, title, passage_ref, preacher, roles, songs, notices, attendance_note, created_at, updated_at';
+const COLS = 'id, kind, service_date, status, title, passage_ref, preacher, roles, songs, notices, praise_leader, praise_playlist_url, attendance_note, created_at, updated_at';
 
 export const SUNDAY_KIND = 'sunday';
 const SUNDAY_LABEL = '주일 4부 젊은이 예배';
 const UNASSIGNED = '순 미지정';
+
+// 찬양팀 이름은 **고정 상수**다(사용자 결정 2026-09-05: "찬양팀의 이름은 Re:born
+// 워십이라 고정해줘도 나쁘지 않겠다"). 팀이 하나뿐이라 주보마다 적을 값이 아니고,
+// 바뀌면 여기 한 줄만 고친다. 인도자는 격주로 바뀌므로 주보 행의 칸이다
+// (`services.praise_leader` — 0044).
+export const PRAISE_TEAM = 'Re:born 워십';
 
 // ── 게스트 시드 (클라우드가 없을 때의 저장 자리) ────────────────────────────
 const { all: guestAll, rows: guestRows, set: guestSet } = guestStore('church_worship_v1');
@@ -59,17 +65,28 @@ export function formatServiceDate(iso) {
 
 export const serviceYear = (iso) => Number(String(iso || '').slice(0, 4)) || new Date().getFullYear();
 
-// 오늘(한국 시간). 브라우저 로컬 시간으로 재면 검사 기계의 시간대에 따라 답이 달라진다
-// — 'sv-SE' 로케일이 곧 'YYYY-MM-DD'다(word.js가 같은 한 줄을 쓴다).
-export const kstToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+// 지금(한국 시간) 'YYYY-MM-DD HH:mm:ss'. 브라우저 로컬 시간으로 재면 검사 기계의
+// 시간대에 따라 답이 달라진다 — 'sv-SE' 로케일이 곧 'YYYY-MM-DD HH:mm:ss'라
+// **글자 비교가 곧 시간 비교**다(word.js의 kstToday가 날짜만 같은 방식으로 만든다.
+// 쉼표를 끼워 넣는 런타임이 있어 한 번 걷어낸다).
+export const kstNow = () => new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).replace(',', '');
 
-// 출석을 만질 수 있는 주보인가 — **발행됐고 예배 날짜가 지난(오늘 포함)** 것만이다.
-// 작성 중인 주보나 아직 오지 않은 예배에는 출석 진입 자체가 없다(사용자 결정).
-// ISO 날짜는 글자 순서가 곧 시간 순서라 그대로 견준다.
-export function attendanceOpen(service, today = kstToday()) {
-  if (!service || service.status !== 'published') return false;
+// 예배가 시작하는 시각(KST). 주일 4부 젊은이 예배가 13:30이고, '그 밖의 예배'는
+// 시간 칸이 없으니 같은 값을 쓴다(사용자 결정 2026-09-05) — 예배마다 시각을 두게
+// 되면 그때 services에 칸을 만들고 이 상수는 기본값이 된다.
+export const ATTEND_OPEN_HM = '13:30';
+
+// 출석 화면에 **들어갈 수** 있는 주보인가 — 발행된 것뿐이다. 예배 전에도 미리 열어
+// 명단을 훑을 수 있어야 한다(사용자 결정 2026-09-05: 그 전에는 체크만 잠근다).
+export const attendanceVisible = (service) => !!service && service.status === 'published';
+
+// 출석을 **만질 수** 있는가 — 발행됐고 예배 시작 시각(그날 13:30 KST)이 지났을 때다.
+// 예전에는 '예배 날짜가 지난(오늘 포함)'이라 주일 새벽에도 체크가 열려 있었다.
+// 'YYYY-MM-DD HH:mm'은 글자 순서가 곧 시간 순서라 그대로 견준다.
+export function attendanceOpen(service, now = kstNow()) {
+  if (!attendanceVisible(service)) return false;
   const d = String(service.service_date || '');
-  return /^\d{4}-\d{2}-\d{2}$/.test(d) && d <= today;
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) && `${d} ${ATTEND_OPEN_HM}` <= String(now);
 }
 
 // ── 유튜브 주소 (순수 — 노드에서 바로 검사된다) ────────────────────────────
@@ -108,6 +125,9 @@ export function youtubeVideoId(raw) {
 }
 
 export const youtubeWatchUrl = (videoId) => `https://www.youtube.com/watch?v=${videoId}`;
+// 가져온 재생목록을 주보에 적어 둘 때 쓰는 **한 가지 모양**. 사람이 붙이는 주소는
+// 'watch?v=…&list=…'일 때도 있어서 그대로 저장하면 보기에서 첫 곡으로 튄다.
+export const youtubePlaylistUrl = (listId) => `https://www.youtube.com/playlist?list=${listId}`;
 
 // 영상 주소 → 썸네일 주소. i.ytimg.com은 **키도 서버 함수도 필요 없는 공개 주소**라
 // 게스트·로컬에서도 그대로 뜬다(mqdefault = 320x180, 곡 줄에 쓰기 딱 맞다).
@@ -131,22 +151,26 @@ export function mergeSongs(rows = [], picked = []) {
   return [...(rows || []), ...add];
 }
 
-// 자격 판정 — 0035·0036·**0042**의 함수와 같은 식이다.
-//   주보 작성·발행 = 관리자(마스터 포함) + 올해 회장 + **미디어팀**  (can_edit_service)
-//   출석 전체      = 관리자 + 교역자 + 올해 임원 아무 역할           (can_check_all_attendance)
-//   출석 자기 순   = 올해 그 순의 순장                               (leads_sun_of)
+// 자격 판정 — 0035·0036·0042·**0045**의 서버 함수와 같은 식이다(DB가 진실이고 여기는 거울).
+//   주보 작성·발행 = 관리자(마스터 포함) + 교역자 + 올해 회장 + 미디어팀  (can_edit_service)
+//   출석 전체      = 관리자(마스터 포함) + 교역자 + 올해 **리더순장**     (can_check_all_attendance)
+//   출석 자기 순   = 올해 그 순의 순장                                   (leads_sun_of)
 //
-// **주보 자격에서 교역자가 빠지고 미디어팀이 들어왔다**(사용자 결정 2026-09-03 · 0042).
-// 미디어팀은 명단 속성(people.teams)이라 연도와 무관하고, 회장은 연도별 직분이다.
+// 두 번 바뀐 자리다. ① 2026-09-03(0042) 주보에서 교역자가 빠지고 미디어팀이 들어왔고,
+// ② **2026-09-05 교역자가 주보로 돌아왔고 전체 출석은 리더순장 하나로 좁혀졌다**
+// (예전에는 '그 해 직분 줄이 있으면 누구나'라 부장·총무·리더팀장까지 전원을 만졌다).
+// 미디어팀은 명단 속성(people.teams)이라 연도와 무관하고, 회장·리더순장은 연도별 직분이다.
 // 나머지 사람은 발행된 주보를 읽기만 한다 — 화면에서 버튼을 감추지만 경계는 RLS다.
 const MEDIA_TEAM = '미디어팀';
+// 전체 출석은 **리더순장 하나**다(0043의 다섯 직분 중). 부장·총무·리더팀장은 빠진다.
+const LEAD_SUNJANG = 'lead_sunjang';
 
 export function worshipPerms({ isMaster = false, isAdmin = false, myPerson = null, myRoles = [], ledGroupIds = [] } = {}) {
   const roles = myRoles || [];
   const pastor = !!myPerson?.is_pastor;
   const media = (myPerson?.teams || []).includes(MEDIA_TEAM);
-  const canEdit = !!isMaster || !!isAdmin || roles.includes('president') || media;
-  const canCheckAll = !!isAdmin || pastor || roles.length > 0;
+  const canEdit = !!isMaster || !!isAdmin || pastor || roles.includes('president') || media;
+  const canCheckAll = !!isMaster || !!isAdmin || pastor || roles.includes(LEAD_SUNJANG);
   const led = ledGroupIds || [];
   return { canEdit, canCheckAll, ledGroupIds: led, canCheck: canCheckAll || led.length > 0 };
 }
@@ -205,7 +229,7 @@ export async function fetchServices() {
 export async function createService({ kind = SUNDAY_KIND, serviceDate }) {
   const row = { kind: (kind || SUNDAY_KIND).trim() || SUNDAY_KIND, service_date: serviceDate, status: 'draft' };
   if (!supabase) {
-    const made = { id: generateId(), roles: [], songs: [], notices: [], title: '', passage_ref: '', preacher: '', attendance_note: '', created_at: new Date().toISOString(), ...row };
+    const made = { id: generateId(), roles: [], songs: [], notices: [], title: '', passage_ref: '', preacher: '', praise_leader: '', praise_playlist_url: '', attendance_note: '', created_at: new Date().toISOString(), ...row };
     guestSet('services', [...guestRows('services'), made]);
     return made;
   }

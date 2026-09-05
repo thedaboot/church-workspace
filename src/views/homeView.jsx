@@ -467,6 +467,8 @@ export function HomeView({ onNavigate, onTaskClick }) {
       homeDateLabel(s.service_date),
       (s.roles || []).length ? `담당자 ${s.roles.length}` : '',
       (s.songs || []).length ? `찬양 ${s.songs.length}` : '',
+      // 찬양을 싣는 줄이라 인도자도 같은 줄에 붙는다(0044) — 줄을 늘리지는 않는다
+      s.praise_leader ? `인도 ${s.praise_leader}` : '',
     ].filter(Boolean).join(' · ');
     cards.push(['worship', (delay) => (
       <LinkCard className="home-worship" label="이번 주 예배" icon={Church} delay={delay} title="예배로"

@@ -82,6 +82,7 @@ const seed = {
       title: '흔들리지 않는 기쁨', passage_ref: '이사야 32:9-20', preacher: '임성빈 전도사님',
       roles: [{ role: '대표기도', personId: 'p1', name: '김윤주' }, { role: '헌금봉헌', personId: null, name: '한상록 강사님' }],
       songs: [{ title: '주 은혜임을', link: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }, { title: '나의 반석이신 하나님' }],
+      praise_leader: '조해리', praise_playlist_url: 'https://www.youtube.com/playlist?list=PLl2Yb-KJTF0Zq',
       notices: [{ title: '겨울 수련회 신청', body: '1월 20일까지 순장에게 신청해주세요' }],
       attendance_note: '' },
     { id: 's2', kind: '금요 열정 예배', service_date: PAST2, status: 'published',
@@ -180,7 +181,8 @@ await sleep(1500);
 const pure = await ev(`(async () => {
   const m = await import('/src/services/worship.js');
   const perms = (o) => { const p = m.worshipPerms(o); return [p.canEdit, p.canCheckAll, p.canCheck]; };
-  const att = (status, date) => m.attendanceOpen({ status, service_date: date }, '2026-09-01');
+  // 출석은 이제 **날짜가 아니라 시각**으로 열린다(그날 13:30 KST · ATTEND_OPEN_HM)
+  const att = (status, date, now = '2026-09-01 14:00:00') => m.attendanceOpen({ status, service_date: date }, now);
   return {
     sunOnSat: m.nextSundayDate(new Date(2026, 8, 5)),     // 토 → 다음날
     sunOnSun: m.nextSundayDate(new Date(2026, 8, 6)),     // 주일 당일은 그날
@@ -196,11 +198,19 @@ const pure = await ev(`(async () => {
     media: perms({ myPerson: { teams: ['미디어팀'] } }),
     otherTeam: perms({ myPerson: { teams: ['찬양팀'] } }),
     sunjang: perms({ ledGroupIds: ['g1'] }),
+    leadSunjang: perms({ myRoles: ['lead_sunjang'] }),
     attPast: att('published', '2026-08-30'),
     attToday: att('published', '2026-09-01'),
+    attBefore: att('published', '2026-09-01', '2026-09-01 09:00:00'),   // 예배 전(13:30 전)
+    attSharp: att('published', '2026-09-01', '2026-09-01 13:30:00'),    // 정각이면 열린다
     attFuture: att('published', '2026-09-06'),
     attDraft: att('draft', '2026-08-30'),
-    kstShape: /^\\d{4}-\\d{2}-\\d{2}$/.test(m.kstToday()),
+    openHm: m.ATTEND_OPEN_HM,
+    // 화면 진입은 '발행되었는가'까지만 본다 — 예배 전에도 명단을 미리 훑는다
+    visPub: m.attendanceVisible({ status: 'published', service_date: '2026-09-06' }),
+    visDraft: m.attendanceVisible({ status: 'draft', service_date: '2026-08-30' }),
+    playlistUrl: m.youtubePlaylistUrl('PLl2Yb-KJTF0Zq'),
+    kstShape: /^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$/.test(m.kstNow()),
     toggleMine: m.canToggleGroup({ canCheckAll: false, ledGroupIds: ['g1'] }, 'g1'),
     toggleOther: m.canToggleGroup({ canCheckAll: false, ledGroupIds: ['g1'] }, 'g2'),
     toggleUnassigned: m.canToggleGroup({ canCheckAll: false, ledGroupIds: ['g1'] }, null),
@@ -221,6 +231,8 @@ const pure = await ev(`(async () => {
     vidBadHost: m.youtubeVideoId('https://vimeo.com/watch?v=dQw4w9WgXcQ'),
     vidBadId: m.youtubeVideoId('https://www.youtube.com/watch?v=short'),
     watchUrl: m.youtubeWatchUrl('dQw4w9WgXcQ'),
+    // 찬양팀 이름은 고정값이라 DB가 아니라 코드 상수다(0044 · 사용자 결정 2026-09-05)
+    praiseTeam: m.PRAISE_TEAM,
     // 가져온 곡 붙이기 — 같은 영상은 한 번만(두 번 가져와도 겹치지 않아야 한다)
     merged: m.mergeSongs(
       [{ title: '주 은혜임을', link: 'https://www.youtube.com/watch?v=aaaaaaaaaaa' }, { title: '손으로 적은 곡' }],
@@ -245,18 +257,21 @@ check('지난 해 예배도 같은 모양', pure.dateOtherYear === '25년 12월 
 check('종류 이름 — sunday는 주일 4부 젊은이 예배, 나머지는 적은 그대로',
   pure.label[0] === '주일 4부 젊은이 예배' && pure.label[1] === '금요 열정 예배', JSON.stringify(pure.label));
 check('일반 멤버는 작성도 출석도 못 한다', JSON.stringify(pure.plain) === '[false,false,false]', JSON.stringify(pure.plain));
-check('회장은 주보 작성 + 전체 출석', JSON.stringify(pure.president) === '[true,true,true]', JSON.stringify(pure.president));
-// 0042 — 주보 자격에서 교역자가 빠지고 **미디어팀**이 들어왔다(사용자 결정 2026-09-03)
-check('교역자는 전체 출석만(주보는 이제 못 쓴다)',
-  JSON.stringify(pure.pastor) === '[false,true,true]', JSON.stringify(pure.pastor));
+// **2026-09-05 규칙**: 주보 = 관리자·교역자·회장·미디어팀 / 전체 출석 = 관리자·교역자·리더순장.
+// 회장은 주보를 쓰지만 남의 순 출석까지 만지지는 않는다(자기 순 순장이면 그 순만).
+check('회장은 주보 작성 · 전체 출석은 아니다', JSON.stringify(pure.president) === '[true,false,false]', JSON.stringify(pure.president));
+// 0042에서 빠졌던 교역자가 **주보로 돌아왔다**(사용자 결정 2026-09-05)
+check('교역자는 주보도 쓰고 전체 출석도 한다',
+  JSON.stringify(pure.pastor) === '[true,true,true]', JSON.stringify(pure.pastor));
 check('미디어팀은 주보를 쓴다(명단 teams 갈래)',
   pure.media[0] === true && pure.otherTeam[0] === false,
   JSON.stringify([pure.media, pure.otherTeam]));
 check('관리자는 주보 작성 + 전체 출석', JSON.stringify(pure.admin) === '[true,true,true]', JSON.stringify(pure.admin));
-// 0043이 임원(officer)을 부장·총무·리더팀장으로 갈랐다 — **권한은 그대로다**(그 해
-// people_roles 줄이 있으면 전체 출석. is_officer()는 값을 보지 않는다).
-check('회장 아닌 직분은 전체 출석만(주보 작성은 아니다)', JSON.stringify(pure.treasurer) === '[false,true,true]', JSON.stringify(pure.treasurer));
-check('마스터는 주보 작성', pure.master[0] === true, JSON.stringify(pure.master));
+// 0043이 임원을 다섯으로 갈랐고, 2026-09-05에 **전체 출석이 리더순장 하나로 좁혀졌다**
+// (예전에는 '그 해 직분 줄이 있으면 누구나'라 총무·부장·리더팀장까지 전원을 만졌다).
+check('총무 같은 다른 직분은 주보도 전체 출석도 아니다', JSON.stringify(pure.treasurer) === '[false,false,false]', JSON.stringify(pure.treasurer));
+check('리더순장만 전체 출석(주보 작성은 아니다)', JSON.stringify(pure.leadSunjang) === '[false,true,true]', JSON.stringify(pure.leadSunjang));
+check('마스터는 주보 작성 + 전체 출석', JSON.stringify(pure.master) === '[true,true,true]', JSON.stringify(pure.master));
 check('순장은 출석만, 그것도 전체는 아니다', JSON.stringify(pure.sunjang) === '[false,false,true]', JSON.stringify(pure.sunjang));
 check('순장은 자기 순만 만진다', pure.toggleMine === true && pure.toggleOther === false, `${pure.toggleMine}/${pure.toggleOther}`);
 check("'순 미지정'은 전체 자격자만 만진다", pure.toggleUnassigned === false);
@@ -264,10 +279,20 @@ check('순장은 편성 명단에 없어도 자기 순에 선다', pure.buckets[
 check('순 안 순서는 순장 먼저, 나머지는 가나다순', pure.buckets[0][1] === '한결,가온,나리', JSON.stringify(pure.buckets));
 check("어느 순에도 없는 사람은 '순 미지정'으로, 거기도 가나다순",
   JSON.stringify(pure.buckets[1]) === '["순 미지정","다솔,정후"]', JSON.stringify(pure.buckets));
-check('출석은 발행된 뒤 · 예배 날짜가 지난(오늘 포함) 뒤에만 연다',
+check('출석은 발행된 뒤 · 예배가 시작한(그날 13:30 KST) 뒤에만 연다',
   pure.attPast === true && pure.attToday === true && pure.attFuture === false && pure.attDraft === false,
   `과거${pure.attPast}/오늘${pure.attToday}/미래${pure.attFuture}/작성중${pure.attDraft}`);
-check('오늘은 한국 시간으로 잰다', pure.kstShape === true);
+check('같은 날이라도 13:30 전에는 안 열리고, 정각이면 열린다',
+  pure.attBefore === false && pure.attSharp === true && pure.openHm === '13:30',
+  `${pure.attBefore}/${pure.attSharp}/${pure.openHm}`);
+// 진입과 체크는 다른 문이다 — 예배 전에도 화면은 들어가서 명단을 미리 본다
+check('출석 화면 진입은 발행 여부만 본다(예배 전이어도 들어간다)',
+  pure.visPub === true && pure.visDraft === false, `${pure.visPub}/${pure.visDraft}`);
+check('재생목록 주소는 playlist?list= 한 모양으로 저장된다',
+  pure.playlistUrl === 'https://www.youtube.com/playlist?list=PLl2Yb-KJTF0Zq', pure.playlistUrl);
+check('지금 시각은 한국 시간으로 잰다(날짜+시각 한 글자열)', pure.kstShape === true);
+// 찬양팀은 하나뿐이라 주보마다 적을 값이 아니다 — 바뀌는 것은 인도자뿐이다
+check("찬양팀 이름은 서비스 계층의 고정 상수 'Re:born 워십'", pure.praiseTeam === 'Re:born 워십', String(pure.praiseTeam));
 check('유튜브 재생목록 id — watch·playlist·youtu.be·스킴 없는 주소에서 다 뽑는다',
   pure.listWatch === 'PLl2Yb-KJTF0ZqPJnQ8bT9' && pure.listPlain === 'PLl2Yb-KJTF0ZqPJnQ8bT9'
   && pure.listShort === 'PLl2Yb-KJTF0ZqPJnQ8bT9' && pure.listNoScheme === 'PLl2Yb-KJTF0ZqPJnQ8bT9',
@@ -484,6 +509,11 @@ check('담당자·찬양·광고 빈 탭도 같은 자리·같은 마크',
   JSON.stringify(emptyTabs.map(e => [e && e.text, e && e.dy, e && e.dx])));
 check('빈 탭 칸도 탭 줄 아래 남는 공간을 그대로 차지한다',
   emptyTabs.every(fills), JSON.stringify(emptyTabs.map(e => [e && e.fill, e && e.scroll])));
+// 곡도 인도자도 없으면 팀 줄조차 서지 않는다 — 팀 이름만 남겨 두면 '찬양을 정해 뒀다'로 읽힌다
+await ev(`[...document.querySelectorAll('.worship-tab')].find(x => x.textContent.trim() === '찬양').click()`);
+await sleep(300);
+check('아무것도 정하지 않은 찬양 탭에는 팀 줄이 서지 않는다',
+  (await ev(`!document.querySelector('.worship-praise-head')`)) === true);
 // 목록으로 돌아오면 목록은 다시 발행본만 보여 준다(ServiceList가 새로 선다)
 await ev(`${byText('목록으로')}.click()`); await sleep(700);
 
@@ -536,7 +566,7 @@ const songs = await ev(`(() => ({
   blank: [...document.querySelectorAll('.worship-tabpanel a')].map(a => a.target),
 }))()`);
 check('찬양 목록 · 링크는 새 탭', songs.text.includes('주 은혜임을') && songs.text.includes('나의 반석이신 하나님')
-  && JSON.stringify(songs.blank) === '["_blank"]', JSON.stringify(songs));
+  && songs.blank.length === 2 && songs.blank.every(t => t === '_blank'), JSON.stringify(songs));
 // 링크가 있으면 **제목 자체가 링크**다(예전에는 오른쪽 끝의 '듣기'가 따로 있었다)
 const songLink = await ev(`(() => {
   const a = document.querySelector('.worship-song-link');
@@ -550,6 +580,37 @@ check('링크가 있는 찬양은 제목이 링크색으로 서고 아이콘이 
   JSON.stringify(songLink));
 check('링크가 없는 찬양은 그냥 글자다',
   !!songLink && songLink.plain.length === 1 && songLink.plain[0] === '나의 반석이신 하나님', JSON.stringify(songLink && songLink.plain));
+
+// 찬양 머리 한 줄 — **팀 이름은 고정, 인도자는 주보마다**(0044 · 사용자 결정 2026-09-05).
+// 곡 목록 **앞**에 서야 한다(누가 인도하는지를 먼저 읽는다).
+const praiseView = await ev(`(() => {
+  const head = document.querySelector('.worship-praise-head');
+  const first = document.querySelector('.worship-song-view');
+  if (!head) return null;
+  return {
+    team: head.querySelector('.worship-praise-team')?.textContent.trim() || '',
+    leader: head.querySelector('.worship-praise-leader')?.textContent.trim() || '',
+    beforeList: !!first && head.getBoundingClientRect().bottom <= first.getBoundingClientRect().top,
+    // 한 줄인가 — 팀 이름과 인도자가 같은 줄에 선다(윗변이 같다)
+    sameLine: (() => {
+      const tops = [...head.children].map(k => Math.round(k.getBoundingClientRect().top));
+      return tops.length >= 2 && tops.every(t => Math.abs(t - tops[0]) <= 4);
+    })(),
+    links: head.querySelectorAll('a').length,
+    playlist: (() => {
+      const a = head.querySelector('.worship-praise-playlist');
+      return a ? [a.textContent.trim(), a.getAttribute('href'), a.getAttribute('target')] : null;
+    })(),
+  };
+})()`);
+check('발행본 찬양 탭에 팀 이름과 인도자가 곡 목록 앞 한 줄로 선다',
+  !!praiseView && praiseView.team === 'Re:born 워십' && praiseView.leader === '· 인도 조해리'
+  && praiseView.beforeList === true && praiseView.links === 1,
+  JSON.stringify(praiseView));
+// 곡을 가져온 재생목록은 주보에 남아, 보기에서 **한 번에 틀 수 있다**(0046)
+check('재생목록을 가져왔으면 그 줄에서 재생목록을 통째로 연다',
+  JSON.stringify(praiseView.playlist) === JSON.stringify(['재생목록 열기', 'https://www.youtube.com/playlist?list=PLl2Yb-KJTF0Zq', '_blank']),
+  JSON.stringify(praiseView.playlist));
 
 await tabClick('광고'); await sleep(300);
 const notices = await ev(`document.querySelector('.worship-tabpanel').innerText.replace(/\\n+/g, ' | ')`);
@@ -1183,6 +1244,47 @@ await sleep(700);
 check('확인을 누르면 그 줄이 지워진다',
   (await ev(`document.querySelectorAll('.worship-song-row').length`)) === 0);
 
+// ── 7-c) 찬양 — 고정 팀명 + 인도자 (0044 · 사용자 결정 2026-09-05) ──────────
+// 팀 이름은 못 고치는 글자(상수)이고, 주보마다 바뀌는 것은 인도자 하나다.
+// 인도자 칸은 **담당자 줄과 같은 부품**이라 명단 자동완성이 그대로 붙는다.
+const praiseEdit = await ev(`(() => {
+  const box = document.querySelector('.worship-praise-edit');
+  if (!box) return null;
+  return {
+    team: box.querySelector('.worship-praise-team')?.textContent.trim() || '',
+    teamEditable: !!box.querySelector('.worship-praise-team input, .worship-praise-team textarea'),
+    label: box.innerText,
+    field: !!box.querySelector('input[aria-label="이름"]'),
+    aboveImport: (() => {
+      const imp = document.querySelector('.worship-song-import');
+      return !!imp && box.getBoundingClientRect().bottom <= imp.getBoundingClientRect().top;
+    })(),
+  };
+})()`);
+check('찬양 편집 머리에 고정 팀명과 인도자 칸이 있다(팀 이름은 고칠 수 없다)',
+  !!praiseEdit && praiseEdit.team === 'Re:born 워십' && praiseEdit.teamEditable === false
+  && praiseEdit.label.includes('인도자') && praiseEdit.field === true && praiseEdit.aboveImport === true,
+  JSON.stringify(praiseEdit));
+
+await ev(typeIn('.worship-praise-edit input[aria-label="이름"]', '김승'));
+await sleep(400);
+const praiseSugg = await ev(`(() => ({
+  n: document.querySelectorAll('.worship-praise-edit .worship-person-list button').length,
+  first: document.querySelector('.worship-praise-edit .worship-person-list button')?.innerText.trim() || '',
+}))()`);
+check('인도자 칸도 담당자와 같은 명단 자동완성을 쓴다',
+  praiseSugg.n === 1 && praiseSugg.first.includes('김승찬'), JSON.stringify(praiseSugg));
+await ev(`document.querySelector('.worship-praise-edit .worship-person-list button')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`);
+await sleep(1700);
+const praiseSaved = await ev(`(() => {
+  const row = JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.kind === '성탄절 예배');
+  return { leader: row.praise_leader, songs: (row.songs || []).length,
+    avatar: !!document.querySelector('.worship-praise-edit .worship-person span[class*="w-5"]') };
+})()`);
+// 저장되는 것은 **이름 글자**다(0044는 text 칸) — 담당자처럼 personId를 따로 두지 않는다
+check('인도자를 고르면 그 이름이 주보에 저절로 저장된다',
+  praiseSaved.leader === '김승찬' && praiseSaved.songs === 0, JSON.stringify(praiseSaved));
+
 // 광고 자리 글
 await tabClick('광고'); await sleep(250);
 await ev(`${byText('광고 추가')}.click()`); await sleep(300);
@@ -1212,6 +1314,23 @@ const shownRoles = await ev(`[...document.querySelectorAll('.worship-role-row')]
 check('저장한 담당자가 그대로 보인다',
   shownRoles.length === 3 && shownRoles[0].includes('조해리') && shownRoles[1].includes('한상록 강사님'), JSON.stringify(shownRoles));
 
+// 곡이 하나도 없어도 인도자를 정했으면 팀 줄은 선다(빈 상태는 그 아래 그대로)
+await tabClick('찬양'); await sleep(350);
+const praiseOnly = await ev(`(() => {
+  const head = document.querySelector('.worship-praise-head');
+  const empty = document.querySelector('.worship-empty');
+  return {
+    team: head?.querySelector('.worship-praise-team')?.textContent.trim() || null,
+    leader: head?.querySelector('.worship-praise-leader')?.textContent.trim() || null,
+    empty: empty ? empty.innerText.trim() : null,
+    order: !!head && !!empty && head.getBoundingClientRect().bottom <= empty.getBoundingClientRect().top,
+  };
+})()`);
+check('곡이 없어도 인도자를 정했으면 팀 줄이 서고 빈 상태는 그 아래 그대로',
+  praiseOnly.team === 'Re:born 워십' && praiseOnly.leader === '· 인도 김승찬'
+  && praiseOnly.empty === '찬양을 아직 정하지 않았어요' && praiseOnly.order === true,
+  JSON.stringify(praiseOnly));
+
 await ev(`${byText('발행하기')}.click()`); await sleep(400);
 await ev(`(() => {
   const btns = [...document.body.querySelectorAll('button')].filter(b => b.textContent.trim() === '발행하기');
@@ -1226,7 +1345,23 @@ const published = await ev(`(() => ({
 }))()`);
 check('발행하면 작성 중 배지가 사라지고 전체 공개가 된다',
   published.status === 'published' && published.badge === false && !published.toolbar.includes('발행하기'), JSON.stringify(published));
-check('발행해도 예배 날짜 전이면 출석 진입이 없다', published.att === false, JSON.stringify(published));
+// 2026-09-05 전에는 예배 전이면 진입 자체가 없었다. 지금은 **들어가서 명단을 미리 보되
+// 체크가 잠긴다**(그날 13:30 KST부터 열린다).
+check('발행하면 예배 전이라도 출석 화면에 들어갈 수 있다', published.att === true, JSON.stringify(published));
+
+await ev(`document.querySelector('.worship-att-open').click()`); await sleep(800);
+const notYet = await ev(`(() => ({
+  open: !!document.querySelector('.worship-attendance'),
+  badge: document.querySelector('.att-not-yet')?.textContent.trim() || '',
+  chips: document.querySelectorAll('.att-chip').length,
+  locked: [...document.querySelectorAll('.att-chip')].every(c => c.disabled),
+  addLocked: document.querySelector('.att-add-open')?.disabled,
+}))()`);
+check('예배 전에는 명단은 보이되 체크가 잠기고 그 이유를 말한다',
+  notYet.open === true && notYet.chips > 0 && notYet.locked === true
+  && notYet.badge === '아직 예배 전이에요' && notYet.addLocked === true, JSON.stringify(notYet));
+await ev(`${byText('주보로')}.click()`); await sleep(700);
+await waitFor(HAS_DETAIL); await waitFor(HAS_EDIT);
 
 // 발행된 주보를 고칠 때는 저장이 곧 공개본에 반영된다 — 거기에 '임시'라고 쓰면 거짓말이다
 await ev(`${byText('수정')}.click()`); await sleep(500);

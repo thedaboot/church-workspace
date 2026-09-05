@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronDown, Plus } from 'lucide-react';
-import { groupRoster, countPresent, canToggleGroup, kindLabel, formatServiceDate } from '../services/worship.js';
+import { groupRoster, countPresent, canToggleGroup, kindLabel, formatServiceDate, attendanceOpen } from '../services/worship.js';
+import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import { SaveState } from './worshipDetail.jsx';
 
 // ============================================================================
@@ -14,6 +15,15 @@ import { SaveState } from './worshipDetail.jsx';
 // 것을 쓴다 — 순은 해마다 다시 짜므로 지난 예배를 열면 그 시절 순으로 서야 한다.
 //
 // 실시간 반영은 이 회차에 넣지 않는다(사용자 결정) — 열 때 조회 + 낙관적 갱신이다.
+//
+// **예배가 시작하기 전에도 이 화면에 들어온다**(사용자 결정 2026-09-05) — 명단을 미리
+// 훑을 수 있어야 하니까. 다만 체크는 그날 13:30(KST)부터다(services의 attendanceOpen ·
+// ATTEND_OPEN_HM). 그 전에는 사람 칩과 '미등록 출석자 추가'가 잠기고, **왜 잠겼는지를
+// 한 마디로 말한다**('아직 예배 전이에요' — 사용자가 문구까지 정했다. §8의 안내 줄
+// 금지는 사용법 설명을 두고 하는 말이고, 이건 잠긴 이유다).
+//
+// 열리는 순간은 화면이 스스로 넘는다 — `useMinuteTick`이 1분마다 다시 그린다. 그것이
+// 없으면 13:25에 들어온 사람은 새로고침할 때까지 계속 잠겨 있다.
 // ============================================================================
 
 const NOTE_DELAY = 900;
@@ -36,6 +46,8 @@ function PersonChip({ person, on, disabled, onToggle }) {
 export function AttendanceScreen({
   service, roster, present, perms = {}, onToggle, onAddPerson, onSaveNote, onBack,
 }) {
+  useMinuteTick();
+  const checkOpen = attendanceOpen(service);   // 체크가 열렸나(묶음 펼침 open과 다른 값이다)
   const buckets = useMemo(() => groupRoster(roster), [roster]);
   const [closed, setClosed] = useState(() => new Set());
   const [adding, setAdding] = useState(false);
@@ -61,7 +73,7 @@ export function AttendanceScreen({
 
   const add = async () => {
     const name = newName.trim();
-    if (!name || busy) return;
+    if (!name || busy || !checkOpen) return;
     setBusy(true);
     const made = await onAddPerson(name);
     setBusy(false);
@@ -83,8 +95,14 @@ export function AttendanceScreen({
         <p className="mt-1 text-[11.5px] text-fg-muted">
           {kindLabel(service?.kind)} · {formatServiceDate(service?.service_date)}
         </p>
-        <p className="att-total mt-3 text-[13px] font-bold text-fg tabular-nums">
-          전체 <span className="text-accent-text">{here}</span>/{total}
+        <p className="att-total mt-3 flex flex-wrap items-center gap-2 text-[13px] font-bold text-fg tabular-nums">
+          <span>전체 <span className="text-accent-text">{here}</span>/{total}</span>
+          {/* 잠긴 이유 — 예배 시작(13:30) 전에는 체크가 안 된다 */}
+          {!checkOpen && (
+            <span className="att-not-yet px-2 py-0.5 rounded-full bg-tag-yellow text-tag-yellow-fg text-[10.5px] font-bold">
+              아직 예배 전이에요
+            </span>
+          )}
         </p>
       </header>
 
@@ -111,7 +129,7 @@ export function AttendanceScreen({
             {open && (
               <div className="att-group-body flex flex-wrap gap-1.5 py-2.5">
                 {g.people.map(p => (
-                  <PersonChip key={p.id} person={p} on={present.has(p.id)} disabled={!can} onToggle={onToggle} />
+                  <PersonChip key={p.id} person={p} on={present.has(p.id)} disabled={!can || !checkOpen} onToggle={onToggle} />
                 ))}
                 {!g.people.length && <p className="text-[12px] text-fg-faint py-1">이 순에 편성된 사람이 아직 없어요</p>}
               </div>
@@ -129,14 +147,14 @@ export function AttendanceScreen({
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
               aria-label="미등록 출석자 이름" placeholder="예: 김철수"
               className="flex-1 min-w-0 text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
-            <button type="button" onClick={add} disabled={busy || !newName.trim()}
+            <button type="button" onClick={add} disabled={busy || !newName.trim() || !checkOpen}
               className="px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40">추가</button>
             <button type="button" onClick={() => { setAdding(false); setNewName(''); }}
               className="px-2.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">취소</button>
           </div>
         ) : (
-          <button type="button" onClick={() => setAdding(true)}
-            className="att-add-open inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95">
+          <button type="button" onClick={() => setAdding(true)} disabled={!checkOpen}
+            className="att-add-open inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40 disabled:active:scale-100">
             <Plus size={13} /> 미등록 출석자 추가
           </button>
         )}

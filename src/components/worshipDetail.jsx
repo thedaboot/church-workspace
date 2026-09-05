@@ -10,7 +10,7 @@ import { PassagePicker, PassageBody } from './worshipPassage.jsx';
 import { EmptyBookMark } from './wordBible.jsx';
 import { objectParticle } from '../services/errorText.js';
 import { BTN, WITH_ICON, FIELD } from './groupsParts.jsx';
-import { kindLabel, formatServiceDate, attendanceOpen, youtubeThumb } from '../services/worship.js';
+import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM } from '../services/worship.js';
 
 // ============================================================================
 // 주보 상세 — 말씀 · 담당자 · 찬양 · 광고 + 내 예배 노트 (docs/V2.md 결정 4·5·7)
@@ -161,6 +161,7 @@ const moveAt = (list, from, to) => {
 // 저장에 실제로 실리는 칸만 추린다 — 보기 값(status·created_at)까지 되돌려 보내지 않는다
 const patchOf = (d) => ({
   title: d.title || null, passage_ref: d.passage_ref || null, preacher: d.preacher || null,
+  praise_leader: d.praise_leader || null, praise_playlist_url: d.praise_playlist_url || null,
   roles: d.roles || [], songs: d.songs || [], notices: d.notices || [],
 });
 
@@ -242,28 +243,61 @@ function SongThumb({ link, big = false }) {
   );
 }
 
+// 찬양 섹션의 머리 한 줄 — **팀 이름은 고정**(services의 PRAISE_TEAM)이고 주보마다
+// 바뀌는 것은 인도자 하나다(사용자 결정 2026-09-05: 팀은 'Re:born 워십'으로 고정,
+// 인도자는 격주 교대). 주보에 실리는 사실이지 사용법 안내가 아니라 §8의 '안내 줄
+// 금지'와 다르다 — 그래서 이 한 줄 말고 덧붙이는 설명은 없다.
+// 재생목록 주소가 있으면 그 줄 끝에서 **한 번에 틀 수 있다**(0046) — 예전에는 곡을
+// 하나씩 눌러야 했다. 곡 제목은 지금도 그 곡의 영상으로 간다.
+const PraiseHead = ({ leader, playlistUrl }) => (
+  <p className="worship-praise-head flex flex-wrap items-baseline gap-1.5 pb-2.5 text-[12.5px] text-fg-muted">
+    <span className="worship-praise-team font-bold text-fg">{PRAISE_TEAM}</span>
+    {leader ? <span className="worship-praise-leader">· 인도 {leader}</span> : null}
+    {playlistUrl ? (
+      <a href={playlistUrl} target="_blank" rel="noreferrer"
+        className="worship-praise-playlist inline-flex items-center gap-1 text-[11.5px] font-semibold text-accent-text hover:underline">
+        <ListMusic size={12} className="shrink-0" /> 재생목록 열기
+      </a>
+    ) : null}
+  </p>
+);
+
 // 찬양 — 링크가 있으면 **제목 자체가 링크**다(사용자 지적 2026-09-03: 줄 나열이 밋밋).
 // 예전에는 오른쪽 끝에 '듣기'가 따로 있어서 눌러야 할 것이 두 군데로 갈렸다.
-function SongsTab({ rows }) {
-  if (!rows.length) return <WorshipEmpty text="찬양을 아직 정하지 않았어요" />;
+//
+// 곡도 인도자도 없으면 **빈 상태 한 벌 그대로**다 — 아직 아무것도 안 정했는데 팀
+// 이름만 남겨 두면 '찬양을 정해 뒀다'로 읽힌다.
+function SongsTab({ rows, leader, playlistUrl }) {
+  if (!rows.length && !leader && !playlistUrl) return <WorshipEmpty text="찬양을 아직 정하지 않았어요" />;
+  if (!rows.length) {
+    return (
+      <>
+        <PraiseHead leader={leader} playlistUrl={playlistUrl} />
+        <WorshipEmpty text="찬양을 아직 정하지 않았어요" />
+      </>
+    );
+  }
   return (
-    <ul className={LIST}>
-      {rows.map((s, i) => (
-        <li key={i} className="worship-song-view flex items-center gap-2.5 py-2.5" style={ROW_LINE}>
-          <span className={NUM}>{i + 1}</span>
-          <SongThumb link={s.link} big />
-          {s.link ? (
-            <a href={s.link} target="_blank" rel="noreferrer"
-              className="worship-song-link min-w-0 inline-flex items-center gap-1.5 text-[13px] font-semibold text-accent-text hover:underline break-words">
-              <span className="min-w-0 break-words">{s.title || '제목 없는 찬양'}</span>
-              <ExternalLink size={11} className="shrink-0" />
-            </a>
-          ) : (
-            <span className="min-w-0 text-[13px] text-fg break-words">{s.title}</span>
-          )}
-        </li>
-      ))}
-    </ul>
+    <>
+      <PraiseHead leader={leader} playlistUrl={playlistUrl} />
+      <ul className={LIST}>
+        {rows.map((s, i) => (
+          <li key={i} className="worship-song-view flex items-center gap-2.5 py-2.5" style={ROW_LINE}>
+            <span className={NUM}>{i + 1}</span>
+            <SongThumb link={s.link} big />
+            {s.link ? (
+              <a href={s.link} target="_blank" rel="noreferrer"
+                className="worship-song-link min-w-0 inline-flex items-center gap-1.5 text-[13px] font-semibold text-accent-text hover:underline break-words">
+                <span className="min-w-0 break-words">{s.title || '제목 없는 찬양'}</span>
+                <ExternalLink size={11} className="shrink-0" />
+              </a>
+            ) : (
+              <span className="min-w-0 text-[13px] text-fg break-words">{s.title}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -476,18 +510,34 @@ function RolesEdit({ rows, people, onChange }) {
   );
 }
 
-function SongsEdit({ rows, onChange, onPullPlaylist, onLookupTitle }) {
+function SongsEdit({ rows, people, leader, onLeader, onPlaylist, onChange, onPullPlaylist, onLookupTitle }) {
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [looking, setLooking] = useState(() => new Set());   // 제목을 받아 오는 중인 줄
   const set = (i, patch) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+
+  // 인도자는 **이름 글자 하나**로 저장된다(0044 `services.praise_leader`) — 담당자
+  // 줄처럼 person 연결을 따로 들고 있지 않다. 그래도 동그라미(연결 표시)는 붙어야
+  // 하므로 적힌 이름이 명단과 정확히 같을 때 그 사람을 그 자리에서 찾는다.
+  const leaderRow = useMemo(() => {
+    const name = leader || '';
+    const p = name ? (people || []).find(x => x.name === name) : null;
+    return { name, personId: p?.id ?? null };
+  }, [leader, people]);
 
   const pull = async () => {
     if (busy || !url.trim() || !onPullPlaylist) return;
     setBusy(true);
     const next = await onPullPlaylist(url, rows);
     setBusy(false);
-    if (next) { onChange(next); setUrl(''); }
+    if (!next) return;
+    onChange(next);
+    // 곡만 뽑고 **재생목록 자체는 버리던 자리**(0046). 보기에서 한 번에 틀 수 있게
+    // 주보에 적어 둔다 — 저장 모양은 언제나 playlist?list=…다(사람이 붙이는 주소는
+    // watch?v=…&list=…일 때가 많아 그대로 두면 첫 곡 재생으로 튄다).
+    const listId = youtubeListId(url);
+    if (listId && onPlaylist) onPlaylist(youtubePlaylistUrl(listId));
+    setUrl('');
   };
 
   // 링크를 다 적은 뒤(칸을 떠날 때) 한 번만 물어본다 — 글자마다 물으면 한 곡에
@@ -503,6 +553,15 @@ function SongsEdit({ rows, onChange, onPullPlaylist, onLookupTitle }) {
 
   return (
     <div className={LIST}>
+      {/* 찬양 섹션 머리 — **팀 이름은 고정 상수라 글자**이고, 주보마다 바뀌는 것은
+          인도자 하나다. 이름 칸은 담당자 줄과 **같은 부품**(PersonNameInput)이라
+          명단 자동완성이 그대로 붙고, 명단에 없는 객원 인도자는 적은 글자가 남는다.
+          라벨 '인도자'는 그 칸이 무엇을 받는지라 §8의 안내 줄 금지와 다르다. */}
+      <div className="worship-praise-edit flex flex-wrap items-center gap-1.5 pb-2.5">
+        <span className={`worship-praise-team ${ROLE_VIEW} shrink-0`}>{PRAISE_TEAM}</span>
+        <span className="shrink-0 text-xs text-fg-muted">인도자</span>
+        <PersonNameInput row={leaderRow} people={people} onPick={v => onLeader(v.name)} />
+      </div>
       {/* 목록 도구 줄 — 주소 칸은 넓게, 가져오기는 오른쪽 끝에 */}
       <div className="worship-song-import flex flex-wrap items-center gap-1.5 pb-2.5">
         <input className={`${INPUT} flex-1 basis-full sm:basis-0 min-w-0`} value={url} aria-label="유튜브 재생목록 주소"
@@ -713,7 +772,9 @@ export function ServiceDetail({
 
   if (!service) return null;
   const isDraft = service.status !== 'published';
-  const canAttend = perms.canCheck && attendanceOpen(service);
+  // 출석 진입은 **발행되었는가**까지만 본다(사용자 결정 2026-09-05) — 예배 전에도
+  // 미리 열어 명단을 훑을 수 있고, 그때는 출석 화면이 체크를 잠근다(worshipAttendance).
+  const canAttend = perms.canCheck && attendanceVisible(service);
 
   // 기다리지 않고 지금 저장하고 보기 모드로
   const saveNow = async () => {
@@ -809,9 +870,12 @@ export function ServiceDetail({
           ? <RolesEdit rows={rows('roles')} people={people} onChange={v => set({ roles: v })} />
           : <RolesTab rows={rows('roles')} people={people} />)}
         {tab === 'songs' && (editing
-          ? <SongsEdit rows={rows('songs')} onChange={v => set({ songs: v })}
+          ? <SongsEdit rows={rows('songs')} people={people} onChange={v => set({ songs: v })}
+              leader={draft.praise_leader || ''} onLeader={v => set({ praise_leader: v })}
+              onPlaylist={v => set({ praise_playlist_url: v })}
               onPullPlaylist={onPullPlaylist} onLookupTitle={onLookupTitle} />
-          : <SongsTab rows={rows('songs')} />)}
+          : <SongsTab rows={rows('songs')} leader={service.praise_leader || ''}
+              playlistUrl={service.praise_playlist_url || ''} />)}
         {tab === 'notices' && (editing
           ? <NoticesEdit rows={rows('notices')} onChange={v => set({ notices: v })} />
           : <NoticesTab rows={rows('notices')} />)}
