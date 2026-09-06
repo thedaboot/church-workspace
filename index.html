@@ -8,6 +8,14 @@
          iOS 10부터 손가락으로 하는 확대는 이 값과 무관하게 계속 된다(접근성). -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
     <link rel="icon" type="image/png" href="/favicon.png" />
+    <!-- 로고를 문서 머리에서 미리 받는다(2026-09-06). 로고는 첫 화면(스플래시·로그인·헤더)
+         모두에 있는데, 번들(1MB)이 다 와서 React가 그려야 그제서야 요청이 나간다. 카카오톡
+         인앱 브라우저로 공유 링크를 열면 로그인 화면이 뜨자마자 카카오 로그인으로 떠나므로
+         (auth.jsx의 autoSignInKakao) 그 사이에 65KB PNG가 못 들어와 **깨진 이미지 아이콘**이
+         보였다(사용자 신고). preload는 HTML을 읽는 순간 번들과 나란히 시작하므로 React가
+         그릴 때는 이미 캐시에 있다. 경로는 vite가 빌드 때 해시 붙은 /assets/… 로 바꿔 준다
+         — 손으로 /assets/… 를 적으면 해시가 바뀌는 순간 죽은 preload가 된다. -->
+    <link rel="preload" as="image" fetchpriority="high" href="/src/assets/logo-light.png" />
     <title>더다붓 워크스페이스</title>
 
     <!-- 홈 화면에 추가(PWA) — 안드로이드는 manifest, iOS는 apple-* 메타를 본다 -->
