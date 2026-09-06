@@ -1447,6 +1447,52 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  공유 링크 로그인 21가지');
 }
 
+// ── 로그인 화면 로고가 깨져 보이던 것 (2026-09-06 · 사용자 신고) ─────────────
+// 카카오톡으로 공유 링크(/s/p/<id>)를 열면 로그인 화면에서 로고가 **깨진 이미지
+// 아이콘**으로 보였다. 리소스는 전부 200이다(경로 문제가 아니다) — 순서 문제다:
+//   ① 로고는 번들(1MB) 안의 import라, 번들이 다 와서 React가 그릴 때 **그제서야**
+//      65KB PNG 요청이 나간다. 인앱 브라우저는 그 직후 카카오 로그인으로 떠나므로
+//      (auth.jsx autoSignInKakao) 요청이 취소되고 깨진 아이콘이 남는다.
+//   ② Vercel이 /assets/… 를 'max-age=0, must-revalidate'로 내보내고 있었다 —
+//      인앱 웹뷰는 열 때마다 빈 캐시라 매번 그 왕복을 처음부터 한다.
+//   ③ img에 width/height가 없어서, 안 들어온 동안 `w-auto`가 칸을 가로 전체로 벌린다
+//      (깨진 아이콘이 왼쪽 끝, alt 글자만 가운데 — 실제로 그 모양이었다).
+// 되돌리기 검사(실제로 해 봤다): index.html의 preload 줄을 지우거나 href를 손으로
+// 적은 /assets/logo-light.png로 바꾸면, vercel.json의 /assets/ 규칙을 빼면,
+// LoginScreen의 width/height를 지우면 아래가 각각 깨진다.
+{
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const preload = /<link rel="preload"[^>]*>/.exec(html)?.[0] || '';
+  assert.ok(/as="image"/.test(preload), '로고 preload가 없다 — 번들이 다 온 뒤에야 요청이 나간다');
+  assert.ok(/href="\/src\/assets\/logo-light\.png"/.test(preload),
+    'preload는 **소스 경로**를 가리켜야 vite가 해시 붙은 /assets/… 로 바꿔 준다(손으로 적으면 다음 빌드에 죽은 preload가 된다)');
+
+  const login = readFileSync(new URL('../src/components/LoginScreen.jsx', import.meta.url), 'utf8');
+  const img = /<img src=\{logoLight\}[^]*?\/>/.exec(login)?.[0] || '';
+  assert.ok(/width="640" height="469"/.test(img),
+    '로고 img에 원본 크기가 없다 — 안 들어온 동안 칸이 가로 전체로 벌어진다');
+
+  const vc = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
+  const assets = (vc.headers || []).find(h => h.source === '/assets/(.*)');
+  assert.ok(assets, 'vercel.json에 /assets/ 캐시 규칙이 없다 — Vercel 기본값이 max-age=0, must-revalidate다');
+  assert.ok(/immutable/.test(assets.headers.find(h => h.key === 'Cache-Control')?.value || ''),
+    '해시 붙은 산출물이니 immutable이어야 한다(이름이 바뀌면 다른 파일이다)');
+
+  // 공유 페이지는 **/s/p/<id> 에서** 열린다. 그 HTML이 상대 경로를 하나라도 쓰면
+  // /s/p/assets/… 로 풀려 404가 난다(지금은 이미지가 없지만, 붙이는 순간 그 함정이다).
+  const share = readFileSync(new URL('../api/share.js', import.meta.url), 'utf8');
+  const body = share.slice(share.indexOf('<!doctype html>'));
+  const urls = [...body.matchAll(/(?:src|href|content|url)=(?:"([^"]*)"|([^"\s>]+))/g)]
+    .map(m => (m[1] ?? m[2]).trim())
+    .filter(v => !/^(width=|height=|initial-scale|website$|summary)/.test(v));
+  assert.ok(urls.length >= 4, '공유 HTML에서 주소를 하나도 못 찾았다 — 정규식이 늙었다');
+  for (const u of urls) {
+    assert.ok(/^(\/|https?:\/\/|\$\{|0; url=[/$])/.test(u),
+      `공유 HTML의 상대 경로: ${u} — /s/p/<id> 밑으로 풀려 404가 난다`);
+  }
+  console.log('PASS  로그인 로고 · 공유 HTML 경로 8가지');
+}
+
 // ── 두 화면의 '몇 분 전 다녀감'을 한 값으로 (2026-09-05) ─────────────────────
 // 대시보드 사람 칸과 멤버 관리 화면이 다른 값을 보여 줬다(사용자 지적). 원인이 둘이다:
 //   ① 멤버 화면은 열 때 한 번 받은 스냅샷을 쓰고 실시간을 안 들었다(굳은 값을
@@ -1864,4 +1910,105 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/const STATE_KEY = 'bible:state';/.test(bible),
     "성경 상태 열쇠는 'bible:'로 시작한다 — dropCache('word')에 쓸려가지 않게");
   console.log('PASS  묵상 본문 동기화 · 성경 상태 14가지');
+}
+
+// ── 호칭 · '지난 주일' · 출석 메모 자리 (2026-09-06) ─────────────────────────
+// 셋 다 사용자 결정이고, 규칙은 순수 함수 하나씩이다. 화면은 그것을 부르기만 한다 —
+// 그래서 여기서 함수를 직접 돌리고, **배선**(어느 화면이 그 함수를 쓰는가)은 소스로 못 박는다.
+// 되돌려서 깨뜨린 것(§2-5): honorific의 is_pastor 가지를 지우면 ①, pastSunday의
+// `< today`를 `<=`로 바꾸면 ③, worship.js의 rpc 호출을 saveService로 되돌리면 ④가 깨진다.
+{
+  // 서비스 계층은 supabase·react를 import한다 — 순수 부분만 노드에서 부르기 위해
+  // import 줄을 걷어낸다(liveV2 블록과 같은 방식). people.js의 guestStore는 worship.js가
+  // **모듈 최상단에서** 부르므로 그 자리만 빈 저장소로 세워 준다.
+  const strip = (t) => t
+    .replace(/^import .*from '\.\/(supabaseClient|cloud|image)\.js';\s*$/gm, '')
+    .replace(/^import .*from '\.\.\/utils\.js';\s*$/gm, 'const generateId = () => "id";')
+    .replace(/^import .*from '\.\/people\.js';\s*$/gm,
+      'const guestStore = () => ({ all: () => ({}), rows: () => [], set: () => {} });');
+  const dir = mkdtempSync(join(tmpdir(), 'v2hon-'));
+  const pf = join(dir, 'people.mjs');
+  const wf = join(dir, 'worship.mjs');
+  writeFileSync(pf, strip(readFileSync(new URL('../src/services/people.js', import.meta.url), 'utf8')));
+  writeFileSync(wf, strip(readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8')));
+  const { honorific, honorificsOf } = await import(pathToFileURL(pf).href);
+  const { pastSunday } = await import(pathToFileURL(wf).href);
+
+  // ① 세 갈래 + 객원 — 교역자 '전도사님' · 그 해 부장 '부장님' · 나머지 '청년'
+  assert.strictEqual(honorific('임성빈', { isPastor: true }), '임성빈 전도사님');
+  assert.strictEqual(honorific('신효진', { roles: ['director'] }), '신효진 부장님');
+  assert.strictEqual(honorific('노준석', { roles: [] }), '노준석 청년');
+  assert.strictEqual(honorific('조준환', { roles: ['lead_team'] }), '조준환 청년',
+    '부장 말고 다른 직분은 호칭을 바꾸지 않는다');
+  assert.strictEqual(honorific('한상록 강사님', null), '한상록 강사님',
+    '명단에 없는 객원은 적은 글자 그대로 — 아는 것이 없으니 청년이라고 부르지 않는다');
+  assert.strictEqual(honorific('', { isPastor: true }), '', '이름이 없으면 붙일 것도 없다');
+  assert.strictEqual(honorific('임성빈', { isPastor: true, roles: ['director'] }), '임성빈 전도사님',
+    '겸직이면 교역자가 먼저다');
+
+  // ② 이름·id로 찾는 한 벌 — 계정 표시명으로 덮인 이름과 명단의 이름 둘 다 열쇠다
+  const nameOf = honorificsOf(
+    [{ id: 'p1', name: '임성빈', is_pastor: true },
+      { id: 'p2', name: '신효진' },
+      { id: 'p3', name: '말감이', roster_name: '임재훈' }],
+    [{ person_id: 'p2', year: 2026, role: 'director' }, { person_id: 'p3', year: 2026, role: 'lead_team' }],
+  );
+  assert.strictEqual(nameOf('임성빈'), '임성빈 전도사님');
+  assert.strictEqual(nameOf('신효진'), '신효진 부장님');
+  assert.strictEqual(nameOf('말감이'), '말감이 청년');
+  assert.strictEqual(nameOf('임재훈'), '임재훈 청년', '명단에 적힌 이름으로도 찾는다(roster_name)');
+  assert.strictEqual(nameOf('한상록 강사님'), '한상록 강사님');
+  assert.strictEqual(nameOf('아무개', 'p1'), '아무개 전도사님', 'id가 있으면 id가 먼저다');
+  assert.strictEqual(honorificsOf()('누구'), '누구', '재료가 없으면 이름 그대로');
+
+  // ③ 홈의 '지난 주일' — **오늘보다 앞선** 발행 주일 주보. 오늘 것은 세지 않는다
+  const svc = [
+    { id: 'a', kind: 'sunday', status: 'published', service_date: '2026-08-30' },
+    { id: 'b', kind: 'sunday', status: 'published', service_date: '2026-09-06' },
+    { id: 'c', kind: 'sunday', status: 'draft', service_date: '2026-09-05' },
+    { id: 'd', kind: '금요 열정 예배', status: 'published', service_date: '2026-09-04' },
+    { id: 'e', kind: 'sunday', status: 'published', service_date: '' },
+  ];
+  assert.strictEqual(pastSunday(svc, '2026-09-06')?.id, 'a',
+    "오늘이 주일이면 오늘 주보를 '지난 주일'이라 부르지 않는다(사용자 지적 2026-09-06)");
+  assert.strictEqual(pastSunday(svc, '2026-09-09')?.id, 'b', '평일이면 바로 앞 주일');
+  assert.strictEqual(pastSunday(svc, '2026-08-30'), null,
+    '앞선 발행 주일이 없으면 null — 홈은 그 도막을 아예 그리지 않는다');
+  assert.strictEqual(pastSunday([], '2026-09-09'), null);
+  assert.strictEqual(pastSunday(svc, '2026-09-07')?.id, 'b', '작성 중·금요 예배·날짜 없는 행은 세지 않는다');
+
+  // ④ 배선 — 함수가 맞아도 화면이 안 부르면 그대로다
+  const src = (u) => readFileSync(new URL(u, import.meta.url), 'utf8');
+  const worship = src('../src/services/worship.js');
+  assert.ok(/supabase\.rpc\('set_attendance_note', \{ p_service_id: serviceId, p_note: text \}\)/.test(worship),
+    '출석 메모는 0052의 rpc로 간다 — services 업데이트(services_write)가 아니다');
+  const wview = src('../src/views/worshipView.jsx');
+  assert.ok(/await saveAttendanceNoteRow\(openId, text\)/.test(wview), '예배 화면이 그 rpc 경로를 부른다');
+  assert.ok(!/save\(\{ attendance_note/.test(wview), '주보 저장 경로로는 더 이상 보내지 않는다');
+  const att = src('../src/components/worshipAttendance.jsx');
+  assert.ok(/\{perms\.canCheck && \(/.test(att), '메모 칸은 출석 자격(canCheck)일 때 선다 — canEdit이 아니다');
+  const detail = src('../src/components/worshipDetail.jsx');
+  assert.ok(/honorificsOf\(people, personRoles\)/.test(detail), '주보 상세가 명단+직분으로 호칭 한 벌을 만든다');
+  assert.ok(/<Avatar name=\{name\}/.test(detail), '아바타 글자 원은 호칭이 아니라 이름에서 뽑는다');
+  const home = src('../src/views/homeView.jsx');
+  assert.ok(/pastSunday\(list, day\)/.test(home), "홈의 '지난 주일'은 오늘보다 앞선 주보다");
+  assert.ok(/인도 \$\{nameOf\(s\.praise_leader\)\}/.test(home), '홈 예배 카드의 인도자에도 호칭이 붙는다');
+  // 홈 캐릭터 — **그림이 도착한 뒤에** 등장 연출이 걸린다(모바일에서 모션이 빈 자리에서
+  // 먼저 끝나던 자리 · 사용자 2026-09-06). 히어로는 우선순위까지 올려 먼저 받는다.
+  assert.ok(/\$\{shown \? 'dc-card' : 'opacity-0'\}/.test(home),
+    '컷은 도착 전에는 숨어 있다가 도착한 뒤에 등장한다');
+  assert.ok(/fetchPriority: 'high'/.test(home), '히어로 컷은 fetchpriority=high로 먼저 받는다');
+  assert.ok(/pre\.srcset = cutSet\(HERO_CUT\.src\)/.test(home),
+    '히어로 컷은 번들이 읽히는 순간부터 받기 시작한다(index.html의 preload 대신)');
+  const mig = src('../supabase/migrations/0052_attendance_note_rpc.sql');
+  assert.ok(/security definer/.test(mig) && /set attendance_note = p_note/.test(mig),
+    '0052는 security definer로 그 한 칸만 쓴다');
+  assert.ok(/can_check_all_attendance\(\) or public\.leads_any_sun\(\)/.test(mig),
+    '자격은 전체 출석 자격자 + 순장이다');
+  assert.ok(/status = 'published'/.test(mig), '발행된 주보만');
+  assert.ok(/grant execute on function public\.set_attendance_note\(uuid, text\) to authenticated/.test(mig)
+    && /revoke execute on function public\.set_attendance_note\(uuid, text\) from anon/.test(mig),
+    '실행 권한은 로그인 사용자만(0048과 같은 마무리)');
+
+  console.log('PASS  호칭 · 지난 주일 · 출석 메모 33가지');
 }

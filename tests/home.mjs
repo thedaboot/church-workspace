@@ -92,10 +92,16 @@ const ENTRIES = { [TODAY]: { body: '오늘 묵상 한 줄', shared: false } };
 const WORSHIP = {
   services: [
     { id: 's0', kind: 'sunday', service_date: shift(TODAY, -7), status: 'published', title: '지난 주일', passage_ref: '', preacher: '' },
-    { id: 's1', kind: 'sunday', service_date: shift(TODAY, 3), status: 'published', title: '흔들리지 않는 기쁨', passage_ref: '빌립보서 4:4-7', preacher: '김승찬' },
+    { id: 's1', kind: 'sunday', service_date: shift(TODAY, 3), status: 'published', title: '흔들리지 않는 기쁨', passage_ref: '빌립보서 4:4-7', preacher: '김승찬', praise_leader: '조해리' },
     { id: 's2', kind: 'sunday', service_date: shift(TODAY, 10), status: 'draft', title: '', passage_ref: '', preacher: '' },
   ],
 };
+// 발행된 주일 주보가 **오늘 것 하나뿐**인 경우 — 주일 당일 아침의 홈이다.
+// 예전에는 '가장 최근 발행 주일'을 골라서, 오늘 주보를 '지난 주일'이라 부르며 참석 수를
+// 세었다(사용자 지적 2026-09-06: "이건 당장 오늘이거든? 표기도 하지 않는 게 …").
+const WORSHIP_TODAY = { services: [
+  { id: 's1', kind: 'sunday', service_date: TODAY, status: 'published', title: '오늘 주보', passage_ref: '', preacher: '' },
+] };
 // 앞으로 잡힌 것이 '작성 중' 하나뿐인 경우 — 발행 전 표시가 서야 한다
 const WORSHIP_DRAFT = {
   services: [
@@ -108,7 +114,10 @@ const groupsSeed = (personId) => ({
     { id: 'p1', name: '김윤주', profile_id: 'u1' },
     { id: 'p2', name: '천진영', profile_id: null },
     { id: 'p6', name: '노준석', profile_id: 'u2' },
+    // 인도자 호칭을 보려고 심는다 — 조해리는 올해 부장이라 홈에서도 '조해리 부장님'이다
+    { id: 'p7', name: '조해리', profile_id: null },
   ],
+  people_roles: [{ person_id: 'p7', year: Y, role: 'director' }],
   groups: [{ id: 'g1', type: 'sun', name: '꼬순', year: Y, leader_person_id: 'p1' }],
   group_members: [
     { group_id: 'g1', person_id: 'p1' }, { group_id: 'g1', person_id: 'p2' }, { group_id: 'g1', person_id: 'p6' },
@@ -272,6 +281,10 @@ const cutInfo = `(() => {
     upscaled: all.filter(c => Math.round(c.getBoundingClientRect().height) > c.naturalHeight + 1)
       .map(c => (c.currentSrc || '').split('/').pop() + ' ' + Math.round(c.getBoundingClientRect().height) + '/' + c.naturalHeight),
     sized: all.every(c => c.getAttribute('width') && c.getAttribute('height')),
+    // 등장 연출은 **그림이 도착한 뒤에** 걸린다(homeView의 Cut) — 도착 전에는 opacity-0이라
+    // 모션이 빈 자리에서 먼저 끝나는 일이 없다. 다 받은 뒤에는 전부 보여야 한다.
+    revealed: all.every(c => c.classList.contains('dc-card') && getComputedStyle(c).opacity === '1'),
+    hidden: all.filter(c => !c.classList.contains('dc-card')).map(c => c.getAttribute('src')),
     dpr,
   };
 })()`;
@@ -283,6 +296,7 @@ const hero = await ev(`(() => {
     heroSrc: one?.getAttribute('src') || '',
     heroEager: one?.getAttribute('loading') || '',
     heroDecode: one?.getAttribute('decoding') || '',
+    heroPriority: one?.getAttribute('fetchpriority') || '',
     tagline: t('.home-tagline'), greeting: t('.home-greeting'),
     fontPx: Math.round(parseFloat(getComputedStyle(document.querySelector('.home-greeting')).fontSize)),
     glow: !!document.querySelector('.home-hero-glow'),
@@ -304,8 +318,13 @@ check('어느 컷도 받은 파일보다 크게 그려지지 않는다(dpr · cu
 check('컷마다 1x·2x srcset이 걸려 있다', hero.cuts.hasSet === true, JSON.stringify(hero.cuts.picked));
 check('컷마다 width·height가 적혀 있다(그림이 늦게 와도 아래가 밀리지 않는다)',
   hero.cuts.sized === true);
-check('히어로 컷은 미루지 않고 받는다', hero.heroEager === 'eager' && hero.heroDecode === 'async',
-  `${hero.heroEager}/${hero.heroDecode}`);
+check('히어로 컷은 미루지 않고 먼저 받는다(eager · async · 높은 우선순위)',
+  hero.heroEager === 'eager' && hero.heroDecode === 'async' && hero.heroPriority === 'high',
+  `${hero.heroEager}/${hero.heroDecode}/${hero.heroPriority}`);
+// 모바일에서 "캐릭터가 안 뜬다"의 정체는 **모션이 그림보다 먼저 끝나는 것**이었다
+// (사용자 2026-09-06). 도착 뒤에 연출을 걸어서 빈 자리가 남지 않게 한다.
+check('컷은 그림이 도착한 뒤에 등장 연출이 걸린다(빈 자리에서 모션이 끝나지 않게)',
+  hero.cuts.revealed === true, JSON.stringify(hero.cuts.hidden));
 check('인사말은 디스플레이급 크기다', hero.fontPx >= 34, `${hero.fontPx}px`);
 check('태그라인이 사용자가 정한 문구다',
   hero.tagline === '정답게, 매우 가깝게 붙어 함께 걷는 공동체', hero.tagline);
@@ -368,9 +387,12 @@ const worship = await ev(`(() => {
 check('이번 주 예배 — 초점은 설교 제목', worship.title === '흔들리지 않는 기쁨', worship.title);
 // 메타 한 줄 — 예배 종류 · 날짜 · (있으면) 담당자·찬양 수. 칩으로 쌓지 않는다.
 check('메타 줄에 예배 종류와 날짜가 한 줄로',
-  worship.sub === `주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))}`,
-  `${worship.sub} / 주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))}`);
+  worship.sub === `주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 인도 조해리 부장님`,
+  `${worship.sub} / 주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 인도 조해리 부장님`);
 check('발행된 주보에는 작성 중 표시가 없다', worship.draft === false);
+// 이름 뒤 호칭은 주보 상세와 **같은 규칙 한 곳**을 쓴다(services/people.js honorific)
+check('이번 주 예배 — 인도자 이름에도 호칭이 붙는다',
+  worship.sub.includes('인도 조해리 부장님'), worship.sub);
 
 const mine = await ev(`(() => ({
   count: document.querySelector('.home-task-count')?.textContent.trim() || '',
@@ -537,6 +559,20 @@ const modal = await ev(`(() => {
   return { open: !!m, title: m ? m.innerText.includes('주보 인쇄 맡기기') : false };
 })()`);
 check('업무 줄을 누르면 그 업무 창이 열린다', modal.open === true && modal.title === true, JSON.stringify(modal));
+
+// ── 3b) '지난 주일'은 **오늘보다 앞선** 주보다 (사용자 지적 2026-09-06) ────────
+// 오늘 주보의 출석은 홈에 오지 않는다 — 출석 화면에서 본다. 앞선 발행 주일이 없으면
+// 그 도막을 **아예 그리지 않는다**(문구도 넣지 않는다).
+await enter({ worship: WORSHIP_TODAY });
+const todayOnly = await ev(`(() => ({
+  meta: document.querySelector('.home-sun-meta')?.textContent.trim() || '',
+  title: document.querySelector('.home-worship-title')?.textContent.trim() || '',
+}))()`);
+check("오늘이 주일이면 오늘 주보를 '지난 주일'이라 부르지 않는다",
+  todayOnly.meta === '3명' && !todayOnly.meta.includes('지난 주일') && !todayOnly.meta.includes('참석'),
+  JSON.stringify(todayOnly));
+check('그래도 오늘 주보는 이번 주 예배 카드에 그대로 선다',
+  todayOnly.title === '오늘 주보', JSON.stringify(todayOnly));
 
 // ── 4) 안 쓴 날 · 작성 중 주보 · 명단에 안 이어진 계정 ──────────────────────
 await enter({ app: APP_ALL_DONE, entries: null, worship: WORSHIP_DRAFT, groups: groupsSeed(null) });

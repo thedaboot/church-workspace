@@ -256,7 +256,9 @@ async function fetchClubs() {
   return sortClubs(data ?? []);
 }
 
-// 화면 한 벌 — 명단 · 그 해의 순 · 동아리 · 두 쪽의 구성원.
+// 화면 한 벌 — 명단 · 그 해의 순 · 동아리 · 두 쪽의 구성원 · **그 해의 직분**.
+// 직분은 홈이 이름 뒤 호칭을 지을 때 쓴다(people.js honorificsOf) — 조회를 따로 두면
+// 같은 표를 홈 한 판에 두 번 읽게 된다(worship.fetchRoster가 예배 쪽에서 같은 일을 한다).
 export async function fetchGroupsRoster(year) {
   if (!supabase) {
     const all = guestRows('groups').filter(g => !g.removed_at);
@@ -268,13 +270,14 @@ export async function fetchGroupsRoster(year) {
       suns, clubs,
       members: guestRows('group_members').filter(m => ids.has(m.group_id)),
       allGroups: all,
+      roles: guestRows('people_roles').filter(r => !year || r.year === year),
     };
   }
-  const [people, suns, clubs, everySun] = await Promise.all([
-    fetchPeople(), fetchGroups('sun', year), fetchClubs(), fetchGroups('sun'),
+  const [people, suns, clubs, everySun, roles] = await Promise.all([
+    fetchPeople(), fetchGroups('sun', year), fetchClubs(), fetchGroups('sun'), fetchRoles(year),
   ]);
   const members = await fetchGroupMembers([...suns, ...clubs].map(g => g.id));
-  return { people, suns, clubs, members, allGroups: [...everySun, ...clubs] };
+  return { people, suns, clubs, members, allGroups: [...everySun, ...clubs], roles };
 }
 
 // 자격. 마스터·관리자는 로그인 계정 속성이라 호출부(useAuth)가 준다.

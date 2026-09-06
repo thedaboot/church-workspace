@@ -34,6 +34,55 @@ function withDisplayName(p) {
   return { ...rest, roster_name: p.name, name: shown || p.name };
 }
 
+// ── 호칭 (사용자 결정 2026-09-06) ───────────────────────────────────────────
+// 주보 발행본과 홈에서는 이름 뒤에 호칭을 붙인다. 세 갈래다:
+//   · 교역자(`people.is_pastor`)            → 'OOO 전도사님'
+//   · 그 해 부장(`people_roles.role`)       → 'OOO 부장님'
+//   · 그 밖의 명단 사람                     → 'OOO 청년'
+// **명단에 없는 이름은 그대로 둔다** — 객원 인도자·외부 강사는 우리가 아는 것이 없어서
+// '청년'이라고 부를 근거가 없다. 설교자(`services.preacher`)는 자유 텍스트라 아예
+// 이 길을 타지 않는다(이미 '임성빈 전도사님'처럼 적는다).
+//
+// 호칭은 **보기에서만** 붙인다 — 편집 화면의 입력칸은 이름 그대로다(저장되는 값이
+// 이름이라야 명단 자동완성·person 연결이 계속 맞는다).
+export const HONORIFIC = { pastor: '전도사님', director: '부장님', youth: '청년' };
+const DIRECTOR = 'director';
+
+export function honorific(name, info) {
+  const clean = String(name || '').trim();
+  if (!clean || !info) return clean;
+  if (info.isPastor) return `${clean} ${HONORIFIC.pastor}`;
+  if ((info.roles || []).includes(DIRECTOR)) return `${clean} ${HONORIFIC.director}`;
+  return `${clean} ${HONORIFIC.youth}`;
+}
+
+// 명단 + 그 해 직분 → `(name, personId?) => '홍길동 청년'` 한 벌.
+// **id가 있으면 id로 찾는다**(담당자 줄은 personId를 들고 있다). 이름만 있는 자리
+// (찬양 인도자 — 0044는 글자 하나다)는 이름으로 찾는데, 계정 표시명으로 덮인 이름
+// (`withDisplayName`)과 명단에 적힌 이름(`roster_name`) 둘 다 열쇠로 둔다. 같은 이름이
+// 둘이면 **먼저 나온 사람**이다 — 이름만 가지고는 더 가릴 수 없다.
+export function honorificsOf(people = [], roles = []) {
+  const roleBy = new Map();
+  for (const r of roles || []) {
+    if (!r?.person_id || !r?.role) continue;
+    if (!roleBy.has(r.person_id)) roleBy.set(r.person_id, []);
+    roleBy.get(r.person_id).push(r.role);
+  }
+  const byId = new Map();
+  const byName = new Map();
+  for (const p of people || []) {
+    if (!p?.id) continue;
+    const info = { isPastor: !!p.is_pastor, roles: roleBy.get(p.id) || [] };
+    byId.set(p.id, info);
+    for (const key of [p.name, p.roster_name]) {
+      const k = String(key || '').trim();
+      if (k && !byName.has(k)) byName.set(k, info);
+    }
+  }
+  return (name, personId = null) =>
+    honorific(name, (personId && byId.get(personId)) || byName.get(String(name || '').trim()) || null);
+}
+
 // 올해(또는 지정 연도) 직분 — [{ person_id, year, role }]
 export async function fetchRoles(year) {
   if (!supabase) return [];

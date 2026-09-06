@@ -7,8 +7,9 @@ import { CARD, CARD_STYLE, Empty } from '../components/groupsParts.jsx';
 import { ISO_TODAY, byDue } from './dashboardParts.jsx';
 import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry } from '../services/word.js';
 import { loadPassage } from '../services/bible.js';
-import { kindLabel, fetchServices, fetchAttendance } from '../services/worship.js';
-import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotes, latestSunday } from '../services/groups.js';
+import { kindLabel, fetchServices, fetchAttendance, pastSunday } from '../services/worship.js';
+import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotes } from '../services/groups.js';
+import { honorificsOf } from '../services/people.js';
 import { useCached } from '../services/cache.js';
 import { useLiveRefresh } from '../services/liveV2.js';
 import logoLight from '../assets/logo-light.png';
@@ -62,6 +63,48 @@ import logoDark from '../assets/logo-dark.png';
 // 억지로 픽셀을 세우면 파스텔 그라디언트가 더 상한다.
 const cutSet = (src) => `${src} 1x, ${src.replace(/\.webp$/, '@2x.webp')} 2x`;
 const HERO_CUT = { src: '/chars/sparkle-wave.webp', w: 203, h: 168 };
+// 글이 다 들어온 뒤에 컷이 선다(§4.2) — 그 지연이 이 한 곳이다.
+const CUT_DELAY = 280;
+
+// **그림이 도착하기 전에 시작한 모션은 빈 자리에서 끝난다.** 등장 연출(.dc-card)이
+// 마운트와 함께 돌면, 느린 회선(모바일)에서는 280+280ms가 지나도록 칸이 비어 있다가
+// 그림이 뒤늦게 **툭** 나타났다(사용자 2026-09-06: "확실하게 모바일에서도 캐릭터가 뜨는
+// 모션이 잘 적용되게"). 그래서 **도착한 뒤에** 연출을 건다:
+//   · 캐시에 이미 있으면(complete) 첫 이펙트에서 바로 — 지연은 그대로 280ms
+//   · 늦게 오면 onLoad에서 지연 0으로 — 이미 늦었는데 또 기다릴 이유가 없다
+//   · 못 받아도(onError) 숨긴 채로 두지 않는다
+// `prefers-reduced-motion`이면 index.css가 .dc-card의 animation을 끄므로 **즉시** 보인다.
+// width/height는 그대로 적는다 — 자리 잡기(그림이 늦게 와도 아래 카드가 안 밀린다)는
+// 이 연출과 별개다.
+function Cut({ src, w, h, className, eager = false, delay = CUT_DELAY }) {
+  const ref = useRef(null);
+  const [shown, setShown] = useState(false);
+  const [wait, setWait] = useState(delay);
+  useEffect(() => { if (ref.current?.complete) setShown(true); }, []);
+  const reveal = () => setShown(s => { if (!s) setWait(0); return true; });
+  return (
+    <img
+      ref={ref} src={src} srcSet={cutSet(src)} width={w} height={h}
+      alt="" aria-hidden="true" draggable="false"
+      loading={eager ? 'eager' : 'lazy'} decoding="async"
+      {...(eager ? { fetchPriority: 'high' } : {})}
+      onLoad={reveal} onError={reveal}
+      className={`${className} ${shown ? 'dc-card' : 'opacity-0'}`}
+      style={{ animationDelay: `${wait}ms` }}
+    />
+  );
+}
+
+// 히어로 컷은 **번들이 읽히는 순간** 받기 시작한다. 홈은 첫 화면이라 이 그림이 가장
+// 먼저 보여야 하는데, 리액트가 트리를 다 그린 뒤에야 <img>가 생겨서 그만큼 늦었다.
+// index.html의 <link rel=preload>가 정석이지만 그 파일은 이 회차의 소유가 아니라
+// 여기서 한 줄로 대신한다(브라우저 캐시에 들어가므로 <img>는 그것을 그대로 쓴다).
+// `/chars/*`는 vercel.json에서 1년 불변이라 두 번째 방문부터는 네트워크가 없다.
+if (typeof Image !== 'undefined') {
+  const pre = new Image();
+  pre.srcset = cutSet(HERO_CUT.src);
+  pre.src = HERO_CUT.src;
+}
 
 // 인사말은 시각에 따라 바뀐다. 담백한 존댓말 한 줄이고 느낌표·이모지를 붙이지 않는다(§8).
 // 이름이 없는 계정(아직 이름을 안 적은 사람)에는 이름 자리를 비운 문장을 쓴다 —
@@ -322,8 +365,8 @@ function Showcase({ onNavigate }) {
           >
             <ChevronRight size={14}
               className="home-show-go absolute top-4 right-4 text-fg-faint transition-[translate] duration-200 ease-out group-hover:translate-x-[3px]" />
-            <img src={cut} srcSet={cutSet(cut)} width={w} height={h}
-              alt="" aria-hidden="true" draggable="false" loading="lazy" decoding="async"
+            {/* 컷도 **도착한 뒤에** 뜬다(위 Cut) — 블록이 먼저 서고 그림 자리만 비는 일이 없게 */}
+            <Cut src={cut} w={w} h={h} delay={0}
               className="home-show-cut block w-auto h-[96px] select-none pointer-events-none" />
             {/* 제목은 가운데다. 화살표는 블록 오른쪽 위 — **제목 줄로 옮기지 않는다**
                 (사용자 정정 2026-09-03: "화살표를 옮기라고 하진 않았다"). 제목 줄 오른쪽
@@ -390,12 +433,15 @@ export function HomeView({ onNavigate, onTaskClick }) {
 
   // **주보 목록은 한 번만 읽는다.** 예전에는 여기서 한 번, 아래 '내 순'에서 지난 주일을
   // 찾느라 또 한 번 불렀다 — 같은 목록을 홈 한 판에 두 번 받아 오는 낭비였다. 이번 주
-  // 예배(pickService)와 지난 주일(latestSunday)은 **같은 목록에서 파생되는 값**이라
+  // 예배(pickService)와 지난 주일(pastSunday)은 **같은 목록에서 파생되는 값**이라
   // 캐시 키도 하나다. 갈래를 나눈 이유는 실패를 가르기 위해서지 조회를 가르기 위해서가
   // 아니다(이 파일 머리 주석).
+  // '지난 주일'은 **오늘보다 앞선** 발행 주일 주보다(worship.pastSunday). 예전에는 가장
+  // 최근 발행 주일이라, 주일 당일에 홈이 **오늘 주보**를 '지난 주일'이라 부르며 참석 수를
+  // 세었다(사용자 지적 2026-09-06). 그런 주보가 없으면 null이고 그 도막은 그리지 않는다.
   const svcQ = useCached(`home:services:${day}`, loud('예배 목록', async () => {
     const list = await fetchServices();
-    return { service: pickService(list, day) || null, latest: latestSunday(list) || null };
+    return { service: pickService(list, day) || null, latest: pastSunday(list, day) || null };
   }), [day]);
 
   // 메타 줄의 재료를 싣는다: 인원 · 지난 주일 참석 수 · 공유된 예배 노트 수.
@@ -406,11 +452,18 @@ export function HomeView({ onNavigate, onTaskClick }) {
     const [perms, roster] = await Promise.all([fetchGroupPerms(year), fetchGroupsRoster(year)]);
     const me = perms?.myPerson || null;
     const sun = me && roster ? mySun(me, roster.suns, roster.members) : null;
-    if (!sun) return null;
+    // 호칭 재료는 **순이 없어도 싣는다** — 예배 카드의 인도자가 이걸 쓴다(아래 nameOf).
+    // 캐시(localStorage)에 담기니 이름을 짓는 데 필요한 칸만 남긴다.
+    const honor = {
+      people: (roster?.people || []).map(p => ({ id: p.id, name: p.name, roster_name: p.roster_name, is_pastor: !!p.is_pastor })),
+      roles: (roster?.roles || []).map(r => ({ person_id: r.person_id, role: r.role })),
+    };
+    if (!sun) return { honor, sun: null };
     const people = groupPeople({ people: roster.people, group: sun, members: roster.members });
     // 나눔은 **개수만** 쓴다 — 본문·이름·사진까지 실어 와서 .length를 읽던 자리다.
     const notes = await countSunSharedNotes().catch(() => 0);
     return {
+      honor,
       sun,
       ids: people.map(p => p.id),
       count: people.length,
@@ -431,6 +484,13 @@ export function HomeView({ onNavigate, onTaskClick }) {
       const mine = new Set(sunIds);
       return ok.filter(id => mine.has(id)).length;
     }), [lastSundayId, sunIds?.join(',') || '']);
+
+  // 이름 뒤 호칭 한 벌 — 규칙은 주보 상세와 같은 한 곳이다(services/people.js honorific).
+  // 재료가 아직 없으면(첫 진입·실패) 이름을 그대로 돌려준다.
+  const nameOf = useMemo(
+    () => honorificsOf(sunQ.data?.honor?.people || [], sunQ.data?.honor?.roles || []),
+    [sunQ.data],
+  );
 
   // 홈은 첫 화면이라 여기가 가장 오래 떠 있다 — 주보 발행·나눔·명단이 바뀌면 카드
   // 셋을 같이 다시 읽는다(0049 · services/liveV2.js).
@@ -485,7 +545,7 @@ export function HomeView({ onNavigate, onTaskClick }) {
       (s.roles || []).length ? `담당자 ${s.roles.length}` : '',
       (s.songs || []).length ? `찬양 ${s.songs.length}` : '',
       // 찬양을 싣는 줄이라 인도자도 같은 줄에 붙는다(0044) — 줄을 늘리지는 않는다
-      s.praise_leader ? `인도 ${s.praise_leader}` : '',
+      s.praise_leader ? `인도 ${nameOf(s.praise_leader)}` : '',
     ].filter(Boolean).join(' · ');
     cards.push(['worship', (delay) => (
       <LinkCard className="home-worship" label="이번 주 예배" icon={Church} delay={delay} title="예배로"
@@ -560,15 +620,11 @@ export function HomeView({ onNavigate, onTaskClick }) {
 
         {/* 캐릭터 한 장 — 글이 다 들어온 뒤에 선다(§4.2 · 글의 .dc-card가 .28s다).
             width/height를 적어 두면 그림이 도착하기 전에도 이 자리가 확보되어 아래
-            카드가 밀리지 않는다. eager: 첫 화면에 바로 보이는 그림이라 미루면 홈이
-            한 번 비어 보인다. decoding=async: 디코딩이 첫 페인트를 붙잡지 않게. */}
-        <img
-          src={HERO_CUT.src} srcSet={cutSet(HERO_CUT.src)}
-          width={HERO_CUT.w} height={HERO_CUT.h}
-          alt="" aria-hidden="true" draggable="false" loading="eager" decoding="async"
-          className="home-cut dc-card block mx-auto mt-4 md:mt-5 w-auto h-[112px] md:h-[140px] select-none pointer-events-none"
-          style={{ animationDelay: '280ms' }}
-        />
+            카드가 밀리지 않는다. eager + fetchpriority=high: 첫 화면에 바로 보이는
+            그림이라 미루면 홈이 한 번 비어 보인다. decoding=async: 디코딩이 첫 페인트를
+            붙잡지 않게. 등장 연출은 **그림이 도착한 뒤에** 걸린다(위 Cut). */}
+        <Cut src={HERO_CUT.src} w={HERO_CUT.w} h={HERO_CUT.h} eager
+          className="home-cut block mx-auto mt-4 md:mt-5 w-auto h-[112px] md:h-[140px] select-none pointer-events-none" />
       </section>
 
       {!church ? LOADING : cards.length ? (

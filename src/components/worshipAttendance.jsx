@@ -160,12 +160,13 @@ export function AttendanceScreen({
         )}
       </div>
 
-      {/* 출석 메모는 **주보 편집 자격자만** 쓴다(2026-09-06). 저장 자리가 주보 행의
-          `services.attendance_note`라 저장 경로가 saveService → services_write
-          (can_edit_service)다. 칸은 누구에게나 보이는데 저장은 순장에게 42501이라,
-          순장이 쓴 메모는 한 줄도 남지 않고 '이미 지워졌어요' 토스트만 떴다.
-          자격을 넓히는 것은 사용자 결정이 필요한 자리라(0042·0045) 화면을 자격에 맞춘다. */}
-      {perms.canEdit && (
+      {/* 출석 메모는 **출석을 체크할 수 있는 사람**이 쓴다 — 순장도 쓴다(사용자 결정
+          2026-09-06: "출석 메모는 주보를 편집하는 건 아니라고 생각해서"). 잠깐 주보 편집
+          자격자에게만 세웠던 자리다: 저장 자리가 주보 행의 한 칸이라 저장 경로가
+          saveService → services_write(can_edit_service)여서 순장이 쓴 메모가 한 줄도 남지
+          않았다. 지금은 그 한 칸만 쓰는 rpc로 간다(0052 · services/worship.js
+          saveAttendanceNote) — 그래서 화면 게이트도 출석 자격(canCheck)과 같아졌다. */}
+      {perms.canCheck && (
         <section className="mt-7 max-w-[42rem]">
           <div className="flex items-center gap-2 pb-2.5">
             <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">출석 메모</h3>

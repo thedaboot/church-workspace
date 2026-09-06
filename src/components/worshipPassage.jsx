@@ -295,9 +295,13 @@ export function PassagePicker({ value, onChange }) {
 // 구절만 정하면 개역한글 데이터에서 본문이 붙는다(결정 4). 못 읽는 구절은 손대지 않고
 // **적은 글자 그대로** 둔다 — 파서가 모르는 표기라고 해서 사람이 적은 것이 틀린 것은 아니다.
 //
-// 읽는 폭은 본문 열에만 준다(§3의 넓은 레이아웃과 별개다) — 1440px에 한 줄이
-// 가로지르면 눈이 다음 줄 머리를 못 찾는다. 절 번호는 왼쪽 고정 칸이라 이어지는 줄이
-// 번호 아래로 들어가지 않는다.
+// **읽는 폭은 지키되 상자는 트랙을 다 쓴다**(사용자 결정 2026-09-06 · §6-9-k).
+// 예전에는 `max-w-[42rem]`이라 1440에서 본문이 672px에 멈추고 오른쪽 726px이 통째로
+// 비었다 — max-w는 트랙 안에 빈 띠를 만든다(말씀 화면에서 이미 한 번, 주보 편집에서
+// 또 한 번 밟은 자리다). 지금은 상자가 폭을 다 쓰고, **넓어지면 두 단으로 흐른다**
+// (index.css `.worship-passage` 컨테이너 쿼리 — 재는 것은 화면 폭이 아니라 이 상자
+// 폭이다). 한 단이 680px 남짓으로 남아서 1440px을 한 줄이 가로지르지 않는다.
+// 절 번호는 왼쪽 고정 칸이라 이어지는 줄이 번호 아래로 들어가지 않는다.
 export function PassageBody({ refStr }) {
   const [verses, setVerses] = useState(null);
   useEffect(() => {
@@ -314,19 +318,23 @@ export function PassageBody({ refStr }) {
   if (verses === null) return <p className="text-[12px] text-fg-faint py-2">본문을 받는 중</p>;
   if (!verses.length) return null;
   return (
-    <div className="worship-passage mt-4 pt-4 max-w-[42rem]" style={{ borderTop: '1px solid var(--app-line)' }}>
-      {verses.map((v, i) => (
-        <React.Fragment key={`${v.chapter}:${v.verse}`}>
-          {/* 장이 넘어가는 자리에만 장 표시 — 한 장짜리 본문에는 아무것도 붙지 않는다 */}
-          {i > 0 && v.chapter !== verses[i - 1].chapter && (
-            <p className="mt-3.5 mb-1.5 text-[11.5px] font-bold text-fg-muted tabular-nums">{v.chapter}장</p>
-          )}
-          <p className="worship-verse flex gap-2 py-[3px] text-[14px] leading-[1.85] text-fg-secondary">
-            <span className="w-5 shrink-0 text-right text-[11px] font-bold text-fg-faint tabular-nums pt-[5px]">{v.verse}</span>
-            <span className="min-w-0 break-words">{v.text}</span>
-          </p>
-        </React.Fragment>
-      ))}
+    <div className="worship-passage mt-4 pt-4" style={{ borderTop: '1px solid var(--app-line)' }}>
+      {/* 단 나누기는 이 안쪽 상자에 걸린다 — 컨테이너 쿼리는 컨테이너 자신이 아니라
+          그 **안**을 고르기 때문이다(바깥 .worship-passage가 재는 자리다) */}
+      <div className="worship-passage-cols">
+        {verses.map((v, i) => (
+          <React.Fragment key={`${v.chapter}:${v.verse}`}>
+            {/* 장이 넘어가는 자리에만 장 표시 — 한 장짜리 본문에는 아무것도 붙지 않는다 */}
+            {i > 0 && v.chapter !== verses[i - 1].chapter && (
+              <p className="worship-chapter mt-3.5 mb-1.5 text-[11.5px] font-bold text-fg-muted tabular-nums">{v.chapter}장</p>
+            )}
+            <p className="worship-verse flex gap-2 py-[3px] text-[14px] leading-[1.85] text-fg-secondary">
+              <span className="w-5 shrink-0 text-right text-[11px] font-bold text-fg-faint tabular-nums pt-[5px]">{v.verse}</span>
+              <span className="min-w-0 break-words">{v.text}</span>
+            </p>
+          </React.Fragment>
+        ))}
+      </div>
     </div>
   );
 }

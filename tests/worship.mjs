@@ -67,8 +67,12 @@ const seed = {
     { id: 'p5', name: '임재훈', profile_id: null },
     { id: 'p6', name: '노준석', profile_id: 'u2' },
     { id: 'p7', name: '조해리', profile_id: null },
-    { id: 'p8', name: '양민혁', profile_id: null },
+    // 호칭 세 갈래를 화면에서 다 볼 수 있게 심는다(사용자 결정 2026-09-06):
+    // 교역자(is_pastor) '전도사님' · 그 해 부장(people_roles) '부장님' · 나머지 '청년'.
+    { id: 'p8', name: '양민혁', profile_id: null, is_pastor: true },
   ],
+  // 부장은 명단 속성이 아니라 **그 해 직분 줄**이다(0043) — worship.fetchRoster가 읽는다
+  people_roles: [{ person_id: 'p7', year: Y, role: 'director' }],
   groups: [
     { id: 'g1', type: 'sun', name: '꼬순', year: Y, leader_person_id: 'p1' },
     { id: 'g2', type: 'sun', name: 'TT순', year: Y, leader_person_id: 'p6' },
@@ -80,7 +84,9 @@ const seed = {
   services: [
     { id: 's1', kind: 'sunday', service_date: PAST1, status: 'published',
       title: '흔들리지 않는 기쁨', passage_ref: '이사야 32:9-20', preacher: '임성빈 전도사님',
-      roles: [{ role: '대표기도', personId: 'p1', name: '김윤주' }, { role: '헌금봉헌', personId: null, name: '한상록 강사님' }],
+      roles: [{ role: '대표기도', personId: 'p1', name: '김윤주' },
+        { role: '말씀', personId: 'p8', name: '양민혁' },
+        { role: '헌금봉헌', personId: null, name: '한상록 강사님' }],
       songs: [{ title: '주 은혜임을', link: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }, { title: '나의 반석이신 하나님' }],
       praise_leader: '조해리', praise_playlist_url: 'https://www.youtube.com/playlist?list=PLl2Yb-KJTF0Zq',
       notices: [{ title: '겨울 수련회 신청', body: '1월 20일까지 순장에게 신청해주세요' }],
@@ -539,6 +545,12 @@ const detail = await ev(`(() => {
       return e && head ? Math.round(head.getBoundingClientRect().right - e.getBoundingClientRect().right) : -1;
     })(),
     bodyWidth: Math.round(document.querySelector('.worship-passage')?.getBoundingClientRect().width || 0),
+    panelWidth: Math.round(document.querySelector('.worship-tabpanel')?.getBoundingClientRect().width || 0),
+    bodyCols: (() => {
+      const c = document.querySelector('.worship-passage-cols');
+      return c ? Number(getComputedStyle(c).columnCount) || 1 : 0;
+    })(),
+    verseWidth: Math.round(document.querySelector('.worship-verse')?.getBoundingClientRect().width || 0),
     note: !!document.querySelector('.worship-note'),
   };
 })()`);
@@ -547,7 +559,16 @@ check('말씀 탭에 제목·구절·설교자',
   detail.panel.includes('흔들리지 않는 기쁨') && detail.panel.includes('이사야 32:9-20') && detail.panel.includes('임성빈 전도사님'),
   detail.panel.slice(0, 80));
 check('구절만 정하면 본문이 펼쳐진다(개역한글)', detail.verses === 12, `${detail.verses}절`);
-check('본문 열은 읽는 폭을 지킨다', detail.bodyWidth > 300 && detail.bodyWidth <= 674, `${detail.bodyWidth}px`);
+// 본문 상자는 **트랙을 다 쓴다**(§6-9-k — max-w는 그리드 트랙 안에 빈 띠를 만든다).
+// 42rem 상한이 있던 때는 1440에서 672px에 멈춰 오른쪽 726px이 통째로 비었다
+// (사용자 요청 2026-09-06 "말씀 나오는 부분도 반응형 잘 적용되게"). 대신 넓어지면
+// **두 단으로 흐르게** 해서 한 줄이 1400px을 가로지르지 않게 한다.
+check('본문 상자가 탭 판 폭을 다 쓴다(1440)',
+  Math.abs(detail.bodyWidth - detail.panelWidth) <= 1 && detail.bodyWidth > 1000,
+  `본문 ${detail.bodyWidth}px / 판 ${detail.panelWidth}px`);
+check('넓은 화면에서는 두 단으로 나뉘고 한 단은 읽는 폭을 지킨다',
+  detail.bodyCols === 2 && detail.verseWidth > 300 && detail.verseWidth <= 720,
+  `${detail.bodyCols}단 / 한 단 ${detail.verseWidth}px`);
 // 출석 체크와 수정이 머리줄 오른쪽에 나란히 선다 — 맨 오른쪽은 **수정**이다
 // (사용자 지적 2026-09-03: 수정이 눈에 안 띈다 → 채운 버튼으로 머리줄로 올렸다)
 check('출석 체크와 수정이 머리줄 오른쪽에 나란히 선다',
@@ -560,7 +581,14 @@ const tabClick = (n) => ev(`[...document.querySelectorAll('.worship-tab')].find(
 await tabClick('담당자'); await sleep(300);
 const roles = await ev(`[...document.querySelectorAll('.worship-role-row')].map(x => x.innerText.replace(/\\n+/g, ' | '))`);
 check('담당자에 이름이 뜬다(명단 연결 · 자유 이름 둘 다)',
-  roles.length === 2 && roles[0].includes('김윤주') && roles[0].includes('대표기도') && roles[1].includes('한상록 강사님'),
+  roles.length === 3 && roles[0].includes('김윤주') && roles[0].includes('대표기도') && roles[2].includes('한상록 강사님'),
+  JSON.stringify(roles));
+// **이름 뒤에 호칭이 붙는다**(사용자 결정 2026-09-06 · services/people.js honorific):
+// 교역자 '전도사님' · 그 해 부장 '부장님' · 나머지 명단 사람 '청년'.
+// 명단에 없는 객원(한상록 강사님)은 아는 것이 없으니 **적은 글자 그대로** 둔다.
+check('담당자 이름 뒤에 호칭이 붙는다(청년 · 전도사님 · 객원은 그대로)',
+  roles[0].includes('김윤주 청년') && roles[1].includes('양민혁 전도사님')
+  && roles[2].includes('한상록 강사님') && !roles[2].includes('청년'),
   JSON.stringify(roles));
 
 await tabClick('찬양'); await sleep(300);
@@ -607,9 +635,11 @@ const praiseView = await ev(`(() => {
   };
 })()`);
 check('발행본 찬양 탭에 팀 이름과 인도자가 곡 목록 앞 한 줄로 선다',
-  !!praiseView && praiseView.team === 'Re:born 워십' && praiseView.leader === '· 인도 조해리'
+  !!praiseView && praiseView.team === 'Re:born 워십' && praiseView.leader === '· 인도 조해리 부장님'
   && praiseView.beforeList === true && praiseView.links === 1,
   JSON.stringify(praiseView));
+// 인도자도 담당자와 같은 호칭 규칙이다 — 조해리는 올해 부장(people_roles)이라 '부장님'
+check('찬양 인도자 이름에도 호칭이 붙는다', praiseView.leader === '· 인도 조해리 부장님', praiseView.leader);
 // 곡을 가져온 재생목록은 주보에 남아, 보기에서 **한 번에 틀 수 있다**(0046)
 check('재생목록을 가져왔으면 그 줄에서 재생목록을 통째로 연다',
   JSON.stringify(praiseView.playlist) === JSON.stringify(['재생목록 열기', 'https://www.youtube.com/playlist?list=PLl2Yb-KJTF0Zq', '_blank']),
@@ -1428,7 +1458,7 @@ const praiseOnly = await ev(`(() => {
   };
 })()`);
 check('곡이 없어도 인도자를 정했으면 팀 줄이 서고 빈 상태는 그 아래 그대로',
-  praiseOnly.team === 'Re:born 워십' && praiseOnly.leader === '· 인도 김승찬'
+  praiseOnly.team === 'Re:born 워십' && praiseOnly.leader === '· 인도 김승찬 청년'
   && praiseOnly.empty === '찬양을 아직 정하지 않았어요' && praiseOnly.order === true,
   JSON.stringify(praiseOnly));
 
@@ -1529,15 +1559,27 @@ const sunjang = await ev(`(() => {
 check('순장은 자기 순만 누를 수 있고 다른 순은 보이되 비활성',
   JSON.stringify(sunjang) === '[["꼬순",true],["TT순",false],["순 미지정",false]]', JSON.stringify(sunjang));
 
-// 출석 메모는 **주보 편집 자격자만** 쓴다(2026-09-06). 저장 자리가 주보 행이라
-// (services.attendance_note → saveService → can_edit_service) 순장이 쓰면 한 글자도
-// 안 남고 토스트만 떴다. 저장이 안 되는 칸은 세우지 않는다.
+// **순장도 출석 메모를 남긴다**(사용자 결정 2026-09-06: "출석 메모는 주보를 편집하는
+// 건 아니라고 생각해서"). 잠깐 주보 편집 자격자에게만 세웠던 칸이다 — 저장 자리가 주보
+// 행이라(services.attendance_note → saveService → can_edit_service) 순장이 쓰면 한 글자도
+// 안 남았기 때문이다. 지금은 **그 한 칸만 쓰는 rpc**로 간다(0052 set_attendance_note)라
+// 화면 게이트도 출석 자격(canCheck)과 같다.
 const sunjangNote = await ev(`(() => ({
   box: !!document.querySelector('textarea[aria-label="출석 메모"]'),
   head: document.body.innerText.includes('출석 메모'),
 }))()`);
-check('순장에게는 출석 메모 칸이 서지 않는다', sunjangNote.box === false && sunjangNote.head === false,
+check('순장도 출석 메모 칸이 선다', sunjangNote.box === true && sunjangNote.head === true,
   JSON.stringify(sunjangNote));
+// 칸만 서고 저장이 안 되면 예전과 같은 상태다 — 실제로 주보 행에 남는지까지 본다
+await ev(typeIn('textarea[aria-label="출석 메모"]', '순장이 남긴 메모', 'HTMLTextAreaElement'));
+await sleep(1600);
+const sunjangSaved = await ev(`(() => ({
+  text: JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.id === 's1').attendance_note,
+  state: document.querySelector('.worship-attendance .worship-save-state')?.textContent.trim() || '',
+}))()`);
+check('순장이 쓴 메모가 그 주보에 저장된다',
+  sunjangSaved.text === '순장이 남긴 메모' && sunjangSaved.state === '저장되었어요',
+  JSON.stringify(sunjangSaved));
 
 // 순장이 올린 새신자는 **그 순의 명단에도 들어간다**(0050 · worship.addToSun).
 // 안 들어가면 attendance_insert의 leads_sun_of(person_id)가 false라 사람만 생기고
@@ -1993,6 +2035,46 @@ check('제목을 누르면 그 유튜브 영상이 새 탭으로 열린다',
   JSON.stringify([viewThumb.href, viewThumb.target]));
 check('링크 없는 곡은 썸네일 자리에 음표가 앉는다', viewThumb.fallback === true, String(viewThumb.fallback));
 await send('Emulation.clearDeviceMetricsOverride');
+
+// ── 15) 발행본 보기 — 말씀이 어느 폭에서도 넘치지 않고 판 폭을 쓴다 ────────
+// 사용자 요청 2026-09-06: "말씀 나오는 부분도 반응형 잘 적용되게". 편집 폼은 회차 9-a에서
+// 폭을 채웠는데 **보기 화면의 본문**은 42rem에 묶여 있어 1440에서 오른쪽 726px이 비었다
+// (§6-9-k). 지금은 상자가 판 폭을 다 쓰고 넓어지면 두 단으로 흐른다.
+const WORD_AT = `(() => {
+  const panel = document.querySelector('.worship-tabpanel');
+  const body = document.querySelector('.worship-passage');
+  const cols = document.querySelector('.worship-passage-cols');
+  const verse = document.querySelector('.worship-verse');
+  if (!panel || !body || !verse) return null;
+  const w = (e) => Math.round(e.getBoundingClientRect().width);
+  return {
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    outside: [...panel.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > innerWidth + 1).length,
+    panel: w(panel), body: w(body), verse: w(verse),
+    cols: cols ? Number(getComputedStyle(cols).columnCount) || 1 : 0,
+  };
+})()`;
+const wordAt = {};
+for (const width of [375, 768, 1024, 1440]) {
+  await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width < 768 });
+  await sleep(450);
+  await tabClick('말씀'); await sleep(420);
+  wordAt[width] = await ev(WORD_AT);
+}
+await send('Emulation.clearDeviceMetricsOverride');
+await sleep(400);
+const wordBad = Object.entries(wordAt).filter(([, v]) => !v || v.overflow > 0 || v.outside > 0
+  || Math.abs(v.panel - v.body) > 1);
+check('발행본 말씀은 375~1440에서 넘치지 않고 본문이 판 폭을 그대로 쓴다',
+  wordBad.length === 0, JSON.stringify(wordBad.length ? wordBad : wordAt));
+// 폭을 다 쓰되 **읽는 폭**은 지킨다 — 좁으면 한 단, 넓으면 두 단이고 한 단은 720px 이하다
+// 한 단의 상한은 **실측에서 온다**: 768에서 한 단이 726px(≈52자)이고, 1024부터 두 단이
+// 되어 471·684px이다. 그보다 넓은 한 줄은 눈이 다음 줄 머리를 잃는다.
+const measureBad = Object.entries(wordAt).filter(([w, v]) => !v || v.verse > 730 || v.verse < 300
+  || v.cols !== (Number(w) >= 1024 ? 2 : 1));
+check('좁으면 한 단 · 1024부터 두 단, 한 단은 읽는 폭 안에 머문다',
+  measureBad.length === 0,
+  JSON.stringify(Object.entries(wordAt).map(([w, v]) => [w, v && v.cols, v && v.verse])));
 
 // 예배 노트와 말씀 묵상은 **같은 부품**을 쓴다(사용자 재강조 2026-09-03).
 // 지역 사본을 다시 만들면 두 화면이 조용히 갈라지므로 소스로 못 박는다.

@@ -13,6 +13,7 @@ import { EmptyBookMark } from './wordBible.jsx';
 import { objectParticle } from '../services/errorText.js';
 import { BTN, WITH_ICON, FIELD } from './groupsParts.jsx';
 import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM } from '../services/worship.js';
+import { honorificsOf } from '../services/people.js';
 
 // ============================================================================
 // 주보 상세 — 말씀 · 담당자 · 찬양 · 광고 + 내 예배 노트 (docs/V2.md 결정 4·5·7)
@@ -189,14 +190,21 @@ function WordTab({ service, onOpenBible }) {
   );
 }
 
-function RolesTab({ rows, people }) {
+// **보기에서는 이름 뒤에 호칭이 붙는다**(사용자 결정 2026-09-06) — 교역자 '전도사님' ·
+// 그 해 부장 '부장님' · 나머지 명단 사람 '청년'. 명단에 없는 객원은 적힌 글자 그대로다.
+// 규칙은 services/people.js 한 곳이고(honorific), 여기는 그 한 벌을 받아 쓴다.
+// 편집 줄은 손대지 않는다 — 입력칸에 담기는 값은 이름이라야 명단 연결이 계속 맞는다.
+function RolesTab({ rows, people, nameOf }) {
   const byId = useMemo(() => new Map((people || []).map(p => [p.id, p])), [people]);
   if (!rows.length) return <WorshipEmpty text="담당자를 아직 정하지 않았어요" />;
   return (
     <ul className={LIST}>
       {rows.map((r, i) => {
-        const person = r.personId || r.person_id ? byId.get(r.personId || r.person_id) : null;
+        const personId = r.personId || r.person_id || null;
+        const person = personId ? byId.get(personId) : null;
         const name = person?.name || r.name || '';
+        // 아바타의 글자 원은 **이름**에서 뽑는다(호칭이 붙은 글자로 뽑으면 '전'이 된다)
+        const shown = nameOf ? nameOf(name, personId) : name;
         return (
           <li key={i} className="worship-role-row flex items-center gap-2.5 py-2.5" style={{ borderBottom: '1px solid var(--app-line)' }}>
             <span className={NUM}>{i + 1}</span>
@@ -206,7 +214,7 @@ function RolesTab({ rows, people }) {
                 폭 상한을 걷어내니 이름과 역할이 화면 양 끝으로 갈라졌다(회차 5 지적의
                 재발). 붙여 두면 어느 폭에서도 '누가 무엇을' 한 눈에 읽힌다. */}
             {r.role && <span className={`${ROLE_VIEW} shrink-0`}>{r.role}</span>}
-            <span className="min-w-0 text-[13px] font-semibold text-fg truncate">{name || '이름 없음'}</span>
+            <span className="min-w-0 text-[13px] font-semibold text-fg truncate">{shown || '이름 없음'}</span>
             <span className="flex-1" />
           </li>
         );
@@ -251,10 +259,12 @@ function SongThumb({ link, big = false }) {
 // 금지'와 다르다 — 그래서 이 한 줄 말고 덧붙이는 설명은 없다.
 // 재생목록 주소가 있으면 그 줄 끝에서 **한 번에 틀 수 있다**(0046) — 예전에는 곡을
 // 하나씩 눌러야 했다. 곡 제목은 지금도 그 곡의 영상으로 간다.
-const PraiseHead = ({ leader, playlistUrl }) => (
+const PraiseHead = ({ leader, playlistUrl, nameOf }) => (
   <p className="worship-praise-head flex flex-wrap items-baseline gap-1.5 pb-2.5 text-[12.5px] text-fg-muted">
     <span className="worship-praise-team font-bold text-fg">{PRAISE_TEAM}</span>
-    {leader ? <span className="worship-praise-leader">· 인도 {leader}</span> : null}
+    {/* 인도자도 담당자 줄과 같은 호칭 규칙이다(services/people.js honorific) — 명단에
+        없는 객원 인도자는 적은 글자 그대로 선다 */}
+    {leader ? <span className="worship-praise-leader">· 인도 {nameOf ? nameOf(leader) : leader}</span> : null}
     {playlistUrl ? (
       <a href={playlistUrl} target="_blank" rel="noreferrer"
         className="worship-praise-playlist inline-flex items-center gap-1 text-[11.5px] font-semibold text-accent-text hover:underline">
@@ -269,19 +279,19 @@ const PraiseHead = ({ leader, playlistUrl }) => (
 //
 // 곡도 인도자도 없으면 **빈 상태 한 벌 그대로**다 — 아직 아무것도 안 정했는데 팀
 // 이름만 남겨 두면 '찬양을 정해 뒀다'로 읽힌다.
-function SongsTab({ rows, leader, playlistUrl }) {
+function SongsTab({ rows, leader, playlistUrl, nameOf }) {
   if (!rows.length && !leader && !playlistUrl) return <WorshipEmpty text="찬양을 아직 정하지 않았어요" />;
   if (!rows.length) {
     return (
       <>
-        <PraiseHead leader={leader} playlistUrl={playlistUrl} />
+        <PraiseHead leader={leader} playlistUrl={playlistUrl} nameOf={nameOf} />
         <WorshipEmpty text="찬양을 아직 정하지 않았어요" />
       </>
     );
   }
   return (
     <>
-      <PraiseHead leader={leader} playlistUrl={playlistUrl} />
+      <PraiseHead leader={leader} playlistUrl={playlistUrl} nameOf={nameOf} />
       <ul className={LIST}>
         {rows.map((s, i) => (
           <li key={i} className="worship-song-view flex items-center gap-2.5 py-2.5" style={ROW_LINE}>
@@ -804,7 +814,7 @@ function MyNote({ note, onSave, onShare }) {
 
 // ── 상세 ─────────────────────────────────────────────────────────────────────
 export function ServiceDetail({
-  service, people = [], perms = {}, note = null, canWriteNote = false, startEditing = false,
+  service, people = [], personRoles = [], perms = {}, note = null, canWriteNote = false, startEditing = false,
   files = [], onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
   onPullPlaylist, onLookupTitle, onShareNote, onUploadFiles, onRemoveFile,
 }) {
@@ -818,6 +828,9 @@ export function ServiceDetail({
   const shown = editing ? draft : service;
   const rows = (k) => (Array.isArray(shown?.[k]) ? shown[k] : []);
   const set = (patch) => { dirty.current = true; setDraft(d => ({ ...d, ...patch })); };
+  // 이름 → 호칭 한 벌. 명단(is_pastor)과 그 해 직분(people_roles)이 재료다 —
+  // 둘 다 출석 명단과 같은 조회에서 온다(worship.fetchRoster).
+  const nameOf = useMemo(() => honorificsOf(people, personRoles), [people, personRoles]);
 
   const draftOf = (s) => ({
     ...s,
@@ -945,7 +958,7 @@ export function ServiceDetail({
         {tab === 'word' && (editing ? <WordEdit draft={draft} set={set} /> : <WordTab service={service} onOpenBible={onOpenBible} />)}
         {tab === 'roles' && (editing
           ? <RolesEdit rows={rows('roles')} people={people} onChange={v => set({ roles: v })} />
-          : <RolesTab rows={rows('roles')} people={people} />)}
+          : <RolesTab rows={rows('roles')} people={people} nameOf={nameOf} />)}
         {tab === 'songs' && (
           <>
             {editing
@@ -954,7 +967,7 @@ export function ServiceDetail({
                   onPlaylist={v => set({ praise_playlist_url: v })}
                   onPullPlaylist={onPullPlaylist} onLookupTitle={onLookupTitle} />
               : <SongsTab rows={rows('songs')} leader={service.praise_leader || ''}
-                  playlistUrl={service.praise_playlist_url || ''} />}
+                  playlistUrl={service.praise_playlist_url || ''} nameOf={nameOf} />}
             {/* 송폼은 찬양 목록 바로 아래 한 구역이다(0047). 붙이고 지우는 것은 수정
                 화면에서, 보기 화면에는 줄만 선다 — 담당자·찬양·광고와 같은 문법이다. */}
             <SongForms files={files} canEdit={!!(editing && perms.canEdit)}

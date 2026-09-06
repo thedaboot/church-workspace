@@ -197,6 +197,24 @@
 @container (width < 30rem) { .worship-card-meta .worship-meta-kind { display: none; } }
 @container (width < 24rem) { .worship-card-meta .worship-meta-preacher { display: none; } }
 
+/* 주보 '말씀'의 본문 — **상자는 트랙을 다 쓰고, 넓어지면 두 단으로 흐른다**
+   (사용자 요청 2026-09-06: "말씀 나오는 부분도 반응형 잘 적용되게").
+   예전에는 `max-w-[42rem]`이라 어느 폭에서도 672px에 멈췄고 1440에서 오른쪽 726px이
+   비었다 — §6-9-k(max-w는 그리드 트랙 안에 빈 띠를 만든다)를 세 번째로 밟은 자리다.
+   그렇다고 폭을 다 쓰게만 두면 1398px을 한 줄이 가로질러 눈이 다음 줄 머리를 잃는다.
+   그래서 **단으로 채운다**: 한 단이 늘 읽을 만한 폭(46~48자)에 머문다.
+   재는 것은 화면 폭이 아니라 이 상자 폭이다(주보 카드 메타와 같은 이유 — 편집 폼과
+   보기 화면의 상자 폭이 서로 다르다). 실측(1440 상세 패널 1398 · 1024 → 982):
+     · 58rem(928) 미만 → 한 단. 768에서 726px(≈52자)
+     · 58rem 이상     → 두 단. 1024에서 471px · 1440에서 679px
+   절은 단 가운데서 잘리지 않게 break-inside: avoid, 장 머리는 단 끝에 혼자 남지 않게. */
+.worship-passage { container-type: inline-size; }
+@container (width >= 58rem) {
+  .worship-passage-cols { columns: 2; column-gap: 2.5rem; }
+}
+.worship-passage-cols > .worship-verse { break-inside: avoid; }
+.worship-passage-cols > .worship-chapter { break-inside: avoid; break-after: avoid; }
+
 /* 진행 바는 width가 아니라 scaleX로 늘린다(레이아웃 재계산 없음) */
 .dc-bar-fill {
   width: 100%; transform-origin: left;

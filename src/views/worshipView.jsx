@@ -13,6 +13,7 @@ import {
   SUNDAY_KIND, kindLabel, formatServiceDate, nextSundayDate, serviceYear, worshipPerms, mergeSongs,
   fetchServices, fetchWorshipPerms, fetchRoster, createService, saveService, publishService, removeService,
   fetchAttendance, checkIn, checkOut, addRosterPerson, addToSun, fetchMyNote, saveMyNote,
+  saveAttendanceNote as saveAttendanceNoteRow,
   fetchPlaylistSongs, fetchVideoTitle, setNoteShared,
   fetchServiceFiles, ensureServiceDriveFolder, uploadServiceFile, removeServiceFile,
 } from '../services/worship.js';
@@ -309,7 +310,7 @@ export function WorshipView({ onOpenBible } = {}) {
   const [services, setServices] = useState(() => cached.data?.services ?? null);
   const [openId, setOpenId] = useState(null);
   const [screen, setScreen] = useState('list');      // 'list' | 'detail' | 'attendance'
-  const [roster, setRoster] = useState({ people: [], groups: [], members: [] });
+  const [roster, setRoster] = useState({ people: [], groups: [], members: [], roles: [] });
   const [present, setPresent] = useState(() => new Set());
   const [note, setNote] = useState(null);
   const [files, setFiles] = useState([]);                // 이 주보에 붙은 송폼(0047)
@@ -356,7 +357,7 @@ export function WorshipView({ onOpenBible } = {}) {
     // 시작한다(present는 Set이라 캐시에는 배열로 둔다 — cache.js는 JSON만 받는다)
     const key = `worship:svc:${svc.id}`;
     const hit = readCache(key);
-    setRoster(hit?.roster || { people: [], groups: [], members: [] });
+    setRoster(hit?.roster || { people: [], groups: [], members: [], roles: [] });
     setPresent(new Set(hit?.present || []));
     setNote(hit?.note ?? null);
     setFiles(hit?.files || []);
@@ -631,7 +632,24 @@ export function WorshipView({ onOpenBible } = {}) {
     return () => window.removeEventListener('beforeunload', warn);
   }, [files]);
 
-  const saveAttendanceNote = useCallback((text) => save({ attendance_note: text }), [save]);
+  // 출석 메모는 **주보를 쓰는 길이 아니다**(사용자 결정 2026-09-06). `saveService`로 보내면
+  // `services_write`(can_edit_service)라 순장에게 42501이었다 — 0052의 rpc가 그 한 칸만
+  // 쓰고, 자격은 '출석을 체크할 수 있는 사람'이다(services/worship.js의 주석).
+  const saveAttendanceNote = useCallback(async (text) => {
+    try {
+      await saveAttendanceNoteRow(openId, text);
+      setServices(list => (list || []).map(s => (s.id === openId ? { ...s, attendance_note: text } : s)));
+      invalidate();
+      return true;
+    } catch (e) {
+      console.error('[worship] 출석 메모 저장 실패:', e);
+      showToast(fail('출석 메모를 저장하지 못했어요', e, {
+        42501: '출석을 체크할 수 있는 사람만 메모를 남길 수 있어요',
+        P0002: GONE, PGRST116: GONE,
+      }));
+      return false;
+    }
+  }, [openId, invalidate]);
 
   // 유튜브 재생목록 → 찬양 목록. 통신은 이 파일이 갖고(worshipDetail 머리말) 화면은
   // 돌려받은 목록을 그대로 쓴다. **왜 안 됐는지는 원인마다 다르다** — 주소가 아닌지,
@@ -677,7 +695,7 @@ export function WorshipView({ onOpenBible } = {}) {
     // 수정 화면으로 들어간다. 출석은 보기 모드에서만 들어가므로 꺼도 잃는 것이 없다.
     return (
       <ServiceDetail
-        service={service} people={roster.people} perms={perms} note={note} canWriteNote={canWriteNote}
+        service={service} people={roster.people} personRoles={roster.roles} perms={perms} note={note} canWriteNote={canWriteNote}
         startEditing={editOnOpen} files={files}
         onUploadFiles={uploadFiles} onRemoveFile={removeFile}
         onBack={() => { setScreen('list'); setOpenId(null); setEditOnOpen(false); }}

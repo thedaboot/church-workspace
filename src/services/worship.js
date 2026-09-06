@@ -91,6 +91,19 @@ export function attendanceOpen(service, now = kstNow()) {
   return /^\d{4}-\d{2}-\d{2}$/.test(d) && `${d} ${ATTEND_OPEN_HM}` <= String(now);
 }
 
+// 홈이 **'지난 주일'이라 부를 수 있는** 주보 — 오늘보다 **앞선** 가장 최근 발행 주일
+// 예배다. 오늘이 주일이면 오늘 주보는 세지 않는다(사용자 지적 2026-09-06: "이건 당장
+// 오늘이거든? 표기도 하지 않는 게 …"). 오늘 예배의 출석은 출석 화면에서 본다.
+// 그런 주보가 없으면 null이고, 그때 홈은 그 도막을 **아예 그리지 않는다**(문구 없음).
+//
+// 날짜는 'YYYY-MM-DD'라 글자 비교가 곧 날짜 비교다. 모양이 깨진 행은 애초에 세지 않는다
+// (한 건이 맨 앞을 차지하면 홈이 엉뚱한 주보의 출석을 센다 — homeView pickService와 같은 판단).
+export const pastSunday = (services = [], today = kstNow().slice(0, 10)) => (services || [])
+  .filter(s => s?.kind === SUNDAY_KIND && s?.status === 'published'
+    && /^\d{4}-\d{2}-\d{2}$/.test(String(s?.service_date || ''))
+    && String(s.service_date) < String(today))
+  .sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)))[0] || null;
+
 // ── 유튜브 주소 (순수 — 노드에서 바로 검사된다) ────────────────────────────
 // 재생목록·영상 id를 주소에서 뽑는다. **호스트를 먼저 본다** — 이 값이 그대로 서버
 // 함수(api/yt.js)로 가기 때문에, 아무 주소나 받으면 우리 서버가 남의 심부름을 하는
@@ -320,6 +333,11 @@ export async function removeServiceFile(row) {
 // ── 명단 · 자격 ─────────────────────────────────────────────────────────────
 
 // 그 예배 날짜의 연도 순 편성. 순은 해마다 다시 짜므로 '올해'가 아니라 그 예배의 해다.
+//
+// **직분(people_roles)도 같이 싣는다**(2026-09-06) — 주보 보기가 이름 뒤에 호칭을 붙이는데
+// (people.js honorific: 교역자 '전도사님' · 부장 '부장님' · 나머지 '청년'), 부장은 명단
+// 속성이 아니라 그 해의 직분 줄이라 여기서 읽어야 안다. 조회 한 번이 늘고, 출석 명단과
+// 같은 캐시에 들어간다.
 export async function fetchRoster(year) {
   if (!supabase) {
     const groups = guestRows('groups').filter(g => g.type === 'sun' && (!year || g.year === year));
@@ -328,11 +346,12 @@ export async function fetchRoster(year) {
       people: guestRows('people').filter(p => !p.removed_at),
       groups,
       members: guestRows('group_members').filter(m => ids.has(m.group_id)),
+      roles: guestRows('people_roles').filter(r => !year || r.year === year),
     };
   }
-  const [people, groups] = await Promise.all([fetchPeople(), fetchGroups('sun', year)]);
+  const [people, groups, roles] = await Promise.all([fetchPeople(), fetchGroups('sun', year), fetchRoles(year)]);
   const members = await fetchGroupMembers(groups.map(g => g.id));
-  return { people, groups, members };
+  return { people, groups, members, roles };
 }
 
 // 화면이 쓸 자격 한 벌. 마스터·관리자는 로그인 계정 속성이라 호출부(useAuth)가 준다.
@@ -420,6 +439,29 @@ export async function checkOut(serviceId, personId) {
   }
   const { error } = await supabase.from('attendance').delete().eq('service_id', serviceId).eq('person_id', personId);
   if (error) throw error;
+}
+
+// ── 출석 메모 (0052) ────────────────────────────────────────────────────────
+// 저장 자리는 주보 행의 한 칸(`services.attendance_note` · 0036)이지만 **주보를 쓰는
+// 길로 가지 않는다.** `update services`는 `services_write`(= can_edit_service)라
+// 순장에게 42501이었고, 그래서 회차 9-c는 메모 칸을 아예 감췄다. 사용자 결정
+// (2026-09-06: "출석 메모는 주보를 편집하는 건 아니라고 생각해서")으로 순장에게 여는데,
+// 정책을 하나 더 붙이면 permissive OR라 그 행의 **모든 칸**이 열린다(§6-31-a).
+// 그래서 0052가 **그 한 칸만 쓰는 rpc**를 두고 자격을 함수 안에서 묻는다 —
+// 출석을 체크할 수 있는 사람(전체 자격자 + 순장)이고 주보가 발행되어 있을 때다.
+// 화면의 게이트(worshipAttendance의 `perms.canCheck`)와 같은 경계다.
+//
+// 게스트에는 rpc가 없다 — localStorage의 그 행을 그대로 고친다(다른 저장과 같은 방식).
+export async function saveAttendanceNote(serviceId, note) {
+  const text = String(note ?? '');
+  if (!supabase) {
+    const rows = guestRows('services').map(s => (s.id === serviceId ? { ...s, attendance_note: text } : s));
+    guestSet('services', rows);
+    return text;
+  }
+  const { data, error } = await supabase.rpc('set_attendance_note', { p_service_id: serviceId, p_note: text });
+  if (error) throw error;
+  return data ?? text;
 }
 
 // 공유 상태만 바꾼다 — **글은 건드리지 않는다.**
