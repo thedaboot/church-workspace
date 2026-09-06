@@ -9,7 +9,6 @@ import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry } from '../service
 import { loadPassage } from '../services/bible.js';
 import { kindLabel, fetchServices, fetchAttendance, pastSunday } from '../services/worship.js';
 import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotes } from '../services/groups.js';
-import { honorificsOf } from '../services/people.js';
 import { useCached } from '../services/cache.js';
 import { useLiveRefresh } from '../services/liveV2.js';
 import logoLight from '../assets/logo-light.png';
@@ -190,7 +189,12 @@ export function homeDueLabel(iso) {
   return m ? `${m[1].slice(2)}. ${+m[2]}. ${+m[3]}.` : '미정';
 }
 // 한 줄로 자르는 한 벌 — 카드의 모든 줄이 이 규칙을 쓴다(높이가 흔들리지 않게).
-const ONE_LINE = 'overflow-hidden text-ellipsis whitespace-nowrap';
+// **`block`이 빠지면 자르지 못한다.** `overflow`도 `text-overflow`도 인라인 상자에는
+// 걸리지 않아서, `whitespace-nowrap`만 남은 긴 줄이 잘리는 대신 카드 밖으로 흘러나갔다
+// (사용자 지적 2026-09-06 — 예배 카드 메타). 카드가 그만큼 넓어진 것은 격자 쪽 일이다
+// (아래 .home-cards). `min-w-0`은 flex 안에서 쓸 때다: flex 항목의 기본 최소 폭이
+// 내용 폭이라, 이게 없으면 잘리는 대신 형제를 밀어낸다(내 순 카드의 이름 + 순장).
+const ONE_LINE = 'block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap';
 
 
 
@@ -206,7 +210,11 @@ function LinkCard({ className, label, icon: Icon, onOpen, delay, title, focus, m
       // 놓는 상자(anonymous flex box)를 갖고 있어서, 같은 행의 옆 카드가 더 높아
       // 이 카드가 늘어나면 **제목 줄까지 통째로 아래로 내려간다** — 그래서 카드마다
       // 화살표 높이가 달라 보였다(사용자 지적 2026-09-03 · 실측 410 / 571px).
-      className={`home-card ${className} dc-card flex flex-col justify-start w-full text-left p-4 md:p-[18px] ${CARD} transition-[translate,box-shadow] duration-200 ease-out active:scale-[.995]`}
+      // **items-stretch도 적어 둔다.** 낡은 Blink(카카오 인앱 웹뷰가 이 축이다)는 UA
+      // 스타일시트에서 button에 align-items:flex-start를 걸어 둔다 — 그러면 제목 줄이
+      // 글자 폭만큼만 서서 화살표가 카드 오른쪽 끝이 아니라 라벨 바로 옆에 붙는다
+      // (실측 Chromium 131). 요즘 크롬·사파리는 안 그렇지만 여기서 못 박아 둔다.
+      className={`home-card ${className} dc-card flex flex-col items-stretch justify-start w-full text-left p-4 md:p-[18px] ${CARD} transition-[translate,box-shadow] duration-200 ease-out active:scale-[.995]`}
       style={{ ...CARD_STYLE, animationDelay: `${delay}ms` }}
     >
       {/* 제목 줄 — 아이콘 · 라벨 · (오른쪽 끝) 화살표. 화살표는 이 줄 안에 있고
@@ -264,7 +272,12 @@ function TasksCard({ tasks, today, onOpenList, onOpenTask, delay }) {
             key={t.id} type="button" onClick={() => onOpenTask(t)}
             className="home-task-row w-full flex items-center gap-3 h-[21px] px-2 -mx-2 rounded-[6px] text-left hover:bg-surface-hover transition-colors"
           >
-            <span className="shrink-0 w-11 text-[11.5px] font-bold tabular-nums"
+            {/* 날짜 칸은 **줄바꿈 없이 가장 긴 날짜가 들어가는 폭**이다. 44px(w-11)로
+                두었더니 '26. 9. 13.'처럼 두 자리 날짜에서 줄이 접혀 21px 줄 밖으로
+                삐져나왔다(사용자 지적 2026-09-06). 가장 긴 표기는 '27. 11. 28.'이고
+                이 글꼴·크기에서 57.5px다 — 60px면 어떤 날짜도 한 줄이다. 폭을 못 박는
+                이유는 그대로다: 세 줄의 제목이 같은 자리에서 시작해야 한다. */}
+            <span className="home-task-due shrink-0 w-[60px] whitespace-nowrap text-[11.5px] font-bold tabular-nums"
               style={{ color: t.dueDate && t.dueDate < today ? 'var(--app-tag-red-fg)' : 'var(--app-ink-muted)' }}>
               {homeDueLabel(t.dueDate)}
             </span>
@@ -452,18 +465,11 @@ export function HomeView({ onNavigate, onTaskClick }) {
     const [perms, roster] = await Promise.all([fetchGroupPerms(year), fetchGroupsRoster(year)]);
     const me = perms?.myPerson || null;
     const sun = me && roster ? mySun(me, roster.suns, roster.members) : null;
-    // 호칭 재료는 **순이 없어도 싣는다** — 예배 카드의 인도자가 이걸 쓴다(아래 nameOf).
-    // 캐시(localStorage)에 담기니 이름을 짓는 데 필요한 칸만 남긴다.
-    const honor = {
-      people: (roster?.people || []).map(p => ({ id: p.id, name: p.name, roster_name: p.roster_name, is_pastor: !!p.is_pastor })),
-      roles: (roster?.roles || []).map(r => ({ person_id: r.person_id, role: r.role })),
-    };
-    if (!sun) return { honor, sun: null };
+    if (!sun) return { sun: null };
     const people = groupPeople({ people: roster.people, group: sun, members: roster.members });
     // 나눔은 **개수만** 쓴다 — 본문·이름·사진까지 실어 와서 .length를 읽던 자리다.
     const notes = await countSunSharedNotes().catch(() => 0);
     return {
-      honor,
       sun,
       ids: people.map(p => p.id),
       count: people.length,
@@ -484,13 +490,6 @@ export function HomeView({ onNavigate, onTaskClick }) {
       const mine = new Set(sunIds);
       return ok.filter(id => mine.has(id)).length;
     }), [lastSundayId, sunIds?.join(',') || '']);
-
-  // 이름 뒤 호칭 한 벌 — 규칙은 주보 상세와 같은 한 곳이다(services/people.js honorific).
-  // 재료가 아직 없으면(첫 진입·실패) 이름을 그대로 돌려준다.
-  const nameOf = useMemo(
-    () => honorificsOf(sunQ.data?.honor?.people || [], sunQ.data?.honor?.roles || []),
-    [sunQ.data],
-  );
 
   // 홈은 첫 화면이라 여기가 가장 오래 떠 있다 — 주보 발행·나눔·명단이 바뀌면 카드
   // 셋을 같이 다시 읽는다(0049 · services/liveV2.js).
@@ -544,8 +543,8 @@ export function HomeView({ onNavigate, onTaskClick }) {
       homeDateLabel(s.service_date),
       (s.roles || []).length ? `담당자 ${s.roles.length}` : '',
       (s.songs || []).length ? `찬양 ${s.songs.length}` : '',
-      // 찬양을 싣는 줄이라 인도자도 같은 줄에 붙는다(0044) — 줄을 늘리지는 않는다
-      s.praise_leader ? `인도 ${nameOf(s.praise_leader)}` : '',
+      // 인도자는 **홈에 싣지 않는다**(사용자 결정 2026-09-06). 주보 상세에는 그대로
+      // 있다 — 홈 카드는 '무슨 예배에 무슨 설교'까지고, 누가 인도하는지는 들어가서 볼 일.
     ].filter(Boolean).join(' · ');
     cards.push(['worship', (delay) => (
       <LinkCard className="home-worship" label="이번 주 예배" icon={Church} delay={delay} title="예배로"
@@ -627,8 +626,15 @@ export function HomeView({ onNavigate, onTaskClick }) {
           className="home-cut block mx-auto mt-4 md:mt-5 w-auto h-[112px] md:h-[140px] select-none pointer-events-none" />
       </section>
 
+      {/* **`grid-cols-1`을 빼지 말 것.** 없으면 모바일의 한 칸이 `auto` 트랙이라 폭을
+          내용의 min-content에 맞춘다 — 카드 안의 한 줄짜리 메타(ONE_LINE)가 길면 트랙이
+          그만큼 늘어나서 카드 넉 장이 통째로 화면 밖으로 밀린다. 왼쪽 여백(main px-3)은
+          남고 오른쪽만 사라져서, 모바일에서 카드가 오른쪽 벽에 붙어 보였다(사용자 지적
+          2026-09-06 · 430pt에서 카드 406→416px). `grid-cols-1`은 `minmax(0,1fr)`이라
+          트랙 최소가 0이 된다. md 위는 `md:grid-cols-2`가 이미 같은 일을 하고 있었고,
+          그래서 이 증상이 모바일에서만 났다. */}
       {!church ? LOADING : cards.length ? (
-        <div className="home-cards grid gap-3 md:gap-3.5 md:grid-cols-2">
+        <div className="home-cards grid grid-cols-1 gap-3 md:gap-3.5 md:grid-cols-2">
           {cards.map(([key, render], i) => <React.Fragment key={key}>{render(i * 40)}</React.Fragment>)}
         </div>
       ) : (

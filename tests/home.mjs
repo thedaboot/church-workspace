@@ -86,6 +86,21 @@ const APP_ALL_DONE = {
   },
 };
 
+// 마감 표기가 **가장 긴** 업무들 — 달과 일이 둘 다 두 자리다('27. 11. 28.').
+// 날짜 칸이 좁으면 여기서 줄이 접혀 21px짜리 줄 밖으로 삐져나온다(사용자 지적
+// 2026-09-06 · '26. 9.' / '13.' 두 줄로 갈라졌다). 아래 6-b가 그것을 붙잡는다.
+const APP_LONG_DUE = {
+  ...APP,
+  tasks: {
+    byId: {
+      t1: mkTask({ id: 't1', title: '10월 첫 주 찬양예배', status: '진행 중', due: '2027-10-13' }),
+      t2: mkTask({ id: 't2', title: '수련회 장소 답사', status: '시작 전', due: '2027-11-28' }),
+      t3: mkTask({ id: 't3', title: '연말 결산', status: '진행 중', due: '2027-12-31' }),
+    },
+    allIds: ['t1', 't2', 't3'],
+  },
+};
+
 const QT = { [TODAY]: { passage_ref: '빌립보서 4:4-9', label: '항상 기뻐하라' } };
 const ENTRIES = { [TODAY]: { body: '오늘 묵상 한 줄', shared: false } };
 
@@ -96,6 +111,16 @@ const WORSHIP = {
     { id: 's2', kind: 'sunday', service_date: shift(TODAY, 10), status: 'draft', title: '', passage_ref: '', preacher: '' },
   ],
 };
+// 메타 한 줄이 카드보다 **긴** 주보 — 예배 이름이 길고 담당자·찬양까지 다 찼다.
+// 이 줄이 카드 밖으로 흘러나가면 격자 한 칸(모바일은 auto 트랙)이 그만큼 넓어져서
+// 카드 넉 장이 통째로 오른쪽으로 밀린다 — 왼쪽 여백만 남고 오른쪽이 사라진다
+// (사용자 지적 2026-09-06 · 430pt에서 카드 406→416px). 아래 6-b가 그것을 붙잡는다.
+const WORSHIP_LONG = { services: [{
+  id: 's1', kind: '수요 청년부 연합 저녁 기도회', service_date: shift(TODAY, 3), status: 'published',
+  title: '흔들리지 않는 기쁨', passage_ref: '빌립보서 4:4-7', preacher: '김승찬', praise_leader: '조해리',
+  roles: [{ role: '사회', name: '가' }, { role: '기도', name: '나' }],
+  songs: [{ title: '1' }, { title: '2' }, { title: '3' }, { title: '4' }, { title: '5' }],
+}] };
 // 발행된 주일 주보가 **오늘 것 하나뿐**인 경우 — 주일 당일 아침의 홈이다.
 // 예전에는 '가장 최근 발행 주일'을 골라서, 오늘 주보를 '지난 주일'이라 부르며 참석 수를
 // 세었다(사용자 지적 2026-09-06: "이건 당장 오늘이거든? 표기도 하지 않는 게 …").
@@ -114,7 +139,8 @@ const groupsSeed = (personId) => ({
     { id: 'p1', name: '김윤주', profile_id: 'u1' },
     { id: 'p2', name: '천진영', profile_id: null },
     { id: 'p6', name: '노준석', profile_id: 'u2' },
-    // 인도자 호칭을 보려고 심는다 — 조해리는 올해 부장이라 홈에서도 '조해리 부장님'이다
+    // 주보의 찬양 인도자다. 올해 부장이라 호칭이 붙는 이름인데, **홈 카드에는
+    // 아예 안 실린다**(사용자 결정 2026-09-06) — 아래에서 그것을 본다.
     { id: 'p7', name: '조해리', profile_id: null },
   ],
   people_roles: [{ person_id: 'p7', year: Y, role: 'director' }],
@@ -387,12 +413,13 @@ const worship = await ev(`(() => {
 check('이번 주 예배 — 초점은 설교 제목', worship.title === '흔들리지 않는 기쁨', worship.title);
 // 메타 한 줄 — 예배 종류 · 날짜 · (있으면) 담당자·찬양 수. 칩으로 쌓지 않는다.
 check('메타 줄에 예배 종류와 날짜가 한 줄로',
-  worship.sub === `주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 인도 조해리 부장님`,
-  `${worship.sub} / 주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 인도 조해리 부장님`);
+  worship.sub === `주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))}`,
+  `${worship.sub} / 주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))}`);
 check('발행된 주보에는 작성 중 표시가 없다', worship.draft === false);
-// 이름 뒤 호칭은 주보 상세와 **같은 규칙 한 곳**을 쓴다(services/people.js honorific)
-check('이번 주 예배 — 인도자 이름에도 호칭이 붙는다',
-  worship.sub.includes('인도 조해리 부장님'), worship.sub);
+// 인도자는 홈에 싣지 않는다(사용자 결정 2026-09-06). 주보(s1)에는 praise_leader가
+// 있고 주보 상세는 그대로 보여 준다 — 홈 카드 한 줄에만 없다.
+check('이번 주 예배 — 인도자는 홈 메타 줄에 없다',
+  !worship.sub.includes('인도') && !worship.sub.includes('조해리'), worship.sub);
 
 const mine = await ev(`(() => ({
   count: document.querySelector('.home-task-count')?.textContent.trim() || '',
@@ -800,8 +827,23 @@ const mob = await ev(`(() => {
   const one = document.querySelector('.home-cut').getBoundingClientRect();
   return {
     over: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    // **넘침은 main에서 잰다.** 스크롤하는 상자가 main(overflow-auto)이라 그 안이
+    // 넘쳐도 documentElement의 scrollWidth는 그대로다 - 위의 over 하나만 보다가
+    // 예배 카드의 긴 메타 줄이 카드 밖으로 흘러나간 것을 놓쳤다(2026-09-06).
+    mainOver: (() => { const m = document.querySelector('main'); return m ? m.scrollWidth - m.clientWidth : -1; })(),
+    // 좌우 여백이 같은가 - 사용자가 본 증상은 '오른쪽만 여백이 없다'였다
+    gutter: (() => {
+      const r = document.querySelector('.home-card').getBoundingClientRect();
+      return [Math.round(r.left), Math.round(window.innerWidth - r.right)];
+    })(),
     cards: document.querySelectorAll('.home-card').length,
     wide: [...document.querySelectorAll('.home-card')].some(c => c.getBoundingClientRect().right > window.innerWidth + 0.5),
+    // 한 줄로 자르는 줄들이 정말 잘리는가 - 인라인 상자에는 overflow가 걸리지 않아
+    // whitespace-nowrap만 남으면 글이 카드 밖으로 나간다(views/homeView.jsx ONE_LINE)
+    spill: ['.home-qt-first', '.home-worship-sub', '.home-sun-meta']
+      .map(q => document.querySelector(q)).filter(Boolean)
+      .filter(e => e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflowX === 'visible')
+      .map(e => e.className.split(' ')[0]),
     cuts: all.length,
     // 컷의 rect로 잰다 - 담는 상자는 블록이라 내용과 무관하게 폭이 꽉 차서, 그것으로
     // 재면 컷이 화면을 넘어도 언제나 0으로 나온다.
@@ -819,7 +861,10 @@ const mob = await ev(`(() => {
   };
 })()`);
 const mobCols = await cols('.home-cards');
-check('모바일 375px — 가로로 넘치지 않는다', mob.over <= 0, `넘침 ${mob.over}px`);
+check('모바일 375px — 가로로 넘치지 않는다', mob.over <= 0 && mob.mainOver <= 0,
+  `문서 ${mob.over}px / main ${mob.mainOver}px`);
+check('모바일 375px — 카드 좌우 여백이 같다', mob.gutter[0] === mob.gutter[1], JSON.stringify(mob.gutter));
+check('한 줄 메타는 카드 밖으로 흘러나가지 않는다', mob.spill.length === 0, JSON.stringify(mob.spill));
 check('모바일 375px — 카드가 한 줄에 하나씩', mobCols === 1 && mob.cards === 4 && mob.wide === false, `${mobCols}열 / ${mob.cards}장`);
 const showCols = await cols('.home-show-grid');
 check('모바일 375px — 쇼케이스는 한 줄에 하나씩', showCols === 1, `${showCols}열`);
@@ -830,6 +875,63 @@ check('모바일 375px — 컷 다섯 장이 가로로 넘치지 않는다',
 check('레티나에서는 @2x 컷을 받고, 받은 파일보다 크게 그리지 않는다',
   mob.retina === true && mob.upscaled.length === 0,
   `dpr ${mob.dpr} / @2x ${mob.retina} / ${JSON.stringify(mob.upscaled)}`);
+
+// ── 6b) 긴 메타 한 줄 — 카드가 오른쪽으로 밀리지 않는가 ─────────────────────
+// 375px에서 자를 수밖에 없는 줄을 심는다. 세 가지를 같이 본다:
+//   · 줄이 정말 잘리는가(안 잘리면 아래 둘은 우연히 통과할 수 있다)
+//   · 카드 좌우 여백이 같은가 — 사용자가 본 증상이 '오른쪽만 없다'였다
+//   · 카드 안의 어떤 것도 카드 밖으로 나가지 않는가
+await enter({ worship: WORSHIP_LONG, app: APP_LONG_DUE });
+await sleep(600);
+const long = await ev(`(() => {
+  const cards = [...document.querySelectorAll('.home-card')];
+  const c0 = cards[0].getBoundingClientRect();
+  const sub = document.querySelector('.home-worship-sub');
+  const spill = [];
+  cards.forEach(c => {
+    const cr = c.getBoundingClientRect();
+    c.querySelectorAll('*').forEach(e => {
+      if (e.getBoundingClientRect().right > cr.right + 0.5) spill.push(String(e.className).split(' ')[0]);
+    });
+  });
+  return {
+    text: sub ? sub.textContent.trim() : '',
+    cut: sub ? sub.scrollWidth > sub.clientWidth : false,
+    gutter: [Math.round(c0.left), Math.round(window.innerWidth - c0.right)],
+    widths: [...new Set(cards.map(c => Math.round(c.getBoundingClientRect().width)))],
+    spill: [...new Set(spill)],
+  };
+})()`);
+check('긴 메타 한 줄은 카드 안에서 잘린다', long.cut === true, `${long.text} / 잘림 ${long.cut}`);
+check('긴 메타가 있어도 카드 좌우 여백이 같다',
+  long.gutter[0] === long.gutter[1] && long.widths.length === 1,
+  `여백 ${JSON.stringify(long.gutter)} / 폭 ${JSON.stringify(long.widths)}`);
+check('긴 메타가 있어도 카드 밖으로 나가는 것이 없다',
+  long.spill.length === 0, JSON.stringify(long.spill));
+
+// 업무 줄의 마감 날짜 — 가장 긴 표기에서도 한 줄이고 줄 높이를 넘지 않는다
+const due = await ev(`(() => {
+  const cells = [...document.querySelectorAll('.home-task-due')];
+  const rows = [...document.querySelectorAll('.home-task-row')];
+  return {
+    texts: cells.map(c => c.textContent.trim()),
+    // 두 줄로 접히면 높이가 한 줄(약 17px)의 두 배가 된다
+    tall: cells.filter(c => c.getBoundingClientRect().height > 25).map(c => c.textContent.trim()),
+    // 줄(21px) 밖으로 삐져나온 칸
+    out: cells.filter((c, i) => c.getBoundingClientRect().bottom > rows[i].getBoundingClientRect().bottom + 0.5)
+      .map(c => c.textContent.trim()),
+    // 제목이 날짜를 덮지 않는가 — 폭을 못 박는 이유가 이 정렬이다
+    starts: [...new Set(rows.map(r => Math.round(r.lastElementChild.getBoundingClientRect().left)))],
+    rowH: [...new Set(rows.map(r => Math.round(r.getBoundingClientRect().height)))],
+  };
+})()`);
+check('가장 긴 마감 날짜도 한 줄로 선다', due.tall.length === 0 && due.out.length === 0,
+  `${JSON.stringify(due.texts)} / 접힘 ${JSON.stringify(due.tall)} / 넘침 ${JSON.stringify(due.out)}`);
+check('업무 줄 높이와 제목 시작 자리는 그대로다',
+  JSON.stringify(due.rowH) === '[21]' && due.starts.length === 1,
+  `높이 ${JSON.stringify(due.rowH)} / 제목 시작 ${JSON.stringify(due.starts)}`);
+await enter();
+
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 
 // ── 7) 다크 — 색을 박아 두지 않았는가 ───────────────────────────────────────

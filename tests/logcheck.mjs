@@ -1992,7 +1992,11 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/<Avatar name=\{name\}/.test(detail), '아바타 글자 원은 호칭이 아니라 이름에서 뽑는다');
   const home = src('../src/views/homeView.jsx');
   assert.ok(/pastSunday\(list, day\)/.test(home), "홈의 '지난 주일'은 오늘보다 앞선 주보다");
-  assert.ok(/인도 \$\{nameOf\(s\.praise_leader\)\}/.test(home), '홈 예배 카드의 인도자에도 호칭이 붙는다');
+  // 인도자는 **홈에서 뺐다**(사용자 결정 2026-09-06). 주보 상세에는 그대로 있다 —
+  // 호칭 규칙(honorificsOf)이 홈에서 쓰이지 않게 됐으니 그 재료도 같이 사라져야 한다.
+  assert.ok(!/praise_leader/.test(home), '홈 예배 카드는 인도자를 싣지 않는다');
+  assert.ok(!/honorificsOf/.test(home), '홈에서 안 쓰는 호칭 한 벌은 만들지 않는다');
+  assert.ok(/worship-praise-leader/.test(detail), '주보 상세는 인도자를 그대로 보여 준다');
   // 홈 캐릭터 — **그림이 도착한 뒤에** 등장 연출이 걸린다(모바일에서 모션이 빈 자리에서
   // 먼저 끝나던 자리 · 사용자 2026-09-06). 히어로는 우선순위까지 올려 먼저 받는다.
   assert.ok(/\$\{shown \? 'dc-card' : 'opacity-0'\}/.test(home),
