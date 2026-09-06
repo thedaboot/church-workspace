@@ -450,6 +450,17 @@
     앞 계정의 성경 북마크(`word_bible_state:<uid>`)가 안 보이는지 · 카카오 인앱에서 로그아웃한 뒤
     자동 재로그인이 안 되고 주소가 `/`인지 · 마스터가 아닌 계정이 남의 나눔을 지우려 하면 실패 토스트가
     뜨는지 · 출석 칩을 눌러도 상세 재조회 4개가 안 붙는지(네트워크 탭).
+- **2026-09-06 회차분 · 순장 메모(0052) · 호칭 · 지난 주일 · 로고**(전부 로컬 커밋 → 푸시):
+  - **순장 계정**으로 출석 화면에 메모 칸이 보이고, 적으면 저장되고 새로고침해도 남는지(psql 임퍼소네이션으로는 통과 — 평순장 저장 성공 ·
+    같은 세션에서 `services.title`·`attendance_note` 직접 update는 0행 · 일반 멤버 42501).
+  - **주보 발행본 호칭** — 담당자·찬양 인도자에 임성빈=전도사님 · 신효진=부장님 · 명단 사람=청년 · 명단 밖 객원은 적은 그대로. 오늘(09-06)
+    주보 인도자 조준환은 리더팀장이라 '조준환 청년'. 설교자는 자유 텍스트 그대로.
+  - **홈 '내 순'** — 오늘이 주일이고 앞선 발행 주일 주보가 없으면 '지난 주일 N명 참석' 도막이 **아예 없어야** 한다(오늘 주보의 출석은 홈에
+    안 나온다).
+  - **말씀 본문** — 데스크톱(≥58rem 컨테이너)에서 2단, 폰에서 1단. 편집 폼도 같은 부품.
+  - **홈 캐릭터** — 실기기 모바일 첫 진입에서 히어로·쇼케이스 컷이 빈 칸 없이 **도착한 뒤 페이드**로 들어오는지(느린 회선일수록 차이).
+  - **카카오 인앱 로고** — 공유 링크를 누르고 로그인 화면이 스쳐 갈 때 로고가 온전한지 · 카카오 인증을 취소하고 돌아온 화면에서 로고·구글·
+    카카오 아이콘이 다 보이는지 · `curl -sI …/assets/<해시>.js`가 `immutable`인지, 두 번째 열기가 빨라지는지.
 
 ### 1.2 다음에 만들 것 (사용자가 고른 것)
 
@@ -1454,7 +1465,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 
 ## 5. 데이터 · 스키마 · 비밀
 
-스키마는 `supabase/migrations/0001~0051`이고 **전부 라이브 DB에 적용**되어 있습니다
+스키마는 `supabase/migrations/0001~0052`이고 **전부 라이브 DB에 적용**되어 있습니다
 (0001~0005는 대시보드에서 수동, 이후는 `npx supabase db push --db-url "$SUPABASE_DB_URL"`).
 **원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있습니다** — 0039~0051은 psql로 직접
 적용했기 때문입니다. 적용 여부는 원장이 아니라 **실제 객체**로 확인하세요(컬럼·함수·정책·발행 목록).
@@ -1512,6 +1523,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | `0049_realtime_v2_tables` | v2 표 **9개**를 Realtime 발행에 추가(`services`·`attendance`·`service_notes`·`qt_entries`·`people`·`people_roles`·`groups`·`group_members`·`club_applications` → 발행 9개 + 9개 = **18개**). `group_meetings`는 **일부러 뺐다** — 동아리 상세를 열 때만 읽고 캐시하지 않아 알려 줄 자리가 없다. **`replica identity full`은 켜지 마세요** — DELETE는 RLS로 걸러지지 않아서 지워진 비공개 묵상의 본문이 모두에게 나간다(지금은 PK만 나간다) |
 | `0050_sun_leader_adds_own_member` | `group_members_sun_leader_insert` — 평순장이 **자기 순(올해)에 INSERT만**(`leads_any_sun()` + `leader_person_id = my_person_id()` + `year = kst_year()`). 순장의 '미등록 출석자 추가'가 사람만 만들어지고 출석은 42501이던 것을 고친다(갓 만든 사람은 어느 순에도 없어서 `leads_sun_of`가 거짓). DELETE·UPDATE는 열지 않는다 — 순원을 내보내는 일은 출석이 아니라 편성이다 |
 | `0051_dead_policies_and_approval` | 라이브에만 있던 수동 storage 정책 5개 drop(`attachments_select/insert/delete`는 0003의 쌍둥이라 권한 변화 없음, **`content_images_insert`는 버킷만 봐서 0004의 '본인 폴더에만'을 무력화하던 구멍**) · `services_write`·`sun_guides_select`·`sun_guides_write`에 `is_approved()` 추가(셋 다 `FOR ALL`/조건 하나뿐이라 승인 게이트가 permissive OR로 풀려 **미승인 회장·교역자가 작성 중 주보를 읽을 수 있었다**). 둘 다 **더 열어 주는 쪽으로** 어긋나 있어 화면에 증상이 없었다 |
+| `0052_attendance_note_rpc` | `set_attendance_note(p_service_id, p_note)` security definer rpc — 승인 + 발행된 주보 + (`can_check_all_attendance()` or `leads_any_sun()`)이면 **그 한 칸만** 쓴다. 순장도 출석 메모를 남기게(사용자 결정 2026-09-06 — 메모는 주보 편집이 아니다). 정책을 더 붙이지 않은 이유는 §6-31-a(permissive OR는 행의 모든 칸을 연다). anon·PUBLIC revoke, authenticated grant |
 
 알아둘 것:
 
@@ -2391,6 +2403,15 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     정적 서빙보다 먼저 잡는다 · `.env` 전체를 `loadEnv(mode, root, '')`로 읽어 없는 키만 process.env에 · 핸들러는
     `import(file + '?t=' + mtime)`로 고치면 다시 읽힘 · **게스트 모드에는 붙지 않는다**). `vercel.json`의 rewrite(`/s/:type/:id`)는
     dev에 없다 — 공유 카드는 `/api/share?type=…&id=…`로 직접 부른다.
+29-z-5. **번들 안의 이미지는 번들이 다 와야 요청이 나간다 — 바로 떠나는 화면에서는 깨진 아이콘이 된다**(2026-09-06 사용자
+    신고). 카카오톡으로 공유 링크(`/s/p/<id>`)를 열면 로그인 화면의 로고가 깨져 보였다. 리소스는 전부 200이고 경로도 절대 경로다 —
+    **순서** 문제였다. 로고는 `import`라 1MB 번들이 다 와서 React가 그릴 때 그제서야 65KB PNG 요청이 나가는데, 인앱 브라우저는 그 직후
+    `autoSignInKakao`로 카카오에 떠나서(측정: 로그인 화면 수명 1초 미만) 요청이 취소된다. 고침 셋: ① `index.html`의
+    `<link rel="preload" as="image">` — **href는 소스 경로(`/src/assets/…`)로 적는다**(vite가 해시 주소로 바꿔 준다. 손으로 `/assets/…`를
+    적으면 다음 빌드에 죽은 preload). ② `vercel.json`에 `/assets/(.*)` → `max-age=31536000, immutable` — Vercel 기본값은
+    `max-age=0, must-revalidate`라 해시 산출물도 열 때마다 확인하러 갔다. ③ 로고 `<img>`에 `width`/`height` — 없으면 안 들어온 동안
+    `w-auto`가 칸을 가로 전체로 벌려 깨진 아이콘이 왼쪽 끝에 붙는다(사용자가 본 모양). `tests/logcheck`가 셋과 "공유 HTML에 상대 경로
+    없음"을 본다. 구글·카카오 버튼은 인라인 SVG + 고정 라이트 면이라 다크에서도 그대로.
 
 ### 서비스 계층
 

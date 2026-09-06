@@ -266,6 +266,7 @@ insert into admins (email) values ('admin@example.com');
 | `0049_realtime_v2_tables.sql` | v2 표 9개를 Realtime 발행에 추가(주보·출석·노트·묵상·명단·직분·모임·구성원·신청) |
 | `0050_sun_leader_adds_own_member.sql` | 순장이 자기 순(올해)에 사람을 넣을 수 있게 — '미등록 출석자 추가'가 반만 되던 것 |
 | `0051_dead_policies_and_approval.sql` | 라이브에만 있던 죽은 storage 정책 정리 · 주보·순모임 가이드 정책에 `is_approved()` |
+| `0052_attendance_note_rpc.sql` | `set_attendance_note` rpc — 순장도 출석 메모를 남긴다(주보 편집 권한과 분리, 그 한 칸만) |
 
 ## 딥링크 · 공유 · 환경변수
 
