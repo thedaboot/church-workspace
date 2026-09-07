@@ -781,10 +781,13 @@ export async function uploadAttachment(file, { projectId, cardId, projectName, d
   });
 }
 
-// ── 주보 송폼 (0047) ────────────────────────────────────────────────────────
+// ── 주보에 붙는 파일 — 송폼 · 큐시트 (0047 · 갈래는 0054) ───────────────────
 // 드라이브 자리는 `더다붓 워크스페이스/예배/<YYYY-MM-DD>/`다. Apps Script는 고칠 것이
 // 없다 — folderFor가 path 배열을 따라 내려가며 없으면 만든다(v7 · 이름으로 찾으므로
 // 멱등하다). 두 번째 업로드부터는 services.drive_folder_id로 곧장 간다.
+//
+// **송폼과 큐시트는 같은 표·같은 폴더·같은 업로드 한 벌이다**(§6-29-u). 다른 것은
+// `files.kind` 한 칸뿐이고, 그 값이 화면에서 어느 줄에 서느냐를 정한다(0054).
 export const SERVICE_DRIVE_ROOT = '예배';
 export const serviceFolderPath = (serviceDate) => [SERVICE_DRIVE_ROOT, String(serviceDate || '날짜 미정')];
 
@@ -811,13 +814,16 @@ export async function ensureServiceFolder(service) {
   }
 }
 
-export async function uploadServiceFile(file, { serviceId, serviceDate, serviceFolderId }) {
+// `kind`를 안 주면 'songform'이다 — 0047부터 이 함수를 부른 자리가 전부 송폼이었고,
+// 0054가 옛 행을 그 값으로 백필했다. null로 두면 업무 첨부(card_id)와 구분이 없어진다.
+export const SERVICE_FILE_KINDS = ['songform', 'cuesheet'];
+export async function uploadServiceFile(file, { serviceId, serviceDate, serviceFolderId, kind = 'songform' }) {
   const folderHint = serviceFolderId
     ? { folderId: serviceFolderId }
     : { path: serviceFolderPath(serviceDate) };
   return uploadOwnedFile(file, {
     folderHint,
-    owner: { service_id: serviceId },
+    owner: { service_id: serviceId, kind: SERVICE_FILE_KINDS.includes(kind) ? kind : 'songform' },
     prefix: `services/${serviceId}`,
     rememberFolder: serviceFolderId ? null : (folderId) => setServiceFolder(serviceId, folderId),
   });

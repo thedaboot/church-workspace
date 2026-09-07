@@ -397,13 +397,17 @@ check('문서의 스크립트가 uploadFromUrl을 안다 (v6)', () => {
   assert.match(drivemd, /getResponseCode\(\) >= 300/, '받아오기 실패를 안 가린다');
 });
 
-// ── 주보 송폼 (0047) ────────────────────────────────────────────────────────
+// ── 주보에 붙는 파일 — 송폼 · 큐시트 (0047 · 갈래는 0054) ───────────────────
 // 주보에도 파일이 붙는다. **업무 첨부와 같은 files 표·같은 업로드 한 벌**을 쓰는 것이
 // 이 기능의 전제다 — 두 벌로 갈라지면 3MB 갈래·멱등 열쇠·되돌리기 중 어느 하나가
 // 한쪽에만 고쳐진다(§6-29 머리말의 그 함정, 2026-08-28에 실제로 겪었다).
+// 큐시트를 파일로도 붙이게 되면서(2026-09-08) 그 함정을 화면에서 다시 밟을 자리가
+// 생겼다 — 갈래는 `files.kind` 한 칸이고 업로드 길은 여전히 하나다(0054 · §6-29-u).
 const view = read('src/views/worshipView.jsx');
 const wsvc = read('src/services/worship.js');
+const wdet = read('src/components/worshipDetail.jsx');
 const mig = read('supabase/migrations/0047_service_files.sql');
+const migKind = read('supabase/migrations/0054_files_kind.sql');
 
 check('송폼이 업무 첨부와 같은 업로드 한 벌을 지난다', () => {
   assert.match(cloud, /async function uploadOwnedFile\(file, \{ folderHint, owner, prefix, rememberFolder \}\)/,
@@ -415,7 +419,8 @@ check('송폼이 업무 첨부와 같은 업로드 한 벌을 지난다', () => 
   const svc = /export async function uploadServiceFile[\s\S]*?\n}/.exec(cloud)?.[0] || '';
   assert.match(attach, /return uploadOwnedFile\(/, '업무 첨부가 공용 길을 안 쓴다');
   assert.match(svc, /return uploadOwnedFile\(/, '송폼이 공용 길을 안 쓴다');
-  assert.match(svc, /owner: \{ service_id: serviceId \}/, '송폼 행의 주인 칸이 service_id가 아니다');
+  // 주인 칸은 service_id이고, 갈래(0054)가 같은 insert에 실린다 — 두 벌로 갈라지지 않는다
+  assert.match(svc, /owner: \{ service_id: serviceId, kind: /, '주보 파일 행의 주인 칸이 service_id + kind가 아니다');
   // 지우는 길도 한 벌이다 — DB 행부터, 실체는 그 뒤 최선으로(§6-29-e)
   assert.match(wsvc, /return deleteAttachment\(row\)/, '송폼 삭제가 두 번째 구현이다');
 });
@@ -460,6 +465,34 @@ check('files RLS 넷이 전부 주보 갈래로 갈라져 있다 (0047)', () => 
   // set null이면 업무를 지우는 순간 card_id·service_id가 둘 다 null이 되어 그 CHECK에 걸린다
   assert.match(mig, /references public\.cards\(id\) on delete cascade/,
     'card_id가 아직 set null이다 — 배타 CHECK 때문에 업무 삭제가 23514로 죽는다');
+});
+
+// 큐시트 파일이 붙으면서 생긴 자리 — **업로드 길은 하나**이고 갈래만 인자로 갈린다.
+// **되돌리기**: worshipDetail에서 kind 필터(filesOfKind)를 빼면 큐시트 파일이 송폼 줄에도 선다.
+check('큐시트 파일이 송폼과 같은 길을 지나고 갈래는 kind 한 칸이다 (0054)', () => {
+  // 저장 자리: 0054가 CHECK로 값을 못 박고, 옛 주보 파일은 송폼으로 백필된다
+  assert.match(migKind, /check \(kind is null or kind in \('songform', 'cuesheet'\)\)/,
+    'files.kind의 값이 CHECK로 못 박혀 있지 않다');
+  assert.match(migKind, /update public\.files set kind = 'songform' where service_id is not null/,
+    '0054 이전 주보 파일이 송폼으로 백필되지 않는다');
+  // 업로드 길은 **하나**다 — 큐시트가 두 번째 uploadServiceFile 호출부를 만들면 §6-29-u다
+  const ups = [...view.matchAll(/uploadServiceFile\(/g)].length;
+  assert.strictEqual(ups, 1, `worshipView에 uploadServiceFile 호출이 ${ups}군데다 — 첨부를 올리는 길은 하나여야 한다`);
+  assert.match(view, /uploadServiceFile\(service, ok\[i\], folderId, \{ kind \}\)/,
+    '업로드가 갈래를 안 싣는다 — 큐시트로 고른 파일이 송폼으로 저장된다');
+  assert.match(wsvc, /export async function uploadServiceFile\(service, file, folderId = null, \{ kind = SONGFORM \} = \{\}\)/,
+    'worship.uploadServiceFile의 기본 갈래가 송폼이 아니다 — 옛 호출부의 뜻이 바뀐다');
+  // 게스트 저장 자리도 갈래를 들고 있어야 브라우저 검사가 두 줄을 갈라 볼 수 있다
+  const svcUp = wsvc.slice(wsvc.indexOf('export async function uploadServiceFile'));
+  const guest = svcUp.slice(0, svcUp.indexOf('return { ...row, _file: file };'));
+  assert.match(guest, /kind: k,/, '게스트 files 행이 kind를 안 든다');
+  // 화면이 갈래로 가른다 — 조회는 한 번이고 목록은 하나다(§6-29-v와 같은 문법)
+  assert.match(wsvc, /export const filesOfKind = /, '갈래 필터가 서비스 계층 한 곳에 없다');
+  assert.match(wdet, /filesOfKind\(files, SONGFORM\)/, '찬양 탭이 송폼만 세우지 않는다');
+  assert.match(wdet, /filesOfKind\(files, CUESHEET\)/, '말씀 탭이 큐시트 파일만 세우지 않는다');
+  // 파일 줄 부품도 한 벌이다 — 두 벌이면 크기 표기·종류 칩이 화면마다 갈라진다
+  assert.ok(!/function SongFormRow\(/.test(wdet), '송폼 전용 줄 부품이 남아 있다 — 큐시트와 한 벌이어야 한다');
+  assert.match(wdet, /function ServiceFileRow\(/, '공용 파일 줄 부품(ServiceFileRow)이 없다');
 });
 
 check('파일 중계는 불변 캐시다(재열람 왕복 0)', () => {

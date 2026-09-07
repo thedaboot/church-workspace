@@ -365,16 +365,28 @@ export async function removeService(id) {
   if (error) throw error;
 }
 
-// ── 송폼 (주보에 붙는 파일 · 0047) ──────────────────────────────────────────
+// ── 주보에 붙는 파일 — 송폼 · 큐시트 (0047 · 갈래는 0054) ───────────────────
 // 저장 자리는 업무 첨부와 **같은 files 표**다(축만 card_id → service_id로 바뀐다).
 // 드라이브도 같은 길이라(cloud.uploadServiceFile → uploadOwnedFile) 3MB 갈래·멱등
 // 열쇠·미리보기·내려받기·휴지통이 전부 그대로 동작한다. 여기서 가르는 것은
 // 게스트/클라우드뿐이다.
 //
+// **갈래는 `files.kind` 한 칸이다**(0054 — 'songform' · 'cuesheet'). 사용자가 큐시트를
+// 링크뿐 아니라 파일로도 붙이고 싶다고 해서(2026-09-08) 두 번째 업로드 길을 내지 않고
+// 이 칸만 더했다(§6-29-u "첨부를 올리는 길은 하나"). 조회는 갈래를 안 가른다 —
+// 주보 한 건의 파일을 한 번에 읽고, **화면이** kind로 갈라 세운다.
+//
 // **게스트 모드에는 드라이브도 Storage도 없다.** 행만 localStorage에 남기고 바이트는
 // 메모리에 둔다(§6-29-k와 같은 이유 — localStorage는 문자열 5MB라 PDF 한 장도 못 담는다).
 // 새로고침하면 줄은 남고 미리보기만 못 연다.
 const guestBytes = new Map();   // files.id → 고른 File (게스트 세션 동안만)
+
+// 0054 이전에 심긴 행(게스트 시드·옛 주보)에는 kind가 없다 — **송폼으로 읽는다**.
+// 그때 주보에 붙는 파일은 송폼 하나뿐이었고, 0054의 백필도 같은 값을 넣었다.
+export const SONGFORM = 'songform';
+export const CUESHEET = 'cuesheet';
+export const fileKindOf = (f) => (f?.kind || SONGFORM);
+export const filesOfKind = (files, kind) => (files || []).filter(f => fileKindOf(f) === kind);
 
 export async function fetchServiceFiles(serviceId) {
   if (!supabase) {
@@ -392,10 +404,12 @@ export async function ensureServiceDriveFolder(service) {
   return ensureServiceFolder(service);
 }
 
-export async function uploadServiceFile(service, file, folderId = null) {
+// `kind`를 안 주면 송폼이다 — 0047부터의 호출부를 그대로 두기 위해서다.
+export async function uploadServiceFile(service, file, folderId = null, { kind = SONGFORM } = {}) {
+  const k = kind === CUESHEET ? CUESHEET : SONGFORM;
   if (!supabase) {
     const row = {
-      id: generateId(), service_id: service.id, name: file.name,
+      id: generateId(), service_id: service.id, kind: k, name: file.name,
       size_bytes: file.size ?? null, mime_type: file.type || null, source: 'local',
     };
     guestBytes.set(row.id, file);
@@ -409,6 +423,7 @@ export async function uploadServiceFile(service, file, folderId = null) {
     serviceId: service.id,
     serviceDate: service.service_date,
     serviceFolderId: folderId || service.drive_folder_id || null,
+    kind: k,
   });
 }
 

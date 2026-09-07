@@ -18,7 +18,7 @@ import {
   notifyServicePublished, notifyNoteShared,
   saveAttendanceNote as saveAttendanceNoteRow,
   fetchPlaylistSongs, fetchVideoTitle, setNoteShared,
-  fetchServiceFiles, ensureServiceDriveFolder, uploadServiceFile, removeServiceFile,
+  fetchServiceFiles, ensureServiceDriveFolder, uploadServiceFile, removeServiceFile, SONGFORM,
 } from '../services/worship.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
@@ -62,8 +62,9 @@ const CLOSE_MS = 150;
 // 이유 안에서 문장이 또 나뉘면 거기도 줄바꿈이다 — 가운뎃점은 한 문장 안의 나열
 // ('회장·교역자·마스터')에만 쓴다.
 const NEED_EDIT = '주보는 회장·교역자·미디어팀·관리자만 쓸 수 있어요';
-// 송폼도 주보를 쓰는 자격과 같은 문이다(0047의 files RLS가 can_edit_service를 그대로 본다)
-const NEED_EDIT_FILE = '송폼은 주보를 쓰는 사람만 붙이고 지울 수 있어요';
+// 송폼도 큐시트 파일도 주보를 쓰는 자격과 같은 문이다(0047의 files RLS가 can_edit_service를
+// 그대로 보고, 0054의 kind는 자격에 영향이 없다)
+const NEED_EDIT_FILE = '파일은 주보를 쓰는 사람만 붙이고 지울 수 있어요';
 const GONE = '이 주보가 이미 지워졌어요\n새로고침해주세요';
 const fail = (what, err, byCode = {}) => {
   const why = err?.human || byCode[String(err?.code ?? '')];
@@ -331,7 +332,7 @@ export function WorshipView({ onOpenBible } = {}) {
   const [present, setPresent] = useState(() => new Set());
   const [guests, setGuests] = useState([]);          // 이 주보의 미등록 출석자(0053)
   const [note, setNote] = useState(null);
-  const [files, setFiles] = useState([]);                // 이 주보에 붙은 송폼(0047)
+  const [files, setFiles] = useState([]);                // 이 주보에 붙은 파일 — 송폼·큐시트 한 목록(0047·0054)
   const [editOnOpen, setEditOnOpen] = useState(false);   // 만들자마자 수정 화면으로
 
   // 노트는 가입자 누구나 쓴다(결정 7). 게스트 모드에는 로그인이 없다 — 그때도 연다.
@@ -634,14 +635,17 @@ export function WorshipView({ onOpenBible } = {}) {
     }
   }, [openId, note, invalidate, notifyIfNewlyShared]);
 
-  // ── 송폼(0047) ────────────────────────────────────────────────────────────
+  // ── 주보에 붙는 파일 — 송폼 · 큐시트 (0047 · 갈래는 0054) ─────────────────
   // 저장 자리·드라이브 길은 업무 첨부와 한 벌이다(services/worship.js). 여기가 갖는
   // 것은 통신과 낙관적 목록뿐이다 — 화면(worshipDetail)은 props로 받은 줄만 그린다.
+  //
+  // **송폼과 큐시트가 이 함수 하나를 쓴다**(2026-09-08). 다른 것은 `kind` 인자뿐이고
+  // 목록·캐시·드라이브 폴더는 그대로다 — 두 번째 업로드 길을 내면 §6-29-u다.
   //
   // **고르자마자 목록에 선다**(§6-29-k). 드라이브 왕복이 5~10초라 그동안 아무것도
   // 안 보이면 화면이 아무 일도 안 하는 것처럼 읽힌다. 바이트는 메모리에만 있으므로
   // 아직 없는 것(삭제)은 그 줄에 달지 않는다.
-  const uploadFiles = useCallback(async (fileList) => {
+  const uploadFiles = useCallback(async (fileList, kind = SONGFORM) => {
     const picked = Array.from(fileList || []);
     if (!picked.length || !service) return;
     // 용량 초과는 여기서 걸러 낸다 — 상한은 config.js 한 곳이고 첨부와 같은 값이다
@@ -651,7 +655,9 @@ export function WorshipView({ onOpenBible } = {}) {
     if (!ok.length) return;
     const staged = ok.map(f => ({
       id: `local:${f.name}:${f.size}:${f.lastModified}:${Math.random().toString(36).slice(2, 8)}`,
-      service_id: service.id, name: f.name, size_bytes: f.size, mime_type: f.type || null,
+      // 갈래를 **올리는 중인 줄에도** 실어 둔다 — 안 실으면 그 줄이 fileKindOf의 기본값
+      // 때문에 송폼으로 읽혀, 큐시트에 고른 파일이 올라가는 동안 찬양 탭에 가서 선다.
+      service_id: service.id, kind, name: f.name, size_bytes: f.size, mime_type: f.type || null,
       source: 'local', _pending: true, _file: f,
     }));
     setFiles(prev => [...prev, ...staged]);
@@ -666,10 +672,10 @@ export function WorshipView({ onOpenBible } = {}) {
     for (let i = 0; i < ok.length; i += 1) {
       const stagedId = staged[i].id;
       try {
-        const row = await uploadServiceFile(service, ok[i], folderId);
+        const row = await uploadServiceFile(service, ok[i], folderId, { kind });
         setFiles(prev => prev.map(x => (x.id === stagedId ? row : x)));
       } catch (e) {
-        console.error('[worship] 송폼 올리기 실패:', e);
+        console.error('[worship] 주보 파일 올리기 실패:', e);
         setFiles(prev => prev.filter(x => x.id !== stagedId));
         showToast(fail(`'${ok[i].name}'을(를) 올리지 못했어요`, e, { 42501: NEED_EDIT_FILE }));
       }
@@ -686,7 +692,7 @@ export function WorshipView({ onOpenBible } = {}) {
       await removeServiceFile(row);
       invalidate();
     } catch (e) {
-      console.error('[worship] 송폼 삭제 실패:', e);
+      console.error('[worship] 주보 파일 삭제 실패:', e);
       setFiles(before);
       showToast(fail(`'${row.name}'을(를) 지우지 못했어요`, e, { 42501: NEED_EDIT_FILE }));
     }

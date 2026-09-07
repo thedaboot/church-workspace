@@ -703,8 +703,23 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
       <span className="text-[10.5px] font-semibold">{label}</span>
     </button>
   );
+  // 탭바의 **실제 높이**를 `--mobile-tab-bar-h`로 내보낸다. 이 바는 안 내용으로 높이가 정해져서
+  // (pt-2 + 아이콘 + 글자 + pb + safe-area) 4.5rem 같은 상수와 몇 px 어긋난다 — 주보 편집의
+  // 하단 저장 줄이 그 상수로 앉아 탭바 위에 **얇은 틈**이 남았다(사용자 지적 2026-09-08).
+  // 위에 얹는 것(worshipDetail의 worship-edit-bar)은 이 변수를 bottom으로 쓴다.
+  const navRef = useRef(null);
+  useLayoutEffect(() => {
+    const el = navRef.current;
+    if (!el) return undefined;
+    const root = document.documentElement;
+    const set = () => root.style.setProperty('--mobile-tab-bar-h', `${el.getBoundingClientRect().height}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => { ro.disconnect(); root.style.removeProperty('--mobile-tab-bar-h'); };
+  }, []);
   return (
-    <nav className="md:hidden fixed inset-x-0 bottom-0 z-40 flex bg-surface border-t border-line pt-2 pb-[calc(0.875rem+env(safe-area-inset-bottom))]">
+    <nav ref={navRef} data-tab-bar className="md:hidden fixed inset-x-0 bottom-0 z-40 flex bg-surface border-t border-line pt-2 pb-[calc(0.875rem+env(safe-area-inset-bottom))]">
       {inChurch ? (
         <>
           {tab(activeMenu === 'home', <Home size={20} />, '홈', () => setActiveMenu('home'))}

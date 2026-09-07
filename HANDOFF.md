@@ -476,6 +476,11 @@
   - **홈** — 첫 진입에 카드 넷이 자리 스켈레톤으로 먼저 서고 순서가 안 바뀌는지 · '공유된 노트 N' · 업무 탭으로 가면 대시보드가 맨 위.
   - **노트·묵상 읽기 모드** — 저장한 뒤 본문이 읽기 상자로 보이고 '수정'으로 다시 열리는지. 서식 바가 스크롤 시 화면 위에 붙는지(예배 노트·QT 둘).
   - **내 순 노트 스켈레톤** — 모임 화면에 다시 들어왔을 때 '내 순에 공유된 예배 노트'가 스켈레톤에 굳지 않는지(§6-9-ad).
+  - **큐시트 파일(0054)** — 수정 화면 말씀 탭에서 PDF·pptx를 올리면 드라이브 `예배/<날짜>/`에 송폼과 같이 들어가고 `files.kind='cuesheet'`로
+    담기는지(회장 계정 — `files_insert`가 새 칸을 막지 않는지) · 보기 카드에 링크 줄과 파일 줄이 함께 서고 pptx가 오피스 뷰어로 열리는지 ·
+    찬양 탭 송폼 줄에 큐시트 파일이 섞이지 않는지 · 0054 이전 캐시로 첫 프레임에 전부 송폼으로 섰다가 재조회로 갈리는 것은 스스로 낫는다.
+  - **모바일 편집 줄** — 주보 수정 중 하단 저장·삭제 줄이 탭바에 **틈 없이** 붙는지(`--mobile-tab-bar-h` — safe-area가 있는 실기기에서 특히).
+    주보 머리에서 폰(<640)에는 설교자 도막이 빠지고 넓은 폭에만 보이는지.
 - **2026-09-06 회차분 · 순장 메모(0052) · 호칭 · 지난 주일 · 로고**(전부 로컬 커밋 → 푸시):
   - **순장 계정**으로 출석 화면에 메모 칸이 보이고, 적으면 저장되고 새로고침해도 남는지(psql 임퍼소네이션으로는 통과 — 평순장 저장 성공 ·
     같은 세션에서 `services.title`·`attendance_note` 직접 update는 0행 · 일반 멤버 42501).
@@ -733,7 +738,8 @@ src/components/ShareToggle.jsx 공유 토글 한 벌 — '나만 보기 | …공
 src/components/DocEmbed.jsx  (2026-09-07) 구글 문서·시트·슬라이드를 **앱 안 iframe(/edit·rm=minimal)** 으로 여는 창 —
                             `DocEmbedModal`·`PwPrompt`·`DocLinkGate`(잠겼으면 묻고 맞으면 연다)·`DocKindIcon`. 순수 판정·주소는
                             services/docEmbed.js(`docEmbedKind`·`docEmbedSrc` — 노드 검사). **sandbox 없음**(§6-29-z-6). 참고 링크(views.jsx
-                            ProjectView 헤더 — DocLinkGate)·본문 링크(RichText InlineLink)·주보 큐시트(worshipDetail — 비밀번호 없이 DocEmbedModal)가 같은 창
+                            ProjectView 헤더 — DocLinkGate)·본문 링크(RichText InlineLink)·주보 큐시트(worshipDetail — 비밀번호 없이 DocEmbedModal)가 같은 창.
+                            큐시트는 **링크 + 파일**(0054 `files.kind='cuesheet'` — 송폼과 같은 `ServiceFiles` 부품·같은 업로드 한 벌, 화면이 `filesOfKind`로 가른다)
 src/components/ClubQr.jsx   (2026-09-07) 동아리 신청 QR 카드 — `qrcode-generator`를 lazy import, 종이는 늘 밝은 색(반전 QR은 안 읽힌다),
                             공유는 navigator.share(files→url→복사) 순 폴백. 주소는 `/s/c/<id>?apply=1`(api/share.js type c)
 src/services/entryQuery.js  (2026-09-07) 진입 주소의 나머지 값(`s`=주보 · `g`=동아리 · `apply`)을 모듈 첫 실행 때 붙잡아 화면이
@@ -1521,9 +1527,9 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 
 ## 5. 데이터 · 스키마 · 비밀
 
-스키마는 `supabase/migrations/0001~0053`이고 **전부 라이브 DB에 적용**되어 있습니다
+스키마는 `supabase/migrations/0001~0054`이고 **전부 라이브 DB에 적용**되어 있습니다
 (0001~0005는 대시보드에서 수동, 이후는 `npx supabase db push --db-url "$SUPABASE_DB_URL"`).
-**원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있습니다** — 0039~0053은 psql로 직접
+**원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있습니다** — 0039~0054는 psql로 직접
 적용했기 때문입니다. 적용 여부는 원장이 아니라 **실제 객체**로 확인하세요(컬럼·함수·정책·발행 목록).
 
 | 파일 | 한 일 |
@@ -1581,6 +1587,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | `0051_dead_policies_and_approval` | 라이브에만 있던 수동 storage 정책 5개 drop(`attachments_select/insert/delete`는 0003의 쌍둥이라 권한 변화 없음, **`content_images_insert`는 버킷만 봐서 0004의 '본인 폴더에만'을 무력화하던 구멍**) · `services_write`·`sun_guides_select`·`sun_guides_write`에 `is_approved()` 추가(셋 다 `FOR ALL`/조건 하나뿐이라 승인 게이트가 permissive OR로 풀려 **미승인 회장·교역자가 작성 중 주보를 읽을 수 있었다**). 둘 다 **더 열어 주는 쪽으로** 어긋나 있어 화면에 증상이 없었다 |
 | `0052_attendance_note_rpc` | `set_attendance_note(p_service_id, p_note)` security definer rpc — 승인 + 발행된 주보 + (`can_check_all_attendance()` or `leads_any_sun()`)이면 **그 한 칸만** 쓴다. 순장도 출석 메모를 남기게(사용자 결정 2026-09-06 — 메모는 주보 편집이 아니다). 정책을 더 붙이지 않은 이유는 §6-31-a(permissive OR는 행의 모든 칸을 연다). anon·PUBLIC revoke, authenticated grant |
 | `0053_feedback_round_10` | 넷을 한 파일에 — ① `attendance_guests`(id·service_id·name·created_by): 미등록 출석자를 **명단에 올리지 않고** 그 예배의 손님으로(사용자 결정 2026-09-07). RLS: 승인 읽기 · insert/delete는 `can_check_all_attendance() or leads_any_sun()` + **발행된 주보만** ② `notifications.link`(우리 주소 CHECK) + kind 여섯 추가(`worship_today`는 서버만) + INSERT 정책에 `is_approved()` ③ `resource_links.view_pw/view_pw_salt/view_pw_by`(첨부 0023과 같은 화면 가림) ④ `services.cue_sheet jsonb` {url,title} — view_pw 두 칸은 만들었지만 **화면이 쓰지 않는다**(사용자 결정 2026-09-08 큐시트 비밀번호 없음). 되돌리기는 파일 아래 |
+| `0054_files_kind` | `files.kind text check (null|'songform'|'cuesheet')` — 주보 파일의 갈래. 큐시트를 링크뿐 아니라 **파일로도** 붙이기 위해(사용자 2026-09-08) 송폼과 같은 표·같은 업로드 한 벌을 쓰고 갈래만 한 칸. 기존 주보 파일은 전부 `songform`으로 백필, 업무 첨부는 null. RLS는 0047 그대로(service_id만 본다) |
 
 알아둘 것:
 
@@ -1981,6 +1988,12 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     같은 프레임에 focus가 안 먹는다(ref 표식 + 모드 이펙트에서 준다). 달력 격자는 **6주 높이를 늘 잡고** `content-start`(5주↔6주 23px 튐).
 9-ac. **머리줄을 카드로 바꾸면 그 아래 빈 상태의 '남는 자리'가 그만큼 줄어든다** — `useFillRest`가 재는 값이라 `centered()`(화면의 1/3)
     문턱을 조용히 넘는다. 주보 상세 머리를 두 줄로 만들었다가 한 줄로 돌린 이유. "오른쪽 끝" 검사도 content box 기준으로.
+9-ae. **하단 탭바 위에 얹는 고정 줄은 상수 rem으로 앉히면 안 된다.** 탭바 높이는 안 내용(pt-2 + 아이콘 + 글자 + pb + safe-area)으로
+    정해져 `4.5rem`과 몇 px 어긋나고 그 틈이 얇은 띠로 보였다(사용자 지적 2026-09-08). `layout.jsx MobileTabBar`가 ResizeObserver로 실측을
+    `--mobile-tab-bar-h`(documentElement)로 내보내고, 얹는 쪽(`worshipDetail worship-edit-bar`)이 그것을 `bottom`으로 쓴다.
+9-af. **낙관적 줄에도 갈래(kind)를 실어야 한다.** `fileKindOf`의 기본값이 송폼이라, 올리는 중인 줄에 `kind`를 안 실으면 큐시트로 고른 파일이
+    드라이브 왕복 5~10초 동안 **찬양 탭에** 섰다가 조회가 돌아오면 제자리로 간다(`worshipView.uploadFiles`의 `staged`). 그리고 짝으로 읽히는
+    두 입력칸(큐시트 링크·제목)에 한쪽만 `wide`(col-span-2)를 주면 1440에서 폭이 갈린다 — 같은 열 폭으로.
 9-ad. **"자리를 잡았다"를 ref로 기억하면 도착한 프레임에 다시 그리지 않는다.** `groupsParts.useSettled`가 `useRef`로 키를 들고 있어서,
     값이 도착해 loading이 false가 된 프레임에는 옛 키라 false를 돌려주고 효과에서 ref만 고쳤다 — **다른 상태가 바뀌기 전까지 스켈레톤이
     그대로** 섰다("내 순에 공유된 예배 노트가 계속 스켈레톤", 사용자 보고 2026-09-08). 재현 조건은 명단(baseQ)은 캐시라 키가 처음부터

@@ -99,9 +99,14 @@ const seed = {
   ],
   attendance: [{ service_id: 's1', person_id: 'p2' }],
   service_notes: [],
-  // 송폼(0047) — files 표를 업무 첨부와 같이 쓴다. 게스트에는 드라이브가 없어
+  // 주보에 붙는 파일(0047) — files 표를 업무 첨부와 같이 쓴다. 게스트에는 드라이브가 없어
   // 행만 남고 바이트는 메모리에 있다(services/worship.js의 guestBytes).
-  files: [{ id: 'f1', service_id: 's1', name: '2026-09-06 송폼.pdf', size_bytes: 1048576, mime_type: 'application/pdf', source: 'local' }],
+  // **f1에는 일부러 kind가 없다** — 0054 이전에 심긴 행(옛 주보·게스트 시드)이 그 모양이고,
+  // 화면이 그것을 송폼으로 읽어야 한다. f2는 큐시트 갈래라 말씀 탭에만 선다.
+  files: [
+    { id: 'f1', service_id: 's1', name: '2026-09-06 송폼.pdf', size_bytes: 1048576, mime_type: 'application/pdf', source: 'local' },
+    { id: 'f2', service_id: 's1', kind: 'cuesheet', name: '9월 6일 큐시트.pdf', size_bytes: 524288, mime_type: 'application/pdf', source: 'local' },
+  ],
 };
 
 const plant = (me) => `(() => {
@@ -700,6 +705,13 @@ check('발행본 찬양 탭 아래에 송폼 줄이 선다(이름 · 크기 · �
   && formView.open === true && formView.afterSongs === true, JSON.stringify(formView));
 check('보기 화면의 송폼에는 올리기·삭제가 없다',
   formView.add === false && formView.del === false, JSON.stringify(formView));
+// **갈래로 갈린다**(0054) — 같은 주보에 붙은 큐시트 파일은 찬양 탭에 안 섞이고,
+// kind가 없는 옛 행(f1)은 송폼으로 읽힌다.
+// **되돌리기**: worshipDetail의 filesOfKind(files, SONGFORM)를 files로 되돌리면 두 줄이 선다.
+check('송폼 줄에 큐시트 파일이 섞이지 않는다(kind로 갈린다)',
+  formView.rows === 1 && formView.name === '2026-09-06 송폼.pdf'
+  && (await ev(`!document.querySelector('.worship-songforms .worship-cue-file-row')`)) === true,
+  JSON.stringify(formView));
 
 await tabClick('광고'); await sleep(300);
 const notices = await ev(`document.querySelector('.worship-tabpanel').innerText.replace(/\\n+/g, ' | ')`);
@@ -1509,6 +1521,110 @@ const formGone = await ev(`(() => {
 check('지우면 화면에서도 저장 자리에서도 사라진다',
   formGone.rows === 0 && formGone.stored === 0, JSON.stringify(formGone));
 
+// ── 7-e) 큐시트 파일 — 링크 옆에 파일도 (0054 · 사용자 요구 2026-09-08) ────
+// 큐시트는 이제 **링크로도 파일로도** 붙는다. 저장 자리는 송폼과 같은 files 표이고
+// 갈래만 `kind='cuesheet'`다(0054) — 업로드 길은 그대로 하나다(§6-29-u).
+// 여기서 보는 것은 화면이다: 수정 화면 말씀 탭에 고르기 버튼이 서고, 고른 파일이
+// 큐시트 갈래로 담기고, 좁은 화면에서 링크 두 칸과 파일 줄이 어긋나지 않는지.
+await tabClick('말씀'); await sleep(400);
+const cueEdit = await ev(`(() => {
+  const box = document.querySelector('.worship-cue-edit');
+  if (!box) return null;
+  const sec = box.querySelector('.worship-cue-files');
+  return {
+    label: box.querySelector('.worship-cue-label')?.textContent.trim() || '',
+    add: sec?.querySelector('.worship-cue-file-add')?.textContent.trim() || '',
+    accept: sec?.querySelector('input[type=file]')?.getAttribute('accept') || '',
+    rows: box.querySelectorAll('.worship-cue-file-row').length,
+    // 링크 두 칸 **아래**에 파일 줄이 선다
+    below: (() => {
+      const last = [...box.querySelectorAll('.worship-cue-fields > .worship-field')].pop();
+      return !!sec && !!last && sec.getBoundingClientRect().top >= last.getBoundingClientRect().bottom - 1;
+    })(),
+    // 라벨과 버튼 말고는 아무 줄도 없다(§8 안내 줄 금지)
+    text: sec ? sec.innerText.replace(/\\s+/g, ' ').trim() : '',
+  };
+})()`);
+check('수정 화면 말씀 탭에 큐시트 파일 고르기 버튼이 선다',
+  !!cueEdit && cueEdit.label === '큐시트' && cueEdit.add === '파일 올리기'
+  && cueEdit.rows === 0 && cueEdit.below === true, JSON.stringify(cueEdit));
+check('큐시트 파일 칸은 PDF·사진뿐 아니라 문서도 받는다',
+  cueEdit.accept.includes('.pdf') && cueEdit.accept.includes('image/*')
+  && cueEdit.accept.includes('.docx') && cueEdit.accept.includes('.pptx'), cueEdit.accept);
+check('붙은 큐시트 파일이 없어도 사용법 안내 줄이 붙지 않는다',
+  cueEdit.text === '파일 파일 올리기', JSON.stringify(cueEdit.text));
+
+// 고른다 — 게스트에는 드라이브가 없어 행만 localStorage에 남는다.
+// **되돌리기**: uploadServiceFile에 kind를 안 실으면 이 파일이 송폼으로 저장되어 아래가 깨진다.
+await ev(`(() => {
+  const el = document.querySelector('.worship-cue-files input[type=file]');
+  const dt = new DataTransfer();
+  dt.items.add(new File(['%PDF-1.4 cue sheet'], '성탄절 큐시트.pdf', { type: 'application/pdf' }));
+  el.files = dt.files;
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+})()`);
+await sleep(900);
+const cueAdded = await ev(`(() => {
+  const g = JSON.parse(localStorage.getItem('church_worship_v1'));
+  const svc = g.services.find(s => s.kind === '성탄절 예배');
+  const mine = (g.files || []).filter(f => f.service_id === svc.id);
+  return {
+    rows: document.querySelectorAll('.worship-cue-file-row').length,
+    name: document.querySelector('.worship-cue-file-name')?.textContent.trim() || '',
+    del: !!document.querySelector('.worship-cue-file-row button[aria-label$="삭제"]'),
+    stored: mine.map(f => [f.name, f.kind || null]),
+    // 찬양 탭의 송폼 줄에는 안 선다 — 갈래가 갈랐다
+    songforms: (() => { const sec = document.querySelector('.worship-songforms'); return sec ? sec.querySelectorAll('.worship-songform-row').length : -1; })(),
+  };
+})()`);
+check('고른 큐시트 파일이 files 행에 service_id + kind:cuesheet로 담긴다',
+  cueAdded.rows === 1 && cueAdded.name === '성탄절 큐시트.pdf'
+  && JSON.stringify(cueAdded.stored) === '[["성탄절 큐시트.pdf","cuesheet"]]'
+  && cueAdded.del === true, JSON.stringify(cueAdded));
+
+// 375·414·768·1440 — 링크 두 칸은 **같은 폭**이고, 좁으면 한 열로 쌓이고 파일 줄이 그 아래다.
+// 고아 줄도 없다(§6-9-z). **되돌리기**: '큐시트 링크' Field에 wide를 되돌리면 1440에서 두 칸 폭이 갈린다.
+const CUE_FIT = `(() => {
+  const box = document.querySelector('.worship-cue-edit');
+  const grid = box && box.querySelector('.worship-cue-fields');
+  if (!grid) return null;
+  const fields = [...grid.querySelectorAll(':scope > .worship-field')];
+  const head = box.querySelector('.worship-cue-files > div');
+  const lines = new Map();
+  for (const k of (head ? head.children : [])) {
+    const r = k.getBoundingClientRect();
+    if (r.width <= 0) continue;
+    const key = Math.round((r.top + r.bottom) / 16);
+    lines.set(key, (lines.get(key) || 0) + 1);
+  }
+  return {
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    cols: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+    widths: fields.map(f => Math.round(f.getBoundingClientRect().width)),
+    // 칸 안의 input이 제 열 폭을 꽉 채우는가
+    gaps: fields.map(f => Math.round(f.getBoundingClientRect().width - f.querySelector('input').getBoundingClientRect().width)),
+    rows: new Set(fields.map(f => Math.round(f.getBoundingClientRect().top))).size,
+    headLines: [...lines.values()],
+  };
+})()`;
+const cueFit = [];
+for (const width of [375, 414, 768, 1440]) {
+  await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width < 768 });
+  await sleep(420);
+  cueFit.push([width, await ev(CUE_FIT)]);
+}
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(420);
+const cueFitBad = cueFit.filter(([w, r]) => !r
+  || r.overflow > 0                                        // 가로로 넘치지 않는다
+  || r.gaps.some(g => g > 1)                               // 칸이 열 폭을 다 쓴다
+  || Math.abs(r.widths[0] - r.widths[1]) > 1               // 링크·제목이 같은 폭이다
+  || r.cols !== (w < 640 ? 1 : 2)                          // 좁으면 한 열, 넓으면 두 열
+  || r.rows !== (w < 640 ? 2 : 1)
+  || r.headLines.some(n => n < 2));                        // 파일 줄 머리에 고아가 없다
+check('큐시트 링크·제목 칸이 375·414·768·1440에서 열 폭을 꽉 채우고 고아 줄이 없다',
+  cueFitBad.length === 0, JSON.stringify(cueFitBad.length ? cueFitBad : cueFit));
+
 // 광고 자리 글
 await tabClick('광고'); await sleep(250);
 await ev(`${byText('광고 추가')}.click()`); await sleep(300);
@@ -1532,6 +1648,26 @@ const saved = await ev(`(() => {
 check('저장하면 보기 모드로 돌아간다',
   JSON.stringify(saved.toolbar) === '["발행하기","목록으로"]' && saved.title === '다시 세우시는 손'
   && saved.editBtn === true, JSON.stringify([saved.toolbar, saved.editBtn]));
+
+// 저장하고 보기로 돌아오면 큐시트 카드에 방금 붙인 파일이 서고 **고르기 버튼은 없다**
+// (담당자·찬양·광고와 같은 문법 — 붙이고 지우는 것은 수정 화면 것이다).
+await tabClick('말씀'); await sleep(400);
+const cueViewNew = await ev(`(() => {
+  const box = document.querySelector('.worship-cue');
+  return {
+    card: !!box,
+    add: !!document.querySelector('.worship-cue-file-add'),
+    rows: box ? box.querySelectorAll('.worship-cue-file-row').length : -1,
+    name: box?.querySelector('.worship-cue-file-name')?.textContent.trim() || '',
+    del: !!box?.querySelector('.worship-cue-file-row button[aria-label$="삭제"]'),
+    // 링크는 안 붙였으니 링크 줄은 없다 — 파일만으로도 카드가 선다
+    link: !!box?.querySelector('.worship-cue-row'),
+  };
+})()`);
+check('보기 화면 큐시트에는 파일 줄만 서고 올리기·삭제가 없다',
+  cueViewNew.card === true && cueViewNew.add === false && cueViewNew.rows === 1
+  && cueViewNew.name === '성탄절 큐시트.pdf' && cueViewNew.del === false
+  && cueViewNew.link === false, JSON.stringify(cueViewNew));
 
 await tabClick('담당자'); await sleep(300);
 const shownRoles = await ev(`[...document.querySelectorAll('.worship-role-row')].map(x => x.innerText.replace(/\\n+/g, ' | '))`);
@@ -2092,6 +2228,12 @@ const mobBar = await ev(`(() => {
     bottomGap: Math.round(innerHeight - r.bottom),
     full: Math.round(r.width) === innerWidth,
     headSave: !!document.querySelector('.worship-save') && getComputedStyle(document.querySelector('.worship-save')).display === 'none',
+    // 탭바 **위에 딱 붙는다**. 상수(4.5rem)로 앉히면 탭바의 실제 높이(안 내용으로 정해진다)와
+    // 몇 px 어긋나 그 사이에 얇은 띠가 보인다(사용자 지적 2026-09-08).
+    tabBarGap: (() => {
+      const nav = document.querySelector('nav[data-tab-bar]');
+      return nav ? Math.round(nav.getBoundingClientRect().top - r.bottom) : null;
+    })(),
   };
 })()`);
 check('모바일에서는 저장·삭제가 화면 아래 고정 줄에 있다',
@@ -2099,6 +2241,10 @@ check('모바일에서는 저장·삭제가 화면 아래 고정 줄에 있다',
   && JSON.stringify(mobBar.buttons) === '["저장","삭제"]', JSON.stringify(mobBar));
 check('고정 줄은 하단 탭바 위에 앉고, 머리줄 버튼은 모바일에서 숨는다',
   !!mobBar && mobBar.bottomGap >= 60 && mobBar.headSave === true, JSON.stringify(mobBar));
+// **틈 0px** — 탭바가 잰 제 높이(`--mobile-tab-bar-h`)로 앉기 때문이다.
+// **되돌리기**: bottom을 `calc(4.5rem + env(safe-area-inset-bottom))`로 되돌리면 4px쯤 벌어진다.
+check('375 — 편집 줄이 하단 탭바와 틈 없이 맞닿는다',
+  !!mobBar && mobBar.tabBarGap === 0, JSON.stringify(mobBar));
 
 // 송폼은 찬양 탭의 **맨 아래**에 있다 — 끝까지 내렸을 때 그 구역이 고정 도구 줄에
 // 가리면 '파일 올리기'를 누를 수 없다(화면 아래 pb-24가 그 자리를 비워 둔다).
@@ -2264,7 +2410,7 @@ const pullNarrow = await ev(`(() => {
 check('좁은 화면의 가져오기 버튼은 라벨만 줄고 전체 문구는 title에 남는다',
   pullNarrow.label === '가져오기' && pullNarrow.title === '유튜브 재생목록에서 가져오기', JSON.stringify(pullNarrow));
 
-// 큐시트(0053) — 구글 문서 링크 한 칸 + 화면 가림용 비밀번호.
+// 큐시트 — 링크 한 칸(0053)과 파일(0054)을 **한 카드**에 세운다.
 // **되돌리기**: CueSheetEdit의 docEmbedKind 게이트를 빼면 아무 주소나 담겨 첫 검사가 깨진다.
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 await sleep(400); await tabClick('말씀'); await sleep(420);
@@ -2297,13 +2443,45 @@ await tabClick('말씀'); await sleep(420);
 const cueView = await ev(`(() => {
   const box = document.querySelector('.worship-cue');
   if (!box) return null;
-  return { title: box.querySelector('.worship-cue-title')?.textContent.trim() || '',
-    open: !!box.querySelector('.worship-cue-open'),
+  const fileRow = box.querySelector('.worship-cue-file-row');
+  return { label: box.querySelector('.worship-cue-label')?.textContent.trim() || '',
+    title: box.querySelector('.worship-cue-title')?.textContent.trim() || '',
+    open: box.querySelector('.worship-cue-open')?.textContent.trim() || '',
+    files: box.querySelectorAll('.worship-cue-file-row').length,
+    fileName: fileRow?.querySelector('.worship-cue-file-name')?.textContent.trim() || '',
+    fileMeta: fileRow?.querySelector('.worship-cue-file-meta')?.textContent.trim() || '',
+    fileOpen: fileRow?.querySelector('.worship-cue-file-open')?.textContent.trim() || '',
+    // 링크 줄과 파일 줄은 **한 카드 안에 세로로** 선다(카드를 갈라 두지 않는다)
+    stacked: (() => {
+      const link = box.querySelector('.worship-cue-row');
+      return !!link && !!fileRow
+        && fileRow.getBoundingClientRect().top >= link.getBoundingClientRect().bottom - 1;
+    })(),
     overflow: Math.round(box.getBoundingClientRect().right - document.querySelector('.worship-tabpanel').getBoundingClientRect().right) };
 })()`);
 check('보기 모드에서는 제목과 열기가 한 줄로 선다',
-  !!cueView && cueView.title === '큐시트 · 9월 6일 큐시트' && cueView.open === true && cueView.overflow <= 0,
+  !!cueView && cueView.label === '큐시트' && cueView.title === '9월 6일 큐시트'
+  && cueView.open === '열기' && cueView.overflow <= 0, JSON.stringify(cueView));
+// 링크와 파일이 **한 카드**에 같이 선다(사용자 요구 2026-09-08 "링크로도 걸 수 있게
+// 해주고, 파일 업로드로도 첨부할 수 있게도"). 파일 줄의 크기 표기는 송폼·업무 첨부와
+// 한 벌이다(components/fileRow.jsx).
+// **되돌리기**: CueSheetView에 files를 안 넘기면 파일 줄이 사라져 이 검사가 깨진다.
+check('큐시트 카드에 링크 줄과 파일 줄이 같이 선다',
+  !!cueView && cueView.files === 1 && cueView.fileName === '9월 6일 큐시트.pdf'
+  && cueView.fileMeta === '512 KB' && cueView.fileOpen === '보기' && cueView.stacked === true,
   JSON.stringify(cueView));
+// 파일 줄은 송폼과 **같은 창**으로 열린다(FilePreviewModal · 첨부와 한 벌)
+await ev(`document.querySelector('.worship-cue-file-open').click()`); await sleep(800);
+const cuePrev = await ev(`(() => {
+  // 미리보기 창은 첨부와 같은 부품이라(FilePreviewModal) 전용 클래스가 없다 —
+  // 화면을 덮는 상자 중 그 파일 이름을 머리에 단 것을 찾는다.
+  const m = [...document.querySelectorAll('div.fixed.inset-0')]
+    .find(d => d.innerText.includes('9월 6일 큐시트.pdf'));
+  return { open: !!m, close: !!m && !!m.querySelector('button[title="닫기"]') };
+})()`);
+check('큐시트 파일 줄을 누르면 송폼과 같은 미리보기 창이 열린다',
+  cuePrev.open === true && cuePrev.close === true, JSON.stringify(cuePrev));
+await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`); await sleep(500);
 
 // 목록 카드의 출석 수 — **지난 발행본에만** 붙는다(오늘·앞으로 올 예배의 '0명'은 뜻이 없다).
 // 카드마다 세지 않고 표를 한 번씩 읽어 센다(worship.fetchAttendanceCounts).

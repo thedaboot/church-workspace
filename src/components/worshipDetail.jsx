@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck,
-  ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText, Lock } from 'lucide-react';
+  ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
@@ -14,7 +14,8 @@ import { RichText } from './RichText.jsx';
 import { DocEmbedModal, docEmbedKind } from './DocEmbed.jsx';
 import { objectParticle } from '../services/errorText.js';
 import { BTN, BTN_QUIET, WITH_ICON, FIELD } from './groupsParts.jsx';
-import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM } from '../services/worship.js';
+import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM,
+  filesOfKind, SONGFORM, CUESHEET } from '../services/worship.js';
 import { honorificsOf } from '../services/people.js';
 
 // ============================================================================
@@ -173,35 +174,63 @@ const patchOf = (d) => ({
   cue_sheet: d.cue_sheet && String(d.cue_sheet.url || '').trim() ? d.cue_sheet : null,
 });
 
-// ── 큐시트 (0053) ────────────────────────────────────────────────────────────
-// 구글 문서 링크 한 칸이다(`services.cue_sheet` jsonb — {url, title}). **비밀번호는 없다**
-// (사용자 결정 2026-09-08 "큐시트는 비밀번호 안 걸어도 돼" — 0053의 view_pw 두 칸은 비워 둔다).
-// 발행된 주보를 읽는 사람이면 누구나 연다.
+// ── 큐시트 (링크는 0053 · 파일은 0054) ──────────────────────────────────────
+// 큐시트는 **링크로도 파일로도** 붙는다(사용자 요구 2026-09-08 "링크로도 걸 수 있게
+// 해주고, 파일 업로드로도 첨부할 수 있게도"). 링크는 주보 행의 한 칸이고
+// (`services.cue_sheet` jsonb — {url, title}), 파일은 송폼과 같은 files 표에
+// `kind='cuesheet'`로 앉는다(0054 · 업로드 길은 그대로 하나다 — §6-29-u).
+//
+// **비밀번호는 없다**(사용자 결정 2026-09-08 "큐시트는 비밀번호 안 걸어도 돼" —
+// 0053의 view_pw 두 칸은 비워 둔다). 발행된 주보를 읽는 사람이면 누구나 연다.
 const cueOf = (s) => (s && typeof s.cue_sheet === 'object' ? s.cue_sheet : null);
 const cueUrl = (s) => String(cueOf(s)?.url || '').trim();
 
+// 보기 — 링크 줄과 파일 줄이 **한 카드**에 선다. 둘 다 '큐시트'라는 한 가지이고,
+// 카드를 갈라 두면 같은 것이 두 군데 있는 것처럼 읽힌다.
 // 창 열기는 **참고 링크와 같은 창**(DocEmbed의 DocEmbedModal)이다 — 같은 앱에서 문서 여는
-// 방식이 두 가지가 되지 않게.
-function CueSheetView({ cue }) {
+// 방식이 두 가지가 되지 않게. 파일은 첨부·송폼과 같은 FilePreviewModal이다.
+// 링크도 파일도 없으면 **카드를 그리지 않는다**(빈 안내 줄 금지 · §8).
+function CueSheetView({ cue, files = [], onOpen }) {
   const [open, setOpen] = useState(false);
+  if (!cue && !files.length) return null;
   return (
     <section className="worship-cue mt-5 p-3 rounded-[10px]" style={CARD_BOX}>
-      {/* 줄 전체가 누르는 자리다 — 오른쪽 '열기'는 그 사실을 눈에 보이게 하는 표식 */}
-      <button type="button" onClick={() => setOpen(true)} className="w-full text-left flex items-center gap-2">
-        <FileText size={14} className="shrink-0 text-fg-faint" />
-        <span className="worship-cue-title min-w-0 flex-1 text-[12.5px] font-semibold text-fg truncate">
-          큐시트{cue.title ? ` · ${cue.title}` : ''}
-        </span>
-        <span className={`worship-cue-open shrink-0 ${BTN_SOFT}`}>열기</span>
-      </button>
-      {open && <DocEmbedModal url={cue.url} title={cue.title || '큐시트'} onClose={() => setOpen(false)} />}
+      <p className="worship-cue-label text-xs font-semibold text-fg-muted">큐시트</p>
+      <ul className={`worship-cue-list ${LIST} mt-1`}>
+        {cue && (
+          <li className="worship-cue-row" style={files.length ? ROW_LINE : undefined}>
+            {/* 줄 전체가 누르는 자리다 — 오른쪽 '열기'는 그 사실을 눈에 보이게 하는 표식 */}
+            <button type="button" onClick={() => setOpen(true)}
+              className="w-full text-left flex items-center gap-2.5 py-2.5">
+              <span className="w-9 h-9 rounded-md flex items-center justify-center shrink-0 bg-tag-blue text-tag-blue-fg">
+                <FileText size={16} strokeWidth={1.75} />
+              </span>
+              <span className="worship-cue-title min-w-0 flex-1 text-[13px] text-fg truncate">
+                {cue.title || '구글 문서'}
+              </span>
+              <span className={`worship-cue-open shrink-0 ${BTN_SOFT}`}>열기</span>
+            </button>
+          </li>
+        )}
+        {files.map((row, i) => (
+          <ServiceFileRow key={row.id} row={row} cls="worship-cue-file" openLabel="보기"
+            line={i < files.length - 1} canDelete={false} onOpen={() => onOpen && onOpen(row)} />
+        ))}
+      </ul>
+      {open && cue && <DocEmbedModal url={cue.url} title={cue.title || '큐시트'} onClose={() => setOpen(false)} />}
     </section>
   );
 }
 
-// 편집 줄 — 주소·제목. 주소가 구글 문서가 아니면 **저장하지 않고** 그 자리에서
-// 말한다(잘못된 주소를 담아 두면 보기 화면에 열리지 않는 줄이 선다).
-function CueSheetEdit({ value, onChange }) {
+// 편집 — 위는 링크 두 칸, 아래는 파일 줄. 주소가 구글 문서가 아니면 **저장하지 않고**
+// 그 자리에서 말한다(잘못된 주소를 담아 두면 보기 화면에 열리지 않는 줄이 선다).
+//
+// 링크 두 칸은 **같은 폭 두 열**이다(사용자 요구 2026-09-08 "큐시트 제목 적는 란도
+// 반응형 같이"). 예전에는 링크만 `wide`(두 열 차지)라 넓은 화면에서 제목 칸만 절반으로
+// 남아 어긋나 보였다. 좁으면 둘 다 한 열로 쌓인다.
+//
+// 파일 줄은 송폼과 **같은 부품**이다(ServiceFiles) — 라벨·클래스·받는 확장자만 다르다.
+function CueSheetEdit({ value, onChange, files = [], canEdit, onPick, onOpen, onRemove }) {
   const cur = value || {};
   const [url, setUrl] = useState(cur.url || '');
   const bad = !!url.trim() && !docEmbedKind(url.trim());
@@ -209,15 +238,16 @@ function CueSheetEdit({ value, onChange }) {
   const commitUrl = (next) => {
     setUrl(next);
     const clean = next.trim();
-    if (!clean) { onChange(null); return; }          // 비우면 큐시트 자체가 없어진다
+    if (!clean) { onChange(null); return; }          // 비우면 큐시트 링크가 없어진다
     if (!docEmbedKind(clean)) return;                 // 모양이 아니면 담지 않는다
     onChange({ ...cur, url: clean });
   };
 
   return (
     <div className="worship-cue-edit sm:col-span-2 min-w-0 pt-3" style={{ borderTop: '1px solid var(--app-line)' }}>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="큐시트 링크" wide>
+      <p className="worship-cue-label mb-2 text-xs font-semibold text-fg-muted">큐시트</p>
+      <div className="worship-cue-fields grid gap-3 sm:grid-cols-2">
+        <Field label="큐시트 링크">
           <input className={`${INPUT} w-full`} value={url} aria-label="큐시트 링크"
             onChange={e => commitUrl(e.target.value)}
             placeholder="예: https://docs.google.com/document/d/..." />
@@ -228,16 +258,19 @@ function CueSheetEdit({ value, onChange }) {
             onChange={e => onChange({ ...cur, title: e.target.value })} placeholder="예: 9월 6일 큐시트" />
         </Field>
       </div>
+      <ServiceFiles files={files} canEdit={canEdit} onPick={onPick} onOpen={onOpen} onRemove={onRemove}
+        label="파일" what="큐시트 파일" cls="worship-cue-file" sectionCls="worship-cue-files"
+        accept={CUE_ACCEPT} topLine={false} />
     </div>
   );
 }
 
 
 // ── 보기 ─────────────────────────────────────────────────────────────────────
-function WordTab({ service, onOpenBible }) {
+function WordTab({ service, onOpenBible, cueFiles = [], onOpenFile }) {
   const cue = cueUrl(service) ? cueOf(service) : null;
   const has = service.title || service.passage_ref || service.preacher;
-  if (!has && !cue) return <WorshipEmpty text="설교 제목과 본문 구절을 아직 적지 않았어요" />;
+  if (!has && !cue && !cueFiles.length) return <WorshipEmpty text="설교 제목과 본문 구절을 아직 적지 않았어요" />;
   // 구절은 누르면 성경 읽기의 그 장으로 간다(App.jsx의 openBible → WordView initialRef).
   const ref = service.passage_ref;
   return (
@@ -252,7 +285,7 @@ function WordTab({ service, onOpenBible }) {
         {service.preacher}
       </p>
       <PassageBody refStr={service.passage_ref} />
-      {cue && <CueSheetView cue={cue} />}
+      <CueSheetView cue={cue} files={cueFiles} onOpen={onOpenFile} />
     </div>
   );
 }
@@ -396,37 +429,51 @@ function SongsTab({ rows, leader, playlistUrl, nameOf }) {
   );
 }
 
-// ── 송폼 (찬양 탭 아래 · 0047) ──────────────────────────────────────────────
+// ── 주보에 붙는 파일 — 송폼 · 큐시트 (0047 · 갈래는 0054) ───────────────────
 // 주보에 붙는 파일이다. 업무 첨부와 **같은 files 표·같은 드라이브 길**을 쓰고
 // (services/worship.js → cloud.uploadServiceFile), 줄 모양도 그 화면과 한 벌이다
 // (components/fileRow.jsx의 formatBytes·fileKind) — 같은 앱에서 파일 줄이 화면마다
 // 다르게 생길 이유가 없다. 미리보기는 첨부와 같은 FilePreviewModal이라 PDF는 앱 안
 // pdf.js로 그려지고 새 탭·내려받기도 그대로 딸려 온다.
 //
+// **송폼(찬양 탭)과 큐시트 파일(말씀 탭)이 이 한 부품을 쓴다**(2026-09-08). 다른 것은
+// 라벨·클래스·받는 확장자뿐이고, 저장 자리는 `files.kind` 한 칸으로 갈린다(0054).
+// 두 벌로 두면 §6-29-u를 화면에서 그대로 다시 밟는다 — 한쪽만 고치는 일이 계속 생긴다.
+//
 // **빈 상태 문구를 두지 않는다.** 붙은 파일도 없고 붙일 자격도 없으면 이 구역 자체가
 // 뜨지 않는다 — 없는 것을 설명하는 줄은 §8의 안내 줄 금지에 걸린다.
 // 올리기·삭제는 **수정 화면에서만**이다(담당자·찬양·광고와 같은 문법).
-function SongFormRow({ row, canDelete, onOpen, onRemove }) {
+//
+// 큐시트는 큰 화면으로 띄워 놓고 보는 문서라 오피스 파일까지 받는다(미리보기는
+// FilePreviewModal이 종류를 판정한다 — 워드·PPT·엑셀은 오피스 뷰어, PDF는 pdf.js).
+const CUE_ACCEPT = '.pdf,image/*,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.hwp';
+
+function ServiceFileRow({ row, cls = 'worship-songform', what = '송폼', canDelete, onOpen, onRemove,
+  openLabel = null, line = true }) {
   // 아직 드라이브에 안 올라간 줄 — 고르자마자 선다(§6-29-k). 삭제는 주지 않는다:
   // DB에 행이 없어서 지울 것이 없고, 버튼을 내놓으면 화면이 거짓말을 한다.
   const pending = !!row._pending;
   const kind = fileKind(row.name, row.mime_type);
   return (
-    <li className="worship-songform-row flex items-center gap-2.5 py-2.5" style={ROW_LINE}>
+    <li className={`${cls}-row flex items-center gap-2.5 py-2.5`} style={line ? ROW_LINE : undefined}>
       <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>
       <div className="min-w-0 flex-1">
-        <p className="worship-songform-name text-[13px] text-fg break-words">{row.name}</p>
+        <p className={`${cls}-name text-[13px] text-fg break-words`}>{row.name}</p>
         {/* 올리는 중에도 크기는 그대로 말해 준다 — '올리는 중'은 상태이지 안내가 아니다 */}
-        <p className="worship-songform-meta mt-0.5 flex items-center gap-1 text-[10.5px] text-fg-faint">
+        <p className={`${cls}-meta mt-0.5 flex items-center gap-1 text-[10.5px] text-fg-faint`}>
           {pending && <Loader2 size={10} className="shrink-0 animate-spin" />}
           {pending ? `드라이브에 올리는 중 · ${formatBytes(row.size_bytes)}` : formatBytes(row.size_bytes)}
         </p>
       </div>
+      {/* 보기 카드에서는 옆에 선 링크 줄의 '열기'와 짝이 되게 글자 버튼이고,
+          편집 목록에서는 삭제와 나란히 서므로 첨부·송폼과 같은 아이콘 버튼이다 */}
       <button type="button" onClick={onOpen} title="미리보기" aria-label={`${row.name} 미리보기`}
-        className={`worship-songform-open shrink-0 ${ICON_BTN}`}><Eye size={14} /></button>
+        className={`${cls}-open shrink-0 ${openLabel ? BTN_SOFT : ICON_BTN}`}>
+        {openLabel || <Eye size={14} />}
+      </button>
       {!pending && canDelete && (
-        <ConfirmPopover className="shrink-0 inline-flex" title="송폼 삭제"
-          message="이 송폼을 삭제할까요?" onConfirm={onRemove}>
+        <ConfirmPopover className="shrink-0 inline-flex" title={`${what} 삭제`}
+          message={`이 ${what}${objectParticle(what)} 삭제할까요?`} onConfirm={onRemove}>
           <button type="button" aria-label={`${row.name} 삭제`}
             className="shrink-0 p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors">
             <Trash2 size={13} />
@@ -437,22 +484,26 @@ function SongFormRow({ row, canDelete, onOpen, onRemove }) {
   );
 }
 
-function SongForms({ files = [], canEdit, onPick, onOpen, onRemove }) {
+function ServiceFiles({ files = [], canEdit, onPick, onOpen, onRemove,
+  label = '송폼', what = '송폼', cls = 'worship-songform', sectionCls = 'worship-songforms',
+  accept, topLine = true }) {
   const inputRef = useRef(null);
   if (!canEdit && !files.length) return null;
   return (
-    <section className="worship-songforms mt-4 pt-3" style={{ borderTop: '1px solid var(--app-line)' }}>
+    <section className={`${sectionCls} mt-4 ${topLine ? 'pt-3' : ''}`}
+      style={topLine ? { borderTop: '1px solid var(--app-line)' } : undefined}>
       <div className="flex flex-wrap items-center gap-1.5">
         <Paperclip size={13} className="shrink-0 text-fg-faint" />
-        <span className="text-xs font-semibold text-fg-muted">송폼</span>
+        <span className="text-xs font-semibold text-fg-muted">{label}</span>
         <span className="flex-1" />
         {canEdit && (
           <>
             {/* 칸 자체는 안 보인다 — 버튼이 대신 연다(첨부 영역과 같은 방식) */}
             <input ref={inputRef} type="file" multiple className="hidden" tabIndex={-1} aria-hidden="true"
+              {...(accept ? { accept } : {})}
               onChange={e => { onPick(e.target.files); e.target.value = ''; }} />
             <button type="button" onClick={() => inputRef.current?.click()}
-              className={`worship-songform-add shrink-0 ${WITH_ICON} ${BTN}`}>
+              className={`${cls}-add shrink-0 ${WITH_ICON} ${BTN}`}>
               <UploadCloud size={13} /><span>파일 올리기</span>
             </button>
           </>
@@ -461,7 +512,7 @@ function SongForms({ files = [], canEdit, onPick, onOpen, onRemove }) {
       {files.length > 0 && (
         <ul className={`${LIST} mt-1`}>
           {files.map(row => (
-            <SongFormRow key={row.id} row={row} canDelete={canEdit}
+            <ServiceFileRow key={row.id} row={row} cls={cls} what={what} canDelete={canEdit}
               onOpen={() => onOpen(row)} onRemove={() => onRemove(row)} />
           ))}
         </ul>
@@ -557,7 +608,7 @@ const Field = ({ label, children, wide = false }) => (
   </div>
 );
 
-function WordEdit({ draft, set }) {
+function WordEdit({ draft, set, cueFiles = [], canEdit, onPick, onOpen, onRemove }) {
   return (
     <div className={`worship-word-edit ${LIST} grid gap-3 sm:grid-cols-2`}>
       <Field label="설교 제목">
@@ -573,8 +624,10 @@ function WordEdit({ draft, set }) {
       </Field>
       {/* 고르는 대로 아래에 본문이 펼쳐진다 */}
       <div className="sm:col-span-2 min-w-0"><PassageBody refStr={draft.passage_ref} /></div>
-      {/* 큐시트는 말씀 탭의 마지막 줄이다(0053) — 설교와 같이 쓰는 문서라 여기가 맞다 */}
-      <CueSheetEdit value={draft.cue_sheet} onChange={v => set({ cue_sheet: v })} />
+      {/* 큐시트는 말씀 탭의 마지막 구역이다(0053) — 설교와 같이 쓰는 문서라 여기가 맞다.
+          링크 두 칸 아래에 파일 줄이 붙는다(0054). */}
+      <CueSheetEdit value={draft.cue_sheet} onChange={v => set({ cue_sheet: v })}
+        files={cueFiles} canEdit={canEdit} onPick={onPick} onOpen={onOpen} onRemove={onRemove} />
     </div>
   );
 }
@@ -967,7 +1020,12 @@ export function ServiceDetail({
   const [tab, setTab] = useState('word');
   const [draft, setDraft] = useState(null);     // null이면 보기 모드
   const [busy, setBusy] = useState(false);
-  const [preview, setPreview] = useState(null);     // 미리보기로 열어 둔 송폼 행
+  const [preview, setPreview] = useState(null);     // 미리보기로 열어 둔 파일 행
+  // 주보 파일은 한 표에서 한 번에 오고(0047의 files.service_id) **여기서 갈래로 갈린다**
+  // (0054의 files.kind). kind가 없는 행은 송폼이다 — 0054 이전에 심긴 행(게스트 시드·옛
+  // 주보)이 그렇고, 마이그레이션의 백필도 같은 값을 넣었다.
+  const songForms = useMemo(() => filesOfKind(files, SONGFORM), [files]);
+  const cueFiles = useMemo(() => filesOfKind(files, CUESHEET), [files]);
   const [saveState, setSaveState] = useState('');   // '' | 'saving' | 'saved'
   const dirty = useRef(false);
   const editing = draft !== null;
@@ -1060,10 +1118,11 @@ export function ServiceDetail({
           <span className="px-2 py-0.5 rounded-full bg-tag-blue text-tag-blue-fg text-[10.5px] font-bold">{kindLabel(service.kind)}</span>
           {isDraft && <span className="worship-draft-badge px-2 py-0.5 rounded-full bg-tag-yellow text-tag-yellow-fg text-[10.5px] font-bold">작성 중</span>}
           <span className="worship-head-date text-[12.5px] font-bold text-fg">{formatServiceDate(service.service_date)}</span>
-          {/* 가운뎃점은 같은 줄에 설 만한 폭(≥640)에서만 — 375에서는 설교자가 둘째 줄로
-              내려가는데, 그때 줄 머리에 점이 혼자 남았다(실기기 스크린샷 2026-09-07) */}
+          {/* 설교자는 **넓은 폭(≥640)에서만** 머리줄에 — 375에서는 둘째 줄로 내려가 머리 카드가
+              두 줄이 됐다(실기기 스크린샷 2026-09-07·08). 폰에서는 말씀 탭 제목 밑에 같은 값이 이미
+              있으니(`구절 · 설교자`) 머리에서 뺀다. */}
           {service.preacher && (
-            <span className="worship-head-preacher min-w-0 text-[11.5px] text-fg-muted truncate"><span className="hidden sm:inline">· </span>설교 {service.preacher}</span>
+            <span className="worship-head-preacher hidden sm:inline min-w-0 text-[11.5px] text-fg-muted truncate">· 설교 {service.preacher}</span>
           )}
         </div>
         {/* 버튼은 좁은 화면에서 서로 밑으로 접힌다 — 날짜 덩이를 밀어내지 않게 shrink-0 */}
@@ -1113,7 +1172,11 @@ export function ServiceDetail({
       </div>
 
       <div className="worship-tabpanel">
-        {tab === 'word' && (editing ? <WordEdit draft={draft} set={set} /> : <WordTab service={service} onOpenBible={onOpenBible} />)}
+        {tab === 'word' && (editing
+          ? <WordEdit draft={draft} set={set} cueFiles={cueFiles} canEdit={!!(editing && perms.canEdit)}
+              onPick={fs => onUploadFiles(fs, CUESHEET)} onOpen={setPreview}
+              onRemove={onRemoveFile} />
+          : <WordTab service={service} onOpenBible={onOpenBible} cueFiles={cueFiles} onOpenFile={setPreview} />)}
         {tab === 'roles' && (editing
           ? <RolesEdit rows={rows('roles')} people={people} onChange={v => set({ roles: v })} />
           : <RolesTab rows={rows('roles')} people={people} nameOf={nameOf} />)}
@@ -1127,9 +1190,10 @@ export function ServiceDetail({
               : <SongsTab rows={rows('songs')} leader={service.praise_leader || ''}
                   playlistUrl={service.praise_playlist_url || ''} nameOf={nameOf} />}
             {/* 송폼은 찬양 목록 바로 아래 한 구역이다(0047). 붙이고 지우는 것은 수정
-                화면에서, 보기 화면에는 줄만 선다 — 담당자·찬양·광고와 같은 문법이다. */}
-            <SongForms files={files} canEdit={!!(editing && perms.canEdit)}
-              onPick={onUploadFiles} onOpen={setPreview} onRemove={onRemoveFile} />
+                화면에서, 보기 화면에는 줄만 선다 — 담당자·찬양·광고와 같은 문법이다.
+                큐시트 파일(말씀 탭)이 여기 섞이지 않는 것은 kind로 갈랐기 때문이다(0054). */}
+            <ServiceFiles files={songForms} canEdit={!!(editing && perms.canEdit)}
+              onPick={fs => onUploadFiles(fs, SONGFORM)} onOpen={setPreview} onRemove={onRemoveFile} />
           </>
         )}
         {tab === 'notices' && (editing
@@ -1139,11 +1203,13 @@ export function ServiceDetail({
 
       {canWriteNote && !editing && <MyNote note={note} onSave={onSaveNote} onShare={onShareNote} />}
 
-      {/* 송폼 미리보기 — 업무 첨부와 **같은 창**이다. PDF는 앱 안 pdf.js로 그려지고
-          새 탭·내려받기도 그 창이 준다(§6-29-q). 사진 넘기기는 이미지끼리만 도는데
-          송폼은 대개 한 장이라 그냥 목록을 그대로 넘긴다. */}
+      {/* 파일 미리보기 — 업무 첨부와 **같은 창**이다. 송폼도 큐시트 파일도 이 창 하나로
+          연다. PDF는 앱 안 pdf.js로 그려지고 새 탭·내려받기도 그 창이 준다(§6-29-q).
+          사진 넘기기는 이미지끼리만 도는데, 그 목록은 **연 줄과 같은 갈래**만 준다 —
+          찬양 탭에서 연 송폼이 말씀 탭 큐시트로 넘어가면 어디에 있는지 알 수 없다. */}
       {preview && (
-        <FilePreviewModal row={preview} rows={files} initialSrc={null} onClose={() => setPreview(null)} />
+        <FilePreviewModal row={preview} initialSrc={null} onClose={() => setPreview(null)}
+          rows={(preview.kind || SONGFORM) === CUESHEET ? cueFiles : songForms} />
       )}
 
       {/* 모바일 편집 도구 줄 — 화면 아래에 붙는다. 하단 탭바(4.5rem + safe-area) 위에
@@ -1155,7 +1221,11 @@ export function ServiceDetail({
       {perms.canEdit && editing && createPortal(
         <div className="worship-edit-bar md:hidden fixed left-0 right-0 z-30 flex items-center gap-2 px-3 py-2.5"
           style={{
-            bottom: 'calc(4.5rem + env(safe-area-inset-bottom))',
+            // **탭바가 잰 제 높이**로 앉는다(layout.jsx MobileTabBar → `--mobile-tab-bar-h`).
+            // 예전에는 `4.5rem + safe-area` 상수였는데 탭바 높이는 안 내용으로 정해져서
+            // (pt-2 + 아이콘 + 글자 + pb + safe-area ≈ 68px) 그 사이에 4px쯤 틈이 남았다
+            // (사용자 지적 2026-09-08). 변수가 아직 없는 첫 프레임에는 옛 상수가 대신 선다.
+            bottom: 'var(--mobile-tab-bar-h, calc(4.5rem + env(safe-area-inset-bottom)))',
             background: 'var(--app-surface)', borderTop: '1px solid var(--app-line)',
           }}>
           <button type="button" onClick={saveNow} disabled={busy} className={`worship-save-mobile ${BTN}`}>저장</button>
