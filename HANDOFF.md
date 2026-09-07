@@ -453,6 +453,29 @@
     앞 계정의 성경 북마크(`word_bible_state:<uid>`)가 안 보이는지 · 카카오 인앱에서 로그아웃한 뒤
     자동 재로그인이 안 되고 주소가 `/`인지 · 마스터가 아닌 계정이 남의 나눔을 지우려 하면 실패 토스트가
     뜨는지 · 출석 칩을 눌러도 상세 재조회 4개가 안 붙는지(네트워크 탭).
+- **2026-09-07 회차분 · 10차 피드백(0053 · 손님 출석 · 알림 다섯 · 동아리 QR · 구글 문서 임베드)**(푸시·배포 — 라이브에서 볼 것.
+  검증은 관련 스위트 12종만: logcheck·push·worship·handoff·word·groups·home·navsmoke·roster·three·themefit·share):
+  - **손님 출석(`attendance_guests`)** — 순장 계정으로 '미등록 출석자 추가'가 이름 칩으로 서고 ×로 지워지는지, **청년 명단에는 올라가지
+    않는지**(멤버 화면 명단 수 변화 없음), 일반 멤버는 읽기만인지, 작성 중 주보에는 insert가 42501인지(정책이 `status='published'`를 본다).
+  - **알림 다섯(0053)** — ① 주보를 발행하면 승인 멤버 전원 종에 '○○님이 이번 주 주보를 발행했어요'(발행자 제외)가 뜨고 누르면 그 주보
+    상세가 **새로고침 없이** 열리는지(`/?p=worship&s=…`) ② 예배 노트를 순에 공유로 바꾸면 **그 해 내 순 순장에게만** ③ 동아리 가입
+    신청 → 동아리장 ④ 수락 → 신청자 ⑤ 모임 생성 → 구성원. 잠금화면 푸시도 같은 문구·같은 딥링크인지.
+  - **예배 당일 11:30 크론** — Vercel 대시보드에 크론이 **둘**(`0 22`·`30 2`)인지, 주일 11:30 KST에 '오늘 예배가 있어요 · <제목>'이
+    오는지. 손으로: `curl -H "Authorization: Bearer $CRON_SECRET" "https://church-workspace.vercel.app/api/push?job=worship"` →
+    `{services, notified, sent}`. 두 번 불러도 20시간 중복 방지.
+  - **동아리 신청 QR** — 동아리장 계정에서 상세 머리 '신청 QR' → 카드가 뜨고 '카카오톡·공유'가 그림+링크로 나가는지 → 폰 카메라로 찍어
+    로그인 → '동아리 신청이 완료되었어요!' → 상세 '신청 대기'. **로그인 왕복 뒤 딥링크 복원**(auth.jsx가 `setEntryQuery`)이 관건.
+    카카오톡에 `/s/c/<id>?apply=1`을 붙였을 때 OG 제목 `더다붓 · <동아리>`.
+  - **구글 문서 임베드** — 참고 링크에 구글 시트/문서를 달고 누르면 앱 안 창에서 **편집이 되는지**(그 브라우저가 구글에 로그인돼 있어야
+    한다). 사파리·카카오 인앱은 iframe 안 로그인이 막혀 30초 뒤 '새 탭에서 열기'가 강조되는지. 비밀번호 설정(만든 사람·관리자) → 다른
+    계정에서 물어보는지. 주보 편집 말씀 탭의 **큐시트**(`services.cue_sheet`)도 같은 창(**비밀번호 없음** — 사용자 결정 2026-09-08).
+    문구는 '비밀번호 설정'·버튼 '설정'(사용자 지시 2026-09-08 — "걸기가 뭐냐").
+  - **프로필 사진** — 카카오·구글 계정으로 다시 로그인하면 죽은 CDN 주소가 새 주소로 갱신되는지(`ensureMyProfile`). 김서진·정민경은
+    `avatar_url`이 **null**이던 것을 2026-09-08에 auth 메타의 카카오 주소로 psql 복원했다(카카오 사진이 다시 보여야 한다).
+  - **팀 보드 칩** — 교역자 보드 상단에 팀 소속(임성빈)만 서고 조해리 청년은 없는지. 칩 줄이 제목 아래 왼쪽부터, 넘치면 가로 스크롤.
+  - **홈** — 첫 진입에 카드 넷이 자리 스켈레톤으로 먼저 서고 순서가 안 바뀌는지 · '공유된 노트 N' · 업무 탭으로 가면 대시보드가 맨 위.
+  - **노트·묵상 읽기 모드** — 저장한 뒤 본문이 읽기 상자로 보이고 '수정'으로 다시 열리는지. 서식 바가 스크롤 시 화면 위에 붙는지(예배 노트·QT 둘).
+  - **내 순 노트 스켈레톤** — 모임 화면에 다시 들어왔을 때 '내 순에 공유된 예배 노트'가 스켈레톤에 굳지 않는지(§6-9-ad).
 - **2026-09-06 회차분 · 순장 메모(0052) · 호칭 · 지난 주일 · 로고**(전부 로컬 커밋 → 푸시):
   - **순장 계정**으로 출석 화면에 메모 칸이 보이고, 적으면 저장되고 새로고침해도 남는지(psql 임퍼소네이션으로는 통과 — 평순장 저장 성공 ·
     같은 세션에서 `services.title`·`attendance_note` 직접 update는 0행 · 일반 멤버 42501).
@@ -707,6 +730,17 @@ src/components/ShareToggle.jsx 공유 토글 한 벌 — '나만 보기 | …공
                             로직 동일: 저장된 글이 있을 때만, 토글은 shared만 즉시 저장, 비공개 글도 내 줄엔 잠금 표시).
                             **조작 가능한 토글은 화면에 한 벌**(2026-09-05): 말씀은 '내 묵상' 편집기 줄에만(나눔 피드의 내 줄은
                             잠금 표시만, 눈가림 아이콘 없음) · 내 순 노트 목록은 편집기가 없는 화면이라 줄에 토글
+src/components/DocEmbed.jsx  (2026-09-07) 구글 문서·시트·슬라이드를 **앱 안 iframe(/edit·rm=minimal)** 으로 여는 창 —
+                            `DocEmbedModal`·`PwPrompt`·`DocLinkGate`(잠겼으면 묻고 맞으면 연다)·`DocKindIcon`. 순수 판정·주소는
+                            services/docEmbed.js(`docEmbedKind`·`docEmbedSrc` — 노드 검사). **sandbox 없음**(§6-29-z-6). 참고 링크(views.jsx
+                            ProjectView 헤더 — DocLinkGate)·본문 링크(RichText InlineLink)·주보 큐시트(worshipDetail — 비밀번호 없이 DocEmbedModal)가 같은 창
+src/components/ClubQr.jsx   (2026-09-07) 동아리 신청 QR 카드 — `qrcode-generator`를 lazy import, 종이는 늘 밝은 색(반전 QR은 안 읽힌다),
+                            공유는 navigator.share(files→url→복사) 순 폴백. 주소는 `/s/c/<id>?apply=1`(api/share.js type c)
+src/services/entryQuery.js  (2026-09-07) 진입 주소의 나머지 값(`s`=주보 · `g`=동아리 · `apply`)을 모듈 첫 실행 때 붙잡아 화면이
+                            `takeEntryParam`으로 한 번 읽고 지운다. 종의 딥링크는 App `handleOpenLink` → `setEntryQuery` + `useEntryQuery` 신호,
+                            OAuth 왕복 뒤에는 auth.jsx `consumeReturnTo`가 다시 실어 준다(§6-24-c)
+src/services/viewPw.js      (2026-09-07) 화면 가림 비밀번호 순수 모듈(`makeViewPw`·`verifyViewPw`·`isLocked`) — 첨부의 cloud.js `sha256Hex`와
+                            **같은 규칙 두 벌**(§6-31-f). 참고 링크(`resource_links.view_pw*`)가 쓴다(큐시트는 비밀번호 없음 — 사용자 결정 2026-09-08)
 src/components/DatePicker.jsx 노션 톤 데이트피커 — children(트리거 대체)·triggerClassName·allowClear를 받는다
                             (QT 날짜가 트리거를 대체해 쓴다. 기본값은 예전 호출부와 같다). `yearless` 모드(2026-09-05)는
                             명단 생일용 — 값 MM-DD, 연도 글자·이동 없음, 요일 줄 없음(연도를 모르면 요일도 모른다), 2월 29일까지
@@ -901,6 +935,11 @@ FAIL로 남기세요**(그래야 어느 단정에서 어긋났는지 보입니�
   (폰트 서브셋과 같은 방식). 색은 쓰지 않고 `currentColor`로 흐릅니다.
 - 반응형 그리드 유틸 `.dash-grid`(1열 → lg에서 `1fr 360px`), `.side-grid`(lg에서 300px),
   `.kpi-grid`(모바일 2열 → lg 4열)
+- **(2026-09-07) 전환·자리 모션 셋** — `.dc-fade`(자리는 그대로고 **내용만** 갈릴 때: opacity만 .2s — 이미 서 있던 칸에
+  `.dc-card`를 쓰면 이유 없이 한 번 더 떠오른다) · `.dc-nav-fwd`/`.dc-nav-back`(+묶음 `.dc-nav` — App의 화면 래퍼 `.app-screen`에
+  붙는 **교회 축(홈·예배·말씀·모임) 사이** 방향 슬라이드 7px, transform만. 업무 축에는 안 붙인다 — 드래그 화면 위에 transform 조상을
+  만들지 않기 위해, §6-1). 규칙: **자리가 안 움직이면 떠오르지 말고 밝아진다.** 셋 다 reduced-motion 블록에 있다.
+  화면이 바뀌면 `main.scrollTop=0`(App `useLayoutEffect` — popstate 복원·`openBible`은 비켜 준다, §6-9-v).
 - **`docs/DESIGN.md`는 현재 기준이 아닙니다**(문서 머리에 적어 두었습니다). 초기 토큰 구조의
   참고 자료이고 값은 전부 갈렸습니다(accent `#0075de` → `#3f6fc4`, Pretendard → SUIT).
 
@@ -912,7 +951,14 @@ FAIL로 남기세요**(그래야 어느 단정에서 어긋났는지 보입니�
 | `reaction` | `comments.jsx`의 반응 토글 → `cloudSync.notifyReaction` — **그 댓글의 첫 반응 한 번만**(반응이 이미 있으면 안 보냄 — "너무 쌓일 것 같다"는 사용자 피드백 2026-08-30. 몇 명인지는 댓글의 얼굴로 보인다), 켤 때만, 받는 사람은 그 댓글을 쓴 한 명, 본인 제외는 auth user id로(0032) |
 | `assign` | `controllers.js`의 `handleSaveTask` — `newAssigneesOnly`로 **이전에 없던 담당자만** |
 | `due_soon` | `api/push.js`의 GET — Vercel Cron이 하루 한 번(22:00 UTC = 07:00 KST) |
+| `worship_today` | `api/push.js`의 GET `?job=worship` — 두 번째 크론(02:30 UTC = **11:30 KST**). 오늘(KST) 발행된 주보가 있으면 승인 멤버 전원에게 '오늘 예배가 있어요 · <제목>'. 서버만 만든다(INSERT 정책에 없음). Hobby는 크론 2개·하루 1회까지라 **같은 GET 입구를 `job`으로 나눠 쓴다** — 갈래를 안 두면 새 크론이 옛 배치를 한 번 더 돌린다 |
+| `service_published` | `worship.js` 발행 순간 → 승인 멤버 전원(발행자 제외 — `insertNotifications`가 본인을 거른다). `link=/?p=worship&s=<id>` |
+| `note_shared` | 예배 노트를 순에 공유로 **바꾸는** 순간(false→true만) → 그 해 내 순의 순장 `people.profile_id`. 순장이 가입 전이면 조용히 건너뜀 |
+| `club_apply` · `club_accepted` · `meeting_new` | `groups.js` — 신청 → 동아리장 · 수락 → 신청자(시스템형 문구) · 모임 생성 → 구성원. `link=/?p=groups&g=<id>`. 실패는 콘솔만(본 동작이 막히면 안 된다) |
 
+- **딥링크 한 칸 `notifications.link`**(0053) — 업무가 아닌 알림이 갈 우리 주소(`/`로 시작, `//` 아님 — DB CHECK도 같은 규칙).
+  종(`layout.jsx`)은 link가 있으면 `onOpenLink` → App `handleOpenLink`가 `p`로 화면을 바꾸고 나머지 값은 `entryQuery`에 싣는다
+  (새로고침 없음). 푸시 payload의 `url`도 같은 값. 시스템 알림의 아이콘은 갈래별(`notifArea` — 마감 시계 · 예배 교회 · 모임 사람들).
 - 문구는 `src/services/notifyText.js` **한 곳**입니다. 앱 안 목록과 잠금화면 푸시가 같은
   함수를 봅니다 — 갈라 두면 같은 알림이 두 군데서 다르게 읽힙니다.
 - 푸시는 `cloud.insertNotifications` 안에서 같이 보냅니다(`requestPush`). 그 함수가 모든
@@ -1475,9 +1521,9 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 
 ## 5. 데이터 · 스키마 · 비밀
 
-스키마는 `supabase/migrations/0001~0052`이고 **전부 라이브 DB에 적용**되어 있습니다
+스키마는 `supabase/migrations/0001~0053`이고 **전부 라이브 DB에 적용**되어 있습니다
 (0001~0005는 대시보드에서 수동, 이후는 `npx supabase db push --db-url "$SUPABASE_DB_URL"`).
-**원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있습니다** — 0039~0051은 psql로 직접
+**원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있습니다** — 0039~0053은 psql로 직접
 적용했기 때문입니다. 적용 여부는 원장이 아니라 **실제 객체**로 확인하세요(컬럼·함수·정책·발행 목록).
 
 | 파일 | 한 일 |
@@ -1534,6 +1580,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | `0050_sun_leader_adds_own_member` | `group_members_sun_leader_insert` — 평순장이 **자기 순(올해)에 INSERT만**(`leads_any_sun()` + `leader_person_id = my_person_id()` + `year = kst_year()`). 순장의 '미등록 출석자 추가'가 사람만 만들어지고 출석은 42501이던 것을 고친다(갓 만든 사람은 어느 순에도 없어서 `leads_sun_of`가 거짓). DELETE·UPDATE는 열지 않는다 — 순원을 내보내는 일은 출석이 아니라 편성이다 |
 | `0051_dead_policies_and_approval` | 라이브에만 있던 수동 storage 정책 5개 drop(`attachments_select/insert/delete`는 0003의 쌍둥이라 권한 변화 없음, **`content_images_insert`는 버킷만 봐서 0004의 '본인 폴더에만'을 무력화하던 구멍**) · `services_write`·`sun_guides_select`·`sun_guides_write`에 `is_approved()` 추가(셋 다 `FOR ALL`/조건 하나뿐이라 승인 게이트가 permissive OR로 풀려 **미승인 회장·교역자가 작성 중 주보를 읽을 수 있었다**). 둘 다 **더 열어 주는 쪽으로** 어긋나 있어 화면에 증상이 없었다 |
 | `0052_attendance_note_rpc` | `set_attendance_note(p_service_id, p_note)` security definer rpc — 승인 + 발행된 주보 + (`can_check_all_attendance()` or `leads_any_sun()`)이면 **그 한 칸만** 쓴다. 순장도 출석 메모를 남기게(사용자 결정 2026-09-06 — 메모는 주보 편집이 아니다). 정책을 더 붙이지 않은 이유는 §6-31-a(permissive OR는 행의 모든 칸을 연다). anon·PUBLIC revoke, authenticated grant |
+| `0053_feedback_round_10` | 넷을 한 파일에 — ① `attendance_guests`(id·service_id·name·created_by): 미등록 출석자를 **명단에 올리지 않고** 그 예배의 손님으로(사용자 결정 2026-09-07). RLS: 승인 읽기 · insert/delete는 `can_check_all_attendance() or leads_any_sun()` + **발행된 주보만** ② `notifications.link`(우리 주소 CHECK) + kind 여섯 추가(`worship_today`는 서버만) + INSERT 정책에 `is_approved()` ③ `resource_links.view_pw/view_pw_salt/view_pw_by`(첨부 0023과 같은 화면 가림) ④ `services.cue_sheet jsonb` {url,title} — view_pw 두 칸은 만들었지만 **화면이 쓰지 않는다**(사용자 결정 2026-09-08 큐시트 비밀번호 없음). 되돌리기는 파일 아래 |
 
 알아둘 것:
 
@@ -1912,6 +1959,33 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     날짜 칸이 `w-11`(44px)이었는데 `26. 9. 13.`은 50px이라 두 줄로 접혀 21px짜리 줄 밖으로 삐져나왔다
     (2026-09-06 지적). 이 글꼴·크기에서 가장 긴 표기(`27. 11. 28.`)가 57.5px이라 60px로 넓혔다. 폭을 못 박는
     이유는 **세 줄의 제목이 같은 자리에서 시작하게** 하는 것이니, 폭을 없애지 말고 재서 늘리세요.
+9-v. **스크롤하는 상자는 `main` 하나이고, 화면이 바뀌어도 그 통은 그대로다.** 뷰를 `key`로 리마운트해도 scrollTop은 안 돌아와서
+    홈에서 내려 본 뒤 '업무'를 누르면 대시보드가 중간에서 열렸다(2026-09-07 지적). App이 `useLayoutEffect([activeMenu])`로 0으로
+    되돌리되 **의도된 스크롤(popstate 복원·`openBible`)은 `keepScrollRef`로 비켜 준다.** `useEffect`면 어긋난 자리가 한 프레임 보인다.
+9-w. **스켈레톤이 "자리를 지킨다"면 줄 상자까지 같아야 한다.** 홈 카드 스켈레톤은 높이를 px로 박지 않고 폭 0 글자(U+200B)로 진짜
+    줄 상자를 만들고 뼈대를 절대 위치로 얹는다(`.dc-skeleton`이 `position:relative`라 자리는 바깥 span이 잡는다 — §6-9-e의 짝).
+9-x. **"하나라도 오면 있는 것만 세운다"는 순서를 깨뜨린다.** 홈의 `firstLoad`(셋 다 로딩일 때만 스켈레톤)가 늦은 갈래를 뒤에 끼워
+    넣어 카드 자리가 밀렸다. 갈래별 로딩이면 **아직 안 온 자리도 목록에 남긴다**(`homeView.orderedSlots`의 `wait`, 없는 것만 `none`).
+9-y. **가로 스크롤 통의 `padding-right`는 넘친 내용에 안 걸린다**(§6-2의 가로판). 칩 줄 끝 여백은 `pr-*`이 아니라
+    `after:content-[''] after:shrink-0 after:w-3`로 **flex 항목 하나를 세운다**. `roster.jsx CHIP_ROW`와 `views.jsx TEAM_CHIP_ROW`가 같은 한 벌.
+9-z. **`flex-wrap`에 줄을 맡기면 좁은 폭에서 마지막 항목만 떨어져 고아 줄이 된다**('사람 추가'·유튜브 가져오기·공유 토글이 다 그랬다,
+    2026-09-07). 줄을 **정해서** 그린다 — `basis-full sm:basis-auto`는 세그먼트 자신이 아니라 **감싸개**에(직접 주면 배경이 줄을
+    가로지른다) · 노트 도구 줄은 `grid-cols-[auto_minmax(0,1fr)_auto] sm:…_auto_auto]`에 토글만 `col-span-3 w-full sm:col-span-1`
+    (`worshipDetail NOTE_TOOLS` · wordView도 같은 배치, 칩·나가기 칸은 비어도 span을 남긴다) · 찬양 줄의 `basis-full`은 번호를 첫 줄에
+    혼자 남기니 `basis-[calc(100%-번호폭-gap)]` · `flex-1` 빈 칸은 아랫줄의 나가기 버튼을 **왼쪽**으로 보낸다(`ml-auto`를 쓴다).
+9-aa. **sticky의 통은 `overflow != visible`로 찾아야 한다.** `MarkdownEditor useStickyTop`이 `auto|scroll`만 봐서 `overflow:hidden`
+    조상을 지나쳤다 — 브라우저는 거기서 sticky를 멈추므로 재는 상자와 붙는 상자가 달라진다(업무 창은 hidden 껍데기가 통 **바깥**이라
+    증상이 없었다). 다시 재는 계기도 통 resize뿐이었다 → 편집기 자신·`window.resize` 추가(QT는 읽기 모드에서 `display:none`으로 마운트된다).
+9-ab. **읽기 상자의 높이는 자리표(EDITOR_SLOT)가 아니라 편집기의 실제 높이다** — 편집기는 센티넬 `h-px` 때문에 자리표보다 1px 크다
+    (198/262 vs 197/261). 자리표 값으로 잡으면 모드를 바꿀 때마다 아래가 1px 오르내린다. 그리고 `display:none`에서 막 풀린 상자에는
+    같은 프레임에 focus가 안 먹는다(ref 표식 + 모드 이펙트에서 준다). 달력 격자는 **6주 높이를 늘 잡고** `content-start`(5주↔6주 23px 튐).
+9-ac. **머리줄을 카드로 바꾸면 그 아래 빈 상태의 '남는 자리'가 그만큼 줄어든다** — `useFillRest`가 재는 값이라 `centered()`(화면의 1/3)
+    문턱을 조용히 넘는다. 주보 상세 머리를 두 줄로 만들었다가 한 줄로 돌린 이유. "오른쪽 끝" 검사도 content box 기준으로.
+9-ad. **"자리를 잡았다"를 ref로 기억하면 도착한 프레임에 다시 그리지 않는다.** `groupsParts.useSettled`가 `useRef`로 키를 들고 있어서,
+    값이 도착해 loading이 false가 된 프레임에는 옛 키라 false를 돌려주고 효과에서 ref만 고쳤다 — **다른 상태가 바뀌기 전까지 스켈레톤이
+    그대로** 섰다("내 순에 공유된 예배 노트가 계속 스켈레톤", 사용자 보고 2026-09-08). 재현 조건은 명단(baseQ)은 캐시라 키가 처음부터
+    확정이고 노트 캐시만 비어 있을 때 — 모임 표의 실시간 신호가 `groups:mine`만 비운 뒤 다시 들어오면 그렇다. state로 바꿨다.
+    `tests/groups.mjs`가 소스로 못 박는다(게스트는 메모리 캐시라 그 조건을 못 만든다).
 9-j. **눌릴 것처럼 보이는 화살표는 눌려야 한다** — 본문 선택 피커의 책 칸 ▾가 장식용 SVG여서 아무 데도
     붙어 있지 않았다(2026-09-02 지적). 검사는 `el.click()`이 아니라 **실제 mousedown**으로 해야 잡힌다
     (`worshipPassage.jsx`).
@@ -2073,6 +2147,11 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     짧은 열쇠가 긴 열쇠를 통째로 삼킨다. 성경 상태가 그 자리다 — 화면 것은 `bible:state`
     (`wordBible` STATE_KEY)이고 사용자별 저장 자리는 `word_bible_state:<uid>`로 **일부러 다른 도막**이다.
     (그 값이 사용자별이 된 것도 2026-09-06이다 — 예전에는 한 키라 계정을 바꾸면 앞 사람 북마크가 보였다.)
+
+24-c. **딥링크의 나머지 값은 App이 주소를 `/`로 정리하기 전에 붙잡아야 한다.** v2 화면은 GLOBAL_MENUS라 URL 동기화 효과가 `?s=`·`?g=`를
+    곧 지운다 → `services/entryQuery.js`가 모듈 첫 실행 때 스냅샷을 뜬다. **OAuth 왕복은 그 스냅샷보다 늦다**(첫 주소가 `/#…`) —
+    `auth.jsx consumeReturnTo`가 자리를 복원한 직후 `setEntryQuery(to)`로 다시 실어 준다(2026-09-07, 모임 담당이 잡음). 종에서 누른
+    딥링크는 새로고침 없이 `setEntryQuery` + `useEntryQuery` 신호로 화면이 다시 읽는다.
 
 ### 드라이브 · 첨부
 
@@ -2441,6 +2520,15 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     `w-auto`가 칸을 가로 전체로 벌려 깨진 아이콘이 왼쪽 끝에 붙는다(사용자가 본 모양). `tests/logcheck`가 셋과 "공유 HTML에 상대 경로
     없음"을 본다. 구글·카카오 버튼은 인라인 SVG + 고정 라이트 면이라 다크에서도 그대로.
 
+29-z-6. **구글 편집기 iframe에 `sandbox`를 주지 마세요**(`DocEmbed.jsx`). HTML 첨부(§6-29-z-2)와 정반대다 — 그쪽은 남이 준 파일을 우리가
+    실행시키는 자리라 출처를 불투명하게 해야 하고, 이쪽은 구글이 자기 출처에서 자기 편집기를 그린다. 조금이라도 조이면 쿠키·팝업·클립보드가
+    막혀 **편집이 안 된다**. `tests/three.mjs`가 `sandbox === null`을 본다. 임베드 주소는 `URL`로 파싱해 `searchParams`만 건드린다 —
+    문자열 이어 붙이기는 `#gid=`(시트 탭)를 잃고, `/d/e/…/pubhtml`(게시 사본)은 `/edit`으로 바꾸면 없는 주소가 된다.
+29-z-7. **iframe 안 구글 로그인은 사파리(ITP)·카카오 인앱에서 막힌다** — 다른 출처라 감지할 길이 없어서, 창 머리에 '새 탭에서 열기'를
+    늘 두고 30초 안에 `load`가 없으면 그 버튼을 강조한다. 그림으로 굽는 SVG(QR 카드)에는 페이지 `@font-face`가 안 따라오니
+    `font-family`에 시스템 한글 폰트까지 적는다. QR은 **반전(어두운 종이+밝은 모듈)이면 못 읽는 리더가 많다** — 종이는 라이트 값으로 못 박고
+    PNG는 흰색을 먼저 칠한다(투명 PNG는 카카오톡 어두운 방에서 검은 종이가 된다).
+
 ### 서비스 계층
 
 28-a. **수정 폼이 들고 있는 목록으로 스토어를 덮지 마세요.** 저장이 카드를 통째로
@@ -2544,6 +2632,15 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     건너뛰어져 **OG 제목이 기본값으로 떨어지고 딥링크(`appUrl`)까지 `/`로 남았다** — 그런데
     `error`를 구조분해하지 않았으니 서버 로그에 한 줄도 안 남았다. 지금은 두 갈래 다
     `const { data, error }` + `console.error`다. §6-29-e("먼저 실패를 읽을 수 있게 만드세요")와 같은 교훈이다.
+
+31-e. **`groups`에 `description` 칸은 없다 — 설명은 `note`다(0035).** `api/share.js` type `c`를 만들 때 지시서대로 `name, description`을
+    골랐으면 §6-31-d가 그대로 재발했을 자리. 못 박힌 설명 한 줄이라 `select('name')`만 한다. **없는 칸 이름을 문서에서 옮겨 적기 전에
+    `information_schema.columns`로 본다.**
+31-f. **비밀번호 해시 규칙이 두 곳에 있다** — `cloud.js sha256Hex`(첨부·참고 링크)와 `services/viewPw.js`(검사·앞으로 쓸 자리). 한쪽을 고치면
+    다른 쪽도. `tests/three.mjs`가 "앱이 저장한 해시를 노드가 푼다"로 짝을 본다. **빈 비밀번호로 풀 때 소금만 남기지 말 것**(세 칸 다 비운다 —
+    다음 비밀번호가 옛 소금을 물려받아 "풀었다 다시 걸었는데 예전 것이 맞는" 일).
+31-g. **`insertNotifications`가 본인을 거른다**(0053부터). 주보 발행처럼 '승인 멤버 전원'이 받는 알림은 호출부가 자기 id를 빼먹기 쉬워
+    관문에서 한 번 더. 새 kind는 **0053 CHECK와 INSERT 정책 둘 다**에 넣어야 한다(한쪽만 넣으면 42501 또는 23514).
 
 - **"넣으려던 상태가 이미 참"인 유니크 위반(23505)은 실패가 아니다.** 순장 교체가 리더 update 뒤
   무조건 `addMember`를 불러 `group_members` PK에 걸렸고, 리더는 이미 바뀌었는데 화면은 "순장을 정하지
@@ -2678,6 +2775,9 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | 첨부를 **진짜로** 잠그기(비공개 유지) | 엑셀 비밀번호를 정할 때 두 갈래를 놓고 **화면 가림**을 골랐습니다. 진짜로 막으려면 그 파일이 공개가 아니어야 하는데, 엑셀 펼쳐보기는 뷰어가 공개로 닿는 주소를 받아야 동작합니다 — **진짜 잠금과 펼쳐보기는 동시에 가질 수 없습니다.** 되돌리려면 썸네일도 같이 포기해야 합니다(0023 주석) |
 | 본문 이미지·프로필 사진을 드라이브로 | 옮기는 것은 **업무 첨부뿐**입니다. 이 둘은 올릴 때 이미 줄여 저장하고(본문 1600px·아바타 256px) 한 장에 수백KB라 안 쌓입니다. 무엇보다 본문 이미지는 **주소가 글 안에 박혀** 저장되어서, 주소 체계를 바꾸면 지난 글의 이미지가 구글 사정에 한꺼번에 끌려갑니다 |
 | 드라이브 파일명을 `업무_파일명`으로 | 처음엔 이름에 접두사를 붙이려 했는데, 사용자가 **업무별 폴더**로 바꿨습니다. 이름을 건드리지 않아서 앱 화면의 파일명이 지저분해지지 않고, 폴더는 이름이 바뀌어도 id로 따라갑니다(0026) |
+| 미등록 출석자를 청년 명단에 자동 등록 | 2026-09-07 사용자 결정 — "바로 청년 명단에 올리게끔 하지는 말아줘. 청년 명단 등록은 마스터가 얘기할 때만." 출석 화면의 미등록 출석자는 `attendance_guests`(0053)에 이름만 남는다. 0050(순장의 자기 순 INSERT)은 그대로 두되 그 길을 부르는 화면은 없다 |
+| '내 순에 공유된 예배 노트'에 내 비공개 노트를 잠금 표시로 | 2026-09-03 결정을 2026-09-07에 사용자가 뒤집었다("나만 보기로 해놔도 뜬다 — 그렇게 안 되도록"). 목록·개수 모두 `shared_to_sun = true`만. 공유 해제 토글은 공유된 내 줄에만 남는다 |
+| 큐시트에 비밀번호 | 2026-09-08 사용자 결정 "큐시트는 비밀번호 안 걸어도 돼". 0053의 `cue_sheet.view_pw*` 두 칸은 비워 둔다. 비밀번호는 첨부·참고 링크에만 |
 | 첨부에 편집 권한 주기 | 드라이브 파일은 `링크를 아는 사람은 **보기**`입니다. 편집으로 올리면 **링크를 아는 누구나 고칠 수 있습니다**(드라이브는 워크스페이스 멤버인지 모릅니다). 같이 채우는 문서가 필요하면 첨부가 아니라 **참고 링크**로 다는 쪽이 맞습니다 |
 
 ---

@@ -38,12 +38,19 @@ export function useClosing(ms = 150) {
 // 그림을 그린 **뒤에** 돌기 때문에 그 한 프레임에는 앞 키의 값(빈 배열 따위)이 그대로
 // 화면에 찍힌다 — 노트가 있는데 '없어요'가 한 번 스친 것이 그것이다(사용자 지적
 // 2026-09-03). settled가 false인 동안은 스켈레톤으로 자리만 잡는다.
+//
+// **ref가 아니라 state다**(2026-09-07). ref로 두면 "값이 도착해 loading이 false가 된 프레임"에는
+// at이 아직 옛 값이라 false를 돌려주고, 효과에서 ref를 고쳐도 **다시 그리는 일이 없어서**
+// 다른 상태가 바뀌기 전까지 스켈레톤이 그대로 서 있었다. 캐시가 비어 있는데 키는 처음부터
+// 확정인 경우가 그 길이다 — 모임 표의 실시간 신호가 `groups:mine` 캐시만 비운 뒤 다시 들어오면
+// 명단(baseQ)은 캐시라 키가 바로 서고, 노트 한 덩이만 읽는 중이라 정확히 이 조건이 된다
+// ("내 순에 공유된 예배 노트가 계속 스켈레톤" — 사용자 보고).
 export function useSettled(key, loading) {
   // 캐시가 이미 있으면(loading=false로 시작) **첫 프레임부터 자리를 잡은 것**이다 —
   // null로 두면 다시 들어올 때마다 한 프레임씩 스켈레톤이 스친다.
-  const at = useRef(loading ? null : key);
-  useEffect(() => { if (!loading) at.current = key; }, [key, loading]);
-  return !loading && at.current === key;
+  const [at, setAt] = useState(loading ? null : key);
+  useEffect(() => { if (!loading) setAt(key); }, [key, loading]);
+  return !loading && at === key;
 }
 
 export const CARD = 'rounded-[10px] shadow-soft';

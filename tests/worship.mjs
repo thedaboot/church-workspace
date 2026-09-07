@@ -1167,7 +1167,7 @@ const fields = await ev(`(() => {
 })()`);
 // 큐시트 세 칸이 말씀 탭 마지막 줄로 들어왔다(0053 · 2026-09-07)
 check('말씀 편집 칸에 이름이 붙는다 — 설교 제목 · 설교자 · 본문 구절 · 큐시트',
-  JSON.stringify(fields.labels) === '["설교 제목","설교자","본문 구절","큐시트 링크","큐시트 제목","비밀번호 걸기"]',
+  JSON.stringify(fields.labels) === '["설교 제목","설교자","본문 구절","큐시트 링크","큐시트 제목"]',
   JSON.stringify(fields.labels));
 check('데스크톱에서는 두 칸 grid로 선다', fields.cols === 2, `${fields.cols}칸`);
 
@@ -2289,19 +2289,8 @@ check('구글 문서 링크와 제목이 주보 행의 한 칸에 담긴다',
   cueOk.msg === false && String(cueOk.stored?.url).includes('docs.google.com')
   && cueOk.stored?.title === '9월 6일 큐시트', JSON.stringify(cueOk));
 
-await ev(typeIn('input[aria-label="큐시트 비밀번호"]', 'reborn'));
-await sleep(250);
-await ev(`document.querySelector('.worship-cue-lock')?.click()`); await sleep(1600);
-const cuePw = await ev(`(async () => {
-  const cue = JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.id === 's1').cue_sheet;
-  const m = await import('/src/services/viewPw.js');
-  return { hash: !!cue.view_pw, plain: cue.view_pw === 'reborn', salt: !!cue.view_pw_salt,
-    locked: !!document.querySelector('.worship-cue-locked'),
-    ok: await m.verifyViewPw(cue, 'reborn'), no: await m.verifyViewPw(cue, 'wrong') };
-})()`, true);
-check('큐시트 비밀번호는 해시로만 남고 맞는 것만 통과한다(첨부와 같은 규칙)',
-  cuePw.hash === true && cuePw.plain === false && cuePw.salt === true
-  && cuePw.ok === true && cuePw.no === false && cuePw.locked === true, JSON.stringify(cuePw));
+// 큐시트에는 비밀번호가 없다(사용자 결정 2026-09-08) — 편집 칸도 잠금 표시도 없어야 한다
+check('큐시트에는 비밀번호 칸이 없다', await ev(`!document.querySelector('input[aria-label="큐시트 비밀번호"]') && !document.querySelector('.worship-cue-lock')`));
 
 await ev(`${byText('저장')}.click()`); await sleep(1000);
 await tabClick('말씀'); await sleep(420);

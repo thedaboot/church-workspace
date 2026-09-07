@@ -519,7 +519,7 @@ function PinnedLinkChip({ link, canLock, onRemove, onSetPw }) {
       {canLock && (
         <button type="button" onClick={() => { place(); setPane(p => (p === 'set' ? null : 'set')); }}
           className="md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0"
-          title={isLocked(link) ? '비밀번호 바꾸기·풀기' : '비밀번호 걸기'}>
+          title="비밀번호 설정">
           {isLocked(link) ? <Lock size={12} /> : <LockOpen size={12} />}
         </button>
       )}
@@ -546,7 +546,7 @@ function PinnedLinkChip({ link, canLock, onRemove, onSetPw }) {
                   className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"
                 />
                 <button type="button" disabled={busy || !pw} onClick={() => save(pw)}
-                  className="px-2.5 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 disabled:opacity-40 shrink-0">저장</button>
+                  className="px-2.5 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 disabled:opacity-40 shrink-0">설정</button>
                 {link.view_pw && (
                   <button type="button" disabled={busy} onClick={() => save('')}
                     className="px-2.5 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95 shrink-0">잠금 해제</button>

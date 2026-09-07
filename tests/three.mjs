@@ -637,7 +637,7 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
     const b = [...a.parentElement.querySelectorAll('button')].find(x => /비밀번호/.test(x.getAttribute('title') || ''));
     return b ? b.getAttribute('title') : null;
   })()`);
-  check('구글 문서 링크에는 비밀번호 자리가 있다', (await lockBtn()) === '비밀번호 걸기', String(await lockBtn()));
+  check('구글 문서 링크에는 비밀번호 자리가 있다', (await lockBtn()) === '비밀번호 설정', String(await lockBtn()));
   const plainLockBtn = await ev(`(() => {
     const a = [...document.querySelectorAll('a')].find(x => x.textContent.trim() === '전세버스 견적서');
     return a ? [...a.parentElement.querySelectorAll('button')].some(x => /비밀번호/.test(x.getAttribute('title') || '')) : null;
@@ -658,7 +658,7 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
     return true;
   })()`);
   await sleep(150);
-  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '저장')?.click()`);
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '설정')?.click()`);
   await sleep(600);
   const stored = await ev(`(() => {
     const s = JSON.parse(localStorage.getItem('church_app_v4') || '{}');

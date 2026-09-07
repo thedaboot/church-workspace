@@ -308,7 +308,7 @@ function PasswordGate({ row, onUnlock }) {
   );
 }
 
-// 비밀번호를 걸거나 푸는 줄 — 올린 사람과 관리자만 본다
+// 비밀번호를 설정하거나 푸는 줄 — 올린 사람과 관리자만 본다. 문구는 '비밀번호 설정'·버튼 '설정'(사용자 지시 2026-09-08 — "걸기가 뭐냐")
 function PasswordSetter({ row, onDone }) {
   const [pw, setPw] = useState('');
   const [busy, setBusy] = useState(false);
@@ -327,7 +327,7 @@ function PasswordSetter({ row, onDone }) {
           className="w-40 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"
         />
         <button type="button" disabled={busy || !pw} onClick={() => save(pw)}
-          className="px-2.5 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">저장</button>
+          className="px-2.5 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">설정</button>
         {row.view_pw && (
           <button type="button" disabled={busy} onClick={() => save('')}
             className="px-2.5 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95">잠금 해제</button>
@@ -434,7 +434,7 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
       {!pending && canLock && (
         <button type="button" onClick={onToggleLockUI}
           className="shrink-0 p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95"
-          title={row.view_pw ? '비밀번호 바꾸기·풀기' : '비밀번호 걸기'}>
+          title="비밀번호 설정">
           {row.view_pw ? <Lock size={14} /> : <LockOpen size={14} />}
         </button>
       )}

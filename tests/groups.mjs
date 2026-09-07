@@ -804,6 +804,18 @@ check('공유된 노트는 마크다운으로 그린다(원문 기호가 글자�
   && !noteMd.raw.includes('**') && !noteMd.raw.includes('## '), JSON.stringify(noteMd));
 check('공유하지 않은 남의 노트는 오지 않는다', mine.hidden === false);
 
+// ── 1-0) useSettled는 state다 (components/groupsParts.jsx) ─────────────────
+// ref로 두면 값이 도착해 loading이 false가 된 프레임에 false를 돌려주고, 효과에서 ref를 고쳐도
+// 다시 그리지 않아 **다른 상태가 바뀌기 전까지 스켈레톤이 그대로** 섰다("내 순에 공유된 예배
+// 노트가 계속 스켈레톤" — 사용자 보고 2026-09-07). 재현 조건(명단은 캐시, 노트 캐시만 비움)은
+// 게스트에서 못 만들어 소스로 못 박는다.
+{
+  const src = readFileSync(new URL('../src/components/groupsParts.jsx', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('export function useSettled'), src.indexOf('export const CARD'));
+  check('useSettled는 useState로 자리를 기억한다(ref면 도착 프레임에 다시 그리지 않는다)',
+    /const \[at, setAt\] = useState\(/.test(body) && /setAt\(key\)/.test(body) && !/useRef\(/.test(body));
+}
+
 // ── 1-1) 순모임 가이드 자리 (components/sunGuide.jsx) ───────────────────────
 // 가이드는 화면에서 잠시 빠져 있다(services/sunGuide.js SUN_GUIDE_ON — 사용자 지시 2026-09-05).
 // 스위치가 꺼져 있으면 "아무에게도 안 보인다"만 보고, 켜면 아래 검사가 그대로 살아난다.

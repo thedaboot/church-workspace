@@ -11,8 +11,7 @@ import { keepVisible } from '../utils.js';
 import { PassagePicker, PassageBody } from './worshipPassage.jsx';
 import { EmptyBookMark } from './wordBible.jsx';
 import { RichText } from './RichText.jsx';
-import { DocLinkGate, docEmbedKind } from './DocEmbed.jsx';
-import { makeViewPw, isLocked } from '../services/viewPw.js';
+import { DocEmbedModal, docEmbedKind } from './DocEmbed.jsx';
 import { objectParticle } from '../services/errorText.js';
 import { BTN, BTN_QUIET, WITH_ICON, FIELD } from './groupsParts.jsx';
 import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM } from '../services/worship.js';
@@ -175,42 +174,37 @@ const patchOf = (d) => ({
 });
 
 // ── 큐시트 (0053) ────────────────────────────────────────────────────────────
-// 구글 문서 링크 한 칸이다(`services.cue_sheet` jsonb — {url, title, view_pw, view_pw_salt}).
-// 비밀번호는 첨부(0023)와 **같은 규칙·같은 한계**다: 우리 화면에서 가리는 것뿐이고 주소를
-// 아는 사람은 그대로 연다. 그래서 "비밀번호를 아는 사람만 앱에서 열 수 있어요"는 사용법
-// 안내가 아니라 **무엇이 밖으로 나가는지에 대한 고지**라 §8의 안내 줄 금지와 다르다.
+// 구글 문서 링크 한 칸이다(`services.cue_sheet` jsonb — {url, title}). **비밀번호는 없다**
+// (사용자 결정 2026-09-08 "큐시트는 비밀번호 안 걸어도 돼" — 0053의 view_pw 두 칸은 비워 둔다).
+// 발행된 주보를 읽는 사람이면 누구나 연다.
 const cueOf = (s) => (s && typeof s.cue_sheet === 'object' ? s.cue_sheet : null);
 const cueUrl = (s) => String(cueOf(s)?.url || '').trim();
 
-// 잠금·창 열기는 **참고 링크와 같은 한 벌**(DocEmbed의 DocLinkGate)이다 — 큐시트만 따로
-// 물어보는 줄을 만들면 같은 앱에서 문서 여는 방식이 두 가지가 된다.
+// 창 열기는 **참고 링크와 같은 창**(DocEmbed의 DocEmbedModal)이다 — 같은 앱에서 문서 여는
+// 방식이 두 가지가 되지 않게.
 function CueSheetView({ cue }) {
+  const [open, setOpen] = useState(false);
   return (
     <section className="worship-cue mt-5 p-3 rounded-[10px]" style={CARD_BOX}>
-      {/* 줄 전체가 누르는 자리다 — 오른쪽 '열기'는 그 사실을 눈에 보이게 하는 표식이고,
-          잠금 줄(PwPrompt)은 이 줄 **아래**에 선다(그래서 감싸개가 block이다). */}
-      <DocLinkGate row={cue} url={cue.url} title={cue.title || '큐시트'} className="block cursor-pointer" pwClassName="mt-2.5">
-        <span className="flex items-center gap-2">
-          <FileText size={14} className="shrink-0 text-fg-faint" />
-          <span className="worship-cue-title min-w-0 flex-1 text-[12.5px] font-semibold text-fg truncate">
-            큐시트{cue.title ? ` · ${cue.title}` : ''}
-          </span>
-          {isLocked(cue) && <Lock size={12} className="shrink-0 text-fg-faint" />}
-          <span className={`worship-cue-open shrink-0 ${BTN_SOFT}`}>열기</span>
+      {/* 줄 전체가 누르는 자리다 — 오른쪽 '열기'는 그 사실을 눈에 보이게 하는 표식 */}
+      <button type="button" onClick={() => setOpen(true)} className="w-full text-left flex items-center gap-2">
+        <FileText size={14} className="shrink-0 text-fg-faint" />
+        <span className="worship-cue-title min-w-0 flex-1 text-[12.5px] font-semibold text-fg truncate">
+          큐시트{cue.title ? ` · ${cue.title}` : ''}
         </span>
-      </DocLinkGate>
+        <span className={`worship-cue-open shrink-0 ${BTN_SOFT}`}>열기</span>
+      </button>
+      {open && <DocEmbedModal url={cue.url} title={cue.title || '큐시트'} onClose={() => setOpen(false)} />}
     </section>
   );
 }
 
-// 편집 줄 — 주소·제목·비밀번호. 주소가 구글 문서가 아니면 **저장하지 않고** 그 자리에서
+// 편집 줄 — 주소·제목. 주소가 구글 문서가 아니면 **저장하지 않고** 그 자리에서
 // 말한다(잘못된 주소를 담아 두면 보기 화면에 열리지 않는 줄이 선다).
 function CueSheetEdit({ value, onChange }) {
   const cur = value || {};
   const [url, setUrl] = useState(cur.url || '');
-  const [pw, setPw] = useState('');
   const bad = !!url.trim() && !docEmbedKind(url.trim());
-  const locked = isLocked(cur);
 
   const commitUrl = (next) => {
     setUrl(next);
@@ -219,13 +213,6 @@ function CueSheetEdit({ value, onChange }) {
     if (!docEmbedKind(clean)) return;                 // 모양이 아니면 담지 않는다
     onChange({ ...cur, url: clean });
   };
-  const applyPw = async () => {
-    const p = pw.trim();
-    if (!p || !cueOfDraftHasUrl(cur, url)) return;
-    onChange({ ...cur, url: url.trim() || cur.url, ...(await makeViewPw(p)) });
-    setPw('');
-  };
-  const clearPw = () => onChange({ ...cur, view_pw: null, view_pw_salt: null });
 
   return (
     <div className="worship-cue-edit sm:col-span-2 min-w-0 pt-3" style={{ borderTop: '1px solid var(--app-line)' }}>
@@ -240,33 +227,11 @@ function CueSheetEdit({ value, onChange }) {
           <input className={`${INPUT} w-full`} value={cur.title || ''} aria-label="큐시트 제목"
             onChange={e => onChange({ ...cur, title: e.target.value })} placeholder="예: 9월 6일 큐시트" />
         </Field>
-        <Field label="비밀번호 걸기">
-          {locked ? (
-            <div className="flex items-center gap-1.5">
-              <span className="worship-cue-locked inline-flex items-center gap-1 text-[12px] text-fg-muted">
-                <Lock size={12} className="shrink-0" /> 비밀번호를 아는 사람만 앱에서 열 수 있어요
-              </span>
-              <span className="flex-1" />
-              <button type="button" onClick={clearPw} className={`worship-cue-unlock shrink-0 ${BTN_QUIET}`}>풀기</button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5">
-              <input className={`${INPUT} flex-1 min-w-0`} type="password" value={pw} aria-label="큐시트 비밀번호"
-                onChange={e => setPw(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyPw(); } }}
-                placeholder="비밀번호(선택)" />
-              <button type="button" onClick={applyPw} disabled={!pw.trim() || !url.trim()}
-                className={`worship-cue-lock shrink-0 ${BTN_SOFT}`}>걸기</button>
-            </div>
-          )}
-        </Field>
       </div>
     </div>
   );
 }
 
-// 주소가 아직 없으면 비밀번호를 걸 것도 없다(빈 큐시트에 자물쇠만 남는 것을 막는다)
-const cueOfDraftHasUrl = (cur, url) => !!String(url || cur?.url || '').trim();
 
 // ── 보기 ─────────────────────────────────────────────────────────────────────
 function WordTab({ service, onOpenBible }) {
