@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Trash2, Lock } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { SectionHead } from '../views/dashboardParts.jsx';
 import { RichText } from './RichText.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
@@ -20,6 +20,8 @@ import { formatServiceDate } from '../services/worship.js';
 //
 // 공유된 예배 노트는 **shared_to_sun을 켠 글만** 온다(결정 7 · 0036 same_sun). 순장에게
 // 순원의 비공개 노트를 보여주지 않는다 — '안 한 사람이 지목되는' 구조를 만들지 않는다.
+// **내 비공개 노트도 오지 않는다**(사용자 지시 2026-09-07) — 이 구역의 이름이
+// '내 순에 공유된 예배 노트'라서, 공유하지 않은 글이 서면 이름과 내용이 어긋난다.
 // 없는 줄은 그리지 않는다: 공유된 노트가 하나도 없으면 그 구역 자체가 없다.
 //
 // **폭은 대시보드 계열과 하나다**(사용자 지시 2026-09-01) — 내 순·동아리·순 편성이
@@ -103,8 +105,9 @@ export function SunNotesSection({ notes = [], onShare }) {
   );
 }
 
-// 노트 한 줄. **내 노트는 비공개여도 여기 온다**(사용자 결정 2026-09-03) — 그 줄에서
-// 바로 공유를 켜고 끈다. 남의 비공개 노트는 애초에 오지 않는다(결정 7 · groups.js).
+// 노트 한 줄. **여기 서는 것은 공유된 노트뿐이다**(사용자 지시 2026-09-07 — 한동안은
+// 내 비공개 노트도 잠금 표시를 달고 섰다). 내 줄에는 공유 토글이 그대로 남아서 여기서
+// 공유를 끌 수 있고, 끄면 그 줄이 목록에서 사라진다(조회가 shared_to_sun만 본다).
 // 바꾼 뒤에는 초록 칩으로 지금 상태를 말한다 — 토스트로 띄우면 목록의 어느 줄이
 // 바뀐 것인지 알 수 없다.
 //
@@ -136,23 +139,25 @@ function NoteRow({ note, onShare }) {
 
   return (
     <div className={`mysun-note dc-row p-3.5 ${CARD}`} style={CARD_STYLE}>
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2 gap-y-1.5 flex-wrap">
         <p className="text-[11.5px] text-fg-muted">
           {[note.serviceDate ? formatServiceDate(note.serviceDate) : '', note.name].filter(Boolean).join(' · ')}
         </p>
-        {note.mine && !note.shared && (
-          <span className="mysun-note-lock inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tag-yellow text-tag-yellow-fg text-[10px] font-bold">
-            <Lock size={9} /><span>나만 보기</span>
-          </span>
-        )}
         {!!state && (
           <span className="mysun-note-said"><ShareChip state={state} label={said} /></span>
         )}
         <span className="flex-1" />
+        {/* 좁은 폭에서는 토글이 **줄 아래에서 폭을 채운다**(두 쪽이 반씩). 예전에는
+            `shrink-0`인 채로 접혀서, 날짜 줄 오른쪽 끝과 토글 왼쪽 끝이 어긋난 자리에
+            버튼 두 개가 떠 있었다(사용자 지적 2026-09-07). 640부터는 지금처럼 오른쪽 끝이다.
+            폭은 ShareToggle의 `className`으로 준다 — 그 부품은 말씀·예배와 함께 쓰는
+            공용이라 안을 고치지 않는다(components/ShareToggle.jsx). 안쪽 두 쪽은 그 부품이
+            `grow`로 남는 폭을 나누는데, **정확히 반씩**이려면 basis가 0이어야 해서
+            좁은 폭에서만 `flex-1`을 얹는다(라벨 길이가 달라 grow만으로는 한쪽이 넓다). */}
         {note.mine && (
-          <span className="mysun-note-share shrink-0">
+          <span className="mysun-note-share w-full sm:w-auto sm:shrink-0 [&_button]:flex-1 sm:[&_button]:flex-none">
             <ShareToggle value={!!note.shared} disabled={state === 'saving'}
-              onChange={setShare} shareLabel="순에 공유하기" />
+              onChange={setShare} shareLabel="순에 공유하기" className="w-full sm:w-auto" />
           </span>
         )}
       </div>

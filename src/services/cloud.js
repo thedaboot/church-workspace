@@ -143,10 +143,28 @@ export async function setMyTeams(teamIds) {
 // **있는 행은 건드리지 않는다** — 예전 upsert는 getMyProfile이 잠깐 비어 돌아온 순간 OAuth 메타(카카오·
 // 구글 기본 사진, 가입 때 이름)로 사용자가 바꿔 둔 사진·이름을 덮어썼다(2026-09-03 지적 — "내 프로필 사진이
 // 갑자기 카카오 프로필로 바뀌었다"). 자가 복구는 '없으면 만들기'까지만이다.
+// 카카오·구글이 준 사진 주소인가(우리 Storage가 아님). 이 주소는 **그쪽 사정으로 죽는다** —
+// 카카오는 프로필 사진을 바꾸면 옛 주소가 404가 되고, 구글 lh3 주소도 갱신된다. 그러면
+// Avatar가 깨진 그림을 글자 원으로 되돌려서 "갑자기 기본 프로필로 바뀌었다"가 된다
+// (사용자 보고 2026-09-07 · 라이브에 카카오 5 · 구글 5 주소가 그대로 박혀 있었다).
+const isProviderAvatar = (url) => /(kakaocdn\.net|googleusercontent\.com)/i.test(String(url || ''));
+
 export async function ensureMyProfile(user) {
   const meta = user.user_metadata || {};
   const existing = await client().from('profiles').select('*').eq('id', user.id).maybeSingle();
-  if (existing.data) return existing.data;
+  if (existing.data) {
+    // 사진이 **제공자 주소**이고 로그인으로 새 주소가 왔으면 그것으로 바꾼다 — Supabase는 OAuth
+    // 로그인마다 user_metadata를 제공자 값으로 갱신하므로 여기 오는 것이 지금 살아 있는 주소다.
+    // 직접 올린 사진(Storage)이나 '기본으로'(null)는 사용자의 선택이라 건드리지 않는다
+    // (회차 8의 덮어쓰기 버그와 반대 방향 — 그때는 사용자 사진을 제공자 값으로 덮었다).
+    const cur = existing.data.avatar_url;
+    const fresh = meta.avatar_url || meta.picture || null;
+    if (cur && fresh && cur !== fresh && isProviderAvatar(cur) && isProviderAvatar(fresh)) {
+      const { data } = await client().from('profiles').update({ avatar_url: fresh }).eq('id', user.id).select().maybeSingle();
+      if (data) return data;
+    }
+    return existing.data;
+  }
   const row = {
     id: user.id,
     display_name: meta.full_name || meta.name || null,
@@ -1103,8 +1121,14 @@ export async function listMyNotifications(limit = 30) {
 // 막혀 42501(new row violates row-level security policy)로 **insert까지 롤백된다.**
 // 그래서 멘션 알림이 한 번도 생성되지 않았다(호출부가 실패를 조용히 삼켜 화면에도
 // 아무 표시가 없었다). 넣기만 하고 돌려받지 않는다.
-export async function insertNotifications(recipientIds, { actorName, cardId, projectId, preview, kind = 'mention' }) {
-  const ids = [...new Set((recipientIds || []).filter(Boolean))];
+// link — 업무가 아닌 알림(예배·모임, 0053)이 갈 우리 주소('/?p=worship&s=…'). 업무 알림은
+// card_id·project_id로 딥링크를 만들므로 비워 둔다. **본인은 여기서도 뺀다** — 호출부마다
+// 거르던 규칙을 관문 한 곳에서 한 번 더(주보 발행 알림은 '승인 멤버 전원'이 받는 사람이라
+// 호출부가 자기 id를 빼먹기 쉽다).
+export async function insertNotifications(recipientIds, { actorName, cardId, projectId, preview, kind = 'mention', link = null }) {
+  const { data: { user } } = await client().auth.getUser();
+  const me = user?.id || null;
+  const ids = [...new Set((recipientIds || []).filter(id => id && id !== me))];
   if (!ids.length) return 0;
   const rows = ids.map(recipient_id => ({
     recipient_id,
@@ -1113,6 +1137,7 @@ export async function insertNotifications(recipientIds, { actorName, cardId, pro
     card_id: cardId || null,
     project_id: projectId || null,
     preview: (preview || '').slice(0, 200) || null,
+    link: link || null,
   }));
   const { error } = await client().from('notifications').insert(rows);
   if (error) throw error;
@@ -1120,7 +1145,7 @@ export async function insertNotifications(recipientIds, { actorName, cardId, pro
   // 여기 붙이면 종류가 늘어도 푸시가 따라온다. 갈라 두면 한쪽만 도는 경로가 생긴다.
   // 기다리지 않는다: 발송이 늦어도 저장 흐름을 붙잡지 않아야 하고, 실패는 삼킨다
   // (앱 안 알림은 이미 들어갔다).
-  void requestPush(ids, { actorName, cardId, projectId, preview, kind });
+  void requestPush(ids, { actorName, cardId, projectId, preview, kind, link });
   return rows.length;
 }
 
@@ -1300,4 +1325,26 @@ export async function addAdmin(email) {
 export async function removeAdmin(email) {
   const { error } = await client().from('admins').delete().eq('email', String(email).trim().toLowerCase());
   if (error) throw error;
+}
+
+// ── 참고 링크 비밀번호 (0053) ───────────────────────────────────────────────
+// 첨부(0023)와 **같은 화면 가림**이다 — 링크 자체를 잠그지 않는다. 주소를 직접 아는
+// 사람은 그대로 연다. 그래서 화면 문구에 '암호화'라는 말을 쓰지 않는다.
+// 위의 `sha256Hex`·`setFilePassword`와 같은 계산·같은 세 칸이다(view_pw · view_pw_salt ·
+// view_pw_by). 브라우저 쪽에서 같은 규칙을 쓰는 자리가 하나 더 있다 —
+// `services/viewPw.js`(주보 큐시트는 services 행의 jsonb 한 칸이라 이 경로를 안 지난다).
+// **한쪽 알고리즘을 고치면 그쪽도 같이 고쳐야 한다.**
+// 빈 비밀번호 = 잠금 풀기. 소금만 남기지 않고 세 칸을 다 지운다.
+export async function setLinkPassword(linkId, password) {
+  const c = client();
+  if (!password) {
+    return unwrap(await c.from('resource_links')
+      .update({ view_pw: null, view_pw_salt: null, view_pw_by: null })
+      .eq('id', linkId).select().single());
+  }
+  const salt = crypto.randomUUID();
+  const me = (await getSession())?.user?.id ?? null;
+  return unwrap(await c.from('resource_links')
+    .update({ view_pw: await sha256Hex(salt + password), view_pw_salt: salt, view_pw_by: me })
+    .eq('id', linkId).select().single());
 }

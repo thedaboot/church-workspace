@@ -6,13 +6,16 @@ import { failText } from '../services/errorText.js';
 import { useAuth } from '../services/auth.jsx';
 import { useCached, readCache, writeCache, dropCache } from '../services/cache.js';
 import { useLiveRefresh } from '../services/liveV2.js';
+import { takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { ServiceDetail, WorshipEmpty } from '../components/worshipDetail.jsx';
 import { AttendanceScreen } from '../components/worshipAttendance.jsx';
 import {
   SUNDAY_KIND, kindLabel, formatServiceDate, nextSundayDate, serviceYear, worshipPerms, mergeSongs,
   fetchServices, fetchWorshipPerms, fetchRoster, createService, saveService, publishService, removeService,
-  fetchAttendance, checkIn, checkOut, addRosterPerson, addToSun, fetchMyNote, saveMyNote,
+  fetchAttendance, checkIn, checkOut, fetchMyNote, saveMyNote,
+  fetchGuests, addGuest as addGuestRow, removeGuest as removeGuestRow, fetchAttendanceCounts,
+  notifyServicePublished, notifyNoteShared,
   saveAttendanceNote as saveAttendanceNoteRow,
   fetchPlaylistSongs, fetchVideoTitle, setNoteShared,
   fetchServiceFiles, ensureServiceDriveFolder, uploadServiceFile, removeServiceFile,
@@ -93,18 +96,25 @@ const metaParts = (service) => [
   ['preacher', service.preacher || null],
 ].filter(([, v]) => !!v);
 
-function ServiceCard({ service, onOpen }) {
+// 카드 오른쪽 위의 작은 칩 자리는 **하나뿐**이다. 작성 중이면 그 배지가, 이미 지나간
+// 발행본이면 출석 수가 선다(두 상태가 같이 오는 일은 없다 — 작성 중은 발행 전이다).
+// 출석 수를 **메타 줄에 넣지 않은 이유**: 그 줄은 폭에 따라 도막을 빼는 컨테이너 쿼리로
+// 한 줄을 지키는데(§6-9-q · index.css), 도막을 하나 더 얹으면 그 계산이 통째로 어긋난다.
+function ServiceCard({ service, onOpen, attended = 0 }) {
   const isDraft = service.status !== 'published';
   return (
     <button type="button" onClick={() => onOpen(service)}
-      className={`worship-card dc-card w-full text-left px-3.5 py-3 ${CARD}`} style={CARD_STYLE}>
+      className={`worship-card dc-card w-full text-left px-4 py-3.5 ${CARD}`} style={CARD_STYLE}>
       <div className="flex items-start gap-2">
         <p className="worship-card-title flex-1 min-w-0 text-[15px] font-bold text-fg tracking-[-0.2px] break-words">
           {service.title || '설교 제목 미정'}
         </p>
-        {isDraft && (
+        {isDraft ? (
           <span className="worship-draft-badge shrink-0 mt-0.5 px-2 py-0.5 rounded-full bg-tag-yellow text-tag-yellow-fg text-[10.5px] font-bold">작성 중</span>
-        )}
+        ) : attended > 0 ? (
+          <span className="worship-card-att shrink-0 mt-0.5 px-2 py-0.5 rounded-full text-[10.5px] font-bold tabular-nums whitespace-nowrap"
+            style={{ background: 'var(--app-surface-hover)', color: 'var(--app-ink-muted)' }}>출석 {attended}명</span>
+        ) : null}
       </div>
       {/* 도막마다 span이고 구분점은 그 앞에 붙는다 — 도막이 빠지면 구분점도 같이 빠진다 */}
       <p className="worship-card-meta mt-1 text-[12.5px] leading-relaxed text-fg-muted truncate">
@@ -205,7 +215,10 @@ function NewServiceForm({ onCreate, onCancel, closing = false }) {
   );
 }
 
-function ServiceList({ services, perms, onOpen, onCreate }) {
+function ServiceList({ services, perms, counts = {}, onOpen, onCreate }) {
+  // 출석 수는 **지난 예배**에만 붙인다 — 오늘·앞으로 올 예배의 '출석 0명'은 아직 부르지
+  // 않았다는 뜻이지 아무도 안 왔다는 뜻이 아니다(그 예배의 출석은 출석 화면이 말한다).
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
   const [kind, setKind] = useState('all');
   const [draftsOnly, setDraftsOnly] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -270,7 +283,10 @@ function ServiceList({ services, perms, onOpen, onCreate }) {
           넓혔는데 정보가 줄어드는 구간이 생긴다. 1536부터는 3열에서도 카드가 491px이라
           날짜·종류·본문·설교자가 다 한 줄에 선다(index.css의 메타 규칙과 한 벌이다). */}
       <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
-        {shown.map(s => <ServiceCard key={s.id} service={s} onOpen={onOpen} />)}
+        {shown.map(s => (
+          <ServiceCard key={s.id} service={s} onOpen={onOpen}
+            attended={String(s.service_date) < today ? (counts[s.id] || 0) : 0} />
+        ))}
       </div>
       {!shown.length && (
         <WorshipEmpty text={draftsOnly ? '작성 중인 주보가 아직 없어요' : '발행된 주보가 아직 없어요'} />
@@ -300,18 +316,20 @@ export function WorshipView({ onOpenBible } = {}) {
   // 게스트에서는 캐시가 메모리에만 있어서(cache.js) 새로고침하면 첫 진입과 같다.
   const year = new Date().getFullYear();
   const cached = useCached(`worship:list:${year}`,
-    () => Promise.all([fetchWorshipPerms(year, { isMaster, isAdmin }), fetchServices()])
-      .then(([ps, rows]) => ({ perms: ps, services: rows })),
+    () => Promise.all([fetchWorshipPerms(year, { isMaster, isAdmin }), fetchServices(), fetchAttendanceCounts()])
+      .then(([ps, rows, n]) => ({ perms: ps, services: rows, counts: n })),
     [isMaster, isAdmin, year]);
 
   // 캐시 값은 **첫 렌더부터** 들고 있다(useState 초기값) — 이펙트에서 넣으면 한 프레임
   // 동안 스켈레톤이 그려진다. 화면이 낙관적으로 고치는 값이라 지역 상태로 받아 둔다.
   const [perms, setPerms] = useState(() => cached.data?.perms ?? null);
   const [services, setServices] = useState(() => cached.data?.services ?? null);
+  const [counts, setCounts] = useState(() => cached.data?.counts ?? {});   // 주보 id → 출석 수(손님 포함)
   const [openId, setOpenId] = useState(null);
   const [screen, setScreen] = useState('list');      // 'list' | 'detail' | 'attendance'
   const [roster, setRoster] = useState({ people: [], groups: [], members: [], roles: [] });
   const [present, setPresent] = useState(() => new Set());
+  const [guests, setGuests] = useState([]);          // 이 주보의 미등록 출석자(0053)
   const [note, setNote] = useState(null);
   const [files, setFiles] = useState([]);                // 이 주보에 붙은 송폼(0047)
   const [editOnOpen, setEditOnOpen] = useState(false);   // 만들자마자 수정 화면으로
@@ -324,6 +342,7 @@ export function WorshipView({ onOpenBible } = {}) {
   useEffect(() => {
     if (!cached.data) return;
     setPerms(cached.data.perms); setServices(cached.data.services);
+    setCounts(cached.data.counts || {});
   }, [cached.data]);
 
   useEffect(() => {
@@ -359,25 +378,46 @@ export function WorshipView({ onOpenBible } = {}) {
     const hit = readCache(key);
     setRoster(hit?.roster || { people: [], groups: [], members: [], roles: [] });
     setPresent(new Set(hit?.present || []));
+    setGuests(hit?.guests || []);
     setNote(hit?.note ?? null);
     setFiles(hit?.files || []);
     try {
-      const [r, att, n, fs] = await Promise.all([
+      const [r, att, gs, n, fs] = await Promise.all([
         fetchRoster(serviceYear(svc.service_date)),
         fetchAttendance(svc.id),
+        fetchGuests(svc.id),
         canWriteNote ? fetchMyNote(svc.id) : Promise.resolve(null),
         fetchServiceFiles(svc.id),
       ]);
-      setRoster(r); setPresent(new Set(att)); setNote(n);
+      setRoster(r); setPresent(new Set(att)); setGuests(gs); setNote(n);
       // 올리는 중인 줄은 조회 결과가 덮지 않는다 — 드라이브에도 DB에도 아직 없어서
       // 이 조회에 안 잡히는데, 그대로 갈아 끼우면 방금 고른 파일이 화면에서 사라진다.
       setFiles(prev => [...fs, ...prev.filter(f => f._pending)]);
-      writeCache(key, { roster: r, present: att, note: n, files: fs });
+      writeCache(key, { roster: r, present: att, guests: gs, note: n, files: fs });
     } catch (e) {
       console.error('[worship] 주보 상세 실패:', e);
       showToast(fail('주보에 딸린 명단과 출석을 받지 못했어요', e, { 42501: '승인된 멤버만 명단을 볼 수 있어요' }));
     }
   }, [canWriteNote]);
+
+  // ── 딥링크 진입 (`/?p=worship&s=<주보 id>` · 0053의 알림 link) ──────────────
+  // 알림에서 눌러 들어오면 목록이 아니라 **그 주보 상세**를 연다. 두 갈래를 한 이펙트가
+  // 받는다: ① 새로 열린 앱(주소에 실려 온 값 — entryQuery가 모듈 로드 때 붙잡아 둔다)
+  // ② 이미 떠 있는 앱에서 종을 누른 경우(App이 setEntryQuery로 값을 넣고 신호를 보낸다).
+  // **값을 붙잡아 두는 이유**: takeEntryParam은 한 번 읽으면 지우는데, 그 순간 목록이 아직
+  // 안 왔을 수 있다(첫 진입은 조회가 돈다). 기억해 두었다가 그 주보가 목록에 나타나면 연다.
+  const entrySignal = useEntryQuery();
+  const wantId = useRef(null);
+  useEffect(() => {
+    const taken = takeEntryParam('s');
+    if (taken) wantId.current = taken;
+    const id = wantId.current;
+    if (!id || !services) return;
+    const svc = services.find(s => s.id === id);
+    if (!svc) return;                    // 아직 목록에 없다 — 다음 갱신에서 다시 본다
+    wantId.current = null;
+    open(svc);
+  }, [entrySignal, services, open]);
 
   const create = useCallback(async (v) => {
     try {
@@ -417,11 +457,14 @@ export function WorshipView({ onOpenBible } = {}) {
       setServices(list => (list || []).map(s => (s.id === openId ? { ...s, status: 'published' } : s)));
       invalidate();
       showToast('주보를 발행했어요');
+      // 승인 멤버 전원에게 알린다(0053). **기다리지 않는다** — 발행은 이미 끝났고,
+      // 알림이 늦거나 실패해도 화면은 그대로다(services/worship.js가 콘솔에만 남긴다).
+      if (service) void notifyServicePublished({ ...service, status: 'published' });
     } catch (e) {
       console.error('[worship] 주보 발행 실패:', e);
       showToast(fail('주보를 발행하지 못했어요', e, { 42501: NEED_EDIT, PGRST116: GONE }));
     }
-  }, [openId, invalidate]);
+  }, [openId, service, invalidate]);
 
   const drop = useCallback(async () => {
     const id = openId;
@@ -439,11 +482,20 @@ export function WorshipView({ onOpenBible } = {}) {
     }
   }, [openId, invalidate]);
 
+  // 노트를 순에 공유로 **바꾸는 순간에만** 순장에게 알린다(0053). 이미 공유 상태에서
+  // 글만 다시 저장하는 것은 알림이 아니다 — 그러면 고칠 때마다 순장에게 종이 울린다.
+  const notifyIfNewlyShared = useCallback((wasShared, nowShared) => {
+    if (wasShared || !nowShared || !service) return;
+    void notifyNoteShared(service);
+  }, [service]);
+
   const saveNote = useCallback(async ({ body, sharedToSun }) => {
+    const wasShared = !!note?.shared_to_sun;
     try {
       const row = await saveMyNote(openId, { body, sharedToSun });
       if (row) setNote(row);
       invalidate();
+      notifyIfNewlyShared(wasShared, !!sharedToSun);
       return true;
     } catch (e) {
       console.error('[worship] 예배 노트 저장 실패:', e);
@@ -453,7 +505,7 @@ export function WorshipView({ onOpenBible } = {}) {
       }));
       return false;
     }
-  }, [openId, invalidate]);
+  }, [openId, note, invalidate, notifyIfNewlyShared]);
 
   // 상세 캐시(`worship:svc:<id>`)의 출석만 그 자리에서 갈아 끼운다. 출석은 주보 목록을
   // 바꾸지 않으므로 목록을 다시 읽을 이유가 없다 — 칩 하나에 조회 넷이 돌던 자리다.
@@ -465,6 +517,18 @@ export function WorshipView({ onOpenBible } = {}) {
     if (next) list.add(personId); else list.delete(personId);
     writeCache(key, { ...hit, present: [...list] });
   }, [openId]);
+
+  // 목록 카드의 '출석 N명'을 그 자리에서 더하고 뺀다. 목록을 다시 읽으면 출석 칩 한 번에
+  // 조회가 통째로 돌아서(위 patchAttendanceCache와 같은 이유) 지역 상태와 목록 캐시를
+  // 같이 고친다 — 안 고치면 출석을 부르고 목록으로 나갔을 때 옛 숫자가 한 번 보인다.
+  const patchCount = useCallback((delta) => {
+    if (!openId || !delta) return;
+    const bump = (m = {}) => ({ ...m, [openId]: Math.max(0, (m[openId] || 0) + delta) });
+    setCounts(bump);
+    const key = `worship:list:${year}`;
+    const hit = readCache(key);
+    if (hit) writeCache(key, { ...hit, counts: bump(hit.counts) });
+  }, [openId, year]);
 
   // 출석은 먼저 화면에 반영하고 실패하면 되돌린다 — 한 명씩 누르는 조작이라
   // 서버를 기다리면 목록 전체가 굼떠 보인다.
@@ -480,6 +544,7 @@ export function WorshipView({ onOpenBible } = {}) {
     try {
       await (next ? checkIn : checkOut)(openId, personId);
       patchAttendanceCache(personId, next);
+      patchCount(next ? 1 : -1);
       dropCache('home');   // 홈의 '내 순' 카드가 지난 주일 참석 수를 센다(homeView)
     } catch (e) {
       console.error('[worship] 출석 변경 실패:', e);
@@ -487,7 +552,7 @@ export function WorshipView({ onOpenBible } = {}) {
       // 있는데 화면만 끄면 정확히 반대로 말하게 된다(services의 checkIn은 upsert라
       // 여기까지 오지도 않지만, 경합으로 다른 길에서 올 수 있다).
       const dup = String(e?.code) === '23505';
-      if (dup && next) { patchAttendanceCache(personId, true); return; }
+      if (dup && next) { patchAttendanceCache(personId, true); patchCount(1); return; }
       setPresent(prev => {
         const s = new Set(prev);
         if (next) s.delete(personId); else s.add(personId);
@@ -499,61 +564,65 @@ export function WorshipView({ onOpenBible } = {}) {
         23503: '이 주보나 명단이 이미 지워졌어요\n새로고침해주세요',
       }));
     }
-  }, [openId, roster.people, patchAttendanceCache]);
+  }, [openId, roster.people, patchAttendanceCache, patchCount]);
 
-  // 미등록 출석자 — **두 걸음이라 실패도 두 가지다**(명단에 올리기 → 출석으로 표시).
-  // 한 덩이로 묶어 두면 이미 명단에 올라간 뒤에 출석만 실패했는데도 '명단에 올리지
-  // 못했어요'라고 거짓말을 하게 된다(사용자 지시 2026-09-03 — 무엇을 못 했는지가
-  // 정확해야 한다).
-  //
-  // **순장이 올린 사람은 그 순의 명단에도 넣는다**(2026-09-06). 출석 정책이 보는 것은
-  // `leads_sun_of(person_id)` — "그 사람이 내 순의 순원인가"인데, 갓 만든 사람은 어느
-  // 순에도 없어서 순장에게는 이 기능이 **반만** 됐다(사람만 생기고 출석은 42501).
-  // 순이 둘 이상인 순장은 **첫 순**이다 — 고르게 하면 새신자 한 명에 조작이 한 겹 늘고,
-  // 옮기는 일은 순 편성 화면의 몫이다. 전체 자격자는 넣지 않는다(그 사람들은 순 미지정
-  // 묶음도 그대로 체크할 수 있고, 남의 순에 함부로 편성하는 일이 된다).
-  const addPerson = useCallback(async (name) => {
+  // 상세 캐시의 손님 목록만 갈아 끼운다(출석 칩과 같은 이유 — 목록을 다시 읽지 않는다)
+  const patchGuestCache = useCallback((rows) => {
+    const key = `worship:svc:${openId}`;
+    const hit = readCache(key);
+    if (hit) writeCache(key, { ...hit, guests: rows });
+  }, [openId]);
+
+  // 미등록 출석자 — **명단에 올리지 않는다**(사용자 결정 2026-09-07 · 0053). 예전에는
+  // people에 행을 만들고 순장이면 자기 순(group_members)에까지 넣었는데, 출석을 부르다
+  // 잘못 적은 이름이 그대로 청년 명단에 남았고 이 화면에는 지우는 길이 없었다.
+  // 지금은 그 예배의 손님 한 줄이고, 걸음도 하나다(그래서 실패도 한 가지다).
+  const addGuest = useCallback(async (name) => {
     const clean = String(name || '').trim();
-    const sunId = (!perms?.canCheckAll && (perms?.ledGroupIds || [])[0]) || null;
-    let made = null;
     try {
-      made = await addRosterPerson(clean);
+      const made = await addGuestRow(openId, clean);
       if (!made) return null;
-      setRoster(r => ({ ...r, people: [...(r.people || []), made] }));
-      invalidate();
+      setGuests(prev => { const next = [...prev, made]; patchGuestCache(next); return next; });
+      patchCount(1);
+      dropCache('home');
+      return made;
     } catch (e) {
       console.error('[worship] 미등록 출석자 추가 실패:', e);
-      showToast(fail(`${clean}님을 명단에 올리지 못했어요`, e, {
-        42501: '출석을 체크할 수 있는 사람만 명단에 올릴 수 있어요',
+      showToast(fail(`${clean}님을 미등록 출석자로 올리지 못했어요`, e, {
+        42501: '출석을 체크할 수 있는 사람만 올릴 수 있어요',
+        23503: '이 주보가 이미 지워졌어요\n새로고침해주세요',
       }));
       return null;
     }
+  }, [openId, patchGuestCache, patchCount]);
+
+  // **확인 없이 바로 지운다**(알림 지우기와 같은 판단 · §8) — 잃는 것이 이름 한 줄이다.
+  // 대신 실패하면 그 자리에 되돌려 놓는다(줄이 사라진 채로 두면 지워진 것으로 읽힌다).
+  const removeGuest = useCallback(async (row) => {
+    let before = [];
+    setGuests(prev => { before = prev; const next = prev.filter(g => g.id !== row.id); patchGuestCache(next); return next; });
+    patchCount(-1);
+    dropCache('home');
     try {
-      if (sunId) {
-        await addToSun(sunId, made.id);
-        setRoster(r => ({ ...r, members: [...(r.members || []), { group_id: sunId, person_id: made.id }] }));
-      }
-      await checkIn(openId, made.id);
-      setPresent(prev => new Set(prev).add(made.id));
-      patchAttendanceCache(made.id, true);
-      dropCache('home');
-      showToast(`${made.name}님을 명단에 올리고 출석으로 표시했어요`);
+      await removeGuestRow(row.id);
     } catch (e) {
-      console.error('[worship] 미등록 출석자 출석 실패:', e);
-      showToast(fail(`${made.name}님을 명단에는 올렸지만 출석으로 표시하지 못했어요`, e, {
-        42501: '내 순 청년만 출석을 만질 수 있어요\n다른 순은 리더순장·교역자가 체크해요',
+      console.error('[worship] 미등록 출석자 삭제 실패:', e);
+      setGuests(before); patchGuestCache(before); patchCount(1);
+      showToast(fail(`${row.name}님을 지우지 못했어요`, e, {
+        42501: '출석을 체크할 수 있는 사람만 지울 수 있어요',
       }));
     }
-    return made;
-  }, [openId, perms, invalidate, patchAttendanceCache]);
+  }, [patchGuestCache, patchCount]);
 
   // 공유만 바꾸는 길 — 글을 다시 보내지 않는다(services의 setNoteShared 한 벌).
   // 모임 화면의 '공유된 노트' 목록도 같은 함수를 쓰기로 했다(보고서의 계약).
   const shareNote = useCallback(async (shared) => {
+    const wasShared = !!note?.shared_to_sun;
     try {
       const row = await setNoteShared(openId, shared);
       if (row) setNote(row);
       invalidate();
+      notifyIfNewlyShared(wasShared, !!shared);
       return true;
     } catch (e) {
       console.error('[worship] 예배 노트 공유 변경 실패:', e);
@@ -563,7 +632,7 @@ export function WorshipView({ onOpenBible } = {}) {
       }));
       return false;
     }
-  }, [openId, invalidate]);
+  }, [openId, note, invalidate, notifyIfNewlyShared]);
 
   // ── 송폼(0047) ────────────────────────────────────────────────────────────
   // 저장 자리·드라이브 길은 업무 첨부와 한 벌이다(services/worship.js). 여기가 갖는
@@ -682,8 +751,8 @@ export function WorshipView({ onOpenBible } = {}) {
   if (screen === 'attendance' && service) {
     return (
       <AttendanceScreen
-        service={service} roster={roster} present={present} perms={perms}
-        onToggle={toggle} onAddPerson={addPerson} onSaveNote={saveAttendanceNote}
+        service={service} roster={roster} present={present} guests={guests} perms={perms}
+        onToggle={toggle} onAddGuest={addGuest} onRemoveGuest={removeGuest} onSaveNote={saveAttendanceNote}
         onBack={() => setScreen('detail')}
       />
     );
@@ -707,5 +776,5 @@ export function WorshipView({ onOpenBible } = {}) {
     );
   }
 
-  return <ServiceList services={services} perms={perms} onOpen={open} onCreate={create} />;
+  return <ServiceList services={services} perms={perms} counts={counts} onOpen={open} onCreate={create} />;
 }

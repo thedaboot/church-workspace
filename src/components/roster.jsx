@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Plus, Check, Link2, Link2Off, UserX, Undo2, Loader2, Pencil, X, Search, CalendarDays } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
+import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { Skeleton } from './media.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { DatePicker } from './DatePicker.jsx';
@@ -43,7 +44,12 @@ const BTN = `${WITH_ICON} ${BTN_BASE}`;
 const BTN_QUIET = `${WITH_ICON} ${BTN_QUIET_BASE}`;
 const ROW = { borderBottom: '1px solid var(--app-line)' };
 // 칩이 이어지는 줄 — 넘치면 wrap이 아니라 가로 스크롤이다(보드 상태 칩·프로젝트 탭과 같다).
-const CHIP_ROW = 'flex items-center gap-1.5 flex-nowrap min-w-0 overflow-x-auto scrollbar-hide x-scroll-lock';
+// 끝까지 밀면 마지막 칩이 통 끝에 딱 붙어 답답했다(사용자 지적 2026-09-07) — 마지막에
+// 12px을 세워 여백을 남긴다. **스크롤 통의 padding-right로는 안 된다**: 넘쳐 흐른 내용에는
+// 그 여백이 안 걸린다(§6-2와 같은 이유). 그래서 ::after를 flex 항목 하나로 세운다.
+// views/views.jsx의 TEAM_CHIP_ROW(팀 보드 사람 칩)와 같은 한 벌이다.
+const CHIP_ROW = 'flex items-center gap-1.5 flex-nowrap min-w-0 overflow-x-auto scrollbar-hide x-scroll-lock'
+  + " after:content-[''] after:shrink-0 after:w-3";
 
 // 고를 수 있는 팀은 **사역 팀만**이다. CONFIG.TEAMS의 '임원진'·'교역자'는 팀이 아니라
 // 직분이고, 명단에서는 아래 '직분' 줄이 그 자리를 맡는다(people_roles · is_pastor).
@@ -275,14 +281,16 @@ function EditPanel({ person, linked, link, roleSet, year, busy, on }) {
 }
 
 // ── 명단 한 줄 ──────────────────────────────────────────────────────────────
-function PersonRow({ person, linked, sun, badges, open, busy, right, children, onOpen }) {
+// 줄 등장은 앱의 관례대로 `.dc-row` + 순번 지연이고, **순번은 첫 마운트에만** 준다
+// (useEnterStagger 주석 — 검색으로 목록이 갈릴 때 뒤늦게 나타나는 줄이 생기면 안 된다).
+function PersonRow({ person, linked, sun, badges, open, busy, right, children, delay = 0, onOpen }) {
   const meta = [];
   const bday = birthdayLabel(person.birthday);
   if (bday) meta.push(bday);
   if (person.teams?.length) meta.push(person.teams.join(' · '));
 
   return (
-    <div data-person={person.id} className="py-2.5" style={ROW}>
+    <div data-person={person.id} className="dc-row py-2.5" style={{ ...ROW, animationDelay: `${delay}ms` }}>
       <div className="flex items-center gap-2.5">
         <Avatar name={person.name} url={linked?.avatar_url || null} className="flex w-8 h-8 text-[13px] shrink-0" />
         <div className="flex-1 min-w-0">
@@ -336,6 +344,12 @@ export function RosterPanel({
   const shown = useMemo(() => searchPeople(here, q), [here, q]);
   const shownGone = useMemo(() => searchPeople(gone, q), [gone, q]);
 
+  // 줄 등장 순번은 **첫 마운트에만**이다 — 검색으로 목록이 갈릴 때 지연을 주면 새로
+  // 걸린 줄만 몇백 ms 뒤에 나타난다(useEnterStagger 주석). 지연 상한도 둔다:
+  // 명단은 쉰 줄이 넘어서 순번을 끝까지 주면 아래쪽이 1.5초 뒤에 뜬다.
+  const stagger = useEnterStagger();
+  const rowDelay = (i) => (stagger ? Math.min(i, 12) * 30 : 0);
+
   const handlers = {
     close: () => setOpenId(null),
     save: async (p, patch) => { if (await on.save?.(p, patch)) setOpenId(null); },
@@ -347,6 +361,11 @@ export function RosterPanel({
 
   return (
     <section className="dc-screen">
+      {/* 줄을 **정해서** 그린다 — flex-wrap에 맡겨 두었더니 375~430px에서 '사람 추가'만
+          다음 줄로 떨어져 왼쪽에 혼자 섰다(사용자 지적 2026-09-07).
+          모바일: [찾기 + 사람 추가] / [연도]  ·  ≥640: [찾기 + 연도 + 사람 추가] 한 줄.
+          연도만 `basis-full`로 둘째 줄을 차지하고, 그 안의 세그먼트는 감싸개 덕에
+          내용 폭 그대로다(basis-full을 세그먼트에 직접 주면 배경이 화면을 가로지른다). */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         {/* 이름으로 찾기 — 성경 리더의 검색 폼과 같은 모양이다(wordBible.jsx) */}
         <div className="flex-1 basis-[11rem] min-w-0 flex items-center gap-1.5 px-2.5 h-9 rounded-md"
@@ -359,21 +378,23 @@ export function RosterPanel({
               className="shrink-0 p-1 -mr-1 rounded text-fg-faint hover:text-fg transition-colors"><X size={13} /></button>
           )}
         </div>
-        {/* 연도 — 고를 값이 셋뿐이라 세그먼트 컨트롤이다(탭 줄과 같은 짜임) */}
-        <span role="group" aria-label="연도" className="flex p-[3px] rounded-[8px] shrink-0"
-          style={{ background: 'var(--app-surface-hover)' }}>
-          {years.map(y => (
-            <button key={y} type="button" data-year={y} onClick={() => on.year?.(y)} aria-pressed={year === y}
-              className="px-2.5 py-[6px] rounded-[5px] text-[12px] font-semibold tabular-nums transition-colors"
-              style={{
-                background: year === y ? 'var(--app-surface)' : 'transparent',
-                color: year === y ? 'var(--app-ink)' : 'var(--app-ink-muted)',
-              }}>{y}</button>
-          ))}
-        </span>
-        <button type="button" className={`${BTN} shrink-0`} onClick={() => setAdding(v => !v)}>
+        <button type="button" className={`${BTN} shrink-0 whitespace-nowrap sm:order-3`} onClick={() => setAdding(v => !v)}>
           <Plus size={13} /> 사람 추가
         </button>
+        {/* 연도 — 고를 값이 셋뿐이라 세그먼트 컨트롤이다(탭 줄과 같은 짜임) */}
+        <div className="flex shrink-0 basis-full sm:basis-auto sm:order-2">
+          <span role="group" aria-label="연도" className="flex p-[3px] rounded-[8px] shrink-0"
+            style={{ background: 'var(--app-surface-hover)' }}>
+            {years.map(y => (
+              <button key={y} type="button" data-year={y} onClick={() => on.year?.(y)} aria-pressed={year === y}
+                className="px-2.5 py-[6px] rounded-[5px] text-[12px] font-semibold tabular-nums transition-colors"
+                style={{
+                  background: year === y ? 'var(--app-surface)' : 'transparent',
+                  color: year === y ? 'var(--app-ink)' : 'var(--app-ink-muted)',
+                }}>{y}</button>
+            ))}
+          </span>
+        </div>
       </div>
 
       {adding && (
@@ -391,13 +412,13 @@ export function RosterPanel({
         <p className="py-6 text-[12.5px] text-fg-muted">
           {q ? `'${q}'와 이름이 맞는 사람을 못 찾았어요` : '청년 명단이 아직 비어 있어요'}
         </p>
-      ) : shown.map(p => {
+      ) : shown.map((p, i) => {
         const roleSet = roleMap.get(p.id) || new Set();
         const open = openId === p.id;
         return (
           <PersonRow key={p.id} person={p} linked={profileById.get(p.profile_id)}
             sun={(sunMap.get(p.id) || []).join(', ')} badges={personBadges(p, roleSet)}
-            open={open} busy={!!busy[p.id]} onOpen={() => setOpenId(open ? null : p.id)}>
+            open={open} busy={!!busy[p.id]} delay={rowDelay(i)} onOpen={() => setOpenId(open ? null : p.id)}>
             {open && (
               <EditPanel person={p} linked={profileById.get(p.profile_id)} link={link}
                 roleSet={roleSet} year={year} busy={!!busy[p.id]} on={handlers} />
@@ -409,10 +430,10 @@ export function RosterPanel({
       {shownGone.length > 0 && (
         <div className="mt-7" data-removed-section="">
           <Head title="환송한 사람" count={shownGone.length} />
-          {shownGone.map(p => (
+          {shownGone.map((p, i) => (
             <PersonRow key={p.id} person={p} linked={profileById.get(p.profile_id)}
               sun={(sunMap.get(p.id) || []).join(', ')} badges={personBadges(p, roleMap.get(p.id) || new Set())}
-              busy={!!busy[p.id]} right={
+              busy={!!busy[p.id]} delay={rowDelay(i)} right={
                 <button type="button" className={`${BTN_QUIET} shrink-0`} disabled={!!busy[p.id]}
                   onClick={() => on.remove?.(p, false)}>
                   {busy[p.id] ? <Loader2 size={13} className="animate-spin" /> : <Undo2 size={13} />} 되돌리기

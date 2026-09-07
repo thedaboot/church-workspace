@@ -134,7 +134,12 @@ const WORSHIP_DRAFT = {
   ],
 };
 
-const groupsSeed = (personId) => ({
+// notes: 우리 순에 공유된 예배 노트 수 — 홈 '내 순' 메타의 마지막 도막이다.
+// 기본은 0이라 그 도막이 아예 안 그려진다(다른 검사의 기대값이 그대로다).
+const groupsSeed = (personId, notes = 0) => ({
+  service_notes: Array.from({ length: notes }, (_, i) => ({
+    id: `n${i}`, profile_id: `u${i}`, shared_to_sun: true, body: '노트 한 줄',
+  })),
   people: [
     { id: 'p1', name: '김윤주', profile_id: 'u1' },
     { id: 'p2', name: '천진영', profile_id: null },
@@ -182,14 +187,18 @@ const cardClasses = () => ev(`[...document.querySelectorAll('.home-card')].map(c
 await send('Page.enable'); await send('Runtime.enable');
 // 스켈레톤은 게스트에서 한 프레임만 서 있다(localStorage는 곧바로 답한다) — 지나간
 // 뒤에 물어보면 언제나 없다. 문서가 만들어지기 전에 감시자를 심어 두고 나중에 묻는다.
+// **첫 그림의 자리 차례를 통째로 적어 둔다**(2026-09-07): 예전에는 '스켈레톤이 있었나'만
+// 봤는데, 진짜로 지켜야 하는 것은 **아직 안 온 갈래도 제 자리를 잡고 있는가**다.
 await send('Page.addScriptToEvaluateOnNewDocument', {
   source: `
-    window.__sawSkel = false; window.__skelN = 0;
+    window.__firstSlots = null; window.__firstSkel = 0;
     const ob = new MutationObserver(() => {
-      const el = document.querySelector('.home-loading');
-      if (!el) return;
-      window.__sawSkel = true;
-      window.__skelN = el.querySelectorAll('.dc-skeleton').length;
+      const grid = document.querySelector('.home-cards');
+      if (!grid) return;
+      const cells = [...grid.querySelectorAll('[data-slot]')];
+      if (!cells.length) return;
+      window.__firstSlots = cells.map(c => c.dataset.slot + ':' + c.dataset.state);
+      window.__firstSkel = grid.querySelectorAll('.home-skel').length;
       ob.disconnect();
     });
     // 이 스크립트는 문서가 만들어지기 **전에** 돈다 — documentElement는 아직 null이다
@@ -220,6 +229,21 @@ const pure = await ev(`(async () => {
     noNames: [7, 12, 20, 23].map(h => m.heroGreeting(h, '')),
     dates: ['2026-09-06', '2027-01-01', '2025-12-31', 'bad'].map(d => m.homeDateLabel(d)),
     dues: ['2026-09-04', '2027-01-01', ''].map(d => m.homeDueLabel(d)),
+    // 카드 자리의 차례 — 갈래마다 (아직 안 옴 / 있음 / 없음)을 넣고 무엇이 서는지
+    slots: (() => {
+      const of = (o) => m.orderedSlots(o).map(s => s.key + ':' + s.state);
+      const wait = { loading: true }, yes = { has: true }, no = {};
+      return {
+        allWait: of({ qt: wait, worship: wait, tasks: wait, sun: wait }),
+        // 셋이 먼저 와도 늦은 갈래(qt)가 **맨 앞자리를 지킨다** — 이게 이 함수의 이유다
+        lateQt: of({ qt: wait, worship: yes, tasks: yes, sun: yes }),
+        lateSun: of({ qt: yes, worship: yes, tasks: yes, sun: wait }),
+        // 와서 보니 없는 것만 빠진다(명단에 안 이어진 계정 · 주보 없음)
+        noSun: of({ qt: yes, worship: yes, tasks: yes, sun: no }),
+        noneYet: of({ qt: wait, worship: no, tasks: no, sun: wait }),
+        empty: of({ qt: no, worship: no, tasks: no, sun: no }),
+      };
+    })(),
   };
 })()`, true);
 check('다가오는 예배 중 가장 이른 것이 선다', pure.ahead === 'b', String(pure.ahead));
@@ -253,18 +277,37 @@ check('카드 날짜는 두 자리 연도로 적는다',
 check('마감 날짜도 두 자리 연도로, 없으면 미정',
   JSON.stringify(pure.dues) === JSON.stringify(['26. 9. 4.', '27. 1. 1.', '미정']), JSON.stringify(pure.dues));
 
+// 카드 차례는 **처음부터 고정**이다(사용자 지적 2026-09-07 — 늦게 오는 갈래가 나중에
+// 앞자리로 끼어들어 이미 읽던 카드가 아래로 밀렸다). 아직 안 온 갈래는 'wait'으로
+// 그 자리에 남고, **와서 보니 없는 것만** 빠진다.
+// 되돌리기 검사: orderedSlots의 filter에서 'wait'까지 빼면 lateQt·lateSun이 바로 깨진다.
+check('아직 안 온 갈래도 제 자리를 지킨다(차례는 V2 §3 고정)',
+  JSON.stringify(pure.slots.allWait) === JSON.stringify(['qt:wait', 'worship:wait', 'tasks:wait', 'sun:wait'])
+  && JSON.stringify(pure.slots.lateQt) === JSON.stringify(['qt:wait', 'worship:ready', 'tasks:ready', 'sun:ready'])
+  && JSON.stringify(pure.slots.lateSun) === JSON.stringify(['qt:ready', 'worship:ready', 'tasks:ready', 'sun:wait']),
+  JSON.stringify(pure.slots));
+check('와서 보니 없는 갈래만 자리를 뺀다',
+  JSON.stringify(pure.slots.noSun) === JSON.stringify(['qt:ready', 'worship:ready', 'tasks:ready'])
+  && JSON.stringify(pure.slots.noneYet) === JSON.stringify(['qt:wait', 'sun:wait'])
+  && JSON.stringify(pure.slots.empty) === '[]',
+  JSON.stringify(pure.slots));
+
 // ── 1) 첫 화면이 홈이다 ─────────────────────────────────────────────────────
 await enter();
 const head = await ev(`(() => ({
   screen: !!document.querySelector('.home-screen'),
   greeting: document.querySelector('.home-greeting')?.textContent.trim() || '',
   date: document.querySelector('.home-date')?.textContent.trim() || '',
-  skel: window.__sawSkel, skelN: window.__skelN,
+  slots: window.__firstSlots, skelN: window.__firstSkel,
 }))()`);
 check('앱을 열면 아무것도 누르지 않아도 홈이다', head.screen === true);
 check('머리줄 인사말은 그 시각의 문구다', head.greeting === wantGreeting, `${head.greeting} / ${wantGreeting}`);
 check('머리줄 날짜는 한국 시간 오늘이다', head.date === shortDayLabel(TODAY), `${head.date} / ${shortDayLabel(TODAY)}`);
-check('기다리는 동안 같은 자리에 스켈레톤이 선다', head.skel === true && head.skelN === 4, `${head.skel}/${head.skelN}`);
+// 첫 그림에서 이미 카드 자리 넷이 차례대로 서 있고, 아직 안 온 갈래(QT·예배·내 순)는
+// 스켈레톤 카드다. 업무는 스토어 값이라 기다릴 것이 없어 처음부터 내용이다.
+check('첫 그림부터 카드 자리 넷이 차례대로 서고 안 온 갈래는 스켈레톤이다',
+  JSON.stringify(head.slots) === JSON.stringify(['qt:wait', 'worship:wait', 'tasks:ready', 'sun:wait'])
+  && head.skelN === 3, `${JSON.stringify(head.slots)} / 스켈레톤 ${head.skelN}장`);
 
 // ── 1a) 두 번째 진입에는 스켈레톤이 없다 (services/cache.js · 사용자 요청 2026-09-03) ──
 // "매번 스켈레톤이 아니라 캐시된 값이 먼저 보이게." 홈 → 다른 탭 → 홈으로 돌아올 때
@@ -274,12 +317,18 @@ await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim(
 await sleep(1000);
 await goHome();
 const again = await ev(`(() => ({
-  skel: document.querySelectorAll('.home-loading').length,
-  bones: document.querySelectorAll('.home-loading .dc-skeleton').length,
+  skel: document.querySelectorAll('.home-skel').length,
+  bones: document.querySelectorAll('.home-cards .dc-skeleton').length,
   cards: document.querySelectorAll('.home-card').length,
+  // 캐시로 곧바로 선 카드는 순번 지연을 받으며 떠오른다(.dc-card) — 스켈레톤을 거친
+  // 것만 그 자리에서 밝아진다(.dc-fade). 재진입에는 거칠 스켈레톤이 없다.
+  enter: [...document.querySelectorAll('.home-cards > [data-slot]')]
+    .map(e => [...e.classList].filter(k => k === 'dc-card' || k === 'dc-fade').join()),
 }))()`);
 check('홈으로 돌아오면 스켈레톤 없이 곧바로 카드가 그려진다',
   again.skel === 0 && again.bones === 0 && again.cards === 4, JSON.stringify(again));
+check('캐시로 곧바로 선 카드는 순번 지연을 받으며 떠오른다',
+  again.enter.length === 4 && again.enter.every(k => k === 'dc-card'), JSON.stringify(again.enter));
 
 // ── 1b) 히어로 (사용자 피드백 2026-09-02 "너무 휑하다" → 09-03 "밍밍하다" → "하나만") ──
 // 랜딩 히어로: 큰 인사말 + 날짜 칩 한 줄 · 태그라인 · **캐릭터 한 장**.
@@ -442,9 +491,17 @@ const sun = await ev(`(() => ({
 }))()`);
 check('내 순 — 초점은 순 이름 + 순장(같은 줄)',
   sun.name === '꼬순' && sun.leader === '순장 김윤주', JSON.stringify(sun));
-// 메타 한 줄 — 인원 · 지난 주일 참석 · 공유 노트. 우리 순의 사실만 말한다.
+// 메타 한 줄 — 인원 · 지난 주일 참석 · 공유된 노트. 우리 순의 사실만 말한다.
 check('내 순 — 메타 줄에 인원과 지난 주일 참석이 한 줄로',
   sun.meta.startsWith('3명') && sun.meta.includes('지난 주일') && sun.meta.includes('참석'), sun.meta);
+
+// 노트 도막의 이름은 **'공유된 노트'**다(사용자 지시 2026-09-07 — '공유 노트'에서 고쳤다).
+// 노트의 종류 이름이 아니라 '공유된 상태'를 말하는 자리다.
+await enter({ groups: groupsSeed('p6', 2) });
+const notesMeta = await text('.home-sun-meta');
+check("내 순 — 노트 도막은 '공유된 노트 N'이다",
+  notesMeta.endsWith('공유된 노트 2') && !notesMeta.includes('공유 노트'), String(notesMeta));
+await enter();
 
 // ── 2b) 카드 넷이 같은 구조·같은 높이인가 (사용자 지적 2026-09-03) ──────────
 // "내 업무가 쌓이면 카드가 계속 커지고, 오늘의 QT·내 순은 아래가 빈다." 이제 카드마다
@@ -516,6 +573,42 @@ check('업무가 여섯 건이어도 그 행이 더 자라지 않는다(줄 상�
   `${JSON.stringify(box6.h)} / 3건 ${JSON.stringify(box3.h)}`);
 check("줄은 셋까지 서고 나머지는 '+3건 더'로 접힌다",
   box6.rows === 3 && box6.more === '+3건 더', `${box6.rows}줄 / ${box6.more}`);
+
+// '+N건 더'는 **오른쪽 끝 한 줄**이고 제목 줄의 화살표와 같은 세로선에 선다
+// (사용자 지적 2026-09-07 — 왼쪽에 붙은 글자가 네 번째 업무 줄처럼 읽혔다).
+// 화살표가 붙어 있으니 눌려야 한다(§6-9-j) — 누르면 내 업무 목록으로 간다.
+const moreGo = await ev(`(() => {
+  const b = document.querySelector('.home-tasks-more-go');
+  if (!b) return null;
+  const card = document.querySelector('.home-tasks');
+  const head = card.querySelector('.home-card-go');
+  const r = b.getBoundingClientRect(), c = card.getBoundingClientRect();
+  const rows = [...card.querySelectorAll('.home-task-row')].map(x => x.getBoundingClientRect());
+  return {
+    tag: b.tagName,
+    // 제목 줄 화살표와 오른쪽 끝이 같은가 (카드 오른쪽 끝에서 잰다)
+    rightGap: Math.round(c.right - r.right),
+    headGap: Math.round(c.right - head.getBoundingClientRect().right),
+    // 한 줄인가 (두 줄로 접히면 높이가 배가 된다)
+    h: Math.round(r.height),
+    lines: Math.round(r.height / parseFloat(getComputedStyle(b).lineHeight)),
+    // 마지막 업무 줄 아래에 있는가
+    below: r.top >= rows[rows.length - 1].bottom - 0.5,
+    // 화살표가 있는가
+    arrow: !!b.querySelector('svg'),
+    size: Math.round(parseFloat(getComputedStyle(b).fontSize) * 10) / 10,
+  };
+})()`);
+check("'+N건 더'는 화살표가 붙은 버튼이고 한 줄로 선다",
+  moreGo && moreGo.tag === 'BUTTON' && moreGo.arrow === true && moreGo.lines === 1 && moreGo.size === 11.5,
+  JSON.stringify(moreGo));
+check("'+N건 더'는 마지막 줄 아래 오른쪽 끝, 제목 줄 화살표와 같은 세로선에 선다",
+  moreGo && moreGo.below === true && Math.abs(moreGo.rightGap - moreGo.headGap) <= 1,
+  JSON.stringify(moreGo));
+// 못 찾으면 던지지 말고 FAIL로 남긴다(§6-40) — 던지면 러너가 CRASH로만 찍는다
+await ev(`document.querySelector('.home-tasks-more-go')?.click()`); await sleep(1000);
+check("'+N건 더'를 누르면 내 업무 목록으로 간다",
+  (await ev(`document.body.innerText.includes('노준석님의 업무')`)) === true);
 await enter();
 
 // 화살표는 **제목 줄 안, 오른쪽 끝**에 있다(사용자 지적 2026-09-03 — 카드마다 높이가
@@ -933,6 +1026,84 @@ check('업무 줄 높이와 제목 시작 자리는 그대로다',
 await enter();
 
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+
+// ── 6c) 한 갈래가 늦게 와도 자리가 안 밀린다 (사용자 지적 2026-09-07) ─────────
+// 게스트에서는 네 갈래가 거의 같은 프레임에 답해서 실물의 느린 회선을 못 본다. 하나만
+// 진짜로 늦추면 된다: **오늘의 QT는 성경 본문 첫 절까지 싣느라 `/bible/*`를 받는다**
+// (services/bible.js). 그 요청을 잡아 두면 QT 갈래만 'wait'에 머문다.
+// 보는 것 셋: ① 자리 차례가 그대로인가 ② 그 칸에 같은 크기의 스켈레톤이 서 있는가
+// ③ 도착하면 **그 자리에서** 내용으로 바뀌는가(.dc-fade — 다시 떠오르지 않는다).
+// 되돌리기 검사: homeView의 orderedSlots에서 'wait'을 빼면(=예전 동작) QT 칸이 아예
+// 없어져서 첫 단정의 차례가 ['worship','tasks','sun']이 되고 바로 깨진다.
+await send('Fetch.enable', { patterns: [{ urlPattern: '*/bible/*' }] });
+await ev(plant());
+await send('Page.navigate', { url: URL_BASE });
+const held = await wait('Fetch.requestPaused', 15000);
+await sleep(1400);
+const late = await ev(`(() => {
+  const cells = [...document.querySelectorAll('.home-cards > [data-slot]')];
+  const skel = document.querySelector('.home-skel');
+  const real = document.querySelector('.home-card');
+  const h = (e) => e ? Math.round(e.getBoundingClientRect().height * 10) / 10 : null;
+  const line = (e, k) => e ? Math.round(e.querySelector(k).getBoundingClientRect().height * 10) / 10 : null;
+  return {
+    slots: cells.map(c => c.dataset.slot + ':' + c.dataset.state),
+    skelH: h(skel), realH: h(real),
+    // 스켈레톤의 줄 상자가 진짜 카드와 같은가 — 라벨 자리 · 초점 줄 · 메타 줄
+    rows: [line(skel, '.home-skel-head'), line(skel, '.home-skel-focus'), line(skel, '.home-skel-meta')],
+    realRows: [line(real, '.home-card-head'), line(real, '.home-card-focus'), line(real, '.home-card-meta')],
+    // 기다리는 중임이 보이는가(훑고 지나가는 빛 · §6-9-e)
+    shimmer: document.querySelectorAll('.home-skel .dc-skeleton').length,
+  };
+})()`);
+check('늦게 오는 갈래는 제 자리에서 기다린다(차례가 안 밀린다)',
+  JSON.stringify(late.slots) === JSON.stringify(['qt:wait', 'worship:ready', 'tasks:ready', 'sun:ready']),
+  JSON.stringify(late.slots));
+check('기다리는 칸은 카드와 같은 크기·같은 줄 상자다',
+  Math.abs(late.skelH - late.realH) <= 1
+  && JSON.stringify(late.rows) === JSON.stringify(late.realRows) && late.shimmer === 3,
+  `${late.skelH}/${late.realH} · ${JSON.stringify(late.rows)} vs ${JSON.stringify(late.realRows)}`);
+// 잡아 둔 것을 놓아 준다 — `/bible`은 목차 + 책 파일이라 한 건이 아니다
+await send('Fetch.continueRequest', { requestId: held.params.requestId });
+for (let i = 0; i < 6; i++) {
+  try {
+    const next = await wait('Fetch.requestPaused', 500);
+    await send('Fetch.continueRequest', { requestId: next.params.requestId }).catch(() => {});
+  } catch { /* 더 잡힌 것이 없다 */ }
+}
+await send('Fetch.disable');
+await sleep(900);
+const arrived = await ev(`(() => {
+  const cells = [...document.querySelectorAll('.home-cards > [data-slot]')];
+  const qt = document.querySelector('.home-qt');
+  return {
+    slots: cells.map(c => c.dataset.slot + ':' + c.dataset.state),
+    enter: qt ? [...qt.classList].filter(k => k === 'dc-card' || k === 'dc-fade').join() : '',
+    delay: qt ? getComputedStyle(qt).animationDelay : '',
+    ref: document.querySelector('.home-qt-ref')?.textContent.trim() || '',
+  };
+})()`);
+check('늦은 갈래가 도착하면 그 자리에서 내용으로 바뀐다',
+  JSON.stringify(arrived.slots) === JSON.stringify(['qt:ready', 'worship:ready', 'tasks:ready', 'sun:ready'])
+  && arrived.ref === '빌립보서 4:4-9', JSON.stringify(arrived));
+check('그 칸은 다시 떠오르지 않고 그 자리에서 밝아진다(.dc-fade · 지연 0)',
+  arrived.enter === 'dc-fade' && arrived.delay === '0s', JSON.stringify(arrived));
+
+// reduced-motion에서 `.dc-fade`도 같이 꺼진다(§4.2 — 새 클래스는 그 블록에 같이 적는다)
+await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+await enter();
+const rm = await ev(`(() => {
+  const el = document.createElement('div');
+  el.className = 'dc-fade'; document.body.appendChild(el);
+  const a = getComputedStyle(el).animationName;
+  el.remove();
+  const card = document.querySelector('.home-card');
+  return { fade: a, card: card ? getComputedStyle(card).animationName : null };
+})()`);
+check('reduced-motion에서 홈 카드 등장 모션이 꺼진다',
+  rm.fade === 'none' && rm.card === 'none', JSON.stringify(rm));
+await send('Emulation.setEmulatedMedia', { features: [] });
+await enter();
 
 // ── 7) 다크 — 색을 박아 두지 않았는가 ───────────────────────────────────────
 // "예쁜가"가 아니라 **읽을 수 있는가**만 본다(themefit·groups와 같은 기준 2.0).

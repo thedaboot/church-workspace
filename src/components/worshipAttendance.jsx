@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronDown, Plus } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Plus, X } from 'lucide-react';
 import { groupRoster, countPresent, canToggleGroup, kindLabel, formatServiceDate, attendanceOpen } from '../services/worship.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import { SaveState } from './worshipDetail.jsx';
@@ -24,6 +24,10 @@ import { SaveState } from './worshipDetail.jsx';
 //
 // 열리는 순간은 화면이 스스로 넘는다 — `useMinuteTick`이 1분마다 다시 그린다. 그것이
 // 없으면 13:25에 들어온 사람은 새로고침할 때까지 계속 잠겨 있다.
+//
+// **미등록 출석자는 명단이 아니라 그 예배의 손님이다**(0053 · 사용자 결정 2026-09-07).
+// 이름만 `attendance_guests`에 남고 ×로 지운다 — 청년 명단(people)에 올리는 것은 마스터의
+// 일이다. 손님은 언제나 출석이라 사람 칩처럼 켜고 끄지 않는다.
 // ============================================================================
 
 const NOTE_DELAY = 900;
@@ -43,8 +47,25 @@ function PersonChip({ person, on, disabled, onToggle }) {
   );
 }
 
+// 손님 칩 — 이름 + × 하나. **확인 팝오버를 붙이지 않는다**(알림 지우기와 같은 판단 · §8):
+// 잃는 것이 이름 한 줄이고 다시 적는 데 두 번의 조작이면 되는데, 확인이 붙으면 출석을
+// 부르는 동안 누르는 횟수가 두 배가 된다. 대신 실패하면 부르는 쪽이 칩을 되돌려 놓는다.
+function GuestChip({ guest, disabled, onRemove }) {
+  return (
+    <span className="att-guest inline-flex items-center gap-0.5 pl-2.5 pr-1 py-1 rounded-full text-[12px] font-semibold"
+      style={{ background: 'var(--app-accent-weak)', color: 'var(--app-accent-text)', border: '1px solid var(--app-accent)' }}>
+      {guest.name}
+      <button type="button" disabled={disabled} onClick={() => onRemove(guest)}
+        aria-label={`${guest.name} 지우기`} title="지우기"
+        className="att-guest-del shrink-0 p-1 rounded-full transition-colors hover:bg-surface disabled:opacity-40">
+        <X size={11} />
+      </button>
+    </span>
+  );
+}
+
 export function AttendanceScreen({
-  service, roster, present, perms = {}, onToggle, onAddPerson, onSaveNote, onBack,
+  service, roster, present, guests = [], perms = {}, onToggle, onAddGuest, onRemoveGuest, onSaveNote, onBack,
 }) {
   useMinuteTick();
   const checkOpen = attendanceOpen(service);   // 체크가 열렸나(묶음 펼침 open과 다른 값이다)
@@ -75,9 +96,10 @@ export function AttendanceScreen({
     const name = newName.trim();
     if (!name || busy || !checkOpen) return;
     setBusy(true);
-    const made = await onAddPerson(name);
+    const made = await onAddGuest(name);
     setBusy(false);
-    if (made) { setNewName(''); setAdding(false); }
+    // 잇달아 여러 명을 적는 일이 흔하다 — 칸은 비우되 닫지 않는다
+    if (made) setNewName('');
   };
 
   return (
@@ -97,6 +119,8 @@ export function AttendanceScreen({
         </p>
         <p className="att-total mt-3 flex flex-wrap items-center gap-2 text-[13px] font-bold text-fg tabular-nums">
           <span>전체 <span className="text-accent-text">{here}</span>/{total}</span>
+          {/* 손님은 명단 밖이라 분모에 넣을 수 없다 — 도막을 따로 붙인다(0053) */}
+          {guests.length > 0 && <span className="att-guest-count font-semibold text-fg-muted">· 손님 {guests.length}</span>}
           {/* 잠긴 이유 — 예배 시작(13:30) 전에는 체크가 안 된다 */}
           {!checkOpen && (
             <span className="att-not-yet px-2 py-0.5 rounded-full bg-tag-yellow text-tag-yellow-fg text-[10.5px] font-bold">
@@ -138,27 +162,42 @@ export function AttendanceScreen({
         );
       })}
 
-      {/* 새신자는 그 자리에서 명단에 올린다(결정 6) — 출석 자격자면 RLS가 통과시킨다(0035) */}
-      <div className="mt-5">
-        {adding ? (
-          <div className="flex items-center gap-1.5 max-w-[26rem]">
-            <input
-              autoFocus value={newName} onChange={e => setNewName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
-              aria-label="미등록 출석자 이름" placeholder="예: 김철수"
-              className="flex-1 min-w-0 text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
-            <button type="button" onClick={add} disabled={busy || !newName.trim() || !checkOpen}
-              className="px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40">추가</button>
-            <button type="button" onClick={() => { setAdding(false); setNewName(''); }}
-              className="px-2.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">취소</button>
+      {/* 미등록 출석자 — 순 묶음 아래 한 구역이다(0053). 명단에 올리는 것이 아니라 그 예배의
+          손님으로만 남고, 자격은 출석을 체크할 수 있는 사람이다(RLS가 같은 경계 · 0053). */}
+      <section className="att-guests mt-5">
+        <div className="flex items-center gap-2 py-2.5" style={{ borderBottom: '1px solid var(--app-line)' }}>
+          <span className="flex-1 min-w-0 text-[13px] font-bold text-fg truncate">미등록 출석자</span>
+          <span className="shrink-0 text-[11.5px] text-fg-muted tabular-nums">{guests.length}</span>
+        </div>
+        {guests.length > 0 && (
+          <div className="att-guest-body flex flex-wrap gap-1.5 py-2.5">
+            {guests.map(g => (
+              <GuestChip key={g.id} guest={g} disabled={!perms.canCheck || !checkOpen}
+                onRemove={onRemoveGuest} />
+            ))}
           </div>
-        ) : (
-          <button type="button" onClick={() => setAdding(true)} disabled={!checkOpen}
-            className="att-add-open inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40 disabled:active:scale-100">
-            <Plus size={13} /> 미등록 출석자 추가
-          </button>
         )}
-      </div>
+        <div className="mt-2.5">
+          {adding ? (
+            <div className="flex items-center gap-1.5 max-w-[26rem]">
+              <input
+                autoFocus value={newName} onChange={e => setNewName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+                aria-label="미등록 출석자 이름" placeholder="예: 김철수"
+                className="flex-1 min-w-0 text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
+              <button type="button" onClick={add} disabled={busy || !newName.trim() || !checkOpen}
+                className="att-add-do shrink-0 px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40">추가</button>
+              <button type="button" onClick={() => { setAdding(false); setNewName(''); }}
+                className="shrink-0 px-2.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">닫기</button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setAdding(true)} disabled={!checkOpen}
+              className="att-add-open inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40 disabled:active:scale-100">
+              <Plus size={13} /> 미등록 출석자 추가
+            </button>
+          )}
+        </div>
+      </section>
 
       {/* 출석 메모는 **출석을 체크할 수 있는 사람**이 쓴다 — 순장도 쓴다(사용자 결정
           2026-09-06: "출석 메모는 주보를 편집하는 건 아니라고 생각해서"). 잠깐 주보 편집

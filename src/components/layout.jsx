@@ -17,7 +17,8 @@ import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
 import { Avatar } from './Avatar.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import * as push from '../services/push.js';
-import { notifLine, notifText, isSystemNotif } from '../services/notifyText.js';
+import { notifLine, notifText, isSystemNotif, notifArea } from '../services/notifyText.js';
+import { isAppLink } from '../services/entryQuery.js';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
@@ -228,7 +229,7 @@ function ThemeMenuItem({ className }) {
 
 // 데스크톱 상단 2줄 내비
 export const TopNav = React.memo(({
-  activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenProfile, onOpenProject, onOpenMembers,
+  activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenLink, onOpenProfile, onOpenProject, onOpenMembers,
   undo, redo, canUndo, canRedo, cloudMode,
 }) => {
   // 탭에는 보관하지 않은 프로젝트만. 보관된 것은 아래 '더보기' 안 보관함에서 연도별로 본다
@@ -318,7 +319,7 @@ export const TopNav = React.memo(({
             </div>
           )}
           <SearchBox onSearchSelect={onSearchSelect} variant="inline" />
-          {cloudMode && <NotificationBell onOpenTask={onOpenTask} />}
+          {cloudMode && <NotificationBell onOpenTask={onOpenTask} onOpenLink={onOpenLink} />}
           <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} />
         </div>
       </div>
@@ -511,7 +512,7 @@ function YearFolders({ active, archived, onPick }) {
 }
 
 // 모바일 상단: 현재 화면 이름 + 검색·알림, 그 아래 프로젝트 탭(가로 스크롤)
-export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenProject, onRenameProject, onOpenProfile, onOpenMembers, cloudMode }) => {
+export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenLink, onOpenProject, onRenameProject, onOpenProfile, onOpenMembers, cloudMode }) => {
   // 보관된 프로젝트는 탭 줄에서 빠진다. 다만 보관된 것을 열어 둔 상태라면 그 탭은
   // 보여야 한다 — 안 그러면 지금 어디 있는지 표시가 아무 데도 없다.
   const activeList = useStore(selectActiveProjectsList);
@@ -551,7 +552,7 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
             ><CalendarDays size={19} strokeWidth={1.75} /></button>
           </span>
           <span className="w-9 h-9 flex items-center justify-center"><SearchBox onSearchSelect={onSearchSelect} variant="icon" /></span>
-          {cloudMode && <span className="w-9 h-9 flex items-center justify-center"><NotificationBell onOpenTask={onOpenTask} /></span>}
+          {cloudMode && <span className="w-9 h-9 flex items-center justify-center"><NotificationBell onOpenTask={onOpenTask} onOpenLink={onOpenLink} /></span>}
           {/* 설정은 상단 헤더로 — 하단 탭 네 자리는 프로젝트·내 업무·대시보드·팀이 쓴다 */}
           <span className="w-9 h-9 flex items-center justify-center"><ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} /></span>
         </div>
@@ -1040,7 +1041,7 @@ function PushRow() {
   );
 }
 
-function NotificationBell({ onOpenTask }) {
+function NotificationBell({ onOpenTask, onOpenLink }) {
   const { session } = useAuth();
   const userId = session?.user?.id;
   const [items, setItems] = useState([]);
@@ -1096,6 +1097,9 @@ function NotificationBell({ onOpenTask }) {
       setItems(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
       cloudSync.markNotificationRead(n.id).catch(e => console.error('[cloud] 알림 읽음 처리 실패:', e));
     }
+    // 예배·모임 알림(0053)은 우리 주소 한 칸으로 간다 — App이 화면을 바꾸고 나머지 값은
+    // entryQuery에 실어 그 화면이 마운트되며 읽는다(새로고침 없음).
+    if (isAppLink(n.link)) { onOpenLink?.(n.link); return; }
     if (!n.card_id) return;
     const task = store.getState().tasks.byId[n.card_id];
     if (task) onOpenTask?.(task);
@@ -1168,8 +1172,15 @@ function NotificationBell({ onOpenTask }) {
                   <button onClick={() => openItem(n)} className="flex-1 min-w-0 flex items-start gap-2.5 text-left">
                     {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2" />}
                     {/* 마감 알림은 사람이 만든 게 아니라 배치가 만든다 — 아바타 대신 시계 */}
+                    {/* 시스템 알림은 아이콘 — 마감은 시계, 예배는 교회, 모임은 사람들(0053). 사람이 만든 것은 아바타 */}
                     {isSystemNotif(n.kind) ? (
-                      <span className="w-6 h-6 rounded-full bg-tag-yellow text-tag-yellow-fg flex items-center justify-center shrink-0"><CalendarClock size={12} strokeWidth={1.75} /></span>
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
+                        notifArea(n.kind) === 'worship' ? 'bg-accent-weak text-accent-text'
+                          : notifArea(n.kind) === 'group' ? 'bg-tag-green text-tag-green-fg' : 'bg-tag-yellow text-tag-yellow-fg'}`}>
+                        {notifArea(n.kind) === 'worship' ? <Church size={12} strokeWidth={1.75} />
+                          : notifArea(n.kind) === 'group' ? <Users size={12} strokeWidth={1.75} />
+                          : <CalendarClock size={12} strokeWidth={1.75} />}
+                      </span>
                     ) : (
                       <Avatar name={n.actor_name || ''} className="flex w-6 h-6 text-[10px]" />
                     )}

@@ -224,6 +224,26 @@ check('팀 보드: 요약(남은 건수·참여 프로젝트)', team.summary ===
 check('팀 보드: 상태 4칸', team.statuses === 4, `${team.statuses}개`);
 check('팀 보드: 참여 프로젝트', team.hasProjects === true);
 
+// 사람 칩은 **제목 아래 새 줄**에 왼쪽부터 선다(사용자 지적 2026-09-07 · 실기기 iPhone).
+// 제목 오른쪽에 붙여 두면 폭에 따라 두 명만 첫 줄에 서고 나머지가 접혔다.
+// 넘칠 때는 줄바꿈이 아니라 가로 스크롤이고, 끝까지 밀면 오른쪽에 여백이 남는다.
+const chipRow = await ev(`(() => {
+  const h2 = document.querySelector('main h2');
+  const row = document.querySelector('main [data-team-chips]');
+  if (!h2 || !row) return null;
+  const cs = getComputedStyle(row);
+  const a = h2.getBoundingClientRect(), b = row.getBoundingClientRect();
+  return { below: Math.round(b.top - a.bottom), left: Math.round(b.left - a.left),
+           wrap: cs.flexWrap, overflowX: cs.overflowX, tail: getComputedStyle(row, '::after').width,
+           chips: row.querySelectorAll('[data-team-chip]').length };
+})()`);
+check('팀 보드: 사람 칩이 제목 아래 새 줄', chipRow && chipRow.below >= 0, JSON.stringify(chipRow));
+check('팀 보드: 사람 칩이 제목과 같은 왼쪽에서 시작', chipRow && Math.abs(chipRow.left) <= 1, JSON.stringify(chipRow));
+check('팀 보드: 칩이 넘치면 줄바꿈이 아니라 가로 스크롤',
+  chipRow && chipRow.wrap === 'nowrap' && chipRow.overflowX === 'auto', JSON.stringify(chipRow));
+check('팀 보드: 칩 줄 끝에 여백(12px)', chipRow && chipRow.tail === '12px', JSON.stringify(chipRow));
+check('팀 보드: 사람 칩이 선다', chipRow && chipRow.chips > 0, JSON.stringify(chipRow));
+
 // ── 모션 ──
 await load(DESK);
 const motion = await ev(`(() => {

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Church, ChevronRight, ListChecks, Users } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser, selectMyTasks } from '../store/selectors.js';
+import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { Skeleton } from '../components/media.jsx';
 import { CARD, CARD_STYLE, Empty } from '../components/groupsParts.jsx';
 import { ISO_TODAY, byDue } from './dashboardParts.jsx';
@@ -201,10 +202,10 @@ const ONE_LINE = 'block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap'
 // ── 카드 껍데기 ─────────────────────────────────────────────────────────────
 // 통째로 눌리는 카드. 화살표는 언제나 보인다 — hover에서만 나타나는 조작은 터치
 // 기기에 없는 것과 같다(§8).
-function LinkCard({ className, label, icon: Icon, onOpen, delay, title, focus, meta }) {
+function LinkCard({ className, slot, enter = 'dc-card', label, icon: Icon, onOpen, delay, title, focus, meta }) {
   return (
     <button
-      type="button" onClick={onOpen} title={title}
+      type="button" onClick={onOpen} title={title} data-slot={slot} data-state="ready"
       // 높이 셈: 제목 줄 18 + 8 + 본문 42 + 6 + 꼬리 17 + 패딩 = 네 카드가 같은 높이.
       // **flex flex-col + justify-start이라야 한다.** 버튼은 내용을 세로 가운데에
       // 놓는 상자(anonymous flex box)를 갖고 있어서, 같은 행의 옆 카드가 더 높아
@@ -214,7 +215,12 @@ function LinkCard({ className, label, icon: Icon, onOpen, delay, title, focus, m
       // 스타일시트에서 button에 align-items:flex-start를 걸어 둔다 — 그러면 제목 줄이
       // 글자 폭만큼만 서서 화살표가 카드 오른쪽 끝이 아니라 라벨 바로 옆에 붙는다
       // (실측 Chromium 131). 요즘 크롬·사파리는 안 그렇지만 여기서 못 박아 둔다.
-      className={`home-card ${className} dc-card flex flex-col items-stretch justify-start w-full text-left p-4 md:p-[18px] ${CARD} transition-[translate,box-shadow] duration-200 ease-out active:scale-[.995]`}
+      // 호버는 **쇼케이스 블록과 같은 결**이다(사용자 요청 2026-09-07 — "기존 업무 쪽이랑
+      // 결 맞게"). 예전에는 `transition-[translate,box-shadow]`만 적혀 있고 그 두 값을
+      // 바꾸는 규칙이 없어서 전이가 아무 일도 하지 않았다. 카드 넷은 통째로 눌리는 버튼이니
+      // 쇼케이스와 똑같이 살짝 떠오른다(내 업무 카드는 통짜 버튼이 아니라 안 떠오른다 —
+      // 눌리지 않는 것이 떠오르면 누를 수 있는 것처럼 보인다).
+      className={`home-card ${className} ${enter} flex flex-col items-stretch justify-start w-full text-left p-4 md:p-[18px] ${CARD} transition-[translate,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-elevated active:scale-[.995]`}
       style={{ ...CARD_STYLE, animationDelay: `${delay}ms` }}
     >
       {/* 제목 줄 — 아이콘 · 라벨 · (오른쪽 끝) 화살표. 화살표는 이 줄 안에 있고
@@ -245,7 +251,7 @@ function LinkCard({ className, label, icon: Icon, onOpen, delay, title, focus, m
 // ── 카드 3 · 내 업무 ────────────────────────────────────────────────────────
 // 카드 머리는 목록으로, 줄은 그 업무 창으로 간다 — 그래서 이 카드만 통짜 버튼이
 // 아니다(버튼 안에 버튼을 넣을 수 없다).
-function TasksCard({ tasks, today, onOpenList, onOpenTask, delay }) {
+function TasksCard({ tasks, today, onOpenList, onOpenTask, delay, slot, enter = 'dc-card' }) {
   const open = useMemo(() => tasks.filter(t => t.status !== '완료'), [tasks]);
   // 가까운 마감 **셋까지**. 마감이 없는 업무는 byDue가 뒤로 보낸다(목록 화면과 같은
   // 규칙). 넘치는 것은 세지 않고 마지막 줄에 '+N건 더'로 접는다 — 업무가 쌓일수록
@@ -253,7 +259,8 @@ function TasksCard({ tasks, today, onOpenList, onOpenTask, delay }) {
   const near = useMemo(() => [...open].sort(byDue).slice(0, TASK_ROWS), [open]);
   const more = open.length - near.length;
   return (
-    <div className={`home-card home-tasks dc-card flex flex-col justify-start p-4 md:p-[18px] ${CARD}`}
+    <div data-slot={slot} data-state="ready"
+      className={`home-card home-tasks ${enter} flex flex-col items-stretch justify-start p-4 md:p-[18px] ${CARD}`}
       style={{ ...CARD_STYLE, animationDelay: `${delay}ms` }}>
       {/* 다른 세 카드와 같은 제목 줄이다 — 아이콘 · 라벨 · 오른쪽 끝 화살표, 높이 18px */}
       <button type="button" onClick={onOpenList}
@@ -287,8 +294,20 @@ function TasksCard({ tasks, today, onOpenList, onOpenTask, delay }) {
           // 사용자가 고른 문구다(§8) — 없는 것을 세는 문장 대신 끝난 상태를 그대로 말한다
           <p className="home-tasks-clear text-[12.5px] text-fg-muted leading-[21px]">다 정리되었어요</p>
         )}
+        {/* 넘치는 건수는 **오른쪽 끝 한 줄**이다(사용자 지적 2026-09-07 — 줄바꿈으로
+            어색하게 보인다). 예전에는 왼쪽에 붙은 `<p>`라, 세 줄의 날짜 칸 아래에 글자만
+            덩그러니 남아 네 번째 업무 줄이 반쯤 그려진 것처럼 읽혔다. 지금은 카드 오른쪽
+            끝에 서서 제목 줄의 화살표와 같은 세로선에 맞고, **눌리면 목록으로 간다** —
+            화살표가 붙은 것은 눌려야 한다(§6-9-j). 카드 넷의 규칙(초점 1줄 + 메타 1줄,
+            화살표는 오른쪽 끝)은 그대로다. 글자 크기·색은 제목 줄의 라벨과 같다. */}
         {more > 0 && (
-          <p className="home-tasks-more h-[15px] text-[11.5px] font-semibold text-fg-muted leading-[15px]">{`+${more}건 더`}</p>
+          <div className="home-tasks-more mt-1 flex justify-end">
+            <button type="button" onClick={onOpenList}
+              className="home-tasks-more-go inline-flex items-center gap-0.5 h-[15px] text-[11.5px] font-semibold text-fg-muted whitespace-nowrap hover:text-fg transition-colors">
+              {`+${more}건 더`}
+              <ChevronRight size={12} className="shrink-0" />
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -399,11 +418,62 @@ function Showcase({ onNavigate }) {
   );
 }
 
-const LOADING = (
-  <div className="home-loading grid gap-3 md:gap-3.5 md:grid-cols-2">
-    {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-[104px] w-full rounded-[10px]" />)}
-  </div>
-);
+// ── 자리를 지키는 스켈레톤 카드 ─────────────────────────────────────────────
+// **카드와 같은 상자, 같은 줄 높이**다. 예전에는 카드 줄 전체를 104px짜리 회색 상자 넷으로
+// 대신했는데, 갈래가 하나라도 도착하면 그 통짜 스켈레톤이 통째로 사라지고 **있는 카드만**
+// 섰다 — 늦게 오는 갈래가 나중에 자기 자리로 끼어들며 이미 읽던 카드를 아래로 밀었다
+// (사용자 지적 2026-09-07). 지금은 자리마다 따로 서고, 그 자리의 갈래가 도착할 때
+// 그 칸만 내용으로 바뀐다.
+//
+// 줄 높이를 맞추는 방법: 폭 0짜리 글자(U+200B) 하나로 **진짜 줄 상자**를 만들고 뼈대는
+// 그 위에 얹는다. 높이를 px로 박으면 글꼴·줄 간격이 바뀔 때마다 어긋난다.
+// 뼈대에 위치 유틸리티를 직접 주지 않는 이유는 §6-9-e의 짝이다 — `.dc-skeleton`이
+// `position: relative`를 갖고 있어 나중에 오는 그 규칙이 이긴다. 자리는 바깥 span이 잡는다.
+function SkelLine({ className, w }) {
+  return (
+    <span className={`relative block ${className}`}>
+      {'\u200b'}
+      <span className="absolute left-0 top-[12%] bottom-[12%]" style={{ width: w }}>
+        <Skeleton className="w-full h-full rounded-[5px]" />
+      </span>
+    </span>
+  );
+}
+
+function CardSkeleton({ slot, delay, enter = 'dc-card' }) {
+  return (
+    <div data-slot={slot} data-state="wait" aria-hidden="true"
+      className={`home-skel home-skel-${slot} ${enter} flex flex-col items-stretch justify-start w-full p-4 md:p-[18px] ${CARD}`}
+      style={{ ...CARD_STYLE, animationDelay: `${delay}ms` }}>
+      {/* 라벨 자리 — 카드의 제목 줄과 같은 18px 칸 */}
+      <span className="home-skel-head flex items-center h-[18px] mb-2">
+        <span className="relative block h-[10px] w-[54px]"><Skeleton className="w-full h-full rounded-[4px]" /></span>
+      </span>
+      <span className="home-skel-body block">
+        <SkelLine className="home-skel-focus text-[15px] font-extrabold tracking-[-0.3px]" w="58%" />
+        <SkelLine className="home-skel-meta mt-1 text-[12px] leading-[1.45]" w="84%" />
+      </span>
+    </div>
+  );
+}
+
+// ── 카드 자리 넷의 차례 ─────────────────────────────────────────────────────
+// 순서는 docs/V2.md §3 그대로 고정이다 — 오늘의 QT · 이번 주 예배 · 내 업무 · 내 순.
+// 갈래마다 상태가 셋이다:
+//   · 'wait'  — 아직 안 왔다(캐시도 없다)  → 그 자리에 스켈레톤 카드
+//   · 'ready' — 와서 보여줄 것이 있다        → 내용
+//   · 'none'  — 와서 보니 보여줄 것이 없다    → 그때 자리를 뺀다
+// 'none'만 목록에서 빠지므로 남은 카드가 격자의 빈 칸을 차례로 메운다(1열 · md 2열).
+// **'wait'을 빼면 안 된다** — 그게 예전의 버그다(늦은 갈래가 나중에 끼어들어 자리가 밀렸다).
+const SLOT_ORDER = ['qt', 'worship', 'tasks', 'sun'];
+export function orderedSlots(branch = {}) {
+  return SLOT_ORDER
+    .map((key) => {
+      const b = branch[key] || {};
+      return { key, state: b.loading ? 'wait' : (b.has ? 'ready' : 'none') };
+    })
+    .filter(s => s.state !== 'none');
+}
 
 export function HomeView({ onNavigate, onTaskClick }) {
   const currentUser = useStore(selectCurrentUser);
@@ -495,9 +565,10 @@ export function HomeView({ onNavigate, onTaskClick }) {
   // 셋을 같이 다시 읽는다(0049 · services/liveV2.js).
   useLiveRefresh('home', () => { qtQ.refresh(); svcQ.refresh(); sunQ.refresh(); attQ.refresh(); });
 
-  // 셋 다 캐시가 없을 때만 스켈레톤이다 — 하나라도 값이 있으면 그 카드를 먼저 세운다.
-  const firstLoad = qtQ.loading && svcQ.loading && sunQ.loading;
-  const church = firstLoad ? null : {
+  // 값은 **언제나** 이 모양이다. 예전에는 셋이 다 로딩 중일 때만 `null`(=통짜 스켈레톤)
+  // 이었는데, 하나라도 오면 그 순간 있는 카드만 세워서 늦은 갈래가 나중에 앞자리로
+  // 끼어들었다. 지금은 카드 자리가 먼저 서고(orderedSlots) 갈래마다 제 칸이 바뀐다.
+  const church = {
     qt: qtQ.data?.qt || null,
     written: !!qtQ.data?.written,
     service: svcQ.data?.service || null,
@@ -512,16 +583,39 @@ export function HomeView({ onNavigate, onTaskClick }) {
   const name = currentUser?.name || '';
   const today = ISO_TODAY();
 
-  // 있는 카드만 세운다. 순서는 docs/V2.md §3 그대로 — 오늘의 QT · 이번 주 예배 ·
-  // 내 업무 · 내 순. 등장 지연은 **실제로 선 자리**를 따른다(빠진 카드가 있어도
-  // 한 칸씩 차례로 들어온다, §4.2).
-  const cards = [];
-  if (church?.qt) {
-    cards.push(['qt', (delay) => (
-      // 초점은 오늘 구절, 메타는 본문 첫 절이다. 묵상을 쓴 날에는 그 줄 끝에 한 마디를
-      // 붙인다 — 안 쓴 날에는 아무 말도 하지 않는다(없는 것을 굳이 말하지 않는다).
-      // 잔디와 마찬가지로 남과 견주지 않는다.
-      <LinkCard className="home-qt" label="오늘의 QT" icon={BookOpen} delay={delay} title="말씀으로"
+  // 카드 자리 넷 — 순서는 처음부터 고정이고, 아직 안 온 갈래는 스켈레톤으로 그 자리에
+  // 서 있는다(위 orderedSlots). 업무는 스토어 값이라 기다릴 것이 없다(loading 없음).
+  const slots = orderedSlots({
+    qt: { loading: qtQ.loading, has: !!church.qt },
+    worship: { loading: svcQ.loading, has: !!church.service },
+    tasks: { loading: false, has: myTasks.length > 0 },
+    sun: { loading: sunQ.loading, has: !!church.sun },
+  });
+
+  // 등장 방식은 **처음 그려질 때 한 번만** 정해지고 그 뒤로 바뀌지 않는다 — 클래스가
+  // 바뀌면 애니메이션이 처음부터 다시 돌아서, 가만히 있던 카드가 이유 없이 한 번 더
+  // 깜빡인다. 규칙은 둘이다:
+  //   · 첫 그림에 이미 선 것(캐시 적중 · 스켈레톤)  → `.dc-card` + 자리 순번 지연
+  //   · 스켈레톤 자리에 뒤늦게 도착한 카드          → `.dc-fade` + 지연 0
+  // 뒤늦게 온 카드가 다시 떠오르지 않는 이유: 그 칸에는 이미 같은 크기의 상자가 서
+  // 있었다. 자리가 안 움직이니 바뀌는 것은 내용뿐이고, 그러면 밝아지기만 하는 편이 맞다.
+  // 지연을 0으로 두는 이유도 Cut과 같다 — 이미 늦었는데 또 기다릴 이유가 없다(§4.2).
+  const firstPaint = useEnterStagger();
+  const enterRef = useRef({});
+  const enterOf = (kind, key) => {
+    const at = `${kind}:${key}`;
+    if (!enterRef.current[at]) enterRef.current[at] = firstPaint ? 'dc-card' : 'dc-fade';
+    return enterRef.current[at];
+  };
+
+  // 자리마다 무엇을 그리는지. 차례는 SLOT_ORDER가 정하고 여기는 **모양만** 안다.
+  // 등장 지연은 실제로 선 자리를 따른다(빠진 카드가 있어도 한 칸씩 차례로, §4.2).
+  const cards = {
+    // 초점은 오늘 구절, 메타는 본문 첫 절이다. 묵상을 쓴 날에는 그 줄 끝에 한 마디를
+    // 붙인다 — 안 쓴 날에는 아무 말도 하지 않는다(없는 것을 굳이 말하지 않는다).
+    // 잔디와 마찬가지로 남과 견주지 않는다.
+    qt: (delay, enter) => (
+      <LinkCard slot="qt" enter={enter} className="home-qt" label="오늘의 QT" icon={BookOpen} delay={delay} title="말씀으로"
         onOpen={() => onNavigate('word')}
         focus={<span className="home-qt-ref">{church.qt.passage_ref}</span>}
         meta={
@@ -530,51 +624,38 @@ export function HomeView({ onNavigate, onTaskClick }) {
             {church.written && <span className="home-qt-done"> · 묵상 기록함</span>}
           </span>
         } />
-    )]);
-  }
-  if (church?.service) {
-    const s = church.service;
+    ),
     // 초점은 **설교 제목**이다. 예배 종류·날짜·채워진 만큼의 담당자·찬양 수는 메타 한
     // 줄로 이어 붙인다 — 예전에는 칩 · 날짜 · 제목 · 부제가 각각 줄이라 넉 줄이었다.
     // 칩(둥근 배경)을 쓰지 않는 이유도 같다: 줄마다 무게가 생겨 초점이 흐려진다.
     // 작성 중인 주보는 편집 자격자에게만 온다 — 거르는 것은 화면이 아니라 RLS다(0036).
-    const meta = [
-      kindLabel(s.kind),
-      homeDateLabel(s.service_date),
-      (s.roles || []).length ? `담당자 ${s.roles.length}` : '',
-      (s.songs || []).length ? `찬양 ${s.songs.length}` : '',
-      // 인도자는 **홈에 싣지 않는다**(사용자 결정 2026-09-06). 주보 상세에는 그대로
-      // 있다 — 홈 카드는 '무슨 예배에 무슨 설교'까지고, 누가 인도하는지는 들어가서 볼 일.
-    ].filter(Boolean).join(' · ');
-    cards.push(['worship', (delay) => (
-      <LinkCard className="home-worship" label="이번 주 예배" icon={Church} delay={delay} title="예배로"
+    // 인도자는 **홈에 싣지 않는다**(사용자 결정 2026-09-06). 주보 상세에는 그대로
+    // 있다 — 홈 카드는 '무슨 예배에 무슨 설교'까지고, 누가 인도하는지는 들어가서 볼 일.
+    worship: (delay, enter) => (
+      <LinkCard slot="worship" enter={enter} className="home-worship" label="이번 주 예배" icon={Church} delay={delay} title="예배로"
         onOpen={() => onNavigate('worship')}
-        focus={<span className="home-worship-title">{s.title || '설교 제목 미정'}</span>}
+        focus={<span className="home-worship-title">{church.service.title || '설교 제목 미정'}</span>}
         meta={
           <span className={`home-worship-sub ${ONE_LINE}`}>
-            {s.status !== 'published' && <span className="home-worship-draft font-semibold">작성 중 · </span>}
-            {meta}
+            {church.service.status !== 'published' && <span className="home-worship-draft font-semibold">작성 중 · </span>}
+            {[
+              kindLabel(church.service.kind),
+              homeDateLabel(church.service.service_date),
+              (church.service.roles || []).length ? `담당자 ${church.service.roles.length}` : '',
+              (church.service.songs || []).length ? `찬양 ${church.service.songs.length}` : '',
+            ].filter(Boolean).join(' · ')}
           </span>
         } />
-    )]);
-  }
-  if (myTasks.length) {
-    cards.push(['tasks', (delay) => (
-      <TasksCard tasks={myTasks} today={today} delay={delay}
+    ),
+    tasks: (delay, enter) => (
+      <TasksCard slot="tasks" enter={enter} tasks={myTasks} today={today} delay={delay}
         onOpenList={() => onNavigate('myTasks')} onOpenTask={onTaskClick} />
-    )]);
-  }
-  // 명단에 안 이어진 계정에는 이 카드가 아예 없다(모임 화면이 그 사정을 말한다)
-  if (church?.sun) {
+    ),
+    // 명단에 안 이어진 계정에는 이 카드가 아예 없다(모임 화면이 그 사정을 말한다).
     // 초점은 순 이름 + 순장이고, 메타는 우리 순의 사실 한 줄이다 — 인원 · 지난 주일
     // 참석 · 공유된 예배 노트 수. 남과 견주는 값이 아니다(docs/V2.md §1).
-    const meta = [
-      `${church.sunCount}명`,
-      church.sunPresent != null ? `지난 주일 ${church.sunPresent}명 참석` : '',
-      church.sunNotes ? `공유 노트 ${church.sunNotes}` : '',
-    ].filter(Boolean).join(' · ');
-    cards.push(['sun', (delay) => (
-      <LinkCard className="home-sun" label="내 순" icon={Users} delay={delay} title="모임으로"
+    sun: (delay, enter) => (
+      <LinkCard slot="sun" enter={enter} className="home-sun" label="내 순" icon={Users} delay={delay} title="모임으로"
         onOpen={() => onNavigate('groups')}
         focus={
           <span className="flex items-baseline gap-2">
@@ -584,9 +665,19 @@ export function HomeView({ onNavigate, onTaskClick }) {
             )}
           </span>
         }
-        meta={<span className={`home-sun-meta ${ONE_LINE}`}>{meta}</span>} />
-    )]);
-  }
+        meta={
+          <span className={`home-sun-meta ${ONE_LINE}`}>
+            {[
+              `${church.sunCount}명`,
+              church.sunPresent != null ? `지난 주일 ${church.sunPresent}명 참석` : '',
+              // '공유 노트'가 아니라 '공유된 노트'다(사용자 지시 2026-09-07) — 노트의
+              // 종류 이름이 아니라 '공유된 상태'를 말하는 자리다.
+              church.sunNotes ? `공유된 노트 ${church.sunNotes}` : '',
+            ].filter(Boolean).join(' · ')}
+          </span>
+        } />
+    ),
+  };
 
   return (
     <div className="home-screen dc-screen pb-8">
@@ -633,9 +724,19 @@ export function HomeView({ onNavigate, onTaskClick }) {
           2026-09-06 · 430pt에서 카드 406→416px). `grid-cols-1`은 `minmax(0,1fr)`이라
           트랙 최소가 0이 된다. md 위는 `md:grid-cols-2`가 이미 같은 일을 하고 있었고,
           그래서 이 증상이 모바일에서만 났다. */}
-      {!church ? LOADING : cards.length ? (
+      {slots.length ? (
         <div className="home-cards grid grid-cols-1 gap-3 md:gap-3.5 md:grid-cols-2">
-          {cards.map(([key, render], i) => <React.Fragment key={key}>{render(i * 40)}</React.Fragment>)}
+          {/* 자리(key)가 바뀌지 않으므로 스켈레톤 → 내용은 **같은 칸에서** 갈린다.
+              키를 자리 이름으로 두는 것이 핵심이다 — 번호로 주면 앞 카드가 빠질 때
+              뒤 카드들이 통째로 다시 마운트되며 등장 연출이 또 돈다. */}
+          {slots.map(({ key, state }, i) => {
+            const kind = state === 'wait' ? 'skel' : 'card';
+            const enter = enterOf(kind, key);
+            const delay = enter === 'dc-card' ? i * 40 : 0;
+            return state === 'wait'
+              ? <CardSkeleton key={key} slot={key} enter={enter} delay={delay} />
+              : <React.Fragment key={key}>{cards[key](delay, enter)}</React.Fragment>;
+          })}
         </div>
       ) : (
         // 히어로가 이미 화면을 채우므로 빈 자리는 마크 없이 한 줄이고 높이도 줄인다 —

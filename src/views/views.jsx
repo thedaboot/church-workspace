@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Plus, ChevronDown, Check, X, Trash2, Pencil } from 'lucide-react';
+import { Plus, ChevronDown, Check, X, Trash2, Pencil, Lock, LockOpen } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
-import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear, datedTasks, mergeActivitySeen } from '../utils.js';
+import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear, datedTasks, mergeActivitySeen, teamChips as teamMemberChips } from '../utils.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
 import { YearPicker } from '../components/layout.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -23,6 +23,8 @@ import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { LinkIcon } from '../components/linkIcons.jsx';
+import { docEmbedKind, DocEmbedModal, DocKindIcon, PwPrompt } from '../components/DocEmbed.jsx';
+import { makeViewPw, verifyViewPw, isLocked } from '../services/viewPw.js';
 import { ConfirmPopover, useAnchoredPos } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
@@ -452,13 +454,124 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
 // 다른 스타일(bg-fg 반전)이라 남겨두면 어느 쪽이 기준인지 헷갈린다. 지금 쓰는 것은
 // ProjectView 헤더 안의 accent 채움 버튼 하나뿐이다.
 
+// ── 참고 링크 한 칸 ─────────────────────────────────────────────────────────
+// 구글 문서·시트·슬라이드는 새 탭이 아니라 **앱 안 창**에서 연다(DocEmbed.jsx) —
+// 편집 권한이 열려 있는 링크면 그 자리에서 고쳐진다(사용자 요구 2026-09-07).
+// 그 밖의 주소는 예전 그대로 새 탭이다. ⌘/Ctrl 누름은 어느 쪽이든 브라우저에 넘긴다.
+//
+// 비밀번호는 **화면 가림**이다(첨부 0023과 같은 한계 · services/viewPw.js). 그래서
+// 걸 수 있는 자리를 **앱 안에서 여는 링크에만** 둔다 — 새 탭으로 나가는 링크에 비밀번호를
+// 걸면 아무것도 막지 못하면서 막은 것처럼 보인다(화면이 거짓말한다).
+// 한 번 맞춘 링크는 이 화면이 살아 있는 동안 다시 묻지 않는다(첨부 목록의 `unlocked`와 같다).
+const LINK_POP_W = 268;
+function PinnedLinkChip({ link, canLock, onRemove, onSetPw }) {
+  const kind = docEmbedKind(link.url);
+  const [unlocked, setUnlocked] = useState(false);
+  const [pane, setPane] = useState(null);     // null | 'ask'(열려고 묻는 중) | 'set'(걸거나 푸는 중)
+  const [open, setOpen] = useState(false);
+  const [pw, setPw] = useState('');
+  const [busy, setBusy] = useState(false);
+  const rootRef = useRef(null);
+  const anchorRef = useRef(null);
+  const bodyRef = useRef(null);
+  const [pos, place] = useAnchoredPos(anchorRef, !!pane, LINK_POP_W, 120);
+  const locked = isLocked(link) && !unlocked;
+
+  // 팝오버는 포털로 body에 나가 있으므로 **본체도 '안'으로 세어야 한다**
+  // (링크 추가 팝오버가 같은 함정을 이미 이렇게 고쳐 두었다 — 위 주석 참고).
+  useEffect(() => {
+    if (!pane) return;
+    const onDown = (e) => {
+      const inside = rootRef.current?.contains(e.target) || bodyRef.current?.contains(e.target);
+      if (!inside) setPane(null);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setPane(null); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [pane]);
+
+  const onLinkClick = (e) => {
+    if (!kind) return;   // 구글 문서가 아니면 그대로 새 탭
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    if (locked) { place(); setPane('ask'); return; }
+    setOpen(true);
+  };
+  const save = async (next) => {
+    setBusy(true);
+    try { await onSetPw(next); setPane(null); setPw(''); }
+    catch (e) { console.error('[cloud] 참고 링크 비밀번호 저장 실패:', e); showToast(failText('비밀번호를 저장하지 못했어요', e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <span ref={rootRef} className="group/link inline-flex items-center gap-1 shrink-0">
+      {/* 아는 서비스면 이름 앞에 글자만 한 표시가 붙는다(linkIcons.jsx). 구글 문서는
+          종류 표시를 대신 붙인다 — 그 표시가 "앱 안에서 열린다"는 신호다. */}
+      {/* gap은 공백 한 칸만큼(11px 글자에서 5px) — 3px로 붙였더니 표시가
+          글자에 눌어붙어 보였다 */}
+      <a ref={anchorRef} href={link.url} target="_blank" rel="noreferrer" onClick={onLinkClick}
+        className="inline-flex items-center gap-[5px] text-[11px] font-semibold text-accent-text hover:underline whitespace-nowrap">
+        {kind ? <DocKindIcon kind={kind} size={11} /> : <LinkIcon url={link.url} />}{link.title}
+      </a>
+      {locked && <Lock size={12} className="shrink-0 text-fg-faint" aria-label="비밀번호가 걸린 링크" />}
+      {canLock && (
+        <button type="button" onClick={() => { place(); setPane(p => (p === 'set' ? null : 'set')); }}
+          className="md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0"
+          title={isLocked(link) ? '비밀번호 바꾸기·풀기' : '비밀번호 걸기'}>
+          {isLocked(link) ? <Lock size={12} /> : <LockOpen size={12} />}
+        </button>
+      )}
+      <button onClick={onRemove} className="md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0" title="링크 삭제"><X size={10} /></button>
+      {pane && createPortal(
+        <div ref={bodyRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: LINK_POP_W }}
+          className="dc-pop bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90]">
+          {pane === 'ask' ? (
+            <PwPrompt className="flex-wrap" onCancel={() => setPane(null)}
+              onOk={async (typed) => {
+                const ok = await verifyViewPw(link, typed);
+                if (ok) { setUnlocked(true); setPane(null); setOpen(true); }
+                return ok;
+              }} />
+          ) : (
+            /* 첨부의 PasswordSetter와 같은 문구·같은 배치다(modals/attachments.jsx) */
+            <>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text" value={pw} autoComplete="off" autoFocus
+                  onChange={(e) => setPw(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && pw) save(pw); }}
+                  placeholder={link.view_pw ? '새 비밀번호' : '비밀번호를 정해주세요'}
+                  className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"
+                />
+                <button type="button" disabled={busy || !pw} onClick={() => save(pw)}
+                  className="px-2.5 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 disabled:opacity-40 shrink-0">저장</button>
+                {link.view_pw && (
+                  <button type="button" disabled={busy} onClick={() => save('')}
+                    className="px-2.5 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95 shrink-0">잠금 해제</button>
+                )}
+              </div>
+              <p className="mt-1.5 text-[10px] text-fg-faint leading-relaxed">
+                비밀번호를 아는 사람만 앱에서 열 수 있어요.
+              </p>
+            </>
+          )}
+        </div>, document.body)}
+      {open && <DocEmbedModal url={link.url} title={link.title} onClose={() => setOpen(false)} />}
+    </span>
+  );
+}
+
 // viewMode(보드/캘린더)는 App이 들고 있다 — 프로젝트를 옮기면 이 컴포넌트가 리마운트되므로
 // 여기서 state로 두면 캘린더를 보다가 다른 프로젝트로 넘어갈 때마다 보드로 되돌아갔다.
 export const ProjectView = React.memo(function ProjectView({ projectId, onTaskClick, onStatusChange, onReorder, onNewTask, onNavigate, onRenameProject, viewMode, setViewMode }) {
   const projectsMap = useStore(selectProjectsMap);
   const tasksList = useStore(selectTasksList);
-  const { enabled, session } = useAuth();
+  const { enabled, session, isAdmin } = useAuth();
   const cloudOn = enabled && !!session;
+  // 참고 링크에 비밀번호를 걸 수 있는 사람을 가르는 데만 쓴다(만든 사람 + 관리자).
+  const myId = session?.user?.id || null;
   // 특정 프로젝트의 Task만 필터링 (해당 View 내부에서만 필요한 연산)
   const projectTasks = useMemo(() => tasksList.filter(t => t.projectId === projectId), [tasksList, projectId]);
   const project = projectsMap[projectId];
@@ -515,6 +628,18 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   const removeLink = (linkId) => {
     store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, pinnedLinks: (project.pinnedLinks || []).filter(l => l.id !== linkId) } });
     if (cloudOn) cloudSync.linkRemoveCloud(linkId).catch(cloudErr('참고 링크를 지우지 못했어요'));
+  };
+  // 참고 링크의 화면 가림용 비밀번호(0053). 빈 값이면 푼다.
+  // **낙관적으로 먼저 바꾸지 않는다** — 잠금은 걸렸는지 아닌지가 곧 화면의 사실이라,
+  // 저장이 실패했는데 자물쇠만 붙어 있으면 그게 거짓말이다(첨부의 PasswordSetter와 같은 순서).
+  // 클라우드에서는 서버가 돌려준 행의 두 칸을 그대로 쓰고(해시는 서버 왕복에서 만들어진다),
+  // 게스트는 저장 자리가 localStorage 한 벌뿐이라 여기서 바로 만든다.
+  const setLinkPw = async (link, pw) => {
+    const patch = cloudOn ? await cloudSync.linkSetPasswordCloud(link.id, pw) : await makeViewPw(pw);
+    store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id,
+      pinnedLinks: (project.pinnedLinks || []).map(l => (l.id === link.id
+        ? { ...l, view_pw: patch?.view_pw ?? null, view_pw_salt: patch?.view_pw_salt ?? null }
+        : l)) } });
   };
 
   const deleteProject = () => {
@@ -645,15 +770,14 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
           <div className="flex items-center gap-[7px] min-w-0 md:contents">
           <div className="flex items-center gap-[7px] flex-nowrap min-w-0 overflow-x-auto scrollbar-hide x-scroll-lock md:flex-none md:flex-wrap md:overflow-x-visible">
             {project.pinnedLinks?.map(l => (
-              <span key={l.id} className="group/link inline-flex items-center gap-1 shrink-0">
-                {/* 아는 서비스면 이름 앞에 글자만 한 표시가 붙는다(linkIcons.jsx) */}
-                {/* gap은 공백 한 칸만큼(11px 글자에서 5px) — 3px로 붙였더니 표시가
-                    글자에 눌어붙어 보였다 */}
-                <a href={l.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-[5px] text-[11px] font-semibold text-accent-text hover:underline whitespace-nowrap">
-                  <LinkIcon url={l.url} />{l.title}
-                </a>
-                <button onClick={() => removeLink(l.id)} className="md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0" title="링크 삭제"><X size={10} /></button>
-              </span>
+              <PinnedLinkChip
+                key={l.id} link={l}
+                // 비밀번호를 걸 수 있는 자리는 **앱 안에서 여는 링크**에만, 만든 사람과 관리자에게만.
+                // 새 탭으로 나가는 링크에 걸면 아무것도 막지 못한다(위 PinnedLinkChip 주석).
+                canLock={!!docEmbedKind(l.url) && (isAdmin || (!!myId && l.created_by === myId))}
+                onRemove={() => removeLink(l.id)}
+                onSetPw={(pw) => setLinkPw(l, pw)}
+              />
             ))}
           </div>
             <span className="inline-flex shrink-0" ref={linkPopRef}>
@@ -970,9 +1094,17 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
 });
 
 // ── 팀 보드 ───────────────────────────────────────────────────────────────
+// 칩이 이어지는 줄 — 넘치면 줄을 바꾸지 않고 가로로 스크롤한다(§8 · 같은 종류가
+// 이어지는 줄에서는 허용). roster.jsx의 CHIP_ROW와 **같은 한 벌**이다: 끝까지 밀었을 때
+// 마지막 칩이 통 끝에 붙지 않게 ::after로 12px을 세운다(스크롤 통의 padding-right는
+// 넘친 내용에 안 걸린다 — §6-2와 같은 이유).
+const TEAM_CHIP_ROW = 'flex items-center gap-1.5 flex-nowrap min-w-0 overflow-x-auto scrollbar-hide x-scroll-lock'
+  + " after:content-[''] after:shrink-0 after:w-3";
+
 export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, onStatusChange, onNavigate }) {
   const tasksList = useStore(selectTasksList);
   const projectsMap = useStore(selectProjectsMap);
+  const storeMembers = useStore(selectMembers);
   const today = ISO_TODAY();
   const teamTasks = useMemo(() => tasksList.filter(t => (t.teams || []).includes(teamName)), [tasksList, teamName]);
   const openTasks = teamTasks.filter(t => t.status !== '완료');
@@ -985,12 +1117,10 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
     return c;
   }, [teamTasks]);
 
-  // 멤버 칩 — 이 팀 업무의 담당자별 남은 건수
-  const members = useMemo(() => {
-    const m = new Map();
-    openTasks.forEach(t => (t.assignees || []).forEach(a => m.set(a, (m.get(a) || 0) + 1)));
-    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([name, left]) => ({ name, left }));
-  }, [openTasks]);
+  // 멤버 칩 — **이 팀에 속한 사람**과 그 사람이 맡은 이 팀의 남은 건수(utils.teamChips 주석).
+  // 이 파일에는 대시보드·일정의 **팀 필터 칩**을 담은 지역 변수 `teamChips`가 이미 둘 있다 —
+  // 같은 이름이 다른 뜻으로 서지 않게 들여올 때 이름을 갈라 둔다.
+  const members = useMemo(() => teamMemberChips(storeMembers, tasksList, teamName), [storeMembers, tasksList, teamName]);
 
   const teamProjects = useMemo(() => [...groupBy(teamTasks, t => t.projectId).entries()].map(([id, list]) => ({
     id,
@@ -1003,7 +1133,7 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
 
   return (
     <div className="dc-screen pb-6">
-      <div className="flex items-end justify-between gap-4 flex-wrap pb-3.5">
+      <div className="pb-3.5">
         <div className="min-w-0">
           <h2 className="text-[19px] md:text-[23px] font-extrabold text-fg mb-[3px] flex items-center gap-2" style={{ letterSpacing: '-0.7px' }}>
             <span className="w-[9px] h-[9px] rounded-[2px] shrink-0" style={{ background: teamColor(teamName) }} />
@@ -1011,16 +1141,20 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
           </h2>
           <p className="text-[12.5px] text-fg-muted tabular-nums">{openTasks.length}건 남음 · {teamProjects.length}개 프로젝트 참여</p>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-          {members.slice(0, 5).map(m => (
-            <span key={m.name} className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full"
+        {/* 사람 칩은 **제목 아래 새 줄**에 왼쪽부터 선다(사용자 지적 2026-09-07).
+            제목 오른쪽에 붙여 두면 폭에 따라 두 명만 첫 줄에 서고 나머지가 접혔고,
+            임원진처럼 사람이 많은 보드에서는 묶음이 통째로 아래로 떨어졌다.
+            상한(5명)도 없앴다 — 넘치는 것은 가로 스크롤이 받는다. */}
+        <div className={`${TEAM_CHIP_ROW} mt-2.5`} data-team-chips="">
+          {members.map(m => (
+            <span key={m.name} data-team-chip={m.name} className="inline-flex shrink-0 items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full"
               style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
               <Avatar name={m.name} className="flex w-5 h-5 text-[10px]" />
-              <span className="text-[11.5px] font-semibold text-fg">{m.name}</span>
-              <span className="text-[11px] text-fg-faint tabular-nums">{m.left}</span>
+              <span className="text-[11.5px] font-semibold text-fg whitespace-nowrap">{m.name}</span>
+              {m.left > 0 && <span className="text-[11px] text-fg-faint tabular-nums">{m.left}</span>}
             </span>
           ))}
-          {!members.length && <span className="text-[11.5px] text-fg-faint">남은 업무를 맡은 사람이 없어요</span>}
+          {!members.length && <span className="text-[11.5px] text-fg-faint whitespace-nowrap">아직 이 팀에 속한 사람이 없어요</span>}
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { tokenizeInline, MD_LINK_RE, IMAGE_LINE_RE } from '../services/markdown.js';
 import { SmartImage, ImageLightbox } from './media.jsx';
+import { docEmbedKind, DocEmbedModal, DocKindIcon } from './DocEmbed.jsx';
 
 // ============================================================================
 // 9. RichText Parser & Renderer
@@ -34,10 +35,31 @@ const parseDeepLink = (href) => {
   } catch { return null; }
 };
 
-// 본문의 링크 하나. 앱 안 링크만 클릭을 가로챈다 — 새 탭으로 열려는 누름
-// (⌘/Ctrl·가운데 버튼)은 브라우저에 그대로 넘긴다.
+// 본문의 링크 하나. 앱 안 링크와 **구글 문서 링크**만 클릭을 가로챈다 — 새 탭으로
+// 열려는 누름(⌘/Ctrl·가운데 버튼)은 어느 쪽이든 브라우저에 그대로 넘긴다.
+//
+// 본문 안 링크에는 **비밀번호가 없다.** 참고 링크(resource_links)나 큐시트와 달리 글 안에
+// 박힌 주소라 해시를 적어 둘 자리가 없다 — 없는 것을 있는 척하지 않는다(§6-29-k와 같은 판단).
 function InlineLink({ href, children }) {
   const deep = parseDeepLink(href);
+  const docKind = deep ? null : docEmbedKind(href);
+  const [docOpen, setDocOpen] = useState(false);
+  if (docKind) return (
+    <>
+      {/* 앞의 작은 표시가 "앱 안에서 열린다"를 말한다 — 안내 글줄을 붙이지 않는다(§8) */}
+      <a
+        href={href} target="_blank" rel="noreferrer" className={LINK_CLS}
+        onClick={(e) => {
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+          e.preventDefault(); setDocOpen(true);
+        }}
+      >
+        <DocKindIcon kind={docKind} size={12} className="inline-block shrink-0 mr-[3px] -translate-y-px" />
+        {children}
+      </a>
+      {docOpen && <DocEmbedModal url={href} title={typeof children === 'string' ? children : ''} onClose={() => setDocOpen(false)} />}
+    </>
+  );
   if (!deep) return <a href={href} target="_blank" rel="noreferrer" className={LINK_CLS}>{children}</a>;
   return (
     <a

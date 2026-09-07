@@ -80,6 +80,13 @@ check('그 달의 날 수와 1일의 요일', word.monthDays('2026-09-10').days.
   && word.monthDays('2026-09-10').lead === 2, JSON.stringify(word.monthDays('2026-09-10').lead));
 check('주는 일요일에 시작한다', JSON.stringify(word.weekRange('2026-09-01')) === JSON.stringify(['2026-08-30', '2026-09-05']),
   JSON.stringify(word.weekRange('2026-09-01')));
+// 잔디의 이전·다음 달(2026-09-07). 1일로 맞춰 돌려주지 않으면 31일에서 한 달을 건너뛴다
+check('달 이동은 해를 넘고 1일로 맞춘다',
+  word.shiftMonth('2026-01-31', -1) === '2025-12-01'
+  && word.shiftMonth('2026-12-15', 1) === '2027-01-01'
+  && word.shiftMonth('2026-03-31', -1) === '2026-02-01'
+  && word.shiftMonth('2026-09-07', 0) === '2026-09-01',
+  [word.shiftMonth('2026-01-31', -1), word.shiftMonth('2026-12-15', 1), word.shiftMonth('2026-03-31', -1)].join(' / '));
 check('장 열쇠는 그대로 되읽힌다', JSON.stringify(word.parseChapterKey(word.chapterKey('gen', 3)))
   === JSON.stringify({ bookId: 'gen', chapter: 3 }), word.chapterKey('gen', 3));
 // 형광펜은 절까지 적는다 — 장 열쇠 파서가 절 열쇠를 먹으면 'gen 1'과 'gen 1:3'이 섞인다
@@ -289,6 +296,69 @@ check('요일 머리글과 연·월이 함께 보인다',
   !!cells && cells.week >= 7 && (await ev(`document.body.innerText.includes(${JSON.stringify(`${word.monthDays(today).year}년 ${word.monthDays(today).month}월`)})`)) === true,
   JSON.stringify(cells));
 
+// 4-b) 이전·다음 달 (2026-09-07) — 이번 달만 보이면 지난 기록을 볼 길이 없었다.
+// 넘긴 달의 문구는 '이번 달'이 아니라 그 달 이름이고, 앞날의 기록은 있을 수 없으므로
+// 이번 달에서는 '다음 달'이 잠긴다. 격자는 5주 ↔ 6주로 달라져도 높이가 그대로여야 한다.
+const grassGrid = () => ev(`(() => {
+  const c = [...document.querySelectorAll('button[title]')].find(b => /^\\d+월 \\d+일 \\([일월화수목금토]\\)$/.test(b.title));
+  const g = c && c.parentElement;
+  const prev = document.querySelector('button[aria-label="지난 달"]');
+  const next = document.querySelector('button[aria-label="다음 달"]');
+  const r = prev ? prev.getBoundingClientRect() : null;
+  const line = (document.body.innerText.match(/[^\\n]*기록했어요/) || [''])[0];
+  // 연·월은 **잔디 머리줄의 것**만 본다 — 화면 위쪽 QT 날짜도 '2026년 9월 …'이라 본문
+  // 전체에서 찾으면 그쪽이 먼저 잡힌다
+  return {
+    h: g ? Math.round(g.getBoundingClientRect().height) : 0,
+    label: prev && prev.nextElementSibling ? prev.nextElementSibling.textContent.trim() : '',
+    line, prev: !!prev, next: !!next, nextOff: next ? next.disabled : null,
+    today: [...document.querySelectorAll('button')].some(x => x.textContent.trim() === '오늘'),
+    w: r ? Math.round(r.width) : 0, hh: r ? Math.round(r.height) : 0,
+  };
+})()`);
+const nowGrass = await grassGrid();
+check('잔디에 이전·다음 달 버튼이 있다',
+  nowGrass.prev && nowGrass.next && nowGrass.w >= 32 && nowGrass.w <= 40 && nowGrass.hh >= 26 && nowGrass.hh <= 32,
+  JSON.stringify(nowGrass));
+check('이번 달에서는 다음 달이 잠긴다', nowGrass.nextOff === true, JSON.stringify(nowGrass));
+// 이 시점의 QT 날짜는 오늘이라 날짜 줄에도 '오늘' 버튼이 없다 — 잔디 쪽도 없어야 한다
+check("이번 달을 보고 있으면 '오늘' 버튼이 없다", nowGrass.today === false, JSON.stringify(nowGrass));
+
+const prevIso = word.shiftMonth(today, -1);
+const prevMonth = word.monthDays(prevIso);
+check('지난 달로 넘긴다', await clickSel('button[aria-label="지난 달"]'));
+await sleep(700);
+const back1 = await grassGrid();
+check('넘긴 달의 연·월이 머리줄에 선다', back1.label === `${prevMonth.year}년 ${prevMonth.month}월`,
+  JSON.stringify(back1));
+// 씨앗은 이번 달에만 심었다 — 지난 달은 0번이고, 문구는 '이번 달'이 아니라 그 달 이름이다
+check("다른 달의 문구는 '이번 달'이 아니라 그 달 이름이다",
+  back1.line.trim() === `${prevMonth.month}월 0번 기록했어요`, JSON.stringify(back1));
+check('다른 달을 보면 다음 달이 열리고 오늘 버튼이 생긴다',
+  back1.nextOff === false && back1.today === true, JSON.stringify(back1));
+// 5주 달과 6주 달의 높이가 다르면 아래 문구·카드가 오르내린다
+check('달을 넘겨도 격자 높이가 그대로다', back1.h === nowGrass.h && back1.h > 0,
+  JSON.stringify({ now: nowGrass.h, prev: back1.h }));
+// 칸을 누르면 그 날짜로 간다 — 지난 기록을 보러 가는 길이 이것 하나다
+const pick15 = await ev(`(() => {
+  const b = [...document.querySelectorAll('button[title]')]
+    .find(x => x.title === ${JSON.stringify(word.shortDayLabel(`${prevIso.slice(0, 7)}-15`))});
+  if (!b) return false; b.click(); return true;
+})()`);
+await sleep(1000);
+check('지난 달 잔디 칸을 누르면 그 날짜로 간다', pick15 === true
+  && (await ev(`(document.body.innerText.match(/\\d+년 \\d+월 \\d+일 \\([일월화수목금토]\\)/)||[''])[0]`))
+     === word.dayLabel(`${prevIso.slice(0, 7)}-15`),
+  word.dayLabel(`${prevIso.slice(0, 7)}-15`));
+// 원래 자리로 — 잔디는 '다음 달'로, 날짜는 '오늘'로(날짜 줄의 것이 문서에서 먼저 온다)
+await clickSel('button[aria-label="다음 달"]');
+await sleep(500);
+await clickText('오늘');
+await sleep(1000);
+check('잔디와 날짜가 이번 달·오늘로 돌아온다',
+  (await ev(`(document.body.innerText.match(/\\d+년 \\d+월 \\d+일 \\([일월화수목금토]\\)/)||[''])[0]`)) === word.dayLabel(today)
+  && (await grassGrid()).label === `${word.monthDays(today).year}년 ${word.monthDays(today).month}월`);
+
 // 5) 본문표 붙여넣기 도구는 없다(0038 시드로 대체) — 마스터에게도 안 보인다
 const noPaste = await ev(`(() => ({
   box: !!document.querySelector('textarea[aria-label="본문표"]'),
@@ -296,6 +366,79 @@ const noPaste = await ev(`(() => ({
 }))()`);
 check('본문표 붙여넣기 도구가 화면에 없다', noPaste.box === false && noPaste.head === false,
   JSON.stringify(noPaste));
+
+// 6-a) 쓴 상태 · 수정 상태 (2026-09-07) — 저장된 묵상이 있으면 **읽기 모드**다.
+// 예전에는 편집기가 늘 열려 있어 이미 쓴 글인지 고치는 중인지 화면이 말해 주지 않았다.
+// 편집기는 그래도 언마운트하지 않는다(날짜를 넘길 때 자리가 줄면 아래가 튄다) —
+// 감추기만 하고, 읽기 상자가 그 자리를 같은 높이로 받는다.
+await waitFor(`document.querySelector('[data-note]')`);
+// 읽기 모드에서도 편집기는 붙어 있다(감춘 것뿐) — lazy 청크가 도착할 때까지 기다린다
+await waitFor(`document.querySelector('.tiptap')`);
+await sleep(400);
+const noteState = () => ev(`(() => {
+  const box = document.querySelector('[data-note]');
+  const read = document.querySelector('[data-note-read]');
+  const tip = document.querySelector('.tiptap');
+  const txt = (l) => [...document.querySelectorAll('button')].some(b => b.textContent.trim() === l);
+  return {
+    mode: box ? box.dataset.note : '',
+    readShown: !!(read && read.offsetParent),
+    readBody: read ? read.innerText.trim() : '',
+    readH: read ? Math.round(read.getBoundingClientRect().height) : 0,
+    tipShown: !!(tip && tip.offsetParent),
+    tipAlive: !!tip,
+    edit: txt('수정'), save: txt('저장'), cancel: txt('취소'),
+    // '내 묵상' 칸 통째의 높이 — 이것이 모드마다 다르면 아래 칸들이 오르내린다.
+    // 위쪽(본문 카드)은 전환 연출 중일 수 있어 절대 좌표 대신 이 높이로 잰다.
+    noteH: box ? Math.round(box.getBoundingClientRect().height) : 0,
+    toggle: [...document.querySelectorAll('button[aria-pressed]')]
+      .filter(b => ['나만 보기', '더다붓에 공유하기'].includes(b.textContent.trim())).length,
+    trash: !!document.querySelector('button[aria-label="내 묵상 지우기"]'),
+  };
+})()`);
+const readMode = await noteState();
+check('저장된 묵상은 읽기 모드로 선다',
+  readMode.mode === 'read' && readMode.readShown === true && readMode.tipShown === false,
+  JSON.stringify(readMode));
+check('읽기 모드에 저장된 글이 그대로 그려진다',
+  readMode.readBody.includes(seed.entries[today].body), JSON.stringify(readMode.readBody));
+check("읽기 모드의 버튼은 '수정' 하나다(저장·취소는 없다)",
+  readMode.edit === true && readMode.save === false && readMode.cancel === false, JSON.stringify(readMode));
+// 공유 토글·지우기는 두 모드에서 그대로 있다 — 공유는 고치는 일이 아니다
+check('읽기 모드에도 공유 토글과 지우기가 있다',
+  readMode.toggle === 2 && readMode.trash === true, JSON.stringify(readMode));
+// 편집기는 살아 있다(감춘 것뿐) — 언마운트하면 날짜를 넘길 때 자리가 줄어 아래가 튄다
+check('읽기 모드에서도 편집기는 언마운트되지 않는다', readMode.tipAlive === true, JSON.stringify(readMode));
+
+check("'수정'을 누른다", await clickText('수정'));
+await sleep(500);
+const editMode = await noteState();
+check("'수정'을 누르면 편집기가 서고 저장·취소가 붙는다",
+  editMode.mode === 'edit' && editMode.tipShown === true && editMode.readShown === false
+  && editMode.save === true && editMode.cancel === true && editMode.edit === false,
+  JSON.stringify(editMode));
+check('수정으로 들어가면 커서가 묵상 칸에 있다',
+  (await ev(`!!document.activeElement && !!document.activeElement.closest('.tiptap')`)) === true);
+// 읽기 상자가 편집기와 같은 자리를 쓰므로 아래 칸(나눔)이 오르내리지 않는다
+check('모드를 바꿔도 묵상 칸의 높이가 그대로다',
+  readMode.noteH > 0 && Math.abs(editMode.noteH - readMode.noteH) <= 1,
+  JSON.stringify({ read: readMode.noteH, edit: editMode.noteH, readH: readMode.readH }));
+// 취소는 고치던 글을 버리고 저장된 글로 되돌린다
+await ev(`(() => { const el = document.querySelector('.tiptap'); el && el.focus(); })()`);
+await send('Input.insertText', { text: ' 고치는 중' });
+await sleep(300);
+check("'취소'를 누른다", await clickText('취소'));
+await sleep(500);
+const backToRead = await noteState();
+check('취소하면 읽기 모드로 돌아가고 고치던 글은 버린다',
+  backToRead.mode === 'read'
+  && backToRead.readBody.includes(seed.entries[today].body)
+  && !backToRead.readBody.includes('고치는 중')
+  && (await ev(`(document.querySelector('.tiptap') || {}).textContent || ''`)).includes('고치는 중') === false,
+  JSON.stringify(backToRead));
+// 아래 검사들은 편집기를 직접 만진다 — 다시 열어 둔다
+check("다시 '수정'으로 편집기를 연다", await clickText('수정'));
+await sleep(500);
 
 // 6) 묵상 칸은 업무 본문과 같은 에디터(TipTap)다
 await waitFor(`document.querySelector('.tiptap')`);
@@ -648,7 +791,13 @@ check('공유를 켜면 나눔에 다시 오른다', shared.feed === true);
 check('공유를 켜도 내 줄은 하나뿐이다', shared.mineRows === 1, String(shared.mineRows));
 
 // 11) 묵상 저장 — 마크다운 에디터에 쳐 넣고 저장한다(그때만 저장이 켜진다)
-await ev(`(() => { const el = document.querySelector('.tiptap'); el.focus(); })()`);
+// 편집기가 서 있을 때만 글을 칠 수 있다 — 찬 서버에서는 lazy 청크가 늦고, 저장된 글이
+// 있는 날은 '수정'을 눌러야 상자가 드러난다(§6-40 — 없으면 던지지 말고 넘어간다)
+if (!await waitFor(`(() => { const t = document.querySelector('.tiptap'); return t && t.offsetParent; })()`, 8000)) {
+  await clickText('수정');
+  await waitFor(`(() => { const t = document.querySelector('.tiptap'); return t && t.offsetParent; })()`, 8000);
+}
+await ev(`(() => { const el = document.querySelector('.tiptap'); el && el.focus(); })()`);
 await send('Input.insertText', { text: ' 그리고 한 줄 더' });
 await sleep(400);
 check('글을 고치면 저장이 켜진다', (await saveDisabled()) === false);
@@ -657,7 +806,12 @@ await sleep(900);
 const mine = await ev(`JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}]`);
 check('묵상과 공유 상태가 같이 저장된다',
   mine && mine.body.includes('그리고 한 줄 더') && mine.shared === true, JSON.stringify(mine));
-check('저장하고 나면 저장이 다시 꺼진다', (await saveDisabled()) === true);
+// 저장하면 **읽기 모드로 돌아간다**(2026-09-07) — 저장 버튼은 그 자리에 없고 '수정'이 선다
+const savedMode = await noteState();
+check('저장하면 읽기 모드로 돌아간다',
+  savedMode.mode === 'read' && savedMode.save === false && savedMode.cancel === false
+  && savedMode.edit === true && savedMode.readBody.includes('그리고 한 줄 더'),
+  JSON.stringify(savedMode));
 // 토스트도 토글과 같은 말을 쓴다 — '나눔에 올렸어요'가 아니다
 const toast = await ev(`(document.querySelector('[role="status"]') || {}).textContent || ''`);
 check('저장 토스트가 토글과 같은 말을 쓴다', toast.includes('더다붓에 공유했어요'), toast);
@@ -1470,12 +1624,27 @@ const mob = await ev(`(() => {
            dateRow: row ? Math.round(row.getBoundingClientRect().width) : -1,
            dateFits: !!row && row.getBoundingClientRect().right <= d.clientWidth + 1,
            share: [...document.querySelectorAll('button')].filter(b => ['나만 보기', '더다붓에 공유하기'].includes(b.textContent.trim()))
-             .every(b => b.getBoundingClientRect().right <= d.clientWidth + 1) };
+             .every(b => b.getBoundingClientRect().right <= d.clientWidth + 1),
+           tool: (() => {
+             const left = document.querySelector('[data-note-tools="left"]');
+             const right = document.querySelector('[data-note-tools="right"]');
+             const col = document.querySelector('[data-col="qt"]');
+             if (!left || !right || !col) return null;
+             const l = left.getBoundingClientRect(), r = right.getBoundingClientRect(), c = col.getBoundingClientRect();
+             return { sameRow: Math.abs(l.top - r.top) < 6, below: Math.round(r.top - l.bottom),
+                      leftGap: Math.round(r.left - c.left), rightGap: Math.round(c.right - r.right) };
+           })() };
 })()`);
 check('모바일 375px에서 가로로 넘치지 않는다', mob.over === false, JSON.stringify(mob));
 check('모바일에서도 본문과 묵상 칸이 뜬다', mob.verses > 0 && mob.seg && mob.tiptap, JSON.stringify(mob));
 check('모바일에서 날짜 줄과 공유 토글이 화면 안에 든다',
   mob.dateFits === true && mob.share === true, JSON.stringify(mob));
+// C2(2026-09-07) — 375px에서 토글만 다음 줄로 떨어져 오른쪽에 혼자 서던 자리.
+// 이제 640 미만에서는 토글 묶음이 **한 줄을 통째로** 받고 열의 좌우 선에 맞는다.
+check('375px에서 공유 토글 묶음이 다음 줄에서 열 폭을 받는다',
+  !!mob.tool && mob.tool.sameRow === false && mob.tool.below >= 2 && mob.tool.below <= 16
+  && Math.abs(mob.tool.leftGap) <= 1 && Math.abs(mob.tool.rightGap) <= 1,
+  JSON.stringify(mob.tool));
 await clickText('성경 읽기');
 await sleep(1600);
 // 4차 피드백 11 — **본문을 읽는 중에도** 목차·북마크·형광펜에 닿을 수 있어야 하고,
@@ -1627,6 +1796,22 @@ for (const w of [768, 1024, 1160, 1440]) {
   })()`);
   check(`${w}px QT 열이 자리를 다 쓴다`, fits(qtFit), JSON.stringify({ qtFit, over }));
   check(`${w}px QT가 가로로 넘치지 않는다`, over.over === false && over.wide === 0, JSON.stringify(over));
+  // 640 위에서는 도구 줄이 한 줄이고 토글 묶음이 열의 오른쪽 선에 붙는다(C2)
+  const tool = await ev(`(() => {
+    const left = document.querySelector('[data-note-tools="left"]');
+    const right = document.querySelector('[data-note-tools="right"]');
+    const col = document.querySelector('[data-col="qt"]');
+    if (!left || !right || !col) return null;
+    const l = left.getBoundingClientRect(), r = right.getBoundingClientRect(), c = col.getBoundingClientRect();
+    return { sameRow: Math.abs(l.top - r.top) < 6, rightGap: Math.round(c.right - r.right),
+             leftGap: Math.round(l.left - c.left) };
+  })()`);
+  check(`${w}px 도구 줄이 한 줄에 서고 좌우 선에 맞는다`,
+    !!tool && tool.sameRow === true && Math.abs(tool.rightGap) <= 1 && Math.abs(tool.leftGap) <= 1,
+    JSON.stringify(tool));
+  // 잔디 칸도 자기 트랙을 다 쓴다 — 1024부터는 옆 칸(300px), 그 아래에서는 한 열이다
+  const grassFit = await colFit('[data-col="grass"]');
+  check(`${w}px 내 기록 칸이 자리를 다 쓴다`, fits(grassFit), JSON.stringify(grassFit));
 
   await clickText('성경 읽기');
   if (!await waitFor(`document.querySelector('[data-col="read"], [data-col="toc"]')`, 6000)) {

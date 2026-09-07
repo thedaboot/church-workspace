@@ -47,6 +47,15 @@ export function monthDays(iso) {
   return { year: y, month: m, lead: utc(days[0]).getUTCDay(), days };
 }
 
+// 달 이동 — 잔디의 이전·다음 달. **1일로 맞춰 돌려준다**(monthDays에 그대로 넣는다).
+// shiftDay로 30일씩 더하면 달 길이가 달라 2월이나 31일에서 한 달을 건너뛴다.
+export function shiftMonth(iso, months) {
+  const m = +iso.slice(5, 7) + months;
+  const y = +iso.slice(0, 4) + Math.floor((m - 1) / 12);
+  const mm = ((m - 1) % 12 + 12) % 12 + 1;
+  return `${y}-${String(mm).padStart(2, '0')}-01`;
+}
+
 // 그 날이 낀 주(일요일 시작)의 [처음, 끝]
 export function weekRange(iso) {
   const start = shiftDay(iso, -utc(iso).getUTCDay());

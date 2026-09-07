@@ -42,6 +42,64 @@ const check = (n, p, d = '') => {
   if (process.env.LIVE) console.log(line);
 };
 
+// ── 0) 공유 카드 · 딥링크 (api/share.js type 'c') ────────────────────────────
+// 동아리 가입 신청 QR이 가리키는 자리다. 크롤러가 읽는 OG 메타이자 **사람이 실제로
+// 가는 주소**를 만든다 — 조회가 실패하면 제목이 기본값으로 떨어지고 appUrl이 '/'로
+// 남아 딥링크가 통째로 사라지는데, 크롤러 말고는 아무도 안 보는 화면이라 증상이
+// 밖으로 안 난다(HANDOFF §6-31-d — projects.description에서 실제로 그랬다).
+// 그래서 브라우저와 무관하게 handler를 직접 부른다. 게스트 스위트에는 supabase가
+// 없으므로 PostgREST 응답을 fetch에서 가로챈다(로그인 키가 필요 없다).
+// 되돌리기 확인: select('name')을 없는 칸('name, description')으로 되돌리면 아래
+// '조회가 막히면 …'만 남고 나머지 셋이 깨진다.
+{
+  const CLUB_ID = '11111111-2222-3333-4444-555555555555';
+  const env = { url: process.env.VITE_SUPABASE_URL, key: process.env.SUPABASE_SECRET_KEY };
+  process.env.VITE_SUPABASE_URL = 'https://stub.supabase.co';
+  process.env.SUPABASE_SECRET_KEY = 'stub-key';
+  const realFetch = globalThis.fetch;
+  const realErr = console.error;
+  const errs = [];
+  let reply = () => new Response(JSON.stringify({ name: '통통' }),
+    { status: 200, headers: { 'content-type': 'application/json' } });
+  globalThis.fetch = async (input, init) => {
+    const u = String(input?.url || input);
+    if (u.includes('/rest/v1/')) return reply(u);
+    return realFetch(input, init);
+  };
+  console.error = (...a) => { errs.push(a.map(String).join(' ')); };
+  const { default: shareHandler } = await import(new URL('../api/share.js', import.meta.url).href);
+  const share = async (query) => {
+    let html = '';
+    const res = { setHeader() {}, status() { return res; }, send(body) { html = body; } };
+    await shareHandler({ query, headers: { host: 'doda.test', 'x-forwarded-proto': 'https' } }, res);
+    return html;
+  };
+  const withApply = await share({ type: 'c', id: CLUB_ID, apply: '1' });
+  const noApply = await share({ type: 'c', id: CLUB_ID });
+  reply = () => new Response(JSON.stringify({ code: '42703', message: 'column does not exist' }),
+    { status: 400, headers: { 'content-type': 'application/json' } });
+  const broken = await share({ type: 'c', id: CLUB_ID });
+  globalThis.fetch = realFetch;
+  console.error = realErr;
+  if (env.url === undefined) delete process.env.VITE_SUPABASE_URL; else process.env.VITE_SUPABASE_URL = env.url;
+  if (env.key === undefined) delete process.env.SUPABASE_SECRET_KEY; else process.env.SUPABASE_SECRET_KEY = env.key;
+
+  check('공유 카드 — 동아리 이름이 제목이고 설명은 신청 안내다',
+    withApply.includes('<meta property="og:title" content="더다붓 · 통통"/>')
+    && withApply.includes('content="가입 신청은 이 링크에서 할 수 있어요."'),
+    withApply.slice(withApply.indexOf('<title>'), withApply.indexOf('<title>') + 60));
+  // 사람이 가는 자리 — `?apply=1`이 붙어 오면 앱 주소에도 그대로 실린다
+  check('공유 카드 — apply=1이면 딥링크에도 신청이 실린다',
+    withApply.includes(`location.replace("/?p=groups&g=${CLUB_ID}&apply=1")`),
+    (withApply.match(/location\.replace\((.*)\)/) || [])[1]);
+  check('공유 카드 — apply가 없으면 상세만 연다',
+    noApply.includes(`location.replace("/?p=groups&g=${CLUB_ID}")`) && !noApply.includes('apply=1'),
+    (noApply.match(/location\.replace\((.*)\)/) || [])[1]);
+  check('공유 카드 — 조회가 막히면 로그에 남는다(빈 딥링크로 둔갑하지 않게)',
+    errs.some(e => e.includes('[share] 동아리 조회 실패')) && broken.includes('location.replace("/")'),
+    errs.join(' / ').slice(0, 80));
+}
+
 // ── 가짜 명단 · 순 · 동아리 ─────────────────────────────────────────────────
 const Y = new Date().getFullYear();
 const seed = {
@@ -99,9 +157,13 @@ const seed = {
       body: '## 오늘 남은 말씀\n**기쁨**은 상황이 아니라 붙드시는 손에서 온다\n- 빌립보서 4:4' },
     { id: 'n2', service_id: 's1', profile_id: 'u8', shared_to_sun: false, author_name: '양민혁',
       body: '이 줄은 비공개라 모임 화면에 오면 안 된다' },
-    // **내 노트는 비공개여도 나에게는 온다**(사용자 결정 2026-09-03) — p1의 계정이 u1이다
+    // **내 비공개 노트도 오면 안 된다**(사용자 지시 2026-09-07 — 예전에는 잠금 표시를
+    // 달고 이 목록에 섰다). p1의 계정이 u1이다.
     { id: 'n3', service_id: 's1', profile_id: 'u1', shared_to_sun: false, author_name: '김윤주',
       body: '아직 나만 보는 묵상' },
+    // 내가 **공유한** 노트 — 이 줄에는 토글이 남고, 끄면 목록에서 사라진다
+    { id: 'n4', service_id: 's0', profile_id: 'u1', shared_to_sun: true, author_name: '김윤주',
+      body: '지난 주일에 나눈 노트' },
   ],
 };
 
@@ -311,9 +373,9 @@ const ICON_AUDIT = `(() => {
 const enter = async (me, theme, mut, guide) => {
   await ev(plant(me, theme, mut, guide));
   await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1200);
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 30; i++) {
     await ev(GO);
-    await sleep(i ? 300 : 1200);
+    await sleep(i ? 300 : 1400);
     if (await ev(`!!document.querySelector('.groups-screen')`)) return;
   }
   throw new Error('모임 화면이 열리지 않았어요');
@@ -657,10 +719,19 @@ check('순장 비우기는 언제나 되고 구성원은 건드리지 않는다'
   pure.leader.clear === 'ok:false', pure.leader.clear);
 
 // ── 1) 내 순 (일반 순원 · 꼬순) ─────────────────────────────────────────────
+// 여기만 enter()를 안 쓴다 — '상단에 진입로가 있는가'를 그 자리에서 재기 때문이다.
+// 다만 **화면이 설 때까지 다시 누르는 것은 같다**: 정해진 시간만 쉬면 첫 페인트가 늦은
+// 판(다른 에이전트가 저장해서 HMR이 도는 중)에서 진입로를 못 눌러 뒤따르는 검사가
+// 통째로 넘어진다 — 실측 1.9초까지 늦은 적이 있다(enter() 머리 주석과 같은 이유).
 await ev(plant({ personId: 'p1', isMaster: false, roles: [] }));
-await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1500);
-check('데스크톱 상단에 모임 진입로가 있다', (await ev(GO)) === true);
-await sleep(1400);
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1200);
+let entryFound = false;
+for (let i = 0; i < 20; i++) {
+  if (await ev(GO)) entryFound = true;
+  await sleep(i ? 300 : 1400);
+  if (await ev(`!!document.querySelector('.groups-screen')`)) break;
+}
+check('데스크톱 상단에 모임 진입로가 있다', entryFound === true);
 
 const mine = await ev(`(() => ({
   open: !!document.querySelector('.groups-screen'),
@@ -688,40 +759,39 @@ check('최근 주일 예배 출석 n/m',
   mine.att.includes('8월 30일') && mine.att.endsWith('예배 출석 2/3'), mine.att);
 check('내 순에 공유된 예배 노트가 뜬다',
   mine.notes.length === 2 && mine.notes[0].includes('천진영') && mine.notes[0].includes('기쁨은 상황이 아니라'), JSON.stringify(mine.notes));
-// 내 비공개 노트는 나에게만 보이고, 그 줄에서 바로 공유를 켠다.
-// **공유 칸은 말씀·예배와 같은 한 부품이다**(components/ShareToggle.jsx · 회차 8) —
-// 두 쪽이 나란히 서고 **라벨은 상태와 무관하게 고정**이다(사용자 결정 2026-09-05 —
-// 예전에는 누를 때마다 이름이 뒤집히는 버튼 하나였다). 이 화면에는 노트 편집기가
-// 없으므로 조작은 이 줄에 남는다(말씀 나눔 피드에서는 편집기 것만 남기고 뺐다).
+// **공유하지 않은 노트는 내 것이어도 오지 않는다**(사용자 지시 2026-09-07 — 예전에는
+// 잠금 표시를 달고 이 목록에 섰다). 이 구역의 이름이 '내 순에 공유된 예배 노트'라서,
+// 공유하지 않은 글이 서면 이름과 내용이 어긋난다.
+// 내가 공유한 줄에는 토글이 남는다 — **공유 칸은 말씀·예배와 같은 한 부품이고**
+// (components/ShareToggle.jsx · 회차 8) 두 쪽이 나란히 서며 **라벨은 상태와 무관하게
+// 고정**이다(사용자 결정 2026-09-05). 이 화면에는 노트 편집기가 없으므로 조작은 이
+// 줄에 남는다(말씀 나눔 피드에서는 편집기 것만 남기고 뺐다).
 const myNote = await ev(`(() => {
   const rows = [...document.querySelectorAll('.mysun-note')];
-  const mineRow = rows.find(r => r.innerText.includes('아직 나만 보는 묵상'));
+  const mineRow = rows.find(r => r.innerText.includes('지난 주일에 나눈 노트'));
   const segs = [...(mineRow?.querySelectorAll('.mysun-note-share button[aria-pressed]') || [])];
-  return { rows: rows.length, lock: !!mineRow?.querySelector('.mysun-note-lock'),
+  return { rows: rows.length,
+    priv: document.body.innerText.includes('아직 나만 보는 묵상'),
+    lock: !!document.querySelector('.mysun-note-lock'),
     segs: segs.map(b => b.textContent.trim() + ':' + b.getAttribute('aria-pressed')).join('|'),
-    others: rows.filter(r => r.querySelector('.mysun-note-share')).length };
+    withToggle: rows.filter(r => r.querySelector('.mysun-note-share')).length };
 })()`);
-check('내 비공개 노트는 잠금 표시와 함께 나에게만 보인다',
-  myNote.rows === 2 && myNote.lock === true && myNote.others === 1, JSON.stringify(myNote));
-check('그 줄의 공유 칸은 두 쪽짜리 토글이고 지금은 나만 보기다',
-  myNote.segs === '나만 보기:true|순에 공유하기:false', myNote.segs);
+check('공유하지 않은 내 노트는 이 목록에 오지 않는다',
+  myNote.rows === 2 && myNote.priv === false && myNote.lock === false, JSON.stringify(myNote));
+check('내가 공유한 줄에만 두 쪽짜리 토글이 서고 지금은 공유 쪽이다',
+  myNote.withToggle === 1 && myNote.segs === '나만 보기:false|순에 공유하기:true', myNote.segs);
+// 공유를 끄면 그 줄은 목록에서 사라진다(조회가 shared_to_sun만 본다) — 저장은 그대로 된다
 await ev(`(() => { const r = [...document.querySelectorAll('.mysun-note')]
-  .find(x => x.innerText.includes('아직 나만 보는 묵상'));
+  .find(x => x.innerText.includes('지난 주일에 나눈 노트'));
   r.querySelector('.mysun-note-share button[aria-pressed="false"]').click(); })()`);
-await sleep(1000);
-const shared = await ev(`(() => {
-  const r = [...document.querySelectorAll('.mysun-note')].find(x => x.innerText.includes('아직 나만 보는 묵상'));
-  const segs = [...(r?.querySelectorAll('.mysun-note-share button[aria-pressed]') || [])];
-  return { said: r?.querySelector('[data-share-chip]')?.textContent.trim() || '',
-    lock: !!r?.querySelector('.mysun-note-lock'),
-    segs: segs.map(b => b.textContent.trim() + ':' + b.getAttribute('aria-pressed')).join('|'),
-    stored: (${store('service_notes')}.find(n => n.id === 'n3') || {}).shared_to_sun };
-})()`);
-check('그 줄에서 공유를 켜면 초록 칩으로 말하고 그대로 저장된다',
-  shared.said === '우리 순에 공유할게요' && shared.lock === false
-  && shared.stored === true, JSON.stringify(shared));
-check('공유를 켜도 토글 라벨은 그대로고 고른 쪽만 바뀐다',
-  shared.segs === '나만 보기:false|순에 공유하기:true', shared.segs);
+await sleep(1200);
+const shared = await ev(`(() => ({
+  rows: document.querySelectorAll('.mysun-note').length,
+  still: document.body.innerText.includes('지난 주일에 나눈 노트'),
+  stored: (${store('service_notes')}.find(n => n.id === 'n4') || {}).shared_to_sun,
+}))()`);
+check('내 줄에서 공유를 끄면 저장되고 그 줄이 목록에서 빠진다',
+  shared.stored === false && shared.still === false && shared.rows === 1, JSON.stringify(shared));
 // 예배 노트는 마크다운 편집기로 쓴다(예배 화면) — 원문 기호가 글자로 남으면 안 된다
 const noteMd = await ev(`(() => {
   const b = document.querySelector('.mysun-note-body');
@@ -1227,6 +1297,128 @@ check('남의 동아리에서는 리더 도구가 서지 않는다',
 check('동아리장이어도 순 편성 탭은 없다',
   (await ev(`[...document.querySelectorAll('.groups-tab')].map(t => t.textContent.trim()).join(',')`)) === '내 순,동아리');
 
+// ── 3-1) 가입 신청 QR (components/ClubQr.jsx) ───────────────────────────────
+// 여는 사람은 **그 동아리를 고칠 수 있는 사람**이다(canEditClub — 마스터·관리자·그
+// 동아리장). p6은 통통의 동아리장이고 말씀읽기에는 아무 자격이 없다.
+await enter({ personId: 'p6', isMaster: false, isAdmin: false, roles: [] });
+await tab('동아리'); await sleep(700);
+await openClub('말씀읽기'); await sleep(700);
+check('남의 동아리에는 신청 QR 버튼이 없다',
+  (await ev(`!!document.querySelector('.club-qr-open')`)) === false);
+await ev(`${byText('목록으로')}.click()`); await sleep(600);
+await openClub('통통'); await sleep(700);
+check('내 동아리에는 신청 QR 버튼이 선다',
+  (await ev(`!!document.querySelector('.club-qr-open')`)) === true);
+await ev(`document.querySelector('.club-qr-open').click()`); await sleep(1500);
+// QR 모듈은 path 하나에 담는다(rect 수백 개 대신) — 'M'의 수가 곧 검은 모듈 수다.
+const qr = await ev(`(() => {
+  const card = document.querySelector('.club-qr-card');
+  if (!card) return { err: 'no-card' };
+  const d = card.querySelector('path')?.getAttribute('d') || '';
+  const r = card.getBoundingClientRect();
+  return {
+    texts: [...card.querySelectorAll('text')].map(t => t.textContent.trim()),
+    modules: d.split('M').length - 1,
+    w: Math.round(r.width),
+    tools: [...document.querySelectorAll('.club-qr-tools button')].map(b => b.textContent.trim()),
+  };
+})()`);
+check('QR 카드에 동아리 이름 · 라벨 · 모듈이 그려진다',
+  !qr.err && qr.texts[0] === '통통' && qr.texts[1] === '가입 신청 QR'
+  && qr.modules > 60 && qr.w >= 200, JSON.stringify(qr));
+// 상시 도구 줄 — 확정 왼쪽 / 나가기 오른쪽(§8)
+check('QR 창의 버튼 차례는 공유 · 저장 · 복사 … 닫기',
+  JSON.stringify(qr.tools) === '["카카오톡·공유","이미지 저장","링크 복사","닫기"]', JSON.stringify(qr.tools));
+await ev(`document.querySelector('.club-qr-close').click()`); await sleep(400);
+check('닫기를 누르면 QR 창이 사라진다',
+  (await ev(`!!document.querySelector('.club-qr-card')`)) === false);
+
+// **QR 카드는 다크에서도 밝다.** 어두운 종이에 밝은 모듈로 그리면 반전 코드가 되어
+// 못 읽는 리더가 많다. 카드를 감싸는 창은 여느 화면처럼 테마를 따라간다.
+await enter({ personId: 'p6', isMaster: false, isAdmin: false, roles: [] }, 'dark');
+await tab('동아리'); await sleep(700);
+await openClub('통통'); await sleep(700);
+await ev(`document.querySelector('.club-qr-open').click()`); await sleep(1500);
+const qrDark = await ev(`(() => {
+  const card = document.querySelector('.club-qr-card');
+  if (!card) return { err: 'no-card' };
+  return { paper: getComputedStyle(card.querySelector('rect')).fill,
+    mod: getComputedStyle(card.querySelector('path')).fill,
+    box: getComputedStyle(document.querySelector('.club-qr')).backgroundColor };
+})()`);
+check('다크에서도 QR 종이는 흰색 · 모듈은 진한 남색(반전 코드가 되지 않게)',
+  !qrDark.err && qrDark.paper === 'rgb(255, 255, 255)' && qrDark.mod === 'rgb(33, 49, 131)'
+  && qrDark.box !== 'rgb(255, 255, 255)', JSON.stringify(qrDark));
+
+// ── 3-2) QR·알림으로 들어온 자리 (딥링크 `?p=groups&g=…&apply=1`) ───────────
+// QR을 찍으면 /s/c/<id>?apply=1 → (로그인) → 이 주소다. 화면은 그 동아리 상세를 열고
+// 신청까지 한 뒤 '동아리 신청이 완료되었어요!'라고 말한다(사용자 문구).
+// 이미 구성원이거나 이미 신청했으면 다시 넣지 않고 그 사정을 말한다.
+const enterLink = async (me, query) => {
+  await ev(plant(me));
+  await send('Page.navigate', { url: `${URL_BASE}/${query}` });
+  await wait('Page.loadEventFired');
+  await sleep(1500);
+  for (let i = 0; i < 25; i++) {
+    if (await ev(`!!document.querySelector('.groups-screen')`)) return true;
+    await sleep(300);
+  }
+  return false;
+};
+// 상세가 실제로 설 때까지 기다렸다 읽는다 — 정해진 시간만 쉬면 dev 서버가 느린 판에서
+// 아무것도 없는 화면을 읽고 넘어진다(enter()와 같은 이유).
+const readLink = (groupId, personId) => ev(`(() => ({
+  title: document.querySelector('.club-title')?.textContent.trim() || '',
+  waiting: !!document.querySelector('.club-waiting'),
+  toast: (document.querySelector('[data-toast]') || {}).innerText || '',
+  stored: ${store('club_applications')}.filter(a => a.group_id === ${JSON.stringify(groupId)}
+    && a.person_id === ${JSON.stringify(personId)}).length,
+}))()`);
+const linkState = async (groupId, personId) => {
+  for (let i = 0; i < 24; i++) {
+    if ((await readLink(groupId, personId)).title) break;
+    await sleep(250);
+  }
+  await sleep(500);   // 신청 한 번과 토스트가 그 뒤에 온다
+  return readLink(groupId, personId);
+};
+const P1 = { personId: 'p1', isMaster: false, isAdmin: false, roles: [] };
+
+// p1은 서부버튼(gc3)의 구성원도 아니고 신청해 둔 것도 없다 — 새로 들어가는 갈래다
+check('딥링크로 모임 화면이 바로 열린다', await enterLink(P1, '?p=groups&g=gc3&apply=1'));
+const qrApplied = await linkState('gc3', 'p1');
+check('QR을 찍고 들어오면 그 동아리 상세가 열리고 신청이 들어간다',
+  qrApplied.title === '서부버튼' && qrApplied.stored === 1 && qrApplied.waiting === true, JSON.stringify(qrApplied));
+check("신청이 끝나면 '동아리 신청이 완료되었어요!'",
+  qrApplied.toast === '동아리 신청이 완료되었어요!', qrApplied.toast);
+
+// 이미 구성원(말씀읽기 gc2에 p1이 있다) — 신청을 만들지 않는다
+await enterLink(P1, '?p=groups&g=gc2&apply=1');
+const already = await linkState('gc2', 'p1');
+check('이미 그 동아리에 있으면 신청하지 않고 알려 준다',
+  already.title === '말씀읽기' && already.stored === 0 && already.toast === '이미 이 동아리에 있어요',
+  JSON.stringify(already));
+
+// 이미 신청해 둔 동아리(통통 gc1에 a1이 있다) — 두 번째 신청을 만들지 않는다
+await enterLink(P1, '?p=groups&g=gc1&apply=1');
+const dup = await linkState('gc1', 'p1');
+check('이미 신청한 동아리면 한 번 더 넣지 않는다',
+  dup.title === '통통' && dup.stored === 1 && dup.toast === '이미 신청했어요', JSON.stringify(dup));
+
+// apply가 없으면 상세만 연다
+await enterLink(P1, '?p=groups&g=gc3');
+const onlyOpen = await linkState('gc3', 'p1');
+check('apply가 없으면 상세만 열고 신청하지 않는다',
+  onlyOpen.title === '서부버튼' && onlyOpen.stored === 0 && onlyOpen.toast === '', JSON.stringify(onlyOpen));
+
+// 명단에 이어지지 않은 계정 — 신청할 사람(person)이 없다(0035 club_applications RLS와 같은 자리)
+await enterLink({ personId: null, isMaster: false, isAdmin: false, roles: [] }, '?p=groups&g=gc3&apply=1');
+const orphanLink = await linkState('gc3', 'p1');
+check('명단에 이어지지 않은 계정에는 못 한 이유를 말한다',
+  orphanLink.title === '서부버튼' && orphanLink.stored === 0
+  && orphanLink.toast.includes('가입 신청을 못 했어요')
+  && orphanLink.toast.includes('청년 명단과 계정이 아직 연결되지 않았어요'), JSON.stringify(orphanLink));
+
 // ── 4) 마스터 ───────────────────────────────────────────────────────────────
 await enter({ personId: 'p6', isMaster: true, roles: [] });
 await tab('동아리'); await sleep(700);
@@ -1666,7 +1858,11 @@ check('마스터가 명단에 이어져 있지 않아도 순모임 가이드 자
   && orphanMaster.card === false && orphanMaster.empty === true, JSON.stringify(orphanMaster));
 
 // ── 7) 모바일 375px ─────────────────────────────────────────────────────────
-await enter({ personId: 'p3', isMaster: false, roles: ['lead_sunjang'] });
+// 시드에 **내가 공유한 노트**를 하나 더 심는다(p3 = u3) — 공유 토글은 내 줄에만 서는데
+// 기본 시드의 공유 노트는 남의 것(u9)과 p1의 것(u1)뿐이다.
+await enter({ personId: 'p3', isMaster: false, roles: ['lead_sunjang'] }, 'light',
+  `g.service_notes = [...g.service_notes, { id: 'n5', service_id: 's0', profile_id: 'u3',
+    shared_to_sun: true, author_name: '김승찬', body: '내가 순에 공유한 노트' }];`);
 await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
 await sleep(800);
 const mobMine = await ev(`(() => ({
@@ -1675,6 +1871,26 @@ const mobMine = await ev(`(() => ({
 }))()`);
 check('모바일 375px — 내 순이 가로로 넘치지 않는다', mobMine.overflow <= 0, `넘침 ${mobMine.overflow}px`);
 check('모바일에서도 구성원이 그대로 선다', mobMine.members === 3, String(mobMine.members));
+// 공유 토글 — 좁은 폭에서는 **줄 아래에서 왼쪽부터 폭을 채우고 두 쪽이 반씩**이다
+// (사용자 지적 2026-09-07 — 접힌 채 오른쪽 끝에 어긋나 서 있었다).
+const mobShare = await ev(`(() => {
+  const row = [...document.querySelectorAll('.mysun-note')].find(r => r.querySelector('.mysun-note-share'));
+  if (!row) return { err: 'no-row' };
+  const box = row.querySelector('.mysun-note-share').getBoundingClientRect();
+  const date = row.querySelector('p').getBoundingClientRect();
+  const [a, b] = [...row.querySelectorAll('.mysun-note-share button')].map(x => x.getBoundingClientRect().width);
+  // 카드에는 테두리가 1px 있다 — rect는 그것을 품고 clientLeft/clientWidth는 뺀다
+  const cs = getComputedStyle(row);
+  const padL = parseFloat(cs.paddingLeft), padR = parseFloat(cs.paddingRight);
+  const r = row.getBoundingClientRect();
+  return { left: Math.round(box.left - (r.left + row.clientLeft + padL)),
+    fill: Math.round((row.clientWidth - padL - padR) - box.width),
+    below: Math.round(box.top - date.bottom),
+    half: Math.round(Math.abs(a - b)) };
+})()`);
+check('모바일 375px — 공유 토글이 줄 아래에서 폭을 채우고 두 쪽이 반씩',
+  !mobShare.err && mobShare.left === 0 && Math.abs(mobShare.fill) <= 1
+  && mobShare.below > 0 && mobShare.half <= 1, JSON.stringify(mobShare));
 await tab('순 편성'); await sleep(800);
 const mobSun = await ev(`document.documentElement.scrollWidth - document.documentElement.clientWidth`);
 check('모바일 375px — 순 편성도 넘치지 않는다', mobSun <= 0, `넘침 ${mobSun}px`);

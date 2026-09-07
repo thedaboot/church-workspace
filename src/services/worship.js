@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient.js';
 import { fetchPeople, fetchGroups, fetchGroupMembers, fetchMyPerson, fetchRoles, guestStore } from './people.js';
-import { listServiceFiles, uploadServiceFile as uploadServiceFileToDrive, ensureServiceFolder, deleteAttachment } from './cloud.js';
+import { listServiceFiles, uploadServiceFile as uploadServiceFileToDrive, ensureServiceFolder, deleteAttachment,
+  insertNotifications, getMyProfile } from './cloud.js';
 import { downscaleImage, FILE_MAX_DIM } from './image.js';
 import { generateId } from '../utils.js';
 
@@ -22,11 +23,17 @@ import { generateId } from '../utils.js';
 // 경로(RLS·실데이터)는 사람이 확인해야 한다 — HANDOFF §2-6.
 // ============================================================================
 
-const COLS = 'id, kind, service_date, status, title, passage_ref, preacher, roles, songs, notices, praise_leader, praise_playlist_url, attendance_note, drive_folder_id, created_at, updated_at';
+const COLS = 'id, kind, service_date, status, title, passage_ref, preacher, roles, songs, notices, praise_leader, praise_playlist_url, attendance_note, cue_sheet, drive_folder_id, created_at, updated_at';
 
 export const SUNDAY_KIND = 'sunday';
 const SUNDAY_LABEL = '주일 4부 젊은이 예배';
 const UNASSIGNED = '순 미지정';
+// 순 묶음 **위**에 서는 두 묶음(2026-09-07). 부장·교역자는 어느 순에도 편성되어 있지 않아
+// '순 미지정'으로 떨어졌는데, 그 이름은 "아직 순을 못 정한 청년"이라는 뜻이라 어긋난다.
+// id가 uuid가 아니라 글자인 이유: 이 묶음은 groups 행이 아니라 **명단 속성으로 만든 묶음**이다.
+export const PASTOR_GROUP = 'pastor';
+export const DIRECTOR_GROUP = 'director';
+const HEAD_GROUPS = new Map([[PASTOR_GROUP, '전도사님'], [DIRECTOR_GROUP, '부장님']]);
 
 // 찬양팀 이름은 **고정 상수**다(사용자 결정 2026-09-05: "찬양팀의 이름은 Re:born
 // 워십이라 고정해줘도 나쁘지 않겠다"). 팀이 하나뿐이라 주보마다 적을 값이 아니고,
@@ -190,23 +197,44 @@ export function worshipPerms({ isMaster = false, isAdmin = false, myPerson = nul
   return { canEdit, canCheckAll, ledGroupIds: led, canCheck: canCheckAll || led.length > 0 };
 }
 
-// 그 순을 내가 체크할 수 있나. '순 미지정'(groupId 없음)은 전체 자격자만 만진다.
+// 그 순을 내가 체크할 수 있나. '순 미지정'(groupId 없음)과 전도사님·부장님 묶음은
+// **전체 자격자만** 만진다 — 순장에게는 자기 순 청년뿐이고, 그 묶음들은 순이 아니다.
 export const canToggleGroup = (perms, groupId) =>
-  !!perms?.canCheckAll || (!!groupId && (perms?.ledGroupIds || []).includes(groupId));
+  !!perms?.canCheckAll
+  || (!!groupId && !HEAD_GROUPS.has(groupId) && (perms?.ledGroupIds || []).includes(groupId));
 
 // 이름 가나다순. localeCompare('ko')라야 'ㄱㄴㄷ'이 맞는다 — 기본 비교는 코드포인트
 // 순서라 한글도 얼추 맞지만 자모 조합·영문 섞임에서 어긋난다.
 const byKoName = (a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'ko');
 
 // 순별로 묶은 명단. 순장은 편성 명단에 없어도 자기 순에 세운다(0036 same_sun과 같다).
-// 어느 순에도 없는 사람은 맨 끝 '순 미지정' 묶음으로 — 새신자가 여기로 들어온다.
+// 어느 순에도 없는 사람은 맨 끝 '순 미지정' 묶음으로.
+//
+// **맨 앞에는 전도사님·부장님 묶음이 선다**(사용자 지적 2026-09-07 — 신효진 부장·임성빈
+// 교역자가 '순 미지정'에 들어가 있었다). 교역자는 명단 속성(`people.is_pastor`)이고 부장은
+// 그 해의 직분 줄(`people_roles.role='director'`)이라, 그 해 편성을 읽는 fetchRoster의
+// `roles`가 여기까지 와야 안다(호칭 규칙은 people.js honorific과 같은 재료다).
+// **그 사람들은 '순 미지정'에서 빠지되 순에 편성돼 있으면 순에도 그대로 선다** — 순 출석은
+// 순장이 부르고, 이 묶음은 전체 자격자가 부르는 별도의 줄이다.
 //
 // **묶음 안 순서는 순장 먼저, 나머지는 가나다순**이다(사용자 결정 2026-09-02).
 // 예전에는 group_members가 돌아온 순서 그대로였는데, 그 순서는 DB가 보장하지 않아
 // 출석을 부를 때마다 사람 자리가 달라졌다. '순 미지정'도 같은 가나다순이다.
-export function groupRoster({ people = [], groups = [], members = [] } = {}) {
+export function groupRoster({ people = [], groups = [], members = [], roles = [] } = {}) {
   const byId = new Map(people.map(p => [p.id, p]));
   const placed = new Set();
+  // 그 해 부장. 한 사람이 부장이면서 교역자일 일은 없지만, 겹치면 교역자가 이긴다
+  // (호칭도 people.js honorific이 같은 차례로 가른다).
+  const directorIds = new Set((roles || []).filter(r => r?.role === DIRECTOR_GROUP && r?.person_id).map(r => r.person_id));
+  const pastors = people.filter(p => p?.is_pastor).sort(byKoName);
+  const directors = people.filter(p => !p?.is_pastor && directorIds.has(p.id)).sort(byKoName);
+  // 이 사람들은 '순 미지정'에서 뺀다(순 편성 여부와 무관하다 — placed와는 다른 집합이다)
+  const headed = new Set([...pastors, ...directors].map(p => p.id));
+  const heads = [
+    [PASTOR_GROUP, pastors],
+    [DIRECTOR_GROUP, directors],
+  ].filter(([, list]) => list.length)
+    .map(([id, list]) => ({ id, name: HEAD_GROUPS.get(id), leaderPersonId: null, people: list }));
   const buckets = groups.map(g => {
     // 같은 묶음에 두 번 서지 않게 — 순장이 편성 명단에도 들어 있는 경우가 흔하다
     const seen = new Set();
@@ -223,9 +251,9 @@ export function groupRoster({ people = [], groups = [], members = [] } = {}) {
       people: leader ? [leader, ...rest] : rest,
     };
   });
-  const rest = people.filter(p => !placed.has(p.id)).sort(byKoName);
+  const rest = people.filter(p => !placed.has(p.id) && !headed.has(p.id)).sort(byKoName);
   if (rest.length) buckets.push({ id: null, name: UNASSIGNED, leaderPersonId: null, people: rest });
-  return buckets;
+  return [...heads, ...buckets];
 }
 
 // 묶음별 (출석/전체) — 상단 집계와 순 머리줄이 같은 셈을 쓴다.
@@ -266,6 +294,70 @@ export async function saveService(id, patch) {
 }
 
 export const publishService = (id) => saveService(id, { status: 'published' });
+
+// ── 알림 (0053) ─────────────────────────────────────────────────────────────
+// 두 알림 다 **본 흐름을 막지 않는다** — 실패는 삼키고 콘솔에만 남긴다. 주보가 발행됐는데
+// "발행하지 못했어요"라고 말하면 사람이 다시 누르고, 그러면 알림이 두 번 간다.
+// 받는 사람 목록은 앱이 만들고 본인 제외는 cloud.insertNotifications가 한다(§6-29).
+
+// 승인된 멤버 전원의 profile id. `approved` 컬럼이 원본이고 환송한 사람은 `removed_at`이
+// 찍혀 있다(cloud.listMembersAdmin의 select와 같은 모양 · 0022).
+async function approvedProfileIds() {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from('profiles')
+    .select('id').eq('approved', true).is('removed_at', null);
+  if (error) throw error;
+  return (data ?? []).map(r => r.id);
+}
+
+// 발행 순간 — 승인 멤버 전원에게. 딥링크는 그 주보 상세다(entryQuery의 약속 `?p=worship&s=`).
+export async function notifyServicePublished(service) {
+  if (!supabase || !service?.id) return 0;
+  try {
+    const [ids, me] = await Promise.all([approvedProfileIds(), getMyProfile()]);
+    if (!ids.length) return 0;
+    return await insertNotifications(ids, {
+      kind: 'service_published',
+      actorName: me?.display_name || '누군가',
+      preview: service.title || kindLabel(service.kind),
+      link: `/?p=worship&s=${service.id}`,
+    });
+  } catch (e) {
+    console.error('[worship] 주보 발행 알림 실패:', e);
+    return 0;
+  }
+}
+
+// 노트를 순에 공유로 **바꾸는 순간** — 그 해 내 순의 순장 한 사람에게. 이미 공유 상태에서
+// 다시 저장하는 것은 알림이 아니다(부르는 쪽이 false→true일 때만 부른다).
+// 내가 그 순의 순장이면 알릴 사람이 없다. 링크는 순장이 노트를 읽는 자리(모임 화면)다.
+export async function notifyNoteShared(service) {
+  if (!supabase || !service?.id) return 0;
+  try {
+    const me = await fetchMyPerson();
+    if (!me?.id) return 0;
+    const year = serviceYear(service.service_date);
+    const groups = await fetchGroups('sun', year);
+    if (!groups.length) return 0;
+    const members = await fetchGroupMembers(groups.map(g => g.id));
+    const mine = groups.find(g => g.leader_person_id === me.id)
+      || groups.find(g => members.some(m => m.group_id === g.id && m.person_id === me.id));
+    if (!mine?.leader_person_id || mine.leader_person_id === me.id) return 0;
+    const people = await fetchPeople();
+    const leader = people.find(p => p.id === mine.leader_person_id);
+    if (!leader?.profile_id) return 0;              // 순장이 아직 가입 전이면 받을 계정이 없다
+    const profile = await getMyProfile();
+    return await insertNotifications([leader.profile_id], {
+      kind: 'note_shared',
+      actorName: profile?.display_name || me.name || '누군가',
+      preview: formatServiceDate(service.service_date),
+      link: '/?p=groups',
+    });
+  } catch (e) {
+    console.error('[worship] 노트 공유 알림 실패:', e);
+    return 0;
+  }
+}
 
 export async function removeService(id) {
   if (!supabase) { guestSet('services', guestRows('services').filter(s => s.id !== id)); return; }
@@ -367,41 +459,69 @@ export async function fetchWorshipPerms(year, { isMaster = false, isAdmin = fals
   return worshipPerms({ isMaster, isAdmin, myPerson, myRoles, ledGroupIds });
 }
 
-// 명단에 없는 사람을 그 자리에서 올린다(결정 6). 출석 자격자면 RLS가 통과시킨다(0035).
-export async function addRosterPerson(name) {
-  const clean = String(name || '').trim();
-  if (!clean) return null;
+// ── 미등록 출석자 = 그 예배의 손님 (0053) ──────────────────────────────────
+// **명단(people)에 올리지 않는다**(사용자 결정 2026-09-07: "바로 청년 명단에 올리게끔 하지는
+// 말아줘. 청년 명단 등록은 마스터가 너한테 얘기할 때만"). 예전에는 `addRosterPerson` +
+// `addToSun`(0050)으로 people·group_members에 행을 만들었는데, 출석을 부르다 잘못 적은
+// 이름 하나가 그대로 청년 명단에 남았다 — 지우는 길도 이 화면에는 없었다.
+// 지금은 `attendance_guests`에 이름만 남기고 × 하나로 지운다. 손님은 **언제나 출석**이라
+// 출석 행(attendance)도 따로 만들지 않는다 — 명단 사람이 아니라서 person_id가 없다.
+export async function fetchGuests(serviceId) {
   if (!supabase) {
-    const made = { id: generateId(), name: clean, teams: [], is_pastor: false, profile_id: null };
-    guestSet('people', [...guestRows('people'), made]);
+    return guestRows('attendance_guests')
+      .filter(g => g.service_id === serviceId)
+      .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+  }
+  const { data, error } = await supabase.from('attendance_guests')
+    .select('id, service_id, name, created_at').eq('service_id', serviceId).order('created_at');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addGuest(serviceId, name) {
+  const clean = String(name || '').trim();
+  if (!clean || !serviceId) return null;
+  if (!supabase) {
+    const made = { id: generateId(), service_id: serviceId, name: clean, created_at: new Date().toISOString() };
+    guestSet('attendance_guests', [...guestRows('attendance_guests'), made]);
     return made;
   }
-  const { data, error } = await supabase.from('people').insert({ name: clean })
-    .select('id, name, birthday, teams, is_pastor, profile_id').single();
+  const { data, error } = await supabase.from('attendance_guests')
+    .insert({ service_id: serviceId, name: clean })
+    .select('id, service_id, name, created_at').single();
   if (error) throw error;
   return data;
 }
 
-// 갓 올린 사람을 **그 순의 명단에 넣는다**(0035 group_members · 0050).
-// 왜 여기 있나: `attendance_insert`는 `leads_sun_of(person_id)` — "그 사람이 내 순의
-// 순원인가"를 묻는데, 방금 만든 사람은 어느 순에도 없다. 그래서 순장이 올린 새신자는
-// 명단에만 오르고 출석이 42501로 막혔다(순장 계정으로 재현 2026-09-06). 순장에게는
-// 사람을 만들 자격만 있고(people_insert의 leads_any_sun) 자기 순에 넣을 자격이 없었다 —
-// 그 한 칸을 0050이 연다.
-//
-// **이미 구성원인 것은 실패가 아니다** — PK가 (group_id, person_id)라 두 번 넣으면
-// 23505가 나는데 넣으려던 상태는 이미 참이다(groups.addMember와 같은 판단 · §6의 23505).
-// 게스트에서는 groups.addMember(church_groups_v1)가 아니라 **예배 저장 자리**에 넣는다 —
-// 출석 화면의 명단(fetchRoster)이 읽는 곳이 그쪽이다(people.js guestStore 주석).
-export async function addToSun(groupId, personId) {
-  if (!groupId || !personId) return;
+export async function removeGuest(id) {
+  if (!id) return;
   if (!supabase) {
-    const rows = guestRows('group_members').filter(m => !(m.group_id === groupId && m.person_id === personId));
-    guestSet('group_members', [...rows, { group_id: groupId, person_id: personId }]);
+    guestSet('attendance_guests', guestRows('attendance_guests').filter(g => g.id !== id));
     return;
   }
-  const { error } = await supabase.from('group_members').insert({ group_id: groupId, person_id: personId });
-  if (error && String(error.code) !== '23505') throw error;
+  const { error } = await supabase.from('attendance_guests').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// 주보별 출석 수 — 목록 카드의 '출석 N명'이 쓴다(발행된 지난 예배만 그린다).
+// **카드마다 세지 않는다**: 표 두 개를 통째로 한 번씩 읽어 service_id로 센다(주보 수 × 50행
+// 수준이라 목록 한 번에 조회 두 번이면 끝난다 — §6-20의 '개수를 따로 세는 경로'와 같은 판단).
+export async function fetchAttendanceCounts() {
+  let rows;
+  if (!supabase) {
+    rows = [...guestRows('attendance'), ...guestRows('attendance_guests')];
+  } else {
+    const [att, gst] = await Promise.all([
+      supabase.from('attendance').select('service_id'),
+      supabase.from('attendance_guests').select('service_id'),
+    ]);
+    if (att.error) throw att.error;
+    if (gst.error) throw gst.error;
+    rows = [...(att.data ?? []), ...(gst.data ?? [])];
+  }
+  const out = {};
+  for (const r of rows) { if (r?.service_id) out[r.service_id] = (out[r.service_id] || 0) + 1; }
+  return out;
 }
 
 // ── 출석 ────────────────────────────────────────────────────────────────────

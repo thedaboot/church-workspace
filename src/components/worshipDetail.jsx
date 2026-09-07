@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck,
-  ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye } from 'lucide-react';
+  ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText, Lock } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
@@ -10,8 +10,11 @@ import { formatBytes, fileKind } from './fileRow.jsx';
 import { keepVisible } from '../utils.js';
 import { PassagePicker, PassageBody } from './worshipPassage.jsx';
 import { EmptyBookMark } from './wordBible.jsx';
+import { RichText } from './RichText.jsx';
+import { DocLinkGate, docEmbedKind } from './DocEmbed.jsx';
+import { makeViewPw, isLocked } from '../services/viewPw.js';
 import { objectParticle } from '../services/errorText.js';
-import { BTN, WITH_ICON, FIELD } from './groupsParts.jsx';
+import { BTN, BTN_QUIET, WITH_ICON, FIELD } from './groupsParts.jsx';
 import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM } from '../services/worship.js';
 import { honorificsOf } from '../services/people.js';
 
@@ -166,18 +169,116 @@ const patchOf = (d) => ({
   title: d.title || null, passage_ref: d.passage_ref || null, preacher: d.preacher || null,
   praise_leader: d.praise_leader || null, praise_playlist_url: d.praise_playlist_url || null,
   roles: d.roles || [], songs: d.songs || [], notices: d.notices || [],
+  // 큐시트는 링크 한 칸이라 jsonb다(0053). 주소가 없으면 통째로 null — 제목·비밀번호만
+  // 남은 껍데기가 있으면 보기 화면이 열 수 없는 줄을 그린다.
+  cue_sheet: d.cue_sheet && String(d.cue_sheet.url || '').trim() ? d.cue_sheet : null,
 });
+
+// ── 큐시트 (0053) ────────────────────────────────────────────────────────────
+// 구글 문서 링크 한 칸이다(`services.cue_sheet` jsonb — {url, title, view_pw, view_pw_salt}).
+// 비밀번호는 첨부(0023)와 **같은 규칙·같은 한계**다: 우리 화면에서 가리는 것뿐이고 주소를
+// 아는 사람은 그대로 연다. 그래서 "비밀번호를 아는 사람만 앱에서 열 수 있어요"는 사용법
+// 안내가 아니라 **무엇이 밖으로 나가는지에 대한 고지**라 §8의 안내 줄 금지와 다르다.
+const cueOf = (s) => (s && typeof s.cue_sheet === 'object' ? s.cue_sheet : null);
+const cueUrl = (s) => String(cueOf(s)?.url || '').trim();
+
+// 잠금·창 열기는 **참고 링크와 같은 한 벌**(DocEmbed의 DocLinkGate)이다 — 큐시트만 따로
+// 물어보는 줄을 만들면 같은 앱에서 문서 여는 방식이 두 가지가 된다.
+function CueSheetView({ cue }) {
+  return (
+    <section className="worship-cue mt-5 p-3 rounded-[10px]" style={CARD_BOX}>
+      {/* 줄 전체가 누르는 자리다 — 오른쪽 '열기'는 그 사실을 눈에 보이게 하는 표식이고,
+          잠금 줄(PwPrompt)은 이 줄 **아래**에 선다(그래서 감싸개가 block이다). */}
+      <DocLinkGate row={cue} url={cue.url} title={cue.title || '큐시트'} className="block cursor-pointer" pwClassName="mt-2.5">
+        <span className="flex items-center gap-2">
+          <FileText size={14} className="shrink-0 text-fg-faint" />
+          <span className="worship-cue-title min-w-0 flex-1 text-[12.5px] font-semibold text-fg truncate">
+            큐시트{cue.title ? ` · ${cue.title}` : ''}
+          </span>
+          {isLocked(cue) && <Lock size={12} className="shrink-0 text-fg-faint" />}
+          <span className={`worship-cue-open shrink-0 ${BTN_SOFT}`}>열기</span>
+        </span>
+      </DocLinkGate>
+    </section>
+  );
+}
+
+// 편집 줄 — 주소·제목·비밀번호. 주소가 구글 문서가 아니면 **저장하지 않고** 그 자리에서
+// 말한다(잘못된 주소를 담아 두면 보기 화면에 열리지 않는 줄이 선다).
+function CueSheetEdit({ value, onChange }) {
+  const cur = value || {};
+  const [url, setUrl] = useState(cur.url || '');
+  const [pw, setPw] = useState('');
+  const bad = !!url.trim() && !docEmbedKind(url.trim());
+  const locked = isLocked(cur);
+
+  const commitUrl = (next) => {
+    setUrl(next);
+    const clean = next.trim();
+    if (!clean) { onChange(null); return; }          // 비우면 큐시트 자체가 없어진다
+    if (!docEmbedKind(clean)) return;                 // 모양이 아니면 담지 않는다
+    onChange({ ...cur, url: clean });
+  };
+  const applyPw = async () => {
+    const p = pw.trim();
+    if (!p || !cueOfDraftHasUrl(cur, url)) return;
+    onChange({ ...cur, url: url.trim() || cur.url, ...(await makeViewPw(p)) });
+    setPw('');
+  };
+  const clearPw = () => onChange({ ...cur, view_pw: null, view_pw_salt: null });
+
+  return (
+    <div className="worship-cue-edit sm:col-span-2 min-w-0 pt-3" style={{ borderTop: '1px solid var(--app-line)' }}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="큐시트 링크" wide>
+          <input className={`${INPUT} w-full`} value={url} aria-label="큐시트 링크"
+            onChange={e => commitUrl(e.target.value)}
+            placeholder="예: https://docs.google.com/document/d/..." />
+          {bad && <p className="worship-cue-bad mt-1 text-[11.5px] text-tag-red-fg">구글 문서·시트 링크만 붙일 수 있어요</p>}
+        </Field>
+        <Field label="큐시트 제목">
+          <input className={`${INPUT} w-full`} value={cur.title || ''} aria-label="큐시트 제목"
+            onChange={e => onChange({ ...cur, title: e.target.value })} placeholder="예: 9월 6일 큐시트" />
+        </Field>
+        <Field label="비밀번호 걸기">
+          {locked ? (
+            <div className="flex items-center gap-1.5">
+              <span className="worship-cue-locked inline-flex items-center gap-1 text-[12px] text-fg-muted">
+                <Lock size={12} className="shrink-0" /> 비밀번호를 아는 사람만 앱에서 열 수 있어요
+              </span>
+              <span className="flex-1" />
+              <button type="button" onClick={clearPw} className={`worship-cue-unlock shrink-0 ${BTN_QUIET}`}>풀기</button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <input className={`${INPUT} flex-1 min-w-0`} type="password" value={pw} aria-label="큐시트 비밀번호"
+                onChange={e => setPw(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyPw(); } }}
+                placeholder="비밀번호(선택)" />
+              <button type="button" onClick={applyPw} disabled={!pw.trim() || !url.trim()}
+                className={`worship-cue-lock shrink-0 ${BTN_SOFT}`}>걸기</button>
+            </div>
+          )}
+        </Field>
+      </div>
+    </div>
+  );
+}
+
+// 주소가 아직 없으면 비밀번호를 걸 것도 없다(빈 큐시트에 자물쇠만 남는 것을 막는다)
+const cueOfDraftHasUrl = (cur, url) => !!String(url || cur?.url || '').trim();
 
 // ── 보기 ─────────────────────────────────────────────────────────────────────
 function WordTab({ service, onOpenBible }) {
+  const cue = cueUrl(service) ? cueOf(service) : null;
   const has = service.title || service.passage_ref || service.preacher;
-  if (!has) return <WorshipEmpty text="설교 제목과 본문 구절을 아직 적지 않았어요" />;
+  if (!has && !cue) return <WorshipEmpty text="설교 제목과 본문 구절을 아직 적지 않았어요" />;
   // 구절은 누르면 성경 읽기의 그 장으로 간다(App.jsx의 openBible → WordView initialRef).
   const ref = service.passage_ref;
   return (
     <div>
-      {service.title && <h3 className="text-[16px] font-extrabold text-fg tracking-[-0.3px]">{service.title}</h3>}
-      <p className="mt-1 text-[12px] text-fg-muted">
+      {service.title && <h3 className="text-[17px] md:text-[19px] font-extrabold text-fg tracking-[-0.3px] leading-snug break-words">{service.title}</h3>}
+      <p className="mt-1.5 text-[12.5px] text-fg-muted">
         {ref && (onOpenBible
           ? <button type="button" onClick={() => onOpenBible(ref)}
               className="worship-open-bible underline decoration-dotted underline-offset-2 hover:text-fg transition">{ref}</button>
@@ -186,6 +287,7 @@ function WordTab({ service, onOpenBible }) {
         {service.preacher}
       </p>
       <PassageBody refStr={service.passage_ref} />
+      {cue && <CueSheetView cue={cue} />}
     </div>
   );
 }
@@ -234,10 +336,22 @@ const ROLE_VIEW = 'px-2.5 py-0.5 rounded-full bg-accent-weak text-accent-text te
 // youtubeThumb). 그래서 게스트·로컬에서도 그림이 뜬다. 못 받으면(비공개 영상·인터넷
 // 없음) 음표 아이콘으로 떨어진다 — 깨진 그림 자리를 남기지 않는다.
 // lazy 로딩이라 목록이 길어도 보이는 것만 받는다.
+//
+// **도착하기 전에는 같은 크기의 스켈레톤이 그 자리를 지킨다**(2026-09-07). 예전에는 빈
+// 자리였다가 그림이 뿅 나타나서, 목록을 훑는 동안 곡 줄이 하나씩 깜빡이는 것처럼 보였다.
+// 도착하면 200ms 페이드 — 캐시에서 오는 경우(두 번째 진입)에는 `complete`가 이미 참이라
+// 첫 프레임부터 켜져 있다(onLoad는 그때 안 울린다 · §6-9-p와 같은 결).
 function SongThumb({ link, big = false }) {
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef(null);
   const src = youtubeThumb(link);
   const box = big ? 'w-16 h-9' : 'w-10 h-6';
+  useEffect(() => {
+    setFailed(false);
+    const el = imgRef.current;
+    setLoaded(!!(el && el.complete && el.naturalWidth > 0));
+  }, [src]);
   if (!src || failed) {
     return (
       <span className={`worship-song-thumb-fallback ${box} shrink-0 inline-flex items-center justify-center rounded-[5px]`}
@@ -247,9 +361,13 @@ function SongThumb({ link, big = false }) {
     );
   }
   return (
-    <img src={src} alt="" loading="lazy" draggable={false} onError={() => setFailed(true)}
-      className={`worship-song-thumb ${box} shrink-0 rounded-[5px] object-cover`}
-      style={{ background: 'var(--app-surface-hover)' }} />
+    <span className={`worship-song-thumbbox ${box} shrink-0 relative inline-block overflow-hidden rounded-[5px]`}
+      style={{ background: 'var(--app-surface-hover)' }}>
+      {!loaded && <span className="worship-song-thumb-skeleton absolute inset-0 dc-skeleton rounded-[5px]" />}
+      <img ref={imgRef} src={src} alt="" loading="lazy" draggable={false}
+        onLoad={() => setLoaded(true)} onError={() => setFailed(true)}
+        className={`worship-song-thumb w-full h-full rounded-[5px] object-cover transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`} />
+    </span>
   );
 }
 
@@ -490,6 +608,8 @@ function WordEdit({ draft, set }) {
       </Field>
       {/* 고르는 대로 아래에 본문이 펼쳐진다 */}
       <div className="sm:col-span-2 min-w-0"><PassageBody refStr={draft.passage_ref} /></div>
+      {/* 큐시트는 말씀 탭의 마지막 줄이다(0053) — 설교와 같이 쓰는 문서라 여기가 맞다 */}
+      <CueSheetEdit value={draft.cue_sheet} onChange={v => set({ cue_sheet: v })} />
     </div>
   );
 }
@@ -533,7 +653,7 @@ function PersonNameInput({ row, people, onPick }) {
   };
 
   return (
-    <div className="worship-person relative flex-1 basis-40 min-w-0" ref={rootRef}>
+    <div className="worship-person relative flex-1 basis-24 sm:basis-40 min-w-0" ref={rootRef}>
       <div className="flex items-center gap-1.5 border border-line rounded-xs bg-surface px-2 py-1 focus-within:border-accent focus-within:shadow-soft transition-all">
         {/* 명단에 이어진 사람만 동그라미가 붙는다 — 연결됐다는 표시를 겸한다 */}
         {linked && <Avatar name={linked.name} {...(linked.profile_id ? {} : { url: null })} className="flex w-5 h-5 text-[10px] shrink-0" />}
@@ -568,6 +688,9 @@ function PersonNameInput({ row, people, onPick }) {
 // 연하게 두고 줄에 손이 닿으면 진해지는 쪽으로 했다(보고서에 적어 둠).
 const TOOLS = 'text-fg-faint group-hover:text-fg-muted transition-colors';
 
+// 담당자 줄은 [번호][역할 칩][이름][도구] 넷이다. 좁은 화면에서는 도구(위·아래·삭제)만
+// 다음 줄 오른쪽에 혼자 서던 자리라(2026-09-07), 375px에서 역할 칩과 이름 칸을 한 뼘씩
+// 줄여 넷이 한 줄에 다 선다 — 640 위에서는 예전 폭 그대로다.
 function RolesEdit({ rows, people, onChange }) {
   const set = (i, patch) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
   return (
@@ -577,7 +700,7 @@ function RolesEdit({ rows, people, onChange }) {
           <li key={i} className="worship-role-edit group flex flex-wrap items-center gap-1.5 py-2.5" style={ROW_LINE}>
             <span className={NUM}>{i + 1}</span>
             {/* 역할은 칩처럼 — 이름 칸과 생김새가 같으면 어느 쪽이 무엇인지 매번 읽어야 한다 */}
-            <input className={`${ROLE_CHIP} w-[7rem] shrink-0`} value={r.role || ''} aria-label="역할"
+            <input className={`${ROLE_CHIP} w-[5.75rem] sm:w-[7rem] shrink-0`} value={r.role || ''} aria-label="역할"
               onChange={e => set(i, { role: e.target.value })} placeholder="예: 대표기도" />
             {/* 이름 칸이 남는 폭을 먹는다(flex-1) — 그래서 넓은 화면에서도 도구는
                 입력칸 **바로 옆**에 붙어 서고, ml-auto는 좁은 화면에서 도구만 다음
@@ -596,6 +719,10 @@ function RolesEdit({ rows, people, onChange }) {
   );
 }
 
+// 찬양 줄도 담당자 줄과 같은 규칙이다(2026-09-07). **두 줄이 되더라도 고아를 만들지
+// 않는다** — 예전에는 제목이 `basis-full`이라 번호만 첫 줄에 혼자 남고 제목이 둘째 줄로
+// 떨어졌다. 지금 640 미만은 [번호][제목] / [링크][도구] 두 줄이고 그 위는 한 줄이다.
+// 제목의 basis는 `100% - (번호 1.25rem + gap 0.375rem)` — 번호 옆을 정확히 채우는 값이다.
 function SongsEdit({ rows, people, leader, onLeader, onPlaylist, onChange, onPullPlaylist, onLookupTitle }) {
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
@@ -648,16 +775,23 @@ function SongsEdit({ rows, people, leader, onLeader, onPlaylist, onChange, onPul
         <span className="shrink-0 text-xs text-fg-muted">인도자</span>
         <PersonNameInput row={leaderRow} people={people} onPick={v => onLeader(v.name)} />
       </div>
-      {/* 목록 도구 줄 — 주소 칸은 넓게, 가져오기는 오른쪽 끝에 */}
-      <div className="worship-song-import flex flex-wrap items-center gap-1.5 pb-2.5">
-        <input className={`${INPUT} flex-1 basis-full sm:basis-0 min-w-0`} value={url} aria-label="유튜브 재생목록 주소"
+      {/* 목록 도구 줄 — **줄을 바꾸지 않는다**(2026-09-07). 예전에는 입력칸이 `basis-full`이라
+          좁은 화면에서 버튼만 둘째 줄 오른쪽에 혼자 섰다(고아). 지금은 언제나 한 줄이고,
+          좁을 때는 버튼 라벨이 '가져오기'로 줄어든다 — 전체 문구는 title에 남는다. */}
+      <div className="worship-song-import flex items-center gap-1.5 pb-2.5">
+        <input className={`${INPUT} flex-1 min-w-0`} value={url} aria-label="유튜브 재생목록 주소"
           onChange={e => setUrl(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); pull(); } }}
           placeholder="예: https://www.youtube.com/playlist?list=..." />
-        <button type="button" onClick={pull} disabled={busy || !url.trim()}
-          className="worship-song-pull shrink-0 ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40">
+        <button type="button" onClick={pull} disabled={busy || !url.trim()} title="유튜브 재생목록에서 가져오기"
+          className="worship-song-pull shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold whitespace-nowrap transition active:scale-95 disabled:opacity-40">
           {busy ? <Loader2 size={13} className="animate-spin" /> : <ListMusic size={13} />}
-          {busy ? '가져오는 중' : '유튜브 재생목록에서 가져오기'}
+          {busy ? <span>가져오는 중</span> : (
+            <>
+              <span className="md:hidden">가져오기</span>
+              <span className="hidden md:inline">유튜브 재생목록에서 가져오기</span>
+            </>
+          )}
         </button>
       </div>
       <ul style={{ borderTop: rows.length ? '1px solid var(--app-line)' : 'none' }}>
@@ -666,13 +800,13 @@ function SongsEdit({ rows, people, leader, onLeader, onPlaylist, onChange, onPul
             <span className={NUM}>{i + 1}</span>
             {/* 제목을 받아 오는 중이면 그 자리를 스켈레톤 한 줄이 지킨다 */}
             {looking.has(i) ? (
-              <span className="worship-song-title-loading basis-full sm:basis-0 sm:flex-1 min-w-0 h-[30px] rounded-xs dc-skeleton" />
+              <span className="worship-song-title-loading basis-[calc(100%-1.625rem)] sm:basis-0 flex-1 min-w-0 h-[30px] rounded-xs dc-skeleton" />
             ) : (
-              <input className={`${INPUT} basis-full sm:basis-0 sm:flex-1 min-w-0`} value={s.title || ''} aria-label="찬양 제목"
+              <input className={`${INPUT} basis-[calc(100%-1.625rem)] sm:basis-0 flex-1 min-w-0`} value={s.title || ''} aria-label="찬양 제목"
                 onChange={e => set(i, { title: e.target.value })} placeholder="예: 주 은혜임을" />
             )}
             {/* 링크 칸 앞에는 작은 썸네일 — 어느 영상인지 눈으로 확인된다 */}
-            <span className="worship-song-linkbox flex items-center gap-1.5 flex-1 basis-40 sm:basis-0 min-w-0 border border-line rounded-xs bg-surface px-1.5 py-1 focus-within:border-accent transition-colors">
+            <span className="worship-song-linkbox flex items-center gap-1.5 flex-1 basis-32 sm:basis-0 min-w-0 border border-line rounded-xs bg-surface px-1.5 py-1 focus-within:border-accent transition-colors">
               <SongThumb link={s.link} />
               <input className="flex-1 min-w-0 bg-transparent text-[13px] py-0.5 outline-none text-fg placeholder:text-fg-faint"
                 value={s.link || ''} aria-label="찬양 링크"
@@ -747,31 +881,58 @@ function NoticesEdit({ rows, onChange }) {
 // 예배마다 한 건, 기본은 나만 본다. 남의 노트는 여기 오지 않는다(결정 7).
 //
 // **말씀의 내 묵상과 같은 부품·같은 순서다**(사용자 재강조 2026-09-03) — 칩과 공유
-// 세그먼트는 components/ShareToggle.jsx 한 벌이고 라벨만 이 화면 것이다: 편집기 아래에
-// `[저장] … [나만 보기 | 순에 공유하기]`. 글은 저장 버튼으로만 나가고(빈 노트는 저장할
-// 것이 없으니 버튼이 잠긴다), **공유는 저장된 노트의 상태만 그 자리에서 바꾼다** —
-// 같이 올리면 저장을 누르지 않았는데 글이 나가 버린다. 아직 저장한 것이 없으면
-// 공유할 것도 없으므로 세그먼트가 잠긴다.
+// 세그먼트는 components/ShareToggle.jsx 한 벌이고 라벨만 이 화면 것이다. 글은 저장
+// 버튼으로만 나가고(빈 노트는 저장할 것이 없으니 버튼이 잠긴다), **공유는 저장된 노트의
+// 상태만 그 자리에서 바꾼다** — 같이 올리면 저장을 누르지 않았는데 글이 나가 버린다.
+// 아직 저장한 것이 없으면 공유할 것도 없으므로 세그먼트가 잠긴다.
+//
+// **저장된 노트가 있으면 읽기 모드다**(2026-09-07 · QT 묵상과 같은 패턴). 예전에는 편집기가
+// 늘 열려 있어서 "쓴 것인지 고치는 중인지"가 화면에 없었다 — 글은 저장돼 있는데 편집기
+// 안에 그대로 있으니 아직 안 보낸 것처럼 읽혔다. 지금은 저장된 글을 RichText(나눔 피드와
+// 같은 뷰어 · 저장 형식이 같은 마크다운이다)로 그리고 '수정'을 눌러야 편집기가 열린다.
+//
+// 도구 줄의 자리는 §8 그대로다 — **확정 왼쪽 / 나가기 오른쪽**, 그리고 두 모드에서 같은 자리:
+//   읽기  `[수정(연한 accent)] [칩] … [ ] [공유 토글]`
+//   편집  `[저장(진한 accent)] [칩] … [취소(무채색)] [공유 토글]`
+// 375px에서 토글만 다음 줄 오른쪽에 혼자 서던 자리라 **줄을 grid로 잡는다**(flex-wrap에
+// 맡기지 않는다): 640 미만에서 토글이 둘째 줄을 통째로 쓰고 왼쪽부터 폭을 채운다.
+const NOTE_TOOLS = 'worship-note-tools mt-2.5 grid items-center gap-2 grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]';
+const NOTE_TOGGLE = 'col-span-3 w-full sm:col-span-1 sm:w-auto';
+// 편집 진입은 **연한 accent**, 확정은 진한 accent, 나가기는 무채색(§8의 색 규칙)
+const BTN_SOFT = 'px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';
+
 function MyNote({ note, onSave, onShare }) {
   const [body, setBody] = useState(note?.body || '');
   const [state, setState] = useState('');         // '' | 'saving' | 'saved'  (저장 버튼)
   const [shareState, setShareState] = useState(''); // '' | 'saving' | 'saved'  (공유 칩)
   const [busy, setBusy] = useState(false);
+  // 저장된 노트가 없으면 처음부터 편집기다 — 빈 읽기 상자를 세울 이유가 없다
+  const [editing, setEditing] = useState(!note);
 
   const saved = !!note;
   const shared = !!note?.shared_to_sun;
   // 저장된 글과 다를 때만 저장할 것이 있다. 빈 노트는 저장하지 않는다(사용자 결정)
   const hasText = !!String(body || '').replace(/\s/g, '');
   const dirty = body !== (note?.body || '');
+  const reading = saved && !editing;
 
-  useEffect(() => { setBody(note?.body || ''); }, [note]);
+  // 주보가 바뀌거나 서버 값이 새로 오면 편집 중이던 글을 그 값으로 되돌린다.
+  // **읽기 모드도 같이 되돌린다** — 다른 주보를 열었는데 앞 주보의 편집 상태가 남으면
+  // 남의 글 위에 커서가 놓인 것처럼 보인다.
+  // `state`는 건드리지 않는다 — 저장이 끝나면 부르는 쪽이 note를 갈아 끼우므로,
+  // 여기서 비우면 방금 켠 '저장되었어요'가 같은 프레임에 지워진다.
+  useEffect(() => { setBody(note?.body || ''); setEditing(!note); }, [note]);
 
   const save = async () => {
     if (busy || !hasText || !dirty) return;
     setBusy(true); setState('saving'); setShareState('');
     const ok = await onSave({ body, sharedToSun: shared });
     setBusy(false); setState(ok ? 'saved' : '');
+    if (ok) setEditing(false);
   };
+
+  // 취소는 **저장된 글로 되돌리고** 읽기 모드로 나간다(고치던 것을 버린다)
+  const cancel = () => { setBody(note?.body || ''); setState(''); setEditing(false); };
 
   // 공유만 바꾼다 — 글은 저장된 것을 그대로 둔다(편집 중인 글은 건드리지 않는다).
   // onShare는 부르는 쪽이 services의 setNoteShared로 잇는다(모임 화면도 같은 함수를 쓴다).
@@ -790,23 +951,43 @@ function MyNote({ note, onSave, onShare }) {
         {/* 노트는 발행이라는 것이 없다 — 저장되면 그것으로 끝이라 '임시'가 아니다 */}
         <SaveState state={state} />
       </div>
-      {/* 업무 본문·QT 묵상과 같은 편집기(서식 바 포함, 저장 값은 마크다운 문자열) */}
-      <div className="worship-note-editor">
-        <Suspense fallback={<EditorSkeleton />}>
-          <MarkdownEditor
-            value={body}
-            onChange={(v) => { setState(''); setBody(v); }}
-            placeholder="오늘 말씀에서 마음에 남은 것"
-            className={EDITOR_BOX}
-          />
-        </Suspense>
-      </div>
-      {/* 확정 왼쪽(§8) · 공유 세그먼트는 오른쪽. 좁은 폭에서는 줄을 바꾼다 */}
-      <div className="flex flex-wrap items-center gap-2 mt-2.5">
-        <button type="button" onClick={save} disabled={!dirty || !hasText || busy} className={`worship-note-save ${BTN}`}>저장</button>
-        <ShareChip state={shareState} label={shared ? '우리 순에 공유할게요' : '나만 볼게요'} />
-        <span className="flex-1" />
-        <ShareToggle value={shared} disabled={!saved || busy} onChange={setShare} shareLabel="순에 공유하기" />
+      {reading ? (
+        <div className="worship-note-read min-h-40 border border-line rounded-md p-3 bg-surface">
+          <div className="text-[13px] leading-relaxed text-fg-secondary break-words">
+            <RichText content={note?.body || ''} />
+          </div>
+        </div>
+      ) : (
+        // 업무 본문·QT 묵상과 같은 편집기(서식 바 포함, 저장 값은 마크다운 문자열)
+        <div className="worship-note-editor">
+          <Suspense fallback={<EditorSkeleton />}>
+            <MarkdownEditor
+              value={body}
+              onChange={(v) => { setState(''); setBody(v); }}
+              placeholder="오늘 말씀에서 마음에 남은 것"
+              className={EDITOR_BOX}
+            />
+          </Suspense>
+        </div>
+      )}
+      <div className={NOTE_TOOLS}>
+        {reading ? (
+          <button type="button" onClick={() => setEditing(true)} className={`worship-note-edit ${BTN_SOFT}`}>수정</button>
+        ) : (
+          <button type="button" onClick={save} disabled={!dirty || !hasText || busy} className={`worship-note-save ${BTN}`}>저장</button>
+        )}
+        <span className="min-w-0">
+          <ShareChip state={shareState} label={shared ? '우리 순에 공유할게요' : '나만 볼게요'} />
+        </span>
+        {/* 취소는 고치던 것이 있을 때만 뜬다(처음 쓰는 노트에는 되돌아갈 글이 없다).
+            칸 자체는 늘 있어야 격자가 흔들리지 않는다. */}
+        <span className="justify-self-end">
+          {!reading && saved && (
+            <button type="button" onClick={cancel} className={`worship-note-cancel ${BTN_QUIET}`}>취소</button>
+          )}
+        </span>
+        <ShareToggle className={NOTE_TOGGLE} value={shared} disabled={!saved || busy}
+          onChange={setShare} shareLabel="순에 공유하기" />
       </div>
     </section>
   );
@@ -903,45 +1084,57 @@ export function ServiceDetail({
         </button>
       </div>
 
-      {/* 머리줄 — 왼쪽에 종류·날짜, 오른쪽에 출석 체크(사용자 지적: 아래에 두니 공백이 남았다) */}
-      <header className="flex items-center gap-2 mb-4">
-        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+      {/* 머리줄 — 왼쪽에 종류·날짜·설교자, 오른쪽에 출석 체크·수정.
+          **한 덩이 카드다**(2026-09-07). 예전에는 칩과 날짜가 캔버스 위에 그냥 얹혀 있어서
+          그 위 도구 줄과 아래 탭 줄 사이에 아무것도 없는 띠가 났다 — 무엇을 보고 있는지가
+          화면 맨 위에서 한 번에 읽히도록 상자로 묶었다(목록 카드와 같은 껍데기다). */}
+      <header className="worship-head flex items-center gap-2 mb-4 p-3 rounded-[10px]" style={CARD_BOX}>
+        {/* 한 줄에 종류·상태·날짜·설교자. **줄을 늘리지 않는다** — 이 자리가 두 줄이 되면
+            그만큼 아래 빈 탭의 가운데가 위로 밀린다(검사가 화면의 1/3을 요구한다). */}
+        <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 min-w-0 flex-1">
           <span className="px-2 py-0.5 rounded-full bg-tag-blue text-tag-blue-fg text-[10.5px] font-bold">{kindLabel(service.kind)}</span>
           {isDraft && <span className="worship-draft-badge px-2 py-0.5 rounded-full bg-tag-yellow text-tag-yellow-fg text-[10.5px] font-bold">작성 중</span>}
-          <span className="text-[11.5px] text-fg-muted">{formatServiceDate(service.service_date)}</span>
+          <span className="worship-head-date text-[12.5px] font-bold text-fg">{formatServiceDate(service.service_date)}</span>
+          {/* 가운뎃점은 같은 줄에 설 만한 폭(≥640)에서만 — 375에서는 설교자가 둘째 줄로
+              내려가는데, 그때 줄 머리에 점이 혼자 남았다(실기기 스크린샷 2026-09-07) */}
+          {service.preacher && (
+            <span className="worship-head-preacher min-w-0 text-[11.5px] text-fg-muted truncate"><span className="hidden sm:inline">· </span>설교 {service.preacher}</span>
+          )}
         </div>
-        <span className="flex-1" />
-        {/* 출석은 발행된 뒤, 예배 날짜가 지난 뒤에만 만진다(사용자 결정) */}
-        {canAttend && !editing && (
-          <button type="button" onClick={onOpenAttendance}
-            className="worship-att-open shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface border border-line text-[11.5px] font-semibold text-fg transition active:scale-95 hover:bg-surface-hover">
-            <ClipboardCheck size={13} /> 출석 체크
-          </button>
-        )}
-        {/* **수정은 머리줄 오른쪽에서 채운 버튼**이다(사용자 지적 2026-09-03: 눈에 안
-            띈다). 도구 줄의 연한 버튼이던 것을 자격자에게만 여기로 올렸다 —
-            발행·삭제·저장 상태는 그대로 아래 도구 줄에 남는다. */}
-        {perms.canEdit && !editing && (
-          <button type="button" onClick={() => { dirty.current = false; setSaveState(''); setDraft(draftOf(service)); }}
-            className={`worship-edit-open shrink-0 ${WITH_ICON} ${BTN}`}>
-            <PencilLine size={13} /> 수정
-          </button>
-        )}
-        {/* 편집 중 — 저장 상태 칩은 좁은 화면에서도 여기 있고(하나만 그린다),
-            저장·삭제 버튼은 데스크톱에서만 여기 선다. 모바일은 아래 고정 줄이다. */}
-        {perms.canEdit && editing && (
-          <>
-            {/* 저장은 저절로 되므로 그 사실이 눈에 보여야 한다(노트 라벨과 같은 톤).
-                발행 전에는 '임시' — 저장은 됐지만 아직 나만 본다는 뜻이 담긴다 */}
-            <SaveState state={saveState} savedLabel={isDraft ? '임시 저장되었어요' : '저장되었어요'} />
-            <button type="button" onClick={saveNow} disabled={busy}
-              className={`worship-save shrink-0 hidden md:inline-flex ${BTN}`}>저장</button>
-            <ConfirmPopover className="shrink-0 hidden md:inline-flex" onConfirm={onDelete}
-              message={<><span className="font-bold text-fg">이 주보를 삭제할까요?</span><br />모든 내용이 같이 사라지니 신중하게 선택해주세요</>}>
-              <button type="button" className="px-2.5 py-1.5 rounded-md text-tag-red-fg hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">삭제</button>
-            </ConfirmPopover>
-          </>
-        )}
+        {/* 버튼은 좁은 화면에서 서로 밑으로 접힌다 — 날짜 덩이를 밀어내지 않게 shrink-0 */}
+        <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
+          {/* 출석은 발행된 뒤, 예배 날짜가 지난 뒤에만 만진다(사용자 결정) */}
+          {canAttend && !editing && (
+            <button type="button" onClick={onOpenAttendance}
+              className="worship-att-open shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface border border-line text-[11.5px] font-semibold text-fg transition active:scale-95 hover:bg-surface-hover">
+              <ClipboardCheck size={13} /> 출석 체크
+            </button>
+          )}
+          {/* **수정은 머리줄 오른쪽에서 채운 버튼**이다(사용자 지적 2026-09-03: 눈에 안
+              띈다). 도구 줄의 연한 버튼이던 것을 자격자에게만 여기로 올렸다 —
+              발행·삭제·저장 상태는 그대로 아래 도구 줄에 남는다. */}
+          {perms.canEdit && !editing && (
+            <button type="button" onClick={() => { dirty.current = false; setSaveState(''); setDraft(draftOf(service)); }}
+              className={`worship-edit-open shrink-0 ${WITH_ICON} ${BTN}`}>
+              <PencilLine size={13} /> 수정
+            </button>
+          )}
+          {/* 편집 중 — 저장 상태 칩은 좁은 화면에서도 여기 있고(하나만 그린다),
+              저장·삭제 버튼은 데스크톱에서만 여기 선다. 모바일은 아래 고정 줄이다. */}
+          {perms.canEdit && editing && (
+            <>
+              {/* 저장은 저절로 되므로 그 사실이 눈에 보여야 한다(노트 라벨과 같은 톤).
+                  발행 전에는 '임시' — 저장은 됐지만 아직 나만 본다는 뜻이 담긴다 */}
+              <SaveState state={saveState} savedLabel={isDraft ? '임시 저장되었어요' : '저장되었어요'} />
+              <button type="button" onClick={saveNow} disabled={busy}
+                className={`worship-save shrink-0 hidden md:inline-flex ${BTN}`}>저장</button>
+              <ConfirmPopover className="shrink-0 hidden md:inline-flex" onConfirm={onDelete}
+                message={<><span className="font-bold text-fg">이 주보를 삭제할까요?</span><br />모든 내용이 같이 사라지니 신중하게 선택해주세요</>}>
+                <button type="button" className="px-2.5 py-1.5 rounded-md text-tag-red-fg hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">삭제</button>
+              </ConfirmPopover>
+            </>
+          )}
+        </div>
       </header>
 
       <div className="flex items-center gap-1 mb-3 overflow-x-auto scrollbar-hide x-scroll-lock" style={{ borderBottom: '1px solid var(--app-line)' }}>

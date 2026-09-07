@@ -68,16 +68,23 @@ const HeadingExit = Extension.create({
 // 높이를 재서 그만큼 내려 세운다: 머리줄 높이는 글자 크기·창 폭에 따라 달라져서
 // 상수로 박으면 어느 폭에선가 반드시 어긋난다.
 // z는 머리줄(z-10)보다 낮게 둔다 — 혹시 겹치더라도 머리줄이 이긴다.
+//
+// **통을 찾는 규칙은 브라우저의 규칙과 같아야 한다**(2026-09-07). 예전에는 `auto|scroll`만
+// 보고 지나쳤는데, sticky가 실제로 멈추는 자리는 **가장 가까운 스크롤 컨테이너**이고 거기에는
+// `hidden`도 들어간다(스크롤 막대만 없을 뿐 스크롤 상자다 — `clip`만 아니다). 그 상자를
+// 지나쳐 더 위의 통을 재면 **브라우저가 붙이는 자리와 우리가 계산한 자리가 서로 다른 상자
+// 기준**이 되어, 바가 엉뚱한 높이에서 멈추거나 아예 안 붙은 것처럼 보인다.
+// 업무 창은 `overflow-hidden` 껍데기가 스크롤 통보다 **바깥**이라 답이 예전과 같다.
 function useStickyTop(ref) {
   const [top, setTop] = useState(0);
   useEffect(() => {
     const el = ref.current;
     if (!el) return undefined;
-    // 이 에디터를 품은 스크롤 통을 찾는다(업무 창 본문)
+    // 이 에디터를 품은 스크롤 통을 찾는다(업무 창 본문 · 페이지 안 편집기는 App의 main)
     let box = el.parentElement;
     while (box && box !== document.body) {
       const oy = getComputedStyle(box).overflowY;
-      if (oy === 'auto' || oy === 'scroll') break;
+      if (oy !== 'visible' && oy !== 'clip') break;
       box = box.parentElement;
     }
     const calc = () => {
@@ -109,9 +116,17 @@ function useStickyTop(ref) {
       setTop(Math.round(h > 0 ? h : -pad));
     };
     calc();
+    // **한 번 재고 끝내면 안 된다.** 통이 커지는 것 말고도 다시 재야 하는 일이 있다:
+    //  · 편집기가 늦게 마운트되거나(lazy) 읽기 모드에서 `display:none`으로 숨어 있다가
+    //    '수정'으로 드러난다 — 그때 첫 calc은 폭 0짜리 상자에서 돌았다(QT 묵상이 그렇다).
+    //  · 창 폭이 바뀌면 머리줄 높이와 통의 padding(`pt-2.5` → `md:pt-3.5`)이 같이 바뀐다.
+    // 그래서 통과 **편집기 자신**을 둘 다 보고, 창 크기 변화도 듣는다. min-height만 바뀌는
+    // 계산이 아니라 값 하나를 setState하는 것뿐이라 되풀이(재기 → 커짐 → 다시 재기)가 없다.
     const ro = new ResizeObserver(calc);
     if (box && box !== document.body) ro.observe(box);
-    return () => ro.disconnect();
+    ro.observe(el);
+    window.addEventListener('resize', calc);
+    return () => { ro.disconnect(); window.removeEventListener('resize', calc); };
   }, [ref]);
   return top;
 }

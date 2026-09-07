@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Trash2, Check, X, Pencil } from 'lucide-react';
+import { Plus, Trash2, Check, X, Pencil, QrCode } from 'lucide-react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable, pointerWithin, rectIntersection,
@@ -12,6 +12,7 @@ import {
   CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, WITH_ICON, EXIT, useClosing,
   PersonTag, PersonPick, LabeledField, Empty, PeopleMark, MeetMark,
 } from './groupsParts.jsx';
+import { ClubQrModal } from './ClubQr.jsx';
 import { groupPeople, canManageClub, canEditClub, myGroupIds, notInGroup } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
 import { reorderIds } from '../utils.js';
@@ -226,9 +227,10 @@ function ClubDetail({
   const [title, setTitle] = useState('');
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ name: '', note: '' });
-  // 다른 동아리로 옮겨 가면 편집을 닫는다 — 목록을 거쳐도 이 컴포넌트는 그대로 살아
+  const [qrOpen, setQrOpen] = useState(false);
+  // 다른 동아리로 옮겨 가면 편집·QR을 닫는다 — 목록을 거쳐도 이 컴포넌트는 그대로 살아
   // 있어서(같은 자리) 앞 동아리의 열린 칸이 다음 동아리의 머리줄에 남는다.
-  useEffect(() => { setEditing(false); }, [club.id]);
+  useEffect(() => { setEditing(false); setQrOpen(false); }, [club.id]);
 
   const list = useMemo(() => groupPeople({ people, group: club, members }), [people, club, members]);
   const byId = useMemo(() => new Map(people.map(p => [p.id, p])), [people]);
@@ -276,9 +278,20 @@ function ClubDetail({
             <button type="button" onClick={() => onCancelApply(myApp)} className={`club-cancel ${BTN_QUIET}`}>신청 취소</button>
           </>
         )}
+        {/* 신청 QR — 동아리를 고칠 수 있는 사람만(canEdit · 0039 groups_update).
+            찍으면 로그인 → 이 동아리의 신청 목록까지 한 번에 간다(components/ClubQr.jsx).
+            무채색 테두리 버튼이다: 누르면 창이 뜨는 도구이지 저장이 아니고(§8 색 규칙),
+            같은 줄의 '가입 신청'(진한 accent)과 뜻이 갈려 보여야 한다. */}
+        {canEdit && (
+          <button type="button" onClick={() => setQrOpen(true)}
+            className={`club-qr-open ${WITH_ICON} px-2.5 py-1.5 rounded-md border border-line bg-surface text-[11.5px] font-semibold text-fg hover:bg-surface-hover transition active:scale-95`}>
+            <QrCode size={13} /><span>신청 QR</span>
+          </button>
+        )}
         <span className="flex-1" />
         <button type="button" onClick={onBack} className={BTN_QUIET}>목록으로</button>
       </div>
+      {qrOpen && <ClubQrModal club={club} onClose={() => setQrOpen(false)} />}
 
       <div className={`p-4 ${CARD}`} style={CARD_STYLE}>
         {/* 이름·설명은 머리줄에서 그 자리에 고친다 — 따로 창을 띄우면 무엇을 고치는

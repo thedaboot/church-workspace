@@ -31,9 +31,13 @@ npm run verify       # 브라우저 검증 스위트 (tests/README.md)
   체크합니다. 본문 구절은 개역한글 본문이 자동으로 붙고, 누르면 성경 읽기로 갑니다. 찬양은 유튜브
   재생목록 주소로 한 번에 가져옵니다(`YOUTUBE_API_KEY`가 있으면 전체, 없으면 RSS로 최신 15곡).
   찬양 탭 아래 **송폼**에 PDF·사진을 붙일 수 있고(주보 편집 자격자만), 발행된 주보를 읽는 사람은 열어 봅니다.
-  예배 노트는 주보마다 한 벌이고 내 순에 공유할 수 있습니다.
+  예배 노트는 주보마다 한 벌이고 내 순에 공유할 수 있습니다(저장하면 읽기 모드, '수정'으로 다시 엽니다).
+  출석 화면은 전도사님·부장님·순별 묶음이고, 명단에 없는 사람은 **손님**으로만 남습니다(청년 명단에는 올리지 않습니다 — 지울 수 있음).
+  말씀 탭에 **큐시트**(구글 문서 링크 · 비밀번호 선택)를 달면 앱 안에서 열어 고칩니다. 목록 카드에는 지난 예배의 출석 수가 붙습니다.
+  예배 당일 11:30에 '오늘 예배가 있어요' 알림이 가고, 주보를 발행하면 전원에게 알립니다.
 - 말씀 — QT(읽기표 본문 → 묵상 → 더다붓에 공유하기 · 나만 보는 잔디) · 성경 읽기(본문·검색·북마크·절 형광펜 — 범위로 칠하고 모아보기에는 한 줄로 · QT 본문에도 형광펜).
-- 모임 — 내 순(구성원·출석·공유된 노트) · 동아리(가입 신청·모임·리더의 이름·설명 수정) ·
+- 모임 — 내 순(구성원·출석·순에 공유된 노트) · 동아리(가입 신청·모임·리더의 이름·설명 수정 · **신청 QR** —
+  동아리장이 QR을 만들어 카카오톡으로 보내면, 찍은 사람은 로그인 뒤 바로 신청이 들어가고 상세가 열립니다) ·
   순 편성(마스터·관리자·교역자·리더순장). 순모임 가이드(주보로 AI가 템플릿을 채우는 화면)는
   **지금 화면에서 빼 두었습니다**(`SUN_GUIDE_ON`).
 - 명단 — 계정 없이도 청년 전체를 등록하고, 가입한 사람을 명단에 연결합니다
@@ -48,6 +52,8 @@ npm run verify       # 브라우저 검증 스위트 (tests/README.md)
 - 참고 링크 — 기획안·시트 같은 외부 링크를 프로젝트 상단에 달아 둡니다. 노션·유튜브·
   인스타그램·핀터레스트·피그마·구글 드라이브·쿠팡은 이름 앞에 아주 작은 서비스 표시가
   붙습니다. 링크가 늘어도 공유·삭제 버튼은 자리를 지킵니다(가로로 미는 칸 밖에 있습니다).
+  **구글 문서·시트·슬라이드 링크는 앱 안에서 열려 바로 편집**됩니다(그 브라우저가 구글에 로그인돼 있을 때 — 사파리·카카오 인앱은
+  '새 탭에서 열기'로). 만든 사람과 관리자는 첨부처럼 비밀번호를 걸 수 있습니다(화면 가림).
 - 보관 — 끝난 프로젝트를 상단 탭·대시보드에서 뺍니다. 지우는 것이 아니라 업무는 그대로 남고,
   검색과 '더보기 > 보관함'(연도별)에서 다시 찾습니다. 이름 수정 창에서 켜고 끕니다.
 - 탭 순서 — 프로젝트 탭을 데스크톱은 끌어서, 모바일은 **길게 눌러** 끌어서 바꿉니다.
@@ -153,12 +159,13 @@ src/
 ├── store/               useSyncExternalStore 기반 커스텀 스토어 + 셀렉터
 ├── services/            domain · cloud(Supabase) · cloudSync · markdown · ai · auth · presence
 │                        · (v2) people · worship · word · groups · roster · bibleRef · bible · sunGuide
+│                        · entryQuery(딥링크 나머지 값) · docEmbed·viewPw(구글 문서 임베드·화면 가림 비밀번호)
 ├── hooks/               controllers · useIsMobile · useForceGraph(그래프 시뮬·드래그)
 ├── components/          layout(상단 2줄 내비 · 모바일 탭바) · boards(칸반) · calendar
 │                        depgraph(업무 선후 그래프) · MarkdownEditor · RichText ·
 │                        MentionInput · FilePreviewModal · PdfView 등
 │                        · (v2) worshipDetail·worshipPassage·worshipAttendance · wordBible ·
-│                          groupsSun·groupsClub·groupsParts · roster · sunGuide
+│                          groupsSun·groupsClub·groupsParts·ClubQr · roster · sunGuide · DocEmbed
 ├── views/               views(대시보드·프로젝트·내 업무·팀·전체 일정) · dashboardParts(공유 부품)
 │                        · membersView(가입 승인·관리자 지정 · 명단 탭)
 │                        · (v2) homeView · worshipView · wordView · groupsView
@@ -267,16 +274,20 @@ insert into admins (email) values ('admin@example.com');
 | `0050_sun_leader_adds_own_member.sql` | 순장이 자기 순(올해)에 사람을 넣을 수 있게 — '미등록 출석자 추가'가 반만 되던 것 |
 | `0051_dead_policies_and_approval.sql` | 라이브에만 있던 죽은 storage 정책 정리 · 주보·순모임 가이드 정책에 `is_approved()` |
 | `0052_attendance_note_rpc.sql` | `set_attendance_note` rpc — 순장도 출석 메모를 남긴다(주보 편집 권한과 분리, 그 한 칸만) |
+| `0053_feedback_round_10.sql` | `attendance_guests`(미등록 출석자를 명단 밖 손님으로) · `notifications.link` + 예배·모임 알림 종류 · `resource_links.view_pw*` · `services.cue_sheet` |
 
 ## 딥링크 · 공유 · 환경변수
 
 - `/?p=<projectId>` — 해당 프로젝트 보드. `&t=<taskId>`를 붙이면 업무 창까지 엽니다.
   앱 안에서 이동하면 주소창이 따라 바뀝니다(게스트 모드도 동일).
-- `/s/p/<projectId>` · `/s/t/<taskId>` — 공유 링크. 크롤러에는 OG 메타 HTML을, 사람에게는 앱으로
+- `/?p=worship&s=<serviceId>` — 주보 상세. `/?p=groups&g=<groupId>` — 동아리 상세(`&apply=1`이면 로그인 뒤 가입 신청까지).
+  알림의 딥링크가 이 모양입니다(`notifications.link`).
+- `/s/p/<projectId>` · `/s/t/<taskId>` · `/s/c/<groupId>` — 공유 링크. 크롤러에는 OG 메타 HTML을, 사람에게는 앱으로
   리디렉션을 줍니다(`api/share.js`, `s-maxage=300`).
   점검은 [카카오 공유 디버거](https://developers.kakao.com/tool/debugger/sharing).
 - `/api/push` — 웹 푸시. POST는 앱이 알림을 만든 직후 부르고, GET은 Vercel Cron이 하루 한 번
-  깨워 마감 임박 알림을 만듭니다(`vercel.json`의 `crons`, 22:00 UTC = 07:00 KST).
+  깨워 마감 임박 알림을 만듭니다(`vercel.json`의 `crons`, 22:00 UTC = 07:00 KST). 두 번째 크론 `?job=worship`은
+  02:30 UTC(11:30 KST)에 오늘 예배가 있으면 전원에게 알립니다.
 
 | 변수 | 용도 | 노출 |
 |---|---|---|

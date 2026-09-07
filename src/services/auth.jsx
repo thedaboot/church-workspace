@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from './supabaseClient.js';
 import { store } from '../store/workspaceStore.js';
 import { isKakaoInApp, returnToOf, authErrorInUrl } from '../utils.js';
+import { setEntryQuery } from './entryQuery.js';
 
 // ============================================================================
 // 인증 컨텍스트 (Supabase OAuth: 구글 / 카카오)
@@ -47,7 +48,11 @@ const consumeReturnTo = () => {
   ss.del(RETURN_KEY);
   if (!to.startsWith('/') || to.startsWith('//')) return;
   if (to === window.location.pathname + window.location.search) return;
-  try { window.history.replaceState(null, '', to); } catch { /* 막힌 히스토리 */ }
+  try { window.history.replaceState(null, '', to); } catch { /* 막힌 히스토리 */ return; }
+  // 딥링크의 나머지 값(s·g·apply — 0053)은 entryQuery가 **모듈 첫 실행 때** 주소에서 붙잡는데,
+  // OAuth 왕복 뒤의 첫 주소는 `/#…`이라 그 스냅샷이 비어 있다. 복원한 자리를 다시 실어 준다
+  // (모임 담당 보고 2026-09-07 — 그쪽은 화면에서 주소를 한 번 더 읽는 우회를 뒀다).
+  setEntryQuery(to);
 };
 
 // 카카오 자동 로그인을 이미 한 번 시도했나. sessionStorage와 **둘 다** 본다 —

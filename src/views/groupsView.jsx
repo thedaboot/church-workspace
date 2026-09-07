@@ -6,6 +6,7 @@ import { failText, objectParticle } from '../services/errorText.js';
 import { useAuth } from '../services/auth.jsx';
 import { useCached, dropCache } from '../services/cache.js';
 import { useLiveRefresh } from '../services/liveV2.js';
+import { takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
 import { MySunPanel, SunNotesSection, SunAdminPanel } from '../components/groupsSun.jsx';
 import { ClubsPanel } from '../components/groupsClub.jsx';
 import { WITH_ICON, useClosing, useSettled } from '../components/groupsParts.jsx';
@@ -17,8 +18,9 @@ import {
   createGroup, saveGroup, saveClubInfo, addMember, removeMember, moveMember, reorderClubs,
   applyToClub, cancelApplication, acceptApplication, declineApplication,
   createMeeting, saveMeetingAttendance, setNoteShared,
-  groupPerms, mySun, latestSunday, toggleAttendance, yearOptions, leaderPlan, dupReason,
-  duplicateName, dupNameText,
+  notifyClubApply, notifyClubAccepted, notifyMeetingNew,
+  groupPerms, mySun, myGroupIds, groupPeople, latestSunday, toggleAttendance, yearOptions,
+  leaderPlan, dupReason, duplicateName, dupNameText,
 } from '../services/groups.js';
 
 // ============================================================================
@@ -47,6 +49,19 @@ import {
 // ============================================================================
 
 const THIS_YEAR = new Date().getFullYear();
+
+// ── 딥링크로 들어온 값 (services/entryQuery.js의 약속: g = 동아리 id · apply=1이면 신청까지)
+// **주소도 한 번 더 본다.** entryQuery는 모듈이 처음 실행될 때 `location.search`를
+// 붙잡아 두는데, 카카오 로그인을 거쳐 들어오면 그 스냅샷이 비어 있다 — auth.jsx가
+// `?p=groups&g=…`를 sessionStorage에서 꺼내 replaceState로 되돌리는 시점이 모듈 로드보다
+// **늦기** 때문이다. 이 화면의 마운트 effect는 App의 주소 정리 effect(자식이 먼저 돈다)보다
+// 앞서므로 그 자리에서는 주소에 값이 아직 살아 있다. 종에서 누른 경우는 setEntryQuery가
+// 한 벌을 다시 채우므로 첫 갈래로 잡힌다.
+const entryOf = (key) => {
+  const taken = takeEntryParam(key);
+  if (taken !== null) return taken;
+  try { return new URLSearchParams(window.location.search).get(key); } catch { return null; }
+};
 
 // 스켈레톤은 **캐시가 하나도 없는 첫 진입**에만 나온다(services/cache.js).
 const LOADING = (
@@ -253,19 +268,37 @@ export function GroupsView() {
   // 문구 모양은 실패 토스트와 같다(errorText가 err.human을 가장 먼저 본다).
   const refuse = useCallback((what, why) => { showToast(failText(what, { human: why })); return false; }, []);
 
-  const apply = useCallback((club) => run('가입 신청을 보내지 못했어요',
-    () => applyToClub(club.id, me.id), '가입 신청을 보냈어요',
-    `${club.name}에는 이미 신청해 두었어요`), [run, me]);
+  // 그 사람의 계정(profile) id — 알림은 명단(person)이 아니라 계정에 간다. 명단에만
+  // 있고 가입하지 않은 청년은 profile_id가 null이라 받는 사람 목록에서 빠진다.
+  const profileOf = useCallback(
+    (personId) => (state?.people || []).find(p => p.id === personId)?.profile_id || null,
+    [state],
+  );
+
+  // 신청·수락·모임에는 알림이 딸린다(0053 · groups.js notify*). **본 동작 뒤에 부르고
+  // 실패는 그 안에서 삼킨다** — 알림이 막혔다고 '신청을 보내지 못했어요'가 뜨면 사람은
+  // 같은 신청을 또 눌러 23505를 본다.
+  const applyTo = useCallback((club, done) => run('가입 신청을 보내지 못했어요', async () => {
+    await applyToClub(club.id, me.id);
+    await notifyClubApply(club, me.name, profileOf(club.leader_person_id));
+  }, done, `${club.name}에는 이미 신청해 두었어요`), [run, me, profileOf]);
+
+  const apply = useCallback((club) => applyTo(club, '가입 신청을 보냈어요'), [applyTo]);
 
   const cancelApply = useCallback((app) => run('가입 신청을 취소하지 못했어요',
     () => cancelApplication(app.id), '가입 신청을 취소했어요'), [run]);
 
   const accept = useCallback((app) => {
-    const name = state?.people.find(p => p.id === app.person_id)?.name || '';
-    return run('가입 신청을 수락하지 못했어요', () => acceptApplication(app),
-      name ? `${name}님을 동아리 명단에 넣었어요` : '동아리 명단에 넣었어요',
-      name ? `${name}님은 이미 그 동아리 멤버예요` : '이미 그 동아리 멤버예요');
-  }, [run, state]);
+    const person = state?.people.find(p => p.id === app.person_id) || null;
+    const name = person?.name || '';
+    const club = (state?.clubs || []).find(c => c.id === app.group_id) || null;
+    return run('가입 신청을 수락하지 못했어요', async () => {
+      await acceptApplication(app);
+      await notifyClubAccepted(club, me?.name || '', person?.profile_id || null);
+    },
+    name ? `${name}님을 동아리 명단에 넣었어요` : '동아리 명단에 넣었어요',
+    name ? `${name}님은 이미 그 동아리 멤버예요` : '이미 그 동아리 멤버예요');
+  }, [run, state, me]);
 
   const decline = useCallback((app) => run('가입 신청을 거절하지 못했어요',
     () => declineApplication(app.id), '가입 신청을 거절했어요'), [run]);
@@ -324,6 +357,11 @@ export function GroupsView() {
     try {
       await createMeeting(club.id, { date, title });
       setMeetings(await fetchMeetings(club.id));
+      // 그 동아리 구성원 전부에게 한 통(0053 meeting_new). 동아리장은 groupPeople이
+      // 맨 앞에 세우고, 만든 사람 자신은 insertNotifications가 걸러 낸다.
+      const ids = groupPeople({ people: state?.people || [], group: club, members: state?.members || [] })
+        .map(p => p.profile_id).filter(Boolean);
+      await notifyMeetingNew(club, me?.name || '', ids, date);
       showToast('모임을 만들었어요');
       return true;
     } catch (e) {
@@ -331,7 +369,7 @@ export function GroupsView() {
       showToast(failText('모임을 만들지 못했어요', e));
       return false;
     }
-  }, []);
+  }, [state, me]);
 
   // 출석은 먼저 화면에 반영하고 실패하면 되돌린다(예배 출석과 같은 방식).
   const toggleMeeting = useCallback(async (meeting, personId) => {
@@ -404,6 +442,47 @@ export function GroupsView() {
 
   const dropSunMember = useCallback((group, person) => run('순원을 빼지 못했어요',
     () => removeMember(group.id, person.id), `${person.name}님을 순에서 뺐어요`), [run]);
+
+  // ── QR·알림으로 들어온 자리 ───────────────────────────────────────────────
+  // `/?p=groups&g=<동아리 id>`면 그 동아리 상세를 열고, `&apply=1`이면 신청까지 한다.
+  // 가입 신청 QR(components/ClubQr.jsx)이 이 주소로 보내고, 로그인이 필요하면 auth가
+  // 그 자리를 기억했다가 돌려준다 — 여기서는 이미 로그인된 화면만 본다.
+  //
+  // **두 걸음이다.** 값은 마운트(그리고 종에서 누른 신호)에 곧바로 집어 오고, 실제로
+  // 여는 일은 한 벌(state)이 도착한 뒤에 한다 — 첫 프레임에는 동아리 목록이 없어서
+  // 어느 동아리인지 고를 수 없다. 집어 온 값은 한 번 쓰고 비운다(같은 신청을 두 번 하지 않게).
+  const entryTick = useEntryQuery();
+  const [entry, setEntry] = useState(null);
+  useEffect(() => {
+    const g = entryOf('g');
+    const ap = entryOf('apply');
+    if (g) setEntry({ g, apply: ap === '1' });
+  }, [entryTick]);
+
+  useEffect(() => {
+    if (!entry || !state) return;
+    setEntry(null);
+    setTab('club');
+    const club = (state.clubs || []).find(c => c.id === entry.g);
+    if (!club) { showToast(failText('동아리를 열지 못했어요', { human: '그 동아리를 찾지 못했어요' })); return; }
+    setOpenClubId(club.id);
+    if (!entry.apply) return;
+    // 명단에 이어지지 않은 계정은 신청할 사람(person)이 없다 — RLS도 같은 자리에서
+    // 막는다(0035 club_applications: person_id = my_person_id).
+    if (!me) {
+      showToast(failText('가입 신청을 못 했어요', { human: '청년 명단과 계정이 아직 연결되지 않았어요' }));
+      return;
+    }
+    if (myGroupIds(me, state.clubs || [], state.members || []).includes(club.id)) {
+      showToast('이미 이 동아리에 있어요');
+      return;
+    }
+    if ((state.apps || []).some(a => a.group_id === club.id && a.person_id === me.id)) {
+      showToast('이미 신청했어요');
+      return;
+    }
+    applyTo(club, '동아리 신청이 완료되었어요!');
+  }, [entry, state, me, applyTo]);
 
   // ── 그리기 ────────────────────────────────────────────────────────────────
   const years = useMemo(() => yearOptions(state?.allGroups || []), [state]);

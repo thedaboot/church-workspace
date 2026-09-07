@@ -255,6 +255,21 @@ const pure = await ev(`(async () => {
       groups: [{ id: 'g1', name: '꼬순', leader_person_id: 'a' }],
       members: [{ group_id: 'g1', person_id: 'b' }, { group_id: 'g1', person_id: 'c' }],
     }).map(g => [g.name, g.people.map(p => p.name).join(',')]),
+    // 교역자·부장 묶음(2026-09-07). 부장은 **그 해 직분 줄**이고 교역자는 명단 속성이다.
+    // 순에 편성된 부장(다솔)은 순에도 그대로 서고, 어느 순에도 없는 두 사람은
+    // '순 미지정'이 아니라 자기 묶음에 선다.
+    headed: m.groupRoster({
+      people: [{ id: 'a', name: '한결' }, { id: 'b', name: '나리' },
+        { id: 'p', name: '임성빈', is_pastor: true },
+        { id: 'd', name: '신효진' }, { id: 'e', name: '다솔' }, { id: 'f', name: '정후' }],
+      groups: [{ id: 'g1', name: '꼬순', leader_person_id: 'a' }],
+      members: [{ group_id: 'g1', person_id: 'b' }, { group_id: 'g1', person_id: 'e' }],
+      roles: [{ person_id: 'd', role: 'director' }, { person_id: 'e', role: 'director' }],
+    }).map(g => [g.id === null ? 'null' : g.id, g.name, g.people.map(p => p.name).join(',')]),
+    // 그 묶음들은 **전체 자격자만** 만진다 — 순장에게는 자기 순뿐이다
+    toggleHead: [m.canToggleGroup({ canCheckAll: false, ledGroupIds: ['pastor', 'director'] }, 'pastor'),
+      m.canToggleGroup({ canCheckAll: false, ledGroupIds: ['pastor'] }, 'director'),
+      m.canToggleGroup({ canCheckAll: true }, 'pastor')],
   };
 })()`, true);
 check('다가오는 주일 — 토요일이면 다음 날', pure.sunOnSat === '2026-09-06', pure.sunOnSat);
@@ -288,6 +303,18 @@ check('순장은 편성 명단에 없어도 자기 순에 선다', pure.buckets[
 check('순 안 순서는 순장 먼저, 나머지는 가나다순', pure.buckets[0][1] === '한결,가온,나리', JSON.stringify(pure.buckets));
 check("어느 순에도 없는 사람은 '순 미지정'으로, 거기도 가나다순",
   JSON.stringify(pure.buckets[1]) === '["순 미지정","다솔,정후"]', JSON.stringify(pure.buckets));
+// 신효진 부장·임성빈 교역자가 '순 미지정'에 들어가 있던 자리다(사용자 지적 2026-09-07).
+// **되돌리기**: groupRoster에서 heads를 앞에 붙이지 않거나 headed를 빼면 이 셋이 깨진다.
+check('전도사님·부장님 묶음이 순 묶음 위에 선다',
+  JSON.stringify(pure.headed.slice(0, 2)) === '[["pastor","전도사님","임성빈"],["director","부장님","다솔,신효진"]]',
+  JSON.stringify(pure.headed));
+check('순에 편성된 부장은 그 순에도 그대로 선다',
+  JSON.stringify(pure.headed[2]) === '["g1","꼬순","한결,나리,다솔"]', JSON.stringify(pure.headed));
+check("교역자·부장은 '순 미지정'에서 빠진다(거기 남는 것은 정후뿐)",
+  JSON.stringify(pure.headed[3]) === '["null","순 미지정","정후"]' && pure.headed.length === 4,
+  JSON.stringify(pure.headed));
+check('전도사님·부장님 묶음은 전체 자격자만 만진다',
+  JSON.stringify(pure.toggleHead) === '[false,false,true]', JSON.stringify(pure.toggleHead));
 check('출석은 발행된 뒤 · 예배가 시작한(그날 13:30 KST) 뒤에만 연다',
   pure.attPast === true && pure.attToday === true && pure.attFuture === false && pure.attDraft === false,
   `과거${pure.attPast}/오늘${pure.attToday}/미래${pure.attFuture}/작성중${pure.attDraft}`);
@@ -490,7 +517,8 @@ const editBtn = await ev(`(() => {
   const cs = getComputedStyle(b);
   return {
     inHead: !!head && head.contains(b),
-    right: Math.round(head.getBoundingClientRect().right - b.getBoundingClientRect().right),
+    // 머리줄이 카드가 된 뒤로는 콘텐츠 상자 오른쪽이 기준이다(안쪽 여백만큼 들어와 선다)
+    right: Math.round(head.getBoundingClientRect().right - (parseFloat(getComputedStyle(head).paddingRight) || 0) - b.getBoundingClientRect().right),
     text: b.textContent.trim(),
     accent: cs.backgroundColor === ${tokenColor('--app-accent')},
     icon: !!b.querySelector('svg'),
@@ -532,6 +560,7 @@ await sleep(1400);
 const detail = await ev(`(() => {
   const head = document.querySelector('.worship-detail header');
   const att = document.querySelector('.worship-att-open');
+  const headRight = head ? head.getBoundingClientRect().right - (parseFloat(getComputedStyle(head).paddingRight) || 0) : 0;
   return {
     open: !!document.querySelector('.worship-detail'),
     tabs: [...document.querySelectorAll('.worship-tab')].map(t => t.textContent.trim()),
@@ -539,10 +568,12 @@ const detail = await ev(`(() => {
     verses: document.querySelectorAll('.worship-verse').length,
     att: !!att,
     attInHead: !!(att && head && head.contains(att)),
-    attRight: att ? Math.round(head.getBoundingClientRect().right - att.getBoundingClientRect().right) : -1,
+    // 머리줄이 상자(카드)가 된 뒤로 오른쪽 끝은 **콘텐츠 상자**다 — 안쪽 여백만큼
+    // 안으로 들어와 서는 것이 맞다(2026-09-07)
+    attRight: att ? Math.round(headRight - att.getBoundingClientRect().right) : -1,
     editRight: (() => {
       const e = document.querySelector('.worship-edit-open');
-      return e && head ? Math.round(head.getBoundingClientRect().right - e.getBoundingClientRect().right) : -1;
+      return e && head ? Math.round(headRight - e.getBoundingClientRect().right) : -1;
     })(),
     bodyWidth: Math.round(document.querySelector('.worship-passage')?.getBoundingClientRect().width || 0),
     panelWidth: Math.round(document.querySelector('.worship-tabpanel')?.getBoundingClientRect().width || 0),
@@ -715,19 +746,22 @@ const att = await ev(`(() => ({
 }))()`);
 check('출석 화면이 열린다', att.open === true);
 check('상단 집계 전체 n/m', att.total === '전체 1/8', att.total);
-check('순별 목록 + 순 미지정 묶음',
-  att.groups.length === 3 && att.groups[0].includes('꼬순 1/3') && att.groups[2].includes('순 미지정 0/2'), JSON.stringify(att.groups));
+// 전도사님(임성빈 자리의 양민혁)·부장님(그 해 director 조해리)이 **맨 위 두 묶음**이고,
+// 그 둘이 빠지면서 '순 미지정'은 빌 사람이 없어 아예 그려지지 않는다(2026-09-07).
+check('전도사님·부장님 묶음이 순 묶음 위에 선다',
+  att.groups.length === 4 && att.groups[0].includes('전도사님 0/1') && att.groups[1].includes('부장님 0/1')
+  && att.groups[2].includes('꼬순 1/3') && att.groups[3].includes('TT순 0/3'), JSON.stringify(att.groups));
 check('이미 체크된 사람이 켜져 있다', JSON.stringify(att.on) === '["천진영"]', JSON.stringify(att.on));
 // 순장(김윤주·노준석)이 맨 앞, 나머지는 가나다순 — 시드가 준 순서와 다르다
-// (꼬순은 천진영·김승찬 순으로, 순 미지정은 조해리·양민혁 순으로 심었다)
+// (꼬순은 천진영·김승찬 순으로 심었다)
 check('순 안 사람 칩은 순장 먼저 · 나머지는 가나다순',
-  JSON.stringify(att.order) === JSON.stringify([['김윤주', '김승찬', '천진영'], ['노준석', '배현민', '임재훈'], ['양민혁', '조해리']]),
+  JSON.stringify(att.order) === JSON.stringify([['양민혁'], ['조해리'], ['김윤주', '김승찬', '천진영'], ['노준석', '배현민', '임재훈']]),
   JSON.stringify(att.order));
 
-const head0 = `document.querySelectorAll('.att-group-head')[0]`;
-await ev(`${head0}.click()`); await sleep(300);
-const folded = await ev(`(() => ({ chips: document.querySelectorAll('.att-chip').length, open: ${head0}.getAttribute('aria-expanded') }))()`);
-await ev(`${head0}.click()`); await sleep(300);
+const sunHead = `[...document.querySelectorAll('.att-group-head')].find(h => h.innerText.includes('꼬순'))`;
+await ev(`${sunHead}?.click()`); await sleep(300);
+const folded = await ev(`(() => ({ chips: document.querySelectorAll('.att-chip').length, open: ${sunHead}?.getAttribute('aria-expanded') }))()`);
+await ev(`${sunHead}?.click()`); await sleep(300);
 const unfolded = await ev(`document.querySelectorAll('.att-chip').length`);
 check('순별로 접힌다', folded.chips === att.chips - 3 && folded.open === 'false', JSON.stringify(folded));
 check('다시 펼쳐진다', unfolded === att.chips, `${unfolded}/${att.chips}`);
@@ -737,28 +771,51 @@ await sleep(500);
 const toggled = await ev(`(() => ({
   pressed: [...document.querySelectorAll('.att-chip')].find(c => c.textContent.trim() === '김윤주').getAttribute('aria-pressed'),
   total: document.querySelector('.att-total').innerText.replace(/\\s+/g, ' '),
-  head: document.querySelectorAll('.att-group-head')[0].innerText.replace(/\\s+/g, ' '),
+  head: ${sunHead}?.innerText.replace(/\\s+/g, ' '),
   stored: JSON.parse(localStorage.getItem('church_worship_v1')).attendance.length,
 }))()`);
 check('사람 칩을 누르면 출석이 켜진다', toggled.pressed === 'true' && toggled.stored === 2, JSON.stringify(toggled));
-check('집계가 같이 오른다(전체 · 순별)', toggled.total === '전체 2/8' && toggled.head.includes('꼬순 2/3'), JSON.stringify(toggled));
+check('집계가 같이 오른다(전체 · 순별)', toggled.total === '전체 2/8' && String(toggled.head).includes('꼬순 2/3'), JSON.stringify(toggled));
 
 await ev(`[...document.querySelectorAll('.att-chip')].find(c => c.textContent.trim() === '김윤주').click()`);
 await sleep(500);
 const off = await ev(`(() => ({ total: document.querySelector('.att-total').innerText.replace(/\\s+/g, ' '), stored: JSON.parse(localStorage.getItem('church_worship_v1')).attendance.length }))()`);
 check('다시 누르면 출석이 취소된다', off.total === '전체 1/8' && off.stored === 1, JSON.stringify(off));
 
+// 미등록 출석자는 **명단에 올리지 않는다**(0053 · 사용자 결정 2026-09-07). 손님 표에만
+// 이름이 남고 사람 칩이 되지 않으며, 분모(전체 n/m)는 그대로다.
+// **되돌리기**: worship.addGuest가 people에 넣게 하면 people 9명이 되어 이 검사가 깨진다.
 await ev(`document.querySelector('.att-add-open').click()`); await sleep(300);
 await ev(typeIn('input[aria-label="미등록 출석자 이름"]', '한새싹'));
 await sleep(200);
 await ev(`${byText('추가')}.click()`); await sleep(700);
-const added = await ev(`(() => ({
+const added = await ev(`(() => {
+  const g = JSON.parse(localStorage.getItem('church_worship_v1'));
+  return {
+    total: document.querySelector('.att-total').innerText.replace(/\\s+/g, ' '),
+    guests: [...document.querySelectorAll('.att-guest')].map(c => c.textContent.trim()),
+    people: g.people.length,
+    rows: (g.attendance_guests || []).map(x => [x.service_id, x.name]),
+    attendance: (g.attendance || []).length,
+    chip: [...document.querySelectorAll('.att-chip')].some(c => c.textContent.trim() === '한새싹'),
+    field: document.querySelector('input[aria-label="미등록 출석자 이름"]')?.value,
+  };
+})()`);
+check('미등록 출석자는 그 예배의 손님으로만 남는다(명단에 올리지 않는다)',
+  added.people === 8 && JSON.stringify(added.rows) === JSON.stringify([['s1', '한새싹']])
+  && added.attendance === 1 && added.chip === false, JSON.stringify(added));
+check('손님 칩이 서고 상단에 손님 수가 붙는다',
+  JSON.stringify(added.guests) === '["한새싹"]' && added.total === '전체 1/8 · 손님 1', JSON.stringify(added));
+check('잇달아 적을 수 있게 칸만 비운다', added.field === '', JSON.stringify(added.field));
+
+// 지우기는 확인 팝오버 없이 바로다(알림 지우기와 같은 판단 · §8)
+await ev(`document.querySelector('.att-guest-del')?.click()`); await sleep(700);
+const gone = await ev(`(() => ({
+  guests: document.querySelectorAll('.att-guest').length,
+  rows: (JSON.parse(localStorage.getItem('church_worship_v1')).attendance_guests || []).length,
   total: document.querySelector('.att-total').innerText.replace(/\\s+/g, ' '),
-  groups: [...document.querySelectorAll('.att-group-head')].map(h => h.innerText.replace(/\\s+/g, ' ')),
-  on: [...document.querySelectorAll('.att-chip')].some(c => c.textContent.trim() === '한새싹' && c.getAttribute('aria-pressed') === 'true'),
 }))()`);
-check('미등록 출석자를 그 자리에서 명단에 올리고 출석 처리',
-  added.total === '전체 2/9' && added.on === true && added.groups[2].includes('순 미지정 1/3'), JSON.stringify(added));
+check('손님은 ×로 바로 지워진다', gone.guests === 0 && gone.rows === 0 && gone.total === '전체 1/8', JSON.stringify(gone));
 
 // 출석 메모는 자동 저장(디바운스)
 await ev(typeIn('textarea[aria-label="출석 메모"]', '오늘은 새신자가 한 명 왔어요', 'HTMLTextAreaElement'));
@@ -831,15 +888,49 @@ await ev(`document.querySelector('.worship-note-save').click()`); await sleep(90
 const noteRow = await ev(`(() => {
   const rows = JSON.parse(localStorage.getItem('church_worship_v1')).service_notes;
   return { n: rows.length, body: rows[0]?.body || '', shared: rows[0]?.shared_to_sun,
-    again: document.querySelector('.worship-note-save').disabled,
+    read: !!document.querySelector('.worship-note-read'),
+    readText: document.querySelector('.worship-note-read')?.innerText.trim() || '',
+    editor: !!document.querySelector('.worship-note .tiptap'),
+    editBtn: document.querySelector('.worship-note-edit')?.textContent.trim() || '',
+    saveBtn: !!document.querySelector('.worship-note-save'),
     share: [...document.querySelectorAll('.worship-note button[aria-pressed]')].every(b => b.disabled),
     state: document.querySelector('.worship-note .worship-save-state')?.textContent.trim() || '' };
 })()`);
 check('내 예배 노트가 예배당 한 건으로 저장된다', noteRow.n === 1 && noteRow.body.startsWith('기쁨은'), JSON.stringify(noteRow));
 check("노트는 발행이 없으니 '임시'가 붙지 않는다", noteRow.state === '저장되었어요', noteRow.state);
-check('저장한 뒤에는 다시 눌릴 것이 없다', noteRow.again === true, String(noteRow.again));
+// **저장하면 읽기 모드로 돌아간다**(2026-09-07 · QT 묵상과 같은 패턴). 예전에는 편집기가
+// 계속 열려 있어서 "쓴 것인지 고치는 중인지"가 화면에 없었다.
+// **되돌리기**: MyNote의 editing 상태를 없애면(늘 편집기) 아래 셋이 깨진다.
+check('저장하면 읽기 모드로 돌아간다(편집기 대신 본문)',
+  noteRow.read === true && noteRow.editor === false && noteRow.saveBtn === false, JSON.stringify(noteRow));
+check('읽기 모드에는 저장한 글이 그대로 보인다', noteRow.readText.startsWith('기쁨은'), noteRow.readText);
+check("고치려면 '수정'을 누른다", noteRow.editBtn === '수정', noteRow.editBtn);
 check('저장하고 나면 공유 세그먼트가 열린다', noteRow.share === false, String(noteRow.share));
 check('저장만으로는 공유되지 않는다(기본은 나만 보기)', noteRow.shared !== true, String(noteRow.shared));
+
+// 수정 → 취소는 **고치던 글을 버리고** 읽기 모드로 돌아간다(§8: 확정 왼쪽 / 나가기 오른쪽)
+await ev(`document.querySelector('.worship-note-edit')?.click()`); await sleep(700);
+await waitFor(`!!document.querySelector('.worship-note .tiptap')`);
+const editing = await ev(`(() => {
+  const tools = [...document.querySelector('.worship-note-tools').querySelectorAll('button')]
+    .map(b => b.textContent.trim()).filter(t => ['저장', '취소', '수정'].includes(t));
+  return { editor: !!document.querySelector('.worship-note .tiptap'), read: !!document.querySelector('.worship-note-read'), tools };
+})()`);
+check("'수정'을 누르면 편집기가 열린다", editing.editor === true && editing.read === false, JSON.stringify(editing));
+check('편집 중 도구 줄은 저장 왼쪽 · 취소 오른쪽',
+  JSON.stringify(editing.tools) === '["저장","취소"]', JSON.stringify(editing.tools));
+await ev(`document.querySelector('.worship-note .tiptap')?.focus()`);
+await send('Input.insertText', { text: '버릴 글' });
+await sleep(400);
+await ev(`document.querySelector('.worship-note-cancel')?.click()`); await sleep(500);
+const canceled = await ev(`(() => ({
+  read: !!document.querySelector('.worship-note-read'),
+  text: document.querySelector('.worship-note-read')?.innerText.trim() || '',
+  body: JSON.parse(localStorage.getItem('church_worship_v1')).service_notes[0]?.body || '',
+}))()`);
+check('취소하면 고치던 글을 버리고 읽기 모드로 돌아간다',
+  canceled.read === true && !canceled.text.includes('버릴 글') && !canceled.body.includes('버릴 글'),
+  JSON.stringify(canceled));
 
 // 공유는 **그 자리에서** 저장된다(묵상과 같다) — 글은 건드리지 않는다
 await ev(`document.querySelectorAll('.worship-note button[aria-pressed]')[1].click()`);   // 공유 쪽(라벨과 무관하게 자리로)
@@ -1074,8 +1165,10 @@ const fields = await ev(`(() => {
     cols: getComputedStyle(box).gridTemplateColumns.split(' ').length,
   };
 })()`);
-check('말씀 편집 칸에 이름이 붙는다 — 설교 제목 · 설교자 · 본문 구절',
-  JSON.stringify(fields.labels) === '["설교 제목","설교자","본문 구절"]', JSON.stringify(fields.labels));
+// 큐시트 세 칸이 말씀 탭 마지막 줄로 들어왔다(0053 · 2026-09-07)
+check('말씀 편집 칸에 이름이 붙는다 — 설교 제목 · 설교자 · 본문 구절 · 큐시트',
+  JSON.stringify(fields.labels) === '["설교 제목","설교자","본문 구절","큐시트 링크","큐시트 제목","비밀번호 걸기"]',
+  JSON.stringify(fields.labels));
 check('데스크톱에서는 두 칸 grid로 선다', fields.cols === 2, `${fields.cols}칸`);
 
 // 책 칸의 화살표는 눌리는 버튼이다 — 장·절 화살표는 눌리는데 이것만 장식이었다
@@ -1552,12 +1645,13 @@ await ev(GO); await sleep(1200);
 await ev(`document.querySelector('.worship-card').click()`); await sleep(1200);
 await waitFor(HAS_ATT); await ev(`document.querySelector('.worship-att-open').click()`); await sleep(700);
 const sunjang = await ev(`(() => {
-  const secs = [...document.querySelectorAll('.worship-attendance section')];
-  return secs.slice(0, 3).map(s => [s.querySelector('.att-group-head')?.innerText.replace(/\\s+/g, ' ').replace(/ \\d+\\/\\d+$/, ''),
+  const secs = [...document.querySelectorAll('.worship-attendance section')].filter(s => s.querySelector('.att-group-head'));
+  return secs.map(s => [s.querySelector('.att-group-head').innerText.replace(/\\s+/g, ' ').replace(/ \\d+\\/\\d+$/, ''),
     [...s.querySelectorAll('.att-chip')].every(c => !c.disabled)]);
 })()`);
-check('순장은 자기 순만 누를 수 있고 다른 순은 보이되 비활성',
-  JSON.stringify(sunjang) === '[["꼬순",true],["TT순",false],["순 미지정",false]]', JSON.stringify(sunjang));
+// 전도사님·부장님 묶음도 남의 순과 같다 — 순장은 자기 순 청년만 만진다(0053)
+check('순장은 자기 순만 누를 수 있고 나머지는 보이되 비활성',
+  JSON.stringify(sunjang) === '[["전도사님",false],["부장님",false],["꼬순",true],["TT순",false]]', JSON.stringify(sunjang));
 
 // **순장도 출석 메모를 남긴다**(사용자 결정 2026-09-06: "출석 메모는 주보를 편집하는
 // 건 아니라고 생각해서"). 잠깐 주보 편집 자격자에게만 세웠던 칸이다 — 저장 자리가 주보
@@ -1581,31 +1675,32 @@ check('순장이 쓴 메모가 그 주보에 저장된다',
   sunjangSaved.text === '순장이 남긴 메모' && sunjangSaved.state === '저장되었어요',
   JSON.stringify(sunjangSaved));
 
-// 순장이 올린 새신자는 **그 순의 명단에도 들어간다**(0050 · worship.addToSun).
-// 안 들어가면 attendance_insert의 leads_sun_of(person_id)가 false라 사람만 생기고
-// 출석이 42501로 막힌다 — 순장 계정에서 이 기능이 반만 되던 자리다(2026-09-06).
+// **순장이 올린 사람도 명단·순 편성을 건드리지 않는다**(0053 · 사용자 결정 2026-09-07).
+// 예전에는 people에 행을 만들고 순장이면 자기 순(group_members)에까지 넣었다(0050) —
+// 출석을 부르다 잘못 적은 이름이 그대로 청년 명단에 남았고 지우는 길이 화면에 없었다.
+// **되돌리기**: worshipView의 addGuest를 addRosterPerson+addToSun 길로 되돌리면 깨진다.
 await ev(`document.querySelector('.att-add-open').click()`); await sleep(300);
 await ev(typeIn('input[aria-label="미등록 출석자 이름"]', '한새싹'));
 await sleep(200);
 await ev(`${byText('추가')}.click()`); await sleep(900);
 const sunAdd = await ev(`(() => {
   const g = JSON.parse(localStorage.getItem('church_worship_v1'));
-  const made = g.people.find(p => p.name === '한새싹');
-  const secs = [...document.querySelectorAll('.worship-attendance section')];
-  const chip = [...secs[0].querySelectorAll('.att-chip')].find(c => c.textContent.trim() === '한새싹');
+  const secs = [...document.querySelectorAll('.worship-attendance section')].filter(s => s.querySelector('.att-group-head'));
+  const sun = secs.find(s => s.querySelector('.att-group-head').innerText.includes('꼬순'));
   return {
-    inSun: !!made && (g.group_members || []).some(m => m.group_id === 'g1' && m.person_id === made.id),
-    attended: !!made && (g.attendance || []).some(a => a.service_id === 's1' && a.person_id === made.id),
-    head: secs[0]?.querySelector('.att-group-head')?.innerText.replace(/\\s+/g, ' ') || '',
-    on: !!chip && chip.getAttribute('aria-pressed') === 'true' && !chip.disabled,
-    unassigned: secs[2]?.querySelector('.att-group-head')?.innerText.replace(/\\s+/g, ' ') || '',
+    people: g.people.length,
+    members: (g.group_members || []).length,
+    rows: (g.attendance_guests || []).map(x => x.name),
+    guests: [...document.querySelectorAll('.att-guest')].map(c => c.textContent.trim()),
+    canDelete: [...document.querySelectorAll('.att-guest-del')].every(b => !b.disabled),
+    head: sun?.querySelector('.att-group-head')?.innerText.replace(/\\s+/g, ' ') || '',
   };
 })()`);
-check('순장이 올린 새신자는 자기 순(첫 순)의 명단에 함께 들어간다',
-  sunAdd.inSun === true && sunAdd.attended === true, JSON.stringify(sunAdd));
-check('그래서 순 미지정이 아니라 그 순 묶음에 출석으로 선다',
-  sunAdd.on === true && sunAdd.head.includes('꼬순 2/4') && sunAdd.unassigned.includes('순 미지정 0/2'),
-  JSON.stringify(sunAdd));
+check('순장이 올려도 명단·순 편성은 그대로다',
+  sunAdd.people === 8 && sunAdd.members === 4 && sunAdd.head.includes('꼬순 1/3'), JSON.stringify(sunAdd));
+check('그 예배의 손님으로만 서고 순장도 지울 수 있다',
+  JSON.stringify(sunAdd.rows) === '["한새싹"]' && JSON.stringify(sunAdd.guests) === '["한새싹"]'
+  && sunAdd.canDelete === true, JSON.stringify(sunAdd));
 
 // ── 10) 다크 모드 훑기 ──────────────────────────────────────────────────────
 // 글자가 배경에 묻히지 않는지, 테마를 안 따라가는 팔레트를 쓰지 않는지만 본다
@@ -1701,6 +1796,35 @@ const mobDetail = await ev(`(() => ({
 check('모바일 375px — 주보 상세가 가로로 넘치지 않는다', mobDetail.overflow <= 0, `넘침 ${mobDetail.overflow}px`);
 check('모바일에서도 머리줄 출석 체크와 본문이 그대로 선다',
   mobDetail.att === true && mobDetail.verses === 12, JSON.stringify(mobDetail));
+
+// 노트 도구 줄 — 375에서 공유 토글만 다음 줄 **오른쪽 끝**에 혼자 서서 저장 버튼과
+// 어긋나던 자리다(사용자 지적 2026-09-07). 지금은 의도된 두 줄이고, 둘째 줄의 토글이
+// **왼쪽부터 폭을 채운다**. 640 위에서는 한 줄이다.
+// **되돌리기**: NOTE_TOOLS를 `flex flex-wrap` + 토글 `shrink-0`으로 되돌리면 깨진다.
+const TOOLS_AT = `(() => {
+  const row = document.querySelector('.worship-note-tools');
+  const t = row && row.querySelector('.share-toggle');
+  const first = row && row.querySelector('button');
+  if (!row || !t || !first) return null;
+  const r = row.getBoundingClientRect(), tr = t.getBoundingClientRect(), fr = first.getBoundingClientRect();
+  return {
+    sameRow: Math.round(tr.top) < Math.round(fr.bottom) - 2,
+    leftGap: Math.round(tr.left - r.left),
+    rightGap: Math.round(r.right - tr.right),
+  };
+})()`;
+const toolsMob = await ev(TOOLS_AT);
+check('375 — 공유 토글은 둘째 줄에서 왼쪽부터 오른쪽 끝까지 채운다',
+  !!toolsMob && toolsMob.sameRow === false && Math.abs(toolsMob.leftGap) <= 1 && Math.abs(toolsMob.rightGap) <= 1,
+  JSON.stringify(toolsMob));
+await send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 780, deviceScaleFactor: 1, mobile: false });
+await sleep(500);
+const toolsWide = await ev(TOOLS_AT);
+check('1024 — 저장·칩·토글이 한 줄이고 토글이 오른쪽 끝에 선다',
+  !!toolsWide && toolsWide.sameRow === true && Math.abs(toolsWide.rightGap) <= 1 && toolsWide.leftGap > 100,
+  JSON.stringify(toolsWide));
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+await sleep(500);
 
 // 송폼 줄도 375에서 한 열로 서고 넘치지 않는다 — 파일 이름이 길어도 줄 안에서
 // 접힌다(min-w-0 + break-words). 이름이 잘려 나가면 어느 파일인지 알 수 없다.
@@ -2089,6 +2213,156 @@ check('예배 노트와 말씀 묵상이 같은 공유 부품을 import한다',
   sameParts.worImports === true && sameParts.wordImports === true, JSON.stringify(sameParts));
 check('어느 화면에도 지역 사본이 남아 있지 않다',
   sameParts.worLocal === false && sameParts.wordLocal === false, JSON.stringify(sameParts));
+
+// ── 16) 줄바꿈 고아 · 큐시트 · 목록 출석 수 (2026-09-07) ────────────────────
+// **한 줄에 하나만 서 있는 줄이 고아다.** 유튜브 가져오기 버튼이 좁은 화면에서 둘째 줄
+// 오른쪽에 혼자 섰고(사용자 지적), 담당자·찬양 줄의 순서 도구도 같은 모양이었다.
+// 재는 것은 '줄마다 몇 개가 서 있나'다 — `items-center`라 가운데선으로 줄을 가른다.
+// **되돌리기**: worship-song-import를 `flex-wrap` + `basis-full`로 되돌리면 375에서 [1,1]이 나온다.
+const ORPHAN = (sel) => `(() => {
+  const rows = [...document.querySelectorAll(${JSON.stringify(sel)})].slice(0, 2);
+  return rows.map(row => {
+    const lines = new Map();
+    for (const k of row.children) {
+      const r = k.getBoundingClientRect();
+      if (r.width <= 0) continue;
+      const key = Math.round((r.top + r.bottom) / 16);
+      lines.set(key, (lines.get(key) || 0) + 1);
+    }
+    return [...lines.values()];
+  });
+})()`;
+
+await ev(plant(null));
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
+await ev(GO); await waitFor(HAS_CARD);
+await ev(`document.querySelector('.worship-card').click()`); await waitFor(HAS_DETAIL);
+await waitFor(HAS_EDIT);
+await ev(`document.querySelector('.worship-edit-open').click()`); await sleep(900);
+
+const orphanRows = [];
+for (const width of [375, 414, 768, 1440]) {
+  await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width < 768 });
+  await sleep(420);
+  await tabClick('찬양'); await sleep(380);
+  orphanRows.push([width, '가져오기', await ev(ORPHAN('.worship-song-import'))]);
+  orphanRows.push([width, '찬양 줄', await ev(ORPHAN('.worship-song-row'))]);
+  await tabClick('담당자'); await sleep(380);
+  orphanRows.push([width, '담당자 줄', await ev(ORPHAN('.worship-role-edit'))]);
+}
+const orphanBad = orphanRows.filter(([, , rows]) => !rows.length || rows.some(lines => lines.some(n => n < 2)));
+check('편집 줄에 혼자 서는 도막이 없다(가져오기 버튼·순서 도구)',
+  orphanBad.length === 0, JSON.stringify(orphanBad.length ? orphanBad : orphanRows.filter(r => r[0] === 375)));
+// 좁은 화면에서는 라벨이 '가져오기'로 줄고 전체 문구는 title에 남는다(기능을 숨기지 않는다 · §8)
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+await sleep(400); await tabClick('찬양'); await sleep(380);
+const pullNarrow = await ev(`(() => {
+  const b = document.querySelector('.worship-song-pull');
+  return { label: b.innerText.replace(/\\s+/g, ' ').trim(), title: b.title };
+})()`);
+check('좁은 화면의 가져오기 버튼은 라벨만 줄고 전체 문구는 title에 남는다',
+  pullNarrow.label === '가져오기' && pullNarrow.title === '유튜브 재생목록에서 가져오기', JSON.stringify(pullNarrow));
+
+// 큐시트(0053) — 구글 문서 링크 한 칸 + 화면 가림용 비밀번호.
+// **되돌리기**: CueSheetEdit의 docEmbedKind 게이트를 빼면 아무 주소나 담겨 첫 검사가 깨진다.
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(400); await tabClick('말씀'); await sleep(420);
+await ev(typeIn('input[aria-label="큐시트 링크"]', 'https://example.com/cue'));
+await sleep(1500);
+const cueBad = await ev(`(() => ({
+  msg: document.querySelector('.worship-cue-bad')?.textContent.trim() || '',
+  stored: JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.id === 's1').cue_sheet || null,
+}))()`);
+check('구글 문서·시트 링크가 아니면 그 자리에서 말하고 담지 않는다',
+  cueBad.msg === '구글 문서·시트 링크만 붙일 수 있어요' && !cueBad.stored, JSON.stringify(cueBad));
+
+await ev(typeIn('input[aria-label="큐시트 링크"]', 'https://docs.google.com/document/d/abc123/edit'));
+await sleep(250);
+await ev(typeIn('input[aria-label="큐시트 제목"]', '9월 6일 큐시트'));
+await sleep(1600);
+const cueOk = await ev(`(() => ({
+  msg: !!document.querySelector('.worship-cue-bad'),
+  stored: JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.id === 's1').cue_sheet || null,
+}))()`);
+check('구글 문서 링크와 제목이 주보 행의 한 칸에 담긴다',
+  cueOk.msg === false && String(cueOk.stored?.url).includes('docs.google.com')
+  && cueOk.stored?.title === '9월 6일 큐시트', JSON.stringify(cueOk));
+
+await ev(typeIn('input[aria-label="큐시트 비밀번호"]', 'reborn'));
+await sleep(250);
+await ev(`document.querySelector('.worship-cue-lock')?.click()`); await sleep(1600);
+const cuePw = await ev(`(async () => {
+  const cue = JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.id === 's1').cue_sheet;
+  const m = await import('/src/services/viewPw.js');
+  return { hash: !!cue.view_pw, plain: cue.view_pw === 'reborn', salt: !!cue.view_pw_salt,
+    locked: !!document.querySelector('.worship-cue-locked'),
+    ok: await m.verifyViewPw(cue, 'reborn'), no: await m.verifyViewPw(cue, 'wrong') };
+})()`, true);
+check('큐시트 비밀번호는 해시로만 남고 맞는 것만 통과한다(첨부와 같은 규칙)',
+  cuePw.hash === true && cuePw.plain === false && cuePw.salt === true
+  && cuePw.ok === true && cuePw.no === false && cuePw.locked === true, JSON.stringify(cuePw));
+
+await ev(`${byText('저장')}.click()`); await sleep(1000);
+await tabClick('말씀'); await sleep(420);
+const cueView = await ev(`(() => {
+  const box = document.querySelector('.worship-cue');
+  if (!box) return null;
+  return { title: box.querySelector('.worship-cue-title')?.textContent.trim() || '',
+    open: !!box.querySelector('.worship-cue-open'),
+    overflow: Math.round(box.getBoundingClientRect().right - document.querySelector('.worship-tabpanel').getBoundingClientRect().right) };
+})()`);
+check('보기 모드에서는 제목과 열기가 한 줄로 선다',
+  !!cueView && cueView.title === '큐시트 · 9월 6일 큐시트' && cueView.open === true && cueView.overflow <= 0,
+  JSON.stringify(cueView));
+
+// 목록 카드의 출석 수 — **지난 발행본에만** 붙는다(오늘·앞으로 올 예배의 '0명'은 뜻이 없다).
+// 카드마다 세지 않고 표를 한 번씩 읽어 센다(worship.fetchAttendanceCounts).
+await ev(`${byText('목록으로')}.click()`); await sleep(1000);
+const listAtt = await ev(`(() => [...document.querySelectorAll('.worship-card')].map(c => [
+  c.querySelector('.worship-card-title')?.textContent.trim(),
+  c.querySelector('.worship-card-att')?.textContent.trim() || null,
+]))()`);
+check('지난 발행본 카드에 출석 수가 붙는다',
+  JSON.stringify(listAtt) === JSON.stringify([['흔들리지 않는 기쁨', '출석 1명'], ['깨어 기도하라', null]]),
+  JSON.stringify(listAtt));
+
+// ── 17) 딥링크 · 썸네일 자리 (2026-09-07) ──────────────────────────────────
+// 알림에서 온 `/?p=worship&s=<주보 id>`는 목록이 아니라 **그 주보 상세**를 연다(0053의
+// notifications.link). 주소의 나머지 값은 App이 주소를 정리하면서 사라지므로,
+// entryQuery가 모듈 로드 때 붙잡아 두고 화면이 마운트되며 가져간다.
+// **되돌리기**: worshipView의 takeEntryParam('s') 이펙트를 지우면 목록에서 멈춘다.
+await ev(plant(null));
+await send('Page.navigate', { url: `${URL_BASE}/?p=worship&s=s2` });
+await wait('Page.loadEventFired'); await sleep(1800);
+await waitFor(HAS_DETAIL, 8000);
+const deep = await ev(`(() => ({
+  detail: !!document.querySelector('.worship-detail'),
+  title: document.querySelector('.worship-tabpanel h3')?.textContent.trim() || '',
+  search: window.location.search,
+}))()`);
+check('알림 딥링크(?p=worship&s=…)가 그 주보 상세를 연다',
+  deep.detail === true && deep.title === '깨어 기도하라', JSON.stringify(deep));
+// 같은 주소로 두 번 열리지 않는다 — takeEntryParam이 한 번 읽고 지운다
+await ev(`${byText('목록으로')}?.click()`); await sleep(900);
+const deepAgain = await ev(`!!document.querySelector('.worship-detail')`);
+check('한 번 읽은 딥링크는 목록으로 나온 뒤 다시 열리지 않는다', deepAgain === false, String(deepAgain));
+
+// 썸네일 자리 — 그림이 도착하기 전에도 같은 크기의 상자가 자리를 지키고, 도착하면
+// 짧게 밝아진다(뿅 뜨지 않게). **되돌리기**: img를 감싸개 없이 그대로 두면 상자가 없다.
+await ev(`document.querySelector('.worship-card')?.click()`); await waitFor(HAS_DETAIL);
+await tabClick('찬양'); await sleep(500);
+const thumb = await ev(`(() => {
+  const box = document.querySelector('.worship-song-thumbbox');
+  const img = box && box.querySelector('.worship-song-thumb');
+  if (!img) return null;
+  const b = box.getBoundingClientRect(), cs = getComputedStyle(img);
+  return { w: Math.round(b.width), h: Math.round(b.height),
+    fades: cs.transitionProperty.includes('opacity') && parseFloat(cs.transitionDuration) > 0,
+    opacity: Number(cs.opacity) };
+})()`);
+check('썸네일은 같은 크기 상자 안에서 짧게 밝아진다(자리를 먼저 잡는다)',
+  !!thumb && thumb.w === 64 && thumb.h === 36 && thumb.fades === true, JSON.stringify(thumb));
 
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 

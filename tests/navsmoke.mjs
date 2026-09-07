@@ -384,6 +384,82 @@ check('더보기에 그 해 보관 프로젝트가 있다', moreYear.includes('�
 check('더보기에 다른 해 프로젝트가 안 섞인다', moreYear.every(t => t === '프로젝트 8'), JSON.stringify(moreYear));
 await send('Emulation.clearDeviceMetricsOverride');
 
+
+// ── 화면을 바꾸면 스크롤 통이 맨 위로 (사용자 지적 2026-09-07) ───────────────
+// "홈에서 업무 탭 누르면 대시보드 중간으로 가게 돼 있는데 그냥 가장 상단으로."
+// 스크롤하는 상자는 App의 `main` 하나다 — 뷰가 리마운트돼도 그 통은 그대로라
+// scrollTop이 남았다. 되돌리기 검사: App.jsx의 useLayoutEffect를 지우면 두 번째
+// 단정(간 뒤 0)이 바로 깨진다. 첫 단정(가기 전 > 0)은 검사 자체가 의미 있는지를 본다 —
+// 홈이 화면보다 짧으면 스크롤할 것이 없어 이 검사가 늘 통과해 버린다.
+// 낮은 창(640)으로 본다 — 이 시드의 홈은 주보·QT·명단이 비어 카드가 한 장뿐이라
+// 900px 창에서는 스크롤할 것이 없어 검사가 헛돈다.
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 640, deviceScaleFactor: 1, mobile: false });
+const goto = async (label) => {
+  await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()===${JSON.stringify(label)}); b && b.click(); })()`);
+  await sleep(800);
+};
+const mainTop = () => ev(`document.querySelector('main').scrollTop`);
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1600);
+await goto('홈');
+await ev(`(() => { const m = document.querySelector('main'); m.scrollTop = Math.min(400, m.scrollHeight - m.clientHeight); })()`);
+await sleep(300);
+const scrolledHome = await mainTop();
+check('홈이 스크롤될 만큼 길다(검사가 헛돌지 않게)', scrolledHome > 0, `scrollTop ${scrolledHome}`);
+await goto('업무 대시보드');
+const afterWork = await mainTop();
+check('홈을 내려 읽다 업무로 가면 맨 위에서 열린다', afterWork === 0, `scrollTop ${afterWork}`);
+// 교회 화면끼리도 같다 — 예배 목록을 내려 읽다 말씀으로 가면 위에서 시작한다
+await goto('홈');
+await ev(`(() => { const m = document.querySelector('main'); m.scrollTop = 300; })()`);
+await sleep(250);
+await goto('말씀');
+check('교회 화면끼리 옮겨도 맨 위에서 열린다', (await mainTop()) === 0, String(await mainTop()));
+
+
+// ── 화면 전환 모션 (사용자 요청 2026-09-07) ─────────────────────────────────
+// 교회 축(홈·예배·말씀·모임)끼리 옮길 때만 방향이 있다 — 탭 차례로 오른쪽이면
+// 오른쪽에서(dc-nav-fwd), 왼쪽이면 왼쪽에서(dc-nav-back) 들어온다. 업무 축은 지금
+// 그대로다(드래그가 있는 화면 위에 transform 조상을 만들지 않는다 — HANDOFF §6-1).
+// 되돌리기 검사: App.jsx의 navClass를 빈 문자열로 두면 앞의 두 단정이 깨진다.
+const screenCls = () => ev(`(() => {
+  const el = document.querySelector('main .app-screen');
+  if (!el) return null;
+  const cs = getComputedStyle(el);
+  const inner = el.querySelector('.dc-screen');
+  return {
+    cls: [...el.classList].filter(k => k.startsWith('dc-')).join(' '),
+    anim: cs.animationName, dur: cs.animationDuration,
+    inner: inner ? getComputedStyle(inner).animationName : null,
+  };
+})()`);
+await goto('홈');
+await goto('모임');
+const fwd = await screenCls();
+check('탭 차례로 오른쪽이면 오른쪽에서 들어온다',
+  fwd && fwd.cls === 'dc-nav dc-nav-fwd' && fwd.anim === 'dc-nav-fwd' && fwd.dur === '0.26s',
+  JSON.stringify(fwd));
+// 방향이 도는 동안 화면 자체의 세로 등장은 페이드만 남는다(대각선으로 들어오지 않게)
+check('방향 전환 중에는 화면 등장이 페이드만 남는다',
+  fwd && fwd.inner === 'dc-screen-fade', JSON.stringify(fwd));
+await goto('예배');
+const back = await screenCls();
+check('탭 차례로 왼쪽이면 왼쪽에서 들어온다',
+  back && back.cls === 'dc-nav dc-nav-back' && back.anim === 'dc-nav-back', JSON.stringify(back));
+await goto('업무 대시보드');
+const work = await screenCls();
+check('업무 축 화면에는 방향 전환이 붙지 않는다',
+  work && work.cls === '' && work.anim === 'none' && work.inner === 'dc-screen-in', JSON.stringify(work));
+
+// reduced-motion에서 전부 해제된다(§4.2)
+await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+await goto('홈');
+await goto('말씀');
+const rmNav = await screenCls();
+check('reduced-motion에서 화면 전환 모션이 꺼진다',
+  rmNav && rmNav.anim === 'none' && rmNav.inner === 'none', JSON.stringify(rmNav));
+await send('Emulation.setEmulatedMedia', { features: [] });
+await send('Emulation.clearDeviceMetricsOverride');
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.slice(0, 6).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

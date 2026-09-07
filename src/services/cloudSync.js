@@ -342,7 +342,15 @@ const projectToApp = (p, linksByProject) => ({
   // 연도는 사람이 정한다(0025). 값이 없는 옛 행은 만든 해로 떨어진다.
   driveFolderId: p.drive_folder_id || null,
   year: p.year ?? (p.created_at ? Number(String(p.created_at).slice(0, 4)) : new Date().getFullYear()),
-  pinnedLinks: (linksByProject.get(p.id) || []).map(l => ({ id: l.id, title: l.title, url: l.url })),
+  // 화면 가림용 비밀번호(0053)와 만든 사람까지 실어 온다.
+  // · view_pw / view_pw_salt — 잠긴 링크는 앱 안에서 열기 전에 먼저 묻는다(services/viewPw.js).
+  //   해시라서 화면에 나가도 원문이 나오지 않는다(첨부 목록이 files 행을 그대로 들고 있는 것과 같다).
+  // · created_by — '비밀번호를 걸 수 있는 사람'을 가르는 칸이다(첨부의 uploaded_by와 같은 자리).
+  //   이 값이 없으면 관리자만 걸 수 있게 되어, 자기가 만든 링크에 자기가 못 건다.
+  pinnedLinks: (linksByProject.get(p.id) || []).map(l => ({
+    id: l.id, title: l.title, url: l.url,
+    view_pw: l.view_pw ?? null, view_pw_salt: l.view_pw_salt ?? null, created_by: l.created_by ?? null,
+  })),
 });
 
 // ── 초기 로드: 전체를 병렬 조회 → 앱 스토어 모양으로 정규화 ──────────────────
@@ -670,6 +678,10 @@ export async function cardOrderCloud(orders) {
 
 export async function linkAddCloud(projectId, link) { return write(() => cloud.addLink(projectId, link.title, link.url, link.id)); }
 export async function linkRemoveCloud(id) { return write(() => cloud.removeLink(id)); }
+// 참고 링크의 화면 가림용 비밀번호(0053). 빈 값이면 푼다. 고친 행을 그대로 돌려주므로
+// 부르는 쪽이 스토어의 그 링크만 갈아 끼운다(실시간 재조회를 기다리면 건 사람 화면이
+// 몇 초 동안 안 걸린 것처럼 보인다 — 첨부의 PasswordSetter가 하는 것과 같다).
+export async function linkSetPasswordCloud(id, pw) { return write(() => cloud.setLinkPassword(id, pw)); }
 
 // teams(여러 팀)를 주면 profile_teams까지 갱신한다. 대표 팀은 그 중 첫 번째.
 export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {

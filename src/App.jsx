@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { Analytics } from '@vercel/analytics/react';
 import { store, useCanUndo, useCanRedo } from './store/workspaceStore.js';
 import { useWorkspaceController } from './hooks/controllers.js';
@@ -19,6 +19,7 @@ import { setCacheScope } from './services/cache.js';
 import { GroupsView } from './views/groupsView.jsx';
 import { ToastHost, showToast } from './components/Toast.jsx';
 import { setTaskLinkOpener } from './components/RichText.jsx';
+import { setEntryQuery, isAppLink } from './services/entryQuery.js';
 import * as cloudSync from './services/cloudSync.js';
 import { subscribePresence, trackWhere } from './services/presence.js';
 import logoLight from './assets/logo-light.png';
@@ -30,6 +31,13 @@ import logoDark from './assets/logo-dark.png';
 // 새 전역 화면을 만들면 여기에도 넣는다 — 없으면 프로젝트 id로 오해돼
 // '없는 프로젝트'로 판정되고 대시보드로 튕긴다(§3).
 const GLOBAL_MENUS = ['dashboard', 'myTasks', 'schedule', 'members', 'home', 'worship', 'word', 'groups'];
+
+// 교회 생활 축의 차례 — 하단 바(모바일)·상단 첫 묶음(데스크톱)에 서는 순서 그대로다
+// (docs/V2.md §3). 화면 전환 모션의 **방향**을 여기서 읽는다: 차례가 뒤인 쪽으로 가면
+// 새 화면이 오른쪽에서, 앞쪽으로 가면 왼쪽에서 들어온다.
+// 업무 축(대시보드·내 업무·일정·프로젝트·팀)은 일부러 빠져 있다 — 그쪽은 지금 그대로
+// `.dc-screen` 하나로만 들어오고, 드래그가 있는 화면에 transform 조상을 만들지 않는다(§6-1).
+const CHURCH_ORDER = ['home', 'worship', 'word', 'groups'];
 
 // 클라우드 초기 로드 중 미니멀 스플래시 (로고 + 살짝 pulse)
 function CloudSplash() {
@@ -112,7 +120,10 @@ function WorkspaceShell() {
   // 안 비우면 다음에 '말씀'을 눌렀을 때 QT가 아니라 옛 구절로 열린다.
   const [wordRef, setWordRef] = useState('');
   useEffect(() => { if (activeMenu !== 'word' && wordRef) setWordRef(''); }, [activeMenu, wordRef]);
-  const openBible = useCallback((ref) => { setWordRef(ref || ''); setActiveMenu('word'); }, []);
+  // 성경으로 건너뛸 때는 **그 화면이 스스로 자리를 잡는다**(wordBible이 고른 장으로
+  // 스크롤한다) — 아래 '맨 위로' 되돌리기가 그것을 지우지 않게 한 번 비켜 준다.
+  const keepScrollRef = useRef(false);
+  const openBible = useCallback((ref) => { keepScrollRef.current = true; setWordRef(ref || ''); setActiveMenu('word'); }, []);
   const [cloudReady, setCloudReady] = useState(!cloudMode);
   const [loadError, setLoadError] = useState(null);
   const [retrying, setRetrying] = useState(false);
@@ -405,6 +416,18 @@ function WorkspaceShell() {
   // 알림에서 열기: 해당 업무의 프로젝트로 이동 후 모달
   const handleOpenTaskFromNotification = useCallback((task) => handleSearchSelect('task', task), [handleSearchSelect]);
 
+  // 예배·모임 알림의 딥링크('/?p=worship&s=…', 0053)를 **새로고침 없이** 연다 — p로 화면을
+  // 바꾸고 나머지 값(s·g·apply)은 entryQuery에 실어 그 화면이 마운트되며 읽는다.
+  // 같은 화면에 이미 있으면 setActiveMenu가 무동작이라 화면이 다시 마운트되지 않는데,
+  // 그때는 setEntryQuery의 신호(useEntryQuery)를 보고 화면이 스스로 읽는다.
+  const handleOpenLink = useCallback((link) => {
+    if (!isAppLink(link)) return;
+    const q = link.slice(link.indexOf('?') + 1);
+    const p = new URLSearchParams(q).get('p');
+    setEntryQuery(q);
+    if (p && (GLOBAL_MENUS.includes(p) || store.getState().projects.byId[p])) setActiveMenu(p);
+  }, []);
+
   // 문자열이라 값 비교 → memo에 안전
   const teamName = activeMenu.startsWith('team:') ? activeMenu.split(':')[1] : '';
   const isProjectScreen = !GLOBAL_MENUS.includes(activeMenu) && !activeMenu.startsWith('team:');
@@ -471,6 +494,9 @@ function WorkspaceShell() {
   // popstate를 다시 일으키지 않는다는 점도 같이 기댄다.
   useEffect(() => {
     const onPop = () => {
+      // 뒤로가기는 **보던 자리로 돌아가는 것**이다 — 화면을 바꾼다고 스크롤을 맨 위로
+      // 끌어올리면 그 뜻이 깨진다. 아래 '맨 위로' 되돌리기를 한 번 비켜 준다.
+      keepScrollRef.current = true;
       const q = new URLSearchParams(window.location.search);
       const f = q.get('f');
       setDashFilter(DASH_FILTERS.includes(f) ? f : DASH_FILTER_DEFAULT);
@@ -514,6 +540,35 @@ function WorkspaceShell() {
     else window.history.replaceState(null, '', next);
   }, [activeMenu, modalState, dashFilter]);
 
+  // ── 화면을 바꾸면 스크롤 통을 맨 위로 ──────────────────────────────────────
+  // 스크롤하는 상자는 아래 `main` 하나다(§6-2 — 뷰는 자기 안에서 스크롤하지 않는다).
+  // 그 상자는 화면이 바뀌어도 **그대로 있어서** scrollTop이 남았다: 홈을 한참 내려 읽다가
+  // '업무'를 누르면 대시보드가 중간부터 열렸다(사용자 지적 2026-09-07). 리액트가 뷰를
+  // 새로 마운트해도(key={activeMenu}) 통은 같은 통이라 저절로 돌아오지 않는다.
+  // `useLayoutEffect`인 이유: 그림이 나가기 전에 되돌려야 한 프레임 어긋난 자리가 안 보인다.
+  // 비켜 주는 두 경우는 위에 적어 두었다 — 뒤로가기(popstate)와 성경으로 건너뛰기(openBible).
+  const mainRef = useRef(null);
+  useLayoutEffect(() => {
+    if (keepScrollRef.current) { keepScrollRef.current = false; return; }
+    const el = mainRef.current;
+    if (el && el.scrollTop) el.scrollTop = 0;
+  }, [activeMenu]);
+
+  // 교회 화면 사이를 오갈 때만 방향이 있다 — 어느 쪽에서 들어오는지는 탭 차례가 정한다
+  // (CHURCH_ORDER). 업무 축은 빈 문자열이라 지금 그대로 `.dc-screen` 하나로 들어온다.
+  // 렌더 중에 계산하지만 **activeMenu가 바뀔 때만** 값을 갈므로 StrictMode의 두 번째
+  // 렌더에서도 같은 답이 나온다(두 번째에는 menu === activeMenu라 아무 일도 안 한다).
+  const navRef = useRef({ menu: activeMenu, cls: '' });
+  if (navRef.current.menu !== activeMenu) {
+    const from = CHURCH_ORDER.indexOf(navRef.current.menu);
+    const to = CHURCH_ORDER.indexOf(activeMenu);
+    navRef.current = {
+      menu: activeMenu,
+      cls: (from >= 0 && to >= 0 && from !== to) ? `dc-nav ${to > from ? 'dc-nav-fwd' : 'dc-nav-back'}` : '',
+    };
+  }
+  const navClass = navRef.current.cls;
+
   if (cloudMode && loadError) return <CloudErrorScreen reason={loadError} onRetry={retryLoad} retrying={retrying} />;
   if (cloudMode && !cloudReady) return <CloudSplash />;
 
@@ -530,14 +585,14 @@ function WorkspaceShell() {
       {isMobile ? (
         <MobileTopBar
           activeMenu={activeMenu} setActiveMenu={selectMenu}
-          onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification}
+          onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification} onOpenLink={handleOpenLink}
           onOpenProject={openProjectModal} onRenameProject={openRenameProject}
           onOpenProfile={openProfile} onOpenMembers={() => setActiveMenu('members')} cloudMode={cloudMode}
         />
       ) : (
         <TopNav
           activeMenu={activeMenu} setActiveMenu={selectMenu}
-          onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification}
+          onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification} onOpenLink={handleOpenLink}
           onOpenProfile={openProfile} onOpenMembers={() => setActiveMenu('members')} onOpenProject={openProjectModal}
           undo={controller.undo} redo={controller.redo} canUndo={canUndo} canRedo={canRedo} cloudMode={cloudMode}
         />
@@ -546,7 +601,7 @@ function WorkspaceShell() {
       {/* 화면을 꽉 쓴다 — 여백은 내용이 벽에 붙지 않을 만큼만.
           모바일 아래 여백 = 탭바 높이 + 홈 인디케이터(safe-area) + 숨 쉴 틈.
           고정값(pb-20)으로 두면 아이폰에서 마지막 카드가 탭바에 잘렸다 */}
-      <main className="flex-1 overflow-auto px-3 pt-2.5 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:px-4 md:pt-3.5 md:pb-3 relative">
+      <main ref={mainRef} className="flex-1 overflow-auto px-3 pt-2.5 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:px-4 md:pt-3.5 md:pb-3 relative">
         <ErrorBoundary>
           {/* key로 뷰 전환 시 리마운트 → 각 뷰의 등장 애니메이션 재생.
               h-full은 프로젝트 화면에만 — 보드/캘린더가 안에서 스크롤하려면 높이가
@@ -554,7 +609,7 @@ function WorkspaceShell() {
               흐르고, 넘친 부분에는 main의 padding-bottom이 적용되지 않아서
               마지막 줄이 하단 탭바에 가렸다(대시보드 '팀별 남은 업무', 팀 보드
               '참여 프로젝트'). */}
-          <div key={activeMenu} className={needsFullHeight ? 'h-full' : ''}>
+          <div key={activeMenu} className={`app-screen ${navClass} ${needsFullHeight ? 'h-full' : ''}`}>
           {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} filter={dashFilter} setFilter={setDashFilter} />}
           {activeMenu === 'schedule' && <ScheduleView onTaskClick={handleTaskClick} />}
           {activeMenu === 'members' && <MembersView isAdmin={isAdmin} isMaster={isMaster} />}

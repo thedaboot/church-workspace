@@ -320,6 +320,54 @@ const cron = (vercel.crons || []).find(c => c.path === '/api/push');
 assert.ok(cron, 'vercel.json에 /api/push 크론이 없다');
 assert.ok(/^\S+ \S+ \* \* \*$/.test(cron.schedule), '마감 임박은 하루 한 번 돈다');
 
+// ── 예배 당일 배치 (0053) ───────────────────────────────────────────────────
+// Vercel Hobby는 크론 **두 개까지 · 하루 한 번**이다. 그래서 라우트를 새로 파지 않고
+// 같은 GET 입구를 `?job`으로 나눠 쓴다 — 갈래가 없으면 예배 크론이 마감 임박 배치를
+// 한 번 더 돌려서 **같은 알림이 하루 두 번** 간다(로그를 안 보면 모른다).
+{
+  const worship = (vercel.crons || []).find(c => c.path === '/api/push?job=worship');
+  assert.ok(worship, 'vercel.json에 예배 당일 크론(/api/push?job=worship)이 없다');
+  assert.equal(worship.schedule, '30 2 * * *', '예배 당일 배치는 11:30 KST(= 02:30 UTC)에 돈다');
+  assert.ok((vercel.crons || []).length <= 2, 'Hobby 요금제는 크론 두 개까지다');
+  assert.ok((vercel.crons || []).every(c => /^\S+ \S+ \* \* \*$/.test(c.schedule)), '크론은 하루 한 번 스케줄만 된다');
+
+  // 22:00 UTC는 KST로 **다음 날**이지만 02:30 UTC는 같은 날 11:30이다 — 그날 주보를 찾아야 한다.
+  const fire = Date.parse('2026-09-06T02:30:00Z');
+  assert.equal(api.kstDate(0, fire), '2026-09-06', '11:30 KST 배치가 그날 주보를 찾아야 한다');
+
+  const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
+  assert.ok(/req\.query\?\.job === 'worship'/.test(src), 'GET이 job=worship으로 갈리지 않는다');
+  const at = src.indexOf('async function handleWorshipToday');
+  assert.ok(at > 0, 'handleWorshipToday를 못 찾았다');
+  const fn = src.slice(at, src.indexOf('export default'));
+  assert.ok(/kstDate\(0\)/.test(fn), '오늘 날짜를 KST로 세지 않는다 — UTC로 세면 하루씩 어긋난다');
+  assert.ok(/eq\('status', 'published'\)/.test(fn), '작성 중인 주보로도 알림이 나간다');
+  assert.ok(/eq\('approved', true\)/.test(fn) && /is\('removed_at', null\)/.test(fn),
+    '승인 멤버만 골라야 한다 — 승인 전·환송한 사람에게도 종이 울린다');
+  assert.ok(/kind: 'worship_today'/.test(fn), 'worship_today로 넣지 않는다');
+  assert.ok(/link: w\.link/.test(fn) && /\/\?p=worship&s=/.test(fn), '딥링크(?p=worship&s=)를 싣지 않는다');
+  // 같은 날 두 번 알리지 않는다 — due_soon과 같은 방어(유니크 제약을 걸 수 없다)
+  assert.ok(/eq\('kind', 'worship_today'\)[\s\S]{0,120}gte\('created_at', since\)/.test(fn),
+    '최근 알림을 보고 거르지 않는다 — 손으로 한 번 더 부르면 알림이 두 번 간다');
+  // 마감 배치와 같은 N+1 방어: 구독·안 읽은 수는 루프 밖에서 한 번만
+  const loop = fn.indexOf('for (const s of services)', fn.indexOf('if (pushReady())'));
+  assert.ok(loop > 0, '예배 당일 발송 루프가 없다');
+  assert.ok(/loadTargets\(/.test(fn.slice(0, loop)), '구독·안 읽은 수를 루프 밖에서 한 번에 읽지 않는다');
+  assert.ok(!/\.from\(|loadTargets\(|sendToProfiles\(/.test(fn.slice(loop)), '주보마다 DB를 다시 묻고 있다 (N+1)');
+  // 브라우저 모듈(services/worship.js)을 서버리스에서 import하면 supabase 클라이언트가 통째로 딸려 온다
+  assert.ok(!/from '\.\.\/src\/services\/worship\.js'/.test(src),
+    'api/push.js가 브라우저 모듈을 import한다 — 종류 이름은 서버에서 한 줄로 가른다');
+}
+
+// 문구 — 앱 안 알림과 푸시가 같은 함수를 본다(0053의 새 종류도 그렇다)
+assert.equal(notify.notifLine('worship_today', '더다붓'), '오늘 예배가 있어요');
+assert.ok(notify.isSystemNotif('worship_today'), '예배 당일 알림은 배치가 만든다 — 누가가 없다');
+assert.equal(notify.notifLine('service_published', '노준석'), '노준석님이 이번 주 주보를 발행했어요');
+assert.equal(notify.notifLine('note_shared', '김윤주'), '김윤주님이 예배 노트를 우리 순에 공유했어요');
+assert.equal(notify.notifArea('worship_today'), 'worship');
+assert.equal(notify.notifArea('service_published'), 'worship');
+assert.equal(notify.notifArea('note_shared'), 'worship');
+
 // 서비스 워커는 빌드를 타지 않으므로(public/) 파일이 그대로 배포된다
 const sw = readFileSync(join(ROOT, 'public', 'sw.js'), 'utf8');
 assert.ok(/addEventListener\('push'/.test(sw) && /showNotification/.test(sw), 'sw가 푸시를 띄우지 않는다');
@@ -430,7 +478,11 @@ assert.ok(/addEventListener\('notificationclick'/.test(sw), 'sw에 클릭 처리
 // 되돌리기 검사: 루프를 sendToProfiles(db, [w.recipientId], …) 로 되돌리면 아래가 깨진다.
 {
   const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
-  const fn = src.slice(src.indexOf('async function handleDueSoon'), src.indexOf('export default'));
+  // 함수 하나만 잘라 본다 — 뒤에 다른 배치(handleWorshipToday)가 붙으면 그쪽 조회가
+  // 이 검사에 섞여 들어와 엉뚱하게 실패한다.
+  const from = src.indexOf('async function handleDueSoon');
+  const to = src.indexOf('\nasync function ', from + 10);
+  const fn = src.slice(from, to > 0 ? to : src.indexOf('export default'));
   assert.ok(fn.length > 0, 'handleDueSoon을 못 찾았다');
   const at = fn.indexOf('for (const w of fresh)');
   assert.ok(at > 0, '마감 임박 발송 루프가 없다');
@@ -440,4 +492,4 @@ assert.ok(/addEventListener\('notificationclick'/.test(sw), 'sw에 클릭 처리
     '알림 한 건마다 DB를 다시 묻고 있다 (N+1)');
 }
 
-console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수·마감 배치 N+1 없음');
+console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론(마감 임박 + 예배 당일 job 갈래·중복 방지·N+1 없음)·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수');

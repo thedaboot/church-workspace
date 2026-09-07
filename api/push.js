@@ -7,9 +7,11 @@ import { notifLine } from '../src/services/notifyText.js';
 // ----------------------------------------------------------------------------
 //   POST  앱이 알림 행을 넣은 직후 부른다(cloud.insertNotifications 안에서).
 //         Authorization: Bearer <supabase access token> 으로 로그인만 확인한다.
-//   GET   하루 한 번 Vercel Cron이 깨운다(vercel.json의 crons).
-//         오늘·내일 마감인데 완료가 아닌 카드의 담당자에게 due_soon 알림 + 푸시.
-//         Authorization: Bearer <CRON_SECRET>.
+//   GET   하루 한 번 Vercel Cron이 깨운다(vercel.json의 crons). Authorization: Bearer <CRON_SECRET>.
+//         `?job` 하나로 갈린다 — 크론 자리가 **두 개까지**라(Vercel Hobby) 배치가 늘 때마다
+//         라우트를 새로 파지 않고 이 입구를 나눠 쓴다.
+//           (없음)          오늘·내일 마감인데 완료가 아닌 카드의 담당자에게 due_soon
+//           job=worship     오늘(KST) 발행된 주보가 있으면 승인 멤버 전원에게 worship_today
 //
 // 왜 pg_cron이 아니라 Vercel Cron인가: DB에서 푸시를 보내려면 pg_net으로 HTTP를
 // 쳐야 하고, 그러면 발송 로직이 SQL과 JS 두 곳에 갈라진다. 보존 기간 정리(0012)는
@@ -152,7 +154,7 @@ async function handleSend(req, res) {
   const { data: { user }, error: authErr } = await db.auth.getUser(token);
   if (authErr || !user) { res.status(401).json({ error: '유효하지 않은 세션입니다.' }); return; }
 
-  const { recipientIds, kind, actorName, cardId, projectId, preview } = await readJson(req);
+  const { recipientIds, kind, actorName, cardId, projectId, preview, link } = await readJson(req);
   // 자기 자신에게는 보내지 않는다(앱 안 알림도 같은 규칙 — cloudSync가 먼저 걸러내지만
   // 여기서도 막아 둔다. 알림은 종류가 늘 때마다 호출부가 늘어나는 자리다).
   const ids = (recipientIds || []).filter(id => id && id !== user.id);
@@ -161,8 +163,9 @@ async function handleSend(req, res) {
   const result = await sendToProfiles(db, ids, {
     title: notifLine(kind, actorName),
     body: preview || '',
-    url: deepLink(projectId, cardId),
-    tag: cardId ? `card:${cardId}` : 'thedaboot',
+    // 예배·모임 알림(0053)은 우리 주소 한 칸(link)으로 간다 — 업무 알림은 예전 그대로.
+    url: (typeof link === 'string' && link.startsWith('/') && !link.startsWith('//')) ? link : deepLink(projectId, cardId),
+    tag: cardId ? `card:${cardId}` : (link ? `link:${link}` : 'thedaboot'),
   });
   res.status(200).json(result);
 }
@@ -251,10 +254,100 @@ async function handleDueSoon(req, res) {
   res.status(200).json({ cards: cards.length, notified: fresh.length, sent, skipped: wanted.length - fresh.length });
 }
 
+// ── GET ?job=worship: 예배 당일 배치 (0053) ────────────────────────────────
+// 오늘(KST) 날짜의 **발행된** 주보를 찾아 승인 멤버 전원에게 알린다. 크론은 11:30 KST
+// (`30 2 * * *` UTC)에 돌아 예배(13:30) 두 시간 전이다.
+//
+// 왜 서버가 만드나: 받는 사람이 전원이고 보내는 사람이 없다(actor 없는 시스템 알림 —
+// notifyText의 SYSTEM_TEXT). 그래서 0053의 INSERT 정책에도 worship_today가 없다.
+//
+// **kindLabel을 import하지 않는다** — services/worship.js는 브라우저 모듈이라(supabase
+// 클라이언트를 물고 온다) 서버리스에서 부르면 통째로 딸려 온다. 이름 하나를 위해 그럴
+// 이유가 없어 여기서 한 줄로 가른다(notifyText.js는 순수 모듈이라 그대로 import한다).
+const SUNDAY_LABEL = '주일 4부 젊은이 예배';
+const serviceLabel = (kind) => (kind === 'sunday' ? SUNDAY_LABEL : (kind || '예배'));
+
+async function handleWorshipToday(req, res) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) { res.status(501).json({ error: 'CRON_SECRET이 설정되지 않았습니다.' }); return; }
+  if (bearer(req) !== secret) { res.status(401).json({ error: '인증이 필요합니다.' }); return; }
+
+  const db = admin();
+  const today = kstDate(0);
+
+  const { data: services, error } = await db
+    .from('services').select('id, kind, title, service_date')
+    .eq('service_date', today).eq('status', 'published');
+  if (error) { console.error('[push] 오늘 주보 조회 실패:', error); res.status(502).json({ error: 'DB 조회 실패' }); return; }
+  if (!services?.length) { res.status(200).json({ services: 0, notified: 0, sent: 0 }); return; }
+
+  const { data: members, error: memErr } = await db
+    .from('profiles').select('id').eq('approved', true).is('removed_at', null);
+  if (memErr) { console.error('[push] 승인 멤버 조회 실패:', memErr); res.status(502).json({ error: 'DB 조회 실패' }); return; }
+  const ids = (members || []).map(m => m.id).filter(Boolean);
+  if (!ids.length) { res.status(200).json({ services: services.length, notified: 0, sent: 0 }); return; }
+
+  // 같은 날 두 번 알리지 않는다 — due_soon과 같은 방식이다(유니크 제약을 걸 수 없어서
+  // 넣기 전에 읽어서 거른다). 열쇠는 (받는 사람, link)다: 카드 축이 아니라 주보 축이라
+  // card_id가 비어 있고, link가 그 주보를 가리키는 유일한 값이다.
+  const since = new Date(Date.now() - 20 * 3600e3).toISOString();
+  const links = services.map(s => `/?p=worship&s=${s.id}`);
+  const { data: recent, error: recentErr } = await db
+    .from('notifications').select('recipient_id, link')
+    .eq('kind', 'worship_today').gte('created_at', since).in('link', links);
+  if (recentErr) { console.error('[push] 최근 알림 조회 실패:', recentErr); res.status(502).json({ error: 'DB 조회 실패' }); return; }
+  const already = new Set((recent || []).map(r => `${r.recipient_id}|${r.link}`));
+
+  const wanted = [];
+  for (const s of services) {
+    const link = `/?p=worship&s=${s.id}`;
+    const preview = `${serviceLabel(s.kind)}${s.title ? ` · ${s.title}` : ''}`;
+    for (const id of ids) {
+      if (!already.has(`${id}|${link}`)) wanted.push({ recipientId: id, link, preview });
+    }
+  }
+  if (!wanted.length) { res.status(200).json({ services: services.length, notified: 0, sent: 0, skipped: services.length * ids.length }); return; }
+
+  const { error: insErr } = await db.from('notifications').insert(wanted.map(w => ({
+    recipient_id: w.recipientId,
+    actor_name: '더다붓',
+    kind: 'worship_today',
+    preview: w.preview,
+    link: w.link,
+  })));
+  if (insErr) { console.error('[push] worship_today 생성 실패:', insErr); res.status(502).json({ error: '알림 생성 실패' }); return; }
+
+  // 푸시도 마감 배치와 같은 모양이다 — **구독·안 읽은 수는 루프 밖에서 한 번만** 읽는다.
+  // 여기서는 주보마다 문구가 달라 주보 단위로 보낸다(대개 한 건이다).
+  let sent = 0;
+  if (pushReady()) {
+    const targets = await loadTargets(db, wanted.map(w => w.recipientId));
+    const dead = [];
+    for (const s of services) {
+      const link = `/?p=worship&s=${s.id}`;
+      const group = wanted.filter(w => w.link === link);
+      if (!group.length) continue;
+      sent += await pushWith(targets, group.map(w => w.recipientId), {
+        title: notifLine('worship_today'),
+        body: group[0].preview,
+        url: link,
+        tag: `link:${link}`,
+      }, dead);
+    }
+    await dropDead(db, dead);
+  }
+  res.status(200).json({ services: services.length, notified: wanted.length, sent });
+}
+
 export default async function handler(req, res) {
   try {
     if (req.method === 'POST') return await handleSend(req, res);
-    if (req.method === 'GET') return await handleDueSoon(req, res);
+    // 크론이 부르는 배치. vercel.json이 `/api/push?job=worship`으로 넘긴다.
+    if (req.method === 'GET') {
+      return (req.query?.job === 'worship')
+        ? await handleWorshipToday(req, res)
+        : await handleDueSoon(req, res);
+    }
     res.status(405).json({ error: 'Method not allowed' });
   } catch (e) {
     console.error('[push] 처리 실패:', e);

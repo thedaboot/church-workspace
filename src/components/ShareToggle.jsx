@@ -24,6 +24,12 @@ import { Lock, Users } from 'lucide-react';
 //   예배   — shareLabel='순에 공유하기'             · 칩 '우리 순에 공유할게요' / '나만 볼게요'
 // 기본값이 말씀 것인 이유는 이 부품이 거기서 왔고, 그 화면의 부르는 자리를 한 글자도
 // 바꾸지 않기로 했기 때문이다(옮기기는 이동이지 수정이 아니다).
+//
+// **폭은 밖에서 정한다**(`className` · 2026-09-07). 375px에서 이 토글만 다음 줄로 떨어져
+// 오른쪽 끝에 혼자 서던 자리다 — 부르는 쪽이 줄을 grid로 잡고 좁을 때 `col-span-full w-full`을
+// 넘긴다. 안쪽 두 버튼은 `grow`라 **남는 폭이 있을 때만** 나눠 갖는다(폭을 안 주면 예전
+// 그대로 내용만큼만 선다). 값·잠금·onChange·라벨의 계약은 그대로다 — 예배와 말씀이 같은
+// 부품을 쓰므로 API를 바꾸면 두 화면이 같이 흔들린다.
 // ============================================================================
 
 export function ShareChip({ state, label }) {
@@ -37,15 +43,15 @@ export function ShareChip({ state, label }) {
   );
 }
 
-export function ShareToggle({ value, disabled, onChange, shareLabel = '더다붓에 공유하기' }) {
+export function ShareToggle({ value, disabled, onChange, shareLabel = '더다붓에 공유하기', className = '' }) {
   const OPTIONS = [[false, '나만 보기', Lock], [true, shareLabel, Users]];
   return (
-    <span className={`flex p-[3px] rounded-[8px] shrink-0 ${disabled ? 'opacity-40' : ''}`}
+    <span className={`share-toggle flex p-[3px] rounded-[8px] shrink-0 ${disabled ? 'opacity-40' : ''} ${className}`}
       style={{ background: 'var(--app-surface-hover)' }}>
       {OPTIONS.map(([v, label, Icon]) => (
         <button
           key={label} onClick={() => onChange(v)} disabled={disabled} aria-pressed={value === v}
-          className="inline-flex items-center gap-1.5 px-2.5 py-[5px] rounded-[5px] text-[11.5px] font-semibold transition-colors"
+          className="grow inline-flex items-center justify-center gap-1.5 px-2.5 py-[5px] rounded-[5px] text-[11.5px] font-semibold whitespace-nowrap transition-colors"
           style={{
             background: value === v ? 'var(--app-surface)' : 'transparent',
             color: value === v ? 'var(--app-ink)' : 'var(--app-ink-muted)',

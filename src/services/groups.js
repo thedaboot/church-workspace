@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient.js';
 import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, fetchMyPerson, guestStore } from './people.js';
 import { SUNDAY_KIND, fetchMyNote, saveMyNote } from './worship.js';
+import { insertNotifications } from './cloud.js';
 import { generateId } from '../utils.js';
 
 // ============================================================================
@@ -314,10 +315,14 @@ export async function fetchApplications() {
   return data ?? [];
 }
 
-// 내 순에 공유된 예배 노트 + **내 노트는 비공개여도 나에게는 온다**(사용자 결정
-// 2026-09-03 — 그 줄에서 바로 공유를 켜고 끈다). 남의 비공개 노트를 묻는 문장은
-// 여기 없다(결정 7): 조회는 `공유된 것` 또는 `내 것`으로만 좁히고, '올해 같은 순'을
-// 가르는 것은 0036의 same_sun()이다. 순장이라도 순원의 비공개 노트는 볼 수 없다.
+// 내 순에 공유된 예배 노트 — **공유된 것만 온다**(사용자 지시 2026-09-07).
+// 한동안은 `공유된 것 또는 내 것`이라 내 비공개 노트가 잠금 표시를 달고 이 목록에
+// 섰는데, 그 자리는 '내 순에 공유된 노트'라고 적혀 있어서 공유하지 않은 글이 서면
+// 이름과 내용이 어긋난다. 지금은 목록도 개수도 `shared_to_sun = true` 하나다.
+// 내 줄에 남는 공유 토글은 그대로다 — 거기서 공유를 끄면 그 줄이 목록에서 사라진다.
+//
+// 남의 비공개 노트를 묻는 문장은 여기 없다(결정 7). '올해 같은 순'을 가르는 것은
+// 0036의 same_sun()이다 — 순장이라도 순원의 비공개 노트는 볼 수 없다.
 //
 // 돌려주는 줄에는 화면이 필요한 것만 붙인다: shared(지금 공유 상태) · mine(내 것인가) ·
 // serviceId(공유를 켤 때 어느 예배의 노트인지).
@@ -339,7 +344,7 @@ export async function fetchSunSharedNotes() {
     const uid = guestProfileId();
     const services = guestRows('services');
     return guestRows('service_notes')
-      .filter(n => (n.shared_to_sun || (!!uid && n.profile_id === uid)) && String(n.body || '').trim())
+      .filter(n => n.shared_to_sun && String(n.body || '').trim())
       .map(n => ({
         id: n.id || `${n.service_id}-${n.profile_id || ''}`,
         body: n.body,
@@ -353,11 +358,12 @@ export async function fetchSunSharedNotes() {
       .sort((a, b) => String(b.serviceDate).localeCompare(String(a.serviceDate)));
   }
   const uid = await myProfileId();
-  let q = supabase.from('service_notes')
-    .select('id, body, shared_to_sun, updated_at, service_id, profile_id, services(service_date), profiles(display_name, avatar_url)');
-  // 공유된 것 **또는 내 것**. RLS가 같은 경계를 한 번 더 긋는다(0036).
-  q = uid ? q.or(`shared_to_sun.eq.true,profile_id.eq.${uid}`) : q.eq('shared_to_sun', true);
-  const { data, error } = await q.order('updated_at', { ascending: false });
+  // **공유된 것만**. RLS가 같은 경계를 한 번 더 긋는다(0036) — 여기서 좁히는 것은
+  // 화면이 무엇을 담는 자리인지에 대한 약속이고, 막는 일은 DB가 한다.
+  const { data, error } = await supabase.from('service_notes')
+    .select('id, body, shared_to_sun, updated_at, service_id, profile_id, services(service_date), profiles(display_name, avatar_url)')
+    .eq('shared_to_sun', true)
+    .order('updated_at', { ascending: false });
   if (error) throw error;
   return (data ?? [])
     .filter(r => String(r.body || '').trim())
@@ -375,21 +381,18 @@ export async function fetchSunSharedNotes() {
 
 // 같은 목록의 **개수만** 필요할 때(홈의 메타 줄). 본문·이름·사진까지 다 실어 와서
 // .length만 읽던 자리를 count(head) 한 번으로 바꾼다 — 조건은 위와 글자 그대로 같다
-// (공유된 것 또는 내 것). head:true라 행은 오지 않고 숫자만 온다.
+// (공유된 것만). head:true라 행은 오지 않고 숫자만 온다.
 // 본문이 빈 노트는 위 목록이 걸러 내는데 count는 못 거른다 → 서버에서 같이 좁힌다.
 export async function countSunSharedNotes() {
   if (!supabase) {
-    const uid = guestProfileId();
     return guestRows('service_notes')
-      .filter(n => (n.shared_to_sun || (!!uid && n.profile_id === uid)) && String(n.body || '').trim())
+      .filter(n => n.shared_to_sun && String(n.body || '').trim())
       .length;
   }
-  const uid = await myProfileId();
-  let q = supabase.from('service_notes')
+  const { count, error } = await supabase.from('service_notes')
     .select('id', { count: 'exact', head: true })
-    .not('body', 'is', null).neq('body', '');
-  q = uid ? q.or(`shared_to_sun.eq.true,profile_id.eq.${uid}`) : q.eq('shared_to_sun', true);
-  const { count, error } = await q;
+    .not('body', 'is', null).neq('body', '')
+    .eq('shared_to_sun', true);
   if (error) throw error;
   return count ?? 0;
 }
@@ -592,3 +595,57 @@ export async function saveMeetingAttendance(meetingId, ids) {
   const { error } = await supabase.from('group_meetings').update({ attendance: ids }).eq('id', meetingId);
   if (error) throw error;
 }
+
+// ── 모임 알림 (0053) ────────────────────────────────────────────────────────
+// 세 가지다: 신청(→ 동아리장) · 수락(→ 신청자) · 새 모임(→ 그 동아리 구성원).
+// 문구는 services/notifyText.js 한 벌이 정하고(club_apply·club_accepted·meeting_new),
+// 여기서는 받는 사람과 preview·link만 고른다.
+//
+// **알림 실패가 본 동작을 막으면 안 된다.** 신청은 이미 들어갔는데 알림 insert가 RLS나
+// 네트워크로 죽었다고 화면에 '가입 신청을 보내지 못했어요'가 뜨면 사람은 같은 신청을
+// 또 눌러 23505를 본다. 그래서 여기 있는 함수들은 **던지지 않는다** — 콘솔에만 남긴다
+// (§6-25의 짝: 알림은 곁가지이지 본 동작이 아니다).
+//
+// 게스트(supabase 없음)에는 알림 표가 없다 — 그냥 지나간다. 받는 사람이 명단에만 있고
+// 계정이 없으면 profile_id가 null이라 목록에서 빠지고, 본인은 insertNotifications가
+// 스스로 걸러 낸다(cloud.js).
+// 동아리를 못 찾았으면 목록으로만 보낸다 — `g=undefined`를 실으면 종을 눌렀을 때
+// '그 동아리를 찾지 못했어요'가 뜬다(0053의 CHECK는 '/'로 시작하기만 하면 통과한다).
+export const clubLink = (groupId) => (groupId ? `/?p=groups&g=${groupId}` : '/?p=groups');
+
+// '2026-09-13' → '26. 9. 13.' — 홈의 마감 표기와 같은 규칙이다(homeView homeDueLabel).
+// 문자열을 그대로 쪼갠다: new Date('2026-09-13')은 UTC 자정이라 시간대에 따라 하루 밀린다.
+export function shortDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+  return m ? `${m[1].slice(2)}. ${+m[2]}. ${+m[3]}.` : '';
+}
+
+async function notifyGroup(profileIds, payload) {
+  if (!supabase) return;
+  const ids = [...new Set((profileIds || []).filter(Boolean))];
+  if (!ids.length) return;
+  try {
+    await insertNotifications(ids, payload);
+  } catch (e) {
+    console.error('[groups] 알림을 보내지 못했어요:', e);
+  }
+}
+
+// 가입 신청 → 그 동아리장에게. actorName은 신청한 사람(내 표시명)이다.
+export const notifyClubApply = (club, actorName, leaderProfileId) => notifyGroup([leaderProfileId], {
+  kind: 'club_apply', actorName, preview: club?.name || '', link: clubLink(club?.id),
+});
+
+// 수락 → 신청한 사람에게. 문구가 시스템형이라 이름은 화면에 나오지 않지만
+// (notifyText SYSTEM_TEXT), actor_name 칸은 not null이라 누가 눌렀는지 그대로 싣는다.
+export const notifyClubAccepted = (club, actorName, applicantProfileId) => notifyGroup([applicantProfileId], {
+  kind: 'club_accepted', actorName, preview: club?.name || '', link: clubLink(club?.id),
+});
+
+// 새 모임 → 그 동아리 구성원 전부. preview는 '동아리 이름 · 26. 9. 13.'이다.
+export const notifyMeetingNew = (club, actorName, profileIds, date) => notifyGroup(profileIds, {
+  kind: 'meeting_new',
+  actorName,
+  preview: [club?.name || '', shortDate(date)].filter(Boolean).join(' · '),
+  link: clubLink(club?.id),
+});

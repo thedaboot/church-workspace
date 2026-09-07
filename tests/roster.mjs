@@ -261,6 +261,22 @@ check("'가입자' 구역이 그대로다(함께하는 사람 · 관리자 · �
 check('승인 대기·환송한 사람 구역도 그대로다', account.waiting && account.invite, JSON.stringify(account));
 check('[가입자 | 청년 명단] 탭', account.tabs === true, JSON.stringify(account));
 
+// 줄 등장 모션 — 다른 화면(마감 목록·보드)의 관례대로 `.dc-row`다. 여기만 없어서
+// 목록이 통째로 툭 나타났다(사용자 지적 2026-09-07). 순번 지연이 첫 마운트에만
+// 걸리는지는 순수 검사가 본다(logcheck '순차 등장 배선').
+const motion = await ev(`(() => {
+  const sec = [...document.querySelectorAll('section')]
+    .find(s => (s.querySelector('h3')?.textContent || '').includes('함께하는 사람'));
+  const rows = sec ? [...sec.querySelectorAll('.dc-row')] : [];
+  const anim = rows[0] ? getComputedStyle(rows[0]).animationName : '';
+  // 탭 내용은 새로 들어온다(.dc-screen) — 가입자 쪽은 감싸개가, 명단 쪽은 RosterPanel 뿌리가 가진다
+  const wrap = [...document.querySelectorAll('main .dc-screen')].length;
+  return { rows: rows.length, anim, wrap };
+})()`);
+check('가입자 목록 줄에 등장 모션이 있다(.dc-row)',
+  motion.rows > 0 && motion.anim === 'dc-row-in', JSON.stringify(motion));
+check('탭 내용이 .dc-screen으로 들어온다', motion.wrap >= 2, JSON.stringify(motion));
+
 // ── '몇 분 전 다녀감'이 대시보드와 같은 값인가 (2026-09-05 사용자 지적) ──────
 // 이 화면의 계정 목록은 열 때 한 번 받는 스냅샷이라(cloud.listMembersAdmin) 다녀간
 // 시각이 굳는다 — 열어 둔 동안 대시보드와 벌어졌다. 그래서 그 칸만 **대시보드가 보는
@@ -303,6 +319,28 @@ await sleep(1400);
 // 2) 명단 목록 — 이름 · 생일 · 팀 · 순 · 직분 배지 · 계정 연결
 check("'청년 명단' 탭으로 간다", await clickText('청년 명단'));
 await sleep(700);
+
+// 도구 줄(찾기 · 연도 · 사람 추가) — **줄을 정해서 그린다.** flex-wrap에 맡겼더니
+// 375~430px에서 '사람 추가'만 다음 줄로 떨어져 왼쪽에 혼자 섰다(사용자 지적 2026-09-07).
+const toolbar = () => ev(`(() => {
+  const input = document.querySelector('input[aria-label="이름으로 찾기"]');
+  if (!input) return null;
+  const bar = input.closest('div').parentElement;
+  const add = [...bar.querySelectorAll('button')].find(b => b.textContent.trim() === '사람 추가');
+  const yr = bar.querySelector('[aria-label="연도"]');
+  if (!add || !yr) return null;
+  const r = (el) => { const b = el.getBoundingClientRect(); return { t: Math.round(b.top), l: Math.round(b.left), r: Math.round(b.right), b: Math.round(b.bottom) }; };
+  const box = r(bar), find = r(input.closest('div')), a = r(add), y = r(yr);
+  // 줄 수는 top을 8px 오차로 묶어 센다 — items-center라 높이가 다른 것끼리 top이 몇 px 어긋난다
+  const tops = [find.t, a.t, y.t].sort((m, n) => m - n);
+  let lines = 1;
+  for (let i = 1; i < tops.length; i++) if (tops[i] - tops[i - 1] > 8) lines++;
+  return { box, find, add: a, year: y, lines };
+})()`);
+const deskBar = await toolbar();
+check('1440px에서는 찾기·연도·사람 추가가 한 줄', deskBar && deskBar.lines === 1, JSON.stringify(deskBar));
+check('한 줄일 때 차례는 찾기 → 연도 → 사람 추가',
+  deskBar && deskBar.find.r <= deskBar.year.l && deskBar.year.r <= deskBar.add.l, JSON.stringify(deskBar));
 const read = () => ev(`(() => {
   const rows = [...document.querySelectorAll('[data-person]')].map(r => ({
     id: r.dataset.person,
@@ -555,6 +593,46 @@ const mob = await ev(`(() => {
 })()`);
 check('모바일 375px에서 가로로 넘치지 않는다', mob.over === false, JSON.stringify(mob));
 check('모바일에서도 명단과 검색이 보인다', mob.rows > 0 && mob.find, JSON.stringify(mob));
+check('명단 줄에도 등장 모션이 있다(.dc-row)',
+  await ev(`[...document.querySelectorAll('[data-person]')].every(r => r.classList.contains('dc-row'))`));
+
+// 좁은 화면의 줄 나눔: 첫 줄 [찾기 + 사람 추가(오른쪽 끝)] · 둘째 줄 [연도(왼쪽)].
+// 고아 줄(버튼만 혼자 선 줄)이 없어야 한다.
+const mobBar = await toolbar();
+check('375px에서는 두 줄로 나뉜다(고아 줄 없음)', mobBar && mobBar.lines === 2, JSON.stringify(mobBar));
+check("첫 줄은 찾기 + '사람 추가'이고 버튼이 오른쪽 끝",
+  mobBar && Math.abs(mobBar.find.t - mobBar.add.t) <= 8 && mobBar.box.r - mobBar.add.r <= 2,
+  JSON.stringify(mobBar));
+check('연도는 둘째 줄 왼쪽에서 시작한다',
+  mobBar && mobBar.year.t >= mobBar.add.b - 2 && Math.abs(mobBar.year.l - mobBar.box.l) <= 2,
+  JSON.stringify(mobBar));
+
+// 640px 아래에서는 **폭이 남아도** 두 줄이다(사용자 결정 — 좁은 화면의 줄을 정해서 그린다).
+// 여기서는 셋이 한 줄에 다 들어가므로, 줄을 정해 두지 않으면 한 줄로 붙어 버린다.
+await send('Emulation.setDeviceMetricsOverride', { width: 600, height: 812, deviceScaleFactor: 2, mobile: true });
+await sleep(400);
+const midBar = await toolbar();
+check('600px(sm 아래)에서도 연도는 둘째 줄이다', midBar && midBar.lines === 2, JSON.stringify(midBar));
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
+await sleep(400);
+
+// 칩 줄은 끝까지 밀어도 마지막 칩이 통 끝에 붙지 않는다(사용자 지적 2026-09-07).
+// 스크롤 통의 padding-right는 넘쳐 흐른 내용에 안 걸린다 — ::after로 12px을 세운다.
+check('모바일에서 줄을 편다', await clickText('수정하기', inRow('p1')));
+await sleep(500);
+const chipTail = await ev(`(() => {
+  const row = ${inRow('p1')}; if (!row) return null;
+  const sc = [...row.querySelectorAll('div')]
+    .find(d => getComputedStyle(d).overflowX === 'auto' && d.scrollWidth > d.clientWidth + 4);
+  if (!sc) return { over: false };
+  sc.scrollLeft = sc.scrollWidth;
+  const kids = [...sc.children];
+  const last = kids[kids.length - 1];
+  return { over: true, after: getComputedStyle(sc, '::after').width,
+           gap: Math.round(sc.getBoundingClientRect().right - last.getBoundingClientRect().right) };
+})()`);
+check('칩 줄을 끝까지 밀면 오른쪽에 여백이 남는다',
+  chipTail && chipTail.over === true && chipTail.gap >= 10, JSON.stringify(chipTail));
 await send('Emulation.clearDeviceMetricsOverride');
 
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 2).join(' | '));

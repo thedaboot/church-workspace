@@ -7,6 +7,61 @@ const URL_BASE = process.argv[2] || 'http://localhost:4174';
 const OUT = import.meta.dirname;
 const PORT = 9471;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}${d?' — '+d:''}`);
+
+// ── 0) 구글 문서 임베드 · 화면 가림 비밀번호 (순수 — 브라우저 없이) ──────────
+// 두 모듈 다 import가 없는 순수 ESM이라 노드가 그대로 읽는다(word.mjs 앞부분과 같은 방식).
+// 여기서 만든 해시를 아래 브라우저 검사의 시드로 그대로 쓴다 — 검사가 앱과 같은 규칙으로
+// 잠갔다는 뜻이라, 규칙이 어긋나면 '비밀번호가 맞지 않아요'로 드러난다.
+const { docEmbedKind, docEmbedSrc } = await import(new URL('../src/services/docEmbed.js', import.meta.url).href);
+const { makeViewPw, verifyViewPw, isLocked } = await import(new URL('../src/services/viewPw.js', import.meta.url).href);
+
+check('구글 문서·시트·슬라이드를 갈라 본다',
+  docEmbedKind('https://docs.google.com/document/d/ABC/edit') === 'doc'
+  && docEmbedKind('https://docs.google.com/spreadsheets/d/ABC/edit#gid=7') === 'sheet'
+  && docEmbedKind('https://docs.google.com/presentation/d/ABC/edit') === 'slide');
+check('그 밖의 주소는 null',
+  docEmbedKind('https://example.com/quote') === null
+  && docEmbedKind('https://drive.google.com/file/d/ABC/view') === null
+  // 호스트 뒤에 바로 /가 와야 한다 — 남의 도메인이 앞부분만 흉내 내는 것을 막는다
+  && docEmbedKind('https://docs.google.com.evil.example/document/d/ABC/edit') === null
+  && docEmbedKind('') === null && docEmbedKind(null) === null);
+check('http로 온 링크도 알아보고 https로 실어 보낸다',
+  docEmbedKind('http://docs.google.com/document/d/ABC/edit') === 'doc'
+  && docEmbedSrc('http://docs.google.com/document/d/ABC/edit').startsWith('https://'),
+  docEmbedSrc('http://docs.google.com/document/d/ABC/edit'));
+check('끝이 /edit이 되고 rm=minimal이 붙는다',
+  docEmbedSrc('https://docs.google.com/document/d/ABC') === 'https://docs.google.com/document/d/ABC/edit?rm=minimal'
+  && docEmbedSrc('https://docs.google.com/document/d/ABC/view') === 'https://docs.google.com/document/d/ABC/edit?rm=minimal',
+  docEmbedSrc('https://docs.google.com/document/d/ABC/view'));
+// #gid=를 잃으면 링크로 가리킨 탭이 아니라 첫 탭이 열린다. usp=도 그대로 둔다.
+check('#gid=·usp=는 그대로 남는다',
+  docEmbedSrc('https://docs.google.com/spreadsheets/d/ABC/edit?usp=sharing#gid=42')
+    === 'https://docs.google.com/spreadsheets/d/ABC/edit?usp=sharing&rm=minimal#gid=42',
+  docEmbedSrc('https://docs.google.com/spreadsheets/d/ABC/edit?usp=sharing#gid=42'));
+// 웹에 게시한 사본(/d/e/…)은 편집할 수 있는 문서가 아니다 — 경로를 건드리면 없는 주소가 된다
+check('게시된 사본(/d/e/)은 경로를 건드리지 않는다',
+  docEmbedSrc('https://docs.google.com/spreadsheets/d/e/2PACX-1vLONG/pubhtml')
+    === 'https://docs.google.com/spreadsheets/d/e/2PACX-1vLONG/pubhtml?rm=minimal',
+  docEmbedSrc('https://docs.google.com/spreadsheets/d/e/2PACX-1vLONG/pubhtml'));
+check('구글 문서가 아니면 주소를 그대로 돌려준다',
+  docEmbedSrc('https://example.com/a?b=1') === 'https://example.com/a?b=1');
+
+const mk = await makeViewPw('1234');
+check('비밀번호를 걸면 해시와 소금이 나온다',
+  !!mk.view_pw && !!mk.view_pw_salt && mk.view_pw !== '1234' && mk.view_pw.length === 64, JSON.stringify(mk));
+check('맞는 비밀번호만 통과한다',
+  (await verifyViewPw(mk, '1234')) === true && (await verifyViewPw(mk, '12345')) === false
+  && (await verifyViewPw(mk, '')) === false);
+// 소금이 매번 다르다 — 같은 비밀번호끼리 해시가 같으면 하나가 새면 전부 새는 것과 같다
+check('소금은 값마다 새로 만든다', (await makeViewPw('1234')).view_pw !== mk.view_pw);
+const cleared = await makeViewPw('');
+check('빈 비밀번호는 두 칸을 다 비운다(소금만 남기지 않는다)',
+  cleared.view_pw === null && cleared.view_pw_salt === null, JSON.stringify(cleared));
+check('잠기지 않은 것은 언제나 통과한다',
+  isLocked(cleared) === false && isLocked(null) === false && isLocked(mk) === true
+  && (await verifyViewPw(cleared, '아무거나')) === true);
+
 const prof = mkdtempSync(join(tmpdir(), 'c3-'));
 const chrome = spawn((process.env.CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe'), ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${prof}`, '--no-first-run', '--force-color-profile=srgb', 'about:blank'], { stdio: 'ignore' });
 async function tg(){for(let i=0;i<40;i++){try{const l=await(await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();const p=l.find(x=>x.type==='page');if(p?.webSocketDebuggerUrl)return p;}catch{}await sleep(250);}throw new Error('fail');}
@@ -23,7 +78,6 @@ const send=(m,p={})=>new Promise((res,rej)=>{const i=++id;pend.set(i,{res,rej});
 const wait=async(m,to=20000)=>{const s=Date.now();while(Date.now()-s<to){const i=evs.findIndex(e=>e.method===m);if(i>=0)return evs.splice(i,1)[0];await sleep(50);}throw new Error(m);};
 const ev=async(e,a=false)=>{const r=await send('Runtime.evaluate',{expression:e,awaitPromise:a,returnByValue:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description);return r.result.value;};
 const shot=async n=>{const{data}=await send('Page.captureScreenshot',{format:'png'});writeFileSync(join(OUT,n+'.png'),Buffer.from(data,'base64'));};
-const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}${d?' — '+d:''}`);
 
 const task = (i, status) => ({ id:'t'+i, projectId:'p1', title:'업무 '+i, content:'', status,
   assignees:['노준석'], teams:['찬양팀'], startDate:'', dueDate:'2026-08-0'+(i+1), position:i, author:'노준석',
@@ -475,6 +529,147 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
   })()`);
   check('수정 폼에 선행 업무 칸이 있다', dep.label === true && dep.select === true, JSON.stringify(dep));
   check('선행 업무 후보에 같은 프로젝트 업무가 나온다', dep.options > 1, `${dep.options}개`);
+}
+
+// ── 참고 링크: 구글 문서는 앱 안에서 연다 · 잠긴 링크는 먼저 묻는다 (0053) ──
+// 게스트 모드에서 참고 링크는 localStorage에 있으므로 해시를 시드에 그대로 심는다
+// (위 순수 검사에서 만든 mk — 앱이 같은 규칙으로 풀어야 통과한다).
+{
+  const st3 = JSON.parse(JSON.stringify(st));
+  st3.projects.byId.p1.pinnedLinks = [
+    { id: 'l1', title: '수련회 큐시트', url: 'https://docs.google.com/document/d/CUE123/edit' },
+    { id: 'l2', title: '참가자 명단', url: 'https://docs.google.com/spreadsheets/d/ROSTER9/edit#gid=3',
+      view_pw: mk.view_pw, view_pw_salt: mk.view_pw_salt },
+    { id: 'l3', title: '전세버스 견적서', url: 'https://example.com/quote' },
+  ];
+  await send('Emulation.setDeviceMetricsOverride', DESK);
+  await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+  await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st3))}); localStorage.setItem('theme','light')`);
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1400);
+
+  const clickLink = (title) => ev(`(() => {
+    const a = [...document.querySelectorAll('a')].find(x => x.textContent.trim() === ${JSON.stringify(title)});
+    if (!a) return false; a.click(); return true;
+  })()`);
+  const embed = () => ev(`(() => {
+    const box = document.querySelector('[data-doc-embed]');
+    if (!box) return null;
+    const f = box.querySelector('iframe');
+    const out = [...box.querySelectorAll('a')].find(a => a.getAttribute('target') === '_blank');
+    return { kind: box.getAttribute('data-doc-embed'), src: f ? f.getAttribute('src') : null,
+             sandbox: f ? f.getAttribute('sandbox') : null, newTab: out ? out.getAttribute('href') : null };
+  })()`);
+  const asking = () => ev(`!!document.querySelector('form[data-pw-prompt]')`);
+  const typePw = (text) => ev(`(() => {
+    const i = document.querySelector('form[data-pw-prompt] input[type="password"]');
+    if (!i) return false;
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    set.call(i, ${JSON.stringify(text)}); i.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  const submitPw = () => ev(`(() => {
+    const b = [...document.querySelectorAll('form[data-pw-prompt] button')].find(x => x.textContent.trim() === '열기');
+    if (!b) return false; b.click(); return true;
+  })()`);
+
+  const chips = await ev(`(() => {
+    const pick = (t) => [...document.querySelectorAll('a')].find(a => a.textContent.trim() === t);
+    const cue = pick('수련회 큐시트'), roster = pick('참가자 명단'), plain = pick('전세버스 견적서');
+    if (!cue || !roster || !plain) return null;
+    const lockOf = (a) => !!a.parentElement.querySelector('svg[aria-label="비밀번호가 걸린 링크"]');
+    return { cueIcon: !!cue.querySelector('svg'), plainIcon: !!plain.querySelector('svg'),
+             cueIconPx: cue.querySelector('svg') ? Math.round(cue.querySelector('svg').getBoundingClientRect().width) : null,
+             cueLock: lockOf(cue), rosterLock: lockOf(roster) };
+  })()`);
+  check('구글 문서 링크에는 종류 표시가 붙는다', chips?.cueIcon === true && chips?.cueIconPx >= 9 && chips?.cueIconPx <= 14, JSON.stringify(chips));
+  check('모르는 주소에는 여전히 표시가 없다', chips?.plainIcon === false, JSON.stringify(chips));
+  check('잠긴 링크에만 자물쇠가 붙는다', chips?.cueLock === false && chips?.rosterLock === true, JSON.stringify(chips));
+
+  check('구글 문서 링크를 누르면 앱 안 창이 열린다', (await clickLink('수련회 큐시트')) === true);
+  await sleep(500);
+  const opened = await embed();
+  check('창이 떴다', !!opened && opened.kind === 'doc', JSON.stringify(opened));
+  check('임베드 주소가 /edit + rm=minimal이다',
+    opened?.src === 'https://docs.google.com/document/d/CUE123/edit?rm=minimal', String(opened?.src));
+  // sandbox를 주면 구글 편집기가 자기 쿠키·팝업을 못 써서 편집이 안 된다(DocEmbed.jsx 머리말)
+  check('iframe에 sandbox를 걸지 않는다', opened?.sandbox === null, String(opened?.sandbox));
+  // 임베드가 막히는 환경(사파리 ITP·카카오 인앱)에서 나갈 길 — 언제나 있어야 한다
+  check("'새 탭에서 열기'는 원 주소로 간다",
+    opened?.newTab === 'https://docs.google.com/document/d/CUE123/edit', String(opened?.newTab));
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await sleep(350);
+  check('Escape로 창이 닫힌다', (await embed()) === null);
+
+  check('잠긴 링크를 눌렀다', (await clickLink('참가자 명단')) === true);
+  await sleep(400);
+  check('비밀번호를 먼저 묻는다(창은 아직 안 열린다)', (await asking()) === true && (await embed()) === null);
+  await typePw('0000'); await submitPw(); await sleep(400);
+  const wrong = await ev(`(() => {
+    const f = document.querySelector('form[data-pw-prompt]');
+    return { msg: f ? /비밀번호가 맞지 않아요/.test(f.textContent) : null, open: !!document.querySelector('[data-doc-embed]') };
+  })()`);
+  check('틀리면 알려 주고 열지 않는다', wrong.msg === true && wrong.open === false, JSON.stringify(wrong));
+  await typePw('1234'); await submitPw(); await sleep(600);
+  const unlocked = await embed();
+  check('맞으면 창이 열린다', !!unlocked && unlocked.kind === 'sheet', JSON.stringify(unlocked));
+  check('시트의 #gid=가 그대로 실린다',
+    unlocked?.src === 'https://docs.google.com/spreadsheets/d/ROSTER9/edit?rm=minimal#gid=3', String(unlocked?.src));
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await sleep(350);
+  // 한 번 맞춘 링크는 이 화면이 사는 동안 다시 묻지 않는다(첨부 목록의 unlocked와 같은 판단)
+  await clickLink('참가자 명단'); await sleep(450);
+  const again = await embed();
+  check('한 번 맞추면 다시 묻지 않는다', !!again && (await asking()) === false, JSON.stringify(again));
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await sleep(300);
+
+  // 구글 문서가 아닌 링크는 예전 그대로 새 탭이다 — 가로채면 안 된다
+  const plainHref = await ev(`(() => {
+    const a = [...document.querySelectorAll('a')].find(x => x.textContent.trim() === '전세버스 견적서');
+    return a ? { target: a.getAttribute('target'), href: a.getAttribute('href') } : null;
+  })()`);
+  check('그 밖의 링크는 그대로 새 탭', plainHref?.target === '_blank' && plainHref?.href === 'https://example.com/quote', JSON.stringify(plainHref));
+
+  // 비밀번호를 걸고 푸는 자리 — 게스트는 관리자로 보므로 자물쇠 버튼이 보인다
+  const lockBtn = () => ev(`(() => {
+    const a = [...document.querySelectorAll('a')].find(x => x.textContent.trim() === '수련회 큐시트');
+    if (!a) return null;
+    const b = [...a.parentElement.querySelectorAll('button')].find(x => /비밀번호/.test(x.getAttribute('title') || ''));
+    return b ? b.getAttribute('title') : null;
+  })()`);
+  check('구글 문서 링크에는 비밀번호 자리가 있다', (await lockBtn()) === '비밀번호 걸기', String(await lockBtn()));
+  const plainLockBtn = await ev(`(() => {
+    const a = [...document.querySelectorAll('a')].find(x => x.textContent.trim() === '전세버스 견적서');
+    return a ? [...a.parentElement.querySelectorAll('button')].some(x => /비밀번호/.test(x.getAttribute('title') || '')) : null;
+  })()`);
+  // 새 탭으로 나가는 링크에 비밀번호를 걸면 아무것도 막지 못하면서 막은 것처럼 보인다
+  check('새 탭으로 나가는 링크에는 비밀번호 자리를 두지 않는다', plainLockBtn === false, String(plainLockBtn));
+  await ev(`(() => {
+    const a = [...document.querySelectorAll('a')].find(x => x.textContent.trim() === '수련회 큐시트');
+    const b = [...a.parentElement.querySelectorAll('button')].find(x => /비밀번호/.test(x.getAttribute('title') || ''));
+    b.click();
+  })()`);
+  await sleep(350);
+  await ev(`(() => {
+    const i = [...document.querySelectorAll('input')].find(x => x.placeholder === '비밀번호를 정해주세요');
+    if (!i) return false;
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    set.call(i, 'cue!'); i.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(150);
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '저장')?.click()`);
+  await sleep(600);
+  const stored = await ev(`(() => {
+    const s = JSON.parse(localStorage.getItem('church_app_v4') || '{}');
+    const l = (s.projects?.byId?.p1?.pinnedLinks || []).find(x => x.id === 'l1');
+    // 검사가 곧바로 verifyViewPw에 넘기므로 **행 모양 그대로** 돌려준다
+    return { view_pw: l?.view_pw || null, view_pw_salt: l?.view_pw_salt || null, plain: l?.view_pw === 'cue!' };
+  })()`);
+  check('건 비밀번호가 저장소에 해시로 남는다',
+    !!stored.view_pw && !!stored.view_pw_salt && stored.view_pw.length === 64 && stored.plain === false, JSON.stringify(stored));
+  check('저장된 해시는 앱과 같은 규칙이다(노드에서 풀린다)',
+    (await verifyViewPw(stored, 'cue!')) === true && (await verifyViewPw(stored, 'cue')) === false);
 }
 
 console.log(results.join('\n'));

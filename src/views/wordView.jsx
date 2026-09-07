@@ -11,13 +11,14 @@ import { showToast } from '../components/Toast.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { failText } from '../services/errorText.js';
 import { useCached, dropCache } from '../services/cache.js';
+import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { useLiveRefresh } from '../services/liveV2.js';
 import { ShareChip, ShareToggle } from '../components/ShareToggle.jsx';
 import { SectionHead, Card } from './dashboardParts.jsx';
 import { loadPassage } from '../services/bible.js';
 import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap, useBibleState, useVersePaint, marksFor } from '../components/wordBible.jsx';
 import {
-  kstToday, shiftDay, dayLabel, shortDayLabel, monthDays, weekRange, shouldAdoptBody,
+  kstToday, shiftDay, dayLabel, shortDayLabel, monthDays, shiftMonth, weekRange, shouldAdoptBody,
   fetchSchedule, fetchMyEntry, saveMyEntry, deleteMyEntry, deleteEntryAsMaster,
   fetchSharedEntries, fetchMyEntryDates,
 } from '../services/word.js';
@@ -71,6 +72,14 @@ import {
 // MarkdownEditor는 밖에서 value가 바뀌면 문서를 갈아 끼우므로(그 파일의 '외부에서 value가
 // 바뀐 경우') 같은 에디터에 새 날짜의 글을 넣기만 하면 된다.
 //
+// **저장된 묵상이 있으면 읽기 모드다**(2026-09-07). 예전에는 편집기가 늘 열려 있어서
+// 이미 쓴 글인지 지금 고치는 중인지 화면이 말해 주지 않았다. 이제 저장된 글은 나눔 피드와
+// 같은 뷰어(RichText)로 그리고 '수정'을 눌러야 편집기가 선다 — 그때만 저장·취소가 붙는다.
+// 아직 아무것도 저장하지 않은 날은 처음부터 편집기다(쓸 것이 없는데 '수정'을 누를 수는 없다).
+// **그래도 편집기는 언마운트하지 않는다** — 읽기 모드에서는 `hidden`으로 두기만 하고,
+// 읽기 상자는 편집기와 같은 자리 높이(EDITOR_SLOT)를 받는다. 날짜를 넘길 때 아래가
+// 튀지 않게 하려던 위 규칙을 이 모드 전환이 깨면 안 된다.
+//
 // **본문표 붙여넣기 도구는 없다** — 읽기표 730일치가 0038로 qt_schedule에 들어 있다
 // (services/word.js 머리말). 되살리지 말 것.
 // ============================================================================
@@ -94,6 +103,11 @@ const EDITOR_SLOT = 'min-h-[197px] md:min-h-[261px]';
 const EditorSkeleton = () => (
   <div className={`dc-skeleton border border-line rounded-md ${EDITOR_SLOT}`} />
 );
+// 저장된 묵상을 읽는 상자 — **편집기가 쓰던 자리를 그대로 받는다**. 높이는 EDITOR_SLOT이
+// 아니라 편집기의 실제 높이다: 센티넬 1 + 서식 바 37 + 본문 상자 160(md 224) = 198(262).
+// 자리표(EDITOR_SLOT)보다 1px 큰데, 그 1px을 안 맞추면 수정·취소를 누를 때마다 아래
+// 칸들이 1px씩 오르내린다.
+const READ_BOX = 'min-h-[198px] md:min-h-[262px] border border-line rounded-md p-3 bg-surface';
 
 // 본문이 차지할 자리. **빈 상태도 이 자리를 그대로 받는다**(사용자 피드백 2026-09-02 3차)
 // — 자리는 320px인데 빈 상태만 220px이라, 본문이 없는 날에는 마크가 위로 올라붙고 아래
@@ -151,7 +165,9 @@ function QtTab() {
   const [saving, setSaving] = useState(false);
   const [shareState, setShareState] = useState(''); // '' | 'saving' | 'saved' (공유 칩)
   const [feed, setFeed] = useState(null);          // null이면 아직 안 읽음
-  const [grass, setGrass] = useState([]);
+  // 저장된 글을 고치는 중인가. 저장된 것이 없는 날은 이 값과 상관없이 편집기가 선다.
+  const [editing, setEditing] = useState(false);
+  const [grassKey, setGrassKey] = useState(0);     // 올리면 잔디가 보고 있는 달을 다시 읽는다
   const editorRef = useRef(null);
   const slotRef = useRef(null);
   const [hold, setHold] = useState(0);             // 넘기기 직전 본문 자리의 높이(px)
@@ -229,7 +245,8 @@ function QtTab() {
     if (shouldAdoptBody({ dateChanged, body: bodyRef.current, lastSynced: syncedBody.current, next: next.body })) {
       setBody(next.body); syncedBody.current = next.body;
     }
-    if (dateChanged) { setShareState(''); syncedFor.current = date; }
+    // 날짜가 바뀌면 읽기 모드로 돌아간다 — 저장된 글이 있는 날은 먼저 그 글을 보여준다
+    if (dateChanged) { setShareState(''); setEditing(false); syncedFor.current = date; }
   }, [qt, date]);
 
   useEffect(() => {
@@ -254,15 +271,9 @@ function QtTab() {
     return () => clearTimeout(t);
   }, [shareState]);
 
-  // 잔디 — 이번 달 + 이번 주가 걸친 만큼만 읽는다(달을 넘나드는 주가 있다)
-  const month = useMemo(() => monthDays(today), [today]);
-  const [weekStart, weekEnd] = useMemo(() => weekRange(today), [today]);
-  const reloadGrass = useCallback(() => {
-    const from = weekStart < month.days[0] ? weekStart : month.days[0];
-    const to = weekEnd > month.days[month.days.length - 1] ? weekEnd : month.days[month.days.length - 1];
-    fetchMyEntryDates(from, to).then(setGrass).catch(() => {});
-  }, [month, weekStart, weekEnd]);
-  useEffect(() => { reloadGrass(); }, [reloadGrass]);
+  // 잔디는 자기가 보고 있는 달을 스스로 읽는다(Grass) — 여기서는 저장·삭제 뒤에
+  // "다시 읽어라"만 알린다. 어느 달을 보고 있는지는 그쪽이 안다.
+  const reloadGrass = useCallback(() => setGrassKey(k => k + 1), []);
 
   // 지금 화면의 날짜와 읽어 온 날짜가 같을 때에만 저장·공유를 연다 — 넘긴 직후
   // 한 순간은 앞 날짜의 글이 에디터에 남아 있으므로, 그때 저장하면 엉뚱한 날에 쓴다
@@ -270,6 +281,8 @@ function QtTab() {
   const dirty = ready && body !== entry.body;
   // 공유는 저장된 글에만 걸 수 있다(머리말) — 빈 글은 나눔에 올라가지도 않는다
   const canShare = ready && entry.exists && !!entry.body.trim();
+  // 저장된 글이 있고 고치는 중이 아니면 읽기 모드다(머리말)
+  const reading = canShare && !editing;
 
   // 피드에 설 내 줄 — **지금 저장된 내 묵상**에서 만든다(mergeFeed 머리말).
   // profile_id를 실어 보내야 비공개로 넘어가 목록에서 빠진 뒤에도 같은 이름·사진으로
@@ -291,6 +304,7 @@ function QtTab() {
     try {
       await saveMyEntry(date, { body, shared: entry.shared });
       setEntry({ date, body, shared: entry.shared, exists: true });
+      setEditing(false);               // 저장했으니 다시 읽기 모드로(머리말)
       syncedBody.current = body;       // 방금 이 글로 맞췄다(다음 도착값 판정의 기준)
       setFeed(await fetchSharedEntries(date));
       dropCache(qtKey); refreshQt();   // 옛 값이 먼저 그려지지 않게 그 날짜만 비운다
@@ -330,7 +344,7 @@ function QtTab() {
     try {
       await deleteMyEntry(date);
       setEntry({ date, body: '', shared: false, exists: false });
-      setBody(''); syncedBody.current = '';
+      setBody(''); syncedBody.current = ''; setEditing(false);
       setFeed(await fetchSharedEntries(date));
       dropCache(qtKey); refreshQt();
       dropCache('home');
@@ -356,13 +370,36 @@ function QtTab() {
     }
   };
 
+  // 편집기를 연다. 읽기 모드에서는 상자가 `hidden`이라 그 프레임에는 focus가 먹지 않는다 —
+  // 표식을 남겨 두고 아래 이펙트가 **모드가 바뀐 뒤** 커서를 준다.
+  const wantFocus = useRef(false);
+  const openEditor = useCallback(() => {
+    const box = editorRef.current;
+    if (!reading) { box?.querySelector('.tiptap')?.focus(); return; }
+    wantFocus.current = true;
+    setEditing(true);
+  }, [reading]);
+  useEffect(() => {
+    if (!editing || !wantFocus.current) return;
+    wantFocus.current = false;
+    editorRef.current?.querySelector('.tiptap')?.focus();
+  }, [editing]);
+
+  // 고치기를 그만둔다 — 저장된 글로 되돌리고 읽기 모드로. 저장된 것이 없는 날에는
+  // 되돌아갈 자리가 없으므로 이 버튼 자체가 없다.
+  const cancelEdit = () => {
+    if (!ready) return;
+    setBody(entry.body); syncedBody.current = entry.body;
+    setEditing(false);
+  };
+
   // 고치기는 위의 '내 묵상' 칸이 한다 — 같은 글을 두 자리에서 고칠 수 있으면
   // 어느 쪽이 진짜인지 알 수 없다. 그 칸으로 데려가고 커서를 준다.
   const editMine = () => {
     const box = editorRef.current;
     if (!box) return;
     box.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    box.querySelector('.tiptap')?.focus();
+    openEditor();
   };
 
   // 기다리는 동안 잡아 둘 자리 — 넘기기 직전 높이가 있으면 그만큼(머리말)
@@ -406,42 +443,74 @@ function QtTab() {
           <Swap k={date} dir={dir}><QtPassage day={day} date={date} minH={slotH} /></Swap>
         </div>
 
-        {/* 내 묵상 */}
-        <div className="mt-6" ref={editorRef}>
+        {/* 내 묵상 — 저장된 글이 있으면 읽기 모드, '수정'을 눌러야 편집기다(머리말) */}
+        <div className="mt-6" ref={editorRef} data-note={reading ? 'read' : 'edit'}>
           <SectionHead>내 묵상</SectionHead>
           <div className={EDITOR_SLOT}>
-            {entry ? (
-              <Suspense fallback={<EditorSkeleton />}>
-                <MarkdownEditor
-                  value={body}
-                  onChange={setBody}
-                  placeholder="오늘 본문에서 마음에 남은 것"
-                  className={`${EDITOR_BOX} border border-line rounded-md rounded-t-none p-3 bg-surface focus-within:border-accent focus-within:shadow-soft transition-all`}
-                />
-              </Suspense>
-            ) : <EditorSkeleton />}
+            {/* 저장된 글 — 나눔 피드와 같은 뷰어로 그린다(저장 형식이 같은 마크다운이다) */}
+            <div data-note-read="1" className={reading ? READ_BOX : 'hidden'}>
+              <div className="text-[13px] leading-relaxed text-fg-secondary break-words">
+                <RichText content={entry?.body || ''} />
+              </div>
+            </div>
+            {/* **언마운트하지 않는다**(머리말) — 읽기 모드에서는 감추기만 한다 */}
+            <div className={reading ? 'hidden' : ''}>
+              {entry ? (
+                <Suspense fallback={<EditorSkeleton />}>
+                  <MarkdownEditor
+                    value={body}
+                    onChange={setBody}
+                    placeholder="오늘 본문에서 마음에 남은 것"
+                    className={`${EDITOR_BOX} border border-line rounded-md rounded-t-none p-3 bg-surface focus-within:border-accent focus-within:shadow-soft transition-all`}
+                  />
+                </Suspense>
+              ) : <EditorSkeleton />}
+            </div>
           </div>
-          {/* 이름이 길어졌으므로(→ '더다붓에 공유하기') 좁은 폭에서는 줄을 바꾼다.
-              spacer는 basis 0이라 자리가 있는 한 넷이 한 줄에 그대로 선다 */}
-          <div className="flex flex-wrap items-center gap-2 mt-2.5">
-            <button onClick={save} disabled={!dirty || saving}
-              className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
-              저장
-            </button>
-            <ShareChip state={shareState} label={entry?.shared ? '더다붓에 공유할게요' : '나만 볼게요'} />
-            <span className="flex-1" />
-            <ShareToggle value={!!entry?.shared} disabled={!canShare} onChange={setShared} />
-            {canShare && (
-              <ConfirmPopover
-                message="이 날 묵상을 지울까요? 나눔에서도 내려가고 내 기록에서도 빠져요."
-                onConfirm={removeMine}
-              >
-                <button aria-label="내 묵상 지우기"
-                  className="w-9 h-9 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
-                  <Trash2 size={14} />
+          {/* 도구 줄. **flex-wrap에 맡기지 않는다** — 375px에서 넷 중 토글만 다음 줄로
+              떨어져 오른쪽에 혼자 섰다. 640 미만에서는 [확정·나가기]와 [토글·지우기]가
+              각각 한 줄을 통째로 쓰고, 그 위에서는 예전처럼 한 줄에 양 끝으로 선다.
+              자리는 §8 그대로 — 확정(저장·수정) 왼쪽, 나가기(취소) 그 오른쪽. */}
+          <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] items-center gap-2 mt-2.5">
+            <div data-note-tools="left" className="flex items-center gap-2 min-w-0">
+              {reading ? (
+                <button onClick={openEditor}
+                  className="bg-accent-weak hover:brightness-95 text-accent-text px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
+                  수정
                 </button>
-              </ConfirmPopover>
-            )}
+              ) : (
+                <>
+                  <button onClick={save} disabled={!dirty || saving}
+                    className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
+                    저장
+                  </button>
+                </>
+              )}
+              <ShareChip state={shareState} label={entry?.shared ? '더다붓에 공유할게요' : '나만 볼게요'} />
+              {/* 나가기는 줄의 오른쪽 끝 — 예배 노트의 도구 줄과 같은 자리(§8 도구 줄 규칙) */}
+              {!reading && canShare && (
+                <button onClick={cancelEdit}
+                  className="ml-auto px-3.5 py-1.5 rounded-md text-[11.5px] font-medium text-fg-muted bg-surface-hover hover:bg-line transition active:scale-95">
+                  취소
+                </button>
+              )}
+            </div>
+            <div data-note-tools="right" className="flex items-center gap-1 justify-between sm:justify-end">
+              {/* 좁은 폭에서는 제 줄을 다 쓴다 — ShareToggle이 `className`으로 폭을 받는다
+                  (예배 노트도 같은 부품·같은 배치다) */}
+              <ShareToggle className="grow sm:grow-0" value={!!entry?.shared} disabled={!canShare} onChange={setShared} />
+              {canShare && (
+                <ConfirmPopover
+                  message="이 날 묵상을 지울까요? 나눔에서도 내려가고 내 기록에서도 빠져요."
+                  onConfirm={removeMine}
+                >
+                  <button aria-label="내 묵상 지우기"
+                    className="w-9 h-9 shrink-0 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
+                    <Trash2 size={14} />
+                  </button>
+                </ConfirmPopover>
+              )}
+            </div>
           </div>
         </div>
 
@@ -461,7 +530,7 @@ function QtTab() {
       </div>
 
       <div className="min-w-0">
-        <Grass month={month} today={today} dates={grass} weekStart={weekStart} weekEnd={weekEnd} onPick={go} />
+        <Grass today={today} onPick={go} reloadKey={grassKey} />
       </div>
     </div>
   );
@@ -581,12 +650,15 @@ export const canDeleteShared = (row, isMaster) => !!isMaster && !row?.mine;
 
 function ShareFeed({ rows = [], members = [], myName = '', onEdit, isMaster = false, onDeleteOther }) {
   const byId = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
+  // 줄 등장 순번은 앱의 관례대로 **첫 마운트에만** 준다(useEnterStagger 주석) — 그 뒤에
+  // 새로 올라온 나눔 한 줄에까지 지연이 걸리면 그 줄만 몇백 ms 뒤에 나타나 지각으로 읽힌다.
+  const stagger = useEnterStagger();
   if (!rows.length) {
     return <p className="text-[11.5px] text-fg-faint">이 날짜에 올라온 나눔이 아직 없어요</p>;
   }
   return (
     <div className="flex flex-col">
-      {rows.map(e => {
+      {rows.map((e, i) => {
         // 이름·사진의 원본은 워크스페이스 멤버 목록이다(profiles에서 온다).
         // 게스트 모드의 로컬 나눔은 언제나 내 글이라 프로필이 붙지 않는다.
         const m = byId.get(e.profile_id);
@@ -594,7 +666,8 @@ function ShareFeed({ rows = [], members = [], myName = '', onEdit, isMaster = fa
         const url = m?.avatarUrl || e.avatarUrl || '';
         return (
           <div key={e.id} data-feed-row={e.mine ? (e.private ? 'mine-private' : 'mine') : 'other'}
-            className="dc-row flex items-start gap-2.5 py-2.5">
+            className="dc-row flex items-start gap-2.5 py-2.5"
+            style={{ animationDelay: stagger ? `${Math.min(i, 12) * 30}ms` : '0ms' }}>
             <Avatar name={name} url={url || undefined} className="flex w-7 h-7 text-[11px] shrink-0 mt-px" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5">
@@ -646,22 +719,91 @@ function ShareFeed({ rows = [], members = [], myName = '', onEdit, isMaster = fa
 // 살짝만 키워라"). 13px에는 숫자가 못 들어가서 20px로 올렸다 — 한 달이 158px(7×20 + 6×3)
 // 이라 375px 화면에도 여유가 있고, 예전 41px의 절반이다. 요일 머리글·월 표시는 그대로
 // 두고(숫자만으로는 무슨 요일인지 모른다) 칸마다 title·aria-label도 유지한다.
+//
+// **이전 달·다음 달로 넘길 수 있다**(2026-09-07). 이번 달만 보이면 지난 기록을 볼 길이
+// 없었다. 보고 있는 달은 이 부품이 들고 있고(`view`), 그 달의 기록 날짜도 스스로 읽는다 —
+// 한 번 읽은 달은 기억해 두므로 앞뒤로 넘나들 때 기다림이 없다. 저장·삭제가 있으면
+// 부르는 쪽이 `reloadKey`를 올리고, 그때 보고 있는 달을 다시 읽는다(다른 달은 버린다).
+// 다음 달 버튼은 **이번 달을 보고 있을 때 꺼진다** — 앞날의 기록은 있을 수 없다.
 const WEEK_HEAD = ['일', '월', '화', '수', '목', '금', '토'];
 const CELL = 20;   // px — 칸 한 변(숫자가 들어가는 최소 크기)
 const GAP = 3;     // px — 칸 사이
+const HEAD_H = 10; // px — 요일 머리글 한 줄(9px + pb-px)
+// 6주 짜리 달의 높이. 5주 달을 볼 때도 이만큼 잡아 두어야 달을 넘길 때 아래가 안 튄다
+// (한 줄이 23px이라 9월 ↔ 8월에서 카드가 통째로 오르내렸다).
+const GRID_MIN_H = HEAD_H + 6 * CELL + 6 * GAP;
 
-function Grass({ month, today, dates, weekStart, weekEnd, onPick }) {
+const monthKey = (iso) => iso.slice(0, 7);
+const NO_DATES = [];
+
+function Grass({ today, onPick, reloadKey = 0 }) {
+  const [view, setView] = useState(today);          // 보고 있는 달(그 달의 아무 날)
+  const month = useMemo(() => monthDays(view), [view]);
+  const [weekStart, weekEnd] = useMemo(() => weekRange(today), [today]);
+  const key = monthKey(view);
+  const thisMonth = monthKey(today);
+  const isNow = key === thisMonth;
+
+  // 이번 달 격자는 **이번 주가 걸친 만큼까지** 읽는다(달을 넘나드는 주가 있다).
+  // 다른 달에는 '이번 주'라는 말이 없으므로 그 달만 읽는다.
+  const first = month.days[0];
+  const last = month.days[month.days.length - 1];
+  const from = isNow && weekStart < first ? weekStart : first;
+  const to = isNow && weekEnd > last ? weekEnd : last;
+
+  // 달마다 한 번만 읽고 기억한다. 값을 달 열쇠로 들고 있으므로 **넘긴 첫 프레임에
+  // 앞 달의 초록이 남지 않는다**(늦게 오는 값으로 덮는 방식이면 한 프레임 남는다).
+  const [byMonth, setByMonth] = useState({});
+  const dates = byMonth[key] || NO_DATES;
+  const stale = useRef(false);
+  useEffect(() => { stale.current = true; }, [reloadKey]);   // 저장·삭제 뒤에는 기억을 못 믿는다
+  useEffect(() => {
+    let alive = true;
+    fetchMyEntryDates(from, to).then(v => {
+      if (!alive) return;
+      setByMonth(m => (stale.current ? { [key]: v } : { ...m, [key]: v }));
+      stale.current = false;
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [key, from, to, reloadKey]);
+
   const set = useMemo(() => new Set(dates), [dates]);
   const inMonth = month.days.filter(d => set.has(d)).length;
   const inWeek = dates.filter(d => d >= weekStart && d <= weekEnd).length;
+  const navBtn = 'w-9 h-7 shrink-0 flex items-center justify-center rounded-md text-fg-muted hover:bg-surface-hover disabled:opacity-35 disabled:hover:bg-transparent transition active:scale-95';
+  // 달이 바뀌는 결은 날짜를 넘길 때와 같다(Swap의 옆으로 슬라이드)
+  const [dir, setDir] = useState(0);
+  const goMonth = (n) => { setDir(n); setView(shiftMonth(view, n)); };
   return (
-    <div>
-      <SectionHead right={<span className="text-[11px] text-fg-faint tabular-nums shrink-0">{month.year}년 {month.month}월</span>}>
+    // data-col: 검사(tests/word.mjs)가 이 칸이 자기 트랙을 다 쓰는지 잰다(§6-9-k)
+    <div data-col="grass">
+      <SectionHead right={
+        <span className="flex items-center gap-0.5 shrink-0">
+          {!isNow && (
+            <button onClick={() => { setDir(view < today ? 1 : -1); setView(today); }}
+              className="mr-1 shrink-0 px-2 h-7 rounded-md text-[11px] font-semibold text-accent-text bg-accent-weak transition active:scale-95">
+              오늘
+            </button>
+          )}
+          <button onClick={() => goMonth(-1)} aria-label="지난 달" className={navBtn}>
+            <ChevronLeft size={14} />
+          </button>
+          <span className="text-[11px] text-fg-faint tabular-nums whitespace-nowrap">{month.year}년 {month.month}월</span>
+          {/* 앞날의 기록은 있을 수 없다 — 이번 달에서는 잠근다 */}
+          <button onClick={() => goMonth(1)} aria-label="다음 달" disabled={isNow} className={navBtn}>
+            <ChevronRight size={14} />
+          </button>
+        </span>
+      }>
         내 기록
       </SectionHead>
       <Card className="p-3.5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-          <div className="grid shrink-0" style={{ gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP }}>
+          {/* 6주 자리를 늘 잡아 둔다(GRID_MIN_H) — 5주 달과 6주 달의 높이가 다르면
+              달을 넘길 때마다 카드가 통째로 오르내린다 */}
+          <Swap k={key} dir={dir} className="shrink-0">
+          <div className="grid content-start"
+            style={{ gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP, minHeight: GRID_MIN_H }}>
             {WEEK_HEAD.map(w => (
               <span key={w} className="text-[9px] font-semibold text-fg-faint text-center leading-none pb-px">{w}</span>
             ))}
@@ -685,8 +827,13 @@ function Grass({ month, today, dates, weekStart, weekEnd, onPick }) {
               );
             })}
           </div>
+          </Swap>
+          {/* '이번 주·이번 달'은 오늘이 든 달의 말이다 — 지난 달을 보고 있으면
+              그 달의 이름으로 센다(8월 3번 기록했어요) */}
           <p className="flex-1 min-w-[9rem] text-[11.5px] text-fg-muted tabular-nums">
-            이번 주 {inWeek}번, 이번 달 {inMonth}번 기록했어요
+            {isNow
+              ? `이번 주 ${inWeek}번, 이번 달 ${inMonth}번 기록했어요`
+              : `${month.month}월 ${inMonth}번 기록했어요`}
           </p>
         </div>
       </Card>

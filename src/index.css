@@ -401,3 +401,38 @@ svg.lucide { stroke-width: 1.4px; }
    화면을 자동 확대하기 때문). 그 대가로 11~13px로 설계된 칸이 12px 라벨보다 커지고,
    text-2xl 제목 입력은 도리어 16px로 줄어서 화면 전체의 글자 위계가 무너졌다(사용자 지적).
    자동 확대는 이제 viewport의 maximum-scale=1이 막는다(index.html) — §6-9-d. */
+
+/* ── 화면 사이 이동 · 자리에서 바뀌는 것 (2026-09-07) ────────────────────────
+   §4.2의 규칙 안에서만 움직인다: 이징은 `--ease-out-quint` 하나, 대상은
+   transform·opacity뿐, `prefers-reduced-motion`에서 전부 해제(아래 블록에 같이 적었다).
+
+   1) `.dc-fade` — **자리는 그대로고 내용만 갈릴 때.** 홈 카드가 스켈레톤에서 내용으로
+      바뀌는 자리에 쓴다. `.dc-card`(5px 떠오름)를 쓰면 이미 같은 크기의 상자가 서 있던
+      칸이 이유 없이 한 번 더 움직인다 — 바뀌는 것이 내용뿐이면 밝아지기만 한다.
+      `.dc-card`(.28s)보다 짧게 둔 것은 '등장'이 아니라 '교체'이기 때문이다.
+
+   2) `.dc-nav-fwd` / `.dc-nav-back` — **교회 화면(홈·예배·말씀·모임) 사이의 이동.**
+      하단 바·상단 줄의 차례대로 오른쪽으로 가면 새 화면이 오른쪽에서, 왼쪽으로 가면
+      왼쪽에서 들어온다(App.jsx의 CHURCH_ORDER가 방향을 정한다). 업무 축 화면은 이
+      클래스를 받지 않는다 — 프로젝트·보드는 드래그가 있고, transform이 걸린 조상은
+      그 안의 `position: fixed`를 뷰포트에서 떼어 놓는다(§6-1).
+      7px인 이유: 이 앱의 등장 모션이 4~5px이라 그보다 한 뼘만 크다. 20px쯤 주면
+      화면이 "밀려 들어온다"가 되어 탭을 누를 때마다 눈이 따라다녀야 한다.
+   2-b) 방향 전환이 도는 동안에는 화면 자체의 세로 등장(`.dc-screen`의 4px)을 **페이드만**
+      남긴다. 가로로 미끄러지면서 동시에 위로 올라오면 대각선으로 들어오는 것으로 보인다.
+      길이·이징·fill은 `.dc-screen`의 것을 그대로 쓰고 키프레임만 바꾼다.
+      그래서 `.dc-nav-*`는 **투명도를 건드리지 않는다** — 겉과 속이 둘 다 0에서 밝아지면
+      투명도가 곱해져 중간이 더 어둡다(0.7 × 0.7 = 0.49). 밝아지는 것은 안쪽 한 겹뿐이다. */
+@keyframes dc-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.dc-fade { animation: dc-fade-in .2s var(--ease-out-quint) both; }
+
+@keyframes dc-nav-fwd  { from { transform: translate3d(7px, 0, 0); } to { transform: none; } }
+@keyframes dc-nav-back { from { transform: translate3d(-7px, 0, 0); } to { transform: none; } }
+@keyframes dc-screen-fade { from { opacity: 0; } to { opacity: 1; } }
+.dc-nav-fwd  { animation: dc-nav-fwd .26s var(--ease-out-quint) both; }
+.dc-nav-back { animation: dc-nav-back .26s var(--ease-out-quint) both; }
+.dc-nav .dc-screen { animation-name: dc-screen-fade; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dc-fade, .dc-nav-fwd, .dc-nav-back { animation: none !important; }
+}

@@ -1027,7 +1027,19 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const boards = readFileSync(new URL('../src/components/boards.jsx', import.meta.url), 'utf8');
   assert.ok(/const stagger = useEnterStagger\(\);/.test(boards) && /index=\{stagger \? i : 0\}/.test(boards),
     '보드 카드도 첫 렌더에서만 순번 지연을 준다');
-  console.log('PASS  순차 등장 배선 3가지');
+  // 멤버 화면(가입자 목록·청년 명단)도 같은 규칙이다 — 검색으로 목록이 갈릴 때
+  // 순번을 계속 주면 새로 걸린 줄만 뒤늦게 나타난다(2026-09-07).
+  const mem = readFileSync(new URL('../src/views/membersView.jsx', import.meta.url), 'utf8');
+  assert.ok(/const stagger = useEnterStagger\(\);/.test(mem)
+    && /stagger \? Math\.min\(i, 12\) \* 30 : 0/.test(mem)
+    && /className="dc-row flex items-center gap-2\.5 py-2\.5"/.test(mem),
+    '가입자 목록 줄이 첫 렌더에서만 순번 지연을 준다');
+  const ros = readFileSync(new URL('../src/components/roster.jsx', import.meta.url), 'utf8');
+  assert.ok(/const stagger = useEnterStagger\(\);/.test(ros)
+    && /stagger \? Math\.min\(i, 12\) \* 30 : 0/.test(ros)
+    && /className="dc-row py-2\.5"/.test(ros),
+    '청년 명단 줄도 첫 렌더에서만 순번 지연을 준다');
+  console.log('PASS  순차 등장 배선 5가지');
 }
 
 
@@ -1922,7 +1934,9 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // import 줄을 걷어낸다(liveV2 블록과 같은 방식). people.js의 guestStore는 worship.js가
   // **모듈 최상단에서** 부르므로 그 자리만 빈 저장소로 세워 준다.
   const strip = (t) => t
-    .replace(/^import .*from '\.\/(supabaseClient|cloud|image)\.js';\s*$/gm, '')
+    // 여러 줄 import도 걷는다(worship.js의 cloud import가 2026-09-07부터 두 줄) — 중괄호 안에는 }가 없어
+    // 다음 import까지 삼키지 않는다
+    .replace(/^import \{[^}]*\} from '\.\/(supabaseClient|cloud|image)\.js';\s*$/gm, '')
     .replace(/^import .*from '\.\.\/utils\.js';\s*$/gm, 'const generateId = () => "id";')
     .replace(/^import .*from '\.\/people\.js';\s*$/gm,
       'const guestStore = () => ({ all: () => ({}), rows: () => [], set: () => {} });');
@@ -2015,4 +2029,69 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '실행 권한은 로그인 사용자만(0048과 같은 마무리)');
 
   console.log('PASS  호칭 · 지난 주일 · 출석 메모 33가지');
+}
+
+// ── 팀 보드 상단 사람 칩 (utils.teamChips) ──────────────────────────────────
+// 예전에는 **그 팀 업무의 담당자**를 세어 칩을 세웠다 — 교역자 팀 보드에 교역자가
+// 아닌 청년이 떴다(교역자 팀 업무 한 건을 맡고 있었다 · 사용자 지적 2026-09-07).
+// 기준은 사람 프로필의 소속 팀이고, 숫자는 그 사람이 맡은 **이 팀의 남은 업무**다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const dir = mkdtempSync(join(tmpdir(), 'chips-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, src);
+  const { teamChips } = await import(pathToFileURL(f).href);
+
+  const members = [
+    { id: 'u1', name: '임재훈', team: '교역자', teams: ['교역자'] },
+    { id: 'u2', name: '김윤주', team: '교역자', teams: ['교역자', '찬양팀'] },   // 겸직
+    { id: 'u3', name: '조해리', team: '임원진', teams: ['임원진'] },
+    { id: 'u4', name: '강예은', team: '찬양팀', teams: ['찬양팀'] },
+  ];
+  const T = (over) => ({ status: '진행 중', teams: ['교역자'], assignees: [], ...over });
+  const tasks = [
+    T({ assignees: ['임재훈'] }),
+    T({ assignees: ['임재훈'] }),
+    T({ assignees: ['조해리'] }),                       // 팀 소속이 아닌 사람이 맡은 건
+    T({ assignees: ['김윤주'], status: '완료' }),        // 끝난 것은 안 센다
+    T({ assignees: ['강예은'], teams: ['찬양팀'] }),      // 다른 팀 건
+  ];
+
+  const chips = teamChips(members, tasks, '교역자');
+  assert.deepStrictEqual(chips.map(c => c.name), ['임재훈', '김윤주'],
+    '교역자 팀 칩은 교역자로 등록된 사람뿐이다(업무를 맡았어도 소속이 아니면 안 선다)');
+  assert.ok(!chips.some(c => c.name === '조해리'),
+    '팀 소속이 없는데 이 팀 업무를 맡은 사람은 칩에서 빠진다(사용자 결정 2026-09-07)');
+  assert.strictEqual(chips[0].left, 2, '숫자는 그 사람이 맡은 이 팀의 남은 업무 수');
+  assert.strictEqual(chips[1].left, 0, '이 팀 업무가 없어도 소속이면 칩은 선다(0)');
+  assert.ok(!chips.some(c => c.left === 1 && c.name === '김윤주'),
+    '완료된 업무는 남은 수에 들어가지 않는다');
+  // 겸직은 두 보드에 다 선다
+  assert.deepStrictEqual(teamChips(members, tasks, '찬양팀').map(c => [c.name, c.left]),
+    [['강예은', 1], ['김윤주', 0]], '남은 건수 내림차순 → 그다음 가나다');
+
+  // 동명이인이 둘 다 등록돼 있어도 칩은 하나다(같은 key가 두 번 서면 리액트가 경고한다)
+  assert.strictEqual(
+    teamChips([...members, { id: 'u5', name: '임재훈', team: '교역자', teams: ['교역자'] }], tasks, '교역자').length,
+    2, '같은 이름은 한 번만 센다');
+
+  // 게스트 모드(members가 비어 있다)에서는 예전처럼 담당자 기준으로 떨어진다 —
+  // 그러지 않으면 이 줄이 통째로 비어 화면이 빈 것처럼 보인다.
+  assert.deepStrictEqual(teamChips([], tasks, '교역자').map(c => [c.name, c.left]),
+    [['임재훈', 2], ['조해리', 1]], 'members가 없으면 담당자 기준 폴백');
+  assert.deepStrictEqual(teamChips(null, null, '교역자'), [], '인자가 없어도 안전하다');
+
+  // 화면이 실제로 이 함수를 쓰는지 · 칩 줄이 제목 아래 **가로 스크롤 한 줄**인지
+  const views = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');
+  // 이 파일에는 팀 **필터** 칩을 담은 지역 변수 teamChips가 따로 있어 들여올 때 이름을 가른다
+  assert.ok(/teamChips as teamMemberChips/.test(views)
+    && /teamMemberChips\(storeMembers, tasksList, teamName\)/.test(views),
+    '팀 보드가 스토어의 멤버로 칩을 세운다');
+  assert.ok(/TEAM_CHIP_ROW[\s\S]{0,200}overflow-x-auto/.test(views),
+    '칩이 넘치면 줄바꿈이 아니라 가로 스크롤이다');
+  assert.ok(/TEAM_CHIP_ROW[\s\S]{0,200}after:w-3/.test(views),
+    '끝까지 밀면 마지막 칩 뒤에 여백이 남는다');
+  assert.ok(!/members\.slice\(0, 5\)/.test(views), '5명 상한은 없앴다(전원이 선다)');
+
+  console.log('PASS  팀 보드 사람 칩 12가지');
 }

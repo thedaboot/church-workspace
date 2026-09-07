@@ -748,3 +748,31 @@ export function forceBounds(node, W, H, drag = false) {
     y1: H - (node.pb ?? 16),
   };
 }
+
+// ── 팀 보드 상단의 사람 칩 ──────────────────────────────────────────────────
+// **기준은 "그 팀에 속한 사람"이지 "그 팀 업무를 맡은 사람"이 아니다.**
+// 예전에는 팀 업무의 담당자를 세어 칩을 세웠는데, 그러면 교역자 팀 보드에 교역자가
+// 아닌 청년이 떴다(교역자 팀 업무 한 건을 맡고 있었다 · 사용자 지적 2026-09-07).
+// 팀은 사람 프로필이 말한다(스토어의 members — cloudSync가 profiles·profile_teams로
+// 만든다: 대표 팀 `team` + 겸직까지 담은 `teams`).
+// **팀 소속이 없는데 이 팀 업무를 맡은 사람은 칩에서 빠진다**(사용자 결정) — 칩은
+// "이 팀이 누구인가"를 말하는 줄이고, 그 사람의 업무는 아래 마감 목록에 그대로 있다.
+// 숫자는 그 사람이 맡은 **이 팀의 남은 업무 수**다(0이면 화면이 숫자를 생략한다).
+//
+// members가 비어 있으면(게스트 모드 · 클라우드가 아직 안 왔을 때) 예전처럼 담당자
+// 기준으로 떨어진다 — 그러지 않으면 게스트 스위트에서 이 줄이 통째로 빈다.
+export function teamChips(members, tasks, teamName) {
+  const left = new Map();
+  for (const t of (tasks || [])) {
+    if (t.status === '완료' || !(t.teams || []).includes(teamName)) continue;
+    for (const a of (t.assignees || [])) left.set(a, (left.get(a) || 0) + 1);
+  }
+  const list = (members || []).length
+    // 동명이인이 둘 다 서면 같은 칩이 두 번 뜬다 — 이름으로 한 번만 센다
+    ? [...new Set(members
+        .filter(m => m.team === teamName || (m.teams || []).includes(teamName))
+        .map(m => m.name).filter(Boolean))]
+      .map(name => ({ name, left: left.get(name) || 0 }))
+    : [...left.entries()].map(([name, n]) => ({ name, left: n }));
+  return list.sort((a, b) => b.left - a.left || a.name.localeCompare(b.name, 'ko'));
+}

@@ -9,6 +9,7 @@ import { failText, objectParticle } from '../services/errorText.js';
 import { agoLabel, visitOrder, isoTime, mergeActivitySeen } from '../utils.js';
 import { usePresence } from '../services/presence.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
+import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectMembers, selectActivityFeed } from '../store/selectors.js';
 import * as cloud from '../services/cloud.js';
@@ -99,6 +100,12 @@ export function MembersView({ isAdmin, isMaster }) {
   const online = usePresence();
   // 줄마다 'N분 전 가입 · N분 전 다녀감'이 있다 — 이 화면을 열어 두면 그 글자가 굳는다
   useMinuteTick();
+  // 줄 등장은 앱의 관례대로 `.dc-row` + 순번 지연이고 **첫 마운트에만** 준다
+  // (useEnterStagger 주석 — 수락·환송으로 줄이 구역을 옮길 때 그 줄만 뒤늦게 나타나면
+  //  "순서"가 아니라 지각으로 읽힌다). 지연 상한도 둔다 — 가입자가 쉰 명이면 아래쪽이
+  //  1.5초 뒤에 뜬다.
+  const stagger = useEnterStagger();
+  const rowDelay = (i) => (stagger ? Math.min(i, 12) * 30 : 0);
   // **'다녀감'은 대시보드와 같은 값이어야 한다**(사용자 지적 2026-09-05 — 두 화면의
   // 싱크). 이 화면의 목록(cloud.listMembersAdmin)은 열 때 한 번 받는 스냅샷이라 그대로
   // 두면 그 시각이 굳고, 위의 useMinuteTick이 굳은 값을 늙히기까지 해서 열어 둔 만큼
@@ -320,14 +327,15 @@ export function MembersView({ isAdmin, isMaster }) {
   // 접속 표시는 대시보드 '가입한 사람' 목록(MembersModal)과 같은 모양이다 — 아바타
   // 귀퉁이의 초록 원 + '접속 중'. 지금 보고 있는 사람에게 '1초 전 다녀감'이 뜨면
   // 어색하다(사용자 지적).
-  const MemberRow = ({ row, action }) => {
+  const MemberRow = ({ row, action, delay = 0 }) => {
     const isOnline = online.has(row.id);
     // 방문 기록이 없으면 '다녀감' 줄을 아예 안 그린다 — 그 사람의 가장 최근 시각은
     // 가입 시각이고(대시보드 목록이 lastVisitOf로 그것을 쓴다), 이 화면은 그 값을 이미
     // 왼쪽의 'N분 전 가입'으로 보여주고 있다. 같은 값을 두 번 적지 않는다.
     const at = seenAt(row);
     return (
-    <div className="flex items-center gap-2.5 py-2.5" style={{ borderBottom: '1px solid var(--app-line)' }}>
+    <div className="dc-row flex items-center gap-2.5 py-2.5"
+      style={{ borderBottom: '1px solid var(--app-line)', animationDelay: `${delay}ms` }}>
       <span className="relative shrink-0 inline-flex">
         <Avatar name={row.display_name} url={row.avatar_url} className="flex w-8 h-8 text-[13px]" />
         {isOnline && (
@@ -368,19 +376,21 @@ export function MembersView({ isAdmin, isMaster }) {
         </span>
       </div>
 
+      {/* 탭을 바꾸면 그 내용이 살짝 들어온다(.dc-screen · §4.2 260ms). '청년 명단' 쪽은
+          RosterPanel의 뿌리가 이미 .dc-screen이라 여기서 한 겹 더 씌우지 않는다. */}
       {tab === 'roster' ? (
         <RosterPanel {...(shownBook || {})} profiles={rows || []} profilesReady={rows !== null}
           year={year} years={YEARS} busy={busy} loading={!shownBook} on={rosterOn} />
       ) : rows === null ? (
-        <><RowSkeleton /><RowSkeleton /><RowSkeleton /></>
+        <div className="dc-screen"><RowSkeleton /><RowSkeleton /><RowSkeleton /></div>
       ) : (
-        <>
+        <div className="dc-screen">
           {/* 대기자가 있을 때만 그린다 — 없는 줄을 그리면 "할 일이 있다"로 읽힌다 */}
           {waiting.length > 0 && (
             <Section title="승인을 기다리는 사람" count={waiting.length}
               hint="수락하기 전에는 프로젝트도 업무도 볼 수 없어요.">
-              {waiting.map(row => (
-                <MemberRow key={row.id} row={row} action={
+              {waiting.map((row, i) => (
+                <MemberRow key={row.id} row={row} delay={rowDelay(i)} action={
                   <button type="button" disabled={!!busy[row.id]} onClick={() => approve(row, true)}
                     className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
                     {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />} 수락
@@ -391,8 +401,8 @@ export function MembersView({ isAdmin, isMaster }) {
           )}
 
           <Section title="함께하는 사람" count={members.length}>
-            {members.map(row => (
-              <MemberRow key={row.id} row={row} action={
+            {members.map((row, i) => (
+              <MemberRow key={row.id} row={row} delay={rowDelay(i)} action={
                 <ConfirmPopover message={`${row.display_name || '이 분'}을 환송할까요? 지난 댓글·기록은 그대로 남아요.`}
                   onConfirm={() => approve(row, false)}>
                   <button type="button" disabled={!!busy[row.id]}
@@ -409,8 +419,8 @@ export function MembersView({ isAdmin, isMaster }) {
           {removed.length > 0 && (
             <Section title="환송한 사람" count={removed.length}
               hint="다시 초대하면 수락 대기 없이 바로 돌아와요. 지난 댓글·기록은 계속 남아 있어요.">
-              {removed.map(row => (
-                <MemberRow key={row.id} row={row} action={
+              {removed.map((row, i) => (
+                <MemberRow key={row.id} row={row} delay={rowDelay(i)} action={
                   <button type="button" disabled={!!busy[row.id]} onClick={() => approve(row, true)}
                     className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
                     {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />} 다시 초대하기
@@ -425,11 +435,12 @@ export function MembersView({ isAdmin, isMaster }) {
               (0029) 감춰도 '화면만 감추는' 상태가 되지 않는다. */}
           <Section title="관리자" count={(admins || []).length}
             hint="관리자는 멤버 관리와 업무 삭제를 할 수 있어요.">
-            {(admins || []).map(a => {
+            {(admins || []).map((a, i) => {
               // 같은 사람이 계정을 여럿 쓰면(구글·카카오) 행이 둘이다 — 이름으로 묶어 보여준다
               const who = (rows || []).find(r => (r.email || '').toLowerCase() === a.email);
               return (
-                <div key={a.email} className="flex items-center gap-2.5 py-2.5" style={{ borderBottom: '1px solid var(--app-line)' }}>
+                <div key={a.email} className="dc-row flex items-center gap-2.5 py-2.5"
+                  style={{ borderBottom: '1px solid var(--app-line)', animationDelay: `${rowDelay(i)}ms` }}>
                   {who
                     ? <Avatar name={who.display_name} url={who.avatar_url} className="flex w-8 h-8 text-[13px] shrink-0" />
                     : <span className="w-8 h-8 rounded-full bg-accent-weak flex items-center justify-center shrink-0"><ShieldCheck size={15} className="text-accent-text" /></span>}
@@ -481,7 +492,7 @@ export function MembersView({ isAdmin, isMaster }) {
               자기 자신은 해제할 수 없어요.
             </p>
           </Section>
-        </>
+        </div>
       )}
     </div>
   );
