@@ -38,6 +38,13 @@ import { kindLabel, formatServiceDate, SUNDAY_KIND } from './worship.js';
 //   { passage: { ref, title }, summaryRef?, summary?, points: [{ title, body } ×3],
 //     questions: [string ×3~4], questionNote? }
 //
+// `passage.title`은 **모델이 짓는 말이 아니라 주보의 설교 제목이다**(사용자 지시
+// 2026-09-09 — "'본문 한 마디'가 아니라 설교 제목으로"). `passage.ref`가 이미 그랬듯
+// 주보가 진실이다: 프롬프트는 이 칸을 아예 묻지 않고 generateGuide가 `service.title`로
+// 채운다. 주보에 제목이 없으면 빈 글이고, 화면은 빈 글이면 대괄호를 그리지 않는다.
+// **지난 가이드는 그때 지어진 말을 그대로 들고 있다**(마이그레이션 없음) — 그 글도
+// 그대로 열려야 하므로 여기서 지우지 않는다.
+//
 // `summary`·`summaryRef`는 **선택 필드**다. 2026-09-08 템플릿에는 줄글 요약 단락이
 // 아예 없다 — '말씀 요약'은 번호가 붙은 소제목 셋(points)으로만 이루어진다. 그래서
 // 프롬프트는 이 둘을 더 이상 묻지 않는다. 다만 **지난 가이드는 그 단락을 들고 있으므로**
@@ -171,8 +178,12 @@ export function guideServices(services = [], keepId = '', limit = GUIDE_SERVICE_
 
 // 고르는 줄에 적는 한 줄 — 날짜와, 설교 제목이 있으면 그것까지.
 export const guideServiceLabel = (s) => (s
-  ? `${formatServiceDate(s.service_date)}${str(s.title) ? ` · ${str(s.title)}` : ''}`
+  ? `${guideServiceDate(s)}${str(s.title) ? ` · ${str(s.title)}` : ''}`
   : '');
+
+// 고르는 목록은 날짜와 제목을 **따로** 세운다(왼쪽 날짜 · 그 옆 제목 · 오른쪽 꼬리표).
+// 날짜 글자는 예배 줄기와 한 벌이다(§6-9-bp — worship.formatServiceDate).
+export const guideServiceDate = (s) => (s ? formatServiceDate(s.service_date) : '');
 
 // ── 프롬프트 ────────────────────────────────────────────────────────────────
 
@@ -223,8 +234,10 @@ export function buildGuidePrompt({ service, passageText = '' } = {}) {
     passageText || '(본문 텍스트를 받지 못했습니다. 위 구절만 보고 쓰되, 본문에 없는 내용을 지어내지 마라.)',
     '',
     '[만들 것 — 아래 모양의 JSON 하나]',
+    // 설교 제목은 **묻지 않는다** — 주보가 진실이라 generateGuide가 넣는다(위 계약 주석).
+    // 물어 두면 모델이 지은 말이 주보 제목을 밀어내고, 순장이 읽어 주는 줄이 주보와 어긋난다.
     '{',
-    '  "passage": { "ref": "본문 구절을 그대로", "title": "본문을 한 마디로 (12자 이내)" },',
+    '  "passage": { "ref": "본문 구절을 그대로" },',
     '  "points": [',
     `    { "title": "소제목 (${LIMITS.pointTitle}자 이내, 번호는 붙이지 마라)", "body": "그 대목의 설명 (${LIMITS.pointBody}자 이내)" },`,
     '    { "title": "…", "body": "…" },',
@@ -300,9 +313,12 @@ export async function generateGuide(service) {
   // 배포 빌드에서는 이 줄이 통째로 죽는다(import.meta.env.DEV = false).
   if (!body && import.meta.env?.DEV) body = fitGuide(structuredClone(SAMPLE_GUIDE));
   if (!body) return null;
-  // 구절은 주보가 진실이다 — 모델이 옮겨 적다가 틀리면 화면의 '주일 본문'이 주보와
-  // 어긋난다(순장이 그걸 읽어 준다).
+  // 구절도 설교 제목도 주보가 진실이다 — 모델이 옮겨 적다가 틀리거나 딴 말을 지으면
+  // 화면의 '주일 본문'이 주보와 어긋난다(순장이 그걸 읽어 준다).
+  // 제목은 프롬프트가 아예 묻지 않으므로 여기서 넣는다. 주보에 없으면 빈 글이고,
+  // 화면은 빈 글이면 대괄호째 그리지 않는다.
   if (service.passage_ref) body.passage.ref = String(service.passage_ref);
+  body.passage.title = str(service.title);
   return body;
 }
 
@@ -327,6 +343,26 @@ export async function loadGuide(serviceId) {
     .select('service_id, body, pinned, updated_at').eq('service_id', serviceId).maybeSingle();
   if (error) throw error;
   return shaped(data);
+}
+
+// 이 주보들 중 **이미 가이드가 있는 것**의 id 목록(사용자 지시 2026-09-09 — "주보를
+// 일단 먼저 사용자가 선택을 하고 나서 해당 주보에 대해서 만들 수 있게"). 고르는 줄에
+// '가이드 있음' 꼬리표를 붙이려면 한 건씩 열어 보지 않고 한 번에 알아야 한다.
+// 열 건 남짓이라 body까지 받아 **모양까지 본다** — 0039의 기본값 `{}`가 든 행은
+// 가이드가 아니다(loadGuide가 그 행을 null로 돌려주므로 꼬리표만 붙으면 어긋난다).
+// 볼 자격이 없으면 error가 아니라 0행이다(0039의 select 정책).
+export async function guidedServiceIds(serviceIds = []) {
+  const ids = [...new Set((serviceIds || []).filter(Boolean))];
+  if (!ids.length) return [];
+  if (!supabase) {
+    return guestRows(GUEST_TABLE)
+      .filter((r) => ids.includes(r.service_id) && isGuideShape(r.body))
+      .map((r) => r.service_id);
+  }
+  const { data, error } = await supabase.from('sun_guides')
+    .select('service_id, body').in('service_id', ids);
+  if (error) throw error;
+  return (data || []).filter((r) => isGuideShape(r.body)).map((r) => r.service_id);
 }
 
 // 지금 고정된 가이드가 붙은 주보 id(없으면 null). 화면은 이 값으로 **처음 여는 한 벌**을

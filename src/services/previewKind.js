@@ -48,17 +48,19 @@ export const previewCopyOf = (name) => COPY_TARGET[extOf(name)] || null;
 //  · 표: `preview?widget=true&rm=minimal` — widget=true가 **시트 탭**을 남긴다.
 //        없으면 시트가 여럿인 파일에서 첫 장밖에 못 본다(utils.sheetPreviewUrl과 같은 주소).
 //  · 문서: `preview?rm=minimal` — 종이 그대로, 구글 머리줄만 걷는다. 폭은 구글이 알아서 맞춘다.
-//  · 슬라이드: **`embed`** 다. `preview`는 드라이브식 머리줄을 남기고 슬라이드를 가운데에
-//        작게 두는데, `embed`(구글이 '웹에 게시 → 퍼가기'로 내주는 그 주소)는 슬라이드가
-//        틀을 꽉 채우고 아래에 얇은 줄(이전·다음·전체화면)만 남는다.
+//  · 슬라이드: **`embed`이고 `rm=minimal`이 없다.** `preview`는 드라이브식 머리줄을 남기고
+//        슬라이드를 가운데에 작게 두는데, `embed`(구글이 '웹에 게시 → 퍼가기'로 내주는
+//        그 주소)는 슬라이드가 틀을 꽉 채운다. 여기만 `rm=minimal`을 빼는 이유는
+//        **화살표 때문**이다(사용자 요청 2026-09-09 — "ppt 미리보기는 화살표로 다음·이전
+//        장표 갈 수 있게"): 구글이 아래에 그려 주는 `◀ 1 ▶` 줄이 `rm=minimal`에 같이
+//        걷혔다. 빼고 나면 그 줄이 살아나 장표를 넘길 수 있다(변환 사본으로 실물 확인).
+//        표·문서에는 넘길 것이 없어 그대로 `rm=minimal`이다.
 //        `start=false`·`delayms=60000`은 열자마자 저 혼자 넘어가지 않게 막는 것이다
 //        (기본값은 자동 재생이다 — 미리보기 창에서 슬라이드가 움직이면 읽을 수가 없다).
-//        **실물로 나란히 비교하지는 못했다** — 사본은 소유자 드라이브에만 생기고 공개된
-//        것이 없다. 다른 쪽이 더 낫다면 이 표 한 줄만 고치면 된다.
 const COPY_VIEW = {
   spreadsheet: ['spreadsheets', 'preview?widget=true&rm=minimal'],
   document: ['document', 'preview?rm=minimal'],
-  presentation: ['presentation', 'embed?rm=minimal&start=false&loop=false&delayms=60000'],
+  presentation: ['presentation', 'embed?start=false&loop=false&delayms=60000'],
 };
 
 // 변환 사본을 **구글이 그린 화면**으로 볼 주소. 사본이 없으면 null이고, 부르는 쪽은

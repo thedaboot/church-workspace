@@ -12,6 +12,7 @@ import { showToast } from './Toast.jsx';
 import { readCache, writeCache } from '../services/cache.js';
 import { failText } from '../services/errorText.js';
 import { SectionHead, Card, prefersReducedMotion } from '../views/dashboardParts.jsx';
+import { SearchHint } from './layout.jsx';
 import { Skeleton } from './media.jsx';
 
 // ============================================================================
@@ -27,8 +28,8 @@ import { Skeleton } from './media.jsx';
 // **받는 것은 겹치게, 훑는 것은 정경 순으로**(사용자 요청 2026-09-08 — "검색 속도
 // 개선"). 예전에는 for 안에서 `await loadBook`을 한 권씩 기다려서 왕복이 66번 줄줄이
 // 섰다. 지금은 services/bible.js의 forEachPool이 여섯 권을 동시에 띄우고, 훑기는
-// 도착 순서가 아니라 목록 순서로 부른다 — 그래야 결과 줄과 '앞에서부터 N건'이
-// 정경 순 그대로다. 받은 책은 메모리와 Cache Storage에 남아 새로고침 뒤에도 빠르다.
+// 도착 순서가 아니라 목록 순서로 부른다 — 그래야 결과 줄과 상한(50건)에서 잘리는
+// 자리가 정경 순 그대로다. 받은 책은 메모리와 Cache Storage에 남아 새로고침 뒤에도 빠르다.
 //
 // **검색은 두 갈래를 동시에 돌린다**(사용자 요청 2026-09-08 — "본문 검색에 AI를 넣어
 // 시멘틱 서치가 가능하도록"). 낱말 그대로 찾는 것(위)과 뜻으로 찾는 것
@@ -62,6 +63,16 @@ const RESULT_LIMIT = 50;           // 결과 상한(스펙). 넘으면 거기서
 // "그 이후 강조 표시가 3초 후에는 없어져도 될 것 같음"). 도착한 절을 못 찾는 일이
 // 없게 데려다는 주되, 계속 테두리가 남아 있으면 그 절만 다른 글처럼 읽힌다.
 const FOCUS_MS = 3000;
+
+// ── 본문 검색 칸의 안내 문구 (사용자 요청 2026-09-09) ────────────────────────
+// 메인 검색창과 **같은 한 벌**로 돌린다(layout.jsx의 useRotatingHint·SearchHint —
+// 2초 떠 있고 0.7초에 걸쳐 갈아탄다. 두 벌을 만들지 않는다). placeholder 속성은
+// 첫 줄로 고정하고 눈에 보이는 글자는 겹쳐 놓은 span이 그린다.
+//
+// 둘째 줄은 **AI를 부를 수 있을 때만** 넣는다 — 게스트에는 AI 도막이 아예 서지
+// 않는데(§6-9-ar) "같이 찾아줄게요"라고 하면 없는 것을 약속하는 말이 된다.
+const BIBLE_HINTS = ['어떤 본문을 찾으시나요?', 'AI가 본문을 같이 찾아줄게요'];
+export const searchHints = (aiOn) => (aiOn ? BIBLE_HINTS : BIBLE_HINTS.slice(0, 1));
 
 // 글자 크기 3단계. 계정이 아니라 기기에 남긴다(같은 사람도 폰과 노트북이 다르다).
 const FONT_STEPS = [
@@ -699,7 +710,7 @@ export function BibleTab({ initialRef = '' }) {
   };
 
   // 낱말 그대로 찾기 — **받는 것만 겹친다**(forEachPool). 훑기는 목록 순서 그대로라
-  // 결과 줄도 '앞에서부터 N건'도 정경 순이다. 한 권이 끝날 때마다 결과·진행을 그린다.
+  // 결과 줄도 50건에서 잘리는 자리도 정경 순이다. 한 권이 끝날 때마다 결과·진행을 그린다.
   const runKeyword = async (q, token) => {
     setResults([]); setProgress({ done: 0, total: books.length });
     const out = [];
@@ -774,6 +785,9 @@ export function BibleTab({ initialRef = '' }) {
 
   const searching = !!progress && progress.done < progress.total && results.length < RESULT_LIMIT;
 
+  // AI를 부를 수 있는 자리인지는 한 세션 안에서 바뀌지 않는다(!!supabase)
+  const hints = useMemo(() => searchHints(aiEnabled()), []);
+
   // 북마크·형광펜 — 책으로 묶어 정경 순으로. 파싱이 안 되는 옛 값은 그룹에 못 들어가므로
   // 개수는 실제로 그린 줄로 센다
   const bookGroups = useMemo(() => groupByBook(state.bookmarks || [], books, parseChapterKey), [state.bookmarks, books]);
@@ -798,15 +812,18 @@ export function BibleTab({ initialRef = '' }) {
       <div data-col="searchbar" className="flex items-center gap-2 pb-2.5">
         <form
           onSubmit={e => { e.preventDefault(); runSearch(typed); }}
-          className="flex-1 min-w-0 flex items-center gap-1.5 px-2.5 h-9 rounded-md"
+          className="relative flex-1 min-w-0 flex items-center gap-1.5 px-2.5 h-9 rounded-md"
           style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}
         >
           <Search size={14} className="shrink-0 text-fg-faint" />
           <input
             value={typed} onChange={e => setTyped(e.target.value)}
-            placeholder="어떤 본문을 찾으시나요?" aria-label="어떤 본문을 찾으시나요?"
-            className="flex-1 min-w-0 bg-transparent text-[12.5px] text-fg placeholder:text-fg-faint outline-none"
+            /* 속성은 첫 줄로 고정하고 보이는 글자는 SearchHint가 돌린다(layout.jsx와 한 벌) */
+            placeholder={BIBLE_HINTS[0]} aria-label={BIBLE_HINTS[0]}
+            className="flex-1 min-w-0 bg-transparent text-[12.5px] text-fg placeholder:text-transparent outline-none"
           />
+          {/* 왼쪽 여백은 아이콘 폭 그대로 — 패딩 10px + 아이콘 14px + 사이 6px */}
+          <SearchHint show={!typed && !query} left="1.875rem" size="text-[12.5px]" hints={hints} />
           {(typed || query) && (
             <button type="button" onClick={clearSearch} aria-label="검색어 지우기"
               className="shrink-0 p-1 -mr-1 rounded text-fg-faint hover:text-fg transition-colors">
@@ -1230,50 +1247,66 @@ function TocSkeleton() {
 }
 
 // ── 검색 결과 ───────────────────────────────────────────────────────────────
-// 두 도막이다(사용자 요청 2026-09-08): 낱말이 **그대로 나오는 절**과 **뜻으로 찾은
-// 구절**. 위는 66권을 훑은 결과이고 아래는 제미나이가 고른 참조를 우리 본문으로
-// 확인한 것이다(services/bibleSearch.js).
+// 두 도막이다(사용자 요청 2026-09-08): 낱말이 그대로 나오는 절과 뜻으로 찾은 구절.
+// 위는 66권을 훑은 결과이고 아래는 제미나이가 고른 참조를 우리 본문으로 확인한
+// 것이다(services/bibleSearch.js).
 //
 // **AI 도막은 없으면 통째로 사라진다.** 로그인 전이거나 모델이 못 찾았을 때 "AI가
 // 못 찾았어요" 같은 줄을 세우지 않는다 — 쓰는 사람이 할 수 있는 일이 없는 안내다(§8).
 // 그리고 두 도막이 다 비었을 때만 빈 자리를 세운다.
 const resultHead = 'flex items-center gap-2 pb-2.5';
 
-function ResultHead({ children }) {
+function ResultHead({ children, count = '' }) {
   return (
     <div className={resultHead}>
       <span className="text-[12.5px] font-bold text-fg truncate min-w-0">{children}</span>
+      {!!count && <span className="text-[11.5px] text-fg-faint tabular-nums shrink-0">{count}</span>}
       <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
     </div>
   );
 }
 
+// 머리줄에 무엇이 서는지를 한 자리에서 정한다(사용자 피드백 2026-09-09).
+// · 낱말 도막의 머리줄이 곧 검색어 줄이다 — 예전에는 검색어 줄 밑에 '본문에 그대로
+//   나오는 절'이 한 줄 더 있어서 같은 말을 두 번 했다. 상한(50건)에 걸려도 그냥
+//   'N건'이다("앞에서부터"는 훑기가 정경 순이라는 우리 사정이지 읽는 사람의 일이 아니다).
+// · **0건이면서 AI가 답을 들고 있으면 낱말 머리줄을 아예 안 세운다** — '감사와 찬양 0건'
+//   위에 AI 결과가 붙으면 찾은 것이 없다는 말처럼 읽힌다.
+// · AI 도막은 '<검색어>에 대해 AI가 찾은 구절' + 건수. 기다리는 중에는 건수가 없다.
+// 순수 함수라 브라우저에서 그대로 불러 검사한다(tests/word.mjs).
+export function searchHeads({ query, count = 0, searching = false, progress = null, aiCount = 0, aiWait = false }) {
+  const aiShown = aiWait || aiCount > 0;
+  const empty = !count && !aiShown && !searching;
+  const scan = `${progress?.done ?? 0}/${progress?.total ?? 0}권 훑는 중 · ${count}건`;
+  return {
+    empty,
+    keyword: count > 0 || searching || empty
+      ? { title: query, count: searching ? scan : `${count}건` }
+      : null,
+    ai: aiShown ? { title: `${query}에 대해 AI가 찾은 구절`, count: aiWait ? '' : `${aiCount}건` } : null,
+  };
+}
+
 function SearchResults({ query, results, progress, searching, aiHits = [], aiWait = false, step = 1, onOpen }) {
-  const capped = results.length >= RESULT_LIMIT;
-  const aiShown = aiWait || aiHits.length > 0;
+  const heads = searchHeads({
+    query, count: results.length, searching, progress, aiCount: aiHits.length, aiWait,
+  });
   return (
     <div data-col="search" className="min-w-0">
-      <div className={resultHead}>
-        <span className="text-[12.5px] font-bold text-fg truncate min-w-0">{query}</span>
-        <span className="text-[11.5px] text-fg-faint tabular-nums shrink-0">
-          {searching
-            ? `${progress.done}/${progress.total}권 훑는 중 · ${results.length}건`
-            : capped ? `앞에서부터 ${results.length}건` : `${results.length}건`}
-        </span>
-        <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
-      </div>
-
       {/* 둘 다 비었고 더 기다릴 것도 없을 때에만 빈 자리다 */}
-      {!results.length && !aiShown && !searching ? (
-        <div className="min-h-[38vh] flex flex-col items-center justify-center text-center">
-          <EmptyBookMark />
-          <p className="text-[13px] font-semibold text-fg mt-3">해당 단어는 찾지 못했어요</p>
-        </div>
+      {heads.empty ? (
+        <>
+          <ResultHead count={heads.keyword.count}>{heads.keyword.title}</ResultHead>
+          <div className="min-h-[38vh] flex flex-col items-center justify-center text-center">
+            <EmptyBookMark />
+            <p className="text-[13px] font-semibold text-fg mt-3">해당 단어는 찾지 못했어요</p>
+          </div>
+        </>
       ) : (
         <div className="flex flex-col gap-5">
-          {(results.length > 0 || searching) && (
+          {heads.keyword && (
             <div data-hits="keyword" className="min-w-0">
-              <ResultHead>본문에 그대로 나오는 절</ResultHead>
+              <ResultHead count={heads.keyword.count}>{heads.keyword.title}</ResultHead>
               {results.length ? (
                 <div className="flex flex-col">
                   {results.map(r => (
@@ -1293,9 +1326,9 @@ function SearchResults({ query, results, progress, searching, aiHits = [], aiWai
             </div>
           )}
 
-          {aiShown && (
+          {heads.ai && (
             <div data-hits="ai" className="min-w-0">
-              <ResultHead>AI가 찾은 구절</ResultHead>
+              <ResultHead count={heads.ai.count}>{heads.ai.title}</ResultHead>
               {aiHits.length ? (
                 <div className="flex flex-col">
                   {aiHits.map(h => (

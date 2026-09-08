@@ -4,7 +4,7 @@ import { ChevronDown, X } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { byName } from '../services/groups.js';
-import { keepVisible } from '../utils.js';
+import { isMobileViewport, keepVisible } from '../utils.js';
 
 // ============================================================================
 // 모임 화면의 공용 부품 — 사람 동그라미 · 명단에서 고르기 · 짧은 목록 고르기 · 카드 껍데기
@@ -97,7 +97,11 @@ function PersonFace({ person, className = 'w-7 h-7 text-[11px]' }) {
 const PERSON_BADGE = 'shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold';
 export function PersonTag({ person, badge, tag, right, className = '' }) {
   return (
-    <div className={`group-person flex items-center gap-2 min-w-0 ${className}`}>
+    // `has-[.menu-pick-menu]:items-start` — 터치·좁은 화면에서 순 옮기기 목록이 이 줄
+    // **안에** 펴질 때만 걸린다(데스크톱은 포털이라 이 선택자에 걸릴 것이 없다).
+    // 없으면 목록만큼 높아진 줄에서 세로 가운데가 다시 잡혀 트리거가 이름 위로 올라가고,
+    // 이름이 트리거와 목록 사이에 끼어 누구의 목록인지 흐려진다(375 실측).
+    <div className={`group-person flex items-center has-[.menu-pick-menu]:items-start gap-2 min-w-0 ${className}`}>
       <PersonFace person={person} />
       <span className="text-[12.5px] text-fg truncate">{person?.name}</span>
       {badge && (
@@ -106,7 +110,7 @@ export function PersonTag({ person, badge, tag, right, className = '' }) {
       {tag && (
         <span className={`person-tag-mark ${PERSON_BADGE} bg-tag-green text-tag-green-fg`}>{tag}</span>
       )}
-      {right && <span className="ml-auto shrink-0 flex items-center gap-1">{right}</span>}
+      {right && <span className="ml-auto shrink-0 flex items-center has-[.menu-pick-menu]:items-start gap-1">{right}</span>}
     </div>
   );
 }
@@ -133,14 +137,32 @@ function useDismiss(open, close, ...refs) {
   }, [open]);
 }
 
-// 이 파일의 피커 목록은 **body 포털이 기본**이다(§6-1). absolute + z-50으로 두었더니
+// 이 파일의 피커 목록은 **데스크톱에서 body 포털**이다(§6-1). absolute + z-50으로 두었더니
 // `.dc-row`·`.dc-card`의 등장 애니메이션이 `animation-fill-mode: both`로 끝난 뒤에도
 // identity transform을 남겨서(계산값이 none이 아니라 matrix(1,0,0,1,0,0)) 카드마다
 // **쌓임 맥락**이 생겼고, 순 편성에서 목록이 바로 아래 순 카드에 덮여 잘렸다(사용자
 // 지적 2026-09-02 · 실측 5개 점 중 2~4개가 아래 카드에 가려짐). 같은 transform이
 // fixed의 기준 박스도 되므로 포털 없이 fixed로 바꾸는 것으로는 풀리지 않는다.
 // 자리는 ConfirmPopover의 useAnchoredPos가 잡는다 — 화면 아래쪽에서 열면 위로 뒤집고
-// 좌우도 뷰포트 안으로 클램프한다(모바일 375px).
+// 좌우도 뷰포트 안으로 클램프한다.
+//
+// ── 터치·좁은 화면에서는 포털이 아니라 **그냥 아래에 붙여 그린다** ──────────
+// 아이폰에서 키보드가 올라온 채로 목록이 칸에서 떨어져 뜬다는 보고가 두 번 왔다
+// (2026-09-08 멤버 추가·순장 지정 → visualViewport + rAF 추적으로 고친 §6-9-an,
+// 2026-09-09 "동아리 멤버 추가 쪽도 키보드 상태 피커 쪽 봐줘야해 — 순장이랑 똑같은
+// 문제야"). 좌표를 아무리 정확히 셈해도 iOS 사파리는 키보드가 떠 있는 동안
+// `position: fixed`를 제자리에 그려 주지 않는다 — 우리가 못 재는 것이 아니라 **fixed를
+// 쓰는 것 자체가 원인**이다. 그래서 터치·좁은 화면에서는 fixed를 아예 안 쓴다:
+// 목록을 부품 뿌리 안, 칸 바로 아래의 **보통 흐름**에 둔다. 그러면 자리는 브라우저의
+// 레이아웃이 잡으니 잴 것이 없고(뷰포트 셈도, rAF 추적도 필요 없다), 아래 내용을
+// 덮는 대신 밀어낸다. §6-1의 쌓임 맥락 문제도 같이 사라진다 — 목록이 떠 있는 것이
+// 아니라 레이아웃의 일부라서 무엇에 덮일 일이 없다.
+// 판정은 **열 때 한 번**이다(열려 있는 동안 갈리면 그 한 번의 열기 안에서 포털과
+// 인라인이 뒤바뀐다). 좁은 화면(≤767)이거나 굵은 포인터면 인라인이다 — 아이패드처럼
+// 넓지만 손가락으로 쓰는 기기도 같은 길로 보낸다.
+const isTouchNarrow = () => typeof window !== 'undefined'
+  && (!!window.matchMedia?.('(pointer: coarse)')?.matches || isMobileViewport());
+
 const MENU_MAX_H = 208;  // max-h-52 — 실제 높이는 그려진 뒤 measuredRef로 다시 잰다
 const MENU_EST_W = 176;  // MenuPick 첫 배치용 추정 폭(내용 폭을 잰 뒤 다시 잡는다)
 
@@ -151,7 +173,12 @@ const MENU_EST_W = 176;  // MenuPick 첫 배치용 추정 폭(내용 폭을 잰 
 // `all`이라 아무 transition 클래스가 없어도 **위치까지 전이 대상**이 된다 —
 // 첫 배치의 top이 0 → 제자리로 150ms에 걸쳐 미끄러졌다(실측: 2 → 33 → 104 → 305 → 307px).
 // `animate-in`의 기본 길이가 그대로 .15s라 클래스만 빼면 등장 인상은 같다.
-const MENU_BOX = 'z-[90] max-h-52 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95';
+const MENU_LOOK = 'max-h-52 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95';
+const MENU_BOX = `z-[90] ${MENU_LOOK}`;   // 포털(데스크톱) — fixed로 띄운다
+// 인라인(터치·좁은 화면) — 뜨지 않으므로 `z-[90]`도 필요 없다. 칸과의 사이는 포털이
+// 잡던 것과 같은 4px(useAnchoredPos의 `r.bottom + 4`)이다 — 0으로 붙이면 칸의 아래
+// 테두리와 목록의 위 테두리가 겹쳐 2px 선이 된다.
+const MENU_FLOW = `mt-1 ${MENU_LOOK}`;
 
 // 명단에서 고르기 — **입력하면 자동완성이 뜨는 피커**(멘션·담당자 지정과 같은 톤).
 // 네이티브 <select>를 걷어낸 자리다(사용자 지적 2026-09-01 "슬라이더처럼 보인다"):
@@ -168,6 +195,8 @@ export function PersonPick({
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(0);
+  // 이번 열기를 보통 흐름으로 그릴 것인가(터치·좁은 화면). 위 isTouchNarrow 주석 참고.
+  const [flow, setFlow] = useState(false);
   const rootRef = useRef(null);
   const inputRef = useRef(null);
   const menuRef = useRef(null);
@@ -182,12 +211,29 @@ export function PersonPick({
   // 키보드가 올라와 칸 폭이 바뀌면 옛 폭으로 선 목록이 오른쪽으로 밀려 보였다
   // (사용자 보고 2026-09-08). useAnchoredPos는 `앵커 오른쪽 - 폭`을 왼쪽으로 잡으니,
   // 폭이 같으면 칸에 딱 맞게 선다.
-  const [pos, place] = useAnchoredPos(rootRef, open, 0, MENU_MAX_H, 8, menuRef, { matchWidth: true });
+  // 인라인일 때는 아예 부르지 않는다 — 자리를 브라우저가 잡으므로 잴 것이 없다.
+  const [pos, place] = useAnchoredPos(rootRef, open && !flow, 0, MENU_MAX_H, 8, menuRef, { matchWidth: true });
 
   // **열기 전에 자리를 잡는다**(layout.jsx ProfileMenu와 같은 순서 — place() 먼저, 그다음
   // 열기). 열고 나서 재면 첫 렌더가 {0,0}에 놓였다가 제자리로 옮겨지고, 그 이동이
   // 눈에 보인다. 이미 열려 있을 때 불러도 같은 자리를 다시 셈할 뿐이라 해롭지 않다.
-  const openMenu = () => { place(); setOpen(true); };
+  // 인라인·포털 판정은 **여는 이 순간의 것**이고, setFlow와 setOpen이 한 벌로 묶여
+  // 처리되므로 useAnchoredPos의 레이아웃 효과는 처음부터 맞는 값을 본다.
+  const openMenu = () => {
+    const next = isTouchNarrow();
+    setFlow(next);
+    if (!next) place();
+    setOpen(true);
+  };
+
+  // 인라인으로 열었으면 **칸과 목록이 함께 보이게** 한 프레임 뒤에 끌어온다 — 키보드가
+  // 올라오면서 화면이 밀리는 것은 그 다음이라 지금 재서 옮기는 것은 뜻이 없고,
+  // `block: 'nearest'`는 이미 보이면 아무 것도 하지 않는다(필요한 만큼만 움직인다).
+  useEffect(() => {
+    if (!open || !flow) return undefined;
+    const id = requestAnimationFrame(() => rootRef.current?.scrollIntoView({ block: 'nearest' }));
+    return () => cancelAnimationFrame(id);
+  }, [open, flow]);
 
   // 후보는 언제나 가나다순이다(사용자 지시 2026-09-02) — 명단이 온 차례대로 서면
   // 같은 이름을 찾을 때마다 다른 줄에 있다. 글자를 친 뒤에는 정확 일치 > 접두 일치 >
@@ -232,6 +278,26 @@ export function PersonPick({
   // 고른 사람의 이름은 placeholder 자리에 진한 글자로 둔다 — 칸을 누르는 순간
   // 빈 칸이 되어 바로 찾을 수 있고, 지우고 다시 치는 손이 필요 없다.
   const showName = !!selected && !query;
+  // 목록은 한 벌이고 **어디에 두는지만** 다르다 — 인라인이면 뿌리 안 보통 흐름,
+  // 데스크톱이면 body 포털 + fixed(§6-1).
+  const menu = (
+    <div ref={menuRef}
+      style={flow ? undefined : { position: 'fixed', left: pos.left, top: pos.top, width: pos.width }}
+      className={`person-pick-menu ${flow ? `w-full ${MENU_FLOW}` : MENU_BOX}`}>
+      {hits.map((p, i) => (
+        <button key={p.id} type="button"
+          // 방향키로 목록 밖까지 내려가도 활성 항목이 보이게(담당자 선택기와 같다)
+          ref={i === idx ? keepVisible : null}
+          // onMouseDown + preventDefault라야 blur보다 먼저 처리돼 선택이 보장된다
+          onMouseDown={e => { e.preventDefault(); pick(p); }}
+          className={`person-pick-option w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left text-[13px] transition-colors ${i === idx ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:bg-surface-hover'}`}>
+          <PersonFace person={p} className="w-[18px] h-[18px] text-[9.5px] shrink-0" />
+          <span className="truncate">{p.name}</span>
+        </button>
+      ))}
+      {!hits.length && <p className="px-2 py-2 text-[12px] text-fg-muted">명단에 없는 이름이에요</p>}
+    </div>
+  );
   return (
     <div ref={rootRef} className={`person-pick ${className}`}>
       <div className={`${FIELD} flex items-center gap-1.5 ${open ? 'border-accent' : ''}`}>
@@ -252,24 +318,7 @@ export function PersonPick({
           <ChevronDown size={13} />
         </button>
       </div>
-      {open && pos.width > 0 && createPortal(
-        <div ref={menuRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: pos.width }}
-          className={`person-pick-menu ${MENU_BOX}`}>
-          {hits.map((p, i) => (
-            <button key={p.id} type="button"
-              // 방향키로 목록 밖까지 내려가도 활성 항목이 보이게(담당자 선택기와 같다)
-              ref={i === idx ? keepVisible : null}
-              // onMouseDown + preventDefault라야 blur보다 먼저 처리돼 선택이 보장된다
-              onMouseDown={e => { e.preventDefault(); pick(p); }}
-              className={`person-pick-option w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left text-[13px] transition-colors ${i === idx ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:bg-surface-hover'}`}>
-              <PersonFace person={p} className="w-[18px] h-[18px] text-[9.5px] shrink-0" />
-              <span className="truncate">{p.name}</span>
-            </button>
-          ))}
-          {!hits.length && <p className="px-2 py-2 text-[12px] text-fg-muted">명단에 없는 이름이에요</p>}
-        </div>,
-        document.body,
-      )}
+      {open && (flow ? menu : (pos.width > 0 && createPortal(menu, document.body)))}
     </div>
   );
 }
@@ -279,32 +328,44 @@ export function PersonPick({
 export function MenuPick({ items = [], onPick, label, empty, children, className = '' }) {
   const [open, setOpen] = useState(false);
   const [w, setW] = useState(MENU_EST_W);
+  // PersonPick과 같은 규칙 — 터치·좁은 화면에서는 트리거 아래 보통 흐름에 그린다.
+  // 줄이 그만큼 길어지지만(순 옮기기는 구성원 줄 안이다) fixed를 쓰지 않는 쪽이 낫다.
+  const [flow, setFlow] = useState(false);
   const rootRef = useRef(null);
   const menuRef = useRef(null);
   useDismiss(open, () => setOpen(false), rootRef, menuRef);
   // 폭은 내용이 정한다(w-max). 그린 뒤 실제 폭으로 다시 재야 오른쪽 끝이 트리거에 맞는다 —
   // 레이아웃 패스 안에서 다시 잡으므로 자리가 튀어 보이지 않는다.
-  useLayoutEffect(() => { if (open) setW(menuRef.current?.offsetWidth || MENU_EST_W); }, [open, items.length]);
-  const [pos, place] = useAnchoredPos(rootRef, open, w, MENU_MAX_H, 8, menuRef);
+  // 인라인일 때는 흐름이 오른쪽 끝을 맞춰 주므로(items-end) 이 값이 쓰이지 않는다.
+  useLayoutEffect(() => { if (open && !flow) setW(menuRef.current?.offsetWidth || MENU_EST_W); }, [open, flow, items.length]);
+  const [pos, place] = useAnchoredPos(rootRef, open && !flow, w, MENU_MAX_H, 8, menuRef);
   // PersonPick과 같은 순서 — **열기 전에 place()**(layout.jsx ProfileMenu의 패턴).
-  const toggle = () => { if (open) { setOpen(false); return; } place(); setOpen(true); };
+  const toggle = () => {
+    if (open) { setOpen(false); return; }
+    const next = isTouchNarrow();
+    setFlow(next);
+    if (!next) place();
+    setOpen(true);
+  };
+  const menu = (
+    <div ref={menuRef} style={flow ? undefined : { position: 'fixed', left: pos.left, top: pos.top }}
+      className={`menu-pick-menu w-max min-w-[7rem] max-w-[min(14rem,80vw)] ${flow ? MENU_FLOW : MENU_BOX}`}>
+      {items.map(it => (
+        <button key={it.id} type="button" onClick={() => { setOpen(false); onPick(it.id); }}
+          className="menu-pick-option w-full block px-2 py-1.5 rounded-md text-left text-[12.5px] text-fg-muted hover:bg-surface-hover transition-colors truncate">{it.name}</button>
+      ))}
+      {!items.length && empty && <p className="px-2 py-2 text-[12px] text-fg-muted">{empty}</p>}
+    </div>
+  );
   return (
-    <span ref={rootRef} className={`inline-flex ${className}`}>
+    // 인라인이면 트리거와 목록이 세로로 서고 오른쪽 끝을 맞춘다 — 포털이 잡던 자리
+    // (`앵커 오른쪽 - 폭`)와 같은 모양이다.
+    <span ref={rootRef} className={`inline-flex ${flow && open ? 'flex-col items-end' : ''} ${className}`}>
       <button type="button" aria-label={label} aria-expanded={open} onClick={toggle}
         className="menu-pick inline-flex items-center gap-1 px-1.5 py-1 rounded-xs border border-line bg-surface text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95">
         <span>{children}</span><ChevronDown size={11} className="shrink-0" />
       </button>
-      {open && createPortal(
-        <div ref={menuRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
-          className={`menu-pick-menu w-max min-w-[7rem] max-w-[min(14rem,80vw)] ${MENU_BOX}`}>
-          {items.map(it => (
-            <button key={it.id} type="button" onClick={() => { setOpen(false); onPick(it.id); }}
-              className="menu-pick-option w-full block px-2 py-1.5 rounded-md text-left text-[12.5px] text-fg-muted hover:bg-surface-hover transition-colors truncate">{it.name}</button>
-          ))}
-          {!items.length && empty && <p className="px-2 py-2 text-[12px] text-fg-muted">{empty}</p>}
-        </div>,
-        document.body,
-      )}
+      {open && (flow ? menu : createPortal(menu, document.body))}
     </span>
   );
 }

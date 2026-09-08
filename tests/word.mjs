@@ -106,14 +106,14 @@ const tplMod = await import(new URL('src/services/noteTemplate.js', ROOT).href);
 const wTpl = tplMod.worshipNoteTemplate({ passageRef: '요한복음 3:16' });
 const qTpl = tplMod.qtNoteTemplate({ passageRef: '' });
 check('예배 노트 템플릿은 다섯 도막이다',
-  ['### 본문', '### 말씀 요약', '### 묵상 노트', '### 결단하기', '### 기도하기'].every(h => wTpl.includes(h)),
+  ['### 본문', '### 말씀 요약', '### 나의 묵상', '### 결단', '### 기도'].every(h => wTpl.includes(h)),
   JSON.stringify(wTpl));
 check('본문 아래에 그 예배의 구절이 미리 들어간다',
   wTpl.split('\n')[0] === '### 본문' && wTpl.split('\n')[1] === '요한복음 3:16',
   JSON.stringify(wTpl.split('\n').slice(0, 2)));
 // QT는 혼자 본문을 읽는 자리라 '말씀 요약'이 없다(설교 요약과 묵상이 같은 글이 된다)
 check('QT 템플릿은 네 도막(말씀 요약이 없다)',
-  qTpl.includes('### 묵상 노트') && !qTpl.includes('### 말씀 요약')
+  qTpl.includes('### 나의 묵상') && !qTpl.includes('### 말씀 요약')
   && (qTpl.match(/^### /gm) || []).length === 4,
   JSON.stringify(qTpl.match(/^### .*/gm) || []));
 check('제목마다 그 아래 빈 줄이 하나 있다(커서가 제목 밑에 떨어진다)',
@@ -127,6 +127,13 @@ check('한 줄이라도 쓰면 빈 노트가 아니다',
   && tplMod.isTemplateOnly('그냥 한 줄') === false);
 check('구절 줄은 그 구절을 알 때에만 템플릿으로 친다',
   tplMod.isTemplateOnly(wTpl, '') === false);
+// 도막 이름이 바뀌기 전(2026-09-09)에 저장된 빈 노트 — '묵상 노트 · 결단하기 · 기도하기'.
+// **되돌리기**: LEGACY_SECTIONS를 SECTION_RE에서 빼면 이 줄이 깨진다. 그러면 예전에
+// 손도 안 댄 템플릿들이 하루아침에 '사람이 쓴 글'이 되어 나눔 피드·잔디에 오른다.
+const oldTpl = '### 본문\n요한복음 3:16\n### 말씀 요약\n\n### 묵상 노트\n\n### 결단하기\n\n### 기도하기\n';
+check('옛 이름으로 저장된 템플릿도 빈 노트다',
+  tplMod.isTemplateOnly(oldTpl, '요한복음 3:16') === true
+  && tplMod.isTemplateOnly(oldTpl + '한 줄 썼다', '요한복음 3:16') === false);
 
 // ── 1-c. 뜻으로 찾는 본문 검색 (순수 — services/bibleSearch.js) ─────────────
 // 임베딩·색인을 만들지 않는다 — 모델에게 **참조만** 받고 본문은 우리 파일에서 읽는다.
@@ -756,7 +763,7 @@ const tplNote = await ev(`(() => {
            leaf: cs ? String(cs.maskImage || cs.webkitMaskImage || '') : '' };
 })()`);
 check('묵상을 처음 쓰는 날은 템플릿 네 도막으로 시작한다',
-  tplNote.heads.join('|') === '본문|묵상 노트|결단하기|기도하기', JSON.stringify(tplNote.heads));
+  tplNote.heads.join('|') === '본문|나의 묵상|결단|기도', JSON.stringify(tplNote.heads));
 // 옛 순 노트의 잎 아이콘 — 파일이 아니라 마스크 + 토큰 색이라 다크에서도 따라온다
 check('도막 제목에 잎 표시가 붙는다', /svg/.test(tplNote.leaf), tplNote.leaf.slice(0, 48));
 check('손대지 않은 템플릿으로는 저장할 수 없다', (await saveDisabled()) === true);
@@ -988,7 +995,7 @@ const gone = await ev(`(() => ({
 check('진짜 삭제는 그 날 묵상을 없앤다', gone.stored === null && gone.feedEmpty
   && !gone.editor.includes(seedBody), JSON.stringify(gone));
 // 지운 뒤에는 다시 '아직 아무것도 안 쓴 날'이라 템플릿이 선다(빈 칸이 아니다)
-check('지우고 나면 템플릿이 다시 선다', gone.editor.includes('묵상 노트'), JSON.stringify(gone.editor));
+check('지우고 나면 템플릿이 다시 선다', gone.editor.includes('나의 묵상'), JSON.stringify(gone.editor));
 check('나눔이 비면 한 줄로 말한다',
   (await ev(`(() => { const p=[...document.querySelectorAll('p')].find(x=>x.textContent.includes('올라온 나눔이 아직 없어요')); return !!p && !p.parentElement.querySelector('img[src*="/chars/"]'); })()`)) === true);
 check('저장된 글이 없으면 공유 토글은 꺼져 있다', gone.toggleOff === true, JSON.stringify(gone));
@@ -1634,6 +1641,45 @@ const blank = await ev(`(() => {
 check('막 9:44 (없음) 절이 사라지지 않는다', blank && blank.kept, JSON.stringify(blank));
 check('(없음)은 화면에서만 흐리게', blank && blank.faint === true, JSON.stringify(blank));
 
+// 검색 칸 안내 문구 — **메인 검색창과 같은 한 벌**을 돌린다(사용자 요청 2026-09-09 —
+// "'어떤 본문을 찾으시나요?' 다음에 'AI가 본문을 같이 찾아줄게요'를 fade in/out으로").
+// placeholder 속성은 첫 줄로 고정하고(스크린 리더·검사가 그걸 본다) 눈에 보이는 글자는
+// 겹쳐 놓은 span이 그린다. 게스트에는 AI가 없어 **둘째 줄이 배열에 들어가지도 않는다**.
+// **되돌리기**: BIBLE_HINTS를 aiEnabled와 상관없이 통째로 넘기면 마지막 줄이 깨진다 —
+// 게스트에게 없는 것을 약속하는 말이 된다.
+const hintBar = await ev(`(() => {
+  const i = document.querySelector('input[aria-label="어떤 본문을 찾으시나요?"]');
+  const span = i && i.parentElement.querySelector('span[data-hint]');
+  const cs = span ? getComputedStyle(span) : null;
+  return { ph: i ? i.getAttribute('placeholder') : '',
+           text: span ? span.textContent.trim() : '',
+           opacity: cs ? Number(cs.opacity) : -1, left: cs ? cs.left : '',
+           // ::placeholder는 getComputedStyle이 크롬에서 늘 투명으로 답한다(못 믿는다) —
+           // 진짜 글자를 감추는 것은 이 클래스라, 그 클래스가 붙었는지를 본다
+           phHidden: i ? i.className.includes('placeholder:text-transparent') : false };
+})()`);
+check('검색 칸의 placeholder 속성은 첫 줄로 고정한다',
+  hintBar.ph === '어떤 본문을 찾으시나요?', JSON.stringify(hintBar));
+check('보이는 안내 글자는 겹쳐 놓은 span이 그린다',
+  hintBar.text === '어떤 본문을 찾으시나요?' && hintBar.opacity === 1 && hintBar.phHidden === true,
+  JSON.stringify(hintBar));
+const hintList = await ev(`(async () => {
+  const w = await import('/src/components/wordBible.jsx');
+  const a = await import('/src/services/ai.js');
+  return { ai: a.aiEnabled(), here: w.searchHints(a.aiEnabled()), on: w.searchHints(true) };
+})()`, true);
+check('AI가 없으면 둘째 줄은 문구 배열에 들어가지도 않는다',
+  hintList.ai === false && hintList.here.length === 1
+  && hintList.on.length === 2 && hintList.on[1] === 'AI가 본문을 같이 찾아줄게요',
+  JSON.stringify(hintList));
+// 회전 자체는 메인 검색창의 것을 그대로 쓴다 — 여기에 두 벌째를 만들지 않는다
+const hintSrcBible = readFileSync(new URL('src/components/wordBible.jsx', ROOT), 'utf8');
+const hintSrcLayout = readFileSync(new URL('src/components/layout.jsx', ROOT), 'utf8');
+check('안내 문구 회전은 메인 검색창과 한 벌이다',
+  hintSrcBible.includes("import { SearchHint } from './layout.jsx'")
+  && /export function useRotatingHint\(on, hints = SEARCH_HINTS\)/.test(hintSrcLayout)
+  && !/HINT_(HOLD|FADE)_MS/.test(hintSrcBible));
+
 // 본문 검색 — 전권을 훑어 includes 매치
 await ev(`(() => {
   const i = document.querySelector('input[aria-label="어떤 본문을 찾으시나요?"]');
@@ -1656,14 +1702,27 @@ check('찾은 말이 결과에 표시된다', found.marks > 0, String(found.mark
 // 결과는 두 도막이다(사용자 요청 2026-09-08) — 낱말이 그대로 나오는 절, 그리고 뜻으로
 // 찾은 구절. 게스트 모드에는 로그인이 없어 AI에게 **묻지도 않으므로** 아래 도막은
 // 아예 서지 않는다(왜 없는지 설명하는 줄도 붙이지 않는다 · §8).
-const hitSections = await ev(`(() => {
-  const kw = document.querySelector('[data-hits="keyword"]');
-  return { keyword: !!kw, ai: !!document.querySelector('[data-hits="ai"]'),
-           head: kw ? kw.innerText.split('\\n')[0].trim() : '' };
-})()`);
-check('낱말로 찾은 절은 제 도막에 선다',
-  hitSections.keyword === true && hitSections.head === '본문에 그대로 나오는 절', JSON.stringify(hitSections));
-check('AI가 못 도는 자리에서는 그 도막이 아예 없다', hitSections.ai === false, JSON.stringify(hitSections));
+//
+// 낱말 도막의 머리줄은 **검색어와 건수뿐**이다(사용자 피드백 2026-09-09 — 예전에는
+// 검색어 줄 밑에 '본문에 그대로 나오는 절'이 한 줄 더 있어 같은 말을 두 번 했다).
+const headSpans = (sel) => `(() => {
+  const box = document.querySelector(${JSON.stringify(sel)});
+  if (!box) return [];
+  return [...box.firstElementChild.querySelectorAll('span')].map(s => s.textContent.trim()).filter(Boolean);
+})()`;
+const hitSections = await ev(`(() => ({
+  keyword: !!document.querySelector('[data-hits="keyword"]'),
+  ai: !!document.querySelector('[data-hits="ai"]'),
+  head: ${headSpans('[data-hits="keyword"]')},
+  col: (document.querySelector('[data-col="search"]') || {}).innerText || '',
+}))()`);
+check('낱말 도막 머리줄은 검색어와 건수뿐이다',
+  hitSections.keyword === true && hitSections.head.length === 2
+  && hitSections.head[0] === '태초에' && /^\d+건$/.test(hitSections.head[1] || ''),
+  JSON.stringify(hitSections.head));
+check('결과에 딴 이름의 도막 제목이 없다',
+  !hitSections.col.includes('본문에 그대로 나오는 절'), hitSections.col.slice(0, 80));
+check('AI가 못 도는 자리에서는 그 도막이 아예 없다', hitSections.ai === false, JSON.stringify(hitSections.ai));
 // 게스트에는 로그인이 없어 **모델에게 실제로 물을 수는 없다.** 대신 모델 답을 흉내 내어
 // 브라우저에서 그 길을 그대로 태운다: 답 → 파싱 → 참조 해석 → **우리 개역한글 본문**.
 // 지어낸 참조(도마복음)가 걸러지는지, 같은 물음을 두 번 물으면 한 번만 나가는지도 본다.
@@ -1685,6 +1744,36 @@ check('AI가 준 참조를 우리 본문으로 확인해 한 줄로 만든다',
   && aiPipe.text === '아무 것도 염려하지', JSON.stringify(aiPipe));
 check('지어낸 참조는 화면까지 오지 않는다', aiPipe.n === 1, JSON.stringify(aiPipe));
 check('같은 물음은 한 번만 묻는다', aiPipe.asked === 1 && aiPipe.cachedN === 1, JSON.stringify(aiPipe));
+
+// AI 도막의 머리줄(사용자 피드백 2026-09-09 — "'감사와 찬양 / 0건 / AI가 찾은 구절'로
+// 나오는데 '감사와 찬양에 대해 AI가 찾은 구절 N건'으로"). 화면 도막은 로그인 뒤에만 서므로
+// 여기서는 **머리줄을 정하는 순수 함수**(wordBible.searchHeads)에 흉내 낸 모델 답의
+// 결과를 그대로 넣어 본다 — 낱말 0건인데 AI가 답을 들고 있으면 '0건' 줄이 없어야 한다.
+// **되돌리기**: keyword를 늘 세우게 만들면 첫 줄이, 제목에서 검색어를 빼면 둘째 줄이 깨진다.
+const aiHead = await ev(`(async () => {
+  const s = await import('/src/services/bibleSearch.js');
+  const b = await import('/src/services/bible.js');
+  const w = await import('/src/components/wordBible.jsx');
+  const books = await b.loadBibleIndex();
+  const fake = async () => '[{"ref":"빌립보서 4:6","why":"염려 대신 기도"},{"ref":"시편 23:1","why":"목자 되심"}]';
+  const hits = await s.aiBibleSearch('감사와 찬양', books, b.loadBook, fake);
+  const done = { done: 66, total: 66 };
+  return { n: hits.length,
+    zero: w.searchHeads({ query: '감사와 찬양', count: 0, progress: done, aiCount: hits.length }),
+    wait: w.searchHeads({ query: '감사와 찬양', count: 0, progress: done, aiWait: true }),
+    both: w.searchHeads({ query: '감사와 찬양', count: 3, progress: done, aiCount: hits.length }) };
+})()`, true);
+check('낱말이 0건인데 AI가 찾았으면 그 줄을 아예 안 세운다',
+  aiHead.zero.keyword === null && aiHead.zero.empty === false, JSON.stringify(aiHead.zero));
+check('AI 도막 머리줄이 검색어를 안고 건수까지 말한다',
+  aiHead.n === 2 && aiHead.zero.ai.title === '감사와 찬양에 대해 AI가 찾은 구절'
+  && aiHead.zero.ai.count === '2건', JSON.stringify(aiHead));
+check('AI를 기다리는 동안에는 건수가 없다',
+  aiHead.wait.ai.title === '감사와 찬양에 대해 AI가 찾은 구절' && aiHead.wait.ai.count === '',
+  JSON.stringify(aiHead.wait));
+check('낱말 결과가 있으면 두 머리줄이 다 선다',
+  aiHead.both.keyword.title === '감사와 찬양' && aiHead.both.keyword.count === '3건' && !!aiHead.both.ai,
+  JSON.stringify(aiHead.both));
 await clickSel('button[data-hit]');
 await sleep(1000);
 const jumped = await ev(`(() => ({ head: (document.querySelector('h3')||{}).textContent || '',
@@ -1747,6 +1836,23 @@ const marksPerRow = await ev(`(async () => {
 })()`, true);
 check('한 절에 두 번 나오는 말은 두 번 다 표시된다',
   marksPerRow.rows > 0 && marksPerRow.many > 0 && marksPerRow.wrong === 0, JSON.stringify(marksPerRow));
+
+// 상한(50건)에 걸린 자리 — 예전에는 '앞에서부터 50건'이었다. 훑기가 정경 순이라는 건
+// 우리 사정이지 읽는 사람의 일이 아니어서 그냥 '50건'이다(사용자 피드백 2026-09-09).
+const capHead = await ev(`(async () => {
+  for (let i = 0; i < 60; i++) {
+    const head = ${headSpans('[data-hits="keyword"]')};
+    if (head[1] && !head[1].includes('훑는 중')) {
+      return { head, rows: document.querySelectorAll('button[data-hit]').length,
+               col: (document.querySelector('[data-col="search"]') || {}).innerText || '' };
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return { head: [], rows: 0, col: '' };
+})()`, true);
+check('상한에 걸려도 그냥 50건이라고 말한다',
+  capHead.rows === 50 && capHead.head[1] === '50건' && !capHead.col.includes('앞에서부터'),
+  JSON.stringify({ head: capHead.head, rows: capHead.rows }));
 
 await clickSel('button[aria-label="검색어 지우기"]');
 await sleep(600);

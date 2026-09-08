@@ -98,6 +98,12 @@ check('프롬프트가 번호·Q.를 붙이지 말라고 말한다', prompt.incl
 check('프롬프트가 줄글 요약을 더 이상 묻지 않는다',
   !prompt.includes('"summary"') && !prompt.includes('"summaryRef"')
   && prompt.includes("이 셋이 '말씀 요약'의 전부다"));
+// 설교 제목도 묻지 않는다(사용자 지시 2026-09-09 — "'본문 한 마디'가 아니라 설교 제목으로").
+// 물어 두면 모델이 지은 말이 주보 제목을 밀어낸다 — 그 칸은 generateGuide가 주보로 채운다.
+check('프롬프트가 본문을 한 마디로 지어 달라고 하지 않는다',
+  !prompt.includes('본문을 한 마디로')
+  && prompt.includes('"passage": { "ref": "본문 구절을 그대로" },'),
+  (prompt.match(/"passage".*/) || [])[0]);
 // 질문은 넷이고 **첫 질문은 지난 한 주 일상**이다(템플릿의 첫 줄이 늘 그 질문이다)
 check('프롬프트가 질문 넷을 시키고 첫 질문은 지난 한 주 일상이다',
   prompt.includes(`questions는 반드시 ${G.QUESTIONS_MAX}개`)
@@ -154,6 +160,10 @@ check('줄글 요약을 들고 있는 지난 가이드도 그대로 열린다',
   && G.parseGuide(json(OLD_GUIDE))?.summary.startsWith('예수님은 성전에서'));
 check('summaryRef가 문자열이 아니면 가이드가 아니다',
   G.isGuideShape({ ...OLD_GUIDE, summaryRef: 8 }) === false);
+// 제목은 이제 주보에서 오지만, **지난 가이드가 들고 있는 말은 그대로 남는다**
+// (마이그레이션 없음 — 사용자 결정 2026-09-09).
+check('지난 가이드의 제목은 그대로 남는다',
+  G.fitGuide(OLD_GUIDE).passage.title === '세상의 빛', G.fitGuide(OLD_GUIDE).passage.title);
 check('summaryRef도 상한에 맞춰 잘린다',
   G.fitGuide({ ...OLD_GUIDE, summaryRef: '가'.repeat(60) }).summaryRef.length <= G.LIMITS.summaryRef,
   String(G.fitGuide({ ...OLD_GUIDE, summaryRef: '가'.repeat(60) }).summaryRef.length));
@@ -275,6 +285,10 @@ check('고르는 줄은 날짜와 설교 제목이다',
   G.guideServiceLabel(SVCS[1]) === '2026-03-01 · 세상의 빛', G.guideServiceLabel(SVCS[1]));
 check('설교 제목이 없으면 날짜만', G.guideServiceLabel(SVCS[4]) === '2026-02-15',
   G.guideServiceLabel(SVCS[4]));
+// 고르는 목록은 날짜와 제목을 따로 세운다(왼쪽 날짜 · 그 옆 제목) — 날짜만 주는 한 벌
+check('날짜만 주는 한 벌도 있다(고르는 줄의 왼쪽 칸)',
+  G.guideServiceDate(SVCS[1]) === '2026-03-01' && G.guideServiceDate(null) === '',
+  G.guideServiceDate(SVCS[1]));
 
 // ── 7) 한 판 돌리기 (가짜 모델 · 가짜 본문) ─────────────────────────────────
 globalThis.__PASSAGE = { verses: VERSES };
@@ -284,6 +298,15 @@ check('한 판 돌리면 본문이 나온다', made?.points.length === 3 && made
   `${made?.points.length} / ${made?.questions.length}`);
 check('본문 구절은 주보가 진실이다(모델이 틀려도 주보 값으로)',
   made.passage.ref === '요한복음 8:12-20', made?.passage.ref);
+// 설교 제목도 그렇다(2026-09-09) — 모델이 무엇을 적어 보내든 주보의 제목이 들어간다.
+// 종이의 '주일 본문' 줄이 `<구절> [<설교 제목>]`이고 순장이 그걸 읽어 준다.
+check('설교 제목은 주보가 진실이다(모델이 지은 말을 쓰지 않는다)',
+  made.passage.title === '세상의 빛으로 오신 예수님', made?.passage.title);
+// 주보에 제목이 아직 없으면 빈 글이다 — 화면은 빈 글이면 대괄호째 그리지 않는다
+globalThis.__AI = '```json\n' + json(GUIDE) + '\n```';
+const noTitle = await G.generateGuide({ ...SERVICE, title: '' });
+check('주보에 설교 제목이 없으면 빈 글이다(화면이 대괄호를 안 그린다)',
+  noTitle?.passage.title === '', json(noTitle?.passage));
 check('본문 텍스트가 프롬프트에 실려 모델에 간다',
   globalThis.__CALL.p.includes('12 예수께서'), '(callGemini에 간 프롬프트)');
 globalThis.__AI = 'AI 기능은 로그인 후 사용할 수 있어요.';
@@ -307,6 +330,16 @@ check('읽기는 한 벌과 고정 여부를 같이 준다',
   json({ title: loaded?.body?.passage.title, pinned: loaded?.pinned }));
 check('없는 주보를 읽으면 null', (await G.loadGuide('svc-9')) === null);
 check('아직 고정된 것이 없으면 null', (await G.pinnedGuideId()) === null);
+
+// 어느 주보에 이미 가이드가 있나 — 고르는 줄의 '가이드 있음' 꼬리표 몫이다(2026-09-09).
+// 0039의 기본값 `{}`가 든 행은 **가이드가 아니다**(loadGuide도 그 행을 null로 준다) —
+// 모양까지 보지 않으면 꼬리표만 붙고 눌러 보면 빈 자리가 나온다.
+globalThis.__ROWS = [...globalThis.__ROWS, { service_id: 'svc-8', body: {} }];
+check("'가이드 있음'은 모양을 갖춘 행만 센다",
+  json(await G.guidedServiceIds(['svc-1', 'svc-8', 'svc-none'])) === json(['svc-1']),
+  json(await G.guidedServiceIds(['svc-1', 'svc-8', 'svc-none'])));
+check('물어본 주보가 없으면 빈 목록이고 조회도 안 한다',
+  json(await G.guidedServiceIds([])) === json([]) && json(await G.guidedServiceIds()) === json([]));
 
 await G.saveGuide('svc-2', GUIDE);
 await G.pinGuide('svc-1', true);

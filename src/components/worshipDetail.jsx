@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck,
-  ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText } from 'lucide-react';
+  ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
@@ -392,15 +392,20 @@ function SongThumb({ link, big = false }) {
 // 금지'와 다르다 — 그래서 이 한 줄 말고 덧붙이는 설명은 없다.
 // 재생목록 주소가 있으면 그 줄 끝에서 **한 번에 틀 수 있다**(0046) — 예전에는 곡을
 // 하나씩 눌러야 했다. 곡 제목은 지금도 그 곡의 영상으로 간다.
+// **줄은 가운데로 맞춘다**(사용자 지적 2026-09-09 — "'재생목록 열기' 버튼이 옆의
+// 인도자랑 정렬이 안 맞는데"). 예전에는 `items-baseline`이었는데, 링크가 inline-flex라
+// 그 상자의 기준선은 **첫 칸(아이콘 svg)의 아랫변**이다 — 아이콘 밑동이 글자 기준선에
+// 붙으면서 아이콘과 글자가 통째로 몇 px 위로 떠올랐다. 세로 가운데로 맞추면 글자 크기가
+// 달라도(12.5 / 11.5) 두 상자의 한가운데가 같은 자리에 온다.
 const PraiseHead = ({ leader, playlistUrl, nameOf }) => (
-  <p className="worship-praise-head flex flex-wrap items-baseline gap-1.5 pb-2.5 text-[12.5px] text-fg-muted">
+  <p className="worship-praise-head flex flex-wrap items-center gap-1.5 pb-2.5 text-[12.5px] text-fg-muted">
     <span className="worship-praise-team font-bold text-fg">{PRAISE_TEAM}</span>
     {/* 인도자도 담당자 줄과 같은 호칭 규칙이다(services/people.js honorific) — 명단에
         없는 객원 인도자는 적은 글자 그대로 선다 */}
     {leader ? <span className="worship-praise-leader">· 인도 {nameOf ? nameOf(leader) : leader}</span> : null}
     {playlistUrl ? (
       <a href={playlistUrl} target="_blank" rel="noreferrer"
-        className="worship-praise-playlist inline-flex items-center gap-1 text-[11.5px] font-semibold text-accent-text hover:underline">
+        className="worship-praise-playlist inline-flex items-center gap-1 leading-none text-[11.5px] font-semibold text-accent-text hover:underline">
         <ListMusic size={12} className="shrink-0" /> 재생목록 열기
       </a>
     ) : null}
@@ -769,8 +774,11 @@ function RolesEdit({ rows, people, onChange }) {
 // 않는다** — 예전에는 제목이 `basis-full`이라 번호만 첫 줄에 혼자 남고 제목이 둘째 줄로
 // 떨어졌다. 지금 640 미만은 [번호][제목] / [링크][도구] 두 줄이고 그 위는 한 줄이다.
 // 제목의 basis는 `100% - (번호 1.25rem + gap 0.375rem)` — 번호 옆을 정확히 채우는 값이다.
-function SongsEdit({ rows, people, leader, onLeader, onPlaylist, onChange, onPullPlaylist, onLookupTitle }) {
-  const [url, setUrl] = useState('');
+function SongsEdit({ rows, people, leader, playlistUrl = '', onLeader, onPlaylist, onChange, onPullPlaylist, onLookupTitle }) {
+  // 칸은 **주보에 적혀 있는 재생목록**에서 시작한다(사용자 지적 2026-09-09 — "재생목록이
+  // 잘못 되었으면 이를 삭제도 할 수 있는 구조로"). 예전에는 늘 빈 칸이라, 가져오고 나면
+  // 무엇이 주보에 남았는지 편집 화면에서 볼 길이 없었고 지울 길은 더 없었다.
+  const [url, setUrl] = useState(() => playlistUrl || '');
   const [busy, setBusy] = useState(false);
   const [looking, setLooking] = useState(() => new Set());   // 제목을 받아 오는 중인 줄
   const set = (i, patch) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
@@ -796,8 +804,14 @@ function SongsEdit({ rows, people, leader, onLeader, onPlaylist, onChange, onPul
     // watch?v=…&list=…일 때가 많아 그대로 두면 첫 곡 재생으로 튄다).
     const listId = youtubeListId(url);
     if (listId && onPlaylist) onPlaylist(youtubePlaylistUrl(listId));
-    setUrl('');
+    // 칸은 비우지 않는다 — 주보에 남은 그 주소를 그대로 세워 둔다(위 useState 주석).
+    // 저장 모양으로 다시 적어서 칸에 보이는 것과 주보에 든 것이 같은 글자가 된다.
+    if (listId) setUrl(youtubePlaylistUrl(listId));
   };
+
+  // 재생목록만 뗀다 — **곡은 그대로 둔다**(사용자 스펙 2026-09-09). 가져온 곡은 이미
+  // 주보의 찬양 목록이고, 줄마다 지우는 길이 따로 있다. 잘못 붙인 것은 주소 한 칸이다.
+  const clearPlaylist = () => { setUrl(''); onPlaylist?.(''); };
 
   // 링크를 다 적은 뒤(칸을 떠날 때) 한 번만 물어본다 — 글자마다 물으면 한 곡에
   // 스무 번을 부르게 된다. 받는 동안 그 줄의 제목 칸은 스켈레톤이다(빈 칸을 그대로
@@ -825,10 +839,21 @@ function SongsEdit({ rows, people, leader, onLeader, onPlaylist, onChange, onPul
           좁은 화면에서 버튼만 둘째 줄 오른쪽에 혼자 섰다(고아). 지금은 언제나 한 줄이고,
           좁을 때는 버튼 라벨이 '가져오기'로 줄어든다 — 전체 문구는 title에 남는다. */}
       <div className="worship-song-import flex items-center gap-1.5 pb-2.5">
-        <input className={`${INPUT} flex-1 min-w-0`} value={url} aria-label="유튜브 재생목록 주소"
-          onChange={e => setUrl(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); pull(); } }}
-          placeholder="예: https://www.youtube.com/playlist?list=..." />
+        {/* 칸 안에 × 를 두려면 테두리는 감싸는 상자가 갖는다(링크 칸·명단 검색 칸과 같은
+            짜임) — 375에서도 칸이 남는 폭을 다 쓰고 ×는 오른쪽 끝에 붙는다. */}
+        <span className="worship-song-urlbox flex items-center gap-1 flex-1 min-w-0 border border-line rounded-xs bg-surface px-2 py-1 focus-within:border-accent transition-colors">
+          <input className="flex-1 min-w-0 bg-transparent text-[13px] py-0.5 outline-none text-fg placeholder:text-fg-faint"
+            value={url} aria-label="유튜브 재생목록 주소"
+            onChange={e => setUrl(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); pull(); } }}
+            placeholder="예: https://www.youtube.com/playlist?list=..." />
+          {(url.trim() || playlistUrl) && (
+            <button type="button" onClick={clearPlaylist} aria-label="재생목록 지우기" title="재생목록 지우기"
+              className="worship-song-clear shrink-0 p-1 -mr-1 rounded text-fg-faint hover:text-fg transition-colors">
+              <X size={13} />
+            </button>
+          )}
+        </span>
         <button type="button" onClick={pull} disabled={busy || !url.trim()} title="유튜브 재생목록에서 가져오기"
           className="worship-song-pull shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold whitespace-nowrap transition active:scale-95 disabled:opacity-40">
           {busy ? <Loader2 size={13} className="animate-spin" /> : <ListMusic size={13} />}
@@ -1225,6 +1250,7 @@ export function ServiceDetail({
             {editing
               ? <SongsEdit rows={rows('songs')} people={people} onChange={v => set({ songs: v })}
                   leader={draft.praise_leader || ''} onLeader={v => set({ praise_leader: v })}
+                  playlistUrl={draft.praise_playlist_url || ''}
                   onPlaylist={v => set({ praise_playlist_url: v })}
                   onPullPlaylist={onPullPlaylist} onLookupTitle={onLookupTitle} />
               : <SongsTab rows={rows('songs')} leader={service.praise_leader || ''}

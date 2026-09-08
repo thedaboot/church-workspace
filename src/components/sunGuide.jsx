@@ -11,8 +11,8 @@ import { failText } from '../services/errorText.js';
 import { isKakaoInApp } from '../utils.js';
 import {
   LIMITS,
-  fitGuide, generateGuide, guideDateLabel, guideServiceLabel,
-  loadGuide, pinGuide, saveGuide, splitBold,
+  fitGuide, generateGuide, guideDateLabel, guideServiceDate, guideServiceLabel,
+  guidedServiceIds, loadGuide, pinGuide, saveGuide, splitBold,
 } from '../services/sunGuide.js';
 
 // ============================================================================
@@ -139,7 +139,10 @@ function Editor({ draft, setDraft, onSave, onRegen, onCancel, busy }) {
   const hasSummary = !!(draft.summary || draft.summaryRef);
   return (
     <div className="sun-guide-edit space-y-3">
-      <Field label="본문 한 마디" value={draft.passage.title} rows={1}
+      {/* 설교 제목은 주보에서 온다(services/sunGuide.js의 계약) — 그래도 고칠 수 있게
+          둔다. 지난 가이드는 그때 모델이 지은 말을 들고 있고, 주보 제목이 길거나
+          부제가 붙어 종이에서 줄을 잡아먹는 일이 있다. */}
+      <Field label="설교 제목" value={draft.passage.title} rows={1}
         onChange={(v) => set({ passage: { ...draft.passage, title: v } })} />
       {hasSummary && (
         <>
@@ -252,6 +255,47 @@ function Sheet({ guide, dateLabel, sheetRef }) {
   );
 }
 
+// ── 주보 고르기 ─────────────────────────────────────────────────────────────
+// 아직 가이드가 없는 자리에는 **만들기 버튼 하나만 두지 않는다**(사용자 지시
+// 2026-09-09 — "주보를 일단 먼저 사용자가 선택을 하고 나서 해당 주보에 대해서 만들 수
+// 있게끔도 해줄 수 있나"). 버튼 하나뿐이면 무엇으로 만드는지가 머리줄의 작은 피커
+// 안에만 있어서, 누르고 나서 종이 머리의 날짜를 보고서야 알았다. 그래서 고를 수 있는
+// 주보(발행된 주일 · 최근순)를 줄로 펴고, 고른 줄을 강조하고, 만들기 버튼에 **그
+// 날짜를 적는다**.
+//
+// 이미 가이드가 있는 주보에는 꼬리표가 붙는다 — 누르면 그 가이드가 열리므로, 지난
+// 가이드를 다시 펴 보는 길이기도 하다. 종이가 서면 이 자리는 사라지고 머리줄의
+// 피커가 같은 일을 이어받는다(같은 조작기를 두 벌 세우지 않는다).
+//
+// **모듈 바깥에 둔다**(§6-9-bf) — 화면 함수 안에서 만들면 렌더마다 리마운트라
+// `.dc-row` 등장 모션이 그때마다 다시 돈다.
+function Chooser({ items, selectedId, have, onPick }) {
+  return (
+    <ul className="sun-guide-choices space-y-1">
+      {items.map((s) => {
+        const on = s.id === selectedId;
+        return (
+          <li key={s.id} className="dc-row">
+            <button type="button" aria-pressed={on} onClick={() => onPick(s.id)}
+              className={`sun-guide-choice w-full flex items-center gap-2 px-3 py-2.5 rounded-md border text-left transition active:scale-[.99] ${on
+                ? 'border-accent bg-accent-weak' : 'border-line bg-surface hover:bg-surface-hover'}`}>
+              <span className={`sun-guide-choice-date shrink-0 text-[12px] font-semibold tabular-nums ${on ? 'text-accent-text' : 'text-fg'}`}>
+                {guideServiceDate(s)}
+              </span>
+              <span className="sun-guide-choice-title min-w-0 flex-1 truncate text-[12px] text-fg-muted">{s.title || ''}</span>
+              {have.has(s.id) && (
+                <span className="sun-guide-choice-tag shrink-0 px-1.5 py-px rounded-full border border-line text-[10px] font-semibold text-fg-muted">
+                  가이드 있음
+                </span>
+              )}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 // 만드는 동안 — 종이 한 장이 설 자리를 그대로 잡는다.
 // Skeleton은 className만 받는다(자리·크기는 유틸리티로) — media.jsx 주석.
 const SKELETON = (
@@ -306,10 +350,22 @@ export function SunGuidePanel({
     () => ((canView && selectedId) ? loadGuide(selectedId) : null),
     [canView, selectedId],
   );
+  // 어느 주보에 이미 가이드가 있나 — 고르는 줄의 '가이드 있음' 꼬리표 몫이다. 한 건씩
+  // 열어 보지 않고 한 번에 묻는다(services/sunGuide.js guidedServiceIds). 캐시 열쇠가
+  // `groups:guide:`로 시작해서, 저장·고정 뒤의 dropCache('groups:guide')가 같이 비운다 —
+  // 방금 만든 주보에 꼬리표가 바로 붙는다.
+  const idsKey = useMemo(() => list.map((s) => s.id).join(','), [list]);
+  const haveQ = useCached(
+    `groups:guide:have:${idsKey || 'none'}`,
+    () => ((canView && idsKey) ? guidedServiceIds(idsKey.split(',')) : []),
+    [canView, idsKey],
+  );
+  const have = useMemo(() => new Set(haveQ.data || []), [haveQ.data]);
   // 가이드는 이 화면의 곁가지다 — 못 받아도 순 명단은 그대로 서야 한다
   useEffect(() => {
     if (guideQ.error) console.error('[sunGuide] 가이드를 받지 못했어요:', guideQ.error);
-  }, [guideQ.error]);
+    if (haveQ.error) console.error('[sunGuide] 주보별 가이드 유무를 받지 못했어요:', haveQ.error);
+  }, [guideQ.error, haveQ.error]);
   // 고른 주보가 바뀌면 쓰던 초안을 접는다 — 다른 주보의 종이에 앞 주보의 초안이
   // 얹히면 무엇을 저장하는지 알 수 없다.
   useEffect(() => { setDraft(null); setMaking(false); }, [selectedId]);
@@ -439,6 +495,8 @@ export function SunGuidePanel({
   const dateLabel = guideDateLabel(selected.service_date);
   const editing = !!draft;
   const showSheet = !editing && !making && !guideQ.loading && !!guide;
+  // 고른 주보에 아직 가이드가 없으면 **고르는 줄부터** 편다(Chooser 머리말).
+  const showChooser = !editing && !making && !guideQ.loading && !guide;
 
   // 동작은 **머리줄 오른쪽 끝**에 선다 — '모임' 섹션의 '모임 만들기'와 같은 자리다.
   // 모바일에서는 줄이 모자라니 접힌다(flex-wrap) — 감추지 않는다(§8).
@@ -447,8 +505,10 @@ export function SunGuidePanel({
   const actions = (
     <span className="sun-guide-actions flex flex-wrap items-center justify-end gap-1.5 min-w-0">
       {/* 어느 주보로 만들 것인가(사용자 스펙 2026-09-08). 보는 사람 모두에게 열려 있다 —
-          지난 주 가이드를 다시 펼쳐 보는 길이기도 하다. */}
-      {list.length > 1 && (
+          지난 주 가이드를 다시 펼쳐 보는 길이기도 하다. **종이가 서 있을 때만** 선다:
+          가이드가 아직 없으면 같은 일을 본문의 고르는 줄이 한다(2026-09-09 · Chooser
+          머리말) — 같은 조작기를 두 벌 세우면 어느 쪽이 진짜인지 알 수 없다. */}
+      {list.length > 1 && showSheet && (
         <MenuPick className="sun-guide-pick" label="가이드 기준 주보 고르기"
           items={list.map((s) => ({ id: s.id, name: guideServiceLabel(s) }))}
           onPick={(id) => setPicked(id)}>
@@ -490,12 +550,6 @@ export function SunGuidePanel({
           <Pin size={12} /><span>{pinned ? '고정 해제' : '고정'}</span>
         </button>
       )}
-      {!editing && !making && !guideQ.loading && !guide && canCreate && (
-        <button type="button" className={`sun-guide-create ${WITH_ICON} ${BTN}`}
-          disabled={working} onClick={make}>
-          <Wand2 size={12} /><span>AI로 만들기</span>
-        </button>
-      )}
     </span>
   );
 
@@ -518,6 +572,22 @@ export function SunGuidePanel({
         {editing && (
           <Editor draft={draft} setDraft={setDraft} busy={working} onSave={save} onRegen={make}
             onCancel={() => setDraft(null)} />
+        )}
+        {showChooser && (
+          <>
+            <Chooser items={list} selectedId={selectedId} have={have} onPick={setPicked} />
+            {/* 만들기는 **고른 줄 밑**이고 날짜를 달고 있다 — 무엇으로 만드는지가
+                버튼 글자에 있어야 누르기 전에 안다. 상시 도구 줄이라 확정이 왼쪽(§8). */}
+            {canCreate && (
+              <div className="sun-guide-choose-tools flex items-center gap-1.5 pt-2.5">
+                <button type="button" className={`sun-guide-create ${WITH_ICON} ${BTN}`}
+                  disabled={working} onClick={make}>
+                  <Wand2 size={12} />
+                  <span>{dateLabel ? `${dateLabel} 주보로 만들기` : 'AI로 만들기'}</span>
+                </button>
+              </div>
+            )}
+          </>
         )}
         {showSheet && <Sheet guide={guide} dateLabel={dateLabel} sheetRef={sheetRef} />}
       </div>

@@ -2787,6 +2787,97 @@ const waitBox = await ev(`(async () => {
 check('본문이 오기 전에는 글 덩이 모양 뼈대가 그 자리를 지킨다',
   !!waitBox && waitBox.bones >= 4 && waitBox.h > 100, JSON.stringify(waitBox));
 
+// ── 21) 찬양 — 재생목록 줄 정렬 · 재생목록 지우기 (사용자 지적 2026-09-09) ──
+// 둘 다 s1(발행본 — 재생목록 하나와 곡 둘이 심겨 있다)에서 본다. 앞 절들이 s1의 찬양을
+// 건드리지 않고, 여기서 다시 심으므로 시드 그대로다.
+await ev(plant(null));
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
+await ev(GO); await waitFor(HAS_CARD);
+await ev(`document.querySelector('.worship-card').click()`); await waitFor(HAS_DETAIL);
+await tabClick('찬양'); await sleep(400);
+
+// '재생목록 열기'는 인도자 글자와 **같은 높이에** 선다. 예전에는 줄이 items-baseline이라
+// inline-flex인 링크의 기준선이 **아이콘 밑동**이 되어 아이콘과 글자가 통째로 몇 px 위로
+// 떠올랐다(사용자 지적 — "'재생목록 열기' 버튼이 옆의 인도자랑 정렬이 안 맞는데").
+// **되돌리기**: PraiseHead의 items-center를 items-baseline으로 되돌리면 여기서 잡힌다.
+const PRAISE_MID = `(() => {
+  const head = document.querySelector('.worship-praise-head');
+  const lead = head && head.querySelector('.worship-praise-leader');
+  const link = head && head.querySelector('.worship-praise-playlist');
+  const icon = link && link.querySelector('svg');
+  if (!lead || !link || !icon) return null;
+  const mid = (e) => { const r = e.getBoundingClientRect(); return (r.top + r.bottom) / 2; };
+  const r10 = (v) => Math.round(v * 10) / 10;
+  return {
+    link: r10(Math.abs(mid(lead) - mid(link))),
+    icon: r10(Math.abs(mid(lead) - mid(icon))),
+    sameRow: Math.abs(mid(lead) - mid(link)) < 12,
+  };
+})()`;
+const praiseMidWide = await ev(PRAISE_MID);
+check('1440 — 재생목록 링크와 아이콘이 인도자 글자와 세로 가운데가 같다',
+  !!praiseMidWide && praiseMidWide.link <= 1 && praiseMidWide.icon <= 1, JSON.stringify(praiseMidWide));
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+await sleep(700);
+const praiseMidMob = await ev(PRAISE_MID);
+check('375 — 재생목록 링크가 인도자와 같은 줄에 서고 가운데도 같다',
+  !!praiseMidMob && praiseMidMob.sameRow === true
+  && praiseMidMob.link <= 1 && praiseMidMob.icon <= 1, JSON.stringify(praiseMidMob));
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(600);
+
+// 재생목록이 잘못 들어왔으면 **그 주소만** 뗀다(사용자 지시 — "재생목록으로 가져오긴
+// 했는데 재생목록이 잘못 되었으면 이를 삭제도 할 수 있는 구조로"). 가져온 곡은 그대로다 —
+// 곡은 줄마다 지우는 길이 이미 있다.
+// **되돌리기**: SongsEdit의 url 초깃값을 ''로 되돌리면 칸이 비어 × 가 서지 않는다.
+await ev(`${byText('수정')}.click()`); await sleep(900);
+await tabClick('찬양'); await sleep(400);
+const listBefore = await ev(`(() => {
+  const box = document.querySelector('.worship-song-urlbox');
+  const input = document.querySelector('input[aria-label="유튜브 재생목록 주소"]');
+  const row = JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.id === 's1');
+  if (!box || !input) return { err: 'no-box' };
+  const b = box.getBoundingClientRect();
+  const c = document.querySelector('button[aria-label="재생목록 지우기"]');
+  return {
+    value: input.value,
+    clear: !!c,
+    // × 는 칸 안 오른쪽 끝이다(칸 밖으로 나가면 도구 줄이 두 덩이로 읽힌다)
+    inside: !!c && c.getBoundingClientRect().right <= b.right + 1,
+    songs: (row.songs || []).length,
+    over: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+})()`);
+check('편집 칸에 주보의 재생목록 주소가 그대로 서고 × 가 칸 안에 붙는다',
+  !listBefore.err && listBefore.value === 'https://www.youtube.com/playlist?list=PLl2Yb-KJTF0Zq'
+  && listBefore.clear === true && listBefore.inside === true && listBefore.songs === 2,
+  JSON.stringify(listBefore));
+await ev(`document.querySelector('button[aria-label="재생목록 지우기"]').click()`); await sleep(1800);
+const listAfter = await ev(`(() => {
+  const row = JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.id === 's1');
+  return {
+    value: document.querySelector('input[aria-label="유튜브 재생목록 주소"]').value,
+    clear: !!document.querySelector('button[aria-label="재생목록 지우기"]'),
+    saved: row.praise_playlist_url || '',
+    songs: (row.songs || []).map(x => x.title),
+    pull: document.querySelector('.worship-song-pull').disabled,
+  };
+})()`);
+check('× 를 누르면 재생목록만 지워지고 곡은 그대로 남는다',
+  listAfter.value === '' && listAfter.saved === '' && listAfter.clear === false
+  && JSON.stringify(listAfter.songs) === JSON.stringify(['주 은혜임을', '나의 반석이신 하나님'])
+  && listAfter.pull === true, JSON.stringify(listAfter));
+await ev(`${byText('저장')}.click()`); await sleep(1000);
+await tabClick('찬양'); await sleep(400);
+const listView = await ev(`(() => ({
+  playlist: !!document.querySelector('.worship-praise-playlist'),
+  songs: document.querySelectorAll('.worship-song-view').length,
+  leader: (document.querySelector('.worship-praise-leader') || {}).textContent?.trim() || '',
+}))()`);
+check('지운 뒤 보기 화면에는 재생목록 줄이 없고 곡과 인도자는 그대로다',
+  listView.playlist === false && listView.songs === 2
+  && listView.leader === '· 인도 조해리 부장님', JSON.stringify(listView));
+
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 
 console.log(results.join('\n'));

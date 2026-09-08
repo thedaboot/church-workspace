@@ -589,8 +589,12 @@ check('파일 중계는 불변 캐시다(재열람 왕복 0)', () => {
       'https://docs.google.com/document/d/COPY1/preview?rm=minimal');
     // 슬라이드는 embed다 — preview는 머리줄을 남기고 슬라이드를 작게 둔다.
     // start=false·delayms가 없으면 열자마자 저 혼자 넘어간다(기본이 자동 재생).
+    // **슬라이드에만 rm=minimal이 없다**(사용자 요청 2026-09-09 "화살표로 다음·이전
+    // 장표 갈 수 있게") — 구글이 아래에 그려 주는 `◀ 1 ▶` 줄이 그 인자에 같이 걷힌다.
     assert.strictEqual(previewCopyUrl(copy('발표.pptx')),
-      'https://docs.google.com/presentation/d/COPY1/embed?rm=minimal&start=false&loop=false&delayms=60000');
+      'https://docs.google.com/presentation/d/COPY1/embed?start=false&loop=false&delayms=60000');
+    assert.ok(!/rm=minimal/.test(previewCopyUrl(copy('발표.ppt')) || ''), '슬라이드에서 화살표 줄을 걷었다');
+    assert.ok(/rm=minimal/.test(previewCopyUrl(copy('회의록.docx')) || ''), '문서에서는 머리줄을 남긴다');
     // 엑셀은 utils.sheetPreviewUrl과 같은 주소여야 한다(같은 사본을 두 곳에서 연다)
     assert.strictEqual(previewCopyUrl(copy('명단.xlsx')), sheetPreviewUrl(copy('명단.xlsx')),
       '엑셀 사본 주소가 두 곳에서 갈라졌다');

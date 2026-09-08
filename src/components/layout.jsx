@@ -788,29 +788,34 @@ const HINT_FADE_MS = 700;    // 사라지고 나타나는 시간 — 천천히(�
 // 검사가 그걸 본다) 눈에 보이는 글자는 겹쳐 놓은 span이 그린다 — placeholder
 // 가상 요소는 브라우저마다 전환이 제각각이라 opacity를 믿을 수 없다.
 // `on`이 false면(글자를 쳤거나 reduced-motion) 첫 줄에서 멈춘다.
-function useRotatingHint(on) {
+//
+// **한 벌이다** — 문구 배열만 받는다(2026-09-09에 성경 본문 검색 칸도 이걸 쓴다 ·
+// components/wordBible.jsx). 줄이 하나뿐이면 타이머를 아예 걸지 않는다(게스트의
+// 본문 검색이 그렇다 — 돌릴 것이 없는데 700ms마다 다시 그릴 이유가 없다).
+export function useRotatingHint(on, hints = SEARCH_HINTS) {
   const [i, setI] = useState(0);
   const [visible, setVisible] = useState(true);
+  const len = hints.length;
   useEffect(() => {
-    if (!on) { setI(0); setVisible(true); return; }
+    if (!on || len < 2) { setI(0); setVisible(true); return; }
     let t;
     const fadeOut = () => { setVisible(false); t = setTimeout(swap, HINT_FADE_MS); };
-    const swap = () => { setI(n => (n + 1) % SEARCH_HINTS.length); setVisible(true); t = setTimeout(fadeOut, HINT_HOLD_MS); };
+    const swap = () => { setI(n => (n + 1) % len); setVisible(true); t = setTimeout(fadeOut, HINT_HOLD_MS); };
     t = setTimeout(fadeOut, HINT_HOLD_MS);
     return () => clearTimeout(t);
-  }, [on]);
-  return { text: SEARCH_HINTS[i], visible };
+  }, [on, len]);
+  return { text: hints[i] || hints[0] || '', visible };
 }
 
 // 겹쳐 놓은 안내 글자. 부모가 relative여야 하고, 왼쪽 여백(아이콘 폭)은 부모가 정한다.
-const SearchHint = ({ show, left, size }) => {
+export const SearchHint = ({ show, left, size, hints = SEARCH_HINTS }) => {
   // 움직임을 줄이라고 한 사람에게는 돌리지 않는다(§4.2) — 첫 줄만 가만히 보여준다
   const still = typeof window !== 'undefined'
     && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const { text, visible } = useRotatingHint(show && !still);
+  const { text, visible } = useRotatingHint(show && !still, hints);
   if (!show) return null;
   return (
-    <span aria-hidden
+    <span aria-hidden data-hint=""
       className={`pointer-events-none absolute top-1/2 -translate-y-1/2 right-3 truncate text-fg-faint transition-opacity ${size}`}
       style={{ left, opacity: visible ? 1 : 0, transitionDuration: `${HINT_FADE_MS}ms` }}>
       {text}

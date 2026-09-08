@@ -1076,21 +1076,34 @@ check('고르는 줄은 발행된 주일 주보만 최근순으로 세운다',
   JSON.stringify(gPick));
 check('고정이 없으면 기본은 가장 최근 주일이다',
   gPick.label === guideDate(SUN_LAST), gPick.label);
-// 지난 주일을 고르면 그 주보의 가이드를 연다 — 거기엔 아직 없으므로 만들기가 선다
+// 지난 주일을 고르면 그 주보의 가이드를 연다 — 거기엔 아직 없으므로 **고르는 줄**이
+// 펴진다(2026-09-09). 그때 머리줄의 피커는 사라진다: 같은 일을 하는 조작기를 두 벌
+// 세우면 어느 쪽이 진짜인지 알 수 없다.
 const gSwitch = await ev(`(async () => {
   const w = ms => new Promise(r => setTimeout(r, ms));
   const o = [...document.querySelectorAll('.menu-pick-option')].at(-1);
   if (!o) return { err: 'no-option' };
   o.click(); await w(900);
+  const on = document.querySelector('.sun-guide-choice[aria-pressed="true"]');
+  const dateOf = (b) => b.querySelector('.sun-guide-choice-date').textContent.trim();
   return {
-    label: document.querySelector('.sun-guide-pick .menu-pick').textContent.trim(),
+    pick: !!document.querySelector('.sun-guide-pick'),
     sheet: !!document.querySelector('.sun-guide-sheet'),
-    create: !!document.querySelector('.sun-guide-create'),
+    on: on ? dateOf(on) : '',
+    tagged: [...document.querySelectorAll('.sun-guide-choice')]
+      .filter(b => b.querySelector('.sun-guide-choice-tag')).map(dateOf),
+    create: (document.querySelector('.sun-guide-create') || {}).textContent?.trim() || '',
   };
 })()`, true);
 check('다른 주보를 고르면 그 주보의 가이드를 연다',
-  gSwitch.label === guideDate(SUN_OLD) && gSwitch.sheet === false && gSwitch.create === true,
+  gSwitch.sheet === false && gSwitch.on === svcLabel(SUN_OLD, '') && gSwitch.pick === false,
   JSON.stringify(gSwitch));
+// 이미 가이드가 있는 주보에는 꼬리표가 붙는다 — 시드는 최근 주일(s1)에만 한 벌을 두었다
+check("이미 가이드가 있는 주보에만 '가이드 있음'이 붙는다",
+  JSON.stringify(gSwitch.tagged) === JSON.stringify([svcLabel(SUN_LAST, '')]),
+  JSON.stringify(gSwitch.tagged));
+check('만들기 버튼에 고른 주보의 날짜가 적힌다',
+  gSwitch.create === `${guideDate(SUN_OLD)} 주보로 만들기`, gSwitch.create);
 
 // 이미지로 저장 — 화면에 선 종이를 그대로 2배로 굽는다(html2canvas는 누를 때 받는다).
 // 공유 시트가 없는 데스크톱에서는 내려받기로 떨어지므로 그 blob을 가로채 픽셀을 본다.
@@ -1134,34 +1147,108 @@ check('구운 그림이 백지가 아니고 로고도 들어 있다',
   !gImg.err && gImg.ink > 200 && gImg.mark > 200, JSON.stringify(gImg));
 
 // 순장(리더순장이 아닌)도 만든다 — 2026-09-08부터 **보는 사람 = 만드는 사람**이다.
-// 머리줄 오른쪽 끝의 'AI로 만들기'가 서고, **누르면 편집 화면이 열리거나 왜 못 만드는지
-// 말한다**(사용자 물음 2026-09-03 — 예전에는 이유 없이 '만들 수 없어요'만 떴다).
+// 가이드가 하나도 없으면 **고를 주보부터 편다**(사용자 지시 2026-09-09 — "주보를 일단
+// 먼저 사용자가 선택을 하고 나서 해당 주보에 대해서 만들 수 있게끔"). 예전에는 머리줄
+// 오른쪽 끝에 'AI로 만들기' 하나뿐이라, 무엇으로 만드는지가 작은 피커 안에만 있었다.
 await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] });
 const gNone = await ev(`(() => {
   const sec = document.querySelector('.sun-guide');
+  const wrap = document.querySelector('.sun-guide-body-wrap');
+  const rows = [...document.querySelectorAll('.sun-guide-choice')];
   const btn = document.querySelector('.sun-guide-create');
-  if (!sec || !btn) return { err: 'no-btn' };
-  const s = sec.getBoundingClientRect(), b = btn.getBoundingClientRect();
-  return { right: Math.round(s.right - b.right), head: sec.querySelector('h3').textContent.trim() };
+  if (!sec || !wrap || !rows.length || !btn) return { err: 'no-el' };
+  const w = wrap.getBoundingClientRect(), b = btn.getBoundingClientRect();
+  return {
+    head: sec.querySelector('h3').textContent.trim(),
+    pick: !!document.querySelector('.sun-guide-pick'),
+    dates: rows.map(r => r.querySelector('.sun-guide-choice-date').textContent.trim()),
+    titles: rows.map(r => r.querySelector('.sun-guide-choice-title').textContent.trim()),
+    on: rows.map(r => r.getAttribute('aria-pressed')),
+    tags: rows.filter(r => r.querySelector('.sun-guide-choice-tag')).length,
+    label: btn.textContent.trim(),
+    // 줄은 목록 폭을 다 쓴다 · 목록은 종이와 같은 상한(560px) 안이다
+    fullWidth: rows.every(r => Math.abs(r.getBoundingClientRect().width - w.width) <= 1),
+    wrapW: Math.round(w.width),
+    // 만들기는 줄 밑, 왼쪽 끝이다(상시 도구 줄 — 확정 왼쪽, §8)
+    below: Math.round(b.top - rows.at(-1).getBoundingClientRect().bottom),
+    left: Math.round(b.left - w.left),
+  };
 })()`);
-check('순장에게도 머리줄 오른쪽 끝에 만들기 버튼이 선다',
-  !gNone.err && Math.abs(gNone.right) <= 2 && gNone.head === '순모임 가이드', JSON.stringify(gNone));
+check('가이드가 없으면 고를 주보를 줄로 펴고 머리줄 피커는 걷는다',
+  !gNone.err && gNone.head === '순모임 가이드' && gNone.pick === false
+  && JSON.stringify(gNone.dates) === JSON.stringify([svcLabel(SUN_LAST, ''), svcLabel(SUN_OLD, '')]),
+  JSON.stringify(gNone));
+check('줄에는 날짜와 설교 제목이 같이 서고, 가이드가 없으니 꼬리표는 없다',
+  !gNone.err && JSON.stringify(gNone.titles) === JSON.stringify(['흔들리지 않는 기쁨', '지난 주일'])
+  && gNone.tags === 0, JSON.stringify(gNone));
+check('고른 줄만 강조된다(기본은 가장 최근 주일)',
+  !gNone.err && JSON.stringify(gNone.on) === JSON.stringify(['true', 'false']), JSON.stringify(gNone));
+check('만들기는 줄 밑 왼쪽에 서고 버튼 글자에 그 주보 날짜가 있다',
+  !gNone.err && gNone.label === `${guideDate(SUN_LAST)} 주보로 만들기`
+  && gNone.below >= 0 && Math.abs(gNone.left) <= 1, JSON.stringify(gNone));
+check('고르는 줄은 목록 폭을 다 쓰고 목록은 종이와 같은 상한 안이다',
+  !gNone.err && gNone.fullWidth === true && gNone.wrapW <= 560, JSON.stringify(gNone));
+
+// 375에서도 줄이 폭을 다 쓰고 가로로 넘치지 않는다
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+await sleep(600);
+const gNoneMob = await ev(`(() => {
+  const wrap = document.querySelector('.sun-guide-body-wrap');
+  const rows = [...document.querySelectorAll('.sun-guide-choice')];
+  if (!wrap || !rows.length) return { err: 'no-el' };
+  const w = wrap.getBoundingClientRect();
+  return {
+    fullWidth: rows.every(r => Math.abs(r.getBoundingClientRect().width - w.width) <= 1),
+    over: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    clipped: rows.some(r => { const t = r.querySelector('.sun-guide-choice-date'); return t.scrollWidth - t.clientWidth > 1; }),
+  };
+})()`);
+check('모바일 375px에서도 고르는 줄이 폭을 다 쓰고 날짜가 잘리지 않는다',
+  !gNoneMob.err && gNoneMob.fullWidth === true && gNoneMob.over <= 0 && gNoneMob.clipped === false,
+  JSON.stringify(gNoneMob));
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(500);
+
+// 줄을 누르면 그 주보로 갈리고 만들기 버튼의 날짜도 따라간다
+const gChoose = await ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const rows = [...document.querySelectorAll('.sun-guide-choice')];
+  if (rows.length < 2) return { err: 'no-rows' };
+  rows[1].click(); await w(900);
+  return {
+    on: [...document.querySelectorAll('.sun-guide-choice')].map(r => r.getAttribute('aria-pressed')),
+    label: document.querySelector('.sun-guide-create').textContent.trim(),
+  };
+})()`, true);
+check('줄을 누르면 그 주보로 갈리고 버튼 글자도 따라간다',
+  !gChoose.err && JSON.stringify(gChoose.on) === JSON.stringify(['false', 'true'])
+  && gChoose.label === `${guideDate(SUN_OLD)} 주보로 만들기`, JSON.stringify(gChoose));
+
+// **누르면 편집 화면이 열리거나 왜 못 만드는지 말한다**(사용자 물음 2026-09-03 —
+// 예전에는 이유 없이 '만들 수 없어요'만 떴다). 그리고 저장은 **고른 주보 밑**에 남는다.
 await ev(`document.querySelector('.sun-guide-create').click()`); await sleep(2200);
 const gMake = await ev(`(() => ({
   edit: !!document.querySelector('.sun-guide-edit'),
   toast: (document.querySelector('[data-toast]') || {}).innerText || '',
 }))()`);
-check('AI로 만들기는 편집 화면을 열거나, 왜 못 만드는지 말한다',
+check('만들기는 편집 화면을 열거나, 왜 못 만드는지 말한다',
   gMake.edit === true || /만들 수 없어요|만들지 못했어요/.test(gMake.toast), JSON.stringify(gMake));
 if (gMake.edit) {
   await ev(`document.querySelector('.sun-guide-save').click()`); await sleep(1200);
-  const gSaved = await ev(`(() => ({
-    sheet: !!document.querySelector('.sun-guide-sheet'),
-    rows: (JSON.parse(localStorage.getItem('church_sunguide_v1')) || {}).sun_guides?.length || 0,
-    toast: (document.querySelector('[data-toast]') || {}).innerText || '',
-  }))()`);
-  check('만든 가이드를 저장하면 종이가 서고 저장 자리에 남는다',
-    gSaved.sheet === true && gSaved.rows === 1 && gSaved.toast.includes('저장했어요'), JSON.stringify(gSaved));
+  const gSaved = await ev(`(() => {
+    const rows = (JSON.parse(localStorage.getItem('church_sunguide_v1')) || {}).sun_guides || [];
+    return {
+      sheet: !!document.querySelector('.sun-guide-sheet'),
+      ids: rows.map(r => r.service_id),
+      // 종이 머리의 날짜 = 고른 주보의 날짜
+      date: (document.querySelector('.sun-guide-head-date') || {}).textContent?.trim() || '',
+      toast: (document.querySelector('[data-toast]') || {}).innerText || '',
+    };
+  })()`);
+  check('만든 가이드는 고른 주보 밑에 저장되고 그 종이가 선다',
+    gSaved.sheet === true && JSON.stringify(gSaved.ids) === JSON.stringify(['s0'])
+    && gSaved.date === guideDate(SUN_OLD) && gSaved.toast.includes('저장했어요'),
+    JSON.stringify(gSaved));
 }
 
 // ── 고정 (0055 — §4.4 '3줄 요약 고정'과 같은 뜻) ────────────────────────────
@@ -2340,25 +2427,20 @@ await noJump('멤버 추가 목록',
 await noJump('내보내기 확인 팝오버',
   `document.querySelector('.club-drop').click()`, POPOVER, false);
 
-// 모바일 375px에서도 첫 프레임이 제자리여야 한다(좌우 클램프가 걸리는 폭이다)
-await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
-await enter({ personId: 'p3', isMaster: true, roles: ['lead_sunjang'] });
-await tab('순 편성'); await sleep(900);
-await ev(`document.querySelector('input[aria-label="꼬순 순원 추가"]').scrollIntoView({ block: 'center' })`); await sleep(250);
-await noJump('모바일 375px 순원 추가 목록',
-  `document.querySelector('input[aria-label="꼬순 순원 추가"]').focus()`,
-  `document.querySelector('.person-pick-menu')`);
-
-// 목록이 **칸을 따라간다** (사용자 보고 2026-09-08 · 아이폰 키보드) ─────────────
+// 포털 목록이 **칸을 따라간다** (사용자 보고 2026-09-08 · 아이폰 키보드) ─────────
 // "멤버 추가·순원 추가·순장 지정에서 목록이 밀려 뜬다 — 아마 키 입력 때문에."
 // 칸에 포커스가 가면 iOS는 키보드를 올리며 화면을 밀어 올리고 칸의 폭도 바뀌는데, 그
 // 이동에 scroll·resize가 오지 않는 경우가 있다 — 그러면 열 때 잰 자리에 목록만 남아
 // 위 칸을 덮거나 옆으로 밀린다. 여기서는 그 상황을 **이벤트 없이** 흉내낸다: 칸의
 // 여백과 폭을 인라인으로 바꿔 밀고 좁힌 뒤, 두 프레임 안에 목록이 다시 칸에 맞는지 본다
 // (useAnchoredPos의 rAF 추적 · matchWidth).
+// **재는 자리는 데스크톱 1440이다**(2026-09-09) — 터치·좁은 화면은 이제 포털을 아예
+// 쓰지 않고 보통 흐름에 그리므로(아래 구역), 이 기계장치가 남아 있는 곳이 여기다.
 // transform이 아니라 margin으로 미는 이유: `.dc-row`의 등장 애니메이션이 fill-mode
 // both로 `transform: none`을 남기는데, 애니메이션은 인라인 스타일을 이긴다(§6-1).
 // 되돌리기 확인: ConfirmPopover의 rAF 고리를 지우면 dl이 그대로 남아 이 검사가 깨진다.
+await enter({ personId: 'p3', isMaster: true, roles: ['lead_sunjang'] });
+await tab('순 편성'); await sleep(900);
 const followed = await ev(`(async () => {
   const raf = () => new Promise(r => requestAnimationFrame(r));
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
@@ -2375,8 +2457,6 @@ const followed = await ev(`(async () => {
       below: Math.round(m.top - a.bottom), above: Math.round(a.top - m.bottom) };
   };
   const before = read();
-  // 오른쪽으로 민다 — 왼쪽으로 밀면 375px에서 칸이 화면 가장자리(gap 8px)에 닿아
-  // 목록이 클램프에 걸리고, 그건 '따라가지 못한 것'이 아니라 잘리지 않으려는 것이다.
   root.style.marginLeft = '24px';
   root.style.marginTop = '-48px';
   root.style.width = '190px';
@@ -2394,7 +2474,158 @@ check('피커 목록이 칸을 따라간다(밀리고 폭이 바뀌어도 두 �
   !followed.err && fitsField(followed.before) && fitsField(followed.after) && fitsField(followed.back),
   JSON.stringify(followed));
 await sleep(300);
+
+// ── 5-3) 터치·좁은 화면의 피커는 뜨지 않는다 — 칸 아래 보통 흐름이다 ────────
+// 사용자 보고 2026-09-09: "동아리 멤버 추가 쪽도 키보드 상태 피커 쪽 봐줘야해..
+// 순장이랑 똑같은 문제야." 2026-09-08에 visualViewport + rAF로 좌표를 고쳤는데도
+// 아이폰에서는 여전히 목록이 칸에서 떨어져 있었다 — iOS 사파리는 키보드가 떠 있는
+// 동안 `position: fixed`를 우리가 준 좌표에 그려 주지 않는다. 그래서 좌표를 더
+// 다듬는 대신 **fixed를 쓰지 않는다**: 목록을 부품 뿌리 안, 칸 바로 아래의 보통
+// 흐름에 둔다. 자리는 브라우저가 잡고, 아래 내용은 덮이지 않고 밀린다.
+// 되돌리기 확인: groupsParts의 openMenu에서 `isTouchNarrow()`를 `false`로 두면
+// 아래 넷이 한꺼번에 깨진다(목록이 다시 body 포털로 나간다).
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+await enter({ personId: 'p3', isMaster: true, roles: ['lead_sunjang'] });
+await tab('순 편성'); await sleep(900);
+// 칸 상자(FIELD)는 뿌리의 첫 자식이고 목록은 그 다음이다. 아래 카드가 얼마나 밀렸는지는
+// **칸 아래 ~ 다음 카드 위**로 잰다 — 화면이 스크롤돼도 흔들리지 않는 값이다
+// (여는 순간 rootRef.scrollIntoView가 한 번 돈다).
+const flowPick = await ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const root = document.querySelector('.sun-add');
+  const rows = [...document.querySelectorAll('.sun-row')];
+  if (!root || rows.length < 2) return { err: 'no-field' };
+  const field = root.firstElementChild;
+  const gapToNext = () => Math.round(rows[1].getBoundingClientRect().top - field.getBoundingClientRect().bottom);
+  const shut = gapToNext();
+  const input = root.querySelector('input');
+  input.blur(); await w(60); input.focus();
+  await w(420);
+  const menu = document.querySelector('.person-pick-menu');
+  if (!menu) return { err: 'no-menu' };
+  const f = field.getBoundingClientRect(), m = menu.getBoundingClientRect();
+  const out = {
+    inRoot: root.contains(menu), portal: menu.parentElement === document.body,
+    pos: getComputedStyle(menu).position,
+    dl: Math.round(m.left - f.left), dw: Math.round(m.width - f.width),
+    below: Math.round(m.top - f.bottom), h: Math.round(m.height),
+    pushed: gapToNext() - shut,
+    over: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    coarse: matchMedia('(pointer: coarse)').matches,
+  };
+  document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  await w(200);
+  out.closed = !document.querySelector('.person-pick-menu');
+  return out;
+})()`, true);
+check('터치·좁은 화면에서 목록은 body 포털이 아니라 부품 안에 그려진다',
+  !flowPick.err && flowPick.inRoot === true && flowPick.portal === false
+  && flowPick.pos === 'static' && flowPick.closed === true, JSON.stringify(flowPick));
+check('그 목록은 칸 바로 아래에 칸과 같은 폭으로 선다',
+  !flowPick.err && Math.abs(flowPick.dl) <= 1 && Math.abs(flowPick.dw) <= 1
+  && Math.abs(flowPick.below - 4) <= 2 && flowPick.over <= 0, JSON.stringify(flowPick));
+// 덮는 것이 아니라 미는 것이다 — 아래 카드가 목록 높이(+4px 사이)만큼 내려간다
+check('아래 카드를 덮지 않고 그만큼 밀어낸다',
+  !flowPick.err && Math.abs(flowPick.pushed - (flowPick.h + 4)) <= 2 && flowPick.h > 40,
+  JSON.stringify(flowPick));
+
+// 인라인이어도 ↑↓·Enter는 그대로다. 미배정은 양민혁·조해리 둘이고 가나다순이라
+// ↓ 한 번이면 둘째 줄(조해리)이다.
+const flowKey = await ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const key = (k) => document.activeElement.dispatchEvent(
+    new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+  const input = document.querySelector('.sun-add input');
+  if (!input) return { err: 'no-field' };
+  input.blur(); await w(60); input.focus();
+  await w(420);
+  const names = [...document.querySelectorAll('.person-pick-option')].map(b => b.lastElementChild.textContent.trim());
+  key('ArrowDown'); await w(120);
+  key('Enter'); await w(700);
+  const g = ${store('groups')}.find(x => x.name === '꼬순');
+  return { names,
+    added: ${store('group_members')}.filter(m => m.group_id === g?.id).map(m => m.person_id).sort().join(','),
+    open: !!document.querySelector('.person-pick-menu') };
+})()`, true);
+check('인라인 목록도 ↑↓·Enter로 고른다',
+  !flowKey.err && JSON.stringify(flowKey.names) === '["양민혁","조해리"]'
+  && flowKey.added === 'p1,p2,p3,p7' && flowKey.open === false, JSON.stringify(flowKey));
+
+// 짧은 목록(순 옮기기)도 같은 규칙이다 — 줄이 그만큼 길어지는 것은 받아들인다
+const flowMenu = await ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const btn = document.querySelector('[aria-label="천진영 순 옮기기"]');
+  if (!btn) return { err: 'no-btn' };
+  btn.click(); await w(350);
+  const menu = document.querySelector('.menu-pick-menu');
+  if (!menu) return { err: 'no-menu' };
+  const row = btn.closest('.group-person');
+  const out = { inRoot: !!btn.closest('.sun-move')?.contains(menu),
+    portal: menu.parentElement === document.body,
+    pos: getComputedStyle(menu).position,
+    dr: Math.round(menu.getBoundingClientRect().right - btn.getBoundingClientRect().right),
+    // 트리거가 그 사람 줄의 첫 줄에 남아 있는가 — 아래 check의 뜻
+    dyTop: Math.round(btn.getBoundingClientRect().top - row.firstElementChild.getBoundingClientRect().top),
+    below: Math.round(menu.getBoundingClientRect().top - btn.getBoundingClientRect().bottom),
+    over: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+  document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  return out;
+})()`, true);
+check('순 옮기기 목록도 트리거 아래 보통 흐름에 선다(오른쪽 끝을 맞춘다)',
+  !flowMenu.err && flowMenu.inRoot === true && flowMenu.portal === false
+  && flowMenu.pos === 'static' && Math.abs(flowMenu.dr) <= 1
+  && Math.abs(flowMenu.below - 4) <= 2 && flowMenu.over <= 0,
+  JSON.stringify(flowMenu));
+// 줄이 높아져도 트리거는 **그 사람 이름과 같은 줄**에 남는다(PersonTag의
+// `has-[.menu-pick-menu]:items-start`). 없으면 높아진 줄에서 세로 가운데가 다시 잡혀
+// 트리거가 이름 위로 올라가고 이름이 트리거와 목록 사이에 낀다(실측 -43px).
+// 되돌리기 확인: 그 유틸을 걷으면 dyTop이 -40 언저리가 되어 이 검사가 깨진다.
+check('목록이 펴져도 순 옮기기 버튼은 그 사람 줄에 남는다',
+  !flowMenu.err && Math.abs(flowMenu.dyTop) <= 3, JSON.stringify(flowMenu));
+
+// 굵은 포인터면 **폭이 넓어도** 인라인이다(아이패드처럼 손가락으로 쓰는 기기)
+await send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 800, deviceScaleFactor: 2, mobile: true });
+await sleep(700);
+const coarseWide = await ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const input = document.querySelector('.sun-add input');
+  if (!input) return { err: 'no-field' };
+  input.blur(); await w(60); input.focus();
+  await w(420);
+  const menu = document.querySelector('.person-pick-menu');
+  const out = { coarse: matchMedia('(pointer: coarse)').matches,
+    narrow: matchMedia('(max-width: 767px)').matches,
+    portal: menu ? menu.parentElement === document.body : null,
+    pos: menu ? getComputedStyle(menu).position : '' };
+  document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  return out;
+})()`, true);
+check('굵은 포인터면 1024px에서도 인라인이다',
+  !coarseWide.err && coarseWide.coarse === true && coarseWide.narrow === false
+  && coarseWide.portal === false && coarseWide.pos === 'static', JSON.stringify(coarseWide));
+
+// 데스크톱(가는 포인터 · 넓은 폭)은 예전 그대로 body 포털 + fixed다(§6-1)
+await send('Emulation.setTouchEmulationEnabled', { enabled: false });
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(700);
+const deskPick = await ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const input = document.querySelector('.sun-add input');
+  if (!input) return { err: 'no-field' };
+  input.blur(); await w(60); input.focus();
+  await w(420);
+  const menu = document.querySelector('.person-pick-menu');
+  if (!menu) return { err: 'no-menu' };
+  const out = { coarse: matchMedia('(pointer: coarse)').matches,
+    portal: menu.parentElement === document.body, pos: getComputedStyle(menu).position };
+  document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  return out;
+})()`, true);
+check('데스크톱은 그대로 body 포털에 fixed로 뜬다',
+  !deskPick.err && deskPick.coarse === false && deskPick.portal === true
+  && deskPick.pos === 'fixed', JSON.stringify(deskPick));
+await sleep(300);
 
 // ── 6) 명단에 안 이어진 계정 · 아무것도 없는 화면 ──────────────────────────
 await enter({ personId: null, isMaster: false, roles: [] });
