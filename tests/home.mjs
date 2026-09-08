@@ -571,8 +571,8 @@ const box6 = await ev(cardBox);
 check('업무가 여섯 건이어도 그 행이 더 자라지 않는다(줄 상한이 막는다)',
   Math.abs(box6.h[2] - box6.h[3]) <= 2 && box6.h[2] <= box3.h[2] + 24,
   `${JSON.stringify(box6.h)} / 3건 ${JSON.stringify(box3.h)}`);
-check("줄은 셋까지 서고 나머지는 '+3건 더'로 접힌다",
-  box6.rows === 3 && box6.more === '+3건 더', `${box6.rows}줄 / ${box6.more}`);
+check("줄은 셋까지 서고 나머지는 '+3건'으로 접힌다",
+  box6.rows === 3 && box6.more === '+3건', `${box6.rows}줄 / ${box6.more}`);
 
 // '+N건 더'는 **오른쪽 끝 한 줄**이고 제목 줄의 화살표와 같은 세로선에 선다
 // (사용자 지적 2026-09-07 — 왼쪽에 붙은 글자가 네 번째 업무 줄처럼 읽혔다).
@@ -693,6 +693,14 @@ check("오늘이 주일이면 오늘 주보를 '지난 주일'이라 부르지 �
   JSON.stringify(todayOnly));
 check('그래도 오늘 주보는 이번 주 예배 카드에 그대로 선다',
   todayOnly.title === '오늘 주보', JSON.stringify(todayOnly));
+
+// ── 3c) 오늘 주보에 출석이 **들어왔으면** '이번 주일 N명 참석' (사용자 결정 2026-09-08) ──
+// 출석을 부른 뒤에는 오늘 주보가 참석 수의 기준이 되므로 '지난 주일'이 아니라 '이번 주일'이다.
+// 그 날이 지나면 같은 주보가 '지난 주일'로 불린다(groups.attendanceSunday · homeView latestToday).
+await enter({ worship: { ...WORSHIP_TODAY, attendance: [{ service_id: 's1', person_id: 'p1' }, { service_id: 's1', person_id: 'p2' }] } });
+const todayCalled = await ev(`document.querySelector('.home-sun-meta')?.textContent.trim() || ''`);
+check("오늘 주보에 출석이 있으면 '이번 주일 2명 참석'",
+  todayCalled.includes('이번 주일 2명 참석') && !todayCalled.includes('지난 주일'), todayCalled);
 
 // ── 4) 안 쓴 날 · 작성 중 주보 · 명단에 안 이어진 계정 ──────────────────────
 await enter({ app: APP_ALL_DONE, entries: null, worship: WORSHIP_DRAFT, groups: groupsSeed(null) });
@@ -1035,6 +1043,10 @@ await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, dev
 // ③ 도착하면 **그 자리에서** 내용으로 바뀌는가(.dc-fade — 다시 떠오르지 않는다).
 // 되돌리기 검사: homeView의 orderedSlots에서 'wait'을 빼면(=예전 동작) QT 칸이 아예
 // 없어져서 첫 단정의 차례가 ['worship','tasks','sun']이 되고 바로 깨진다.
+// services/bible.js가 본문을 Cache Storage(`bible-*`)에 남기므로(2026-09-08) 두 번째 진입부터는
+// `/bible/*`가 네트워크로 안 나간다 — 가로챌 요청이 있으려면 새로고침 **전에** 비워야 한다.
+await ev(`(async () => { try { const ks = await caches.keys(); await Promise.all(ks.filter(k => k.startsWith('bible')).map(k => caches.delete(k))); } catch {} })()`);
+await sleep(200);
 await send('Fetch.enable', { patterns: [{ urlPattern: '*/bible/*' }] });
 await ev(plant());
 await send('Page.navigate', { url: URL_BASE });

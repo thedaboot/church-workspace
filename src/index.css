@@ -8,6 +8,7 @@
    이유이기도 하다: 거기엔 font-display가 없어서 받는 동안 글자가 아예 안 보인다
    (FOIT, 최대 3초). 생성된 CSS는 swap을 넣는다. */
 @import './assets/fonts/suit.css';
+@import './assets/fonts/symbols.css';
 
 /* 수동 테마 전환: <html data-theme="dark">가 다크 기준 (기본값은 index.html 스크립트가 시스템 설정으로 결정) */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
@@ -114,7 +115,7 @@
   --shadow-soft: 0 0.175px 1.041px rgba(0, 0, 0, .01), 0 0.8px 2.925px rgba(0, 0, 0, .02), 0 2.025px 7.847px rgba(0, 0, 0, .027), 0 4px 18px rgba(0, 0, 0, .04);
   --shadow-elevated: 0 0.6px 1.8px rgba(0, 0, 0, .02), 0 2.3px 6.9px rgba(0, 0, 0, .03), 0 5.4px 16.2px rgba(0, 0, 0, .035), 0 11px 33px rgba(0, 0, 0, .04), 0 23px 52px rgba(0, 0, 0, .05);
   /* 폰트 — SUIT(위 @import './assets/fonts/suit.css'의 로컬 서브셋, scripts/subset_suit.py) 우선, 실패하면 아래 순서로 */
-  --font-sans: 'SUIT Variable', 'Pretendard Variable', Pretendard, -apple-system, system-ui, 'Segoe UI', sans-serif;
+  --font-sans: 'SUIT Variable', 'Daboot Symbols', 'Pretendard Variable', Pretendard, -apple-system, system-ui, 'Segoe UI', sans-serif;
 }
 
 @layer base {
@@ -394,6 +395,34 @@ svg.lucide { stroke-width: 1.4px; }
   content: attr(data-placeholder);
   color: var(--app-ink-faint);
   float: left; height: 0; pointer-events: none;
+}
+
+/* ── 노트 템플릿의 소제목 (2026-09-08) ──────────────────────────────────────
+   예배 노트·QT 묵상은 빈 칸이 아니라 도막 제목으로 시작한다
+   (services/noteTemplate.js). 옛 순 노트에서 각 도막 앞에 붙던 잎 그림을 그대로
+   가져오되 이미지 파일이 아니라 **마스크 + 토큰 색**이다 — 그래야 다크 모드에서
+   따라오고, 받아 올 파일도 없다(§7 '로티·외부 JSON'과 같은 판단).
+   `.note-template`은 편집기 감싸개와 읽기 상자 둘 다에 붙는다 — 편집기 안은
+   `.tiptap h3`, 읽기 상자 안은 RichText가 그린 h3라 선택자를 둘 다 적는다.
+   도막 사이는 조금 더 벌린다(제목이 글 덩이의 머리로 읽혀야 한다). */
+.note-template h3,
+.note-template .tiptap h3 {
+  position: relative;
+  padding-left: 1.15rem;
+  margin-top: 1rem;
+}
+.note-template h3:first-child,
+.note-template .tiptap h3:first-child { margin-top: 0; }
+.note-template h3::before,
+.note-template .tiptap h3::before {
+  /* lucide의 leaf를 그대로 옮긴 선 그림. 마스크라 색은 아래 background가 정한다 */
+  --dc-leaf: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z'/%3E%3Cpath d='M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12'/%3E%3C/svg%3E");
+  content: '';
+  position: absolute; left: 0; top: .3em;
+  width: .82rem; height: .82rem;
+  background: var(--app-accent);
+  -webkit-mask: var(--dc-leaf) center / contain no-repeat;
+  mask: var(--dc-leaf) center / contain no-repeat;
 }
 
 /* 입력 요소의 글자 크기는 **호출부의 유틸리티 클래스가 정한다.**

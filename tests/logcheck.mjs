@@ -51,6 +51,50 @@ for (const l of edited.activityLog) { assert.ok(l.id && l.author === '노준석'
 
 console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 
+// ── 멘션 꼬리 (utils.splitMention) — 뽑는 쪽과 그리는 쪽이 같은 규칙 ──
+// "(@박지호)"의 닫는 괄호가 칩 안에 들어갔다(2026-09-08). RichText가 `@\S+`를 통째로
+// 칩에 넣었기 때문이다 — 이제 splitMention 한 벌을 쓴다.
+{
+  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const d = mkdtempSync(join(tmpdir(), 'mention-'));
+  const f = join(d, 'utils.mjs');
+  writeFileSync(f, src);
+  const { splitMention, extractMentions } = await import(pathToFileURL(f).href);
+  assert.deepStrictEqual(splitMention('@박지호)'), { name: '박지호', tail: ')' });
+  assert.deepStrictEqual(splitMention('@민수,'), { name: '민수', tail: ',' });
+  assert.deepStrictEqual(splitMention('@시온'), { name: '시온', tail: '' });
+  assert.deepStrictEqual(splitMention('@노준석)."'), { name: '노준석', tail: ')."' });
+  assert.deepStrictEqual(splitMention('@)'), { name: '', tail: ')' }, '이름이 비면 칩을 만들지 않는다');
+  assert.deepStrictEqual(extractMentions('웰컴팀 ( @박지호) · @시온.'), ['박지호', '시온'], '뽑는 쪽도 같은 꼬리 규칙');
+  const rich = readFileSync(new URL('../src/components/RichText.jsx', import.meta.url), 'utf8');
+  assert.ok(rich.includes('splitMention(p)'), 'RichText가 splitMention으로 칩과 꼬리를 가른다');
+  assert.ok(!/\/\^@\\S\+\$\//.test(rich), 'RichText가 `@\\S+` 통째로 칩을 만들지 않는다');
+  console.log('PASS  멘션 꼬리 8가지');
+}
+
+// ── 기호 보조 글꼴 (◡̈ — src/assets/fonts/symbols.css) ──
+// SUIT에 없는 결합 부호·기하 도형은 한 글꼴에서 나와야 제자리에 붙는다(2026-09-08).
+{
+  const css = readFileSync(new URL('../src/assets/fonts/symbols.css', import.meta.url), 'utf8');
+  const range = (css.match(/unicode-range:\s*([^;]+);/) || [])[1] || '';
+  const covers = (cp) => range.split(',').some(part => {
+    const m = /U\+([0-9A-F]+)(?:-([0-9A-F]+))?/i.exec(part.trim());
+    if (!m) return false;
+    const a = parseInt(m[1], 16), b = m[2] ? parseInt(m[2], 16) : a;
+    return cp >= a && cp <= b;
+  });
+  assert.ok(covers(0x25E1) && covers(0x0308), '◡(U+25E1)와 결합 점(U+0308)이 보조 글꼴 범위에 있다');
+  assert.ok(!covers(0xAC00) && !covers(0x41), '한글·라틴은 보조 글꼴이 맡지 않는다(SUIT 그대로)');
+  const index = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
+  const stack = (index.match(/--font-sans:\s*([^;]+);/) || [])[1] || '';
+  assert.ok(stack.indexOf("'SUIT Variable'") >= 0 && stack.indexOf("'Daboot Symbols'") > stack.indexOf("'SUIT Variable'"),
+    "보조 글꼴은 SUIT 바로 뒤에 선다");
+  assert.ok(index.includes("@import './assets/fonts/symbols.css'"), 'index.css가 symbols.css를 import한다');
+  const { statSync } = await import('node:fs');
+  assert.ok(statSync(new URL('../src/assets/fonts/symbols.woff2', import.meta.url)).size > 1000, 'symbols.woff2가 있다');
+  console.log('PASS  기호 보조 글꼴 5가지');
+}
+
 // ── 하위 업무 진척 (utils.subtaskProgress) ──
 // 보드 카드와 업무 창이 같은 함수를 쓴다. 0/0에서 NaN이 나오면 카드가 통째로 깨진다.
 {
@@ -1942,6 +1986,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
       'const guestStore = () => ({ all: () => ({}), rows: () => [], set: () => {} });');
   const dir = mkdtempSync(join(tmpdir(), 'v2hon-'));
   const pf = join(dir, 'people.mjs');
+  // titleText.js는 순수 모듈이라 그대로 옆에 둔다(2026-09-08 — 유튜브 제목 NFKC 정규화)
+  writeFileSync(join(dir, 'titleText.js'), readFileSync(new URL('../src/services/titleText.js', import.meta.url), 'utf8'));
   const wf = join(dir, 'worship.mjs');
   writeFileSync(pf, strip(readFileSync(new URL('../src/services/people.js', import.meta.url), 'utf8')));
   writeFileSync(wf, strip(readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8')));
@@ -2094,4 +2140,45 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(!/members\.slice\(0, 5\)/.test(views), '5명 상한은 없앴다(전원이 선다)');
 
   console.log('PASS  팀 보드 사람 칩 12가지');
+}
+
+// ── 업무의 '이번 주' = 주일에 시작하는 달력의 주 (utils.weekEndOf) ──
+// 사용자 지시 2026-09-08 "업무 이번 주 - 주일을 시작으로 하기 무조건".
+// 예전에는 '오늘부터 6일'이라 화면의 '이번 주'가 달력의 이번 주와 달랐다.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'wk-'));
+  const f = join(dir, 'utils.mjs');
+  writeFileSync(f, readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8'));
+  const { weekEndOf } = await import(pathToFileURL(f).href);
+
+  assert.strictEqual(weekEndOf('2026-09-06'), '2026-09-12', '주일이면 엿새 뒤 토요일');
+  assert.strictEqual(weekEndOf('2026-09-09'), '2026-09-12', '수요일도 같은 주 토요일');
+  assert.strictEqual(weekEndOf('2026-09-12'), '2026-09-12', '토요일이면 오늘이 그 주의 끝');
+  assert.strictEqual(weekEndOf('2026-12-30'), '2027-01-02', '해를 넘겨도 토요일까지 간다');
+  assert.strictEqual(weekEndOf('2026-02-25'), '2026-02-28', '달을 넘나드는 주도 맞다');
+  // 한 주 안의 어느 날에서 봐도 끝나는 날은 하나다 — 이것이 '굴러가는 6일'과 다른 점이다
+  const week = ['2026-09-06', '2026-09-07', '2026-09-08', '2026-09-09', '2026-09-10', '2026-09-11', '2026-09-12'];
+  assert.strictEqual(new Set(week.map(weekEndOf)).size, 1, '같은 주는 어느 날에서 봐도 끝이 같다');
+  // 주일은 새 주의 시작이다 — 토요일과 그다음 날의 끝이 달라야 한다
+  assert.notStrictEqual(weekEndOf('2026-09-12'), weekEndOf('2026-09-13'), '주일에 새 주가 시작한다');
+  assert.strictEqual(weekEndOf('2026-09-13'), '2026-09-19');
+  // 타임스탬프도 앞 10자만 본다 · 값이 없으면 조용히 빈 문자열(구간 판정이 터지지 않게)
+  assert.strictEqual(weekEndOf('2026-09-09T23:30:00+09:00'), '2026-09-12', '타임스탬프는 앞 10자만');
+  assert.strictEqual(weekEndOf(''), '', '값이 없으면 빈 문자열');
+  assert.strictEqual(weekEndOf(), '', '인자가 없어도 안전하다');
+  assert.strictEqual(weekEndOf('아무거나'), '', '날짜가 아니면 빈 문자열');
+
+  // 화면 두 곳이 실제로 이 규칙을 쓰는가 — bucketOf는 JSX 안이라 노드가 못 부른다.
+  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  const views = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');
+  assert.ok(/function bucketOf[\s\S]{0,600}?weekEndOf\(today\)/.test(parts),
+    '마감 구간의 이번 주는 weekEndOf로 자른다');
+  assert.ok(!/daysLeft\([^)]*\)\s*<=\s*6/.test(parts) && !/daysLeft\([^)]*\)\s*<=\s*6/.test(views),
+    "굴러가는 '6일 내' 창은 어디에도 남아 있지 않다");
+  assert.ok(/weekEndOf\(today\)[\s\S]{0,300}?weekCount[\s\S]{0,200}?dueDate <= weekEnd/.test(views),
+    "KPI '이번 주'도 같은 기준으로 센다(숫자와 아래 목록이 어긋나면 안 된다)");
+  assert.ok(/note="이번 주 토요일까지"/.test(views) && !/앞으로 일주일 내/.test(views),
+    "KPI 밑줄은 그 숫자가 무엇인지 말한다 — '앞으로 일주일 내'는 이제 거짓이다");
+
+  console.log('PASS  업무 이번 주(주일~토요일) 16가지');
 }

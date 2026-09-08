@@ -16,6 +16,7 @@ import { useLiveRefresh } from '../services/liveV2.js';
 import { ShareChip, ShareToggle } from '../components/ShareToggle.jsx';
 import { SectionHead, Card } from './dashboardParts.jsx';
 import { loadPassage } from '../services/bible.js';
+import { qtNoteTemplate, isTemplateOnly, bodyOrTemplate } from '../services/noteTemplate.js';
 import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap, useBibleState, useVersePaint, marksFor } from '../components/wordBible.jsx';
 import {
   kstToday, shiftDay, dayLabel, shortDayLabel, monthDays, shiftMonth, weekRange, shouldAdoptBody,
@@ -236,6 +237,14 @@ function QtTab() {
   const syncedBody = useRef('');   // 마지막으로 넣어 준 글 — '아직 안 고쳤나'의 기준
   const bodyRef = useRef('');
   bodyRef.current = body;          // 이펙트가 지금 에디터의 글을 볼 수 있게(렌더마다)
+  // **아직 쓴 것이 없는 날은 템플릿으로 시작한다**(사용자 요청 2026-09-08 — 옛 순 노트
+  // 템플릿). '본문' 아래에는 그 날 읽기표의 구절이 미리 들어간다. QT에는 '말씀 요약'이
+  // 없다(services/noteTemplate.js 머리말).
+  const passageRef = (qt && qt.date === date ? qt.schedule?.passage_ref : '') || '';
+  const tpl = useMemo(() => qtNoteTemplate({ passageRef }), [passageRef]);
+  // 넣어 주는 글과 syncedBody는 **언제나 같은 값**이어야 한다 — 다르면
+  // shouldAdoptBody가 '사람이 고쳤다'로 읽어 뒤에 온 값을 영영 안 넣는다.
+  const putBody = (b) => { const v = bodyOrTemplate(b, tpl); setBody(v); syncedBody.current = v; };
   useEffect(() => {
     if (!qt || qt.date !== date) return;
     const next = { date, body: qt.mine?.body || '', shared: !!qt.mine?.shared, exists: !!qt.mine };
@@ -243,7 +252,7 @@ function QtTab() {
     setFeed(qt.shared || []);
     const dateChanged = syncedFor.current !== date;
     if (shouldAdoptBody({ dateChanged, body: bodyRef.current, lastSynced: syncedBody.current, next: next.body })) {
-      setBody(next.body); syncedBody.current = next.body;
+      putBody(next.body);
     }
     // 날짜가 바뀌면 읽기 모드로 돌아간다 — 저장된 글이 있는 날은 먼저 그 글을 보여준다
     if (dateChanged) { setShareState(''); setEditing(false); syncedFor.current = date; }
@@ -259,7 +268,7 @@ function QtTab() {
     // 위 주석이 막으려던 일을 이 이펙트가 하고 있었다. 한 번도 못 읽었을 때만 빈 자리다.
     if (!qt || qt.date !== date) {
       setEntry({ date, body: '', shared: false, exists: false }); setFeed([]);
-      if (syncedFor.current !== date) { setBody(''); syncedBody.current = ''; syncedFor.current = date; }
+      if (syncedFor.current !== date) { putBody(''); syncedFor.current = date; }
     }
     showToast(failText('이 날 묵상과 나눔을 불러오지 못했어요', qtError));
   }, [qtError, qt, date]);
@@ -278,7 +287,12 @@ function QtTab() {
   // 지금 화면의 날짜와 읽어 온 날짜가 같을 때에만 저장·공유를 연다 — 넘긴 직후
   // 한 순간은 앞 날짜의 글이 에디터에 남아 있으므로, 그때 저장하면 엉뚱한 날에 쓴다
   const ready = !!entry && entry.date === date;
-  const dirty = ready && body !== entry.body;
+  // 되돌아갈 자리 — 저장된 글이 있으면 그것, 없으면 손대지 않은 템플릿이다
+  const base = ready ? bodyOrTemplate(entry.body, tpl) : '';
+  const dirty = ready && body !== base;
+  // **손대지 않은 템플릿은 빈 묵상이다** — 제목 줄이 있다는 이유로 저장이 열리면
+  // 아무도 쓰지 않은 제목 네 줄이 그대로 저장되고 잔디에까지 찍힌다
+  const hasText = !isTemplateOnly(body, passageRef);
   // 공유는 저장된 글에만 걸 수 있다(머리말) — 빈 글은 나눔에 올라가지도 않는다
   const canShare = ready && entry.exists && !!entry.body.trim();
   // 저장된 글이 있고 고치는 중이 아니면 읽기 모드다(머리말)
@@ -344,7 +358,7 @@ function QtTab() {
     try {
       await deleteMyEntry(date);
       setEntry({ date, body: '', shared: false, exists: false });
-      setBody(''); syncedBody.current = ''; setEditing(false);
+      putBody(''); setEditing(false);
       setFeed(await fetchSharedEntries(date));
       dropCache(qtKey); refreshQt();
       dropCache('home');
@@ -389,7 +403,7 @@ function QtTab() {
   // 되돌아갈 자리가 없으므로 이 버튼 자체가 없다.
   const cancelEdit = () => {
     if (!ready) return;
-    setBody(entry.body); syncedBody.current = entry.body;
+    putBody(entry.body);
     setEditing(false);
   };
 
@@ -448,13 +462,13 @@ function QtTab() {
           <SectionHead>내 묵상</SectionHead>
           <div className={EDITOR_SLOT}>
             {/* 저장된 글 — 나눔 피드와 같은 뷰어로 그린다(저장 형식이 같은 마크다운이다) */}
-            <div data-note-read="1" className={reading ? READ_BOX : 'hidden'}>
+            <div data-note-read="1" className={reading ? `${READ_BOX} note-template` : 'hidden'}>
               <div className="text-[13px] leading-relaxed text-fg-secondary break-words">
                 <RichText content={entry?.body || ''} />
               </div>
             </div>
             {/* **언마운트하지 않는다**(머리말) — 읽기 모드에서는 감추기만 한다 */}
-            <div className={reading ? 'hidden' : ''}>
+            <div className={`qt-note-editor note-template ${reading ? 'hidden' : ''}`}>
               {entry ? (
                 <Suspense fallback={<EditorSkeleton />}>
                   <MarkdownEditor
@@ -480,7 +494,7 @@ function QtTab() {
                 </button>
               ) : (
                 <>
-                  <button onClick={save} disabled={!dirty || saving}
+                  <button onClick={save} disabled={!dirty || !hasText || saving}
                     className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
                     저장
                   </button>
@@ -501,7 +515,7 @@ function QtTab() {
               <ShareToggle className="grow sm:grow-0" value={!!entry?.shared} disabled={!canShare} onChange={setShared} />
               {canShare && (
                 <ConfirmPopover
-                  message="이 날 묵상을 지울까요? 나눔에서도 내려가고 내 기록에서도 빠져요."
+                  message={"이 날의 묵상을 지울까요?\n내 기록에서도 제거돼요."}
                   onConfirm={removeMine}
                 >
                   <button aria-label="내 묵상 지우기"

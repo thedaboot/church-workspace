@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, PencilLine, ChevronDown } from 'lucide-react';
+import { Plus, PencilLine } from 'lucide-react';
 import { Skeleton } from '../components/media.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
@@ -8,6 +8,7 @@ import { useCached, readCache, writeCache, dropCache } from '../services/cache.j
 import { useLiveRefresh } from '../services/liveV2.js';
 import { takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
 import { DatePicker } from '../components/DatePicker.jsx';
+import { BTN, BTN_QUIET, FIELD, LabeledField } from '../components/groupsParts.jsx';
 import { ServiceDetail, WorshipEmpty } from '../components/worshipDetail.jsx';
 import { AttendanceScreen } from '../components/worshipAttendance.jsx';
 import {
@@ -42,8 +43,18 @@ const KINDS = [
   { id: 'other', label: '그 밖의 예배' },
 ];
 
-// 종류 피커의 두 번째 줄 — 고르면 이름 칸이 나온다(이벤트성 예배)
-const OTHER_LABEL = '다른 예배…';
+// 종류 세그먼트의 두 칸. 오른쪽을 고르면 이름 칸이 나온다(이벤트성 예배).
+// 라벨은 바로 아래 거르기 칩과 같은 짧은 말이다('주일예배') — 카드·상세에 서는
+// 정식 이름('주일 4부 젊은이 예배', kindLabel)은 그 값이 뜻하는 것이고, 고르는
+// 자리에서는 두 칸이 한눈에 대비되어야 한다.
+const KIND_SEG = [[false, '주일예배'], [true, '다른 예배']];
+
+// 생성기의 칸은 **모두 같은 높이**다(34px = FIELD 한 칸의 높이). 라벨이 칸 위에 앉는
+// 짜임이라 칸 높이가 다르면 아래를 맞춘 만큼 라벨 줄이 어긋나 계단처럼 보인다
+// (세그먼트 37 · 날짜 30 · 입력칸 34로 두었을 때 1440에서 라벨이 3~4px씩 엇갈렸다).
+// 날짜 픽커는 공용이라 손대지 않고 트리거 모양만 넘긴다(DatePicker의 triggerClassName).
+const NEW_H = 'h-[34px]';
+const DATE_TRIGGER = `inline-flex items-center gap-1.5 ${NEW_H} border border-line rounded-xs bg-surface px-2 text-xs text-fg hover:bg-surface-hover focus:border-accent focus:shadow-soft outline-none transition-all`;
 
 // 모션을 꺼 둔 사람에게는 등장·퇴장을 걸지 않는다(§4.2 · dashboardParts와 같은 한 줄)
 const reduceMotion = () => typeof window !== 'undefined'
@@ -128,50 +139,48 @@ function ServiceCard({ service, onOpen, attended = 0 }) {
 }
 
 // 예배 종류 — 고르는 것은 둘뿐이다(주일 4부 젊은이 예배 / 그 밖의 자유 이름).
-// 칩 두 개로 두면 종류 이름이 길어서 줄 하나를 통째로 먹었다 — 지금은 한 칸이다.
+//
+// **세그먼트다**(2026-09-08). 예전에는 팝오버가 달린 한 칸이었는데 375px 스크린샷에서
+// '다른 예배…'만 덩그러니 서 있어서, 무엇을 고르는 칸인지도 지금 무엇이 골라져 있는지도
+// 읽히지 않았다(말줄임표까지 붙어 잘린 글로 보였다 — 그래서 그 표를 뗐다). 갈래가 둘뿐인
+// 값에 팝오버를 열게 하는 것은 조작도 한 번 더 든다.
+// 부품은 새로 만들지 않는다 — 말씀의 [QT | 성경 읽기], 성경 리더의 [본문 | 북마크 |
+// 형광펜]과 **같은 짜임·같은 토큰**이다(surface-hover 트랙 + 고른 칸만 surface).
 function KindPicker({ other, onPick }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false); };
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-  }, [open]);
-
-  // 트리거 바로 아래에 붙는 팝오버라 자리를 state로 잡지 않는다 — 그래서 §6-17-b의
-  // 'top이 전이되어 미끄러진다'가 생기지 않는다(날짜 픽커와 같은 방식).
   return (
-    <div className="relative shrink-0" ref={rootRef}>
-      <button type="button" aria-label="예배 종류" aria-expanded={open} onClick={() => setOpen(o => !o)}
-        className="worship-kind-pick inline-flex items-center gap-1.5 border border-line rounded-xs bg-surface px-2 py-1.5 text-xs text-fg hover:bg-surface-hover focus:border-accent focus:shadow-soft outline-none transition-all">
-        {other ? OTHER_LABEL : kindLabel(SUNDAY_KIND)}
-        <ChevronDown size={12} className="text-fg-faint shrink-0" />
-      </button>
-      {open && (
-        <div className="worship-kind-list absolute left-0 top-full z-50 mt-1 w-max min-w-full bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150">
-          {[[false, kindLabel(SUNDAY_KIND)], [true, OTHER_LABEL]].map(([v, label]) => (
-            <button key={label} type="button" onClick={() => { onPick(v); setOpen(false); }}
-              className={`w-full px-2 py-1.5 rounded-md text-left text-[12.5px] transition-colors ${
-                v === other ? 'bg-surface-hover text-fg font-semibold' : 'text-fg-muted hover:bg-surface-hover'}`}>
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <span className={`worship-kind-seg flex ${NEW_H} w-full sm:w-auto p-[3px] rounded-[8px]`}
+      style={{ background: 'var(--app-surface-hover)' }}>
+      {KIND_SEG.map(([v, label]) => (
+        <button key={label} type="button" data-kind={v ? 'other' : 'sunday'} aria-pressed={other === v}
+          onClick={() => onPick(v)}
+          className="worship-kind-opt flex-1 sm:flex-none whitespace-nowrap px-3.5 rounded-[5px] text-[12.5px] font-semibold transition-colors"
+          style={{
+            background: other === v ? 'var(--app-surface)' : 'transparent',
+            color: other === v ? 'var(--app-ink)' : 'var(--app-ink-muted)',
+          }}>{label}</button>
+      ))}
+    </span>
   );
 }
 
 // 새 주보 — 기본은 주일 4부 젊은이 예배, 날짜는 다가오는 주일이다(결정 14).
 // 이벤트성 예배는 종류 이름을 그대로 적는다('금요 열정 예배'·'성탄절 예배').
 //
-// **한 줄짜리 생성기다**(사용자 지적 2026-09-02: "날짜와 그 밖의 예배만 정하고 만들
-// 것이라면 세 줄로 쪼갤 이유가 없다"). 종류·날짜가 기본값으로 채워져 있어서 열자마자
-// '만들기' 한 번이면 끝나고, 이름 칸은 '다른 예배'를 고를 때만 나온다.
+// **만들기 한 번이면 끝난다**(사용자 지적 2026-09-02: "날짜와 그 밖의 예배만 정하고
+// 만들 것이라면 세 줄로 쪼갤 이유가 없다"). 종류·날짜가 기본값으로 채워져 있고,
+// 이름 칸은 '다른 예배'를 고를 때만 나온다.
+//
+// 다만 **짜임은 준다**(사용자 지적 2026-09-08: 375px에서 뒤죽박죽으로 읽힌다). 칸마다
+// 라벨을 얹어 무엇을 정하는 자리인지 말하는 것은 동아리 만들기 카드와 같은 문법이다
+// (groupsClub · LabeledField). 라벨은 사용법 안내가 아니라 칸 이름이다(§8).
+//
+// 줄은 폭이 정한다 — flex-wrap 하나에 맡기고 칸의 폭만 정해 준다:
+//   ≥640  한 줄 · [종류][이름(남는 폭)][날짜][만들기] … [취소]
+//   <640  [종류] / [이름] / [날짜][만들기] … [취소]  — 종류·이름만 w-full이라
+//         날짜와 두 버튼(합쳐 260px 남짓)이 마지막 줄에 같이 선다. 버튼만 따로
+//         한 줄에 남지 않는다.
+// 취소는 `ml-auto`로 그 줄의 오른쪽 끝이다 — 상시 도구 줄은 확정 왼쪽 / 나가기
+// 오른쪽이고(§8), 두 폭에서 자리가 같다.
 function NewServiceForm({ onCreate, onCancel, closing = false }) {
   const [other, setOther] = useState(false);
   const [name, setName] = useState('');
@@ -192,25 +201,31 @@ function NewServiceForm({ onCreate, onCancel, closing = false }) {
     // relative z-20 — 날짜 픽커 패널은 absolute라 조상의 z-index를 따르는데, 아래
     // 카드들이 등장 애니메이션(transform)으로 저마다 쌓임 문맥을 만들어 패널이 그 밑으로
     // 깔렸다(사용자 스크린샷 2026-09-03). DatePicker는 공용이라 손대지 않는다.
-    <div className={`worship-new relative z-20 ${closing ? 'animate-out fade-out slide-out-to-top-1 duration-150' : 'dc-card'} p-3 mb-4 ${CARD}`}
+    <div className={`worship-new relative z-20 ${closing ? 'animate-out fade-out slide-out-to-top-1 duration-150' : 'dc-card'} p-3.5 mb-4 ${CARD}`}
       style={CARD_STYLE}>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <KindPicker other={other} onPick={setOther} />
+      <div className="worship-new-fields flex flex-wrap items-end gap-2.5">
+        <LabeledField label="종류" className="worship-new-kind w-full sm:w-auto shrink-0">
+          <KindPicker other={other} onPick={setOther} />
+        </LabeledField>
+        {/* 이름 칸은 남는 폭을 먹되 **끝없이 늘지는 않는다**(동아리 만들기 카드와 같은
+            판단) — 1440px에서 그대로 두면 이름 한 줄을 적는 자리가 970px이 되어 '빈 띠'로
+            읽힌다. 남은 폭은 만들기와 취소 사이로 간다(§8의 나가기 오른쪽). */}
         {other && (
-          <input value={name} onChange={e => setName(e.target.value)} aria-label="예배 이름" placeholder="예: 금요 열정 예배"
-            autoFocus onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
-            className="flex-1 basis-40 min-w-0 max-w-[16rem] text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
+          <LabeledField label="이름" className="worship-new-name w-full sm:flex-1 sm:basis-40 sm:min-w-0 sm:max-w-[24rem]">
+            <input value={name} onChange={e => setName(e.target.value)} aria-label="예배 이름" placeholder="예: 금요 열정 예배"
+              autoFocus onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+              className={`${FIELD} w-full`} />
+          </LabeledField>
         )}
         {/* 업무의 날짜 픽커 한 벌을 그대로 쓴다 — 브라우저마다 다르게 그려지는
             <input type="date">와 달리 다크 모드·모바일에서 같은 모양이다(사용자 지적) */}
-        <div className="worship-new-date shrink-0">
-          <DatePicker value={date} onChange={setDate} />
-        </div>
+        <LabeledField label="날짜" className="worship-new-date shrink-0">
+          <DatePicker value={date} onChange={setDate} triggerClassName={DATE_TRIGGER} />
+        </LabeledField>
         <button type="button" onClick={submit} disabled={busy || (other && !name.trim()) || !date}
-          className="worship-new-make shrink-0 px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40">만들기</button>
-        <span className="flex-1" />
+          className={`worship-new-make shrink-0 ${BTN}`}>만들기</button>
         <button type="button" onClick={onCancel}
-          className="shrink-0 px-2.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">취소</button>
+          className={`worship-new-cancel shrink-0 ml-auto ${BTN_QUIET}`}>취소</button>
       </div>
     </div>
   );
@@ -273,7 +288,7 @@ function ServiceList({ services, perms, counts = {}, onOpen, onCreate }) {
           style={draftsOnly
             ? { background: 'var(--app-tag-yellow)', color: 'var(--app-tag-yellow-fg)' }
             : { background: 'var(--app-surface-hover)', color: 'var(--app-ink-muted)' }}>
-          <PencilLine size={13} /> 작성 중 {drafts.length}
+          <PencilLine size={13} /> 작성 중인 주보 {drafts.length}건
         </button>
       )}
 

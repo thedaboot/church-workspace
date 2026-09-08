@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, Trash2, Check, X, Pencil, QrCode } from 'lucide-react';
 import {
@@ -46,23 +46,54 @@ const dropCollision = (args) => {
   return hit.length ? hit : rectIntersection(args);
 };
 
+// 생성기의 칸은 **모두 같은 높이**다(34px). 라벨이 칸 위에 앉는 짜임이라 칸 높이가
+// 다르면 아래를 맞춘 만큼 라벨 줄이 어긋나 계단처럼 보인다. 예배 만들기와 같은 값·같은
+// 트리거 모양을 쓴다(worshipView NEW_H·DATE_TRIGGER) — 두 생성기는 한 식구로 읽혀야 한다.
+// 날짜 픽커는 공용이라 손대지 않고 트리거 모양만 넘긴다(DatePicker의 triggerClassName).
+const NEW_H = 'h-[34px]';
+const DATE_TRIGGER = `inline-flex items-center gap-1.5 ${NEW_H} border border-line rounded-xs bg-surface px-2 text-xs text-fg hover:bg-surface-hover focus:border-accent focus:shadow-soft outline-none transition-all`;
+
+// 목록 ↔ 상세는 **교회 화면 사이 이동과 같은 결로** 미끄러진다(사용자 요청 2026-09-08 —
+// "동아리 상세 들어갈 때에도 애니메이션 추가되도록").
+//
+// 상세에 `dc-screen`이 있는데도 아무 움직임이 없어 보인 이유: 이 화면을 감싼 App의
+// 껍데기가 `dc-nav dc-nav-fwd`를 **계속 달고 있다**(App.jsx navRef는 activeMenu가 바뀔
+// 때만 값을 간다). index.css의 `.dc-nav .dc-screen`이 그 안의 모든 `dc-screen`을
+// **페이드만** 남기도록 키프레임을 갈아 끼우므로(가로로 미끄러지며 위로도 올라오면
+// 대각선이 된다), 모임 화면 안에서 새로 마운트되는 상세도 4px 떠오름을 잃고 밝아지기만 했다.
+// 그래서 겉 한 겹을 여기서 만든다 — App이 화면 사이에 하는 것과 **같은 짜임**이다
+// (겉은 7px 가로 이동, 속 `dc-screen`은 페이드. 투명도는 한 겹에서만 — index.css 주석).
+const NAV_IN = 'dc-nav dc-nav-fwd';
+const NAV_BACK = 'dc-nav dc-nav-back';
+
 export function ClubsPanel({
   clubs, people, members, apps, perms, openClub, meetings, creating, closingCreate, onCloseCreate,
   onOpen, onBack, onCreateClub, onEditClub, onApply, onCancelApply, onAccept, onDecline,
   onAddMember, onRemoveMember, onReorder, onCreateMeeting, onToggleMeeting,
 }) {
-  if (openClub) {
-    return (
-      <ClubDetail club={openClub} people={people} members={members} apps={apps} perms={perms}
-        meetings={meetings} onBack={onBack} onApply={onApply} onCancelApply={onCancelApply}
-        onAccept={onAccept} onDecline={onDecline} onAddMember={onAddMember} onRemoveMember={onRemoveMember}
-        onEditClub={onEditClub} onCreateMeeting={onCreateMeeting} onToggleMeeting={onToggleMeeting} />
-    );
-  }
+  // 목록 → 상세는 앞으로, 상세 → 목록은 뒤로 미끄러진다(위 NAV_IN 주석).
+  // **렌더 중에 정하지만 값이 바뀔 때만 간다** — App.jsx navRef와 같은 짜임이라
+  // StrictMode의 두 번째 렌더에서도 같은 답이 나온다. 탭을 처음 열 때는 방향이 없다
+  // (안에서 이동한 것이 아니라 화면이 선 것이다).
+  const openId = openClub?.id || null;
+  const navRef = useRef({ id: openId, cls: '' });
+  if (navRef.current.id !== openId) navRef.current = { id: openId, cls: openId ? NAV_IN : NAV_BACK };
+
+  // key가 바뀌어야 CSS 애니메이션이 처음부터 다시 돈다 — 같은 자리에 다른 내용을
+  // 끼우면 브라우저는 이미 끝난 애니메이션을 다시 틀지 않는다(App.jsx의 key={activeMenu}).
   return (
-    <ClubList clubs={clubs} people={people} members={members} apps={apps} perms={perms}
-      creating={creating} closingCreate={closingCreate} onCloseCreate={onCloseCreate} onOpen={onOpen}
-      onCreateClub={onCreateClub} onReorder={onReorder} />
+    <div key={openId ? `club:${openId}` : 'clubs'} className={navRef.current.cls}>
+      {openClub ? (
+        <ClubDetail club={openClub} people={people} members={members} apps={apps} perms={perms}
+          meetings={meetings} onBack={onBack} onApply={onApply} onCancelApply={onCancelApply}
+          onAccept={onAccept} onDecline={onDecline} onAddMember={onAddMember} onRemoveMember={onRemoveMember}
+          onEditClub={onEditClub} onCreateMeeting={onCreateMeeting} onToggleMeeting={onToggleMeeting} />
+      ) : (
+        <ClubList clubs={clubs} people={people} members={members} apps={apps} perms={perms}
+          creating={creating} closingCreate={closingCreate} onCloseCreate={onCloseCreate} onOpen={onOpen}
+          onCreateClub={onCreateClub} onReorder={onReorder} />
+      )}
+    </div>
   );
 }
 
@@ -394,10 +425,16 @@ function ClubDetail({
             </button>
           )}>모임</SectionHead>
 
-          {/* 한 줄짜리 생성기 — 날짜는 오늘이 이미 채워져 있어서 **한 번 눌러 만든다**.
+          {/* 생성기 — 날짜는 오늘이 이미 채워져 있어서 **한 번 눌러 만든다**.
               예전에는 날짜·제목·버튼이 저마다 한 줄을 차지해 세 줄이었고, 정작 채울 것은
               하나(제목, 그것도 선택)뿐이었다(사용자 지적 2026-09-02 — 새 주보와 같은 문제).
-              데스크톱은 한 줄, 375px에서는 버튼이 둘째 줄로 접힌다(최대 두 줄).
+              지금은 **예배 만들기와 같은 짜임**이다(2026-09-08): 칸마다 위에 작은 라벨,
+              칸 높이는 모두 34px(NEW_H), 확정 왼쪽 / 나가기는 그 줄의 오른쪽 끝(ml-auto).
+                · 640부터  — [날짜][제목][만들기] … [취소]  한 줄
+                · 375에서 — 제목이 한 줄을 다 쓰고, 그 아래 [날짜][만들기] … [취소]
+              차례를 order로 바꾸는 이유: 좁은 폭에서 날짜가 먼저 서면 제목(w-full)이
+              혼자 한 줄로 밀려나 **세 줄**이 된다. 라벨은 취소가 홀로 뜨지 않게 하는
+              ml-auto와 함께 §8의 '나가기 오른쪽'을 두 폭에서 같은 자리로 지킨다.
               날짜는 업무 날짜와 같은 픽커다 — 네이티브 date 입력은 기기마다 다른 달력이
               뜨고, 우리 화면의 다른 날짜 칸과 생김새가 달랐다.
               **relative z-20**은 날짜 패널 몫이다 — 이 카드의 등장 애니메이션(transform)이
@@ -405,19 +442,26 @@ function ClubDetail({
               카드들(저마다 같은 이유로 맥락을 갖는다)이 패널을 덮었다(예배 화면에서
               먼저 발견 · §6-1과 같은 뿌리). */}
           {adding && (
-            <div className={`club-meet-new ${closingMeet ? EXIT : 'dc-card'} relative z-20 p-2.5 mb-2 flex flex-wrap items-center gap-1.5 ${CARD}`} style={CARD_STYLE}>
-              <div className="club-meet-date shrink-0">
-                <DatePicker value={date} onChange={setDate} />
-              </div>
-              <input value={title} onChange={e => setTitle(e.target.value)} aria-label="모임 제목"
-                placeholder="예: 9월 첫 모임" onKeyDown={e => { if (e.key === 'Enter') submitMeeting(); }}
-                className={`${FIELD} flex-1 min-w-[7rem] sm:max-w-[26rem]`} />
+            <div className={`club-meet-new ${closingMeet ? EXIT : 'dc-card'} relative z-20 p-3 mb-2 flex flex-wrap items-end gap-2.5 sm:gap-1.5 ${CARD}`} style={CARD_STYLE}>
+              <LabeledField label="제목"
+                className="club-meet-title order-1 w-full sm:order-2 sm:w-auto sm:flex-1 sm:basis-40 sm:min-w-0 sm:max-w-[26rem]">
+                <input value={title} onChange={e => setTitle(e.target.value)} aria-label="모임 제목"
+                  placeholder="예: 9월 첫 모임" onKeyDown={e => { if (e.key === 'Enter') submitMeeting(); }}
+                  className={`${FIELD} ${NEW_H} w-full`} />
+              </LabeledField>
+              <LabeledField label="날짜" className="order-2 shrink-0 sm:order-1">
+                {/* 클래스는 이 감싸개에 그대로 둔다 — 검사가 `.club-meet-date`의 첫
+                    자식을 픽커 뿌리로 잡는다(tests/groups.mjs pickDate) */}
+                <div className="club-meet-date">
+                  <DatePicker value={date} onChange={setDate} triggerClassName={DATE_TRIGGER} />
+                </div>
+              </LabeledField>
               {/* 확정 왼쪽 / 나가기 오른쪽(§8) — 새 주보·새 동아리·새 순과 같은 자리다.
                   두 모드에서 자리가 같아야 손가락 밑의 버튼이 뜻을 바꾸지 않는다. */}
               <button type="button" onClick={submitMeeting} disabled={!date}
-                className={`club-meet-make shrink-0 ${BTN}`}>만들기</button>
-              <span className="flex-1" />
-              <button type="button" onClick={() => setAdding(false)} className={`shrink-0 ${BTN_QUIET}`}>취소</button>
+                className={`club-meet-make order-3 shrink-0 ${BTN}`}>만들기</button>
+              <button type="button" onClick={() => setAdding(false)}
+                className={`club-meet-cancel order-4 shrink-0 ml-auto ${BTN_QUIET}`}>취소</button>
             </div>
           )}
         </div>

@@ -1,5 +1,8 @@
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabaseClient.js';
 import { CONFIG } from '../config.js';
+// 어떤 파일에 구글 변환 사본을 만들지 — 표를 **여는 쪽과 한 벌**로 둔다(previewKind.js).
+// 두 벌이면 새 확장자를 붙일 때 한쪽만 고쳐져서 "사본은 있는데 안 열리는 파일"이 생긴다.
+import { previewCopyOf } from './previewKind.js';
 
 // ============================================================================
 // 6. Persistence Layer — Supabase 클라우드 영속 계층
@@ -643,7 +646,7 @@ const INLINE_MAX = 3 * 1024 * 1024;
 // 돌려주는 것: { drive } 또는 { storagePath } 중 하나.
 // `prefix`는 Storage에 둘 자리의 앞머리다 — 업무 첨부는 `<프로젝트>/<업무>`,
 // 주보 송폼은 `services/<주보>`(0047). 부르는 쪽이 정한다.
-async function uploadViaStorage(file, { prefix, key, folderHint, convert }) {
+async function uploadViaStorage(file, { prefix, key, folderHint }) {
   const c = client();
   const safe = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = `${prefix}/${newKey()}-${safe}`;
@@ -666,7 +669,7 @@ async function uploadViaStorage(file, { prefix, key, folderHint, convert }) {
     const drive = await uploadOnceOrFind({
       action: 'uploadFromUrl',
       ...folderHint,
-      key, convert,
+      key,
       url: signed,
       name: file.name, mimeType: file.type || undefined,
     }, folderHint);
@@ -684,12 +687,43 @@ async function uploadViaStorage(file, { prefix, key, folderHint, convert }) {
   }
 }
 
-// 구글 시트로 변환한 사본을 만들 파일 — 구글이 표로 그릴 수 있는 것만.
-// 구글은 .xlsx를 **열어볼 때** 게을리 변환해서, 갓 올린 파일은 시트 미리보기가 오류를
-// 낸다(§6 · utils.SHEET_READY_MS). 올리는 김에 스크립트가 변환 사본을 만들어 두면
-// 기다릴 것이 없다. 원본은 그대로 둔다 — 내려받기·새 탭·첨부 내용 검색이 원본을 쓴다.
-const SHEET_EXT = new Set(['xlsx', 'xlsm', 'csv']);
-const wantsSheetPreview = (name) => SHEET_EXT.has(String(name || '').split('.').pop().toLowerCase());
+// ── 구글 변환 사본 (files.preview_file_id) ──────────────────────────────────
+// 엑셀은 시트로, 워드는 문서로, PPT는 슬라이드로 옮긴 **네이티브 구글 사본**을 만들어
+// 둔다. 구글은 오피스 파일을 **열어볼 때** 게을리 변환해서, 사본이 없으면 갓 올린 파일의
+// 미리보기가 오류를 낸다(§6 · utils.SHEET_READY_MS). 원본은 그대로 둔다 —
+// 내려받기·새 탭·첨부 내용 검색이 원본을 쓴다.
+//
+// **왜 두 단계인가**(2026-09-08). v7까지는 스크립트가 upload 안에서 변환까지 끝내고
+// 답했다. 그러면 올리는 시간에 변환 시간이 **그대로 더해져서**, 쓰는 사람은 파일이
+// 목록에 서는 것조차 그만큼 늦게 봤다(사용자 지적 — "미리보기에서 엄청 오래 기다렸다가
+// 봐야하는데 이 문제도 개선"). 지금은 원본만 올려 곧바로 행을 만들고, 사본은 **뒤에서**
+// 붙인다. 사본이 붙기 전에 열면 우리 렌더러로 그려지고(잘리지만 보이기는 한다),
+// 그 뒤에 열면 구글 화면이다.
+//
+// **v7에 워드·PPT를 보내면 안 된다.** v7의 convert 액션은 종류를 안 보고 **시트** 사본을
+// 만들어서, 글자가 표 칸에 흩어진 사본이 preview_file_id에 박힌다. 스크립트가 답마다
+// 실어 보내는 version으로 가른다(v7 이하에는 그 칸이 없다 → 0으로 읽힌다).
+// 엑셀은 v7도 제대로 만들므로 버전을 안 따진다.
+function attachPreviewCopy(row, { fileId, name, folderId, kind, version }) {
+  if (!kind || !fileId) return;
+  if (kind !== 'spreadsheet' && Number(version || 0) < 8) return;
+  // **await 하지 않는다.** 첨부는 이미 목록에 서 있고, 사본은 늦게 붙어도 된다.
+  (async () => {
+    try {
+      // name·folderId를 같이 보내면 스크립트가 파일을 다시 묻지 않는다(왕복 한 번 절약).
+      const out = await driveCall({ action: 'convert', fileId, name, folderId, convertTo: kind });
+      if (!out?.previewId) return;
+      await client().from('files').update({ preview_file_id: out.previewId }).eq('id', row.id);
+      // 이 화면이 들고 있는 행에도 적어 둔다 — 다시 그릴 때 바로 구글 화면으로 간다.
+      // (다른 화면·다른 사람은 다음 조회에서 받는다. 실시간을 걸 만한 값이 아니다.)
+      row.preview_file_id = out.previewId;
+    } catch (e) {
+      // 사본이 없으면 앱이 예전 길(우리 렌더러)로 떨어진다 — 첨부 자체는 멀쩡하다.
+      // 여기서 토스트를 띄우면 "올라갔는데 실패했다"로 읽힌다. 조용히 넘긴다.
+      console.warn('[drive] 미리보기 사본을 못 만들었어요(첨부는 그대로):', e.human || e.message || e);
+    }
+  })();
+}
 
 // ============================================================================
 // 첨부 한 건이 지나가는 **하나의 길**. 업무 첨부와 주보 송폼(0047)이 이것을 같이 쓴다.
@@ -706,19 +740,19 @@ const wantsSheetPreview = (name) => SHEET_EXT.has(String(name || '').split('.').
 async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder }) {
   const c = client();
   const key = newKey();
-  const convert = wantsSheetPreview(file.name);
+  const copyKind = previewCopyOf(file.name);   // 'spreadsheet'|'document'|'presentation'|null
   let up = null;          // 드라이브에 올라간 경우
   let storagePath = null; // Storage에 남긴 경우(스크립트가 v5거나 옮기기 실패)
   try {
     if ((file.size ?? 0) > INLINE_MAX) {
-      const out = await uploadViaStorage(file, { prefix, key, folderHint, convert });
+      const out = await uploadViaStorage(file, { prefix, key, folderHint });
       up = out.drive || null;
       storagePath = out.storagePath || null;
     } else {
       up = await uploadOnceOrFind({
         action: 'upload',
         ...folderHint,
-        key, convert,
+        key,
         name: file.name, mimeType: file.type || undefined,
         dataBase64: await fileToBase64(file),
       }, folderHint);
@@ -738,7 +772,9 @@ async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder
       size_bytes: file.size ?? null,
       ...(up
         ? { source: 'drive', drive_file_id: up.id, web_view_link: up.url,
-            // 스크립트가 v7 미만이면 이 값이 없다 — 그때는 '표로 볼 수 없어요'가 뜬다
+            // 사본은 보통 아래에서 **뒤에 붙는다**. 이 칸이 여기서 채워지는 것은 옛
+            // 화면(캐시된 탭)이 upload에 convert를 실어 보낸 경우뿐이다 — 그때는
+            // 스크립트가 이미 만들어 돌려줬으니 두 번 만들지 않는다.
             ...(up.previewId ? { preview_file_id: up.previewId } : {}) }
         : { source: 'storage', storage_path: storagePath }),
     }).select().single());
@@ -762,6 +798,15 @@ async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder
     try { await rememberFolder(up.folderId); }
     catch (e) { console.error('[drive] 폴더 id 저장 실패 — 다음 업로드가 폴더를 또 만들 수 있다:', e); }
   }
+  // 미리보기 사본은 **여기서 기다리지 않는다**(위 attachPreviewCopy 머리말).
+  // 행이 이미 있으므로 사본 id는 몇 초 뒤 UPDATE로 따라 붙는다.
+  if (up && !row.preview_file_id) {
+    attachPreviewCopy(row, {
+      fileId: up.id, name: file.name, folderId: up.folderId,
+      kind: copyKind, version: up.version,
+    });
+  }
+
   // 부르는 쪽(병렬 업로드)이 나머지 파일을 이 폴더 id로 바로 넣을 수 있게 실어 보낸다
   // — files 컬럼이 아니라 임시 속성이다(DB에는 cards/services.drive_folder_id가 원본).
   return Object.assign(row, { _driveFolderId: up?.folderId });

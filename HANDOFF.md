@@ -377,8 +377,7 @@
   - **모바일 하단 바.** 실기기에서 첫 화면이 홈인지, '업무'를 누르면 바가 업무 바로 바뀌고 '홈'으로 돌아오는지.
   - **주보 구절 → 성경 읽기.** 발행된 주보의 본문 구절을 누르면 성경 읽기가 그 장에서 열리는지.
   - **(4차 · 0039) 관리자(마스터 아님) 계정**으로 남의 동아리 이름·설명 수정이 통과하는지 · **교역자 계정**에
-    순 편성 탭이 **있는지**(0045로 다시 들어왔습니다) · 순모임 가이드는 **지금 화면에서 빠져 있습니다**
-    (`SUN_GUIDE_ON=false` — 사용자가 부를 때까지 확인할 것이 없습니다).
+    순 편성 탭이 **있는지**(0045로 다시 들어왔습니다) · 순모임 가이드는 **2026-09-08에 다시 켰습니다**(위 회차분 · 0055).
   - **(4차) 찬양 유튜브 가져오기.** 재생목록 주소로 곡이 들어오는지 — `YOUTUBE_API_KEY`가 있으면 Data API로
     **전체**, 없으면 RSS 최신 15곡입니다. 영상 주소를 링크 칸에 붙이면 제목이 채워지는지 —
     `api/yt.js`는 배포와 **로그인한 dev**(2026-09-05 미들웨어)에서 돕니다.
@@ -453,6 +452,30 @@
     앞 계정의 성경 북마크(`word_bible_state:<uid>`)가 안 보이는지 · 카카오 인앱에서 로그아웃한 뒤
     자동 재로그인이 안 되고 주소가 `/`인지 · 마스터가 아닌 계정이 남의 나눔을 지우려 하면 실패 토스트가
     뜨는지 · 출석 칩을 눌러도 상세 재조회 4개가 안 붙는지(네트워크 탭).
+- **2026-09-08 회차분 · 6차 자체 개선 + 순모임 가이드(0055) + 워드·PPT 구글 사본(Apps Script v8)**(푸시·배포 — 라이브에서 볼 것.
+  검증은 관련 스위트만: logcheck·home·worship·word·groups·sunguide·drivesync·push·aictx·dashfix·navsmoke·bottomgap·three·modalclose·handoff):
+  - **Apps Script v8(사용자가 할 일 — 아무 때나)** — script.google.com에서 `ROOT_FOLDER_ID`·`SHARED_TOKEN` 두 줄만 남기고 `docs/APPS_SCRIPT_v8.md`
+    코드로 교체 → 배포 관리 → 새 버전(URL 그대로). 확인: .docx를 올리면 목록에 **바로** 서고 몇 초 뒤 다시 열면 구글 문서 화면, 드라이브에
+    `<이름> (문서)` 사본. pptx는 `/embed` 주소로 열리는데 `/preview`가 나으면 `previewKind.js`의 `COPY_VIEW` 한 줄. 옛 첨부는
+    `node scripts/backfill_sheet_preview.mjs`(읽기만) → `--fix`. **v8 전에는** 워드·PPT 변환을 보내지 않고 우리 렌더러로 보인다(§6-29-z-8).
+  - **AI 본문 검색**(로그인 계정에서만 — 게스트는 묻지도 않는다) — '어떤 본문을 찾으시나요?'에 뜻으로 묻고(예: 광야에서 하나님이 찾아오심)
+    '본문에 그대로 나오는 절' 아래 'AI가 찾은 구절' 도막이 서는지 · 지어낸 참조가 걸러지는지(본문은 언제나 우리 개역한글) · 없는 말은
+    '해당 단어는 찾지 못했어요' · 결과를 누르면 그 절 강조가 **3초 뒤** 사라지는지 · 두 번째 검색부터 빠른지(Cache Storage `bible-v1`).
+  - **순모임 가이드(0055)** — 순장 계정으로 내 순 탭 아래 패널에서 주보를 고르고 'AI로 만들기'가 되는지(0055가 쓰기를 순장까지 넓혔다) ·
+    마스터만 '고정/고정 해제'가 보이고 고정하면 모두에게 그 가이드가 기본으로 열리며 순장에게는 '수정·다시 만들기'가 감춰지는지 ·
+    '이미지로 저장'이 실기기에서 공유 시트(카카오 인앱은 새 탭)로 나가고 PNG에 로고·돔 카드가 있는지 · 다크 모드에서도 종이는 밝은지.
+    RLS 확인: `select policyname, qual from pg_policies where tablename='sun_guides'` → `(NOT pinned OR is_master())`가 있어야 한다.
+  - **동아리 QR 신청** — 실기기로 QR을 찍어 로그인 → 상세가 열리고 **가입 신청 목록에 실제로 들어가는지**(동아리장 화면 새로고침 없이 '가입 신청 1건').
+    옛 원인은 캐시 한 벌의 옛 `myPerson`으로 판정해 신청이 사라지던 것(§6-9-al).
+  - **모바일 피커** — iPhone 키보드가 열린 채로 멤버 추가·순원 추가·순장 지정 목록이 칸 바로 아래 같은 폭으로 붙어 따라오는지(§6-9-an).
+  - **출석 표시 시점** — 주일 오전(출석 전)에는 홈·내 순이 **지난 주일** 수를 유지하고, 출석을 부른 뒤 홈이 '이번 주일 N명 참석', 월요일부터
+    '지난 주일 N명 참석'인지 · 내 순 카드 구성원에 '출석' 태그 · 손님만 입력된 예배는 실시간 밖이라 다음 진입에서 반영(§6-9-aq).
+  - **예배** — 새 주보 생성기가 375에서 [주일예배|다른 예배] 세그먼트·이름·날짜+만들기+취소 세 줄로 서는지 · 출석 메모가 순장 계정에서
+    읽기 상자 → 수정 → 저장/취소로 도는지(빈 메모 저장 허용) · 유튜브 재생목록에 `𝗪𝗼𝗿𝘀𝗵𝗶𝗽`처럼 굵은 글자 제목이 있으면 평문으로 들어오는지.
+  - **노트 템플릿** — 새 예배 노트가 본문·말씀 요약·묵상 노트·결단하기·기도하기 다섯 도막(잎 표시)으로 열리고 글을 적기 전엔 저장이
+    잠기는지 · QT 묵상은 네 도막 · 저장 뒤 읽기 상자에도 잎 표시.
+  - **문구·글꼴** — 본문의 `(@박지호)`에서 닫는 괄호가 칩 밖인지 · `◡̈`가 아이폰·윈도우 둘 다 반원 위에 점 두 개로 붙는지(보조 글꼴 `Daboot Symbols`).
+  - **업무 '이번 주'** — 금요일에 보면 이번 주에 토요일 마감만 남고, 일요일 마감은 '다음 주 이후'인지(주일 시작 주).
 - **2026-09-07 회차분 · 10차 피드백(0053 · 손님 출석 · 알림 다섯 · 동아리 QR · 구글 문서 임베드)**(푸시·배포 — 라이브에서 볼 것.
   검증은 관련 스위트 12종만: logcheck·push·worship·handoff·word·groups·home·navsmoke·roster·three·themefit·share):
   - **손님 출석(`attendance_guests`)** — 순장 계정으로 '미등록 출석자 추가'가 이름 칩으로 서고 ×로 지워지는지, **청년 명단에는 올라가지
@@ -695,7 +718,8 @@ src/components/calendar.jsx 캘린더(주 단위 행) — 띠 배치(layoutWeek)
                             · 날짜 옆 생일 얼굴(§4.8)
                             (엑셀·csv 미리보기를 그리던 SheetView.jsx는 2026-08-30에
                             지웠습니다 — 표는 구글이 그립니다. §6의 엑셀 항목)
-src/components/OfficeView.jsx 워드·PPT 미리보기 — 우리가 직접 그린다(DocView·SlideView).
+src/components/OfficeView.jsx 워드·PPT 미리보기 **폴백** — 변환 사본(`files.preview_file_id`)이 있으면 FilePreviewModal이 구글 화면('gdoc')을
+                            iframe으로 띄우고(2026-09-08 · Apps Script v8), 사본이 없는 옛 첨부·v8 미만·변환 실패만 여기서 그린다(DocView·SlideView).
                             워드는 흐르는 글, PPT는 좌표판이라 도형을 퍼센트로 절대
                             배치하고 글자 크기를 cqw로 환산한다(창을 줄여도 안 무너진다)
 src/components/depgraph.jsx  프로젝트 '그래프' 보기 — 힘 배치 노드 그래프(useForceGraph 공용).
@@ -727,9 +751,10 @@ src/components/groups*.jsx  (v2) groupsSun(내 순·순 편성) · groupsClub(�
 src/components/roster.jsx   (v2) 청년 명단 — 멤버 화면의 [가입자 | 청년 명단] 탭 중 '청년 명단'(마스터+관리자). 연도 세그먼트
                             [2026|2027|2028] · 직분 6종(0043, services/roster.js ROLE_LABEL) · 캐시 roster:<연도>(services/cache.js)
                             · 계정 연결 후보는 roster.accountLinkState(loading/none/pick)
-src/components/sunGuide.jsx (v2) 순모임 가이드 패널 — **지금은 화면에서 빠져 있다**(services/sunGuide.js `SUN_GUIDE_ON=false`,
-                            사용자 지시 2026-09-05 "나랑 맞춰봐야 해". 그때 폼은 브랜치 keep/sunguide-2026-09-05). 켜면 내 순 카드 밑에
-                            AI가 채운 템플릿 3장(주일 본문 · 말씀 요약 · 포인트 3 · 나눔 질문 3)이 서고 자격이 있으면 만들고·다듬는다
+src/components/sunGuide.jsx (v2) 순모임 가이드 패널(2026-09-08 다시 켬 · 0055) — 내 순 카드 밑. 머리줄에 **주보 피커**(발행 주일 최근 8건 +
+                            고정본) · 이미지로 저장 · 수정 · 다시 만들기 · 고정(마스터). 종이는 사용자 템플릿 그대로(날짜|순모임 가이드 머리 줄 →
+                            돔 카드: 로고 · ♥주일 본문 · ♥말씀 요약(번호 소제목 3) · ♥오늘의 나눔 질문(Q. 3~4 + (EX. …)) → THE DABOOT MINISTRY).
+                            종이는 다크에서도 밝다(인쇄물). 이미지는 html2canvas 지연 청크로 1080px PNG → 공유 시트 → 내려받기(ClubQr 사다리)
 src/components/ShareToggle.jsx 공유 토글 한 벌 — '나만 보기 | …공유하기' 세그먼트 + 초록 확정 칩("나만 볼게요" /
                             "…공유할게요"). **말씀 묵상·예배 노트·내 순 노트 목록이 같은 부품을 쓴다**(사용자 요구 2026-09-03 —
                             로직 동일: 저장된 글이 있을 때만, 토글은 shared만 즉시 저장, 비공개 글도 내 줄엔 잠금 표시).
@@ -747,6 +772,15 @@ src/services/entryQuery.js  (2026-09-07) 진입 주소의 나머지 값(`s`=주�
                             OAuth 왕복 뒤에는 auth.jsx `consumeReturnTo`가 다시 실어 준다(§6-24-c)
 src/services/viewPw.js      (2026-09-07) 화면 가림 비밀번호 순수 모듈(`makeViewPw`·`verifyViewPw`·`isLocked`) — 첨부의 cloud.js `sha256Hex`와
                             **같은 규칙 두 벌**(§6-31-f). 참고 링크(`resource_links.view_pw*`)가 쓴다(큐시트는 비밀번호 없음 — 사용자 결정 2026-09-08)
+src/services/bibleSearch.js (2026-09-08) AI 본문 검색 순수 모듈 — 프롬프트(책 이름 목록 + DASH_RULE · JSON 12건 · ≤3절 · why 40자) ·
+                            JSON 파싱 · `resolveBibleHits`(bibleRef.parseRef로 참조를 우리 본문에 맞춰 검증). 모델은 **참조만** 내고 글자는
+                            언제나 public/bible이다. 화면은 wordBible.jsx가 키워드 검색과 **동시에** 부른다(`ai.aiEnabled()`가 거짓이면 안 부름)
+src/services/noteTemplate.js (2026-09-08) 예배 노트·QT 묵상 템플릿(H3 도막 — 본문·말씀 요약·묵상 노트·결단하기·기도하기 / QT는 요약 없이 넷) ·
+                            `isTemplateOnly(md, prefill)` = 제목 줄·빈 줄·프리필 구절만 남았으면 **빈 노트**(저장 잠김). 잎 표시는 index.css `.note-template h3`
+src/services/titleText.js   (2026-09-08) `cleanTitle` — 유튜브 제목의 유니코드 수학 볼드·전각을 NFKC로 평문화 + 폭 없는 글자 제거. **앱(worship.js)과
+                            서버(api/yt.js) 두 곳**이 같이 쓴다(notifyText.js와 같은 순수 모듈 자리)
+src/assets/fonts/symbols.css (2026-09-08) 보조 글꼴 'Daboot Symbols'(DejaVu Sans 서브셋 17KB · scripts/subset_symbols.py) — SUIT에 없는 결합 부호·
+                            발음 기호·기하 도형(◡̈ ᵕ ◠)을 **한 글꼴**에서 낸다. index.css `--font-sans`에서 SUIT 바로 뒤
 src/components/DatePicker.jsx 노션 톤 데이트피커 — children(트리거 대체)·triggerClassName·allowClear를 받는다
                             (QT 날짜가 트리거를 대체해 쓴다. 기본값은 예전 호출부와 같다). `yearless` 모드(2026-09-05)는
                             명단 생일용 — 값 MM-DD, 연도 글자·이동 없음, 요일 줄 없음(연도를 모르면 요일도 모른다), 2월 29일까지
@@ -1035,6 +1069,14 @@ FAIL로 남기세요**(그래야 어느 단정에서 어긋났는지 보입니�
 'Q.'는 화면이 붙인다 — 글에 넣으면 모델이 번호를 어긋나게 매기고 상한도 번호가 잡아먹는다. `passage.ref`는
 모델 값이 아니라 **주보 값으로 덮어쓴다**(순장이 읽어 주는 줄이 주보와 어긋나면 안 된다). 저장은
 `sun_guides`(0039), 자격은 만들기 = `can_manage_sun`, 보기 = 순장. tests/sunguide가 검사한다.
+**2026-09-08 갱신(0055 · 사용자 스펙 "템플릿 그대로 · 주보를 골라 만들기 · 마스터가 고정 · 이미지 저장")** — 계약은
+`{ passage, summaryRef?, summary?, points×3, questions×3~4, questionNote? }`(줄글 요약 둘은 **선택**, 지난 가이드는 그대로 열린다 · 질문 넷,
+첫 질문은 지난 한 주 일상 · `questionNote`는 마지막 질문 밑의 `(EX. …)` 줄). **보기 = 만들기 = 순장 ∨ can_manage_sun**(0055가 쓰기를
+`leads_any_sun()`까지 넓혔다). **고정은 마스터만**: 부분 유니크 인덱스로 한 번에 하나, `set_sun_guide_pinned` rpc가 다른 행을 먼저 끄고,
+쓰기 정책이 `(not pinned or is_master())`라 고정된 행은 마스터 말고 못 고치며 `pinned=true`를 써넣지도 못한다. 화면은 그 경계를 비춰 순장에게
+'수정·다시 만들기'를 감춘다. `saveGuide`의 upsert는 `pinned`를 **보내지 않는다**(저장이 고정을 풀지 않게). 캐시 열쇠는 본문
+`groups:guide:<주보 id>`(패널) · 고정 id와 주보 목록은 `groups:mine:*`(뷰) — 저장·고정 뒤 `dropCache('groups:guide')` + 재조회. 저장된 가이드를
+여는 데 AI 호출은 0. 화면의 마스터 판정은 **`perms.isMaster`**다(`useAuth().isMaster`는 게스트에서 늘 참 — 검사에서 실제로 잡혔다).
 
 ### 4.5 권한이 어디서 막히나
 
@@ -1527,9 +1569,9 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 
 ## 5. 데이터 · 스키마 · 비밀
 
-스키마는 `supabase/migrations/0001~0054`이고 **전부 라이브 DB에 적용**되어 있습니다
+스키마는 `supabase/migrations/0001~0055`이고 **전부 라이브 DB에 적용**되어 있습니다
 (0001~0005는 대시보드에서 수동, 이후는 `npx supabase db push --db-url "$SUPABASE_DB_URL"`).
-**원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있습니다** — 0039~0054는 psql로 직접
+**원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있습니다** — 0039~0055는 psql로 직접
 적용했기 때문입니다. 적용 여부는 원장이 아니라 **실제 객체**로 확인하세요(컬럼·함수·정책·발행 목록).
 
 | 파일 | 한 일 |
@@ -1588,6 +1630,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | `0052_attendance_note_rpc` | `set_attendance_note(p_service_id, p_note)` security definer rpc — 승인 + 발행된 주보 + (`can_check_all_attendance()` or `leads_any_sun()`)이면 **그 한 칸만** 쓴다. 순장도 출석 메모를 남기게(사용자 결정 2026-09-06 — 메모는 주보 편집이 아니다). 정책을 더 붙이지 않은 이유는 §6-31-a(permissive OR는 행의 모든 칸을 연다). anon·PUBLIC revoke, authenticated grant |
 | `0053_feedback_round_10` | 넷을 한 파일에 — ① `attendance_guests`(id·service_id·name·created_by): 미등록 출석자를 **명단에 올리지 않고** 그 예배의 손님으로(사용자 결정 2026-09-07). RLS: 승인 읽기 · insert/delete는 `can_check_all_attendance() or leads_any_sun()` + **발행된 주보만** ② `notifications.link`(우리 주소 CHECK) + kind 여섯 추가(`worship_today`는 서버만) + INSERT 정책에 `is_approved()` ③ `resource_links.view_pw/view_pw_salt/view_pw_by`(첨부 0023과 같은 화면 가림) ④ `services.cue_sheet jsonb` {url,title} — view_pw 두 칸은 만들었지만 **화면이 쓰지 않는다**(사용자 결정 2026-09-08 큐시트 비밀번호 없음). 되돌리기는 파일 아래 |
 | `0054_files_kind` | `files.kind text check (null|'songform'|'cuesheet')` — 주보 파일의 갈래. 큐시트를 링크뿐 아니라 **파일로도** 붙이기 위해(사용자 2026-09-08) 송폼과 같은 표·같은 업로드 한 벌을 쓰고 갈래만 한 칸. 기존 주보 파일은 전부 `songform`으로 백필, 업무 첨부는 null. RLS는 0047 그대로(service_id만 본다) |
+| `0055_sun_guide_pin_and_leaders` | 순모임 가이드 재가동(사용자 스펙 2026-09-08): `sun_guides.pinned/pinned_at/pinned_by` + 부분 유니크(`where pinned` — 고정은 하나) · `sun_guides_write`를 `is_approved() and (can_manage_sun() or leads_any_sun()) and (not pinned or is_master())`로(순장도 만든다 · 고정본은 마스터만) · `set_sun_guide_pinned(uuid, boolean)` security definer(마스터 검사 · 다른 행 먼저 해제 · authenticated에만 grant). 되돌리기는 파일 아래 |
 
 알아둘 것:
 
@@ -1994,6 +2037,56 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 9-af. **낙관적 줄에도 갈래(kind)를 실어야 한다.** `fileKindOf`의 기본값이 송폼이라, 올리는 중인 줄에 `kind`를 안 실으면 큐시트로 고른 파일이
     드라이브 왕복 5~10초 동안 **찬양 탭에** 섰다가 조회가 돌아오면 제자리로 간다(`worshipView.uploadFiles`의 `staged`). 그리고 짝으로 읽히는
     두 입력칸(큐시트 링크·제목)에 한쪽만 `wide`(col-span-2)를 주면 1440에서 폭이 갈린다 — 같은 열 폭으로.
+9-ag. **업무의 '이번 주'는 굴러가는 6일이 아니라 주일(일)~토요일의 달력 주다**(사용자 지시 2026-09-08). 기준 함수는 `utils.weekEndOf(todayIso)`
+    하나이고 대시보드 KPI(`views.jsx weekCount`)와 마감 구간(`dashboardParts.bucketOf`)이 **같은 함수**를 봐야 한다 — 갈리면 KPI 숫자와 바로
+    아래 목록 건수가 어긋난다. 날짜 덧셈은 `Z`로 파싱하고 UTC 게터만 쓴다(로컬 자정으로 더하면 서머타임 지역에서 토요일이 하루 민다).
+    금요일에 보면 '이번 주'에 토요일 하루만 남는 것이 맞다.
+9-ah. **유튜브 제목이 굵게 들어오는 것은 서식이 아니라 글자다.** `𝗪𝗼𝗿𝘀𝗵𝗶𝗽`은 유니코드 수학 알파벳(U+1D400 대역)·전각이라 평문 `<input>`에
+    넣어도 굵게 그려진다. CSS로는 못 되돌리고 **받는 자리에서 NFKC로 접는 것**이 유일한 손잡이다(`services/titleText.cleanTitle`). 폭 없는
+    글자(U+200B~D·U+FEFF)·변이 선택자(U+FE0F)는 NFKC가 안 지우므로 따로 턴다. **서버(api/yt.js)와 앱(worship.js) 두 곳**에 둔다 — 배포된
+    서버가 앱보다 낡을 수 있다.
+9-ai. **출석 메모는 명시 저장이다**(2026-09-08 — "저장이 되는지를 모르겠음"). `service.attendance_note`가 진실이고 화면은 고치는 중인 글만 든다.
+    저장 잠금은 **'바뀐 것이 없을 때'뿐** — 비운 메모도 저장이다(내 예배 노트가 빈 글을 막는 것과 다른 점: 잘못 적은 줄을 지우는 길).
+    저장 뒤 `attendance_note`가 갈리는 프레임에 `noteState`를 비우면 '저장되었어요'가 같은 프레임에 지워진다(MyNote와 같은 함정).
+9-aj. **라벨이 칸 위에 앉는 줄에서는 칸 높이를 맞춰야 한다.** `items-end`로 아래만 맞추면 높이가 다른 만큼 이름표가 계단이 된다(생성기 —
+    `NEW_H = h-[34px]`, 날짜 픽커는 공용이라 `triggerClassName`으로 높이만 넘긴다). 좁은 폭에서 날짜가 먼저 서면 제목이 혼자 한 줄로 밀려
+    **세 줄**이 되므로 `order-*`로 제목을 먼저 세운다(모임 만들기).
+9-ak. **참석 수의 기준 주보는 `groups.attendanceSunday`** — 발행된 주일 중 **오늘까지 왔고 출석 행이 실제로 있는** 가장 최근 것, 없으면
+    `pastSunday`(사용자 지시 2026-09-08 "주보가 발행되고 그 날이 되어 출석이 입력되면 그때 바꾸기"). `latestSunday`는 이제 **순모임 가이드
+    전용**이다(앞으로 올 주일 포함 — 가이드는 예배 전에 준비한다). 둘을 다시 합치지 말 것. 홈 문구는 그 주보가 오늘이면 '이번 주일 N명
+    참석', 지나면 '지난 주일 N명 참석'(`homeView latestToday`).
+9-al. **캐시 한 벌로 딥링크를 판정하면 안 된다.** `useCached`의 첫 한 벌은 stale이고 그 안의 `perms.myPerson`·`clubs`는 옛 값이다. 동아리 QR
+    신청(`?g=&apply=1`)이 그 프레임에 판정돼 '명단과 계정이 아직 연결되지 않았어요'로 사라졌다(2026-09-08 — "신청 목록에 안 들어감").
+    한 번 쓰고 버리는 값(entry)은 `!loading && !stale`(`bundleFresh`)이 될 때까지 들고 있는다. 상세 열기는 즉시, 판정만 기다린다.
+9-am. **`.dc-nav`는 화면이 살아 있는 내내 붙어 있다.** App `navRef`는 activeMenu가 바뀔 때만 값을 갈므로 그 안의 모든 `dc-screen`은
+    계속 `dc-screen-fade`(index.css `.dc-nav .dc-screen`)다 — 동아리 상세 진입에 모션이 없어 보인 이유. 화면 **안쪽** 이동에 방향을
+    주려면 겉 한 겹(`dc-nav dc-nav-fwd/back` + `key`)을 스스로 만든다(`groupsClub.ClubsPanel`).
+9-an. **팝오버 위치는 window가 아니라 visualViewport 기준이고, iOS 키보드는 scroll·resize 없이 화면을 민다.** 열 때 한 번 재면 목록만 옛
+    자리에 남는다(멤버 추가·순장 지정 — 사용자 스크린샷 2026-09-08). `useAnchoredPos`는 visualViewport 크기·offset을 쓰고 그 이벤트를
+    듣고, 열려 있는 동안 **rAF로 앵커 rect를 견주어 바뀔 때만** 재배치한다(같으면 setState 안 함). 폭을 부르는 쪽이 따로 재면 낡는다 →
+    `matchWidth`로 `pos.width`. 위로 뒤집기는 아래가 짧고 **위가 더 넓을 때만**(키보드가 오르면 위아래 다 짧아 뒤집으면 칸을 덮는다).
+9-ao. **검사에서 등장 애니메이션이 붙은 요소를 밀 때는 transform이 아니라 margin을 쓴다** — `.dc-row/.dc-card`가 `fill-mode: both`로
+    `transform: none`을 남겨 인라인 transform이 진다. 그리고 `tests/groups.mjs`의 주보 날짜는 **오늘 기준 상대값**이다(출석 기준이 날짜를
+    보게 되어 고정값은 그 날이 오기 전에 헛으로 깨진다).
+9-ap. **`attendance_guests`는 아직 실시간 밖이다** — 0049 발행 목록에도 `liveV2.TABLE_CACHE`에도 없다(logcheck가 표 아홉으로 못 박았다).
+    손님만 입력된 예배는 다음 진입에서야 반영된다. 넣으려면 마이그레이션 + logcheck 한 줄을 같이 고친다.
+9-aq. **본문 검색 풀(`bible.forEachPool`)은 "받는 것만 겹치고 훑기는 목록(정경) 순서"다.** 도착 순으로 훑으면 결과 줄과 '앞에서부터 N건'이
+    정경 순을 잃는다. 66권을 차례로 await하던 것이 첫 검색이 느리던 진짜 원인이었다. **Cache Storage `bible-v1`**은 만료가 없다 — 본문
+    데이터를 갈아 끼우면 이름의 숫자를 올린다. fetch를 막아 실패를 만드는 검사는 새로고침 **전에** `caches.delete`(뒤에 지우면 앱 부팅과
+    경주 — home.mjs 6c가 실제로 그렇게 깨졌다). "펼친 책만 받는다"를 재려면 미리 받기를 끄게 `navigator.connection.saveData`를 흉내 낸다.
+9-ar. **AI 검색은 참조만 받고 본문은 우리 파일이 정답이다**(`bibleSearch.js`). 프롬프트에 **책 이름 목록을 실어야** `parseRef`가 읽는다.
+    빈 답은 캐시하지 않는다(안내 문구가 굳는다). 게스트(`aiEnabled()` 거짓)는 도막도 스켈레톤도 없다.
+9-as. **손대지 않은 템플릿은 빈 노트다**(`noteTemplate.isTemplateOnly`). 제목 줄·빈 줄·프리필 구절만 남았으면 저장이 잠긴다 — 없으면 아무도
+    안 쓴 제목 줄이 저장되어 나눔·잔디에 오른다. 편집기를 한 바퀴 돌면 끝의 빈 줄이 사라지므로(`docToMd`) 줄 단위·빈 줄 무시로 판정한다.
+    노트가 길어지면 그 위 빈 상태가 넘친다(§6-9-h의 새 사례) — `useFillRest`가 el과 스크롤 통 사이 겹들도 ResizeObserver로 본다.
+9-at. **멘션 규칙은 한 벌**(`utils.splitMention`) — 뽑는 쪽(`extractMentions`)만 꼬리 문장부호를 떼고 그리는 쪽(RichText)이 `@\S+`를 통째로
+    칩에 넣어 `(@박지호)`의 닫는 괄호가 강조에 들어갔다(2026-09-08). 알림을 받는 이름과 화면에서 강조되는 글자가 같아야 한다.
+9-au. **SUIT에 없는 글자는 한 글꼴에서 나와야 한다.** `◡̈`(U+25E1 + 결합 U+0308)가 시스템 글꼴 둘로 갈려 어긋났다. 보조 글꼴
+    `Daboot Symbols`(symbols.css · unicode-range로 결합 부호·발음 기호·기하 도형만)를 `--font-sans`에서 SUIT **바로 뒤**에 둔다. 범위를
+    늘리면 `scripts/subset_symbols.py`의 RANGE와 symbols.css를 같이 고친다(logcheck가 둘을 맞춰 본다).
+9-av. **순모임 가이드 이미지 저장의 한계** — 종이 색은 라이트 값으로 **박아 두었다**(토큰을 바꿔도 종이는 안 따라간다 — index.css :root와
+    손으로 맞춘다). html2canvas가 인라인 SVG 하트를 1~2px 위로 그린다(화면은 정상). 종이 머리 줄과 섹션 머리줄에 '순모임 가이드'가 두 번
+    있는 것은 의도다(그림으로 나가는 인쇄물에 제목이 있어야 한다 — 2026-09-03에 뺐던 것을 되돌림).
 9-ad. **"자리를 잡았다"를 ref로 기억하면 도착한 프레임에 다시 그리지 않는다.** `groupsParts.useSettled`가 `useRef`로 키를 들고 있어서,
     값이 도착해 loading이 false가 된 프레임에는 옛 키라 false를 돌려주고 효과에서 ref만 고쳤다 — **다른 상태가 바뀌기 전까지 스켈레톤이
     그대로** 섰다("내 순에 공유된 예배 노트가 계속 스켈레톤", 사용자 보고 2026-09-08). 재현 조건은 명단(baseQ)은 캐시라 키가 처음부터
@@ -2449,6 +2542,19 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     · 워크스페이스에 워드·PPT가 한 건도 없어서, 검증은 **만들어 낸 실물 파일**로
       했습니다(python-docx·python-pptx). 엑셀 파서 버그 둘을 6.4MB 파일로 잡았던 것과
       같은 방법입니다. 손으로 만든 최소 파일은 `tests/office.mjs`에 있습니다.
+    · **2026-09-08부터 이 항목은 폴백입니다.** 사용자 요청("엑셀처럼 실제 뷰로, 그대로, 이쁘게")으로 워드·PPT도 엑셀과 같이 **업로드 때
+      네이티브 구글 사본**(Docs·Slides)을 만들고(Apps Script v8 · `files.preview_file_id` 재사용 · `previewKind` `'gdoc'`), 사본이 있으면
+      구글 화면을 iframe으로 띄웁니다(문서 `/preview?rm=minimal` · 슬라이드 `/embed?rm=minimal&start=false&loop=false&delayms=60000` —
+      `previewKind.COPY_VIEW`). 이 렌더러는 사본이 없는 옛 첨부·v8 미만·변환 실패와 첨부 내용 검색(`fileText.js`)에만 남습니다.
+
+29-z-8. **Apps Script v7↔v8 호환 함정(2026-09-08).** v7의 `convert`(업로드·액션 양쪽)는 종류를 안 보고 **시트** 사본을 만든다 — 워드를
+    보내면 글자가 표 칸에 흩어진 사본이 `preview_file_id`에 박히고 되돌리려면 사본 삭제 + 칸 비우기다. 그래서 클라이언트는
+    **`convert: true`를 아예 안 보내고** `convertTo`(뜻은 "사본을 만들어 달라"뿐 — **종류는 확장자가 정한다**, 스크립트의 `COPY_AS`)만
+    보내며, 스크립트가 **답마다 싣는 `version`**이 8 미만이면 워드·PPT 변환을 보내지 않는다(`cloud.attachPreviewCopy` · 백필 스크립트 둘 다).
+    버전을 액션으로 만들지 않는 이유: 액션을 늘리면 `api/drive.js` ACTIONS와 그 둘을 맞춰 보는 검사까지 넓어진다(v7 이하는 그 칸이 없어 0).
+    **두 단계**: 업로드는 원본만 올리고 즉시 답하고, 사본은 files 행을 만든 뒤 **await 없이** `convert` 액션으로 뒤에서 만들어 UPDATE한다 —
+    `await`를 붙이면 "미리보기 오래 기다린다" 개선이 통째로 사라진다(drivesync가 잡는다). 사본 만들기는 `Drive.Files.copy` 본문에 이름·
+    부모·mimeType·열쇠 지우기를 실어 왕복 3→2. 드라이브 소유자는 **마스터(노준석) 개인 계정**이다 — 아래 §7의 "Drive API 직접" 참조.
 
 29-z. **`../`가 든 상대 경로를 문자열 치환으로 풀지 마세요.** OOXML의 rels Target은
     세 모양으로 옵니다: 절대(`/xl/…`) · 상대(`worksheets/…`) · **거슬러 올라가는
@@ -2791,6 +2897,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | 미등록 출석자를 청년 명단에 자동 등록 | 2026-09-07 사용자 결정 — "바로 청년 명단에 올리게끔 하지는 말아줘. 청년 명단 등록은 마스터가 얘기할 때만." 출석 화면의 미등록 출석자는 `attendance_guests`(0053)에 이름만 남는다. 0050(순장의 자기 순 INSERT)은 그대로 두되 그 길을 부르는 화면은 없다 |
 | '내 순에 공유된 예배 노트'에 내 비공개 노트를 잠금 표시로 | 2026-09-03 결정을 2026-09-07에 사용자가 뒤집었다("나만 보기로 해놔도 뜬다 — 그렇게 안 되도록"). 목록·개수 모두 `shared_to_sun = true`만. 공유 해제 토글은 공유된 내 줄에만 남는다 |
 | 큐시트에 비밀번호 | 2026-09-08 사용자 결정 "큐시트는 비밀번호 안 걸어도 돼". 0053의 `cue_sheet.view_pw*` 두 칸은 비워 둔다. 비밀번호는 첨부·참고 링크에만 |
+| Vercel에서 Drive API를 직접(서비스 계정·OAuth 위임)으로 Apps Script 대체 | 2026-09-08 — "더 빠르면 그게 낫지 않나"에 검토했고 어시스턴트가 먼저 잘못 제안했던 것. **서비스 계정은 2025년부터 내 드라이브에 파일을 소유할 수 없다**(공유 드라이브 = Workspace 유료만 · 노준석 계정은 개인). 마스터 계정 OAuth 위임은 기존 폴더를 만지려면 전체 드라이브 권한이 필요하고 그 권한은 구글 앱 심사 대상(테스트 모드 토큰은 7일 만료). Apps Script는 마스터 계정으로 돌아 소유·용량이 그대로이고 심사가 없다. 호출당 3~4초는 남는다 — 그래서 변환은 응답 뒤로 뺐다(v8). 구글 정책이 바뀌거나 Workspace로 옮기면 다시 볼 것 |
 | 첨부에 편집 권한 주기 | 드라이브 파일은 `링크를 아는 사람은 **보기**`입니다. 편집으로 올리면 **링크를 아는 누구나 고칠 수 있습니다**(드라이브는 워크스페이스 멤버인지 모릅니다). 같이 채우는 문서가 필요하면 첨부가 아니라 **참고 링크**로 다는 쪽이 맞습니다 |
 
 ---

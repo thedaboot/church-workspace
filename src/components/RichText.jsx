@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { tokenizeInline, MD_LINK_RE, IMAGE_LINE_RE } from '../services/markdown.js';
 import { SmartImage, ImageLightbox } from './media.jsx';
 import { docEmbedKind, DocEmbedModal, DocKindIcon } from './DocEmbed.jsx';
+import { splitMention } from '../utils.js';
 
 // ============================================================================
 // 9. RichText Parser & Renderer
@@ -81,10 +82,21 @@ const MARK_CLS = {
 };
 
 // 서식이 없는 구간에서만 @멘션·생 URL을 살린다(마크 안의 URL은 그대로 글자로)
-const PLAIN_RE = /(@\S+|https?:\/\/\S+)/g;
+// 멘션 토큰은 `@` 뒤 공백 아닌 글자 전부지만, **칩에 넣는 것은 꼬리 문장부호를 뗀 이름**이다
+// (utils.splitMention — 뽑는 쪽과 같은 규칙). "(@박지호)"의 `)`는 칩 밖의 글자로 남는다.
+const PLAIN_RE = /(@[^\s@]+|https?:\/\/\S+)/g;
 const renderPlain = (text, key) => text.split(PLAIN_RE).filter(Boolean).map((p, i) => {
   const k = `${key}-p${i}`;
-  if (/^@\S+$/.test(p)) return <span key={k} className="text-accent-text font-semibold bg-accent-weak px-1 rounded-xs mx-0.5">{p}</span>;
+  if (/^@[^\s@]+$/.test(p)) {
+    const { name, tail } = splitMention(p);
+    if (!name) return <React.Fragment key={k}>{p}</React.Fragment>;
+    return (
+      <React.Fragment key={k}>
+        <span className="text-accent-text font-semibold bg-accent-weak px-1 rounded-xs mx-0.5">@{name}</span>
+        {tail}
+      </React.Fragment>
+    );
+  }
   if (/^https?:\/\/\S+$/.test(p)) return <InlineLink key={k} href={p}>{p}</InlineLink>;
   return <React.Fragment key={k}>{p}</React.Fragment>;
 });

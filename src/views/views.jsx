@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, ChevronDown, Check, X, Trash2, Pencil, Lock, LockOpen } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
-import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear, datedTasks, mergeActivitySeen, teamChips as teamMemberChips } from '../utils.js';
+import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear, datedTasks, mergeActivitySeen, teamChips as teamMemberChips, weekEndOf } from '../utils.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
 import { YearPicker } from '../components/layout.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -91,7 +91,10 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
 
   const overdueCount = shown.filter(t => t.dueDate && t.dueDate < today).length;
   const todayCount = shown.filter(t => t.dueDate === today).length;
-  const weekCount = shown.filter(t => t.dueDate && t.dueDate > today && daysLeft(t.dueDate, today) <= 6).length;
+  // KPI의 '이번 주'는 아래 마감 목록의 '이번 주' 구간과 같은 기준이어야 한다
+  // (dashboardParts.bucketOf) — 주일에 시작해 토요일에 끝나는 달력의 주다.
+  const weekEnd = weekEndOf(today);
+  const weekCount = shown.filter(t => t.dueDate && t.dueDate > today && t.dueDate <= weekEnd).length;
   const groups = useMemo(() => groupByDue(shown, today), [shown, today]);
 
   const doneAll = scoped.length - shown.length;
@@ -234,7 +237,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
         dot="var(--app-accent)" bar="var(--p-blue)" ratio={shown.length ? todayCount / shown.length : 0}
       />
       <KpiCell
-        label="이번 주" value={weekCount} note="앞으로 일주일 내" delay={80}
+        label="이번 주" value={weekCount} note="이번 주 토요일까지" delay={80}
         dot="var(--app-status-hold)" bar="var(--p-yellow)" ratio={shown.length ? weekCount / shown.length : 0}
       />
     </>

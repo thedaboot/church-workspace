@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ChevronDown, Plus, X } from 'lucide-react';
 import { groupRoster, countPresent, canToggleGroup, kindLabel, formatServiceDate, attendanceOpen } from '../services/worship.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
+import { BTN, BTN_QUIET } from './groupsParts.jsx';
 import { SaveState } from './worshipDetail.jsx';
 
 // ============================================================================
@@ -28,9 +29,15 @@ import { SaveState } from './worshipDetail.jsx';
 // **미등록 출석자는 명단이 아니라 그 예배의 손님이다**(0053 · 사용자 결정 2026-09-07).
 // 이름만 `attendance_guests`에 남고 ×로 지운다 — 청년 명단(people)에 올리는 것은 마스터의
 // 일이다. 손님은 언제나 출석이라 사람 칩처럼 켜고 끄지 않는다.
+//
+// **출석 메모는 노트처럼 읽기/편집 두 모드다**(사용자 요청 2026-09-08: "출석 메모도
+// 노트처럼 저장하고 수정할 수 있는 구조로 — 지금은 저장이 된다 해도 저장의 기능을
+// 제대로 하고 있는지를 모르겠음"). 아래 메모 구역 주석 참고.
 // ============================================================================
 
-const NOTE_DELAY = 900;
+// 편집 진입은 **연한 accent**(§8의 색 규칙 — 확정은 진한 accent, 나가기는 무채색).
+// 내 예배 노트의 '수정'과 같은 한 줄이다(worshipDetail의 BTN_SOFT).
+const BTN_SOFT = 'px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';
 
 function PersonChip({ person, on, disabled, onToggle }) {
   return (
@@ -74,20 +81,33 @@ export function AttendanceScreen({
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState(service?.attendance_note || '');
-  const [noteState, setNoteState] = useState('');
-  const dirty = useRef(false);
 
-  useEffect(() => { setNote(service?.attendance_note || ''); dirty.current = false; }, [service?.id]);
-  useEffect(() => {
-    if (!dirty.current) return undefined;
-    const t = setTimeout(async () => {
-      setNoteState('saving');
-      const ok = await onSaveNote(note);
-      setNoteState(ok ? 'saved' : '');
-    }, NOTE_DELAY);
-    return () => clearTimeout(t);
-  }, [note, onSaveNote]);
+  // ── 출석 메모 (0052 · 읽기/편집 두 모드) ──────────────────────────────────
+  // 저장된 글은 `service.attendance_note`가 진실이다 — 부르는 쪽(worshipView)이 저장에
+  // 성공하면 그 칸을 갈아 끼운다. 화면이 따로 들고 있는 것은 **고치는 중인 글**뿐이다.
+  const savedNote = service?.attendance_note || '';
+  const [note, setNote] = useState(savedNote);
+  const [noteState, setNoteState] = useState('');     // '' | 'saving' | 'saved'
+  const [noteBusy, setNoteBusy] = useState(false);
+  // 저장된 메모가 없으면 처음부터 편집기다 — 빈 읽기 상자를 세울 이유가 없다(내 노트와 같다)
+  const [editingNote, setEditingNote] = useState(!savedNote);
+  const noteDirty = note !== savedNote;
+  const readingNote = !!savedNote && !editingNote;
+
+  // 다른 주보를 열거나 저장된 값이 새로 오면 고치던 글을 그 값으로 되돌리고 읽기로 나간다.
+  // `noteState`는 건드리지 않는다 — 저장이 끝나면 부르는 쪽이 attendance_note를 갈아
+  // 끼우므로, 여기서 비우면 방금 켠 '저장되었어요'가 같은 프레임에 지워진다(MyNote와 같은 함정).
+  useEffect(() => { setNote(savedNote); setEditingNote(!savedNote); }, [service?.id, savedNote]);
+
+  const saveNote = async () => {
+    if (noteBusy || !noteDirty) return;
+    setNoteBusy(true); setNoteState('saving');
+    const ok = await onSaveNote(note);
+    setNoteBusy(false); setNoteState(ok ? 'saved' : '');
+    if (ok) setEditingNote(false);
+  };
+  // 취소는 저장된 글로 되돌리고 읽기 모드로 나간다(고치던 것을 버린다)
+  const cancelNote = () => { setNote(savedNote); setNoteState(''); setEditingNote(false); };
 
   const total = (roster?.people || []).length;
   const here = countPresent(roster?.people || [], present);
@@ -183,7 +203,7 @@ export function AttendanceScreen({
               <input
                 autoFocus value={newName} onChange={e => setNewName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
-                aria-label="미등록 출석자 이름" placeholder="예: 김철수"
+                aria-label="미등록 출석자 이름" placeholder="예: 다붓이"
                 className="flex-1 min-w-0 text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
               <button type="button" onClick={add} disabled={busy || !newName.trim() || !checkOpen}
                 className="att-add-do shrink-0 px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40">추가</button>
@@ -205,18 +225,51 @@ export function AttendanceScreen({
           saveService → services_write(can_edit_service)여서 순장이 쓴 메모가 한 줄도 남지
           않았다. 지금은 그 한 칸만 쓰는 rpc로 간다(0052 · services/worship.js
           saveAttendanceNote) — 그래서 화면 게이트도 출석 자격(canCheck)과 같아졌다. */}
+      {/* **내 예배 노트와 같은 읽기/편집 구조다**(사용자 요청 2026-09-08). 예전에는
+          디바운스 자동 저장이라 저장 표시가 잠깐 켜졌다 사라질 뿐이었고, 남은 화면은
+          쓰는 중인지 저장된 것인지 구분이 없는 편집기 한 칸이었다 — "저장이 된다 해도
+          저장의 기능을 제대로 하고 있는지를 모르겠음". 지금은 저장된 메모가 상자 안에
+          그대로 서고(읽기), '수정'을 눌러야 편집기가 열린다.
+          도구 줄은 §8 그대로다 — 확정 왼쪽 / 나가기 오른쪽, 두 모드에서 같은 자리:
+            읽기  `[수정(연한 accent)]`
+            편집  `[저장(진한 accent)] … [취소(무채색)]`
+          **비운 메모도 저장이다** — 잘못 적은 줄을 지우는 것도 사람이 뜻한 저장이라,
+          잠그는 조건은 '바뀐 것이 없을 때'뿐이다. */}
       {perms.canCheck && (
-        <section className="mt-7 max-w-[42rem]">
+        <section className="att-note mt-7 max-w-[42rem]">
           <div className="flex items-center gap-2 pb-2.5">
             <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">출석 메모</h3>
             <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
             {/* 주보 편집·예배 노트와 같은 저장 표시 한 벌(worshipDetail의 SaveState) */}
             <SaveState state={noteState} />
           </div>
-          <textarea
-            value={note} onChange={e => { dirty.current = true; setNote(e.target.value); }}
-            aria-label="출석 메모" placeholder="예: 오늘은 새신자가 두 명 왔어요"
-            className="w-full resize-y min-h-[4.5rem] text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint leading-relaxed" />
+          {readingNote ? (
+            // 상자 모양은 노트 읽기 상자와 같고 높이만 편집기와 맞춘다(min-h-[4.5rem]) —
+            // 두 모드를 오갈 때 아래 것들이 튀지 않게. 노트와 달리 마크다운이 아니라
+            // 적은 그대로의 글이라 whitespace-pre-line으로 줄바꿈만 살린다.
+            <div className="att-note-read min-h-[4.5rem] border border-line rounded-md p-3 bg-surface">
+              <p className="text-[13px] leading-relaxed text-fg-secondary whitespace-pre-line break-words">{savedNote}</p>
+            </div>
+          ) : (
+            <textarea
+              value={note} onChange={e => { setNoteState(''); setNote(e.target.value); }}
+              aria-label="출석 메모" placeholder="예: 오늘은 새신자가 두 명 왔어요"
+              className="att-note-box w-full resize-y min-h-[4.5rem] text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint leading-relaxed" />
+          )}
+          <div className="att-note-tools mt-2.5 flex items-center gap-2">
+            {readingNote ? (
+              <button type="button" onClick={() => setEditingNote(true)}
+                className={`att-note-edit ${BTN_SOFT}`}>수정</button>
+            ) : (
+              <button type="button" onClick={saveNote} disabled={!noteDirty || noteBusy}
+                className={`att-note-save ${BTN}`}>저장</button>
+            )}
+            {/* 되돌아갈 글이 있을 때만 뜬다 — 처음 적는 메모에는 취소할 것이 없다 */}
+            {!readingNote && !!savedNote && (
+              <button type="button" onClick={cancelNote}
+                className={`att-note-cancel ml-auto ${BTN_QUIET}`}>취소</button>
+            )}
+          </div>
         </section>
       )}
     </div>

@@ -25,14 +25,18 @@ const SlideView = (props) => <Suspense fallback={<PreparingFrame />}><SlideLazy 
 //     allow-same-origin은 절대 함께 주지 않는다 — 출처가 불투명해야 우리 localStorage의
 //     세션 토큰에 닿지 못한다. 문서 안의 외부 이미지·CSS·스크립트는 브라우저가 그대로
 //     받아온다(그 주소로 요청이 나간다 — 링크를 여는 것과 같다).
-//   워드·엑셀·파워포인트: 브라우저가 못 그리므로 Office Online 임베드 뷰어를 쓴다
-//     → 서명 URL이 마이크로소프트 쪽으로 전달된다. 화면에 그 사실을 표시하고,
+//   엑셀·워드·파워포인트(드라이브): 올릴 때 만들어 둔 **구글 변환 사본**을 iframe으로
+//     띄운다(files.preview_file_id · kind 'sheet'·'gdoc'). 바이트를 받지 않으니 기다릴 것이
+//     없고, 구글이 그린 그대로라 잘리거나 배치가 틀어지지 않는다.
+//     사본이 없는 것만 우리 렌더러(OfficeView · kind 'doc'·'slide')로 떨어진다.
+//   워드·엑셀·파워포인트(Storage에 남은 것): 브라우저가 못 그리므로 Office Online 임베드
+//     뷰어를 쓴다 → 서명 URL이 마이크로소프트 쪽으로 전달된다. 화면에 그 사실을 표시하고,
 //       원치 않으면 OFFICE_VIEWER를 false로 두면 '열기'만 노출된다.
 //   hwp·zip 등: 미리보기 수단이 없어 파일 정보 + 열기/내려받기만 제공
 // ============================================================================
 // 종류 판정(previewKind)과 확장자 목록은 services/previewKind.js에 있다 — 순수 함수라
 // 노드에서 검사한다(tests/logcheck.mjs). 여기는 그리는 쪽만 남았다.
-import { previewKind, extOf } from '../services/previewKind.js';
+import { previewKind, extOf, previewCopyUrl } from '../services/previewKind.js';
 // 바이트를 받아 우리가 직접 그리는 형식들 — 셋이 같은 길을 쓴다.
 const BYTE_KINDS = new Set(['sheet', 'doc', 'slide']);
 const MAX_TEXT_CHARS = 512 * 1024;      // 텍스트는 앞의 이만큼만 그린다(뒤는 잘렸다고 알린다)
@@ -53,7 +57,9 @@ export { driveSrc };
 // 예전에는 이 문구가 조건 없이 '마이크로소프트 오피스 미리보기로 표시해요'였다.
 // 드라이브 파일은 구글로 그리고 있는데도 마이크로소프트라고 적혀 있어서, 무엇이
 // 어디로 나가는지 화면이 거짓말을 하고 있었다(사용자 지적).
-const viewerNote = (row) => (row.source === 'drive'
+// 변환 사본(preview_file_id)으로 그리는 워드·PPT·엑셀도 구글이다 — 사본은 드라이브에만
+// 생기므로 source도 'drive'지만, 어느 쪽 조건으로 읽어도 마이크로소프트로 안 새게 둘 다 본다.
+const viewerNote = (row) => ((row.source === 'drive' || row.preview_file_id)
   ? '구글 드라이브 미리보기로 표시해요'
   : '마이크로소프트 오피스 미리보기로 표시해요 · 파일 주소가 마이크로소프트로 전달됩니다');
 
@@ -355,6 +361,31 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
       if (!sheetSrc?.blob) return <PreparingFrame />;
       const View = kind === 'doc' ? DocView : SlideView;
       return <View blob={sheetSrc.blob} onError={(e) => setError(`${kind === 'doc' ? '문서' : '슬라이드'}를 읽지 못했어요 · ${e.message || e}`)} />;
+    }
+    // 워드·PPT에 변환 사본이 있으면 **구글이 그린 화면**을 그대로 띄운다(사용자 요청
+    // 2026-09-08 — "그냥 실제 뷰로 볼 수 있게끔, 우리 엑셀 미리보기 하는 것처럼"). 우리
+    // 렌더러는 pptx에서 글자가 잘리고 배치가 틀어졌다(실물 화면을 받았다). 아래 'sheet'와
+    // 같은 판단이고, 사본이 없는 파일만 우리 렌더러('doc'·'slide')로 남는다.
+    // **흰 바탕**: 구글 미리보기는 언제나 밝은 화면이라 다크 모드를 따라가지 않는다
+    // (§6-29-c에 적힌 그 결정 그대로다 — 작성자가 칠한 색을 원본대로 보여주는 자리다).
+    if (kind === 'gdoc') {
+      const src = previewCopyUrl(cur);
+      // 종류 판정이 사본을 확인하고 왔으므로 여기서 src가 빌 일은 없다. 그래도 빈 iframe을
+      // 띄우느니 새 탭을 내주는 쪽이 정직하다(스켈레톤만 남으면 영영 안 걷힌다).
+      if (!src) return <Fallback row={cur} message="미리보기를 준비하지 못했어요." onOpen={openExternal} />;
+      return (
+        <div className="relative w-full h-full">
+          {!frameReady && <PreparingFrame absolute />}
+          <iframe
+            src={src} title={`${cur.name} 미리보기`}
+            // onLoad는 "문서가 전달된 시점"이라 첫 장이 아직 안 그려져 있다 → 조금 뒤에 걷는다
+            onLoad={() => { clearTimeout(settleRef.current); settleRef.current = setTimeout(() => setFrameReady(true), FRAME_SETTLE); }}
+            // 스켈레톤과 **정확히 같은 자리**를 채운다(둘 다 이 relative 칸을 꽉 채운다) —
+            // 크기가 다르면 걷히는 순간 화면이 한 번 튄다. 걷을 때는 페이드다(§4.2).
+            className={`w-full h-full rounded-md border border-line bg-white transition-opacity duration-200 ${frameReady ? 'opacity-100' : 'opacity-0'}`}
+          />
+        </div>
+      );
     }
     if (kind === 'sheet') {
       // 변환 사본이 있으면 **구글이 그린 화면**을 그대로 띄운다(사용자 결정 2026-08-29).

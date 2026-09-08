@@ -89,14 +89,22 @@ function PersonFace({ person, className = 'w-7 h-7 text-[11px]' }) {
     className={`flex ${className}`} />;
 }
 
-// 아바타 + 이름 한 줄. badge는 '순장'·'동아리장'처럼 그 사람의 자리, right는 조작 버튼.
-export function PersonTag({ person, badge, right, className = '' }) {
+// 아바타 + 이름 한 줄. badge는 '순장'·'동아리장'처럼 **그 사람의 자리**(파랑),
+// tag는 '출석'처럼 **그 예배에서의 사실**(초록), right는 조작 버튼.
+// 둘을 한 prop으로 묶지 않는 이유: 자리는 언제나 먼저 서고, 사실은 화면이 보는 예배가
+// 바뀌면 같이 바뀐다 — 뜻이 다른 값이 한 자리에서 섞이면 순서가 흔들린다.
+// 색은 토큰만 쓴다(§8) — 테일윈드 기본 팔레트는 다크에서 그대로 튄다.
+const PERSON_BADGE = 'shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold';
+export function PersonTag({ person, badge, tag, right, className = '' }) {
   return (
     <div className={`group-person flex items-center gap-2 min-w-0 ${className}`}>
       <PersonFace person={person} />
       <span className="text-[12.5px] text-fg truncate">{person?.name}</span>
       {badge && (
-        <span className="shrink-0 px-1.5 py-0.5 rounded-full bg-tag-blue text-tag-blue-fg text-[10px] font-bold">{badge}</span>
+        <span className={`${PERSON_BADGE} bg-tag-blue text-tag-blue-fg`}>{badge}</span>
+      )}
+      {tag && (
+        <span className={`person-tag-mark ${PERSON_BADGE} bg-tag-green text-tag-green-fg`}>{tag}</span>
       )}
       {right && <span className="ml-auto shrink-0 flex items-center gap-1">{right}</span>}
     </div>
@@ -160,7 +168,6 @@ export function PersonPick({
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(0);
-  const [boxW, setBoxW] = useState(0);
   const rootRef = useRef(null);
   const inputRef = useRef(null);
   const menuRef = useRef(null);
@@ -169,21 +176,13 @@ export function PersonPick({
   const close = () => { setOpen(false); setQuery(''); };
   useDismiss(open, close, rootRef, menuRef);
 
-  // 목록의 폭은 칸의 폭이다 — 포털로 나가면 w-full이 뜻을 잃으므로 재서 넘긴다.
-  // useAnchoredPos는 `앵커 오른쪽 - 폭`을 왼쪽으로 잡으니, 폭이 같으면 칸에 딱 맞게 선다.
-  // **열려 있을 때만 재면 안 된다** — 폭을 모르는 채로 열면 열기 전에 부르는 place()가
-  // 첫 프레임을 엉뚱한 자리에 놓는다. 칸이 살아 있는 내내 재 둔다(ResizeObserver라
-  // 창 크기뿐 아니라 옆 칸이 밀어서 폭이 변하는 것도 따라간다).
-  useLayoutEffect(() => {
-    const el = rootRef.current;
-    if (!el) return undefined;
-    const measure = () => setBoxW(el.getBoundingClientRect().width || 0);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const [pos, place] = useAnchoredPos(rootRef, open && boxW > 0, boxW, MENU_MAX_H, 8, menuRef);
+  // 목록의 폭은 **칸의 폭**이다 — 포털로 나가면 w-full이 뜻을 잃는다. 그 폭을 여기서
+  // state로 따로 재던 자리다(ResizeObserver). 지금은 useAnchoredPos가 자리를 잡을 때마다
+  // 앵커에서 같이 재 온다(matchWidth) — **재는 곳이 하나여야 낡지 않는다.** 모바일에서
+  // 키보드가 올라와 칸 폭이 바뀌면 옛 폭으로 선 목록이 오른쪽으로 밀려 보였다
+  // (사용자 보고 2026-09-08). useAnchoredPos는 `앵커 오른쪽 - 폭`을 왼쪽으로 잡으니,
+  // 폭이 같으면 칸에 딱 맞게 선다.
+  const [pos, place] = useAnchoredPos(rootRef, open, 0, MENU_MAX_H, 8, menuRef, { matchWidth: true });
 
   // **열기 전에 자리를 잡는다**(layout.jsx ProfileMenu와 같은 순서 — place() 먼저, 그다음
   // 열기). 열고 나서 재면 첫 렌더가 {0,0}에 놓였다가 제자리로 옮겨지고, 그 이동이
@@ -251,8 +250,8 @@ export function PersonPick({
           <ChevronDown size={13} />
         </button>
       </div>
-      {open && boxW > 0 && createPortal(
-        <div ref={menuRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: boxW }}
+      {open && pos.width > 0 && createPortal(
+        <div ref={menuRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: pos.width }}
           className={`person-pick-menu ${MENU_BOX}`}>
           {hits.map((p, i) => (
             <button key={p.id} type="button"

@@ -17,6 +17,7 @@ import { BTN, BTN_QUIET, WITH_ICON, FIELD } from './groupsParts.jsx';
 import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM,
   filesOfKind, SONGFORM, CUESHEET } from '../services/worship.js';
 import { honorificsOf } from '../services/people.js';
+import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate } from '../services/noteTemplate.js';
 
 // ============================================================================
 // 주보 상세 — 말씀 · 담당자 · 찬양 · 광고 + 내 예배 노트 (docs/V2.md 결정 4·5·7)
@@ -138,6 +139,14 @@ function useFillRest() {
     // 되풀이(재기 → 커짐 → 다시 재기)가 생기지 않는다.
     const ro = new ResizeObserver(measure);
     ro.observe(sc);
+    // **아래에 깔린 것도 나중에 커진다.** 내 예배 노트의 편집기는 lazy로 늦게 붙고,
+    // 저장된 글이 없는 주보에서는 템플릿만큼(제목 다섯 줄) 상자보다 길어진다 —
+    // 마운트 때 잰 below로 두면 그만큼 넘쳐서 스크롤이 생겼다(2026-09-08). 그래서
+    // el과 sc 사이의 겹들도 같이 본다. 우리 min-height는 below를 바꾸지 않으므로
+    // (바로 위 주석) 재기 → 커짐 → 다시 재기의 되풀이가 생기지 않는다.
+    for (let node = el; node.parentElement && node.parentElement !== sc; node = node.parentElement) {
+      ro.observe(node.parentElement);
+    }
     window.addEventListener('resize', measure);
     return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
   }, []);
@@ -919,8 +928,12 @@ const NOTE_TOGGLE = 'col-span-3 w-full sm:col-span-1 sm:w-auto';
 // 편집 진입은 **연한 accent**, 확정은 진한 accent, 나가기는 무채색(§8의 색 규칙)
 const BTN_SOFT = 'px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';
 
-function MyNote({ note, onSave, onShare }) {
-  const [body, setBody] = useState(note?.body || '');
+function MyNote({ note, passageRef = '', onSave, onShare }) {
+  // **처음 여는 노트는 템플릿으로 시작한다**(사용자 요청 2026-09-08 — 옛 순 노트
+  // 템플릿을 우리 디자인으로). services/noteTemplate.js가 제목 다섯 줄을 만들고,
+  // '본문' 아래에는 이 예배의 구절이 미리 들어간다.
+  const tpl = useMemo(() => worshipNoteTemplate({ passageRef }), [passageRef]);
+  const [body, setBody] = useState(() => bodyOrTemplate(note?.body, tpl));
   const [state, setState] = useState('');         // '' | 'saving' | 'saved'  (저장 버튼)
   const [shareState, setShareState] = useState(''); // '' | 'saving' | 'saved'  (공유 칩)
   const [busy, setBusy] = useState(false);
@@ -929,9 +942,12 @@ function MyNote({ note, onSave, onShare }) {
 
   const saved = !!note;
   const shared = !!note?.shared_to_sun;
-  // 저장된 글과 다를 때만 저장할 것이 있다. 빈 노트는 저장하지 않는다(사용자 결정)
-  const hasText = !!String(body || '').replace(/\s/g, '');
-  const dirty = body !== (note?.body || '');
+  // 되돌아갈 자리 — 저장된 글이 있으면 그것, 없으면 손대지 않은 템플릿이다
+  const base = bodyOrTemplate(note?.body, tpl);
+  // **손대지 않은 템플릿은 빈 노트다.** 제목 줄이 있다는 이유로 저장이 열리면
+  // 아무도 쓰지 않은 제목 다섯 줄이 그대로 저장된다(isTemplateOnly).
+  const hasText = !isTemplateOnly(body, passageRef);
+  const dirty = body !== base;
   const reading = saved && !editing;
 
   // 주보가 바뀌거나 서버 값이 새로 오면 편집 중이던 글을 그 값으로 되돌린다.
@@ -939,7 +955,7 @@ function MyNote({ note, onSave, onShare }) {
   // 남의 글 위에 커서가 놓인 것처럼 보인다.
   // `state`는 건드리지 않는다 — 저장이 끝나면 부르는 쪽이 note를 갈아 끼우므로,
   // 여기서 비우면 방금 켠 '저장되었어요'가 같은 프레임에 지워진다.
-  useEffect(() => { setBody(note?.body || ''); setEditing(!note); }, [note]);
+  useEffect(() => { setBody(bodyOrTemplate(note?.body, tpl)); setEditing(!note); }, [note, tpl]);
 
   const save = async () => {
     if (busy || !hasText || !dirty) return;
@@ -950,7 +966,7 @@ function MyNote({ note, onSave, onShare }) {
   };
 
   // 취소는 **저장된 글로 되돌리고** 읽기 모드로 나간다(고치던 것을 버린다)
-  const cancel = () => { setBody(note?.body || ''); setState(''); setEditing(false); };
+  const cancel = () => { setBody(base); setState(''); setEditing(false); };
 
   // 공유만 바꾼다 — 글은 저장된 것을 그대로 둔다(편집 중인 글은 건드리지 않는다).
   // onShare는 부르는 쪽이 services의 setNoteShared로 잇는다(모임 화면도 같은 함수를 쓴다).
@@ -970,14 +986,14 @@ function MyNote({ note, onSave, onShare }) {
         <SaveState state={state} />
       </div>
       {reading ? (
-        <div className="worship-note-read min-h-40 border border-line rounded-md p-3 bg-surface">
+        <div className="worship-note-read note-template min-h-40 border border-line rounded-md p-3 bg-surface">
           <div className="text-[13px] leading-relaxed text-fg-secondary break-words">
             <RichText content={note?.body || ''} />
           </div>
         </div>
       ) : (
         // 업무 본문·QT 묵상과 같은 편집기(서식 바 포함, 저장 값은 마크다운 문자열)
-        <div className="worship-note-editor">
+        <div className="worship-note-editor note-template">
           <Suspense fallback={<EditorSkeleton />}>
             <MarkdownEditor
               value={body}
@@ -1201,7 +1217,9 @@ export function ServiceDetail({
           : <NoticesTab rows={rows('notices')} />)}
       </div>
 
-      {canWriteNote && !editing && <MyNote note={note} onSave={onSaveNote} onShare={onShareNote} />}
+      {canWriteNote && !editing && (
+        <MyNote note={note} passageRef={service?.passage_ref || ''} onSave={onSaveNote} onShare={onShareNote} />
+      )}
 
       {/* 파일 미리보기 — 업무 첨부와 **같은 창**이다. 송폼도 큐시트 파일도 이 창 하나로
           연다. PDF는 앱 안 pdf.js로 그려지고 새 탭·내려받기도 그 창이 준다(§6-29-q).

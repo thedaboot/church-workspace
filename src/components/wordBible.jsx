@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, ChevronDown, Bookmark, Search, X, Highlighter, Eraser } from 'lucide-react';
-import { loadBibleIndex, loadBook } from '../services/bible.js';
+import { loadBibleIndex, loadBook, forEachPool, warmBooks, POOL } from '../services/bible.js';
 import { parseRef } from '../services/bibleRef.js';
+import { aiBibleSearch, hitLabel } from '../services/bibleSearch.js';
+import { AiService, aiEnabled } from '../services/ai.js';
 import {
   loadBibleState, saveBibleState, loadFontStep, saveFontStep,
   chapterKey, parseChapterKey, verseKey, parseVerseKey,
@@ -20,9 +22,18 @@ import { Skeleton } from './media.jsx';
 // 지우면 절 번호가 통째로 밀리므로 **화면에서만** 흐리게 그린다
 // (public/bible/README.md · services/bible.js 머리말).
 //
-// 검색은 인덱스를 만들지 않는다. 66권을 순서대로 받아 훑고, 책 하나가 끝날 때마다
-// 진행을 그린다(첫 검색은 4.5MB를 받으므로 그 사이 화면이 멈춰 보이면 안 된다).
-// 받은 책은 loadBook이 캐시하므로 두 번째 검색부터는 빠르다.
+// 검색은 인덱스를 만들지 않는다. 66권을 받아 훑고, 책 하나가 끝날 때마다 진행을
+// 그린다(첫 검색은 4.5MB를 받으므로 그 사이 화면이 멈춰 보이면 안 된다).
+// **받는 것은 겹치게, 훑는 것은 정경 순으로**(사용자 요청 2026-09-08 — "검색 속도
+// 개선"). 예전에는 for 안에서 `await loadBook`을 한 권씩 기다려서 왕복이 66번 줄줄이
+// 섰다. 지금은 services/bible.js의 forEachPool이 여섯 권을 동시에 띄우고, 훑기는
+// 도착 순서가 아니라 목록 순서로 부른다 — 그래야 결과 줄과 '앞에서부터 N건'이
+// 정경 순 그대로다. 받은 책은 메모리와 Cache Storage에 남아 새로고침 뒤에도 빠르다.
+//
+// **검색은 두 갈래를 동시에 돌린다**(사용자 요청 2026-09-08 — "본문 검색에 AI를 넣어
+// 시멘틱 서치가 가능하도록"). 낱말 그대로 찾는 것(위)과 뜻으로 찾는 것
+// (services/bibleSearch.js)이고, 결과 칸에 두 도막으로 선다. AI 쪽이 비거나 실패하면
+// 그 도막을 통째로 감춘다 — 왜 없는지 설명하는 줄을 붙이지 않는다(§8).
 //
 // **목차 · 북마크 · 형광펜은 세 화면이다**(사용자 피드백 2026-09-02 4차 — "목차 화면에
 // 북마크·형광펜 목록이 같이 보인다"). 예전에는 넓은 화면에서 옆 칸(300px)에, 좁은
@@ -47,6 +58,10 @@ const SWIPE_MIN = 60;              // px — 이만큼 가로로 쓸면 장을 �
 // 로딩된다). 갈래가 다르면 열쇠의 첫 도막도 다르게 짓는다.
 const STATE_KEY = 'bible:state';
 const RESULT_LIMIT = 50;           // 결과 상한(스펙). 넘으면 거기서 멈춘다
+// 검색 결과로 들어온 절의 테두리 강조가 남아 있는 시간(사용자 요청 2026-09-08 —
+// "그 이후 강조 표시가 3초 후에는 없어져도 될 것 같음"). 도착한 절을 못 찾는 일이
+// 없게 데려다는 주되, 계속 테두리가 남아 있으면 그 절만 다른 글처럼 읽힌다.
+const FOCUS_MS = 3000;
 
 // 글자 크기 3단계. 계정이 아니라 기기에 남긴다(같은 사람도 폰과 노트북이 다르다).
 const FONT_STEPS = [
@@ -215,7 +230,9 @@ export function PassageText({
               if (e.key !== 'Enter' && e.key !== ' ') return;
               e.preventDefault(); onPickVerse(v.chapter, v.verse, e.currentTarget);
             } : undefined}
-            className={`dc-verse rounded-[4px] transition-colors ${blank ? 'text-fg-faint' : 'text-fg-secondary'} ${
+            // 도착 강조(focus)는 3초 뒤에 꺼진다(BibleTab) — 그때 툭 사라지지 않게
+            // 배경·테두리에 전이를 건다. 속성을 못 박는 이유는 §6-17-b와 같다.
+            className={`dc-verse rounded-[4px] transition-[color,background-color,box-shadow] duration-300 motion-reduce:transition-none ${blank ? 'text-fg-faint' : 'text-fg-secondary'} ${
               on || isPicked ? '-mx-1.5 px-1.5' : ''} ${on && !isPicked ? 'bg-accent-weak' : ''} ${
               isPicked ? 'dc-verse-picked' : ''} ${onPickVerse ? 'cursor-pointer' : ''}`}
             style={style}
@@ -485,6 +502,10 @@ export function BibleTab({ initialRef = '' }) {
   const [typed, setTyped] = useState('');
   const [results, setResults] = useState([]);
   const [progress, setProgress] = useState(null);     // { done, total } · null이면 안 돌고 있다
+  // 뜻으로 찾은 구절(services/bibleSearch.js). aiWait는 답을 기다리는 중인가 —
+  // 게스트 모드(로그인이 없는 빌드)에서는 묻지도 않으므로 둘 다 그대로 비어 있다.
+  const [aiHits, setAiHits] = useState([]);
+  const [aiWait, setAiWait] = useState(false);
   const searchToken = useRef(0);
   const bodyRef = useRef(null);
 
@@ -552,6 +573,12 @@ export function BibleTab({ initialRef = '' }) {
     return () => { alive = false; };
   }, [initialRef]);
 
+  // **책 목록이 오면 남은 책을 조용히 받아 둔다**(services/bible.js warmBooks).
+  // 리더에 들어온 사람은 곧 검색하거나 다른 장으로 넘어가는데, 그때마다 왕복을
+  // 기다렸다. 2초 뒤에 시작하므로 지금 장을 여는 요청과 겹치지 않고, 데이터 아끼기를
+  // 켠 기기에서는 아예 하지 않는다. 화면을 떠나면 예약은 취소된다.
+  useEffect(() => (books.length ? warmBooks(books) : undefined), [books]);
+
   // 지금 장의 본문. **어느 장의 것인지 같이 들고 있는다** — 장을 넘긴 직후 한 프레임
   // 동안 앞 장의 절이 새 제목 밑에 남아 있었다.
   useEffect(() => {
@@ -575,6 +602,15 @@ export function BibleTab({ initialRef = '' }) {
     if (!focus || !loaded) return;
     const el = bodyRef.current?.querySelector('[data-focus="1"]');
     el?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  }, [focus, loaded]);
+
+  // **강조는 3초 뒤에 꺼진다**(사용자 요청 2026-09-08). 데려다주는 것이 목적이고,
+  // 그 뒤로도 테두리가 남아 있으면 그 절만 다른 글처럼 읽힌다. 새 절로 들어오면
+  // 타이머가 다시 시작하고, 화면을 떠나면 정리된다(PassageText가 전이로 뺀다).
+  useEffect(() => {
+    if (!focus || !loaded) return undefined;
+    const t = setTimeout(() => setFocus(null), FOCUS_MS);
+    return () => clearTimeout(t);
   }, [focus, loaded]);
 
   // 장을 넘겨서 온 경우에만, **새 장이 도착한 그때 한 번** 본문 카드 위로 올린다
@@ -603,6 +639,7 @@ export function BibleTab({ initialRef = '' }) {
     setFocus(at);
     paint.clear();      // 자리를 옮기면 고른 절이 사라진다 — 선택도 같이 내린다
     setQuery(''); setTyped(''); setResults([]); setProgress(null);
+    setAiHits([]); setAiWait(false);
     searchToken.current++;
     update({ ...state, lastRef: chapterKey(bookId, chapter) });
   };
@@ -650,22 +687,13 @@ export function BibleTab({ initialRef = '' }) {
     if (dx < 0 ? canNext : canPrev) move(dx < 0 ? 1 : -1);
   };
 
-  const runSearch = async (raw) => {
-    const q = raw.trim();
-    const token = ++searchToken.current;
-    setQuery(q);
-    setPane('toc');           // 결과는 본문 열의 자리에 그린다
-    setFocus(null);
-    setDir(0);
-    if (!q) { setResults([]); setProgress(null); return; }
+  // 낱말 그대로 찾기 — **받는 것만 겹친다**(forEachPool). 훑기는 목록 순서 그대로라
+  // 결과 줄도 '앞에서부터 N건'도 정경 순이다. 한 권이 끝날 때마다 결과·진행을 그린다.
+  const runKeyword = async (q, token) => {
     setResults([]); setProgress({ done: 0, total: books.length });
     const out = [];
-    for (let i = 0; i < books.length; i++) {
-      if (token !== searchToken.current) return;
-      const b = books[i];
-      let data = null;
-      try { data = await loadBook(b.id); } catch { /* 한 권을 못 받아도 나머지는 찾는다 */ }
-      if (token !== searchToken.current) return;
+    await forEachPool(books, POOL, b => loadBook(b.id), async (data, b, i) => {
+      if (token !== searchToken.current) return false;
       if (data) {
         for (let c = 0; c < data.chapters.length && out.length < RESULT_LIMIT; c++) {
           const verses = data.chapters[c];
@@ -678,15 +706,42 @@ export function BibleTab({ initialRef = '' }) {
       }
       setResults(out.slice());
       setProgress({ done: i + 1, total: books.length });
-      if (out.length >= RESULT_LIMIT) break;
+      if (out.length >= RESULT_LIMIT) return false;
       await new Promise(r => setTimeout(r, 0));   // 진행이 화면에 그려질 틈
-    }
+      return true;
+    });
     if (token === searchToken.current) setProgress(p => (p ? { ...p, done: books.length } : null));
+  };
+
+  // 뜻으로 찾기 — 제미나이가 고른 구절을 우리 본문으로 확인해서 돌려준다
+  // (services/bibleSearch.js). **실패는 조용하다** — 그 도막을 감출 뿐이다.
+  const runAi = async (q, token) => {
+    if (!aiEnabled()) return;          // 게스트 모드에서는 묻지도 않는다(빈 자리도 안 뜬다)
+    setAiWait(true);
+    let hits = [];
+    try { hits = await aiBibleSearch(q, books, loadBook, AiService.callGemini); } catch { hits = []; }
+    if (token !== searchToken.current) return;
+    setAiHits(hits); setAiWait(false);
+  };
+
+  const runSearch = (raw) => {
+    const q = raw.trim();
+    const token = ++searchToken.current;
+    setQuery(q);
+    setPane('toc');           // 결과는 본문 열의 자리에 그린다
+    setFocus(null);
+    setDir(0);
+    setAiHits([]); setAiWait(false);
+    if (!q) { setResults([]); setProgress(null); return; }
+    // 둘을 **같이** 띄운다 — AI 답을 기다리느라 낱말 결과가 늦으면 안 된다
+    runKeyword(q, token);
+    runAi(q, token);
   };
 
   const clearSearch = () => {
     searchToken.current++;
     setQuery(''); setTyped(''); setResults([]); setProgress(null);
+    setAiHits([]); setAiWait(false);
   };
 
   const verses = useMemo(() => (loaded ? chap.verses : []).map((text, i) => ({
@@ -738,7 +793,7 @@ export function BibleTab({ initialRef = '' }) {
           <Search size={14} className="shrink-0 text-fg-faint" />
           <input
             value={typed} onChange={e => setTyped(e.target.value)}
-            placeholder="본문 검색" aria-label="본문 검색"
+            placeholder="어떤 본문을 찾으시나요?" aria-label="어떤 본문을 찾으시나요?"
             className="flex-1 min-w-0 bg-transparent text-[12.5px] text-fg placeholder:text-fg-faint outline-none"
           />
           {(typed || query) && (
@@ -787,6 +842,7 @@ export function BibleTab({ initialRef = '' }) {
         ) : query ? (
           <SearchResults
             query={query} results={results} progress={progress} searching={searching}
+            aiHits={aiHits} aiWait={aiWait} step={step}
             onOpen={r => goto(r.bookId, r.chapter, { chapter: r.chapter, verse: r.verse })}
           />
         ) : place ? (
@@ -948,6 +1004,12 @@ function mergeRuns(items) {
 }
 
 const markRow = 'flex-1 min-w-0 text-left px-2 py-1.5 rounded-md hover:bg-surface-hover transition-colors';
+// **북마크 줄은 눌리는 판이 보인다**(사용자 지적 2026-09-08 — "북마크 쪽에 여백이 너무
+// 커서 어딜 눌러야 해당 북마크된 장으로 넘어갈 수 있을지가 안 잡힌다. 배경을 미세하게
+// 넣어주든가"). 형광펜 줄은 절 미리보기가 줄을 채워서 누를 자리가 눈에 잡히는데,
+// 북마크 줄은 '23장' 넉 자뿐이라 넓은 열에서 오른쪽이 통째로 비어 보였다. 옅은 판을
+// 깔고 hover에서 한 단계 진해진다 — 값은 토큰이라 다크에서도 따라온다(§8).
+const bookmarkRow = `${markRow} bg-surface-hover hover:bg-line`;
 
 // 책 하나 — 머리글(개수) + 펼쳤을 때의 줄들. kind: 'bookmark' | 'highlight'
 // onRemoveItem은 **참조 목록**을 받는다 — 범위로 묶인 줄은 절 여럿을 한꺼번에 지운다.
@@ -986,7 +1048,8 @@ function MarkBookGroup({ book, items, count, kind, open, onToggle, onOpenItem, o
       </button>
 
       {open && (
-        <div className="pl-[18px] flex flex-col">
+        // 줄 사이를 4px로 좁힌다 — 판이 깔린 줄은 붙어 있어야 '목록'으로 읽힌다
+        <div className="pl-[18px] flex flex-col gap-1">
           {items.map(it => {
             const { chapter, verse } = it.at;
             // 범위로 묶인 줄은 '1:2~4'다(mergeRuns) — 절 하나면 그대로 '1:2'
@@ -1001,7 +1064,8 @@ function MarkBookGroup({ book, items, count, kind, open, onToggle, onOpenItem, o
               : '';
             return (
               <span key={it.ref} className="flex items-center gap-0.5">
-                <button data-goto={it.ref} onClick={() => onOpenItem(it.at)} className={markRow}>
+                <button data-goto={it.ref} onClick={() => onOpenItem(it.at)}
+                  className={kind === 'bookmark' ? bookmarkRow : markRow}>
                   {kind === 'bookmark' ? (
                     <span className="block truncate text-[11.5px] font-semibold text-fg">{chapter}장</span>
                   ) : (
@@ -1150,11 +1214,30 @@ function TocSkeleton() {
 }
 
 // ── 검색 결과 ───────────────────────────────────────────────────────────────
-function SearchResults({ query, results, progress, searching, onOpen }) {
+// 두 도막이다(사용자 요청 2026-09-08): 낱말이 **그대로 나오는 절**과 **뜻으로 찾은
+// 구절**. 위는 66권을 훑은 결과이고 아래는 제미나이가 고른 참조를 우리 본문으로
+// 확인한 것이다(services/bibleSearch.js).
+//
+// **AI 도막은 없으면 통째로 사라진다.** 로그인 전이거나 모델이 못 찾았을 때 "AI가
+// 못 찾았어요" 같은 줄을 세우지 않는다 — 쓰는 사람이 할 수 있는 일이 없는 안내다(§8).
+// 그리고 두 도막이 다 비었을 때만 빈 자리를 세운다.
+const resultHead = 'flex items-center gap-2 pb-2.5';
+
+function ResultHead({ children }) {
+  return (
+    <div className={resultHead}>
+      <span className="text-[12.5px] font-bold text-fg truncate min-w-0">{children}</span>
+      <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
+    </div>
+  );
+}
+
+function SearchResults({ query, results, progress, searching, aiHits = [], aiWait = false, step = 1, onOpen }) {
   const capped = results.length >= RESULT_LIMIT;
+  const aiShown = aiWait || aiHits.length > 0;
   return (
     <div data-col="search" className="min-w-0">
-      <div className="flex items-center gap-2 pb-2.5">
+      <div className={resultHead}>
         <span className="text-[12.5px] font-bold text-fg truncate min-w-0">{query}</span>
         <span className="text-[11.5px] text-fg-faint tabular-nums shrink-0">
           {searching
@@ -1164,29 +1247,56 @@ function SearchResults({ query, results, progress, searching, onOpen }) {
         <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
       </div>
 
-      {!results.length ? (
-        searching
-          ? <PassageSkeleton lines={5} />
-          : (
-            <div className="min-h-[38vh] flex flex-col items-center justify-center text-center">
-              <EmptyBookMark />
-              <p className="text-[13px] font-semibold text-fg mt-3">개역한글 본문에서 그 말이 그대로 나오는 절을 찾지 못했어요</p>
-            </div>
-          )
+      {/* 둘 다 비었고 더 기다릴 것도 없을 때에만 빈 자리다 */}
+      {!results.length && !aiShown && !searching ? (
+        <div className="min-h-[38vh] flex flex-col items-center justify-center text-center">
+          <EmptyBookMark />
+          <p className="text-[13px] font-semibold text-fg mt-3">해당 단어는 찾지 못했어요</p>
+        </div>
       ) : (
-        <div className="flex flex-col">
-          {results.map(r => (
-            <button key={`${r.bookId}-${r.chapter}-${r.verse}`} onClick={() => onOpen(r)}
-              data-hit={verseKey(r.bookId, r.chapter, r.verse)}
-              className="text-left py-2.5 px-2.5 -mx-2.5 rounded-[8px] hover:bg-surface-hover transition-colors">
-              <span className="block text-[11.5px] font-bold text-accent-text tabular-nums">
-                {r.name} {r.chapter}:{r.verse}
-              </span>
-              <span className="block text-[12.5px] leading-relaxed text-fg-secondary mt-0.5">
-                {highlight(r.text, query)}
-              </span>
-            </button>
-          ))}
+        <div className="flex flex-col gap-5">
+          {(results.length > 0 || searching) && (
+            <div data-hits="keyword" className="min-w-0">
+              <ResultHead>본문에 그대로 나오는 절</ResultHead>
+              {results.length ? (
+                <div className="flex flex-col">
+                  {results.map(r => (
+                    <button key={`${r.bookId}-${r.chapter}-${r.verse}`} onClick={() => onOpen(r)}
+                      data-hit={verseKey(r.bookId, r.chapter, r.verse)}
+                      className="text-left py-2.5 px-2.5 -mx-2.5 rounded-[8px] hover:bg-surface-hover transition-colors">
+                      <span className="block text-[11.5px] font-bold text-accent-text tabular-nums">
+                        {r.name} {r.chapter}:{r.verse}
+                      </span>
+                      <span className="block text-[12.5px] leading-relaxed text-fg-secondary mt-0.5">
+                        {highlight(r.text, query)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : <PassageSkeleton lines={5} step={step} />}
+            </div>
+          )}
+
+          {aiShown && (
+            <div data-hits="ai" className="min-w-0">
+              <ResultHead>AI가 찾은 구절</ResultHead>
+              {aiHits.length ? (
+                <div className="flex flex-col">
+                  {aiHits.map(h => (
+                    <button key={`ai-${h.bookId}-${h.chapter}-${h.verse}`} onClick={() => onOpen(h)}
+                      data-ai-hit={verseKey(h.bookId, h.chapter, h.verse)}
+                      className="text-left py-2.5 px-2.5 -mx-2.5 rounded-[8px] hover:bg-surface-hover transition-colors">
+                      <span className="block text-[11.5px] font-bold text-accent-text tabular-nums">
+                        {hitLabel(h)}
+                      </span>
+                      <span className="block text-[12.5px] leading-relaxed text-fg-secondary mt-0.5">{h.text}</span>
+                      {h.why && <span className="block text-[11.5px] text-fg-faint mt-0.5">{h.why}</span>}
+                    </button>
+                  ))}
+                </div>
+              ) : <PassageSkeleton lines={4} step={step} />}
+            </div>
+          )}
         </div>
       )}
     </div>

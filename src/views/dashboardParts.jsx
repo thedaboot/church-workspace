@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
-import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byCompleted, completedTime, spreadLabels, scrollParentOf } from '../utils.js';
+import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byCompleted, completedTime, spreadLabels, scrollParentOf, weekEndOf } from '../utils.js';
 import { usePresence } from '../services/presence.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
@@ -40,7 +40,7 @@ const STALE_NODUE_DAYS = 14;
 const isStaleNoDue = (t, today = ISO_TODAY()) =>
   !t.dueDate && t.status !== '완료' && !!t.createdAt && ageDays(t.createdAt, today) >= STALE_NODUE_DAYS;
 
-// 마감 기준 구간 — 지연 / 오늘 / 이번 주(6일 내) / 그 이후 / 마감 미정 / 완료
+// 마감 기준 구간 — 지연 / 오늘 / 이번 주(그 주 토요일까지) / 그 이후 / 마감 미정 / 완료
 // '마감 미정'을 따로 두는 이유: 예전에는 '다음 주 이후'에 섞여 있어서 마감을 정하지
 // 않은 업무가 몇 건인지 아무 데도 안 보였다. 마감 중심 화면인데 마감이 없는 업무가
 // 가장 조용히 묻혔다.
@@ -60,7 +60,10 @@ function bucketOf(task, today = ISO_TODAY()) {
   if (!task.dueDate) return 4;              // 마감 미정 — 자기 구간을 가진다
   if (task.dueDate < today) return 0;
   if (task.dueDate === today) return 1;
-  return daysLeft(task.dueDate, today) <= 6 ? 2 : 3;
+  // '이번 주'는 주일에 시작해 토요일에 끝나는 달력의 주다(utils.weekEndOf, 사용자 지시
+  // 2026-09-08). 굴러가는 6일 창이 아니라서 금요일에는 '이번 주'에 토요일 하루만 남고,
+  // 그 뒤는 전부 '다음 주 이후'다 — 라벨과 실제가 같은 말을 한다.
+  return task.dueDate <= weekEndOf(today) ? 2 : 3;
 }
 // 마감 없는 업무가 뒤로 가도록 정렬 (마감일 오름차순).
 // 칸반 컬럼 안 순서도 이걸 쓴다 — 목록과 보드가 서로 다른 순서를 보이면 안 된다.

@@ -32,6 +32,46 @@ export const MAX_SHEET_BYTES = MAX_UPLOAD_BYTES;
 
 const isHtml = (mime, ext) => mime === 'text/html' || HTML_EXT.includes(ext);
 
+// ── 구글 변환 사본 (files.preview_file_id) ──────────────────────────────────
+// 확장자 → 만들 사본의 종류. **표는 한 벌이다** — 만드는 쪽(services/cloud.js가 스크립트에
+// 넘기는 값)과 여는 쪽(아래 주소)이 각자 목록을 들면, 새 확장자를 붙일 때 한쪽만
+// 고쳐져서 "사본은 있는데 안 열리는 파일"이 생긴다. 낱말은 Apps Script가 쓰는 것과 같다.
+const COPY_TARGET = {
+  xlsx: 'spreadsheet', xlsm: 'spreadsheet', xls: 'spreadsheet', csv: 'spreadsheet',
+  docx: 'document', doc: 'document',
+  pptx: 'presentation', ppt: 'presentation',
+};
+export const previewCopyOf = (name) => COPY_TARGET[extOf(name)] || null;
+
+// 종류 → [주소의 종류 칸, 그 뒤]. 사본은 그 종류의 **네이티브 구글 파일**이므로 주소도
+// 종류를 맞춰야 한다 — 문서 사본을 `spreadsheets/d/…`로 열면 아무것도 안 뜬다.
+//  · 표: `preview?widget=true&rm=minimal` — widget=true가 **시트 탭**을 남긴다.
+//        없으면 시트가 여럿인 파일에서 첫 장밖에 못 본다(utils.sheetPreviewUrl과 같은 주소).
+//  · 문서: `preview?rm=minimal` — 종이 그대로, 구글 머리줄만 걷는다. 폭은 구글이 알아서 맞춘다.
+//  · 슬라이드: **`embed`** 다. `preview`는 드라이브식 머리줄을 남기고 슬라이드를 가운데에
+//        작게 두는데, `embed`(구글이 '웹에 게시 → 퍼가기'로 내주는 그 주소)는 슬라이드가
+//        틀을 꽉 채우고 아래에 얇은 줄(이전·다음·전체화면)만 남는다.
+//        `start=false`·`delayms=60000`은 열자마자 저 혼자 넘어가지 않게 막는 것이다
+//        (기본값은 자동 재생이다 — 미리보기 창에서 슬라이드가 움직이면 읽을 수가 없다).
+//        **실물로 나란히 비교하지는 못했다** — 사본은 소유자 드라이브에만 생기고 공개된
+//        것이 없다. 다른 쪽이 더 낫다면 이 표 한 줄만 고치면 된다.
+const COPY_VIEW = {
+  spreadsheet: ['spreadsheets', 'preview?widget=true&rm=minimal'],
+  document: ['document', 'preview?rm=minimal'],
+  presentation: ['presentation', 'embed?rm=minimal&start=false&loop=false&delayms=60000'],
+};
+
+// 변환 사본을 **구글이 그린 화면**으로 볼 주소. 사본이 없으면 null이고, 부르는 쪽은
+// 예전 길(우리 렌더러)로 떨어진다 — 옛 첨부·변환 실패·스크립트가 v8 미만인 경우다.
+// **편집 주소(/edit)를 만들지 마세요** — 첨부는 '링크를 아는 사람은 보기'이고,
+// 편집으로 열어 주는 것은 사용자가 판단해서 뺀 것이다(HANDOFF §7 마지막 줄).
+export const previewCopyUrl = (row) => {
+  const view = COPY_VIEW[COPY_TARGET[extOf(row?.name)]];
+  return (row?.preview_file_id && view)
+    ? `https://docs.google.com/${view[0]}/d/${row.preview_file_id}/${view[1]}`
+    : null;
+};
+
 export function previewKind(row) {
   const mime = row?.mime_type || '';
   const ext = extOf(row?.name);
@@ -43,6 +83,13 @@ export function previewKind(row) {
   // 직접 표를 그렸는데, 구글이 .xlsx를 사람이 열 때 게을리 변환하는 것이 문제였고
   // 지금은 올릴 때 변환 사본을 만들어 두므로 기다릴 것이 없다(files.preview_file_id).
   if (SHEET_EXT.includes(ext) && (row?.size_bytes ?? 0) <= MAX_SHEET_BYTES) return 'sheet';
+  // 워드·PPT도 **변환 사본이 있으면 구글이 그린 화면**으로 띄운다(2026-09-08 사용자 요청 —
+  // "이 pptx 뷰어나 docs도 그냥 실제 뷰로 볼 수 있게, 엑셀 미리보기 하는 것처럼").
+  // 우리가 직접 그리기로 했던 이유(§6-29-y)는 구글이 **갓 올린 파일**에 오류를 내던 것
+  // 하나뿐이었는데, 엑셀과 같은 방법으로 그 이유가 없어졌다 — 올릴 때 스크립트가
+  // 네이티브 사본을 만들어 두므로 기다릴 것도, 우리 렌더러가 글자를 자를 일도 없다.
+  // 사본이 없는 파일은 아래 그대로 우리 렌더러로 간다(옛 첨부·변환 실패·스크립트 v8 미만).
+  if (OFFICE_EXT.includes(ext) && row?.preview_file_id) return 'gdoc';
   if (row?.source === 'drive') {
     // 드라이브 파일도 형식별로 **가장 나은 뷰어**로 간다(사용자 요청) —
     //  · 오피스류(엑셀·워드·PPT·csv): 구글 전용 편집기 미리보기(driveSrc가 시간 게이트)

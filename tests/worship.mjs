@@ -8,7 +8,7 @@
 // **시드 날짜는 오늘 기준 상대값이다.** 출석 진입이 '예배 날짜가 지난 뒤'로 잠겼기
 // 때문에(사용자 결정 2026-09-01), 달을 못 박으면 검사를 도는 시기에 따라 답이 달라진다.
 import { spawn } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const URL_BASE = process.argv[2] || 'http://localhost:4174';
@@ -48,6 +48,24 @@ const HAS_CARD = `!!document.querySelector('.worship-card')`;
 const HAS_DETAIL = `!!document.querySelector('.worship-detail .worship-tabpanel')`;
 const HAS_EDIT = `!!${byText('수정')}`;
 const HAS_ATT = `!!document.querySelector('.worship-att-open')`;
+
+// 출석 메모 한 벌의 상태 — 읽기/편집 어느 모드인지, 도구 줄에 무엇이 어떤 순서로
+// 서는지, 그리고 **실제로 주보 행에 남았는지**까지 한 번에 본다.
+// `right`는 취소가 그 줄의 오른쪽 끝에 붙어 있는지다(§8 · 0이면 딱 붙어 있다).
+const NOTE_STATE = `(() => ({
+  read: !!document.querySelector('.att-note-read'),
+  readText: document.querySelector('.att-note-read')?.textContent.trim() || '',
+  box: !!document.querySelector('.att-note-box'),
+  saveOff: document.querySelector('.att-note-save')?.disabled ?? null,
+  cancel: !!document.querySelector('.att-note-cancel'),
+  order: [...document.querySelectorAll('.att-note-tools button')].map(b => b.textContent.trim()),
+  right: (() => {
+    const c = document.querySelector('.att-note-cancel'); const t = document.querySelector('.att-note-tools');
+    return c && t ? Math.round(t.getBoundingClientRect().right - c.getBoundingClientRect().right) : null;
+  })(),
+  state: document.querySelector('.worship-attendance .worship-save-state')?.textContent.trim() || '',
+  stored: JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.id === 's1').attendance_note,
+}))()`;
 
 // ── 가짜 주보·명단 ──────────────────────────────────────────────────────────
 const pad = n => String(n).padStart(2, '0');
@@ -175,12 +193,22 @@ const EMPTY = `(() => {
     text: box.innerText.trim(),
   };
 })()`;
-// 문턱이 0.35인 이유: 상세 화면의 빈 탭은 아래에 '내 예배 노트'(서식 바 + 편집기)가
-// 실제로 자리를 차지한다 — 그래도 화면의 3분의 1은 넘어야 '넓은 빈 자리'다.
-const centered = (e) => !!e && e.mark === true && e.h >= e.vh * 0.35 && Math.abs(e.dy) <= 2 && Math.abs(e.dx) <= 2;
+// 상세 화면의 빈 탭은 아래에 '내 예배 노트'(서식 바 + 편집기)가 실제로 자리를 차지한다.
+// **문턱을 0.35에서 0.2로 낮췄다**(2026-09-08) — 노트가 빈 칸이 아니라 템플릿(도막
+// 다섯 · services/noteTemplate.js)으로 시작하면서 그 칸이 200px 남짓 길어졌고,
+// 1440x900에서 갓 만든 주보는 둘이 함께 이상적인 높이를 가질 수 없다. 빈 자리는
+// 여전히 마크와 함께 상자 한가운데에 서고 바닥값(FILL_MIN 200px)은 지킨다.
+const centered = (e) => !!e && e.mark === true && e.h >= e.vh * 0.2 && Math.abs(e.dy) <= 2 && Math.abs(e.dx) <= 2;
 // 남는 공간을 차지했나 — 화면이 스크롤 박스 바닥까지 닿고(빈 자리가 아래에 남지 않고),
-// 그렇다고 넘쳐서 스크롤이 생기지도 않아야 한다(감싸개의 pb까지 세야 딱 맞는다)
-const fills = (e) => !!e && e.fill >= 0 && e.fill <= 4 && e.scroll <= 0;
+// 그렇다고 넘쳐서 스크롤이 생기지도 않아야 한다(감싸개의 pb까지 세야 딱 맞는다).
+// **바닥값에 닿았을 때는 예외다**(2026-09-08) — 남는 자리가 FILL_MIN(200px)보다 작으면
+// 빈 상태를 더 찌그러뜨리지 않고 그만큼 스크롤이 생기는 것이 설계다(worshipDetail의
+// FILL_MIN 주석). 그때도 **아래로 빈 자리가 남는 것**은 여전히 실패다.
+const fills = (e) => {
+  if (!e) return false;
+  if (e.h <= 201) return e.fill <= 0;
+  return e.fill >= 0 && e.fill <= 4 && e.scroll <= 0;
+};
 
 await send('Page.enable'); await send('Runtime.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -349,6 +377,51 @@ check('영상 주소는 watch?v= 모양으로 저장된다', pure.watchUrl === '
 check('가져온 곡은 뒤에 붙고 같은 영상은 한 번만 들어간다',
   JSON.stringify(pure.merged) === '["주 은혜임을","손으로 적은 곡","새 곡"]', JSON.stringify(pure.merged));
 
+// ── 0-b) 유튜브 제목 다듬기 (2026-09-08) ────────────────────────────────────
+// "유튜브 링크로 가져오면 제목 부분이 가끔 볼드 처리되는 경우가 있다"(사용자 보고).
+// 우리 화면은 제목을 <input>과 평범한 <span>에만 넣으므로 마크다운 굵게가 될 길이 없다 —
+// **글자 자체가 다른 글자**다(유니코드 수학 알파벳 · 전각). CSS로는 못 되돌리고, 받는
+// 자리에서 NFKC로 접는 수밖에 없다(services/titleText.js).
+// **되돌리기**: titleText.js에서 `.normalize('NFKC')`를 빼면 아래 두 줄이 바로 깨진다.
+const titles = await ev(`(async () => {
+  const m = await import('/src/services/titleText.js');
+  const bold = '\\u{1D5EA}\\u{1D5FC}\\u{1D5FF}\\u{1D600}\\u{1D5F5}\\u{1D5F6}\\u{1D5FD} \\u{1D7ED}';  // 수학 볼드 Worship 1
+  const wide = '\\uFF37\\uFF4F\\uFF52\\uFF53\\uFF48\\uFF49\\uFF50';                                   // 전각 Worship
+  return {
+    boldRaw: bold, bold: m.cleanTitle(bold),
+    wide: m.cleanTitle(wide),
+    korean: m.cleanTitle('주 은혜임을'),
+    zero: m.cleanTitle('주\\u200B은혜\\uFEFF임을\\uFE0F'),
+    spaces: m.cleanTitle('  주  은혜임을\\n(Live) '),
+    junk: [m.cleanTitle(null), m.cleanTitle(undefined), m.cleanTitle('')],
+  };
+})()`, true);
+check('굵어 보이는 수학 알파벳 제목이 평범한 글자로 내려온다',
+  titles.bold === 'Worship 1' && titles.boldRaw !== 'Worship 1', `${titles.boldRaw} → ${titles.bold}`);
+check('전각 글자도 같이 접힌다', titles.wide === 'Worship', titles.wide);
+check('한글 제목은 그대로 둔다', titles.korean === '주 은혜임을', titles.korean);
+check('눈에 안 보이는 글자(폭 없는 공백·변이 선택자)는 턴다', titles.zero === '주은혜임을', titles.zero);
+check('줄바꿈·연달은 공백은 한 칸으로 접고 앞뒤를 턴다', titles.spaces === '주 은혜임을 (Live)', JSON.stringify(titles.spaces));
+check('빈 값도 빈 글자다(undefined가 글자로 새지 않는다)',
+  JSON.stringify(titles.junk) === '["","",""]', JSON.stringify(titles.junk));
+
+// 함수가 맞아도 부르지 않으면 그대로다 — 두 자리 모두 소스로 못 박는다.
+// **앱에서도 한 번 더 접는 이유**: 배포된 서버가 앱보다 낡을 수 있어서, 정규화가 서버에만
+// 있으면 옛 서버가 도는 동안 굵은 제목이 그대로 들어온다.
+const ytSrc = readFileSync(new URL('../api/yt.js', import.meta.url), 'utf8');
+check("서버(api/yt.js)가 titleText의 cleanTitle을 들여다 쓴다",
+  /import \{ cleanTitle \} from '\.\.\/src\/services\/titleText\.js';/.test(ytSrc),
+  ytSrc.split('\n').find(l => l.includes('titleText')) || 'import 없음');
+check('서버는 RSS 길과 Data API 길 둘 다에서 제목을 다듬는다',
+  /cleanTitle\(decode\(title\)\)/.test(ytSrc) && /const title = cleanTitle\(sn\.title\)/.test(ytSrc)
+  && /cleanTitle\(JSON\.parse\(text\)\.title\)/.test(ytSrc),
+  JSON.stringify([/cleanTitle\(decode\(title\)\)/.test(ytSrc), /const title = cleanTitle\(sn\.title\)/.test(ytSrc),
+    /cleanTitle\(JSON\.parse\(text\)\.title\)/.test(ytSrc)]));
+const wSrc = readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8');
+check('앱도 받은 제목을 다시 다듬는다(옛 서버가 도는 동안의 안전망)',
+  /cleanTitle\(v\.title\)/.test(wSrc) && /return cleanTitle\(title\);/.test(wSrc),
+  JSON.stringify([/cleanTitle\(v\.title\)/.test(wSrc), /return cleanTitle\(title\);/.test(wSrc)]));
+
 // 화면에 뜰 날짜 글자는 서비스가 만든 것과 견준다(시드가 상대 날짜라서)
 const DL = await ev(`(async () => {
   const m = await import('/src/services/worship.js');
@@ -473,7 +546,7 @@ check('좁아지면 종류 → 설교자 순으로 빠진다',
   && metaAt[1024].rows[0].shown === `${DL.p1} · 본문 이사야 32:9-20 · 임성빈 전도사님`
   && metaAt[1440].rows[0].shown === `${DL.p1} · 주일 4부 젊은이 예배 · 본문 이사야 32:9-20 · 임성빈 전도사님`,
   JSON.stringify([metaAt[375].rows[0].shown, metaAt[1024].rows[0].shown, metaAt[1440].rows[0].shown]));
-check('편집 자격자에게 새 주보 · 작성 중 줄', list.newBtn === true && list.drafts === '작성 중 1', `${list.newBtn}/${list.drafts}`);
+check('편집 자격자에게 새 주보 · 작성 중 줄', list.newBtn === true && list.drafts === '작성 중인 주보 1건', `${list.newBtn}/${list.drafts}`);
 
 await ev(`[...document.querySelectorAll('.worship-kind-chip')].find(c => c.textContent.trim() === '그 밖의 예배').click()`);
 await sleep(300);
@@ -829,15 +902,51 @@ const gone = await ev(`(() => ({
 }))()`);
 check('손님은 ×로 바로 지워진다', gone.guests === 0 && gone.rows === 0 && gone.total === '전체 1/8', JSON.stringify(gone));
 
-// 출석 메모는 자동 저장(디바운스)
-await ev(typeIn('textarea[aria-label="출석 메모"]', '오늘은 새신자가 한 명 왔어요', 'HTMLTextAreaElement'));
-await sleep(1600);
-const noteSaved = await ev(`(() => ({
-  text: JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.id === 's1').attendance_note,
-  state: document.querySelector('.worship-attendance .worship-save-state')?.textContent.trim() || '',
-}))()`);
-check('출석 메모가 저절로 저장된다', noteSaved.text === '오늘은 새신자가 한 명 왔어요', String(noteSaved.text));
+// 출석 메모 — **노트처럼 저장하고 수정한다**(사용자 요청 2026-09-08: "출석 메모도 노트처럼
+// 저장하고 수정할 수 있는 구조로. 지금은 저장이 된다 해도 저장의 기능을 제대로 하고 있는지를
+// 모르겠음"). 예전에는 디바운스 자동 저장이라 편집기 한 칸만 서 있었고, 저장 표시는 잠깐
+// 켜졌다 사라져서 화면에 '저장된 상태'라는 것이 남지 않았다.
+// **되돌리기**: worshipAttendance에 디바운스 자동 저장을 되살리면 '저장' 버튼이 없어 깨진다.
+const noteEmpty = await ev(NOTE_STATE);
+check('메모가 없으면 편집기가 바로 열린다(빈 읽기 상자를 세우지 않는다)',
+  noteEmpty.box === true && noteEmpty.read === false && noteEmpty.cancel === false, JSON.stringify(noteEmpty));
+check('바뀐 것이 없으면 저장이 잠겨 있다', noteEmpty.saveOff === true, String(noteEmpty.saveOff));
+await ev(typeIn('.att-note-box', '오늘은 새신자가 한 명 왔어요', 'HTMLTextAreaElement'));
+await sleep(400);
+const noteTyped = await ev(NOTE_STATE);
+check('적으면 저장이 열리고, 누르기 전에는 나가지 않는다',
+  noteTyped.saveOff === false && noteTyped.stored === '', JSON.stringify(noteTyped));
+await ev(`document.querySelector('.att-note-save').click()`); await sleep(900);
+const noteSaved = await ev(NOTE_STATE);
+check('저장을 눌러야 그 주보에 남는다', noteSaved.stored === '오늘은 새신자가 한 명 왔어요', String(noteSaved.stored));
+check('저장하면 읽기 모드로 서고 도구 줄은 수정 하나다',
+  noteSaved.read === true && noteSaved.readText === '오늘은 새신자가 한 명 왔어요'
+  && JSON.stringify(noteSaved.order) === '["수정"]', JSON.stringify(noteSaved));
 check('출석 메모도 같은 저장 라벨을 쓴다', noteSaved.state === '저장되었어요', noteSaved.state);
+
+await ev(`document.querySelector('.att-note-edit').click()`); await sleep(350);
+const noteEditing = await ev(NOTE_STATE);
+check('수정을 누르면 편집기가 열리고 저장은 다시 잠긴다(아직 고친 것이 없다)',
+  noteEditing.box === true && noteEditing.read === false && noteEditing.saveOff === true
+  && JSON.stringify(noteEditing.order) === '["저장","취소"]', JSON.stringify(noteEditing));
+check('취소는 그 줄의 오른쪽 끝이다(§8 확정 왼쪽 / 나가기 오른쪽)', noteEditing.right === 0, String(noteEditing.right));
+await ev(typeIn('.att-note-box', '고쳐 적은 메모', 'HTMLTextAreaElement')); await sleep(350);
+await ev(`document.querySelector('.att-note-cancel').click()`); await sleep(500);
+const noteCancelled = await ev(NOTE_STATE);
+check('취소하면 저장된 글로 돌아간다',
+  noteCancelled.read === true && noteCancelled.readText === '오늘은 새신자가 한 명 왔어요'
+  && noteCancelled.stored === '오늘은 새신자가 한 명 왔어요', JSON.stringify(noteCancelled));
+
+// **비운 메모도 사람이 뜻한 저장이다** — 잘못 적은 줄을 지우는 길이 있어야 한다.
+// 그래서 잠그는 조건은 '바뀐 것이 없을 때'뿐이고 '빈 글일 때'가 아니다(내 예배 노트와 다른 점).
+await ev(`document.querySelector('.att-note-edit').click()`); await sleep(350);
+await ev(typeIn('.att-note-box', '', 'HTMLTextAreaElement')); await sleep(350);
+const noteEmptying = await ev(NOTE_STATE);
+check('메모를 비워도 저장을 누를 수 있다', noteEmptying.saveOff === false, String(noteEmptying.saveOff));
+await ev(`document.querySelector('.att-note-save').click()`); await sleep(900);
+const noteCleared = await ev(NOTE_STATE);
+check('비운 메모가 저장되면 읽기 상자 대신 편집기가 선다',
+  noteCleared.stored === '' && noteCleared.read === false && noteCleared.box === true, JSON.stringify(noteCleared));
 
 // ── 4) 내 예배 노트 ─────────────────────────────────────────────────────────
 // **말씀의 내 묵상과 같은 구조**다(사용자 결정 2026-09-03): 편집기 아래
@@ -908,14 +1017,14 @@ const noteRow = await ev(`(() => {
     share: [...document.querySelectorAll('.worship-note button[aria-pressed]')].every(b => b.disabled),
     state: document.querySelector('.worship-note .worship-save-state')?.textContent.trim() || '' };
 })()`);
-check('내 예배 노트가 예배당 한 건으로 저장된다', noteRow.n === 1 && noteRow.body.startsWith('기쁨은'), JSON.stringify(noteRow));
+check('내 예배 노트가 예배당 한 건으로 저장된다', noteRow.n === 1 && noteRow.body.includes('기쁨은'), JSON.stringify(noteRow));
 check("노트는 발행이 없으니 '임시'가 붙지 않는다", noteRow.state === '저장되었어요', noteRow.state);
 // **저장하면 읽기 모드로 돌아간다**(2026-09-07 · QT 묵상과 같은 패턴). 예전에는 편집기가
 // 계속 열려 있어서 "쓴 것인지 고치는 중인지"가 화면에 없었다.
 // **되돌리기**: MyNote의 editing 상태를 없애면(늘 편집기) 아래 셋이 깨진다.
 check('저장하면 읽기 모드로 돌아간다(편집기 대신 본문)',
   noteRow.read === true && noteRow.editor === false && noteRow.saveBtn === false, JSON.stringify(noteRow));
-check('읽기 모드에는 저장한 글이 그대로 보인다', noteRow.readText.startsWith('기쁨은'), noteRow.readText);
+check('읽기 모드에는 저장한 글이 그대로 보인다', noteRow.readText.includes('기쁨은'), noteRow.readText);
 check("고치려면 '수정'을 누른다", noteRow.editBtn === '수정', noteRow.editBtn);
 check('저장하고 나면 공유 세그먼트가 열린다', noteRow.share === false, String(noteRow.share));
 check('저장만으로는 공유되지 않는다(기본은 나만 보기)', noteRow.shared !== true, String(noteRow.shared));
@@ -955,7 +1064,7 @@ const shareRow = await ev(`(() => {
       .map(b => b.getAttribute('aria-pressed')) };
 })()`);
 check("'순에 공유하기'를 누르면 그 자리에서 저장된다",
-  shareRow.shared === true && shareRow.body.startsWith('기쁨은'), JSON.stringify(shareRow));
+  shareRow.shared === true && shareRow.body.includes('기쁨은'), JSON.stringify(shareRow));
 check('공유 칩이 확정형으로 말한다', shareRow.chip === '우리 순에 공유할게요', shareRow.chip);
 check('고른 쪽이 눌린 상태로 남는다', JSON.stringify(shareRow.pressed) === '["false","true"]', JSON.stringify(shareRow.pressed));
 const shareLabels = await ev(`[...document.querySelectorAll('.worship-note button[aria-pressed]')]
@@ -972,7 +1081,7 @@ const backRow = await ev(`(() => {
     chip: document.querySelector('.worship-note [data-share-chip]')?.textContent.trim() || '' };
 })()`);
 check("'나만 보기'로 되돌리면 칩이 '나만 볼게요'다",
-  backRow.shared === false && backRow.chip === '나만 볼게요' && backRow.body.startsWith('기쁨은'),
+  backRow.shared === false && backRow.chip === '나만 볼게요' && backRow.body.includes('기쁨은'),
   JSON.stringify(backRow));
 
 // 서비스 계약 — setNoteShared(serviceId, shared)는 **글을 건드리지 않고** 공유만 바꾸고,
@@ -987,7 +1096,7 @@ const contract = await ev(`(async () => {
     thumbBad: m.youtubeThumb('https://vimeo.com/watch?v=dQw4w9WgXcQ') };
 })()`, true);
 check('setNoteShared는 공유만 바꾸고 글은 그대로 둔다',
-  contract.back?.shared_to_sun === true && contract.back?.body.startsWith('기쁨은')
+  contract.back?.shared_to_sun === true && contract.back?.body.includes('기쁨은')
   && contract.stored?.shared_to_sun === true, JSON.stringify(contract.back));
 check('노트가 없는 주보에는 아무것도 만들지 않는다(null)', contract.none === null, JSON.stringify(contract.none));
 check('썸네일 주소는 키 없이 만들어진다',
@@ -1013,35 +1122,51 @@ const expectLabel = await ev(`(async () => {
   const wd = new Date(y, mo - 1, d).toLocaleDateString('ko-KR', { weekday: 'short' });
   return y + '. ' + mo + '. ' + d + '. (' + wd + ')';
 })()`, true);
+// 생성기는 **짜임이 있는 카드**다(사용자 지적 2026-09-08 · 375px 스크린샷 "뒤죽박죽으로
+// 읽힌다"). 종류는 팝오버 한 칸이 아니라 말씀·성경 리더와 같은 **세그먼트**이고, 칸마다
+// 이름표가 앉는다(종류 / 이름 / 날짜 — 사용법 안내가 아니라 칸 이름이다 · §8).
+// **되돌리기**: 세그먼트를 팝오버로 되돌리면 `.worship-kind-opt`가 없어 아래가 통째로 깨진다.
 const form = await ev(`(() => {
   const box = document.querySelector('.worship-new');
-  const ctl = [...box.querySelectorAll('button, input')].filter(e => e.className.includes('worship-kind-pick')
-    || box.querySelector('.worship-new-date').contains(e) || e.className.includes('worship-new-make'));
+  const ctl = [box.querySelector('.worship-kind-seg'), box.querySelector('.worship-new-date button'),
+    box.querySelector('.worship-new-make'), box.querySelector('.worship-new-cancel')];
+  const opts = [...box.querySelectorAll('.worship-kind-opt')];
+  const bottom = (e) => Math.round(e.getBoundingClientRect().bottom);
   return {
     dateBtn: document.querySelector('.worship-new-date button')?.textContent.trim() || '',
     nativeDate: !!box.querySelector('input[type="date"]'),
-    kind: box.querySelector('.worship-kind-pick')?.textContent.trim() || '',
+    kinds: opts.map(o => o.textContent.trim()),
+    // 글자가 상자 밖으로 넘치면(잘리면) scrollWidth가 clientWidth보다 크다
+    clipped: opts.filter(o => o.scrollWidth - o.clientWidth > 1).map(o => o.textContent.trim()),
+    picked: opts.filter(o => o.getAttribute('aria-pressed') === 'true').map(o => o.dataset.kind),
+    labels: [...box.querySelectorAll('.labeled-field > span:first-child')].map(s => s.textContent.trim()),
     nameBox: !!box.querySelector('input[aria-label="예배 이름"]'),
     canMake: !box.querySelector('.worship-new-make').disabled,
-    rows: new Set(ctl.map(e => Math.round(e.getBoundingClientRect().top))).size,
+    // 한 줄인지는 **컨트롤의 아랫변**으로 본다 — 이름표가 위에 붙는 칸과 안 붙는 버튼이
+    // 섞여 있어서 윗변은 원래 다르다(items-end로 아래를 맞춘다)
+    rows: new Set(ctl.map(bottom)).size,
+    order: ctl.map(e => Math.round(e.getBoundingClientRect().left)),
+    cancelGap: Math.round(box.getBoundingClientRect().right
+      - box.querySelector('.worship-new-cancel').getBoundingClientRect().right),
     h: Math.round(box.getBoundingClientRect().height),
   };
 })()`);
 check('날짜는 업무의 날짜 픽커로 고른다(브라우저 기본 date 칸이 아니다)',
   form.nativeDate === false && form.dateBtn === expectLabel, `${form.dateBtn} / ${expectLabel}`);
-check('종류는 주일 4부 젊은이 예배가 기본 — 이름 칸은 다른 예배를 고를 때만 나온다',
-  form.kind.startsWith('주일 4부 젊은이 예배') && form.nameBox === false, `${form.kind} / 이름칸 ${form.nameBox}`);
-check('데스크톱에서는 종류·날짜·만들기가 한 줄이다',
-  form.rows === 1 && form.h <= 70, `${form.rows}줄 / ${form.h}px`);
+check('종류는 세그먼트 두 칸이고 라벨이 온전히 보인다(잘리지 않는다)',
+  JSON.stringify(form.kinds) === '["주일예배","다른 예배"]' && form.clipped.length === 0,
+  `${JSON.stringify(form.kinds)} / 잘림 ${JSON.stringify(form.clipped)}`);
+check('주일예배가 기본 — 이름 칸은 다른 예배를 고를 때만 나온다',
+  JSON.stringify(form.picked) === '["sunday"]' && form.nameBox === false,
+  `${JSON.stringify(form.picked)} / 이름칸 ${form.nameBox}`);
+check('칸마다 이름표가 앉는다', JSON.stringify(form.labels) === '["종류","날짜"]', JSON.stringify(form.labels));
+check('데스크톱에서는 종류·날짜·만들기·취소가 한 줄이다',
+  form.rows === 1 && form.h <= 100, `${form.rows}줄 / ${form.h}px`);
+// 상시 도구 줄은 확정 왼쪽 / 나가기 오른쪽(§8) — 만들기가 날짜 바로 옆, 취소는 카드 오른쪽 끝
+check('만들기는 날짜 옆이고 취소는 카드 오른쪽 끝이다',
+  form.order[1] < form.order[2] && form.order[2] < form.order[3] && form.cancelGap <= 16,
+  `${JSON.stringify(form.order)} / 오른쪽 여백 ${form.cancelGap}px`);
 check('기본값이 채워져 있어 한 번 눌러 만들 수 있다', form.canMake === true, String(form.canMake));
-
-await ev(`document.querySelector('.worship-kind-pick').click()`);
-await sleep(300);
-const kinds = await ev(`[...document.querySelectorAll('.worship-kind-list button')].map(b => b.textContent.trim())`);
-check('종류 피커에 주일 예배와 다른 예배 두 줄',
-  JSON.stringify(kinds) === '["주일 4부 젊은이 예배","다른 예배…"]', JSON.stringify(kinds));
-await ev(`document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`);
-await sleep(250);
 
 // 달력에서 다음 달 15일로 옮긴다 — 픽커가 실제로 값을 바꾸는지 보고,
 // 뒤의 '발행해도 날짜 전이면 출석이 안 열린다'를 검사할 미래 날짜를 만든다
@@ -1078,18 +1203,31 @@ await sleep(300);
 const afterPick = await ev(`document.querySelector('.worship-new-date button').textContent.trim()`);
 check('달력에서 고른 날짜가 그대로 들어간다', /\. 15\. \(/.test(afterPick), afterPick);
 
-// 이벤트성 예배 — 종류 피커에서 '다른 예배…'를 고를 때만 이름 칸이 나온다
-await ev(`document.querySelector('.worship-kind-pick').click()`); await sleep(250);
-await ev(`[...document.querySelectorAll('.worship-kind-list button')].find(b => b.textContent.trim() === '다른 예배…').click()`);
-await sleep(300);
-const otherPick = await ev(`(() => ({
-  box: !!document.querySelector('input[aria-label="예배 이름"]'),
-  blocked: document.querySelector('.worship-new-make').disabled,
-  kind: document.querySelector('.worship-kind-pick').textContent.trim(),
-}))()`);
+// 이벤트성 예배 — 세그먼트의 '다른 예배'를 고를 때만 이름 칸이 나온다
+await ev(`[...document.querySelectorAll('.worship-kind-opt')].find(b => b.dataset.kind === 'other').click()`);
+await sleep(350);
+const otherPick = await ev(`(() => {
+  const box = document.querySelector('.worship-new');
+  const name = box.querySelector('input[aria-label="예배 이름"]');
+  return {
+    box: !!name,
+    focused: document.activeElement === name,
+    blocked: box.querySelector('.worship-new-make').disabled,
+    picked: [...box.querySelectorAll('.worship-kind-opt')]
+      .filter(o => o.getAttribute('aria-pressed') === 'true').map(o => o.dataset.kind),
+    labels: [...box.querySelectorAll('.labeled-field > span:first-child')].map(s => s.textContent.trim()),
+    rows: new Set([box.querySelector('.worship-kind-seg'), name, box.querySelector('.worship-new-date button'),
+      box.querySelector('.worship-new-make'), box.querySelector('.worship-new-cancel')]
+      .map(e => Math.round(e.getBoundingClientRect().bottom))).size,
+  };
+})()`);
 check('다른 예배를 고르면 이름 칸이 나오고, 이름을 적기 전에는 만들 수 없다',
-  otherPick.box === true && otherPick.blocked === true && otherPick.kind.startsWith('다른 예배'),
+  otherPick.box === true && otherPick.blocked === true && JSON.stringify(otherPick.picked) === '["other"]',
   JSON.stringify(otherPick));
+check('이름 칸이 나오면 커서가 그리로 간다', otherPick.focused === true, String(otherPick.focused));
+check('이름 칸에도 이름표가 앉고 데스크톱에서는 여전히 한 줄이다',
+  JSON.stringify(otherPick.labels) === '["종류","이름","날짜"]' && otherPick.rows === 1,
+  `${JSON.stringify(otherPick.labels)} / ${otherPick.rows}줄`);
 await ev(typeIn('input[aria-label="예배 이름"]', '성탄절 예배'));
 await sleep(200);
 await ev(`${byText('만들기')}.click()`); await sleep(1300);
@@ -1795,21 +1933,19 @@ check('순장은 자기 순만 누를 수 있고 나머지는 보이되 비활�
 // 안 남았기 때문이다. 지금은 **그 한 칸만 쓰는 rpc**로 간다(0052 set_attendance_note)라
 // 화면 게이트도 출석 자격(canCheck)과 같다.
 const sunjangNote = await ev(`(() => ({
-  box: !!document.querySelector('textarea[aria-label="출석 메모"]'),
+  box: !!document.querySelector('.att-note-box'),
   head: document.body.innerText.includes('출석 메모'),
 }))()`);
 check('순장도 출석 메모 칸이 선다', sunjangNote.box === true && sunjangNote.head === true,
   JSON.stringify(sunjangNote));
 // 칸만 서고 저장이 안 되면 예전과 같은 상태다 — 실제로 주보 행에 남는지까지 본다
-await ev(typeIn('textarea[aria-label="출석 메모"]', '순장이 남긴 메모', 'HTMLTextAreaElement'));
-await sleep(1600);
-const sunjangSaved = await ev(`(() => ({
-  text: JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.id === 's1').attendance_note,
-  state: document.querySelector('.worship-attendance .worship-save-state')?.textContent.trim() || '',
-}))()`);
-check('순장이 쓴 메모가 그 주보에 저장된다',
-  sunjangSaved.text === '순장이 남긴 메모' && sunjangSaved.state === '저장되었어요',
-  JSON.stringify(sunjangSaved));
+await ev(typeIn('.att-note-box', '순장이 남긴 메모', 'HTMLTextAreaElement'));
+await sleep(400);
+await ev(`document.querySelector('.att-note-save').click()`); await sleep(900);
+const sunjangSaved = await ev(NOTE_STATE);
+check('순장이 쓴 메모가 그 주보에 저장되고 읽기 모드로 선다',
+  sunjangSaved.stored === '순장이 남긴 메모' && sunjangSaved.state === '저장되었어요'
+  && sunjangSaved.read === true, JSON.stringify(sunjangSaved));
 
 // **순장이 올린 사람도 명단·순 편성을 건드리지 않는다**(0053 · 사용자 결정 2026-09-07).
 // 예전에는 people에 행을 만들고 순장이면 자기 순(group_members)에까지 넣었다(0050) —
@@ -2027,16 +2163,45 @@ const mobList = await ev(`(() => ({
 }))()`);
 check('모바일 375px — 목록도 한 줄로 선다', mobList.overflow <= 0 && mobList.cards === 2, JSON.stringify(mobList));
 
-// 새 주보 생성기 — 데스크톱은 한 줄, 모바일은 두 줄까지다(사용자 결정 2026-09-02)
+// 새 주보 생성기 — 375px에서는 종류가 한 줄을 통째로 쓰고(잘리지 않게), 이름이 그 아래,
+// 날짜와 두 버튼이 **같은 줄**에 선다. 버튼만 따로 한 줄에 남으면 안 된다(사용자 지적
+// 2026-09-08: 예전 한 줄 생성기는 375에서 종류가 잘리고 나머지가 흩어져 보였다).
 await ev(`document.querySelector('.worship-new-open').click()`); await sleep(500);
-const mobNew = await ev(`(() => {
+const mobProbe = `(() => {
   const box = document.querySelector('.worship-new');
-  const ctl = [box.querySelector('.worship-kind-pick'), box.querySelector('.worship-new-date button'), box.querySelector('.worship-new-make')];
-  return { rows: new Set(ctl.map(e => Math.round(e.getBoundingClientRect().top))).size,
-    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
-})()`);
-check('모바일 375px — 새 주보 생성기는 두 줄까지', mobNew.rows <= 2 && mobNew.overflow <= 0, JSON.stringify(mobNew));
-await ev(`${byText('취소')}.click()`); await sleep(300);
+  const opts = [...box.querySelectorAll('.worship-kind-opt')];
+  const name = box.querySelector('input[aria-label="예배 이름"]');
+  const date = box.querySelector('.worship-new-date button');
+  const make = box.querySelector('.worship-new-make');
+  const cancel = box.querySelector('.worship-new-cancel');
+  const bottom = (e) => Math.round(e.getBoundingClientRect().bottom);
+  return {
+    kinds: opts.map(o => o.textContent.trim()),
+    clipped: opts.filter(o => o.scrollWidth - o.clientWidth > 1).map(o => o.textContent.trim()),
+    // 종류 세그먼트는 카드 폭을 다 쓴다(한 칸에 몰아 두면 글자가 잘린다)
+    segFull: Math.round(box.querySelector('.worship-kind-seg').getBoundingClientRect().width)
+      >= Math.round(box.getBoundingClientRect().width) - 32,
+    lastRow: [date, make, cancel].map(bottom),
+    nameRow: name ? bottom(name) : null,
+    cancelRight: Math.round(box.getBoundingClientRect().right - cancel.getBoundingClientRect().right),
+    rows: new Set([...opts.map(bottom), ...(name ? [bottom(name)] : []), bottom(date), bottom(make), bottom(cancel)]).size,
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+})()`;
+const mobNew = await ev(mobProbe);
+check('모바일 375px — 종류 세그먼트가 한 줄을 다 쓰고 라벨이 잘리지 않는다',
+  JSON.stringify(mobNew.kinds) === '["주일예배","다른 예배"]' && mobNew.clipped.length === 0
+  && mobNew.segFull === true, JSON.stringify(mobNew));
+check('모바일 375px — 날짜와 두 버튼이 같은 줄에 선다(버튼만 남는 줄이 없다)',
+  new Set(mobNew.lastRow).size === 1 && mobNew.rows === 2 && mobNew.overflow <= 0, JSON.stringify(mobNew));
+check('모바일에서도 취소는 그 줄의 오른쪽 끝이다', mobNew.cancelRight <= 16, `${mobNew.cancelRight}px`);
+// 이름 칸이 붙으면 한 줄만 늘어난다(종류 / 이름 / 날짜·버튼)
+await ev(`[...document.querySelectorAll('.worship-kind-opt')].find(b => b.dataset.kind === 'other').click()`);
+await sleep(350);
+const mobOther = await ev(mobProbe);
+check('모바일 375px — 이름 칸이 붙어도 세 줄이고 가로로 넘치지 않는다',
+  mobOther.rows === 3 && new Set(mobOther.lastRow).size === 1 && mobOther.overflow <= 0, JSON.stringify(mobOther));
+await ev(`document.querySelector('.worship-new-cancel').click()`); await sleep(300);
 
 await ev(`document.querySelector('.worship-card').click()`); await sleep(1200);
 await waitFor(HAS_ATT); await ev(`document.querySelector('.worship-att-open').click()`); await sleep(800);

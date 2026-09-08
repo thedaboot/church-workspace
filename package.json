@@ -21,6 +21,7 @@
     "@tiptap/react": "3.29.0",
     "@tiptap/starter-kit": "3.29.0",
     "@vercel/analytics": "^2.0.1",
+    "html2canvas": "1.4.1",
     "lucide-react": "^1.26.0",
     "pdfjs-dist": "^6.1.200",
     "qrcode-generator": "2.0.4",

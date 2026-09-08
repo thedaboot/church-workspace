@@ -102,6 +102,22 @@ const check = (n, p, d = '') => {
 
 // ── 가짜 명단 · 순 · 동아리 ─────────────────────────────────────────────────
 const Y = new Date().getFullYear();
+
+// 주일 주보의 날짜는 **오늘을 기준으로** 잡는다. 출석을 셀 기준 예배가
+// '오늘까지 온 주일 중 출석이 들어온 것'이라(services/groups.js attendanceSunday)
+// 날짜를 못 박아 두면 그 날이 오기 전에 돌릴 때 검사가 헛으로 넘어진다 —
+// `${Y}-08-30`으로 박혀 있던 것을 이 규칙이 들어오면서 걷었다(2026-09-08).
+const KST_TODAY = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+const dayShift = (iso, n) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
+const dateLabel = (iso) => { const [, m, d] = iso.split('-').map(Number); return `${+m}월 ${+d}일`; };
+const SUN_OLD = dayShift(KST_TODAY, -14);    // s0 — 지지난 주일
+const SUN_LAST = dayShift(KST_TODAY, -7);    // s1 — 출석이 들어온 가장 최근 주일
+const FRI_LAST = dayShift(KST_TODAY, -3);    // s2 — 주일이 아닌 예배
+const SUN_DRAFT = dayShift(KST_TODAY, 1);    // s3 — 아직 작성 중
+const SUN_AHEAD = dayShift(KST_TODAY, 5);    // 앞으로 올 주일(발행만 된 것 — mut로 심는다)
 const seed = {
   people: [
     { id: 'p1', name: '김윤주', profile_id: 'u1' },
@@ -140,12 +156,13 @@ const seed = {
   group_meetings: [
     { id: 'mt1', group_id: 'gc1', meeting_date: `${Y}-08-25`, title: '여름 합주', attendance: ['p6'], note: null },
   ],
-  // 가장 최근 발행 **주일** 예배는 s1이다 — s2는 종류가 다르고 s3은 작성 중이다
+  // 출석을 셀 **주일** 예배는 s1이다 — s2는 종류가 다르고 s3은 작성 중이며,
+  // s0에도 출석이 있지만 s1이 더 최근이다(attendanceSunday).
   services: [
-    { id: 's0', kind: 'sunday', service_date: `${Y}-08-23`, status: 'published', title: '지난 주일' },
-    { id: 's1', kind: 'sunday', service_date: `${Y}-08-30`, status: 'published', title: '흔들리지 않는 기쁨' },
-    { id: 's2', kind: '금요 열정 예배', service_date: `${Y}-09-04`, status: 'published', title: '깨어 기도하라' },
-    { id: 's3', kind: 'sunday', service_date: `${Y}-09-06`, status: 'draft', title: '' },
+    { id: 's0', kind: 'sunday', service_date: SUN_OLD, status: 'published', title: '지난 주일' },
+    { id: 's1', kind: 'sunday', service_date: SUN_LAST, status: 'published', title: '흔들리지 않는 기쁨' },
+    { id: 's2', kind: '금요 열정 예배', service_date: FRI_LAST, status: 'published', title: '깨어 기도하라' },
+    { id: 's3', kind: 'sunday', service_date: SUN_DRAFT, status: 'draft', title: '' },
   ],
   attendance: [
     { service_id: 's1', person_id: 'p1' }, { service_id: 's1', person_id: 'p2' },
@@ -169,21 +186,43 @@ const seed = {
 
 // 순모임 가이드는 **다른 키에 산다**(church_sunguide_v1 — components/sunGuide.jsx의
 // 저장 자리 계약). 한 벌은 주보 한 건에 붙고, body는 화면이 한 덩이로 읽고 쓴다.
+// 2026-09-08 템플릿에는 줄글 요약이 없고 질문이 넷이며 마지막에 예시 한 줄이 붙는다.
 const GUIDE = {
   passage: { ref: '빌립보서 4:4-7', title: '항상 기뻐하라' },
-  summary: '기쁨은 상황이 아니라 우리를 붙드시는 분에게서 온다',
   points: [
-    { title: '기뻐하라', body: '명령이자 약속이다' },
+    { title: '기뻐하라', body: '명령이자 **약속**이다' },
     { title: '염려하지 말라', body: '기도로 옮겨 놓는다' },
     { title: '지키시는 평강', body: '이해를 넘어선다' },
   ],
-  questions: ['이번 주 가장 염려한 일은 무엇이었나요', '그 염려를 기도로 옮겨 보았나요', '오늘 감사한 한 가지를 나눠 주세요'],
+  questions: [
+    '지난 한 주 어떻게 지내셨는지 나눠 주세요',
+    '이번 주 가장 염려한 일은 무엇이었나요',
+    '그 염려를 기도로 옮겨 보았나요',
+    '오늘 감사한 한 가지를 나눠 주세요',
+  ],
+  questionNote: '고단한 한 주를 보낸 순원이 있다면 다같이 카페에 가서 달달한 것 먹기',
+};
+// 줄글 요약을 들고 있던 지난 판 — **그대로 열려야 한다**(sunGuide.js의 선택 필드).
+const OLD_GUIDE = {
+  passage: { ref: '빌립보서 4:1-3', title: '주 안에 서라' },
+  summaryRef: '빌립보서 3:17~21',
+  summary: '바울은 시민권이 하늘에 있다고 말합니다',
+  points: GUIDE.points,
+  questions: GUIDE.questions.slice(0, 3),
+};
+// 심을 수 있는 벌들. **고정된 한 벌은 지난 주일(s0)에 붙인다** — 기본으로 여는 것이
+// '가장 최근 주일'이 아니라 '고정된 것'인지 보려면 둘이 달라야 한다(0055).
+const GUIDE_ROWS = {
+  one: [{ service_id: 's1', body: GUIDE }],
+  pinned: [{ service_id: 's0', body: OLD_GUIDE, pinned: true }, { service_id: 's1', body: GUIDE }],
 };
 
 // mut은 심기 직전에 시드를 손보는 한 줄이다 — '동아리가 하나도 없는 화면' 같은
 // 빈 상태를 보려면 시드에서 그 종류를 덜어내야 한다.
-// guide는 순모임 가이드 한 벌을 심는다. **끄면 빈 벌로 덮는다** — 앞 회차에서 심은
-// 것이 남아 다음 화면에 끼면 그 검사가 무엇을 봤는지 알 수 없다.
+// guide는 순모임 가이드를 심는다(true = 최근 주일에 한 벌 · 'pinned' = 지난 주일 것이
+// 고정). **끄면 빈 벌로 덮는다** — 앞 회차에서 심은 것이 남아 다음 화면에 끼면 그
+// 검사가 무엇을 봤는지 알 수 없다.
+const guideRows = (guide) => (guide === true ? GUIDE_ROWS.one : (GUIDE_ROWS[guide] || []));
 const plant = (me, theme = 'light', mut = '', guide = false) => `(() => {
   const g = JSON.parse(${JSON.stringify(JSON.stringify(seed))});
   ${me ? `g.me = ${JSON.stringify(me)};` : ''}
@@ -194,7 +233,7 @@ const plant = (me, theme = 'light', mut = '', guide = false) => `(() => {
     services: g.services, attendance: g.attendance, service_notes: [],
   }));
   localStorage.setItem('church_sunguide_v1', JSON.stringify({
-    sun_guides: ${guide} ? [{ service_id: 's1', body: ${JSON.stringify(GUIDE)} }] : [],
+    sun_guides: ${JSON.stringify(guideRows(guide))},
   }));
   localStorage.setItem('theme', ${JSON.stringify(theme)});
 })()`;
@@ -595,6 +634,27 @@ const pure = await ev(`(async () => {
       { id: 'c', kind: '금요 열정 예배', status: 'published', service_date: '2026-09-04' },
       { id: 'd', kind: 'sunday', status: 'draft', service_date: '2026-09-06' },
     ])?.id || null,
+    // 출석을 셀 기준 예배(사용자 결정 2026-09-08) — **오늘까지 온 주일** 가운데
+    // **출석이 실제로 들어온** 가장 최근 한 건. 목요일에 이번 주일 주보를 발행해 두어도
+    // 그 예배의 0/N을 세지 않는다. counts는 worship.fetchAttendanceCounts()의 모양이다.
+    att: (() => {
+      const svc = [
+        { id: 'a', kind: 'sunday', status: 'published', service_date: '2026-08-30' },
+        { id: 'b', kind: 'sunday', status: 'published', service_date: '2026-09-06' },
+        { id: 'c', kind: 'sunday', status: 'published', service_date: '2026-09-13' },
+        { id: 'd', kind: 'sunday', status: 'draft', service_date: '2026-09-06' },
+        { id: 'e', kind: '금요 열정 예배', status: 'published', service_date: '2026-09-11' },
+        { id: 'f', kind: 'sunday', status: 'published', service_date: '' },
+      ];
+      const at = (counts, today) => m.attendanceSunday(svc, counts, today)?.id || null;
+      return {
+        future: at({ a: 3, c: 5 }, '2026-09-10'),        // 발행만 된 앞으로의 주일은 세지 않는다
+        todayEmpty: at({ b: 4 }, '2026-09-13'),          // 주일 당일, 아직 출석 0 → 앞 주일
+        todayFilled: at({ b: 4, c: 1 }, '2026-09-13'),   // 출석이 들어오면 그 순간 오늘 것
+        none: at({}, '2026-09-13'),                      // 아무 데도 없으면 null(부르는 쪽이 지난 주일로)
+        skip: at({ d: 9, e: 9, f: 9 }, '2026-09-13'),    // 작성 중·다른 예배·날짜 없는 행
+      };
+    })(),
     present: m.presentCount([{ id: 'a' }, { id: 'b' }, { id: 'c' }], new Set(['a', 'c'])),
     on: m.toggleAttendance(['a'], 'b'),
     off: m.toggleAttendance(['a', 'b'], 'a'),
@@ -678,7 +738,15 @@ check('사람 목록은 리더 먼저 · 나머지 ㄱㄴㄷ(localeCompare ko)',
   JSON.stringify(pure.sorted) === '["천진영","김승찬","노준석","양민혁"]', JSON.stringify(pure.sorted));
 check('내 순 — 순장도 순원도 자기 순을 찾는다', pure.sunLeader === 'g' && pure.sunMember === 'g', `${pure.sunLeader}/${pure.sunMember}`);
 check('어느 순에도 없으면 내 순이 없다', pure.sunNone === null, String(pure.sunNone));
-check('출석 기준은 발행된 주일 예배 중 가장 최근 한 건', pure.latest === 'b', String(pure.latest));
+// latestSunday는 이제 **순모임 가이드 몫**이다 — 앞으로 올 주일까지 센다(그 주 예배로
+// 무엇을 나눌지는 예배 전에 준비한다). 출석 줄은 아래 attendanceSunday가 고른다.
+check('가이드 기준은 발행된 주일 예배 중 가장 최근 한 건', pure.latest === 'b', String(pure.latest));
+check('출석 기준 — 발행만 된 앞으로의 주일은 세지 않는다', pure.att.future === 'a', JSON.stringify(pure.att));
+check('출석 기준 — 주일 당일이라도 출석이 들어오기 전에는 앞 주일이다',
+  pure.att.todayEmpty === 'b', JSON.stringify(pure.att));
+check('출석 기준 — 출석이 입력되면 그 주일로 바뀐다', pure.att.todayFilled === 'c', JSON.stringify(pure.att));
+check('출석 기준 — 출석이 아무 주일에도 없으면 null(부르는 쪽이 지난 주일로 떨어진다)',
+  pure.att.none === null && pure.att.skip === null, JSON.stringify(pure.att));
 check('출석 셈은 그 순 사람만 센다', pure.present === 2, String(pure.present));
 check('모임 출석은 눌러서 켜고 끈다',
   JSON.stringify(pure.on) === '["a","b"]' && JSON.stringify(pure.off) === '["b"]', `${JSON.stringify(pure.on)}/${JSON.stringify(pure.off)}`);
@@ -756,7 +824,34 @@ check('순 구성원은 순장 다음이 ㄱㄴㄷ',
 // 날짜 표기는 예배 줄기의 formatServiceDate 한 벌이 정한다(해가 붙기도 한다) —
 // 그 모양까지 여기서 못 박으면 그쪽이 바뀔 때마다 이 검사가 헛으로 넘어진다.
 check('최근 주일 예배 출석 n/m',
-  mine.att.includes('8월 30일') && mine.att.endsWith('예배 출석 2/3'), mine.att);
+  mine.att.includes(dateLabel(SUN_LAST)) && mine.att.endsWith('예배 출석 2/3'), mine.att);
+// 그 예배에 온 순원에게는 초록 '출석'이 하나 더 붙는다(사용자 요청 2026-09-08).
+// s1에 온 사람은 p1(김윤주)·p2(천진영)이고 p3(김승찬)은 오지 않았다.
+const attTag = await ev(`(() => {
+  const rows = [...document.querySelectorAll('.mysun-member')]
+    .map(m => ({ t: m.textContent.trim(), on: !!m.querySelector('.person-tag-mark') }));
+  const lead = [...document.querySelectorAll('.mysun-member')].find(m => m.textContent.includes('김윤주'));
+  const leadBadge = [...(lead?.querySelectorAll('span') || [])].find(s => s.textContent.trim() === '순장');
+  const attBadge = lead?.querySelector('.person-tag-mark');
+  const kids = [...(lead?.children || [])];
+  const box = (e) => e.getBoundingClientRect();
+  return {
+    marks: rows.filter(r => r.on).map(r => r.t),
+    plain: rows.filter(r => !r.on).map(r => r.t),
+    label: attBadge?.textContent.trim() || '',
+    // 자리('순장')가 먼저, 그날의 사실('출석')이 뒤 · 색은 다르고 크기는 같다
+    order: !!leadBadge && !!attBadge && kids.indexOf(leadBadge) < kids.indexOf(attBadge),
+    sameColor: !!leadBadge && !!attBadge
+      && getComputedStyle(leadBadge).backgroundColor === getComputedStyle(attBadge).backgroundColor,
+    dh: (leadBadge && attBadge) ? Math.abs(box(leadBadge).height - box(attBadge).height) : 99,
+  };
+})()`);
+check('그 예배에 온 순원에게만 출석 표시가 붙는다',
+  attTag.marks.length === 2 && attTag.label === '출석'
+  && attTag.marks.every(t => t.includes('김윤주') || t.includes('천진영'))
+  && attTag.plain.length === 1 && attTag.plain[0].includes('김승찬'), JSON.stringify(attTag));
+check('출석 표시는 순장 표시 뒤에 · 다른 색 · 같은 크기',
+  attTag.order === true && attTag.sameColor === false && attTag.dh <= 1, JSON.stringify(attTag));
 check('내 순에 공유된 예배 노트가 뜬다',
   mine.notes.length === 2 && mine.notes[0].includes('천진영') && mine.notes[0].includes('기쁨은 상황이 아니라'), JSON.stringify(mine.notes));
 // **공유하지 않은 노트는 내 것이어도 오지 않는다**(사용자 지시 2026-09-07 — 예전에는
@@ -816,14 +911,74 @@ check('공유하지 않은 남의 노트는 오지 않는다', mine.hidden === f
     /const \[at, setAt\] = useState\(/.test(body) && /setAt\(key\)/.test(body) && !/useRef\(/.test(body));
 }
 
-// ── 1-1) 순모임 가이드 자리 (components/sunGuide.jsx) ───────────────────────
-// 가이드는 화면에서 잠시 빠져 있다(services/sunGuide.js SUN_GUIDE_ON — 사용자 지시 2026-09-05).
-// 스위치가 꺼져 있으면 "아무에게도 안 보인다"만 보고, 켜면 아래 검사가 그대로 살아난다.
+// ── 1-0-b) 출석 줄은 **자리를 먼저 잡는다** (사용자 요청 2026-09-08) ─────────
+// 첫 진입(캐시 없음)에는 명단(baseQ)이 먼저 서고 출석 한 벌(mineQ)이 뒤따라 온다.
+// 그 사이에 아무것도 안 그리면 값이 도착하는 순간 이름 격자가 한 줄만큼 아래로 튄다.
+// 스켈레톤이 그 자리를 같은 높이로 잡고, **도착하면 곧바로 풀린다**(§6-9-ad).
+await ev(plant({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }));
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1200);
+// **프레임을 훑지 않고 DOM 삽입을 본다**(1-2-b와 같은 이유) — 게스트는 읽는 곳이
+// localStorage라 중간 상태가 한 프레임도 안 그려질 수 있는데, 그래도 DOM에는 한 번
+// 꽂힌다. 프레임만 세면 같은 코드가 돌 때마다 붙었다 떨어졌다 한다(실제로 그랬다).
+const attPaint = await ev(`(async () => {
+  const raf = () => new Promise(r => requestAnimationFrame(r));
+  const hit = (t) => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === t);
+  for (let i = 0; i < 20 && !hit('모임'); i++) await new Promise(r => setTimeout(r, 200));
+  let sk = 0, both = 0;
+  const mark = (n) => {
+    if (n.nodeType !== 1) return;
+    const c = typeof n.className === 'string' ? n.className : '';
+    if (c.includes('mysun-att-loading') || n.querySelector?.('.mysun-att-loading')) sk += 1;
+  };
+  const obs = new MutationObserver(rs => rs.forEach(r => r.addedNodes.forEach(mark)));
+  obs.observe(document.body, { childList: true, subtree: true });
+  hit('모임').click();
+  for (let i = 0; i < 40; i++) {
+    await raf();
+    if (document.querySelector('.mysun-att-loading') && document.querySelector('.mysun-att')) both += 1;
+  }
+  obs.disconnect();
+  await new Promise(r => setTimeout(r, 700));
+  const p = document.querySelector('.mysun-att');
+  return { sk, both,
+    lineH: p ? Math.round(p.getBoundingClientRect().height) : 0,
+    stuck: !!document.querySelector('.mysun-att-loading'), ended: !!p };
+})()`, true);
+// 스켈레톤의 높이는 소스에 못 박혀 있다 — 게스트에서는 그것이 그려지는 프레임을
+// 붙잡을 수 없어서, 적어 둔 값과 실제 줄 높이를 견준다.
+const attSkelH = Number((readFileSync(new URL('../src/components/groupsSun.jsx', import.meta.url), 'utf8')
+  .match(/mysun-att-loading[^]{0,120}?h-\[(\d+)px\]/) || [])[1] || 0);
+check('첫 진입 — 출석 줄 자리를 스켈레톤이 먼저 잡는다(자리가 튀지 않게)',
+  attPaint.sk === 1 && attPaint.both === 0, JSON.stringify(attPaint));
+check('출석 스켈레톤은 그 줄과 같은 높이다',
+  attSkelH > 0 && Math.abs(attSkelH - attPaint.lineH) <= 1, `${attSkelH} ← ${attPaint.lineH}`);
+check('출석 스켈레톤은 값이 오면 풀린다(굳지 않는다)',
+  attPaint.stuck === false && attPaint.ended === true, JSON.stringify(attPaint));
+
+// 발행만 되고 **아직 오지 않은** 주일 주보는 출석 줄을 가져가지 않는다 —
+// 목요일에 이번 주일 주보를 발행하면 카드가 그 예배의 `0/N`을 세던 자리다.
+await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'light',
+  `g.services.push({ id: 's9', kind: 'sunday', service_date: '${SUN_AHEAD}', status: 'published', title: '앞으로 올 주일' });`);
+const aheadAtt = await ev(`document.querySelector('.mysun-att')?.textContent.trim() || ''`);
+check('앞으로 올 주일 주보가 발행돼 있어도 출석 줄은 지난 주일 그대로다',
+  aheadAtt.includes(dateLabel(SUN_LAST)) && aheadAtt.endsWith('예배 출석 2/3')
+  && !aheadAtt.includes(dateLabel(SUN_AHEAD)), aheadAtt);
+
+// ── 1-1) 순모임 가이드 (components/sunGuide.jsx · services/sunGuide.js · 0055) ──
+// 가이드는 스위치 하나로 켜고 끈다(SUN_GUIDE_ON — 2026-09-05에 껐다가 2026-09-08에
+// 사용자 스펙과 함께 다시 켰다). 꺼져 있으면 "아무에게도 안 보인다"만 보고, 켜면
+// 아래가 그대로 살아난다.
 const GUIDE_ON = /export const SUN_GUIDE_ON = true;/.test(readFileSync(new URL('../src/services/sunGuide.js', import.meta.url), 'utf8'));
-// 가이드는 내 순 탭 맨 위에 선다. **보는 사람이 갈린다**(0039 sun_guides_select —
-// leads_any_sun 또는 can_manage_sun): 순장은 보고 일반 순원은 못 본다. 순원의
-// 나눔 질문을 미리 보여주면 모임에서 처음 듣는 말이 없어진다.
-// 가이드 한 벌은 church_sunguide_v1에 심는다(그 파일의 저장 자리 계약).
+// 종이 머리의 날짜('26년 9월 1일')와 고르는 줄의 한 줄('26년 9월 1일 (일) · 제목')
+const guideDate = (iso) => { const [y, m, d] = iso.split('-').map(Number); return `${String(y).slice(2)}년 ${m}월 ${d}일`; };
+const svcLabel = (iso, title) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  const w = ['일', '월', '화', '수', '목', '금', '토'][new Date(y, m - 1, d).getDay()];
+  return `${guideDate(iso)} (${w})${title ? ` · ${title}` : ''}`;
+};
+// **보는 사람이 갈린다**(0039 sun_guides_select — leads_any_sun 또는 can_manage_sun):
+// 순장은 보고 일반 순원은 못 본다. 순원의 나눔 질문을 미리 보여주면 모임에서 처음 듣는
+// 말이 없어진다. 가이드 한 벌은 church_sunguide_v1에 심는다(그 파일의 저장 자리 계약).
 await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'light', '', true);
 const guideLeader = await ev(`!!document.querySelector('.sun-guide')`);
 if (!GUIDE_ON) {
@@ -832,9 +987,30 @@ if (!GUIDE_ON) {
 // 자리와 정렬 — 처음에는 섹션 전체가 max-w-560 + mx-auto라 제목과 버튼이 순 카드의
 // 어느 선과도 맞지 않고 화면 가운데에 떠 있었다(사용자 지적 2026-09-03, 두 번).
 const gDesk = await guideBox();
+// 종이의 짜임 — 사용자가 준 템플릿 그대로다: 머리 줄(왼쪽 날짜 · 세로선 · 오른쪽
+// '순모임 가이드') → 위가 돔인 흰 카드(로고 · ♥ 세 구역) → THE DABOOT MINISTRY.
+const gSheet = await ev(`(() => {
+  const t = (s) => (document.querySelector(s) || {}).textContent?.trim() ?? null;
+  const logo = document.querySelector('.sun-guide-logo');
+  const page = document.querySelector('.sun-guide-page');
+  const heads = [...document.querySelectorAll('.sun-guide-head')].map(e => e.textContent.trim());
+  return {
+    date: t('.sun-guide-head-date'), name: t('.sun-guide-head-name'),
+    logo: !!logo && logo.naturalWidth > 0,
+    dome: page ? getComputedStyle(page).borderTopLeftRadius : null,
+    heads,
+    ref: t('.sun-guide-ref'),
+    subs: [...document.querySelectorAll('.sun-guide-sub')].map(e => e.textContent.trim()),
+    bold: !!document.querySelector('.sun-guide-body strong'),
+    qs: [...document.querySelectorAll('.sun-guide-q')].map(e => e.textContent.trim()),
+    note: t('.sun-guide-q-note'),
+    mark: t('.sun-guide-mark'),
+  };
+})()`);
 await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
 await sleep(600);
 const gMob = await guideBox();
+const gMobOver = await ev(`document.documentElement.scrollWidth - document.documentElement.clientWidth`);
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 await sleep(500);
 await enter({ personId: 'p2', isMaster: false, isAdmin: false, roles: [] }, 'light', '', true);
@@ -849,11 +1025,118 @@ check('가이드 종이는 그 안에서 좌우 여백이 같다(가운데)',
 check('모바일 375px에서도 카드와 같은 열에 서고 종이가 가운데다',
   !gMob.err && Math.abs(gMob.dl) <= 1 && Math.abs(gMob.dr) <= 1 && gMob.below > 0
   && Math.abs(gMob.pad) <= 1, JSON.stringify(gMob));
+check('모바일 375px에서 가로로 넘치지 않는다', gMobOver <= 0, String(gMobOver));
+check('종이 머리는 왼쪽 날짜 · 오른쪽 순모임 가이드다',
+  gSheet.date === guideDate(SUN_LAST) && gSheet.name === '순모임 가이드',
+  JSON.stringify({ date: gSheet.date, name: gSheet.name }));
+check('카드 위에 로고가 그려진다', gSheet.logo === true, String(gSheet.logo));
+// 위가 **넓은 돔**이다: 가로 반지름은 폭의 비율(46%)이라 375px에서도 1440px에서도
+// 같은 모양이고, 세로 반지름만 고정(px)이라 돔 높이가 폭을 따라 늘어나지 않는다.
+const [domeX, domeY] = String(gSheet.dome).split(' ');
+check('카드 위는 넓은 돔이다(가로는 비율 · 세로는 고정)',
+  domeX?.endsWith('%') && parseFloat(domeX) >= 40
+  && domeY?.endsWith('px') && parseFloat(domeY) >= 60, gSheet.dome);
+check('구역은 주일 본문 · 말씀 요약 · 오늘의 나눔 질문 셋이다',
+  JSON.stringify(gSheet.heads) === JSON.stringify(['주일 본문', '말씀 요약', '오늘의 나눔 질문']),
+  JSON.stringify(gSheet.heads));
+check('주일 본문은 구절 + [한 마디]다',
+  gSheet.ref === '빌립보서 4:4-7 [항상 기뻐하라]', gSheet.ref);
+// 번호('1.')와 'Q.'와 '(EX. …)'는 **화면이 붙인다** — 저장된 글에는 없다
+check('말씀 요약의 소제목에는 화면이 번호를 붙인다',
+  JSON.stringify(gSheet.subs) === JSON.stringify(['1. 기뻐하라', '2. 염려하지 말라', '3. 지키시는 평강']),
+  JSON.stringify(gSheet.subs));
+check('굵게 마커는 굵은 글씨가 된다(별표가 글자로 남지 않는다)',
+  gSheet.bold === true && !gSheet.subs.join('').includes('**'));
+check('나눔 질문 넷에 화면이 Q.를 붙인다',
+  gSheet.qs.length === 4 && gSheet.qs.every(q => q.startsWith('Q.'))
+  && gSheet.qs[0].includes('지난 한 주'), JSON.stringify(gSheet.qs));
+check('마지막 질문 아래에 예시 한 줄이 괄호로 붙는다',
+  gSheet.note === '(EX. 고단한 한 주를 보낸 순원이 있다면 다같이 카페에 가서 달달한 것 먹기)',
+  gSheet.note);
+check('종이 아래에는 THE DABOOT MINISTRY가 있다',
+  gSheet.mark === 'THE DABOOT MINISTRY', gSheet.mark);
 
-// 가이드가 아직 없는 순장(만들 자격까지) — 머리줄 오른쪽 끝의 'AI로 만들기'가 선다.
-// **누르면 편집 화면이 열리거나, 왜 못 만드는지 말한다**(사용자 물음 2026-09-03
-// "가이드는 지금 만들지 못하는 건지?" — 예전에는 이유 없이 '만들 수 없어요'만 떴다).
-await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: ['lead_sunjang'] });
+// 어떤 주보로 만들 것인가 — 고르는 자리(사용자 스펙 2026-09-08). 발행된 주일만,
+// 최근순이다. 고정이 없으면 기본은 가장 최근 주일이다.
+// (바로 위에서 일반 순원으로 들어갔으므로 순장으로 다시 들어온다)
+await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'light', '', true);
+const pickOpen = () => ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const t = document.querySelector('.sun-guide-pick .menu-pick');
+  if (!t) return { err: 'no-pick' };
+  const label = t.textContent.trim();
+  t.click(); await w(350);
+  const opts = [...document.querySelectorAll('.menu-pick-option')].map(b => b.textContent.trim());
+  return { label, opts };
+})()`, true);
+const gPick = await pickOpen();
+check('고르는 줄은 발행된 주일 주보만 최근순으로 세운다',
+  !gPick.err && JSON.stringify(gPick.opts)
+    === JSON.stringify([svcLabel(SUN_LAST, '흔들리지 않는 기쁨'), svcLabel(SUN_OLD, '지난 주일')]),
+  JSON.stringify(gPick));
+check('고정이 없으면 기본은 가장 최근 주일이다',
+  gPick.label === guideDate(SUN_LAST), gPick.label);
+// 지난 주일을 고르면 그 주보의 가이드를 연다 — 거기엔 아직 없으므로 만들기가 선다
+const gSwitch = await ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const o = [...document.querySelectorAll('.menu-pick-option')].at(-1);
+  if (!o) return { err: 'no-option' };
+  o.click(); await w(900);
+  return {
+    label: document.querySelector('.sun-guide-pick .menu-pick').textContent.trim(),
+    sheet: !!document.querySelector('.sun-guide-sheet'),
+    create: !!document.querySelector('.sun-guide-create'),
+  };
+})()`, true);
+check('다른 주보를 고르면 그 주보의 가이드를 연다',
+  gSwitch.label === guideDate(SUN_OLD) && gSwitch.sheet === false && gSwitch.create === true,
+  JSON.stringify(gSwitch));
+
+// 이미지로 저장 — 화면에 선 종이를 그대로 2배로 굽는다(html2canvas는 누를 때 받는다).
+// 공유 시트가 없는 데스크톱에서는 내려받기로 떨어지므로 그 blob을 가로채 픽셀을 본다.
+await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'light', '', true);
+const gImg = await ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const real = URL.createObjectURL.bind(URL);
+  window.__png = null;
+  URL.createObjectURL = (b) => { window.__png = b; return real(b); };
+  try { Object.defineProperty(navigator, 'canShare', { value: () => false, configurable: true }); } catch (e) {}
+  const btn = document.querySelector('.sun-guide-image');
+  if (!btn) { URL.createObjectURL = real; return { err: 'no-btn' }; }
+  btn.click();
+  for (let i = 0; i < 150 && !window.__png; i++) await w(100);
+  URL.createObjectURL = real;
+  if (!window.__png) return { err: 'no-blob' };
+  const img = new Image();
+  img.src = real(window.__png);
+  await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('decode')); });
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const x = c.getContext('2d');
+  x.drawImage(img, 0, 0);
+  const all = x.getImageData(0, 0, c.width, c.height).data;
+  let ink = 0;
+  for (let i = 0; i < all.length; i += 4 * 41) if (all[i] < 200 && all[i + 1] < 200) ink++;
+  // 로고가 그려졌는가 — 화면의 로고 자리를 그대로 그림 위의 자리로 옮겨 재 본다
+  const sheet = document.querySelector('.sun-guide-sheet').getBoundingClientRect();
+  const logo = document.querySelector('.sun-guide-logo').getBoundingClientRect();
+  const k = c.width / sheet.width;
+  const box = x.getImageData(Math.round((logo.left - sheet.left) * k), Math.round((logo.top - sheet.top) * k),
+    Math.max(1, Math.round(logo.width * k)), Math.max(1, Math.round(logo.height * k))).data;
+  let mark = 0;
+  for (let i = 0; i < box.length; i += 4) if (box[i] < 150 && box[i + 1] < 150 && box[i + 2] < 150) mark++;
+  return { type: window.__png.type, size: window.__png.size, w: c.width, h: c.height, ink, mark };
+})()`, true);
+check('이미지로 저장은 종이를 2배 크기 PNG로 굽는다',
+  !gImg.err && gImg.type === 'image/png' && gImg.size > 10000
+  && gImg.w >= 1000 && gImg.w <= 1160 && gImg.h > gImg.w, JSON.stringify(gImg));
+check('구운 그림이 백지가 아니고 로고도 들어 있다',
+  !gImg.err && gImg.ink > 200 && gImg.mark > 200, JSON.stringify(gImg));
+
+// 순장(리더순장이 아닌)도 만든다 — 2026-09-08부터 **보는 사람 = 만드는 사람**이다.
+// 머리줄 오른쪽 끝의 'AI로 만들기'가 서고, **누르면 편집 화면이 열리거나 왜 못 만드는지
+// 말한다**(사용자 물음 2026-09-03 — 예전에는 이유 없이 '만들 수 없어요'만 떴다).
+await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] });
 const gNone = await ev(`(() => {
   const sec = document.querySelector('.sun-guide');
   const btn = document.querySelector('.sun-guide-create');
@@ -861,7 +1144,7 @@ const gNone = await ev(`(() => {
   const s = sec.getBoundingClientRect(), b = btn.getBoundingClientRect();
   return { right: Math.round(s.right - b.right), head: sec.querySelector('h3').textContent.trim() };
 })()`);
-check('가이드가 없으면 머리줄 오른쪽 끝에 만들기 버튼이 선다',
+check('순장에게도 머리줄 오른쪽 끝에 만들기 버튼이 선다',
   !gNone.err && Math.abs(gNone.right) <= 2 && gNone.head === '순모임 가이드', JSON.stringify(gNone));
 await ev(`document.querySelector('.sun-guide-create').click()`); await sleep(2200);
 const gMake = await ev(`(() => ({
@@ -880,6 +1163,81 @@ if (gMake.edit) {
   check('만든 가이드를 저장하면 종이가 서고 저장 자리에 남는다',
     gSaved.sheet === true && gSaved.rows === 1 && gSaved.toast.includes('저장했어요'), JSON.stringify(gSaved));
 }
+
+// ── 고정 (0055 — §4.4 '3줄 요약 고정'과 같은 뜻) ────────────────────────────
+// 고정된 한 벌이 **모두가 기본으로 여는 것**이고, 그 행은 마스터 말고는 못 고친다.
+// 시드는 지난 주일(s0)에 고정된 한 벌을 두었다 — 가장 최근 주일(s1)에도 한 벌이 있어서
+// '기본은 최근'이 아니라 '기본은 고정'인지가 갈린다.
+await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'light', '', 'pinned');
+const gPinnedLeader = await ev(`(() => ({
+  label: (document.querySelector('.sun-guide-pick .menu-pick') || {}).textContent?.trim() || '',
+  ref: (document.querySelector('.sun-guide-ref') || {}).textContent?.trim() || '',
+  edit: !!document.querySelector('.sun-guide-editbtn'),
+  regen: !!document.querySelector('.sun-guide-regen'),
+  image: !!document.querySelector('.sun-guide-image'),
+  badge: !!document.querySelector('.sun-guide-pinned'),
+  pin: !!document.querySelector('.sun-guide-pin'),
+}))()`);
+check('고정된 가이드가 있으면 모두 그것부터 연다',
+  gPinnedLeader.label === guideDate(SUN_OLD) && gPinnedLeader.ref.startsWith('빌립보서 4:1-3'),
+  JSON.stringify(gPinnedLeader));
+check('고정된 가이드는 마스터가 아니면 수정·다시 만들기가 없다',
+  gPinnedLeader.edit === false && gPinnedLeader.regen === false && gPinnedLeader.image === true,
+  JSON.stringify(gPinnedLeader));
+check('고정 배지와 고정 버튼은 마스터가 아니면 보이지 않는다',
+  gPinnedLeader.badge === false && gPinnedLeader.pin === false, JSON.stringify(gPinnedLeader));
+// 줄글 요약을 들고 있는 지난 판도 그대로 열린다(선택 필드)
+const gOld = await ev(`(() => ({
+  sub: (document.querySelector('.sun-guide-sub') || {}).textContent?.trim() || '',
+  qs: document.querySelectorAll('.sun-guide-q').length,
+  note: !!document.querySelector('.sun-guide-q-note'),
+}))()`);
+check('줄글 요약을 들고 있는 지난 가이드도 그대로 열린다',
+  gOld.sub === '[빌립보서 3:17~21 배경 요약]' && gOld.qs === 3 && gOld.note === false,
+  JSON.stringify(gOld));
+
+await enter({ personId: 'p6', isMaster: true, isAdmin: true, roles: [] }, 'light', '', 'pinned');
+const gPinnedMaster = await ev(`(() => ({
+  badge: (document.querySelector('.sun-guide-pinned') || {}).textContent?.trim() || '',
+  pin: (document.querySelector('.sun-guide-pin') || {}).textContent?.trim() || '',
+  edit: !!document.querySelector('.sun-guide-editbtn'),
+}))()`);
+check('마스터에게만 고정 배지와 고정 해제가 보인다',
+  gPinnedMaster.badge === '고정' && gPinnedMaster.pin === '고정 해제' && gPinnedMaster.edit === true,
+  JSON.stringify(gPinnedMaster));
+const gUnpin = await ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  document.querySelector('.sun-guide-pin').click(); await w(1200);
+  const rows = (JSON.parse(localStorage.getItem('church_sunguide_v1')) || {}).sun_guides || [];
+  return {
+    pinned: rows.filter(r => r.pinned).length,
+    label: document.querySelector('.sun-guide-pick .menu-pick').textContent.trim(),
+    btn: document.querySelector('.sun-guide-pin').textContent.trim(),
+    toast: (document.querySelector('[data-toast]') || {}).innerText || '',
+  };
+})()`, true);
+check('마스터가 고정을 풀면 저장 자리에서도 풀린다',
+  gUnpin.pinned === 0 && gUnpin.btn === '고정' && gUnpin.toast.includes('고정을 풀었어요'),
+  JSON.stringify(gUnpin));
+
+// **종이는 늘 밝다**(인쇄물 — 그림으로 나가는 그 종이다). 테마를 바꿔도 종이 색은
+// 그대로이고, 종이를 감싸는 화면(머리줄·바탕)만 따라간다.
+const guidePaint = () => ev(`(() => {
+  const c = (s, p) => { const el = document.querySelector(s); return el ? getComputedStyle(el)[p] : null; };
+  return { sheet: c('.sun-guide-sheet', 'backgroundColor'), page: c('.sun-guide-page', 'backgroundColor'),
+    ink: c('.sun-guide-ref', 'color'), head: c('.sun-guide h3', 'color'),
+    body: getComputedStyle(document.body).backgroundColor };
+})()`);
+await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'light', '', true);
+const gLight = await guidePaint();
+await enter({ personId: 'p1', isMaster: false, isAdmin: false, roles: [] }, 'dark', '', true);
+const gDark = await guidePaint();
+check('다크에서도 종이는 밝은 채로 남는다(그림으로 굽는 인쇄물이다)',
+  gLight.sheet === gDark.sheet && gLight.page === gDark.page && gLight.ink === gDark.ink,
+  `${gLight.sheet} → ${gDark.sheet} / ${gLight.page} → ${gDark.page}`);
+check('종이를 감싸는 화면은 테마를 따라간다',
+  gLight.head !== gDark.head && gLight.body !== gDark.body,
+  `${gLight.head} → ${gDark.head} / ${gLight.body} → ${gDark.body}`);
 }
 
 // ── 1-2) 순 편성 탭은 마스터·관리자·리더순장·교역자 (0045 can_manage_sun) ──
@@ -1090,7 +1448,44 @@ const cancelled = await ev(`(() => ({
 check('신청을 취소하면 다시 가입 신청으로 돌아온다',
   cancelled.apply === true && cancelled.cancel === false && cancelled.rows === 1, JSON.stringify(cancelled));
 
-await ev(`${byText('목록으로')}.click()`); await sleep(600);
+// ── 2-0) 목록 ↔ 상세에 방향이 붙는다 (사용자 요청 2026-09-08) ───────────────
+// "동아리 상세 들어갈 때에도 애니메이션 추가되도록." 상세에 `dc-screen`이 있는데도
+// 아무 움직임이 없어 보인 이유는 이 화면을 감싼 App 껍데기가 `dc-nav`를 계속 달고
+// 있어서다 — index.css의 `.dc-nav .dc-screen`이 그 안의 등장을 **페이드만** 남긴다.
+// 그래서 겉 한 겹(dc-nav-fwd/back)을 모임 화면 안에서 다시 만든다.
+const navOf = (sel) => ev(`(() => {
+  const box = document.querySelector(${JSON.stringify(sel)})?.parentElement;
+  if (!box) return { err: 'no-box' };
+  const cs = getComputedStyle(box);
+  const inner = document.querySelector(${JSON.stringify(sel)});
+  return { name: cs.animationName, ms: Math.round(parseFloat(cs.animationDuration) * 1000),
+    moved: cs.transform !== 'none', innerName: getComputedStyle(inner).animationName };
+})()`);
+await ev(`${byText('목록으로')}.click()`); await sleep(700);
+const navIn = await ev(`(async () => {
+  const raf = () => new Promise(r => requestAnimationFrame(r));
+  document.querySelectorAll('.club-card')[0].click();
+  await raf(); await raf();
+  return true;
+})()`, true);
+const fwd = await navOf('.club-detail');
+check('동아리 상세는 앞으로 미끄러져 들어온다',
+  navIn === true && fwd.name === 'dc-nav-fwd' && fwd.ms === 260 && fwd.moved === true,
+  JSON.stringify(fwd));
+// 겉이 가로로 미는 동안 속은 **밝아지기만** 한다 — 둘 다 세로로 뜨면 대각선이 된다
+check('상세 안쪽은 페이드만(가로+세로가 겹쳐 대각선이 되지 않게)',
+  fwd.innerName === 'dc-screen-fade', String(fwd.innerName));
+await sleep(500);
+await ev(`(async () => {
+  const raf = () => new Promise(r => requestAnimationFrame(r));
+  [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '목록으로').click();
+  await raf(); await raf();
+  return true;
+})()`, true);
+const back = await navOf('.club-list');
+check('목록으로 돌아갈 때는 뒤로 미끄러진다',
+  back.name === 'dc-nav-back' && back.moved === true, JSON.stringify(back));
+await sleep(500);
 
 // ── 2-1) 동아리 카드 순서 조정 (끌어서 — 프로젝트 탭·보드와 같은 공유 순서) ──
 // 순서 저장은 0038의 reorder_clubs()로 승인 멤버 전체에게 열려 있다. 그래서 이
@@ -1403,6 +1798,53 @@ check('QR을 찍고 들어오면 그 동아리 상세가 열리고 신청이 들
   qrApplied.title === '서부버튼' && qrApplied.stored === 1 && qrApplied.waiting === true, JSON.stringify(qrApplied));
 check("신청이 끝나면 '동아리 신청이 완료되었어요!'",
   qrApplied.toast === '동아리 신청이 완료되었어요!', qrApplied.toast);
+
+// 그리고 그 신청은 **동아리장의 '가입 신청' 목록에 선다**(사용자 보고 2026-09-08 —
+// "동아리 페이지까지 이동은 되는데 가입 신청 목록에는 들어가지 않는다"). 방금 만든
+// 신청을 그대로 둔 채 시드의 me만 서부버튼 동아리장(p5)으로 바꿔 다시 들어간다 —
+// plant를 다시 부르면 저 신청이 씻겨 나간다.
+await ev(`(() => {
+  const g = JSON.parse(localStorage.getItem('church_groups_v1'));
+  g.me = { personId: 'p5', isMaster: false, isAdmin: false, roles: [] };
+  localStorage.setItem('church_groups_v1', JSON.stringify(g));
+  return g.club_applications.length;
+})()`);
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1200);
+for (let i = 0; i < 20; i++) {
+  await ev(GO);
+  await sleep(i ? 300 : 1200);
+  if (await ev(`!!document.querySelector('.groups-screen')`)) break;
+}
+await tab('동아리'); await sleep(600);
+await openClub('서부버튼'); await sleep(800);
+const leaderSees = await ev(`(() => ({
+  rows: [...document.querySelectorAll('.club-app-row')].map(r => r.textContent.trim()),
+  head: [...document.querySelectorAll('.club-leader-tools *')]
+    .filter(e => e.children.length === 0 && e.textContent.trim().startsWith('가입 신청'))
+    .map(e => e.textContent.trim())[0] || '',
+}))()`);
+check('QR로 들어온 신청이 동아리장의 가입 신청 목록에 선다',
+  leaderSees.rows.length === 1 && leaderSees.rows[0].includes('김윤주')
+  && leaderSees.head === '가입 신청 1건', JSON.stringify(leaderSees));
+
+// 판정 순서 — 상세는 **한 벌이 오는 즉시** 열고, 신청은 **새로 읽은 한 벌**을 기다린다.
+// 게스트에서는 한 벌이 언제나 한 번에·즉시 오므로("캐시로 먼저 그린 옛 perms" 조건을
+// 만들 수 없다) 이 순서는 소스로 못 박는다(useSettled 검사와 같은 방식).
+// 되돌리기 확인: `if (!bundleFresh && …) return;` 한 줄을 지우면 이 검사가 깨진다.
+{
+  const src = readFileSync(new URL('../src/views/groupsView.jsx', import.meta.url), 'utf8');
+  const from = src.indexOf('const bundleFresh');
+  const view = from > 0 ? src.slice(from) : '';
+  const opens = view.indexOf('setOpenClubId(club.id)');
+  const guard = view.indexOf('if (!bundleFresh &&');
+  const consume = view.indexOf('setEntry(null)');
+  check('딥링크 — 상세는 먼저 열고, 신청 판정은 새로 읽은 한 벌을 기다린다',
+    from > 0 && opens > 0 && guard > opens && consume > guard,
+    JSON.stringify({ opens, guard, consume }));
+  const home = readFileSync(new URL('../src/views/homeView.jsx', import.meta.url), 'utf8');
+  check('홈도 같은 규칙으로 참석 수를 센다(출석이 들어온 주일 · 없으면 지난 주일)',
+    /attendanceSunday\(list, counts, day\) \|\| pastSunday\(list, day\)/.test(home));
+}
 
 // 이미 구성원(말씀읽기 gc2에 p1이 있다) — 신청을 만들지 않는다
 await enterLink(P1, '?p=groups&g=gc2&apply=1');
@@ -1817,6 +2259,52 @@ await ev(`document.querySelector('input[aria-label="꼬순 순원 추가"]').scr
 await noJump('모바일 375px 순원 추가 목록',
   `document.querySelector('input[aria-label="꼬순 순원 추가"]').focus()`,
   `document.querySelector('.person-pick-menu')`);
+
+// 목록이 **칸을 따라간다** (사용자 보고 2026-09-08 · 아이폰 키보드) ─────────────
+// "멤버 추가·순원 추가·순장 지정에서 목록이 밀려 뜬다 — 아마 키 입력 때문에."
+// 칸에 포커스가 가면 iOS는 키보드를 올리며 화면을 밀어 올리고 칸의 폭도 바뀌는데, 그
+// 이동에 scroll·resize가 오지 않는 경우가 있다 — 그러면 열 때 잰 자리에 목록만 남아
+// 위 칸을 덮거나 옆으로 밀린다. 여기서는 그 상황을 **이벤트 없이** 흉내낸다: 칸의
+// 여백과 폭을 인라인으로 바꿔 밀고 좁힌 뒤, 두 프레임 안에 목록이 다시 칸에 맞는지 본다
+// (useAnchoredPos의 rAF 추적 · matchWidth).
+// transform이 아니라 margin으로 미는 이유: `.dc-row`의 등장 애니메이션이 fill-mode
+// both로 `transform: none`을 남기는데, 애니메이션은 인라인 스타일을 이긴다(§6-1).
+// 되돌리기 확인: ConfirmPopover의 rAF 고리를 지우면 dl이 그대로 남아 이 검사가 깨진다.
+const followed = await ev(`(async () => {
+  const raf = () => new Promise(r => requestAnimationFrame(r));
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  const root = document.querySelector('.sun-add');
+  if (!root) return { err: 'no-field' };
+  const input = root.querySelector('input');
+  input.blur(); await wait(60); input.focus();
+  await wait(320);
+  const menu = document.querySelector('.person-pick-menu');
+  if (!menu) return { err: 'no-menu' };
+  const read = () => {
+    const a = root.getBoundingClientRect(), m = menu.getBoundingClientRect();
+    return { dl: Math.round(m.left - a.left), dw: Math.round(m.width - a.width),
+      below: Math.round(m.top - a.bottom), above: Math.round(a.top - m.bottom) };
+  };
+  const before = read();
+  // 오른쪽으로 민다 — 왼쪽으로 밀면 375px에서 칸이 화면 가장자리(gap 8px)에 닿아
+  // 목록이 클램프에 걸리고, 그건 '따라가지 못한 것'이 아니라 잘리지 않으려는 것이다.
+  root.style.marginLeft = '24px';
+  root.style.marginTop = '-48px';
+  root.style.width = '190px';
+  await raf(); await raf();
+  const after = read();
+  root.style.marginLeft = ''; root.style.marginTop = ''; root.style.width = '';
+  await raf(); await raf();
+  const back = read();
+  document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  return { before, after, back };
+})()`, true);
+const fitsField = (r) => !!r && Math.abs(r.dl) <= 1 && Math.abs(r.dw) <= 1
+  && (Math.abs(r.below - 4) <= 1 || Math.abs(r.above - 4) <= 1);
+check('피커 목록이 칸을 따라간다(밀리고 폭이 바뀌어도 두 프레임 안에)',
+  !followed.err && fitsField(followed.before) && fitsField(followed.after) && fitsField(followed.back),
+  JSON.stringify(followed));
+await sleep(300);
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 
 // ── 6) 명단에 안 이어진 계정 · 아무것도 없는 화면 ──────────────────────────

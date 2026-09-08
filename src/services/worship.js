@@ -3,6 +3,7 @@ import { fetchPeople, fetchGroups, fetchGroupMembers, fetchMyPerson, fetchRoles,
 import { listServiceFiles, uploadServiceFile as uploadServiceFileToDrive, ensureServiceFolder, deleteAttachment,
   insertNotifications, getMyProfile } from './cloud.js';
 import { downscaleImage, FILE_MAX_DIM } from './image.js';
+import { cleanTitle } from './titleText.js';
 import { generateId } from '../utils.js';
 
 // ============================================================================
@@ -657,11 +658,15 @@ async function ytFetch(body) {
 }
 
 // 재생목록 주소 → [{ title, link }]. 곡 목록에 그대로 붙일 모양으로 돌려준다.
+//
+// **제목은 언제나 cleanTitle을 거친다**(services/titleText.js). 서버(api/yt.js)도 같은
+// 함수를 거치지만 여기서 한 번 더 접는 이유는, 배포된 서버가 앱보다 낡을 수 있어서다 —
+// 정규화가 서버에만 있으면 옛 서버가 도는 동안 굵은 제목이 그대로 들어온다.
 export async function fetchPlaylistSongs(url) {
   const listId = youtubeListId(url);
   if (!listId) throw cantErr(WHY_NOT_LIST, true);
   const { items = [] } = await ytFetch({ listId });
-  return items.filter(v => v?.videoId).map(v => ({ title: v.title || '', link: youtubeWatchUrl(v.videoId) }));
+  return items.filter(v => v?.videoId).map(v => ({ title: cleanTitle(v.title), link: youtubeWatchUrl(v.videoId) }));
 }
 
 // 영상 주소 → 제목. 제목 칸이 비어 있을 때만 쓴다(적어 둔 제목을 덮지 않는다).
@@ -669,7 +674,7 @@ export async function fetchVideoTitle(url) {
   const videoId = youtubeVideoId(url);
   if (!videoId) return '';
   const { title = '' } = await ytFetch({ videoId });
-  return title;
+  return cleanTitle(title);
 }
 
 // ── 내 예배 노트 ────────────────────────────────────────────────────────────

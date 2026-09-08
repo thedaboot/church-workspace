@@ -2,21 +2,28 @@ import { supabase } from './supabaseClient.js';
 import { guestStore } from './people.js';
 import { AiService, isFallbackText } from './ai.js';
 import { loadPassage } from './bible.js';
-import { kindLabel, formatServiceDate } from './worship.js';
+import { kindLabel, formatServiceDate, SUNDAY_KIND } from './worship.js';
 
 // ============================================================================
-// 순모임 가이드 — 주보 한 건당 한 벌. AI가 템플릿의 **내용만** 채운다 (0039)
+// 순모임 가이드 — 주보 한 건당 한 벌. AI가 템플릿의 **내용만** 채운다 (0039 · 0055)
 // ----------------------------------------------------------------------------
 // 사용자 피드백 2026-09-02: "주보가 나오면 순모임을 진행할 수 있는 템플릿을 AI가
 // 자동으로 만들어 볼 수 있게. 이미지를 생성하라는 게 아니고, 내가 준 템플릿처럼
 // 만들어 두고 **내용만 AI가 글자수에 맞게** 채우는 것."
 //
-// 그래서 이 파일이 하는 일은 셋이다.
+// 사용자 스펙 2026-09-08(화면을 다시 켜면서): "이 템플릿 그대로 나오되, 어떤 주보를
+// 기준으로 만들건지 마스터 or 관리자 or 리더 순장 or 순장들이 선택하게 하고 …
+// 만들어지면 마스터는 그 요약 고정 기능처럼 고정을 할 수 있게 해서, 해당 가이드만 볼
+// 수 있게끔(캐싱 구조). 만든 가이드를 이미지로 저장도 할 수 있게, 로고도 잘 포함될 수
+// 있도록."
+//
+// 그래서 이 파일이 하는 일은 넷이다.
 //   1. 주보(제목·구절·설교자)와 **개역한글 본문 텍스트**를 프롬프트에 싣는다.
 //   2. 돌아온 글을 JSON으로 읽고 **모양과 글자수를 우리가 강제한다**(fitGuide).
-//      모델에게 상한을 말해도 넘긴다 — 넘긴 글이 그대로 화면에 들어가면 카드 세 장의
-//      비례가 무너진다. 자를 때는 문장 경계에서 자른다.
+//      모델에게 상한을 말해도 넘긴다 — 넘긴 글이 그대로 종이에 들어가면 비례가 무너진다.
+//      자를 때는 문장 경계에서 자른다.
 //   3. 저장·읽기(sun_guides, 게스트는 localStorage).
+//   4. 고정(0055) — 마스터가 한 벌을 골라 두면 모두가 그 한 벌을 기본으로 연다.
 //
 // **본문 구절 → 텍스트는 다시 만들지 않는다** — services/bible.js의 loadPassage와
 // bibleRef.js 한 벌을 쓴다(주보·QT·성경 읽기가 같은 것을 쓴다).
@@ -28,26 +35,28 @@ import { kindLabel, formatServiceDate } from './worship.js';
 
 // 본문(body)의 모양 — **화면·검사·모임 화면이 같이 쓰는 계약이다.** 여기 필드를
 // 늘리려면 components/sunGuide.jsx와 tests/sunguide.mjs를 같이 고쳐야 한다.
-//   { passage: { ref, title }, summaryRef?, summary, points: [{ title, body } ×3], questions: [string ×3] }
+//   { passage: { ref, title }, summaryRef?, summary?, points: [{ title, body } ×3],
+//     questions: [string ×3~4], questionNote? }
 //
-// `summaryRef`는 **선택 필드**다(사용자가 준 템플릿 1장의 빨간 소제목
-// '[요한복음 8:1~11 배경 요약]'). 그 소제목이 말하는 것은 요약이 다루는 구절 범위이고,
-// 주일 본문(8:12-20)의 **앞 문맥**일 때가 많아서 본문 구절로는 만들어 낼 수 없다.
-// 없어도 통하는 값이라 모양 검증에서 빠져 있다 — 이 필드가 없는 지난 가이드도 그대로
-// 열려야 한다(있으면 문자열이어야 한다).
+// `summary`·`summaryRef`는 **선택 필드**다. 2026-09-08 템플릿에는 줄글 요약 단락이
+// 아예 없다 — '말씀 요약'은 번호가 붙은 소제목 셋(points)으로만 이루어진다. 그래서
+// 프롬프트는 이 둘을 더 이상 묻지 않는다. 다만 **지난 가이드는 그 단락을 들고 있으므로**
+// 모양 검증에서 빼고, 화면은 값이 있을 때만 그린다(없는 필드를 이유로 옛 가이드가
+// 안 열리면 안 된다).
 //
-// 글자수 상한은 사용자가 준 템플릿(세로 카드 3장)에서 그 자리가 실제로 담는 만큼이다.
-// 소제목의 번호('1.')와 질문의 'Q.'는 **화면이 붙인다** — 글에 넣으면 모델이 번호를
-// 어긋나게 매기고, 상한도 번호가 잡아먹는다.
-// 화면에서 잠시 뺀다(사용자 지시 2026-09-05 — "순모임 가이드는 나랑 맞춰봐야 해. 일단 화면에서도
-// 제외"). 코드·검사·저장 자리는 그대로 두고 이 스위치만 끈다. 그때의 폼은 브랜치
-// keep/sunguide-2026-09-05에도 있다. 다시 켤 때는 true로 — groupsView가 패널을 그리고 가이드를
-// 읽으며, tests/groups.mjs의 가이드 검사도 이 값을 읽어 같이 살아난다.
-export const SUN_GUIDE_ON = false;
+// `questionNote`는 마지막 질문에 곁들이는 한 줄이다(템플릿의 작은 괄호 줄 —
+// '(EX. 고단한 한 주를 보낸 순원이 있다면 다같이 카페에 가서 달달한 것 먹기!)').
+// 괄호와 'EX.'는 **화면이 붙인다** — 소제목의 번호·질문의 'Q.'와 같은 이유다.
+export const SUN_GUIDE_ON = true;
 
-export const LIMITS = { summaryRef: 30, summary: 380, pointTitle: 24, pointBody: 260, question: 80 };
+export const LIMITS = {
+  summaryRef: 30, summary: 380, pointTitle: 24, pointBody: 260, question: 80, questionNote: 80,
+};
 export const POINTS = 3;
-const QUESTIONS = 3;
+// 질문은 셋 또는 넷이다 — 프롬프트는 넷을 시키고(첫 질문은 지난 한 주 일상),
+// 셋뿐인 지난 가이드도 그대로 열린다.
+export const QUESTIONS_MIN = 3;
+export const QUESTIONS_MAX = 4;
 
 const str = (v) => String(v ?? '').trim();
 
@@ -79,34 +88,39 @@ export function fitText(text, limit) {
   return dropUnpairedBold(head.slice(0, cut).trim()).trim();
 }
 
-// 모양과 글자수를 강제한다. **배열은 언제나 셋**이다 — 모자라면 빈 칸으로 채우고
-// 넘치면 버린다. 화면이 `points[2]`를 그대로 그리기 때문에 여기서 길이를 못 박는다.
+// 모양과 글자수를 강제한다. **points는 언제나 셋**이다 — 모자라면 빈 칸으로 채우고
+// 넘치면 버린다(화면이 `points[2]`를 그대로 그린다). questions는 셋~넷 사이로 재운다:
+// 넷째까지는 살리고 다섯째부터 버리며, 셋에 못 미치면 빈 칸으로 채운다.
 export function fitGuide(body) {
   const b = body && typeof body === 'object' ? body : {};
   const p = b.passage && typeof b.passage === 'object' ? b.passage : {};
   const points = Array.isArray(b.points) ? b.points : [];
-  const questions = Array.isArray(b.questions) ? b.questions : [];
+  const questions = (Array.isArray(b.questions) ? b.questions : [])
+    .slice(0, QUESTIONS_MAX).map((q) => fitText(q, LIMITS.question));
+  while (questions.length < QUESTIONS_MIN) questions.push('');
   return {
     passage: { ref: str(p.ref), title: str(p.title) },
-    // 없으면 빈 글이다 — 화면은 빈 글이면 소제목을 아예 그리지 않는다
+    // 없으면 빈 글이다 — 화면은 빈 글이면 그 줄을 아예 그리지 않는다
     summaryRef: fitText(b.summaryRef, LIMITS.summaryRef),
     summary: fitText(b.summary, LIMITS.summary),
     points: Array.from({ length: POINTS }, (_, i) => ({
       title: fitText(points[i]?.title, LIMITS.pointTitle),
       body: fitText(points[i]?.body, LIMITS.pointBody),
     })),
-    questions: Array.from({ length: QUESTIONS }, (_, i) => fitText(questions[i], LIMITS.question)),
+    questions,
+    questionNote: fitText(b.questionNote, LIMITS.questionNote),
   };
 }
 
 // 이게 가이드 본문인가. 저장된 `{}`(0039의 기본값)와 모델의 엉뚱한 답을 같은 자리에서
 // 걸러 낸다 — 화면은 "가이드가 없다"와 "가이드가 깨졌다"를 구분할 필요가 없다.
+// **줄글 요약은 더 이상 필수가 아니다**(2026-09-08 템플릿) — 있으면 문자열이어야 한다.
 export function isGuideShape(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
-  if (typeof v.summary !== 'string' || !v.summary.trim()) return false;
   if (!v.passage || typeof v.passage !== 'object' || typeof v.passage.ref !== 'string') return false;
-  // summaryRef는 선택이다 — 없는 것은 통과, 있으면 문자열이어야 한다
-  if (v.summaryRef != null && typeof v.summaryRef !== 'string') return false;
+  for (const k of ['summary', 'summaryRef', 'questionNote']) {
+    if (v[k] != null && typeof v[k] !== 'string') return false;
+  }
   const every = (a, f) => Array.isArray(a) && a.length > 0 && a.every(f);
   if (!every(v.points, (x) => x && typeof x.title === 'string' && typeof x.body === 'string')) return false;
   return every(v.questions, (x) => typeof x === 'string');
@@ -136,6 +150,29 @@ export function guideDateLabel(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
   return m ? `${m[1].slice(2)}년 ${+m[2]}월 ${+m[3]}일` : '';
 }
+
+// ── 어떤 주보로 만들 것인가 (사용자 스펙 2026-09-08) ────────────────────────
+// 고를 수 있는 것은 **발행된 주일 예배**다. 앞으로 올 주일도 넣는다 — 그 주 예배로
+// 무엇을 나눌지는 예배 **전에** 준비한다(groups.js latestSunday와 같은 판단).
+// 너무 길면 고르는 자리가 목록 화면이 된다 — 최근 여덟 건이면 두 달치다.
+// `keepId`(= 고정된 가이드의 주보)는 여덟 건 밖으로 밀려나도 목록에 남는다. 기본으로
+// 여는 한 벌이 정작 고를 수 없는 자리에 있으면 안 된다.
+export const GUIDE_SERVICE_LIMIT = 8;
+
+export function guideServices(services = [], keepId = '', limit = GUIDE_SERVICE_LIMIT) {
+  const sundays = (services || [])
+    .filter((s) => s?.kind === SUNDAY_KIND && s?.status === 'published')
+    .sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)));
+  const head = sundays.slice(0, limit);
+  const keep = keepId && !head.some((s) => s.id === keepId)
+    ? sundays.find((s) => s.id === keepId) : null;
+  return keep ? [...head, keep] : head;
+}
+
+// 고르는 줄에 적는 한 줄 — 날짜와, 설교 제목이 있으면 그것까지.
+export const guideServiceLabel = (s) => (s
+  ? `${formatServiceDate(s.service_date)}${str(s.title) ? ` · ${str(s.title)}` : ''}`
+  : '');
 
 // ── 프롬프트 ────────────────────────────────────────────────────────────────
 
@@ -188,8 +225,6 @@ export function buildGuidePrompt({ service, passageText = '' } = {}) {
     '[만들 것 — 아래 모양의 JSON 하나]',
     '{',
     '  "passage": { "ref": "본문 구절을 그대로", "title": "본문을 한 마디로 (12자 이내)" },',
-    `  "summaryRef": "아래 말씀 요약이 다루는 구절 범위 (${LIMITS.summaryRef}자 이내, 예 '요한복음 8:1~11')",`,
-    `  "summary": "본문의 배경과 흐름을 한 단락으로 (${LIMITS.summary}자 이내)",`,
     '  "points": [',
     `    { "title": "소제목 (${LIMITS.pointTitle}자 이내, 번호는 붙이지 마라)", "body": "그 대목의 설명 (${LIMITS.pointBody}자 이내)" },`,
     '    { "title": "…", "body": "…" },',
@@ -198,13 +233,16 @@ export function buildGuidePrompt({ service, passageText = '' } = {}) {
     '  "questions": [',
     `    "지난 한 주 일상을 나누는 질문 (${LIMITS.question}자 이내)",`,
     `    "본문을 자기 삶에 적용하는 질문 (${LIMITS.question}자 이내)",`,
-    `    "본문을 자기 삶에 적용하는 질문 (${LIMITS.question}자 이내)"`,
-    '  ]',
+    `    "본문을 자기 삶에 적용하는 질문 (${LIMITS.question}자 이내)",`,
+    `    "이번 한 주를 어떻게 살아 볼지 정하는 질문 (${LIMITS.question}자 이내)"`,
+    '  ],',
+    `  "questionNote": "마지막 질문을 순모임에서 같이 해 볼 방법 한 줄 (${LIMITS.questionNote}자 이내, 마땅한 것이 없으면 빈 글)"`,
     '}',
     '',
-    `- points는 반드시 ${POINTS}개이고 본문의 흐름을 차례로 따라간다.`,
-    '- summaryRef는 summary가 실제로 다루는 구절 범위다. 앞 문맥을 요약했으면 그 앞 구절 범위를 적는다.',
-    `- questions는 반드시 ${QUESTIONS}개이고, **첫 질문은 본문 이야기가 아니라 지난 한 주 일상을 나누는 질문**이다.`,
+    `- points는 반드시 ${POINTS}개이고 본문의 흐름을 차례로 따라간다. 이 셋이 '말씀 요약'의 전부다.`,
+    `- questions는 반드시 ${QUESTIONS_MAX}개이고, **첫 질문은 본문 이야기가 아니라 지난 한 주 일상을 나누는 질문**이다.`,
+    '- questionNote는 예를 들면 "고단한 한 주를 보낸 순원이 있다면 다같이 카페에 가서 달달한 것 먹기" 같은 한 줄이다.',
+    '  "EX."나 괄호를 붙이지 마라. 화면이 붙인다.',
     '- 질문 앞에 "Q."를 붙이지 마라. 소제목 앞에 번호를 붙이지 마라. 화면이 붙인다.',
     '- 글자수 상한을 넘기지 마라. 넘기면 문장이 잘려 나간다.',
     '- 각 body에서 인용하는 성경 구절은 **별 두 개**로 감싼다.',
@@ -225,25 +263,25 @@ export function parseGuide(text) {
   return isGuideShape(parsed) ? fitGuide(parsed) : null;
 }
 
-// 주보 한 건으로 초안 만들기. 실패(게스트·로그인 없음·모양 깨짐)는 **null**이다.
-// 본문을 못 읽어도 멈추지 않는다 — 구절만 싣고 만든다(주보에 구절이 아직 없을 수 있다).
-// 사용자가 준 순모임 가이드 템플릿 원문(2026-03-01분) — 개발 모드의 미리보기 전용 예시
+// 사용자가 준 순모임 가이드 템플릿 원문(26년 2월 1일분) — 개발 모드의 미리보기 전용 예시
 const SAMPLE_GUIDE = {
-  passage: { ref: '요한복음 8:12-20', title: '(예시) 세상의 빛으로 오신 예수님' },
-  summaryRef: '요한복음 8:1~11',
-  summary: '서기관과 바리새인들이 간음하다 현장에서 잡힌 여인을 끌고 와, 율법대로 돌로 칠 것인지 물으며 예수님을 시험에 빠뜨리려 합니다. 예수님은 "너희 중에 죄 없는 자가 먼저 돌로 치라"는 말씀으로, 타인을 정죄하던 사람들의 시선을 본인들의 죄된 내면으로 돌리게 하십니다. 양심에 가책을 느낀 사람들은 하나둘씩 떠나가고, 그 자리에는 오직 예수님과 여인만이 남게 됩니다. 죄 없으신 유일한 심판자이신 예수님은 여인을 정죄하는 대신 "나도 너를 정죄하지 않으니 다시는 죄를 범하지 말라"며 생명의 기회를 주십니다.',
+  passage: { ref: '창세기 21:14-20', title: '(예시) 브엘세바!' },
   points: [
-    { title: '생명의 빛', body: '예수님은 자신을 **"세상의 빛"**이라고 선언하십니다. 여기서 말하는 빛은 "생명"과 "길"을 의미합니다. 빛이신 예수님을 따르는 사람은 육체의 회복 뿐만 아니라 정체성 또한 회복할 수 있습니다. 즉, 우리 내면의 죽어가는 생명을 살려내는 근원적인 힘입니다.' },
-    { title: '육체의 시선 VS 하나님의 증언', body: '바리새인들은 예수님이 스스로를 증언하니 가짜라고 비판합니다. 이에 예수님은 그들의 한계를 꼬집으십니다. **바리새인들은 인간적인 기준, 겉모습, 혈통 등 "육체"를 따라 예수님을 판단했습니다.** 그래서 그분이 어디서 오셨는지 알지 못했습니다. 예수님은 자기 자신과 나를 보내신 아버지가 함께 증언하고 계심을 강조하십니다.' },
-    { title: '하나님을 아는 유일한 통로', body: '바리새인들은 "네 아버지가 어디 있느냐"며 눈에 보이는 증거만을 요구했지만, 예수님은 "나를 알았더라면 내 아버지도 알았으리라"고 답하십니다. 하나님을 아는 것은 단순한 정보가 아니라, 예수 그리스도라는 "빛"을 통해 세상을 바라보는 **"시선의 변화"**임을 의미합니다.' },
+    { title: '죽음의 땅 광야', body: '아브라함이 준 떡과 물 한 가죽부대가 떨어지자 하갈은 아이를 덤불 아래 두고 화살 한 바탕쯤 떨어져 앉습니다. **아이의 죽는 것을 차마 보지 못하겠다**는 말이 그 자리의 전부입니다. 광야는 길이 보이지 않는 자리이고, 하갈은 그 자리에서 소리를 내어 웁니다.' },
+    { title: '하나님이 들으셨다', body: '하나님은 아이의 소리를 들으셨습니다. **하나님이 그 아이의 소리를 들으셨나니**라는 말씀이 두 번 이어집니다. 우는 소리를 듣는 분이 계신다는 것이 이 대목이 말하는 것입니다. 사람은 아이를 두고 떨어져 앉았지만 하나님은 그 자리로 오십니다.' },
+    { title: '눈이 밝아지니 샘물이', body: '하나님이 하갈의 눈을 밝히시니 **샘물**이 보입니다. 없던 샘이 생긴 것이 아니라 보이지 않던 것이 보인 것입니다. 하갈은 가죽부대에 물을 채워 아이에게 마시게 하고, 아이는 광야에서 자라 활 쏘는 자가 됩니다.' },
   ],
   questions: [
-    '지난 한주 어떠한 삶을 보냈는지 일상을 나눠봅시다!',
-    '오늘 말씀의 바리새인들처럼 내가 내려놓아야 할 "정죄의 돌"은 무엇인가요?',
-    '사순절을 맞아 이번 한주간, "생명의 빛"을 전하기 위해 구체적으로 누구에게 어떤 행동을 할 것인지 순원들과 나누어봅시다 : )',
+    '지난 한 주 어떠한 삶을 보냈는지 일상을 나눠봅시다!',
+    '지금 내가 서 있는 광야는 어떤 자리인가요?',
+    '들으시는 하나님을 붙들었던 순간이 있다면 나눠 주세요.',
+    '이번 한 주, 곁에 있는 한 사람의 소리를 어떻게 들어 줄 수 있을까요?',
   ],
+  questionNote: '고단한 한 주를 보낸 순원이 있다면 다같이 카페에 가서 달달한 것 먹기!',
 };
 
+// 주보 한 건으로 초안 만들기. 실패(게스트·로그인 없음·모양 깨짐)는 **null**이다.
+// 본문을 못 읽어도 멈추지 않는다 — 구절만 싣고 만든다(주보에 구절이 아직 없을 수 있다).
 export async function generateGuide(service) {
   if (!service) return null;
   let passageText = '';
@@ -258,7 +296,7 @@ export async function generateGuide(service) {
   const { prompt, system } = buildGuidePrompt({ service, passageText });
   let body = parseGuide(await AiService.callGemini(prompt, system));
   // ponytail: 로컬 vite에는 /api/ai 서버 함수가 없어 AI가 늘 실패한다. 개발 모드에서만 사용자가
-  // 준 템플릿 원문(요한복음 8장 예시)을 그대로 돌려 **틀과 편집 흐름을 볼 수 있게** 한다.
+  // 준 템플릿 원문(창세기 21장 예시)을 그대로 돌려 **틀과 편집 흐름을 볼 수 있게** 한다.
   // 배포 빌드에서는 이 줄이 통째로 죽는다(import.meta.env.DEV = false).
   if (!body && import.meta.env?.DEV) body = fitGuide(structuredClone(SAMPLE_GUIDE));
   if (!body) return null;
@@ -273,33 +311,69 @@ export async function generateGuide(service) {
 const GUEST_TABLE = 'sun_guides';
 const { rows: guestRows, set: guestSet } = guestStore('church_sunguide_v1');
 
+// 읽기의 결과는 **한 벌 + 고정 여부**다(0055). 화면이 두 값을 같이 쓰므로 한 번에 준다 —
+// 고정 여부는 body 안에 넣지 않는다(body는 AI가 채우는 템플릿이고, fitGuide가 모르는
+// 필드를 떨어뜨린다. 넣었다면 저장할 때마다 조용히 사라졌을 것이다).
+const shaped = (row) => (isGuideShape(row?.body)
+  ? { body: fitGuide(row.body), pinned: !!row.pinned, updatedAt: row.updated_at || '' }
+  : null);
+
 export async function loadGuide(serviceId) {
   if (!serviceId) return null;
-  if (!supabase) {
-    const row = guestRows(GUEST_TABLE).find((r) => r.service_id === serviceId);
-    return isGuideShape(row?.body) ? fitGuide(row.body) : null;
-  }
+  if (!supabase) return shaped(guestRows(GUEST_TABLE).find((r) => r.service_id === serviceId));
   // 볼 자격이 없으면 error가 아니라 **행이 없다**(0039의 select 정책) — 화면은
   // '가이드 없음'과 같이 다룬다.
   const { data, error } = await supabase.from('sun_guides')
-    .select('service_id, body, updated_at').eq('service_id', serviceId).maybeSingle();
+    .select('service_id, body, pinned, updated_at').eq('service_id', serviceId).maybeSingle();
   if (error) throw error;
-  return isGuideShape(data?.body) ? fitGuide(data.body) : null;
+  return shaped(data);
+}
+
+// 지금 고정된 가이드가 붙은 주보 id(없으면 null). 화면은 이 값으로 **처음 여는 한 벌**을
+// 정한다 — 고정이 있으면 그것, 없으면 가장 최근 주일이다.
+export async function pinnedGuideId() {
+  if (!supabase) return guestRows(GUEST_TABLE).find((r) => r.pinned)?.service_id || null;
+  const { data, error } = await supabase.from('sun_guides')
+    .select('service_id').eq('pinned', true).maybeSingle();
+  if (error) throw error;
+  return data?.service_id || null;
 }
 
 export async function saveGuide(serviceId, body) {
   const fitted = fitGuide(body);
   if (!serviceId) return fitted;
   if (!supabase) {
-    const rest = guestRows(GUEST_TABLE).filter((r) => r.service_id !== serviceId);
-    guestSet(GUEST_TABLE, [...rest, { service_id: serviceId, body: fitted, updated_at: new Date().toISOString() }]);
+    const rows = guestRows(GUEST_TABLE);
+    const old = rows.find((r) => r.service_id === serviceId);
+    const rest = rows.filter((r) => r.service_id !== serviceId);
+    guestSet(GUEST_TABLE, [...rest, {
+      // 고정은 여기서 건드리지 않는다 — 저장은 body만 갈아 끼운다(클라우드도 같다)
+      ...old, service_id: serviceId, body: fitted, updated_at: new Date().toISOString(),
+    }]);
     return fitted;
   }
   // created_by는 payload에 넣지 않는다 — 0039가 auth.uid()를 기본값으로 두었고,
   // 다른 사람이 다시 만들어 저장할 때 처음 만든 사람이 지워지면 안 된다.
+  // pinned도 넣지 않는다 — upsert는 넘긴 칸만 쓰므로 고정 상태가 그대로 남는다
+  // (마스터가 고정해 둔 행을 저장 한 번으로 풀어 버리면 안 된다).
   const { error } = await supabase.from('sun_guides')
     .upsert({ service_id: serviceId, body: fitted, updated_at: new Date().toISOString() },
       { onConflict: 'service_id' });
   if (error) throw error;
   return fitted;
+}
+
+// 고정 스위치 — **마스터만**(0055 set_sun_guide_pinned). 자격 판정도 '고정은 한 번에
+// 하나'도 DB의 함수가 들고 있다. 화면은 버튼을 감출 뿐이다.
+export async function pinGuide(serviceId, on) {
+  if (!serviceId) return false;
+  if (!supabase) {
+    guestSet(GUEST_TABLE, guestRows(GUEST_TABLE)
+      .map((r) => ({ ...r, pinned: !!on && r.service_id === serviceId })));
+    return !!on;
+  }
+  const { error } = await supabase.rpc('set_sun_guide_pinned',
+    { p_service_id: serviceId, p_on: !!on });
+  if (error) throw error;
+  return !!on;
 }

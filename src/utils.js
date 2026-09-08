@@ -13,9 +13,19 @@ export const isMobileViewport = () => typeof window !== 'undefined' && window.ma
 // AI가 쓴 멘션을 검사하는 쪽(services/ai.js)이 같이 쓴다 — 여기가 원본이다.
 // 표시명에 공백이 있는 경우는 다루지 않는다(@뒤 공백 없는 토큰만).
 export const MENTION_TAIL = /[.,!?;:)\]}'"]+$/;   // "@민수," → "민수"
+// "@박지호)" → { name: '박지호', tail: ')' }. **그리는 쪽(RichText)도 이것을 쓴다** —
+// 뽑는 쪽만 꼬리를 떼고 그리는 쪽은 `@\S+`를 통째로 칩에 넣었더니 `(@박지호)`의 닫는
+// 괄호가 강조 안에 들어갔다(사용자 지적 2026-09-08). 규칙이 한 벌이어야 알림을 받는
+// 사람과 화면에서 강조되는 글자가 같다.
+export function splitMention(token) {
+  const raw = String(token || '');
+  const body = raw.startsWith('@') ? raw.slice(1) : raw;
+  const tail = (body.match(MENTION_TAIL) || [''])[0];
+  return { name: body.slice(0, body.length - tail.length), tail };
+}
 export function extractMentions(text) {
   const found = String(text || '').match(/@([^\s@]+)/g) || [];
-  const names = found.map(t => t.slice(1).replace(MENTION_TAIL, '')).filter(Boolean);
+  const names = found.map(t => splitMention(t).name).filter(Boolean);
   return [...new Set(names)];
 }
 
@@ -169,6 +179,21 @@ export function snapCols(width, dpr = 1, gap = 1, n = 7) {
 // 아니라 셈의 기준이 둘이었다. 마감 미정을 달력에 억지로 얹지는 않는다 — 마감일
 // 필수화는 §7에서 뺐고, 마감 미정은 대시보드의 제 구간에서 보인다.
 export const datedTasks = (list) => (list || []).filter(t => t?.startDate || t?.dueDate);
+
+// 업무의 '이번 주'가 끝나는 날 — 오늘이 속한 주의 **토요일** ISO 날짜.
+// 한 주는 주일(일요일)에 시작한다(사용자 지시 2026-09-08 "업무 이번 주 - 주일을
+// 시작으로 하기 무조건"). 오늘이 토요일이면 오늘, 주일이면 엿새 뒤다.
+// 예전에는 '오늘부터 6일'이라 목요일에 보면 다음 주 화요일 마감이 '이번 주'에 섞였고,
+// 화면의 '이번 주'가 달력의 이번 주와 다른 말을 했다.
+//
+// UTC로 파싱하고 UTC 게터로 되돌린다 — 서머타임을 쓰는 시간대의 브라우저에서
+// 로컬 자정에 날짜를 더하면 하루가 23/25시간이 되어 결과가 하루 밀린다.
+// 순수 함수라 utils에 둔다(브라우저 없이 검사할 수 있게 — tests/logcheck.mjs).
+export function weekEndOf(todayIso) {
+  const d = new Date(`${String(todayIso || '').slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Date(d.getTime() + (6 - d.getUTCDay()) * 86400000).toISOString().slice(0, 10);
+}
 
 // 하위 업무(cards.subtasks) 진척 — 보드 카드와 업무 창이 같이 쓴다.
 // 순수 함수라 utils에 둔다(보드가 모달을 가져오는 방향이 되지 않게).

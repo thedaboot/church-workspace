@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { cleanTitle } from '../src/services/titleText.js';
 
 // ============================================================================
 // /api/yt — 유튜브 재생목록·영상 제목 프록시.
@@ -13,6 +14,11 @@ import { createClient } from '@supabase/supabase-js';
 // 헤더가 없다). 그리고 **아무 주소나 받지 않는다** — 받는 것은 id뿐이고 정규식을
 // 통과한 것만 유튜브 주소로 조립한다. 주소를 그대로 받아 그대로 fetch하면 로그인만
 // 있으면 우리 서버로 남의 심부름을 시킬 수 있는 열린 프록시가 된다.
+//
+// **제목은 나가기 전에 cleanTitle을 거친다**(src/services/titleText.js — 브라우저 것을
+// 그대로 import한다. 순수 모듈이라 서버리스에서 그냥 돈다 · api/push.js의 notifyText와
+// 같은 자리다). 유튜브 제목에는 굵어 보이는 수학 알파벳(𝗪𝗼𝗿𝘀𝗵𝗶𝗽)·전각 글자가 섞여
+// 오는데, 그건 서식이 아니라 **다른 글자**라서 화면에서는 지울 수 없다.
 //
 // 재생목록을 받는 길이 둘인 이유: 키가 있으면 Data API가 **전체**를 주고, 없으면 RSS가
 // **최신 15개까지만** 준다(유튜브가 정한 상한). 키는 YOUTUBE_API_KEY 하나뿐이고 없어도
@@ -54,7 +60,7 @@ function parseFeed(xml) {
   for (const e of entries) {
     const videoId = (/<yt:videoId>([^<]+)<\/yt:videoId>/.exec(e) || [])[1] || '';
     const title = (/<title>([\s\S]*?)<\/title>/.exec(e) || [])[1] || '';
-    if (VIDEO_ID.test(videoId)) out.push({ title: decode(title).trim(), videoId });
+    if (VIDEO_ID.test(videoId)) out.push({ title: cleanTitle(decode(title)), videoId });
   }
   return out;
 }
@@ -89,8 +95,11 @@ export default async function handler(req, res) {
           let data; try { data = JSON.parse(text); } catch { data = {}; }
           for (const it of data.items || []) {
             const sn = it.snippet || {}; const vid = sn.resourceId?.videoId || '';
-            if (!VIDEO_ID.test(vid) || /^(Private|Deleted) video$/.test(sn.title || '')) continue;
-            items.push({ title: String(sn.title || '').trim(), videoId: vid });
+            // 거르는 판정도 다듬은 제목으로 한다 — 전각·폭 없는 글자가 섞이면 'Private video'가
+            // 같은 글로 안 읽혀서 못 보는 영상이 목록에 남는다
+            const title = cleanTitle(sn.title);
+            if (!VIDEO_ID.test(vid) || /^(Private|Deleted) video$/.test(title)) continue;
+            items.push({ title, videoId: vid });
           }
           pageToken = data.nextPageToken || '';
           if (!pageToken) break;
@@ -117,7 +126,7 @@ export default async function handler(req, res) {
         return;
       }
       let title = '';
-      try { title = JSON.parse(text).title || ''; } catch { title = ''; }
+      try { title = cleanTitle(JSON.parse(text).title); } catch { title = ''; }
       res.status(200).json({ title });
       return;
     }

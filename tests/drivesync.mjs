@@ -23,9 +23,12 @@ const sync = read('src/services/cloudSync.js');
 const att = read('src/modals/attachments.jsx');
 const vercel = JSON.parse(read('vercel.json'));
 const drivemd = read('docs/DRIVE.md');
-// **지금 배포된 스크립트는 v7이다**(docs/APPS_SCRIPT_v7.md). DRIVE.md는 배경 설명이고
-// 코드는 그 문서가 원본이다 — 액션 목록은 이쪽을 봐야 한다.
-const scriptmd = read('docs/APPS_SCRIPT_v7.md');
+// **지금 배포된 것은 v7이고, 다음에 올릴 것이 v8이다.** DRIVE.md는 배경 설명이고
+// 코드는 이 두 문서가 원본이다 — 액션 목록은 이쪽을 봐야 한다.
+// scriptmd(=v8)가 기준이다. v7은 아직 라이브라 액션 목록만 같이 본다.
+const scriptmd = read('docs/APPS_SCRIPT_v8.md');
+const scriptv7 = read('docs/APPS_SCRIPT_v7.md');
+const backfill = read('scripts/backfill_sheet_preview.mjs');
 const cfg = read('src/config.js');
 const filesvc = read('api/drive-file.js');
 const preview = read('src/components/FilePreviewModal.jsx');
@@ -173,23 +176,54 @@ check('폴더 id를 스토어에도 넣는다', () => {
 });
 
 // ── 스크립트 ────────────────────────────────────────────────────────────────
-check('스크립트가 멱등 열쇠·list·시트 변환을 안다 (v7)', () => {
+check('스크립트가 멱등 열쇠·list·변환 사본을 안다 (v8)', () => {
   assert.match(scriptmd, /case 'list'/, 'list 액션이 없다');
   assert.match(scriptmd, /KEY_PROP/, '열쇠를 appProperties에 안 적는다');
   assert.match(scriptmd, /if \(body\.retry\)/, '첫 시도에도 폴더를 훑으면 파일 많은 업무가 느려진다');
   assert.match(scriptmd, /childFolderIfExists/, 'list가 폴더를 만들어 버리면 안 된다');
-  assert.match(scriptmd, /makeSheetCopy/, '엑셀을 구글 시트로 변환하지 않는다(0031)');
+  assert.match(scriptmd, /makePreviewCopy/, '변환 사본을 만들지 않는다(0031)');
   // 사본이 원본의 열쇠를 물려받으면 findByKey가 사본을 원본으로 착각한다(2026-08-29)
   assert.match(scriptmd, /wskey: null/, '사본에서 열쇠를 안 지운다');
   assert.match(scriptmd, /LockService/, '폴더 만들기에 잠금이 없다 — 병렬 업로드에서 같은 폴더가 여럿 생긴다');
 });
 
+// ── v8: 워드·PPT 사본 (2026-09-08) ──────────────────────────────────────────
+check('v8 스크립트가 워드·PPT도 네이티브 사본으로 만든다', () => {
+  assert.match(scriptmd, /GOOGLE_DOCS/, '워드를 구글 문서로 안 옮긴다');
+  assert.match(scriptmd, /GOOGLE_SLIDES/, 'PPT를 구글 슬라이드로 안 옮긴다');
+  assert.match(scriptmd, /GOOGLE_SHEETS/, '엑셀 변환이 사라졌다(v7 동작이 깨진다)');
+  assert.match(scriptmd, /convertTo/, 'convertTo를 모르면 워드·PPT 요청이 무시된다');
+  // 버전을 안 실어 보내면 부르는 쪽이 v7에 워드를 보내 쓰레기 사본을 만든다
+  assert.match(scriptmd, /const SCRIPT_VERSION = 8;/, '버전 상수가 8이 아니다');
+  assert.match(scriptmd, /out\.version = SCRIPT_VERSION/, '답에 버전을 안 싣는다');
+  // 사본 종류는 **확장자**가 정한다 — 부르는 쪽 값을 믿으면 잘못 보낸 한 번이 영영 남는다
+  assert.ok(/COPY_AS\[String\(name/.test(scriptmd), '사본 종류를 확장자로 정하지 않는다');
+  // 사본은 copy 한 번이다(v7은 만든 뒤 update로 열쇠를 지우러 한 번 더 갔다)
+  const fn = scriptmd.slice(scriptmd.indexOf('function makePreviewCopy'), scriptmd.indexOf('// 주소에서 받아'));
+  assert.ok(fn, 'makePreviewCopy를 못 찾았다');
+  assert.ok(!/Drive\.Files\.update/.test(fn), '사본을 만든 뒤 고치러 한 번 더 간다 — copy 본문에 실어야 한다');
+  assert.ok(!/Drive\.Files\.get/.test(fn), '사본을 만들며 파일을 다시 묻는다');
+  // 첨부 사본에 편집 권한을 주면 링크를 아는 누구나 고칠 수 있다(HANDOFF §7 마지막 줄)
+  assert.ok(!/role: 'writer'/.test(scriptmd), '사본에 편집 권한을 준다');
+});
+
+check('v8 upload은 변환을 기다리지 않는다', () => {
+  // v7은 upload 안에서 변환까지 끝내고 답해서 올리는 시간에 변환 시간이 더해졌다.
+  // convertTo(새 화면이 쓰는 칸)가 upload 자리에 있으면 그 자리에서 또 기다린다.
+  const up = scriptmd.slice(scriptmd.indexOf('function upload(body)'), scriptmd.indexOf('// **F: 오피스 파일을'));
+  assert.ok(up, 'upload 함수를 못 찾았다');
+  assert.ok(!/body\.convertTo/.test(up), 'upload이 convertTo를 보고 변환한다 — 사본은 convert 액션이 만든다');
+});
+
 check('프록시가 아는 액션과 스크립트가 아는 액션이 같다', () => {
   const apiSet = new Set([...(/ACTIONS = new Set\(\[([^\]]*)\]\)/.exec(api)?.[1] || '')
     .matchAll(/'([a-zA-Z]+)'/g)].map(m => m[1]));
-  const scriptSet = new Set([...scriptmd.matchAll(/case '([a-zA-Z]+)':\s+return json/g)].map(m => m[1]));
-  for (const a of scriptSet) assert.ok(apiSet.has(a), `스크립트는 ${a}를 아는데 프록시가 막는다`);
-  for (const a of apiSet) assert.ok(scriptSet.has(a), `프록시는 ${a}를 통과시키는데 스크립트가 모른다`);
+  // v7은 아직 라이브다 — 둘 중 하나라도 어긋나면 그 판에서 액션이 막힌다
+  for (const [label, md] of [['v8', scriptmd], ['v7', scriptv7]]) {
+    const scriptSet = new Set([...md.matchAll(/case '([a-zA-Z]+)':\s+return json/g)].map(m => m[1]));
+    for (const a of scriptSet) assert.ok(apiSet.has(a), `${label} 스크립트는 ${a}를 아는데 프록시가 막는다`);
+    for (const a of apiSet) assert.ok(scriptSet.has(a), `프록시는 ${a}를 통과시키는데 ${label} 스크립트가 모른다`);
+  }
 });
 
 // ── 화면에 나가는 문구 ──────────────────────────────────────────────────────
@@ -502,6 +536,113 @@ check('파일 중계는 불변 캐시다(재열람 왕복 0)', () => {
   // public로 바꾸면 안 된다 — 승인 검사를 지난 응답이 공유 캐시(CDN)에 앉으면
   // 그 검사가 비켜진다
   assert.ok(!/Cache-Control', 'public/.test(filesvc), '공유 캐시에 앉히면 승인 검사가 비켜진다');
+});
+
+// ── 워드·PPT를 구글 화면으로 (2026-09-08) ──────────────────────────────────
+// 사용자 요청: "PPT도 보면 좀 잘리고 그러는데, 이 pptx 뷰어나 docs도 마찬가지고, 그냥
+// 실제 뷰로 볼 수 있게끔 해줄 수 있나? 우리 엑셀 미리보기 하는 것처럼!!"
+// 엑셀과 같은 길이다 — 올릴 때 만든 네이티브 사본(files.preview_file_id)을 iframe으로.
+{
+  const { previewKind, previewCopyUrl, previewCopyOf } = await import('../src/services/previewKind.js');
+  const { sheetPreviewUrl } = await import('../src/utils.js');
+  const drive = (name, extra = {}) => ({ name, mime_type: '', source: 'drive', drive_file_id: 'f1', ...extra });
+  const copy = (name) => drive(name, { preview_file_id: 'COPY1' });
+
+  check('사본이 있는 워드·PPT는 구글 화면(gdoc), 없으면 우리 렌더러', () => {
+    assert.strictEqual(previewKind(copy('회의록.docx')), 'gdoc', '사본 있는 워드가 구글로 안 간다');
+    assert.strictEqual(previewKind(copy('발표.pptx')), 'gdoc', '사본 있는 PPT가 구글로 안 간다');
+    assert.strictEqual(previewKind(copy('옛문서.doc')), 'gdoc', '옛 형식도 사본이 있으면 구글로');
+    assert.strictEqual(previewKind(copy('옛발표.ppt')), 'gdoc', '옛 형식도 사본이 있으면 구글로');
+    // 사본이 없으면 **지금 그대로** — 옛 첨부·변환 실패·스크립트가 낮은 판이 여기로 온다
+    assert.strictEqual(previewKind(drive('회의록.docx')), 'doc', '사본이 없는데 구글로 보낸다');
+    assert.strictEqual(previewKind(drive('발표.pptx')), 'slide', '사본이 없는데 구글로 보낸다');
+    assert.strictEqual(previewKind(drive('옛문서.doc')), 'drive', '사본 없는 옛 형식은 그대로 편집기 미리보기');
+    // 엑셀은 건드리지 않았다(사본이 있든 없든 'sheet')
+    assert.strictEqual(previewKind(copy('명단.xlsx')), 'sheet', '엑셀 판정이 바뀌었다');
+    assert.strictEqual(previewKind(drive('명단.xlsx')), 'sheet', '엑셀 판정이 바뀌었다');
+    // 올리는 중인 파일에는 사본이 있을 수 없다 — 예전 그대로 우리 렌더러
+    assert.strictEqual(previewKind({ name: 'a.pptx', source: 'local' }), 'slide', '올리는 중인 PPT');
+  });
+
+  check('사본 주소는 종류를 맞춘다 (previewCopyUrl)', () => {
+    // 문서 사본을 spreadsheets 주소로 열면 아무것도 안 뜬다 — 칸이 종류마다 다르다
+    assert.strictEqual(previewCopyUrl(copy('회의록.docx')),
+      'https://docs.google.com/document/d/COPY1/preview?rm=minimal');
+    assert.strictEqual(previewCopyUrl(copy('옛문서.doc')),
+      'https://docs.google.com/document/d/COPY1/preview?rm=minimal');
+    // 슬라이드는 embed다 — preview는 머리줄을 남기고 슬라이드를 작게 둔다.
+    // start=false·delayms가 없으면 열자마자 저 혼자 넘어간다(기본이 자동 재생).
+    assert.strictEqual(previewCopyUrl(copy('발표.pptx')),
+      'https://docs.google.com/presentation/d/COPY1/embed?rm=minimal&start=false&loop=false&delayms=60000');
+    // 엑셀은 utils.sheetPreviewUrl과 같은 주소여야 한다(같은 사본을 두 곳에서 연다)
+    assert.strictEqual(previewCopyUrl(copy('명단.xlsx')), sheetPreviewUrl(copy('명단.xlsx')),
+      '엑셀 사본 주소가 두 곳에서 갈라졌다');
+    // **편집 주소를 만들면 안 된다** — 링크를 아는 누구나 고칠 수 있다(HANDOFF §7 마지막 줄)
+    assert.ok(!/\/edit/.test(previewCopyUrl(copy('회의록.docx')) || ''), '편집 주소를 내준다');
+    assert.strictEqual(previewCopyUrl(drive('회의록.docx')), null, '사본이 없으면 주소도 없다');
+    assert.strictEqual(previewCopyUrl(copy('결산.pdf')), null, 'PDF에는 구글 편집기가 없다');
+    assert.strictEqual(previewCopyUrl(null), null, '값이 없어도 안전하다');
+  });
+
+  check('무엇에 사본을 만들지가 앱과 스크립트에서 같다 (previewCopyOf)', () => {
+    for (const n of ['a.xlsx', 'a.xlsm', 'a.xls', 'a.csv']) assert.strictEqual(previewCopyOf(n), 'spreadsheet', n);
+    for (const n of ['a.docx', 'a.doc']) assert.strictEqual(previewCopyOf(n), 'document', n);
+    for (const n of ['a.pptx', 'a.ppt']) assert.strictEqual(previewCopyOf(n), 'presentation', n);
+    for (const n of ['a.pdf', 'a.png', 'a.zip', 'a', '']) assert.strictEqual(previewCopyOf(n), null, n);
+    // 스크립트의 표와 확장자 목록이 같아야 한다 — 한쪽만 늘면 "사본은 있는데 안 열리는 파일"
+    const inScript = new Set([...scriptmd.matchAll(/(\w+):\s*\['GOOGLE_(\w+)'/g)].map(m => m[1]));
+    for (const ext of ['xlsx', 'xlsm', 'xls', 'csv', 'docx', 'doc', 'pptx', 'ppt']) {
+      assert.ok(inScript.has(ext), `스크립트의 COPY_AS에 ${ext}가 없다`);
+    }
+  });
+}
+
+check('앱이 v7에 워드·PPT 변환을 보내지 않는다', () => {
+  // v7의 convert는 종류를 안 보고 **시트** 사본을 만든다. 워드를 보내면 글자가 표 칸에
+  // 흩어진 사본이 preview_file_id에 박히고, 되돌리려면 사본을 지우고 칸을 비워야 한다.
+  assert.ok(!/convert:\s*true/.test(cloud), 'cloud.js가 convert: true를 보낸다 — v7이 그것만 보고 시트 사본을 만든다');
+  const fn = cloud.slice(cloud.indexOf('function attachPreviewCopy'));
+  assert.ok(fn, 'attachPreviewCopy가 없다');
+  assert.match(fn.slice(0, 400), /kind !== 'spreadsheet' && Number\(version \|\| 0\) < 8/,
+    '스크립트 판을 안 보고 워드·PPT 변환을 보낸다');
+  assert.match(fn.slice(0, 900), /action: 'convert'[\s\S]{0,80}convertTo: kind/, 'convert 액션에 convertTo를 안 싣는다');
+});
+
+check('사본 만들기가 업로드 응답을 막지 않는다', () => {
+  // v7은 upload 안에서 변환까지 끝내고 답해서 올리는 시간에 변환 시간이 그대로 더해졌다
+  // (사용자 지적 — "미리보기에서 엄청 오래 기다렸다가 봐야하는데"). 지금은 행을 만든 뒤
+  // 뒤에서 붙인다. await을 붙이면 그 개선이 통째로 사라진다.
+  assert.ok(!/await attachPreviewCopy/.test(cloud), 'attachPreviewCopy를 기다린다 — 두 단계로 가른 뜻이 없어진다');
+  assert.match(cloud, /attachPreviewCopy\(row, \{/, '올린 뒤 사본을 붙이지 않는다');
+  // 사본 id는 행에 UPDATE로 따라 붙는다(RLS files_update는 승인된 사람에게 열려 있다 · 0047)
+  assert.match(cloud.slice(cloud.indexOf('function attachPreviewCopy')),
+    /from\('files'\)\.update\(\{ preview_file_id: out\.previewId \}\)/, '사본 id를 행에 안 적는다');
+  // 실패는 조용히 — 첨부는 이미 목록에 있고, 사본이 없으면 예전 길로 떨어질 뿐이다
+  assert.ok(!/showToast[^\n]*사본/.test(cloud), '사본 실패로 토스트를 띄운다');
+});
+
+check('백필이 v8 미만에서 워드·PPT를 건너뛴다', () => {
+  assert.match(backfill, /Number\(probe\.version \|\| 0\)/, '스크립트 판을 안 읽는다');
+  assert.match(backfill, /r\.kind === 'spreadsheet' \|\| VERSION >= 8/, 'v8 미만에서도 워드·PPT를 보낸다');
+  // 목록을 여기 따로 들면 앱과 갈라진다
+  assert.match(backfill, /from '\.\.\/src\/services\/previewKind\.js'/, '확장자 표를 앱과 나눠 쓰지 않는다');
+  // 읽기가 기본이고 --fix는 명시해야 한다(사본을 만드는 일은 되돌리기가 번거롭다)
+  assert.match(backfill, /const FIX = process\.argv\.includes\('--fix'\)/, '읽기가 기본이 아니다');
+});
+
+check('gdoc은 구글 화면을 그대로 띄운다 (FilePreviewModal)', () => {
+  const branch = preview.slice(preview.indexOf("if (kind === 'gdoc')"), preview.indexOf("if (kind === 'sheet') {"));
+  assert.ok(branch, 'gdoc 가지를 못 찾았다');
+  assert.match(branch, /previewCopyUrl\(cur\)/, '사본 주소를 안 쓴다');
+  // 구글 미리보기는 언제나 밝은 화면이다 — 투명하게 두면 다크 모드에서 글자가 안 보인다
+  assert.match(branch, /bg-white/, '흰 바탕을 안 깐다');
+  assert.match(branch, /w-full h-full/, '틀을 꽉 안 채운다');
+  // 뜨기 전에는 스켈레톤이 같은 자리를 채운다(빈 흰 칸이 먼저 보이면 그게 더 나쁘다)
+  assert.match(branch, /!frameReady && <PreparingFrame absolute \/>/, '준비 중 자리가 없다');
+  assert.match(branch, /FRAME_SETTLE/, 'onLoad 직후에 걷으면 첫 장이 안 그려진 채로 보인다');
+  // 어느 뷰어인지 화면이 거짓말하지 않는다(§6-29-b) — 사본은 구글이다
+  const note = /const viewerNote = \(row\) => \(([\s\S]{0,200}?)\);/.exec(preview)?.[1] || '';
+  assert.match(note, /preview_file_id/, '사본으로 그리는 파일이 마이크로소프트로 적힐 수 있다');
 });
 
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');

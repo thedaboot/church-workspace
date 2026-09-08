@@ -1,6 +1,6 @@
 import { supabase } from './supabaseClient.js';
 import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, fetchMyPerson, guestStore } from './people.js';
-import { SUNDAY_KIND, fetchMyNote, saveMyNote } from './worship.js';
+import { SUNDAY_KIND, kstNow, fetchMyNote, saveMyNote } from './worship.js';
 import { insertNotifications } from './cloud.js';
 import { generateId } from '../utils.js';
 
@@ -119,10 +119,35 @@ export function myGroupIds(myPerson, groups = [], members = []) {
     || members.some(m => m.group_id === g.id && m.person_id === myPerson.id)).map(g => g.id);
 }
 
-// 가장 최근 발행 주일 예배 한 건. 없으면 null이고, 그때는 출석 줄을 아예 그리지 않는다.
+// 가장 최근 발행 주일 예배 한 건. 없으면 null이다.
+// **이것은 '앞으로 올 주일'까지 포함한다** — 순모임 가이드가 이 값을 쓴다(그 주 예배로
+// 무엇을 나눌지는 예배 전에 준비한다). 출석 줄은 아래 attendanceSunday를 쓴다.
 export const latestSunday = (services = []) => [...services]
   .filter(s => s.kind === SUNDAY_KIND && s.status === 'published')
   .sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)))[0] || null;
+
+// ── 출석을 셀 기준 예배 (사용자 결정 2026-09-08) ────────────────────────────
+// "순 예배 출석 쪽은 주일예배 주보가 새로이 발행되었고, 해당 날짜(주일)가 되어서 출석
+// 정보가 입력이 되면 그 때 변경하기. 홈페이지 출석 인원도 마찬가지."
+//
+// 예전에는 출석 줄도 latestSunday를 썼다 — **날짜를 보지 않아서**, 목요일에 이번 주일
+// 주보를 발행하면 그 순간부터 내 순 카드가 아직 오지도 않은 예배의 `0/N`을 세었다.
+// 지금은 두 조건을 같이 본다: **오늘까지 온 주일**이고 **출석이 실제로 들어온** 것.
+// counts는 worship.fetchAttendanceCounts()가 주는 `{ 주보 id: 행 수 }`이고 명단 출석과
+// 손님(attendance_guests)을 함께 센다 — '누가 입력을 했는가'의 신호로 쓴다.
+//
+// 아직 아무 주일에도 출석이 없으면 null이다. **그때 부르는 쪽이 지난 주일로 떨어진다**
+// (worship.pastSunday) — 떨어지는 일을 여기 넣지 않는 이유는 그 자리에서 하는 말이
+// 화면마다 다르기 때문이다(홈은 '지난 주일 N명 참석', 모임 카드는 그 날짜의 n/m).
+// 날짜는 'YYYY-MM-DD'라 글자 비교가 곧 날짜 비교이고, 모양이 깨진 행은 세지 않는다.
+export function attendanceSunday(services = [], counts = {}, today = kstNow().slice(0, 10)) {
+  return (services || [])
+    .filter(s => s?.kind === SUNDAY_KIND && s?.status === 'published'
+      && /^\d{4}-\d{2}-\d{2}$/.test(String(s?.service_date || ''))
+      && String(s.service_date) <= String(today))
+    .sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)))
+    .find(s => Number(counts?.[s.id] || 0) > 0) || null;
+}
 
 // 그 사람들 중 몇이 왔나 — 순 카드의 n/m이 이 셈을 쓴다.
 export const presentCount = (list = [], present) => {

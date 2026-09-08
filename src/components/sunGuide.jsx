@@ -1,55 +1,83 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Heart, Pencil, Wand2 } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Download, Heart, Pencil, Pin, Wand2 } from 'lucide-react';
+import logoLight from '../assets/logo-light.png';
 import { Skeleton } from './media.jsx';
 import { SectionHead } from '../views/dashboardParts.jsx';
-import { BTN, BTN_QUIET, CARD_STYLE, WITH_ICON } from './groupsParts.jsx';
+import { BTN, BTN_QUIET, MenuPick, WITH_ICON } from './groupsParts.jsx';
 import { showToast } from './Toast.jsx';
 import { supabase } from '../services/supabaseClient.js';
+import { dropCache, useCached } from '../services/cache.js';
 import { failText } from '../services/errorText.js';
+import { isKakaoInApp } from '../utils.js';
 import {
-  LIMITS, POINTS,
-  fitGuide, guideDateLabel, generateGuide, loadGuide, saveGuide, splitBold,
+  LIMITS,
+  fitGuide, generateGuide, guideDateLabel, guideServiceLabel,
+  loadGuide, pinGuide, saveGuide, splitBold,
 } from '../services/sunGuide.js';
 
 // ============================================================================
-// 순모임 가이드 섹션 — 내 순 탭의 **순 카드 밑** (docs/V2.md · 0039 · services/sunGuide.js)
+// 순모임 가이드 섹션 — 내 순 탭의 **순 카드 밑** (docs/V2.md · 0039 · 0055 ·
+// services/sunGuide.js)
 // ----------------------------------------------------------------------------
 // 자리와 머리줄은 사용자 지적으로 두 번째 판이다(2026-09-03 — "버튼 배치를 왜 이렇게
 // 해놨나, 섹션은 순 카드 밑으로"). 처음에는 카드 위에 놓고, 제목과 버튼을 종이 폭
 // (560px)에 맞춰 화면 가운데에 띄웠다 — 그래서 제목이 순 카드의 어느 선과도 맞지
 // 않고 버튼만 허공에 떠 보였다. 지금은 **화면의 다른 섹션과 같은 머리줄**이다:
-// SectionHead(제목 왼쪽 · 가로선 · 동작 버튼 오른쪽 끝) — '구성원 3명'·'모임'·
-// '가입 신청 1건'과 한 벌이고, 종이는 그 머리줄 왼쪽 끝에서 시작한다.
+// SectionHead(제목 왼쪽 · 가로선 · 동작 오른쪽 끝) — '구성원 3명'·'모임'과 한 벌이고,
+// 종이는 그 머리줄 왼쪽 끝에서 시작한다.
 // ----------------------------------------------------------------------------
-// 사용자가 준 템플릿(세로 카드 3장 · 상단 좌 날짜 / 우 '순모임 가이드' · 하단
-// THE DABOOT MINISTRY)을 우리 토큰으로 옮긴 것이다. 원본은 베이지 배경 + 흰 블롭
-// 카드였는데 **베이지를 박아 두지 않는다** — 다크 모드에서 그 종이만 밝게 남는다.
-// 종이는 `--app-surface`, 바탕은 화면의 canvas다.
+// **종이는 늘 밝다**(사용자 스펙 2026-09-08 — "만든 가이드를 이미지로 저장도 할 수
+// 있게, 로고도 잘 포함될 수 있도록"). 이건 화면 UI가 아니라 **인쇄물**이고, 눌러서
+// 그림으로 굽는 그 종이다. 다크 테마에서 어둡게 그리면 저장한 그림도 어둡게 나가거나,
+// 화면과 파일이 서로 다른 그림이 된다 — 동아리 QR 카드와 같은 판단이다(ClubQr.jsx
+// "카드는 언제나 밝다"). 그래서 종이 안쪽 색은 **라이트 토큰 값을 그대로 박고**,
+// 종이를 감싸는 것(머리줄·버튼·편집 칸)은 여느 화면처럼 테마를 따라간다.
+// 예전 판은 반대였다(종이 = --app-surface). 그 결정은 이미지 저장이 없던 때의 것이다.
 //
 // 값은 전부 `service`와 sun_guides의 body에서 온다. 자격 판정은 하지 않는다 —
-// 부르는 쪽(모임 화면)이 `perms = { canCreate, canView }`로 넘긴다. 진실은 RLS다
-// (0039: 보는 사람 = 순장 + can_manage_sun, 만드는 사람 = can_manage_sun).
+// 부르는 쪽(모임 화면)이 `perms = { canView, canCreate, canPin }`로 넘긴다. 진실은
+// RLS다(0039·0055: 보기 = 순장 + can_manage_sun, 쓰기 = 그 둘 · 고정된 행은 마스터만,
+// 고정 = 마스터).
 //
-// **읽기는 두 갈래다.** 바깥이 이미 캐시에서 읽어 두었으면 `initialGuide`로 넘기고
-// (`loading`이 참인 동안은 이 패널이 아무것도 그리지 않는다 — 컨테이너의 스켈레톤
-// 한 덩이가 그 자리를 맡는다), 안 넘기면 패널이 스스로 loadGuide를 부른다.
-// 저장이 끝나면 `onSaved(body)`로 알려서 바깥이 캐시를 갱신한다. 자세한 계약은
-// SunGuidePanel 바로 위 주석에 적어 두었다.
+// **읽기는 이 패널이 한다**(2026-09-08에 바뀌었다). 기준 주보를 사람이 고를 수 있게
+// 되면서 "바깥이 미리 읽어 둔 한 벌"로는 모자란다 — 고른 주보마다 다른 한 벌이다.
+// 그래서 services/cache.js의 useCached를 주보 id로 걸고(`groups:guide:<id>`), 한 번
+// 읽은 가이드는 다시 눌러도 AI를 부르지 않는다(사용자 스펙의 "캐싱 구조").
+// 저장·고정 뒤에는 그 키를 비우고 다시 읽으며, 바깥에도 알린다(onChanged) — 바깥은
+// '지금 고정된 주보'를 들고 있다.
 //
-// 소제목 번호('1.')와 질문의 'Q.'는 **여기서 붙인다** — body에 넣으면 모델이 번호를
-// 어긋나게 매기고 글자수 상한도 번호가 잡아먹는다(sunGuide.js 주석).
+// 소제목 번호('1.')와 질문의 'Q.', 예시 줄의 '(EX. …)'는 **여기서 붙인다** — body에
+// 넣으면 모델이 번호를 어긋나게 매기고 글자수 상한도 번호가 잡아먹는다(sunGuide.js).
 // ============================================================================
 
-const HEART = <Heart size={11} className="fill-current shrink-0" style={{ color: 'var(--app-accent)' }} />;
+// 라이트 토큰 값 그대로다(index.css :root) — 위 머리말의 '종이는 늘 밝다'.
+const PAPER = '#eeecef';   // --app-surface-hover — 종이 바탕(카드가 떠 보이게 canvas보다 한 단 깊다)
+const CARD = '#fffdfc';    // --app-surface
+const LINE = '#dcd8dc';    // --app-line
+const INK = '#191720';     // --app-ink
+const INK_2 = '#2b2833';   // --app-ink-secondary
+const INK_M = '#6b6675';   // --app-ink-muted
+const INK_F = '#a29daa';   // --app-ink-faint
+const ACCENT = '#3f6fc4';  // --app-accent
+const RED = '#993731';     // --app-tag-red-fg
 
-// 카드 한 장 — 큰 radius의 종이. 템플릿의 흰 블롭 카드 자리다.
-const PAGE = 'sun-guide-page rounded-[20px] px-5 py-5 md:px-6 md:py-6';
+// 종이 위의 큰 카드 — **위가 넓은 돔**이다(사용자가 준 템플릿). 가로 반지름은 폭의
+// 46%라 375px에서도 1440px에서도 같은 모양이고, 세로 반지름만 고정이라 돔의 높이가
+// 화면 폭을 따라 늘어나지 않는다(둘 다 %로 두면 세로로 긴 종이에서 돔이 반쯤 잡아먹는다).
+// 두 가로 반지름의 합이 100%를 넘으면 브라우저가 비율로 줄인다 — 46 + 46 = 92%.
+const DOME = '46% 46% 18px 18px / 84px 84px 18px 18px';
+
+// 내려받는 그림의 가로 픽셀(2배). 종이는 화면에서 최대 560px이라 여기서 약 2배다.
+const EXPORT_W = 1080;
+
+const HEART = <Heart size={11} className="fill-current shrink-0 block" style={{ color: ACCENT }} />;
 
 // 종이 안의 머리 — 하트 + 이름. 템플릿의 '♥ 주일 본문' 그대로다.
 // (화면 섹션의 머리줄은 dashboardParts의 SectionHead다 — 이름이 겹치지 않게 나눈다.)
 function SheetHead({ children, className = '' }) {
   return (
-    <p className={`sun-guide-head flex items-center gap-1.5 text-[12.5px] font-bold text-fg ${className}`}>
+    <p className={`sun-guide-head flex items-center gap-1.5 text-[13px] font-bold ${className}`}
+      style={{ color: INK }}>
       {HEART}<span>{children}</span>
     </p>
   );
@@ -60,17 +88,17 @@ function SheetHead({ children, className = '' }) {
 function Rich({ text, className = '' }) {
   const parts = useMemo(() => splitBold(text), [text]);
   return (
-    <p className={`sun-guide-body text-[12.5px] leading-[1.75] text-fg-secondary ${className}`}>
+    <p className={`sun-guide-body text-[12.5px] leading-[1.75] ${className}`} style={{ color: INK_2 }}>
       {parts.map((p, i) => (p.bold
-        ? <strong key={i} className="font-bold text-fg">{p.text}</strong>
+        ? <strong key={i} className="font-bold" style={{ color: INK }}>{p.text}</strong>
         : <React.Fragment key={i}>{p.text}</React.Fragment>))}
     </p>
   );
 }
 
-// 빨간 소제목 — 템플릿의 번호 소제목. 색은 토큰(tag-red-fg)이다.
+// 빨간 소제목 — 템플릿의 번호 소제목.
 const Sub = ({ children, className = '' }) => (
-  <p className={`sun-guide-sub text-[12.5px] font-bold text-tag-red-fg ${className}`}>{children}</p>
+  <p className={`sun-guide-sub text-[12.5px] font-bold ${className}`} style={{ color: RED }}>{children}</p>
 );
 
 // ── 편집 ────────────────────────────────────────────────────────────────────
@@ -106,14 +134,21 @@ function Editor({ draft, setDraft, onSave, onRegen, onCancel, busy }) {
     points: draft.points.map((p, j) => (j === i ? { ...p, ...patch } : p)),
   });
   const setQuestion = (i, v) => set({ questions: draft.questions.map((q, j) => (j === i ? v : q)) });
+  // 줄글 요약 두 칸은 **그 값을 들고 있는 지난 가이드에서만** 나온다 — 2026-09-08
+  // 템플릿에는 없는 자리라, 없는 가이드에 빈 칸을 세우면 채워야 하는 칸처럼 보인다.
+  const hasSummary = !!(draft.summary || draft.summaryRef);
   return (
     <div className="sun-guide-edit space-y-3">
       <Field label="본문 한 마디" value={draft.passage.title} rows={1}
         onChange={(v) => set({ passage: { ...draft.passage, title: v } })} />
-      <Field label="요약이 다루는 구절" value={draft.summaryRef} limit={LIMITS.summaryRef} rows={1}
-        onChange={(v) => set({ summaryRef: v })} />
-      <Field label="말씀 요약" value={draft.summary} limit={LIMITS.summary} rows={6}
-        onChange={(v) => set({ summary: v })} />
+      {hasSummary && (
+        <>
+          <Field label="요약이 다루는 구절" value={draft.summaryRef} limit={LIMITS.summaryRef} rows={1}
+            onChange={(v) => set({ summaryRef: v })} />
+          <Field label="말씀 요약" value={draft.summary} limit={LIMITS.summary} rows={6}
+            onChange={(v) => set({ summary: v })} />
+        </>
+      )}
       {draft.points.map((p, i) => (
         <div key={i} className="space-y-2">
           <Field label={`${i + 1}. 소제목`} value={p.title} limit={LIMITS.pointTitle} rows={1}
@@ -126,6 +161,8 @@ function Editor({ draft, setDraft, onSave, onRegen, onCancel, busy }) {
         <Field key={i} label={`나눔 질문 ${i + 1}`} value={q} limit={LIMITS.question} rows={2}
           onChange={(v) => setQuestion(i, v)} />
       ))}
+      <Field label="마지막 질문에 곁들일 예시" value={draft.questionNote} limit={LIMITS.questionNote} rows={2}
+        onChange={(v) => set({ questionNote: v })} />
       {/* 도구 줄 — 모임 화면의 다른 도구 줄과 같은 짜임이다(§8 · gap-1.5 ·
           확정 왼쪽 / 나가기 오른쪽). 저장이 손가락 자리를 지킨다. */}
       <div className="sun-guide-tools flex items-center gap-1.5 pt-1">
@@ -141,126 +178,143 @@ function Editor({ draft, setDraft, onSave, onRegen, onCancel, busy }) {
 }
 
 // ── 템플릿 ──────────────────────────────────────────────────────────────────
-function Sheet({ guide, dateLabel }) {
-  const [p1, p2, p3] = guide.points;
+// 사용자가 준 템플릿 그대로다: 머리 줄(왼쪽 날짜 · 세로선 · 오른쪽 '순모임 가이드')
+// → 위가 돔인 흰 카드(로고 · ♥ 주일 본문 · ♥ 말씀 요약 · ♥ 오늘의 나눔 질문)
+// → 짧은 가로선 + THE DABOOT MINISTRY.
+//
+// 머리 줄의 '순모임 가이드'는 섹션 머리줄과 같은 글자다. 한때 그게 실수처럼 보여서
+// 뺐었는데(2026-09-03), 이제 이 종이는 **그림으로 나간다** — 카카오톡으로 받은 사람에게
+// 이 줄이 없으면 무슨 종이인지 알 수 없다. 화면의 섹션 이름과 종이의 제목은 다른 일을
+// 한다(하나는 화면 목차, 하나는 인쇄물의 제목).
+function Sheet({ guide, dateLabel, sheetRef }) {
+  // 빈 질문은 그리지 않는다 — fitGuide가 셋을 채워 두므로 넷째가 비어 있을 수 있고,
+  // 빈 줄에 'Q.'만 남으면 종이에 구멍이 생긴다.
+  const questions = guide.questions.filter((q) => q.trim());
   return (
-    <div className="sun-guide-sheet">
-      {/* 템플릿의 머리 줄. 오른쪽에 있던 '순모임 가이드'는 **섹션 머리줄로 올라갔다** —
-          바로 위에 같은 글자가 두 번 있으면 그중 하나는 실수처럼 보인다. */}
-      <div className="sun-guide-top flex items-baseline gap-2 px-1 pb-2">
-        <span className="text-[11px] font-semibold text-fg-muted tabular-nums">{dateLabel}</span>
+    <div ref={sheetRef} className="sun-guide-sheet px-3 pt-3.5 pb-4 rounded-[14px]"
+      style={{ background: PAPER, color: INK }}>
+      <div className="sun-guide-top flex items-stretch" style={{ borderBottom: `1px solid ${LINE}` }}>
+        <p className="sun-guide-head-date flex-1 min-w-0 px-1 pb-2 text-[17px] md:text-[19px] leading-tight tabular-nums truncate"
+          style={{ color: INK }}>{dateLabel}</p>
+        <p className="sun-guide-head-name shrink-0 pl-3 md:pl-4 pb-2 text-[17px] md:text-[19px] font-extrabold leading-tight"
+          style={{ borderLeft: `1px solid ${LINE}`, color: INK }}>순모임 가이드</p>
       </div>
 
-      <div className="space-y-3">
-        <article className={PAGE} style={CARD_STYLE}>
-          <SheetHead>주일 본문</SheetHead>
-          <p className="sun-guide-ref mt-1.5 text-[14px] font-extrabold text-fg break-words">
-            {guide.passage.ref}
-            {guide.passage.title && (
-              <span className="sun-guide-ref-title font-bold text-accent-text"> [{guide.passage.title}]</span>
-            )}
-          </p>
-          <SheetHead className="mt-4">말씀 요약</SheetHead>
-          {/* 요약이 다루는 구절 범위. 템플릿의 '[요한복음 8:1~11 배경 요약]' 자리이고,
-              주일 본문의 **앞 문맥**일 때가 많아 본문 구절로 만들어 낼 수 없다.
-              값이 없으면 소제목을 아예 두지 않는다 — 빈 대괄호가 남으면 안 된다. */}
-          {guide.summaryRef && <Sub className="mt-1.5">{`[${guide.summaryRef} 배경 요약]`}</Sub>}
-          <Rich text={guide.summary} className="mt-1.5" />
-        </article>
+      <article className="sun-guide-page mt-3 px-5 md:px-8 pt-[46px] md:pt-[54px] pb-7"
+        style={{ background: CARD, borderRadius: DOME }}>
+        <img src={logoLight} width="640" height="469" alt="더다붓" decoding="async"
+          className="sun-guide-logo block mx-auto h-9 md:h-10 w-auto" />
 
-        <article className={PAGE} style={CARD_STYLE}>
-          {[p1, p2].map((p, i) => (
-            <div key={i} className={i ? 'mt-4' : ''}>
-              <Sub>{`${i + 1}. ${p.title}`}</Sub>
-              <Rich text={p.body} className="mt-1.5" />
-            </div>
-          ))}
-        </article>
+        <SheetHead className="mt-5">주일 본문</SheetHead>
+        <p className="sun-guide-ref mt-2 text-[14.5px] font-extrabold break-words" style={{ color: INK }}>
+          {guide.passage.ref}
+          {guide.passage.title && (
+            <span className="sun-guide-ref-title font-bold" style={{ color: RED }}> [{guide.passage.title}]</span>
+          )}
+        </p>
 
-        <article className={PAGE} style={CARD_STYLE}>
-          <Sub>{`${POINTS}. ${p3.title}`}</Sub>
-          <Rich text={p3.body} className="mt-1.5" />
-          <SheetHead className="mt-4">오늘의 나눔 질문</SheetHead>
-          <div className="mt-1.5 space-y-2">
-            {guide.questions.map((q, i) => (
-              <p key={i} className="sun-guide-q flex gap-1.5 text-[12.5px] leading-[1.7] text-fg-secondary">
-                <span className="font-bold text-tag-red-fg shrink-0">Q.</span>
+        <SheetHead className="mt-6">말씀 요약</SheetHead>
+        {/* 줄글 요약 두 줄은 **지난 가이드에만** 있다(sunGuide.js 머리말) — 값이 있을
+            때만 그린다. 빈 대괄호나 빈 단락이 남으면 안 된다. */}
+        {guide.summaryRef && <Sub className="mt-2">{`[${guide.summaryRef} 배경 요약]`}</Sub>}
+        {guide.summary && <Rich text={guide.summary} className="mt-1.5" />}
+        {guide.points.map((p, i) => (
+          <div key={i} className="mt-3">
+            <Sub>{`${i + 1}. ${p.title}`}</Sub>
+            <Rich text={p.body} className="mt-1.5" />
+          </div>
+        ))}
+
+        <SheetHead className="mt-6">오늘의 나눔 질문</SheetHead>
+        <div className="mt-2 space-y-2.5">
+          {questions.map((q, i) => (
+            <div key={i}>
+              <p className="sun-guide-q flex gap-1.5 text-[12.5px] leading-[1.7]" style={{ color: INK_2 }}>
+                <span className="font-bold shrink-0" style={{ color: RED }}>Q.</span>
                 <span>{q}</span>
               </p>
-            ))}
-          </div>
-        </article>
-      </div>
+              {/* 마지막 질문에 곁들이는 한 줄. 괄호와 'EX.'는 화면이 붙인다. */}
+              {i === questions.length - 1 && guide.questionNote && (
+                <p className="sun-guide-q-note mt-1 pl-[18px] text-[11px] leading-[1.6]"
+                  style={{ color: INK_M }}>{`(EX. ${guide.questionNote})`}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      </article>
 
-      <p className="sun-guide-mark mt-3 text-center text-[9.5px] font-semibold text-fg-faint"
-        style={{ letterSpacing: '2.4px' }}>THE DABOOT MINISTRY</p>
+      <div className="sun-guide-foot mt-3.5 flex flex-col items-center gap-1.5">
+        <span className="block w-9 h-px" style={{ background: LINE }} />
+        <p className="sun-guide-mark text-[9.5px] font-semibold"
+          style={{ color: INK_F, letterSpacing: '2.4px' }}>THE DABOOT MINISTRY</p>
+      </div>
     </div>
   );
 }
 
-// 만드는 동안 — 카드 세 장이 설 자리를 그대로 잡는다(높이는 실제 카드에 가깝게).
+// 만드는 동안 — 종이 한 장이 설 자리를 그대로 잡는다.
 // Skeleton은 className만 받는다(자리·크기는 유틸리티로) — media.jsx 주석.
 const SKELETON = (
-  <div className="sun-guide-loading space-y-3">
-    {['h-[132px]', 'h-[176px]', 'h-[196px]'].map((h) => (
-      <Skeleton key={h} className={`w-full rounded-[20px] ${h}`} />
-    ))}
+  <div className="sun-guide-loading">
+    <Skeleton className="w-full rounded-[14px] h-[520px]" />
   </div>
 );
 
 // ── 패널 ────────────────────────────────────────────────────────────────────
 // props (모임 화면과의 계약):
-//   service · perms      — 주보 한 건과 자격 { canCreate, canView }
-//   initialGuide         — 바깥이 **이미 캐시에서 읽어 둔** body, 또는 없으면 null.
-//                          `undefined`면 "바깥이 안 준다"는 뜻이라 여기서 직접 읽는다.
-//                          그래서 `!== undefined`로 가른다 — null과 undefined가 다른 뜻이다.
-//   loading              — 바깥이 아직 읽는 중. 이때는 **아무것도 그리지 않는다** —
-//                          바깥 컨테이너가 한 덩이 스켈레톤을 그리므로, 여기서 또 그리면
-//                          스켈레톤이 두 겹이 된다.
-//   onSaved(body)        — 저장이 끝난 뒤. 바깥이 자기 캐시를 갱신할 수 있게 알린다
-//                          (안 주면 안 부른다 — 옵셔널).
-export function SunGuidePanel({ service, perms, initialGuide, loading = false, onSaved }) {
+//   services         — 고를 수 있는 주보들(발행된 주일 · 최근순 · sunGuide.guideServices)
+//   service          — 고정이 없을 때 기본으로 여는 주보(가장 최근 주일)
+//   pinnedServiceId  — 지금 고정된 가이드가 붙은 주보 id, 없으면 ''
+//   perms            — { canView, canCreate, canPin }
+//   loading          — 바깥이 아직 주보 목록을 읽는 중. 이때는 **아무것도 그리지 않는다** —
+//                      바깥 컨테이너가 한 덩이 스켈레톤을 그리므로, 여기서 또 그리면
+//                      스켈레톤이 두 겹이 된다.
+//   onChanged()      — 저장·고정 뒤. 바깥이 '지금 고정된 주보'를 다시 읽게 알린다.
+export function SunGuidePanel({
+  services = [], service, pinnedServiceId = '', perms, loading = false, onChanged,
+}) {
   const canView = !!perms?.canView;
   const canCreate = !!perms?.canCreate;
-  const serviceId = service?.id || '';
-  // 바깥이 값을 대신 읽어 주는가. 그러면 이 패널은 읽지 않고 받은 것만 그린다.
-  const external = initialGuide !== undefined;
-  const [state, setState] = useState(() => (external ? (initialGuide ? 'view' : 'none') : 'load'));
-  const [guide, setGuide] = useState(() => (external ? (initialGuide || null) : null));
+  const canPin = !!perms?.canPin;
+
+  // 고를 수 있는 주보. 바깥이 목록을 못 줬으면 기본 한 건이라도 세운다.
+  const list = useMemo(
+    () => (services.length ? services : (service ? [service] : [])),
+    [services, service],
+  );
+  // **처음 여는 한 벌은 고정된 것**이다(사용자 스펙 2026-09-08 — "해당 가이드만 볼 수
+  // 있게끔"). 고정이 없으면 가장 최근 주일이다.
+  const defaultId = (pinnedServiceId && list.some((s) => s.id === pinnedServiceId))
+    ? pinnedServiceId : (service?.id || list[0]?.id || '');
+  const [picked, setPicked] = useState('');
+  const selectedId = (picked && list.some((s) => s.id === picked)) ? picked : defaultId;
+  const selected = list.find((s) => s.id === selectedId) || service || null;
+
   const [draft, setDraft] = useState(null);
+  const [making, setMaking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const sheetRef = useRef(null);
 
+  // 주보 한 건에 가이드 한 벌 — 캐시 열쇠도 주보 id다. 한 번 읽은 가이드는 다시 눌러도
+  // 읽기 한 번으로 끝난다(AI를 다시 부르지 않는다 — 저장된 글을 보여줄 뿐이다).
+  const guideQ = useCached(
+    `groups:guide:${selectedId || 'none'}`,
+    () => ((canView && selectedId) ? loadGuide(selectedId) : null),
+    [canView, selectedId],
+  );
+  // 가이드는 이 화면의 곁가지다 — 못 받아도 순 명단은 그대로 서야 한다
   useEffect(() => {
-    // 바깥이 주는 경우에는 **여기서 또 읽지 않는다** — 같은 행을 두 번 읽고, 늦게
-    // 도착한 쪽이 이겨서 화면이 한 번 깜빡인다.
-    if (external || !serviceId || !canView) return undefined;
-    let alive = true;
-    setState('load'); setGuide(null); setDraft(null);
-    loadGuide(serviceId)
-      .then((body) => {
-        if (!alive) return;
-        setGuide(body);
-        setState(body ? 'view' : 'none');
-      })
-      .catch((e) => {
-        // 가이드는 이 화면의 곁가지다 — 못 받아도 순 명단은 그대로 서야 한다
-        console.error('[sunGuide] 가이드를 받지 못했어요:', e);
-        if (alive) setState('none');
-      });
-    return () => { alive = false; };
-  }, [external, serviceId, canView]);
+    if (guideQ.error) console.error('[sunGuide] 가이드를 받지 못했어요:', guideQ.error);
+  }, [guideQ.error]);
+  // 고른 주보가 바뀌면 쓰던 초안을 접는다 — 다른 주보의 종이에 앞 주보의 초안이
+  // 얹히면 무엇을 저장하는지 알 수 없다.
+  useEffect(() => { setDraft(null); setMaking(false); }, [selectedId]);
 
-  // 바깥의 값이 갈리면(캐시 revalidate) 따라간다. **편집·생성 중에는 손대지 않는다** —
-  // 쓰던 초안을 캐시가 덮으면 사람이 다듬던 글을 잃는다.
-  // 의존성을 값의 지문으로 잡는 이유: 바깥이 매 렌더 새 객체를 만들어 넘겨도 내용이
-  // 같으면 여기서 setState가 돌지 않아야 한다(돌면 렌더가 서로를 부른다).
-  const extFingerprint = external ? JSON.stringify(initialGuide ?? null) : '';
-  useEffect(() => {
-    if (!external) return;
-    setGuide(initialGuide || null);
-    setState(s => (s === 'edit' || s === 'make' ? s : (initialGuide ? 'view' : 'none')));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [external, extFingerprint, serviceId]);
+  const guide = guideQ.data?.body || null;
+  const pinned = !!guideQ.data?.pinned;
+  // 고정된 가이드는 **마스터 말고는 못 고친다**(0055의 write 정책과 같은 경계). 화면은
+  // 버튼을 감출 뿐이고, 고른 주보를 바꿔 다른 가이드를 보는 길은 그대로 열려 있다.
+  const locked = pinned && !canPin;
 
   // 왜 못 만들었는지를 말한다(사용자 지적 2026-09-03 — "가이드는 지금 만들지 못하는
   // 건지?"). generateGuide는 막힌 이유를 null 하나로 돌려주므로(AI 계층의 안내 문구는
@@ -274,30 +328,35 @@ export function SunGuidePanel({ service, perms, initialGuide, loading = false, o
   };
 
   const make = async () => {
-    setBusy(true); setState('make');
+    if (!selected) return;
+    setBusy(true); setMaking(true);
     try {
-      const body = await generateGuide(service);
+      const body = await generateGuide(selected);
       if (!body) {
         showToast(failText('지금은 가이드를 만들 수 없어요', { human: await whyCannotMake() }));
-        setState(guide ? 'view' : 'none');
         return;
       }
-      setDraft(body); setState('edit');
+      setDraft(body);
     } catch (e) {
       console.error('[sunGuide] 가이드를 만들지 못했어요:', e);
       showToast(failText('가이드를 만들지 못했어요', e));
-      setState(guide ? 'view' : 'none');
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setMaking(false); }
+  };
+
+  // 쓰기 뒤에는 **캐시를 비우고 다시 읽는다**(cache.js 주석) — 안 비우면 다른 탭에
+  // 갔다 오면 저장 전 값이 먼저 그려진다.
+  const reread = async () => {
+    dropCache('groups:guide');
+    await guideQ.refresh();
+    onChanged?.();
   };
 
   const save = async () => {
     setBusy(true);
     try {
-      const saved = await saveGuide(serviceId, draft);
-      setGuide(saved); setDraft(null); setState('view');
-      // 바깥이 캐시를 들고 있으면 갱신하라고 알린다 — 안 알리면 다른 탭에 갔다 오면
-      // 저장 전 값이 먼저 그려진다.
-      onSaved?.(saved);
+      await saveGuide(selectedId, draft);
+      setDraft(null);
+      await reread();
       showToast('순모임 가이드를 저장했어요');
     } catch (e) {
       console.error('[sunGuide] 가이드를 저장하지 못했어요:', e);
@@ -305,55 +364,152 @@ export function SunGuidePanel({ service, perms, initialGuide, loading = false, o
     } finally { setBusy(false); }
   };
 
-  if (!service || !canView) return null;
+  const pin = async (on) => {
+    setBusy(true);
+    try {
+      await pinGuide(selectedId, on);
+      await reread();
+      showToast(on ? '순모임 가이드를 고정했어요' : '순모임 가이드 고정을 풀었어요');
+    } catch (e) {
+      console.error('[sunGuide] 가이드를 고정하지 못했어요:', e);
+      showToast(failText(on ? '가이드를 고정하지 못했어요' : '고정을 풀지 못했어요', e));
+    } finally { setBusy(false); }
+  };
+
+  // 화면에 서 있는 그 종이를 그대로 그림으로 굽는다(2배). **라이브러리는 누를 때 받는다** —
+  // 이 버튼을 누르는 사람은 몇 명뿐인데 첫 번들에 실으면 모두가 내려받는다(ClubQr의
+  // qrcode-generator와 같은 판단). 종이가 이미 밝은 값으로만 그려져 있어서(위 머리말)
+  // 다크 테마에서도 파일은 같은 그림이다.
+  //
+  // 보내기·저장은 ClubQr과 같은 사다리다: 그림째 공유할 수 있으면 공유 시트로, 아니면
+  // 내려받기, **카카오 인앱 웹뷰는 내려받기가 막히므로** 새 탭에 띄운다(거기서는 길게
+  // 눌러 저장하는 기본 동작이 산다).
+  const saveImage = async () => {
+    const node = sheetRef.current;
+    if (!node || busy) return;
+    setBusy(true);
+    try {
+      const { default: html2canvas } = await import('html2canvas');
+      const width = node.offsetWidth || 560;
+      const canvas = await html2canvas(node, {
+        scale: Math.max(1, EXPORT_W / width),
+        backgroundColor: PAPER,
+        useCORS: true,
+        logging: false,
+      });
+      const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+      if (!blob) throw new Error('빈 그림');
+      const name = `순모임 가이드 ${guideDateLabel(selected?.service_date)}`.trim();
+      const file = new File([blob], `${name}.png`, { type: 'image/png' });
+      if (navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+          return;
+        } catch (e) {
+          if (e?.name === 'AbortError') return;
+          console.error('[sunGuide] 그림 공유 실패:', e);
+        }
+      }
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      if (isKakaoInApp(navigator.userAgent) || !('download' in a)) {
+        window.open(href, '_blank', 'noopener');
+      } else {
+        a.href = href;
+        a.download = `${name}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+      setTimeout(() => URL.revokeObjectURL(href), 8000);
+    } catch (e) {
+      console.error('[sunGuide] 이미지를 저장하지 못했어요:', e);
+      showToast(failText('이미지를 저장하지 못했어요', e));
+    } finally { setBusy(false); }
+  };
+
+  if (!canView || !selected) return null;
   // 바깥이 읽는 중이면 자리를 비운다 — 컨테이너가 한 덩이 스켈레톤을 그린다.
   if (loading) return null;
-  // 스스로 읽는 동안에도 아무것도 두지 않는다 — 여기 빈 카드를 세우면 가이드가 없는
-  // 순장(대다수)에게 카드가 한 번 떴다가 사라진다. 한 행을 읽는 일이라 금방 끝난다.
-  if (state === 'load') return null;
-  if (state === 'none' && !canCreate) return null;
 
-  const dateLabel = guideDateLabel(service.service_date);
-  // 동작 버튼은 **머리줄 오른쪽 끝**에 선다 — '모임' 섹션의 '모임 만들기'와 같은 자리다.
-  // 가이드가 아직 없으면 만들기 하나(확정이라 accent), 있으면 수정·다시 만들기 둘
-  // (이미 있는 것을 손대는 일이라 조용한 버튼)이다.
-  const actions = state === 'none' && canCreate
-    ? (
-      <button type="button" className={`sun-guide-create ${WITH_ICON} ${BTN}`} disabled={busy} onClick={make}>
-        <Wand2 size={12} /><span>AI로 만들기</span>
-      </button>
-    )
-    : (state === 'view' && canCreate ? (
-      <>
-        <button type="button" className={`sun-guide-editbtn ${WITH_ICON} ${BTN_QUIET}`}
-          onClick={() => { setDraft(fitGuide(guide)); setState('edit'); }}>
-          <Pencil size={12} /><span>수정</span>
+  const dateLabel = guideDateLabel(selected.service_date);
+  const editing = !!draft;
+  const showSheet = !editing && !making && !guideQ.loading && !!guide;
+
+  // 동작은 **머리줄 오른쪽 끝**에 선다 — '모임' 섹션의 '모임 만들기'와 같은 자리다.
+  // 모바일에서는 줄이 모자라니 접힌다(flex-wrap) — 감추지 않는다(§8).
+  // 가이드가 아직 없으면 만들기 하나(확정이라 accent), 있으면 이미 있는 것을 손대는
+  // 일이라 조용한 버튼들이다.
+  const actions = (
+    <span className="sun-guide-actions flex flex-wrap items-center justify-end gap-1.5 min-w-0">
+      {/* 어느 주보로 만들 것인가(사용자 스펙 2026-09-08). 보는 사람 모두에게 열려 있다 —
+          지난 주 가이드를 다시 펼쳐 보는 길이기도 하다. */}
+      {list.length > 1 && (
+        <MenuPick className="sun-guide-pick" label="가이드 기준 주보 고르기"
+          items={list.map((s) => ({ id: s.id, name: guideServiceLabel(s) }))}
+          onPick={(id) => setPicked(id)}>
+          {dateLabel || '주보 고르기'}
+        </MenuPick>
+      )}
+      {/* '고정' 배지는 **고정할 수 있는 사람에게만** 보인다(§4.4의 3줄 요약과 같은
+          판단) — 읽는 사람에게는 저장된 글인지가 같은 값이고, 배지가 붙으면 글보다
+          누가 골라 뒀는지를 먼저 보게 된다. 고정한 사람 이름은 DB에만 남는다. */}
+      {canPin && pinned && (
+        <span className="sun-guide-pinned inline-flex items-center gap-1 text-[10px] text-fg-faint">
+          <Pin size={9} />고정
+        </span>
+      )}
+      {showSheet && (
+        <button type="button" className={`sun-guide-image ${WITH_ICON} ${BTN_QUIET}`}
+          disabled={busy} onClick={saveImage}>
+          <Download size={12} /><span>이미지로 저장</span>
         </button>
-        <button type="button" className={`sun-guide-regen ${WITH_ICON} ${BTN_QUIET}`} disabled={busy} onClick={make}>
-          <Wand2 size={12} /><span>다시 만들기</span>
+      )}
+      {showSheet && canCreate && !locked && (
+        <>
+          <button type="button" className={`sun-guide-editbtn ${WITH_ICON} ${BTN_QUIET}`}
+            disabled={busy} onClick={() => setDraft(fitGuide(guide))}>
+            <Pencil size={12} /><span>수정</span>
+          </button>
+          <button type="button" className={`sun-guide-regen ${WITH_ICON} ${BTN_QUIET}`}
+            disabled={busy} onClick={make}>
+            <Wand2 size={12} /><span>다시 만들기</span>
+          </button>
+        </>
+      )}
+      {showSheet && canPin && (
+        <button type="button" className={`sun-guide-pin ${WITH_ICON} ${BTN_QUIET}`}
+          disabled={busy} onClick={() => pin(!pinned)}>
+          <Pin size={12} /><span>{pinned ? '고정 해제' : '고정'}</span>
         </button>
-      </>
-    ) : null);
+      )}
+      {!editing && !making && !guideQ.loading && !guide && canCreate && (
+        <button type="button" className={`sun-guide-create ${WITH_ICON} ${BTN}`}
+          disabled={busy} onClick={make}>
+          <Wand2 size={12} /><span>AI로 만들기</span>
+        </button>
+      )}
+    </span>
+  );
 
   // **폭은 내 순 카드와 같다.** 섹션 자신에게 max-w를 주지 않으므로 이 화면의 다른
   // 섹션과 같은 열에 서고, 왼쪽·오른쪽 끝이 위 카드와 같은 선에 떨어진다
   // (사용자 지적 2026-09-03 — 처음에는 섹션 전체가 `max-w-[560px] mx-auto`여서
   // 제목과 버튼이 카드의 어느 선과도 맞지 않고 화면 가운데에 떠 있었다).
-  // 종이만 상한을 두고 **그 카드 폭 안에서 가운데**로 세운다(mx-auto) — 카드 세 장이
-  // 세로로 이어지는 인쇄물이라 1440px을 가로로 다 쓰면 한 줄이 화면을 가로지른다
-  // (토스트 폭 상한과 같은 판단, §8). 좌우 여백이 같아야 인쇄물처럼 보인다.
-  // 편집 화면도 같은 폭·같은 가운데다 — 미리보기와 편집이 같은 종이여야 자리가
-  // 안 흔들린다.
+  // 종이만 상한을 두고 **그 카드 폭 안에서 가운데**로 세운다(mx-auto) — 세로로 이어지는
+  // 인쇄물이라 1440px을 가로로 다 쓰면 한 줄이 화면을 가로지른다(토스트 폭 상한과 같은
+  // 판단, §8). 편집 화면도 같은 폭·같은 가운데다 — 미리보기와 편집이 같은 종이여야
+  // 자리가 안 흔들린다.
   return (
     <section className="sun-guide dc-card pt-1">
       <SectionHead right={actions}>순모임 가이드</SectionHead>
       <div className="sun-guide-body-wrap w-full max-w-[560px] mx-auto">
-        {state === 'make' && SKELETON}
-        {state === 'edit' && draft && (
+        {(making || guideQ.loading) && SKELETON}
+        {editing && (
           <Editor draft={draft} setDraft={setDraft} busy={busy} onSave={save} onRegen={make}
-            onCancel={() => { setDraft(null); setState(guide ? 'view' : 'none'); }} />
+            onCancel={() => setDraft(null)} />
         )}
-        {state === 'view' && guide && <Sheet guide={guide} dateLabel={dateLabel} />}
+        {showSheet && <Sheet guide={guide} dateLabel={dateLabel} sheetRef={sheetRef} />}
       </div>
     </section>
   );

@@ -8,8 +8,8 @@ import { CARD, CARD_STYLE, Empty } from '../components/groupsParts.jsx';
 import { ISO_TODAY, byDue } from './dashboardParts.jsx';
 import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry } from '../services/word.js';
 import { loadPassage } from '../services/bible.js';
-import { kindLabel, fetchServices, fetchAttendance, pastSunday } from '../services/worship.js';
-import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotes } from '../services/groups.js';
+import { kindLabel, fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday } from '../services/worship.js';
+import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotes, attendanceSunday } from '../services/groups.js';
 import { useCached } from '../services/cache.js';
 import { useLiveRefresh } from '../services/liveV2.js';
 import logoLight from '../assets/logo-light.png';
@@ -304,7 +304,7 @@ function TasksCard({ tasks, today, onOpenList, onOpenTask, delay, slot, enter = 
           <div className="home-tasks-more mt-1 flex justify-end">
             <button type="button" onClick={onOpenList}
               className="home-tasks-more-go inline-flex items-center gap-0.5 h-[15px] text-[11.5px] font-semibold text-fg-muted whitespace-nowrap hover:text-fg transition-colors">
-              {`+${more}건 더`}
+              {`+${more}건`}
               <ChevronRight size={12} className="shrink-0" />
             </button>
           </div>
@@ -522,9 +522,23 @@ export function HomeView({ onNavigate, onTaskClick }) {
   // '지난 주일'은 **오늘보다 앞선** 발행 주일 주보다(worship.pastSunday). 예전에는 가장
   // 최근 발행 주일이라, 주일 당일에 홈이 **오늘 주보**를 '지난 주일'이라 부르며 참석 수를
   // 세었다(사용자 지적 2026-09-06). 그런 주보가 없으면 null이고 그 도막은 그리지 않는다.
+  //
+  // 그 위에 한 겹이 더 붙었다(사용자 결정 2026-09-08 — "홈페이지 출석 인원도 마찬가지"):
+  // 참석 수를 세는 주보는 **출석이 실제로 들어온 가장 최근 주일**이다(groups.attendanceSunday).
+  // 주일 당일이라도 출석을 부르고 나면 그날 것으로 바뀌고, 아직 아무 주일에도 출석이
+  // 없으면 지난 주일로 떨어진다. 그래서 주보별 출석 수를 같이 받아 온다 — 목록 한 번에
+  // 조회 하나가 더 붙을 뿐이고(worship.fetchAttendanceCounts는 표 두 개를 통째로 센다),
+  // 예배 목록과 같은 열쇠에 담기므로 다음 진입에는 네트워크가 없다.
   const svcQ = useCached(`home:services:${day}`, loud('예배 목록', async () => {
-    const list = await fetchServices();
-    return { service: pickService(list, day) || null, latest: pastSunday(list, day) || null };
+    const [list, counts] = await Promise.all([fetchServices(), fetchAttendanceCounts()]);
+    return {
+      service: pickService(list, day) || null,
+      latest: attendanceSunday(list, counts, day) || pastSunday(list, day) || null,
+      // 참석 수를 세는 주보가 **오늘** 것인가 — 주일 당일에 출석을 부른 뒤에는 그 날
+      // 주보가 잡히므로 '지난 주일'이라 부르면 사실과 어긋난다(사용자 결정 2026-09-08:
+      // "당일 출석 부른 뒤에는 이번 주일 N명 참석, 그 날이 지나면 지난 주일 N명 참석").
+      latestToday: (attendanceSunday(list, counts, day)?.service_date || '') === day,
+    };
   }), [day]);
 
   // 메타 줄의 재료를 싣는다: 인원 · 지난 주일 참석 수 · 공유된 예배 노트 수.
@@ -576,6 +590,7 @@ export function HomeView({ onNavigate, onTaskClick }) {
     sunCount: sunQ.data?.count || 0,
     leaderName: sunQ.data?.leaderName || '',
     sunPresent: attQ.data ?? null,
+    sunPresentToday: !!svcQ.data?.latestToday,
     sunNotes: sunQ.data?.notes || 0,
     qtFirst: qtQ.data?.first || '',
   };
@@ -632,7 +647,7 @@ export function HomeView({ onNavigate, onTaskClick }) {
     // 인도자는 **홈에 싣지 않는다**(사용자 결정 2026-09-06). 주보 상세에는 그대로
     // 있다 — 홈 카드는 '무슨 예배에 무슨 설교'까지고, 누가 인도하는지는 들어가서 볼 일.
     worship: (delay, enter) => (
-      <LinkCard slot="worship" enter={enter} className="home-worship" label="이번 주 예배" icon={Church} delay={delay} title="예배로"
+      <LinkCard slot="worship" enter={enter} className="home-worship" label="돌아오는 주 예배" icon={Church} delay={delay} title="예배로"
         onOpen={() => onNavigate('worship')}
         focus={<span className="home-worship-title">{church.service.title || '설교 제목 미정'}</span>}
         meta={
@@ -669,7 +684,7 @@ export function HomeView({ onNavigate, onTaskClick }) {
           <span className={`home-sun-meta ${ONE_LINE}`}>
             {[
               `${church.sunCount}명`,
-              church.sunPresent != null ? `지난 주일 ${church.sunPresent}명 참석` : '',
+              church.sunPresent != null ? `${church.sunPresentToday ? '이번 주일' : '지난 주일'} ${church.sunPresent}명 참석` : '',
               // '공유 노트'가 아니라 '공유된 노트'다(사용자 지시 2026-09-07) — 노트의
               // 종류 이름이 아니라 '공유된 상태'를 말하는 자리다.
               church.sunNotes ? `공유된 노트 ${church.sunNotes}` : '',

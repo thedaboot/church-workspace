@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Skeleton } from '../components/media.jsx';
 import { showToast } from '../components/Toast.jsx';
@@ -11,15 +11,16 @@ import { MySunPanel, SunNotesSection, SunAdminPanel } from '../components/groups
 import { ClubsPanel } from '../components/groupsClub.jsx';
 import { WITH_ICON, useClosing, useSettled } from '../components/groupsParts.jsx';
 import { SunGuidePanel } from '../components/sunGuide.jsx';
-import { loadGuide, SUN_GUIDE_ON } from '../services/sunGuide.js';
-import { fetchServices, fetchAttendance } from '../services/worship.js';
+import { guideServices, pinnedGuideId, SUN_GUIDE_ON } from '../services/sunGuide.js';
+import { fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday } from '../services/worship.js';
 import {
   fetchGroupPerms, fetchGroupsRoster, fetchApplications, fetchSunSharedNotes, fetchMeetings,
   createGroup, saveGroup, saveClubInfo, addMember, removeMember, moveMember, reorderClubs,
   applyToClub, cancelApplication, acceptApplication, declineApplication,
   createMeeting, saveMeetingAttendance, setNoteShared,
   notifyClubApply, notifyClubAccepted, notifyMeetingNew,
-  groupPerms, mySun, myGroupIds, groupPeople, latestSunday, toggleAttendance, yearOptions,
+  groupPerms, mySun, myGroupIds, groupPeople, latestSunday, attendanceSunday,
+  toggleAttendance, yearOptions,
   leaderPlan, dupReason, duplicateName, dupNameText,
 } from '../services/groups.js';
 
@@ -155,8 +156,15 @@ export function GroupsView() {
   // 관리자 계정이 명단에 이어지지 않은 경우가 실제로 있고, 그때 가이드 자리까지
   // 사라지면 만들 길이 없다. 출석·노트는 '내 순 소식'이라 명단이 이어진 사람만.
   //
+  // **예배가 둘인 이유**(사용자 결정 2026-09-08): 가이드는 '가장 최근 발행 주일'에
+  // 붙는다 — 그 주 예배로 무엇을 나눌지는 예배 **전에** 준비한다. 출석 줄은
+  // `attendanceSunday`가 고른다 — 오늘까지 온 주일 중 **출석이 실제로 들어온** 것이라,
+  // 목요일에 발행된 이번 주일 주보가 카드에 `0/N`으로 서지 않는다. 아무 주일에도 출석이
+  // 없으면 지난 주일로 떨어진다(홈과 같은 조합 — homeView svcQ).
+  //
   // 가이드는 볼 자격이 있을 때만 묻는다(0039 sun_guides_select) — 자격이 없으면 어차피
-  // 행이 오지 않는데 질의 한 번이 더 붙는다.
+  // 행이 오지 않는데 질의 한 번이 더 붙는다. 여기서 읽는 것은 **고정된 주보 id 하나**이고
+  // (0055), 가이드 본문은 패널이 고른 주보에 맞춰 스스로 읽는다(components/sunGuide.jsx).
   const perms = state?.perms;
   const me = perms?.myPerson || null;
   const myPersonId = me?.id || null;
@@ -166,24 +174,41 @@ export function GroupsView() {
     () => !!me && (state?.suns || []).some(g => g.leader_person_id === me.id),
     [me, state],
   );
-  const guidePerms = useMemo(
-    // SUN_GUIDE_ON이 꺼져 있으면 아무도 못 본다 — 패널도 안 그리고 가이드도 안 읽는다(services/sunGuide.js)
-    () => ({ canCreate: !!perms?.canManageSun, canView: SUN_GUIDE_ON && (leadsASun || !!perms?.canManageSun) }),
-    [perms, leadsASun],
-  );
+  // 가이드 자격(0039 select · 0055 write). **보는 사람 = 만드는 사람**이다(사용자 스펙
+  // 2026-09-08 — "마스터 or 관리자 or 리더 순장 or 순장들이 선택하게"). 고정만 마스터다
+  // (§4.4의 3줄 요약 고정과 같은 판단 — AI로 만들어 모두에게 남는 글을 고르는 일).
+  // SUN_GUIDE_ON이 꺼져 있으면 아무도 못 본다 — 패널도 안 그리고 가이드도 안 읽는다(services/sunGuide.js)
+  // 마스터 여부는 **한 벌의 perms**에서 읽는다(useAuth가 아니라) — groups.js
+  // fetchGroupPerms가 클라우드에서는 useAuth의 값을, 게스트에서는 시드의 me를 담는다.
+  // useAuth().isMaster는 게스트에서 늘 참이라(로그인이 없는 모드) 여기 쓰면 검사에서
+  // 아무나 고정할 수 있는 화면이 된다.
+  const guidePerms = useMemo(() => {
+    const canView = SUN_GUIDE_ON && (leadsASun || !!perms?.canManageSun);
+    return { canView, canCreate: canView, canPin: canView && !!perms?.isMaster };
+  }, [perms, leadsASun]);
   const canViewGuide = guidePerms.canView;
 
   const mineKey = `groups:mine:${sunId || 'none'}:${myPersonId || 'anon'}`;
   const mineQ = useCached(mineKey, async () => {
     try {
-      const service = latestSunday(await fetchServices()) || null;
-      const [present, notes, guide] = await Promise.all([
-        service && myPersonId ? fetchAttendance(service.id) : [],
-        myPersonId ? fetchSunSharedNotes() : [],
-        // 가이드는 곁가지다 — 못 읽어도 나머지는 서야 한다(패널이 다시 읽는다)
-        service && canViewGuide ? loadGuide(service.id).catch(() => null) : null,
+      // 주보 목록과 주보별 출석 수를 **한 번에** 받는다 — 둘 다 짧은 목록이고, 출석
+      // 수가 있어야 어느 주일을 셀지 정해진다(groups.js attendanceSunday).
+      // 고정된 가이드는 곁가지다 — 못 읽어도 나머지는 서야 한다(그때는 가장 최근 주일이
+      // 기본이 된다). 짧은 질의 하나라 목록·출석 수와 같이 보낸다.
+      const [services, counts, pinnedGuide] = await Promise.all([
+        fetchServices(), fetchAttendanceCounts(),
+        canViewGuide ? pinnedGuideId().catch(() => null) : null,
       ]);
-      return { service, present, notes, guide };
+      const service = latestSunday(services) || null;                              // 가이드 몫
+      const attService = attendanceSunday(services, counts) || pastSunday(services) || null;
+      const [present, notes] = await Promise.all([
+        attService && myPersonId ? fetchAttendance(attService.id) : [],
+        myPersonId ? fetchSunSharedNotes() : [],
+      ]);
+      // 고를 수 있는 주보(발행된 주일 · 최근 여덟 건 + 고정된 것). 목록이 캐시에 같이
+      // 담기므로 다시 들어와도 고르는 자리가 바로 선다.
+      const guideServiceList = canViewGuide ? guideServices(services, pinnedGuide || '') : [];
+      return { service, attService, present, notes, pinnedGuide, guideServiceList };
     } catch (e) {
       console.error('[groups] 내 순 소식을 받지 못했어요:', e);
       throw e;
@@ -192,6 +217,7 @@ export function GroupsView() {
   // 한 프레임이라도 앞 키의 값으로 그리지 않는다(groupsParts useSettled 주석)
   const mineSettled = useSettled(mineKey, mineQ.loading);
   const service = mineQ.data?.service || null;
+  const attService = mineQ.data?.attService || null;
   // Set은 JSON으로 담기지 않는다 — 캐시에는 배열로 두고 여기서 Set으로 세운다
   const present = useMemo(() => new Set(mineQ.data?.present || []), [mineQ.data]);
 
@@ -448,24 +474,45 @@ export function GroupsView() {
   // 가입 신청 QR(components/ClubQr.jsx)이 이 주소로 보내고, 로그인이 필요하면 auth가
   // 그 자리를 기억했다가 돌려준다 — 여기서는 이미 로그인된 화면만 본다.
   //
-  // **두 걸음이다.** 값은 마운트(그리고 종에서 누른 신호)에 곧바로 집어 오고, 실제로
-  // 여는 일은 한 벌(state)이 도착한 뒤에 한다 — 첫 프레임에는 동아리 목록이 없어서
-  // 어느 동아리인지 고를 수 없다. 집어 온 값은 한 번 쓰고 비운다(같은 신청을 두 번 하지 않게).
+  // **세 걸음이다.** ① 값은 마운트(그리고 종에서 누른 신호)에 곧바로 집어 온다.
+  // ② 한 벌(state)에 그 동아리가 보이면 **바로 연다** — 사람이 화면에서 기다리는 것은
+  //    그 페이지다. ③ 신청은 **내가 누구인지 확정된 뒤에** 판정하고, 그때 값을 비운다.
+  //
+  // ③을 따로 뗀 이유(사용자 보고 2026-09-08 — "QR로 해당 동아리 페이지까지 이동은
+  // 되는데 가입 신청 목록에는 들어가지 않는다"): 예전에는 state가 있으면 그 프레임에
+  // 곧바로 entry를 비우고 신청까지 판정했다. 그런데 **화면이 처음 그리는 한 벌은 캐시일
+  // 수 있고**(services/cache.js는 지난 한 벌을 먼저 그리고 뒤에서 다시 읽는다), 그
+  // 한 벌의 `perms.myPerson`은 지난번에 읽어 둔 값이다 — 계정이 명단에 이어지기 전에
+  // 담겼거나 그때 `fetchMyPerson`이 빈손으로 왔으면 null이라, 실제로는 이어져 있는데도
+  // '청년 명단과 계정이 아직 연결되지 않았어요'가 뜨고 **신청은 사라진다**(entry를 이미
+  // 비운 뒤라 다시 시도할 길이 없다). 동아리 목록도 같다 — 캐시에 없는 새 동아리면
+  // '찾지 못했어요'가 뜬다. 그래서 판정은 **새로 읽은 한 벌**을 기다린다.
   const entryTick = useEntryQuery();
   const [entry, setEntry] = useState(null);
+  const openedRef = useRef(null);
   useEffect(() => {
     const g = entryOf('g');
     const ap = entryOf('apply');
     if (g) setEntry({ g, apply: ap === '1' });
   }, [entryTick]);
 
+  // 지금 그리는 한 벌이 **캐시가 아니라 방금 읽어 온 것**인가(cache.js의 stale 신호).
+  const bundleFresh = !baseQ.loading && !baseQ.stale;
+
   useEffect(() => {
     if (!entry || !state) return;
-    setEntry(null);
-    setTab('club');
     const club = (state.clubs || []).find(c => c.id === entry.g);
+    // ② 찾는 즉시 연다. **한 딥링크는 한 번만 연다** — 아니면 '목록으로'를 눌러도
+    //    다음 렌더에 상세가 되돌아온다(entry는 ③이 끝날 때까지 살아 있다).
+    if (club && openedRef.current !== entry) {
+      openedRef.current = entry;
+      setTab('club');
+      setOpenClubId(club.id);
+    }
+    // ③ 아직 판정할 수 없으면 **entry를 들고 기다린다**(위 주석)
+    if (!bundleFresh && (!club || (entry.apply && !me))) return;
+    setEntry(null);
     if (!club) { showToast(failText('동아리를 열지 못했어요', { human: '그 동아리를 찾지 못했어요' })); return; }
-    setOpenClubId(club.id);
     if (!entry.apply) return;
     // 명단에 이어지지 않은 계정은 신청할 사람(person)이 없다 — RLS도 같은 자리에서
     // 막는다(0035 club_applications: person_id = my_person_id).
@@ -481,8 +528,11 @@ export function GroupsView() {
       showToast('이미 신청했어요');
       return;
     }
+    // 신청이 들어가면 run()이 한 벌을 다시 읽는다(refresh — dropCache('groups') 뒤
+    // baseQ·adminQ·mineQ). 그래서 내 '신청 대기' 칩과 동아리장의 '가입 신청 N건'이
+    // 새로고침 없이 그 자리에서 선다.
     applyTo(club, '동아리 신청이 완료되었어요!');
-  }, [entry, state, me, applyTo]);
+  }, [entry, state, me, bundleFresh, applyTo]);
 
   // ── 그리기 ────────────────────────────────────────────────────────────────
   const years = useMemo(() => yearOptions(state?.allGroups || []), [state]);
@@ -543,24 +593,31 @@ export function GroupsView() {
       {/* 가이드는 **순 카드 밑**이다(사용자 지시 2026-09-03 — 처음에는 위에 두었다).
           이 탭의 주인은 내 순이고, 가이드는 그 순으로 무엇을 할지에 대한 딸린 섹션이다.
           위에 두면 탭을 열자마자 AI 종이 세 장이 화면을 채우고 순 명단이 접혀 내려갔다.
-          기준 예배는 '가장 최근 발행 주일 예배' 한 건으로, 출석 줄이 쓰는 것과 같다. */}
+          가이드의 기준 예배는 '가장 최근 발행 주일 예배'(service)이고, 출석 줄은 다른
+          예배를 본다(attService — 위 mineQ 주석). 2026-09-08에 갈라졌다. */}
       {active === 'mine' && (
         <>
+          {/* 출석 줄은 **자리부터 잡는다** — 첫 진입(캐시 없음)에 아무것도 안 그리면
+              값이 도착하는 순간 카드가 한 줄만큼 튄다. loading은 노트·가이드와 같은
+              신호를 쓴다(useSettled — 도착한 프레임에 바로 풀린다, §6-9-ad). */}
           <MySunPanel myPerson={me} sun={sun} people={state.people} members={state.members}
-            service={service} present={present} />
+            service={attService} present={present} loading={!mineSettled} />
           {/* 노트와 가이드는 **한 덩이로** 뜬다(한 키·한 스켈레톤 — 위 주석). 순 카드
               밑이다: 이 탭의 주인은 내 순이고 가이드는 그 순으로 무엇을 할지다. 위에
               두면 탭을 열자마자 AI 종이 세 장이 화면을 채우고 명단이 접혀 내려갔다. */}
           {mineSettled ? (
             <>
               {!!sun && <SunNotesSection notes={mineQ.data?.notes || []} onShare={shareNote} />}
-              {/* 가이드는 위 mineQ가 이미 읽어 왔다 — 패널이 다시 읽지 않게 넘긴다(undefined면 스스로 읽음).
-                  저장하면 캐시를 비우고 한 벌을 다시 읽어 다음 진입에도 새 값이 먼저 선다. */}
+              {/* 가이드 본문은 **패널이 읽는다** — 기준 주보를 사람이 고르므로(0055·사용자
+                  스펙 2026-09-08) 한 벌을 미리 읽어 두는 것으로는 모자란다. 여기서 주는 것은
+                  고를 수 있는 주보들과 기본값(고정 · 없으면 가장 최근 주일)이다. 저장·고정
+                  뒤에는 캐시를 비우고 한 벌을 다시 읽어 다음 진입에도 새 값이 먼저 선다. */}
               {SUN_GUIDE_ON && (
                 <SunGuidePanel service={service} perms={guidePerms}
-                  initialGuide={mineQ.data ? (mineQ.data.guide ?? null) : undefined}
+                  services={mineQ.data?.guideServiceList || []}
+                  pinnedServiceId={mineQ.data?.pinnedGuide || ''}
                   loading={mineQ.loading}
-                  onSaved={() => { dropCache('groups:mine'); mineQ.refresh(); }} />
+                  onChanged={() => { dropCache('groups:mine'); mineQ.refresh(); }} />
               )}
             </>
           ) : MINE_SKELETON}

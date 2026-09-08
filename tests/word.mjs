@@ -97,6 +97,128 @@ check('절 열쇠는 장 열쇠와 갈린다',
 check('본문표 파서·저장 함수가 남아 있지 않다',
   !word.parseQtTable && !word.saveSchedule && !word.dedupeByDate);
 
+// ── 1-b. 노트 템플릿 (순수 — services/noteTemplate.js) ──────────────────────
+// 예배 노트·QT 묵상은 빈 칸이 아니라 도막 제목으로 시작한다(사용자 요청 2026-09-08 —
+// "기존 순 노트 템플릿 가져와서 최대한 우리 디자인 시스템에 맞춰 재구성하기").
+// **되돌리기**: isTemplateOnly가 늘 false를 돌려주게 만들면 아래 둘이 깨진다 — 그러면
+// 아무도 쓰지 않은 제목 줄이 노트로 저장되고 나눔 피드·잔디에까지 오른다.
+const tplMod = await import(new URL('src/services/noteTemplate.js', ROOT).href);
+const wTpl = tplMod.worshipNoteTemplate({ passageRef: '요한복음 3:16' });
+const qTpl = tplMod.qtNoteTemplate({ passageRef: '' });
+check('예배 노트 템플릿은 다섯 도막이다',
+  ['### 본문', '### 말씀 요약', '### 묵상 노트', '### 결단하기', '### 기도하기'].every(h => wTpl.includes(h)),
+  JSON.stringify(wTpl));
+check('본문 아래에 그 예배의 구절이 미리 들어간다',
+  wTpl.split('\n')[0] === '### 본문' && wTpl.split('\n')[1] === '요한복음 3:16',
+  JSON.stringify(wTpl.split('\n').slice(0, 2)));
+// QT는 혼자 본문을 읽는 자리라 '말씀 요약'이 없다(설교 요약과 묵상이 같은 글이 된다)
+check('QT 템플릿은 네 도막(말씀 요약이 없다)',
+  qTpl.includes('### 묵상 노트') && !qTpl.includes('### 말씀 요약')
+  && (qTpl.match(/^### /gm) || []).length === 4,
+  JSON.stringify(qTpl.match(/^### .*/gm) || []));
+check('제목마다 그 아래 빈 줄이 하나 있다(커서가 제목 밑에 떨어진다)',
+  qTpl.split('\n').length === 8 && qTpl.split('\n')[1] === '', JSON.stringify(qTpl.split('\n')));
+check('손대지 않은 템플릿은 빈 노트다',
+  tplMod.isTemplateOnly(wTpl, '요한복음 3:16') === true && tplMod.isTemplateOnly('') === true);
+// 편집기를 한 바퀴 돌면 끝의 빈 줄이 정리된다(markdown.js docToMd) — 그래도 빈 노트다
+check('끝의 빈 줄이 정리돼도 빈 노트다', tplMod.isTemplateOnly(qTpl.replace(/\s+$/, '')) === true);
+check('한 줄이라도 쓰면 빈 노트가 아니다',
+  tplMod.isTemplateOnly(qTpl + '오늘 이 말씀이 마음에 남았다') === false
+  && tplMod.isTemplateOnly('그냥 한 줄') === false);
+check('구절 줄은 그 구절을 알 때에만 템플릿으로 친다',
+  tplMod.isTemplateOnly(wTpl, '') === false);
+
+// ── 1-c. 뜻으로 찾는 본문 검색 (순수 — services/bibleSearch.js) ─────────────
+// 임베딩·색인을 만들지 않는다 — 모델에게 **참조만** 받고 본문은 우리 파일에서 읽는다.
+// ai.js는 supabase·store를 물고 있어 aictx와 같은 방법으로 갈아 끼운다.
+const aiSrcForSearch = readFileSync(new URL('src/services/ai.js', ROOT), 'utf8')
+  .replace(/import \{ supabase \} from '\.\/supabaseClient\.js';/, 'export const supabase = null;')
+  .replace(/from '\.\.\/utils\.js';/, "from '" + new URL('src/utils.js', ROOT).href + "';")
+  .replace(/import \{ store \} from '\.\.\/store\/workspaceStore\.js';/,
+    'export const store = { getState: () => ({ tasks: { byId: {} }, projects: { byId: {}, allIds: [] }, members: [] }) };');
+const aiFile = join(tmp, 'ai.mjs');
+writeFileSync(aiFile, aiSrcForSearch);
+const bsSrc = readFileSync(new URL('src/services/bibleSearch.js', ROOT), 'utf8')
+  .replace("from './ai.js'", "from '" + pathToFileURL(aiFile).href + "'")
+  .replace("from './bibleRef.js'", "from '" + new URL('src/services/bibleRef.js', ROOT).href + "'");
+const bsFile = join(tmp, 'bibleSearch.mjs');
+writeFileSync(bsFile, bsSrc);
+const bs = await import(pathToFileURL(bsFile).href);
+
+const bibleBooks = JSON.parse(readFileSync(new URL('public/bible/index.json', ROOT), 'utf8'));
+const fakeLoadBook = async (id) => JSON.parse(readFileSync(new URL('public/bible/' + id + '.json', ROOT), 'utf8'));
+
+const askAi = bs.buildBibleSearchPrompt('불안할 때', bibleBooks);
+check('AI 검색 프롬프트에 물음이 실린다', askAi.prompt.includes('불안할 때'), askAi.prompt.slice(0, 60));
+// 책 이름을 안 실으면 모델이 제 표기를 쓰고 그때마다 parseRef가 못 읽는다
+check('AI 검색 프롬프트에 우리 책 이름 목록이 실린다',
+  askAi.system.includes('창세기') && askAi.system.includes('요한계시록'));
+// AI가 만든 문장의 대시 금지는 ai.js의 DASH_RULE 한 벌이다(§8) — 여기서도 그 줄을 쓴다
+check('AI 검색도 ai.js의 대시 규칙을 그대로 싣는다', askAi.system.includes('엠 대시'));
+check('AI 검색은 JSON 배열만 받는다고 못 박는다',
+  askAi.system.includes('JSON 배열') && askAi.system.includes('12'));
+
+check('코드 울타리와 잡담이 붙어 와도 읽는다',
+  JSON.stringify(bs.parseBibleSearchJson('네, 찾았어요.\n```json\n[{"ref":"요 3:16","why":"사랑"}]\n```\n도움이 되길!'))
+  === JSON.stringify([{ ref: '요 3:16', why: '사랑' }]));
+check('못 읽는 답은 빈 배열이다',
+  JSON.stringify(bs.parseBibleSearchJson('그런 구절은 모르겠어요')) === '[]'
+  && JSON.stringify(bs.parseBibleSearchJson('[{oops}]')) === '[]'
+  && JSON.stringify(bs.parseBibleSearchJson('')) === '[]');
+
+const aiHits = await bs.resolveBibleHits([
+  { ref: '요한복음 3:16', why: '하나님의 사랑' },
+  { ref: '도마복음 1:1', why: '없는 책' },
+  { ref: '요 3:16', why: '같은 절을 또' },
+  { ref: '빌립보서 4:6-7', why: '염려하지 말라' },
+  { ref: '이건 참조가 아니다', why: '' },
+], bibleBooks, fakeLoadBook);
+check('AI가 준 참조는 우리 본문으로 확인해서 그린다',
+  aiHits.length === 2 && aiHits[0].name === '요한복음'
+  && aiHits[0].text.includes('하나님이 세상을 이처럼 사랑하사'), JSON.stringify(aiHits.map(h => h.name)));
+check('모르는 책·못 읽는 참조는 버린다', !aiHits.some(h => h.why === '없는 책'),
+  JSON.stringify(aiHits.map(h => h.why)));
+check('같은 절을 두 번 내면 한 줄만 남는다',
+  aiHits.filter(h => h.chapter === 3 && h.verse === 16).length === 1);
+check('짧은 범위는 절을 이어 붙이고 라벨에 범위가 남는다',
+  aiHits[1].to === 7 && bs.hitLabel(aiHits[1]) === '빌립보서 4:6-7', JSON.stringify(aiHits[1]));
+// 장 전체를 가리켜도 한 줄이 통째로 한 장이 되지 않는다(앞 세 절만)
+const wholeChapter = await bs.resolveBibleHits([{ ref: '시편 23편', why: '' }], bibleBooks, fakeLoadBook);
+check('장 전체를 가리켜도 앞 세 절만 쓴다',
+  wholeChapter.length === 1 && wholeChapter[0].verse === 1 && wholeChapter[0].to === 3,
+  JSON.stringify(wholeChapter[0]));
+const manyHits = await bs.resolveBibleHits(
+  Array.from({ length: 20 }, (_, i) => ({ ref: '시편 ' + (i + 1) + ':1', why: '' })), bibleBooks, fakeLoadBook);
+check('AI 결과는 열두 줄에서 끊는다', manyHits.length === 12, String(manyHits.length));
+
+// ── 1-d. 검색이 책을 받는 방법 (순수 — services/bible.js) ───────────────────
+// 예전에는 for 안에서 `await loadBook`을 한 권씩 기다려서 왕복이 66번 줄줄이 섰다
+// (사용자 지적 2026-09-08 — "검색 속도 개선. 현재 첫 검색에서 모든 권을 다 훑고 있음").
+// **되돌리기**: forEachPool의 kick(i + cap) 한 줄을 지우면 동시 수가 1로 떨어져 첫 검사가 깨진다.
+const bible = await import(new URL('src/services/bible.js', ROOT).href);
+const poolSeen = { now: 0, max: 0, order: [] };
+await bible.forEachPool(Array.from({ length: 20 }, (_, i) => i), 6, async (n) => {
+  poolSeen.now++; poolSeen.max = Math.max(poolSeen.max, poolSeen.now);
+  await new Promise(r => setTimeout(r, 5 + ((n * 7) % 13)));   // 끝나는 차례를 일부러 섞는다
+  poolSeen.now--;
+  return n;
+}, (v) => { poolSeen.order.push(v); });
+check('여러 권을 동시에 받는다(한 권씩 기다리지 않는다)',
+  poolSeen.max > 1 && poolSeen.max <= 6, String(poolSeen.max));
+check('훑는 차례는 도착 순서가 아니라 정경 순이다',
+  poolSeen.order.join() === Array.from({ length: 20 }, (_, i) => i).join(), poolSeen.order.join());
+const poolStop = [];
+await bible.forEachPool([1, 2, 3, 4, 5, 6, 7, 8], 3, async n => n, (v) => { poolStop.push(v); return v < 3; });
+check('결과 상한에 닿으면 거기서 멈춘다', poolStop.join() === '1,2,3', poolStop.join());
+// 화면이 실제로 그 풀을 쓰는지 · 받은 책이 새로고침 뒤에도 남는지는 소스로 지킨다
+const bibleSrcPure = readFileSync(new URL('src/services/bible.js', ROOT), 'utf8');
+check('책 파일은 Cache Storage에 남는다(새로고침 뒤에도)',
+  bibleSrcPure.includes('caches.open') && bibleSrcPure.includes('box.put'));
+const wbSrcPure = readFileSync(new URL('src/components/wordBible.jsx', ROOT), 'utf8');
+check('검색이 풀로 받는다(for 안에서 한 권씩 기다리지 않는다)',
+  wbSrcPure.includes('forEachPool(books, POOL') && !/for \(let i = 0; i < books\.length/.test(wbSrcPure));
+check('리더에 들어오면 남은 책을 미리 받아 둔다', wbSrcPure.includes('warmBooks(books)'));
+
 // ── 2. 브라우저 ─────────────────────────────────────────────────────────────
 const prof = mkdtempSync(join(tmpdir(), 'cword-'));
 const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${prof}`, '--no-first-run', 'about:blank'], { stdio: 'ignore' });
@@ -611,6 +733,31 @@ const emptyFit = await ev(`(() => {
 })()`);
 check('빈 상태가 본문 자리의 세로 가운데에 선다', !!emptyFit && emptyFit.gap === 0 && emptyFit.off === 0,
   JSON.stringify(emptyFit));
+
+// 8-a) 아직 아무것도 안 쓴 날은 **템플릿**으로 시작한다(사용자 요청 2026-09-08 —
+// "기존 순 노트 템플릿 가져와서 최대한 우리 디자인 시스템에 맞춰 재구성하기").
+// 옛 순 노트의 다섯 도막 중 QT에는 '말씀 요약'이 빠진다(services/noteTemplate.js).
+// **손대지 않은 템플릿은 빈 묵상이다** — 제목 줄이 있다는 이유로 저장이 열리면
+// 아무도 쓰지 않은 제목 네 줄이 그대로 저장되고 잔디에까지 찍힌다.
+await waitFor(`(() => { const t = document.querySelector('.tiptap'); return t && t.offsetParent; })()`, 8000);
+await sleep(400);
+const tplNote = await ev(`(() => {
+  const t = document.querySelector('.tiptap');
+  const h = t && t.querySelector('h3');
+  const cs = h ? getComputedStyle(h, '::before') : null;
+  return { heads: t ? [...t.querySelectorAll('h3')].map(x => x.textContent.trim()) : [],
+           leaf: cs ? String(cs.maskImage || cs.webkitMaskImage || '') : '' };
+})()`);
+check('묵상을 처음 쓰는 날은 템플릿 네 도막으로 시작한다',
+  tplNote.heads.join('|') === '본문|묵상 노트|결단하기|기도하기', JSON.stringify(tplNote.heads));
+// 옛 순 노트의 잎 아이콘 — 파일이 아니라 마스크 + 토큰 색이라 다크에서도 따라온다
+check('도막 제목에 잎 표시가 붙는다', /svg/.test(tplNote.leaf), tplNote.leaf.slice(0, 48));
+check('손대지 않은 템플릿으로는 저장할 수 없다', (await saveDisabled()) === true);
+await ev(`(() => { const el = document.querySelector('.tiptap'); el && el.focus(); })()`);
+await send('Input.insertText', { text: '오늘은 이 말씀이 마음에 남았어요' });
+await sleep(400);
+check('한 줄이라도 쓰면 저장이 열린다', (await saveDisabled()) === false);
+
 await clickText('오늘');
 await sleep(900);
 
@@ -820,7 +967,7 @@ check('저장 토스트가 토글과 같은 말을 쓴다', toast.includes('더�
 await ev(`(() => { const b=document.querySelector('button[aria-label="내 묵상 지우기"]'); b && b.click(); })()`);
 await sleep(350);
 check('내 묵상 지우기는 무엇이 없어지는지 묻는다',
-  (await ev(`document.body.innerText.includes('이 날 묵상을 지울까요? 나눔에서도 내려가고 내 기록에서도 빠져요.')`)) === true);
+  (await ev(`document.body.innerText.includes('이 날의 묵상을 지울까요?') && document.body.innerText.includes('내 기록에서도 제거돼요.')`)) === true);
 await clickText('삭제');
 await sleep(900);
 const gone = await ev(`(() => ({
@@ -831,8 +978,10 @@ const gone = await ev(`(() => ({
     .filter(b => ['나만 보기', '더다붓에 공유하기'].includes(b.textContent.trim())).every(b => b.disabled),
   trash: !!document.querySelector('button[aria-label="내 묵상 지우기"]'),
 }))()`);
-check('진짜 삭제는 그 날 묵상을 없앤다', gone.stored === null && gone.feedEmpty && !gone.editor.trim(),
-  JSON.stringify(gone));
+check('진짜 삭제는 그 날 묵상을 없앤다', gone.stored === null && gone.feedEmpty
+  && !gone.editor.includes(seedBody), JSON.stringify(gone));
+// 지운 뒤에는 다시 '아직 아무것도 안 쓴 날'이라 템플릿이 선다(빈 칸이 아니다)
+check('지우고 나면 템플릿이 다시 선다', gone.editor.includes('묵상 노트'), JSON.stringify(gone.editor));
 check('나눔이 비면 한 줄로 말한다',
   (await ev(`(() => { const p=[...document.querySelectorAll('p')].find(x=>x.textContent.includes('올라온 나눔이 아직 없어요')); return !!p && !p.parentElement.querySelector('img[src*="/chars/"]'); })()`)) === true);
 check('저장된 글이 없으면 공유 토글은 꺼져 있다', gone.toggleOff === true, JSON.stringify(gone));
@@ -900,11 +1049,28 @@ const toc = await ev(`(() => {
            active: (document.querySelector('[data-pane][aria-pressed="true"]') || {}).dataset?.pane || '',
            marks: heads.includes('북마크') || heads.includes('형광펜'),
            text: document.body.innerText,
-           hint: (document.querySelector('input[aria-label="본문 검색"]') || {}).placeholder || '' };
+           hint: (document.querySelector('input[aria-label="어떤 본문을 찾으시나요?"]') || {}).placeholder || '' };
 })()`);
 check('목차가 구약·신약으로 갈린다', toc.ot && toc.nt && toc.gen && toc.rev, JSON.stringify(toc));
 check('글자 크기 Aa 3단계', toc.aa === 3, String(toc.aa));
-check("검색 자리표는 '본문 검색'", toc.hint === '본문 검색', toc.hint);
+// 낱말만 찾던 칸이 아니다 — 뜻으로도 찾는다(사용자 문구 2026-09-08)
+check("검색 자리표는 '어떤 본문을 찾으시나요?'", toc.hint === '어떤 본문을 찾으시나요?', toc.hint);
+
+// **리더에 들어오면 남은 책을 미리 받아 둔다**(사용자 지적 2026-09-08 — "첫 검색에서
+// 모든 권을 다 훑고 있음"). 2초 뒤에 시작하고, 받은 책은 Cache Storage에 남아
+// 새로고침 뒤에도 그대로다 — 여기서는 그 통이 실제로 채워지는지를 본다.
+// **되돌리기**: BibleTab의 warmBooks 이펙트를 빼면 통이 한두 권에서 멈춘다.
+const warmedBooks = await ev(`(async () => {
+  for (let i = 0; i < 40; i++) {
+    try {
+      const n = (await (await caches.open('bible-v1')).keys()).length;
+      if (n > 40) return n;
+    } catch (e) { return -1; }
+    await new Promise(r => setTimeout(r, 300));
+  }
+  try { return (await (await caches.open('bible-v1')).keys()).length; } catch (e) { return -1; }
+})()`, true);
+check('리더에 들어오면 남은 책을 미리 받아 캐시에 담는다', warmedBooks > 40, String(warmedBooks));
 // 4차 피드백 12 — 목차 · 북마크 · 형광펜은 세그먼트로 갈린다. 목차 화면에 두 목록이
 // 같이 서 있으면 안 된다(예전에는 좁은 폭에서 목차 위에, 넓은 폭에서 옆 칸에 있었다)
 check('목차·북마크·형광펜 세그먼트로 갈린다',
@@ -1172,7 +1338,7 @@ await sleep(250);
 await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
 await sleep(250);
 const escaped = await ev(`(() => ({ open: !!document.querySelector('[data-verse-tool]'),
-  painted: document.querySelector('p[data-verse="1:3"]').dataset.mark === '1' }))()`);
+  painted: (document.querySelector('p[data-verse="1:3"]') || {}).dataset?.mark === '1' }))()`);
 check('Esc로 취소된다', escaped.open === false && escaped.painted === false, JSON.stringify(escaped));
 
 // [형광펜 칠하기]를 눌러야 그때 칠해진다
@@ -1459,7 +1625,7 @@ check('(없음)은 화면에서만 흐리게', blank && blank.faint === true, JS
 
 // 본문 검색 — 전권을 훑어 includes 매치
 await ev(`(() => {
-  const i = document.querySelector('input[aria-label="본문 검색"]');
+  const i = document.querySelector('input[aria-label="어떤 본문을 찾으시나요?"]');
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '태초에');
   i.dispatchEvent(new Event('input', { bubbles: true }));
   i.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
@@ -1476,17 +1642,54 @@ const found = await ev(`(async () => {
 })()`, true);
 check('본문 검색이 절을 찾는다', found.n > 0 && found.first === 'gen 1:1', JSON.stringify(found));
 check('찾은 말이 결과에 표시된다', found.marks > 0, String(found.marks));
+// 결과는 두 도막이다(사용자 요청 2026-09-08) — 낱말이 그대로 나오는 절, 그리고 뜻으로
+// 찾은 구절. 게스트 모드에는 로그인이 없어 AI에게 **묻지도 않으므로** 아래 도막은
+// 아예 서지 않는다(왜 없는지 설명하는 줄도 붙이지 않는다 · §8).
+const hitSections = await ev(`(() => {
+  const kw = document.querySelector('[data-hits="keyword"]');
+  return { keyword: !!kw, ai: !!document.querySelector('[data-hits="ai"]'),
+           head: kw ? kw.innerText.split('\\n')[0].trim() : '' };
+})()`);
+check('낱말로 찾은 절은 제 도막에 선다',
+  hitSections.keyword === true && hitSections.head === '본문에 그대로 나오는 절', JSON.stringify(hitSections));
+check('AI가 못 도는 자리에서는 그 도막이 아예 없다', hitSections.ai === false, JSON.stringify(hitSections));
+// 게스트에는 로그인이 없어 **모델에게 실제로 물을 수는 없다.** 대신 모델 답을 흉내 내어
+// 브라우저에서 그 길을 그대로 태운다: 답 → 파싱 → 참조 해석 → **우리 개역한글 본문**.
+// 지어낸 참조(도마복음)가 걸러지는지, 같은 물음을 두 번 물으면 한 번만 나가는지도 본다.
+// 화면 도막 자체는 로그인 뒤에만 서므로 여기서 그리지는 못한다.
+const aiPipe = await ev(`(async () => {
+  const m = await import('/src/services/bibleSearch.js');
+  const b = await import('/src/services/bible.js');
+  const books = await b.loadBibleIndex();
+  let asked = 0;
+  const fake = async () => { asked++;
+    return '네 아래와 같아요 [{"ref":"빌립보서 4:6","why":"염려 대신 기도"},{"ref":"도마복음 1:1","why":"없는 책"}] 도움이 되길!'; };
+  const first = await m.aiBibleSearch('불안할 때 어떻게 하나요', books, b.loadBook, fake);
+  const again = await m.aiBibleSearch('  불안할 때  어떻게 하나요  ', books, b.loadBook, fake);
+  return { n: first.length, label: m.hitLabel(first[0] || null), why: (first[0] || {}).why || '',
+           text: ((first[0] || {}).text || '').slice(0, 10), asked, cachedN: again.length };
+})()`, true);
+check('AI가 준 참조를 우리 본문으로 확인해 한 줄로 만든다',
+  aiPipe.n === 1 && aiPipe.label === '빌립보서 4:6' && aiPipe.why === '염려 대신 기도'
+  && aiPipe.text === '아무 것도 염려하지', JSON.stringify(aiPipe));
+check('지어낸 참조는 화면까지 오지 않는다', aiPipe.n === 1, JSON.stringify(aiPipe));
+check('같은 물음은 한 번만 묻는다', aiPipe.asked === 1 && aiPipe.cachedN === 1, JSON.stringify(aiPipe));
 await clickSel('button[data-hit]');
 await sleep(1000);
 const jumped = await ev(`(() => ({ head: (document.querySelector('h3')||{}).textContent || '',
   focus: (document.querySelector('[data-focus="1"]')||{}).textContent || '' }))()`);
 check('결과를 누르면 그 장으로 간다', jumped.head === '창세기 1장' && jumped.focus.includes('태초에'),
   JSON.stringify(jumped));
+// **강조는 3초 뒤에 꺼진다**(사용자 요청 2026-09-08 — 데려다주는 것이 목적이고, 그 뒤로도
+// 테두리가 남아 있으면 그 절만 다른 글처럼 읽힌다). 여기까지 1초가 지났다.
+check('도착 강조는 3초 뒤에 사라진다',
+  (await ev(`(async () => { await new Promise(r => setTimeout(r, 2600));
+    return !document.querySelector('[data-focus="1"]'); })()`, true)) === true);
 
 // 못 찾았을 때의 빈 자리 — question 컷(사용자 결정 2026-09-03). 책 파일은 이미 받아 둔
 // 것이라 두 번째 검색은 훑기만 한다.
 await ev(`(() => {
-  const i = document.querySelector('input[aria-label="본문 검색"]');
+  const i = document.querySelector('input[aria-label="어떤 본문을 찾으시나요?"]');
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '없는말없는말');
   i.dispatchEvent(new Event('input', { bubbles: true }));
   i.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
@@ -1494,7 +1697,7 @@ await ev(`(() => {
 const noHit = await ev(`(async () => {
   for (let i = 0; i < 90; i++) {
     if (!document.body.innerText.includes('훑는 중')) {
-      const p = [...document.querySelectorAll('p')].find(x => x.textContent.includes('그대로 나오는 절을 찾지 못했어요'));
+      const p = [...document.querySelectorAll('p')].find(x => x.textContent.includes('해당 단어는 찾지 못했어요'));
       if (p) {
         const svg = p.parentElement.querySelector('svg path.dc-draw');
         return { said: true, mark: !!svg };
@@ -1504,7 +1707,7 @@ const noHit = await ev(`(async () => {
   }
   return { said: false, mark: false };
 })()`, true);
-check('못 찾으면 왜 못 찾았는지까지 말한다', noHit.said === true, JSON.stringify(noHit));
+check('둘 다 못 찾으면 한 줄로 말한다', noHit.said === true, JSON.stringify(noHit));
 check('검색 빈 자리도 마크로 그린다', noHit.mark === true, JSON.stringify(noHit));
 await clickSel('button[aria-label="검색어 지우기"]');
 await sleep(600);
@@ -1514,6 +1717,17 @@ await sleep(600);
 // 세 권부터는 접혀 있는지 · **펼친 책의 파일만 그때 받는지**를 본다.
 // 두 목록은 이제 각자의 세그먼트에 있으므로 칸을 옮겨 가며 본다(4차 피드백 12).
 // 리소스 타이밍은 새로 연 문서마다 비어 있으므로 앞의 전권 검색은 섞이지 않는다.
+//
+// **여기서는 미리 받기(warmBooks)를 끈다.** 안 끄면 리더에 들어온 2초 뒤에 66권이
+// 통째로 날아와서 '펼친 책만 받는다'를 잴 수가 없다. 끄는 방법은 제품에 이미 있는
+// 갈래다 — 데이터 아끼기(navigator.connection.saveData)를 켠 기기로 흉내 낸다.
+// 그러니 이 두 줄이 그 갈래의 검사이기도 하다(saveData면 미리 받지 않는다).
+// 앞에서 받아 둔 책은 Cache Storage에 남아 있으므로 통도 비운다 — 안 그러면 파일이
+// 네트워크로 오지 않아 리소스 타이밍이 비어 있다.
+await send('Page.addScriptToEvaluateOnNewDocument', {
+  source: "Object.defineProperty(navigator, 'connection', { value: { saveData: true }, configurable: true });",
+});
+await ev(`(async () => { try { await caches.delete('bible-v1'); } catch (e) {} })()`, true);
 await ev(`(() => {
   localStorage.setItem('word_bible_state', JSON.stringify({
     lastRef: 'gen 1',
@@ -1598,6 +1812,24 @@ const bmOpen = await ev(`(() => ({
 }))()`);
 check('북마크는 장 제목만 보여준다', bmOpen.rows.join() === '23장', JSON.stringify(bmOpen.rows));
 check('북마크를 펼쳐도 책 파일은 받지 않는다', !bmOpen.files.includes('psa.json'), JSON.stringify(bmOpen.files));
+// 데이터 아끼기를 켠 기기에서는 미리 받기가 아예 안 돈다 — 위 두 검사가 그것에 기대고 있다
+check('데이터 아끼기를 켜면 미리 받지 않는다',
+  !bmOpen.files.includes('exo.json') && !bmOpen.files.includes('rev.json'), JSON.stringify(bmOpen.files));
+
+// **북마크 줄은 눌리는 판이 보인다**(사용자 지적 2026-09-08 — "북마크 쪽에 여백이 너무
+// 커서 어딜 눌러야 해당 북마크된 장으로 넘어갈 수 있을지가 안 잡힌다"). 형광펜 줄은
+// 절 미리보기가 줄을 채우는데 북마크 줄은 '23장' 넉 자뿐이라 오른쪽이 통째로 비었다.
+const bmChip = await ev(`(() => {
+  const b = document.querySelector('[data-goto="psa 23"]');
+  if (!b) return null;
+  const cs = getComputedStyle(b);
+  const row = b.parentElement.getBoundingClientRect(), me = b.getBoundingClientRect();
+  return { bg: cs.backgroundColor, radius: cs.borderRadius, rest: Math.round(row.width - me.width) };
+})()`);
+check('북마크 줄에 옅은 판이 깔린다',
+  !!bmChip && bmChip.bg !== 'rgba(0, 0, 0, 0)' && bmChip.bg !== 'transparent', JSON.stringify(bmChip));
+check('줄 전체가 그 장으로 가는 버튼이다(오른쪽 × 자리만 뺀다)',
+  !!bmChip && bmChip.rest > 0 && bmChip.rest <= 34, JSON.stringify(bmChip));
 
 // 줄을 누르면 그 자리로 간다(묶여도 그대로다)
 check('시편 23장 줄을 누른다', await clickSel('[data-goto="psa 23"]'));
@@ -1865,6 +2097,11 @@ logs.length = 0;   // 아래는 일부러 실패를 만드는 자리다 — 여�
 //
 // ① 책 파일을 못 받았을 때: 예전에는 빈 절 배열로 떨어져 카드 안이 통째로 비고 화면은
 //    아무 말도 안 했다. 이제 '…장의 본문을 불러오지 못했어요 · <이유>'가 그 자리에 선다.
+// **캐시 통을 먼저 비운다** — 안 비우면 앞에서 받아 둔 책이 Cache Storage에서 나와
+// fetch를 막아도 본문이 그려진다(services/bible.js). 새로고침 **전에** 비워야 한다 —
+// 뒤에 비우면 앱이 뜨자마자 이어읽기 장을 캐시에서 꺼내 가는 것과 경주가 된다.
+// 미리 받기는 위에서 심어 둔 데이터 아끼기 흉내가 여전히 막고 있다.
+await ev(`(async () => { try { await caches.delete('bible-v1'); } catch (e) {} })()`, true);
 await reload();
 await ev(`(() => {
   const real = window.fetch;

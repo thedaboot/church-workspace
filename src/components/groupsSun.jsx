@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { SectionHead } from '../views/dashboardParts.jsx';
+import { Skeleton } from './media.jsx';
 import { RichText } from './RichText.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
@@ -30,7 +31,10 @@ import { formatServiceDate } from '../services/worship.js';
 // ============================================================================
 
 // ── 내 순 ───────────────────────────────────────────────────────────────────
-export function MySunPanel({ myPerson, sun, people, members, service, present }) {
+// service·present는 **출석이 실제로 들어온 주일**의 것이다(groups.js attendanceSunday) —
+// 아직 오지 않은 주일의 주보가 발행돼 있어도 그 예배의 `0/N`을 세지 않는다.
+// loading은 그 한 벌(mineQ)이 캐시 없이 처음 오는 중이라는 뜻이다.
+export function MySunPanel({ myPerson, sun, people, members, service, present, loading = false }) {
   const list = useMemo(() => groupPeople({ people, group: sun, members }), [people, sun, members]);
   const leaderName = useMemo(
     () => people.find(p => p.id === sun?.leader_person_id)?.name || '',
@@ -50,8 +54,10 @@ export function MySunPanel({ myPerson, sun, people, members, service, present })
     );
   }
 
-  // 출석은 '가장 최근 발행 주일 예배' 한 건이다. 그런 예배가 없으면 줄을 그리지 않는다.
+  // 출석은 '출석이 들어온 가장 최근 주일 예배' 한 건이다(사용자 결정 2026-09-08).
+  // 그런 예배가 없으면 줄을 그리지 않는다.
   const attended = service ? presentCount(list, present) : 0;
+  const came = (id) => !!service && (present instanceof Set ? present.has(id) : (present || []).includes(id));
 
   return (
     <div className="mysun dc-screen pb-8">
@@ -63,7 +69,12 @@ export function MySunPanel({ myPerson, sun, people, members, service, present })
           <span className="text-[11.5px] text-fg-faint">{list.length}명</span>
         </div>
 
-        {service && (
+        {/* 첫 진입(캐시 없음)에는 **같은 높이의 자리**를 먼저 잡는다 — 아무것도 안
+            그리면 값이 도착하는 순간 이름 격자가 한 줄만큼 아래로 밀린다. 높이는 이
+            줄의 글자 크기(11.5px)가 만드는 높이와 같다. */}
+        {loading ? (
+          <div className="mysun-att-loading mt-2"><Skeleton className="h-[17px] w-44 rounded-md" /></div>
+        ) : service && (
           <p className="mysun-att mt-2 text-[11.5px] text-fg-muted">
             {formatServiceDate(service.service_date)} 예배 출석 {attended}/{list.length}
           </p>
@@ -72,9 +83,13 @@ export function MySunPanel({ myPerson, sun, people, members, service, present })
         {/* 칸 수를 못 박지 않고 폭이 허락하는 만큼 채운다 — 화면 폭이 대시보드 기준으로
             넓어져서 세 칸으로 두면 이름 오른쪽이 한 뼘씩 비었다(1440px에서 350px씩). */}
         <div className="mt-3.5 grid gap-x-3 gap-y-2.5 [grid-template-columns:repeat(auto-fill,minmax(min(100%,12rem),1fr))]">
+          {/* 그 예배에 온 사람에게는 초록 '출석'이 하나 더 붙는다(사용자 요청
+              2026-09-08). 자리('순장')가 먼저고 그날의 사실('출석')이 뒤다 —
+              기준 예배가 없으면(위 service가 null) 아무에게도 붙지 않는다. */}
           {list.map(p => (
             <PersonTag key={p.id} person={p} className="mysun-member"
-              badge={p.id === sun.leader_person_id ? '순장' : null} />
+              badge={p.id === sun.leader_person_id ? '순장' : null}
+              tag={came(p.id) ? '출석' : null} />
           ))}
         </div>
       </div>
