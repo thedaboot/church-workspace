@@ -113,7 +113,6 @@ export async function fetchGroupMembers(groupIds) {
   return data ?? [];
 }
 
-// 내 명단 행(로그인 계정과 이어진 사람). 없으면 null — 아직 관리자가 안 이었다.
 // 게스트 저장 자리(클라우드가 없을 때) — 서비스마다 localStorage 한 키에 표들을 둔다.
 // 키는 서비스별로 따로다(church_worship_v1 · church_groups_v1 · church_roster_v1).
 // ponytail: 한 키로 합치지 않는다 — 시드의 `me`(자격) 모양이 서비스마다 달라 겹치면
@@ -127,6 +126,7 @@ export function guestStore(key) {
   return { all, rows, set };
 }
 
+// 내 명단 행(로그인 계정과 이어진 사람). 없으면 null — 아직 관리자가 안 이어 주었다.
 export async function fetchMyPerson() {
   if (!supabase) return null;
   const { data: { user } = {} } = await supabase.auth.getUser();

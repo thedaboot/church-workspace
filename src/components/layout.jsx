@@ -33,6 +33,12 @@ import logoDark from '../assets/logo-dark.png';
 // 2줄은 프로젝트 탭. 예전 좌측 사이드바가 두 가지 일을 겹쳐 하던 걸 분리한 것.
 // 모바일은 같은 역할을 위(프로젝트 탭)/아래(전역 탭바)로 나눠 가진다.
 
+// 교회 생활 축의 화면들 — **차례가 곧 화면에 서는 순서**다(하단 바 · 데스크톱 첫 묶음).
+// 세 곳이 이 목록을 본다: 하단 바의 모드 판정 · 데스크톱 탭 줄 접기 · App의 전환 방향
+// (App.jsx가 이것을 CHURCH_ORDER로 가져다 쓴다). 예전에는 같은 배열이 세 벌이라 화면을
+// 하나 늘리면 어느 하나가 조용히 낡았다.
+export const CHURCH_MENUS = ['home', 'worship', 'word', 'groups'];
+
 // 활성 프로젝트는 언제나 탭에 보이게 — 6번째 프로젝트를 열었는데 탭에 아무것도
 // 선택돼 있지 않으면 지금 어디 있는지 알 수 없다.
 // max는 탭 줄 폭에서 잰 값이다(useTabFit) — 예전에는 고정 5라서 넓은 화면에서
@@ -154,12 +160,13 @@ function useDismiss(open, close, refs) {
 // 사이드바 하단에 있던 것들이 전부 여기로 들어왔다(모바일 '내 정보' 탭도 이걸 쓴다).
 function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', children , onOpenMembers }) {
   const currentUser = useStore(selectCurrentUser);
-  const { enabled, session, signOut } = useAuth();
+  // 한 번만 부른다 — 같은 컨텍스트를 두 번 읽던 자리였다(값이 갈릴 수는 없지만 읽는 곳이
+  // 둘이면 나중에 조건이 붙을 때 한쪽만 고쳐진다)
+  const { enabled, session, signOut, isAdmin } = useAuth();
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const btnRef = useRef(null);
   const popRef = useRef(null);
-  const { isAdmin } = useAuth();
   // popRef를 넘겨 실제 높이로 위치를 다시 잡는다 — 추정 높이로만 잡으면
   // 아래에서 위로 뜨는 모바일 탭바 메뉴가 탭바에서 한참 떨어져 떠 보였다
   const [pos, place] = useAnchoredPos(btnRef, open, 224, 200, 8, popRef);
@@ -263,7 +270,7 @@ export const TopNav = React.memo(({
   const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0);
   const { shown, rest } = splitProjectTabs(tabSource, activeMenu, tabFit);
   // 프로젝트 탭 줄은 업무 축 화면에서만 — 교회 생활 화면(홈·예배·말씀·모임)에서는 접힌다
-  const showProjectRow = !['home', 'worship', 'word', 'groups'].includes(activeMenu);
+  const showProjectRow = !CHURCH_MENUS.includes(activeMenu);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRootRef = useRef(null);
   const moreBtnRef = useRef(null);
@@ -517,16 +524,17 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
   // 보여야 한다 — 안 그러면 지금 어디 있는지 표시가 아무 데도 없다.
   const activeList = useStore(selectActiveProjectsList);
   const projectsMap = useStore(selectProjectsMap);
-  const current = projectsMap[activeMenu];
-  const allForYear = useStore(selectProjectsList);
-  const { year, setYear, years, yearCounts } = useTabYear(allForYear, activeMenu);
-  const yearList = activeList.filter(p => projectYear(p) === year);
-  const base = current && !current.archived && !yearList.some(p => p.id === activeMenu) ? [...yearList, current] : yearList;
-  const projectsList = current?.archived ? [...base, current] : base;
-  const currentUser = useStore(selectCurrentUser);
+  // 지금 보고 있는 프로젝트(아니면 null). **이 한 값이 두 가지 일을 한다** — 탭 줄에
+  // 끌어올릴지 정하고, 제목 줄과 탭 줄이 설지 정한다. 예전에는 같은 조회가 두 벌이었다.
   // 프로젝트 탭 줄은 프로젝트를 보고 있을 때만 — 내 업무·대시보드에서는 쓸 일이 없고
   // 좁은 화면에서 한 줄이 그대로 낭비된다(다른 프로젝트로는 하단 '프로젝트' 탭으로 간다)
   const project = projectsMap[activeMenu] || null;
+  const allForYear = useStore(selectProjectsList);
+  const { year, setYear, years, yearCounts } = useTabYear(allForYear, activeMenu);
+  const yearList = activeList.filter(p => projectYear(p) === year);
+  const base = project && !project.archived && !yearList.some(p => p.id === activeMenu) ? [...yearList, project] : yearList;
+  const projectsList = project?.archived ? [...base, project] : base;
+  const currentUser = useStore(selectCurrentUser);
   const title = menuTitle(activeMenu, projectsMap, currentUser);
   return (
     <div className="md:hidden shrink-0 border-b border-line/70 z-20">
@@ -666,10 +674,7 @@ const MobileProjectTabs = React.memo(({
 });
 
 // 모바일 하단 탭바 — 프로젝트 / 내 업무 / 대시보드 / 팀 (핸드오프 규격).
-// 설정은 상단 헤더로 올라갔다.
-// 교회 생활 화면 목록 — 하단 바 모드 판정과 데스크톱 탭 줄 접기가 같이 본다
-const CHURCH_MENUS = ['home', 'worship', 'word', 'groups'];
-
+// 설정은 상단 헤더로 올라갔다. 교회 축 목록(CHURCH_MENUS)은 이 파일 맨 위에 있다.
 export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProject }) => {
   // '프로젝트' 탭이 새로 골라 주는 것은 보관하지 않은 것 중 첫 번째.
   // 하지만 지금 보고 있는 것이 보관된 프로젝트여도 탭은 켜져 있어야 한다(전체로 판정).
@@ -897,15 +902,9 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
   const rootRef = useRef(null);
   const active = query.trim().length >= 2;
 
-  // 데스크톱: 바깥 클릭 / Escape 닫기
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false); };
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-  }, [open]);
+  // 데스크톱: 바깥 클릭 / Escape 닫기. 드롭다운이 rootRef 안에 있으므로(포털이 아니다)
+  // 프로필 메뉴·더보기와 **같은 훅**을 쓴다 — 닫는 규칙이 여러 벌이면 한쪽만 고쳐진다.
+  useDismiss(open, () => setOpen(false), [rootRef]);
 
   const reset = () => setQuery('');
   const closeMobile = () => { setMobileOpen(false); reset(); };
@@ -1096,15 +1095,9 @@ function NotificationBell({ onOpenTask, onOpenLink }) {
     return unsub;
   }, [userId]);
 
-  // 바깥 클릭 / Esc 닫기
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false); };
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-  }, [open]);
+  // 바깥 클릭 / Esc 닫기 — 이 팝오버는 rootRef 안에 그려지므로(포털이 아니다) 프로필
+  // 메뉴·검색과 같은 훅 한 벌로 충분하다
+  useDismiss(open, () => setOpen(false), [rootRef]);
 
   const openItem = (n) => {
     setOpen(false);

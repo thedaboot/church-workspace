@@ -192,15 +192,17 @@ export function PersonPick({
   // 후보는 언제나 가나다순이다(사용자 지시 2026-09-02) — 명단이 온 차례대로 서면
   // 같은 이름을 찾을 때마다 다른 줄에 있다. 글자를 친 뒤에는 정확 일치 > 접두 일치 >
   // 포함으로 좁히고, 동순위 안에서 다시 가나다순이다(MentionInput과 같은 규칙).
+  // 가나다 정렬은 **명단이 바뀔 때만** 한다 — 한 벌에 묶어 두면 글자를 한 자 칠 때마다
+  // 쉰 명을 localeCompare로 다시 줄 세운다(칠 때마다 도는 것은 좁히기뿐이면 된다).
+  const sorted = useMemo(() => [...people].sort(byName), [people]);
   const hits = useMemo(() => {
-    const all = [...people].sort(byName);
     const q = query.trim().toLowerCase();
-    if (!q) return all;
+    if (!q) return sorted;
     const rank = (n) => (n === q ? 0 : n.startsWith(q) ? 1 : 2);
-    return all.filter(p => String(p.name || '').toLowerCase().includes(q))
+    return sorted.filter(p => String(p.name || '').toLowerCase().includes(q))
       .sort((a, b) => rank(String(a.name).toLowerCase()) - rank(String(b.name).toLowerCase())
         || byName(a, b));
-  }, [people, query]);
+  }, [sorted, query]);
 
   const pick = (p) => {
     setQuery(''); setOpen(false); setIdx(0);

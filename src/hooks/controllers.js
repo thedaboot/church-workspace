@@ -138,7 +138,7 @@ export const useWorkspaceController = () => {
       const addedLogs = (updated.activityLog || []).slice((task.activityLog || []).length);
       cloudSync.commentDeleteCloud(commentId)
         .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id))
-        .catch(reportCloudError('댓글 삭제'));
+        .catch(reportCloudError('댓글을 지우지 못했어요'));
     }
     return updated;
   }, [currentUser.name, cloudOn]);

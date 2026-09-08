@@ -23,10 +23,10 @@ const sync = read('src/services/cloudSync.js');
 const att = read('src/modals/attachments.jsx');
 const vercel = JSON.parse(read('vercel.json'));
 const drivemd = read('docs/DRIVE.md');
-// **지금 배포된 것은 v7이고, 다음에 올릴 것이 v8이다.** DRIVE.md는 배경 설명이고
-// 코드는 이 두 문서가 원본이다 — 액션 목록은 이쪽을 봐야 한다.
-// scriptmd(=v8)가 기준이다. v7은 아직 라이브라 액션 목록만 같이 본다.
-const scriptmd = read('docs/APPS_SCRIPT_v8.md');
+// **지금 배포된 것은 v7이고, 다음에 올릴 것이 v9다**(v8은 배포하지 않고 건너뛴다 — 사용자 결정
+// 2026-09-08). DRIVE.md는 배경 설명이고 코드는 이 문서들이 원본이다 — 액션 목록은 이쪽을 봐야 한다.
+// scriptmd(=v9)가 기준이다. v7은 아직 라이브라 액션 목록만 같이 본다.
+const scriptmd = read('docs/APPS_SCRIPT_v9.md');
 const scriptv7 = read('docs/APPS_SCRIPT_v7.md');
 const backfill = read('scripts/backfill_sheet_preview.mjs');
 const cfg = read('src/config.js');
@@ -176,7 +176,7 @@ check('폴더 id를 스토어에도 넣는다', () => {
 });
 
 // ── 스크립트 ────────────────────────────────────────────────────────────────
-check('스크립트가 멱등 열쇠·list·변환 사본을 안다 (v8)', () => {
+check('스크립트가 멱등 열쇠·list·변환 사본을 안다 (v9)', () => {
   assert.match(scriptmd, /case 'list'/, 'list 액션이 없다');
   assert.match(scriptmd, /KEY_PROP/, '열쇠를 appProperties에 안 적는다');
   assert.match(scriptmd, /if \(body\.retry\)/, '첫 시도에도 폴더를 훑으면 파일 많은 업무가 느려진다');
@@ -187,14 +187,15 @@ check('스크립트가 멱등 열쇠·list·변환 사본을 안다 (v8)', () =>
   assert.match(scriptmd, /LockService/, '폴더 만들기에 잠금이 없다 — 병렬 업로드에서 같은 폴더가 여럿 생긴다');
 });
 
-// ── v8: 워드·PPT 사본 (2026-09-08) ──────────────────────────────────────────
-check('v8 스크립트가 워드·PPT도 네이티브 사본으로 만든다', () => {
+// ── v8→v9: 워드·PPT 사본 (2026-09-08) ───────────────────────────────────────
+check('v9 스크립트가 워드·PPT도 네이티브 사본으로 만든다', () => {
   assert.match(scriptmd, /GOOGLE_DOCS/, '워드를 구글 문서로 안 옮긴다');
   assert.match(scriptmd, /GOOGLE_SLIDES/, 'PPT를 구글 슬라이드로 안 옮긴다');
   assert.match(scriptmd, /GOOGLE_SHEETS/, '엑셀 변환이 사라졌다(v7 동작이 깨진다)');
   assert.match(scriptmd, /convertTo/, 'convertTo를 모르면 워드·PPT 요청이 무시된다');
   // 버전을 안 실어 보내면 부르는 쪽이 v7에 워드를 보내 쓰레기 사본을 만든다
-  assert.match(scriptmd, /const SCRIPT_VERSION = 8;/, '버전 상수가 8이 아니다');
+  // 앱의 게이트는 `>= 8`이다(cloud.attachPreviewCopy) — 9는 그 조건을 그대로 지난다
+  assert.match(scriptmd, /const SCRIPT_VERSION = 9;/, '버전 상수가 9가 아니다');
   assert.match(scriptmd, /out\.version = SCRIPT_VERSION/, '답에 버전을 안 싣는다');
   // 사본 종류는 **확장자**가 정한다 — 부르는 쪽 값을 믿으면 잘못 보낸 한 번이 영영 남는다
   assert.ok(/COPY_AS\[String\(name/.test(scriptmd), '사본 종류를 확장자로 정하지 않는다');
@@ -207,7 +208,7 @@ check('v8 스크립트가 워드·PPT도 네이티브 사본으로 만든다', (
   assert.ok(!/role: 'writer'/.test(scriptmd), '사본에 편집 권한을 준다');
 });
 
-check('v8 upload은 변환을 기다리지 않는다', () => {
+check('v9 upload은 변환을 기다리지 않는다', () => {
   // v7은 upload 안에서 변환까지 끝내고 답해서 올리는 시간에 변환 시간이 더해졌다.
   // convertTo(새 화면이 쓰는 칸)가 upload 자리에 있으면 그 자리에서 또 기다린다.
   const up = scriptmd.slice(scriptmd.indexOf('function upload(body)'), scriptmd.indexOf('// **F: 오피스 파일을'));
@@ -215,11 +216,27 @@ check('v8 upload은 변환을 기다리지 않는다', () => {
   assert.ok(!/body\.convertTo/.test(up), 'upload이 convertTo를 보고 변환한다 — 사본은 convert 액션이 만든다');
 });
 
+// ── v9: 업로드 왕복 둘 (2026-09-08 — "좀 더 효율적인 방법으로") ────────────────
+check('v9 upload은 드라이브 왕복 둘이다(만들기 + 공유)', () => {
+  // v8까지는 createFile · 열쇠 update(stampKey) · setSharing 셋이었다. 이름·부모·열쇠·설명을
+  // Drive.Files.create 한 요청에 실으면 둘이 된다 — 남는 하나(공유)는 다른 API라 합칠 수 없다.
+  assert.match(scriptmd, /function createInFolder\(/, '공용 만들기 함수가 없다');
+  assert.match(scriptmd, /Drive\.Files\.create\(meta, blob/, '메타와 바이트를 한 요청에 싣지 않는다');
+  assert.ok(!/\.createFile\(/.test(scriptmd), 'DriveApp createFile로 만든다(그 뒤 열쇠·공유 왕복이 따로 붙는다)');
+  assert.ok(!/stampKey\(/.test(scriptmd), '만든 뒤 열쇠를 update로 붙인다');
+  assert.ok(!/setSharing\(/.test(scriptmd), 'DriveApp setSharing을 쓴다 — Permissions.create 한 벌로');
+  // 공유는 언제나 보기다(§7 마지막 줄)
+  assert.match(scriptmd, /Drive\.Permissions\.create\(\{ role: 'reader', type: 'anyone' \}, file\.id/, '올린 파일에 보기 공유가 없다');
+  // upload·uploadFromUrl 둘 다 같은 길
+  const ups = scriptmd.match(/createInFolder\(folder\.getId\(\), blob/g) || [];
+  assert.strictEqual(ups.length, 2, `upload·uploadFromUrl 둘이 createInFolder를 써야 한다(${ups.length})`);
+});
+
 check('프록시가 아는 액션과 스크립트가 아는 액션이 같다', () => {
   const apiSet = new Set([...(/ACTIONS = new Set\(\[([^\]]*)\]\)/.exec(api)?.[1] || '')
     .matchAll(/'([a-zA-Z]+)'/g)].map(m => m[1]));
   // v7은 아직 라이브다 — 둘 중 하나라도 어긋나면 그 판에서 액션이 막힌다
-  for (const [label, md] of [['v8', scriptmd], ['v7', scriptv7]]) {
+  for (const [label, md] of [['v9', scriptmd], ['v7', scriptv7]]) {
     const scriptSet = new Set([...md.matchAll(/case '([a-zA-Z]+)':\s+return json/g)].map(m => m[1]));
     for (const a of scriptSet) assert.ok(apiSet.has(a), `${label} 스크립트는 ${a}를 아는데 프록시가 막는다`);
     for (const a of apiSet) assert.ok(scriptSet.has(a), `프록시는 ${a}를 통과시키는데 ${label} 스크립트가 모른다`);

@@ -15,7 +15,7 @@ import { DocEmbedModal, docEmbedKind } from './DocEmbed.jsx';
 import { objectParticle } from '../services/errorText.js';
 import { BTN, BTN_QUIET, WITH_ICON, FIELD } from './groupsParts.jsx';
 import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM,
-  filesOfKind, SONGFORM, CUESHEET } from '../services/worship.js';
+  filesOfKind, fileKindOf, SONGFORM, CUESHEET } from '../services/worship.js';
 import { honorificsOf } from '../services/people.js';
 import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate } from '../services/noteTemplate.js';
 
@@ -42,6 +42,21 @@ const ROW = 'flex items-center gap-1.5';
 const INPUT = `min-w-0 ${FIELD}`;
 const ICON_BTN = 'p-1.5 rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors disabled:opacity-30';
 const SAVE_DELAY = 900;
+
+// ── 이 파일이 되풀이해서 쓰는 모양 한 벌 ────────────────────────────────────
+// **쓰이는 곳보다 위에 둔다.** 예전에는 이 넷이 파일 한가운데(보기 절과 노트 절)에
+// 흩어져 있어서, 맨 위의 큐시트 카드가 400줄 아래의 상수를 쓰고 있었다 — 읽는 사람이
+// 값을 찾으러 아래로 내려가야 했다(모듈 평가 순서로는 문제가 없었다).
+const ROW_LINE = { borderBottom: '1px solid var(--app-line)' };
+const CARD_BOX = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
+const NUM = 'w-5 shrink-0 text-[11px] font-bold text-fg-faint tabular-nums';
+// 보기 줄의 역할 칩 — 편집 줄의 ROLE_CHIP과 같은 색·같은 모양이되 입력칸이 아니다
+// (누를 수 없는 것에 focus 스타일을 달아 두면 눌러 보게 된다).
+const ROLE_VIEW = 'px-2.5 py-0.5 rounded-full bg-accent-weak text-accent-text text-[11.5px] font-semibold';
+// 편집 진입은 **연한 accent**, 확정은 진한 accent, 나가기는 무채색(§8의 색 규칙).
+// **출석 화면도 이 한 줄을 쓴다**(worshipAttendance의 '수정') — 같은 뜻의 버튼이
+// 두 파일에 각자 적혀 있으면 한쪽만 고쳐진다.
+export const BTN_SOFT = 'px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';
 // 업무 본문·QT 묵상과 같은 에디터 한 벌. 무거워서 그 화면들처럼 lazy로 들인다
 // (첫 번들에 tiptap이 실리지 않게 — modals.jsx·wordView.jsx가 같은 방식이다).
 const MarkdownEditor = lazy(() => import('./MarkdownEditor.jsx').then(m => ({ default: m.MarkdownEditor })));
@@ -332,13 +347,6 @@ function RolesTab({ rows, people, nameOf }) {
   );
 }
 
-const ROW_LINE = { borderBottom: '1px solid var(--app-line)' };
-const CARD_BOX = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
-const NUM = 'w-5 shrink-0 text-[11px] font-bold text-fg-faint tabular-nums';
-// 보기 줄의 역할 칩 — 편집 줄의 ROLE_CHIP과 같은 색·같은 모양이되 입력칸이 아니다
-// (누를 수 없는 것에 focus 스타일을 달아 두면 눌러 보게 된다).
-const ROLE_VIEW = 'px-2.5 py-0.5 rounded-full bg-accent-weak text-accent-text text-[11.5px] font-semibold';
-
 // 유튜브 썸네일 — **키도 서버 함수도 필요 없다**(i.ytimg.com 공개 주소, services의
 // youtubeThumb). 그래서 게스트·로컬에서도 그림이 뜬다. 못 받으면(비공개 영상·인터넷
 // 없음) 음표 아이콘으로 떨어진다 — 깨진 그림 자리를 남기지 않는다.
@@ -537,10 +545,21 @@ function NoticeCard({ notice, index }) {
   const [open, setOpen] = useState(false);
   const [over, setOver] = useState(false);
   const bodyRef = useRef(null);
+  // **폭이 바뀌면 다시 잰다.** 넘침은 글자 수가 아니라 줄 수로 정해지므로 같은 광고가
+  // 1440에서는 두 줄에 들어가고 375에서는 넉 줄이 된다 — 마운트 때 한 번만 재면 창을
+  // 좁히거나 폰을 돌렸을 때 잘린 광고에 '펼치기'가 붙지 않는다(읽을 길이 사라진다).
+  // **펼쳐 둔 동안은 재지 않는다** — 그때는 접힘이 없어 언제나 '안 넘친다'가 나오고,
+  // 접는 순간 그 값이 한 프레임 동안 남아 버튼이 깜빡인다. 접히면 레이아웃 이펙트가
+  // 그리기 전에 다시 재므로 값이 늦지 않는다.
   useLayoutEffect(() => {
     const el = bodyRef.current;
-    if (el) setOver(el.scrollHeight - el.clientHeight > 2);
-  }, [notice.body]);
+    if (!el || open) return undefined;
+    const measure = () => setOver(el.scrollHeight - el.clientHeight > 2);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [notice.body, open]);
   return (
     <li className="worship-notice-card p-3 md:p-4 rounded-[10px]" style={CARD_BOX}>
       <div className="flex items-start gap-2">
@@ -832,8 +851,12 @@ function SongsEdit({ rows, people, leader, onLeader, onPlaylist, onChange, onPul
               <input className={`${INPUT} basis-[calc(100%-1.625rem)] sm:basis-0 flex-1 min-w-0`} value={s.title || ''} aria-label="찬양 제목"
                 onChange={e => set(i, { title: e.target.value })} placeholder="예: 주 은혜임을" />
             )}
-            {/* 링크 칸 앞에는 작은 썸네일 — 어느 영상인지 눈으로 확인된다 */}
-            <span className="worship-song-linkbox flex items-center gap-1.5 flex-1 basis-32 sm:basis-0 min-w-0 border border-line rounded-xs bg-surface px-1.5 py-1 focus-within:border-accent transition-colors">
+            {/* 링크 칸 앞에는 작은 썸네일 — 어느 영상인지 눈으로 확인된다.
+                **둘째 줄은 번호 칸 밑에서 시작하지 않는다**(2026-09-08 실측 375px:
+                제목 칸은 x=38인데 링크 칸이 x=12에서 시작해 왼쪽이 들쭉날쭉했다).
+                640 미만에서는 이 칸이 언제나 둘째 줄이므로 번호 칸만큼(1.25rem + gap
+                0.375rem) 들여 제목 칸과 왼쪽을 맞춘다. 640 위는 한 줄이라 들여쓰기가 없다. */}
+            <span className="worship-song-linkbox flex items-center gap-1.5 flex-1 basis-32 sm:basis-0 min-w-0 ml-[1.625rem] sm:ml-0 border border-line rounded-xs bg-surface px-1.5 py-1 focus-within:border-accent transition-colors">
               <SongThumb link={s.link} />
               <input className="flex-1 min-w-0 bg-transparent text-[13px] py-0.5 outline-none text-fg placeholder:text-fg-faint"
                 value={s.link || ''} aria-label="찬양 링크"
@@ -925,8 +948,6 @@ function NoticesEdit({ rows, onChange }) {
 // 맡기지 않는다): 640 미만에서 토글이 둘째 줄을 통째로 쓰고 왼쪽부터 폭을 채운다.
 const NOTE_TOOLS = 'worship-note-tools mt-2.5 grid items-center gap-2 grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]';
 const NOTE_TOGGLE = 'col-span-3 w-full sm:col-span-1 sm:w-auto';
-// 편집 진입은 **연한 accent**, 확정은 진한 accent, 나가기는 무채색(§8의 색 규칙)
-const BTN_SOFT = 'px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';
 
 function MyNote({ note, passageRef = '', onSave, onShare }) {
   // **처음 여는 노트는 템플릿으로 시작한다**(사용자 요청 2026-09-08 — 옛 순 노트
@@ -1177,9 +1198,12 @@ export function ServiceDetail({
         </div>
       </header>
 
-      <div className="flex items-center gap-1 mb-3 overflow-x-auto scrollbar-hide x-scroll-lock" style={{ borderBottom: '1px solid var(--app-line)' }}>
+      {/* `aria-selected`는 **`role="tab"`인 요소에만** 뜻이 있다(그냥 button에 달면 보조
+          기기가 무시한다). 대시보드 탭 줄(views.jsx)이 이미 tablist/tab 한 벌이라 같은
+          모양으로 맞춘다 — 보이는 것은 그대로다. */}
+      <div role="tablist" aria-label="주보" className="flex items-center gap-1 mb-3 overflow-x-auto scrollbar-hide x-scroll-lock" style={{ borderBottom: '1px solid var(--app-line)' }}>
         {TABS.map(t => (
-          <button key={t.id} type="button" onClick={() => setTab(t.id)} aria-selected={tab === t.id}
+          <button key={t.id} type="button" role="tab" onClick={() => setTab(t.id)} aria-selected={tab === t.id}
             className={`worship-tab shrink-0 px-3 py-2 text-[12.5px] font-semibold transition-colors ${tab === t.id ? 'text-fg' : 'text-fg-faint hover:text-fg-muted'}`}
             style={{ borderBottom: `2px solid ${tab === t.id ? 'var(--app-ink)' : 'transparent'}`, marginBottom: -1 }}>
             {t.label}
@@ -1227,7 +1251,7 @@ export function ServiceDetail({
           찬양 탭에서 연 송폼이 말씀 탭 큐시트로 넘어가면 어디에 있는지 알 수 없다. */}
       {preview && (
         <FilePreviewModal row={preview} initialSrc={null} onClose={() => setPreview(null)}
-          rows={(preview.kind || SONGFORM) === CUESHEET ? cueFiles : songForms} />
+          rows={fileKindOf(preview) === CUESHEET ? cueFiles : songForms} />
       )}
 
       {/* 모바일 편집 도구 줄 — 화면 아래에 붙는다. 하단 탭바(4.5rem + safe-area) 위에

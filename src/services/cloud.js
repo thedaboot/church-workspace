@@ -3,6 +3,11 @@ import { CONFIG } from '../config.js';
 // 어떤 파일에 구글 변환 사본을 만들지 — 표를 **여는 쪽과 한 벌**로 둔다(previewKind.js).
 // 두 벌이면 새 확장자를 붙일 때 한쪽만 고쳐져서 "사본은 있는데 안 열리는 파일"이 생긴다.
 import { previewCopyOf } from './previewKind.js';
+// 확장자 → 구글 편집기 표(getFileOpenUrl)와 화면 가림 비밀번호 계산(setFilePassword ·
+// setLinkPassword)은 **다른 곳에 원본이 있다.** 둘 다 순수 모듈이라 여기서 가져다 써도
+// supabase가 딸려 가지 않는다(반대 방향은 안 된다 — viewPw.js 머리말).
+import { GOOGLE_EDITOR } from '../utils.js';
+import { makeViewPw, verifyViewPw } from './viewPw.js';
 
 // ============================================================================
 // 6. Persistence Layer — Supabase 클라우드 영속 계층
@@ -901,7 +906,8 @@ export async function renameDriveFolder(folderId, newName) {
 async function uploadToStorageOnly(file, { owner, prefix }) {
   const c = client();
   const safe = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path = `${prefix}/${crypto.randomUUID()}-${safe}`;
+  // 열쇠 만들기는 위 newKey 한 벌이다(randomUUID가 없는 브라우저 폴백까지 거기 있다)
+  const path = `${prefix}/${newKey()}-${safe}`;
   // cacheControl: 경로에 uuid가 박혀 있어 **같은 주소가 다른 그림이 될 수 없다.**
   // 기본값은 1시간이라, 한 시간 뒤 다시 열면 (주소가 같아도) 되묻는 왕복이 생긴다.
   // 30일로 두면 그 왕복도 사라진다. 이미 올라간 파일은 그대로 3600이고, 그쪽은
@@ -1042,21 +1048,17 @@ async function getAttachmentUrl(storagePath) {
 // 파일 열기 URL — files.source로 저장소를 분기한다.
 // 개인 구글 드라이브로 실체를 옮긴 뒤에는 source='drive'로 바꾸고
 // drive_file_id/web_view_link만 채우면 앱 코드는 그대로 동작한다.
-// 확장자 → 구글 편집기. '새 탭에서 열기'가 **언제나 보기 좋은 화면**으로 가게 하는 표다.
-// 드라이브가 내주는 web_view_link는 오피스 파일이면 이미 편집기 주소
-// (docs.google.com/spreadsheets/d/…/edit)라서 그걸 그대로 쓰면 되는데,
-// 링크가 비어 있을 때 파일 뷰어(drive.google.com/file/d/…/view)로 떨어지면
-// 앱 안에서 없앤 바로 그 어두운 화면이 새 탭에서 다시 나온다. 그 자리를 막는다.
-const OPEN_EDITOR = {
-  xlsx: 'spreadsheets', xls: 'spreadsheets', csv: 'spreadsheets',
-  docx: 'document', doc: 'document',
-  pptx: 'presentation', ppt: 'presentation',
-};
+// 확장자 → 구글 편집기 표는 **utils.GOOGLE_EDITOR 한 벌**이다(앱 안 미리보기 주소를
+// 만드는 utils.driveSrc와 같은 표). '새 탭에서 열기'가 **언제나 보기 좋은 화면**으로
+// 가게 하는 값이다 — 드라이브가 내주는 web_view_link는 오피스 파일이면 이미 편집기
+// 주소(docs.google.com/spreadsheets/d/…/edit)라서 그걸 그대로 쓰면 되는데, 링크가
+// 비어 있을 때 파일 뷰어(drive.google.com/file/d/…/view)로 떨어지면 앱 안에서 없앤
+// 바로 그 어두운 화면이 새 탭에서 다시 나온다. 그 자리를 막는다.
 export async function getFileOpenUrl(row) {
   if (row.source === 'drive') {
     if (row.web_view_link) return row.web_view_link;
     if (row.drive_file_id) {
-      const editor = OPEN_EDITOR[String(row.name || '').split('.').pop().toLowerCase()];
+      const editor = GOOGLE_EDITOR[String(row.name || '').split('.').pop().toLowerCase()];
       return editor
         ? `https://docs.google.com/${editor}/d/${row.drive_file_id}/edit`
         : `https://drive.google.com/file/d/${row.drive_file_id}/view`;
@@ -1311,30 +1313,22 @@ export function subscribeAll(onChange) {
 // 그대로 열 수 있다 — 같이 일하는 사람들 사이에서 실수로 여는 것을 막는 수준이고,
 // 그 이상으로 읽히게 만들면 안 된다(0023 주석에 이유가 있다). 화면 문구에
 // '암호화'라는 말을 쓰지 않는 이유다.
-// 해시는 브라우저의 WebCrypto로 만든다(서버 왕복 없음). 소금은 파일마다 다르다.
-const sha256Hex = async (text) => {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
-};
-
-export async function setFilePassword(fileId, password) {
-  const c = client();
-  if (!password) {
-    return unwrap(await c.from('files')
-      .update({ view_pw: null, view_pw_salt: null, view_pw_by: null })
-      .eq('id', fileId).select().single());
-  }
-  const salt = crypto.randomUUID();
-  const me = (await getSession())?.user?.id ?? null;
-  return unwrap(await c.from('files')
-    .update({ view_pw: await sha256Hex(salt + password), view_pw_salt: salt, view_pw_by: me })
-    .eq('id', fileId).select().single());
+// 해시·소금 만들기는 `services/viewPw.js` 한 벌이다 — 예전에는 같은 계산이 여기에도
+// 그대로 적혀 있어서, 한쪽을 고치면 걸어 둔 비밀번호가 다른 쪽에서 안 풀렸다.
+// 여기 남는 것은 **DB 세 칸을 쓰는 일**뿐이다(view_pw · view_pw_salt · view_pw_by).
+// 빈 비밀번호 = 잠금 풀기 — 소금만 남기지 않고 세 칸을 다 지운다(viewPw.makeViewPw가
+// 앞 두 칸을 null로 주고, 건 사람 칸은 여기서 같이 비운다).
+async function setViewPassword(table, id, password) {
+  const cols = await makeViewPw(password);
+  // 잠금을 풀 때는 건 사람도 지운다 — 세션을 물어볼 이유도 없다
+  const view_pw_by = cols.view_pw ? ((await getSession())?.user?.id ?? null) : null;
+  return unwrap(await client().from(table)
+    .update({ ...cols, view_pw_by })
+    .eq('id', id).select().single());
 }
 
-export async function checkFilePassword(row, password) {
-  if (!row?.view_pw) return true;
-  return (await sha256Hex((row.view_pw_salt || '') + password)) === row.view_pw;
-}
+export const setFilePassword = (fileId, password) => setViewPassword('files', fileId, password);
+export const checkFilePassword = (row, password) => verifyViewPw(row, password);
 
 // 카드 순서만 쓴다 — 카드 폼 전체를 실어 보내면 순서를 바꾸는 사람이 남의 편집을
 // 같이 덮는다(요약 고정이 cardSummaryCloud로 세 칸만 쓰는 것과 같은 이유).
@@ -1381,21 +1375,6 @@ export async function removeAdmin(email) {
 // ── 참고 링크 비밀번호 (0053) ───────────────────────────────────────────────
 // 첨부(0023)와 **같은 화면 가림**이다 — 링크 자체를 잠그지 않는다. 주소를 직접 아는
 // 사람은 그대로 연다. 그래서 화면 문구에 '암호화'라는 말을 쓰지 않는다.
-// 위의 `sha256Hex`·`setFilePassword`와 같은 계산·같은 세 칸이다(view_pw · view_pw_salt ·
-// view_pw_by). 브라우저 쪽에서 같은 규칙을 쓰는 자리가 하나 더 있다 —
-// `services/viewPw.js`(주보 큐시트는 services 행의 jsonb 한 칸이라 이 경로를 안 지난다).
-// **한쪽 알고리즘을 고치면 그쪽도 같이 고쳐야 한다.**
-// 빈 비밀번호 = 잠금 풀기. 소금만 남기지 않고 세 칸을 다 지운다.
-export async function setLinkPassword(linkId, password) {
-  const c = client();
-  if (!password) {
-    return unwrap(await c.from('resource_links')
-      .update({ view_pw: null, view_pw_salt: null, view_pw_by: null })
-      .eq('id', linkId).select().single());
-  }
-  const salt = crypto.randomUUID();
-  const me = (await getSession())?.user?.id ?? null;
-  return unwrap(await c.from('resource_links')
-    .update({ view_pw: await sha256Hex(salt + password), view_pw_salt: salt, view_pw_by: me })
-    .eq('id', linkId).select().single());
-}
+// 계산도 칸도 첨부와 같으므로 위의 setViewPassword 한 벌을 그대로 쓴다
+// (주보 큐시트는 services 행의 jsonb 한 칸이라 이 경로를 안 지나고, viewPw.js를 직접 쓴다).
+export const setLinkPassword = (linkId, password) => setViewPassword('resource_links', linkId, password);

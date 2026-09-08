@@ -62,6 +62,46 @@ check('잠기지 않은 것은 언제나 통과한다',
   isLocked(cleared) === false && isLocked(null) === false && isLocked(mk) === true
   && (await verifyViewPw(cleared, '아무거나')) === true);
 
+// ── 구글 iframe은 어디서 열리든 같은 준비 화면을 쓴다 (2026-09-09 · 소스 단정) ──
+// 갈래가 넷이다: 미리보기 창의 'sheet'·'gdoc'·'drive'·'office'와 첨부 목록의 '펼쳐보기'.
+// 0055에서 'gdoc'만 스켈레톤을 받았고 나머지는 **빈 흰 칸**이 먼저 보였다 — 같은 구글
+// 화면이 파일 종류에 따라 다르게 뜨는 셈이라 화면이 갈렸다. 브라우저로는 재현할 수
+// 없어서(게스트에는 드라이브 첨부가 없다) 소스로 못 박는다.
+// 되돌리기 검사: 'sheet' 가지의 PreparingFrame 줄을 지우면 아래 단정이 깨진다.
+{
+  const { readFileSync } = await import('node:fs');
+  const src = (p) => readFileSync(new URL('../' + p, import.meta.url), 'utf8');
+  const preview = src('src/components/FilePreviewModal.jsx');
+  const att = src('src/modals/attachments.jsx');
+  // 가지 하나만 잘라 본다 — 넉넉히 자르면 옆 가지의 줄이 대신 잡혀서 단정이 헐거워진다
+  const branch = (name) => {
+    const start = preview.indexOf(`if (kind === '${name}')`);
+    if (start < 0) return '';
+    const next = preview.indexOf('if (kind ===', start + 10);
+    return preview.slice(start, next > 0 ? next : preview.length);
+  };
+  const framed = ['sheet', 'gdoc', 'drive'].filter(k => {
+    const b = branch(k) || (k === 'drive' ? preview.slice(preview.indexOf("if (kind === 'office' || kind === 'drive')")) : '');
+    return /!frameReady && <PreparingFrame absolute \/>/.test(b) && /FRAME_SETTLE/.test(b);
+  });
+  check('미리보기 창의 구글·오피스 iframe 셋 다 준비 화면이 있다',
+    framed.length === 3, JSON.stringify(framed));
+  // 걷을 때는 페이드다(§4.2) — 전환 없이 opacity만 갈아 끼우는 갈래가 하나라도 남으면
+  // 그것만 툭 나타난다. 개수로 못 박지 않는다(가지가 늘 수 있다) — **옛 모양이 없는지**를 본다.
+  const faded = preview.split('<iframe').filter(s => /frameReady \? 'opacity-100' : 'opacity-0'/.test(s.slice(0, 700))).length;
+  check('준비 화면을 걷을 때는 페이드다',
+    faded >= 3 && !/frameReady \? '' : 'opacity-0'/.test(preview), `페이드 ${faded}개`);
+  // 첨부 목록의 '펼쳐보기'도 같은 값·같은 처리다(값이 갈리면 같은 표가 다른 속도로 뜬다)
+  check("첨부 '펼쳐보기'도 같은 준비 화면을 쓴다",
+    /const SHEET_SETTLE = 260;/.test(att) && /미리보기를 준비하고 있어요/.test(att)
+    && /FRAME_SETTLE = 260;/.test(preview),
+    `att ${/SHEET_SETTLE/.test(att)} / preview ${/FRAME_SETTLE = 260/.test(preview)}`);
+  // 확장자 표는 한 벌이다 — 첨부가 목록을 따로 들면 새 확장자에서 한쪽만 고쳐진다
+  check('첨부의 엑셀 판정이 previewKind의 표를 쓴다',
+    /SHEET_EXT\.includes\(extOf\(name\)\)/.test(att) && !/\['xls', 'xlsx', 'csv'\]/.test(att),
+    String(/SHEET_EXT\.includes/.test(att)));
+}
+
 const prof = mkdtempSync(join(tmpdir(), 'c3-'));
 const chrome = spawn((process.env.CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe'), ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${prof}`, '--no-first-run', '--force-color-profile=srgb', 'about:blank'], { stdio: 'ignore' });
 async function tg(){for(let i=0;i<40;i++){try{const l=await(await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();const p=l.find(x=>x.type==='page');if(p?.webSocketDebuggerUrl)return p;}catch{}await sleep(250);}throw new Error('fail');}

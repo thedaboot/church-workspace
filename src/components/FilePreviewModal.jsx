@@ -8,9 +8,10 @@ import { Skeleton, SmartImage } from './media.jsx';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { PdfView } from './PdfView.jsx';
-// 엑셀 표 그리기는 **엑셀을 열 때만** 필요하다 — 파서(xlsx.js)와 수식 계산기(formula.js)가
-// 같이 딸려 오는데, 메인 번들에 두면 엑셀을 한 번도 안 여는 사람까지 내려받는다.
-// 워드·PPT도 같다 — 파서(docx.js·pptx.js)가 딸려 오므로 열 때만 받는다.
+// 워드·PPT를 우리가 그리는 길(사본이 없는 옛 첨부·변환 실패)은 **열 때만** 필요하다 —
+// 파서(docx.js·pptx.js)가 같이 딸려 오는데, 메인 번들에 두면 그 파일을 한 번도 안 여는
+// 사람까지 내려받는다. 엑셀 파서(xlsx.js)는 이 화면이 더 쓰지 않는다 — 표는 구글이
+// 그리고(§6-29-c), xlsx.js는 첨부 내용 검색(fileText.js)에만 남았다.
 const DocLazy = lazy(() => import('./OfficeView.jsx').then(m => ({ default: m.DocView })));
 const SlideLazy = lazy(() => import('./OfficeView.jsx').then(m => ({ default: m.SlideView })));
 const DocView = (props) => <Suspense fallback={<PreparingFrame />}><DocLazy {...props} /></Suspense>;
@@ -37,16 +38,18 @@ const SlideView = (props) => <Suspense fallback={<PreparingFrame />}><SlideLazy 
 // 종류 판정(previewKind)과 확장자 목록은 services/previewKind.js에 있다 — 순수 함수라
 // 노드에서 검사한다(tests/logcheck.mjs). 여기는 그리는 쪽만 남았다.
 import { previewKind, extOf, previewCopyUrl } from '../services/previewKind.js';
-// 바이트를 받아 우리가 직접 그리는 형식들 — 셋이 같은 길을 쓴다.
-const BYTE_KINDS = new Set(['sheet', 'doc', 'slide']);
+// 바이트를 받아 **우리가 직접 그리는** 형식들. 엑셀('sheet')은 여기 없다 — 표는 구글이
+// 그리므로 25MB를 통째로 받아 파싱하고 그 결과를 안 쓰는 낭비였다(2026-08-29).
+const BYTE_KINDS = new Set(['doc', 'slide']);
 const MAX_TEXT_CHARS = 512 * 1024;      // 텍스트는 앞의 이만큼만 그린다(뒤는 잘렸다고 알린다)
-// 첨부 목록의 엑셀 '펼쳐보기'(attachments.jsx)도 같은 값·같은 스켈레톤을 쓴다 —
-// 뷰어 iframe이 뜨는 동안 남의 로딩 화면(외부 폰트)이 비쳐 보이지 않게 가리는 값들이다.
 const OFFICE_TIMEOUT = 12000;    // 이 시간 안에 안 뜨면 안내로 대체
 // iframe onLoad는 "문서가 전달된 시점"이라 뷰어가 첫 페이지를 그리기 전이다.
-// 그 사이 PDF 뷰어의 검은 배경이 그대로 보여서, 조금 더 기다렸다 스켈레톤을 걷는다.
+// 그 사이 뷰어의 빈 배경이 그대로 보여서, 조금 더 기다렸다 스켈레톤을 걷는다.
+// 이 창의 네 갈래('sheet'·'gdoc'·'drive'·'office')와 첨부 목록의 엑셀 '펼쳐보기'
+// (attachments.jsx의 SHEET_SETTLE)가 같은 값을 쓴다 — 같은 구글 화면이 어디서 열리느냐에
+// 따라 다른 속도로 걷히면 안 된다. 한쪽을 바꾸면 짝도 같이 고치세요.
 const FRAME_SETTLE = 260;
-// 첨부 목록의 엑셀 '펼쳐보기'(attachments.jsx)도 같은 뷰어 주소를 쓴다
+// Storage에 남은 옛 오피스 파일만 이 뷰어로 간다(드라이브 파일은 구글이 그린다)
 const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
 // 드라이브 미리보기 주소는 순수 함수라 utils에 있다(노드에서 바로 검사한다 — §2-5).
 // 부르는 쪽(attachments.jsx)이 이미 여기서 가져다 쓰고 있어 그대로 다시 내보낸다.
@@ -90,7 +93,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
   const [timedOut, setTimedOut] = useState(false);
   const [pdfSrc, setPdfSrc] = useState(null); // { blob } 또는 { src } — 준비가 끝난 뒤에만 렌더
   const [htmlReady, setHtmlReady] = useState(false); // HTML iframe이 load를 알렸나(그 전까지 준비 중 자리)
-  const [sheetSrc, setSheetSrc] = useState(null); // { blob } 또는 { text }(csv)
+  // 사본이 없어 우리가 직접 그리는 워드·PPT의 바이트(BYTE_KINDS). 예전 이름은 sheetSrc였는데
+  // 엑셀이 이 길을 떠난 뒤로 이름이 화면과 어긋나 있었다.
+  const [officeBlob, setOfficeBlob] = useState(null);
   // 창을 화면 가득 넓히기. 모바일은 원래 전체화면이라 버튼을 두지 않는다(태블릿부터 보인다).
   const [wide, setWide] = useState(false);
   const timerRef = useRef(null);
@@ -99,7 +104,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
     const next = canNav ? gallery[gi + d] : null;
     if (!next) return;   // 끝에서는 멈춘다 — 빙글빙글 돌면 몇 장인지 감을 잃는다
     setCur(next); setUrl(null); setText(null); setError(null); setHtmlReady(false);
-    setFrameReady(false); setTimedOut(false); setPdfSrc(null); setSheetSrc(null);
+    setFrameReady(false); setTimedOut(false); setPdfSrc(null); setOfficeBlob(null);
   }, [canNav, gallery, gi]);
   // 이웃 사진을 미리 받아 둔다 — lh3 주소는 고정이라 이게 곧 캐시를 채우는 일이고,
   // 다음/이전을 눌렀을 때 스켈레톤 없이 바로 뜬다.
@@ -155,33 +160,23 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, url, cur.id]);
 
-  // 엑셀·워드·PPT는 바이트를 받아 우리가 직접 읽는다(구글 뷰어를 안 거친다).
+  // 워드·PPT는 바이트를 받아 우리가 직접 읽는다(사본이 없어 구글 화면을 못 쓸 때만 — 위 BYTE_KINDS).
   // 드라이브 파일은 /api/drive-file 중계로만 받을 수 있다 — 브라우저에서
   // drive.google.com에 직접 가면 CORS가 막는다(§6-29-c).
   useEffect(() => {
-    if (!BYTE_KINDS.has(kind) || sheetSrc) return;
-    // 엑셀은 이제 구글이 그린다 — 바이트를 받을 이유가 아예 없다(25MB를 통째로
-    // 내려받고 파싱한 결과를 안 쓰는 낭비였다). 워드·PPT만 바이트가 필요하다.
-    if (kind === 'sheet') return;
-    const asCsv = extOf(cur.name) === 'csv';
+    if (!BYTE_KINDS.has(kind) || officeBlob) return;
     let alive = true;
-    const take = (b) => (asCsv ? b.text().then(t => ({ text: t })) : Promise.resolve({ blob: b }));
-    if (local) {
-      take(local).then(v => { if (alive) setSheetSrc(v); }).catch(e => { if (alive) setError(e.message || String(e)); });
-      return () => { alive = false; };
-    }
+    if (local) { setOfficeBlob(local); return () => { alive = false; }; }
     if (cur.source === 'drive' && cur.drive_file_id) {
       fetchDriveFileBlob(cur.drive_file_id)
-        .then(take)
-        .then(v => { if (alive) setSheetSrc(v); })
+        .then(b => { if (alive) setOfficeBlob(b); })
         .catch(e => { if (alive) setError(e.human || e.message || String(e)); });
       return () => { alive = false; };
     }
     if (!url) return;
     fetch(url)
       .then(r => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(take)
-      .then(v => { if (alive) setSheetSrc(v); })
+      .then(b => { if (alive) setOfficeBlob(b); })
       .catch(e => { if (alive) setError(e.message || String(e)); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -358,9 +353,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
     }
     // 워드·PPT는 우리가 그린다. 옛 형식(.doc·.ppt)만 구글 편집기로 남는다.
     if (kind === 'doc' || kind === 'slide') {
-      if (!sheetSrc?.blob) return <PreparingFrame />;
+      if (!officeBlob) return <PreparingFrame />;
       const View = kind === 'doc' ? DocView : SlideView;
-      return <View blob={sheetSrc.blob} onError={(e) => setError(`${kind === 'doc' ? '문서' : '슬라이드'}를 읽지 못했어요 · ${e.message || e}`)} />;
+      return <View blob={officeBlob} onError={(e) => setError(`${kind === 'doc' ? '문서' : '슬라이드'}를 읽지 못했어요 · ${e.message || e}`)} />;
     }
     // 워드·PPT에 변환 사본이 있으면 **구글이 그린 화면**을 그대로 띄운다(사용자 요청
     // 2026-09-08 — "그냥 실제 뷰로 볼 수 있게끔, 우리 엑셀 미리보기 하는 것처럼"). 우리
@@ -395,11 +390,18 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
       // 목적이라 다크 모드를 따라가지 않는다.
       const gsheet = sheetPreviewUrl(cur);
       if (gsheet) {
+        // 뜨기 전에는 스켈레톤이 같은 자리를 채운다 — 바로 위 'gdoc'과 **같은 구글
+        // iframe**인데 여기만 없어서, 표를 열면 구글이 그릴 때까지 빈 흰 칸이 먼저
+        // 보였다(사본이 생긴 뒤로 이 갈래가 제일 흔한 첨부다).
         return (
-          <iframe
-            src={gsheet} title={`${cur.name} 미리보기`}
-            className="w-full h-full rounded-md border border-line bg-white"
-          />
+          <div className="relative w-full h-full">
+            {!frameReady && <PreparingFrame absolute />}
+            <iframe
+              src={gsheet} title={`${cur.name} 미리보기`}
+              onLoad={() => { clearTimeout(settleRef.current); settleRef.current = setTimeout(() => setFrameReady(true), FRAME_SETTLE); }}
+              className={`w-full h-full rounded-md border border-line bg-white transition-opacity duration-200 ${frameReady ? 'opacity-100' : 'opacity-0'}`}
+            />
+          </div>
         );
       }
       // 사본이 없는 파일 — 변환에 실패했거나 아직 안 만들어졌다. 예전에는 여기서
@@ -434,7 +436,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
             src={src} title={cur.name}
             // onLoad 직후엔 아직 첫 페이지가 안 그려져 있다(뷰어 배경만 보임) → 조금 뒤에 걷는다
             onLoad={() => { clearTimeout(settleRef.current); settleRef.current = setTimeout(() => setFrameReady(true), FRAME_SETTLE); }}
-            className={`w-full h-full rounded-md border border-line bg-surface ${frameReady ? '' : 'opacity-0'}`}
+            // 걷을 때는 페이드다(§4.2) — 'gdoc'·'sheet'와 같은 전환이라야 파일 종류에
+            // 따라 어떤 것은 툭 나타나고 어떤 것은 밝아지는 일이 없다
+            className={`w-full h-full rounded-md border border-line bg-surface transition-opacity duration-200 ${frameReady ? 'opacity-100' : 'opacity-0'}`}
           />
         </div>
       );

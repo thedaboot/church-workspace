@@ -65,9 +65,12 @@ export const selectActiveProjectsList = createSelector([selectProjectsList], (li
 export const selectArchivedProjectsList = createSelector([selectProjectsList], (list) =>
   list.filter(p => p.archived).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))));
 
+// 담당자 칸이 비어 있는 카드에서도 던지지 않는다 — 이 값은 상단 내비·하단 탭바가
+// 매 렌더 보는 것이라, 여기서 던지면 껍데기가 통째로 하얘진다(SYNC_TASK가 넣는
+// 새 카드의 기본값에 assignees는 없다).
 export const selectMyTasks = createSelector(
   [selectTasksList, selectCurrentUser],
-  (tasksList, user) => tasksList.filter(t => t.assignees.includes(user.name))
+  (tasksList, user) => tasksList.filter(t => (t.assignees || []).includes(user.name))
 );
 
 // 팀별 통계 — 업무 목록을 한 번만 훑는다.

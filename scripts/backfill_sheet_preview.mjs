@@ -72,7 +72,7 @@ const held = all.length - targets.length;
 
 console.log(`사본이 없는 첨부 ${targets.length}건${FIX ? '' : ' (읽기만 — 실제로 만들려면 --fix)'}`);
 if (held) {
-  console.log(`워드·PPT ${held}건은 건너뜁니다 — 스크립트를 v8로 올린 뒤 다시 돌려주세요.`);
+  console.log(`워드·PPT ${held}건은 건너뜁니다 — 스크립트를 v9(v8 이상)로 올린 뒤 다시 돌려주세요.`);
   console.log('(v7에 보내면 글자가 표 칸에 흩어진 시트 사본이 생깁니다. docs/APPS_SCRIPT_v8.md)');
 }
 if (!targets.length) process.exit(0);

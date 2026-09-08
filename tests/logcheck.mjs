@@ -1719,7 +1719,9 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 
   const mv = readFileSync(new URL('../src/views/membersView.jsx', import.meta.url), 'utf8');
   assert.ok(/useStore\(selectMembers\)/.test(mv), '멤버 화면이 스토어의 members를 같이 본다');
-  assert.ok(/lastSeenAt: seenAt\(r\)/.test(mv) && /const at = seenAt\(row\)/.test(mv),
+  // 줄의 모양이 아니라 **같은 함수를 쓰는가**만 본다 — 라벨을 그리는 자리가 변수든
+  // rowProps든 상관없다(2026-09-08에 그 자리가 rowProps로 묶이면서 한 번 어긋났다)
+  assert.ok(/lastSeenAt: seenAt\(/.test(mv) && /\bat: seenAt\(/.test(mv),
     '정렬과 라벨이 같은 값을 쓴다');
   assert.ok(/\)\s*,\s*\n\s*online,\s*\n\s*\);/.test(mv) || /visitOrder\([\s\S]{0,400}?online,/.test(mv),
     '접속 중인 사람이 맨 위 — MembersModal과 같은 순서');
@@ -1757,7 +1759,12 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(kindsOf('people'), ['groups', 'roster', 'worship', 'home'],
     '명단이 바뀌면 출석 명단도 바뀐다 — 주보 상세까지 같이 다시 읽는다');
   assert.deepStrictEqual(prefixesOf('cards'), [], 'v1 표는 이 채널이 손대지 않는다');
-  assert.strictEqual(V2_TABLES.length, 9, '0049가 발행에 넣은 표 아홉 개');
+  assert.strictEqual(V2_TABLES.length, 11, '0049가 발행에 넣은 표 아홉 + 0056의 둘(sun_guides · attendance_guests)');
+  // 모임 접두는 셋으로 나눠 적는다 — 'groups' 하나면 가이드 캐시(groups:guide:*)가 딸려 지워진다(2026-09-09)
+  assert.ok(V2_TABLES.every(t => !prefixesOf(t).includes('groups')), "맨 'groups' 접두를 쓰지 않는다");
+  assert.deepStrictEqual(prefixesOf('sun_guides'), ['groups:guide', 'groups:mine'], '가이드가 바뀌면 본문과 고정 id가 같이 낡는다');
+  assert.ok(prefixesOf('attendance_guests').includes('home') && prefixesOf('attendance_guests').includes('groups:mine'),
+    '손님 출석도 참석 수를 세는 자리를 낡게 한다');
   assert.deepStrictEqual([...ALL_KINDS].sort(), ['groups', 'home', 'roster', 'word', 'worship']);
 
   // ② 디바운스 — 연속 이벤트가 한 번의 알림으로 합쳐진다(주보 저장 한 번이 UPDATE 여러 건)
@@ -1955,14 +1962,16 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/if \(qtError && !ref\) \{ setDay\(/.test(view),
     '본문도 같다 — 캐시된 구절이 있으면 그것을 그린다');
 
-  // 형광펜: 로딩 중에 칠한 것을 도착값이 덮지 않는다(ref 플래그)
+  // 형광펜: 로딩 중에 칠한 것을 도착값이 덮지 않는다(ref 플래그). 그릇은 **useStateBox 한 벌**이다
+  // (2026-09-09 — 예전에는 useBibleState·BibleTab이 같은 코드를 두 벌 들고 있었다): update가 표식을
+  // 놓고, adopt가 표식을 보고 도착값을 버린다. 읽는 이펙트 둘(QT 본문 · 리더)은 그 adopt를 부른다.
   const bible = readFileSync(new URL('../src/components/wordBible.jsx', import.meta.url), 'utf8');
-  assert.strictEqual((bible.match(/edited\.current = true;/g) || []).length, 2,
-    'update 둘(useBibleState · BibleTab)이 모두 표식을 놓는다');
-  assert.ok(/if \(!alive \|\| edited\.current\) return;/.test(bible),
-    'useBibleState: 내가 고쳤으면 도착값을 버린다');
-  assert.ok(/if \(!edited\.current\) \{ setState\(saved\); writeCache\(STATE_KEY, saved\); \}/.test(bible),
-    'BibleTab: 첫 진입 이펙트도 같은 판단');
+  assert.strictEqual((bible.match(/edited\.current = true;/g) || []).length, 1,
+    '표식을 놓는 자리는 useStateBox.update 하나다(두 벌로 갈리면 한쪽만 고쳐진다)');
+  assert.ok(/const adopt = \(saved\) => \{ if \(edited\.current\) return; setState\(saved\); writeCache\(STATE_KEY, saved\); \};/.test(bible),
+    'adopt: 내가 고쳤으면 도착값을 버린다');
+  assert.strictEqual((bible.match(/adopt\(saved\)/g) || []).length, 2,
+    '읽는 이펙트 둘(useBibleState · BibleTab)이 모두 adopt를 거친다');
   assert.ok(/const STATE_KEY = 'bible:state';/.test(bible),
     "성경 상태 열쇠는 'bible:'로 시작한다 — dropCache('word')에 쓸려가지 않게");
   console.log('PASS  묵상 본문 동기화 · 성경 상태 14가지');
@@ -2181,4 +2190,71 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     "KPI 밑줄은 그 숫자가 무엇인지 말한다 — '앞으로 일주일 내'는 이제 거짓이다");
 
   console.log('PASS  업무 이번 주(주일~토요일) 16가지');
+}
+
+// ── 한 벌로 모은 것들 (2026-09-08 정리 회차) ───────────────────────────────
+// 같은 규칙이 두 파일에 각각 적혀 있으면 반드시 한쪽만 고쳐진다. 이번에 셋을 모았고,
+// 여기서는 **정말 한 벌인지**를 지킨다.
+//
+// 되돌리기 검사(실제로 해서 깨지는 것을 확인했다):
+//   · cloud.js에 `const OPEN_EDITOR = {`를 되살리면 첫 묶음이 깨진다
+//   · cloud.js에 `const sha256Hex =`를 되살리면 둘째 묶음이 깨진다
+//   · App.jsx의 CHURCH_ORDER를 배열 리터럴로 되돌리면 셋째 묶음이 깨진다
+{
+  const utilsSrc = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const cloudSrc = readFileSync(new URL('../src/services/cloud.js', import.meta.url), 'utf8');
+  const layoutSrc = readFileSync(new URL('../src/components/layout.jsx', import.meta.url), 'utf8');
+  const appSrc = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+
+  // ① 확장자 → 구글 편집기 표. 앱 안 미리보기(utils.driveSrc)와 새 탭에서 열기
+  //    (cloud.getFileOpenUrl)가 같은 표를 봐야 "앱에서는 구글 화면인데 새 탭은 어두운
+  //    파일 뷰어"인 파일이 안 생긴다.
+  const d = mkdtempSync(join(tmpdir(), 'oneset-'));
+  const uf = join(d, 'utils.mjs');
+  writeFileSync(uf, utilsSrc);
+  const { GOOGLE_EDITOR } = await import(pathToFileURL(uf).href);
+  assert.deepStrictEqual(
+    Object.entries(GOOGLE_EDITOR).sort(),
+    [['csv', 'spreadsheets'], ['doc', 'document'], ['docx', 'document'],
+     ['ppt', 'presentation'], ['pptx', 'presentation'],
+     ['xls', 'spreadsheets'], ['xlsx', 'spreadsheets']].sort(),
+    '구글 편집기 표는 엑셀·워드·PPT 일곱 확장자');
+  assert.ok(/import \{ GOOGLE_EDITOR \} from '\.\.\/utils\.js'/.test(cloudSrc),
+    'cloud.js가 그 표를 가져다 쓴다');
+  assert.ok(!/const (OPEN_EDITOR|DRIVE_EDITOR) = \{/.test(cloudSrc),
+    'cloud.js에 같은 표가 다시 적혀 있지 않다');
+
+  // ② 화면 가림 비밀번호 계산은 services/viewPw.js 한 벌.
+  //    cloud.js가 자기 sha256Hex를 들고 있으면 한쪽을 고쳤을 때 걸어 둔 비밀번호가
+  //    다른 쪽에서 안 풀린다(첨부·참고 링크·큐시트가 같은 세 칸을 쓴다).
+  const { makeViewPw, verifyViewPw, isLocked } = await import(new URL('../src/services/viewPw.js', import.meta.url).href);
+  const locked = await makeViewPw('daboot');
+  assert.ok(locked.view_pw && locked.view_pw_salt, '비밀번호를 걸면 해시와 소금이 생긴다');
+  assert.strictEqual(await verifyViewPw(locked, 'daboot'), true, '같은 비밀번호는 열린다');
+  assert.strictEqual(await verifyViewPw(locked, 'daboo'), false, '다른 비밀번호는 안 열린다');
+  assert.deepStrictEqual(await makeViewPw(''), { view_pw: null, view_pw_salt: null },
+    '빈 값이면 두 칸을 다 비운다(소금만 남기면 예전 비밀번호가 살아난다)');
+  assert.strictEqual(isLocked({ view_pw: null }), false);
+  assert.ok(!/const sha256Hex/.test(cloudSrc), 'cloud.js에 같은 해시 계산이 다시 적혀 있지 않다');
+  assert.ok(/import \{ makeViewPw, verifyViewPw \} from '\.\/viewPw\.js'/.test(cloudSrc),
+    'cloud.js가 viewPw.js를 가져다 쓴다');
+  assert.ok(/setViewPassword\('files'/.test(cloudSrc) && /setViewPassword\('resource_links'/.test(cloudSrc),
+    '첨부와 참고 링크가 같은 쓰기 한 벌을 쓴다');
+  // 방향은 한쪽뿐 — viewPw.js가 cloud.js를 물면 supabase가 딸려 와서 이 검사가 못 돈다
+  const pwSrc = readFileSync(new URL('../src/services/viewPw.js', import.meta.url), 'utf8');
+  assert.ok(!/from '\.\/cloud\.js'/.test(pwSrc), 'viewPw.js는 cloud.js를 import하지 않는다');
+
+  // ③ 교회 축 화면 목록. 하단 바에 서는 순서 = 화면 전환 방향의 기준이라,
+  //    두 벌이면 탭을 눌렀는데 반대쪽에서 들어오는 화면이 생긴다.
+  assert.ok(/export const CHURCH_MENUS = \['home', 'worship', 'word', 'groups'\]/.test(layoutSrc),
+    '교회 축 목록은 layout.jsx가 소유한다');
+  assert.ok(/CHURCH_MENUS \} from '\.\/components\/layout\.jsx'/.test(appSrc)
+    && /const CHURCH_ORDER = CHURCH_MENUS;/.test(appSrc),
+    'App이 그 목록을 그대로 전환 방향의 차례로 쓴다');
+  assert.ok(!/\['home', 'worship', 'word', 'groups'\]/.test(appSrc),
+    'App에 같은 배열이 다시 적혀 있지 않다');
+  assert.ok((layoutSrc.match(/\['home', 'worship', 'word', 'groups'\]/g) || []).length === 1,
+    'layout에도 한 번만 적혀 있다');
+
+  console.log('PASS  한 벌로 모은 규칙 셋 15가지');
 }

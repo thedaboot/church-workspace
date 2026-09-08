@@ -194,10 +194,12 @@ export function PassageText({
   const f = FONT_STEPS[step] || FONT_STEPS[1];
   // 글을 끌어 고르고 손을 뗀 자리에도 click이 온다 — 고른 것이 있으면 팝오버를 띄우지
   // 않는다(복사하려고 고른 것을 형광펜으로 알아들으면 고른 것이 풀린다).
-  const hit = (chapter, verse, el) => {
+  // **누른 요소는 넘기지 않는다** — 좌표를 재던 시절의 앵커였는데, 도구 줄이 문서 흐름
+  // 안으로 들어오면서(§6-9-m) 받는 쪽이 쓰지 않게 됐다.
+  const hit = (chapter, verse) => {
     const sel = typeof window !== 'undefined' ? window.getSelection?.() : null;
     if (sel && !sel.isCollapsed && String(sel).trim()) return;
-    onPickVerse(chapter, verse, el);
+    onPickVerse(chapter, verse);
   };
   return (
     <div className="flex flex-col" style={{ gap: f.gap }}>
@@ -225,10 +227,10 @@ export function PassageText({
             role={onPickVerse ? 'button' : undefined}
             tabIndex={onPickVerse ? 0 : undefined}
             aria-expanded={onPickVerse ? toolAt === key : undefined}
-            onClick={onPickVerse ? (e) => hit(v.chapter, v.verse, e.currentTarget) : undefined}
+            onClick={onPickVerse ? () => hit(v.chapter, v.verse) : undefined}
             onKeyDown={onPickVerse ? (e) => {
               if (e.key !== 'Enter' && e.key !== ' ') return;
-              e.preventDefault(); onPickVerse(v.chapter, v.verse, e.currentTarget);
+              e.preventDefault(); onPickVerse(v.chapter, v.verse);
             } : undefined}
             // 도착 강조(focus)는 3초 뒤에 꺼진다(BibleTab) — 그때 툭 사라지지 않게
             // 배경·테두리에 전이를 건다. 속성을 못 박는 이유는 §6-17-b와 같다.
@@ -320,7 +322,7 @@ function FontSteps({ step, onChange }) {
       {FONT_STEPS.map((f, i) => (
         <button
           key={i} onClick={() => onChange(i)} title={['작게', '보통', '크게'][i]}
-          aria-label={`글자 ${['작게', '보통', '크게'][i]}`}
+          aria-label={`글자 ${['작게', '보통', '크게'][i]}`} aria-pressed={step === i}
           className="px-2 py-[3px] rounded-[5px] font-bold leading-none transition-colors"
           style={{
             fontSize: [11, 13, 15][i],
@@ -375,25 +377,35 @@ function persistState(next, what = '') {
   }).catch(() => {});
 }
 
-// 형광펜만 필요한 자리(QT 본문)의 상태 — 캐시로 시작하고 한 번 읽어 온다.
-//
-// **읽어 온 값이 그 사이에 칠한 형광펜을 덮으면 안 된다**(2026-09-06). 클라우드 왕복이
+// ── 성경 상태 그릇 한 벌 ────────────────────────────────────────────────────
+// **캐시로 시작하고**(§6-9-p — 이펙트에 맡기면 한 프레임 스켈레톤이 그려진다),
+// **읽어 온 값이 그 사이에 칠한 형광펜을 덮지 않는다**(2026-09-06). 클라우드 왕복이
 // 한 박자 늦게 끝나므로, 로딩 중에 칠한 절이 도착값으로 통째로 되돌아갔다(사람에게는
 // "칠했는데 사라졌다"로 보인다 — 게다가 그 되돌아간 값이 다음 저장에 그대로 올라간다).
 // 한 번이라도 내가 고쳤으면 도착값은 버린다(edited) — 어차피 update가 그 자리에서
 // 저장했으므로 서버도 곧 같은 값이다.
-export function useBibleState() {
+//
+// 읽어 오는 자리가 둘로 갈려서 그릇만 여기 둔다: 형광펜만 쓰는 곳(QT 본문 —
+// useBibleState)은 스스로 한 번 읽고, 리더(BibleTab)는 **책 목록과 한 묶음으로** 읽으며
+// 그 답의 lastRef로 펼 장까지 정한다. 그래서 그릇은 같고 읽는 이펙트만 다르다.
+function useStateBox() {
   const [state, setState] = useState(() => readCache(STATE_KEY) || EMPTY_STATE);
   const edited = useRef(false);
+  // 읽어 온 값을 받아들인다 — 내가 이미 고쳤으면 버린다
+  const adopt = (saved) => { if (edited.current) return; setState(saved); writeCache(STATE_KEY, saved); };
+  const update = (next, what = '') => { edited.current = true; setState(next); persistState(next, what); };
+  return { state, adopt, update };
+}
+
+// 형광펜만 필요한 자리(QT 본문)의 상태 — 캐시로 시작하고 한 번 읽어 온다.
+export function useBibleState() {
+  const { state, adopt, update } = useStateBox();
   useEffect(() => {
     let alive = true;
-    loadBibleState().then(saved => {
-      if (!alive || edited.current) return;
-      setState(saved); writeCache(STATE_KEY, saved);
-    }).catch(() => {});
+    loadBibleState().then(saved => { if (alive) adopt(saved); }).catch(() => {});
     return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const update = (next, what = '') => { edited.current = true; setState(next); persistState(next, what); };
   return [state, update];
 }
 
@@ -484,9 +496,8 @@ export function BibleTab({ initialRef = '' }) {
   // **캐시가 있으면 그 값으로 시작한다**(사용자 요청 2026-09-03 — "매번 스켈레톤이 아니라
   // 캐시된 값이 먼저"). 이어읽기·북마크·형광펜은 이 화면이 직접 고치기도 해서
   // useCached(읽기 전용 훅)가 아니라 readCache/writeCache 한 쌍을 쓴다 — 고친 값을
-  // 그 자리에서 캐시에 얹어야 다음 진입이 최신이다(update).
-  const [state, setState] = useState(() => readCache(STATE_KEY) || EMPTY_STATE);
-  const edited = useRef(false);   // 한 번이라도 내가 고쳤나(아래 첫 진입 이펙트가 본다)
+  // 그 자리에서 캐시에 얹어야 다음 진입이 최신이다(useStateBox의 update).
+  const { state, adopt, update } = useStateBox();
   const [step, setStep] = useState(1);
   const [ready, setReady] = useState(false);
   const [loadErr, setLoadErr] = useState(null);   // 책 목록을 못 받았을 때의 이유
@@ -553,9 +564,9 @@ export function BibleTab({ initialRef = '' }) {
       const [list, saved] = await Promise.all([loadBibleIndex(), loadBibleState()]);
       if (!alive) return;
       setBooks(list);
-      // 기다리는 동안 칠한 형광펜·북마크는 덮지 않는다(useBibleState의 edited와 같은 판단).
+      // 기다리는 동안 칠한 형광펜·북마크는 덮지 않는다(useStateBox의 edited가 본다).
       // 이어읽기 자리(saved.lastRef)는 그래도 쓴다 — 아래는 '어느 장을 펼까'라 다른 값이다.
-      if (!edited.current) { setState(saved); writeCache(STATE_KEY, saved); }
+      adopt(saved);
       setStep(loadFontStep());
       // 주보·QT에서 넘어온 구절이 먼저다. 없으면 마지막으로 읽던 자리로 이어간다.
       const fromRef = initialRef ? parseRef(initialRef, list) : null;
@@ -571,6 +582,7 @@ export function BibleTab({ initialRef = '' }) {
       setLoadErr(err || true); setReady(true);
     });
     return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialRef]);
 
   // **책 목록이 오면 남은 책을 조용히 받아 둔다**(services/bible.js warmBooks).
@@ -623,7 +635,6 @@ export function BibleTab({ initialRef = '' }) {
   // 기다리는 동안 세울 스켈레톤 줄 수 — 붙잡아 둔 높이를 채운다(한 줄 ≈ 34px)
   const holdLines = holdH ? Math.max(8, Math.round((holdH - 44) / 34)) : 10;
 
-  const update = (next, what = '') => { edited.current = true; setState(next); persistState(next, what); };
   const swipedAt = useRef(0);   // 마지막 스와이프 시각(onTouchEnd가 적는다)
   // 형광펜 범위 고르기·칠하기 — 도구 줄까지 훅이 만든다(useVersePaint 머리말).
   // ref는 '책 장:절'(services/word.js verseKey — bible_state.highlights의 모양).
@@ -1098,9 +1109,14 @@ function MarkBookGroup({ book, items, count, kind, open, onToggle, onOpenItem, o
 // 한 칸(북마크 또는 형광펜) — 제목 · 총 개수 · 책 그룹들, 비었으면 마크와 한 줄.
 // 책 묶음은 넓은 화면에서 여러 열로 선다 — 목록은 격자라 읽기 폭에 갇힐 이유가 없다.
 function MarkSection({ title, unit, empty, groups, total, kind, onOpenItem, onRemoveItem }) {
-  // 사람이 직접 접거나 편 책만 남는다 — 나머지는 책 수에 따라 기본값을 따른다
+  // 사람이 직접 접거나 편 책만 남는다 — 나머지는 책 수에 따라 기본값을 따른다.
+  // **열쇠에 kind를 넣는다.** 북마크와 형광펜은 같은 자리에 그려지는 같은 부품이라
+  // 리액트가 칸을 옮겨도 이 state를 그대로 물려준다(§6-18과 같은 함정) — 형광펜에서 편
+  // 창세기가 북마크에서도 펼쳐져 있었다. 칸 이름을 열쇠에 넣으면 갈리면서도 **각 칸의
+  // 선택은 남는다**(리마운트로 지우면 오갈 때마다 접힘으로 되돌아간다).
   const [open, setOpen] = useState({});
   const auto = groups.length <= AUTO_OPEN_BOOKS;
+  const isOpen = (id) => open[`${kind}:${id}`] ?? auto;
 
   return (
     <div data-col={kind} className="min-w-0">
@@ -1120,8 +1136,8 @@ function MarkSection({ title, unit, empty, groups, total, kind, onOpenItem, onRe
           {groups.map(g => (
             <MarkBookGroup
               key={g.book.id} book={g.book} items={g.items} count={g.count} kind={kind}
-              open={open[g.book.id] ?? auto}
-              onToggle={() => setOpen(o => ({ ...o, [g.book.id]: !(o[g.book.id] ?? auto) }))}
+              open={isOpen(g.book.id)}
+              onToggle={() => setOpen(o => ({ ...o, [`${kind}:${g.book.id}`]: !isOpen(g.book.id) }))}
               onOpenItem={onOpenItem} onRemoveItem={onRemoveItem}
             />
           ))}
@@ -1303,17 +1319,21 @@ function SearchResults({ query, results, progress, searching, aiHits = [], aiWai
   );
 }
 
-// 찾은 말을 표시한다 — 색은 토큰(tag-yellow)이라 다크에서도 따라온다
+// 찾은 말을 표시한다 — 색은 토큰(tag-yellow)이라 다크에서도 따라온다.
+// **한 절에 여러 번 나오면 다 표시한다.** 앞의 하나만 칠하면 뒤의 것은 안 찾은 글자처럼
+// 읽힌다(창세기 1:27 '하나님이 자기 형상 곧 하나님의 형상대로'처럼 한 줄에 두 번 오는
+// 절이 흔하다). 나누는 것은 정규식이 아니라 문자열이라 검색어에 특수문자가 와도 그대로다.
 function highlight(text, q) {
-  const i = text.indexOf(q);
-  if (i < 0 || !q) return text;
-  return (
-    <>
-      {text.slice(0, i)}
-      <mark className="rounded-[2px] px-0.5" style={{ background: 'var(--app-tag-yellow)', color: 'var(--app-tag-yellow-fg)' }}>
-        {text.slice(i, i + q.length)}
-      </mark>
-      {text.slice(i + q.length)}
-    </>
-  );
+  const parts = q ? String(text).split(q) : [];
+  if (parts.length < 2) return text;
+  return parts.map((rest, i) => (
+    <React.Fragment key={i}>
+      {i > 0 && (
+        <mark className="rounded-[2px] px-0.5" style={{ background: 'var(--app-tag-yellow)', color: 'var(--app-tag-yellow-fg)' }}>
+          {q}
+        </mark>
+      )}
+      {rest}
+    </React.Fragment>
+  ));
 }

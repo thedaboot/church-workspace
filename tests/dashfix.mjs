@@ -390,6 +390,36 @@ check('피드의 그 활동과 다녀감이 같은 시각을 말한다',
   JSON.stringify({ feedAgo, viewer: seenRows && seenRows['조준환'] }));
 
 
+// ── '지난 7일 간 N건 끝냈어요'는 **끝낸 날**로 센다 (2026-09-09) ───────────────
+// 예전에는 updatedAt으로 셌다. 그런데 끝난 업무에 첨부를 하나 올리기만 해도(0016의
+// file_count 트리거가 카드를 건드린다) updated_at이 오늘로 밀려서, **한 달 전에 끝낸
+// 업무가 이 줄에 다시 세어졌다.** 지금은 utils.completedTime(cards.completed_at)이고
+// 마감 목록의 '끝낸 업무' 구간이 세우고 보여주는 값과 같은 함수다(§4.12).
+// 되돌리기 검사: views.jsx의 completedTime(t)를 t.updatedAt으로 돌리면 '2건'이 되어 깨진다.
+const daysAgoIso = (n) => new Date(Date.now() - n * 86400e3).toISOString();
+const stDone = JSON.parse(JSON.stringify(st));
+stDone.tasks.byId = {}; stDone.tasks.allIds = [];
+[
+  // [id, 끝낸 날, 마지막으로 고친 날] — 둘째 줄이 함정이다(오래 전에 끝냈는데 오늘 고쳐졌다)
+  ['d1', daysAgoIso(2), daysAgoIso(2)],
+  ['d2', daysAgoIso(40), daysAgoIso(0)],
+].forEach(([id, done, upd], i) => {
+  stDone.tasks.byId[id] = { ...mk(50 + i, '완료', '2026-07-01'), id, title: '끝낸 업무 ' + i,
+    completedAt: done, updatedAt: upd };
+  stDone.tasks.allIds.push(id);
+});
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(stDone))}); localStorage.setItem('theme','light')`);
+await send('Page.navigate', { url: URL_BASE + '/' }); await wait('Page.loadEventFired'); await sleep(1500);
+await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='업무 대시보드'); b && b.click(); })()`);
+await sleep(800);
+const doneLine = await ev(`(() => {
+  const p=[...document.querySelectorAll('p')].find(x=>/지난 7일 간/.test(x.textContent||''));
+  return p ? p.textContent.trim() : null;
+})()`);
+check('지난 7일 줄이 끝낸 날로 센다(수정한 날이 아니다)', doneLine === '지난 7일 간 1건 끝냈어요', String(doneLine));
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,4).join('\n'):'\n콘솔 오류 없음');
 ws.close();chrome.kill();process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

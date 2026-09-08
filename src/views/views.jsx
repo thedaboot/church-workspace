@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, ChevronDown, Check, X, Trash2, Pencil, Lock, LockOpen } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
-import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear, datedTasks, mergeActivitySeen, teamChips as teamMemberChips, weekEndOf } from '../utils.js';
+import { generateId, groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear, datedTasks, mergeActivitySeen, teamChips as teamMemberChips, weekEndOf, completedTime } from '../utils.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
 import { YearPicker } from '../components/layout.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -42,6 +42,54 @@ export const DASH_FILTERS = ['전체', '내 업무', '내 팀'];
 // 데스크톱은 이 탭을 쓰지 않는다 — 2열이 그대로다.
 const DASH_TABS = ['업무', '청년', '연결'];
 export const DASH_FILTER_DEFAULT = DASH_FILTERS[0];
+
+// ── 이 파일 안에서 두 번 이상 쓰는 셈들 ────────────────────────────────────
+// 같은 값을 화면마다 따로 계산해 두면 한쪽만 고쳐져서 두 화면이 다른 말을 한다.
+// (실제로 겪은 종류의 어긋남이다 — §4.12 "무엇으로 세우나 = 무엇을 보여주나")
+
+// 남은 날 → 마감 라벨. 대시보드의 프로젝트 진행 줄과 프로젝트 헤더의 메타 줄이 같다.
+const dueLabelOf = (dd) => (dd === null || dd === undefined ? '마감 미정'
+  : dd < 0 ? `${-dd}일 지남` : dd === 0 ? '오늘 마감' : `D-${dd}`);
+
+// 팀 → 그 팀이 붙은 업무 수. **무엇을 세는지는 부르는 쪽이 정한다**(프로젝트 화면은
+// 보기에 따라 달력에 얹히는 것만, 전체 일정은 언제나 날짜가 있는 것만).
+const teamCountsOf = (list) => {
+  const c = {};
+  list.forEach(t => (t.teams || []).forEach(x => { c[x] = (c[x] || 0) + 1; }));
+  return c;
+};
+// 칩 순서는 config의 팀 순서를 따른다 — 화면마다 팀 순서가 다르면 헷갈린다
+const teamChipsOf = (counts) => Object.keys(CONFIG.TEAMS).filter(n => counts[n]);
+
+// 업무 목록 → 프로젝트별 진척. '내 업무'와 팀 보드의 옆 칸이 같은 셈을 쓴다.
+const progressByProject = (list, projectsMap) => [...groupBy(list, t => t.projectId).entries()]
+  .map(([id, rows]) => ({
+    id,
+    title: projectsMap[id]?.title || '프로젝트 없음',
+    done: rows.reduce((n, t) => n + (t.status === '완료' ? 1 : 0), 0),
+    total: rows.length,
+  }));
+
+// 그 결과를 그리는 옆 칸. 제목·막대 색·빈 줄 문구만 화면마다 다르다.
+function ProjectProgressList({ title, items, color, empty, onNavigate }) {
+  return (
+    <div className="min-w-0">
+      <SectionHead>{title}</SectionHead>
+      <div className="flex flex-col gap-3">
+        {items.map(p => (
+          <button key={p.id} onClick={() => onNavigate?.(p.id)} className="min-w-0 text-left hover:opacity-60 transition-opacity">
+            <span className="flex items-baseline justify-between gap-2">
+              <span className="text-[12.5px] font-semibold text-fg truncate">{p.title}</span>
+              <span className="text-[11px] font-semibold text-fg-muted tabular-nums shrink-0">{p.done}/{p.total}건</span>
+            </span>
+            <span className="block mt-[5px]"><Bar ratio={p.total ? p.done / p.total : 0} color={color} /></span>
+          </button>
+        ))}
+        {!items.length && <p className="text-[11px] text-fg-faint">{empty}</p>}
+      </div>
+    </div>
+  );
+}
 
 export const DashboardView = React.memo(function DashboardView({ onNavigate, onTaskClick, onStatusChange, filter, setFilter }) {
   const { teamStats } = useStore(selectDashboardStats);
@@ -101,11 +149,13 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   const progress = scoped.length ? Math.round((doneAll / scoped.length) * 100) : 0;
 
   // 지난 7일 간 끝낸 건수 — 이 화면은 앞만 보기 때문에 정리한 성과가 바로 사라진다.
-  // ponytail: 완료 시각을 따로 저장하지 않으므로 updatedAt을 대신 쓴다. 끝낸 뒤에
-  // 그 카드를 또 고치면 날짜가 밀린다 — 정확한 완료 시각이 필요해지면
-  // cards.completed_at을 두고 그때 이 줄만 바꾸면 된다.
+  // **끝낸 날은 completedTime이다**(cards.completed_at · 0033/0034). 예전 주석은 "완료 시각을
+  // 따로 저장하지 않으므로 updatedAt을 대신 쓴다"였는데 그 칸은 그 뒤에 생겼고, updatedAt은
+  // 끝낸 날이 아니다 — 끝난 업무에 첨부를 하나 올리기만 해도(0016의 file_count 트리거가
+  // 카드를 건드린다) 오늘로 밀려서 **한 달 전에 끝낸 업무가 이 줄에 다시 세어졌다**.
+  // 마감 목록의 '끝낸 업무' 구간이 세우고 보여주는 값과 같은 함수다(§4.12).
   const doneRecent = useMemo(
-    () => tasksList.filter(t => t.status === '완료' && t.updatedAt && ageDays(t.updatedAt, today) <= 7).length,
+    () => tasksList.filter(t => t.status === '완료' && ageDays(completedTime(t), today) <= 7).length,
     [tasksList, today]);
 
   // 청년별 남은 업무 — 담당자별 집계. 팀별과 같은 기준(필터와 무관한 전체)으로 센다
@@ -186,7 +236,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
     const dd = nearest ? daysLeft(nearest, today) : null;
     return {
       ...p, counts, total: list.length,
-      dueLabel: nearest ? (dd < 0 ? `${-dd}일 지남` : dd === 0 ? '오늘 마감' : `D-${dd}`) : '마감 미정',
+      dueLabel: dueLabelOf(dd),
       urgent: dd !== null && dd <= 2,
       // 예전에는 `완료 7 · 진행 3 · 보류 0 · 시작 전 2`였다. 바로 위 세그먼트 바가
       // 이미 같은 말을 색으로 하고 있어서, 이 줄은 모바일에서 높이만 먹었다.
@@ -669,21 +719,23 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   const countable = useMemo(
     () => (viewMode === 'calendar' ? datedTasks(projectTasks) : projectTasks),
     [projectTasks, viewMode]);
-  const teamCounts = {};
-  countable.forEach(t => (t.teams || []).forEach(x => { teamCounts[x] = (teamCounts[x] || 0) + 1; }));
-  const teamChips = Object.keys(CONFIG.TEAMS).filter(n => teamCounts[n]);
-  const doneCount = projectTasks.filter(t => t.status === '완료').length;
+  const teamCounts = useMemo(() => teamCountsOf(countable), [countable]);
+  const teamChips = useMemo(() => teamChipsOf(teamCounts), [teamCounts]);
+  // 헤더 메타 줄에 쓰는 값들 — 목록을 세 번 훑는 셈이라, 보드를 끌 때마다 다시 돌지
+  // 않게 묶어 둔다(드래그 중에는 이 컴포넌트가 프레임마다 다시 그려진다).
   // 이 프로젝트에 누가 붙어 있나 — 대시보드의 '청년별 남은 업무'와 같은 함수다.
   // 끝난 업무의 담당자는 세지 않는다: '붙어 있다'는 지금 맡고 있다는 뜻이고, 프로젝트를
   // 다 끝내면 아무도 안 남는 것이 맞다(빈 자리는 다른 것으로 채우지 않는다).
-  const people = personLoad(projectTasks.filter(t => t.status !== '완료'));
-  const openDues = projectTasks.filter(t => t.dueDate && t.status !== '완료').map(t => t.dueDate).sort();
-  const dd = openDues[0] ? daysLeft(openDues[0], ISO_TODAY()) : null;
-  const projectMeta = [
-    `${projectTasks.length}건`,
-    `완료 ${doneCount}건`,
-    dd === null ? '마감 미정' : dd < 0 ? `${-dd}일 지남` : dd === 0 ? '오늘 마감' : `D-${dd}`,
-  ].join(' · ');
+  const { people, doneCount, projectMeta } = useMemo(() => {
+    const done = projectTasks.filter(t => t.status === '완료').length;
+    const openDues = projectTasks.filter(t => t.dueDate && t.status !== '완료').map(t => t.dueDate).sort();
+    const dd = openDues[0] ? daysLeft(openDues[0], ISO_TODAY()) : null;
+    return {
+      people: personLoad(projectTasks.filter(t => t.status !== '완료')),
+      doneCount: done,
+      projectMeta: [`${projectTasks.length}건`, `완료 ${done}건`, dueLabelOf(dd)].join(' · '),
+    };
+  }, [projectTasks]);
 
   const shareBtn = <ShareButton url={`${window.location.origin}/s/p/${project.id}`} what="프로젝트" />;
   // 삭제는 전원에게 연다(사용자 결정 2026-08-24, RLS도 0021에서 같이 열었다).
@@ -907,9 +959,8 @@ export const ScheduleView = React.memo(function ScheduleView({ onTaskClick }) {
   // 머리글은 이미 그 기준이었는데(`N건이 달력에 있어요`) 칩만 전부를 세고 있어서,
   // 같은 화면에 기준이 다른 숫자가 둘이었다(사용자 지적 2026-08-29).
   const datable = useMemo(() => datedTasks(tasksList), [tasksList]);
-  const teamCounts = {};
-  datable.forEach(t => (t.teams || []).forEach(x => { teamCounts[x] = (teamCounts[x] || 0) + 1; }));
-  const teamChips = Object.keys(CONFIG.TEAMS).filter(n => teamCounts[n]);
+  const teamCounts = useMemo(() => teamCountsOf(datable), [datable]);
+  const teamChips = useMemo(() => teamChipsOf(teamCounts), [teamCounts]);
 
   const toggleTeam = (team) => setSelectedTeams(prev => prev.includes(team) ? prev.filter(t => t !== team) : [...prev, team]);
   const shown = useMemo(
@@ -918,7 +969,7 @@ export const ScheduleView = React.memo(function ScheduleView({ onTaskClick }) {
 
   // 달력에 실제로 얹히는 것은 날짜가 있는 업무뿐 — 머리글 숫자도 그 기준으로 센다.
   // 전체 건수를 쓰면 "84건"이라 해놓고 달력에는 12개만 보이는 화면이 된다.
-  const dated = datedTasks(shown);
+  const dated = useMemo(() => datedTasks(shown), [shown]);
   const projectCount = new Set(dated.map(t => t.projectId).filter(id => projectsMap[id])).size;
 
   return (
@@ -1028,21 +1079,18 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
   const today = ISO_TODAY();
 
   const toggle = (s) => setStatusFilter(p => p.includes(s) ? p.filter(x => x !== s) : [...p, s]);
-  const shown = statusFilter.length
+  // **거른 목록도 묶어 둔다** — 매 렌더마다 새 배열을 만들면 아래 groupByDue의 useMemo가
+  // 언제나 빗나가서(의존성이 늘 새 참조다) 상태 칩 하나를 눌러도 목록 전체를 다시 묶었다.
+  const shown = useMemo(() => (statusFilter.length
     ? myTasks.filter(t => statusFilter.includes(t.status))
-    : myTasks.filter(t => t.status !== '완료');
+    : myTasks.filter(t => t.status !== '완료')), [myTasks, statusFilter]);
   const groups = useMemo(() => groupByDue(shown, today), [shown, today]);
 
   const openCount = myTasks.filter(t => t.status !== '완료').length;
   const lateCount = myTasks.filter(t => t.status !== '완료' && t.dueDate && t.dueDate < today).length;
 
   // 내가 맡은 프로젝트별 진행 (프로젝트마다 다시 filter하지 않고 한 번 묶는다)
-  const myProjects = useMemo(() => [...groupBy(myTasks, t => t.projectId).entries()].map(([id, list]) => ({
-    id,
-    title: projectsMap[id]?.title || '프로젝트 없음',
-    done: list.reduce((n, t) => n + (t.status === '완료' ? 1 : 0), 0),
-    total: list.length,
-  })), [myTasks, projectsMap]);
+  const myProjects = useMemo(() => progressByProject(myTasks, projectsMap), [myTasks, projectsMap]);
 
   return (
     <div className="dc-screen pb-6">
@@ -1076,21 +1124,10 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
           onComplete={(t, next) => onStatusChange(t, next)} onOpen={onTaskClick}
           emptyHint={statusFilter.length ? '고른 상태에 해당하는 업무가 없어요' : '새로 맡은 일이 생기면 여기에 쌓여요'}
         />
-        <div className="min-w-0">
-          <SectionHead>내가 맡은 프로젝트</SectionHead>
-          <div className="flex flex-col gap-3">
-            {myProjects.map(p => (
-              <button key={p.id} onClick={() => onNavigate?.(p.id)} className="min-w-0 text-left hover:opacity-60 transition-opacity">
-                <span className="flex items-baseline justify-between gap-2">
-                  <span className="text-[12.5px] font-semibold text-fg truncate">{p.title}</span>
-                  <span className="text-[11px] font-semibold text-fg-muted tabular-nums shrink-0">{p.done}/{p.total}건</span>
-                </span>
-                <span className="block mt-[5px]"><Bar ratio={p.total ? p.done / p.total : 0} color="var(--p-blue)" /></span>
-              </button>
-            ))}
-            {!myProjects.length && <p className="text-[11px] text-fg-faint">아직 맡은 업무가 없어요</p>}
-          </div>
-        </div>
+        <ProjectProgressList
+          title="내가 맡은 프로젝트" items={myProjects} color="var(--p-blue)"
+          empty="아직 맡은 업무가 없어요" onNavigate={onNavigate}
+        />
       </div>
     </div>
   );
@@ -1110,7 +1147,8 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
   const storeMembers = useStore(selectMembers);
   const today = ISO_TODAY();
   const teamTasks = useMemo(() => tasksList.filter(t => (t.teams || []).includes(teamName)), [tasksList, teamName]);
-  const openTasks = teamTasks.filter(t => t.status !== '완료');
+  // 묶어 두지 않으면 아래 groupByDue의 useMemo가 매 렌더 빗나간다(새 배열 = 새 참조)
+  const openTasks = useMemo(() => teamTasks.filter(t => t.status !== '완료'), [teamTasks]);
 
   // 상태별 건수 — 상태마다 다시 filter하지 않고 한 번만 센다
   const counts = useMemo(() => {
@@ -1125,12 +1163,7 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
   // 같은 이름이 다른 뜻으로 서지 않게 들여올 때 이름을 갈라 둔다.
   const members = useMemo(() => teamMemberChips(storeMembers, tasksList, teamName), [storeMembers, tasksList, teamName]);
 
-  const teamProjects = useMemo(() => [...groupBy(teamTasks, t => t.projectId).entries()].map(([id, list]) => ({
-    id,
-    title: projectsMap[id]?.title || '프로젝트 없음',
-    done: list.reduce((n, t) => n + (t.status === '완료' ? 1 : 0), 0),
-    total: list.length,
-  })), [teamTasks, projectsMap]);
+  const teamProjects = useMemo(() => progressByProject(teamTasks, projectsMap), [teamTasks, projectsMap]);
 
   const groups = useMemo(() => groupByDue(openTasks, today), [openTasks, today]);
 
@@ -1193,21 +1226,10 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
           onComplete={(t, next) => onStatusChange(t, next)} onOpen={onTaskClick}
           emptyHint="이 팀이 맡은 일은 다 끝났어요"
         />
-        <div className="min-w-0">
-          <SectionHead>참여 프로젝트</SectionHead>
-          <div className="flex flex-col gap-3">
-            {teamProjects.map(p => (
-              <button key={p.id} onClick={() => onNavigate?.(p.id)} className="min-w-0 text-left hover:opacity-60 transition-opacity">
-                <span className="flex items-baseline justify-between gap-2">
-                  <span className="text-[12.5px] font-semibold text-fg truncate">{p.title}</span>
-                  <span className="text-[11px] font-semibold text-fg-muted tabular-nums shrink-0">{p.done}/{p.total}건</span>
-                </span>
-                <span className="block mt-[5px]"><Bar ratio={p.total ? p.done / p.total : 0} color={teamBar(teamName)} /></span>
-              </button>
-            ))}
-            {!teamProjects.length && <p className="text-[11px] text-fg-faint">아직 참여한 프로젝트가 없어요</p>}
-          </div>
-        </div>
+        <ProjectProgressList
+          title="참여 프로젝트" items={teamProjects} color={teamBar(teamName)}
+          empty="아직 참여한 프로젝트가 없어요" onNavigate={onNavigate}
+        />
       </div>
     </div>
   );

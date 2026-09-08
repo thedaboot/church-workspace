@@ -2575,6 +2575,22 @@ const pullNarrow = await ev(`(() => {
 check('좁은 화면의 가져오기 버튼은 라벨만 줄고 전체 문구는 title에 남는다',
   pullNarrow.label === '가져오기' && pullNarrow.title === '유튜브 재생목록에서 가져오기', JSON.stringify(pullNarrow));
 
+// 찬양 줄이 두 줄로 접힐 때(640 미만) **둘째 줄은 번호 칸 밑에서 시작하지 않는다** —
+// 링크 칸이 x=12에서 시작해 제목 칸(x=38)과 왼쪽이 어긋났다(실측 2026-09-08).
+// **되돌리기**: worship-song-linkbox의 `ml-[1.625rem] sm:ml-0`을 빼면 26px 어긋난다.
+const songIndent = await ev(`(() => {
+  const row = document.querySelector('.worship-song-row');
+  if (!row) return null;
+  const t = row.querySelector('input[aria-label="찬양 제목"]');
+  const b = row.querySelector('.worship-song-linkbox');
+  if (!t || !b) return null;
+  const tr = t.getBoundingClientRect(), br = b.getBoundingClientRect();
+  return { titleLeft: Math.round(tr.left), boxLeft: Math.round(br.left), wrapped: Math.round(br.top - tr.top) > 8 };
+})()`);
+check('좁은 화면에서 접힌 찬양 줄의 링크 칸이 제목 칸과 왼쪽을 맞춘다',
+  !!songIndent && songIndent.wrapped === true && songIndent.titleLeft === songIndent.boxLeft,
+  JSON.stringify(songIndent));
+
 // 큐시트 — 링크 한 칸(0053)과 파일(0054)을 **한 카드**에 세운다.
 // **되돌리기**: CueSheetEdit의 docEmbedKind 게이트를 빼면 아무 주소나 담겨 첫 검사가 깨진다.
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -2695,6 +2711,81 @@ const thumb = await ev(`(() => {
 })()`);
 check('썸네일은 같은 크기 상자 안에서 짧게 밝아진다(자리를 먼저 잡는다)',
   !!thumb && thumb.w === 64 && thumb.h === 36 && thumb.fades === true, JSON.stringify(thumb));
+
+// ── 18) 스켈레톤은 목록이 설 자리를 그대로 잡는다 (2026-09-08) ──────────────
+// 첫 진입 스켈레톤에 거르기 칩 줄이 없어서, 목록이 도착하는 순간 카드가 통째로 42px쯤
+// 아래로 뛰었다. 스켈레톤은 '기다리는 그림'이 아니라 **자리를 지키는 그림**이다
+// (홈 카드가 자리마다 따로 서는 것과 같은 판단).
+// **읽기만 하는 사람으로 잰다** — '작성 중인 주보 N건' 줄은 자격과 초안 수가 정하는
+// 값이라 스켈레톤이 미리 알 수 없다(비워 두면 초안이 없는 사람에게 빈 띠가 남는다).
+// **되돌리기**: worshipView의 LOADING에서 `.worship-loading-chips` 줄을 빼면 40px 넘게 어긋난다.
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await ev(plant({ canEdit: false, canCheckAll: false, ledGroupIds: [], canCheck: false }));
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
+// **재는 것은 카드가 아니라 카드 격자다** — `.worship-card`는 `.dc-card` 등장 연출로
+// 5px 내려온 채 그려지는 프레임이 있어서(§4.2) 그 값으로 견주면 늘 5px 어긋난다.
+// 스켈레톤은 게스트에서 **한 프레임**만 서 있다(localStorage는 곧바로 답한다) — rAF로 훑으면
+// 그 사이에 목록이 끼어들어 못 보는 판이 있다(기계가 느릴 때 실제로 null이 나왔다). 그래서
+// 누르기 **전에** MutationObserver를 심어 스켈레톤이 문서에 꽂히는 그 순간 자리를 적는다(tests/home.mjs와 같은 방식).
+const skelFit = await ev(`(async () => {
+  let skel = null, chips = null, card = null;
+  const ob = new MutationObserver(() => {
+    if (skel !== null) return;
+    const g = document.querySelector('.worship-loading-cards');
+    if (g) { skel = Math.round(g.getBoundingClientRect().top); chips = !!document.querySelector('.worship-loading-chips'); }
+  });
+  ob.observe(document.body, { childList: true, subtree: true });
+  ${byText('예배')}.click();
+  for (let i = 0; i < 120 && card === null; i++) {
+    await new Promise(r => requestAnimationFrame(r));
+    const g2 = document.querySelector('.worship-list .grid');
+    if (g2 && document.querySelector('.worship-card')) card = Math.round(g2.getBoundingClientRect().top);
+  }
+  ob.disconnect();
+  return { skel, chips, card };
+})()`, true);
+check('첫 진입 스켈레톤이 목록 카드가 설 자리를 그대로 잡는다(칩 줄 포함)',
+  skelFit.chips === true && skelFit.skel !== null && skelFit.card !== null
+  && Math.abs(skelFit.skel - skelFit.card) <= 4, JSON.stringify(skelFit));
+
+// ── 19) 출석 메모도 트랙을 다 쓴다 (§6-9-k) ────────────────────────────────
+// `max-w-[42rem]`이던 때는 1440에서 이 구역만 672px에서 멈춰 오른쪽 726px이 비었다 —
+// 같은 화면의 순 묶음·손님 줄은 이미 폭을 다 쓰고 있었다(주보 편집 폼 46rem · 본문
+// 42rem에 이어 세 번째다). **되돌리기**: att-note에 max-w를 다시 붙이면 깨진다.
+await ev(plant(null));
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
+await ev(GO); await waitFor(HAS_CARD);
+await ev(`document.querySelector('.worship-card').click()`); await waitFor(HAS_DETAIL);
+await waitFor(HAS_ATT); await ev(`document.querySelector('.worship-att-open').click()`); await sleep(800);
+const attFill = await ev(`(() => {
+  const s = document.querySelector('.att-note'), g = document.querySelector('.att-guests');
+  if (!s || !g) return null;
+  return { note: Math.round(s.getBoundingClientRect().width), guests: Math.round(g.getBoundingClientRect().width) };
+})()`);
+check('출석 메모 구역이 출석 화면의 폭을 다 쓴다',
+  !!attFill && attFill.note === attFill.guests && attFill.note > 1000, JSON.stringify(attFill));
+
+// ── 20) 본문이 오기 전 자리도 글 덩이 모양이다 (2026-09-08) ────────────────
+// 글자 한 줄('본문을 받는 중')로 두면 본문이 도착할 때 아래 것들이 통째로 밀린다 —
+// 말씀 화면이 2026-09-01에 같은 지적('출렁임')을 받고 PassageSkeleton으로 고친 자리인데
+// 주보 쪽만 옛 모양으로 남아 있었다. **되돌리기**: PassageBody의 대기 갈래를 <p> 한 줄로
+// 돌리면 `.worship-passage-wait`이 사라져 이 줄이 깨진다.
+await ev(plant(null));
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
+await ev(GO); await waitFor(HAS_CARD);
+const waitBox = await ev(`(async () => {
+  document.querySelector('.worship-card').click();
+  let seen = null;
+  for (let i = 0; i < 90; i++) {
+    await new Promise(r => requestAnimationFrame(r));
+    const el = document.querySelector('.worship-passage-wait');
+    if (el && seen === null) seen = { h: Math.round(el.getBoundingClientRect().height), bones: el.querySelectorAll('.dc-skeleton').length };
+    if (document.querySelector('.worship-verse')) break;
+  }
+  return seen;
+})()`, true);
+check('본문이 오기 전에는 글 덩이 모양 뼈대가 그 자리를 지킨다',
+  !!waitBox && waitBox.bones >= 4 && waitBox.h > 100, JSON.stringify(waitBox));
 
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 

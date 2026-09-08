@@ -361,6 +361,13 @@ const MSG = {
   failed: '오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
 };
 const FALLBACKS = new Set(Object.values(MSG));
+// **답이 영영 안 올 수 있다 — 끊는 자리를 우리가 정한다.** 브라우저 기본 타임아웃은
+// 수 분이라 그동안 부르는 화면이 스켈레톤에 굳어 있었다(본문 검색의 'AI가 찾은 구절'
+// 도막이 실제로 그랬다). 실패한 것과 기다리는 것이 화면에서 구분되지 않는 상태다.
+// 상한을 넘기면 **다른 실패와 같은 안내 문구**를 돌려준다 — 쓰는 사람에게 초 단위는
+// 아무 소용이 없고 무엇이 막혔는지만 알면 된다(§8). 사유는 콘솔에만 남긴다.
+// 25초로 잡은 이유: 배 여는 프롬프트(본문 전문이 실리는 순모임 가이드)가 실측 10초대다.
+const CALL_TIMEOUT_MS = 25000;
 // **부르는 쪽이 반드시 이걸로 걸러야 한다.** 안내 문구도 truthy한 문자열이라, 그냥
 // 받아서 본문에 넣으면 쓰던 글이 "AI 기능은 로그인 후…" 한 줄로 갈아치워진다.
 // 다듬기에서 실제로 그랬다(2026-08-28에 고쳤다).
@@ -392,11 +399,15 @@ export const AiService = {
     const token = session?.access_token;
     if (!token) return MSG.needLogin;
 
+    // 상한은 몸통을 읽는 것까지 덮는다 — 헤더만 오고 본문이 안 오는 갈래도 있다
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), CALL_TIMEOUT_MS);
     try {
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ prompt, systemInstruction }),
+        signal: ctl.signal,
       });
       // 로컬 vite dev에는 서버 함수가 없어 404 → 안내
       if (response.status === 404) return MSG.needDeploy;
@@ -408,8 +419,16 @@ export const AiService = {
       const result = await response.json();
       return result.text || "";
     } catch (error) {
+      // **시간 초과를 '배포 환경이 아니다'로 적으면 화면이 거짓말한다** — 배포에서
+      // 느렸을 뿐인데 "로컬은 vercel dev가 필요해요"가 뜬다. 갈래를 나눈다.
+      if (error?.name === 'AbortError') {
+        console.warn(`AI 응답이 ${CALL_TIMEOUT_MS}ms 안에 오지 않아 끊었습니다.`);
+        return MSG.failed;
+      }
       console.error("AI 요청 실패:", error);
       return MSG.needDeploy;
+    } finally {
+      clearTimeout(timer);
     }
   },
   // 캐시를 비우는 손잡이 — 카드를 저장한 뒤처럼 강제로 다시 만들어야 할 때

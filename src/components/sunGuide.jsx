@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Heart, Pencil, Pin, Wand2 } from 'lucide-react';
+import { Download, Heart, Loader2, Pencil, Pin, Wand2 } from 'lucide-react';
 import logoLight from '../assets/logo-light.png';
 import { Skeleton } from './media.jsx';
 import { SectionHead } from '../views/dashboardParts.jsx';
@@ -292,7 +292,11 @@ export function SunGuidePanel({
 
   const [draft, setDraft] = useState(null);
   const [making, setMaking] = useState(false);
-  const [busy, setBusy] = useState(false);
+  // **무엇을 하는 중인지**를 담는다(불리언이 아니다) — 이미지로 굽는 일은 라이브러리를
+  // 받아 와 캔버스를 그리느라 몇 초가 걸리는데, 버튼이 흐려지기만 하면 눌린 것인지
+  // 멈춘 것인지 알 수 없었다. 값은 '' | 'make' | 'save' | 'pin' | 'image'.
+  const [busy, setBusy] = useState('');
+  const working = !!busy;
   const sheetRef = useRef(null);
 
   // 주보 한 건에 가이드 한 벌 — 캐시 열쇠도 주보 id다. 한 번 읽은 가이드는 다시 눌러도
@@ -329,7 +333,7 @@ export function SunGuidePanel({
 
   const make = async () => {
     if (!selected) return;
-    setBusy(true); setMaking(true);
+    setBusy('make'); setMaking(true);
     try {
       const body = await generateGuide(selected);
       if (!body) {
@@ -340,7 +344,7 @@ export function SunGuidePanel({
     } catch (e) {
       console.error('[sunGuide] 가이드를 만들지 못했어요:', e);
       showToast(failText('가이드를 만들지 못했어요', e));
-    } finally { setBusy(false); setMaking(false); }
+    } finally { setBusy(''); setMaking(false); }
   };
 
   // 쓰기 뒤에는 **캐시를 비우고 다시 읽는다**(cache.js 주석) — 안 비우면 다른 탭에
@@ -352,7 +356,7 @@ export function SunGuidePanel({
   };
 
   const save = async () => {
-    setBusy(true);
+    setBusy('save');
     try {
       await saveGuide(selectedId, draft);
       setDraft(null);
@@ -361,11 +365,11 @@ export function SunGuidePanel({
     } catch (e) {
       console.error('[sunGuide] 가이드를 저장하지 못했어요:', e);
       showToast(failText('가이드를 저장하지 못했어요', e));
-    } finally { setBusy(false); }
+    } finally { setBusy(''); }
   };
 
   const pin = async (on) => {
-    setBusy(true);
+    setBusy('pin');
     try {
       await pinGuide(selectedId, on);
       await reread();
@@ -373,7 +377,7 @@ export function SunGuidePanel({
     } catch (e) {
       console.error('[sunGuide] 가이드를 고정하지 못했어요:', e);
       showToast(failText(on ? '가이드를 고정하지 못했어요' : '고정을 풀지 못했어요', e));
-    } finally { setBusy(false); }
+    } finally { setBusy(''); }
   };
 
   // 화면에 서 있는 그 종이를 그대로 그림으로 굽는다(2배). **라이브러리는 누를 때 받는다** —
@@ -386,8 +390,8 @@ export function SunGuidePanel({
   // 눌러 저장하는 기본 동작이 산다).
   const saveImage = async () => {
     const node = sheetRef.current;
-    if (!node || busy) return;
-    setBusy(true);
+    if (!node || working) return;
+    setBusy('image');
     try {
       const { default: html2canvas } = await import('html2canvas');
       const width = node.offsetWidth || 560;
@@ -425,7 +429,7 @@ export function SunGuidePanel({
     } catch (e) {
       console.error('[sunGuide] 이미지를 저장하지 못했어요:', e);
       showToast(failText('이미지를 저장하지 못했어요', e));
-    } finally { setBusy(false); }
+    } finally { setBusy(''); }
   };
 
   if (!canView || !selected) return null;
@@ -461,31 +465,34 @@ export function SunGuidePanel({
       )}
       {showSheet && (
         <button type="button" className={`sun-guide-image ${WITH_ICON} ${BTN_QUIET}`}
-          disabled={busy} onClick={saveImage}>
-          <Download size={12} /><span>이미지로 저장</span>
+          disabled={working} onClick={saveImage}>
+          {busy === 'image'
+            ? <Loader2 size={12} className="animate-spin" />
+            : <Download size={12} />}
+          <span>이미지로 저장</span>
         </button>
       )}
       {showSheet && canCreate && !locked && (
         <>
           <button type="button" className={`sun-guide-editbtn ${WITH_ICON} ${BTN_QUIET}`}
-            disabled={busy} onClick={() => setDraft(fitGuide(guide))}>
+            disabled={working} onClick={() => setDraft(fitGuide(guide))}>
             <Pencil size={12} /><span>수정</span>
           </button>
           <button type="button" className={`sun-guide-regen ${WITH_ICON} ${BTN_QUIET}`}
-            disabled={busy} onClick={make}>
+            disabled={working} onClick={make}>
             <Wand2 size={12} /><span>다시 만들기</span>
           </button>
         </>
       )}
       {showSheet && canPin && (
         <button type="button" className={`sun-guide-pin ${WITH_ICON} ${BTN_QUIET}`}
-          disabled={busy} onClick={() => pin(!pinned)}>
+          disabled={working} onClick={() => pin(!pinned)}>
           <Pin size={12} /><span>{pinned ? '고정 해제' : '고정'}</span>
         </button>
       )}
       {!editing && !making && !guideQ.loading && !guide && canCreate && (
         <button type="button" className={`sun-guide-create ${WITH_ICON} ${BTN}`}
-          disabled={busy} onClick={make}>
+          disabled={working} onClick={make}>
           <Wand2 size={12} /><span>AI로 만들기</span>
         </button>
       )}
@@ -500,13 +507,16 @@ export function SunGuidePanel({
   // 인쇄물이라 1440px을 가로로 다 쓰면 한 줄이 화면을 가로지른다(토스트 폭 상한과 같은
   // 판단, §8). 편집 화면도 같은 폭·같은 가운데다 — 미리보기와 편집이 같은 종이여야
   // 자리가 안 흔들린다.
+  // **딸린 두 섹션은 같은 간격으로 선다**(mt-6 — '내 순에 공유된 예배 노트'와 같은 값).
+  // 위쪽 여백이 없던 자리라 가이드 머리줄이 마지막 노트 카드에 9px 붙어, 노트 목록에
+  // 딸린 줄처럼 읽혔다(1440에서 실측).
   return (
-    <section className="sun-guide dc-card pt-1">
+    <section className="sun-guide dc-card mt-6 pt-1">
       <SectionHead right={actions}>순모임 가이드</SectionHead>
       <div className="sun-guide-body-wrap w-full max-w-[560px] mx-auto">
         {(making || guideQ.loading) && SKELETON}
         {editing && (
-          <Editor draft={draft} setDraft={setDraft} busy={busy} onSave={save} onRegen={make}
+          <Editor draft={draft} setDraft={setDraft} busy={working} onSave={save} onRegen={make}
             onCancel={() => setDraft(null)} />
         )}
         {showSheet && <Sheet guide={guide} dateLabel={dateLabel} sheetRef={sheetRef} />}

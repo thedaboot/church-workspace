@@ -200,6 +200,14 @@ function DraggableCard({ task, index, projectsMap, showProjectBadge, onTaskClick
   // dnd-kit은 ref를 하나만 받으므로 두 훅의 ref를 손으로 합친다.
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `card:${task.id}` });
   const setRefs = React.useCallback((el) => { setNodeRef(el); setDropRef(el); }, [setNodeRef, setDropRef]);
+  // **엘리먼트를 묶어 둔다.** dnd-kit은 끄는 동안 컨텍스트가 바뀔 때마다 모든
+  // draggable/droppable을 다시 그리는데, 여기서 `action`을 매번 새로 만들면 그 새 참조
+  // 때문에 `TaskCardInner`의 React.memo가 **언제나 빗나가서** 카드 서른 장의 속(얼굴·
+  // 하위 업무·댓글 수 …)이 프레임마다 통째로 다시 그려졌다. task와 onStatusChange는
+  // 둘 다 안정된 참조다(App의 useCallback · 스토어의 카드 객체).
+  const action = React.useMemo(
+    () => <StatusMoveButton task={task} onStatusChange={onStatusChange} />,
+    [task, onStatusChange]);
   return (
     <div
       ref={setRefs} {...attributes} {...listeners}
@@ -211,7 +219,7 @@ function DraggableCard({ task, index, projectsMap, showProjectBadge, onTaskClick
     >
       <TaskCardInner
         task={task} projectsMap={projectsMap} showProjectBadge={showProjectBadge}
-        action={<StatusMoveButton task={task} onStatusChange={onStatusChange} />}
+        action={action}
       />
     </div>
   );

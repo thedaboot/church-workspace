@@ -3,7 +3,7 @@ import { ArrowLeft, ChevronDown, Plus, X } from 'lucide-react';
 import { groupRoster, countPresent, canToggleGroup, kindLabel, formatServiceDate, attendanceOpen } from '../services/worship.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import { BTN, BTN_QUIET } from './groupsParts.jsx';
-import { SaveState } from './worshipDetail.jsx';
+import { SaveState, BTN_SOFT } from './worshipDetail.jsx';
 
 // ============================================================================
 // 예배 출석 체크 (docs/V2.md 결정 6 · 0035·0036)
@@ -35,9 +35,9 @@ import { SaveState } from './worshipDetail.jsx';
 // 제대로 하고 있는지를 모르겠음"). 아래 메모 구역 주석 참고.
 // ============================================================================
 
-// 편집 진입은 **연한 accent**(§8의 색 규칙 — 확정은 진한 accent, 나가기는 무채색).
-// 내 예배 노트의 '수정'과 같은 한 줄이다(worshipDetail의 BTN_SOFT).
-const BTN_SOFT = 'px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';
+// 편집 진입 버튼(연한 accent)은 내 예배 노트의 '수정'과 **같은 한 벌**을 그대로 받아
+// 쓴다(worshipDetail의 BTN_SOFT) — 예전에는 같은 글자를 두 파일에 각자 적어 두어서
+// 한쪽만 고쳐질 자리였다. 저장 상태 칩(SaveState)도 그 파일에서 온다.
 
 function PersonChip({ person, on, disabled, onToggle }) {
   return (
@@ -235,8 +235,13 @@ export function AttendanceScreen({
             편집  `[저장(진한 accent)] … [취소(무채색)]`
           **비운 메모도 저장이다** — 잘못 적은 줄을 지우는 것도 사람이 뜻한 저장이라,
           잠그는 조건은 '바뀐 것이 없을 때'뿐이다. */}
+      {/* **폭 상한을 두지 않는다**(§6-9-k). `max-w-[42rem]`이던 때는 1440에서 이 구역만
+          672px에서 멈춰 오른쪽 726px이 통째로 비었다 — 같은 화면의 순 묶음·손님 줄은
+          트랙을 다 쓰고 있어서 메모 칸만 반쪽으로 남았다. 주보 상세의 내 예배 노트도
+          폭을 다 쓴다(같은 자리에 같은 규칙). 이미 두 번 밟은 함정이다(주보 편집 폼의
+          46rem · 본문 보기의 42rem). */}
       {perms.canCheck && (
-        <section className="att-note mt-7 max-w-[42rem]">
+        <section className="att-note mt-7">
           <div className="flex items-center gap-2 pb-2.5">
             <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">출석 메모</h3>
             <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />

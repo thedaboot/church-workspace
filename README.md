@@ -67,7 +67,7 @@ npm run verify       # 브라우저 검증 스위트 (tests/README.md)
   `프로젝트 / 업무 / 파일` 폴더로 들어가고 DB에는 참조만 남습니다([`docs/DRIVE.md`](docs/DRIVE.md)).
   업무·프로젝트를 지우면 드라이브 폴더도 **폴더째 휴지통**으로 갑니다(30일 복구).
   앱 안 미리보기 — PDF(pdf.js) · 이미지 · 영상 · 소리 · 텍스트, 그리고 **워드·PPT·엑셀은 구글 화면 그대로**입니다
-  (2026-09-08 — 올릴 때 Apps Script v8이 네이티브 문서·슬라이드·시트 사본을 뒤에서 만들어 두고, 앱은 그 사본을 iframe으로
+  (2026-09-08 — 올릴 때 Apps Script v9가 네이티브 문서·슬라이드·시트 사본을 뒤에서 만들어 두고, 앱은 그 사본을 iframe으로
   띄웁니다. 업로드는 사본을 기다리지 않습니다). 사본이 없는 옛 첨부나 스크립트가 v8 미만이면 워드·PPT는 **우리 파서**
   (`services/docx.js`·`pptx.js`)가 그립니다. **엑셀·csv 펼쳐보기는 구글 스프레드시트 화면 그대로**입니다
   (사용자 결정 2026-08-29) — 올릴 때 Apps Script가 만들어 둔 네이티브 시트 사본
@@ -278,6 +278,7 @@ insert into admins (email) values ('admin@example.com');
 | `0053_feedback_round_10.sql` | `attendance_guests`(미등록 출석자를 명단 밖 손님으로) · `notifications.link` + 예배·모임 알림 종류 · `resource_links.view_pw*` · `services.cue_sheet` |
 | `0054_files_kind.sql` | `files.kind`(songform·cuesheet) — 큐시트를 파일로도 붙이기 위해 주보 파일의 갈래를 한 칸으로 |
 | `0055_sun_guide_pin_and_leaders.sql` | 순모임 가이드 재가동 — `sun_guides.pinned*`(고정은 하나 · 마스터만, rpc `set_sun_guide_pinned`) · 쓰기를 순장까지 |
+| `0056_realtime_guides_guests.sql` | 실시간 발행에 `sun_guides`·`attendance_guests` 추가 — 고정·손님 출석이 다른 사람 화면에도 바로 |
 
 ## 딥링크 · 공유 · 환경변수
 

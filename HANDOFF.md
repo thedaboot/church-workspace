@@ -452,12 +452,33 @@
     앞 계정의 성경 북마크(`word_bible_state:<uid>`)가 안 보이는지 · 카카오 인앱에서 로그아웃한 뒤
     자동 재로그인이 안 되고 주소가 `/`인지 · 마스터가 아닌 계정이 남의 나눔을 지우려 하면 실패 토스트가
     뜨는지 · 출석 칩을 눌러도 상세 재조회 4개가 안 붙는지(네트워크 탭).
-- **2026-09-08 회차분 · 6차 자체 개선 + 순모임 가이드(0055) + 워드·PPT 구글 사본(Apps Script v8)**(푸시·배포 — 라이브에서 볼 것.
+- **2026-09-09 회차분 · 전반 점검(Opus 다섯 갈래 — 홈·예배 / 말씀 / 모임·가이드·명단 / 업무 축 / 공용·서비스) + 0056 실시간**
+  (사용자 지시 2026-09-08 "기존 기능과 DB를 해치지 않는 선에서 전반적으로 — UI·리팩토링·효율·로딩·캐싱·스켈레톤·여백·정렬". 기능·문구·스키마
+  변경 없음, 0056은 발행 목록에 표 둘 추가만. 스위트: logcheck·mdcheck·sunguide·assignees·push·aictx·handoff·navsmoke·mobbits·bottomgap·home·worship·
+  word·groups·roster·dashfix·three·themefit·modalclose + 에이전트별 wide·batch10·batch11·calfit·drag·dragdesk·errhunt·onebar·share·onboard·drivesync):
+  - **0056 실시간** — 마스터가 가이드를 고정/해제하거나 순장이 다시 만들면 **다른 사람 화면**(내 순 탭이 떠 있는)이 몇 초 안에 따라오는지 ·
+    손님만 입력한 출석이 홈·내 순 참석 수에 새로고침 없이 반영되는지. `select tablename from pg_publication_tables where pubname='supabase_realtime'`
+    → 20개(18 + sun_guides·attendance_guests).
+  - **대시보드 '지난 7일 간 N건 끝냈어요'** — 숫자가 달라질 수 있다: 이제 `completed_at` 기준이다(예전엔 `updated_at`이라 끝난 업무에 첨부만 올려도
+    다시 세어졌다). 지난 주에 첨부를 만진 옛 완료 업무가 있으면 그만큼 줄어든 것이 **맞는 값**이다.
+  - **서버 함수 상한** — 제미나이가 늦으면 요약·다듬기·순모임 가이드·AI 검색이 25초에 안내 문구로 돌아오는지(`api/ai.js` 504 · 앱 `callGemini` 25초).
+    업로드마다 `/api/drive`의 승인 확인 왕복이 하나 줄었다(승인된 사람은 `admins`를 안 묻는다) — 업로드 실패가 늘지 않았는지.
+  - **댓글 수정** — 모바일에서 연필을 누르면 저장·취소 버튼이 서고 나올 수 있는지(예전엔 Enter/Escape뿐).
+  - **미리보기** — 엑셀·csv 펼쳐보기(모달·첨부 목록 둘)가 흰 칸 대신 준비 화면 → 페이드로 걷히는지 · 예배 목록 첫 진입에 칩 줄까지 스켈레톤이 잡혀
+    카드가 뛰지 않는지 · 주보 본문 대기 자리가 6줄 스켈레톤인지.
+  - **말씀** — 검색어가 한 절에 두 번 나오면 둘 다 칠해지는지 · 북마크에서 편 책이 형광펜 칸에 넘어가지 않는지 · 세그먼트에 `aria-pressed`.
+  - **모임** — 연도를 바꿔도 연도 고르개가 사라지지 않는지 · 375 순 카드 머리줄이 [이름 … N명] / [순장] 두 줄인지 · 동아리에서 사람을 넣어도 내 순의
+    가이드가 스켈레톤부터 다시 뜨지 않는지(캐시 셋만 비움) · 이미지 저장 버튼에만 스피너 · 멤버 화면 가입자 목록이 1분마다 깜빡이지 않는지.
+  - **예배** — 출석 메모 구역이 1440에서 옆 구역과 오른쫽 끝이 같은지(42rem 상한 걷음) · 375 찬양 편집 줄의 링크 칸 왼쫽이 제목 칸과 같은지 ·
+    광고 '펼치기'가 창 폭을 바꿔도 다시 잡히는지.
+  - **셸** — 교회 축 탭 순서·전환 방향이 한 벌(`layout.CHURCH_MENUS`)인지 · 담당자 칸이 없는 옛 카드로 내비가 하얘지지 않는지(`selectMyTasks`).
+- **2026-09-08 회차분 · 6차 자체 개선 + 순모임 가이드(0055) + 워드·PPT 구글 사본(Apps Script v9)**(푸시·배포 — 라이브에서 볼 것.
   검증은 관련 스위트만: logcheck·home·worship·word·groups·sunguide·drivesync·push·aictx·dashfix·navsmoke·bottomgap·three·modalclose·handoff):
-  - **Apps Script v8(사용자가 할 일 — 아무 때나)** — script.google.com에서 `ROOT_FOLDER_ID`·`SHARED_TOKEN` 두 줄만 남기고 `docs/APPS_SCRIPT_v8.md`
+  - **Apps Script v9(사용자가 할 일 — 아무 때나 · v8은 배포 없이 건너뜀)** — script.google.com에서 `ROOT_FOLDER_ID`·`SHARED_TOKEN` 두 줄만 남기고 `docs/APPS_SCRIPT_v9.md`
     코드로 교체 → 배포 관리 → 새 버전(URL 그대로). 확인: .docx를 올리면 목록에 **바로** 서고 몇 초 뒤 다시 열면 구글 문서 화면, 드라이브에
     `<이름> (문서)` 사본. pptx는 `/embed` 주소로 열리는데 `/preview`가 나으면 `previewKind.js`의 `COPY_VIEW` 한 줄. 옛 첨부는
-    `node scripts/backfill_sheet_preview.mjs`(읽기만) → `--fix`. **v8 전에는** 워드·PPT 변환을 보내지 않고 우리 렌더러로 보인다(§6-29-z-8).
+    `node scripts/backfill_sheet_preview.mjs`(읽기만 — 첫 줄에 version 9) → `--fix`. **v9 전에는** 워드·PPT 변환을 보내지 않고 우리 렌더러로 보인다(§6-29-z-8).
+    배포 뒤 절차(첫 주 관찰 · drive_check · v10 후보 · 왜 더 빠른 길이 없는가)는 v9 문서 끝 "v9 다음 절차".
   - **AI 본문 검색**(로그인 계정에서만 — 게스트는 묻지도 않는다) — '어떤 본문을 찾으시나요?'에 뜻으로 묻고(예: 광야에서 하나님이 찾아오심)
     '본문에 그대로 나오는 절' 아래 'AI가 찾은 구절' 도막이 서는지 · 지어낸 참조가 걸러지는지(본문은 언제나 우리 개역한글) · 없는 말은
     '해당 단어는 찾지 못했어요' · 결과를 누르면 그 절 강조가 **3초 뒤** 사라지는지 · 두 번째 검색부터 빠른지(Cache Storage `bible-v1`).
@@ -554,6 +575,17 @@
 
 ### 1.3 짚어둔 것 (급하지 않음)
 
+- **2026-09-09 점검 회차가 사용자 판단으로 남긴 것**(시각·문구 결정 — §8 "시각 판단은 물어보는 쪽"):
+  ① `DepGraph` 고정 높이 440(1440×900에서 카드 아래 ~250px 빈다)·연결 지도 모바일 하한 300 — 배치 물리(`useForceGraph`의 H)와 얽혀 있다
+  ② 데스크톱 768~900px에서 상단 검색창이 65~197px로 짜부라진다(1024부터 정상) — lg 미만 아이콘 트리거로 바꾸거나 라벨을 줄이는 둘 중 하나
+  ③ 375 주보 머리 카드가 두 줄(칩·날짜 / 출석 체크+수정 195px) · '작성 중인 주보 N건' 줄이 카드를 45px 밀어낸다(칩 줄에 합칠지)
+  ④ 1440 순원·동아리 멤버 줄의 '순 옮기기·빼기'가 이름에서 200px 떨어진다(`minmax(…,1fr)` — §6-9-k와 부딪힌다)
+  ⑤ 대시보드 '팀별 남은 업무'가 0건 팀까지 빈 막대로 세운다(연결 지도는 업무가 있는 팀만) — 거르는 자리는 `selectDashboardStats`
+  ⑥ 미리보기 `timedOut` 폴백이 `drive`에서는 죽은 가지이고 `gdoc`에는 상한이 없다 — 늘리면 느린 미리보기가 12초에 폴백으로 갈아치워진다
+  ⑦ 비밀번호 설정 줄이 참고 링크(`views.jsx PinnedLinkChip`)와 첨부(`attachments.jsx PasswordSetter`) 두 벌 — 공용 자리로 빼려면 결정 필요
+  ⑧ `LoginScreen`은 토큰 대신 라이트 고정 hex · `ErrorBoundary`만 "…했습니다" 체 · 홈 '지난 주일 0명 참석'(0을 그대로 말한다)
+  ⑨ 홈 `home:services`와 예배 `worship:list`가 같은 표 둘(`services`·출석 수)을 각자 읽는다 — 열쇠를 나누려면 서비스 계층에 한 벌
+  ⑩ `useCached(key, loader, deps)` — 열쇠에만 있고 deps에 없는 값이면 새 열쇠에 옛 loader가 돈다(홈은 deps를 맞췄다). 훅이 loader를 ref로 들면 함정 자체가 사라진다
 - **출석 13:30 게이트는 클라이언트만입니다**(2026-09-05). `attendance_insert` 정책은 시간을 보지 않으므로 자격자가 API를 직접
   부르면 예배 전에도 체크됩니다. DB에도 걸지는 별도 결정(0047 후보 — `service_date + 13:30 KST <= now()`).
 - **~~송폼 PDF를 주보에 첨부하는 것(검토만)~~ → 만들었습니다**(0047 · 2026-09-06). 검토 때 적어 둔 권장안 그대로입니다 —
@@ -719,7 +751,7 @@ src/components/calendar.jsx 캘린더(주 단위 행) — 띠 배치(layoutWeek)
                             (엑셀·csv 미리보기를 그리던 SheetView.jsx는 2026-08-30에
                             지웠습니다 — 표는 구글이 그립니다. §6의 엑셀 항목)
 src/components/OfficeView.jsx 워드·PPT 미리보기 **폴백** — 변환 사본(`files.preview_file_id`)이 있으면 FilePreviewModal이 구글 화면('gdoc')을
-                            iframe으로 띄우고(2026-09-08 · Apps Script v8), 사본이 없는 옛 첨부·v8 미만·변환 실패만 여기서 그린다(DocView·SlideView).
+                            iframe으로 띄우고(2026-09-08 · Apps Script v9 — v8은 건너뜀), 사본이 없는 옛 첨부·v8 미만·변환 실패만 여기서 그린다(DocView·SlideView).
                             워드는 흐르는 글, PPT는 좌표판이라 도형을 퍼센트로 절대
                             배치하고 글자 크기를 cqw로 환산한다(창을 줄여도 안 무너진다)
 src/components/depgraph.jsx  프로젝트 '그래프' 보기 — 힘 배치 노드 그래프(useForceGraph 공용).
@@ -1538,6 +1570,9 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 ### 4.12 목록 순서 — 무엇이 위로 오나 (2026-08-31)
 
 정렬 규칙은 `utils.js`에 순수 함수로 있고 `tests/logcheck`가 지킵니다.
+**'끝낸 날'은 언제나 `utils.completedTime`(= `cards.completed_at`)이다.** 대시보드 인사말 아래 '지난 7일 간 N건 끝냈어요'가
+`updatedAt`으로 세는 자리로 남아 있었다(2026-09-09 고침) — 끝난 업무에 첨부만 올려도 `file_count` 트리거가 `updated_at`을 밀어 다시
+세어졌다. 새 칸을 만들면 **그 값을 쓰던 자리를 전부 grep해서 옮긴다**(0033·0034 때 `rowDate`·`byCompleted`만 옮겼다).
 
 | 자리 | 기준 | 왜 |
 |---|---|---|
@@ -1569,9 +1604,9 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 
 ## 5. 데이터 · 스키마 · 비밀
 
-스키마는 `supabase/migrations/0001~0055`이고 **전부 라이브 DB에 적용**되어 있습니다
+스키마는 `supabase/migrations/0001~0056`이고 **전부 라이브 DB에 적용**되어 있습니다
 (0001~0005는 대시보드에서 수동, 이후는 `npx supabase db push --db-url "$SUPABASE_DB_URL"`).
-**원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있습니다** — 0039~0055는 psql로 직접
+**원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있습니다** — 0039~0056은 psql로 직접
 적용했기 때문입니다. 적용 여부는 원장이 아니라 **실제 객체**로 확인하세요(컬럼·함수·정책·발행 목록).
 
 | 파일 | 한 일 |
@@ -1631,6 +1666,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | `0053_feedback_round_10` | 넷을 한 파일에 — ① `attendance_guests`(id·service_id·name·created_by): 미등록 출석자를 **명단에 올리지 않고** 그 예배의 손님으로(사용자 결정 2026-09-07). RLS: 승인 읽기 · insert/delete는 `can_check_all_attendance() or leads_any_sun()` + **발행된 주보만** ② `notifications.link`(우리 주소 CHECK) + kind 여섯 추가(`worship_today`는 서버만) + INSERT 정책에 `is_approved()` ③ `resource_links.view_pw/view_pw_salt/view_pw_by`(첨부 0023과 같은 화면 가림) ④ `services.cue_sheet jsonb` {url,title} — view_pw 두 칸은 만들었지만 **화면이 쓰지 않는다**(사용자 결정 2026-09-08 큐시트 비밀번호 없음). 되돌리기는 파일 아래 |
 | `0054_files_kind` | `files.kind text check (null|'songform'|'cuesheet')` — 주보 파일의 갈래. 큐시트를 링크뿐 아니라 **파일로도** 붙이기 위해(사용자 2026-09-08) 송폼과 같은 표·같은 업로드 한 벌을 쓰고 갈래만 한 칸. 기존 주보 파일은 전부 `songform`으로 백필, 업무 첨부는 null. RLS는 0047 그대로(service_id만 본다) |
 | `0055_sun_guide_pin_and_leaders` | 순모임 가이드 재가동(사용자 스펙 2026-09-08): `sun_guides.pinned/pinned_at/pinned_by` + 부분 유니크(`where pinned` — 고정은 하나) · `sun_guides_write`를 `is_approved() and (can_manage_sun() or leads_any_sun()) and (not pinned or is_master())`로(순장도 만든다 · 고정본은 마스터만) · `set_sun_guide_pinned(uuid, boolean)` security definer(마스터 검사 · 다른 행 먼저 해제 · authenticated에만 grant). 되돌리기는 파일 아래 |
+| `0056_realtime_guides_guests` | 실시간 발행(`supabase_realtime`)에 `sun_guides`·`attendance_guests` 추가(0049와 같은 멱등 루프). 짝은 `liveV2.TABLE_CACHE` 두 줄(`groups:guide`·`groups:mine` / `worship:svc`·`home`·`groups:mine`)과 logcheck의 표 개수 11 |
 
 알아둘 것:
 
@@ -2068,8 +2104,10 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 9-ao. **검사에서 등장 애니메이션이 붙은 요소를 밀 때는 transform이 아니라 margin을 쓴다** — `.dc-row/.dc-card`가 `fill-mode: both`로
     `transform: none`을 남겨 인라인 transform이 진다. 그리고 `tests/groups.mjs`의 주보 날짜는 **오늘 기준 상대값**이다(출석 기준이 날짜를
     보게 되어 고정값은 그 날이 오기 전에 헛으로 깨진다).
-9-ap. **`attendance_guests`는 아직 실시간 밖이다** — 0049 발행 목록에도 `liveV2.TABLE_CACHE`에도 없다(logcheck가 표 아홉으로 못 박았다).
-    손님만 입력된 예배는 다음 진입에서야 반영된다. 넣으려면 마이그레이션 + logcheck 한 줄을 같이 고친다.
+9-ap. **~~`attendance_guests`는 아직 실시간 밖이다~~ → 0056(2026-09-09)이 `sun_guides`와 같이 발행에 넣었다.** `liveV2.TABLE_CACHE`에 두 줄이
+    있고 logcheck가 표 개수 11로 못 박는다. 다음에 표를 또 더하면 마이그레이션 + TABLE_CACHE 한 줄 + logcheck 개수 셋을 같이 고친다.
+    **모임 접두는 `'groups:all'·'groups:roster'·'groups:mine'` 셋으로 나눠 적는다** — `dropCache`는 글자 비교라 맨 `'groups'`로 두면
+    `groups:guide:*`(가이드 본문)까지 딸려 지워져, 남이 순 편성을 만질 때마다 내 화면의 가이드 캐시만 조용히 사라졌다(groupsView `GROUP_KEYS`와 같은 목록).
 9-aq. **본문 검색 풀(`bible.forEachPool`)은 "받는 것만 겹치고 훑기는 목록(정경) 순서"다.** 도착 순으로 훑으면 결과 줄과 '앞에서부터 N건'이
     정경 순을 잃는다. 66권을 차례로 await하던 것이 첫 검색이 느리던 진짜 원인이었다. **Cache Storage `bible-v1`**은 만료가 없다 — 본문
     데이터를 갈아 끼우면 이름의 숫자를 올린다. fetch를 막아 실패를 만드는 검사는 새로고침 **전에** `caches.delete`(뒤에 지우면 앱 부팅과
@@ -2087,6 +2125,55 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 9-av. **순모임 가이드 이미지 저장의 한계** — 종이 색은 라이트 값으로 **박아 두었다**(토큰을 바꿔도 종이는 안 따라간다 — index.css :root와
     손으로 맞춘다). html2canvas가 인라인 SVG 하트를 1~2px 위로 그린다(화면은 정상). 종이 머리 줄과 섹션 머리줄에 '순모임 가이드'가 두 번
     있는 것은 의도다(그림으로 나가는 인쇄물에 제목이 있어야 한다 — 2026-09-03에 뺐던 것을 되돌림).
+9-aw. **스켈레톤은 '기다리는 그림'이 아니라 '자리를 지키는 그림'이다**(2026-09-09 점검). 화면 머리의 **조건 없는 줄**(제목·거르기 칩)은
+    스켈레톤도 같은 높이로 잡는다 — 안 잡으면 목록이 도착하는 순간 카드가 통째로 뛴다(예배 목록 42px · `worship-loading-chips`). 자격·건수가
+    정하는 줄('작성 중인 주보 N건')은 잡지 않는다(그 줄이 없는 사람에게 빈 띠가 남는다). 주보 본문 대기 자리는 말씀과 같은 `PassageSkeleton`.
+9-ax. **`max-w`는 트랙 안에 빈 띠를 만든다 — 세 번째 사례**(주보 편집 폼 46rem · 본문 보기 42rem · **출석 메모 42rem**, 1440에서 오른쪽 726px이
+    비었다). 새 구역에 폭 상한을 붙이려면 1440에서 옆 구역과 오른쪽 끝을 맞춰 보고 붙인다.
+9-ay. **`line-clamp` 넘침 판정은 폭이 바뀌면 다시 잰다**(`NoticeCard` — ResizeObserver). 마운트 때 한 번만 재면 창을 좁혔을 때 '펼치기'가 안 붙어
+    읽을 길이 사라진다. **펼친 동안은 재지 않는다** — 접힘이 없어 늘 '안 넘침'이 나오고 접는 프레임에 버튼이 깜빡인다.
+9-az. **flex-wrap으로 접히는 줄은 둘째 줄의 왼쪽을 손으로 맞춘다.** 번호 칸이 있는 목록(찬양 편집 줄)에서 둘째 줄이 x=0에서 시작하면 왼쪽이
+    들쭉날쭉해진다(`ml-[1.625rem] sm:ml-0`). '고아 없음' 검사는 줄당 개수만 세므로 이 어긋남을 못 잡는다 — 왼쪽 좌표를 따로 잰다. 그리고
+    접힐 때 **'누구 옆에 서는지'까지 바뀐다** — 순 카드 머리줄에서 인원 수가 순장 칸 줄로 내려가 순장에 딸린 숫자처럼 읽혔다(`order-*` + `basis-full`로 줄을 정한다).
+9-ba. **같은 자리에 그려지는 같은 부품은 prop만 갈려도 state를 물려받는다**(§6-18의 새 사례). 북마크/형광펜 칸(`MarkSection`)의 '펼친 책'이 서로
+    넘어갔다. `key`로 리마운트해 지우면 오갈 때마다 접힘으로 되돌아가니 **state 열쇠에 갈래 이름을 넣는다**.
+9-bb. **검색어 표시는 첫 등장만 칠하면 안 된다** — `String.split(q)`로 전부 칠한다(문자열이라 정규식 이스케이프가 필요 없다). 창세기 1:4·1:10처럼
+    한 절에 두 번 나오는 말이 흔하다(`wordBible highlight`).
+9-bc. **성경 상태 그릇은 `useStateBox()` 한 벌이다**(캐시 초깃값 · `edited` · `adopt` · `update`). QT 본문은 스스로 읽고 리더는 책 목록과 한 묶음으로
+    읽는다 — 그릇은 같고 읽는 이펙트만 다르다. logcheck가 `edited.current = true;` 한 자리·`adopt(saved)` 두 자리를 못 박는다.
+9-bd. **세그먼트에는 `aria-pressed`, 탭 줄에는 `role="tablist"/"tab"`**(`aria-selected`는 `role="tab"`에만 뜻이 있다). 말씀 세 세그먼트(QT/성경 읽기 ·
+    본문/북마크/형광펜 · Aa)와 주보 탭 줄이 이제 `views.jsx` 대시보드 탭과 같은 한 벌이다.
+9-be. **§6-9-z의 "wordView도 worshipDetail `NOTE_TOOLS`와 같은 배치"는 사실이 아니다** — wordView 도구 줄은 2열(`grid-cols-1 sm:[auto_1fr]`),
+    worshipDetail은 4열이고 둘 다 375·1440에서 고아 줄이 없다(2026-09-09 실측). 합치지 않은 이유: 칩이 떠도 토글·휴지통이 `justify-end`라 안 밀린다.
+9-bf. **컴포넌트를 화면 함수 안에서 만들면 렌더마다 리마운트다.** `.dc-row/.dc-card`가 `fill-mode: both`라 등장 모션이 그때마다 다시 돈다 —
+    `useMinuteTick`처럼 주기적으로 다시 그리는 화면에서는 목록이 **매분 깜빡인다**(멤버 화면 `MemberRow`에서 실제로 그랬다). 모듈 바깥에 둔다.
+9-bg. **한 화면이 자격과 한 벌을 나란히 읽으면 같은 표를 두 번 읽기 쉽다.** `groups.share(key, run)`가 같은 틱의 중복 조회를 묶는다(캐시가 아니라
+    in-flight 창 — 값이 낡지 않는다). 홈도 같은 짝을 부르므로 **서비스 계층**에 두어야 둘 다 덕을 본다(동아리·직분 조회가 진입마다 둘씩 나갔다).
+9-bh. **연도·탭처럼 사람이 방금 누른 조작기는 로딩 중에도 화면에 남는다.** 구역째 스켈레톤으로 갈아 끼우면 방금 누른 고르개가 사라졌다 돌아온다 —
+    껍데기는 세워 두고 바뀌는 목록 자리만 잡는다(`SunAdminPanel loading` · `ADMIN_SKELETON`).
+9-bi. **`ClubsPanel`의 `key={club:<id>}`(방향 전환 겹)는 상세를 통째로 다시 마운트한다.** 그래서 `useEffect([club.id])`로 열린 칸을 닫던 코드는
+    이제 대개 돌지 않는다 — key를 걷으면 되살아나는 함정이라 셋(편집·QR·모임 만들기)을 다 닫아 둔다.
+9-bj. **긴 클라이언트 작업(html2canvas 이미지 굽기)에는 `busy`가 불리언이면 모자란다** — 어느 버튼이 일하는 중인지(`'' | make | save | pin | image`)를
+    담아야 그 버튼에만 스피너를 놓을 수 있다(`sunGuide`).
+9-bk. **같은 구글 iframe을 띄우는 자리가 다섯이다**(미리보기의 `sheet`·`gdoc`·`drive`·`office`, 첨부 목록의 `InlineSheet`). 갈래를 늘릴 때
+    **준비 화면(PreparingFrame)·`FRAME_SETTLE`·페이드 셋을 같이** 붙인다 — 0055는 `gdoc`에만 붙여서 엑셀만 흰 칸으로 떴다. `tests/three.mjs`가 소스로 못 박는다.
+9-bl. **`useMemo`의 의존성에 매 렌더 새로 만드는 배열을 넣으면 그 memo는 한 번도 맞지 않는다**(`MyTasksView.shown`·`TeamView.openTasks`·
+    `ScheduleView.dated`가 그랬다 — 상태 칩 하나에 목록 전체를 다시 묶었다). 거른 목록도 같이 묶는다.
+9-bm. **dnd-kit은 끄는 동안 모든 draggable/droppable을 프레임마다 다시 그린다.** 자식에게 넘기는 **엘리먼트를 인라인으로 만들면 그 자식의
+    `React.memo`가 무력화된다**(`boards.jsx`의 `action={<StatusMoveButton/>}` — 카드 서른 장의 속이 프레임마다 다시 그려졌다). 엘리먼트도 `useMemo`.
+9-bn. **`callGemini`에 상한이 없었다** — 답이 안 오면 브라우저 기본 타임아웃(수 분)까지 화면이 스켈레톤에 굳었다(AI 검색 도막). 지금은
+    `CALL_TIMEOUT_MS = 25000`이고 **AbortError는 `needDeploy`가 아니라 `failed`로 가른다**(안 그러면 배포에서 느렸을 뿐인데 "로컬은 vercel dev 필요"가 뜬다).
+    서버 함수 셋(drive 55초 · yt 8초 · ai 25초)이 전부 플랫폼 maxDuration보다 먼저 끊고 한국어 이유를 실어 보낸다.
+9-bo. **`config.js`의 팀 표 셋(TEAMS·TEAM_FG·TEAM_TOKENS)은 Tailwind 안전목록이다.** `bg-tag-pink` 같은 클래스는 소스 통틀어 여기에만 통짜로 있고
+    `utils.avatarColor`·`teamPaint`는 조립해서 쓴다 — 토큰에서 만들게 바꾸면 팀 색이 빌드에서 통째로 사라진다.
+9-bp. **한 벌로 모은 규칙 셋**(2026-09-09 · logcheck 15가지): 교회 축 목록은 `layout.CHURCH_MENUS`(App은 `CHURCH_ORDER`로 가져다 쓴다 — 순서와
+    전환 방향이 갈리면 탭을 눌렀는데 반대쪽에서 들어오는 화면이 생긴다) · 확장자→구글 편집기 표는 `utils.GOOGLE_EDITOR`(앱 안 미리보기 + 새 탭) ·
+    화면 가림 비밀번호 계산은 `viewPw.js`(`cloud.js`는 DB 세 칸만 — `viewPw.js`는 `cloud.js`를 절대 import하지 않는다, supabase가 딸려 와 노드 검사가 깨진다).
+    홈 날짜(`homeDateLabel`)는 `worship.formatServiceDate`, 편집 진입 버튼(`BTN_SOFT`)은 `worshipDetail`이 export하는 한 벌.
+9-bq. **`tests/assignees.mjs`는 `cloud.js`를 통째로 복사해 돌린다** — 0055의 `previewKind` import 때부터 CRASH였다(아무도 못 봤다). 이제 상대 import를
+    절대 경로로 바꿔 자동으로 견딘다. 그리고 **스위트마다 CDP 포트가 고정**(9471·9498·9502…)이라 에이전트가 병렬로 **같은 스위트**를 돌리면 충돌해
+    `Page.loadEventFired`로 죽는다 — `VERIFY_PORT`만 나눠서는 못 막는다. 같은 스위트를 동시에 돌리지 않게 배분한다.
+9-br. **검사 중 화면 좌표를 견줄 때는 `.dc-card`가 붙은 요소를 재지 않는다** — 등장 연출로 5px 내려온 프레임이 있어 늘 5px 어긋난다. 그 부모(격자·상자)를 잰다.
 9-ad. **"자리를 잡았다"를 ref로 기억하면 도착한 프레임에 다시 그리지 않는다.** `groupsParts.useSettled`가 `useRef`로 키를 들고 있어서,
     값이 도착해 loading이 false가 된 프레임에는 옛 키라 false를 돌려주고 효과에서 ref만 고쳤다 — **다른 상태가 바뀌기 전까지 스켈레톤이
     그대로** 섰다("내 순에 공유된 예배 노트가 계속 스켈레톤", 사용자 보고 2026-09-08). 재현 조건은 명단(baseQ)은 캐시라 키가 처음부터
@@ -2554,7 +2641,9 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
     버전을 액션으로 만들지 않는 이유: 액션을 늘리면 `api/drive.js` ACTIONS와 그 둘을 맞춰 보는 검사까지 넓어진다(v7 이하는 그 칸이 없어 0).
     **두 단계**: 업로드는 원본만 올리고 즉시 답하고, 사본은 files 행을 만든 뒤 **await 없이** `convert` 액션으로 뒤에서 만들어 UPDATE한다 —
     `await`를 붙이면 "미리보기 오래 기다린다" 개선이 통째로 사라진다(drivesync가 잡는다). 사본 만들기는 `Drive.Files.copy` 본문에 이름·
-    부모·mimeType·열쇠 지우기를 실어 왕복 3→2. 드라이브 소유자는 **마스터(노준석) 개인 계정**이다 — 아래 §7의 "Drive API 직접" 참조.
+    부모·mimeType·열쇠 지우기를 실어 왕복 3→2. **v9**(배포할 판 — v8은 건너뜀)는 여기에 **업로드도 왕복 3→2**를 더했다(`createInFolder`:
+    `Drive.Files.create`에 이름·부모·열쇠·설명, 공유는 `Permissions.create`). 앱의 게이트는 `>= 8` 그대로다. 드라이브 소유자는 **마스터(노준석)
+    개인 계정**이다 — 아래 §7의 "Drive API 직접" 참조.
 
 29-z. **`../`가 든 상대 경로를 문자열 치환으로 풀지 마세요.** OOXML의 rels Target은
     세 모양으로 옵니다: 절대(`/xl/…`) · 상대(`worksheets/…`) · **거슬러 올라가는
@@ -2947,6 +3036,8 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
   연한 accent = 편집 진입(수정), 무채색 = 아무 일도 안 함(닫기·취소).
   **Tailwind 기본 팔레트(`red-500` 등)를 쓰지 마세요** — 테마를 따라가지 않아 다크 모드에서
   그대로 튑니다. 토큰(`tag-red-fg` 등)만 씁니다.
+- **인라인 편집(댓글 수정 같은)에는 저장·취소 버튼을 반드시 둡니다.** Enter/Escape만 두면 모바일에는 그 조작이 아예 없고, 들어간 사람이
+  나올 길이 없습니다(2026-09-09 — 답글 입력에서 이미 겪은 것을 댓글 수정이 그대로 안고 있었습니다). 자리는 대화창 규칙(취소 왼쪽·저장 오른쪽).
 - **삭제 확인은 `ConfirmPopover`로 통일**합니다(프로젝트·업무·댓글·첨부·하위 업무). 알림 지우기는
   예외입니다 — 잃는 것이 한 줄뿐이고 목록을 정리하는 일에 확인이 붙으면 누르는 횟수가 두 배가
   됩니다. 대신 실패하면 화면에 되돌려 놓습니다.

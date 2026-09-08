@@ -3,7 +3,7 @@ import { Analytics } from '@vercel/analytics/react';
 import { store, useCanUndo, useCanRedo } from './store/workspaceStore.js';
 import { useWorkspaceController } from './hooks/controllers.js';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
-import { TopNav, MobileTopBar, MobileTabBar } from './components/layout.jsx';
+import { TopNav, MobileTopBar, MobileTabBar, CHURCH_MENUS } from './components/layout.jsx';
 import { useIsMobile } from './hooks/useIsMobile.js';
 import { DashboardView, ProjectView, MyTasksView, TeamView, ScheduleView, DASH_FILTERS, DASH_FILTER_DEFAULT } from './views/views.jsx';
 import { TaskModalShell } from './modals/modals.jsx';
@@ -27,17 +27,17 @@ import logoDark from './assets/logo-dark.png';
 
 // activeMenu에는 화면 이름이나 프로젝트 id가 들어간다 — 여기 없는 값은 프로젝트로 본다.
 // 새 전역 화면을 만들면 이 목록에도 넣어야 그 이름이 프로젝트 id로 오해되지 않는다
-// (오해되면 '없는 프로젝트'로 판정돼 대시보드로 튕긴다).
-// 새 전역 화면을 만들면 여기에도 넣는다 — 없으면 프로젝트 id로 오해돼
-// '없는 프로젝트'로 판정되고 대시보드로 튕긴다(§3).
+// (오해되면 '없는 프로젝트'로 판정돼 대시보드로 튕긴다 · §3).
 const GLOBAL_MENUS = ['dashboard', 'myTasks', 'schedule', 'members', 'home', 'worship', 'word', 'groups'];
 
 // 교회 생활 축의 차례 — 하단 바(모바일)·상단 첫 묶음(데스크톱)에 서는 순서 그대로다
 // (docs/V2.md §3). 화면 전환 모션의 **방향**을 여기서 읽는다: 차례가 뒤인 쪽으로 가면
 // 새 화면이 오른쪽에서, 앞쪽으로 가면 왼쪽에서 들어온다.
+// **목록은 내비가 소유한다**(layout.CHURCH_MENUS) — 화면에 서는 순서와 방향이 갈리면
+// 탭을 눌렀는데 반대쪽에서 들어오는 화면이 생긴다.
 // 업무 축(대시보드·내 업무·일정·프로젝트·팀)은 일부러 빠져 있다 — 그쪽은 지금 그대로
 // `.dc-screen` 하나로만 들어오고, 드래그가 있는 화면에 transform 조상을 만들지 않는다(§6-1).
-const CHURCH_ORDER = ['home', 'worship', 'word', 'groups'];
+const CHURCH_ORDER = CHURCH_MENUS;
 
 // 클라우드 초기 로드 중 미니멀 스플래시 (로고 + 살짝 pulse)
 function CloudSplash() {
@@ -357,6 +357,9 @@ function WorkspaceShell() {
   // 인라인 화살표로 내려주면 매 렌더마다 새 함수가 되어 React.memo가 무력해지고,
   // 모달을 열 때(setModalState) 활성 뷰의 카드 전체가 다시 렌더된다(150장 = 150회).
   const openProfile = useCallback(() => setIsProfileModalOpen(true), []);
+  // 프로필 메뉴의 '멤버 관리'. 인라인 화살표로 내려주면 렌더마다 새 함수가 되어
+  // TopNav·MobileTopBar의 React.memo가 매번 깨진다(바로 위 규칙의 예외로 남아 있었다).
+  const openMembers = useCallback(() => setActiveMenu('members'), []);
   const openProjectModal = useCallback(() => setIsProjectModalOpen(true), []);
   const openRenameProject = useCallback((project) => setRenameTarget(project), []);
   const selectMenu = useCallback((menu) => setActiveMenu(menu), []);
@@ -587,13 +590,13 @@ function WorkspaceShell() {
           activeMenu={activeMenu} setActiveMenu={selectMenu}
           onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification} onOpenLink={handleOpenLink}
           onOpenProject={openProjectModal} onRenameProject={openRenameProject}
-          onOpenProfile={openProfile} onOpenMembers={() => setActiveMenu('members')} cloudMode={cloudMode}
+          onOpenProfile={openProfile} onOpenMembers={openMembers} cloudMode={cloudMode}
         />
       ) : (
         <TopNav
           activeMenu={activeMenu} setActiveMenu={selectMenu}
           onSearchSelect={handleSearchSelect} onOpenTask={handleOpenTaskFromNotification} onOpenLink={handleOpenLink}
-          onOpenProfile={openProfile} onOpenMembers={() => setActiveMenu('members')} onOpenProject={openProjectModal}
+          onOpenProfile={openProfile} onOpenMembers={openMembers} onOpenProject={openProjectModal}
           undo={controller.undo} redo={controller.redo} canUndo={canUndo} canRedo={canRedo} cloudMode={cloudMode}
         />
       )}

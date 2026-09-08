@@ -9,6 +9,12 @@
 export const MAX_UPLOAD_MB = 25;
 export const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 
+// ── 팀 표 셋(TEAMS · TEAM_FG · TEAM_TOKENS)을 하나로 합치지 마세요 ──────────────
+// 세 벌이 같은 일곱 팀을 적고 있어 한 벌로 줄이고 싶어 보이지만, **여기 적힌 글자가
+// Tailwind가 그 유틸리티를 만들어 내는 유일한 근거**입니다. `bg-tag-pink` 같은 클래스는
+// 이 파일 말고는 소스 어디에도 통짜로 나오지 않고(utils.avatarColor·teamPaint는
+// `bg-tag-${토큰}`으로 조립합니다), Tailwind는 소스를 글자로 훑기 때문에 조립한 이름은
+// 못 봅니다. 토큰에서 문자열을 만들도록 바꾸는 순간 팀 색이 빌드에서 통째로 사라집니다.
 export const CONFIG = {
   TEAMS: {
     '웰컴팀': 'bg-tag-pink text-tag-pink-fg',

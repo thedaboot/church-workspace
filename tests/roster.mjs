@@ -131,6 +131,16 @@ check('멤버 화면이 명단 캐시를 읽고 쓴다',
   /import \{[^}]*readCache[^}]*writeCache[^}]*\} from '\.\.\/services\/cache\.js'/.test(viewCode));
 check('명단을 다시 받을 때 스켈레톤으로 되돌리지 않는다', !/setBook\(null\)/.test(viewCode));
 
+// 줄은 **화면 함수 밖**에서 만든다. 안에서 만들면 렌더마다 새 컴포넌트 타입이 되어
+// 리액트가 줄을 통째로 떼었다 다시 붙이고, `.dc-row` 등장 모션(fill-mode both)이 그때마다
+// 처음부터 돈다 — 이 화면은 useMinuteTick으로 1분마다 다시 그리므로 목록이 1분마다
+// 한 번씩 떠올랐다. 헤드리스로 1분을 기다릴 수 없어 소스로 못 박는다.
+// 되돌리기 확인: MemberRow를 MembersView 안으로 되돌리면 이 검사가 깨진다.
+check('가입자 줄은 화면 함수 밖에서 만든다(렌더마다 다시 붙으면 등장 모션이 반복된다)',
+  /^function MemberRow\(/m.test(viewCode)
+  && viewCode.indexOf('function MemberRow(') < viewCode.indexOf('export function MembersView'),
+  String(viewCode.indexOf('function MemberRow(')));
+
 // ── 2. 브라우저 ─────────────────────────────────────────────────────────────
 const prof = mkdtempSync(join(tmpdir(), 'croster-'));
 const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${prof}`, '--no-first-run', 'about:blank'], { stdio: 'ignore' });

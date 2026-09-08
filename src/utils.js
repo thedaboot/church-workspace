@@ -1,7 +1,8 @@
 // ============================================================================
 // 2. Utils & Helpers (유틸리티)
 // ============================================================================
-export const generateId = () => typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+// substr은 폐기된 API다 — 같은 자리를 자르는 slice로 둔다(결과는 그대로)
+export const generateId = () => typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `id_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 
 // 모바일 뷰포트 1회 판정 (autoFocus처럼 마운트 시점에만 읽는 값에 사용)
 // 모바일에서 자동 포커스는 키보드가 튀어 올라 레이아웃을 덮으므로 피한다.
@@ -265,7 +266,10 @@ export const httpsImage = (url) => String(url || '').replace(/^http:\/\//i, 'htt
 export const SHEET_READY_MS = 30 * 60 * 1000;
 // 확장자 → 구글 전용 뷰어 종류. 스프레드시트만이 아니라 문서·프레젠테이션도
 // 같은 편집기 미리보기가 있다(사용자 요청 — "엑셀처럼 다른 형식도").
-const DRIVE_EDITOR = {
+// **표는 한 벌이다** — 새 탭에서 여는 주소를 만드는 쪽(cloud.getFileOpenUrl)도 이것을
+// 가져다 쓴다. 두 벌이면 확장자를 하나 붙일 때 한쪽만 고쳐져서, 앱 안에서는 구글
+// 화면으로 열리는데 새 탭에서는 어두운 파일 뷰어로 떨어지는 파일이 생긴다.
+export const GOOGLE_EDITOR = {
   xlsx: 'spreadsheets', xls: 'spreadsheets', csv: 'spreadsheets',
   docx: 'document', doc: 'document',
   pptx: 'presentation', ppt: 'presentation',
@@ -273,7 +277,7 @@ const DRIVE_EDITOR = {
 export const driveSrc = (row, now = Date.now()) => {
   if (!row?.drive_file_id) return null;
   const ext = String(row.name || '').split('.').pop().toLowerCase();
-  const editor = DRIVE_EDITOR[ext];
+  const editor = GOOGLE_EDITOR[ext];
   const age = now - new Date(row.created_at || 0).getTime();
   return (editor && age > SHEET_READY_MS)
     ? `https://docs.google.com/${editor}/d/${row.drive_file_id}/preview`

@@ -185,11 +185,22 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions
           )}
         </div>
         {editing ? (
-          <textarea
-            autoFocus value={editText} onChange={e => setEditText(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(); } if (e.key === 'Escape') setEditing(false); }}
-            className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg resize-none h-14 focus:border-accent focus:shadow-soft outline-none transition-all"
-          />
+          /* 답글 입력과 **같은 규칙**이다(아래 MentionInput 자리의 ③) — 버튼이 없으면
+             모바일에는 'Enter로 저장·Esc로 취소'가 아예 없는 조작이라, 자기 댓글의
+             연필을 누른 사람이 나올 길 없이 갇혔다. 취소가 왼쪽·저장이 오른쪽(§8). */
+          <>
+            <textarea
+              autoFocus value={editText} onChange={e => setEditText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(); } if (e.key === 'Escape') setEditing(false); }}
+              className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg resize-none h-14 focus:border-accent focus:shadow-soft outline-none transition-all"
+            />
+            <div className="flex justify-end items-center gap-1.5 mt-1.5">
+              <button type="button" onClick={() => setEditing(false)}
+                className="px-2.5 py-1.5 rounded-md text-[10px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95">취소</button>
+              <button type="button" onClick={saveEdit} disabled={!editText.trim()}
+                className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-3 py-1.5 rounded-md text-[10px] font-bold transition active:scale-95">저장</button>
+            </div>
+          </>
         ) : (
           <div className="text-xs text-fg-secondary leading-relaxed"><RichText content={c.text} /></div>
         )}

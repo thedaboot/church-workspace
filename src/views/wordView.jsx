@@ -91,9 +91,7 @@ const SEGMENTS = [['qt', 'QT'], ['read', '성경 읽기']];
 // 마크다운이고 나눔 피드는 RichText로 그린다. TipTap은 무거우므로 modals가 하듯
 // lazy로 떼어 둔다(§1.3) — 성경 읽기만 보다 나가는 사람은 받지 않는다.
 const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').then(m => ({ default: m.MarkdownEditor })));
-// 서식 바(37px) + 본문 칸(min-h-40 = 160px). 에디터가 붙기 전에도 같은 높이를 잡아
-// 두어야 도착하는 순간 아래 것들이 밀리지 않는다.
-// **업무 수정 창과 같은 상자다**(사용자 피드백 2026-09-03 — "빈 공간을 눌러도 입력되게").
+// 본문 칸의 높이. **업무 수정 창과 같은 상자다**(사용자 피드백 2026-09-03 — "빈 공간을 눌러도 입력되게").
 // 빈 자리를 눌러 커서를 잡는 일은 MarkdownEditor가 이미 한다(그 파일의 focusEnd —
 // `.tiptap` 밖을 누르면 문서 끝으로 보낸다). 다른 점은 상자 높이뿐이어서, 업무 수정과
 // 같은 `min-h-40 md:min-h-56`으로 맞췄다 — 데스크톱에서 누를 빈 자리가 160 → 224px이 된다.
@@ -132,7 +130,9 @@ export function WordView({ initialTab = 'qt', initialRef = '' }) {
       <div className="flex items-center gap-2 pb-3.5">
         <span className="flex p-[3px] rounded-[8px] shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
           {SEGMENTS.map(([key, label]) => (
-            <button key={key} onClick={() => pick(key)}
+            // aria-pressed는 성경 읽기의 [본문|북마크|형광펜] 세그먼트와 같은 한 벌이다 —
+            // 색만으로 고른 것을 말하면 화면을 읽어 주는 기기에는 아무 표시도 안 남는다
+            <button key={key} onClick={() => pick(key)} aria-pressed={tab === key}
               className="px-3.5 py-[6px] rounded-[5px] text-[12.5px] font-semibold transition-colors"
               style={{
                 background: tab === key ? 'var(--app-surface)' : 'transparent',
@@ -493,12 +493,10 @@ function QtTab() {
                   수정
                 </button>
               ) : (
-                <>
-                  <button onClick={save} disabled={!dirty || !hasText || saving}
-                    className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
-                    저장
-                  </button>
-                </>
+                <button onClick={save} disabled={!dirty || !hasText || saving}
+                  className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
+                  저장
+                </button>
               )}
               <ShareChip state={shareState} label={entry?.shared ? '더다붓에 공유할게요' : '나만 볼게요'} />
               {/* 나가기는 줄의 오른쪽 끝 — 예배 노트의 도구 줄과 같은 자리(§8 도구 줄 규칙) */}

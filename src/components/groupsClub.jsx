@@ -259,9 +259,13 @@ function ClubDetail({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ name: '', note: '' });
   const [qrOpen, setQrOpen] = useState(false);
-  // 다른 동아리로 옮겨 가면 편집·QR을 닫는다 — 목록을 거쳐도 이 컴포넌트는 그대로 살아
-  // 있어서(같은 자리) 앞 동아리의 열린 칸이 다음 동아리의 머리줄에 남는다.
-  useEffect(() => { setEditing(false); setQrOpen(false); }, [club.id]);
+  // 다른 동아리로 옮겨 가면 그 동아리에서 열어 둔 칸을 전부 닫는다 — 앞 동아리의 편집
+  // 칸·QR·모임 만들기가 다음 동아리의 머리줄에 남으면 안 된다.
+  // **지금은 대개 돌지 않는다**: 2026-09-08에 붙인 방향 전환 겉껍데기(ClubsPanel의
+  // `key={club:<id>}`)가 상세를 통째로 다시 마운트하므로 상태가 스스로 초기값으로 돌아간다.
+  // 남겨 두는 것은 그 key가 바뀌면(같은 자리에서 동아리만 갈아 끼우게 되면) 되살아나는
+  // 함정이라서다 — 그때 셋 중 하나만 빠져 있으면 그 칸만 남는다.
+  useEffect(() => { setEditing(false); setQrOpen(false); setAdding(false); }, [club.id]);
 
   const list = useMemo(() => groupPeople({ people, group: club, members }), [people, club, members]);
   const byId = useMemo(() => new Map(people.map(p => [p.id, p])), [people]);

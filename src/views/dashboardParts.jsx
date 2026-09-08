@@ -210,6 +210,8 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
             const done = t.status === '완료';
             const over = !done && t.dueDate && t.dueDate < today;
             const isToday = !done && t.dueDate === today;
+            // 한 줄에서 두 번(title·색) 묻던 판정 — 값이 같아야 노란 글자와 그 설명이 짝이 된다
+            const stale = isStaleNoDue(t, today);
             const teams = teamsLabel(t.teams);
             return (
               <div
@@ -259,11 +261,11 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                   <span className="shrink-0 w-11 text-[11.5px] font-bold tabular-nums"
                     title={done
                       ? (t.dueDate ? `끝낸 날 · 마감은 ${mdLabel(t.dueDate)}였어요` : '끝낸 날')
-                      : isStaleNoDue(t, today) ? `${STALE_NODUE_DAYS / 7}주 넘게 마감이 정해지지 않았어요` : undefined}
+                      : stale ? `${STALE_NODUE_DAYS / 7}주 넘게 마감이 정해지지 않았어요` : undefined}
                     style={{
                       color: over ? 'var(--app-tag-red-fg)'
                         : isToday ? 'var(--app-ink)'
-                        : isStaleNoDue(t, today) ? 'var(--app-status-hold)'
+                        : stale ? 'var(--app-status-hold)'
                         : 'var(--app-ink-muted)',
                     }}>
                     {rowDate(t, g.key) ? mdLabel(rowDate(t, g.key)) : '미정'}

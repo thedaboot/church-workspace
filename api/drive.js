@@ -68,12 +68,16 @@ export default async function handler(req, res) {
 
   // 승인된 사람만(0022). 로그인만으로 드라이브에 파일을 쌓게 두면 승인 절차가
   // 무의미해진다 — RLS는 DB만 지키고 이 경로는 DB를 거치지 않는다.
+  // **관리자 표는 승인 칸이 아닐 때만 본다**(2026-09-08). 예전에는 둘을 언제나 물어서
+  // 업로드마다 왕복이 하나씩 더 붙었다 — 승인된 사람(거의 전부)에게는 답이 이미 정해져 있다.
   const { data: me } = await supabase.from('profiles').select('approved').eq('id', user.id).single();
-  const { data: admin } = await supabase.from('admins').select('email').ilike('email', user.email || ' ');
-  if (!me?.approved && !(admin && admin.length)) {
-    console.error('[drive] 승인 확인 실패:', user.email, 'approved =', me?.approved);
-    res.status(403).json({ error: '승인된 사용자만 파일을 올릴 수 있습니다.' });
-    return;
+  if (!me?.approved) {
+    const { data: admin } = await supabase.from('admins').select('email').ilike('email', user.email || ' ');
+    if (!(admin && admin.length)) {
+      console.error('[drive] 승인 확인 실패:', user.email, 'approved =', me?.approved);
+      res.status(403).json({ error: '승인된 사용자만 파일을 올릴 수 있습니다.' });
+      return;
+    }
   }
 
   const body = await readJson(req);

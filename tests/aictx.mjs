@@ -330,6 +330,27 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
   delete st.tasks.byId.t1.dependsOn; st.tasks.byId.t0.attachments = []; delete st.tasks.byId.t0.subtasks;
 }
 
+// ── 답이 안 오면 우리가 끊는다 (2026-09-09 · 소스 단정) ─────────────────────
+// 상한이 없으면 브라우저 기본 타임아웃(수 분)까지 부르는 화면이 스켈레톤에 굳는다 —
+// 본문 검색의 'AI가 찾은 구절' 도막이 실제로 그랬다. 끊은 뒤에는 **다른 실패와 같은
+// 안내 문구**를 돌려줘야 부르는 쪽의 isFallbackText가 걸러낸다(안 그러면 그 글이
+// 본문·요약에 그대로 들어간다 — 2026-08-28에 겪은 그 함정).
+// 되돌리기 검사: signal이나 CALL_TIMEOUT_MS를 지우면 아래 단정이 깨진다.
+{
+  // 정규식으로 블록을 잡지 않는다 — `${CALL_TIMEOUT_MS}`의 닫는 중괄호가 먼저 걸린다
+  const abortAt = src.indexOf("error?.name === 'AbortError'");
+  const abortBranch = abortAt < 0 ? '' : src.slice(abortAt, abortAt + 260);
+  check('AI 호출에 시간 상한이 있다',
+    /const CALL_TIMEOUT_MS = \d+;/.test(src) && /new AbortController\(\)/.test(src)
+    && /signal: ctl\.signal/.test(src) && /clearTimeout\(timer\)/.test(src));
+  check('시간 초과는 안내 문구로 돌아온다(폴백)', /return MSG\.failed;/.test(abortBranch), abortBranch.trim().slice(0, 80));
+  // 화면에 나가는 문구에는 숫자를 쓰지 않는다(§8 — "드라이브가 50초 안에…"를 고친 그 규칙).
+  // 초 수는 콘솔에만 남는다.
+  const msgBlock = /const MSG = \{([\s\S]*?)\n\};/.exec(src)?.[1] || '';
+  check('사유는 콘솔에만 남고 안내 문구에는 숫자가 없다',
+    /console\.warn\(/.test(abortBranch) && !/\d/.test(msgBlock), msgBlock.trim().slice(0, 60));
+}
+
 console.log(results.join('\n'));
 console.log('\n--- 실제로 만들어진 주변 상황 블록 ---\n' + ctx);
 process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

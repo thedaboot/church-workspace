@@ -12,7 +12,7 @@ import { BTN, BTN_QUIET, FIELD, LabeledField } from '../components/groupsParts.j
 import { ServiceDetail, WorshipEmpty } from '../components/worshipDetail.jsx';
 import { AttendanceScreen } from '../components/worshipAttendance.jsx';
 import {
-  SUNDAY_KIND, kindLabel, formatServiceDate, nextSundayDate, serviceYear, worshipPerms, mergeSongs,
+  SUNDAY_KIND, kindLabel, formatServiceDate, nextSundayDate, serviceYear, worshipPerms, mergeSongs, kstNow,
   fetchServices, fetchWorshipPerms, fetchRoster, createService, saveService, publishService, removeService,
   fetchAttendance, checkIn, checkOut, fetchMyNote, saveMyNote,
   fetchGuests, addGuest as addGuestRow, removeGuest as removeGuestRow, fetchAttendanceCounts,
@@ -234,7 +234,9 @@ function NewServiceForm({ onCreate, onCancel, closing = false }) {
 function ServiceList({ services, perms, counts = {}, onOpen, onCreate }) {
   // 출석 수는 **지난 예배**에만 붙인다 — 오늘·앞으로 올 예배의 '출석 0명'은 아직 부르지
   // 않았다는 뜻이지 아무도 안 왔다는 뜻이 아니다(그 예배의 출석은 출석 화면이 말한다).
-  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+  // 오늘은 **한국 시간**이고 그 셈은 services/worship.js의 kstNow 한 벌이다 —
+  // 여기서 toLocaleDateString을 다시 적으면 시간대 규칙이 두 곳으로 갈린다.
+  const today = kstNow().slice(0, 10);
   const [kind, setKind] = useState('all');
   const [draftsOnly, setDraftsOnly] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -312,10 +314,25 @@ function ServiceList({ services, perms, counts = {}, onOpen, onCreate }) {
 }
 
 // 첫 진입(캐시가 아예 없을 때)에만 나온다 — services/cache.js 참고
+//
+// **목록이 서는 자리를 그대로 잡아 둔다.** 예전에는 제목 뼈대 하나 + 카드 셋이라
+// 거르기 칩 줄(≈30px + mb-3)이 빠져 있었고, 목록이 도착하는 순간 카드가 통째로 42px
+// 아래로 뛰었다 — 스켈레톤은 '기다리는 그림'이 아니라 **자리를 지키는 그림**이다
+// (홈 카드가 자리마다 따로 서는 것과 같은 판단 · homeView의 CardSkeleton).
+// 높이는 실제 줄에서 잰 값이다: 머리줄 28 + mb-4 · 칩 줄 30 + mb-3 · 카드 86.
+// **'작성 중인 주보 N건' 줄은 여기서 잡지 못한다** — 그 줄이 서는지는 자격과 초안 수,
+// 곧 아직 오지 않은 데이터가 정한다. 자리를 미리 비워 두면 초안이 없는 사람에게는
+// 도리어 빈 띠가 남는다(대부분이 그렇다).
 const LOADING = (
-  <div className="worship-loading pb-8">
-    <Skeleton className="h-8 w-24 rounded-md mb-4" />
-    <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
+  <div className="worship-loading pb-8" aria-hidden="true">
+    <div className="flex items-center h-[28px] mb-4"><Skeleton className="h-[22px] w-24 rounded-md" /></div>
+    {/* 거르기 칩 줄 — 셋의 폭은 '전체 · 주일예배 · 그 밖의 예배'만큼이다 */}
+    <div className="worship-loading-chips flex items-center gap-1.5 h-[30px] mb-3">
+      <Skeleton className="h-full w-[54px] rounded-full" />
+      <Skeleton className="h-full w-[74px] rounded-full" />
+      <Skeleton className="h-full w-[88px] rounded-full" />
+    </div>
+    <div className="worship-loading-cards grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
       <Skeleton className="h-[86px] w-full rounded-[10px]" />
       <Skeleton className="h-[86px] w-full rounded-[10px]" />
       <Skeleton className="h-[86px] w-full rounded-[10px]" />

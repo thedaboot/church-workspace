@@ -87,6 +87,38 @@ const RowSkeleton = () => (
   </div>
 );
 
+// 가입자 한 줄. **화면 함수 밖에 둔다** — 안에서 만들면 렌더마다 새 컴포넌트 타입이라
+// 리액트가 줄을 통째로 떼었다 다시 붙이고, `.dc-row` 등장 모션이 그때마다 처음부터 돈다.
+// 이 화면은 useMinuteTick으로 1분마다 다시 그리므로 목록이 1분마다 한 번씩 떠올랐다.
+//
+// 접속 표시는 대시보드 '가입한 사람' 목록(MembersModal)과 같은 모양이다 — 아바타
+// 귀퉁이의 초록 원 + '접속 중'. 지금 보고 있는 사람에게 '1초 전 다녀감'이 뜨면
+// 어색하다(사용자 지적). 방문 기록이 없으면 '다녀감' 줄을 아예 안 그린다 — 그 사람의
+// 가장 최근 시각은 가입 시각이고(대시보드 목록이 lastVisitOf로 그것을 쓴다), 이 화면은
+// 그 값을 이미 왼쪽의 'N분 전 가입'으로 보여주고 있다. 같은 값을 두 번 적지 않는다.
+function MemberRow({ row, action, delay = 0, isOnline = false, at = '' }) {
+  return (
+    <div className="dc-row flex items-center gap-2.5 py-2.5"
+      style={{ borderBottom: '1px solid var(--app-line)', animationDelay: `${delay}ms` }}>
+      <span className="relative shrink-0 inline-flex">
+        <Avatar name={row.display_name} url={row.avatar_url} className="flex w-8 h-8 text-[13px]" />
+        {isOnline && (
+          <span aria-hidden className="absolute -bottom-px -right-px w-2.5 h-2.5 rounded-full"
+            style={{ background: 'var(--app-tag-green-fg)', boxShadow: '0 0 0 2px var(--app-surface)' }} />
+        )}
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-semibold text-fg truncate">{row.display_name || '이름 없음'}</p>
+        <p className="text-[10.5px] truncate" style={{ color: isOnline ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)' }}>
+          {[row.created_at && `${agoLabel(row.created_at)} 가입`,
+            isOnline ? '접속 중' : (at && `${agoLabel(at)} 다녀감`)].filter(Boolean).join(' · ')}
+        </p>
+      </div>
+      {action}
+    </div>
+  );
+}
+
 export function MembersView({ isAdmin, isMaster }) {
   const [tab, setTab] = useState('account');
   const [rows, setRows] = useState(null);       // null = 아직 받는 중
@@ -324,36 +356,8 @@ export function MembersView({ isAdmin, isMaster }) {
     online,
   );
 
-  // 접속 표시는 대시보드 '가입한 사람' 목록(MembersModal)과 같은 모양이다 — 아바타
-  // 귀퉁이의 초록 원 + '접속 중'. 지금 보고 있는 사람에게 '1초 전 다녀감'이 뜨면
-  // 어색하다(사용자 지적).
-  const MemberRow = ({ row, action, delay = 0 }) => {
-    const isOnline = online.has(row.id);
-    // 방문 기록이 없으면 '다녀감' 줄을 아예 안 그린다 — 그 사람의 가장 최근 시각은
-    // 가입 시각이고(대시보드 목록이 lastVisitOf로 그것을 쓴다), 이 화면은 그 값을 이미
-    // 왼쪽의 'N분 전 가입'으로 보여주고 있다. 같은 값을 두 번 적지 않는다.
-    const at = seenAt(row);
-    return (
-    <div className="dc-row flex items-center gap-2.5 py-2.5"
-      style={{ borderBottom: '1px solid var(--app-line)', animationDelay: `${delay}ms` }}>
-      <span className="relative shrink-0 inline-flex">
-        <Avatar name={row.display_name} url={row.avatar_url} className="flex w-8 h-8 text-[13px]" />
-        {isOnline && (
-          <span aria-hidden className="absolute -bottom-px -right-px w-2.5 h-2.5 rounded-full"
-            style={{ background: 'var(--app-tag-green-fg)', boxShadow: '0 0 0 2px var(--app-surface)' }} />
-        )}
-      </span>
-      <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-semibold text-fg truncate">{row.display_name || '이름 없음'}</p>
-        <p className="text-[10.5px] truncate" style={{ color: isOnline ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)' }}>
-          {[row.created_at && `${agoLabel(row.created_at)} 가입`,
-            isOnline ? '접속 중' : (at && `${agoLabel(at)} 다녀감`)].filter(Boolean).join(' · ')}
-        </p>
-      </div>
-      {action}
-    </div>
-    );
-  };
+  // 줄 하나에 넘길 값 — 접속 여부와 다녀간 시각은 이 화면이 정한다(MemberRow는 그리기만).
+  const rowProps = (row) => ({ isOnline: online.has(row.id), at: seenAt(row) });
 
   return (
     <div className="dc-screen max-w-3xl mx-auto pb-8">
@@ -390,7 +394,7 @@ export function MembersView({ isAdmin, isMaster }) {
             <Section title="승인을 기다리는 사람" count={waiting.length}
               hint="수락하기 전에는 프로젝트도 업무도 볼 수 없어요.">
               {waiting.map((row, i) => (
-                <MemberRow key={row.id} row={row} delay={rowDelay(i)} action={
+                <MemberRow key={row.id} row={row} delay={rowDelay(i)} {...rowProps(row)} action={
                   <button type="button" disabled={!!busy[row.id]} onClick={() => approve(row, true)}
                     className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
                     {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />} 수락
@@ -402,7 +406,7 @@ export function MembersView({ isAdmin, isMaster }) {
 
           <Section title="함께하는 사람" count={members.length}>
             {members.map((row, i) => (
-              <MemberRow key={row.id} row={row} delay={rowDelay(i)} action={
+              <MemberRow key={row.id} row={row} delay={rowDelay(i)} {...rowProps(row)} action={
                 <ConfirmPopover message={`${row.display_name || '이 분'}을 환송할까요? 지난 댓글·기록은 그대로 남아요.`}
                   onConfirm={() => approve(row, false)}>
                   <button type="button" disabled={!!busy[row.id]}
@@ -420,7 +424,7 @@ export function MembersView({ isAdmin, isMaster }) {
             <Section title="환송한 사람" count={removed.length}
               hint="다시 초대하면 수락 대기 없이 바로 돌아와요. 지난 댓글·기록은 계속 남아 있어요.">
               {removed.map((row, i) => (
-                <MemberRow key={row.id} row={row} delay={rowDelay(i)} action={
+                <MemberRow key={row.id} row={row} delay={rowDelay(i)} {...rowProps(row)} action={
                   <button type="button" disabled={!!busy[row.id]} onClick={() => approve(row, true)}
                     className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
                     {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />} 다시 초대하기

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 import { loadBibleIndex, loadBook, loadPassage } from '../services/bible.js';
 import { parseRef, formatRef } from '../services/bibleRef.js';
+import { PassageSkeleton } from './wordBible.jsx';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { keepVisible } from '../utils.js';
 
@@ -315,7 +316,17 @@ export function PassageBody({ refStr }) {
   }, [refStr]);
 
   if (!refStr) return null;
-  if (verses === null) return <p className="text-[12px] text-fg-faint py-2">본문을 받는 중</p>;
+  // 기다리는 자리는 **글 덩이 모양의 뼈대**다(말씀 화면과 같은 한 벌 · wordBible의
+  // PassageSkeleton). 글자 한 줄('본문을 받는 중')로 두었을 때는 본문이 도착하는 순간
+  // 아래 것들이 통째로 밀렸다 — 말씀 화면이 2026-09-01에 같은 지적('출렁임')을 받고
+  // 고친 자리인데 주보 쪽만 옛 모양으로 남아 있었다. 상자·선·여백은 본문일 때와 같다.
+  if (verses === null) {
+    return (
+      <div className="worship-passage worship-passage-wait mt-4 pt-4" style={{ borderTop: '1px solid var(--app-line)' }}>
+        <PassageSkeleton lines={6} />
+      </div>
+    );
+  }
   if (!verses.length) return null;
   return (
     <div className="worship-passage mt-4 pt-4" style={{ borderTop: '1px solid var(--app-line)' }}>

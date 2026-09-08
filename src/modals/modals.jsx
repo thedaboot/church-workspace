@@ -181,7 +181,9 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
             {expanded ? <Minimize2 size={16} strokeWidth={1.75}/> : <Maximize2 size={16} strokeWidth={1.75}/>}
           </button>
         )}
-        <button onClick={onClose} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>
+        {/* 아이콘만 있는 버튼에는 이름이 있어야 한다 — 옆의 공유·접기·전체 화면은
+            title이 있는데 이것만 없어서 화면 낭독기에는 "버튼"으로만 읽혔다 */}
+        <button onClick={onClose} title="닫기" aria-label="닫기" className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>
       </div>
     </>
   );

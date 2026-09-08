@@ -1842,8 +1842,30 @@ check('QR로 들어온 신청이 동아리장의 가입 신청 목록에 선다'
     from > 0 && opens > 0 && guard > opens && consume > guard,
     JSON.stringify({ opens, guard, consume }));
   const home = readFileSync(new URL('../src/views/homeView.jsx', import.meta.url), 'utf8');
+  // 한 줄로 묶여 있던 것을 홈이 지역 변수(withAtt)로 나눴다(2026-09-09) — 값은 같다.
+  // 그래서 **두 조각을 따로** 본다: 기준은 attendanceSunday, 없을 때만 pastSunday.
   check('홈도 같은 규칙으로 참석 수를 센다(출석이 들어온 주일 · 없으면 지난 주일)',
-    /attendanceSunday\(list, counts, day\) \|\| pastSunday\(list, day\)/.test(home));
+    /attendanceSunday\(list, counts, day\)/.test(home) && /\|\| pastSunday\(list, day\)/.test(home));
+
+  // **비우는 캐시와 다시 읽는 캐시가 같아야 한다.** `dropCache('groups')`는 글자 비교라
+  // 순모임 가이드(`groups:guide:<주보 id>`)까지 가져가는데 이 화면이 다시 읽는 것은 셋뿐이라,
+  // 동아리에서 사람 하나 넣을 때마다 가이드가 다음 진입에서 스켈레톤부터 다시 떴다.
+  // 게스트는 메모리 캐시라 이 어긋남을 화면으로 못 본다 — 소스로 못 박는다(§6-9-ad와 같은 방식).
+  const code = src.replace(/^\s*\/\/.*$/gm, '');
+  check("쓰기 뒤에 비우는 캐시는 다시 읽는 셋뿐이다(가이드까지 가져가지 않는다)",
+    /GROUP_KEYS\s*=\s*\['groups:all', 'groups:roster', 'groups:mine'\]/.test(code)
+    && /GROUP_KEYS\.forEach\(dropCache\)/.test(code)
+    && !/dropCache\('groups'\)/.test(code));
+
+  // 자격(fetchGroupPerms)과 한 벌(fetchGroupsRoster)은 나란히 도는데 둘 다 동아리 목록과
+  // 그 해 직분을 읽는다 — 묶지 않으면 진입 한 번에 같은 질의가 두 번씩 나간다(모임·홈 둘 다).
+  // 게스트에는 supabase가 없어 그 길이 돌지 않으므로 소스로 본다.
+  const svc = readFileSync(new URL('../src/services/groups.js', import.meta.url), 'utf8')
+    .replace(/^\s*\/\/.*$/gm, '');
+  check('동아리·직분 조회는 한 틱에 한 번만 나간다(자격과 한 벌이 나눠 쓴다)',
+    /function share\(key, run\)/.test(svc) && /return share\('clubs',/.test(svc)
+    && (svc.match(/yearRoles\(year\)/g) || []).length >= 2
+    && !/fetchRoles\(year\), fetchClubs\(\)/.test(svc));
 }
 
 // 이미 구성원(말씀읽기 gc2에 p1이 있다) — 신청을 만들지 않는다
@@ -2117,6 +2139,34 @@ const sunNewMob = await (async () => {
 })();
 check('모바일 375px — 새 순 생성기는 최대 두 줄이고 넘치지 않는다',
   !sunNewMob.err && sunNewMob.rows <= 2 && sunNewMob.over <= 0, JSON.stringify(sunNewMob));
+
+// 순 카드 머리줄 — [이름][순장] … [N명]이 375에서 두 줄로 접힐 때 **인원 수가 이름 줄에
+// 남아야** 한다. flex-wrap에 맡겨 두었더니 순장 칸이 둘째 줄로 내려가면서 'N명'이 그
+// 줄 오른쪽 끝에 붙어, 순의 인원이 아니라 순장에 딸린 숫자처럼 읽혔다(§6-9-z).
+// 되돌리기 확인: order 유틸을 걷어내면 모바일 판정의 withPick이 참이 된다.
+const sunHead = () => ev(`(() => {
+  const row = document.querySelector('.sun-row');
+  if (!row) return { err: 'no-row' };
+  const mid = (s) => { const e = row.querySelector(s); if (!e) return null;
+    const r = e.getBoundingClientRect(); return (r.top + r.bottom) / 2; };
+  const name = mid('.sun-name'), pick = mid('.sun-leader-pick'), count = mid('.sun-count');
+  if (name == null || pick == null || count == null) return { err: 'no-part' };
+  return { withName: Math.abs(count - name) < 6, withPick: Math.abs(count - pick) < 6,
+    oneLine: Math.abs(name - pick) < 6 };
+})()`);
+const headDesk = await sunHead();
+const headMob = await (async () => {
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+  await sleep(500);
+  const r = await sunHead();
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(500);
+  return r;
+})();
+check('순 카드 머리줄은 데스크톱에서 한 줄이다(이름 · 순장 · 인원)',
+  !headDesk.err && headDesk.oneLine && headDesk.withName, JSON.stringify(headDesk));
+check('모바일 375px — 인원 수는 순 이름 줄에 남는다(순장 칸에 딸린 숫자로 읽히지 않게)',
+  !headMob.err && !headMob.oneLine && headMob.withName && !headMob.withPick, JSON.stringify(headMob));
 const newSunPool = await pickOptions('새 순의 순장');
 check('새 순의 순장 후보는 아직 어느 순에도 없는 사람뿐(순 편성 제외자도 빠진다)',
   JSON.stringify(newSunPool) === '["양민혁","조해리"]', JSON.stringify(newSunPool));
@@ -2184,6 +2234,45 @@ check('그 폭은 대시보드 계열과 같은 화면 폭이다(따로 좁히�
   JSON.stringify(wSun) === JSON.stringify(wMain), `${JSON.stringify(wSun)} vs ${JSON.stringify(wMain)}`);
 
 await tab('순 편성'); await sleep(700);
+
+// 연도를 바꾸는 동안 **연도 고르개가 사라지지 않는다.** 예전에는 그 해 편성이 오기
+// 전까지 구역째 스켈레톤으로 갈아 끼워서, 방금 누른 고르개가 통째로 없어졌다가 돌아왔다
+// (게스트에서도 캐시가 없는 첫 프레임에는 그렇게 된다 — 새 키의 값은 효과 뒤에 온다).
+// 되돌리기 확인: groupsView의 `adminData ? … : LOADING`으로 돌리면 gone이 1 이상이 된다.
+const yearKeep = await ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const raf = () => new Promise(r => requestAnimationFrame(r));
+  const bar = document.querySelector('.sun-year');
+  if (!bar) return { err: 'no-year' };
+  bar.querySelector('button').click();
+  await w(250);
+  const pick = [...document.querySelectorAll('button')]
+    .filter(x => !document.getElementById('root').contains(x))
+    .find(x => x.textContent.trim() === ${JSON.stringify(`${Y - 1}년`)});
+  if (!pick) return { err: 'no-option' };
+  let gone = 0, skel = 0;
+  const obs = new MutationObserver(rs => rs.forEach(r => {
+    r.removedNodes.forEach(n => {
+      if (n.nodeType === 1 && (n.matches?.('.sun-year') || n.querySelector?.('.sun-year'))) gone += 1;
+    });
+    r.addedNodes.forEach(n => {
+      if (n.nodeType === 1 && (n.matches?.('.sun-admin-loading') || n.querySelector?.('.sun-admin-loading'))) skel += 1;
+    });
+  }));
+  obs.observe(document.body, { childList: true, subtree: true });
+  pick.click();
+  for (let i = 0; i < 20; i++) await raf();
+  obs.disconnect();
+  await w(600);
+  return { gone, skel, year: document.querySelector('.sun-year button')?.textContent.trim() || '',
+    rows: [...document.querySelectorAll('.sun-row')].map(r => r.querySelector('.sun-name').value) };
+})()`, true);
+check('연도를 바꿔도 연도 고르개가 사라졌다 돌아오지 않는다',
+  !yearKeep.err && yearKeep.gone === 0 && yearKeep.year === String(Y - 1),
+  JSON.stringify(yearKeep));
+check('그 해 편성이 오는 동안은 순 목록 자리만 스켈레톤이다',
+  yearKeep.skel === 1 && JSON.stringify(yearKeep.rows) === '["지난 순"]', JSON.stringify(yearKeep));
+
 check('연도는 우리 연도 피커로 고른다', (await pickYear(Y - 1)) === 'ok');
 await sleep(1000);
 const lastYear = await ev(`[...document.querySelectorAll('.sun-row')].map(r => r.querySelector('.sun-name').value)`);

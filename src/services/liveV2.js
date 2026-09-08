@@ -43,12 +43,20 @@ const TABLE_CACHE = {
   attendance:        ['worship:svc', 'home', 'groups:mine'],
   service_notes:     ['worship:svc', 'home', 'groups:mine'],
   qt_entries:        ['word:qt', 'home'],
-  // 명단·순이 바뀌면 출석 명단도 바뀐다 — 모임·명단·주보 상세·홈이 같이 낡는다
-  people:            ['groups', 'roster', 'worship:svc', 'home'],
-  people_roles:      ['groups', 'roster', 'worship:svc', 'home'],
-  groups:            ['groups', 'roster', 'worship:svc', 'home'],
-  group_members:     ['groups', 'roster', 'worship:svc', 'home'],
-  club_applications: ['groups', 'roster', 'worship:svc', 'home'],
+  // 명단·순이 바뀌면 출석 명단도 바뀐다 — 모임·명단·주보 상세·홈이 같이 낡는다.
+  // 모임 쪽 접두는 **셋으로 나눠 적는다**(2026-09-09) — `'groups'` 하나로 두면 글자 비교라
+  // `groups:guide:*`(순모임 가이드 본문)까지 딸려 지워지는데, 가이드는 이 표들과 무관하고
+  // 신호를 받아 다시 읽는 사람도 없어서 남이 순 편성을 만질 때마다 내 화면의 가이드 캐시만
+  // 조용히 사라졌다(groupsView의 GROUP_KEYS와 같은 목록이어야 한다).
+  people:            ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', 'home'],
+  people_roles:      ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', 'home'],
+  groups:            ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', 'home'],
+  group_members:     ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', 'home'],
+  club_applications: ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', 'home'],
+  // 0056(2026-09-09)이 발행에 더한 둘. 순모임 가이드는 본문(`groups:guide:<주보>`)과 고정 id·주보
+  // 목록(`groups:mine`)이 낡고, 손님 출석은 출석 수를 세는 자리(주보 상세·홈·내 순)가 낡는다.
+  sun_guides:        ['groups:guide', 'groups:mine'],
+  attendance_guests: ['worship:svc', 'home', 'groups:mine'],
 };
 
 export const V2_TABLES = Object.keys(TABLE_CACHE);

@@ -14,9 +14,9 @@ import { ensureProjectFolder, ensureCardFolder } from '../services/cloudSync.js'
 import { downscaleImage, FILE_MAX_DIM } from '../services/image.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 import { sheetPreviewUrl } from '../utils.js';
-
-// 엑셀 표 그리기는 **펼쳐볼 때만** 필요하다 — 파서(xlsx.js)와 수식 계산기(formula.js)가
-// 같이 딸려 오는데, 메인 번들에 두면 첨부를 한 번도 안 여는 사람까지 내려받는다.
+// 확장자 표는 **한 벌이다**(previewKind.js) — 여기에 목록을 또 적어 두면 새 확장자를
+// 붙일 때 한쪽만 고쳐져서 "미리보기는 되는데 펼쳐지지 않는 파일"이 생긴다.
+import { SHEET_EXT, extOf } from '../services/previewKind.js';
 
 // ============================================================================
 // 업무 창의 첨부 파일 영역 (클라우드 모드 전용)
@@ -344,7 +344,7 @@ function PasswordSetter({ row, onDone }) {
 // 마이크로소프트로 주소가 나가지 않는다(Storage 파일만 MS 뷰어를 거친다).
 // csv는 어느 뷰어도 표로 그리지 못한다 — 미리보기(텍스트)로 본다.
 // 이름만 보는 판정 — 아직 저장 전(source:'local')인 파일에도 쓴다
-const isSheetName = (name) => ['xls', 'xlsx', 'csv'].includes((String(name || '').split('.').pop() || '').toLowerCase());
+const isSheetName = (name) => SHEET_EXT.includes(extOf(name));
 const isSheetRow = (row) => (!!row.storage_path || (row.source === 'drive' && !!row.drive_file_id))
   && isSheetName(row.name);
 
@@ -358,11 +358,21 @@ const isSheetRow = (row) => (!!row.storage_path || (row.source === 'drive' && !!
 // 그 사이 우리가 직접 표를 그리던 SheetView는 2026-08-30에 지웠다 — 같은 표를 두 벌로
 // 그리면 어느 쪽이 기준인지 화면에서 안 보이고, 실제로 올리는 중에만 옛 화면이 잠깐
 // 나왔다 바뀌어서 사용자가 짚었다.
+// iframe onLoad는 "문서가 전달된 시점"이라 구글이 첫 장을 그리기 전이다 → 조금 뒤에
+// 걷는다. 미리보기 창(FilePreviewModal)의 FRAME_SETTLE과 같은 값이다 — 같은 구글
+// 화면이 어디서 열리느냐에 따라 다른 속도로 걷히면 안 된다.
+const SHEET_SETTLE = 260;
+
 function InlineSheet({ row }) {
   // '크게 보기' — 기본 높이는 업무 창 스크롤을 다 잡아먹지 않는 선(420px)이고,
   // 표를 제대로 볼 때는 화면 높이 75%까지 늘린다. 버튼 토글이라 모바일에서도 된다
   // (CSS resize 핸들은 터치에서 안 잡히고, 밀어야 나오는 조작은 §8에 걸린다).
   const [tall, setTall] = useState(false);
+  // 구글이 그릴 때까지는 스켈레톤이 같은 자리를 채운다 — 없으면 큰 빈 흰 칸이 먼저
+  // 서고, 그 사이 남의 로딩 화면(외부 글꼴)이 비친다. 미리보기 창과 같은 처리다.
+  const [ready, setReady] = useState(false);
+  const settleRef = useRef(null);
+  useEffect(() => () => clearTimeout(settleRef.current), []);
   const sheetUrl = sheetPreviewUrl(row);
   // 사본이 없는 파일 — 변환에 실패했거나 아직 안 만들어졌다. 예전에는 여기서 우리가
   // 표를 그렸는데(SheetView) 2026-08-30에 지웠다: 같은 표를 두 벌로 그리면 어느 쪽이
@@ -376,9 +386,20 @@ function InlineSheet({ row }) {
         {/* 구글 시트 미리보기. 흰 바탕이 그대로 온다 — 작성자가 칠한 색을 원본대로
             보여주는 것이 이 화면의 목적이라 다크 모드를 따라가지 않는다(사용자 결정).
             loading="lazy"는 안 붙인다 — 펼쳐야 만들어지므로 이미 화면 안이다. */}
+        {!ready && (
+          <span className="absolute inset-0">
+            {/* Skeleton에 위치 유틸리티를 주지 않는다(.dc-skeleton이 position:relative를
+                박는다 — media.jsx 주석). 자리는 이 span이 잡는다. */}
+            <span className="absolute inset-0"><Skeleton className="w-full h-full" /></span>
+            <span className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-fg-muted">
+              <Loader2 size={14} className="animate-spin" /> 미리보기를 준비하고 있어요
+            </span>
+          </span>
+        )}
         <iframe
           src={sheetUrl} title={`${row.name} 미리보기`}
-          className="w-full h-full rounded-md border border-line bg-white"
+          onLoad={() => { clearTimeout(settleRef.current); settleRef.current = setTimeout(() => setReady(true), SHEET_SETTLE); }}
+          className={`w-full h-full rounded-md border border-line bg-white transition-opacity duration-200 ${ready ? 'opacity-100' : 'opacity-0'}`}
         />
       </div>
       <div className="flex items-center justify-end mt-1">

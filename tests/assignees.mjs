@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const SRC = join(import.meta.dirname, '..', 'src', 'services', 'cloudSync.js');
@@ -104,7 +104,13 @@ const sbPatched = readFileSync(SB_SRC, 'utf8')
   // cloud.js는 supabase 외에 URL·키도 같이 가져온다(2026-09-05 — keepalive PATCH용) — 이름이 늘어도 한 줄로 받는다
   .replace(/import \{[^}]*supabase[^}]*\} from '\.\/supabaseClient\.js';/, 'const supabase = globalThis.__SB; const SUPABASE_URL = \"\"; const SUPABASE_ANON_KEY = \"\";')
   .replace(/import \{ CONFIG \} from '\.\.\/config\.js';/,
-    `const CONFIG = { STATUS_DB: { '시작 전':'todo', '진행 중':'doing', '보류 중':'hold', '완료':'done' }, STATUSES: ['시작 전'] };`);
+    `const CONFIG = { STATUS_DB: { '시작 전':'todo', '진행 중':'doing', '보류 중':'hold', '완료':'done' }, STATUSES: ['시작 전'] };`)
+  // 남은 이웃 import(previewKind·utils·viewPw…)는 **진짜 파일을 절대 경로로** 문다.
+  // 전부 순수 모듈이라 노드에서 그대로 돈다. 하나씩 손으로 적어 두면 cloud.js가 이웃을
+  // 하나 더 가져올 때마다 이 스위트가 통째로 CRASH한다 — previewKind에서 실제로 그랬다
+  // (위 cloudSync의 utils 처리와 같은 판단이다).
+  .replace(/from '(\.\.?\/[^']+)'/g,
+    (m, rel) => `from '${pathToFileURL(resolve(join(import.meta.dirname, '..', 'src', 'services'), rel)).href}'`);
 
 // 부른 문장을 기록만 하는 가짜 쿼리 빌더 (네트워크 없음)
 const stmts = [];

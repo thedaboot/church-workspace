@@ -8,7 +8,7 @@ import { CARD, CARD_STYLE, Empty } from '../components/groupsParts.jsx';
 import { ISO_TODAY, byDue } from './dashboardParts.jsx';
 import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry } from '../services/word.js';
 import { loadPassage } from '../services/bible.js';
-import { kindLabel, fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday } from '../services/worship.js';
+import { kindLabel, formatServiceDate, fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday } from '../services/worship.js';
 import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotes, attendanceSunday } from '../services/groups.js';
 import { useCached } from '../services/cache.js';
 import { useLiveRefresh } from '../services/liveV2.js';
@@ -171,16 +171,16 @@ const TASK_ROWS = 3;
 
 // ── 홈 카드의 날짜 표기 (사용자 결정 2026-09-03 — 두 자리 연도) ─────────────
 // 문자열을 그대로 쪼갠다 — `new Date('2026-09-06')`은 UTC 자정이라 시간대에 따라
-// 하루가 밀린다(§0019의 'MM-DD' 관례와 같은 이유). 요일만 UTC로 셈한다.
-const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
+// 하루가 밀린다(§0019의 'MM-DD' 관례와 같은 이유).
 const ymd = (iso) => /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
 
 // '2026-09-06' → '26년 9월 6일 (일)'  (예배 메타 줄)
+// **주보 화면과 같은 한 벌**(worship.formatServiceDate)이다 — 예전에는 여기에 요일 표와
+// 정규식을 또 두어서, 홈과 예배가 같은 날짜를 다르게 적을 수 있는 짝이 둘이었다.
+// 다른 점은 하나: 못 읽는 값에 빈 글자를 준다(홈 메타는 `filter(Boolean)`으로 도막을
+// 통째로 빼고, 예배 카드는 적힌 글자를 그대로 보여 준다).
 export function homeDateLabel(iso) {
-  const m = ymd(iso);
-  if (!m) return '';
-  const w = WEEKDAY[new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay()];
-  return `${m[1].slice(2)}년 ${+m[2]}월 ${+m[3]}일 (${w})`;
+  return ymd(iso) ? formatServiceDate(iso) : '';
 }
 
 // '2026-09-04' → '26. 9. 4.'  (내 업무 줄의 마감). 마감이 없으면 '미정'이다 —
@@ -481,8 +481,8 @@ export function HomeView({ onNavigate, onTaskClick }) {
   // 화면이 서 있는 동안 날짜가 흔들리지 않게 한 번만 잡는다(자정을 넘겨도 홈을 다시
   // 열면 새 날짜다 — App이 화면을 바꿀 때마다 이 뷰를 다시 마운트한다).
   const [day] = useState(kstToday);
-  // 그림과 인사말이 보는 시각. 날짜와 같이 **한 번만** 잡는다 — 렌더마다 다시 재면
-  // 경계(10시·22시)를 넘는 순간 리렌더 하나 때문에 그림과 문구가 갈릴 수 있다.
+  // 인사말이 보는 시각. 날짜와 같이 **한 번만** 잡는다 — 렌더마다 다시 재면
+  // 구간 경계(heroSlot의 6·10·18·23시)를 넘는 순간 리렌더 하나 때문에 인사말이 바뀐다.
   const [hour] = useState(kstHour);
   const year = Number(day.slice(0, 4)) || new Date().getFullYear();
 
@@ -531,13 +531,17 @@ export function HomeView({ onNavigate, onTaskClick }) {
   // 예배 목록과 같은 열쇠에 담기므로 다음 진입에는 네트워크가 없다.
   const svcQ = useCached(`home:services:${day}`, loud('예배 목록', async () => {
     const [list, counts] = await Promise.all([fetchServices(), fetchAttendanceCounts()]);
+    // **한 번만 고른다.** 예전에는 `latest`와 `latestToday`가 각각 attendanceSunday를
+    // 불러서 같은 목록을 두 번 거르고 두 번 정렬했다 — 값이 갈릴 일은 없지만 한쪽만
+    // 고치면 조용히 어긋나는 짝이 하나 더 있는 셈이었다.
+    const withAtt = attendanceSunday(list, counts, day);
     return {
       service: pickService(list, day) || null,
-      latest: attendanceSunday(list, counts, day) || pastSunday(list, day) || null,
+      latest: withAtt || pastSunday(list, day) || null,
       // 참석 수를 세는 주보가 **오늘** 것인가 — 주일 당일에 출석을 부른 뒤에는 그 날
       // 주보가 잡히므로 '지난 주일'이라 부르면 사실과 어긋난다(사용자 결정 2026-09-08:
       // "당일 출석 부른 뒤에는 이번 주일 N명 참석, 그 날이 지나면 지난 주일 N명 참석").
-      latestToday: (attendanceSunday(list, counts, day)?.service_date || '') === day,
+      latestToday: (withAtt?.service_date || '') === day,
     };
   }), [day]);
 
@@ -567,13 +571,17 @@ export function HomeView({ onNavigate, onTaskClick }) {
   // 통째로 다시 돈다. 발행된 주일 예배가 없거나 내 순이 없으면 null(그 도막을 뺀다).
   const lastSundayId = svcQ.data?.latest?.id || '';
   const sunIds = sunQ.data?.ids || null;
-  const attQ = useCached(`home:present:${lastSundayId}:${sunQ.data?.sun?.id || ''}`,
+  // **deps는 열쇠에 들어간 값을 다 담아야 한다.** useCached의 loader는 deps가 바뀔 때만
+  // 다시 만들어지므로, 열쇠에만 있고 deps에 없는 값(순 id)이 바뀌면 새 열쇠에 옛 loader가
+  // 도는 짝이 생긴다. 지금은 순이 바뀌면 ids도 같이 바뀌어 드러나지 않지만 그건 우연이다.
+  const mySunId = sunQ.data?.sun?.id || '';
+  const attQ = useCached(`home:present:${lastSundayId}:${mySunId}`,
     loud('지난 주일 참석', async () => {
       if (!lastSundayId || !sunIds?.length) return null;
       const ok = await fetchAttendance(lastSundayId).catch(() => []);
       const mine = new Set(sunIds);
       return ok.filter(id => mine.has(id)).length;
-    }), [lastSundayId, sunIds?.join(',') || '']);
+    }), [lastSundayId, mySunId, sunIds?.join(',') || '']);
 
   // 홈은 첫 화면이라 여기가 가장 오래 떠 있다 — 주보 발행·나눔·명단이 바뀌면 카드
   // 셋을 같이 다시 읽는다(0049 · services/liveV2.js).

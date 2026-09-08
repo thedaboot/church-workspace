@@ -40,6 +40,25 @@ const MEETING_COLS = 'id, group_id, meeting_date, title, attendance, note';
 // ── 게스트 저장 자리 ────────────────────────────────────────────────────────
 const { all: guestAll, rows: guestRows, set: guestSet } = guestStore('church_groups_v1');
 
+// ── 같은 순간에 두 번 가는 조회는 한 번만 보낸다 ────────────────────────────
+// 화면 한 벌은 `fetchGroupPerms`와 `fetchGroupsRoster`를 **나란히** 부른다(모임 화면
+// baseQ · 홈 groupsQ). 그런데 둘 다 그 안에서 동아리 목록과 그 해 직분을 읽어서,
+// 진입 한 번에 같은 질의가 두 번씩 나갔다(왕복 일곱 중 둘이 군더더기였다).
+// 이미 날아간 조회가 있으면 그 약속을 나눠 쓴다 — **캐시가 아니다.** 창은 그 조회가
+// 끝날 때까지뿐이라, 다음 진입이나 쓰기 뒤의 재조회는 언제나 새로 읽는다.
+const inflight = new Map();
+function share(key, run) {
+  const running = inflight.get(key);
+  if (running) return running;
+  const p = run();
+  inflight.set(key, p);
+  // then/catch를 둘 다 달아 둔다 — finally가 만드는 파생 약속은 아무도 안 받아서
+  // 조회가 실패하면 '처리되지 않은 거부'가 콘솔에 뜬다(부르는 쪽은 p를 받는다).
+  const clear = () => { if (inflight.get(key) === p) inflight.delete(key); };
+  p.then(clear, clear);
+  return p;
+}
+
 // ── 순수 헬퍼 (브라우저 없이도 검사된다 — §2-5) ─────────────────────────────
 
 // 자격 한 벌. 0045(그전에는 0039·0035)의 함수와 같은 식이다.
@@ -273,14 +292,21 @@ export function yearOptions(groups = [], now = new Date().getFullYear()) {
 // ── 읽기 ────────────────────────────────────────────────────────────────────
 
 // 동아리 목록. 순서는 손으로 정한 것(position)이 먼저다 — 이름순이 아니다.
+// 자격(fetchGroupPerms)과 한 벌(fetchGroupsRoster)이 같은 틱에 둘 다 부르므로 share로 묶는다.
 async function fetchClubs() {
   if (!supabase) return sortClubs(guestRows('groups').filter(g => g.type === 'club' && !g.removed_at));
-  const { data, error } = await supabase.from('groups')
-    .select(GROUP_COLS).eq('type', 'club').is('removed_at', null)
-    .order('position', { nullsFirst: false }).order('name');
-  if (error) throw error;
-  return sortClubs(data ?? []);
+  return share('clubs', async () => {
+    const { data, error } = await supabase.from('groups')
+      .select(GROUP_COLS).eq('type', 'club').is('removed_at', null)
+      .order('position', { nullsFirst: false }).order('name');
+    if (error) throw error;
+    return sortClubs(data ?? []);
+  });
 }
+
+// 그 해 직분도 두 곳이 같이 읽는다(위 share 주석). 돌려주는 배열을 아무도 고치지 않으므로
+// 한 벌을 나눠 써도 된다 — 읽는 쪽은 filter·map뿐이다.
+const yearRoles = (year) => (supabase ? share(`roles:${year}`, () => fetchRoles(year)) : fetchRoles(year));
 
 // 화면 한 벌 — 명단 · 그 해의 순 · 동아리 · 두 쪽의 구성원 · **그 해의 직분**.
 // 직분은 홈이 이름 뒤 호칭을 지을 때 쓴다(people.js honorificsOf) — 조회를 따로 두면
@@ -300,7 +326,7 @@ export async function fetchGroupsRoster(year) {
     };
   }
   const [people, suns, clubs, everySun, roles] = await Promise.all([
-    fetchPeople(), fetchGroups('sun', year), fetchClubs(), fetchGroups('sun'), fetchRoles(year),
+    fetchPeople(), fetchGroups('sun', year), fetchClubs(), fetchGroups('sun'), yearRoles(year),
   ]);
   const members = await fetchGroupMembers([...suns, ...clubs].map(g => g.id));
   return { people, suns, clubs, members, allGroups: [...everySun, ...clubs], roles };
@@ -324,7 +350,7 @@ export async function fetchGroupPerms(year, { isMaster = false, isAdmin = false 
       myPerson, myRoles: me.roles || [], ledClubIds,
     });
   }
-  const [myPerson, roles, clubs] = await Promise.all([fetchMyPerson(), fetchRoles(year), fetchClubs()]);
+  const [myPerson, roles, clubs] = await Promise.all([fetchMyPerson(), yearRoles(year), fetchClubs()]);
   const myRoles = myPerson ? roles.filter(r => r.person_id === myPerson.id).map(r => r.role) : [];
   const ledClubIds = myPerson ? clubs.filter(c => c.leader_person_id === myPerson.id).map(c => c.id) : [];
   return groupPerms({ isMaster, isAdmin, myPerson, myRoles, ledClubIds });

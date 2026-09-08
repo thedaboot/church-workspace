@@ -191,8 +191,17 @@ function NoteRow({ note, onShare }) {
 // 탭 자체가 서지 않으므로 이 구역에 오는 사람은 이미 자격자다.
 // 순장을 지정하면 그 순의 구성원으로도 들어간다(services/groups.js saveGroup) —
 // 출석 정책 leads_sun_of()가 group_members를 보기 때문이다(0037).
+// 고른 해의 편성이 오는 동안 순 목록 자리만 잡는다 — 연도 줄과 만들기 칸은 그대로
+// 서 있어야 방금 누른 연도 고르개가 사라졌다 돌아오지 않는다.
+const ADMIN_SKELETON = (
+  <div className="sun-admin-loading space-y-2.5">
+    <Skeleton className="w-full h-[152px] rounded-[10px]" />
+    <Skeleton className="w-full h-[152px] rounded-[10px]" />
+  </div>
+);
+
 export function SunAdminPanel({
-  year, years, suns, people, members, creating, closingCreate, onCloseCreate,
+  year, years, suns, people, members, creating, closingCreate, onCloseCreate, loading = false,
   onYear, onCreateSun, onRenameSun, onSetLeader, onAddMember, onMoveMember, onRemoveMember,
 }) {
   const [name, setName] = useState('');
@@ -247,17 +256,21 @@ export function SunAdminPanel({
         </div>
       )}
 
-      <div className="space-y-2.5">
-        {suns.map(g => (
-          <SunRow key={g.id} group={g} suns={suns} people={people} members={members}
-            unplaced={unplaced} leaderPool={leaderPool}
-            onRename={onRenameSun} onSetLeader={onSetLeader}
-            onAddMember={onAddMember} onMoveMember={onMoveMember} onRemoveMember={onRemoveMember} />
-        ))}
-      </div>
-      {!suns.length && (
-        <Empty className="sun-empty" mark={<PeopleMark />}
-          title={`${year}년 순 편성이 아직 비어 있어요`} />
+      {loading ? ADMIN_SKELETON : (
+        <>
+          <div className="space-y-2.5">
+            {suns.map(g => (
+              <SunRow key={g.id} group={g} suns={suns} people={people} members={members}
+                unplaced={unplaced} leaderPool={leaderPool}
+                onRename={onRenameSun} onSetLeader={onSetLeader}
+                onAddMember={onAddMember} onMoveMember={onMoveMember} onRemoveMember={onRemoveMember} />
+            ))}
+          </div>
+          {!suns.length && (
+            <Empty className="sun-empty" mark={<PeopleMark />}
+              title={`${year}년 순 편성이 아직 비어 있어요`} />
+          )}
+        </>
       )}
     </div>
   );
@@ -282,15 +295,20 @@ function SunRow({ group, suns, people, members, unplaced, leaderPool, onRename, 
 
   return (
     <div className={`sun-row dc-row p-3.5 ${CARD}`} style={CARD_STYLE}>
+      {/* 줄을 **정해서** 그린다(§6-9-z). flex-wrap에 맡겨 두었더니 375에서 순장 칸이
+          둘째 줄로 내려가면서 인원 수가 그 줄 오른쪽에 붙어, 순의 인원이 아니라 순장에
+          딸린 숫자처럼 읽혔다. 지금은 [이름 … N명] / [순장]이고, 640부터는 예전처럼
+          [이름][순장] … [N명] 한 줄이다. 차례를 order로 바꾸는 이유는 읽는 순서(이름 ·
+          순장 · 인원)를 DOM에 그대로 두기 위해서다. */}
       <div className="flex flex-wrap items-center gap-2">
         <input value={draft} onChange={e => setDraft(e.target.value)} onBlur={commit}
           onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-          aria-label={`${group.name} 순 이름`} className={`sun-name ${FIELD} font-bold w-[9.5rem]`} />
+          aria-label={`${group.name} 순 이름`}
+          className={`sun-name ${FIELD} font-bold order-1 flex-1 sm:flex-none sm:w-[9.5rem]`} />
         <PersonPick label={`${group.name} 순장`} people={leaderPool} value={group.leader_person_id || ''}
           onChange={id => onSetLeader(group, id)} placeholder="순장 지정" allowClear
-          className="sun-leader-pick w-[11rem]" />
-        <span className="flex-1" />
-        <span className="text-[11.5px] text-fg-faint">{list.length}명</span>
+          className="sun-leader-pick order-3 basis-full sm:order-2 sm:basis-auto sm:w-[11rem]" />
+        <span className="sun-count order-2 shrink-0 text-[11.5px] text-fg-faint sm:order-3 sm:ml-auto">{list.length}명</span>
       </div>
 
       {/* 이름과 그 사람의 조작(옮기기·빼기)은 한 칸 안에서 붙어 있어야 한다 —

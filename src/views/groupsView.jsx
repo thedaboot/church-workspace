@@ -51,6 +51,11 @@ import {
 
 const THIS_YEAR = new Date().getFullYear();
 
+// 이 화면이 들고 있는 캐시 접두 — **쓰기 뒤에 비우는 것과 다시 읽는 것이 같아야 한다**
+// (아래 refresh 주석). `groups:guide:*`는 여기 없다: 그것은 주보 한 건에 붙는 별개의
+// 한 벌이고 순·동아리 쓰기로 낡지 않으며, 다시 읽는 것도 가이드 패널 자신이다.
+const GROUP_KEYS = ['groups:all', 'groups:roster', 'groups:mine'];
+
 // ── 딥링크로 들어온 값 (services/entryQuery.js의 약속: g = 동아리 id · apply=1이면 신청까지)
 // **주소도 한 번 더 본다.** entryQuery는 모듈이 처음 실행될 때 `location.search`를
 // 붙잡아 두는데, 카카오 로그인을 거쳐 들어오면 그 스냅샷이 비어 있다 — auth.jsx가
@@ -228,10 +233,15 @@ export function GroupsView() {
   // 비교라 `groups:mine:…`까지 가져가는데 mineQ만 refresh를 안 받아서, '내 순 소식'은
   // 화면에는 옛 값이 남고 캐시는 비어 있는 상태가 됐다 — 다음에 이 화면에 들어오면
   // 캐시가 없어 **스켈레톤부터 다시**다(캐시를 둔 이유가 사라진다).
+  // 그래서 이제 **비우는 접두를 손으로 적는다**(GROUP_KEYS) — 같은 어긋남이 순모임
+  // 가이드(`groups:guide:<주보 id>`)에 남아 있었다. 접두 'groups' 하나로 지우면 가이드
+  // 캐시까지 가져가는데 여기서 다시 읽는 것은 셋뿐이라, 동아리에서 사람 하나 넣을 때마다
+  // 내 순의 가이드가 다음 진입에서 스켈레톤부터 다시 떴다(가이드는 순·동아리 쓰기와
+  // 아무 상관이 없다 — 주보 한 건에 붙는 별개의 한 벌이다).
   // mineQ보다 아래에 선언하는 이유는 adminData와 같다 — 위에 두면 의존성이 선언 전
   // 변수를 읽어 TDZ로 죽는다.
   const refresh = useCallback(async () => {
-    dropCache('groups');
+    GROUP_KEYS.forEach(dropCache);
     await Promise.all([baseQ.refresh(), adminQ.refresh(), mineQ.refresh()]);
   }, [baseQ.refresh, adminQ.refresh, mineQ.refresh]);
 
@@ -635,15 +645,17 @@ export function GroupsView() {
           onCreateMeeting={newMeeting} onToggleMeeting={toggleMeeting} />
       )}
 
-      {active === 'sun' && (adminData
-        ? (
-          <SunAdminPanel year={year} years={years} suns={adminData.suns} people={adminData.people}
-            members={adminData.members} onYear={setYear}
-            creating={creating === 'sun'} closingCreate={closingCreate} onCloseCreate={shutCreate}
-            onCreateSun={newSun} onRenameSun={renameSun} onSetLeader={setLeader}
-            onAddMember={addSunMember} onMoveMember={moveSunMember} onRemoveMember={dropSunMember} />
-        )
-        : LOADING)}
+      {/* 지난 해를 처음 고르면 그 해 편성이 오는 동안 잠깐 비어 있다. 예전에는 그때
+          **구역째** 스켈레톤으로 갈아 끼워서 방금 누른 연도 고르개가 사라졌다가 돌아왔다.
+          이제 껍데기(연도 줄·만들기 칸)는 그대로 서 있고 순 목록 자리만 스켈레톤이다. */}
+      {active === 'sun' && (
+        <SunAdminPanel year={year} years={years} loading={!adminData}
+          suns={adminData?.suns || []} people={adminData?.people || []}
+          members={adminData?.members || []} onYear={setYear}
+          creating={creating === 'sun'} closingCreate={closingCreate} onCloseCreate={shutCreate}
+          onCreateSun={newSun} onRenameSun={renameSun} onSetLeader={setLeader}
+          onAddMember={addSunMember} onMoveMember={moveSunMember} onRemoveMember={dropSunMember} />
+      )}
     </div>
   );
 }

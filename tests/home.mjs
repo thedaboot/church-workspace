@@ -213,6 +213,7 @@ await wait('Page.loadEventFired');
 // ── 0) 순수 로직 — 어느 예배가 '이번 주 예배'인가 ───────────────────────────
 const pure = await ev(`(async () => {
   const m = await import('/src/views/homeView.jsx');
+  const w = await import('/src/services/worship.js');
   const list = [
     { id: 'a', service_date: '2026-08-23' },
     { id: 'b', service_date: '2026-09-06' },
@@ -228,6 +229,9 @@ const pure = await ev(`(async () => {
     greets: [0, 5, 6, 9, 10, 17, 18, 22, 23].map(h => m.heroGreeting(h, '노준석')),
     noNames: [7, 12, 20, 23].map(h => m.heroGreeting(h, '')),
     dates: ['2026-09-06', '2027-01-01', '2025-12-31', 'bad'].map(d => m.homeDateLabel(d)),
+    // 홈 카드의 날짜와 주보 카드의 날짜는 **한 벌**이어야 한다(예전에는 요일 표와
+    // 정규식이 두 곳에 있었다) — 못 읽는 값에서만 갈린다(홈은 빈 글자, 주보는 적힌 그대로)
+    svcDates: ['2026-09-06', '2027-01-01', '2025-12-31'].map(d => w.formatServiceDate(d)),
     dues: ['2026-09-04', '2027-01-01', ''].map(d => m.homeDueLabel(d)),
     // 카드 자리의 차례 — 갈래마다 (아직 안 옴 / 있음 / 없음)을 넣고 무엇이 서는지
     slots: (() => {
@@ -274,6 +278,12 @@ check('이름이 없으면 이름 자리를 비운 문장이다',
 check('카드 날짜는 두 자리 연도로 적는다',
   JSON.stringify(pure.dates) === JSON.stringify(['26년 9월 6일 (일)', '27년 1월 1일 (금)', '25년 12월 31일 (수)', '']),
   JSON.stringify(pure.dates));
+// 홈과 예배가 같은 날짜를 다르게 적을 수 있는 짝을 없앤다(2026-09-08 · homeDateLabel이
+// worship.formatServiceDate를 그대로 부른다). **되돌리기**: homeView에 요일 표를 다시
+// 두고 한쪽 형식만 고치면 이 줄이 바로 깨진다.
+check('홈 카드 날짜는 주보 화면의 날짜와 같은 한 벌이다',
+  JSON.stringify(pure.dates.slice(0, 3)) === JSON.stringify(pure.svcDates),
+  `${JSON.stringify(pure.dates.slice(0, 3))} / ${JSON.stringify(pure.svcDates)}`);
 check('마감 날짜도 두 자리 연도로, 없으면 미정',
   JSON.stringify(pure.dues) === JSON.stringify(['26. 9. 4.', '27. 1. 1.', '미정']), JSON.stringify(pure.dues));
 

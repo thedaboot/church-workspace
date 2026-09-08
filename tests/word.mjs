@@ -310,10 +310,17 @@ check('데스크톱 상단에 말씀 버튼', await clickText('말씀'));
 await sleep(1400);
 const seg = await ev(`(() => {
   const t = [...document.querySelectorAll('button')].map(b => b.textContent.trim());
-  return { qt: t.includes('QT'), old: t.includes('매일성경'), read: t.includes('성경 읽기') };
+  const pressed = [...document.querySelectorAll('button')]
+    .filter(b => ['QT', '성경 읽기'].includes(b.textContent.trim()))
+    .map(b => b.textContent.trim() + '=' + b.getAttribute('aria-pressed'));
+  return { qt: t.includes('QT'), old: t.includes('매일성경'), read: t.includes('성경 읽기'), pressed };
 })()`);
 check('세그먼트 [QT | 성경 읽기]', seg.qt && seg.read, JSON.stringify(seg));
 check("'매일성경'이라는 이름은 남아 있지 않다", seg.old === false);
+// 고른 것을 색으로만 말하면 화면을 읽어 주는 기기에는 아무 표시도 안 남는다 —
+// 성경 읽기의 [본문|북마크|형광펜]과 같은 한 벌로 aria-pressed를 단다
+check('세그먼트가 고른 것을 aria로도 말한다',
+  seg.pressed.join('|') === 'QT=true|성경 읽기=false', JSON.stringify(seg.pressed));
 
 // 2) QT — 그날 본문 · 제목 · 절 번호
 const qt = await ev(`(() => {
@@ -1045,6 +1052,8 @@ const toc = await ev(`(() => {
   const heads = [...document.querySelectorAll('h3')].map(h => h.textContent.trim());
   return { ot: heads.includes('구약'), nt: heads.includes('신약'),
            gen: t.includes('창세기'), rev: t.includes('요한계시록'), aa: t.filter(x => x === 'Aa').length,
+           aaPressed: [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === 'Aa')
+             .map(b => b.getAttribute('aria-pressed')).join(','),
            panes: [...document.querySelectorAll('[data-pane]')].map(b => b.textContent.trim()),
            active: (document.querySelector('[data-pane][aria-pressed="true"]') || {}).dataset?.pane || '',
            marks: heads.includes('북마크') || heads.includes('형광펜'),
@@ -1053,6 +1062,8 @@ const toc = await ev(`(() => {
 })()`);
 check('목차가 구약·신약으로 갈린다', toc.ot && toc.nt && toc.gen && toc.rev, JSON.stringify(toc));
 check('글자 크기 Aa 3단계', toc.aa === 3, String(toc.aa));
+// 세 칸 중 지금 쓰는 것이 어느 것인지도 aria로 남긴다(세그먼트와 같은 한 벌)
+check('지금 글자 크기가 aria로 남는다', toc.aaPressed === 'false,true,false', toc.aaPressed);
 // 낱말만 찾던 칸이 아니다 — 뜻으로도 찾는다(사용자 문구 2026-09-08)
 check("검색 자리표는 '어떤 본문을 찾으시나요?'", toc.hint === '어떤 본문을 찾으시나요?', toc.hint);
 
@@ -1709,6 +1720,34 @@ const noHit = await ev(`(async () => {
 })()`, true);
 check('둘 다 못 찾으면 한 줄로 말한다', noHit.said === true, JSON.stringify(noHit));
 check('검색 빈 자리도 마크로 그린다', noHit.mark === true, JSON.stringify(noHit));
+
+// **한 절에 여러 번 나오는 말은 다 표시한다.** 앞의 하나만 칠하면 뒤의 것은 안 찾은
+// 글자처럼 읽힌다 — 창세기 1:27이 '하나님'을 두 번 담고 있다. 줄마다 글자에 실제로
+// 몇 번 나오는지와 <mark> 개수를 견준다.
+await ev(`(() => {
+  const i = document.querySelector('input[aria-label="어떤 본문을 찾으시나요?"]');
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '하나님');
+  i.dispatchEvent(new Event('input', { bubbles: true }));
+  i.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+})()`);
+const marksPerRow = await ev(`(async () => {
+  for (let i = 0; i < 90; i++) {
+    const rows = [...document.querySelectorAll('button[data-hit]')];
+    if (rows.length >= 20) {
+      const got = rows.map(r => {
+        const txt = r.querySelectorAll('span')[1]?.textContent || '';
+        return { want: txt.split('하나님').length - 1, got: r.querySelectorAll('mark').length };
+      });
+      return { rows: got.length, wrong: got.filter(x => x.want !== x.got).length,
+               many: got.filter(x => x.want > 1).length };
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return { rows: 0, wrong: -1, many: 0 };
+})()`, true);
+check('한 절에 두 번 나오는 말은 두 번 다 표시된다',
+  marksPerRow.rows > 0 && marksPerRow.many > 0 && marksPerRow.wrong === 0, JSON.stringify(marksPerRow));
+
 await clickSel('button[aria-label="검색어 지우기"]');
 await sleep(600);
 
@@ -1800,6 +1839,27 @@ check('펼친 책의 파일만 그때 받는다',
   opened.files.includes('jhn.json') && !opened.files.includes('exo.json') && !opened.files.includes('psa.json'),
   JSON.stringify(opened.files));
 check('펼치지 않은 책은 그대로 접혀 있다', opened.others.every(v => v === 'false'), JSON.stringify(opened.others));
+
+// **펼침은 칸마다 따로다.** 북마크와 형광펜은 같은 자리에 그려지는 같은 부품이라
+// 리액트가 칸을 옮겨도 state를 그대로 물려준다(§6-18과 같은 함정) — 열쇠에 칸 이름을
+// 넣기 전에는 형광펜에서 편 창세기가 북마크에서도 펼쳐져 있었다. 창세기는 양쪽에 다
+// 있으므로 이 책으로 잰다. 그리고 되돌아왔을 때 **내가 편 것은 그대로 남아야 한다**.
+check('형광펜에서 창세기 묶음도 편다', await clickSel('[data-book-group="highlight:gen"]'));
+await sleep(900);
+await clickSel('[data-pane="bookmark"]');
+await sleep(800);
+const paneCarry = await ev(`(() => ({
+  gen: (document.querySelector('[data-book-group="bookmark:gen"]') || {}).getAttribute?.('aria-expanded'),
+  rows: [...document.querySelectorAll('[data-goto]')].length,
+}))()`);
+check('한 칸에서 편 책이 다른 칸까지 펼쳐지지 않는다',
+  paneCarry.gen === 'false' && paneCarry.rows === 0, JSON.stringify(paneCarry));
+await clickSel('[data-pane="highlight"]');
+await sleep(800);
+const paneBack = await ev(`(() => [...document.querySelectorAll('[data-book-group]')]
+  .map(b => b.dataset.bookGroup + '=' + b.getAttribute('aria-expanded')).join(','))()`);
+check('제 칸으로 돌아오면 펴 둔 책이 그대로다',
+  paneBack === 'highlight:gen=true,highlight:exo=false,highlight:jhn=true', paneBack);
 
 // 북마크는 장 제목이면 되므로 펼쳐도 책 파일을 받지 않는다
 await clickSel('[data-pane="bookmark"]');
