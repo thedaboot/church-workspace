@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { preloadExport, nodeToPng, nodesToPdf, shareOrSave } from '../services/shareImage.js';
 import { showToast } from '../components/Toast.jsx';
-import { failText } from '../services/errorText.js';
 
 // ============================================================================
 // 종이 하나(또는 두 쪽)를 **미리 구워 두고** 누르면 바로 보내는 훅 (2026-09-09)
@@ -32,7 +31,10 @@ export function useSheetShare({ refs, key, background, kind = 'png', fileName, w
   const blobRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
-  const [shown, setShown] = useState(null);     // 마지막 갈래로 띄운 그림들
+  // 마지막 갈래로 띄우는 것 — 그림들 또는 **왜 안 됐는지**.
+  // 토스트로만 말하면 폰에서 놓친다(사용자가 세 번 "안 된다"고 알려 준 뒤로 이렇게 바꿨다) —
+  // 전면 화면이라 못 보고 지나칠 수 없고, 다음 보고에 원인이 그대로 실려 온다.
+  const [shown, setShown] = useState(null);
   const pdf = kind === 'pdf';
 
   const nodes = useCallback(() => (refs || []).map(r => r?.current).filter(Boolean), [refs]);
@@ -75,7 +77,7 @@ export function useSheetShare({ refs, key, background, kind = 'png', fileName, w
       setShown(pages);
     } catch (e) {
       console.error('[share] 그림으로도 띄우지 못했어요:', e);
-      showToast(failText(what, e));
+      setShown([{ error: `${e?.name || '오류'} — ${e?.message || e}` }]);
     }
   }, [pdf, nodes, background, fileName, what]);
 
@@ -96,35 +98,49 @@ export function useSheetShare({ refs, key, background, kind = 'png', fileName, w
         { toast: showToast, what, onOverlay: overlayFrom });
     } catch (e) {
       console.error(`[share] ${what}:`, e);
-      showToast(failText(what, e));
+      // **화면에 띄운다** — 토스트는 놓치기 쉽고, 무엇이 막혔는지가 다음 걸음의 재료다
+      setShown([{ error: `${e?.name || '오류'} — ${e?.message || e}` }]);
     } finally { setBusy(false); }
   }, [busy, bake, pdf, fileName, what, overlayFrom]);
 
   const close = useCallback(() => {
-    setShown(prev => { (prev || []).forEach(p => URL.revokeObjectURL(p.url)); return null; });
+    setShown(prev => { (prev || []).forEach(p => p.url && URL.revokeObjectURL(p.url)); return null; });
   }, []);
 
   // 그림 한 판. **길게 눌러 저장하는 것 말고는 길이 없는 자리**라 그 한 줄을 적는다 —
   // §8이 금지하는 '사용법 안내'와 다르다: 여기서는 그것이 유일한 조작이고, 안 적으면
   // 그림만 뜨고 무엇을 해야 할지 알 수 없다.
+  const failed = !!shown?.[0]?.error;
   const overlay = useMemo(() => (shown ? createPortal(
     <div className="sheet-save fixed inset-0 z-[120] flex flex-col bg-black/80 dc-pop"
-      onClick={close} role="dialog" aria-label="저장할 그림">
+      onClick={close} role="dialog" aria-label={failed ? '내보내지 못한 이유' : '저장할 그림'}>
       <div className="flex items-center justify-between gap-3 px-4 py-3 shrink-0">
-        <p className="text-[12px] text-white/80">그림을 길게 눌러 저장하거나 공유할 수 있어요</p>
+        <p className="text-[12px] text-white/80">
+          {failed ? what : '그림을 길게 눌러 저장하거나 공유할 수 있어요'}
+        </p>
         <button type="button" onClick={close} aria-label="닫기"
           className="p-2 rounded-md text-white/70 hover:text-white hover:bg-white/10 transition active:scale-95">
           <X size={18} />
         </button>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pb-6 flex flex-col items-center gap-4">
-        {shown.map(p => (
+        {shown.map((p, i) => (p.error ? (
+          // 원인을 그대로 보여 준다 — 사람에게는 낯선 글자지만 이 자리에서 막힌 것을
+          // 알려 주려면 이름이 있어야 한다(§8의 '실패 문구에 기술 용어 금지'는 **평소**
+          // 문구의 규칙이고, 여기는 개발자에게 알려 달라고 부탁하는 자리다)
+          <div key={i} onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-[560px] rounded-[10px] bg-surface p-4">
+            <p className="text-[13px] font-bold text-fg">{what}</p>
+            <p className="mt-1.5 text-[12px] leading-relaxed text-fg-muted break-words">{p.error}</p>
+            <p className="mt-2 text-[11px] text-fg-faint">이 줄을 그대로 개발자에게 알려주세요.</p>
+          </div>
+        ) : (
           <img key={p.url} src={p.url} alt={p.name}
             className="block w-full max-w-[560px] rounded-[10px] shadow-elevated"
             onClick={(e) => e.stopPropagation()} />
-        ))}
+        )))}
       </div>
-    </div>, document.body) : null), [shown, close]);
+    </div>, document.body) : null), [shown, close, failed, what]);
 
   return { share, busy, ready, overlay };
 }

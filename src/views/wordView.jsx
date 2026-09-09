@@ -499,6 +499,8 @@ function QtTab() {
                     value={body}
                     onChange={setBody}
                     placeholder="오늘 본문에서 마음에 남은 것"
+                    /* 도막 제목은 **수정 창에서부터** 지워지지 않는다(사용자 결정 2026-09-10) */
+                    lockedHeadings={QT_SECTIONS}
                     className={`${EDITOR_BOX} border border-line rounded-md rounded-t-none p-3 bg-surface focus-within:border-accent focus-within:shadow-soft transition-all`}
                   />
                 </Suspense>
@@ -538,6 +540,8 @@ function QtTab() {
                 </button>
               )}
             </div>
+            {/* 공유·저장이 막힌 브라우저에서 마지막 갈래(hooks/useSheetShare.jsx) */}
+            {qtImg.overlay}
             <div data-note-tools="right" className="flex items-center gap-1 justify-between sm:justify-end">
               {/* 좁은 폭에서는 제 줄을 다 쓴다 — ShareToggle이 `className`으로 폭을 받는다
                   (예배 노트도 같은 부품·같은 배치다) */}

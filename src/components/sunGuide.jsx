@@ -582,6 +582,8 @@ export function SunGuidePanel({
         )}
         {showSheet && <Sheet guide={guide} dateLabel={dateLabel} sheetRef={sheetRef} />}
       </div>
+      {/* 공유·저장이 막힌 브라우저에서 마지막 갈래(hooks/useSheetShare.jsx) */}
+      {img.overlay}
     </section>
   );
 }

@@ -1058,6 +1058,10 @@ function ServicePaper({ service, nameOf }) {
         </div>
       </div>
 
+      {/* 공유·저장이 막힌 브라우저에서 마지막 갈래 — 쪽마다 그림으로 띄운다
+          (hooks/useSheetShare.jsx). **그리지 않으면 그 갈래가 아무것도 안 한다.** */}
+      {pdf.overlay}
+
     </div>
   );
 }
@@ -1151,6 +1155,8 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
               onChange={(v) => { setState(''); setBody(v); }}
               placeholder="오늘 말씀에서 마음에 남은 것"
               className={EDITOR_BOX}
+              /* 도막 제목은 **수정 창에서부터** 지워지지 않는다(사용자 결정 2026-09-10) */
+              lockedHeadings={WORSHIP_SECTIONS}
             />
           </Suspense>
         </div>
@@ -1181,6 +1187,8 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
         <ShareToggle className={NOTE_TOGGLE} value={shared} disabled={!saved || busy}
           onChange={setShare} shareLabel="순에 공유하기" />
       </div>
+      {/* 공유·저장이 막힌 브라우저에서 마지막 갈래(hooks/useSheetShare.jsx) */}
+      {img.overlay}
     </section>
   );
 }

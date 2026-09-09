@@ -18,6 +18,7 @@ import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { isMobileViewport, keepVisible } from '../utils.js';
 import { downscaleImage, BODY_MAX_DIM } from '../services/image.js';
 import { Extension } from '@tiptap/core';
+import { Plugin } from '@tiptap/pm/state';
 
 // 제목에서 Enter를 치면 **본문으로 떨어진다.** 기본 동작은 같은 제목이 이어지는데,
 // 제목을 연달아 쓰는 일은 거의 없고 대개 그 아래에 내용을 적는다(사용자 지적
@@ -47,6 +48,48 @@ const HeadingExit = Extension.create({
           .run();
       },
     };
+  },
+});
+
+// 정해진 중제목은 **편집기 안에서 지워지지 않는다** (사용자 결정 2026-09-10 —
+// "아예 수정 창에서부터 그 중제목은 고정해달라는거야"). 저장할 때 되살리는 길
+// (services/noteTemplate.js ensureNoteSections)은 저장된 글만 지키므로, 쓰는 동안에는
+// 제목이 사라져 보였다.
+//
+// **막는 방식**: 트랜잭션이 끝난 문서에서 정해진 제목이 하나라도 없어지면 그 트랜잭션을
+// 물린다(filterTransaction). 그러면 백스페이스·전체 선택 후 입력·제목 글자 고치기가
+// 전부 아무 일도 하지 않는다 — 그것이 '고정'이다. 본문(제목 아래 글)은 그대로 자유롭다.
+//
+// **딸린 함정 하나**: 바깥에서 value가 바뀌어 문서를 통째로 교체할 때도(setContent)
+// 트랜잭션이 돈다. 옛 노트에는 그 제목이 없을 수 있어서 그때 물리면 **편집기가 새 글을
+// 못 받는다**. 그래서 교체하는 동안에는 `bypass()`로 통과시킨다(아래 replacingRef).
+const LockedHeadings = Extension.create({
+  name: 'lockedHeadings',
+  addOptions() { return { titles: [], bypass: () => false }; },
+  addProseMirrorPlugins() {
+    const { titles, bypass } = this.options;
+    if (!titles || !titles.length) return [];
+    const found = (doc) => {
+      const set = new Set();
+      doc.descendants((node) => {
+        if (node.type.name !== 'heading') return true;
+        const t = node.textContent.trim();
+        if (titles.includes(t)) set.add(t);
+        return false;      // 제목 안으로는 더 안 들어간다
+      });
+      return set;
+    };
+    return [new Plugin({
+      filterTransaction: (tr, state) => {
+        if (!tr.docChanged || bypass()) return true;
+        const before = found(state.doc);
+        // 아직 하나도 없으면 막지 않는다 — 빈 편집기·옛 노트에 제목을 심는 길이 필요하다
+        if (!before.size) return true;
+        const after = found(tr.doc);
+        for (const t of before) if (!after.has(t)) return false;
+        return true;
+      },
+    })];
   },
 });
 
@@ -131,8 +174,12 @@ function useStickyTop(ref) {
   return top;
 }
 
-export function MarkdownEditor({ value, onChange, members = [], cloudMode = false, placeholder, className = '' }) {
+// `lockedHeadings` — 지워지지 않는 중제목 목록(노트의 도막 이름). **편집기를 만들 때
+// 한 번 읽는다** — 화면마다 고정이라 바뀌지 않는다(예배 노트 다섯 · QT 넷).
+export function MarkdownEditor({ value, onChange, members = [], cloudMode = false, placeholder, className = '', lockedHeadings = [] }) {
   const lastEmitted = useRef(value ?? '');
+  // 문서를 통째로 교체하는 중인가 — 그때는 중제목 고정을 통과시킨다(LockedHeadings 머리말)
+  const replacingRef = useRef(false);
   const editorRef = useRef(null);
   const cloudModeRef = useRef(cloudMode);
   const [uploading, setUploading] = useState(false);
@@ -213,6 +260,8 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
       // 맞추기 위해 명시한다(index.css의 .tiptap 규칙과 한 쌍)
       Placeholder.configure({ placeholder: placeholder || '내용을 입력하세요...', dataAttribute: 'data-placeholder' }),
       HeadingExit,
+      // 문서를 통째로 교체하는 중에는 통과시킨다(위 머리말의 함정)
+      LockedHeadings.configure({ titles: lockedHeadings, bypass: () => replacingRef.current }),
     ],
     content: mdToDoc(value),
     autofocus: false, // 모바일에서 키보드가 즉시 올라오는 것 방지
@@ -300,7 +349,11 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
     if (incoming === lastEmitted.current) return;
     if (incoming === docToMd(editor.getJSON())) return;
     lastEmitted.current = incoming;
-    editor.commands.setContent(mdToDoc(incoming), { emitUpdate: false });
+    // 교체하는 동안에는 중제목 고정을 통과시킨다 — 옛 노트에 그 제목이 없으면
+    // 그 트랜잭션이 물려서 새 글이 들어오지 못한다(LockedHeadings 머리말)
+    replacingRef.current = true;
+    try { editor.commands.setContent(mdToDoc(incoming), { emitUpdate: false }); }
+    finally { replacingRef.current = false; }
   }, [value, editor]);
 
   // 툴바 활성 상태 — 필요한 불리언만 구독해 타이핑마다 전체 리렌더되지 않게

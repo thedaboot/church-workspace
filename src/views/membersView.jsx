@@ -376,7 +376,13 @@ export function MembersView({ isAdmin, isMaster }) {
   // 환송한 사람은 '승인을 기다리는 사람'으로 다시 올라오지 않는다(0027) —
   // 방금 내보낸 사람을 다시 수락하라고 화면이 조르면 안 된다(사용자 지적).
   const waiting = (rows || []).filter(r => !r.approved && !r.removed_at);
-  const removed = (rows || []).filter(r => !r.approved && r.removed_at);
+  // **합친 계정은 환송한 사람과 따로 센다**(사용자 요구 2026-09-10 — "환송 쪽 말고 그냥
+  // 아예 구분해서 보여주면 안 되나"). 겉모습은 같지만(둘 다 approved=false + removed_at)
+  // 성격이 다르다: 환송은 다시 부를 수 있고, 합친 계정은 다시 부를 것이 없다(0060).
+  const removed = (rows || []).filter(r => !r.approved && r.removed_at && !r.merged_into);
+  const mergedRows = (rows || []).filter(r => !r.approved && r.merged_into);
+  // 어느 계정으로 합쳐졌는지 이름으로 말해 준다 — id는 사람에게 아무것도 알려주지 않는다
+  const nameById = new Map((rows || []).map(r => [r.id, r.display_name || r.email || '']));
   // 함께하는 사람은 **다녀간 순**이다 — 대시보드 '가입한 사람' 목록과 같은 정렬
   // (utils.visitOrder). 가입순으로 두면 오래 안 온 사람이 계속 맨 위에 선다.
   // 접속 중인 사람이 맨 위인 것까지 같다 — 그 자리를 안 넘기면 같은 목록이 두 화면에서
@@ -486,6 +492,25 @@ export function MembersView({ isAdmin, isMaster }) {
             ))}
           </Section>
 
+          {/* 합친 계정 — **환송한 사람과 따로 둔다**(0060의 merged_into). 이 계정의
+              업무·댓글·노트는 이미 다른 계정으로 옮겨졌고 다시 부를 것이 없다.
+              지우지 않는 이유는 0059 머리말이다(지우면 다시 로그인해 새 프로필이 생긴다). */}
+          {mergedRows.length > 0 && (
+            <Section title="합친 계정" count={mergedRows.length}
+              hint="한 사람이 여러 계정으로 들어온 경우예요. 업무·댓글·노트는 남긴 계정으로 옮겨졌어요.">
+              {mergedRows.map((row, i) => (
+                <MemberRow key={row.id} row={row} delay={rowDelay(i)} {...rowProps(row)} action={
+                  <span className="members-merged shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-fg-faint">
+                    <Merge size={13} />
+                    {nameById.get(row.merged_into)
+                      ? `${nameById.get(row.merged_into)}(으)로 합쳤어요`
+                      : '다른 계정으로 합쳤어요'}
+                  </span>
+                } />
+              ))}
+            </Section>
+          )}
+
           {/* 환송한 사람 — 다시 부를 수 있다. 프로필 행을 지우지 않는 이유는
               0027 주석에 있다(지워도 다시 로그인하면 되살아난다). */}
           {removed.length > 0 && (
@@ -493,20 +518,10 @@ export function MembersView({ isAdmin, isMaster }) {
               hint="다시 초대하면 수락 대기 없이 바로 돌아와요. 지난 댓글·기록은 계속 남아 있어요.">
               {removed.map((row, i) => (
                 <MemberRow key={row.id} row={row} delay={rowDelay(i)} {...rowProps(row)} action={
-                  /* **합쳐진 계정은 다시 부르지 않는다**(0060). 그 계정의 업무·댓글·노트는
-                     이미 다른 계정으로 옮겨졌고, 되살리면 데이터가 하나도 없는 빈 중복이
-                     생겨 합친 일이 헛일이 된다. 버튼을 감추는 대신 **왜 없는지 말한다** —
-                     빈 자리만 남으면 줄이 깨진 것처럼 보인다(§8). */
-                  row.merged_into ? (
-                    <span className="members-merged shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-fg-faint">
-                      <Merge size={13} /> 다른 계정으로 합쳤어요
-                    </span>
-                  ) : (
-                    <button type="button" disabled={!!busy[row.id]} onClick={() => approve(row, true)}
-                      className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
-                      {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />} 다시 초대하기
-                    </button>
-                  )
+                  <button type="button" disabled={!!busy[row.id]} onClick={() => approve(row, true)}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
+                    {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />} 다시 초대하기
+                  </button>
                 } />
               ))}
             </Section>

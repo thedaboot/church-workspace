@@ -774,6 +774,26 @@ await ev(`(() => { const el = document.querySelector('.tiptap'); el && el.focus(
 await send('Input.insertText', { text: '오늘은 이 말씀이 마음에 남았어요' });
 await sleep(400);
 check('한 줄이라도 쓰면 저장이 열린다', (await saveDisabled()) === false);
+// **중제목은 수정 창에서부터 지워지지 않는다**(사용자 결정 2026-09-10 — "아예 수정
+// 창에서부터 그 중제목은 고정해달라는거야"). 전체를 골라 글자를 넣어도 도막 제목은
+// 그대로다 — 그 트랜잭션이 물린다(MarkdownEditor의 LockedHeadings).
+// **되돌리기**: 그 확장을 extensions 목록에서 빼면 제목이 통째로 사라져 이 줄이 깨진다.
+await ev(`(() => {
+  const t = document.querySelector('.tiptap');
+  t.focus();
+  const r = document.createRange(); r.selectNodeContents(t);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+})()`);
+await send('Input.insertText', { text: '전부 지워질까' });
+await sleep(400);
+const lockedHeads = await ev(`(() => {
+  const t = document.querySelector('.tiptap');
+  return { heads: [...t.querySelectorAll('h1, h2, h3, h4')].map(h => h.textContent.trim()),
+    hasTyped: t.innerText.includes('전부 지워질까') };
+})()`);
+check('중제목은 전체 선택 후 입력에도 지워지지 않는다',
+  JSON.stringify(lockedHeads.heads) === JSON.stringify(['본문', '나의 묵상', '결단', '기도'])
+  && lockedHeads.hasTyped === false, JSON.stringify(lockedHeads));
 
 await clickText('오늘');
 await sleep(900);

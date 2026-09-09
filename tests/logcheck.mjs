@@ -2135,14 +2135,18 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '이미 합쳐진 계정을 남길 쪽으로 고르지 못하게 막는다(옮긴 것이 다시 갈린다)');
   assert.ok(/update public\.profiles set merged_into = p_keep where merged_into = p_drop/.test(m60),
     '합치기를 두 번 하면 옛 표도 새 주인을 가리킨다');
-  // 화면 — 합쳐진 줄에는 '다시 초대하기'가 없고 **왜 없는지** 말한다(§8)
+  // 화면 — 합친 계정은 **환송한 사람과 따로 선다**(사용자 요구 2026-09-10 "아예 구분해서")
   const mv = src('../src/views/membersView.jsx');
-  assert.ok(/row\.merged_into \? \(/.test(mv), '합쳐진 줄은 다른 것을 그린다');
-  assert.ok(/다른 계정으로 합쳤어요/.test(mv), '버튼 자리에 상태를 적는다(빈 자리로 두지 않는다)');
+  assert.ok(/const mergedRows = \(rows \|\| \[\]\)\.filter\(r => !r\.approved && r\.merged_into\);/.test(mv),
+    '합친 계정을 따로 센다');
+  assert.ok(/r\.removed_at && !r\.merged_into/.test(mv), '환송한 사람에서는 그것을 뺀다');
+  assert.ok(/title="합친 계정"/.test(mv), '제 구역 이름이 있다');
+  assert.ok(/합쳤어요/.test(mv) && !/mergedRows[\s\S]{0,900}다시 초대하기/.test(mv),
+    '그 구역에는 다시 초대하기가 없다');
   assert.ok(/merged_into/.test(src('../src/services/cloud.js')),
     '목록 조회가 그 칸을 실어 온다(없으면 화면이 가를 수 없다)');
 
-  console.log('PASS  참고 링크 카드 축 · 계정 합치기 22가지');
+  console.log('PASS  참고 링크 카드 축 · 계정 합치기 23가지');
 }
 
 // ── 노트 도막 제목은 지워지지 않는다 (ensureNoteSections) ───────────────────
@@ -2181,7 +2185,19 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     nt.isTemplateOnly(nt.ensureNoteSections(nt.worshipNoteTemplate({ passageRef: '삿 3:1' }), nt.WORSHIP_SECTIONS), '삿 3:1'),
     true, '되살린 템플릿은 빈 노트로 남는다');
 
-  console.log('PASS  노트 도막 제목 고정 12가지');
+  // 편집기에서도 고정된다(사용자 결정 2026-09-10 — "아예 수정 창에서부터")
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+  const ed = src('../src/components/MarkdownEditor.jsx');
+  assert.ok(/name: 'lockedHeadings'/.test(ed) && /filterTransaction/.test(ed),
+    '편집기가 정해진 중제목을 지우는 트랜잭션을 물린다');
+  assert.ok(/bypass\(\)/.test(ed) && /replacingRef\.current = true/.test(ed),
+    '문서를 통째로 교체할 때는 통과시킨다(옛 노트가 안 들어오는 것을 막는다)');
+  assert.ok(/lockedHeadings=\{WORSHIP_SECTIONS\}/.test(src('../src/components/worshipDetail.jsx')),
+    '예배 노트가 다섯 도막을 잠근다');
+  assert.ok(/lockedHeadings=\{QT_SECTIONS\}/.test(src('../src/views/wordView.jsx')),
+    '묵상 노트가 네 도막을 잠근다');
+
+  console.log('PASS  노트 도막 제목 고정 16가지');
 }
 
 // ── 팀 보드 상단 사람 칩 (utils.teamChips) ──────────────────────────────────
