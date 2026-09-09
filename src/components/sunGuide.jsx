@@ -8,7 +8,7 @@ import { showToast } from './Toast.jsx';
 import { supabase } from '../services/supabaseClient.js';
 import { dropCache, useCached } from '../services/cache.js';
 import { failText } from '../services/errorText.js';
-import { isKakaoInApp } from '../utils.js';
+import { preloadExport, nodeToPng, shareOrSave } from '../services/shareImage.js';
 import {
   LIMITS,
   fitGuide, generateGuide, guideDateLabel, guideServiceDate, guideServiceLabel,
@@ -67,8 +67,6 @@ const RED = '#993731';     // --app-tag-red-fg
 // 두 가로 반지름의 합이 100%를 넘으면 브라우저가 비율로 줄인다 — 46 + 46 = 92%.
 const DOME = '46% 46% 18px 18px / 84px 84px 18px 18px';
 
-// 내려받는 그림의 가로 픽셀(2배). 종이는 화면에서 최대 560px이라 여기서 약 2배다.
-const EXPORT_W = 1080;
 
 const HEART = <Heart size={11} className="fill-current shrink-0 block" style={{ color: ACCENT }} />;
 
@@ -342,6 +340,9 @@ export function SunGuidePanel({
   const [busy, setBusy] = useState('');
   const working = !!busy;
   const sheetRef = useRef(null);
+  // **누르기 전에** html2canvas를 받아 둔다 — 누른 뒤에 받으면 그 사이에 공유 시트를
+  // 열 자격(사용자 제스처)이 만료된다(services/shareImage.js 머리말 ①).
+  useEffect(() => { preloadExport(); }, []);
 
   // 주보 한 건에 가이드 한 벌 — 캐시 열쇠도 주보 id다. 한 번 읽은 가이드는 다시 눌러도
   // 읽기 한 번으로 끝난다(AI를 다시 부르지 않는다 — 저장된 글을 보여줄 뿐이다).
@@ -436,52 +437,23 @@ export function SunGuidePanel({
     } finally { setBusy(''); }
   };
 
-  // 화면에 서 있는 그 종이를 그대로 그림으로 굽는다(2배). **라이브러리는 누를 때 받는다** —
-  // 이 버튼을 누르는 사람은 몇 명뿐인데 첫 번들에 실으면 모두가 내려받는다(ClubQr의
-  // qrcode-generator와 같은 판단). 종이가 이미 밝은 값으로만 그려져 있어서(위 머리말)
-  // 다크 테마에서도 파일은 같은 그림이다.
+  // 화면에 서 있는 그 종이를 그대로 그림으로. 굽는 것과 보내는 사다리는 모두
+  // services/shareImage.js 한 벌이다 — 노트·주보가 같이 쓴다.
   //
-  // 보내기·저장은 ClubQr과 같은 사다리다: 그림째 공유할 수 있으면 공유 시트로, 아니면
-  // 내려받기, **카카오 인앱 웹뷰는 내려받기가 막히므로** 새 탭에 띄운다(거기서는 길게
-  // 눌러 저장하는 기본 동작이 산다).
+  // **여기서 사용자가 겪은 것**(2026-09-09 — "이미지로 저장을 했을 때 저장도 안되고
+  // 카카오톡으로 공유 창도 안 열림")은 셋이 겹친 것이고 셋 다 그 모듈에서 고쳤다:
+  // 누를 때 라이브러리를 받아 공유 자격을 잃던 것 · 긴 종이에서 캔버스가 상한을 넘어
+  // 빈 그림이 되던 것 · 마지막 갈래까지 실패해도 아무 말이 없던 것. 여기서 남은 일은
+  // 미리 받아 두기(preloadExport)와 파일 이름뿐이다.
   const saveImage = async () => {
     const node = sheetRef.current;
     if (!node || working) return;
     setBusy('image');
     try {
-      const { default: html2canvas } = await import('html2canvas');
-      const width = node.offsetWidth || 560;
-      const canvas = await html2canvas(node, {
-        scale: Math.max(1, EXPORT_W / width),
-        backgroundColor: PAPER,
-        useCORS: true,
-        logging: false,
-      });
-      const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
-      if (!blob) throw new Error('빈 그림');
+      const blob = await nodeToPng(node, PAPER);
       const name = `순모임 가이드 ${guideDateLabel(selected?.service_date)}`.trim();
-      const file = new File([blob], `${name}.png`, { type: 'image/png' });
-      if (navigator.canShare?.({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file] });
-          return;
-        } catch (e) {
-          if (e?.name === 'AbortError') return;
-          console.error('[sunGuide] 그림 공유 실패:', e);
-        }
-      }
-      const href = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      if (isKakaoInApp(navigator.userAgent) || !('download' in a)) {
-        window.open(href, '_blank', 'noopener');
-      } else {
-        a.href = href;
-        a.download = `${name}.png`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      }
-      setTimeout(() => URL.revokeObjectURL(href), 8000);
+      await shareOrSave([new File([blob], `${name}.png`, { type: 'image/png' })],
+        { toast: showToast, what: '이미지를 저장하지 못했어요' });
     } catch (e) {
       console.error('[sunGuide] 이미지를 저장하지 못했어요:', e);
       showToast(failText('이미지를 저장하지 못했어요', e));
@@ -508,17 +480,24 @@ export function SunGuidePanel({
           지난 주 가이드를 다시 펼쳐 보는 길이기도 하다. **종이가 서 있을 때만** 선다:
           가이드가 아직 없으면 같은 일을 본문의 고르는 줄이 한다(2026-09-09 · Chooser
           머리말) — 같은 조작기를 두 벌 세우면 어느 쪽이 진짜인지 알 수 없다. */}
-      {list.length > 1 && showSheet && (
+      {/* **발행된 주보가 하나뿐이어도 세운다**(사용자 지적 2026-09-09 — "아직도 주보
+          선택해서 순모임 가이드를 만들 수 있는 기능이 없어보임"). 예전에는 `list.length > 1`
+          이라 라이브에 발행 주일 주보가 한 건인 동안 이 칩이 아예 없었고, 고른다는 개념
+          자체가 화면에 없었다. 칩 글자에 '주보'를 붙이는 이유도 같다 — 날짜만 있으면
+          버튼 무리 속에서 무엇을 고르는 자리인지 읽히지 않는다. */}
+      {showSheet && (
         <MenuPick className="sun-guide-pick" label="가이드 기준 주보 고르기"
           items={list.map((s) => ({ id: s.id, name: guideServiceLabel(s) }))}
           onPick={(id) => setPicked(id)}>
-          {dateLabel || '주보 고르기'}
+          {dateLabel ? `${dateLabel} 주보` : '주보 고르기'}
         </MenuPick>
       )}
-      {/* '고정' 배지는 **고정할 수 있는 사람에게만** 보인다(§4.4의 3줄 요약과 같은
-          판단) — 읽는 사람에게는 저장된 글인지가 같은 값이고, 배지가 붙으면 글보다
-          누가 골라 뒀는지를 먼저 보게 된다. 고정한 사람 이름은 DB에만 남는다. */}
-      {canPin && pinned && (
+      {/* '고정' 배지는 **고정을 풀 수 없는 사람에게** 붙는다(2026-09-09에 조건을 뒤집었다).
+          마스터에게는 바로 옆에 '고정 해제' 버튼이 있어 배지가 같은 말을 두 번 하고, 375에서
+          머리줄이 접히는 원인이기도 했다. 반대로 순장에게는 고정된 가이드의 '수정·다시 만들기'가
+          **아무 설명 없이 사라져** 있었다(locked) — 이 배지가 그 이유를 말하는 유일한 자리다.
+          고정한 사람 이름은 DB에만 남는다. */}
+      {pinned && !canPin && (
         <span className="sun-guide-pinned inline-flex items-center gap-1 text-[10px] text-fg-faint">
           <Pin size={9} />고정
         </span>
@@ -566,7 +545,9 @@ export function SunGuidePanel({
   // 딸린 줄처럼 읽혔다(1440에서 실측).
   return (
     <section className="sun-guide dc-card mt-6 pt-1">
-      <SectionHead right={actions}>순모임 가이드</SectionHead>
+      {/* 동작이 넷 이상이라 375에서 두 줄로 접힌다 — 그때 제목·가로선이 따라 내려가지
+          않게 wrapRight로 위에 맞춘다(사용자 지적 2026-09-09) */}
+      <SectionHead right={actions} wrapRight>순모임 가이드</SectionHead>
       <div className="sun-guide-body-wrap w-full max-w-[560px] mx-auto">
         {(making || guideQ.loading) && SKELETON}
         {editing && (

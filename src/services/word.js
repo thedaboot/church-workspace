@@ -318,3 +318,31 @@ export function parseVerseKey(key) {
   const m = /^(\S+)\s+(\d+):(\d+)$/.exec(String(key || ''));
   return m ? { bookId: m[1], chapter: +m[2], verse: +m[3] } : null;
 }
+
+// ── AI 본문 검색 캐시 (0057) ────────────────────────────────────────────────
+// 같은 물음은 **누가 물어도** 한 번만 AI로 나간다(사용자 요청 2026-09-09). 열쇠와
+// 담는 모양은 bibleSearch가 정하고(normalizeQuery · 참조 문자열 배열) 여기는 왕복만
+// 한다 — 그 파일은 순수하게 남아야 노드에서 그대로 검사된다(bibleSearch.js 머리말).
+//
+// 캐시는 **있으면 좋은 것**이다. 읽기가 실패하면 null을 돌려 AI로 보내고, 쓰기가
+// 실패하면 삼킨다(같은 순간 남이 먼저 넣으면 23505다 — 그건 캐시가 채워진 것이니
+// 오류가 아니다). 캐시 때문에 검색이 안 되는 일이 없어야 한다.
+//
+// 게스트 모드에는 갈래가 없다 — ai.aiEnabled()가 거짓이면 wordBible이 검색을 아예
+// 안 부르므로 이 함수까지 오지 않는다(§6-9-ar).
+export const bibleSearchStore = {
+  get: async (key) => {
+    if (!supabase) return null;
+    const { data, error } = await supabase.from('bible_search_cache')
+      .select('refs').eq('query_norm', key).maybeSingle();
+    if (error) { console.error('[word] 검색 캐시를 읽지 못했어요:', error); return null; }
+    return Array.isArray(data?.refs) ? data.refs : null;
+  },
+  set: async (key, refs) => {
+    if (!supabase || !Array.isArray(refs) || !refs.length) return;
+    const { error } = await supabase.from('bible_search_cache')
+      .insert({ query_norm: key, refs });
+    // 23505 = 같은 순간 남이 먼저 넣었다. 그건 성공과 같다.
+    if (error && error.code !== '23505') console.error('[word] 검색 캐시를 남기지 못했어요:', error);
+  },
+};

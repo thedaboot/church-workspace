@@ -15,9 +15,9 @@
 // **부품을 그대로 옮기지 않는다.** 우리 노트는 편집기 하나(MarkdownEditor)이고 저장
 // 형식은 마크다운 문자열이라, 도막을 다섯 상자로 만들면 저장 자리도 다섯이 된다.
 // 대신 **그 도막들을 H3 제목으로 심어 준다** — 편집기는 그대로 하나이고, 읽기 모드
-// (RichText)·나눔 피드·AI 프롬프트가 전부 지금 쓰는 길 그대로다. 잎 표시는 화면에서만
-// 붙인다(index.css의 `.note-template h3::before` 한 벌 — 편집기 감싸개와 읽기 상자에
-// 같이 붙는 클래스라 두 모드에서 같은 모양이다).
+// (RichText)·나눔 피드·AI 프롬프트가 전부 지금 쓰는 길 그대로다. 도막 제목 앞의 잎
+// 표시는 2026-09-09에 사용자가 뺐다(§7) — index.css `.note-template h3`에 남은 것은
+// 도막 사이 간격뿐이다.
 //
 // QT에는 '말씀 요약'이 없다. 그 칸은 설교를 듣고 적는 자리인데 QT는 혼자 본문을 읽는
 // 자리라, 요약과 묵상이 같은 글이 된다.
@@ -78,4 +78,31 @@ export function isTemplateOnly(md, prefill = '') {
 // 저장된 글이 없는 자리에 템플릿을 세운다 — 부르는 쪽이 매번 같은 판단을 하지 않게.
 export function bodyOrTemplate(body, template) {
   return String(body || '').trim() ? body : template;
+}
+
+// ── 종이가 읽는 모양 (2026-09-09) ───────────────────────────────────────────
+// 저장된 마크다운 → 도막 배열 `[{ title, body }]`. 종이(components/paper.jsx)가
+// 왼쪽 라벨·오른쪽 글 두 칸으로 그리려면 도막이 갈려 있어야 한다.
+//
+// **아는 제목만 받지 않는다.** 도막 이름은 편집기 안의 보통 글이라 사람이 지우거나
+// 바꿀 수 있다(위 머리말) — `### `로 시작하는 줄이면 전부 도막의 머리로 본다. 그래야
+// 제목을 고쳐 쓴 노트가 종이에서 통째로 한 덩이가 되지 않는다.
+// 첫 제목보다 앞에 있는 글은 라벨이 없는 도막 하나로 앞에 선다(제목을 다 지운 노트).
+// 빈 도막은 버린다 — 종이에 라벨만 남은 빈 줄이 생기면 구멍으로 보인다.
+export function splitNoteSections(md) {
+  const out = [];
+  let cur = { title: '', lines: [] };
+  for (const raw of String(md || '').split('\n')) {
+    const head = /^###\s+(.*)$/.exec(raw.trim());
+    if (head) {
+      out.push(cur);
+      cur = { title: head[1].trim(), lines: [] };
+    } else {
+      cur.lines.push(raw);
+    }
+  }
+  out.push(cur);
+  return out
+    .map(s => ({ title: s.title, body: s.lines.join('\n').trim() }))
+    .filter(s => !!s.body);
 }

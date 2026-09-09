@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck,
-  ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText, X } from 'lucide-react';
+  ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText, X,
+  Download, FileDown } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
@@ -9,15 +10,19 @@ import { FilePreviewModal } from './FilePreviewModal.jsx';
 import { formatBytes, fileKind } from './fileRow.jsx';
 import { keepVisible } from '../utils.js';
 import { PassagePicker, PassageBody } from './worshipPassage.jsx';
+import { loadPassage } from '../services/bible.js';
 import { EmptyBookMark } from './wordBible.jsx';
-import { RichText } from './RichText.jsx';
 import { DocEmbedModal, docEmbedKind } from './DocEmbed.jsx';
 import { objectParticle } from '../services/errorText.js';
 import { BTN, BTN_QUIET, WITH_ICON, FIELD } from './groupsParts.jsx';
 import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM,
   filesOfKind, fileKindOf, SONGFORM, CUESHEET } from '../services/worship.js';
 import { honorificsOf } from '../services/people.js';
-import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate } from '../services/noteTemplate.js';
+import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections } from '../services/noteTemplate.js';
+import { NoteSheet, ServiceSheetOne, ServiceSheetTwo, PAPER, paperDate } from './paper.jsx';
+import { preloadExport, nodeToPng, nodesToPdf, shareOrSave } from '../services/shareImage.js';
+import { showToast } from './Toast.jsx';
+import { failText } from '../services/errorText.js';
 
 // ============================================================================
 // 주보 상세 — 말씀 · 담당자 · 찬양 · 광고 + 내 예배 노트 (docs/V2.md 결정 4·5·7)
@@ -80,6 +85,13 @@ const TABS = [
   { id: 'songs', label: '찬양' },
   { id: 'notices', label: '광고' },
 ];
+// 발행된 주보에는 **'주보'가 맨 앞에 붙고 그것이 기본 탭**이다(사용자 요청 2026-09-09 —
+// "발행이 완료되면 예배 페이지에서 보일 때는 주보 템플릿에 맞춰서 깔끔하게").
+//
+// 탭을 없애고 종이만 남기지 **않는** 이유: 곡 제목의 유튜브 링크·재생목록 열기와 본문
+// 구절 → 성경 읽기 잇기가 종이에는 없다. 그것까지 걷으면 §8의 '기능을 숨기지 않습니다'와
+// 부딪힌다. 종이는 바깥으로 나가는 인쇄물이고, 탭은 우리끼리 쓰는 화면이다.
+const PUBLISHED_TABS = [{ id: 'paper', label: '주보' }, ...TABS];
 
 // 저장 상태를 말하는 칩 한 벌. 저절로 저장되는 칸(주보 편집 · 출석 메모)과 눌러서
 // 저장하는 칸(내 예배 노트 — 사용자 결정 2026-09-02)이 같은 것을 쓴다.
@@ -402,7 +414,8 @@ const PraiseHead = ({ leader, playlistUrl, nameOf }) => (
     <span className="worship-praise-team font-bold text-fg">{PRAISE_TEAM}</span>
     {/* 인도자도 담당자 줄과 같은 호칭 규칙이다(services/people.js honorific) — 명단에
         없는 객원 인도자는 적은 글자 그대로 선다 */}
-    {leader ? <span className="worship-praise-leader">· 인도 {nameOf ? nameOf(leader) : leader}</span> : null}
+    {/* '찬양 인도'다 — 예배 인도가 아니다(사용자 지적 2026-09-09) */}
+    {leader ? <span className="worship-praise-leader">· 찬양 인도 {nameOf ? nameOf(leader) : leader}</span> : null}
     {playlistUrl ? (
       <a href={playlistUrl} target="_blank" rel="noreferrer"
         className="worship-praise-playlist inline-flex items-center gap-1 leading-none text-[11.5px] font-semibold text-accent-text hover:underline">
@@ -963,8 +976,8 @@ function NoticesEdit({ rows, onChange }) {
 //
 // **저장된 노트가 있으면 읽기 모드다**(2026-09-07 · QT 묵상과 같은 패턴). 예전에는 편집기가
 // 늘 열려 있어서 "쓴 것인지 고치는 중인지"가 화면에 없었다 — 글은 저장돼 있는데 편집기
-// 안에 그대로 있으니 아직 안 보낸 것처럼 읽혔다. 지금은 저장된 글을 RichText(나눔 피드와
-// 같은 뷰어 · 저장 형식이 같은 마크다운이다)로 그리고 '수정'을 눌러야 편집기가 열린다.
+// 안에 그대로 있으니 아직 안 보낸 것처럼 읽혔다. 지금은 저장된 글을 **종이**로 그리고
+// (components/paper.jsx · 공유되는 그림과 같은 것이다) '수정'을 눌러야 편집기가 열린다.
 //
 // 도구 줄의 자리는 §8 그대로다 — **확정 왼쪽 / 나가기 오른쪽**, 그리고 두 모드에서 같은 자리:
 //   읽기  `[수정(연한 accent)] [칩] … [ ] [공유 토글]`
@@ -974,7 +987,90 @@ function NoticesEdit({ rows, onChange }) {
 const NOTE_TOOLS = 'worship-note-tools mt-2.5 grid items-center gap-2 grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]';
 const NOTE_TOGGLE = 'col-span-3 w-full sm:col-span-1 sm:w-auto';
 
-function MyNote({ note, passageRef = '', onSave, onShare }) {
+// 노트 종이 위의 캐릭터 — 예배는 heart, 말씀(QT)은 book. 홈 쇼케이스가 쓰는 그 컷이다.
+// **주보 종이에는 얹지 않는다** — 설교 본문 전문이 실리는 공식 문서이고, 예배 화면에서
+// 캐릭터를 걷어낸 결정(docs/V2 회차 7~8 · tests/worship이 단정한다)과도 그쪽이 맞는다.
+export const NOTE_CUT = { src: '/chars/heart.webp', w: 187, h: 156 };
+// 종이 폭 상한 — 인쇄물이라 여기만 max-w를 쓴다(§6-9-k의 예외. 가이드 종이도 같다)
+const SHEET_BOX = 'paper-box w-full max-w-[560px] mx-auto';
+
+// ── 발행본 = 종이 두 쪽 (사용자 요청 2026-09-09) ─────────────────────────────
+// "주보도 발행이 완료되면 예배 페이지에서 보일 때는 주보 템플릿에 맞춰서 깔끔하게".
+// 그래서 **발행된 주보에는 탭이 없다** — 담당자·찬양·광고가 다 종이 위에 있으니 탭은
+// 말씀 하나만 남아 뜻이 없어진다. 작성 중인 주보는 그대로 탭이다(고치는 화면이다).
+//
+// 쪽 나누기: **1쪽 말씀 · 2쪽 찬양·광고**(사용자 결정 2026-09-09). 본문을 전부 적기
+// 때문에 1쪽이 본문 길이만큼 길어지는데, 찬양·광고가 2쪽에서 새로 시작하므로 밀리지
+// 않는다. PDF는 쪽마다 그 종이의 비율을 그대로 쓴다(services/shareImage.js).
+//
+// 송폼·큐시트 파일은 종이에 없다 — 그것은 바깥으로 나가는 인쇄물의 내용이 아니라
+// 우리끼리 여는 파일이고, 각자의 탭(말씀·찬양)에 그대로 있다.
+function ServicePaper({ service, nameOf }) {
+  const [verses, setVerses] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const one = useRef(null);
+  const two = useRef(null);
+  const date = paperDate(service?.service_date);
+  const kind = kindLabel(service?.kind);
+
+  // PDF는 두 쪽을 다 구우므로 라이브러리가 둘(html2canvas·jspdf) 다 필요하다
+  useEffect(() => { preloadExport({ pdf: true }); }, []);
+
+  // 본문 전문. 못 읽는 구절은 빈 배열이고 종이에는 구절 표기만 남는다(PassageBody와 같은 규칙).
+  useEffect(() => {
+    let alive = true;
+    setVerses(null);
+    const ref = service?.passage_ref;
+    if (!ref) { setVerses([]); return undefined; }
+    loadPassage(ref)
+      .then(p => { if (alive) setVerses(p?.verses?.length ? p.verses : []); })
+      .catch(() => { if (alive) setVerses([]); });
+    return () => { alive = false; };
+  }, [service?.passage_ref]);
+
+  const sharePdf = async () => {
+    if (busy || verses === null) return;
+    setBusy(true);
+    try {
+      const blob = await nodesToPdf([one.current, two.current], PAPER.surface);
+      const name = `주보 ${date}`.trim();
+      await shareOrSave([new File([blob], `${name}.pdf`, { type: 'application/pdf' })],
+        { toast: showToast, what: '주보를 내보내지 못했어요' });
+    } catch (e) {
+      console.error('[worship] 주보 PDF를 만들지 못했어요:', e);
+      showToast(failText('주보를 내보내지 못했어요', e));
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="worship-paper">
+      {/* 도구는 종이 위 한 줄 — 감추지 않는다(§8). 본문이 아직 안 왔으면 잠긴다:
+          그때 구우면 본문 없는 주보가 나간다 */}
+      <div className="flex items-center gap-1.5 mb-3">
+        <button type="button" onClick={sharePdf} disabled={busy || verses === null}
+          className={`worship-paper-pdf ${WITH_ICON} ${BTN}`}>
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <FileDown size={13} />}
+          <span>PDF로 공유</span>
+        </button>
+      </div>
+
+      <div className={`${SHEET_BOX} flex flex-col gap-4`}>
+        <div className="rounded-[12px] overflow-hidden border border-line">
+          <ServiceSheetOne sheetRef={one} date={date} kind={kind} title={service?.title || ''}
+            refStr={service?.passage_ref || ''} preacher={service?.preacher || ''} verses={verses || []} />
+        </div>
+        <div className="rounded-[12px] overflow-hidden border border-line">
+          <ServiceSheetTwo sheetRef={two} date={date} kind={kind} team={PRAISE_TEAM}
+            leader={service?.praise_leader || ''} songs={service?.songs || []}
+            roles={service?.roles || []} notices={service?.notices || []} nameOf={nameOf} />
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
+function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', onSave, onShare }) {
   // **처음 여는 노트는 템플릿으로 시작한다**(사용자 요청 2026-09-08 — 옛 순 노트
   // 템플릿을 우리 디자인으로). services/noteTemplate.js가 제목 다섯 줄을 만들고,
   // '본문' 아래에는 이 예배의 구절이 미리 들어간다.
@@ -995,6 +1091,28 @@ function MyNote({ note, passageRef = '', onSave, onShare }) {
   const hasText = !isTemplateOnly(body, passageRef);
   const dirty = body !== base;
   const reading = saved && !editing;
+  // 종이에 세울 도막. 저장된 글만 본다 — 편집 중인 글은 종이가 아니라 편집기가 그린다.
+  const sections = useMemo(() => splitNoteSections(note?.body || ''), [note?.body]);
+  const sheetRef = useRef(null);
+  const [imgBusy, setImgBusy] = useState(false);
+  // **누르기 전에** html2canvas를 받아 둔다 — 누른 뒤에 받으면 그 사이에 공유 시트를
+  // 열 자격(사용자 제스처)이 만료된다(services/shareImage.js 머리말 ①).
+  useEffect(() => { if (reading) preloadExport(); }, [reading]);
+
+  const saveImage = async () => {
+    const node = sheetRef.current;
+    if (!node || imgBusy) return;
+    setImgBusy(true);
+    try {
+      const blob = await nodeToPng(node, PAPER.surface);
+      const name = `예배 노트 ${paperDate(serviceDate)}`.trim();
+      await shareOrSave([new File([blob], `${name}.png`, { type: 'image/png' })],
+        { toast: showToast, what: '이미지를 저장하지 못했어요' });
+    } catch (e) {
+      console.error('[worship] 노트 이미지를 만들지 못했어요:', e);
+      showToast(failText('이미지를 저장하지 못했어요', e));
+    } finally { setImgBusy(false); }
+  };
 
   // 주보가 바뀌거나 서버 값이 새로 오면 편집 중이던 글을 그 값으로 되돌린다.
   // **읽기 모드도 같이 되돌린다** — 다른 주보를 열었는데 앞 주보의 편집 상태가 남으면
@@ -1032,9 +1150,12 @@ function MyNote({ note, passageRef = '', onSave, onShare }) {
         <SaveState state={state} />
       </div>
       {reading ? (
-        <div className="worship-note-read note-template min-h-40 border border-line rounded-md p-3 bg-surface">
-          <div className="text-[13px] leading-relaxed text-fg-secondary break-words">
-            <RichText content={note?.body || ''} />
+        // **저장하면 바로 종이다**(사용자 요청 2026-09-09). 공유되는 그림과 화면이 같은
+        // 것이라야 "이 모양으로 나간다"를 눌러 보기 전에 안다.
+        <div className={`worship-note-read ${SHEET_BOX}`}>
+          <div className="rounded-[12px] overflow-hidden border border-line">
+            <NoteSheet sheetRef={sheetRef} date={paperDate(serviceDate)} kind="예배 노트"
+              passageRef={passageRef} passageTitle={passageTitle} sections={sections} cut={NOTE_CUT} />
           </div>
         </div>
       ) : (
@@ -1052,7 +1173,14 @@ function MyNote({ note, passageRef = '', onSave, onShare }) {
       )}
       <div className={NOTE_TOOLS}>
         {reading ? (
-          <button type="button" onClick={() => setEditing(true)} className={`worship-note-edit ${BTN_SOFT}`}>수정</button>
+          <span className="flex items-center gap-2">
+            <button type="button" onClick={() => setEditing(true)} className={`worship-note-edit ${BTN_SOFT}`}>수정</button>
+            <button type="button" onClick={saveImage} disabled={imgBusy}
+              className={`worship-note-image ${WITH_ICON} ${BTN_QUIET}`}>
+              {imgBusy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+              <span>이미지로 저장</span>
+            </button>
+          </span>
         ) : (
           <button type="button" onClick={save} disabled={!dirty || !hasText || busy} className={`worship-note-save ${BTN}`}>저장</button>
         )}
@@ -1079,7 +1207,7 @@ export function ServiceDetail({
   files = [], onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
   onPullPlaylist, onLookupTitle, onShareNote, onUploadFiles, onRemoveFile,
 }) {
-  const [tab, setTab] = useState('word');
+  const [tab, setTab] = useState('paper');
   const [draft, setDraft] = useState(null);     // null이면 보기 모드
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(null);     // 미리보기로 열어 둔 파일 행
@@ -1108,7 +1236,10 @@ export function ServiceDetail({
   // 만들자마자 수정 화면으로 들어온다(사용자 결정) — 새 주보는 열자마자 빈 칸이라
   // '수정'을 한 번 더 누르게 할 이유가 없다.
   useEffect(() => {
-    dirty.current = false; setSaveState(''); setTab('word'); setPreview(null);
+    // 발행본은 종이부터, 작성 중인 주보는 말씀부터(종이 탭이 아예 없다)
+    dirty.current = false; setSaveState('');
+    setTab(service?.status === 'published' ? 'paper' : 'word');
+    setPreview(null);
     setDraft(startEditing && perms.canEdit ? draftOf(service) : null);
     // 주보가 바뀔 때만 — startEditing은 그때 부르는 쪽이 정해서 넘긴다
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1128,6 +1259,11 @@ export function ServiceDetail({
 
   if (!service) return null;
   const isDraft = service.status !== 'published';
+  // **발행된 주보는 종이부터 본다**(사용자 요청 2026-09-09). 작성 중이거나 고치는
+  // 중에는 종이 탭이 없으므로, 그 상태에서 tab이 'paper'로 남아 있으면 말씀으로 읽는다
+  // (수정을 누른 순간 빈 판이 되지 않게).
+  const tabs = (!isDraft && !editing) ? PUBLISHED_TABS : TABS;
+  const activeTab = tabs.some(t => t.id === tab) ? tab : 'word';
   // 출석 진입은 **발행되었는가**까지만 본다(사용자 결정 2026-09-05) — 예배 전에도
   // 미리 열어 명단을 훑을 수 있고, 그때는 출석 화면이 체크를 잠근다(worshipAttendance).
   const canAttend = perms.canCheck && attendanceVisible(service);
@@ -1227,25 +1363,28 @@ export function ServiceDetail({
           기기가 무시한다). 대시보드 탭 줄(views.jsx)이 이미 tablist/tab 한 벌이라 같은
           모양으로 맞춘다 — 보이는 것은 그대로다. */}
       <div role="tablist" aria-label="주보" className="flex items-center gap-1 mb-3 overflow-x-auto scrollbar-hide x-scroll-lock" style={{ borderBottom: '1px solid var(--app-line)' }}>
-        {TABS.map(t => (
-          <button key={t.id} type="button" role="tab" onClick={() => setTab(t.id)} aria-selected={tab === t.id}
-            className={`worship-tab shrink-0 px-3 py-2 text-[12.5px] font-semibold transition-colors ${tab === t.id ? 'text-fg' : 'text-fg-faint hover:text-fg-muted'}`}
-            style={{ borderBottom: `2px solid ${tab === t.id ? 'var(--app-ink)' : 'transparent'}`, marginBottom: -1 }}>
+        {tabs.map(t => (
+          <button key={t.id} type="button" role="tab" onClick={() => setTab(t.id)} aria-selected={activeTab === t.id}
+            className={`worship-tab shrink-0 px-3 py-2 text-[12.5px] font-semibold transition-colors ${activeTab === t.id ? 'text-fg' : 'text-fg-faint hover:text-fg-muted'}`}
+            style={{ borderBottom: `2px solid ${activeTab === t.id ? 'var(--app-ink)' : 'transparent'}`, marginBottom: -1 }}>
             {t.label}
           </button>
         ))}
       </div>
 
       <div className="worship-tabpanel">
-        {tab === 'word' && (editing
+        {activeTab === 'paper' && (
+          <ServicePaper service={service} nameOf={nameOf} />
+        )}
+        {activeTab === 'word' && (editing
           ? <WordEdit draft={draft} set={set} cueFiles={cueFiles} canEdit={!!(editing && perms.canEdit)}
               onPick={fs => onUploadFiles(fs, CUESHEET)} onOpen={setPreview}
               onRemove={onRemoveFile} />
           : <WordTab service={service} onOpenBible={onOpenBible} cueFiles={cueFiles} onOpenFile={setPreview} />)}
-        {tab === 'roles' && (editing
+        {activeTab === 'roles' && (editing
           ? <RolesEdit rows={rows('roles')} people={people} onChange={v => set({ roles: v })} />
           : <RolesTab rows={rows('roles')} people={people} nameOf={nameOf} />)}
-        {tab === 'songs' && (
+        {activeTab === 'songs' && (
           <>
             {editing
               ? <SongsEdit rows={rows('songs')} people={people} onChange={v => set({ songs: v })}
@@ -1262,13 +1401,14 @@ export function ServiceDetail({
               onPick={fs => onUploadFiles(fs, SONGFORM)} onOpen={setPreview} onRemove={onRemoveFile} />
           </>
         )}
-        {tab === 'notices' && (editing
+        {activeTab === 'notices' && (editing
           ? <NoticesEdit rows={rows('notices')} onChange={v => set({ notices: v })} />
           : <NoticesTab rows={rows('notices')} />)}
       </div>
 
       {canWriteNote && !editing && (
-        <MyNote note={note} passageRef={service?.passage_ref || ''} onSave={onSaveNote} onShare={onShareNote} />
+        <MyNote note={note} serviceDate={service?.service_date || ''} passageRef={service?.passage_ref || ''}
+          passageTitle={service?.title || ''} onSave={onSaveNote} onShare={onShareNote} />
       )}
 
       {/* 파일 미리보기 — 업무 첨부와 **같은 창**이다. 송폼도 큐시트 파일도 이 창 하나로

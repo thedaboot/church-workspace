@@ -6,7 +6,7 @@ import { aiBibleSearch, hitLabel } from '../services/bibleSearch.js';
 import { AiService, aiEnabled } from '../services/ai.js';
 import {
   loadBibleState, saveBibleState, loadFontStep, saveFontStep,
-  chapterKey, parseChapterKey, verseKey, parseVerseKey,
+  chapterKey, parseChapterKey, verseKey, parseVerseKey, bibleSearchStore,
 } from '../services/word.js';
 import { showToast } from './Toast.jsx';
 import { readCache, writeCache } from '../services/cache.js';
@@ -741,7 +741,10 @@ export function BibleTab({ initialRef = '' }) {
     if (!aiEnabled()) return;          // 게스트 모드에서는 묻지도 않는다(빈 자리도 안 뜬다)
     setAiWait(true);
     let hits = [];
-    try { hits = await aiBibleSearch(q, books, loadBook, AiService.callGemini); } catch { hits = []; }
+    // 다섯째 인자가 **사람들 사이에 공유되는 캐시**다(0057) — 남이 같은 말로 이미
+    // 물어봤으면 AI를 부르지 않는다(사용자 요청 2026-09-09).
+    try { hits = await aiBibleSearch(q, books, loadBook, AiService.callGemini, bibleSearchStore); }
+    catch { hits = []; }
     if (token !== searchToken.current) return;
     setAiHits(hits); setAiWait(false);
   };
@@ -1339,7 +1342,6 @@ function SearchResults({ query, results, progress, searching, aiHits = [], aiWai
                         {hitLabel(h)}
                       </span>
                       <span className="block text-[12.5px] leading-relaxed text-fg-secondary mt-0.5">{h.text}</span>
-                      {h.why && <span className="block text-[11.5px] text-fg-faint mt-0.5">{h.why}</span>}
                     </button>
                   ))}
                 </div>

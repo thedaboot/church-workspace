@@ -429,11 +429,16 @@ export function personLoad(openTasks, today = ISO_TODAY()) {
 }
 
 // ── 섹션 제목 (줄 있는 것 / 없는 것) ──────────────────────────────────────
-export function SectionHead({ children, right }) {
+// `wrapRight` — 오른쪽 묶음이 **두 줄로 접히는** 머리줄(순모임 가이드처럼 버튼이
+// 넷 이상). 기본(items-center)으로 두면 그 묶음이 두 줄이 되는 순간 제목과 가로선이
+// 두 줄 덩이의 세로 가운데로 내려가, 선이 버튼 사이를 관통하고 제목이 첫 줄 버튼과
+// 다른 높이에 선다(사용자 지적 2026-09-09 — 375에서 '고정 해제'가 제목과 겹쳐 보였다).
+// 그때는 위로 맞추고 가로선만 제목의 한가운데 높이로 내린다.
+export function SectionHead({ children, right, wrapRight = false }) {
   return (
-    <div className="flex items-center gap-2 pb-2.5">
+    <div className={`flex gap-2 pb-2.5 ${wrapRight ? 'items-start' : 'items-center'}`}>
       <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">{children}</h3>
-      <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
+      <span className={`flex-1 h-px ${wrapRight ? 'mt-[9px]' : ''}`} style={{ background: 'var(--app-line)' }} />
       {right}
     </div>
   );

@@ -1074,8 +1074,10 @@ check('고르는 줄은 발행된 주일 주보만 최근순으로 세운다',
   !gPick.err && JSON.stringify(gPick.opts)
     === JSON.stringify([svcLabel(SUN_LAST, '흔들리지 않는 기쁨'), svcLabel(SUN_OLD, '지난 주일')]),
   JSON.stringify(gPick));
-check('고정이 없으면 기본은 가장 최근 주일이다',
-  gPick.label === guideDate(SUN_LAST), gPick.label);
+// 칩 글자에 **'주보'가 붙는다**(2026-09-09) — 날짜만 있으면 버튼 무리 속에서 무엇을
+// 고르는 자리인지 읽히지 않았다(사용자 지적: "주보 선택해서 만드는 기능이 없어보임")
+check('고정이 없으면 기본은 가장 최근 주일이고 칩이 그것을 주보라고 말한다',
+  gPick.label === `${guideDate(SUN_LAST)} 주보`, gPick.label);
 // 지난 주일을 고르면 그 주보의 가이드를 연다 — 거기엔 아직 없으므로 **고르는 줄**이
 // 펴진다(2026-09-09). 그때 머리줄의 피커는 사라진다: 같은 일을 하는 조작기를 두 벌
 // 세우면 어느 쪽이 진짜인지 알 수 없다.
@@ -1266,13 +1268,16 @@ const gPinnedLeader = await ev(`(() => ({
   pin: !!document.querySelector('.sun-guide-pin'),
 }))()`);
 check('고정된 가이드가 있으면 모두 그것부터 연다',
-  gPinnedLeader.label === guideDate(SUN_OLD) && gPinnedLeader.ref.startsWith('빌립보서 4:1-3'),
+  gPinnedLeader.label === `${guideDate(SUN_OLD)} 주보` && gPinnedLeader.ref.startsWith('빌립보서 4:1-3'),
   JSON.stringify(gPinnedLeader));
 check('고정된 가이드는 마스터가 아니면 수정·다시 만들기가 없다',
   gPinnedLeader.edit === false && gPinnedLeader.regen === false && gPinnedLeader.image === true,
   JSON.stringify(gPinnedLeader));
-check('고정 배지와 고정 버튼은 마스터가 아니면 보이지 않는다',
-  gPinnedLeader.badge === false && gPinnedLeader.pin === false, JSON.stringify(gPinnedLeader));
+// 고정 버튼은 마스터만이지만 **배지는 반대다**(2026-09-09에 조건을 뒤집었다) —
+// 순장에게는 고정된 가이드의 수정·다시 만들기가 아무 설명 없이 사라져 있었고,
+// 이 배지가 그 이유를 말하는 유일한 자리다.
+check('고정을 못 푸는 사람에게는 배지가 왜 못 고치는지 말해 준다',
+  gPinnedLeader.badge === true && gPinnedLeader.pin === false, JSON.stringify(gPinnedLeader));
 // 줄글 요약을 들고 있는 지난 판도 그대로 열린다(선택 필드)
 const gOld = await ev(`(() => ({
   sub: (document.querySelector('.sun-guide-sub') || {}).textContent?.trim() || '',
@@ -1289,8 +1294,10 @@ const gPinnedMaster = await ev(`(() => ({
   pin: (document.querySelector('.sun-guide-pin') || {}).textContent?.trim() || '',
   edit: !!document.querySelector('.sun-guide-editbtn'),
 }))()`);
-check('마스터에게만 고정 배지와 고정 해제가 보인다',
-  gPinnedMaster.badge === '고정' && gPinnedMaster.pin === '고정 해제' && gPinnedMaster.edit === true,
+// 마스터에게는 '고정 해제' 버튼이 이미 그 사실을 말하므로 배지를 겹쳐 붙이지 않는다
+// (375에서 머리줄이 두 줄로 접히는 원인이기도 했다 — 사용자 지적 2026-09-09)
+check('마스터에게는 고정 해제만 있고 배지를 겹쳐 붙이지 않는다',
+  gPinnedMaster.badge === '' && gPinnedMaster.pin === '고정 해제' && gPinnedMaster.edit === true,
   JSON.stringify(gPinnedMaster));
 const gUnpin = await ev(`(async () => {
   const w = ms => new Promise(r => setTimeout(r, ms));

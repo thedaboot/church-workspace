@@ -23,6 +23,10 @@ assert.ok(!notify.isSystemNotif('reaction'), '반응은 사람이 만드는 알�
 // due_soon은 배치가 만든다 → '누가'가 없다. 이름이 섞여 들어가면 안 된다.
 assert.equal(notify.notifLine('due_soon', '더다붓'), '마감이 다가왔어요');
 assert.ok(notify.isSystemNotif('due_soon') && !notify.isSystemNotif('assign'));
+// 가입 요청(0022 트리거). 이 열쇠가 없던 동안 fallback으로 떨어져 '나를 멘션했어요'로
+// 떴다(사용자 지적 2026-09-09) — 그 자리를 다시 비우면 이 줄이 실패한다.
+assert.equal(notify.notifLine('approval', '문진혁'), '문진혁님이 가입을 요청했어요');
+assert.ok(!notify.isSystemNotif('approval'), '가입 요청은 누가 신청했는지가 문구에 남아야 한다');
 // 모르는 종류는 멘션 문구로 떨어진다(DB에 새 kind가 먼저 들어가도 화면이 비지 않게)
 assert.equal(notify.notifLine('무언가', '노준석'), '노준석님이 나를 멘션했어요');
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, Lock, Pencil, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Lock, Pencil, Trash2, Download, Loader2 } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
 import { selectMembers, selectCurrentUser } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
@@ -16,7 +16,9 @@ import { useLiveRefresh } from '../services/liveV2.js';
 import { ShareChip, ShareToggle } from '../components/ShareToggle.jsx';
 import { SectionHead, Card } from './dashboardParts.jsx';
 import { loadPassage } from '../services/bible.js';
-import { qtNoteTemplate, isTemplateOnly, bodyOrTemplate } from '../services/noteTemplate.js';
+import { qtNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections } from '../services/noteTemplate.js';
+import { NoteSheet, PAPER, paperDate } from '../components/paper.jsx';
+import { preloadExport, nodeToPng, shareOrSave } from '../services/shareImage.js';
 import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap, useBibleState, useVersePaint, marksFor } from '../components/wordBible.jsx';
 import {
   kstToday, shiftDay, dayLabel, shortDayLabel, monthDays, shiftMonth, weekRange, shouldAdoptBody,
@@ -106,7 +108,9 @@ const EditorSkeleton = () => (
 // 아니라 편집기의 실제 높이다: 센티넬 1 + 서식 바 37 + 본문 상자 160(md 224) = 198(262).
 // 자리표(EDITOR_SLOT)보다 1px 큰데, 그 1px을 안 맞추면 수정·취소를 누를 때마다 아래
 // 칸들이 1px씩 오르내린다.
-const READ_BOX = 'min-h-[198px] md:min-h-[262px] border border-line rounded-md p-3 bg-surface';
+// 종이 폭 상한 — 인쇄물이라 여기만 max-w를 쓴다(§6-9-k의 예외). 예배 노트와 같은 값이다
+const QT_SHEET_BOX = 'qt-note-sheet w-full max-w-[560px] mx-auto';
+const QT_CUT = { src: '/chars/book.webp', w: 196, h: 157 };
 
 // 본문이 차지할 자리. **빈 상태도 이 자리를 그대로 받는다**(사용자 피드백 2026-09-02 3차)
 // — 자리는 320px인데 빈 상태만 220px이라, 본문이 없는 날에는 마크가 위로 올라붙고 아래
@@ -298,6 +302,28 @@ function QtTab() {
   // 저장된 글이 있고 고치는 중이 아니면 읽기 모드다(머리말)
   const reading = canShare && !editing;
 
+  // ── 종이(읽기 모드) — 예배 노트와 같은 부품, 캐릭터만 book ────────────────
+  const qtSections = useMemo(() => splitNoteSections(entry?.body || ''), [entry?.body]);
+  const qtSheetRef = useRef(null);
+  const [qtImgBusy, setQtImgBusy] = useState(false);
+  // **누르기 전에** html2canvas를 받아 둔다(services/shareImage.js 머리말 ①)
+  useEffect(() => { if (reading) preloadExport(); }, [reading]);
+
+  const saveQtImage = async () => {
+    const node = qtSheetRef.current;
+    if (!node || qtImgBusy) return;
+    setQtImgBusy(true);
+    try {
+      const blob = await nodeToPng(node, PAPER.surface);
+      const name = `묵상 노트 ${paperDate(date)}`.trim();
+      await shareOrSave([new File([blob], `${name}.png`, { type: 'image/png' })],
+        { toast: showToast, what: '이미지를 저장하지 못했어요' });
+    } catch (e) {
+      console.error('[word] 묵상 이미지를 만들지 못했어요:', e);
+      showToast(failText('이미지를 저장하지 못했어요', e));
+    } finally { setQtImgBusy(false); }
+  };
+
   // 피드에 설 내 줄 — **지금 저장된 내 묵상**에서 만든다(mergeFeed 머리말).
   // profile_id를 실어 보내야 비공개로 넘어가 목록에서 빠진 뒤에도 같은 이름·사진으로
   // 서 있는다(피드는 profile_id로 멤버 프로필을 찾는다). 게스트에는 세션이 없다.
@@ -461,10 +487,13 @@ function QtTab() {
         <div className="mt-6" ref={editorRef} data-note={reading ? 'read' : 'edit'}>
           <SectionHead>내 묵상</SectionHead>
           <div className={EDITOR_SLOT}>
-            {/* 저장된 글 — 나눔 피드와 같은 뷰어로 그린다(저장 형식이 같은 마크다운이다) */}
-            <div data-note-read="1" className={reading ? `${READ_BOX} note-template` : 'hidden'}>
-              <div className="text-[13px] leading-relaxed text-fg-secondary break-words">
-                <RichText content={entry?.body || ''} />
+            {/* **저장하면 바로 종이다**(사용자 요청 2026-09-09 · components/paper.jsx).
+                예배 노트와 같은 종이이고 캐릭터 컷만 다르다(말씀은 book) — 공유되는
+                그림과 화면이 같아야 "이 모양으로 나간다"를 눌러 보기 전에 안다. */}
+            <div data-note-read="1" className={reading ? QT_SHEET_BOX : 'hidden'}>
+              <div className="rounded-[12px] overflow-hidden border border-line">
+                <NoteSheet sheetRef={qtSheetRef} date={paperDate(date)} kind="묵상 노트"
+                  passageRef={day?.passage_ref || ''} sections={qtSections} cut={QT_CUT} />
               </div>
             </div>
             {/* **언마운트하지 않는다**(머리말) — 읽기 모드에서는 감추기만 한다 */}
@@ -488,10 +517,17 @@ function QtTab() {
           <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] items-center gap-2 mt-2.5">
             <div data-note-tools="left" className="flex items-center gap-2 min-w-0">
               {reading ? (
-                <button onClick={openEditor}
-                  className="bg-accent-weak hover:brightness-95 text-accent-text px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
-                  수정
-                </button>
+                <>
+                  <button onClick={openEditor}
+                    className="bg-accent-weak hover:brightness-95 text-accent-text px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
+                    수정
+                  </button>
+                  <button onClick={saveQtImage} disabled={qtImgBusy} data-qt-image="1"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[11.5px] font-medium text-fg-muted bg-surface-hover hover:bg-line transition active:scale-95 disabled:opacity-50">
+                    {qtImgBusy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                    <span>이미지로 저장</span>
+                  </button>
+                </>
               ) : (
                 <button onClick={save} disabled={!dirty || !hasText || saving}
                   className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">

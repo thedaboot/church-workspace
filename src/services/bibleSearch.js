@@ -22,7 +22,6 @@ import { DASH_RULE } from './ai.js';
 
 export const AI_HIT_LIMIT = 12;      // 화면에 세우는 최대 줄 수(스펙)
 const RANGE_MAX = 3;                 // 한 줄이 품을 수 있는 절 수 — 넘으면 앞에서 자른다
-const WHY_MAX = 40;                  // '왜 이 구절인지' 한 줄의 글자 상한
 
 // 질문 하나 → 제미나이에게 보낼 { prompt, system }.
 // books는 public/bible/index.json이다 — **책 이름을 프롬프트에 실어 준다.** 안 실으면
@@ -34,10 +33,9 @@ export function buildBibleSearchPrompt(query, books = []) {
     '너는 개역한글 성경을 잘 아는 도우미다. 사람이 던진 물음의 **뜻**에 맞는 구절을 골라 준다.',
     '- 답은 JSON 배열 하나만 내라. 설명·머리말·코드 표시를 붙이지 마라.',
     `- 배열의 길이는 최대 ${AI_HIT_LIMIT}이다. 맞는 구절이 적으면 적게 내라. 하나도 없으면 []만 내라.`,
-    '- 각 항목은 {"ref":"요한복음 3:16","why":"한 문장"} 모양이다.',
+    '- 각 항목은 {"ref":"요한복음 3:16"} 모양이다. 다른 열쇠를 붙이지 마라.',
     '- ref는 **한 절**이거나 아주 짧은 범위(최대 3절)다. 장 전체를 가리키지 마라.',
     '- 책 이름은 아래 목록에 있는 이름을 **글자 그대로** 써라. 약칭·영어·다른 표기를 쓰지 마라.',
-    `- why는 이 구절이 물음과 어떻게 이어지는지 ${WHY_MAX}자 이내로 적는다.`,
     '- 성경에 없는 구절을 지어내지 마라. 확실한 것만 내라.',
     DASH_RULE,
     '',
@@ -51,9 +49,13 @@ export function buildBibleSearchPrompt(query, books = []) {
   return { prompt, system };
 }
 
-// 모델이 돌려준 글 → [{ ref, why }]. **못 읽으면 빈 배열이다**(안전한 실패).
+// 모델이 돌려준 글 → **참조 문자열 배열**. 못 읽으면 빈 배열이다(안전한 실패).
 // 코드 울타리(```json …```)와 앞뒤에 붙은 잡담을 견딘다 — 시스템 지시로 막아 두었지만
 // 한 번이라도 어기면 화면이 통째로 비므로, 첫 '['부터 마지막 ']'까지만 떼어 읽는다.
+//
+// 예전에는 `{ref, why}` 객체 배열이었다. **근거 문장(why)은 2026-09-09에 사용자가
+// 뺐다**(§7) — 열쇠가 ref 하나뿐이면 감쌀 이유가 없어서 문자열 배열로 폈다. 이 모양이
+// 곧 캐시에 담기는 모양이다(word.bibleSearchStore).
 export function parseBibleSearchJson(text) {
   const s = String(text || '').replace(/```(?:json)?/gi, '');
   const from = s.indexOf('[');
@@ -62,24 +64,26 @@ export function parseBibleSearchJson(text) {
   let arr = null;
   try { arr = JSON.parse(s.slice(from, to + 1)); } catch { return []; }
   if (!Array.isArray(arr)) return [];
+  // 옛 모양({ref: …})으로 오는 답도 받아 준다 — 모델은 지시를 어길 수 있고, 그때
+  // 화면이 통째로 비는 것보다 참조를 건져 쓰는 쪽이 낫다.
   return arr
-    .map(x => ({ ref: String(x?.ref || '').trim(), why: String(x?.why || '').trim() }))
-    .filter(x => x.ref);
+    .map(x => String((typeof x === 'string' ? x : x?.ref) || '').trim())
+    .filter(Boolean);
 }
 
-// [{ ref, why }] → 화면에 세울 줄 [{ bookId, name, chapter, verse, to, text, why }].
+// 참조 문자열 배열 → 화면에 세울 줄 [{ bookId, name, chapter, verse, to, text }].
 // loadBook(id)은 services/bible.js의 것을 그대로 받는다(검사에서는 파일을 읽는 가짜).
 //
 // 규칙은 셋이다:
 //   ① 못 읽는 참조·모르는 책은 **버린다**(지어낸 참조가 여기서 걸린다),
 //   ② 같은 절을 두 번 내면 앞의 것만 남긴다(모델이 자주 겹쳐 낸다),
 //   ③ 온 순서를 지킨다 — 모델이 관련도 순으로 내놓았다고 보고 우리가 다시 세우지 않는다.
-export async function resolveBibleHits(hits, books, loadBook) {
+export async function resolveBibleHits(refs, books, loadBook) {
   const out = [];
   const seen = new Set();
-  for (const h of hits || []) {
+  for (const r of refs || []) {
     if (out.length >= AI_HIT_LIMIT) break;
-    const ref = parseRef(h.ref, books);
+    const ref = parseRef(r, books);
     if (!ref) continue;
     const book = (books || []).find(b => b.id === ref.bookId);
     if (!book) continue;
@@ -100,7 +104,6 @@ export async function resolveBibleHits(hits, books, loadBook) {
       to: last.verse,
       // 여러 절이면 이어 붙인다 — 화면은 한 줄로 그리고 넘치면 자른다
       text: verses.map(v => v.text).join(' '),
-      why: String(h.why || '').slice(0, WHY_MAX),
     });
   }
   return out;
@@ -115,24 +118,45 @@ export function hitLabel(hit) {
 }
 
 // ── 같은 물음은 한 번만 묻는다 ──────────────────────────────────────────────
-// 탭이 살아 있는 동안만 남는 메모리 캐시다(ai.js의 요약 캐시와 같은 결). localStorage에
-// 남기지 않는 이유: 값이 모델 답이라 언제든 달라져도 되는 것이고, 캐시 열쇠의 접두가
-// 다른 키를 삼키는 자리를 하나 더 만들 이유가 없다(§6-24-f).
+// 두 겹이다.
+//   ① memo — 탭이 살아 있는 동안만 남는 메모리(ai.js의 요약 캐시와 같은 결).
+//   ② store — **사람들 사이에 공유되는** 캐시. "다른 사용자가 같은 말로 검색해도 AI로
+//      안 쏘게"가 사용자 요청(2026-09-09)이라 브라우저 안에 둘 수 없다. 저장 자리는
+//      DB 표 하나(0057 bible_search_cache)이고 그 왕복은 부르는 쪽이 잇는다
+//      (word.bibleSearchStore) — **이 파일은 순수하게 남는다**(머리말).
+//      store는 { get(key) → 참조 배열|null, set(key, 참조 배열) } 모양이면 된다.
+// localStorage는 쓰지 않는다: 값이 모델 답이라 언제든 달라져도 되는 것이고, 캐시 열쇠의
+// 접두가 다른 키를 삼키는 자리를 하나 더 만들 이유가 없다(§6-24-f).
 const memo = new Map();
-const normalize = (q) => String(q || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+// 캐시 열쇠 — 앞뒤 공백을 걷고 가운데 공백을 한 칸으로 줄이고 소문자로. DB의
+// query_norm 값이 이 함수의 결과다(열쇠를 만드는 자리는 이 한 곳뿐이어야 한다).
+export const normalizeQuery = (q) => String(q || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 // 물음 하나를 끝까지 — call(prompt, system)은 부르는 쪽이 AiService.callGemini로 잇는다.
 // 실패·빈 답·안내 문구는 전부 빈 배열이다(화면은 그때 그 칸을 통째로 감춘다).
-export async function aiBibleSearch(query, books, loadBook, call) {
-  const key = normalize(query);
+export async function aiBibleSearch(query, books, loadBook, call, store = null) {
+  const key = normalizeQuery(query);
   if (!key) return [];
   if (memo.has(key)) return memo.get(key);
-  const { prompt, system } = buildBibleSearchPrompt(query, books);
-  let text = '';
-  try { text = await call(prompt, system); } catch { return []; }
-  const hits = await resolveBibleHits(parseBibleSearchJson(text), books, loadBook);
-  // 빈 답은 캐시하지 않는다 — 로그인·배포가 안 되어 안내 문구가 온 것일 수 있고,
-  // 그러면 그 물음은 이 탭에서 영영 빈 칸이 된다(ai.js가 안내 문구를 캐시하지 않는 것과 같다)
-  if (hits.length) memo.set(key, hits);
+  // 남이 이미 물어본 말이면 AI를 부르지 않는다. 캐시는 **있으면 좋은 것**이라 읽기가
+  // 실패하면 조용히 AI로 간다(캐시 때문에 검색이 안 되는 일이 없어야 한다).
+  let refs = null;
+  if (store) { try { refs = await store.get(key); } catch { refs = null; } }
+  const fromCache = Array.isArray(refs) && refs.length > 0;
+  if (!fromCache) {
+    const { prompt, system } = buildBibleSearchPrompt(query, books);
+    let text = '';
+    try { text = await call(prompt, system); } catch { return []; }
+    refs = parseBibleSearchJson(text);
+  }
+  // 본문 글자는 캐시에 담지 않고 언제나 여기서 붙인다 — 성경 데이터를 갈아도 캐시가
+  // 낡지 않고, 지어낸 참조는 담겼더라도 이 검증에서 걸린다.
+  const hits = await resolveBibleHits(refs, books, loadBook);
+  // 빈 답은 어디에도 캐시하지 않는다 — 로그인·배포가 안 되어 안내 문구가 온 것일 수 있고,
+  // 그러면 그 물음이 영영 빈 칸이 된다(ai.js가 안내 문구를 캐시하지 않는 것과 같다)
+  if (!hits.length) return hits;
+  memo.set(key, hits);
+  if (!fromCache && store) { try { await store.set(key, refs); } catch { /* 캐시는 있으면 좋은 것 */ } }
   return hits;
 }

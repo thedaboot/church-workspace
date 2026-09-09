@@ -632,9 +632,57 @@ check('아무것도 정하지 않은 찬양 탭에는 팀 줄이 서지 않는�
 // 목록으로 돌아오면 목록은 다시 발행본만 보여 준다(ServiceList가 새로 선다)
 await ev(`${byText('목록으로')}.click()`); await sleep(700);
 
-// ── 2) 상세 — 네 탭 ─────────────────────────────────────────────────────────
+// ── 2) 상세 — 발행본은 '주보' 탭(종이)부터, 그 뒤 네 탭 ──────────────────────
 await ev(`document.querySelector('.worship-card').click()`);
 await sleep(1400);
+const tabClick = (n) => ev(`[...document.querySelectorAll('.worship-tab')].find(t => t.textContent.trim() === ${JSON.stringify(n)}).click()`);
+
+// 발행된 주보는 **종이부터** 보인다(사용자 요청 2026-09-09 — "발행이 완료되면 예배
+// 페이지에서 보일 때는 주보 템플릿에 맞춰서 깔끔하게"). 종이는 두 쪽이고
+// **1쪽 말씀 · 2쪽 찬양·광고**다 — 본문을 전부 적기 때문에 1쪽이 본문 길이만큼
+// 길어지는데, 찬양·광고가 2쪽에서 새로 시작하므로 밀리지 않는다.
+await sleep(900);   // 본문(개역한글)이 붙기를 기다린다 — PDF 버튼은 그때까지 잠긴다
+const paper = await ev(`(() => {
+  const one = document.querySelector('.paper-service-1');
+  const two = document.querySelector('.paper-service-2');
+  const txt = (el) => (el ? el.innerText.replace(/\s+/g, ' ').trim() : '');
+  const pdf = document.querySelector('.worship-paper-pdf');
+  return {
+    one: !!one, two: !!two,
+    mast: [...document.querySelectorAll('.paper-service-1 .paper-mast-date, .paper-service-1 .paper-mast-kind')]
+      .map(x => x.textContent.trim()),
+    verses: document.querySelectorAll('.paper-service-1 .paper-verse').length,
+    p1: txt(one), p2: txt(two),
+    labels: [...document.querySelectorAll('.paper-service-2 .paper-row-label')].map(x => x.textContent.trim()),
+    pdf: !!pdf, pdfOff: pdf ? pdf.disabled : null,
+    // 종이에는 캐릭터를 얹지 않는다 — 설교 본문이 실리는 공식 문서다
+    cut: document.querySelectorAll('.paper-service .paper-cut').length,
+  };
+})()`);
+check('발행본은 종이 두 쪽으로 열린다(1쪽 말씀 · 2쪽 찬양·광고)',
+  paper.one === true && paper.two === true, JSON.stringify({ one: paper.one, two: paper.two }));
+check('종이 머리 띠에 날짜와 예배 이름이 선다',
+  JSON.stringify(paper.mast) === JSON.stringify([PAST1.replace(/-/g, '. '), '주일 4부 젊은이 예배']),
+  JSON.stringify(paper.mast));
+// **본문을 전부 적는다**(사용자 결정 2026-09-09 — "모든 본문 말씀이 다 적혀야 하고,
+// 말씀 요약은 안 해줘도 돼"). 요약 줄을 붙이면 이 단정이 깨진다.
+check('1쪽에 제목·구절·설교자와 본문 전문이 실린다',
+  paper.verses === 12 && paper.p1.includes('흔들리지 않는 기쁨')
+  && paper.p1.includes('이사야 32:9-20') && paper.p1.includes('임성빈 전도사님'),
+  `${paper.verses}절 / ${paper.p1.slice(0, 60)}`);
+check('종이에 말씀 요약 줄은 없다', !paper.p1.includes('요약'), paper.p1.slice(0, 120));
+// 2쪽 — '예배 인도'가 아니라 **찬양 인도**다(사용자 지적 2026-09-09)
+check('2쪽은 찬양 · 섬기는 이들 · 광고 셋이고 찬양 인도로 적는다',
+  JSON.stringify(paper.labels) === JSON.stringify(['찬양', '섬기는 이들', '광고'])
+  && paper.p2.includes('찬양 인도 조해리') && paper.p2.includes('주 은혜임을')
+  && paper.p2.includes('겨울 수련회'), JSON.stringify({ labels: paper.labels, p2: paper.p2.slice(0, 120) }));
+check('주보 종이에는 캐릭터 컷을 얹지 않는다', paper.cut === 0, String(paper.cut));
+check('본문이 도착한 뒤에 PDF 버튼이 열린다', paper.pdf === true && paper.pdfOff === false,
+  JSON.stringify({ pdf: paper.pdf, off: paper.pdfOff }));
+
+// 나머지 넷은 그대로다 — 곡 제목의 유튜브 링크·재생목록과 본문 → 성경 읽기 잇기가
+// 종이에는 없어서, 탭을 걷으면 그 기능이 사라진다(§8 '기능을 숨기지 않습니다')
+await tabClick('말씀'); await sleep(900);
 const detail = await ev(`(() => {
   const head = document.querySelector('.worship-detail header');
   const att = document.querySelector('.worship-att-open');
@@ -663,7 +711,8 @@ const detail = await ev(`(() => {
     note: !!document.querySelector('.worship-note'),
   };
 })()`);
-check('상세에 탭 네 개', JSON.stringify(detail.tabs) === '["말씀","담당자","찬양","광고"]', JSON.stringify(detail.tabs));
+check('발행본 탭은 주보 + 네 개',
+  JSON.stringify(detail.tabs) === '["주보","말씀","담당자","찬양","광고"]', JSON.stringify(detail.tabs));
 check('말씀 탭에 제목·구절·설교자',
   detail.panel.includes('흔들리지 않는 기쁨') && detail.panel.includes('이사야 32:9-20') && detail.panel.includes('임성빈 전도사님'),
   detail.panel.slice(0, 80));
@@ -686,7 +735,6 @@ check('출석 체크와 수정이 머리줄 오른쪽에 나란히 선다',
   `att ${detail.attRight}px / edit ${detail.editRight}px`);
 check('내 예배 노트', detail.note === true);
 
-const tabClick = (n) => ev(`[...document.querySelectorAll('.worship-tab')].find(t => t.textContent.trim() === ${JSON.stringify(n)}).click()`);
 await tabClick('담당자'); await sleep(300);
 const roles = await ev(`[...document.querySelectorAll('.worship-role-row')].map(x => x.innerText.replace(/\\n+/g, ' | '))`);
 check('담당자에 이름이 뜬다(명단 연결 · 자유 이름 둘 다)',
@@ -744,11 +792,11 @@ const praiseView = await ev(`(() => {
   };
 })()`);
 check('발행본 찬양 탭에 팀 이름과 인도자가 곡 목록 앞 한 줄로 선다',
-  !!praiseView && praiseView.team === 'Re:born 워십' && praiseView.leader === '· 인도 조해리 부장님'
+  !!praiseView && praiseView.team === 'Re:born 워십' && praiseView.leader === '· 찬양 인도 조해리 부장님'
   && praiseView.beforeList === true && praiseView.links === 1,
   JSON.stringify(praiseView));
 // 인도자도 담당자와 같은 호칭 규칙이다 — 조해리는 올해 부장(people_roles)이라 '부장님'
-check('찬양 인도자 이름에도 호칭이 붙는다', praiseView.leader === '· 인도 조해리 부장님', praiseView.leader);
+check('찬양 인도자 이름에도 호칭이 붙는다', praiseView.leader === '· 찬양 인도 조해리 부장님', praiseView.leader);
 // 곡을 가져온 재생목록은 주보에 남아, 보기에서 **한 번에 틀 수 있다**(0046)
 check('재생목록을 가져왔으면 그 줄에서 재생목록을 통째로 연다',
   JSON.stringify(praiseView.playlist) === JSON.stringify(['재생목록 열기', 'https://www.youtube.com/playlist?list=PLl2Yb-KJTF0Zq', '_blank']),
@@ -1825,7 +1873,7 @@ const praiseOnly = await ev(`(() => {
   };
 })()`);
 check('곡이 없어도 인도자를 정했으면 팀 줄이 서고 빈 상태는 그 아래 그대로',
-  praiseOnly.team === 'Re:born 워십' && praiseOnly.leader === '· 인도 김승찬 청년'
+  praiseOnly.team === 'Re:born 워십' && praiseOnly.leader === '· 찬양 인도 김승찬 청년'
   && praiseOnly.empty === '찬양을 아직 정하지 않았어요' && praiseOnly.order === true,
   JSON.stringify(praiseOnly));
 
@@ -2060,6 +2108,8 @@ await ev(`document.documentElement.setAttribute('data-theme', 'light')`); await 
 // ── 11) 모바일 375px ────────────────────────────────────────────────────────
 await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
 await sleep(800);
+// 발행본은 주보 탭(종이)부터 열리므로 본문(PassageBody)을 보려면 말씀 탭이다
+await tabClick('말씀'); await sleep(800);
 const mobDetail = await ev(`(() => ({
   overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   att: !!document.querySelector('.worship-att-open'),
@@ -2215,6 +2265,7 @@ await send('Emulation.clearDeviceMetricsOverride');
 
 // ── 주보의 본문 구절 → 성경 읽기 (App.jsx openBible → WordView initialRef) ───────
 await ev(`${byText('주보로')}.click()`); await sleep(700);
+await tabClick('말씀'); await sleep(600);
 const bibleLink = await ev(`document.querySelector('.worship-open-bible')?.textContent || ''`);
 await ev(`document.querySelector('.worship-open-bible')?.click()`); await sleep(1500);
 const biblePlace = await ev(`(document.querySelector('.bible-place')?.textContent || '').replace(/\\s+/g, ' ').trim()`);
@@ -2686,7 +2737,8 @@ await wait('Page.loadEventFired'); await sleep(1800);
 await waitFor(HAS_DETAIL, 8000);
 const deep = await ev(`(() => ({
   detail: !!document.querySelector('.worship-detail'),
-  title: document.querySelector('.worship-tabpanel h3')?.textContent.trim() || '',
+  // 발행본은 종이부터 열린다 — 제목은 종이의 것이다(옛 말씀 탭 h3도 같이 받는다)
+  title: document.querySelector('.worship-tabpanel .paper-wt, .worship-tabpanel h3')?.textContent.trim() || '',
   search: window.location.search,
 }))()`);
 check('알림 딥링크(?p=worship&s=…)가 그 주보 상세를 연다',
@@ -2774,7 +2826,11 @@ await ev(plant(null));
 await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
 await ev(GO); await waitFor(HAS_CARD);
 const waitBox = await ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
   document.querySelector('.worship-card').click();
+  // 발행본은 주보 탭부터라 PassageBody의 대기 자리를 보려면 말씀 탭으로 옮긴다
+  for (let i = 0; i < 60 && !document.querySelector('.worship-tab'); i++) await w(30);
+  [...document.querySelectorAll('.worship-tab')].find(t => t.textContent.trim() === '말씀')?.click();
   let seen = null;
   for (let i = 0; i < 90; i++) {
     await new Promise(r => requestAnimationFrame(r));
@@ -2876,7 +2932,7 @@ const listView = await ev(`(() => ({
 }))()`);
 check('지운 뒤 보기 화면에는 재생목록 줄이 없고 곡과 인도자는 그대로다',
   listView.playlist === false && listView.songs === 2
-  && listView.leader === '· 인도 조해리 부장님', JSON.stringify(listView));
+  && listView.leader === '· 찬양 인도 조해리 부장님', JSON.stringify(listView));
 
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 

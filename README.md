@@ -31,11 +31,14 @@ npm run verify       # 브라우저 검증 스위트 (tests/README.md)
   체크합니다. 본문 구절은 개역한글 본문이 자동으로 붙고, 누르면 성경 읽기로 갑니다. 찬양은 유튜브
   재생목록 주소로 한 번에 가져옵니다(`YOUTUBE_API_KEY`가 있으면 전체, 없으면 RSS로 최신 15곡).
   찬양 탭 아래 **송폼**에 PDF·사진을 붙일 수 있고(주보 편집 자격자만), 발행된 주보를 읽는 사람은 열어 봅니다.
-  예배 노트는 주보마다 한 벌이고 내 순에 공유할 수 있습니다(저장하면 읽기 모드, '수정'으로 다시 엽니다).
+  예배 노트는 주보마다 한 벌이고 내 순에 공유할 수 있습니다. **저장하면 편집기 대신 종이**가 서고
+  ('수정'으로 다시 엽니다) 그 종이를 그대로 이미지로 저장·카카오톡 공유할 수 있습니다.
+  **발행된 주보는 '주보' 탭의 종이 두 쪽**으로 열립니다 — 1쪽 말씀(본문 전문) · 2쪽 찬양·섬기는 이들·광고 ·
+  [PDF로 공유]가 두 쪽을 한 파일로 만듭니다. 나머지 네 탭(말씀·담당자·찬양·광고)은 그대로 있습니다.
   출석 화면은 전도사님·부장님·순별 묶음이고, 명단에 없는 사람은 **손님**으로만 남습니다(청년 명단에는 올리지 않습니다 — 지울 수 있음).
   말씀 탭에 **큐시트**를 붙입니다 — 구글 문서 링크(앱 안에서 열어 고침)와 파일(PDF·사진·오피스, 송폼과 같은 드라이브 폴더) 둘 다. 목록 카드에는 지난 예배의 출석 수가 붙습니다.
   예배 당일 11:30에 '오늘 예배가 있어요' 알림이 가고, 주보를 발행하면 전원에게 알립니다.
-- 말씀 — QT(읽기표 본문 → 묵상 → 더다붓에 공유하기 · 나만 보는 잔디 · 묵상 템플릿) · 성경 읽기(본문 · **검색 = 그대로 나오는 절 + AI가 찾은 구절** · 북마크 · 절 형광펜 — 범위로 칠하고 모아보기에는 한 줄로 · QT 본문에도 형광펜).
+- 말씀 — QT(읽기표 본문 → 묵상 → 더다붓에 공유하기 · 나만 보는 잔디 · 묵상 템플릿 — 저장하면 예배 노트와 같은 종이 + 이미지 저장) · 성경 읽기(본문 · **검색 = 그대로 나오는 절 + AI가 찾은 구절**(같은 검색어는 **누가 물어도 한 번만** AI로 나갑니다 — 0057 캐시) · 북마크 · 절 형광펜 — 범위로 칠하고 모아보기에는 한 줄로 · QT 본문에도 형광펜).
 - 모임 — 내 순(구성원·출석·순에 공유된 노트) · 동아리(가입 신청·모임·리더의 이름·설명 수정 · **신청 QR** —
   동아리장이 QR을 만들어 카카오톡으로 보내면, 찍은 사람은 로그인 뒤 바로 신청이 들어가고 상세가 열립니다) ·
   순 편성(마스터·관리자·교역자·리더순장). **순모임 가이드** — 순장·리더순장·관리자·마스터가 주보를 골라 AI로 만들고(주일 본문 · 말씀 요약 ·
@@ -161,12 +164,14 @@ src/
 ├── services/            domain · cloud(Supabase) · cloudSync · markdown · ai · auth · presence
 │                        · (v2) people · worship · word · groups · roster · bibleRef · bible · sunGuide
 │                        · entryQuery(딥링크 나머지 값) · docEmbed·viewPw(구글 문서 임베드·화면 가림 비밀번호)
+│                        · shareImage(종이를 그림·PDF로 — 미리 받기·배율 상한·공유 사다리 한 벌)
 ├── hooks/               controllers · useIsMobile · useForceGraph(그래프 시뮬·드래그)
 ├── components/          layout(상단 2줄 내비 · 모바일 탭바) · boards(칸반) · calendar
 │                        depgraph(업무 선후 그래프) · MarkdownEditor · RichText ·
 │                        MentionInput · FilePreviewModal · PdfView 등
 │                        · (v2) worshipDetail·worshipPassage·worshipAttendance · wordBible ·
 │                          groupsSun·groupsClub·groupsParts·ClubQr · roster · sunGuide · DocEmbed
+│                        · paper(노트·주보 종이 — 인디고 띠 · 라벨/글 두 칸 · 로고 · 발문)
 ├── views/               views(대시보드·프로젝트·내 업무·팀·전체 일정) · dashboardParts(공유 부품)
 │                        · membersView(가입 승인·관리자 지정 · 명단 탭)
 │                        · (v2) homeView · worshipView · wordView · groupsView
@@ -279,6 +284,7 @@ insert into admins (email) values ('admin@example.com');
 | `0054_files_kind.sql` | `files.kind`(songform·cuesheet) — 큐시트를 파일로도 붙이기 위해 주보 파일의 갈래를 한 칸으로 |
 | `0055_sun_guide_pin_and_leaders.sql` | 순모임 가이드 재가동 — `sun_guides.pinned*`(고정은 하나 · 마스터만, rpc `set_sun_guide_pinned`) · 쓰기를 순장까지 |
 | `0056_realtime_guides_guests.sql` | 실시간 발행에 `sun_guides`·`attendance_guests` 추가 — 고정·손님 출석이 다른 사람 화면에도 바로 |
+| `0057_bible_search_cache.sql` | 성경 AI 본문 검색 캐시 — 정규화한 물음 → 구절 참조 배열. 같은 말은 **누가 물어도** 한 번만 AI로 나간다(본문 글자는 담지 않는다) |
 
 ## 딥링크 · 공유 · 환경변수
 

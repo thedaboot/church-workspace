@@ -166,36 +166,38 @@ check('AI 검색은 JSON 배열만 받는다고 못 박는다',
   askAi.system.includes('JSON 배열') && askAi.system.includes('12'));
 
 check('코드 울타리와 잡담이 붙어 와도 읽는다',
-  JSON.stringify(bs.parseBibleSearchJson('네, 찾았어요.\n```json\n[{"ref":"요 3:16","why":"사랑"}]\n```\n도움이 되길!'))
-  === JSON.stringify([{ ref: '요 3:16', why: '사랑' }]));
+  JSON.stringify(bs.parseBibleSearchJson('네, 찾았어요.\n```json\n["요 3:16"]\n```\n도움이 되길!'))
+  === JSON.stringify(['요 3:16']));
+// **근거 문장(why)은 사용자가 뺐다**(2026-09-09 · §7). 모델이 옛 모양으로 답해도
+// 참조만 건져 쓰고 why는 어디에도 남지 않아야 한다 — 잎처럼 되살아나는 것을 막는 줄이다.
+check('옛 모양({ref, why})으로 와도 참조만 건진다',
+  JSON.stringify(bs.parseBibleSearchJson('[{"ref":"요 3:16","why":"사랑"}]')) === JSON.stringify(['요 3:16']));
 check('못 읽는 답은 빈 배열이다',
   JSON.stringify(bs.parseBibleSearchJson('그런 구절은 모르겠어요')) === '[]'
   && JSON.stringify(bs.parseBibleSearchJson('[{oops}]')) === '[]'
   && JSON.stringify(bs.parseBibleSearchJson('')) === '[]');
 
 const aiHits = await bs.resolveBibleHits([
-  { ref: '요한복음 3:16', why: '하나님의 사랑' },
-  { ref: '도마복음 1:1', why: '없는 책' },
-  { ref: '요 3:16', why: '같은 절을 또' },
-  { ref: '빌립보서 4:6-7', why: '염려하지 말라' },
-  { ref: '이건 참조가 아니다', why: '' },
+  '요한복음 3:16', '도마복음 1:1', '요 3:16', '빌립보서 4:6-7', '이건 참조가 아니다',
 ], bibleBooks, fakeLoadBook);
 check('AI가 준 참조는 우리 본문으로 확인해서 그린다',
   aiHits.length === 2 && aiHits[0].name === '요한복음'
   && aiHits[0].text.includes('하나님이 세상을 이처럼 사랑하사'), JSON.stringify(aiHits.map(h => h.name)));
-check('모르는 책·못 읽는 참조는 버린다', !aiHits.some(h => h.why === '없는 책'),
-  JSON.stringify(aiHits.map(h => h.why)));
+check('모르는 책·못 읽는 참조는 버린다', !aiHits.some(h => h.name === '도마복음'),
+  JSON.stringify(aiHits.map(h => h.name)));
+check('화면에 세울 줄에 근거 문장이 없다', aiHits.every(h => !('why' in h)),
+  JSON.stringify(Object.keys(aiHits[0] || {})));
 check('같은 절을 두 번 내면 한 줄만 남는다',
   aiHits.filter(h => h.chapter === 3 && h.verse === 16).length === 1);
 check('짧은 범위는 절을 이어 붙이고 라벨에 범위가 남는다',
   aiHits[1].to === 7 && bs.hitLabel(aiHits[1]) === '빌립보서 4:6-7', JSON.stringify(aiHits[1]));
 // 장 전체를 가리켜도 한 줄이 통째로 한 장이 되지 않는다(앞 세 절만)
-const wholeChapter = await bs.resolveBibleHits([{ ref: '시편 23편', why: '' }], bibleBooks, fakeLoadBook);
+const wholeChapter = await bs.resolveBibleHits(['시편 23편'], bibleBooks, fakeLoadBook);
 check('장 전체를 가리켜도 앞 세 절만 쓴다',
   wholeChapter.length === 1 && wholeChapter[0].verse === 1 && wholeChapter[0].to === 3,
   JSON.stringify(wholeChapter[0]));
 const manyHits = await bs.resolveBibleHits(
-  Array.from({ length: 20 }, (_, i) => ({ ref: '시편 ' + (i + 1) + ':1', why: '' })), bibleBooks, fakeLoadBook);
+  Array.from({ length: 20 }, (_, i) => '시편 ' + (i + 1) + ':1'), bibleBooks, fakeLoadBook);
 check('AI 결과는 열두 줄에서 끊는다', manyHits.length === 12, String(manyHits.length));
 
 // ── 1-d. 검색이 책을 받는 방법 (순수 — services/bible.js) ───────────────────
@@ -764,8 +766,9 @@ const tplNote = await ev(`(() => {
 })()`);
 check('묵상을 처음 쓰는 날은 템플릿 네 도막으로 시작한다',
   tplNote.heads.join('|') === '본문|나의 묵상|결단|기도', JSON.stringify(tplNote.heads));
-// 옛 순 노트의 잎 아이콘 — 파일이 아니라 마스크 + 토큰 색이라 다크에서도 따라온다
-check('도막 제목에 잎 표시가 붙는다', /svg/.test(tplNote.leaf), tplNote.leaf.slice(0, 48));
+// **잎 표시는 사용자가 뺐다**(2026-09-09 — "잎사귀가 추가되었는데 이건 지울 것" · §7).
+// 다시 붙이면 이 줄이 실패한다.
+check('도막 제목에 잎 표시가 없다', !/svg/.test(tplNote.leaf), tplNote.leaf.slice(0, 48));
 check('손대지 않은 템플릿으로는 저장할 수 없다', (await saveDisabled()) === true);
 await ev(`(() => { const el = document.querySelector('.tiptap'); el && el.focus(); })()`);
 await send('Input.insertText', { text: '오늘은 이 말씀이 마음에 남았어요' });
@@ -1736,14 +1739,29 @@ const aiPipe = await ev(`(async () => {
     return '네 아래와 같아요 [{"ref":"빌립보서 4:6","why":"염려 대신 기도"},{"ref":"도마복음 1:1","why":"없는 책"}] 도움이 되길!'; };
   const first = await m.aiBibleSearch('불안할 때 어떻게 하나요', books, b.loadBook, fake);
   const again = await m.aiBibleSearch('  불안할 때  어떻게 하나요  ', books, b.loadBook, fake);
-  return { n: first.length, label: m.hitLabel(first[0] || null), why: (first[0] || {}).why || '',
-           text: ((first[0] || {}).text || '').slice(0, 10), asked, cachedN: again.length };
+  // 공유 캐시(0057)를 흉내 낸 그릇 — 남이 이미 물어본 말이면 AI를 부르지 않아야 한다
+  const shared = new Map([['감사란 무엇인가', ['시편 100:4']]]);
+  const store = { get: async (k) => shared.get(k) || null, set: async (k, refs) => { shared.set(k, refs); } };
+  let asked2 = 0;
+  const fake2 = async () => { asked2++; return '["빌립보서 4:6"]'; };
+  const hit = await m.aiBibleSearch('  감사란   무엇인가 ', books, b.loadBook, fake2, store);
+  const miss = await m.aiBibleSearch('낙심할 때', books, b.loadBook, fake2, store);
+  return { n: first.length, label: m.hitLabel(first[0] || null), hasWhy: ('why' in (first[0] || {})),
+           text: ((first[0] || {}).text || '').slice(0, 10), asked, cachedN: again.length,
+           cachedLabel: m.hitLabel(hit[0] || null), askedAfterCache: asked2,
+           storedMiss: (shared.get('낙심할 때') || []).length, missN: miss.length };
 })()`, true);
 check('AI가 준 참조를 우리 본문으로 확인해 한 줄로 만든다',
-  aiPipe.n === 1 && aiPipe.label === '빌립보서 4:6' && aiPipe.why === '염려 대신 기도'
+  aiPipe.n === 1 && aiPipe.label === '빌립보서 4:6' && !aiPipe.hasWhy
   && aiPipe.text === '아무 것도 염려하지', JSON.stringify(aiPipe));
 check('지어낸 참조는 화면까지 오지 않는다', aiPipe.n === 1, JSON.stringify(aiPipe));
 check('같은 물음은 한 번만 묻는다', aiPipe.asked === 1 && aiPipe.cachedN === 1, JSON.stringify(aiPipe));
+// 0057 — 캐시는 사람들 사이에 공유된다. 열쇠는 normalizeQuery이므로 공백·대소문자가
+// 달라도 같은 행을 맞힌다. 없는 물음은 AI에 한 번 나가고 그 답이 캐시에 남는다.
+check('남이 물어본 말이면 AI를 부르지 않는다',
+  aiPipe.cachedLabel === '시편 100:4' && aiPipe.askedAfterCache === 1 && aiPipe.missN === 1,
+  JSON.stringify(aiPipe));
+check('새로 물어본 답은 캐시에 남긴다', aiPipe.storedMiss === 1, JSON.stringify(aiPipe));
 
 // AI 도막의 머리줄(사용자 피드백 2026-09-09 — "'감사와 찬양 / 0건 / AI가 찾은 구절'로
 // 나오는데 '감사와 찬양에 대해 AI가 찾은 구절 N건'으로"). 화면 도막은 로그인 뒤에만 서므로
