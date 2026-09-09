@@ -18,9 +18,10 @@ import { BTN, BTN_QUIET, WITH_ICON, FIELD } from './groupsParts.jsx';
 import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM,
   filesOfKind, fileKindOf, SONGFORM, CUESHEET } from '../services/worship.js';
 import { honorificsOf } from '../services/people.js';
-import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections } from '../services/noteTemplate.js';
+import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
+  ensureNoteSections, WORSHIP_SECTIONS } from '../services/noteTemplate.js';
 import { NoteSheet, ServiceSheetOne, ServiceSheetTwo, PAPER, paperDate } from './paper.jsx';
-import { useSheetShare } from '../hooks/useSheetShare.js';
+import { useSheetShare } from '../hooks/useSheetShare.jsx';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 
@@ -1104,7 +1105,10 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
   const save = async () => {
     if (busy || !hasText || !dirty) return;
     setBusy(true); setState('saving'); setShareState('');
-    const ok = await onSave({ body, sharedToSun: shared });
+    // **도막 제목은 지워지지 않는다**(사용자 결정 2026-09-09 — "중제목들 안 지워지게").
+    // 편집기에서 지웠어도 저장되는 글에는 다섯 도막이 그 순서로 서 있다. 사람이 쓴
+    // 글과 새로 만든 도막은 그대로 남는다(services/noteTemplate.js ensureNoteSections).
+    const ok = await onSave({ body: ensureNoteSections(body, WORSHIP_SECTIONS), sharedToSun: shared });
     setBusy(false); setState(ok ? 'saved' : '');
     if (ok) setEditing(false);
   };

@@ -111,43 +111,66 @@ export function isStandalone() {
 }
 
 // 보내기·저장 사다리. 여기까지 오면 파일은 이미 만들어져 있다.
-//   ① 그림·파일째 공유할 수 있으면 공유 시트
-//   ② 안 되면 내려받기
-//   ③ **카카오 인앱은 내려받기가 막히므로** 새 탭에 띄운다(거기서는 길게 눌러 저장이 된다)
-//   ④ 그마저 막히면(팝업 차단) 사람에게 말한다
-// 사용자가 시트를 닫은 것(AbortError)은 실패가 아니다 — 조용히 끝낸다.
-export async function shareOrSave(files, { toast, what = '파일을 내보내지 못했어요' } = {}) {
+//   ① `navigator.share` — **있으면 그냥 부른다**
+//   ② 내려받기(a[download]) — 카카오 인앱·PWA에서는 막혀 있으므로 건너뛴다
+//   ③ 둘 다 안 되면 `'overlay'`를 돌려준다 — 부르는 쪽이 그림을 화면에 띄운다(API가 필요 없다)
+// 돌려주는 값은 **무엇이 일어났는지**다: 'shared' | 'aborted' | 'downloaded' | 'overlay'.
+// 예전에는 참/거짓이었고, 실패하면 조용히 끝나서 사용자에게는 "아무 일도 안 일어남"이었다.
+//
+// **`canShare`로 문을 잠그지 않는다**(2026-09-09에 고친 자리). 예전에는
+// `if (navigator.canShare?.({files}))`로 감싸서, `canShare`가 없는 판(iOS의 어떤
+// 버전대)이나 그 판정이 거짓을 주는 경우에 **share를 아예 부르지 않고** 내려받기로
+// 떨어졌다 — 그리고 그쪽은 PWA·카카오 인앱에서 막혀 있어서 정말 아무 일도 일어나지
+// 않았다("모바일에는 이미지 공유, PDF 공유가 모두 안 되고 있어"). 지금은 share가 있으면
+// 부르고, 거부하면 그 이름을 물고 다음 갈래로 간다. canShare는 **참고만** 한다.
+export async function shareOrSave(files, { toast, what = '파일을 내보내지 못했어요', onOverlay } = {}) {
   const list = (files || []).filter(Boolean);
-  if (!list.length) return false;
-  if (navigator.canShare?.({ files: list })) {
+  if (!list.length) return 'overlay';
+  const blocked = isKakaoInApp(navigator.userAgent) || isStandalone();
+  let why = '';   // 공유가 거부된 이유 — 마지막까지 안 되면 이것을 사람에게 말한다
+
+  if (typeof navigator.share === 'function') {
+    // canShare가 **거짓이라고 말해도** 한 번은 해 본다 — 그 판정이 파일 공유를 지원하는
+    // 브라우저에서도 거짓을 주는 것을 실기기에서 겪었다. 거부는 아래에서 잡는다.
     try {
       await navigator.share({ files: list });
-      return true;
+      return 'shared';
     } catch (e) {
-      if (e?.name === 'AbortError') return true;
-      console.error('[shareImage] 공유 시트가 열리지 않았어요:', e);
+      if (e?.name === 'AbortError') return 'aborted';   // 사용자가 시트를 닫았다 — 성공과 같다
+      // **오류가 아니라 다음 갈래로 가는 단계다** — console.error로 찍으면 '콘솔 오류 0'
+      // 검사가 이것을 회귀로 잡는다(합성 클릭에는 제스처가 없어 검사에서 늘 여기 온다).
+      // NotAllowedError = 누른 뒤 시간이 너무 흘렀다(미리 굽기가 그것을 막는다).
+      console.warn('[shareImage] 공유 시트가 열리지 않아 다음 갈래로:', e?.name, e?.message || e);
+      why = e?.name || '';
     }
   }
-  let opened = false;
-  for (const file of list) {
-    const href = URL.createObjectURL(file);
-    try {
-      const a = document.createElement('a');
-      if (isKakaoInApp(navigator.userAgent) || isStandalone() || !('download' in a)) {
-        opened = !!window.open(href, '_blank', 'noopener') || opened;
-      } else {
+
+  // 내려받기는 **막히지 않은 브라우저에서만** 시도한다. 막힌 곳에서 a.click()을 부르면
+  // 아무 일도 안 하고 끝나서, 우리는 성공한 줄 알고 다음 갈래로 가지 않았다.
+  if (!blocked) {
+    let done = false;
+    for (const file of list) {
+      const href = URL.createObjectURL(file);
+      try {
+        const a = document.createElement('a');
+        if (!('download' in a)) continue;
         a.href = href;
         a.download = file.name;
         document.body.appendChild(a);
         a.click();
         a.remove();
-        opened = true;
+        done = true;
+      } finally {
+        setTimeout(() => URL.revokeObjectURL(href), 8000);
       }
-    } finally {
-      setTimeout(() => URL.revokeObjectURL(href), 8000);
     }
+    if (done) return 'downloaded';
   }
-  // 아무 갈래도 열리지 않았으면 **말해 준다**(예전에는 조용히 끝났다 — ③)
-  if (!opened && toast) toast(failText(what, { human: '카카오톡에서 열었다면 오른쪽 위 메뉴로 브라우저에서 열어주세요' }));
-  return opened;
+
+  // 마지막 갈래 — 화면에 띄운다. 브라우저 API가 필요 없으니 어디서든 된다.
+  if (onOverlay) { onOverlay(list); return 'overlay'; }
+  if (toast) {
+    toast(failText(what, { human: why ? `공유 창이 열리지 않았어요 (${why})` : '이 브라우저에서는 저장할 수 없어요' }));
+  }
+  return 'overlay';
 }

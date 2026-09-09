@@ -8,7 +8,7 @@ import { showToast } from './Toast.jsx';
 import { supabase } from '../services/supabaseClient.js';
 import { dropCache, useCached } from '../services/cache.js';
 import { failText } from '../services/errorText.js';
-import { useSheetShare } from '../hooks/useSheetShare.js';
+import { useSheetShare } from '../hooks/useSheetShare.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import {
   LIMITS,

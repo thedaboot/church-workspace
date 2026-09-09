@@ -1955,7 +1955,11 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const view = readFileSync(new URL('../src/views/wordView.jsx', import.meta.url), 'utf8');
   assert.ok(/shouldAdoptBody\(\{ dateChanged, body: bodyRef\.current, lastSynced: syncedBody\.current, next: next\.body \}\)/.test(view),
     'wordView가 그 판정으로 body를 갈아 끼운다');
-  assert.ok(/syncedBody\.current = body;/.test(view), '저장하면 기준도 그 글로 옮긴다');
+  // 저장되는 글은 **도막을 되살린 것**이다(2026-09-09 · ensureNoteSections) — 기준도
+  // 그 글이어야 한다. `body`로 두면 다음 도착값 판정이 되살린 제목을 '남이 고친 것'으로
+  // 읽어 편집기를 덮는다.
+  assert.ok(/const kept = ensureNoteSections\(body, QT_SECTIONS\);/.test(view)
+    && /syncedBody\.current = kept;/.test(view), '저장하면 기준도 저장된 그 글로 옮긴다');
   // 재조회 실패가 캐시 화면을 '묵상 없음'으로 만들지 않는다
   assert.ok(/if \(!qt \|\| qt\.date !== date\) \{\s*\n\s*setEntry\(\{ date, body: '', shared: false, exists: false \}\)/.test(view),
     '캐시가 있으면 빈 칸을 세우지 않고 토스트만 한다');
@@ -2139,6 +2143,45 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '목록 조회가 그 칸을 실어 온다(없으면 화면이 가를 수 없다)');
 
   console.log('PASS  참고 링크 카드 축 · 계정 합치기 22가지');
+}
+
+// ── 노트 도막 제목은 지워지지 않는다 (ensureNoteSections) ───────────────────
+// 사용자 결정 2026-09-09: "본문, 말씀 요약, 나의 묵상, 결단, 기도 는 아예 지울 수 없게
+// 고정" → "중제목들 안 지워지게 해달라니까". 편집기에서 지웠어도 **저장되는 글**에는
+// 도막이 그 순서로 서 있다(저장 자리 하나에서 보장한다 — 그 파일 머리말).
+// 잃는 것이 없어야 한다: 사람이 쓴 글 · 제목 앞의 글 · 새로 만든 도막.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'note-'));
+  const f = join(dir, 'noteTemplate.mjs');
+  writeFileSync(f, readFileSync(new URL('../src/services/noteTemplate.js', import.meta.url), 'utf8'));
+  const nt = await import(pathToFileURL(f).href);
+
+  const kept = nt.ensureNoteSections('### 본문\n삿 4:11-24\n### 나의 묵상\n음', nt.WORSHIP_SECTIONS);
+  assert.deepStrictEqual(nt.splitNoteSections(kept).map(x => x.title), ['본문', '나의 묵상'],
+    '글이 있는 도막만 갈리지만');
+  for (const t of nt.WORSHIP_SECTIONS) {
+    assert.ok(kept.includes(`### ${t}`), `${t} 제목이 되살아난다`);
+  }
+  assert.ok(kept.indexOf('### 본문') < kept.indexOf('### 말씀 요약')
+    && kept.indexOf('### 말씀 요약') < kept.indexOf('### 나의 묵상'), '순서는 템플릿 순서다');
+  assert.ok(kept.includes('삿 4:11-24') && kept.includes('음'), '쓴 글은 그대로 얹힌다');
+
+  // 제목을 다 지운 글 — 맨 위에 그대로 남는다(잃지 않는다)
+  const lead = nt.ensureNoteSections('그냥 쓴 글', nt.QT_SECTIONS);
+  assert.ok(lead.startsWith('그냥 쓴 글'), '제목 앞의 글은 맨 위에 남는다');
+  assert.strictEqual((lead.match(/^### /gm) || []).length, 4, 'QT는 네 도막이다');
+
+  // 사람이 새로 만든 도막은 **뒤에** 붙는다
+  const extra = nt.ensureNoteSections('### 나의 묵상\n가\n### 내가 만든 칸\n나', nt.QT_SECTIONS);
+  assert.ok(extra.indexOf('### 내가 만든 칸') > extra.indexOf('### 기도'), '새 도막은 뒤에 붙는다');
+  assert.ok(extra.includes('나'), '새 도막의 글도 남는다');
+
+  // **되살린 템플릿은 여전히 빈 노트다** — 아니면 아무도 쓰지 않은 제목이 나눔에 오른다
+  assert.strictEqual(
+    nt.isTemplateOnly(nt.ensureNoteSections(nt.worshipNoteTemplate({ passageRef: '삿 3:1' }), nt.WORSHIP_SECTIONS), '삿 3:1'),
+    true, '되살린 템플릿은 빈 노트로 남는다');
+
+  console.log('PASS  노트 도막 제목 고정 12가지');
 }
 
 // ── 팀 보드 상단 사람 칩 (utils.teamChips) ──────────────────────────────────

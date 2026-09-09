@@ -16,9 +16,10 @@ import { useLiveRefresh } from '../services/liveV2.js';
 import { ShareChip, ShareToggle } from '../components/ShareToggle.jsx';
 import { SectionHead, Card } from './dashboardParts.jsx';
 import { loadPassage } from '../services/bible.js';
-import { qtNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections } from '../services/noteTemplate.js';
+import { qtNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
+  ensureNoteSections, QT_SECTIONS } from '../services/noteTemplate.js';
 import { NoteSheet, PAPER, paperDate } from '../components/paper.jsx';
-import { useSheetShare } from '../hooks/useSheetShare.js';
+import { useSheetShare } from '../hooks/useSheetShare.jsx';
 import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap, useBibleState, useVersePaint, marksFor } from '../components/wordBible.jsx';
 import {
   kstToday, shiftDay, dayLabel, shortDayLabel, monthDays, shiftMonth, weekRange, shouldAdoptBody,
@@ -332,10 +333,14 @@ function QtTab() {
     if (!ready || saving) return;
     setSaving(true);
     try {
-      await saveMyEntry(date, { body, shared: entry.shared });
-      setEntry({ date, body, shared: entry.shared, exists: true });
+      // **도막 제목은 지워지지 않는다**(사용자 결정 2026-09-09 — "중제목들 안 지워지게").
+      // 편집기에서 지웠어도 저장되는 글에는 네 도막이 그 순서로 서 있다. 사람이 쓴 글과
+      // 새로 만든 도막은 그대로 남는다(services/noteTemplate.js ensureNoteSections).
+      const kept = ensureNoteSections(body, QT_SECTIONS);
+      await saveMyEntry(date, { body: kept, shared: entry.shared });
+      setEntry({ date, body: kept, shared: entry.shared, exists: true });
       setEditing(false);               // 저장했으니 다시 읽기 모드로(머리말)
-      syncedBody.current = body;       // 방금 이 글로 맞췄다(다음 도착값 판정의 기준)
+      syncedBody.current = kept;       // 방금 이 글로 맞췄다(다음 도착값 판정의 기준)
       setFeed(await fetchSharedEntries(date));
       dropCache(qtKey); refreshQt();   // 옛 값이 먼저 그려지지 않게 그 날짜만 비운다
       dropCache('home');               // 홈의 '오늘의 QT' 카드가 '오늘 썼나'를 센다(homeView)

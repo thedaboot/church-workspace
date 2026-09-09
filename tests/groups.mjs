@@ -2524,8 +2524,10 @@ await sleep(300);
 // 동안 `position: fixed`를 우리가 준 좌표에 그려 주지 않는다. 그래서 좌표를 더
 // 다듬는 대신 **fixed를 쓰지 않는다**: 목록을 부품 뿌리 안, 칸 바로 아래의 보통
 // 흐름에 둔다. 자리는 브라우저가 잡고, 아래 내용은 덮이지 않고 밀린다.
-// 되돌리기 확인: groupsParts의 openMenu에서 `isTouchNarrow()`를 `false`로 두면
-// 아래 넷이 한꺼번에 깨진다(목록이 다시 body 포털로 나간다).
+// **입력칸이 있는 피커(PersonPick)만** 이 규칙이다 — 짧은 목록(MenuPick · 순 옮기기 ·
+// 주보 고르개)은 2026-09-09에 다시 **떠서** 나오게 했다(아래 flowMenu 주석).
+// 되돌리기 확인: PersonPick의 openMenu에서 `isTouchNarrow()`를 `false`로 두면
+// 아래 셋이 한꺼번에 깨진다(목록이 다시 body 포털로 나간다).
 await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
 await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
 await enter({ personId: 'p3', isMaster: true, roles: ['lead_sunjang'] });
@@ -2594,7 +2596,13 @@ check('인라인 목록도 ↑↓·Enter로 고른다',
   !flowKey.err && JSON.stringify(flowKey.names) === '["양민혁","조해리"]'
   && flowKey.added === 'p1,p2,p3,p7' && flowKey.open === false, JSON.stringify(flowKey));
 
-// 짧은 목록(순 옮기기)도 같은 규칙이다 — 줄이 그만큼 길어지는 것은 받아들인다
+// **짧은 목록(순 옮기기)은 반대다 — 떠서 나온다**(사용자 지적 2026-09-09: "이렇게 라인
+// 밀리게 UI를 두는 게 아니라 해당 선택지는 바로 그 아래에 플로팅되어 나오는 형식으로
+// 해줘야지... 왜 밀려" · "순 옮기기 쪽은 또 왜 그래 같이 고쳐줘"). 흐름에 두는 근거는
+// **입력칸이 있는 피커**의 사정이고(iOS가 키보드 상태에서 fixed를 제자리에 안 그린다),
+// MenuPick에는 입력칸이 없어 키보드가 뜨지 않는다. 밀면 그 줄이 벌어지고 머리줄에서는
+// 제목·가로선이 통째로 내려간다.
+// 되돌리기 확인: MenuPick의 toggle에 `isTouchNarrow()` 갈래를 되살리면 아래 둘이 깨진다.
 const flowMenu = await ev(`(async () => {
   const w = ms => new Promise(r => setTimeout(r, ms));
   const btn = document.querySelector('[aria-label="천진영 순 옮기기"]');
@@ -2614,16 +2622,14 @@ const flowMenu = await ev(`(async () => {
   document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
   return out;
 })()`, true);
-check('순 옮기기 목록도 트리거 아래 보통 흐름에 선다(오른쪽 끝을 맞춘다)',
-  !flowMenu.err && flowMenu.inRoot === true && flowMenu.portal === false
-  && flowMenu.pos === 'static' && Math.abs(flowMenu.dr) <= 1
-  && Math.abs(flowMenu.below - 4) <= 2 && flowMenu.over <= 0,
-  JSON.stringify(flowMenu));
-// 줄이 높아져도 트리거는 **그 사람 이름과 같은 줄**에 남는다(PersonTag의
-// `has-[.menu-pick-menu]:items-start`). 없으면 높아진 줄에서 세로 가운데가 다시 잡혀
-// 트리거가 이름 위로 올라가고 이름이 트리거와 목록 사이에 낀다(실측 -43px).
-// 되돌리기 확인: 그 유틸을 걷으면 dyTop이 -40 언저리가 되어 이 검사가 깨진다.
-check('목록이 펴져도 순 옮기기 버튼은 그 사람 줄에 남는다',
+check('순 옮기기 목록은 트리거 바로 아래에 떠서 선다(오른쪽 끝을 맞춘다)',
+  !flowMenu.err && flowMenu.portal === true && flowMenu.pos === 'fixed'
+  && Math.abs(flowMenu.dr) <= 1 && flowMenu.below >= 0 && flowMenu.below <= 12
+  && flowMenu.over <= 0, JSON.stringify(flowMenu));
+// 목록이 떠 있으므로 줄은 애초에 높아지지 않는다 — 트리거는 그 사람 이름과 같은 줄이다
+// (흐름이던 시절에는 PersonTag의 `has-[.menu-pick-menu]:items-start`가 그 일을 했고,
+// 지금은 목록이 그 줄의 자손이 아니라서 그 유틸이 걸리지 않는다)
+check('목록이 떠도 순 옮기기 버튼은 그 사람 줄에 남는다',
   !flowMenu.err && Math.abs(flowMenu.dyTop) <= 3, JSON.stringify(flowMenu));
 
 // 굵은 포인터면 **폭이 넓어도** 인라인이다(아이패드처럼 손가락으로 쓰는 기기)

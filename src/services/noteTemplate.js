@@ -25,8 +25,8 @@
 // 순수 모듈이다 — 노드에서 그대로 검사한다(tests/word.mjs 1절).
 // ============================================================================
 
-const WORSHIP_SECTIONS = ['본문', '말씀 요약', '나의 묵상', '결단', '기도'];
-const QT_SECTIONS = ['본문', '나의 묵상', '결단', '기도'];
+export const WORSHIP_SECTIONS = ['본문', '말씀 요약', '나의 묵상', '결단', '기도'];
+export const QT_SECTIONS = ['본문', '나의 묵상', '결단', '기도'];
 
 // 2026-09-09 이전에 저장된 노트의 제목들. 새 템플릿에는 안 쓰고 판정에만 쓴다.
 const LEGACY_SECTIONS = ['묵상 노트', '결단하기', '기도하기'];
@@ -110,4 +110,42 @@ export function splitNoteSections(md) {
   return out
     .map(s => ({ title: s.title, body: s.lines.join('\n').trim() }))
     .filter(s => !!s.body);
+}
+
+// ── 도막 제목은 지워지지 않는다 (2026-09-09 사용자 결정) ────────────────────
+// "본문, 말씀 요약, 나의 묵상, 결단, 기도 는 아예 지울 수 없게 고정을 해주는 게 좋을 것
+// 같아" — 그리고 다시: "중제목들 안 지워지게 해달라니까". 처음에는 '#~####를 다 받는'
+// 쪽으로 갔는데 그건 **다른 요구**였다(그건 그대로 두었다 — 서식 바로 단계를 바꿔도
+// 도막이 갈린다).
+//
+// **저장할 때 되살린다.** 편집기(TipTap) 안에서 지우는 손을 막는 길도 있지만, 그쪽은
+// 트랜잭션마다 끼어들어야 해서 붙여넣기·되돌리기와 부딪힌다. 저장되는 글이 곧 종이이고
+// 나눔 피드이므로, **저장 자리 하나**에서 모양을 보장하는 쪽이 확실하고 검사도 된다.
+//
+// 잃는 것이 없어야 한다:
+//   · 아는 도막은 **그 순서대로** 세우고 각자의 글을 그대로 얹는다
+//   · 첫 제목보다 앞에 있던 글(제목을 다 지운 경우)은 맨 위에 그대로 남긴다
+//   · 사람이 새로 만든 도막(아는 이름이 아닌 것)은 **뒤에 붙인다** — 지우지 않는다
+export function ensureNoteSections(md, sections = WORSHIP_SECTIONS) {
+  const parsed = splitNoteSections(md);
+  const want = sections || [];
+  const byTitle = new Map();
+  const extra = [];
+  let lead = '';
+  for (const sec of parsed) {
+    if (!sec.title) { lead = lead ? `${lead}\n${sec.body}` : sec.body; continue; }
+    if (want.includes(sec.title) && !byTitle.has(sec.title)) byTitle.set(sec.title, sec.body);
+    else extra.push(sec);
+  }
+  const lines = [];
+  if (lead.trim()) lines.push(lead.trim(), '');
+  for (const title of want) {
+    lines.push(`### ${title}`);
+    lines.push(byTitle.get(title) || '');
+  }
+  for (const sec of extra) {
+    lines.push(`### ${sec.title}`);
+    lines.push(sec.body || '');
+  }
+  return lines.join('\n');
 }

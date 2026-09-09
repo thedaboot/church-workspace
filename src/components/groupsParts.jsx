@@ -97,11 +97,10 @@ function PersonFace({ person, className = 'w-7 h-7 text-[11px]' }) {
 const PERSON_BADGE = 'shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold';
 export function PersonTag({ person, badge, tag, right, className = '' }) {
   return (
-    // `has-[.menu-pick-menu]:items-start` — 터치·좁은 화면에서 순 옮기기 목록이 이 줄
-    // **안에** 펴질 때만 걸린다(데스크톱은 포털이라 이 선택자에 걸릴 것이 없다).
-    // 없으면 목록만큼 높아진 줄에서 세로 가운데가 다시 잡혀 트리거가 이름 위로 올라가고,
-    // 이름이 트리거와 목록 사이에 끼어 누구의 목록인지 흐려진다(375 실측).
-    <div className={`group-person flex items-center has-[.menu-pick-menu]:items-start gap-2 min-w-0 ${className}`}>
+    // 순 옮기기 목록은 **떠서** 나오므로(MenuPick 머리말 · 2026-09-09) 이 줄이 목록만큼
+    // 높아지는 일이 없다. 하루 동안 있었던 `has-[.menu-pick-menu]:items-start`는 목록이
+    // 이 줄 안에 펴지던 시절의 것이라 걷었다 — 지금은 걸릴 선택자가 없다.
+    <div className={`group-person flex items-center gap-2 min-w-0 ${className}`}>
       <PersonFace person={person} />
       <span className="text-[12.5px] text-fg truncate">{person?.name}</span>
       {badge && (
@@ -110,7 +109,7 @@ export function PersonTag({ person, badge, tag, right, className = '' }) {
       {tag && (
         <span className={`person-tag-mark ${PERSON_BADGE} bg-tag-green text-tag-green-fg`}>{tag}</span>
       )}
-      {right && <span className="ml-auto shrink-0 flex items-center has-[.menu-pick-menu]:items-start gap-1">{right}</span>}
+      {right && <span className="ml-auto shrink-0 flex items-center gap-1">{right}</span>}
     </div>
   );
 }
@@ -325,31 +324,36 @@ export function PersonPick({
 
 // 짧은 목록에서 하나 고르기(순 옮기기) — 자동완성이 필요 없는 자리다.
 // items는 [{ id, name }]. 트리거 글자는 children으로 받는다.
+// **목록은 언제나 떠서 나온다**(포털 · 터치에서도). 사용자 지적 2026-09-09: "이렇게
+// 라인 밀리게 UI를 두는 게 아니라 해당 선택지는 바로 그 아래에 플로팅되어 나오는
+// 형식으로 해줘야지... 왜 밀려" · "순 옮기기 쪽은 또 왜 그래 같이 고쳐줘".
+//
+// 하루 전에는 이 부품도 터치에서 **보통 흐름**에 그렸다(2026-09-09 오전). 그 결정의
+// 근거는 **입력칸이 있는 피커**의 사정이었다 — iOS 사파리가 키보드가 떠 있는 동안
+// `position: fixed`를 우리가 준 좌표에 안 그린다(§6-9-an). MenuPick에는 **입력칸이 없어서**
+// 키보드가 뜨지 않으므로 그 사정이 없고, 흐름에 두면 목록이 아래 것들을 밀어낸다 —
+// 머리줄에서는 제목·가로선이 통째로 내려가고, 사람 줄에서는 그 줄이 벌어진다.
+// **PersonPick은 그대로 흐름이다**(거기는 입력칸이 있다).
 export function MenuPick({ items = [], onPick, label, empty, children, className = '' }) {
   const [open, setOpen] = useState(false);
   const [w, setW] = useState(MENU_EST_W);
-  // PersonPick과 같은 규칙 — 터치·좁은 화면에서는 트리거 아래 보통 흐름에 그린다.
-  // 줄이 그만큼 길어지지만(순 옮기기는 구성원 줄 안이다) fixed를 쓰지 않는 쪽이 낫다.
-  const [flow, setFlow] = useState(false);
+  // 언제나 포털이다(머리말) — 이 값은 남겨 두지 않는다.
   const rootRef = useRef(null);
   const menuRef = useRef(null);
   useDismiss(open, () => setOpen(false), rootRef, menuRef);
   // 폭은 내용이 정한다(w-max). 그린 뒤 실제 폭으로 다시 재야 오른쪽 끝이 트리거에 맞는다 —
   // 레이아웃 패스 안에서 다시 잡으므로 자리가 튀어 보이지 않는다.
-  // 인라인일 때는 흐름이 오른쪽 끝을 맞춰 주므로(items-end) 이 값이 쓰이지 않는다.
-  useLayoutEffect(() => { if (open && !flow) setW(menuRef.current?.offsetWidth || MENU_EST_W); }, [open, flow, items.length]);
-  const [pos, place] = useAnchoredPos(rootRef, open && !flow, w, MENU_MAX_H, 8, menuRef);
+  useLayoutEffect(() => { if (open) setW(menuRef.current?.offsetWidth || MENU_EST_W); }, [open, items.length]);
+  const [pos, place] = useAnchoredPos(rootRef, open, w, MENU_MAX_H, 8, menuRef);
   // PersonPick과 같은 순서 — **열기 전에 place()**(layout.jsx ProfileMenu의 패턴).
   const toggle = () => {
     if (open) { setOpen(false); return; }
-    const next = isTouchNarrow();
-    setFlow(next);
-    if (!next) place();
+    place();
     setOpen(true);
   };
   const menu = (
-    <div ref={menuRef} style={flow ? undefined : { position: 'fixed', left: pos.left, top: pos.top }}
-      className={`menu-pick-menu w-max min-w-[7rem] max-w-[min(14rem,80vw)] ${flow ? MENU_FLOW : MENU_BOX}`}>
+    <div ref={menuRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
+      className={`menu-pick-menu w-max min-w-[7rem] max-w-[min(14rem,80vw)] ${MENU_BOX}`}>
       {items.map(it => (
         <button key={it.id} type="button" onClick={() => { setOpen(false); onPick(it.id); }}
           className="menu-pick-option w-full block px-2 py-1.5 rounded-md text-left text-[12.5px] text-fg-muted hover:bg-surface-hover transition-colors truncate">{it.name}</button>
@@ -358,14 +362,12 @@ export function MenuPick({ items = [], onPick, label, empty, children, className
     </div>
   );
   return (
-    // 인라인이면 트리거와 목록이 세로로 서고 오른쪽 끝을 맞춘다 — 포털이 잡던 자리
-    // (`앵커 오른쪽 - 폭`)와 같은 모양이다.
-    <span ref={rootRef} className={`inline-flex ${flow && open ? 'flex-col items-end' : ''} ${className}`}>
+    <span ref={rootRef} className={`inline-flex ${className}`}>
       <button type="button" aria-label={label} aria-expanded={open} onClick={toggle}
         className="menu-pick inline-flex items-center gap-1 px-1.5 py-1 rounded-xs border border-line bg-surface text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95">
         <span>{children}</span><ChevronDown size={11} className="shrink-0" />
       </button>
-      {open && (flow ? menu : createPortal(menu, document.body))}
+      {open && createPortal(menu, document.body)}
     </span>
   );
 }
