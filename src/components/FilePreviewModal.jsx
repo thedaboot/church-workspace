@@ -37,7 +37,7 @@ const SlideView = (props) => <Suspense fallback={<PreparingFrame />}><SlideLazy 
 // ============================================================================
 // 종류 판정(previewKind)과 확장자 목록은 services/previewKind.js에 있다 — 순수 함수라
 // 노드에서 검사한다(tests/logcheck.mjs). 여기는 그리는 쪽만 남았다.
-import { previewKind, extOf, previewCopyUrl } from '../services/previewKind.js';
+import { previewKind, extOf, previewCopyUrl, copyEditUrl } from '../services/previewKind.js';
 // 바이트를 받아 **우리가 직접 그리는** 형식들. 엑셀('sheet')은 여기 없다 — 표는 구글이
 // 그리므로 25MB를 통째로 받아 파싱하고 그 결과를 안 쓰는 낭비였다(2026-08-29).
 const BYTE_KINDS = new Set(['doc', 'slide']);
@@ -48,6 +48,8 @@ const OFFICE_TIMEOUT = 12000;    // 이 시간 안에 안 뜨면 안내로 대�
 // 이 창의 네 갈래('sheet'·'gdoc'·'drive'·'office')와 첨부 목록의 엑셀 '펼쳐보기'
 // (attachments.jsx의 SHEET_SETTLE)가 같은 값을 쓴다 — 같은 구글 화면이 어디서 열리느냐에
 // 따라 다른 속도로 걷히면 안 된다. 한쪽을 바꾸면 짝도 같이 고치세요.
+// 모바일에서 구글 문서 미리보기 틀에 주는 폭(위 gdoc 갈래 주석)
+const GDOC_MOBILE_W = 940;
 const FRAME_SETTLE = 260;
 // Storage에 남은 옛 오피스 파일만 이 뷰어로 간다(드라이브 파일은 구글이 그린다)
 const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
@@ -76,7 +78,11 @@ const imgSrcOf = (r) => (r?.source === 'local'
 //       호출부가 걸러서 넘긴다(여기서 또 검사하면 비밀번호 로직이 두 벌이 된다).
 // initialSrc: 호출부가 이미 가진 URL. 이미지는 목록 썸네일이 같은 서명 URL이라
 //             그대로 넘기면 스켈레톤 없이 곧바로 뜬다(서명 재발급도 건너뜀).
-export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose }) {
+// `canEditCopy` — 구글 사본을 **고칠 수 있는 사람에게만** 편집 화면을 준다. 지금 켜는
+// 자리는 주보 큐시트 하나이고 자격은 교역자·마스터다(사용자 결정 2026-09-09 ·
+// worshipPerms.canEditCue). 업무 첨부는 언제나 거짓이다 — 첨부에 편집 권한을 주는 것은
+// 사용자가 판단해서 뺀 길이다(§7). 실제 경계는 드라이브의 편집자 목록이다(§6-32-g).
+export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose, canEditCopy = false }) {
   const isMobile = useIsMobile();
   // 사진 넘기기 — 지금 보는 파일이 이미지일 때, 같은 목록의 **이미지끼리만**.
   // 문서·영상은 안 넘긴다: iframe 뷰어는 장마다 새로 뜨는 데 몇 초씩 걸려서
@@ -364,20 +370,32 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose 
     // **흰 바탕**: 구글 미리보기는 언제나 밝은 화면이라 다크 모드를 따라가지 않는다
     // (§6-29-c에 적힌 그 결정 그대로다 — 작성자가 칠한 색을 원본대로 보여주는 자리다).
     if (kind === 'gdoc') {
-      const src = previewCopyUrl(cur);
+      // 자격자에게는 편집 화면, 나머지는 보기 화면. 사본이 없으면 둘 다 null이고 아래에서
+      // 새 탭으로 떨어진다.
+      const src = (canEditCopy && copyEditUrl(cur)) || previewCopyUrl(cur);
       // 종류 판정이 사본을 확인하고 왔으므로 여기서 src가 빌 일은 없다. 그래도 빈 iframe을
       // 띄우느니 새 탭을 내주는 쪽이 정직하다(스켈레톤만 남으면 영영 안 걷힌다).
       if (!src) return <Fallback row={cur} message="미리보기를 준비하지 못했어요." onOpen={openExternal} />;
+      // **모바일에서는 틀을 종이 폭만큼 넓혀 두고 우리 칸이 옆으로 스크롤한다.**
+      // 사용자 스크린샷(2026-09-09 · 큐시트 docx)에서 표가 오른쪽으로 잘려 나갔다 —
+      // 구글 문서 미리보기는 종이를 화면 폭에 맞춰 주지 않고 **자기 폭으로 그린 뒤
+      // 넘치는 것을 잘라 버린다**(iframe 안에서 가로로 밀 수도 없다). 375px 틀에
+      // 940px 종이를 담고 겉을 `overflow-x-auto`로 두면, 잘리는 대신 밀어서 볼 수 있다.
+      // 940은 A4 본문 폭(약 794px)에 표가 여백을 넘는 만큼을 더한 값이다 — 이보다 크게
+      // 두면 처음 보이는 자리가 종이의 왼쪽 조각뿐이 된다.
+      // 넓은 화면은 그대로 폭을 채운다(자를 것이 없다).
+      const wide = isMobile;
       return (
-        <div className="relative w-full h-full">
+        <div className={`relative w-full h-full ${wide ? 'overflow-x-auto x-scroll-lock' : ''}`}>
           {!frameReady && <PreparingFrame absolute />}
           <iframe
             src={src} title={`${cur.name} 미리보기`}
             // onLoad는 "문서가 전달된 시점"이라 첫 장이 아직 안 그려져 있다 → 조금 뒤에 걷는다
             onLoad={() => { clearTimeout(settleRef.current); settleRef.current = setTimeout(() => setFrameReady(true), FRAME_SETTLE); }}
+            style={wide ? { width: GDOC_MOBILE_W, maxWidth: 'none' } : undefined}
             // 스켈레톤과 **정확히 같은 자리**를 채운다(둘 다 이 relative 칸을 꽉 채운다) —
             // 크기가 다르면 걷히는 순간 화면이 한 번 튄다. 걷을 때는 페이드다(§4.2).
-            className={`w-full h-full rounded-md border border-line bg-white transition-opacity duration-200 ${frameReady ? 'opacity-100' : 'opacity-0'}`}
+            className={`h-full rounded-md border border-line bg-white transition-opacity duration-200 ${wide ? 'block' : 'w-full'} ${frameReady ? 'opacity-100' : 'opacity-0'}`}
           />
         </div>
       );

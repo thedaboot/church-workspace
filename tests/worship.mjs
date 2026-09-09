@@ -223,6 +223,8 @@ await sleep(1500);
 const pure = await ev(`(async () => {
   const m = await import('/src/services/worship.js');
   const perms = (o) => { const p = m.worshipPerms(o); return [p.canEdit, p.canCheckAll, p.canCheck]; };
+  // 큐시트 사본을 고칠 수 있는 사람 — 주보를 쓰는 자격보다 좁다(교역자·마스터만)
+  const cue = (o) => m.worshipPerms(o).canEditCue;
   // 출석은 이제 **날짜가 아니라 시각**으로 열린다(그날 13:30 KST · ATTEND_OPEN_HM)
   const att = (status, date, now = '2026-09-01 14:00:00') => m.attendanceOpen({ status, service_date: date }, now);
   return {
@@ -232,6 +234,12 @@ const pure = await ev(`(async () => {
     dateOtherYear: m.formatServiceDate('2025-12-25'),
     label: [m.kindLabel('sunday'), m.kindLabel('금요 열정 예배')],
     plain: perms({}),
+    cueMaster: cue({ isMaster: true }),
+    cuePastor: cue({ myPerson: { is_pastor: true } }),
+    cueAdmin: cue({ isAdmin: true }),
+    cuePresident: cue({ myRoles: ['president'] }),
+    cueMedia: cue({ myPerson: { teams: ['미디어팀'] } }),
+    cuePlain: cue({}),
     president: perms({ myRoles: ['president'] }),
     pastor: perms({ myPerson: { is_pastor: true } }),
     treasurer: perms({ myRoles: ['treasurer'] }),
@@ -314,6 +322,15 @@ check('지난 해 예배도 같은 모양', pure.dateOtherYear === '25년 12월 
 check('종류 이름 — sunday는 주일 4부 젊은이 예배, 나머지는 적은 그대로',
   pure.label[0] === '주일 4부 젊은이 예배' && pure.label[1] === '금요 열정 예배', JSON.stringify(pure.label));
 check('일반 멤버는 작성도 출석도 못 한다', JSON.stringify(pure.plain) === '[false,false,false]', JSON.stringify(pure.plain));
+// **큐시트 사본은 교역자·마스터만 고친다**(사용자 결정 2026-09-09 — "큐시트는 교역자와
+// 마스터만 수정 가능하게"). 주보를 쓰는 자격(canEdit)보다 좁다: 관리자·회장·미디어팀은
+// 주보를 쓰지만 큐시트 원고를 고치지는 않는다. 실제 경계는 드라이브의 편집자 둘이다
+// (Apps Script v10 CUE_EDITORS) — 이 깃발은 헛걸음을 줄이는 자리다.
+check('큐시트 편집은 교역자·마스터만(관리자·회장·미디어팀도 아니다)',
+  pure.cueMaster === true && pure.cuePastor === true
+  && pure.cueAdmin === false && pure.cuePresident === false
+  && pure.cueMedia === false && pure.cuePlain === false,
+  JSON.stringify([pure.cueMaster, pure.cuePastor, pure.cueAdmin, pure.cuePresident, pure.cueMedia, pure.cuePlain]));
 // **2026-09-05 규칙**: 주보 = 관리자·교역자·회장·미디어팀 / 전체 출석 = 관리자·교역자·리더순장.
 // 회장은 주보를 쓰지만 남의 순 출석까지 만지지는 않는다(자기 순 순장이면 그 순만).
 check('회장은 주보 작성 · 전체 출석은 아니다', JSON.stringify(pure.president) === '[true,false,false]', JSON.stringify(pure.president));
@@ -674,7 +691,7 @@ check('종이에 말씀 요약 줄은 없다', !paper.p1.includes('요약'), pap
 // 2쪽 — '예배 인도'가 아니라 **찬양 인도**다(사용자 지적 2026-09-09)
 check('2쪽은 찬양 · 섬기는 이들 · 광고 셋이고 찬양 인도로 적는다',
   JSON.stringify(paper.labels) === JSON.stringify(['찬양', '섬기는 이들', '광고'])
-  && paper.p2.includes('찬양 인도 조해리') && paper.p2.includes('주 은혜임을')
+  && paper.p2.includes('찬양 인도') && paper.p2.includes('조해리') && paper.p2.includes('주 은혜임을')
   && paper.p2.includes('겨울 수련회'), JSON.stringify({ labels: paper.labels, p2: paper.p2.slice(0, 120) }));
 check('주보 종이에는 캐릭터 컷을 얹지 않는다', paper.cut === 0, String(paper.cut));
 check('본문이 도착한 뒤에 PDF 버튼이 열린다', paper.pdf === true && paper.pdfOff === false,

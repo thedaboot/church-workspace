@@ -16,6 +16,11 @@ const EditorSkeleton = () => <div className="min-h-40 md:min-h-56 border border-
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { getMemberNames, loadCardDetail, cardSummaryCloud, cardWritePromise } from '../services/cloudSync.js';
+import * as cloudSync from '../services/cloudSync.js';
+import { TaskLinks } from '../components/links.jsx';
+import { docEmbedKind } from '../components/DocEmbed.jsx';
+import { makeViewPw } from '../services/viewPw.js';
+import { failText } from '../services/errorText.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { showToast } from '../components/Toast.jsx';
@@ -121,6 +126,36 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   // 새 업무에서 골라둔 첨부(File 객체) — 파일은 카드 id가 있어야 올라가므로(files가
   // 카드를 참조) 저장 직후에 올린다. 쓰는 사람에게는 "처음부터 첨부"와 같다.
   const [pendingFiles, setPendingFiles] = useState([]);
+
+  // ── 참고 링크 (0058) ──────────────────────────────────────────────────────
+  // **카드 전체를 저장하지 않는다.** 링크는 `resource_links` 행이라 카드 저장 경로와
+  // 별개이고, 카드를 통째로 보내면 같은 순간 남이 고친 칸까지 덮는다(§6-28-a).
+  // 스토어에는 SYNC_TASK로 그 카드의 pinnedLinks만 갈아 끼운다.
+  // 새 업무(id 없음)에는 붙일 수 없다 — 행이 카드를 참조하므로 첨부와 같은 사정이다.
+  const linkOps = useMemo(() => {
+    const patch = (next) => store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, pinnedLinks: next } });
+    const now = () => store.getState().tasks.byId[task.id]?.pinnedLinks || [];
+    const fail = (what) => (err) => { console.error(`[cloud] ${what}:`, err); showToast(failText(what, err)); };
+    return {
+      add: (link) => {
+        patch([...now(), link]);
+        if (cloudMode) cloudSync.linkAddCloud({ cardId: task.id }, link).catch(fail('참고 링크를 추가하지 못했어요'));
+      },
+      remove: (link) => {
+        patch(now().filter(l => l.id !== link.id));
+        if (cloudMode) cloudSync.linkRemoveCloud(link.id).catch(fail('참고 링크를 지우지 못했어요'));
+      },
+      // 잠금은 **낙관적으로 먼저 바꾸지 않는다** — 걸렸는지가 곧 화면의 사실이라,
+      // 저장이 실패했는데 자물쇠만 붙어 있으면 화면이 거짓말을 한다(프로젝트 쪽과 같은 순서).
+      setPw: async (link, pw) => {
+        const res = cloudMode ? await cloudSync.linkSetPasswordCloud(link.id, pw) : await makeViewPw(pw);
+        patch(now().map(l => (l.id === link.id
+          ? { ...l, view_pw: res?.view_pw ?? null, view_pw_salt: res?.view_pw_salt ?? null }
+          : l)));
+      },
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.id, cloudMode]);
   // 새 업무의 첨부도 **업무 창에서 붙일 때와 같은 길**로 올린다(attachments.startUploads).
   // 예전에는 여기 두 번째 구현이 있었는데 사진을 줄이지 않았고(29-m), 업무 폴더를 미리
   // 확보하지 않았고(29-h), 하나씩 순차로 올렸고, "올리는 중"도 이름만 있는 다른 표시라
@@ -221,6 +256,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     // key로 카드마다 새로 마운트한다 — 요약 state(펼침·이번에 만든 요약)가 카드
     // 사이에 남으면, 다른 카드를 열었을 때 앞 카드의 요약이 그대로 보인다
     : <TaskViewer key={formData.id} formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
+        links={linkOps}
         // 체크 하나에 카드 전체를 저장한다 — 하위 업무만 따로 쓰는 경로를 만들 만큼
         // 잦은 조작이 아니고, 저장 경로가 둘이면 활동 기록·실시간이 갈라진다
         onSubtasksChange={(next) => onSave({ ...formData, subtasks: next })}
@@ -696,7 +732,7 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
   );
 });
 
-const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange, onTodoToggle }) => {
+const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange, onTodoToggle, links }) => {
   const [summary, setSummary] = useState('');      // 이번에 AI가 만든 것(고정 전)
   const [revealed, setRevealed] = useState(false); // 고정된 요약을 펼쳤는지
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -869,6 +905,15 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
       <div className="prose prose-sm max-w-none mt-3 min-h-[120px] text-sm">
         <RichText content={formData.content} onToggleTodo={onTodoToggle} />
       </div>
+
+      {/* 참고 링크(0058) — 프로젝트 헤더와 **같은 부품**이다(components/links.jsx).
+          구글 문서·시트·슬라이드는 앱 안 창에서 열리고 편집 권한이 있으면 그 자리에서
+          고쳐진다. 비밀번호는 만든 사람과 관리자가 건다(화면 가림 — services/viewPw.js). */}
+      {links && (
+        <TaskLinks links={formData.pinnedLinks || []} canAdd={!!formData.id}
+          canLock={(l) => !!docEmbedKind(l.url) && (isAdmin || (!!userId && l.created_by === userId))}
+          onAdd={links.add} onRemove={links.remove} onSetPw={links.setPw} />
+      )}
 
       {/* 보기 모드에서도 체크는 눌린다 — 하위 업무를 끝낼 때마다 수정 모드로 들어갔다
           나오게 하면 아무도 쓰지 않는다. 항목 추가·삭제는 수정 모드에서만. */}

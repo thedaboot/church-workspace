@@ -20,7 +20,7 @@ import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeL
 import { honorificsOf } from '../services/people.js';
 import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections } from '../services/noteTemplate.js';
 import { NoteSheet, ServiceSheetOne, ServiceSheetTwo, PAPER, paperDate } from './paper.jsx';
-import { preloadExport, nodeToPng, nodesToPdf, shareOrSave } from '../services/shareImage.js';
+import { useSheetShare } from '../hooks/useSheetShare.js';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 
@@ -1007,14 +1007,19 @@ const SHEET_BOX = 'paper-box w-full max-w-[560px] mx-auto';
 // 우리끼리 여는 파일이고, 각자의 탭(말씀·찬양)에 그대로 있다.
 function ServicePaper({ service, nameOf }) {
   const [verses, setVerses] = useState(null);
-  const [busy, setBusy] = useState(false);
   const one = useRef(null);
   const two = useRef(null);
   const date = paperDate(service?.service_date);
   const kind = kindLabel(service?.kind);
 
-  // PDF는 두 쪽을 다 구우므로 라이브러리가 둘(html2canvas·jspdf) 다 필요하다
-  useEffect(() => { preloadExport({ pdf: true }); }, []);
+  // **누르기 전에 PDF까지 구워 둔다** — 폰에서는 굽는 시간이 공유 시트를 열 자격보다
+  // 길어서 "데스크톱은 되는데 모바일은 안 된다"였다(hooks/useSheetShare.js 머리말).
+  // 열쇠에 본문 절 수를 넣는다: 본문이 늦게 붙으므로, 그 전에 구운 PDF는 버려야 한다.
+  const pdf = useSheetShare({
+    refs: [one, two], kind: 'pdf', background: PAPER.surface,
+    key: `${service?.id || ''}:${service?.updated_at || ''}:${verses ? verses.length : 'wait'}`,
+    fileName: `주보 ${date}`.trim(), what: '주보를 내보내지 못했어요',
+  });
 
   // 본문 전문. 못 읽는 구절은 빈 배열이고 종이에는 구절 표기만 남는다(PassageBody와 같은 규칙).
   useEffect(() => {
@@ -1028,28 +1033,14 @@ function ServicePaper({ service, nameOf }) {
     return () => { alive = false; };
   }, [service?.passage_ref]);
 
-  const sharePdf = async () => {
-    if (busy || verses === null) return;
-    setBusy(true);
-    try {
-      const blob = await nodesToPdf([one.current, two.current], PAPER.surface);
-      const name = `주보 ${date}`.trim();
-      await shareOrSave([new File([blob], `${name}.pdf`, { type: 'application/pdf' })],
-        { toast: showToast, what: '주보를 내보내지 못했어요' });
-    } catch (e) {
-      console.error('[worship] 주보 PDF를 만들지 못했어요:', e);
-      showToast(failText('주보를 내보내지 못했어요', e));
-    } finally { setBusy(false); }
-  };
-
   return (
     <div className="worship-paper">
       {/* 도구는 종이 위 한 줄 — 감추지 않는다(§8). 본문이 아직 안 왔으면 잠긴다:
           그때 구우면 본문 없는 주보가 나간다 */}
       <div className="flex items-center gap-1.5 mb-3">
-        <button type="button" onClick={sharePdf} disabled={busy || verses === null}
+        <button type="button" onClick={pdf.share} disabled={pdf.busy || verses === null}
           className={`worship-paper-pdf ${WITH_ICON} ${BTN}`}>
-          {busy ? <Loader2 size={13} className="animate-spin" /> : <FileDown size={13} />}
+          {pdf.busy ? <Loader2 size={13} className="animate-spin" /> : <FileDown size={13} />}
           <span>PDF로 공유</span>
         </button>
       </div>
@@ -1094,25 +1085,14 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
   // 종이에 세울 도막. 저장된 글만 본다 — 편집 중인 글은 종이가 아니라 편집기가 그린다.
   const sections = useMemo(() => splitNoteSections(note?.body || ''), [note?.body]);
   const sheetRef = useRef(null);
-  const [imgBusy, setImgBusy] = useState(false);
-  // **누르기 전에** html2canvas를 받아 둔다 — 누른 뒤에 받으면 그 사이에 공유 시트를
-  // 열 자격(사용자 제스처)이 만료된다(services/shareImage.js 머리말 ①).
-  useEffect(() => { if (reading) preloadExport(); }, [reading]);
-
-  const saveImage = async () => {
-    const node = sheetRef.current;
-    if (!node || imgBusy) return;
-    setImgBusy(true);
-    try {
-      const blob = await nodeToPng(node, PAPER.surface);
-      const name = `예배 노트 ${paperDate(serviceDate)}`.trim();
-      await shareOrSave([new File([blob], `${name}.png`, { type: 'image/png' })],
-        { toast: showToast, what: '이미지를 저장하지 못했어요' });
-    } catch (e) {
-      console.error('[worship] 노트 이미지를 만들지 못했어요:', e);
-      showToast(failText('이미지를 저장하지 못했어요', e));
-    } finally { setImgBusy(false); }
-  };
+  // **누르기 전에 그림까지 구워 둔다**(hooks/useSheetShare.js) — 미리 받기만으로는
+  // 폰에서 공유 시트가 열리지 않았다(사용자 보고 2026-09-09).
+  const img = useSheetShare({
+    refs: [sheetRef], background: PAPER.surface,
+    key: reading ? `${note?.id || 'none'}:${note?.body || ''}` : '',
+    fileName: `예배 노트 ${paperDate(serviceDate)}`.trim(),
+    what: '이미지를 저장하지 못했어요',
+  });
 
   // 주보가 바뀌거나 서버 값이 새로 오면 편집 중이던 글을 그 값으로 되돌린다.
   // **읽기 모드도 같이 되돌린다** — 다른 주보를 열었는데 앞 주보의 편집 상태가 남으면
@@ -1175,9 +1155,9 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
         {reading ? (
           <span className="flex items-center gap-2">
             <button type="button" onClick={() => setEditing(true)} className={`worship-note-edit ${BTN_SOFT}`}>수정</button>
-            <button type="button" onClick={saveImage} disabled={imgBusy}
+            <button type="button" onClick={img.share} disabled={img.busy}
               className={`worship-note-image ${WITH_ICON} ${BTN_QUIET}`}>
-              {imgBusy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+              {img.busy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
               <span>이미지로 저장</span>
             </button>
           </span>
@@ -1406,7 +1386,11 @@ export function ServiceDetail({
           : <NoticesTab rows={rows('notices')} />)}
       </div>
 
-      {canWriteNote && !editing && (
+      {/* **발행 전에는 노트 자리가 없다**(사용자 결정 2026-09-09 — "발행하기 전에는 예배
+          노트 작성 못하게 섹션을 아예 지워주고"). 아직 아무도 안 본 주보에 노트를 쓰면
+          그 노트가 어느 예배의 것인지 모호해지고, 발행 뒤에 주보가 바뀌면 노트가 먼저
+          쓰인 셈이 된다. */}
+      {canWriteNote && !editing && !isDraft && (
         <MyNote note={note} serviceDate={service?.service_date || ''} passageRef={service?.passage_ref || ''}
           passageTitle={service?.title || ''} onSave={onSaveNote} onShare={onShareNote} />
       )}
@@ -1417,7 +1401,10 @@ export function ServiceDetail({
           찬양 탭에서 연 송폼이 말씀 탭 큐시트로 넘어가면 어디에 있는지 알 수 없다. */}
       {preview && (
         <FilePreviewModal row={preview} initialSrc={null} onClose={() => setPreview(null)}
-          rows={fileKindOf(preview) === CUESHEET ? cueFiles : songForms} />
+          rows={fileKindOf(preview) === CUESHEET ? cueFiles : songForms}
+          /* 큐시트 사본만, 교역자·마스터만 편집 화면으로 연다(사용자 결정 2026-09-09).
+             송폼·업무 첨부는 그대로 보기다(§7) */
+          canEditCopy={fileKindOf(preview) === CUESHEET && !!perms.canEditCue} />
       )}
 
       {/* 모바일 편집 도구 줄 — 화면 아래에 붙는다. 하단 탭바(4.5rem + safe-area) 위에

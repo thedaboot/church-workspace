@@ -456,8 +456,10 @@ export async function removeCommentReaction(commentId, kind) {
 export async function listAllLinks() {
   return unwrap(await client().from('resource_links').select('*').order('created_at', { ascending: true }));
 }
-export async function addLink(projectId, title, url, id) {
-  const row = { project_id: projectId, title, url };
+// 주인은 **프로젝트이거나 카드**다(0058의 배타 CHECK). 둘 다 넘기면 DB가 23514로 막는다 —
+// 여기서 미리 가르지 않는 이유는 그 판정이 한 곳(DB)에만 있어야 하기 때문이다.
+export async function addLink({ projectId = null, cardId = null }, title, url, id) {
+  const row = cardId ? { card_id: cardId, title, url } : { project_id: projectId, title, url };
   if (id) row.id = id;
   return unwrap(await client().from('resource_links').insert(row).select().single());
 }
@@ -709,14 +711,21 @@ async function uploadViaStorage(file, { prefix, key, folderHint }) {
 // 만들어서, 글자가 표 칸에 흩어진 사본이 preview_file_id에 박힌다. 스크립트가 답마다
 // 실어 보내는 version으로 가른다(v7 이하에는 그 칸이 없다 → 0으로 읽힌다).
 // 엑셀은 v7도 제대로 만들므로 버전을 안 따진다.
-function attachPreviewCopy(row, { fileId, name, folderId, kind, version }) {
+function attachPreviewCopy(row, { fileId, name, folderId, kind, version, cueEditors = false }) {
   if (!kind || !fileId) return;
   if (kind !== 'spreadsheet' && Number(version || 0) < 8) return;
   // **await 하지 않는다.** 첨부는 이미 목록에 서 있고, 사본은 늦게 붙어도 된다.
   (async () => {
     try {
       // name·folderId를 같이 보내면 스크립트가 파일을 다시 묻지 않는다(왕복 한 번 절약).
-      const out = await driveCall({ action: 'convert', fileId, name, folderId, convertTo: kind });
+      // **큐시트만 사본에 편집자를 붙인다**(사용자 결정 2026-09-09 — "큐시트는 교역자와
+      // 마스터만 수정 가능하게"). 스크립트(v10 `CUE_EDITORS`)가 그 두 구글 계정을
+      // 편집자로 올리고, 나머지 사본은 그대로 '링크를 아는 사람은 보기'다(§7).
+      // v10 미만은 이 칸을 모르므로 그냥 무시한다 — 사본은 여전히 만들어지고 보기만 된다.
+      const out = await driveCall({
+        action: 'convert', fileId, name, folderId, convertTo: kind,
+        ...(cueEditors ? { cueEditors: true } : {}),
+      });
       if (!out?.previewId) return;
       await client().from('files').update({ preview_file_id: out.previewId }).eq('id', row.id);
       // 이 화면이 들고 있는 행에도 적어 둔다 — 다시 그릴 때 바로 구글 화면으로 간다.
@@ -809,6 +818,7 @@ async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder
     attachPreviewCopy(row, {
       fileId: up.id, name: file.name, folderId: up.folderId,
       kind: copyKind, version: up.version,
+      cueEditors: row.kind === 'cuesheet',
     });
   }
 

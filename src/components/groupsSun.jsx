@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { SectionHead } from '../views/dashboardParts.jsx';
 import { Skeleton } from './media.jsx';
-import { RichText } from './RichText.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { YearPicker } from './layout.jsx';
@@ -12,6 +11,10 @@ import {
 } from './groupsParts.jsx';
 import { groupPeople, presentCount, sunCandidates } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
+import { NoteSheet, paperDate } from './paper.jsx';
+import { NOTE_CUT } from './worshipDetail.jsx';
+import { splitNoteSections } from '../services/noteTemplate.js';
+import { guidePickLabel } from '../services/sunGuide.js';
 
 // ============================================================================
 // 순 — 내 순 카드(구성원 · 최근 주일 예배 출석 · 공유된 예배 노트) · 순 편성 관리 구역
@@ -104,13 +107,41 @@ export function MySunPanel({ myPerson, sun, people, members, service, present, l
 // (사용자 지적 2026-09-03 — "각각 따로 스켈레톤이 된다").
 // 없을 때도 구역은 남긴다: 순장이 '노트가 공유되면 어디에 뜨는지'를 알 수 있어야 하고,
 // 그 자리가 비어 있다는 것도 정보다. 순원의 비공개 노트는 여전히 오지 않는다(결정 7).
+// **글만 오지 않는다 — 종이 그대로 온다**(사용자 요구 2026-09-09: "예배 노트 순에
+// 공유할 때에도 글만 공유되는 게 아니고, 해당 노트 템플릿 그대로 공유될 수 있도록
+// 해주라! 대신 이것도 주보별로 볼 수 있게끔"). 그래서 이 목록은 두 가지가 바뀌었다:
+//   · 줄마다 노트 종이(components/paper.jsx NoteSheet)를 세운다 — 쓴 사람 화면과 같은 모양
+//   · **한 주보씩 본다** — 머리줄의 고르개로 주보를 바꾼다. 전부 이어 세우면 종이가
+//     사람 수만큼 길어져 스크롤이 끝나지 않는다(종이 하나가 화면 한 판이다)
 export function SunNotesSection({ notes = [], onShare }) {
+  // 고를 수 있는 주보 — 공유된 노트가 **있는** 주보만, 최근순. 노트가 없는 주보를
+  // 세우면 골라 놓고 빈 화면을 보게 된다.
+  const services = useMemo(() => {
+    const seen = new Map();
+    for (const n of notes) {
+      if (!n.serviceId || seen.has(n.serviceId)) continue;
+      seen.set(n.serviceId, { id: n.serviceId, date: n.serviceDate || '', title: n.serviceTitle || '' });
+    }
+    return [...seen.values()].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }, [notes]);
+  const [picked, setPicked] = useState('');
+  const cur = services.find(x => x.id === picked) || services[0] || null;
+  const rows = useMemo(() => notes.filter(n => n.serviceId === cur?.id), [notes, cur]);
+
+  const pick = services.length ? (
+    <MenuPick className="mysun-note-pick" label="주보 고르기"
+      items={services.map(x => ({ id: x.id, name: `${guidePickLabel(x.date)}${x.title ? ` · ${x.title}` : ''}` }))}
+      onPick={setPicked}>
+      {guidePickLabel(cur?.date) || '주보 고르기'}
+    </MenuPick>
+  ) : null;
+
   return (
     <div className="mysun-notes mt-6">
-      <SectionHead>내 순에 공유된 예배 노트</SectionHead>
-      {notes.length > 0 ? (
-        <div className="space-y-2">
-          {notes.map(n => <NoteRow key={n.id} note={n} onShare={onShare} />)}
+      <SectionHead right={pick}>내 순에 공유된 예배 노트</SectionHead>
+      {rows.length > 0 ? (
+        <div className="space-y-4">
+          {rows.map(n => <NoteRow key={n.id} note={n} service={cur} onShare={onShare} />)}
         </div>
       ) : (
         <Empty className="mysun-note-empty" mark={<NoteMark />} minH="20vh"
@@ -134,7 +165,7 @@ export function SunNotesSection({ notes = [], onShare }) {
 // **이 화면에는 편집기가 없으므로 조작은 이 줄에 남는다**(사용자 결정 2026-09-05 —
 // 말씀 나눔 피드에서는 편집기 토글 하나만 남기고 줄에서는 뺐다). 노트를 쓰는 자리는
 // 예배 상세 화면이고, 거기 토글과 여기 토글은 서로 다른 화면에 한 벌씩이다.
-function NoteRow({ note, onShare }) {
+function NoteRow({ note, service, onShare }) {
   const [state, setState] = useState('');   // '' | 'saving' | 'saved' (공유 칩)
   const [said, setSaid] = useState('');
   useEffect(() => {
@@ -176,11 +207,15 @@ function NoteRow({ note, onShare }) {
           </span>
         )}
       </div>
-      {/* 노트는 **마크다운으로 쓴다**(예배 화면이 MarkdownEditor로 바뀌었다) — 원문을
-          그대로 글자로 두면 '## 제목'·'- 항목'·'**굵게**'가 그대로 보인다. 업무 본문·
-          댓글과 같은 뷰어 한 벌을 쓴다(components/RichText.jsx). */}
-      <div className="mysun-note-body mt-1 text-[13px] text-fg-secondary leading-relaxed break-words">
-        <RichText content={note.body} />
+      {/* **쓴 사람 화면과 같은 종이다**(components/paper.jsx). 예전에는 마크다운을
+          RichText로 그려서, 도막 제목이 맨 글자로 서고 카카오톡으로 나가는 그림과
+          목록의 모습이 달랐다. 폭은 종이 규격 그대로(560px 상한, 가운데). */}
+      <div className="mysun-note-sheet mt-2 w-full max-w-[560px] mx-auto">
+        <div className="rounded-[12px] overflow-hidden border border-line">
+          <NoteSheet date={paperDate(note.serviceDate)} kind="예배 노트"
+            passageTitle={service?.title || note.serviceTitle || ''}
+            sections={splitNoteSections(note.body)} cut={NOTE_CUT} />
+        </div>
       </div>
     </div>
   );

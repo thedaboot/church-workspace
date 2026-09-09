@@ -18,7 +18,7 @@ import { SectionHead, Card } from './dashboardParts.jsx';
 import { loadPassage } from '../services/bible.js';
 import { qtNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections } from '../services/noteTemplate.js';
 import { NoteSheet, PAPER, paperDate } from '../components/paper.jsx';
-import { preloadExport, nodeToPng, shareOrSave } from '../services/shareImage.js';
+import { useSheetShare } from '../hooks/useSheetShare.js';
 import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap, useBibleState, useVersePaint, marksFor } from '../components/wordBible.jsx';
 import {
   kstToday, shiftDay, dayLabel, shortDayLabel, monthDays, shiftMonth, weekRange, shouldAdoptBody,
@@ -305,24 +305,14 @@ function QtTab() {
   // ── 종이(읽기 모드) — 예배 노트와 같은 부품, 캐릭터만 book ────────────────
   const qtSections = useMemo(() => splitNoteSections(entry?.body || ''), [entry?.body]);
   const qtSheetRef = useRef(null);
-  const [qtImgBusy, setQtImgBusy] = useState(false);
-  // **누르기 전에** html2canvas를 받아 둔다(services/shareImage.js 머리말 ①)
-  useEffect(() => { if (reading) preloadExport(); }, [reading]);
-
-  const saveQtImage = async () => {
-    const node = qtSheetRef.current;
-    if (!node || qtImgBusy) return;
-    setQtImgBusy(true);
-    try {
-      const blob = await nodeToPng(node, PAPER.surface);
-      const name = `묵상 노트 ${paperDate(date)}`.trim();
-      await shareOrSave([new File([blob], `${name}.png`, { type: 'image/png' })],
-        { toast: showToast, what: '이미지를 저장하지 못했어요' });
-    } catch (e) {
-      console.error('[word] 묵상 이미지를 만들지 못했어요:', e);
-      showToast(failText('이미지를 저장하지 못했어요', e));
-    } finally { setQtImgBusy(false); }
-  };
+  // **누르기 전에 그림까지 구워 둔다**(hooks/useSheetShare.js) — 미리 받기만으로는
+  // 폰에서 공유 시트가 열리지 않았다(사용자 보고 2026-09-09).
+  const qtImg = useSheetShare({
+    refs: [qtSheetRef], background: PAPER.surface,
+    key: reading ? `${date}:${entry?.body || ''}` : '',
+    fileName: `묵상 노트 ${paperDate(date)}`.trim(),
+    what: '이미지를 저장하지 못했어요',
+  });
 
   // 피드에 설 내 줄 — **지금 저장된 내 묵상**에서 만든다(mergeFeed 머리말).
   // profile_id를 실어 보내야 비공개로 넘어가 목록에서 빠진 뒤에도 같은 이름·사진으로
@@ -522,9 +512,9 @@ function QtTab() {
                     className="bg-accent-weak hover:brightness-95 text-accent-text px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
                     수정
                   </button>
-                  <button onClick={saveQtImage} disabled={qtImgBusy} data-qt-image="1"
+                  <button onClick={qtImg.share} disabled={qtImg.busy} data-qt-image="1"
                     className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[11.5px] font-medium text-fg-muted bg-surface-hover hover:bg-line transition active:scale-95 disabled:opacity-50">
-                    {qtImgBusy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                    {qtImg.busy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
                     <span>이미지로 저장</span>
                   </button>
                 </>
@@ -696,6 +686,37 @@ export function mergeFeed(shared, mine) {
 // 지우고, 거기는 잔디까지 같이 비운다.
 export const canDeleteShared = (row, isMaster) => !!isMaster && !row?.mine;
 
+// 나눔 한 줄의 글 — **종이와 같은 문법**(왼쪽 라벨 · 오른쪽 글)으로 접어 보여준다.
+// 사용자 지적 2026-09-09: "오늘의 나눔 쪽에는 또 별로이게 보이는데, 이것도 좀 개선을".
+// 예전에는 마크다운을 그대로 RichText에 넘겨서 도막 제목이 굵은 맨 줄로 서고, **빈 도막
+// (결단·기도를 안 쓴 날)까지 제목만 남아** 글에 구멍이 보였다.
+// 도막이 없는 글(템플릿을 안 쓰고 쓴 나눔)은 예전 그대로 마크다운 뷰어다 — 그쪽이
+// 제목·목록·굵게를 다 그린다.
+function NoteDigest({ md }) {
+  const secs = useMemo(() => splitNoteSections(md), [md]);
+  const plain = !secs.length || (secs.length === 1 && !secs[0].title);
+  if (plain) {
+    return (
+      <div className="text-[13px] leading-relaxed text-fg-secondary break-words mt-0.5">
+        <RichText content={md} />
+      </div>
+    );
+  }
+  return (
+    <div className="qt-digest mt-1 grid gap-x-3 gap-y-1 items-baseline"
+      style={{ gridTemplateColumns: '52px minmax(0, 1fr)' }}>
+      {secs.map((sec, i) => (
+        <React.Fragment key={`${sec.title}-${i}`}>
+          <span className="text-[10px] font-extrabold text-fg-faint">{sec.title || ' '}</span>
+          <span className="min-w-0 text-[12.5px] leading-[1.75] text-fg-secondary break-words whitespace-pre-line">
+            {sec.body}
+          </span>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
 function ShareFeed({ rows = [], members = [], myName = '', onEdit, isMaster = false, onDeleteOther }) {
   const byId = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   // 줄 등장 순번은 앱의 관례대로 **첫 마운트에만** 준다(useEnterStagger 주석) — 그 뒤에
@@ -746,9 +767,7 @@ function ShareFeed({ rows = [], members = [], myName = '', onEdit, isMaster = fa
                   </ConfirmPopover>
                 )}
               </div>
-              <div className="text-[13px] leading-relaxed text-fg-secondary break-words mt-0.5">
-                <RichText content={e.body} />
-              </div>
+              <NoteDigest md={e.body} />
             </div>
           </div>
         );

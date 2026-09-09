@@ -98,6 +98,18 @@ export async function nodesToPdf(nodes, background) {
   return doc.output('blob');
 }
 
+// 이 화면이 **홈 화면에 추가된 앱(PWA standalone)** 인가. iOS는 그 모드에서
+// `a[download]`가 아무 일도 하지 않는다(카카오 인앱과 같은 증상) — 새 탭으로 띄워야
+// 길게 눌러 저장할 수 있다. 사용자 보고 2026-09-09: "모바일에서 PDF로 공유, 이미지로
+// 저장 이거 다 안돼. PWA 쪽이고 뭐든 간에... 데스크톱 쪽은 되는데".
+export function isStandalone() {
+  try {
+    return !!(window.navigator?.standalone
+      || window.matchMedia?.('(display-mode: standalone)')?.matches
+      || window.matchMedia?.('(display-mode: minimal-ui)')?.matches);
+  } catch { return false; }
+}
+
 // 보내기·저장 사다리. 여기까지 오면 파일은 이미 만들어져 있다.
 //   ① 그림·파일째 공유할 수 있으면 공유 시트
 //   ② 안 되면 내려받기
@@ -121,7 +133,7 @@ export async function shareOrSave(files, { toast, what = '파일을 내보내지
     const href = URL.createObjectURL(file);
     try {
       const a = document.createElement('a');
-      if (isKakaoInApp(navigator.userAgent) || !('download' in a)) {
+      if (isKakaoInApp(navigator.userAgent) || isStandalone() || !('download' in a)) {
         opened = !!window.open(href, '_blank', 'noopener') || opened;
       } else {
         a.href = href;

@@ -560,7 +560,7 @@ check('파일 중계는 불변 캐시다(재열람 왕복 0)', () => {
 // 실제 뷰로 볼 수 있게끔 해줄 수 있나? 우리 엑셀 미리보기 하는 것처럼!!"
 // 엑셀과 같은 길이다 — 올릴 때 만든 네이티브 사본(files.preview_file_id)을 iframe으로.
 {
-  const { previewKind, previewCopyUrl, previewCopyOf } = await import('../src/services/previewKind.js');
+  const { previewKind, previewCopyUrl, copyEditUrl, previewCopyOf } = await import('../src/services/previewKind.js');
   const { sheetPreviewUrl } = await import('../src/utils.js');
   const drive = (name, extra = {}) => ({ name, mime_type: '', source: 'drive', drive_file_id: 'f1', ...extra });
   const copy = (name) => drive(name, { preview_file_id: 'COPY1' });
@@ -603,6 +603,22 @@ check('파일 중계는 불변 캐시다(재열람 왕복 0)', () => {
     assert.strictEqual(previewCopyUrl(drive('회의록.docx')), null, '사본이 없으면 주소도 없다');
     assert.strictEqual(previewCopyUrl(copy('결산.pdf')), null, 'PDF에는 구글 편집기가 없다');
     assert.strictEqual(previewCopyUrl(null), null, '값이 없어도 안전하다');
+  });
+
+  // 편집 주소는 **따로 있는 함수**가 만든다(copyEditUrl) — 위 previewCopyUrl은 영영
+  // 보기다. 이 함수를 쓰는 곳은 주보 큐시트 하나이고 자격은 교역자·마스터다
+  // (사용자 결정 2026-09-09). 주소만 /edit이어도 실제 경계는 드라이브의 편집자 목록이다
+  // (Apps Script v10 CUE_EDITORS — 이름 있는 계정 둘. 'anyone writer'가 아니다).
+  check('큐시트 사본만 편집 주소를 받는다 (copyEditUrl)', () => {
+    assert.strictEqual(copyEditUrl(copy('큐시트.docx')),
+      'https://docs.google.com/document/d/COPY1/edit?rm=minimal');
+    assert.strictEqual(copyEditUrl(copy('명단.xlsx')),
+      'https://docs.google.com/spreadsheets/d/COPY1/edit?rm=minimal');
+    assert.strictEqual(copyEditUrl(copy('발표.pptx')),
+      'https://docs.google.com/presentation/d/COPY1/edit?rm=minimal');
+    assert.strictEqual(copyEditUrl(drive('큐시트.docx')), null, '사본이 없으면 주소도 없다');
+    assert.strictEqual(copyEditUrl(copy('결산.pdf')), null, 'PDF에는 구글 편집기가 없다');
+    assert.strictEqual(copyEditUrl(null), null, '값이 없어도 안전하다');
   });
 
   check('무엇에 사본을 만들지가 앱과 스크립트에서 같다 (previewCopyOf)', () => {

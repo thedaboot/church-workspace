@@ -165,6 +165,7 @@ src/
 │                        · (v2) people · worship · word · groups · roster · bibleRef · bible · sunGuide
 │                        · entryQuery(딥링크 나머지 값) · docEmbed·viewPw(구글 문서 임베드·화면 가림 비밀번호)
 │                        · shareImage(종이를 그림·PDF로 — 미리 받기·배율 상한·공유 사다리 한 벌)
+│                        · (hooks) useSheetShare(누르기 전에 그림까지 구워 둔다 — 폰에서 공유가 열리려면 필요하다)
 ├── hooks/               controllers · useIsMobile · useForceGraph(그래프 시뮬·드래그)
 ├── components/          layout(상단 2줄 내비 · 모바일 탭바) · boards(칸반) · calendar
 │                        depgraph(업무 선후 그래프) · MarkdownEditor · RichText ·
@@ -172,6 +173,7 @@ src/
 │                        · (v2) worshipDetail·worshipPassage·worshipAttendance · wordBible ·
 │                          groupsSun·groupsClub·groupsParts·ClubQr · roster · sunGuide · DocEmbed
 │                        · paper(노트·주보 종이 — 인디고 띠 · 라벨/글 두 칸 · 로고 · 발문)
+│                        · links(참고 링크 칩·추가 팝오버 — 프로젝트 헤더와 업무 창 공용)
 ├── views/               views(대시보드·프로젝트·내 업무·팀·전체 일정) · dashboardParts(공유 부품)
 │                        · membersView(가입 승인·관리자 지정 · 명단 탭)
 │                        · (v2) homeView · worshipView · wordView · groupsView
@@ -284,6 +286,7 @@ insert into admins (email) values ('admin@example.com');
 | `0054_files_kind.sql` | `files.kind`(songform·cuesheet) — 큐시트를 파일로도 붙이기 위해 주보 파일의 갈래를 한 칸으로 |
 | `0055_sun_guide_pin_and_leaders.sql` | 순모임 가이드 재가동 — `sun_guides.pinned*`(고정은 하나 · 마스터만, rpc `set_sun_guide_pinned`) · 쓰기를 순장까지 |
 | `0056_realtime_guides_guests.sql` | 실시간 발행에 `sun_guides`·`attendance_guests` 추가 — 고정·손님 출석이 다른 사람 화면에도 바로 |
+| `0058_card_resource_links.sql` | 참고 링크를 업무(카드)에도 — `resource_links.card_id` + 프로젝트 축과 배타 CHECK. 업무에 붙인 구글 시트를 앱 안에서 열어 고친다 |
 | `0057_bible_search_cache.sql` | 성경 AI 본문 검색 캐시 — 정규화한 물음 → 구절 참조 배열. 같은 말은 **누가 물어도** 한 번만 AI로 나간다(본문 글자는 담지 않는다) |
 
 ## 딥링크 · 공유 · 환경변수

@@ -8,10 +8,11 @@ import { showToast } from './Toast.jsx';
 import { supabase } from '../services/supabaseClient.js';
 import { dropCache, useCached } from '../services/cache.js';
 import { failText } from '../services/errorText.js';
-import { preloadExport, nodeToPng, shareOrSave } from '../services/shareImage.js';
+import { useSheetShare } from '../hooks/useSheetShare.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 import {
   LIMITS,
-  fitGuide, generateGuide, guideDateLabel, guideServiceDate, guideServiceLabel,
+  fitGuide, generateGuide, guideDateLabel, guidePickLabel, guideServiceDate, guideServiceLabel,
   guidedServiceIds, loadGuide, pinGuide, saveGuide, splitBold,
 } from '../services/sunGuide.js';
 
@@ -340,9 +341,7 @@ export function SunGuidePanel({
   const [busy, setBusy] = useState('');
   const working = !!busy;
   const sheetRef = useRef(null);
-  // **누르기 전에** html2canvas를 받아 둔다 — 누른 뒤에 받으면 그 사이에 공유 시트를
-  // 열 자격(사용자 제스처)이 만료된다(services/shareImage.js 머리말 ①).
-  useEffect(() => { preloadExport(); }, []);
+  const isMobile = useIsMobile();
 
   // 주보 한 건에 가이드 한 벌 — 캐시 열쇠도 주보 id다. 한 번 읽은 가이드는 다시 눌러도
   // 읽기 한 번으로 끝난다(AI를 다시 부르지 않는다 — 저장된 글을 보여줄 뿐이다).
@@ -437,28 +436,21 @@ export function SunGuidePanel({
     } finally { setBusy(''); }
   };
 
-  // 화면에 서 있는 그 종이를 그대로 그림으로. 굽는 것과 보내는 사다리는 모두
-  // services/shareImage.js 한 벌이다 — 노트·주보가 같이 쓴다.
+  // 화면에 서 있는 그 종이를 그대로 그림으로. 굽는 것도 보내는 사다리도 한 벌이다 —
+  // 노트·주보가 같이 쓴다(hooks/useSheetShare.js · services/shareImage.js).
   //
   // **여기서 사용자가 겪은 것**(2026-09-09 — "이미지로 저장을 했을 때 저장도 안되고
-  // 카카오톡으로 공유 창도 안 열림")은 셋이 겹친 것이고 셋 다 그 모듈에서 고쳤다:
-  // 누를 때 라이브러리를 받아 공유 자격을 잃던 것 · 긴 종이에서 캔버스가 상한을 넘어
-  // 빈 그림이 되던 것 · 마지막 갈래까지 실패해도 아무 말이 없던 것. 여기서 남은 일은
-  // 미리 받아 두기(preloadExport)와 파일 이름뿐이다.
-  const saveImage = async () => {
-    const node = sheetRef.current;
-    if (!node || working) return;
-    setBusy('image');
-    try {
-      const blob = await nodeToPng(node, PAPER);
-      const name = `순모임 가이드 ${guideDateLabel(selected?.service_date)}`.trim();
-      await shareOrSave([new File([blob], `${name}.png`, { type: 'image/png' })],
-        { toast: showToast, what: '이미지를 저장하지 못했어요' });
-    } catch (e) {
-      console.error('[sunGuide] 이미지를 저장하지 못했어요:', e);
-      showToast(failText('이미지를 저장하지 못했어요', e));
-    } finally { setBusy(''); }
-  };
+  // 카카오톡으로 공유 창도 안 열림", 그리고 고친 뒤에도 "모바일에서 또 마찬가지로 …
+  // 데스크톱 쪽은 되는데")은 넷이 겹친 것이고 넷 다 그 두 자리에서 고쳤다: 누를 때
+  // 라이브러리를 받아 공유 자격을 잃던 것 · **누를 때 굽느라 그 자격을 또 잃던 것**
+  // (그림을 미리 구워 둔다) · 긴 종이에서 캔버스가 상한을 넘어 빈 그림이 되던 것 ·
+  // 마지막 갈래까지 실패해도 아무 말이 없던 것. 여기서 남은 일은 파일 이름뿐이다.
+  const img = useSheetShare({
+    refs: [sheetRef], background: PAPER,
+    key: `${selectedId || ''}:${guide ? JSON.stringify(guide).length : 0}`,
+    fileName: `순모임 가이드 ${guideDateLabel(selected?.service_date)}`.trim(),
+    what: '이미지를 저장하지 못했어요',
+  });
 
   if (!canView || !selected) return null;
   // 바깥이 읽는 중이면 자리를 비운다 — 컨테이너가 한 덩이 스켈레톤을 그린다.
@@ -474,24 +466,23 @@ export function SunGuidePanel({
   // 모바일에서는 줄이 모자라니 접힌다(flex-wrap) — 감추지 않는다(§8).
   // 가이드가 아직 없으면 만들기 하나(확정이라 accent), 있으면 이미 있는 것을 손대는
   // 일이라 조용한 버튼들이다.
-  const actions = (
-    <span className="sun-guide-actions flex flex-wrap items-center justify-end gap-1.5 min-w-0">
-      {/* 어느 주보로 만들 것인가(사용자 스펙 2026-09-08). 보는 사람 모두에게 열려 있다 —
-          지난 주 가이드를 다시 펼쳐 보는 길이기도 하다. **종이가 서 있을 때만** 선다:
-          가이드가 아직 없으면 같은 일을 본문의 고르는 줄이 한다(2026-09-09 · Chooser
-          머리말) — 같은 조작기를 두 벌 세우면 어느 쪽이 진짜인지 알 수 없다. */}
-      {/* **발행된 주보가 하나뿐이어도 세운다**(사용자 지적 2026-09-09 — "아직도 주보
-          선택해서 순모임 가이드를 만들 수 있는 기능이 없어보임"). 예전에는 `list.length > 1`
-          이라 라이브에 발행 주일 주보가 한 건인 동안 이 칩이 아예 없었고, 고른다는 개념
-          자체가 화면에 없었다. 칩 글자에 '주보'를 붙이는 이유도 같다 — 날짜만 있으면
-          버튼 무리 속에서 무엇을 고르는 자리인지 읽히지 않는다. */}
-      {showSheet && (
-        <MenuPick className="sun-guide-pick" label="가이드 기준 주보 고르기"
-          items={list.map((s) => ({ id: s.id, name: guideServiceLabel(s) }))}
-          onPick={(id) => setPicked(id)}>
-          {dateLabel ? `${dateLabel} 주보` : '주보 고르기'}
-        </MenuPick>
-      )}
+  // 고르개는 **머리줄 오른쪽에 하나**, 나머지 버튼은 그 아래 한 줄이다(모바일).
+  // 사용자 요구 2026-09-09: "버튼이 많아지면서 순모임 가이드 쪽에 버튼이 좀 이상하게
+  // 보여지고 … 아예 버튼들은 한 줄로 순모임 가이드 밑에 줄에 보여주든가 해줄래?
+  // 넘치지 않게끔... (모바일에서만)". 넷이 375에 안 들어가므로 그 줄은 옆으로 밀린다.
+  // **고르개를 그 줄에 넣지 않는다** — 미는 줄은 세로가 잠겨 있어서(x-scroll-lock)
+  // 칸 아래 흐름에 그려지는 고르개 목록이 잘린다.
+  const pick = showSheet ? (
+    <MenuPick className="sun-guide-pick" label="가이드 기준 주보 고르기"
+      items={list.map((x) => ({ id: x.id, name: guideServiceLabel(x) }))}
+      onPick={(id) => setPicked(id)}>
+      {guidePickLabel(selected.service_date) || '주보 고르기'}
+    </MenuPick>
+  ) : null;
+
+  // 버튼 묶음 — 데스크톱은 머리줄 오른쪽에 고르개와 나란히, 모바일은 머리줄 **아래**
+  // 한 줄에 이것만 선다(아래 return).
+  const actionButtons = (<>
       {/* '고정' 배지는 **고정을 풀 수 없는 사람에게** 붙는다(2026-09-09에 조건을 뒤집었다).
           마스터에게는 바로 옆에 '고정 해제' 버튼이 있어 배지가 같은 말을 두 번 하고, 375에서
           머리줄이 접히는 원인이기도 했다. 반대로 순장에게는 고정된 가이드의 '수정·다시 만들기'가
@@ -504,8 +495,8 @@ export function SunGuidePanel({
       )}
       {showSheet && (
         <button type="button" className={`sun-guide-image ${WITH_ICON} ${BTN_QUIET}`}
-          disabled={working} onClick={saveImage}>
-          {busy === 'image'
+          disabled={working || img.busy} onClick={img.share}>
+          {img.busy
             ? <Loader2 size={12} className="animate-spin" />
             : <Download size={12} />}
           <span>이미지로 저장</span>
@@ -529,6 +520,16 @@ export function SunGuidePanel({
           <Pin size={12} /><span>{pinned ? '고정 해제' : '고정'}</span>
         </button>
       )}
+  </>);
+
+  const actions = (
+    <span className="sun-guide-actions flex flex-wrap items-center justify-end gap-1.5 min-w-0">
+      {/* 어느 주보로 만들 것인가(사용자 스펙 2026-09-08). 보는 사람 모두에게 열려 있다 —
+          지난 주 가이드를 다시 펼쳐 보는 길이기도 하다. **종이가 서 있을 때만** 선다:
+          가이드가 아직 없으면 같은 일을 본문의 고르는 줄이 한다(2026-09-09 · Chooser
+          머리말) — 같은 조작기를 두 벌 세우면 어느 쪽이 진짜인지 알 수 없다. */}
+      {pick}
+      {actionButtons}
     </span>
   );
 
@@ -545,9 +546,18 @@ export function SunGuidePanel({
   // 딸린 줄처럼 읽혔다(1440에서 실측).
   return (
     <section className="sun-guide dc-card mt-6 pt-1">
-      {/* 동작이 넷 이상이라 375에서 두 줄로 접힌다 — 그때 제목·가로선이 따라 내려가지
-          않게 wrapRight로 위에 맞춘다(사용자 지적 2026-09-09) */}
-      <SectionHead right={actions} wrapRight>순모임 가이드</SectionHead>
+      {/* 모바일 — 머리줄에는 고르개 하나만, 버튼은 아래 한 줄(옆으로 밀린다).
+          데스크톱 — 예전처럼 머리줄 오른쪽에 다 선다(넷 이상이면 접히므로 wrapRight). */}
+      {isMobile ? (
+        <>
+          <SectionHead right={pick}>순모임 가이드</SectionHead>
+          <div className="sun-guide-actions-row -mt-1 mb-2.5 flex items-center gap-1.5 overflow-x-auto scrollbar-hide x-scroll-lock">
+            {actionButtons}
+          </div>
+        </>
+      ) : (
+        <SectionHead right={actions} wrapRight>순모임 가이드</SectionHead>
+      )}
       <div className="sun-guide-body-wrap w-full max-w-[560px] mx-auto">
         {(making || guideQ.loading) && SKELETON}
         {editing && (

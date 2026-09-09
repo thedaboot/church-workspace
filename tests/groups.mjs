@@ -852,8 +852,11 @@ check('그 예배에 온 순원에게만 출석 표시가 붙는다',
   && attTag.plain.length === 1 && attTag.plain[0].includes('김승찬'), JSON.stringify(attTag));
 check('출석 표시는 순장 표시 뒤에 · 다른 색 · 같은 크기',
   attTag.order === true && attTag.sameColor === false && attTag.dh <= 1, JSON.stringify(attTag));
-check('내 순에 공유된 예배 노트가 뜬다',
-  mine.notes.length === 2 && mine.notes[0].includes('천진영') && mine.notes[0].includes('기쁨은 상황이 아니라'), JSON.stringify(mine.notes));
+// **한 주보씩 본다**(사용자 요구 2026-09-09 — "주보별로 볼 수 있게끔"). 기본은 가장
+// 최근 주보이고, 머리줄 고르개로 바꾼다. 전부 이어 세우면 종이가 사람 수만큼 길어진다.
+// 시드는 s1(최근)에 천진영의 노트, s0(지난주)에 내 노트를 두었다.
+check('내 순에 공유된 예배 노트가 뜬다(기본은 최근 주보 한 건)',
+  mine.notes.length === 1 && mine.notes[0].includes('천진영') && mine.notes[0].includes('기쁨은 상황이 아니라'), JSON.stringify(mine.notes));
 // **공유하지 않은 노트는 내 것이어도 오지 않는다**(사용자 지시 2026-09-07 — 예전에는
 // 잠금 표시를 달고 이 목록에 섰다). 이 구역의 이름이 '내 순에 공유된 예배 노트'라서,
 // 공유하지 않은 글이 서면 이름과 내용이 어긋난다.
@@ -861,6 +864,27 @@ check('내 순에 공유된 예배 노트가 뜬다',
 // (components/ShareToggle.jsx · 회차 8) 두 쪽이 나란히 서며 **라벨은 상태와 무관하게
 // 고정**이다(사용자 결정 2026-09-05). 이 화면에는 노트 편집기가 없으므로 조작은 이
 // 줄에 남는다(말씀 나눔 피드에서는 편집기 것만 남기고 뺐다).
+// 지난 주보로 바꿔야 내 노트가 선다 — 고르개가 그 일을 한다.
+const notePick = await ev(`(async () => {
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  const t = document.querySelector('.mysun-note-pick .menu-pick');
+  if (!t) return { err: 'no-pick' };
+  const label = t.textContent.trim();
+  t.click(); await w(350);
+  const opts = [...document.querySelectorAll('.menu-pick-option')].map(b => b.textContent.trim());
+  const old = [...document.querySelectorAll('.menu-pick-option')].find(b => !b.textContent.includes(label.split(' ')[0]))
+    || [...document.querySelectorAll('.menu-pick-option')][1];
+  old?.click(); await w(500);
+  return { label, opts, after: [...document.querySelectorAll('.mysun-note')].map(n => n.innerText.replace(/\\n+/g, ' | ')) };
+})()`, true);
+// 칩 글자는 `26.09.06 예배`다(사용자 결정 2026-09-09) — 버튼 무리 안에 서므로 짧아야 한다
+check('노트 목록에도 주보 고르개가 서고 짧은 글자를 쓴다',
+  !notePick.err && /^\d{2}\.\d{2}\.\d{2} 예배$/.test(notePick.label) && notePick.opts.length === 2,
+  JSON.stringify({ label: notePick.label, opts: notePick.opts }));
+check('지난 주보로 바꾸면 그 주보의 노트가 선다',
+  notePick.after.length === 1 && notePick.after[0].includes('지난 주일에 나눈 노트'),
+  JSON.stringify(notePick.after));
+
 const myNote = await ev(`(() => {
   const rows = [...document.querySelectorAll('.mysun-note')];
   const mineRow = rows.find(r => r.innerText.includes('지난 주일에 나눈 노트'));
@@ -872,7 +896,7 @@ const myNote = await ev(`(() => {
     withToggle: rows.filter(r => r.querySelector('.mysun-note-share')).length };
 })()`);
 check('공유하지 않은 내 노트는 이 목록에 오지 않는다',
-  myNote.rows === 2 && myNote.priv === false && myNote.lock === false, JSON.stringify(myNote));
+  myNote.rows === 1 && myNote.priv === false && myNote.lock === false, JSON.stringify(myNote));
 check('내가 공유한 줄에만 두 쪽짜리 토글이 서고 지금은 공유 쪽이다',
   myNote.withToggle === 1 && myNote.segs === '나만 보기:false|순에 공유하기:true', myNote.segs);
 // 공유를 끄면 그 줄은 목록에서 사라진다(조회가 shared_to_sun만 본다) — 저장은 그대로 된다
@@ -887,15 +911,23 @@ const shared = await ev(`(() => ({
 }))()`);
 check('내 줄에서 공유를 끄면 저장되고 그 줄이 목록에서 빠진다',
   shared.stored === false && shared.still === false && shared.rows === 1, JSON.stringify(shared));
-// 예배 노트는 마크다운 편집기로 쓴다(예배 화면) — 원문 기호가 글자로 남으면 안 된다
+// **목록도 종이다**(사용자 요구 2026-09-09 — "해당 노트 템플릿 그대로 공유될 수 있도록").
+// 노트는 마크다운으로 쓰므로 종이도 굵게·목록을 그려야 한다 — 원문 기호가 글자로 남으면
+// 안 되고, 도막 제목은 왼쪽 라벨로 올라간다(paper.jsx PaperText·PaperRow).
+// **되돌리기**: PaperText를 `whitespace-pre-line` 한 줄로 되돌리면 `**`가 글자로 남아 깨진다.
+await ev(`(() => { const t = document.querySelector('.mysun-note-pick .menu-pick'); t && t.click(); })()`);
+await sleep(300);
+await ev(`(() => { const o = [...document.querySelectorAll('.menu-pick-option')][0]; o && o.click(); })()`);
+await sleep(600);
 const noteMd = await ev(`(() => {
-  const b = document.querySelector('.mysun-note-body');
-  if (!b) return { err: 'no-body' };
-  return { h: b.querySelectorAll('h1, h2, h3').length, strong: b.querySelectorAll('strong').length,
-    li: b.querySelectorAll('li').length, raw: b.innerText };
+  const b = document.querySelector('.mysun-note-sheet');
+  if (!b) return { err: 'no-sheet' };
+  return { mast: !!b.querySelector('.paper-mast'), labels: [...b.querySelectorAll('.paper-row-label')].map(x => x.textContent.trim()),
+    strong: b.querySelectorAll('strong').length, bullet: b.querySelectorAll('.paper-bullet').length, raw: b.innerText };
 })()`);
-check('공유된 노트는 마크다운으로 그린다(원문 기호가 글자로 남지 않는다)',
-  !noteMd.err && noteMd.strong >= 1 && (noteMd.h + noteMd.li) >= 1
+check('공유된 노트가 종이로 서고 원문 기호가 글자로 남지 않는다',
+  !noteMd.err && noteMd.mast === true && noteMd.labels.includes('오늘 남은 말씀')
+  && noteMd.strong >= 1 && noteMd.bullet >= 1
   && !noteMd.raw.includes('**') && !noteMd.raw.includes('## '), JSON.stringify(noteMd));
 check('공유하지 않은 남의 노트는 오지 않는다', mine.hidden === false);
 
@@ -971,6 +1003,9 @@ check('앞으로 올 주일 주보가 발행돼 있어도 출석 줄은 지난 �
 const GUIDE_ON = /export const SUN_GUIDE_ON = true;/.test(readFileSync(new URL('../src/services/sunGuide.js', import.meta.url), 'utf8'));
 // 종이 머리의 날짜('26년 9월 1일')와 고르는 줄의 한 줄('26년 9월 1일 (일) · 제목')
 const guideDate = (iso) => { const [y, m, d] = iso.split('-').map(Number); return `${String(y).slice(2)}년 ${m}월 ${d}일`; };
+// 고르개 칩의 짧은 글자 — `26.09.06 예배`(사용자 결정 2026-09-09 · sunGuide.guidePickLabel).
+// 종이 머리·목록 줄의 긴 날짜와 다른 글자다: 칩은 버튼 무리 안에 서므로 짧아야 한다.
+const pickLabel = (iso) => `${iso.slice(2).replace(/-/g, '.')} 예배`;
 const svcLabel = (iso, title) => {
   const [y, m, d] = iso.split('-').map(Number);
   const w = ['일', '월', '화', '수', '목', '금', '토'][new Date(y, m - 1, d).getDay()];
@@ -1076,8 +1111,8 @@ check('고르는 줄은 발행된 주일 주보만 최근순으로 세운다',
   JSON.stringify(gPick));
 // 칩 글자에 **'주보'가 붙는다**(2026-09-09) — 날짜만 있으면 버튼 무리 속에서 무엇을
 // 고르는 자리인지 읽히지 않았다(사용자 지적: "주보 선택해서 만드는 기능이 없어보임")
-check('고정이 없으면 기본은 가장 최근 주일이고 칩이 그것을 주보라고 말한다',
-  gPick.label === `${guideDate(SUN_LAST)} 주보`, gPick.label);
+check('고정이 없으면 기본은 가장 최근 주일이고 칩이 짧은 글자를 쓴다',
+  gPick.label === pickLabel(SUN_LAST), `${gPick.label} / ${pickLabel(SUN_LAST)}`);
 // 지난 주일을 고르면 그 주보의 가이드를 연다 — 거기엔 아직 없으므로 **고르는 줄**이
 // 펴진다(2026-09-09). 그때 머리줄의 피커는 사라진다: 같은 일을 하는 조작기를 두 벌
 // 세우면 어느 쪽이 진짜인지 알 수 없다.
@@ -1268,7 +1303,7 @@ const gPinnedLeader = await ev(`(() => ({
   pin: !!document.querySelector('.sun-guide-pin'),
 }))()`);
 check('고정된 가이드가 있으면 모두 그것부터 연다',
-  gPinnedLeader.label === `${guideDate(SUN_OLD)} 주보` && gPinnedLeader.ref.startsWith('빌립보서 4:1-3'),
+  gPinnedLeader.label === pickLabel(SUN_OLD) && gPinnedLeader.ref.startsWith('빌립보서 4:1-3'),
   JSON.stringify(gPinnedLeader));
 check('고정된 가이드는 마스터가 아니면 수정·다시 만들기가 없다',
   gPinnedLeader.edit === false && gPinnedLeader.regen === false && gPinnedLeader.image === true,
@@ -2700,6 +2735,12 @@ check('모바일 375px — 내 순이 가로로 넘치지 않는다', mobMine.ov
 check('모바일에서도 구성원이 그대로 선다', mobMine.members === 3, String(mobMine.members));
 // 공유 토글 — 좁은 폭에서는 **줄 아래에서 왼쪽부터 폭을 채우고 두 쪽이 반씩**이다
 // (사용자 지적 2026-09-07 — 접힌 채 오른쪽 끝에 어긋나 서 있었다).
+// 기본으로 서는 주보에는 **남의 노트**뿐이라 토글이 없다 — 내 노트가 있는 지난 주보로
+// 바꿔야 그 줄이 선다(주보별로 보게 된 뒤로 필요해진 한 걸음 · 2026-09-09)
+await ev(`(() => { const t = document.querySelector('.mysun-note-pick .menu-pick'); t && t.click(); })()`);
+await sleep(350);
+await ev(`(() => { const o = [...document.querySelectorAll('.menu-pick-option')]; (o[1] || o[0])?.click(); })()`);
+await sleep(600);
 const mobShare = await ev(`(() => {
   const row = [...document.querySelectorAll('.mysun-note')].find(r => r.querySelector('.mysun-note-share'));
   if (!row) return { err: 'no-row' };

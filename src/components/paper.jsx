@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import logoLight from '../assets/logo-light.png';
+import { splitBold } from '../services/sunGuide.js';
 
 // ============================================================================
 // 종이 — 예배 노트 · 묵상 노트 · 주보가 **바깥으로 나갈 때** 입는 옷 (2026-09-09)
@@ -65,6 +66,36 @@ export function PaperRow({ label, children }) {
   );
 }
 
+// 종이에 앉는 글 — 노트는 마크다운으로 쓴다. **RichText를 쓰지 않는다**: 그 뷰어는 앱
+// 토큰(text-fg 등)으로 칠해서 다크 모드를 따라가는데, 종이는 언제나 밝아야 한다(머리말).
+// 그래서 여기서 필요한 만큼만 그린다 — `**굵게**`와 `- 목록`이다(노트에 실제로 쓰이는
+// 두 가지다). 굵게 파서는 순모임 가이드가 쓰던 한 벌을 그대로 쓴다(services/sunGuide.js
+// splitBold — tests/sunguide가 검사한다). 그리지 않는 마커가 글자로 남지 않게 줄 앞의
+// `#`은 걷는다 — 도막 제목은 이미 왼쪽 라벨로 올라가 있다.
+const BULLET_RE = /^\s*[-*]\s+/;
+function PaperText({ text }) {
+  const lines = useMemo(() => String(text || '').split('\n'), [text]);
+  return (
+    <>
+      {lines.map((raw, i) => {
+        const bullet = BULLET_RE.test(raw);
+        const body = bullet ? raw.replace(BULLET_RE, '') : raw.replace(/^\s*#{1,6}\s+/, '');
+        if (!body.trim()) return null;
+        const parts = splitBold(body);
+        const inner = parts.map((x, j) => (x.bold
+          ? <strong key={j} className="font-bold" style={{ color: PAPER.ink }}>{x.text}</strong>
+          : <React.Fragment key={j}>{x.text}</React.Fragment>));
+        return bullet ? (
+          <span key={i} className="paper-bullet flex gap-1.5">
+            <span className="shrink-0" style={{ color: PAPER.faint }}>–</span>
+            <span className="min-w-0">{inner}</span>
+          </span>
+        ) : <span key={i} className="paper-line block">{inner}</span>;
+      })}
+    </>
+  );
+}
+
 // 종이 밑단 — 로고와 발문. right로 발문 대신 다른 글(쪽 번호 등)을 줄 수 있다.
 function PaperTail({ right = 'THE DABOOT MINISTRY' }) {
   return (
@@ -101,13 +132,22 @@ export function NoteSheet({ sheetRef, date, kind, passageRef = '', passageTitle 
   return (
     <Sheet sheetRef={sheetRef} date={date} kind={kind} className="paper-note">
       <div className="paper-hero flex items-start justify-between gap-2.5">
+        {/* **제목이 위, 구절이 아래**(사용자 결정 2026-09-09 — "예배 노트도 제목이 위에,
+            본문이 그 아래 표시되도록"). 설교 제목이 이 노트가 무엇에 대한 글인지 말하는
+            자리이고, 구절은 그것을 어디서 들었는지다. 제목이 없는 주보(묵상 노트가 늘
+            그렇다)에서는 구절이 그대로 큰 글자로 올라온다 — 빈 자리를 남기지 않는다. */}
         <div className="min-w-0">
-          <p className="paper-ref text-[23px] font-extralight tracking-[-0.045em] leading-[1.15] break-words"
-            style={{ color: PAPER.ink }}>{ref || ' '}</p>
           {passageTitle ? (
-            <p className="paper-ref-title text-[13px] font-extrabold tracking-[-0.02em] mt-[3px]"
-              style={{ color: PAPER.accent }}>{passageTitle}</p>
-          ) : null}
+            <>
+              <p className="paper-ref-title text-[21px] font-extralight tracking-[-0.045em] leading-[1.15] break-words"
+                style={{ color: PAPER.ink }}>{passageTitle}</p>
+              <p className="paper-ref text-[13px] font-extrabold tracking-[-0.02em] mt-[3px] break-words"
+                style={{ color: PAPER.accent }}>{ref}</p>
+            </>
+          ) : (
+            <p className="paper-ref text-[21px] font-extralight tracking-[-0.045em] leading-[1.15] break-words"
+              style={{ color: PAPER.ink }}>{ref || ' '}</p>
+          )}
         </div>
         {cut ? <img className="paper-cut block shrink-0" src={cut.src} width={cut.w} height={cut.h}
           style={{ width: 58, height: 'auto' }} alt="" decoding="async" /> : null}
@@ -117,7 +157,7 @@ export function NoteSheet({ sheetRef, date, kind, passageRef = '', passageTitle 
         {rows.map((s, i) => (
           <PaperRow key={`${s.title}-${i}`} label={s.title || ' '}>
             {/* 줄바꿈은 그대로 살린다 — 노트는 사람이 엔터로 끊어 쓴 글이다 */}
-            <span className="whitespace-pre-line">{s.body}</span>
+            <PaperText text={s.body} />
           </PaperRow>
         ))}
       </div>
@@ -190,8 +230,16 @@ export function ServiceSheetTwo({
         {(songs.length || leader) ? (
           <PaperRow label="찬양">
             <span className="font-extrabold" style={{ color: PAPER.ink }}>{team}</span>
-            {/* '찬양 인도'다 — 예배 인도가 아니다(사용자 지적 2026-09-09) */}
-            {leader ? <span> · 찬양 인도 {nameOf ? nameOf(leader) : leader}</span> : null}
+            {/* '찬양 인도'는 **섬기는 이들 줄과 같은 자획**이다(사용자 결정 2026-09-09 —
+                "찬양 인도 폰트도 대표기도, 헌금봉헌 쪽과 마찬가지로"): 작은 굵은 라벨 +
+                보통 이름. 예전에는 팀 이름 뒤에 문장처럼 이어 붙어 있었다. */}
+            {leader ? (
+              <span className="paper-leader flex items-baseline gap-1.5 mt-[3px]">
+                <span className="shrink-0 text-[9.5px] font-extrabold tracking-[0.02em]"
+                  style={{ color: PAPER.faint }}>찬양 인도</span>
+                <span className="min-w-0 break-words">{nameOf ? nameOf(leader) : leader}</span>
+              </span>
+            ) : null}
             {songs.length ? (
               <ol className="paper-songs mt-2 list-none p-0 m-0">
                 {songs.map((s, i) => (
@@ -232,9 +280,12 @@ export function ServiceSheetTwo({
                   {/* 광고는 제목 + 내용 두 조각이다(0036 notices jsonb) — 종이에 내용만
                       실으면 무슨 광고인지가 사라진다. 하나만 있으면 그것만 선다. */}
                   <span className="min-w-0 break-words">
-                    {n.title ? <span className="font-bold" style={{ color: PAPER.ink }}>{n.title}</span> : null}
-                    {n.title && n.body ? <span> · </span> : null}
-                    {n.body ? <span className="whitespace-pre-line">{n.body}</span> : null}
+                    {n.title ? (
+                      <span className="block font-bold" style={{ color: PAPER.ink }}>{n.title}</span>
+                    ) : null}
+                    {n.body ? (
+                      <span className="block whitespace-pre-line" style={{ color: PAPER.ink2 }}>{n.body}</span>
+                    ) : null}
                   </span>
                 </li>
               ))}

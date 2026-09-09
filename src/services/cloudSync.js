@@ -330,6 +330,13 @@ const activityToApp = (a) => ({
   timestamp: a.created_at,
 });
 
+// 참고 링크 한 줄의 앱 모양 — **프로젝트와 카드가 같은 모양이다**(0058). 갈라 두면
+// 화면 부품(PinnedLinkChip)이 두 모양을 알아야 한다.
+const linkRows = (rows) => (rows || []).map(l => ({
+  id: l.id, title: l.title, url: l.url,
+  view_pw: l.view_pw ?? null, view_pw_salt: l.view_pw_salt ?? null, created_by: l.created_by ?? null,
+}));
+
 const projectToApp = (p, linksByProject) => ({
   id: p.id,
   title: p.name,
@@ -347,10 +354,7 @@ const projectToApp = (p, linksByProject) => ({
   //   해시라서 화면에 나가도 원문이 나오지 않는다(첨부 목록이 files 행을 그대로 들고 있는 것과 같다).
   // · created_by — '비밀번호를 걸 수 있는 사람'을 가르는 칸이다(첨부의 uploaded_by와 같은 자리).
   //   이 값이 없으면 관리자만 걸 수 있게 되어, 자기가 만든 링크에 자기가 못 건다.
-  pinnedLinks: (linksByProject.get(p.id) || []).map(l => ({
-    id: l.id, title: l.title, url: l.url,
-    view_pw: l.view_pw ?? null, view_pw_salt: l.view_pw_salt ?? null, created_by: l.created_by ?? null,
-  })),
+  pinnedLinks: linkRows(linksByProject.get(p.id)),
 });
 
 // ── 초기 로드: 전체를 병렬 조회 → 앱 스토어 모양으로 정규화 ──────────────────
@@ -379,8 +383,16 @@ export async function loadCloudState() {
 
   primeMaps(teams, profiles);
 
+  // 참고 링크는 **주인이 둘**이다(0058) — 프로젝트 축과 카드 축. 조회는 한 번이고
+  // (`listAllLinks`가 전부 읽는다) 여기서 갈래로 나눈다.
   const linksByProject = new Map();
-  links.forEach(l => { if (!linksByProject.has(l.project_id)) linksByProject.set(l.project_id, []); linksByProject.get(l.project_id).push(l); });
+  const linksByCard = new Map();
+  links.forEach(l => {
+    const [map, key] = l.card_id ? [linksByCard, l.card_id] : [linksByProject, l.project_id];
+    if (!key) return;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(l);
+  });
 
   const filesByCard = new Map();
   files.forEach(f => { if (!f.card_id) return; if (!filesByCard.has(f.card_id)) filesByCard.set(f.card_id, []); filesByCard.get(f.card_id).push(f); });
@@ -388,6 +400,7 @@ export async function loadCloudState() {
   const tasks = cards.map(card => {
     const t = cardToTask(card);
     t.attachments = filesByCard.get(card.id) || [];
+    t.pinnedLinks = linkRows(linksByCard.get(card.id));
     return t;   // comments·activityLog는 창을 열 때 채운다(loadCardDetail)
   });
 
@@ -676,7 +689,8 @@ export async function cardOrderCloud(orders) {
   }
 }
 
-export async function linkAddCloud(projectId, link) { return write(() => cloud.addLink(projectId, link.title, link.url, link.id)); }
+// 주인은 프로젝트이거나 카드다(0058) — 부르는 쪽이 `{projectId}` 또는 `{cardId}`를 준다.
+export async function linkAddCloud(owner, link) { return write(() => cloud.addLink(owner, link.title, link.url, link.id)); }
 export async function linkRemoveCloud(id) { return write(() => cloud.removeLink(id)); }
 // 참고 링크의 화면 가림용 비밀번호(0053). 빈 값이면 푼다. 고친 행을 그대로 돌려주므로
 // 부르는 쪽이 스토어의 그 링크만 갈아 끼운다(실시간 재조회를 기다리면 건 사람 화면이

@@ -195,7 +195,16 @@ export function worshipPerms({ isMaster = false, isAdmin = false, myPerson = nul
   const canEdit = !!isMaster || !!isAdmin || pastor || roles.includes('president') || media;
   const canCheckAll = !!isMaster || !!isAdmin || pastor || roles.includes(LEAD_SUNJANG);
   const led = ledGroupIds || [];
-  return { canEdit, canCheckAll, ledGroupIds: led, canCheck: canCheckAll || led.length > 0 };
+  // **큐시트 사본을 고칠 수 있는 사람은 교역자·마스터뿐이다**(사용자 결정 2026-09-09 —
+  // "큐시트는 교역자와 마스터만 수정 가능하게 하자"). 주보를 쓰는 자격(canEdit)보다 좁다:
+  // 회장·미디어팀·관리자는 주보를 쓰지만 큐시트 원고를 고치지는 않는다.
+  //
+  // **이 깃발은 화면이 /edit 주소를 줄지 말지만 정한다.** 실제 경계는 드라이브에 있다 —
+  // 그 사본에 편집자로 올라간 구글 계정 둘(joshua052698@gmail.com · mose716@gmail.com)만
+  // 실제로 고칠 수 있고, 나머지는 /edit으로 열어도 읽기 화면이 뜬다(Apps Script v10).
+  // 그래서 여기서 새는 것이 권한 구멍은 아니다 — 헛걸음을 줄이는 자리다.
+  const canEditCue = !!isMaster || pastor;
+  return { canEdit, canCheckAll, canEditCue, ledGroupIds: led, canCheck: canCheckAll || led.length > 0 };
 }
 
 // 그 순을 내가 체크할 수 있나. '순 미지정'(groupId 없음)과 전도사님·부장님 묶음은

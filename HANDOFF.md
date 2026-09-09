@@ -468,6 +468,20 @@
     같은 높이(2.4px 떠 있던 것)인지.
   - **모바일 피커(실기기 — 가장 중요)** — iPhone에서 멤버 추가·순원 추가·순장 지정·순 옮기기 목록이 키보드가 열린 채로도 **칸 바로 아래에 붙어 아래
     내용을 밀어내는지**(더 이상 떠 있는 목록이 아니다 — §6-9-an). 데스크톱은 예전처럼 떠 있다.
+- **2026-09-09 후속-2 회차분 · 실기기 피드백 열둘**(사용자 스크린샷 넷 + 추가 요청. 스위트: logcheck·sunguide·word·worship·groups·three·batch10·batch11·dashfix·home·navsmoke·themefit·mobbits·wide·bottomgap·modalclose·handoff·drivesync)
+  - **모바일에서 공유·저장이 통째로 안 되던 것**(가장 중요 — "데스크톱 쪽은 되는데"). 원인은 **누를 때 굽느라** 공유 시트를 열 자격을
+    잃던 것이고, 이제 종이가 서면 **미리 구워 둔다**(`hooks/useSheetShare.js`). 실기기에서 넷을 다 눌러 보세요 —
+    주보 [PDF로 공유] · 예배 노트·묵상 노트 [이미지로 저장] · 순모임 가이드 [이미지로 저장]. **홈 화면에 추가한 앱(PWA)** 과
+    **카카오톡 인앱**에서 각각 봐야 합니다(그 둘은 내려받기가 막혀 새 탭으로 떨어집니다).
+  - **큐시트 편집**(교역자·마스터만) — Apps Script **v10을 올린 뒤**입니다(`docs/APPS_SCRIPT_v10.md`). 그 문서의 '올린 뒤 확인할 것'
+    셋과 **이미 올라간 큐시트 하나에 편집자 손으로 추가**까지 하세요. 업무 첨부는 그대로 보기여야 합니다.
+  - **업무 참고 링크**(0058) — 업무 창 본문 아래 `+ 참고 링크`로 구글 시트를 달고, 눌러서 앱 안에서 **고쳐지는지**.
+    자물쇠로 비밀번호를 걸고 다시 열 때 묻는지. 프로젝트 헤더의 링크가 그대로인지(부품을 한 벌로 옮겼습니다).
+  - **모바일 docx** — 큐시트 `.docx`를 폰에서 열면 표가 잘리지 않고 **옆으로 밀어서** 다 보이는지.
+  - **주보 종이** — 광고의 제목·내용이 두 줄로 정돈됐는지, 찬양 인도가 담당자 줄과 같은 자획인지, 발행 전에는 **예배 노트 구역이 아예 없는지**.
+  - **노트** — 종이 머리가 `제목 → 구절` 순인지, `##`·`#`로 쓴 도막도 라벨로 올라가는지, 오늘의 나눔 줄이 라벨·글 두 칸으로 접혀 보이는지.
+  - **순에 공유된 노트** — 목록이 **종이**로 서고 머리줄 고르개로 **주보를 바꿔** 볼 수 있는지.
+  - **순모임 가이드(모바일)** — 머리줄에 고르개 하나, 버튼은 그 아래 한 줄로 옆으로 밀리는지(겹치지 않는지).
 - **2026-09-09 후속 회차분 · 종이(노트·주보) · 성경 검색 캐시(0057) · 가입 알림 문구 · 순모임 가이드 넷**
   (사용자 요청 2026-09-09 · 시안 A '밤 머리' 선택. 스위트: logcheck·sunguide·word·groups·worship·home·dashfix·three·themefit·navsmoke·wide·handoff·mdcheck·push)
   - **성경 AI 검색 캐시(0057)** — 두 계정으로 **같은 말**을 검색해 두 번째는 AI를 안 쏘는지(첫 검색 뒤
@@ -828,9 +842,15 @@ src/components/paper.jsx    (2026-09-09) **종이** — 노트·주보가 바깥
                             `ServiceSheetOne`(주보 1쪽 = 말씀 + **본문 전문**) · `ServiceSheetTwo`(2쪽 = 찬양·섬기는 이들·광고 ·
                             `paperRoles`가 **봉헌 기도를 걸러낸다**) · `paperDate`. **순모임 가이드 종이를 베끼지 않는다**(§7).
                             종이는 다크를 안 따라간다 — 색이 토큰이 아니라 라이트 고정값이다
-src/services/shareImage.js  (2026-09-09) 종이를 그림·PDF로 — `preloadExport`(누르기 **전에** 청크를 받아 둬야 공유 시트가
-                            열린다) · `nodeToPng` · `nodesToPdf`(쪽마다 그 종이 비율) · `shareOrSave`(files → 내려받기 →
-                            카카오 인앱은 새 탭 → 실패하면 토스트). 가이드·노트·주보 넷이 한 벌로 쓴다(§6-32)
+src/services/shareImage.js  (2026-09-09) 종이를 그림·PDF로 — `preloadExport` · `nodeToPng` · `nodesToPdf`(쪽마다 그 종이
+                            비율) · `isStandalone`(PWA — 내려받기가 막힌다) · `shareOrSave`(files → 내려받기 → 카카오 인앱·PWA는
+                            새 탭 → 실패하면 토스트). 가이드·노트·주보 넷이 한 벌로 쓴다(§6-32)
+src/hooks/useSheetShare.js  (2026-09-09) **누르기 전에 그림까지 구워 두는 훅.** 폰에서 공유가 통째로 안 되던 원인이
+                            '누를 때 굽는 시간'이었다(§6-32-g). 종이가 서고 700ms 뒤에 뒤에서 굽고, 버튼은 이미 만든 파일을
+                            보내기만 한다. 열쇠(key)가 바뀌면 버리고 다시 굽는다
+src/components/links.jsx    (2026-09-09) 참고 링크 부품 한 벌 — `PinnedLinkChip`(구글 문서는 앱 안 창 · 잠금) ·
+                            `LinkAddPopover`(점선 + 추가 팝오버) · `TaskLinks`(업무 창 줄). 프로젝트 헤더(views.jsx)와
+                            업무 창(modals.jsx)이 같이 쓴다 — 비밀번호 규칙이 갈라지지 않게 한 파일이다(0058)
 src/components/ShareToggle.jsx 공유 토글 한 벌 — '나만 보기 | …공유하기' 세그먼트 + 초록 확정 칩("나만 볼게요" /
                             "…공유할게요"). **말씀 묵상·예배 노트·내 순 노트 목록이 같은 부품을 쓴다**(사용자 요구 2026-09-03 —
                             로직 동일: 저장된 글이 있을 때만, 토글은 shared만 즉시 저장, 비공개 글도 내 줄엔 잠금 표시).
@@ -1653,7 +1673,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 
 ## 5. 데이터 · 스키마 · 비밀
 
-스키마는 `supabase/migrations/0001~0057`이고 **전부 라이브 DB에 적용**되어 있습니다
+스키마는 `supabase/migrations/0001~0058`이고 **전부 라이브 DB에 적용**되어 있습니다
 (0001~0005는 대시보드에서 수동, 이후는 `npx supabase db push --db-url "$SUPABASE_DB_URL"`).
 **원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있습니다** — 0039~0056은 psql로 직접
 적용했기 때문입니다. 적용 여부는 원장이 아니라 **실제 객체**로 확인하세요(컬럼·함수·정책·발행 목록).
@@ -1718,6 +1738,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | `0053_feedback_round_10` | 넷을 한 파일에 — ① `attendance_guests`(id·service_id·name·created_by): 미등록 출석자를 **명단에 올리지 않고** 그 예배의 손님으로(사용자 결정 2026-09-07). RLS: 승인 읽기 · insert/delete는 `can_check_all_attendance() or leads_any_sun()` + **발행된 주보만** ② `notifications.link`(우리 주소 CHECK) + kind 여섯 추가(`worship_today`는 서버만) + INSERT 정책에 `is_approved()` ③ `resource_links.view_pw/view_pw_salt/view_pw_by`(첨부 0023과 같은 화면 가림) ④ `services.cue_sheet jsonb` {url,title} — view_pw 두 칸은 만들었지만 **화면이 쓰지 않는다**(사용자 결정 2026-09-08 큐시트 비밀번호 없음). 되돌리기는 파일 아래 |
 | `0054_files_kind` | `files.kind text check (null|'songform'|'cuesheet')` — 주보 파일의 갈래. 큐시트를 링크뿐 아니라 **파일로도** 붙이기 위해(사용자 2026-09-08) 송폼과 같은 표·같은 업로드 한 벌을 쓰고 갈래만 한 칸. 기존 주보 파일은 전부 `songform`으로 백필, 업무 첨부는 null. RLS는 0047 그대로(service_id만 본다) |
 | `0055_sun_guide_pin_and_leaders` | 순모임 가이드 재가동(사용자 스펙 2026-09-08): `sun_guides.pinned/pinned_at/pinned_by` + 부분 유니크(`where pinned` — 고정은 하나) · `sun_guides_write`를 `is_approved() and (can_manage_sun() or leads_any_sun()) and (not pinned or is_master())`로(순장도 만든다 · 고정본은 마스터만) · `set_sun_guide_pinned(uuid, boolean)` security definer(마스터 검사 · 다른 행 먼저 해제 · authenticated에만 grant). 되돌리기는 파일 아래 |
+| `0058_card_resource_links` | 참고 링크를 **업무(카드)에도** — `resource_links.card_id`(cards cascade) + 배타 CHECK `resource_links_owner_exactly_one`(`(project_id is null) <> (card_id is null)`) + 인덱스. 미리보기·편집·비밀번호는 이미 있던 것이고(0053 · docEmbed) **없던 것은 카드 축 하나**였다. jsonb 컬럼으로 새로 만들지 않은 이유는 파일 머리말에 있다 — 비밀번호 규칙이 세 벌이 된다(§6-31-f). RLS는 0001의 넷을 그대로 쓴다 |
 | `0057_bible_search_cache` | 성경 AI 본문 검색 캐시 — `bible_search_cache(query_norm pk, refs jsonb, created_at)`. **담는 것은 모델이 낸 구절 참조뿐**이고 본문 글자는 언제나 `public/bible`에서 붙인다(성경 데이터를 갈아도 캐시가 안 낡고, 지어낸 참조는 읽을 때 파서가 거른다). 정책은 select·insert만(`is_approved()`) + delete는 마스터 — 같은 말의 답을 남이 덮어쓸 이유가 없어 update를 안 열었고, 굳은 답을 지울 길은 하나 남겼다. **실시간 발행에는 넣지 않는다**(다시 그릴 화면이 없다 — 넣으면 `liveV2.TABLE_CACHE`와 logcheck의 표 개수까지 세 자리를 같이 고쳐야 한다) |
 | `0056_realtime_guides_guests` | 실시간 발행(`supabase_realtime`)에 `sun_guides`·`attendance_guests` 추가(0049와 같은 멱등 루프). 짝은 `liveV2.TABLE_CACHE` 두 줄(`groups:guide`·`groups:mine` / `worship:svc`·`home`·`groups:mine`)과 logcheck의 표 개수 11 |
 
@@ -3045,6 +3066,24 @@ lazy import 자체가 문제가 아니라, **그것을 공유 앞에 두는 것*
 
 **32-e. 종이에 max-w를 쓰는 것은 §6-9-k의 예외입니다.** 인쇄물이라 560px에서 멈추는 것이
 맞습니다(가이드 종이도 같은 값). 앱 화면의 상자에는 여전히 max-w를 쓰지 않습니다.
+
+**32-g. 미리 받아 두는 것만으로는 폰에서 공유가 안 됩니다 — 미리 **구워** 둬야 합니다.**
+32-a를 고친 뒤에도 사용자는 "모바일에서 PDF로 공유, 이미지로 저장 이거 다 안돼 …
+데스크톱 쪽은 되는데"였습니다. 남은 시간이 **굽는 시간**이었습니다 — 세로로 긴 종이를
+html2canvas가 그리는 데 폰에서 몇 초가 걸리고 그 사이 iOS가 자격을 거둬 갑니다(데스크톱은
+빨라서 창 안에 들어왔습니다). `hooks/useSheetShare.js`가 종이가 서고 700ms 뒤에 뒤에서
+굽고, 버튼은 이미 만든 파일을 보내기만 합니다. **`share()` 앞에 `await`를 두지 마세요.**
+
+**32-h. 홈 화면에 추가한 앱(PWA standalone)은 내려받기가 막힙니다.** 카카오 인앱과 같은
+증상이고(`a[download]`가 아무 일도 안 함) 같은 갈래로 다뤘습니다 — `shareImage.isStandalone()`
+이면 새 탭에 띄웁니다. 그 판정은 `navigator.standalone`(iOS)과 `display-mode` 미디어 쿼리
+둘을 같이 봅니다.
+
+**32-i. 종이에 RichText를 쓰지 마세요.** 그 뷰어는 앱 토큰으로 칠해서 **다크 모드를 따라갑니다**
+— 종이는 언제나 밝아야 하고, 그림으로 구우면 어두운 종이가 됩니다. 대신 `paper.jsx`의
+`PaperText`가 필요한 만큼만 그립니다(`**굵게**`는 `sunGuide.splitBold` 한 벌 · `- 목록` ·
+줄 앞 `#` 걷기). 이걸 `whitespace-pre-line` 한 줄로 되돌리면 `**`가 글자로 남습니다
+(`tests/groups`가 단정합니다).
 
 **32-f. `SectionHead`의 오른쪽 묶음이 두 줄로 접히면 제목과 가로선이 따라 내려갑니다.**
 `items-center`라서 두 줄 덩이의 세로 가운데로 가고, 선이 버튼 사이를 관통합니다(375에서

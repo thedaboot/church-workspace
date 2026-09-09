@@ -74,6 +74,21 @@ export const previewCopyUrl = (row) => {
     : null;
 };
 
+// 사본을 **고치는** 주소. `previewCopyUrl`(보기)과 일부러 나눠 둔다 — 첨부는 '링크를
+// 아는 사람은 보기'이고 편집 주소를 그 함수가 만들어서는 안 된다(§7 · tests/drivesync가
+// 단정한다). 이 함수는 **큐시트 한 갈래**만 쓴다(사용자 결정 2026-09-09 — 교역자·마스터).
+//
+// 주소만 /edit이어도 아무나 고치지는 못한다: 그 사본의 편집자는 드라이브에 등록된 구글
+// 계정 둘뿐이고(Apps Script v10 `CUE_EDITORS`), 나머지는 이 주소로 열어도 구글이 읽기
+// 화면을 준다. 즉 경계는 드라이브에 있고 이 함수는 자격자에게 편집 화면을 열어 주는 일만 한다.
+export const copyEditUrl = (row) => {
+  const target = COPY_TARGET[extOf(row?.name)];
+  const seg = target === 'spreadsheet' ? 'spreadsheets' : target;
+  return (row?.preview_file_id && seg)
+    ? `https://docs.google.com/${seg}/d/${row.preview_file_id}/edit?rm=minimal`
+    : null;
+};
+
 export function previewKind(row) {
   const mime = row?.mime_type || '';
   const ext = extOf(row?.name);
