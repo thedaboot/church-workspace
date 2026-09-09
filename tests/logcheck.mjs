@@ -2120,7 +2120,25 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/people_kept_existing/.test(m59) && /people_relinked/.test(m59),
     '명단 연결은 두 갈래를 돌려준다(이미 붙어 있었나 / 새로 이었나)');
 
-  console.log('PASS  참고 링크 카드 축 · 계정 합치기 15가지');
+  // 0060 — 합쳐진 계정에 표를 남긴다. 이 칸이 없으면 '환송한 사람'의 '다시 초대하기'가
+  // 그 계정을 **빈 중복**으로 되살려 합친 일이 헛일이 된다(0059가 데이터를 다 옮겼다).
+  const m60 = src('../supabase/migrations/0060_merged_into.sql');
+  assert.ok(/add column if not exists merged_into uuid references public\.profiles\(id\) on delete set null/.test(m60),
+    '0060은 merged_into를 자기 참조로 더한다(남은 계정이 지워져도 삭제가 막히지 않게)');
+  assert.ok(/removed_by = auth\.uid\(\), merged_into = p_keep/.test(m60),
+    '합칠 때 그 표를 같이 남긴다');
+  assert.ok(/이미 다른 계정으로 합쳐진 계정은 남길 수 없습니다/.test(m60),
+    '이미 합쳐진 계정을 남길 쪽으로 고르지 못하게 막는다(옮긴 것이 다시 갈린다)');
+  assert.ok(/update public\.profiles set merged_into = p_keep where merged_into = p_drop/.test(m60),
+    '합치기를 두 번 하면 옛 표도 새 주인을 가리킨다');
+  // 화면 — 합쳐진 줄에는 '다시 초대하기'가 없고 **왜 없는지** 말한다(§8)
+  const mv = src('../src/views/membersView.jsx');
+  assert.ok(/row\.merged_into \? \(/.test(mv), '합쳐진 줄은 다른 것을 그린다');
+  assert.ok(/다른 계정으로 합쳤어요/.test(mv), '버튼 자리에 상태를 적는다(빈 자리로 두지 않는다)');
+  assert.ok(/merged_into/.test(src('../src/services/cloud.js')),
+    '목록 조회가 그 칸을 실어 온다(없으면 화면이 가를 수 없다)');
+
+  console.log('PASS  참고 링크 카드 축 · 계정 합치기 22가지');
 }
 
 // ── 팀 보드 상단 사람 칩 (utils.teamChips) ──────────────────────────────────

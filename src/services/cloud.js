@@ -1351,7 +1351,10 @@ export async function setCardPosition(id, position) {
 // 화면에서 감추는 것과 이중으로 걸린다(§4.5의 요약 고정과 다른 점이다).
 export async function listMembersAdmin() {
   return unwrap(await client().from('profiles')
-    .select('id, display_name, email, avatar_url, approved, approved_at, removed_at, created_at, last_seen_at, birthday')
+    // merged_into(0060) — 값이 있으면 **합쳐서 환송된 계정**이다. 그냥 환송된 계정과
+    // 겉모습이 같아서(approved=false + removed_at) 이 칸이 없으면 '다시 초대하기'가
+    // 그 계정을 빈 중복으로 되살린다.
+    .select('id, display_name, email, avatar_url, approved, approved_at, removed_at, created_at, last_seen_at, birthday, merged_into')
     .order('created_at', { ascending: true }));
 }
 

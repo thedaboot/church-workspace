@@ -282,7 +282,7 @@ export function MembersView({ isAdmin, isMaster }) {
       await cloud.mergeProfiles(keep.id, drop.id);
       // 합친 계정은 환송 처리된다 — 목록에서 그 줄을 그쪽으로 옮긴다(다시 받지 않는다)
       setRows(prev => prev.map(r => (r.id === drop.id
-        ? { ...r, approved: false, removed_at: new Date().toISOString() }
+        ? { ...r, approved: false, removed_at: new Date().toISOString(), merged_into: keep.id }
         : r)));
       setMergeFor('');
       showToast(`${drop.display_name || '그 계정'}을 ${keep.display_name || '이 계정'}으로 합쳤어요`);
@@ -461,7 +461,7 @@ export function MembersView({ isAdmin, isMaster }) {
                     <span className="font-bold text-fg">{row.display_name || '이 계정'}</span>으로 합칠 계정을 고르세요.
                     고른 계정의 업무·댓글·노트·알림이 이쪽으로 옮겨지고 그 계정은 환송돼요. 되돌릴 수 없어요.
                   </p>
-                  {members.filter(m => m.id !== row.id).map(m => (
+                  {members.filter(m => m.id !== row.id && !m.merged_into).map(m => (
                     <ConfirmPopover key={m.id}
                       message={<>
                         <span className="font-bold text-fg">{m.display_name || '그 계정'}</span>
@@ -493,10 +493,20 @@ export function MembersView({ isAdmin, isMaster }) {
               hint="다시 초대하면 수락 대기 없이 바로 돌아와요. 지난 댓글·기록은 계속 남아 있어요.">
               {removed.map((row, i) => (
                 <MemberRow key={row.id} row={row} delay={rowDelay(i)} {...rowProps(row)} action={
-                  <button type="button" disabled={!!busy[row.id]} onClick={() => approve(row, true)}
-                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
-                    {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />} 다시 초대하기
-                  </button>
+                  /* **합쳐진 계정은 다시 부르지 않는다**(0060). 그 계정의 업무·댓글·노트는
+                     이미 다른 계정으로 옮겨졌고, 되살리면 데이터가 하나도 없는 빈 중복이
+                     생겨 합친 일이 헛일이 된다. 버튼을 감추는 대신 **왜 없는지 말한다** —
+                     빈 자리만 남으면 줄이 깨진 것처럼 보인다(§8). */
+                  row.merged_into ? (
+                    <span className="members-merged shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-fg-faint">
+                      <Merge size={13} /> 다른 계정으로 합쳤어요
+                    </span>
+                  ) : (
+                    <button type="button" disabled={!!busy[row.id]} onClick={() => approve(row, true)}
+                      className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
+                      {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />} 다시 초대하기
+                    </button>
+                  )
                 } />
               ))}
             </Section>
