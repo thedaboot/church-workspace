@@ -1388,3 +1388,12 @@ export async function removeAdmin(email) {
 // 계산도 칸도 첨부와 같으므로 위의 setViewPassword 한 벌을 그대로 쓴다
 // (주보 큐시트는 services 행의 jsonb 한 칸이라 이 경로를 안 지나고, viewPw.js를 직접 쓴다).
 export const setLinkPassword = (linkId, password) => setViewPassword('resource_links', linkId, password);
+
+// 한 사람의 두 계정 합치기(0059 · 마스터만 — 자격은 DB 함수가 본다). 남기는 계정으로
+// **계정 축 참조를 다 옮기고** 합친 계정은 환송 처리된다. 되돌릴 수 없다 — 부르는 쪽이
+// 확인을 먼저 받아야 한다. 돌려주는 jsonb는 무엇이 몇 건 옮겨졌는지다(화면 문구에 쓴다).
+export async function mergeProfiles(keepId, dropId) {
+  const { data, error } = await client().rpc('merge_profiles', { p_keep: keepId, p_drop: dropId });
+  if (error) throw error;
+  return data || {};
+}

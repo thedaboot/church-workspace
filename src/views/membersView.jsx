@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { UserCheck, UserX, ShieldCheck, Shield, Plus, Loader2 } from 'lucide-react';
+import { UserCheck, UserX, ShieldCheck, Shield, Plus, Loader2, Merge } from 'lucide-react';
 import { Avatar } from '../components/Avatar.jsx';
 import { Skeleton } from '../components/media.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
@@ -96,10 +96,13 @@ const RowSkeleton = () => (
 // 어색하다(사용자 지적). 방문 기록이 없으면 '다녀감' 줄을 아예 안 그린다 — 그 사람의
 // 가장 최근 시각은 가입 시각이고(대시보드 목록이 lastVisitOf로 그것을 쓴다), 이 화면은
 // 그 값을 이미 왼쪽의 'N분 전 가입'으로 보여주고 있다. 같은 값을 두 번 적지 않는다.
-function MemberRow({ row, action, delay = 0, isOnline = false, at = '' }) {
+// `below` — 줄 아래에 펴지는 판(계정 합치기의 고르는 목록). 줄 안에 넣으면 아바타·이름과
+// 같은 가로 흐름에 끼어 이름이 짜부라진다.
+function MemberRow({ row, action, delay = 0, isOnline = false, at = '', below = null }) {
   return (
-    <div className="dc-row flex items-center gap-2.5 py-2.5"
+    <div className="dc-row py-2.5"
       style={{ borderBottom: '1px solid var(--app-line)', animationDelay: `${delay}ms` }}>
+    <div className="flex items-center gap-2.5">
       <span className="relative shrink-0 inline-flex">
         <Avatar name={row.display_name} url={row.avatar_url} className="flex w-8 h-8 text-[13px]" />
         {isOnline && (
@@ -115,6 +118,8 @@ function MemberRow({ row, action, delay = 0, isOnline = false, at = '' }) {
         </p>
       </div>
       {action}
+    </div>
+    {below}
     </div>
   );
 }
@@ -259,6 +264,32 @@ export function MembersView({ isAdmin, isMaster }) {
       console.error('[cloud] 관리자 지정 실패:', e);
       showToast(failText('관리자로 지정하지 못했어요', e));
     } finally { mark(email, false); }
+  };
+
+  // ── 계정 합치기 (0059 · 마스터만) ─────────────────────────────────────────
+  // 한 사람이 구글·카카오·네이버로 여럿 들어온 경우다(사용자 요청 2026-09-09 —
+  // "한 사람이 여러 계정으로 들어오는 경우, 통합을 시켜야 함"). 라이브에 실제로 문진혁
+  // 청년이 셋, 임재훈 청년이 둘이었다.
+  //
+  // **남길 계정을 먼저 고르고 합칠 계정을 고른다.** 남길 쪽은 보통 **명단에 연결된**
+  // 계정이다 — 거기에 순 소속·출석·직분이 매달려 있고, 연결되지 않은 계정으로 로그인하면
+  // my_person_id()가 null이라 자격이 통째로 사라진다(0035).
+  // 되돌릴 수 없으므로 ConfirmPopover로 한 번 묻는다.
+  const [mergeFor, setMergeFor] = useState('');   // 남길 계정 id (팝업이 열린 줄)
+  const mergeInto = async (keep, drop) => {
+    mark(keep.id, true);
+    try {
+      await cloud.mergeProfiles(keep.id, drop.id);
+      // 합친 계정은 환송 처리된다 — 목록에서 그 줄을 그쪽으로 옮긴다(다시 받지 않는다)
+      setRows(prev => prev.map(r => (r.id === drop.id
+        ? { ...r, approved: false, removed_at: new Date().toISOString() }
+        : r)));
+      setMergeFor('');
+      showToast(`${drop.display_name || '그 계정'}을 ${keep.display_name || '이 계정'}으로 합쳤어요`);
+    } catch (e) {
+      console.error('[cloud] 계정 합치기 실패:', e);
+      showToast(failText('계정을 합치지 못했어요', e));
+    } finally { mark(keep.id, false); }
   };
 
   const dropAdmin = async (email) => {
@@ -407,14 +438,51 @@ export function MembersView({ isAdmin, isMaster }) {
           <Section title="함께하는 사람" count={members.length}>
             {members.map((row, i) => (
               <MemberRow key={row.id} row={row} delay={rowDelay(i)} {...rowProps(row)} action={
-                <ConfirmPopover message={`${row.display_name || '이 분'}을 환송할까요? 지난 댓글·기록은 그대로 남아요.`}
-                  onConfirm={() => approve(row, false)}>
-                  <button type="button" disabled={!!busy[row.id]}
-                    className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
-                    <UserX size={13} /> 환송해주기
-                  </button>
-                </ConfirmPopover>
-              } />
+                <span className="flex items-center gap-1">
+                  {/* 합치기는 마스터만 — 남의 댓글·담당자를 다른 계정으로 옮기는 일이다 */}
+                  {isMaster && (
+                    <button type="button" disabled={!!busy[row.id]}
+                      onClick={() => setMergeFor(v => (v === row.id ? '' : row.id))}
+                      className="members-merge shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
+                      {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <Merge size={13} />} 계정 합치기
+                    </button>
+                  )}
+                  <ConfirmPopover message={`${row.display_name || '이 분'}을 환송할까요? 지난 댓글·기록은 그대로 남아요.`}
+                    onConfirm={() => approve(row, false)}>
+                    <button type="button" disabled={!!busy[row.id]}
+                      className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
+                      <UserX size={13} /> 환송해주기
+                    </button>
+                  </ConfirmPopover>
+                </span>
+              } below={mergeFor === row.id ? (
+                <div className="members-merge-pick mt-2 border border-line rounded-lg p-1.5 max-h-60 overflow-y-auto">
+                  <p className="px-2 py-1.5 text-[11px] text-fg-muted leading-relaxed">
+                    <span className="font-bold text-fg">{row.display_name || '이 계정'}</span>으로 합칠 계정을 고르세요.
+                    고른 계정의 업무·댓글·노트·알림이 이쪽으로 옮겨지고 그 계정은 환송돼요. 되돌릴 수 없어요.
+                  </p>
+                  {members.filter(m => m.id !== row.id).map(m => (
+                    <ConfirmPopover key={m.id}
+                      message={<>
+                        <span className="font-bold text-fg">{m.display_name || '그 계정'}</span>
+                        을 <span className="font-bold text-fg">{row.display_name || '이 계정'}</span>으로 합칠까요?
+                        <br />되돌릴 수 없어요.
+                      </>}
+                      confirmLabel="합치기" onConfirm={() => mergeInto(row, m)}>
+                      <button type="button" disabled={!!busy[row.id]}
+                        className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-surface-hover transition-colors text-left disabled:opacity-40">
+                        <Avatar name={m.display_name} url={m.avatar_url} className="flex w-7 h-7 text-xs shrink-0" />
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-[13px] text-fg truncate">{m.display_name || '이름 없음'}</span>
+                          <span className="block text-[10.5px] text-fg-faint truncate">{m.email || '로그인 이메일 없음'}</span>
+                        </span>
+                      </button>
+                    </ConfirmPopover>
+                  ))}
+                  <button type="button" onClick={() => setMergeFor('')}
+                    className="w-full mt-1 py-2 rounded-md text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition-colors">닫기</button>
+                </div>
+              ) : null} />
             ))}
           </Section>
 

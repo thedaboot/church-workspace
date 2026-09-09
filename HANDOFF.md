@@ -482,6 +482,13 @@
   - **노트** — 종이 머리가 `제목 → 구절` 순인지, `##`·`#`로 쓴 도막도 라벨로 올라가는지, 오늘의 나눔 줄이 라벨·글 두 칸으로 접혀 보이는지.
   - **순에 공유된 노트** — 목록이 **종이**로 서고 머리줄 고르개로 **주보를 바꿔** 볼 수 있는지.
   - **순모임 가이드(모바일)** — 머리줄에 고르개 하나, 버튼은 그 아래 한 줄로 옆으로 밀리는지(겹치지 않는지).
+  - **계정 합치기**(0059 · 마스터만) — **아직 아무것도 합치지 않았습니다.** 라이브에 중복이 이렇습니다:
+    · 문진혁 **셋** — `jhm6154@gmail.com`(명단 연결 ✔ · 이것을 남기세요) · `jhm6154@naver.com` · `jhm8004@snu.ac.kr`
+    · 임재훈 **둘** — `hoon000209@gmail.com`(표시명 '재훈' · 명단 연결 ✔ · 이것을 남기세요) · `hoon_209@naver.com`
+    **남길 쪽은 명단에 연결된 계정**입니다 — 거기에 순 소속·출석·직분이 매달려 있고, 연결 안 된 계정으로
+    로그인하면 `my_person_id()`가 null이라 자격이 통째로 사라집니다(0035). 멤버 화면의 줄에서
+    `계정 합치기` → 합칠 계정을 고르면 됩니다. **되돌릴 수 없습니다.**
+    (rpc 자체는 롤백 트랜잭션으로 라이브에서 확인했습니다 — 마스터 게이트·이동·환송 처리 전부.)
 - **2026-09-09 후속 회차분 · 종이(노트·주보) · 성경 검색 캐시(0057) · 가입 알림 문구 · 순모임 가이드 넷**
   (사용자 요청 2026-09-09 · 시안 A '밤 머리' 선택. 스위트: logcheck·sunguide·word·groups·worship·home·dashfix·three·themefit·navsmoke·wide·handoff·mdcheck·push)
   - **성경 AI 검색 캐시(0057)** — 두 계정으로 **같은 말**을 검색해 두 번째는 AI를 안 쏘는지(첫 검색 뒤
@@ -1673,7 +1680,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 
 ## 5. 데이터 · 스키마 · 비밀
 
-스키마는 `supabase/migrations/0001~0058`이고 **전부 라이브 DB에 적용**되어 있습니다
+스키마는 `supabase/migrations/0001~0059`이고 **전부 라이브 DB에 적용**되어 있습니다
 (0001~0005는 대시보드에서 수동, 이후는 `npx supabase db push --db-url "$SUPABASE_DB_URL"`).
 **원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있습니다** — 0039~0056은 psql로 직접
 적용했기 때문입니다. 적용 여부는 원장이 아니라 **실제 객체**로 확인하세요(컬럼·함수·정책·발행 목록).
@@ -1738,6 +1745,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | `0053_feedback_round_10` | 넷을 한 파일에 — ① `attendance_guests`(id·service_id·name·created_by): 미등록 출석자를 **명단에 올리지 않고** 그 예배의 손님으로(사용자 결정 2026-09-07). RLS: 승인 읽기 · insert/delete는 `can_check_all_attendance() or leads_any_sun()` + **발행된 주보만** ② `notifications.link`(우리 주소 CHECK) + kind 여섯 추가(`worship_today`는 서버만) + INSERT 정책에 `is_approved()` ③ `resource_links.view_pw/view_pw_salt/view_pw_by`(첨부 0023과 같은 화면 가림) ④ `services.cue_sheet jsonb` {url,title} — view_pw 두 칸은 만들었지만 **화면이 쓰지 않는다**(사용자 결정 2026-09-08 큐시트 비밀번호 없음). 되돌리기는 파일 아래 |
 | `0054_files_kind` | `files.kind text check (null|'songform'|'cuesheet')` — 주보 파일의 갈래. 큐시트를 링크뿐 아니라 **파일로도** 붙이기 위해(사용자 2026-09-08) 송폼과 같은 표·같은 업로드 한 벌을 쓰고 갈래만 한 칸. 기존 주보 파일은 전부 `songform`으로 백필, 업무 첨부는 null. RLS는 0047 그대로(service_id만 본다) |
 | `0055_sun_guide_pin_and_leaders` | 순모임 가이드 재가동(사용자 스펙 2026-09-08): `sun_guides.pinned/pinned_at/pinned_by` + 부분 유니크(`where pinned` — 고정은 하나) · `sun_guides_write`를 `is_approved() and (can_manage_sun() or leads_any_sun()) and (not pinned or is_master())`로(순장도 만든다 · 고정본은 마스터만) · `set_sun_guide_pinned(uuid, boolean)` security definer(마스터 검사 · 다른 행 먼저 해제 · authenticated에만 grant). 되돌리기는 파일 아래 |
+| `0059_merge_profiles` | **한 사람의 여러 계정 합치기** — `merge_profiles(p_keep, p_drop)` security definer rpc(마스터만, 42501). 계정 축(`profiles.id`)을 참조하는 칸을 전부 남기는 계정으로 옮기고 합친 계정은 **환송 처리**한다(행은 지우지 않는다 — 지우면 다시 로그인해 새 프로필이 생겨 합친 일이 헛일이 된다). 유니크가 있는 표(profile_teams·card_assignees·comment_reactions·service_notes·qt_entries·bible_state·people)는 **겹치는 행을 먼저 버리고** 옮긴다. 명단 축(`people.id` — 출석·순·직분)은 애초에 갈리지 않으므로 건드리지 않는다. **되돌릴 수 없다**(어느 행이 어느 계정에서 왔는지 남기지 않는다) |
 | `0058_card_resource_links` | 참고 링크를 **업무(카드)에도** — `resource_links.card_id`(cards cascade) + 배타 CHECK `resource_links_owner_exactly_one`(`(project_id is null) <> (card_id is null)`) + 인덱스. 미리보기·편집·비밀번호는 이미 있던 것이고(0053 · docEmbed) **없던 것은 카드 축 하나**였다. jsonb 컬럼으로 새로 만들지 않은 이유는 파일 머리말에 있다 — 비밀번호 규칙이 세 벌이 된다(§6-31-f). RLS는 0001의 넷을 그대로 쓴다 |
 | `0057_bible_search_cache` | 성경 AI 본문 검색 캐시 — `bible_search_cache(query_norm pk, refs jsonb, created_at)`. **담는 것은 모델이 낸 구절 참조뿐**이고 본문 글자는 언제나 `public/bible`에서 붙인다(성경 데이터를 갈아도 캐시가 안 낡고, 지어낸 참조는 읽을 때 파서가 거른다). 정책은 select·insert만(`is_approved()`) + delete는 마스터 — 같은 말의 답을 남이 덮어쓸 이유가 없어 update를 안 열었고, 굳은 답을 지울 길은 하나 남겼다. **실시간 발행에는 넣지 않는다**(다시 그릴 화면이 없다 — 넣으면 `liveV2.TABLE_CACHE`와 logcheck의 표 개수까지 세 자리를 같이 고쳐야 한다) |
 | `0056_realtime_guides_guests` | 실시간 발행(`supabase_realtime`)에 `sun_guides`·`attendance_guests` 추가(0049와 같은 멱등 루프). 짝은 `liveV2.TABLE_CACHE` 두 줄(`groups:guide`·`groups:mine` / `worship:svc`·`home`·`groups:mine`)과 logcheck의 표 개수 11 |

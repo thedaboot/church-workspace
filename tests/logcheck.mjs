@@ -2086,6 +2086,43 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  호칭 · 지난 주일 · 출석 메모 33가지');
 }
 
+// ── 참고 링크 카드 축(0058) · 계정 합치기(0059) ─────────────────────────────
+// SQL이라 브라우저 없이 **글자로** 본다(0052·0017을 보는 방식 그대로). 라이브 적용은
+// psql로 하고 눈으로 확인했다(HANDOFF §5) — 여기서 보는 것은 "다음 사람이 이 파일을
+// 고칠 때 무엇을 지키면 되는가"다.
+{
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+  const m58 = src('../supabase/migrations/0058_card_resource_links.sql');
+  assert.ok(/add column if not exists card_id uuid references public\.cards\(id\) on delete cascade/.test(m58),
+    '0058은 카드 축을 cascade로 더한다(카드를 지우면 링크도 사라진다)');
+  // 배타 CHECK — 한 링크는 프로젝트의 것이거나 카드의 것이다. 0047의 files와 같은 모양이다.
+  assert.ok(/check \(\(project_id is null\) <> \(card_id is null\)\)/.test(m58),
+    '주인은 정확히 하나다(0047 files_owner_exactly_one과 같은 모양)');
+  assert.ok(/idx_resource_links_card_id/.test(m58), '카드 축에 인덱스가 있다');
+
+  const m59 = src('../supabase/migrations/0059_merge_profiles.sql');
+  assert.ok(/security definer/.test(m59) && /is_master\(\)/.test(m59),
+    '0059는 security definer이고 마스터만 부른다');
+  // **profiles 행을 지우지 않는다** — 지우면 다시 로그인해 새 프로필이 생기고(0001
+  // handle_new_user) 합친 일이 헛일이 된다. 환송 처리로 남긴다.
+  assert.ok(!/delete from public\.profiles/.test(m59), '합친 계정의 profiles 행을 지우지 않는다');
+  assert.ok(/set approved = false, removed_at = now\(\)/.test(m59), '합친 계정은 환송 처리된다');
+  // 겹치는 행이 있는 표는 **먼저 지우고** 옮긴다 — 안 그러면 유니크 제약에 걸려 통째로 실패한다
+  for (const t of ['profile_teams', 'card_assignees', 'comment_reactions', 'service_notes', 'qt_entries']) {
+    assert.ok(new RegExp(`delete from public\.${t} d`).test(m59), `${t}는 겹치는 행을 먼저 버린다`);
+  }
+  assert.ok(/update public\.bible_state set profile_id = p_keep/.test(m59), '성경 상태도 옮긴다(PK 한 줄)');
+  assert.ok(/update public\.activity set actor_id = p_keep/.test(m59), '활동 기록의 행위자도 옮긴다(FK가 없는 칸이다)');
+  assert.ok(/grant execute on function public\.merge_profiles\(uuid, uuid\) to authenticated/.test(m59)
+    && /revoke all on function public\.merge_profiles\(uuid, uuid\) from public, anon/.test(m59),
+    '실행 권한은 로그인 사용자만(자격은 함수 안에서 본다)');
+  // 명단 연결은 UNIQUE라 갈래가 둘이다 — 남기는 쪽이 이미 붙어 있으면 그것을 남긴다
+  assert.ok(/people_kept_existing/.test(m59) && /people_relinked/.test(m59),
+    '명단 연결은 두 갈래를 돌려준다(이미 붙어 있었나 / 새로 이었나)');
+
+  console.log('PASS  참고 링크 카드 축 · 계정 합치기 15가지');
+}
+
 // ── 팀 보드 상단 사람 칩 (utils.teamChips) ──────────────────────────────────
 // 예전에는 **그 팀 업무의 담당자**를 세어 칩을 세웠다 — 교역자 팀 보드에 교역자가
 // 아닌 청년이 떴다(교역자 팀 업무 한 건을 맡고 있었다 · 사용자 지적 2026-09-07).

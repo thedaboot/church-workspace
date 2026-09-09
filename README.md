@@ -286,6 +286,7 @@ insert into admins (email) values ('admin@example.com');
 | `0054_files_kind.sql` | `files.kind`(songform·cuesheet) — 큐시트를 파일로도 붙이기 위해 주보 파일의 갈래를 한 칸으로 |
 | `0055_sun_guide_pin_and_leaders.sql` | 순모임 가이드 재가동 — `sun_guides.pinned*`(고정은 하나 · 마스터만, rpc `set_sun_guide_pinned`) · 쓰기를 순장까지 |
 | `0056_realtime_guides_guests.sql` | 실시간 발행에 `sun_guides`·`attendance_guests` 추가 — 고정·손님 출석이 다른 사람 화면에도 바로 |
+| `0059_merge_profiles.sql` | 한 사람의 여러 계정 합치기 — `merge_profiles` rpc(마스터만). 계정 축 참조를 한쪽으로 옮기고 합친 계정은 환송 처리. 되돌릴 수 없다 |
 | `0058_card_resource_links.sql` | 참고 링크를 업무(카드)에도 — `resource_links.card_id` + 프로젝트 축과 배타 CHECK. 업무에 붙인 구글 시트를 앱 안에서 열어 고친다 |
 | `0057_bible_search_cache.sql` | 성경 AI 본문 검색 캐시 — 정규화한 물음 → 구절 참조 배열. 같은 말은 **누가 물어도** 한 번만 AI로 나간다(본문 글자는 담지 않는다) |
 
