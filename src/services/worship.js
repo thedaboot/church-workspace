@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient.js';
+import { supabase, myUid } from './supabaseClient.js';
 import { fetchPeople, fetchGroups, fetchGroupMembers, fetchMyPerson, fetchRoles, guestStore } from './people.js';
 import { listServiceFiles, uploadServiceFile as uploadServiceFileToDrive, ensureServiceFolder, deleteAttachment,
   insertNotifications, getMyProfile } from './cloud.js';
@@ -690,10 +690,8 @@ export async function fetchVideoTitle(url) {
 // 예배당 한 건(unique). 기본은 나만 보고, '내 순에 공유'를 켜면 올해 같은 순만 본다.
 // 남의 노트는 이 화면에 오지 않는다 — 모임 화면 소관이다(결정 7).
 
-async function myUid() {
-  const { data: { user } = {} } = await supabase.auth.getUser();
-  return user?.id || null;
-}
+// **합친 계정이면 남긴 계정의 id다**(0061 · supabaseClient) — 그 계정으로 들어와도
+// 노트가 갈리지 않는다. 예전에는 여기 자기 uid를 쓰는 한 벌이 따로 있었다.
 
 export async function fetchMyNote(serviceId) {
   if (!supabase) return guestRows('service_notes').find(n => n.service_id === serviceId) || null;

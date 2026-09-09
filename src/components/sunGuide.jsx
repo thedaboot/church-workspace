@@ -499,7 +499,7 @@ export function SunGuidePanel({
           {img.busy
             ? <Loader2 size={12} className="animate-spin" />
             : <Download size={12} />}
-          <span>이미지로 저장</span>
+          <span>이미지로 공유</span>
         </button>
       )}
       {showSheet && canCreate && !locked && (

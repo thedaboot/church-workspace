@@ -1933,7 +1933,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 // 신선한 값으로 간다'가 깨지고, `true`로 바꾸면 '고치던 글은 지킨다'가 깨진다.
 {
   const src = readFileSync(new URL('../src/services/word.js', import.meta.url), 'utf8')
-    .replace(/import \{ supabase \} from '\.\/supabaseClient\.js';/, 'const supabase = null;');
+    // 0061부터 myUid도 같이 가져온다 — 노드에서는 둘 다 세운다(supabaseClient는
+    // import.meta.env를 읽어서 그대로 들이면 던진다)
+    .replace(/import \{ supabase, myUid \} from '\.\/supabaseClient\.js';/,
+      'const supabase = null; const myUid = async () => null;');
   const dir = mkdtempSync(join(tmpdir(), 'wordad-'));
   const f = join(dir, 'word.mjs');
   writeFileSync(f, src);
@@ -2146,7 +2149,45 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/merged_into/.test(src('../src/services/cloud.js')),
     '목록 조회가 그 칸을 실어 온다(없으면 화면이 가를 수 없다)');
 
-  console.log('PASS  참고 링크 카드 축 · 계정 합치기 23가지');
+  // 0061 — 합친 계정으로 들어와도 **그 사람**이다(사용자 요구 2026-09-10 "그 계정으로
+  // 해도 합쳐진 계정으로 남을 수 있게끔"). 판정 자리에서 auth.uid() 대신 effective_uid().
+  const m61 = src('../supabase/migrations/0061_effective_uid.sql');
+  assert.ok(/create or replace function public\.effective_uid\(\)/.test(m61)
+    && /coalesce\(\(select p\.merged_into from public\.profiles p where p\.id = auth\.uid\(\)\), auth\.uid\(\)\)/.test(m61),
+    'effective_uid는 합쳐 들어간 계정이 있으면 그것을 준다');
+  // 로그인이 막히지 않아야 한다 — 합친 계정은 환송 처리라 is_approved가 거짓이었다
+  assert.ok(/function public\.is_approved[\s\S]{0,400}effective_uid\(\)/.test(m61),
+    'is_approved가 그 값을 본다(합친 계정도 통과)');
+  // 순 소속·순장 자격·출석이 그대로여야 한다(0035의 헬퍼 아홉이 이 함수를 본다)
+  assert.ok(/function public\.my_person_id[\s\S]{0,400}effective_uid\(\)/.test(m61),
+    'my_person_id가 그 값을 본다(명단 축으로 이어진다)');
+  // 개인 표 셋 — 노트·묵상·성경 상태가 두 벌로 갈리지 않아야 한다.
+  // **정책 구역 안에 auth.uid()가 하나도 남아 있지 않은지**로 본다 — 표별로 '어딘가에
+  // effective_uid가 있나'만 보면 다섯 중 하나만 고쳐도 통과한다(실제로 그랬다).
+  // **주석 줄은 걷는다** — 이 파일의 주석이 'auth.uid() → effective_uid()'라고 적고 있어서
+  // 그대로 보면 늘 실패한다(처음에 그렇게 걸렸다)
+  const pol = m61.slice(m61.indexOf('drop policy if exists service_notes_select'), m61.indexOf('comment on function'))
+    .split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  assert.ok(pol.length > 500, '정책 구역을 찾았다');
+  assert.ok(!/auth\.uid\(\)/.test(pol), '개인 표 정책에 auth.uid()가 남아 있지 않다');
+  // using 5 + with check 3 = 8 (select 정책 둘에는 with check가 없다)
+  assert.ok((pol.match(/effective_uid/g) || []).length >= 8, '다섯 정책이 모두 그 값을 본다');
+  for (const t of ['service_notes', 'qt_entries', 'bible_state']) {
+    assert.ok(pol.includes(`policy ${t}`), `${t} 정책을 다시 만든다`);
+  }
+  // 클라이언트도 같은 값을 봐야 한다 — 자기 uid로 걸면 노트가 한 줄도 안 나온다
+  const sc = src('../src/services/supabaseClient.js');
+  assert.ok(/rpc\('effective_uid'\)/.test(sc) && /export function resetMyUid/.test(sc),
+    '클라이언트가 그 값을 묻고 세션이 바뀌면 버린다');
+  assert.ok(/resetMyUid\(\)/.test(src('../src/services/auth.jsx')), '세션이 바뀌면 실제로 버린다');
+  for (const f of ['word.js', 'worship.js', 'groups.js', 'people.js']) {
+    assert.ok(/myUid/.test(src(`../src/services/${f}`)), `${f}가 그 값을 쓴다`);
+  }
+  // 화면에 보이는 이름도 남긴 계정의 것이다
+  assert.ok(/p\.merged_into && nameOfId\.get\(p\.merged_into\)/.test(src('../src/services/cloudSync.js')),
+    '합친 계정의 이름은 남긴 계정의 것으로 풀린다');
+
+  console.log('PASS  참고 링크 카드 축 · 계정 합치기 34가지');
 }
 
 // ── 노트 도막 제목은 지워지지 않는다 (ensureNoteSections) ───────────────────

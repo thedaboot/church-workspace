@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from './supabaseClient.js';
+import { supabase, resetMyUid } from './supabaseClient.js';
 import { store } from '../store/workspaceStore.js';
 import { isKakaoInApp, returnToOf, authErrorInUrl } from '../utils.js';
 import { setEntryQuery } from './entryQuery.js';
@@ -100,6 +100,9 @@ export function AuthProvider({ children }) {
   // RLS를 우회해서 답하므로, 승인 대기자도 자기 상태는 알 수 있다.
   useEffect(() => {
     if (!enabled) return;
+    // 세션이 바뀌면 '내 id'를 다시 묻는다 — 안 버리면 다른 사람으로 로그인했는데
+    // 앞사람의 id가 남는다(0061 effective_uid의 캐시).
+    resetMyUid();
     if (!session) { setPerm({ isAdmin: null, isMaster: null, approved: null }); return; }
     let alive = true;
     (async () => {

@@ -286,6 +286,7 @@ insert into admins (email) values ('admin@example.com');
 | `0054_files_kind.sql` | `files.kind`(songform·cuesheet) — 큐시트를 파일로도 붙이기 위해 주보 파일의 갈래를 한 칸으로 |
 | `0055_sun_guide_pin_and_leaders.sql` | 순모임 가이드 재가동 — `sun_guides.pinned*`(고정은 하나 · 마스터만, rpc `set_sun_guide_pinned`) · 쓰기를 순장까지 |
 | `0056_realtime_guides_guests.sql` | 실시간 발행에 `sun_guides`·`attendance_guests` 추가 — 고정·손님 출석이 다른 사람 화면에도 바로 |
+| `0061_effective_uid.sql` | 합친 계정으로 들어와도 그 사람 — `effective_uid()`를 승인·명단·개인 표 정책이 본다(노트·묵상·성경 상태가 갈리지 않게) |
 | `0060_merged_into.sql` | `profiles.merged_into` — 합쳐진 계정에 표를 남겨 '다시 초대하기'가 빈 중복을 되살리지 않게 |
 | `0059_merge_profiles.sql` | 한 사람의 여러 계정 합치기 — `merge_profiles` rpc(마스터만). 계정 축 참조를 한쪽으로 옮기고 합친 계정은 환송 처리. 되돌릴 수 없다 |
 | `0058_card_resource_links.sql` | 참고 링크를 업무(카드)에도 — `resource_links.card_id` + 프로젝트 축과 배타 CHECK. 업무에 붙인 구글 시트를 앱 안에서 열어 고친다 |

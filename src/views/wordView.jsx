@@ -522,7 +522,7 @@ function QtTab() {
                   <button onClick={qtImg.share} disabled={qtImg.busy} data-qt-image="1"
                     className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[11.5px] font-medium text-fg-muted bg-surface-hover hover:bg-line transition active:scale-95 disabled:opacity-50">
                     {qtImg.busy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-                    <span>이미지로 저장</span>
+                    <span>이미지로 공유</span>
                   </button>
                 </>
               ) : (

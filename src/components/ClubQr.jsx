@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Share2, Download, Link2 } from 'lucide-react';
+import { Share2, Link2 } from 'lucide-react';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { CARD_STYLE, BTN, BTN_QUIET, WITH_ICON } from './groupsParts.jsx';
-import { isKakaoInApp } from '../utils.js';
 
 // ============================================================================
 // 동아리 가입 신청 QR — 발급 · 카카오톡 공유 · 이미지 저장 · 링크 복사
@@ -194,34 +193,9 @@ export function ClubQrModal({ club, onClose }) {
     }
   }, [busy, toPng, url, club.name, copy]);
 
-  // 이미지 저장. **카카오 인앱 웹뷰는 내려받기가 막힌다** — a[download]가 아무 일도
-  // 하지 않고 끝나서 '눌렀는데 아무 일도 없다'가 된다. 그때는 그림을 새 탭에 띄운다
-  // (거기서는 길게 눌러 저장하는 기본 동작이 산다).
-  const save = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const blob = await toPng();
-      if (!blob) throw new Error('빈 그림');
-      const href = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      if (isKakaoInApp(navigator.userAgent) || !('download' in a)) {
-        window.open(href, '_blank', 'noopener');
-      } else {
-        a.href = href;
-        a.download = `${club.name} 가입 신청 QR.png`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      }
-      setTimeout(() => URL.revokeObjectURL(href), 8000);
-    } catch (e) {
-      console.error('[groups] QR 이미지를 저장하지 못했어요:', e);
-      showToast(failText('이미지를 저장하지 못했어요', e));
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, toPng, club.name]);
+  // **'이미지 저장' 버튼은 걷었다**(사용자 결정 2026-09-10 — "그냥 카카오톡에 공유
+  // 버튼만 남겨줘 차라리"). 내려받기가 막힌 폰에서는 그 버튼이 공유 시트를 여는 것으로
+  // 끝나서 위 '카카오톡·공유'와 같은 일을 두 번 하는 자리였다. 저장은 그 시트 안에 있다.
 
   const size = nameSize(club.name);
 
@@ -262,10 +236,6 @@ export function ClubQrModal({ club, onClose }) {
           <button type="button" onClick={share} disabled={busy}
             className={`club-qr-share ${WITH_ICON} ${BTN}`}>
             <Share2 size={13} /><span>카카오톡·공유</span>
-          </button>
-          <button type="button" onClick={save} disabled={busy || failed}
-            className={`club-qr-save ${WITH_ICON} ${BTN_QUIET}`}>
-            <Download size={13} /><span>이미지 저장</span>
           </button>
           <button type="button" onClick={copy}
             className={`club-qr-copy ${WITH_ICON} ${BTN_QUIET}`}>

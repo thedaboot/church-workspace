@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient.js';
+import { supabase, myUid } from './supabaseClient.js';
 
 // ============================================================================
 // 말씀 화면의 저장 계층 — qt_schedule · qt_entries · bible_state (0036 · docs/V2.md §1)
@@ -97,10 +97,9 @@ const lsSet = (key, value) => {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* 사파리 비공개 모드 */ }
 };
 
-const myId = async () => {
-  const { data: { user } = {} } = await supabase.auth.getUser();
-  return user?.id || null;
-};
+// **합친 계정이면 남긴 계정의 id다**(0061 · supabaseClient.myUid) — 내 uid로 걸면
+// 노트·묵상이 남긴 계정 아래 있어서 한 줄도 안 나온다.
+const myId = () => myUid();
 
 // ── qt_schedule ─────────────────────────────────────────────────────────────
 export async function fetchSchedule(date) {

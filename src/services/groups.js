@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient.js';
+import { supabase, myUid } from './supabaseClient.js';
 import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, fetchMyPerson, guestStore } from './people.js';
 import { SUNDAY_KIND, kstNow, fetchMyNote, saveMyNote } from './worship.js';
 import { insertNotifications } from './cloud.js';
@@ -377,11 +377,9 @@ export async function fetchApplications() {
 //
 // 돌려주는 줄에는 화면이 필요한 것만 붙인다: shared(지금 공유 상태) · mine(내 것인가) ·
 // serviceId(공유를 켤 때 어느 예배의 노트인지).
-async function myProfileId() {
-  if (!supabase) return null;
-  const { data: { user } = {} } = await supabase.auth.getUser();
-  return user?.id || null;
-}
+// **합친 계정이면 남긴 계정의 id다**(0061) — '내 노트인가' 판정이 그 계정으로 들어와도
+// 같아야 한다.
+const myProfileId = () => myUid();
 
 // 게스트에는 로그인이 없다 — 시드의 me가 가리키는 명단 항목의 profile_id가 내 것이다.
 function guestProfileId() {

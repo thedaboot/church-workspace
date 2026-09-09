@@ -52,3 +52,28 @@ export const supabase = url && anonKey
   : null;
 
 export const isCloudEnabled = () => !!supabase;
+
+
+// ── 나는 누구인가 — **합친 계정이면 남긴 계정의 id** (0061) ──────────────────
+// 사용자 요구 2026-09-10: "그 계정으로 해도 합쳐진 계정으로 남을 수 있게끔."
+// DB는 `effective_uid()`로 그 판정을 하고(정책·my_person_id가 그것을 본다), 클라이언트도
+// 같은 값을 봐야 한다 — 자기 uid로 `.eq('profile_id', …)`를 걸면 노트·묵상이 남긴 계정
+// 아래 있어서 **한 줄도 안 나온다**.
+//
+// 세션당 한 번만 묻고 기억한다(rpc 한 번). 로그인·로그아웃 때 `resetMyUid()`로 버린다 —
+// 안 버리면 다른 사람으로 로그인했는데 앞사람의 id가 남는다.
+let myUidCache = null;
+export function resetMyUid() { myUidCache = null; }
+export async function myUid() {
+  if (!supabase) return null;
+  if (myUidCache) return myUidCache;
+  const { data, error } = await supabase.rpc('effective_uid');
+  if (error) {
+    // 함수가 아직 없는 배포(0061 미적용)에서도 앱이 돌아야 한다 — 내 uid로 떨어진다
+    console.error('[auth] effective_uid 실패 — 내 계정 id로 갑니다:', error);
+    const { data: { user } = {} } = await supabase.auth.getUser();
+    return user?.id || null;
+  }
+  myUidCache = data || null;
+  return myUidCache;
+}

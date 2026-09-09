@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient.js';
+import { supabase, myUid } from './supabaseClient.js';
 
 // ============================================================================
 // v2 명단(people)·모임(groups) 읽기 계층 — 예배·모임 줄기가 같이 쓴다 (docs/V2.md §2)
@@ -129,11 +129,12 @@ export function guestStore(key) {
 // 내 명단 행(로그인 계정과 이어진 사람). 없으면 null — 아직 관리자가 안 이어 주었다.
 export async function fetchMyPerson() {
   if (!supabase) return null;
-  const { data: { user } = {} } = await supabase.auth.getUser();
-  if (!user) return null;
+  // **합친 계정이면 남긴 계정의 id로 찾는다**(0061) — 그 계정으로 들어와도 같은 명단 행이다
+  const uid = await myUid();
+  if (!uid) return null;
   const { data, error } = await supabase.from('people')
     .select('id, name, birthday, teams, is_pastor, sun_exempt, profile_id, profiles:profile_id(display_name)')
-    .eq('profile_id', user.id).is('removed_at', null).maybeSingle();
+    .eq('profile_id', uid).is('removed_at', null).maybeSingle();
   if (error) throw error;
   return data ? withDisplayName(data) : null;
 }

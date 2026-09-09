@@ -29,7 +29,15 @@ let profileRows = new Map();
 const primeMaps = (teams, profiles) => {
   teamIdToName = new Map(teams.map(t => [t.id, t.name]));
   teamNameToId = new Map(teams.map(t => [t.name, t.id]));
-  profileIdToName = new Map(profiles.map(p => [p.id, p.display_name || '']));
+  // **합친 계정은 남긴 계정의 이름으로 풀린다**(0060 merged_into · 사용자 요구 2026-09-10
+  // "그 계정으로 해도 합쳐진 계정으로 남을 수 있게끔"). 댓글·담당자·활동 기록은 누른
+  // 계정의 id로 남지만(그건 "누가 눌렀나"의 기록이다) **화면에 보이는 사람은 한 명**이다.
+  // 남긴 계정을 못 찾으면(목록에 없으면) 자기 이름으로 떨어진다.
+  const nameOfId = new Map(profiles.map(p => [p.id, p.display_name || '']));
+  profileIdToName = new Map(profiles.map(p => [
+    p.id,
+    (p.merged_into && nameOfId.get(p.merged_into)) || p.display_name || '',
+  ]));
   // 앱 안에서 사람은 표시명으로 다닌다(담당자·댓글 작성자·활동 기록 전부 이름) —
   // 사진도 같은 열쇠로 찾게 둔다. 동명이인이 있으면 먼저 온 사람의 사진이 남는다.
   nameToAvatar = new Map(profiles
@@ -40,7 +48,8 @@ const primeMaps = (teams, profiles) => {
   // 걸렀는데 이 모듈 캐시는 안 걸러서, 멘션·담당자 목록에만 환송한 사람이 남아 있었다).
   // 위의 profileIdToName·nameToAvatar는 **일부러 안 거른다** — 환송한 사람이 남긴
   // 지난 댓글·활동의 이름과 사진은 그대로 보여야 한다(내용은 남는다는 규칙).
-  memberNames = [...new Set(profiles.filter(p => !p.removed_at).map(p => p.display_name).filter(Boolean))]
+  // 합친 계정은 후보에서도 빠진다(환송과 같은 취급 — 그 이름으로 부를 사람이 없다)
+  memberNames = [...new Set(profiles.filter(p => !p.removed_at && !p.merged_into).map(p => p.display_name).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'ko'));
   profileRows = new Map(profiles.map(p => [p.id, p]));
 };

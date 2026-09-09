@@ -1681,7 +1681,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 
 ## 5. 데이터 · 스키마 · 비밀
 
-스키마는 `supabase/migrations/0001~0060`이고 **전부 라이브 DB에 적용**되어 있습니다
+스키마는 `supabase/migrations/0001~0061`이고 **전부 라이브 DB에 적용**되어 있습니다
 (0001~0005는 대시보드에서 수동, 이후는 `npx supabase db push --db-url "$SUPABASE_DB_URL"`).
 **원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있습니다** — 0039~0056은 psql로 직접
 적용했기 때문입니다. 적용 여부는 원장이 아니라 **실제 객체**로 확인하세요(컬럼·함수·정책·발행 목록).
@@ -1746,6 +1746,7 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 | `0053_feedback_round_10` | 넷을 한 파일에 — ① `attendance_guests`(id·service_id·name·created_by): 미등록 출석자를 **명단에 올리지 않고** 그 예배의 손님으로(사용자 결정 2026-09-07). RLS: 승인 읽기 · insert/delete는 `can_check_all_attendance() or leads_any_sun()` + **발행된 주보만** ② `notifications.link`(우리 주소 CHECK) + kind 여섯 추가(`worship_today`는 서버만) + INSERT 정책에 `is_approved()` ③ `resource_links.view_pw/view_pw_salt/view_pw_by`(첨부 0023과 같은 화면 가림) ④ `services.cue_sheet jsonb` {url,title} — view_pw 두 칸은 만들었지만 **화면이 쓰지 않는다**(사용자 결정 2026-09-08 큐시트 비밀번호 없음). 되돌리기는 파일 아래 |
 | `0054_files_kind` | `files.kind text check (null|'songform'|'cuesheet')` — 주보 파일의 갈래. 큐시트를 링크뿐 아니라 **파일로도** 붙이기 위해(사용자 2026-09-08) 송폼과 같은 표·같은 업로드 한 벌을 쓰고 갈래만 한 칸. 기존 주보 파일은 전부 `songform`으로 백필, 업무 첨부는 null. RLS는 0047 그대로(service_id만 본다) |
 | `0055_sun_guide_pin_and_leaders` | 순모임 가이드 재가동(사용자 스펙 2026-09-08): `sun_guides.pinned/pinned_at/pinned_by` + 부분 유니크(`where pinned` — 고정은 하나) · `sun_guides_write`를 `is_approved() and (can_manage_sun() or leads_any_sun()) and (not pinned or is_master())`로(순장도 만든다 · 고정본은 마스터만) · `set_sun_guide_pinned(uuid, boolean)` security definer(마스터 검사 · 다른 행 먼저 해제 · authenticated에만 grant). 되돌리기는 파일 아래 |
+| `0061_effective_uid` | **합친 계정으로 들어와도 그 사람이다**(사용자 요구 2026-09-10). `effective_uid()` = 내가 합쳐 들어간 계정이 있으면 그것, 없으면 `auth.uid()`. 그 값을 보는 자리: `is_approved()`(합친 계정도 통과 — 안 그러면 '승인 대기'에 갇힌다) · `my_person_id()`(순 소속·순장·교역자·직분·출석이 그대로) · **개인 표 셋의 정책**(`service_notes`·`qt_entries`·`bible_state` — 노트·묵상·성경 상태가 두 벌로 갈리지 않게). 댓글·담당자·활동은 누른 계정 id로 남고(그건 "누가 눌렀나"의 기록) **화면 이름·사진만** 남긴 계정 것으로 푼다(`cloudSync.primeMaps`). 클라이언트도 같은 값을 봐야 한다 — `supabaseClient.myUid()`(rpc 한 번, 세션당 캐시, `resetMyUid`) |
 | `0060_merged_into` | 합쳐진 계정에 표를 남긴다 — `profiles.merged_into`(자기 참조 · set null). **0059가 만든 함정을 막는다**: 합친 계정은 환송 처리로 남는데 그냥 환송된 계정과 겉모습이 같아서(`approved=false` + `removed_at`), 멤버 화면의 '다시 초대하기'가 그 계정을 **데이터 하나 없는 빈 중복**으로 되살렸다. 이 칸이 있으면 화면이 그 자리에 '다른 계정으로 합쳤어요'만 적는다. 함수도 같이 갈아 끼워(이미 합쳐진 계정은 남길 쪽으로 못 고른다 · 옛 표는 새 주인을 따라간다) **2026-09-09에 사용자가 합친 셋을 이메일로 백필**했다 |
 | `0059_merge_profiles` | **한 사람의 여러 계정 합치기** — `merge_profiles(p_keep, p_drop)` security definer rpc(마스터만, 42501). 계정 축(`profiles.id`)을 참조하는 칸을 전부 남기는 계정으로 옮기고 합친 계정은 **환송 처리**한다(행은 지우지 않는다 — 지우면 다시 로그인해 새 프로필이 생겨 합친 일이 헛일이 된다). 유니크가 있는 표(profile_teams·card_assignees·comment_reactions·service_notes·qt_entries·bible_state·people)는 **겹치는 행을 먼저 버리고** 옮긴다. 명단 축(`people.id` — 출석·순·직분)은 애초에 갈리지 않으므로 건드리지 않는다. **되돌릴 수 없다**(어느 행이 어느 계정에서 왔는지 남기지 않는다) |
 | `0058_card_resource_links` | 참고 링크를 **업무(카드)에도** — `resource_links.card_id`(cards cascade) + 배타 CHECK `resource_links_owner_exactly_one`(`(project_id is null) <> (card_id is null)`) + 인덱스. 미리보기·편집·비밀번호는 이미 있던 것이고(0053 · docEmbed) **없던 것은 카드 축 하나**였다. jsonb 컬럼으로 새로 만들지 않은 이유는 파일 머리말에 있다 — 비밀번호 규칙이 세 벌이 된다(§6-31-f). RLS는 0001의 넷을 그대로 쓴다 |
@@ -3067,6 +3068,33 @@ KPI·목록은 그대로 상단 세그먼트를 따라갑니다 — 그건 필�
 `ReferenceError`가 나 **모임 화면이 통째로 죽었습니다**(후보 목록이 전부 빈 배열).
 `tests/groups`가 열두 줄로 잡았습니다. 같은 파일의 같은 줄을 고칠 때는 어느 부품의 것인지
 확인하세요.
+
+### 합친 계정 · 그림 내보내기에서 또 밟은 것 (2026-09-10)
+
+**34-a. 파일이 크면 폰에서 공유가 실패합니다.** 동아리 QR은 공유가 되는데 종이는 안 되던
+차이가 이것이었습니다 — QR PNG는 10KB고 주보 1쪽은 본문 전문이 들어 몇 MB입니다.
+`MAX_PIXELS`를 하드 상한(4096² = 16.7M)이 아니라 **4M**으로 잡고 PDF는 JPEG 0.85로
+굽습니다. 상한은 `toBlob`이 null을 주는 자리이고, **그 아래에서도 공유는 실패합니다.**
+
+**34-b. `저장`이라고 적힌 버튼이 공유 시트를 열면 두 번 같은 일입니다.** 폰에서는 내려받기가
+막혀 결국 공유로 가므로, 동아리 QR의 '이미지 저장'을 걷고 '카카오톡·공유' 하나만 남겼습니다
+(사용자 결정). 노트·가이드의 버튼 이름도 **'이미지로 공유'** 입니다 — 하는 일을 그대로 적습니다.
+
+**34-c. 합친 계정으로 로그인하면 '승인 대기'에 갇혔습니다.** 0059/0060은 데이터만 옮겼고
+로그인 신원은 그대로여서, 그 계정으로 들어오면 아무것도 못 하고 관리자에게 승인을
+요청하게 됩니다(그러면 빈 중복이 되살아납니다 — 0060이 화면에서 막았지만 근본은 남았습니다).
+0061의 `effective_uid()`가 그 자리를 메웁니다. **`auth.uid()`를 그대로 보는 자리를 새로 만들
+때는 "합친 계정이면?"을 한 번 물어 보세요.**
+
+**34-d. 클라이언트도 같은 값을 봐야 합니다.** DB 정책만 고치면 화면은 여전히 자기 uid로
+`.eq('profile_id', …)`를 걸어서 **노트·묵상이 한 줄도 안 나옵니다**(남긴 계정 아래 있으니까).
+`supabaseClient.myUid()` 한 벌을 쓰세요 — `word.js`·`worship.js`·`groups.js`·`people.js`가
+그것을 봅니다. 세션이 바뀌면 `resetMyUid()`로 버려야 합니다(안 버리면 앞사람 id가 남습니다).
+
+**34-e. 템플릿 문자열 안의 `\s`는 그냥 `s`입니다.** `new RegExp(\`…[\s\S]…\`)`로 짠 검사가
+조용히 안 맞아서, **일부러 되돌려도 통과**했습니다(0061 정책 검사에서 실제로 겪었습니다).
+정규식은 리터럴(`/…/`)로 쓰거나 백슬래시 없는 문자열로 짜세요. 그리고 SQL 파일을 글자로
+볼 때는 **주석 줄과 `comment on` 문장을 걷어야** 합니다 — 그 안에 옛 함수 이름이 적혀 있습니다.
 
 ### 종이 · 그림 내보내기 (2026-09-09)
 

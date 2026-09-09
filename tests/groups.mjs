@@ -1863,8 +1863,11 @@ check('QR 카드에 동아리 이름 · 라벨 · 모듈이 그려진다',
   !qr.err && qr.texts[0] === '통통' && qr.texts[1] === '가입 신청 QR'
   && qr.modules > 60 && qr.w >= 200, JSON.stringify(qr));
 // 상시 도구 줄 — 확정 왼쪽 / 나가기 오른쪽(§8)
-check('QR 창의 버튼 차례는 공유 · 저장 · 복사 … 닫기',
-  JSON.stringify(qr.tools) === '["카카오톡·공유","이미지 저장","링크 복사","닫기"]', JSON.stringify(qr.tools));
+// **'이미지 저장'은 걷었다**(사용자 결정 2026-09-10 — "그냥 카카오톡에 공유 버튼만
+// 남겨줘 차라리"). 내려받기가 막힌 폰에서 그 버튼은 공유 시트를 여는 것으로 끝나서
+// 왼쪽 버튼과 같은 일을 두 번 하는 자리였다 — 저장은 그 시트 안에 있다.
+check('QR 창의 버튼 차례는 공유 · 복사 … 닫기',
+  JSON.stringify(qr.tools) === '["카카오톡·공유","링크 복사","닫기"]', JSON.stringify(qr.tools));
 await ev(`document.querySelector('.club-qr-close').click()`); await sleep(400);
 check('닫기를 누르면 QR 창이 사라진다',
   (await ev(`!!document.querySelector('.club-qr-card')`)) === false);

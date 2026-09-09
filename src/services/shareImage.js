@@ -35,8 +35,12 @@ import { isKakaoInApp } from '../utils.js';
 // 내려받는 그림의 가로 화소. 종이는 화면에서 최대 560px이라 여기서 약 2배다.
 export const EXPORT_W = 1080;
 
-// 캔버스 화소 상한 — iOS 사파리의 4096×4096. 넘으면 toBlob이 null이다.
-const MAX_PIXELS = 4096 * 4096;
+// 캔버스 화소 상한. iOS 사파리의 하드 상한은 4096×4096(16.7M)인데 **그보다 훨씬 낮게**
+// 잡는다 — 상한은 `toBlob`이 null을 주는 자리이고, 그 아래에서도 **파일이 커지면 공유가
+// 실패한다**(사용자 2026-09-10: 동아리 QR 공유는 되는데 종이 공유는 안 된다. QR PNG는
+// 10KB고 종이는 본문 전문이 든 1쪽이 몇 MB다). 4M 화소면 1080폭에서 3700px까지이고
+// 거의 흰 종이라 PNG가 수백 KB에 머문다.
+const MAX_PIXELS = 4_000_000;
 
 let canvasPromise = null;
 let pdfPromise = null;
@@ -93,7 +97,9 @@ export async function nodesToPdf(nodes, background) {
     const orientation = c.width > c.height ? 'landscape' : 'portrait';
     if (!doc) doc = new jsPDF({ unit: 'px', format, orientation, compress: true });
     else doc.addPage(format, orientation);
-    doc.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, c.width, c.height);
+    // JPEG 0.85 — 종이는 글자와 넓은 흰 바탕이라 이 값에서 눈에 보이는 차이가 없고,
+    // 파일이 작아야 공유가 된다(위 MAX_PIXELS 주석과 같은 이유).
+    doc.addImage(c.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, c.width, c.height);
   }
   return doc.output('blob');
 }

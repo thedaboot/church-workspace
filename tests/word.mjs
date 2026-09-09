@@ -67,7 +67,9 @@ const check = (n, p, d = '') => results.push(`${p ? 'PASS' : 'FAIL'}  ${n}${d ? 
 // ── 1. 날짜 셈 (순수 함수 — 브라우저 없이) ──────────────────────────────────
 // aictx와 같은 방식: supabaseClient import만 우리 것으로 바꿔치기해서 노드로 끌어온다.
 const wordSrc = readFileSync(new URL('src/services/word.js', ROOT), 'utf8')
-  .replace(/import \{ supabase \} from '\.\/supabaseClient\.js';/, 'export const supabase = null;');
+  // 0061부터 myUid도 같이 가져온다 — 노드에서는 둘 다 세운다
+  .replace(/import \{ supabase, myUid \} from '\.\/supabaseClient\.js';/,
+    'export const supabase = null; const myUid = async () => null;');
 const tmp = mkdtempSync(join(tmpdir(), 'word-'));
 const wordFile = join(tmp, 'word.mjs');
 writeFileSync(wordFile, wordSrc);
@@ -139,7 +141,8 @@ check('옛 이름으로 저장된 템플릿도 빈 노트다',
 // 임베딩·색인을 만들지 않는다 — 모델에게 **참조만** 받고 본문은 우리 파일에서 읽는다.
 // ai.js는 supabase·store를 물고 있어 aictx와 같은 방법으로 갈아 끼운다.
 const aiSrcForSearch = readFileSync(new URL('src/services/ai.js', ROOT), 'utf8')
-  .replace(/import \{ supabase \} from '\.\/supabaseClient\.js';/, 'export const supabase = null;')
+  .replace(/import \{ supabase(, myUid)? \} from '\.\/supabaseClient\.js';/,
+    'export const supabase = null; const myUid = async () => null;')
   .replace(/from '\.\.\/utils\.js';/, "from '" + new URL('src/utils.js', ROOT).href + "';")
   .replace(/import \{ store \} from '\.\.\/store\/workspaceStore\.js';/,
     'export const store = { getState: () => ({ tasks: { byId: {} }, projects: { byId: {}, allIds: [] }, members: [] }) };');
