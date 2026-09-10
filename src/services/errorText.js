@@ -63,21 +63,21 @@ export function errorReason(err) {
     case '23502': {                                   // not-null 위반
       const m = /column "([^"]+)"/i.exec(err.message || '');
       const ko = m && COLUMN_KO[m[1]];
-      return ko ? `${ko}${objectParticle(ko)} 먼저 적어주세요` : '아직 채우지 않은 칸이 있어요';
+      return ko ? `${ko}${objectParticle(ko)} 먼저 적어주세요` : '아직 채우지 않은 부분이 있어요';
     }
-    case '23505': return '이미 같은 것이 있어요';       // unique 위반
+    case '23505': return '이미 같은 것이 존재해요';       // unique 위반
     case '23503': return '연결된 항목이 이미 지워졌어요\n새로고침해주세요'; // FK 위반
     case '23514':                                     // check 위반
     case '22P02': return '넣을 수 없는 값이 들어 있어요';
     case '22001': return '글자가 너무 길어요';
-    case '42501': return '권한이 있어야 하는 일이에요'; // RLS·정책
+    case '42501': return '권한이 있어야 할 수 있는 일이에요'; // RLS·정책
     case 'PGRST301': return '로그인이 풀렸어요\n새로고침하고 다시 로그인해주세요';
     case 'PGRST116': return '이미 지워진 것 같아요\n새로고침해주세요';
     default: break;
   }
 
   // 코드가 없는 경우(스토리지·네트워크·인증)는 메시지와 상태로 가릅니다
-  if (msg.includes('row-level security') || msg.includes('violates row-level')) return '권한이 있어야 하는 일이에요';
+  if (msg.includes('row-level security') || msg.includes('violates row-level')) return '권한이 있어야 할 수 있는 일이에요';
   if (msg.includes('jwt') || msg.includes('invalid token') || status === 401) return '로그인이 풀렸어요\n새로고침하고 다시 로그인해주세요';
   if (msg.includes('exceeded the maximum allowed size') || status === 413) return '파일이 너무 커요';
   if (status === 429) return '요청이 한꺼번에 몰렸어요\n잠시 후 다시 시도해주세요';

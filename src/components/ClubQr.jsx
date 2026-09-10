@@ -235,7 +235,7 @@ export function ClubQrModal({ club, onClose }) {
         <div className="club-qr-tools flex flex-wrap items-center gap-1.5 mt-3.5">
           <button type="button" onClick={share} disabled={busy}
             className={`club-qr-share ${WITH_ICON} ${BTN}`}>
-            <Share2 size={13} /><span>카카오톡·공유</span>
+            <Share2 size={13} /><span>카카오톡으로 공유</span>
           </button>
           <button type="button" onClick={copy}
             className={`club-qr-copy ${WITH_ICON} ${BTN_QUIET}`}>

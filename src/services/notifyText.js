@@ -26,7 +26,7 @@ const NOTIF_TEXT = {
   service_published: '이번 주 주보를 발행했어요',
   note_shared: '예배 노트를 우리 순에 공유했어요',
   club_apply: '동아리 가입을 신청했어요',
-  meeting_new: '동아리 모임을 잡았어요',
+  meeting_new: '동아리 모임 일정을 잡았어요',
 };
 
 const SYSTEM_TEXT = {

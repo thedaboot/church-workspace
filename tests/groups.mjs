@@ -1867,7 +1867,7 @@ check('QR 카드에 동아리 이름 · 라벨 · 모듈이 그려진다',
 // 남겨줘 차라리"). 내려받기가 막힌 폰에서 그 버튼은 공유 시트를 여는 것으로 끝나서
 // 왼쪽 버튼과 같은 일을 두 번 하는 자리였다 — 저장은 그 시트 안에 있다.
 check('QR 창의 버튼 차례는 공유 · 복사 … 닫기',
-  JSON.stringify(qr.tools) === '["카카오톡·공유","링크 복사","닫기"]', JSON.stringify(qr.tools));
+  JSON.stringify(qr.tools) === '["카카오톡으로 공유","링크 복사","닫기"]', JSON.stringify(qr.tools));
 await ev(`document.querySelector('.club-qr-close').click()`); await sleep(400);
 check('닫기를 누르면 QR 창이 사라진다',
   (await ev(`!!document.querySelector('.club-qr-card')`)) === false);
