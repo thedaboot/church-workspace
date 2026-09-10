@@ -2107,6 +2107,19 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '주인은 정확히 하나다(0047 files_owner_exactly_one과 같은 모양)');
   assert.ok(/idx_resource_links_card_id/.test(m58), '카드 축에 인덱스가 있다');
 
+  // 자리 옮김(2026-09-10 · §6-35) — 업무 창의 링크는 **첨부 구역 안**, 파일 줄과 한
+  // 목록이고 추가 버튼은 '+ 파일'·'+ 링크' 둘이 나란히다. 브라우저 검사(tests/handoff)는
+  // 게스트라 파일을 올릴 곳이 없어 **'+ 파일' 갈래를 볼 수 없다** — 그 쪽은 여기서 본다.
+  const att = src('../src/modals/attachments.jsx');
+  const addRow = att.slice(att.indexOf('{(canAddFile || canAddLink) && ('), att.indexOf('{!readOnly && rejected.length > 0'));
+  assert.ok(addRow.length > 200, '추가 버튼 줄을 찾았다');
+  assert.ok(/flex flex-wrap items-center/.test(addRow), '추가 버튼 둘이 한 줄에 선다');
+  assert.ok(/\+ 파일/.test(addRow) && /label="\+ 링크"/.test(addRow),
+    "그 줄이 '+ 파일'과 '+ 링크'다(라벨만 갈아 끼운 같은 부품)");
+  const list = att.slice(att.indexOf('{(items.length > 0 || pending.length > 0 || links.length > 0) && ('), att.indexOf('{preview && ('));
+  assert.ok(/<AttachmentRow/.test(list) && /<LinkRow/.test(list),
+    '파일 줄과 링크 줄이 한 목록에 있다(구분선도 한 벌)');
+
   const m59 = src('../supabase/migrations/0059_merge_profiles.sql');
   assert.ok(/security definer/.test(m59) && /is_master\(\)/.test(m59),
     '0059는 security definer이고 마스터만 부른다');
@@ -2187,7 +2200,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/p\.merged_into && nameOfId\.get\(p\.merged_into\)/.test(src('../src/services/cloudSync.js')),
     '합친 계정의 이름은 남긴 계정의 것으로 풀린다');
 
-  console.log('PASS  참고 링크 카드 축 · 계정 합치기 34가지');
+  console.log('PASS  링크 카드 축·자리 · 계정 합치기 38가지');
 }
 
 // ── 노트 도막 제목은 지워지지 않는다 (ensureNoteSections) ───────────────────

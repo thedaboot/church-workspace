@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Paperclip, UploadCloud, Loader2, AlertTriangle, Eye, Trash2, X, Lock, LockOpen } from 'lucide-react';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
+// 링크 줄·링크 추가 버튼은 프로젝트 헤더와 **같은 한 벌**이다(§6-31-f · §6-35)
+import { LinkAddPopover, LinkRow } from '../components/links.jsx';
 // 크기 표기·종류 칩은 주보 송폼(0047)과 **같은 한 벌**이다 — components/fileRow.jsx
 import { formatBytes, fileKind } from '../components/fileRow.jsx';
 import { showToast } from '../components/Toast.jsx';
@@ -19,10 +21,12 @@ import { sheetPreviewUrl } from '../utils.js';
 import { SHEET_EXT, extOf } from '../services/previewKind.js';
 
 // ============================================================================
-// 업무 창의 첨부 파일 영역 (클라우드 모드 전용)
+// 업무 창의 '첨부 파일' 구역 — **파일 줄과 링크 줄이 한 목록이다**(2026-09-10 · §6-35)
 // ----------------------------------------------------------------------------
-// 업로드·삭제는 수정 모드에서, 보기 모드는 읽기 전용 목록.
-// 파일 실체는 Supabase Storage(private 버킷), DB에는 참조(files)만 있다.
+// 붙이기·지우기는 수정 모드에서, 보기 모드는 읽기 전용 목록.
+// 파일 실체는 Supabase Storage(private 버킷), DB에는 참조(files)만 있다 — 그래서 파일은
+// 클라우드 모드에서만이다. 링크는 `resource_links` 한 줄이라 게스트에도 남으므로,
+// 게스트에서는 **링크만** 있는 구역으로 선다(cloudMode 인자).
 // ============================================================================
 
 // 이번 세션에 지운 첨부 id — **모듈 레벨**이라 수정 화면에서 지우고 바로 저장해
@@ -478,7 +482,15 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
   );
 };
 
-export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = false }) => {
+// 링크도 이 구역에 산다(2026-09-10 · §6-35) — '참고 링크'라는 별도 줄이 첨부 구역 밖에
+// 서 있어서 무엇을 하는 자리인지 읽히지 않았다. 본뜻은 "파일을 첨부할 때 구글 시트는
+// 링크로도 첨부해서 그 시트는 편집까지"였으므로, 파일 줄과 **한 목록**으로 세운다.
+// 링크 자체를 다루는 일(열기·잠금·지우기 확인)은 components/links.jsx `LinkRow`가 하고
+// 여기서는 자리만 준다 — 비밀번호 규칙이 갈라지지 않게(§6-31-f).
+// cloudMode가 거짓이면(게스트) 파일을 올릴 곳이 없다. 그때도 링크는 스토어에 남으므로
+// **링크만** 있는 구역으로 선다.
+export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readOnly = false,
+  cloudMode = true, links = [], canLockLink, onLinkAdd, onLinkRemove, onLinkSetPw }) => {
   // 드라이브는 프로젝트 하나에 폴더 하나다. 이름이 아니라 **폴더 id**를 넘겨야
   // 프로젝트 이름을 바꿔도 예전 파일과 새 파일이 두 폴더로 갈라지지 않는다.
   const project = useStore(selectProjectsMap)[task.projectId];
@@ -494,7 +506,8 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   // 목록 조회가 다녀오기 전인지. 이게 없으면 첨부가 있는 업무를 열었을 때
   // 첨부 영역이 통째로 없다가 나중에 툭 나타난다(사용자 지적 — 이미지가 바로 안 보인다).
   // 몇 개인지는 조회 전에도 안다(cards.file_count) → 그 수만큼 자리를 미리 잡는다.
-  const [listing, setListing] = useState(!visible.length);
+  // 게스트에서는 조회 자체가 없으니 기다리는 상태로 두지 않는다(아래 스켈레톤이 영원히 선다)
+  const [listing, setListing] = useState(cloudMode && !visible.length);
   const [thumbs, setThumbs] = useState({}); // { storage_path: signedUrl }
   // 서명 URL을 못 받은 경로. 이게 없으면 발급이 실패했을 때 스켈레톤이 영원히 남는다 —
   // 이미지가 많을수록 한 요청이 커져서 걸릴 확률이 올라간다(사용자 지적).
@@ -529,6 +542,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
 
   // 첫 페인트 경쟁 방지: 네트워크는 유휴 시점으로 미룬다(모달은 로컬 데이터로 먼저 뜬다)
   useEffect(() => {
+    if (!cloudMode) return undefined;   // 게스트는 files 표가 없다(링크만 있는 구역이다)
     let alive = true;
     const handle = whenIdle(() => {
       // 새 업무는 저장 직후 첨부가 올라가는 중이라, 이 조회가 그 전에 다녀오면 빈 목록이
@@ -546,7 +560,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
         .finally(() => { if (alive) setListing(false); });
     });
     return () => { alive = false; cancelIdle(handle); };
-  }, [task.id]);
+  }, [task.id, cloudMode]);
 
   // 생성 시 골라둔 첨부는 저장 **직후** 셸이 올려 스토어(task.attachments)로 들어온다 —
   // 위 listCardFiles가 업로드가 끝나기 전에 다녀갔을 수 있어, 더 긴 목록이 오면 반영한다.
@@ -605,12 +619,12 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
 
   // 클립보드 이미지 붙여넣기 (수정 모드에서만; 본문 textarea 붙여넣기는 stopPropagation으로 제외)
   useEffect(() => {
-    if (readOnly) return;
+    if (readOnly || !cloudMode) return;
     const onPaste = (e) => { const f = e.clipboardData?.files; if (f && f.length) uploadFiles(f); };
     document.addEventListener('paste', onPaste);
     return () => document.removeEventListener('paste', onPaste);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task.id, readOnly]);
+  }, [task.id, readOnly, cloudMode]);
 
   // 스토리지 링크를 새 탭으로 던지지 않고 앱 안 미리보기로 연다
   // (모달 안에 '새 탭에서 열기'·'내려받기'가 있다)
@@ -652,25 +666,46 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   // 마나였다(사용자 지적). 20줄에서만 끊는다(그 이상은 화면을 넘겨서 의미가 없다).
   const pendingRows = listing ? Math.min(task.fileCount || 0, 20) : 0;
 
-  // 읽기 전용(뷰어)에서 첨부가 없으면 섹션 자체를 숨김 — 올라가는 중이거나
-  // 아직 목록을 받는 중이면 자리를 남긴다
-  if (readOnly && items.length === 0 && !pendingRows && !pending.length) return null;
+  // 무엇을 달 수 있는가 — 파일은 클라우드에서만(올릴 곳이 있어야 한다), 링크는
+  // **저장된 업무**에만. 링크 행(resource_links)이 카드를 참조하기 때문이다(0058).
+  // 파일에는 바이트를 들고 있다가 카드가 생긴 뒤 올리는 길이 이미 있지만
+  // (pendingFiles → startUploads · modals.jsx), 링크 한 줄을 위해 그 길을 또 만들지는
+  // 않는다 — 저장이 실패하면 적어 둔 링크가 어디에도 없이 사라지고, 그 사정을 말해 줄
+  // 자리도 없다. 저장하면 바로 달 수 있다.
+  const canAddFile = !readOnly && cloudMode;
+  const canAddLink = !readOnly && !!onLinkAdd && !!task.id;
+
+  // 그릴 것이 하나도 없고 달 수도 없으면 **구역째 그리지 않는다** — 빈 머리줄만 남으면
+  // 무엇을 놓는 자리인지 알 수 없다(옛 '참고 링크' 줄의 판단을 그대로 옮겼다).
+  // 올라가는 중이거나 아직 목록을 받는 중이면 자리를 남긴다.
+  if (!links.length && !items.length && !pendingRows && !pending.length && !canAddFile && !canAddLink) return null;
 
   return (
-    <div className="mt-5">
+    // 끌어다 놓는 자리는 **구역 전체**다 — 점선 상자를 '+ 파일' 버튼으로 줄였으니(§6-35)
+    // 목록 위에 놓아도 올라간다. 게스트에서는 받을 곳이 없어 걸지 않는다.
+    <div className={`mt-5 rounded-lg transition-colors ${dragOver ? 'bg-accent-weak/30' : ''}`}
+      onDragOver={canAddFile ? (e => { e.preventDefault(); setDragOver(true); }) : undefined}
+      onDragLeave={canAddFile ? (() => setDragOver(false)) : undefined}
+      onDrop={canAddFile ? (e => { e.preventDefault(); setDragOver(false); uploadFiles(e.dataTransfer.files); }) : undefined}
+    >
       <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-fg-muted"><Paperclip size={13} className="text-fg-faint" /> 첨부 파일</div>
-      {!readOnly && (
-        <div
-          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={e => { e.preventDefault(); setDragOver(false); uploadFiles(e.dataTransfer.files); }}
-          onClick={() => inputRef.current?.click()}
-          className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${dragOver ? 'border-accent bg-accent-weak/40' : 'border-line hover:bg-surface-2/50'}`}
-        >
-          <input ref={inputRef} type="file" multiple className="hidden" onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
-          <UploadCloud size={20} strokeWidth={1.75} className="mx-auto text-fg-faint mb-1" />
-          <p className="text-[11px] text-fg-muted">파일을 끌어다 놓거나 클릭해서 선택하세요</p>
-          <p className="text-[10px] text-fg-faint mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 {MAX_UPLOAD_MB}MB</p>
+      {(canAddFile || canAddLink) && (
+        /* '+ 파일'·'+ 링크'가 나란히 — 둘 다 이 목록에 한 줄을 더하는 같은 성격의 일이라
+           같은 점선 모양이다('+ 링크'는 프로젝트 헤더의 그 부품 그대로 · links.jsx). */
+        <div className="mb-1 flex flex-wrap items-center gap-2">
+          {canAddFile && (
+            <>
+              <input ref={inputRef} type="file" multiple className="hidden" onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
+              <button type="button" onClick={() => inputRef.current?.click()}
+                className={`text-[11px] px-1.5 py-px rounded-[4px] transition-colors ${dragOver ? 'text-accent-text' : 'text-fg-faint hover:text-fg-muted'}`}
+                style={{ border: `1px dashed ${dragOver ? 'var(--app-accent)' : 'var(--app-line)'}` }}>+ 파일</button>
+            </>
+          )}
+          {canAddLink && <LinkAddPopover onAdd={onLinkAdd} label="+ 링크" />}
+          {/* 끌어다 놓기·붙여넣기는 버튼이 없는 길이라 한 줄로 남긴다(용량 상한도 여기) */}
+          {canAddFile && (
+            <p className="text-[10px] text-fg-faint">끌어다 놓거나 붙여넣어도 돼요 · 최대 {MAX_UPLOAD_MB}MB</p>
+          )}
         </div>
       )}
       {!readOnly && rejected.length > 0 && (
@@ -704,7 +739,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
           ))}
         </div>
       )}
-      {(items.length > 0 || pending.length > 0) && (
+      {(items.length > 0 || pending.length > 0 || links.length > 0) && (
         <div className="divide-y divide-line/60 mt-1">
           {/* 아직 올리는 중인 파일 — 진짜 행과 같은 자리·같은 모양이다. 다만 새 탭·
               내려받기·삭제·잠금은 없다(드라이브에 아직 없으니 줄 수 없는 것들이다).
@@ -747,6 +782,17 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
               )}
               {embedded[row.id] && isSheetRow(row) && !isLocked(row) && <InlineSheet row={row} />}
             </div>
+          ))}
+          {/* 링크 줄 — 파일 뒤에 이어 선다(같은 목록, 같은 구분선). 여는 것·잠그는 것은
+              links.jsx가 하고 지우는 것만 여기서 스토어·DB로 잇는다(modals.jsx linkOps). */}
+          {/* 지우기·비밀번호는 **수정 모드에서만**이다 — 파일 줄과 같은 규칙이다(한 목록에서
+              어떤 줄은 보기에서도 지워지고 어떤 줄은 안 지워지면 규칙이 없는 것이다).
+              옛 '참고 링크' 줄은 보기에서도 지워졌는데, 그때는 첨부와 다른 자리였다. */}
+          {links.map(l => (
+            <LinkRow key={l.id} link={l}
+              canLock={!readOnly && !!canLockLink?.(l)} canRemove={!readOnly}
+              onRemove={() => onLinkRemove?.(l)}
+              onSetPw={(pw) => onLinkSetPw?.(l, pw)} />
           ))}
         </div>
       )}

@@ -17,7 +17,6 @@ import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { getMemberNames, loadCardDetail, cardSummaryCloud, cardWritePromise } from '../services/cloudSync.js';
 import * as cloudSync from '../services/cloudSync.js';
-import { TaskLinks } from '../components/links.jsx';
 import { docEmbedKind } from '../components/DocEmbed.jsx';
 import { makeViewPw } from '../services/viewPw.js';
 import { failText } from '../services/errorText.js';
@@ -127,7 +126,8 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   // 카드를 참조) 저장 직후에 올린다. 쓰는 사람에게는 "처음부터 첨부"와 같다.
   const [pendingFiles, setPendingFiles] = useState([]);
 
-  // ── 참고 링크 (0058) ──────────────────────────────────────────────────────
+  // ── 링크 (0058 — 첨부 파일 구역 안의 링크 줄) ─────────────────────────────
+  // 자리는 2026-09-10에 첨부 구역 안으로 옮겼지만(§6-35) 저장하는 길은 그대로다.
   // **카드 전체를 저장하지 않는다.** 링크는 `resource_links` 행이라 카드 저장 경로와
   // 별개이고, 카드를 통째로 보내면 같은 순간 남이 고친 칸까지 덮는다(§6-28-a).
   // 스토어에는 SYNC_TASK로 그 카드의 pinnedLinks만 갈아 끼운다.
@@ -139,11 +139,12 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     return {
       add: (link) => {
         patch([...now(), link]);
-        if (cloudMode) cloudSync.linkAddCloud({ cardId: task.id }, link).catch(fail('참고 링크를 추가하지 못했어요'));
+        // 문구도 화면을 따라간다 — 업무 창에는 이제 '참고 링크'라는 말이 없다
+        if (cloudMode) cloudSync.linkAddCloud({ cardId: task.id }, link).catch(fail('링크를 추가하지 못했어요'));
       },
       remove: (link) => {
         patch(now().filter(l => l.id !== link.id));
-        if (cloudMode) cloudSync.linkRemoveCloud(link.id).catch(fail('참고 링크를 지우지 못했어요'));
+        if (cloudMode) cloudSync.linkRemoveCloud(link.id).catch(fail('링크를 지우지 못했어요'));
       },
       // 잠금은 **낙관적으로 먼저 바꾸지 않는다** — 걸렸는지가 곧 화면의 사실이라,
       // 저장이 실패했는데 자물쇠만 붙어 있으면 화면이 거짓말을 한다(프로젝트 쪽과 같은 순서).
@@ -252,6 +253,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   );
   const detailBody = isEditMode
     ? <TaskEditor formData={formData} setFormData={setFormData} members={members} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
+        links={linkOps}
         pendingFiles={pendingFiles} setPendingFiles={setPendingFiles} titleRef={titleRef} />
     // key로 카드마다 새로 마운트한다 — 요약 state(펼침·이번에 만든 요약)가 카드
     // 사이에 남으면, 다른 카드를 열었을 때 앞 카드의 요약이 그대로 보인다
@@ -619,7 +621,19 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
   );
 }
 
-const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity, pendingFiles = [], setPendingFiles, titleRef }) => {
+// 첨부 구역에 넘기는 링크 한 벌(0058) — **보기와 수정이 같은 것을 넘긴다.** 두 자리에
+// 따로 적어 두면 잠금 자격 같은 규칙이 한쪽만 고쳐진다.
+// 비밀번호를 걸 수 있는 자리는 **앱 안에서 여는 링크**에만, 만든 사람과 관리자에게만 —
+// 새 탭으로 나가는 링크에 걸면 아무것도 막지 못한다(components/links.jsx 주석).
+const linkProps = (formData, links, { isAdmin, userId }) => ({
+  links: formData.pinnedLinks || [],
+  onLinkAdd: links?.add,
+  onLinkRemove: links?.remove,
+  onLinkSetPw: links?.setPw,
+  canLockLink: (l) => !!docEmbedKind(l.url) && (isAdmin || (!!userId && l.created_by === userId)),
+});
+
+const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity, links, pendingFiles = [], setPendingFiles, titleRef }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
   // 다듬기 직전 본문. 있으면 '되돌리기'가 보인다. 창을 닫으면 잊는다 —
   // "방금 다듬었는데 마음에 안 든다"가 실제 상황이고, 그 이상은 편집 이력 관리다.
@@ -723,11 +737,14 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
         onChange={(next) => setFormData(prev => ({ ...prev, subtasks: next }))}
       />
 
-      {cloudMode && (formData.id
-        ? <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />
-        // 새 업무도 처음부터 첨부를 고를 수 있다 — 실제 업로드는 저장 직후(카드 id가 생긴 뒤)
-        : <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />
-      )}
+      {/* 첨부 파일 — 파일 줄과 링크 줄이 **한 목록**이다(§6-35 · attachments.jsx).
+          게스트(cloudMode 거짓)에서는 파일을 올릴 곳이 없어 링크만 있는 구역으로 선다. */}
+      {cloudMode && !formData.id
+        // 새 업무도 처음부터 첨부를 고를 수 있다 — 실제 업로드는 저장 직후(카드 id가 생긴 뒤).
+        // 링크는 그 길을 만들지 않았다(이유는 attachments.jsx canAddLink 주석).
+        ? <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />
+        : <AttachmentSection task={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
+            {...linkProps(formData, links, { isAdmin, userId })} />}
     </form>
   );
 });
@@ -906,21 +923,16 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
         <RichText content={formData.content} onToggleTodo={onTodoToggle} />
       </div>
 
-      {/* 참고 링크(0058) — 프로젝트 헤더와 **같은 부품**이다(components/links.jsx).
-          구글 문서·시트·슬라이드는 앱 안 창에서 열리고 편집 권한이 있으면 그 자리에서
-          고쳐진다. 비밀번호는 만든 사람과 관리자가 건다(화면 가림 — services/viewPw.js). */}
-      {links && (
-        <TaskLinks links={formData.pinnedLinks || []} canAdd={!!formData.id}
-          canLock={(l) => !!docEmbedKind(l.url) && (isAdmin || (!!userId && l.created_by === userId))}
-          onAdd={links.add} onRemove={links.remove} onSetPw={links.setPw} />
-      )}
-
       {/* 보기 모드에서도 체크는 눌린다 — 하위 업무를 끝낼 때마다 수정 모드로 들어갔다
           나오게 하면 아무도 쓰지 않는다. 항목 추가·삭제는 수정 모드에서만. */}
       <SubtaskList value={formData.subtasks || []} onChange={onSubtasksChange} readOnly />
 
-      {cloudMode && formData.id && (
-        <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} readOnly />
+      {/* 첨부 파일 — 파일 줄과 링크 줄이 **한 목록**이다(0058 · §6-35). 구글 문서·시트·
+          슬라이드 링크는 앱 안 창에서 열리고 편집 권한이 있으면 그 자리에서 고쳐진다.
+          붙이고 지우는 것은 수정 모드에서(파일과 같은 규칙). */}
+      {formData.id && (
+        <AttachmentSection task={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} readOnly
+          {...linkProps(formData, links, { isAdmin, userId })} />
       )}
     </div>
   );
