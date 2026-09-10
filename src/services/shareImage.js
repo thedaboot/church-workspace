@@ -30,6 +30,32 @@ import { isKakaoInApp } from '../utils.js';
 //
 // 토스트를 부르는 쪽은 이 모듈이 아니라 화면이다(`showToast`를 인자로 받는다) —
 // 서비스 계층이 컴포넌트를 가져오면 노드 검사에서 이 파일을 못 읽는다.
+//
+// ----------------------------------------------------------------------------
+// **굽는 도구를 바꿨습니다 — html2canvas → modern-screenshot** (사용자 결정 2026-09-11)
+// ----------------------------------------------------------------------------
+// html2canvas는 화면을 **베끼지 않고 다시 그린다.** 문서를 복제한 뒤 그 복제본의
+// 계산된 스타일을 읽어 **자기 방식으로 글자·줄·정렬을 다시 계산해** 캔버스에 칠한다.
+// 그래서 구운 종이가 화면과 달랐다 — 마스트 글자의 기준선이 아래로 밀리고, 줄 간격이
+// 벌어지고(사용자 신고: "라인 간격이 살짝 다르다"), 순모임 가이드의 하트(lucide `Heart`,
+// flex 가운데 정렬)가 제목 글자 위로 떴다. flex의 가운데 정렬과 글꼴 지표를 그쪽이
+// 스스로 해석하는 자리다.
+//
+// `modern-screenshot`은 노드를 **SVG `foreignObject` 안에 넣어 브라우저에게 그리게**
+// 하고 그 결과를 캔버스로 옮긴다 — 글자 배치를 계산하는 것이 화면을 그리는 그 엔진
+// 자신이라 **실제 화면 스크린샷과 픽셀 단위로 같았다**. 그래서 이제 1차는 이쪽이다.
+//
+// **html2canvas는 대비용으로 남는다.** 사파리에서 foreignObject가 **빈 캔버스**를
+// 돌려주는 보고가 있어서(그림이 통째로 비어 나온다), 구운 뒤 `isBlankCanvas`로
+// 격자 표본을 떠서 **전부 한 색이면 빈 것으로 보고** html2canvas 길로 떨어진다.
+// 종이에는 언제나 인디고 띠나 글자가 있으니 한 색이면 실패다. 예외(SecurityError 등)도
+// 같은 갈래로 간다. 그 길의 손질(굽는 가지만 남기기 · §6-32-r)은
+// 그대로 살아 있다.
+//
+// 속도는 조금 잃었다(헤드리스 크롬 CPU 4배 스로틀, 주보 1쪽): html2canvas 0.9초 ·
+// modern-screenshot 1.6초(첫 번째는 글꼴을 SVG에 심느라 조금 더 걸린다). 미리 굽기 ·
+// 진행 중인 약속 이어받기 · 구운 Blob 캐시(`hooks/useSheetShare.jsx` · §6-32-g·32-s)가
+// 그대로라 누를 때 남는 시간은 대체로 0이다 — **충실도를 골랐다.**
 // ============================================================================
 
 // 내려받는 그림의 가로 화소. 종이는 화면에서 최대 560px이라 여기서 약 2배다.
@@ -42,14 +68,25 @@ export const EXPORT_W = 1080;
 // 거의 흰 종이라 PNG가 수백 KB에 머문다.
 const MAX_PIXELS = 4_000_000;
 
-let canvasPromise = null;
+let shotPromise = null;     // modern-screenshot — 1차
+let canvasPromise = null;   // html2canvas — 대비용
 let pdfPromise = null;
 
 // 종이가 화면에 서면 부른다. **누르기 전에** 청크를 받아 두는 것이 목적이고, 두 번
 // 불러도 같은 약속을 돌려준다. 실패는 삼킨다 — 그때는 누를 때 다시 받는다.
+// **순서는 modern-screenshot이 먼저다** — 그쪽이 실제로 굽는 길이고, html2canvas는
+// 빈 그림·예외에서만 쓰는 갈래라 뒤에 받아도 늦지 않다.
 export function preloadExport({ pdf = false } = {}) {
+  if (!shotPromise) shotPromise = import('modern-screenshot').catch(() => { shotPromise = null; return null; });
   if (!canvasPromise) canvasPromise = import('html2canvas').catch(() => { canvasPromise = null; return null; });
   if (pdf && !pdfPromise) pdfPromise = import('jspdf').catch(() => { pdfPromise = null; return null; });
+}
+
+async function modernScreenshot() {
+  if (!shotPromise) shotPromise = import('modern-screenshot');
+  const mod = await shotPromise;
+  if (!mod?.domToCanvas) { shotPromise = null; throw new Error('그림 만드는 도구를 받지 못했어요'); }
+  return mod.domToCanvas;
 }
 
 async function html2canvas() {
@@ -59,7 +96,9 @@ async function html2canvas() {
   return mod.default;
 }
 
-// **굽는 가지만 남긴다 — 이것이 굽는 시간의 대부분이었다.** html2canvas는 굽기 전에
+// **굽는 가지만 남긴다 — 이것이 굽는 시간의 대부분이었다.** (2026-09-11부터 이 손질은
+// **대비용 갈래**에만 걸린다 — 1차는 modern-screenshot이고 그쪽은 노드 하나만 복제한다.)
+// html2canvas는 굽기 전에
 // **문서 전체를 iframe에 복제**하고 그 복제본의 모든 요소에서 계산된 스타일을 읽는다.
 // 그래서 종이 한 쪽(558×564)이 2.4~2.9초, 두 쪽이 5.3초였고 **배율을 낮춰도 거의 줄지
 // 않았다**(비용이 DOM 개수라 화소와 무관하다). 이 판정식을 주면 2412ms → 905ms다.
@@ -70,6 +109,39 @@ async function html2canvas() {
 // `<style>`·`<link>`가 head 안에 있고, 복제본은 그것으로 칠해진다).
 const pruneTo = (node) => (el) => !(el.contains(node) || node.contains(el) || document.head.contains(el));
 
+// **빈 그림인가.** 사파리에서 foreignObject가 아무것도 안 그린 캔버스를 주는 보고가
+// 있어서, 구운 뒤 이것으로 걸러 html2canvas 길로 떨어진다. 가로·세로 16칸 격자
+// 256점을 떠서 **전부 한 색(바탕색이거나 투명)이면 빈 것**으로 본다 — 종이에는 언제나
+// 인디고 띠나 글자가 있으니 한 색이면 아무것도 안 그려진 것이다.
+//
+// 표본은 **줄 단위로 읽는다**(`getImageData(0, y, w, 1)` 16번) — 1×1을 256번 읽으면
+// 그만큼 GPU 왕복이 생긴다. 읽지 못하면(오염된 캔버스 등) **비지 않았다고 본다** —
+// 판단이 안 되는 것을 실패로 몰아 굽기를 두 번 하지 않는다.
+export function isBlankCanvas(canvas) {
+  const w = canvas?.width || 0;
+  const h = canvas?.height || 0;
+  if (!w || !h) return true;
+  const N = 16;
+  try {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+    let first = null;
+    for (let iy = 0; iy < N; iy++) {
+      const y = Math.min(h - 1, Math.floor((iy + 0.5) * h / N));
+      const { data } = ctx.getImageData(0, y, w, 1);
+      for (let ix = 0; ix < N; ix++) {
+        const x = Math.min(w - 1, Math.floor((ix + 0.5) * w / N));
+        const p = x * 4;
+        // 투명한 점은 색을 따지지 않는다(알파 0이면 RGB가 아무 값이어도 안 보인다)
+        const key = data[p + 3] === 0 ? 'clear' : `${data[p]},${data[p + 1]},${data[p + 2]},${data[p + 3]}`;
+        if (first === null) first = key;
+        else if (key !== first) return false;
+      }
+    }
+    return true;
+  } catch { return false; }
+}
+
 // 화면에 서 있는 그 종이를 그대로 캔버스로. background는 종이 바탕색이다(투명하게
 // 두면 카카오톡에서 검은 종이가 된다 — `null`을 주는 자리는 잘라 담을 때뿐이고,
 // 그때는 쪽마다 다시 바탕을 깐다).
@@ -79,7 +151,6 @@ const pruneTo = (node) => (el) => !(el.contains(node) || node.contains(el) || do
 // 1080폭 두 쪽이면 8M이고, iOS의 하드 상한 16.7M(4096²) 아래다. 잘라 담은 각 쪽은
 // 여전히 4M 안이다.
 async function nodeToCanvas(node, background, { pages = 1 } = {}) {
-  const draw = await html2canvas();
   const width = node.offsetWidth || 560;
   const height = node.offsetHeight || 800;
   // 원하는 배율(1080 기준)과 화소 상한이 허락하는 배율 중 작은 쪽. 1보다 작아지지는
@@ -87,6 +158,27 @@ async function nodeToCanvas(node, background, { pages = 1 } = {}) {
   const want = EXPORT_W / width;
   const cap = Math.sqrt((MAX_PIXELS * pages) / (width * height));
   const scale = Math.max(1, Math.min(want, cap));
+
+  // ① foreignObject — 브라우저가 그 DOM을 그대로 그린다(화면과 픽셀 단위로 같다).
+  // `width`·`height`를 **명시**한다: 그러지 않으면 캔버스 폭이 `getBoundingClientRect`의
+  // 소수점 폭을 따라가서, `bakeAndSlice`가 `canvas.width / offsetWidth`로 되읽는 배율이
+  // 미세하게 어긋나고 긴 종이에서 잘라 담는 좌표가 밀린다.
+  // `backgroundColor`는 그대로 넘긴다 — `null`이면 투명이고, 그 자리는 조상을 굽는
+  // 길뿐이라 쪽마다 바탕을 다시 깐다(`bakeAndSlice`).
+  try {
+    const bake = await modernScreenshot();
+    const canvas = await bake(node, { scale, width, height, backgroundColor: background });
+    if (canvas && !isBlankCanvas(canvas)) return canvas;
+    // console.error가 아니라 warn이다 — 다음 갈래로 가는 단계이고, '콘솔 오류 0' 검사가
+    // 이것을 회귀로 잡으면 안 된다(shareOrSave의 같은 자리와 같은 이유).
+    console.warn('[shareImage] foreignObject가 빈 그림을 줘서 html2canvas로 굽습니다');
+  } catch (e) {
+    console.warn('[shareImage] foreignObject 굽기가 막혀 html2canvas로:', e?.name, e?.message || e);
+  }
+
+  // ② html2canvas — 대비용. 글자·정렬을 스스로 다시 계산해서 화면과 미세하게
+  // 어긋나지만(머리말), 아무 그림도 없는 것보다는 낫다.
+  const draw = await html2canvas();
   return draw(node, {
     scale, backgroundColor: background, useCORS: true, logging: false,
     ignoreElements: pruneTo(node),

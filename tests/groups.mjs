@@ -1183,6 +1183,84 @@ check('이미지로 저장은 종이를 2배 크기 PNG로 굽는다',
 check('구운 그림이 백지가 아니고 로고도 들어 있다',
   !gImg.err && gImg.ink > 200 && gImg.mark > 200, JSON.stringify(gImg));
 
+// ── 하트가 제목 글자와 같은 높이에 서는가 (2026-09-11 · §6-32-t) ─────────────
+// 머리줄('♥ 주일 본문')은 flex 가운데 정렬이다. html2canvas는 그 정렬과 글꼴 지표를
+// 스스로 다시 계산해서 **하트가 제목 글자 위로 떴다**(사용자 신고 2026-09-11). 이제
+// 1차는 `modern-screenshot`(SVG foreignObject)이라 브라우저가 그린 그대로다 —
+// 구운 그림에서 잰 '하트 중심 − 제목 글자 중심'이 **실제 화면 스크린샷에서 잰 같은
+// 값**과 붙어 있어야 한다(하트만 절대 좌표로 못 박으면 글꼴 어센더 여백에 걸린다).
+// **되돌리기**: shareImage.nodeToCanvas의 foreignObject 갈래를 지우면 깨진다 — 늘
+// html2canvas로 떨어뜨려 실제로 재 보니 제목 글자가 11.5화소 아래로 밀려서 하트와의
+// 거리가 화면과 12화소 벌어졌다(하트는 제자리 · 이것이 "하트가 제목 위로 뜬다"였다).
+// 창을 잠깐 길게 잡는다 — 앱은 창이 아니라 `main`을 스크롤해서 **문서 높이가 곧 창
+// 높이**다. 종이가 창보다 길면 `captureScreenshot`의 clip이 찍힌 면 밖으로 나가 흰 판이
+// 온다. 종이 폭(560 상한)은 안 바뀌므로 이미 구워 둔 그림과 자리가 같다.
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 2400, deviceScaleFactor: 1, mobile: false });
+await sleep(500);
+await ev(`document.querySelector('.sun-guide-sheet')?.scrollIntoView({ block: 'center' })`);
+await sleep(400);
+const gGeom = await ev(`(() => {
+  const sheet = document.querySelector('.sun-guide-sheet');
+  const head = document.querySelector('.sun-guide-head');
+  const heart = head && head.querySelector('svg');
+  const title = head && head.querySelector('span');
+  if (!sheet || !heart || !title) return { err: 'no-el' };
+  const s = sheet.getBoundingClientRect(), h = heart.getBoundingClientRect(), t = title.getBoundingClientRect();
+  return { w: sheet.offsetWidth, h: sheet.offsetHeight,
+    px: s.left + window.scrollX, py: s.top + window.scrollY, name: title.textContent.trim(),
+    hx: h.left - s.left, hy: h.top - s.top, hw: h.width, hh: h.height,
+    tx: t.left - s.left, ty: t.top - s.top, tw: t.width, th: t.height };
+})()`);
+// shareImage가 쓰는 그 배율식(EXPORT_W 1080과 화소 상한 중 작은 쪽 · 1 아래로는 안 간다)
+const G_SCALE = gGeom.err ? 1
+  : Math.max(1, Math.min(1080 / gGeom.w, Math.sqrt(4_000_000 / (gGeom.w * gGeom.h))));
+const gShot = gGeom.err ? { data: '' } : await send('Page.captureScreenshot', {
+  format: 'png',
+  clip: { x: gGeom.px, y: gGeom.py, width: gGeom.w, height: gGeom.h, scale: G_SCALE },
+});
+const gHeart = await ev(`(async () => {
+  const g = ${JSON.stringify(gGeom)};
+  if (g.err || !window.__png) return { err: g.err || 'no-blob' };
+  const load = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+  const toCanvas = (img) => { const c = document.createElement('canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    c.getContext('2d').drawImage(img, 0, 0); return c; };
+  const url = URL.createObjectURL(window.__png);
+  const baked = toCanvas(await load(url));
+  URL.revokeObjectURL(url);
+  const real = toCanvas(await load('data:image/png;base64,' + ${JSON.stringify(gShot.data)}));
+  // 그 요소의 칸 안에서 잉크가 걸린 첫 행·끝 행의 가운데. 하트는 파랑(ACCENT #3f6fc4),
+  // 제목은 먹색(INK #191720)이라 채널로 갈린다.
+  const mid = (canvas, k, x0, y0, w, h, hit) => {
+    const W = Math.max(1, Math.round(w * k)), H = Math.max(1, Math.round(h * k));
+    const d = canvas.getContext('2d').getImageData(Math.round(x0 * k), Math.round(y0 * k), W, H).data;
+    let top = -1, bot = -1;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const p = (y * W + x) * 4;
+        if (hit(d[p], d[p + 1], d[p + 2])) { if (top < 0) top = y; bot = y; break; }
+      }
+    }
+    return top < 0 ? null : (Math.round(y0 * k) + (top + bot) / 2);
+  };
+  const blue = (r, gg, b) => b - r > 50 && b > 110;
+  const dark = (r, gg, b) => r < 110 && gg < 110 && b < 110;
+  const read = (canvas) => {
+    const k = canvas.width / g.w;
+    const yh = mid(canvas, k, g.hx, g.hy, g.hw, g.hh, blue);
+    const yt = mid(canvas, k, g.tx, g.ty, g.tw, g.th, dark);
+    return { yh, yt, d: yh == null || yt == null ? null : Math.round((yh - yt) * 10) / 10 };
+  };
+  const b = read(baked), r = read(real);
+  return { bw: baked.width, rw: real.width, name: g.name, baked: b, real: r,
+    off: b.d == null || r.d == null ? null : Math.round(Math.abs(b.d - r.d) * 10) / 10 };
+})()`, true);
+check('가이드 종이의 하트가 제목 글자와 화면에서와 같은 높이에 선다(±3px)',
+  !gHeart.err && gHeart.bw === gHeart.rw && gHeart.off != null && gHeart.off <= 3,
+  JSON.stringify(gHeart));
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(400);
+
 // 순장(리더순장이 아닌)도 만든다 — 2026-09-08부터 **보는 사람 = 만드는 사람**이다.
 // 가이드가 하나도 없으면 **고를 주보부터 편다**(사용자 지시 2026-09-09 — "주보를 일단
 // 먼저 사용자가 선택을 하고 나서 해당 주보에 대해서 만들 수 있게끔"). 예전에는 머리줄

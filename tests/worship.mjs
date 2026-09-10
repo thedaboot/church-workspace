@@ -754,6 +754,122 @@ const pdfBake = await ev(`(async () => {
 check('두 쪽을 한 번에 구워 PDF 한 파일이 나온다(%PDF · 쪽 둘)',
   pdfBake.head === '%PDF-' && pdfBake.size > 0 && pdfBake.pages === 2, JSON.stringify(pdfBake));
 
+// ── 구운 종이가 화면과 같은가 (2026-09-11 · §6-32-t) ────────────────────────
+// html2canvas는 화면을 베끼지 않고 **다시 그린다** — 문서를 복제해 계산된 스타일을 읽고
+// 글자·줄·flex 정렬을 자기 방식으로 다시 계산한다. 그래서 구운 종이가 화면과 달랐다
+// (마스트 기준선이 아래로 밀리고 줄 간격이 벌어졌다 — 사용자 신고 "라인 간격이 살짝
+// 다르다"). 이제 1차는 `modern-screenshot`(SVG foreignObject — 브라우저가 그 DOM을
+// 그대로 그린다)이고 html2canvas는 **빈 그림·예외에서만** 쓰는 대비용 갈래다.
+// **되돌리기**: nodeToCanvas의 foreignObject 갈래를 지우면(늘 html2canvas) 소스 단정
+// 셋과 아래 '화면과 같다' 검사가 함께 깨진다 — 늘 html2canvas로 떨어뜨려 실제로 재 보니
+// 라벨 글자가 화면보다 **12화소**(1080폭 · 6.2 CSS px) 아래에서 시작했다.
+{
+  const body = siSrc.slice(siSrc.indexOf('async function nodeToCanvas'), siSrc.indexOf('export async function nodeToPng'));
+  // 주석 줄은 걷는다 — 그 안에 html2canvas 이야기가 적혀 있어서 순서 단정이 자기
+  // 설명문에 걸린다(§6-34-e와 같은 함정).
+  const code = body.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+  const iMs = code.indexOf('modernScreenshot()');
+  const iH2c = code.indexOf('html2canvas()');
+  check('nodeToCanvas가 modern-screenshot(foreignObject)으로 먼저 굽는다',
+    iMs > 0 && iH2c > iMs && code.includes('backgroundColor: background'),
+    JSON.stringify({ ms: iMs, h2c: iH2c }));
+  check('빈 그림이거나 예외면 html2canvas 갈래로 떨어진다',
+    code.includes('!isBlankCanvas(canvas)') && /\}\s*catch\s*\(e\)/.test(code)
+    && code.includes('ignoreElements: pruneTo(node)'),
+    JSON.stringify([code.includes('!isBlankCanvas(canvas)'), /\}\s*catch\s*\(e\)/.test(code),
+      code.includes('ignoreElements: pruneTo(node)')]));
+  const pre = siSrc.slice(siSrc.indexOf('export function preloadExport'), siSrc.indexOf('async function modernScreenshot'));
+  check('preloadExport가 modern-screenshot 청크도 미리 받는다(html2canvas보다 먼저)',
+    pre.indexOf(`import('modern-screenshot')`) > 0
+    && pre.indexOf(`import('html2canvas')`) > pre.indexOf(`import('modern-screenshot')`),
+    JSON.stringify({ ms: pre.indexOf(`import('modern-screenshot')`), h2c: pre.indexOf(`import('html2canvas')`) }));
+}
+
+// 빈 그림 판정은 순수 함수라 캔버스 둘로 못 박는다 — 바탕만 깐 것은 '빈 것',
+// 인디고 띠가 한 줄이라도 있으면 '빈 것이 아님'. 종이에는 언제나 띠나 글자가 있다.
+const blankJudge = await ev(`(async () => {
+  const m = await import('/src/services/shareImage.js');
+  const mk = (fill) => { const c = document.createElement('canvas'); c.width = 200; c.height = 300;
+    if (fill) { const x = c.getContext('2d'); x.fillStyle = fill; x.fillRect(0, 0, 200, 300); } return c; };
+  const inked = mk('#fffdfc');
+  { const x = inked.getContext('2d'); x.fillStyle = '#213183'; x.fillRect(0, 0, 200, 40); }
+  return { clear: m.isBlankCanvas(mk(null)), flat: m.isBlankCanvas(mk('#fffdfc')),
+    inked: m.isBlankCanvas(inked), zero: m.isBlankCanvas({ width: 0, height: 0 }) };
+})()`, true);
+check('isBlankCanvas — 투명·한 색은 빈 것, 띠가 있으면 빈 것이 아니다',
+  blankJudge.clear === true && blankJudge.flat === true && blankJudge.inked === false
+  && blankJudge.zero === true, JSON.stringify(blankJudge));
+
+// 여기가 이 회차의 본 검사다 — **구운 그림을 실제 화면 스크린샷과 견준다.**
+// 종이 2쪽의 첫 라벨('찬양') 글자가 시작하는 y(그 라벨의 x 구간에서 위에서부터 처음
+// 바탕색이 아닌 행)를 두 그림에서 재서 같은 자리인지 본다.
+await ev(`window.__inkY = (canvas, x0, y0, w, h) => {
+  const d = canvas.getContext('2d').getImageData(Math.round(x0), Math.round(y0), Math.round(w), Math.round(h)).data;
+  const W = Math.round(w);
+  for (let y = 0; y < Math.round(h); y++) {
+    for (let x = 0; x < W; x++) {
+      const p = (y * W + x) * 4;
+      // 종이 바탕은 #fffdfc, 라벨 글자는 #a29daa — 어느 채널이든 24 넘게 벌어지면 글자다
+      if (Math.abs(d[p] - 255) > 24 || Math.abs(d[p + 1] - 253) > 24 || Math.abs(d[p + 2] - 252) > 24) return y;
+    }
+  }
+  return -1;
+}`);
+// **종이를 화면 안으로 들여놓고 찍는다.** 앱은 창이 아니라 `main`을 스크롤하므로
+// 문서 높이가 곧 화면 높이다 — 종이가 화면 밖에 있으면 `captureScreenshot`의 clip이
+// 찍힌 면 밖으로 나가 흰 판이 온다(처음에 그렇게 헛돌았다).
+await ev(`document.querySelector('.paper-service-2')?.scrollIntoView({ block: 'center' })`);
+await sleep(400);
+const geom = await ev(`(() => {
+  const node = document.querySelector('.paper-service-2');
+  const label = node && node.querySelector('.paper-row-label');
+  if (!label) return { err: '라벨이 없다' };
+  const nr = node.getBoundingClientRect(), lr = label.getBoundingClientRect();
+  return { w: node.offsetWidth, h: node.offsetHeight, text: label.textContent.trim(),
+    lx: lr.left - nr.left, ly: lr.top - nr.top, lw: lr.width, lh: lr.height,
+    px: nr.left + window.scrollX, py: nr.top + window.scrollY };
+})()`);
+// 굽는 배율은 shareImage가 정하는 그 식이다(EXPORT_W와 화소 상한 중 작은 쪽).
+const SCALE = Math.max(1, Math.min(1080 / geom.w, Math.sqrt(4_000_000 / (geom.w * geom.h))));
+// 같은 자리·같은 배율로 **화면을 그대로 찍는다** — 이것이 정답지다.
+const shot = await send('Page.captureScreenshot', {
+  format: 'png',
+  clip: { x: geom.px, y: geom.py, width: geom.w, height: geom.h, scale: SCALE },
+});
+const fidel = await ev(`(async () => {
+  const m = await import('/src/services/shareImage.js');
+  const node = document.querySelector('.paper-service-2');
+  const load = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+  const toCanvas = (img) => { const c = document.createElement('canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    c.getContext('2d').drawImage(img, 0, 0); return c; };
+  try {
+    const blob = await m.nodeToPng(node, '#fffdfc');
+    const url = URL.createObjectURL(blob);
+    const baked = toCanvas(await load(url));
+    URL.revokeObjectURL(url);
+    const real = toCanvas(await load('data:image/png;base64,' + ${JSON.stringify(shot.data)}));
+    const g = ${JSON.stringify(geom)};
+    // 실제로 걸린 배율은 결과에서 되읽는다(bakeAndSlice가 쓰는 그 식) — 화면 스크린샷도
+    // 자기 폭으로 되읽어, 두 그림의 배율이 1화소 달라도 CSS px에서 견줄 수 있다.
+    const sB = baked.width / g.w, sR = real.width / g.w;
+    const win = (s) => [g.lx * s, g.ly * s, g.lw * s, (g.lh + 4) * s];
+    const yB = m.isBlankCanvas(baked) ? -1 : window.__inkY(baked, ...win(sB));
+    const yR = window.__inkY(real, ...win(sR));
+    return { bw: baked.width, bh: baked.height, rw: real.width, rh: real.height,
+      sB: Math.round(sB * 1000) / 1000, sR: Math.round(sR * 1000) / 1000,
+      yB, yR, size: blob.size, py: Math.round(g.py), ly: Math.round(g.ly),
+      // 어긋남을 CSS px로도 남긴다(두 그림의 배율이 1화소 달라도 견줄 수 있게)
+      gap: yB < 0 || yR < 0 ? null : Math.round((yB / sB - yR / sR) * 100) / 100 };
+  } catch (e) { return { err: String((e && e.message) || e) }; }
+})()`, true);
+check('구운 종이가 화면 스크린샷과 같은 자리에 글자를 놓는다(찬양 라벨 ±3px)',
+  !fidel.err && fidel.yB >= 0 && fidel.yR >= 0 && Math.abs(fidel.yB - fidel.yR) <= 3,
+  JSON.stringify(fidel));
+check('구운 그림은 배율도 화면과 같다(canvas.width / offsetWidth로 되읽는 값)',
+  !fidel.err && Math.abs(fidel.sB - SCALE) <= 0.01,
+  JSON.stringify({ sB: fidel.sB, scale: Math.round(SCALE * 1000) / 1000 }));
+
 // 나머지 넷은 그대로다 — 곡 제목의 유튜브 링크·재생목록과 본문 → 성경 읽기 잇기가
 // 종이에는 없어서, 탭을 걷으면 그 기능이 사라진다(§8 '기능을 숨기지 않습니다')
 await tabClick('말씀'); await sleep(900);
