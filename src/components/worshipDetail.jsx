@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck,
   ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText, X,
-  Download, FileDown } from 'lucide-react';
+  Download, Share2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
@@ -1041,7 +1041,7 @@ function ServicePaper({ service, nameOf }) {
       <div className="flex items-center gap-1.5 mb-3">
         <button type="button" onClick={pdf.share} disabled={pdf.busy || verses === null}
           className={`worship-paper-pdf ${WITH_ICON} ${BTN}`}>
-          {pdf.busy ? <Loader2 size={13} className="animate-spin" /> : <FileDown size={13} />}
+          {pdf.busy ? <Loader2 size={13} className="animate-spin" /> : <Share2 size={13} />}
           <span>PDF로 공유</span>
         </button>
       </div>

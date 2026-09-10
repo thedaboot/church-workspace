@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Heart, Loader2, Pencil, Pin, Wand2 } from 'lucide-react';
+import { Heart, Loader2, Pencil, Pin, Share2, Wand2 } from 'lucide-react';
 import logoLight from '../assets/logo-light.png';
 import { Skeleton } from './media.jsx';
 import { SectionHead } from '../views/dashboardParts.jsx';
@@ -498,7 +498,7 @@ export function SunGuidePanel({
           disabled={working || img.busy} onClick={img.share}>
           {img.busy
             ? <Loader2 size={12} className="animate-spin" />
-            : <Download size={12} />}
+            : <Share2 size={12} />}
           <span>이미지로 공유</span>
         </button>
       )}

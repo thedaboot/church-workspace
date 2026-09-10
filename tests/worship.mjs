@@ -697,6 +697,63 @@ check('주보 종이에는 캐릭터 컷을 얹지 않는다', paper.cut === 0, 
 check('본문이 도착한 뒤에 PDF 버튼이 열린다', paper.pdf === true && paper.pdfOff === false,
   JSON.stringify({ pdf: paper.pdf, off: paper.pdfOff }));
 
+// ── 종이 굽기가 3~5배 빨라진 자리 (2026-09-10 · §6-32-p·32-q) ────────────────
+// html2canvas는 굽기 전에 **문서 전체를 iframe에 복제**하고 그 복제본의 모든 요소에서
+// 계산된 스타일을 읽는다 — 비용이 DOM 개수라 **배율을 낮춰도 거의 줄지 않았다**.
+// 굽는 가지만 남기니 종이 1쪽이 2412ms → 905ms였다(헤드리스 크롬 CPU 4배 스로틀 실측).
+// **`document.head`는 남겨야 한다** — 빼면 `<style>`·`<link>`가 사라져 맨 HTML 모양으로
+// 구워진다(실제로 겪었다).
+// **되돌리기**: `ignoreElements`를 빼면 첫 줄, `document.head.contains(el)`를 빼면 둘째
+// 줄, 쪽마다 굽던 옛 길로 되돌리면 셋째 줄이 깨진다.
+const siSrc = readFileSync(new URL('../src/services/shareImage.js', import.meta.url), 'utf8');
+check('nodeToCanvas가 굽는 가지만 남긴다(ignoreElements — 조상과 자손)',
+  siSrc.includes('ignoreElements:') && siSrc.includes('el.contains(node)') && siSrc.includes('node.contains(el)'),
+  siSrc.split('\n').find(l => l.includes('ignoreElements')) || 'ignoreElements 없음');
+check('그 판정식이 document.head는 남긴다(빼면 스타일이 통째로 사라진다)',
+  siSrc.includes('document.head.contains(el)'),
+  siSrc.split('\n').find(l => l.includes('pruneTo =')) || 'pruneTo 없음');
+check('두 쪽은 공통 조상을 한 번 굽고 잘라 담는다',
+  siSrc.includes('function commonAncestor') && siSrc.includes('bakeAndSlice')
+  && siSrc.includes('nodeToCanvas(root, null, { pages: nodes.length })')
+  && siSrc.includes('drawImage'),
+  JSON.stringify([siSrc.includes('function commonAncestor'), siSrc.includes('bakeAndSlice'),
+    siSrc.includes('nodeToCanvas(root, null, { pages: nodes.length })')]));
+
+// 누르는 순간 굽기가 진행 중이면 **그 약속을 이어받는다.** 예전에는 `share()`가
+// `blobRef`만 보고 비어 있으면 처음부터 다시 구워서 체감이 두 배였다.
+// **되돌리기**: share() 안에 `blob = await bake()`를 되살리면 아래 두 줄이 깨진다.
+const shSrc = readFileSync(new URL('../src/hooks/useSheetShare.jsx', import.meta.url), 'utf8');
+const shareBody = shSrc.slice(shSrc.indexOf('const share = useCallback'), shSrc.indexOf('const close = useCallback'));
+// **주석 줄은 걷는다** — 그 안에 "이 자리에 `bake()`를 새로 부르지 마라"가 적혀 있어서
+// 걷지 않으면 아래 단정이 자기 경고문에 걸린다(§6-34-e와 같은 함정).
+const shareCode = shareBody.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');
+check('share()가 진행 중인 굽기를 기다린다(다시 굽지 않는다)',
+  shareCode.includes('await ensure()'), shareCode.split('\n').find(l => l.includes('ensure(')) || 'ensure 없음');
+check('share() 안에는 새로 굽는 줄이 없다',
+  !shareCode.includes('bake('), shareCode.split('\n').find(l => l.includes('bake(')) || '없음');
+check('구운 Blob은 모듈 레벨에 상한을 두고 남는다(열쇠는 kind·파일이름·key)',
+  shSrc.includes('const BAKED = new Map();') && shSrc.includes('BAKED_MAX')
+  && shSrc.includes('`${kind}|${fileName}|${key}`'),
+  JSON.stringify([shSrc.includes('const BAKED = new Map();'), shSrc.includes('BAKED_MAX'),
+    shSrc.includes('`${kind}|${fileName}|${key}`')]));
+
+// 소스 단정만으로는 **잘라 담는 좌표**가 맞는지 알 수 없으니 실제로 굽혀 본다.
+// **되돌리기**: `bakeAndSlice`가 빈 배열을 돌려주게 하면 nodesToPdf가 '빈 종이'로 던진다.
+const pdfBake = await ev(`(async () => {
+  const m = await import('/src/services/shareImage.js');
+  const one = document.querySelector('.paper-service-1');
+  const two = document.querySelector('.paper-service-2');
+  if (!one || !two) return { err: '종이가 없다' };
+  try {
+    const blob = await m.nodesToPdf([one, two], '#ffffff');
+    const raw = await blob.text();
+    return { size: blob.size, type: blob.type, head: raw.slice(0, 5),
+      pages: (raw.match(/\\/MediaBox/g) || []).length };
+  } catch (e) { return { err: String((e && e.message) || e) }; }
+})()`, true);
+check('두 쪽을 한 번에 구워 PDF 한 파일이 나온다(%PDF · 쪽 둘)',
+  pdfBake.head === '%PDF-' && pdfBake.size > 0 && pdfBake.pages === 2, JSON.stringify(pdfBake));
+
 // 나머지 넷은 그대로다 — 곡 제목의 유튜브 링크·재생목록과 본문 → 성경 읽기 잇기가
 // 종이에는 없어서, 탭을 걷으면 그 기능이 사라진다(§8 '기능을 숨기지 않습니다')
 await tabClick('말씀'); await sleep(900);

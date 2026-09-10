@@ -59,18 +59,38 @@ async function html2canvas() {
   return mod.default;
 }
 
+// **굽는 가지만 남긴다 — 이것이 굽는 시간의 대부분이었다.** html2canvas는 굽기 전에
+// **문서 전체를 iframe에 복제**하고 그 복제본의 모든 요소에서 계산된 스타일을 읽는다.
+// 그래서 종이 한 쪽(558×564)이 2.4~2.9초, 두 쪽이 5.3초였고 **배율을 낮춰도 거의 줄지
+// 않았다**(비용이 DOM 개수라 화소와 무관하다). 이 판정식을 주면 2412ms → 905ms다.
+//
+// 남기는 것은 셋이다: 굽는 노드의 **조상**(`el.contains(node)` — 이것을 빼면 노드까지
+// 가는 길이 끊긴다) · 노드의 **자손**(`node.contains(el)`) · 그리고 **`<head>`**.
+// **head는 남긴다 — 빼면 스타일이 통째로 사라져 맨 HTML 모양이 된다**(실제로 겪음.
+// `<style>`·`<link>`가 head 안에 있고, 복제본은 그것으로 칠해진다).
+const pruneTo = (node) => (el) => !(el.contains(node) || node.contains(el) || document.head.contains(el));
+
 // 화면에 서 있는 그 종이를 그대로 캔버스로. background는 종이 바탕색이다(투명하게
-// 두면 카카오톡에서 검은 종이가 된다).
-async function nodeToCanvas(node, background) {
+// 두면 카카오톡에서 검은 종이가 된다 — `null`을 주는 자리는 잘라 담을 때뿐이고,
+// 그때는 쪽마다 다시 바탕을 깐다).
+//
+// `pages`는 이 캔버스에 **쪽이 몇 장 들어 있나**다(공통 조상을 한 번 굽는 길). 화소
+// 상한을 쪽 수만큼 곱해 준다 — 쪽마다 따로 구웠다면 각자 MAX_PIXELS를 썼을 테니까.
+// 1080폭 두 쪽이면 8M이고, iOS의 하드 상한 16.7M(4096²) 아래다. 잘라 담은 각 쪽은
+// 여전히 4M 안이다.
+async function nodeToCanvas(node, background, { pages = 1 } = {}) {
   const draw = await html2canvas();
   const width = node.offsetWidth || 560;
   const height = node.offsetHeight || 800;
   // 원하는 배율(1080 기준)과 화소 상한이 허락하는 배율 중 작은 쪽. 1보다 작아지지는
   // 않게 둔다 — 아주 긴 종이는 가로가 좁아지더라도 글자가 읽혀야 한다.
   const want = EXPORT_W / width;
-  const cap = Math.sqrt(MAX_PIXELS / (width * height));
+  const cap = Math.sqrt((MAX_PIXELS * pages) / (width * height));
   const scale = Math.max(1, Math.min(want, cap));
-  return draw(node, { scale, backgroundColor: background, useCORS: true, logging: false });
+  return draw(node, {
+    scale, backgroundColor: background, useCORS: true, logging: false,
+    ignoreElements: pruneTo(node),
+  });
 }
 
 export async function nodeToPng(node, background) {
@@ -80,14 +100,55 @@ export async function nodeToPng(node, background) {
   return blob;
 }
 
+// 종이 둘을 감싸는 가장 가까운 조상. 두 쪽은 한 상자 안에 나란히 서 있으니 보통 한 칸
+// 위다(주보의 `paper-box`).
+function commonAncestor(nodes) {
+  let root = nodes[0];
+  for (const node of nodes.slice(1)) {
+    while (root && !root.contains(node)) root = root.parentElement;
+  }
+  return root || document.body;
+}
+
+// **두 쪽을 각각 굽지 않는다 — 공통 조상을 한 번 굽고 잘라 담는다.** html2canvas의
+// 비용은 문서 복제라 부를 때마다 곱으로 들었다(각각 2.4·2.9초 = 5.3초). 조상 한 번은
+// 두 쪽에 1024ms다 — 각각 굽는 것의 절반 이하다.
+//
+// 조상은 `backgroundColor: null`로 굽는다(쪽 사이 틈까지 종이색으로 칠할 이유가 없다).
+// 그래서 잘라낸 쪽은 투명이고, **쪽마다 background를 먼저 깔아야 한다** — 안 깔면
+// 카카오톡에서 검은 종이가 된다(nodeToCanvas 머리말과 같은 이유).
+async function bakeAndSlice(nodes, background) {
+  const root = commonAncestor(nodes);
+  const canvas = await nodeToCanvas(root, null, { pages: nodes.length });
+  // 실제로 걸린 배율 — nodeToCanvas가 상한에 걸려 깎았을 수 있으니 결과에서 되읽는다.
+  const scale = canvas.width / (root.offsetWidth || 560);
+  const base = root.getBoundingClientRect();
+  return nodes.map((node) => {
+    const r = node.getBoundingClientRect();
+    const w = Math.max(1, Math.round(r.width * scale));
+    const h = Math.max(1, Math.round(r.height * scale));
+    const page = document.createElement('canvas');
+    page.width = w;
+    page.height = h;
+    const ctx = page.getContext('2d');
+    ctx.fillStyle = background || '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(canvas,
+      Math.round((r.left - base.left) * scale), Math.round((r.top - base.top) * scale), w, h,
+      0, 0, w, h);
+    return page;
+  });
+}
+
 // 종이 여럿 → PDF 한 파일. 쪽마다 그 종이의 비율을 그대로 쓴다(A4에 억지로 맞추면
 // 위아래에 흰 띠가 생기거나 글자가 잘린다).
 export async function nodesToPdf(nodes, background) {
-  const canvases = [];
-  for (const node of nodes) {
-    if (!node) continue;
-    canvases.push(await nodeToCanvas(node, background));
-  }
+  const list = (nodes || []).filter(Boolean);
+  if (!list.length) throw new Error('빈 종이');
+  // 한 쪽이면 조상을 거칠 이유가 없다 — 그 종이만 굽는다(예전 길 그대로).
+  const canvases = list.length === 1
+    ? [await nodeToCanvas(list[0], background)]
+    : await bakeAndSlice(list, background);
   if (!canvases.length) throw new Error('빈 종이');
   if (!pdfPromise) pdfPromise = import('jspdf');
   const { jsPDF } = await pdfPromise;

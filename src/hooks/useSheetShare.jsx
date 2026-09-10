@@ -22,14 +22,37 @@ import { failText } from '../services/errorText.js';
 //
 // PDF는 화면에 띄울 수 없으므로 **그때는 쪽마다 그림으로 바꿔** 띄운다(사용자가 고른
 // PDF 한 파일이 안 되는 자리에서, 아무것도 안 되는 것보다 두 장이 보이는 쪽이 낫다).
+//
+// **2026-09-10에 굽는 시간을 줄인 자리**(§6-32-q). 미리 굽기를 두고도 빨리 누르면 느렸다 —
+// `share()`가 `blobRef`만 보고 비어 있으면 **처음부터 다시 구웠기** 때문이다(진행 중인
+// 약속을 이어받지 않았다). 지금은 굽기를 시작하는 자리가 `ensure()` 하나이고, 구운 것은
+// 모듈 레벨 `BAKED`에 남아 같은 종이로 돌아오면 굽지 않는다.
 // ============================================================================
 
 // 종이가 서고 이만큼 뒤에 굽기 시작한다 — 진입 모션·글꼴이 앉을 시간을 준다.
 // 이보다 짧으면 모션 중간 모습이 그림에 박히고, 길면 빨리 누른 사람이 옛 길로 간다.
 const BAKE_DELAY = 700;
 
+// 구운 것을 **모듈 레벨에** 남긴다 — 탭을 왕복하거나 상세를 다시 열면 같은 종이를 또
+// 굽고 있었다(굽기가 몇 초다). 같은 열쇠로 다시 마운트되면 바로 `ready`다.
+// 열쇠는 `kind|fileName|key`다 — key만으로는 노트와 주보가 같은 주보 id에서 부딪힌다.
+// ponytail: 상한 8개, 넘으면 넣은 순서로 가장 오래된 것부터 버린다(LRU까지 갈 이유가
+// 없다 — 한 사람이 한 화면에서 오갈 종이가 그보다 적다). 종이 하나가 몇 MB라 상한이
+// 없으면 메모리를 먹는다.
+const BAKED = new Map();
+const BAKED_MAX = 8;
+function remember(key, blob) {
+  BAKED.set(key, blob);
+  while (BAKED.size > BAKED_MAX) BAKED.delete(BAKED.keys().next().value);
+}
+
 export function useSheetShare({ refs, key, background, kind = 'png', fileName, what }) {
   const blobRef = useRef(null);
+  // **굽고 있는 약속**. 누르는 순간 굽기가 진행 중이면 이것을 이어받는다 — 예전에는
+  // blobRef가 비어 있다고 보고 **처음부터 다시 구워서** 체감이 두 배였다.
+  const flightRef = useRef(null);
+  // 열쇠가 바뀌면(다른 종이가 섰다) 진행 중이던 굽기의 결과를 이 화면에 쓰지 않는다.
+  const genRef = useRef(0);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   // 마지막 갈래로 띄우는 것 — 그림들 또는 **왜 안 됐는지**.
@@ -46,25 +69,43 @@ export function useSheetShare({ refs, key, background, kind = 'png', fileName, w
     return pdf ? nodesToPdf(list, background) : nodeToPng(list[0], background);
   }, [nodes, background, pdf]);
 
+  const cacheKey = `${kind}|${fileName}|${key}`;
+
+  // 구운 것이 있으면 그것 · **굽고 있으면 그 약속** · 아직이면 지금 시작한 약속.
+  // **굽기를 시작하는 자리는 여기 하나다** — 미리 굽기와 누르기가 각자 구우면 같은
+  // 종이를 두 번 굽고, 누른 사람은 두 번째가 끝날 때까지 기다린다.
+  const ensure = useCallback(() => {
+    if (blobRef.current) return Promise.resolve(blobRef.current);
+    if (flightRef.current) return flightRef.current;
+    const gen = genRef.current;
+    const p = bake().then((blob) => {
+      if (blob) remember(cacheKey, blob);
+      // 그 사이 다른 종이가 섰으면 이 화면에는 쓰지 않는다(Map에는 남으니 돌아오면 쓴다)
+      if (blob && gen === genRef.current) { blobRef.current = blob; setReady(true); }
+      return blob;
+    });
+    flightRef.current = p;
+    p.catch(() => { if (gen === genRef.current) flightRef.current = null; });
+    return p;
+  }, [bake, cacheKey]);
+
   useEffect(() => {
-    blobRef.current = null;
-    setReady(false);
+    genRef.current += 1;
+    const hit = BAKED.get(cacheKey);
+    blobRef.current = hit || null;
+    flightRef.current = null;
+    setReady(!!hit);
     preloadExport({ pdf });
-    let alive = true;
-    const t = setTimeout(async () => {
-      try {
-        const blob = await bake();
-        if (alive && blob) { blobRef.current = blob; setReady(true); }
-      } catch (e) {
-        // 실패해도 조용히 — 누를 때 다시 굽는다. 여기서 토스트를 띄우면 아무것도 누르지
-        // 않은 사람에게 실패를 알리는 셈이 된다.
-        console.warn('[share] 미리 굽기 실패(누를 때 다시 굽는다):', e);
-      }
+    if (hit) return undefined;   // 지난번에 구운 것이 그대로 — 다시 굽지 않는다
+    const t = setTimeout(() => {
+      // 실패해도 조용히 — 누를 때 다시 굽는다. 여기서 토스트를 띄우면 아무것도 누르지
+      // 않은 사람에게 실패를 알리는 셈이 된다.
+      ensure().catch((e) => console.warn('[share] 미리 굽기 실패(누를 때 다시 굽는다):', e));
     }, BAKE_DELAY);
-    return () => { alive = false; clearTimeout(t); };
+    return () => clearTimeout(t);
     // key가 종이 내용을 대표한다 — 바뀌면 구운 것을 버린다
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, pdf]);
+  }, [cacheKey, pdf]);
 
   // 마지막 갈래 — 그림으로 띄운다. PDF는 못 띄우므로 쪽마다 PNG로 다시 굽는다.
   const overlayFrom = useCallback(async (files) => {
@@ -87,11 +128,9 @@ export function useSheetShare({ refs, key, background, kind = 'png', fileName, w
     setBusy(true);
     try {
       // **미리 구운 것이 있으면 여기서 기다리는 것이 없다** — 그것이 이 훅의 요점이다.
-      let blob = blobRef.current;
-      if (!blob) {
-        blob = await bake();
-        if (blob) { blobRef.current = blob; setReady(true); }
-      }
+      // 아직 굽고 있으면 **그 약속을 이어받는다**(ensure). 여기서 다시 구우면 진행 중인
+      // 것과 겹쳐 두 배로 걸린다 — 이 자리에 `bake()`를 새로 부르지 마라.
+      const blob = await ensure();
       if (!blob) throw new Error('빈 종이');
       const type = pdf ? 'application/pdf' : 'image/png';
       const name = `${fileName}.${pdf ? 'pdf' : 'png'}`;
@@ -101,7 +140,7 @@ export function useSheetShare({ refs, key, background, kind = 'png', fileName, w
       console.error(`[share] ${what}:`, e);
       showToast(failText(what, e));
     } finally { setBusy(false); }
-  }, [busy, bake, pdf, fileName, what, overlayFrom]);
+  }, [busy, ensure, pdf, fileName, what, overlayFrom]);
 
   const close = useCallback(() => {
     setShown(prev => { (prev || []).forEach(p => p.url && URL.revokeObjectURL(p.url)); return null; });
