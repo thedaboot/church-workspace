@@ -175,8 +175,19 @@ function useStickyTop(ref) {
 }
 
 // `lockedHeadings` — 지워지지 않는 중제목 목록(노트의 도막 이름). **편집기를 만들 때
-// 한 번 읽는다** — 화면마다 고정이라 바뀌지 않는다(예배 노트 다섯 · QT 넷).
-export function MarkdownEditor({ value, onChange, members = [], cloudMode = false, placeholder, className = '', lockedHeadings = [] }) {
+// 한 번 읽는다** — 화면마다 고정이라 바뀌지 않는다(예배 노트 넷 · QT 셋).
+//
+// `headings` — 서식 바에 제목 버튼(H1~H4)을 둘지. 노트에는 **두지 않는다**(사용자 결정
+// 2026-09-10): 도막 제목이 고정되어 있으니 제목을 새로 만들 일이 없고, 단계를 바꾸면
+// 그 도막이 종이에서 라벨로 안 올라가는 것처럼 보인다.
+//
+// `frame` — 편집 칸을 감싸는 틀. 받으면 `frame(<EditorContent/>)`로 그 안에 넣는다.
+// 노트가 이것으로 **종이 안에서 쓰기**를 만든다(components/paper.jsx `NotePaper`).
+// 서식 바는 틀 **밖·위**에 그대로 남는다 — sticky로 따라 내려오는 것이 그 자리다.
+export function MarkdownEditor({
+  value, onChange, members = [], cloudMode = false, placeholder, className = '',
+  lockedHeadings = [], headings = true, frame = null,
+}) {
   const lastEmitted = useRef(value ?? '');
   // 문서를 통째로 교체하는 중인가 — 그때는 중제목 고정을 통과시킨다(LockedHeadings 머리말)
   const replacingRef = useRef(false);
@@ -384,10 +395,13 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
       {/* 센티넬 — 서식 바가 '붙었는지'를 이걸로 잰다(Injoy 글쓰기와 같은 방식).
           scroll 이벤트로 매 프레임 재는 대신 IntersectionObserver 한 번이면 된다. */}
       <div ref={sentinelRef} aria-hidden="true" className="h-px" />
-      <Toolbar editor={editor} active={active} uploading={uploading} stuck={stuck} top={stickyTop} />
-      {/* onMouseDown이라야 한다 — click은 선택이 이미 끝난 뒤라 커서가 안 옮겨진다 */}
+      <Toolbar editor={editor} active={active} uploading={uploading} stuck={stuck} top={stickyTop}
+        headings={headings} />
+      {/* onMouseDown이라야 한다 — click은 선택이 이미 끝난 뒤라 커서가 안 옮겨진다.
+          틀(frame)이 있으면 편집 칸이 그 안에 든다 — 종이 여백을 눌러도 focusEnd가
+          도는 것은 그대로다(`.tiptap` 밖이면 문서 끝으로 보낸다). */}
       <div className={className} onMouseDown={focusEnd}>
-        <EditorContent editor={editor} />
+        {frame ? frame(<EditorContent editor={editor} />) : <EditorContent editor={editor} />}
       </div>
       {mention && suggestions.length > 0 && (
         <div
@@ -415,7 +429,7 @@ export function MarkdownEditor({ value, onChange, members = [], cloudMode = fals
 
 // ── 툴바 ────────────────────────────────────────────────────────────────────
 
-function Toolbar({ editor, active, uploading, stuck = false, top = 0 }) {
+function Toolbar({ editor, active, uploading, stuck = false, top = 0, headings = true }) {
   const [linkOpen, setLinkOpen] = useState(false);
   const [href, setHref] = useState('');
   // 단축키가 부르는 자리 — 훅은 early return보다 위에 있어야 하고 openLink는 아래에 있다
@@ -518,12 +532,20 @@ function Toolbar({ editor, active, uploading, stuck = false, top = 0 }) {
       <TB on={active.underline} onClick={() => chain().toggleUnderline().run()} title="밑줄"><Underline size={14} /></TB>
       <TB on={active.strike} onClick={() => chain().toggleStrike().run()} title="취소선"><Strikethrough size={14} /></TB>
       <TB on={active.highlight} onClick={() => chain().toggleHighlight().run()} title="형광펜"><Highlighter size={14} /></TB>
-      <span className="w-px h-4 bg-line mx-1 shrink-0" />
-      <TB on={active.h1} onClick={() => chain().toggleHeading({ level: 1 }).run()} title="제목 1"><Heading1 size={15} /></TB>
-      <TB on={active.h2} onClick={() => chain().toggleHeading({ level: 2 }).run()} title="제목 2"><Heading2 size={15} /></TB>
-      {/* 저장 형식(#~####)과 뷰어는 4단계까지 이미 지원하고 있었다 — 버튼만 없었다 */}
-      <TB on={active.h3} onClick={() => chain().toggleHeading({ level: 3 }).run()} title="제목 3"><Heading3 size={15} /></TB>
-      <TB on={active.h4} onClick={() => chain().toggleHeading({ level: 4 }).run()} title="제목 4"><Heading4 size={15} /></TB>
+      {/* 제목 묶음 — **노트에서는 빠진다**(`headings={false}` · 사용자 결정 2026-09-10).
+          도막 제목이 고정이라 제목을 만들 일이 없고, 그 앞의 구분선도 이 묶음의 것이라
+          같이 걷는다. `tests/word`가 노트 바에 `title="제목 1"`이 **없어야 한다**로
+          단정한다(업무 본문·업무 창은 그대로 넷 다 있다 — `tests/handoff`). */}
+      {headings && (
+        <>
+          <span className="w-px h-4 bg-line mx-1 shrink-0" />
+          <TB on={active.h1} onClick={() => chain().toggleHeading({ level: 1 }).run()} title="제목 1"><Heading1 size={15} /></TB>
+          <TB on={active.h2} onClick={() => chain().toggleHeading({ level: 2 }).run()} title="제목 2"><Heading2 size={15} /></TB>
+          {/* 저장 형식(#~####)과 뷰어는 4단계까지 이미 지원하고 있었다 — 버튼만 없었다 */}
+          <TB on={active.h3} onClick={() => chain().toggleHeading({ level: 3 }).run()} title="제목 3"><Heading3 size={15} /></TB>
+          <TB on={active.h4} onClick={() => chain().toggleHeading({ level: 4 }).run()} title="제목 4"><Heading4 size={15} /></TB>
+        </>
+      )}
       <TB on={active.bullet} onClick={() => chain().toggleBulletList().run()} title="불릿 목록"><List size={15} /></TB>
       <TB on={active.ordered} onClick={() => chain().toggleOrderedList().run()} title="번호 목록"><ListOrdered size={15} /></TB>
       <TB on={active.todo} onClick={() => chain().toggleTaskList().run()} title="체크리스트"><ListTodo size={15} /></TB>

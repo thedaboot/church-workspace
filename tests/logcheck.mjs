@@ -2203,34 +2203,45 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  링크 카드 축·자리 · 계정 합치기 38가지');
 }
 
-// ── 노트 도막 제목은 지워지지 않는다 (ensureNoteSections) ───────────────────
+// ── 노트 도막 (이름·고정·옛 이름 옮기기) ───────────────────────────────────
 // 사용자 결정 2026-09-09: "본문, 말씀 요약, 나의 묵상, 결단, 기도 는 아예 지울 수 없게
 // 고정" → "중제목들 안 지워지게 해달라니까". 편집기에서 지웠어도 **저장되는 글**에는
 // 도막이 그 순서로 서 있다(저장 자리 하나에서 보장한다 — 그 파일 머리말).
 // 잃는 것이 없어야 한다: 사람이 쓴 글 · 제목 앞의 글 · 새로 만든 도막.
+//
+// 2026-09-10에 **이름이 한 번 더 바뀌었다** — '나의 묵상'을 빼고 '결단'을 '나의 결단'으로
+// (예배 노트 넷 · QT 셋). 옛 이름은 LEGACY_SECTIONS에 **쌓는다**(갈아치우면 옛 빈 노트가
+// '사람이 쓴 글'이 되어 나눔·잔디에 오른다 — HANDOFF §6-9-as).
 {
   const dir = mkdtempSync(join(tmpdir(), 'note-'));
   const f = join(dir, 'noteTemplate.mjs');
   writeFileSync(f, readFileSync(new URL('../src/services/noteTemplate.js', import.meta.url), 'utf8'));
   const nt = await import(pathToFileURL(f).href);
 
-  const kept = nt.ensureNoteSections('### 본문\n삿 4:11-24\n### 나의 묵상\n음', nt.WORSHIP_SECTIONS);
-  assert.deepStrictEqual(nt.splitNoteSections(kept).map(x => x.title), ['본문', '나의 묵상'],
+  // 도막 이름·순서 (사용자 결정 2026-09-10)
+  assert.deepStrictEqual(nt.WORSHIP_SECTIONS, ['본문', '말씀 요약', '나의 결단', '기도'],
+    '예배 노트는 네 도막이다');
+  assert.deepStrictEqual(nt.QT_SECTIONS, ['본문', '나의 결단', '기도'],
+    'QT는 세 도막이다(말씀 요약이 없다)');
+
+  const kept = nt.ensureNoteSections('### 본문\n삿 4:11-24\n### 나의 결단\n음', nt.WORSHIP_SECTIONS);
+  assert.deepStrictEqual(nt.splitNoteSections(kept).map(x => x.title), ['본문', '나의 결단'],
     '글이 있는 도막만 갈리지만');
   for (const t of nt.WORSHIP_SECTIONS) {
     assert.ok(kept.includes(`### ${t}`), `${t} 제목이 되살아난다`);
   }
   assert.ok(kept.indexOf('### 본문') < kept.indexOf('### 말씀 요약')
-    && kept.indexOf('### 말씀 요약') < kept.indexOf('### 나의 묵상'), '순서는 템플릿 순서다');
+    && kept.indexOf('### 말씀 요약') < kept.indexOf('### 나의 결단')
+    && kept.indexOf('### 나의 결단') < kept.indexOf('### 기도'), '순서는 템플릿 순서다');
   assert.ok(kept.includes('삿 4:11-24') && kept.includes('음'), '쓴 글은 그대로 얹힌다');
 
   // 제목을 다 지운 글 — 맨 위에 그대로 남는다(잃지 않는다)
   const lead = nt.ensureNoteSections('그냥 쓴 글', nt.QT_SECTIONS);
   assert.ok(lead.startsWith('그냥 쓴 글'), '제목 앞의 글은 맨 위에 남는다');
-  assert.strictEqual((lead.match(/^### /gm) || []).length, 4, 'QT는 네 도막이다');
+  assert.strictEqual((lead.match(/^### /gm) || []).length, 3, 'QT는 세 도막이다');
 
   // 사람이 새로 만든 도막은 **뒤에** 붙는다
-  const extra = nt.ensureNoteSections('### 나의 묵상\n가\n### 내가 만든 칸\n나', nt.QT_SECTIONS);
+  const extra = nt.ensureNoteSections('### 나의 결단\n가\n### 내가 만든 칸\n나', nt.QT_SECTIONS);
   assert.ok(extra.indexOf('### 내가 만든 칸') > extra.indexOf('### 기도'), '새 도막은 뒤에 붙는다');
   assert.ok(extra.includes('나'), '새 도막의 글도 남는다');
 
@@ -2239,19 +2250,74 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     nt.isTemplateOnly(nt.ensureNoteSections(nt.worshipNoteTemplate({ passageRef: '삿 3:1' }), nt.WORSHIP_SECTIONS), '삿 3:1'),
     true, '되살린 템플릿은 빈 노트로 남는다');
 
+  // ── 옛 이름으로 저장된 노트를 열어 저장하면 (2026-09-10) ──────────────────
+  // 옛 도막('나의 묵상'·'결단')은 이제 템플릿에 없다. 그래도 **글이 사라지면 안 된다** —
+  // 새 도막이 그 순서로 서고 옛 도막은 사람이 만든 칸처럼 뒤에 붙는다. 사람이 그 글을
+  // 새 도막으로 옮길 수 있게 편집기의 고정 목록에서도 옛 이름은 빠져 있다.
+  // **되돌리기**: ensureNoteSections가 아는 이름만 남기게(extra를 버리게) 만들면 깨진다.
+  const old = '### 본문\n요 3:16\n### 말씀 요약\n들은 것\n### 나의 묵상\n생각한 것\n### 결단\n하기로 한 것\n### 기도\n빈다';
+  const moved = nt.ensureNoteSections(old, nt.WORSHIP_SECTIONS);
+  for (const t of nt.WORSHIP_SECTIONS) {
+    assert.ok(moved.includes(`### ${t}`), `옛 노트를 저장해도 ${t} 도막이 선다`);
+  }
+  for (const line of ['요 3:16', '들은 것', '생각한 것', '하기로 한 것', '빈다']) {
+    assert.ok(moved.includes(line), `옛 노트의 '${line}'이 남는다`);
+  }
+  assert.ok(moved.indexOf('### 기도') < moved.indexOf('### 나의 묵상')
+    && moved.indexOf('### 나의 묵상') < moved.indexOf('### 결단'),
+    '옛 도막은 새 도막 **뒤에** 그 순서대로 붙는다');
+  // 옛 이름만 있는 빈 노트는 아직 빈 노트다(LEGACY_SECTIONS에 쌓았다)
+  assert.strictEqual(
+    nt.isTemplateOnly('### 본문\n요 3:16\n### 말씀 요약\n\n### 나의 묵상\n\n### 결단\n\n### 기도\n', '요 3:16'),
+    true, '옛 이름으로 저장된 빈 노트도 빈 노트다');
+
   // 편집기에서도 고정된다(사용자 결정 2026-09-10 — "아예 수정 창에서부터")
   const src = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
   const ed = src('../src/components/MarkdownEditor.jsx');
+  const worship = src('../src/components/worshipDetail.jsx');
+  const word = src('../src/views/wordView.jsx');
   assert.ok(/name: 'lockedHeadings'/.test(ed) && /filterTransaction/.test(ed),
     '편집기가 정해진 중제목을 지우는 트랜잭션을 물린다');
   assert.ok(/bypass\(\)/.test(ed) && /replacingRef\.current = true/.test(ed),
     '문서를 통째로 교체할 때는 통과시킨다(옛 노트가 안 들어오는 것을 막는다)');
-  assert.ok(/lockedHeadings=\{WORSHIP_SECTIONS\}/.test(src('../src/components/worshipDetail.jsx')),
-    '예배 노트가 다섯 도막을 잠근다');
-  assert.ok(/lockedHeadings=\{QT_SECTIONS\}/.test(src('../src/views/wordView.jsx')),
-    '묵상 노트가 네 도막을 잠근다');
+  assert.ok(/lockedHeadings=\{WORSHIP_SECTIONS\}/.test(worship), '예배 노트가 네 도막을 잠근다');
+  assert.ok(/lockedHeadings=\{QT_SECTIONS\}/.test(word), '묵상 노트가 세 도막을 잠근다');
 
-  console.log('PASS  노트 도막 제목 고정 16가지');
+  // ── 편집도 종이 안에서 한다 (사용자 요청 2026-09-10) ─────────────────────
+  // 읽기와 **같은 부품**을 써야 한다(마크업을 한 벌 더 적으면 한쪽만 고쳐진다).
+  // **되돌리기**: 두 화면 중 하나에서 frame/NotePaper를 떼면 이 줄이 깨진다.
+  const paper = src('../src/components/paper.jsx');
+  for (const name of ['PaperMast', 'PaperNoteHead', 'PaperSheet', 'NotePaper']) {
+    assert.ok(new RegExp(`export function ${name}`).test(paper),
+      `종이의 ${name}이 읽기·편집 둘 다에 열려 있다`);
+  }
+  assert.ok(/<PaperNoteHead /.test(paper) && /<PaperMast /.test(paper),
+    '읽기 종이도 그 부품을 쓴다(중복 마크업 금지)');
+  assert.ok(/frame = null/.test(ed) && /frame \? frame\(<EditorContent editor=\{editor\} \/>\)/.test(ed),
+    '편집기가 틀을 받아 편집 칸을 그 안에 넣는다');
+  for (const [name, s] of [['예배 노트', worship], ['묵상 노트', word]]) {
+    assert.ok(/frame=\{\(content\) => \(/.test(s) && /<NotePaper /.test(s),
+      `${name} 편집기가 종이 안에 선다`);
+    assert.ok(/note-paper/.test(s), `${name} 편집기에 종이 격자 클래스가 붙는다`);
+    assert.ok(/headings=\{false\}/.test(s), `${name} 서식 바에 제목 버튼이 없다`);
+  }
+  // 격자는 index.css 한 자리다 — h3은 1열, 그 밖은 2열
+  const css = src('../src/index.css');
+  assert.ok(/\.note-paper \.tiptap \{[^}]*display: grid/.test(css)
+    && /grid-template-columns: 58px minmax\(0, 1fr\)/.test(css),
+    '종이 격자는 라벨 58px + 남는 폭이다(읽기 줄과 같은 값)');
+  assert.ok(/\.note-paper \.tiptap > :is\(h1, h2, h3, h4\) \{[^}]*grid-column: 1/.test(css),
+    '제목은 1열(라벨 칸)로 간다');
+  assert.ok(/\.note-paper \.tiptap > \* \{[^}]*grid-column: 2/.test(css),
+    '그 밖의 블록은 2열(쓰는 칸)로 간다');
+  // 종이는 다크를 안 따라간다(§6-32-i) — 색은 PaperSheet가 흘려 준 --paper-* 한 벌이다
+  assert.ok(/'--paper-line': PAPER\.line/.test(paper) && /'--paper-ink2': PAPER\.ink2/.test(paper),
+    'PAPER 한 벌이 CSS 변수로 내려간다');
+  const paperCss = css.slice(css.indexOf('.note-paper .tiptap {'), css.indexOf('/* 입력 요소의'));
+  assert.ok(paperCss.length > 500 && !paperCss.includes('var(--app-'),
+    '종이 안 글자에 앱 토큰(다크를 따라가는 색)을 쓰지 않는다');
+
+  console.log('PASS  노트 도막 이름·고정·종이 편집 46가지');
 }
 
 // ── 팀 보드 상단 사람 칩 (utils.teamChips) ──────────────────────────────────

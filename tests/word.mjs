@@ -102,24 +102,28 @@ check('본문표 파서·저장 함수가 남아 있지 않다',
 // ── 1-b. 노트 템플릿 (순수 — services/noteTemplate.js) ──────────────────────
 // 예배 노트·QT 묵상은 빈 칸이 아니라 도막 제목으로 시작한다(사용자 요청 2026-09-08 —
 // "기존 순 노트 템플릿 가져와서 최대한 우리 디자인 시스템에 맞춰 재구성하기").
+// 도막 이름은 2026-09-10에 사용자가 다시 정했다 — '나의 묵상'을 빼고 '결단'을
+// '나의 결단'으로(예배 노트 넷 · QT 셋).
 // **되돌리기**: isTemplateOnly가 늘 false를 돌려주게 만들면 아래 둘이 깨진다 — 그러면
 // 아무도 쓰지 않은 제목 줄이 노트로 저장되고 나눔 피드·잔디에까지 오른다.
 const tplMod = await import(new URL('src/services/noteTemplate.js', ROOT).href);
 const wTpl = tplMod.worshipNoteTemplate({ passageRef: '요한복음 3:16' });
 const qTpl = tplMod.qtNoteTemplate({ passageRef: '' });
-check('예배 노트 템플릿은 다섯 도막이다',
-  ['### 본문', '### 말씀 요약', '### 나의 묵상', '### 결단', '### 기도'].every(h => wTpl.includes(h)),
+check('예배 노트 템플릿은 네 도막이다',
+  JSON.stringify(wTpl.match(/^### .*/gm) || []) === JSON.stringify(['### 본문', '### 말씀 요약', '### 나의 결단', '### 기도']),
   JSON.stringify(wTpl));
 check('본문 아래에 그 예배의 구절이 미리 들어간다',
   wTpl.split('\n')[0] === '### 본문' && wTpl.split('\n')[1] === '요한복음 3:16',
   JSON.stringify(wTpl.split('\n').slice(0, 2)));
 // QT는 혼자 본문을 읽는 자리라 '말씀 요약'이 없다(설교 요약과 묵상이 같은 글이 된다)
-check('QT 템플릿은 네 도막(말씀 요약이 없다)',
-  qTpl.includes('### 나의 묵상') && !qTpl.includes('### 말씀 요약')
-  && (qTpl.match(/^### /gm) || []).length === 4,
+check('QT 템플릿은 세 도막(말씀 요약이 없다)',
+  JSON.stringify(qTpl.match(/^### .*/gm) || []) === JSON.stringify(['### 본문', '### 나의 결단', '### 기도']),
   JSON.stringify(qTpl.match(/^### .*/gm) || []));
+// '나의 묵상'은 2026-09-10에 뺐다 — 요약과 묵상이 같은 글이 되는 자리였다
+check("새 템플릿에 '나의 묵상'이 없다",
+  !wTpl.includes('나의 묵상') && !qTpl.includes('나의 묵상'), JSON.stringify([wTpl, qTpl]));
 check('제목마다 그 아래 빈 줄이 하나 있다(커서가 제목 밑에 떨어진다)',
-  qTpl.split('\n').length === 8 && qTpl.split('\n')[1] === '', JSON.stringify(qTpl.split('\n')));
+  qTpl.split('\n').length === 6 && qTpl.split('\n')[1] === '', JSON.stringify(qTpl.split('\n')));
 check('손대지 않은 템플릿은 빈 노트다',
   tplMod.isTemplateOnly(wTpl, '요한복음 3:16') === true && tplMod.isTemplateOnly('') === true);
 // 편집기를 한 바퀴 돌면 끝의 빈 줄이 정리된다(markdown.js docToMd) — 그래도 빈 노트다
@@ -129,12 +133,15 @@ check('한 줄이라도 쓰면 빈 노트가 아니다',
   && tplMod.isTemplateOnly('그냥 한 줄') === false);
 check('구절 줄은 그 구절을 알 때에만 템플릿으로 친다',
   tplMod.isTemplateOnly(wTpl, '') === false);
-// 도막 이름이 바뀌기 전(2026-09-09)에 저장된 빈 노트 — '묵상 노트 · 결단하기 · 기도하기'.
+// 도막 이름이 바뀌기 전에 저장된 빈 노트 — 2026-09-09 이전('묵상 노트·결단하기·기도하기')과
+// 2026-09-10 이전('나의 묵상'·'결단') 둘 다.
 // **되돌리기**: LEGACY_SECTIONS를 SECTION_RE에서 빼면 이 줄이 깨진다. 그러면 예전에
 // 손도 안 댄 템플릿들이 하루아침에 '사람이 쓴 글'이 되어 나눔 피드·잔디에 오른다.
 const oldTpl = '### 본문\n요한복음 3:16\n### 말씀 요약\n\n### 묵상 노트\n\n### 결단하기\n\n### 기도하기\n';
+const oldTpl2 = '### 본문\n요한복음 3:16\n### 말씀 요약\n\n### 나의 묵상\n\n### 결단\n\n### 기도\n';
 check('옛 이름으로 저장된 템플릿도 빈 노트다',
   tplMod.isTemplateOnly(oldTpl, '요한복음 3:16') === true
+  && tplMod.isTemplateOnly(oldTpl2, '요한복음 3:16') === true
   && tplMod.isTemplateOnly(oldTpl + '한 줄 썼다', '요한복음 3:16') === false);
 
 // ── 1-c. 뜻으로 찾는 본문 검색 (순수 — services/bibleSearch.js) ─────────────
@@ -532,6 +539,14 @@ const noteState = () => ev(`(() => {
     // '내 묵상' 칸 통째의 높이 — 이것이 모드마다 다르면 아래 칸들이 오르내린다.
     // 위쪽(본문 카드)은 전환 연출 중일 수 있어 절대 좌표 대신 이 높이로 잰다.
     noteH: box ? Math.round(box.getBoundingClientRect().height) : 0,
+    // 지금 보이는 종이의 폭·왼쪽 자리(두 모드가 같은 종이여야 한다 — 2026-09-10)
+    sheet: (() => {
+      const s = [...document.querySelectorAll('.paper-sheet')].find(x => x.offsetParent);
+      const col = document.querySelector('[data-col="qt"]');
+      if (!s || !col) return null;
+      const r = s.getBoundingClientRect(), c = col.getBoundingClientRect();
+      return { w: Math.round(r.width), left: Math.round(r.left - c.left) };
+    })(),
     toggle: [...document.querySelectorAll('button[aria-pressed]')]
       .filter(b => ['나만 보기', '더다붓에 공유하기'].includes(b.textContent.trim())).length,
     trash: !!document.querySelector('button[aria-label="내 묵상 지우기"]'),
@@ -560,10 +575,56 @@ check("'수정'을 누르면 편집기가 서고 저장·취소가 붙는다",
   JSON.stringify(editMode));
 check('수정으로 들어가면 커서가 묵상 칸에 있다',
   (await ev(`!!document.activeElement && !!document.activeElement.closest('.tiptap')`)) === true);
-// 읽기 상자가 편집기와 같은 자리를 쓰므로 아래 칸(나눔)이 오르내리지 않는다
-check('모드를 바꿔도 묵상 칸의 높이가 그대로다',
-  readMode.noteH > 0 && Math.abs(editMode.noteH - readMode.noteH) <= 1,
-  JSON.stringify({ read: readMode.noteH, edit: editMode.noteH, readH: readMode.readH }));
+// **편집도 종이 안에서 한다**(사용자 요청 2026-09-10 — "세련되고 기쁘게 자발적으로
+// 작성할 수 있는 공간으로"). 예전에는 서식 바 아래 흰 상자에 제목이 큰 여백으로 벌어진
+// 문서 편집기였고, 저장하면 갑자기 다른 물건(종이)이 됐다. 지금은 두 모드가 **같은
+// 부품**을 쓴다(paper.jsx `NotePaper`) — 띠·머리 구절·캐릭터 컷·밑단이 어긋날 수 없다.
+// **되돌리기**: wordView의 `frame`을 떼면 띠·구절이 사라져 아래 셋이 깨진다.
+const paperEdit = await ev(`(() => {
+  const box = document.querySelector('.qt-note-editor');
+  const sheet = box && box.querySelector('.paper-sheet');
+  const mast = sheet && sheet.querySelector('.paper-mast');
+  const tip = box && box.querySelector('.tiptap');
+  const read = document.querySelector('[data-note-read] .paper-sheet');
+  return {
+    kind: mast ? mast.querySelector('.paper-mast-kind').textContent.trim() : '',
+    date: mast ? mast.querySelector('.paper-mast-date').textContent.trim() : '',
+    ref: sheet ? (sheet.querySelector('.paper-ref') || {}).textContent : null,
+    cut: !!(sheet && sheet.querySelector('.paper-cut')),
+    tail: !!(sheet && sheet.querySelector('.paper-tail')),
+    // 편집기가 종이 **안**에 있다(같은 부품을 쓴다는 뜻이다)
+    inside: !!(sheet && tip && sheet.contains(tip)),
+    // 읽기 종이의 머리와 **같은 글자**여야 한다("이 모양으로 나간다"가 참이 되게)
+    readKind: read ? read.querySelector('.paper-mast-kind').textContent.trim() : '',
+    readRef: read ? (read.querySelector('.paper-ref') || {}).textContent : null,
+    // 종이는 언제나 밝다(§6-32-i) — 편집 화면도 그렇다
+    bg: sheet ? getComputedStyle(sheet).backgroundColor : '',
+  };
+})()`);
+check('편집 화면도 종이다(띠·컷·밑단이 읽기와 같은 부품)',
+  paperEdit.kind === '묵상 노트' && paperEdit.cut === true && paperEdit.tail === true
+  && paperEdit.inside === true, JSON.stringify(paperEdit));
+check('편집 화면 머리의 날짜·구절이 읽기 종이와 같다',
+  /^\d{4}\. \d{2}\. \d{2}$/.test(paperEdit.date)
+  && (paperEdit.ref || '').includes(seed.schedule[today].passage_ref)
+  && paperEdit.kind === paperEdit.readKind && paperEdit.ref === paperEdit.readRef,
+  JSON.stringify(paperEdit));
+check('종이는 편집 중에도 밝다(다크를 따라가지 않는다)',
+  paperEdit.bg === 'rgb(255, 253, 252)', paperEdit.bg);
+// 2026-09-07에는 두 모드의 **높이**를 1px까지 묶어 두었다 — 그때 편집 상자가 고정
+// 높이(min-h-40 md:min-h-56)였기 때문이다. 2026-09-10부터 편집 화면이 **종이**가
+// 되면서 그 묶음이 풀렸다: 편집 종이에는 서식 바와 쓸 빈 자리가 더 있고, 읽기 종이는
+// 저장된 글만큼만 길다. 지금 지키는 것은 **종이의 폭과 왼쪽 자리**다 — 그 둘이 같아야
+// 수정·취소를 눌렀을 때 종이가 옆으로 흔들리지 않는다.
+// 남은 높이 차이는 HANDOFF §1.3에 적어 두었다(사용자 판단 대기).
+// **되돌리기**: 두 모드 중 한쪽의 max-w를 바꾸면 이 줄이 깨진다.
+check('모드를 바꿔도 종이의 폭과 왼쪽 자리가 그대로다',
+  !!readMode.sheet && !!editMode.sheet
+  // 560은 종이 폭 상한이고, 테두리 1px씩을 뺀 558이 종이 자신의 폭이다
+  && readMode.sheet.w === editMode.sheet.w && Math.abs(readMode.sheet.w - 560) <= 2
+  && Math.abs(readMode.sheet.left - editMode.sheet.left) <= 1,
+  JSON.stringify({ read: readMode.sheet, edit: editMode.sheet,
+    높이: { read: readMode.noteH, edit: editMode.noteH } }));
 // 취소는 고치던 글을 버리고 저장된 글로 되돌린다
 await ev(`(() => { const el = document.querySelector('.tiptap'); el && el.focus(); })()`);
 await send('Input.insertText', { text: ' 고치는 중' });
@@ -586,13 +647,17 @@ await waitFor(`document.querySelector('.tiptap')`);
 const editor = await ev(`(() => ({
   tiptap: !!document.querySelector('.tiptap'),
   textarea: !!document.querySelector('textarea[aria-label="내 묵상"]'),
-  bar: [...document.querySelectorAll('button[title]')].map(b => b.title).filter(t => ['굵게','형광펜','제목 1','체크리스트'].includes(t)).length,
+  bar: [...document.querySelectorAll('button[title]')].map(b => b.title).filter(t => ['굵게','형광펜','불릿 목록','체크리스트'].includes(t)).length,
 }))()`);
 check('묵상 칸이 마크다운 에디터로 바뀌었다', editor.tiptap && !editor.textarea, JSON.stringify(editor));
-check('서식 바가 같이 온다(굵게·형광펜·제목·체크리스트)', editor.bar === 4, String(editor.bar));
+// 제목 버튼은 노트에 **없다**(사용자 결정 2026-09-10 · 8-a-2가 그것을 단정한다) —
+// 여기서는 그 밖의 서식이 그대로 오는지만 본다
+check('서식 바가 같이 온다(굵게·형광펜·목록·체크리스트)', editor.bar === 4, String(editor.bar));
 // **빈 공간을 눌러도 입력된다**(사용자 피드백 2026-09-03). 자리를 잡는 일은
-// MarkdownEditor의 focusEnd가 하고(`.tiptap` 밖을 누르면 문서 끝으로), 상자 크기는
-// 업무 수정 창과 같은 한 벌이다 — 데스크톱에서 누를 빈 자리가 그만큼 넓다.
+// MarkdownEditor의 focusEnd가 하고(`.tiptap` 밖을 누르면 문서 끝으로), 그 빈 자리는
+// 종이 안 도막 칸의 남는 높이다(index.css `.note-paper .paper-rows` — 예전 편집
+// 상자와 같은 `min-h-40 md:min-h-56` 값을 그대로 쓴다).
+// **되돌리기**: 그 min-height를 지우면 누를 자리가 사라져 아래 두 번째 줄이 깨진다.
 await ev(`(() => { const t = document.querySelector('.tiptap'); t && t.scrollIntoView({ block: 'center' }); })()`);
 await sleep(500);
 const boxAt = await ev(`(() => {
@@ -755,9 +820,9 @@ check('빈 상태가 본문 자리의 세로 가운데에 선다', !!emptyFit &&
 
 // 8-a) 아직 아무것도 안 쓴 날은 **템플릿**으로 시작한다(사용자 요청 2026-09-08 —
 // "기존 순 노트 템플릿 가져와서 최대한 우리 디자인 시스템에 맞춰 재구성하기").
-// 옛 순 노트의 다섯 도막 중 QT에는 '말씀 요약'이 빠진다(services/noteTemplate.js).
+// 도막은 셋이다(2026-09-10 · 본문 · 나의 결단 · 기도) — QT에는 '말씀 요약'이 없다.
 // **손대지 않은 템플릿은 빈 묵상이다** — 제목 줄이 있다는 이유로 저장이 열리면
-// 아무도 쓰지 않은 제목 네 줄이 그대로 저장되고 잔디에까지 찍힌다.
+// 아무도 쓰지 않은 제목 세 줄이 그대로 저장되고 잔디에까지 찍힌다.
 await waitFor(`(() => { const t = document.querySelector('.tiptap'); return t && t.offsetParent; })()`, 8000);
 await sleep(400);
 const tplNote = await ev(`(() => {
@@ -767,11 +832,45 @@ const tplNote = await ev(`(() => {
   return { heads: t ? [...t.querySelectorAll('h3')].map(x => x.textContent.trim()) : [],
            leaf: cs ? String(cs.maskImage || cs.webkitMaskImage || '') : '' };
 })()`);
-check('묵상을 처음 쓰는 날은 템플릿 네 도막으로 시작한다',
-  tplNote.heads.join('|') === '본문|나의 묵상|결단|기도', JSON.stringify(tplNote.heads));
+check('묵상을 처음 쓰는 날은 템플릿 세 도막으로 시작한다',
+  tplNote.heads.join('|') === '본문|나의 결단|기도', JSON.stringify(tplNote.heads));
 // **잎 표시는 사용자가 뺐다**(2026-09-09 — "잎사귀가 추가되었는데 이건 지울 것" · §7).
 // 다시 붙이면 이 줄이 실패한다.
 check('도막 제목에 잎 표시가 없다', !/svg/.test(tplNote.leaf), tplNote.leaf.slice(0, 48));
+
+// ── 8-a-2) 편집 칸이 종이의 두 칸 격자다 (사용자 요청 2026-09-10) ───────────
+// 데스크톱(1440)에서는 라벨이 그 도막 **첫 줄과 나란히** 선다 — 격자 자동 배치가
+// h3(1열) 다음 블록(2열)을 같은 행에 앉히기 때문이다(index.css `.note-paper` 머리말).
+// **되돌리기**: `.note-paper .tiptap`의 `display: grid`를 지우면 라벨이 위로 올라가
+// 아래 둘이 깨진다(모바일 기대값과 같아진다).
+const labelRow = await ev(`(() => {
+  const t = document.querySelector('.qt-note-editor .tiptap');
+  const h = t && t.querySelector('h3');
+  const next = h && h.nextElementSibling;
+  if (!h || !next) return null;
+  const cs = getComputedStyle(t);
+  const a = h.getBoundingClientRect(), b = next.getBoundingClientRect();
+  return { grid: cs.display, cols: cs.gridTemplateColumns,
+           dTop: Math.round(b.top - a.top), rightOf: Math.round(b.left - a.right),
+           labelW: Math.round(a.width) };
+})()`);
+check('편집 칸이 왼쪽 라벨 · 오른쪽 글 두 칸 격자다',
+  !!labelRow && labelRow.grid === 'grid' && /^58px /.test(labelRow.cols), JSON.stringify(labelRow));
+check('1440: 라벨과 그 도막 첫 줄이 같은 행이다(±2px)',
+  !!labelRow && Math.abs(labelRow.dTop) <= 2 && labelRow.rightOf >= 0, JSON.stringify(labelRow));
+
+// 서식 바에 **제목 버튼이 없다**(사용자 결정 2026-09-10) — 도막 제목이 고정이라 제목을
+// 만들 일이 없다. 굵게·형광펜·목록은 그대로 있다(§8 '기능을 숨기지 않습니다').
+// **되돌리기**: `headings={false}`를 떼면 넷이 다시 나타나 이 줄이 깨진다.
+const noteBar = await ev(`(() => {
+  const box = document.querySelector('.qt-note-editor');
+  const titles = [...box.querySelectorAll('button[title]')].map(b => b.title);
+  return { heads: titles.filter(t => t.indexOf('제목 ') === 0),
+           keep: ['굵게', '형광펜', '불릿 목록', '체크리스트'].filter(t => titles.includes(t)) };
+})()`);
+check('노트 서식 바에 제목 버튼이 없다', noteBar.heads.length === 0, JSON.stringify(noteBar.heads));
+check('굵게·형광펜·목록은 그대로 있다', noteBar.keep.length === 4, JSON.stringify(noteBar.keep));
+
 check('손대지 않은 템플릿으로는 저장할 수 없다', (await saveDisabled()) === true);
 await ev(`(() => { const el = document.querySelector('.tiptap'); el && el.focus(); })()`);
 await send('Input.insertText', { text: '오늘은 이 말씀이 마음에 남았어요' });
@@ -795,7 +894,7 @@ const lockedHeads = await ev(`(() => {
     hasTyped: t.innerText.includes('전부 지워질까') };
 })()`);
 check('중제목은 전체 선택 후 입력에도 지워지지 않는다',
-  JSON.stringify(lockedHeads.heads) === JSON.stringify(['본문', '나의 묵상', '결단', '기도'])
+  JSON.stringify(lockedHeads.heads) === JSON.stringify(['본문', '나의 결단', '기도'])
   && lockedHeads.hasTyped === false, JSON.stringify(lockedHeads));
 
 await clickText('오늘');
@@ -1021,7 +1120,7 @@ const gone = await ev(`(() => ({
 check('진짜 삭제는 그 날 묵상을 없앤다', gone.stored === null && gone.feedEmpty
   && !gone.editor.includes(seedBody), JSON.stringify(gone));
 // 지운 뒤에는 다시 '아직 아무것도 안 쓴 날'이라 템플릿이 선다(빈 칸이 아니다)
-check('지우고 나면 템플릿이 다시 선다', gone.editor.includes('나의 묵상'), JSON.stringify(gone.editor));
+check('지우고 나면 템플릿이 다시 선다', gone.editor.includes('나의 결단'), JSON.stringify(gone.editor));
 check('나눔이 비면 한 줄로 말한다',
   (await ev(`(() => { const p=[...document.querySelectorAll('p')].find(x=>x.textContent.includes('올라온 나눔이 아직 없어요')); return !!p && !p.parentElement.querySelector('img[src*="/chars/"]'); })()`)) === true);
 check('저장된 글이 없으면 공유 토글은 꺼져 있다', gone.toggleOff === true, JSON.stringify(gone));
@@ -2084,6 +2183,22 @@ check('375px에서 공유 토글 묶음이 다음 줄에서 열 폭을 받는다
   !!mob.tool && mob.tool.sameRow === false && mob.tool.below >= 2 && mob.tool.below <= 16
   && Math.abs(mob.tool.leftGap) <= 1 && Math.abs(mob.tool.rightGap) <= 1,
   JSON.stringify(mob.tool));
+// 종이 안에서 쓰는 노트 — **375에서는 라벨이 칸 위에 선다**(사용자 결정 2026-09-10).
+// 58px을 떼고 나면 글 칸에 한 줄 대여섯 글자가 들어간다(index.css `.note-paper` 아래
+// 미디어 쿼리). 데스크톱에서는 같은 행이다(8-a-2).
+// **되돌리기**: 그 미디어 쿼리를 지우면 라벨이 다시 옆으로 붙어 이 줄이 깨진다.
+const mobLabel = await ev(`(() => {
+  const t = document.querySelector('.qt-note-editor .tiptap');
+  const h = t && t.querySelector('h3');
+  const next = h && h.nextElementSibling;
+  if (!h || !next) return null;
+  const a = h.getBoundingClientRect(), b = next.getBoundingClientRect();
+  return { below: Math.round(b.top - a.bottom), sameLeft: Math.abs(b.left - a.left) <= 1,
+           cols: getComputedStyle(t).gridTemplateColumns };
+})()`);
+check('375px에서 도막 라벨이 쓰는 칸 위에 선다',
+  !!mobLabel && mobLabel.below >= 0 && mobLabel.sameLeft === true && !/^58px /.test(mobLabel.cols),
+  JSON.stringify(mobLabel));
 await clickText('성경 읽기');
 await sleep(1600);
 // 4차 피드백 11 — **본문을 읽는 중에도** 목차·북마크·형광펜에 닿을 수 있어야 하고,

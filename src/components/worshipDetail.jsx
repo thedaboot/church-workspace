@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck,
   ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText, X,
-  Download, Share2 } from 'lucide-react';
+  Share2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
@@ -20,7 +20,7 @@ import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeL
 import { honorificsOf } from '../services/people.js';
 import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
   ensureNoteSections, WORSHIP_SECTIONS } from '../services/noteTemplate.js';
-import { NoteSheet, ServiceSheetOne, ServiceSheetTwo, PAPER, paperDate } from './paper.jsx';
+import { NoteSheet, NotePaper, ServiceSheetOne, ServiceSheetTwo, PAPER, paperDate } from './paper.jsx';
 import { useSheetShare } from '../hooks/useSheetShare.jsx';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
@@ -67,9 +67,11 @@ export const BTN_SOFT = 'px-3 py-1.5 rounded-md bg-accent-weak text-accent-text 
 // (첫 번들에 tiptap이 실리지 않게 — modals.jsx·wordView.jsx가 같은 방식이다).
 const MarkdownEditor = lazy(() => import('./MarkdownEditor.jsx').then(m => ({ default: m.MarkdownEditor })));
 const EditorSkeleton = () => <div className="min-h-40 border border-line rounded-md rounded-t-none dc-skeleton" />;
-// 감싸개 클래스도 그 화면들과 같다 — MarkdownEditor는 이 상자의 **빈 자리를 눌러도**
+// 노트 편집기의 감싸개 — **종이가 그 안에 든다**(2026-09-10 · MarkdownEditor의 `frame`).
+// 그래서 여백·배경·글자색은 종이(components/paper.jsx)가 가지고, 여기는 서식 바 아래로
+// 이어지는 테두리와 둥근 모서리만 맡는다. MarkdownEditor는 이 상자의 **빈 자리를 눌러도**
 // 문서 끝으로 커서를 보낸다(그 파일의 focusEnd).
-const EDITOR_BOX = 'min-h-40 border border-line rounded-md rounded-t-none p-3 bg-surface focus-within:border-accent focus-within:shadow-soft transition-all';
+const EDITOR_BOX = 'overflow-hidden border border-line rounded-md rounded-t-none focus-within:border-accent focus-within:shadow-soft transition-all';
 // 목록·편집 줄은 **트랙을 다 쓴다**(사용자 결정 2026-09-05: "다 반응형으로 메워야
 // 한다. 모바일·데스크톱 모두 잘 나오게"). 예전에는 46rem 상한이 있었다 — 이름과
 // 역할이 화면 양 끝으로 갈라져 보인다는 지적(회차 5 '결정 대기 ⑪')을 폭으로 눌러 둔
@@ -1147,8 +1149,13 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
           </div>
         </div>
       ) : (
-        // 업무 본문·QT 묵상과 같은 편집기(서식 바 포함, 저장 값은 마크다운 문자열)
-        <div className="worship-note-editor note-template">
+        // **편집도 같은 종이 안에서 한다**(사용자 요청 2026-09-10 — "세련되고 기쁘게
+        // 자발적으로 작성할 수 있는 공간으로"). 서식 바가 위에 붙고, 그 아래 종이가
+        // 선다: 인디고 띠 → 설교 제목·구절 → 도막마다 왼쪽 라벨·오른쪽 쓰는 칸.
+        // 부품은 읽기와 **같은 것**이고(paper.jsx NotePaper), 라벨·칸을 만드는 것은
+        // index.css `.note-paper`의 격자 한 겹이다 — 편집기는 여전히 하나이고 저장
+        // 형식도 마크다운 문자열 하나다(§6-32-p).
+        <div className={`worship-note-editor note-paper ${SHEET_BOX}`}>
           <Suspense fallback={<EditorSkeleton />}>
             <MarkdownEditor
               value={body}
@@ -1157,6 +1164,16 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
               className={EDITOR_BOX}
               /* 도막 제목은 **수정 창에서부터** 지워지지 않는다(사용자 결정 2026-09-10) */
               lockedHeadings={WORSHIP_SECTIONS}
+              /* 도막 제목이 고정이라 제목을 만들 일이 없다(사용자 결정 2026-09-10) */
+              headings={false}
+              /* 읽기 종이와 **같은 값**을 머리에 넘긴다 — 두 모드의 머리가 어긋나면
+                 "이 모양으로 나간다"가 거짓이 된다 */
+              frame={(content) => (
+                <NotePaper date={paperDate(serviceDate)} kind="예배 노트"
+                  passageRef={passageRef} passageTitle={passageTitle} cut={NOTE_CUT}>
+                  <div className="paper-rows mt-5">{content}</div>
+                </NotePaper>
+              )}
             />
           </Suspense>
         </div>
@@ -1167,7 +1184,9 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
             <button type="button" onClick={() => setEditing(true)} className={`worship-note-edit ${BTN_SOFT}`}>수정</button>
             <button type="button" onClick={img.share} disabled={img.busy}
               className={`worship-note-image ${WITH_ICON} ${BTN_QUIET}`}>
-              {img.busy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+              {/* 아이콘은 `Share2`다(사용자 결정 2026-09-10) — 하는 일이 내려받기가
+                  아니라 **공유**이고, 막힌 판에서만 저장·새 탭으로 떨어진다(§6-32-k) */}
+              {img.busy ? <Loader2 size={12} className="animate-spin" /> : <Share2 size={12} />}
               <span>이미지로 공유</span>
             </button>
           </span>

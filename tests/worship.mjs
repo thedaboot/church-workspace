@@ -195,7 +195,7 @@ const EMPTY = `(() => {
 })()`;
 // 상세 화면의 빈 탭은 아래에 '내 예배 노트'(서식 바 + 편집기)가 실제로 자리를 차지한다.
 // **문턱을 0.35에서 0.2로 낮췄다**(2026-09-08) — 노트가 빈 칸이 아니라 템플릿(도막
-// 다섯 · services/noteTemplate.js)으로 시작하면서 그 칸이 200px 남짓 길어졌고,
+// 넷 · services/noteTemplate.js)으로 시작하면서 그 칸이 200px 남짓 길어졌고,
 // 1440x900에서 갓 만든 주보는 둘이 함께 이상적인 높이를 가질 수 없다. 빈 자리는
 // 여전히 마크와 함께 상자 한가운데에 서고 바닥값(FILL_MIN 200px)은 지킨다.
 const centered = (e) => !!e && e.mark === true && e.h >= e.vh * 0.2 && Math.abs(e.dy) <= 2 && Math.abs(e.dx) <= 2;
@@ -697,7 +697,7 @@ check('주보 종이에는 캐릭터 컷을 얹지 않는다', paper.cut === 0, 
 check('본문이 도착한 뒤에 PDF 버튼이 열린다', paper.pdf === true && paper.pdfOff === false,
   JSON.stringify({ pdf: paper.pdf, off: paper.pdfOff }));
 
-// ── 종이 굽기가 3~5배 빨라진 자리 (2026-09-10 · §6-32-p·32-q) ────────────────
+// ── 종이 굽기가 3~5배 빨라진 자리 (2026-09-10 · §6-32-r·32-s) ────────────────
 // html2canvas는 굽기 전에 **문서 전체를 iframe에 복제**하고 그 복제본의 모든 요소에서
 // 계산된 스타일을 읽는다 — 비용이 DOM 개수라 **배율을 낮춰도 거의 줄지 않았다**.
 // 굽는 가지만 남기니 종이 1쪽이 2412ms → 905ms였다(헤드리스 크롬 CPU 4배 스로틀 실측).
@@ -1095,11 +1095,67 @@ const noteEditor = await ev(`(() => ({
   tiptap: !!document.querySelector('.worship-note .tiptap'),
   textarea: !!document.querySelector('.worship-note textarea'),
   bar: [...document.querySelectorAll('.worship-note button[title]')]
-    .map(b => b.title).filter(t => ['굵게', '형광펜', '제목 1', '체크리스트'].includes(t)).length,
+    .map(b => b.title).filter(t => ['굵게', '형광펜', '불릿 목록', '체크리스트'].includes(t)).length,
+  heads: [...document.querySelectorAll('.worship-note button[title]')]
+    .map(b => b.title).filter(t => t.indexOf('제목 ') === 0),
 }))()`);
 check('내 예배 노트가 업무 본문과 같은 마크다운 편집기다',
   noteEditor.tiptap === true && noteEditor.textarea === false, JSON.stringify(noteEditor));
-check('노트에도 서식 바가 같이 온다(굵게·형광펜·제목·체크리스트)', noteEditor.bar === 4, String(noteEditor.bar));
+check('노트에도 서식 바가 같이 온다(굵게·형광펜·목록·체크리스트)', noteEditor.bar === 4, String(noteEditor.bar));
+// **제목 버튼은 없다**(사용자 결정 2026-09-10) — 도막 제목이 고정이라 제목을 만들 일이
+// 없고, 단계를 바꾸면 그 도막이 종이에서 라벨로 안 올라가는 것처럼 보인다.
+// **되돌리기**: `headings={false}`를 떼면 넷이 다시 나타나 이 줄이 깨진다.
+check('노트 서식 바에 제목 버튼이 없다', noteEditor.heads.length === 0, JSON.stringify(noteEditor.heads));
+
+// ── 편집도 종이 안에서 한다 (사용자 요청 2026-09-10) ────────────────────────
+// 예전에는 서식 바 아래 흰 상자에 제목이 큰 여백으로 벌어진 문서 편집기였고, 저장하면
+// 갑자기 다른 물건(종이)이 됐다. 지금은 편집 화면이 **읽기 종이와 같은 부품**으로 선다:
+// 인디고 띠(날짜·'예배 노트') → 설교 제목·구절 → 도막마다 왼쪽 라벨 · 오른쪽 쓰는 칸.
+// **되돌리기**: MyNote의 `frame`을 떼면 띠·제목·구절이 사라져 아래 넷이 깨진다.
+const notePaper = await ev(`(() => {
+  const box = document.querySelector('.worship-note-editor');
+  const sheet = box && box.querySelector('.paper-sheet');
+  const mast = sheet && sheet.querySelector('.paper-mast');
+  const tip = box && box.querySelector('.tiptap');
+  const cs = tip ? getComputedStyle(tip) : null;
+  const h = tip && tip.querySelector('h3');
+  const next = h && h.nextElementSibling;
+  const a = h && h.getBoundingClientRect(), b = next && next.getBoundingClientRect();
+  return {
+    kind: mast ? mast.querySelector('.paper-mast-kind').textContent.trim() : '',
+    date: mast ? mast.querySelector('.paper-mast-date').textContent.trim() : '',
+    title: sheet ? (sheet.querySelector('.paper-ref-title') || {}).textContent : null,
+    ref: sheet ? (sheet.querySelector('.paper-ref') || {}).textContent : null,
+    cut: !!(sheet && sheet.querySelector('.paper-cut')),
+    tail: !!(sheet && sheet.querySelector('.paper-tail')),
+    inside: !!(sheet && tip && sheet.contains(tip)),
+    bg: sheet ? getComputedStyle(sheet).backgroundColor : '',
+    grid: cs ? cs.display : '', cols: cs ? cs.gridTemplateColumns : '',
+    heads: tip ? [...tip.querySelectorAll('h3')].map(x => x.textContent.trim()) : [],
+    dTop: (a && b) ? Math.round(b.top - a.top) : null,
+    rightOf: (a && b) ? Math.round(b.left - a.right) : null,
+    labelW: a ? Math.round(a.width) : null,
+  };
+})()`);
+check('편집 화면도 종이다(띠·컷·밑단이 읽기와 같은 부품)',
+  notePaper.kind === '예배 노트' && notePaper.cut === true && notePaper.tail === true
+  && notePaper.inside === true, JSON.stringify(notePaper));
+check('편집 화면 머리에 그 주보의 설교 제목과 구절이 선다',
+  (notePaper.title || '') === '흔들리지 않는 기쁨' && (notePaper.ref || '') === '이사야 32:9-20',
+  JSON.stringify([notePaper.title, notePaper.ref]));
+check('마스트에 종이 서식의 날짜가 선다', /^\d{4}\. \d{2}\. \d{2}$/.test(notePaper.date), notePaper.date);
+// 종이는 언제나 밝다(§6-32-i) — 편집 화면도 그렇다
+check('종이는 편집 중에도 밝다(다크를 따라가지 않는다)',
+  notePaper.bg === 'rgb(255, 253, 252)', notePaper.bg);
+// 도막 이름·순서(사용자 결정 2026-09-10 — '나의 묵상'을 빼고 '결단'→'나의 결단')
+check('예배 노트는 네 도막으로 시작한다',
+  notePaper.heads.join('|') === '본문|말씀 요약|나의 결단|기도', JSON.stringify(notePaper.heads));
+// 격자 자동 배치가 h3(1열)과 그 다음 블록(2열)을 같은 행에 앉힌다(index.css `.note-paper`)
+// **되돌리기**: `display: grid`를 지우면 라벨이 위로 올라가 이 줄이 깨진다.
+check('1440: 라벨과 그 도막 첫 줄이 같은 행이고 라벨 칸은 58px이다',
+  notePaper.grid === 'grid' && /^58px /.test(notePaper.cols)
+  && Math.abs(notePaper.dTop) <= 2 && notePaper.rightOf >= 0 && notePaper.labelW === 58,
+  JSON.stringify(notePaper));
 
 // **빈 자리를 눌러도 글이 써진다** — 글자가 있는 자리를 정확히 눌러야 커서가 잡히면
 // 아래 여백을 누른 사람은 아무 일도 안 일어난 것으로 안다(§6 · MarkdownEditor의 focusEnd)
@@ -2357,7 +2413,12 @@ const rePlant = (o) => `(() => {
 // 다시 들어오는 길은 **업무 대시보드**를 거친다 — 홈은 지금 다른 회차에서 고치는
 // 중이고, 그 화면이 콘솔에 오류를 내면 우리 '콘솔 오류 0'이 같이 무너진다.
 const reopen = async () => { await ev(`${byText('업무 대시보드')}.click()`); await sleep(700); await ev(GO); await sleep(900); };
-const CHARS = `document.querySelectorAll('main img[src*="/chars/"]').length`;
+// **종이 위의 컷은 세지 않는다.** 노트 종이에는 캐릭터 한 컷이 얹힌다(사용자 결정
+// 2026-09-09 · paper.jsx NOTE_CUT) — 그것은 앱 화면이 아니라 바깥으로 나가는 인쇄물이다.
+// 2026-09-10에 **편집 화면도 그 종이**가 되면서 노트가 없는 주보에서도 그 컷이 서게 됐다
+// (그전에는 편집 상자여서 이 그물에 안 걸렸다). 걸러 내는 자리는 `.paper-sheet` 안이다.
+const CHARS = `[...document.querySelectorAll('main img[src*="/chars/"]')]
+  .filter(i => !i.closest('.paper-sheet')).length`;
 
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 await sleep(400);

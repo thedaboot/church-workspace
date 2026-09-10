@@ -26,6 +26,12 @@ import { splitBold } from '../services/sunGuide.js';
 //
 // 그림·PDF로 굽는 길은 services/shareImage.js 한 벌이다(여기는 그리기만 한다).
 // **로고에 width/height를 반드시 박는다** — 카카오 인앱에서 로고가 깨졌던 자리다.
+//
+// 2026-09-10부터 **노트는 이 종이 안에서 쓴다**(사용자 요청 — "세련되고 기쁘게 자발적으로
+// 작성할 수 있는 공간으로"). 그래서 띠·머리·밑단이 `PaperMast`·`PaperNoteHead`·`NotePaper`로
+// 나와 있다 — 편집 화면이 같은 부품을 쓴다(마크업을 한 벌 더 적으면 한쪽만 고쳐진다).
+// 도막 자리에 무엇이 서는지만 다르다: 읽기는 `PaperRow` 여러 줄, 편집은 편집기 하나
+// (index.css `.note-paper`의 격자가 그 안에서 라벨·칸을 만든다 — §6-32-p).
 // ============================================================================
 
 export const PAPER = {
@@ -41,7 +47,9 @@ export const PAPER = {
 };
 
 // 종이 위쪽 인디고 띠. 왼쪽 날짜(가는 굵기·숫자 등간격), 오른쪽 종이 이름(800).
-function Masthead({ date, kind }) {
+// **읽기와 편집이 같은 부품을 쓴다**(2026-09-10) — 그래서 export다. 편집 화면에 같은
+// 마크업을 한 벌 더 적으면 한쪽만 고쳐진다(§6-32-p).
+export function PaperMast({ date, kind }) {
   return (
     <div className="paper-mast flex items-end justify-between gap-3 px-[18px] pt-[13px] pb-[14px]"
       style={{ background: PAPER.night, color: '#fff' }}>
@@ -109,12 +117,66 @@ function PaperTail({ right = 'THE DABOOT MINISTRY' }) {
 }
 
 // 종이 껍데기 — 띠 + 흰 몸통. sheetRef가 html2canvas가 굽는 자리다.
-function Sheet({ sheetRef, date, kind, children, className = '' }) {
+// **PAPER를 CSS 변수로도 흘려 보낸다**(2026-09-10). 종이 안에 서는 것이 늘 우리
+// JSX인 것은 아니다 — 편집기(ProseMirror)가 그리는 글은 index.css가 칠해야 하고,
+// 종이는 다크를 따라가지 않으므로(32-i) 그 규칙이 앱 토큰을 쓸 수 없다. hex를 CSS에
+// 한 벌 더 적으면 두 자리가 갈라지므로, **여기 한 벌**을 변수로 내려 준다.
+export function PaperSheet({ sheetRef, date, kind, children, className = '', style = null }) {
   return (
-    <div ref={sheetRef} className={`paper-sheet ${className}`} style={{ background: PAPER.surface, color: PAPER.ink }}>
-      <Masthead date={date} kind={kind} />
+    <div ref={sheetRef} className={`paper-sheet ${className}`}
+      style={{
+        background: PAPER.surface, color: PAPER.ink,
+        '--paper-surface': PAPER.surface, '--paper-line': PAPER.line, '--paper-ink': PAPER.ink,
+        '--paper-ink2': PAPER.ink2, '--paper-muted': PAPER.muted, '--paper-faint': PAPER.faint,
+        '--paper-accent': PAPER.accent,
+        ...(style || {}),
+      }}>
+      <PaperMast date={date} kind={kind} />
       <div className="paper-body px-[18px] pt-[20px] pb-[18px]">{children}</div>
     </div>
+  );
+}
+// ── 노트 종이의 부품 (예배 노트 · 묵상 노트) ────────────────────────────────
+// 노트 종이의 머리 — 설교 제목·구절과 캐릭터 컷. **읽기(NoteSheet)와 편집(NotePaper)이
+// 같은 것을 쓴다**(2026-09-10 · 사용자 요청 "종이 안에서 쓰기").
+export function PaperNoteHead({ passageRef = '', passageTitle = '', cut = null }) {
+  return (
+    <div className="paper-hero flex items-start justify-between gap-2.5">
+      {/* **제목이 위, 구절이 아래**(사용자 결정 2026-09-09 — "예배 노트도 제목이 위에,
+          본문이 그 아래 표시되도록"). 설교 제목이 이 노트가 무엇에 대한 글인지 말하는
+          자리이고, 구절은 그것을 어디서 들었는지다. 제목이 없는 주보(묵상 노트가 늘
+          그렇다)에서는 구절이 그대로 큰 글자로 올라온다 — 빈 자리를 남기지 않는다. */}
+      <div className="min-w-0">
+        {passageTitle ? (
+          <>
+            <p className="paper-ref-title text-[21px] font-extralight tracking-[-0.045em] leading-[1.15] break-words"
+              style={{ color: PAPER.ink }}>{passageTitle}</p>
+            <p className="paper-ref text-[13px] font-extrabold tracking-[-0.02em] mt-[3px] break-words"
+              style={{ color: PAPER.accent }}>{passageRef}</p>
+          </>
+        ) : (
+          <p className="paper-ref text-[21px] font-extralight tracking-[-0.045em] leading-[1.15] break-words"
+            style={{ color: PAPER.ink }}>{passageRef || ' '}</p>
+        )}
+      </div>
+      {cut ? <img className="paper-cut block shrink-0" src={cut.src} width={cut.w} height={cut.h}
+        style={{ width: 58, height: 'auto' }} alt="" decoding="async" /> : null}
+    </div>
+  );
+}
+
+// 노트 종이의 껍데기 — 띠 · 머리 · (도막 자리) · 밑단. children이 도막 자리다.
+// **읽기는 PaperRow들을, 편집은 편집기 하나를 그 자리에 넣는다**(사용자 요청 2026-09-10 —
+// "종이 안에서 쓰기"). 부품이 한 벌이라 두 모드의 띠·제목·구절·컷이 어긋날 수 없다.
+export function NotePaper({
+  sheetRef, date, kind, passageRef = '', passageTitle = '', cut = null, className = '', children,
+}) {
+  return (
+    <PaperSheet sheetRef={sheetRef} date={date} kind={kind} className={`paper-note ${className}`}>
+      <PaperNoteHead passageRef={passageRef} passageTitle={passageTitle} cut={cut} />
+      {children}
+      <PaperTail />
+    </PaperSheet>
   );
 }
 
@@ -130,29 +192,8 @@ export function NoteSheet({ sheetRef, date, kind, passageRef = '', passageTitle 
   const ref = (headIsPassage ? first.body : '') || passageRef;
   const rows = headIsPassage ? sections.slice(1) : sections;
   return (
-    <Sheet sheetRef={sheetRef} date={date} kind={kind} className="paper-note">
-      <div className="paper-hero flex items-start justify-between gap-2.5">
-        {/* **제목이 위, 구절이 아래**(사용자 결정 2026-09-09 — "예배 노트도 제목이 위에,
-            본문이 그 아래 표시되도록"). 설교 제목이 이 노트가 무엇에 대한 글인지 말하는
-            자리이고, 구절은 그것을 어디서 들었는지다. 제목이 없는 주보(묵상 노트가 늘
-            그렇다)에서는 구절이 그대로 큰 글자로 올라온다 — 빈 자리를 남기지 않는다. */}
-        <div className="min-w-0">
-          {passageTitle ? (
-            <>
-              <p className="paper-ref-title text-[21px] font-extralight tracking-[-0.045em] leading-[1.15] break-words"
-                style={{ color: PAPER.ink }}>{passageTitle}</p>
-              <p className="paper-ref text-[13px] font-extrabold tracking-[-0.02em] mt-[3px] break-words"
-                style={{ color: PAPER.accent }}>{ref}</p>
-            </>
-          ) : (
-            <p className="paper-ref text-[21px] font-extralight tracking-[-0.045em] leading-[1.15] break-words"
-              style={{ color: PAPER.ink }}>{ref || ' '}</p>
-          )}
-        </div>
-        {cut ? <img className="paper-cut block shrink-0" src={cut.src} width={cut.w} height={cut.h}
-          style={{ width: 58, height: 'auto' }} alt="" decoding="async" /> : null}
-      </div>
-
+    <NotePaper sheetRef={sheetRef} date={date} kind={kind}
+      passageRef={ref} passageTitle={passageTitle} cut={cut}>
       <div className="paper-rows mt-5" style={{ borderTop: `1px solid ${PAPER.line}` }}>
         {rows.map((s, i) => (
           <PaperRow key={`${s.title}-${i}`} label={s.title || ' '}>
@@ -161,9 +202,7 @@ export function NoteSheet({ sheetRef, date, kind, passageRef = '', passageTitle 
           </PaperRow>
         ))}
       </div>
-
-      <PaperTail />
-    </Sheet>
+    </NotePaper>
   );
 }
 
@@ -173,7 +212,7 @@ export function NoteSheet({ sheetRef, date, kind, passageRef = '', passageTitle 
 // 2쪽에서 새로 시작하므로 밀리지 않는다. PDF가 알아서 다음 장으로 넘긴다.
 export function ServiceSheetOne({ sheetRef, date, kind, title, refStr, preacher, verses = [] }) {
   return (
-    <Sheet sheetRef={sheetRef} date={date} kind={kind} className="paper-service paper-service-1">
+    <PaperSheet sheetRef={sheetRef} date={date} kind={kind} className="paper-service paper-service-1">
       <p className="paper-pgno text-[9px] tracking-[0.1em]" style={{ color: PAPER.faint }}>1 / 2 · 말씀</p>
       {title ? (
         <p className="paper-wt text-[17px] font-extrabold tracking-[-0.035em] leading-[1.25] mt-2.5 break-words"
@@ -200,7 +239,7 @@ export function ServiceSheetOne({ sheetRef, date, kind, title, refStr, preacher,
         </div>
       ) : null}
       <PaperTail />
-    </Sheet>
+    </PaperSheet>
   );
 }
 
@@ -219,7 +258,7 @@ export function ServiceSheetTwo({
   const rows = paperRoles(roles);
   const who = (r) => (nameOf ? nameOf(r.name) : r.name);
   return (
-    <Sheet sheetRef={sheetRef} date={date} kind={kind} className="paper-service paper-service-2">
+    <PaperSheet sheetRef={sheetRef} date={date} kind={kind} className="paper-service paper-service-2">
       <div className="flex items-start justify-between gap-2.5">
         <p className="paper-pgno text-[9px] tracking-[0.1em]" style={{ color: PAPER.faint }}>2 / 2 · 찬양 · 광고</p>
         {cut ? <img className="paper-cut block shrink-0" src={cut.src} width={cut.w} height={cut.h}
@@ -295,7 +334,7 @@ export function ServiceSheetTwo({
       </div>
 
       <PaperTail right={tagline || 'THE DABOOT MINISTRY'} />
-    </Sheet>
+    </PaperSheet>
   );
 }
 

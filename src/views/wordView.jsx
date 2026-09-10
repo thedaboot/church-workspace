@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, Lock, Pencil, Trash2, Download, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Lock, Pencil, Trash2, Share2, Loader2 } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
 import { selectMembers, selectCurrentUser } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
@@ -18,7 +18,7 @@ import { SectionHead, Card } from './dashboardParts.jsx';
 import { loadPassage } from '../services/bible.js';
 import { qtNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
   ensureNoteSections, QT_SECTIONS } from '../services/noteTemplate.js';
-import { NoteSheet, PAPER, paperDate } from '../components/paper.jsx';
+import { NoteSheet, NotePaper, PAPER, paperDate } from '../components/paper.jsx';
 import { useSheetShare } from '../hooks/useSheetShare.jsx';
 import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap, useBibleState, useVersePaint, marksFor } from '../components/wordBible.jsx';
 import {
@@ -77,12 +77,15 @@ import {
 // 바뀐 경우') 같은 에디터에 새 날짜의 글을 넣기만 하면 된다.
 //
 // **저장된 묵상이 있으면 읽기 모드다**(2026-09-07). 예전에는 편집기가 늘 열려 있어서
-// 이미 쓴 글인지 지금 고치는 중인지 화면이 말해 주지 않았다. 이제 저장된 글은 나눔 피드와
-// 같은 뷰어(RichText)로 그리고 '수정'을 눌러야 편집기가 선다 — 그때만 저장·취소가 붙는다.
+// 이미 쓴 글인지 지금 고치는 중인지 화면이 말해 주지 않았다. 이제 저장된 글은 **종이**로
+// 그리고(components/paper.jsx · 공유되는 그림과 같은 것이다) '수정'을 눌러야 편집기가
+// 선다 — 그때만 저장·취소가 붙는다.
 // 아직 아무것도 저장하지 않은 날은 처음부터 편집기다(쓸 것이 없는데 '수정'을 누를 수는 없다).
-// **그래도 편집기는 언마운트하지 않는다** — 읽기 모드에서는 `hidden`으로 두기만 하고,
-// 읽기 상자는 편집기와 같은 자리 높이(EDITOR_SLOT)를 받는다. 날짜를 넘길 때 아래가
-// 튀지 않게 하려던 위 규칙을 이 모드 전환이 깨면 안 된다.
+// **그래도 편집기는 언마운트하지 않는다** — 읽기 모드에서는 `hidden`으로 두기만 한다.
+// 날짜를 넘길 때 아래가 튀지 않게 하려던 위 규칙을 이 모드 전환이 깨면 안 된다.
+//
+// **편집도 그 종이 안에서 한다**(사용자 요청 2026-09-10 · HANDOFF §6-32-p) — 부품이
+// 읽기와 같은 한 벌이라(`NotePaper`) 두 모드의 띠·구절·컷이 어긋날 수 없다.
 //
 // **본문표 붙여넣기 도구는 없다** — 읽기표 730일치가 0038로 qt_schedule에 들어 있다
 // (services/word.js 머리말). 되살리지 말 것.
@@ -94,22 +97,23 @@ const SEGMENTS = [['qt', 'QT'], ['read', '성경 읽기']];
 // 마크다운이고 나눔 피드는 RichText로 그린다. TipTap은 무거우므로 modals가 하듯
 // lazy로 떼어 둔다(§1.3) — 성경 읽기만 보다 나가는 사람은 받지 않는다.
 const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').then(m => ({ default: m.MarkdownEditor })));
-// 본문 칸의 높이. **업무 수정 창과 같은 상자다**(사용자 피드백 2026-09-03 — "빈 공간을 눌러도 입력되게").
-// 빈 자리를 눌러 커서를 잡는 일은 MarkdownEditor가 이미 한다(그 파일의 focusEnd —
-// `.tiptap` 밖을 누르면 문서 끝으로 보낸다). 다른 점은 상자 높이뿐이어서, 업무 수정과
-// 같은 `min-h-40 md:min-h-56`으로 맞췄다 — 데스크톱에서 누를 빈 자리가 160 → 224px이 된다.
-const EDITOR_BOX = 'min-h-40 md:min-h-56';
+// 편집 칸의 감싸개 — **종이가 그 안에 든다**(2026-09-10 · MarkdownEditor의 `frame`).
+// 여백·배경·글자색은 종이(components/paper.jsx)가 가지고, 여기는 서식 바 아래로 이어지는
+// 테두리와 둥근 모서리만 맡는다(예배 노트와 **같은 한 줄**이다 — worshipDetail EDITOR_BOX).
+// 빈 자리를 눌러 커서를 잡는 일은 MarkdownEditor가 한다(그 파일의 focusEnd —
+// `.tiptap` 밖을 누르면 문서 끝으로 보낸다) — 종이 여백을 눌러도 그대로 된다.
+const EDITOR_BOX = 'overflow-hidden border border-line rounded-md rounded-t-none focus-within:border-accent focus-within:shadow-soft transition-all';
 // 서식 바(37px) + 본문 칸. 에디터가 붙기 전에도 같은 높이를 잡아 두어야 도착하는 순간
 // 아래 것들이 밀리지 않는다.
 const EDITOR_SLOT = 'min-h-[197px] md:min-h-[261px]';
 const EditorSkeleton = () => (
   <div className={`dc-skeleton border border-line rounded-md ${EDITOR_SLOT}`} />
 );
-// 저장된 묵상을 읽는 상자 — **편집기가 쓰던 자리를 그대로 받는다**. 높이는 EDITOR_SLOT이
-// 아니라 편집기의 실제 높이다: 센티넬 1 + 서식 바 37 + 본문 상자 160(md 224) = 198(262).
-// 자리표(EDITOR_SLOT)보다 1px 큰데, 그 1px을 안 맞추면 수정·취소를 누를 때마다 아래
-// 칸들이 1px씩 오르내린다.
-// 종이 폭 상한 — 인쇄물이라 여기만 max-w를 쓴다(§6-9-k의 예외). 예배 노트와 같은 값이다
+// 종이 폭 상한 — 인쇄물이라 여기만 max-w를 쓴다(§6-9-k의 예외). 예배 노트와 같은 값이고
+// **읽기와 편집이 같이 쓴다**(2026-09-10 — 두 모드에서 종이의 폭·왼쪽 자리가 같아야
+// 수정·취소를 눌렀을 때 종이가 옆으로 흔들리지 않는다. tests/word가 단정한다).
+// 2026-09-07~09-09에는 읽기 상자를 **편집기의 실제 높이**(198/262px)로 맞춰 두었는데,
+// 편집 화면도 종이가 되면서 두 높이가 내용에 따라 달라졌다 — 남은 차이는 §1.3에 있다.
 const QT_SHEET_BOX = 'qt-note-sheet w-full max-w-[560px] mx-auto';
 const QT_CUT = { src: '/chars/book.webp', w: 196, h: 157 };
 
@@ -485,14 +489,20 @@ function QtTab() {
             {/* **저장하면 바로 종이다**(사용자 요청 2026-09-09 · components/paper.jsx).
                 예배 노트와 같은 종이이고 캐릭터 컷만 다르다(말씀은 book) — 공유되는
                 그림과 화면이 같아야 "이 모양으로 나간다"를 눌러 보기 전에 안다. */}
+            {/* 머리의 구절은 **`passageRef`** 다(`day.passage_ref`가 아니다 — 그 객체의
+                구절은 `day.schedule.passage_ref`에 있어서 늘 빈 칸이 나갔다. 2026-09-10에
+                편집 종이가 같은 값을 쓰면서 드러났다) */}
             <div data-note-read="1" className={reading ? QT_SHEET_BOX : 'hidden'}>
               <div className="rounded-[12px] overflow-hidden border border-line">
                 <NoteSheet sheetRef={qtSheetRef} date={paperDate(date)} kind="묵상 노트"
-                  passageRef={day?.passage_ref || ''} sections={qtSections} cut={QT_CUT} />
+                  passageRef={passageRef} sections={qtSections} cut={QT_CUT} />
               </div>
             </div>
-            {/* **언마운트하지 않는다**(머리말) — 읽기 모드에서는 감추기만 한다 */}
-            <div className={`qt-note-editor note-template ${reading ? 'hidden' : ''}`}>
+            {/* **언마운트하지 않는다**(머리말) — 읽기 모드에서는 감추기만 한다.
+                **편집도 같은 종이 안에서 한다**(사용자 요청 2026-09-10) — 부품은 읽기와
+                같은 것이고(paper.jsx NotePaper), 라벨·칸을 만드는 것은 index.css
+                `.note-paper`의 격자 한 겹이다(§6-32-p). 예배 노트와 같은 짜임이다. */}
+            <div className={`qt-note-editor note-paper ${QT_SHEET_BOX} ${reading ? 'hidden' : ''}`}>
               {entry ? (
                 <Suspense fallback={<EditorSkeleton />}>
                   <MarkdownEditor
@@ -501,7 +511,16 @@ function QtTab() {
                     placeholder="오늘 본문에서 마음에 남은 것"
                     /* 도막 제목은 **수정 창에서부터** 지워지지 않는다(사용자 결정 2026-09-10) */
                     lockedHeadings={QT_SECTIONS}
-                    className={`${EDITOR_BOX} border border-line rounded-md rounded-t-none p-3 bg-surface focus-within:border-accent focus-within:shadow-soft transition-all`}
+                    /* 도막 제목이 고정이라 제목을 만들 일이 없다(사용자 결정 2026-09-10) */
+                    headings={false}
+                    className={EDITOR_BOX}
+                    /* 읽기 종이와 **같은 값**을 머리에 넘긴다(그날 본문 구절) */
+                    frame={(content) => (
+                      <NotePaper date={paperDate(date)} kind="묵상 노트"
+                        passageRef={passageRef} cut={QT_CUT}>
+                        <div className="paper-rows mt-5">{content}</div>
+                      </NotePaper>
+                    )}
                   />
                 </Suspense>
               ) : <EditorSkeleton />}
@@ -521,7 +540,9 @@ function QtTab() {
                   </button>
                   <button onClick={qtImg.share} disabled={qtImg.busy} data-qt-image="1"
                     className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[11.5px] font-medium text-fg-muted bg-surface-hover hover:bg-line transition active:scale-95 disabled:opacity-50">
-                    {qtImg.busy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                    {/* 아이콘은 `Share2`다(사용자 결정 2026-09-10) — 하는 일이 내려받기가
+                        아니라 **공유**이고, 막힌 판에서만 저장·새 탭으로 떨어진다(§6-32-k) */}
+                    {qtImg.busy ? <Loader2 size={12} className="animate-spin" /> : <Share2 size={12} />}
                     <span>이미지로 공유</span>
                   </button>
                 </>
