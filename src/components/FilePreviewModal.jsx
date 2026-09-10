@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
+import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronRight, Maximize2, Minimize2, SquarePen } from 'lucide-react';
 import { RichText } from './RichText.jsx';
 import { getFileOpenUrl, driveImageFullUrl, fetchDriveFileBlob } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useMyEmail } from '../services/auth.jsx';
 import { Skeleton, SmartImage } from './media.jsx';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
@@ -84,6 +85,8 @@ const imgSrcOf = (r) => (r?.source === 'local'
 // 사용자가 판단해서 뺀 길이다(§7). 실제 경계는 드라이브의 편집자 목록이다(§6-32-g).
 export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose, canEditCopy = false }) {
   const isMobile = useIsMobile();
+  // 구글 문서 주소의 `authuser=`에 실을 내 로그인 이메일(§6-34-h). 게스트는 빈 문자열.
+  const myEmail = useMyEmail();
   // 사진 넘기기 — 지금 보는 파일이 이미지일 때, 같은 목록의 **이미지끼리만**.
   // 문서·영상은 안 넘긴다: iframe 뷰어는 장마다 새로 뜨는 데 몇 초씩 걸려서
   // "넘긴다"는 느낌이 안 난다. 사진(첨부의 대부분)만 즉시 넘어간다.
@@ -282,6 +285,15 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     }
   };
 
+  // '구글 문서에서 편집' — 자격자(canEditCopy)에게만, 그리고 **언제나 보인다**(§8).
+  // 왜 새 탭인가: 앱 안 창은 iframe이고 그 안의 구글은 **브라우저의 구글 로그인 상태
+  // (서드파티 쿠키)** 를 쓴다. 아이폰 사파리·카카오 인앱·크롬 시크릿은 그것을 막아
+  // 구글이 로그아웃 상태로 보고 읽기 화면을 준다 — 앱 안에서는 구조적으로 못 고친다
+  // (§6-34-h). 새 탭은 1차 쿠키라 폰에서도 편집이 된다.
+  // `rm=minimal`을 빼는 이유: 새 탭은 폭이 넉넉하니 온전한 편집기가 맞다.
+  // 자격이 없으면 null이라 버튼 자체가 없다.
+  const editHref = canEditCopy ? copyEditUrl(cur, { email: myEmail, minimal: false }) : null;
+
   const body = (() => {
     if (error) return <Fallback row={cur} message={error} onOpen={openExternal} />;
 
@@ -371,8 +383,10 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     // (§6-29-c에 적힌 그 결정 그대로다 — 작성자가 칠한 색을 원본대로 보여주는 자리다).
     if (kind === 'gdoc') {
       // 자격자에게는 편집 화면, 나머지는 보기 화면. 사본이 없으면 둘 다 null이고 아래에서
-      // 새 탭으로 떨어진다.
-      const src = (canEditCopy && copyEditUrl(cur)) || previewCopyUrl(cur);
+      // 새 탭으로 떨어진다. `authuser=`로 어느 구글 계정으로 열지를 정한다(§6-34-h) —
+      // 그래도 **앱 안 창(iframe)은 서드파티 쿠키가 막힌 브라우저에서 읽기 화면이다.**
+      // 그 갈래는 머리줄의 '구글 문서에서 편집'(새 탭)이 받는다.
+      const src = (canEditCopy && copyEditUrl(cur, { email: myEmail })) || previewCopyUrl(cur);
       // 종류 판정이 사본을 확인하고 왔으므로 여기서 src가 빌 일은 없다. 그래도 빈 iframe을
       // 띄우느니 새 탭을 내주는 쪽이 정직하다(스켈레톤만 남으면 영영 안 걷힌다).
       if (!src) return <Fallback row={cur} message="미리보기를 준비하지 못했어요." onOpen={openExternal} />;
@@ -494,6 +508,15 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
               </p>
             )}
           </div>
+          {/* 편집 진입은 연한 accent다(§8의 색 규칙). 새 탭이라 <a>여야 한다 —
+              폰에서는 이 길만 편집이 된다(위 editHref 주석). rel에 noreferrer까지
+              두는 이유는 구글에 우리 주소를 넘길 이유가 없어서다. */}
+          {editHref && (
+            <a href={editHref} target="_blank" rel="noreferrer"
+              className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold whitespace-nowrap transition active:scale-95">
+              <SquarePen size={13} strokeWidth={1.8} /> 구글 문서에서 편집
+            </a>
+          )}
           {!isMobile && (
             <button type="button" onClick={() => setWide(w => !w)}
               className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95"

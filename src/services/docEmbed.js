@@ -28,8 +28,12 @@ export function docEmbedKind(url) {
 //     `#gid=`를 잃으면 링크로 가리킨 탭이 아니라 첫 탭이 열린다.
 //   · `/d/e/<긴 id>/pubhtml`(웹에 게시한 사본)은 **경로를 그대로 둔다** — 그건 편집할 수
 //     있는 문서가 아니고, `/edit`으로 바꾸면 있지도 않은 주소가 된다.
+//   · `email`을 주면 `authuser=<이메일>` — 브라우저에 구글 계정이 여럿 로그인돼 있으면
+//     구글은 **기본 계정**으로 열고, 그 계정에 편집 권한이 없으면 읽기 화면이 뜬다
+//     (§6-34-h · previewKind.copyEditUrl과 같은 사정이다). 앱에 로그인한 supabase 세션의
+//     user.email을 넘긴다. 값이 없으면 아무것도 붙이지 않는다(지금까지와 같은 주소).
 // 구글 문서 주소가 아니면 원문을 그대로 돌려준다(부르는 쪽이 docEmbedKind로 먼저 가른다).
-export function docEmbedSrc(url) {
+export function docEmbedSrc(url, { email = '' } = {}) {
   const raw = String(url || '');
   if (!docEmbedKind(raw)) return raw;
   let u;
@@ -38,5 +42,6 @@ export function docEmbedSrc(url) {
   const m = /^\/(document|spreadsheets|presentation)\/d\/(e\/)?([^/]+)/.exec(u.pathname);
   if (m && !m[2]) u.pathname = `/${m[1]}/d/${m[3]}/edit`;
   u.searchParams.set('rm', 'minimal');
+  if (email) u.searchParams.set('authuser', email);
   return u.toString();
 }

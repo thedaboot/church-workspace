@@ -81,12 +81,23 @@ export const previewCopyUrl = (row) => {
 // 주소만 /edit이어도 아무나 고치지는 못한다: 그 사본의 편집자는 드라이브에 등록된 구글
 // 계정 둘뿐이고(Apps Script v10 `CUE_EDITORS`), 나머지는 이 주소로 열어도 구글이 읽기
 // 화면을 준다. 즉 경계는 드라이브에 있고 이 함수는 자격자에게 편집 화면을 열어 주는 일만 한다.
-export const copyEditUrl = (row) => {
+//
+// **`email`을 주면 `authuser=`가 붙는다**(사용자 결정 2026-09-10 · §6-34-h). 자격자인데도
+// 읽기 화면이 뜨던 두 갈래 중 하나가 이것이었다 — 브라우저에 구글 계정이 여럿 로그인돼
+// 있으면 구글은 **기본 계정**으로 문서를 열고, 그 계정이 편집자가 아니면 읽기 화면이다.
+// `authuser=<이메일>`이 어느 계정으로 열지를 정한다(구글이 문서 주소에서 받는 인자다).
+// 넘기는 값은 **앱에 로그인한 supabase 세션의 user.email**이다(components가 useAuth로 받는다).
+// 나머지 한 갈래(iframe 안에서 서드파티 쿠키가 막혀 로그아웃 상태가 되는 것)는 이 인자로
+// 못 고친다 — 그래서 화면이 '구글 문서에서 편집'(새 탭)을 언제나 함께 둔다.
+//
+// `minimal`은 구글 편집기의 도구 줄을 줄이는 `rm=minimal`이다. 앱 안 iframe은 폭이 좁아
+// 켠 채로 두고, **새 탭에서는 끈다** — 거기서는 온전한 편집기가 맞다.
+export const copyEditUrl = (row, { email = '', minimal = true } = {}) => {
   const target = COPY_TARGET[extOf(row?.name)];
   const seg = target === 'spreadsheet' ? 'spreadsheets' : target;
-  return (row?.preview_file_id && seg)
-    ? `https://docs.google.com/${seg}/d/${row.preview_file_id}/edit?rm=minimal`
-    : null;
+  if (!(row?.preview_file_id && seg)) return null;
+  const q = [minimal ? 'rm=minimal' : '', email ? `authuser=${encodeURIComponent(email)}` : ''].filter(Boolean).join('&');
+  return `https://docs.google.com/${seg}/d/${row.preview_file_id}/edit${q ? `?${q}` : ''}`;
 };
 
 export function previewKind(row) {

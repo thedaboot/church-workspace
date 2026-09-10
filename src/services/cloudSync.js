@@ -39,10 +39,25 @@ const primeMaps = (teams, profiles) => {
     (p.merged_into && nameOfId.get(p.merged_into)) || p.display_name || '',
   ]));
   // 앱 안에서 사람은 표시명으로 다닌다(담당자·댓글 작성자·활동 기록 전부 이름) —
-  // 사진도 같은 열쇠로 찾게 둔다. 동명이인이 있으면 먼저 온 사람의 사진이 남는다.
-  nameToAvatar = new Map(profiles
-    .filter(p => p.display_name && p.avatar_url)
-    .map(p => [p.display_name, httpsImage(p.avatar_url)]));
+  // 사진도 같은 열쇠로 찾게 둔다.
+  //
+  // **합쳐지지 않은 행이 이긴다**(사용자 결정 2026-09-10 · §6-34-f). 예전에는
+  // `new Map(profiles.map(…))` 한 줄이었는데, 같은 이름이면 **뒤에 온 행이 앞을 덮는다** —
+  // 합쳐진 계정(merged_into)이 뒤에 오면 담당자·멘션·댓글·활동에 옛 사진이 나왔다
+  // (사용자 신고 — 문진혁·임재훈). 바로 위 profileIdToName은 이미 남긴 계정으로 풀고
+  // 있었는데 이 표만 안 그랬다. 그래서 두 바퀴로 넣는다: 먼저 안 합쳐진 행,
+  // 그 다음 합쳐진 행(그 이름에 사진이 아직 없을 때만 — 사진이 그쪽에만 있는 경우다).
+  // 환송한 사람(removed_at)은 그대로 남긴다 — 지난 댓글·활동의 사진이다(위 주석).
+  const withAvatar = profiles.filter(p => p.display_name && p.avatar_url);
+  nameToAvatar = new Map();
+  for (const p of withAvatar) {
+    if (p.merged_into || nameToAvatar.has(p.display_name)) continue;
+    nameToAvatar.set(p.display_name, httpsImage(p.avatar_url));
+  }
+  for (const p of withAvatar) {
+    if (nameToAvatar.has(p.display_name)) continue;
+    nameToAvatar.set(p.display_name, httpsImage(p.avatar_url));
+  }
   // 담당자·멘션 자동완성은 가나다순으로 보여준다(호출부 전체가 이 순서를 물려받음).
   // **환송한 사람(0027)은 후보에서 뺀다**(사용자 지적 2026-08-30 — 스토어의 members는
   // 걸렀는데 이 모듈 캐시는 안 걸러서, 멘션·담당자 목록에만 환송한 사람이 남아 있었다).
@@ -415,17 +430,25 @@ export async function loadCloudState() {
 
   const projectsApp = projects.map(p => projectToApp(p, linksByProject));
 
+  // **합친 계정으로 들어와도 화면에 보이는 것은 남긴 계정이다**(사용자 결정 2026-09-10 ·
+  // 0061 effective_uid의 취지 — 화면에 보이는 사람은 한 명). 헤더·'내 정보'·아바타 색이
+  // 이 값을 보므로, 여기서 한 번 풀어 두면 그 아래가 전부 남긴 계정으로 따라온다.
+  // 팀도 남긴 계정 것이다 — 0059가 profile_teams를 그쪽으로 옮겼으니 자기 id로 찾으면
+  // 빈 배열이 나온다. **`profile`(아래 return)은 바꾸지 않는다** — 그건 "내가 누구로
+  // 로그인했나"이고 승인 판정·자가 복구가 그것을 본다.
+  // 함정: 이 화면으로 '내 정보'를 고치면 글은 **자기(합쳐진) 행**에 써져 안 보인다(§6-34-g).
+  const shownProfile = (myProfile?.merged_into && profiles.find(p => p.id === myProfile.merged_into)) || myProfile;
   // 소속 팀 여럿 (profile_teams). 테이블이 없으면 빈 배열이라 대표 팀만 남는다.
   // team(대표) = 아바타 색·기본 팀 보드, teams(전체) = '내 팀 업무' 집계
   const myTeamNames = (profileTeams || [])
-    .filter(r => myProfile && r.profile_id === myProfile.id)
+    .filter(r => shownProfile && r.profile_id === shownProfile.id)
     .map(r => teamIdToName.get(r.team_id))
     .filter(Boolean);
-  const primaryTeam = myProfile?.team_id ? (teamIdToName.get(myProfile.team_id) || '') : '';
+  const primaryTeam = shownProfile?.team_id ? (teamIdToName.get(shownProfile.team_id) || '') : '';
   const allTeams = [...new Set([primaryTeam, ...myTeamNames].filter(Boolean))];
-  const currentUser = myProfile
-    ? { name: myProfile.display_name || '', team: primaryTeam || allTeams[0] || '', teams: allTeams,
-        avatarUrl: httpsImage(myProfile.avatar_url || '') }
+  const currentUser = shownProfile
+    ? { name: shownProfile.display_name || '', team: primaryTeam || allTeams[0] || '', teams: allTeams,
+        avatarUrl: httpsImage(shownProfile.avatar_url || '') }
     : { name: '', team: '', teams: [] };
 
   // 대시보드가 사람을 세우려면 프로필 목록이 화면까지 와야 한다(0019의 생일·다녀간 시각).
@@ -707,6 +730,10 @@ export async function linkRemoveCloud(id) { return write(() => cloud.removeLink(
 export async function linkSetPasswordCloud(id, pw) { return write(() => cloud.setLinkPassword(id, pw)); }
 
 // teams(여러 팀)를 주면 profile_teams까지 갱신한다. 대표 팀은 그 중 첫 번째.
+// **합친 계정으로 들어와 고치면 자기(합쳐진) 행에 써진다**(§6-34-g). 화면은 남긴 계정을
+// 보여주므로(loadCloudState의 shownProfile) 고쳐도 아무 변화가 없다. 남긴 행에 쓰려면
+// `profiles_update` 정책이 `auth.uid() = id`라서 DB가 막는다 — 0061은 그 정책을
+// 안 건드렸다. 고치지 않고 함정으로 남긴 자리다(사용자 결정 2026-09-10).
 export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {
   const list = (teams && teams.length ? teams : [team]).filter(Boolean);
   const patch = { display_name: name };

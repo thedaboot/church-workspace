@@ -12,6 +12,11 @@ const AuthContext = createContext({ enabled: false, session: null, loading: fals
 
 export const useAuth = () => useContext(AuthContext);
 
+// 내 로그인 이메일. 구글 문서 주소의 `authuser=`에 실어 **어느 구글 계정으로 열지**를
+// 정하는 데 쓴다(§6-34-h — 브라우저의 기본 계정이 편집자가 아니면 읽기 화면이 뜬다).
+// 게스트 모드에서는 세션이 없어 빈 문자열이고, 그때는 주소에 아무것도 붙지 않는다.
+export const useMyEmail = () => useAuth().session?.user?.email || '';
+
 // ── 로그인 전 자리 기억 (2026-09-05) ─────────────────────────────────────────
 // 카카오톡으로 공유한 링크(/s/t/<id> → /?p=&t=)를 인앱 브라우저에서 열면 세션이 없어
 // 로그인 화면이 뜨고, OAuth가 origin('/')으로 돌려보내서 가려던 업무를 잃었다.

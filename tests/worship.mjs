@@ -2743,6 +2743,53 @@ check('지난 발행본 카드에 출석 수가 붙는다',
   JSON.stringify(listAtt) === JSON.stringify([['흔들리지 않는 기쁨', '출석 1명'], ['깨어 기도하라', null]]),
   JSON.stringify(listAtt));
 
+// ── 16-b) 큐시트를 **구글 문서에서 편집** (2026-09-10) ─────────────────────
+// 사용자 신고: "Apps Script로 편집 권한을 줬는데 주보에서 수정이 안 된다."
+// 앱 안 창은 iframe이고 그 안의 구글은 **브라우저의 구글 로그인 상태(서드파티 쿠키)** 를
+// 쓴다 — 아이폰 사파리·카카오 인앱·시크릿은 그것을 막아 읽기 화면이 뜨고, 앱 안에서는
+// 구조적으로 못 고친다. 그래서 자격자에게는 **새 탭**으로 여는 버튼을 언제나 둔다(§8).
+// 자격이 없는 사람에게는 그 버튼이 없다.
+//
+// 시드의 f2는 PDF라 구글 사본이 없다(위 검사들이 그 모양에 매여 있다) — 이 갈래는
+// `preview_file_id`가 있는 **문서** 큐시트여야 서므로 파일 줄만 갈아 심는다.
+// 게스트 자격은 `me`가 말한다(worship.fetchWorshipPerms) — canEditCue는 기본값에 없다.
+const plantCueDoc = (canEditCue) => `(() => {
+  const g = JSON.parse(${JSON.stringify(JSON.stringify(seed))});
+  g.files = [g.files[0], { id: 'f9', service_id: 's1', kind: 'cuesheet', name: '큐시트 원고.docx',
+    size_bytes: 65536, source: 'local', preview_file_id: 'COPY9' }];
+  g.me = { canEdit: true, canCheckAll: true, ledGroupIds: [], canCheck: true, canEditCue: ${canEditCue} };
+  localStorage.setItem('church_worship_v1', JSON.stringify(g));
+  localStorage.setItem('theme', 'light');
+})()`;
+const cueEditBtn = `(() => {
+  const m = [...document.querySelectorAll('div.fixed.inset-0')].find(d => d.innerText.includes('큐시트 원고.docx'));
+  const a = m && [...m.querySelectorAll('a')].find(x => x.textContent.trim() === '구글 문서에서 편집');
+  return { open: !!m, btn: !!a, href: a?.getAttribute('href') || '',
+    blank: a?.getAttribute('target') || '', rel: a?.getAttribute('rel') || '' };
+})()`;
+const openCueDoc = async (canEditCue) => {
+  await ev(plantCueDoc(canEditCue));
+  await send('Page.navigate', { url: `${URL_BASE}/?p=worship&s=s1` });
+  await wait('Page.loadEventFired'); await sleep(1500);
+  await waitFor(HAS_DETAIL, 8000);
+  await tabClick('말씀'); await sleep(400);
+  await waitFor(`!!document.querySelector('.worship-cue-file-open')`, 6000);
+  await ev(`document.querySelector('.worship-cue-file-open').click()`); await sleep(900);
+  return ev(cueEditBtn);
+};
+const cueDocPastor = await openCueDoc(true);
+// **되돌리기**: FilePreviewModal의 editHref를 지우거나 canEditCopy를 빼면 이 검사가 깨진다.
+check("교역자·마스터에게는 '구글 문서에서 편집'이 새 탭으로 뜬다",
+  cueDocPastor.open === true && cueDocPastor.btn === true
+  && cueDocPastor.href === 'https://docs.google.com/document/d/COPY9/edit'
+  && cueDocPastor.blank === '_blank' && cueDocPastor.rel === 'noreferrer',
+  JSON.stringify(cueDocPastor));
+await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`); await sleep(400);
+const cueDocPlain = await openCueDoc(false);
+check('자격이 없으면 그 버튼이 없다(보기만)',
+  cueDocPlain.open === true && cueDocPlain.btn === false, JSON.stringify(cueDocPlain));
+await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`); await sleep(400);
+
 // ── 17) 딥링크 · 썸네일 자리 (2026-09-07) ──────────────────────────────────
 // 알림에서 온 `/?p=worship&s=<주보 id>`는 목록이 아니라 **그 주보 상세**를 연다(0053의
 // notifications.link). 주소의 나머지 값은 App이 주소를 정리하면서 사라지므로,

@@ -95,6 +95,44 @@ await sync.cardUpsertCloud({ id: 'c1', projectId: 'p1', title: 'x', status: '완
 assert.deepStrictEqual(writes.at(-1).assigneeIds, [], '프로필에 없는 이름은 조인 행을 만들지 않는다');
 assert.deepStrictEqual(writes.at(-1).patch.assignees, ['없는사람'], '그래도 컬럼에는 남아 화면에서 사라지지 않는다');
 
+// ── 합친 계정의 이름·사진 (0059~0061 · 2026-09-10) ────────────────────────
+// 사용자 신고: 문진혁·재훈 계정을 합쳤는데 담당자·멘션·댓글에 옛 계정 사진이 나왔다.
+// 원인은 nameToAvatar를 `new Map(profiles.map(…))` 한 줄로 만들던 것 — 같은 이름이면
+// **뒤에 온 행이 앞을 덮어서** 합쳐진 계정이 뒤에 오면 그 사진이 남았다.
+// 이 블록은 프로필 목록을 갈아치우고 다시 로드한다(위 쓰기 검사가 다 끝난 뒤라야 한다 —
+// primeMaps가 이름→id 표를 새로 만들어 버린다).
+const OUT = '2026-09-09T00:00:00Z';
+globalThis.__CLOUD.listProfiles = async () => [
+  // ① 같은 이름 두 행 — 합쳐진 쪽이 **뒤에** 있다(옛 코드가 지던 배치)
+  { id: 'k1', display_name: '문진혁', avatar_url: 'https://img/keep.jpg' },
+  { id: 'm1', display_name: '문진혁', avatar_url: 'https://img/old.jpg', merged_into: 'k1', removed_at: OUT },
+  // ② 사진이 합쳐진 쪽에만 있으면 그것으로 채운다(남긴 행에 사진이 없다)
+  { id: 'k2', display_name: '조준환' },
+  { id: 'm2', display_name: '조준환', avatar_url: 'https://img/only-merged.jpg', merged_into: 'k2', removed_at: OUT },
+  // ③ 합친 계정으로 로그인 — 화면에 보이는 이름·사진·팀은 남긴 계정 것이다
+  { id: 'k3', display_name: '임재훈', avatar_url: 'https://img/keep-j.jpg', team_id: 'team-1' },
+  { id: 'm3', display_name: '재훈(카카오)', avatar_url: 'https://img/old-j.jpg', merged_into: 'k3', removed_at: OUT },
+];
+globalThis.__CLOUD.listAllCards = async () => [];
+globalThis.__CLOUD.getMyProfile = async () => ({ id: 'm3', display_name: '재훈(카카오)', avatar_url: 'https://img/old-j.jpg', merged_into: 'k3', removed_at: OUT });
+globalThis.__CLOUD.getSession = async () => ({ session: { user: { id: 'm3' } }, user: { id: 'm3' } });
+const merged = await sync.loadCloudState();
+
+assert.strictEqual(sync.getAvatar('문진혁'), 'https://img/keep.jpg',
+  '합쳐진 계정 사진이 남긴 계정 사진을 덮었다');
+assert.strictEqual(sync.getAvatar('조준환'), 'https://img/only-merged.jpg',
+  '사진이 합쳐진 쪽에만 있으면 그것을 써야 한다');
+assert.strictEqual(merged.state.currentUser.name, '임재훈',
+  '합친 계정으로 들어오면 남긴 계정의 이름이 보여야 한다');
+assert.strictEqual(merged.state.currentUser.avatarUrl, 'https://img/keep-j.jpg',
+  '합친 계정으로 들어오면 남긴 계정의 사진이 보여야 한다');
+assert.strictEqual(merged.state.currentUser.team, '찬양팀',
+  '팀도 남긴 계정 것이다 — 0059가 profile_teams를 그쪽으로 옮겼다');
+// `profile`은 **로그인한 신원 그대로**다(승인 판정·자가 복구가 본다)
+assert.strictEqual(merged.profile.id, 'm3', 'profile은 로그인한 계정 그대로여야 한다');
+// 합쳐진 계정은 멘션·담당자 후보에서 빠진다(환송과 같은 취급 — 이미 있던 규칙)
+assert.ok(!sync.getMemberNames().includes('재훈(카카오)'), '합쳐진 계정이 후보에 남았다');
+
 // ── cloud.js가 내보내는 문장 모양 ─────────────────────────────────────────
 // 저장이 겹치면(저장 두 번 눌림·두 기기) 조인 쓰기 문장이 D1 D2 I1 I2 순으로 도착한다.
 // "전부 지우고 전부 넣기"였을 때는 I2가 I1의 행과 부딪혀 duplicate key로 저장이
@@ -154,4 +192,4 @@ assert.ok(emptyDel && !emptyDel.filters.some(f => f.kind === 'not'), '빈 집합
 assert.ok(!stmtsFor('card_assignees').some(s => s.op === 'upsert' || s.op === 'insert'), '빈 집합이면 넣지 않는다');
 assert.ok(!stmtsFor('card_teams').length, 'undefined인 조인은 건드리지 않는다');
 
-console.log('PASS  담당자 읽기 3가지(조인·폴백·빈 값) · 쓰기 3가지(신규·수정·미등록) · 조인 쓰기가 순서에 상관없는 모양');
+console.log('PASS  담당자 읽기 3가지(조인·폴백·빈 값) · 쓰기 3가지(신규·수정·미등록) · 조인 쓰기가 순서에 상관없는 모양 · 합친 계정의 이름·사진(남긴 행이 이긴다)');

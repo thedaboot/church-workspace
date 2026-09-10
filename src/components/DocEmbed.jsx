@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { FileText, Table, Presentation, ExternalLink, X } from 'lucide-react';
 import { docEmbedKind, docEmbedSrc, DOC_KIND_LABEL } from '../services/docEmbed.js';
 import { verifyViewPw, isLocked } from '../services/viewPw.js';
+import { useMyEmail } from '../services/auth.jsx';
 import { Skeleton } from './media.jsx';
 
 // ============================================================================
@@ -11,7 +12,8 @@ import { Skeleton } from './media.jsx';
 // 다른 화면(주보 큐시트, 참고 링크, 본문 안 링크)은 이 파일에서만 가져다 쓴다.
 //
 //   docEmbedKind(url) → 'doc' | 'sheet' | 'slide' | null   (구글 문서 주소인가, 어느 종류인가)
-//   docEmbedSrc(url)  → iframe에 실을 주소(/edit · rm=minimal · #gid= 보존)
+//   docEmbedSrc(url, { email }) → iframe에 실을 주소(/edit · rm=minimal · #gid= 보존 ·
+//                       email을 주면 authuser= — 어느 구글 계정으로 열지, §6-34-h)
 //   <DocEmbedModal url title onClose />                     (전체 화면 모달)
 //   <PwPrompt onOk onCancel />                              (비밀번호 한 줄 — 첨부와 같은 모양)
 //   <DocLinkGate row url title>여는 것</DocLinkGate>         (잠겼으면 묻고, 맞으면 모달)
@@ -25,6 +27,8 @@ import { Skeleton } from './media.jsx';
 // 되지 않아 로그인 화면이나 빈 화면이 뜬다. 우리는 그것을 감지할 수 없다(다른 출처라
 // 안을 들여다볼 수 없다) — 그래서 **'새 탭에서 열기'를 언제나 머리줄에 두고**, 30초 안에
 // iframe이 load를 알리지 않으면 그 버튼을 눈에 띄게 바꾼다. 사람이 막다른 길에 서지 않는다.
+// 로그인이 돼 있어도 **계정이 여럿이면 구글은 기본 계정으로 연다** — 그 계정에 편집
+// 권한이 없으면 읽기 화면이다. `authuser=`가 그것을 정한다(§6-34-h).
 //
 // **sandbox를 주지 않는다.** 첨부 HTML 미리보기(§6-29-z-2)와 반대다 — 그쪽은 **남이 준
 // 파일 내용**을 우리가 실행시키는 자리라 출처를 불투명하게 만들어야 하고, 여기는 구글이
@@ -53,7 +57,10 @@ const SLOW_MS = 30000;
 
 export function DocEmbedModal({ url, title = '', onClose }) {
   const kind = docEmbedKind(url);
-  const src = docEmbedSrc(url);
+  // `authuser=<내 이메일>` — 브라우저에 구글 계정이 여럿 로그인돼 있으면 구글은 **기본
+  // 계정**으로 열고, 그 계정에 편집 권한이 없으면 읽기 화면이 뜬다(§6-34-h). 첨부 사본과
+  // 같은 사정이다. **새 탭 버튼은 더하지 않는다** — 이 창 머리줄에 이미 있다.
+  const src = docEmbedSrc(url, { email: useMyEmail() });
   const [ready, setReady] = useState(false);
   const [slow, setSlow] = useState(false);
 

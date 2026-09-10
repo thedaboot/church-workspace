@@ -621,6 +621,48 @@ check('파일 중계는 불변 캐시다(재열람 왕복 0)', () => {
     assert.strictEqual(copyEditUrl(null), null, '값이 없어도 안전하다');
   });
 
+  // 자격자인데도 읽기 화면이 뜨던 두 갈래 중 하나 — **브라우저의 기본 구글 계정**이
+  // 편집자 계정과 다르면 구글이 읽기로 준다(사용자 신고 2026-09-10 — "편집 권한을 줬는데
+  // 주보에서 수정이 안 된다"). `authuser=<이메일>`이 어느 계정으로 열지를 정한다.
+  // 나머지 한 갈래(iframe의 서드파티 쿠키)는 주소로 못 고쳐서 새 탭 버튼이 받는다.
+  check('이메일을 주면 authuser가 붙는다 (copyEditUrl)', () => {
+    assert.strictEqual(copyEditUrl(copy('큐시트.docx'), { email: 'a@b.com' }),
+      'https://docs.google.com/document/d/COPY1/edit?rm=minimal&authuser=a%40b.com',
+      '이메일을 줘도 authuser가 안 붙는다');
+    // 새 탭 버튼의 주소 — 폭이 넉넉하니 rm=minimal 없이 온전한 편집기다
+    assert.strictEqual(copyEditUrl(copy('큐시트.docx'), { email: 'a@b.com', minimal: false }),
+      'https://docs.google.com/document/d/COPY1/edit?authuser=a%40b.com');
+    assert.strictEqual(copyEditUrl(copy('큐시트.docx'), { minimal: false }),
+      'https://docs.google.com/document/d/COPY1/edit', '인자가 없으면 물음표도 없다');
+    // + 는 이메일에 쓸 수 있는 글자다(joshua+church@gmail.com) — 안 감싸면 구글이 빈칸으로 읽는다
+    assert.match(copyEditUrl(copy('큐시트.docx'), { email: 'a+c@b.com' }), /authuser=a%2Bc%40b\.com$/,
+      '이메일을 encodeURIComponent로 감싸지 않았다');
+    // 이메일이 없으면 **지금까지와 같은 주소**다(게스트·세션 없음)
+    assert.strictEqual(copyEditUrl(copy('큐시트.docx'), {}), copyEditUrl(copy('큐시트.docx')),
+      '이메일이 없을 때 주소가 달라졌다');
+    // 보기 주소는 영영 보기다 — 이메일을 줘도 편집으로 새지 않는다(§7)
+    assert.ok(!/\/edit/.test(previewCopyUrl(copy('큐시트.docx'), { email: 'a@b.com' }) || ''),
+      'previewCopyUrl이 편집 주소를 만든다');
+    assert.ok(!/authuser/.test(previewCopyUrl(copy('큐시트.docx')) || ''), '보기 주소에 계정을 싣지 않는다');
+  });
+
+  // 자격자에게는 **새 탭** 버튼이 언제나 있다(§8 기능을 숨기지 않음). 앱 안 창은
+  // 서드파티 쿠키가 막힌 폰에서 읽기 화면이라, 이 버튼이 유일한 편집 길이다.
+  check("자격자에게만 '구글 문서에서 편집'이 뜬다 (FilePreviewModal)", () => {
+    assert.match(preview, /const editHref = canEditCopy \? copyEditUrl\(cur, \{ email: myEmail, minimal: false \}\) : null;/,
+      '편집 주소가 자격(canEditCopy)에 매여 있지 않다');
+    const btn = preview.slice(preview.indexOf('{editHref && ('), preview.indexOf('{!isMobile && ('));
+    assert.ok(btn, '편집 버튼을 못 찾았다');
+    assert.match(btn, /구글 문서에서 편집/, '버튼 글자가 없다');
+    assert.match(btn, /target="_blank"/, '새 탭이 아니면 서드파티 쿠키에 다시 걸린다');
+    assert.match(btn, /rel="noreferrer"/, 'rel이 없다');
+    // 숨기는 조건(hover·모바일 감추기)을 달지 않는다 — 폰에서 이것뿐이다
+    assert.ok(!/hidden|group-hover|isMobile/.test(btn), '버튼을 숨기는 조건이 붙었다');
+    // 앱 안 iframe도 같은 계정으로 연다
+    const branch = preview.slice(preview.indexOf("if (kind === 'gdoc')"), preview.indexOf("if (kind === 'sheet') {"));
+    assert.match(branch, /copyEditUrl\(cur, \{ email: myEmail \}\)/, 'iframe 주소에 계정을 안 싣는다');
+  });
+
   check('무엇에 사본을 만들지가 앱과 스크립트에서 같다 (previewCopyOf)', () => {
     for (const n of ['a.xlsx', 'a.xlsm', 'a.xls', 'a.csv']) assert.strictEqual(previewCopyOf(n), 'spreadsheet', n);
     for (const n of ['a.docx', 'a.doc']) assert.strictEqual(previewCopyOf(n), 'document', n);
