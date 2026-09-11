@@ -16,6 +16,7 @@ import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { isMobileViewport, keepVisible } from '../utils.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 import { downscaleImage, BODY_MAX_DIM } from '../services/image.js';
 import { Extension } from '@tiptap/core';
 import { Plugin } from '@tiptap/pm/state';
@@ -119,7 +120,7 @@ const LockedHeadings = Extension.create({
 // 기준**이 되어, 바가 엉뚱한 높이에서 멈추거나 아예 안 붙은 것처럼 보인다.
 // 업무 창은 `overflow-hidden` 껍데기가 스크롤 통보다 **바깥**이라 답이 예전과 같다.
 function useStickyTop(ref) {
-  const [top, setTop] = useState(0);
+  const [pos, setPos] = useState({ top: 0, bg: '' });
   useEffect(() => {
     const el = ref.current;
     if (!el) return undefined;
@@ -130,8 +131,34 @@ function useStickyTop(ref) {
       if (oy !== 'visible' && oy !== 'clip') break;
       box = box.parentElement;
     }
+    // 붙었을 때 깔 **바탕색** — 바가 놓인 통의 색이다(사용자 결정 2026-09-11: 붙으면
+    // 상자가 아니라 줄). 업무 창 본문은 `bg-surface`, 페이지 노트는 그 카드/바탕이라
+    // 상수로 박을 수 없다 — 색이 있는 첫 조상까지 올라가 그 색을 그대로 쓴다.
+    // 투명 판정은 알파만 본다(`rgb(255,255,0)`처럼 끝이 `,0)`인 불투명 색이 있다).
+    const clear = (c) => {
+      if (!c || c === 'transparent') return true;
+      const open = c.indexOf('(');
+      if (open < 0) return false;
+      const inside = c.slice(open + 1, c.lastIndexOf(')'));
+      const slash = inside.indexOf('/');
+      const parts = inside.split(',');
+      const raw = slash >= 0 ? inside.slice(slash + 1) : (parts.length === 4 ? parts[3] : '1');
+      const n = parseFloat(raw);
+      return Number.isFinite(n) && n === 0;
+    };
+    const bgOf = () => {
+      for (let n = el.parentElement; n; n = n.parentElement) {
+        const c = getComputedStyle(n).backgroundColor;
+        if (!clear(c)) return c;
+      }
+      return '';
+    };
+    // 값이 그대로면 **같은 객체를 돌려준다** — 매번 새 객체를 담으면 ResizeObserver가
+    // 도는 족족 리렌더가 돈다(예전에 숫자 하나였을 때는 저절로 막혔다).
+    const put = (top, bg) => setPos(p => (p.top === top && p.bg === bg ? p : { top, bg }));
     const calc = () => {
-      if (!box || box === document.body) { setTop(0); return; }
+      const bg = bgOf();
+      if (!box || box === document.body) { put(0, bg); return; }
       // 통 안에서 **위(top:0)에 붙는** 것들 중 에디터보다 앞에 있는 것의 높이.
       // 직계 자식만 보면 안 된다 — 모달 구조가 폭에 따라 달라져서 머리줄이 한 겹
       // 더 안쪽에 있는 경우가 있다(모바일에서 그래서 0이 나왔다).
@@ -156,7 +183,7 @@ function useStickyTop(ref) {
       // 창 머리줄에 딱 붙인다. 머리줄이 있으면 그 머리줄도 같은 기준으로 서므로
       // 높이를 그대로 쓰면 된다(데스크톱은 예전과 같은 값이다).
       const pad = parseFloat(getComputedStyle(box).paddingTop || '0') || 0;
-      setTop(Math.round(h > 0 ? h : -pad));
+      put(Math.round(h > 0 ? h : -pad), bg);
     };
     calc();
     // **한 번 재고 끝내면 안 된다.** 통이 커지는 것 말고도 다시 재야 하는 일이 있다:
@@ -171,22 +198,24 @@ function useStickyTop(ref) {
     window.addEventListener('resize', calc);
     return () => { ro.disconnect(); window.removeEventListener('resize', calc); };
   }, [ref]);
-  return top;
+  return pos;
 }
 
 // `lockedHeadings` — 지워지지 않는 중제목 목록(노트의 도막 이름). **편집기를 만들 때
 // 한 번 읽는다** — 화면마다 고정이라 바뀌지 않는다(예배 노트 넷 · QT 셋).
 //
-// `headings` — 서식 바에 제목 버튼(H1~H4)을 둘지. 노트에는 **두지 않는다**(사용자 결정
-// 2026-09-10): 도막 제목이 고정되어 있으니 제목을 새로 만들 일이 없고, 단계를 바꾸면
-// 그 도막이 종이에서 라벨로 안 올라가는 것처럼 보인다.
+// `tools` — 서식 바에 무엇을 두는지. 기본 `'all'`(업무 상세)은 전부이고, `'note'`(예배
+// 노트·묵상 노트)는 **제목(H1~H4)·구분선·링크를 뺀다** — 제목은 2026-09-10, 구분선·링크는
+// 2026-09-11의 사용자 결정이다("불렛과 번호, 체크박스는 남겨두고 구분선이랑 링크 서식은
+// 제거"). 도막 제목이 고정이라 제목을 새로 만들 일이 없고(단계를 바꾸면 그 도막이 종이에서
+// 라벨로 안 올라가는 것처럼 보인다), 종이에는 선을 긋지 않으며 링크도 쓰지 않는다.
 //
 // `frame` — 편집 칸을 감싸는 틀. 받으면 `frame(<EditorContent/>)`로 그 안에 넣는다.
 // 노트가 이것으로 **종이 안에서 쓰기**를 만든다(components/paper.jsx `NotePaper`).
 // 서식 바는 틀 **밖·위**에 그대로 남는다 — sticky로 따라 내려오는 것이 그 자리다.
 export function MarkdownEditor({
   value, onChange, members = [], cloudMode = false, placeholder, className = '',
-  lockedHeadings = [], headings = true, frame = null,
+  lockedHeadings = [], tools = 'all', frame = null,
 }) {
   const lastEmitted = useRef(value ?? '');
   // 문서를 통째로 교체하는 중인가 — 그때는 중제목 고정을 통과시킨다(LockedHeadings 머리말)
@@ -194,6 +223,19 @@ export function MarkdownEditor({
   const editorRef = useRef(null);
   const cloudModeRef = useRef(cloudMode);
   const [uploading, setUploading] = useState(false);
+
+  // 모바일에서는 서식 바가 sticky가 아니라 **화면 아래(키보드 위) 고정**이다(사용자 결정
+  // 2026-09-11) — 그래서 포커스 여부·키보드 높이·바 높이를 이 부품이 들고 있어야 한다.
+  const isMobile = useIsMobile();
+  const wrapRef = useRef(null);
+  const barRef = useRef(null);
+  const [focused, setFocused] = useState(false);
+  const [kbGap, setKbGap] = useState(0);      // 키보드가 가린 높이(px)
+  const [barH, setBarH] = useState(0);        // 바 높이 — 편집 칸 아래를 그만큼 비운다
+  const [overlay, setOverlay] = useState(false);  // 고정 오버레이(풀스크린 업무 창) 안인가
+  // 바를 누르고 있는 동안 켜지는 깃발 — 그 사이의 blur는 '편집을 그만둔 것'이 아니다
+  const holdRef = useRef(false);
+  const hideRef = useRef(null);
 
   // 멘션 상태 — editorProps 핸들러는 1회 생성 클로저라 ref로 읽는다
   const [mention, setMention] = useState(null); // { query, from, to, left, top }
@@ -320,20 +362,37 @@ export function MarkdownEditor({
       detectMention(ed);
     },
     onSelectionUpdate: ({ editor: ed }) => detectMention(ed),
-    onBlur: () => setTimeout(closeMention, 120),
+    // 모바일 서식 바는 **포커스가 있을 때만** 선다. 바의 버튼을 누르는 순간에도 blur가
+    // 오는 브라우저가 있어서(TB가 mousedown 기본 동작을 막지만 터치는 제각각이다) 바로
+    // 내리지 않고 한 박자 뒤에 **정말 밖으로 갔는지** 본다 — 누르는 중(holdRef)이거나
+    // 포커스가 이 편집기 안(서식 바·링크 주소 칸 포함)이면 그대로 둔다.
+    onFocus: () => { clearTimeout(hideRef.current); setFocused(true); },
+    onBlur: () => {
+      setTimeout(closeMention, 120);
+      clearTimeout(hideRef.current);
+      hideRef.current = setTimeout(() => {
+        if (holdRef.current) return;
+        const a = document.activeElement;
+        if (a && wrapRef.current && wrapRef.current.contains(a)) return;
+        setFocused(false);
+      }, 180);
+    },
   });
 
   useEffect(() => { editorRef.current = editor; }, [editor]);
+  // **만들어질 때 이미 포커스가 있을 수 있다** — 그때는 focus 이벤트가 우리 손에 들어오기
+  // 전이라 모바일 바가 서지 않았다(헤드리스에서 '수정'을 누르면 실제로 그랬다).
+  useEffect(() => { if (editor?.isFocused) setFocused(true); }, [editor]);
 
-  // 서식 바가 화면 위에 붙었나 — 붙었을 때 본문과 나누는 아래 선 하나만 켠다.
-  // 그림자·블러 같은 '떠 있다' 연출은 없다(사용자 결정 2026-08-30).
+  // 서식 바가 화면 위에 붙었나 — 붙으면 **상자가 아니라 줄**이 된다(사용자 결정
+  // 2026-09-11 · 아래 Toolbar 머리말). 모바일에는 없는 상태다(바가 화면 아래에 있다).
   const [stuck, setStuck] = useState(false);
   const sentinelRef = useRef(null);
-  const wrapRef = useRef(null);
-  const stickyTop = useStickyTop(wrapRef);
+  const { top: stickyTop, bg: stuckBg } = useStickyTop(wrapRef);
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || typeof IntersectionObserver === 'undefined') return undefined;
+    // 모바일에서는 바가 화면 아래 고정이라 '붙었나'를 볼 일이 없다
+    if (isMobile || !el || typeof IntersectionObserver === 'undefined') { setStuck(false); return undefined; }
     // rootMargin 위쪽을 stickyTop만큼 당긴다 — 바가 실제로 멈추는 자리가 그 지점이다.
     // stickyTop이 **음수일 수 있다**(머리줄이 없는 모바일) — `-${…}`로 이어 붙이면
     // `--20px`이라는 없는 값이 되어 관찰자가 통째로 던진다. 부호를 계산해서 넣는다.
@@ -343,7 +402,46 @@ export function MarkdownEditor({
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [stickyTop]);
+  }, [stickyTop, isMobile]);
+
+  // 키보드 위에 선다 — `visualViewport`가 **보이는 부분**의 높이·오프셋을 알려 주므로
+  // `innerHeight - height - offsetTop`이 곧 키보드가 가린 높이다(iOS 사파리·크롬 모두).
+  // 키보드는 스르륵 올라오고 화면이 밀리면 offsetTop이 바뀌므로 resize·scroll 둘 다 듣는다.
+  useEffect(() => {
+    if (!isMobile || !focused) { setKbGap(0); return undefined; }
+    const vv = window.visualViewport;
+    const calc = () => setKbGap(vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0);
+    calc();
+    vv?.addEventListener('resize', calc);
+    vv?.addEventListener('scroll', calc);
+    window.addEventListener('resize', calc);
+    return () => {
+      vv?.removeEventListener('resize', calc);
+      vv?.removeEventListener('scroll', calc);
+      window.removeEventListener('resize', calc);
+    };
+  }, [isMobile, focused]);
+
+  // 바 높이(편집 칸 아래를 그만큼 비운다)와 **풀스크린 창 안인지**를 같이 잰다.
+  // 창 안이면 하단 탭바가 그 창에 덮여 보이지 않으므로 탭바 높이를 쓰면 안 된다.
+  useEffect(() => {
+    if (!isMobile || !focused) { setBarH(0); return undefined; }
+    const el = barRef.current;
+    if (!el) return undefined;
+    for (let n = wrapRef.current?.parentElement; n; n = n.parentElement) {
+      if (getComputedStyle(n).position === 'fixed') { setOverlay(true); break; }
+    }
+    const set = () => setBarH(Math.round(el.getBoundingClientRect().height));
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isMobile, focused]);
+
+  // 키보드가 없을 때는 하단 탭바 위(그 화면에만 있는 변수 · §6-9-ae)나 안전 영역 위.
+  const barBottom = kbGap > 0 ? `${kbGap}px`
+    : overlay ? 'env(safe-area-inset-bottom, 0px)'
+      : 'var(--mobile-tab-bar-h, env(safe-area-inset-bottom, 0px))';
 
   const pick = useCallback((name) => {
     const m = mentionRef.current;
@@ -395,12 +493,19 @@ export function MarkdownEditor({
       {/* 센티넬 — 서식 바가 '붙었는지'를 이걸로 잰다(Injoy 글쓰기와 같은 방식).
           scroll 이벤트로 매 프레임 재는 대신 IntersectionObserver 한 번이면 된다. */}
       <div ref={sentinelRef} aria-hidden="true" className="h-px" />
-      <Toolbar editor={editor} active={active} uploading={uploading} stuck={stuck} top={stickyTop}
-        headings={headings} />
+      <Toolbar
+        editor={editor} active={active} uploading={uploading} tools={tools}
+        stuck={stuck} top={stickyTop} stuckBg={stuckBg}
+        mobile={isMobile} visible={focused} bottom={barBottom} barRef={barRef}
+        onHold={(v) => { holdRef.current = v; if (v) clearTimeout(hideRef.current); }} />
       {/* onMouseDown이라야 한다 — click은 선택이 이미 끝난 뒤라 커서가 안 옮겨진다.
           틀(frame)이 있으면 편집 칸이 그 안에 든다 — 종이 여백을 눌러도 focusEnd가
           도는 것은 그대로다(`.tiptap` 밖이면 문서 끝으로 보낸다). */}
-      <div className={className} onMouseDown={focusEnd}>
+      <div
+        className={className} onMouseDown={focusEnd}
+        // 마지막 줄이 화면 아래 바에 가리지 않게 — 포커스 중일 때만 그만큼 비운다
+        style={isMobile && focused && barH ? { paddingBottom: barH + 12 } : undefined}
+      >
         {frame ? frame(<EditorContent editor={editor} />) : <EditorContent editor={editor} />}
       </div>
       {mention && suggestions.length > 0 && (
@@ -429,7 +534,13 @@ export function MarkdownEditor({
 
 // ── 툴바 ────────────────────────────────────────────────────────────────────
 
-function Toolbar({ editor, active, uploading, stuck = false, top = 0, headings = true }) {
+function Toolbar({
+  editor, active, uploading, tools = 'all',
+  stuck = false, top = 0, stuckBg = '',
+  mobile = false, visible = false, bottom = '0px', barRef = null, onHold = () => {},
+}) {
+  // 노트 한 벌 — 제목·구분선·링크가 빠지고 글자 서식과 목록 셋만 남는다(머리말의 `tools`)
+  const note = tools === 'note';
   const [linkOpen, setLinkOpen] = useState(false);
   const [href, setHref] = useState('');
   // 단축키가 부르는 자리 — 훅은 early return보다 위에 있어야 하고 openLink는 아래에 있다
@@ -450,7 +561,7 @@ function Toolbar({ editor, active, uploading, stuck = false, top = 0, headings =
   // Ctrl/⌘+K — 글을 고른 채 누르면 바로 주소 칸이 열린다(어느 편집기나 이 자리다).
   // 에디터 DOM에 건다 — window에 걸면 업무 창 밖에서도 잡힌다.
   useEffect(() => {
-    if (!editor) return undefined;
+    if (!editor || note) return undefined;
     const onKey = (e) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return;
       e.preventDefault();
@@ -468,7 +579,7 @@ function Toolbar({ editor, active, uploading, stuck = false, top = 0, headings =
     attach();
     editor.on('create', attach);
     return () => { editor.off('create', attach); dom?.removeEventListener('keydown', onKey); };
-  }, [editor]);
+  }, [editor, note]);
 
   if (!editor) return null;
   const chain = () => editor.chain().focus();
@@ -511,32 +622,52 @@ function Toolbar({ editor, active, uploading, stuck = false, top = 0, headings =
     >{children}</button>
   );
 
+  // **데스크톱은 붙으면 상자가 아니라 줄이 된다**(사용자 결정 2026-09-11 — 글 위에 상자가
+  // 얹혀 떠 있는 것처럼 보였고, 노트 종이에서는 인디고 마스트가 그 밑으로 지나갔다).
+  // 붙은 상태에서는 둥근 모서리·양옆·위 선을 걷고 **아래 가는 선 하나 + 연한 그림자**만
+  // 남기며, 배경은 그 통의 바탕색(useStickyTop이 재 온다)이라 평평하게 눕는다.
+  // 2026-08-30의 "그림자도 없이"는 여기서 갱신됐다 — 상자를 지우는 대신 글과 바를 가르는
+  // 표시가 하나는 있어야 한다. 배경은 두 상태 모두 **완전 불투명**이다(블러 금지 · §6-9-aa):
+  // 반투명이면 밑으로 지나가는 글이 비쳐 바가 글자 위에 얹힌 것처럼 보인다.
+  //
+  // **모바일은 sticky가 아니라 화면 아래(키보드 위) 고정**이다(같은 날 결정) — 편집기에
+  // 포커스가 있을 때만 서고, 가로는 화면 폭 전체, 위 가는 선 하나, 층은 업무 창(z-50)보다
+  // 위다(멘션 z-80·링크 팝오버 z-90보다는 아래여야 그 둘이 바를 덮는다).
+  // overflow-x-auto: 좁은 화면에서 버튼이 줄바꿈으로 두 줄이 되면 바가 본문을 가린다 —
+  // 같은 종류가 이어지는 줄이라 가로 스크롤이 §8에 걸리지 않는다(프로젝트 탭과 같은 결).
+  const BAR = 'flex items-center gap-0.5 overflow-x-auto scrollbar-hide x-scroll-lock bg-surface-2';
+  const EASE = 'var(--ease-out-quint)';
   return (
-    // 스크롤을 따라온다 — 그뿐이다. 붙었을 때 **떠 있는 연출을 하지 않는다**
-    // (사용자 결정 2026-08-30 — "투명도 안 넣고 그냥 그대로 딸려오게만").
-    // 배경은 두 상태 모두 **완전 불투명**이다: 반투명·블러를 두면 밑으로 지나가는 글이
-    // 비쳐서 바가 글자 위에 얹힌 것처럼 보였다. 그림자도 뺐다.
-    // overflow-x-auto: 좁은 화면에서 버튼이 줄바꿈으로 두 줄이 되면 바가 본문을 가린다 —
-    // 같은 종류가 이어지는 줄이라 가로 스크롤이 §8에 걸리지 않는다(프로젝트 탭과 같은 결).
     <div
-      style={{ top }}
-      className={`sticky z-[5] flex items-center gap-0.5 overflow-x-auto scrollbar-hide x-scroll-lock px-1.5 py-1 rounded-t-md border border-line bg-surface-2 transition-colors duration-200 ${
-        // 붙어도 **상세 내용 칸의 머리줄로 남는다** — 좌우로 빼거나 통째로 둥글게 하면
-        // 헤더 쪽에 떠 있는 별개의 바로 읽힌다(사용자 지적 2026-08-30).
-        // 달라지는 것은 본문과 나누는 아래 선 하나뿐이다.
-        stuck ? 'border-b border-line' : 'border-b-0'
-      }`}
+      ref={barRef}
+      data-editor-bar={mobile ? 'fixed' : 'sticky'}
+      // 누르는 동안에는 바가 내려가지 않는다(누르는 순간의 blur를 무시한다)
+      onPointerDown={() => onHold(true)}
+      onPointerUp={() => onHold(false)}
+      onPointerCancel={() => onHold(false)}
+      style={mobile
+        ? { position: 'fixed', left: 0, right: 0, bottom, ...(visible ? null : { display: 'none' }) }
+        : {
+          top,
+          transition: `background-color .15s ${EASE}, border-color .15s ${EASE}, border-radius .15s ${EASE}, box-shadow .15s ${EASE}`,
+          ...(stuck && stuckBg ? { background: stuckBg } : null),
+        }}
+      className={mobile
+        ? `${BAR} z-[60] px-2 py-1.5 border-t border-line`
+        : `${BAR} sticky z-[5] px-1.5 py-1 border border-line ${
+          stuck ? 'rounded-none border-x-0 border-t-0 shadow-soft' : 'rounded-t-md border-b-0'
+        }`}
     >
       <TB on={active.bold} onClick={() => chain().toggleBold().run()} title="굵게"><Bold size={14} /></TB>
       <TB on={active.italic} onClick={() => chain().toggleItalic().run()} title="기울임"><Italic size={14} /></TB>
       <TB on={active.underline} onClick={() => chain().toggleUnderline().run()} title="밑줄"><Underline size={14} /></TB>
       <TB on={active.strike} onClick={() => chain().toggleStrike().run()} title="취소선"><Strikethrough size={14} /></TB>
       <TB on={active.highlight} onClick={() => chain().toggleHighlight().run()} title="형광펜"><Highlighter size={14} /></TB>
-      {/* 제목 묶음 — **노트에서는 빠진다**(`headings={false}` · 사용자 결정 2026-09-10).
+      {/* 제목 묶음 — **노트에서는 빠진다**(`tools="note"` · 사용자 결정 2026-09-10).
           도막 제목이 고정이라 제목을 만들 일이 없고, 그 앞의 구분선도 이 묶음의 것이라
           같이 걷는다. `tests/word`가 노트 바에 `title="제목 1"`이 **없어야 한다**로
           단정한다(업무 본문·업무 창은 그대로 넷 다 있다 — `tests/handoff`). */}
-      {headings && (
+      {!note && (
         <>
           <span className="w-px h-4 bg-line mx-1 shrink-0" />
           <TB on={active.h1} onClick={() => chain().toggleHeading({ level: 1 }).run()} title="제목 1"><Heading1 size={15} /></TB>
@@ -549,40 +680,44 @@ function Toolbar({ editor, active, uploading, stuck = false, top = 0, headings =
       <TB on={active.bullet} onClick={() => chain().toggleBulletList().run()} title="불릿 목록"><List size={15} /></TB>
       <TB on={active.ordered} onClick={() => chain().toggleOrderedList().run()} title="번호 목록"><ListOrdered size={15} /></TB>
       <TB on={active.todo} onClick={() => chain().toggleTaskList().run()} title="체크리스트"><ListTodo size={15} /></TB>
-      {/* 구분선 — 본문에 `---`를 쳐도 된다(입력 규칙). 버튼도 두는 이유는 §8이다:
-          치는 법을 아는 사람만 쓸 수 있는 기능은 숨긴 것과 같다 */}
-      <TB onClick={() => chain().setHorizontalRule().run()} title="구분선"><Minus size={15} /></TB>
-      <span className="w-px h-4 bg-line mx-1 shrink-0" />
-      <span ref={linkRootRef} className="inline-flex">
-        <span ref={linkBtnRef} className="inline-flex">
-          <TB on={active.link} onClick={openLink} title={picked ? `'${picked.slice(0, 12)}'에 링크를 걸어요` : '링크 (Ctrl/⌘+K)'}><Link2 size={14} /></TB>
-        </span>
-        {linkOpen && (
-          <div
-            style={{ position: 'fixed', left: linkPos.left, top: linkPos.top, width: 256 }}
-            className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-2.5 animate-in fade-in zoom-in-95 duration-150"
-          >
-            {/* 무엇에 링크가 걸리는지 먼저 말한다 — 고른 것이 없으면 주소가 그대로 글자가
-                된다는 것도 알려 준다(예전에는 눌러 봐야 알았다) */}
-            <p className="text-[10.5px] text-fg-faint mb-1.5 truncate">
-              {picked ? <>‘<span className="text-fg-muted font-semibold">{picked}</span>’에 링크를 걸어요.</> : '주소가 그대로 글자가 돼요.'}
-            </p>
-            <input
-              autoFocus={!isMobileViewport()} value={href} onChange={e => setHref(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyLink(); } }}
-              placeholder="https://..."
-              className="w-full text-xs px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint"
-            />
-            <div className="flex justify-end gap-2 mt-2">
-              <button type="button" onClick={() => setLinkOpen(false)} className="text-xs px-2.5 py-1 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">취소</button>
-              <button type="button" onClick={applyLink} disabled={!href.trim()} className="text-xs px-2.5 py-1 bg-accent hover:bg-accent-strong disabled:bg-line text-white rounded-md transition active:scale-95">적용</button>
+      {/* 구분선·링크 — **노트에서는 뺀다**(`tools="note"` · 사용자 결정 2026-09-11:
+          "불렛과 번호, 체크박스는 남겨두고 구분선이랑 링크 서식은 제거"). 업무 상세에는
+          그대로 둔다. 구분선은 본문에 `---`를 쳐도 되지만 버튼도 두는 이유는 §8이다:
+          치는 법을 아는 사람만 쓸 수 있는 기능은 숨긴 것과 같다. */}
+      {!note && (<>
+        <TB onClick={() => chain().setHorizontalRule().run()} title="구분선"><Minus size={15} /></TB>
+        <span className="w-px h-4 bg-line mx-1 shrink-0" />
+        <span ref={linkRootRef} className="inline-flex">
+          <span ref={linkBtnRef} className="inline-flex">
+            <TB on={active.link} onClick={openLink} title={picked ? `'${picked.slice(0, 12)}'에 링크를 걸어요` : '링크 (Ctrl/⌘+K)'}><Link2 size={14} /></TB>
+          </span>
+          {linkOpen && (
+            <div
+              style={{ position: 'fixed', left: linkPos.left, top: linkPos.top, width: 256 }}
+              className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-2.5 animate-in fade-in zoom-in-95 duration-150"
+            >
+              {/* 무엇에 링크가 걸리는지 먼저 말한다 — 고른 것이 없으면 주소가 그대로 글자가
+                  된다는 것도 알려 준다(예전에는 눌러 봐야 알았다) */}
+              <p className="text-[10.5px] text-fg-faint mb-1.5 truncate">
+                {picked ? <>‘<span className="text-fg-muted font-semibold">{picked}</span>’에 링크를 걸어요.</> : '주소가 그대로 글자가 돼요.'}
+              </p>
+              <input
+                autoFocus={!isMobileViewport()} value={href} onChange={e => setHref(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyLink(); } }}
+                placeholder="https://..."
+                className="w-full text-xs px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint"
+              />
+              <div className="flex justify-end gap-2 mt-2">
+                <button type="button" onClick={() => setLinkOpen(false)} className="text-xs px-2.5 py-1 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">취소</button>
+                <button type="button" onClick={applyLink} disabled={!href.trim()} className="text-xs px-2.5 py-1 bg-accent hover:bg-accent-strong disabled:bg-line text-white rounded-md transition active:scale-95">적용</button>
+              </div>
             </div>
-          </div>
+          )}
+        </span>
+        {active.link && (
+          <TB onClick={() => chain().unsetLink().run()} title="링크 제거"><Unlink size={14} /></TB>
         )}
-      </span>
-      {active.link && (
-        <TB onClick={() => chain().unsetLink().run()} title="링크 제거"><Unlink size={14} /></TB>
-      )}
+      </>)}
       {uploading && (
         <span className="ml-auto flex items-center gap-1 text-[10px] text-fg-muted pr-1">
           <Loader2 size={11} className="animate-spin" /> 이미지 업로드 중...

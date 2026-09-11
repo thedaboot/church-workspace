@@ -157,11 +157,14 @@ const parseBlocks = (text) => {
       else blocks.push({ type: 'ul', items: [{ value: ul[1], key: i }], key: i });
       continue;
     }
-    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    // 번호 목록 — **블록의 첫 숫자를 들고 간다**(`<ol start>`). 예전에는 언제나 1부터
+    // 그려서, 목록 사이에 다른 블록이 끼어 `2.`로 저장된 글도 화면에서는 `1.`이 됐다
+    // (사용자 지적 2026-09-11 · 읽는 쪽 markdown.js `mdToDoc`와 한 쌍이다).
+    const ol = line.match(/^\s*(\d+)[.)]\s+(.*)$/);
     if (ol) {
       const prev = blocks[blocks.length - 1];
-      if (prev?.type === 'ol') prev.items.push({ value: ol[1], key: i });
-      else blocks.push({ type: 'ol', items: [{ value: ol[1], key: i }], key: i });
+      if (prev?.type === 'ol') prev.items.push({ value: ol[2], key: i });
+      else blocks.push({ type: 'ol', start: Number(ol[1]) || 1, items: [{ value: ol[2], key: i }], key: i });
       continue;
     }
     if (line.trim() === '') { blocks.push({ type: 'gap', key: i }); continue; }
@@ -233,7 +236,7 @@ export const RichText = React.memo(({ content, onToggleTodo }) => {
           case 'ul':
             return <ul key={block.key} className="list-disc pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key}>{renderInline(it.value, it.key)}</li>)}</ul>;
           case 'ol':
-            return <ol key={block.key} className="list-decimal pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key}>{renderInline(it.value, it.key)}</li>)}</ol>;
+            return <ol key={block.key} start={block.start || 1} className="list-decimal pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key}>{renderInline(it.value, it.key)}</li>)}</ol>;
           case 'gap':
             return <div key={block.key} className="h-2" />;
           default:

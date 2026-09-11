@@ -102,12 +102,15 @@ export function mdToDoc(md) {
       continue;
     }
 
-    // 번호 목록
-    const ol = raw.match(/^\s*\d+[.)]\s+(.*)$/);
+    // 번호 목록 — **첫 항목의 숫자를 `attrs.start`로 들고 간다.** 목록 사이에 불릿 같은
+    // 다른 블록이 끼면 뒤 목록은 `2.`·`3.`으로 이어지는데, 쓰는 쪽(serializeList)은 그
+    // 숫자를 제대로 적는데 읽는 쪽이 버려서 **저장하고 다시 열면 전부 `1.`** 이 됐다
+    // (사용자 지적 2026-09-11 · 그리는 쪽 RichText도 같이 고쳤다).
+    const ol = raw.match(/^\s*(\d+)[.)]\s+(.*)$/);
     if (ol) {
       const prev = content[content.length - 1];
-      if (prev?.type === 'orderedList') prev.content.push(listItem(ol[1]));
-      else content.push({ type: 'orderedList', content: [listItem(ol[1])] });
+      if (prev?.type === 'orderedList') prev.content.push(listItem(ol[2]));
+      else content.push({ type: 'orderedList', attrs: { start: Number(ol[1]) || 1 }, content: [listItem(ol[2])] });
       continue;
     }
 

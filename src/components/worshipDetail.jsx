@@ -1164,8 +1164,8 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
               className={EDITOR_BOX}
               /* 도막 제목은 **수정 창에서부터** 지워지지 않는다(사용자 결정 2026-09-10) */
               lockedHeadings={WORSHIP_SECTIONS}
-              /* 도막 제목이 고정이라 제목을 만들 일이 없다(사용자 결정 2026-09-10) */
-              headings={false}
+              /* 제목·구분선·링크가 빠진 노트 서식 바(사용자 결정 2026-09-10·09-11) */
+              tools="note"
               /* 읽기 종이와 **같은 값**을 머리에 넘긴다 — 두 모드의 머리가 어긋나면
                  "이 모양으로 나간다"가 거짓이 된다 */
               frame={(content) => (

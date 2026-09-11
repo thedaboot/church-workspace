@@ -1,4 +1,5 @@
 import assert from 'node:assert';
+import { readFileSync } from 'node:fs';
 const M = await import(new URL('../src/services/markdown.js', import.meta.url).href);
 const { mdToDoc, docToMd, tokenizeInline } = M;
 
@@ -81,4 +82,29 @@ console.log('마크다운 중첩 라운드트립 자체검증 통과 (30 asserts
   // 불릿(`- 글`)을 선으로 잘못 보면 목록이 통째로 사라진다
   assert.strictEqual(mdToDoc('- 하나').content[0].type, 'bulletList');
   console.log('구분선 라운드트립 통과 (9 asserts)');
+}
+
+// ── 번호 목록이 이어지는 숫자를 지킨다 (2026-09-11) ─────────────────────────
+// `1.` → 불릿 → `2.`처럼 목록 사이에 다른 블록이 끼면 목록이 둘로 갈리고, 뒤 목록은
+// `2.`부터다. 쓰는 쪽(serializeList)은 `start + i`로 제대로 적고 있었는데 **읽는 쪽 둘이
+// 그 숫자를 버려서** 저장하고 다시 열면 전부 `1.`이 됐다(사용자 스크린샷 · 업무 상세).
+// **되돌리기**: mdToDoc의 `attrs: { start … }`를 빼면 왕복이 `1.`로 돌아와 깨진다.
+{
+  const src = '1. 첫째\n- 사이 불릿\n2. 둘째\n3. 셋째';
+  const doc = mdToDoc(src);
+  const lists = doc.content.filter(b => b.type === 'orderedList');
+  assert.strictEqual(lists.length, 2, '사이에 블록이 끼면 번호 목록이 둘로 갈린다');
+  // 되돌아간 코드에는 attrs가 아예 없다 — 던지지 말고 값을 비교해서 깨지게 둔다
+  assert.strictEqual((lists[0].attrs || {}).start, 1);
+  assert.strictEqual((lists[1].attrs || {}).start, 2, '뒤 목록은 2부터다');
+  assert.strictEqual(lists[1].content.length, 2, '이어지는 2.·3.은 한 목록이다');
+  assert.strictEqual(round(src), src, '왕복 뒤에도 2.·3.이다');
+  assert.strictEqual(round('5) 다섯\n6) 여섯'), '5. 다섯\n6. 여섯', '괄호로 적어도 숫자는 지킨다');
+  // **그리는 쪽**(RichText)도 그 숫자로 그려야 한다 — `<ol start>`가 없으면 화면에서는
+  // 다시 1부터다. JSX라 노드에서 부를 수 없으므로 소스로 본다(logcheck와 같은 방식이고,
+  // 실제로 그려지는지는 tests/handoff가 브라우저에서 본다).
+  const rich = readFileSync(new URL('../src/components/RichText.jsx', import.meta.url), 'utf8');
+  assert.ok(rich.includes('start: Number(ol[1]) || 1'), 'RichText가 블록의 첫 숫자를 start로 담는다');
+  assert.ok(rich.includes('<ol key={block.key} start={block.start || 1}'), 'RichText가 <ol start>로 그린다');
+  console.log('번호 목록 이어짐 통과 (8 asserts)');
 }

@@ -191,7 +191,13 @@
 9-z. **`flex-wrap`에 줄을 맡기면 좁은 폭에서 마지막 항목만 떨어져 고아 줄이 된다** — 줄을 **정해서** 그린다. `basis-full sm:basis-auto`는 세그먼트 자신이 아니라 **감싸개**에 · `flex-1` 빈 칸 대신
     `ml-auto`를 쓴다.
 9-aa. **sticky의 통은 `overflow != visible`로 찾아야 한다** — `auto|scroll`만 보면 `overflow:hidden` 조상을 지나쳐 재는 상자와 붙는 상자가 달라진다(`MarkdownEditor.useStickyTop` ·
-    편집기 자신·`window.resize`도 듣는다).
+    편집기 자신·`window.resize`도 듣는다). **바는 두 벌이다**(2026-09-11): 데스크톱은 붙으면 **상자가 아니라 줄**이 된다 — 둥근 모서리·좌우·위 선을 걷고 아래 선 하나와 `shadow-soft`만 남기며 배경은
+    `useStickyTop`이 재 온 **통의 바탕색**이다(상수로 박으면 업무 창과 페이지 노트 중 한쪽이 틀어진다 · 150ms `--ease-out-quint`). 모바일은 sticky를 안 쓰고 **화면 아래 고정**이다 — 포커스가
+    있을 때만 서고(blur 뒤 180ms 기다렸다가 `activeElement`가 편집기 밖일 때만 내린다 — 바를 누르는 순간의 blur를 그래야 무시한다), `bottom`은 `visualViewport`로 잰 키보드 높이
+    (`innerHeight - height - offsetTop` · `resize`·`scroll` 둘 다 듣는다)이고 키보드가 없으면 `--mobile-tab-bar-h`나 안전 영역이다(**풀스크린 창 안에서는 탭바가 안 보이므로 안전 영역만** —
+    조상에 `position: fixed`가 있는지로 가른다). 편집 칸은 포커스 중에만 바 높이만큼 아래를 비운다. **배경은 두 판 모두 불투명이고 블러는 없다.** 헤드리스는 창에 포커스가 없어 `focus()`가 이벤트를
+    내지 않는다 — 검사에서는 `Emulation.setFocusEmulationEnabled`를 켜세요(`tests/handoff`·`tests/groups`).
+9-aa-2. **편집기가 만들어질 때 이미 포커스를 물고 있을 수 있다** — 그때는 focus 이벤트가 우리 손에 들어오기 전이라 모바일 바가 서지 않았다. `editor.isFocused`를 한 번 읽어 상태를 맞춘다.
 9-ab. **읽기 상자의 높이는 자리표가 아니라 편집기의 실제 높이다**(센티넬 `h-px` 때문에 1px 크다). `display:none`에서 막 풀린 상자에는 같은 프레임에 focus가 안 먹는다. 달력 격자는 6주 높이를 늘 잡는다.
 9-ac. **머리줄을 카드로 바꾸면 그 아래 빈 상태의 '남는 자리'가 그만큼 줄어든다** — `useFillRest`가 재는 값이라 `centered()` 문턱을 조용히 넘는다. "오른쪽 끝" 검사도 content box 기준으로.
 9-ad. **'자리를 잡았다'를 ref로 기억하면 도착한 프레임에 다시 그리지 않는다** — `groupsParts.useSettled`가 ref로 키를 들어 스켈레톤이 그대로 섰다("공유된 예배 노트가 계속 스켈레톤"). state로
@@ -581,7 +587,8 @@
     .tiptap`의 두 열 격자 한 겹이 만든다(제목은 1열, 그 밖은 2열 — 격자 자동 배치가 줄을 되감지 않는 성질을 쓴다 · DOM 순서는 그대로라 커서·선택이 예전과 같다). 함정 넷: **`.tiptap > * + *`의 margin-top을 0으로
     누른다**(줄 간격은 padding) · **칸 사이는 gap이 아니라 글 칸의 `padding-left`** (gap이면 가로선이 끊긴다) · 가로선은 제목과 다음 블록의 `border-top` 두 조각 · **누를 빈 자리는 `.tiptap`
     밖**(`.note-paper .paper-rows`의 min-height). 색은 `PaperSheet`가 흘려 준 `--paper-*`다. 좁은 화면(<640)에서는 라벨이 칸 위에 서고 가로선을 제목에만 남긴다. 그 대가로 **읽기·편집 두 모드의 높이가
-    더는 같지 않다**(HANDOFF §2에 적어 두었다).
+    더는 같지 않다**(HANDOFF §2에 적어 두었다). **목록은 예외 하나가 더 붙는다** — 그 `padding-left: 12px`이 `.tiptap ul`의 들여쓰기를 덮어써서 글머리가 칸 밖으로 나갔다(§6-32-u).
+    노트 서식 바에는 **제목·구분선·링크가 없다**(`tools="note"` · 2026-09-10·09-11의 사용자 결정) — 옛 글에 남은 `hr`만 종이 선과 같은 1px로 눕는다.
 
 **32-r.** **html2canvas에서 굽는 시간의 대부분은 화소가 아니라 `document` 복제였다**(비용이 DOM 개수라 배율을 낮춰도 줄지 않는다) — `ignoreElements`로 굽는 가지만 남기면 2412ms → 905ms이고 판정식은 하나다
     (`(el) => !(el.contains(node) || node.contains(el) || document.head.contains(el))`). **`<head>`는 반드시 남기세요**(빼면 스타일이 통째로 없는 맨 HTML로 구워진다). **두 쪽은
@@ -598,6 +605,11 @@
     없다). **html2canvas는 대비용으로 남긴다** — 사파리에서 foreignObject가 빈 캔버스를 주는 보고가 있어 `shareImage.isBlankCanvas`(16×16 격자 256점, **줄 단위로 읽는다**)로 한 색이면 그 길로 떨어지고,
     읽지 못하면 (오염된 캔버스) **비지 않았다고 본다.** 속도는 조금 잃었다(주보 1쪽 0.9 → 1.6초) — 미리 굽기·약속 이어받기· Blob 캐시가 그대로라 **충실도를 골랐다.** 검사는 구운 종이와 **실제 화면 스크린샷**을 겹쳐 ±3화소로
     단정한다 — **화면을 찍을 때는 종이를 창 안으로 들여놓으세요**(앱은 `main`을 스크롤해서 `captureBeyondViewport`가 안 듣는다).
+
+**32-u.** **목록 글머리는 글자 칸 밖에 그려진다** — `list-style-position: outside`의 `::marker`는 상자의 padding 자리에 앉는다. 그래서 종이 격자에서 글 칸의 들여쓰기(`padding-left: 12px`)만 주면
+`1.`·`•`가 그 12px을 넘어 **라벨 칸(58px)으로 밀려 나간다**(사용자 스크린샷 2026-09-11 · 좁은 화면에서는 종이 왼쪽 끝까지 갔다). 글 칸 자리에 **목록 들여쓰기를 더해** 글머리가 설 자리를 칸 안에
+만든다(`.note-paper .tiptap > :is(ul, ol)` = 글 칸 + 1.25rem · 좁은 화면은 1.25rem). 체크박스 목록은 글머리가 li 안쪽(flex 첫 칸)이라 글 칸 자리만 주면 된다. **`list-style-position:
+inside`로 바꾸지 마세요** — TipTap의 `li`는 안에 문단(블록)을 물고 있어서 글머리가 제 줄 하나를 차지한다. 검사는 `tests/word`가 목록과 문단의 `padding-left` 차이로 본다.
 
 ### 엑셀 미리보기 — 우리가 그리던 시절 (지금은 없습니다)
 

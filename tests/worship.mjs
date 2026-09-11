@@ -1207,21 +1207,31 @@ check("공유 세그먼트 라벨은 '나만 보기 | 순에 공유하기'",
 
 // 노트 칸은 **업무 본문과 같은 편집기**다 — 맨 textarea가 아니라 서식 바가 붙은
 // 마크다운 편집기이고, 저장되는 값은 그대로 마크다운 문자열이다.
-const noteEditor = await ev(`(() => ({
-  tiptap: !!document.querySelector('.worship-note .tiptap'),
-  textarea: !!document.querySelector('.worship-note textarea'),
-  bar: [...document.querySelectorAll('.worship-note button[title]')]
-    .map(b => b.title).filter(t => ['굵게', '형광펜', '불릿 목록', '체크리스트'].includes(t)).length,
-  heads: [...document.querySelectorAll('.worship-note button[title]')]
-    .map(b => b.title).filter(t => t.indexOf('제목 ') === 0),
-}))()`);
+const noteEditor = await ev(`(() => {
+  const titles = [...document.querySelectorAll('.worship-note button[title]')].map(b => b.title);
+  return {
+    tiptap: !!document.querySelector('.worship-note .tiptap'),
+    textarea: !!document.querySelector('.worship-note textarea'),
+    bar: titles.filter(t => ['굵게', '형광펜', '불릿 목록', '체크리스트'].includes(t)).length,
+    heads: titles.filter(t => t.indexOf('제목 ') === 0),
+    lists: ['불릿 목록', '번호 목록', '체크리스트'].filter(t => titles.includes(t)),
+    rule: titles.includes('구분선'),
+    link: titles.some(t => t.indexOf('링크') >= 0),
+  };
+})()`);
 check('내 예배 노트가 업무 본문과 같은 마크다운 편집기다',
   noteEditor.tiptap === true && noteEditor.textarea === false, JSON.stringify(noteEditor));
 check('노트에도 서식 바가 같이 온다(굵게·형광펜·목록·체크리스트)', noteEditor.bar === 4, String(noteEditor.bar));
-// **제목 버튼은 없다**(사용자 결정 2026-09-10) — 도막 제목이 고정이라 제목을 만들 일이
-// 없고, 단계를 바꾸면 그 도막이 종이에서 라벨로 안 올라가는 것처럼 보인다.
-// **되돌리기**: `headings={false}`를 떼면 넷이 다시 나타나 이 줄이 깨진다.
-check('노트 서식 바에 제목 버튼이 없다', noteEditor.heads.length === 0, JSON.stringify(noteEditor.heads));
+// **제목·구분선·링크는 없다** — 제목은 2026-09-10, 구분선·링크는 2026-09-11의 사용자
+// 결정이다("불렛과 번호, 체크박스는 남겨두고 구분선이랑 링크 서식은 제거"). 도막 제목이
+// 고정이라 제목을 만들 일이 없고(단계를 바꾸면 그 도막이 종이에서 라벨로 안 올라가는
+// 것처럼 보인다), 종이에는 선을 긋지 않고 링크도 쓰지 않는다.
+// **되돌리기**: `tools="note"`를 떼면 그 셋이 다시 나타나 아래 두 줄 중 첫 줄이 깨진다.
+check('노트 서식 바에 제목·구분선·링크가 없다',
+  noteEditor.heads.length === 0 && noteEditor.rule === false && noteEditor.link === false,
+  JSON.stringify(noteEditor));
+check('노트 서식 바에 목록 셋(불릿·번호·체크)은 남는다',
+  noteEditor.lists.length === 3, JSON.stringify(noteEditor.lists));
 
 // ── 편집도 종이 안에서 한다 (사용자 요청 2026-09-10) ────────────────────────
 // 예전에는 서식 바 아래 흰 상자에 제목이 큰 여백으로 벌어진 문서 편집기였고, 저장하면

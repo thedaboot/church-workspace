@@ -325,6 +325,23 @@ check('업무 수정: 저장이 저장소에 반영된다', saved === true);
 }
 
 
+// ── 번호 목록이 이어지는 숫자로 그려진다 (2026-09-11) ───────────────────────
+// 저장된 글은 `2.`인데 화면에서는 1부터 다시 셌다(사용자 스크린샷 · 업무 상세) —
+// RichText가 `<ol>`을 언제나 1부터 그렸기 때문이다. mdcheck가 저장 쪽 왕복을 보고,
+// 여기서는 **그리는 쪽**을 본다(구분선과 같은 짝).
+// **되돌리기**: RichText의 `start={block.start || 1}`를 떼면 두 번째 줄이 깨진다.
+{
+  const first = Object.keys(st.tasks.byId)[0];
+  st.tasks.byId[first].content = '1. 첫째\n- 사이 불릿\n2. 둘째';
+  await load(DESK, `/?p=p1&t=${first}`);
+  const ols = await ev(`[...document.querySelectorAll('ol')].map(o => ({ start: o.getAttribute('start'), n: o.children.length }))`);
+  check('사이에 블록이 끼면 번호 목록이 둘로 갈린다', Array.isArray(ols) && ols.length === 2, JSON.stringify(ols));
+  check('두 번째 목록이 2부터 그려진다',
+    Array.isArray(ols) && ols.length === 2 && ols[1].start === '2', JSON.stringify(ols));
+  st.tasks.byId[first].content = '내용';
+}
+
+
 // ── 제목에서 Enter (2026-08-30) ─────────────────────────────────────────────
 // 제목에서 Enter를 치면 다음 줄은 본문이다(§6). 처음 나간 판은 **줄 끝에서 빈 문단을
 // 하나 더 만들었다**(사용자 지적 — "줄바꿈이 두 번 된다"). 줄 끝에서는 splitBlock이
@@ -369,29 +386,30 @@ check('업무 수정: 저장이 저장소에 반영된다', saved === true);
 }
 
 
-// ── 서식 바가 머리줄과 겹치지 않는다 (2026-08-30) ──────────────────────────
+// ── 서식 바 — 데스크톱은 '줄', 모바일은 화면 아래 고정 (2026-08-30 · 2026-09-11) ────
 // 처음 나간 판은 top:8px으로 박아서 바가 업무 창 머리줄 **위로 올라가 겹쳤다**
-// (사용자 지적 — "아예 헤더로 가면 어떻게 해"). 머리줄 높이는 폭·글자에 따라
-// 달라지므로 재서 맞춘다. 붙어도 상세 내용 칸의 머리줄로 남아야 한다.
+// (사용자 지적 — "아예 헤더로 가면 어떻게 해"). 머리줄 높이는 폭·글자에 따라 달라지므로
+// 재서 맞춘다. 2026-09-11에 **붙었을 때의 모양**이 바뀌었다(사용자 결정 — "모바일은 화면
+// 아래(키보드 위)에 고정, 데스크톱은 붙으면 상자가 아니라 줄로"): 둥근 모서리·좌우·위
+// 선을 걷고 아래 가는 선 하나와 연한 그림자만 남으며, 배경은 그 통의 바탕색이다.
 // 본문이 짧으면 바가 멈출 자리까지 올라가지도 못한다 — 길게 만들어 실제로 붙여 놓고 잰다
 const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 줄입니다`).join('\n');
-for (const [m, label] of [[DESK, '데스크톱'], [MOB, '모바일']]) {
+{
+  const label = '데스크톱';
   const firstId = Object.keys(st.tasks.byId)[0];
   st.tasks.byId[firstId].content = 긴본문;
-  await load(m, `/?p=p1&t=${firstId}`);
+  await load(DESK, `/?p=p1&t=${firstId}`);
   await ev(clickText('수정'));
   await sleep(1400);
   // 끝까지 내려 바를 붙인 뒤에 잰다(스크롤과 재기를 한 번에 하면 옛 자리가 나온다)
   await ev(`(() => {
-    const bar = [...document.querySelectorAll('*')]
-      .find(e => getComputedStyle(e).position === 'sticky' && (e.className || '').includes('overflow-x-auto'));
+    const bar = document.querySelector('[data-editor-bar="sticky"]');
     const box = bar && (bar.closest('.overflow-y-auto') || bar.parentElement);
     if (box) box.scrollTop = box.scrollHeight;
   })()`);
   await sleep(600);
   const tb = await ev(`(() => {
-    const bar = [...document.querySelectorAll('*')]
-      .find(e => getComputedStyle(e).position === 'sticky' && (e.className || '').includes('overflow-x-auto'));
+    const bar = document.querySelector('[data-editor-bar="sticky"]');
     if (!bar) return null;
     const box = bar.closest('.overflow-y-auto') || bar.parentElement;
     const heads = [...document.querySelectorAll('*')].filter(e =>
@@ -408,8 +426,7 @@ for (const [m, label] of [[DESK, '데스크톱'], [MOB, '모바일']]) {
     // 투명도 읽기 — 정규식을 안 쓴다(이 코드는 백틱 문자열로 넘어가서 역슬래시가
     // 삼켜진다 · §6). 테일윈드 4는 rgba()가 아니라 **oklab(L a b / .9)** 로도 적는다 —
     // 쉼표 네 조각만 보면 반투명을 불투명으로 잘못 읽는다(실제로 그랬다).
-    const bg = cs.backgroundColor;
-    const 알파 = (() => {
+    const 알파of = (bg) => {
       const open = bg.indexOf('(');
       if (open < 0) return bg === 'transparent' ? 0 : 1;
       const inside = bg.slice(open + 1, bg.lastIndexOf(')'));
@@ -419,15 +436,27 @@ for (const [m, label] of [[DESK, '데스크톱'], [MOB, '모바일']]) {
       const n = parseFloat(raw);
       if (!isFinite(n)) return 1;
       return raw.endsWith('%') ? n / 100 : n;
+    };
+    // 붙었을 때의 배경은 **통의 바탕색**이어야 한다(상자가 아니라 줄이다)
+    const 통배경 = (() => {
+      for (let n = bar.parentElement; n; n = n.parentElement) {
+        const c = getComputedStyle(n).backgroundColor;
+        if (알파of(c) > 0) return c;
+      }
+      return '';
     })();
     return {
       머리줄수: heads.length,
       겹침px: Math.round(worst),
       떨어진px: Math.round(barR.top - 멈출자리),
       배경: cs.backgroundColor,
-      알파,
+      통배경,
+      알파: 알파of(cs.backgroundColor),
       블러: cs.backdropFilter,
       그림자: cs.boxShadow,
+      둥근: cs.borderTopLeftRadius,
+      좌선: cs.borderLeftWidth, 우선: cs.borderRightWidth,
+      위선: cs.borderTopWidth, 아래선: cs.borderBottomWidth,
       z바: Number(getComputedStyle(bar).zIndex) || 0,
       z머리: heads.length ? Math.max(...heads.map(h => Number(getComputedStyle(h).zIndex) || 0)) : 0,
       좌우가_본문과_같다: Math.abs(barR.left - (bar.nextElementSibling?.getBoundingClientRect().left ?? barR.left)) < 1.5,
@@ -435,7 +464,6 @@ for (const [m, label] of [[DESK, '데스크톱'], [MOB, '모바일']]) {
   })()`);
   await sleep(400);
   check(`${label}: 서식 바가 머리줄과 안 겹친다`, !!tb && tb.겹침px <= 1, JSON.stringify(tb));
-  // 모바일에는 위에 붙는 머리줄이 없다(창이 화면을 다 쓴다) — 그때는 볼 것이 없다
   check(`${label}: 머리줄이 더 위 층이다`, !!tb && (tb.머리줄수 === 0 || tb.z바 < tb.z머리), JSON.stringify(tb));
   check(`${label}: 붙어도 상세 내용 칸 폭 그대로다`, !!tb && tb.좌우가_본문과_같다 === true, JSON.stringify(tb));
   // **머리줄 '바로' 아래여야 한다.** 처음 나간 판은 서식 바 자신이 top:0이라
@@ -443,10 +471,96 @@ for (const [m, label] of [[DESK, '데스크톱'], [MOB, '모바일']]) {
   // 데스크톱에서는 안 보였고, 머리줄이 없는 모바일에서만 본문 한가운데에 떴다
   // (사용자 지적 2026-08-30). 위로 올라가지도, 아래로 내려가지도 않는다.
   check(`${label}: 서식 바가 머리줄 바로 아래에 선다`, !!tb && Math.abs(tb.떨어진px) <= 1, JSON.stringify(tb));
-  // 밑으로 지나가는 글이 비치면 안 된다(사용자 결정 2026-08-30 —
-  // "투명도 안 넣고 그냥 그대로 딸려오게만"). 그림자·블러 같은 뜨는 연출도 없다.
+  // 밑으로 지나가는 글이 비치면 안 된다(사용자 결정 2026-08-30 — "투명도 안 넣고 그냥
+  // 그대로 딸려오게만"). 블러도 없다(§6-9-aa).
   check(`${label}: 서식 바 배경이 완전 불투명하다`, !!tb && tb.알파 === 1, JSON.stringify(tb));
-  check(`${label}: 서식 바에 블러·그림자가 없다`, !!tb && tb.블러 === 'none' && tb.그림자 === 'none', JSON.stringify(tb));
+  check(`${label}: 서식 바에 블러가 없다`, !!tb && tb.블러 === 'none', JSON.stringify(tb));
+  // **붙으면 상자가 아니라 줄이다**(사용자 결정 2026-09-11) — 둥근 모서리 0 · 좌우·위 선
+  // 없음 · 아래 선 하나 · 연한 그림자 · 통과 같은 바탕색.
+  // **되돌리기**: 붙었을 때의 `rounded-none border-x-0 border-t-0 shadow-soft`를 떼면
+  // 아래 세 줄이 깨진다.
+  check(`${label}: 붙으면 둥근 모서리가 없다`, !!tb && parseFloat(tb.둥근) === 0, JSON.stringify(tb));
+  check(`${label}: 붙으면 좌우·위 선이 없고 아래 선만 남는다`,
+    !!tb && parseFloat(tb.좌선) === 0 && parseFloat(tb.우선) === 0
+    && parseFloat(tb.위선) === 0 && parseFloat(tb.아래선) > 0, JSON.stringify(tb));
+  check(`${label}: 붙으면 연한 그림자와 통의 바탕색으로 눕는다`,
+    !!tb && tb.그림자 !== 'none' && tb.배경 === tb.통배경, JSON.stringify(tb));
+  st.tasks.byId[firstId].content = '내용';
+}
+
+// 모바일 — 바는 sticky가 아니라 **화면 아래(키보드 위) 고정**이고, 편집기에 포커스가
+// 있을 때만 선다(사용자 결정 2026-09-11). 헤드리스에는 키보드가 없어 visualViewport가
+// 알려 주는 가림 높이가 0이다 — 그때는 하단 탭바 위(업무 창처럼 풀스크린 창 안이면
+// 안전 영역 위 = 화면 바닥)다. **키보드 위로 서는지는 실기기에서 봐야 한다**(HANDOFF §2).
+// **되돌리기**: 모바일 갈래를 sticky로 되돌리면 아래 다섯이 깨진다.
+{
+  // 헤드리스는 창에 포커스가 없어서 focus()·blur()가 **이벤트를 안 낸다**(activeElement만
+  // 바뀐다) — 이 바는 그 이벤트로 서고 사라지므로 이 줄이 없으면 헛으로 실패한다
+  // (tests/groups도 같은 이유로 켠다).
+  await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+  const firstId = Object.keys(st.tasks.byId)[0];
+  st.tasks.byId[firstId].content = 긴본문;
+  await load(MOB, `/?p=p1&t=${firstId}`);
+  await ev(clickText('수정'));
+  await sleep(2600);
+  // 편집기는 열리자마자 커서를 물고 있을 수 있다 — 먼저 손을 떼고 '없는 상태'부터 본다
+  await ev(`(() => { const t = document.querySelector('.tiptap'); t && t.blur(); })()`);
+  await sleep(700);
+  const 꺼짐 = await ev(`(() => {
+    const bar = document.querySelector('[data-editor-bar]');
+    return { 갈래: bar ? bar.getAttribute('data-editor-bar') : '(없음)',
+             보임: !!bar && getComputedStyle(bar).display !== 'none' };
+  })()`);
+  check('모바일: 서식 바가 화면 아래 고정 갈래다', 꺼짐.갈래 === 'fixed', JSON.stringify(꺼짐));
+  check('모바일: 편집기에서 손을 떼면 바가 서지 않는다', 꺼짐.보임 === false, JSON.stringify(꺼짐));
+  await ev(`(() => { const t = document.querySelector('.tiptap'); t && t.focus(); })()`);
+  await sleep(700);
+  const 켜짐 = await ev(`(() => {
+    const bar = document.querySelector('[data-editor-bar]');
+    const tip = document.querySelector('.tiptap');
+    if (!bar || !tip) return null;
+    const cs = getComputedStyle(bar);
+    const r = bar.getBoundingClientRect();
+    const 알파of = (bg) => {
+      const open = bg.indexOf('(');
+      if (open < 0) return bg === 'transparent' ? 0 : 1;
+      const inside = bg.slice(open + 1, bg.lastIndexOf(')'));
+      const slash = inside.indexOf('/');
+      const raw = slash >= 0 ? inside.slice(slash + 1).trim()
+        : (inside.split(',').length === 4 ? inside.split(',')[3].trim() : '1');
+      const n = parseFloat(raw);
+      if (!isFinite(n)) return 1;
+      return raw.endsWith('%') ? n / 100 : n;
+    };
+    // 편집 칸(= className을 받은 감싸개)의 아래 여백이 바 높이를 덮어야 마지막 줄이 안 가린다
+    const 칸 = tip.parentElement.parentElement;
+    return {
+      보임: cs.display !== 'none', 자리: cs.position,
+      바닥까지: Math.round(window.innerHeight - r.bottom),
+      폭: Math.round(r.width), 창폭: window.innerWidth,
+      바높이: Math.round(r.height),
+      아래여백: Math.round(parseFloat(getComputedStyle(칸).paddingBottom) || 0),
+      z: Number(cs.zIndex) || 0,
+      알파: 알파of(cs.backgroundColor), 블러: cs.backdropFilter,
+      위선: cs.borderTopWidth,
+    };
+  })()`);
+  check('모바일: 포커스하면 바가 화면 아래에 fixed로 선다',
+    !!켜짐 && 켜짐.보임 === true && 켜짐.자리 === 'fixed' && 켜짐.바닥까지 <= 1, JSON.stringify(켜짐));
+  check('모바일: 바가 화면 폭을 다 쓰고 위 가는 선 하나만 있다',
+    !!켜짐 && Math.abs(켜짐.폭 - 켜짐.창폭) <= 1 && parseFloat(켜짐.위선) > 0, JSON.stringify(켜짐));
+  check('모바일: 바가 업무 창보다 위 층이고 배경이 불투명하다(블러 없음)',
+    !!켜짐 && 켜짐.z >= 60 && 켜짐.알파 === 1 && 켜짐.블러 === 'none', JSON.stringify(켜짐));
+  check('모바일: 편집 칸 아래가 바 높이만큼 비어 있다',
+    !!켜짐 && 켜짐.바높이 > 0 && 켜짐.아래여백 >= 켜짐.바높이, JSON.stringify(켜짐));
+  await ev(`(() => { const t = document.querySelector('.tiptap'); t && t.blur(); })()`);
+  await sleep(800);
+  const 다시꺼짐 = await ev(`(() => {
+    const bar = document.querySelector('[data-editor-bar]');
+    return !!bar && getComputedStyle(bar).display !== 'none';
+  })()`);
+  check('모바일: 다시 손을 떼면 바가 사라진다', 다시꺼짐 === false, String(다시꺼짐));
+  await send('Emulation.setFocusEmulationEnabled', { enabled: false });
   st.tasks.byId[firstId].content = '내용';
 }
 

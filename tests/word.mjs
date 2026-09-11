@@ -859,17 +859,24 @@ check('편집 칸이 왼쪽 라벨 · 오른쪽 글 두 칸 격자다',
 check('1440: 라벨과 그 도막 첫 줄이 같은 행이다(±2px)',
   !!labelRow && Math.abs(labelRow.dTop) <= 2 && labelRow.rightOf >= 0, JSON.stringify(labelRow));
 
-// 서식 바에 **제목 버튼이 없다**(사용자 결정 2026-09-10) — 도막 제목이 고정이라 제목을
-// 만들 일이 없다. 굵게·형광펜·목록은 그대로 있다(§8 '기능을 숨기지 않습니다').
-// **되돌리기**: `headings={false}`를 떼면 넷이 다시 나타나 이 줄이 깨진다.
+// 서식 바에 **제목·구분선·링크가 없다** — 제목은 2026-09-10, 구분선·링크는 2026-09-11의
+// 사용자 결정이다("불렛과 번호, 체크박스는 남겨두고 구분선이랑 링크 서식은 제거").
+// 도막 제목이 고정이라 제목을 만들 일이 없고, 종이에는 선을 긋지 않는다.
+// 불릿·번호·체크는 그대로 남는다(§8 '기능을 숨기지 않습니다').
+// **되돌리기**: `tools="note"`를 떼면 그 셋이 다시 나타나 첫 줄이 깨진다.
 const noteBar = await ev(`(() => {
   const box = document.querySelector('.qt-note-editor');
   const titles = [...box.querySelectorAll('button[title]')].map(b => b.title);
   return { heads: titles.filter(t => t.indexOf('제목 ') === 0),
+           rule: titles.includes('구분선'),
+           link: titles.some(t => t.indexOf('링크') >= 0),
+           lists: ['불릿 목록', '번호 목록', '체크리스트'].filter(t => titles.includes(t)),
            keep: ['굵게', '형광펜', '불릿 목록', '체크리스트'].filter(t => titles.includes(t)) };
 })()`);
-check('노트 서식 바에 제목 버튼이 없다', noteBar.heads.length === 0, JSON.stringify(noteBar.heads));
-check('굵게·형광펜·목록은 그대로 있다', noteBar.keep.length === 4, JSON.stringify(noteBar.keep));
+check('노트 서식 바에 제목·구분선·링크가 없다',
+  noteBar.heads.length === 0 && noteBar.rule === false && noteBar.link === false, JSON.stringify(noteBar));
+check('굵게·형광펜·목록 셋은 그대로 있다',
+  noteBar.keep.length === 4 && noteBar.lists.length === 3, JSON.stringify(noteBar));
 
 check('손대지 않은 템플릿으로는 저장할 수 없다', (await saveDisabled()) === true);
 await ev(`(() => { const el = document.querySelector('.tiptap'); el && el.focus(); })()`);
@@ -896,6 +903,37 @@ const lockedHeads = await ev(`(() => {
 check('중제목은 전체 선택 후 입력에도 지워지지 않는다',
   JSON.stringify(lockedHeads.heads) === JSON.stringify(['본문', '나의 결단', '기도'])
   && lockedHeads.hasTyped === false, JSON.stringify(lockedHeads));
+
+// **목록 글머리는 글 칸 안에 선다**(사용자 지적 2026-09-11 — `1.`·`•`가 종이 왼쪽 끝까지
+// 밀려 나갔다). 도막 칸의 `padding-left: 12px`이 `.tiptap ul`의 들여쓰기를 덮어써서, 칸
+// 밖에 그려지는 글머리가 라벨 칸(58px)으로 넘어간 것이다. 글머리가 설 자리를 글 칸 안에
+// 만든다 — 글 칸이 시작하는 자리는 읽기 종이의 `- 목록`과 같다.
+// **되돌리기**: index.css의 `.note-paper .tiptap > :is(ul, ol)` 들여쓰기를 지우면 깨진다.
+await ev(`(() => {
+  const t = document.querySelector('.qt-note-editor .tiptap');
+  const p = [...t.children].filter(el => el.tagName === 'P').pop();
+  t.focus();
+  const r = document.createRange(); r.selectNodeContents(p); r.collapse(false);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+})()`);
+await sleep(250);
+await ev(`(() => { const b = document.querySelector('.qt-note-editor button[title="불릿 목록"]'); b && b.click(); })()`);
+await sleep(500);
+const 글머리 = await ev(`(() => {
+  const t = document.querySelector('.qt-note-editor .tiptap');
+  const ul = t && t.querySelector(':scope > ul:not([data-type="taskList"])');
+  const p = t && [...t.children].find(el => el.tagName === 'P');
+  if (!ul || !p) return null;
+  const upad = parseFloat(getComputedStyle(ul).paddingLeft) || 0;
+  const ppad = parseFloat(getComputedStyle(p).paddingLeft) || 0;
+  const ur = ul.getBoundingClientRect(), pr = p.getBoundingClientRect();
+  // 글머리는 목록 상자의 padding 안(글 칸 시작 자리 ~ 글자 시작 자리)에 그려진다 —
+  // 그 자리가 글 칸 안이려면 목록의 들여쓰기가 문단의 것보다 글머리 폭만큼 넉넉해야 한다.
+  return { 목록들여쓰기: Math.round(upad), 문단들여쓰기: Math.round(ppad),
+           같은칸: Math.abs(ur.left - pr.left) <= 1, 여유: Math.round(upad - ppad) };
+})()`);
+check('노트 목록의 글머리가 라벨 칸으로 넘어가지 않는다',
+  !!글머리 && 글머리.같은칸 === true && 글머리.여유 >= 16, JSON.stringify(글머리));
 
 await clickText('오늘');
 await sleep(900);
