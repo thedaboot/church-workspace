@@ -120,15 +120,15 @@ const LockedHeadings = Extension.create({
 // 업무 창은 `overflow-hidden` 껍데기가 스크롤 통보다 **바깥**이라 답이 예전과 같다.
 //
 // **찾은 통을 같이 돌려준다**(2026-09-11) — 바가 붙었는지 보는 관찰자가 같은 통을 봐야
-// 하기 때문이다(아래 IntersectionObserver의 `root`). 통을 여기서만 알고 있으면 관찰자는
-// 뷰포트를 보게 되고, 페이지 스크롤 통에서는 그 둘이 서로 다른 상자가 된다.
+// 하기 때문이다(붙었는지는 바와 센티넬의 거리로 재고, 그 스크롤은 document capture로 듣는다 —
+// 아래 stuck 효과). 통은 `bg`(붙었을 때 바탕색)와 `top`을 정하는 데 쓴다.
 //
 // **통은 셋뿐이다** — 이 에디터가 서는 자리가 셋이기 때문이다(2026-09-11):
 //  · **업무 창**(데스크톱 모달 안 `overflow-y-auto` 본문): 통 = 그 본문. 안에 `sticky top-0`
 //    머리줄이 있어 `top`은 그 높이(≈53), `bg`는 본문의 `bg-surface`, `root`는 그 본문이다.
 //  · **페이지**(예배 노트·묵상 노트 — App의 `main`): 통 = main. 안에 머리줄이 없어 `top`은
 //    `-paddingTop`(위 패딩만큼 올려 창 머리줄에 붙인다), `bg`는 카드/바탕색, `root`는 main이다.
-//    여기서 `root`를 빼먹어 붙어도 모양이 안 바뀌었다(아래 IntersectionObserver 주석).
+//    처음에는 관찰자(IntersectionObserver)로 판정했는데 여기서 어긋났다 — 지금은 거리 판정이다(아래).
 //    **모바일도 같은 길이다**(2026-09-11 결정) — `MobileTopBar`는 `main` **밖**의 형제라
 //    `-paddingTop`으로 올려 세우면 그 바로 밑이 곧 붙는 자리다.
 //  · **모바일 풀스크린 업무 창**(창이 화면을 다 덮는 판): 통은 그 창의 본문이고 머리줄이
@@ -381,35 +381,38 @@ export function MarkdownEditor({
   const { top: stickyTop, bg: stuckBg, box: scrollBox } = useStickyTop(wrapRef);
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || typeof IntersectionObserver === 'undefined') { setStuck(false); return undefined; }
-    // **관찰하는 상자가 바가 붙는 통과 같아야 한다**(2026-09-11 · §6-9-aa).
-    // `root`를 비워 두면 기본이 뷰포트다 — 업무 창은 통이 화면 한가운데라 우연히 맞았지만,
-    // **페이지 스크롤 통**(App의 main)에서는 센티넬이 그 통의 잘림선(화면 위 53px)에서
-    // 이미 사라진다. 그때 `boundingClientRect.top`은 아직 41px쯤이라 `< 0`이 거짓이고,
-    // 한 번 어긋나면 관찰자가 다시 부르지 않아 **바가 붙어도 모양이 그대로**였다
-    // (사용자 지적 2026-09-11 — 1440에서 예배 노트 '수정' 뒤 스크롤).
-    const root = scrollBox && scrollBox !== document.body ? scrollBox : null;
-    // 바가 멈추는 줄 = 통의 **콘텐츠 상자 위 + stickyTop**이다(sticky의 top은 콘텐츠
-    // 상자에서 잰다 — 위 useStickyTop의 `pad` 주석과 같은 규칙). rootMargin으로 관찰
-    // 상자의 위를 그만큼 깎아 두면 센티넬이 그 줄을 넘는 순간이 곧 붙는 순간이다.
-    // 음수일 수 있어(머리줄이 없으면 stickyTop이 `-pad`다) 부호는 계산해서 넣는다.
-    const pad = root ? parseFloat(getComputedStyle(root).paddingTop || '0') || 0 : 0;
-    // **아래쪽은 통째로 열어 둔다**(`0px` 대신 큰 값). 관찰자는 '겹침이 바뀔 때'만 부른다 —
-    // 아래도 닫아 두면 편집기가 통 **밑에** 있을 때도 '안 겹침'이라, 거기서 한 번에 위로
-    // 뛰면(닻 이동·빠른 튕김·scrollIntoView) 안 겹침 → 안 겹침이 되어 **아무도 안 부른다**.
-    // 실제로 그랬다: 조금씩 굴리면 붙는데 0에서 1161로 한 번에 가면 모양이 그대로였다
-    // (2026-09-11 헤드리스). 아래를 열어 두면 '밑에 있다 = 겹친다'가 되어 줄을 넘는
-    // 순간이 늘 한 번의 변화가 된다.
-    const io = new IntersectionObserver(
-      // 위로 지나갔을 때만 '붙었다'이다 — 가르는 기준은 0이 아니라 **깎은 뒤의 관찰 상자
-      // 위**다(root가 뷰포트가 아니라 통이면 그 자리가 0이 아니다).
-      ([entry]) => setStuck(!entry.isIntersecting
-        && entry.boundingClientRect.top < (entry.rootBounds ? entry.rootBounds.top : 0)),
-      { root, threshold: 0, rootMargin: `${-(pad + stickyTop)}px 0px 100000px 0px` },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [stickyTop, scrollBox]);
+    // 바는 **잴 때마다** 찾는다 — 편집기(useEditor)가 첫 렌더에서는 null이라 Toolbar가 아직
+    // 없고, 그때 한 번 잡아 두면 영영 null이다(Puppeteer 390에서 stuck이 0에 굳어 있던 원인).
+    const findBar = () => wrapRef.current?.querySelector('[data-editor-bar]');
+    if (!el) { setStuck(false); return undefined; }
+    // **붙었는지는 바와 센티넬의 거리로 잰다** — 관찰자(IntersectionObserver)가 아니다
+    // (2026-09-12 · §6-9-aa). 관찰자는 `root`·`rootMargin`·통의 padding을 전부 맞춰야
+    // 하고, 그래도 페이지 통(main)에서는 판정이 뒤집힌 채 굳는 일이 있었다(모바일 390에서
+    // 붙었는데 상자 모양, 안 붙었는데 줄 모양 — Puppeteer 확인). 거리는 단순하다:
+    // 센티넬은 바 바로 위 1px 줄이라 **안 붙었을 때 둘의 top 차이는 1px**이고, 붙으면 바가
+    // 멈춘 채 센티넬만 위로 지나가 그 차이가 벌어진다. 어느 통이든, 어느 폭이든 같다.
+    // 스크롤은 **document에서 capture로** 받는다 — scroll 이벤트는 버블링하지 않지만 capture
+    // 단계는 어느 요소의 스크롤이든 지나간다. 통을 찾아 거기 리스너를 거는 길은 통이 늦게
+    // 잡히면(첫 렌더) 창(window)에 걸려 main 스크롤을 못 듣는다(Puppeteer 390에서 실제로 그랬다).
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const bar = findBar();
+      if (!bar) { setStuck(false); return; }
+      const gap = bar.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      setStuck(gap > 2);
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(measure); };
+    onScroll();
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      document.removeEventListener('scroll', onScroll, { capture: true });
+      window.removeEventListener('resize', onScroll);
+    };
+    // editor가 생기면(첫 렌더 뒤) 다시 걸어 바를 잡는다
+  }, [stickyTop, scrollBox, editor]);
 
   const pick = useCallback((name) => {
     const m = mentionRef.current;
@@ -466,7 +469,7 @@ export function MarkdownEditor({
   return (
     <div ref={wrapRef} className="relative">
       {/* 센티넬 — 서식 바가 '붙었는지'를 이걸로 잰다(Injoy 글쓰기와 같은 방식).
-          scroll 이벤트로 매 프레임 재는 대신 IntersectionObserver 한 번이면 된다. */}
+          붙으면 바는 멈추고 이 줄만 위로 지나가므로 둘의 거리가 곧 '붙었나'다(위 stuck 효과). */}
       <div ref={sentinelRef} aria-hidden="true" className="h-px" />
       {/* 바는 **제자리에 그대로 둔다** — sticky는 문서 흐름 안에 있어야 붙는다.
           모바일에서 body로 빼 화면 아래에 고정하던 길은 2026-09-11에 걷었다(§6-9-aa-4). */}
@@ -609,6 +612,7 @@ function Toolbar({
   return (
     <div
       data-editor-bar="sticky"
+      data-stuck={stuck ? '1' : '0'}
       style={{
         top,
         transition: `background-color .15s ${EASE}, border-color .15s ${EASE}, border-radius .15s ${EASE}, box-shadow .15s ${EASE}`,
