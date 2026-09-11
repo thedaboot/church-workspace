@@ -16,7 +16,8 @@ import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { useLiveRefresh } from '../services/liveV2.js';
 import { ShareChip, ShareToggle } from '../components/ShareToggle.jsx';
 import { SectionHead, Card } from './dashboardParts.jsx';
-import { loadPassage } from '../services/bible.js';
+import { loadPassage, loadBibleIndex } from '../services/bible.js';
+import { fullRef } from '../services/bibleRef.js';
 import { qtNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
   ensureNoteSections, QT_SECTIONS } from '../services/noteTemplate.js';
 import { NoteSheet, NotePaper, PAPER, paperDate } from '../components/paper.jsx';
@@ -170,9 +171,10 @@ function QtTab() {
   const [dir, setDir] = useState(0);
   const [day, setDay] = useState({ loading: true, schedule: null, passage: null });
   // 저장된 묵상 — **어느 날짜의 것인지 같이 들고 있는다**(본문이 그러는 것과 같은 이유).
-  // null이면 아직 한 번도 안 읽었다. { date, body, shared, exists }
+  // null이면 아직 한 번도 안 읽었다. { date, body, title, shared, exists }
   const [entry, setEntry] = useState(null);
   const [body, setBody] = useState('');            // 지금 에디터에 있는 글
+  const [title, setTitle] = useState('');          // 지금 제목 칸에 있는 글(0062)
   const [saving, setSaving] = useState(false);
   const [shareState, setShareState] = useState(''); // '' | 'saving' | 'saved' (공유 칩)
   const [feed, setFeed] = useState(null);          // null이면 아직 안 읽음
@@ -203,9 +205,20 @@ function QtTab() {
       const [schedule, mine, shared] = await Promise.all([
         fetchSchedule(date), fetchMyEntry(date), fetchSharedEntries(date),
       ]);
+      // **구절을 책 이름 전체로 편다**(사용자 요청 2026-09-11 · bibleRef.fullRef).
+      // 읽기표(0038 시드)는 '삿 5:19-31'처럼 약자로 저장되어 있는데 주보의 구절은
+      // 이름 전체라, 같은 모양의 종이인데 묵상 쪽 머리만 약자였다. **여기서 한 번만
+      // 푸는 이유**: 책 목록도 비동기라 화면에서 따로 읽으면 구절이 한 박자 늦게 바뀌고,
+      // 그 사이에 만든 템플릿이 손대지 않은 글을 '고쳐진 글'로 만든다. 이 묶음과 같이
+      // 오면 그럴 틈이 없다. 목록을 못 읽으면 저장된 글자 그대로 간다(안전한 실패).
+      let refFull = schedule?.passage_ref || '';
+      if (refFull) {
+        try { refFull = fullRef(refFull, await loadBibleIndex()); }
+        catch (e) { console.error('[word] 책 목록을 읽지 못해 구절을 약자 그대로 둡니다:', e); }
+      }
       // 어느 날짜의 묶음인지 같이 들고 있는다 — 날짜가 먼저 바뀌고 값이 한 프레임 늦게
       // 오므로, 이걸 안 보면 **앞 날짜의 값을 새 날짜에 적어 버린다**(빈 묵상으로 덮였다)
-      return { date, schedule: schedule ?? null, mine: mine ?? null, shared: shared || [] };
+      return { date, schedule: schedule ?? null, mine: mine ?? null, shared: shared || [], refFull };
     },
     [date],
   );
@@ -245,24 +258,37 @@ function QtTab() {
   // (2026-09-06 지적). 지금은 아직 손대지 않은 글만 갈아 끼운다.
   const syncedFor = useRef('');
   const syncedBody = useRef('');   // 마지막으로 넣어 준 글 — '아직 안 고쳤나'의 기준
+  const syncedTitle = useRef('');  // 제목도 같은 기준을 따로 들고 있는다(아래 주석)
   const bodyRef = useRef('');
   bodyRef.current = body;          // 이펙트가 지금 에디터의 글을 볼 수 있게(렌더마다)
+  const titleRef = useRef('');
+  titleRef.current = title;
   // **아직 쓴 것이 없는 날은 템플릿으로 시작한다**(사용자 요청 2026-09-08 — 옛 순 노트
   // 템플릿). '본문' 아래에는 그 날 읽기표의 구절이 미리 들어간다. QT에는 '말씀 요약'이
   // 없다(services/noteTemplate.js 머리말).
-  const passageRef = (qt && qt.date === date ? qt.schedule?.passage_ref : '') || '';
+  // 구절은 **책 이름 전체로 편 값**(`refFull`)이다 — 푸는 자리는 위 조회 한 곳뿐이다.
+  // 옛 캐시에는 그 칸이 없으므로 저장된 글자로 떨어진다(다시 읽으면 풀린 값이 온다).
+  const passageRef = (qt && qt.date === date ? (qt.refFull || qt.schedule?.passage_ref) : '') || '';
   const tpl = useMemo(() => qtNoteTemplate({ passageRef }), [passageRef]);
   // 넣어 주는 글과 syncedBody는 **언제나 같은 값**이어야 한다 — 다르면
   // shouldAdoptBody가 '사람이 고쳤다'로 읽어 뒤에 온 값을 영영 안 넣는다.
   const putBody = (b) => { const v = bodyOrTemplate(b, tpl); setBody(v); syncedBody.current = v; };
+  const putTitle = (t) => { const v = String(t || ''); setTitle(v); syncedTitle.current = v; };
   useEffect(() => {
     if (!qt || qt.date !== date) return;
-    const next = { date, body: qt.mine?.body || '', shared: !!qt.mine?.shared, exists: !!qt.mine };
+    const next = { date, body: qt.mine?.body || '', title: qt.mine?.title || '',
+      shared: !!qt.mine?.shared, exists: !!qt.mine };
     setEntry(next);
     setFeed(qt.shared || []);
     const dateChanged = syncedFor.current !== date;
     if (shouldAdoptBody({ dateChanged, body: bodyRef.current, lastSynced: syncedBody.current, next: next.body })) {
       putBody(next.body);
+    }
+    // **제목은 제 판정으로 따로 간다**(§6-24-c). 같은 판정 하나로 묶으면 제목이 안 바뀐
+    // 프레임마다 `next === body`가 참이 되어 **글까지 안 들어가고**, 반대로 제목만 고쳐도
+    // 남이 고친 글이 편집기를 덮는다. 규칙은 같고 보는 칸만 다르다.
+    if (shouldAdoptBody({ dateChanged, body: titleRef.current, lastSynced: syncedTitle.current, next: next.title })) {
+      putTitle(next.title);
     }
     // 날짜가 바뀌면 읽기 모드로 돌아간다 — 저장된 글이 있는 날은 먼저 그 글을 보여준다
     if (dateChanged) { setShareState(''); setEditing(false); syncedFor.current = date; }
@@ -277,8 +303,8 @@ function QtTab() {
     // 실패해도 빈 칸을 세워서, 캐시로 잘 그려져 있던 묵상이 '없음'으로 바뀌었다 — 바로 그
     // 위 주석이 막으려던 일을 이 이펙트가 하고 있었다. 한 번도 못 읽었을 때만 빈 자리다.
     if (!qt || qt.date !== date) {
-      setEntry({ date, body: '', shared: false, exists: false }); setFeed([]);
-      if (syncedFor.current !== date) { putBody(''); syncedFor.current = date; }
+      setEntry({ date, body: '', title: '', shared: false, exists: false }); setFeed([]);
+      if (syncedFor.current !== date) { putBody(''); putTitle(''); syncedFor.current = date; }
     }
     showToast(failText('이 날 묵상과 나눔을 불러오지 못했어요', qtError));
   }, [qtError, qt, date]);
@@ -299,9 +325,12 @@ function QtTab() {
   const ready = !!entry && entry.date === date;
   // 되돌아갈 자리 — 저장된 글이 있으면 그것, 없으면 손대지 않은 템플릿이다
   const base = ready ? bodyOrTemplate(entry.body, tpl) : '';
-  const dirty = ready && body !== base;
+  const baseTitle = ready ? (entry.title || '') : '';
+  const dirty = ready && (body !== base || title.trim() !== baseTitle);
   // **손대지 않은 템플릿은 빈 묵상이다** — 제목 줄이 있다는 이유로 저장이 열리면
-  // 아무도 쓰지 않은 제목 네 줄이 그대로 저장되고 잔디에까지 찍힌다
+  // 아무도 쓰지 않은 제목 네 줄이 그대로 저장되고 잔디에까지 찍힌다.
+  // **제목 칸은 이 판정에 들어오지 않는다**(사용자 결정 2026-09-11) — 제목만 적고 본문이
+  // 비면 여전히 빈 묵상이다. 제목은 글이 있을 때 딸려 저장되는 값이다.
   const hasText = !isTemplateOnly(body, passageRef);
   // 공유는 저장된 글에만 걸 수 있다(머리말) — 빈 글은 나눔에 올라가지도 않는다
   const canShare = ready && entry.exists && !!entry.body.trim();
@@ -315,7 +344,9 @@ function QtTab() {
   // 폰에서 공유 시트가 열리지 않았다(사용자 보고 2026-09-09).
   const qtImg = useSheetShare({
     refs: [qtSheetRef], background: PAPER.surface,
-    key: reading ? `${date}:${entry?.body || ''}` : '',
+    // 제목도 열쇠에 넣는다 — 제목만 고친 종이는 그림이 달라지는데 열쇠가 같으면
+    // 먼저 구워 둔 옛 그림이 그대로 나간다(§6-32-s의 Blob 캐시)
+    key: reading ? `${date}:${entry?.title || ''}:${entry?.body || ''}` : '',
     fileName: `묵상 노트 ${paperDate(date)}`.trim(),
     what: '이미지를 저장하지 못했어요',
   });
@@ -329,7 +360,7 @@ function QtTab() {
     if (!entry.exists || !entry.body.trim()) return null;
     return {
       id: MY_ROW, profile_id: myProfileId,
-      body: entry.body, mine: true, private: !entry.shared,
+      body: entry.body, title: entry.title || '', mine: true, private: !entry.shared,
     };
   }, [ready, entry, myProfileId]);
   const feedRows = useMemo(() => mergeFeed(feed, myRow), [feed, myRow]);
@@ -342,9 +373,13 @@ function QtTab() {
       // 편집기에서 지웠어도 저장되는 글에는 네 도막이 그 순서로 서 있다. 사람이 쓴 글과
       // 새로 만든 도막은 그대로 남는다(services/noteTemplate.js ensureNoteSections).
       const kept = ensureNoteSections(body, QT_SECTIONS);
-      await saveMyEntry(date, { body: kept, shared: entry.shared });
-      setEntry({ date, body: kept, shared: entry.shared, exists: true });
+      // 제목은 앞뒤 공백을 걷어 저장한다 — 걷지 않으면 저장된 값과 칸의 글이 달라
+      // 저장 직후에도 '고친 것이 있다'로 남는다(dirty)
+      const keptTitle = title.trim();
+      await saveMyEntry(date, { body: kept, title: keptTitle, shared: entry.shared });
+      setEntry({ date, body: kept, title: keptTitle, shared: entry.shared, exists: true });
       setEditing(false);               // 저장했으니 다시 읽기 모드로(머리말)
+      putTitle(keptTitle);             // 칸도 저장된 값으로 맞춘다(위 판정의 기준이 된다)
       syncedBody.current = kept;       // 방금 이 글로 맞췄다(다음 도착값 판정의 기준)
       setFeed(await fetchSharedEntries(date));
       dropCache(qtKey); refreshQt();   // 옛 값이 먼저 그려지지 않게 그 날짜만 비운다
@@ -366,7 +401,7 @@ function QtTab() {
     if (!canShare || v === entry.shared || shareState === 'saving') return;
     setShareState('saving');
     try {
-      await saveMyEntry(date, { body: entry.body, shared: v });
+      await saveMyEntry(date, { body: entry.body, title: entry.title || '', shared: v });
       setEntry(e => ({ ...e, shared: v }));
       setFeed(await fetchSharedEntries(date));
       dropCache(qtKey); refreshQt();
@@ -383,8 +418,8 @@ function QtTab() {
   const removeMine = async () => {
     try {
       await deleteMyEntry(date);
-      setEntry({ date, body: '', shared: false, exists: false });
-      putBody(''); setEditing(false);
+      setEntry({ date, body: '', title: '', shared: false, exists: false });
+      putBody(''); putTitle(''); setEditing(false);
       setFeed(await fetchSharedEntries(date));
       dropCache(qtKey); refreshQt();
       dropCache('home');
@@ -430,6 +465,7 @@ function QtTab() {
   const cancelEdit = () => {
     if (!ready) return;
     putBody(entry.body);
+    putTitle(entry.title || '');
     setEditing(false);
   };
 
@@ -480,7 +516,8 @@ function QtTab() {
 
         {/* 본문 — 기다리는 동안에도 같은 자리에 같은 크기로 서 있는다 */}
         <div ref={slotRef} style={{ minHeight: slotH }}>
-          <Swap k={date} dir={dir}><QtPassage day={day} date={date} minH={slotH} /></Swap>
+          {/* 구절은 종이와 **같은 글자**로 적는다 — 책 이름 전체(passageRef) */}
+          <Swap k={date} dir={dir}><QtPassage day={day} date={date} minH={slotH} refText={passageRef} /></Swap>
         </div>
 
         {/* 내 묵상 — 저장된 글이 있으면 읽기 모드, '수정'을 눌러야 편집기다(머리말) */}
@@ -495,8 +532,10 @@ function QtTab() {
                 편집 종이가 같은 값을 쓰면서 드러났다) */}
             <div data-note-read="1" className={reading ? QT_SHEET_BOX : 'hidden'}>
               <div className="rounded-[12px] overflow-hidden border border-line">
+                {/* 제목이 있으면 머리가 제목 → 구절 순이 된다(예배 노트와 같은 부품) */}
                 <NoteSheet sheetRef={qtSheetRef} date={paperDate(date)} kind="묵상 노트"
-                  passageRef={passageRef} sections={qtSections} cut={QT_CUT} />
+                  passageRef={passageRef} passageTitle={entry?.title || ''}
+                  sections={qtSections} cut={QT_CUT} />
               </div>
             </div>
             {/* **언마운트하지 않는다**(머리말) — 읽기 모드에서는 감추기만 한다.
@@ -517,8 +556,12 @@ function QtTab() {
                     className={EDITOR_BOX}
                     /* 읽기 종이와 **같은 값**을 머리에 넘긴다(그날 본문 구절) */
                     frame={(content) => (
+                      /* **제목은 종이 위에서 바로 쓴다**(사용자 요청 2026-09-11 · 0062) —
+                         예배 노트의 제목은 주보에서 오지만 묵상은 쓰는 사람의 것이다.
+                         입력 칸을 만드는 것은 paper.jsx의 PaperNoteHead다 */
                       <NotePaper date={paperDate(date)} kind="묵상 노트"
-                        passageRef={passageRef} cut={QT_CUT}>
+                        passageRef={passageRef} passageTitle={title} onTitleChange={setTitle}
+                        cut={QT_CUT}>
                         <div className="paper-rows mt-5">{content}</div>
                       </NotePaper>
                     )}
@@ -608,7 +651,9 @@ function QtTab() {
 // ── 그날 본문 ───────────────────────────────────────────────────────────────
 // minH: 기다리는 동안 채워야 할 자리의 높이. 카드가 자리보다 짧으면 그 차이만큼
 // 아래 칸들이 올라왔다 내려간다(QtTab 머리말) — 줄 수도 자리에 맞춰 늘린다.
-export function QtPassage({ day, date, minH = PASSAGE_MIN_H }) {
+// refText: 책 이름 전체로 편 구절(bibleRef.fullRef). **종이와 같은 글자여야 한다** —
+// 한쪽만 약자면 같은 화면에 두 표기가 선다. 없으면 저장된 글자 그대로 적는다.
+export function QtPassage({ day, date, minH = PASSAGE_MIN_H, refText = '' }) {
   // QT 본문 형광펜(사용자 결정 2026-09-05). **그날의 것**이다 — "따로 모아두지 말고, 보려면
   // 해당 날짜를 보면 된다". bible_state.highlights에 같이 두되 ref 앞에 `qt:<날짜>`를 붙여
   // 리더의 형광펜·모아보기와 갈라 둔다(parseVerseKey가 못 읽는 모양이라 모아보기에 오르지
@@ -648,7 +693,7 @@ export function QtPassage({ day, date, minH = PASSAGE_MIN_H }) {
       {schedule.label && (
         <h3 className="text-[15.5px] font-extrabold text-fg tracking-[-0.3px]">{schedule.label}</h3>
       )}
-      <p className={`text-[12px] font-bold text-accent-text ${schedule.label ? 'mt-0.5' : ''}`}>{schedule.passage_ref}</p>
+      <p className={`text-[12px] font-bold text-accent-text ${schedule.label ? 'mt-0.5' : ''}`}>{refText || schedule.passage_ref}</p>
       <div className="mt-3.5">
         {passage?.verses?.length
           ? <PassageText

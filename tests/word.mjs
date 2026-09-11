@@ -303,10 +303,15 @@ const seedDates = [...new Set([`${monthOf}-01`, `${monthOf}-15`, today])].sort()
 const [wStart, wEnd] = word.weekRange(today);
 const expWeek = seedDates.filter(d => d >= wStart && d <= wEnd).length;
 const expMonth = seedDates.length;
+// 읽기표(0038 시드 730일)는 **약자로 저장되어 있다**('수 4:1-14') — 화면·종이는 책 이름
+// 전체로 편 값을 쓴다(사용자 요청 2026-09-11 · services/bibleRef.js fullRef).
+// 그래서 여기 심는 값도 저장 자리의 모양 그대로 약자다.
+const REF_FULL = '여호수아 4:1-14';
+const REF_FULL_YEST = '시편 121:1-8';
 const seed = {
   schedule: {
-    [today]: { passage_ref: '여호수아 4:1-14', label: '사귐의 기도' },
-    [word.shiftDay(today, -1)]: { passage_ref: '시편 121편', label: '' },
+    [today]: { passage_ref: '수 4:1-14', label: '사귐의 기도' },
+    [word.shiftDay(today, -1)]: { passage_ref: '시 121:1-8', label: '' },
   },
   entries: Object.fromEntries(seedDates.map(d => [d, { body: `${d} 묵상 한 줄`, shared: d === today }])),
 };
@@ -349,12 +354,18 @@ const qt = await ev(`(() => {
     label: [...document.querySelectorAll('h3')].map(h => h.textContent.trim()),
     verses: vs.length,
     first: vs[0] ? vs[0].textContent : '',
-    ref: document.body.innerText.includes('여호수아 4:1-14'),
+    ref: document.body.innerText.includes(${JSON.stringify(REF_FULL)}),
+    abbr: document.body.innerText.includes('수 4:1-14'),
   };
 })()`);
 check('오늘 날짜(한국 시간)로 연다', qt.date === word.dayLabel(today), `${qt.date} / ${word.dayLabel(today)}`);
 check('일정의 제목이 제목으로 선다', qt.label.includes('사귐의 기도'), JSON.stringify(qt.label));
 check('구절이 본문으로 펼쳐진다(절 14개)', qt.verses === 14 && qt.ref, JSON.stringify(qt));
+// **구절은 책 이름 전체로 적는다**(사용자 요청 2026-09-11). 읽기표에는 약자로 저장되어
+// 있고(0038) 예배 노트의 구절은 이름 전체라, 같은 모양의 종이인데 묵상 쪽만 약자였다.
+// **되돌리기**: wordView가 `qt.refFull` 대신 `qt.schedule.passage_ref`를 쓰게 하면 깨진다.
+check('구절을 책 이름 전체로 적는다(약자가 남지 않는다)',
+  qt.ref === true && qt.abbr === false, JSON.stringify({ ref: qt.ref, abbr: qt.abbr }));
 check('절 번호가 붙는다', qt.first.startsWith('1온 백성이'), qt.first.slice(0, 20));
 
 // 2b) QT 본문 형광펜(사용자 결정 2026-09-05) — 범위로 칠하고, **그날의 것**으로만 남는다
@@ -606,7 +617,7 @@ check('편집 화면도 종이다(띠·컷·밑단이 읽기와 같은 부품)',
   && paperEdit.inside === true, JSON.stringify(paperEdit));
 check('편집 화면 머리의 날짜·구절이 읽기 종이와 같다',
   /^\d{4}\. \d{2}\. \d{2}$/.test(paperEdit.date)
-  && (paperEdit.ref || '').includes(seed.schedule[today].passage_ref)
+  && (paperEdit.ref || '').includes(REF_FULL)
   && paperEdit.kind === paperEdit.readKind && paperEdit.ref === paperEdit.readRef,
   JSON.stringify(paperEdit));
 check('종이는 편집 중에도 밝다(다크를 따라가지 않는다)',
@@ -721,7 +732,7 @@ check('날짜가 바뀌어도 묵상 에디터는 그대로 서 있는다', stea
 await sleep(900);
 const yest = await ev(`(() => ({
   date: (document.body.innerText.match(/\\d+년 \\d+월 \\d+일 \\([일월화수목금토]\\)/) || [])[0] || '',
-  psalm: document.body.innerText.includes('시편 121편'),
+  psalm: document.body.innerText.includes(${JSON.stringify(REF_FULL_YEST)}),
   hasToday: [...document.querySelectorAll('button')].some(b => b.textContent.trim() === '오늘'),
   oldLabel: [...document.querySelectorAll('button')].some(b => b.textContent.trim() === '오늘로'),
   skel: window.__skel,
@@ -1125,11 +1136,60 @@ await ev(`(() => { const el = document.querySelector('.tiptap'); el && el.focus(
 await send('Input.insertText', { text: ' 그리고 한 줄 더' });
 await sleep(400);
 check('글을 고치면 저장이 켜진다', (await saveDisabled()) === false);
+
+// 11-a) 묵상 제목 — **종이 위의 입력 칸**(0062 · 사용자 요청 2026-09-11). 예배 노트
+// 종이의 머리에는 주보의 설교 제목이 서는데 묵상은 그 자리가 늘 비어 구절만 올라왔다.
+// 읽기 문단과 같은 글자 크기·굵기이고 테두리·배경이 없어 종이 위에 바로 쓰는 모양이다.
+// **되돌리기**: wordView의 `onTitleChange`를 떼면 칸이 문단으로 돌아가 아래 셋이 깨진다.
+const NOTE_TITLE = '오늘 붙잡은 한 줄';
+const titleBox = await ev(`(() => {
+  const i = document.querySelector('.qt-note-editor .paper-title-input');
+  if (!i) return null;
+  const cs = getComputedStyle(i);
+  const head = i.closest('.paper-hero');
+  return { tag: i.tagName, placeholder: i.placeholder, value: i.value,
+    size: cs.fontSize, weight: cs.fontWeight, border: cs.borderTopWidth, bg: cs.backgroundColor,
+    // 구절은 그 칸 **아래**에 그대로 선다(제목 → 구절 순 · 예배 노트와 같다)
+    ref: head ? (head.querySelector('.paper-ref') || {}).textContent : null,
+    refBelow: head ? head.querySelector('.paper-ref').compareDocumentPosition(i) === 2 : false };
+})()`);
+check("빈 제목 칸의 자리표는 '제목 미정' 하나다",
+  !!titleBox && titleBox.tag === 'INPUT' && titleBox.placeholder === '제목 미정' && titleBox.value === '',
+  JSON.stringify(titleBox));
+check('제목 칸은 테두리·배경 없이 종이 위에 바로 쓴다(읽기 제목과 같은 글자)',
+  !!titleBox && titleBox.border === '0px' && titleBox.bg === 'rgba(0, 0, 0, 0)'
+  && titleBox.size === '21px' && titleBox.weight === '200', JSON.stringify(titleBox));
+check('편집 종이도 제목 위 · 구절 아래다',
+  !!titleBox && titleBox.ref === REF_FULL && titleBox.refBelow === true, JSON.stringify(titleBox));
+await ev(`(() => { const i = document.querySelector('.qt-note-editor .paper-title-input'); i && i.focus(); })()`);
+await send('Input.insertText', { text: NOTE_TITLE });
+await sleep(300);
+check('제목 칸에 친 글이 그대로 남는다',
+  (await ev(`(document.querySelector('.qt-note-editor .paper-title-input') || {}).value`)) === NOTE_TITLE);
+
 await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='저장'); b && b.click(); })()`);
 await sleep(900);
 const mine = await ev(`JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}]`);
 check('묵상과 공유 상태가 같이 저장된다',
   mine && mine.body.includes('그리고 한 줄 더') && mine.shared === true, JSON.stringify(mine));
+check('제목도 글과 같이 저장된다', mine && mine.title === NOTE_TITLE, JSON.stringify(mine));
+// 제목이 있으면 읽기 종이의 머리가 **제목 → 구절** 순이다(예배 노트와 같은 부품).
+// 없으면 지금처럼 구절만 큰 글자로 올라온다(위 5절이 그것을 본다).
+const savedHead = await ev(`(() => {
+  const read = document.querySelector('[data-note-read] .paper-sheet .paper-hero');
+  if (!read) return null;
+  return {
+    title: (read.querySelector('.paper-ref-title') || {}).textContent || '',
+    ref: (read.querySelector('.paper-ref') || {}).textContent || '',
+    order: [...read.querySelectorAll('.paper-ref-title, .paper-ref')].map(e => e.className.split(' ')[0]).join('|'),
+    input: !!read.querySelector('input'),
+  };
+})()`);
+check('제목이 있으면 읽기 종이 머리가 제목 → 구절 순이다',
+  !!savedHead && savedHead.title === NOTE_TITLE && savedHead.ref === REF_FULL
+  && savedHead.order === 'paper-ref-title|paper-ref', JSON.stringify(savedHead));
+check('읽기 종이에는 입력 칸이 없다(그림으로 나가는 종이다)',
+  !!savedHead && savedHead.input === false, JSON.stringify(savedHead));
 // 저장하면 **읽기 모드로 돌아간다**(2026-09-07) — 저장 버튼은 그 자리에 없고 '수정'이 선다
 const savedMode = await noteState();
 check('저장하면 읽기 모드로 돌아간다',

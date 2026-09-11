@@ -50,6 +50,22 @@ const { all: guestAll, rows: guestRows, set: guestSet } = guestStore('church_wor
 // 종류 이름. 'sunday'만 상수고 나머지는 만든 사람이 적은 이름 그대로다(결정 14).
 export const kindLabel = (kind) => (kind === SUNDAY_KIND ? SUNDAY_LABEL : (kind || '예배'));
 
+// 파일 이름에서 걷어야 하는 글자 — 윈도·맥·안드로이드가 공통으로 막는 아홉 자.
+// 종류 이름은 주보를 만든 사람이 적은 글이라 무엇이든 들어올 수 있다(kindLabel 주석).
+// 지우기만 하고 다른 글자로 바꾸지 않는다 — '_'나 '-'로 바꾸면 이름에 없던 구분이 생긴다.
+export const safeFileName = (s) => String(s || '').replace(/[/\\:*?"<>|]/g, '').replace(/\s+/g, ' ').trim();
+
+// 주보 PDF·그림의 파일 이름 — `2026.09.06 주일 4부 젊은이 예배_주보`(사용자 결정 2026-09-11).
+// 예전에는 `주보 2026. 09. 06`이라 카카오톡 목록에서 **어느 예배의 주보인지** 알 수 없었다.
+// 날짜가 앞이라 이름만으로 차례가 서고, 종이 머리(paperDate)와 달리 **점 사이에 공백이
+// 없다** — 파일 이름은 숫자 줄을 맞출 일이 없고 공백이 있으면 주소로 옮길 때 갈린다.
+// 노트·가이드 파일 이름은 그대로다(그쪽은 예배 종류가 붙을 자리가 아니다).
+export function servicePaperName(service) {
+  const iso = String(service?.service_date || '');
+  const date = /^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).replace(/-/g, '.') : iso;
+  return safeFileName(`${date} ${kindLabel(service?.kind)}_주보`);
+}
+
 // 다가오는 주일. 오늘이 주일이면 오늘이다 — 주일 아침에 주보를 만들면서
 // 다음 주 날짜가 기본값이면 매번 고쳐야 한다.
 export function nextSundayDate(from = new Date()) {

@@ -139,23 +139,45 @@ export function PaperSheet({ sheetRef, date, kind, children, className = '', sty
 // ── 노트 종이의 부품 (예배 노트 · 묵상 노트) ────────────────────────────────
 // 노트 종이의 머리 — 설교 제목·구절과 캐릭터 컷. **읽기(NoteSheet)와 편집(NotePaper)이
 // 같은 것을 쓴다**(2026-09-10 · 사용자 요청 "종이 안에서 쓰기").
-export function PaperNoteHead({ passageRef = '', passageTitle = '', cut = null }) {
+// 제목 줄의 글자 — 읽기 문단과 편집 입력 칸이 **같은 값**을 쓴다(한쪽만 고쳐지면
+// 수정을 눌렀을 때 제목의 크기·굵기가 바뀐다).
+const TITLE_TYPE = 'text-[21px] font-extralight tracking-[-0.045em] leading-[1.15]';
+
+export function PaperNoteHead({ passageRef = '', passageTitle = '', cut = null, onTitleChange = null }) {
+  // **묵상 노트는 제목을 종이 위에서 직접 쓴다**(사용자 요청 2026-09-11 · 0062).
+  // 예배 노트의 제목은 주보에서 온 설교 제목이라 읽기만 하고, 묵상은 쓰는 사람의 것이다.
+  // 받는 쪽이 `onTitleChange`를 주면 그 자리가 입력 칸이 된다 — 테두리·배경 없이 종이
+  // 위에 바로 쓰는 느낌이고, 색은 앱 토큰이 아니라 종이 색이다(종이는 다크를 따라가지
+  // 않는다 · §6-32-i). 자리표는 `제목 미정`(사용자가 정한 문구) 하나뿐이다.
+  const editTitle = typeof onTitleChange === 'function';
   return (
     <div className="paper-hero flex items-start justify-between gap-2.5">
       {/* **제목이 위, 구절이 아래**(사용자 결정 2026-09-09 — "예배 노트도 제목이 위에,
           본문이 그 아래 표시되도록"). 설교 제목이 이 노트가 무엇에 대한 글인지 말하는
           자리이고, 구절은 그것을 어디서 들었는지다. 제목이 없는 주보(묵상 노트가 늘
-          그렇다)에서는 구절이 그대로 큰 글자로 올라온다 — 빈 자리를 남기지 않는다. */}
-      <div className="min-w-0">
-        {passageTitle ? (
+          그렇다)에서는 구절이 그대로 큰 글자로 올라온다 — 빈 자리를 남기지 않는다.
+          **제목을 쓰는 종이에서는 칸이 비어 있어도 두 줄 그대로**다 — 쓰다 지웠다고
+          줄이 하나로 접히면 종이 높이가 출렁인다. */}
+      <div className="min-w-0 flex-1">
+        {editTitle ? (
           <>
-            <p className="paper-ref-title text-[21px] font-extralight tracking-[-0.045em] leading-[1.15] break-words"
+            <input type="text" value={passageTitle} onChange={e => onTitleChange(e.target.value)}
+              placeholder="제목 미정" aria-label="묵상 제목" maxLength={80}
+              className={`paper-title-input block w-full p-0 border-0 bg-transparent outline-none
+                placeholder:text-[var(--paper-faint)] ${TITLE_TYPE}`}
+              style={{ color: PAPER.ink }} />
+            <p className="paper-ref text-[13px] font-extrabold tracking-[-0.02em] mt-[3px] break-words"
+              style={{ color: PAPER.accent }}>{passageRef || ' '}</p>
+          </>
+        ) : passageTitle ? (
+          <>
+            <p className={`paper-ref-title break-words ${TITLE_TYPE}`}
               style={{ color: PAPER.ink }}>{passageTitle}</p>
             <p className="paper-ref text-[13px] font-extrabold tracking-[-0.02em] mt-[3px] break-words"
               style={{ color: PAPER.accent }}>{passageRef}</p>
           </>
         ) : (
-          <p className="paper-ref text-[21px] font-extralight tracking-[-0.045em] leading-[1.15] break-words"
+          <p className={`paper-ref break-words ${TITLE_TYPE}`}
             style={{ color: PAPER.ink }}>{passageRef || ' '}</p>
         )}
       </div>
@@ -170,10 +192,12 @@ export function PaperNoteHead({ passageRef = '', passageTitle = '', cut = null }
 // "종이 안에서 쓰기"). 부품이 한 벌이라 두 모드의 띠·제목·구절·컷이 어긋날 수 없다.
 export function NotePaper({
   sheetRef, date, kind, passageRef = '', passageTitle = '', cut = null, className = '', children,
+  onTitleChange = null,
 }) {
   return (
     <PaperSheet sheetRef={sheetRef} date={date} kind={kind} className={`paper-note ${className}`}>
-      <PaperNoteHead passageRef={passageRef} passageTitle={passageTitle} cut={cut} />
+      {/* onTitleChange를 주면 제목 자리가 입력 칸이 된다(묵상 노트 — PaperNoteHead 머리말) */}
+      <PaperNoteHead passageRef={passageRef} passageTitle={passageTitle} cut={cut} onTitleChange={onTitleChange} />
       {children}
       <PaperTail />
     </PaperSheet>

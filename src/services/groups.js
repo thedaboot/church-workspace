@@ -404,6 +404,7 @@ export async function fetchSunSharedNotes() {
         mine: !!uid && n.profile_id === uid,
         serviceDate: services.find(s => s.id === n.service_id)?.service_date || '',
         serviceTitle: services.find(s => s.id === n.service_id)?.title || '',
+        servicePassageRef: services.find(s => s.id === n.service_id)?.passage_ref || '',
       }))
       .sort((a, b) => String(b.serviceDate).localeCompare(String(a.serviceDate)));
   }
@@ -411,9 +412,12 @@ export async function fetchSunSharedNotes() {
   // **공유된 것만**. RLS가 같은 경계를 한 번 더 긋는다(0036) — 여기서 좁히는 것은
   // 화면이 무엇을 담는 자리인지에 대한 약속이고, 막는 일은 DB가 한다.
   const { data, error } = await supabase.from('service_notes')
-    // 주보 제목까지 싣는다 — 목록이 노트를 **종이로** 그리고(사용자 요구 2026-09-09
-    // "해당 노트 템플릿 그대로 공유될 수 있도록"), 그 종이의 머리가 설교 제목이다.
-    .select('id, body, shared_to_sun, updated_at, service_id, profile_id, services(service_date, title), profiles(display_name, avatar_url)')
+    // 주보 제목·구절까지 싣는다 — 목록이 노트를 **종이로** 그리고(사용자 요구 2026-09-09
+    // "해당 노트 템플릿 그대로 공유될 수 있도록"), 그 종이의 머리가 설교 제목과 본문 구절이다.
+    // **구절이 빠져 있었다**(사용자 지적 2026-09-11 — 쓴 사람 화면에는 있는 줄이 순에서는
+    // 비어 있었다). 노트 본문에 '본문' 도막이 있으면 종이가 그쪽을 쓰고(paper.jsx
+    // NoteSheet), 없는 옛 노트에는 이 값이 머리로 올라간다.
+    .select('id, body, shared_to_sun, updated_at, service_id, profile_id, services(service_date, title, passage_ref), profiles(display_name, avatar_url)')
     .eq('shared_to_sun', true)
     .order('updated_at', { ascending: false });
   if (error) throw error;
@@ -429,6 +433,7 @@ export async function fetchSunSharedNotes() {
       mine: !!uid && r.profile_id === uid,
       serviceDate: r.services?.service_date || '',
       serviceTitle: r.services?.title || '',
+      servicePassageRef: r.services?.passage_ref || '',
     }));
 }
 

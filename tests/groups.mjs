@@ -159,8 +159,12 @@ const seed = {
   // 출석을 셀 **주일** 예배는 s1이다 — s2는 종류가 다르고 s3은 작성 중이며,
   // s0에도 출석이 있지만 s1이 더 최근이다(attendanceSunday).
   services: [
-    { id: 's0', kind: 'sunday', service_date: SUN_OLD, status: 'published', title: '지난 주일' },
-    { id: 's1', kind: 'sunday', service_date: SUN_LAST, status: 'published', title: '흔들리지 않는 기쁨' },
+    // **구절도 심는다** — 순에 공유된 노트 종이의 머리에 설교 제목과 같이 선다
+    // (사용자 지적 2026-09-11 — 쓴 사람 화면에는 있는 줄이 순에서는 비어 있었다)
+    { id: 's0', kind: 'sunday', service_date: SUN_OLD, status: 'published', title: '지난 주일',
+      passage_ref: '시편 23:1-6' },
+    { id: 's1', kind: 'sunday', service_date: SUN_LAST, status: 'published', title: '흔들리지 않는 기쁨',
+      passage_ref: '빌립보서 4:4-9' },
     { id: 's2', kind: '금요 열정 예배', service_date: FRI_LAST, status: 'published', title: '깨어 기도하라' },
     { id: 's3', kind: 'sunday', service_date: SUN_DRAFT, status: 'draft', title: '' },
   ],
@@ -923,12 +927,22 @@ const noteMd = await ev(`(() => {
   const b = document.querySelector('.mysun-note-sheet');
   if (!b) return { err: 'no-sheet' };
   return { mast: !!b.querySelector('.paper-mast'), labels: [...b.querySelectorAll('.paper-row-label')].map(x => x.textContent.trim()),
-    strong: b.querySelectorAll('strong').length, bullet: b.querySelectorAll('.paper-bullet').length, raw: b.innerText };
+    strong: b.querySelectorAll('strong').length, bullet: b.querySelectorAll('.paper-bullet').length, raw: b.innerText,
+    // 종이 머리 — 설교 제목과 **본문 구절**(services/groups.js가 같이 실어 온다)
+    title: (b.querySelector('.paper-ref-title') || {}).textContent || '',
+    ref: (b.querySelector('.paper-ref') || {}).textContent || '' };
 })()`);
 check('공유된 노트가 종이로 서고 원문 기호가 글자로 남지 않는다',
   !noteMd.err && noteMd.mast === true && noteMd.labels.includes('오늘 남은 말씀')
   && noteMd.strong >= 1 && noteMd.bullet >= 1
   && !noteMd.raw.includes('**') && !noteMd.raw.includes('## '), JSON.stringify(noteMd));
+// **구절이 비어 있었다**(사용자 지적 2026-09-11) — 조회가 주보의 제목만 읽고
+// passage_ref를 안 실어 왔고, 화면도 NoteSheet에 넘기지 않았다. 쓴 사람 화면(예배 상세)에는
+// 있는 줄이 순에서만 사라져서, 같은 노트가 두 모양으로 보였다.
+// **되돌리기**: groups.js의 조회에서 `passage_ref`를 빼거나 groupsSun의 `passageRef`를
+// 떼면 이 줄이 깨진다.
+check('공유된 노트 종이의 머리에 설교 제목과 구절이 같이 선다',
+  noteMd.title === '흔들리지 않는 기쁨' && noteMd.ref === '빌립보서 4:4-9', JSON.stringify(noteMd));
 check('공유하지 않은 남의 노트는 오지 않는다', mine.hidden === false);
 
 // ── 1-0) useSettled는 state다 (components/groupsParts.jsx) ─────────────────
@@ -2076,6 +2090,16 @@ check('QR로 들어온 신청이 동아리장의 가입 신청 목록에 선다'
     /function share\(key, run\)/.test(svc) && /return share\('clubs',/.test(svc)
     && (svc.match(/yearRoles\(year\)/g) || []).length >= 2
     && !/fetchRoles\(year\), fetchClubs\(\)/.test(svc));
+
+  // 공유된 노트 종이의 머리에는 주보의 **제목과 구절**이 같이 선다(사용자 지적 2026-09-11 —
+  // 구절이 비어 있었다). 게스트 갈래는 localStorage를 보므로 **클라우드 조회는 화면으로
+  // 못 본다** — 소스로 못 박는다(위 두 줄과 같은 방식).
+  // **되돌리기**: 그 select에서 `passage_ref`를 빼면 이 줄이 깨진다.
+  check('공유 노트 조회가 주보의 제목과 구절을 같이 싣는다',
+    /services\(service_date, title, passage_ref\)/.test(svc)
+    && /servicePassageRef: r\.services\?\.passage_ref \|\| ''/.test(svc)
+    && /servicePassageRef: services\.find\(s => s\.id === n\.service_id\)\?\.passage_ref \|\| ''/.test(svc),
+    svc.split('\n').filter(l => l.includes('passage_ref')).join(' / ') || 'passage_ref 없음');
 }
 
 // 이미 구성원(말씀읽기 gc2에 p1이 있다) — 신청을 만들지 않는다

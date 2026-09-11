@@ -16,7 +16,7 @@ import { DocEmbedModal, docEmbedKind } from './DocEmbed.jsx';
 import { objectParticle } from '../services/errorText.js';
 import { BTN, BTN_QUIET, WITH_ICON, FIELD } from './groupsParts.jsx';
 import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM,
-  filesOfKind, fileKindOf, SONGFORM, CUESHEET } from '../services/worship.js';
+  filesOfKind, fileKindOf, servicePaperName, SONGFORM, CUESHEET } from '../services/worship.js';
 import { honorificsOf } from '../services/people.js';
 import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
   ensureNoteSections, WORSHIP_SECTIONS } from '../services/noteTemplate.js';
@@ -1021,7 +1021,10 @@ function ServicePaper({ service, nameOf }) {
   const pdf = useSheetShare({
     refs: [one, two], kind: 'pdf', background: PAPER.surface,
     key: `${service?.id || ''}:${service?.updated_at || ''}:${verses ? verses.length : 'wait'}`,
-    fileName: `주보 ${date}`.trim(), what: '주보를 내보내지 못했어요',
+    // 파일 이름은 `2026.09.06 주일 4부 젊은이 예배_주보`다(services/worship.js
+    // servicePaperName · 사용자 결정 2026-09-11) — 카카오톡 목록에서 이름만 보고
+    // 어느 예배의 주보인지 알아야 한다
+    fileName: servicePaperName(service), what: '주보를 내보내지 못했어요',
   });
 
   // 본문 전문. 못 읽는 구절은 빈 배열이고 종이에는 구절 표기만 남는다(PassageBody와 같은 규칙).

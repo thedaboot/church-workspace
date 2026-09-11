@@ -233,6 +233,13 @@ const pure = await ev(`(async () => {
     date: m.formatServiceDate('2026-09-06'),
     dateOtherYear: m.formatServiceDate('2025-12-25'),
     label: [m.kindLabel('sunday'), m.kindLabel('금요 열정 예배')],
+    // 주보 PDF 파일 이름(사용자 결정 2026-09-11) — 카카오톡 목록에서 이름만 보고
+    // 어느 예배의 주보인지 알아야 한다
+    pdfName: m.servicePaperName({ service_date: '2026-09-06', kind: 'sunday' }),
+    pdfNameOther: m.servicePaperName({ service_date: '2026-09-04', kind: '금요 열정 예배' }),
+    // 종류 이름은 만든 사람이 적은 글이라 파일 이름에 못 쓰는 글자가 섞일 수 있다
+    pdfNameDirty: m.servicePaperName({ service_date: '2026-09-06', kind: '주일/4부: "젊은이"' }),
+    pdfNameNoDate: m.servicePaperName({ kind: 'sunday' }),
     plain: perms({}),
     cueMaster: cue({ isMaster: true }),
     cuePastor: cue({ myPerson: { is_pastor: true } }),
@@ -321,6 +328,28 @@ check('날짜 표기 — 두 자리 연도 + 요일', pure.date === '26년 9월 
 check('지난 해 예배도 같은 모양', pure.dateOtherYear === '25년 12월 25일 (목)', pure.dateOtherYear);
 check('종류 이름 — sunday는 주일 4부 젊은이 예배, 나머지는 적은 그대로',
   pure.label[0] === '주일 4부 젊은이 예배' && pure.label[1] === '금요 열정 예배', JSON.stringify(pure.label));
+// 주보 PDF 파일 이름(사용자 결정 2026-09-11 — 예전에는 `주보 2026. 09. 06`이라 카카오톡
+// 목록에서 **어느 예배의 주보인지** 알 수 없었다). 날짜가 앞이라 이름만으로 차례가 서고,
+// 점 사이에 공백이 없다. 노트·가이드 파일 이름은 그대로다.
+// **되돌리기**: worshipDetail의 fileName을 `주보 ${date}`로 되돌리면 아래 마지막 줄이 깨진다.
+check('주보 PDF 이름 — 날짜 + 예배 종류 + _주보',
+  pure.pdfName === '2026.09.06 주일 4부 젊은이 예배_주보'
+  && pure.pdfNameOther === '2026.09.04 금요 열정 예배_주보',
+  JSON.stringify([pure.pdfName, pure.pdfNameOther]));
+check('파일 이름에 못 쓰는 글자는 걷는다',
+  pure.pdfNameDirty === '2026.09.06 주일4부 젊은이_주보'
+  && pure.pdfNameNoDate === '주일 4부 젊은이 예배_주보',
+  JSON.stringify([pure.pdfNameDirty, pure.pdfNameNoDate]));
+// 화면이 실제로 그 이름을 쓰는지(순수 함수만 맞아도 배선이 빠지면 옛 이름 그대로다).
+// 노트 이름은 **그대로 둔다** — 거기에는 예배 종류가 붙을 자리가 아니다.
+{
+  const wdSrc = readFileSync(new URL('../src/components/worshipDetail.jsx', import.meta.url), 'utf8');
+  check('주보 PDF가 그 이름을 쓴다(노트 이름은 그대로)',
+    wdSrc.includes('fileName: servicePaperName(service),')
+    && wdSrc.includes('fileName: `예배 노트 ${paperDate(serviceDate)}`.trim(),')
+    && !wdSrc.includes('fileName: `주보 '),
+    wdSrc.split('\n').filter(l => l.includes('fileName:')).join(' / '));
+}
 check('일반 멤버는 작성도 출석도 못 한다', JSON.stringify(pure.plain) === '[false,false,false]', JSON.stringify(pure.plain));
 // **큐시트 사본은 교역자·마스터만 고친다**(사용자 결정 2026-09-09 — "큐시트는 교역자와
 // 마스터만 수정 가능하게"). 주보를 쓰는 자격(canEdit)보다 좁다: 관리자·회장·미디어팀은

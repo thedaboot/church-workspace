@@ -1964,7 +1964,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/const kept = ensureNoteSections\(body, QT_SECTIONS\);/.test(view)
     && /syncedBody\.current = kept;/.test(view), '저장하면 기준도 저장된 그 글로 옮긴다');
   // 재조회 실패가 캐시 화면을 '묵상 없음'으로 만들지 않는다
-  assert.ok(/if \(!qt \|\| qt\.date !== date\) \{\s*\n\s*setEntry\(\{ date, body: '', shared: false, exists: false \}\)/.test(view),
+  assert.ok(/if \(!qt \|\| qt\.date !== date\) \{\s*\n\s*setEntry\(\{ date, body: '', title: '', shared: false, exists: false \}\)/.test(view),
     '캐시가 있으면 빈 칸을 세우지 않고 토스트만 한다');
   assert.ok(/if \(qtError && !ref\) \{ setDay\(/.test(view),
     '본문도 같다 — 캐시된 구절이 있으면 그것을 그린다');
@@ -2569,4 +2569,83 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     'layout에도 한 번만 적혀 있다');
 
   console.log('PASS  한 벌로 모은 규칙 셋 15가지');
+}
+
+// ── 구절을 책 이름 전체로 (services/bibleRef.js fullRef · 2026-09-11) ────────
+// QT 읽기표(qt_schedule.passage_ref · 0038 시드)는 '삿 5:19-31'처럼 **약자**로 저장되어
+// 있고 주보의 구절은 사람이 이름 전체로 적는다 — 같은 모양의 노트 종이인데 묵상 쪽
+// 머리만 약자였다(사용자 지적 2026-09-11). 저장값은 그대로 두고 **보여줄 때만** 푼다.
+// **되돌리기**: fullRef가 받은 글을 그대로 돌려주게 만들면 아래 첫 줄이 깨진다.
+{
+  const { fullRef, parseRef, formatRef } = await import(new URL('../src/services/bibleRef.js', import.meta.url).href);
+  const books = JSON.parse(readFileSync(new URL('../public/bible/index.json', import.meta.url), 'utf8'));
+
+  assert.strictEqual(fullRef('삿 5:19-31', books), '사사기 5:19-31', '약자가 책 이름 전체로 풀린다');
+  assert.strictEqual(fullRef('수 4:1-14', books), '여호수아 4:1-14', '읽기표의 약자 표기');
+  // 장 전체는 formatRef의 규칙대로 'N장'이다(주보의 구절과 같은 한 벌) — 읽기표 730일은
+  // 전부 절 범위라('시 2:1-12') 이 갈래로 오지 않는다
+  assert.strictEqual(fullRef('시 121편', books), '시편 121장', '장 전체는 formatRef 규칙을 따른다');
+  assert.strictEqual(fullRef('시 2:1-12', books), '시편 2:1-12', '읽기표의 시편 표기');
+  // 이미 이름 전체인 글은 **그 모양 그대로** 나와야 한다 — 주보의 구절이 여기를 지난다
+  assert.strictEqual(fullRef('이사야 32:9-20', books), '이사야 32:9-20', '이름 전체는 그대로다');
+  // 못 읽는 글은 삼키지 않고 그대로 돌려준다(parseRef와 같은 안전한 실패) — 화면에
+  // 빈 칸이 서면 그 노트가 무엇에 대한 글인지 말하는 줄이 통째로 사라진다
+  assert.strictEqual(fullRef('도마복음 1:1', books), '도마복음 1:1', '못 읽는 글은 그대로');
+  assert.strictEqual(fullRef('', books), '', '빈 글은 빈 글');
+  assert.strictEqual(fullRef('삿 5:19-31', null), '삿 5:19-31', '책 목록이 없으면 그대로');
+  // formatRef와 **같은 답**이어야 한다(두 벌이 되면 한쪽만 고쳐진다)
+  assert.strictEqual(fullRef('삿 5:19-31', books), formatRef(parseRef('삿 5:19-31', books), books),
+    'fullRef는 parseRef+formatRef 한 벌이다');
+
+  console.log('PASS  구절 표기 풀기 9가지');
+}
+
+// ── 묵상 제목 (0062 · 2026-09-11) ───────────────────────────────────────────
+// 예배 노트 종이의 머리에는 주보의 설교 제목이 서는데 묵상 노트는 그 자리가 늘 비어
+// 구절만 올라왔다. 사용자 요청으로 쓰는 사람이 직접 제목을 단다 — 저장 자리는 컬럼이다
+// (HANDOFF §3-1: 묵상과 언제나 같이 읽고 쓰고 값이 하나뿐이다).
+// SQL이라 브라우저 없이 **글자로** 본다(0054·0058을 보는 방식 그대로).
+{
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+  const m62 = src('../supabase/migrations/0062_qt_title.sql');
+  assert.ok(/add column if not exists title text not null default ''/.test(m62),
+    "0062는 qt_entries에 title을 not null default ''로 더한다");
+  assert.ok(/alter table public\.qt_entries/.test(m62), '표는 qt_entries다');
+  assert.ok(/comment on column public\.qt_entries\.title is/.test(m62), '칸에 설명이 붙는다');
+  // 되돌리는 SQL은 파일 맨 아래 주석(HANDOFF §5)
+  assert.ok(/--\s*alter table public\.qt_entries drop column if exists title;/.test(m62),
+    '되돌리는 SQL이 맨 아래 주석에 있다');
+  // 정책은 **행 단위**라 바꿀 것이 없다 — 이 파일이 정책을 건드리면 0061의 경계가 흔들린다
+  assert.ok(!/create policy|drop policy/.test(m62), '정책은 건드리지 않는다(행 단위라 그대로다)');
+
+  // 저장 계층이 그 칸을 읽고 쓴다 — 셋 중 하나만 빠져도 제목이 어디선가 사라진다
+  const wordSrc = src('../src/services/word.js');
+  assert.ok(/\.select\('id, qt_date, body, title, shared'\)/.test(wordSrc), '내 묵상 조회가 title을 읽는다');
+  assert.ok(/title: t, shared: !!shared, updated_at/.test(wordSrc), 'upsert가 title을 쓴다');
+  assert.ok(/\.select\('id, profile_id, body, title, updated_at, profiles/.test(wordSrc),
+    '나눔 피드 조회도 title을 싣는다');
+  // 0062를 아직 안 넣은 판에서 온 행에도 안 죽어야 한다
+  assert.ok(/const entryTitle = \(row\) => String\(row\?\.title \?\? ''\);/.test(wordSrc),
+    'title이 없는 행은 빈 글자로 받는다');
+
+  // 화면 — 제목 칸은 **편집 종이 위**에 있고(테두리 없는 입력), 자리표는 '제목 미정'이다
+  const paperSrc = src('../src/components/paper.jsx');
+  assert.ok(/placeholder="제목 미정"/.test(paperSrc), "자리표는 '제목 미정' 하나다");
+  assert.ok(/paper-title-input[\s\S]{0,120}border-0 bg-transparent outline-none/.test(paperSrc),
+    '제목 칸에는 테두리·배경이 없다(종이 위에 바로 쓴다)');
+  assert.ok(/const TITLE_TYPE = /.test(paperSrc) && (paperSrc.match(/\$\{TITLE_TYPE\}/g) || []).length >= 3,
+    '읽기 문단과 입력 칸이 같은 글자 규격을 쓴다');
+  // 빈 묵상 판정은 **본문만** 본다(사용자 결정 2026-09-11 — 제목만 적은 날은 빈 노트다)
+  const viewSrc = src('../src/views/wordView.jsx');
+  assert.ok(/const hasText = !isTemplateOnly\(body, passageRef\);/.test(viewSrc),
+    '제목은 빈 노트 판정에 들어오지 않는다');
+  // 다만 제목만 고쳐도 저장은 열린다(고친 것이 있다는 뜻이다) — 본문이 비어 있으면
+  // hasText가 거짓이라 여전히 저장되지 않는다
+  assert.ok(/const dirty = ready && \(body !== base \|\| title\.trim\(\) !== baseTitle\);/.test(viewSrc),
+    '제목만 고쳐도 저장 버튼이 열린다');
+  // 실시간으로 남이 고친 글이 편집기를 덮지 않게, 제목도 **제 판정**으로 간다(§6-24-c)
+  assert.ok(/shouldAdoptBody\(\{ dateChanged, body: titleRef\.current, lastSynced: syncedTitle\.current, next: next\.title \}\)/.test(viewSrc),
+    '제목은 제 shouldAdoptBody로 갈아 끼운다');
+
+  console.log('PASS  묵상 제목 저장 자리와 화면 15가지');
 }

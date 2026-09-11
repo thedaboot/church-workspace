@@ -114,34 +114,41 @@ export async function fetchSchedule(date) {
 }
 
 // ── qt_entries — 내 묵상 ────────────────────────────────────────────────────
+// **제목이 같이 다닌다**(0062 · 사용자 요청 2026-09-11). 예배 노트 종이의 머리에는
+// 설교 제목이 서는데 묵상은 그 자리가 늘 비어 구절만 올라왔다 — 이제 쓴 사람이 단다.
+// 빈 제목은 `''`다(0062가 `not null default ''`인 이유) — 없는 것과 빈 것을 가르지 않는다.
+// 0062를 아직 안 넣은 판에서 온 행에도 `?? ''`로 받는다.
+const entryTitle = (row) => String(row?.title ?? '');
+
 export async function fetchMyEntry(date) {
   if (!supabase) {
     const row = lsGet(LS.entries, {})[date];
-    return row ? { qt_date: date, body: row.body || '', shared: !!row.shared } : null;
+    return row ? { qt_date: date, body: row.body || '', title: entryTitle(row), shared: !!row.shared } : null;
   }
   const uid = await myId();
   if (!uid) return null;
   const { data, error } = await supabase.from('qt_entries')
-    .select('id, qt_date, body, shared').eq('qt_date', date).eq('profile_id', uid).maybeSingle();
+    .select('id, qt_date, body, title, shared').eq('qt_date', date).eq('profile_id', uid).maybeSingle();
   if (error) throw error;
-  return data ?? null;
+  return data ? { ...data, title: entryTitle(data) } : null;
 }
 
-export async function saveMyEntry(date, { body, shared }) {
+export async function saveMyEntry(date, { body, title = '', shared }) {
+  const t = String(title || '').trim();
   if (!supabase) {
     const all = lsGet(LS.entries, {});
-    all[date] = { body, shared: !!shared };
+    all[date] = { body, title: t, shared: !!shared };
     lsSet(LS.entries, all);
-    return { qt_date: date, body, shared: !!shared };
+    return { qt_date: date, body, title: t, shared: !!shared };
   }
   const uid = await myId();
   if (!uid) throw new Error('로그인이 필요합니다');
   const { data, error } = await supabase.from('qt_entries').upsert(
-    { qt_date: date, profile_id: uid, body, shared: !!shared, updated_at: new Date().toISOString() },
+    { qt_date: date, profile_id: uid, body, title: t, shared: !!shared, updated_at: new Date().toISOString() },
     { onConflict: 'qt_date,profile_id' },
-  ).select('id, qt_date, body, shared').single();
+  ).select('id, qt_date, body, title, shared').single();
   if (error) throw error;
-  return data;
+  return { ...data, title: entryTitle(data) };
 }
 
 // 그 날 내 묵상을 통째로 지운다 — 나눔에서도 내려가고 잔디에서도 빠진다.
@@ -200,17 +207,17 @@ export async function fetchSharedEntries(date) {
       .filter(r => (r?.body || '').trim())
       .map(r => ({
         id: r.id, profile_id: r.profile_id || '', name: r.name || '',
-        avatarUrl: r.avatarUrl || '', body: r.body, mine: false,
+        avatarUrl: r.avatarUrl || '', body: r.body, title: entryTitle(r), mine: false,
       }));
     const row = lsGet(LS.entries, {})[date];
     const mine = row?.shared && row.body
-      ? [{ id: 'local', profile_id: '', name: '', avatarUrl: '', body: row.body, mine: true }]
+      ? [{ id: 'local', profile_id: '', name: '', avatarUrl: '', body: row.body, title: entryTitle(row), mine: true }]
       : [];
     return [...others, ...mine];
   }
   const uid = await myId();
   const { data, error } = await supabase.from('qt_entries')
-    .select('id, profile_id, body, updated_at, profiles(display_name, avatar_url)')
+    .select('id, profile_id, body, title, updated_at, profiles(display_name, avatar_url)')
     .eq('qt_date', date).eq('shared', true)
     .order('updated_at', { ascending: true });
   if (error) throw error;
@@ -220,6 +227,7 @@ export async function fetchSharedEntries(date) {
     name: r.profiles?.display_name || '',
     avatarUrl: r.profiles?.avatar_url || '',
     body: r.body,
+    title: entryTitle(r),
     mine: !!uid && r.profile_id === uid,
   }));
 }

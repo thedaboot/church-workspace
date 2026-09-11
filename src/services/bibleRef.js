@@ -67,3 +67,14 @@ export function formatRef(ref, books) {
     return s.verse === e.verse ? `${b.name} ${s.chapter}:${s.verse}` : `${b.name} ${s.chapter}:${s.verse}-${e.verse}`;
   return `${b.name} ${s.chapter}:${s.verse ?? 1}-${e.chapter}:${e.verse ?? ''}`.replace(/-$/, '');
 }
+
+// 약자를 책 이름 전체로 — '삿 5:19-31' → '사사기 5:19-31' (사용자 요청 2026-09-11).
+// QT 읽기표(`qt_schedule.passage_ref`, 0038 시드)는 약자로 저장되어 있고 주보의 구절은
+// 사람이 이름 전체로 적어서, 같은 모양의 노트 종이인데 묵상 쪽 머리만 약자였다.
+// **저장값은 그대로 두고 보여줄 때만 푼다** — 이미 저장된 노트의 '본문' 도막에 들어간
+// 약자는 그 사람이 쓴 글이라 건드리지 않는다.
+// 못 읽는 글은 그대로 돌려준다(parseRef와 같은 안전한 실패 — 화면은 글자로 보여주면 된다).
+export function fullRef(input, books) {
+  const parsed = parseRef(input, books);
+  return (parsed && formatRef(parsed, books)) || String(input || '');
+}
