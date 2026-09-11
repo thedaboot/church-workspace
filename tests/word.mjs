@@ -870,6 +870,41 @@ check('편집 칸이 왼쪽 라벨 · 오른쪽 글 두 칸 격자다',
 check('1440: 라벨과 그 도막 첫 줄이 같은 행이다(±2px)',
   !!labelRow && Math.abs(labelRow.dTop) <= 2 && labelRow.rightOf >= 0, JSON.stringify(labelRow));
 
+// ── 8-a-3) 종이 위 제목 칸을 누르면 **거기에** 커서가 간다 (2026-09-11) ─────
+// 감싸개의 onMouseDown(MarkdownEditor의 focusEnd)은 `.tiptap` 밖을 누르면 preventDefault로
+// 막고 커서를 편집기 끝으로 보낸다. 틀(frame)이 들어오면서 그 감싸개 안에 **제목 입력
+// 칸**이 생겼는데(paper.jsx PaperNoteHead · 0062) 그것까지 같이 막혀서, 실기기에서 제목을
+// 눌러도 커서가 안 잡혔다(사용자 지적 2026-09-11 — "제목 미정 글자만 있고 못 고친다").
+// **되돌리기**: focusEnd의 `SELF_FOCUS` 갈래를 빼면 포커스가 다시 `.tiptap`으로 끌려가
+// 아래 첫 줄이 깨진다.
+// **합성 MouseEvent로는 브라우저가 포커스를 안 옮긴다** — 진짜 마우스를 보내야 한다.
+const titleAt = await ev(`(() => {
+  const inp = document.querySelector('.qt-note-editor .paper-title-input');
+  if (!inp) return null;
+  inp.scrollIntoView({ block: 'center' });
+  const r = inp.getBoundingClientRect();
+  const cs = getComputedStyle(inp);
+  return { x: Math.round(r.left + 20), y: Math.round(r.top + r.height / 2),
+           caret: cs.caretColor, color: cs.color };
+})()`);
+if (titleAt) {
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: titleAt.x, y: titleAt.y, button: 'left', clickCount: 1 });
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: titleAt.x, y: titleAt.y, button: 'left', clickCount: 1 });
+  await sleep(350);
+}
+const titleFocus = await ev(`(() => {
+  const a = document.activeElement;
+  return { 제목칸: !!(a && a.classList && a.classList.contains('paper-title-input')),
+           tiptap: !!(a && a.closest && a.closest('.tiptap')) };
+})()`);
+check('묵상 제목 칸을 누르면 그 칸에 커서가 간다',
+  !!titleAt && titleFocus.제목칸 === true && titleFocus.tiptap === false,
+  JSON.stringify([titleAt, titleFocus]));
+// 커서·글자가 종이 잉크 색이라야 '쓸 수 있는 칸'으로 보인다(종이는 다크를 안 따라간다)
+check('제목 칸의 커서·글자가 종이 잉크 색이다',
+  !!titleAt && titleAt.caret === 'rgb(25, 23, 32)' && titleAt.color === 'rgb(25, 23, 32)',
+  JSON.stringify(titleAt));
+
 // 서식 바에 **제목·구분선·링크가 없다** — 제목은 2026-09-10, 구분선·링크는 2026-09-11의
 // 사용자 결정이다("불렛과 번호, 체크박스는 남겨두고 구분선이랑 링크 서식은 제거").
 // 도막 제목이 고정이라 제목을 만들 일이 없고, 종이에는 선을 긋지 않는다.

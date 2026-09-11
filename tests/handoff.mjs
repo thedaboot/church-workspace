@@ -565,6 +565,236 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
 }
 
 
+// ── 서식 바 매트릭스 — 폭 여섯 × 자리 셋 (사용자 요구 2026-09-11) ──────────
+// "서식 바 쪽은 좀 더 철저히 — 반응형으로 모든 기기에서 다 잘 되도록."
+//
+// **갈래를 가르는 것은 `useIsMobile` 하나다 — `max-width: 767px`.** 그래서 375·390·430은
+// 화면 아래 고정(fixed) 갈래이고 768·1024·1440은 sticky 갈래다. 태블릿에서 소프트
+// 키보드가 올라와도 sticky 갈래가 맞다: 바가 **위**에 서므로 키보드가 덮는 아래쪽과
+// 상관이 없다(아이패드 사파리는 visualViewport만 줄고 위쪽 sticky는 그대로 보인다).
+//
+// 자리 셋은 **스크롤 통이 서로 다른 세 곳**이다(MarkdownEditor의 useStickyTop 머리말):
+// 업무 창은 모달 안 통(머리줄이 통 안에 sticky로 있다), 예배 노트·묵상 노트는 페이지
+// 통(App의 main · 통 안에 머리줄이 없어 top이 `-paddingTop`이다).
+//
+// 재는 것: (a) 바가 보이고 편집 칸과 안 겹친다 (b) 모바일이면 fixed·키보드 위·손 떼면
+// 사라진다 (c) 데스크톱이면 붙었을 때 '줄'이 되고 머리줄 바로 밑이다 (d) 가로로 안 넘친다.
+//
+// **되돌리기**: 모바일 바의 포털(createPortal)을 떼면 `.dc-screen`의 transform이 fixed의
+// 기준이 되어 노트 두 줄의 (b)가 깨지고, IntersectionObserver의 `root`를 떼면 페이지 통
+// 두 줄의 (c)가 깨진다.
+{
+  const waitFor = async (expr, to = 12000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < to) { if (await ev(`!!(${expr})`)) return true; await sleep(150); }
+    return false;
+  };
+  await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+  const firstId = Object.keys(st.tasks.byId)[0];
+  st.tasks.byId[firstId].content = 긴본문;
+
+  // 종이가 통보다 길어야 바가 실제로 붙는다 — 도막 하나를 길게 쓴 노트를 심는다
+  const 줄들 = Array.from({ length: 40 }, (_, i) => `노트 ${i + 1}번째 줄입니다`).join('\n');
+  const 예배노트 = `### 본문\n이사야 32:9-20\n### 말씀 요약\n${줄들}\n### 나의 결단\n한 줄\n### 기도\n한 줄\n`;
+  const 묵상노트 = `### 본문\n여호수아 4:1-14\n### 나의 결단\n${줄들}\n### 기도\n한 줄\n`;
+  // 게스트에서 예배·말씀 화면이 보는 자리(services/worship.js · services/word.js). 여기서는
+  // 노트 편집기까지 가는 데 필요한 최소만 심는다 — 주보 한 건과 그 노트, 오늘의 QT 한 줄.
+  const WSEED = {
+    people: [{ id: 'p1', name: '노준석', profile_id: 'u1' }],
+    people_roles: [], groups: [], group_members: [], attendance: [], files: [],
+    services: [{
+      id: 's1', kind: 'sunday', service_date: D(-3), status: 'published',
+      title: '흔들리지 않는 기쁨', passage_ref: '이사야 32:9-20', preacher: '임성빈 전도사님',
+      roles: [], songs: [], notices: [], attendance_note: '',
+    }],
+    service_notes: [{ service_id: 's1', body: 예배노트, shared_to_sun: false }],
+  };
+  const QSCHED = { [D(0)]: { passage_ref: '수 4:1-14', label: '사귐의 기도' } };
+  const QENTRY = { [D(0)]: { body: 묵상노트, shared: false } };
+
+  // 페이지에 심는 손 — 바·통·머리줄을 앱과 **같은 규칙**으로 찾는다(useStickyTop과 한 쌍).
+  const HELPERS = `(() => {
+    const 통찾기 = (el) => {
+      let n = el;
+      while (n && n !== document.body) {
+        const oy = getComputedStyle(n).overflowY;
+        if (oy !== 'visible' && oy !== 'clip') return n;
+        n = n.parentElement;
+      }
+      return null;
+    };
+    const 머리줄 = (통, bar) => (!통 ? [] : [...통.querySelectorAll('*')].filter(e =>
+      e !== bar && !e.contains(bar) && !bar.contains(e)
+      && getComputedStyle(e).position === 'sticky'
+      && parseFloat(getComputedStyle(e).top || '0') === 0
+      && e.getBoundingClientRect().height > 20));
+    const 부품 = (sel) => {
+      const tip = document.querySelector(sel);
+      const bar = document.querySelector('[data-editor-bar]');
+      if (!tip || !bar) return null;
+      const wrap = tip.closest('div.relative');
+      const box = wrap ? [...wrap.children].find(c => c.contains(tip)) : null;
+      return { tip, bar, wrap, box, 통: wrap ? 통찾기(wrap.parentElement) : null };
+    };
+    const 멈출자리of = (p) => {
+      const heads = 머리줄(p.통, p.bar);
+      return heads.length ? Math.max(...heads.map(h => h.getBoundingClientRect().bottom))
+        : (p.통 ? p.통.getBoundingClientRect().top : 0);
+    };
+    window.__bar = (sel) => {
+      const p = 부품(sel);
+      if (!p) return { 없음: true };
+      const cs = getComputedStyle(p.bar);
+      const r = p.bar.getBoundingClientRect();
+      const br = p.box ? p.box.getBoundingClientRect() : null;
+      const d = document.documentElement;
+      const vv = window.visualViewport;
+      return {
+        갈래: p.bar.getAttribute('data-editor-bar'),
+        보임: cs.display !== 'none', 자리: cs.position,
+        top: Math.round(r.top), bottom: Math.round(r.bottom),
+        폭: Math.round(r.width), 창폭: window.innerWidth, 높이: Math.round(r.height),
+        칸위: br ? Math.round(br.top) : null,
+        아래여백: p.box ? Math.round(parseFloat(getComputedStyle(p.box).paddingBottom) || 0) : null,
+        body자식: p.bar.parentElement === document.body,
+        둥근: parseFloat(cs.borderTopLeftRadius) || 0,
+        좌선: parseFloat(cs.borderLeftWidth) || 0, 우선: parseFloat(cs.borderRightWidth) || 0,
+        위선: parseFloat(cs.borderTopWidth) || 0, 아래선: parseFloat(cs.borderBottomWidth) || 0,
+        그림자: cs.boxShadow, 멈출자리: Math.round(멈출자리of(p)), 통있음: !!p.통,
+        넘침: d.scrollWidth - d.clientWidth,
+        보이는아래끝: vv ? Math.round(vv.offsetTop + vv.height) : null,
+      };
+    };
+    // 바가 **막 붙는 자리**로 통을 굴린다 — 끝까지 내리면 감싸개가 통째로 위로 빠져나가
+    // 바가 sticky를 놓는다(붙은 상태가 아니게 된다).
+    window.__stick = (sel, extra) => {
+      const p = 부품(sel);
+      if (!p || !p.통) return -1;
+      const dy = p.wrap.getBoundingClientRect().top - 멈출자리of(p) + extra;
+      p.통.scrollTop = Math.max(0, Math.min(p.통.scrollHeight - p.통.clientHeight, p.통.scrollTop + dy));
+      return p.통.scrollTop;
+    };
+    window.__focus = (sel, on) => {
+      const t = document.querySelector(sel);
+      if (!t) return false;
+      if (on) t.focus(); else t.blur();
+      return true;
+    };
+    // **키보드 흉내** — 헤드리스에는 소프트 키보드가 없다. 보이는 영역을 반으로 줄이고
+    // 200px 밀린 것으로 꾸민 visualViewport를 **앱이 리스너를 걸기 전에**(포커스 전에)
+    // 심는다. 앱은 늘 window.visualViewport로 늦게 집으므로 이 흉내가 그대로 먹는다.
+    window.__keyboard = () => {
+      const fake = new EventTarget();
+      const put = (k, v) => Object.defineProperty(fake, k, { get: v });
+      put('height', () => Math.round(window.innerHeight / 2));
+      put('width', () => window.innerWidth);
+      put('offsetTop', () => 200);
+      put('offsetLeft', () => 0);
+      put('pageTop', () => 200);
+      put('pageLeft', () => 0);
+      put('scale', () => 1);
+      Object.defineProperty(window, 'visualViewport', { configurable: true, get: () => fake });
+      return 200 + Math.round(window.innerHeight / 2);
+    };
+  })()`;
+
+  const loadM = async (m, path) => {
+    await send('Emulation.setDeviceMetricsOverride', m);
+    await send('Emulation.setTouchEmulationEnabled', { enabled: !!m.mobile, maxTouchPoints: 5 });
+    await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+    await ev(`(() => {
+      localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))});
+      localStorage.setItem('theme', 'light');
+      localStorage.setItem('church_worship_v1', ${JSON.stringify(JSON.stringify(WSEED))});
+      localStorage.setItem('word_qt_schedule', ${JSON.stringify(JSON.stringify(QSCHED))});
+      localStorage.setItem('word_qt_entries', ${JSON.stringify(JSON.stringify(QENTRY))});
+    })()`);
+    await send('Page.navigate', { url: URL_BASE + path }); await wait('Page.loadEventFired');
+    await sleep(1800);
+    await ev(HELPERS);
+  };
+
+  const 자리들 = [
+    {
+      이름: '업무 창', path: `/?p=p1&t=${firstId}`, tip: '.fixed.inset-0.z-50 .tiptap',
+      열기: async () => {
+        await ev(clickText('수정'));
+        return waitFor(`document.querySelector('.fixed.inset-0.z-50 .tiptap')`);
+      },
+    },
+    {
+      이름: '예배 노트', path: '/?p=worship', tip: '.worship-note .tiptap',
+      열기: async () => {
+        if (!await waitFor(`document.querySelector('.worship-card')`)) return false;
+        await ev(`document.querySelector('.worship-card').click()`);
+        if (!await waitFor(`document.querySelector('.worship-note-edit')`)) return false;
+        await ev(`document.querySelector('.worship-note-edit').click()`);
+        return waitFor(`document.querySelector('.worship-note .tiptap')`);
+      },
+    },
+    {
+      이름: '묵상 노트', path: '/?p=word', tip: '.qt-note-editor .tiptap',
+      열기: async () => {
+        const 수정 = `[...document.querySelectorAll('[data-note="read"] button')].find(b => b.textContent.trim() === '수정')`;
+        if (!await waitFor(수정)) return false;
+        await ev(`${수정}.click()`);
+        return waitFor(`(() => { const t = document.querySelector('.qt-note-editor .tiptap'); return t && t.offsetParent; })()`);
+      },
+    },
+  ];
+
+  for (const w of [375, 390, 430, 768, 1024, 1440]) {
+    const 폰 = w < 768;               // useIsMobile — max-width: 767px 하나다
+    for (const 자리 of 자리들) {
+      const 이름 = `${w}px · ${자리.이름}`;
+      const S = JSON.stringify(자리.tip);
+      await loadM({ width: w, height: 844, deviceScaleFactor: 1, mobile: 폰 }, 자리.path);
+      if (!await 자리.열기()) { check(`${이름}: 편집기가 열린다`, false, '편집기를 못 열었다'); continue; }
+      await sleep(600);
+      if (폰) {
+        // 열자마자 커서를 물고 있을 수 있다 — 손을 떼고 '없는 상태'부터 본다
+        await ev(`window.__focus(${S}, false)`); await sleep(700);
+        const 꺼짐 = await ev(`window.__bar(${S})`);
+        const 꾸민아래끝 = await ev(`window.__keyboard()`);
+        await ev(`window.__focus(${S}, true)`); await sleep(700);
+        const 켜짐 = await ev(`window.__bar(${S})`);
+        await ev(`window.__focus(${S}, false)`); await sleep(800);
+        const 다시꺼짐 = await ev(`window.__bar(${S})`);
+        check(`${이름}: 바가 보이고 편집 칸과 안 겹치고 가로로 안 넘친다`,
+          !!켜짐 && 켜짐.갈래 === 'fixed' && 켜짐.보임 === true
+          && 켜짐.높이 > 0 && 켜짐.아래여백 >= 켜짐.높이
+          && Math.abs(켜짐.폭 - 켜짐.창폭) <= 1 && 켜짐.넘침 <= 1,
+          JSON.stringify(켜짐));
+        // 포털(body 자식)이라야 `.dc-screen`의 transform이 fixed의 기준이 되지 않는다.
+        // 자리는 **보이는 영역의 아래 끝 − 바 높이**다(키보드 흉내로 실제 값을 견준다).
+        check(`${이름}: 키보드 위에 fixed로 서고 손 떼면 사라진다`,
+          !!켜짐 && 켜짐.자리 === 'fixed' && 켜짐.body자식 === true
+          && 켜짐.보이는아래끝 === 꾸민아래끝
+          && Math.abs(켜짐.top - (꾸민아래끝 - 켜짐.높이)) <= 1
+          && 꺼짐.보임 === false && 다시꺼짐.보임 === false,
+          JSON.stringify({ 켜짐, 꾸민아래끝, 꺼짐: 꺼짐.보임, 다시: 다시꺼짐.보임 }));
+      } else {
+        const 안붙음 = await ev(`window.__bar(${S})`);
+        const 굴림 = await ev(`window.__stick(${S}, 150)`);
+        await sleep(700);
+        const 붙음 = await ev(`window.__bar(${S})`);
+        check(`${이름}: 바가 보이고 편집 칸과 안 겹치고 가로로 안 넘친다`,
+          !!안붙음 && 안붙음.갈래 === 'sticky' && 안붙음.보임 === true
+          && 안붙음.bottom <= 안붙음.칸위 + 1 && 안붙음.둥근 > 0 && 안붙음.넘침 <= 1,
+          JSON.stringify(안붙음));
+        check(`${이름}: 붙으면 줄이 되고 머리줄 바로 밑이다`,
+          !!붙음 && 굴림 > 0 && 붙음.둥근 === 0 && 붙음.좌선 === 0 && 붙음.우선 === 0
+          && 붙음.위선 === 0 && 붙음.아래선 > 0 && 붙음.그림자 !== 'none'
+          && Math.abs(붙음.top - 붙음.멈출자리) <= 1,
+          JSON.stringify({ 굴림, ...붙음 }));
+      }
+    }
+  }
+  await send('Emulation.setFocusEmulationEnabled', { enabled: false });
+  st.tasks.byId[firstId].content = '내용';
+}
+
+
 // ── 업무 창에는 링크가 없다 (2026-09-11에 되돌렸다) ─────────────────────────
 // 2026-09-10에 0058의 링크를 첨부 구역 안 한 목록(`+ 파일`·`+ 링크`)으로 옮겼는데,
 // 사용자가 "링크 첨부 방식을 넣지 말고 기존처럼 돌리되"라고 판단해서 걷었다(§6-35).
