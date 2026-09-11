@@ -2377,7 +2377,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     assert.ok(/frame=\{\(content\) => \(/.test(s) && /<NotePaper /.test(s),
       `${name} 편집기가 종이 안에 선다`);
     assert.ok(/note-paper/.test(s), `${name} 편집기에 종이 격자 클래스가 붙는다`);
-    assert.ok(/headings=\{false\}/.test(s), `${name} 서식 바에 제목 버튼이 없다`);
+    assert.ok(/tools="note"/.test(s), `${name} 서식 바에 제목·구분선·링크 버튼이 없다(tools="note")`);
   }
   // 격자는 index.css 한 자리다 — h3은 1열, 그 밖은 2열
   const css = src('../src/index.css');
