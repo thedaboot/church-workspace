@@ -21,7 +21,7 @@ import { generateId } from '../utils.js';
 // **게스트 모드(supabase 없음)에서는 localStorage가 클라우드 자리를 대신한다** —
 // 워크스페이스가 게스트에서 `church_app_v4`를 보는 것과 같은 방식이다. 그래야
 // 브라우저 스위트가 이 화면을 실제로 눌러 볼 수 있다(tests/worship.mjs). 클라우드
-// 경로(RLS·실데이터)는 사람이 확인해야 한다 — HANDOFF §2-6.
+// 경로(RLS·실데이터)는 사람이 확인해야 한다 — HANDOFF §3-6.
 // ============================================================================
 
 const COLS = 'id, kind, service_date, status, title, passage_ref, preacher, roles, songs, notices, praise_leader, praise_playlist_url, attendance_note, cue_sheet, drive_folder_id, created_at, updated_at';

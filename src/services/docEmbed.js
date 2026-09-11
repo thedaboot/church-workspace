@@ -4,7 +4,7 @@
 // 순수 함수만 둔다 — 그리는 쪽은 `components/DocEmbed.jsx`이고, 그 파일이 이 두 함수를
 // 그대로 다시 내보낸다(부르는 쪽은 컴포넌트 파일 하나만 import하면 된다).
 // 여기 따로 둔 이유는 **브라우저 없이 검사하기 위해서다** — JSX가 섞이면 노드가 못 읽는다
-// (`tests/three.mjs` 앞부분이 이 파일을 그대로 import한다 · HANDOFF §2-5).
+// (`tests/three.mjs` 앞부분이 이 파일을 그대로 import한다 · HANDOFF §3-5).
 // ============================================================================
 
 const KIND_OF = { document: 'doc', spreadsheets: 'sheet', presentation: 'slide' };

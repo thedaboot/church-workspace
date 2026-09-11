@@ -23,7 +23,7 @@ import { generateId } from '../utils.js';
 // **게스트 모드(supabase 없음)에서는 localStorage가 클라우드 자리를 대신한다** —
 // services/worship.js와 같은 방식이다. 그래야 브라우저 스위트가 이 화면을 실제로
 // 눌러 볼 수 있다(tests/roster.mjs). 클라우드 경로(RLS·실데이터)는 사람이
-// 확인해야 한다 — HANDOFF §2-6.
+// 확인해야 한다 — HANDOFF §3-6.
 // ============================================================================
 
 const COLS = 'id, name, birthday, teams, is_pastor, profile_id, note, removed_at';

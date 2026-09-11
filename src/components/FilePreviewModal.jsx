@@ -54,7 +54,7 @@ const GDOC_MOBILE_W = 940;
 const FRAME_SETTLE = 260;
 // Storage에 남은 옛 오피스 파일만 이 뷰어로 간다(드라이브 파일은 구글이 그린다)
 const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
-// 드라이브 미리보기 주소는 순수 함수라 utils에 있다(노드에서 바로 검사한다 — §2-5).
+// 드라이브 미리보기 주소는 순수 함수라 utils에 있다(노드에서 바로 검사한다 — §3-5).
 // 부르는 쪽(attachments.jsx)이 이미 여기서 가져다 쓰고 있어 그대로 다시 내보낸다.
 import { driveSrc, sheetPreviewUrl } from '../utils.js';
 export { driveSrc };
