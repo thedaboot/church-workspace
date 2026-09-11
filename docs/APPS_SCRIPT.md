@@ -1,4 +1,4 @@
-# Apps Script — 붙여넣을 코드 (v10)
+# Apps Script — 붙여넣을 코드 (v11)
 
 개인 지메일 드라이브는 서비스 계정으로 못 만진다(공유 드라이브가 없어 소유권도 용량도
 서비스 계정에 갈 수 없다). 남는 길은 소유자 계정으로 도는 웹앱 하나이고, 우리 서버는 그
@@ -23,15 +23,16 @@ URL로 요청만 보낸다 — 토큰 만료도 갱신 관리도 없다. 구조�
 ```js
 // **이 스크립트가 몇 판인지.** 모든 답(json)에 실려 나간다 — 부르는 쪽이 "이 계정에
 // v8 이상이 올라갔나"를 물을 자리가 여기 말고는 없다(아래 json 참고). 앱은 `>= 8`만 본다.
-const SCRIPT_VERSION = 10;
+const SCRIPT_VERSION = 11;
 
 const KEY_PREFIX = 'wskey:';   // v6까지 description에 쓰던 접두사 — 읽기 위해 남긴다
 const KEY_PROP = 'wskey';      // v7부터는 appProperties에 쓴다(질의로 찾을 수 있다)
 
 // 큐시트 사본을 고칠 수 있는 구글 계정(사용자 결정 2026-09-09 — 교역자와 마스터만).
-// **여기 있는 계정만** 편집자가 된다 — role을 'writer'/type 'anyone'으로 올리면 링크를
-// 아는 누구나 고칠 수 있고 그건 뺀 길이다(HANDOFF §7). 사람이 바뀌면 이 줄을 고치고
-// 새 버전으로 올리면 된다(옛 사본의 편집자는 그대로 남으니 드라이브에서 지운다).
+// **명단이 여기 있는 이유**: 앱 번들은 누구나 내려받을 수 있어서 개인 지메일 주소를
+// 거기 박아 두지 않는다. 앱은 `cueEditors: true`만 보내고 누구인지는 이 줄이 정한다.
+// 사람이 바뀌면 이 줄을 고치고 새 버전으로 올린다(옛 사본의 편집자는 그대로 남으니
+// 드라이브에서 지운다). v11부터 **업무 첨부**는 이 길이 아니라 `editors`(아래)다.
 var CUE_EDITORS = ['joshua052698@gmail.com', 'mose716@gmail.com'];
 
 function doPost(e) {
@@ -47,6 +48,7 @@ function doPost(e) {
       case 'trash':        return json(trash(body));
       case 'list':         return json(list(body));
       case 'convert':      return json(convertExisting(body));
+      case 'grantEditors': return json(grantEditors(body));
       default:             return json({ error: 'unknown action' });
     }
   } catch (err) {
@@ -218,7 +220,7 @@ function upload(body) {
     // 올리는 시간에 변환 시간을 더하지 않으려는 것이다(위 머리말 '왜 두 단계인가').
     // body.convert는 **옛 화면 호환**으로만 남긴다: 배포 직후 캐시된 탭이 아직 그 칸을
     // 실어 보낼 수 있고, 그 탭에서 올린 엑셀도 사본을 가져야 한다. 새 화면은 안 보낸다.
-    previewId: body.convert ? makePreviewCopy(file.id, body.name || 'file', folder.getId()) : null,
+    previewId: body.convert ? makePreviewCopy(file.id, body.name || 'file', folder.getId(), editorsFor(body)) : null,
   };
 }
 
@@ -252,7 +254,57 @@ var COPY_AS = {
   pptx: ['GOOGLE_SLIDES', ' (슬라이드)'], ppt: ['GOOGLE_SLIDES', ' (슬라이드)'],
 };
 
-function makePreviewCopy(fileId, name, folderId, cueEditors) {
+// **편집자 명단을 만든다**(v11). 앱은 `editors: ['a@b.com', …]`를 보낸다 — 업무 첨부는
+// 올린 사람 + 관리자 + 마스터이고, 그 목록은 우리 서버(api/drive.js)가 `admins` 표를
+// 읽어 채운다(브라우저는 그 표를 못 읽는다 — 0022 admins_select).
+// `cueEditors: true`는 **v10 앱 호환**이다: 새 판을 올린 직후에도 캐시된 탭이 그 칸만
+// 실어 보낼 수 있고, 그 탭에서 올린 큐시트도 편집자를 가져야 한다.
+// 구글 계정인지는 **가리지 않는다** — 드라이브가 모르는 주소는 아래에서 실패하고
+// 그 한 줄만 삼킨다(누가 구글 계정인지 우리가 알 길이 없다).
+function editorsFor(body) {
+  var out = [];
+  if (body.cueEditors) out = out.concat(CUE_EDITORS);
+  if (body.editors && body.editors.length) out = out.concat(body.editors);
+  var seen = {}, uniq = [];
+  for (var i = 0; i < out.length; i++) {
+    var e = String(out[i] || '').trim().toLowerCase();
+    if (!e || seen[e]) continue;              // 같은 계정에 두 번 가지 않는다(왕복이 곧 시간이다)
+    seen[e] = true; uniq.push(e);
+  }
+  return uniq;
+}
+
+// 사본 하나에 편집자를 붙인다. **실패는 이메일마다 삼킨다** — 한 사람이 구글 계정이
+// 아니라고 나머지까지 편집자가 못 되면 안 되고, 사본 자체는 더더욱 살아야 한다.
+// sendNotificationEmail: false — 파일을 올릴 때마다 관리자들에게 메일이 가면 안 된다.
+function addEditors(copyId, editors) {
+  var ok = 0;
+  for (var i = 0; i < editors.length; i++) {
+    try {
+      Drive.Permissions.create(
+        { role: 'writer', type: 'user', emailAddress: editors[i] },
+        copyId,
+        { supportsAllDrives: true, sendNotificationEmail: false });
+      ok++;
+    } catch (permErr) {
+      Logger.log('편집자 추가 실패(' + editors[i] + '): ' + permErr);
+    }
+  }
+  return ok;
+}
+
+// **이미 만들어진 사본에 뒤늦게 편집자를 붙이는 길**(v11 · `grantEditors`).
+// 두 경우가 이것을 쓴다: v10까지 올려서 편집자가 하나도 없는 옛 첨부, 그리고 사본이
+// 만들어진 뒤에 관리자가 된 사람. 앱은 '구글 문서에서 편집'을 누를 때마다 부르고,
+// 이미 편집자인 계정은 구글이 그대로 둔다(멱등).
+function grantEditors(body) {
+  if (!body.fileId) return { error: 'fileId가 없습니다' };
+  var editors = editorsFor(body);
+  if (!editors.length) return { granted: 0, fileId: body.fileId };
+  return { granted: addEditors(body.fileId, editors), fileId: body.fileId };
+}
+
+function makePreviewCopy(fileId, name, folderId, editors) {
   var target = COPY_AS[String(name || '').split('.').pop().toLowerCase()];
   if (!target) return null;   // PDF·사진·zip 등은 구글 편집기가 없다 — 사본을 안 만든다
   try {
@@ -271,25 +323,14 @@ function makePreviewCopy(fileId, name, folderId, cueEditors) {
       description: '',
     }, fileId, { supportsAllDrives: true });
     // 미리보기는 iframe으로 뜬다 — 링크로 **볼** 수 있어야 남들 화면에서도 그려진다.
-    // role은 언제나 'reader'다. 'writer'로 올리면 링크를 아는 누구나 고칠 수 있다
-    // (드라이브는 워크스페이스 멤버인지 모른다 — 사용자가 판단해서 뺀 길이다).
+    // `type: 'anyone'`의 role은 언제나 'reader'다. 여기를 'writer'로 올리면 링크를 아는
+    // 누구나 고칠 수 있고(드라이브는 워크스페이스 멤버인지 모른다) 그건 뺀 길이다 —
+    // 편집은 **계정 단위**로만 준다(아래 addEditors · HANDOFF §7).
     Drive.Permissions.create({ role: 'reader', type: 'anyone' }, copy.id, { supportsAllDrives: true });
 
-    // ── v10: 큐시트만 이름 있는 계정 둘을 편집자로 ──────────────────────────
+    // ── v11: 이름 있는 계정만 편집자로(큐시트 둘 · 업무 첨부는 올린 사람+관리자) ──
     // 실패해도 사본은 살린다 — 편집이 안 되는 것보다 미리보기가 통째로 없는 것이 나쁘다.
-    // sendNotificationEmail: false — 주보를 올릴 때마다 두 사람에게 메일이 가면 안 된다.
-    if (cueEditors) {
-      for (var i = 0; i < CUE_EDITORS.length; i++) {
-        try {
-          Drive.Permissions.create(
-            { role: 'writer', type: 'user', emailAddress: CUE_EDITORS[i] },
-            copy.id,
-            { supportsAllDrives: true, sendNotificationEmail: false });
-        } catch (permErr) {
-          Logger.log('큐시트 편집자 추가 실패(' + CUE_EDITORS[i] + '): ' + permErr);
-        }
-      }
-    }
+    if (editors && editors.length) addEditors(copy.id, editors);
     return copy.id;
   } catch (err) {
     Logger.log('변환 실패(첨부는 그대로 둔다): ' + err);
@@ -322,7 +363,7 @@ function uploadFromUrl(body) {
     // 올리는 시간에 변환 시간을 더하지 않으려는 것이다(위 머리말 '왜 두 단계인가').
     // body.convert는 **옛 화면 호환**으로만 남긴다: 배포 직후 캐시된 탭이 아직 그 칸을
     // 실어 보낼 수 있고, 그 탭에서 올린 엑셀도 사본을 가져야 한다. 새 화면은 안 보낸다.
-    previewId: body.convert ? makePreviewCopy(file.id, body.name || 'file', folder.getId()) : null,
+    previewId: body.convert ? makePreviewCopy(file.id, body.name || 'file', folder.getId(), editorsFor(body)) : null,
   };
 }
 
@@ -343,7 +384,7 @@ function convertExisting(body) {
     name = name || f.name;
     parent = parent || (f.parents && f.parents[0]) || ROOT_FOLDER_ID;
   }
-  return { previewId: makePreviewCopy(body.fileId, name, parent, !!body.cueEditors) };
+  return { previewId: makePreviewCopy(body.fileId, name, parent, editorsFor(body)) };
 }
 
 // ── 목록 ────────────────────────────────────────────────────────────────────
@@ -420,9 +461,12 @@ function 권한승인() {
    스크립트가 답한 판 번호가 찍힙니다. 앱의 게이트는 `version >= 8`입니다.
    (`--fix`를 붙이면 사본이 없는 옛 첨부에 사본을 만들어 `files.preview_file_id`에 적습니다.
    `.env`에 `VITE_SUPABASE_URL`·`SUPABASE_SECRET_KEY`·`DRIVE_WEBAPP_URL`·`DRIVE_WEBAPP_TOKEN`이 필요합니다.)
-2. **업무 첨부는 보기** — 업무에 워드·PPT·엑셀을 하나 올리면 목록에 **바로** 서고(변환을
-   기다리지 않습니다), 몇 초 뒤 '펼쳐보기'가 구글 화면입니다. 그 화면에 글자를 칠 수 있으면
-   `cueEditors`가 새고 있는 것입니다 — 업무 첨부는 언제나 **보기**입니다.
+2. **업무 첨부 '구글 문서에서 편집'**(v11) — 업무에 워드·PPT·엑셀을 하나 올리면 목록에
+   **바로** 서고(변환을 기다리지 않습니다), 몇 초 뒤 '펼쳐보기'가 구글 화면입니다.
+   그 파일을 열면 머리줄에 **'구글 문서에서 편집'**(새 탭)이 있고, 그 탭에서 실제로 글자가
+   쳐져야 합니다 — **올린 사람·관리자·마스터**만입니다. 다른 사람에게는 버튼이 없고,
+   버튼 없이 사본 주소를 직접 열면 읽기 화면입니다(앱 안 창은 언제나 보기입니다).
+   **v10까지 올린 옛 첨부**도 버튼을 처음 누를 때 권한이 붙습니다(`grantEditors`).
 3. **큐시트는 편집자 두 계정만** — 주보 말씀 탭에 큐시트 `.docx`를 올리고, 교역자·마스터
    계정으로는 편집 화면(글자를 칠 수 있음), 다른 계정으로는 읽기 화면인지.
 4. **폰에서는 앱 안 창이 읽기 화면일 수 있습니다** — iframe 안의 구글은 브라우저의 구글
@@ -440,10 +484,12 @@ function 권한승인() {
 | v7 | 고급 드라이브 서비스로 전환 · 열쇠를 `description`에서 `appProperties`로(질의로 찾는다) · 폴더 만들기에 `LockService` 잠금 · **엑셀을 구글 시트 사본으로**(0031 · `files.preview_file_id`) |
 | v8 | 사본을 **워드(구글 문서)·PPT(구글 슬라이드)** 까지 · 사본 만들기를 `upload`에서 떼어 `convert` 액션으로(두 단계) · 모든 답에 `version`. **배포하지 않고 건너뛰었다**(사용자 결정 2026-09-08) |
 | v9 | 업로드 왕복 3→2 — `Drive.Files.create`에 이름·부모·열쇠·설명을 한 요청에 싣고 공유는 `Permissions.create` 하나(`createInFolder`) |
-| v10 | **큐시트 사본에만** 이름 있는 계정 둘(`CUE_EDITORS`)을 편집자로 — 앱이 `convert`에 `cueEditors`를 실을 때만. `role:'writer'`+`type:'anyone'`은 쓰지 않는다(링크를 아는 누구나 고치게 되는 길 — HANDOFF §7). **지금 판**(2026-09-09 배포) |
+| v10 | **큐시트 사본에만** 이름 있는 계정 둘(`CUE_EDITORS`)을 편집자로 — 앱이 `convert`에 `cueEditors`를 실을 때만. `role:'writer'`+`type:'anyone'`은 쓰지 않는다(링크를 아는 누구나 고치게 되는 길 — HANDOFF §7). 2026-09-09 배포 |
+| v11 | **업무 첨부 사본에도 편집자를** — `convert`가 `editors: string[]`(올린 사람 + 관리자 + 마스터)을 받는다(`editorsFor`·`addEditors`). 이미 만들어진 사본에 뒤늦게 붙이는 액션 **`grantEditors`**. `cueEditors: true`는 v10 앱 호환으로 계속 받는다. `'anyone'`은 여전히 `reader`뿐이다. **지금 판**(아직 배포 전) |
 
-액션 목록은 v7부터 v10까지 같습니다(`upload`·`uploadFromUrl`·`ensureFolder`·`renameFolder`·
-`trash`·`list`·`convert`) — `api/drive.js`의 허용 목록과 같은지는 `tests/drivesync`가 봅니다.
+액션 목록은 v7부터 v10까지 같았고 **v11에서 `grantEditors` 하나가 늘었습니다**
+(`upload`·`uploadFromUrl`·`ensureFolder`·`renameFolder`·`trash`·`list`·`convert`·`grantEditors`)
+— `api/drive.js`의 허용 목록과 같은지는 `tests/drivesync`가 봅니다.
 
 ## 되돌리려면
 

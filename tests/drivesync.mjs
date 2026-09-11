@@ -193,8 +193,8 @@ check('스크립트가 워드·PPT도 네이티브 사본으로 만든다', () =
   assert.match(scriptmd, /GOOGLE_SHEETS/, '엑셀 변환이 사라졌다(v7 동작이 깨진다)');
   assert.match(scriptmd, /convertTo/, 'convertTo를 모르면 워드·PPT 요청이 무시된다');
   // 버전을 안 실어 보내면 부르는 쪽이 v7에 워드를 보내 쓰레기 사본을 만든다
-  // 앱의 게이트는 `>= 8`이다(cloud.attachPreviewCopy) — 지금 판(10)은 그 조건을 그대로 지난다
-  assert.match(scriptmd, /const SCRIPT_VERSION = 10;/, '버전 상수가 10이 아니다');
+  // 앱의 게이트는 `>= 8`이다(cloud.attachPreviewCopy) — 지금 판(11)은 그 조건을 그대로 지난다
+  assert.match(scriptmd, /const SCRIPT_VERSION = 11;/, '버전 상수가 11이 아니다');
   assert.match(scriptmd, /out\.version = SCRIPT_VERSION/, '답에 버전을 안 싣는다');
   // 사본 종류는 **확장자**가 정한다 — 부르는 쪽 값을 믿으면 잘못 보낸 한 번이 영영 남는다
   assert.ok(/COPY_AS\[String\(name/.test(scriptmd), '사본 종류를 확장자로 정하지 않는다');
@@ -209,23 +209,69 @@ check('스크립트가 워드·PPT도 네이티브 사본으로 만든다', () =
   assert.ok(!/type: 'anyone'[^)]*role: 'writer'/.test(scriptmd), "'anyone'에게 편집 권한을 준다");
 });
 
-// ── v10: 큐시트 사본만 편집자 둘 (2026-09-09 — "큐시트는 교역자와 마스터만 수정 가능하게") ──
-check('큐시트 사본에만 이름 있는 계정 둘이 편집자로 붙는다', () => {
-  // 'writer'+'anyone'(위 검사)이 아니라 이름 있는 계정 둘이다. 명단이 코드 한 줄이라
-  // 사람이 바뀌면 그 줄만 고치고 새 버전으로 올린다.
-  assert.match(scriptmd, /var CUE_EDITORS = \[/, '편집자 명단(CUE_EDITORS)이 없다');
-  assert.match(scriptmd, /role: 'writer', type: 'user', emailAddress: CUE_EDITORS\[i\]/,
+// ── v11: 편집은 **계정 단위**로만 (2026-09-11 — 큐시트 둘 · 첨부는 올린 사람+관리자) ──
+// 링크를 아는 누구나(`writer`+`anyone`)는 여전히 금지다(위 검사 · HANDOFF §7).
+// 무엇이 달라졌나: v10은 큐시트만이었고 명단이 스크립트 상수 하나였는데, v11부터
+// **앱이 `editors` 배열을 보낸다**(업무 첨부). `cueEditors`는 v10 앱 호환으로 남는다.
+check('사본 편집자는 이름 있는 계정뿐이다 (editors · CUE_EDITORS)', () => {
+  assert.match(scriptmd, /var CUE_EDITORS = \[/, '큐시트 편집자 명단(CUE_EDITORS)이 없다');
+  assert.match(scriptmd, /role: 'writer', type: 'user', emailAddress: editors\[i\]/,
     '편집자를 이름 있는 계정으로 주지 않는다');
   assert.match(scriptmd, /sendNotificationEmail: false/,
-    '주보를 올릴 때마다 두 사람에게 메일이 간다');
-  // 붙는 것은 앱이 그 칸을 실어 보낼 때뿐이다 — 업무 첨부 사본의 공유는 그대로여야 한다
-  assert.match(scriptmd, /function makePreviewCopy\(fileId, name, folderId, cueEditors\)/,
-    'makePreviewCopy가 cueEditors를 받지 않는다');
-  assert.match(scriptmd, /if \(cueEditors\) \{/, '종류를 안 가리고 편집자를 붙인다');
-  assert.match(scriptmd, /makePreviewCopy\(body\.fileId, name, parent, !!body\.cueEditors\)/,
-    'convert 액션이 그 칸을 넘기지 않는다');
-  // 앱 쪽 판단은 `files.kind === 'cuesheet'` 한 줄이다(업무 첨부·송폼은 안 보낸다)
+    '파일을 올릴 때마다 편집자들에게 메일이 간다');
+  // 명단을 만드는 자리는 하나다 — 두 벌이 되면 호환 갈래(cueEditors)가 한쪽에서만 산다
+  assert.match(scriptmd, /function editorsFor\(body\)/, '편집자 명단을 만드는 함수가 없다');
+  assert.match(scriptmd, /if \(body\.cueEditors\) out = out\.concat\(CUE_EDITORS\);/,
+    'v10 앱이 보내는 cueEditors를 더는 못 받는다(배포 직후 캐시된 탭이 있다)');
+  assert.match(scriptmd, /if \(body\.editors && body\.editors\.length\) out = out\.concat\(body\.editors\);/,
+    '앱이 보낸 editors를 안 읽는다');
+  assert.match(scriptmd, /function makePreviewCopy\(fileId, name, folderId, editors\)/,
+    'makePreviewCopy가 editors를 받지 않는다');
+  assert.match(scriptmd, /makePreviewCopy\(body\.fileId, name, parent, editorsFor\(body\)\)/,
+    'convert 액션이 편집자를 넘기지 않는다');
+  // 이미 만들어진 사본에 뒤늦게 붙이는 길(옛 첨부 · 새 관리자)
+  assert.match(scriptmd, /case 'grantEditors': +return json\(grantEditors\(body\)\);/,
+    'grantEditors 액션이 없다');
+  assert.match(scriptmd, /function grantEditors\(body\)/, 'grantEditors 함수가 없다');
+  // 실패는 **이메일마다** 삼킨다 — 한 사람이 구글 계정이 아니라고 나머지가 막히면 안 되고
+  // 사본 자체는 더더욱 살아야 한다
+  const add = scriptmd.slice(scriptmd.indexOf('function addEditors('), scriptmd.indexOf('function grantEditors('));
+  assert.ok(add, 'addEditors를 못 찾았다');
+  assert.match(add, /try \{[\s\S]*\} catch \(permErr\) \{/, '편집자 추가 실패를 이메일마다 삼키지 않는다');
+});
+
+check('앱이 보내는 편집자 — 큐시트는 둘, 첨부는 올린 사람+관리자', () => {
+  // 큐시트: 앱은 `cueEditors: true`만 보내고 **누구인지는 스크립트가 안다**(개인 지메일
+  // 주소를 브라우저 번들에 박지 않는다). 판단은 `files.kind === 'cuesheet'` 한 줄이다.
   assert.match(cloud, /cueEditors: [^\n]*cuesheet/, "cloud.js가 큐시트에만 cueEditors를 싣지 않는다");
+  // 첨부: 올린 사람(세션 이메일)을 싣고 관리자·마스터는 **서버가** 더한다.
+  assert.match(cloud, /const mine = cueEditors \? null : \(await getSession\(\)\)\?\.user\?\.email \|\| null;/,
+    'cloud.js가 올린 사람 이메일을 싣지 않는다');
+  assert.match(cloud, /\.\.\.\(cueEditors \? \{ cueEditors: true \} : \{ editors: mine \? \[mine\] : \[\] \}\)/,
+    '첨부 사본에 editors를 안 보낸다');
+  // 뒤늦게 붙이는 길 — '구글 문서에서 편집'을 누를 때마다 부른다(멱등)
+  assert.match(cloud, /export async function grantCopyEditors\(row, emails = \[\]\)/,
+    'grantCopyEditors가 없다(옛 첨부에 편집 권한을 줄 길이 없다)');
+  assert.match(cloud, /action: 'grantEditors', fileId, editors: emails\.filter\(Boolean\)/,
+    'grantCopyEditors가 사본 id로 grantEditors를 부르지 않는다');
+
+  // **관리자 명단은 서버가 읽는다.** `admins`는 관리자에게만 열려 있어서(0022
+  // admins_select) 브라우저에서 읽으면 일반 사용자에게는 조용히 0행이 온다 —
+  // 그러면 관리자가 빠진 채 편집자가 붙고 아무도 그것을 모른다.
+  assert.ok(!/from\('admins'\)/.test(cloud.slice(cloud.indexOf('function attachPreviewCopy'))) ||
+    /supabase\.from\('admins'\)/.test(api), 'cloud.js가 관리자 표를 직접 읽는다');
+  assert.match(api, /const EDITOR_ACTIONS = new Set\(\['convert', 'grantEditors'\]\)/,
+    '프록시가 편집자 액션을 모른다');
+  assert.match(api, /body\.editors = await editorsFor\(supabase, body, user\);/,
+    '프록시가 편집자 명단을 채우지 않는다');
+  const ef = api.slice(api.indexOf('async function editorsFor('), api.indexOf('async function readJson('));
+  assert.ok(ef, 'editorsFor를 못 찾았다');
+  assert.match(ef, /supabase\.from\('admins'\)\.select\('email'\)/, '관리자·마스터를 명단에 안 넣는다');
+  assert.match(ef, /\[user\.email, \.\.\.asked/, '부르는 사람을 명단에 안 넣는다');
+  assert.match(ef, /EMAIL_RE\.test\(e\)/, '이메일 형식을 안 본다');
+  // 큐시트는 `editors`를 아예 안 보내므로 여기서 관리자가 얹히면 안 된다
+  assert.match(api, /EDITOR_ACTIONS\.has\(action\) && Array\.isArray\(body\.editors\)/,
+    'editors를 안 보낸 요청(큐시트)에도 명단을 채운다 — 그러면 큐시트 결정이 넓어진다');
 });
 
 check('upload은 변환을 기다리지 않는다 (v8부터)', () => {
@@ -641,10 +687,10 @@ check('승인 확인이 합친 계정을 따라간다(두 경로가 같은 헬�
   });
 
   // 편집 주소는 **따로 있는 함수**가 만든다(copyEditUrl) — 위 previewCopyUrl은 영영
-  // 보기다. 이 함수를 쓰는 곳은 주보 큐시트 하나이고 자격은 교역자·마스터다
-  // (사용자 결정 2026-09-09). 주소만 /edit이어도 실제 경계는 드라이브의 편집자 목록이다
-  // (Apps Script v10 CUE_EDITORS — 이름 있는 계정 둘. 'anyone writer'가 아니다).
-  check('큐시트 사본만 편집 주소를 받는다 (copyEditUrl)', () => {
+  // 보기다. 이 함수를 쓰는 곳은 둘이다: 주보 큐시트(교역자·마스터 — 2026-09-09)와
+  // 업무 첨부(올린 사람·관리자·마스터 — 2026-09-11). 주소만 /edit이어도 실제 경계는
+  // 드라이브의 편집자 목록이다(Apps Script v11 — 이름 있는 계정뿐. 'anyone writer'가 아니다).
+  check('자격자만 편집 주소를 받는다 (copyEditUrl)', () => {
     assert.strictEqual(copyEditUrl(copy('큐시트.docx')),
       'https://docs.google.com/document/d/COPY1/edit?rm=minimal');
     assert.strictEqual(copyEditUrl(copy('명단.xlsx')),
@@ -698,6 +744,32 @@ check('승인 확인이 합친 계정을 따라간다(두 경로가 같은 헬�
     assert.match(branch, /copyEditUrl\(cur, \{ email: myEmail \}\)/, 'iframe 주소에 계정을 안 싣는다');
   });
 
+  // 업무 첨부는 **누른 자리에서 편집자를 붙이고** 그 주소로 간다(2026-09-11 · §6-34-h).
+  // 순서가 뒤집히면 권한이 붙기 전에 열려서 구글이 읽기 화면을 준다 — 그게 "편집
+  // 권한을 줬는데 수정이 안 된다"였다. 그리고 **빈 탭을 먼저 열어야** 팝업 차단을 지난다.
+  check("첨부의 '구글 문서에서 편집'은 권한을 붙인 뒤 연다", () => {
+    const fn = preview.slice(preview.indexOf('const onEditClick = (e) => {'), preview.indexOf('const body = (() => {'));
+    assert.ok(fn, 'onEditClick을 못 찾았다');
+    const openAt = fn.indexOf("window.open('', '_blank')");
+    const grantAt = fn.indexOf('.then(onGrantEdit)');
+    const gotoAt = fn.indexOf('tab.location = editHref');
+    assert.ok(openAt > 0, '빈 탭을 제스처 안에서 먼저 열지 않는다(팝업 차단에 걸린다)');
+    assert.ok(grantAt > openAt, '편집자 붙이기(onGrantEdit)를 탭 연 뒤에 걸지 않는다');
+    assert.ok(gotoAt > grantAt, '권한이 붙기 전에 편집 주소로 간다 — 구글이 읽기 화면을 준다');
+    // noreferrer를 features에 주면 window.open이 null을 돌려준다(주소를 실을 창이 없다)
+    assert.ok(!/window\.open\('', '_blank', /.test(fn), "빈 탭에 features를 주면 창 참조를 잃는다");
+    // 실패하면 **닫는다** — 읽기 화면을 열어 주면 화면이 거짓말을 한다
+    assert.match(fn, /tab\?\.close\(\);/, '실패해도 빈 탭을 그대로 둔다');
+    assert.match(fn, /showToast\(failText\(/, '실패를 말해 주지 않는다');
+    // ⌘/Ctrl 누름은 브라우저에 맡긴다(앵커의 href가 그대로 남아 있어야 한다)
+    assert.match(fn, /e\.metaKey \|\| e\.ctrlKey/, '보조키 누름을 브라우저에 안 넘긴다');
+    // 자격은 올린 사람 + 관리자(마스터 포함 — 0028은 admins의 한 행이다)
+    assert.match(att, /canEditCopy=\{isAdmin \|\| preview\.uploaded_by === userId\}/,
+      '첨부 편집 자격이 올린 사람+관리자가 아니다');
+    assert.match(att, /onGrantEdit=\{\(\) => grantCopyEditors\(preview, \[\]\)\}/,
+      '첨부가 편집자 붙이기를 안 건다');
+  });
+
   check('무엇에 사본을 만들지가 앱과 스크립트에서 같다 (previewCopyOf)', () => {
     for (const n of ['a.xlsx', 'a.xlsm', 'a.xls', 'a.csv']) assert.strictEqual(previewCopyOf(n), 'spreadsheet', n);
     for (const n of ['a.docx', 'a.doc']) assert.strictEqual(previewCopyOf(n), 'document', n);
@@ -719,7 +791,9 @@ check('앱이 v7에 워드·PPT 변환을 보내지 않는다', () => {
   assert.ok(fn, 'attachPreviewCopy가 없다');
   assert.match(fn.slice(0, 400), /kind !== 'spreadsheet' && Number\(version \|\| 0\) < 8/,
     '스크립트 판을 안 보고 워드·PPT 변환을 보낸다');
-  assert.match(fn.slice(0, 900), /action: 'convert'[\s\S]{0,80}convertTo: kind/, 'convert 액션에 convertTo를 안 싣는다');
+  // 주석 길이에 흔들리지 않게 **호출 자리에서** 잰다(앞에서 900자를 세다가 주석 몇 줄에 깨졌다)
+  assert.match(fn.slice(fn.indexOf("action: 'convert'"), fn.indexOf("action: 'convert'") + 120),
+    /convertTo: kind/, 'convert 액션에 convertTo를 안 싣는다');
 });
 
 check('사본 만들기가 업로드 응답을 막지 않는다', () => {

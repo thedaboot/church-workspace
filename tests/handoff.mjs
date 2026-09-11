@@ -451,46 +451,43 @@ for (const [m, label] of [[DESK, '데스크톱'], [MOB, '모바일']]) {
 }
 
 
-// ── 링크는 '첨부 파일' 구역 안에 있다 (2026-09-10) ──────────────────────────
-// 업무 링크(0058)는 본문 아래 '참고 링크' 줄이 아니라 **첨부 구역 안, 파일 줄과 한
-// 목록**으로 선다(§6-35 · 사용자 결정 — "파일을 첨부할 때 링크로도"가 본뜻이었다).
-// 게스트에서는 파일을 올릴 곳이 없어 **링크만** 있는 구역이고 추가 버튼도 '+ 링크'
-// 하나다(클라우드에서는 '+ 파일'과 나란히 선다 — 같은 줄에 둘이다).
+// ── 업무 창에는 링크가 없다 (2026-09-11에 되돌렸다) ─────────────────────────
+// 2026-09-10에 0058의 링크를 첨부 구역 안 한 목록(`+ 파일`·`+ 링크`)으로 옮겼는데,
+// 사용자가 "링크 첨부 방식을 넣지 말고 기존처럼 돌리되"라고 판단해서 걷었다(§6-35).
+// 링크가 달려 있어도 업무 창에는 링크 줄도, '+ 링크'도, '참고 링크'라는 말도 없다.
+// 링크는 **프로젝트 헤더**에만 남는다(칩 · `+ 참고 링크` — 그쪽 검사는 위 헤더 절).
 {
   const firstId = Object.keys(st.tasks.byId)[0];
   st.tasks.byId[firstId].pinnedLinks = [
     { id: 'lk1', title: '수련회 예산표', url: 'https://docs.google.com/spreadsheets/d/abc123/edit#gid=0' },
   ];
   await load(DESK, `/?p=p1&t=${firstId}`);
-  // 구역은 **머리줄('첨부 파일')을 가진 상자**로 찾는다 — 링크 줄이 그 상자 안에
-  // 있는지가 이 검사의 요점이라, 모달 전체에서 글자만 찾으면 옛 자리도 통과한다.
+  // 모달 안에서만 본다 — 프로젝트 헤더의 칩은 창 뒤에 그대로 서 있어야 한다.
   const box = `(() => {
     const m = document.querySelector('.fixed.inset-0.z-50');
     if (!m) return { 창: false };
-    const sec = [...m.querySelectorAll('div')]
-      .find(d => d.firstElementChild && d.firstElementChild.textContent.trim() === '첨부 파일');
-    const btn = (t) => !!sec && [...sec.querySelectorAll('button')].some(b => b.textContent.trim() === t);
-    const a = sec ? [...sec.querySelectorAll('a')].find(x => x.textContent.trim() === '수련회 예산표') : null;
+    const btn = (t) => [...m.querySelectorAll('button')].some(b => b.textContent.trim() === t);
     return {
-      창: true, 구역: !!sec,
-      링크줄: !!a, 주소: a ? a.getAttribute('href') : null,
-      열기: btn('열기'), 추가링크: btn('+ 링크'), 추가파일: btn('+ 파일'),
+      창: true,
+      링크줄: [...m.querySelectorAll('a')].some(x => x.textContent.trim() === '수련회 예산표'),
+      추가링크: btn('+ 링크'), 추가참고링크: btn('+ 참고 링크'),
       참고링크문구: /참고 링크/.test(m.textContent),
       옛줄: !!document.querySelector('.task-links'),
+      헤더칩: [...document.querySelectorAll('a')].some(x => x.textContent.trim() === '기획안'),
     };
   })()`;
   const view = await ev(box);
-  check('업무 보기: 링크가 첨부 파일 구역 안에 선다', view.구역 === true && view.링크줄 === true, JSON.stringify(view));
-  check('업무 보기: 링크 줄에 열기 버튼', view.열기 === true, JSON.stringify(view));
-  check("업무 창에 '참고 링크' 별도 줄이 없다", view.참고링크문구 === false && view.옛줄 === false, JSON.stringify(view));
-  check('업무 보기: 링크를 붙이는 버튼은 수정에서만', view.추가링크 === false, JSON.stringify(view));
+  check('업무 보기: 링크 줄이 없다', view.창 === true && view.링크줄 === false, JSON.stringify(view));
+  check("업무 보기: '참고 링크'라는 말도 '+ 링크'도 없다",
+    view.참고링크문구 === false && view.추가링크 === false && view.추가참고링크 === false && view.옛줄 === false,
+    JSON.stringify(view));
   await ev(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='수정')?.click()`);
   await sleep(1100);
   const edit2 = await ev(box);
-  check("업무 수정: 첨부 구역 안에 '+ 링크'가 있다", edit2.구역 === true && edit2.추가링크 === true, JSON.stringify(edit2));
-  check('업무 수정: 링크 줄도 같은 구역에 그대로', edit2.링크줄 === true, JSON.stringify(edit2));
-  // 게스트는 올릴 곳이 없다 — 그래서 '+ 파일'이 없다. 이 갈래가 링크만 있는 구역이다.
-  check('게스트: 링크만 있는 구역이다', edit2.추가파일 === false, JSON.stringify(edit2));
+  check('업무 수정: 링크를 붙이는 버튼이 없다',
+    edit2.추가링크 === false && edit2.추가참고링크 === false && edit2.링크줄 === false, JSON.stringify(edit2));
+  // 되돌린 것은 **업무 창뿐이다** — 같은 링크가 프로젝트 헤더에는 그대로 서 있다
+  check('프로젝트 헤더의 참고 링크 칩은 그대로다', edit2.헤더칩 === true, JSON.stringify(edit2));
   delete st.tasks.byId[firstId].pinnedLinks;   // 뒤 검사들이 쓰는 상태로 되돌린다
 }
 

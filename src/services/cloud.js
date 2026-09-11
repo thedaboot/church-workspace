@@ -728,13 +728,20 @@ function attachPreviewCopy(row, { fileId, name, folderId, kind, version, cueEdit
   (async () => {
     try {
       // name·folderId를 같이 보내면 스크립트가 파일을 다시 묻지 않는다(왕복 한 번 절약).
-      // **큐시트만 사본에 편집자를 붙인다**(사용자 결정 2026-09-09 — "큐시트는 교역자와
-      // 마스터만 수정 가능하게"). 스크립트(v10 `CUE_EDITORS`)가 그 두 구글 계정을
-      // 편집자로 올리고, 나머지 사본은 그대로 '링크를 아는 사람은 보기'다(§7).
-      // v10 미만은 이 칸을 모르므로 그냥 무시한다 — 사본은 여전히 만들어지고 보기만 된다.
+      //
+      // **사본을 고칠 수 있는 사람은 계정 단위로 정해진다**(사용자 결정 2026-09-11 ·
+      // Apps Script v11). 두 갈래다:
+      //  · 큐시트 — 교역자·마스터 둘뿐이다(2026-09-09). 누구인지는 스크립트의
+      //    `CUE_EDITORS`가 안다 — 개인 지메일 주소를 앱 번들에 박지 않으려는 것이다.
+      //  · 그 밖의 첨부 — **올린 사람 + 관리자 + 마스터.** 여기서 적는 것은 올린 사람
+      //    하나이고, 관리자·마스터는 서버가 더한다(api/drive.js `editorsFor`):
+      //    `admins` 표는 관리자에게만 열려 있어서(0022) 여기서 읽으면 일반 사용자에게는
+      //    오류가 아니라 **0행**이 오고, 관리자가 빠진 줄 아무도 모른 채 지나간다.
+      // v11 미만은 이 칸들을 모르므로 그냥 무시한다 — 사본은 만들어지고 보기만 된다.
+      const mine = cueEditors ? null : (await getSession())?.user?.email || null;
       const out = await driveCall({
         action: 'convert', fileId, name, folderId, convertTo: kind,
-        ...(cueEditors ? { cueEditors: true } : {}),
+        ...(cueEditors ? { cueEditors: true } : { editors: mine ? [mine] : [] }),
       });
       if (!out?.previewId) return;
       await client().from('files').update({ preview_file_id: out.previewId }).eq('id', row.id);
@@ -747,6 +754,20 @@ function attachPreviewCopy(row, { fileId, name, folderId, kind, version, cueEdit
       console.warn('[drive] 미리보기 사본을 못 만들었어요(첨부는 그대로):', e.human || e.message || e);
     }
   })();
+}
+
+// **이미 만들어진 사본에 편집자를 뒤늦게 붙인다**(Apps Script v11 `grantEditors`).
+// 사본을 만들 때(위 attachPreviewCopy) 한 번 붙지만 그것으로 안 되는 두 경우가 있다:
+//  · v10까지 올린 **옛 첨부** — 편집자가 하나도 없다
+//  · 사본이 생긴 **뒤에 관리자가 된 사람** — 그 명단은 서버가 부를 때마다 다시 읽는다
+// 그래서 '구글 문서에서 편집'을 누를 때마다 부른다. 멱등이라 두 번 불러도 같다.
+// 명단은 여기서 정하지 않는다 — 보낸 이메일에 서버가 부르는 사람·관리자·마스터를
+// 더한다(api/drive.js `editorsFor`). **기다려야 한다** — 권한이 붙기 전에 편집 주소를
+// 열면 구글이 읽기 화면을 주고, 그게 "편집이 안 된다"의 정체다(§6-34-h).
+export async function grantCopyEditors(row, emails = []) {
+  const fileId = row?.preview_file_id;
+  if (!fileId) throw new Error('구글 사본이 아직 없어요');
+  return driveCall({ action: 'grantEditors', fileId, editors: emails.filter(Boolean) });
 }
 
 // ============================================================================

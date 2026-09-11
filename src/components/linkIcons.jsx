@@ -40,9 +40,7 @@ const HOSTS = [
 ];
 
 // 못 알아보는 주소는 아무 표시도 붙이지 않는다(모르는 것에 가짜 표시를 달지 않는다).
-// 알아보는 주소인지만 따로 묻는 자리도 있다 — 첨부 구역의 링크 줄은 종류 칩이 비면
-// 파일 줄과 왼쪽이 어긋나서, 모르는 주소에는 사슬 하나를 세운다(links.jsx LinkRow).
-export function linkService(url) {
+function serviceOf(url) {
   let host;
   try { host = new URL(url).hostname.toLowerCase(); } catch { return null; }
   for (const [suffix, name] of HOSTS) {
@@ -52,7 +50,7 @@ export function linkService(url) {
 }
 
 export function LinkIcon({ url, size = 11, className = 'shrink-0' }) {
-  const name = linkService(url);
+  const name = serviceOf(url);
   if (!name) return null;
   // 쿠팡만 lucide — 굵기는 §3의 1.4px 통일 규칙을 따른다
   if (name === 'coupang') return <ShoppingBag size={size + 1} strokeWidth={1.4} className={className} aria-hidden="true" />;

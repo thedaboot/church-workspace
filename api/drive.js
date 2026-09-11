@@ -24,7 +24,43 @@ import { isApprovedProfile } from '../src/services/approval.js';
 // 화면이 허락한 파일이 서버에서 거절된다. tests/drivesync.mjs가 둘을 맞춰 본다.
 const MAX_MB = 25;
 const MAX_BYTES = MAX_MB * 1024 * 1024;
-const ACTIONS = new Set(['upload', 'uploadFromUrl', 'ensureFolder', 'renameFolder', 'trash', 'list', 'convert']);
+const ACTIONS = new Set(['upload', 'uploadFromUrl', 'ensureFolder', 'renameFolder', 'trash', 'list', 'convert', 'grantEditors']);
+
+// 변환 사본에 편집자를 붙이는 두 액션(Apps Script v11). 명단은 **여기서 채운다** —
+// 이유는 아래 editorsFor.
+const EDITOR_ACTIONS = new Set(['convert', 'grantEditors']);
+// 형식만 본다. 구글 계정인지는 우리가 알 길이 없고, 드라이브가 모르는 주소는
+// 스크립트가 그 한 줄만 삼킨다(docs/APPS_SCRIPT.md addEditors).
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_EDITORS = 20;
+
+// 사본을 고칠 수 있는 계정 = **부르는 사람 + 관리자·마스터 전원**(사용자 결정 2026-09-11).
+// 업무 첨부는 올린 사람이 부르는 쪽이고, '구글 문서에서 편집'을 누른 사람도 마찬가지다.
+//
+// **왜 브라우저가 아니라 서버가 명단을 채우나**: `admins` 표는 관리자에게만 열려 있다
+// (0022 `admins_select`). 일반 사용자가 그대로 읽으면 오류가 아니라 **0행**이 오므로,
+// 클라이언트에서 만들면 관리자가 빠진 채 편집자가 붙고 아무도 그것을 모른다.
+// 여기는 보안 키로 읽는다. 덤으로 관리자 이메일 명단이 브라우저로 나가지 않는다.
+// **빈 배열이라도 보냈으면 채운다 — 안 보냈으면 손대지 않는다.** 큐시트는 `cueEditors`
+// 하나만 보내고 편집자는 스크립트의 `CUE_EDITORS` 둘뿐이라(사용자 결정 2026-09-09),
+// 여기서 관리자를 얹으면 그 결정이 조용히 넓어진다.
+// 왕복 하나가 붙지만 이 두 액션만이다 — 사진·PDF는 사본이 없어 `convert`를 안 부르고,
+// 업로드(`upload`)에서 관리자 표를 다시 묻던 것은 2026-09-08에 걷었다(§6-29 머리말).
+async function editorsFor(supabase, body, user) {
+  const asked = body.editors;
+  const { data: admins } = await supabase.from('admins').select('email');
+  const all = [user.email, ...asked, ...(admins || []).map(a => a.email)];
+  const seen = new Set();
+  const out = [];
+  for (const raw of all) {
+    const e = String(raw || '').trim().toLowerCase();
+    if (!e || seen.has(e) || !EMAIL_RE.test(e)) continue;
+    seen.add(e);
+    out.push(e);
+    if (out.length >= MAX_EDITORS) break;
+  }
+  return out;
+}
 
 // 스크립트가 이 시간 안에 답하지 않으면 **우리가 먼저 끊는다.**
 // 안 끊으면 함수가 죽을 때까지 매달리고, 그때 브라우저가 받는 것은 JSON이 아니라
@@ -94,6 +130,12 @@ export default async function handler(req, res) {
     // Script가 실행 시간 제한에 걸려 끝나는데, 그때는 원인을 알려줄 방법이 없다.
     if (!b64) { res.status(400).json({ error: '파일 내용이 없습니다.' }); return; }
     if (b64.length * 0.75 > MAX_BYTES) { res.status(413).json({ error: `${MAX_MB}MB를 넘는 파일은 올릴 수 없어요` }); return; }
+  }
+
+  // 편집자 명단은 **여기서** 만든다(위 editorsFor). 브라우저가 보낸 목록은 재료일 뿐이고,
+  // 실제로 나가는 것은 부르는 사람 + 관리자·마스터다.
+  if (EDITOR_ACTIONS.has(action) && Array.isArray(body.editors)) {
+    body.editors = await editorsFor(supabase, body, user);
   }
 
   // 무엇이 막혔는지 서버에도 남긴다. 첨부가 안 올라가는데 화면에도 로그에도

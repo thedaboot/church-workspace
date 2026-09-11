@@ -2107,18 +2107,28 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '주인은 정확히 하나다(0047 files_owner_exactly_one과 같은 모양)');
   assert.ok(/idx_resource_links_card_id/.test(m58), '카드 축에 인덱스가 있다');
 
-  // 자리 옮김(2026-09-10 · §6-35) — 업무 창의 링크는 **첨부 구역 안**, 파일 줄과 한
-  // 목록이고 추가 버튼은 '+ 파일'·'+ 링크' 둘이 나란히다. 브라우저 검사(tests/handoff)는
-  // 게스트라 파일을 올릴 곳이 없어 **'+ 파일' 갈래를 볼 수 없다** — 그 쪽은 여기서 본다.
-  const att = src('../src/modals/attachments.jsx');
-  const addRow = att.slice(att.indexOf('{(canAddFile || canAddLink) && ('), att.indexOf('{!readOnly && rejected.length > 0'));
-  assert.ok(addRow.length > 200, '추가 버튼 줄을 찾았다');
-  assert.ok(/flex flex-wrap items-center/.test(addRow), '추가 버튼 둘이 한 줄에 선다');
-  assert.ok(/\+ 파일/.test(addRow) && /label="\+ 링크"/.test(addRow),
-    "그 줄이 '+ 파일'과 '+ 링크'다(라벨만 갈아 끼운 같은 부품)");
-  const list = att.slice(att.indexOf('{(items.length > 0 || pending.length > 0 || links.length > 0) && ('), att.indexOf('{preview && ('));
-  assert.ok(/<AttachmentRow/.test(list) && /<LinkRow/.test(list),
-    '파일 줄과 링크 줄이 한 목록에 있다(구분선도 한 벌)');
+  // **업무 창에는 링크가 없다**(2026-09-11에 되돌렸다 · §6-35). 2026-09-10에 첨부 구역
+  // 안 한 목록('+ 파일'·'+ 링크')으로 옮겼던 것을 사용자가 판단해서 걷었다 —
+  // "링크 첨부 방식을 넣지 말고 기존처럼 돌리되". 브라우저 검사(tests/handoff)가 화면을
+  // 보고, 여기서는 **부품이 다시 살아나지 않는지**를 글자로 본다.
+  // **주석은 걷고 본다** — 이 절이 무엇을 되돌렸는지 적어 둔 주석에 그 글자가 그대로
+  // 들어 있다(§6-34-e가 SQL에서 가르쳐 준 것과 같다).
+  const noComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const att = noComments(src('../src/modals/attachments.jsx'));
+  const modals = noComments(src('../src/modals/modals.jsx'));
+  const links = src('../src/components/links.jsx');
+  assert.ok(!/LinkRow|LinkAddPopover|onLinkAdd/.test(att),
+    '첨부 구역에 링크 부품이 다시 들어왔다');
+  assert.ok(!/\+ 링크|참고 링크/.test(att + modals), "업무 창에 '+ 링크'·'참고 링크'가 있다");
+  assert.ok(!/export function LinkRow/.test(links), '첨부 구역용 링크 줄(LinkRow)이 남아 있다');
+  // 첨부 구역은 예전 모양 그대로다 — 점선 상자 안에 끌어다 놓기·붙여넣기 안내 두 줄
+  const dropBox = att.slice(att.indexOf('border-2 border-dashed'), att.indexOf('{!readOnly && rejected.length > 0'));
+  assert.ok(/파일을 끌어다 놓거나 클릭해서 선택하세요/.test(dropBox)
+    && /이미지는 붙여넣기\(Ctrl\/⌘\+V\)도 돼요/.test(dropBox), '첨부 구역의 점선 상자가 예전 모양이 아니다');
+  // 프로젝트 헤더는 그대로다(§8 — 거기 버튼은 '+ 참고 링크')
+  assert.ok(/export function PinnedLinkChip/.test(links) && /export function LinkAddPopover/.test(links),
+    '프로젝트 헤더가 쓰는 부품까지 지웠다');
+  assert.ok(/\+ 참고 링크<\/button>/.test(links), "헤더 버튼 글자가 '+ 참고 링크'가 아니다");
 
   const m59 = src('../supabase/migrations/0059_merge_profiles.sql');
   assert.ok(/security definer/.test(m59) && /is_master\(\)/.test(m59),
@@ -2268,6 +2278,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '업무 삭제 자격이 세션 uid만 본다');
 
   console.log('PASS  링크 카드 축·자리 · 계정 합치기 38가지 · 0063 나머지 자리 40가지');
+  console.log('PASS  링크 카드 축 · 업무 창에는 링크 없음 · 계정 합치기 40가지');
 }
 
 // ── 노트 도막 (이름·고정·옛 이름 옮기기) ───────────────────────────────────

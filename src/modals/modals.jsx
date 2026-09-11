@@ -17,10 +17,6 @@ import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { isMyUid } from '../services/supabaseClient.js';
 import { getMemberNames, loadCardDetail, cardSummaryCloud, cardWritePromise } from '../services/cloudSync.js';
-import * as cloudSync from '../services/cloudSync.js';
-import { docEmbedKind } from '../components/DocEmbed.jsx';
-import { makeViewPw } from '../services/viewPw.js';
-import { failText } from '../services/errorText.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { showToast } from '../components/Toast.jsx';
@@ -129,37 +125,11 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   // 카드를 참조) 저장 직후에 올린다. 쓰는 사람에게는 "처음부터 첨부"와 같다.
   const [pendingFiles, setPendingFiles] = useState([]);
 
-  // ── 링크 (0058 — 첨부 파일 구역 안의 링크 줄) ─────────────────────────────
-  // 자리는 2026-09-10에 첨부 구역 안으로 옮겼지만(§6-35) 저장하는 길은 그대로다.
-  // **카드 전체를 저장하지 않는다.** 링크는 `resource_links` 행이라 카드 저장 경로와
-  // 별개이고, 카드를 통째로 보내면 같은 순간 남이 고친 칸까지 덮는다(§6-28-a).
-  // 스토어에는 SYNC_TASK로 그 카드의 pinnedLinks만 갈아 끼운다.
-  // 새 업무(id 없음)에는 붙일 수 없다 — 행이 카드를 참조하므로 첨부와 같은 사정이다.
-  const linkOps = useMemo(() => {
-    const patch = (next) => store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, pinnedLinks: next } });
-    const now = () => store.getState().tasks.byId[task.id]?.pinnedLinks || [];
-    const fail = (what) => (err) => { console.error(`[cloud] ${what}:`, err); showToast(failText(what, err)); };
-    return {
-      add: (link) => {
-        patch([...now(), link]);
-        // 문구도 화면을 따라간다 — 업무 창에는 이제 '참고 링크'라는 말이 없다
-        if (cloudMode) cloudSync.linkAddCloud({ cardId: task.id }, link).catch(fail('링크를 추가하지 못했어요'));
-      },
-      remove: (link) => {
-        patch(now().filter(l => l.id !== link.id));
-        if (cloudMode) cloudSync.linkRemoveCloud(link.id).catch(fail('링크를 지우지 못했어요'));
-      },
-      // 잠금은 **낙관적으로 먼저 바꾸지 않는다** — 걸렸는지가 곧 화면의 사실이라,
-      // 저장이 실패했는데 자물쇠만 붙어 있으면 화면이 거짓말을 한다(프로젝트 쪽과 같은 순서).
-      setPw: async (link, pw) => {
-        const res = cloudMode ? await cloudSync.linkSetPasswordCloud(link.id, pw) : await makeViewPw(pw);
-        patch(now().map(l => (l.id === link.id
-          ? { ...l, view_pw: res?.view_pw ?? null, view_pw_salt: res?.view_pw_salt ?? null }
-          : l)));
-      },
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task.id, cloudMode]);
+  // ── 업무 창에는 링크가 없다 (2026-09-11에 되돌렸다 · §6-35) ────────────────
+  // 2026-09-10에 0058의 링크를 첨부 구역 안 한 목록(`+ 파일`·`+ 링크`)으로 옮겼는데,
+  // 사용자가 "링크 첨부 방식을 넣지 말고 기존처럼 돌리되"라고 판단해서 걷었다.
+  // 링크는 **프로젝트 헤더**에만 남는다(views.jsx · `+ 참고 링크`) — 표(`resource_links`)와
+  // `cloudSync.link*Cloud`는 그 헤더가 그대로 쓰므로 건드리지 않았다.
   // 새 업무의 첨부도 **업무 창에서 붙일 때와 같은 길**로 올린다(attachments.startUploads).
   // 예전에는 여기 두 번째 구현이 있었는데 사진을 줄이지 않았고(29-m), 업무 폴더를 미리
   // 확보하지 않았고(29-h), 하나씩 순차로 올렸고, "올리는 중"도 이름만 있는 다른 표시라
@@ -256,12 +226,10 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   );
   const detailBody = isEditMode
     ? <TaskEditor formData={formData} setFormData={setFormData} members={members} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
-        links={linkOps}
         pendingFiles={pendingFiles} setPendingFiles={setPendingFiles} titleRef={titleRef} />
     // key로 카드마다 새로 마운트한다 — 요약 state(펼침·이번에 만든 요약)가 카드
     // 사이에 남으면, 다른 카드를 열었을 때 앞 카드의 요약이 그대로 보인다
     : <TaskViewer key={formData.id} formData={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
-        links={linkOps}
         // 체크 하나에 카드 전체를 저장한다 — 하위 업무만 따로 쓰는 경로를 만들 만큼
         // 잦은 조작이 아니고, 저장 경로가 둘이면 활동 기록·실시간이 갈라진다
         onSubtasksChange={(next) => onSave({ ...formData, subtasks: next })}
@@ -624,19 +592,7 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
   );
 }
 
-// 첨부 구역에 넘기는 링크 한 벌(0058) — **보기와 수정이 같은 것을 넘긴다.** 두 자리에
-// 따로 적어 두면 잠금 자격 같은 규칙이 한쪽만 고쳐진다.
-// 비밀번호를 걸 수 있는 자리는 **앱 안에서 여는 링크**에만, 만든 사람과 관리자에게만 —
-// 새 탭으로 나가는 링크에 걸면 아무것도 막지 못한다(components/links.jsx 주석).
-const linkProps = (formData, links, { isAdmin, userId }) => ({
-  links: formData.pinnedLinks || [],
-  onLinkAdd: links?.add,
-  onLinkRemove: links?.remove,
-  onLinkSetPw: links?.setPw,
-  canLockLink: (l) => !!docEmbedKind(l.url) && (isAdmin || isMyUid(l.created_by, userId)),
-});
-
-const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity, links, pendingFiles = [], setPendingFiles, titleRef }) => {
+const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity, pendingFiles = [], setPendingFiles, titleRef }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
   // 다듬기 직전 본문. 있으면 '되돌리기'가 보인다. 창을 닫으면 잊는다 —
   // "방금 다듬었는데 마음에 안 든다"가 실제 상황이고, 그 이상은 편집 이력 관리다.
@@ -740,19 +696,16 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
         onChange={(next) => setFormData(prev => ({ ...prev, subtasks: next }))}
       />
 
-      {/* 첨부 파일 — 파일 줄과 링크 줄이 **한 목록**이다(§6-35 · attachments.jsx).
-          게스트(cloudMode 거짓)에서는 파일을 올릴 곳이 없어 링크만 있는 구역으로 선다. */}
-      {cloudMode && !formData.id
-        // 새 업무도 처음부터 첨부를 고를 수 있다 — 실제 업로드는 저장 직후(카드 id가 생긴 뒤).
-        // 링크는 그 길을 만들지 않았다(이유는 attachments.jsx canAddLink 주석).
-        ? <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />
-        : <AttachmentSection task={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
-            {...linkProps(formData, links, { isAdmin, userId })} />}
+      {cloudMode && (formData.id
+        ? <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} />
+        // 새 업무도 처음부터 첨부를 고를 수 있다 — 실제 업로드는 저장 직후(카드 id가 생긴 뒤)
+        : <PendingAttachments files={pendingFiles} onChange={setPendingFiles} />
+      )}
     </form>
   );
 });
 
-const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange, onTodoToggle, links }) => {
+const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange, onTodoToggle }) => {
   const [summary, setSummary] = useState('');      // 이번에 AI가 만든 것(고정 전)
   const [revealed, setRevealed] = useState(false); // 고정된 요약을 펼쳤는지
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -930,12 +883,8 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
           나오게 하면 아무도 쓰지 않는다. 항목 추가·삭제는 수정 모드에서만. */}
       <SubtaskList value={formData.subtasks || []} onChange={onSubtasksChange} readOnly />
 
-      {/* 첨부 파일 — 파일 줄과 링크 줄이 **한 목록**이다(0058 · §6-35). 구글 문서·시트·
-          슬라이드 링크는 앱 안 창에서 열리고 편집 권한이 있으면 그 자리에서 고쳐진다.
-          붙이고 지우는 것은 수정 모드에서(파일과 같은 규칙). */}
-      {formData.id && (
-        <AttachmentSection task={formData} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} readOnly
-          {...linkProps(formData, links, { isAdmin, userId })} />
+      {cloudMode && formData.id && (
+        <AttachmentSection task={formData} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} readOnly />
       )}
     </div>
   );

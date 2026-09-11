@@ -79,11 +79,15 @@ const imgSrcOf = (r) => (r?.source === 'local'
 //       호출부가 걸러서 넘긴다(여기서 또 검사하면 비밀번호 로직이 두 벌이 된다).
 // initialSrc: 호출부가 이미 가진 URL. 이미지는 목록 썸네일이 같은 서명 URL이라
 //             그대로 넘기면 스켈레톤 없이 곧바로 뜬다(서명 재발급도 건너뜀).
-// `canEditCopy` — 구글 사본을 **고칠 수 있는 사람에게만** 편집 화면을 준다. 지금 켜는
-// 자리는 주보 큐시트 하나이고 자격은 교역자·마스터다(사용자 결정 2026-09-09 ·
-// worshipPerms.canEditCue). 업무 첨부는 언제나 거짓이다 — 첨부에 편집 권한을 주는 것은
-// 사용자가 판단해서 뺀 길이다(§7). 실제 경계는 드라이브의 편집자 목록이다(§6-32-g).
-export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose, canEditCopy = false }) {
+// `canEditCopy` — 구글 사본을 **고칠 수 있는 사람에게만** 편집 화면을 준다. 켜는 자리는
+// 둘이다: 주보 큐시트(교역자·마스터 — 사용자 결정 2026-09-09 · worshipPerms.canEditCue)와
+// **업무 첨부**(올린 사람·관리자·마스터 — 사용자 결정 2026-09-11 · modals/attachments.jsx).
+// 화면의 이 값은 버튼을 보일지만 정하고, **실제 경계는 드라이브의 편집자 목록**이다.
+//
+// `onGrantEdit` — 누른 그 자리에서 편집자를 붙여야 하는 갈래(업무 첨부)만 넘긴다.
+// 큐시트 사본은 만들 때 이미 두 계정이 붙어 있어(Apps Script `CUE_EDITORS`) 넘기지 않고,
+// 그래서 이 앵커의 기본 동작(새 탭)으로 바로 간다 — 스크립트 판이 낮아도 그 길은 산다.
+export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose, canEditCopy = false, onGrantEdit = null }) {
   const isMobile = useIsMobile();
   // 구글 문서 주소의 `authuser=`에 실을 내 로그인 이메일(§6-34-h). 게스트는 빈 문자열.
   const myEmail = useMyEmail();
@@ -293,6 +297,32 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   // `rm=minimal`을 빼는 이유: 새 탭은 폭이 넉넉하니 온전한 편집기가 맞다.
   // 자격이 없으면 null이라 버튼 자체가 없다.
   const editHref = canEditCopy ? copyEditUrl(cur, { email: myEmail, minimal: false }) : null;
+
+  // 업무 첨부는 **누른 자리에서 편집자를 붙이고** 그 주소로 간다(§6-34-h · Apps Script
+  // v11 `grantEditors`). 순서가 중요하다 — 권한이 붙기 전에 열면 구글이 읽기 화면을 주고,
+  // 그게 "편집 권한을 줬는데 수정이 안 된다"의 정체다.
+  // **빈 탭을 먼저 연다.** 팝업 차단기는 사용자 제스처 **안에서** 열린 창만 허락하므로,
+  // 권한을 기다린 뒤에 window.open을 부르면 대개 막힌다. `noreferrer`는 여기 못 쓴다 —
+  // 그걸 주면 window.open이 null을 돌려줘서 주소를 실을 창이 없다(대신 opener를 끊는다).
+  // 실패하면 **빈 탭을 닫고** 토스트 하나다 — 읽기 화면을 열어 주면 화면이 거짓말을 한다.
+  const [granting, setGranting] = useState(false);
+  const onEditClick = (e) => {
+    if (!onGrantEdit) return;                       // 큐시트 — 앵커 기본 동작(새 탭) 그대로
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;  // 브라우저에 맡긴다
+    e.preventDefault();
+    const tab = window.open('', '_blank');
+    if (tab) tab.opener = null;
+    setGranting(true);
+    Promise.resolve()
+      .then(onGrantEdit)
+      .then(() => { if (tab) tab.location = editHref; else window.open(editHref, '_blank', 'noreferrer'); })
+      .catch((err) => {
+        tab?.close();
+        console.error('[drive] 편집 권한 부여 실패:', err);
+        showToast(failText('편집 권한을 주지 못했어요', err));
+      })
+      .finally(() => setGranting(false));
+  };
 
   const body = (() => {
     if (error) return <Fallback row={cur} message={error} onOpen={openExternal} />;
@@ -510,11 +540,15 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
           </div>
           {/* 편집 진입은 연한 accent다(§8의 색 규칙). 새 탭이라 <a>여야 한다 —
               폰에서는 이 길만 편집이 된다(위 editHref 주석). rel에 noreferrer까지
-              두는 이유는 구글에 우리 주소를 넘길 이유가 없어서다. */}
+              두는 이유는 구글에 우리 주소를 넘길 이유가 없어서다.
+              업무 첨부는 누를 때 편집자를 먼저 붙인다(onEditClick) — ⌘/Ctrl 누름은
+              그대로 브라우저에 넘기므로 href가 앵커에 남아 있어야 한다. */}
           {editHref && (
-            <a href={editHref} target="_blank" rel="noreferrer"
-              className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold whitespace-nowrap transition active:scale-95">
-              <SquarePen size={13} strokeWidth={1.8} /> 구글 문서에서 편집
+            <a href={editHref} target="_blank" rel="noreferrer" onClick={onEditClick}
+              className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold whitespace-nowrap transition active:scale-95 ${granting ? 'opacity-60 pointer-events-none' : ''}`}>
+              {granting
+                ? <Loader2 size={13} strokeWidth={1.8} className="animate-spin" />
+                : <SquarePen size={13} strokeWidth={1.8} />} 구글 문서에서 편집
             </a>
           )}
           {!isMobile && (

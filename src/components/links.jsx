@@ -1,35 +1,29 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link2, Lock, LockOpen, Trash2, X } from 'lucide-react';
+import { Lock, LockOpen, X } from 'lucide-react';
 import { generateId } from '../utils.js';
-import { ConfirmPopover, useAnchoredPos } from './ConfirmPopover.jsx';
-import { LinkIcon, linkService } from './linkIcons.jsx';
+import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { LinkIcon } from './linkIcons.jsx';
 import { docEmbedKind, DocEmbedModal, DocKindIcon, PwPrompt } from './DocEmbed.jsx';
 import { isLocked, verifyViewPw } from '../services/viewPw.js';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 
 // ============================================================================
-// 링크 부품 — 프로젝트 헤더와 **업무 창 첨부 구역**이 같이 쓴다 (2026-09-09)
+// 참고 링크 부품 — **프로젝트 헤더 하나가 쓴다** (views.jsx)
 // ----------------------------------------------------------------------------
-// 예전에는 이 부품이 views.jsx 안에 있었고 링크를 다는 자리도 프로젝트 헤더뿐이었다.
-// 0058이 `resource_links.card_id`를 열어 업무에도 링크를 달 수 있게 되면서(사용자 요청
-// 2026-09-09 — "업무에 엑셀 링크 추가해두면 미리보기·수정까지") 두 화면이 같은 부품을
-// 봐야 해서 여기로 옮겼다.
-//
-// 2026-09-10에 업무 창의 자리가 바뀌었다: 본문 아래 '참고 링크' 줄이 아니라 **첨부 파일
-// 구역 안**에 파일과 한 목록으로 선다(§6-35 · 사용자 결정 — "파일을 첨부할 때 링크로도
-// 첨부해서 그 시트는 편집까지"가 본뜻이었다). 프로젝트 헤더는 그대로 칩(`PinnedLinkChip`),
-// 업무 창은 파일 줄과 같은 모양의 줄(`LinkRow`)이다.
+// 예전에는 이 부품이 views.jsx 안에 있었고, 0058이 `resource_links.card_id`를 열면서
+// 업무 창도 같은 부품을 보게 되어 여기로 나왔다. 2026-09-10에는 업무 창의 링크를
+// 첨부 구역 안 한 줄(`LinkRow`)로 옮겨 봤는데, **2026-09-11에 사용자가 되돌렸다** —
+// 업무 창에는 링크가 없다(§6-35). 그래서 지금 남은 것은 헤더의 칩 한 벌이다.
+// 파일은 여기 그대로 둔다: 부품이 views.jsx로 돌아가면 그 파일이 다시 불어난다.
 //
 // **한 벌로 두는 것이 요점이다.** 화면 가림 비밀번호 규칙은 이미 두 벌이고(§6-31-f)
 // 여기서 또 갈라지면 세 벌이 된다 — 링크를 여는 판정(docEmbedKind), 잠금 판정(isLocked),
 // 묻는 팝오버(PwPrompt), 비밀번호 설정 칸이 전부 이 파일 하나에 있다.
 // ============================================================================
 
-const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
-
-// ── 열기·잠금 상태 기계 (칩과 줄이 같이 쓴다) ───────────────────────────────
+// ── 열기·잠금 상태 기계 ─────────────────────────────────────────────────────
 // 구글 문서·시트·슬라이드는 새 탭이 아니라 **앱 안 창**에서 연다(DocEmbed.jsx) —
 // 편집 권한이 열려 있는 링크면 그 자리에서 고쳐진다(사용자 요구 2026-09-07).
 // 그 밖의 주소는 예전 그대로 새 탭이다. ⌘/Ctrl 누름은 어느 쪽이든 브라우저에 넘긴다.
@@ -40,8 +34,7 @@ const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, '
 // 한 번 맞춘 링크는 이 화면이 살아 있는 동안 다시 묻지 않는다(첨부 목록의 `unlocked`와 같다).
 //
 // `beforePaneRef`는 팝오버를 **열기 직전에** 부를 것(칩의 위치 잡기)이다 — 훅이 부를 때
-// 최신 함수여야 해서 값이 아니라 ref로 받는다. 줄(LinkRow)의 칸은 흐름에 붙으므로
-// 넘기지 않는다.
+// 최신 함수여야 해서 값이 아니라 ref로 받는다.
 function useLinkAccess(link, onSetPw, beforePaneRef = null) {
   const kind = docEmbedKind(link.url);
   const [unlocked, setUnlocked] = useState(false);
@@ -61,12 +54,6 @@ function useLinkAccess(link, onSetPw, beforePaneRef = null) {
     if (locked) { showPane('ask'); return; }
     setOpen(true);
   };
-  // 버튼('열기')으로 열 때 — 앵커가 아니라 기본 동작이 없으니 새 탭도 우리가 연다
-  const openNow = () => {
-    if (!kind) { window.open(link.url, '_blank', 'noreferrer'); return; }
-    if (locked) { showPane('ask'); return; }
-    setOpen(true);
-  };
   const savePw = async (next) => {
     setBusy(true);
     try { await onSetPw?.(next); setPane(null); }
@@ -78,7 +65,7 @@ function useLinkAccess(link, onSetPw, beforePaneRef = null) {
     if (ok) { setUnlocked(true); setPane(null); setOpen(true); }
     return ok;
   };
-  return { kind, locked, pane, setPane, showPane, togglePane, open, setOpen, busy, onLinkClick, openNow, savePw, tryPw };
+  return { kind, locked, pane, setPane, showPane, togglePane, open, setOpen, busy, onLinkClick, savePw, tryPw };
 }
 
 // 비밀번호를 걸거나 푸는 칸 — 첨부의 PasswordSetter와 같은 문구·같은 배치다
@@ -171,77 +158,12 @@ export function PinnedLinkChip({ link, canLock, onRemove, onSetPw }) {
   );
 }
 
-// ── 첨부 구역의 링크 한 줄 (2026-09-10) ─────────────────────────────────────
-// **파일 줄과 같은 목록에 선다**(modals/attachments.jsx AttachmentRow) — 같은 높이,
-// 같은 순서(종류 칩 · 이름 · 오른쪽에 조작), 같은 확인 팝오버로 지운다. 종류 칩 색도
-// 파일 줄의 것과 맞췄다(fileRow.jsx `fileKind`) — 한 목록에서 같은 종류가 다른 색이면
-// 시트 링크와 시트 파일이 남처럼 보인다. 아는 서비스면 그 표시, 모르는 주소는 사슬
-// 하나다(칩이 비면 줄의 왼쪽이 파일 줄과 어긋난다 — 파일은 언제나 종류 칩이 있다).
-// 비밀번호 칸은 칩과 달리 **줄 아래 흐름에** 붙는다(첨부 PasswordSetter와 같은 자리).
-const LINK_CHIP = {
-  doc: 'bg-tag-blue text-tag-blue-fg',
-  sheet: 'bg-tag-green text-tag-green-fg',
-  slide: 'bg-tag-orange text-tag-orange-fg',
-};
-export function LinkRow({ link, canLock = false, canRemove = false, onRemove, onSetPw }) {
-  const acc = useLinkAccess(link, onSetPw);
-  const host = hostOf(link.url);
-  const name = link.title || host || link.url;
-  const { kind, locked, pane } = acc;
-  return (
-    <div>
-      <div className="flex items-center gap-2.5 py-2 animate-in fade-in duration-200">
-        <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${LINK_CHIP[kind] || 'bg-tag-gray text-tag-gray-fg'}`}>
-          {kind
-            ? <DocKindIcon kind={kind} size={16} />
-            : (linkService(link.url) ? <LinkIcon url={link.url} size={15} /> : <Link2 size={15} strokeWidth={1.75} />)}
-        </span>
-        <div className="flex-1 min-w-0">
-          {/* 이름을 눌러도 열린다 — 앵커라 주소가 보이고 ⌘/Ctrl 누름이 새 탭으로 간다 */}
-          <a href={link.url} target="_blank" rel="noreferrer" onClick={acc.onLinkClick}
-            className="block text-xs text-fg truncate hover:underline">{name}</a>
-          {!!link.title && !!host && <p className="text-[10px] mt-0.5 text-fg-faint truncate">{host}</p>}
-        </div>
-        {isLocked(link) && <Lock size={12} className="shrink-0 text-fg-faint" aria-label="비밀번호가 걸린 링크" />}
-        {canLock && (
-          <button type="button" onClick={() => acc.togglePane('set')}
-            className="shrink-0 p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95"
-            title="비밀번호 설정">
-            {isLocked(link) ? <Lock size={14} /> : <LockOpen size={14} />}
-          </button>
-        )}
-        {/* 파일 줄의 미리보기(눈) 자리다. 글자 버튼 — hover 뒤로 숨기지 않는다(§8) */}
-        <button type="button" onClick={acc.openNow}
-          className="shrink-0 px-1.5 py-1 rounded-md text-[11px] font-semibold text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95"
-          title={locked ? '비밀번호를 넣어야 열려요' : '열기'}>열기</button>
-        {canRemove && (
-          <ConfirmPopover message={`'${name}'을(를) 삭제할까요?`} onConfirm={onRemove}>
-            <button type="button" className="p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95" title="삭제"><Trash2 size={14} /></button>
-          </ConfirmPopover>
-        )}
-      </div>
-      {pane === 'ask' && (
-        <div className="pb-2">
-          <PwPrompt className="flex-wrap" onCancel={() => acc.setPane(null)} onOk={acc.tryPw} />
-        </div>
-      )}
-      {pane === 'set' && (
-        <div className="pb-2">
-          <LinkPwFields link={link} busy={acc.busy} onSave={acc.savePw} />
-        </div>
-      )}
-      {acc.open && <DocEmbedModal url={link.url} title={name} onClose={() => acc.setOpen(false)} />}
-    </div>
-  );
-}
-
 // ── 링크 하나 추가하는 점선 버튼 + 팝오버 ────────────────────────────────────
 // **프로젝트 헤더의 그 DOM 그대로다** — 그 줄은 폭·잘림·순서를 재는 검사가 여럿 붙어
 // 있어서(§6-9 링크 줄) 옮기면서 마크업을 바꾸지 않았다. 열기 전에 위치를 먼저 잡는
 // 이유도 그대로다: 안 그러면 첫 프레임이 {0,0}에 그려진다.
-// 업무 창은 **라벨만** '+ 링크'로 바꿔 쓴다 — 첨부 구역의 '+ 파일' 옆에 서므로 거기서는
-// '참고'라는 말이 필요 없다(§6-35).
-export function LinkAddPopover({ onAdd, label = '+ 참고 링크' }) {
+// 라벨은 '+ 참고 링크' 하나다 — 업무 창의 '+ 링크'는 2026-09-11에 되돌렸다(§6-35 · §8).
+export function LinkAddPopover({ onAdd }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState({ title: '', url: '' });
   const rootRef = useRef(null);
@@ -277,7 +199,7 @@ export function LinkAddPopover({ onAdd, label = '+ 참고 링크' }) {
       <span ref={btnRef} className="inline-flex">
         <button type="button" onClick={() => { place(); setOpen(v => !v); }}
           className="text-[11px] text-fg-faint px-1.5 py-px rounded-[4px] transition-colors hover:text-fg-muted"
-          style={{ border: '1px dashed var(--app-line)' }}>{label}</button>
+          style={{ border: '1px dashed var(--app-line)' }}>+ 참고 링크</button>
       </span>
       {open && createPortal(
         <div ref={bodyRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: 256 }}
