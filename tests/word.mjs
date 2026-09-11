@@ -103,38 +103,37 @@ check('본문표 파서·저장 함수가 남아 있지 않다',
 // 예배 노트·QT 묵상은 빈 칸이 아니라 도막 제목으로 시작한다(사용자 요청 2026-09-08 —
 // "기존 순 노트 템플릿 가져와서 최대한 우리 디자인 시스템에 맞춰 재구성하기").
 // 도막 이름은 2026-09-10에 사용자가 다시 정했다 — '나의 묵상'을 빼고 '결단'을
-// '나의 결단'으로(예배 노트 넷 · QT 셋).
+// '나의 결단'으로. 그리고 2026-09-12에 **'본문'도 뺐다**(예배 노트 셋 · QT 둘) —
+// 종이 머리(paper.jsx PaperNoteHead)에 구절이 이미 서기 때문이다.
 // **되돌리기**: isTemplateOnly가 늘 false를 돌려주게 만들면 아래 둘이 깨진다 — 그러면
 // 아무도 쓰지 않은 제목 줄이 노트로 저장되고 나눔 피드·잔디에까지 오른다.
 const tplMod = await import(new URL('src/services/noteTemplate.js', ROOT).href);
-const wTpl = tplMod.worshipNoteTemplate({ passageRef: '요한복음 3:16' });
-const qTpl = tplMod.qtNoteTemplate({ passageRef: '' });
-check('예배 노트 템플릿은 네 도막이다',
-  JSON.stringify(wTpl.match(/^### .*/gm) || []) === JSON.stringify(['### 본문', '### 말씀 요약', '### 나의 결단', '### 기도']),
+const wTpl = tplMod.worshipNoteTemplate();
+const qTpl = tplMod.qtNoteTemplate();
+check('예배 노트 템플릿은 세 도막이다',
+  JSON.stringify(wTpl.match(/^### .*/gm) || []) === JSON.stringify(['### 말씀 요약', '### 나의 결단', '### 기도']),
   JSON.stringify(wTpl));
-check('본문 아래에 그 예배의 구절이 미리 들어간다',
-  wTpl.split('\n')[0] === '### 본문' && wTpl.split('\n')[1] === '요한복음 3:16',
-  JSON.stringify(wTpl.split('\n').slice(0, 2)));
 // QT는 혼자 본문을 읽는 자리라 '말씀 요약'이 없다(설교 요약과 묵상이 같은 글이 된다)
-check('QT 템플릿은 세 도막(말씀 요약이 없다)',
-  JSON.stringify(qTpl.match(/^### .*/gm) || []) === JSON.stringify(['### 본문', '### 나의 결단', '### 기도']),
+check('QT 템플릿은 두 도막(말씀 요약이 없다)',
+  JSON.stringify(qTpl.match(/^### .*/gm) || []) === JSON.stringify(['### 나의 결단', '### 기도']),
   JSON.stringify(qTpl.match(/^### .*/gm) || []));
 // '나의 묵상'은 2026-09-10에 뺐다 — 요약과 묵상이 같은 글이 되는 자리였다
 check("새 템플릿에 '나의 묵상'이 없다",
   !wTpl.includes('나의 묵상') && !qTpl.includes('나의 묵상'), JSON.stringify([wTpl, qTpl]));
+// '본문'은 2026-09-12에 뺐다 — 구절은 종이 머리(PaperNoteHead)에 한 번만 선다(사용자 결정)
+check("새 템플릿에 '본문' 도막이 없다",
+  !wTpl.includes('### 본문') && !qTpl.includes('### 본문'), JSON.stringify([wTpl, qTpl]));
 check('제목마다 그 아래 빈 줄이 하나 있다(커서가 제목 밑에 떨어진다)',
-  qTpl.split('\n').length === 6 && qTpl.split('\n')[1] === '', JSON.stringify(qTpl.split('\n')));
+  qTpl.split('\n').length === 4 && qTpl.split('\n')[1] === '', JSON.stringify(qTpl.split('\n')));
 check('손대지 않은 템플릿은 빈 노트다',
-  tplMod.isTemplateOnly(wTpl, '요한복음 3:16') === true && tplMod.isTemplateOnly('') === true);
+  tplMod.isTemplateOnly(wTpl) === true && tplMod.isTemplateOnly('') === true);
 // 편집기를 한 바퀴 돌면 끝의 빈 줄이 정리된다(markdown.js docToMd) — 그래도 빈 노트다
 check('끝의 빈 줄이 정리돼도 빈 노트다', tplMod.isTemplateOnly(qTpl.replace(/\s+$/, '')) === true);
 check('한 줄이라도 쓰면 빈 노트가 아니다',
   tplMod.isTemplateOnly(qTpl + '오늘 이 말씀이 마음에 남았다') === false
   && tplMod.isTemplateOnly('그냥 한 줄') === false);
-check('구절 줄은 그 구절을 알 때에만 템플릿으로 친다',
-  tplMod.isTemplateOnly(wTpl, '') === false);
-// 도막 이름이 바뀌기 전에 저장된 빈 노트 — 2026-09-09 이전('묵상 노트·결단하기·기도하기')과
-// 2026-09-10 이전('나의 묵상'·'결단') 둘 다.
+// 도막 이름이 바뀌기 전에 저장된 빈 노트 — 2026-09-09 이전('묵상 노트·결단하기·기도하기'),
+// 2026-09-10 이전('나의 묵상'·'결단'), 2026-09-12 이전('본문') 셋 다.
 // **되돌리기**: LEGACY_SECTIONS를 SECTION_RE에서 빼면 이 줄이 깨진다. 그러면 예전에
 // 손도 안 댄 템플릿들이 하루아침에 '사람이 쓴 글'이 되어 나눔 피드·잔디에 오른다.
 const oldTpl = '### 본문\n요한복음 3:16\n### 말씀 요약\n\n### 묵상 노트\n\n### 결단하기\n\n### 기도하기\n';
@@ -143,6 +142,10 @@ check('옛 이름으로 저장된 템플릿도 빈 노트다',
   tplMod.isTemplateOnly(oldTpl, '요한복음 3:16') === true
   && tplMod.isTemplateOnly(oldTpl2, '요한복음 3:16') === true
   && tplMod.isTemplateOnly(oldTpl + '한 줄 썼다', '요한복음 3:16') === false);
+// 옛 노트의 '본문' 도막에 든 구절 줄은 **그 구절을 알 때에만** 템플릿으로 친다 —
+// 모르면 사람이 쓴 한 줄로 본다(isTemplateOnly의 prefill 갈래).
+check('구절 줄은 그 구절을 알 때에만 템플릿으로 친다',
+  tplMod.isTemplateOnly(oldTpl2, '') === false);
 
 // ── 1-c. 뜻으로 찾는 본문 검색 (순수 — services/bibleSearch.js) ─────────────
 // 임베딩·색인을 만들지 않는다 — 모델에게 **참조만** 받고 본문은 우리 파일에서 읽는다.
@@ -831,9 +834,10 @@ check('빈 상태가 본문 자리의 세로 가운데에 선다', !!emptyFit &&
 
 // 8-a) 아직 아무것도 안 쓴 날은 **템플릿**으로 시작한다(사용자 요청 2026-09-08 —
 // "기존 순 노트 템플릿 가져와서 최대한 우리 디자인 시스템에 맞춰 재구성하기").
-// 도막은 셋이다(2026-09-10 · 본문 · 나의 결단 · 기도) — QT에는 '말씀 요약'이 없다.
+// 도막은 둘이다(2026-09-12 · 나의 결단 · 기도) — QT에는 '말씀 요약'이 없고,
+// '본문'은 종이 머리에 구절이 서므로 뺐다.
 // **손대지 않은 템플릿은 빈 묵상이다** — 제목 줄이 있다는 이유로 저장이 열리면
-// 아무도 쓰지 않은 제목 세 줄이 그대로 저장되고 잔디에까지 찍힌다.
+// 아무도 쓰지 않은 제목 두 줄이 그대로 저장되고 잔디에까지 찍힌다.
 await waitFor(`(() => { const t = document.querySelector('.tiptap'); return t && t.offsetParent; })()`, 8000);
 await sleep(400);
 const tplNote = await ev(`(() => {
@@ -843,8 +847,8 @@ const tplNote = await ev(`(() => {
   return { heads: t ? [...t.querySelectorAll('h3')].map(x => x.textContent.trim()) : [],
            leaf: cs ? String(cs.maskImage || cs.webkitMaskImage || '') : '' };
 })()`);
-check('묵상을 처음 쓰는 날은 템플릿 세 도막으로 시작한다',
-  tplNote.heads.join('|') === '본문|나의 결단|기도', JSON.stringify(tplNote.heads));
+check('묵상을 처음 쓰는 날은 템플릿 두 도막으로 시작한다',
+  tplNote.heads.join('|') === '나의 결단|기도', JSON.stringify(tplNote.heads));
 // **잎 표시는 사용자가 뺐다**(2026-09-09 — "잎사귀가 추가되었는데 이건 지울 것" · §7).
 // 다시 붙이면 이 줄이 실패한다.
 check('도막 제목에 잎 표시가 없다', !/svg/.test(tplNote.leaf), tplNote.leaf.slice(0, 48));
@@ -947,7 +951,7 @@ const lockedHeads = await ev(`(() => {
     hasTyped: t.innerText.includes('전부 지워질까') };
 })()`);
 check('중제목은 전체 선택 후 입력에도 지워지지 않는다',
-  JSON.stringify(lockedHeads.heads) === JSON.stringify(['본문', '나의 결단', '기도'])
+  JSON.stringify(lockedHeads.heads) === JSON.stringify(['나의 결단', '기도'])
   && lockedHeads.hasTyped === false, JSON.stringify(lockedHeads));
 
 // **목록 글머리는 글 칸 안에 선다**(사용자 지적 2026-09-11 — `1.`·`•`가 종이 왼쪽 끝까지

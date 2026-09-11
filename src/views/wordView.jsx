@@ -264,12 +264,14 @@ function QtTab() {
   const titleRef = useRef('');
   titleRef.current = title;
   // **아직 쓴 것이 없는 날은 템플릿으로 시작한다**(사용자 요청 2026-09-08 — 옛 순 노트
-  // 템플릿). '본문' 아래에는 그 날 읽기표의 구절이 미리 들어간다. QT에는 '말씀 요약'이
-  // 없다(services/noteTemplate.js 머리말).
+  // 템플릿). QT에는 '말씀 요약'이 없다(services/noteTemplate.js 머리말). 구절 도막도
+  // 없다 — 종이 머리(PaperNoteHead)에 이미 서기 때문이다(2026-09-12).
   // 구절은 **책 이름 전체로 편 값**(`refFull`)이다 — 푸는 자리는 위 조회 한 곳뿐이다.
   // 옛 캐시에는 그 칸이 없으므로 저장된 글자로 떨어진다(다시 읽으면 풀린 값이 온다).
+  // 템플릿에는 안 들어가지만 아래 isTemplateOnly에는 넘긴다 — 옛 노트의 '본문' 도막에
+  // 들어 있는 구절 줄은 사람이 쓴 글이 아니다.
   const passageRef = (qt && qt.date === date ? (qt.refFull || qt.schedule?.passage_ref) : '') || '';
-  const tpl = useMemo(() => qtNoteTemplate({ passageRef }), [passageRef]);
+  const tpl = useMemo(() => qtNoteTemplate(), []);
   // 넣어 주는 글과 syncedBody는 **언제나 같은 값**이어야 한다 — 다르면
   // shouldAdoptBody가 '사람이 고쳤다'로 읽어 뒤에 온 값을 영영 안 넣는다.
   const putBody = (b) => { const v = bodyOrTemplate(b, tpl); setBody(v); syncedBody.current = v; };
@@ -328,7 +330,7 @@ function QtTab() {
   const baseTitle = ready ? (entry.title || '') : '';
   const dirty = ready && (body !== base || title.trim() !== baseTitle);
   // **손대지 않은 템플릿은 빈 묵상이다** — 제목 줄이 있다는 이유로 저장이 열리면
-  // 아무도 쓰지 않은 제목 네 줄이 그대로 저장되고 잔디에까지 찍힌다.
+  // 아무도 쓰지 않은 제목 두 줄이 그대로 저장되고 잔디에까지 찍힌다.
   // **제목 칸은 이 판정에 들어오지 않는다**(사용자 결정 2026-09-11) — 제목만 적고 본문이
   // 비면 여전히 빈 묵상이다. 제목은 글이 있을 때 딸려 저장되는 값이다.
   const hasText = !isTemplateOnly(body, passageRef);
@@ -370,7 +372,7 @@ function QtTab() {
     setSaving(true);
     try {
       // **도막 제목은 지워지지 않는다**(사용자 결정 2026-09-09 — "중제목들 안 지워지게").
-      // 편집기에서 지웠어도 저장되는 글에는 네 도막이 그 순서로 서 있다. 사람이 쓴 글과
+      // 편집기에서 지웠어도 저장되는 글에는 두 도막이 그 순서로 서 있다. 사람이 쓴 글과
       // 새로 만든 도막은 그대로 남는다(services/noteTemplate.js ensureNoteSections).
       const kept = ensureNoteSections(body, QT_SECTIONS);
       // 제목은 앞뒤 공백을 걷어 저장한다 — 걷지 않으면 저장된 값과 칸의 글이 달라

@@ -205,11 +205,12 @@ export function NotePaper({
 }
 
 // ── 노트 종이 (예배 노트 · 묵상 노트) ───────────────────────────────────────
-// sections는 services/noteTemplate.js splitNoteSections의 결과다. '본문' 도막은
-// 라벨 줄이 아니라 **머리의 구절**로 올라간다 — 그 한 줄이 이 노트가 무엇에 대한
-// 글인지 말하는 자리이고, 라벨 칸에 넣으면 다른 도막과 같은 무게로 묻힌다.
-// 아는 이름만 올리지 않고 **첫 도막이 '본문'일 때만** 올린다(사람이 제목을 고쳐 쓴
-// 노트에서 엉뚱한 도막이 머리로 올라가지 않게).
+// sections는 services/noteTemplate.js splitNoteSections의 결과다. 구절은 라벨 줄이
+// 아니라 **머리**에 선다 — 그 한 줄이 이 노트가 무엇에 대한 글인지 말하는 자리이고,
+// 라벨 칸에 넣으면 다른 도막과 같은 무게로 묻힌다. 새 노트는 넘겨받은 passageRef가
+// 그 자리에 서고(템플릿에서 '본문' 도막을 뺐다 — 2026-09-12), **옛 노트의 '본문'
+// 도막**은 여기서 머리로 끌어올린다. 아는 이름만 올리지 않고 **첫 도막이 '본문'일
+// 때만** 올린다(사람이 제목을 고쳐 쓴 노트에서 엉뚱한 도막이 머리로 올라가지 않게).
 export function NoteSheet({ sheetRef, date, kind, passageRef = '', passageTitle = '', sections = [], cut = null }) {
   const first = sections[0];
   const headIsPassage = first && first.title === '본문';

@@ -415,8 +415,8 @@ export async function fetchSunSharedNotes() {
     // 주보 제목·구절까지 싣는다 — 목록이 노트를 **종이로** 그리고(사용자 요구 2026-09-09
     // "해당 노트 템플릿 그대로 공유될 수 있도록"), 그 종이의 머리가 설교 제목과 본문 구절이다.
     // **구절이 빠져 있었다**(사용자 지적 2026-09-11 — 쓴 사람 화면에는 있는 줄이 순에서는
-    // 비어 있었다). 노트 본문에 '본문' 도막이 있으면 종이가 그쪽을 쓰고(paper.jsx
-    // NoteSheet), 없는 옛 노트에는 이 값이 머리로 올라간다.
+    // 비어 있었다). 옛 노트에 '본문' 도막이 있으면 종이가 그쪽을 쓰고(paper.jsx
+    // NoteSheet), 그 도막이 없는 노트에는 이 값이 머리로 올라간다.
     .select('id, body, shared_to_sun, updated_at, service_id, profile_id, services(service_date, title, passage_ref), profiles(display_name, avatar_url)')
     .eq('shared_to_sun', true)
     .order('updated_at', { ascending: false });

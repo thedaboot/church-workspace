@@ -170,7 +170,7 @@ function useFillRest() {
     const ro = new ResizeObserver(measure);
     ro.observe(sc);
     // **아래에 깔린 것도 나중에 커진다.** 내 예배 노트의 편집기는 lazy로 늦게 붙고,
-    // 저장된 글이 없는 주보에서는 템플릿만큼(제목 다섯 줄) 상자보다 길어진다 —
+    // 저장된 글이 없는 주보에서는 템플릿만큼(제목 세 줄) 상자보다 길어진다 —
     // 마운트 때 잰 below로 두면 그만큼 넘쳐서 스크롤이 생겼다(2026-09-08). 그래서
     // el과 sc 사이의 겹들도 같이 본다. 우리 min-height는 below를 바꾸지 않으므로
     // (바로 위 주석) 재기 → 커짐 → 다시 재기의 되풀이가 생기지 않는다.
@@ -1073,9 +1073,11 @@ function ServicePaper({ service, nameOf }) {
 
 function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', onSave, onShare }) {
   // **처음 여는 노트는 템플릿으로 시작한다**(사용자 요청 2026-09-08 — 옛 순 노트
-  // 템플릿을 우리 디자인으로). services/noteTemplate.js가 제목 다섯 줄을 만들고,
-  // '본문' 아래에는 이 예배의 구절이 미리 들어간다.
-  const tpl = useMemo(() => worshipNoteTemplate({ passageRef }), [passageRef]);
+  // 템플릿을 우리 디자인으로). services/noteTemplate.js가 도막 제목 셋을 세운다 —
+  // 구절은 종이 머리(PaperNoteHead)에 서므로 도막으로 한 번 더 두지 않는다(2026-09-12).
+  // passageRef는 그래도 아래 isTemplateOnly에 넘긴다 — 옛 노트의 '본문' 도막에 들어
+  // 있는 구절 줄은 사람이 쓴 글이 아니기 때문이다.
+  const tpl = useMemo(() => worshipNoteTemplate(), []);
   const [body, setBody] = useState(() => bodyOrTemplate(note?.body, tpl));
   const [state, setState] = useState('');         // '' | 'saving' | 'saved'  (저장 버튼)
   const [shareState, setShareState] = useState(''); // '' | 'saving' | 'saved'  (공유 칩)
@@ -1088,7 +1090,7 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
   // 되돌아갈 자리 — 저장된 글이 있으면 그것, 없으면 손대지 않은 템플릿이다
   const base = bodyOrTemplate(note?.body, tpl);
   // **손대지 않은 템플릿은 빈 노트다.** 제목 줄이 있다는 이유로 저장이 열리면
-  // 아무도 쓰지 않은 제목 다섯 줄이 그대로 저장된다(isTemplateOnly).
+  // 아무도 쓰지 않은 제목 세 줄이 그대로 저장된다(isTemplateOnly).
   const hasText = !isTemplateOnly(body, passageRef);
   const dirty = body !== base;
   const reading = saved && !editing;
@@ -1115,7 +1117,7 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
     if (busy || !hasText || !dirty) return;
     setBusy(true); setState('saving'); setShareState('');
     // **도막 제목은 지워지지 않는다**(사용자 결정 2026-09-09 — "중제목들 안 지워지게").
-    // 편집기에서 지웠어도 저장되는 글에는 다섯 도막이 그 순서로 서 있다. 사람이 쓴
+    // 편집기에서 지웠어도 저장되는 글에는 세 도막이 그 순서로 서 있다. 사람이 쓴
     // 글과 새로 만든 도막은 그대로 남는다(services/noteTemplate.js ensureNoteSections).
     const ok = await onSave({ body: ensureNoteSections(body, WORSHIP_SECTIONS), sharedToSun: shared });
     setBusy(false); setState(ok ? 'saved' : '');

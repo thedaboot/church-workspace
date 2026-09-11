@@ -2287,36 +2287,36 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 // 도막이 그 순서로 서 있다(저장 자리 하나에서 보장한다 — 그 파일 머리말).
 // 잃는 것이 없어야 한다: 사람이 쓴 글 · 제목 앞의 글 · 새로 만든 도막.
 //
-// 2026-09-10에 **이름이 한 번 더 바뀌었다** — '나의 묵상'을 빼고 '결단'을 '나의 결단'으로
-// (예배 노트 넷 · QT 셋). 옛 이름은 LEGACY_SECTIONS에 **쌓는다**(갈아치우면 옛 빈 노트가
-// '사람이 쓴 글'이 되어 나눔·잔디에 오른다 — docs/PITFALLS.md §6-9-as).
+// 2026-09-10에 **이름이 한 번 더 바뀌었다** — '나의 묵상'을 빼고 '결단'을 '나의 결단'으로.
+// 2026-09-12에는 **'본문'을 뺐다**(예배 노트 셋 · QT 둘) — 종이 머리(paper.jsx
+// PaperNoteHead)에 구절이 이미 서기 때문이다. 옛 이름은 LEGACY_SECTIONS에 **쌓는다**
+// (갈아치우면 옛 빈 노트가 '사람이 쓴 글'이 되어 나눔·잔디에 오른다 — docs/PITFALLS.md §6-9-as).
 {
   const dir = mkdtempSync(join(tmpdir(), 'note-'));
   const f = join(dir, 'noteTemplate.mjs');
   writeFileSync(f, readFileSync(new URL('../src/services/noteTemplate.js', import.meta.url), 'utf8'));
   const nt = await import(pathToFileURL(f).href);
 
-  // 도막 이름·순서 (사용자 결정 2026-09-10)
-  assert.deepStrictEqual(nt.WORSHIP_SECTIONS, ['본문', '말씀 요약', '나의 결단', '기도'],
-    '예배 노트는 네 도막이다');
-  assert.deepStrictEqual(nt.QT_SECTIONS, ['본문', '나의 결단', '기도'],
-    'QT는 세 도막이다(말씀 요약이 없다)');
+  // 도막 이름·순서 (사용자 결정 2026-09-12 — '본문'을 뺐다)
+  assert.deepStrictEqual(nt.WORSHIP_SECTIONS, ['말씀 요약', '나의 결단', '기도'],
+    '예배 노트는 세 도막이다');
+  assert.deepStrictEqual(nt.QT_SECTIONS, ['나의 결단', '기도'],
+    'QT는 두 도막이다(말씀 요약이 없다)');
 
-  const kept = nt.ensureNoteSections('### 본문\n삿 4:11-24\n### 나의 결단\n음', nt.WORSHIP_SECTIONS);
-  assert.deepStrictEqual(nt.splitNoteSections(kept).map(x => x.title), ['본문', '나의 결단'],
+  const kept = nt.ensureNoteSections('### 말씀 요약\n들은 것\n### 나의 결단\n음', nt.WORSHIP_SECTIONS);
+  assert.deepStrictEqual(nt.splitNoteSections(kept).map(x => x.title), ['말씀 요약', '나의 결단'],
     '글이 있는 도막만 갈리지만');
   for (const t of nt.WORSHIP_SECTIONS) {
     assert.ok(kept.includes(`### ${t}`), `${t} 제목이 되살아난다`);
   }
-  assert.ok(kept.indexOf('### 본문') < kept.indexOf('### 말씀 요약')
-    && kept.indexOf('### 말씀 요약') < kept.indexOf('### 나의 결단')
+  assert.ok(kept.indexOf('### 말씀 요약') < kept.indexOf('### 나의 결단')
     && kept.indexOf('### 나의 결단') < kept.indexOf('### 기도'), '순서는 템플릿 순서다');
-  assert.ok(kept.includes('삿 4:11-24') && kept.includes('음'), '쓴 글은 그대로 얹힌다');
+  assert.ok(kept.includes('들은 것') && kept.includes('음'), '쓴 글은 그대로 얹힌다');
 
   // 제목을 다 지운 글 — 맨 위에 그대로 남는다(잃지 않는다)
   const lead = nt.ensureNoteSections('그냥 쓴 글', nt.QT_SECTIONS);
   assert.ok(lead.startsWith('그냥 쓴 글'), '제목 앞의 글은 맨 위에 남는다');
-  assert.strictEqual((lead.match(/^### /gm) || []).length, 3, 'QT는 세 도막이다');
+  assert.strictEqual((lead.match(/^### /gm) || []).length, 2, 'QT는 두 도막이다');
 
   // 사람이 새로 만든 도막은 **뒤에** 붙는다
   const extra = nt.ensureNoteSections('### 나의 결단\n가\n### 내가 만든 칸\n나', nt.QT_SECTIONS);
@@ -2325,7 +2325,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 
   // **되살린 템플릿은 여전히 빈 노트다** — 아니면 아무도 쓰지 않은 제목이 나눔에 오른다
   assert.strictEqual(
-    nt.isTemplateOnly(nt.ensureNoteSections(nt.worshipNoteTemplate({ passageRef: '삿 3:1' }), nt.WORSHIP_SECTIONS), '삿 3:1'),
+    nt.isTemplateOnly(nt.ensureNoteSections(nt.worshipNoteTemplate(), nt.WORSHIP_SECTIONS)),
     true, '되살린 템플릿은 빈 노트로 남는다');
 
   // ── 옛 이름으로 저장된 노트를 열어 저장하면 (2026-09-10) ──────────────────
@@ -2341,13 +2341,32 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   for (const line of ['요 3:16', '들은 것', '생각한 것', '하기로 한 것', '빈다']) {
     assert.ok(moved.includes(line), `옛 노트의 '${line}'이 남는다`);
   }
-  assert.ok(moved.indexOf('### 기도') < moved.indexOf('### 나의 묵상')
+  assert.ok(moved.indexOf('### 기도') < moved.indexOf('### 본문')
+    && moved.indexOf('### 본문') < moved.indexOf('### 나의 묵상')
     && moved.indexOf('### 나의 묵상') < moved.indexOf('### 결단'),
     '옛 도막은 새 도막 **뒤에** 그 순서대로 붙는다');
   // 옛 이름만 있는 빈 노트는 아직 빈 노트다(LEGACY_SECTIONS에 쌓았다)
   assert.strictEqual(
     nt.isTemplateOnly('### 본문\n요 3:16\n### 말씀 요약\n\n### 나의 묵상\n\n### 결단\n\n### 기도\n', '요 3:16'),
     true, '옛 이름으로 저장된 빈 노트도 빈 노트다');
+
+  // ── '본문' 도막은 2026-09-12에 뺐다 (사용자 결정) ─────────────────────────
+  // "제목 밑에 본문이 나오니까, 그 아래 실제 섹션에서 본문 섹션은 빼자" — 종이 머리
+  // (paper.jsx PaperNoteHead)에 구절이 이미 서므로 도막으로 한 번 더 두지 않는다.
+  // **새 템플릿에는 없지만 LEGACY_SECTIONS에는 쌓았다** — 옛 노트의 `### 본문`은 저장된
+  // 글이라 읽기 종이에 그대로 서고, 빈 템플릿 판정에서도 제목으로 읽혀야 한다.
+  // **되돌리기**: LEGACY_SECTIONS에서 '본문'을 빼면 바로 아래 빈 노트 판정이 깨진다(옛
+  // 빈 노트가 '사람이 쓴 글'이 되어 나눔 피드·잔디에 오른다).
+  assert.ok(!nt.WORSHIP_SECTIONS.includes('본문') && !nt.QT_SECTIONS.includes('본문'),
+    "'본문'은 새 템플릿에 없다");
+  assert.strictEqual(
+    nt.isTemplateOnly('### 본문\n삿 4:11-24\n### 말씀 요약\n\n### 나의 결단\n\n### 기도\n', '삿 4:11-24'),
+    true, "'본문'은 LEGACY라 그 도막이 든 옛 빈 노트도 빈 노트다");
+  // 옛 노트를 열어 저장해도 **본문 도막을 지우지 않는다** — 새 도막이 서고 그 뒤에 붙는다
+  const withRef = nt.ensureNoteSections('### 본문\n삿 4:11-24\n### 나의 결단\n음', nt.WORSHIP_SECTIONS);
+  assert.deepStrictEqual(nt.splitNoteSections(withRef).map(x => x.title), ['나의 결단', '본문'],
+    "옛 '본문' 도막은 새 도막 뒤에 그대로 남는다");
+  assert.ok(withRef.includes('삿 4:11-24'), '본문 도막의 구절 줄도 잃지 않는다');
 
   // 편집기에서도 고정된다(사용자 결정 2026-09-10 — "아예 수정 창에서부터")
   const src = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
@@ -2358,8 +2377,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '편집기가 정해진 중제목을 지우는 트랜잭션을 물린다');
   assert.ok(/bypass\(\)/.test(ed) && /replacingRef\.current = true/.test(ed),
     '문서를 통째로 교체할 때는 통과시킨다(옛 노트가 안 들어오는 것을 막는다)');
-  assert.ok(/lockedHeadings=\{WORSHIP_SECTIONS\}/.test(worship), '예배 노트가 네 도막을 잠근다');
-  assert.ok(/lockedHeadings=\{QT_SECTIONS\}/.test(word), '묵상 노트가 세 도막을 잠근다');
+  assert.ok(/lockedHeadings=\{WORSHIP_SECTIONS\}/.test(worship), '예배 노트가 세 도막을 잠근다');
+  assert.ok(/lockedHeadings=\{QT_SECTIONS\}/.test(word), '묵상 노트가 두 도막을 잠근다');
 
   // ── 편집도 종이 안에서 한다 (사용자 요청 2026-09-10) ─────────────────────
   // 읽기와 **같은 부품**을 써야 한다(마크업을 한 벌 더 적으면 한쪽만 고쳐진다).
