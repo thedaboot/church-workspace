@@ -744,23 +744,19 @@ check('승인 확인이 합친 계정을 따라간다(두 경로가 같은 헬�
     assert.match(branch, /copyEditUrl\(cur, \{ email: myEmail \}\)/, 'iframe 주소에 계정을 안 싣는다');
   });
 
-  // 업무 첨부는 **누른 자리에서 편집자를 붙이고** 그 주소로 간다(2026-09-11 · §6-34-h).
-  // 순서가 뒤집히면 권한이 붙기 전에 열려서 구글이 읽기 화면을 준다 — 그게 "편집
-  // 권한을 줬는데 수정이 안 된다"였다. 그리고 **빈 탭을 먼저 열어야** 팝업 차단을 지난다.
-  check("첨부의 '구글 문서에서 편집'은 권한을 붙인 뒤 연다", () => {
+  // 업무 첨부는 **주소로 곧장 가고 편집자 붙이기는 뒤에서** 한다(2026-09-11 · §6-34-h).
+  // 처음에는 빈 탭을 열고 권한을 기다린 뒤 주소를 실었는데 Apps Script 왕복 3~5초가
+  // "about:blank가 떠 있다"로 보였다(사용자 지적). v11이 사본을 만들 때 편집자를 이미
+  // 붙이므로 여기 grant는 옛 사본을 위한 보험이고, 기다릴 이유가 없다.
+  check("첨부의 '구글 문서에서 편집'은 제스처 안에서 곧장 열고 권한은 뒤에서 붙인다", () => {
     const fn = preview.slice(preview.indexOf('const onEditClick = (e) => {'), preview.indexOf('const body = (() => {'));
     assert.ok(fn, 'onEditClick을 못 찾았다');
-    const openAt = fn.indexOf("window.open('', '_blank')");
+    const openAt = fn.indexOf("window.open(editHref, '_blank', 'noreferrer')");
     const grantAt = fn.indexOf('.then(onGrantEdit)');
-    const gotoAt = fn.indexOf('tab.location = editHref');
-    assert.ok(openAt > 0, '빈 탭을 제스처 안에서 먼저 열지 않는다(팝업 차단에 걸린다)');
-    assert.ok(grantAt > openAt, '편집자 붙이기(onGrantEdit)를 탭 연 뒤에 걸지 않는다');
-    assert.ok(gotoAt > grantAt, '권한이 붙기 전에 편집 주소로 간다 — 구글이 읽기 화면을 준다');
-    // noreferrer를 features에 주면 window.open이 null을 돌려준다(주소를 실을 창이 없다)
-    assert.ok(!/window\.open\('', '_blank', /.test(fn), "빈 탭에 features를 주면 창 참조를 잃는다");
-    // 실패하면 **닫는다** — 읽기 화면을 열어 주면 화면이 거짓말을 한다
-    assert.match(fn, /tab\?\.close\(\);/, '실패해도 빈 탭을 그대로 둔다');
-    assert.match(fn, /showToast\(failText\(/, '실패를 말해 주지 않는다');
+    assert.ok(openAt > 0, '편집 주소를 제스처 안에서 곧장 열지 않는다(기다리면 팝업 차단·빈 탭 5초)');
+    assert.ok(grantAt > openAt, '편집자 붙이기(onGrantEdit)가 여는 것보다 앞에 있다 — 그 기다림이 빈 탭이었다');
+    assert.ok(!/window\.open\('', '_blank'\)/.test(fn) && !/tab\.location/.test(fn), '빈 탭을 먼저 여는 옛 길이 남아 있다');
+    assert.match(fn, /showToast\(failText\(/, '권한 붙이기 실패를 말해 주지 않는다');
     // ⌘/Ctrl 누름은 브라우저에 맡긴다(앵커의 href가 그대로 남아 있어야 한다)
     assert.match(fn, /e\.metaKey \|\| e\.ctrlKey/, '보조키 누름을 브라우저에 안 넘긴다');
     // 자격은 올린 사람 + 관리자(마스터 포함 — 0028은 admins의 한 행이다)

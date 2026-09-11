@@ -298,28 +298,25 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   // 자격이 없으면 null이라 버튼 자체가 없다.
   const editHref = canEditCopy ? copyEditUrl(cur, { email: myEmail, minimal: false }) : null;
 
-  // 업무 첨부는 **누른 자리에서 편집자를 붙이고** 그 주소로 간다(§6-34-h · Apps Script
-  // v11 `grantEditors`). 순서가 중요하다 — 권한이 붙기 전에 열면 구글이 읽기 화면을 주고,
-  // 그게 "편집 권한을 줬는데 수정이 안 된다"의 정체다.
-  // **빈 탭을 먼저 연다.** 팝업 차단기는 사용자 제스처 **안에서** 열린 창만 허락하므로,
-  // 권한을 기다린 뒤에 window.open을 부르면 대개 막힌다. `noreferrer`는 여기 못 쓴다 —
-  // 그걸 주면 window.open이 null을 돌려줘서 주소를 실을 창이 없다(대신 opener를 끊는다).
-  // 실패하면 **빈 탭을 닫고** 토스트 하나다 — 읽기 화면을 열어 주면 화면이 거짓말을 한다.
+  // 업무 첨부는 **주소로 바로 가고, 편집자 붙이기는 뒤에서** 한다(§6-34-h · Apps Script
+  // v11). v11부터는 사본을 만들 때 올린 사람·관리자를 편집자로 이미 붙이므로 여기서
+  // 부르는 `grantEditors`는 **v11 이전 사본을 위한 보험**(멱등)이다. 예전에는 빈 탭을 먼저
+  // 열고 권한이 붙기를 기다린 뒤 주소를 실었는데, Apps Script 왕복이 3~5초라 사용자에게는
+  // "about:blank가 5초 떠 있다가 넘어간다"였다(2026-09-11). 지금은 제스처 안에서 곧장 열고
+  // 권한은 뒤에서 붙인다 — 옛 사본이라 권한이 아직 없으면 첫 화면이 읽기일 수 있고,
+  // 그때는 새로고침하면 편집이 된다(뒤에서 붙인 권한이 그 사이 들어온다).
   const [granting, setGranting] = useState(false);
   const onEditClick = (e) => {
     if (!onGrantEdit) return;                       // 큐시트 — 앵커 기본 동작(새 탭) 그대로
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;  // 브라우저에 맡긴다
     e.preventDefault();
-    const tab = window.open('', '_blank');
-    if (tab) tab.opener = null;
+    window.open(editHref, '_blank', 'noreferrer');  // 제스처 안에서 곧장 — 기다리면 팝업 차단에 걸린다
     setGranting(true);
     Promise.resolve()
       .then(onGrantEdit)
-      .then(() => { if (tab) tab.location = editHref; else window.open(editHref, '_blank', 'noreferrer'); })
       .catch((err) => {
-        tab?.close();
-        console.error('[drive] 편집 권한 부여 실패:', err);
-        showToast(failText('편집 권한을 주지 못했어요', err));
+        console.warn('[drive] 편집 권한 부여 실패(읽기 화면일 수 있다):', err);
+        showToast(failText('편집 권한을 확인하지 못했어요', err));
       })
       .finally(() => setGranting(false));
   };
