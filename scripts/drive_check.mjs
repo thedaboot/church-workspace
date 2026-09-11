@@ -60,7 +60,7 @@ try {
 } catch (e) {
   if (/unknown action/i.test(e.message)) {
     console.error('드라이브 스크립트가 아직 v4입니다 — list 액션이 없어요.');
-    console.error('docs/DRIVE.md의 v5 코드로 바꾸고 [배포 관리 → 편집 → 새 버전]으로 다시 배포해주세요.');
+    console.error('docs/APPS_SCRIPT.md의 코드로 바꾸고 [배포 관리 → 편집 → 새 버전]으로 다시 배포해주세요.');
     process.exit(1);
   }
   // 없는 폴더 id는 v5가 { files: [] }로 돌려주므로 여기 오지 않는다. 다른 오류면 알린다.

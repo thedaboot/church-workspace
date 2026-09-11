@@ -74,7 +74,7 @@ const EditorSkeleton = () => <div className="min-h-40 border border-line rounded
 const EDITOR_BOX = 'overflow-hidden border border-line rounded-md rounded-t-none focus-within:border-accent focus-within:shadow-soft transition-all';
 // 목록·편집 줄은 **트랙을 다 쓴다**(사용자 결정 2026-09-05: "다 반응형으로 메워야
 // 한다. 모바일·데스크톱 모두 잘 나오게"). 예전에는 46rem 상한이 있었다 — 이름과
-// 역할이 화면 양 끝으로 갈라져 보인다는 지적(회차 5 '결정 대기 ⑪')을 폭으로 눌러 둔
+// 역할이 화면 양 끝으로 갈라져 보인다는 사용자 지적을 폭으로 눌러 둔
 // 것이었는데, 그 대가로 1440px에서 오른쪽 40%가 통째로 비었다(§6-9-k와 같은 함정:
 // max-w는 트랙 안에 빈 띠를 만든다).
 // 갈라짐은 이제 **줄 안의 배치**로 막는다 — 남는 폭은 입력칸이 먹고, 조작 버튼은
@@ -350,7 +350,7 @@ function RolesTab({ rows, people, nameOf }) {
             {/* 계정이 이어진 사람만 사진이 있다 — 나머지는 이름 글자 원이다(§4.7) */}
             <Avatar name={name} {...(person?.profile_id ? {} : { url: null })} className="flex w-7 h-7 text-[12px] shrink-0" />
             {/* 역할은 편집 줄과 같은 자리·같은 칩이다. 예전에는 오른쪽 끝에 밀어 뒀는데,
-                폭 상한을 걷어내니 이름과 역할이 화면 양 끝으로 갈라졌다(회차 5 지적의
+                폭 상한을 걷어내니 이름과 역할이 화면 양 끝으로 갈라졌다(위 지적의
                 재발). 붙여 두면 어느 폭에서도 '누가 무엇을' 한 눈에 읽힌다. */}
             {r.role && <span className={`${ROLE_VIEW} shrink-0`}>{r.role}</span>}
             <span className="min-w-0 text-[13px] font-semibold text-fg truncate">{shown || '이름 없음'}</span>
@@ -992,7 +992,7 @@ const NOTE_TOGGLE = 'col-span-3 w-full sm:col-span-1 sm:w-auto';
 
 // 노트 종이 위의 캐릭터 — 예배는 heart, 말씀(QT)은 book. 홈 쇼케이스가 쓰는 그 컷이다.
 // **주보 종이에는 얹지 않는다** — 설교 본문 전문이 실리는 공식 문서이고, 예배 화면에서
-// 캐릭터를 걷어낸 결정(docs/V2 회차 7~8 · tests/worship이 단정한다)과도 그쪽이 맞는다.
+// 캐릭터를 걷어낸 결정(홈 말고는 캐릭터 없음 · tests/worship이 단정한다)과도 그쪽이 맞는다.
 export const NOTE_CUT = { src: '/chars/heart.webp', w: 187, h: 156 };
 // 종이 폭 상한 — 인쇄물이라 여기만 max-w를 쓴다(§6-9-k의 예외. 가이드 종이도 같다)
 const SHEET_BOX = 'paper-box w-full max-w-[560px] mx-auto';

@@ -1,66 +1,8 @@
-# Apps Script v8 — 붙여넣을 코드와 바꾸는 이유
+# Apps Script — 붙여넣을 코드 (v10)
 
-**아직 안 올렸습니다.** 올리기 전에도 앱은 그대로 돌아갑니다(워드·PPT는 우리 렌더러로
-그리고, 엑셀 사본도 지금처럼 만들어집니다). v7 문서(`docs/APPS_SCRIPT_v7.md`)는 지금
-배포된 판이니 지우지 마세요.
-
-v7에서 바꾼 것은 셋입니다. **배포 URL은 바뀌지 않습니다** — 같은 배포를 '새 버전'으로 올리면 됩니다.
-
-| | 무엇 | 왜 |
-|---|---|---|
-| F | `makeSheetCopy` → **`makePreviewCopy`** — 엑셀은 구글 시트, **워드는 구글 문서, PPT는 구글 슬라이드** 사본을 만든다 | 사용자 요청 2026-09-08 — "PPT도 보면 좀 잘리고 그러는데, 이 pptx 뷰어나 docs도 마찬가지고, 그냥 실제 뷰로 볼 수 있게끔 해줄 수 있나? 우리 엑셀 미리보기 하는 것처럼!!" 우리가 직접 그리던 이유(HANDOFF §6-29-y)는 **구글이 갓 올린 파일에 오류를 내던 것 하나뿐**이었는데, 엑셀에서 쓴 방법(네이티브 사본을 미리 만들어 둔다)이 그 이유를 없앤다 |
-| G | **사본 만들기를 업로드에서 떼어낸다** — `upload`은 원본만 올리고 곧바로 답하고, 사본은 `convert` 액션으로 따로 만든다 | v7은 upload 안에서 변환까지 끝내고 답해서, 올리는 시간에 변환 시간이 **그대로 더해졌다**. 파일이 목록에 서는 것부터 그만큼 늦었다(사용자 지적 — "미리보기에서 엄청 오래 기다렸다가 봐야하는데 이 문제도 개선") |
-| H | 모든 답에 **`version`** 을 싣는다(`SCRIPT_VERSION = 8`) | 부르는 쪽이 "이 계정에 v8이 올라갔나"를 물을 자리가 없었다. 액션을 늘리면 `api/drive.js`의 허용 목록까지 넓혀야 해서, 답에 한 칸 얹는 쪽을 골랐다 |
-
-사본 만들기 자체도 **드라이브 왕복이 셋에서 둘로** 줄었습니다 — 이름·부모·종류·열쇠 지우기를
-`Drive.Files.copy` 요청 본문에 같이 실어서, 만든 뒤 고치러 다시 가지 않습니다.
-
-## 왜 두 단계인가
-
-```
-① upload / uploadFromUrl  →  원본만 올리고 { id, url, folderId } 로 곧바로 답한다
-② (앱이 files 행을 만든 뒤)  convert  →  사본을 만들고 { previewId } 로 답한다
-   앱은 이 요청을 **기다리지 않고**(await 없이) 보내고, 받은 id를 files 행에 UPDATE 한다
-```
-
-파일은 ①이 끝나는 즉시 첨부 목록에 섭니다. 사본은 몇 초 뒤 따라붙고, 그때부터 미리보기가
-구글 화면입니다. 그 사이에 열면 우리 렌더러가 그립니다(잘리지만 보이기는 합니다).
-(v8의 upload도  칸이 오면 그 자리에서 만들기는 합니다 — **옛 화면 호환**입니다.
-배포 직후 새로고침하지 않은 탭이 아직 그 칸을 실어 보낼 수 있고, 그 탭에서 올린 엑셀도
-사본을 가져야 합니다. 새 화면은 그 칸을 보내지 않으므로 언제나 두 단계로 갑니다.)
-
-②가 실패해도 조용히 넘어갑니다 — 사본이 없으면 앱이 예전 길로 떨어질 뿐이고, 첨부 자체는
-멀쩡합니다. 여기서 오류를 띄우면 "올라갔는데 실패했다"로 읽힙니다.
-
-## `convert`와 `convertTo` — v7이 아직 살아 있을 때
-
-**v7의 `convert` 액션은 종류를 안 보고 구글 시트 사본을 만듭니다.** 그래서 아직 v7인 계정에
-워드·PPT를 보내면 **글자가 표 칸에 흩어진 쓰레기 사본**이 생기고, 그것이
-`files.preview_file_id`에 박혀 첨부가 그 꼴로 열립니다.
-
-앱은 답에 실려 오는 `version`으로 가릅니다(`src/services/cloud.js`의 `attachPreviewCopy`):
-
-| 올린 파일 | 스크립트가 v7 이하(=`version` 없음) | v8 |
-|---|---|---|
-| xlsx·xlsm·xls·csv | `convert` 액션을 보낸다 → 시트 사본 (v7도 제대로 만든다) | 시트 사본 |
-| docx·doc | **아예 안 보낸다** → 사본 없음 → 우리 렌더러 | `convertTo: 'document'` → 문서 사본 |
-| pptx·ppt | **아예 안 보낸다** → 사본 없음 → 우리 렌더러 | `convertTo: 'presentation'` → 슬라이드 사본 |
-
-v8은 `convert`든 `convertTo`든 **오기만 하면** 사본을 만들고, **종류는 확장자가 정합니다.**
-값을 믿고 만들면 잘못 보낸 한 번이 영영 남는 쓰레기 사본이 됩니다.
-
-`api/drive.js`는 몸통을 그대로 넘기므로 `convertTo` 때문에 고칠 것이 없습니다
-(검사하는 것은 액션 이름과 파일 크기뿐입니다). 액션 목록도 v7과 같습니다.
-
----
-
-## 고급 드라이브 서비스는 이미 켜져 있습니다
-
-v7에서 켰습니다(편집기 왼쪽 **서비스(+)** → **Drive API** → v3 → 식별자 `Drive`).
-v8에서 새로 켤 것도, 새로 승인받을 권한도 없습니다. 혹시 목록에 `Drive`가 없으면 그것부터
-추가하세요 — 없으면 `Drive.Files.copy`에서 `Drive is not defined`로 죽습니다.
-
----
+개인 지메일 드라이브는 서비스 계정으로 못 만진다(공유 드라이브가 없어 소유권도 용량도
+서비스 계정에 갈 수 없다). 남는 길은 소유자 계정으로 도는 웹앱 하나이고, 우리 서버는 그
+URL로 요청만 보낸다 — 토큰 만료도 갱신 관리도 없다. 구조와 한계는 `docs/DRIVE.md`.
 
 ## 전체 코드
 
@@ -73,14 +15,24 @@ v8에서 새로 켤 것도, 새로 승인받을 권한도 없습니다. 혹시 �
 > `ROOT_FOLDER_ID is not defined`로 죽습니다. **그 두 줄 아래부터** 바꾸세요.
 > 값은 Vercel 환경변수가 아니라 스크립트 안에만 있어서, 지우면 드라이브에서 폴더 id를
 > 다시 찾아야 합니다.
+>
+> 고급 드라이브 서비스는 v7에서 켰습니다(편집기 왼쪽 **서비스(+)** → **Drive API** → v3 →
+> 식별자 `Drive`). 목록에 `Drive`가 없으면 그것부터 추가하세요 — 없으면
+> `Drive.Files.copy`에서 `Drive is not defined`로 죽습니다.
 
 ```js
 // **이 스크립트가 몇 판인지.** 모든 답(json)에 실려 나간다 — 부르는 쪽이 "이 계정에
-// v8이 올라갔나"를 물을 자리가 여기 말고는 없다(아래 json 참고).
-const SCRIPT_VERSION = 8;
+// v8 이상이 올라갔나"를 물을 자리가 여기 말고는 없다(아래 json 참고). 앱은 `>= 8`만 본다.
+const SCRIPT_VERSION = 10;
 
 const KEY_PREFIX = 'wskey:';   // v6까지 description에 쓰던 접두사 — 읽기 위해 남긴다
 const KEY_PROP = 'wskey';      // v7부터는 appProperties에 쓴다(질의로 찾을 수 있다)
+
+// 큐시트 사본을 고칠 수 있는 구글 계정(사용자 결정 2026-09-09 — 교역자와 마스터만).
+// **여기 있는 계정만** 편집자가 된다 — role을 'writer'/type 'anyone'으로 올리면 링크를
+// 아는 누구나 고칠 수 있고 그건 뺀 길이다(HANDOFF §7). 사람이 바뀌면 이 줄을 고치고
+// 새 버전으로 올리면 된다(옛 사본의 편집자는 그대로 남으니 드라이브에서 지운다).
+var CUE_EDITORS = ['joshua052698@gmail.com', 'mose716@gmail.com'];
 
 function doPost(e) {
   try {
@@ -215,14 +167,30 @@ function findByKey(folderId, key) {
   return null;
 }
 
-// 열쇠를 붙인다. description에도 같이 남긴다 — 드라이브 화면에서 사람이 볼 수 있고,
+// 열쇠는 **만들 때 같이** 붙인다(v9 · 아래 createInFolder) — v8까지는 만든 뒤 update로
+// 한 번 더 갔다. description에도 같이 남긴다: 드라이브 화면에서 사람이 볼 수 있고,
 // v6으로 되돌리더라도 열쇠를 잃지 않는다(되돌릴 일이 없기를 바라지만 값이 싸다).
-function stampKey(fileId, key) {
-  if (!key) return;
+function keyMeta(key) {
+  if (!key) return {};
   var props = {};
   props[KEY_PROP] = String(key);
-  Drive.Files.update({ appProperties: props, description: KEY_PREFIX + key }, fileId, null,
-    { supportsAllDrives: true });
+  return { appProperties: props, description: KEY_PREFIX + key };
+}
+
+// **I: 파일 하나를 드라이브 왕복 둘로 만든다**(v8은 셋 — createFile · 열쇠 update · setSharing).
+// Drive.Files.create는 이름·부모·열쇠·설명을 **한 요청**에 받고, 남는 하나는 공유
+// 설정인데 그건 다른 API(Permissions)라 합칠 수 없다(makePreviewCopy와 같은 사정).
+// 공유는 v8과 같은 뜻이다 — 링크를 아는 사람은 **보기**(앱이 lh3.googleusercontent.com/d/<id>로
+// 썸네일을 붙인다. 이 줄이 없으면 소유자만 열 수 있어서 앱 안 이미지가 전부 깨진다).
+// 'writer'로 올리면 링크를 아는 누구나 고칠 수 있다(사용자가 판단해서 뺀 길 — HANDOFF §7).
+// webViewLink는 DriveApp의 getUrl()과 같은 주소다(drive.google.com/file/d/<id>/view…).
+function createInFolder(folderId, blob, name, mimeType, key) {
+  var meta = { name: name || 'file', parents: [folderId], mimeType: mimeType || 'application/octet-stream' };
+  var km = keyMeta(key);
+  if (km.appProperties) { meta.appProperties = km.appProperties; meta.description = km.description; }
+  var file = Drive.Files.create(meta, blob, { supportsAllDrives: true, fields: 'id,webViewLink' });
+  Drive.Permissions.create({ role: 'reader', type: 'anyone' }, file.id, { supportsAllDrives: true });
+  return file;
 }
 
 // ── 업로드 ──────────────────────────────────────────────────────────────────
@@ -242,18 +210,15 @@ function upload(body) {
     body.mimeType || 'application/octet-stream',
     body.name || 'file'
   );
-  var file = folder.createFile(blob);
-  stampKey(file.getId(), body.key);
-  // 링크를 아는 사람은 보기 — 앱이 lh3.googleusercontent.com/d/<id>로 썸네일을 붙인다.
-  // 이 줄이 없으면 소유자만 열 수 있어서 앱 안 이미지가 전부 깨진다.
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  // 왕복 둘 — 만들기(이름·부모·열쇠·설명 한 요청) + 공유(v9 · createInFolder 주석)
+  var file = createInFolder(folder.getId(), blob, body.name, body.mimeType, body.key);
   return {
-    id: file.getId(), url: file.getUrl(), folderId: folder.getId(),
+    id: file.id, url: file.webViewLink, folderId: folder.getId(),
     // **여기서 변환하지 않는다**(v8). 사본은 두 번째 요청(convert 액션)이 만든다 —
     // 올리는 시간에 변환 시간을 더하지 않으려는 것이다(위 머리말 '왜 두 단계인가').
     // body.convert는 **옛 화면 호환**으로만 남긴다: 배포 직후 캐시된 탭이 아직 그 칸을
     // 실어 보낼 수 있고, 그 탭에서 올린 엑셀도 사본을 가져야 한다. 새 화면은 안 보낸다.
-    previewId: body.convert ? makePreviewCopy(file.getId(), file.getName(), folder.getId()) : null,
+    previewId: body.convert ? makePreviewCopy(file.id, body.name || 'file', folder.getId()) : null,
   };
 }
 
@@ -287,7 +252,7 @@ var COPY_AS = {
   pptx: ['GOOGLE_SLIDES', ' (슬라이드)'], ppt: ['GOOGLE_SLIDES', ' (슬라이드)'],
 };
 
-function makePreviewCopy(fileId, name, folderId) {
+function makePreviewCopy(fileId, name, folderId, cueEditors) {
   var target = COPY_AS[String(name || '').split('.').pop().toLowerCase()];
   if (!target) return null;   // PDF·사진·zip 등은 구글 편집기가 없다 — 사본을 안 만든다
   try {
@@ -309,6 +274,22 @@ function makePreviewCopy(fileId, name, folderId) {
     // role은 언제나 'reader'다. 'writer'로 올리면 링크를 아는 누구나 고칠 수 있다
     // (드라이브는 워크스페이스 멤버인지 모른다 — 사용자가 판단해서 뺀 길이다).
     Drive.Permissions.create({ role: 'reader', type: 'anyone' }, copy.id, { supportsAllDrives: true });
+
+    // ── v10: 큐시트만 이름 있는 계정 둘을 편집자로 ──────────────────────────
+    // 실패해도 사본은 살린다 — 편집이 안 되는 것보다 미리보기가 통째로 없는 것이 나쁘다.
+    // sendNotificationEmail: false — 주보를 올릴 때마다 두 사람에게 메일이 가면 안 된다.
+    if (cueEditors) {
+      for (var i = 0; i < CUE_EDITORS.length; i++) {
+        try {
+          Drive.Permissions.create(
+            { role: 'writer', type: 'user', emailAddress: CUE_EDITORS[i] },
+            copy.id,
+            { supportsAllDrives: true, sendNotificationEmail: false });
+        } catch (permErr) {
+          Logger.log('큐시트 편집자 추가 실패(' + CUE_EDITORS[i] + '): ' + permErr);
+        }
+      }
+    }
     return copy.id;
   } catch (err) {
     Logger.log('변환 실패(첨부는 그대로 둔다): ' + err);
@@ -333,16 +314,15 @@ function uploadFromUrl(body) {
   }
   var blob = res.getBlob().setName(body.name || 'file');
   if (body.mimeType) blob = blob.setContentType(body.mimeType);
-  var file = folder.createFile(blob);
-  stampKey(file.getId(), body.key);
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  // upload과 같은 두 왕복(v9)
+  var file = createInFolder(folder.getId(), blob, body.name, body.mimeType || blob.getContentType(), body.key);
   return {
-    id: file.getId(), url: file.getUrl(), folderId: folder.getId(),
+    id: file.id, url: file.webViewLink, folderId: folder.getId(),
     // **여기서 변환하지 않는다**(v8). 사본은 두 번째 요청(convert 액션)이 만든다 —
     // 올리는 시간에 변환 시간을 더하지 않으려는 것이다(위 머리말 '왜 두 단계인가').
     // body.convert는 **옛 화면 호환**으로만 남긴다: 배포 직후 캐시된 탭이 아직 그 칸을
     // 실어 보낼 수 있고, 그 탭에서 올린 엑셀도 사본을 가져야 한다. 새 화면은 안 보낸다.
-    previewId: body.convert ? makePreviewCopy(file.getId(), file.getName(), folder.getId()) : null,
+    previewId: body.convert ? makePreviewCopy(file.id, body.name || 'file', folder.getId()) : null,
   };
 }
 
@@ -363,7 +343,7 @@ function convertExisting(body) {
     name = name || f.name;
     parent = parent || (f.parents && f.parents[0]) || ROOT_FOLDER_ID;
   }
-  return { previewId: makePreviewCopy(body.fileId, name, parent) };
+  return { previewId: makePreviewCopy(body.fileId, name, parent, !!body.cueEditors) };
 }
 
 // ── 목록 ────────────────────────────────────────────────────────────────────
@@ -400,7 +380,7 @@ function trash(body) {
   return { trashed: body.fileId };
 }
 
-// **모든 답에 스크립트 버전을 싣는다**(v8부터).
+// **모든 답에 스크립트 버전을 싣는다**(v8부터 · 지금 10).
 // 왜 액션을 하나 더 만들지 않았나: 액션을 늘리면 api/drive.js의 허용 목록(ACTIONS)까지
 // 같이 넓혀야 하고, 그 둘이 같은지 보는 검사(tests/drivesync)도 따라 움직여야 한다.
 // 답에 한 칸 얹는 쪽이 싸다. **v7 이하는 이 값이 없다(undefined)** — 부르는 쪽은 그것을
@@ -421,53 +401,52 @@ function 권한승인() {
   const r = UrlFetchApp.fetch('https://www.google.com');
   const d = Drive.Files.list({ q: "'" + ROOT_FOLDER_ID + "' in parents and trashed = false", pageSize: 1 });
   Logger.log('외부 연결 OK · ' + r.getResponseCode() + ' / 드라이브 OK · 파일 ' + ((d.files || []).length) + '건');
-}```
-
----
+}
+```
 
 ## 올리는 순서 (5분)
 
 1. [script.google.com](https://script.google.com) → 이 프로젝트 →
    **`ROOT_FOLDER_ID`·`SHARED_TOKEN` 두 줄만 남기고** 그 아래를 위 코드로 갈아 끼웁니다.
-2. **배포 → 배포 관리 → 연필 → 버전 '새 버전'** 으로 올립니다.
-   **같은 배포를 새 버전으로 올리면 URL은 그대로입니다.** URL이 바뀌었다면 Vercel 환경변수
-   (`DRIVE_WEBAPP_URL`)를 Production·Development 둘 다 고쳐야 합니다.
-3. 그 밖에 바꿀 것은 없습니다. 권한 승인(`권한승인` 실행)도 v7에서 이미 받았고, v8이 새로
-   쓰는 권한은 없습니다.
+2. 저장 → **배포 → 배포 관리 → 연필(수정) → 버전 '새 버전' → 배포**.
+   **새 배포를 만들지 마세요** — 같은 배포의 새 버전이면 URL이 그대로입니다. URL이 바뀌면
+   Vercel 환경변수 `DRIVE_WEBAPP_URL`을 Production·Development 둘 다 고쳐야 합니다.
+3. 그 밖에 바꿀 것은 없습니다. 권한 승인(`권한승인` 실행)은 v7에서 이미 받았고 v8 이후로
+   새로 쓰는 권한이 없습니다.
 
 ## 올린 뒤 확인할 것
 
-1. 앱에서 **워드(.docx) 하나 올리기.** 목록에 **바로** 서야 합니다(변환을 기다리지 않습니다).
-   몇 초 뒤 창을 닫았다 다시 '펼쳐보기' → 구글 문서 화면이 뜨면 성공입니다.
-   드라이브의 업무 폴더에 `<원래이름> (문서)`가 같이 생겨 있어야 합니다.
-2. **PPT(.pptx)도 같게** — `<원래이름> (슬라이드)`.
-3. **엑셀(.xlsx)이 그대로인지** — `<원래이름> (표)`. 여기가 깨지면 v7 동작을 건드린 것입니다.
-4. **안 뜨면** 앱이 예전 길(우리가 직접 그리기)로 떨어지므로 화면이 깨지지는 않습니다 —
-   그때는 알려주세요.
+1. **판 번호** — `node scripts/backfill_sheet_preview.mjs`(인수 없이 = 읽기만)의 첫 줄에
+   스크립트가 답한 판 번호가 찍힙니다. 앱의 게이트는 `version >= 8`입니다.
+   (`--fix`를 붙이면 사본이 없는 옛 첨부에 사본을 만들어 `files.preview_file_id`에 적습니다.
+   `.env`에 `VITE_SUPABASE_URL`·`SUPABASE_SECRET_KEY`·`DRIVE_WEBAPP_URL`·`DRIVE_WEBAPP_TOKEN`이 필요합니다.)
+2. **업무 첨부는 보기** — 업무에 워드·PPT·엑셀을 하나 올리면 목록에 **바로** 서고(변환을
+   기다리지 않습니다), 몇 초 뒤 '펼쳐보기'가 구글 화면입니다. 그 화면에 글자를 칠 수 있으면
+   `cueEditors`가 새고 있는 것입니다 — 업무 첨부는 언제나 **보기**입니다.
+3. **큐시트는 편집자 두 계정만** — 주보 말씀 탭에 큐시트 `.docx`를 올리고, 교역자·마스터
+   계정으로는 편집 화면(글자를 칠 수 있음), 다른 계정으로는 읽기 화면인지.
+4. **폰에서는 앱 안 창이 읽기 화면일 수 있습니다** — iframe 안의 구글은 브라우저의 구글
+   로그인 상태(서드파티 쿠키)를 쓰고 아이폰 사파리·카카오 인앱이 그것을 막습니다.
+   머리줄의 **'구글 문서에서 편집'**(새 탭)으로 확인하세요.
 5. `node scripts/drive_check.mjs` — 어긋남 0건이면 끝입니다.
 
-## 옛 첨부에 사본 붙이기 (백필)
+## 판 이력
 
-v8을 올린 **뒤에** 돌립니다. 그전에 돌리면 워드·PPT는 건너뜁니다 — 스크립트가 답에 실어
-보내는 `version`을 먼저 읽고, 8 미만이면 엑셀만 처리합니다(v7에 워드를 보내면 쓰레기 사본이
-생기기 때문입니다).
+| 판 | 무엇이 바뀌었나 |
+|---|---|
+| v4 | 멱등 열쇠(`key` · 재시도에서 같은 파일을 다시 만들지 않게) · `list` 액션 · `trash`가 폴더 id도 받는다 |
+| v5 | `uploadFromUrl` — 바이트 대신 주소를 받아 스크립트가 직접 내려받는다(Vercel 함수의 4.5MB 몸통 한도를 지나가지 않게) |
+| v6 | `권한승인()` — 소유자가 UrlFetchApp 권한을 한 번 승인하는 자리(그 권한을 실제로 쓰는 함수를 실행해야 구글이 묻는다) |
+| v7 | 고급 드라이브 서비스로 전환 · 열쇠를 `description`에서 `appProperties`로(질의로 찾는다) · 폴더 만들기에 `LockService` 잠금 · **엑셀을 구글 시트 사본으로**(0031 · `files.preview_file_id`) |
+| v8 | 사본을 **워드(구글 문서)·PPT(구글 슬라이드)** 까지 · 사본 만들기를 `upload`에서 떼어 `convert` 액션으로(두 단계) · 모든 답에 `version`. **배포하지 않고 건너뛰었다**(사용자 결정 2026-09-08) |
+| v9 | 업로드 왕복 3→2 — `Drive.Files.create`에 이름·부모·열쇠·설명을 한 요청에 싣고 공유는 `Permissions.create` 하나(`createInFolder`) |
+| v10 | **큐시트 사본에만** 이름 있는 계정 둘(`CUE_EDITORS`)을 편집자로 — 앱이 `convert`에 `cueEditors`를 실을 때만. `role:'writer'`+`type:'anyone'`은 쓰지 않는다(링크를 아는 누구나 고치게 되는 길 — HANDOFF §7). **지금 판**(2026-09-09 배포) |
 
-```
-node scripts/backfill_sheet_preview.mjs          읽기만 — 무엇을 할지 보여준다
-node scripts/backfill_sheet_preview.mjs --fix    실제로 사본을 만들고 DB에 적는다
-```
-
-`.env`에 `VITE_SUPABASE_URL` · `SUPABASE_SECRET_KEY` · `DRIVE_WEBAPP_URL` ·
-`DRIVE_WEBAPP_TOKEN`이 있어야 합니다.
-
-되돌리기: 만들어진 사본을 드라이브 휴지통으로 보내고
-`update files set preview_file_id = null where preview_file_id is not null;`
-사본이 없으면 앱은 예전 길로 떨어지므로 화면이 깨지지는 않습니다.
+액션 목록은 v7부터 v10까지 같습니다(`upload`·`uploadFromUrl`·`ensureFolder`·`renameFolder`·
+`trash`·`list`·`convert`) — `api/drive.js`의 허용 목록과 같은지는 `tests/drivesync`가 봅니다.
 
 ## 되돌리려면
 
-v7 코드(`docs/APPS_SCRIPT_v7.md`)를 그대로 다시 붙여넣고 새 버전으로 올리면 됩니다.
-v8이 만든 문서·슬라이드 사본은 그대로 남고, 앱은 `preview_file_id`가 있으면 그것을 열기
-때문에 **이미 붙은 미리보기는 그대로 동작합니다.** 되돌려서 달라지는 것은 둘입니다 —
-그 뒤에 올리는 워드·PPT에는 사본이 안 생기고(우리 렌더러로 떨어집니다), 엑셀 사본은 다시
-업로드 응답을 기다리게 됩니다.
+배포 관리에는 지난 버전이 남아 있어 **그 버전을 고르기만 하면** 됩니다. 이미 만들어진 사본과
+붙은 편집자는 그대로 남으므로(드라이브에서 손으로 지웁니다) 이미 붙은 미리보기는 계속
+동작하고, 되돌린 뒤에 올리는 파일만 그 판의 동작을 따릅니다.

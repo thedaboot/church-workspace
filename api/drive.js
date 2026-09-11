@@ -8,7 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 //
 // 왜 Apps Script인가: 개인 지메일 드라이브는 서비스 계정으로 접근할 수 없다
 // (소유권도 용량도 가질 수 없다). 소유자 계정으로 실행되는 스크립트가 유일하게
-// 남는 길이다. 자세한 배경은 docs/DRIVE.md.
+// 남는 길이다. 배경은 docs/DRIVE.md, 붙여넣는 코드는 docs/APPS_SCRIPT.md.
 //
 // **몸통 한도가 4.5MB다**(실측 2026-08-28: 4MB는 함수까지 가고 4.4MB부터 413
 // FUNCTION_PAYLOAD_TOO_LARGE). base64가 33%를 붙이니 실제 파일은 3.3MB가 천장이고,

@@ -13,7 +13,7 @@
 /* 수동 테마 전환: <html data-theme="dark">가 다크 기준 (기본값은 index.html 스크립트가 시스템 설정으로 결정) */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
-/* ── 앱 시맨틱 변수: 라이트 (docs/DESIGN.md 스펙 값) ── */
+/* ── 앱 시맨틱 변수: 라이트 (값의 근거는 HANDOFF §4.2) ── */
 :root {
   /* 종이 톤 — 로그인 화면 글로우와 같은 계열(살짝 자색 기운)로 맞춘 무채색 */
   --app-canvas: #f6f5f7;        /* 페이지 바탕 */
@@ -54,7 +54,7 @@
   --seed-color-fg-brand: #3f6fc4;
 }
 
-/* ── 다크 (data-theme 속성 기반 — 헤더 토글로 전환, DESIGN.md '프로젝트 적용 노트' 참조) ── */
+/* ── 다크 (data-theme 속성 기반 — 헤더 토글로 전환. HANDOFF §4.2) ── */
 :root[data-theme='dark'] {
     --app-canvas: #191919; --app-surface: #202020; --app-surface-hover: #2a2a2a;
     --app-line: #333230;
@@ -109,9 +109,9 @@
 }
 
 @theme {
-  /* radius 스케일 — DESIGN.md Shapes 표 그대로 */
+  /* radius 스케일 (HANDOFF §4.2) */
   --radius-xs: 4px; --radius-sm: 5px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
-  /* 노션 다층 그림자 — DESIGN.md Elevation 표 그대로 */
+  /* 노션 다층 그림자 (HANDOFF §4.2) */
   --shadow-soft: 0 0.175px 1.041px rgba(0, 0, 0, .01), 0 0.8px 2.925px rgba(0, 0, 0, .02), 0 2.025px 7.847px rgba(0, 0, 0, .027), 0 4px 18px rgba(0, 0, 0, .04);
   --shadow-elevated: 0 0.6px 1.8px rgba(0, 0, 0, .02), 0 2.3px 6.9px rgba(0, 0, 0, .03), 0 5.4px 16.2px rgba(0, 0, 0, .035), 0 11px 33px rgba(0, 0, 0, .04), 0 23px 52px rgba(0, 0, 0, .05);
   /* 폰트 — SUIT(위 @import './assets/fonts/suit.css'의 로컬 서브셋, scripts/subset_suit.py) 우선, 실패하면 아래 순서로 */

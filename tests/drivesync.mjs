@@ -22,12 +22,11 @@ const api = read('api/drive.js');
 const sync = read('src/services/cloudSync.js');
 const att = read('src/modals/attachments.jsx');
 const vercel = JSON.parse(read('vercel.json'));
-const drivemd = read('docs/DRIVE.md');
-// **지금 배포된 것은 v7이고, 다음에 올릴 것이 v9다**(v8은 배포하지 않고 건너뛴다 — 사용자 결정
-// 2026-09-08). DRIVE.md는 배경 설명이고 코드는 이 문서들이 원본이다 — 액션 목록은 이쪽을 봐야 한다.
-// scriptmd(=v9)가 기준이다. v7은 아직 라이브라 액션 목록만 같이 본다.
-const scriptmd = read('docs/APPS_SCRIPT_v9.md');
-const scriptv7 = read('docs/APPS_SCRIPT_v7.md');
+// **붙여넣는 코드의 원본은 이 문서 하나다**(docs/DRIVE.md는 배경 설명이고 코드가 없다).
+// 판마다 문서를 두던 것은 2026-09-11에 걷었다 — 옛 판 코드는 git 이력에 있고, 무엇이
+// 언제 바뀌었는지는 그 문서의 '판 이력' 표에 한 줄씩 남는다. 그래서 v7 문서를 읽어
+// 액션 목록을 맞춰 보던 단정도 이 한 벌로 합쳤다(액션 목록은 v7~v10이 같다 — 표에 적혀 있다).
+const scriptmd = read('docs/APPS_SCRIPT.md');
 const backfill = read('scripts/backfill_sheet_preview.mjs');
 const cfg = read('src/config.js');
 const filesvc = read('api/drive-file.js');
@@ -176,7 +175,7 @@ check('폴더 id를 스토어에도 넣는다', () => {
 });
 
 // ── 스크립트 ────────────────────────────────────────────────────────────────
-check('스크립트가 멱등 열쇠·list·변환 사본을 안다 (v9)', () => {
+check('스크립트가 멱등 열쇠·list·변환 사본을 안다', () => {
   assert.match(scriptmd, /case 'list'/, 'list 액션이 없다');
   assert.match(scriptmd, /KEY_PROP/, '열쇠를 appProperties에 안 적는다');
   assert.match(scriptmd, /if \(body\.retry\)/, '첫 시도에도 폴더를 훑으면 파일 많은 업무가 느려진다');
@@ -187,15 +186,15 @@ check('스크립트가 멱등 열쇠·list·변환 사본을 안다 (v9)', () =>
   assert.match(scriptmd, /LockService/, '폴더 만들기에 잠금이 없다 — 병렬 업로드에서 같은 폴더가 여럿 생긴다');
 });
 
-// ── v8→v9: 워드·PPT 사본 (2026-09-08) ───────────────────────────────────────
-check('v9 스크립트가 워드·PPT도 네이티브 사본으로 만든다', () => {
+// ── 워드·PPT 사본 (v8부터) ──────────────────────────────────────────────────
+check('스크립트가 워드·PPT도 네이티브 사본으로 만든다', () => {
   assert.match(scriptmd, /GOOGLE_DOCS/, '워드를 구글 문서로 안 옮긴다');
   assert.match(scriptmd, /GOOGLE_SLIDES/, 'PPT를 구글 슬라이드로 안 옮긴다');
   assert.match(scriptmd, /GOOGLE_SHEETS/, '엑셀 변환이 사라졌다(v7 동작이 깨진다)');
   assert.match(scriptmd, /convertTo/, 'convertTo를 모르면 워드·PPT 요청이 무시된다');
   // 버전을 안 실어 보내면 부르는 쪽이 v7에 워드를 보내 쓰레기 사본을 만든다
-  // 앱의 게이트는 `>= 8`이다(cloud.attachPreviewCopy) — 9는 그 조건을 그대로 지난다
-  assert.match(scriptmd, /const SCRIPT_VERSION = 9;/, '버전 상수가 9가 아니다');
+  // 앱의 게이트는 `>= 8`이다(cloud.attachPreviewCopy) — 지금 판(10)은 그 조건을 그대로 지난다
+  assert.match(scriptmd, /const SCRIPT_VERSION = 10;/, '버전 상수가 10이 아니다');
   assert.match(scriptmd, /out\.version = SCRIPT_VERSION/, '답에 버전을 안 싣는다');
   // 사본 종류는 **확장자**가 정한다 — 부르는 쪽 값을 믿으면 잘못 보낸 한 번이 영영 남는다
   assert.ok(/COPY_AS\[String\(name/.test(scriptmd), '사본 종류를 확장자로 정하지 않는다');
@@ -204,11 +203,32 @@ check('v9 스크립트가 워드·PPT도 네이티브 사본으로 만든다', (
   assert.ok(fn, 'makePreviewCopy를 못 찾았다');
   assert.ok(!/Drive\.Files\.update/.test(fn), '사본을 만든 뒤 고치러 한 번 더 간다 — copy 본문에 실어야 한다');
   assert.ok(!/Drive\.Files\.get/.test(fn), '사본을 만들며 파일을 다시 묻는다');
-  // 첨부 사본에 편집 권한을 주면 링크를 아는 누구나 고칠 수 있다(HANDOFF §7 마지막 줄)
-  assert.ok(!/role: 'writer'/.test(scriptmd), '사본에 편집 권한을 준다');
+  // 링크를 아는 누구나 고칠 수 있게 되면 안 된다(HANDOFF §7 마지막 줄) — 'anyone'은 언제나 reader다.
+  // v10부터 'writer'가 코드에 있지만 그것은 **이름 있는 계정**(type: 'user')뿐이다(아래 검사).
+  assert.ok(!/role: 'writer'[^)]*type: 'anyone'/.test(scriptmd), "'anyone'에게 편집 권한을 준다");
+  assert.ok(!/type: 'anyone'[^)]*role: 'writer'/.test(scriptmd), "'anyone'에게 편집 권한을 준다");
 });
 
-check('v9 upload은 변환을 기다리지 않는다', () => {
+// ── v10: 큐시트 사본만 편집자 둘 (2026-09-09 — "큐시트는 교역자와 마스터만 수정 가능하게") ──
+check('큐시트 사본에만 이름 있는 계정 둘이 편집자로 붙는다', () => {
+  // 'writer'+'anyone'(위 검사)이 아니라 이름 있는 계정 둘이다. 명단이 코드 한 줄이라
+  // 사람이 바뀌면 그 줄만 고치고 새 버전으로 올린다.
+  assert.match(scriptmd, /var CUE_EDITORS = \[/, '편집자 명단(CUE_EDITORS)이 없다');
+  assert.match(scriptmd, /role: 'writer', type: 'user', emailAddress: CUE_EDITORS\[i\]/,
+    '편집자를 이름 있는 계정으로 주지 않는다');
+  assert.match(scriptmd, /sendNotificationEmail: false/,
+    '주보를 올릴 때마다 두 사람에게 메일이 간다');
+  // 붙는 것은 앱이 그 칸을 실어 보낼 때뿐이다 — 업무 첨부 사본의 공유는 그대로여야 한다
+  assert.match(scriptmd, /function makePreviewCopy\(fileId, name, folderId, cueEditors\)/,
+    'makePreviewCopy가 cueEditors를 받지 않는다');
+  assert.match(scriptmd, /if \(cueEditors\) \{/, '종류를 안 가리고 편집자를 붙인다');
+  assert.match(scriptmd, /makePreviewCopy\(body\.fileId, name, parent, !!body\.cueEditors\)/,
+    'convert 액션이 그 칸을 넘기지 않는다');
+  // 앱 쪽 판단은 `files.kind === 'cuesheet'` 한 줄이다(업무 첨부·송폼은 안 보낸다)
+  assert.match(cloud, /cueEditors: [^\n]*cuesheet/, "cloud.js가 큐시트에만 cueEditors를 싣지 않는다");
+});
+
+check('upload은 변환을 기다리지 않는다 (v8부터)', () => {
   // v7은 upload 안에서 변환까지 끝내고 답해서 올리는 시간에 변환 시간이 더해졌다.
   // convertTo(새 화면이 쓰는 칸)가 upload 자리에 있으면 그 자리에서 또 기다린다.
   const up = scriptmd.slice(scriptmd.indexOf('function upload(body)'), scriptmd.indexOf('// **F: 오피스 파일을'));
@@ -216,8 +236,8 @@ check('v9 upload은 변환을 기다리지 않는다', () => {
   assert.ok(!/body\.convertTo/.test(up), 'upload이 convertTo를 보고 변환한다 — 사본은 convert 액션이 만든다');
 });
 
-// ── v9: 업로드 왕복 둘 (2026-09-08 — "좀 더 효율적인 방법으로") ────────────────
-check('v9 upload은 드라이브 왕복 둘이다(만들기 + 공유)', () => {
+// ── 업로드 왕복 둘 (v9부터) ─────────────────────────────────────────────────
+check('upload은 드라이브 왕복 둘이다(만들기 + 공유)', () => {
   // v8까지는 createFile · 열쇠 update(stampKey) · setSharing 셋이었다. 이름·부모·열쇠·설명을
   // Drive.Files.create 한 요청에 실으면 둘이 된다 — 남는 하나(공유)는 다른 API라 합칠 수 없다.
   assert.match(scriptmd, /function createInFolder\(/, '공용 만들기 함수가 없다');
@@ -235,12 +255,10 @@ check('v9 upload은 드라이브 왕복 둘이다(만들기 + 공유)', () => {
 check('프록시가 아는 액션과 스크립트가 아는 액션이 같다', () => {
   const apiSet = new Set([...(/ACTIONS = new Set\(\[([^\]]*)\]\)/.exec(api)?.[1] || '')
     .matchAll(/'([a-zA-Z]+)'/g)].map(m => m[1]));
-  // v7은 아직 라이브다 — 둘 중 하나라도 어긋나면 그 판에서 액션이 막힌다
-  for (const [label, md] of [['v9', scriptmd], ['v7', scriptv7]]) {
-    const scriptSet = new Set([...md.matchAll(/case '([a-zA-Z]+)':\s+return json/g)].map(m => m[1]));
-    for (const a of scriptSet) assert.ok(apiSet.has(a), `${label} 스크립트는 ${a}를 아는데 프록시가 막는다`);
-    for (const a of apiSet) assert.ok(scriptSet.has(a), `프록시는 ${a}를 통과시키는데 ${label} 스크립트가 모른다`);
-  }
+  // 액션 목록은 v7부터 지금 판까지 같다(APPS_SCRIPT.md '판 이력') — 어긋나면 그 액션이 막힌다
+  const scriptSet = new Set([...scriptmd.matchAll(/case '([a-zA-Z]+)':\s+return json/g)].map(m => m[1]));
+  for (const a of scriptSet) assert.ok(apiSet.has(a), `스크립트는 ${a}를 아는데 프록시가 막는다`);
+  for (const a of apiSet) assert.ok(scriptSet.has(a), `프록시는 ${a}를 통과시키는데 스크립트가 모른다`);
 });
 
 // ── 화면에 나가는 문구 ──────────────────────────────────────────────────────
@@ -442,10 +460,12 @@ check('uploadFromUrl도 그냥 재시도하면 안 된다', () => {
   assert.match(fn, /uploadOnceOrFind\(\{\s*\n?\s*action: 'uploadFromUrl'/, '확인 없이 보낸다');
 });
 
-check('문서의 스크립트가 uploadFromUrl을 안다 (v6)', () => {
-  assert.match(drivemd, /case 'uploadFromUrl'/, 'uploadFromUrl 액션이 없다');
-  assert.match(drivemd, /UrlFetchApp\.fetch/, '주소에서 받아오지 않는다');
-  assert.match(drivemd, /getResponseCode\(\) >= 300/, '받아오기 실패를 안 가린다');
+check('문서의 스크립트가 uploadFromUrl을 안다 (v5부터)', () => {
+  // 이 셋을 v6 코드 상자(DRIVE.md)에서 보고 있었다 — 그 상자는 2026-09-11에 지웠고
+  // 지금 붙여넣는 코드 한 벌만 남았다. 보는 뜻은 그대로다.
+  assert.match(scriptmd, /case 'uploadFromUrl'/, 'uploadFromUrl 액션이 없다');
+  assert.match(scriptmd, /UrlFetchApp\.fetch/, '주소에서 받아오지 않는다');
+  assert.match(scriptmd, /getResponseCode\(\) >= 300/, '받아오기 실패를 안 가린다');
 });
 
 // ── 주보에 붙는 파일 — 송폼 · 큐시트 (0047 · 갈래는 0054) ───────────────────

@@ -1,324 +1,88 @@
-# 개인 구글 드라이브 연동 · 마이그레이션 계획
+# 개인 구글 드라이브 연동
 
-첨부 파일의 **실체를 개인 구글 드라이브로 옮기고, DB에는 참조만 남기는** 구조.
-현재 앱은 이미 이 구조를 읽을 수 있게 되어 있고(아래 "이미 된 것"), 남은 건
-드라이브 소유자 계정에서 한 번 해줘야 하는 설정뿐이다.
+업무·주보 첨부의 **실체는 소유자의 개인 구글 드라이브**에 있고 DB(`files`)에는 참조만
+남습니다. 붙여넣는 스크립트 코드는 `docs/APPS_SCRIPT.md`, 코드 쪽 진입점은
+`src/services/cloud.js`(브라우저) · `api/drive.js`(프록시)입니다.
 
-## 왜 Apps Script 방식인가
+## 왜 Apps Script인가
 
-개인 지메일 드라이브는 서비스 계정으로 접근할 수 없다(공유 드라이브가 없어서
-서비스 계정이 소유권을 가질 수 없고, 개인 계정 용량에 쓰지도 못한다).
-남는 방법은 두 가지인데:
+개인 지메일 드라이브는 서비스 계정으로 접근할 수 없습니다 — 공유 드라이브가 없어서
+서비스 계정이 소유권을 가질 수 없고, 개인 계정 용량에 쓰지도 못합니다. 남는 길은 둘입니다.
 
 | 방법 | 필요한 것 | 유지 부담 |
 |---|---|---|
-| **Apps Script 웹앱** (권장) | 소유자가 스크립트 1개 배포 → URL | 없음. 토큰 만료 없음 |
-| OAuth refresh token | 구글 클라우드 프로젝트 + 동의 화면 + 토큰 보관 | 토큰 폐기·갱신 관리 필요 |
+| **Apps Script 웹앱** (쓰고 있는 것) | 소유자가 스크립트 1개 배포 → URL | 없음. 토큰 만료 없음 |
+| OAuth refresh token | 구글 클라우드 프로젝트 + 동의 화면 + 토큰 보관 | 토큰 폐기·갱신 관리 |
 
-권장안은 소유자가 **자기 계정으로 실행되는 스크립트**를 배포하는 것이다.
-우리 서버는 그 URL로 파일을 보내기만 하면 되고, 저장·용량·소유권은 전부
-소유자 드라이브에 있다.
+소유자가 **자기 계정으로 실행되는 스크립트**를 배포하고, 우리 서버는 그 URL로 요청만
+보냅니다. 저장·용량·소유권은 전부 소유자 드라이브에 있습니다. 서비스 계정·OAuth 위임으로
+Drive API를 직접 부르는 길은 개인 계정 제약으로 막혀 있습니다(HANDOFF §7).
 
-## 이미 된 것 (코드·DB)
+## 지금 구조
 
-- `files.source` = `'storage' | 'drive'` — 파일 1건 단위로 저장소를 구분한다
-- `files.drive_file_id`, `files.web_view_link` — 드라이브 파일 참조
-- `projects.drive_folder_id` — 프로젝트 1개 = 드라이브 폴더 1개
-- 읽기 경로 분기: `getFileOpenUrl(row)` (src/services/cloud.js)
-  → `source='drive'`면 `web_view_link`로 열고, 아니면 Storage 서명 URL
-- 삭제 경로: `storage_path`가 없으면 Storage는 건드리지 않고 DB 행만 지운다
-  (드라이브 파일 실체는 소유자 드라이브에 남는다 — 의도된 동작)
+- `files.source` = `'storage' | 'drive'` — 파일 1건 단위로 저장소를 가릅니다. 읽기 갈래는
+  `cloud.getFileOpenUrl(row)`, 업로드 갈래는 `cloud.uploadOwnedFile` **한 벌**입니다.
+- `files.drive_file_id` · `web_view_link` — 드라이브 파일 참조.
+- `files.preview_file_id`(0031) — 오피스 파일의 **구글 네이티브 사본** id. 앱은 그 사본을
+  iframe으로 띄웁니다(주소는 `services/previewKind.js`가 종류에 맞춰 만듭니다).
+  사본은 업로드 응답을 기다리지 않고 뒤에서 붙습니다(`cloud.attachPreviewCopy`).
+- `files.text_excerpt`(0030) — 올릴 때 뽑아 둔 앞 2000자. 검색과 AI 요약이 같이 읽습니다.
+- **폴더는 `프로젝트 / 업무` 두 겹**입니다. 프로젝트 폴더는 `projects.drive_folder_id`에
+  id로 적어 두고(이름으로만 찾으면 프로젝트 이름을 바꾼 순간 파일이 두 폴더로 갈립니다),
+  업무 폴더는 그 아래에서 **제목으로** 찾거나 만듭니다. 업무 폴더에 id 칸을 두지 않은
+  까닭과 그 대가(제목을 바꾸면 그 뒤 파일만 새 이름 폴더로 간다)는 `cloud.js` 머리말에 있습니다.
+  주보 첨부는 `예배/<날짜>` 한 벌입니다(0047 · `services.drive_folder_id`).
+- **CRUD 싱크**: 프로젝트 이름을 바꾸면 폴더 이름도 따라가고(폴더가 이미 있을 때만),
+  앱에서 첨부·업무·프로젝트를 지우면 드라이브에서는 **폴더째 휴지통**으로 갑니다(30일 복구).
+- **썸네일**은 `lh3.googleusercontent.com/d/<id>=w200-h200-c`로 붙습니다 — 구글 이미지 CDN이
+  줄여서 내주므로 우리 대역폭이 0입니다.
+- **환경변수** `DRIVE_WEBAPP_URL` · `DRIVE_WEBAPP_TOKEN`은 **서버 전용**입니다(`VITE_` 금지 —
+  붙이면 브라우저에 그대로 박힙니다). 없는 환경(로컬·프리뷰)에서는 `api/drive.js`가 501을
+  주고 부르는 쪽이 Supabase Storage로 되돌아갑니다.
 
-즉 **행 하나의 source를 'drive'로 바꾸는 것만으로** 앱은 그대로 동작한다.
+## 새로 세울 때 소유자가 해줘야 하는 것 (1회, 약 5분)
 
-## 스크립트 판 (버전)
+1. 드라이브에 폴더 하나: `더다붓 워크스페이스`
+2. [script.google.com](https://script.google.com) → 새 프로젝트 → `docs/APPS_SCRIPT.md`의
+   코드를 붙여넣습니다.
+3. `ROOT_FOLDER_ID`에 1번 폴더 ID(폴더 URL의 `/folders/` 뒤)를, `SHARED_TOKEN`에 아무 긴
+   랜덤 문자열을 넣습니다. **이 두 줄은 스크립트 안에만 있습니다** — 지우면 폴더 id를
+   드라이브에서 다시 찾아야 합니다.
+4. 편집기 왼쪽 **서비스(+)** → **Drive API** → v3 → 식별자 `Drive`(고급 드라이브 서비스).
+5. 함수 목록에서 `권한승인`을 골라 **▶ 실행** → 권한 검토 → (확인되지 않은 앱 경고가 나오면
+   **고급 → 이동**) → 허용. 아무 함수나 실행해서는 창이 안 뜹니다 — 그 권한을 실제로 쓰는
+   함수를 실행해야 구글이 묻습니다. 이걸 안 하면 큰 파일(`uploadFromUrl`)이 권한 오류로 죽습니다.
+6. 배포 → 새 배포 → 유형 **웹 앱** / 실행 계정 **나** / 액세스 **모든 사용자**
+7. 나온 **웹 앱 URL**과 `SHARED_TOKEN`을 Vercel 환경변수에 넣습니다(채팅·메일로 보내지 말고
+   안전한 경로로). 이미 세워진 뒤의 판 올리기는 **같은 배포의 새 버전**입니다 — `APPS_SCRIPT.md`.
 
-**아래 코드 상자는 v6입니다 — 처음 붙일 때의 기록으로 남겨 둔 것이고, 지금 붙여넣을
-코드가 아닙니다.** 판마다 문서를 따로 두고, 그 문서가 코드의 원본입니다.
+## 점검 도구
 
-| 판 | 문서 | 무엇이 달라졌나 | 상태 |
-|---|---|---|---|
-| v6 | 이 문서(아래 상자) | `uploadFromUrl`(큰 파일) · 멱등 열쇠 · `list` · 폴더 휴지통 | 지난 판 |
-| v7 | `docs/APPS_SCRIPT_v7.md` | 고급 드라이브 서비스 · 열쇠를 `appProperties`로 · 폴더 만들기 잠금 · **엑셀을 구글 시트로 변환한 사본**(0031 · `files.preview_file_id`) | **배포됨** (2026-08-29) |
-| v8 | `docs/APPS_SCRIPT_v8.md` | 변환 사본을 **워드(구글 문서)·PPT(구글 슬라이드)** 까지 · 사본 만들기를 업로드에서 떼어냄(두 단계) · 답마다 `version` | **건너뜀** — 배포하지 않고 v9로(사용자 결정 2026-09-08) |
-| v9 | `docs/APPS_SCRIPT_v9.md` | v8 전부 + **업로드 왕복 3→2**(`Drive.Files.create`에 이름·부모·열쇠·설명을 한 요청에 · 공유는 `Permissions.create`) · 배포 뒤 절차와 v10 후보를 문서 끝에 | **사용자가 올려야 함** — 아무 때나(앱의 게이트는 `version >= 8`) |
-
-**v8부터 스크립트는 모든 답에 `version`을 실어 보냅니다.** 버전을 묻는 액션은 따로
-두지 않았습니다 — 액션을 늘리면 `api/drive.js`의 허용 목록(ACTIONS)까지 같이 넓혀야
-하고, 그 둘이 같은지 보는 검사(`tests/drivesync`)도 따라 움직입니다. 답에 한 칸 얹는
-쪽이 쌉니다. v7 이하에는 그 칸이 **없으므로**(undefined), 읽는 쪽은 0으로 보고
-"아직 v8이 아니다"로 판단합니다. 그 판단을 쓰는 곳은 둘입니다 —
-`src/services/cloud.js`의 `attachPreviewCopy`와 `scripts/backfill_sheet_preview.mjs`.
-둘 다 **v8 미만이면 워드·PPT 변환을 보내지 않습니다**(v7의 `convert`는 종류를 안 보고
-시트 사본을 만들어서, 글자가 표 칸에 흩어진 사본이 `preview_file_id`에 박힙니다).
-
-`node scripts/drive_check.mjs`는 아직 버전을 `list` 액션이 있는지로만 봅니다(v5 게이트) —
-읽기만 하는 도구라 그대로 둡니다.
-
-## 소유자가 해줘야 하는 것 (1회, 약 5분)
-
-1. 드라이브에 폴더 하나 생성: `더다붓 워크스페이스`
-2. [script.google.com](https://script.google.com) → 새 프로젝트 → 아래 코드 붙여넣기
-3. `ROOT_FOLDER_ID`에 1번 폴더 ID를 넣는다 (폴더 URL의 `/folders/` 뒤 문자열)
-4. `SHARED_TOKEN`을 아무 긴 랜덤 문자열로 바꾼다 (우리 서버만 아는 값)
-5. **v6부터**: 함수 목록에서 `권한승인`을 골라 **▶ 실행** → 권한 검토 →
-   (확인되지 않은 앱 경고가 나오면 **고급 → 이동**) → **"외부 서비스에 연결" 허용**.
-   이걸 안 하면 큰 파일(uploadFromUrl)이 권한 오류로 죽는다. 아무 함수나 실행해서는
-   창이 안 뜬다 — 그 권한을 실제로 쓰는 함수를 실행해야 구글이 묻는다.
-5. 배포 → 새 배포 → 유형 **웹 앱** / 실행 계정 **나** / 액세스 **모든 사용자**
-6. 나온 **웹 앱 URL**과 `SHARED_TOKEN`을 전달 (채팅·메일로 보내지 말고 안전한 경로로)
-
-```javascript
-// 더다붓 워크스페이스 → 개인 드라이브 파일 저장기 (v6)
-//
-// v4에서 달라진 것 (2026-08-28):
-//  1) upload이 **멱등 열쇠(key)** 를 받는다. 재시도(retry:true)일 때 같은 열쇠의
-//     파일이 그 폴더에 이미 있으면 새로 만들지 않고 그것을 돌려준다.
-//     → 앱이 타임아웃을 봤지만 실제로는 올라갔던 경우, 다시 보내도 파일이 두 개가
-//       되지 않는다. **이것이 없으면 업로드에 재시도를 붙일 수 없다.**
-//     → 첫 시도에서는 폴더를 훑지 않는다(사진 서른 장짜리 업무에서 매번 훑으면
-//       그게 새 병목이 된다). 훑는 것은 재시도일 때뿐이다.
-//  2) **list** 액션 — 폴더 안 파일을 열쇠와 함께 돌려준다. 업로드가 끊겼을 때
-//     "정말 안 올라갔는지" 확인하고, DB와 드라이브를 맞춰보는 데 쓴다.
-//     list는 폴더를 **만들지 않는다**(없으면 files: []).
-//
-// v5에서 달라진 것 (2026-08-28):
-//  3) **uploadFromUrl** — 파일 내용 대신 **주소**를 받아 스크립트가 직접 받아 온다.
-//     왜: Vercel 함수는 요청 몸통을 **4.5MB**까지만 받는다(실측: 4MB 통과 · 4.4MB
-//     413 FUNCTION_PAYLOAD_TOO_LARGE). base64가 33%를 붙이니 실제 파일은 3.3MB가
-//     천장이었고, 그보다 큰 파일은 **함수에 닿지도 못하고** 잘렸다(사용자 신고:
-//     20MB PDF가 올리자마자 실패). 그래서 큰 파일은 브라우저가 Supabase Storage에
-//     **직접** 올리고(그 길에는 함수가 없다), 우리는 주소만 넘긴다. 바이트가 함수를
-//     지나가지 않으므로 한도가 사라지고 base64도 붙지 않는다.
-//     UrlFetchApp의 응답 한도는 50MB라 첨부 상한(25MB)에 넉넉하다.
-//
-// 열쇠는 파일 설명(description)에 적는다 — DriveApp만으로 읽고 쓸 수 있어
-// 고급 서비스를 켤 필요가 없고, 드라이브에서 눈으로 봐도 방해되지 않는다.
-//
-// ROOT_FOLDER_ID · SHARED_TOKEN 두 줄은 **기존 값을 그대로** 두세요.
-const ROOT_FOLDER_ID = 'PASTE_FOLDER_ID_HERE';
-const SHARED_TOKEN = 'PASTE_LONG_RANDOM_STRING_HERE';
-
-const KEY_PREFIX = 'wskey:';
-
-function doPost(e) {
-  try {
-    const body = JSON.parse(e.postData.contents);
-    if (body.token !== SHARED_TOKEN) return json({ error: 'unauthorized' });
-
-    switch (body.action || 'upload') {
-      case 'upload':       return json(upload(body));
-      case 'uploadFromUrl': return json(uploadFromUrl(body));
-      case 'ensureFolder': return json({ folderId: folderFor(body).getId() });
-      case 'renameFolder': return json(renameFolder(body));
-      case 'trash':        return json(trash(body));
-      case 'list':         return json(list(body));
-      default:             return json({ error: 'unknown action' });
-    }
-  } catch (err) {
-    return json({ error: String(err) });
-  }
-}
-
-// 폴더는 id가 있으면 id로, 없으면 path를 따라 내려가며 찾거나 만든다.
-// path: ['2026 하계 수련회', '포스터 만들기'] 처럼 위에서 아래로.
-// id를 먼저 보는 것이 중요하다 — 이름으로만 찾으면 프로젝트 이름을 바꾼 순간
-// 예전 파일은 옛 폴더에, 새 파일은 새 폴더에 쌓인다.
-function folderFor(body) {
-  if (body.folderId) {
-    try { return DriveApp.getFolderById(body.folderId); } catch (err) { /* 지워졌으면 path로 */ }
-  }
-  var f = DriveApp.getFolderById(ROOT_FOLDER_ID);
-  var path = body.path && body.path.length ? body.path : [body.projectName || '기타'];
-  for (var i = 0; i < path.length; i++) f = childFolder(f, String(path[i] || '기타'));
-  return f;
-}
-
-function childFolder(parent, name) {
-  var it = parent.getFoldersByName(name);
-  return it.hasNext() ? it.next() : parent.createFolder(name);
-}
-
-// 읽기 전용 조회용 — 없으면 null. list가 폴더를 만들어 버리면 안 된다.
-function childFolderIfExists(parent, name) {
-  var it = parent.getFoldersByName(name);
-  return it.hasNext() ? it.next() : null;
-}
-
-// 같은 열쇠를 가진 파일 찾기(재시도일 때만 부른다)
-function findByKey(folder, key) {
-  if (!key) return null;
-  var tag = KEY_PREFIX + key;
-  var it = folder.getFiles();
-  while (it.hasNext()) {
-    var f = it.next();
-    if (f.getDescription() === tag) return f;
-  }
-  return null;
-}
-
-function upload(body) {
-  // 업무 폴더는 프로젝트 폴더 **아래**다. 프로젝트 폴더 id를 주면 거기서 시작한다.
-  var folder = folderFor(body);
-  if (body.cardTitle) folder = childFolder(folder, String(body.cardTitle));
-
-  // 재시도일 때만 훑는다 — 첫 시도에 훑으면 파일이 많은 폴더에서 그게 병목이다
-  if (body.retry) {
-    var found = findByKey(folder, body.key);
-    if (found) return { id: found.getId(), url: found.getUrl(), folderId: folder.getId(), existing: true };
-  }
-
-  var blob = Utilities.newBlob(
-    Utilities.base64Decode(body.dataBase64),
-    body.mimeType || 'application/octet-stream',
-    body.name || 'file'
-  );
-  var file = folder.createFile(blob);
-  if (body.key) file.setDescription(KEY_PREFIX + body.key);
-  // 링크를 아는 사람은 보기 — 앱이 lh3.googleusercontent.com/d/<id>로 썸네일을 붙인다.
-  // 이 줄이 없으면 소유자만 열 수 있어서 앱 안 이미지가 전부 깨진다.
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  return { id: file.getId(), url: file.getUrl(), folderId: folder.getId() };
-}
-
-// 주소에서 받아 드라이브에 쓴다. upload과 같은 결과를 돌려준다.
-// 큰 파일 전용 — 바이트가 우리 함수를 지나가지 않는다(위 v6 설명 참고).
-function uploadFromUrl(body) {
-  var folder = folderFor(body);
-  if (body.cardTitle) folder = childFolder(folder, String(body.cardTitle));
-
-  if (body.retry) {
-    var found = findByKey(folder, body.key);
-    if (found) return { id: found.getId(), url: found.getUrl(), folderId: folder.getId(), existing: true };
-  }
-
-  var res = UrlFetchApp.fetch(String(body.url), { muteHttpExceptions: true, followRedirects: true });
-  if (res.getResponseCode() >= 300) {
-    return { error: '파일을 받아오지 못했습니다 (' + res.getResponseCode() + ')' };
-  }
-  var blob = res.getBlob().setName(body.name || 'file');
-  if (body.mimeType) blob = blob.setContentType(body.mimeType);
-  var file = folder.createFile(blob);
-  if (body.key) file.setDescription(KEY_PREFIX + body.key);
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  return { id: file.getId(), url: file.getUrl(), folderId: folder.getId() };
-}
-
-// 폴더 안 파일 목록(열쇠 포함). 폴더를 만들지 않는다.
-function list(body) {
-  var folder;
-  if (body.folderId) {
-    try { folder = DriveApp.getFolderById(body.folderId); } catch (err) { return { files: [] }; }
-  } else {
-    folder = DriveApp.getFolderById(ROOT_FOLDER_ID);
-    var path = body.path && body.path.length ? body.path : [body.projectName || '기타'];
-    for (var i = 0; i < path.length && folder; i++) folder = childFolderIfExists(folder, String(path[i] || '기타'));
-    if (!folder) return { files: [] };
-  }
-  if (body.cardTitle) {
-    folder = childFolderIfExists(folder, String(body.cardTitle));
-    if (!folder) return { files: [] };
-  }
-  var out = [];
-  var it = folder.getFiles();
-  while (it.hasNext() && out.length < 500) {
-    var f = it.next();
-    var d = f.getDescription() || '';
-    out.push({
-      id: f.getId(), name: f.getName(), size: f.getSize(), url: f.getUrl(),
-      key: d.indexOf(KEY_PREFIX) === 0 ? d.slice(KEY_PREFIX.length) : null,
-    });
-  }
-  return { folderId: folder.getId(), files: out };
-}
-
-function renameFolder(body) {
-  var folder = folderFor(body);
-  if (body.newName) folder.setName(body.newName);
-  return { folderId: folder.getId(), name: folder.getName() };
-}
-
-// 완전 삭제가 아니라 휴지통이다 — 30일 안에는 되돌릴 수 있다.
-// 앱에서 잘못 지운 것을 복구할 길이 없으면 그건 싱크가 아니라 유실이다.
-// v4부터 **폴더 id도 받는다** — 업무·프로젝트를 지울 때 폴더째 휴지통으로 보낸다
-// (getFileById는 폴더에 못 쓰므로 실패하면 getFolderById로 다시 시도한다).
-function trash(body) {
-  try { DriveApp.getFileById(body.fileId).setTrashed(true); }
-  catch (err) { DriveApp.getFolderById(body.fileId).setTrashed(true); }
-  return { trashed: body.fileId };
-}
-
-// 권한 승인용 — **v6으로 올릴 때 한 번만** 실행한다.
-// uploadFromUrl이 UrlFetchApp을 쓰는데, 소유자가 그 권한(script.external_request)을
-// 승인한 적이 없으면 "UrlFetchApp.fetch을(를) 호출할 수 있는 권한이 없습니다"로 죽는다.
-// **에디터에서 아무 함수나 실행해도 승인 창이 안 뜬다** — 그 함수가 실제로 그 권한을
-// 쓰지 않으면 구글이 묻지 않기 때문이다(folderFor는 DriveApp만 써서 이미 승인돼 있다).
-// 그래서 이 함수를 두고 이것을 실행한다. 승인 뒤에는 지워도 되고 둬도 된다.
-function 권한승인() {
-  const r = UrlFetchApp.fetch('https://www.google.com');
-  Logger.log('외부 연결 권한 OK · 응답 코드 ' + r.getResponseCode());
-}
-
-function json(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-```
-
-## 우리 쪽 (2026-08-26에 붙였다)
-
-1. **Vercel 환경변수** `DRIVE_WEBAPP_URL` · `DRIVE_WEBAPP_TOKEN`
-   (**둘 다 서버 전용 — `VITE_` 접두사 금지.** 붙이면 브라우저에 그대로 박힌다)
-   Production·Development 등록 완료. Preview는 남아 있다(프리뷰 배포에만 쓴다).
-2. **`api/drive.js`** — 세션 토큰을 검증하고 스크립트로 넘긴다(`api/ai.js`와 같은 패턴).
-   브라우저는 스크립트 URL·토큰을 모른다. **승인된 사람만** 통과시킨다(0022) —
-   RLS는 DB만 지키고 이 경로는 DB를 거치지 않는다.
-   키가 없는 환경(로컬·프리뷰)은 501을 주고, 부르는 쪽이 Storage로 되돌린다.
-3. **업로드 경로**: `cloud.uploadAttachment`가 드라이브로 보내고 `source:'drive'`,
-   `drive_file_id`, `web_view_link`로 행을 만든다. 501이면 예전 Storage 경로.
-4. **폴더는 `프로젝트 / 업무` 두 겹**이다. 프로젝트 폴더는
-   `projects.drive_folder_id`에 id로 적어 두고(첫 업로드 때 `ensureProjectFolder`가
-   한 번 만든다), 업무 폴더는 그 아래에 **제목으로** 찾거나 만든다.
-   프로젝트를 id로 잡는 이유: 이름으로만 찾으면 프로젝트 이름을 바꾼 순간 예전
-   파일과 새 파일이 두 폴더로 갈라진다.
-   **업무 폴더는 id를 두지 않았다** — 업무마다 컬럼 하나를 더 두고 제목이 바뀔
-   때마다 폴더 이름을 맞추는 것은, 훑어보기 편하자고 치르기에 큰 비용이다.
-   대신 **업무 제목을 바꾸면 그 뒤에 올리는 파일은 새 이름 폴더로 간다**(예전
-   파일은 옛 이름 폴더에 남는다). 이게 걸리면 그때 `cards.drive_folder_id`를 둔다.
-5. **CRUD 싱크**: 프로젝트 이름을 바꾸면 폴더 이름도 따라간다(폴더가 이미 있을 때만 —
-   파일을 한 번도 안 올린 프로젝트에 빈 폴더를 만들 이유가 없다). 앱에서 첨부를
-   지우면 드라이브에서는 **휴지통으로** 간다(30일 복구 가능). 프로젝트를 지워도
-   드라이브 폴더는 남긴다(안전 쪽).
-6. **썸네일**: 이미지 첨부는 `lh3.googleusercontent.com/d/<id>=w200-h200-c`로 붙는다.
-   구글 이미지 CDN이 줄여서 내주므로 **우리 대역폭이 0**이다. 스크립트가 올릴 때
-   '링크를 아는 사람은 보기'로 열어 두기 때문에 가능하다(사용자 결정).
-7. **오피스 펼쳐보기**: 엑셀·워드·PPT는 **올릴 때 만들어 둔 구글 변환 사본**을
-   iframe으로 띄운다(`files.preview_file_id` · 0031). 주소는 종류를 맞춰야 한다
-   (`spreadsheets` / `document` / `presentation`) — `src/services/previewKind.js`의
-   `previewCopyUrl`이 만든다. 마이크로소프트로 주소가 나가지 않는다.
-   사본이 없는 파일(옛 첨부·변환 실패·스크립트가 낮은 판)만 예전 길로 떨어진다 —
-   워드·PPT는 우리 렌더러(`OfficeView`), Storage에 남은 파일은 MS 뷰어.
-   사본은 업로드 응답을 기다리지 않고 **뒤에서** 붙는다(v8 · 두 단계).
-8. **기존 파일 이관**: `node scripts/migrate_to_drive.mjs` (인수 없이 돌리면 무엇을
-   옮길지만 보여준다, `--go`로 실행, `--go --limit 5`로 몇 건만).
-   한 건씩 처리하고 행을 즉시 갱신하므로 **끊겨도 다시 돌리면 이어서** 한다.
-   이관 중에도 서비스는 정상이다 — 읽기 경로가 행 단위로 갈라진다.
-   **Storage 객체는 이 스크립트가 지우지 않는다** — 눈으로 확인한 뒤 따로 지운다.
-   (2026-08-28에 233개·337.8MB를 지웠다. 그 전에 확인한 것: migrate 옮길 것 0건 ·
-   drive_check 어긋남 0건 · `files` 행 중 source='storage' 0건. Storage 삭제는
-   휴지통이 없어 되돌릴 수 없다.)
-   이 스크립트는 `.env`에 `SUPABASE_SECRET_KEY`가 필요하다(RLS 우회 + Storage 다운로드).
+- `node scripts/drive_check.mjs` — DB와 드라이브의 어긋남(유령·고아·중복)을 셉니다.
+  읽기만 합니다. 변환 사본(`wsrole = sheetpreview`)은 고아로 세지 않습니다.
+- `node scripts/backfill_sheet_preview.mjs` — 사본이 없는 첨부에 사본을 붙입니다
+  (인수 없이 = 읽기만 · `--fix` = 실제로). 첫 줄에 스크립트가 답한 판 번호가 찍힙니다.
+- `node scripts/migrate_to_drive.mjs` — Storage에 남은 파일을 드라이브로 옮깁니다
+  (`--go`, `--go --limit 5`). 한 건씩 처리하고 행을 즉시 갱신하므로 **끊겨도 다시 돌리면
+  이어서** 합니다. **Storage 객체는 이 스크립트가 지우지 않습니다** — 눈으로 확인한 뒤
+  따로 지웁니다(Storage 삭제는 휴지통이 없어 되돌릴 수 없습니다).
+- 셋 다 `.env`에 `SUPABASE_SECRET_KEY`(RLS 우회 + Storage 다운로드)가 필요합니다.
 
 ## 한계 (알고 넘어갈 것)
 
-- Apps Script 웹앱은 요청 1건당 실행 시간·페이로드 제한이 있다.
-  25MB 이하 파일 기준으로는 충분하지만, 대용량은 실패할 수 있다
-- **파일은 '링크를 아는 사람은 보기'로 열린다**(사용자 결정, 2026-08-25). 그래야
-  앱 안에서 썸네일·미리보기가 지금과 똑같이 보이고 우리 대역폭이 0이 된다. 대가는
-  주소를 아는 사람은 로그인 없이도 연다는 것이다 — 지금(비공개 버킷 + 1시간짜리
-  서명 URL)보다 약하다. 이 결정을 되돌리면 썸네일도 같이 포기해야 한다
-- **앱에서 지우면 드라이브에서는 휴지통으로 간다**(30일 복구 가능). 완전 삭제는
-  되돌릴 수 없고, 남겨 두기만 하는 것은 CRUD 싱크가 아니다
-- 본문 이미지·프로필 사진은 **옮기지 않는다**(사용자 결정) — 올릴 때 이미 줄여서
-  저장하고, 본문에는 주소가 글 안에 박히므로 주소 체계를 바꾸면 지난 글의 이미지가
-  구글 사정에 한꺼번에 끌려간다. 옮기는 것은 업무 첨부뿐이다
+- Apps Script 웹앱은 호출당 3~4초가 붙고, 요청 1건당 실행 시간·페이로드 제한이 있습니다.
+  첨부 상한(25MB) 기준으로는 충분하지만 대용량은 실패할 수 있습니다. **더 빠른 길은 지금
+  조건에서 없습니다** — 남은 손잡이는 왕복 수를 줄이는 것뿐이었고 v9에서 다 썼습니다.
+- Vercel 함수의 요청 몸통은 **4.5MB**까지입니다(실측: 4MB 통과 · 4.4MB 413). base64가 33%를
+  붙이니 실제 파일은 3.3MB가 천장이라, 그보다 큰 파일은 브라우저가 Supabase Storage에
+  **직접** 올리고 우리는 주소만 넘깁니다(`uploadFromUrl`).
+- **파일은 '링크를 아는 사람은 보기'로 열립니다**(사용자 결정 2026-08-25). 그래야 앱 안에서
+  썸네일·미리보기가 보이고 우리 대역폭이 0이 됩니다. 대가는 주소를 아는 사람은 로그인
+  없이도 연다는 것입니다 — 비공개 버킷 + 1시간짜리 서명 URL보다 약합니다. 이 결정을
+  되돌리면 썸네일도 같이 포기해야 합니다. 예외는 큐시트 사본 하나로, 거기에만 **이름 있는
+  계정 둘**이 편집자로 붙습니다(`APPS_SCRIPT.md` v10).
+- **앱에서 지우면 드라이브에서는 휴지통으로** 갑니다(30일 복구). 완전 삭제는 되돌릴 수 없고,
+  남겨 두기만 하는 것은 CRUD 싱크가 아닙니다.
+- 본문 이미지·프로필 사진은 **옮기지 않습니다**(사용자 결정) — 올릴 때 이미 줄여서 저장하고,
+  본문에는 주소가 글 안에 박히므로 주소 체계를 바꾸면 지난 글의 이미지가 구글 사정에
+  한꺼번에 끌려갑니다. 옮기는 것은 첨부뿐입니다.

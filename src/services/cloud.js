@@ -348,7 +348,7 @@ export async function setCardSummary(id, text) {
 // 실패해도 카드 삭제는 진행한다 — 파일 정리 때문에 지우기가 막히면 안 된다.
 // 드라이브 정리는 **폴더째**가 기본이다 — 폴더 하나를 휴지통에 넣으면 안의 파일이
 // 전부 따라간다(파일마다 Apps Script 왕복을 하면 사진 열 장짜리 업무 삭제가 십수 초다).
-// 폴더 휴지통은 스크립트 v4부터다(docs/DRIVE.md) — 옛 스크립트면 실패하므로
+// 폴더 휴지통은 스크립트 v4부터다(docs/APPS_SCRIPT.md 판 이력) — 옛 스크립트면 실패하므로
 // 그때는 파일 단위로 되돌아간다. 실패를 조용히 넘기면 드라이브에 고아가 남는다.
 async function trashDriveId(driveId) {
   await driveCall({ action: 'trash', fileId: driveId });
@@ -487,7 +487,7 @@ export async function listServiceFiles(serviceId) {
   return unwrap(await client().from('files').select('*').eq('service_id', serviceId).order('created_at', { ascending: true }));
 }
 
-// ── 개인 구글 드라이브 (docs/DRIVE.md) ──────────────────────────────────────
+// ── 개인 구글 드라이브 (docs/DRIVE.md · 스크립트는 docs/APPS_SCRIPT.md) ─────
 // 첨부의 실체를 드라이브로 옮기고 DB에는 참조만 남긴다. 브라우저는 스크립트 URL을
 // 모르고 /api/drive가 대신 부른다. 드라이브가 설정되지 않은 환경(로컬·프리뷰)은
 // 501을 돌려주므로 부르는 쪽이 Storage로 되돌린다.
