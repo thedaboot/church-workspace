@@ -2211,7 +2211,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 //
 // 2026-09-10에 **이름이 한 번 더 바뀌었다** — '나의 묵상'을 빼고 '결단'을 '나의 결단'으로
 // (예배 노트 넷 · QT 셋). 옛 이름은 LEGACY_SECTIONS에 **쌓는다**(갈아치우면 옛 빈 노트가
-// '사람이 쓴 글'이 되어 나눔·잔디에 오른다 — HANDOFF §6-9-as).
+// '사람이 쓴 글'이 되어 나눔·잔디에 오른다 — docs/PITFALLS.md §6-9-as).
 {
   const dir = mkdtempSync(join(tmpdir(), 'note-'));
   const f = join(dir, 'noteTemplate.mjs');

@@ -419,7 +419,7 @@ check('교회 화면끼리 옮겨도 맨 위에서 열린다', (await mainTop())
 // ── 화면 전환 모션 (사용자 요청 2026-09-07) ─────────────────────────────────
 // 교회 축(홈·예배·말씀·모임)끼리 옮길 때만 방향이 있다 — 탭 차례로 오른쪽이면
 // 오른쪽에서(dc-nav-fwd), 왼쪽이면 왼쪽에서(dc-nav-back) 들어온다. 업무 축은 지금
-// 그대로다(드래그가 있는 화면 위에 transform 조상을 만들지 않는다 — HANDOFF §6-1).
+// 그대로다(드래그가 있는 화면 위에 transform 조상을 만들지 않는다 — docs/PITFALLS.md §6-1).
 // 되돌리기 검사: App.jsx의 navClass를 빈 문자열로 두면 앞의 두 단정이 깨진다.
 const screenCls = () => ev(`(() => {
   const el = document.querySelector('main .app-screen');

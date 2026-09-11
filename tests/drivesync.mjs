@@ -203,7 +203,7 @@ check('스크립트가 워드·PPT도 네이티브 사본으로 만든다', () =
   assert.ok(fn, 'makePreviewCopy를 못 찾았다');
   assert.ok(!/Drive\.Files\.update/.test(fn), '사본을 만든 뒤 고치러 한 번 더 간다 — copy 본문에 실어야 한다');
   assert.ok(!/Drive\.Files\.get/.test(fn), '사본을 만들며 파일을 다시 묻는다');
-  // 링크를 아는 누구나 고칠 수 있게 되면 안 된다(HANDOFF §7 마지막 줄) — 'anyone'은 언제나 reader다.
+  // 링크를 아는 누구나 고칠 수 있게 되면 안 된다(HANDOFF §7 '첨부에 편집 권한 주기') — 'anyone'은 언제나 reader다.
   // v10부터 'writer'가 코드에 있지만 그것은 **이름 있는 계정**(type: 'user')뿐이다(아래 검사).
   assert.ok(!/role: 'writer'[^)]*type: 'anyone'/.test(scriptmd), "'anyone'에게 편집 권한을 준다");
   assert.ok(!/type: 'anyone'[^)]*role: 'writer'/.test(scriptmd), "'anyone'에게 편집 권한을 준다");
@@ -618,7 +618,7 @@ check('파일 중계는 불변 캐시다(재열람 왕복 0)', () => {
     // 엑셀은 utils.sheetPreviewUrl과 같은 주소여야 한다(같은 사본을 두 곳에서 연다)
     assert.strictEqual(previewCopyUrl(copy('명단.xlsx')), sheetPreviewUrl(copy('명단.xlsx')),
       '엑셀 사본 주소가 두 곳에서 갈라졌다');
-    // **편집 주소를 만들면 안 된다** — 링크를 아는 누구나 고칠 수 있다(HANDOFF §7 마지막 줄)
+    // **편집 주소를 만들면 안 된다** — 링크를 아는 누구나 고칠 수 있다(HANDOFF §7 '첨부에 편집 권한 주기')
     assert.ok(!/\/edit/.test(previewCopyUrl(copy('회의록.docx')) || ''), '편집 주소를 내준다');
     assert.strictEqual(previewCopyUrl(drive('회의록.docx')), null, '사본이 없으면 주소도 없다');
     assert.strictEqual(previewCopyUrl(copy('결산.pdf')), null, 'PDF에는 구글 편집기가 없다');

@@ -46,7 +46,7 @@ const check = (n, p, d = '') => {
 // 동아리 가입 신청 QR이 가리키는 자리다. 크롤러가 읽는 OG 메타이자 **사람이 실제로
 // 가는 주소**를 만든다 — 조회가 실패하면 제목이 기본값으로 떨어지고 appUrl이 '/'로
 // 남아 딥링크가 통째로 사라지는데, 크롤러 말고는 아무도 안 보는 화면이라 증상이
-// 밖으로 안 난다(HANDOFF §6-31-d — projects.description에서 실제로 그랬다).
+// 밖으로 안 난다(docs/PITFALLS.md §6-31-d — projects.description에서 실제로 그랬다).
 // 그래서 브라우저와 무관하게 handler를 직접 부른다. 게스트 스위트에는 supabase가
 // 없으므로 PostgREST 응답을 fetch에서 가로챈다(로그인 키가 필요 없다).
 // 되돌리기 확인: select('name')을 없는 칸('name, description')으로 되돌리면 아래

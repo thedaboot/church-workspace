@@ -5,7 +5,7 @@
 // 홈은 자기 저장 자리가 없다 — 말씀(word_qt_schedule·word_qt_entries) · 예배
 // (church_worship_v1) · 모임(church_groups_v1) · 업무(church_app_v4) **네 곳에 심고**
 // 그것들이 한 화면에 모이는지를 본다. 클라우드에서는 같은 함수가 DB를 보고 RLS가
-// 경계를 긋는다(HANDOFF §2-6 — 클라우드 경로는 사람이 확인한다).
+// 경계를 긋는다(HANDOFF §3-6 — 클라우드 경로는 사람이 확인한다).
 import { spawn } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';

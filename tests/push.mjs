@@ -48,7 +48,7 @@ assert.equal(api.deepLink(null, null), '/');
 
 // ── cloud.js 문장 모양 ──────────────────────────────────────────────────────
 // insertNotifications에 .select()를 붙이면 RLS로 insert까지 롤백되어 알림이 한 건도
-// 생기지 않는다(HANDOFF §5의 27번 — 실제로 그렇게 멘션 알림이 죽어 있었다).
+// 생기지 않는다(docs/PITFALLS.md §6-25 — 실제로 그렇게 멘션 알림이 죽어 있었다).
 const cloudSrc = readFileSync(join(ROOT, 'src', 'services', 'cloud.js'), 'utf8');
 const notifBody = cloudSrc.slice(cloudSrc.indexOf('export async function insertNotifications'));
 const insertStmt = notifBody.slice(0, notifBody.indexOf('\n}'));

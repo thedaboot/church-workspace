@@ -1880,7 +1880,7 @@ const praiseSaved = await ev(`(() => {
 check('인도자를 고르면 그 이름이 주보에 저절로 저장된다',
   praiseSaved.leader === '김승찬' && praiseSaved.songs === 0, JSON.stringify(praiseSaved));
 
-// ── 7-d) 송폼 — 주보에 붙는 파일 (0047 · HANDOFF §1.3의 검토 결론) ──────────
+// ── 7-d) 송폼 — 주보에 붙는 파일 (0047 · 0047) ──────────
 // 저장 자리(files.service_id)와 드라이브 길은 업무 첨부와 한 벌이다 — 그쪽은
 // tests/drivesync.mjs가 소스로 본다. 여기서 보는 것은 **화면**이다: 수정 화면에
 // 올리기 버튼이 서고, 고른 파일이 바로 줄로 들어오고, 지울 때 제 이름을 부른다.
