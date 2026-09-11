@@ -1,5 +1,4 @@
-import React, { useRef, useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useEditor, useEditorState, EditorContent } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
 import { Highlight } from '@tiptap/extension-highlight';
@@ -17,7 +16,6 @@ import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { isMobileViewport, keepVisible } from '../utils.js';
-import { useIsMobile } from '../hooks/useIsMobile.js';
 import { downscaleImage, BODY_MAX_DIM } from '../services/image.js';
 import { Extension } from '@tiptap/core';
 import { Plugin } from '@tiptap/pm/state';
@@ -126,14 +124,16 @@ const LockedHeadings = Extension.create({
 // 뷰포트를 보게 되고, 페이지 스크롤 통에서는 그 둘이 서로 다른 상자가 된다.
 //
 // **통은 셋뿐이다** — 이 에디터가 서는 자리가 셋이기 때문이다(2026-09-11):
-//  · **업무 창**(모달 안 `overflow-y-auto` 본문): 통 = 그 본문. 안에 `sticky top-0` 머리줄이
-//    있어 `top`은 그 높이(≈53), `bg`는 본문의 `bg-surface`, `root`는 그 본문이다.
+//  · **업무 창**(데스크톱 모달 안 `overflow-y-auto` 본문): 통 = 그 본문. 안에 `sticky top-0`
+//    머리줄이 있어 `top`은 그 높이(≈53), `bg`는 본문의 `bg-surface`, `root`는 그 본문이다.
 //  · **페이지**(예배 노트·묵상 노트 — App의 `main`): 통 = main. 안에 머리줄이 없어 `top`은
 //    `-paddingTop`(위 패딩만큼 올려 창 머리줄에 붙인다), `bg`는 카드/바탕색, `root`는 main이다.
 //    여기서 `root`를 빼먹어 붙어도 모양이 안 바뀌었다(아래 IntersectionObserver 주석).
-//  · **모바일 풀스크린 창**(업무 창이 화면을 다 덮는 판): 통은 그 창의 본문이고 머리줄이
-//    통 **밖**이라 `top`이 음수로 나온다. 다만 모바일은 바가 sticky가 아니라 화면 아래
-//    고정이라 이 훅의 답을 쓰지 않는다(`overlay`만 따로 본다).
+//    **모바일도 같은 길이다**(2026-09-11 결정) — `MobileTopBar`는 `main` **밖**의 형제라
+//    `-paddingTop`으로 올려 세우면 그 바로 밑이 곧 붙는 자리다.
+//  · **모바일 풀스크린 업무 창**(창이 화면을 다 덮는 판): 통은 그 창의 본문이고 머리줄이
+//    통 **밖**(`shrink-0`)이라 여기서도 머리줄 높이가 0으로 잡힌다 — `-paddingTop`(`p-5`)만큼
+//    올리면 통의 테두리 상자 위, 즉 창 머리줄 바로 밑이다. 데스크톱과 같은 계산 하나다.
 function useStickyTop(ref) {
   const [pos, setPos] = useState({ top: 0, bg: '', box: null });
   useEffect(() => {
@@ -239,17 +239,10 @@ export function MarkdownEditor({
   const cloudModeRef = useRef(cloudMode);
   const [uploading, setUploading] = useState(false);
 
-  // 모바일에서는 서식 바가 sticky가 아니라 **화면 아래(키보드 위) 고정**이다(사용자 결정
-  // 2026-09-11) — 그래서 포커스 여부·키보드 높이·바 높이를 이 부품이 들고 있어야 한다.
-  const isMobile = useIsMobile();
+  // 서식 바는 **모든 폭에서 같은 방식**이다 — 통 안에서 위에 붙는 sticky 하나(사용자 결정
+  // 2026-09-11: "그냥 데스크톱처럼 똑같은 방식으로 모바일·태블릿에서도 되게"). 그래서
+  // 이 부품에 폭 분기가 없다 — 자리는 useStickyTop 하나가 잰다.
   const wrapRef = useRef(null);
-  const barRef = useRef(null);
-  const [focused, setFocused] = useState(false);
-  const [barH, setBarH] = useState(0);        // 바 높이 — 편집 칸 아래를 그만큼 비운다
-  const [overlay, setOverlay] = useState(false);  // 고정 오버레이(풀스크린 업무 창) 안인가
-  // 바를 누르고 있는 동안 켜지는 깃발 — 그 사이의 blur는 '편집을 그만둔 것'이 아니다
-  const holdRef = useRef(false);
-  const hideRef = useRef(null);
 
   // 멘션 상태 — editorProps 핸들러는 1회 생성 클로저라 ref로 읽는다
   const [mention, setMention] = useState(null); // { query, from, to, left, top }
@@ -376,40 +369,19 @@ export function MarkdownEditor({
       detectMention(ed);
     },
     onSelectionUpdate: ({ editor: ed }) => detectMention(ed),
-    // 모바일 서식 바는 **포커스가 있을 때만** 선다. 바의 버튼을 누르는 순간에도 blur가
-    // 오는 브라우저가 있어서(TB가 mousedown 기본 동작을 막지만 터치는 제각각이다) 바로
-    // 내리지 않고 한 박자 뒤에 **정말 밖으로 갔는지** 본다 — 누르는 중(holdRef)이거나
-    // 포커스가 이 편집기 안(서식 바·링크 주소 칸 포함)이면 그대로 둔다.
-    onFocus: () => { clearTimeout(hideRef.current); setFocused(true); },
-    onBlur: () => {
-      setTimeout(closeMention, 120);
-      clearTimeout(hideRef.current);
-      hideRef.current = setTimeout(() => {
-        if (holdRef.current) return;
-        const a = document.activeElement;
-        // 바는 모바일에서 body로 빠져 있다(아래 포털) — 감싸개만 보면 링크 주소 칸에
-        // 포커스가 간 순간 '밖으로 나갔다'가 되어 바가 통째로 사라진다. 둘 다 본다.
-        if (a && ((wrapRef.current && wrapRef.current.contains(a))
-          || (barRef.current && barRef.current.contains(a)))) return;
-        setFocused(false);
-      }, 180);
-    },
+    onBlur: () => { setTimeout(closeMention, 120); },
   });
 
   useEffect(() => { editorRef.current = editor; }, [editor]);
-  // **만들어질 때 이미 포커스가 있을 수 있다** — 그때는 focus 이벤트가 우리 손에 들어오기
-  // 전이라 모바일 바가 서지 않았다(헤드리스에서 '수정'을 누르면 실제로 그랬다).
-  useEffect(() => { if (editor?.isFocused) setFocused(true); }, [editor]);
 
-  // 서식 바가 화면 위에 붙었나 — 붙으면 **상자가 아니라 줄**이 된다(사용자 결정
-  // 2026-09-11 · 아래 Toolbar 머리말). 모바일에는 없는 상태다(바가 화면 아래에 있다).
+  // 서식 바가 통 위에 붙었나 — 붙으면 **상자가 아니라 줄**이 된다(사용자 결정
+  // 2026-09-11 · 아래 Toolbar 머리말). 폭과 상관없이 모든 화면에서 같다.
   const [stuck, setStuck] = useState(false);
   const sentinelRef = useRef(null);
   const { top: stickyTop, bg: stuckBg, box: scrollBox } = useStickyTop(wrapRef);
   useEffect(() => {
     const el = sentinelRef.current;
-    // 모바일에서는 바가 화면 아래 고정이라 '붙었나'를 볼 일이 없다
-    if (isMobile || !el || typeof IntersectionObserver === 'undefined') { setStuck(false); return undefined; }
+    if (!el || typeof IntersectionObserver === 'undefined') { setStuck(false); return undefined; }
     // **관찰하는 상자가 바가 붙는 통과 같아야 한다**(2026-09-11 · §6-9-aa).
     // `root`를 비워 두면 기본이 뷰포트다 — 업무 창은 통이 화면 한가운데라 우연히 맞았지만,
     // **페이지 스크롤 통**(App의 main)에서는 센티넬이 그 통의 잘림선(화면 위 53px)에서
@@ -437,65 +409,7 @@ export function MarkdownEditor({
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [stickyTop, isMobile, scrollBox]);
-
-  // 키보드 위에 선다 — **`bottom`이 아니라 `top`으로 놓는다**(2026-09-11 · §6-9-aa).
-  // iOS 사파리의 `position: fixed`는 **레이아웃 뷰포트** 기준인데, 키보드가 열려도
-  // `window.innerHeight`는 판에 따라 그대로이기도 하고 줄기도 한다. 그래서 예전의
-  // `bottom = innerHeight - vv.height - vv.offsetTop`은 실기기에서 맞지 않았다(사용자
-  // 스크린샷 2026-09-11 — 바가 키보드 밑으로 내려가거나 화면 밖으로 나갔다).
-  // `visualViewport`가 알려 주는 **보이는 영역의 아래 끝**(offsetTop + height)에서 바의
-  // 키를 빼면 그 자리가 곧 키보드 바로 위다 — 레이아웃 뷰포트 좌표라 fixed와 기준이 같다.
-  // 키보드는 스르륵 올라오고 화면이 밀리면 offsetTop이 바뀌므로 resize·scroll 둘 다 듣고,
-  // 한 프레임으로 묶는다(둘이 같이 오는 판에서 두 번 그리지 않게).
-  // 가리는 것이 없으면(키보드가 닫혔거나, 안드로이드처럼 레이아웃 뷰포트가 같이 줄어드는
-  // 판) null을 둔다 — 그때는 예전처럼 탭 바·안전 영역 위이고 그 자리는 CSS가 안다.
-  const [seenBottom, setSeenBottom] = useState(null);
-  useEffect(() => {
-    if (!isMobile || !focused) { setSeenBottom(null); return undefined; }
-    const vv = window.visualViewport;
-    if (!vv) return undefined;
-    let raf = 0;
-    const calc = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => setSeenBottom(
-        window.innerHeight - vv.height > 1 ? Math.round(vv.offsetTop + vv.height) : null));
-    };
-    calc();
-    vv.addEventListener('resize', calc);
-    vv.addEventListener('scroll', calc);
-    window.addEventListener('resize', calc);
-    return () => {
-      cancelAnimationFrame(raf);
-      vv.removeEventListener('resize', calc);
-      vv.removeEventListener('scroll', calc);
-      window.removeEventListener('resize', calc);
-    };
-  }, [isMobile, focused]);
-
-  // 바 높이(편집 칸 아래를 그만큼 비우고, 위 `top` 계산이 이 값을 쓴다)와 **풀스크린 창
-  // 안인지**를 같이 잰다. 창 안이면 하단 탭바가 그 창에 덮여 보이지 않으므로 탭바 높이를
-  // 쓰면 안 된다. **그리기 전에 재야 한다**(useLayoutEffect) — 키가 0인 채로 한 번
-  // 그리면 `top`이 화면 아래 끝이라 바가 한 프레임 깜빡 내려갔다 올라온다.
-  useLayoutEffect(() => {
-    if (!isMobile || !focused) { setBarH(0); return undefined; }
-    const el = barRef.current;
-    if (!el) return undefined;
-    for (let n = wrapRef.current?.parentElement; n; n = n.parentElement) {
-      if (getComputedStyle(n).position === 'fixed') { setOverlay(true); break; }
-    }
-    const set = () => setBarH(Math.round(el.getBoundingClientRect().height));
-    set();
-    const ro = new ResizeObserver(set);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [isMobile, focused]);
-
-  // 가리는 것이 있으면 보이는 영역의 아래 끝에 맞춰 `top`으로 세우고, 없으면 하단 탭바
-  // 위(그 화면에만 있는 변수 · §6-9-ae)나 안전 영역 위에 `bottom`으로 둔다.
-  const barPlace = (seenBottom !== null && barH)
-    ? { top: seenBottom - barH, bottom: 'auto' }
-    : { bottom: overlay ? 'env(safe-area-inset-bottom, 0px)' : 'var(--mobile-tab-bar-h, env(safe-area-inset-bottom, 0px))' };
+  }, [stickyTop, scrollBox]);
 
   const pick = useCallback((name) => {
     const m = mentionRef.current;
@@ -549,35 +463,20 @@ export function MarkdownEditor({
     editor.chain().focus('end').run();
   };
 
-  const bar = (
-    <Toolbar
-      editor={editor} active={active} uploading={uploading} tools={tools}
-      stuck={stuck} top={stickyTop} stuckBg={stuckBg}
-      mobile={isMobile} visible={focused} place={barPlace} barRef={barRef}
-      onHold={(v) => { holdRef.current = v; if (v) clearTimeout(hideRef.current); }} />
-  );
-
   return (
     <div ref={wrapRef} className="relative">
       {/* 센티넬 — 서식 바가 '붙었는지'를 이걸로 잰다(Injoy 글쓰기와 같은 방식).
           scroll 이벤트로 매 프레임 재는 대신 IntersectionObserver 한 번이면 된다. */}
       <div ref={sentinelRef} aria-hidden="true" className="h-px" />
-      {/* **모바일 바는 body로 뺀다**(2026-09-11 · §6-1과 같은 함정). `position: fixed`는
-          transform이 걸린 조상이 있으면 **뷰포트가 아니라 그 조상** 기준이 된다 —
-          화면 뿌리의 등장 애니메이션(`.dc-screen`)이 끝난 뒤에도 transform이 항등 행렬로
-          남아 있어서, 예배 노트에서는 바가 종이 아래(화면 밖 y≈1089)에 서고 묵상 노트에서는
-          아예 안 보였다(사용자 스크린샷 2026-09-11 · 헤드리스로 확인). 포털로 빼면 기준이
-          다시 뷰포트이고, 위 감싸개의 onMouseDown(focusEnd)과도 얽히지 않는다.
-          데스크톱은 **그대로 둔다** — sticky는 제자리에 있어야 붙는다. */}
-      {isMobile ? createPortal(bar, document.body) : bar}
+      {/* 바는 **제자리에 그대로 둔다** — sticky는 문서 흐름 안에 있어야 붙는다.
+          모바일에서 body로 빼 화면 아래에 고정하던 길은 2026-09-11에 걷었다(§6-9-aa-4). */}
+      <Toolbar
+        editor={editor} active={active} uploading={uploading} tools={tools}
+        stuck={stuck} top={stickyTop} stuckBg={stuckBg} />
       {/* onMouseDown이라야 한다 — click은 선택이 이미 끝난 뒤라 커서가 안 옮겨진다.
           틀(frame)이 있으면 편집 칸이 그 안에 든다 — 종이 여백을 눌러도 focusEnd가
           도는 것은 그대로다(`.tiptap` 밖이면 문서 끝으로 보낸다). */}
-      <div
-        className={className} onMouseDown={focusEnd}
-        // 마지막 줄이 화면 아래 바에 가리지 않게 — 포커스 중일 때만 그만큼 비운다
-        style={isMobile && focused && barH ? { paddingBottom: barH + 12 } : undefined}
-      >
+      <div className={className} onMouseDown={focusEnd}>
         {frame ? frame(<EditorContent editor={editor} />) : <EditorContent editor={editor} />}
       </div>
       {mention && suggestions.length > 0 && (
@@ -609,7 +508,6 @@ export function MarkdownEditor({
 function Toolbar({
   editor, active, uploading, tools = 'all',
   stuck = false, top = 0, stuckBg = '',
-  mobile = false, visible = false, place = null, barRef = null, onHold = () => {},
 }) {
   // 노트 한 벌 — 제목·구분선·링크가 빠지고 글자 서식과 목록 셋만 남는다(머리말의 `tools`)
   const note = tools === 'note';
@@ -694,48 +592,31 @@ function Toolbar({
     >{children}</button>
   );
 
-  // **데스크톱은 붙으면 상자가 아니라 줄이 된다**(사용자 결정 2026-09-11 — 글 위에 상자가
-  // 얹혀 떠 있는 것처럼 보였고, 노트 종이에서는 인디고 마스트가 그 밑으로 지나갔다).
+  // **붙으면 상자가 아니라 줄이 된다**(사용자 결정 2026-09-11 — 글 위에 상자가 얹혀 떠
+  // 있는 것처럼 보였고, 노트 종이에서는 인디고 마스트가 그 밑으로 지나갔다).
   // 붙은 상태에서는 둥근 모서리·양옆·위 선을 걷고 **아래 가는 선 하나 + 연한 그림자**만
   // 남기며, 배경은 그 통의 바탕색(useStickyTop이 재 온다)이라 평평하게 눕는다.
   // 2026-08-30의 "그림자도 없이"는 여기서 갱신됐다 — 상자를 지우는 대신 글과 바를 가르는
   // 표시가 하나는 있어야 한다. 배경은 두 상태 모두 **완전 불투명**이다(블러 금지 · §6-9-aa):
   // 반투명이면 밑으로 지나가는 글이 비쳐 바가 글자 위에 얹힌 것처럼 보인다.
   //
-  // **모바일은 sticky가 아니라 화면 아래(키보드 위) 고정**이다(같은 날 결정) — 편집기에
-  // 포커스가 있을 때만 서고, 가로는 화면 폭 전체, 위 가는 선 하나, 층은 업무 창(z-50)보다
-  // 위다(멘션 z-80·링크 팝오버 z-90보다는 아래여야 그 둘이 바를 덮는다).
-  // 자리는 `place`가 들고 온다(위 barPlace) — 키보드가 있으면 `top`, 없으면 `bottom`이다.
-  // 그리고 그 바는 **body로 빠져 있다**(위 createPortal) — transform이 걸린 조상 안에서는
-  // fixed가 뷰포트를 기준으로 삼지 않는다.
+  // **모든 폭에서 이 한 벌이다**(사용자 결정 2026-09-11 — "그냥 데스크톱처럼 똑같은 방식으로
+  // 모바일·태블릿에서도"). 모바일만 화면 아래(키보드 위)에 fixed로 세우던 갈래는 실기기
+  // 아이폰에서 `visualViewport` 계산이 키보드 위에 서지 않아 걷었다(§6-9-aa-4).
   // overflow-x-auto: 좁은 화면에서 버튼이 줄바꿈으로 두 줄이 되면 바가 본문을 가린다 —
   // 같은 종류가 이어지는 줄이라 가로 스크롤이 §8에 걸리지 않는다(프로젝트 탭과 같은 결).
-  const BAR = 'flex items-center gap-0.5 overflow-x-auto scrollbar-hide x-scroll-lock bg-surface-2';
   const EASE = 'var(--ease-out-quint)';
   return (
     <div
-      ref={barRef}
-      data-editor-bar={mobile ? 'fixed' : 'sticky'}
-      // 누르는 동안에는 바가 내려가지 않는다(누르는 순간의 blur를 무시한다)
-      onPointerDown={() => onHold(true)}
-      onPointerUp={() => onHold(false)}
-      onPointerCancel={() => onHold(false)}
-      style={mobile
-        ? {
-          position: 'fixed', left: 0, right: 0, width: '100%',
-          ...(place || { bottom: 0 }),
-          ...(visible ? null : { display: 'none' }),
-        }
-        : {
-          top,
-          transition: `background-color .15s ${EASE}, border-color .15s ${EASE}, border-radius .15s ${EASE}, box-shadow .15s ${EASE}`,
-          ...(stuck && stuckBg ? { background: stuckBg } : null),
-        }}
-      className={mobile
-        ? `${BAR} z-[60] px-2 py-1.5 border-t border-line`
-        : `${BAR} sticky z-[5] px-1.5 py-1 border border-line ${
-          stuck ? 'rounded-none border-x-0 border-t-0 shadow-soft' : 'rounded-t-md border-b-0'
-        }`}
+      data-editor-bar="sticky"
+      style={{
+        top,
+        transition: `background-color .15s ${EASE}, border-color .15s ${EASE}, border-radius .15s ${EASE}, box-shadow .15s ${EASE}`,
+        ...(stuck && stuckBg ? { background: stuckBg } : null),
+      }}
+      className={`flex items-center gap-0.5 overflow-x-auto scrollbar-hide x-scroll-lock bg-surface-2 sticky z-[5] px-1.5 py-1 border border-line ${
+        stuck ? 'rounded-none border-x-0 border-t-0 shadow-soft' : 'rounded-t-md border-b-0'
+      }`}
     >
       <TB on={active.bold} onClick={() => chain().toggleBold().run()} title="굵게"><Bold size={14} /></TB>
       <TB on={active.italic} onClick={() => chain().toggleItalic().run()} title="기울임"><Italic size={14} /></TB>

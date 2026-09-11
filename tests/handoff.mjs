@@ -43,7 +43,6 @@ const st={currentUser:{name:'노준석',team:'찬양팀',teams:['찬양팀','임
  tasks:{byId,allIds}};
 
 const DESK={width:1440,height:900,deviceScaleFactor:1,mobile:false};
-const MOB={width:390,height:844,deviceScaleFactor:2,mobile:true};
 await send('Page.enable'); await send('Runtime.enable');
 // 기본 경로는 대시보드다 — '/'는 v2부터 홈이라 ?p=dashboard로 간다
 const load=async(m,path='/?p=dashboard',theme='light')=>{
@@ -386,12 +385,14 @@ check('업무 수정: 저장이 저장소에 반영된다', saved === true);
 }
 
 
-// ── 서식 바 — 데스크톱은 '줄', 모바일은 화면 아래 고정 (2026-08-30 · 2026-09-11) ────
+// ── 서식 바 — 붙으면 '줄'이 된다 (2026-08-30 · 2026-09-11) ──────────────────
 // 처음 나간 판은 top:8px으로 박아서 바가 업무 창 머리줄 **위로 올라가 겹쳤다**
 // (사용자 지적 — "아예 헤더로 가면 어떻게 해"). 머리줄 높이는 폭·글자에 따라 달라지므로
-// 재서 맞춘다. 2026-09-11에 **붙었을 때의 모양**이 바뀌었다(사용자 결정 — "모바일은 화면
-// 아래(키보드 위)에 고정, 데스크톱은 붙으면 상자가 아니라 줄로"): 둥근 모서리·좌우·위
-// 선을 걷고 아래 가는 선 하나와 연한 그림자만 남으며, 배경은 그 통의 바탕색이다.
+// 재서 맞춘다. 2026-09-11에 **붙었을 때의 모양**이 바뀌었다(사용자 결정 — "붙으면 상자가
+// 아니라 줄로"): 둥근 모서리·좌우·위 선을 걷고 아래 가는 선 하나와 연한 그림자만 남으며,
+// 배경은 그 통의 바탕색이다. 같은 날 저녁 **모바일 갈래도 이 한 벌로 합쳤다** — 화면 아래
+// (키보드 위) 고정은 실기기 아이폰에서 자리가 맞지 않아 걷었다(§6-9-aa-4). 폭별 확인은
+// 아래 매트릭스가 한다.
 // 본문이 짧으면 바가 멈출 자리까지 올라가지도 못한다 — 길게 만들어 실제로 붙여 놓고 잰다
 const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 줄입니다`).join('\n');
 {
@@ -488,108 +489,33 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   st.tasks.byId[firstId].content = '내용';
 }
 
-// 모바일 — 바는 sticky가 아니라 **화면 아래(키보드 위) 고정**이고, 편집기에 포커스가
-// 있을 때만 선다(사용자 결정 2026-09-11). 헤드리스에는 키보드가 없어 visualViewport가
-// 알려 주는 가림 높이가 0이다 — 그때는 하단 탭바 위(업무 창처럼 풀스크린 창 안이면
-// 안전 영역 위 = 화면 바닥)다. **키보드 위로 서는지는 실기기에서 봐야 한다**(HANDOFF §2).
-// **되돌리기**: 모바일 갈래를 sticky로 되돌리면 아래 다섯이 깨진다.
-{
-  // 헤드리스는 창에 포커스가 없어서 focus()·blur()가 **이벤트를 안 낸다**(activeElement만
-  // 바뀐다) — 이 바는 그 이벤트로 서고 사라지므로 이 줄이 없으면 헛으로 실패한다
-  // (tests/groups도 같은 이유로 켠다).
-  await send('Emulation.setFocusEmulationEnabled', { enabled: true });
-  const firstId = Object.keys(st.tasks.byId)[0];
-  st.tasks.byId[firstId].content = 긴본문;
-  await load(MOB, `/?p=p1&t=${firstId}`);
-  await ev(clickText('수정'));
-  await sleep(2600);
-  // 편집기는 열리자마자 커서를 물고 있을 수 있다 — 먼저 손을 떼고 '없는 상태'부터 본다
-  await ev(`(() => { const t = document.querySelector('.tiptap'); t && t.blur(); })()`);
-  await sleep(700);
-  const 꺼짐 = await ev(`(() => {
-    const bar = document.querySelector('[data-editor-bar]');
-    return { 갈래: bar ? bar.getAttribute('data-editor-bar') : '(없음)',
-             보임: !!bar && getComputedStyle(bar).display !== 'none' };
-  })()`);
-  check('모바일: 서식 바가 화면 아래 고정 갈래다', 꺼짐.갈래 === 'fixed', JSON.stringify(꺼짐));
-  check('모바일: 편집기에서 손을 떼면 바가 서지 않는다', 꺼짐.보임 === false, JSON.stringify(꺼짐));
-  await ev(`(() => { const t = document.querySelector('.tiptap'); t && t.focus(); })()`);
-  await sleep(700);
-  const 켜짐 = await ev(`(() => {
-    const bar = document.querySelector('[data-editor-bar]');
-    const tip = document.querySelector('.tiptap');
-    if (!bar || !tip) return null;
-    const cs = getComputedStyle(bar);
-    const r = bar.getBoundingClientRect();
-    const 알파of = (bg) => {
-      const open = bg.indexOf('(');
-      if (open < 0) return bg === 'transparent' ? 0 : 1;
-      const inside = bg.slice(open + 1, bg.lastIndexOf(')'));
-      const slash = inside.indexOf('/');
-      const raw = slash >= 0 ? inside.slice(slash + 1).trim()
-        : (inside.split(',').length === 4 ? inside.split(',')[3].trim() : '1');
-      const n = parseFloat(raw);
-      if (!isFinite(n)) return 1;
-      return raw.endsWith('%') ? n / 100 : n;
-    };
-    // 편집 칸(= className을 받은 감싸개)의 아래 여백이 바 높이를 덮어야 마지막 줄이 안 가린다
-    const 칸 = tip.parentElement.parentElement;
-    return {
-      보임: cs.display !== 'none', 자리: cs.position,
-      바닥까지: Math.round(window.innerHeight - r.bottom),
-      폭: Math.round(r.width), 창폭: window.innerWidth,
-      바높이: Math.round(r.height),
-      아래여백: Math.round(parseFloat(getComputedStyle(칸).paddingBottom) || 0),
-      z: Number(cs.zIndex) || 0,
-      알파: 알파of(cs.backgroundColor), 블러: cs.backdropFilter,
-      위선: cs.borderTopWidth,
-    };
-  })()`);
-  check('모바일: 포커스하면 바가 화면 아래에 fixed로 선다',
-    !!켜짐 && 켜짐.보임 === true && 켜짐.자리 === 'fixed' && 켜짐.바닥까지 <= 1, JSON.stringify(켜짐));
-  check('모바일: 바가 화면 폭을 다 쓰고 위 가는 선 하나만 있다',
-    !!켜짐 && Math.abs(켜짐.폭 - 켜짐.창폭) <= 1 && parseFloat(켜짐.위선) > 0, JSON.stringify(켜짐));
-  check('모바일: 바가 업무 창보다 위 층이고 배경이 불투명하다(블러 없음)',
-    !!켜짐 && 켜짐.z >= 60 && 켜짐.알파 === 1 && 켜짐.블러 === 'none', JSON.stringify(켜짐));
-  check('모바일: 편집 칸 아래가 바 높이만큼 비어 있다',
-    !!켜짐 && 켜짐.바높이 > 0 && 켜짐.아래여백 >= 켜짐.바높이, JSON.stringify(켜짐));
-  await ev(`(() => { const t = document.querySelector('.tiptap'); t && t.blur(); })()`);
-  await sleep(800);
-  const 다시꺼짐 = await ev(`(() => {
-    const bar = document.querySelector('[data-editor-bar]');
-    return !!bar && getComputedStyle(bar).display !== 'none';
-  })()`);
-  check('모바일: 다시 손을 떼면 바가 사라진다', 다시꺼짐 === false, String(다시꺼짐));
-  await send('Emulation.setFocusEmulationEnabled', { enabled: false });
-  st.tasks.byId[firstId].content = '내용';
-}
-
 
 // ── 서식 바 매트릭스 — 폭 여섯 × 자리 셋 (사용자 요구 2026-09-11) ──────────
 // "서식 바 쪽은 좀 더 철저히 — 반응형으로 모든 기기에서 다 잘 되도록."
 //
-// **갈래를 가르는 것은 `useIsMobile` 하나다 — `max-width: 767px`.** 그래서 375·390·430은
-// 화면 아래 고정(fixed) 갈래이고 768·1024·1440은 sticky 갈래다. 태블릿에서 소프트
-// 키보드가 올라와도 sticky 갈래가 맞다: 바가 **위**에 서므로 키보드가 덮는 아래쪽과
-// 상관이 없다(아이패드 사파리는 visualViewport만 줄고 위쪽 sticky는 그대로 보인다).
+// **폭 분기가 없다**(사용자 결정 2026-09-11 저녁 — "그냥 데스크톱처럼 똑같은 방식으로
+// 모바일·태블릿에서도 되게"). 375·390·430도 768·1024·1440과 **같은 sticky 한 벌**이다.
+// 그 전에 모바일만 화면 아래(키보드 위)에 fixed로 세웠는데, 실기기 아이폰에서
+// `visualViewport` 계산이 키보드 위에 서지 않아 걷었다(§6-9-aa-4).
 //
 // 자리 셋은 **스크롤 통이 서로 다른 세 곳**이다(MarkdownEditor의 useStickyTop 머리말):
-// 업무 창은 모달 안 통(머리줄이 통 안에 sticky로 있다), 예배 노트·묵상 노트는 페이지
-// 통(App의 main · 통 안에 머리줄이 없어 top이 `-paddingTop`이다).
+// 업무 창은 모달 안 통(데스크톱은 머리줄이 통 안에 sticky로, 모바일 풀스크린 창은 통
+// **밖**에 있다), 예배 노트·묵상 노트는 페이지 통(App의 main · 통 안에 머리줄이 없어
+// top이 `-paddingTop`이다 — 모바일에서는 그 자리가 곧 `MobileTopBar` 바로 밑이다).
 //
-// 재는 것: (a) 바가 보이고 편집 칸과 안 겹친다 (b) 모바일이면 fixed·키보드 위·손 떼면
-// 사라진다 (c) 데스크톱이면 붙었을 때 '줄'이 되고 머리줄 바로 밑이다 (d) 가로로 안 넘친다.
+// 재는 것: (a) 안 붙었을 때 둥근 상자로 편집 칸 위에 있다 (b) 스크롤해 붙이면 '줄'이 되고
+// 머리줄(없으면 통 위) 바로 밑이다 (c) 가로로 안 넘친다 (d) **body 직계 자식 포털이 없다**
+// — 걷어낸 고정 갈래로 되돌아가는 것을 막는 줄이다.
 //
-// **되돌리기**: 모바일 바의 포털(createPortal)을 떼면 `.dc-screen`의 transform이 fixed의
-// 기준이 되어 노트 두 줄의 (b)가 깨지고, IntersectionObserver의 `root`를 떼면 페이지 통
-// 두 줄의 (c)가 깨진다.
+// **되돌리기**: 붙었을 때의 `rounded-none border-x-0 border-t-0 shadow-soft`를 떼면 (b)가,
+// IntersectionObserver의 `root`를 떼면 페이지 통 줄들의 (b)가, 바를 다시
+// `createPortal(document.body)`로 빼면 (d)가 깨진다.
 {
   const waitFor = async (expr, to = 12000) => {
     const t0 = Date.now();
     while (Date.now() - t0 < to) { if (await ev(`!!(${expr})`)) return true; await sleep(150); }
     return false;
   };
-  await send('Emulation.setFocusEmulationEnabled', { enabled: true });
   const firstId = Object.keys(st.tasks.byId)[0];
   st.tasks.byId[firstId].content = 긴본문;
 
@@ -648,21 +574,17 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
       const r = p.bar.getBoundingClientRect();
       const br = p.box ? p.box.getBoundingClientRect() : null;
       const d = document.documentElement;
-      const vv = window.visualViewport;
       return {
         갈래: p.bar.getAttribute('data-editor-bar'),
         보임: cs.display !== 'none', 자리: cs.position,
-        top: Math.round(r.top), bottom: Math.round(r.bottom),
-        폭: Math.round(r.width), 창폭: window.innerWidth, 높이: Math.round(r.height),
+        top: Math.round(r.top), bottom: Math.round(r.bottom), 높이: Math.round(r.height),
         칸위: br ? Math.round(br.top) : null,
-        아래여백: p.box ? Math.round(parseFloat(getComputedStyle(p.box).paddingBottom) || 0) : null,
         body자식: p.bar.parentElement === document.body,
         둥근: parseFloat(cs.borderTopLeftRadius) || 0,
         좌선: parseFloat(cs.borderLeftWidth) || 0, 우선: parseFloat(cs.borderRightWidth) || 0,
         위선: parseFloat(cs.borderTopWidth) || 0, 아래선: parseFloat(cs.borderBottomWidth) || 0,
         그림자: cs.boxShadow, 멈출자리: Math.round(멈출자리of(p)), 통있음: !!p.통,
         넘침: d.scrollWidth - d.clientWidth,
-        보이는아래끝: vv ? Math.round(vv.offsetTop + vv.height) : null,
       };
     };
     // 바가 **막 붙는 자리**로 통을 굴린다 — 끝까지 내리면 감싸개가 통째로 위로 빠져나가
@@ -673,28 +595,6 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
       const dy = p.wrap.getBoundingClientRect().top - 멈출자리of(p) + extra;
       p.통.scrollTop = Math.max(0, Math.min(p.통.scrollHeight - p.통.clientHeight, p.통.scrollTop + dy));
       return p.통.scrollTop;
-    };
-    window.__focus = (sel, on) => {
-      const t = document.querySelector(sel);
-      if (!t) return false;
-      if (on) t.focus(); else t.blur();
-      return true;
-    };
-    // **키보드 흉내** — 헤드리스에는 소프트 키보드가 없다. 보이는 영역을 반으로 줄이고
-    // 200px 밀린 것으로 꾸민 visualViewport를 **앱이 리스너를 걸기 전에**(포커스 전에)
-    // 심는다. 앱은 늘 window.visualViewport로 늦게 집으므로 이 흉내가 그대로 먹는다.
-    window.__keyboard = () => {
-      const fake = new EventTarget();
-      const put = (k, v) => Object.defineProperty(fake, k, { get: v });
-      put('height', () => Math.round(window.innerHeight / 2));
-      put('width', () => window.innerWidth);
-      put('offsetTop', () => 200);
-      put('offsetLeft', () => 0);
-      put('pageTop', () => 200);
-      put('pageLeft', () => 0);
-      put('scale', () => 1);
-      Object.defineProperty(window, 'visualViewport', { configurable: true, get: () => fake });
-      return 200 + Math.round(window.innerHeight / 2);
     };
   })()`;
 
@@ -744,53 +644,32 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   ];
 
   for (const w of [375, 390, 430, 768, 1024, 1440]) {
-    const 폰 = w < 768;               // useIsMobile — max-width: 767px 하나다
     for (const 자리 of 자리들) {
       const 이름 = `${w}px · ${자리.이름}`;
       const S = JSON.stringify(자리.tip);
-      await loadM({ width: w, height: 844, deviceScaleFactor: 1, mobile: 폰 }, 자리.path);
+      await loadM({ width: w, height: 844, deviceScaleFactor: 1, mobile: w < 768 }, 자리.path);
       if (!await 자리.열기()) { check(`${이름}: 편집기가 열린다`, false, '편집기를 못 열었다'); continue; }
       await sleep(600);
-      if (폰) {
-        // 열자마자 커서를 물고 있을 수 있다 — 손을 떼고 '없는 상태'부터 본다
-        await ev(`window.__focus(${S}, false)`); await sleep(700);
-        const 꺼짐 = await ev(`window.__bar(${S})`);
-        const 꾸민아래끝 = await ev(`window.__keyboard()`);
-        await ev(`window.__focus(${S}, true)`); await sleep(700);
-        const 켜짐 = await ev(`window.__bar(${S})`);
-        await ev(`window.__focus(${S}, false)`); await sleep(800);
-        const 다시꺼짐 = await ev(`window.__bar(${S})`);
-        check(`${이름}: 바가 보이고 편집 칸과 안 겹치고 가로로 안 넘친다`,
-          !!켜짐 && 켜짐.갈래 === 'fixed' && 켜짐.보임 === true
-          && 켜짐.높이 > 0 && 켜짐.아래여백 >= 켜짐.높이
-          && Math.abs(켜짐.폭 - 켜짐.창폭) <= 1 && 켜짐.넘침 <= 1,
-          JSON.stringify(켜짐));
-        // 포털(body 자식)이라야 `.dc-screen`의 transform이 fixed의 기준이 되지 않는다.
-        // 자리는 **보이는 영역의 아래 끝 − 바 높이**다(키보드 흉내로 실제 값을 견준다).
-        check(`${이름}: 키보드 위에 fixed로 서고 손 떼면 사라진다`,
-          !!켜짐 && 켜짐.자리 === 'fixed' && 켜짐.body자식 === true
-          && 켜짐.보이는아래끝 === 꾸민아래끝
-          && Math.abs(켜짐.top - (꾸민아래끝 - 켜짐.높이)) <= 1
-          && 꺼짐.보임 === false && 다시꺼짐.보임 === false,
-          JSON.stringify({ 켜짐, 꾸민아래끝, 꺼짐: 꺼짐.보임, 다시: 다시꺼짐.보임 }));
-      } else {
-        const 안붙음 = await ev(`window.__bar(${S})`);
-        const 굴림 = await ev(`window.__stick(${S}, 150)`);
-        await sleep(700);
-        const 붙음 = await ev(`window.__bar(${S})`);
-        check(`${이름}: 바가 보이고 편집 칸과 안 겹치고 가로로 안 넘친다`,
-          !!안붙음 && 안붙음.갈래 === 'sticky' && 안붙음.보임 === true
-          && 안붙음.bottom <= 안붙음.칸위 + 1 && 안붙음.둥근 > 0 && 안붙음.넘침 <= 1,
-          JSON.stringify(안붙음));
-        check(`${이름}: 붙으면 줄이 되고 머리줄 바로 밑이다`,
-          !!붙음 && 굴림 > 0 && 붙음.둥근 === 0 && 붙음.좌선 === 0 && 붙음.우선 === 0
-          && 붙음.위선 === 0 && 붙음.아래선 > 0 && 붙음.그림자 !== 'none'
-          && Math.abs(붙음.top - 붙음.멈출자리) <= 1,
-          JSON.stringify({ 굴림, ...붙음 }));
-      }
+      const 안붙음 = await ev(`window.__bar(${S})`);
+      const 굴림 = await ev(`window.__stick(${S}, 150)`);
+      await sleep(700);
+      const 붙음 = await ev(`window.__bar(${S})`);
+      check(`${이름}: 안 붙었을 때 둥근 상자로 편집 칸 위에 있고 가로로 안 넘친다`,
+        !!안붙음 && 안붙음.갈래 === 'sticky' && 안붙음.보임 === true
+        && 안붙음.bottom <= 안붙음.칸위 + 1 && 안붙음.둥근 > 0 && 안붙음.넘침 <= 1,
+        JSON.stringify(안붙음));
+      check(`${이름}: 붙으면 줄이 되고 머리줄 바로 밑이다`,
+        !!붙음 && 굴림 > 0 && 붙음.둥근 === 0 && 붙음.좌선 === 0 && 붙음.우선 === 0
+        && 붙음.위선 === 0 && 붙음.아래선 > 0 && 붙음.그림자 !== 'none'
+        && Math.abs(붙음.top - 붙음.멈출자리) <= 1,
+        JSON.stringify({ 굴림, ...붙음 }));
+      // **body 직계 자식이 아니어야 한다** — 걷어낸 화면 아래 고정 갈래는 바를 포털로
+      // body에 뺐다. sticky는 제자리에 있어야 붙으므로, 포털이 돌아오면 이 줄이 깨진다.
+      check(`${이름}: 바가 body 포털로 빠져 있지 않다`,
+        !!붙음 && 붙음.body자식 === false && 붙음.자리 === 'sticky',
+        JSON.stringify({ body자식: 붙음 && 붙음.body자식, 자리: 붙음 && 붙음.자리 }));
     }
   }
-  await send('Emulation.setFocusEmulationEnabled', { enabled: false });
   st.tasks.byId[firstId].content = '내용';
 }
 
