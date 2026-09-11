@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isApprovedProfile } from '../src/services/approval.js';
 
 // ============================================================================
 // /api/drive — 개인 구글 드라이브(Apps Script 웹앱) 프록시
@@ -70,11 +71,14 @@ export default async function handler(req, res) {
   // 무의미해진다 — RLS는 DB만 지키고 이 경로는 DB를 거치지 않는다.
   // **관리자 표는 승인 칸이 아닐 때만 본다**(2026-09-08). 예전에는 둘을 언제나 물어서
   // 업로드마다 왕복이 하나씩 더 붙었다 — 승인된 사람(거의 전부)에게는 답이 이미 정해져 있다.
-  const { data: me } = await supabase.from('profiles').select('approved').eq('id', user.id).single();
-  if (!me?.approved) {
+  // **합친 계정은 남긴 계정의 칸을 본다**(services/approval.js · 0063). 여기는 서비스
+  // 키라 DB의 is_approved()를 쓸 수 없어서, 합친 계정으로 로그인하면 첨부 업로드가
+  // 통째로 403이었다(그 행은 환송 처리라 approved = false다).
+  const approved = await isApprovedProfile(supabase, user.id);
+  if (!approved) {
     const { data: admin } = await supabase.from('admins').select('email').ilike('email', user.email || ' ');
     if (!(admin && admin.length)) {
-      console.error('[drive] 승인 확인 실패:', user.email, 'approved =', me?.approved);
+      console.error('[drive] 승인 확인 실패:', user.email);
       res.status(403).json({ error: '승인된 사용자만 파일을 올릴 수 있습니다.' });
       return;
     }

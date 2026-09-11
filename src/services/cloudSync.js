@@ -85,12 +85,19 @@ export function getAvatar(name) { return nameToAvatar.get(name) || ''; }
 // 표시명 → 프로필 id들 (정확 일치). 동명 프로필이 여럿이면 전원 매핑.
 // 본인 제외는 이름이 아니라 auth user id 기준으로 notifyMentions에서 최종 수행한다
 // (표시 이름은 로그인 직후 구글 이름 ↔ 프로필 이름 사이에서 흔들릴 수 있어 신뢰 불가).
+// **합친 계정은 남긴 계정으로 접는다**(0063). profileIdToName은 합친 계정의 행도
+// 남긴 계정의 이름으로 풀어 주므로(위 primeMaps), 접지 않으면 한 이름에 남긴 id와
+// 합친 id가 **둘 다** 잡혔다 — 멘션·답글·반응 알림이 한 사람에게 두세 벌 가고,
+// assigneeIdsOf가 첫 id를 고를 때 합친(죽은) 계정이 담당자로 박힐 수 있었다.
+// 동명이인은 그대로 여럿이다(그건 진짜로 다른 사람이다).
 function nameToIdsMap() {
   const nameToIds = new Map();
   for (const [id, name] of profileIdToName.entries()) {
     if (!name) continue;
+    const keep = profileRows.get(id)?.merged_into || id;
     if (!nameToIds.has(name)) nameToIds.set(name, []);
-    nameToIds.get(name).push(id);
+    const ids = nameToIds.get(name);
+    if (!ids.includes(keep)) ids.push(keep);
   }
   return nameToIds;
 }

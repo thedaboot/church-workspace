@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, ChevronDown, Lock, Pencil, Trash2, Share2, L
 import { useStore } from '../store/workspaceStore.js';
 import { selectMembers, selectCurrentUser } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
+import { myUidSync } from '../services/supabaseClient.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { RichText } from '../components/RichText.jsx';
 import { Skeleton } from '../components/media.jsx';
@@ -322,7 +323,7 @@ function QtTab() {
   // 피드에 설 내 줄 — **지금 저장된 내 묵상**에서 만든다(mergeFeed 머리말).
   // profile_id를 실어 보내야 비공개로 넘어가 목록에서 빠진 뒤에도 같은 이름·사진으로
   // 서 있는다(피드는 profile_id로 멤버 프로필을 찾는다). 게스트에는 세션이 없다.
-  const myProfileId = session?.user?.id || '';
+  const myProfileId = myUidSync() || session?.user?.id || '';   // 합친 계정이면 남긴 계정(0063)
   const myRow = useMemo(() => {
     if (!ready) return undefined;                       // 아직 이 날의 내 묵상을 모른다
     if (!entry.exists || !entry.body.trim()) return null;

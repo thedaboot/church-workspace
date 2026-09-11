@@ -319,6 +319,33 @@ assert.ok(!withCheck.includes("'due_soon'"), 'due_soon은 INSERT 정책에 넣�
     '반응 이벤트가 전체 재조회로 흐른다 — comments와 같은 결(열린 창일 때만 상세 갱신)이어야 한다');
 }
 
+// ── 합친 계정의 알림·구독 (0063 · 감사 2026-09-11) ──────────────────────────
+// 벨이 거의 비어 보이던 자리. **정책과 클라이언트가 같은 값을 봐야 한다**(§6-34-d) —
+// 정책만 effective_uid()로 올리고 화면이 세션 uid로 물으면 결과가 빈 목록이다.
+{
+  const cSrc = readFileSync(join(ROOT, 'src', 'services', 'cloud.js'), 'utf8');
+  for (const fn of ['listMyNotifications', 'markAllNotificationsRead', 'savePushSubscription']) {
+    const at = cSrc.indexOf(`function ${fn}(`);
+    assert.ok(at > 0, `${fn}을 못 찾았다`);
+    assert.ok(/await myUid\(\)/.test(cSrc.slice(at, at + 600)),
+      `${fn}이 세션 uid로 묻는다 — 합친 계정에게는 알림이 안 보인다`);
+  }
+  // 실시간 필터(`recipient_id=eq.<id>`)도 같은 값이어야 새 알림이 들어온다
+  const layoutSrc = readFileSync(join(ROOT, 'src', 'components', 'layout.jsx'), 'utf8');
+  assert.ok(/myUid\(\)\.then/.test(layoutSrc), '알림 구독 필터가 세션 uid다');
+  // 푸시는 남긴 계정 앞으로 온다 — 구독 행도 그 계정이어야 기기에 닿는다
+  const m63 = readFileSync(join(ROOT, 'supabase', 'migrations', '0063_effective_uid_rest.sql'), 'utf8');
+  const body63 = m63.slice(m63.indexOf('begin;'), m63.indexOf('commit;'))
+    .split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  for (const p of ['"notifications_select_own"', 'push_subscriptions_insert_own']) {
+    const at = body63.indexOf(`alter policy ${p} on `);
+    assert.ok(at > 0, `${p}을 0063에서 못 찾았다`);
+    const next = body63.indexOf('\nalter ', at + 1);
+    assert.ok(/public\.effective_uid\(\)/.test(body63.slice(at, next < 0 ? body63.length : next)),
+      `${p}이 아직 auth.uid()만 본다`);
+  }
+}
+
 const vercel = JSON.parse(readFileSync(join(ROOT, 'vercel.json'), 'utf8'));
 const cron = (vercel.crons || []).find(c => c.path === '/api/push');
 assert.ok(cron, 'vercel.json에 /api/push 크론이 없다');
@@ -496,4 +523,4 @@ assert.ok(/addEventListener\('notificationclick'/.test(sw), 'sw에 클릭 처리
     '알림 한 건마다 DB를 다시 묻고 있다 (N+1)');
 }
 
-console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론(마감 임박 + 예배 당일 job 갈래·중복 방지·N+1 없음)·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수');
+console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론(마감 임박 + 예배 당일 job 갈래·중복 방지·N+1 없음)·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수·합친 계정의 알림·구독(0063)');

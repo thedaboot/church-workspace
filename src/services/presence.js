@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { supabase } from './supabaseClient.js';
+import { supabase, myUid } from './supabaseClient.js';
 import { nextWhereMeta } from '../utils.js';
 
 // ============================================================================
@@ -23,7 +23,7 @@ const TOPIC = 'presence-workspace';
 
 let online = new Set();     // profile id들. 게스트 모드에서는 언제나 빈 집합
 let views = [];             // [{ id, projectId, cardId, at, seq }] — 사람마다 열어 둔 창 수만큼
-let meId = null;            // 내 profile id(= auth user id). 본인 얼굴을 빼는 데 쓴다
+let meId = null;            // 내 profile id(합친 계정이면 남긴 계정 것 · 0063). 본인 얼굴을 빼는 데 쓴다
 const listeners = new Set();
 const NO_VIEWS = [];
 
@@ -136,16 +136,19 @@ export function subscribePresence() {
   const onVisible = () => { if (!document.hidden) nudgeConnection(); };
   document.addEventListener('visibilitychange', onVisible);
   (async () => {
-    const { data: { user } } = await c.auth.getUser();
-    if (!user || stopped) return;
+    // **열쇠는 남긴 계정의 id다**(0063). 접속 표시는 멤버 목록·명단의 행 id와 맞춰야
+    // 얼굴에 불이 들어오는데(membersView가 스토어를 겹쳐 쓴다 · §4.8) 그 목록은 남긴
+    // 계정 행이다 — 세션 uid로 붙으면 합친 계정은 접속해도 아무 얼굴도 밝히지 못한다.
+    const uid = await myUid();
+    if (!uid || stopped) return;
     // 같은 topic 채널이 남아 있으면 먼저 걷어낸다 — supabase-js는 같은 topic이면 기존
     // 인스턴스를 그대로 돌려주고, 이미 subscribe된 채널에 .on을 붙이면 예외가 난다
     // (알림 채널에서 실제로 화면이 죽었다 — §6-3).
     c.getChannels().filter(ch => ch.topic === TOPIC || ch.topic === `realtime:${TOPIC}`)
       .forEach(ch => c.removeChannel(ch));
-    const ch = c.channel(TOPIC, { config: { presence: { key: user.id } } });
+    const ch = c.channel(TOPIC, { config: { presence: { key: uid } } });
     channel = ch;
-    ch.on('presence', { event: 'sync' }, () => setPresence(entriesOf(ch.presenceState()), user.id));
+    ch.on('presence', { event: 'sync' }, () => setPresence(entriesOf(ch.presenceState()), uid));
     // join·leave는 화면에 쓰지 않는다 — 라이브러리가 지워 버린 ref를 되살리려고 듣는다.
     // join이 leave보다 먼저 처리되므로 둘 다 걸어야 같은 diff 안의 leave가 먹는다.
     ch.on('presence', { event: 'join' }, healRefs);

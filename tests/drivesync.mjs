@@ -575,6 +575,21 @@ check('파일 중계는 불변 캐시다(재열람 왕복 0)', () => {
   assert.ok(!/Cache-Control', 'public/.test(filesvc), '공유 캐시에 앉히면 승인 검사가 비켜진다');
 });
 
+// ── 합친 계정의 승인 확인 (0063 · 감사 2026-09-11) ──────────────────────────
+// 이 두 경로는 **서비스 키로 돌아서 RLS도 auth.uid()도 없다.** 그래서 DB의
+// is_approved()(0061부터 effective_uid()를 본다)를 못 쓰고 profiles를 직접 읽는데,
+// 합친 계정의 행은 환송 처리(approved = false)라 **첨부 업로드도 미리보기도 403**이었다.
+check('승인 확인이 합친 계정을 따라간다(두 경로가 같은 헬퍼)', () => {
+  const helper = read('src/services/approval.js');
+  assert.match(helper, /select\('approved, merged_into'\)/, '승인 칸만 읽고 있다 — 합친 계정을 못 따라간다');
+  assert.match(helper, /me\.merged_into/, '남긴 계정 행을 한 번 더 읽지 않는다');
+  for (const [name, code] of [['api/drive.js', api], ['api/drive-file.js', filesvc]]) {
+    assert.ok(/isApprovedProfile\(supabase, user\.id\)/.test(code), `${name}이 공용 헬퍼를 안 쓴다`);
+    assert.ok(!/from\('profiles'\)\.select\('approved'\)/.test(code),
+      `${name}이 아직 승인 칸을 직접 읽는다 — 합친 계정이 403이 된다`);
+  }
+});
+
 // ── 워드·PPT를 구글 화면으로 (2026-09-08) ──────────────────────────────────
 // 사용자 요청: "PPT도 보면 좀 잘리고 그러는데, 이 pptx 뷰어나 docs도 마찬가지고, 그냥
 // 실제 뷰로 볼 수 있게끔 해줄 수 있나? 우리 엑셀 미리보기 하는 것처럼!!"

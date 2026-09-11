@@ -13,6 +13,7 @@ import {
 import { useAuth } from '../services/auth.jsx';
 import { formatRelative, projectYear, reorderIds, viewersOf } from '../utils.js';
 import { usePresenceViews, presenceMe } from '../services/presence.js';
+import { myUid } from '../services/supabaseClient.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
 import { Avatar } from './Avatar.jsx';
 import * as cloudSync from '../services/cloudSync.js';
@@ -1062,7 +1063,18 @@ function PushRow() {
 
 function NotificationBell({ onOpenTask, onOpenLink }) {
   const { session } = useAuth();
-  const userId = session?.user?.id;
+  // 알림은 **남긴 계정 앞으로** 온다(0063) — 구독 필터(`recipient_id=eq.…`)가 세션 uid면
+  // 합친 계정에게는 새 알림이 한 줄도 안 들어와 벨이 비어 보인다. 물어 오기 전까지는
+  // 세션 uid로 떨어진다(합치지 않은 계정에게는 같은 값이다).
+  const sessionUid = session?.user?.id;
+  const [userId, setUserId] = useState(null);
+  useEffect(() => {
+    if (!sessionUid) { setUserId(null); return; }
+    let alive = true;
+    myUid().then(id => { if (alive) setUserId(id || sessionUid); })
+      .catch(() => { if (alive) setUserId(sessionUid); });
+    return () => { alive = false; };
+  }, [sessionUid]);
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);

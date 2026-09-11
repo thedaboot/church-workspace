@@ -66,6 +66,7 @@
 - **노트 종이 편집**(인디고 띠·제목·구절·캐릭터 컷이 저장된 종이와 같은지 · 도막 제목이 지워지지 않는지).
 - **업무 링크가 '첨부 파일' 구역 안**에 파일 줄과 한 목록으로 서고 '열기'로 앱 안에서 고쳐지는지(0058 · §6-35).
 - **합친 계정 사진**이 담당자·멘션·댓글·활동에서 남긴 계정 것인지(§6-34-f).
+- **합친 계정으로 로그인**: 첨부 업로드 · 알림 벨 · 내 순 공유 노트 · 옛 댓글 삭제(0063 · §6-34-i).
 - **Apps Script는 v10이 배포된 판이다**(2026-09-09) — 큐시트 편집이 안 되면 `docs/APPS_SCRIPT.md` '올린 뒤 확인할 것'의 판 번호부터.
 
 ## 3. 이 레포의 흐름 (새 기능을 붙일 때)
@@ -148,6 +149,7 @@ src/services/supabaseClient.js 클라이언트 한 벌 + setWriteObserver(§4.8)
 src/services/cloud.js         Supabase 읽기·쓰기 — 업로드는 `uploadOwnedFile` 한 벌(업무·주보가 같이 쓴다)
 src/services/cloudSync.js     모양 변환 + 실시간 라우팅 + 알림 만들기(§6-21·21-a·29-a)
 src/services/auth.jsx         OAuth — 로그인 전 자리 기억·카카오 인앱 자동 시작(§6의 auth 항목)
+src/services/approval.js      승인 확인 **서버 전용** 한 벌 — api/drive*.js가 쓴다(합친 계정은 남긴 계정 칸 · §6-34-i)
 src/services/domain.js        TaskService·ActivityService(§6-28)
 src/services/presence.js      지금 접속한 사람 — 워크스페이스 스토어 밖 미니 스토어(§4.9·§6-24-b)
 src/services/liveV2.js        v2 실시간 — 채널 하나 · 표 → 캐시 접두 · useLiveRefresh(§6-24-a)
@@ -192,7 +194,7 @@ scripts/subset_suit.py subset_symbols.py make_icons.py  폰트·아이콘 생성
 scripts/drive_check.mjs       드라이브 ↔ DB 어긋남 점검(`--fix`를 붙여야 고친다 · §6-29-j)
 scripts/migrate_to_drive.mjs reset_drive_migration.mjs backfill_sheet_preview.mjs  이관·되돌리기·사본 백필
 scripts/bible_check.mjs       성경 json 정합 검사(tests/bibleref와 짝)
-supabase/migrations/          0001~0061 — 표는 README, 최근 것은 §5
+supabase/migrations/          0001~0063 — 표는 README, 최근 것은 §5
 tests/                        검증 스위트 + 러너 — 목록은 tests/README.md
 design/                       원본 시트(chars.png·char.png) — 배포에 안 실림
 ```
@@ -204,7 +206,8 @@ design/                       원본 시트(chars.png·char.png) — 배포에 �
 
 - **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0061`이고 **전부 라이브 DB에 적용**되어 있다. 최근 것: **0059** 계정 합치기 rpc(마스터만 · 되돌릴 수 없다) ·
   **0060** `profiles.merged_into`(합친 계정을 다시 초대하면 빈 중복이 살아나던 것) · **0061** `effective_uid()`(합친 계정으로 들어와도 그 사람 — `is_approved`·`my_person_id`·개인 표 셋의
-  정책).
+  정책) · **0063** 0061이 남긴 나머지 `auth.uid()` 자리(알림·삭제 자격·반응·푸시 구독·내 정보·`same_sun`·`is_pastor`·`touch_last_seen`)를 `alter policy`로 옮긴 것 —
+  배경과 규칙은 `docs/PITFALLS.md` §6-34-i.
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.

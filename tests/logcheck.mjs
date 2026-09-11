@@ -2200,7 +2200,74 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/p\.merged_into && nameOfId\.get\(p\.merged_into\)/.test(src('../src/services/cloudSync.js')),
     '합친 계정의 이름은 남긴 계정의 것으로 풀린다');
 
-  console.log('PASS  링크 카드 축·자리 · 계정 합치기 38가지');
+  // 0063 — 0061이 **남겨 둔 나머지 자리**(읽기 전용 감사 2026-09-11). 합친 계정으로
+  // 로그인하면 알림 벨이 비고, '내 순에 공유된 노트'가 0건이고, 옛 댓글·업무·첨부·링크
+  // 삭제와 반응 토글과 다녀간 시각이 조용히 실패했다.
+  const m63 = src('../supabase/migrations/0063_effective_uid_rest.sql');
+  // **주석과 `comment on` 줄을 걷고 본문만 본다**(§6-34-e) — 이 파일의 주석에도
+  // 되돌리기 SQL이 통째로 적혀 있어서 그대로 보면 auth.uid()가 잔뜩 잡힌다.
+  const body63 = m63.slice(m63.indexOf('begin;'), m63.indexOf('commit;'))
+    .split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  assert.ok(body63.length > 1500, '0063 본문을 찾았다');
+  // **정책을 새로 만들지 않는다** — permissive는 OR라 하나 더 만들면 옛 조건이 그대로
+  // 살아 남아 아무것도 안 바뀐다(§6-31-a). 전부 alter policy로 본문만 바꾼다.
+  assert.ok(!/create policy/.test(body63) && !/drop policy/.test(body63),
+    '0063이 정책을 새로 만든다 — 이름이 같아도 수가 늘면 OR로 합쳐진다(§6-31-a)');
+  // effective_uid()는 0061이 만든다. 여기서 다시 만들면 두 벌이 된다.
+  assert.ok(!/function public\.effective_uid/.test(body63), '0063이 effective_uid를 다시 만든다');
+  // 사람 판정 함수 셋 — 각각 본문에 auth.uid()가 남아 있지 않아야 한다
+  for (const fn of ['same_sun', 'is_pastor', 'touch_last_seen']) {
+    const at = body63.indexOf(`function public.${fn}`);
+    assert.ok(at > 0, `${fn}을 다시 만들지 않는다`);
+    const fnBody = body63.slice(at, body63.indexOf('$$;', at));
+    assert.ok(/effective_uid\(\)/.test(fnBody), `${fn}이 effective_uid를 안 본다`);
+    assert.ok(!/= auth\.uid\(\)/.test(fnBody), `${fn}에 auth.uid() 판정이 남아 있다`);
+  }
+  // 정책 열넷 — 이름별로 그 alter 문 안에 effective_uid가 있는지 본다.
+  // (`alter policy X on public.Y` 부터 다음 `alter ` 까지가 한 문장이다)
+  const stmt63 = (name) => {
+    const at = body63.indexOf(`alter policy ${name} on `);
+    assert.ok(at > 0, `${name} 정책을 못 찾았다`);
+    const next = body63.indexOf('\nalter ', at + 1);
+    return body63.slice(at, next < 0 ? body63.length : next);
+  };
+  for (const p of ['"notifications_select_own"', '"notifications_update_own"', '"notifications_delete_own"',
+                   'comments_delete', 'cards_delete', 'files_delete', 'resource_links_delete',
+                   'comment_reactions_insert', 'comment_reactions_delete',
+                   'push_subscriptions_select_own', 'push_subscriptions_insert_own',
+                   'push_subscriptions_update_own', 'push_subscriptions_delete_own',
+                   'profiles_update', '"profile_teams write own"']) {
+    assert.ok(/public\.effective_uid\(\)/.test(stmt63(p)), `${p}가 effective_uid를 안 본다`);
+  }
+  // **profiles_insert는 손대지 않는다** — 가입 순간 자기 행을 만드는 자리라
+  // auth.uid() = id가 아니면 아무도 첫 행을 못 만든다(0001 그대로).
+  assert.ok(!/profiles_insert/.test(body63), '0063이 profiles_insert를 건드린다 — 가입이 막힌다');
+  assert.ok(/auth\.uid\(\) = id/.test(src('../supabase/migrations/0001_init.sql')),
+    'profiles_insert는 0001의 auth.uid() = id 그대로다');
+  // 반응은 **컬럼 기본값도** 같이 옮겨야 한다 — 클라이언트가 주인을 안 보내므로
+  // 기본값이 auth.uid()인 채로 정책만 올리면 합친 계정은 반응을 아예 못 남긴다.
+  assert.ok(/alter table public\.comment_reactions alter column user_id set default public\.effective_uid\(\)/.test(body63),
+    '반응의 주인 기본값이 아직 auth.uid()다 — 정책만 올리면 insert가 통째로 막힌다');
+
+  // 클라이언트도 같은 값을 봐야 한다(§6-34-d) — 정책만 고치면 화면은 자기 uid로 묻는다
+  const cl = src('../src/services/cloud.js');
+  for (const fn of ['listMyNotifications', 'markAllNotificationsRead', 'savePushSubscription',
+                    'updateMyProfile', 'setMyTeams', 'removeCommentReaction']) {
+    const at = cl.indexOf(`function ${fn}(`);
+    assert.ok(at > 0, `${fn}을 못 찾았다`);
+    const fnSrc = cl.slice(at, at + 600);
+    assert.ok(/await myUid\(\)/.test(fnSrc), `${fn}이 세션 uid로 묻는다 — 합친 계정에게는 빈 목록이다`);
+  }
+  assert.ok(/myUid\(\)\.then/.test(src('../src/components/layout.jsx')),
+    '알림 실시간 구독 필터가 세션 uid다 — 합친 계정에게는 새 알림이 안 들어온다');
+  assert.ok(/presence: \{ key: uid \}/.test(src('../src/services/presence.js')),
+    '접속 표시 열쇠가 세션 uid다 — 합친 계정은 접속해도 얼굴이 안 밝는다');
+  assert.ok(/export function myUidSync/.test(sc) && /export function isMyUid/.test(sc),
+    '자격 판정이 쓸 동기 접근이 없다');
+  assert.ok(/isMyUid\(task\.created_by, userId\)/.test(src('../src/modals/modals.jsx')),
+    '업무 삭제 자격이 세션 uid만 본다');
+
+  console.log('PASS  링크 카드 축·자리 · 계정 합치기 38가지 · 0063 나머지 자리 40가지');
 }
 
 // ── 노트 도막 (이름·고정·옛 이름 옮기기) ───────────────────────────────────

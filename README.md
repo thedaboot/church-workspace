@@ -184,6 +184,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0059_merge_profiles` | 한 사람의 여러 계정 합치기 — `merge_profiles` rpc(마스터만). 되돌릴 수 없다 | ✅ |
 | `0060_merged_into` | `profiles.merged_into` — 합쳐진 계정에 표를 남겨 '다시 초대하기'가 빈 중복을 안 되살리게 | ✅ |
 | `0061_effective_uid` | 합친 계정으로 들어와도 그 사람 — 승인·명단·개인 표 정책이 `effective_uid()`를 본다 | ✅ |
+| `0063_effective_uid_rest` | 0061이 남긴 나머지 자리 — 알림·삭제 자격·반응·푸시 구독·내 정보 정책과 `same_sun`·`is_pastor`·`touch_last_seen` | ✅ |
 
 ## 딥링크 · 공유 · 환경변수
 

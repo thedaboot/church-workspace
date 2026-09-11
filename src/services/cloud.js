@@ -1,4 +1,6 @@
-import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabaseClient.js';
+// myUid = **합친 계정이면 남긴 계정의 id**(0061·0063). 내 것을 읽고 쓰는 자리는
+// 세션의 uid가 아니라 이 값을 봐야 한다 — 정책이 그 값으로 판정한다(§6-34-d).
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY, myUid } from './supabaseClient.js';
 import { CONFIG } from '../config.js';
 // 어떤 파일에 구글 변환 사본을 만들지 — 표를 **여는 쪽과 한 벌**로 둔다(previewKind.js).
 // 두 벌이면 새 확장자를 붙일 때 한쪽만 고쳐져서 "사본은 있는데 안 열리는 파일"이 생긴다.
@@ -92,9 +94,11 @@ export async function touchLastSeen() {
     const { error } = await client().rpc('touch_last_seen');
     if (!error) return;
     if (error.code !== 'PGRST202' && !/touch_last_seen/.test(error.message || '')) throw error;
-    const { data: { user } } = await client().auth.getUser();
-    if (!user) return;
-    await client().from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', user.id);
+    // 폴백도 **남긴 계정 행**에 찍는다 — 화면의 얼굴은 그 행에서 오므로(0063)
+    // 자기 행에 찍으면 합친 계정만 영영 '오늘 다녀간 사람'에서 빠진다.
+    const uid = await myUid();
+    if (!uid) return;
+    await client().from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', uid);
   } catch (e) {
     console.warn('[cloud] 접속 시각 기록 생략:', e.message);
   }
@@ -123,10 +127,12 @@ export async function stampLeaveBeacon() {
   } catch { /* 떠나는 길이다 — 실패해도 남길 화면이 없다 */ }
 }
 // 가입 트리거가 발화하지 않아 프로필 행이 없을 수 있으므로 update 대신 upsert(행 없어도 성공)
+// **남긴 계정 행에 쓴다**(0063 · §6-34-g). 화면에 보이는 것은 그 행인데 저장은 자기
+// 행으로 가서, 합친 계정으로 사진·이름을 바꾸면 아무 일도 안 일어난 것처럼 보였다.
 export async function updateMyProfile(patch) {
-  const { data: { user } } = await client().auth.getUser();
-  if (!user) throw new Error('로그인이 필요합니다.');
-  return unwrap(await client().from('profiles').upsert({ id: user.id, ...patch }).select().single());
+  const uid = await myUid();
+  if (!uid) throw new Error('로그인이 필요합니다.');
+  return unwrap(await client().from('profiles').upsert({ id: uid, ...patch }).select().single());
 }
 // ── 여러 팀 소속 (profile_teams) ─────────────────────────────────────────────
 // 0008 마이그레이션이 아직 적용되지 않은 환경에서도 앱이 죽지 않아야 한다.
@@ -137,12 +143,12 @@ export async function listProfileTeams() {
   return data || [];
 }
 export async function setMyTeams(teamIds) {
-  const { data: { user } } = await client().auth.getUser();
-  if (!user) throw new Error('로그인이 필요합니다.');
-  const del = await client().from('profile_teams').delete().eq('profile_id', user.id);
+  const uid = await myUid();                  // 내 정보와 같은 행에 모은다(0063)
+  if (!uid) throw new Error('로그인이 필요합니다.');
+  const del = await client().from('profile_teams').delete().eq('profile_id', uid);
   if (del.error) { console.warn('[cloud] profile_teams 저장 생략:', del.error.message); return; }
   if (!teamIds.length) return;
-  const rows = teamIds.map(team_id => ({ profile_id: user.id, team_id }));
+  const rows = teamIds.map(team_id => ({ profile_id: uid, team_id }));
   const ins = await client().from('profile_teams').insert(rows);
   if (ins.error) console.warn('[cloud] profile_teams 저장 실패:', ins.error.message);
 }
@@ -165,6 +171,9 @@ export async function ensureMyProfile(user) {
     // 로그인마다 user_metadata를 제공자 값으로 갱신하므로 여기 오는 것이 지금 살아 있는 주소다.
     // 직접 올린 사진(Storage)이나 '기본으로'(null)는 사용자의 선택이라 건드리지 않는다
     // (회차 8의 덮어쓰기 버그와 반대 방향 — 그때는 사용자 사진을 제공자 값으로 덮었다).
+    // **여기는 일부러 `user.id`다** — 로그인한 계정 자기 행의 자가 복구다. 합친 계정이면
+    // 0063의 `profiles_update`가 이 쓰기를 막는데(주인은 남긴 계정 하나로 모은다) 그래도
+    // 된다: 화면이 읽는 사진은 남긴 계정 행의 것이고 실패는 아래에서 그냥 지나간다.
     const cur = existing.data.avatar_url;
     const fresh = meta.avatar_url || meta.picture || null;
     if (cur && fresh && cur !== fresh && isProviderAvatar(cur) && isProviderAvatar(fresh)) {
@@ -432,7 +441,8 @@ export async function listCardReactions(cardId) {
     .eq('comments.card_id', cardId));
 }
 
-// 켜기. user_id는 DB가 auth.uid()로 채운다(0032) — 클라이언트가 주인을 못 정한다.
+// 켜기. user_id는 DB가 컬럼 기본값으로 채운다(0032 · 0063부터 effective_uid()) —
+// 클라이언트가 주인을 못 정한다.
 // 이미 눌러 둔 것(23505)은 성공으로 본다: 토글이 겹쳐 도착해도 화면이 오류를
 // 띄울 이유가 없다. .select()는 붙이지 않는다(§6-25와 같은 습관).
 export async function addCommentReaction(commentId, kind) {
@@ -444,10 +454,10 @@ export async function addCommentReaction(commentId, kind) {
 // 끄기. RLS(0032)가 이미 자기 행만 지우게 막지만 여기서도 못 박는다 —
 // 조건이 하나 빠진 delete는 조용히 남의 것까지 지운다(§6-29의 반대편).
 export async function removeCommentReaction(commentId, kind) {
-  const { user } = await getSession();
+  const uid = await myUid();                  // 켤 때 DB가 적는 주인과 같은 값(0063)
   let q = client().from('comment_reactions').delete()
     .eq('comment_id', commentId).eq('kind', kind);
-  if (user?.id) q = q.eq('user_id', user.id);
+  if (uid) q = q.eq('user_id', uid);
   const { error } = await q;
   if (error) throw error;
 }
@@ -1142,12 +1152,12 @@ export async function deleteAttachment(fileRow) {
 // 공용 기기에서 주인이 바뀔 수 있으므로 갱신 시 profile_id도 같이 덮는다.
 // `.select()`를 붙이지 않는다 — 본인 행이라 정책상 읽을 수는 있지만 돌려받을 이유가 없다.
 export async function savePushSubscription(sub) {
-  const { data: { user } } = await client().auth.getUser();
-  if (!user) throw new Error('로그인이 필요합니다.');
+  const uid = await myUid();                  // 알림이 가는 곳과 같은 계정이어야 한다(0063)
+  if (!uid) throw new Error('로그인이 필요합니다.');
   const { endpoint, keys } = sub || {};
   if (!endpoint || !keys?.p256dh || !keys?.auth) throw new Error('구독 정보가 올바르지 않습니다.');
   const { error } = await client().from('push_subscriptions').upsert({
-    profile_id: user.id,
+    profile_id: uid,
     endpoint,
     p256dh: keys.p256dh,
     auth: keys.auth,
@@ -1164,12 +1174,12 @@ export async function deletePushSubscription(endpoint) {
 // ── notifications (@멘션 알림) ──────────────────────────────────────────────
 // 본인 알림 최근 N개 (읽지 않은 것 우선, 그다음 최신순)
 export async function listMyNotifications(limit = 30) {
-  const { data: { user } } = await client().auth.getUser();
-  if (!user) return [];
+  const uid = await myUid();                  // 알림은 **남긴 계정** 앞으로 온다(0063)
+  if (!uid) return [];
   return unwrap(await client()
     .from('notifications')
     .select('*')
-    .eq('recipient_id', user.id)
+    .eq('recipient_id', uid)
     .order('read', { ascending: true })
     .order('created_at', { ascending: false })
     .limit(limit));
@@ -1179,7 +1189,7 @@ export async function listMyNotifications(limit = 30) {
 // kind: 'mention'(멘션) | 'reply'(내 댓글에 답글) — DB check와 INSERT 정책이 이 둘만 허용
 //
 // **.select()를 붙이면 안 된다.** notifications의 SELECT 정책은 본인 수신 행만
-// (recipient_id = auth.uid()) 허용하는데, 여기서 넣는 행은 '남에게 보내는' 알림이다.
+// (recipient_id = effective_uid() · 0063) 허용하는데, 여기서 넣는 행은 '남에게 보내는' 알림이다.
 // insert().select()는 SQL의 INSERT ... RETURNING이라 넣은 행을 읽으려 하고, 정책에
 // 막혀 42501(new row violates row-level security policy)로 **insert까지 롤백된다.**
 // 그래서 멘션 알림이 한 번도 생성되지 않았다(호출부가 실패를 조용히 삼켜 화면에도
@@ -1240,9 +1250,9 @@ export async function deleteNotification(id) {
 }
 
 export async function markAllNotificationsRead() {
-  const { data: { user } } = await client().auth.getUser();
-  if (!user) return;
-  const { error } = await client().from('notifications').update({ read: true }).eq('recipient_id', user.id).eq('read', false);
+  const uid = await myUid();
+  if (!uid) return;
+  const { error } = await client().from('notifications').update({ read: true }).eq('recipient_id', uid).eq('read', false);
   if (error) throw error;
 }
 

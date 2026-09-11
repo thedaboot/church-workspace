@@ -15,6 +15,7 @@ const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').the
 const EditorSkeleton = () => <div className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none dc-skeleton" />;
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
+import { isMyUid } from '../services/supabaseClient.js';
 import { getMemberNames, loadCardDetail, cardSummaryCloud, cardWritePromise } from '../services/cloudSync.js';
 import * as cloudSync from '../services/cloudSync.js';
 import { docEmbedKind } from '../components/DocEmbed.jsx';
@@ -89,7 +90,9 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
   }, [cloudMode, task.id]);
 
   // 삭제 노출 조건: 저장된 카드 + (게스트=작성자 본인 / 클라우드=작성자 본인 또는 관리자)
-  const canDelete = !!task.id && (cloudMode ? (task.created_by === userId || isAdmin) : (task.author === currentUser.name));
+  // isMyUid = 세션 uid와 남긴 계정 id를 **둘 다** 내 것으로 본다(0063 · §6-34-i) —
+  // 합친 계정에게 자기가 만든 옛 업무의 삭제 버튼이 안 보이던 자리다.
+  const canDelete = !!task.id && (cloudMode ? (isMyUid(task.created_by, userId) || isAdmin) : (task.author === currentUser.name));
 
   // 멘션·담당자 자동완성 멤버 소스 (클라우드=프로필 표시명 / 게스트=현재 사용자 + 기존 담당자)
   // 마운트 시 1회만 계산 — selectTasksList를 구독하면 실시간 재조회마다 모달이
@@ -630,7 +633,7 @@ const linkProps = (formData, links, { isAdmin, userId }) => ({
   onLinkAdd: links?.add,
   onLinkRemove: links?.remove,
   onLinkSetPw: links?.setPw,
-  canLockLink: (l) => !!docEmbedKind(l.url) && (isAdmin || (!!userId && l.created_by === userId)),
+  canLockLink: (l) => !!docEmbedKind(l.url) && (isAdmin || isMyUid(l.created_by, userId)),
 });
 
 const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity, links, pendingFiles = [], setPendingFiles, titleRef }) => {

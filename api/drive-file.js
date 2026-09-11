@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isApprovedProfile } from '../src/services/approval.js';
 
 // ============================================================================
 // /api/drive-file — 드라이브 파일 바이트 프록시 (GET ?id=<drive_file_id>)
@@ -31,8 +32,8 @@ export default async function handler(req, res) {
   const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
   const { data: { user }, error: authErr } = await supabase.auth.getUser(accessToken);
   if (authErr || !user) { res.status(401).json({ error: '세션이 유효하지 않습니다.' }); return; }
-  const { data: me } = await supabase.from('profiles').select('approved').eq('id', user.id).single();
-  if (!me?.approved) { res.status(403).json({ error: '승인된 사용자만 볼 수 있습니다.' }); return; }
+  // 합친 계정은 남긴 계정의 칸을 본다(api/drive.js와 같은 헬퍼 · 0063)
+  if (!(await isApprovedProfile(supabase, user.id))) { res.status(403).json({ error: '승인된 사용자만 볼 수 있습니다.' }); return; }
 
   // 실제 소요는 여기 로그에만 남는다 — 브라우저에서 재면 보는 사람의 회선을 재게 된다
   // (§6-29-l에서 업로드로 한 번 데인 길이다). 19MB PDF가 개발 회선에서 8-12초였다.

@@ -133,6 +133,18 @@ assert.strictEqual(merged.profile.id, 'm3', 'profile은 로그인한 계정 그�
 // 합쳐진 계정은 멘션·담당자 후보에서 빠진다(환송과 같은 취급 — 이미 있던 규칙)
 assert.ok(!sync.getMemberNames().includes('재훈(카카오)'), '합쳐진 계정이 후보에 남았다');
 
+// ── 한 이름 → id 하나 (0063 · 감사 2026-09-11) ────────────────────────────
+// 이름→id 표는 profileIdToName 위에서 만드는데, 그 표는 합쳐진 행도 **남긴 계정의
+// 이름**으로 풀어 준다(바로 위 규칙). 접지 않으면 '문진혁'에 k1과 m1이 **둘 다**
+// 잡혀서 멘션·답글·반응 알림이 한 사람에게 두 벌 가고, 담당자 id로 합쳐진(죽은)
+// 계정이 뽑힐 수 있었다. 동명이인은 그대로 여럿이어야 한다 — 그건 진짜 다른 사람이다.
+assert.deepStrictEqual(sync.resolveMentionRecipients('@문진혁 확인 부탁해요'), ['k1'],
+  '합친 계정까지 수신자로 잡혔다 — 같은 알림이 두 벌 간다');
+await sync.cardUpsertCloud({ id: 'c7', projectId: 'p1', title: '담당자 한 명', status: '시작 전',
+  teams: [], assignees: ['문진혁'] }, true);
+assert.deepStrictEqual(writes.at(-1).assigneeIds, ['k1'],
+  '담당자 id가 합친(죽은) 계정으로 갈 수 있다');
+
 // ── cloud.js가 내보내는 문장 모양 ─────────────────────────────────────────
 // 저장이 겹치면(저장 두 번 눌림·두 기기) 조인 쓰기 문장이 D1 D2 I1 I2 순으로 도착한다.
 // "전부 지우고 전부 넣기"였을 때는 I2가 I1의 행과 부딪혀 duplicate key로 저장이
@@ -192,4 +204,4 @@ assert.ok(emptyDel && !emptyDel.filters.some(f => f.kind === 'not'), '빈 집합
 assert.ok(!stmtsFor('card_assignees').some(s => s.op === 'upsert' || s.op === 'insert'), '빈 집합이면 넣지 않는다');
 assert.ok(!stmtsFor('card_teams').length, 'undefined인 조인은 건드리지 않는다');
 
-console.log('PASS  담당자 읽기 3가지(조인·폴백·빈 값) · 쓰기 3가지(신규·수정·미등록) · 조인 쓰기가 순서에 상관없는 모양 · 합친 계정의 이름·사진(남긴 행이 이긴다)');
+console.log('PASS  담당자 읽기 3가지(조인·폴백·빈 값) · 쓰기 3가지(신규·수정·미등록) · 조인 쓰기가 순서에 상관없는 모양 · 합친 계정의 이름·사진(남긴 행이 이긴다) · 한 이름 → id 하나(알림 두 벌 방지)');

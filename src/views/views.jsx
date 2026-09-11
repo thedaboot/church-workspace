@@ -20,6 +20,7 @@ import { Board } from '../components/boards.jsx';
 import { CalendarBoard } from '../components/calendar.jsx';
 import { DepGraph } from '../components/depgraph.jsx';
 import { useAuth } from '../services/auth.jsx';
+import { isMyUid } from '../services/supabaseClient.js';
 import * as cloudSync from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { LinkIcon } from '../components/linkIcons.jsx';
@@ -689,7 +690,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
                 key={l.id} link={l}
                 // 비밀번호를 걸 수 있는 자리는 **앱 안에서 여는 링크**에만, 만든 사람과 관리자에게만.
                 // 새 탭으로 나가는 링크에 걸면 아무것도 막지 못한다(위 PinnedLinkChip 주석).
-                canLock={!!docEmbedKind(l.url) && (isAdmin || (!!myId && l.created_by === myId))}
+                canLock={!!docEmbedKind(l.url) && (isAdmin || isMyUid(l.created_by, myId))}
                 onRemove={() => removeLink(l.id)}
                 onSetPw={(pw) => setLinkPw(l, pw)}
               />

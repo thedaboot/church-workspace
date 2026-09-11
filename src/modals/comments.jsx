@@ -7,6 +7,7 @@ import { RichText } from '../components/RichText.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { MentionInput } from '../components/MentionInput.jsx';
 import { useAuth } from '../services/auth.jsx';
+import { myUidSync } from '../services/supabaseClient.js';
 import { store } from '../store/workspaceStore.js';
 import { showToast } from '../components/Toast.jsx';
 import { reactionSummary, toggleReaction, commentReactionCloud, notifyReaction } from '../services/cloudSync.js';
@@ -251,9 +252,12 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
   // 게스트: local이 곧 원본이고 localStorage에 남는다(댓글과 같은 방식).
   const { enabled, session } = useAuth();
   const cloudMode = enabled && !!session;
-  // 열쇠는 auth user id다 — 이름으로 판정하면 동명이인이 서로의 반응을 자기 것으로 본다
+  // 열쇠는 auth user id다 — 이름으로 판정하면 동명이인이 서로의 반응을 자기 것으로 본다.
+  // **합친 계정이면 남긴 계정의 id**(0063) — DB가 그 값으로 주인을 적고(comment_reactions
+  // 의 컬럼 기본값) 0059가 옛 반응도 그리로 옮겼다. 세션 uid로 보면 자기가 누른 반응이
+  // '내 것'으로 안 잡혀서 한 번 더 눌러야 꺼졌다.
   const me = useMemo(() => ({
-    userId: cloudMode ? (session?.user?.id || '') : 'guest',
+    userId: cloudMode ? (myUidSync() || session?.user?.id || '') : 'guest',
     name: currentUser?.name || '',
   }), [cloudMode, session, currentUser?.name]);
   const [local, setLocal] = useState(() => (cloudMode ? {} : readGuestReactions()));

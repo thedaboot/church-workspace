@@ -77,3 +77,16 @@ export async function myUid() {
   myUidCache = data || null;
   return myUidCache;
 }
+
+// 이미 물어 둔 값을 **동기로** 준다. 자격 판정(삭제 버튼을 보일까)은 그리는 중에
+// 정해져야 해서 await할 자리가 없다 — 아직 안 물었으면 null이고, 그때는 부르는 쪽이
+// 세션 uid로 떨어진다. 캐시는 myUid()가 채우고 resetMyUid()가 버린다.
+export function myUidSync() { return myUidCache; }
+
+// '내 것인가' — **0063의 정책과 같은 규칙이다: 두 id 다 나다.** 합치기 전후로 같은
+// 사람의 행이 두 id에 갈려 있어서(0059가 댓글·업무의 '누가 눌렀나' 칸은 일부러 안
+// 옮겼다) 한쪽만 보면 화면은 '내 것이 아니다'라며 버튼을 감추는데 DB는 허락하는
+// 어긋남이 생긴다 — 합친 계정에게 **옛 댓글 삭제가 조용히 실패**하던 자리다.
+export function isMyUid(id, sessionUid) {
+  return !!id && (id === sessionUid || id === myUidCache);
+}
