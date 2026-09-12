@@ -567,7 +567,10 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
         // 넓히기는 크기가 바뀌는 일이라 §4.2의 "transform/opacity만"에서 한 칸 비켜난다.
         // 겹치는 요소가 이 창 하나뿐이고, 넓힐 길이 크기 말고는 없다(scale로 늘리면 글자까지
         // 커진다). 이징은 앱에 하나뿐인 --ease-out-quint를 쓴다.
-        className={`bg-canvas border border-line shadow-elevated flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 transition-[max-width,height,border-radius] ${isMobile
+        // `tap-zoom-lock` — 더블탭으로 **브라우저가 페이지를 확대하는 것**을 끊는다(§6-29-z-14).
+        // 사진을 두 번 눌러 확대하는 자리라 이게 없으면 우리 배율과 브라우저 배율이 함께
+        // 걸리고, 되돌려도 창이 보이는 영역 밖에 남아 "버튼이 안 눌린다"가 된다.
+        className={`tap-zoom-lock bg-canvas border border-line shadow-elevated flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 transition-[max-width,height,border-radius] ${isMobile
           ? 'w-full h-full'
           : wide ? 'w-full max-w-[100vw] h-[100dvh]' : 'w-full max-w-5xl h-[88dvh] rounded-lg'}`}
         style={{ transitionDuration: '220ms', transitionTimingFunction: 'var(--ease-out-quint)' }}

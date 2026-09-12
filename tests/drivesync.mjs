@@ -921,5 +921,41 @@ check('확대는 우리가 그리는 갈래에만 있고 PDF는 다시 그린다
   assert.match(html, /maximum-scale=1\.0/, 'viewport의 maximum-scale이 바뀌었다 — §6-29-z-13을 다시 보세요');
 });
 
+check('옛 브라우저에서도 PDF가 그려진다 (pdf.js가 그냥 쓰는 최신 API 채우기)', () => {
+  // 크롬 131에서 재현했다: 고치기 전에는 PDF가 **한 장도** 안 그려지고
+  // "a.toHex is not a function" → "…getOrInsertComputed is not a function" →
+  // "t.bytes is not a function"으로 차례로 떨어졌다. 셋을 채우니 한글까지 그대로 나온다.
+  // 가장 늦은 것이 사파리 26이라, 고치기 전에는 **iOS 18에서 첨부 PDF가 통째로 막혀
+  // 있었다.** 화면에는 "미리보기를 그릴 수 없어요"만 떠서 파일 탓으로 보인다.
+  const poly = read('src/services/pdfPolyfill.js');
+  const entry = read('src/services/pdfWorkerEntry.js');
+  const pdfview = read('src/components/PdfView.jsx');
+  for (const m of ['toHex', 'toBase64', 'fromBase64', 'getOrInsertComputed', 'bytes']) {
+    assert.ok(poly.includes(m), `${m}을 안 채운다`);
+  }
+  // **워커에도 들어가야 한다** — pdf.worker는 다른 전역이라 앱 쪽 폴리필이 안 따라간다.
+  // 그리고 **폴리필이 워커보다 먼저** import돼야 한다(뒤면 이미 터진 뒤다).
+  const iPoly = entry.indexOf("import './pdfPolyfill.js'");
+  const iWorker = entry.indexOf('pdf.worker');
+  assert.ok(iPoly >= 0 && iWorker > iPoly, '워커 껍데기가 폴리필을 워커보다 먼저 부르지 않는다');
+  // PdfView는 pdf.worker를 바로 가리키면 안 된다 — 껍데기를 지나야 폴리필이 돈다.
+  assert.match(pdfview, /pdfWorkerEntry\.js\?worker&url/, '워커 껍데기를 지나지 않는다(폴리필이 워커에 안 들어간다)');
+  assert.ok(!/pdf\.worker\.min\.mjs\?url/.test(pdfview), 'pdf.worker를 그대로 가리키고 있다');
+  assert.match(pdfview, /import '\.\.\/services\/pdfPolyfill\.js'/, '앱 쪽 폴리필이 없다');
+});
+
+check('두 번 눌러 확대하는 창은 브라우저 확대를 끊는다', () => {
+  // 사용자 신고 2026-09-13 — "확대했다가 축소하면 다른 버튼이 안 눌리고 업무 상세
+  // 밖으로 나가지지도 않는다". 더블탭을 안 끊으면 우리 배율만 바뀌는 게 아니라
+  // **브라우저가 페이지 자체를 확대**해서, fixed로 깔린 창이 보이는 영역보다 커진다.
+  // 배율을 되돌려도 버튼은 화면 밖이라 "안 눌리는" 것으로 보인다.
+  const css = read('src/index.css');
+  assert.match(css, /@utility tap-zoom-lock \{[\s\S]{0,200}touch-action: manipulation;/,
+    'tap-zoom-lock이 더블탭 확대를 안 끊는다');
+  // 두 번 눌러 확대하는 자리(사진)가 이 창 안에 있으므로 창 전체에 건다
+  assert.match(preview, /tap-zoom-lock bg-canvas/, '미리보기 창에 tap-zoom-lock이 없다');
+  assert.match(preview, /onDoubleClick=\{\(\) => setZoom/, '두 번 눌러 확대가 사라졌다');
+});
+
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);

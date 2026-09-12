@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Skeleton } from './media.jsx';
+// pdf.js 6이 확인 없이 쓰는 Uint8Array 메서드 채우기 — 없으면 PDF가 한 장도 안 그려진다.
+// **워커 쪽에도 따로** 들어가야 한다(pdfWorkerEntry.js가 같은 파일을 먼저 import한다).
+import '../services/pdfPolyfill.js';
 
 // ============================================================================
 // PDF 미리보기 — 브라우저 내장 뷰어(iframe) 대신 직접 그린다.
@@ -42,8 +45,10 @@ let pdfjsPromise = null;
 async function loadPdfjs() {
   if (!pdfjsPromise) {
     pdfjsPromise = import('pdfjs-dist').then(async (mod) => {
-      // 워커는 번들러가 처리하도록 URL로 넘긴다(외부 CDN 사용 안 함)
-      const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+      // 워커는 번들러가 처리하도록 URL로 넘긴다(외부 CDN 사용 안 함).
+      // pdf.worker를 바로 가리키지 않고 **껍데기**를 지난다 — 그 안에서 폴리필이 먼저
+      // 돈다(pdfWorkerEntry.js). `?worker&url`이라야 vite가 그 import까지 묶어 준다.
+      const workerUrl = (await import('../services/pdfWorkerEntry.js?worker&url')).default;
       mod.GlobalWorkerOptions.workerSrc = workerUrl;
       return mod;
     });
