@@ -1109,6 +1109,36 @@ export async function getFileOpenUrl(row) {
   return getAttachmentUrl(row.storage_path);
 }
 
+// 파일 **내려받기** 주소 — '열기'(위)와 일부러 나눠 둔다. 여기서 돌려주는 주소는
+// `Content-Disposition: attachment`를 달고 오는 것이어야 한다.
+//
+// 왜 이게 필요했나(사용자 신고 2026-09-13 · 아이폰): 예전에는 바이트를 우리가 받아
+// `URL.createObjectURL` + `a.download`로 저장했다. 그런데 **홈 화면에 담은 앱(PWA)·
+// 인앱 웹뷰의 iOS 사파리는 blob: 주소를 내려받지 않고 열어 버린다** — 파일 아이콘과
+// "'미리보기'에서 열기 / 기타…"만 있는 페이지가 뜨고 저장이 안 된다. 반면 **머리줄에
+// attachment가 달려 오는 진짜 HTTP 주소**는 사파리가 자기 내려받기로 받아 파일 앱에
+// 넣는다. 그래서 blob을 만들지 않고 그 주소로 바로 보낸다.
+// 덤으로 바이트가 브라우저를 두 번 지나지 않고, 드라이브 파일은 우리 대역폭이 0이다.
+//
+//  · 드라이브: `uc?export=download` — 공개('링크를 아는 사람은 보기') 파일이면
+//    구글이 attachment로 내준다(api/drive-file.js가 서버에서 쓰는 그 주소와 같다).
+//    새로 새는 정보는 없다 — '새 탭에서 열기'가 이미 같은 파일의 드라이브 주소를 준다.
+//  · Storage: 서명 URL에 `download`를 주면 supabase가 attachment 머리줄을 붙여 준다.
+//    (지금 남아 있는 행은 전부 source='drive'지만, 이 갈래를 지우면 옛 첨부가 막힌다.)
+//  · 아직 올리는 중인 파일(source: 'local')은 주소가 없다 — 부르는 쪽이 고른 파일
+//    그대로 blob으로 저장한다(자기가 방금 고른 파일이라 그 길이 맞다).
+export async function getFileDownloadUrl(row) {
+  if (row.source === 'drive') {
+    if (!row.drive_file_id) throw new Error('드라이브 링크가 없는 파일이에요');
+    return `https://drive.google.com/uc?export=download&id=${encodeURIComponent(row.drive_file_id)}`;
+  }
+  const { data, error } = await client().storage
+    .from(ATTACH_BUCKET)
+    .createSignedUrl(row.storage_path, SIGNED_TTL_S, { download: row.name || true });
+  if (error) throw error;
+  return data.signedUrl;
+}
+
 // 복수 서명 URL 일괄 발급 → { [storagePath]: signedUrl }
 // (행마다 개별 요청하면 모바일에서 요청 폭주로 느려지므로 한 번에 받는다)
 // 캐시에 있는 것은 빼고 발급한다 — 위 getAttachmentUrl과 같은 이유(브라우저 캐시 유지).

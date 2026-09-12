@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -104,10 +104,62 @@ function devApiFunctions(mode) {
   };
 }
 
+// ============================================================================
+// pdf.js 보조 자료를 `/pdfjs/…`로 낸다 (2026-09-13)
+// ----------------------------------------------------------------------------
+// 왜: 한글 PDF가 **글자 없이** 그려졌다(사용자 신고 — 'TalkFile_1회 학점 라디오대본.pdf'.
+// 숫자·영문만 남고 한글이 통째로 비었다). 원인은 pdf.js가 한글 CID 글꼴을 풀 때
+// `Adobe-Korea1-UCS2.bcmap`을 받아야 하는데 `cMapUrl`을 안 줘서다 —
+// "Ensure that the `cMapUrl` API parameter is provided." 경고만 내고 그 글꼴을 버린다
+// (2026-09-13에 그 파일로 노드에서 재현·확인했다: cMapUrl을 주면 한글이 그대로 나온다).
+//
+// 그 자료는 `node_modules/pdfjs-dist/` 안에 이미 있다. public/에 복사해 커밋하면
+// 169개 파일이 레포에 눌러앉고 pdfjs-dist를 올릴 때마다 어긋나므로, **설치된 것을
+// 그대로** dev에서는 미들웨어로 내주고 build에서는 결과물에 실어 보낸다.
+//   cmaps          한중일 CID 글꼴 — 이것이 없어서 한글이 빠졌다
+//   standard_fonts 글꼴을 품지 않은 PDF의 기본 14종 대체
+//   wasm·iccs      스캔 PDF의 JBIG2·JPEG2000 그림, ICC 색 프로필
+//                  (없으면 pdf.js가 `_nowasm_fallback.js`로 내려가 느리거나 못 그린다)
+// 주소는 PdfView.jsx가 `/pdfjs/<dir>/`로 물고 있다 — 한쪽을 바꾸면 짝도 고치세요.
+// ============================================================================
+const PDFJS_DIRS = ['cmaps', 'standard_fonts', 'wasm', 'iccs'];
+const PDFJS_ROUTE = /^\/pdfjs\/(cmaps|standard_fonts|wasm|iccs)\/([A-Za-z0-9._-]+)$/;
+
+function pdfjsAssets() {
+  const dirOf = (root, d) => resolve(root, 'node_modules/pdfjs-dist', d);
+  return {
+    name: 'pdfjs-assets',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const m = PDFJS_ROUTE.exec((req.url || '').split('?')[0]);
+        if (!m) return next();
+        const file = dirOf(server.config.root, `${m[1]}/${m[2]}`);
+        if (!existsSync(file)) return next();
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.end(readFileSync(file));
+      });
+    },
+    // 번들이 아니라 **정적 파일**로 낸다 — pdf.js가 주소로 하나씩 받아 가고,
+    // 실제로 받는 것은 그 PDF가 쓰는 한두 개뿐이다(cmaps 전체는 1.5MB지만
+    // 한글 문서는 23KB짜리 하나만 받는다).
+    generateBundle() {
+      const root = process.cwd();
+      for (const d of PDFJS_DIRS) {
+        const dir = dirOf(root, d);
+        if (!existsSync(dir)) continue;
+        for (const f of readdirSync(dir)) {
+          this.emitFile({ type: 'asset', fileName: `pdfjs/${d}/${f}`, source: readFileSync(resolve(dir, f)) });
+        }
+      }
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     tailwindcss(),
+    pdfjsAssets(),
     ...(mode === 'guest' ? [] : [devApiFunctions(mode)]),
   ],
 }));

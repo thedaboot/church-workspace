@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspens
 import { createPortal } from 'react-dom';
 import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronRight, Maximize2, Minimize2, SquarePen } from 'lucide-react';
 import { RichText } from './RichText.jsx';
-import { getFileOpenUrl, driveImageFullUrl, fetchDriveFileBlob } from '../services/cloud.js';
+import { getFileOpenUrl, getFileDownloadUrl, driveImageFullUrl, fetchDriveFileBlob } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useMyEmail } from '../services/auth.jsx';
 import { Skeleton, SmartImage } from './media.jsx';
@@ -38,12 +38,16 @@ const SlideView = (props) => <Suspense fallback={<PreparingFrame />}><SlideLazy 
 // ============================================================================
 // 종류 판정(previewKind)과 확장자 목록은 services/previewKind.js에 있다 — 순수 함수라
 // 노드에서 검사한다(tests/logcheck.mjs). 여기는 그리는 쪽만 남았다.
-import { previewKind, extOf, previewCopyUrl, copyEditUrl } from '../services/previewKind.js';
+import { previewKind, extOf, previewCopyUrl, copyEditUrl, previewCopyOf } from '../services/previewKind.js';
 // 바이트를 받아 **우리가 직접 그리는** 형식들. 엑셀('sheet')은 여기 없다 — 표는 구글이
 // 그리므로 25MB를 통째로 받아 파싱하고 그 결과를 안 쓰는 낭비였다(2026-08-29).
 const BYTE_KINDS = new Set(['doc', 'slide']);
 const MAX_TEXT_CHARS = 512 * 1024;      // 텍스트는 앞의 이만큼만 그린다(뒤는 잘렸다고 알린다)
 const OFFICE_TIMEOUT = 12000;    // 이 시간 안에 안 뜨면 안내로 대체
+// 구글 틀은 더 길게 잡는다 — 처음 열 때 실제로 오래 걸린다(DocEmbed의 SLOW_MS와 같은 값).
+const GOOGLE_TIMEOUT = 30000;
+// **틀(iframe)로 그리는 갈래 전부.** 여기 없는 갈래는 시간 제한이 없다.
+const FRAME_KINDS = new Set(['office', 'drive', 'sheet', 'gdoc']);
 // iframe onLoad는 "문서가 전달된 시점"이라 뷰어가 첫 페이지를 그리기 전이다.
 // 그 사이 뷰어의 빈 배경이 그대로 보여서, 조금 더 기다렸다 스켈레톤을 걷는다.
 // 이 창의 네 갈래('sheet'·'gdoc'·'drive'·'office')와 첨부 목록의 엑셀 '펼쳐보기'
@@ -118,6 +122,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     if (!next) return;   // 끝에서는 멈춘다 — 빙글빙글 돌면 몇 장인지 감을 잃는다
     setCur(next); setUrl(null); setText(null); setError(null); setHtmlReady(false);
     setFrameReady(false); setTimedOut(false); setPdfSrc(null); setOfficeBlob(null);
+    // 앞 파일이 걸어 둔 것들 — 남겨 두면 다음 파일의 화면을 건드린다(감사 2026-09-13).
+    // 특히 settle 타이머는 새 틀이 뜨지도 않았는데 스켈레톤을 걷어 버린다.
+    clearTimeout(settleRef.current); setBlobSrc(null);
   }, [canNav, gallery, gi]);
   // 이웃 사진을 미리 받아 둔다 — lh3 주소는 고정이라 이게 곧 캐시를 채우는 일이고,
   // 다음/이전을 눌렀을 때 스켈레톤 없이 바로 뜬다.
@@ -239,12 +246,20 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
 
   useEffect(() => () => clearTimeout(settleRef.current), []);
 
-  // 오피스 뷰어가 응답 없이 멈추는 경우가 있어 시간 제한을 둔다
+  // 틀로 그리는 갈래는 **전부** 시간을 잰다. 예전에는 'office' 하나만 재고 있었는데,
+  // 첨부가 전부 드라이브로 옮겨진 지금 그 갈래는 아예 도달하지 않는다 — 그래서 구글
+  // 틀이 막히면(콘텐츠 차단기·회사 프록시·서드파티 프레임 차단) onLoad가 영영 오지
+  // 않고 **스켈레톤이 그대로 남았다**(감사 2026-09-13). 'drive' 가지는 timedOut을 읽고
+  // 있으면서 타이머가 안 켜져 있어서, 지키는 것처럼 보이지만 아무것도 안 지켰다.
+  //
+  // 시간이 지나도 **틀은 그대로 둔다** — 늦게라도 뜨면 살아나야 하고, 내용을 바꿔치면
+  // 그 뒤에 온 onLoad가 갈 곳이 없다. 덮고 있던 준비 중 자리만 '새 탭에서 열기'로
+  // 바뀐다(DocEmbed가 30초에 그 버튼을 키우는 것과 같은 판단이다).
   useEffect(() => {
-    if (kind !== 'office' || !url || frameReady) return;
-    timerRef.current = setTimeout(() => setTimedOut(true), OFFICE_TIMEOUT);
+    if (!FRAME_KINDS.has(kind) || frameReady) return;
+    timerRef.current = setTimeout(() => setTimedOut(true), kind === 'office' ? OFFICE_TIMEOUT : GOOGLE_TIMEOUT);
     return () => clearTimeout(timerRef.current);
-  }, [kind, url, frameReady]);
+  }, [kind, frameReady]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -258,33 +273,41 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
 
   const openExternal = () => { if (url) window.open(url, '_blank', 'noopener'); };
 
-  // 내려받기. **`download` 속성은 같은 출처에서만 듣는다.** 드라이브·Storage 주소는
-  // 남의 출처라 브라우저가 그 속성을 통째로 무시하고 그냥 새 탭으로 연다
-  // (사용자 신고 2026-08-28 — "다운로드 버튼이 새 탭으로 열기만 된다").
-  // 그래서 바이트를 우리가 받아 blob 주소로 저장한다. 드라이브는 /api/drive-file이
-  // 이미 중계하고 있고, 미리보기가 방금 받은 것은 브라우저 캐시에 있어 두 번 안 받는다.
+  // 내려받기. **`Content-Disposition: attachment`가 달려 오는 주소로 보낸다**
+  // (주소를 만드는 곳은 cloud.getFileDownloadUrl — 왜 그래야 하는지가 거기 적혀 있다).
+  //
+  // 예전에는 바이트를 우리가 받아 `URL.createObjectURL` + `a.download`로 저장했는데,
+  // **홈 화면에 담은 앱·인앱 웹뷰의 iOS 사파리는 blob: 주소를 내려받지 않고 열어 버린다**
+  // — "'미리보기'에서 열기 / 기타…"만 있는 페이지가 뜨고 저장이 안 됐다(사용자 신고
+  // 2026-09-13, 스크린샷). attachment가 달린 진짜 주소는 사파리가 자기 내려받기로 받는다.
+  //
+  // `a.download`는 그대로 둔다 — **같은 출처와 blob:에서만 듣는다.** 드라이브 주소에서는
+  // 브라우저가 무시하고 구글이 준 파일 이름을 쓰고(그게 원본 이름이다), 아직 올리는 중인
+  // 파일(blob:)에서는 이 속성이 이름을 정한다. 한 길로 두 경우를 다 받는다.
+  // `target`을 주지 않는 것이 중요하다 — attachment 응답은 페이지를 옮기지 않고
+  // 내려받기만 시작한다. 새 탭을 열면 폰에서 빈 탭이 남는다.
   const [saving, setSaving] = useState(false);
   const canSave = !!(local || url || cur.drive_file_id);
   const saveFile = async () => {
     if (saving || !canSave) return;
     setSaving(true);
+    let objectUrl = null;
     try {
-      const blob = local
-        || (cur.source === 'drive' && cur.drive_file_id
-          ? await fetchDriveFileBlob(cur.drive_file_id)
-          : await fetch(url).then(r => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`)))));
-      const href = URL.createObjectURL(blob);
+      const href = local
+        ? (objectUrl = URL.createObjectURL(local))
+        : await getFileDownloadUrl(cur);
       const a = document.createElement('a');
       a.href = href;
       a.download = cur.name || 'file';
+      a.rel = 'noopener';
       document.body.appendChild(a);
       a.click();
       a.remove();
-      // 바로 회수하면 브라우저가 저장을 시작하기도 전에 주소가 죽는다
-      setTimeout(() => URL.revokeObjectURL(href), 10000);
     } catch (e) {
       showToast(failText(`'${cur.name}'을(를) 내려받지 못했어요`, e));
     } finally {
+      // 바로 회수하면 브라우저가 저장을 시작하기도 전에 주소가 죽는다
+      if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
       setSaving(false);
     }
   };
@@ -342,7 +365,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     if (kind === 'video') {
       const src = (cur.source === 'drive' || local) ? blobSrc : url;
       if (!src) return <Skeleton className="w-full h-full" />;
-      return <video src={src} controls className="max-w-full max-h-full rounded-md bg-black" />;
+      // `playsInline`이 없으면 iOS가 재생을 누르는 순간 **자기 전체화면**으로 채 간다 —
+      // 이 창이 그 뒤에 남아 닫을 수도 없다(감사 2026-09-13).
+      return <video src={src} controls playsInline className="max-w-full max-h-full rounded-md bg-black" />;
     }
     if (kind === 'audio') {
       const src = (cur.source === 'drive' || local) ? blobSrc : url;
@@ -425,18 +450,28 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       // 940은 A4 본문 폭(약 794px)에 표가 여백을 넘는 만큼을 더한 값이다 — 이보다 크게
       // 두면 처음 보이는 자리가 종이의 왼쪽 조각뿐이 된다.
       // 넓은 화면은 그대로 폭을 채운다(자를 것이 없다).
-      const wide = isMobile;
+      //
+      // **슬라이드(pptx)는 넓히지 않는다**(감사 2026-09-13). 잘림은 구글 *문서*(A4 종이)의
+      // 이야기이고, 슬라이드 `embed`는 제 틀 크기에 맞춰 줄여 그린다 — 940px을 억지로
+      // 주면 다 보이던 장표가 옆으로 밀어야 보이는 것이 됐다.
+      //
+      // 이름은 `panMobile`이다. 예전에는 여기서도 `wide`를 썼는데 **창을 넓히는 바깥
+      // 상태와 이름이 같아** 이 블록 안에서 그 상태를 읽으면 조용히 다른 값이 잡혔다.
+      const panMobile = isMobile && previewCopyOf(cur.name) !== 'presentation';
       return (
-        <div className={`relative w-full h-full ${wide ? 'overflow-x-auto x-scroll-lock' : ''}`}>
-          {!frameReady && <PreparingFrame absolute />}
+        // `x-scroll-lock`을 여기 쓰면 안 된다 — 그것은 `touch-action: pan-x`라서 **틀 안의
+        // 세로 스크롤까지 막는다**(칩 줄을 위해 만든 유틸리티다). 손가락으로 문서를 내려
+        // 읽을 수가 없었다(감사 2026-09-13). 가로로 흘러넘치지 않게 하는 쪽만 남긴다.
+        <div className={`relative w-full h-full ${panMobile ? 'overflow-x-auto overscroll-x-contain' : ''}`}>
+          {!frameReady && <PreparingFrame absolute stalled={timedOut} onOpen={openExternal} />}
           <iframe
             src={src} title={`${cur.name} 미리보기`}
             // onLoad는 "문서가 전달된 시점"이라 첫 장이 아직 안 그려져 있다 → 조금 뒤에 걷는다
             onLoad={() => { clearTimeout(settleRef.current); settleRef.current = setTimeout(() => setFrameReady(true), FRAME_SETTLE); }}
-            style={wide ? { width: GDOC_MOBILE_W, maxWidth: 'none' } : undefined}
+            style={panMobile ? { width: GDOC_MOBILE_W, maxWidth: 'none' } : undefined}
             // 스켈레톤과 **정확히 같은 자리**를 채운다(둘 다 이 relative 칸을 꽉 채운다) —
             // 크기가 다르면 걷히는 순간 화면이 한 번 튄다. 걷을 때는 페이드다(§4.2).
-            className={`h-full rounded-md border border-line bg-white transition-opacity duration-200 ${wide ? 'block' : 'w-full'} ${frameReady ? 'opacity-100' : 'opacity-0'}`}
+            className={`h-full rounded-md border border-line bg-white transition-opacity duration-200 ${panMobile ? 'block' : 'w-full'} ${frameReady ? 'opacity-100' : 'opacity-0'}`}
           />
         </div>
       );
@@ -454,7 +489,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
         // 보였다(사본이 생긴 뒤로 이 갈래가 제일 흔한 첨부다).
         return (
           <div className="relative w-full h-full">
-            {!frameReady && <PreparingFrame absolute />}
+            {!frameReady && <PreparingFrame absolute stalled={timedOut} onOpen={openExternal} />}
             <iframe
               src={gsheet} title={`${cur.name} 미리보기`}
               onLoad={() => { clearTimeout(settleRef.current); settleRef.current = setTimeout(() => setFrameReady(true), FRAME_SETTLE); }}
@@ -465,13 +500,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       }
       // 사본이 없는 파일 — 변환에 실패했거나 아직 안 만들어졌다. 예전에는 여기서
       // 우리가 표를 그렸는데(SheetView) 2026-08-30에 지웠다.
-      return (
-        <div className="w-full h-full flex items-center justify-center">
-          <p className="text-xs text-fg-faint text-center leading-relaxed">
-            이 파일은 표로 볼 수 없어요<br />새 탭에서 열어주세요
-          </p>
-        </div>
-      );
+      // **다른 실패 갈래와 같은 카드를 쓴다**(감사 2026-09-13): 예전에는 여기만 글자
+      // 두 줄이라 "새 탭에서 열어주세요"라고 적어 놓고 **누를 것이 없는** 막다른 길이었다.
+      return <Fallback row={cur} message="이 파일은 표로 볼 수 없어요." onOpen={openExternal} />;
     }
     // PDF는 pdf.js로 직접 그린다 — iOS 사파리는 iframe 안의 PDF를 첫 쪽만 보여준다.
     if (kind === 'pdf') {
@@ -487,10 +518,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       const src = kind === 'drive' ? driveSrc(cur) : (url && officeSrc(url));
       // 파일을 받는 동안(src 없음)에도 같은 안내를 보여준다
       if (!src) return <PreparingFrame />;
-      if (timedOut && !frameReady) return <Fallback row={cur} message="미리보기가 응답하지 않아요." onOpen={openExternal} />;
       return (
         <div className="relative w-full h-full">
-          {!frameReady && <PreparingFrame absolute />}
+          {!frameReady && <PreparingFrame absolute stalled={timedOut} onOpen={openExternal} />}
           <iframe
             src={src} title={cur.name}
             // onLoad 직후엔 아직 첫 페이지가 안 그려져 있다(뷰어 배경만 보임) → 조금 뒤에 걷는다
@@ -594,16 +624,31 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   );
 }
 
-// 준비 중 자리(스켈레톤 + 안내). absolute=이미 자리를 잡은 컨테이너 위에 덮어씌울 때
-function PreparingFrame({ absolute = false }) {
+// 준비 중 자리(스켈레톤 + 안내). absolute=이미 자리를 잡은 컨테이너 위에 덮어씌울 때.
+// `stalled`면 **나가는 길**을 준다 — 틀이 막혀 onLoad가 영영 안 오는 경우가 있고
+// (서드파티 프레임 차단·콘텐츠 차단기), 그때 돌던 스피너는 거짓말이다. 문구는 예전
+// 시간 초과 카드가 쓰던 그대로다.
+function PreparingFrame({ absolute = false, stalled = false, onOpen = null }) {
   return (
     <div className={absolute ? 'absolute inset-0' : 'relative w-full h-full'}>
       {/* Skeleton에 absolute를 주면 먹지 않는다(.dc-skeleton이 position: relative를
           박는다 — index.css). 자리는 바깥 span이 잡는다. */}
       <span className="absolute inset-0"><Skeleton className="w-full h-full" /></span>
-      <span className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-fg-muted">
-        <Loader2 size={14} className="animate-spin" /> 미리보기를 준비하고 있어요
-      </span>
+      {stalled ? (
+        <span className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="text-xs text-fg-muted">미리보기가 응답하지 않아요.</p>
+          {onOpen && (
+            <button type="button" onClick={onOpen}
+              className="inline-flex items-center gap-1.5 bg-accent hover:bg-accent-strong text-white px-4 py-2 rounded-md text-xs font-medium transition active:scale-95">
+              <ExternalLink size={13} /> 새 탭에서 열기
+            </button>
+          )}
+        </span>
+      ) : (
+        <span className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-fg-muted">
+          <Loader2 size={14} className="animate-spin" /> 미리보기를 준비하고 있어요
+        </span>
+      )}
     </div>
   );
 }

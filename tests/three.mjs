@@ -82,7 +82,10 @@ check('잠기지 않은 것은 언제나 통과한다',
   };
   const framed = ['sheet', 'gdoc', 'drive'].filter(k => {
     const b = branch(k) || (k === 'drive' ? preview.slice(preview.indexOf("if (kind === 'office' || kind === 'drive')")) : '');
-    return /!frameReady && <PreparingFrame absolute \/>/.test(b) && /FRAME_SETTLE/.test(b);
+    // 2026-09-13부터 그 준비 화면은 **시간이 지나면 나가는 길을 준다**(stalled·onOpen).
+    // 셋이 같은 모양이어야 하는 것은 그대로다 — 인자까지 같은지를 본다.
+    return /!frameReady && <PreparingFrame absolute stalled=\{timedOut\} onOpen=\{openExternal\} \/>/.test(b)
+      && /FRAME_SETTLE/.test(b);
   });
   check('미리보기 창의 구글·오피스 iframe 셋 다 준비 화면이 있다',
     framed.length === 3, JSON.stringify(framed));

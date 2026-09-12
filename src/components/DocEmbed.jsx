@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FileText, Table, Presentation, ExternalLink, X } from 'lucide-react';
+import { FileText, Table, Presentation, ExternalLink, Maximize2, Minimize2, X } from 'lucide-react';
 import { docEmbedKind, docEmbedSrc, DOC_KIND_LABEL } from '../services/docEmbed.js';
 import { verifyViewPw, isLocked } from '../services/viewPw.js';
 import { useMyEmail } from '../services/auth.jsx';
 import { Skeleton } from './media.jsx';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 
 // ============================================================================
 // 구글 문서·시트·슬라이드 링크를 **앱 안에서 열어 편집**하는 창 (2026-09-07)
@@ -63,6 +64,12 @@ export function DocEmbedModal({ url, title = '', onClose }) {
   const src = docEmbedSrc(url, { email: useMyEmail() });
   const [ready, setReady] = useState(false);
   const [slow, setSlow] = useState(false);
+  // 창을 화면 가득 넓히기 — 첨부 미리보기 창(FilePreviewModal)과 **같은 버튼·같은
+  // 아이콘**이다. 사용자 신고 2026-09-13(아이패드 스크린샷): 업무 본문에 건 구글
+  // 슬라이드를 열면 가장자리가 남은 카드 안에 장표가 작게 들어가는데 넓힐 길이 없었다.
+  // 모바일은 원래 화면을 다 쓰므로 버튼을 두지 않는다(태블릿부터 보인다 — 그쪽이 좁다).
+  const isMobile = useIsMobile();
+  const [wide, setWide] = useState(false);
 
   useEffect(() => {
     if (ready) return;
@@ -85,7 +92,12 @@ export function DocEmbedModal({ url, title = '', onClose }) {
       <div
         onClick={e => e.stopPropagation()}
         role="dialog" aria-modal="true" aria-label={title || label} data-doc-embed={kind || 'link'}
-        className="absolute inset-0 h-[100dvh] md:inset-4 md:h-auto lg:inset-8 flex flex-col overflow-hidden bg-canvas shadow-elevated md:border md:border-line md:rounded-lg animate-in fade-in zoom-in-95 duration-150"
+        // 넓히면 가장자리를 지운다. 크기가 바뀌는 전환이라 §4.2의 "transform/opacity만"에서
+        // 한 칸 비켜나는데, 첨부 미리보기 창이 이미 같은 예외를 쓰고 있어 같은 이징을 쓴다.
+        className={`absolute flex flex-col overflow-hidden bg-canvas shadow-elevated animate-in fade-in zoom-in-95 duration-150 transition-[inset,border-radius] ${wide
+          ? 'inset-0 h-[100dvh]'
+          : 'inset-0 h-[100dvh] md:inset-4 md:h-auto lg:inset-8 md:border md:border-line md:rounded-lg'}`}
+        style={{ transitionDuration: '220ms', transitionTimingFunction: 'var(--ease-out-quint)' }}
       >
         <div className="shrink-0 flex items-center gap-2 px-3 py-2.5 border-b border-line bg-surface">
           <DocKindIcon kind={kind} size={15} className="shrink-0 text-fg-muted" />
@@ -110,6 +122,13 @@ export function DocEmbedModal({ url, title = '', onClose }) {
           >
             <ExternalLink size={16} className="shrink-0" />{slow && !ready && '새 탭에서 열기'}
           </a>
+          {!isMobile && (
+            <button type="button" onClick={() => setWide(w => !w)}
+              className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95"
+              title={wide ? '창 크기로' : '화면 가득'}>
+              {wide ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
+          )}
           <button type="button" onClick={onClose} title="닫기"
             className="p-2 rounded-md text-fg-faint hover:bg-surface-hover transition active:scale-95"><X size={18} /></button>
         </div>

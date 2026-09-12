@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 // ============================================================================
 // 드라이브 ↔ 앱 싱크 검사 — 소스 단정.
@@ -375,12 +375,57 @@ check('첨부 올리는 길이 하나다', () => {
   assert.ok(att.indexOf('await ensureCardFolder(') > up, '공용 길이 업무 폴더를 먼저 안 잡는다');
 });
 
-check('내려받기가 남의 출처에서도 진짜 내려받는다', () => {
-  // download 속성은 같은 출처에서만 듣는다. 드라이브 주소에 걸면 브라우저가 그냥
-  // 새 탭으로 연다(사용자 신고 2026-08-28 — "새 탭으로 열기만 되고 있음").
-  assert.ok(!/download={cur.name}/.test(preview), 'download 속성에 다시 기대고 있다');
-  assert.ok(preview.includes('URL.createObjectURL(blob)'), '바이트를 받아 저장하지 않는다');
-  assert.ok(preview.includes('a.download = cur.name'), '저장할 이름을 안 준다');
+check('내려받기가 attachment 주소로 간다 (blob을 만들지 않는다)', () => {
+  // 두 번 데인 자리다.
+  //  · 2026-08-28: `download` 속성만 걸었더니 남의 출처(드라이브·Storage)에서는
+  //    브라우저가 그 속성을 무시하고 새 탭으로 열기만 했다. → 바이트를 받아 blob으로 저장.
+  //  · 2026-09-13: 그 blob 길이 **홈 화면에 담은 앱·인앱 웹뷰의 iOS 사파리**에서 저장이
+  //    아니라 "'미리보기'에서 열기" 페이지로 떨어졌다(사용자 스크린샷). blob: 주소는
+  //    사파리의 내려받기로 들어가지 않는다.
+  // 지금은 **`Content-Disposition: attachment`가 달려 오는 진짜 주소**로 보낸다 —
+  // 두 문제가 함께 없어지고 바이트가 브라우저를 두 번 지나지도 않는다.
+  const save = preview.slice(preview.indexOf('const saveFile = async'), preview.indexOf('const editHref ='));
+  assert.ok(save, 'saveFile을 못 찾았다');
+  assert.match(save, /await getFileDownloadUrl\(cur\)/, '내려받기 주소를 안 쓴다(blob으로 돌아갔나)');
+  assert.ok(!/fetchDriveFileBlob/.test(save), '드라이브 파일을 다시 바이트로 받아 저장한다');
+  // blob은 **아직 올리는 중인 파일 하나**에만 남는다(드라이브 주소가 없어 다른 길이 없다)
+  assert.match(save, /local\s*\?\s*\(objectUrl = URL\.createObjectURL\(local\)\)/, '올리는 중 파일의 길이 사라졌다');
+  // 새 탭을 열면 안 된다 — attachment 응답은 페이지를 옮기지 않고 내려받기만 시작한다.
+  // target을 주면 폰에서 빈 탭이 남는다.
+  assert.ok(!/a\.target|target="_blank"/.test(save), '내려받기가 새 탭을 연다');
+  // 이름은 attachment 머리줄이 정한다. `download` 속성은 blob 갈래에서만 듣지만,
+  // 두 갈래가 한 앵커를 쓰므로 그대로 둔다(남의 출처에서는 브라우저가 무시한다).
+  assert.match(save, /a\.download = cur\.name/, '올리는 중 파일의 저장 이름이 없다');
+
+  // 주소를 만드는 쪽 — 드라이브는 공개 내려받기 주소, Storage는 서명 URL + download.
+  assert.match(cloud, /export async function getFileDownloadUrl/, '내려받기 주소 함수가 없다');
+  const dl = cloud.slice(cloud.indexOf('export async function getFileDownloadUrl'));
+  assert.match(dl, /drive\.google\.com\/uc\?export=download&id=/, '드라이브 내려받기 주소가 아니다');
+  assert.match(dl, /createSignedUrl\([\s\S]{0,80}download: row\.name/, 'Storage 서명 URL에 download를 안 준다');
+  // '열기'와 '내려받기'는 다른 주소다 — 열기는 보기 좋은 화면(편집기·뷰어)으로 간다
+  assert.ok(cloud.indexOf('export async function getFileOpenUrl') < cloud.indexOf('export async function getFileDownloadUrl'),
+    '두 주소 함수가 갈라져 있지 않다');
+});
+
+check('한글 PDF 글꼴 자료(cmaps)가 실제로 나간다', () => {
+  // 사용자 신고 2026-09-13 — 한글 PDF가 **숫자·영문만 남고 한글이 통째로 빈 종이**로
+  // 그려졌다('TalkFile_1회 학점 라디오대본.pdf'). 한글 PDF는 글꼴을 CID로 품는데
+  // pdf.js가 그것을 풀 때 `cmaps/Adobe-Korea1-UCS2.bcmap`을 받아야 하고, `cMapUrl`을
+  // 안 주면 경고 한 줄만 내고 그 글꼴을 버린다(노드에서 그 파일로 재현·확인했다).
+  const pdfview = read('src/components/PdfView.jsx');
+  const vite = read('vite.config.js');
+  assert.match(pdfview, /cMapUrl: '\/pdfjs\/cmaps\/'/, 'cMapUrl을 안 준다 — 한글이 사라진다');
+  assert.match(pdfview, /cMapPacked: true/, '.bcmap은 바이너리라 cMapPacked가 필요하다');
+  // 넘긴 값이 실제로 getDocument에 실려야 한다(상수만 두고 안 쓰면 아무 일도 안 한다)
+  assert.match(pdfview, /\{ \.\.\.PDFJS_ASSETS,/, '자료 주소를 getDocument에 안 싣는다');
+  // 주소를 내주는 쪽과 물고 있는 쪽이 같은 칸을 봐야 한다
+  for (const d of ['cmaps', 'standard_fonts', 'wasm', 'iccs']) {
+    assert.ok(vite.includes(`'${d}'`), `vite가 ${d}를 안 내준다`);
+    assert.match(pdfview, new RegExp(`/pdfjs/${d}/`), `PdfView가 ${d} 주소를 안 쓴다`);
+  }
+  // 설치된 pdfjs-dist에 그 파일이 정말 있는가(판을 올리다 자리가 바뀌면 여기서 걸린다)
+  assert.ok(existsSync(new URL('../node_modules/pdfjs-dist/cmaps/Adobe-Korea1-UCS2.bcmap', import.meta.url)),
+    '한글 cmap이 설치본에 없다 — pdfjs-dist 판을 확인하세요');
 });
 
 check('올리는 중 표시가 업무 창을 닫아도 남는다', () => {
@@ -398,8 +443,10 @@ check('올리는 중 표시가 업무 창을 닫아도 남는다', () => {
 check('올리는 중에는 새 탭 버튼을 두지 않는다', () => {
   // 드라이브 주소가 아직 없다. 버튼을 내놓으면 화면이 거짓말한다(사용자 결정).
   assert.match(preview, /\{!local && \(/, '새 탭 버튼이 로컬 파일에서도 보인다');
-  // 내려받기는 올리는 중에도 둔다 — 고른 파일 그대로라 실제로 된다(주소가 아니라 바이트다)
-  assert.ok(preview.includes('const blob = local'), '올리는 중에 고른 파일로 내려받지 못한다');
+  // 내려받기는 올리는 중에도 둔다 — 고른 파일 그대로 blob으로 저장한다.
+  // (드라이브 파일은 2026-09-13부터 attachment 주소로 간다 — 위 '내려받기가 attachment
+  //  주소로 간다' 참고. blob 갈래는 주소가 아직 없는 이 한 경우에만 남았다.)
+  assert.ok(preview.includes('URL.createObjectURL(local)'), '올리는 중에 고른 파일로 내려받지 못한다');
 });
 
 check('올리는 중에는 삭제·잠금을 두지 않는다', () => {
@@ -822,11 +869,36 @@ check('gdoc은 구글 화면을 그대로 띄운다 (FilePreviewModal)', () => {
   assert.match(branch, /bg-white/, '흰 바탕을 안 깐다');
   assert.match(branch, /w-full h-full/, '틀을 꽉 안 채운다');
   // 뜨기 전에는 스켈레톤이 같은 자리를 채운다(빈 흰 칸이 먼저 보이면 그게 더 나쁘다)
-  assert.match(branch, /!frameReady && <PreparingFrame absolute \/>/, '준비 중 자리가 없다');
+  assert.match(branch, /!frameReady && <PreparingFrame absolute stalled=/, '준비 중 자리가 없다');
+  // 모바일에서 틀을 940px로 넓히는 것은 **구글 문서(A4 종이)** 이야기다. 슬라이드
+  // `embed`는 제 틀에 맞춰 줄여 그리므로 넓히면 다 보이던 장표가 잘린다(감사 2026-09-13).
+  assert.match(branch, /previewCopyOf\(cur\.name\) !== 'presentation'/, '슬라이드까지 940px로 넓힌다');
+  // `x-scroll-lock`은 touch-action: pan-x라 **틀 안의 세로 스크롤을 막는다** — 손가락으로
+  // 문서를 내려 읽을 수가 없었다. 가로 넘침만 막는 쪽으로 갈랐다.
+  assert.match(branch, /panMobile \? 'overflow-x-auto overscroll-x-contain' : ''/,
+    '구글 틀을 touch-action: pan-x(x-scroll-lock)로 감쌌다 — 세로로 못 읽는다');
   assert.match(branch, /FRAME_SETTLE/, 'onLoad 직후에 걷으면 첫 장이 안 그려진 채로 보인다');
   // 어느 뷰어인지 화면이 거짓말하지 않는다(§6-29-b) — 사본은 구글이다
   const note = /const viewerNote = \(row\) => \(([\s\S]{0,200}?)\);/.exec(preview)?.[1] || '';
   assert.match(note, /preview_file_id/, '사본으로 그리는 파일이 마이크로소프트로 적힐 수 있다');
+});
+
+check('틀로 그리는 갈래는 전부 시간 제한이 있다', () => {
+  // 감사 2026-09-13: 'office' 하나만 시간을 재고 있었는데 첨부가 전부 드라이브로
+  // 옮겨진 뒤 그 갈래는 도달하지 않는다. 구글 틀이 막히면(서드파티 프레임 차단·
+  // 콘텐츠 차단기) onLoad가 영영 안 와서 **스켈레톤이 그대로 남았다**. 'drive' 가지는
+  // timedOut을 읽고 있으면서 타이머는 안 켜져 있어, 지키는 척만 하고 있었다.
+  assert.match(preview, /const FRAME_KINDS = new Set\(\['office', 'drive', 'sheet', 'gdoc'\]\)/,
+    '틀 갈래 목록이 없다');
+  assert.match(preview, /if \(!FRAME_KINDS\.has\(kind\) \|\| frameReady\) return;/, '시간 제한이 갈래 하나에만 걸려 있다');
+  // 시간이 지나도 **틀은 그대로 둔다** — 늦게라도 뜨면 살아나야 한다(내용을 바꿔치면
+  // 그 뒤에 온 onLoad가 갈 곳이 없다). 덮개만 '새 탭에서 열기'로 바뀐다.
+  assert.ok(!/timedOut && !frameReady\) return <Fallback/.test(preview), '시간이 지나면 틀을 통째로 걷어낸다');
+  assert.match(preview, /function PreparingFrame\(\{ absolute = false, stalled = false, onOpen = null \}\)/,
+    '준비 중 자리가 나가는 길을 줄 수 없다');
+  // 표에 사본이 없는 갈래도 같은 카드를 쓴다 — 예전에는 여기만 누를 것 없는 글자 두 줄이었다
+  assert.match(preview, /<Fallback row=\{cur\} message="이 파일은 표로 볼 수 없어요\." onOpen=\{openExternal\} \/>/,
+    '표를 못 그릴 때 새 탭으로 갈 길이 없다');
 });
 
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
