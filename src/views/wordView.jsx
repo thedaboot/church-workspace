@@ -5,14 +5,12 @@ import { selectMembers, selectCurrentUser } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
 import { myUidSync } from '../services/supabaseClient.js';
 import { Avatar } from '../components/Avatar.jsx';
-import { RichText } from '../components/RichText.jsx';
 import { Skeleton } from '../components/media.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { failText } from '../services/errorText.js';
 import { useCached, dropCache } from '../services/cache.js';
-import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { useLiveRefresh } from '../services/liveV2.js';
 import { ShareChip, ShareToggle } from '../components/ShareToggle.jsx';
 import { SectionHead, Card } from './dashboardParts.jsx';
@@ -52,18 +50,21 @@ import {
 // **공유를 조작하는 자리는 한 곳이다 — '내 묵상' 칸의 토글**(사용자 결정 2026-09-05 —
 // "토글이 위랑 아래랑 두 번 나온다"). 편집기 바로 아래에 나눔 피드가 붙어 있어서 같은
 // 글의 공개 범위를 정하는 칸이 한 화면에 두 벌 서 있었다. 글을 쓰고 저장하는 자리에만
-// 남기고, 피드의 내 줄은 **상태만 말한다** — 비공개면 잠금 표시가 붙고, 그 표시가 없이
-// 줄이 서 있다는 것이 곧 공유 중이라는 뜻이다(피드는 공유된 글만 읽는다). 조작하려면
-// 그 줄의 연필이 편집기로 데려간다.
-// 나눔 줄의 눈 가리기(공유 해제)도 같은 결정으로 없앴다 — "토글로 조절할 수 있는 거면
+// 남기고, 나눔 쪽의 내 것은 **상태만 말한다** — 비공개면 내 칩에 잠금 표시가 붙고, 그
+// 표시가 없이 칩이 서 있다는 것이 곧 공유 중이라는 뜻이다(피드는 공유된 글만 읽는다).
+// 조작하려면 종이 아래의 연필이 편집기로 데려간다.
+// 나눔의 눈 가리기(공유 해제)도 같은 결정으로 없앴다 — "토글로 조절할 수 있는 거면
 // 눈 표시는 없애도 될 듯". 회차 5의 '나눔 지우기 = 공유 해제'를 이 결정이 대체한다.
 // 지우기는 '내 묵상' 칸의 휴지통 하나뿐이다(그 날 묵상 자체가 없어진다).
-// **예외로 마스터는 남의 줄도 지운다**(사용자 결정 2026-09-05 · 0045
+// **예외로 마스터는 남의 것도 지운다**(사용자 결정 2026-09-05 · 0045
 // qt_entries_delete_master) — 공유 해제가 아니라 그 사람의 그날 묵상 행이 없어진다.
 //
-// 그래서 **피드의 내 줄은 공유 목록이 아니라 지금 내 묵상 상태에서 나온다**(mergeFeed).
+// **나눔은 사람 칩 한 줄 + 종이 하나다**(사용자 결정 2026-09-13) — 사람마다 줄로 쌓고
+// 도막을 접어 요약하던 것을 걷었다. 자세한 것은 아래 ShareFeed 머리말.
+//
+// 그래서 **나눔의 내 것은 공유 목록이 아니라 지금 내 묵상 상태에서 나온다**(mergeFeed).
 // 토글은 내 상태를 먼저 바꾸고 목록은 그 다음에 다시 읽어 오므로, 둘을 그냥 이어 붙이면
-// 넘기는 순간 같은 글이 두 줄로 섰다(사용자 관찰 2026-09-05).
+// 넘기는 순간 같은 글이 두 번 섰다(사용자 관찰 2026-09-05).
 //
 // **날짜를 바꿔도 자리는 그대로 있어야 한다**(사용자 피드백 2026-09-01 — "화면 전체가
 // 새로 그려지며 움직인다"). 본문·묵상·나눔 세 칸 모두 기다리는 동안 같은 자리에
@@ -96,7 +97,7 @@ import {
 const SEGMENTS = [['qt', 'QT'], ['read', '성경 읽기']];
 
 // 업무 본문과 **같은 에디터**를 쓴다(사용자 피드백 2026-09-01). 저장 형식도 같은
-// 마크다운이고 나눔 피드는 RichText로 그린다. TipTap은 무거우므로 modals가 하듯
+// 마크다운이고 나눔에 서는 종이도 그 글을 그린다. TipTap은 무거우므로 modals가 하듯
 // lazy로 떼어 둔다(§1.3) — 성경 읽기만 보다 나가는 사람은 받지 않는다.
 const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').then(m => ({ default: m.MarkdownEditor })));
 // 편집 칸의 감싸개 — **종이가 그 안에 든다**(2026-09-10 · MarkdownEditor의 `frame`).
@@ -638,6 +639,7 @@ function QtTab() {
             {feed === null
               ? <FeedSkeleton />
               : <ShareFeed rows={feedRows} members={members} myName={currentUser?.name || ''}
+                  date={date} passageRef={passageRef}
                   onEdit={editMine} isMaster={isMaster} onDeleteOther={removeShared} />}
           </div>
         </div>
@@ -708,8 +710,7 @@ export function QtPassage({ day, date, minH = PASSAGE_MIN_H, refText = '' }) {
   );
 }
 
-// ── 나눔 피드 ───────────────────────────────────────────────────────────────
-// 묵상은 업무 본문과 같은 마크다운이라 여기서도 같은 뷰어(RichText)로 그린다.
+// ── 나눔 (사람 칩 + 종이 하나) ──────────────────────────────────────────────
 function FeedSkeleton() {
   return (
     <div className="flex items-start gap-2.5 py-2.5" aria-hidden="true">
@@ -751,105 +752,114 @@ export function mergeFeed(shared, mine) {
   return at < 0 ? [...others, row] : [...others.slice(0, at), row, ...others.slice(at)];
 }
 
-// **비공개 묵상도 내 피드에는 선다**(사용자 결정 2026-09-03). 그 줄에는 '나만 보기'
+// **비공개 묵상도 내 피드에는 선다**(사용자 결정 2026-09-03). 그 칩에 '나만 보기'
 // 표시가 붙는다. 남에게는 여전히 안 보인다: 피드 데이터는 공유된 글만 읽고(RLS와 같은
-// 경계) 이 줄은 화면에서 내 것 하나를 얹은 것이다(mergeFeed).
+// 경계) 내 것 하나는 화면에서 얹은 것이다(mergeFeed).
 //
-// **이 줄에는 공유를 바꾸는 칸이 없다**(사용자 결정 2026-09-05 — 머리말 '공유를 조작하는
+// **이 자리에는 공유를 바꾸는 칸이 없다**(사용자 결정 2026-09-05 — 머리말 '공유를 조작하는
 // 자리는 한 곳'). 표시(잠금)와 고치기(연필)만 두고, 공개 범위는 위 '내 묵상' 칸의 토글이
 // 정한다 — 연필이 그 칸으로 데려간다.
 //
-// **남의 줄을 지우는 것은 마스터만이다**(사용자 결정 2026-09-05 · 0045
-// qt_entries_delete_master). 내 줄에는 붙지 않는다 — 내 것은 위 '내 묵상' 칸의 휴지통이
+// **남의 것을 지우는 것은 마스터만이다**(사용자 결정 2026-09-05 · 0045
+// qt_entries_delete_master). 내 것에는 붙지 않는다 — 내 것은 위 '내 묵상' 칸의 휴지통이
 // 지우고, 거기는 잔디까지 같이 비운다.
 export const canDeleteShared = (row, isMaster) => !!isMaster && !row?.mine;
 
-// 나눔 한 줄의 글 — **종이와 같은 문법**(왼쪽 라벨 · 오른쪽 글)으로 접어 보여준다.
-// 사용자 지적 2026-09-09: "오늘의 나눔 쪽에는 또 별로이게 보이는데, 이것도 좀 개선을".
-// 예전에는 마크다운을 그대로 RichText에 넘겨서 도막 제목이 굵은 맨 줄로 서고, **빈 도막
-// (결단·기도를 안 쓴 날)까지 제목만 남아** 글에 구멍이 보였다.
-// 도막이 없는 글(템플릿을 안 쓰고 쓴 나눔)은 예전 그대로 마크다운 뷰어다 — 그쪽이
-// 제목·목록·굵게를 다 그린다.
-function NoteDigest({ md }) {
-  const secs = useMemo(() => splitNoteSections(md), [md]);
-  const plain = !secs.length || (secs.length === 1 && !secs[0].title);
-  if (plain) {
-    return (
-      <div className="text-[13px] leading-relaxed text-fg-secondary break-words mt-0.5">
-        <RichText content={md} />
-      </div>
-    );
-  }
-  return (
-    <div className="qt-digest mt-1 grid gap-x-3 gap-y-1 items-baseline"
-      style={{ gridTemplateColumns: '52px minmax(0, 1fr)' }}>
-      {secs.map((sec, i) => (
-        <React.Fragment key={`${sec.title}-${i}`}>
-          <span className="text-[10px] font-extrabold text-fg-faint">{sec.title || ' '}</span>
-          <span className="min-w-0 text-[12.5px] leading-[1.75] text-fg-secondary break-words whitespace-pre-line">
-            {sec.body}
-          </span>
-        </React.Fragment>
-      ))}
-    </div>
-  );
-}
+// 나눔은 **종이 하나 + 사람 칩**이다(사용자 결정 2026-09-13 — "더다붓에 공유할 때도
+// 묵상 제목이 아니라 그 종이 전체를 보여줘야지. 쌓이는 구조는 아니고, 사람마다 볼 수
+// 있게 피커를 둔다든지. 물론 쓴 사람에 한해서만. 쌓이지 않는 구조가 중요"). 예전에는
+// 사람마다 한 줄씩 쌓고 도막을 라벨|글 두 칸으로 접어 요약했는데(NoteDigest — 지웠다),
+// 나가는 것은 요약이 아니라 그 사람이 쓴 종이다. **종이는 언제나 하나**라서 몇 명이
+// 올렸든 화면이 그만큼 길어지지 않는다.
+//
+// 종이는 '내 묵상' 칸의 읽기 종이와 **같은 부품·같은 폭**이다(paper.jsx `NoteSheet` ·
+// `QT_SHEET_BOX`) — 여기에만 다른 마크업을 두면 한쪽만 고쳐진다(§6-32-p). 도막 없이
+// 쓴 옛 나눔은 `splitNoteSections`가 라벨 없는 도막 하나로 주므로 종이가 그대로 선다.
+//
+// 사람 칩이 이어지는 줄 — 넘치면 줄을 바꾸지 않고 가로로 민다(§8 · 같은 종류가 이어지는
+// 줄에서는 허용). roster.jsx의 CHIP_ROW·views.jsx의 TEAM_CHIP_ROW와 **같은 한 벌**이다:
+// 끝까지 밀었을 때 마지막 칩이 통 끝에 붙지 않게 ::after로 12px을 세운다(스크롤 통의
+// padding-right는 넘친 내용에 안 걸린다 — §6-2와 같은 이유).
+const PERSON_CHIP_ROW = 'flex items-center gap-1.5 flex-nowrap min-w-0 overflow-x-auto scrollbar-hide x-scroll-lock'
+  + " after:content-[''] after:shrink-0 after:w-3";
 
-function ShareFeed({ rows = [], members = [], myName = '', onEdit, isMaster = false, onDeleteOther }) {
+function ShareFeed({ rows = [], members = [], myName = '', date, passageRef = '',
+  onEdit, isMaster = false, onDeleteOther }) {
   const byId = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
-  // 줄 등장 순번은 앱의 관례대로 **첫 마운트에만** 준다(useEnterStagger 주석) — 그 뒤에
-  // 새로 올라온 나눔 한 줄에까지 지연이 걸리면 그 줄만 몇백 ms 뒤에 나타나 지각으로 읽힌다.
-  const stagger = useEnterStagger();
+  // 고르는 것은 **사람이지 자리가 아니다** — 순번으로 들면 남이 하나 올리는 순간 보고
+  // 있던 종이가 다른 사람 것으로 바뀐다. 날짜를 넘겨 그 id가 없어지면 목록의 첫 사람으로
+  // 떨어진다(mergeFeed 순서 그대로 — 내 것이 있으면 그게 첫째다).
+  const [pickedId, setPickedId] = useState('');
+  const cur = rows.find(r => r.id === pickedId) || rows[0];
+  // 이름·사진의 원본은 워크스페이스 멤버 목록이다(profiles에서 온다).
+  // 게스트 모드의 로컬 나눔은 언제나 내 글이라 프로필이 붙지 않는다.
+  const who = (e) => {
+    const m = byId.get(e.profile_id);
+    return { name: m?.name || e.name || myName, url: m?.avatarUrl || e.avatarUrl || '' };
+  };
+  const sections = useMemo(() => splitNoteSections(cur?.body || ''), [cur?.body]);
   if (!rows.length) {
     return <p className="text-[11.5px] text-fg-faint">이 날짜에 올라온 나눔이 아직 없어요</p>;
   }
   return (
-    <div className="flex flex-col">
-      {rows.map((e, i) => {
-        // 이름·사진의 원본은 워크스페이스 멤버 목록이다(profiles에서 온다).
-        // 게스트 모드의 로컬 나눔은 언제나 내 글이라 프로필이 붙지 않는다.
-        const m = byId.get(e.profile_id);
-        const name = m?.name || e.name || myName;
-        const url = m?.avatarUrl || e.avatarUrl || '';
-        return (
-          <div key={e.id} data-feed-row={e.mine ? (e.private ? 'mine-private' : 'mine') : 'other'}
-            className="dc-row flex items-start gap-2.5 py-2.5"
-            style={{ animationDelay: stagger ? `${Math.min(i, 12) * 30}ms` : '0ms' }}>
-            <Avatar name={name} url={url || undefined} className="flex w-7 h-7 text-[11px] shrink-0 mt-px" />
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <p className="text-[11.5px] font-bold text-fg truncate min-w-0">{name}</p>
-                {/* 지금 이 줄이 나만 보는 글임을 그 자리에서 말한다 */}
-                {e.private && (
-                  <span data-private="1" className="inline-flex items-center gap-1 shrink-0 px-1.5 py-px rounded-full bg-surface-hover text-[10.5px] font-bold text-fg-muted">
-                    <Lock size={10} />나만 보기
-                  </span>
-                )}
-                {/* 내 글에만 붙고 **언제나 보인다** — hover로만 뜨면 터치 기기에서는
-                    없는 기능이 된다(§8) */}
-                {e.mine && onEdit && (
-                  <button onClick={onEdit} aria-label="내 나눔 고치기"
-                    className="w-6 h-6 shrink-0 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
-                    <Pencil size={12} />
-                  </button>
-                )}
-                {/* 공유 해제가 아니라 그 사람의 그날 묵상이 없어진다 — 문구가 그걸 말한다 */}
-                {canDeleteShared(e, isMaster) && onDeleteOther && (
-                  <ConfirmPopover
-                    message="이 나눔을 지울까요? 공유만 내려가는 게 아니라 그 사람의 이 날 묵상이 지워져요."
-                    onConfirm={() => onDeleteOther(e)}>
-                    <button aria-label="이 나눔 지우기"
-                      className="w-6 h-6 shrink-0 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
-                      <Trash2 size={12} />
-                    </button>
-                  </ConfirmPopover>
-                )}
-              </div>
-              <NoteDigest md={e.body} />
-            </div>
+    <div data-share-feed="1">
+      {/* 한 명뿐인 날에도 칩 줄은 선다 — 사람 수에 따라 있다 없다 하면 그 줄이 무엇인지
+          배울 자리가 없다(§8 '기능을 숨기지 않는다'). */}
+      <div className={PERSON_CHIP_ROW}>
+        {rows.map((e) => {
+          const p = who(e);
+          const on = e.id === cur.id;
+          return (
+            <button key={e.id} type="button" onClick={() => setPickedId(e.id)} aria-pressed={on}
+              data-share-person={e.mine ? (e.private ? 'mine-private' : 'mine') : 'other'}
+              className={`inline-flex items-center gap-1.5 shrink-0 pl-1 pr-2.5 py-1 rounded-full text-[11.5px] font-semibold transition active:scale-95
+                ${on ? 'bg-accent text-white' : 'bg-surface-hover text-fg-muted hover:bg-line'}`}>
+              <Avatar name={p.name} url={p.url || undefined} className="flex w-5 h-5 text-[9px] shrink-0" />
+              <span className="truncate max-w-[8.5rem]">{p.name}</span>
+              {/* 지금 이 글이 나만 보는 것임을 그 칩에서 말한다 — 내 칩에만 붙는다 */}
+              {e.private && (
+                <span data-private="1" role="img" aria-label="나만 보기" className="inline-flex shrink-0">
+                  <Lock size={10} />
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 그 사람의 **종이 하나**. 칩을 바꾸면 이 종이의 내용만 바뀐다 — 쌓이지 않는다.
+          머리의 구절은 '내 묵상' 칸과 **같은 값**(그날 구절 전체 이름 · §6-32-w)이고
+          제목은 쓴 사람이 종이 위에 적어 둔 것이다(0062). */}
+      <div data-share-paper={cur.mine ? 'mine' : 'other'} className={`mt-3 ${QT_SHEET_BOX}`}>
+        <div className="rounded-[12px] overflow-hidden border border-line">
+          <NoteSheet date={paperDate(date)} kind="묵상 노트"
+            passageRef={passageRef} passageTitle={cur.title || ''}
+            sections={sections} cut={QT_CUT} />
+        </div>
+        {/* 도구 줄 — 고치기가 왼쪽, 지우기가 오른쪽 끝이다(§8 도구 줄 규칙).
+            **언제나 보인다** — hover로만 뜨면 터치 기기에서는 없는 기능이 된다. */}
+        {((cur.mine && onEdit) || (canDeleteShared(cur, isMaster) && onDeleteOther)) && (
+          <div data-share-tools="1" className="flex items-center gap-1 mt-2">
+            {cur.mine && onEdit && (
+              <button onClick={onEdit} aria-label="내 나눔 고치기"
+                className="w-8 h-8 shrink-0 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
+                <Pencil size={13} />
+              </button>
+            )}
+            {/* 공유 해제가 아니라 그 사람의 그날 묵상이 없어진다 — 문구가 그걸 말한다 */}
+            {canDeleteShared(cur, isMaster) && onDeleteOther && (
+              <ConfirmPopover className="inline-flex ml-auto"
+                message="이 나눔을 지울까요? 공유만 내려가는 게 아니라 그 사람의 이 날 묵상이 지워져요."
+                onConfirm={() => onDeleteOther(cur)}>
+                <button aria-label="이 나눔 지우기"
+                  className="w-8 h-8 shrink-0 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
+                  <Trash2 size={13} />
+                </button>
+              </ConfirmPopover>
+            )}
           </div>
-        );
-      })}
+        )}
+      </div>
     </div>
   );
 }

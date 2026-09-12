@@ -44,6 +44,12 @@
 //     행이 없어진다. 게스트에는 남이 없어서 word.js가 게스트 자리를 하나 더 본다
 //     (word_qt_shared) — 거기 한 줄 심어 버튼·문구·삭제를 실제로 눌러 본다(11-c)
 //
+// 2026-09-13 사용자 결정에서 바뀐 것:
+//   · 나눔이 **사람 칩 한 줄 + 종이 하나**가 됐다 — 사람마다 줄로 쌓고 도막을 라벨|글
+//     두 칸으로 접던 요약(NoteDigest)은 통째로 없어졌다. 칩을 누르면 그 사람의 묵상
+//     종이가 '내 묵상' 칸의 읽기 종이와 **같은 부품·같은 폭**으로 선다(9)
+//   · '나만 보기' 잠금 표시는 줄이 아니라 **내 칩**에 붙는다
+//
 // 3차 점검에서 본 것:
 //   · 형광펜 선택 팝오버가 **첫 프레임부터** 그 절 옆에 선다 — 자리를 잡기 전 한 번
 //     그려지면 화면 구석에서 날아온다. 열자마자 rAF로 top·left를 훑어 확인한다
@@ -1036,25 +1042,151 @@ check('내 줄의 열쇠는 공개 범위와 상관없이 하나다',
 check('아직 내 묵상을 못 읽었으면 목록을 그대로 둔다', merged.unknown === 'o1,db1', merged.unknown);
 check('지운 뒤에는 목록에 남은 내 줄도 걷어낸다', merged.removed === 'o1', merged.removed);
 
-// 9) 내 나눔 줄 — 고치기는 '내 묵상' 칸으로, **공유를 조작하는 칸은 그 줄에 없다**
-// (사용자 결정 2026-09-05 — "굳이 이 날의 나눔은 눈 표시가 없어도 되지 않을까?" ·
-// "토글이 위랑 아래랑 두 번 나온다"). 눈 가리기(공유 해제)와 줄의 토글이 같이 없어졌고,
-// 그 줄은 상태만 말한다(비공개면 잠금 표시). 회차 5의 '나눔 지우기 = 공유 해제' 폐기.
+// 9) 나눔은 **사람 칩 한 줄 + 종이 하나**다(사용자 결정 2026-09-13 — "더다붓에 공유할
+// 때도 묵상 제목이 아니라 그 종이 전체를 보여줘야지 … 쌓이는 구조는 아니고, 사람마다 볼
+// 수 있게 피커를 둔다든지"). 예전에는 사람마다 한 줄씩 쌓고 도막을 라벨|글 두 칸으로 접어
+// 요약(NoteDigest)했다 — 그 줄·요약은 통째로 없어졌다.
+// **되돌리기**: wordView의 ShareFeed가 다시 줄을 map으로 쌓게 하면 아래 '종이는 하나다' ·
+// '줄로 쌓지 않는다' · '칩을 누르면 종이가 그 사람 것으로 바뀐다'가 같이 깨진다.
+//
+// 고치기는 여전히 '내 묵상' 칸으로 데려가고, **공유를 조작하는 칸은 여기 없다**(사용자
+// 결정 2026-09-05). 상태(잠금)는 이제 **줄이 아니라 내 칩**이 말한다.
 const seedBody = seed.entries[today].body;
-const mineRow = await ev(`(() => {
-  const row = document.querySelector('[data-feed-row="mine"]');
+// 남의 나눔을 다섯 심는다 — 게스트의 나눔은 여태 내 글 하나뿐이었다(word.js LS.shared).
+// 이름이 길수록 375에서 칩 줄이 실제로 넘쳐서 '줄 안에서 민다'를 잴 수 있다.
+const crowd = [
+  { id: 'other-1', name: '조해리', title: '해리의 묵상 제목', body: '## 나의 묵상\n해리가 쓴 묵상 한 줄\n\n## 나의 결단\n해리의 결단 한 줄' },
+  { id: 'other-2', name: '박은총', title: '은총의 묵상 제목', body: '## 나의 묵상\n은총이 쓴 묵상 한 줄' },
+  { id: 'other-3', name: '김다니엘', title: '다니엘의 묵상 제목', body: '도막 없이 쓴 옛 나눔 한 줄' },
+  { id: 'other-4', name: '이하늘', title: '', body: '## 나의 묵상\n하늘이 쓴 묵상 한 줄' },
+  { id: 'other-5', name: '정소망', title: '소망의 묵상 제목', body: '## 나의 묵상\n소망이 쓴 묵상 한 줄' },
+];
+await ev(`localStorage.setItem('word_qt_shared', ${JSON.stringify(JSON.stringify({ [today]: crowd }))})`);
+await reload();
+await sleep(1200);
+check('다시 말씀으로(사람 다섯을 심고)', await clickText('말씀'));
+await sleep(1600);
+await waitFor(`document.querySelector('[data-share-feed]')`);
+const readPaper = (sel) => `(() => {
+  const box = document.querySelector(${JSON.stringify(sel)});
+  if (!box) return null;
+  const t = box.querySelector('.paper-ref-title');
+  return { title: t ? t.textContent.trim() : '',
+           ref: (box.querySelector('.paper-ref') || {}).textContent || '',
+           labels: [...box.querySelectorAll('.paper-row-label')].map(x => x.textContent.trim()),
+           body: (box.querySelector('.paper-body') || {}).innerText || '',
+           w: Math.round(box.getBoundingClientRect().width) };
+})()`;
+const chipRow = await ev(`(() => {
+  const feed = document.querySelector('[data-share-feed]');
+  const chips = [...document.querySelectorAll('[data-share-person]')];
   return {
-    row: !!row,
-    edit: !!document.querySelector('button[aria-label="내 나눔 고치기"]'),
-    eye: !!document.querySelector('button[aria-label="내 나눔 지우기"]'),
-    rowToggle: row ? row.querySelectorAll('button[aria-pressed]').length : 0,
-    rowChip: row ? row.querySelectorAll('[data-share-chip]').length : 0,
+    chips: chips.length,
+    kinds: chips.map(c => c.dataset.sharePerson).join(','),
+    names: chips.map(c => c.textContent.trim()),
+    pressed: chips.map(c => c.getAttribute('aria-pressed')).join(','),
+    // **종이는 언제나 하나**다 — 쌓이지 않는다(사용자 결정의 핵심)
+    papers: feed ? feed.querySelectorAll('.paper-sheet').length : -1,
+    rows: document.querySelectorAll('[data-feed-row]').length,
+    digest: document.querySelectorAll('.qt-digest').length,
   };
 })()`);
-check('내 나눔 줄에 고치기가 붙는다', mineRow.row && mineRow.edit, JSON.stringify(mineRow));
-check('내 나눔 줄에 눈 가리기(공유 해제)가 없다', mineRow.eye === false, JSON.stringify(mineRow));
-check('내 나눔 줄에는 공유 토글·칩이 없다',
-  mineRow.rowToggle === 0 && mineRow.rowChip === 0, JSON.stringify(mineRow));
+check('공유한 사람 수만큼 칩이 선다', chipRow.chips === 6 && chipRow.kinds === 'other,other,other,other,other,mine',
+  JSON.stringify(chipRow));
+check('나눔 종이는 언제나 하나다', chipRow.papers === 1, JSON.stringify(chipRow));
+check('사람마다 줄로 쌓지 않는다(접힌 요약도 없다)', chipRow.rows === 0 && chipRow.digest === 0,
+  JSON.stringify(chipRow));
+check('처음에는 목록의 첫 사람이 골라져 있다', chipRow.pressed === 'true,false,false,false,false,false',
+  JSON.stringify(chipRow));
+// 종이는 '내 묵상' 칸의 읽기 종이와 **같은 부품·같은 폭**이다(QT_SHEET_BOX)
+const firstPaper = await ev(readPaper('[data-share-paper]'));
+const minePaper = await ev(readPaper('[data-note-read="1"]'));
+check('나눔 종이가 내 묵상 종이와 같은 폭이다',
+  !!firstPaper && !!minePaper && Math.abs(firstPaper.w - minePaper.w) <= 1,
+  JSON.stringify({ share: firstPaper?.w, mine: minePaper?.w }));
+check('나눔 종이가 그 사람의 제목·구절·도막을 그대로 세운다',
+  firstPaper.title === '해리의 묵상 제목' && firstPaper.ref.includes(REF_FULL)
+  && firstPaper.labels.join('|') === '나의 묵상|나의 결단'
+  && firstPaper.body.includes('해리가 쓴 묵상 한 줄'), JSON.stringify(firstPaper));
+// 칩을 누르면 **그 종이의 내용만** 바뀐다
+await clickSel('[data-share-person="other"]:nth-of-type(3)');
+await sleep(400);
+const swapped = await ev(`(() => ({
+  paper: ${readPaper('[data-share-paper]')},
+  papers: document.querySelectorAll('[data-share-feed] .paper-sheet').length,
+  pressed: [...document.querySelectorAll('[data-share-person]')].map(c => c.getAttribute('aria-pressed')).join(','),
+}))()`);
+check('칩을 누르면 종이가 그 사람 것으로 바뀐다',
+  swapped.paper.title === '다니엘의 묵상 제목' && swapped.paper.body.includes('도막 없이 쓴 옛 나눔 한 줄')
+  && !swapped.paper.body.includes('해리가 쓴 묵상 한 줄'), JSON.stringify(swapped.paper));
+check('칩을 눌러도 종이는 여전히 하나다', swapped.papers === 1, String(swapped.papers));
+check('고른 칩만 눌린 상태다', swapped.pressed === 'false,false,true,false,false,false', swapped.pressed);
+// 도막 없이 쓴 옛 나눔도 라벨 없는 도막 하나로 종이에 선다(splitNoteSections)
+check('도막 없이 쓴 옛 나눔도 종이로 선다', swapped.paper.labels.length === 1, JSON.stringify(swapped.paper.labels));
+// 도구 줄 — 남의 종이에는 마스터의 지우기만, 내 종이에는 고치기만(§8 자리: 고치기 왼쪽 ·
+// 지우기 오른쪽 끝). 게스트에는 로그인이 없어 언제나 마스터다(auth.jsx).
+const onOther = await ev(`(() => {
+  const tools = document.querySelector('[data-share-tools]');
+  const del = document.querySelector('button[aria-label="이 나눔 지우기"]');
+  const edit = document.querySelector('button[aria-label="내 나눔 고치기"]');
+  const t = tools ? tools.getBoundingClientRect() : null;
+  return { del: !!del, edit: !!edit,
+    rightGap: del && t ? Math.round(t.right - del.getBoundingClientRect().right) : -1 };
+})()`);
+check('남의 종이에는 마스터의 지우기가 붙는다', onOther.del === true && onOther.edit === false,
+  JSON.stringify(onOther));
+check('지우기는 도구 줄의 오른쪽 끝이다', onOther.rightGap >= 0 && onOther.rightGap <= 2,
+  JSON.stringify(onOther));
+await clickSel('[data-share-person="mine"]');
+await sleep(400);
+const onMine = await ev(`(() => {
+  const tools = document.querySelector('[data-share-tools]');
+  const edit = document.querySelector('button[aria-label="내 나눔 고치기"]');
+  const t = tools ? tools.getBoundingClientRect() : null;
+  return { edit: !!edit, del: !!document.querySelector('button[aria-label="이 나눔 지우기"]'),
+    paper: (document.querySelector('[data-share-paper]') || {}).dataset?.sharePaper || '',
+    leftGap: edit && t ? Math.round(edit.getBoundingClientRect().left - t.left) : -1,
+    toggle: document.querySelectorAll('[data-share-feed] button[aria-pressed]').length,
+    chip: document.querySelectorAll('[data-share-feed] [data-share-chip]').length };
+})()`);
+check('내 종이에는 고치기가 붙고 지우기는 안 붙는다',
+  onMine.edit === true && onMine.del === false && onMine.paper === 'mine', JSON.stringify(onMine));
+check('고치기는 도구 줄의 왼쪽이다', onMine.leftGap >= 0 && onMine.leftGap <= 2, JSON.stringify(onMine));
+// 공유를 조작하는 칸은 여기 없다 — 칩의 aria-pressed는 사람 피커고, 토글·칩은 '내 묵상' 칸이다
+check('나눔 쪽에는 공유 토글·칩이 없다',
+  onMine.toggle === 6 && onMine.chip === 0, JSON.stringify(onMine));
+
+// 375 — 칩 줄은 **줄 안에서** 민다(§8 가로 스크롤 허용). 화면이 넘치면 안 된다.
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
+await sleep(800);
+const chipFit = await ev(`(() => {
+  const d = document.documentElement;
+  const first = document.querySelector('[data-share-person]');
+  const row = first ? first.parentElement : null;
+  const paper = document.querySelector('[data-share-paper] .paper-sheet');
+  return {
+    over: d.scrollWidth > d.clientWidth + 1,
+    // 미는 줄 **안**은 세어도 소용없다 — 넘쳐 있어야 밀 수 있다(x-scroll-lock).
+    // 그 줄 자신과 줄 밖의 것들만 센다.
+    wide: [...document.querySelectorAll('[data-share-feed] *')]
+      .filter(e => !(row && row !== e && row.contains(e)))
+      .filter(e => e.getBoundingClientRect().right > d.clientWidth + 1).length,
+    scrolls: row ? row.scrollWidth > row.clientWidth + 1 : false,
+    fits: row ? Math.round(row.getBoundingClientRect().right) <= d.clientWidth + 1 : false,
+    paperFits: paper ? Math.round(paper.getBoundingClientRect().right) <= d.clientWidth + 1 : false,
+  };
+})()`);
+check('375에서 나눔이 가로로 넘치지 않는다',
+  chipFit.over === false && chipFit.wide === 0 && chipFit.fits && chipFit.paperFits,
+  JSON.stringify(chipFit));
+check('375에서 칩 줄은 줄 안에서 민다', chipFit.scrolls === true, JSON.stringify(chipFit));
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+// 심어 둔 남의 나눔은 걷는다 — 아래 검사들은 내 글 하나만 있는 화면을 본다
+await ev(`localStorage.removeItem('word_qt_shared')`);
+await reload();
+await sleep(1200);
+check('다시 말씀으로(심은 것을 걷고)', await clickText('말씀'));
+await sleep(1600);
 // **조작 가능한 공유 토글은 이 화면에 한 벌뿐이다**(같은 결정) — '내 묵상' 칸의 것.
 // 한 벌은 두 쪽(나만 보기·더다붓에 공유하기)이라 벌 수로 센다.
 const onlyToggle = await ev(`(() => {
@@ -1062,8 +1194,8 @@ const onlyToggle = await ev(`(() => {
     .filter(b => ['나만 보기', '더다붓에 공유하기'].includes(b.textContent.trim()));
   const sets = [...new Set(bs.map(b => b.parentElement))];
   return { buttons: bs.length, sets: sets.length,
-    inFeed: sets.filter(s => s.closest('[data-feed-row]')).length,
-    inEditor: sets.filter(s => !!s.closest('[data-col="qt"]') && !s.closest('[data-feed-row]')).length };
+    inFeed: sets.filter(s => s.closest('[data-share-feed]')).length,
+    inEditor: sets.filter(s => !!s.closest('[data-col="qt"]') && !s.closest('[data-share-feed]')).length };
 })()`);
 check('조작 가능한 공유 토글은 화면에 한 벌뿐이다',
   onlyToggle.sets === 1 && onlyToggle.buttons === 2
@@ -1074,26 +1206,29 @@ await clickSel('button[aria-label="내 나눔 고치기"]');
 await sleep(600);
 check('고치기는 내 묵상 칸에 커서를 준다',
   await ev(`!!document.activeElement && !!document.activeElement.closest('.tiptap')`));
-// 공유를 내리는 길도 그 토글 하나다 — 나눔 줄에서 내리는 버튼은 없어졌다
+// 공유를 내리는 길도 그 토글 하나다 — 나눔 쪽에서 내리는 버튼은 없어졌다
 check("편집기 토글의 '나만 보기'를 누른다", (await clickText('나만 보기')) === true);
 await sleep(1000);
 const afterUnshare = await ev(`(() => {
-  const row = document.querySelector('[data-feed-row="mine-private"]');
+  const person = document.querySelector('[data-share-person="mine-private"]');
+  const paper = document.querySelector('[data-share-paper]');
   const chip = document.querySelector('[data-share-chip]');
   return {
     stored: JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}] || null,
     inEditor: (document.querySelector('.tiptap') || {}).innerText || '',
     // 비공개가 된 내 묵상은 **내 피드에는 남는다**(사용자 결정 2026-09-03)
-    privateRow: !!row,
-    badge: row ? !!row.querySelector('[data-private]') : false,
-    badgeText: row ? row.textContent.includes('나만 보기') : false,
-    body: row ? row.textContent.includes(${JSON.stringify(seed.entries[today].body)}) : false,
-    others: document.querySelectorAll('[data-feed-row="other"]').length,
-    mineRows: document.querySelectorAll('[data-feed-row^="mine"]').length,
-    toggle: row ? row.querySelectorAll('button[aria-pressed]').length : 0,
+    privateRow: !!person,
+    // '나만 보기' 표시는 이제 **줄이 아니라 칩**에 붙는다(2026-09-13)
+    badge: person ? !!person.querySelector('[data-private]') : false,
+    badgeText: person ? person.querySelector('[data-private]')?.getAttribute('aria-label') === '나만 보기' : false,
+    body: paper ? paper.textContent.includes(${JSON.stringify(seed.entries[today].body)}) : false,
+    others: document.querySelectorAll('[data-share-person="other"]').length,
+    mineRows: document.querySelectorAll('[data-share-person^="mine"]').length,
+    papers: document.querySelectorAll('[data-share-feed] .paper-sheet').length,
+    toggle: person ? person.querySelectorAll('[data-share-chip]').length : 0,
     chips: document.querySelectorAll('[data-share-chip]').length,
     chipText: chip ? chip.textContent : '',
-    chipInFeed: chip ? !!chip.closest('[data-feed-row]') : false,
+    chipInFeed: chip ? !!chip.closest('[data-share-feed]') : false,
   };
 })()`);
 check('편집기 토글로 공유만 내린다(묵상은 남는다)',
@@ -1104,12 +1239,13 @@ check('편집기 토글로 공유만 내린다(묵상은 남는다)',
 check('비공개 묵상이 내 나눔 피드에 남는다',
   afterUnshare.privateRow && afterUnshare.body && afterUnshare.others === 0,
   JSON.stringify(afterUnshare));
-// 두 줄로 보였다가 하나로 합쳐지던 자리다(8-b) — 넘긴 뒤에도 내 줄은 하나뿐이다
-check('공유를 내려도 내 줄은 하나뿐이다', afterUnshare.mineRows === 1,
-  String(afterUnshare.mineRows));
-check("그 줄에 '나만 보기' 표시가 붙는다",
+// 두 줄로 보였다가 하나로 합쳐지던 자리다(8-b) — 넘긴 뒤에도 내 칩은 하나뿐이고
+// 종이도 하나다(2026-09-13 — 쌓지 않는다)
+check('공유를 내려도 내 칩은 하나뿐이다', afterUnshare.mineRows === 1 && afterUnshare.papers === 1,
+  JSON.stringify({ mine: afterUnshare.mineRows, papers: afterUnshare.papers }));
+check("내 칩에 '나만 보기' 잠금 표시가 붙는다",
   afterUnshare.badge && afterUnshare.badgeText, JSON.stringify(afterUnshare));
-check('비공개가 된 줄에도 공유 토글은 없다', afterUnshare.toggle === 0,
+check('비공개가 된 칩에도 공유 칩은 없다', afterUnshare.toggle === 0,
   String(afterUnshare.toggle));
 check('내 묵상 칸의 글은 그대로다', afterUnshare.inEditor.includes(seedBody), afterUnshare.inEditor);
 // 칩은 **한 자리에서만** 말한다 — 토글 옆(편집기)이다
@@ -1145,7 +1281,7 @@ const shared = await ev(`(() => ({
   stored: JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}] || null,
   chip: (document.querySelector('[data-share-chip]') || {}).textContent || '',
   feed: document.body.innerText.includes(${JSON.stringify(seedBody)}),
-  mineRows: document.querySelectorAll('[data-feed-row^="mine"]').length,
+  mineRows: document.querySelectorAll('[data-share-person^="mine"]').length,
 }))()`);
 check('공유 토글은 저장 버튼을 켜지 않는다', (await saveDisabled()) === true);
 check('공유 토글이 그 자리에서 shared만 저장한다',
@@ -1162,7 +1298,7 @@ const labelsAfter = await ev(`(() => {
 check('공유를 골라도 라벨은 그대로다',
   labelsAfter.texts.sort().join('|') === '나만 보기|더다붓에 공유하기', JSON.stringify(labelsAfter));
 check('공유를 켜면 나눔에 다시 오른다', shared.feed === true);
-check('공유를 켜도 내 줄은 하나뿐이다', shared.mineRows === 1, String(shared.mineRows));
+check('공유를 켜도 내 칩은 하나뿐이다', shared.mineRows === 1, String(shared.mineRows));
 
 // 11) 묵상 저장 — 마크다운 에디터에 쳐 넣고 저장한다(그때만 저장이 켜진다)
 // 편집기가 서 있을 때만 글을 칠 수 있다 — 찬 서버에서는 lazy 청크가 늦고, 저장된 글이
@@ -1275,28 +1411,32 @@ const delWho = await ev(`(async () => {
   const mineRow = { id: 'mine', mine: true };
   return [m.canDeleteShared(other, true), m.canDeleteShared(other, false), m.canDeleteShared(mineRow, true)];
 })()`, true);
-check('남의 나눔 삭제는 마스터에게만, 내 줄에는 안 붙는다',
+check('남의 나눔 삭제는 마스터에게만, 내 것에는 안 붙는다',
   JSON.stringify(delWho) === '[true,false,false]', JSON.stringify(delWho));
 
-// 남의 줄을 하나 심는다 — 게스트의 나눔 피드는 여태 내 글 하나뿐이었다(word.js LS.shared)
+// 남의 것을 하나 심는다 — 게스트의 나눔은 여태 내 글 하나뿐이었다(word.js LS.shared)
 await ev(`localStorage.setItem('word_qt_shared', ${JSON.stringify(JSON.stringify({ [word.kstToday()]: [{ id: 'other-1', name: '조해리', body: '남이 공유한 묵상 한 줄' }] }))})`);
 await reload();
 await sleep(1200);
 check('다시 말씀으로', await clickText('말씀'));
 await sleep(1400);
 const otherRow = await ev(`(() => {
-  const row = document.querySelector('[data-feed-row="other"]');
+  const person = document.querySelector('[data-share-person="other"]');
+  const paper = document.querySelector('[data-share-paper]');
   return {
-    row: !!row,
-    body: row ? row.textContent.includes('남이 공유한 묵상 한 줄') : false,
+    person: !!person,
+    paper: paper ? paper.dataset.sharePaper : '',
+    body: paper ? paper.textContent.includes('남이 공유한 묵상 한 줄') : false,
     del: !!document.querySelector('button[aria-label="이 나눔 지우기"]'),
-    // 내 줄에는 안 붙는다 — 그 자리는 '내 묵상' 칸의 휴지통이 맡는다
-    mineRows: document.querySelectorAll('[data-feed-row^="mine"]').length,
+    // 내 것에는 안 붙는다 — 그 자리는 '내 묵상' 칸의 휴지통이 맡는다
+    mineRows: document.querySelectorAll('[data-share-person^="mine"]').length,
     edit: !!document.querySelector('button[aria-label="내 나눔 고치기"]'),
   };
 })()`);
-check('남이 공유한 묵상이 나눔에 선다', otherRow.row && otherRow.body, JSON.stringify(otherRow));
-check('마스터에게 남의 줄 삭제 버튼이 붙는다', otherRow.del === true, JSON.stringify(otherRow));
+check('남이 공유한 묵상이 나눔의 종이로 선다',
+  otherRow.person && otherRow.body && otherRow.paper === 'other', JSON.stringify(otherRow));
+check('마스터에게 남의 종이 삭제 버튼이 붙는다',
+  otherRow.del === true && otherRow.edit === false && otherRow.mineRows === 0, JSON.stringify(otherRow));
 await clickSel('button[aria-label="이 나눔 지우기"]');
 await sleep(350);
 // 공유 해제가 아니라 그 사람의 묵상이 지워진다는 것을 문구가 말한다
@@ -1306,11 +1446,13 @@ await clickText('삭제');
 await sleep(900);
 const otherGone = await ev(`(() => ({
   stored: (JSON.parse(localStorage.getItem('word_qt_shared') || '{}')[${JSON.stringify(word.kstToday())}] || []).length,
-  rows: document.querySelectorAll('[data-feed-row]').length,
+  chips: document.querySelectorAll('[data-share-person]').length,
+  papers: document.querySelectorAll('[data-share-feed] .paper-sheet').length,
   empty: document.body.innerText.includes('이 날짜에 올라온 나눔이 아직 없어요'),
 }))()`);
-check('마스터가 지우면 그 줄이 사라진다',
-  otherGone.stored === 0 && otherGone.rows === 0 && otherGone.empty, JSON.stringify(otherGone));
+check('마스터가 지우면 그 칩과 종이가 사라진다',
+  otherGone.stored === 0 && otherGone.chips === 0 && otherGone.papers === 0 && otherGone.empty,
+  JSON.stringify(otherGone));
 await ev(`localStorage.removeItem('word_qt_shared')`);
 
 // ── 성경 읽기 ───────────────────────────────────────────────────────────────

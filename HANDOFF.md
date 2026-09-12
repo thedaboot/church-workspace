@@ -150,7 +150,7 @@ src/views/dashboardParts.jsx  여러 화면이 쓰는 부품 — 마감 구간·
 src/views/membersView.jsx     전역 '멤버'(관리자) — [가입자 | 청년 명단] · 접속 표시는 스토어를 겹쳐 쓴다(§4.8)
 src/views/homeView.jsx        (v2) 홈 — 인사말 + 카드 넷. 자기 저장 자리가 없다(§6-9-x·9-r·9-s)
 src/views/worshipView.jsx     (v2) 예배 — 주보 목록 → 상세/작성/발행 → 출석
-src/views/wordView.jsx        (v2) 말씀 — [QT | 성경 읽기] · 내 묵상은 저장하면 종이(§6-32-p·19-b)
+src/views/wordView.jsx        (v2) 말씀 — [QT | 성경 읽기] · 내 묵상은 저장하면 종이 · 나눔은 사람 칩 + 종이 하나(§6-32-p·19-b·19-b-1)
 src/views/groupsView.jsx      (v2) 모임 — 내 순 · 동아리 · 순 편성
 src/modals/modals.jsx         업무 창 — TaskModalShell·TaskViewer·TaskEditor·SubtaskList·담당자·선행 업무(§4.9)
 src/modals/attachments.jsx    업무 창의 첨부 구역 — 업로드·미리보기·삭제·구글 사본 편집 자격(§6-34-h · startUploads는 §6-29-u)
@@ -273,6 +273,7 @@ design/                       원본 시트(chars.png·char.png) — 배포에 �
 | Drive API 직접(서비스 계정·OAuth 위임)으로 Apps Script 대체 | 서비스 계정은 개인 드라이브에 파일을 소유할 수 없고 OAuth 위임은 구글 심사 대상 |
 | 노트 도막 제목에 잎 그림 | 2026-09-09에 뺐다 — `tests/word`가 **없어야 한다**로 단정한다 |
 | 노트 도막 '본문' | 머리에 구절이 있어 2026-09-12에 뺐다 — 옛 노트의 도막은 `LEGACY_SECTIONS`로 살아 있다 |
+| 나눔을 사람마다 줄로 쌓기(접힌 요약) | 2026-09-13에 뺐다 — "그 종이 전체를 보여줘야지 … 쌓이지 않는 구조가 중요". 지금은 **사람 칩 한 줄 + 종이 하나**다(§6-19-b-1) |
 | 노트·주보 종이를 순모임 가이드 종이처럼 | "디자인 템플릿이 너무 똑같잖아" — 가이드 종이는 사용자가 준 템플릿이라 그대로 둔다 |
 | 주보 종이에 캐릭터 컷 | 설교 본문이 실리는 공식 문서다(`tests/worship`이 단정) — **노트 종이에는 한 컷 붙인다** |
 | 주보를 이미지 두 장으로 카카오톡에 | 카카오 인앱 웹뷰에 공유 시트가 없어 내려받기로 떨어진다 → **PDF 한 파일** |
