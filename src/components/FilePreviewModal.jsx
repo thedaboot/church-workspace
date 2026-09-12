@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronRight, Maximize2, Minimize2, SquarePen } from 'lucide-react';
+import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronRight, Maximize2, Minimize2, SquarePen, Plus, Minus } from 'lucide-react';
 import { RichText } from './RichText.jsx';
 import { getFileOpenUrl, getFileDownloadUrl, driveImageFullUrl, fetchDriveFileBlob } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -56,6 +56,14 @@ const FRAME_KINDS = new Set(['office', 'drive', 'sheet', 'gdoc']);
 // 모바일에서 구글 문서 미리보기 틀에 주는 폭(위 gdoc 갈래 주석)
 const GDOC_MOBILE_W = 940;
 const FRAME_SETTLE = 260;
+// 확대 단계. **우리가 그리는 갈래(사진·PDF)에만** 있다 — 구글 문서·시트·슬라이드 틀은
+// 구글이 자기 확대를 그려 주고, 오피스 뷰어도 마찬가지다(우리가 안쪽에 손댈 수 없다).
+// 사용자 결정 2026-09-13: "확대 버튼" — `index.html`의 `maximum-scale=1.0` 때문에
+// 안드로이드에서는 손가락 확대가 통째로 막혀 있어서, 폰에서 사진 하나 키울 길이 없었다.
+// 단계로 두는 이유는 PDF가 **그 배율로 다시 그리는** 것이기 때문이다(연속 배율이면
+// 미는 동안 내내 다시 그린다). 배율 1은 '칸에 맞춤'이다.
+const ZOOM_STEPS = [1, 1.5, 2, 3];
+const ZOOM_KINDS = new Set(['image', 'pdf']);
 // Storage에 남은 옛 오피스 파일만 이 뷰어로 간다(드라이브 파일은 구글이 그린다)
 const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
 // 드라이브 미리보기 주소는 순수 함수라 utils에 있다(노드에서 바로 검사한다 — §3-5).
@@ -115,6 +123,11 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   const [officeBlob, setOfficeBlob] = useState(null);
   // 창을 화면 가득 넓히기. 모바일은 원래 전체화면이라 버튼을 두지 않는다(태블릿부터 보인다).
   const [wide, setWide] = useState(false);
+  // 확대 배율(위 ZOOM_STEPS). 파일을 바꾸면 1로 돌아간다 — 앞 사진을 3배로 보고 있었다고
+  // 다음 사진도 3배로 열리면 무엇을 보고 있는지 알 수가 없다.
+  const [zoom, setZoom] = useState(1);
+  const zi = ZOOM_STEPS.indexOf(zoom);
+  const canZoom = ZOOM_KINDS.has(kind);
   const timerRef = useRef(null);
   const settleRef = useRef(null);
   const go = useCallback((d) => {
@@ -124,7 +137,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     setFrameReady(false); setTimedOut(false); setPdfSrc(null); setOfficeBlob(null);
     // 앞 파일이 걸어 둔 것들 — 남겨 두면 다음 파일의 화면을 건드린다(감사 2026-09-13).
     // 특히 settle 타이머는 새 틀이 뜨지도 않았는데 스켈레톤을 걷어 버린다.
-    clearTimeout(settleRef.current); setBlobSrc(null);
+    clearTimeout(settleRef.current); setBlobSrc(null); setZoom(1);
   }, [canNav, gallery, gi]);
   // 이웃 사진을 미리 받아 둔다 — lh3 주소는 고정이라 이게 곧 캐시를 채우는 일이고,
   // 다음/이전을 눌렀을 때 스켈레톤 없이 바로 뜬다.
@@ -350,14 +363,24 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     if (kind === 'image') {
       // 가운데 정렬은 바깥 div가 한다 — SmartImage의 래퍼(inline-block)에 폭을 주면
       // 래퍼만 가운데로 가고 그 안의 이미지는 왼쪽에 붙는다.
+      // 배율 1은 칸에 맞춘 사진이고, 그 위는 **칸 너비의 배수**로 키워 통이 밀게 둔다.
+      // 두 번 누르면 2배↔맞춤 — 폰에서 버튼까지 손을 뻗지 않고 키우는 길이다.
+      const zoomed = zoom > 1;
       return (
-        <div className="w-full h-full flex items-center justify-center">
+        // 확대했을 때는 **flex를 걷는다** — `justify-center`인 통에서 내용이 넘치면
+        // 시작 쪽(왼쪽·위)이 잘려서 거기로 스크롤할 수가 없다(flex의 오래된 함정).
+        // 감싸개를 블록으로 두면 통 너비를 그대로 받고, 사진은 그 %만큼 넘쳐 밀린다.
+        <div
+          className={`w-full h-full ${zoomed ? 'overflow-auto' : 'flex items-center justify-center'}`}
+          onDoubleClick={() => setZoom(z => (z > 1 ? 1 : 2))}
+        >
           <SmartImage
             key={cur.id}
             src={imgSrcOf(cur) || url} alt={cur.name}
-            wrapperClassName="w-full h-full flex items-center justify-center"
-            className="max-w-full max-h-full object-contain rounded-md"
-              skeletonClassName="w-72 h-72" loadingText="미리보기를 준비하고 있어요"
+            wrapperClassName={zoomed ? 'block' : 'w-full h-full flex items-center justify-center'}
+            className={zoomed ? 'block rounded-md' : 'max-w-full max-h-full object-contain rounded-md'}
+            style={zoomed ? { width: `${zoom * 100}%`, maxWidth: 'none' } : undefined}
+            skeletonClassName="w-72 h-72" loadingText="미리보기를 준비하고 있어요"
           />
         </div>
       );
@@ -509,7 +532,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       if (!pdfSrc) return <PreparingFrame />;
       return (
         <PdfView
-          blob={pdfSrc.blob} src={pdfSrc.src}
+          blob={pdfSrc.blob} src={pdfSrc.src} zoom={zoom}
           onError={(e) => setError(`미리보기를 그릴 수 없어요\n${e.message || e}`)}
         />
       );
@@ -577,6 +600,22 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
                 ? <Loader2 size={13} strokeWidth={1.8} className="animate-spin" />
                 : <SquarePen size={13} strokeWidth={1.8} />} 구글 문서에서 편집
             </a>
+          )}
+          {/* 확대 — 우리가 그리는 갈래(사진·PDF)에만. 폰에서도 보인다: '화면 가득'과 달리
+              이것이 **폰에서 유일하게 키우는 길**이다(§6-29-z-13). 가운데 숫자를 누르면
+              맞춤으로 돌아온다. 아이콘 버튼들과 같은 크기·같은 반응이다(§8). */}
+          {canZoom && (
+            <div className="shrink-0 flex items-center">
+              <button type="button" onClick={() => setZoom(ZOOM_STEPS[zi - 1])} disabled={zi <= 0}
+                className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
+                title="축소"><Minus size={16} /></button>
+              <button type="button" onClick={() => setZoom(1)} disabled={zoom === 1}
+                className="px-0.5 text-[11px] font-semibold text-fg-muted tabular-nums whitespace-nowrap hover:text-accent-text transition disabled:pointer-events-none"
+                title="원래 크기로">{Math.round(zoom * 100)}%</button>
+              <button type="button" onClick={() => setZoom(ZOOM_STEPS[zi + 1])} disabled={zi < 0 || zi >= ZOOM_STEPS.length - 1}
+                className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
+                title="확대"><Plus size={16} /></button>
+            </div>
           )}
           {!isMobile && (
             <button type="button" onClick={() => setWide(w => !w)}

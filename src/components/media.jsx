@@ -19,7 +19,7 @@ export const Skeleton = ({ className = '' }) => (
 // (src만 걸어두면 받는 동안 자리가 비었다가 툭 나타나서 화면이 끊겨 보인다)
 // loadingText: 스켈레톤 위에 얹을 '준비 중' 문구. 미리보기 창은 PDF·엑셀과 같은 줄을
 // 쓰라고 넘기고(형식마다 다른 로딩 화면이 되지 않게), 썸네일 자리는 넘기지 않는다.
-export function SmartImage({ src, alt = '', className = '', wrapperClassName = '', skeletonClassName = '', loadingText = '', onClick, title }) {
+export function SmartImage({ src, alt = '', className = '', style = undefined, wrapperClassName = '', skeletonClassName = '', loadingText = '', onClick, title }) {
   const [state, setState] = useState('loading'); // loading | ready | error
   useEffect(() => { setState('loading'); }, [src]);
 
@@ -47,7 +47,7 @@ export function SmartImage({ src, alt = '', className = '', wrapperClassName = '
       )}
       {src && (
         <img
-          src={src} alt={alt} title={title} onClick={onClick}
+          src={src} alt={alt} title={title} onClick={onClick} style={style}
           /* 사진이 여럿 붙은 업무에서 화면 밖 썸네일까지 한꺼번에 받지 않는다 */
           loading="lazy" decoding="async"
           onLoad={() => setState('ready')} onError={() => setState('error')}

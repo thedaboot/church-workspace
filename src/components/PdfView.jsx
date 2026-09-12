@@ -14,6 +14,11 @@ import { Skeleton } from './media.jsx';
 // ============================================================================
 const MAX_PAGES = 50;          // 이 이상은 앱에서 그리지 않고 '새 탭에서 열기' 안내
 const FIRST_CHUNK = 3;         // 먼저 그릴 쪽 수(나머지는 이어서)
+// 캔버스 하나의 **실제 픽셀** 가로 상한. 확대는 CSS로 늘리는 것이 아니라 그 배율로
+// 다시 그리는 것이라(글자가 뭉개지면 확대하는 뜻이 없다) 상한이 없으면 3배에서
+// 쪽마다 수십 MB짜리 캔버스가 쉰 장 쌓인다. 3000이면 1200px 칸을 2.5배로 보는
+// 셈이라 눈으로는 또렷하고, 배율 1·dpr 2의 2400에서 크게 벗어나지도 않는다.
+const MAX_CANVAS_PX_W = 3000;
 
 // pdf.js가 주소로 받아 가는 보조 자료. 이 네 칸은 **vite.config.js의 `pdfjsAssets`**가
 // node_modules/pdfjs-dist에서 그대로 내준다(dev는 미들웨어, build는 결과물) — 한쪽을
@@ -47,7 +52,8 @@ async function loadPdfjs() {
 }
 
 // blob: 이미 받아둔 파일(작은 PDF) / src: 주소로 직접 스트리밍(큰 PDF)
-export function PdfView({ blob = null, src = null, onError }) {
+// zoom: 1 = 칸 너비에 맞춤. 그 위는 **그 배율로 다시 그린다**(CSS 확대가 아니다).
+export function PdfView({ blob = null, src = null, zoom = 1, onError }) {
   const hostRef = useRef(null);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [pageCount, setPageCount] = useState(0);
@@ -109,21 +115,24 @@ export function PdfView({ blob = null, src = null, onError }) {
 
         // 가로 폭에 맞춰 그린다(화면 배율 반영 — 모바일에서 흐릿하지 않게).
         // 쪽이 쌓이면 세로 스크롤바가 생겨 내용 폭이 그만큼 줄어든다 → 미리 비워둔다.
-        const cssWidth = Math.max(240, (host.clientWidth || boxW) - 16);
+        // 확대는 **그릴 폭 자체**를 늘리는 것이다. 넘치는 만큼은 바깥 통이 좌우로 민다.
+        const cssWidth = Math.max(240, ((host.clientWidth || boxW) - 16) * zoom);
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        // 실제 픽셀에는 상한이 있다(위 MAX_CANVAS_PX_W) — 넘으면 그만큼만 그리고 CSS로 편다
+        const pxWidth = Math.min(cssWidth * dpr, MAX_CANVAS_PX_W);
         const total = Math.min(doc.numPages, MAX_PAGES);
 
         for (let n = 1; n <= total; n++) {
           if (!alive) return;
           const page = await doc.getPage(n);
           const base = page.getViewport({ scale: 1 });
-          const viewport = page.getViewport({ scale: (cssWidth / base.width) * dpr });
+          const viewport = page.getViewport({ scale: pxWidth / base.width });
 
           const canvas = document.createElement('canvas');
           canvas.width = Math.floor(viewport.width);
           canvas.height = Math.floor(viewport.height);
           canvas.style.width = `${cssWidth}px`;
-          canvas.style.height = `${Math.floor(viewport.height / dpr)}px`;
+          canvas.style.height = `${Math.floor(viewport.height * (cssWidth / pxWidth))}px`;
           canvas.className = 'block mx-auto mb-2 rounded-md border border-line bg-white shadow-soft';
           host.appendChild(canvas);
 
@@ -142,7 +151,7 @@ export function PdfView({ blob = null, src = null, onError }) {
     })();
 
     return () => { alive = false; if (doc) doc.destroy?.(); };
-  }, [blob, src, boxW]);
+  }, [blob, src, boxW, zoom]);
 
   return (
     <div className="relative w-full h-full">
@@ -150,7 +159,9 @@ export function PdfView({ blob = null, src = null, onError }) {
           미지원 브라우저에서도 overflow-x-hidden으로 가로 스크롤은 생기지 않는다. */}
       <div
         ref={hostRef}
-        className={`w-full h-full overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] ${status === 'ready' ? '' : 'opacity-0'}`}
+        // 확대했을 때만 좌우로 민다 — 배율 1에서는 넘칠 것이 없고, 가로 스크롤이
+        // 열려 있으면 세로로 훑다가 옆으로 미끄러진다.
+        className={`w-full h-full overflow-y-auto [scrollbar-gutter:stable] ${zoom > 1 ? 'overflow-x-auto' : 'overflow-x-hidden'} ${status === 'ready' ? '' : 'opacity-0'}`}
       />
       {status === 'loading' && (
         <>

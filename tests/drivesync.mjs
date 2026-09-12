@@ -901,5 +901,25 @@ check('틀로 그리는 갈래는 전부 시간 제한이 있다', () => {
     '표를 못 그릴 때 새 탭으로 갈 길이 없다');
 });
 
+check('확대는 우리가 그리는 갈래에만 있고 PDF는 다시 그린다', () => {
+  // 사용자 결정 2026-09-13 — `index.html`의 `maximum-scale=1.0`이 안드로이드에서 손가락
+  // 확대를 막고 '화면 가득'은 데스크톱 전용이라, 폰에서 사진 하나 키울 길이 없었다.
+  const pdfview = read('src/components/PdfView.jsx');
+  const html = read('index.html');
+  assert.match(preview, /const ZOOM_KINDS = new Set\(\['image', 'pdf'\]\)/,
+    '확대 갈래 목록이 없다(구글 틀·오피스 뷰어에는 붙이지 않는다 — 안쪽에 손댈 수 없다)');
+  // '화면 가득'은 !isMobile 안이지만 확대 줄은 **폰에도 보여야 한다** — 거기서는 이것뿐이다.
+  const bar = preview.slice(preview.indexOf('{canZoom && ('), preview.indexOf('{!isMobile && ('));
+  assert.ok(bar && !/isMobile/.test(bar), '확대 줄이 폰에서 사라진다 — 폰에는 키울 다른 길이 없다');
+  // 파일을 바꾸면 배율이 돌아온다(앞 사진을 3배로 보던 채로 다음 사진이 열리면 안 된다)
+  assert.match(preview, /setBlobSrc\(null\); setZoom\(1\);/, '사진을 넘길 때 배율이 남는다');
+  // PDF는 CSS로 늘리지 않고 그 배율로 **다시 그린다** — 대신 실제 픽셀에 상한이 있다
+  assert.match(pdfview, /const MAX_CANVAS_PX_W = 3000;/, '캔버스 픽셀 상한이 없다(확대에서 메모리가 터진다)');
+  assert.match(pdfview, /\(\(host\.clientWidth \|\| boxW\) - 16\) \* zoom/, 'PDF가 배율대로 다시 그려지지 않는다');
+  assert.match(pdfview, /\}, \[blob, src, boxW, zoom\]\);/, '배율을 바꿔도 다시 그리지 않는다');
+  // 이 함정이 사라지면 확대 줄의 존재 이유 절반이 없어진다 — 값이 바뀌면 여기서 알린다
+  assert.match(html, /maximum-scale=1\.0/, 'viewport의 maximum-scale이 바뀌었다 — §6-29-z-13을 다시 보세요');
+});
+
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);
