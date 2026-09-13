@@ -128,6 +128,39 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   const [zoom, setZoom] = useState(1);
   const zi = ZOOM_STEPS.indexOf(zoom);
   const canZoom = ZOOM_KINDS.has(kind);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+
+  // **손가락으로 오므려 확대하는 것을 우리 배율로 받는다(사파리 전용 `gesture*`).**
+  // 왜 필요한가: iOS는 `maximum-scale=1.0`을 접근성 이유로 무시하므로 **페이지 자체가
+  // 확대된다.** 그러면 `fixed`로 깔린 이 창은 레이아웃 뷰포트에 붙어 있는데 사람이 보는
+  // 것은 좁아진 비주얼 뷰포트라, **확대한 뒤 밀면 머리줄 버튼이 보는 화면 밖으로 나간다.**
+  // 사용자 신고 2026-09-13 두 번째 — "확대를 한 뒤에 스크롤을 하고 뭔가 다른 액션을
+  // 하려고 하면 아예 버튼이 안 먹네". 더블탭 쪽은 `tap-zoom-lock`이 막았고(§6-29-z-14),
+  // 남은 길이 이것이다. `touch-action`으로는 못 막는다 — iOS의 페이지 확대는 그 값을
+  // 보지 않는다. 사파리가 주는 `gesturestart`를 preventDefault 하는 것이 유일한 길이다.
+  //
+  // **우리 배율이 있는 갈래(사진·PDF)에서만 막는다.** 구글 문서·시트 틀에는 대신 줄
+  // 것이 없어서, 거기서 막으면 키울 방법을 통째로 뺏는 것이 된다.
+  // 사파리 밖(안드로이드 크롬 등)에는 이 이벤트가 없다 — 거기서는 `maximum-scale=1.0`이
+  // 이미 페이지 확대를 막고 있어 이 갈래 자체가 생기지 않는다.
+  useEffect(() => {
+    if (!canZoom) return;
+    let start = 1;
+    const nearest = (v) => ZOOM_STEPS.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
+    const onStart = (e) => { e.preventDefault(); start = zoomRef.current; };
+    const onChange = (e) => { e.preventDefault(); setZoom(nearest(start * (e.scale || 1))); };
+    const onEnd = (e) => { e.preventDefault(); };
+    const opt = { passive: false };
+    document.addEventListener('gesturestart', onStart, opt);
+    document.addEventListener('gesturechange', onChange, opt);
+    document.addEventListener('gestureend', onEnd, opt);
+    return () => {
+      document.removeEventListener('gesturestart', onStart, opt);
+      document.removeEventListener('gesturechange', onChange, opt);
+      document.removeEventListener('gestureend', onEnd, opt);
+    };
+  }, [canZoom]);
   const timerRef = useRef(null);
   const settleRef = useRef(null);
   const go = useCallback((d) => {
@@ -371,7 +404,10 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
         // 시작 쪽(왼쪽·위)이 잘려서 거기로 스크롤할 수가 없다(flex의 오래된 함정).
         // 감싸개를 블록으로 두면 통 너비를 그대로 받고, 사진은 그 %만큼 넘쳐 밀린다.
         <div
-          className={`w-full h-full ${zoomed ? 'overflow-auto' : 'flex items-center justify-center'}`}
+          // `overscroll-contain` — 끝까지 민 뒤에도 계속 밀면 스크롤이 **뒤 화면으로
+          // 넘어간다**(스크롤 체이닝). 그러면 사진은 그대로인데 뒤가 움직여서 다음 탭이
+          // 엉뚱한 데 떨어진다. 이 통에서 끝낸다.
+          className={`w-full h-full ${zoomed ? 'overflow-auto overscroll-contain' : 'flex items-center justify-center'}`}
           onDoubleClick={() => setZoom(z => (z > 1 ? 1 : 2))}
         >
           <SmartImage

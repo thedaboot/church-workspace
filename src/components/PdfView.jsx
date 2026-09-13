@@ -166,7 +166,9 @@ export function PdfView({ blob = null, src = null, zoom = 1, onError }) {
         ref={hostRef}
         // 확대했을 때만 좌우로 민다 — 배율 1에서는 넘칠 것이 없고, 가로 스크롤이
         // 열려 있으면 세로로 훑다가 옆으로 미끄러진다.
-        className={`w-full h-full overflow-y-auto [scrollbar-gutter:stable] ${zoom > 1 ? 'overflow-x-auto' : 'overflow-x-hidden'} ${status === 'ready' ? '' : 'opacity-0'}`}
+        // `overscroll-contain` — 끝까지 민 뒤에도 계속 밀면 스크롤이 뒤 화면으로 넘어간다.
+        // 여기서 끝낸다(첨부 미리보기 창의 사진 통과 같은 판단이다).
+        className={`w-full h-full overflow-y-auto overscroll-contain [scrollbar-gutter:stable] ${zoom > 1 ? 'overflow-x-auto' : 'overflow-x-hidden'} ${status === 'ready' ? '' : 'opacity-0'}`}
       />
       {status === 'loading' && (
         <>

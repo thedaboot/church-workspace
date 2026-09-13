@@ -955,6 +955,19 @@ check('두 번 눌러 확대하는 창은 브라우저 확대를 끊는다', () 
   // 두 번 눌러 확대하는 자리(사진)가 이 창 안에 있으므로 창 전체에 건다
   assert.match(preview, /tap-zoom-lock bg-canvas/, '미리보기 창에 tap-zoom-lock이 없다');
   assert.match(preview, /onDoubleClick=\{\(\) => setZoom/, '두 번 눌러 확대가 사라졌다');
+
+  // 손가락으로 오므리는 것도 **우리 배율로 받는다**(사파리 전용 gesture*).
+  // iOS는 maximum-scale을 무시해 페이지 자체가 확대되고, 그러면 fixed로 깔린 이 창이
+  // 보는 화면 밖으로 나가 "확대한 뒤 밀면 버튼이 안 먹는" 상태가 된다(신고 두 번째).
+  // touch-action으로는 못 막는다 — gesturestart를 preventDefault 하는 길뿐이다.
+  assert.match(preview, /addEventListener\('gesturestart'/, '손가락 확대가 페이지 확대로 샌다');
+  assert.match(preview, /passive: false/, 'preventDefault가 먹지 않는다(passive 기본값)');
+  // **우리 배율이 있는 갈래에서만** 막는다 — 구글 틀에서 막으면 키울 길을 뺏는 것이다
+  assert.match(preview, /if \(!canZoom\) return;[\s\S]{0,600}?gesturestart/,
+    '손가락 확대 처리가 canZoom으로 갈라져 있지 않다 — 구글 틀에서는 키울 길을 뺏으면 안 된다');
+  // 끝까지 민 뒤 스크롤이 뒤 화면으로 넘어가지 않게
+  assert.match(preview, /overflow-auto overscroll-contain/, '확대한 통이 스크롤을 뒤로 넘긴다');
+  assert.match(read('src/components/PdfView.jsx'), /overflow-y-auto overscroll-contain/, 'PDF 통이 스크롤을 뒤로 넘긴다');
 });
 
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
