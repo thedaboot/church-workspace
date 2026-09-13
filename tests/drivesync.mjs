@@ -970,5 +970,33 @@ check('두 번 눌러 확대하는 창은 브라우저 확대를 끊는다', () 
   assert.match(read('src/components/PdfView.jsx'), /overflow-y-auto overscroll-contain/, 'PDF 통이 스크롤을 뒤로 넘긴다');
 });
 
+check('확대한 그림·PDF는 끌어서 밀고, 브라우저 끌어놓기는 끊는다', () => {
+  // 사용자 신고 2026-09-13 세 번째 — "마우스로 미리보기 화면에서 사진을 드래그하려고만
+  // 해도 다른 버튼이나 화면 동작을 안 해". 원인 둘:
+  //  · 손가락은 브라우저가 알아서 밀지만 **마우스에는 그런 것이 없다** — 확대해 놓고
+  //    데스크톱에서 볼 수가 없었다.
+  //  · 그냥 끌면 브라우저가 **이미지 끌어놓기**를 시작해서 그 손짓 동안 mouseup·click이
+  //    통째로 사라진다. 놓은 자리에 따라 창이 닫히거나 아무 일도 안 난 것처럼 보였다.
+  const media = read('src/components/media.jsx');
+  const pdfview = read('src/components/PdfView.jsx');
+  assert.match(media, /export function usePanDrag/, '끌어서 미는 한 벌이 없다');
+  // **주석이 아니라 `<img>`에 실제로 붙어 있어야 한다** — 처음 쓴 단정은 머리말의
+  // 낱말에도 걸려서, 속성을 지워도 통과했다(되돌려 확인하다 잡았다).
+  const tag = media.slice(media.indexOf('src={src} alt={alt} title={title}'), media.indexOf('loading="lazy"'));
+  assert.match(tag, /draggable=\{false\}/, '그림이 브라우저 끌어놓기 대상으로 남아 있다');
+  // preventDefault를 pointerdown에서 부르면 뒤따르는 click·dblclick이 같이 사라져서
+  // '두 번 눌러 확대'가 죽는다 — 끌어놓기는 draggable={false}가 막는다.
+  const hook = media.slice(media.indexOf('export function usePanDrag'), media.indexOf('// 본문 이미지처럼'));
+  assert.ok(!/e\.preventDefault\(\)/.test(hook), 'pointerdown에서 preventDefault를 부른다 — 두 번 눌러 확대가 죽는다');
+  // 손가락·펜은 브라우저가 이미 밀고 있다(여기서 또 밀면 두 번 밀린다)
+  assert.match(hook, /e\.pointerType !== 'mouse'/, '손가락까지 우리가 민다 — 두 번 밀린다');
+  // 사진과 PDF가 **같은 한 벌**을 쓴다
+  assert.match(preview, /usePanDrag\(\)/, '사진 통이 끌어서 밀리지 않는다');
+  assert.match(pdfview, /usePanDrag\(\)/, 'PDF 통이 끌어서 밀리지 않는다');
+  // 사진을 끌다가 딤에서 손을 떼면 click이 공통 조상(딤)에서 난다 — 누른 곳도 딤이어야 닫는다
+  assert.match(preview, /downOnDim\.current = e\.target === dimRef\.current/, '딤 누름 판정이 없다');
+  assert.match(preview, /e\.target === dimRef\.current && downOnDim\.current/, '끌다 떼면 창이 제멋대로 닫힌다');
+});
+
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);

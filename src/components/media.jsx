@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Loader2 } from 'lucide-react';
 
@@ -48,6 +48,10 @@ export function SmartImage({ src, alt = '', className = '', style = undefined, w
       {src && (
         <img
           src={src} alt={alt} title={title} onClick={onClick} style={style}
+          /* 브라우저의 '이미지 끌어놓기'를 끊는다 — 시작되면 그 손짓 동안 mouseup·click이
+             통째로 사라져서 **버튼이 죽은 것처럼 보인다**(usePanDrag 머리말 · §6-29-z-16).
+             끌기는 usePanDrag가 밀기로 받는다. */
+          draggable={false}
           /* 사진이 여럿 붙은 업무에서 화면 밖 썸네일까지 한꺼번에 받지 않는다 */
           loading="lazy" decoding="async"
           onLoad={() => setState('ready')} onError={() => setState('error')}
@@ -59,6 +63,50 @@ export function SmartImage({ src, alt = '', className = '', style = undefined, w
       )}
     </span>
   );
+}
+
+// 확대한 그림·PDF를 **마우스로 끌어서 미는** 한 벌. 반환값을 스크롤 통에 그대로 편다.
+// ----------------------------------------------------------------------------
+// 왜 필요한가(사용자 신고 2026-09-13 · 세 번째): "마우스로 미리보기 화면에서 사진을
+// 드래그하려고만 해도 다른 버튼이나 화면 동작을 안 해." 손가락은 브라우저가 알아서
+// 밀어 주지만 **마우스에는 그런 것이 없다** — 그래서 확대해 놓고 데스크톱에서 볼 수가
+// 없었고, 끌면 브라우저가 대신 **'이미지 끌어놓기'(native drag)** 를 시작했다. 그게
+// 시작되면 그 손짓 동안 `mouseup`·`click`이 **통째로 사라지고**, 놓은 자리에 따라
+// 창이 닫히거나 아무 일도 안 일어난 것처럼 보인다. 확대와 상관없이 늘 그랬다.
+// 고침은 두 짝이다: 여기서 끌기를 **밀기로** 받고, 그림에는 `draggable={false}`.
+//
+// 손가락·펜은 그대로 둔다 — 브라우저가 이미 밀고 있고, 여기서 또 밀면 두 번 밀린다.
+export function usePanDrag() {
+  const [panning, setPanning] = useState(false);
+  const stopRef = useRef(null);
+  // 끌던 중에 창이 닫히면 window에 건 것이 남는다
+  useEffect(() => () => stopRef.current?.(), []);
+  const onPointerDown = (e) => {
+    if (e.button !== 0 || e.pointerType !== 'mouse') return;
+    const box = e.currentTarget;
+    if (box.scrollWidth <= box.clientWidth && box.scrollHeight <= box.clientHeight) return;  // 밀 것이 없다
+    // **preventDefault를 여기서 부르지 않는다** — 부르면 뒤따르는 mousedown·click·
+    // dblclick이 같이 사라져서 '두 번 눌러 확대'가 죽는다. 브라우저의 이미지 끌어놓기는
+    // `draggable={false}`가 이미 막고 있다.
+    const start = { x: e.clientX, y: e.clientY, sl: box.scrollLeft, st: box.scrollTop };
+    const move = (ev) => {
+      box.scrollLeft = start.sl - (ev.clientX - start.x);
+      box.scrollTop = start.st - (ev.clientY - start.y);
+    };
+    const stop = () => {
+      stopRef.current = null;
+      setPanning(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+    };
+    stopRef.current = stop;
+    setPanning(true);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+  };
+  return { panning, panProps: { onPointerDown } };
 }
 
 // 본문 이미지처럼 URL만 있는 경우의 확대 보기

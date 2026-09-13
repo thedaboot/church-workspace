@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { Skeleton } from './media.jsx';
+import { Skeleton, usePanDrag } from './media.jsx';
 // pdf.js 6이 확인 없이 쓰는 Uint8Array 메서드 채우기 — 없으면 PDF가 한 장도 안 그려진다.
 // **워커 쪽에도 따로** 들어가야 한다(pdfWorkerEntry.js가 같은 파일을 먼저 import한다).
 import '../services/pdfPolyfill.js';
@@ -71,6 +71,8 @@ export function PdfView({ blob = null, src = null, zoom = 1, onError }) {
   // 스피너 하나에도 그 일이 벌어졌다. 함수는 ref에 담아 두고 부를 때만 꺼낸다.
   const errRef = useRef(onError);
   errRef.current = onError;
+  // 확대한 종이를 마우스로 끌어서 민다(media.usePanDrag 머리말). 사진 쪽과 한 벌이다.
+  const { panning, panProps } = usePanDrag();
 
   // 칸 너비가 **실제로** 달라졌을 때만 다시 그린다 — '화면 가득'을 누르면 창이 220ms
   // 동안 넓어지는데, 예전에는 그 전에 잰 폭으로 이미 그려 놓아서 넓힌 창 가운데에
@@ -164,11 +166,12 @@ export function PdfView({ blob = null, src = null, zoom = 1, onError }) {
           미지원 브라우저에서도 overflow-x-hidden으로 가로 스크롤은 생기지 않는다. */}
       <div
         ref={hostRef}
+        {...(zoom > 1 ? panProps : {})}
         // 확대했을 때만 좌우로 민다 — 배율 1에서는 넘칠 것이 없고, 가로 스크롤이
         // 열려 있으면 세로로 훑다가 옆으로 미끄러진다.
         // `overscroll-contain` — 끝까지 민 뒤에도 계속 밀면 스크롤이 뒤 화면으로 넘어간다.
         // 여기서 끝낸다(첨부 미리보기 창의 사진 통과 같은 판단이다).
-        className={`w-full h-full overflow-y-auto overscroll-contain [scrollbar-gutter:stable] ${zoom > 1 ? 'overflow-x-auto' : 'overflow-x-hidden'} ${status === 'ready' ? '' : 'opacity-0'}`}
+        className={`w-full h-full overflow-y-auto overscroll-contain [scrollbar-gutter:stable] ${zoom > 1 ? `overflow-x-auto select-none ${panning ? 'cursor-grabbing' : 'cursor-grab'}` : 'overflow-x-hidden'} ${status === 'ready' ? '' : 'opacity-0'}`}
       />
       {status === 'loading' && (
         <>

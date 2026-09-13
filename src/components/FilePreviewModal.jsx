@@ -5,7 +5,7 @@ import { RichText } from './RichText.jsx';
 import { getFileOpenUrl, getFileDownloadUrl, driveImageFullUrl, fetchDriveFileBlob } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useMyEmail } from '../services/auth.jsx';
-import { Skeleton, SmartImage } from './media.jsx';
+import { Skeleton, SmartImage, usePanDrag } from './media.jsx';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { PdfView } from './PdfView.jsx';
@@ -130,6 +130,13 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   const canZoom = ZOOM_KINDS.has(kind);
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
+  // 확대한 사진을 마우스로 끌어서 민다(media.usePanDrag 머리말 — 왜 필요한지가 거기 있다)
+  const { panning, panProps } = usePanDrag();
+  // 딤을 눌러 닫기 — **누른 곳도 딤이어야 닫는다.** 사진을 끌다가 딤에서 손을 떼면
+  // click이 두 곳의 공통 조상(이 딤)에서 나서 **창이 제멋대로 닫혔다.** 업무 창이
+  // 이미 같은 방식으로 막고 있다(modals.jsx의 downOnOverlay).
+  const dimRef = useRef(null);
+  const downOnDim = useRef(false);
 
   // **손가락으로 오므려 확대하는 것을 우리 배율로 받는다(사파리 전용 `gesture*`).**
   // 왜 필요한가: iOS는 `maximum-scale=1.0`을 접근성 이유로 무시하므로 **페이지 자체가
@@ -404,10 +411,15 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
         // 시작 쪽(왼쪽·위)이 잘려서 거기로 스크롤할 수가 없다(flex의 오래된 함정).
         // 감싸개를 블록으로 두면 통 너비를 그대로 받고, 사진은 그 %만큼 넘쳐 밀린다.
         <div
+          // 확대했을 때만 **끌어서 민다**(usePanDrag) — 손가락은 브라우저가 알아서 밀지만
+          // 마우스에는 그런 것이 없다. `select-none`은 끌 때 글자가 잡히지 않게.
+          {...(zoomed ? panProps : {})}
           // `overscroll-contain` — 끝까지 민 뒤에도 계속 밀면 스크롤이 **뒤 화면으로
           // 넘어간다**(스크롤 체이닝). 그러면 사진은 그대로인데 뒤가 움직여서 다음 탭이
           // 엉뚱한 데 떨어진다. 이 통에서 끝낸다.
-          className={`w-full h-full ${zoomed ? 'overflow-auto overscroll-contain' : 'flex items-center justify-center'}`}
+          className={`w-full h-full select-none ${zoomed
+            ? `overflow-auto overscroll-contain ${panning ? 'cursor-grabbing' : 'cursor-grab'}`
+            : 'flex items-center justify-center'}`}
           onDoubleClick={() => setZoom(z => (z > 1 ? 1 : 2))}
         >
           <SmartImage
@@ -595,7 +607,13 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   })();
 
   return createPortal(
-    <div className={`fixed inset-0 z-[100] bg-black/70 flex items-center justify-center animate-in fade-in duration-150 ${wide ? 'p-0' : 'p-0 md:p-6'}`} onClick={onClose}>
+    <div
+      ref={dimRef}
+      // 누른 곳도 딤이어야 닫는다 — 사진을 끌다가 딤에서 손을 떼면 click이 두 곳의
+      // **공통 조상**(이 딤)에서 나서 창이 제멋대로 닫혔다(업무 창과 같은 판정).
+      onMouseDown={(e) => { downOnDim.current = e.target === dimRef.current; }}
+      onClick={(e) => { if (e.target === dimRef.current && downOnDim.current) onClose(); }}
+      className={`fixed inset-0 z-[100] bg-black/70 flex items-center justify-center animate-in fade-in duration-150 ${wide ? 'p-0' : 'p-0 md:p-6'}`}>
       <div
         onClick={e => e.stopPropagation()}
         // 높이를 확정해 둔다 — max-h만 주면 안쪽 h-full(미리보기 영역)이 기준을 못 잡아
