@@ -155,6 +155,42 @@ function pdfjsAssets() {
   };
 }
 
+// ============================================================================
+// 첫 화면에 이미 들어 있는 벤더만 따로 칸을 낸다 (2026-09-14)
+// ----------------------------------------------------------------------------
+// **크기를 줄이는 것이 아니다**(1,096 → 1,100 kB로 오히려 4 kB 는다). 노리는 것은
+// **배포 사이의 캐시**다 — `/assets/*`는 immutable로 캐시되므로(vercel.json), 이 칸의
+// 이름이 그대로면 재방문자는 다시 받지 않는다. 앱 코드만 고쳐 다시 지어 확인했다:
+//   vendor-CxilZ4dm.js → 그대로 · index-B4sqzN3O.js → 새 해시
+// 하루에 여러 번 푸시하므로, 매일 들어오는 사람에게 배포마다 129 kB(gzip)가 빠진다.
+//
+// **`node_modules`를 통째로 묶지 마세요 — 첫 화면이 2배로 나빠집니다.** 그렇게 하면
+// 지금 lazy로 잘 빠져 있는 것들(tiptap 286 · pdfjs-dist 425 · jspdf 332 ·
+// html2canvas 199 kB)이 이 칸에 끌려 들어와 **2,052 kB**가 된다(2026-09-14 실측 —
+// 그렇게 해 보고 되돌렸다). 그래서 **첫 화면에 이미 있는 패키지만** 이름으로 적는다.
+//
+// 목록은 소스맵으로 잰 것이다 — react-dom 174 · supabase 195 · dnd-kit 40 ·
+// lucide-react 18 kB. **새 의존성을 여기 더하기 전에** 그것이 정말 첫 화면에서 쓰이는지
+// 먼저 보세요(한 번도 안 쓰는 사람까지 받게 된다). `tests/drivesync`가 lazy 무거운
+// 것들이 이 목록에 끼어들지 않았는지 본다.
+// ============================================================================
+const EAGER_VENDORS = [
+  'react-dom/', 'react/', 'scheduler/',      // 화면을 그리는 것
+  '@supabase/',                              // 로그인·조회·실시간 — 첫 화면부터 쓴다
+  '@dnd-kit/',                               // 보드 드래그
+  'lucide-react/', '@vercel/analytics/',
+];
+// 윈도우에서 id는 역슬래시로 온다. 정규식에 역슬래시를 박는 대신 한 글자로 갈라 잇는다
+// (이 파일은 heredoc으로도 고쳐지는데 거기서 역슬래시가 먹히는 일이 있었다).
+const WIN_SEP = String.fromCharCode(92);
+const isEagerVendor = (id) => {
+  const path = String(id).split(WIN_SEP).join('/');
+  const at = path.lastIndexOf('node_modules/');
+  if (at < 0) return false;
+  const rest = path.slice(at + 'node_modules/'.length);
+  return EAGER_VENDORS.some((name) => rest.startsWith(name));
+};
+
 export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
@@ -162,4 +198,9 @@ export default defineConfig(({ mode }) => ({
     pdfjsAssets(),
     ...(mode === 'guest' ? [] : [devApiFunctions(mode)]),
   ],
+  build: {
+    rollupOptions: {
+      output: { advancedChunks: { groups: [{ name: 'vendor', test: isEagerVendor }] } },
+    },
+  },
 }));

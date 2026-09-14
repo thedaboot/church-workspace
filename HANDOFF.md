@@ -204,6 +204,7 @@ api/drive-file.js             드라이브 파일 바이트 중계(앱 안 뷰�
 api/share.js                  공유 링크 OG 메타 — 조회 `error`를 반드시 읽는다(§6-31-d·31-e)
 api/yt.js                     유튜브 재생목록·제목 중계(ai.js와 같은 Bearer 인증)
 vite.config.js                dev 전용 `/api/<name>` 미들웨어(게스트 모드 제외 · §6-29-z-4) + pdf.js 보조 자료를 `/pdfjs/`로(§6-29-z-9)
+                              + 첫 화면 벤더 칸 `EAGER_VENDORS` — 통째로 묶으면 첫 화면이 2배(§6-29-z-18)
 public/sw.js                  서비스 워커 — 푸시 표시 + 클릭 시 딥링크. 캐싱은 하지 않는다
 public/bible/                 (v2) 개역한글 66권 json + index.json
 public/chars/                 (v2) 캐릭터 28컷(webp) — 홈만 쓰고 원본(177~225px) 이상으로 키우지 않는다

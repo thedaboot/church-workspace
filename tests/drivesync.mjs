@@ -1012,5 +1012,26 @@ check('확대한 그림·PDF는 끌어서 밀고, 브라우저 끌어놓기는 �
   assert.match(preview, /e\.target === dimRef\.current && downOnDim\.current/, '끌다 떼면 창이 제멋대로 닫힌다');
 });
 
+check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () => {
+  // 2026-09-14: `/assets/*`가 immutable 캐시라(vercel.json), 잘 바뀌지 않는 벤더를 따로
+  // 칸에 내면 **앱만 고친 배포에서 재방문자가 129 kB(gzip)를 다시 안 받는다**(실측 —
+  // 앱 코드를 고쳐도 vendor 해시가 그대로였다).
+  //
+  // **함정**: `node_modules`를 통째로 묶으면 지금 lazy로 잘 빠져 있는 것들이 그 칸에
+  // 끌려 들어와 첫 화면이 1,096 → **2,052 kB**가 된다(그렇게 해 보고 되돌렸다).
+  // 그래서 목록은 **첫 화면에 이미 있는 패키지 이름**만이어야 한다.
+  const vite = read('vite.config.js');
+  const list = /const EAGER_VENDORS = \[([\s\S]*?)\]/.exec(vite)?.[1];
+  assert.ok(list, '첫 화면 벤더 목록(EAGER_VENDORS)이 없다');
+  // 한 번도 안 여는 사람까지 받게 되는 것들 — 여기 끼면 안 된다
+  for (const heavy of ['tiptap', 'pdfjs', 'jspdf', 'html2canvas', 'modern-screenshot', 'qrcode', 'dompurify']) {
+    assert.ok(!list.includes(heavy), `${heavy}가 첫 화면 벤더 목록에 있다 — lazy인데 끌려 들어간다`);
+  }
+  // 통째로 잡는 모양으로 돌아가지 않았는지(그게 2배로 만든 그 코드다)
+  assert.ok(!/test: *\/node_modules\//.test(vite) && !/=> *id\.includes\('node_modules'\)/.test(vite),
+    'node_modules를 통째로 묶고 있다 — 첫 화면이 2배가 된다');
+  assert.match(vite, /name: 'vendor', test: isEagerVendor/, '벤더 칸이 목록을 안 쓰고 있다');
+});
+
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);
