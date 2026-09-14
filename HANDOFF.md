@@ -23,6 +23,7 @@
    기준**이고 임의로 바꾸지 않는다(한 번 어겼다가 원복했다).
 2. **계정·주소**: 마스터 구글 계정 `joshua052698@gmail.com`(드라이브 소유자 · Apps Script 실행 계정) · 카카오 관리자 `lordjoshua@naver.com` · Supabase ref `zdqkwvbuiorqrykfedon`
    · 배포 `https://church-workspace.vercel.app`.
+   **Supabase는 서울(`ap-northeast-2`)이고 `vercel.json`의 `regions`도 서울(`icn1`)로 맞춰 뒀다**(2026-09-14) — 안 적으면 함수가 워싱턴에서 돌아 태평양을 두 번 건넌다(§6-29-z-17). DB를 옮기면 그 줄도 같이 옮기세요.
 3. **비밀 값은 로컬 `.env`와 Vercel 환경변수에만 있다**(§5). 마이그레이션·psql에는 `SUPABASE_DB_URL` (대시보드 Connect의 Session pooler URI)이 필요하다.
 4. **검증 스위트는 게스트 모드만 돈다.** 로그인·실시간·알림·푸시·첨부처럼 클라우드에서만 도는 경로는 테스트가 못 보고, 이 사각지대가 버그를 여럿 가리고 있었다(§6-25·27·28·29).
    **그쪽을 건드리면 배포 후 직접 확인해 달라고 부탁하세요.**
