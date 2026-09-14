@@ -9,7 +9,7 @@ import { BTN as BTN_BASE, BTN_QUIET as BTN_QUIET_BASE, FIELD as FIELD_BASE, WITH
 import { CONFIG } from '../config.js';
 import { objectParticle } from '../services/errorText.js';
 import {
-  ROLE_LABEL, YEAR_ROLES, PASTOR_LABEL,
+  ROLE_LABEL, YEAR_ROLES, PASTOR_LABEL, GENDERS, GENDER_LABEL,
   parseBirthday, searchPeople, accountLinkState, sunNames, rolesByPerson, personBadges,
 } from '../services/roster.js';
 
@@ -33,9 +33,9 @@ import {
 // (탭 줄·성경 리더의 목차/북마크/형광펜과 같은 짜임). 입력칸·버튼은 모임 화면과
 // 한 벌(groupsParts)이고 라벨 붙은 칸도 그쪽 LabeledField다.
 //
-// **줄을 늘리지 않는다**(사용자 지적 2026-09-05 — "줄바꿈 제발 최소화"). 계정·직분은
+// **줄을 늘리지 않는다**(사용자 지적 2026-09-05 — "줄바꿈 제발 최소화"). 계정·성별·직분은
 // 라벨과 내용이 같은 줄에 서고, 칩이 넘치면 줄을 바꾸지 않고 가로로 스크롤한다
-// (§8 — 같은 종류가 이어지는 줄에서는 허용).
+// (§8 — 같은 종류가 이어지는 줄에서는 허용). 성별은 칩이 둘뿐이라 375px에서도 안 넘친다.
 // ============================================================================
 
 // 버튼·입력칸은 모임 화면(groupsParts)과 한 벌이다. 여기 버튼은 전부 아이콘이 들어 WITH_ICON을 얹는다.
@@ -65,6 +65,10 @@ const BADGE_STYLE = {
   [ROLE_LABEL.lead_sunjang]: 'bg-tag-purple text-tag-purple-fg',
   [ROLE_LABEL.lead_team]: 'bg-tag-green text-tag-green-fg',
 };
+
+// 성별 칩도 같은 토큰 표를 쓴다. 자매의 pink는 직분 배지가 안 쓰는 색이고, 형제의 blue는
+// 총무와 같은 계열이지만 줄이 달라 나란히 서지 않는다(라벨이 '성별'·'직분'으로 갈린다).
+const GENDER_STYLE = { m: 'bg-tag-blue text-tag-blue-fg', f: 'bg-tag-pink text-tag-pink-fg' };
 
 // '05-26' → '5월 26일'. 저장 값은 언제나 MM-DD다(0019·0035의 관례).
 const birthdayLabel = (mmdd) => {
@@ -171,7 +175,7 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
 
       <div>
         <label className="block text-[11px] font-semibold text-fg-muted mb-1.5">
-          소속 팀 <span className="font-normal text-fg-faint">여러 개 고를 수 있어요</span>
+          소속 <span className="font-normal text-fg-faint">여러 개 고를 수 있어요</span>
         </label>
         <div className={CHIP_ROW}>
           {TEAM_CHIPS.map(([t, color]) => (
@@ -265,6 +269,19 @@ function EditPanel({ person, linked, link, roleSet, year, busy, on }) {
           onLink={(profileId) => on.link(person, profileId)} onUnlink={() => on.link(person, null)} />
       </PanelRow>
 
+      {/* 성별 — 호칭을 '형제/자매'로 부르기 위한 칸이다(0064 · 사용자 결정 2026-09-14).
+          **켠 칩을 다시 누르면 꺼진다**(null): 잘못 눌렀을 때 돌아갈 길이 있어야 하고,
+          비어 있는 것이 정상 상태다(그동안은 '청년'으로 부른다). 자격·부품·모양은 아래
+          직분 줄과 같고, 연도와 무관한 명단 속성이라 sub(연도)가 없다. */}
+      <PanelRow label="성별">
+        <div className={`${CHIP_ROW} py-0.5`}>
+          {GENDERS.map(g => (
+            <Chip key={g} on={person.gender === g} disabled={busy} className={GENDER_STYLE[g]}
+              onClick={() => on.gender(person, person.gender === g ? null : g)}>{GENDER_LABEL[g]}</Chip>
+          ))}
+        </div>
+      </PanelRow>
+
       <PanelRow label="직분" sub={`${year}년`}>
         <div className={`${CHIP_ROW} py-0.5`}>
           {/* 교역자만 연도와 무관한 명단 속성이다(people.is_pastor) */}
@@ -354,6 +371,7 @@ export function RosterPanel({
     close: () => setOpenId(null),
     save: async (p, patch) => { if (await on.save?.(p, patch)) setOpenId(null); },
     link: (p, profileId) => on.link?.(p, profileId),
+    gender: (p, next) => on.gender?.(p, next),
     pastor: (p, next) => on.pastor?.(p, next),
     role: (p, role, next) => on.role?.(p, role, next),
     remove: async (p, next) => { await on.remove?.(p, next); setOpenId(null); },

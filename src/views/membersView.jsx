@@ -356,6 +356,14 @@ export function MembersView({ isAdmin, isMaster }) {
       showToast(profileId ? '계정을 연결했어요' : '계정 연결을 해제했어요');
     }, profileId ? '계정을 연결하지 못했어요' : '계정 연결을 해제하지 못했어요'),
 
+    // 성별은 호칭('형제'·'자매')이 보는 칸이다(0064). 끄면 null이고 그동안은 '청년'이다 —
+    // 그래서 토스트도 '해제'가 아니라 비웠다고 말한다. 캐시 비우기는 putBook이 한다:
+    // 예배 상세(호칭이 붙는 자리)가 옛 명단을 들고 있으면 바꾼 호칭이 안 보인다(위 주석).
+    gender: (p, next) => write(p.id, () => roster.setGender(p.id, next), () => {
+      patchPerson(p.id, { gender: next });
+      showToast(next ? `${p.name} ${roster.GENDER_LABEL[next]}로 저장했어요` : `${p.name} 성별을 비웠어요`);
+    }, next ? '성별을 저장하지 못했어요' : '성별을 비우지 못했어요'),
+
     pastor: (p, next) => write(p.id, () => roster.setPastor(p.id, next), () => {
       patchPerson(p.id, { is_pastor: next });
       showToast(next ? `${p.name} 교역자로 지정했어요` : '교역자 지정을 해제했어요');

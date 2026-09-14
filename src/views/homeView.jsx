@@ -147,17 +147,49 @@ const HERO_GLOW = {
 // 매우 가깝게 붙어 있다)의 뜻을 그대로 풀어 쓴 줄이다.
 const TAGLINE = '정답게, 매우 가깝게 붙어 함께 걷는 공동체';
 
-// 홈에 세울 예배 한 건 — **다가오는 것 중 가장 이른 것**, 그런 것이 없으면 가장 최근에
-// 지난 것. 종류는 가리지 않는다: 이번 주에 금요 예배만 잡혀 있으면 그것이 이번 주
-// 예배이고, 무슨 예배인지는 kindLabel이 말한다(결정 14).
+// 홈에 세울 예배 한 건 — **발행된 주보 중 날짜가 가장 최근인 것**이다(앞으로 올 날짜도
+// 포함한다). 사용자 결정 2026-09-14. 예전에는 '다가오는 것 중 가장 이른 것, 없으면 가장
+// 최근에 지난 것'이었고 작성 중인 주보도 셌는데, 그러면 아직 손보는 중인 주보가 첫
+// 화면에 서서 정해지지도 않은 설교 제목을 보여 줬다(작성 중 주보는 편집 자격자에게만
+// 오지만 — RLS 0036 — 그 사람들에게도 홈은 **정해진 것**을 보는 자리다).
+// 발행본이 하나도 없으면 null이고, 그러면 이 카드는 아예 서지 않는다(church.service가
+// null일 때의 길 그대로 — orderedSlots가 그 자리를 뺀다).
+// 종류는 가리지 않는다: 그 주에 금요 예배만 발행돼 있으면 그것이 이번 주 예배이고,
+// 무슨 예배인지는 kindLabel이 말한다(결정 14).
 // 날짜가 없거나 모양이 깨진 행은 애초에 세지 않는다 — 문자열 비교로 줄을 세우기 때문에
 // 그런 행 하나가 맨 앞을 차지하면 홈이 엉뚱한 주보를 편다.
-export function pickService(services = [], today = kstToday()) {
-  const dated = (services || []).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(String(s?.service_date || '')));
-  const ahead = dated.filter(s => s.service_date >= today)
-    .sort((a, b) => a.service_date.localeCompare(b.service_date));
-  if (ahead.length) return ahead[0];
-  return dated.sort((a, b) => b.service_date.localeCompare(a.service_date))[0] || null;
+// **오늘을 보지 않는다.** 미래·과거를 가르던 자리가 없어졌다 — 오늘이 하는 일은 이제
+// 카드 라벨을 고르는 것뿐이고, 그 셈은 아래 homeWorshipLabel 한 곳이다.
+export function pickService(services = []) {
+  return (services || [])
+    .filter(s => s?.status === 'published' && /^\d{4}-\d{2}-\d{2}$/.test(String(s?.service_date || '')))
+    .sort((a, b) => b.service_date.localeCompare(a.service_date))[0] || null;
+}
+
+// 예배 카드의 머리 글자 — **주보 날짜가 정한다**(사용자 결정 2026-09-14). 예전에는
+// '돌아오는 주 예배'로 박혀 있어서, 발행본이 지난주 것뿐인 주간에도 카드가 앞날을
+// 가리키는 말을 했다. 셋으로 갈린다:
+//   · 오늘이 든 주(월~일) 안 → '이번 주 예배'
+//   · 그 주보다 뒤          → '다음 주 예배'   (두 주 뒤라도 아직 안 온 예배다)
+//   · 그 주보다 앞          → '지난 예배'
+// **주의 시작은 월요일이다** — 주일이 그 주의 끝이라야 주중에 보는 '이번 주 예배'가
+// 다가오는 주일을 가리킨다(일요일 시작이면 주일 저녁부터 벌써 '다음 주'가 된다).
+// 오늘은 언제나 한국 시간(kstToday)이고 여기서 새 시간대 셈을 만들지 않는다.
+// 날짜 셈은 word.js와 같은 방식으로 **UTC 자정 위에서만** 한다 — `new Date('2026-09-06')`을
+// 현지 시간으로 읽으면 시간대에 따라 하루가 밀린다(이 파일 ymd 관례와 같은 이유).
+export function homeWorshipLabel(iso, today = kstToday()) {
+  const date = String(iso || '');
+  const base = String(today || '');
+  const ok = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  if (!ok(date) || !ok(base)) return '';
+  const at = new Date(`${base}T00:00:00Z`);
+  // getUTCDay()는 일요일이 0이다 — 월요일이 0이 되게 옮겨 그만큼 뒤로 물린다.
+  at.setUTCDate(at.getUTCDate() - ((at.getUTCDay() + 6) % 7));
+  const monday = at.toISOString().slice(0, 10);
+  at.setUTCDate(at.getUTCDate() + 6);
+  const sunday = at.toISOString().slice(0, 10);
+  if (date < monday) return '지난 예배';
+  return date > sunday ? '다음 주 예배' : '이번 주 예배';
 }
 
 // **카드에 고정 최소 높이를 주지 않는다.** 한때 네 카드에 같은 min-height를 걸었더니
@@ -536,7 +568,7 @@ export function HomeView({ onNavigate, onTaskClick }) {
     // 고치면 조용히 어긋나는 짝이 하나 더 있는 셈이었다.
     const withAtt = attendanceSunday(list, counts, day);
     return {
-      service: pickService(list, day) || null,
+      service: pickService(list) || null,
       latest: withAtt || pastSunday(list, day) || null,
       // 참석 수를 세는 주보가 **오늘** 것인가 — 주일 당일에 출석을 부른 뒤에는 그 날
       // 주보가 잡히므로 '지난 주일'이라 부르면 사실과 어긋난다(사용자 결정 2026-09-08:
@@ -648,24 +680,27 @@ export function HomeView({ onNavigate, onTaskClick }) {
           </span>
         } />
     ),
-    // 초점은 **설교 제목**이다. 예배 종류·날짜·채워진 만큼의 담당자·찬양 수는 메타 한
-    // 줄로 이어 붙인다 — 예전에는 칩 · 날짜 · 제목 · 부제가 각각 줄이라 넉 줄이었다.
-    // 칩(둥근 배경)을 쓰지 않는 이유도 같다: 줄마다 무게가 생겨 초점이 흐려진다.
-    // 작성 중인 주보는 편집 자격자에게만 온다 — 거르는 것은 화면이 아니라 RLS다(0036).
+    // 초점은 **설교 제목**이다. 예배 종류·날짜·설교자는 메타 한 줄로 이어 붙인다 —
+    // 예전에는 칩 · 날짜 · 제목 · 부제가 각각 줄이라 넉 줄이었다. 칩(둥근 배경)을 쓰지
+    // 않는 이유도 같다: 줄마다 무게가 생겨 초점이 흐려진다.
+    // **메타 끝은 설교자다**(사용자 결정 2026-09-14 — 담당자 N · 찬양 N을 뺐다). 숫자
+    // 둘은 홈에서 할 일을 알려주지 않았고, '누구의 설교인가'가 제목 다음으로 궁금한 것이다.
+    // `services.preacher`는 자유 텍스트라 호칭을 붙이지 않는다(이미 '임성빈 전도사님'처럼
+    // 적는다 — services/people.js 호칭 주석). 빈 값이면 그 도막만 빠진다(filter(Boolean)).
     // 인도자는 **홈에 싣지 않는다**(사용자 결정 2026-09-06). 주보 상세에는 그대로
     // 있다 — 홈 카드는 '무슨 예배에 무슨 설교'까지고, 누가 인도하는지는 들어가서 볼 일.
+    // 카드 머리 글자는 날짜가 정한다(homeWorshipLabel) — 홈이 잡아 둔 그 날(day)로 센다.
     worship: (delay, enter) => (
-      <LinkCard slot="worship" enter={enter} className="home-worship" label="돌아오는 주 예배" icon={Church} delay={delay} title="예배로"
+      <LinkCard slot="worship" enter={enter} className="home-worship" icon={Church} delay={delay} title="예배로"
+        label={homeWorshipLabel(church.service.service_date, day)}
         onOpen={() => onNavigate('worship')}
         focus={<span className="home-worship-title">{church.service.title || '설교 제목 미정'}</span>}
         meta={
           <span className={`home-worship-sub ${ONE_LINE}`}>
-            {church.service.status !== 'published' && <span className="home-worship-draft font-semibold">작성 중 · </span>}
             {[
               kindLabel(church.service.kind),
               homeDateLabel(church.service.service_date),
-              (church.service.roles || []).length ? `담당자 ${church.service.roles.length}` : '',
-              (church.service.songs || []).length ? `찬양 ${church.service.songs.length}` : '',
+              church.service.preacher || '',
             ].filter(Boolean).join(' · ')}
           </span>
         } />

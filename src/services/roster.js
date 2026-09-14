@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient.js';
-import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, guestStore } from './people.js';
+import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, guestStore, HONORIFIC } from './people.js';
 import { generateId } from '../utils.js';
 
 // ============================================================================
@@ -26,7 +26,7 @@ import { generateId } from '../utils.js';
 // 확인해야 한다 — HANDOFF §3-6.
 // ============================================================================
 
-const COLS = 'id, name, birthday, teams, is_pastor, profile_id, note, removed_at';
+const COLS = 'id, name, birthday, teams, gender, is_pastor, profile_id, note, removed_at';
 
 // 직분 — 사용자가 정한 여섯이다(2026-09-05): 교역자 · 부장 · 회장 · 총무 · 리더순장 ·
 // 리더팀장. 화면의 칩도 이 순서다. 교역자만 연도와 무관한 명단 속성(people.is_pastor)이고
@@ -165,7 +165,7 @@ export async function addPerson({ name, birthday = null, teams = [] }) {
   const row = { name: String(name || '').trim(), birthday: birthday || null, teams: teams || [] };
   if (!cloudOn()) {
     const made = {
-      id: generateId(), is_pastor: false, profile_id: null, note: null,
+      id: generateId(), gender: null, is_pastor: false, profile_id: null, note: null,
       removed_at: null, created_at: new Date().toISOString(), ...row,
     };
     guestSet('people', [...guestRows('people'), made]);
@@ -193,6 +193,21 @@ export async function setRemoved(id, removed) {
 // 계정 연결·해제. profileId가 null이면 해제다.
 export async function linkProfile(personId, profileId) {
   const patch = { profile_id: profileId || null };
+  if (!cloudOn()) return guestPatch(personId, patch);
+  return one(supabase.from('people').update(patch).eq('id', personId).select(COLS).single());
+}
+
+// 성별 — 호칭을 '형제/자매'로 부르기 위한 칸이다(0064 · 사용자 결정 2026-09-14).
+// 값은 'm'·'f' 두 글자이고 **null이 정상 상태**다(아직 안 적은 사람 — 그동안은 '청년').
+// 그래서 켠 칩을 다시 누르면 null로 되돌린다(잘못 눌렀을 때 돌아갈 길이 있어야 한다).
+// 칩 글자는 **호칭과 같은 한 벌**이다(people.js HONORIFIC) — 명단에서 '형제'를 누른
+// 사람이 주보에서 다른 말로 불리면 안 된다. 부르는 말이 바뀌어도 DB 값은 그대로다.
+export const GENDER_LABEL = { m: HONORIFIC.brother, f: HONORIFIC.sister };
+export const GENDERS = Object.keys(GENDER_LABEL);
+
+export async function setGender(personId, gender) {
+  const value = GENDERS.includes(gender) ? gender : null;
+  const patch = { gender: value };
   if (!cloudOn()) return guestPatch(personId, patch);
   return one(supabase.from('people').update(patch).eq('id', personId).select(COLS).single());
 }
