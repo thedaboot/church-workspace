@@ -10,14 +10,17 @@ import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { failText } from '../services/errorText.js';
-import { useCached, dropCache } from '../services/cache.js';
+import { useCached, dropCache, readCache, writeCache } from '../services/cache.js';
 import { useLiveRefresh } from '../services/liveV2.js';
 import { ShareChip, ShareToggle } from '../components/ShareToggle.jsx';
 import { SectionHead, Card } from './dashboardParts.jsx';
 import { loadPassage, loadBibleIndex } from '../services/bible.js';
 import { fullRef } from '../services/bibleRef.js';
 import { qtNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
-  ensureNoteSections, QT_SECTIONS } from '../services/noteTemplate.js';
+  ensureNoteSections, QT_SECTIONS, noteDraftKey, hasDraft, NOTE_DRAFT_DELAY } from '../services/noteTemplate.js';
+// 저장 상태 칩은 **예배 노트와 같은 한 벌**이다(worshipDetail의 SaveState) — 같은 뜻의
+// 표시가 두 파일에 각자 적혀 있으면 한쪽만 고쳐진다(출석 화면도 그 한 벌을 쓴다).
+import { SaveState } from '../components/worshipDetail.jsx';
 import { NoteSheet, NotePaper, PAPER, paperDate } from '../components/paper.jsx';
 import { useSheetShare } from '../hooks/useSheetShare.jsx';
 import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap, useBibleState, useVersePaint, marksFor } from '../components/wordBible.jsx';
@@ -181,6 +184,8 @@ function QtTab() {
   const [feed, setFeed] = useState(null);          // null이면 아직 안 읽음
   // 저장된 글을 고치는 중인가. 저장된 것이 없는 날은 이 값과 상관없이 편집기가 선다.
   const [editing, setEditing] = useState(false);
+  // 브라우저에 남아 있던 글을 되살렸다는 표시('draft') — 글자는 SaveState가 가진다
+  const [noteState, setNoteState] = useState('');
   const [grassKey, setGrassKey] = useState(0);     // 올리면 잔디가 보고 있는 달을 다시 읽는다
   const editorRef = useRef(null);
   const slotRef = useRef(null);
@@ -273,6 +278,9 @@ function QtTab() {
   // 들어 있는 구절 줄은 사람이 쓴 글이 아니다.
   const passageRef = (qt && qt.date === date ? (qt.refFull || qt.schedule?.passage_ref) : '') || '';
   const tpl = useMemo(() => qtNoteTemplate(), []);
+  // 브라우저 초안의 열쇠 — 이 화면에서는 **날짜 하나가 곧 노트 한 건**이다.
+  // 자리·관례는 services/cache.js가 가진 것을 그대로 쓴다(사용자별 · §6-24-d).
+  const draftKey = noteDraftKey('qt', date);
   // 넣어 주는 글과 syncedBody는 **언제나 같은 값**이어야 한다 — 다르면
   // shouldAdoptBody가 '사람이 고쳤다'로 읽어 뒤에 온 값을 영영 안 넣는다.
   const putBody = (b) => { const v = bodyOrTemplate(b, tpl); setBody(v); syncedBody.current = v; };
@@ -294,8 +302,19 @@ function QtTab() {
       putTitle(next.title);
     }
     // 날짜가 바뀌면 읽기 모드로 돌아간다 — 저장된 글이 있는 날은 먼저 그 글을 보여준다
-    if (dateChanged) { setShareState(''); setEditing(false); syncedFor.current = date; }
-  }, [qt, date]);
+    if (!dateChanged) return;
+    setShareState(''); setEditing(false); syncedFor.current = date;
+    // **브라우저 초안은 같은 날짜로 돌아왔을 때만 살아난다**(사용자 결정 2026-09-14 —
+    // 열쇠가 날짜다). 되살리는 자리를 이 효과 **안**에 둔 이유는 위 두 줄과 같은 값을
+    // 번갈아 쓰기 때문이다 — 따로 효과를 두면 서로 덮는다.
+    // 되살린 글은 `syncedBody`에 맞추지 **않는다**: 그래야 shouldAdoptBody가 '사람이 고친
+    // 글'로 보고 뒤에 도착하는 서버 값이 그 위를 덮지 않는다.
+    const draft = readCache(draftKey);
+    if (!hasDraft(draft, bodyOrTemplate(next.body, tpl), next.title)) { setNoteState(''); return; }
+    setBody(draft.body);
+    if (typeof draft.title === 'string') setTitle(draft.title);
+    setEditing(true); setNoteState('draft');
+  }, [qt, date, tpl, draftKey]);
 
   useEffect(() => {
     if (!qtError) return;
@@ -340,6 +359,15 @@ function QtTab() {
   // 저장된 글이 있고 고치는 중이 아니면 읽기 모드다(머리말)
   const reading = canShare && !editing;
 
+  // 편집 중에는 주기적으로 브라우저에 남긴다(사용자 결정 2026-09-14). 저장된 글과 같아지는
+  // 순간(저장·취소·삭제) 지운다 — 되살릴 것이 없는 초안이 자리만 차지하지 않게.
+  useEffect(() => {
+    if (!ready) return undefined;
+    if (!dirty) { dropCache(draftKey); return undefined; }
+    const t = setTimeout(() => writeCache(draftKey, { body, title, at: Date.now() }), NOTE_DRAFT_DELAY);
+    return () => clearTimeout(t);
+  }, [ready, dirty, body, title, draftKey]);
+
   // ── 종이(읽기 모드) — 예배 노트와 같은 부품, 캐릭터만 book ────────────────
   const qtSections = useMemo(() => splitNoteSections(entry?.body || ''), [entry?.body]);
   const qtSheetRef = useRef(null);
@@ -382,8 +410,14 @@ function QtTab() {
       await saveMyEntry(date, { body: kept, title: keptTitle, shared: entry.shared });
       setEntry({ date, body: kept, title: keptTitle, shared: entry.shared, exists: true });
       setEditing(false);               // 저장했으니 다시 읽기 모드로(머리말)
+      // 저장했으면 초안은 할 일을 다 했다. **실패하면 남는다**(아래 catch로 빠진다) —
+      // 그때가 초안이 가장 필요한 때다.
+      dropCache(draftKey); setNoteState('');
       putTitle(keptTitle);             // 칸도 저장된 값으로 맞춘다(위 판정의 기준이 된다)
-      syncedBody.current = kept;       // 방금 이 글로 맞췄다(다음 도착값 판정의 기준)
+      // 글도 같이 맞춘다 — 도막 제목이 되살아나면(ensureNoteSections) 저장된 글과 칸의
+      // 글이 달라져서 저장 직후에도 '고친 것이 있다'(dirty)로 남고, 그러면 방금 지운
+      // 초안이 곧바로 다시 쓰인다. putBody가 `syncedBody`까지 맞춰 준다(다음 도착값 판정).
+      putBody(kept);
       setFeed(await fetchSharedEntries(date));
       dropCache(qtKey); refreshQt();   // 옛 값이 먼저 그려지지 않게 그 날짜만 비운다
       dropCache('home');               // 홈의 '오늘의 QT' 카드가 '오늘 썼나'를 센다(homeView)
@@ -423,6 +457,7 @@ function QtTab() {
       await deleteMyEntry(date);
       setEntry({ date, body: '', title: '', shared: false, exists: false });
       putBody(''); putTitle(''); setEditing(false);
+      dropCache(draftKey); setNoteState('');
       setFeed(await fetchSharedEntries(date));
       dropCache(qtKey); refreshQt();
       dropCache('home');
@@ -465,8 +500,10 @@ function QtTab() {
 
   // 고치기를 그만둔다 — 저장된 글로 되돌리고 읽기 모드로. 저장된 것이 없는 날에는
   // 되돌아갈 자리가 없으므로 이 버튼 자체가 없다.
+  // 되돌리는 조작이므로 브라우저 초안도 같이 지운다(사용자 결정 2026-09-14)
   const cancelEdit = () => {
     if (!ready) return;
+    dropCache(draftKey); setNoteState('');
     putBody(entry.body);
     putTitle(entry.title || '');
     setEditing(false);
@@ -525,7 +562,8 @@ function QtTab() {
 
         {/* 내 묵상 — 저장된 글이 있으면 읽기 모드, '수정'을 눌러야 편집기다(머리말) */}
         <div className="mt-6" ref={editorRef} data-note={reading ? 'read' : 'edit'}>
-          <SectionHead>내 묵상</SectionHead>
+          {/* 되살아난 초안은 **이미 있는 저장 상태 칩 자리**에서 말한다(§8의 안내 줄 금지) */}
+          <SectionHead right={<SaveState state={noteState} />}>내 묵상</SectionHead>
           <div className={EDITOR_SLOT}>
             {/* **저장하면 바로 종이다**(사용자 요청 2026-09-09 · components/paper.jsx).
                 예배 노트와 같은 종이이고 캐릭터 컷만 다르다(말씀은 book) — 공유되는
@@ -550,7 +588,7 @@ function QtTab() {
                 <Suspense fallback={<EditorSkeleton />}>
                   <MarkdownEditor
                     value={body}
-                    onChange={setBody}
+                    onChange={(v) => { setNoteState(''); setBody(v); }}
                     placeholder="오늘 본문에서 마음에 남은 것"
                     /* 도막 제목은 **수정 창에서부터** 지워지지 않는다(사용자 결정 2026-09-10) */
                     lockedHeadings={QT_SECTIONS}
@@ -563,7 +601,8 @@ function QtTab() {
                          예배 노트의 제목은 주보에서 오지만 묵상은 쓰는 사람의 것이다.
                          입력 칸을 만드는 것은 paper.jsx의 PaperNoteHead다 */
                       <NotePaper date={paperDate(date)} kind="묵상 노트"
-                        passageRef={passageRef} passageTitle={title} onTitleChange={setTitle}
+                        passageRef={passageRef} passageTitle={title}
+                        onTitleChange={(t) => { setNoteState(''); setTitle(t); }}
                         cut={QT_CUT}>
                         <div className="paper-rows mt-5">{content}</div>
                       </NotePaper>

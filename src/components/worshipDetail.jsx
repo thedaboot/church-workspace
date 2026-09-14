@@ -19,7 +19,8 @@ import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeL
   filesOfKind, fileKindOf, servicePaperName, SONGFORM, CUESHEET } from '../services/worship.js';
 import { honorificsOf } from '../services/people.js';
 import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
-  ensureNoteSections, WORSHIP_SECTIONS } from '../services/noteTemplate.js';
+  ensureNoteSections, WORSHIP_SECTIONS, noteDraftKey, hasDraft, NOTE_DRAFT_DELAY } from '../services/noteTemplate.js';
+import { readCache, writeCache, dropCache } from '../services/cache.js';
 import { NoteSheet, NotePaper, ServiceSheetOne, ServiceSheetTwo, PAPER, paperDate } from './paper.jsx';
 import { useSheetShare } from '../hooks/useSheetShare.jsx';
 import { showToast } from './Toast.jsx';
@@ -105,12 +106,17 @@ const PUBLISHED_TABS = [{ id: 'paper', label: '주보' }, ...TABS];
 // 라벨은 부르는 쪽이 정한다: 아직 발행 전인 주보는 '임시 저장되었어요'(발행해야 남들이
 // 본다는 뜻이 담긴다), 이미 발행된 주보를 고치는 중이면 그 글자가 거짓이 되므로
 // '저장되었어요'다.
+// **`'draft'`는 브라우저에 남아 있던 글을 되살렸다는 뜻이다**(사용자 결정 2026-09-14 —
+// 글자도 사용자가 정했다: `작성 중인 노트`). 초록 칩이 아니라 무채색이다 — 아직 저장된
+// 것이 아니고, 저장이 끝난 순간만 칩으로 도드라져야 한다. **새 안내 줄을 만들지 않는다**
+// (§8) — 이미 있는 이 자리에서 말한다.
 export function SaveState({ state, savedLabel = '저장되었어요' }) {
   const done = state === 'saved';
+  const plain = state === 'saving' ? '저장하는 중' : (state === 'draft' ? '작성 중인 노트' : '');
   return (
     <span className={`worship-save-state text-[10.5px] ${
       done ? 'px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg font-bold' : 'text-fg-faint'}`}>
-      {done ? savedLabel : (state === 'saving' ? '저장하는 중' : '')}
+      {done ? savedLabel : plain}
     </span>
   );
 }
@@ -1071,7 +1077,12 @@ function ServicePaper({ service, nameOf }) {
   );
 }
 
-function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', onSave, onShare }) {
+// 브라우저 초안(사용자 결정 2026-09-14): 쓰다가 다른 화면에 다녀와도 글이 남는다. 서버가
+// 아니라 **브라우저**다 — 노트는 저장이 곧 끝이고 공유 토글이 따로 있어서 서버 자동 저장은
+// 아직 다 쓰지 않은 글을 남에게 보인다. 자리·열쇠 관례는 services/cache.js가 가진 것을
+// 그대로 쓴다(사용자별 · §6-24-d). 열쇠는 **주보 한 건마다** 하나다 — 날짜만으로는 같은
+// 날 두 예배(주일 4부·금요)의 노트가 한 초안을 나눠 쓴다.
+function MyNote({ note, serviceId = '', serviceDate = '', passageRef = '', passageTitle = '', onSave, onShare }) {
   // **처음 여는 노트는 템플릿으로 시작한다**(사용자 요청 2026-09-08 — 옛 순 노트
   // 템플릿을 우리 디자인으로). services/noteTemplate.js가 도막 제목 셋을 세운다 —
   // 구절은 종이 머리(PaperNoteHead)에 서므로 도막으로 한 번 더 두지 않는다(2026-09-12).
@@ -1096,6 +1107,7 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
   const reading = saved && !editing;
   // 종이에 세울 도막. 저장된 글만 본다 — 편집 중인 글은 종이가 아니라 편집기가 그린다.
   const sections = useMemo(() => splitNoteSections(note?.body || ''), [note?.body]);
+  const draftKey = noteDraftKey('worship', serviceId || serviceDate);
   const sheetRef = useRef(null);
   // **누르기 전에 그림까지 구워 둔다**(hooks/useSheetShare.js) — 미리 받기만으로는
   // 폰에서 공유 시트가 열리지 않았다(사용자 보고 2026-09-09).
@@ -1111,7 +1123,24 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
   // 남의 글 위에 커서가 놓인 것처럼 보인다.
   // `state`는 건드리지 않는다 — 저장이 끝나면 부르는 쪽이 note를 갈아 끼우므로,
   // 여기서 비우면 방금 켠 '저장되었어요'가 같은 프레임에 지워진다.
-  useEffect(() => { setBody(bodyOrTemplate(note?.body, tpl)); setEditing(!note); }, [note, tpl]);
+  //
+  // **초안은 바로 이 자리에서 되살린다**(2026-09-14) — 따로 효과를 두면 이 효과와
+  // 번갈아 글을 갈아 끼운다. 되살아나는 것은 **같은 주보로 돌아왔을 때뿐**이다(열쇠가
+  // 주보 한 건이다). 저장된 글과 같은 초안은 되살릴 것이 없으므로 그냥 서버 값이 선다.
+  useEffect(() => {
+    const fresh = bodyOrTemplate(note?.body, tpl);
+    const draft = readCache(draftKey);
+    if (hasDraft(draft, fresh)) { setBody(draft.body); setState('draft'); setEditing(true); return; }
+    setBody(fresh); setEditing(!note);
+  }, [note, tpl, draftKey]);
+
+  // 편집 중에는 주기적으로 브라우저에 남긴다. 저장된 글과 같아지는 순간(저장·취소·
+  // 되돌아옴) 지운다 — 되살릴 것이 없는 초안이 자리만 차지하지 않게.
+  useEffect(() => {
+    if (body === base) { dropCache(draftKey); return undefined; }
+    const t = setTimeout(() => writeCache(draftKey, { body, at: Date.now() }), NOTE_DRAFT_DELAY);
+    return () => clearTimeout(t);
+  }, [body, base, draftKey]);
 
   const save = async () => {
     if (busy || !hasText || !dirty) return;
@@ -1121,11 +1150,13 @@ function MyNote({ note, serviceDate = '', passageRef = '', passageTitle = '', on
     // 글과 새로 만든 도막은 그대로 남는다(services/noteTemplate.js ensureNoteSections).
     const ok = await onSave({ body: ensureNoteSections(body, WORSHIP_SECTIONS), sharedToSun: shared });
     setBusy(false); setState(ok ? 'saved' : '');
-    if (ok) setEditing(false);
+    // 저장했으면 초안은 할 일을 다 했다. **실패하면 남긴다** — 그때가 초안이 가장 필요한 때다
+    if (ok) { dropCache(draftKey); setEditing(false); }
   };
 
-  // 취소는 **저장된 글로 되돌리고** 읽기 모드로 나간다(고치던 것을 버린다)
-  const cancel = () => { setBody(base); setState(''); setEditing(false); };
+  // 취소는 **저장된 글로 되돌리고** 읽기 모드로 나간다(고치던 것을 버린다).
+  // 되돌리는 조작이므로 초안도 같이 지운다(사용자 결정 2026-09-14).
+  const cancel = () => { dropCache(draftKey); setBody(base); setState(''); setEditing(false); };
 
   // 공유만 바꾼다 — 글은 저장된 것을 그대로 둔다(편집 중인 글은 건드리지 않는다).
   // onShare는 부르는 쪽이 services의 setNoteShared로 잇는다(모임 화면도 같은 함수를 쓴다).
@@ -1427,7 +1458,7 @@ export function ServiceDetail({
           그 노트가 어느 예배의 것인지 모호해지고, 발행 뒤에 주보가 바뀌면 노트가 먼저
           쓰인 셈이 된다. */}
       {canWriteNote && !editing && !isDraft && (
-        <MyNote note={note} serviceDate={service?.service_date || ''} passageRef={service?.passage_ref || ''}
+        <MyNote note={note} serviceId={service?.id || ''} serviceDate={service?.service_date || ''} passageRef={service?.passage_ref || ''}
           passageTitle={service?.title || ''} onSave={onSaveNote} onShare={onShareNote} />
       )}
 

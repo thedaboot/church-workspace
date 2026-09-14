@@ -47,6 +47,10 @@
   --p-track: #e6e3e8;
   --p-blue: #93b4e4;  --p-red: #e5a29b;    --p-yellow: #e3c47b; --p-green: #8bbda2;
   --p-gray: #c2bdc6;  --p-brown: #c9ad99;  --p-purple: #b4a2dc; --p-pink: #e3a8c6;
+  /* 주황은 2026-09-14에 채웠다 — 팀 표에 '순원'이 들어오면서 teamBar가 var(--p-orange)를
+     내는데 이 줄이 없어서 그 막대만 색 없이 track만 남았다. 값은 위 여덟과 같은 규칙
+     (--app-tag-orange 바닥과 글자색 사이). 팀을 더하면 여기도 같이 봐야 한다. */
+  --p-orange: #d9a075;
   /* SEED 오버라이드 (향후 SEED 컴포넌트 대비) */
   --seed-color-bg-brand-solid: #3f6fc4;
   --seed-color-bg-brand-solid-pressed: #33589c;
@@ -74,6 +78,7 @@
     --p-track: #2d2d2c;
     --p-blue: #5b83bd;  --p-red: #9a635d;    --p-yellow: #9c8450; --p-green: #5b8a70;
     --p-gray: #5d5b57;  --p-brown: #87695a;  --p-purple: #75659b; --p-pink: #96667c;
+    --p-orange: #8b6647;
 
     /* SEED 오버라이드 (다크) */
     --seed-color-bg-brand-weak: #202a3a;
@@ -499,6 +504,22 @@ svg.lucide { stroke-width: 1.4px; }
 .note-paper .tiptap strong { color: var(--paper-ink); }
 .note-paper .tiptap a { color: var(--paper-accent); }
 .note-paper .tiptap p.is-editor-empty:first-child::before { color: var(--paper-faint); }
+/* 형광펜과 체크 상자도 마찬가지다(2026-09-14) — 위 `.tiptap` 기본 규칙은 앱 토큰
+   (--app-tag-yellow · --app-tag-green-fg · --app-ink-faint)이라 **편집 종이가 다크를
+   따라가고 있었다**. 값은 paper.jsx PAPER 한 벌이 내려 준 것이고, 읽기 종이
+   (paper.jsx `PaperText`)가 같은 값으로 그린다 — 두 모드가 같은 색이라야 "이 모양으로
+   나간다"가 참이 된다. */
+.note-paper .tiptap mark { background: var(--paper-mark); color: var(--paper-ink); }
+.note-paper .tiptap ul[data-type="taskList"] input[type="checkbox"] { border-color: var(--paper-line); }
+.note-paper .tiptap ul[data-type="taskList"] input[type="checkbox"]:hover { border-color: var(--paper-faint); }
+.note-paper .tiptap ul[data-type="taskList"] input[type="checkbox"]:checked {
+  background: var(--paper-check); border-color: var(--paper-check);
+}
+.note-paper .tiptap ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--paper-faint); }
+/* 사진 — **글 칸 폭 100% · 높이 상한 260px · contain**(사용자 결정 2026-09-14).
+   읽기 종이의 같은 값은 paper.jsx `PHOTO_MAX_H`에 있다. 모서리(.75rem)와 object-fit은
+   위 `.tiptap img`의 것을 그대로 쓰고 여기서는 폭·높이·테두리 색만 종이 것으로 바꾼다. */
+.note-paper .tiptap img { width: 100%; max-height: 260px; border-color: var(--paper-line); margin: 6px 0; }
 /* 구분선은 노트에서 쓰지 않는다(2026-09-11에 서식 바에서 뺐다) — 옛 글에 남은 것만
    종이 선과 같은 1px 한 줄로 눕는다(앞뒤 여백은 위 `margin: 0`이 이미 눌렀다) */
 .note-paper .tiptap hr { background: var(--paper-line); height: 1px; }

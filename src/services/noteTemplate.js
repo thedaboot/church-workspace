@@ -35,7 +35,18 @@
 // QT에는 '말씀 요약'이 없다. 그 칸은 설교를 듣고 적는 자리인데 QT는 혼자 본문을 읽는
 // 자리라, 요약과 묵상이 같은 글이 된다.
 //
-// 순수 모듈이다 — 노드에서 그대로 검사한다(tests/word.mjs 1절).
+// 2026-09-14에 **옛 '본문' 도막을 노트에서 완전히 걷었다**(사용자 요구 — "그 밑에 구절 또
+// 사용자로부터 입력받을 수 있는 섹션이 있는데 거기! 그거 완벽하게 제거"). 2026-09-12에는
+// 템플릿에서만 뺐던 터라, 옛 노트에 저장된 `### 본문`이 편집 종이에서는 여전히 쓸 수 있는
+// 칸으로 서 있었다. 이제 `dropLegacySections`가 **한 자리에서** 걷는다 — 편집기에 들어가는
+// 글(`bodyOrTemplate`)·종이에 서는 도막(`splitNoteSections`)·저장되는 글
+// (`ensureNoteSections`는 splitNoteSections를 지난다) 셋이 전부 그 함수를 거친다.
+// **`LEGACY_SECTIONS`에서 '본문'을 빼지 마세요** — 그건 `isTemplateOnly` 판정용이고,
+// 빼면 그 도막이 든 옛 빈 노트가 갑자기 '사람이 쓴 글'이 되어 나눔 피드·잔디에 오른다.
+//
+// 순수 모듈이다 — 노드에서 그대로 검사한다(tests/word.mjs 1절 · tests/logcheck.mjs).
+// **여기에 import를 들이지 마세요**: 두 검사가 이 파일을 노드로 바로 읽는다(services를
+// 하나라도 물면 supabaseClient → import.meta.env까지 딸려와 그 검사가 통째로 죽는다).
 // ============================================================================
 
 export const WORSHIP_SECTIONS = ['말씀 요약', '나의 결단', '기도'];
@@ -58,6 +69,29 @@ const LEGACY_SECTIONS = ['묵상 노트', '결단하기', '기도하기', '나�
 // 오르고 종이에서도 도막이 갈리지 않았다.
 const SECTION_RE = new RegExp(
   `^#{1,4}\\s+(?:${[...new Set([...WORSHIP_SECTIONS, ...QT_SECTIONS, ...LEGACY_SECTIONS])].join('|')})$`);
+
+// ── 노트에서 아예 걷는 도막 (사용자 결정 2026-09-14) ───────────────────────
+// 구절은 종이 머리(paper.jsx `PaperNoteHead`)에 주보의 값으로 한 번만 선다. 옛 노트에
+// 저장된 '본문' 도막은 같은 줄을 한 번 더 세우고, 편집 종이에서는 **쓸 수 있는 칸**으로
+// 서 있었다. 그래서 읽기·편집·저장 어디에도 세우지 않는다.
+//
+// 이것은 `LEGACY_SECTIONS`(빈 노트 판정용 옛 이름 목록)와 **다른 목록**이다 — 저쪽에서
+// '본문'을 빼면 그 도막이 든 옛 빈 노트가 '사람이 쓴 글'이 된다(머리말).
+const DROPPED_SECTIONS = ['본문'];
+
+// 걷는 도막을 줄 단위로 들어낸다. **나머지 줄은 한 글자도 건드리지 않는다** — 사람이 쓴
+// 글이 지나가는 길이라 여기서 다듬으면 저장하지도 않았는데 글이 달라진다.
+export function dropLegacySections(md) {
+  const out = [];
+  let skip = false;
+  for (const raw of String(md ?? '').split('\n')) {
+    const head = /^#{1,4}\s+(.*)$/.exec(raw.trim());
+    if (head) skip = DROPPED_SECTIONS.includes(head[1].trim());
+    if (!skip) out.push(raw);
+  }
+  // 맨 앞 도막이 걷히면 빈 줄만 남는다 — 종이 첫 줄이 한 칸 내려앉지 않게 걷는다
+  return out.join('\n').replace(/^\n+/, '');
+}
 
 // 제목 + 그 아래 한 줄. 아래 줄을 비워 두는 이유는 **커서가 제목 밑에 떨어지게**
 // 하기 위해서다 — 제목 바로 다음에 다음 제목이 오면 그 사이에 글을 쓰려고 엔터를
@@ -99,8 +133,39 @@ export function isTemplateOnly(md, prefill = '') {
 }
 
 // 저장된 글이 없는 자리에 템플릿을 세운다 — 부르는 쪽이 매번 같은 판단을 하지 않게.
+// **여기가 편집기로 들어가는 글의 문이다**(두 노트 화면이 지금 글·되돌아갈 자리를 모두
+// 이 함수로 만든다) — 그래서 걷는 도막도 여기서 걷는다(2026-09-14 · 위 머리말).
+// 걷고 나서 빈 글이 되면 템플릿이 선다(옛 노트가 '본문' 도막 하나뿐이던 경우다).
 export function bodyOrTemplate(body, template) {
-  return String(body || '').trim() ? body : template;
+  const md = dropLegacySections(body);
+  return md.trim() ? md : template;
+}
+
+// ── 브라우저 초안 (사용자 결정 2026-09-14) ─────────────────────────────────
+// "페이지 이동 시에도 내용이 유지되도록 주기적 임시 저장." 서버가 아니라 **브라우저**다 —
+// 주보와 달리 노트는 저장이 곧 끝이고 공유 토글이 따로 있어서, 서버에 자동 저장하면 아직
+// 다 쓰지도 않은 글이 남에게 보인다.
+//
+// 자리는 `services/cache.js`다 — 그쪽이 이미 **사용자별 열쇠**를 쓰고(setCacheScope),
+// 계정을 바꾸면 남의 것을 지우고, 한도에 걸렸을 때의 처리까지 한 벌로 갖고 있다. 새 관례를
+// 만들지 않는다. 게스트(supabase 없음)에서는 그쪽이 메모리에만 두므로 초안도 그 탭이 살아
+// 있는 동안만 남는다 — 화면 사이 이동에는 그래도 살아남는다(모듈 레벨 Map이다).
+//
+// 열쇠의 첫 도막이 `draft:`인 것은 `dropCache`가 **그냥 접두 글자 비교**이기 때문이다 —
+// 화면 캐시(`word:`·`worship:`·`home`)와 겹치면 저장 한 번에 초안이 같이 지워진다.
+export const noteDraftKey = (kind, id) => `draft:note:${kind}:${id || 'none'}`;
+
+// 쓰다 멈추고 이만큼 지나면 남긴다. 글자마다 쓰면 localStorage에 JSON을 매 타건 얹는
+// 셈이고, 너무 길면 화면을 옮기는 손보다 늦는다. 두 노트 화면이 **같은 값**을 쓴다.
+export const NOTE_DRAFT_DELAY = 1200;
+
+// 되살릴 초안인가. 저장된 글과 똑같으면 되살릴 것이 없다(열쇠만 차지한다).
+// 제목은 묵상 노트에만 있다(0062) — 없는 화면은 baseTitle을 안 넘기면 된다.
+export function hasDraft(draft, base = '', baseTitle = '') {
+  if (!draft || typeof draft.body !== 'string') return false;
+  if (draft.body !== String(base ?? '')) return true;
+  return typeof draft.title === 'string'
+    && draft.title.trim() !== String(baseTitle ?? '').trim();
 }
 
 // ── 종이가 읽는 모양 (2026-09-09) ───────────────────────────────────────────
@@ -113,10 +178,12 @@ export function bodyOrTemplate(body, template) {
 // 쓴 노트가 종이에서 통째로 한 덩이가 되지 않는다.
 // 첫 제목보다 앞에 있는 글은 라벨이 없는 도막 하나로 앞에 선다(제목을 다 지운 노트).
 // 빈 도막은 버린다 — 종이에 라벨만 남은 빈 줄이 생기면 구멍으로 보인다.
+// **걷는 도막('본문')은 여기서 이미 없다**(2026-09-14) — 읽기 종이·나눔 피드·순 노트가
+// 전부 이 함수를 지나므로 한 자리만 지키면 된다.
 export function splitNoteSections(md) {
   const out = [];
   let cur = { title: '', lines: [] };
-  for (const raw of String(md || '').split('\n')) {
+  for (const raw of dropLegacySections(md).split('\n')) {
     const head = /^#{1,4}\s+(.*)$/.exec(raw.trim());
     if (head) {
       out.push(cur);

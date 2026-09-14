@@ -52,6 +52,25 @@ import { isKakaoInApp } from '../utils.js';
 // 같은 갈래로 간다. 그 길의 손질(굽는 가지만 남기기 · §6-32-r)은
 // 그대로 살아 있다.
 //
+// ----------------------------------------------------------------------------
+// **사진이 든 종이** (2026-09-14 · 노트 종이에 사진이 앉으면서)
+// ----------------------------------------------------------------------------
+// foreignObject는 SVG 안에 든 `<img>`의 **바깥 주소를 그대로 두면 그 자리가 빈다**.
+// 사진은 Supabase Storage의 공개 주소이고(cloud.js `uploadContentImage`) 그 응답에
+// `access-control-allow-origin: *`이 붙어 있다(2026-09-14 확인).
+//
+// **재어 본 것**(2026-09-14 · 헤드리스 크롬에 이 모듈을 그대로 물려 구워 봤다): 그 머리가
+// 붙어 있으면 modern-screenshot은 스스로 fetch해 data URI로 바꿔 심고(`embedImageElement`),
+// html2canvas도 `useCORS`로 받아 낸다 — **크롬에서는 두 길 다 우리 손 없이도 나왔다.**
+// 그런데도 `inlineImages`를 앞에 두는 이유는 둘이다:
+//   · modern-screenshot의 인라인은 **실패해도 경고만 찍고 빈 자리 그대로 굽는다**
+//   · html2canvas 갈래가 서 있는 이유가 애초에 **사파리에서 foreignObject가 빈 캔버스를
+//     주는 것**이고(§6-32-t), 그 사파리에서 `useCORS` 재요청이 화면이 이미 받아 둔 no-cors
+//     응답에 막히는 자리는 **우리가 재어 보지 못했다**
+// 두 갈래가 갈리기 전에 한 번 받아 두면 어느 길로 가도 같은 입력이 된다. 굽고 나면 원래
+// 주소로 되돌려 놓는다. 못 받으면(CORS가 없는 주소) 경고만 남기고 그대로 굽는다 —
+// 사진 한 장 때문에 종이 전체가 안 나가지는 않는다.
+//
 // 속도는 조금 잃었다(헤드리스 크롬 CPU 4배 스로틀, 주보 1쪽): html2canvas 0.9초 ·
 // modern-screenshot 1.6초(첫 번째는 글꼴을 SVG에 심느라 조금 더 걸린다). 미리 굽기 ·
 // 진행 중인 약속 이어받기 · 구운 Blob 캐시(`hooks/useSheetShare.jsx` · §6-32-g·32-s)가
@@ -142,6 +161,55 @@ export function isBlankCanvas(canvas) {
   } catch { return false; }
 }
 
+// **굽기 전에 바깥 사진을 data URI로 바꿔 심는다**(2026-09-14 · 머리말). 화면에 서 있는
+// 그 종이를 잠깐 손대는 것이라 지켜야 할 것이 셋이다:
+//   · **원래 주소로 되돌린다** — 안 그러면 몇 MB짜리 data URI가 DOM에 남는다
+//   · **높이를 붙잡아 둔다** — src를 갈아 끼우는 순간 그 그림은 '아직 안 온 것'이 되어
+//     상자가 접혔다 펴진다(종이가 화면에서 출렁이고, 긴 종이는 잘라 담는 좌표까지 밀린다)
+//   · **못 받으면 그대로 둔다** — modern-screenshot이 한 번 더 해 본다. 여기서 던지면
+//     사진 한 장 때문에 종이 전체가 안 나간다
+// 같은 출처의 그림(로고·캐릭터 컷)은 건드리지 않는다 — 그쪽은 인라인할 이유가 없다.
+const isOutsideImage = (src) => /^https?:\/\//i.test(src)
+  && !src.startsWith(`${window.location.origin}/`);
+
+const toDataUrl = (blob) => new Promise((ok, no) => {
+  const fr = new FileReader();
+  fr.onload = () => ok(fr.result);
+  fr.onerror = () => no(fr.error || new Error('사진을 읽지 못했어요'));
+  fr.readAsDataURL(blob);
+});
+
+async function inlineImages(node) {
+  const list = [...node.querySelectorAll('img')]
+    .filter(img => isOutsideImage(img.currentSrc || img.src || ''));
+  if (!list.length) return () => {};
+  const undo = [];
+  await Promise.all(list.map(async (img) => {
+    const src = img.currentSrc || img.src;
+    try {
+      const res = await fetch(src, { mode: 'cors', credentials: 'omit' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const dataUrl = await toDataUrl(await res.blob());
+      const { srcset } = img;
+      const height = img.style.height;
+      undo.push(() => { img.src = src; img.srcset = srcset; img.style.height = height; });
+      // **아직 안 온 사진에는 높이를 걸지 않는다** — 그때 잰 값은 0이고, 0을 박아 두면
+      // 방금 심은 사진이 높이 0으로 구워진다(미리 굽기는 종이가 서고 700ms 뒤라 사진이
+      // 아직 오는 중일 수 있다).
+      const now = img.getBoundingClientRect().height;
+      if (now > 0) img.style.height = `${now}px`;
+      img.srcset = '';
+      img.src = dataUrl;
+      if (img.decode) await img.decode().catch(() => {});
+    } catch (e) {
+      // **오류가 아니라 다음 갈래로 가는 단계다** — console.error로 찍으면 '콘솔 오류 0'
+      // 검사가 이것을 회귀로 잡는다(shareOrSave의 같은 자리와 같은 이유).
+      console.warn('[shareImage] 사진을 미리 심지 못해 그대로 굽습니다:', src, e?.message || e);
+    }
+  }));
+  return () => undo.forEach(fn => fn());
+}
+
 // 화면에 서 있는 그 종이를 그대로 캔버스로. background는 종이 바탕색이다(투명하게
 // 두면 카카오톡에서 검은 종이가 된다 — `null`을 주는 자리는 잘라 담을 때뿐이고,
 // 그때는 쪽마다 다시 바탕을 깐다).
@@ -151,6 +219,17 @@ export function isBlankCanvas(canvas) {
 // 1080폭 두 쪽이면 8M이고, iOS의 하드 상한 16.7M(4096²) 아래다. 잘라 담은 각 쪽은
 // 여전히 4M 안이다.
 async function nodeToCanvas(node, background, { pages = 1 } = {}) {
+  // **사진을 먼저 심는다**(머리말) — 재는 것(offsetWidth·offsetHeight)보다 앞이어야
+  // 사진이 자리를 잡은 높이로 배율이 셈해진다.
+  const restore = await inlineImages(node);
+  try {
+    return await bakeCanvas(node, background, pages);
+  } finally {
+    restore();
+  }
+}
+
+async function bakeCanvas(node, background, pages) {
   const width = node.offsetWidth || 560;
   const height = node.offsetHeight || 800;
   // 원하는 배율(1080 기준)과 화소 상한이 허락하는 배율 중 작은 쪽. 1보다 작아지지는

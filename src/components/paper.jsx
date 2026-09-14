@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import logoLight from '../assets/logo-light.png';
-import { splitBold } from '../services/sunGuide.js';
+import { tokenizeInline, IMAGE_LINE_RE } from '../services/markdown.js';
 
 // ============================================================================
 // 종이 — 예배 노트 · 묵상 노트 · 주보가 **바깥으로 나갈 때** 입는 옷 (2026-09-09)
@@ -32,6 +32,12 @@ import { splitBold } from '../services/sunGuide.js';
 // 나와 있다 — 편집 화면이 같은 부품을 쓴다(마크업을 한 벌 더 적으면 한쪽만 고쳐진다).
 // 도막 자리에 무엇이 서는지만 다르다: 읽기는 `PaperRow` 여러 줄, 편집은 편집기 하나
 // (index.css `.note-paper`의 격자가 그 안에서 라벨·칸을 만든다 — §6-32-p).
+//
+// 2026-09-14에 **종이가 실제 서식을 그린다**(사용자 지적 — "불릿도 안 그려. 그냥 이렇게만
+// 보일 뿐"). 그전에는 굵게와 불릿 흉내만 있었고 기울임·밑줄·취소선·형광펜·링크·사진
+// 주소가 마커째 글자로 찍혔다. 지금은 `PaperText`가 편집기와 **같은 토크나이저**
+// (services/markdown.js)를 쓰고, 사진도 종이에 앉는다 — 그림·PDF로 굽는 길에서 그 주소를
+// data URI로 바꿔 심는다(services/shareImage.js `inlineImages`).
 // ============================================================================
 
 export const PAPER = {
@@ -44,7 +50,16 @@ export const PAPER = {
   faint: '#a29daa',
   accent: '#3f6fc4',
   night: '#213183',
+  // 형광펜 바탕과 체크 상자 채움. 앱의 라이트 토큰(--app-tag-yellow · --app-tag-green-fg)과
+  // 같은 값이되 **여기 한 벌만** 적는다 — 편집 종이(index.css `.note-paper`)가 이것을
+  // `--paper-mark`·`--paper-check`으로 받아 쓴다(종이는 다크를 따라가지 않는다 · §6-32-i).
+  mark: '#fbecd0',
+  check: '#2c5d42',
 };
+
+// 종이에 앉는 사진의 높이 상한(사용자 결정 2026-09-14) — 글 칸 폭을 다 쓰고 이 높이에서
+// 멈춘다. 편집 종이의 같은 값은 index.css `.note-paper .tiptap img`에 있다.
+const PHOTO_MAX_H = 260;
 
 // 종이 위쪽 인디고 띠. 왼쪽 날짜(가는 굵기·숫자 등간격), 오른쪽 종이 이름(800).
 // **읽기와 편집이 같은 부품을 쓴다**(2026-09-10) — 그래서 export다. 편집 화면에 같은
@@ -75,30 +90,146 @@ export function PaperRow({ label, children }) {
 }
 
 // 종이에 앉는 글 — 노트는 마크다운으로 쓴다. **RichText를 쓰지 않는다**: 그 뷰어는 앱
-// 토큰(text-fg 등)으로 칠해서 다크 모드를 따라가는데, 종이는 언제나 밝아야 한다(머리말).
-// 그래서 여기서 필요한 만큼만 그린다 — `**굵게**`와 `- 목록`이다(노트에 실제로 쓰이는
-// 두 가지다). 굵게 파서는 순모임 가이드가 쓰던 한 벌을 그대로 쓴다(services/sunGuide.js
-// splitBold — tests/sunguide가 검사한다). 그리지 않는 마커가 글자로 남지 않게 줄 앞의
-// `#`은 걷는다 — 도막 제목은 이미 왼쪽 라벨로 올라가 있다.
-const BULLET_RE = /^\s*[-*]\s+/;
+// 토큰(text-fg 등)으로 칠해서 다크 모드를 따라가는데, 종이는 언제나 밝아야 한다(머리말 ·
+// §6-32-i). 그렇다고 **따로 읽지도 않는다** — 토크나이저는 뷰어(RichText)·편집기가 같이
+// 쓰는 그 한 벌(services/markdown.js `tokenizeInline`)이고, 여기서 바꾸는 것은 **칠하는
+// 색뿐**이다. 파서가 둘이면 한쪽만 고쳐져서 "쓴 그대로 나간다"가 거짓이 된다.
+//
+// 2026-09-14 이전에는 **굵게와 불릿 흉내만** 있었고 기울임·밑줄·취소선·형광펜·링크·사진
+// 주소는 마커가 글자 그대로 종이에 찍혔다(사용자 지적 — "불릿도 안 그려. 그냥 이렇게만
+// 보일 뿐"). 불릿도 진짜 목록이 아니라 en대시 + flex였다. 지금 그리는 것은 markdown.js
+// 머리말의 지원 범위 그대로다:
+//   마크  `**굵게**` `*기울임*` `__밑줄__` `~~취소선~~` `==형광펜==` `[글](주소)`
+//   블록  문단 · 제목(#~####) · `- 불릿` · `1. 번호` · `- [ ] 체크` · 이미지 URL 단독 줄
+// **불릿·번호는 진짜 ul/ol이다** — 편집 종이(index.css `.note-paper .tiptap`)가 그렇게
+// 그리므로, 읽기 종이가 흉내를 내면 저장하는 순간 다른 물건이 된다.
+const MARK_TAG = { bold: 'strong', italic: 'em', underline: 'u', strike: 's', highlight: 'mark' };
+// 색은 전부 PAPER 한 벌에서 온다(§6-32-i) — 앱 토큰은 다크를 따라간다.
+// **밑줄·취소선을 CSS 기본값에 맡기지 않는다**: Tailwind preflight가 들어온 화면이라
+// 태그만으로는 모양이 보장되지 않는다.
+const MARK_STYLE = {
+  bold: { color: PAPER.ink, fontWeight: 700 },
+  italic: { fontStyle: 'italic' },
+  underline: { textDecoration: 'underline' },
+  strike: { textDecoration: 'line-through', opacity: 0.8 },
+  highlight: { background: PAPER.mark, color: PAPER.ink, borderRadius: 3, padding: '0 0.125rem' },
+};
+// 종이 위의 링크는 눌리지 않는다(그림·PDF로 나간다) — 그래도 **글자 모양은 링크**여야
+// 어디가 주소였는지 읽는 사람이 안다.
+const LINK_STYLE = { color: PAPER.accent, textDecoration: 'underline', wordBreak: 'break-all' };
+
+// 인라인 한 줄 → 마크가 입혀진 조각들. 안쪽부터 감싸 올라간다(RichText renderInline과 같은 결).
+function paperInline(text, keyBase) {
+  return tokenizeInline(text).map((seg, i) => {
+    let node = seg.href
+      ? <a href={seg.href} target="_blank" rel="noreferrer" style={LINK_STYLE}>{seg.text}</a>
+      : seg.text;
+    for (const m of [...seg.marks].reverse()) {
+      const Tag = MARK_TAG[m];
+      if (Tag) node = <Tag style={MARK_STYLE[m]}>{node}</Tag>;
+    }
+    return <React.Fragment key={`${keyBase}-${i}`}>{node}</React.Fragment>;
+  });
+}
+
+// 줄 배열 → 블록 배열. 판정 순서는 markdown.js·RichText와 **같다**(체크 → 불릿 → 번호) —
+// 체크 항목은 불릿 패턴에도 걸려서 순서가 바뀌면 `[ ]`가 글자로 남는다.
+// 빈 줄은 접는다(인쇄물이라 라벨 옆에 빈 줄을 그대로 세우면 도막이 헐렁해진다).
+const TODO_RE = /^\s*[-*]\s+\[( |x|X)\]\s?(.*)$/;
+const BULLET_RE = /^\s*[-*]\s+(.*)$/;
+const NUM_RE = /^\s*(\d+)[.)]\s+(.*)$/;
+const HEAD_RE = /^\s*#{1,6}\s+(.*)$/;
+function paperBlocks(text) {
+  const out = [];
+  const push = (type, item, extra = null) => {
+    const prev = out[out.length - 1];
+    if (prev && prev.type === type) prev.items.push(item);
+    else out.push({ type, items: [item], key: item.key, ...(extra || {}) });
+  };
+  String(text || '').split('\n').forEach((raw, i) => {
+    const line = raw.trim();
+    // 줄 **전체**가 사진 주소일 때만 사진이다(markdown.js IMAGE_LINE_RE와 같은 판정)
+    if (IMAGE_LINE_RE.test(line)) { out.push({ type: 'img', src: line, key: i }); return; }
+    const todo = TODO_RE.exec(raw);
+    if (todo) { push('todo', { value: todo[2], done: todo[1].toLowerCase() === 'x', key: i }); return; }
+    const ul = BULLET_RE.exec(raw);
+    if (ul) { push('ul', { value: ul[1], key: i }); return; }
+    const ol = NUM_RE.exec(raw);
+    if (ol) { push('ol', { value: ol[2], key: i }, { start: Number(ol[1]) || 1 }); return; }
+    if (!line) return;
+    // 도막 제목은 이미 왼쪽 라벨로 올라가 있다 — 남은 `#`은 걷고 글만 세운다
+    const h = HEAD_RE.exec(raw);
+    out.push({ type: 'p', value: h ? h[1] : raw, key: i });
+  });
+  return out;
+}
+
+// 목록의 들여쓰기는 편집 종이와 같은 1.25rem이다(index.css `.tiptap ul`) — 글머리는
+// 글자 칸 **밖**에 그려지므로 이 자리가 곧 글머리가 설 자리다(§6-32-u).
+const LIST_STYLE = { paddingLeft: '1.25rem', margin: '0 0 0.125rem' };
+// 체크 상자 — 편집 종이의 체크박스(index.css `.note-paper .tiptap`)와 같은 16px·같은 색.
+function PaperCheck({ done }) {
+  return (
+    <span className="paper-check shrink-0 inline-flex items-center justify-center"
+      style={{
+        width: 16, height: 16, marginTop: 3, borderRadius: 4,
+        border: `1.5px solid ${done ? PAPER.check : PAPER.line}`,
+        background: done ? PAPER.check : 'transparent',
+      }}>
+      {done ? (
+        <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="#fff"
+          strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+      ) : null}
+    </span>
+  );
+}
 function PaperText({ text }) {
-  const lines = useMemo(() => String(text || '').split('\n'), [text]);
+  const blocks = useMemo(() => paperBlocks(text), [text]);
   return (
     <>
-      {lines.map((raw, i) => {
-        const bullet = BULLET_RE.test(raw);
-        const body = bullet ? raw.replace(BULLET_RE, '') : raw.replace(/^\s*#{1,6}\s+/, '');
-        if (!body.trim()) return null;
-        const parts = splitBold(body);
-        const inner = parts.map((x, j) => (x.bold
-          ? <strong key={j} className="font-bold" style={{ color: PAPER.ink }}>{x.text}</strong>
-          : <React.Fragment key={j}>{x.text}</React.Fragment>));
-        return bullet ? (
-          <span key={i} className="paper-bullet flex gap-1.5">
-            <span className="shrink-0" style={{ color: PAPER.faint }}>–</span>
-            <span className="min-w-0">{inner}</span>
-          </span>
-        ) : <span key={i} className="paper-line block">{inner}</span>;
+      {blocks.map((b) => {
+        switch (b.type) {
+          // 사진 — 글 칸 폭 100% · 높이 상한 260px · contain (사용자 결정 2026-09-14).
+          // 굽는 길에서 이 주소를 data URI로 바꿔 심는다(services/shareImage.js) —
+          // 안 그러면 foreignObject 안에서 그 자리가 통째로 빈다.
+          case 'img':
+            return (
+              <img key={b.key} className="paper-photo block" src={b.src} alt="" decoding="async"
+                style={{
+                  width: '100%', maxHeight: PHOTO_MAX_H, objectFit: 'contain',
+                  borderRadius: 12, border: `1px solid ${PAPER.line}`, margin: '6px 0',
+                }} />
+            );
+          case 'ul':
+            return (
+              <ul key={b.key} className="paper-bullets" style={{ ...LIST_STYLE, listStyle: 'disc' }}>
+                {b.items.map(it => <li key={it.key}>{paperInline(it.value, it.key)}</li>)}
+              </ul>
+            );
+          case 'ol':
+            return (
+              <ol key={b.key} className="paper-numbers" start={b.start || 1}
+                style={{ ...LIST_STYLE, listStyle: 'decimal' }}>
+                {b.items.map(it => <li key={it.key}>{paperInline(it.value, it.key)}</li>)}
+              </ol>
+            );
+          case 'todo':
+            return (
+              <ul key={b.key} className="paper-todos" style={{ ...LIST_STYLE, listStyle: 'none', paddingLeft: 0 }}>
+                {b.items.map(it => (
+                  <li key={it.key} className="flex items-start gap-2">
+                    <PaperCheck done={it.done} />
+                    <span className="min-w-0"
+                      style={it.done ? { color: PAPER.faint, textDecoration: 'line-through' } : undefined}>
+                      {paperInline(it.value, it.key)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            );
+          default:
+            return <p key={b.key} className="paper-line">{paperInline(b.value, b.key)}</p>;
+        }
       })}
     </>
   );
@@ -128,7 +259,7 @@ export function PaperSheet({ sheetRef, date, kind, children, className = '', sty
         background: PAPER.surface, color: PAPER.ink,
         '--paper-surface': PAPER.surface, '--paper-line': PAPER.line, '--paper-ink': PAPER.ink,
         '--paper-ink2': PAPER.ink2, '--paper-muted': PAPER.muted, '--paper-faint': PAPER.faint,
-        '--paper-accent': PAPER.accent,
+        '--paper-accent': PAPER.accent, '--paper-mark': PAPER.mark, '--paper-check': PAPER.check,
         ...(style || {}),
       }}>
       <PaperMast date={date} kind={kind} />
@@ -207,20 +338,19 @@ export function NotePaper({
 // ── 노트 종이 (예배 노트 · 묵상 노트) ───────────────────────────────────────
 // sections는 services/noteTemplate.js splitNoteSections의 결과다. 구절은 라벨 줄이
 // 아니라 **머리**에 선다 — 그 한 줄이 이 노트가 무엇에 대한 글인지 말하는 자리이고,
-// 라벨 칸에 넣으면 다른 도막과 같은 무게로 묻힌다. 새 노트는 넘겨받은 passageRef가
-// 그 자리에 서고(템플릿에서 '본문' 도막을 뺐다 — 2026-09-12), **옛 노트의 '본문'
-// 도막**은 여기서 머리로 끌어올린다. 아는 이름만 올리지 않고 **첫 도막이 '본문'일
-// 때만** 올린다(사람이 제목을 고쳐 쓴 노트에서 엉뚱한 도막이 머리로 올라가지 않게).
+// 라벨 칸에 넣으면 다른 도막과 같은 무게로 묻힌다. 머리에 서는 구절은 **주보의 값
+// (passageRef) 하나**다.
+//
+// 예전에는 옛 노트의 '본문' 도막을 여기서 머리로 끌어올렸다. 2026-09-14에 그 갈래를
+// 걷었다(사용자 결정 — "그 밑에 구절 또 사용자로부터 입력받을 수 있는 섹션 … 완벽하게
+// 제거") — 그 도막은 이제 읽기에도 편집에도 서지 않고 저장될 때도 다시 쓰이지 않는다
+// (services/noteTemplate.js `dropLegacySections`가 한 자리에서 걷는다).
 export function NoteSheet({ sheetRef, date, kind, passageRef = '', passageTitle = '', sections = [], cut = null }) {
-  const first = sections[0];
-  const headIsPassage = first && first.title === '본문';
-  const ref = (headIsPassage ? first.body : '') || passageRef;
-  const rows = headIsPassage ? sections.slice(1) : sections;
   return (
     <NotePaper sheetRef={sheetRef} date={date} kind={kind}
-      passageRef={ref} passageTitle={passageTitle} cut={cut}>
+      passageRef={passageRef} passageTitle={passageTitle} cut={cut}>
       <div className="paper-rows mt-5" style={{ borderTop: `1px solid ${PAPER.line}` }}>
-        {rows.map((s, i) => (
+        {sections.map((s, i) => (
           <PaperRow key={`${s.title}-${i}`} label={s.title || ' '}>
             {/* 줄바꿈은 그대로 살린다 — 노트는 사람이 엔터로 끊어 쓴 글이다 */}
             <PaperText text={s.body} />
