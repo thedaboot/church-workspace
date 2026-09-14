@@ -1961,8 +1961,13 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 저장되는 글은 **도막을 되살린 것**이다(2026-09-09 · ensureNoteSections) — 기준도
   // 그 글이어야 한다. `body`로 두면 다음 도착값 판정이 되살린 제목을 '남이 고친 것'으로
   // 읽어 편집기를 덮는다.
+  // 2026-09-14: 옮기는 일을 `putBody` 한 벌이 맡는다(초안을 지우는 자리와 같은 곳).
+  // 편집기의 글과 기준이 한 줄에서 같이 가야 **도막 제목이 되살아난 직후에도 dirty가
+  // 아니다** — 예전에는 기준만 옮겨서 저장 직후 방금 지운 초안이 곧바로 다시 쓰였다.
+  assert.ok(/const putBody = \(b\) => \{ const v = bodyOrTemplate\(b, tpl\); setBody\(v\); syncedBody\.current = v; \};/.test(view),
+    'putBody가 편집기의 글과 기준을 같이 옮긴다');
   assert.ok(/const kept = ensureNoteSections\(body, QT_SECTIONS\);/.test(view)
-    && /syncedBody\.current = kept;/.test(view), '저장하면 기준도 저장된 그 글로 옮긴다');
+    && /putBody\(kept\);/.test(view), '저장하면 기준도 저장된 그 글로 옮긴다');
   // 재조회 실패가 캐시 화면을 '묵상 없음'으로 만들지 않는다
   assert.ok(/if \(!qt \|\| qt\.date !== date\) \{\s*\n\s*setEntry\(\{ date, body: '', title: '', shared: false, exists: false \}\)/.test(view),
     '캐시가 있으면 빈 칸을 세우지 않고 토스트만 한다');
@@ -2338,11 +2343,11 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   for (const t of nt.WORSHIP_SECTIONS) {
     assert.ok(moved.includes(`### ${t}`), `옛 노트를 저장해도 ${t} 도막이 선다`);
   }
-  for (const line of ['요 3:16', '들은 것', '생각한 것', '하기로 한 것', '빈다']) {
+  // '요 3:16'은 2026-09-14에 빠졌다 — 아래 '본문 도막을 걷는다' 묶음이 그 자리다.
+  for (const line of ['들은 것', '생각한 것', '하기로 한 것', '빈다']) {
     assert.ok(moved.includes(line), `옛 노트의 '${line}'이 남는다`);
   }
-  assert.ok(moved.indexOf('### 기도') < moved.indexOf('### 본문')
-    && moved.indexOf('### 본문') < moved.indexOf('### 나의 묵상')
+  assert.ok(moved.indexOf('### 기도') < moved.indexOf('### 나의 묵상')
     && moved.indexOf('### 나의 묵상') < moved.indexOf('### 결단'),
     '옛 도막은 새 도막 **뒤에** 그 순서대로 붙는다');
   // 옛 이름만 있는 빈 노트는 아직 빈 노트다(LEGACY_SECTIONS에 쌓았다)
@@ -2362,11 +2367,31 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(
     nt.isTemplateOnly('### 본문\n삿 4:11-24\n### 말씀 요약\n\n### 나의 결단\n\n### 기도\n', '삿 4:11-24'),
     true, "'본문'은 LEGACY라 그 도막이 든 옛 빈 노트도 빈 노트다");
-  // 옛 노트를 열어 저장해도 **본문 도막을 지우지 않는다** — 새 도막이 서고 그 뒤에 붙는다
+  // ── 2026-09-14: 그 도막을 **어디에도 세우지 않는다** (사용자 결정) ────────
+  // "그 밑에 구절 또 사용자로부터 입력받을 수 있는 섹션이 있는데 거기! 그거 완벽하게
+  // 제거해줬으면 해서." 2026-09-12에는 템플릿에서만 뺐던 터라, 옛 노트에 저장된 도막이
+  // **편집 종이에서 여전히 쓸 수 있는 칸**으로 서 있었다. 이제 걷는 자리는
+  // noteTemplate.dropLegacySections 한 곳이고 편집기로 들어가는 글·종이·저장이 그것을 지난다.
+  // 머리 구절은 주보의 값 하나다(paper.jsx NoteSheet의 끌어올리기도 같이 걷었다).
+  // **되돌리기**: dropLegacySections를 빼면 아래 넷이 바로 깨진다.
   const withRef = nt.ensureNoteSections('### 본문\n삿 4:11-24\n### 나의 결단\n음', nt.WORSHIP_SECTIONS);
-  assert.deepStrictEqual(nt.splitNoteSections(withRef).map(x => x.title), ['나의 결단', '본문'],
-    "옛 '본문' 도막은 새 도막 뒤에 그대로 남는다");
-  assert.ok(withRef.includes('삿 4:11-24'), '본문 도막의 구절 줄도 잃지 않는다');
+  assert.deepStrictEqual(nt.splitNoteSections(withRef).map(x => x.title), ['나의 결단'],
+    "옛 '본문' 도막은 종이에 서지 않는다");
+  assert.ok(!withRef.includes('삿 4:11-24') && !withRef.includes('### 본문'),
+    "'본문' 도막은 저장될 때 다시 쓰이지 않는다");
+  assert.strictEqual(nt.dropLegacySections('앞 글\n### 본문\n구절\n### 기도\n빈다'), '앞 글\n### 기도\n빈다',
+    '걷는 것은 그 도막뿐이고 나머지 줄은 한 글자도 안 건드린다');
+  assert.strictEqual(nt.bodyOrTemplate('### 본문\n삿 3:1-11\n', nt.worshipNoteTemplate()),
+    nt.worshipNoteTemplate(), "'본문'만 있던 옛 노트는 손대지 않은 템플릿이 된다");
+
+  // 초안 관례 — 자리는 브라우저이고 열쇠는 노트마다 하나다(사용자 결정 2026-09-14)
+  assert.strictEqual(nt.noteDraftKey('qt', '2026-09-14'), 'draft:note:qt:2026-09-14');
+  // 열쇠의 첫 도막이 화면 캐시(word:·worship:·home)와 겹치면 저장 한 번에 초안이 같이 지워진다
+  assert.ok(nt.noteDraftKey('worship', 's1').startsWith('draft:'), '초안 열쇠는 화면 캐시와 갈린다');
+  assert.strictEqual(nt.hasDraft({ body: 'a' }, 'a'), false, '저장된 글과 같으면 되살릴 것이 없다');
+  assert.strictEqual(nt.hasDraft({ body: 'b' }, 'a'), true);
+  assert.strictEqual(nt.hasDraft({ body: 'a', title: '제목' }, 'a', ''), true, '제목만 달라도 초안이다');
+  assert.strictEqual(nt.hasDraft(null, 'a'), false);
 
   // 편집기에서도 고정된다(사용자 결정 2026-09-10 — "아예 수정 창에서부터")
   const src = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
@@ -2667,4 +2692,252 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '제목은 제 shouldAdoptBody로 갈아 끼운다');
 
   console.log('PASS  묵상 제목 저장 자리와 화면 15가지');
+}
+
+// ── 홈 예배 카드 · 형제/자매 호칭 (사용자 결정 2026-09-14) ───────────────────
+// 셋 다 순수 함수 하나씩이고 화면은 부르기만 한다 — 함수를 직접 돌리고 **배선**은
+// 소스로 못 박는다(위 호칭 블록과 같은 짜임).
+// 되돌려서 깨뜨린 것(§3-5): pickService의 `status === 'published'`를 빼면 ①,
+// homeWorshipLabel의 `(at.getUTCDay() + 6) % 7`을 `at.getUTCDay()`로 바꾸면 ②,
+// honorific의 BY_GENDER 줄을 HONORIFIC.youth로 되돌리면 ③이 깨진다.
+{
+  const src = (u) => readFileSync(new URL(u, import.meta.url), 'utf8');
+  const home = src('../src/views/homeView.jsx');
+
+  // homeView는 JSX라 통째로는 노드에서 못 읽는다 — **순수 함수 둘만** 오려 낸다.
+  // (닫는 `}`가 열 0에 서는 것이 이 오려내기의 전제다 — 그 관례가 깨지면 여기서 드러난다.)
+  const cutFn = (name) => {
+    const m = new RegExp(String.raw`^export function ${name}\([\s\S]*?\n\}`, 'm').exec(home);
+    assert.ok(m, `homeView.jsx가 ${name}를 export 한다`);
+    return m[0];
+  };
+  const dir = mkdtempSync(join(tmpdir(), 'v2home-'));
+  const hf = join(dir, 'home.mjs');
+  writeFileSync(hf, `const kstToday = () => '2026-09-14';\n${cutFn('pickService')}\n${cutFn('homeWorshipLabel')}\n`);
+  const { pickService, homeWorshipLabel } = await import(pathToFileURL(hf).href);
+
+  // ① 홈에 서는 주보 — **발행본 중 가장 최근 날짜**(앞으로 올 것도 고른다)
+  const list = [
+    { id: 'a', status: 'published', service_date: '2026-08-30' },
+    { id: 'b', status: 'published', service_date: '2026-09-06' },
+    { id: 'c', status: 'draft', service_date: '2026-09-20' },
+    { id: 'd', status: 'published', service_date: '2026-09-20' },
+    { id: 'e', status: 'published', service_date: '' },
+  ];
+  assert.strictEqual(pickService(list)?.id, 'd', '앞으로 올 발행본이 있으면 그것이 가장 최근이다');
+  assert.strictEqual(pickService(list.filter(s => s.id !== 'd'))?.id, 'b',
+    '앞으로 올 발행본이 없으면 지난 발행본 중 가장 최근');
+  assert.strictEqual(pickService([list[2]]), null,
+    '작성 중인 주보는 홈에 오르지 않는다(사용자 결정 2026-09-14) — 카드가 아예 서지 않는다');
+  assert.strictEqual(pickService([list[4]]), null, '날짜가 없거나 모양이 깨진 행은 세지 않는다');
+  assert.strictEqual(pickService([]), null);
+  assert.strictEqual(pickService(), null);
+
+  // ② 카드 라벨 셋 — 주의 시작은 **월요일**이고 오늘은 한국 시간이다.
+  // 2026-09-14(월) ~ 2026-09-20(일)이 '이번 주'다. 양 끝을 다 짚는다.
+  const L = (iso, today) => homeWorshipLabel(iso, today);
+  assert.strictEqual(L('2026-09-14', '2026-09-16'), '이번 주 예배', '주의 첫날(월)');
+  assert.strictEqual(L('2026-09-20', '2026-09-16'), '이번 주 예배', '주의 끝날(일) — 다가오는 주일이 이번 주다');
+  assert.strictEqual(L('2026-09-13', '2026-09-16'), '지난 예배', '하루 앞(지난 일요일)');
+  assert.strictEqual(L('2026-09-21', '2026-09-16'), '다음 주 예배', '하루 뒤(다음 월요일)');
+  assert.strictEqual(L('2026-10-04', '2026-09-16'), '다음 주 예배', '두 주 뒤라도 아직 안 온 예배다');
+  // 오늘이 주의 양 끝일 때도 같은 주 경계를 본다
+  assert.strictEqual(L('2026-09-20', '2026-09-14'), '이번 주 예배', '월요일에 보면 그 주 주일은 이번 주');
+  assert.strictEqual(L('2026-09-20', '2026-09-20'), '이번 주 예배', '주일 당일도 이번 주');
+  assert.strictEqual(L('2026-09-20', '2026-09-21'), '지난 예배', '월요일이 되면 어제 주일은 지난 예배');
+  assert.strictEqual(L('bad', '2026-09-16'), '', '못 읽는 날짜에는 아무 말도 하지 않는다');
+  assert.strictEqual(L('2026-09-16', 'bad'), '');
+
+  // ③ 호칭 여섯 갈래 — 교역자 · 부장 · 형제 · 자매 · 아직 비어 있음 · 명단 밖
+  const strip = (t) => t.replace(/^import \{[^}]*\} from '\.\/(supabaseClient|cloud|image)\.js';\s*$/gm, '');
+  const pf = join(dir, 'people.mjs');
+  writeFileSync(pf, strip(src('../src/services/people.js')));
+  const { honorific, honorificsOf, HONORIFIC } = await import(pathToFileURL(pf).href);
+  assert.deepStrictEqual(HONORIFIC,
+    { pastor: '전도사님', director: '부장님', brother: '형제', sister: '자매', youth: '청년' });
+  assert.strictEqual(honorific('임성빈', { isPastor: true, gender: 'f' }), '임성빈 전도사님',
+    '교역자가 성별보다 먼저다');
+  assert.strictEqual(honorific('신효진', { roles: ['director'], gender: 'f' }), '신효진 부장님',
+    '그 해 부장이 성별보다 먼저다');
+  assert.strictEqual(honorific('문진우', { gender: 'm' }), '문진우 형제');
+  assert.strictEqual(honorific('신효진', { gender: 'f' }), '신효진 자매');
+  assert.strictEqual(honorific('노준석', { gender: null, roles: [] }), '노준석 청년',
+    '성별이 아직 비어 있으면 예전처럼 청년이다(0064는 nullable — 53명을 손으로 채우는 중)');
+  assert.strictEqual(honorific('한상록 강사님', null), '한상록 강사님',
+    '명단에 없는 객원은 적은 글자 그대로');
+  assert.strictEqual(honorific('조준환', { roles: ['lead_team'], gender: 'm' }), '조준환 형제',
+    '부장 말고 다른 직분은 성별 호칭을 막지 않는다');
+  // 한 벌(honorificsOf)도 gender를 싣는다 — 안 실으면 조용히 전부 '청년'이 된다
+  const nameOf = honorificsOf(
+    [{ id: 'p1', name: '임성빈', is_pastor: true, gender: 'm' },
+      { id: 'p2', name: '신효진', gender: 'f' },
+      { id: 'p3', name: '말감이', roster_name: '임재훈', gender: 'm' },
+      { id: 'p4', name: '아직' }],
+    [{ person_id: 'p2', year: 2026, role: 'director' }],
+  );
+  assert.strictEqual(nameOf('임성빈'), '임성빈 전도사님');
+  assert.strictEqual(nameOf('신효진'), '신효진 부장님');
+  assert.strictEqual(nameOf('임재훈'), '임재훈 형제', '명단에 적힌 이름으로 찾아도 성별이 붙는다');
+  assert.strictEqual(nameOf('아직'), '아직 청년');
+
+  // ④ 배선 — 함수가 맞아도 화면이 안 부르면 그대로다
+  assert.ok(/gender/.test(/\.select\('id, name[^']*'\)/.exec(src('../src/services/people.js'))?.[0] || ''),
+    'fetchPeople의 select에 gender가 있다 — 빠지면 화면이 조용히 전부 청년이 된다');
+  assert.ok(/label=\{homeWorshipLabel\(church\.service\.service_date, day\)\}/.test(home),
+    '홈 예배 카드의 머리 글자는 주보 날짜가 정한다');
+  assert.ok(!/label="돌아오는 주 예배"/.test(home), "'돌아오는 주 예배' 고정 문구는 사라졌다");
+  assert.ok(!/home-worship-draft/.test(home),
+    '발행본만 오르므로 카드 안의 작성 중 표시는 죽은 코드다 — 같이 걷었다');
+  assert.ok(/church\.service\.preacher/.test(home), '메타 줄 끝은 설교자다');
+  assert.ok(!/담당자 \$\{church\.service\.roles/.test(home) && !/찬양 \$\{church\.service\.songs/.test(home),
+    '담당자 수·찬양 수 도막은 홈에서 뺐다(사용자 결정 2026-09-14)');
+  const ros = src('../src/components/roster.jsx');
+  assert.ok(/on\.gender\(person, person\.gender === g \? null : g\)/.test(ros),
+    '켠 성별 칩을 다시 누르면 비운다(null) — 잘못 눌렀을 때 돌아갈 길');
+  assert.ok(/<PanelRow label="성별">/.test(ros) && /GENDER_STYLE\[g\]/.test(ros),
+    '성별은 직분과 같은 Chip·같은 줄 모양이고 색은 토큰이다');
+  assert.ok(!/bg-(red|blue|pink|green)-\d{3}/.test(ros), '색은 토큰만 쓴다(Tailwind 기본 팔레트 금지)');
+  assert.ok(/소속 <span/.test(ros) && !/소속 팀 </.test(ros), "명단 폼의 라벨은 '소속'이다");
+  const rsvc = src('../src/services/roster.js');
+  assert.ok(/export async function setGender/.test(rsvc) && /gender: value/.test(rsvc),
+    'roster.js가 성별 쓰기 길을 가진다');
+  assert.ok(/const COLS = 'id, name, birthday, teams, gender,/.test(rsvc),
+    '쓰고 돌려받는 칸에도 gender가 있다');
+  const mem = src('../src/views/membersView.jsx');
+  assert.ok(/gender: \(p, next\) => write\(p\.id, \(\) => roster\.setGender\(p\.id, next\)/.test(mem),
+    '멤버 화면의 쓰기 껍데기(write)를 그대로 탄다 — busy·실패 토스트가 직분과 같다');
+  assert.ok(/patchPerson\(p\.id, \{ gender: next \}\)/.test(mem),
+    '성공하면 그 줄만 갈아 끼운다(putBook이 예배·모임 캐시를 비운다)');
+  console.log('PASS  홈 예배 카드 · 형제/자매 호칭 43가지');
+}
+
+// ── 성경 읽기의 최근 검색어 (word.pushRecentSearch · removeRecentSearch · 0065) ──
+// 사용자 요구(2026-09-14): "검색어 클릭 시 바로 검색 실행, 삭제 기능 포함. 사용자당 최대
+// 30개 노출, 가장 최근 검색어가 최상단, 30개 넘어가면 가장 오래된 것 자동으로 삭제."
+// 상한·중복 제거·자르기는 **클라이언트가 한다**(0065 머리말) — 그 규칙이 한 함수에 있는지,
+// 그리고 화면이 그 함수를 부르는지를 못 박는다.
+// 되돌리기 검사(§3-5): `...rows.filter(r => r.q !== text)`를 `...rows`로 바꾸면 ①이,
+// `.slice(0, RECENT_SEARCH_MAX)`를 지우면 ③이, `if (!text) return rows;`를 지우면 ④가,
+// `.trim()`을 지우면 ④-b가, removeRecentSearch의 filter를 지우면 ⑤가 깨진다(다섯 다 확인).
+{
+  const src = readFileSync(new URL('../src/services/word.js', import.meta.url), 'utf8')
+    .replace(/import \{ supabase, myUid \} from '\.\/supabaseClient\.js';/,
+      'const supabase = null; const myUid = async () => null;');
+  const dir = mkdtempSync(join(tmpdir(), 'wordrec-'));
+  const f = join(dir, 'word.mjs');
+  writeFileSync(f, src);
+  const { pushRecentSearch, removeRecentSearch, RECENT_SEARCH_MAX } = await import(pathToFileURL(f).href);
+
+  assert.strictEqual(RECENT_SEARCH_MAX, 30, '사용자당 30개');
+
+  // ① 같은 검색어를 다시 치면 줄이 쌓이지 않고 맨 위로 올라간다(시각만 새로)
+  let list = pushRecentSearch([], '사사기', 't1');
+  list = pushRecentSearch(list, '사랑', 't2');
+  list = pushRecentSearch(list, '사사기', 't3');
+  assert.strictEqual(list.length, 2, '같은 검색어가 두 줄이 되지 않는다');
+  assert.deepStrictEqual(list.map(r => r.q), ['사사기', '사랑'], '가장 최근 검색어가 최상단');
+  assert.strictEqual(list[0].at, 't3', '줄을 새로 쌓지 않고 시각만 간다');
+
+  // ② 새 검색어는 언제나 맨 앞
+  assert.strictEqual(pushRecentSearch(list, '요나', 't4')[0].q, '요나', '새 검색어는 언제나 맨 앞');
+
+  // ③ 31번째에서 가장 오래된 것이 빠진다
+  let many = [];
+  for (let i = 1; i <= 31; i++) many = pushRecentSearch(many, `말${i}`, `t${i}`);
+  assert.strictEqual(many.length, 30, '상한 30을 넘지 않는다');
+  assert.strictEqual(many[0].q, '말31', '맨 위는 방금 친 것');
+  assert.strictEqual(many[29].q, '말2', '가장 오래된 말1이 뒤에서 빠졌다');
+  assert.ok(!many.some(r => r.q === '말1'), '빠진 것은 목록에 없다');
+
+  // ④ 빈 글자 · 앞뒤 공백
+  assert.deepStrictEqual(pushRecentSearch(list, '   ', 't5'), list, '공백뿐인 검색어는 남기지 않는다');
+  assert.deepStrictEqual(pushRecentSearch(list, '', 't5'), list, '빈 글자는 남기지 않는다');
+  const trimmed = pushRecentSearch(list, '  사랑  ', 't6');
+  assert.strictEqual(trimmed[0].q, '사랑', '앞뒤 공백은 다듬는다');
+  assert.strictEqual(trimmed.length, 2, '다듬은 뒤 같은 말이면 쌓이지 않고 올라간다');
+
+  // ⑤ 삭제도 순수 함수 — 견주는 기준은 남길 때와 같다
+  assert.deepStrictEqual(removeRecentSearch(list, ' 사랑 ').map(r => r.q), ['사사기'],
+    '삭제도 다듬은 글자로 견준다');
+  assert.deepStrictEqual(removeRecentSearch(list, '없는말').map(r => r.q), ['사사기', '사랑'],
+    '없는 것을 지워도 목록은 그대로');
+
+  // ⑥ 모양이 깨진 옛 값은 걸러진다(화면이 빈 줄을 그리지 않게)
+  assert.deepStrictEqual(pushRecentSearch([{ q: '  ' }, null, 'x', { q: '요한', at: 5 }], '눅', 'z'),
+    [{ q: '눅', at: 'z' }, { q: '요한', at: '5' }], '모양이 깨진 옛 값은 걸러진다');
+
+  // 배선 — 순수 함수만 맞아도 화면이 안 부르면 그대로다
+  const bible = readFileSync(new URL('../src/components/wordBible.jsx', import.meta.url), 'utf8');
+  assert.strictEqual((bible.match(/pushRecentSearch\(/g) || []).length, 1,
+    '검색어를 남기는 자리는 runSearch 하나다(글자를 칠 때마다 남기면 세 줄이 쌓인다)');
+  assert.ok(/const pickRecent = \(q\) => \{[^}]*runSearch\(q\);/.test(bible),
+    '최근 검색어를 누르면 지금 검색을 시작하는 그 길로 간다');
+  assert.ok(/removeRecentSearch\(state\.recentSearches, q\)/.test(bible), '줄마다 지울 수 있다');
+  assert.ok(/const recentOpen = focused && !typed && recent\.length > 0;/.test(bible),
+    '검색어를 비운 채 칸에 들어왔을 때만 목록이 선다');
+  // 판이 떠 있는 동안 칸 안 안내 문구는 첫 줄에 멎는다(사용자 결정 2026-09-14) —
+  // 같은 `recentOpen` 하나를 봐야 판이 열린 순간과 문구가 멎는 순간이 어긋나지 않는다
+  assert.ok(/hints=\{recentOpen \? hints\.slice\(0, 1\) : hints\}/.test(bible),
+    '판이 떠 있는 동안 안내 문구가 계속 갈아탄다');
+  assert.ok(/onMouseDown=\{e => e\.preventDefault\(\)\}/.test(bible),
+    '누르는 순간 칸이 포커스를 잃어 목록이 사라지지 않는다');
+
+  // 저장 자리는 bible_state 한 행이다(0065) — 새 왕복을 만들지 않는다
+  assert.ok(/\.select\('last_ref, bookmarks, highlights, recent_searches'\)/.test(src),
+    '읽기는 bible_state를 읽던 그 한 벌에 얹혀 있다');
+  assert.ok(/recent_searches: recentRows\(next\.recentSearches\)/.test(src),
+    '쓰기도 그 upsert 한 벌이다');
+  assert.strictEqual((src.match(/from\('bible_state'\)/g) || []).length, 2,
+    'bible_state를 오가는 왕복은 읽기·쓰기 둘뿐이다');
+
+  console.log('PASS  성경 읽기 최근 검색어 (0065) 21가지');
+}
+
+// ── 9차 개선의 마이그레이션 셋 (0064 · 0065 · 0066) ─────────────────────────
+// 파일이 무엇을 하는지, 무엇을 **안 하는지**, 되돌리는 SQL이 맨 아래 주석에 있는지를
+// 본다(0062 묶음과 같은 짜임 · HANDOFF §5). 라이브 DB는 검사가 못 보므로 여기서는
+// 파일만 본다 — 적용 결과는 사람이 psql로 눈으로 확인한다(§3-3).
+{
+  const mig = (n) => readFileSync(new URL(`../supabase/migrations/${n}`, import.meta.url), 'utf8');
+
+  // 0064 — people.gender. **nullable이어야 한다**: not null + 기본값 '형제'로 백필하면
+  // 고치기 전까지 자매를 형제라고 부른다(사용자 결정 2026-09-14는 '미입력 = 청년'이다).
+  const m64 = mig('0064_people_gender.sql');
+  assert.ok(/alter table public\.people add column if not exists gender text;/.test(m64),
+    '0064는 people에 gender를 더한다');
+  // 주석에는 'not null'이 말로 나온다(왜 안 쓰는지 적어 뒀다) — **SQL 줄만** 본다
+  const ddl = (t) => t.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  assert.ok(!/not null/i.test(ddl(m64)), "0064의 gender는 nullable이다(미입력이 '청년'으로 남는 근거)");
+  assert.ok(/check \(gender is null or gender in \('m', 'f'\)\)/.test(m64),
+    "값은 'm'·'f' 둘뿐이다(화면 글자는 services/people.js의 HONORIFIC이 정한다)");
+  assert.ok(!/create policy|drop policy/.test(m64), '0064는 정책을 건드리지 않는다(행 단위라 그대로다)');
+  assert.ok(/--\s*alter table public\.people drop column if exists gender;/.test(m64),
+    '0064의 되돌리는 SQL이 맨 아래 주석에 있다');
+
+  // 0065 — bible_state.recent_searches. 상한 30·중복 제거는 **클라이언트가** 한다
+  // (위 '최근 검색어' 묶음이 그 규칙을 본다) — 여기에 트리거를 두면 규칙이 두 곳으로 갈린다.
+  const m65 = mig('0065_bible_recent_searches.sql');
+  assert.ok(/add column if not exists recent_searches jsonb not null default '\[\]'/.test(m65),
+    '0065는 bible_state에 recent_searches를 더한다');
+  assert.ok(!/create trigger|create policy|drop policy/.test(m65),
+    '0065는 트리거도 정책도 만들지 않는다(자르는 규칙은 services/word.js 한 곳)');
+  assert.ok(/--\s*alter table public\.bible_state drop column if exists recent_searches;/.test(m65),
+    '0065의 되돌리는 SQL이 맨 아래 주석에 있다');
+
+  // 0066 — 개인 표 셋의 기본값을 정책과 같은 함수로. **'누가 했나' 칸은 건드리지 않는다**
+  // (0059가 일부러 안 옮긴 자리다 — 그 순간 그 계정이 한 일은 사실이다).
+  const m66 = mig('0066_personal_tables_default_effective_uid.sql');
+  for (const t of ['service_notes', 'qt_entries', 'bible_state']) {
+    assert.ok(new RegExp(`alter table public\\.${t}\\s+alter column profile_id set default public\\.effective_uid\\(\\);`).test(m66),
+      `0066이 ${t}.profile_id의 기본값을 옮긴다`);
+  }
+  for (const t of ['activity', 'comments', 'files', 'cards', 'resource_links', 'sun_guides', 'projects']) {
+    assert.ok(!new RegExp(`alter table public\\.${t} `).test(m66),
+      `0066은 ${t}을 건드리지 않는다('누가 했나' 칸은 auth.uid() 그대로다 — 0059·0063)`);
+  }
+  assert.ok(!/create policy|drop policy/.test(m66), '0066은 정책을 건드리지 않는다');
+  assert.ok(/--\s*alter table public\.bible_state\s+alter column profile_id set default auth\.uid\(\);/.test(m66),
+    '0066의 되돌리는 SQL이 맨 아래 주석에 있다');
+
+  console.log('PASS  9차 마이그레이션 0064·0065·0066 20가지');
 }

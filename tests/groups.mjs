@@ -927,7 +927,8 @@ const noteMd = await ev(`(() => {
   const b = document.querySelector('.mysun-note-sheet');
   if (!b) return { err: 'no-sheet' };
   return { mast: !!b.querySelector('.paper-mast'), labels: [...b.querySelectorAll('.paper-row-label')].map(x => x.textContent.trim()),
-    strong: b.querySelectorAll('strong').length, bullet: b.querySelectorAll('.paper-bullet').length, raw: b.innerText,
+    // 2026-09-14부터 불릿은 en대시 흉내(.paper-bullet)가 아니라 진짜 목록이다
+    strong: b.querySelectorAll('strong').length, bullet: b.querySelectorAll('ul.paper-bullets > li').length, raw: b.innerText,
     // 종이 머리 — 설교 제목과 **본문 구절**(services/groups.js가 같이 실어 온다)
     title: (b.querySelector('.paper-ref-title') || {}).textContent || '',
     ref: (b.querySelector('.paper-ref') || {}).textContent || '' };

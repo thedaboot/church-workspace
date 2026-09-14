@@ -118,7 +118,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 
 ### 마이그레이션
 
-`supabase/migrations/`를 순서대로 적용합니다. **0001~0062는 전부 라이브 DB에 적용되어
+`supabase/migrations/`를 순서대로 적용합니다. **0001~0066은 전부 라이브 DB에 적용되어
 있습니다**(적용 방법과 원장 주의사항은 HANDOFF §5).
 
 | 파일 | 내용 | 적용 |
@@ -186,6 +186,9 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0061_effective_uid` | 합친 계정으로 들어와도 그 사람 — 승인·명단·개인 표 정책이 `effective_uid()`를 본다 | ✅ |
 | `0062_qt_title` | `qt_entries.title` — 묵상 노트의 제목(종이 머리에 구절 위로 선다). 정책은 행 단위라 그대로 | ✅ |
 | `0063_effective_uid_rest` | 0061이 남긴 나머지 자리 — 알림·삭제 자격·반응·푸시 구독·내 정보 정책과 `same_sun`·`is_pastor`·`touch_last_seen` | ✅ |
+| `0064_people_gender` | `people.gender`(`m`/`f`, nullable) — 주보·홈의 호칭이 `OOO 청년`에서 `OOO 형제/자매`로. 비어 있으면 그대로 `청년` | ✅ |
+| `0065_bible_recent_searches` | `bible_state.recent_searches` — 성경 읽기 최근 검색어(최신이 앞). 상한 30·중복 제거는 `services/word.js`가 한다 | ✅ |
+| `0066_personal_tables_default_effective_uid` | 개인 표 셋(`service_notes`·`qt_entries`·`bible_state`)의 `profile_id` 기본값도 `effective_uid()`로 — 정책과 어긋나 합친 계정만 막히던 덫을 미리 닫는다 | ✅ |
 
 ## 딥링크 · 공유 · 환경변수
 

@@ -922,15 +922,27 @@ check('확대는 우리가 그리는 갈래에만 있고 PDF는 다시 그린다
   const html = read('index.html');
   assert.match(preview, /const ZOOM_KINDS = new Set\(\['image', 'pdf'\]\)/,
     '확대 갈래 목록이 없다(구글 틀·오피스 뷰어에는 붙이지 않는다 — 안쪽에 손댈 수 없다)');
-  // '화면 가득'은 !isMobile 안이지만 확대 줄은 **폰에도 보여야 한다** — 거기서는 이것뿐이다.
-  const bar = preview.slice(preview.indexOf('{canZoom && ('), preview.indexOf('{!isMobile && ('));
-  assert.ok(bar && !/isMobile/.test(bar), '확대 줄이 폰에서 사라진다 — 폰에는 키울 다른 길이 없다');
+  // 머리줄의 `－ 100% ＋` 버튼은 걷었다(사용자 결정 2026-09-14 — "150%, 200% 붙이지 말고
+  // 손가락으로 펴고, 마우스로 휠로 펼 수 있게끔"). 배율은 연속이고 키우는 길은 셋이다 —
+  // 손가락 오므리기 · 컨트롤/⌘+휠 · 두 번 누르기.
+  assert.ok(!/\{canZoom && \(/.test(preview), '머리줄 확대 버튼이 되살아났다(사용자가 뺀 것이다)');
+  assert.match(preview, /const ZOOM_MIN = 1;[\s\S]{0,600}const ZOOM_MAX = 3;/, '배율 상·하한이 없다');
+  // **안드로이드에는 gesture*가 없다** — 두 손가락 사이 거리를 우리가 직접 재야 한다.
+  assert.match(preview, /e\.touches\.length === 2/, '안드로이드에서 손가락으로 확대할 길이 없다');
+  assert.match(preview, /addEventListener\('touchmove', onTouchMove, opt\)/,
+    'touchmove가 passive라 preventDefault가 안 먹는다');
+  // 사파리는 터치와 gesture를 둘 다 준다 — 한쪽이 손을 떼야 배율이 두 번 걸리지 않는다
+  assert.match(preview, /if \(gestureRef\.current\) return;/, '사파리에서 배율이 두 번 적용된다');
+  // 데스크톱은 컨트롤/⌘+휠만 배율이다 — 그냥 휠은 스크롤이어야 긴 PDF를 읽는다
+  assert.match(preview, /if \(!e\.ctrlKey && !e\.metaKey\) return;/, '그냥 휠까지 확대로 먹는다');
   // 파일을 바꾸면 배율이 돌아온다(앞 사진을 3배로 보던 채로 다음 사진이 열리면 안 된다)
-  assert.match(preview, /setBlobSrc\(null\); setZoom\(1\);/, '사진을 넘길 때 배율이 남는다');
+  assert.match(preview, /zoomRef\.current = ZOOM_MIN; setZoom\(ZOOM_MIN\);/, '사진을 넘길 때 배율이 남는다');
   // PDF는 CSS로 늘리지 않고 그 배율로 **다시 그린다** — 대신 실제 픽셀에 상한이 있다
   assert.match(pdfview, /const MAX_CANVAS_PX_W = 3000;/, '캔버스 픽셀 상한이 없다(확대에서 메모리가 터진다)');
-  assert.match(pdfview, /\(\(host\.clientWidth \|\| boxW\) - 16\) \* zoom/, 'PDF가 배율대로 다시 그려지지 않는다');
-  assert.match(pdfview, /\}, \[blob, src, boxW, zoom\]\);/, '배율을 바꿔도 다시 그리지 않는다');
+  assert.match(pdfview, /\(\(host\.clientWidth \|\| boxW\) - 16\) \* drawZoom/, 'PDF가 배율대로 다시 그려지지 않는다');
+  assert.match(pdfview, /\}, \[blob, src, boxW, drawZoom\]\);/, '배율을 바꿔도 다시 그리지 않는다');
+  // 연속 배율이라 **손이 멎은 뒤에** 다시 그린다 — 따라가며 50쪽을 매번 그리면 폰이 멈춘다
+  assert.match(pdfview, /const ZOOM_SETTLE = \d+;/, 'PDF가 손가락을 따라 매번 다시 그려진다');
   // 이 함정이 사라지면 확대 줄의 존재 이유 절반이 없어진다 — 값이 바뀌면 여기서 알린다
   assert.match(html, /maximum-scale=1\.0/, 'viewport의 maximum-scale이 바뀌었다 — §6-29-z-13을 다시 보세요');
 });
@@ -968,7 +980,7 @@ check('두 번 눌러 확대하는 창은 브라우저 확대를 끊는다', () 
     'tap-zoom-lock이 더블탭 확대를 안 끊는다');
   // 두 번 눌러 확대하는 자리(사진)가 이 창 안에 있으므로 창 전체에 건다
   assert.match(preview, /tap-zoom-lock bg-canvas/, '미리보기 창에 tap-zoom-lock이 없다');
-  assert.match(preview, /onDoubleClick=\{\(\) => setZoom/, '두 번 눌러 확대가 사라졌다');
+  assert.match(preview, /onDoubleClick=\{\(e\) => zoomTo\(/, '두 번 눌러 확대가 사라졌다');
 
   // 손가락으로 오므리는 것도 **우리 배율로 받는다**(사파리 전용 gesture*).
   // iOS는 maximum-scale을 무시해 페이지 자체가 확대되고, 그러면 fixed로 깔린 이 창이
