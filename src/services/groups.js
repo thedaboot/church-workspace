@@ -654,6 +654,33 @@ export async function saveMeetingAttendance(meetingId, ids) {
   if (error) throw error;
 }
 
+// 모임 일정 삭제 (사용자 요청 2026-09-14 — "작성자, 마스터, 동아리장, 관리자만").
+//
+// **마이그레이션이 없다**(사용자 결정 2026-09-14). 0035의 group_meetings_write가
+// `for all`이라 삭제도 이미 그 정책을 지나고, 조건은 `is_admin() 또는 그 모임이 달린
+// 그룹의 leader_person_id = my_person_id()`다. 모임을 **만드는** 화면도 같은
+// 자격(groupsClub의 manage)에게만 열려 있어서, '작성자'를 따로 더해도 자격자가 한 명도
+// 늘지 않는다 — 만든 사람을 적는 칸조차 없다.
+//
+// **지워진 행 수를 확인한다**(word.deleteEntryAsMaster와 같은 이유): 정책이 걸러 낸 행은
+// delete의 대상이 아니라서 오류가 나지 않는다. 그대로 두면 자격이 없는 사람에게 '지웠어요'가
+// 뜨고, 다시 읽어 온 목록에는 그 줄이 그대로 서 있다. 여기서 `.select()`는 안전하다 —
+// group_meetings_select는 승인 멤버 전부에게 열려 있어 방금 지운 행을 되읽을 수 있다.
+export async function deleteMeeting(meetingId) {
+  if (!supabase) {
+    guestSet('group_meetings', guestRows('group_meetings').filter(m => m.id !== meetingId));
+    return;
+  }
+  const { data, error } = await supabase.from('group_meetings')
+    .delete().eq('id', meetingId).select('id');
+  if (error) throw error;
+  if (!(data || []).length) {
+    const err = new Error(`group_meetings delete affected 0 rows (id=${meetingId})`);
+    err.human = '이미 지워졌거나 지울 자격이 없어요\n새로고침해주세요';   // errorText가 human을 먼저 본다
+    throw err;
+  }
+}
+
 // ── 모임 알림 (0053) ────────────────────────────────────────────────────────
 // 세 가지다: 신청(→ 동아리장) · 수락(→ 신청자) · 새 모임(→ 그 동아리 구성원).
 // 문구는 services/notifyText.js 한 벌이 정하고(club_apply·club_accepted·meeting_new),

@@ -7,6 +7,7 @@ import { AiService, aiEnabled } from '../services/ai.js';
 import {
   loadBibleState, saveBibleState, loadFontStep, saveFontStep,
   chapterKey, parseChapterKey, verseKey, parseVerseKey, bibleSearchStore,
+  pushRecentSearch, removeRecentSearch,
 } from '../services/word.js';
 import { showToast } from './Toast.jsx';
 import { readCache, writeCache } from '../services/cache.js';
@@ -35,6 +36,12 @@ import { Skeleton } from './media.jsx';
 // 시멘틱 서치가 가능하도록"). 낱말 그대로 찾는 것(위)과 뜻으로 찾는 것
 // (services/bibleSearch.js)이고, 결과 칸에 두 도막으로 선다. AI 쪽이 비거나 실패하면
 // 그 도막을 통째로 감춘다 — 왜 없는지 설명하는 줄을 붙이지 않는다(§8).
+//
+// **최근 검색어는 검색 칸에 딸린 판이다**(사용자 요청 2026-09-14 · 0065). 칸을 비운 채
+// 들어왔을 때만 서고, 한 줄을 누르면 그 말로 바로 검색이 돈다(runSearch 한 길). 쌓는
+// 자리도 runSearch 하나다 — 글자를 칠 때마다 남기면 '사'·'사사'·'사사기'가 세 줄이 된다.
+// 상한 30·중복 제거는 services/word.js의 pushRecentSearch가 하고, 저장 자리는
+// bible_state의 같은 행이다(이어읽기·북마크·형광펜과 한 벌로 읽고 쓴다).
 //
 // **목차 · 북마크 · 형광펜은 세 화면이다**(사용자 피드백 2026-09-02 4차 — "목차 화면에
 // 북마크·형광펜 목록이 같이 보인다"). 예전에는 넓은 화면에서 옆 칸(300px)에, 좁은
@@ -376,7 +383,7 @@ const paneIndex = (key) => PANES.findIndex(p => p[0] === key);
 
 // ── 성경 읽기 탭 ────────────────────────────────────────────────────────────
 // ── 상태 저장 · 형광펜 칠하기 — 리더(BibleTab)와 QT 본문(wordView QtPassage)이 같이 쓴다 ──
-const EMPTY_STATE = { lastRef: '', bookmarks: [], highlights: [] };
+const EMPTY_STATE = { lastRef: '', bookmarks: [], highlights: [], recentSearches: [] };
 
 // what을 주면 **못 남겼을 때 이유까지 말한다**(사용자 피드백 2026-09-03 — 예외 문구).
 // 예전에는 saveBibleState가 실패를 삼켜서, 클라우드에 안 남은 형광펜이 화면에는
@@ -530,6 +537,14 @@ export function BibleTab({ initialRef = '' }) {
   const [aiWait, setAiWait] = useState(false);
   const searchToken = useRef(0);
   const bodyRef = useRef(null);
+  // 최근 검색어 줄은 **검색어를 비운 채 칸에 들어왔을 때** 선다(0065)
+  const [focused, setFocused] = useState(false);
+  const inputRef = useRef(null);
+  // **bible_state가 도착한 뒤에만 검색어를 남긴다.** 검색 칸은 첫 진입 순간부터 눌리는데,
+  // 아직 안 읽어 온 상태로 update를 부르면 빈 북마크·형광펜이 그대로 서버에 덮인다
+  // (북마크·형광펜 버튼은 장을 펼쳐야 눌려서 이 위험이 검색 칸에만 있다). 그 짧은 사이에
+  // 친 말은 목록에 안 남을 뿐이고, 검색 자체는 그대로 돈다.
+  const stateArrived = useRef(false);
 
   // **장을 넘길 때 자리를 붙잡는다**(사용자 피드백 2026-09-03 — 본문이 비었다가 채워지며
   // 높이가 튀고 스크롤이 점프했다). QT가 하는 것과 같은 방식이다(wordView 머리말):
@@ -578,6 +593,7 @@ export function BibleTab({ initialRef = '' }) {
       // 기다리는 동안 칠한 형광펜·북마크는 덮지 않는다(useStateBox의 edited가 본다).
       // 이어읽기 자리(saved.lastRef)는 그래도 쓴다 — 아래는 '어느 장을 펼까'라 다른 값이다.
       adopt(saved);
+      stateArrived.current = true;
       setStep(loadFontStep());
       // 주보·QT에서 넘어온 구절이 먼저다. 없으면 마지막으로 읽던 자리로 이어간다.
       const fromRef = initialRef ? parseRef(initialRef, list) : null;
@@ -758,10 +774,23 @@ export function BibleTab({ initialRef = '' }) {
     setDir(0);
     setAiHits([]); setAiWait(false);
     if (!q) { setResults([]); setProgress(null); return; }
+    // 최근 검색어는 **여기 한 자리**에서만 쌓인다(0065) — 검색이 실제로 시작되는 곳이다.
+    // 글자를 칠 때(setTyped) 남기면 '사'·'사사'·'사사기'가 세 줄이 된다.
+    if (stateArrived.current) update({ ...state, recentSearches: pushRecentSearch(state.recentSearches, q) });
     // 둘을 **같이** 띄운다 — AI 답을 기다리느라 낱말 결과가 늦으면 안 된다
     runKeyword(q, token);
     runAi(q, token);
   };
+
+  // 최근 검색어 한 줄을 누르면 **지금 검색을 시작하는 그 길** 그대로다(runSearch).
+  // 칸의 글자도 같이 채운다 — 폼으로 냈을 때와 화면이 같아야 한다. 칸에서 손을 떼면
+  // 목록이 닫히고(focused) 폰에서는 키보드도 내려간다.
+  const pickRecent = (q) => { setTyped(q); inputRef.current?.blur(); runSearch(q); };
+  const dropRecent = (q) => update(
+    { ...state, recentSearches: removeRecentSearch(state.recentSearches, q) },
+    '최근 검색어를 지우지 못했어요',
+  );
+  const recent = state.recentSearches || [];
 
   const clearSearch = () => {
     searchToken.current++;
@@ -790,6 +819,9 @@ export function BibleTab({ initialRef = '' }) {
 
   // AI를 부를 수 있는 자리인지는 한 세션 안에서 바뀌지 않는다(!!supabase)
   const hints = useMemo(() => searchHints(aiEnabled()), []);
+  // 최근 검색어 판이 서는 조건 — **검색 칸 안 안내 문구의 회전도 이 값이 멈춘다**(아래
+  // SearchHint). 두 자리가 같은 값을 봐야 판이 열린 순간과 문구가 멎는 순간이 어긋나지 않는다.
+  const recentOpen = focused && !typed && recent.length > 0;
 
   // 북마크·형광펜 — 책으로 묶어 정경 순으로. 파싱이 안 되는 옛 값은 그룹에 못 들어가므로
   // 개수는 실제로 그린 줄로 센다
@@ -820,18 +852,51 @@ export function BibleTab({ initialRef = '' }) {
         >
           <Search size={14} className="shrink-0 text-fg-faint" />
           <input
+            ref={inputRef}
             value={typed} onChange={e => setTyped(e.target.value)}
+            onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
             /* 속성은 첫 줄로 고정하고 보이는 글자는 SearchHint가 돌린다(layout.jsx와 한 벌) */
             placeholder={BIBLE_HINTS[0]} aria-label={BIBLE_HINTS[0]}
             className="flex-1 min-w-0 bg-transparent text-[12.5px] text-fg placeholder:text-transparent outline-none"
           />
           {/* 왼쪽 여백은 아이콘 폭 그대로 — 패딩 10px + 아이콘 14px + 사이 6px */}
-          <SearchHint show={!typed && !query} left="1.875rem" size="text-[12.5px]" hints={hints} />
+          {/* 최근 검색어 판이 떠 있는 동안에는 **첫 줄에 고정**한다(사용자 결정 2026-09-14).
+              읽으려는 목록 바로 위에서 글자가 2초마다 갈아타면 어지럽다. 칸이 무엇을 적는
+              자리인지는 첫 줄 하나로 여전히 말한다. */}
+          <SearchHint show={!typed && !query} left="1.875rem" size="text-[12.5px]"
+            hints={recentOpen ? hints.slice(0, 1) : hints} />
           {(typed || query) && (
             <button type="button" onClick={clearSearch} aria-label="검색어 지우기"
               className="shrink-0 p-1 -mr-1 rounded text-fg-faint hover:text-fg transition-colors">
               <X size={13} />
             </button>
+          )}
+
+          {/* 최근 검색어 (0065) — 칸을 비운 채 들어왔을 때만 선다. 모양은 메인 검색창의
+              결과 판과 같은 한 벌이다(layout.jsx SearchBox).
+              **onMouseDown의 preventDefault가 이 판을 쓸 수 있게 만든다** — 없으면 칸이
+              먼저 포커스를 잃어 판이 사라지고 클릭이 허공에 떨어진다(누르는 순간 사라지는
+              목록이 된다). 터치에서도 브라우저가 click 앞에 mousedown을 보내므로 같다. */}
+          {recentOpen && (
+            <div
+              data-recent="" onMouseDown={e => e.preventDefault()}
+              className="absolute left-0 top-full z-50 mt-1 w-full max-h-72 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 animate-in fade-in zoom-in-95 duration-150"
+            >
+              <p className="px-2 pt-0.5 pb-1 text-[11px] font-bold text-fg-faint">최근 검색어</p>
+              {recent.map(r => (
+                <span key={r.q} className="flex items-center gap-0.5">
+                  <button type="button" data-recent-q={r.q} onClick={() => pickRecent(r.q)}
+                    className="flex-1 min-w-0 truncate text-left px-2 py-1.5 rounded-md text-[12.5px] text-fg hover:bg-surface-hover transition-colors">
+                    {r.q}
+                  </button>
+                  <button type="button" data-recent-drop="" onClick={() => dropRecent(r.q)}
+                    aria-label={`최근 검색어에서 ${r.q} 지우기`}
+                    className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
           )}
         </form>
         <FontSteps step={step} onChange={n => { setStep(n); saveFontStep(n); }} />

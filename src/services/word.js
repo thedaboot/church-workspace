@@ -84,7 +84,7 @@ const LS = {
   // 사람이 나 하나뿐이라 나눔 피드에 **남의 줄이 아예 없었고**, 마스터의 삭제 같은
   // '남의 줄'에 붙는 것을 브라우저 스위트가 볼 수 없었다(tests/word.mjs).
   shared: 'word_qt_shared',       // { 'YYYY-MM-DD': [{ id, name, avatarUrl?, body }] }
-  bible: 'word_bible_state',      // { lastRef, bookmarks }
+  bible: 'word_bible_state',      // { lastRef, bookmarks, highlights, recentSearches }
   font: 'word_bible_font',        // 0 | 1 | 2
 };
 const lsGet = (key, fallback) => {
@@ -247,12 +247,41 @@ export async function fetchMyEntryDates(from, to) {
   return (data ?? []).map(r => r.qt_date).sort();
 }
 
-// ── bible_state — 이어읽기 · 북마크 · 형광펜 ────────────────────────────────
+// ── bible_state — 이어읽기 · 북마크 · 형광펜 · 최근 검색어 ──────────────────
 // 로그인이면 DB, 게스트면 localStorage. 어느 쪽이든 화면이 멈추면 안 되므로
 // 실패는 삼키고 마지막에 알던 값으로 간다.
 // highlights는 0038에서 붙은 칸이다 — 예전 행에는 없을 수 있으므로 배열인지 확인한다.
-const EMPTY_STATE = { lastRef: '', bookmarks: [], highlights: [] };
+const EMPTY_STATE = { lastRef: '', bookmarks: [], highlights: [], recentSearches: [] };
 const arr = (v) => (Array.isArray(v) ? v : []);
+
+// ── 최근 검색어 (0065 · 사용자 요청 2026-09-14) ─────────────────────────────
+// 모양은 `[{ q, at }, …]`이고 **최신이 앞**이다. 상한 30·중복 제거·오래된 것 버리기를
+// DB가 아니라 여기서 하는 이유는 0065 머리말에 있다 — 화면이 배열 전체를 들고 다시
+// 쓰는 구조라, 트리거를 두면 자르는 규칙이 두 곳으로 갈린다.
+//
+// 순수 함수로 떼어 둔다(§3-5) — `.js`라 노드에서 그대로 검사된다(tests/logcheck.mjs).
+export const RECENT_SEARCH_MAX = 30;
+
+// 들어온 값을 믿지 않는다. 옛 행·손으로 넣은 값이 섞이면 화면이 빈 줄을 그린다.
+const recentRows = (list) => arr(list)
+  .map(r => ({ q: String(r?.q ?? '').trim(), at: String(r?.at ?? '') }))
+  .filter(r => r.q);
+
+// **검색이 시작될 때 한 번** 부른다(글자를 칠 때마다 부르면 '사'·'사사'·'사사기'가
+// 세 줄로 쌓인다). 같은 검색어면 줄을 새로 쌓지 않고 **맨 위로 올리면서 시각만** 간다.
+export function pushRecentSearch(list, q, at = new Date().toISOString()) {
+  const rows = recentRows(list);
+  const text = String(q ?? '').trim();       // 앞뒤 공백은 다듬는다
+  if (!text) return rows;                    // 빈 글자는 남기지 않는다
+  return [{ q: text, at: String(at ?? '') }, ...rows.filter(r => r.q !== text)]
+    .slice(0, RECENT_SEARCH_MAX);            // 넘치면 **가장 오래된 것**이 뒤에서 빠진다
+}
+
+// 한 줄만 지운다. 비교 기준은 남길 때와 같다(다듬은 글자).
+export function removeRecentSearch(list, q) {
+  const text = String(q ?? '').trim();
+  return recentRows(list).filter(r => r.q !== text);
+}
 
 // 성경 상태의 로컬 자리는 **사용자별**이다(2026-09-06). 예전에는 'word_bible_state' 한 키라,
 // 한 기기에서 계정을 바꾸면 클라우드가 흔들리는 순간 폴백이 **앞사람의 북마크·형광펜**을
@@ -267,9 +296,12 @@ export async function loadBibleState() {
     uid = await myId();
     if (!uid) return { ...EMPTY_STATE };
     const { data, error } = await supabase.from('bible_state')
-      .select('last_ref, bookmarks, highlights').eq('profile_id', uid).maybeSingle();
+      .select('last_ref, bookmarks, highlights, recent_searches').eq('profile_id', uid).maybeSingle();
     if (error) throw error;
-    return { lastRef: data?.last_ref || '', bookmarks: arr(data?.bookmarks), highlights: arr(data?.highlights) };
+    return {
+      lastRef: data?.last_ref || '', bookmarks: arr(data?.bookmarks), highlights: arr(data?.highlights),
+      recentSearches: recentRows(data?.recent_searches),
+    };
   } catch {
     // 누구인지 모르면 폴백도 없다 — 모르는 채로 로컬을 읽으면 남의 값을 보여 준다
     return uid ? { ...EMPTY_STATE, ...lsGet(bibleKey(uid), EMPTY_STATE) } : { ...EMPTY_STATE };
@@ -291,6 +323,7 @@ export async function saveBibleState(next) {
       {
         profile_id: uid, last_ref: next.lastRef || null,
         bookmarks: arr(next.bookmarks), highlights: arr(next.highlights),
+        recent_searches: recentRows(next.recentSearches),   // 모양만 고른다 — 자르는 것은 pushRecentSearch 하나다
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'profile_id' },

@@ -17,7 +17,7 @@ import {
   fetchGroupPerms, fetchGroupsRoster, fetchApplications, fetchSunSharedNotes, fetchMeetings,
   createGroup, saveGroup, saveClubInfo, addMember, removeMember, moveMember, reorderClubs,
   applyToClub, cancelApplication, acceptApplication, declineApplication,
-  createMeeting, saveMeetingAttendance, setNoteShared,
+  createMeeting, saveMeetingAttendance, deleteMeeting, setNoteShared,
   notifyClubApply, notifyClubAccepted, notifyMeetingNew,
   groupPerms, mySun, myGroupIds, groupPeople, latestSunday, attendanceSunday,
   toggleAttendance, yearOptions,
@@ -407,6 +407,23 @@ export function GroupsView() {
     }
   }, [state, me]);
 
+  // 모임 일정 삭제 — 만들 때와 같은 결이다(모임은 캐시에 넣지 않으므로 dropCache도
+  // 한 벌 다시 읽기도 없다. 그 동아리의 모임만 다시 읽어 내 화면을 바로 맞춘다).
+  // group_meetings는 실시간 발행 목록에 일부러 빠져 있어(0049) 남의 화면은 다음 진입에
+  // 맞춰진다 — 여기서 실시간을 켜지 않는다.
+  const removeMeeting = useCallback(async (meeting) => {
+    try {
+      await deleteMeeting(meeting.id);
+      setMeetings(await fetchMeetings(meeting.group_id));
+      showToast('모임을 지웠어요');
+      return true;
+    } catch (e) {
+      console.error('[groups] 모임을 지우지 못했어요:', e);
+      showToast(failText('모임을 지우지 못했어요', e));
+      return false;
+    }
+  }, []);
+
   // 출석은 먼저 화면에 반영하고 실패하면 되돌린다(예배 출석과 같은 방식).
   const toggleMeeting = useCallback(async (meeting, personId) => {
     const before = Array.isArray(meeting.attendance) ? meeting.attendance : [];
@@ -642,7 +659,7 @@ export function GroupsView() {
           onCreateClub={newClub} onEditClub={editClub} onApply={apply} onCancelApply={cancelApply}
           onAccept={accept} onDecline={decline}
           onAddMember={addClubMember} onRemoveMember={dropClubMember} onReorder={reorderClubList}
-          onCreateMeeting={newMeeting} onToggleMeeting={toggleMeeting} />
+          onCreateMeeting={newMeeting} onToggleMeeting={toggleMeeting} onDeleteMeeting={removeMeeting} />
       )}
 
       {/* 지난 해를 처음 고르면 그 해 편성이 오는 동안 잠깐 비어 있다. 예전에는 그때

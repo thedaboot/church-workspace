@@ -69,7 +69,7 @@ const NAV_BACK = 'dc-nav dc-nav-back';
 export function ClubsPanel({
   clubs, people, members, apps, perms, openClub, meetings, creating, closingCreate, onCloseCreate,
   onOpen, onBack, onCreateClub, onEditClub, onApply, onCancelApply, onAccept, onDecline,
-  onAddMember, onRemoveMember, onReorder, onCreateMeeting, onToggleMeeting,
+  onAddMember, onRemoveMember, onReorder, onCreateMeeting, onToggleMeeting, onDeleteMeeting,
 }) {
   // 목록 → 상세는 앞으로, 상세 → 목록은 뒤로 미끄러진다(위 NAV_IN 주석).
   // **렌더 중에 정하지만 값이 바뀔 때만 간다** — App.jsx navRef와 같은 짜임이라
@@ -87,7 +87,8 @@ export function ClubsPanel({
         <ClubDetail club={openClub} people={people} members={members} apps={apps} perms={perms}
           meetings={meetings} onBack={onBack} onApply={onApply} onCancelApply={onCancelApply}
           onAccept={onAccept} onDecline={onDecline} onAddMember={onAddMember} onRemoveMember={onRemoveMember}
-          onEditClub={onEditClub} onCreateMeeting={onCreateMeeting} onToggleMeeting={onToggleMeeting} />
+          onEditClub={onEditClub} onCreateMeeting={onCreateMeeting} onToggleMeeting={onToggleMeeting}
+          onDeleteMeeting={onDeleteMeeting} />
       ) : (
         <ClubList clubs={clubs} people={people} members={members} apps={apps} perms={perms}
           creating={creating} closingCreate={closingCreate} onCloseCreate={onCloseCreate} onOpen={onOpen}
@@ -250,6 +251,7 @@ function ClubCard({ club, people, members, joined, pending, onOpen }) {
 function ClubDetail({
   club, people, members, apps, perms, meetings, onBack, onApply, onCancelApply,
   onAccept, onDecline, onAddMember, onRemoveMember, onEditClub, onCreateMeeting, onToggleMeeting,
+  onDeleteMeeting,
 }) {
   const [adding, setAdding] = useState(false);
   const [closingMeet, closeMeet] = useClosing();
@@ -476,7 +478,8 @@ function ClubDetail({
           {!manage && <SectionHead>모임</SectionHead>}
           <div className="space-y-2">
             {meetings.map(m => (
-              <MeetingRow key={m.id} meeting={m} list={list} manage={manage} onToggle={onToggleMeeting} />
+              <MeetingRow key={m.id} meeting={m} list={list} manage={manage}
+                onToggle={onToggleMeeting} onDelete={onDeleteMeeting} />
             ))}
           </div>
           {/* 이 빈 자리는 화면 한 판이 아니라 카드 아래에 딸린 구역이라 세로를 줄여
@@ -492,16 +495,33 @@ function ClubDetail({
 }
 
 // 모임 한 줄 — 날짜·제목과 사람 칩. 칩은 눌러서 출석을 켜고 끄고, 그 자리에서 저장된다.
-function MeetingRow({ meeting, list, manage, onToggle }) {
+//
+// **삭제는 만들 수 있는 사람의 것이다**(사용자 요청 2026-09-14 — 작성자·마스터·동아리장·
+// 관리자). manage가 곧 그 경계고 0035 group_meetings_write와 같은 줄이다(services/groups
+// deleteMeeting 주석). 확인은 ConfirmPopover 한 벌(§8), 자리는 줄 오른쪽 끝 — **늘 보인다**.
+// hover에서만 나타나게 하면 터치 기기에서는 기능이 없는 것처럼 보인다(§8).
+function MeetingRow({ meeting, list, manage, onToggle, onDelete }) {
   const present = useMemo(() => new Set(Array.isArray(meeting.attendance) ? meeting.attendance : []),
     [meeting.attendance]);
+  const when = formatServiceDate(meeting.meeting_date);
   return (
     <div className={`club-meeting dc-row p-3.5 ${CARD}`} style={CARD_STYLE}>
       <div className="flex flex-wrap items-baseline gap-x-2">
-        <span className="club-meeting-date text-[12.5px] font-bold text-fg">{formatServiceDate(meeting.meeting_date)}</span>
+        <span className="club-meeting-date text-[12.5px] font-bold text-fg">{when}</span>
         {meeting.title && <span className="text-[12px] text-fg-secondary break-words">{meeting.title}</span>}
         <span className="flex-1" />
         <span className="club-meeting-count text-[11.5px] text-fg-faint">{present.size}/{list.length}</span>
+        {manage && onDelete && (
+          <ConfirmPopover
+            className="inline-flex self-center"
+            message={`${when} 모임을 지울까요?\n출석 체크도 같이 지워져요.`}
+            confirmLabel="삭제" onConfirm={() => onDelete(meeting)}>
+            <button type="button" aria-label={`${when} 모임 지우기`}
+              className={`club-meet-drop ${ICON_BTN} p-1.5 hover:text-tag-red-fg`}>
+              <Trash2 size={13} />
+            </button>
+          </ConfirmPopover>
+        )}
       </div>
       <div className="mt-2.5 flex flex-wrap gap-1.5">
         {list.map(p => {
