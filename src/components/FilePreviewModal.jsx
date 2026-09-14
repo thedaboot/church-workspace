@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronRight, Maximize2, Minimize2, SquarePen, Plus, Minus } from 'lucide-react';
+import { X, ExternalLink, Download, FileQuestion, Loader2, ChevronLeft, ChevronRight, Maximize2, Minimize2, SquarePen } from 'lucide-react';
 import { RichText } from './RichText.jsx';
 import { getFileOpenUrl, getFileDownloadUrl, driveImageFullUrl, fetchDriveFileBlob } from '../services/cloud.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -56,13 +56,27 @@ const FRAME_KINDS = new Set(['office', 'drive', 'sheet', 'gdoc']);
 // 모바일에서 구글 문서 미리보기 틀에 주는 폭(위 gdoc 갈래 주석)
 const GDOC_MOBILE_W = 940;
 const FRAME_SETTLE = 260;
-// 확대 단계. **우리가 그리는 갈래(사진·PDF)에만** 있다 — 구글 문서·시트·슬라이드 틀은
+// 확대 배율. **우리가 그리는 갈래(사진·PDF)에만** 있다 — 구글 문서·시트·슬라이드 틀은
 // 구글이 자기 확대를 그려 주고, 오피스 뷰어도 마찬가지다(우리가 안쪽에 손댈 수 없다).
-// 사용자 결정 2026-09-13: "확대 버튼" — `index.html`의 `maximum-scale=1.0` 때문에
-// 안드로이드에서는 손가락 확대가 통째로 막혀 있어서, 폰에서 사진 하나 키울 길이 없었다.
-// 단계로 두는 이유는 PDF가 **그 배율로 다시 그리는** 것이기 때문이다(연속 배율이면
-// 미는 동안 내내 다시 그린다). 배율 1은 '칸에 맞춤'이다.
-const ZOOM_STEPS = [1, 1.5, 2, 3];
+//
+// 사용자 결정 2026-09-14: "150%, 200% 붙이지 말고 손가락으로 펴고, 마우스로 휠로 펼 수
+// 있게끔" — 계단(100·150·200·300)과 머리줄의 `－ 100% ＋` 버튼을 걷고 **연속 배율**로
+// 바꿨다. 키우는 길은 셋이다: 손가락 오므리기(아래 pinch) · 컨트롤/⌘+휠 · 두 번 누르기.
+// 배율 1은 '칸에 맞춤'이고 거기가 하한이다. 상한은 옛 계단의 맨 위(3배)를 그대로 둔다 —
+// PDF는 CSS로 늘리는 것이 아니라 **그 배율로 다시 그리는** 것이라(§6-29-z-13) 그 위로는
+// 캔버스가 감당하지 못한다(PdfView의 MAX_CANVAS_PX_W가 실제 픽셀을 한 번 더 막는다).
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 3;
+// 1 언저리는 **정확히 1로 붙인다.** 연속 배율에서는 1.0003 같은 값이 쉽게 남는데, 화면은
+// `zoom > 1`로 '확대됐는가'를 판정한다(통이 스크롤로 바뀌고 끌어서 밀기가 붙는다 ·
+// §6-29-z-16) — 손가락이 살짝 떨린 것만으로 그 모드가 깜빡이면 안 된다.
+const ZOOM_SNAP = 0.02;
+const clampZoom = (v) => (!Number.isFinite(v) || v <= ZOOM_MIN + ZOOM_SNAP ? ZOOM_MIN : Math.min(ZOOM_MAX, v));
+// 두 번 눌렀을 때 가는 배율(맞춤 ↔ 이것). 옛 계단에도 있던 그 2배다.
+const ZOOM_TAP = 2;
+// 휠 한 칸(deltaY 100)이 얼마나 키우나 — exp(100 × 0.0025) ≈ 1.28배. 트랙패드 오므리기는
+// deltaY가 한 자리라 저절로 잘게 따라온다(크롬·사파리가 `ctrlKey: true`인 wheel로 준다).
+const WHEEL_ZOOM_K = 0.0025;
 const ZOOM_KINDS = new Set(['image', 'pdf']);
 // Storage에 남은 옛 오피스 파일만 이 뷰어로 간다(드라이브 파일은 구글이 그린다)
 const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
@@ -123,13 +137,57 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   const [officeBlob, setOfficeBlob] = useState(null);
   // 창을 화면 가득 넓히기. 모바일은 원래 전체화면이라 버튼을 두지 않는다(태블릿부터 보인다).
   const [wide, setWide] = useState(false);
-  // 확대 배율(위 ZOOM_STEPS). 파일을 바꾸면 1로 돌아간다 — 앞 사진을 3배로 보고 있었다고
-  // 다음 사진도 3배로 열리면 무엇을 보고 있는지 알 수가 없다.
+  // 확대 배율(위 ZOOM_MIN·ZOOM_MAX). 파일을 바꾸면 1로 돌아간다 — 앞 사진을 3배로 보고
+  // 있었다고 다음 사진도 3배로 열리면 무엇을 보고 있는지 알 수가 없다.
   const [zoom, setZoom] = useState(1);
-  const zi = ZOOM_STEPS.indexOf(zoom);
   const canZoom = ZOOM_KINDS.has(kind);
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
+  // 확대가 일어나는 **스크롤 통**. 사진은 아래 'image' 갈래의 감싸개이고, PDF는 PdfView
+  // 안쪽이라 `onBox`로 받아 온다. 노드가 붙고 떨어지는 것을 효과가 알아야 해서(그때
+  // 손가락·휠 리스너를 다시 걸어야 한다) ref가 아니라 상태로 둔다.
+  const [zoomBox, setZoomBox] = useState(null);
+  // 배율을 바꾸는 동안 **화면의 한 점을 제자리에 붙잡아 둘** 스크롤 값. 내용 크기는
+  // 다시 그려진 뒤에야 바뀌므로 여기 담아 두고 아래 useLayoutEffect에서 적용한다.
+  const anchorRef = useRef(null);
+  // 사파리의 `gesture*`가 지금 이 손짓을 받고 있나 — 터치 길이 겹쳐서 두 번 적용되지
+  // 않게 하는 표시다(바로 아래 두 효과의 머리말).
+  const gestureRef = useRef(false);
+
+  // **배율을 바꾸되 (px, py) 화면 점은 제자리에 남긴다.**
+  // 손가락 가운데·커서 자리가 기준이어야 한다 — 좌상단 기준으로 키우면 보던 자리가
+  // 화면 밖으로 달아나서, 키울수록 엉뚱한 데를 보게 된다.
+  // 통 안에서의 그 점은 `(scroll + offset)`이고 내용이 k배가 되면 `(scroll + offset) × k`가
+  // 되니, 새 스크롤은 그 값에서 다시 offset을 뺀 만큼이다.
+  const zoomTo = useCallback((next, px = null, py = null) => {
+    const z0 = zoomRef.current;
+    const z1 = clampZoom(next);
+    if (z1 === z0) return;
+    if (zoomBox && px != null) {
+      const r = zoomBox.getBoundingClientRect();
+      const pend = anchorRef.current;
+      // 한 프레임 안에 두 번 이상 불리면(손가락이 빠를 때) 앞의 것이 아직 화면에 적용되기
+      // 전이다. 그때 스크롤을 다시 읽으면 옮기지도 않은 자리를 기준으로 또 계산해서
+      // **덜 따라간다** — 배율만 곱해 이어 간다(기준점이 거의 그대로면 결과가 같다).
+      anchorRef.current = pend
+        ? { ...pend, k: pend.k * (z1 / z0), ox: px - r.left, oy: py - r.top }
+        : { k: z1 / z0, ox: px - r.left, oy: py - r.top, sl: zoomBox.scrollLeft, st: zoomBox.scrollTop };
+    }
+    // 한 손짓 안에서 연달아 불린다 — 다음 계산이 아직 안 그려진 새 값을 봐야 한다.
+    zoomRef.current = z1;
+    setZoom(z1);
+  }, [zoomBox]);
+
+  // 내용 크기가 정해지는 그 순간에 스크롤을 옮긴다. 그림은 이 커밋에서 바로 커지고,
+  // PDF는 **자식의 layout effect가 먼저 돌아** 캔버스를 늘려 놓은 뒤라(리액트는 자식의
+  // layout effect를 부모보다 먼저 돌린다) 여기서 잰 크기가 이미 새 크기다.
+  useLayoutEffect(() => {
+    const a = anchorRef.current;
+    anchorRef.current = null;
+    if (!a || !zoomBox) return;
+    zoomBox.scrollLeft = (a.sl + a.ox) * a.k - a.ox;
+    zoomBox.scrollTop = (a.st + a.oy) * a.k - a.oy;
+  }, [zoom, zoomBox]);
   // 확대한 사진을 마우스로 끌어서 민다(media.usePanDrag 머리말 — 왜 필요한지가 거기 있다)
   const { panning, panProps } = usePanDrag();
   // 딤을 눌러 닫기 — **누른 곳도 딤이어야 닫는다.** 사진을 끌다가 딤에서 손을 떼면
@@ -149,25 +207,80 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   //
   // **우리 배율이 있는 갈래(사진·PDF)에서만 막는다.** 구글 문서·시트 틀에는 대신 줄
   // 것이 없어서, 거기서 막으면 키울 방법을 통째로 뺏는 것이 된다.
-  // 사파리 밖(안드로이드 크롬 등)에는 이 이벤트가 없다 — 거기서는 `maximum-scale=1.0`이
-  // 이미 페이지 확대를 막고 있어 이 갈래 자체가 생기지 않는다.
+  // 사파리 밖(안드로이드 크롬 등)에는 이 이벤트가 **없다** — 거기서는 `maximum-scale=1.0`이
+  // 페이지 확대를 막아 주지만 그래서 우리 배율도 안 움직였다. 그 갈래는 바로 아래 효과가
+  // `touch*`로 직접 받는다. 사파리는 두 길을 **둘 다** 주므로(터치도 오고 gesture도 온다)
+  // 여기서 `gestureRef`를 세워 터치 쪽이 손을 떼게 한다 — 두 손가락 `touchstart` 바로 뒤에
+  // `gesturestart`가 오고 그 다음이 첫 `touchmove`라, 배율이 두 번 적용될 틈이 없다.
   useEffect(() => {
     if (!canZoom) return;
     let start = 1;
-    const nearest = (v) => ZOOM_STEPS.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
-    const onStart = (e) => { e.preventDefault(); start = zoomRef.current; };
-    const onChange = (e) => { e.preventDefault(); setZoom(nearest(start * (e.scale || 1))); };
-    const onEnd = (e) => { e.preventDefault(); };
+    const onStart = (e) => { e.preventDefault(); gestureRef.current = true; start = zoomRef.current; };
+    // `clientX/Y`는 두 손가락 가운데다(WebKit GestureEvent) — 그 자리를 붙잡고 키운다.
+    const onChange = (e) => { e.preventDefault(); zoomTo(start * (e.scale || 1), e.clientX, e.clientY); };
+    const onEnd = (e) => { e.preventDefault(); gestureRef.current = false; };
     const opt = { passive: false };
     document.addEventListener('gesturestart', onStart, opt);
     document.addEventListener('gesturechange', onChange, opt);
     document.addEventListener('gestureend', onEnd, opt);
     return () => {
+      gestureRef.current = false;
       document.removeEventListener('gesturestart', onStart, opt);
       document.removeEventListener('gesturechange', onChange, opt);
       document.removeEventListener('gestureend', onEnd, opt);
     };
-  }, [canZoom]);
+  }, [canZoom, zoomTo]);
+
+  // **손가락 오므리기(안드로이드)와 컨트롤/⌘+휠(데스크톱).**
+  // 안드로이드 크롬에는 `gesture*`가 없으므로 두 손가락 사이 거리를 우리가 직접 잰다:
+  // 닿은 순간의 거리를 기억해 두고 `지금 거리 ÷ 처음 거리 × 처음 배율`로 간다.
+  // 기준점은 **두 손가락 가운데**다(zoomTo가 그 자리를 붙잡는다).
+  //
+  // 끌어서 밀기와 싸우지 않는다: 손가락 밀기는 브라우저의 스크롤이 맡고 있고(usePanDrag는
+  // `pointerType === 'mouse'`만 받는다 · §6-29-z-16), 손가락이 둘일 때만 `preventDefault`로
+  // 그 스크롤을 잠깐 끊는다. 하나로 줄면 바로 밀기로 돌아간다.
+  // 리스너는 **통(zoomBox)에** 건다 — 머리줄·딤에서의 휠까지 가로채면 창 밖의 평범한
+  // 조작까지 바뀐다. `{ passive: false }`가 아니면 `preventDefault`가 무시된다.
+  useEffect(() => {
+    if (!canZoom || !zoomBox) return;
+    let pinch = null;                     // { d, z } — 두 손가락이 닿은 순간의 거리와 배율
+    const spread = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const onTouchStart = (e) => {
+      pinch = e.touches.length === 2 ? { d: spread(e.touches), z: zoomRef.current } : null;
+    };
+    const onTouchMove = (e) => {
+      if (!pinch || e.touches.length !== 2) return;
+      if (gestureRef.current) return;     // 사파리 — 위 효과가 이미 같은 손짓을 받고 있다
+      const d = spread(e.touches);
+      if (!d || !pinch.d) return;
+      // 브라우저가 이 손짓을 이미 스크롤로 집어삼켰으면 취소할 수 없다(그때는 그냥 둔다).
+      if (e.cancelable) e.preventDefault();
+      zoomTo(pinch.z * (d / pinch.d),
+        (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        (e.touches[0].clientY + e.touches[1].clientY) / 2);
+    };
+    const onTouchEnd = (e) => { if (e.touches.length < 2) pinch = null; };
+    const onWheel = (e) => {
+      if (!e.ctrlKey && !e.metaKey) return;   // 그냥 휠은 스크롤 그대로 — 긴 PDF를 읽는 길이다
+      e.preventDefault();                     // 안 막으면 브라우저가 페이지를 확대한다
+      // 줄 단위(파이어폭스)·쪽 단위로 오는 휠을 픽셀로 맞춘다
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+      zoomTo(zoomRef.current * Math.exp(-dy * WHEEL_ZOOM_K), e.clientX, e.clientY);
+    };
+    const opt = { passive: false };
+    zoomBox.addEventListener('touchstart', onTouchStart);
+    zoomBox.addEventListener('touchmove', onTouchMove, opt);
+    zoomBox.addEventListener('touchend', onTouchEnd);
+    zoomBox.addEventListener('touchcancel', onTouchEnd);
+    zoomBox.addEventListener('wheel', onWheel, opt);
+    return () => {
+      zoomBox.removeEventListener('touchstart', onTouchStart);
+      zoomBox.removeEventListener('touchmove', onTouchMove, opt);
+      zoomBox.removeEventListener('touchend', onTouchEnd);
+      zoomBox.removeEventListener('touchcancel', onTouchEnd);
+      zoomBox.removeEventListener('wheel', onWheel, opt);
+    };
+  }, [canZoom, zoomBox, zoomTo]);
   const timerRef = useRef(null);
   const settleRef = useRef(null);
   const go = useCallback((d) => {
@@ -177,7 +290,10 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     setFrameReady(false); setTimedOut(false); setPdfSrc(null); setOfficeBlob(null);
     // 앞 파일이 걸어 둔 것들 — 남겨 두면 다음 파일의 화면을 건드린다(감사 2026-09-13).
     // 특히 settle 타이머는 새 틀이 뜨지도 않았는데 스켈레톤을 걷어 버린다.
-    clearTimeout(settleRef.current); setBlobSrc(null); setZoom(1);
+    // 배율은 ref도 같이 되돌린다 — 손짓 중간에 넘겼을 때 다음 계산이 앞 사진의 배율을
+    // 보면 안 된다. 붙잡아 둔 기준점(anchorRef)도 앞 사진의 것이라 버린다.
+    clearTimeout(settleRef.current); setBlobSrc(null);
+    anchorRef.current = null; zoomRef.current = ZOOM_MIN; setZoom(ZOOM_MIN);
   }, [canNav, gallery, gi]);
   // 이웃 사진을 미리 받아 둔다 — lh3 주소는 고정이라 이게 곧 캐시를 채우는 일이고,
   // 다음/이전을 눌렀을 때 스켈레톤 없이 바로 뜬다.
@@ -401,35 +517,46 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     if (error) return <Fallback row={cur} message={error} onOpen={openExternal} />;
 
     if (kind === 'image') {
-      // 가운데 정렬은 바깥 div가 한다 — SmartImage의 래퍼(inline-block)에 폭을 주면
-      // 래퍼만 가운데로 가고 그 안의 이미지는 왼쪽에 붙는다.
-      // 배율 1은 칸에 맞춘 사진이고, 그 위는 **칸 너비의 배수**로 키워 통이 밀게 둔다.
-      // 두 번 누르면 2배↔맞춤 — 폰에서 버튼까지 손을 뻗지 않고 키우는 길이다.
-      const zoomed = zoom > 1;
+      // 두 번 누르면 2배↔맞춤 — 폰에서 손가락을 오므리지 않고 한 번에 키우는 길이고,
+      // 머리줄의 `100%` 버튼을 걷은 뒤로는 **맞춤으로 돌아오는 길**이기도 하다.
+      const zoomed = zoom > ZOOM_MIN;
       return (
-        // 확대했을 때는 **flex를 걷는다** — `justify-center`인 통에서 내용이 넘치면
-        // 시작 쪽(왼쪽·위)이 잘려서 거기로 스크롤할 수가 없다(flex의 오래된 함정).
-        // 감싸개를 블록으로 두면 통 너비를 그대로 받고, 사진은 그 %만큼 넘쳐 밀린다.
+        // 통은 그냥 스크롤 통이다. **여기에 flex를 두지 않는다** — `justify-center`인 통에서
+        // 내용이 넘치면 시작 쪽(왼쪽·위)이 잘려서 거기로 스크롤할 수가 없다(§6-29-z-13).
+        // 가운데 맞추기는 안쪽 감싸개가 한다.
         <div
+          ref={setZoomBox}
           // 확대했을 때만 **끌어서 민다**(usePanDrag) — 손가락은 브라우저가 알아서 밀지만
           // 마우스에는 그런 것이 없다. `select-none`은 끌 때 글자가 잡히지 않게.
           {...(zoomed ? panProps : {})}
+          // `touch-action`에서 브라우저 확대를 뺀다 — 두 손가락은 우리가 받는다(위 효과).
+          // 안 빼면 브라우저가 그 손짓을 자기 것으로 집어삼켜 `touchmove`가
+          // `cancelable: false`로 오고, `preventDefault`가 아무 일도 하지 않는다.
+          // 밀기(pan-x·pan-y)는 그대로 두고, 더블탭 확대는 어차피 여기서도 꺼진다.
+          style={{ touchAction: 'pan-x pan-y' }}
           // `overscroll-contain` — 끝까지 민 뒤에도 계속 밀면 스크롤이 **뒤 화면으로
           // 넘어간다**(스크롤 체이닝). 그러면 사진은 그대로인데 뒤가 움직여서 다음 탭이
           // 엉뚱한 데 떨어진다. 이 통에서 끝낸다.
           className={`w-full h-full select-none ${zoomed
             ? `overflow-auto overscroll-contain ${panning ? 'cursor-grabbing' : 'cursor-grab'}`
-            : 'flex items-center justify-center'}`}
-          onDoubleClick={() => setZoom(z => (z > 1 ? 1 : 2))}
+            : 'overflow-hidden'}`}
+          onDoubleClick={(e) => zoomTo(zoomed ? ZOOM_MIN : ZOOM_TAP, e.clientX, e.clientY)}
         >
-          <SmartImage
-            key={cur.id}
-            src={imgSrcOf(cur) || url} alt={cur.name}
-            wrapperClassName={zoomed ? 'block' : 'w-full h-full flex items-center justify-center'}
-            className={zoomed ? 'block rounded-md' : 'max-w-full max-h-full object-contain rounded-md'}
-            style={zoomed ? { width: `${zoom * 100}%`, maxWidth: 'none' } : undefined}
-            skeletonClassName="w-72 h-72" loadingText="미리보기를 준비하고 있어요"
-          />
+          {/* 배율은 **맞춤 크기의 배수**다. 감싸개를 통의 `zoom × 100%`(가로·세로 둘 다)로
+              두고 사진을 그 안에 `object-contain`으로 담으면, 배율 1은 예전 그대로 '칸에
+              맞춤'이고 2배는 정확히 그 두 배가 된다. 예전에는 사진 자체에 `width: zoom×100%`를
+              줬는데 그것은 **칸 너비의 배수**라, 세로로 긴 사진은 맞춤에서 칸 너비의 30%만
+              차지하다가 1.05배만 줘도 통째로 튀어나갔다 — 계단일 때는 '한 칸 뛴다'로 넘어갔지만
+              연속 배율에서는 손가락을 살짝만 움직여도 그렇게 된다. */}
+          <div style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%` }}>
+            <SmartImage
+              key={cur.id}
+              src={imgSrcOf(cur) || url} alt={cur.name}
+              wrapperClassName="w-full h-full flex items-center justify-center"
+              className="max-w-full max-h-full object-contain rounded-md"
+              skeletonClassName="w-72 h-72" loadingText="미리보기를 준비하고 있어요"
+            />
+          </div>
         </div>
       );
     }
@@ -581,6 +708,12 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       return (
         <PdfView
           blob={pdfSrc.blob} src={pdfSrc.src} zoom={zoom}
+          // 손가락·휠을 받을 통은 PdfView 안쪽의 스크롤 칸이다 — 그 노드를 받아 온다.
+          // **`setZoomBox`를 그대로 넘긴다**(상태 설정 함수라 매번 같은 함수다) — 인라인
+          // 화살표로 넘기면 PdfView가 다시 그려질 때마다 ref 콜백이 null→노드로 다시
+          // 불려서 리스너가 계속 붙었다 떨어진다.
+          onBox={setZoomBox}
+          onToggleZoom={(px, py) => zoomTo(zoomRef.current > ZOOM_MIN ? ZOOM_MIN : ZOOM_TAP, px, py)}
           onError={(e) => setError(`미리보기를 그릴 수 없어요\n${e.message || e}`)}
         />
       );
@@ -658,22 +791,8 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
                 : <SquarePen size={13} strokeWidth={1.8} />} 구글 문서에서 편집
             </a>
           )}
-          {/* 확대 — 우리가 그리는 갈래(사진·PDF)에만. 폰에서도 보인다: '화면 가득'과 달리
-              이것이 **폰에서 유일하게 키우는 길**이다(§6-29-z-13). 가운데 숫자를 누르면
-              맞춤으로 돌아온다. 아이콘 버튼들과 같은 크기·같은 반응이다(§8). */}
-          {canZoom && (
-            <div className="shrink-0 flex items-center">
-              <button type="button" onClick={() => setZoom(ZOOM_STEPS[zi - 1])} disabled={zi <= 0}
-                className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
-                title="축소"><Minus size={16} /></button>
-              <button type="button" onClick={() => setZoom(1)} disabled={zoom === 1}
-                className="px-0.5 text-[11px] font-semibold text-fg-muted tabular-nums whitespace-nowrap hover:text-accent-text transition disabled:pointer-events-none"
-                title="원래 크기로">{Math.round(zoom * 100)}%</button>
-              <button type="button" onClick={() => setZoom(ZOOM_STEPS[zi + 1])} disabled={zi < 0 || zi >= ZOOM_STEPS.length - 1}
-                className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
-                title="확대"><Plus size={16} /></button>
-            </div>
-          )}
+          {/* 확대 버튼(`－ 100% ＋`)은 걷었다 — 사용자 결정 2026-09-14. 사진·PDF는 손가락으로
+              오므리거나 컨트롤/⌘+휠로 키우고, 두 번 누르면 2배↔맞춤이다(위 ZOOM_MIN 머리말). */}
           {!isMobile && (
             <button type="button" onClick={() => setWide(w => !w)}
               className="p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95"

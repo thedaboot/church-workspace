@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Skeleton, usePanDrag } from './media.jsx';
 // pdf.js 6이 확인 없이 쓰는 Uint8Array 메서드 채우기 — 없으면 PDF가 한 장도 안 그려진다.
@@ -22,6 +22,13 @@ const FIRST_CHUNK = 3;         // 먼저 그릴 쪽 수(나머지는 이어서)
 // 쪽마다 수십 MB짜리 캔버스가 쉰 장 쌓인다. 3000이면 1200px 칸을 2.5배로 보는
 // 셈이라 눈으로는 또렷하고, 배율 1·dpr 2의 2400에서 크게 벗어나지도 않는다.
 const MAX_CANVAS_PX_W = 3000;
+// 배율이 **연속**이 된 뒤(사용자 결정 2026-09-14 · FilePreviewModal의 ZOOM_MIN 머리말)
+// 그대로는 못 쓴다 — 확대는 CSS로 늘리는 것이 아니라 그 배율로 다시 그리는 것이라
+// (§6-29-z-13) 손가락이 움직이는 내내 50쪽을 다시 래스터화하면 폰이 멈춘다.
+// 그래서 **손이 멎은 뒤에 한 번만** 다시 그리고, 그 사이에는 이미 그려 둔 캔버스를
+// CSS로만 늘려 바로 따라오게 한다(아래 drawZoom). 짧으면 그리기가 겹치고, 길면
+// 또렷해질 때까지 기다리는 느낌이 난다.
+const ZOOM_SETTLE = 180;
 
 // pdf.js가 주소로 받아 가는 보조 자료. 이 네 칸은 **vite.config.js의 `pdfjsAssets`**가
 // node_modules/pdfjs-dist에서 그대로 내준다(dev는 미들웨어, build는 결과물) — 한쪽을
@@ -58,7 +65,13 @@ async function loadPdfjs() {
 
 // blob: 이미 받아둔 파일(작은 PDF) / src: 주소로 직접 스트리밍(큰 PDF)
 // zoom: 1 = 칸 너비에 맞춤. 그 위는 **그 배율로 다시 그린다**(CSS 확대가 아니다).
-export function PdfView({ blob = null, src = null, zoom = 1, onError }) {
+// onBox: 스크롤 통(아래 host)을 부르는 쪽에 알린다 — 손가락 오므리기·컨트롤+휠 리스너를
+//        거기에 거는 것은 미리보기 창이다(사진 갈래와 한 벌이어야 해서 한곳에 모았다).
+//        **매번 같은 함수를 넘겨야 한다** — 인라인 화살표면 다시 그릴 때마다 ref 콜백이
+//        null→노드로 다시 불려서 리스너가 계속 붙었다 떨어진다.
+// onToggleZoom(px, py): 두 번 눌렀을 때(맞춤 ↔ 2배). 머리줄의 `100%` 버튼을 걷은 뒤로
+//        PDF에서 맞춤으로 돌아오는 길이다. 캔버스뿐이라 글자 선택과 부딪히지 않는다.
+export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onToggleZoom = null, onError }) {
   const hostRef = useRef(null);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [pageCount, setPageCount] = useState(0);
@@ -73,6 +86,42 @@ export function PdfView({ blob = null, src = null, zoom = 1, onError }) {
   errRef.current = onError;
   // 확대한 종이를 마우스로 끌어서 민다(media.usePanDrag 머리말). 사진 쪽과 한 벌이다.
   const { panning, panProps } = usePanDrag();
+  // 스크롤 통을 부르는 쪽에도 넘긴다. ref 콜백은 **한 번 만들고 다시 만들지 않는다** —
+  // 매 렌더마다 새 함수면 리액트가 null로 한 번 떼었다 다시 붙인다.
+  const onBoxRef = useRef(onBox);
+  onBoxRef.current = onBox;
+  const setHost = useCallback((el) => { hostRef.current = el; onBoxRef.current?.(el); }, []);
+  // **실제로 그려 둔 배율.** `zoom`은 손가락을 따라 계속 바뀌지만 다시 그리는 것은
+  // 손이 멎은 뒤 한 번뿐이다(위 ZOOM_SETTLE). 둘이 벌어져 있는 동안은 아래 layout
+  // effect가 캔버스를 CSS로 늘려 그 차이를 메운다.
+  const [drawZoom, setDrawZoom] = useState(zoom);
+  // 손가락을 따라가는 **지금** 배율. 그리는 도중에 배율이 바뀌면 그 뒤에 붙는 쪽도 같은
+  // 비율로 내보내야 한다 — 안 그러면 쪽마다 폭이 다른 종이가 쌓인다(긴 PDF를 열자마자
+  // 오므리면 실제로 그렇게 된다).
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  useEffect(() => {
+    if (zoom === drawZoom) return;
+    const t = setTimeout(() => setDrawZoom(zoom), ZOOM_SETTLE);
+    return () => clearTimeout(t);
+  }, [zoom, drawZoom]);
+
+  // 그 사이를 메우는 CSS 확대 — 비트맵을 늘리는 것이라 잠깐 부드러워 보였다가, 다시
+  // 그리면서 또렷해진다. `useLayoutEffect`인 이유: 부모(미리보기 창)가 같은 커밋에서
+  // 스크롤을 옮겨 손가락 가운데를 붙잡는데, 그때 이미 새 크기여야 한다 — 리액트는
+  // 자식의 layout effect를 부모보다 먼저 돌리므로 여기가 그 자리다.
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host || !drawZoom || zoom === drawZoom) return;
+    const k = zoom / drawZoom;
+    for (const el of host.children) {
+      const base = Number(el.dataset?.cssw);   // 그릴 때 적어 둔 CSS 폭(겹쳐 곱하지 않게)
+      if (!base || !el.width) continue;
+      const w = base * k;
+      el.style.width = `${w}px`;
+      el.style.height = `${Math.round(w * (el.height / el.width))}px`;
+    }
+  }, [zoom, drawZoom]);
 
   // 칸 너비가 **실제로** 달라졌을 때만 다시 그린다 — '화면 가득'을 누르면 창이 220ms
   // 동안 넓어지는데, 예전에는 그 전에 잰 폭으로 이미 그려 놓아서 넓힌 창 가운데에
@@ -118,12 +167,25 @@ export function PdfView({ blob = null, src = null, zoom = 1, onError }) {
         // 오류로 알린다(감사 2026-09-13 — '영영 안 걷히는 준비 중' 갈래 하나였다).
         const host = hostRef.current;
         if (!host) throw new Error('미리보기 자리를 찾지 못했어요');
+        // **다시 그리는 동안 보던 자리를 잃지 않게.** `replaceChildren`로 비우면 높이가
+        // 0으로 접혀 스크롤이 맨 위로 튄다 — 배율만 조금 바꿨는데 1쪽으로 돌아갔다.
+        // 쪽 높이가 다 같지는 않으니 위치가 아니라 **비율**로 기억하고, 쪽이 쌓일 때마다
+        // 그 비율을 다시 맞춘다(다 쌓이기 전에 한 번만 맞추면 엉뚱한 데에 선다).
+        const frac = (pos, inner, outer) => (inner > outer ? pos / (inner - outer) : 0);
+        const keep = {
+          y: frac(host.scrollTop, host.scrollHeight, host.clientHeight),
+          x: frac(host.scrollLeft, host.scrollWidth, host.clientWidth),
+        };
+        const keepScroll = () => {
+          if (keep.y) host.scrollTop = keep.y * Math.max(0, host.scrollHeight - host.clientHeight);
+          if (keep.x) host.scrollLeft = keep.x * Math.max(0, host.scrollWidth - host.clientWidth);
+        };
         host.replaceChildren();
 
         // 가로 폭에 맞춰 그린다(화면 배율 반영 — 모바일에서 흐릿하지 않게).
         // 쪽이 쌓이면 세로 스크롤바가 생겨 내용 폭이 그만큼 줄어든다 → 미리 비워둔다.
         // 확대는 **그릴 폭 자체**를 늘리는 것이다. 넘치는 만큼은 바깥 통이 좌우로 민다.
-        const cssWidth = Math.max(240, ((host.clientWidth || boxW) - 16) * zoom);
+        const cssWidth = Math.max(240, ((host.clientWidth || boxW) - 16) * drawZoom);
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         // 실제 픽셀에는 상한이 있다(위 MAX_CANVAS_PX_W) — 넘으면 그만큼만 그리고 CSS로 편다
         const pxWidth = Math.min(cssWidth * dpr, MAX_CANVAS_PX_W);
@@ -138,14 +200,20 @@ export function PdfView({ blob = null, src = null, zoom = 1, onError }) {
           const canvas = document.createElement('canvas');
           canvas.width = Math.floor(viewport.width);
           canvas.height = Math.floor(viewport.height);
-          canvas.style.width = `${cssWidth}px`;
-          canvas.style.height = `${Math.floor(viewport.height * (cssWidth / pxWidth))}px`;
+          // 그리는 중에 배율이 앞서 갔으면 그만큼 미리 늘려 내보낸다(위 zoomRef).
+          const live = (zoomRef.current || drawZoom) / drawZoom;
+          canvas.style.width = `${cssWidth * live}px`;
+          canvas.style.height = `${Math.floor(viewport.height * (cssWidth / pxWidth) * live)}px`;
+          // 이 배율로 그린 CSS 폭을 적어 둔다 — 손가락을 따라가는 CSS 확대(위 layout
+          // effect)가 이 값에서 곱한다. 늘어난 폭에서 또 곱하면 배율이 겹쳐 쌓인다.
+          canvas.dataset.cssw = String(cssWidth);
           canvas.className = 'block mx-auto mb-2 rounded-md border border-line bg-white shadow-soft';
           host.appendChild(canvas);
 
           await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
           if (!alive) return;
           setDrawn(n);
+          keepScroll();
           if (n === Math.min(FIRST_CHUNK, total)) setStatus('ready');
           // 나머지 쪽은 한 박자 쉬며 그려 스크롤이 끊기지 않게
           if (n >= FIRST_CHUNK) await new Promise(r => setTimeout(r, 0));
@@ -158,15 +226,21 @@ export function PdfView({ blob = null, src = null, zoom = 1, onError }) {
     })();
 
     return () => { alive = false; if (doc) doc.destroy?.(); };
-  }, [blob, src, boxW, zoom]);
+  }, [blob, src, boxW, drawZoom]);
 
   return (
     <div className="relative w-full h-full">
       {/* scrollbar-gutter: 스크롤바 자리를 처음부터 비워 폭이 흔들리지 않게.
           미지원 브라우저에서도 overflow-x-hidden으로 가로 스크롤은 생기지 않는다. */}
       <div
-        ref={hostRef}
+        ref={setHost}
         {...(zoom > 1 ? panProps : {})}
+        // `touch-action`에서 브라우저 확대를 뺀다 — 두 손가락은 미리보기 창이 받아 우리
+        // 배율로 돌린다. 안 빼면 브라우저가 그 손짓을 자기 것으로 집어삼켜 `touchmove`가
+        // `cancelable: false`로 오고 `preventDefault`가 아무 일도 하지 않는다.
+        // 한 손가락 밀기(pan-x·pan-y)는 그대로다 — 긴 PDF를 내려 읽는 기본 조작이다.
+        style={{ touchAction: 'pan-x pan-y' }}
+        onDoubleClick={onToggleZoom ? (e) => onToggleZoom(e.clientX, e.clientY) : undefined}
         // 확대했을 때만 좌우로 민다 — 배율 1에서는 넘칠 것이 없고, 가로 스크롤이
         // 열려 있으면 세로로 훑다가 옆으로 미끄러진다.
         // `overscroll-contain` — 끝까지 민 뒤에도 계속 밀면 스크롤이 뒤 화면으로 넘어간다.
