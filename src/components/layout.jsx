@@ -521,9 +521,12 @@ function YearFolders({ active, archived, onPick }) {
 
 // 모바일 상단: 현재 화면 이름 + 검색·알림, 그 아래 프로젝트 탭(가로 스크롤)
 export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenLink, onOpenProject, onRenameProject, onOpenProfile, onOpenMembers, cloudMode }) => {
-  // 보관된 프로젝트는 탭 줄에서 빠진다. 다만 보관된 것을 열어 둔 상태라면 그 탭은
-  // 보여야 한다 — 안 그러면 지금 어디 있는지 표시가 아무 데도 없다.
+  // 보관된 프로젝트도 **같은 탭 줄**에 선다(사용자 결정 2026-09-14) — 데스크톱은
+  // '더보기 → 연도 폴더'에 보관함이 있는데 여기에는 그 입구가 아예 없어서, 폰에서는
+  // 보관한 프로젝트를 여는 길이 없었다(사용자 신고). 활성 탭을 다 세운 **뒤**에
+  // 이어 붙이고 흐린 글자 + Archive 아이콘으로 가른다(데스크톱 YearFolders와 같은 결).
   const activeList = useStore(selectActiveProjectsList);
+  const archivedList = useStore(selectArchivedProjectsList);
   const projectsMap = useStore(selectProjectsMap);
   // 지금 보고 있는 프로젝트(아니면 null). **이 한 값이 두 가지 일을 한다** — 탭 줄에
   // 끌어올릴지 정하고, 제목 줄과 탭 줄이 설지 정한다. 예전에는 같은 조회가 두 벌이었다.
@@ -534,7 +537,11 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
   const { year, setYear, years, yearCounts } = useTabYear(allForYear, activeMenu);
   const yearList = activeList.filter(p => projectYear(p) === year);
   const base = project && !project.archived && !yearList.some(p => p.id === activeMenu) ? [...yearList, project] : yearList;
-  const projectsList = project?.archived ? [...base, project] : base;
+  // 그 해의 보관 프로젝트 — 지금 열어 둔 것은 아래에서 한 번만 더한다.
+  // **여기서 빼지 않으면 같은 프로젝트가 두 번 선다**: 보관된 것을 열어 두면 아래 줄이
+  // 이미 탭으로 끌어올리기 때문이다(데스크톱 archivedForMore가 같은 함정 · navsmoke가 잡았다).
+  const archivedTail = archivedList.filter(p => p.id !== activeMenu && projectYear(p) === year);
+  const projectsList = project?.archived ? [...base, project, ...archivedTail] : [...base, ...archivedTail];
   const currentUser = useStore(selectCurrentUser);
   const title = menuTitle(activeMenu, projectsMap, currentUser);
   return (
@@ -587,9 +594,11 @@ const tabCollision = (args) => {
 // 모바일 프로젝트 탭 한 개 — 끌 수도 있고(길게 누르기) 놓을 수도 있다.
 // dnd-kit은 ref를 하나만 받으므로 두 훅의 ref를 손으로 합친다(보드 카드와 같은 방식).
 // 'tab:' 접두사로 끌고 있는 것(active.id = 프로젝트 id)과 놓는 자리를 가른다.
-function MobileProjectTab({ project, active, onSelect }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: project.id });
-  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `tab:${project.id}` });
+// **보관된 탭은 끌 수도, 놓을 자리도 될 수 없다**(disabled) — 순서는 projects.position에
+// 저장되는데 보관된 것은 그 순서에 끼지 않기로 되어 있다(saveTabOrder 주석).
+function MobileProjectTab({ project, active, archived = false, onSelect }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: project.id, disabled: archived });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `tab:${project.id}`, disabled: archived });
   const nodeRef = useRef(null);
   // **ref 콜백에 조건을 넣지 않는다** — 콜백 신원이 바뀌면 React가 ref를 떼었다 다시
   // 붙이는데, 끄는 도중이면 dnd-kit이 들고 있던 노드가 그 순간 사라진다.
@@ -598,12 +607,20 @@ function MobileProjectTab({ project, active, onSelect }) {
   // (가로 스크롤), 프로젝트가 늘면 지금 보고 있는 탭이 오른쪽 밖에 있어도 아무 표시가
   // 없었다. 활성 탭이 바뀔 때만 — 끄는 중에는 활성 탭이 바뀌지 않는다.
   useEffect(() => { if (active) nodeRef.current?.scrollIntoView({ inline: 'nearest', block: 'nearest' }); }, [active]);
+  // 보관 탭에는 dnd 속성을 아예 얹지 않는다 — disabled면 dnd-kit이 `aria-disabled="true"`를
+  // 붙이는데, 눌러서 열 수 있는 버튼을 보조기기에 "못 쓰는 버튼"으로 알리게 된다.
+  const dragProps = archived ? {} : { ...attributes, ...listeners };
   return (
     <button
-      ref={setRefs} {...attributes} {...listeners}
+      ref={setRefs} {...dragProps}
       onClick={() => onSelect(project.id)}
-      className={`relative shrink-0 px-3 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap ${active ? 'text-fg border-fg' : 'text-fg-muted border-transparent'} ${isDragging ? 'opacity-40' : ''} ${isOver && !isDragging ? 'bg-accent-weak rounded-t-md' : ''}`}
+      className={`relative shrink-0 px-3 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap ${active ? 'text-fg border-fg' : archived ? 'text-fg-faint border-transparent' : 'text-fg-muted border-transparent'} ${isDragging ? 'opacity-40' : ''} ${isOver && !isDragging ? 'bg-accent-weak rounded-t-md' : ''}`}
     >
+      {/* 보관 표시는 데스크톱 연도 폴더와 같다 — 흐린 글자 + Archive 아이콘.
+          아이콘은 **글자 줄 안의 inline-block**이다(감싸는 inline-flex를 두지 않는다):
+          이 줄은 items-end라 탭 높이가 곧 글자 자리라서, 줄 상자 높이를 바꾸는 순간
+          보관 탭의 글자만 이웃보다 떠 보인다(§6-9-bu와 같은 결). */}
+      {archived && <Archive size={12} className="inline-block align-[-2px] mr-1" />}
       {project.title}
       {/* 지금 이 프로젝트를 보고 있는 사람 — 데스크톱과 같은 이유로 얹기만 하고,
           같은 이유로 오른쪽 경계에 반쯤 걸친다(제목 끝 글자를 가리지 않게 —
@@ -634,7 +651,11 @@ const MobileProjectTabs = React.memo(({
     setDragId(null);
     if (!over) return;
     const targetId = String(over.id).replace(/^tab:/, '');
-    const next = reorderIds(projectsList.map(p => p.id), String(active.id), targetId);
+    // 순서를 매기는 목록에서 **보관된 탭은 뺀다** — 그것들은 줄 끝에 이어 세울 뿐
+    // position에 끼지 않는다(saveTabOrder 주석). 끌기·놓기도 막혀 있어서(disabled)
+    // 여기 id가 들어올 일은 없지만, 목록에 남겨 두면 번호가 그쪽으로 새 나간다.
+    const orderIds = projectsList.filter(p => !p.archived).map(p => p.id);
+    const next = reorderIds(orderIds, String(active.id), targetId);
     if (next) saveTabOrder(next, allProjects, cloudMode);
   };
   return (
@@ -653,7 +674,7 @@ const MobileProjectTabs = React.memo(({
             빼면 좁은 화면에서 탭이 시작하는 자리가 그만큼 밀린다 */}
         <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} compact />
         {projectsList.map(p => (
-          <MobileProjectTab key={p.id} project={p} active={activeMenu === p.id} onSelect={setActiveMenu} />
+          <MobileProjectTab key={p.id} project={p} active={activeMenu === p.id} archived={!!p.archived} onSelect={setActiveMenu} />
         ))}
         {/* 데스크톱과 같은 이유로 투명 2px을 깐다(§6의 항목 참고) */}
         <button onClick={onOpenProject} className="shrink-0 px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint whitespace-nowrap">+ 프로젝트</button>
@@ -691,8 +712,8 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
     if (projectsList.length) setActiveMenu(projectsList[0].id);
     else onOpenProject();
   };
-  // 팀이 없는 사람은 팀 보드로 갈 곳이 없으니 프로필 설정으로 안내한다
-  const goTeam = () => { if (myTeam) setActiveMenu(`team:${myTeam}`); else showToast('설정에서 소속 팀을 먼저 정해주세요'); };
+  // 소속이 없는 사람은 팀 보드로 갈 곳이 없으니 프로필 설정으로 안내한다
+  const goTeam = () => { if (myTeam) setActiveMenu(`team:${myTeam}`); else showToast('설정에서 소속을 먼저 골라주세요'); };
 
   // ── 두 벌의 바 (docs/V2.md §3 A안 — 사용자가 목업으로 확정) ──────────────
   // 교회 생활(홈·예배·말씀·모임·업무)과 업무(홈·프로젝트·내 업무·대시보드·팀).

@@ -15,6 +15,10 @@ export const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 // 이 파일 말고는 소스 어디에도 통짜로 나오지 않고(utils.avatarColor·teamPaint는
 // `bg-tag-${토큰}`으로 조립합니다), Tailwind는 소스를 글자로 훑기 때문에 조립한 이름은
 // 못 봅니다. 토큰에서 문자열을 만들도록 바꾸는 순간 팀 색이 빌드에서 통째로 사라집니다.
+//
+// 2026-09-14에 `순장`·`순원`을 더했다(사용자 결정). 이 표에 들어간 이름은 소속 고르기
+// 말고도 **팀 보드**(`team:순장`)와 대시보드 '팀별 남은 업무'에 같이 선다 — 그걸 알고
+// 고른 길이므로 막지 마세요.
 export const CONFIG = {
   TEAMS: {
     '웰컴팀': 'bg-tag-pink text-tag-pink-fg',
@@ -24,6 +28,8 @@ export const CONFIG = {
     '미디어팀': 'bg-tag-brown text-tag-brown-fg',
     '임원진': 'bg-tag-yellow text-tag-yellow-fg',
     '교역자': 'bg-tag-red text-tag-red-fg',
+    '순장': 'bg-tag-green text-tag-green-fg',
+    '순원': 'bg-tag-orange text-tag-orange-fg',
   },
   // 보드 컬럼 순서 = 이 배열 순서. DB 값 매핑은 STATUS_DB(인덱스가 아니라 이름 기준)
   STATUSES: ['시작 전', '진행 중', '보류 중', '완료'],
@@ -60,6 +66,8 @@ export const CONFIG = {
     '미디어팀': 'text-tag-brown-fg',
     '임원진': 'text-tag-yellow-fg',
     '교역자': 'text-tag-red-fg',
+    '순장': 'text-tag-green-fg',
+    '순원': 'text-tag-orange-fg',
   },
   // 팀 → index.css의 태그 색 토큰 이름. 캘린더처럼 실제 색값이 필요한 곳에서 쓴다
   // (TEAMS는 Tailwind 클래스 문자열이라 색값을 꺼낼 수 없다). TEAMS와 같은 색으로 유지.
@@ -71,6 +79,8 @@ export const CONFIG = {
     '미디어팀': 'brown',
     '임원진': 'yellow',
     '교역자': 'red',
+    '순장': 'green',
+    '순원': 'orange',
   }
 };
 
@@ -106,7 +116,9 @@ export const teamBgColor = (team) => {
   const token = CONFIG.TEAM_TOKENS[team];
   return token ? `var(--app-tag-${token})` : 'var(--app-tag-gray)';
 };
-// 진행 바에 쓰는 팀 파스텔 — 진한 팀 색을 바에 쓰면 화면이 시끄러워진다
+// 진행 바에 쓰는 팀 파스텔 — 진한 팀 색을 바에 쓰면 화면이 시끄러워진다.
+// **`--p-*` 세트에는 orange가 없다**(index.css) — 그래서 `순원`의 바는 색이 비어
+// track만 남는다. 고치려면 index.css에 `--p-orange`를 라이트·다크 둘 다 더해야 한다.
 export const teamBar = (team) => {
   const token = CONFIG.TEAM_TOKENS[team];
   return token ? `var(--p-${token})` : 'var(--p-gray)';
