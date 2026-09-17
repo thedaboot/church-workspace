@@ -164,7 +164,12 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   const [boxSize, setBoxSize] = useState(null);
   useEffect(() => {
     if (!zoomBox) return undefined;
-    const read = () => { const r = zoomBox.getBoundingClientRect(); setBoxSize({ w: r.width, h: r.height }); };
+    // **`getBoundingClientRect`를 쓰지 마세요.** 그 값은 transform을 먹은 크기라, 창이
+    // 뜰 때의 등장 애니메이션(`zoom-in-95`)이 도는 동안 **95%로 잡힌다.** 그러면 맞춤
+    // 크기가 그만큼 작게 정해지고, 나중에 스크롤바가 생겨 옵저버가 다시 돌 때 제 크기로
+    // 고쳐지면서 **그림이 5.3% 튄다**(2026-09-17에 실측). `offsetWidth/Height`는 레이아웃
+    // 크기라 transform을 안 타고, 스크롤바가 생겨도 테두리 상자라 값이 그대로다.
+    const read = () => setBoxSize({ w: zoomBox.offsetWidth, h: zoomBox.offsetHeight });
     read();
     const ro = new ResizeObserver(read);
     ro.observe(zoomBox);
@@ -242,7 +247,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       // 수 있다. **통의 `scrollWidth`가 아니라 층의 크기를 잰다** — 내용이 칸보다 작으면
       // scrollWidth는 칸 크기라(넘치지 않으니) 실제보다 큰 끝을 주고, 그만큼 손을 뗄 때
       // 튄다. 사진 층은 이제 그림만큼이라 둘이 다르다(2026-09-17).
-      sw: el.offsetWidth, sh: el.offsetHeight,
+      // PDF 층은 블록이라 제 폭이 칸 폭이고 **쪽(캔버스)이 그것보다 넓게 삐져나간다** —
+      // 그때는 `scrollWidth`가 진짜 내용 폭이다. 사진 층은 크기가 정확해 둘이 같다.
+      sw: Math.max(el.offsetWidth, el.scrollWidth), sh: Math.max(el.offsetHeight, el.scrollHeight),
       cw: zoomBox.clientWidth, ch: zoomBox.clientHeight,
       // 내용이 칸보다 작으면 통(격자)이 **가운데로 잡아 준다.** 그 여백은 배율이 커지면
       // 줄어드는데, 손짓 중 transform은 층의 왼쪽 위에서 자라므로 그만큼 어긋난다
@@ -718,7 +725,13 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
               src={imgSrcOf(cur) || url} alt={cur.name}
               onReady={(img) => setNatural({ w: img.naturalWidth || 0, h: img.naturalHeight || 0 })}
               wrapperClassName="w-full h-full flex items-center justify-center"
-              className="max-w-full max-h-full object-contain rounded-md"
+              /* **`max-w-full max-h-full`만 주면 안 된다.** 그러면 `<img>`가 제 원래 크기까지만
+                 커져서, 층이 그보다 커진 순간부터 그림이 안 따라온다 — 작은 그림은 손짓 중
+                 `transform`으로 커졌다가 손을 떼면 **도로 줄고**(사용자 지적 2026-09-17 —
+                 "확대되면 되는거지 다시 축소되는 현상"), 큰 그림도 층과 몇십 픽셀 어긋나
+                 그만큼 빈자리가 스크롤 범위에 남는다. 층이 이미 그림 비율이라 `w-full h-full`
+                 이면 `object-contain`은 딱 맞게 채운다. */
+              className="w-full h-full object-contain rounded-md"
               skeletonClassName="w-72 h-72" loadingText="미리보기를 준비하고 있어요"
             />
           </div>

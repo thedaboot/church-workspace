@@ -988,8 +988,15 @@ check('손가락 확대는 손짓 동안 리액트를 거치지 않는다', () =
   assert.ok(!/data-zoom-layer[\s\S]{0,200}?\$\{zoom \* 100\}%/.test(preview),
     '층 크기가 퍼센트다 — 격자 안에서 0으로 무너진다');
   // 밀 수 있는 끝은 **층**을 재서 셈한다 — 내용이 칸보다 작을 때 scrollWidth는 칸 크기라 거짓이다
-  assert.match(preview, /sw: el\.offsetWidth, sh: el\.offsetHeight,/,
-    '손짓 중 밀 수 있는 끝을 통의 scrollWidth로 센다 — 층보다 커서 손 뗄 때 튄다');
+  assert.match(preview, /sw: Math\.max\(el\.offsetWidth, el\.scrollWidth\), sh: Math\.max\(el\.offsetHeight, el\.scrollHeight\),/,
+    '손짓 중 밀 수 있는 끝을 통이 아니라 층에서 세지 않는다 — 손 뗄 때 튄다');
+  // 층 크기를 `getBoundingClientRect`로 재면 창이 뜰 때의 등장 애니메이션(zoom-in-95)에
+  // 95%로 잡히고, 나중에 스크롤바가 생겨 다시 재는 순간 그림이 5.3% 튄다(2026-09-17 실측).
+  assert.match(preview, /setBoxSize\(\{ w: zoomBox\.offsetWidth, h: zoomBox\.offsetHeight \}\)/,
+    '칸 크기를 transform 먹은 값으로 잰다 — 등장 애니메이션 중에는 95%다');
+  // `<img>`에 폭·높이가 없으면 제 원래 크기까지만 커진다 — 작은 그림이 손을 떼는 순간 도로 줄었다
+  assert.match(preview, /className="w-full h-full object-contain rounded-md"/,
+    '사진이 층을 채우지 않는다 — 원래 크기보다 못 커져서 손 떼면 도로 줄어든다');
   // 내용이 칸보다 작으면 격자가 가운데로 잡아 주는데, 손짓 중 transform은 층의 왼쪽 위에서
   // 자란다 — 그 여백이 줄어드는 만큼을 안 더하면 **배율 1에서 시작한 손짓이 또 미끄러진다**.
   assert.match(preview, /const dl = s\.pl > 0\.5 \? Math\.max\(0, \(s\.cw - s\.sw \* k\) \/ 2\) - s\.pl : 0;/,
