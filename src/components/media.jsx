@@ -19,7 +19,10 @@ export const Skeleton = ({ className = '' }) => (
 // (src만 걸어두면 받는 동안 자리가 비었다가 툭 나타나서 화면이 끊겨 보인다)
 // loadingText: 스켈레톤 위에 얹을 '준비 중' 문구. 미리보기 창은 PDF·엑셀과 같은 줄을
 // 쓰라고 넘기고(형식마다 다른 로딩 화면이 되지 않게), 썸네일 자리는 넘기지 않는다.
-export function SmartImage({ src, alt = '', className = '', style = undefined, wrapperClassName = '', skeletonClassName = '', loadingText = '', onClick, title }) {
+// `onReady` — 다 받은 `<img>` 요소를 그대로 넘긴다(`naturalWidth/Height`를 쓰려는 쪽이 있다).
+// 미리보기 창의 확대가 그 값으로 **그림이 칸에 맞춰진 크기**를 재고, 그 배수로 확대한다
+// (통 크기의 배수로 두면 레터박스 여백까지 같이 커져 빈 자리를 스크롤하게 된다 · §6-29-z-13-a).
+export function SmartImage({ src, alt = '', className = '', style = undefined, wrapperClassName = '', skeletonClassName = '', loadingText = '', onClick, title, onReady }) {
   const [state, setState] = useState('loading'); // loading | ready | error
   useEffect(() => { setState('loading'); }, [src]);
 
@@ -54,7 +57,7 @@ export function SmartImage({ src, alt = '', className = '', style = undefined, w
           draggable={false}
           /* 사진이 여럿 붙은 업무에서 화면 밖 썸네일까지 한꺼번에 받지 않는다 */
           loading="lazy" decoding="async"
-          onLoad={() => setState('ready')} onError={() => setState('error')}
+          onLoad={(e) => { setState('ready'); onReady?.(e.currentTarget); }} onError={() => setState('error')}
           className={`${className} ${state === 'ready' ? '' : 'opacity-0'} ${onClick ? 'cursor-zoom-in' : ''} transition-opacity duration-200`}
         />
       )}

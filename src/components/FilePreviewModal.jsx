@@ -155,6 +155,21 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   // 사파리의 `gesture*`가 지금 이 손짓을 받고 있나 — 터치 길이 겹쳐서 두 번 적용되지
   // 않게 하는 표시다(바로 아래 두 효과의 머리말).
   const gestureRef = useRef(false);
+  // 그림의 원래 크기 — 확대 층을 **그림이 칸에 맞춰진 크기**의 배수로 두려고 잰다.
+  // 아직 안 받았으면 null이고, 그때는 층이 칸을 통째로 채운다(스켈레톤 자리).
+  const [natural, setNatural] = useState(null);
+  // 칸 크기. **퍼센트로는 안 된다** — 층을 가운데 맞추려고 통을 격자(`place-content`)로
+  // 두는 순간 트랙이 내용 크기가 되어 `100%`가 순환이 되고 층이 0으로 무너진다
+  // (헤드리스로 재어 확인했다). 그래서 픽셀로 준다.
+  const [boxSize, setBoxSize] = useState(null);
+  useEffect(() => {
+    if (!zoomBox) return undefined;
+    const read = () => { const r = zoomBox.getBoundingClientRect(); setBoxSize({ w: r.width, h: r.height }); };
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(zoomBox);
+    return () => ro.disconnect();
+  }, [zoomBox]);
 
   // **배율을 바꾸되 (px, py) 화면 점은 제자리에 남긴다.**
   // 손가락 가운데·커서 자리가 기준이어야 한다 — 좌상단 기준으로 키우면 보던 자리가
@@ -211,10 +226,30 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     const el = zoomBox.querySelector('[data-zoom-layer]');
     if (!el) return;
     const r = zoomBox.getBoundingClientRect();  // 창은 손짓 동안 움직이지 않는다 — 한 번만 잰다
+    // 손가락 가운데를 못 받았으면 칸 한가운데를 기준으로 삼는다. 사파리 `GestureEvent`의
+    // `clientX/Y`는 실기기로 재어 보지 못한 값이라, 없으면 **셈이 NaN이 되어 기준점 보정이
+    // 통째로 0이 된다**(= 사진이 그냥 미끄러진다). 빈 값이 여기서 멎게 한다.
+    const cx = Number.isFinite(px) ? px : r.left + r.width / 2;
+    const cy = Number.isFinite(py) ? py : r.top + r.height / 2;
     pinchRef.current = {
       el, box: zoomBox, z0: zoomRef.current, z: zoomRef.current,
-      rl: r.left, rt: r.top, ox: px - r.left, oy: py - r.top,
+      rl: r.left, rt: r.top, ox: cx - r.left, oy: cy - r.top,
       sl: zoomBox.scrollLeft, st: zoomBox.scrollTop,
+      // 손을 뗄 때 커밋할 스크롤(아래 liveScale이 고쳐 쓴다). 처음에는 지금 자리 그대로.
+      tl: zoomBox.scrollLeft, tt: zoomBox.scrollTop,
+      // 지금 배율에서의 **내용 크기**와 칸 크기 — 배율이 k배면 내용도 k배라(사진 층은
+      // 맞춤 크기의 배수, PDF는 쪽 폭·틈·여백이 모두 배율을 따라간다) 밀 수 있는 끝을 셈할
+      // 수 있다. **통의 `scrollWidth`가 아니라 층의 크기를 잰다** — 내용이 칸보다 작으면
+      // scrollWidth는 칸 크기라(넘치지 않으니) 실제보다 큰 끝을 주고, 그만큼 손을 뗄 때
+      // 튄다. 사진 층은 이제 그림만큼이라 둘이 다르다(2026-09-17).
+      sw: el.offsetWidth, sh: el.offsetHeight,
+      cw: zoomBox.clientWidth, ch: zoomBox.clientHeight,
+      // 내용이 칸보다 작으면 통(격자)이 **가운데로 잡아 준다.** 그 여백은 배율이 커지면
+      // 줄어드는데, 손짓 중 transform은 층의 왼쪽 위에서 자라므로 그만큼 어긋난다
+      // (배율 1에서 시작하는 손짓이 딱 그 경우다 — 안 맞추면 또 미끄러진다).
+      // 지금 여백을 재 두고 아래에서 새 여백과의 차이를 translate에 더한다. PDF 통은
+      // 가운데 맞추기를 안 하므로 0이고, 0이면 계속 0으로 둔다.
+      pl: el.offsetLeft, pt: el.offsetTop,
     };
     liveElRef.current = el;
     el.style.transformOrigin = '0 0';
@@ -223,14 +258,34 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
 
   // 손가락 사이가 처음의 몇 배인가(`ratio`)와 지금 손가락 가운데. 상·하한과 1 붙이기는
   // 여기서도 그대로 건다 — 손을 떼기 전에 이미 그 배율로 보여야 한다.
+  //
+  // **스크롤은 건드리지 않는다.** 예전에는 여기서 통의 `scrollLeft/Top`을 직접 썼는데
+  // 아이폰에서 그 값이 먹지 않았고, 그러면 기준점 보정이 통째로 죽어 **층이 왼쪽 위에서
+  // 자라는 만큼 사진이 그냥 아래로 미끄러진다**(사용자 신고 2026-09-17 두 번째 — "확대가
+  // 밑으로 내려가는데"). 맞춤(배율 1)에서는 통이 `overflow-hidden`이라 밀 자리가 0이고,
+  // 손짓 동안 커지는 것은 레이아웃이 아니라 transform이라 그 범위가 안 열린 것으로 보인다
+  // (데스크톱 크롬에서는 같은 코드가 먹었다 — 그래서 폰에서만 났다).
+  // 그래서 옮길 만큼을 스크롤이 아니라 **`translate`로** 준다: 통이 안 밀려도 화면은
+  // 똑같고, 그 값이 손을 뗄 때 그대로 진짜 스크롤이 된다(아래 liveCommit). 통이 제 스크롤을
+  // 스스로 움직였다면(관성이 남았거나 내용이 줄어 브라우저가 끝으로 당겼다면) 그만큼 뺀다.
   const liveScale = useCallback((ratio, px, py) => {
     const s = pinchRef.current;
     if (!s) return;
     s.z = clampZoom(s.z0 * ratio);
     const k = s.z / s.z0;
-    s.el.style.transform = `scale(${k})`;
-    s.box.scrollLeft = (s.sl + s.ox) * k - (px - s.rl);
-    s.box.scrollTop = (s.st + s.oy) * k - (py - s.rt);
+    // 지금 손가락 가운데(칸 안 자리). 못 받았으면 닿을 때 잡아 둔 자리를 그대로 쓴다(위 liveBegin).
+    const ox = Number.isFinite(px) ? px - s.rl : s.ox;
+    const oy = Number.isFinite(py) ? py - s.rt : s.oy;
+    // 커밋된 배율에서라면 여기였을 스크롤. **끝을 넘지 않게 자르는 것까지 똑같이** 해야
+    // 손을 뗄 때 튀지 않는다 — 브라우저도 같은 자리에서 자른다.
+    s.tl = Math.min(Math.max((s.sl + s.ox) * k - ox, 0), Math.max(0, s.sw * k - s.cw));
+    s.tt = Math.min(Math.max((s.st + s.oy) * k - oy, 0), Math.max(0, s.sh * k - s.ch));
+    // 가운데 맞추기 여백이 줄어드는 만큼(위 liveBegin의 pl·pt). 처음부터 0이면 이 통은
+    // 가운데를 안 맞추는 것이니 계속 0이다.
+    const dl = s.pl > 0.5 ? Math.max(0, (s.cw - s.sw * k) / 2) - s.pl : 0;
+    const dt = s.pt > 0.5 ? Math.max(0, (s.ch - s.sh * k) / 2) - s.pt : 0;
+    s.el.style.transform =
+      `translate(${dl + s.box.scrollLeft - s.tl}px, ${dt + s.box.scrollTop - s.tt}px) scale(${k})`;
   }, []);
 
   // 손가락이 둘 미만이 되는 순간 — **여기서 딱 한 번** 커밋한다. 두 번 불려도 안전해야
@@ -240,10 +295,10 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     if (!s) return;
     pinchRef.current = null;
     const z0 = zoomRef.current;
-    // 스크롤은 손짓 동안 이미 맞춰 뒀다(liveScale) — 다시 그린 뒤 **그 자리를 그대로**
-    // 되돌려 놓는다(배수 1인 기준점이 곧 "지금 스크롤 유지"다). 기준점을 여기서 세워
-    // 두고 배율은 `zoomTo`가 커밋한다 — 배율이 바뀌는 자리는 하나여야 한다.
-    anchorRef.current = { k: 1, ox: 0, oy: 0, sl: s.box.scrollLeft, st: s.box.scrollTop };
+    // 손짓 동안 `translate`로 보여 주던 그 자리가 **이제 진짜 스크롤이 된다**(liveScale의
+    // s.tl·s.tt). 배수 1인 기준점이 곧 "이 자리에 세워라"다. 기준점을 여기서 세워 두고
+    // 배율은 `zoomTo`가 커밋한다 — 배율이 바뀌는 자리는 하나여야 한다.
+    anchorRef.current = { k: 1, ox: 0, oy: 0, sl: s.tl, st: s.tt };
     zoomTo(s.z);
     // 배율이 그대로면(zoomTo가 되돌아갔다) 다시 그려지지 않아 아래 layout effect도 안
     // 돈다 — 세워 둔 기준점을 도로 버리고 transform은 지금 걷는다.
@@ -380,6 +435,8 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     clearTimeout(settleRef.current); setBlobSrc(null);
     pinchRef.current = null; liveStrip();
     anchorRef.current = null; zoomRef.current = ZOOM_MIN; setZoom(ZOOM_MIN);
+    // 층 크기는 그림 크기가 정한다 — 앞 사진의 값을 들고 있으면 다음 사진이 그 비율로 선다.
+    setNatural(null);
   }, [canNav, gallery, gi, liveStrip]);
   // 이웃 사진을 미리 받아 둔다 — lh3 주소는 고정이라 이게 곧 캐시를 채우는 일이고,
   // 다음/이전을 눌렀을 때 스켈레톤 없이 바로 뜬다.
@@ -606,6 +663,15 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       // 두 번 누르면 2배↔맞춤 — 폰에서 손가락을 오므리지 않고 한 번에 키우는 길이고,
       // 머리줄의 `100%` 버튼을 걷은 뒤로는 **맞춤으로 돌아오는 길**이기도 하다.
       const zoomed = zoom > ZOOM_MIN;
+      // 그림이 칸에 맞춰지는 배수. `Math.min(…, 1)`은 작은 그림을 배율 1에서 늘리지
+      // 않으려는 것이다(예전 `max-w-full max-h-full`과 같은 뜻).
+      const fit = natural?.w && natural?.h && boxSize?.w && boxSize?.h
+        ? Math.min(boxSize.w / natural.w, boxSize.h / natural.h, 1)
+        : 0;
+      // 아직 못 쟀으면 층 크기를 주지 않는다 — 그때는 통이 `stretch`라 층이 칸을 채운다.
+      const layerStyle = fit > 0
+        ? { width: natural.w * fit * zoom, height: natural.h * fit * zoom }
+        : undefined;
       return (
         // 통은 그냥 스크롤 통이다. **여기에 flex를 두지 않는다** — `justify-center`인 통에서
         // 내용이 넘치면 시작 쪽(왼쪽·위)이 잘려서 거기로 스크롤할 수가 없다(§6-29-z-13).
@@ -619,7 +685,12 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
           // 안 빼면 브라우저가 그 손짓을 자기 것으로 집어삼켜 `touchmove`가
           // `cancelable: false`로 오고, `preventDefault`가 아무 일도 하지 않는다.
           // 밀기(pan-x·pan-y)는 그대로 두고, 더블탭 확대는 어차피 여기서도 꺼진다.
-          style={{ touchAction: 'pan-x pan-y' }}
+          // `place-content: safe center` — 내용이 칸보다 작으면 가운데, 넘치면 **시작 쪽에
+          // 붙인다.** 그냥 `center`로 두면 넘친 내용의 왼쪽·위가 잘려 거기로 스크롤할 수가
+          // 없다(§6-29-z-13에서 실제로 그랬다) — `safe`가 그 경우에만 `start`로 떨어뜨린다.
+          // 이게 있어야 아래 층을 **그림 크기**로 둘 수 있다(가운데 맞추기를 여백이 아니라
+          // 격자가 하므로 스크롤 셈은 여전히 '내용 왼쪽 위 = 0'이다).
+          style={{ touchAction: 'pan-x pan-y', display: 'grid', placeContent: fit > 0 ? 'safe center' : 'stretch' }}
           // `overscroll-contain` — 끝까지 민 뒤에도 계속 밀면 스크롤이 **뒤 화면으로
           // 넘어간다**(스크롤 체이닝). 그러면 사진은 그대로인데 뒤가 움직여서 다음 탭이
           // 엉뚱한 데 떨어진다. 이 통에서 끝낸다.
@@ -628,18 +699,24 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
             : 'overflow-hidden'}`}
           onDoubleClick={(e) => zoomTo(zoomed ? ZOOM_MIN : ZOOM_TAP, e.clientX, e.clientY)}
         >
-          {/* 배율은 **맞춤 크기의 배수**다. 감싸개를 통의 `zoom × 100%`(가로·세로 둘 다)로
-              두고 사진을 그 안에 `object-contain`으로 담으면, 배율 1은 예전 그대로 '칸에
-              맞춤'이고 2배는 정확히 그 두 배가 된다. 예전에는 사진 자체에 `width: zoom×100%`를
-              줬는데 그것은 **칸 너비의 배수**라, 세로로 긴 사진은 맞춤에서 칸 너비의 30%만
-              차지하다가 1.05배만 줘도 통째로 튀어나갔다 — 계단일 때는 '한 칸 뛴다'로 넘어갔지만
-              연속 배율에서는 손가락을 살짝만 움직여도 그렇게 된다.
+          {/* 배율은 **맞춤 크기의 배수**이고, 층은 **그림만큼**이다(사용자 지적 2026-09-17 —
+              세로로 긴 표를 키우면 "아래·오른쪽으로 빈 자리가 스크롤 범위에 들어갔다").
+              예전에는 층을 통의 `zoom × 100%`로 두고 사진을 `object-contain`으로 담았는데,
+              그러면 사진 **요소**가 층만큼 커지고 실제 그림은 그 안에서 레터박스된다 —
+              배율을 올리면 **그 여백까지 같은 배수로 커져** 빈 종이를 스크롤하게 된다.
+              그림 비율이 창 비율과 다를수록 심하다.
+              그래서 층을 **칸에 맞춘 크기 × 배율**로 준다(위 `fit`). 픽셀이어야 한다 —
+              가운데 맞추기를 격자에 맡기는 순간 트랙이 내용 크기가 되어 퍼센트가 순환이
+              되고 층이 0으로 무너진다(헤드리스로 재어 확인했다).
+              **사진 자체에 `width: zoom×100%`를 주는 옛 길로 돌아가지 마세요** — 그건 칸
+              너비의 배수라 세로로 긴 사진이 1.05배에서 통째로 튀어나간다(§6-29-z-13-a).
               `data-zoom-layer` — 손짓이 도는 동안 **여기에** transform이 걸린다(위 liveBegin).
               통이 아니라 이 감싸개여야 스크롤은 그대로 두고 내용만 늘어난다. */}
-          <div data-zoom-layer="" style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%` }}>
+          <div data-zoom-layer="" style={layerStyle}>
             <SmartImage
               key={cur.id}
               src={imgSrcOf(cur) || url} alt={cur.name}
+              onReady={(img) => setNatural({ w: img.naturalWidth || 0, h: img.naturalHeight || 0 })}
               wrapperClassName="w-full h-full flex items-center justify-center"
               className="max-w-full max-h-full object-contain rounded-md"
               skeletonClassName="w-72 h-72" loadingText="미리보기를 준비하고 있어요"

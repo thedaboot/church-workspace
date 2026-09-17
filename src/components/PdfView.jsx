@@ -34,6 +34,11 @@ const ZOOM_SETTLE = 180;
 // 늘린다. 여기만 8px로 고정해 두면 손을 떼는 순간 **쪽 수만큼 쌓인 틈 차이가 한꺼번에**
 // 스크롤을 밀어 뒤쪽 장에서 화면이 튄다. 그리는 자리와 아래 CSS 확대가 같은 값을 쓴다.
 const PAGE_GAP = 8;
+// 쪽의 좌우 여백. 그릴 폭이 칸에서 16px을 비워 두므로(아래 cssWidth) 그 절반이 한쪽
+// 여백이고, 그것도 **배율을 따라간다.** `mx-auto`로 두면 배율이 커져 쪽이 칸보다 넓어지는
+// 순간 여백이 0으로 접혀, 손짓 중의 transform(여백까지 같이 늘린다)과 어긋나 손을 떼는
+// 순간 종이가 옆으로 훌쩍 뛴다. 고정으로 주면 커밋된 화면이 **정확히 배율 곱하기**가 된다.
+const PAGE_SIDE = 8;
 
 // pdf.js가 주소로 받아 가는 보조 자료. 이 네 칸은 **vite.config.js의 `pdfjsAssets`**가
 // node_modules/pdfjs-dist에서 그대로 내준다(dev는 미들웨어, build는 결과물) — 한쪽을
@@ -99,6 +104,9 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
   // 쪽(캔버스)을 담는 층. 통과 따로 두는 이유는 **손짓 동안 여기에 transform이 걸리기**
   // 때문이다(FilePreviewModal의 `data-zoom-layer`) — 통에 걸면 스크롤까지 같이 늘어난다.
   const layerRef = useRef(null);
+  // 마지막으로 그린 문서와 칸 너비. 둘 다 그대로면 쪽 크기가 같으므로 비우지 않고
+  // 한 장씩 갈아 끼운다(아래 inPlace) — 그래야 다시 그리는 동안 화면이 안 빈다.
+  const drawnKeyRef = useRef(null);
   // **실제로 그려 둔 배율.** `zoom`은 손가락을 따라 계속 바뀌지만 다시 그리는 것은
   // 손이 멎은 뒤 한 번뿐이다(위 ZOOM_SETTLE). 둘이 벌어져 있는 동안은 아래 layout
   // effect가 캔버스를 CSS로 늘려 그 차이를 메운다.
@@ -121,14 +129,16 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
   useLayoutEffect(() => {
     const layer = layerRef.current;
     if (!layer || !drawZoom || zoom === drawZoom) return;
-    const k = zoom / drawZoom;
     for (const el of layer.children) {
       const base = Number(el.dataset?.cssw);   // 그릴 때 적어 둔 CSS 폭(겹쳐 곱하지 않게)
       if (!base || !el.width) continue;
-      const w = base * k;
+      // **그 쪽이 그려진 배율에서** 지금 배율까지. 다시 그리는 도중에 배율이 또 바뀌면
+      // 층에 두 배율의 쪽이 잠깐 섞여 있으므로(아래 제자리 교체), 쪽마다 제 배율로 곱한다.
+      const w = base * (zoom / (Number(el.dataset?.z) || drawZoom));
       el.style.width = `${w}px`;
       el.style.height = `${Math.round(w * (el.height / el.width))}px`;
       el.style.marginBottom = `${PAGE_GAP * zoom}px`;   // 틈도 같이(위 PAGE_GAP)
+      el.style.marginLeft = el.style.marginRight = `${PAGE_SIDE * zoom}px`;
     }
   }, [zoom, drawZoom]);
 
@@ -177,20 +187,36 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
         const host = hostRef.current;
         const layer = layerRef.current;
         if (!host || !layer) throw new Error('미리보기 자리를 찾지 못했어요');
-        // **다시 그리는 동안 보던 자리를 잃지 않게.** `replaceChildren`로 비우면 높이가
+        // **화면을 한 번도 비우지 않는다**(사용자 신고 2026-09-17 두 번째 — "확대를 하면
+        // 중간중간 프레임이 끊긴 것처럼 하얗게 한 0.01초 끊겼다가 돌아온다"). 예전에는
+        // 먼저 `replaceChildren`로 비우고 다시 붙였는데, 비운 순간부터 첫 쪽이 붙을 때까지
+        // 종이가 없어 바탕이 드러났다. 같은 문서·같은 칸 너비면 쪽 크기가 이미 같으므로
+        // (옛 쪽은 위 CSS 확대로 새 배율만큼 늘려 둔 상태다) **한 장씩 제자리에서 갈아
+        // 끼운다** — 다 그린 새 캔버스로 바꾸는 것이라 빈 자리가 한 프레임도 안 생기고,
+        // 살아 있는 캔버스는 언제나 쪽 수 그대로라 메모리도 늘지 않는다(그리는 중인 한 장만 더).
+        // 칸 너비가 바뀐 때(화면 가득·화면 돌리기)는 쪽 크기 자체가 달라지므로 예전처럼 비운다.
+        const prev = drawnKeyRef.current;
+        const inPlace = !!prev && prev.doc === (blob || src) && prev.boxW === boxW
+          && layer.children.length > 0;
+        drawnKeyRef.current = { doc: blob || src, boxW };
+        const kept = inPlace ? layer.children.length : 0;   // 이미 화면에 서 있는 쪽 수
+        // **비우고 다시 붙일 때만** 보던 자리를 되돌린다. `replaceChildren`로 비우면 높이가
         // 0으로 접혀 스크롤이 맨 위로 튄다 — 배율만 조금 바꿨는데 1쪽으로 돌아갔다.
         // 쪽 높이가 다 같지는 않으니 위치가 아니라 **비율**로 기억하고, 쪽이 쌓일 때마다
         // 그 비율을 다시 맞춘다(다 쌓이기 전에 한 번만 맞추면 엉뚱한 데에 선다).
+        // 제자리 교체일 때는 스크롤이 애초에 움직이지 않으므로 손대지 않는다 — 그 사이
+        // 사람이 내려 읽은 자리를 도로 끌어올리면 안 된다.
         const frac = (pos, inner, outer) => (inner > outer ? pos / (inner - outer) : 0);
         const keep = {
           y: frac(host.scrollTop, host.scrollHeight, host.clientHeight),
           x: frac(host.scrollLeft, host.scrollWidth, host.clientWidth),
         };
         const keepScroll = () => {
+          if (inPlace) return;
           if (keep.y) host.scrollTop = keep.y * Math.max(0, host.scrollHeight - host.clientHeight);
           if (keep.x) host.scrollLeft = keep.x * Math.max(0, host.scrollWidth - host.clientWidth);
         };
-        layer.replaceChildren();
+        if (!inPlace) layer.replaceChildren();
 
         // 가로 폭에 맞춰 그린다(화면 배율 반영 — 모바일에서 흐릿하지 않게).
         // 쪽이 쌓이면 세로 스크롤바가 생겨 내용 폭이 그만큼 줄어든다 → 미리 비워둔다.
@@ -210,22 +236,26 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
           const canvas = document.createElement('canvas');
           canvas.width = Math.floor(viewport.width);
           canvas.height = Math.floor(viewport.height);
-          // 그리는 중에 배율이 앞서 갔으면 그만큼 미리 늘려 내보낸다(위 zoomRef).
-          const live = (zoomRef.current || drawZoom) / drawZoom;
-          canvas.style.width = `${cssWidth * live}px`;
-          canvas.style.height = `${Math.floor(viewport.height * (cssWidth / pxWidth) * live)}px`;
           // 이 배율로 그린 CSS 폭을 적어 둔다 — 손가락을 따라가는 CSS 확대(위 layout
           // effect)가 이 값에서 곱한다. 늘어난 폭에서 또 곱하면 배율이 겹쳐 쌓인다.
           canvas.dataset.cssw = String(cssWidth);
-          // 틈은 배율을 따라간다(위 PAGE_GAP) — `mb-2`로 고정해 두면 손짓 중의 transform과
-          // 어긋나 손을 뗄 때 뒤쪽 장에서 화면이 튄다.
-          canvas.style.marginBottom = `${PAGE_GAP * drawZoom * live}px`;
-          canvas.className = 'block mx-auto rounded-md border border-line bg-white shadow-soft';
-          layer.appendChild(canvas);
-
+          canvas.dataset.z = String(drawZoom);   // 어느 배율에서 그린 쪽인가(위 CSS 확대)
+          canvas.className = 'block rounded-md border border-line bg-white shadow-soft';
+          // **다 그린 뒤에 끼운다.** 빈 캔버스를 먼저 붙이고 그리면 그 동안 그 자리가
+          // 빈 종이라, 쪽마다 하얗게 한 번씩 번쩍인다(위 제자리 교체 머리말).
           await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
           if (!alive) return;
-          setDrawn(n);
+          // 그리는 중에 배율이 앞서 갔으면 그만큼 미리 늘려 끼운다(위 zoomRef).
+          const live = (zoomRef.current || drawZoom) / drawZoom;
+          canvas.style.width = `${cssWidth * live}px`;
+          canvas.style.height = `${Math.floor(viewport.height * (cssWidth / pxWidth) * live)}px`;
+          // 틈·좌우 여백은 배율을 따라간다(위 PAGE_GAP·PAGE_SIDE) — 고정해 두면 손짓 중의
+          // transform과 어긋나 손을 뗄 때 종이가 뛴다.
+          canvas.style.marginBottom = `${PAGE_GAP * drawZoom * live}px`;
+          canvas.style.marginLeft = canvas.style.marginRight = `${PAGE_SIDE * drawZoom * live}px`;
+          const old = layer.children[n - 1];
+          if (old) layer.replaceChild(canvas, old); else layer.appendChild(canvas);
+          setDrawn(Math.max(n, kept));   // 제자리 교체 중에는 옛 쪽도 화면에 서 있다
           keepScroll();
           if (n === Math.min(FIRST_CHUNK, total)) setStatus('ready');
           // 나머지 쪽은 한 박자 쉬며 그려 스크롤이 끊기지 않게
@@ -233,8 +263,11 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
         }
         if (alive) setStatus('ready');
       } catch (e) {
+        // 배율이 또 바뀌어 **취소된** 그리기다(정리에서 doc.destroy를 부르면 그리던 것이
+        // 떨어진다) — 손짓 한 번에 여러 번 나는 일이라 조용히 버린다.
+        if (!alive) return;
         console.error('[preview] PDF 렌더 실패:', e);
-        if (alive) { setStatus('error'); errRef.current?.(e); }
+        setStatus('error'); errRef.current?.(e);
       }
     })();
 

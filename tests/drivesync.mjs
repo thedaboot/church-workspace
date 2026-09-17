@@ -973,7 +973,30 @@ check('손가락 확대는 손짓 동안 리액트를 거치지 않는다', () =
   assert.match(preview, /pinchRef\.current = null; liveStrip\(\);/,
     '사진을 넘길 때 라이브 transform이 남는다');
   // 걸리는 자리는 통이 아니라 내용 층이다 — 통에 걸면 스크롤까지 같이 늘어난다
-  assert.match(preview, /<div data-zoom-layer="" style=\{\{ width: `\$\{zoom \* 100\}%`/, '사진에 확대 층이 없다');
+  assert.match(preview, /<div data-zoom-layer="" style=\{layerStyle\}>/, '사진에 확대 층이 없다');
+  // 층은 **통 크기의 배수가 아니라 그림만큼**이다(사용자 지적 2026-09-17 — 세로로 긴 표를
+  // 키우면 아래·오른쪽 빈 자리가 스크롤 범위에 들어갔다). 통의 배수로 두면 `object-contain`의
+  // 레터박스 여백까지 같은 배수로 커져 빈 종이를 스크롤하게 된다.
+  assert.match(preview, /width: natural\.w \* fit \* zoom, height: natural\.h \* fit \* zoom/,
+    '확대 층이 그림 크기의 배수가 아니다 — 레터박스 여백까지 스크롤 범위가 된다');
+  assert.match(preview, /Math\.min\(boxSize\.w \/ natural\.w, boxSize\.h \/ natural\.h, 1\)/,
+    '작은 그림이 배율 1에서 늘어난다(옛 max-w-full의 뜻이 빠졌다)');
+  // 가운데 맞추기는 여백이 아니라 격자가 한다 — `safe`가 없으면 넘친 내용의 왼쪽·위가 잘린다
+  assert.match(preview, /placeContent: fit > 0 \? 'safe center' : 'stretch'/,
+    "넘친 그림의 시작 쪽으로 스크롤할 수 없다(safe가 빠졌다)");
+  // 층 크기는 픽셀이어야 한다 — 격자로 가운데를 맞추면 퍼센트가 순환이 되어 0으로 무너진다
+  assert.ok(!/data-zoom-layer[\s\S]{0,200}?\$\{zoom \* 100\}%/.test(preview),
+    '층 크기가 퍼센트다 — 격자 안에서 0으로 무너진다');
+  // 밀 수 있는 끝은 **층**을 재서 셈한다 — 내용이 칸보다 작을 때 scrollWidth는 칸 크기라 거짓이다
+  assert.match(preview, /sw: el\.offsetWidth, sh: el\.offsetHeight,/,
+    '손짓 중 밀 수 있는 끝을 통의 scrollWidth로 센다 — 층보다 커서 손 뗄 때 튄다');
+  // 내용이 칸보다 작으면 격자가 가운데로 잡아 주는데, 손짓 중 transform은 층의 왼쪽 위에서
+  // 자란다 — 그 여백이 줄어드는 만큼을 안 더하면 **배율 1에서 시작한 손짓이 또 미끄러진다**.
+  assert.match(preview, /const dl = s\.pl > 0\.5 \? Math\.max\(0, \(s\.cw - s\.sw \* k\) \/ 2\) - s\.pl : 0;/,
+    '가운데 맞추기 여백이 줄어드는 만큼을 안 더한다 — 맞춤에서 시작한 손짓이 미끄러진다');
+  assert.match(preview, /pl: el\.offsetLeft, pt: el\.offsetTop,/, '손짓 시작에 그 여백을 재지 않는다');
+  // 앞 사진의 크기를 들고 있으면 다음 사진이 그 비율로 선다
+  assert.match(preview, /setNatural\(null\);/, '사진을 넘길 때 앞 그림의 크기가 남는다');
   assert.match(pdfview, /<div ref=\{layerRef\} data-zoom-layer="" \/>/, 'PDF에 확대 층이 없다');
   // PDF 쪽 틈은 배율을 따라간다 — 8px 고정이면 transform이 늘린 틈과 어긋나 손을 뗄 때 튄다
   assert.match(pdfview, /const PAGE_GAP = 8;/, 'PDF 쪽 틈 값이 없다');
@@ -982,6 +1005,50 @@ check('손가락 확대는 손짓 동안 리액트를 거치지 않는다', () =
   // 데스크톱 휠은 그대로 커밋 방식이다(이산 이벤트라 그게 자연스럽고 문제도 없었다)
   assert.match(preview, /zoomTo\(zoomRef\.current \* Math\.exp\(-dy \* WHEEL_ZOOM_K\), e\.clientX, e\.clientY\);/,
     '컨트롤/⌘+휠 확대가 사라졌다');
+  // 손짓 동안 통의 스크롤을 직접 쓰면 안 된다 — 맞춤(배율 1)의 통은 `overflow-hidden`이라
+  // 그 값이 아이폰에서 먹지 않았고, 기준점 보정이 죽어 **사진이 그냥 아래로 미끄러졌다**
+  // (사용자 신고 2026-09-17 두 번째 — "확대가 밑으로 내려가는데"). 옮길 만큼은 translate로 준다.
+  assert.match(preview, /translate\(\$\{dl \+ s\.box\.scrollLeft - s\.tl\}px, \$\{dt \+ s\.box\.scrollTop - s\.tt\}px\) scale\(\$\{k\}\)/,
+    '손짓 중 기준점 보정이 translate가 아니다 — 배율 1에서는 스크롤이 안 먹는다');
+  assert.ok(!/const liveScale = useCallback[\s\S]{0,1200}?s\.box\.scroll(Left|Top) =/.test(preview),
+    '손짓 동안 통의 스크롤을 직접 쓴다');
+  // 손짓 중 보여 주던 그 자리가 손을 뗄 때 그대로 진짜 스크롤이 된다
+  assert.match(preview, /anchorRef\.current = \{ k: 1, ox: 0, oy: 0, sl: s\.tl, st: s\.tt \};/,
+    '손짓 중 보여 주던 자리가 커밋으로 이어지지 않는다');
+  // 사파리 GestureEvent의 clientX/Y는 실기기로 재어 보지 못했다 — 비면 셈이 NaN이 되어
+  // 기준점이 통째로 0이 된다(= 같은 증상). 빈 값은 여기서 멎어야 한다.
+  assert.match(preview, /const cx = Number\.isFinite\(px\) \? px : r\.left \+ r\.width \/ 2;/,
+    '손가락 가운데를 못 받으면 기준점이 NaN이 된다');
+  assert.match(preview, /const ox = Number\.isFinite\(px\) \? px - s\.rl : s\.ox;/,
+    '손짓 중 손가락 가운데가 비면 셈이 NaN이 된다');
+});
+
+check('PDF는 다시 그리는 동안 화면을 비우지 않는다', () => {
+  // 사용자 신고 2026-09-17 — "확대를 하면 중간중간 프레임이 끊긴 것처럼 하얗게 한 0.01초
+  // 끊겼다가 돌아온다". 먼저 비우고 다시 붙이면 첫 쪽이 붙을 때까지 종이가 없어 바탕이
+  // 드러난다(비우는 순간 scrollHeight가 통째로 접히는 것도 같이 재 봤다).
+  const pdfview = read('src/components/PdfView.jsx');
+  assert.match(pdfview, /if \(!inPlace\) layer\.replaceChildren\(\);/,
+    '다시 그리기 전에 무조건 비운다 — 그 사이가 하얗게 보인다');
+  assert.match(pdfview, /const old = layer\.children\[n - 1\];[\s\S]{0,80}?if \(old\) layer\.replaceChild\(canvas, old\); else layer\.appendChild\(canvas\);/,
+    '쪽을 제자리에서 갈아 끼우지 않는다');
+  // 다 그린 뒤에 끼운다 — 빈 캔버스를 먼저 붙이면 그 자리가 그리는 동안 빈 종이다
+  assert.match(pdfview, /await page\.render\(\{ canvasContext: canvas\.getContext\('2d'\), viewport \}\)\.promise;[\s\S]{0,900}?layer\.replaceChild\(canvas, old\)/,
+    '빈 캔버스를 먼저 붙이고 그린다');
+  // 다시 그리는 도중 배율이 또 바뀌면 두 배율의 쪽이 층에 섞인다 — 쪽마다 제 배율에서 곱해야 한다
+  assert.match(pdfview, /canvas\.dataset\.z = String\(drawZoom\);/, '쪽이 어느 배율에서 그려졌는지 적지 않는다');
+  assert.match(pdfview, /base \* \(zoom \/ \(Number\(el\.dataset\?\.z\) \|\| drawZoom\)\)/,
+    'CSS 확대가 섞인 배율을 셈하지 못한다');
+  // 좌우 여백도 배율을 따라간다 — `mx-auto`는 쪽이 칸보다 넓어지는 순간 0으로 접혀서
+  // 손짓 중의 transform(여백까지 늘린다)과 어긋나고, 손을 뗄 때 종이가 옆으로 뛴다.
+  assert.match(pdfview, /const PAGE_SIDE = 8;/, '쪽 좌우 여백 값이 없다');
+  assert.match(pdfview, /marginLeft = el\.style\.marginRight = `\$\{PAGE_SIDE \* zoom\}px`/,
+    '좌우 여백이 배율을 안 따라간다');
+  assert.ok(!/canvas\.className = '[^']*mx-auto/.test(pdfview),
+    'mx-auto가 살아 있다 — 배율이 커지면 여백이 0으로 접힌다');
+  // 비율 스크롤 기억은 **비우는 길에만** 쓴다(제자리 교체 중에 끌어올리면 읽던 자리를 뺏는다)
+  assert.match(pdfview, /const keepScroll = \(\) => \{[\s\S]{0,40}?if \(inPlace\) return;/,
+    '제자리 교체 중에 스크롤을 끌어올린다');
 });
 
 check('옛 브라우저에서도 PDF가 그려진다 (pdf.js가 그냥 쓰는 최신 API 채우기)', () => {
