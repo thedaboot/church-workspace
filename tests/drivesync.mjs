@@ -947,6 +947,43 @@ check('확대는 우리가 그리는 갈래에만 있고 PDF는 다시 그린다
   assert.match(html, /maximum-scale=1\.0/, 'viewport의 maximum-scale이 바뀌었다 — §6-29-z-13을 다시 보세요');
 });
 
+check('손가락 확대는 손짓 동안 리액트를 거치지 않는다', () => {
+  // 사용자 신고 2026-09-17 — "손가락으로 줌인 줌아웃 하면 프레임 단위로 끊겨가지고".
+  // touchmove마다 setZoom을 부르면 매 프레임 창 전체가 다시 그려지고, 사진은 감싸개 폭이
+  // `zoom × 100%`라 레이아웃까지 다시 잡힌다(PDF는 캔버스 쉰 장). 그래서 손짓 동안에는
+  // 내용 층(data-zoom-layer)에 transform만 먹이고, 커밋은 손가락이 둘 미만이 되는 순간 한 번뿐이다.
+  const pdfview = read('src/components/PdfView.jsx');
+  assert.match(preview, /liveScale\(d \/ startD, midX\(e\.touches\), midY\(e\.touches\)\);/,
+    'touchmove가 transform이 아니라 상태로 배율을 바꾼다 — 폰에서 프레임 단위로 끊긴다');
+  assert.ok(!/onTouchMove = \(e\) => \{[\s\S]{0,700}?setZoom\(/.test(preview),
+    'touchmove가 setZoom을 부른다 — 손가락마다 창 전체가 다시 그려진다');
+  // 아이폰의 실제 경로는 gesture*다 — 거기도 같은 대접이어야 한다
+  assert.match(preview, /const onChange = \(e\) => \{ e\.preventDefault\(\); liveScale\(e\.scale \|\| 1, e\.clientX, e\.clientY\); \};/,
+    '사파리 gesturechange가 매 프레임 리렌더를 일으킨다');
+  assert.ok(!/const onChange = \(e\) => \{[^}]*zoomTo\(/.test(preview),
+    'gesturechange가 배율을 곧바로 커밋한다');
+  // 커밋은 손가락이 둘 미만이 되는 순간 한 번. 사파리는 gestureend와 touchend를 둘 다 준다.
+  assert.match(preview, /const onTouchEnd = \(e\) => \{ if \(e\.touches\.length < 2\) \{ startD = 0; liveCommit\(\); \} \};/,
+    '손을 뗄 때 커밋하지 않는다');
+  assert.match(preview, /const liveCommit = useCallback[\s\S]{0,160}?pinchRef\.current = null;/,
+    '커밋이 두 번 먹는다(사파리는 gestureend·touchend를 둘 다 준다)');
+  // transform은 **새 배율이 그려진 뒤**에 걷는다 — 먼저 걷으면 한 프레임 옛 배율이 번쩍인다
+  assert.match(preview, /if \(!pinchRef\.current\) liveStrip\(\);/,
+    '라이브 transform을 커밋 전에 걷는다 — 한 프레임 동안 옛 배율이 보인다');
+  assert.match(preview, /pinchRef\.current = null; liveStrip\(\);/,
+    '사진을 넘길 때 라이브 transform이 남는다');
+  // 걸리는 자리는 통이 아니라 내용 층이다 — 통에 걸면 스크롤까지 같이 늘어난다
+  assert.match(preview, /<div data-zoom-layer="" style=\{\{ width: `\$\{zoom \* 100\}%`/, '사진에 확대 층이 없다');
+  assert.match(pdfview, /<div ref=\{layerRef\} data-zoom-layer="" \/>/, 'PDF에 확대 층이 없다');
+  // PDF 쪽 틈은 배율을 따라간다 — 8px 고정이면 transform이 늘린 틈과 어긋나 손을 뗄 때 튄다
+  assert.match(pdfview, /const PAGE_GAP = 8;/, 'PDF 쪽 틈 값이 없다');
+  assert.match(pdfview, /marginBottom = `\$\{PAGE_GAP \* zoom\}px`/, 'PDF 쪽 틈이 배율을 안 따라간다');
+  assert.match(pdfview, /marginBottom = `\$\{PAGE_GAP \* drawZoom \* live\}px`/, '다시 그린 쪽의 틈이 배율과 어긋난다');
+  // 데스크톱 휠은 그대로 커밋 방식이다(이산 이벤트라 그게 자연스럽고 문제도 없었다)
+  assert.match(preview, /zoomTo\(zoomRef\.current \* Math\.exp\(-dy \* WHEEL_ZOOM_K\), e\.clientX, e\.clientY\);/,
+    '컨트롤/⌘+휠 확대가 사라졌다');
+});
+
 check('옛 브라우저에서도 PDF가 그려진다 (pdf.js가 그냥 쓰는 최신 API 채우기)', () => {
   // 크롬 131에서 재현했다: 고치기 전에는 PDF가 **한 장도** 안 그려지고
   // "a.toHex is not a function" → "…getOrInsertComputed is not a function" →

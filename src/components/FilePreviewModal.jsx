@@ -62,6 +62,8 @@ const FRAME_SETTLE = 260;
 // 사용자 결정 2026-09-14: "150%, 200% 붙이지 말고 손가락으로 펴고, 마우스로 휠로 펼 수
 // 있게끔" — 계단(100·150·200·300)과 머리줄의 `－ 100% ＋` 버튼을 걷고 **연속 배율**로
 // 바꿨다. 키우는 길은 셋이다: 손가락 오므리기(아래 pinch) · 컨트롤/⌘+휠 · 두 번 누르기.
+// **손가락 갈래만 다르게 돈다**: 손짓이 도는 동안에는 이 상태를 건드리지 않고 내용에
+// transform을 먹이다가 손을 뗄 때 한 번 커밋한다(아래 liveBegin · 사용자 신고 2026-09-17).
 // 배율 1은 '칸에 맞춤'이고 거기가 하한이다. 상한은 옛 계단의 맨 위(3배)를 그대로 둔다 —
 // PDF는 CSS로 늘리는 것이 아니라 **그 배율로 다시 그리는** 것이라(§6-29-z-13) 그 위로는
 // 캔버스가 감당하지 못한다(PdfView의 MAX_CANVAS_PX_W가 실제 픽셀을 한 번 더 막는다).
@@ -178,16 +180,89 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     setZoom(z1);
   }, [zoomBox]);
 
+  // ------------------------------------------------------------------------
+  // **손짓이 도는 동안에는 리액트를 건드리지 않는다**(사용자 신고 2026-09-17 — "손가락으로
+  // 줌인 줌아웃 하면 프레임 단위로 끊겨가지고"). `touchmove`마다 `setZoom`을 부르면 매
+  // 프레임 창 전체가 다시 그려지는데, 사진은 감싸개 폭이 `zoom × 100%`라 **레이아웃이
+  // 다시 잡히고**(PDF는 캔버스 쉰 장의 크기가 한꺼번에 바뀐다) 그 뒤에 스크롤 보정까지
+  // 돈다. 폰에서 그 한 바퀴가 16ms를 넘으면 손가락을 못 따라와 계단처럼 보인다.
+  //
+  // 그래서 손가락이 둘 닿는 순간부터는 **내용 층(`data-zoom-layer`)에 `transform: scale`만**
+  // 먹인다 — 레이아웃이 아니라 합성이라 손가락에 그대로 붙는다. 기준점은 `transform-origin`
+  // 이 아니라 **스크롤**로 잡는다(원점은 `0 0` 고정): 커밋된 배율의 화면과 **같은 계산**이라야
+  // 손을 뗄 때 튀지 않는다. 손가락 가운데가 움직이면 그만큼 같이 밀린다.
+  // 커밋은 손가락이 둘 미만이 되는 순간 **딱 한 번**이고, transform은 새 배율이 그려진
+  // 뒤(아래 useLayoutEffect)에 걷는다 — 먼저 걷으면 리액트가 다시 그리기 전 한 프레임 동안
+  // 옛 배율이 번쩍인다.
+  const pinchRef = useRef(null);    // 손짓이 도는 동안만 차 있다(모양은 liveBegin에)
+  const liveElRef = useRef(null);   // transform이 남아 있는 요소 — 세션보다 오래 산다
+
+  const liveStrip = useCallback(() => {
+    const el = liveElRef.current;
+    liveElRef.current = null;
+    if (!el) return;
+    el.style.transform = '';
+    el.style.transformOrigin = '';
+    el.style.willChange = '';
+  }, []);
+
+  const liveBegin = useCallback((px, py) => {
+    if (pinchRef.current || !zoomBox) return;   // 이미 돌고 있다 — 사파리는 두 길을 다 준다
+    const el = zoomBox.querySelector('[data-zoom-layer]');
+    if (!el) return;
+    const r = zoomBox.getBoundingClientRect();  // 창은 손짓 동안 움직이지 않는다 — 한 번만 잰다
+    pinchRef.current = {
+      el, box: zoomBox, z0: zoomRef.current, z: zoomRef.current,
+      rl: r.left, rt: r.top, ox: px - r.left, oy: py - r.top,
+      sl: zoomBox.scrollLeft, st: zoomBox.scrollTop,
+    };
+    liveElRef.current = el;
+    el.style.transformOrigin = '0 0';
+    el.style.willChange = 'transform';
+  }, [zoomBox]);
+
+  // 손가락 사이가 처음의 몇 배인가(`ratio`)와 지금 손가락 가운데. 상·하한과 1 붙이기는
+  // 여기서도 그대로 건다 — 손을 떼기 전에 이미 그 배율로 보여야 한다.
+  const liveScale = useCallback((ratio, px, py) => {
+    const s = pinchRef.current;
+    if (!s) return;
+    s.z = clampZoom(s.z0 * ratio);
+    const k = s.z / s.z0;
+    s.el.style.transform = `scale(${k})`;
+    s.box.scrollLeft = (s.sl + s.ox) * k - (px - s.rl);
+    s.box.scrollTop = (s.st + s.oy) * k - (py - s.rt);
+  }, []);
+
+  // 손가락이 둘 미만이 되는 순간 — **여기서 딱 한 번** 커밋한다. 두 번 불려도 안전해야
+  // 한다: 사파리는 `gestureend`와 `touchend`를 둘 다 준다(§6-29-z-13-a ②).
+  const liveCommit = useCallback(() => {
+    const s = pinchRef.current;
+    if (!s) return;
+    pinchRef.current = null;
+    const z0 = zoomRef.current;
+    // 스크롤은 손짓 동안 이미 맞춰 뒀다(liveScale) — 다시 그린 뒤 **그 자리를 그대로**
+    // 되돌려 놓는다(배수 1인 기준점이 곧 "지금 스크롤 유지"다). 기준점을 여기서 세워
+    // 두고 배율은 `zoomTo`가 커밋한다 — 배율이 바뀌는 자리는 하나여야 한다.
+    anchorRef.current = { k: 1, ox: 0, oy: 0, sl: s.box.scrollLeft, st: s.box.scrollTop };
+    zoomTo(s.z);
+    // 배율이 그대로면(zoomTo가 되돌아갔다) 다시 그려지지 않아 아래 layout effect도 안
+    // 돈다 — 세워 둔 기준점을 도로 버리고 transform은 지금 걷는다.
+    if (zoomRef.current === z0) { anchorRef.current = null; liveStrip(); }
+  }, [zoomTo, liveStrip]);
+
   // 내용 크기가 정해지는 그 순간에 스크롤을 옮긴다. 그림은 이 커밋에서 바로 커지고,
   // PDF는 **자식의 layout effect가 먼저 돌아** 캔버스를 늘려 놓은 뒤라(리액트는 자식의
   // layout effect를 부모보다 먼저 돌린다) 여기서 잰 크기가 이미 새 크기다.
   useLayoutEffect(() => {
+    // 새 배율이 그려졌으니 손짓 동안 먹였던 transform을 **이제** 걷는다. 아직 손짓이
+    // 돌고 있으면(다음 손가락이 벌써 닿았다) 그대로 둔다.
+    if (!pinchRef.current) liveStrip();
     const a = anchorRef.current;
     anchorRef.current = null;
     if (!a || !zoomBox) return;
     zoomBox.scrollLeft = (a.sl + a.ox) * a.k - a.ox;
     zoomBox.scrollTop = (a.st + a.oy) * a.k - a.oy;
-  }, [zoom, zoomBox]);
+  }, [zoom, zoomBox, liveStrip]);
   // 확대한 사진을 마우스로 끌어서 민다(media.usePanDrag 머리말 — 왜 필요한지가 거기 있다)
   const { panning, panProps } = usePanDrag();
   // 딤을 눌러 닫기 — **누른 곳도 딤이어야 닫는다.** 사진을 끌다가 딤에서 손을 떼면
@@ -212,13 +287,15 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   // `touch*`로 직접 받는다. 사파리는 두 길을 **둘 다** 주므로(터치도 오고 gesture도 온다)
   // 여기서 `gestureRef`를 세워 터치 쪽이 손을 떼게 한다 — 두 손가락 `touchstart` 바로 뒤에
   // `gesturestart`가 오고 그 다음이 첫 `touchmove`라, 배율이 두 번 적용될 틈이 없다.
+  //
+  // **여기도 손짓 동안에는 transform만** 먹인다(위 liveBegin 머리말) — 예전에는
+  // `gesturechange`가 곧바로 `zoomTo`를 불러서 아이폰에서도 매 프레임 리렌더였다.
   useEffect(() => {
     if (!canZoom) return;
-    let start = 1;
-    const onStart = (e) => { e.preventDefault(); gestureRef.current = true; start = zoomRef.current; };
     // `clientX/Y`는 두 손가락 가운데다(WebKit GestureEvent) — 그 자리를 붙잡고 키운다.
-    const onChange = (e) => { e.preventDefault(); zoomTo(start * (e.scale || 1), e.clientX, e.clientY); };
-    const onEnd = (e) => { e.preventDefault(); gestureRef.current = false; };
+    const onStart = (e) => { e.preventDefault(); gestureRef.current = true; liveBegin(e.clientX, e.clientY); };
+    const onChange = (e) => { e.preventDefault(); liveScale(e.scale || 1, e.clientX, e.clientY); };
+    const onEnd = (e) => { e.preventDefault(); gestureRef.current = false; liveCommit(); };
     const opt = { passive: false };
     document.addEventListener('gesturestart', onStart, opt);
     document.addEventListener('gesturechange', onChange, opt);
@@ -229,12 +306,14 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       document.removeEventListener('gesturechange', onChange, opt);
       document.removeEventListener('gestureend', onEnd, opt);
     };
-  }, [canZoom, zoomTo]);
+  }, [canZoom, liveBegin, liveScale, liveCommit]);
 
   // **손가락 오므리기(안드로이드)와 컨트롤/⌘+휠(데스크톱).**
   // 안드로이드 크롬에는 `gesture*`가 없으므로 두 손가락 사이 거리를 우리가 직접 잰다:
   // 닿은 순간의 거리를 기억해 두고 `지금 거리 ÷ 처음 거리 × 처음 배율`로 간다.
-  // 기준점은 **두 손가락 가운데**다(zoomTo가 그 자리를 붙잡는다).
+  // 기준점은 **두 손가락 가운데**다(liveScale이 그 자리를 붙잡는다).
+  // 손짓이 도는 동안에는 `setZoom`을 부르지 않고 transform만 먹인다 — 커밋은 손가락이
+  // 둘 미만이 되는 `touchend`/`touchcancel` 한 번뿐이다(위 liveBegin 머리말).
   //
   // 끌어서 밀기와 싸우지 않는다: 손가락 밀기는 브라우저의 스크롤이 맡고 있고(usePanDrag는
   // `pointerType === 'mouse'`만 받는다 · §6-29-z-16), 손가락이 둘일 때만 `preventDefault`로
@@ -243,23 +322,25 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   // 조작까지 바뀐다. `{ passive: false }`가 아니면 `preventDefault`가 무시된다.
   useEffect(() => {
     if (!canZoom || !zoomBox) return;
-    let pinch = null;                     // { d, z } — 두 손가락이 닿은 순간의 거리와 배율
+    let startD = 0;                       // 두 손가락이 닿은 순간의 거리(0이면 손짓이 없다)
     const spread = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const midX = (t) => (t[0].clientX + t[1].clientX) / 2;
+    const midY = (t) => (t[0].clientY + t[1].clientY) / 2;
     const onTouchStart = (e) => {
-      pinch = e.touches.length === 2 ? { d: spread(e.touches), z: zoomRef.current } : null;
+      if (e.touches.length === 2) { startD = spread(e.touches); liveBegin(midX(e.touches), midY(e.touches)); }
     };
     const onTouchMove = (e) => {
-      if (!pinch || e.touches.length !== 2) return;
+      if (!startD || e.touches.length !== 2) return;
       if (gestureRef.current) return;     // 사파리 — 위 효과가 이미 같은 손짓을 받고 있다
       const d = spread(e.touches);
-      if (!d || !pinch.d) return;
+      if (!d) return;
       // 브라우저가 이 손짓을 이미 스크롤로 집어삼켰으면 취소할 수 없다(그때는 그냥 둔다).
       if (e.cancelable) e.preventDefault();
-      zoomTo(pinch.z * (d / pinch.d),
-        (e.touches[0].clientX + e.touches[1].clientX) / 2,
-        (e.touches[0].clientY + e.touches[1].clientY) / 2);
+      liveScale(d / startD, midX(e.touches), midY(e.touches));
     };
-    const onTouchEnd = (e) => { if (e.touches.length < 2) pinch = null; };
+    // 손가락이 둘 미만이 되는 순간 커밋한다 — 사파리는 `gestureend`가 먼저 커밋하고
+    // 여기는 아무 일도 안 하게 된다(liveCommit은 한 번만 먹는다).
+    const onTouchEnd = (e) => { if (e.touches.length < 2) { startD = 0; liveCommit(); } };
     const onWheel = (e) => {
       if (!e.ctrlKey && !e.metaKey) return;   // 그냥 휠은 스크롤 그대로 — 긴 PDF를 읽는 길이다
       e.preventDefault();                     // 안 막으면 브라우저가 페이지를 확대한다
@@ -274,13 +355,16 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     zoomBox.addEventListener('touchcancel', onTouchEnd);
     zoomBox.addEventListener('wheel', onWheel, opt);
     return () => {
+      // 통이 바뀌면(파일이 바뀌었다) 손짓도 거기서 끝난 것이다. 세션을 남겨 두면
+      // liveBegin이 "이미 돌고 있다"고 보고 다음 손짓이 영영 안 열린다.
+      pinchRef.current = null; liveStrip();
       zoomBox.removeEventListener('touchstart', onTouchStart);
       zoomBox.removeEventListener('touchmove', onTouchMove, opt);
       zoomBox.removeEventListener('touchend', onTouchEnd);
       zoomBox.removeEventListener('touchcancel', onTouchEnd);
       zoomBox.removeEventListener('wheel', onWheel, opt);
     };
-  }, [canZoom, zoomBox, zoomTo]);
+  }, [canZoom, zoomBox, zoomTo, liveBegin, liveScale, liveCommit, liveStrip]);
   const timerRef = useRef(null);
   const settleRef = useRef(null);
   const go = useCallback((d) => {
@@ -291,10 +375,12 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     // 앞 파일이 걸어 둔 것들 — 남겨 두면 다음 파일의 화면을 건드린다(감사 2026-09-13).
     // 특히 settle 타이머는 새 틀이 뜨지도 않았는데 스켈레톤을 걷어 버린다.
     // 배율은 ref도 같이 되돌린다 — 손짓 중간에 넘겼을 때 다음 계산이 앞 사진의 배율을
-    // 보면 안 된다. 붙잡아 둔 기준점(anchorRef)도 앞 사진의 것이라 버린다.
+    // 보면 안 된다. 붙잡아 둔 기준점(anchorRef)도 앞 사진의 것이라 버린다. 손짓이 돌고
+    // 있었다면 **라이브 transform까지 걷는다** — 남겨 두면 다음 사진이 늘어난 채로 열린다.
     clearTimeout(settleRef.current); setBlobSrc(null);
+    pinchRef.current = null; liveStrip();
     anchorRef.current = null; zoomRef.current = ZOOM_MIN; setZoom(ZOOM_MIN);
-  }, [canNav, gallery, gi]);
+  }, [canNav, gallery, gi, liveStrip]);
   // 이웃 사진을 미리 받아 둔다 — lh3 주소는 고정이라 이게 곧 캐시를 채우는 일이고,
   // 다음/이전을 눌렀을 때 스켈레톤 없이 바로 뜬다.
   useEffect(() => {
@@ -547,8 +633,10 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
               맞춤'이고 2배는 정확히 그 두 배가 된다. 예전에는 사진 자체에 `width: zoom×100%`를
               줬는데 그것은 **칸 너비의 배수**라, 세로로 긴 사진은 맞춤에서 칸 너비의 30%만
               차지하다가 1.05배만 줘도 통째로 튀어나갔다 — 계단일 때는 '한 칸 뛴다'로 넘어갔지만
-              연속 배율에서는 손가락을 살짝만 움직여도 그렇게 된다. */}
-          <div style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%` }}>
+              연속 배율에서는 손가락을 살짝만 움직여도 그렇게 된다.
+              `data-zoom-layer` — 손짓이 도는 동안 **여기에** transform이 걸린다(위 liveBegin).
+              통이 아니라 이 감싸개여야 스크롤은 그대로 두고 내용만 늘어난다. */}
+          <div data-zoom-layer="" style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%` }}>
             <SmartImage
               key={cur.id}
               src={imgSrcOf(cur) || url} alt={cur.name}

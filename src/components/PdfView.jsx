@@ -29,6 +29,11 @@ const MAX_CANVAS_PX_W = 3000;
 // CSS로만 늘려 바로 따라오게 한다(아래 drawZoom). 짧으면 그리기가 겹치고, 길면
 // 또렷해질 때까지 기다리는 느낌이 난다.
 const ZOOM_SETTLE = 180;
+// 쪽 사이 틈. **배율과 같이 커진다** — 손가락 손짓 동안에는 미리보기 창이 쪽을 담은 층에
+// `transform: scale`을 먹이는데(FilePreviewModal의 liveBegin), transform은 틈까지 같이
+// 늘린다. 여기만 8px로 고정해 두면 손을 떼는 순간 **쪽 수만큼 쌓인 틈 차이가 한꺼번에**
+// 스크롤을 밀어 뒤쪽 장에서 화면이 튄다. 그리는 자리와 아래 CSS 확대가 같은 값을 쓴다.
+const PAGE_GAP = 8;
 
 // pdf.js가 주소로 받아 가는 보조 자료. 이 네 칸은 **vite.config.js의 `pdfjsAssets`**가
 // node_modules/pdfjs-dist에서 그대로 내준다(dev는 미들웨어, build는 결과물) — 한쪽을
@@ -91,6 +96,9 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
   const onBoxRef = useRef(onBox);
   onBoxRef.current = onBox;
   const setHost = useCallback((el) => { hostRef.current = el; onBoxRef.current?.(el); }, []);
+  // 쪽(캔버스)을 담는 층. 통과 따로 두는 이유는 **손짓 동안 여기에 transform이 걸리기**
+  // 때문이다(FilePreviewModal의 `data-zoom-layer`) — 통에 걸면 스크롤까지 같이 늘어난다.
+  const layerRef = useRef(null);
   // **실제로 그려 둔 배율.** `zoom`은 손가락을 따라 계속 바뀌지만 다시 그리는 것은
   // 손이 멎은 뒤 한 번뿐이다(위 ZOOM_SETTLE). 둘이 벌어져 있는 동안은 아래 layout
   // effect가 캔버스를 CSS로 늘려 그 차이를 메운다.
@@ -111,15 +119,16 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
   // 스크롤을 옮겨 손가락 가운데를 붙잡는데, 그때 이미 새 크기여야 한다 — 리액트는
   // 자식의 layout effect를 부모보다 먼저 돌리므로 여기가 그 자리다.
   useLayoutEffect(() => {
-    const host = hostRef.current;
-    if (!host || !drawZoom || zoom === drawZoom) return;
+    const layer = layerRef.current;
+    if (!layer || !drawZoom || zoom === drawZoom) return;
     const k = zoom / drawZoom;
-    for (const el of host.children) {
+    for (const el of layer.children) {
       const base = Number(el.dataset?.cssw);   // 그릴 때 적어 둔 CSS 폭(겹쳐 곱하지 않게)
       if (!base || !el.width) continue;
       const w = base * k;
       el.style.width = `${w}px`;
       el.style.height = `${Math.round(w * (el.height / el.width))}px`;
+      el.style.marginBottom = `${PAGE_GAP * zoom}px`;   // 틈도 같이(위 PAGE_GAP)
     }
   }, [zoom, drawZoom]);
 
@@ -166,7 +175,8 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
         // 틀이 없으면 그릴 자리가 없다. 조용히 돌아서면 스켈레톤이 영영 남으므로
         // 오류로 알린다(감사 2026-09-13 — '영영 안 걷히는 준비 중' 갈래 하나였다).
         const host = hostRef.current;
-        if (!host) throw new Error('미리보기 자리를 찾지 못했어요');
+        const layer = layerRef.current;
+        if (!host || !layer) throw new Error('미리보기 자리를 찾지 못했어요');
         // **다시 그리는 동안 보던 자리를 잃지 않게.** `replaceChildren`로 비우면 높이가
         // 0으로 접혀 스크롤이 맨 위로 튄다 — 배율만 조금 바꿨는데 1쪽으로 돌아갔다.
         // 쪽 높이가 다 같지는 않으니 위치가 아니라 **비율**로 기억하고, 쪽이 쌓일 때마다
@@ -180,7 +190,7 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
           if (keep.y) host.scrollTop = keep.y * Math.max(0, host.scrollHeight - host.clientHeight);
           if (keep.x) host.scrollLeft = keep.x * Math.max(0, host.scrollWidth - host.clientWidth);
         };
-        host.replaceChildren();
+        layer.replaceChildren();
 
         // 가로 폭에 맞춰 그린다(화면 배율 반영 — 모바일에서 흐릿하지 않게).
         // 쪽이 쌓이면 세로 스크롤바가 생겨 내용 폭이 그만큼 줄어든다 → 미리 비워둔다.
@@ -207,8 +217,11 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
           // 이 배율로 그린 CSS 폭을 적어 둔다 — 손가락을 따라가는 CSS 확대(위 layout
           // effect)가 이 값에서 곱한다. 늘어난 폭에서 또 곱하면 배율이 겹쳐 쌓인다.
           canvas.dataset.cssw = String(cssWidth);
-          canvas.className = 'block mx-auto mb-2 rounded-md border border-line bg-white shadow-soft';
-          host.appendChild(canvas);
+          // 틈은 배율을 따라간다(위 PAGE_GAP) — `mb-2`로 고정해 두면 손짓 중의 transform과
+          // 어긋나 손을 뗄 때 뒤쪽 장에서 화면이 튄다.
+          canvas.style.marginBottom = `${PAGE_GAP * drawZoom * live}px`;
+          canvas.className = 'block mx-auto rounded-md border border-line bg-white shadow-soft';
+          layer.appendChild(canvas);
 
           await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
           if (!alive) return;
@@ -246,7 +259,11 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
         // `overscroll-contain` — 끝까지 민 뒤에도 계속 밀면 스크롤이 뒤 화면으로 넘어간다.
         // 여기서 끝낸다(첨부 미리보기 창의 사진 통과 같은 판단이다).
         className={`w-full h-full overflow-y-auto overscroll-contain [scrollbar-gutter:stable] ${zoom > 1 ? `overflow-x-auto select-none ${panning ? 'cursor-grabbing' : 'cursor-grab'}` : 'overflow-x-hidden'} ${status === 'ready' ? '' : 'opacity-0'}`}
-      />
+      >
+        {/* 쪽은 이 층 안에 쌓인다 — 손짓이 도는 동안 미리보기 창이 여기에 transform을
+            먹인다(위 layerRef). 통에 걸면 스크롤까지 같이 늘어난다. */}
+        <div ref={layerRef} data-zoom-layer="" />
+      </div>
       {status === 'loading' && (
         <>
           {/* Skeleton에 absolute를 주면 먹지 않는다(.dc-skeleton이 position: relative를
