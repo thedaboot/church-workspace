@@ -76,10 +76,18 @@ export function PaperMast({ date, kind }) {
 
 // 도막 한 줄 — 왼쪽 라벨 칸은 58px 고정이다. 비율(%)로 두면 라벨이 길 때 글 칸이
 // 좁아져서 도막마다 글의 시작 자리가 달라진다.
+//
+// **칸 나누기는 index.css의 `.paper-row`가 한다**(2026-09-17). 여기 인라인 스타일로
+// 박아 두었더니 좁은 화면에서 **편집 종이와 읽기 종이가 갈렸다** — 편집 쪽은
+// `.note-paper .tiptap`이 639px 아래에서 한 열로 접히는데(2026-09-10 결정) 읽기 쪽은
+// 인라인이라 폭을 안 봐서 늘 두 열이었다(사용자 지적 2026-09-17 — "수정 화면과 발행
+// 화면이 다르게 보여지거든"). 인라인 스타일은 미디어 쿼리가 못 이긴다.
+// **노트 종이만 접힌다**(`.paper-note .paper-row`) — 주보 종이의 찬양·섬기는 이들·광고
+// 줄은 그대로 두 열이다(바깥으로 나가는 인쇄물이고 `tests/worship`이 그 모양을 단정한다).
 export function PaperRow({ label, children }) {
   return (
     <div className="paper-row grid gap-3 py-[11px]"
-      style={{ gridTemplateColumns: '58px minmax(0, 1fr)', borderBottom: `1px solid ${PAPER.line}` }}>
+      style={{ borderBottom: `1px solid ${PAPER.line}` }}>
       <span className="paper-row-label text-[10px] font-extrabold tracking-[0.02em] pt-[2px]"
         style={{ color: PAPER.faint }}>{label}</span>
       <div className="paper-row-body min-w-0 text-[12.5px] leading-[1.8]" style={{ color: PAPER.ink2 }}>

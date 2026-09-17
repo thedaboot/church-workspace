@@ -1180,7 +1180,41 @@ check('375에서 나눔이 가로로 넘치지 않는다',
   chipFit.over === false && chipFit.wide === 0 && chipFit.fits && chipFit.paperFits,
   JSON.stringify(chipFit));
 check('375에서 칩 줄은 줄 안에서 민다', chipFit.scrolls === true, JSON.stringify(chipFit));
+
+// 375에서 **읽기 종이도 한 열로 접힌다**(사용자 지적 2026-09-17 — "수정 화면과 발행
+// 화면이 다르게 보여지거든 ... 수정되는 그대로의 레이아웃대로 저장이 되었으면").
+// 편집 종이는 2026-09-10부터 639px 아래에서 한 열이었는데, 읽기 줄은 paper.jsx에
+// **인라인 스타일로 두 열이 박혀 있어** 폭을 안 봤다(인라인은 미디어 쿼리가 못 이긴다).
+// 지금은 칸 나누기가 index.css `.paper-row` 한 자리이고 `.paper-note`만 접힌다 —
+// 주보 종이(찬양·섬기는 이들·광고)는 두 열 그대로다(tests/worship이 그 모양을 본다).
+// **되돌리기**: index.css의 `.paper-note .paper-row` 한 줄을 지우면 이 검사가 깨진다.
+const noteCols = await ev(`(() => {
+  const row = document.querySelector('[data-share-paper] .paper-note .paper-row');
+  if (!row) return null;
+  const label = row.querySelector('.paper-row-label'), body = row.querySelector('.paper-row-body');
+  return { cols: getComputedStyle(row).gridTemplateColumns.trim().split(/\\s+/).length,
+           labelLeft: Math.round(label.getBoundingClientRect().left),
+           bodyLeft: Math.round(body.getBoundingClientRect().left),
+           labelTop: Math.round(label.getBoundingClientRect().top),
+           bodyTop: Math.round(body.getBoundingClientRect().top) };
+})()`);
+check('375에서 읽기 종이가 한 열이다(라벨이 글 위에 선다)',
+  !!noteCols && noteCols.cols === 1 && noteCols.labelLeft === noteCols.bodyLeft
+  && noteCols.bodyTop > noteCols.labelTop, JSON.stringify(noteCols));
+
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(700);
+// 1440에서는 그대로 두 열이다 — 데스크톱은 애초에 어긋나지 않았다(사용자 확인)
+const noteColsWide = await ev(`(() => {
+  const row = document.querySelector('[data-share-paper] .paper-note .paper-row');
+  if (!row) return null;
+  const label = row.querySelector('.paper-row-label'), body = row.querySelector('.paper-row-body');
+  return { cols: getComputedStyle(row).gridTemplateColumns.trim(),
+           sameRow: Math.abs(label.getBoundingClientRect().top - body.getBoundingClientRect().top) <= 2 };
+})()`);
+check('1440에서 읽기 종이는 라벨 58px + 남는 폭 두 열이다',
+  !!noteColsWide && /^58px /.test(noteColsWide.cols) && noteColsWide.sameRow,
+  JSON.stringify(noteColsWide));
 // 심어 둔 남의 나눔은 걷는다 — 아래 검사들은 내 글 하나만 있는 화면을 본다
 await ev(`localStorage.removeItem('word_qt_shared')`);
 await reload();
