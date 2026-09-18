@@ -803,6 +803,12 @@ check('승인 확인이 합친 계정을 따라간다(두 경로가 같은 헬�
     // 앱 안 iframe도 같은 계정으로 연다
     const branch = preview.slice(preview.indexOf("if (kind === 'gdoc')"), preview.indexOf("if (kind === 'sheet') {"));
     assert.match(branch, /copyEditUrl\(cur, \{ email: myEmail \}\)/, 'iframe 주소에 계정을 안 싣는다');
+    // **폰·태블릿에는 편집 주소를 싣지 않는다**(사용자 신고 2026-09-18 · §6-34-h).
+    // 아이폰 사파리가 iframe 안 구글 쿠키를 분할해서, 계정 목록은 읽히는데 문서를 열
+    // 자격은 안 와 '액세스 권한 필요'가 떴다(읽기 화면조차 아니다). 보기 주소는
+    // 로그인을 안 쓰므로 늘 뜨고, 폰에서 고치는 길은 위 새 탭 버튼 하나다.
+    assert.match(branch, /canEditCopy && !isMobile && copyEditUrl\(cur, \{ email: myEmail \}\)/,
+      '폰에서도 편집 주소를 싣는다 — 아이폰 사파리에서 첨부가 통째로 안 열린다');
   });
 
   // 업무 첨부는 **주소로 곧장 가고 편집자 붙이기는 뒤에서** 한다(2026-09-11 · §6-34-h).

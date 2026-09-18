@@ -814,7 +814,16 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       // 새 탭으로 떨어진다. `authuser=`로 어느 구글 계정으로 열지를 정한다(§6-34-h) —
       // 그래도 **앱 안 창(iframe)은 서드파티 쿠키가 막힌 브라우저에서 읽기 화면이다.**
       // 그 갈래는 머리줄의 '구글 문서에서 편집'(새 탭)이 받는다.
-      const src = (canEditCopy && copyEditUrl(cur, { email: myEmail })) || previewCopyUrl(cur);
+      //
+      // **폰·태블릿에는 편집 주소를 싣지 않는다**(사용자 신고 2026-09-18 · 스크린샷).
+      // 아이폰 사파리는 iframe 안 구글 쿠키를 분할해서, 계정 **목록**은 읽히는데
+      // (화면에 "로그인된 계정: …"까지 떴다) 그 계정으로 문서를 열 자격은 안 온다 —
+      // 읽기 화면도 아니고 **'액세스 권한 필요'** 다. 같은 사본을 로그인 없이 받으면
+      // `/embed`도 `/edit`도 멀쩡히 열리고(주소·공유 설정은 문제가 없다), 데스크톱
+      // 크롬에서는 편집까지 된다(사용자 확인). 즉 관리자에게만, 폰에서만 나던 길이다.
+      // 보기 주소(`previewCopyUrl`)는 로그인을 아예 쓰지 않아 여기서 늘 뜬다.
+      // 폰에서 고치는 길은 머리줄의 '구글 문서에서 편집'(새 탭 = 1차 쿠키) 하나다.
+      const src = (canEditCopy && !isMobile && copyEditUrl(cur, { email: myEmail })) || previewCopyUrl(cur);
       // 종류 판정이 사본을 확인하고 왔으므로 여기서 src가 빌 일은 없다. 그래도 빈 iframe을
       // 띄우느니 새 탭을 내주는 쪽이 정직하다(스켈레톤만 남으면 영영 안 걷힌다).
       if (!src) return <Fallback row={cur} message="미리보기를 준비하지 못했어요." onOpen={openExternal} />;
