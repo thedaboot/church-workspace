@@ -1,5 +1,5 @@
 // 홈 — 앱의 첫 화면(모바일 하단 바 첫 탭). 히어로(캐릭터 마크 · 공동체 이름 · 인사말 ·
-// 태그라인) · 카드 넷(오늘의 QT · 이번 주 예배 · 내 업무 · 내 순) · 카드마다의 이동 ·
+// 태그라인) · 카드 넷(오늘의 QT · 예배 · 내 업무 · 내 순) · 카드마다의 이동 ·
 // 스켈레톤 · 빈 자리 · 375px · 다크.
 //
 // 홈은 자기 저장 자리가 없다 — 말씀(word_qt_schedule·word_qt_entries) · 예배
@@ -115,9 +115,13 @@ const WORSHIP = {
 // 이 줄이 카드 밖으로 흘러나가면 격자 한 칸(모바일은 auto 트랙)이 그만큼 넓어져서
 // 카드 넉 장이 통째로 오른쪽으로 밀린다 — 왼쪽 여백만 남고 오른쪽이 사라진다
 // (사용자 지적 2026-09-06 · 430pt에서 카드 406→416px). 아래 6-b가 그것을 붙잡는다.
+// 메타 한 줄이 **반드시 넘치도록** 만든 씨앗이다 — 종류와 설교자를 둘 다 길게 둔다.
+// 2026-09-14에 메타가 `종류 · 날짜 · 담당자 N · 찬양 N`에서 `종류 · 날짜 · 설교자`로
+// 짧아지면서 옛 씨앗으로는 더 이상 안 넘쳤고, 잘림 검사가 아무것도 단정하지 못했다.
+// 종류 이름에 '수요'를 쓰지 않는다 — 수요 예배는 하지 않기로 한 것이다(HANDOFF §7).
 const WORSHIP_LONG = { services: [{
-  id: 's1', kind: '수요 청년부 연합 저녁 기도회', service_date: shift(TODAY, 3), status: 'published',
-  title: '흔들리지 않는 기쁨', passage_ref: '빌립보서 4:4-7', preacher: '김승찬', praise_leader: '조해리',
+  id: 's1', kind: '주일 4부 젊은이 연합 감사 예배', service_date: shift(TODAY, 3), status: 'published',
+  title: '흔들리지 않는 기쁨', passage_ref: '빌립보서 4:4-7', preacher: '김승찬 전도사님', praise_leader: '조해리',
   roles: [{ role: '사회', name: '가' }, { role: '기도', name: '나' }],
   songs: [{ title: '1' }, { title: '2' }, { title: '3' }, { title: '4' }, { title: '5' }],
 }] };
@@ -210,22 +214,22 @@ await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, dev
 await send('Page.navigate', { url: URL_BASE });
 await wait('Page.loadEventFired');
 
-// ── 0) 순수 로직 — 어느 예배가 '이번 주 예배'인가 ───────────────────────────
+// ── 0) 순수 로직 — 어느 예배가 홈에 서는가 ─────────────────────────────────
 const pure = await ev(`(async () => {
   const m = await import('/src/views/homeView.jsx');
   const w = await import('/src/services/worship.js');
   const list = [
-    { id: 'a', service_date: '2026-08-23' },
-    { id: 'b', service_date: '2026-09-06' },
-    { id: 'c', service_date: '2026-09-13' },
-    { id: 'x', service_date: '' },
+    { id: 'a', status: 'published', service_date: '2026-08-23' },
+    { id: 'b', status: 'published', service_date: '2026-09-13' },
+    { id: 'c', status: 'draft', service_date: '2026-09-20' },
+    { id: 'x', status: 'published', service_date: '' },
   ];
   return {
-    ahead: m.pickService(list, '2026-09-02')?.id || null,
-    onDay: m.pickService(list, '2026-09-06')?.id || null,
-    past: m.pickService([list[0]], '2026-09-02')?.id || null,
-    bad: m.pickService([list[3]], '2026-09-02'),
-    none: m.pickService([], '2026-09-02'),
+    latest: m.pickService(list)?.id || null,
+    draftOnly: m.pickService([list[2]]),
+    past: m.pickService([list[0]])?.id || null,
+    bad: m.pickService([list[3]]),
+    none: m.pickService([]),
     greets: [0, 5, 6, 9, 10, 17, 18, 22, 23].map(h => m.heroGreeting(h, '노준석')),
     noNames: [7, 12, 20, 23].map(h => m.heroGreeting(h, '')),
     dates: ['2026-09-06', '2027-01-01', '2025-12-31', 'bad'].map(d => m.homeDateLabel(d)),
@@ -250,9 +254,9 @@ const pure = await ev(`(async () => {
     })(),
   };
 })()`, true);
-check('다가오는 예배 중 가장 이른 것이 선다', pure.ahead === 'b', String(pure.ahead));
-check('오늘 예배는 아직 지나간 것이 아니다', pure.onDay === 'b', String(pure.onDay));
-check('앞으로 잡힌 것이 없으면 가장 최근에 지난 예배', pure.past === 'a', String(pure.past));
+check('발행본 중 날짜가 가장 최근인 것이 선다', pure.latest === 'b', String(pure.latest));
+check('작성 중인 주보는 홈에 오르지 않는다', pure.draftOnly === null, String(pure.draftOnly));
+check('발행본이 지난 것뿐이어도 그것이 선다', pure.past === 'a', String(pure.past));
 check('날짜가 없는 행은 세지 않는다', pure.bad === null && pure.none === null, `${pure.bad}/${pure.none}`);
 // 인사말은 시각으로 **네 구간**으로 갈린다(사용자 결정 2026-09-03).
 // 경계가 어긋나면 아침 인사가 하루 종일 남는다 — 6·10·18·23시를 다 짚는다.
@@ -469,15 +473,17 @@ const worship = await ev(`(() => {
     draft: !!document.querySelector('.home-worship-draft'),
   };
 })()`);
-check('이번 주 예배 — 초점은 설교 제목', worship.title === '흔들리지 않는 기쁨', worship.title);
-// 메타 한 줄 — 예배 종류 · 날짜 · (있으면) 담당자·찬양 수. 칩으로 쌓지 않는다.
-check('메타 줄에 예배 종류와 날짜가 한 줄로',
-  worship.sub === `주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))}`,
-  `${worship.sub} / 주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))}`);
+check('예배 카드 — 초점은 설교 제목', worship.title === '흔들리지 않는 기쁨', worship.title);
+// 메타 한 줄 — 예배 종류 · 날짜 · 설교자. 칩으로 쌓지 않는다.
+// **끝은 설교자다**(사용자 결정 2026-09-14 — 담당자 N · 찬양 N을 뺐다. 숫자 둘은 홈에서
+// 할 일을 알려주지 않았고 '누구의 설교인가'가 제목 다음으로 궁금한 것이다).
+check('메타 줄에 예배 종류 · 날짜 · 설교자가 한 줄로',
+  worship.sub === `주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 김승찬`,
+  `${worship.sub} / 주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 김승찬`);
 check('발행된 주보에는 작성 중 표시가 없다', worship.draft === false);
 // 인도자는 홈에 싣지 않는다(사용자 결정 2026-09-06). 주보(s1)에는 praise_leader가
 // 있고 주보 상세는 그대로 보여 준다 — 홈 카드 한 줄에만 없다.
-check('이번 주 예배 — 인도자는 홈 메타 줄에 없다',
+check('예배 카드 — 인도자는 홈 메타 줄에 없다',
   !worship.sub.includes('인도') && !worship.sub.includes('조해리'), worship.sub);
 
 const mine = await ev(`(() => ({
@@ -671,7 +677,7 @@ check('오늘의 QT를 누르면 말씀으로 간다', toWord === true);
 await goHome();
 
 await ev(`document.querySelector('.home-worship').click()`); await sleep(1200);
-check('이번 주 예배를 누르면 예배로 간다', (await ev(`!!document.querySelector('.worship-list')`)) === true);
+check('예배 카드를 누르면 예배로 간다', (await ev(`!!document.querySelector('.worship-list')`)) === true);
 await goHome();
 
 await ev(`document.querySelector('.home-tasks button').click()`); await sleep(1000);
@@ -701,7 +707,7 @@ const todayOnly = await ev(`(() => ({
 check("오늘이 주일이면 오늘 주보를 '지난 주일'이라 부르지 않는다",
   todayOnly.meta === '3명' && !todayOnly.meta.includes('지난 주일') && !todayOnly.meta.includes('참석'),
   JSON.stringify(todayOnly));
-check('그래도 오늘 주보는 이번 주 예배 카드에 그대로 선다',
+check('그래도 오늘 주보는 예배 카드에 그대로 선다',
   todayOnly.title === '오늘 주보', JSON.stringify(todayOnly));
 
 // ── 3c) 오늘 주보에 출석이 **들어왔으면** '이번 주일 N명 참석' (사용자 결정 2026-09-08) ──
@@ -725,11 +731,14 @@ const variant = await ev(`(() => ({
   rows: document.querySelectorAll('.home-task-row').length,
 }))()`);
 check('묵상을 안 쓴 날에는 상태 줄을 두지 않는다', variant.ref === '빌립보서 4:4-9' && variant.done === false, JSON.stringify(variant));
-// 발행 전 표시는 메타 줄 **머리**에 붙는다(칩으로 줄을 따로 쌓지 않는다)
-check('작성 중인 주보에는 발행 전 표시가 붙고 종류 이름은 그대로다',
-  variant.draft.startsWith('작성 중') && variant.kind === true, JSON.stringify(variant));
+// **작성 중인 주보만 있으면 예배 카드가 아예 서지 않는다**(사용자 결정 2026-09-14) —
+// 홈은 정해진 것을 보는 자리라, 아직 손보는 중인 주보가 설교 제목을 내걸면 안 된다.
+// 예전에는 메타 줄 머리에 '작성 중 ·' 표시를 붙였고 그 자리(.home-worship-draft)는
+// 이제 죽은 코드다(tests/logcheck가 없다를 단정한다).
+check('작성 중인 주보만 있으면 예배 카드가 서지 않는다',
+  variant.draft === '' && !variant.cards.includes('home-worship'), JSON.stringify(variant));
 check('명단에 안 이어진 계정에는 내 순 카드가 없다',
-  JSON.stringify(variant.cards) === '["home-qt","home-worship","home-tasks"]', JSON.stringify(variant.cards));
+  JSON.stringify(variant.cards) === '["home-qt","home-tasks"]', JSON.stringify(variant.cards));
 check('맡은 업무를 다 끝냈으면 줄 자리에 상태 한 줄',
   variant.count === '0건' && variant.rows === 0 && variant.clear === '다 정리되었어요', JSON.stringify(variant));
 
