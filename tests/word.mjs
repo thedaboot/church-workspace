@@ -631,6 +631,30 @@ check('편집 화면 머리의 날짜·구절이 읽기 종이와 같다',
   JSON.stringify(paperEdit));
 check('종이는 편집 중에도 밝다(다크를 따라가지 않는다)',
   paperEdit.bg === 'rgb(255, 253, 252)', paperEdit.bg);
+// **도막마다 쓸 자리가 있다**(사용자 결정 2026-09-18 · 예배 노트·묵상 노트 둘 다).
+// 그전에는 도막의 빈 줄이 한 줄(34px)이라 마지막 도막('기도')이 선에 딱 붙어 적을 자리가
+// 없는 칸처럼 보였다. 두 도막이 **같은 높이**인 것도 같이 단정한다 — 한쪽만 좁아 보이던
+// 착시의 정체가 "둘 다 한 줄 + 빈 자리는 맨 아래 한 덩어리"였다.
+// **되돌리기**(§3-5): index.css의 `.tiptap > :is(h1,h2,h3,h4) + *`에서 min-height를 빼면 깨진다.
+// 이 자리의 묵상에는 씨앗이 한 줄 글이라 도막이 없다 — 그래서 **같은 종이 안에** 도막
+// 구조를 잠깐 세워 재고 걷는다(폭·토큰이 실제와 같은 자리라야 값이 뜻이 있다).
+const noteRows = await ev(`(() => {
+  const rows = document.querySelector('.qt-note-editor .paper-rows');
+  if (!rows) return null;
+  const probe = document.createElement('div');
+  probe.className = 'tiptap';
+  probe.innerHTML = '<h3>나의 결단</h3><p><br></p><h3>기도</h3><p><br></p>';
+  rows.appendChild(probe);
+  const kids = [...probe.children];
+  const out = kids
+    .filter((el, i) => i > 0 && /^H[1-4]$/.test(kids[i - 1].tagName))
+    .map(el => Math.round(el.getBoundingClientRect().height));
+  probe.remove();
+  return out;
+})()`);
+check('도막마다 쓸 자리가 세 줄쯤 된다(도막끼리도 같은 높이)',
+  !!noteRows && noteRows.length === 2 && noteRows.every(h => h >= 64) && new Set(noteRows).size === 1,
+  JSON.stringify(noteRows));
 // 2026-09-07에는 두 모드의 **높이**를 1px까지 묶어 두었다 — 그때 편집 상자가 고정
 // 높이(min-h-40 md:min-h-56)였기 때문이다. 2026-09-10부터 편집 화면이 **종이**가
 // 되면서 그 묶음이 풀렸다: 편집 종이에는 서식 바와 쓸 빈 자리가 더 있고, 읽기 종이는

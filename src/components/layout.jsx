@@ -783,10 +783,11 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
       <div aria-hidden={!inChurch} className={`tab-bar-base ${LAYER} border-line [--tab-on:var(--app-ink)] [--tab-off:var(--app-ink-faint)] [--tab-dot:var(--app-accent)]`}>
         {churchTabs(inChurch)}
       </div>
-      {/* 남색 층 — 위 선도 남색이라 채워지면 실선이 보이지 않는다. 배지 원은 흰색이다
-          (남색 위에서 accent 원은 그대로 사라진다). 아래 safe-area까지 같이 찬다 —
-          거기서 색이 끊기면 바가 떠 보인다. */}
-      <div aria-hidden={inChurch} className={`tab-bar-work absolute inset-0 bg-night ${LAYER} border-night [--tab-on:#fff] [--tab-off:rgb(255_255_255/0.58)] [--tab-dot:#fff]`}>
+      {/* 업무 층 — **색과 위선은 index.css의 `.tab-bar-work`가 준다**(`--app-work-bar`).
+          여기 클래스로 박으면 다크에서 따라가 버려서 흰 글자 대비가 무너진다.
+          배지 원은 흰색이다(그 바탕에서 accent 원은 그대로 사라진다). 아래
+          safe-area까지 같이 찬다 — 거기서 색이 끊기면 바가 떠 보인다. */}
+      <div aria-hidden={inChurch} className={`tab-bar-work absolute inset-0 ${LAYER} [--tab-on:#fff] [--tab-off:rgb(255_255_255/0.66)] [--tab-dot:#fff]`}>
         {workTabs(!inChurch)}
       </div>
     </nav>

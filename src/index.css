@@ -29,6 +29,11 @@
   --app-accent-text: #3f6fc4;   /* 링크·강조 텍스트용 */
   --app-accent-weak: #e8eefa;   /* 연한 블루 배경 */
   --app-night: #213183;         /* deep indigo hero */
+  /* 업무 모드 하단바 한 곳만 쓴다(`.tab-bar-work`). **다크에서 다시 정의하지 않는다** —
+     라이트 accent 값 그대로다(사용자 결정 2026-09-18 · 목업 넷 중 셋째). 다크의
+     `--app-accent`(#4f7ed0)로 두면 흰 글자와의 대비가 3.4:1로 떨어져 10.5px 탭 이름이
+     읽히지 않는다(이 값은 5.3:1). --app-night이 두 테마에서 같은 값인 것과 같은 이유다. */
+  --app-work-bar: #3f6fc4;
   /* 태그 팔레트 라이트 — 로그인 글로우 3색(하늘·라벤더·핑크) 계열로 통일해
      로그인에서 본 색이 앱 안에서 팀 색으로 이어지게 한다 */
   --app-tag-gray: #e8e6ea;    --app-tag-gray-fg: #5b5764;
@@ -294,11 +299,14 @@
      100% → 0 : 오른쪽 끝에서 왼쪽으로 남색이 자란다 (업무로 넘어갈 때)
      0 → 100% : 왼쪽 끝이 오른쪽으로 밀리며 아래 원래 바가 왼쪽부터 드러난다 (홈으로)
    층을 겹쳤기 때문에 탭 글자가 바뀌는 순간이 색이 지나가는 자리와 정확히 맞는다.
-   **색은 --app-night이다**(accent가 아니다) — 진한 accent는 '확정'이라는 뜻이라
-   상시 서 있는 바에 쓰면 화면마다 확정 버튼만 한 무게가 하나 더 생긴다(HANDOFF §8).
-   남색은 라이트·다크가 같은 값이고, 어두운 캔버스 위에서 오히려 더 또렷하다.
+   **색은 `--app-work-bar`다**(2026-09-18 · 목업 넷을 보고 사용자가 골랐다). 처음에는
+   `--app-night`(딥 인디고)로 냈는데 "조금 더 연한 색"을 골라 accent 값으로 왔다.
+   토큰을 따로 둔 이유는 **다크에서 따라가면 안 되기 때문**이다(위 토큰 주석).
    clip-path는 눌리는 자리도 같이 자르지만 그것만 믿지 않는다 — pointer-events로 끊는다. */
 .tab-bar-work {
+  /* 위선도 같은 색이라 채워지면 회색 실선이 보이지 않는다(nav가 아니라 층이 선을 그린다) */
+  background: var(--app-work-bar);
+  border-top-color: var(--app-work-bar);
   clip-path: inset(0 0 0 100%);
   pointer-events: none;
   transition: clip-path .42s var(--ease-out-quint);
@@ -485,7 +493,9 @@ svg.lucide { stroke-width: 1.4px; }
 /* **누를 빈 자리를 남긴다**(사용자 피드백 2026-09-03 — "빈 공간을 눌러도 입력되게").
    빈 자리는 `.tiptap` **밖**이어야 한다 — MarkdownEditor의 focusEnd가 그때 문서 끝으로
    커서를 보낸다. 값은 예전 편집 상자와 같은 `min-h-40 md:min-h-56`이다. */
-.note-paper .paper-rows { min-height: 10rem; }
+/* 도막이 넉넉해진 뒤로 min-height가 남는 일은 도막 하나짜리 노트뿐이다. 그래도
+   **누를 빈 자리는 늘 조금 남긴다** — 위 2026-09-03 결정이 여기 매달려 있다. */
+.note-paper .paper-rows { min-height: 10rem; padding-bottom: 1.25rem; }
 @media (min-width: 768px) { .note-paper .paper-rows { min-height: 14rem; } }
 .note-paper .tiptap > * {
   grid-column: 2;
@@ -517,6 +527,16 @@ svg.lucide { stroke-width: 1.4px; }
 .note-paper .tiptap > :is(h1, h2, h3, h4) + * {
   border-top: 1px solid var(--paper-line);
   padding-top: 11px;
+  /* **도막마다 쓸 자리를 남긴다**(사용자 결정 2026-09-18 · 예배 노트·묵상 노트 둘 다).
+     그전에는 도막의 빈 줄이 한 줄(34px)이라 마지막 도막('기도')이 선에 딱 붙어 "적을
+     자리가 없는 칸"으로 보였다 — 재 보면 두 도막이 같은 높이였고(둘 다 한 줄), 남는
+     자리가 전부 종이 **맨 아래 한 덩어리**(paper-rows min-height)에 몰려 있던 것이
+     원인이다. 그 자리를 도막마다 나눠 준다.
+     값은 세 줄이 아니라 **세 줄처럼 보이는 높이**다 — 안쪽 여백(11px+4px)을 포함한
+     테두리 상자 기준이라 글이 설 자리는 약 2.3줄이다(box-sizing: border-box).
+     읽기 종이(paper.jsx PaperRow)에는 걸지 않는다 — 저장된 노트는 글 길이만큼만 서는
+     문서이고, 빈 칸을 키워 둘 이유가 편집 화면에만 있다. */
+  min-height: 4rem;
 }
 /* 도막의 마지막 줄 아래도 11px — 읽기 줄의 py-[11px]와 같은 숨이다.
    `:has()`가 없는 판에서는 4px로 남는다(모양만 조금 좁다 · 기능은 그대로). */
