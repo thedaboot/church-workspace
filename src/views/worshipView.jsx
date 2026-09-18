@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, PencilLine } from 'lucide-react';
 import { Skeleton } from '../components/media.jsx';
 import { showToast } from '../components/Toast.jsx';
@@ -6,7 +6,7 @@ import { failText } from '../services/errorText.js';
 import { useAuth } from '../services/auth.jsx';
 import { useCached, readCache, writeCache, dropCache } from '../services/cache.js';
 import { useLiveRefresh } from '../services/liveV2.js';
-import { takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
+import { entryParam, takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { BTN, BTN_QUIET, FIELD, LabeledField } from '../components/groupsParts.jsx';
 import { ServiceDetail, WorshipEmpty } from '../components/worshipDetail.jsx';
@@ -340,6 +340,44 @@ const LOADING = (
   </div>
 );
 
+// 딥링크(`/?p=worship&s=<주보 id>`)로 들어올 때 서는 자리 — **목록도 LOADING도 아니다.**
+//
+// 사용자 지적 2026-09-19: "주보 상세로 갈 때 … 바로 넘어가니 자연스럽지 않게 넘어가는
+// 느낌이 살짝 든다." 원인은 상세의 등장(dc-screen)이 아니라 **그 앞에서 목록이 한 번
+// 스치는 것**이었다 — 목록(또는 목록 스켈레톤)을 그린 다음 상세로 갈아 끼우니, 갈 데가
+// 아닌 화면이 한 프레임 번쩍이고 사라진다.
+//
+// 그래서 LOADING과 **같은 원칙**으로 상세가 설 자리를 잡아 둔다(스켈레톤은 기다리는
+// 그림이 아니라 **자리를 지키는 그림**이다). 높이는 게스트에서 실제 상세를 재서 맞췄다:
+// 도구 줄 29 + mb-4 · 머리 카드 46 + mb-4 · 탭 줄 37 + mb-3.
+// **머리 카드는 읽기만 하는 사람의 줄(46)이다** — 수정·출석 버튼이 서는 자격자에게는
+// 그 줄이 57(폰은 버튼이 접혀 68)로 자라는데, 그건 아직 오지 않은 주보가 정하는 값이라
+// (발행됐는지, 예배 날짜가 지났는지) 스켈레톤이 미리 알 수 없다. 알 수 없는 것은 넓게
+// 잡지 않는다 — 대부분은 읽기만 하고(그때는 탭 줄까지 한 픽셀도 안 어긋난다), 자격자는
+// 데스크톱 12px·폰 23px만큼 내려온다.
+// 탭 안쪽은 종이 상자 하나로 둔다: 그 아래에는 노트 구역밖에 없어서 길이가 어긋나도
+// 화면에 보이는 것이 밀리지 않는다.
+const DETAIL_LOADING = (
+  <div className="worship-detail-loading dc-screen pb-10" aria-hidden="true">
+    {/* 도구 줄 — 오른쪽 끝의 '목록으로' 하나 */}
+    <div className="flex items-center h-[29px] mb-4">
+      <span className="flex-1" />
+      <Skeleton className="h-[22px] w-[76px] rounded-md" />
+    </div>
+    {/* 머리 카드 — 종류 칩·날짜·설교자가 한 줄로 앉는 상자 */}
+    <div className="h-[46px] mb-4"><Skeleton className="h-full w-full rounded-[10px]" /></div>
+    {/* 탭 줄 — 주보·말씀·담당자·찬양·광고 */}
+    <div className="worship-detail-loading-tabs flex items-center gap-1 h-[37px] mb-3">
+      <Skeleton className="h-[20px] w-[42px] rounded-md" />
+      <Skeleton className="h-[20px] w-[42px] rounded-md" />
+      <Skeleton className="h-[20px] w-[54px] rounded-md" />
+      <Skeleton className="h-[20px] w-[42px] rounded-md" />
+      <Skeleton className="h-[20px] w-[42px] rounded-md" />
+    </div>
+    <Skeleton className="h-[420px] w-full rounded-[10px]" />
+  </div>
+);
+
 export function WorshipView({ onOpenBible } = {}) {
   const { enabled, session, isMaster, isAdmin } = useAuth();
 
@@ -439,18 +477,30 @@ export function WorshipView({ onOpenBible } = {}) {
   // ② 이미 떠 있는 앱에서 종을 누른 경우(App이 setEntryQuery로 값을 넣고 신호를 보낸다).
   // **값을 붙잡아 두는 이유**: takeEntryParam은 한 번 읽으면 지우는데, 그 순간 목록이 아직
   // 안 왔을 수 있다(첫 진입은 조회가 돈다). 기억해 두었다가 그 주보가 목록에 나타나면 연다.
+  //
+  // **ref가 아니라 state다**(2026-09-19). 그리는 쪽이 "지금 딥링크로 들어오는 중"을 알아야
+  // 목록 대신 DETAIL_LOADING을 세울 수 있는데, ref는 렌더를 부르지 않는다. 초기값을
+  // `entryParam('s')`로 잡아 **첫 렌더부터** 안다 — 홈 카드 경로는 App.handleOpenLink가
+  // setEntryQuery를 먼저 부르고 화면을 바꾸므로, 이 화면이 마운트될 때 값이 이미 들어 있다
+  // (읽기만 하는 entryParam이다 — 지우는 것은 아래 이펙트의 몫이다).
   const entrySignal = useEntryQuery();
-  const wantId = useRef(null);
+  const [wantId, setWantId] = useState(() => entryParam('s'));
   useEffect(() => {
+    // 가져가면 지운다 — 같은 값으로 두 번 열지 않게. 첫 렌더의 초기값과 같은 값이면
+    // 이미 손에 있으니 그대로 이어서 본다(한 프레임을 버리지 않는다).
     const taken = takeEntryParam('s');
-    if (taken) wantId.current = taken;
-    const id = wantId.current;
-    if (!id || !services) return;
-    const svc = services.find(s => s.id === id);
-    if (!svc) return;                    // 아직 목록에 없다 — 다음 갱신에서 다시 본다
-    wantId.current = null;
-    open(svc);
-  }, [entrySignal, services, open]);
+    if (taken && taken !== wantId) { setWantId(taken); return; }
+    if (!wantId || !services) return;
+    const svc = services.find(s => s.id === wantId);
+    if (svc) { setWantId(null); open(svc); return; }
+    // 목록에 없다 — 두 갈래다.
+    // ① 아직 캐시 목록이다(stale): 새로 읽은 목록이 오면 다시 본다. 갓 발행된 주보는
+    //    캐시에 없으므로 여기서 포기하면 알림으로 들어온 사람에게 목록이 스친다.
+    // ② 새로 읽은 목록인데도 없다(삭제·미발행·잘못된 링크) 또는 목록을 못 읽었다:
+    //    **포기하고 목록을 보여 준다.** 안 그러면 스켈레톤이 영영 남는다.
+    if (cached.stale && !cached.error) return;
+    setWantId(null);
+  }, [entrySignal, services, open, wantId, cached.stale, cached.error]);
 
   const create = useCallback(async (v) => {
     try {
@@ -784,7 +834,8 @@ export function WorshipView({ onOpenBible } = {}) {
     try { return await fetchVideoTitle(url); } catch { return ''; }
   }, []);
 
-  if (!perms || services === null) return LOADING;
+  // 딥링크로 들어오는 중이면 목록 스켈레톤도 아니다 — 갈 데는 상세다(DETAIL_LOADING 머리말)
+  if (!perms || services === null) return wantId ? DETAIL_LOADING : LOADING;
 
   if (screen === 'attendance' && service) {
     return (
@@ -813,6 +864,11 @@ export function WorshipView({ onOpenBible } = {}) {
       />
     );
   }
+
+  // 목록은 왔는데 그 주보를 아직 못 열었다(이펙트가 다음 틱에 연다) — 그 한 프레임이
+  // 바로 사용자가 본 '목록이 스치는' 자리다. 여기서도 목록을 그리지 않는다.
+  // 스켈레톤이 영영 남지 않게 하는 것은 위 진입 이펙트의 ② 갈래다.
+  if (wantId) return DETAIL_LOADING;
 
   return <ServiceList services={services} perms={perms} counts={counts} onOpen={open} onCreate={create} />;
 }

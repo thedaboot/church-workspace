@@ -3272,6 +3272,57 @@ check('지운 뒤 보기 화면에는 재생목록 줄이 없고 곡과 인도�
   listView.playlist === false && listView.songs === 2
   && listView.leader === '· 찬양 인도 조해리 부장님', JSON.stringify(listView));
 
+// ── 22) 딥링크로 들어오면 목록이 스치지 않는다 (사용자 지적 2026-09-19) ─────
+// "주보 상세로 갈 때 … 바로 넘어가니 자연스럽지 않게 넘어가는 느낌이 살짝 든다."
+// §17이 '상세가 열린다'까지 보는 검사라면, 여기는 **그 앞에 무엇이 스쳤는가**를 본다:
+// 예전에는 목록(또는 목록 스켈레톤)을 한 번 그린 뒤 상세로 갈아 끼웠다.
+//
+// 게스트는 localStorage가 곧바로 답해서 그 사이가 한두 프레임이다 — rAF로 훑으면 놓치는
+// 판이 있어서(§18의 같은 함정), **문서가 생기기 전에** MutationObserver를 심어 무엇이
+// 먼저 꽂혔는지 순서를 적는다(Page.addScriptToEvaluateOnNewDocument).
+const watcher = await send('Page.addScriptToEvaluateOnNewDocument', { source: `
+  window.__seen = { skel: false, list: false, loading: false, detail: false, order: [] };
+  const mark = () => {
+    const hit = (sel, k) => { if (!window.__seen[k] && document.querySelector(sel)) { window.__seen[k] = true; window.__seen.order.push(k); } };
+    hit('.worship-detail-loading', 'skel');   // 상세 모양 스켈레톤
+    hit('.worship-list', 'list');             // 목록
+    hit('.worship-loading', 'loading');       // 목록 스켈레톤
+    hit('.worship-detail', 'detail');
+  };
+  // **document를 본다** — 이 스크립트가 도는 때는 <html>조차 아직 없어서
+  // document.documentElement가 null이다(관찰 대상이 Node가 아니라고 던진다).
+  new MutationObserver(mark).observe(document, { childList: true, subtree: true });
+` });
+await ev(plant(null));
+await send('Page.navigate', { url: `${URL_BASE}/?p=worship&s=s1` });
+await wait('Page.loadEventFired');
+await waitFor(HAS_DETAIL, 8000);
+const noFlash = await ev(`(() => ({ ...window.__seen,
+  nowDetail: !!document.querySelector('.worship-detail'),
+  nowSkel: !!document.querySelector('.worship-detail-loading'),
+  nowList: !!document.querySelector('.worship-list') }))()`);
+// **되돌리기**(§3-5): worshipView의 `if (wantId) return DETAIL_LOADING;`(또는 그 위
+// `wantId ? DETAIL_LOADING : LOADING`)를 지우면 목록이 먼저 꽂혀 order가 list/loading으로 시작한다.
+check('딥링크로 들어오면 목록이 스치지 않고 상세 스켈레톤이 먼저 선다',
+  noFlash.skel === true && noFlash.list === false && noFlash.loading === false
+  && noFlash.order[0] === 'skel' && noFlash.detail === true
+  && noFlash.nowDetail === true && noFlash.nowSkel === false && noFlash.nowList === false,
+  JSON.stringify(noFlash));
+
+// 스켈레톤이 **영영 남는 길**이 있으면 안 된다 — 지워졌거나 아직 발행 안 됐거나 주소가
+// 틀린 주보는 목록에 끝내 안 나타난다. 새로 읽은 목록에도 없으면 목록으로 떨어진다.
+// **되돌리기**: 진입 이펙트 ② 갈래의 `setWantId(null)`을 지우면 스켈레톤이 남아 깨진다.
+await send('Page.navigate', { url: `${URL_BASE}/?p=worship&s=nope` });
+await wait('Page.loadEventFired'); await sleep(2000);
+const fellBack = await ev(`(() => ({ list: !!document.querySelector('.worship-list'),
+  skel: !!document.querySelector('.worship-detail-loading'),
+  detail: !!document.querySelector('.worship-detail'),
+  cards: document.querySelectorAll('.worship-card').length }))()`);
+check('딥링크의 주보가 목록에 없으면 스켈레톤이 남지 않고 목록으로 떨어진다',
+  fellBack.list === true && fellBack.skel === false && fellBack.detail === false && fellBack.cards > 0,
+  JSON.stringify(fellBack));
+await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: watcher.identifier });
+
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 
 console.log(results.join('\n'));
