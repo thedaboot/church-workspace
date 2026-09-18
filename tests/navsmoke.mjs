@@ -185,38 +185,71 @@ await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, devi
 await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
 await send('Page.navigate', { url: URL_BASE + '/?p=p1' });
 await wait('Page.loadEventFired'); await sleep(1400);
+// 바는 **두 벌이 겹쳐 있다**(사용자 결정 2026-09-18 · 목업 넷 중 '딥 인디고 채움').
+// 업무 층이 오른쪽에서 왼쪽으로 덮으며 "넘어왔다"를 말한다 — 그래서 nav 안의 버튼은
+// 언제나 열이고, **지금 모드의 층**만 눌리고 읽힌다. 세는 자리를 그 층으로 좁힌다.
+const LAYER_JS = `const nav = document.querySelector('nav[data-tab-bar]');
+  const mode = nav.dataset.tabBar;
+  const layer = nav.querySelector(mode === 'work' ? '.tab-bar-work' : '.tab-bar-base');`;
+const labelsOf = `[...layer.querySelectorAll('span')].map(s => s.textContent.trim()).filter(t => t && t.length <= 5)`;
+// 지금 층의 버튼만 누른다 — 아래 깔린 층은 pointer-events가 꺼져 있어 사람 손가락에는
+// 닿지 않는다(스크립트의 .click()은 그것을 무시하므로 검사가 층을 직접 골라야 한다).
+const tapIn = (re) => ev(`(() => { ${LAYER_JS}
+  const b = [...layer.querySelectorAll('button')].find(x => ${re}.test(x.textContent.trim()));
+  b && b.click(); })()`);
+
 const bar = await ev(`(() => {
-  const nav = document.querySelector('nav');
+  ${LAYER_JS}
   if (!nav) return { none: true };
   const r = nav.getBoundingClientRect();
+  const work = nav.querySelector('.tab-bar-work'), base = nav.querySelector('.tab-bar-base');
   return {
-    labels: [...nav.querySelectorAll('span')].map(s => s.textContent.trim()).filter(t => t && t.length <= 5),
+    mode,
+    labels: ${labelsOf},
     atBottom: Math.abs(r.bottom - window.innerHeight) <= 1,
-    icons: nav.querySelectorAll('svg').length,
-    emoji: /[\\u{1F300}-\\u{1FAFF}\\u{2600}-\\u{27BF}]/u.test(nav.textContent),
+    icons: layer.querySelectorAll('svg').length,
+    emoji: /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(layer.textContent),
+    clip: getComputedStyle(work).clipPath,
+    hit: [getComputedStyle(base).pointerEvents, getComputedStyle(work).pointerEvents],
+    navW: Math.round(r.width),
   };
 })()`);
 check('모바일 하단 탭바가 화면 아래 고정', bar.atBottom === true, JSON.stringify(bar));
 // 프로젝트(업무 축)에서는 업무 바 5칸: 홈·프로젝트·내 업무·대시보드·팀 (A안, 2026-09-02)
 check('업무 바 5칸(홈·프로젝트·내 업무·대시보드·팀)', bar.icons === 5 && bar.labels.includes('홈') && bar.labels.includes('프로젝트'), `svg ${bar.icons}개 · ${JSON.stringify(bar.labels)}`);
 check('탭바에 이모지 없음(선 아이콘만)', bar.emoji === false);
+// 업무 모드에서는 남색 층이 **다 펼쳐져** 있고 그 층만 눌린다.
+// 되돌리기(§3-5): index.css의 `[data-tab-bar='work'] .tab-bar-work` 규칙을 지우면 여기서 깨진다.
+check('업무 모드에서는 남색 층이 바를 다 덮는다', /^inset\(0px\)$/.test(bar.clip) && bar.hit[1] === 'auto' && bar.hit[0] === 'none',
+  `${bar.clip} · ${JSON.stringify(bar.hit)}`);
+
 // 홈으로 나가면 교회 바(홈·예배·말씀·모임·업무)로 통째로 바뀐다 — 겹을 안 늘리는 모드 전환
-await ev(`(() => { const n=document.querySelector('nav'); const b=[...n.querySelectorAll('button')].find(x=>x.textContent.trim()==='홈'); b && b.click(); })()`);
+await tapIn('/^홈$/');
 await sleep(600);
 const churchBar = await ev(`(() => {
-  const nav = document.querySelector('nav');
-  return [...nav.querySelectorAll('span')].map(s => s.textContent.trim()).filter(t => t && t.length <= 5);
+  ${LAYER_JS}
+  const work = nav.querySelector('.tab-bar-work'), base = nav.querySelector('.tab-bar-base');
+  return {
+    mode,
+    labels: ${labelsOf},
+    clip: getComputedStyle(work).clipPath,
+    hit: [getComputedStyle(base).pointerEvents, getComputedStyle(work).pointerEvents],
+    navW: Math.round(nav.getBoundingClientRect().width),
+  };
 })()`);
-check('홈에서는 교회 바(예배·말씀·모임·업무)', ['예배','말씀','모임','업무'].every(l => churchBar.includes(l)), JSON.stringify(churchBar));
+check('홈에서는 교회 바(예배·말씀·모임·업무)', ['예배','말씀','모임','업무'].every(l => churchBar.labels.includes(l)), JSON.stringify(churchBar.labels));
+// 남색 층은 **오른쪽 끝으로 접힌다**(왼쪽 안쪽 여백 = 바 폭). 그 한 값이 두 방향을 다 만든다 —
+// 업무로 갈 때는 100%→0(오른쪽에서 왼쪽으로 덮고), 홈으로 올 때는 0→100%(왼쪽부터 원래 색이 드러난다).
+check('홈으로 돌아오면 남색 층이 오른쪽 끝으로 접힌다',
+  churchBar.clip === 'inset(0px 0px 0px 100%)' && churchBar.hit[0] === 'auto' && churchBar.hit[1] === 'none',
+  `${churchBar.clip} · ${JSON.stringify(churchBar.hit)}`);
+
 // 다시 '업무'를 누르면 보던 업무 화면(프로젝트)으로 돌아온다
-await ev(`(() => { const n=document.querySelector('nav'); const b=[...n.querySelectorAll('button')].find(x=>x.textContent.trim()==='업무'); b && b.click(); })()`);
+await tapIn('/^업무$/');
 await sleep(600);
-const backBar = await ev(`(() => {
-  const nav = document.querySelector('nav');
-  return [...nav.querySelectorAll('span')].map(s => s.textContent.trim()).filter(t => t && t.length <= 5);
-})()`);
+const backBar = await ev(`(() => { ${LAYER_JS} return ${labelsOf}; })()`);
 check("'업무'로 돌아오면 업무 바 + 보던 화면", backBar.includes('프로젝트'), JSON.stringify(backBar));
-await ev(`(() => { const n=document.querySelector('nav'); const b=[...n.querySelectorAll('button')].find(x=>/내 업무/.test(x.textContent)); b.click(); })()`);
+await tapIn('/내 업무/');
 await sleep(700);
 const title = await ev(`document.querySelector('main h2')?.textContent.trim() || document.querySelector('h2')?.textContent.trim()`);
 check('탭바로 내 업무 이동', /내 업무|노준석/.test(title || ''), String(title));

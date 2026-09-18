@@ -724,11 +724,39 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
   const lastWork = useRef('dashboard');
   useEffect(() => { if (!inChurch) lastWork.current = activeMenu; }, [activeMenu, inChurch]);
 
-  const tab = (on, icon, label, onClick, badge) => (
-    <button onClick={onClick} className={`flex-1 flex flex-col items-center gap-1 py-1 transition-colors ${on ? 'text-fg' : 'text-fg-faint'}`}>
-      <span className="relative">{icon}{badge > 0 && <span className="absolute -top-0.5 -right-1.5 w-1.5 h-1.5 rounded-full bg-accent" />}</span>
+  // 두 벌이 **동시에 그려져 있다**(아래 nav) — 지금 쓰는 층이 아니면 초점도 안 받게
+  // `live=false`를 준다. 안 그러면 탭 키가 안 보이는 다섯 개를 먼저 지난다.
+  // 배지 원 색은 층이 정한다(`--tab-dot`) — 남색 위에서는 accent 원이 그대로 사라진다.
+  const tab = (on, icon, label, onClick, badge, live = true) => (
+    <button
+      onClick={onClick} tabIndex={live ? 0 : -1}
+      className={`flex-1 flex flex-col items-center gap-1 py-1 transition-colors ${on ? 'text-[color:var(--tab-on)]' : 'text-[color:var(--tab-off)]'}`}
+    >
+      <span className="relative">{icon}{badge > 0 && <span className="absolute -top-0.5 -right-1.5 w-1.5 h-1.5 rounded-full bg-[color:var(--tab-dot)]" />}</span>
       <span className="text-[10.5px] font-semibold">{label}</span>
     </button>
+  );
+  // 층 하나가 쓰는 자리 — 패딩이 nav가 아니라 **층마다** 있어야 겹친 두 층이 같은 자리에
+  // 선다(업무 층은 absolute inset-0이라 nav의 패딩 안으로 들어가지 않는다).
+  // 위 선도 층이 그린다 — nav가 그리면 남색이 찼을 때 그 위에 회색 실선이 남는다.
+  const LAYER = 'flex pt-2 pb-[calc(0.875rem+env(safe-area-inset-bottom))] border-t';
+  const churchTabs = (live) => (
+    <>
+      {tab(activeMenu === 'home', <Home size={20} />, '홈', () => setActiveMenu('home'), 0, live)}
+      {tab(activeMenu === 'worship', <Church size={20} />, '예배', () => setActiveMenu('worship'), 0, live)}
+      {tab(activeMenu === 'word', <BookOpen size={20} />, '말씀', () => setActiveMenu('word'), 0, live)}
+      {tab(activeMenu === 'groups', <HeartHandshake size={20} />, '모임', () => setActiveMenu('groups'), 0, live)}
+      {tab(false, <Briefcase size={20} />, '업무', () => setActiveMenu(lastWork.current || 'dashboard'), myTasksCount, live)}
+    </>
+  );
+  const workTabs = (live) => (
+    <>
+      {tab(false, <Home size={20} />, '홈', () => setActiveMenu('home'), 0, live)}
+      {tab(isProject, <Hash size={20} />, '프로젝트', goProject, 0, live)}
+      {tab(activeMenu === 'myTasks', <CheckSquare size={20} />, '내 업무', () => setActiveMenu('myTasks'), myTasksCount, live)}
+      {tab(activeMenu === 'dashboard', <LayoutDashboard size={20} />, '대시보드', () => setActiveMenu('dashboard'), 0, live)}
+      {tab(activeMenu.startsWith('team:'), <Users size={20} />, '팀', goTeam, 0, live)}
+    </>
   );
   // 탭바의 **실제 높이**를 `--mobile-tab-bar-h`로 내보낸다. 이 바는 안 내용으로 높이가 정해져서
   // (pt-2 + 아이콘 + 글자 + pb + safe-area) 4.5rem 같은 상수와 몇 px 어긋난다 — 주보 편집의
@@ -745,25 +773,22 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
     ro.observe(el);
     return () => { ro.disconnect(); root.style.removeProperty('--mobile-tab-bar-h'); };
   }, []);
+  // ── 넘어온 것을 바가 말한다 (사용자 결정 2026-09-18 · 목업 넷 중 '딥 인디고 채움') ──
+  // 두 벌을 **겹쳐 두고** 업무 층의 왼쪽 끝만 움직인다(`.tab-bar-work` · index.css에
+  // 왜 그 한 값이 두 방향을 다 만드는지 적어 두었다). 그래서 여기 JSX는 조건부가
+  // 아니라 **둘 다 그린다** — 글자가 바뀌는 순간이 색이 지나가는 자리와 맞으려면
+  // 두 벌이 동시에 있어야 한다. `data-tab-bar`가 어느 층이 위인지를 정한다.
   return (
-    <nav ref={navRef} data-tab-bar className="md:hidden fixed inset-x-0 bottom-0 z-40 flex bg-surface border-t border-line pt-2 pb-[calc(0.875rem+env(safe-area-inset-bottom))]">
-      {inChurch ? (
-        <>
-          {tab(activeMenu === 'home', <Home size={20} />, '홈', () => setActiveMenu('home'))}
-          {tab(activeMenu === 'worship', <Church size={20} />, '예배', () => setActiveMenu('worship'))}
-          {tab(activeMenu === 'word', <BookOpen size={20} />, '말씀', () => setActiveMenu('word'))}
-          {tab(activeMenu === 'groups', <HeartHandshake size={20} />, '모임', () => setActiveMenu('groups'))}
-          {tab(false, <Briefcase size={20} />, '업무', () => setActiveMenu(lastWork.current || 'dashboard'), myTasksCount)}
-        </>
-      ) : (
-        <>
-          {tab(false, <Home size={20} />, '홈', () => setActiveMenu('home'))}
-          {tab(isProject, <Hash size={20} />, '프로젝트', goProject)}
-          {tab(activeMenu === 'myTasks', <CheckSquare size={20} />, '내 업무', () => setActiveMenu('myTasks'), myTasksCount)}
-          {tab(activeMenu === 'dashboard', <LayoutDashboard size={20} />, '대시보드', () => setActiveMenu('dashboard'))}
-          {tab(activeMenu.startsWith('team:'), <Users size={20} />, '팀', goTeam)}
-        </>
-      )}
+    <nav ref={navRef} data-tab-bar={inChurch ? 'church' : 'work'} className="md:hidden fixed inset-x-0 bottom-0 z-40 bg-surface">
+      <div aria-hidden={!inChurch} className={`tab-bar-base ${LAYER} border-line [--tab-on:var(--app-ink)] [--tab-off:var(--app-ink-faint)] [--tab-dot:var(--app-accent)]`}>
+        {churchTabs(inChurch)}
+      </div>
+      {/* 남색 층 — 위 선도 남색이라 채워지면 실선이 보이지 않는다. 배지 원은 흰색이다
+          (남색 위에서 accent 원은 그대로 사라진다). 아래 safe-area까지 같이 찬다 —
+          거기서 색이 끊기면 바가 떠 보인다. */}
+      <div aria-hidden={inChurch} className={`tab-bar-work absolute inset-0 bg-night ${LAYER} border-night [--tab-on:#fff] [--tab-off:rgb(255_255_255/0.58)] [--tab-dot:#fff]`}>
+        {workTabs(!inChurch)}
+      </div>
     </nav>
   );
 });
