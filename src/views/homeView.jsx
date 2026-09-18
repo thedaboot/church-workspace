@@ -508,7 +508,7 @@ export function orderedSlots(branch = {}) {
     .filter(s => s.state !== 'none');
 }
 
-export function HomeView({ onNavigate, onTaskClick }) {
+export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
   const currentUser = useStore(selectCurrentUser);
   const myTasks = useStore(selectMyTasks);
   // 화면이 서 있는 동안 날짜가 흔들리지 않게 한 번만 잡는다(자정을 넘겨도 홈을 다시
@@ -691,10 +691,19 @@ export function HomeView({ onNavigate, onTaskClick }) {
     // 인도자는 **홈에 싣지 않는다**(사용자 결정 2026-09-06). 주보 상세에는 그대로
     // 있다 — 홈 카드는 '무슨 예배에 무슨 설교'까지고, 누가 인도하는지는 들어가서 볼 일.
     // 카드 머리 글자는 날짜가 정한다(homeWorshipLabel) — 홈이 잡아 둔 그 날(day)로 센다.
+    //
+    // **누르면 목록이 아니라 그 주보 상세로 간다**(사용자 결정 2026-09-18 — "해당 걸
+    // 누르면 해당 발행된 주보 상세로 바로". 지난 예배도 같다 — 카드에 선 그 주보로).
+    // 길은 알림 딥링크와 **같은 것**을 탄다(App.handleOpenLink → entryQuery →
+    // worshipView의 진입 이펙트)라서 주보 상세로 드는 문이 둘이 되지 않는다.
+    // setEntryQuery를 여기서 직접 부르지 않는 이유도 그것이다 — 딥링크 진입점은 App 하나다.
+    // onOpenLink가 없으면(HomeView를 다른 데서 쓰면) 예전처럼 목록으로 떨어진다.
     worship: (delay, enter) => (
       <LinkCard slot="worship" enter={enter} className="home-worship" icon={Church} delay={delay} title="예배로"
         label={homeWorshipLabel(church.service.service_date, day)}
-        onOpen={() => onNavigate('worship')}
+        onOpen={() => (onOpenLink
+          ? onOpenLink(`/?p=worship&s=${church.service.id}`)
+          : onNavigate('worship'))}
         focus={<span className="home-worship-title">{church.service.title || '설교 제목 미정'}</span>}
         meta={
           <span className={`home-worship-sub ${ONE_LINE}`}>

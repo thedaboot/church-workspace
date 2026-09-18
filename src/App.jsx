@@ -653,7 +653,7 @@ function WorkspaceShell() {
           {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} filter={dashFilter} setFilter={setDashFilter} />}
           {activeMenu === 'schedule' && <ScheduleView onTaskClick={handleTaskClick} />}
           {activeMenu === 'members' && <MembersView isAdmin={isAdmin} isMaster={isMaster} />}
-          {activeMenu === 'home' && <HomeView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} />}
+          {activeMenu === 'home' && <HomeView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onOpenLink={handleOpenLink} />}
           {activeMenu === 'worship' && <WorshipView onOpenBible={openBible} />}
           {activeMenu === 'word' && <WordView initialRef={wordRef} />}
           {activeMenu === 'groups' && <GroupsView />}

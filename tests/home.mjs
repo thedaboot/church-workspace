@@ -676,8 +676,21 @@ const toWord = await ev(`(() => { const t = [...document.querySelectorAll('butto
 check('오늘의 QT를 누르면 말씀으로 간다', toWord === true);
 await goHome();
 
-await ev(`document.querySelector('.home-worship').click()`); await sleep(1200);
-check('예배 카드를 누르면 예배로 간다', (await ev(`!!document.querySelector('.worship-list')`)) === true);
+// 예배 카드는 **목록이 아니라 그 주보 상세**로 간다(사용자 결정 2026-09-18). 길은 알림
+// 딥링크와 한 벌이다 — App.handleOpenLink가 `/?p=worship&s=<주보 id>`를 받아 entryQuery에
+// 싣고, worshipView의 진입 이펙트가 목록이 도착하면 그 주보를 연다. 목록이 온 뒤에야
+// 열리므로 기다렸다 묻는다.
+// **되돌리기**(§3-5): homeView 예배 카드의 `onOpenLink(...)`를 `onNavigate('worship')`로
+// 되돌리면 목록(.worship-list)에서 멈춰 상세가 없다.
+await ev(`document.querySelector('.home-worship').click()`); await sleep(2200);
+const toService = await ev(`(() => ({
+  detail: !!document.querySelector('.worship-detail'),
+  list: !!document.querySelector('.worship-list'),
+  title: document.querySelector('.worship-detail')?.innerText.includes('흔들리지 않는 기쁨') || false,
+}))()`);
+check('예배 카드를 누르면 그 주보 상세로 곧장 간다',
+  toService.detail === true && toService.list === false && toService.title === true,
+  JSON.stringify(toService));
 await goHome();
 
 await ev(`document.querySelector('.home-tasks button').click()`); await sleep(1000);
