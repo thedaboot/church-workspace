@@ -631,15 +631,14 @@ check('편집 화면 머리의 날짜·구절이 읽기 종이와 같다',
   JSON.stringify(paperEdit));
 check('종이는 편집 중에도 밝다(다크를 따라가지 않는다)',
   paperEdit.bg === 'rgb(255, 253, 252)', paperEdit.bg);
-// **빈 도막에는 쓸 자리가 있고, 글을 쓰면 줄 간격은 그대로다**(사용자 결정 2026-09-18 ·
-// 예배 노트·묵상 노트 둘 다). 그전에는 도막의 빈 줄이 한 줄(34px)이라 마지막 도막('기도')이
-// 선에 딱 붙어 적을 자리가 없는 칸처럼 보였다. 두 도막이 **같은 높이**인 것도 같이 단정한다 —
-// 한쪽만 좁아 보이던 착시의 정체가 "둘 다 한 줄 + 빈 자리는 맨 아래 한 덩어리"였다.
-// **아래 half가 중요하다**: 처음에는 제목 다음 문단 **전부**에 min-height를 걸었는데, 그
-// 문단은 글을 쓰면 같이 자라는 문단이라 한 줄 쓰고 엔터를 치면 64px을 계속 붙잡아 줄
-// 간격이 세 줄처럼 벌어졌다(사용자 지적, 같은 날). 빈 문단만 골라야 한다.
-// **되돌리기**(§3-5): index.css의 `:has(> br.ProseMirror-trailingBreak:only-child)`를
-// 빼면(= 문단 전부에 걸면) `filled`가 64가 되어 깨진다. min-height를 아예 빼면 `empty`가 깨진다.
+// **도막은 한 줄이다**(사용자 결정 2026-09-18 되돌림 · 예배 노트·묵상 노트 둘 다).
+// 2026-09-18에 빈 도막을 세 줄(min-height: 4rem)로 벌렸다가 같은 날 되돌렸다 — 글을 쓰면
+// 그 문단이 계속 4rem을 붙잡아 줄 간격까지 벌어졌다("노트가 완전 난리"). 마지막 도막('기도')에
+// 쓸 칸이 안 보이던 진짜 원인은 높이가 아니라 **문단이 아예 없던 것**이었고, 그건
+// services/markdown.js의 mdToDoc(제목으로 끝나면 빈 문단을 붙인다)이 고쳤다(tests/mdcheck).
+// 빈 자리는 예전대로 종이 아래 한 덩어리다(paper-rows min-height · 2026-09-03).
+// **되돌리기**(§3-5): index.css의 `:is(h1,h2,h3,h4) + *`에 `min-height: 4rem`을 넣으면
+// 두 값이 다 64가 되어 이 검사가 깨진다.
 // 이 자리의 묵상에는 씨앗이 한 줄 글이라 도막이 없다 — 그래서 **같은 종이 안에** 도막
 // 구조를 잠깐 세워 재고 걷는다(폭·토큰이 실제와 같은 자리라야 값이 뜻이 있다).
 // 빈 문단의 모양(`<br class="ProseMirror-trailingBreak">` 하나)은 ProseMirror가 그리는 그대로다.
@@ -656,11 +655,11 @@ const noteRows = await ev(`(() => {
   probe.remove();
   return { empty: [h[1], h[3]], filled: h[5] };
 })()`);
-check('빈 도막에는 쓸 자리가 세 줄쯤, 글을 쓰면 줄 간격은 그대로',
-  !!noteRows && noteRows.empty.every(x => x >= 64) && new Set(noteRows.empty).size === 1
-  // 글이 있는 문단은 한 줄 높이다(마지막 자식이라 아래 여백이 11px이어서 46px쯤 —
-  // 값 자체보다 **빈 도막보다 확실히 낮다**가 요점이다)
-  && noteRows.filled <= 50 && noteRows.filled < noteRows.empty[0], JSON.stringify(noteRows));
+check('도막은 한 줄이다 — 빈 도막을 벌리지 않는다(2026-09-18 되돌림)',
+  // 빈 도막 둘도, 글이 한 줄 있는 도막도 **같은 한 줄 높이**다(실측 46px — 줄 하나에
+  // 위아래 여백 11px씩이 붙은 값이라 50px을 넘지 않는다). min-height: 4rem을 걸면 64가 된다.
+  !!noteRows && noteRows.empty.every(x => x <= 50) && new Set(noteRows.empty).size === 1
+  && noteRows.filled <= 50 && noteRows.filled === noteRows.empty[0], JSON.stringify(noteRows));
 // 2026-09-07에는 두 모드의 **높이**를 1px까지 묶어 두었다 — 그때 편집 상자가 고정
 // 높이(min-h-40 md:min-h-56)였기 때문이다. 2026-09-10부터 편집 화면이 **종이**가
 // 되면서 그 묶음이 풀렸다: 편집 종이에는 서식 바와 쓸 빈 자리가 더 있고, 읽기 종이는

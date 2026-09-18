@@ -123,8 +123,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   // 문서·영상은 안 넘긴다: iframe 뷰어는 장마다 새로 뜨는 데 몇 초씩 걸려서
   // "넘긴다"는 느낌이 안 난다. 사진(첨부의 대부분)만 즉시 넘어간다.
   const [cur, setCur] = useState(row);
-  // 폰에서는 슬라이드가 구글 화면 대신 우리 렌더러로 간다(§6-29-y · previewKind 주석)
-  const kind = useMemo(() => previewKind(cur, { mobile: isMobile }), [cur, isMobile]);
+  const kind = useMemo(() => previewKind(cur), [cur]);
   const gallery = useMemo(() => (rows || []).filter(r => previewKind(r) === 'image'), [rows]);
   const gi = gallery.findIndex(r => r.id === cur.id);
   const canNav = kind === 'image' && gi >= 0 && gallery.length > 1;
@@ -824,7 +823,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       // 크롬에서는 편집까지 된다(사용자 확인). 즉 관리자에게만, 폰에서만 나던 길이다.
       // 보기 주소(`previewCopyUrl`)는 로그인을 아예 쓰지 않아 여기서 늘 뜬다.
       // 폰에서 고치는 길은 머리줄의 '구글 문서에서 편집'(새 탭 = 1차 쿠키) 하나다.
-      const src = (canEditCopy && !isMobile && copyEditUrl(cur, { email: myEmail })) || previewCopyUrl(cur);
+      // 폰에서는 `previewCopyUrl`이 슬라이드를 `/preview`(드라이브식 미리보기)로 준다 —
+      // `/embed` 발표 플레이어가 홈 화면 앱 웹뷰를 죽였다(previewKind.js COPY_VIEW_PHONE).
+      const src = (canEditCopy && !isMobile && copyEditUrl(cur, { email: myEmail })) || previewCopyUrl(cur, { mobile: isMobile });
       // 종류 판정이 사본을 확인하고 왔으므로 여기서 src가 빌 일은 없다. 그래도 빈 iframe을
       // 띄우느니 새 탭을 내주는 쪽이 정직하다(스켈레톤만 남으면 영영 안 걷힌다).
       if (!src) return <Fallback row={cur} message="미리보기를 준비하지 못했어요." onOpen={openExternal} />;

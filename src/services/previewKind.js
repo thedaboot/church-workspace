@@ -62,13 +62,23 @@ const COPY_VIEW = {
   document: ['document', 'preview?rm=minimal'],
   presentation: ['presentation', 'embed?start=false&loop=false&delayms=60000'],
 };
+// **폰에서만 슬라이드가 `/preview`다**(사용자 결정 2026-09-18). `/embed`(발표 플레이어)를
+// iframe으로 실으면 홈 화면 앱(PWA) 웹뷰가 **통째로 죽었다**(사용자 재현 2회). 가른 방법:
+// 같은 주소를 앱 밖 사파리에서 열면 멀쩡하고, 같은 길로 가는 워드 첨부(`/preview`)는
+// 폰에서도 잘 뜬다 — 무거운 것은 플레이어 하나다. 우리 렌더러(services/pptx.js)로
+// 떨어뜨리는 길은 사용자가 거부했다("구글 화면으로 해달라니까" — 글자만 뽑아 그려 폰트가
+// 깨진다). 그래서 **두 표 모두 구글이 그린 화면**이고, 폰만 드라이브식 미리보기로 간다.
+// `rm=minimal`은 여기서도 없다 — 2026-09-09 주석대로 그 인자가 화살표 줄을 같이 걷는다.
+// 데스크톱은 위 표 그대로 `/embed`다(화살표 · 2026-09-09 결정).
+const COPY_VIEW_PHONE = { ...COPY_VIEW, presentation: ['presentation', 'preview'] };
 
 // 변환 사본을 **구글이 그린 화면**으로 볼 주소. 사본이 없으면 null이고, 부르는 쪽은
 // 예전 길(우리 렌더러)로 떨어진다 — 옛 첨부·변환 실패·스크립트가 v8 미만인 경우다.
 // **편집 주소(/edit)를 만들지 마세요** — 첨부는 '링크를 아는 사람은 보기'이고,
 // 편집으로 열어 주는 것은 사용자가 판단해서 뺀 것이다(HANDOFF §7 마지막 줄).
-export const previewCopyUrl = (row) => {
-  const view = COPY_VIEW[COPY_TARGET[extOf(row?.name)]];
+// `mobile`은 화면 폭 갈래다(hooks/useIsMobile) — 슬라이드 한 갈래만 달라진다(위 표).
+export const previewCopyUrl = (row, { mobile = false } = {}) => {
+  const view = (mobile ? COPY_VIEW_PHONE : COPY_VIEW)[COPY_TARGET[extOf(row?.name)]];
   return (row?.preview_file_id && view)
     ? `https://docs.google.com/${view[0]}/d/${row.preview_file_id}/${view[1]}`
     : null;
@@ -100,9 +110,7 @@ export const copyEditUrl = (row, { email = '', minimal = true } = {}) => {
   return `https://docs.google.com/${seg}/d/${row.preview_file_id}/edit${q ? `?${q}` : ''}`;
 };
 
-// `mobile`은 화면 폭 갈래다(hooks/useIsMobile) — 폰·태블릿에서 슬라이드 한 갈래만
-// 다르게 간다(아래 heavyOnPhone). 안 주면 지금까지와 같은 판정이다.
-export function previewKind(row, { mobile = false } = {}) {
+export function previewKind(row) {
   const mime = row?.mime_type || '';
   const ext = extOf(row?.name);
   // 이미지는 드라이브 파일이어도 <img>로 직접 그린다 — 구글 이미지 CDN(lh3) 주소가
@@ -119,17 +127,7 @@ export function previewKind(row, { mobile = false } = {}) {
   // 하나뿐이었는데, 엑셀과 같은 방법으로 그 이유가 없어졌다 — 올릴 때 스크립트가
   // 네이티브 사본을 만들어 두므로 기다릴 것도, 우리 렌더러가 글자를 자를 일도 없다.
   // 사본이 없는 파일은 아래 그대로 우리 렌더러로 간다(옛 첨부·변환 실패·스크립트 v8 미만).
-  // **폰에서는 슬라이드만 구글 화면을 싣지 않는다**(사용자 신고 2026-09-18 — 그 pptx를
-  // 폰에서 열면 **앱이 통째로 나갔다**). 가른 방법: 같은 사본 주소를 앱 밖 사파리에서
-  // 열면 멀쩡하고(구글 화면 자체는 폰이 그릴 수 있다), 같은 길로 가는 **워드 첨부는
-  // 폰에서도 잘 뜬다**(구글 iframe이 문제인 것도 아니다). 남는 것은 슬라이드 embed가
-  // 무겁다는 것 하나다 — 홈 화면 앱(PWA) 웹뷰가 그 무게에서 죽는다.
-  // 그래서 폰에서는 아래 우리 렌더러('slide' · services/pptx.js)로 떨어뜨린다. 글자만
-  // 뽑아 그리는 대신 앱이 죽지 않고, 원본 그대로 보려면 머리줄의 새 탭 버튼이 있다
-  // (사파리에서 되는 것을 확인했다). 옛 `.ppt`는 우리가 못 읽어 'drive'로 간다.
-  // 데스크톱은 2026-09-08 결정 그대로 구글 화면이다.
-  const heavyOnPhone = mobile && previewCopyOf(row?.name) === 'presentation';
-  if (OFFICE_EXT.includes(ext) && row?.preview_file_id && !heavyOnPhone) return 'gdoc';
+  if (OFFICE_EXT.includes(ext) && row?.preview_file_id) return 'gdoc';
   if (row?.source === 'drive') {
     // 드라이브 파일도 형식별로 **가장 나은 뷰어**로 간다(사용자 요청) —
     //  · 오피스류(엑셀·워드·PPT·csv): 구글 전용 편집기 미리보기(driveSrc가 시간 게이트)
