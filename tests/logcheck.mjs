@@ -2698,7 +2698,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 // 셋 다 순수 함수 하나씩이고 화면은 부르기만 한다 — 함수를 직접 돌리고 **배선**은
 // 소스로 못 박는다(위 호칭 블록과 같은 짜임).
 // 되돌려서 깨뜨린 것(§3-5): pickService의 `status === 'published'`를 빼면 ①,
-// homeWorshipLabel의 `(at.getUTCDay() + 6) % 7`을 `at.getUTCDay()`로 바꾸면 ②,
+// homeWorshipLabel의 `date === base` 갈래를 빼면 ②,
 // honorific의 BY_GENDER 줄을 HONORIFIC.youth로 되돌리면 ③이 깨진다.
 {
   const src = (u) => readFileSync(new URL(u, import.meta.url), 'utf8');
@@ -2733,18 +2733,18 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(pickService([]), null);
   assert.strictEqual(pickService(), null);
 
-  // ② 카드 라벨 셋 — 주의 시작은 **월요일**이고 오늘은 한국 시간이다.
-  // 2026-09-14(월) ~ 2026-09-20(일)이 '이번 주'다. 양 끝을 다 짚는다.
+  // ② 카드 라벨 셋 — **주를 보지 않는다**(사용자 결정 2026-09-18). 오늘과 주보 날짜만
+  // 견준다. 주 경계로 갈랐을 때 어느 시작을 골라도 한쪽이 틀렸던 자리를 다 짚는다.
   const L = (iso, today) => homeWorshipLabel(iso, today);
-  assert.strictEqual(L('2026-09-14', '2026-09-16'), '이번 주 예배', '주의 첫날(월)');
-  assert.strictEqual(L('2026-09-20', '2026-09-16'), '이번 주 예배', '주의 끝날(일) — 다가오는 주일이 이번 주다');
-  assert.strictEqual(L('2026-09-13', '2026-09-16'), '지난 예배', '하루 앞(지난 일요일)');
-  assert.strictEqual(L('2026-09-21', '2026-09-16'), '다음 주 예배', '하루 뒤(다음 월요일)');
-  assert.strictEqual(L('2026-10-04', '2026-09-16'), '다음 주 예배', '두 주 뒤라도 아직 안 온 예배다');
-  // 오늘이 주의 양 끝일 때도 같은 주 경계를 본다
-  assert.strictEqual(L('2026-09-20', '2026-09-14'), '이번 주 예배', '월요일에 보면 그 주 주일은 이번 주');
-  assert.strictEqual(L('2026-09-20', '2026-09-20'), '이번 주 예배', '주일 당일도 이번 주');
-  assert.strictEqual(L('2026-09-20', '2026-09-21'), '지난 예배', '월요일이 되면 어제 주일은 지난 예배');
+  assert.strictEqual(L('2026-09-20', '2026-09-18'), '다가오는 예배',
+    '금요일에 보는 다가오는 주일 — 월요일 시작이면 여기가 이번 주로 나왔다(사용자 신고)');
+  assert.strictEqual(L('2026-09-20', '2026-09-20'), '오늘 예배', '예배 당일');
+  assert.strictEqual(L('2026-09-20', '2026-09-21'), '지난 예배',
+    '월요일이 되면 어제 주일은 지난 예배 — 주일 시작이면 여기가 이번 주로 남았다');
+  assert.strictEqual(L('2026-09-18', '2026-09-16'), '다가오는 예배',
+    '금요 예배도 같은 잣대다 — 주 단위 말이 애초에 안 맞는 자리(§7 · 예배는 주일과 금요 둘)');
+  assert.strictEqual(L('2026-10-04', '2026-09-16'), '다가오는 예배', '두 주 뒤라도 아직 안 온 예배다');
+  assert.strictEqual(L('2026-09-13', '2026-09-16'), '지난 예배', '지난 주일');
   assert.strictEqual(L('bad', '2026-09-16'), '', '못 읽는 날짜에는 아무 말도 하지 않는다');
   assert.strictEqual(L('2026-09-16', 'bad'), '');
 
