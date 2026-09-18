@@ -417,6 +417,10 @@
 29-x. **`state="visible"`을 숨긴 시트로 보고 있었다** — 다른 도구가 만든 파일이 그 값을 적어 시트가 한 장도 없는 것이 되고 미리보기가 빈 화면이었다. 숨김을 뜻하는 값은 `hidden`·`veryHidden` 둘뿐이다.
 29-y. **워드·PPT 우리 렌더러는 이제 폴백이다**(2026-09-08부터) — 사본이 있으면 구글 화면을 iframe으로 띄우고 (`previewKind` `'gdoc'`), `docx.js`·`pptx.js` + `OfficeView.jsx`는 사본 없는 옛
     첨부·변환 실패와 내용 검색에만 남는다. zip·XML 기계는 셋이 `services/ooxml.js` 하나를 같이 쓴다(각자 복사하면 29-c-2를 세 번 고친다).
+29-y-2. **아이폰 홈 화면 앱(standalone PWA) 웹뷰에서 구글 슬라이드를 iframe으로 실으면 앱이 통째로 죽는다** — `/embed`(발표 플레이어)도 `/preview`(드라이브식)도 마찬가지다(실기기 3회). 같은 길로 가는
+    **워드·엑셀 iframe은 멀쩡하고**, 같은 슬라이드 주소를 **앱 밖 사파리**에서 열면 잘 뜬다 — 주소·공유 설정 문제가 아니라 그 웹뷰가 슬라이드를 못 버티는 것이다. 그래서 폰(`useIsMobile`)에서는
+    `previewKind(row, { mobile: true })`가 `'slide-card'`를 내고, 첨부 창이 **iframe 없이** 첫 장 그림(`slideThumbUrl` — 구글이 로그인 없이 내주는 lh3 섬네일)과 '새 탭에서 열기' 버튼만 세운다.
+    주소는 한 벌이다 — 폰이라고 다른 주소를 주지 않는다(그런 표 `COPY_VIEW_PHONE`이 있었는데 `/preview`도 죽어서 걷었다). **우리 렌더러(`services/pptx.js`)로 떨어뜨리는 길은 사용자가 거부했다**(§7).
 29-z. **`../`가 든 상대 경로를 문자열 치환으로 풀지 마세요** — OOXML rels의 `../slideLayouts/…`(PPT 기본)를 `/../`→`/`로 때우면 레이아웃을 통째로 못 찾아 표지가 도형 0개가
     된다(`ooxml.resolvePath`).
 29-z-2. **HTML 첨부는 `<iframe sandbox="allow-scripts" srcDoc referrerPolicy="no-referrer">`로 그린다.** 허용은 그 하나뿐 — **`allow-same-origin`은 절대 함께 주지 마세요**(둘을

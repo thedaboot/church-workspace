@@ -62,27 +62,31 @@ const COPY_VIEW = {
   document: ['document', 'preview?rm=minimal'],
   presentation: ['presentation', 'embed?start=false&loop=false&delayms=60000'],
 };
-// **폰에서만 슬라이드가 `/preview`다**(사용자 결정 2026-09-18). `/embed`(발표 플레이어)를
-// iframe으로 실으면 홈 화면 앱(PWA) 웹뷰가 **통째로 죽었다**(사용자 재현 2회). 가른 방법:
-// 같은 주소를 앱 밖 사파리에서 열면 멀쩡하고, 같은 길로 가는 워드 첨부(`/preview`)는
-// 폰에서도 잘 뜬다 — 무거운 것은 플레이어 하나다. 우리 렌더러(services/pptx.js)로
-// 떨어뜨리는 길은 사용자가 거부했다("구글 화면으로 해달라니까" — 글자만 뽑아 그려 폰트가
-// 깨진다). 그래서 **두 표 모두 구글이 그린 화면**이고, 폰만 드라이브식 미리보기로 간다.
-// `rm=minimal`은 여기서도 없다 — 2026-09-09 주석대로 그 인자가 화살표 줄을 같이 걷는다.
-// 데스크톱은 위 표 그대로 `/embed`다(화살표 · 2026-09-09 결정).
-const COPY_VIEW_PHONE = { ...COPY_VIEW, presentation: ['presentation', 'preview'] };
+// **표는 한 벌이다 — 폰이라고 다른 주소를 주지 않는다**(2026-09-18). 한때 폰에만
+// `/preview`를 주는 두 번째 표(`COPY_VIEW_PHONE`)가 있었는데, 폰에서 죽는 것이
+// `/embed`(발표 플레이어)만이 아니라 **구글 슬라이드 iframe 전부**였다 — `/preview`도
+// 홈 화면 앱 웹뷰를 똑같이 죽였다(사용자 실기기). 그래서 갈래를 주소에서 걷고
+// **화면 종류**에서 가른다(아래 previewKind의 'slide-card' · slideThumbUrl).
 
 // 변환 사본을 **구글이 그린 화면**으로 볼 주소. 사본이 없으면 null이고, 부르는 쪽은
 // 예전 길(우리 렌더러)로 떨어진다 — 옛 첨부·변환 실패·스크립트가 v8 미만인 경우다.
 // **편집 주소(/edit)를 만들지 마세요** — 첨부는 '링크를 아는 사람은 보기'이고,
 // 편집으로 열어 주는 것은 사용자가 판단해서 뺀 것이다(HANDOFF §7 마지막 줄).
-// `mobile`은 화면 폭 갈래다(hooks/useIsMobile) — 슬라이드 한 갈래만 달라진다(위 표).
-export const previewCopyUrl = (row, { mobile = false } = {}) => {
-  const view = (mobile ? COPY_VIEW_PHONE : COPY_VIEW)[COPY_TARGET[extOf(row?.name)]];
+export const previewCopyUrl = (row) => {
+  const view = COPY_VIEW[COPY_TARGET[extOf(row?.name)]];
   return (row?.preview_file_id && view)
     ? `https://docs.google.com/${view[0]}/d/${row.preview_file_id}/${view[1]}`
     : null;
 };
+
+// 슬라이드 사본의 **첫 장 그림**. 구글이 드라이브 파일의 섬네일을 이미지 CDN(lh3)으로
+// 로그인 없이 내준다(실측: 200 · image/png · 800×450). 폰에서 iframe 없이 한 장만
+// 세우는 'slide-card' 갈래가 쓴다.
+// services/cloud.js의 `driveImageUrl`·`driveImageFullUrl`과 **같은 결의 주소**인데
+// 여기 따로 두는 이유는 이 파일이 **순수 모듈**이기 때문이다 — 노드 검사(logcheck ·
+// drivesync)가 그대로 import하는데, cloud.js를 물면 supabaseClient가 딸려 와서 죽는다.
+export const slideThumbUrl = (row, w = 1200) =>
+  (row?.preview_file_id ? `https://lh3.googleusercontent.com/d/${row.preview_file_id}=w${w}` : null);
 
 // 사본을 **고치는** 주소. `previewCopyUrl`(보기)과 일부러 나눠 둔다 — 첨부는 '링크를
 // 아는 사람은 보기'이고 편집 주소를 그 함수가 만들어서는 안 된다(§7 · tests/drivesync가
@@ -110,7 +114,9 @@ export const copyEditUrl = (row, { email = '', minimal = true } = {}) => {
   return `https://docs.google.com/${seg}/d/${row.preview_file_id}/edit${q ? `?${q}` : ''}`;
 };
 
-export function previewKind(row) {
+// `mobile`은 화면 폭 갈래다(hooks/useIsMobile). 안 주면 지금까지와 같은 판정이다 —
+// 슬라이드 사본 한 갈래만 달라진다('slide-card' · 아래 주석).
+export function previewKind(row, { mobile = false } = {}) {
   const mime = row?.mime_type || '';
   const ext = extOf(row?.name);
   // 이미지는 드라이브 파일이어도 <img>로 직접 그린다 — 구글 이미지 CDN(lh3) 주소가
@@ -127,6 +133,16 @@ export function previewKind(row) {
   // 하나뿐이었는데, 엑셀과 같은 방법으로 그 이유가 없어졌다 — 올릴 때 스크립트가
   // 네이티브 사본을 만들어 두므로 기다릴 것도, 우리 렌더러가 글자를 자를 일도 없다.
   // 사본이 없는 파일은 아래 그대로 우리 렌더러로 간다(옛 첨부·변환 실패·스크립트 v8 미만).
+  //
+  // **폰에서 슬라이드 사본만 iframe을 쓰지 않는다**(사용자 결정 2026-09-18 · §6-29-y-2).
+  // 구글 슬라이드를 iframe으로 실으면 홈 화면 앱(PWA) 웹뷰가 **통째로 죽는다** —
+  // `/embed`(발표 플레이어)도, 드라이브식 `/preview`도 마찬가지였다(사용자 실기기 3회).
+  // 가른 방법: 같은 길로 가는 워드(`/preview`)·엑셀 iframe은 폰에서 멀쩡하고, 같은
+  // 슬라이드 주소를 **앱 밖 사파리**에서 열면 멀쩡하다 — 구글 iframe 전체가 아니라
+  // 슬라이드 하나다. 우리 렌더러(services/pptx.js)로 떨어뜨리는 길은 사용자가 거부했다
+  // ("구글 화면으로" · 글자만 뽑아 그려 폰트가 깨진다 — HANDOFF §7).
+  // 그래서 폰에서는 iframe 없이 **첫 장 그림(slideThumbUrl) + 새 탭**만 세운다.
+  if (mobile && row?.preview_file_id && previewCopyOf(row?.name) === 'presentation') return 'slide-card';
   if (OFFICE_EXT.includes(ext) && row?.preview_file_id) return 'gdoc';
   if (row?.source === 'drive') {
     // 드라이브 파일도 형식별로 **가장 나은 뷰어**로 간다(사용자 요청) —

@@ -31,6 +31,8 @@ const SlideView = (props) => <Suspense fallback={<PreparingFrame />}><SlideLazy 
 //     띄운다(files.preview_file_id · kind 'sheet'·'gdoc'). 바이트를 받지 않으니 기다릴 것이
 //     없고, 구글이 그린 그대로라 잘리거나 배치가 틀어지지 않는다.
 //     사본이 없는 것만 우리 렌더러(OfficeView · kind 'doc'·'slide')로 떨어진다.
+//   슬라이드 사본을 **폰에서** 열 때(kind 'slide-card'): iframe이 없다 — 첫 장 그림 한 장과
+//     '새 탭에서 열기'뿐이다. 구글 슬라이드 iframe이 홈 화면 앱 웹뷰를 죽였다(§6-29-y-2).
 //   워드·엑셀·파워포인트(Storage에 남은 것): 브라우저가 못 그리므로 Office Online 임베드
 //     뷰어를 쓴다 → 서명 URL이 마이크로소프트 쪽으로 전달된다. 화면에 그 사실을 표시하고,
 //       원치 않으면 OFFICE_VIEWER를 false로 두면 '열기'만 노출된다.
@@ -38,7 +40,7 @@ const SlideView = (props) => <Suspense fallback={<PreparingFrame />}><SlideLazy 
 // ============================================================================
 // 종류 판정(previewKind)과 확장자 목록은 services/previewKind.js에 있다 — 순수 함수라
 // 노드에서 검사한다(tests/logcheck.mjs). 여기는 그리는 쪽만 남았다.
-import { previewKind, extOf, previewCopyUrl, copyEditUrl, previewCopyOf } from '../services/previewKind.js';
+import { previewKind, extOf, previewCopyUrl, copyEditUrl, previewCopyOf, slideThumbUrl } from '../services/previewKind.js';
 // 바이트를 받아 **우리가 직접 그리는** 형식들. 엑셀('sheet')은 여기 없다 — 표는 구글이
 // 그리므로 25MB를 통째로 받아 파싱하고 그 결과를 안 쓰는 낭비였다(2026-08-29).
 const BYTE_KINDS = new Set(['doc', 'slide']);
@@ -123,7 +125,8 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   // 문서·영상은 안 넘긴다: iframe 뷰어는 장마다 새로 뜨는 데 몇 초씩 걸려서
   // "넘긴다"는 느낌이 안 난다. 사진(첨부의 대부분)만 즉시 넘어간다.
   const [cur, setCur] = useState(row);
-  const kind = useMemo(() => previewKind(cur), [cur]);
+  // 폭 갈래를 같이 넘긴다 — 폰에서 슬라이드 사본만 'slide-card'로 갈라진다(§6-29-y-2).
+  const kind = useMemo(() => previewKind(cur, { mobile: isMobile }), [cur, isMobile]);
   const gallery = useMemo(() => (rows || []).filter(r => previewKind(r) === 'image'), [rows]);
   const gi = gallery.findIndex(r => r.id === cur.id);
   const canNav = kind === 'image' && gi >= 0 && gallery.length > 1;
@@ -134,6 +137,10 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   const [timedOut, setTimedOut] = useState(false);
   const [pdfSrc, setPdfSrc] = useState(null); // { blob } 또는 { src } — 준비가 끝난 뒤에만 렌더
   const [htmlReady, setHtmlReady] = useState(false); // HTML iframe이 load를 알렸나(그 전까지 준비 중 자리)
+  // 폰에서 여는 슬라이드 사본의 첫 장 그림이 안 왔나('slide-card' 갈래) — 오면 기존 실패
+  // 카드로 떨어진다. 이 갈래는 사진이 아니라 파일을 넘길 수가 없어(cur가 안 바뀐다)
+  // 따로 되돌릴 자리가 없다.
+  const [thumbFailed, setThumbFailed] = useState(false);
   // 사본이 없어 우리가 직접 그리는 워드·PPT의 바이트(BYTE_KINDS). 예전 이름은 sheetSrc였는데
   // 엑셀이 이 길을 떠난 뒤로 이름이 화면과 어긋나 있었다.
   const [officeBlob, setOfficeBlob] = useState(null);
@@ -809,6 +816,41 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     // 같은 판단이고, 사본이 없는 파일만 우리 렌더러('doc'·'slide')로 남는다.
     // **흰 바탕**: 구글 미리보기는 언제나 밝은 화면이라 다크 모드를 따라가지 않는다
     // (§6-29-c에 적힌 그 결정 그대로다 — 작성자가 칠한 색을 원본대로 보여주는 자리다).
+    // **폰에서 여는 슬라이드 사본은 iframe이 아니다**(사용자 결정 2026-09-18 · §6-29-y-2).
+    // 구글 슬라이드를 iframe으로 실으면 홈 화면 앱(PWA) 웹뷰가 통째로 죽었다 —
+    // `/embed`(발표 플레이어)도 `/preview`(드라이브식)도 마찬가지였고, 같은 길로 가는
+    // 워드·엑셀 iframe은 폰에서 멀쩡하며, 같은 주소를 앱 밖 사파리에서 열면 잘 뜬다.
+    // 우리 렌더러로 떨어뜨리는 길은 사용자가 거부했다(§7). 그래서 구글이 내주는
+    // **첫 장 그림**(slideThumbUrl · lh3) 한 장과 새 탭 버튼만 세운다. 안내 문구는 두지
+    // 않는다(사용자가 목업 B안을 골랐다 — 글자는 버튼의 '새 탭에서 열기' 하나뿐이다).
+    if (kind === 'slide-card') {
+      const thumb = slideThumbUrl(cur);
+      // 새 탭이 여는 것은 **사본 보기 주소**(`/embed`)다 — 앱 밖에서는 발표 플레이어가
+      // 멀쩡하다(사용자 확인). `openExternal`(원본 pptx 파일)이 아니라 이쪽인 이유다.
+      // 누른 제스처 안에서 곧장 연다 — 기다리면 팝업 차단에 걸린다(onEditClick과 같다).
+      const openCopy = () => { const u = previewCopyUrl(cur); if (u) window.open(u, '_blank', 'noreferrer'); };
+      // 그림이 안 오면(사본이 막 생겨 섬네일이 아직 없을 수 있다) 다른 실패 갈래와
+      // **같은 카드**로 떨어진다 — 거기 버튼도 같은 사본 주소를 연다.
+      if (!thumb || thumbFailed) return <Fallback row={cur} message="미리보기를 준비하지 못했어요." onOpen={openCopy} />;
+      return (
+        <div className="relative w-full h-full flex flex-col items-center justify-center px-4">
+          {/* 16:9 종이 — `gdoc` 틀과 같은 테두리·모서리·흰 바탕이다(구글 그림은 밝다). */}
+          <button type="button" onClick={openCopy}
+            className="w-full max-w-[42rem] aspect-video rounded-md border border-line bg-white overflow-hidden transition active:scale-[0.99]">
+            <img
+              src={thumb} alt="" draggable={false} loading="eager"
+              onError={() => setThumbFailed(true)}
+              className="w-full h-full object-contain"
+            />
+          </button>
+          {/* 글자는 이 버튼 하나다. 모양·문구는 Fallback의 것과 같은 것을 쓴다. */}
+          <button type="button" onClick={openCopy}
+            className="mt-4 inline-flex items-center gap-1.5 bg-accent hover:bg-accent-strong text-white px-4 py-2 rounded-md text-xs font-medium transition active:scale-95">
+            <ExternalLink size={13} /> 새 탭에서 열기
+          </button>
+        </div>
+      );
+    }
     if (kind === 'gdoc') {
       // 자격자에게는 편집 화면, 나머지는 보기 화면. 사본이 없으면 둘 다 null이고 아래에서
       // 새 탭으로 떨어진다. `authuser=`로 어느 구글 계정으로 열지를 정한다(§6-34-h) —
@@ -823,9 +865,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       // 크롬에서는 편집까지 된다(사용자 확인). 즉 관리자에게만, 폰에서만 나던 길이다.
       // 보기 주소(`previewCopyUrl`)는 로그인을 아예 쓰지 않아 여기서 늘 뜬다.
       // 폰에서 고치는 길은 머리줄의 '구글 문서에서 편집'(새 탭 = 1차 쿠키) 하나다.
-      // 폰에서는 `previewCopyUrl`이 슬라이드를 `/preview`(드라이브식 미리보기)로 준다 —
-      // `/embed` 발표 플레이어가 홈 화면 앱 웹뷰를 죽였다(previewKind.js COPY_VIEW_PHONE).
-      const src = (canEditCopy && !isMobile && copyEditUrl(cur, { email: myEmail })) || previewCopyUrl(cur, { mobile: isMobile });
+      const src = (canEditCopy && !isMobile && copyEditUrl(cur, { email: myEmail })) || previewCopyUrl(cur);
       // 종류 판정이 사본을 확인하고 왔으므로 여기서 src가 빌 일은 없다. 그래도 빈 iframe을
       // 띄우느니 새 탭을 내주는 쪽이 정직하다(스켈레톤만 남으면 영영 안 걷힌다).
       if (!src) return <Fallback row={cur} message="미리보기를 준비하지 못했어요." onOpen={openExternal} />;
