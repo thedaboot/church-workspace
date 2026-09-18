@@ -120,6 +120,16 @@ export function mdToDoc(md) {
 
   // PM doc은 최소 1개 블록이 필요
   if (!content.length) content.push({ type: 'paragraph' });
+  // **제목으로 끝나면 빈 문단을 하나 붙인다**(사용자 신고 2026-09-18 — "기도 섹션이
+  // 눌러야 도막이 늘어난다 … 처음에는 도막이 아예 없는 것처럼 보인다").
+  // `docToMd`가 저장할 때 끝의 빈 문단을 잘라내므로, 한 번 저장했거나 브라우저 초안으로
+  // 되살아난 노트는 마지막 도막 제목으로 **끝나** 버린다 — 그 도막에는 문단이 아예 없어
+  // 종이에 쓸 칸이 안 그려지고(도막 min-height가 걸릴 요소가 없다), 커서를 넣는 순간
+  // ProseMirror가 그제서야 문단을 만들어 칸이 튀어나왔다.
+  // 여기서 붙이면 템플릿·저장본·초안 세 길이 한 번에 같아진다.
+  // **저장 형식은 안 변한다** — docToMd가 이 빈 문단을 다시 잘라내므로 왕복은 그대로다
+  // (tests/mdcheck가 그 왕복을 단정한다).
+  if (content[content.length - 1]?.type === 'heading') content.push({ type: 'paragraph' });
   return { type: 'doc', content };
 }
 

@@ -527,15 +527,26 @@ svg.lucide { stroke-width: 1.4px; }
 .note-paper .tiptap > :is(h1, h2, h3, h4) + * {
   border-top: 1px solid var(--paper-line);
   padding-top: 11px;
-  /* **도막마다 쓸 자리를 남긴다**(사용자 결정 2026-09-18 · 예배 노트·묵상 노트 둘 다).
-     그전에는 도막의 빈 줄이 한 줄(34px)이라 마지막 도막('기도')이 선에 딱 붙어 "적을
-     자리가 없는 칸"으로 보였다 — 재 보면 두 도막이 같은 높이였고(둘 다 한 줄), 남는
-     자리가 전부 종이 **맨 아래 한 덩어리**(paper-rows min-height)에 몰려 있던 것이
-     원인이다. 그 자리를 도막마다 나눠 준다.
-     값은 세 줄이 아니라 **세 줄처럼 보이는 높이**다 — 안쪽 여백(11px+4px)을 포함한
-     테두리 상자 기준이라 글이 설 자리는 약 2.3줄이다(box-sizing: border-box).
-     읽기 종이(paper.jsx PaperRow)에는 걸지 않는다 — 저장된 노트는 글 길이만큼만 서는
-     문서이고, 빈 칸을 키워 둘 이유가 편집 화면에만 있다. */
+}
+/* **빈 도막에만 쓸 자리를 남긴다**(사용자 결정 2026-09-18 · 예배 노트·묵상 노트 둘 다).
+   그전에는 도막의 빈 줄이 한 줄(34px)이라 마지막 도막('기도')이 선에 딱 붙어 "적을
+   자리가 없는 칸"으로 보였다 — 재 보면 두 도막이 같은 높이였고(둘 다 한 줄), 남는
+   자리가 전부 종이 **맨 아래 한 덩어리**(paper-rows min-height)에 몰려 있던 것이 원인이다.
+   그 자리를 도막마다 나눠 준다.
+
+   **비어 있을 때만이다.** 2026-09-18에 제목 다음 문단 전부에 걸었다가 바로 되돌렸다 —
+   그 문단은 글을 쓰면 같이 자라는 문단이라, 한 줄 쓰고 엔터를 치면 그 문단이 64px을
+   계속 붙잡아 **줄 간격이 세 줄처럼 벌어졌다**(사용자 지적). 빈 문단만 골라야 한다.
+   고르는 법: ProseMirror는 빈 텍스트블록 안에 `<br class="ProseMirror-trailingBreak">`
+   하나만 둔다(글이 있으면 그 br이 없다). TipTap Placeholder의 `is-empty`는 쓸 수 없다 —
+   기본값이 `showOnlyCurrent: true`라 **커서가 있는 도막에만** 붙는다.
+   `:has()`가 없는 판에서는 이 규칙이 통째로 빠져 예전(한 줄) 모양이다 — 기능은 그대로다.
+
+   값은 세 줄이 아니라 **세 줄처럼 보이는 높이**다 — 안쪽 여백(11px+4px)을 포함한
+   테두리 상자 기준이라 글이 설 자리는 약 2.3줄이다(box-sizing: border-box).
+   읽기 종이(paper.jsx PaperRow)에는 걸지 않는다 — 저장된 노트는 글 길이만큼만 서는
+   문서이고, 빈 칸을 키워 둘 이유가 편집 화면에만 있다. */
+.note-paper .tiptap > :is(h1, h2, h3, h4) + * {
   min-height: 4rem;
 }
 /* 도막의 마지막 줄 아래도 11px — 읽기 줄의 py-[11px]와 같은 숨이다.
@@ -591,7 +602,7 @@ svg.lucide { stroke-width: 1.4px; }
   .note-paper .tiptap > :is(ul, ol) { padding-left: 1.25rem; }
   .note-paper .tiptap > ul[data-type="taskList"] { padding-left: 0; }
   .note-paper .tiptap > :is(h1, h2, h3, h4) { padding-bottom: 3px; }
-  .note-paper .tiptap > :is(h1, h2, h3, h4) + * { border-top: 0; padding-top: 0; }
+  .note-paper .tiptap > :is(h1, h2, h3, h4) + p:has(> br.ProseMirror-trailingBreak:only-child) { border-top: 0; padding-top: 0; }
 }
 
 /* 입력 요소의 글자 크기는 **호출부의 유틸리티 클래스가 정한다.**

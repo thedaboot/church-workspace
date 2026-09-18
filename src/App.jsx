@@ -438,6 +438,42 @@ function WorkspaceShell() {
   // 같은 처리가 필요하다(h-full이 없으면 달력이 화면 밖으로 흘러 띠가 잘린다)
   const needsFullHeight = isProjectScreen || activeMenu === 'schedule';
 
+  // ── 키보드가 올라와도 화면 뿌리가 보이는 창 안에 머문다 (§6-9-aa-4) ──────────
+  // 아이폰(특히 홈 화면 앱 · standalone PWA)은 키보드가 올라와도 **레이아웃 뷰포트를
+  // 줄이지 않는다** — `100dvh`가 그대로다. 대신 **보이는 창(visual viewport)** 만 줄이고
+  // 커서를 드러내려고 그 창을 위로 민다. 뿌리가 여전히 100dvh라 위쪽(MobileTopBar와
+  // main의 머리)이 화면 밖으로 밀려 나갔고, main 위끝에 붙어 있던 **노트 서식 바가
+  // 천장(상태바 자리)에 걸린 것**이 사용자 신고의 정체다(2026-09-18 · 예배·묵상 노트 둘 다).
+  // 스티키가 풀린 적은 없다 — 바가 붙어 있는 상자가 통째로 밀렸다.
+  //
+  // **상수를 계산하지 않는다.** 그 길(키보드 높이를 재서 바를 그 위에 세우기)은 2026-09-11에
+  // 세 번 헛돌았고 §7에서 뺐다. 여기서는 브라우저가 말해 주는 값을 **그대로 따라가기만**
+  // 한다 — 뿌리 높이를 보이는 창의 높이로 맞추면 밀어낼 것이 없어져 아이폰이 밀지 않는다.
+  // `interactive-widget=resizes-content`(2026-09-18에 넣었다 되돌렸다)는 사파리가 안 듣는다.
+  //
+  // `transform`은 쓰지 않는다 — transform이 걸린 조상이 있으면 `position: fixed`의 기준이
+  // 뷰포트가 아니게 되어 탭바·모달·토스트가 전부 어긋난다(§6-1과 같은 함정 · 9-aa-4 ②).
+  // `visualViewport`가 없는 브라우저에서는 아무것도 안 하고 `100dvh` 그대로다.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return undefined;
+    const root = document.documentElement;
+    const apply = () => {
+      root.style.setProperty('--app-vh', `${Math.round(vv.height)}px`);
+      // 아이폰이 이미 문서를 밀어 놨으면 되돌린다. 뿌리가 보이는 창만큼이면 문서는
+      // 스크롤될 것이 없으므로 이 호출은 대개 아무 일도 하지 않는다(되돌릴 때만 움직인다).
+      if (window.scrollY > 0) window.scrollTo(0, 0);
+    };
+    apply();
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    return () => {
+      vv.removeEventListener('resize', apply);
+      vv.removeEventListener('scroll', apply);
+      root.style.removeProperty('--app-vh');
+    };
+  }, []);
+
   // 내가 지금 보고 있는 곳을 presence에 얹는다 — 프로젝트 탭 옆·업무 줄 오른쪽의 얼굴이
   // 이 값을 본다. 갱신 지점은 둘뿐이다: 프로젝트를 옮길 때와 업무 창을 열고 닫을 때
   // (track 한 번이 접속한 모두에게 sync 이벤트를 만든다 — 값이 같으면 안 보낸다).
@@ -577,7 +613,8 @@ function WorkspaceShell() {
 
   return (
     // bg-canvas는 body가 이미 깔아준다 — 여기에 또 칠하면 -z-10 글로우가 가려진다
-    <div className="flex flex-col h-dvh text-fg font-sans overflow-hidden">
+    // 높이는 `--app-vh`(위 useEffect가 재 온 **보이는 창**)이고, 없으면 예전대로 100dvh다
+    <div className="flex flex-col h-[var(--app-vh,100dvh)] text-fg font-sans overflow-hidden">
       {/* 배경 파스텔 글로우 (장식 전용 · 상호작용 차단 · 스크롤 고정)
           blur 필터 대신 radial-gradient — index.css의 .app-glow 참고 */}
       <div className="pointer-events-none fixed inset-0 -z-10 app-glow" aria-hidden="true" />

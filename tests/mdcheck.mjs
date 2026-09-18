@@ -108,3 +108,23 @@ console.log('마크다운 중첩 라운드트립 자체검증 통과 (30 asserts
   assert.ok(rich.includes('<ol key={block.key} start={block.start || 1}'), 'RichText가 <ol start>로 그린다');
   console.log('번호 목록 이어짐 통과 (8 asserts)');
 }
+
+// ── 제목으로 끝나면 빈 문단이 따라붙는다 (사용자 신고 2026-09-18) ────────────
+// 노트는 `### 기도`로 **끝난다**(docToMd가 저장할 때 끝의 빈 문단을 잘라내므로, 한 번
+// 저장했거나 브라우저 초안으로 되살아난 노트가 그 모양이다). 그 문서를 그대로 편집기에
+// 실으면 마지막 도막에 문단이 **아예 없어** 종이에 쓸 칸이 안 그려지고, 커서를 넣는
+// 순간 ProseMirror가 그제서야 문단을 만들어 칸이 튀어나왔다("눌러야 도막이 늘어난다").
+// **저장 형식은 그대로여야 한다** — 이 빈 문단이 왕복에 새어 나오면 노트가 저장될 때마다
+// 빈 줄이 하나씩 자란다.
+// **되돌리기**: mdToDoc 끝의 `type === 'heading'` 줄을 빼면 첫 단정이 깨진다.
+{
+  const tail = (md) => mdToDoc(md).content.map(b => b.type).join(' ');
+  assert.strictEqual(tail('### 나의 결단\n\n### 기도'), 'heading paragraph heading paragraph',
+    '제목으로 끝나는 노트에 쓸 칸이 없다 — 마지막 도막이 줄로 닫힌다');
+  assert.strictEqual(tail('### 하나\n내용'), 'heading paragraph',
+    '글로 끝나면 아무것도 더하지 않는다');
+  assert.strictEqual(round('### 나의 결단\n\n### 기도'), '### 나의 결단\n\n### 기도',
+    '왕복에 빈 줄이 새어 나오면 저장할 때마다 노트가 한 줄씩 자란다');
+  assert.strictEqual(round('# 제목'), '# 제목', '단계를 가리지 않는다');
+  console.log('제목으로 끝나는 문서 통과 (4 asserts)');
+}

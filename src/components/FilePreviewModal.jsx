@@ -123,7 +123,8 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
   // 문서·영상은 안 넘긴다: iframe 뷰어는 장마다 새로 뜨는 데 몇 초씩 걸려서
   // "넘긴다"는 느낌이 안 난다. 사진(첨부의 대부분)만 즉시 넘어간다.
   const [cur, setCur] = useState(row);
-  const kind = useMemo(() => previewKind(cur), [cur]);
+  // 폰에서는 슬라이드가 구글 화면 대신 우리 렌더러로 간다(§6-29-y · previewKind 주석)
+  const kind = useMemo(() => previewKind(cur, { mobile: isMobile }), [cur, isMobile]);
   const gallery = useMemo(() => (rows || []).filter(r => previewKind(r) === 'image'), [rows]);
   const gi = gallery.findIndex(r => r.id === cur.id);
   const canNav = kind === 'image' && gi >= 0 && gallery.length > 1;

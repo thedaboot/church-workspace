@@ -100,7 +100,9 @@ export const copyEditUrl = (row, { email = '', minimal = true } = {}) => {
   return `https://docs.google.com/${seg}/d/${row.preview_file_id}/edit${q ? `?${q}` : ''}`;
 };
 
-export function previewKind(row) {
+// `mobile`은 화면 폭 갈래다(hooks/useIsMobile) — 폰·태블릿에서 슬라이드 한 갈래만
+// 다르게 간다(아래 heavyOnPhone). 안 주면 지금까지와 같은 판정이다.
+export function previewKind(row, { mobile = false } = {}) {
   const mime = row?.mime_type || '';
   const ext = extOf(row?.name);
   // 이미지는 드라이브 파일이어도 <img>로 직접 그린다 — 구글 이미지 CDN(lh3) 주소가
@@ -117,7 +119,17 @@ export function previewKind(row) {
   // 하나뿐이었는데, 엑셀과 같은 방법으로 그 이유가 없어졌다 — 올릴 때 스크립트가
   // 네이티브 사본을 만들어 두므로 기다릴 것도, 우리 렌더러가 글자를 자를 일도 없다.
   // 사본이 없는 파일은 아래 그대로 우리 렌더러로 간다(옛 첨부·변환 실패·스크립트 v8 미만).
-  if (OFFICE_EXT.includes(ext) && row?.preview_file_id) return 'gdoc';
+  // **폰에서는 슬라이드만 구글 화면을 싣지 않는다**(사용자 신고 2026-09-18 — 그 pptx를
+  // 폰에서 열면 **앱이 통째로 나갔다**). 가른 방법: 같은 사본 주소를 앱 밖 사파리에서
+  // 열면 멀쩡하고(구글 화면 자체는 폰이 그릴 수 있다), 같은 길로 가는 **워드 첨부는
+  // 폰에서도 잘 뜬다**(구글 iframe이 문제인 것도 아니다). 남는 것은 슬라이드 embed가
+  // 무겁다는 것 하나다 — 홈 화면 앱(PWA) 웹뷰가 그 무게에서 죽는다.
+  // 그래서 폰에서는 아래 우리 렌더러('slide' · services/pptx.js)로 떨어뜨린다. 글자만
+  // 뽑아 그리는 대신 앱이 죽지 않고, 원본 그대로 보려면 머리줄의 새 탭 버튼이 있다
+  // (사파리에서 되는 것을 확인했다). 옛 `.ppt`는 우리가 못 읽어 'drive'로 간다.
+  // 데스크톱은 2026-09-08 결정 그대로 구글 화면이다.
+  const heavyOnPhone = mobile && previewCopyOf(row?.name) === 'presentation';
+  if (OFFICE_EXT.includes(ext) && row?.preview_file_id && !heavyOnPhone) return 'gdoc';
   if (row?.source === 'drive') {
     // 드라이브 파일도 형식별로 **가장 나은 뷰어**로 간다(사용자 요청) —
     //  · 오피스류(엑셀·워드·PPT·csv): 구글 전용 편집기 미리보기(driveSrc가 시간 게이트)

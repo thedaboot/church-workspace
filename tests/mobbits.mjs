@@ -158,6 +158,32 @@ check('다시 라이트로 돌아온다', (await ev(`document.documentElement.da
   check('16px로 강제된 입력이 없다', sizes.forced16 === 0, `16px인 입력 ${sizes.forced16}개`);
 }
 
+// ── 화면 뿌리가 '보이는 창'을 따라간다 (사용자 신고 2026-09-18 · §6-9-aa-4) ──────
+// 아이폰은 키보드가 올라와도 레이아웃 뷰포트(=100dvh)를 줄이지 않고 **보이는 창만**
+// 줄인 뒤 위로 민다. 뿌리가 100dvh로 남아 있으면 위쪽이 화면 밖으로 밀려 나가고,
+// main 위끝에 붙어 있던 노트 서식 바가 천장에 걸린다. 그래서 뿌리 높이를 브라우저가
+// 말해 주는 visualViewport.height로 **따라가게만** 둔다(상수를 계산하지 않는다).
+// 헤드리스에는 키보드가 없어 두 값이 같다 — 여기서 보는 것은 **배선**이다: 변수가
+// 실제로 걸려 있고 뿌리가 그 값을 쓰는가.
+// **되돌리기**(§3-5): App.jsx의 `h-[var(--app-vh,100dvh)]`를 `h-dvh`로 되돌리면 깨진다.
+{
+  // 값을 **흔들어 본다**. 헤드리스에는 키보드가 없어 `100dvh`와 보이는 창이 같은 값이라,
+  // 그냥 높이만 재면 `h-dvh`로 되돌려도 통과한다(그렇게 한 번 새어 나갔다).
+  const vh = await ev(`(() => {
+    const root = document.querySelector('#root > div');
+    const de = document.documentElement;
+    const before = de.style.getPropertyValue('--app-vh');
+    const vv = Math.round(window.visualViewport.height);
+    const h = () => Math.round(root.getBoundingClientRect().height);
+    de.style.setProperty('--app-vh', (vv - 137) + 'px');
+    const shrunk = h();
+    if (before) de.style.setProperty('--app-vh', before); else de.style.removeProperty('--app-vh');
+    return { set: before.trim(), vv, shrunk, back: h() };
+  })()`);
+  check('화면 뿌리 높이가 보이는 창을 따라간다',
+    vh.set === `${vh.vv}px` && vh.shrunk === vh.vv - 137 && vh.back === vh.vv, JSON.stringify(vh));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.slice(0, 5).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

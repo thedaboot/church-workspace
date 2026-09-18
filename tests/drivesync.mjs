@@ -723,6 +723,28 @@ check('승인 확인이 합친 계정을 따라간다(두 경로가 같은 헬�
     assert.strictEqual(previewKind({ name: 'a.pptx', source: 'local' }), 'slide', '올리는 중인 PPT');
   });
 
+  // **폰에서는 슬라이드만 구글 화면을 안 싣는다**(사용자 신고 2026-09-18 — 그 pptx를 폰에서
+  // 열면 앱이 통째로 나갔다). 워드는 폰에서도 잘 뜨고 같은 주소를 앱 밖 사파리에서 열면
+  // 멀쩡하다 — 슬라이드 embed의 무게 하나가 남는다.
+  // **되돌리기**(§3-5): previewKind의 `heavyOnPhone`을 빼면 첫 줄이 깨진다.
+  check('폰에서 PPT는 우리 렌더러로 간다 (워드·엑셀은 그대로 구글)', () => {
+    const phone = { mobile: true };
+    assert.strictEqual(previewKind(copy('발표.pptx'), phone), 'slide', '폰에서도 슬라이드를 구글 iframe으로 싣는다');
+    assert.strictEqual(previewKind(copy('회의록.docx'), phone), 'gdoc', '워드까지 같이 떨어뜨리면 안 된다');
+    assert.strictEqual(previewKind(copy('명단.xlsx'), phone), 'sheet', '엑셀은 건드리지 않는다');
+    // 옛 `.ppt`는 우리가 못 읽는다(OOXML이 아니다) — 드라이브 뷰어로 간다. 죽지만 않으면 된다.
+    assert.strictEqual(previewKind(copy('옛발표.ppt'), phone), 'drive', '폰에서 옛 PPT');
+    // 데스크톱은 2026-09-08 결정 그대로다
+    assert.strictEqual(previewKind(copy('발표.pptx')), 'gdoc', '데스크톱까지 바뀌었다');
+    assert.strictEqual(previewKind(copy('발표.pptx'), { mobile: false }), 'gdoc');
+  });
+
+  // 배선 — 함수가 맞아도 화면이 폭을 안 넘기면 그대로다
+  check('첨부 창이 폭 갈래를 판정에 넘긴다 (FilePreviewModal)', () => {
+    assert.match(preview, /previewKind\(cur, \{ mobile: isMobile \}\)/,
+      '판정에 폭을 안 넘긴다 — 폰에서도 슬라이드가 구글로 간다');
+  });
+
   check('사본 주소는 종류를 맞춘다 (previewCopyUrl)', () => {
     // 문서 사본을 spreadsheets 주소로 열면 아무것도 안 뜬다 — 칸이 종류마다 다르다
     assert.strictEqual(previewCopyUrl(copy('회의록.docx')),
