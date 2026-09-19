@@ -1203,6 +1203,13 @@ check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () =
   assert.ok(!/test: *\/node_modules\//.test(vite) && !/=> *id\.includes\('node_modules'\)/.test(vite),
     'node_modules를 통째로 묶고 있다 — 첫 화면이 2배가 된다');
   assert.match(vite, /name: 'vendor', test: isEagerVendor/, '벤더 칸이 목록을 안 쓰고 있다');
+  // **옵션 이름이 `codeSplitting`인지도 본다**(2026-09-19). 옛 이름 `advancedChunks`는
+  // rolldown이 deprecated로 표시했고 **둘 다 적으면 옛 이름이 무시된다** — 걷어내는 판이
+  // 오면 오류 없이 조용히 벤더 칸만 사라지고 첫 화면이 2배가 된다. 위 단정들은 목록만
+  // 보므로 이름이 옛것으로 돌아가도 전부 통과한다(그래서 이 한 줄이 따로 있다).
+  assert.match(vite, /output: \{ codeSplitting:/, '벤더 칸이 옛 이름(advancedChunks)을 쓰고 있다');
+  // 주석에서 옛 이름을 설명하는 것은 괜찮다 — **옵션으로 적혀 있는지**만 본다.
+  assert.ok(!/advancedChunks\s*:/.test(vite), '옛 이름을 아직 옵션으로 쓰고 있다 — 둘 다 있으면 옛 이름이 무시된다');
 });
 
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');

@@ -200,7 +200,11 @@ export default defineConfig(({ mode }) => ({
   ],
   build: {
     rollupOptions: {
-      output: { advancedChunks: { groups: [{ name: 'vendor', test: isEagerVendor }] } },
+      // 이름은 `codeSplitting`이다 — 옛 이름 `advancedChunks`는 rolldown이 deprecated로
+      // 표시했고(빌드 때 경고가 뜬다) **둘 다 적으면 옛 이름이 무시된다.** 걷어내는 판이
+      // 오면 오류 없이 조용히 벤더 칸만 사라지고, 그러면 첫 화면이 두 배가 된다(§6-29-z-18).
+      // `groups`의 모양은 그대로다 — 이름만 바뀌었다.
+      output: { codeSplitting: { groups: [{ name: 'vendor', test: isEagerVendor }] } },
     },
   },
 }));
