@@ -13,7 +13,7 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
 // 두 모듈 다 import가 없는 순수 ESM이라 노드가 그대로 읽는다(word.mjs 앞부분과 같은 방식).
 // 여기서 만든 해시를 아래 브라우저 검사의 시드로 그대로 쓴다 — 검사가 앱과 같은 규칙으로
 // 잠갔다는 뜻이라, 규칙이 어긋나면 '비밀번호가 맞지 않아요'로 드러난다.
-const { docEmbedKind, docEmbedSrc } = await import(new URL('../src/services/docEmbed.js', import.meta.url).href);
+const { docEmbedKind, docEmbedSrc, docEmbedId, docThumbUrl } = await import(new URL('../src/services/docEmbed.js', import.meta.url).href);
 const { makeViewPw, verifyViewPw, isLocked } = await import(new URL('../src/services/viewPw.js', import.meta.url).href);
 
 check('구글 문서·시트·슬라이드를 갈라 본다',
@@ -46,6 +46,37 @@ check('게시된 사본(/d/e/)은 경로를 건드리지 않는다',
   docEmbedSrc('https://docs.google.com/spreadsheets/d/e/2PACX-1vLONG/pubhtml'));
 check('구글 문서가 아니면 주소를 그대로 돌려준다',
   docEmbedSrc('https://example.com/a?b=1') === 'https://example.com/a?b=1');
+
+// ── 폰에서는 **보기 주소**다 (사용자 신고 2026-09-20 · §6-34-h-3) ──────────────
+// 본문에 건 구글 링크를 폰에서 열면 첨부와 똑같이 '액세스 권한 필요'가 떴다 — 아이폰이
+// iframe 안 구글 쿠키를 분할해서 계정 목록만 오고 문서를 열 자격은 오지 않는다. 같은
+// 문서를 로그인 없이 받으면 `/preview`도 `/edit`도 200이다(실측) — 주소·공유 설정은
+// 멀쩡하다. 보기 주소는 로그인을 아예 쓰지 않아 링크가 공유돼 있으면 그냥 뜬다.
+// **되돌리기**(§3-5): docEmbed.js의 `if (mobile) { … }` 덩어리를 지우면 아래 셋이 깨진다.
+check('폰에서 문서는 /preview로 연다',
+  docEmbedSrc('https://docs.google.com/document/d/ABC/edit', { mobile: true })
+    === 'https://docs.google.com/document/d/ABC/preview',
+  docEmbedSrc('https://docs.google.com/document/d/ABC/edit', { mobile: true }));
+const mobSheet = docEmbedSrc('https://docs.google.com/spreadsheets/d/ABC/edit?usp=sharing#gid=42', { mobile: true });
+check('폰 시트도 /preview(widget·rm)이고 #gid=는 그대로 남는다',
+  mobSheet.includes('/spreadsheets/d/ABC/preview') && /widget=true/.test(mobSheet)
+  && /rm=minimal/.test(mobSheet) && mobSheet.endsWith('#gid=42'), mobSheet);
+// authuser=가 폰에서는 거꾸로 막았다 — 그 계정으로 열 자격이 iframe 안까지 오지 않는다
+check('폰에는 authuser를 붙이지 않는다(데스크톱에는 붙는다)',
+  !/authuser/.test(docEmbedSrc('https://docs.google.com/document/d/ABC/edit', { email: 'a@b.com', mobile: true }))
+  && /authuser=a%40b\.com/.test(docEmbedSrc('https://docs.google.com/document/d/ABC/edit', { email: 'a@b.com' })),
+  docEmbedSrc('https://docs.google.com/document/d/ABC/edit', { email: 'a@b.com', mobile: true }));
+// 폰 슬라이드는 iframe이 아니라 첫 장 그림 한 장이다 — 그 그림의 주소를 만드는 두 함수
+check('파일 id를 뽑는다(게시본·남의 주소는 null)',
+  docEmbedId('https://docs.google.com/presentation/d/ABC/edit?usp=sharing') === 'ABC'
+  && docEmbedId('https://docs.google.com/document/d/e/2PACX-1vLONG/pubhtml') === null
+  && docEmbedId('https://naver.com') === null,
+  String(docEmbedId('https://docs.google.com/presentation/d/ABC/edit?usp=sharing')));
+check('첫 장 그림은 로그인 없이 오는 lh3 주소다',
+  docThumbUrl('https://docs.google.com/presentation/d/ABC/edit') === 'https://lh3.googleusercontent.com/d/ABC=w1200'
+  && docThumbUrl('https://docs.google.com/document/d/e/2PACX-1vLONG/pubhtml') === null
+  && docThumbUrl('https://naver.com') === null,
+  String(docThumbUrl('https://docs.google.com/presentation/d/ABC/edit')));
 
 const mk = await makeViewPw('1234');
 check('비밀번호를 걸면 해시와 소금이 나온다',
@@ -103,6 +134,24 @@ check('잠기지 않은 것은 언제나 통과한다',
   check('첨부의 엑셀 판정이 previewKind의 표를 쓴다',
     /SHEET_EXT\.includes\(extOf\(name\)\)/.test(att) && !/\['xls', 'xlsx', 'csv'\]/.test(att),
     String(/SHEET_EXT\.includes/.test(att)));
+
+  // ── 본문·참고 링크·큐시트가 함께 쓰는 창도 폰에서 갈린다 (2026-09-20 · §6-34-h-3) ──
+  // 첨부(FilePreviewModal)만 고쳤더니 같은 함정이 이쪽에 남아 있었다 — 부품이 다르다.
+  // 인증만 고치면 덱이 **실제로 그려지기 시작해** 폰 앱 웹뷰가 죽는다(§6-29-y-2) —
+  // 그래서 폰 슬라이드는 iframe을 아예 만들지 않는다. 브라우저로는 못 본다(게스트에
+  // 구글 링크가 없고 아이폰 쿠키 분할은 헤드리스에 없다) — 소스로 못 박는다.
+  // **되돌리기**(§3-5): `mobile: isMobile`을 지우거나 폰 갈래를 iframe으로 되돌리면 깨진다.
+  const embed = src('src/components/DocEmbed.jsx');
+  const s0 = embed.indexOf('{slideCard ? (');
+  const s1 = embed.indexOf(') : (', s0);
+  const slideBranch = (s0 >= 0 && s1 > s0) ? embed.slice(s0, s1) : '';
+  check('본문 링크 창도 폰에서는 보기 주소를 싣는다',
+    /docEmbedSrc\(url, \{ email: useMyEmail\(\), mobile: isMobile \}\)/.test(embed),
+    String(/mobile: isMobile/.test(embed)));
+  check('폰 슬라이드 갈래에는 iframe이 없다(있으면 앱이 나간다)',
+    !!slideBranch && !/<iframe/.test(slideBranch)
+    && /docThumbUrl\(url\)/.test(embed) && /새 탭에서 열기/.test(slideBranch),
+    `가지 ${slideBranch.length}자`);
 }
 
 const prof = mkdtempSync(join(tmpdir(), 'c3-'));
