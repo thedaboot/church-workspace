@@ -182,7 +182,12 @@ check('AI 검색 프롬프트에 우리 책 이름 목록이 실린다',
 // AI가 만든 문장의 대시 금지는 ai.js의 DASH_RULE 한 벌이다(§8) — 여기서도 그 줄을 쓴다
 check('AI 검색도 ai.js의 대시 규칙을 그대로 싣는다', askAi.system.includes('엠 대시'));
 check('AI 검색은 JSON 배열만 받는다고 못 박는다',
-  askAi.system.includes('JSON 배열') && askAi.system.includes('12'));
+  askAi.system.includes('JSON 배열') && askAi.system.includes(`최대 ${bs.AI_HIT_LIMIT}`));
+// 상한은 **한 값이 프롬프트와 파서를 같이 정한다** — 따로 적으면 모델이 더 낸 것을
+// 우리가 버리거나 그 반대가 된다. 2026-09-21에 12 → 30으로 올렸다(사용자 요청).
+// 되돌리기 검사: bibleSearch.js의 AI_HIT_LIMIT을 12로 되돌리면 아래 둘이 깨진다.
+check('화면에 세우는 상한은 30이다', bs.AI_HIT_LIMIT === 30, String(bs.AI_HIT_LIMIT));
+// 자르는 자리는 parse가 아니라 resolveBibleHits다(아래 '상한에서 끊는다').
 
 check('코드 울타리와 잡담이 붙어 와도 읽는다',
   JSON.stringify(bs.parseBibleSearchJson('네, 찾았어요.\n```json\n["요 3:16"]\n```\n도움이 되길!'))
@@ -215,9 +220,13 @@ const wholeChapter = await bs.resolveBibleHits(['시편 23편'], bibleBooks, fak
 check('장 전체를 가리켜도 앞 세 절만 쓴다',
   wholeChapter.length === 1 && wholeChapter[0].verse === 1 && wholeChapter[0].to === 3,
   JSON.stringify(wholeChapter[0]));
+// **상한보다 넉넉히 먹인다** — 예전에는 20개를 먹이고 12를 기대했는데, 상한이 20을
+// 넘는 순간 그 검사는 '상한'이 아니라 '먹인 개수'를 재게 된다(2026-09-21에 실제로
+// 그렇게 깨졌다). 기대값도 상수를 따라가게 둔다.
 const manyHits = await bs.resolveBibleHits(
-  Array.from({ length: 20 }, (_, i) => '시편 ' + (i + 1) + ':1'), bibleBooks, fakeLoadBook);
-check('AI 결과는 열두 줄에서 끊는다', manyHits.length === 12, String(manyHits.length));
+  Array.from({ length: bs.AI_HIT_LIMIT + 10 }, (_, i) => '시편 ' + (i + 1) + ':1'),
+  bibleBooks, fakeLoadBook);
+check('AI 결과는 상한에서 끊는다', manyHits.length === bs.AI_HIT_LIMIT, String(manyHits.length));
 
 // ── 1-d. 검색이 책을 받는 방법 (순수 — services/bible.js) ───────────────────
 // 예전에는 for 안에서 `await loadBook`을 한 권씩 기다려서 왕복이 66번 줄줄이 섰다
