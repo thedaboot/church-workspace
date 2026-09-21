@@ -5,6 +5,7 @@ import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress,
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { AiService, isFallbackText } from '../services/ai.js';
+import { parseActionItems, matchSubtask } from '../services/actionItems.js';
 import { RichText } from '../components/RichText.jsx';
 import { Bar } from '../views/dashboardParts.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
@@ -493,6 +494,87 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
   );
 };
 
+// ── 청년별 담당 업무 (2026-09-21 사용자 요청) ─────────────────────────────
+// 다듬기가 회의록에서 "누가 · 무엇을 · 언제까지"를 뽑아 두는데, 그게 본문 글자로만
+// 남아서 손으로 하위 업무를 만들지 않으면 그대로 사라졌다. 여기서 그 줄을 세우고
+// **아직 업무가 아닌 것만** 고를 수 있게 한다.
+//
+// **저장 자리를 늘리지 않는다** — 항목은 본문에서 매번 읽고(services/actionItems.js),
+// '업무가 되었나'는 하위 업무 제목으로 견준다. 회의록이 아닌 카드에서는 도막이 없어
+// 빈 배열이 나오고 이 구역은 아예 그려지지 않는다.
+//
+// 만들 때 **이름·날짜는 하위 업무에 안 실린다** — cards.subtasks는 {id,title,done}뿐이다
+// (0013 이후 그 모양이다). 이름과 기한은 본문 그 줄에 그대로 남아 있으니 잃는 것은 없고,
+// 제목만 옮겨야 다음에 열었을 때 같은 줄을 다시 찾는다(matchSubtask가 제목으로 견준다).
+function ActionItems({ content, subtasks = [], onCreate }) {
+  const items = useMemo(() => parseActionItems(content), [content]);
+  const pending = useMemo(
+    () => items.filter(it => !matchSubtask(it, subtasks)),
+    [items, subtasks],
+  );
+  // 고른 것 — 열 때는 아직 업무가 아닌 것이 전부 골라져 있다(대개 다 만든다).
+  // 열쇠는 본문 그 줄 자체다(raw) — 순서가 바뀌어도 고른 것이 딴 줄로 옮겨가지 않는다.
+  const [off, setOff] = useState(() => new Set());
+  const picked = pending.filter(it => !off.has(it.raw));
+
+  if (!items.length) return null;
+
+  const toggle = (raw) => setOff(prev => {
+    const next = new Set(prev);
+    if (next.has(raw)) next.delete(raw); else next.add(raw);
+    return next;
+  });
+  const make = () => {
+    if (!picked.length) return;
+    onCreate(picked.map(it => ({ id: generateId(), title: it.what, done: false })));
+    setOff(new Set());
+  };
+
+  return (
+    <div className="action-items mt-4">
+      <div className="flex flex-wrap items-center gap-2 mb-1.5">
+        <label className="block text-xs text-fg-muted shrink-0">청년별 담당 업무</label>
+        {picked.length > 0 && (
+          <span className="inline-flex items-center h-[22px] px-2.5 rounded-full bg-tag-blue text-tag-blue-fg text-[11px] font-semibold">
+            선택된 하위 업무 {picked.length}개
+          </span>
+        )}
+      </div>
+      <div className="divide-y divide-line/60 border-y border-line">
+        {items.map((it) => {
+          const made = matchSubtask(it, subtasks);
+          const on = !made && !off.has(it.raw);
+          return (
+            <div key={it.raw} className="flex flex-wrap items-center gap-2.5 py-2">
+              {made ? <span className="w-[17px] shrink-0" aria-hidden /> : (
+                <input type="checkbox" checked={on} onChange={() => toggle(it.raw)}
+                  aria-label={`${it.what} 고르기`}
+                  className="w-[17px] h-[17px] shrink-0 accent-[var(--app-accent)]" />
+              )}
+              {it.name && <span className="shrink-0 text-xs font-semibold text-fg">{it.name}</span>}
+              <span className="flex-1 min-w-[8rem] text-xs text-fg-secondary break-words">{it.what}</span>
+              {it.dueText && <span className="shrink-0 text-[11px] text-fg-muted tabular-nums">{it.dueText}</span>}
+              {made && (
+                <span className="shrink-0 inline-flex items-center gap-1 h-[26px] px-2.5 rounded-md bg-tag-green text-tag-green-fg text-[11px] font-semibold">
+                  <Check size={12} strokeWidth={3} />하위 업무
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {picked.length > 0 && (
+        <div className="flex justify-end pt-2">
+          <button type="button" onClick={make}
+            className="h-9 px-4 rounded-md bg-accent text-white text-xs font-semibold transition active:scale-95">
+            하위 업무로
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 하위 업무 (체크리스트) ────────────────────────────────────────────────
 // 사역 업무는 대개 여러 단계인데, 본문 마크다운 불릿으로 적으면 진척에 안 잡힌다.
 // cards.subtasks(jsonb) 컬럼 하나로 둔다 — 카드와 언제나 같이 읽고 쓰므로 조인
@@ -881,6 +963,11 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
 
       {/* 보기 모드에서도 체크는 눌린다 — 하위 업무를 끝낼 때마다 수정 모드로 들어갔다
           나오게 하면 아무도 쓰지 않는다. 항목 추가·삭제는 수정 모드에서만. */}
+      {/* 회의록이면 다듬기가 뽑아 둔 담당 업무 줄이 여기 선다 — 하위 업무 **바로 위**다.
+          만들면 아래 목록으로 내려가므로 두 구역이 이어서 읽힌다. */}
+      <ActionItems content={formData.content} subtasks={formData.subtasks || []}
+        onCreate={made => onSubtasksChange([...(formData.subtasks || []), ...made])} />
+
       <SubtaskList value={formData.subtasks || []} onChange={onSubtasksChange} readOnly />
 
       {cloudMode && formData.id && (
