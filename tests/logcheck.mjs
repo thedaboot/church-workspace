@@ -2034,7 +2034,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   writeFileSync(pf, strip(readFileSync(new URL('../src/services/people.js', import.meta.url), 'utf8')));
   writeFileSync(wf, strip(readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8')));
   const { honorific, honorificsOf } = await import(pathToFileURL(pf).href);
-  const { pastSunday } = await import(pathToFileURL(wf).href);
+  const { pastSunday, recentSongs, weeksAgoOf, songKey, prefillRoles, PREFILL_ROLES } = await import(pathToFileURL(wf).href);
 
   // ① 세 갈래 + 객원 — 교역자 '전도사님' · 그 해 부장 '부장님' · 나머지 '청년'
   assert.strictEqual(honorific('임성빈', { isPastor: true }), '임성빈 전도사님');
@@ -2115,6 +2115,75 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/grant execute on function public\.set_attendance_note\(uuid, text\) to authenticated/.test(mig)
     && /revoke execute on function public\.set_attendance_note\(uuid, text\) from anon/.test(mig),
     '실행 권한은 로그인 사용자만(0048과 같은 마무리)');
+
+  // ── 최근에 부른 곡 (2026-09-21) ──────────────────────────────────────────
+  // 새 표 없이 services.songs(jsonb)만 거꾸로 훑는다. 되돌리기 검사: 발행본 거르기를
+  // 빼면 둘째가, `at >= on` 거르기를 빼면 셋째가, weeksAgo의 Math.max(1, …)를 빼면
+  // 넷째가, 겹친 곡 추리기를 빼면 다섯째가 깨진다.
+  const SVCS = [
+    { status: 'published', service_date: '2026-09-13', songs: [{ title: '살아계신 주' }, { title: '주 은혜임을' }] },
+    { status: 'published', service_date: '2026-09-06', songs: [{ title: '살아계신 주' }, { title: '오직 예수' }] },
+    { status: 'draft',     service_date: '2026-09-19', songs: [{ title: '아직 안 부른 곡' }] },
+    { status: 'published', service_date: '2026-09-18', songs: [{ title: '금요에 부른 곡' }] },   // 금요 예배
+    { status: 'published', service_date: '2026-06-07', songs: [{ title: '오래전 곡' }] },        // 8주 밖
+    { status: 'published', service_date: '2026-09-20', songs: [{ title: '같은 날 곡' }] },        // 자기 날짜
+  ];
+  const recent = recentSongs(SVCS, { onDate: '2026-09-20', weeks: 8 });
+  assert.deepStrictEqual(recent.map(r => `${r.title}/${r.weeksAgo}`),
+    ['금요에 부른 곡/1', '살아계신 주/1', '주 은혜임을/1', '오직 예수/2'],
+    '최신이 앞 · 같은 곡은 가장 최근 한 번만');
+  assert.ok(!recent.some(r => r.title === '아직 안 부른 곡'),
+    '작성 중 주보의 곡은 아직 부른 곡이 아니다');
+  assert.ok(!recent.some(r => r.title === '같은 날 곡'),
+    '같은 날짜(지금 짜는 콘티)는 되돌아오지 않는다');
+  assert.ok(recent.every(r => r.weeksAgo >= 1),
+    '주중에 낀 예배도 0주 전이 되지 않는다 — "0주 전에 했던 곡"이라는 말은 없다');
+  assert.ok(!recent.some(r => r.title === '오래전 곡'), '창 밖(8주)은 빠진다');
+  assert.deepStrictEqual(recentSongs(SVCS, { onDate: '' }), [], '날짜를 모르면 빈 목록이다');
+
+  // 제목 맞추기는 띄어쓰기·대소문자를 접는다(손으로 적은 것과 유튜브에서 온 것이 섞인다)
+  assert.strictEqual(songKey(' 주  은혜임을 '), songKey('주은혜임을'));
+  assert.strictEqual(weeksAgoOf(recent, ' 살아계신주 '), 1, '띄어쓰기가 달라도 같은 곡이다');
+  assert.strictEqual(weeksAgoOf(recent, '처음 부르는 곡'), 0, '없으면 0 — 표를 안 붙인다');
+  console.log('PASS  최근에 부른 곡 10가지');
+
+  // ── 지난 주보에서 물려받는 임사자 (2026-09-21) ────────────────────────────
+  // **대표기도·헌금봉헌 둘뿐이다.** 나머지를 채우면 틀린 이름이 발행될 수 있다.
+  // 되돌리기 검사: PREFILL_ROLES에 다른 역할을 더하면 둘째가, 발행본 거르기를 빼면
+  // 셋째가, '가장 최근 하나'를 '전부'로 바꾸면 첫째가(옛 이름이 이긴다) 깨진다.
+  assert.deepStrictEqual(PREFILL_ROLES, ['대표기도', '헌금봉헌'], '물려받는 자리는 둘뿐이다');
+  const RSVCS = [
+    { status: 'published', service_date: '2026-09-13',
+      roles: [{ role: '인도', name: '노준석' }, { role: '대표기도', name: '양민혁', personId: 'p2' },
+              { role: '헌금 봉헌', name: '박지호' }, { role: '축도', name: '김도현 목사' }] },
+    { status: 'published', service_date: '2026-09-06',
+      roles: [{ role: '대표기도', name: '옛 이름' }, { role: '헌금봉헌', name: '옛 이름2' }] },
+    { status: 'draft', service_date: '2026-09-19',
+      roles: [{ role: '대표기도', name: '작성 중 이름' }] },
+  ];
+  assert.deepStrictEqual(prefillRoles(RSVCS, { onDate: '2026-09-20' }),
+    [{ role: '대표기도', name: '양민혁', personId: 'p2' }, { role: '헌금 봉헌', name: '박지호', personId: null }],
+    '가장 최근 발행본의 두 줄만 · 띄어쓰기가 달라도 같은 자리로 본다');
+  assert.ok(!prefillRoles(RSVCS, { onDate: '2026-09-20' }).some(r => /인도|축도/.test(r.role)),
+    '인도·축도는 물려받지 않는다 — 매주 바뀌는 자리다');
+  assert.ok(!prefillRoles(RSVCS, { onDate: '2026-09-20' }).some(r => r.name === '작성 중 이름'),
+    '작성 중 주보에서는 물려받지 않는다');
+  assert.deepStrictEqual(prefillRoles(RSVCS, { onDate: '2026-09-01' }), [],
+    '앞선 발행본이 없으면 빈 배열이다(화면도 조용하다)');
+  // **종류가 다르면 물려받지 않는다** — 성탄절 예배는 주일 4부와 섬기는 사람이 다르다.
+  // tests/worship이 실제로 이 모양을 잡아냈다(2026-09-21).
+  assert.deepStrictEqual(prefillRoles(RSVCS, { onDate: '2026-09-20', kind: '성탄절 예배' }), [],
+    '이벤트 예배는 주일 4부의 임사자를 물려받지 않는다');
+  assert.strictEqual(
+    prefillRoles([...RSVCS, { kind: '성탄절 예배', status: 'published', service_date: '2026-09-14',
+      roles: [{ role: '대표기도', name: '성탄 담당' }] }],
+      { onDate: '2026-09-20', kind: '성탄절 예배' })[0].name, '성탄 담당',
+    '같은 종류의 앞선 발행본이 있으면 거기서 물려받는다');
+  assert.deepStrictEqual(
+    prefillRoles([{ status: 'published', service_date: '2026-09-13', roles: [{ role: '대표기도', name: '  ' }] }],
+      { onDate: '2026-09-20' }), [],
+    '이름이 빈 줄은 물려줄 것이 없다');
+  console.log('PASS  지난 주보에서 물려받는 임사자 8가지');
 
   console.log('PASS  호칭 · 지난 주일 · 출석 메모 33가지');
 }
@@ -3003,4 +3072,57 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(!/church_cache_v1/.test(sc),
     'supabaseClient는 캐시 접두를 모른다 — 두 벌로 적으면 한쪽만 바뀌는 날 안 지워진다');
   console.log('PASS  세션 토큰이 저장소 한도를 견딘다 5가지');
+}
+
+// ── 회의록의 "누가 · 무엇을 · 언제까지" 읽기 (services/actionItems.js) ───────
+// 다듬기가 만든 그 도막이 본문 글자로만 남아 사라지던 자리(사용자 요청 2026-09-21).
+// 이 모듈은 import가 없어 **그대로 불러 돌린다**(패치가 필요 없다).
+// 되돌리기 검사: 도막 제목 찾기를 지우면 첫 단정이, 다음 도막에서 멈추는 줄을 빼면
+// 둘째가, 날짜 채우기(isoOf)를 지우면 넷째가, titleKey의 공백 접기를 빼면 마지막이 깨진다.
+{
+  const A = await import(new URL('../src/services/actionItems.js', import.meta.url).href);
+  const MD = [
+    '### 9월 피드백 및 강평회',
+    '- 참석: 정민경 리더순장님, 박지호 리더팀장님',
+    '',
+    '### 정한 것',
+    '- 수련회는 ==11월 둘째 주 금·토==로 하기로 했어요',
+    '',
+    `### ${A.ACTION_HEADING}`,
+    '- @양민혁 · 수련회 장소 3곳 견적 받기 · 10월 5일까지',
+    '- 조해리 · 찬양팀 콘티 템플릿 정리 · 9월 30일',
+    '- 날짜 없이 적은 일',
+    '- 한 문장으로 적어 버린 경우라 이름을 못 가른다',
+    '',
+    '### 아직 정하지 못한 것',
+    '- 회비 금액은 못 정했어요',
+    '- 이 줄은 액션이 아니다',
+  ].join('\n');
+  const now = new Date('2026-09-21T00:00:00Z');
+  const items = A.parseActionItems(MD, { now });
+
+  assert.strictEqual(items.length, 4, '그 도막의 불릿만 읽는다');
+  assert.ok(!items.some(x => /회비 금액|이 줄은 액션이 아니다/.test(x.what)),
+    '다음 도막에서 멈춘다 — 아래 항목을 끌고 오지 않는다');
+  assert.deepStrictEqual(
+    { name: items[0].name, what: items[0].what, dueDate: items[0].dueDate },
+    { name: '양민혁', what: '수련회 장소 3곳 견적 받기', dueDate: '2026-10-05' },
+    '@표기를 걷어 이름만 · 날짜는 ISO로');
+  assert.strictEqual(items[1].dueDate, '2026-09-30', '@ 없이 이름만 적어도 가른다');
+  assert.strictEqual(items[2].name, '', '이름이 없으면 비운다(지어내지 않는다)');
+  assert.strictEqual(items[2].dueDate, '', '날짜가 없으면 비운다');
+  assert.strictEqual(items[3].name, '', '한 문장이면 통째로 할 일이다');
+  assert.deepStrictEqual(A.parseActionItems('### 정한 것\n- 아무것도'), [],
+    '그 도막이 없으면 빈 배열이다(회의록이 아니거나 아직 안 다듬었다)');
+  // 12월 회의에서 "1월 5일"은 지난 1월이 아니라 다음 해다
+  assert.strictEqual(
+    A.parseActionItems(`### ${A.ACTION_HEADING}\n- 노준석 · 예산안 정리 · 1월 5일까지`,
+      { now: new Date('2026-12-20T00:00:00Z') })[0].dueDate, '2027-01-05',
+    '해를 안 적으면 기준일에서 가장 가까운 앞날로 본다');
+
+  // 하위 업무가 되었나 — 제목 글자로 견준다
+  const subs = [{ id: 't1', title: '찬양팀  콘티 템플릿 정리' }];
+  assert.strictEqual(A.matchSubtask(items[1], subs)?.id, 't1', '띄어쓰기가 달라도 같은 업무다');
+  assert.strictEqual(A.matchSubtask(items[0], subs), null, '없으면 null — 아직 업무가 아니다');
+  console.log('PASS  회의록 액션 항목 읽기 10가지');
 }

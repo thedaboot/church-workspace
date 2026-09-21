@@ -26,6 +26,86 @@ import { generateId } from '../utils.js';
 
 const COLS = 'id, kind, service_date, status, title, passage_ref, preacher, roles, songs, notices, praise_leader, praise_playlist_url, attendance_note, cue_sheet, drive_folder_id, created_at, updated_at';
 
+// ── 최근에 부른 곡 (2026-09-21 사용자 요청) ─────────────────────────────────
+// 찬양팀이 콘티를 짤 때 실제로 겪는 물음은 "이 곡 저번 달에 부르지 않았나"다.
+// **새 표를 만들지 않는다** — 주보마다 부른 곡이 이미 `services.songs`(jsonb, 0036)에
+// 쌓여 있어서 발행본만 거꾸로 훑으면 이력이 그냥 나온다.
+//
+// 곡 제목은 사람이 손으로도 적고 유튜브에서도 온다(api/yt의 cleanTitle). 같은 곡이
+// "주 은혜임을"과 "주 은혜임을 " 처럼 다른 글자로 들어오므로 **띄어쓰기를 지우고 소문자로**
+// 맞춘 열쇠로 견준다(통합 검색의 norm과 같은 판단 · layout.jsx).
+export const songKey = (title) => String(title || '').toLowerCase().replace(/\s+/g, '');
+
+const DAY = 86400000;
+
+// 발행된 주보에서 `onDate`보다 **앞선** 것들의 곡을 모아 [{ title, weeksAgo }]로 준다.
+// 최신이 앞이고, 같은 곡이 여러 번이면 **가장 최근 한 번만** 남는다.
+//   · 발행본만 보는 이유: 작성 중 주보의 곡은 아직 부른 곡이 아니다(홈 카드와 같은 판단).
+//   · 자기 자신과 같은 날짜는 뺀다 — 지금 짜고 있는 콘티가 "0주 전"으로 되돌아오면 안 된다.
+//   · weeksAgo는 **최소 1**이다. 금요 예배처럼 주중에 낀 것이 0으로 떨어지면
+//     "0주 전에 했던 곡"이라는 말이 나온다.
+export function recentSongs(services, { onDate, weeks = 8 } = {}) {
+  const on = Date.parse(`${String(onDate || '').slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(on)) return [];
+  const seen = new Map();
+  for (const s of services || []) {
+    if (s?.status !== 'published') continue;
+    const at = Date.parse(`${String(s.service_date || '').slice(0, 10)}T00:00:00Z`);
+    if (!Number.isFinite(at) || at >= on) continue;
+    const weeksAgo = Math.max(1, Math.round((on - at) / (7 * DAY)));
+    if (weeksAgo > weeks) continue;
+    for (const song of Array.isArray(s.songs) ? s.songs : []) {
+      const title = String(song?.title || '').trim();
+      if (!title) continue;
+      const key = songKey(title);
+      const prev = seen.get(key);
+      if (!prev || weeksAgo < prev.weeksAgo) seen.set(key, { title, weeksAgo });
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.weeksAgo - b.weeksAgo || a.title.localeCompare(b.title));
+}
+
+// 곡 제목 → 최근에 부른 적이 있으면 그 주 수. 없으면 0. (화면의 '3주 전에 했던 곡' 표)
+export function weeksAgoOf(recent, title) {
+  const key = songKey(title);
+  return (recent || []).find(r => songKey(r.title) === key)?.weeksAgo || 0;
+}
+
+// ── 지난 주보에서 물려받는 임사자 (2026-09-21 사용자 결정) ──────────────────
+// **대표기도와 헌금봉헌 둘뿐이다.** 인도·성경봉독·광고·축도·설교자는 비워 둔다 —
+// 매주 사람이 바뀌는 자리라 미리 채우면 틀린 이름이 그대로 발행될 수 있다
+// (§7의 '마감일 필수화'와 같은 판단: 강제로 채운 값은 거짓이 되기 쉽다).
+//
+// 임사자 줄은 고른 목록이 아니라 **자유 입력**이라(worshipDetail RolesEdit) 역할 글자로
+// 견준다 — 띄어쓰기만 접는다. 지난 주보가 '헌금 봉헌'이라고 적었어도 같은 자리로 본다.
+export const PREFILL_ROLES = ['대표기도', '헌금봉헌'];
+const roleKey = (v) => String(v || '').replace(/\s+/g, '');
+const PREFILL_KEYS = new Set(PREFILL_ROLES.map(roleKey));
+
+// `onDate`보다 앞선 **같은 종류의 발행본 중 가장 최근** 것의 그 두 줄을 그대로 돌려준다.
+// 이름이 빈 줄은 물려줄 것이 없으니 뺀다. 없으면 빈 배열이다(그러면 화면도 조용하다).
+//
+// **종류를 가리는 것이 중요하다**(kind). 성탄절·송구영신 같은 이벤트 예배는 주일 4부와
+// 섬기는 사람이 다른데, 종류를 안 보면 지난 주일의 이름이 성탄절 주보에 미리 앉는다
+// (tests/worship이 실제로 그 모양을 잡아냈다 · 2026-09-21). 첫 성탄절 예배처럼 같은
+// 종류의 앞선 발행본이 없으면 빈 배열이고, 그때는 화면도 조용하다.
+export function prefillRoles(services, { onDate, kind = SUNDAY_KIND } = {}) {
+  const on = Date.parse(`${String(onDate || '').slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(on)) return [];
+  const want = (kind || SUNDAY_KIND).trim() || SUNDAY_KIND;
+  let last = null;
+  for (const s of services || []) {
+    if (s?.status !== 'published' || (s.kind || SUNDAY_KIND) !== want) continue;
+    const at = Date.parse(`${String(s.service_date || '').slice(0, 10)}T00:00:00Z`);
+    if (!Number.isFinite(at) || at >= on) continue;
+    if (!last || at > last.at) last = { at, row: s };
+  }
+  if (!last) return [];
+  return (Array.isArray(last.row.roles) ? last.row.roles : [])
+    .filter(r => PREFILL_KEYS.has(roleKey(r?.role)) && String(r?.name || '').trim())
+    .map(r => ({ role: r.role, name: r.name, personId: r.personId ?? r.person_id ?? null }));
+}
+
 export const SUNDAY_KIND = 'sunday';
 const SUNDAY_LABEL = '주일 4부 젊은이 예배';
 const UNASSIGNED = '순 미지정';

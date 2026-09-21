@@ -16,7 +16,7 @@ import { DocEmbedModal, docEmbedKind } from './DocEmbed.jsx';
 import { objectParticle } from '../services/errorText.js';
 import { BTN, BTN_QUIET, WITH_ICON, FIELD } from './groupsParts.jsx';
 import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM,
-  filesOfKind, fileKindOf, servicePaperName, SONGFORM, CUESHEET } from '../services/worship.js';
+  filesOfKind, fileKindOf, servicePaperName, SONGFORM, CUESHEET, songKey, weeksAgoOf } from '../services/worship.js';
 import { honorificsOf } from '../services/people.js';
 import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
   ensureNoteSections, WORSHIP_SECTIONS, noteDraftKey, hasDraft, NOTE_DRAFT_DELAY } from '../services/noteTemplate.js';
@@ -692,7 +692,7 @@ function WordEdit({ draft, set, cueFiles = [], canEdit, onPick, onOpen, onRemove
 // 같은)은 적은 글자가 그대로 남는다 — 0036의 roles jsonb가 둘 다 받는다.
 // 담당자 지정(modals의 AssigneePicker)과 같은 톤이되, 그쪽은 목록 밖 이름을 막는다는
 // 점만 다르다(업무 배정은 계정이 있어야 뜻이 있고, 주보 담당자는 이름만으로도 뜻이 있다).
-function PersonNameInput({ row, people, onPick }) {
+function PersonNameInput({ row, people, onPick, seeded = false }) {
   const [open, setOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
   const rootRef = useRef(null);
@@ -727,7 +727,7 @@ function PersonNameInput({ row, people, onPick }) {
 
   return (
     <div className="worship-person relative flex-1 basis-24 sm:basis-40 min-w-0" ref={rootRef}>
-      <div className="flex items-center gap-1.5 border border-line rounded-xs bg-surface px-2 py-1 focus-within:border-accent focus-within:shadow-soft transition-all">
+      <div className={`flex items-center gap-1.5 border rounded-xs bg-surface px-2 py-1 focus-within:border-accent focus-within:shadow-soft transition-all ${seeded ? 'border-accent' : 'border-line'}`}>
         {/* 명단에 이어진 사람만 동그라미가 붙는다 — 연결됐다는 표시를 겸한다 */}
         {linked && <Avatar name={linked.name} {...(linked.profile_id ? {} : { url: null })} className="flex w-5 h-5 text-[10px] shrink-0" />}
         <input
@@ -764,10 +764,30 @@ const TOOLS = 'text-fg-faint group-hover:text-fg-muted transition-colors';
 // 담당자 줄은 [번호][역할 칩][이름][도구] 넷이다. 좁은 화면에서는 도구(위·아래·삭제)만
 // 다음 줄 오른쪽에 혼자 서던 자리라(2026-09-07), 375px에서 역할 칩과 이름 칸을 한 뼘씩
 // 줄여 넷이 한 줄에 다 선다 — 640 위에서는 예전 폭 그대로다.
-function RolesEdit({ rows, people, onChange }) {
+// 물려받은 줄인가 — 씨로 넣은 것과 **역할·이름이 아직 그대로**일 때만이다.
+// 따로 표식을 들고 다니지 않는 이유: 사람이 고치는 순간 저절로 아니게 되어야 하는데,
+// 표식을 두면 '고쳤는지'를 또 따라다녀야 한다(줄을 옮기면 자리도 어긋난다).
+const isSeeded = (seeded, r) => !!String(r?.name || '').trim()
+  && (seeded || []).some(x => x.role === r.role && x.name === r.name);
+
+function RolesEdit({ rows, people, onChange, seeded = [], onClearPrefill }) {
   const set = (i, patch) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  const anySeeded = rows.some(r => isSeeded(seeded, r));
   return (
     <div className={LIST}>
+      {/* 지난 주보에서 물려받은 값이 있으면 그것만 말한다 — 사용법 안내가 아니라
+          '이 값이 어디서 왔나'라는 출처다(2026-09-21). ×는 물려받은 칸만 비운다. */}
+      {anySeeded && (
+        <div className="worship-role-prefill flex items-center gap-1.5 pb-2">
+          <span className="inline-flex items-center gap-1.5 h-6 pl-2.5 pr-1 rounded-full bg-tag-blue text-tag-blue-fg text-[11.5px] font-semibold">
+            지난 주보
+            <button type="button" onClick={onClearPrefill} aria-label="미리 채운 값 비우기"
+              className="inline-flex items-center justify-center w-[17px] h-[17px] rounded-full bg-tag-blue-fg/15 transition active:scale-90">
+              <X size={10} />
+            </button>
+          </span>
+        </div>
+      )}
       <ul style={{ borderTop: rows.length ? '1px solid var(--app-line)' : 'none' }}>
         {rows.map((r, i) => (
           <li key={i} className="worship-role-edit group flex flex-wrap items-center gap-1.5 py-2.5" style={ROW_LINE}>
@@ -778,7 +798,7 @@ function RolesEdit({ rows, people, onChange }) {
             {/* 이름 칸이 남는 폭을 먹는다(flex-1) — 그래서 넓은 화면에서도 도구는
                 입력칸 **바로 옆**에 붙어 서고, ml-auto는 좁은 화면에서 도구만 다음
                 줄로 접혔을 때 오른쪽에 세우는 용도로만 남는다 */}
-            <PersonNameInput row={r} people={people} onPick={v => set(i, v)} />
+            <PersonNameInput row={r} people={people} onPick={v => set(i, v)} seeded={isSeeded(seeded, r)} />
             <span className={`${ROW} shrink-0 ml-auto ${TOOLS}`}>
               <RowTools index={i} total={rows.length} what="담당자"
                 onMove={(a, b) => onChange(moveAt(rows, a, b))}
@@ -796,7 +816,7 @@ function RolesEdit({ rows, people, onChange }) {
 // 않는다** — 예전에는 제목이 `basis-full`이라 번호만 첫 줄에 혼자 남고 제목이 둘째 줄로
 // 떨어졌다. 지금 640 미만은 [번호][제목] / [링크][도구] 두 줄이고 그 위는 한 줄이다.
 // 제목의 basis는 `100% - (번호 1.25rem + gap 0.375rem)` — 번호 옆을 정확히 채우는 값이다.
-function SongsEdit({ rows, people, leader, playlistUrl = '', onLeader, onPlaylist, onChange, onPullPlaylist, onLookupTitle }) {
+function SongsEdit({ rows, people, leader, playlistUrl = '', recent = [], onLeader, onPlaylist, onChange, onPullPlaylist, onLookupTitle }) {
   // 칸은 **주보에 적혀 있는 재생목록**에서 시작한다(사용자 지적 2026-09-09 — "재생목록이
   // 잘못 되었으면 이를 삭제도 할 수 있는 구조로"). 예전에는 늘 빈 칸이라, 가져오고 나면
   // 무엇이 주보에 남았는지 편집 화면에서 볼 길이 없었고 지울 길은 더 없었다.
@@ -887,6 +907,25 @@ function SongsEdit({ rows, people, leader, playlistUrl = '', onLeader, onPlaylis
           )}
         </button>
       </div>
+      {/* 최근에 부른 곡 — 콘티를 짜는 **그 자리**에서 "저번 달에 부르지 않았나"에 답한다
+          (사용자 요청 2026-09-21). 재료는 발행된 주보의 songs뿐이라 새 표가 없다.
+          폰에서는 한 줄로 가로 스크롤한다 — 줄바꿈하면 곡 목록이 화면 밖으로 밀린다
+          (`x-scroll-lock`은 가로로 미는 동안 세로가 흔들리지 않게 한다 · 탭 줄과 같은 짜임).
+          누르면 목록 끝에 붙는다 — **막지 않는다**(부러 다시 부르는 곡이 있다). */}
+      {recent.length > 0 && (
+        <div className="worship-song-recent pb-2.5">
+          <div className="text-[11.5px] font-bold text-fg-secondary pb-1.5">최근 8주 내에 고백한 곡</div>
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide x-scroll-lock md:flex-wrap md:overflow-visible">
+            {recent.map(r => (
+              <button key={songKey(r.title)} type="button"
+                onClick={() => onChange([...rows, { title: r.title, link: '' }])}
+                className="worship-song-chip shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-line bg-surface text-[12.5px] text-fg-secondary transition active:scale-95 hover:bg-surface-hover">
+                {r.title}<span className="text-fg-faint">{r.weeksAgo}주 전</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <ul style={{ borderTop: rows.length ? '1px solid var(--app-line)' : 'none' }}>
         {rows.map((s, i) => (
           <li key={i} className="worship-song-row group flex flex-wrap items-center gap-1.5 py-2.5" style={ROW_LINE}>
@@ -897,6 +936,13 @@ function SongsEdit({ rows, people, leader, playlistUrl = '', onLeader, onPlaylis
             ) : (
               <input className={`${INPUT} basis-[calc(100%-1.625rem)] sm:basis-0 flex-1 min-w-0`} value={s.title || ''} aria-label="찬양 제목"
                 onChange={e => set(i, { title: e.target.value })} placeholder="예: 주 은혜임을" />
+            )}
+            {/* 이미 최근에 부른 곡이면 그 줄이 말한다(칩과 같은 재료다). 입력을 막지는
+                않는다 — 부러 다시 부르는 곡이 있고, 그 판단은 찬양팀의 것이다. */}
+            {weeksAgoOf(recent, s.title) > 0 && (
+              <span className="worship-song-ago shrink-0 inline-flex items-center h-[22px] px-2.5 rounded-full bg-tag-yellow text-tag-yellow-fg text-[11.5px] font-semibold">
+                {weeksAgoOf(recent, s.title)}주 전에 했던 곡
+              </span>
             )}
             {/* 링크 칸 앞에는 작은 썸네일 — 어느 영상인지 눈으로 확인된다.
                 **둘째 줄은 번호 칸 밑에서 시작하지 않는다**(2026-09-08 실측 375px:
@@ -1251,7 +1297,7 @@ function MyNote({ note, serviceId = '', serviceDate = '', passageRef = '', passa
 // ── 상세 ─────────────────────────────────────────────────────────────────────
 export function ServiceDetail({
   service, people = [], personRoles = [], perms = {}, note = null, canWriteNote = false, startEditing = false,
-  files = [], onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
+  files = [], recentSongs = [], prefill = [], onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
   onPullPlaylist, onLookupTitle, onShareNote, onUploadFiles, onRemoveFile,
 }) {
   const [tab, setTab] = useState('paper');
@@ -1273,12 +1319,27 @@ export function ServiceDetail({
   // 둘 다 출석 명단과 같은 조회에서 온다(worship.fetchRoster).
   const nameOf = useMemo(() => honorificsOf(people, personRoles), [people, personRoles]);
 
-  const draftOf = (s) => ({
-    ...s,
-    roles: Array.isArray(s?.roles) ? s.roles : [],
-    songs: Array.isArray(s?.songs) ? s.songs : [],
-    notices: Array.isArray(s?.notices) ? s.notices : [],
-  });
+  // 임사자 줄이 **아직 하나도 없을 때만** 지난 주보에서 둘을 물려받는다(2026-09-21).
+  // 이미 적은 주보를 다시 열 때 덮어쓰면 사람이 지운 줄이 되살아난다.
+  // 씨로 넣은 것을 seeded에 적어 두면 화면이 '이 값이 어디서 왔나'를 말할 수 있다 —
+  // 저장 모양에는 아무것도 더하지 않는다(DB는 그냥 roles 두 줄이다).
+  const [seeded, setSeeded] = useState([]);
+  const draftOf = (s) => {
+    const had = Array.isArray(s?.roles) ? s.roles : [];
+    const seed = had.length === 0 ? (prefill || []) : [];
+    setSeeded(seed);
+    return {
+      ...s,
+      roles: had.length === 0 ? seed.map(r => ({ ...r })) : had,
+      songs: Array.isArray(s?.songs) ? s.songs : [],
+      notices: Array.isArray(s?.notices) ? s.notices : [],
+    };
+  };
+  // 물려받은 칸만 비운다 — 사람이 그 사이에 적은 줄은 건드리지 않는다.
+  const clearPrefill = () => {
+    set({ roles: rows('roles').map(r => (isSeeded(seeded, r) ? { ...r, name: '', personId: null } : r)) });
+    setSeeded([]);
+  };
 
   // 만들자마자 수정 화면으로 들어온다(사용자 결정) — 새 주보는 열자마자 빈 칸이라
   // '수정'을 한 번 더 누르게 할 이유가 없다.
@@ -1429,12 +1490,14 @@ export function ServiceDetail({
               onRemove={onRemoveFile} />
           : <WordTab service={service} onOpenBible={onOpenBible} cueFiles={cueFiles} onOpenFile={setPreview} />)}
         {activeTab === 'roles' && (editing
-          ? <RolesEdit rows={rows('roles')} people={people} onChange={v => set({ roles: v })} />
+          ? <RolesEdit rows={rows('roles')} people={people} onChange={v => set({ roles: v })}
+              seeded={seeded} onClearPrefill={clearPrefill} />
           : <RolesTab rows={rows('roles')} people={people} nameOf={nameOf} />)}
         {activeTab === 'songs' && (
           <>
             {editing
               ? <SongsEdit rows={rows('songs')} people={people} onChange={v => set({ songs: v })}
+                  recent={recentSongs}
                   leader={draft.praise_leader || ''} onLeader={v => set({ praise_leader: v })}
                   playlistUrl={draft.praise_playlist_url || ''}
                   onPlaylist={v => set({ praise_playlist_url: v })}

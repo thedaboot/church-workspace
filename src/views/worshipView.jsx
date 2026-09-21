@@ -20,6 +20,7 @@ import {
   saveAttendanceNote as saveAttendanceNoteRow,
   fetchPlaylistSongs, fetchVideoTitle, setNoteShared,
   fetchServiceFiles, ensureServiceDriveFolder, uploadServiceFile, removeServiceFile, SONGFORM,
+  recentSongs as worshipRecentSongs, prefillRoles as worshipPrefillRoles,
 } from '../services/worship.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
@@ -408,6 +409,17 @@ export function WorshipView({ onOpenBible } = {}) {
   // 노트는 가입자 누구나 쓴다(결정 7). 게스트 모드에는 로그인이 없다 — 그때도 연다.
   const canWriteNote = !enabled || !!session;
   const service = useMemo(() => (services || []).find(s => s.id === openId) || null, [services, openId]);
+  // 최근에 부른 곡 — **여기서 셈하고 화면은 받은 줄만 그린다**(이 파일 머리말의 규칙).
+  // 재료는 이미 손에 있는 목록이라 네트워크가 0이다(새 표도 새 조회도 없다).
+  const recentSongs = useMemo(
+    () => (service ? worshipRecentSongs(services || [], { onDate: service.service_date }) : []),
+    [services, service],
+  );
+  // 지난 발행본의 대표기도·헌금봉헌 — 임사자 줄이 비어 있는 주보에만 씨로 들어간다.
+  const prefill = useMemo(
+    () => (service ? worshipPrefillRoles(services || [], { onDate: service.service_date, kind: service.kind }) : []),
+    [services, service],
+  );
 
   // 뒤에서 새로 읽어 온 값으로 갈아 끼운다(stale-while-revalidate)
   useEffect(() => {
@@ -854,7 +866,7 @@ export function WorshipView({ onOpenBible } = {}) {
     return (
       <ServiceDetail
         service={service} people={roster.people} personRoles={roster.roles} perms={perms} note={note} canWriteNote={canWriteNote}
-        startEditing={editOnOpen} files={files}
+        startEditing={editOnOpen} files={files} recentSongs={recentSongs} prefill={prefill}
         onUploadFiles={uploadFiles} onRemoveFile={removeFile}
         onBack={() => { setScreen('list'); setOpenId(null); setEditOnOpen(false); }}
         onSave={save} onPublish={publish} onDelete={drop} onSaveNote={saveNote}
