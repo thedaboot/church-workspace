@@ -417,8 +417,10 @@ export function WorshipView({ onOpenBible } = {}) {
   );
   // 지난 발행본의 대표기도·헌금봉헌 — 임사자 줄이 비어 있는 주보에만 씨로 들어간다.
   const prefill = useMemo(
-    () => (service ? worshipPrefillRoles(services || [], { onDate: service.service_date, kind: service.kind }) : []),
-    [services, service],
+    () => (service
+      ? worshipPrefillRoles(services || [], { onDate: service.service_date, kind: service.kind, people: roster.people })
+      : []),
+    [services, service, roster.people],
   );
 
   // 뒤에서 새로 읽어 온 값으로 갈아 끼운다(stale-while-revalidate)

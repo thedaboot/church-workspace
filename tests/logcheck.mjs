@@ -2145,45 +2145,55 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(songKey(' 주  은혜임을 '), songKey('주은혜임을'));
   assert.strictEqual(weeksAgoOf(recent, ' 살아계신주 '), 1, '띄어쓰기가 달라도 같은 곡이다');
   assert.strictEqual(weeksAgoOf(recent, '처음 부르는 곡'), 0, '없으면 0 — 표를 안 붙인다');
+  // 링크도 같이 물려준다(2026-09-22) — 칩으로 넣고 같은 영상을 다시 찾게 하지 않는다.
+  // 되돌리기 검사: recentSongs의 link를 빼면 이 단정이 깨진다.
+  assert.strictEqual(
+    recentSongs([{ status: 'published', service_date: '2026-09-13',
+      songs: [{ title: '오직 예수', link: 'https://youtu.be/abc' }] }], { onDate: '2026-09-20' })[0].link,
+    'https://youtu.be/abc', '곡 이력이 유튜브 링크를 함께 들고 온다');
   console.log('PASS  최근에 부른 곡 10가지');
 
-  // ── 지난 주보에서 물려받는 임사자 (2026-09-21) ────────────────────────────
-  // **대표기도·헌금봉헌 둘뿐이다.** 나머지를 채우면 틀린 이름이 발행될 수 있다.
-  // 되돌리기 검사: PREFILL_ROLES에 다른 역할을 더하면 둘째가, 발행본 거르기를 빼면
-  // 셋째가, '가장 최근 하나'를 '전부'로 바꾸면 첫째가(옛 이름이 이긴다) 깨진다.
+  // ── 다음 주 예배 위원 물려받기 (2026-09-22에 재료를 바꿨다) ───────────────
+  // 처음에는 **지난 주보의 roles**를 물려줬는데, 라이브를 보니 그건 '그 날 섬긴 사람'이라
+  // 언제나 한 주 밀린 이름이 앉았다. 다음 주 담당자는 지난 주보 **광고**의
+  // `다음 주 예배 위원`에 적혀 있다(사용자 지적 · 9/20 주보로 확인).
+  // 되돌리기 검사: 광고 대신 roles를 읽게 하면 첫째가, 종류 거르기를 빼면 다섯째가,
+  // 호칭 떼기를 빼면 첫째가, 차례대로 세우기를 빼면 둘째가 깨진다.
   assert.deepStrictEqual(PREFILL_ROLES, ['대표기도', '헌금봉헌'], '물려받는 자리는 둘뿐이다');
   const RSVCS = [
-    { status: 'published', service_date: '2026-09-13',
-      roles: [{ role: '인도', name: '노준석' }, { role: '대표기도', name: '양민혁', personId: 'p2' },
-              { role: '헌금 봉헌', name: '박지호' }, { role: '축도', name: '김도현 목사' }] },
-    { status: 'published', service_date: '2026-09-06',
-      roles: [{ role: '대표기도', name: '옛 이름' }, { role: '헌금봉헌', name: '옛 이름2' }] },
-    { status: 'draft', service_date: '2026-09-19',
-      roles: [{ role: '대표기도', name: '작성 중 이름' }] },
+    { kind: 'sunday', status: 'published', service_date: '2026-09-20',
+      // roles는 **그 날 섬긴 사람**이다 — 여기서 가져오면 안 된다
+      roles: [{ role: '대표기도', name: '이하랑' }, { role: '헌금봉헌', name: '꽃님' }],
+      notices: [
+        { title: '교우동정', body: '생일자: 조현재 형제 9/20' },
+        { title: '다음 주 예배 위원', body: ['헌금봉헌: 윤현서 자매', '대표기도: 이수빈 형제'].join('\n') },
+      ] },
+    { kind: 'sunday', status: 'published', service_date: '2026-09-13',
+      notices: [{ title: '다음 주 예배 위원', body: ['대표 기도: 강서윤 자매', '헌금 봉헌: 옛사람 자매'].join('\n') }] },
+    { kind: 'sunday', status: 'draft', service_date: '2026-09-25',
+      notices: [{ title: '다음 주 예배 위원', body: '대표기도: 작성중 형제' }] },
   ];
-  assert.deepStrictEqual(prefillRoles(RSVCS, { onDate: '2026-09-20' }),
-    [{ role: '대표기도', name: '양민혁', personId: 'p2' }, { role: '헌금 봉헌', name: '박지호', personId: null }],
-    '가장 최근 발행본의 두 줄만 · 띄어쓰기가 달라도 같은 자리로 본다');
-  assert.ok(!prefillRoles(RSVCS, { onDate: '2026-09-20' }).some(r => /인도|축도/.test(r.role)),
-    '인도·축도는 물려받지 않는다 — 매주 바뀌는 자리다');
-  assert.ok(!prefillRoles(RSVCS, { onDate: '2026-09-20' }).some(r => r.name === '작성 중 이름'),
-    '작성 중 주보에서는 물려받지 않는다');
-  assert.deepStrictEqual(prefillRoles(RSVCS, { onDate: '2026-09-01' }), [],
+  const PEOPLE = [{ id: 'p-su', name: '이수빈' }];
+  assert.deepStrictEqual(prefillRoles(RSVCS, { onDate: '2026-09-27', people: PEOPLE }),
+    [{ role: '대표기도', name: '이수빈', personId: 'p-su' },
+     { role: '헌금봉헌', name: '윤현서', personId: null }],
+    '지난 주보 광고에서 · 호칭을 떼고 · 명단에 있으면 personId까지 잇는다');
+  assert.deepStrictEqual(prefillRoles(RSVCS, { onDate: '2026-09-27' }).map(r => r.role),
+    ['대표기도', '헌금봉헌'],
+    '광고에 적힌 순서와 상관없이 늘 같은 차례로 세운다');
+  assert.strictEqual(prefillRoles(RSVCS, { onDate: '2026-09-20' })[0].name, '강서윤',
+    '띄어 적은 역할(대표 기도)도 같은 자리로 본다');
+  assert.ok(!prefillRoles(RSVCS, { onDate: '2026-09-27' }).some(r => r.name === '작성중'),
+    '작성 중 주보의 광고는 보지 않는다');
+  assert.deepStrictEqual(prefillRoles(RSVCS, { onDate: '2026-09-27', kind: '성탄절 예배' }), [],
+    '이벤트 예배는 주일 4부의 위원을 물려받지 않는다');
+  assert.deepStrictEqual(prefillRoles(RSVCS, { onDate: '2026-09-10' }), [],
     '앞선 발행본이 없으면 빈 배열이다(화면도 조용하다)');
-  // **종류가 다르면 물려받지 않는다** — 성탄절 예배는 주일 4부와 섬기는 사람이 다르다.
-  // tests/worship이 실제로 이 모양을 잡아냈다(2026-09-21).
-  assert.deepStrictEqual(prefillRoles(RSVCS, { onDate: '2026-09-20', kind: '성탄절 예배' }), [],
-    '이벤트 예배는 주일 4부의 임사자를 물려받지 않는다');
-  assert.strictEqual(
-    prefillRoles([...RSVCS, { kind: '성탄절 예배', status: 'published', service_date: '2026-09-14',
-      roles: [{ role: '대표기도', name: '성탄 담당' }] }],
-      { onDate: '2026-09-20', kind: '성탄절 예배' })[0].name, '성탄 담당',
-    '같은 종류의 앞선 발행본이 있으면 거기서 물려받는다');
   assert.deepStrictEqual(
-    prefillRoles([{ status: 'published', service_date: '2026-09-13', roles: [{ role: '대표기도', name: '  ' }] }],
-      { onDate: '2026-09-20' }), [],
-    '이름이 빈 줄은 물려줄 것이 없다');
-  console.log('PASS  지난 주보에서 물려받는 임사자 8가지');
+    prefillRoles([{ kind: 'sunday', status: 'published', service_date: '2026-09-20',
+      notices: [{ title: '교우동정', body: '없음' }] }], { onDate: '2026-09-27' }), [],
+    '광고에 위원이 안 적혀 있으면 지어내지 않는다');
+  console.log('PASS  다음 주 예배 위원 물려받기 7가지');
 
   console.log('PASS  호칭 · 지난 주일 · 출석 메모 33가지');
 }

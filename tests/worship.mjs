@@ -2933,6 +2933,77 @@ check('좁은 화면에서 접힌 찬양 줄의 링크 칸이 제목 칸과 왼�
   !!songIndent && songIndent.wrapped === true && songIndent.titleLeft === songIndent.boxLeft,
   JSON.stringify(songIndent));
 
+// ── '1주 전에 했던 곡' 표는 **제목 칸 안에 뜬다** (사용자 지적 2026-09-22) ──────
+// 처음에는 줄에 끼워 넣었더니 표가 선 줄만 앞뒤 칸이 표 너비만큼 밀려 층이 졌다.
+// 지금은 제목 칸 위에 얹히고 글자는 padding으로 물러난다 — **링크 칸은 안 움직인다.**
+// 되돌리기: worship-song-ago의 `absolute`를 빼면(줄의 형제로 돌리면) 둘째가 깨진다.
+// s1의 첫 곡('주 은혜임을')과 같은 곡을 지난주 발행본에 심어 표를 띄운다.
+{
+  const prev = new Date(Date.parse(`${PAST1}T00:00:00Z`) - 7 * 86400000).toISOString().slice(0, 10);
+  await ev(rePlant({ services: [...seed.services, {
+    id: 's-prev', kind: 'sunday', service_date: prev, status: 'published',
+    title: '지난 주', passage_ref: '', preacher: '', roles: [], notices: [],
+    songs: [{ title: '주 은혜임을', link: 'https://youtu.be/PREVLINK' }],
+  }] }));
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
+  await ev(GO); await waitFor(HAS_CARD);
+  await ev(`document.querySelector('.worship-card').click()`); await waitFor(HAS_DETAIL);
+  await waitFor(HAS_EDIT);
+  await ev(`document.querySelector('.worship-edit-open').click()`); await sleep(900);
+  await tabClick('찬양'); await sleep(420);
+  const ago = await ev(`(() => {
+    const rows = [...document.querySelectorAll('.worship-song-row')];
+    const at = (r) => {
+      const t = r.querySelector('input[aria-label="찬양 제목"]');
+      const b = r.querySelector('.worship-song-linkbox');
+      const g = r.querySelector('.worship-song-ago');
+      return {
+        badge: !!g,
+        inTitleBox: !!(g && g.closest('.worship-song-titlebox')),
+        inside: !!(g && t && Math.round(g.getBoundingClientRect().right) <= Math.round(t.getBoundingClientRect().right) + 1),
+        padRight: t ? Math.round(parseFloat(getComputedStyle(t).paddingRight)) : -1,
+        boxLeft: b ? Math.round(b.getBoundingClientRect().left) : -1,
+      };
+    };
+    return { n: rows.length, rows: rows.map(at) };
+  })()`);
+  const withBadge = (ago.rows || []).filter(r => r.badge);
+  const without = (ago.rows || []).filter(r => !r.badge);
+  check('최근에 부른 곡 표가 뜬다(지난주에 부른 곡 한 줄)',
+    ago.n >= 2 && withBadge.length === 1 && without.length >= 1, JSON.stringify(ago));
+  check('그 표는 제목 칸 안에 얹히고 링크 칸을 밀지 않는다',
+    withBadge.length === 1 && withBadge[0].inTitleBox && withBadge[0].inside
+    && without.length >= 1 && withBadge[0].boxLeft === without[0].boxLeft,
+    JSON.stringify(ago));
+  check('표가 뜬 칸은 글자가 그만큼 물러난다(겹치지 않는다)',
+    withBadge.length === 1 && withBadge[0].padRight > 60
+    && without.length >= 1 && without[0].padRight < 20,
+    JSON.stringify(ago.rows));
+  // 칩을 누르면 **링크까지** 들어온다(사용자 요청 2026-09-22)
+  const chip = await ev(`(() => {
+    const b = document.querySelector('.worship-song-chip');
+    if (!b) return null;
+    b.click();
+    return true;
+  })()`);
+  await sleep(1500);
+  const added = await ev(`(() => {
+    const rows = JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.id === 's1').songs || [];
+    return rows[rows.length - 1] || null;
+  })()`);
+  check('최근 곡 칩을 누르면 제목과 유튜브 링크가 같이 들어온다',
+    chip === true && added && added.title === '주 은혜임을' && added.link === 'https://youtu.be/PREVLINK',
+    JSON.stringify(added));
+  // 심은 것을 도로 걷는다 — 뒤 검사들이 원래 시드를 본다
+  await ev(rePlant({ services: seed.services }));
+  await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
+  await ev(GO); await waitFor(HAS_CARD);
+  await ev(`document.querySelector('.worship-card').click()`); await waitFor(HAS_DETAIL);
+  await waitFor(HAS_EDIT);
+  await ev(`document.querySelector('.worship-edit-open').click()`); await sleep(900);
+}
+
 // 큐시트 — 링크 한 칸(0053)과 파일(0054)을 **한 카드**에 세운다.
 // **되돌리기**: CueSheetEdit의 docEmbedKind 게이트를 빼면 아무 주소나 담겨 첫 검사가 깨진다.
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });

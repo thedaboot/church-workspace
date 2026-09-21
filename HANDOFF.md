@@ -235,7 +235,7 @@ src/services/errorText.js     오류 코드 → 사람 말(§6-29-e · §8)
 src/services/shareImage.js    종이를 그림·PDF로 — nodeToPng·bakeAndSlice·shareOrSave·isBlankCanvas(§6-32-*)
 src/services/people.js        (v2) 명단·모임 읽기 공용 + guestStore(게스트 저장 자리 공장)
 src/services/roster.js        (v2) 명단 쓰기·계정 연결(§6의 roster_name 항목)
-src/services/worship.js       (v2) 주보·출석·노트·자격(§6-9-ak) · recentSongs(최근 8주 곡) · prefillRoles(대표기도·헌금봉헌, 같은 kind만)
+src/services/worship.js       (v2) 주보·출석·노트·자격(§6-9-ak) · recentSongs(최근 8주 곡+링크) · prefillRoles(지난 주보 **광고**의 '다음 주 예배 위원' → 대표기도·헌금봉헌, 같은 kind만)
 src/services/word.js          (v2) QT 일정·묵상·bible_state · shouldAdoptBody(§6-24-c)
 src/services/groups.js        (v2) 순·동아리·신청·모임·groupPerms · share()로 중복 조회 묶기(§6-9-bg)
 src/services/bible.js bibleRef.js  (v2) public/bible 로더·캐시 / 구절 파서 — 주보·QT·리더가 한 벌(§6-9-aq)
@@ -342,6 +342,8 @@ design/                       원본 시트(chars.png·char.png) — 배포에 �
 
 ## 8. 관례
 
+- **다음 주 예배 위원은 광고에 적는다**(2026-09-22에 라이브 주보로 확인). 주보의 `roles`는 **그 날 섬긴 사람**이고, 다음 주에 섬길 사람은 광고 `다음 주 예배 위원`에 `대표기도: 이수빈 형제` 모양으로 적힌다. 그래서 새 주보의 임사자를 미리 채울 때
+  **지난 주보의 roles를 물려주면 언제나 한 주 밀린 이름이 앉는다** — `worship.prefillRoles`가 광고를 읽는 이유다. 역할·제목의 띄어쓰기는 주보마다 다르다(`대표 기도`도 있다).
 - 커밋 메시지는 한국어, 제목 한 줄 + 본문에 **왜**를 쓴다. `Co-Authored-By: Claude` 라인은 넣지 않는다.
 - **문구 톤**: 담백하고 상태를 그대로 말한다. 사용자가 고친 실제 예 — `여기는 다 정리됐어요` → `다 정리되었어요` · `마감 없음` → `마감 미정` · `단계를 입력하고 Enter` → `예: 포스터 시안 만들기`(방법보다 "여기에 무엇을 적는
   칸인지"가 먼저) · `+ 링크` → `+ 참고 링크`(**프로젝트 헤더**의 그 버튼이고, 링크를 다는 자리는 이제 거기 하나다 — §6-35). **"없어요"로 끝나는 짧은 부정 표현과 번역투를 특히 싫어한다.**

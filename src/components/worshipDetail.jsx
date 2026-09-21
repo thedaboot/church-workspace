@@ -918,7 +918,7 @@ function SongsEdit({ rows, people, leader, playlistUrl = '', recent = [], onLead
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide x-scroll-lock md:flex-wrap md:overflow-visible">
             {recent.map(r => (
               <button key={songKey(r.title)} type="button"
-                onClick={() => onChange([...rows, { title: r.title, link: '' }])}
+                onClick={() => onChange([...rows, { title: r.title, link: r.link || '' }])}
                 className="worship-song-chip shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-line bg-surface text-[12.5px] text-fg-secondary transition active:scale-95 hover:bg-surface-hover">
                 {r.title}<span className="text-fg-faint">{r.weeksAgo}주 전</span>
               </button>
@@ -934,14 +934,21 @@ function SongsEdit({ rows, people, leader, playlistUrl = '', recent = [], onLead
             {looking.has(i) ? (
               <span className="worship-song-title-loading basis-[calc(100%-1.625rem)] sm:basis-0 flex-1 min-w-0 h-[30px] rounded-xs dc-skeleton" />
             ) : (
-              <input className={`${INPUT} basis-[calc(100%-1.625rem)] sm:basis-0 flex-1 min-w-0`} value={s.title || ''} aria-label="찬양 제목"
-                onChange={e => set(i, { title: e.target.value })} placeholder="예: 주 은혜임을" />
-            )}
-            {/* 이미 최근에 부른 곡이면 그 줄이 말한다(칩과 같은 재료다). 입력을 막지는
-                않는다 — 부러 다시 부르는 곡이 있고, 그 판단은 찬양팀의 것이다. */}
-            {weeksAgoOf(recent, s.title) > 0 && (
-              <span className="worship-song-ago shrink-0 inline-flex items-center h-[22px] px-2.5 rounded-full bg-tag-yellow text-tag-yellow-fg text-[11.5px] font-semibold">
-                {weeksAgoOf(recent, s.title)}주 전에 했던 곡
+              /* 이미 최근에 부른 곡이면 그 줄이 말한다(칩과 같은 재료다). 입력은 막지
+                 않는다 — 부러 다시 부르는 곡이 있고 그 판단은 찬양팀의 것이다.
+                 **표는 제목 칸 안에 띄운다**(사용자 지적 2026-09-22 — 줄에 끼워 넣었더니
+                 앞뒤 칸이 표 너비만큼 밀렸다). 칸 오른쪽에 얹고 글자는 그만큼 물러나며,
+                 길어서 닿으면 `…`로 잘린다(input도 text-overflow가 먹는다 — 포커스가
+                 없을 때. 쓰는 동안에는 커서를 따라가야 하므로 잘리면 안 된다). */
+              <span className="worship-song-titlebox relative basis-[calc(100%-1.625rem)] sm:basis-0 flex-1 min-w-0">
+                <input className={`${INPUT} w-full text-ellipsis`} value={s.title || ''} aria-label="찬양 제목"
+                  style={weeksAgoOf(recent, s.title) > 0 ? { paddingRight: '7.5rem' } : undefined}
+                  onChange={e => set(i, { title: e.target.value })} placeholder="예: 주 은혜임을" />
+                {weeksAgoOf(recent, s.title) > 0 && (
+                  <span className="worship-song-ago pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex items-center h-[21px] px-2 rounded-full bg-tag-yellow text-tag-yellow-fg text-[11px] font-semibold whitespace-nowrap">
+                    {weeksAgoOf(recent, s.title)}주 전에 했던 곡
+                  </span>
+                )}
               </span>
             )}
             {/* 링크 칸 앞에는 작은 썸네일 — 어느 영상인지 눈으로 확인된다.

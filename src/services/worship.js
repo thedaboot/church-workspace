@@ -59,7 +59,9 @@ export function recentSongs(services, { onDate, weeks = 8 } = {}) {
       if (!title) continue;
       const key = songKey(title);
       const prev = seen.get(key);
-      if (!prev || weeksAgo < prev.weeksAgo) seen.set(key, { title, weeksAgo });
+      // 링크도 같이 물려준다(사용자 요청 2026-09-22) — 칩으로 넣고 나서 같은 영상을
+      // 다시 찾아 붙이는 일이 없어야 한다. 가장 최근 것의 링크를 쓴다.
+      if (!prev || weeksAgo < prev.weeksAgo) seen.set(key, { title, weeksAgo, link: String(song?.link || '').trim() });
     }
   }
   return [...seen.values()].sort((a, b) => a.weeksAgo - b.weeksAgo || a.title.localeCompare(b.title));
@@ -81,15 +83,32 @@ export function weeksAgoOf(recent, title) {
 export const PREFILL_ROLES = ['대표기도', '헌금봉헌'];
 const roleKey = (v) => String(v || '').replace(/\s+/g, '');
 const PREFILL_KEYS = new Set(PREFILL_ROLES.map(roleKey));
+const PREFILL_LABEL = new Map(PREFILL_ROLES.map(r => [roleKey(r), r]));
+// 광고에서 찾을 제목(띄어쓰기를 접은 모양)
+const NEXT_WEEK_NOTICE = '다음주예배위원';
+// 광고에는 호칭까지 적는다("이수빈 형제") — roles에는 이름만 들어간다(0064의 호칭 규칙과
+// 같은 말들이다). 못 알아본 호칭은 이름에 붙은 채로 남는데, 사람이 보고 고치면 되는
+// 자리라 버리지 않는다 — 지우는 쪽이 더 위험하다.
+const HONORIFICS = /\s*(형제|자매|청년|전도사님|목사님|목사|부장님|집사님|집사|권사님|권사|장로님|장로|리더|순장)\s*$/;
+const bareName = (v) => String(v || '').replace(/[()（）]/g, ' ').trim().replace(HONORIFICS, '').trim();
 
-// `onDate`보다 앞선 **같은 종류의 발행본 중 가장 최근** 것의 그 두 줄을 그대로 돌려준다.
-// 이름이 빈 줄은 물려줄 것이 없으니 뺀다. 없으면 빈 배열이다(그러면 화면도 조용하다).
+// 다음 주 담당자는 **지난 주보의 광고**에 있다(2026-09-22 사용자 지적 · 라이브 확인).
+// 9/20 주보를 보면 roles는 그 날 섬긴 사람(이하랑·꽃님)이고, 9/27에 섬길 사람은 광고의
+// `다음 주 예배 위원`에 "대표기도: 이수빈 형제 / 헌금봉헌: 윤현서 자매"로 적혀 있다.
+// **지난 주보의 roles를 그대로 물려주면 언제나 한 주 밀린 사람이 앉는다** — 처음에
+// 그렇게 만들었다가 여기서 고쳤다.
 //
-// **종류를 가리는 것이 중요하다**(kind). 성탄절·송구영신 같은 이벤트 예배는 주일 4부와
-// 섬기는 사람이 다른데, 종류를 안 보면 지난 주일의 이름이 성탄절 주보에 미리 앉는다
-// (tests/worship이 실제로 그 모양을 잡아냈다 · 2026-09-21). 첫 성탄절 예배처럼 같은
-// 종류의 앞선 발행본이 없으면 빈 배열이고, 그때는 화면도 조용하다.
-export function prefillRoles(services, { onDate, kind = SUNDAY_KIND } = {}) {
+// 광고 본문은 사람이 손으로 적는 자유 글이라 넉넉히 읽는다: 제목은 띄어쓰기를 접어
+// 견주고, 본문은 줄마다 `역할: 이름 호칭` 모양을 찾는다. `대표 기도`처럼 띄어 적은
+// 주보가 실제로 있어서(9/13) 역할도 띄어쓰기를 접는다.
+//
+// **종류를 가린다**(kind). 성탄절·송구영신은 주일 4부와 섬기는 사람이 다른데, 종류를 안
+// 보면 지난 주일의 이름이 성탄절 주보에 앉는다(tests/worship이 잡아냈다 · 2026-09-21).
+// 같은 종류의 앞선 발행본이 없거나 그 광고에 위원이 안 적혀 있으면 **빈 배열**이고,
+// 그때는 화면도 조용하다 — 지어내지 않는다.
+//
+// people을 주면 이름이 똑같은 사람을 찾아 personId까지 이어 준다(동그라미가 붙는다).
+export function prefillRoles(services, { onDate, kind = SUNDAY_KIND, people = [] } = {}) {
   const on = Date.parse(`${String(onDate || '').slice(0, 10)}T00:00:00Z`);
   if (!Number.isFinite(on)) return [];
   const want = (kind || SUNDAY_KIND).trim() || SUNDAY_KIND;
@@ -101,9 +120,23 @@ export function prefillRoles(services, { onDate, kind = SUNDAY_KIND } = {}) {
     if (!last || at > last.at) last = { at, row: s };
   }
   if (!last) return [];
-  return (Array.isArray(last.row.roles) ? last.row.roles : [])
-    .filter(r => PREFILL_KEYS.has(roleKey(r?.role)) && String(r?.name || '').trim())
-    .map(r => ({ role: r.role, name: r.name, personId: r.personId ?? r.person_id ?? null }));
+  const notice = (Array.isArray(last.row.notices) ? last.row.notices : [])
+    .find(n => roleKey(n?.title).includes(NEXT_WEEK_NOTICE));
+  if (!notice) return [];
+  const byRole = new Map();
+  for (const line of String(notice.body || '').split('\n')) {
+    const m = /^\s*([^:：]{2,10})\s*[:：]\s*(.+)$/.exec(line);
+    if (!m) continue;
+    const key = roleKey(m[1]);
+    if (!PREFILL_KEYS.has(key) || byRole.has(key)) continue;
+    const name = bareName(m[2]);
+    if (!name) continue;
+    const found = (people || []).find(x => String(x?.name || '').trim() === name);
+    byRole.set(key, { role: PREFILL_LABEL.get(key), name, personId: found?.id ?? null });
+  }
+  // 적힌 순서가 아니라 **우리 차례대로** 세운다(대표기도 → 헌금봉헌). 주보마다 적는
+  // 순서가 달라도 편집 화면의 줄 순서는 늘 같아야 사람이 헷갈리지 않는다.
+  return PREFILL_ROLES.map(r => byRole.get(roleKey(r))).filter(Boolean);
 }
 
 export const SUNDAY_KIND = 'sunday';
