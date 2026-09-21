@@ -122,6 +122,24 @@ check('시스템 프롬프트가 엠 대시를 금지한다', system.includes('�
 check('본문 텍스트가 없어도 프롬프트가 선다',
   G.buildGuidePrompt({ service: SERVICE }).prompt.includes('본문 텍스트를 받지 못했습니다'));
 
+// ── 찬양 줄 (2026-09-21 사용자 요청 — 가이드에 맥락을 더 준다) ──────────────
+// 큐시트는 **일부러 안 싣는다**: services.cue_sheet는 링크 한 칸이라(0053) 담긴 본문이
+// 없다. 되돌리기 검사: sunGuide.js의 `찬양: ${songLine(s)}` 줄을 지우면 첫 단정이,
+// songLine에서 제목 거르기(filter(Boolean))를 빼면 셋째가 깨진다.
+check('곡이 있으면 프롬프트에 제목이 실린다',
+  G.buildGuidePrompt({ service: { ...SERVICE, songs: [{ title: '주 은혜임을' }, { title: '살아계신 주' }], praise_leader: '조해리' } })
+    .prompt.includes('찬양: 주 은혜임을 · 살아계신 주 (인도 조해리)'));
+check('곡이 없으면 인도자도 적지 않는다',
+  G.songLine({ songs: [], praise_leader: '조해리' }) === '(아직 없음)');
+check('제목이 빈 줄은 건너뛴다(재생목록에서 제목을 못 받은 줄)',
+  G.songLine({ songs: [{ title: '' }, { title: '오직 예수' }, { link: 'youtu.be/x' }] }) === '오직 예수');
+check('유튜브 링크는 프롬프트에 싣지 않는다',
+  !G.buildGuidePrompt({ service: { ...SERVICE, songs: [{ title: '오직 예수', link: 'https://youtu.be/abc123' }] } })
+    .prompt.includes('youtu.be'));
+check('큐시트 링크는 프롬프트에 싣지 않는다',
+  !G.buildGuidePrompt({ service: { ...SERVICE, cue_sheet: { url: 'https://docs.google.com/x', title: '9월 큐시트' } } })
+    .prompt.includes('docs.google.com'));
+
 // 절 줄 만들기
 check('장을 건너는 범위는 장:절로 적는다',
   G.passageLines([{ chapter: 3, verse: 14, text: 'ㄱ' }, { chapter: 4, verse: 1, text: 'ㄴ' }])

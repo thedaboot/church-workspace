@@ -67,6 +67,17 @@ export const QUESTIONS_MAX = 4;
 
 const str = (v) => String(v ?? '').trim();
 
+// 주보의 찬양 한 줄 — "곡 · 곡 · 곡 (인도 이름)". 곡이 없으면 인도자도 적지 않는다
+// (이름만 뜬 줄은 모델에게 아무것도 알려주지 않는다). 제목이 빈 줄은 건너뛴다 —
+// 재생목록에서 가져오다 제목을 못 받은 줄이 그렇게 남는다(worshipDetail의 fillTitle).
+export function songLine(service) {
+  const titles = (Array.isArray(service?.songs) ? service.songs : [])
+    .map(x => str(x?.title)).filter(Boolean);
+  if (!titles.length) return '(아직 없음)';
+  const leader = str(service?.praise_leader);
+  return titles.join(' · ') + (leader ? ` (인도 ${leader})` : '');
+}
+
 // 문장이 끝나는 자리 — '다.' '요.' '. '(마침표+공백/끝) '?' '!'.
 const SENT = /다\.|요\.|\.(?=\s|$)|[?!]/g;
 
@@ -237,6 +248,12 @@ export function buildGuidePrompt({ service, passageText = '' } = {}) {
     `설교 제목: ${str(s.title) || '(아직 없음)'}`,
     `본문 구절: ${str(s.passage_ref) || '(아직 없음)'}`,
     `설교자: ${str(s.preacher) || '(아직 없음)'}`,
+    // 찬양은 **제목만** 싣는다(사용자 요청 2026-09-21 — 맥락을 더 주고 싶다).
+    // 유튜브 링크는 빼는데, 모델이 읽을 것이 없는 글자이면서 프롬프트만 길어진다.
+    // **큐시트는 싣지 않는다** — `services.cue_sheet`는 링크 한 칸({url, title, …} ·
+    // 0053)이라 담긴 본문이 없다. 큐시트 글을 싣고 싶으면 첨부(files.text_excerpt)에서
+    // 와야 하고, 그건 지난 첨부 백필이 먼저다.
+    `찬양: ${songLine(s)}`,
     '',
     '[본문 (개역한글)]',
     passageText || '(본문 텍스트를 받지 못했습니다. 위 구절만 보고 쓰되, 본문에 없는 내용을 지어내지 마라.)',
