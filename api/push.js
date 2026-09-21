@@ -172,8 +172,10 @@ async function handleSend(req, res) {
 
 // ── GET: 마감 임박 배치 ─────────────────────────────────────────────────────
 // 날짜는 KST로 센다. cards.due_date는 date 컬럼(시각 없음)이고 사람은 한국 날짜로
-// 생각하는데, Vercel Cron은 UTC로 돈다. 크론이 도는 22:00 UTC는 이미 다음 날
-// 07:00 KST이므로, UTC 날짜를 그대로 쓰면 하루씩 어긋난 알림이 간다.
+// 생각하는데, Vercel Cron은 UTC로 돈다. 크론이 도는 23:00 UTC는 이미 다음 날
+// 08:00 KST이므로, UTC 날짜를 그대로 쓰면 하루씩 어긋난 알림이 간다.
+// (2026-09-21에 07:00 KST → 08:00 KST로 옮겼다 — 7시는 이르다는 사용자 판단.
+//  kstDate는 now에 9시간을 더할 뿐이라 시각을 옮겨도 셈은 그대로다.)
 export const kstDate = (offsetDays = 0, now = Date.now()) => new Date(
   now + 9 * 3600e3 + offsetDays * 86400e3,
 ).toISOString().slice(0, 10);

@@ -199,7 +199,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
   HTML을, 사람에게는 앱으로 리디렉션을 줍니다(`api/share.js`, `s-maxage=300`).
   점검은 [카카오 공유 디버거](https://developers.kakao.com/tool/debugger/sharing).
 - `/api/push` — POST는 앱이 알림을 만든 직후, GET은 Vercel Cron이 부릅니다(`vercel.json`의
-  `crons` — 22:00 UTC 마감 임박 · `?job=worship`은 02:30 UTC = 11:30 KST 오늘 예배).
+  `crons` — 23:00 UTC = 08:00 KST 마감 임박 · `?job=worship`은 02:30 UTC = 11:30 KST 오늘 예배).
 
 | 변수 | 용도 | 노출 |
 |---|---|---|

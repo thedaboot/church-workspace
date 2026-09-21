@@ -9,7 +9,7 @@
   "crons": [
     {
       "path": "/api/push",
-      "schedule": "0 22 * * *"
+      "schedule": "0 23 * * *"
     },
     {
       "path": "/api/push?job=worship",
