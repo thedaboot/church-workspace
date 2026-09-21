@@ -43,10 +43,39 @@ function observedFetch(input, init) {
   return globalThis.fetch(input, init);
 }
 
+// ── 세션을 담는 자리 — 한도에 걸리면 캐시를 비우고 한 번 더 ────────────────
+// 아이패드 PWA에서 "좀 있다 또 로그인하라고 한다"의 정체다(제보 2026-09-21).
+// 토큰은 갱신될 때마다(한 시간) **새 값으로 다시 저장돼야** 하는데, localStorage가
+// 5MB에 닿으면 그 쓰기가 예외로 끝나고 조용히 사라진다. 그러면 기기에는 이미 폐기된
+// 옛 토큰이 남아 다음 갱신에서 세션이 끊긴다 — 서버에는 멀쩡한 토큰이 그대로 있는데도.
+// 라이브 auth.sessions에서 그 모양을 확인했다(한 번 갱신되고 버려진 세션 · 살아 있는
+// 리프레시 토큰 1개 · not_after 없음).
+//
+// `services/cache.js`는 **자기 키가 걸릴 때만** 스스로 비운다(그 파일 주석) — 토큰
+// 쓰기는 그 보호 밖이었다. 여기서 같은 구제를 토큰에도 준다. 비우는 일은 캐시가 자기
+// 키를 아는 자리에서 해야 하므로 **등록해서 받는다**(위 setWriteObserver와 같은 까닭 —
+// 접두를 두 벌로 적으면 한쪽만 바뀌는 날 조용히 안 지워진다).
+let relieve = null;
+export const setStorageRelief = (fn) => { relieve = fn; };
+
+const authStorage = {
+  getItem: (k) => { try { return window.localStorage.getItem(k); } catch { return null; } },
+  removeItem: (k) => { try { window.localStorage.removeItem(k); } catch { /* 막힌 저장소 */ } },
+  setItem: (k, v) => {
+    try { window.localStorage.setItem(k, v); return; } catch { /* 아래에서 한 번 더 */ }
+    try { relieve?.(); } catch { /* 구제가 실패해도 다시 써 본다 */ }
+    try { window.localStorage.setItem(k, v); }
+    catch (e) {
+      // 여기까지 오면 다음 갱신에서 로그인이 풀린다. 조용히 넘기지 않는다.
+      console.error('[auth] 세션을 저장하지 못했어요 — 다음 갱신에서 로그인이 풀립니다:', e);
+    }
+  },
+};
+
 export const supabase = url && anonKey
   ? createClient(url, anonKey, {
       // 세션 지속성 명시 (기본값이지만 의도를 분명히 — 새로고침 후 로그인 유지)
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storage: authStorage },
       global: { fetch: observedFetch },
     })
   : null;

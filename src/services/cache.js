@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { supabase } from './supabaseClient.js';
+import { supabase, setStorageRelief } from './supabaseClient.js';
 
 // ============================================================================
 // 화면 데이터 캐시 — "매번 스켈레톤"을 없앤다 (사용자 요청 2026-09-03)
@@ -38,6 +38,12 @@ function purgeKeys(match) {
     }
   } catch { /* 무시 */ }
 }
+
+// 세션 토큰 쓰기가 한도에 걸리면 **우리 캐시 전부**를 비워 자리를 내준다
+// (supabaseClient의 세션 저장 자리가 부른다 · 2026-09-21). 지금 scope만이 아니라 전부인
+// 이유: 그 순간 필요한 것은 몇 킬로바이트가 아니라 토큰 한 줄이 들어갈 자리이고, 캐시는
+// 다시 읽으면 그만이지만 토큰은 못 쓰면 로그인이 풀린다.
+setStorageRelief(() => purgeKeys(k => k.startsWith(`${PREFIX}:`)));
 
 export function setCacheScope(uid) {
   const next = uid || 'anon';

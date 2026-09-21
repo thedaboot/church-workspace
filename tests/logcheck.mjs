@@ -1848,9 +1848,14 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 // 치운다'가 깨지고, writeCache의 재시도를 지우면 '한도에 걸려도 다음 쓰기가 산다'가 깨진다.
 {
   const raw = readFileSync(new URL('../src/services/cache.js', import.meta.url), 'utf8');
-  const src = raw
-    .replace(/^import[^\n]*\n/gm, '')                                 // react · supabaseClient
-    .replace('const persist = () => !!supabase;', 'const persist = () => true;');
+  const src =
+    // supabaseClient에서 오던 것을 가짜로 세운다. setStorageRelief는 **세션 토큰 쓰기가
+    // 한도에 걸렸을 때 캐시가 자리를 내주는 길**이라(2026-09-21), 등록된 함수를 붙잡아
+    // 여기서 실제로 불러 본다 — 소스만 보면 '등록했다'까지밖에 못 본다.
+    'let __relief = null; const setStorageRelief = (fn) => { __relief = fn; }; export const __relieve = () => __relief && __relief(); '
+    + raw
+      .replace(/^import[^\n]*\n/gm, '')                                 // react · supabaseClient
+      .replace('const persist = () => !!supabase;', 'const persist = () => true;');
   const dir = mkdtempSync(join(tmpdir(), 'cache-'));
   const f = join(dir, 'cache.mjs');
   writeFileSync(f, src);
@@ -1869,7 +1874,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     removeItem: (k) => { store.delete(k); },
   };
 
-  const { setCacheScope, readCache, writeCache, dropCache } = await import(pathToFileURL(f).href);
+  const { setCacheScope, readCache, writeCache, dropCache, __relieve } = await import(pathToFileURL(f).href);
   const keys = () => [...store.keys()].sort();
 
   // ① 열쇠는 사용자별 네임스페이스 안에 있다
@@ -1886,6 +1891,22 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   writeCache('worship:list:2026', { c: 3 });
   setCacheScope('u2');   // 같은 scope면 아무 일도 하지 않는다
   assert.deepStrictEqual(readCache('worship:list:2026'), { c: 3 }, '같은 scope는 비우지 않는다');
+
+  // ②-b 세션 토큰이 자리를 못 찾으면 **캐시를 통째로** 비운다(2026-09-21).
+  // 그 순간 필요한 것은 몇 킬로바이트가 아니라 토큰 한 줄이 들어갈 자리이고, 캐시는
+  // 다시 읽으면 그만이지만 토큰은 못 쓰면 로그인이 풀린다(아이패드 PWA 제보).
+  // **지금 scope만 비우면 안 된다** — 남의 scope가 자리를 잡고 있으면 그대로다.
+  // 되돌리기 검사: cache.js의 setStorageRelief 등록을 지우면 둘째가, 지금 scope만
+  // 비우게 바꾸면(`${PREFIX}:${scope}:`) 첫째가 깨진다.
+  localStorage.setItem('church_cache_v1:u-남:worship:list:2026', '{"x":1}');
+  localStorage.setItem('남의 것이 아닌 열쇠', 'ㄱ');
+  writeCache('worship:list:2026', { g: 7 });
+  __relieve();
+  assert.deepStrictEqual(keys(), ['남의 것이 아닌 열쇠'],
+    '토큰이 자리를 못 찾으면 scope를 가리지 않고 우리 캐시를 전부 비운다');
+  assert.deepStrictEqual(readCache('worship:list:2026'), { g: 7 },
+    '메모리 캐시는 그대로다 — 자리를 내주려고 비운 것이지 화면을 비우려는 게 아니다');
+  localStorage.removeItem('남의 것이 아닌 열쇠');
 
   // ③ dropCache는 접두다 — 짧게 주면 이웃까지 간다(그래서 갈래마다 첫 도막이 다르다)
   writeCache('worship:svc:s1', { d: 4 });
@@ -2957,4 +2978,29 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(!/auth\.signOut\(\s*\)/.test(src),
     'scope 없는 signOut()이 남아 있지 않다');
   console.log('PASS  로그아웃이 이 기기만 끊는다 2가지');
+}
+
+// ── 세션 토큰 쓰기가 한도에 걸려도 살아남는지 (소스 단정) ────────────────────
+// 아이패드 PWA에서 한 시간마다 로그인이 풀리던 자리(제보 2026-09-21 · 조해리).
+// 토큰은 갱신마다 다시 저장돼야 하는데 localStorage가 5MB에 닿으면 그 쓰기가 조용히
+// 실패하고, 기기에는 이미 폐기된 옛 토큰이 남아 다음 갱신에서 끊긴다.
+// cache.js는 자기 키가 걸릴 때만 스스로 비우므로 토큰은 그 보호 밖이었다.
+// 되돌리기 검사: supabaseClient의 `storage: authStorage`를 빼면 첫 단정이, setItem의
+// 두 번째 시도를 지우면 둘째가, cache.js의 setStorageRelief 등록을 지우면 넷째가 깨진다.
+{
+  const sc = readFileSync(new URL('../src/services/supabaseClient.js', import.meta.url), 'utf8');
+  assert.ok(/storage:\s*authStorage/.test(sc),
+    '세션을 우리 저장 자리(authStorage)에 담는다 — 기본 localStorage면 한도에서 조용히 진다');
+  const setItem = sc.slice(sc.indexOf('setItem:'), sc.indexOf('};', sc.indexOf('setItem:')));
+  assert.strictEqual((setItem.match(/localStorage\.setItem/g) || []).length, 2,
+    '한도에 걸리면 자리를 내주고 **한 번만** 다시 쓴다(무한히 다시 쓰지 않는다)');
+  assert.ok(/console\.error\(/.test(setItem),
+    '그래도 못 쓰면 조용히 넘기지 않는다 — 다음 갱신에서 로그인이 풀리는 자리다');
+
+  const cache = readFileSync(new URL('../src/services/cache.js', import.meta.url), 'utf8');
+  assert.ok(/setStorageRelief\(\s*\(\)\s*=>\s*purgeKeys\(/.test(cache),
+    '캐시가 자리 내주는 길을 등록한다(접두를 아는 쪽이 지운다)');
+  assert.ok(!/church_cache_v1/.test(sc),
+    'supabaseClient는 캐시 접두를 모른다 — 두 벌로 적으면 한쪽만 바뀌는 날 안 지워진다');
+  console.log('PASS  세션 토큰이 저장소 한도를 견딘다 5가지');
 }
