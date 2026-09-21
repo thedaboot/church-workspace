@@ -145,12 +145,17 @@ export function AuthProvider({ children }) {
   //    아니라 지난 세션의 딥링크로 데려간다.
   //  · 주소의 `?p=&t=`도 함께 내린다 — WorkspaceShell이 그 값을 useState 초기값으로 한 번만
   //    읽으므로, 남겨 두면 로그인 화면 뒤에 지난 업무가 그대로 열린다.
+  //  · **`scope: 'local'`을 반드시 적는다**(2026-09-21 · 아이패드 로그인 풀림의 원인).
+  //    auth-js의 기본값은 `'global'`이라 옵션을 비워 두면 **그 사람의 모든 기기**의
+  //    리프레시 토큰이 서버에서 폐기된다. 폰에서 한 번 로그아웃하면 아이패드는 그 자리에서
+  //    안 튕기고(액세스 토큰이 최대 한 시간 살아 있다) **다음 갱신 때** 조용히 풀린다 —
+  //    그래서 "가끔 로그인하라고 뜬다"로 보였다. 기기마다 세션이 따로인 것이 맞다.
   const signOut = () => {
     autoKakaoTried = true;
     ss.set(AUTO_KAKAO_KEY, '1');
     ss.del(RETURN_KEY);
     try { window.history.replaceState(null, '', '/'); } catch { /* 막힌 히스토리 */ }
-    return supabase.auth.signOut();
+    return supabase.auth.signOut({ scope: 'local' });
   };
 
   // 카카오톡 인앱 브라우저에서 로그인 화면이 뜨면 카카오 로그인을 **한 번** 자동으로 시작한다.

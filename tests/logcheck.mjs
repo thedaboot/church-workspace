@@ -2941,3 +2941,20 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 
   console.log('PASS  9차 마이그레이션 0064·0065·0066 20가지');
 }
+
+// ── 로그아웃이 이 기기만 끊는지 (services/auth.jsx 소스 단정) ────────────────
+// auth-js의 `signOut()` 기본 scope는 `'global'`이라, 옵션을 비우면 **그 사람의 모든
+// 기기**의 리프레시 토큰이 서버에서 폐기된다. 폰에서 한 번 로그아웃하면 아이패드는
+// 그 자리에서 안 튕기고 **다음 토큰 갱신 때** 조용히 풀려서, 원인을 알기 어려운
+// "가끔 로그인하라고 뜬다"로 나타났다(사용자 신고 2026-09-21 · 아이패드 PWA).
+// 이 파일은 supabase 클라이언트를 import해서 노드에서 돌릴 수 없으므로 소스로 지킨다
+// (presence.js·§6-31과 같은 방식).
+// 되돌리기 검사: `signOut({ scope: 'local' })`을 `signOut()`으로 되돌리면 첫 단정이 깨진다.
+{
+  const src = readFileSync(new URL('../src/services/auth.jsx', import.meta.url), 'utf8');
+  assert.ok(/auth\.signOut\(\{\s*scope:\s*'local'\s*\}\)/.test(src),
+    "로그아웃은 scope: 'local' — 기본값 global은 다른 기기의 세션까지 끊는다");
+  assert.ok(!/auth\.signOut\(\s*\)/.test(src),
+    'scope 없는 signOut()이 남아 있지 않다');
+  console.log('PASS  로그아웃이 이 기기만 끊는다 2가지');
+}
