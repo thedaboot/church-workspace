@@ -89,7 +89,11 @@ const NEXT_WEEK_NOTICE = '다음주예배위원';
 // 광고에는 호칭까지 적는다("이수빈 형제") — roles에는 이름만 들어간다(0064의 호칭 규칙과
 // 같은 말들이다). 못 알아본 호칭은 이름에 붙은 채로 남는데, 사람이 보고 고치면 되는
 // 자리라 버리지 않는다 — 지우는 쪽이 더 위험하다.
-const HONORIFICS = /\s*(형제|자매|청년|전도사님|목사님|목사|부장님|집사님|집사|권사님|권사|장로님|장로|리더|순장)\s*$/;
+// **띄어쓰기 한 칸은 반드시 있어야 한다**(`\s+`). 붙여 쓴 것까지 떼면 '강꽃님'처럼
+// 호칭으로 끝나는 **진짜 이름**을 잘라 먹는다(우리 명단에 있는 이름이다).
+// 주보 광고는 사람이 손으로 적는 자리라 넉넉히 받는다 — 여기 없는 호칭은 이름에 붙은
+// 채로 남고, 그러면 명단과 안 이어져서(동그라미가 안 붙어서) 적은 사람이 바로 안다.
+const HONORIFICS = /\s+(형제님|형제|자매님|자매|청년|전도사님|전도사|목사님|목사|사모님|부장님|부장|팀장님|팀장|회장님|회장|부회장|총무님|총무|서기|집사님|집사|권사님|권사|장로님|장로|강사님|간사님|간사|선생님|리더님|리더|순장님|순장|순원)\s*$/;
 const bareName = (v) => String(v || '').replace(/[()（）]/g, ' ').trim().replace(HONORIFICS, '').trim();
 
 // 다음 주 담당자는 **지난 주보의 광고**에 있다(2026-09-22 사용자 지적 · 라이브 확인).
@@ -124,8 +128,12 @@ export function prefillRoles(services, { onDate, kind = SUNDAY_KIND, people = []
     .find(n => roleKey(n?.title).includes(NEXT_WEEK_NOTICE));
   if (!notice) return [];
   const byRole = new Map();
-  for (const line of String(notice.body || '').split('\n')) {
-    const m = /^\s*([^:：]{2,10})\s*[:：]\s*(.+)$/.exec(line);
+  for (const raw of String(notice.body || '').split('\n')) {
+    // 사람이 손으로 적는 자리라 넉넉히 받는다(2026-09-22): 앞에 붙은 불릿(`- `·`· `)을
+    // 걷고, 가르는 표는 콜론(`:`·`：`)이든 붙임표(`-`)든 받는다. 역할 이름은 띄어 적어도
+    // 된다(`대표 기도`) — roleKey가 띄어쓰기를 접는다.
+    const line = raw.replace(/^[\s\-*·•‧・]+/, '');
+    const m = /^(.{2,10}?)\s*(?:[:：]|[-–—])\s*(.+)$/.exec(line);
     if (!m) continue;
     const key = roleKey(m[1]);
     if (!PREFILL_KEYS.has(key) || byRole.has(key)) continue;

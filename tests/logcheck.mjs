@@ -2193,7 +2193,29 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     prefillRoles([{ kind: 'sunday', status: 'published', service_date: '2026-09-20',
       notices: [{ title: '교우동정', body: '없음' }] }], { onDate: '2026-09-27' }), [],
     '광고에 위원이 안 적혀 있으면 지어내지 않는다');
-  console.log('PASS  다음 주 예배 위원 물려받기 7가지');
+  // 호칭은 넉넉히 뗀다(2026-09-22 사용자 요청 — "OOO 청년"으로 적어도 잡히게).
+  // **띄어쓰기 한 칸은 반드시 있어야 한다**: 붙여 쓴 것까지 떼면 '강꽃님'처럼 호칭으로
+  // 끝나는 진짜 이름을 잘라 먹는다(우리 명단에 있는 이름이다).
+  // 되돌리기 검사: HONORIFICS의 `\s+`를 `\s*`로 되돌리면 마지막 단정이 깨진다.
+  const said = (body) => prefillRoles(
+    [{ kind: 'sunday', status: 'published', service_date: '2026-09-20',
+       notices: [{ title: '다음 주 예배 위원', body }] }], { onDate: '2026-09-27' })[0]?.name;
+  for (const [body, want] of [
+    ['대표기도: 이수빈 형제', '이수빈'],
+    ['대표기도: 이수빈 자매', '이수빈'],
+    ['대표기도: 이수빈 청년', '이수빈'],
+    ['대표기도: 이수빈 부장님', '이수빈'],
+    ['대표기도: 이수빈 전도사님', '이수빈'],
+    ['대표기도: 이수빈 순장', '이수빈'],
+    ['대표기도: 이수빈 팀장님', '이수빈'],
+    ['대표기도: 이수빈 회장', '이수빈'],
+    ['대표기도: 이수빈', '이수빈'],
+    ['대표기도 : 이수빈 형제', '이수빈'],
+    ['- 대표기도: 이수빈 형제', '이수빈'],
+  ]) assert.strictEqual(said(body), want, `"${body}" → ${want}`);
+  assert.strictEqual(said('대표기도: 강꽃님'), '강꽃님',
+    '호칭으로 끝나는 진짜 이름은 자르지 않는다(띄어쓰기가 없으면 호칭이 아니다)');
+  console.log('PASS  다음 주 예배 위원 물려받기 20가지');
 
   console.log('PASS  호칭 · 지난 주일 · 출석 메모 33가지');
 }
@@ -3134,5 +3156,71 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const subs = [{ id: 't1', title: '찬양팀  콘티 템플릿 정리' }];
   assert.strictEqual(A.matchSubtask(items[1], subs)?.id, 't1', '띄어쓰기가 달라도 같은 업무다');
   assert.strictEqual(A.matchSubtask(items[0], subs), null, '없으면 null — 아직 업무가 아니다');
-  console.log('PASS  회의록 액션 항목 읽기 10가지');
+
+  // 도막 이름을 2026-09-22에 '청년별 업무'로 바꿨다(사용자 결정). **옛 이름도 읽는다** —
+  // 이미 옛 제목으로 다듬어 저장된 회의록이 있고, 이름을 바꿨다고 그 줄이 사라지면 안 된다.
+  // 되돌리기 검사: ACTION_HEADINGS에서 옛 이름을 빼면 둘째가 깨진다.
+  assert.strictEqual(A.ACTION_HEADING, '청년별 업무', '새로 쓰는 도막 이름');
+  assert.strictEqual(
+    A.parseActionItems(['### 누가 무엇을 언제까지', '- @노준석 · 옛 회의록의 줄'].join('\n')).length, 1,
+    '옛 이름으로 저장된 회의록도 계속 읽는다');
+  console.log('PASS  회의록 액션 항목 읽기 12가지');
+}
+
+// ── 키보드가 올라와도 쓰던 칸이 보이는지 (소스 단정) ─────────────────────────
+// 폰에서 댓글 칸이 키보드에 가리고, 업무 수정에서는 손으로 다시 내려야 했다
+// (사용자 신고 2026-09-22 · 실기기 두 대). 원인 둘:
+//   ① 모바일 업무 창이 `fixed inset-0`이라 **레이아웃 뷰포트**에 붙어 있었다 —
+//      키보드가 올라와 앱 뿌리(--app-vh)가 줄어도 그 창의 바닥은 키보드 밑에 남는다.
+//   ② 모달 안 스크롤 상자에서는 브라우저가 focus된 칸을 알아서 끌어오지 못한다.
+// 키보드는 헤드리스에서 못 띄우므로 소스로 지킨다(presence.js·§6-31과 같은 방식).
+// 되돌리기 검사: 모달의 `h-[var(--app-vh,100dvh)]`를 `inset-0`으로 되돌리면 첫 단정이,
+// App.jsx의 scrollIntoView를 지우면 셋째가 깨진다.
+{
+  const modals = readFileSync(new URL('../src/modals/modals.jsx', import.meta.url), 'utf8');
+  const mobileOpen = modals.slice(modals.indexOf('if (isMobile) {'));
+  assert.ok(/fixed inset-x-0 top-0 h-\[var\(--app-vh,100dvh\)\][^"]*z-50 bg-surface/.test(mobileOpen),
+    '모바일 업무 창은 앱 뿌리와 같은 높이를 쓴다(fixed inset-0이면 키보드 밑에 남는다)');
+  assert.ok(!/className="fixed inset-0 z-50 bg-surface/.test(modals),
+    'inset-0으로 되돌아간 자리가 없다');
+
+  const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const vv = app.slice(app.indexOf('const vv = window.visualViewport;'));
+  assert.ok(/scrollIntoView\(\{ block: 'center' \}\)/.test(vv),
+    '창이 줄면 쓰고 있던 칸을 보이는 자리로 끌어온다');
+  assert.ok(/vv\.height < lastH - 80/.test(vv),
+    '키보드와 주소창 여닫힘을 가른다 — 주소창은 이보다 적게 움직인다');
+  assert.ok(/isContentEditable/.test(vv),
+    '본문 편집기(contenteditable)도 같이 본다 — 업무 수정이 그 자리다');
+  assert.ok(/requestAnimationFrame/.test(vv),
+    '새 높이로 자리가 잡힌 다음에 끌어온다(같은 프레임이면 옛 자리를 잰다)');
+  console.log('PASS  키보드가 올라와도 쓰던 칸이 보인다 6가지');
+}
+
+// ── '승인을 기다려주세요'가 헛뜨지 않는지 (소스 단정) ────────────────────────
+// 신고 2026-09-22(조해리·노준석): 잘 쓰다가 가끔 승인 대기 화면으로 떨어진다.
+// 원인이 둘이었다.
+//   ① AuthGate가 `!approved` 하나로 봐서 **아직 물어보기 전(null)** 에도 그 화면을 띄웠다.
+//   ② 자격을 묻는 rpc가 실패하면 `!!null`이 false가 되어 **true였던 값이 false로 떨어졌다.**
+//      이 물음은 토큰이 갱신될 때마다(한 시간) 다시 던져지므로, 폰에서 신호가 잠깐
+//      끊기면 멀쩡히 쓰던 사람이 그 화면을 봤다.
+// 되돌리기 검사: AuthGate의 `approved === null` 줄을 지우면 첫 단정이, auth.jsx의
+// 실패 시 조기 반환을 지우면 셋째가 깨진다.
+{
+  const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.ok(/approved === null\) return <div className="h-dvh bg-canvas"/.test(app),
+    '아직 모르는 동안에는 승인 대기가 아니라 빈 화면이다');
+  assert.ok(app.indexOf('approved === null') < app.indexOf('enabled && !approved'),
+    '모름 판정이 먼저다 — 뒤에 두면 !approved가 null을 먼저 삼킨다');
+
+  const auth = readFileSync(new URL('../src/services/auth.jsx', import.meta.url), 'utf8');
+  const perm = auth.slice(auth.indexOf("resetMyUid();"));
+  assert.ok(/if \(!res\) \{[\s\S]*?return;/.test(perm),
+    '자격을 못 물어봤으면 알던 값을 그대로 둔다(아니오로 바꾸지 않는다)');
+  assert.ok(/r\.some\(x => x\.error\) \? null :/.test(perm),
+    'rpc 셋 중 하나라도 실패하면 그 회차는 통째로 버린다 — 반만 믿으면 더 나쁘다');
+  assert.ok(/setTimeout\(r, 1500\)/.test(perm), '한 번은 다시 물어본다');
+  assert.ok(perm.indexOf('if (!res)') < perm.indexOf('approved: !!ap.data'),
+    '값을 덮어쓰는 줄은 실패 관문 **뒤**에 있다 — 앞에 있으면 관문이 아무 일도 안 한다');
+  console.log('PASS  승인 대기 화면이 헛뜨지 않는다 6가지');
 }

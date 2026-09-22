@@ -28,6 +28,9 @@ writeFileSync(join(tmp, 'people.mjs'), [
   'export const fetchGroups = async () => [];',
   'export const fetchGroupMembers = async () => [];',
   'export const guestStore = () => ({ all: () => ({}), rows: () => [], set: () => {} });',
+  // people.js의 것과 **같은 값**이어야 한다(호칭 글자는 그 파일이 정본이다 · 0064).
+  // 이 줄이 없어서 roster 스위트가 모듈을 못 읽고 통째로 죽어 있었다(2026-09-22에 발견).
+  "export const HONORIFIC = { pastor: '전도사님', director: '부장님', brother: '형제', sister: '자매', youth: '청년' };",
 ].join('\n'));
 const rosterSrc = readFileSync(new URL('src/services/roster.js', ROOT), 'utf8')
   .replace("import { supabase } from './supabaseClient.js';", 'const supabase = null;')

@@ -616,10 +616,13 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
 
   const 자리들 = [
     {
-      이름: '업무 창', path: `/?p=p1&t=${firstId}`, tip: '.fixed.inset-0.z-50 .tiptap',
+      // **`inset-0`으로 찾지 않는다**(2026-09-22). 폰의 업무 창은 키보드에 가리지 않으려고
+      // `inset-0` 대신 앱 뿌리와 같은 높이(`--app-vh`)를 쓰게 바뀌었다 — 그 자리를 클래스
+      // 글자로 붙잡고 있으면 화면이 나아질 때마다 이 검사가 헛으로 깨진다.
+      이름: '업무 창', path: `/?p=p1&t=${firstId}`, tip: '.fixed.z-50 .tiptap',
       열기: async () => {
         await ev(clickText('수정'));
-        return waitFor(`document.querySelector('.fixed.inset-0.z-50 .tiptap')`);
+        return waitFor(`document.querySelector('.fixed.z-50 .tiptap')`);
       },
     },
     {

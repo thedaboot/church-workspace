@@ -111,15 +111,30 @@ export function AuthProvider({ children }) {
     if (!session) { setPerm({ isAdmin: null, isMaster: null, approved: null }); return; }
     let alive = true;
     (async () => {
-      const [a, m, ap] = await Promise.all([
-        supabase.rpc('is_admin'),
-        supabase.rpc('is_master'),
-        supabase.rpc('is_approved'),
-      ]);
+      // **못 물어본 것을 '아니오'로 바꾸지 않는다**(2026-09-22 신고 · 조해리·노준석).
+      // 이 물음은 토큰이 갱신될 때마다(한 시간) 다시 던져지는데, 폰에서 신호가 잠깐
+      // 끊기면 rpc가 에러로 돌아오고 예전에는 `!!null`이 false가 되어 멀쩡히 쓰던
+      // 사람이 '승인을 기다려주세요' 화면으로 떨어졌다. 실패하면 **앞서 알던 값을
+      // 그대로 두고**, 한 번 더 물어본다. 그래도 안 되면 다음 갱신 때 또 묻는다.
+      const ask = async () => {
+        const r = await Promise.all([
+          supabase.rpc('is_admin'), supabase.rpc('is_master'), supabase.rpc('is_approved'),
+        ]);
+        return r.some(x => x.error) ? null : r;
+      };
+      let res = await ask();
+      if (!res && alive) {
+        await new Promise(r => setTimeout(r, 1500));
+        if (alive) res = await ask();
+      }
       if (!alive) return;
-      if (a.error) console.error('[auth] is_admin 실패:', a.error);
-      if (m.error) console.error('[auth] is_master 실패:', m.error);
-      if (ap.error) console.error('[auth] is_approved 실패:', ap.error);
+      if (!res) {
+        // 두 번 다 실패 — 아는 것을 지우지 않는다. 처음이라면 null(아직 모름)로 남고,
+        // AuthGate는 그때 승인 대기가 아니라 빈 화면을 보여 준다.
+        console.error('[auth] 자격을 확인하지 못했어요 — 알던 값을 그대로 둡니다');
+        return;
+      }
+      const [a, m, ap] = res;
       setPerm({ isAdmin: !!a.data, isMaster: !!m.data, approved: !!ap.data });
     })();
     return () => { alive = false; };

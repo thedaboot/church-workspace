@@ -51,10 +51,17 @@ const ROW = { borderBottom: '1px solid var(--app-line)' };
 const CHIP_ROW = 'flex items-center gap-1.5 flex-nowrap min-w-0 overflow-x-auto scrollbar-hide x-scroll-lock'
   + " after:content-[''] after:shrink-0 after:w-3";
 
-// 고를 수 있는 팀은 **사역 팀만**이다. CONFIG.TEAMS의 '임원진'·'교역자'는 팀이 아니라
-// 직분이고, 명단에서는 아래 '직분' 줄이 그 자리를 맡는다(people_roles · is_pastor).
-// 같은 이름이 팀 칩과 직분 칩에 둘 다 서면 어느 쪽을 눌러야 하는지 알 수 없다.
-const TEAM_CHIPS = Object.entries(CONFIG.TEAMS).filter(([t]) => t.endsWith('팀'));
+// 고를 수 있는 것은 **사역 팀 + 순 자리(순장·순원)**다.
+// CONFIG.TEAMS의 '임원진'·'교역자'는 팀이 아니라 직분이고, 명단에서는 아래 '직분' 줄이
+// 그 자리를 맡는다(people_roles · is_pastor) — 같은 이름이 두 줄에 서면 어느 쪽을 눌러야
+// 하는지 알 수 없어서 뺀다.
+//
+// 순장·순원은 2026-09-22에 **더했다**(사용자 요청). 그전에는 `t.endsWith('팀')` 하나로
+// 걸러서 임원진·교역자와 같이 빠져 있었는데, 그 둘과 달리 순 자리는 직분 줄이 맡지
+// 않는다 — 명단에서 고를 데가 아예 없었다. 여기서 고른 값은 팀 보드(`team:순장`)와
+// 대시보드 '팀별 남은 업무'에도 같이 선다(config.js 주석 — 알고 고른 길이다).
+const SUN_SEATS = ['순장', '순원'];
+const TEAM_CHIPS = Object.entries(CONFIG.TEAMS).filter(([t]) => t.endsWith('팀') || SUN_SEATS.includes(t));
 
 // 배지 색은 토큰만 쓴다. 교역자는 CONFIG.TEAMS의 '교역자'와 같은 계열로 맞춘다.
 const BADGE_STYLE = {

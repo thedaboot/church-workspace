@@ -89,6 +89,11 @@ function AuthGate() {
   useEffect(() => { setCacheScope(session?.user?.id); }, [session?.user?.id]);
   if (loading) return <div className="h-dvh bg-canvas" />;
   if (enabled && !session) return <LoginScreen />;
+  // **아직 모르는 것(null)과 아닌 것(false)을 가른다**(2026-09-22 신고 — "가끔 승인
+  // 기다려주세요가 뜬다"). 예전에는 `!approved` 하나로 봐서, 물어보기 전(null)에도
+  // 승인 대기 화면이 떴다. 토큰은 한 시간마다 갱신되고 그때마다 이 물음을 다시
+  // 던지므로, 폰에서 잠깐 신호가 끊기면 멀쩡히 쓰던 사람이 그 화면으로 떨어졌다.
+  if (enabled && approved === null) return <div className="h-dvh bg-canvas" />;
   // 승인 전에는 워크스페이스를 아예 마운트하지 않는다 — DB도 막혀 있어서(0022)
   // 들여보내 봐야 빈 화면에 오류만 뜬다. 무엇을 기다리는지 말해 주는 편이 맞다.
   if (enabled && !approved) return <LoginScreen waiting />;
@@ -458,11 +463,27 @@ function WorkspaceShell() {
     const vv = window.visualViewport;
     if (!vv) return undefined;
     const root = document.documentElement;
+    let lastH = vv.height;
     const apply = () => {
       root.style.setProperty('--app-vh', `${Math.round(vv.height)}px`);
       // 아이폰이 이미 문서를 밀어 놨으면 되돌린다. 뿌리가 보이는 창만큼이면 문서는
       // 스크롤될 것이 없으므로 이 호출은 대개 아무 일도 하지 않는다(되돌릴 때만 움직인다).
       if (window.scrollY > 0) window.scrollTo(0, 0);
+      // **키보드가 올라오면 쓰고 있던 칸을 끌어온다**(2026-09-22 신고 — 댓글 칸이
+      // 키보드에 가리고, 업무 수정에서는 손으로 다시 내려야 했다). 창이 줄어드는 것은
+      // 뿌리 높이로 이미 받아 냈지만, **그 칸이 줄어든 창 안에 있는지는 다른 문제**다 —
+      // 모달 안 스크롤 상자에서는 브라우저가 알아서 끌어오지 못한다.
+      // 80px은 키보드와 주소창 여닫힘을 가르는 선이다(주소창은 이보다 적게 움직인다).
+      const shrank = vv.height < lastH - 80;
+      lastH = vv.height;
+      if (!shrank) return;
+      const el = document.activeElement;
+      const typing = !!el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+      if (!typing) return;
+      // 새 높이로 자리가 잡힌 다음에 끌어온다 — 같은 프레임에 부르면 옛 자리를 잰다.
+      requestAnimationFrame(() => {
+        try { el.scrollIntoView({ block: 'center' }); } catch { /* 옛 브라우저 */ }
+      });
     };
     apply();
     vv.addEventListener('resize', apply);

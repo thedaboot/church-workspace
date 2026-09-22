@@ -16,7 +16,12 @@
 
 // 도막 제목. 다듬기 프롬프트가 이 글자를 쓴다(ai.js의 회의록 구조 규칙·예시 3).
 // 바꾸려면 **두 곳을 같이** 바꿔야 한다 — 한쪽만 바꾸면 조용히 0건이 된다.
-export const ACTION_HEADING = '누가 무엇을 언제까지';
+//
+// 2026-09-22에 `누가 무엇을 언제까지` → `청년별 업무`로 바꿨다(사용자 결정).
+// **옛 이름도 계속 읽는다** — 이미 그 제목으로 다듬어 저장된 회의록이 있고, 이름을
+// 바꿨다고 그 카드의 줄이 사라지면 안 된다. 앞엣것이 새로 쓰는 이름이다.
+export const ACTION_HEADINGS = ['청년별 업무', '누가 무엇을 언제까지'];
+export const ACTION_HEADING = ACTION_HEADINGS[0];
 
 // 가운뎃점은 우리 글에서 항목을 가르는 표다(화면 곳곳이 그렇다). 모델이 어길 때를
 // 대비해 빗금·하이픈도 받는다 — 못 가르면 줄 전체를 '무엇을'로 둔다(이름 없이).
@@ -52,7 +57,7 @@ function isoOf(text, now) {
 export function parseActionItems(markdown, { now = new Date() } = {}) {
   const lines = String(markdown || '').split('\n');
   // 도막 제목 줄 찾기 — `### 누가 무엇을 언제까지` (제목 수준은 가리지 않는다)
-  let i = lines.findIndex(l => /^#{1,4}\s/.test(l) && l.includes(ACTION_HEADING));
+  let i = lines.findIndex(l => /^#{1,4}\s/.test(l) && ACTION_HEADINGS.some(h => l.includes(h)));
   if (i < 0) return [];
   const out = [];
   for (i += 1; i < lines.length; i++) {
