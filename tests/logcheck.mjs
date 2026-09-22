@@ -3183,7 +3183,22 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(
     A.parseActionItems(['### 청년별 담당 업무', '- @찬양팀 · 10월 콘티 확정 · 9월 26일까지']
       .join('\n'), { now })[0].name, '찬양팀', '팀 이름도 맡는 쪽으로 읽는다');
-  console.log('PASS  회의록 액션 항목 읽기 19가지');
+
+  // **한 줄에 여럿**(2026-09-22 그릴링 결정) — 같은 팀 사람이 둘이면 줄은 하나다.
+  // 되돌리기 검사: peopleOf가 @로 안 가르면 첫 단정이, 통째로 하나로 안 보면 셋째가 깨진다.
+  const many = A.parseActionItems(
+    ['### 청년별 담당 업무', '- @조해리 @김승찬 · 10월 콘티 확정 · 9월 26일까지'].join('\n'), { now })[0];
+  assert.deepStrictEqual(many.names, ['조해리', '김승찬'], '@가 여럿이면 다 읽는다');
+  assert.strictEqual(many.what, '10월 콘티 확정', '이름 도막은 할 일에 섞이지 않는다');
+  assert.strictEqual(many.name, '조해리', 'name은 첫 사람(한 사람일 때의 편의값)');
+  assert.deepStrictEqual(
+    A.parseActionItems(['### 청년별 담당 업무', '- @엔지니어팀 · PPT 완료 일정 잡기 · 9월 26일까지']
+      .join('\n'), { now })[0].names, ['엔지니어팀'],
+    '@가 하나면 그 하나 — 팀 이름도 같은 자리다');
+  assert.deepStrictEqual(
+    A.parseActionItems(['### 청년별 담당 업무', '- 이름 없이 적은 할 일 · 9월 26일까지']
+      .join('\n'), { now })[0].names, [], '맡는 쪽이 없으면 빈 배열이다');
+  console.log('PASS  회의록 액션 항목 읽기 24가지');
 }
 
 // ── 키보드가 올라와도 쓰던 칸이 보이는지 (소스 단정) ─────────────────────────
@@ -3207,10 +3222,16 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const vv = app.slice(app.indexOf('const vv = window.visualViewport;'));
   assert.ok(/requestAnimationFrame\(keepCaretVisibleSettled\)/.test(vv),
     '창이 줄면 커서를 보이는 자리로 끌어온다(새 높이가 잡힌 다음 프레임에)');
-  // 키보드는 한 프레임에 다 안 올라온다(아이폰이 0.25초쯤 민다) — 한 번만 맞추면
-  // 그 뒤 사파리가 또 굴려서 어긋난다(실기기에서 제목 줄까지만 올라왔다 · 2026-09-22).
-  assert.ok(/for \(const ms of \[120, 280, 450\]\) setTimeout\(keepCaretVisible, ms\)/.test(app),
-    '키보드가 다 올라올 때까지 몇 번 더 본다');
+  // 키보드가 올라오는 동안 **매 프레임 따라간다**(2026-09-22 실기기 — 시각마다 툭툭
+  // 밀었더니 "뚜두둑" 끊겨 보였다). 비율로 좁히면 움직임이 이어지고, 목표가 계속
+  // 바뀌어도 그때그때 다시 잰다. 되돌리기 검사: rAF 되풀이를 setTimeout 몇 개로
+  // 바꾸면 첫 단정이, 2px 스냅을 빼면 셋째가 깨진다(비율로만 좁히면 영영 안 닿는다).
+  assert.ok(/followId = requestAnimationFrame\(step\)/.test(app),
+    '키보드가 올라오는 동안 프레임마다 따라간다');
+  assert.ok(/dy \* FOLLOW_EASE/.test(app), '한 프레임에 남은 거리의 일부만 좁힌다');
+  assert.ok(/Math\.abs\(dy\) < 2 \? dy :/.test(app), '2px 안쪽은 한 번에 붙인다');
+  assert.ok(/cancelAnimationFrame\(followId\)/.test(app),
+    '다시 부르면 앞의 따라가기를 멈춘다 — 둘이 겹치면 서로 민다');
   // 업무 창은 창 전체가 한 번, 그 안의 상세 칸이 또 한 번 구르는 겹 구조다.
   assert.ok(/left -= \(n\.scrollTop - was\)/.test(app),
     '한 상자로 모자라면 바깥 상자를 이어서 민다');
@@ -3227,7 +3248,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '아래 도구 줄(저장·취소) 높이를 셈이 안다 — 그 줄이 커서를 가리던 자리다');
   assert.ok(/isContentEditable/.test(app),
     '본문 편집기(contenteditable)도 같이 본다 — 업무 수정이 그 자리다');
-  console.log('PASS  키보드가 올라와도 커서가 보인다 11가지');
+  console.log('PASS  키보드가 올라와도 커서가 보인다 14가지');
 }
 
 // ── '승인을 기다려주세요'가 헛뜨지 않는지 (소스 단정) ────────────────────────

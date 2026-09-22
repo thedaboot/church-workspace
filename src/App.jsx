@@ -48,27 +48,43 @@ function shiftBy(el, dy) {
   if (Math.abs(left) > 1) window.scrollBy(0, left);
 }
 
-function keepCaretVisible() {
+// 지금 커서가 보이는 띠에서 얼마나 벗어나 있나. 0이면 그대로 두면 된다.
+function caretGap() {
   const vv = window.visualViewport;
   const el = document.activeElement;
-  if (!vv || !el) return;
-  if (!(el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+  if (!vv || !el) return { el: null, dy: 0 };
+  if (!(el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return { el: null, dy: 0 };
   // 쓸 수 있는 띠 = 보이는 창에서 아래 도구 줄(data-kb-bar)을 뺀 구간
   let bottom = vv.height;
   for (const bar of document.querySelectorAll('[data-kb-bar]')) {
     const r = bar.getBoundingClientRect();
     if (r.height && r.top < bottom) bottom = Math.min(bottom, r.top);
   }
-  const dy = caretShift(caretBox(el), { top: 0, bottom });
-  if (dy) shiftBy(el, dy);
+  return { el, dy: caretShift(caretBox(el), { top: 0, bottom }) };
 }
 
-// 키보드는 **한 프레임에 다 올라오지 않는다**(아이폰이 0.25초쯤 민다). 그동안 사파리가
-// 제 나름대로 또 굴리기도 해서, 한 번만 맞추면 그 뒤에 어긋난다. 몇 번 더 본다 —
-// 이미 맞으면 caretShift가 0을 줘서 아무 일도 안 일어난다(굴러 있는 화면을 흔들지 않는다).
+function keepCaretVisible() {
+  const { el, dy } = caretGap();
+  if (el && dy) shiftBy(el, dy);
+}
+
+// 키보드가 올라오는 **0.25초 동안 매 프레임 따라간다**(2026-09-22 실기기 — 시각마다
+// 툭툭 밀었더니 "뚜두둑" 끊겨 보였다). 한 프레임에 남은 거리의 일부만 좁히면 움직임이
+// 이어지고, 키보드가 아직 올라오는 중이라 목표가 계속 바뀌어도 그때그때 다시 잰다.
+// 다 맞으면 dy가 0이라 저절로 멈춘다 — 굴러 있는 화면을 흔들지 않는다.
+const FOLLOW_MS = 520;        // 아이폰 키보드가 다 올라오고도 조금 남는 길이
+const FOLLOW_EASE = 0.34;     // 한 프레임에 좁히는 비율. 크면 딱딱하고 작으면 늘어진다
+let followId = 0;
 function keepCaretVisibleSettled() {
-  keepCaretVisible();
-  for (const ms of [120, 280, 450]) setTimeout(keepCaretVisible, ms);
+  cancelAnimationFrame(followId);
+  const until = performance.now() + FOLLOW_MS;
+  const step = () => {
+    const { el, dy } = caretGap();
+    // 2px 안쪽은 한 번에 붙인다 — 비율로만 좁히면 영영 안 닿는다
+    if (el && dy) shiftBy(el, Math.abs(dy) < 2 ? dy : dy * FOLLOW_EASE);
+    if (performance.now() < until) followId = requestAnimationFrame(step);
+  };
+  followId = requestAnimationFrame(step);
 }
 import { MembersView } from './views/membersView.jsx';
 // v2 화면 (docs/V2.md §3) — 각 줄기가 자기 파일만 채운다

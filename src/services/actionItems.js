@@ -35,6 +35,15 @@ const clean = (v) => String(v || '').trim();
 // 멘션 표기(@이름)와 굵게·형광펜 표시를 걷어 이름만 남긴다
 const plainName = (v) => clean(v).replace(/^@/, '').replace(/\*\*|==/g, '').trim();
 
+// 맡는 쪽 도막 → 이름 배열. `@조해리 @박지호`처럼 여럿일 수 있고, @가 없으면 통째로 하나다
+// (`찬양팀` 같은 팀 이름이 그렇다). 빈 것은 버린다.
+function peopleOf(head) {
+  const t = clean(head);
+  if (!t) return [];
+  if (!t.includes('@')) return [plainName(t)].filter(Boolean);
+  return t.split(/\s+/).filter(x => x.startsWith('@')).map(plainName).filter(Boolean);
+}
+
 // 'YYYY-MM-DD'. 월·일만 있으면 **기준일에서 가장 가까운 앞날**의 해로 채운다 —
 // 12월 회의에서 "1월 5일까지"라고 적으면 지난 1월이 아니라 다음 해 1월이다.
 function isoOf(text, now) {
@@ -70,17 +79,21 @@ export function parseActionItems(markdown, { now = new Date() } = {}) {
     const body = clean(m[1]);
     if (!body) continue;
     const parts = body.split(SEP).map(clean).filter(Boolean);
-    // 이름은 **첫 도막이 사람처럼 보일 때만** 쓴다 — @표기이거나 짧은 글자다.
+    // 맡는 쪽은 **첫 도막이 사람처럼 보일 때만** 쓴다 — @표기이거나 짧은 글자다.
     // 아니면 이름 없이 통째로 '무엇을'이다(모델이 한 문장으로 적은 경우).
+    //
+    // **한 줄에 여럿일 수 있다**(사용자 결정 2026-09-22): 같은 팀 사람이 둘이면
+    // `@조해리 @박지호 · 조편성 방법 정하기`처럼 적는다. 할 일이 하나이니 줄도 하나다.
     const head = parts[0] || '';
     const named = parts.length > 1 && (head.startsWith('@') || plainName(head).length <= 6);
-    const name = named ? plainName(head) : '';
+    const names = named ? peopleOf(head) : [];
     const rest = named ? parts.slice(1) : parts;
     const dueText = rest.length > 1 && (MONTH_DAY.test(rest[rest.length - 1]) || ISO_DAY.test(rest[rest.length - 1]))
       ? rest[rest.length - 1] : '';
     const what = (dueText ? rest.slice(0, -1) : rest).join(' · ').replace(/\*\*|==/g, '').trim();
     if (!what) continue;
-    out.push({ name, what, dueText, dueDate: isoOf(dueText || body, now), raw: body });
+    // `name`은 한 사람일 때의 편의값이다 — 화면은 `names`를 쓴다.
+    out.push({ names, name: names[0] || '', what, dueText, dueDate: isoOf(dueText || body, now), raw: body });
   }
   return out;
 }
