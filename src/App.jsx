@@ -33,13 +33,19 @@ function caretBox(el) {
   return box ? box.getBoundingClientRect() : el.getBoundingClientRect();
 }
 
-// 실제로 굴릴 수 있는 가장 가까운 상자. 없으면 null(창 전체가 구른다).
-function scrollBox(el) {
-  for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+// 굴릴 수 있는 상자를 **바깥으로 올라가며 차례로** 민다. 하나로는 모자랄 수 있다 —
+// 업무 창은 창 전체가 한 번, 그 안의 상세 칸이 또 한 번 구르는 겹 구조다(실기기에서
+// 첫 상자만 밀었더니 제목 줄까지만 올라오고 커서 줄은 도구 바 뒤에 남았다 · 2026-09-22).
+function shiftBy(el, dy) {
+  let left = dy;
+  for (let n = el.parentElement; n && n !== document.body && Math.abs(left) > 1; n = n.parentElement) {
     const oy = getComputedStyle(n).overflowY;
-    if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 1) return n;
+    if (!(oy === 'auto' || oy === 'scroll') || n.scrollHeight <= n.clientHeight + 1) continue;
+    const was = n.scrollTop;
+    n.scrollTop = was + left;            // **부드럽게가 아니라 바로** — 아래 여러 번 부른다
+    left -= (n.scrollTop - was);
   }
-  return null;
+  if (Math.abs(left) > 1) window.scrollBy(0, left);
 }
 
 function keepCaretVisible() {
@@ -54,10 +60,15 @@ function keepCaretVisible() {
     if (r.height && r.top < bottom) bottom = Math.min(bottom, r.top);
   }
   const dy = caretShift(caretBox(el), { top: 0, bottom });
-  if (!dy) return;
-  const box = scrollBox(el);
-  if (box) box.scrollBy({ top: dy, behavior: 'smooth' });
-  else window.scrollBy({ top: dy, behavior: 'smooth' });
+  if (dy) shiftBy(el, dy);
+}
+
+// 키보드는 **한 프레임에 다 올라오지 않는다**(아이폰이 0.25초쯤 민다). 그동안 사파리가
+// 제 나름대로 또 굴리기도 해서, 한 번만 맞추면 그 뒤에 어긋난다. 몇 번 더 본다 —
+// 이미 맞으면 caretShift가 0을 줘서 아무 일도 안 일어난다(굴러 있는 화면을 흔들지 않는다).
+function keepCaretVisibleSettled() {
+  keepCaretVisible();
+  for (const ms of [120, 280, 450]) setTimeout(keepCaretVisible, ms);
 }
 import { MembersView } from './views/membersView.jsx';
 // v2 화면 (docs/V2.md §3) — 각 줄기가 자기 파일만 채운다
@@ -522,7 +533,7 @@ function WorkspaceShell() {
       // 80px은 키보드와 주소창 여닫힘을 가르는 선이다(주소창은 이보다 적게 움직인다).
       const shrank = vv.height < lastH - 80;
       lastH = vv.height;
-      if (shrank) requestAnimationFrame(keepCaretVisible);
+      if (shrank) requestAnimationFrame(keepCaretVisibleSettled);
     };
     apply();
     vv.addEventListener('resize', apply);

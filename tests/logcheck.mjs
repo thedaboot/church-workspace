@@ -3167,7 +3167,23 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
       A.parseActionItems([`### ${old}`, '- @노준석 · 옛 회의록의 줄'].join('\n')).length, 1,
       `옛 이름(${old})으로 저장된 회의록도 계속 읽는다`);
   }
-  console.log('PASS  회의록 액션 항목 읽기 13가지');
+  // 본문에서 그 도막을 걷어낸 글 — 화면은 이걸 그리고 도막은 부품이 보여 준다
+  // (2026-09-22 · 같은 내용이 본문에도 부품에도 떠서 겹쳤다).
+  // 되돌리기 검사: stripActionSection이 다음 도막에서 멈추지 않으면 둘째가 깨진다.
+  const stripped = A.stripActionSection(MD);
+  assert.ok(!stripped.includes('수련회 장소 3곳 견적'), '그 도막의 줄은 본문에서 걷힌다');
+  assert.ok(stripped.includes('아직 정하지 못한 것') && stripped.includes('회비 금액'),
+    '뒤에 오는 도막은 그대로 남는다 — 통째로 잘라 먹지 않는다');
+  assert.ok(stripped.includes('정한 것') && stripped.includes('수련회는'),
+    '앞에 오는 도막도 그대로 남는다');
+  assert.ok(!/\n{3}/.test(stripped), '걷어낸 자리에 빈 줄이 겹쳐 남지 않는다');
+  assert.strictEqual(A.stripActionSection('### 정한 것\n- 아무것도'),
+    '### 정한 것\n- 아무것도', '그 도막이 없으면 글을 건드리지 않는다');
+  // **팀도 맡는 쪽이 된다**(프롬프트 예시 4) — 이름이 없으면 팀으로 보낸다
+  assert.strictEqual(
+    A.parseActionItems(['### 청년별 담당 업무', '- @찬양팀 · 10월 콘티 확정 · 9월 26일까지']
+      .join('\n'), { now })[0].name, '찬양팀', '팀 이름도 맡는 쪽으로 읽는다');
+  console.log('PASS  회의록 액션 항목 읽기 19가지');
 }
 
 // ── 키보드가 올라와도 쓰던 칸이 보이는지 (소스 단정) ─────────────────────────
@@ -3189,8 +3205,17 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 
   const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
   const vv = app.slice(app.indexOf('const vv = window.visualViewport;'));
-  assert.ok(/requestAnimationFrame\(keepCaretVisible\)/.test(vv),
+  assert.ok(/requestAnimationFrame\(keepCaretVisibleSettled\)/.test(vv),
     '창이 줄면 커서를 보이는 자리로 끌어온다(새 높이가 잡힌 다음 프레임에)');
+  // 키보드는 한 프레임에 다 안 올라온다(아이폰이 0.25초쯤 민다) — 한 번만 맞추면
+  // 그 뒤 사파리가 또 굴려서 어긋난다(실기기에서 제목 줄까지만 올라왔다 · 2026-09-22).
+  assert.ok(/for \(const ms of \[120, 280, 450\]\) setTimeout\(keepCaretVisible, ms\)/.test(app),
+    '키보드가 다 올라올 때까지 몇 번 더 본다');
+  // 업무 창은 창 전체가 한 번, 그 안의 상세 칸이 또 한 번 구르는 겹 구조다.
+  assert.ok(/left -= \(n\.scrollTop - was\)/.test(app),
+    '한 상자로 모자라면 바깥 상자를 이어서 민다');
+  assert.ok(!/behavior: 'smooth'/.test(app),
+    '커서 맞추기는 바로 민다 — 부드럽게 하면 여러 번 부르는 것과 서로 싸운다');
   assert.ok(/vv\.height < lastH - 80/.test(vv),
     '키보드와 주소창 여닫힘을 가른다 — 주소창은 이보다 적게 움직인다');
   assert.ok(/selectionchange/.test(vv) && /setTimeout\(keepCaretVisible, 120\)/.test(vv),
@@ -3202,7 +3227,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '아래 도구 줄(저장·취소) 높이를 셈이 안다 — 그 줄이 커서를 가리던 자리다');
   assert.ok(/isContentEditable/.test(app),
     '본문 편집기(contenteditable)도 같이 본다 — 업무 수정이 그 자리다');
-  console.log('PASS  키보드가 올라와도 커서가 보인다 8가지');
+  console.log('PASS  키보드가 올라와도 커서가 보인다 11가지');
 }
 
 // ── '승인을 기다려주세요'가 헛뜨지 않는지 (소스 단정) ────────────────────────

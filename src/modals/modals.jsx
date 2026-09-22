@@ -5,7 +5,7 @@ import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress,
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { AiService, isFallbackText } from '../services/ai.js';
-import { parseActionItems, matchSubtask } from '../services/actionItems.js';
+import { parseActionItems, matchSubtask, stripActionSection } from '../services/actionItems.js';
 import { RichText } from '../components/RichText.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { Bar } from '../views/dashboardParts.jsx';
@@ -553,10 +553,13 @@ function ActionItems({ content, subtasks = [], onCreate }) {
           const on = !made && !off.has(it.raw);
           return (
             <div key={it.raw} className="flex flex-wrap items-center gap-2.5 py-2">
-              {made ? <span className="w-[17px] shrink-0" aria-hidden /> : (
+              {/* 이미 만든 줄에는 **빈 자리를 남기지 않는다**(사용자 지적 2026-09-22) —
+                  체크칸이 있던 자리를 비워 두면 얼굴이 어중간하게 밀려 보인다.
+                  체크칸 색은 토큰이라 라이트·다크가 저절로 갈린다(accent-color). */}
+              {!made && (
                 <input type="checkbox" checked={on} onChange={() => toggle(it.raw)}
                   aria-label={`${it.what} 고르기`}
-                  className="w-[17px] h-[17px] shrink-0 accent-[var(--app-accent)]" />
+                  className="action-check w-[17px] h-[17px] shrink-0 rounded-[4px] border border-line bg-surface accent-[var(--app-accent)] transition-colors" />
               )}
               {/* 이름 앞에 사람 동그라미 — 누구 몫인지가 글자보다 먼저 읽힌다
                   (사용자 요청 2026-09-22). 사진은 Avatar가 이름으로 찾아 온다(게스트
@@ -579,9 +582,11 @@ function ActionItems({ content, subtasks = [], onCreate }) {
         })}
       </div>
       {picked.length > 0 && (
-        <div className="flex justify-end pt-2">
+        // 골랐을 때만 서는 줄이라 **불쑥 튀어나온다** — 아래에서 살짝 올라오며 든다
+        // (사용자 요청 2026-09-22). 줄 높이는 그대로라 위 목록이 튀지 않는다.
+        <div className="flex justify-end pt-2 animate-in fade-in slide-in-from-bottom-1 duration-200">
           <button type="button" onClick={make}
-            className="h-9 px-4 rounded-md bg-accent text-white text-xs font-semibold transition active:scale-95">
+            className="h-9 px-4 rounded-md bg-accent text-white text-xs font-semibold transition active:scale-95 hover:bg-accent-strong">
             하위 업무로
           </button>
         </div>
@@ -973,7 +978,10 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
       {/* text-sm: RichText는 크기를 강제하지 않는다(댓글·요약은 12px로 써야 해서) —
           본문의 기준 크기는 이 래퍼가 준다 */}
       <div className="prose prose-sm max-w-none mt-3 min-h-[120px] text-sm">
-        <RichText content={formData.content} onToggleTodo={onTodoToggle} />
+        {/* 청년별 담당 업무 도막은 **여기서 그리지 않는다** — 바로 아래 부품이 얼굴과
+            체크칸까지 붙여 훨씬 잘 보여 준다(사용자 지적 2026-09-22 · 같은 내용이 두 번
+            보였다). 저장된 글에는 그대로 남는다 — 그 도막이 곧 그 항목들의 저장 자리다. */}
+        <RichText content={stripActionSection(formData.content)} onToggleTodo={onTodoToggle} />
       </div>
 
       {/* 보기 모드에서도 체크는 눌린다 — 하위 업무를 끝낼 때마다 수정 모드로 들어갔다

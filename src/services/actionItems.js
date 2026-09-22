@@ -85,6 +85,28 @@ export function parseActionItems(markdown, { now = new Date() } = {}) {
   return out;
 }
 
+// 본문에서 그 도막을 **통째로 걷어낸 글**. 화면은 이 글을 그리고, 그 도막은 아래
+// '청년별 담당 업무' 부품이 훨씬 잘 보여 준다 — 같은 내용이 두 번 보이지 않게 한다
+// (사용자 지적 2026-09-22 · 본문에도 적히고 부품에도 떠서 겹쳤다).
+//
+// **저장된 글은 그대로 둔다.** 걷는 것은 그리는 자리뿐이다 — 그 도막이 곧 그 항목들의
+// 저장 자리이고(따로 만든 칸이 없다), 지우면 부품이 세울 것도 사라진다.
+//
+// 본문 체크리스트의 번호는 안 밀린다 — 걷는 줄은 전부 `- ` 평범한 불릿이고
+// utils.toggleTodoLine은 `- [ ]` 모양만 센다.
+export function stripActionSection(markdown) {
+  const lines = String(markdown || '').split('\n');
+  const at = lines.findIndex(l => /^#{1,4}\s/.test(l) && ACTION_HEADINGS.some(h => l.includes(h)));
+  if (at < 0) return String(markdown || '');
+  let end = lines.length;
+  for (let i = at + 1; i < lines.length; i++) {
+    if (/^#{1,4}\s/.test(lines[i])) { end = i; break; }
+  }
+  const out = [...lines.slice(0, at), ...lines.slice(end)];
+  // 걷어낸 자리에 빈 줄이 겹쳐 남지 않게 다듬는다
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 // 이 항목이 이미 하위 업무가 되었나 — 제목 글자로 견준다(띄어쓰기·대소문자를 접는다).
 // 통합 검색의 norm과 같은 판단이다(layout.jsx): 사람이 옮겨 적으면서 띄어쓰기가 흔들린다.
 export const titleKey = (v) => String(v || '').toLowerCase().replace(/\s+/g, '');
