@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { CheckSquare, Clock, X, User, Hash, Wand2, Undo2, CalendarRange, Trash2, Check, Pin, ArrowLeftRight, Maximize2, Minimize2, PanelRight, PanelRightClose } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { formatDate, isMobileViewport, keepVisible, generateId, subtaskProgress, summaryOutdated, toggleTodoLine, byNewest } from '../utils.js';
+import { formatDate, formatDay, isMobileViewport, keepVisible, generateId, subtaskProgress, summaryOutdated, toggleTodoLine, byNewest, taskEditDirty } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { AiService, isFallbackText } from '../services/ai.js';
-import { parseActionItems, matchSubtask, stripActionSection } from '../services/actionItems.js';
+import { parseActionItems, matchSubtask, stripActionSection, writeActionSection, namesLabel } from '../services/actionItems.js';
 import { RichText } from '../components/RichText.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { Bar } from '../views/dashboardParts.jsx';
@@ -15,7 +16,7 @@ import { CommentPanel, ActivityPanel, CommentInput } from './comments.jsx';
 // TipTap/ProseMirror는 무거워 초기 번들에서 분리한다 (업무 수정 모드에서만 필요)
 const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').then(m => ({ default: m.MarkdownEditor })));
 const EditorSkeleton = () => <div className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none dc-skeleton" />;
-import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
+import { ConfirmPopover, useAnchoredPos } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { isMyUid } from '../services/supabaseClient.js';
 import { getMemberNames, loadCardDetail, cardSummaryCloud, cardWritePromise } from '../services/cloudSync.js';
@@ -198,6 +199,9 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
       </div>
     </>
   );
+  // 수정 중에 **정말 바뀐 것이 있나** — 닫기가 물어볼지 정한다
+  const dirty = isEditMode && taskEditDirty(formData, source);
+
   const footerInner = (
     <>
       <div className="flex items-center gap-2 min-w-0">
@@ -222,7 +226,22 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         {isEditMode
           ? <button type="button" onClick={handleSubmit} className="flex-1 sm:flex-none bg-accent hover:bg-accent-strong text-white px-6 py-2 rounded-md text-xs font-semibold transition active:scale-95">저장</button>
           : <button type="button" onClick={onEdit} className="flex-1 sm:flex-none bg-accent-weak hover:brightness-95 text-accent-text px-6 py-2 rounded-md text-xs font-semibold transition active:scale-95">수정</button>}
-        <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2 text-xs font-medium text-fg-muted bg-surface-hover hover:bg-line rounded-md transition active:scale-95">닫기</button>
+        {/* 고친 게 있는 채로 닫으면 그대로 날아간다(사용자 지적 2026-09-22).
+            **깃발이 아니라 값을 견준다**(utils.taskEditDirty) — 커서만 옮겨도 서는
+            깃발로 물으면 안 고친 사람에게도 창이 떠서 금방 성가신 것이 되고, 그러면
+            사람은 창을 안 읽고 누른다. 안 고쳤으면 그냥 닫힌다. */}
+        {dirty ? (
+          <ConfirmPopover
+            message="저장하지 않은 내용이 있어요"
+            altLabel="저장하고 닫기" onAlt={() => handleSubmit({ preventDefault() {} })}
+            confirmLabel="무시하고 닫기" onConfirm={onClose}
+            cancelLabel="돌아가기"
+            className="flex-1 sm:flex-none">
+            <button type="button" className="w-full px-4 py-2 text-xs font-medium text-fg-muted bg-surface-hover hover:bg-line rounded-md transition active:scale-95">닫기</button>
+          </ConfirmPopover>
+        ) : (
+          <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2 text-xs font-medium text-fg-muted bg-surface-hover hover:bg-line rounded-md transition active:scale-95">닫기</button>
+        )}
       </div>
     </>
   );
@@ -513,12 +532,81 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
 // 만들 때 **이름·날짜는 하위 업무에 안 실린다** — cards.subtasks는 {id,title,done}뿐이다
 // (0013 이후 그 모양이다). 이름과 기한은 본문 그 줄에 그대로 남아 있으니 잃는 것은 없고,
 // 제목만 옮겨야 다음에 열었을 때 같은 줄을 다시 찾는다(matchSubtask가 제목으로 견준다).
-function ActionItems({ content, subtasks = [], onCreate }) {
-  const items = useMemo(() => parseActionItems(content), [content]);
-  const pending = useMemo(
-    () => items.filter(it => !matchSubtask(it, subtasks)),
-    [items, subtasks],
+// ── 맡는 사람 고르기 ────────────────────────────────────────────────────────
+// 담당자 칸(AssigneePicker)과 달리 **한 줄 안에 들어가야** 해서 칩 하나를 누르면
+// 목록이 뜨는 모양이다. 목록에 없는 이름은 넣지 않는다(그쪽과 같은 규칙) — 다만
+// 이미 적혀 있는 팀 이름(`엔지니어팀`)은 그대로 두고 지울 수만 있다.
+function OwnerPicker({ names = [], members = [], onChange }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const popRef = useRef(null);
+  const [pos] = useAnchoredPos(triggerRef, open, 210, 260);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      if (!rootRef.current?.contains(e.target) && !popRef.current?.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const toggle = (n) => onChange(names.includes(n) ? names.filter(x => x !== n) : [...names, n]);
+  const list = useMemo(
+    () => [...new Set([...names, ...members.filter(Boolean)])].sort((a, b) => a.localeCompare(b, 'ko')),
+    [names, members],
   );
+
+  const pop = open ? createPortal(
+    <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: 210 }}
+      className="z-[90] max-h-60 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150">
+      {list.map(n => (
+        <button key={n} type="button" onClick={() => toggle(n)}
+          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left text-[12.5px] transition-colors ${names.includes(n) ? 'bg-accent-weak text-accent-text font-semibold' : 'text-fg-muted hover:bg-surface-hover'}`}>
+          <Avatar name={n} className="flex w-5 h-5 text-[10px] shrink-0" />
+          <span className="truncate">{n}</span>
+          {names.includes(n) && <Check size={13} strokeWidth={3} className="ml-auto shrink-0" />}
+        </button>
+      ))}
+    </div>, document.body) : null;
+
+  return (
+    <span className="inline-flex shrink-0" ref={rootRef}>
+      <button ref={triggerRef} type="button" onClick={() => setOpen(o => !o)}
+        className={`inline-flex items-center gap-1.5 h-[30px] rounded-full border text-[12px] transition active:scale-95 ${names.length ? 'pl-1 pr-2.5 border-line bg-surface text-fg' : 'px-2.5 border-dashed border-line bg-surface text-fg-muted'}`}>
+        {names.length > 0 && (
+          <span className="flex items-center">
+            {names.slice(0, 3).map((n, i) => (
+              <Avatar key={n} name={n}
+                className={`flex w-[21px] h-[21px] text-[10px] ${i ? '-ml-1.5 ring-[1.5px] ring-surface' : ''}`} />
+            ))}
+          </span>
+        )}
+        <span className="truncate max-w-[9rem]">{names.length ? namesLabel(names) : '맡는 사람'}</span>
+      </button>
+      {pop}
+    </span>
+  );
+}
+
+// ── 청년별 담당 업무 (2026-09-21 요청 · 2026-09-22 그릴링으로 다시 짰다) ──────
+// 다듬기가 회의록·기획안에서 "누가 · 무엇을 · 언제까지"를 뽑아 두는데, 그게 본문 글자로만
+// 남아서 손으로 하위 업무를 만들지 않으면 그대로 사라졌다.
+//
+// **저장 자리는 본문 그 도막 하나다**(새 칸을 만들지 않았다 · §3-1). 부품은 그것을 읽고
+// (parseActionItems) 고친 결과를 도로 적는다(writeActionSection). 그래서 편집기 본문에서는
+// 그 도막을 감춘다 — 고치는 길이 둘이면 두 글이 어긋난다.
+//
+// **수정·보기 양쪽에 선다**(사용자 결정 2026-09-22). 예전에는 저장해야 부품이 떠서
+// "왜 갑자기 체크박스가 생기지?"가 됐다. 수정 화면에서는 줄을 직접 고치고, 보기
+// 화면에서는 고르기만 한다.
+//
+// 만들 때 **이름·기한도 같이 실린다**(cards.subtasks는 jsonb라 마이그레이션 없이 칸이 는다).
+function ActionItems({ items = [], subtasks = [], members = [], editable = false, onChange, onCreate }) {
+  const pending = useMemo(() => items.filter(it => !matchSubtask(it, subtasks)), [items, subtasks]);
   // 고른 것 — 열 때는 아직 업무가 아닌 것이 전부 골라져 있다(대개 다 만든다).
   // 열쇠는 본문 그 줄 자체다(raw) — 순서가 바뀌어도 고른 것이 딴 줄로 옮겨가지 않는다.
   const [off, setOff] = useState(() => new Set());
@@ -531,9 +619,17 @@ function ActionItems({ content, subtasks = [], onCreate }) {
     if (next.has(raw)) next.delete(raw); else next.add(raw);
     return next;
   });
+  const setAt = (i, patch) => onChange?.(items.map((it, k) => (k === i ? { ...it, ...patch } : it)));
+  const removeAt = (i) => onChange?.(items.filter((_, k) => k !== i));
+  const addRow = () => onChange?.([...items, { names: [], name: '', what: '', dueText: '', dueDate: '', raw: `새 줄 ${items.length + 1}` }]);
   const make = () => {
     if (!picked.length) return;
-    onCreate(picked.map(it => ({ id: generateId(), title: it.what, done: false })));
+    onCreate?.(picked.map(it => ({
+      id: generateId(), title: it.what, done: false,
+      // 이름·기한을 같이 옮긴다(2026-09-22) — 없는 줄은 그냥 비어 있다
+      ...(it.names?.length ? { assignee: it.names.join(', ') } : {}),
+      ...(it.dueDate ? { due: it.dueDate } : {}),
+    })));
     setOff(new Set());
   };
 
@@ -548,49 +644,74 @@ function ActionItems({ content, subtasks = [], onCreate }) {
         )}
       </div>
       <div className="divide-y divide-line/60 border-y border-line">
-        {items.map((it) => {
+        {items.map((it, i) => {
           const made = matchSubtask(it, subtasks);
           const on = !made && !off.has(it.raw);
           return (
-            <div key={it.raw} className="flex flex-wrap items-center gap-2.5 py-2">
-              {/* 이미 만든 줄에는 **빈 자리를 남기지 않는다**(사용자 지적 2026-09-22) —
-                  체크칸이 있던 자리를 비워 두면 얼굴이 어중간하게 밀려 보인다.
-                  체크칸 색은 토큰이라 라이트·다크가 저절로 갈린다(accent-color). */}
+            <div key={it.raw || i} className="flex flex-wrap items-center gap-2 py-2">
+              {/* 체크칸은 **브라우저 기본 모양을 끄고 우리 토큰으로 그린다** — 켜 두면
+                  라이트에서 바탕이 검게 나온다(사용자 지적 2026-09-22). */}
               {!made && (
                 <input type="checkbox" checked={on} onChange={() => toggle(it.raw)}
-                  aria-label={`${it.what} 고르기`}
-                  className="action-check w-[17px] h-[17px] shrink-0 rounded-[4px] border border-line bg-surface accent-[var(--app-accent)] transition-colors" />
+                  aria-label={`${it.what} 고르기`} className="action-check shrink-0" />
               )}
-              {/* 이름 앞에 사람 동그라미 — 누구 몫인지가 글자보다 먼저 읽힌다
-                  (사용자 요청 2026-09-22). 사진은 Avatar가 이름으로 찾아 온다(게스트
-                  모드에는 표가 비어 있어 글자 원이다). */}
-              {it.name && (
+              {editable ? (
+                <OwnerPicker names={it.names || []} members={members}
+                  onChange={(names) => setAt(i, { names, name: names[0] || '' })} />
+              ) : (it.names?.length ? (
                 <span className="shrink-0 flex items-center gap-1.5">
-                  <Avatar name={it.name} className="flex w-[22px] h-[22px] text-[10px]" />
-                  <span className="text-xs font-semibold text-fg">{it.name}</span>
+                  <span className="flex items-center">
+                    {it.names.slice(0, 3).map((n, k) => (
+                      <Avatar key={n} name={n} className={`flex w-[22px] h-[22px] text-[10px] ${k ? '-ml-1.5 ring-[1.5px] ring-surface' : ''}`} />
+                    ))}
+                  </span>
+                  <span className="text-xs font-semibold text-fg">{namesLabel(it.names)}</span>
                 </span>
+              ) : null)}
+              {editable ? (
+                <input value={it.what} onChange={(e) => setAt(i, { what: e.target.value })}
+                  aria-label="할 일" placeholder="할 일"
+                  className="flex-1 min-w-[8rem] h-[30px] px-2.5 text-xs text-fg bg-surface border border-line rounded-md focus:border-accent outline-none transition-colors" />
+              ) : (
+                <span className="flex-1 min-w-[8rem] text-xs text-fg-secondary break-words">{it.what}</span>
               )}
-              <span className="flex-1 min-w-[8rem] text-xs text-fg-secondary break-words">{it.what}</span>
-              {it.dueText && <span className="shrink-0 text-[11px] text-fg-muted tabular-nums">{it.dueText}</span>}
+              {editable ? (
+                <DatePicker value={it.dueDate || ''}
+                  onChange={(v) => setAt(i, { dueDate: v, dueText: '' })}
+                  ariaLabel="기한"
+                  triggerClassName="shrink-0 h-[30px] px-2.5 text-[11.5px] text-fg-muted bg-surface border border-line rounded-md hover:bg-surface-hover transition-colors whitespace-nowrap" />
+              ) : (it.dueText && <span className="shrink-0 text-[11px] text-fg-muted tabular-nums">{it.dueText}</span>)}
               {made && (
                 <span className="shrink-0 inline-flex items-center gap-1 h-[26px] px-2.5 rounded-md bg-tag-green text-tag-green-fg text-[11px] font-semibold">
                   <Check size={12} strokeWidth={3} />하위 업무
                 </span>
               )}
+              {editable && (
+                <button type="button" onClick={() => removeAt(i)} aria-label="이 줄 지우기"
+                  className="shrink-0 p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95">
+                  <X size={13} />
+                </button>
+              )}
             </div>
           );
         })}
       </div>
-      {picked.length > 0 && (
-        // 골랐을 때만 서는 줄이라 **불쑥 튀어나온다** — 아래에서 살짝 올라오며 든다
-        // (사용자 요청 2026-09-22). 줄 높이는 그대로라 위 목록이 튀지 않는다.
-        <div className="flex justify-end pt-2 animate-in fade-in slide-in-from-bottom-1 duration-200">
+      <div className="flex items-center gap-2 pt-2">
+        {editable && (
+          <button type="button" onClick={addRow}
+            className="h-8 px-3 rounded-md border border-dashed border-line text-fg-muted text-xs font-semibold hover:bg-surface-hover transition active:scale-95">
+            ＋ 항목 추가
+          </button>
+        )}
+        <span className="flex-1" />
+        {picked.length > 0 && (
+          // 골랐을 때만 서는 버튼이라 불쑥 튀어나온다 — 아래에서 살짝 올라오며 든다
           <button type="button" onClick={make}
-            className="h-9 px-4 rounded-md bg-accent text-white text-xs font-semibold transition active:scale-95 hover:bg-accent-strong">
+            className="h-9 px-4 rounded-md bg-accent hover:bg-accent-strong text-white text-xs font-semibold transition active:scale-95 animate-in fade-in slide-in-from-bottom-1 duration-200">
             하위 업무로
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -645,6 +766,16 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
             {/* 수정 모드에서는 언제나 입력칸이다 — '눌러서 고치기'로 감추면 고칠 수
                 있다는 것 자체가 안 보인다. 삭제 버튼도 hover로 숨기지 않는다
                 (터치 기기에는 hover가 없다). */}
+            {/* 맡은 사람 — '청년별 담당 업무'에서 만든 줄에는 이름이 실려 온다(2026-09-22).
+                손으로 더한 줄에는 없고, 그때는 자리도 안 잡는다. 여럿이면 얼굴이 겹쳐 선다. */}
+            {s.assignee && (
+              <span className="shrink-0 flex items-center">
+                {String(s.assignee).split(',').map(x => x.trim()).filter(Boolean).slice(0, 3).map((n, i) => (
+                  <Avatar key={n} name={n} title={String(s.assignee)}
+                    className={`flex w-[21px] h-[21px] text-[10px] ${i ? '-ml-1.5 ring-[1.5px] ring-surface' : ''}`} />
+                ))}
+              </span>
+            )}
             {readOnly ? (
               <span className={`flex-1 min-w-0 text-[13px] break-words ${s.done ? 'text-fg-faint line-through' : 'text-fg'}`}>{s.title}</span>
             ) : (
@@ -654,6 +785,12 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
                 placeholder="예: 포스터 시안 만들기"
                 className={`flex-1 min-w-0 text-[13px] bg-transparent border border-transparent rounded-xs px-1.5 py-1 outline-none transition-colors hover:border-line focus:border-accent focus:bg-surface ${s.done ? 'text-fg-faint line-through' : 'text-fg'} placeholder:text-fg-faint`}
               />
+            )}
+            {/* 기한도 같이 내려온다. `formatDate`가 우리 표기를 정한다(한 벌이다). */}
+            {s.due && (
+              <span className={`shrink-0 text-[11px] tabular-nums whitespace-nowrap ${s.done ? 'text-fg-faint' : 'text-fg-muted'}`}>
+                {formatDay(s.due)}까지
+              </span>
             )}
             {/* 한 번 누르면 바로 지워졌다 — 체크박스 옆 작은 휴지통이라 잘못 누르기 쉽고,
                 하위 업무는 실행 취소가 없다(클라우드 모드에서는 Undo를 감춘다).
@@ -782,15 +919,32 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
             </button>
           </div>
         </div>
+        {/* **편집기는 그 도막을 감춘 글만 본다**(2026-09-22). 도막은 아래 부품이 소유하고,
+            고칠 때마다 `writeActionSection`이 본문 맨 아래에 도로 적는다 — 고치는 길이
+            둘이면 두 글이 어긋난다. 저장 자리는 여전히 본문 하나다(새 칸을 안 만들었다). */}
         <Suspense fallback={<EditorSkeleton />}>
           <MarkdownEditor
-            value={formData.content || ''}
-            onChange={(val) => setFormData(prev => ({ ...prev, content: val }))}
+            value={stripActionSection(formData.content || '')}
+            onChange={(val) => setFormData(prev => ({
+              ...prev, content: writeActionSection(val, parseActionItems(prev.content)),
+            }))}
             members={members} cloudMode={cloudMode}
             placeholder={cloudMode ? '내용을 입력하세요. @이름 멘션, 이미지 붙여넣기(Ctrl/⌘+V)도 돼요.' : '내용을 입력하세요. @이름 멘션을 쓸 수 있어요.'}
             className="min-h-40 md:min-h-56 border border-line rounded-md rounded-t-none p-3 bg-surface focus-within:border-accent focus-within:shadow-soft transition-all"
           />
         </Suspense>
+        {/* 다듬기가 뽑아 둔 줄은 **여기서 바로 고친다** — 저장해야 부품이 뜨던 것을
+            고쳤다(사용자 지적 2026-09-22 "왜 갑자기 체크박스가 생기지?"). */}
+        <ActionItems
+          items={parseActionItems(formData.content)}
+          subtasks={formData.subtasks || []}
+          members={members}
+          editable
+          onChange={(next) => setFormData(prev => ({
+            ...prev, content: writeActionSection(stripActionSection(prev.content), next),
+          }))}
+          onCreate={made => setFormData(prev => ({ ...prev, subtasks: [...(prev.subtasks || []), ...made] }))}
+        />
       </div>
 
       <SubtaskList
@@ -988,7 +1142,7 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
           나오게 하면 아무도 쓰지 않는다. 항목 추가·삭제는 수정 모드에서만. */}
       {/* 회의록이면 다듬기가 뽑아 둔 담당 업무 줄이 여기 선다 — 하위 업무 **바로 위**다.
           만들면 아래 목록으로 내려가므로 두 구역이 이어서 읽힌다. */}
-      <ActionItems content={formData.content} subtasks={formData.subtasks || []}
+      <ActionItems items={parseActionItems(formData.content)} subtasks={formData.subtasks || []}
         onCreate={made => onSubtasksChange([...(formData.subtasks || []), ...made])} />
 
       <SubtaskList value={formData.subtasks || []} onChange={onSubtasksChange} readOnly />

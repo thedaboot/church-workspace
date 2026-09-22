@@ -268,6 +268,27 @@
    inset-0이 무시돼 미리보기 창이 통째로 반짝였고, top-1/2가 상대 오프셋이 되어
    스켈레톤이 오른쪽 아래로 밀려났다. 자리는 **바깥 요소**가 잡아야 한다
    (`<span className="absolute inset-0"><Skeleton className="w-full h-full"/></span>`). */
+/* 청년별 담당 업무의 체크칸 — **브라우저 기본 모양을 끈다**(2026-09-22 사용자 지적:
+   "라이트 때 검은 배경"). accent-color만 주면 켰을 때의 색만 바뀌고, 꺼져 있을 때는
+   OS/브라우저 기본 상자가 그대로 나와 우리 라이트 바탕에서 검게 떴다. 여기서 직접 그리면
+   두 테마가 토큰을 따라간다. 체크 표시는 배경 이미지가 아니라 **가상 요소로 그린 선**이라
+   색이 토큰을 그대로 받는다(SVG를 쓰면 다크에서 색을 못 바꾼다). */
+.action-check {
+  appearance: none; -webkit-appearance: none;
+  width: 17px; height: 17px; border-radius: 5px;
+  border: 1.5px solid var(--app-line); background: var(--app-surface);
+  display: inline-grid; place-content: center;
+  transition: background-color .12s, border-color .12s;
+}
+.action-check:hover { border-color: var(--app-ink-faint); }
+.action-check:checked { background: var(--app-accent); border-color: var(--app-accent); }
+.action-check:checked::after {
+  content: ''; width: 9px; height: 5px;
+  border-left: 2px solid #fff; border-bottom: 2px solid #fff;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+.action-check:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+
 .dc-skeleton { position: relative; overflow: hidden; background: var(--app-surface-hover); }
 .dc-skeleton::after {
   content: ''; position: absolute; inset: 0;

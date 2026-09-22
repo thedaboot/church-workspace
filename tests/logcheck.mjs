@@ -3299,3 +3299,69 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '키보드가 띠를 다 먹었으면 굴리지 않는다(굴려 봐야 보일 자리가 없다)');
   console.log('PASS  커서를 얼마나 굴리나 6가지');
 }
+
+// ── 담당 업무를 부품에서 고치기 (2026-09-22 그릴링으로 정한 모양) ────────────
+// 저장 자리는 **본문 그 도막 하나**다(새 칸을 안 만들었다). 부품이 그것을 읽고
+// 고친 결과를 도로 적으므로, **읽는 모양과 적는 모양이 같아야** 왕복이 닫힌다.
+// 되돌리기 검사: writeActionSection이 stripActionSection을 안 거치면 도막이 둘이 되어
+// 셋째가 깨지고, formatActionLine의 `@`를 빼면 첫째가 깨진다(이름을 다시 못 읽는다).
+{
+  const A = await import(new URL('../src/services/actionItems.js', import.meta.url).href);
+  const NL = String.fromCharCode(10);
+  const md = ['### 정한 것', '- 뭔가', '', `### ${A.ACTION_HEADING}`,
+    '- @조해리 @김승찬 · 10월 콘티 확정 · 9월 26일까지',
+    '- @엔지니어팀 · PPT 완료 일정 잡기'].join(NL);
+  const items = A.parseActionItems(md);
+  const back = A.writeActionSection(md, items);
+  assert.deepStrictEqual(A.parseActionItems(back), items, '되쓴 글을 그대로 다시 읽는다(왕복)');
+  assert.ok(back.includes('### 정한 것') && back.includes('- 뭔가'), '다른 도막은 그대로 남는다');
+  assert.strictEqual(back.split(A.ACTION_HEADING).length - 1, 1, '도막은 하나뿐이다');
+
+  // 할 일이 빈 줄은 버린다 — 남기면 다음에 읽을 때 사라져 "지워졌나?" 한다
+  assert.strictEqual(
+    A.writeActionSection(md, [...items, { names: ['노준석'], what: '  ', dueDate: '' }]).split(NL)
+      .filter(l => l.startsWith('- @')).length, 2, '할 일이 빈 줄은 안 적는다');
+  // 항목을 다 지우면 도막도 없어진다
+  assert.ok(!A.writeActionSection(md, []).includes(A.ACTION_HEADING), '항목이 없으면 도막도 없다');
+
+  // 날짜는 ISO로 들고 다니다가 우리 표기로 적는다
+  assert.ok(A.formatActionLine({ names: ['가'], what: '할 일', dueDate: '2026-10-05' })
+    .endsWith('10월 5일까지'), 'ISO를 우리 표기로 적는다');
+  assert.strictEqual(A.formatActionLine({ names: [], what: '할 일', dueDate: '' }), '- 할 일',
+    '맡는 쪽도 기한도 없으면 할 일만 적는다');
+
+  // 이름표 — 세 명까지는 이름, 그보다 많으면 외 N명(사용자 결정 2026-09-22)
+  assert.strictEqual(A.namesLabel(['가', '나', '다']), '가 · 나 · 다');
+  assert.strictEqual(A.namesLabel(['가', '나', '다', '라', '마']), '가 · 나 · 다 외 2명');
+  assert.strictEqual(A.namesLabel([]), '');
+  console.log('PASS  담당 업무 되쓰기·이름표 10가지');
+}
+
+// ── 업무 창에서 정말 바뀐 게 있나 (utils.taskEditDirty) ──────────────────────
+// `닫기`가 물어볼지 정하는 판정이다. 깃발이 아니라 값을 견준다 — 커서만 옮겨도 서는
+// 깃발로 물으면 안 고친 사람에게도 창이 떠서 금방 성가신 것이 된다(사용자 요청 2026-09-22).
+// 되돌리기 검사: 하위 업무에서 id를 빼고 보는 처리를 지우면 넷째가 깨진다.
+{
+  const U = await import(new URL('../src/utils.js', import.meta.url).href);
+  const base = { title: 'ㄱ', content: '본문', status: '진행 중', dueDate: '2026-10-01',
+    startDate: '', assignees: ['노준석'], teams: ['찬양팀'],
+    subtasks: [{ id: 'a', title: '하나', done: false }], dependsOn: [] };
+  assert.strictEqual(U.taskEditDirty(base, { ...base }), false, '같으면 안 물어본다');
+  assert.strictEqual(U.taskEditDirty({ ...base, title: 'ㄴ' }, base), true, '제목이 바뀌면 물어본다');
+  assert.strictEqual(U.taskEditDirty({ ...base, assignees: ['노준석', '조해리'] }, base), true,
+    '담당자가 늘면 물어본다');
+  assert.strictEqual(
+    U.taskEditDirty({ ...base, subtasks: [{ id: 'different-id', title: '하나', done: false }] }, base),
+    false, '하위 업무 id는 견주지 않는다 — 만들 때마다 새로 생기는 값이다');
+  assert.strictEqual(
+    U.taskEditDirty({ ...base, subtasks: [{ id: 'a', title: '하나', done: true }] }, base), true,
+    '하위 업무를 끝내면 물어본다');
+  assert.strictEqual(
+    U.taskEditDirty({ ...base, subtasks: [{ id: 'a', title: '하나', done: false, assignee: '노준석' }] }, base),
+    true, '하위 업무의 담당자도 견준다(2026-09-22에 는 칸)');
+  // 수정 폼 밖에서 바뀌는 것은 안 본다 — 남이 댓글을 달았다고 "고쳤다"가 되면 안 된다
+  assert.strictEqual(U.taskEditDirty({ ...base, comments: [{ text: '새 댓글' }] }, base), false,
+    '댓글·활동·첨부는 견주지 않는다');
+  assert.strictEqual(U.taskEditDirty(null, base), false, '한쪽이 없으면 묻지 않는다');
+  console.log('PASS  정말 바뀐 게 있나 8가지');
+}

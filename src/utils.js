@@ -35,6 +35,13 @@ export const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
+// 날짜만 있는 값('2026-09-26')을 'N월 N일'로. formatDate는 시각까지 붙여서(생성 시각용)
+// 마감일 같은 날짜 칸에는 안 맞는다 — 그 자리에 쓰면 "9월 26일 오전 09:00"이 된다.
+export const formatDay = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  return m ? `${Number(m[2])}월 ${Number(m[3])}일` : '';
+};
+
 // 상대 시간 (방금 · n분 전 · n시간 전 · n일 전 · 그 이상은 날짜)
 export const formatRelative = (dateString) => {
   if (!dateString) return '';
