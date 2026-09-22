@@ -26,10 +26,13 @@ const ev = async (e, a = false) => { const r = await send('Runtime.evaluate', { 
 const results = [];
 const check = (n, p, d = '') => results.push(`${p ? 'PASS' : 'FAIL'}  ${n}${d ? ' — ' + d : ''}`);
 
-const isOpen = () => ev(`!!document.querySelector('.fixed.inset-0.z-50')`);
+// **`inset-0`으로 찾지 않는다**(2026-09-22). 폰의 업무 창은 키보드에 가리지 않으려고
+// `inset-0` 대신 앱 뿌리와 같은 높이(--app-vh)를 쓴다 — 클래스 글자로 붙잡으면 화면이
+// 나아질 때마다 이 검사가 헛으로 깨진다(tests/handoff도 같은 이유로 고쳤다).
+const isOpen = () => ev(`!!document.querySelector('.fixed.z-50')`);
 const openCard = async () => { await ev(`document.querySelector('.board-card').click()`); await sleep(700); };
 const geom = () => ev(`(() => {
-  const ov = document.querySelector('.fixed.inset-0.z-50');
+  const ov = document.querySelector('.fixed.z-50');
   const panel = ov.firstElementChild;
   const o = ov.getBoundingClientRect(), p = panel.getBoundingClientRect();
   return { dim: { x: Math.round(o.left + 12), y: Math.round(o.top + o.height / 2) },
@@ -71,7 +74,7 @@ await sleep(400);
 check('안에서 바깥으로 드래그해도 닫히지 않는다', (await isOpen()) === true);
 
 // 4) X 버튼은 그대로
-await ev(`[...document.querySelectorAll('.fixed.inset-0.z-50 button')].find(b => b.querySelector('svg'))?.click()`);
+await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.querySelector('svg'))?.click()`);
 await sleep(400);
 const stillOpen = await isOpen();
 // 푸터: 할 일(수정)이 왼쪽, 나가기(닫기)가 오른쪽. 색도 달라야 한다 —

@@ -176,21 +176,25 @@ const pickYear = (y) => ev(`(() => {
 })()`);
 // 생일은 우리 데이트피커로 고른다(글자로 받지 않는다 — 연도 없는 모드).
 // 달 머리글이 원하는 달이 될 때까지 ◀를 누르고 날을 누른다.
+// **달력은 트리거 안이 아니라 body에 있다**(2026-09-22 · 포털로 옮겼다 — 좁은 화면에서
+// 화면 밖으로 나가던 것을 고치면서). 여는 버튼만 scope 안에서 찾고, 열린 달력은
+// 문서에서 찾는다(한 번에 하나만 열린다).
 const pickBirthday = (month, day, scope = 'document') => ev(`(async () => {
   const root = ${scope}; if (!root) return 'no-scope';
   const trg = root.querySelector('button[aria-label="생일"]');
   if (!trg) return 'no-trigger';
-  if (!root.querySelector('[data-datepicker]')) trg.click();
+  const cal = () => document.querySelector('[data-datepicker]');
+  if (!cal()) trg.click();
   await new Promise(r => setTimeout(r, 150));
-  const head = () => (root.querySelector('[data-datepicker] span.font-semibold') || {}).textContent?.trim();
+  const head = () => (cal()?.querySelector('span.font-semibold') || {}).textContent?.trim();
   for (let i = 0; i < 24 && head() !== '${month}월'; i++) {
-    const prev = root.querySelectorAll('[data-datepicker] button')[0];
+    const prev = cal()?.querySelectorAll('button')[0];
     if (!prev) return 'no-prev';
     prev.click();
     await new Promise(r => setTimeout(r, 60));
   }
   if (head() !== '${month}월') return 'month:' + head();
-  const cell = [...root.querySelectorAll('[data-datepicker] button')]
+  const cell = [...(cal()?.querySelectorAll('button') || [])]
     .find(b => b.textContent.trim() === '${day}');
   if (!cell) return 'no-day';
   cell.click();
@@ -467,7 +471,7 @@ const openedAt = await ev(`(() => {
 })()`);
 await sleep(400);
 const dpick = await ev(`(() => {
-  const box = ${inRow('p3')}?.querySelector('[data-datepicker]');
+  const box = document.querySelector('[data-datepicker]');
   if (!box) return null;
   return { head: box.querySelector('span.font-semibold')?.textContent.trim(),
            weekday: box.innerText.includes('월 화 수'),

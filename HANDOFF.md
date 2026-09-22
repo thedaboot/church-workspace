@@ -166,6 +166,7 @@ src/components/depgraph.jsx   프로젝트 '그래프' 보기 — useForceGraph 
 src/components/Avatar.jsx     사람 동그라미 — 사진 없으면 이름 첫 글자(§4.7)
 src/components/ConfirmPopover.jsx  삭제 확인 팝오버 + useAnchoredPos(위치 공용 훅 · §6-17)
 src/components/DatePicker.jsx 노션 톤 데이트피커 — children·triggerClassName·allowClear · `yearless`(명단 생일)
+                              **달력은 body로 포털된다**(2026-09-22) — 검사는 `[data-datepicker]`를 **문서에서** 찾는다(트리거 안이 아니다)
 src/components/DocEmbed.jsx   구글 문서·시트·슬라이드를 앱 안 iframe으로(판정·주소는 services/docEmbed.js · §6-29-z-6)
 src/components/ErrorBoundary.jsx  오류 화면
 src/components/FilePreviewModal.jsx  첨부 미리보기 창 — 갈래 판정은 services/previewKind.js(§6-29-c)
@@ -348,6 +349,8 @@ design/                       원본 시트(chars.png·char.png) — 배포에 �
 - **명단에서 고친 생일은 트리거가 계정으로 옮긴다**(0067). 생일은 `people`(명단·미가입자 포함)이 원본이고 달력은 `profiles`를 읽는다. **이름·사진은 반대로 잇지 않는다** — 계정 표시 이름은 본인이 정하고(꽃님·진우·현민스) 명단은 본명이라(강꽃님·문진우·배현민) 한쪽으로 덮으면 사용자가 정한 이름이 사라진다.
 - **다음 주 예배 위원은 광고에 적는다**(2026-09-22에 라이브 주보로 확인). 주보의 `roles`는 **그 날 섬긴 사람**이고, 다음 주에 섬길 사람은 광고 `다음 주 예배 위원`에 `대표기도: 이수빈 형제` 모양으로 적힌다. 그래서 새 주보의 임사자를 미리 채울 때
   **지난 주보의 roles를 물려주면 언제나 한 주 밀린 이름이 앉는다** — `worship.prefillRoles`가 광고를 읽는 이유다. 역할·제목의 띄어쓰기는 주보마다 다르다(`대표 기도`도 있다).
+- **떠 있는 것(팝오버·달력·목록)은 포털로 내보내고 뷰포트 안으로 가둔다.** `useAnchoredPos`(ConfirmPopover가 내보낸다)를 쓰면 가로·세로 둘 다 갇히고 키보드가 올라와도 따라온다. `absolute`로 두면 좁은 화면에서 화면 밖으로 나가거나 `overflow` 있는 상자에 잘린다 — DatePicker가 그렇게 2026-09-22까지 남아 있었다.
+  **그러면 검사의 선택자도 같이 바뀐다** — 트리거 안에서 찾던 것을 문서에서 찾아야 한다(그때 `worship`·`roster`가 같이 깨졌다).
 - 커밋 메시지는 한국어, 제목 한 줄 + 본문에 **왜**를 쓴다. `Co-Authored-By: Claude` 라인은 넣지 않는다.
 - **문구 톤**: 담백하고 상태를 그대로 말한다. 사용자가 고친 실제 예 — `여기는 다 정리됐어요` → `다 정리되었어요` · `마감 없음` → `마감 미정` · `단계를 입력하고 Enter` → `예: 포스터 시안 만들기`(방법보다 "여기에 무엇을 적는
   칸인지"가 먼저) · `+ 링크` → `+ 참고 링크`(**프로젝트 헤더**의 그 버튼이고, 링크를 다는 자리는 이제 거기 하나다 — §6-35). **"없어요"로 끝나는 짧은 부정 표현과 번역투를 특히 싫어한다.**

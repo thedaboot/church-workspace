@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // 노션 톤 커스텀 데이트피커
@@ -43,6 +45,10 @@ const toValue = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
 
 const TRIGGER = 'inline-flex items-center gap-1.5 border border-line rounded-xs bg-surface px-2 py-1.5 text-xs text-fg hover:bg-surface-hover focus:border-accent focus:shadow-soft outline-none transition-all';
 
+// 달력 한 판의 대략 크기 — 첫 배치에 쓰이고, 그려진 뒤 실제 높이로 다시 잡는다
+const POP_W = 268;
+const POP_H = 330;
+
 export function DatePicker({ value, onChange, children = null, triggerClassName = TRIGGER, allowClear = true, ariaLabel = '날짜 선택', yearless = false }) {
   const [open, setOpen] = useState(false);
   const parsed = yearless ? parseMonthDay(value) : parseValue(value);
@@ -55,6 +61,13 @@ export function DatePicker({ value, onChange, children = null, triggerClassName 
   });
 
   const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const popRef = useRef(null);
+  // **달력은 포털로 띄우고 뷰포트 안으로 민다**(2026-09-22 사용자 신고: 폰에서 "밀리고
+  // 선택하는 것도 화면에 안 들어온다"). 예전에는 `absolute left-0 top-full`이라
+  // 트리거가 오른쪽에 있으면 달력(약 260px)이 화면 밖으로 나갔고, 상자에 overflow가
+  // 걸린 자리에서는 잘리기까지 했다. ConfirmPopover가 같은 문제를 이미 이렇게 풀었다.
+  const [pos] = useAnchoredPos(triggerRef, open, POP_W, POP_H, 8, popRef);
 
   // 열 때마다 선택값(없으면 오늘) 기준으로 뷰 동기화.
   // **고른 값을 읽는 자와 같은 자로 읽어야 한다** — 연도 없는 모드에서 parseValue로
@@ -70,7 +83,12 @@ export function DatePicker({ value, onChange, children = null, triggerClassName 
   // 바깥 클릭 / Escape 닫기
   useEffect(() => {
     if (!open) return;
-    const onDown = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false); };
+    // 달력이 포털로 나가 있으므로 **팝오버 자신도** 바깥 클릭 판정에 넣는다 —
+    // 안 넣으면 날짜를 누르는 순간 창이 먼저 닫혀 아무것도 안 골라진다(2026-09-22).
+    const onDown = (e) => {
+      const inside = rootRef.current?.contains(e.target) || popRef.current?.contains(e.target);
+      if (!inside) setOpen(false);
+    };
     const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
@@ -110,25 +128,11 @@ export function DatePicker({ value, onChange, children = null, triggerClassName 
     setView({ y, m: y === today.getFullYear() ? today.getMonth() : 0 });
   };
 
-  return (
-    <div className="relative inline-block" ref={rootRef}>
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        aria-label={ariaLabel} aria-expanded={open} aria-haspopup="dialog"
-        className={triggerClassName}
-      >
-        {children || (
-          <>
-            <Calendar size={13} className="text-fg-faint shrink-0" />
-            {label ? <span>{label}</span> : <span className="text-fg-faint">날짜 선택</span>}
-          </>
-        )}
-      </button>
+  const pop = open ? createPortal(
+    <div ref={popRef} data-datepicker="" role="dialog" aria-label={ariaLabel}
+      style={{ position: 'fixed', left: pos.left, top: pos.top }}
+      className="z-[90] w-max bg-surface border border-line rounded-lg shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150">
 
-      {open && (
-        <div data-datepicker="" role="dialog" aria-label={ariaLabel}
-          className="absolute left-0 top-full z-50 mt-1 w-max bg-surface border border-line rounded-lg shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150">
           <div className="flex items-center justify-between mb-2">
             <button type="button" onClick={goPrev} disabled={!canPrev} className={`p-1 rounded-md text-fg-muted transition active:scale-95 ${canPrev ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`}><ChevronLeft size={16} /></button>
             <span className="text-xs font-semibold text-fg tracking-[-0.25px] whitespace-nowrap px-2">
@@ -170,8 +174,26 @@ export function DatePicker({ value, onChange, children = null, triggerClassName 
               : <span />}
             <button type="button" onClick={jumpToday} className="text-[11px] text-accent-text hover:bg-surface-hover px-1.5 py-1 rounded-md transition active:scale-95">오늘</button>
           </div>
-        </div>
-      )}
+    </div>, document.body) : null;
+
+  return (
+    <div className="relative inline-flex" ref={rootRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-label={ariaLabel} aria-expanded={open} aria-haspopup="dialog"
+        className={triggerClassName}
+      >
+        {children || (
+          <>
+            <Calendar size={13} className="text-fg-faint shrink-0" />
+            {label ? <span>{label}</span> : <span className="text-fg-faint">날짜 선택</span>}
+          </>
+        )}
+      </button>
+
+      {pop}
     </div>
   );
 }

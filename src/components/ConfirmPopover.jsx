@@ -57,7 +57,12 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
     // 둔다 — 키보드가 올라오면 위아래가 다 짧아서, 그때 뒤집으면 칸을 덮을 뿐이다.
     const below = (oy + vh) - r.bottom;
     const above = r.top - oy;
-    const top = (below < h + gap && above > below) ? Math.max(oy + gap, r.top - h - 4) : r.bottom + 4;
+    let top = (below < h + gap && above > below) ? Math.max(oy + gap, r.top - h - 4) : r.bottom + 4;
+    // **어느 쪽에 두든 화면 안으로 가둔다**(2026-09-22 · 폰에서 날짜 달력이 아래로
+    // 넘쳤다: bottom 872 > 창 860). 위 판정은 '어느 쪽이 더 넓은가'를 고르는 것이고,
+    // 고른 쪽이 그래도 모자랄 수 있다(첫 배치 때는 팝오버 높이를 아직 재지 못한다).
+    // 가로는 이미 minLeft·maxLeft로 가두고 있었는데 세로만 빠져 있었다.
+    top = Math.min(Math.max(top, oy + gap), Math.max(oy + gap, oy + vh - h - gap));
     // 같은 자리면 상태를 바꾸지 않는다 — 아래 rAF 고리가 헛되이 다시 그리지 않게.
     setPos(p => ((p.left === left && p.top === top && p.width === w) ? p : { left, top, width: w }));
   }, [triggerRef, width, estHeight, gap, measuredRef, matchWidth]);
@@ -68,6 +73,10 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
   useLayoutEffect(() => {
     if (!open) { seen.current = null; return undefined; }
     place();
+    // 그려진 뒤 **실제 높이로 한 번 더** 잡는다. 첫 배치는 추정치(estHeight)로 하는데
+    // 그 값이 실제보다 작으면 아래로 넘치고, 크면 위로 붕 뜬다. 같은 자리면 setPos가
+    // 상태를 안 바꾸므로 다시 그려지지 않는다.
+    if (measuredRef) requestAnimationFrame(place);
     const vv = window.visualViewport || null;
     window.addEventListener('resize', place);
     window.addEventListener('scroll', place, true);

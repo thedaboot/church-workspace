@@ -1505,13 +1505,15 @@ check('기본값이 채워져 있어 한 번 눌러 만들 수 있다', form.can
 // 달력에서 다음 달 15일로 옮긴다 — 픽커가 실제로 값을 바꾸는지 보고,
 // 뒤의 '발행해도 날짜 전이면 출석이 안 열린다'를 검사할 미래 날짜를 만든다
 await ev(`document.querySelector('.worship-new-date button').click()`); await sleep(300);
-const cal = await ev(`(() => ({ days: document.querySelectorAll('.worship-new-date .grid-cols-7 button').length }))()`);
+// **달력은 body로 포털된다**(2026-09-22 · 좁은 화면에서 화면 밖으로 나가던 것을 고치며).
+// 트리거(.worship-new-date) 안이 아니라 문서에서 `[data-datepicker]`로 찾는다.
+const cal = await ev(`(() => ({ days: document.querySelectorAll('[data-datepicker] .grid-cols-7 button').length }))()`);
 check('날짜 픽커가 달력을 편다', cal.days > 28, `${cal.days}칸`);
 // 패널이 **카드 밑으로 깔리지 않아야** 한다 — 카드마다 등장 애니메이션(transform)으로
 // 쌓임 문맥이 생겨서 절대 위치 패널이 그 아래로 들어갔다(사용자 스크린샷 2026-09-03).
 // 패널 rect 안의 점에서 실제로 무엇이 잡히는지를 본다.
 const zOrder = await ev(`(() => {
-  const panel = document.querySelector('.worship-new-date .absolute');
+  const panel = document.querySelector('[data-datepicker]');
   if (!panel) return null;
   const r = panel.getBoundingClientRect();
   // 패널과 **겹치는** 카드를 찾아 그 겹친 영역의 가운데를 찍는다 — 패널 아래쪽 빈
@@ -1531,8 +1533,8 @@ const zOrder = await ev(`(() => {
 check('날짜 픽커 패널이 주보 카드 위로 뜬다',
   !!zOrder && zOrder.overlapsCard === true && zOrder.inPanel === true && zOrder.onCard === false,
   JSON.stringify(zOrder));
-await ev(`document.querySelectorAll('.worship-new-date .absolute > div:first-child button')[1].click()`); await sleep(250);
-await ev(`[...document.querySelectorAll('.worship-new-date .grid-cols-7 button')].find(b => b.textContent.trim() === '15').click()`);
+await ev(`document.querySelectorAll('[data-datepicker] > div:first-child button')[1].click()`); await sleep(250);
+await ev(`[...document.querySelectorAll('[data-datepicker] .grid-cols-7 button')].find(b => b.textContent.trim() === '15').click()`);
 await sleep(300);
 const afterPick = await ev(`document.querySelector('.worship-new-date button').textContent.trim()`);
 check('달력에서 고른 날짜가 그대로 들어간다', /\. 15\. \(/.test(afterPick), afterPick);

@@ -717,6 +717,84 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   delete st.tasks.byId[firstId].pinnedLinks;   // 뒤 검사들이 쓰는 상태로 되돌린다
 }
 
+// ── 청년별 담당 업무 줄이 두 폭에서 다 들어오나 (2026-09-22 사용자 신고) ─────
+// 신고 셋: "항목 추가는 되지도 않고 / 폰에서 날짜 달력이 밀리고 선택하는 것도 화면에
+// 안 들어오고 / 하위 업무 초록 라벨이 한 줄 밀린다."
+// 원인 셋: ① writeActionSection이 할 일 빈 줄을 버려서 새로 만든 줄이 그 자리에서
+// 사라졌다(부품이 줄을 직접 들고 있게 고쳤다) ② DatePicker가 `absolute left-0 top-full`
+// 이라 좁은 화면에서 화면 밖으로 나갔다(포털 + 세로 클램프로) ③ 초록 표가 흐름대로
+// 접혔다(order/basis로 좁을 때 2줄 · 넓을 때 1줄을 못 박았다).
+// 되돌리기 검사: ActionItems의 `rows` 상태를 지우면 '항목 추가'가, DatePicker의 포털을
+// 되돌리면 '달력이 화면 안에'가, 줄의 order를 지우면 '초록 표가 첫 줄에'가 깨진다.
+{
+  const AC = ['### 정한 것', '- 주제를 예배자로 바꿔요', '', '### 청년별 담당 업무',
+    '- @노준석 @이시온 · 10월 콘티 확정 · 9월 26일까지',
+    '- @엔지니어팀 · 영상 송출 계획과 역할 분담 정하고 PPT 완료 일정 잡기 · 9월 26일까지'].join('\n');
+  const tid = Object.keys(st.tasks.byId)[0];
+  const keep = st.tasks.byId[tid].content;
+  st.tasks.byId[tid].content = AC;
+  st.tasks.byId[tid].subtasks = [];
+  const ROWS = `[...document.querySelectorAll('.action-items > div:nth-child(2) > div')]`;
+  for (const w of [1440, 375]) {
+    const tag = `${w}px 담당 업무`;
+    await load({ width: w, height: 860, deviceScaleFactor: 1, mobile: w < 768 }, `/?p=p1&t=${tid}`);
+    await ev(clickText('수정')); await sleep(1100);
+
+    const before = await ev(`document.querySelectorAll('.action-items input[aria-label="할 일"]').length`);
+    await ev(`[...document.querySelectorAll('.action-items button')].find(b => b.textContent.includes('항목 추가'))?.click()`);
+    await sleep(500);
+    const after = await ev(`document.querySelectorAll('.action-items input[aria-label="할 일"]').length`);
+    check(`${tag}: 항목 추가로 줄이 는다`, after === before + 1, `${before} → ${after}`);
+
+    await ev(`[...document.querySelectorAll('.action-check')].forEach(b => { if (!b.checked && !b.disabled) b.click(); })`);
+    await sleep(350);
+    await ev(`[...document.querySelectorAll('.action-items button')].find(b => b.textContent.trim() === '하위 업무로')?.click()`);
+    await sleep(800);
+    const shape = await ev(`${ROWS}.map(r => {
+      const kids=[...r.children].map(c => c.getBoundingClientRect()).filter(b => b.width>0);
+      const band=(b)=>Math.round((b.top+b.bottom)/2/12);
+      const chip=r.querySelector('span.bg-tag-green');
+      return { lines: [...new Set(kids.map(band))].length, hasChip: !!chip,
+               chipBand: chip ? band(chip.getBoundingClientRect()) : -1,
+               firstBand: kids.length ? band(kids[0]) : -1 };
+    })`);
+    const withChip = (shape || []).filter(r => r.hasChip);
+    check(`${tag}: 초록 표가 첫 줄에 같이 선다`,
+      withChip.length > 0 && withChip.every(r => r.chipBand === r.firstBand), JSON.stringify(shape));
+    check(`${tag}: ${w < 768 ? '좁은 화면은 두 줄' : '넓은 화면은 한 줄'}`,
+      (shape || []).length > 0 && shape.every(r => r.lines === (w < 768 ? 2 : 1)),
+      JSON.stringify((shape || []).map(r => r.lines)));
+
+    await ev(`[...document.querySelectorAll('.action-items button')].find(b => b.getAttribute('aria-label') === '기한')?.click()`);
+    await sleep(700);
+    const cal = await ev(`(() => {
+      const d=document.querySelector('[data-datepicker]'); if(!d) return null;
+      const r=d.getBoundingClientRect();
+      return { l:Math.round(r.left), rt:Math.round(r.right), t:Math.round(r.top), b:Math.round(r.bottom),
+               vw:window.innerWidth, vh:window.innerHeight, days:d.querySelectorAll('button').length };
+    })()`);
+    check(`${tag}: 날짜 달력이 열린다`, !!cal && cal.days > 20, JSON.stringify(cal));
+    check(`${tag}: 날짜 달력이 화면 안에 들어온다`,
+      !!cal && cal.l >= 0 && cal.rt <= cal.vw && cal.t >= 0 && cal.b <= cal.vh, JSON.stringify(cal));
+  }
+  // 체크칸은 **두 테마에서 다 우리 바탕**이다(라이트에서 검게 뜨던 자리 — accent-color만
+  // 주면 켰을 때의 색만 바뀌고 꺼진 상자는 브라우저 기본 모양이 그대로 나온다)
+  for (const theme of ['light', 'dark']) {
+    await ev(`document.documentElement.setAttribute('data-theme', ${JSON.stringify(theme)})`);
+    await sleep(300);
+    const box = await ev(`(() => {
+      const el=document.querySelector('.action-check'); if(!el) return null;
+      const cs=getComputedStyle(el);
+      return { appearance: cs.appearance, bg: cs.backgroundColor, border: cs.borderTopColor };
+    })()`);
+    check(`체크칸이 ${theme}에서 우리 바탕이다`,
+      !!box && box.appearance === 'none' && box.bg !== 'rgb(0, 0, 0)' && box.bg !== 'rgba(0, 0, 0, 0)',
+      JSON.stringify(box));
+  }
+  st.tasks.byId[tid].content = keep;
+  delete st.tasks.byId[tid].subtasks;
+}
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,6).join('\n'):'\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

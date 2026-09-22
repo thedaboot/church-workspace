@@ -6,7 +6,7 @@ import { formatDate, formatDay, isMobileViewport, keepVisible, generateId, subta
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { AiService, isFallbackText } from '../services/ai.js';
-import { parseActionItems, matchSubtask, stripActionSection, writeActionSection, namesLabel } from '../services/actionItems.js';
+import { parseActionItems, matchSubtask, stripActionSection, writeActionSection, namesLabel, formatActionLine } from '../services/actionItems.js';
 import { RichText } from '../components/RichText.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { Bar } from '../views/dashboardParts.jsx';
@@ -597,31 +597,46 @@ function OwnerPicker({ names = [], members = [], onChange }) {
 // 남아서 손으로 하위 업무를 만들지 않으면 그대로 사라졌다.
 //
 // **저장 자리는 본문 그 도막 하나다**(새 칸을 만들지 않았다 · §3-1). 부품은 그것을 읽고
-// (parseActionItems) 고친 결과를 도로 적는다(writeActionSection). 그래서 편집기 본문에서는
-// 그 도막을 감춘다 — 고치는 길이 둘이면 두 글이 어긋난다.
+// (parseActionItems) 고친 결과를 도로 적는다(writeActionSection). 편집기 본문에서는 그
+// 도막을 감춘다 — 고치는 길이 둘이면 두 글이 어긋난다.
 //
-// **수정·보기 양쪽에 선다**(사용자 결정 2026-09-22). 예전에는 저장해야 부품이 떠서
-// "왜 갑자기 체크박스가 생기지?"가 됐다. 수정 화면에서는 줄을 직접 고치고, 보기
-// 화면에서는 고르기만 한다.
+// **줄은 빈 것도 들고 있어야 한다.** writeActionSection은 할 일이 빈 줄을 버리므로(본문에
+// `- ` 껍데기를 남기지 않는다), 부모가 준 items만 그리면 `＋ 항목 추가`가 만든 빈 줄이
+// 그 자리에서 사라진다 — 실제로 "항목 추가가 되지도 않는다"로 보였다(2026-09-22).
+// 그래서 **여기서 줄을 들고 있고**, 바깥 글이 정말 달라졌을 때만 다시 읽는다.
 //
-// 만들 때 **이름·기한도 같이 실린다**(cards.subtasks는 jsonb라 마이그레이션 없이 칸이 는다).
+// 줄 짜임(사용자 요청 "데스크톱·모바일 모두 잘 들어와야 한다"):
+//   좁은 화면 → 첫 줄 [체크][사람] … [표][✕] · 둘째 줄 [할 일][날짜]
+//   넓은 화면 → 한 줄 [체크][사람][할 일][날짜][표][✕]
+// order와 basis로 가른다 — 같은 마크업 한 벌이라 두 폭이 어긋날 자리가 없다.
 function ActionItems({ items = [], subtasks = [], members = [], editable = false, onChange, onCreate }) {
-  const pending = useMemo(() => items.filter(it => !matchSubtask(it, subtasks)), [items, subtasks]);
+  const [rows, setRows] = useState(items);
+  // 내가 적어 보낸 것이 그대로 돌아왔으면 그냥 둔다(빈 줄이 살아남는다).
+  // 다듬기·되돌리기처럼 **바깥에서 글이 바뀌었을 때만** 다시 읽는다.
+  const sameAsMine = useMemo(() => {
+    const sig = (rs) => rs.filter(r => String(r?.what || '').trim()).map(formatActionLine).join('\n');
+    return sig(rows) === sig(items);
+  }, [rows, items]);
+  useEffect(() => { if (!sameAsMine) setRows(items); }, [items]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const shown = editable ? rows : items;
+  const pending = useMemo(() => shown.filter(it => !matchSubtask(it, subtasks)), [shown, subtasks]);
   // 고른 것 — 열 때는 아직 업무가 아닌 것이 전부 골라져 있다(대개 다 만든다).
-  // 열쇠는 본문 그 줄 자체다(raw) — 순서가 바뀌어도 고른 것이 딴 줄로 옮겨가지 않는다.
   const [off, setOff] = useState(() => new Set());
-  const picked = pending.filter(it => !off.has(it.raw));
+  const keyOf = (it, i) => it.raw || `row-${i}`;
+  const picked = pending.filter((it, i) => String(it?.what || '').trim() && !off.has(keyOf(it, i)));
 
-  if (!items.length) return null;
+  if (!shown.length) return null;
 
-  const toggle = (raw) => setOff(prev => {
-    const next = new Set(prev);
-    if (next.has(raw)) next.delete(raw); else next.add(raw);
-    return next;
+  const push = (next) => { setRows(next); onChange?.(next); };
+  const toggle = (k) => setOff(prev => {
+    const n = new Set(prev);
+    if (n.has(k)) n.delete(k); else n.add(k);
+    return n;
   });
-  const setAt = (i, patch) => onChange?.(items.map((it, k) => (k === i ? { ...it, ...patch } : it)));
-  const removeAt = (i) => onChange?.(items.filter((_, k) => k !== i));
-  const addRow = () => onChange?.([...items, { names: [], name: '', what: '', dueText: '', dueDate: '', raw: `새 줄 ${items.length + 1}` }]);
+  const setAt = (i, patch) => push(shown.map((it, k) => (k === i ? { ...it, ...patch } : it)));
+  const removeAt = (i) => push(shown.filter((_, k) => k !== i));
+  const addRow = () => push([...shown, { names: [], name: '', what: '', dueText: '', dueDate: '', raw: `새 줄 ${Date.now()}` }]);
   const make = () => {
     if (!picked.length) return;
     onCreate?.(picked.map(it => ({
@@ -644,54 +659,70 @@ function ActionItems({ items = [], subtasks = [], members = [], editable = false
         )}
       </div>
       <div className="divide-y divide-line/60 border-y border-line">
-        {items.map((it, i) => {
+        {shown.map((it, i) => {
           const made = matchSubtask(it, subtasks);
-          const on = !made && !off.has(it.raw);
+          const k = keyOf(it, i);
+          const on = !made && !!String(it?.what || '').trim() && !off.has(k);
           return (
-            <div key={it.raw || i} className="flex flex-wrap items-center gap-2 py-2">
-              {/* 체크칸은 **브라우저 기본 모양을 끄고 우리 토큰으로 그린다** — 켜 두면
-                  라이트에서 바탕이 검게 나온다(사용자 지적 2026-09-22). */}
-              {!made && (
-                <input type="checkbox" checked={on} onChange={() => toggle(it.raw)}
-                  aria-label={`${it.what} 고르기`} className="action-check shrink-0" />
-              )}
-              {editable ? (
-                <OwnerPicker names={it.names || []} members={members}
-                  onChange={(names) => setAt(i, { names, name: names[0] || '' })} />
-              ) : (it.names?.length ? (
-                <span className="shrink-0 flex items-center gap-1.5">
-                  <span className="flex items-center">
-                    {it.names.slice(0, 3).map((n, k) => (
-                      <Avatar key={n} name={n} className={`flex w-[22px] h-[22px] text-[10px] ${k ? '-ml-1.5 ring-[1.5px] ring-surface' : ''}`} />
-                    ))}
+            <div key={k} className="flex flex-wrap items-center gap-2 py-2">
+
+              {/* ① 체크 + 맡는 사람 — 두 폭 모두 맨 앞 */}
+              <span className="order-1 flex items-center gap-2 min-w-0">
+                {!made && (
+                  <input type="checkbox" checked={on} onChange={() => toggle(k)}
+                    disabled={!String(it?.what || '').trim()}
+                    aria-label={`${it.what || '이 줄'} 고르기`}
+                    className="action-check shrink-0 disabled:opacity-40" />
+                )}
+                {editable ? (
+                  <OwnerPicker names={it.names || []} members={members}
+                    onChange={(names) => setAt(i, { names, name: names[0] || '' })} />
+                ) : (it.names?.length ? (
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <span className="flex items-center shrink-0">
+                      {it.names.slice(0, 3).map((n, j) => (
+                        <Avatar key={n} name={n} className={`flex w-[22px] h-[22px] text-[10px] ${j ? '-ml-1.5 ring-[1.5px] ring-surface' : ''}`} />
+                      ))}
+                    </span>
+                    <span className="text-xs font-semibold text-fg truncate">{namesLabel(it.names)}</span>
                   </span>
-                  <span className="text-xs font-semibold text-fg">{namesLabel(it.names)}</span>
-                </span>
-              ) : null)}
-              {editable ? (
-                <input value={it.what} onChange={(e) => setAt(i, { what: e.target.value })}
-                  aria-label="할 일" placeholder="할 일"
-                  className="flex-1 min-w-[8rem] h-[30px] px-2.5 text-xs text-fg bg-surface border border-line rounded-md focus:border-accent outline-none transition-colors" />
-              ) : (
-                <span className="flex-1 min-w-[8rem] text-xs text-fg-secondary break-words">{it.what}</span>
-              )}
-              {editable ? (
-                <DatePicker value={it.dueDate || ''}
-                  onChange={(v) => setAt(i, { dueDate: v, dueText: '' })}
-                  ariaLabel="기한"
-                  triggerClassName="shrink-0 h-[30px] px-2.5 text-[11.5px] text-fg-muted bg-surface border border-line rounded-md hover:bg-surface-hover transition-colors whitespace-nowrap" />
-              ) : (it.dueText && <span className="shrink-0 text-[11px] text-fg-muted tabular-nums">{it.dueText}</span>)}
-              {made && (
-                <span className="shrink-0 inline-flex items-center gap-1 h-[26px] px-2.5 rounded-md bg-tag-green text-tag-green-fg text-[11px] font-semibold">
-                  <Check size={12} strokeWidth={3} />하위 업무
-                </span>
-              )}
-              {editable && (
-                <button type="button" onClick={() => removeAt(i)} aria-label="이 줄 지우기"
-                  className="shrink-0 p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95">
-                  <X size={13} />
-                </button>
-              )}
+                ) : null)}
+              </span>
+
+              {/* ③ 표·지우기 — 좁을 때는 첫 줄 오른쪽 끝, 넓을 때는 줄의 맨 끝 */}
+              <span className="order-2 sm:order-3 ml-auto sm:ml-0 flex items-center gap-1 shrink-0">
+                {made && (
+                  <span className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-md bg-tag-green text-tag-green-fg text-[11px] font-semibold whitespace-nowrap">
+                    <Check size={12} strokeWidth={3} />하위 업무
+                  </span>
+                )}
+                {editable && (
+                  <button type="button" onClick={() => removeAt(i)} aria-label="이 줄 지우기"
+                    className="p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95">
+                    <X size={13} />
+                  </button>
+                )}
+              </span>
+
+              {/* ② 할 일 + 기한 — 좁을 때는 **둘째 줄 통째로**, 넓을 때는 가운데를 채운다 */}
+              <span className="order-3 sm:order-2 basis-full sm:basis-auto sm:flex-1 flex items-center gap-2 min-w-0">
+                {editable ? (
+                  <input value={it.what} onChange={(e) => setAt(i, { what: e.target.value })}
+                    aria-label="할 일" placeholder="할 일"
+                    className="flex-1 min-w-0 h-[34px] px-2.5 text-xs text-fg bg-surface border border-line rounded-md focus:border-accent outline-none transition-colors" />
+                ) : (
+                  <span className="flex-1 min-w-0 text-xs text-fg-secondary break-words">{it.what}</span>
+                )}
+                {editable ? (
+                  <DatePicker value={it.dueDate || ''}
+                    onChange={(v) => setAt(i, { dueDate: v, dueText: '' })}
+                    ariaLabel="기한"
+                    triggerClassName="shrink-0 inline-flex items-center gap-1 h-[34px] px-2.5 text-[11.5px] text-fg-muted bg-surface border border-line rounded-md hover:bg-surface-hover transition-colors whitespace-nowrap">
+                    <span>{it.dueDate ? formatDay(it.dueDate) : '기한'}</span>
+                  </DatePicker>
+                ) : (it.dueText && <span className="shrink-0 text-[11px] text-fg-muted tabular-nums">{it.dueText}</span>)}
+              </span>
+
             </div>
           );
         })}

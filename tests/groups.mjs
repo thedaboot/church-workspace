@@ -326,14 +326,17 @@ const yearOpen = async () => {
   return list;
 };
 // 날짜 고르기(DatePicker — 업무 날짜와 같은 부품). 달을 옮겨 그 날을 누른다.
+// **달력은 body로 포털된다**(2026-09-22 · 좁은 화면에서 화면 밖으로 나가던 것을 고치며).
+// 여는 버튼만 root에서 찾고, 열린 달력은 문서에서 `[data-datepicker]`로 찾는다.
 const pickDate = (root, y, m, d) => ev(`(async () => {
   const w = ms => new Promise(r => setTimeout(r, ms));
   const box = document.querySelector(${JSON.stringify(root)})?.firstElementChild;
   if (!box) return 'no-picker';
   box.querySelector('button').click();
   await w(220);
+  const cal = () => document.querySelector('[data-datepicker]');
   for (let i = 0; i < 40; i++) {
-    const pop = box.children[1];
+    const pop = cal();
     if (!pop) return 'no-pop';
     const head = pop.querySelector('span').textContent.trim();
     if (head === ${JSON.stringify(`${y}년 ${m}월`)}) break;
@@ -342,7 +345,8 @@ const pickDate = (root, y, m, d) => ev(`(async () => {
     (hy * 12 + hm < ${y} * 12 + ${m} ? nav[1] : nav[0]).click();
     await w(110);
   }
-  const pop = box.children[1];
+  const pop = cal();
+  if (!pop) return 'no-pop';
   const day = [...pop.querySelectorAll('button')]
     .find(b => b.className.includes('w-8') && b.textContent.trim() === String(${d}));
   if (!day) return 'no-day';
@@ -1824,7 +1828,7 @@ await sleep(450);
 // 생성기 카드의 등장 transform이 쌓임 맥락을 만들어서, 안의 날짜 패널이 아래 모임
 // 카드에 덮인 적이 있다(예배 화면에서 먼저 발견 — 생성기에 relative z-20을 준다).
 await ev(`document.querySelector('.club-meet-date button').click()`); await sleep(300);
-const datePop = await uncovered('.club-meet-new [data-datepicker]');
+const datePop = await uncovered('[data-datepicker]');
 check('날짜 패널이 아래 카드에 덮이지 않는다', datePop === 'ok', datePop);
 await ev(`document.querySelector('.club-meet-date button').click()`); await sleep(250);
 
