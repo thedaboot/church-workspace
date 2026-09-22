@@ -3160,11 +3160,14 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 도막 이름을 2026-09-22에 '청년별 업무'로 바꿨다(사용자 결정). **옛 이름도 읽는다** —
   // 이미 옛 제목으로 다듬어 저장된 회의록이 있고, 이름을 바꿨다고 그 줄이 사라지면 안 된다.
   // 되돌리기 검사: ACTION_HEADINGS에서 옛 이름을 빼면 둘째가 깨진다.
-  assert.strictEqual(A.ACTION_HEADING, '청년별 업무', '새로 쓰는 도막 이름');
-  assert.strictEqual(
-    A.parseActionItems(['### 누가 무엇을 언제까지', '- @노준석 · 옛 회의록의 줄'].join('\n')).length, 1,
-    '옛 이름으로 저장된 회의록도 계속 읽는다');
-  console.log('PASS  회의록 액션 항목 읽기 12가지');
+  assert.strictEqual(A.ACTION_HEADING, '청년별 담당 업무',
+    '새로 쓰는 도막 이름 — 화면 라벨과 같은 글자다');
+  for (const old of ['누가 무엇을 언제까지', '청년별 업무']) {
+    assert.strictEqual(
+      A.parseActionItems([`### ${old}`, '- @노준석 · 옛 회의록의 줄'].join('\n')).length, 1,
+      `옛 이름(${old})으로 저장된 회의록도 계속 읽는다`);
+  }
+  console.log('PASS  회의록 액션 항목 읽기 13가지');
 }
 
 // ── 키보드가 올라와도 쓰던 칸이 보이는지 (소스 단정) ─────────────────────────
@@ -3186,15 +3189,20 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 
   const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
   const vv = app.slice(app.indexOf('const vv = window.visualViewport;'));
-  assert.ok(/scrollIntoView\(\{ block: 'center' \}\)/.test(vv),
-    '창이 줄면 쓰고 있던 칸을 보이는 자리로 끌어온다');
+  assert.ok(/requestAnimationFrame\(keepCaretVisible\)/.test(vv),
+    '창이 줄면 커서를 보이는 자리로 끌어온다(새 높이가 잡힌 다음 프레임에)');
   assert.ok(/vv\.height < lastH - 80/.test(vv),
     '키보드와 주소창 여닫힘을 가른다 — 주소창은 이보다 적게 움직인다');
-  assert.ok(/isContentEditable/.test(vv),
+  assert.ok(/selectionchange/.test(vv) && /setTimeout\(keepCaretVisible, 120\)/.test(vv),
+    '글을 쓰는 동안 커서가 내려가도 따라간다(글자마다 굴리지 않게 한 박자 묶는다)');
+  // 주석에는 그 이름이 남아 있다(왜 안 쓰는지를 적어 뒀다) — **부르는 자리**만 본다.
+  assert.ok(!new RegExp('\\.scrollIntoView\\(').test(app.split('\n').filter(l => !l.trim().startsWith('//')).join('\n')),
+    'scrollIntoView로 돌아가지 않았다 — 그건 칸 전체를 가운데로 보내서 커서와 무관하다');
+  assert.ok(/data-kb-bar/.test(app) && /data-kb-bar/.test(modals),
+    '아래 도구 줄(저장·취소) 높이를 셈이 안다 — 그 줄이 커서를 가리던 자리다');
+  assert.ok(/isContentEditable/.test(app),
     '본문 편집기(contenteditable)도 같이 본다 — 업무 수정이 그 자리다');
-  assert.ok(/requestAnimationFrame/.test(vv),
-    '새 높이로 자리가 잡힌 다음에 끌어온다(같은 프레임이면 옛 자리를 잰다)');
-  console.log('PASS  키보드가 올라와도 쓰던 칸이 보인다 6가지');
+  console.log('PASS  키보드가 올라와도 커서가 보인다 8가지');
 }
 
 // ── '승인을 기다려주세요'가 헛뜨지 않는지 (소스 단정) ────────────────────────
@@ -3223,4 +3231,25 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(perm.indexOf('if (!res)') < perm.indexOf('approved: !!ap.data'),
     '값을 덮어쓰는 줄은 실패 관문 **뒤**에 있다 — 앞에 있으면 관문이 아무 일도 안 한다');
   console.log('PASS  승인 대기 화면이 헛뜨지 않는다 6가지');
+}
+
+// ── 커서를 얼마나 굴려야 하나 (utils.caretShift) ────────────────────────────
+// 위 소스 단정이 '배선'을 보는 것이라면, 이건 **셈 자체**를 본다. 순수 함수라 그냥 부른다.
+// 되돌리기 검사: `caret.bottom > bottom` 갈래를 지우면 첫 단정이, 띠가 없을 때의
+// 조기 반환을 지우면 마지막이 깨진다.
+{
+  const U = await import(new URL('../src/utils.js', import.meta.url).href);
+  const view = { top: 0, bottom: 400 };   // 보이는 띠: 0~400 (그 아래는 저장·취소 바)
+  assert.strictEqual(U.caretShift({ top: 380, bottom: 400 }, view), 12,
+    '커서가 바에 닿으면 그만큼 굴린다(여백 12px)');
+  assert.strictEqual(U.caretShift({ top: 100, bottom: 120 }, view), 0,
+    '띠 안에 있으면 안 굴린다 — 글자마다 화면이 움직이면 멀미가 난다');
+  assert.strictEqual(U.caretShift({ top: 0, bottom: 20 }, view), -12,
+    '위로 숨었으면 음수 — 내려서 보여 준다');
+  assert.strictEqual(U.caretShift({ top: 500, bottom: 520 }, view), 132,
+    '한참 아래면 그만큼 크게 굴린다');
+  assert.strictEqual(U.caretShift(null, view), 0, '커서를 못 재면 가만히 둔다');
+  assert.strictEqual(U.caretShift({ top: 10, bottom: 30 }, { top: 0, bottom: 10 }), 0,
+    '키보드가 띠를 다 먹었으면 굴리지 않는다(굴려 봐야 보일 자리가 없다)');
+  console.log('PASS  커서를 얼마나 굴리나 6가지');
 }

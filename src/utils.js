@@ -531,6 +531,24 @@ export function depLayers(tasks = []) {
 
 // 생일을 'MM-DD' → 사람들 로 묶는다. 달력이 날짜 칸마다 물어보므로 한 번만 만든다
 // (12명 × 42칸을 매 렌더 훑지 않게).
+// ── 키보드가 올라왔을 때 커서를 어디로 옮겨야 하나 (2026-09-22) ─────────────
+// `caret`은 지금 커서(또는 쓰고 있는 칸)의 자리, `view`는 **쓸 수 있는 띠**다 —
+// 보이는 창에서 아래 도구 줄(저장·취소)을 뺀 구간. 굴려야 할 거리를 돌려준다(0이면 그대로).
+//
+// 왜 scrollIntoView({block:'center'})로 안 되나: 그건 **칸 전체**를 가운데로 보낸다.
+// 업무 상세의 본문 편집기는 화면보다 길어서, 가운데로 보내면 커서가 어디에 있든
+// 엉뚱한 데가 보인다(사용자 지적 — "딱 커서 위치한 곳까지 올라가야 하는데").
+// 그리고 저장·취소 바는 창 안에 떠 있어서 브라우저의 셈에 안 들어간다.
+export function caretShift(caret, view, pad = 12) {
+  if (!caret || !view) return 0;
+  const top = view.top + pad;
+  const bottom = view.bottom - pad;
+  if (!(bottom > top)) return 0;                    // 띠가 없으면(키보드가 다 먹었으면) 그대로
+  if (caret.bottom > bottom) return Math.round(caret.bottom - bottom);
+  if (caret.top < top) return Math.round(caret.top - top);
+  return 0;
+}
+
 export const birthdayMap = (members = []) => {
   const m = new Map();
   for (const p of members || []) {

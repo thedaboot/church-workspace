@@ -486,7 +486,10 @@ check('연도별 직분이 저장된다',
   roles.some(r => r.person_id === 'p3' && r.year === YEAR && r.role === 'president'), JSON.stringify(roles));
 list = await read();
 check('배지가 바로 붙는다', rowOf(list, 'p3').badges.includes('회장'), JSON.stringify(rowOf(list, 'p3').badges));
-check('교역자 토글', await clickText('교역자', inRow('p3')));
+// **직분 줄로 좁혀서 누른다**(2026-09-22). 소속 줄에 '교역자' 칩을 잠깐 넣었을 때 그냥
+// 이름으로 찾다가 앞에 있는 소속 칩을 눌러 엉뚱한 칸이 바뀌었다. 칩은 도로 뺐지만
+// 좁히는 것은 남긴다 — 글자로 찾는 검사는 같은 이름이 하나뿐이라는 가정에 기댄다.
+check('교역자 토글', await clickText('교역자', `${inRow('p3')}.querySelector('[data-roles]')`));
 await sleep(600);
 check('교역자는 명단 속성이다(is_pastor)',
   (await stored('people')).find(p => p.id === 'p3')?.is_pastor === true);

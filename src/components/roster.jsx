@@ -51,17 +51,18 @@ const ROW = { borderBottom: '1px solid var(--app-line)' };
 const CHIP_ROW = 'flex items-center gap-1.5 flex-nowrap min-w-0 overflow-x-auto scrollbar-hide x-scroll-lock'
   + " after:content-[''] after:shrink-0 after:w-3";
 
-// 고를 수 있는 것은 **사역 팀 + 순 자리(순장·순원)**다.
-// CONFIG.TEAMS의 '임원진'·'교역자'는 팀이 아니라 직분이고, 명단에서는 아래 '직분' 줄이
-// 그 자리를 맡는다(people_roles · is_pastor) — 같은 이름이 두 줄에 서면 어느 쪽을 눌러야
-// 하는지 알 수 없어서 뺀다.
+// 고를 수 있는 것: **사역 팀 + 순 자리(순장·순원)**. 순장·순원은 2026-09-22에 열었다
+// (그전에는 `t.endsWith('팀')` 하나여서 명단에서 고를 데가 아예 없었다).
 //
-// 순장·순원은 2026-09-22에 **더했다**(사용자 요청). 그전에는 `t.endsWith('팀')` 하나로
-// 걸러서 임원진·교역자와 같이 빠져 있었는데, 그 둘과 달리 순 자리는 직분 줄이 맡지
-// 않는다 — 명단에서 고를 데가 아예 없었다. 여기서 고른 값은 팀 보드(`team:순장`)와
-// 대시보드 '팀별 남은 업무'에도 같이 선다(config.js 주석 — 알고 고른 길이다).
-const SUN_SEATS = ['순장', '순원'];
-const TEAM_CHIPS = Object.entries(CONFIG.TEAMS).filter(([t]) => t.endsWith('팀') || SUN_SEATS.includes(t));
+// **`임원진`·`교역자`는 여기 없다** — 둘 다 직분이고 아래 '직분' 줄이 맡는다
+// (임원진은 그 해 `people_roles`, 교역자는 `people.is_pastor`). 같은 글자가 두 줄에
+// 서면 어느 쪽을 눌러야 하는지 알 수 없다 — 2026-09-22에 교역자를 잠깐 여기 넣었다가
+// 사용자 결정으로 **도로 뺐다**(직분 줄에 그대로 둔다).
+//
+// 계정 쪽 소속(`profile_teams`)의 교역자는 **직분 토글이 정한다**(0069) — 여기서 고르지
+// 않아도 is_pastor를 끄면 계정에서도 빠진다. 배현민 계정이 교역자로 굳어 있던 자리다.
+const EXTRA_SEATS = ['순장', '순원'];
+const TEAM_CHIPS = Object.entries(CONFIG.TEAMS).filter(([t]) => t.endsWith('팀') || EXTRA_SEATS.includes(t));
 
 // 배지 색은 토큰만 쓴다. 교역자는 CONFIG.TEAMS의 '교역자'와 같은 계열로 맞춘다.
 const BADGE_STYLE = {
@@ -290,7 +291,10 @@ function EditPanel({ person, linked, link, roleSet, year, busy, on }) {
       </PanelRow>
 
       <PanelRow label="직분" sub={`${year}년`}>
-        <div className={`${CHIP_ROW} py-0.5`}>
+        {/* `data-roles`: 직분 줄을 집는 표. 2026-09-22에 소속 줄에도 '교역자'를 잠깐 넣었다가
+            검사가 엉뚱한 칩을 눌러 깨졌다 — 칩은 도로 뺐지만 이 표는 남긴다(글자로 찾는
+            검사는 같은 이름이 하나만 있다는 가정에 기대고, 그 가정은 또 깨진다). */}
+        <div data-roles className={`${CHIP_ROW} py-0.5`}>
           {/* 교역자만 연도와 무관한 명단 속성이다(people.is_pastor) */}
           <Chip on={!!person.is_pastor} disabled={busy} className={BADGE_STYLE[PASTOR_LABEL]}
             onClick={() => on.pastor(person, !person.is_pastor)}>{PASTOR_LABEL}</Chip>

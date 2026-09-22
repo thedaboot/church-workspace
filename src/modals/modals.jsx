@@ -7,6 +7,7 @@ import { selectCurrentUser } from '../store/selectors.js';
 import { AiService, isFallbackText } from '../services/ai.js';
 import { parseActionItems, matchSubtask } from '../services/actionItems.js';
 import { RichText } from '../components/RichText.jsx';
+import { Avatar } from '../components/Avatar.jsx';
 import { Bar } from '../views/dashboardParts.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { AttachmentSection, PendingAttachments, startUploads } from './attachments.jsx';
@@ -273,7 +274,9 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
             {mobileTab === 'comments' && commentInputEl}
           </div>
         )}
-        <div className="shrink-0 border-t border-line p-3 flex justify-between items-center gap-2 bg-surface-2">{footerInner}</div>
+        {/* `data-kb-bar`: 키보드가 올라왔을 때 **이 줄 높이만큼은 쓸 수 없는 자리**라고
+            App.jsx의 셈에 알린다(저장·취소가 커서를 가리던 자리 · 2026-09-22). */}
+        <div data-kb-bar className="shrink-0 border-t border-line p-3 flex justify-between items-center gap-2 bg-surface-2">{footerInner}</div>
       </div>
     );
   }
@@ -555,7 +558,15 @@ function ActionItems({ content, subtasks = [], onCreate }) {
                   aria-label={`${it.what} 고르기`}
                   className="w-[17px] h-[17px] shrink-0 accent-[var(--app-accent)]" />
               )}
-              {it.name && <span className="shrink-0 text-xs font-semibold text-fg">{it.name}</span>}
+              {/* 이름 앞에 사람 동그라미 — 누구 몫인지가 글자보다 먼저 읽힌다
+                  (사용자 요청 2026-09-22). 사진은 Avatar가 이름으로 찾아 온다(게스트
+                  모드에는 표가 비어 있어 글자 원이다). */}
+              {it.name && (
+                <span className="shrink-0 flex items-center gap-1.5">
+                  <Avatar name={it.name} className="flex w-[22px] h-[22px] text-[10px]" />
+                  <span className="text-xs font-semibold text-fg">{it.name}</span>
+                </span>
+              )}
               <span className="flex-1 min-w-[8rem] text-xs text-fg-secondary break-words">{it.what}</span>
               {it.dueText && <span className="shrink-0 text-[11px] text-fg-muted tabular-nums">{it.dueText}</span>}
               {made && (

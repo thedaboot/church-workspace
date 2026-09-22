@@ -10,6 +10,55 @@ import { TaskModalShell } from './modals/modals.jsx';
 import { ProfileModal, ProjectModal } from './modals/settings.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
+import { caretShift } from './utils.js';
+
+// ── 키보드가 올라와도 커서가 보이게 (2026-09-22 신고) ───────────────────────
+// 폰에서 업무 상세를 고칠 때, 커서가 있는 줄이 **저장·취소 바 뒤로** 들어가 손으로
+// 다시 내려야 했다. 브라우저의 기본 셈은 그 바를 모른다 — 창 안에 떠 있는 우리 줄이라
+// 뷰포트 밖이 아니기 때문이다. 그래서 여기서 직접 잰다.
+//
+// `scrollIntoView({block:'center'})`로는 안 된다: 그건 **칸 전체**를 가운데로 보내는데,
+// 본문 편집기는 화면보다 길어서 커서가 어디에 있든 엉뚱한 데가 보인다.
+
+// 커서가 있는 자리. contenteditable은 Selection에서 재고(빈 줄이면 rect가 0이라 그
+// 줄의 요소로 떨어진다), 보통 칸은 칸 자체를 쓴다.
+function caretBox(el) {
+  if (!el.isContentEditable) return el.getBoundingClientRect();
+  const sel = window.getSelection?.();
+  if (!sel || !sel.rangeCount) return el.getBoundingClientRect();
+  const r = sel.getRangeAt(0).getBoundingClientRect();
+  if (r && (r.width || r.height)) return r;
+  const n = sel.anchorNode;
+  const box = n && (n.nodeType === 1 ? n : n.parentElement);
+  return box ? box.getBoundingClientRect() : el.getBoundingClientRect();
+}
+
+// 실제로 굴릴 수 있는 가장 가까운 상자. 없으면 null(창 전체가 구른다).
+function scrollBox(el) {
+  for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+    const oy = getComputedStyle(n).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 1) return n;
+  }
+  return null;
+}
+
+function keepCaretVisible() {
+  const vv = window.visualViewport;
+  const el = document.activeElement;
+  if (!vv || !el) return;
+  if (!(el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+  // 쓸 수 있는 띠 = 보이는 창에서 아래 도구 줄(data-kb-bar)을 뺀 구간
+  let bottom = vv.height;
+  for (const bar of document.querySelectorAll('[data-kb-bar]')) {
+    const r = bar.getBoundingClientRect();
+    if (r.height && r.top < bottom) bottom = Math.min(bottom, r.top);
+  }
+  const dy = caretShift(caretBox(el), { top: 0, bottom });
+  if (!dy) return;
+  const box = scrollBox(el);
+  if (box) box.scrollBy({ top: dy, behavior: 'smooth' });
+  else window.scrollBy({ top: dy, behavior: 'smooth' });
+}
 import { MembersView } from './views/membersView.jsx';
 // v2 화면 (docs/V2.md §3) — 각 줄기가 자기 파일만 채운다
 import { HomeView } from './views/homeView.jsx';
@@ -469,26 +518,27 @@ function WorkspaceShell() {
       // 아이폰이 이미 문서를 밀어 놨으면 되돌린다. 뿌리가 보이는 창만큼이면 문서는
       // 스크롤될 것이 없으므로 이 호출은 대개 아무 일도 하지 않는다(되돌릴 때만 움직인다).
       if (window.scrollY > 0) window.scrollTo(0, 0);
-      // **키보드가 올라오면 쓰고 있던 칸을 끌어온다**(2026-09-22 신고 — 댓글 칸이
-      // 키보드에 가리고, 업무 수정에서는 손으로 다시 내려야 했다). 창이 줄어드는 것은
-      // 뿌리 높이로 이미 받아 냈지만, **그 칸이 줄어든 창 안에 있는지는 다른 문제**다 —
-      // 모달 안 스크롤 상자에서는 브라우저가 알아서 끌어오지 못한다.
+      // **키보드가 올라오면 커서를 보이는 자리로 끌어온다**(2026-09-22 신고).
       // 80px은 키보드와 주소창 여닫힘을 가르는 선이다(주소창은 이보다 적게 움직인다).
       const shrank = vv.height < lastH - 80;
       lastH = vv.height;
-      if (!shrank) return;
-      const el = document.activeElement;
-      const typing = !!el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
-      if (!typing) return;
-      // 새 높이로 자리가 잡힌 다음에 끌어온다 — 같은 프레임에 부르면 옛 자리를 잰다.
-      requestAnimationFrame(() => {
-        try { el.scrollIntoView({ block: 'center' }); } catch { /* 옛 브라우저 */ }
-      });
+      if (shrank) requestAnimationFrame(keepCaretVisible);
     };
     apply();
     vv.addEventListener('resize', apply);
     vv.addEventListener('scroll', apply);
+    // 글을 쓰는 동안 커서가 아래로 내려가도 따라간다 — 키보드가 올라와 있을 때만이고,
+    // selectionchange는 글자마다 오므로 한 박자 묶는다(매번 굴리면 화면이 떤다).
+    let t = 0;
+    const onSel = () => {
+      if (vv.height >= window.innerHeight - 80) return;   // 키보드가 없으면 할 일이 없다
+      clearTimeout(t);
+      t = setTimeout(keepCaretVisible, 120);
+    };
+    document.addEventListener('selectionchange', onSel);
     return () => {
+      clearTimeout(t);
+      document.removeEventListener('selectionchange', onSel);
       vv.removeEventListener('resize', apply);
       vv.removeEventListener('scroll', apply);
       root.style.removeProperty('--app-vh');
