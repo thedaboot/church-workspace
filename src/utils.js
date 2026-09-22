@@ -531,6 +531,33 @@ export function depLayers(tasks = []) {
 
 // 생일을 'MM-DD' → 사람들 로 묶는다. 달력이 날짜 칸마다 물어보므로 한 번만 만든다
 // (12명 × 42칸을 매 렌더 훑지 않게).
+// ── 업무 창에서 정말 바뀐 게 있나 (2026-09-22 사용자 요청) ──────────────────
+// `닫기`를 누를 때 물어볼지 정하는 판정이다. **깃발(dirty=true)이 아니라 값을 견준다** —
+// 깃발은 커서를 한 번 옮기거나 같은 값을 다시 골라도 서고, 그러면 안 고친 사람에게도
+// 창이 떠서 금방 성가신 것이 된다(그렇게 되면 사람은 창을 안 읽고 누른다).
+//
+// 보는 칸은 **수정 폼이 실제로 고치는 것들뿐**이다. 댓글·활동·첨부는 수정 모드 밖에서
+// 따로 저장되므로 여기 넣으면 남이 댓글을 달았을 때 "고쳤다"가 된다.
+export const TASK_EDIT_KEYS = ['title', 'content', 'status', 'dueDate', 'startDate',
+  'assignees', 'teams', 'subtasks', 'dependsOn'];
+
+// 견주기 전에 모양을 맞춘다: 없는 값은 빈 글, 배열은 그대로(순서도 뜻이 있다 —
+// 하위 업무와 담당자는 사람이 정한 차례다), 하위 업무는 id를 빼고 본다(만들 때마다
+// 새로 생기는 값이라 그것까지 견주면 아무것도 안 바꿔도 다르다고 나온다).
+const editShape = (v, key) => {
+  if (key === 'subtasks') {
+    return (Array.isArray(v) ? v : []).map(t => [t?.title || '', !!t?.done, t?.assignee || '', t?.due || '']);
+  }
+  if (Array.isArray(v)) return v;
+  return v == null ? '' : v;
+};
+
+export function taskEditDirty(now, was) {
+  if (!now || !was) return false;
+  return TASK_EDIT_KEYS.some(k =>
+    JSON.stringify(editShape(now[k], k)) !== JSON.stringify(editShape(was[k], k)));
+}
+
 // ── 키보드가 올라왔을 때 커서를 어디로 옮겨야 하나 (2026-09-22) ─────────────
 // `caret`은 지금 커서(또는 쓰고 있는 칸)의 자리, `view`는 **쓸 수 있는 띠**다 —
 // 보이는 창에서 아래 도구 줄(저장·취소)을 뺀 구간. 굴려야 할 거리를 돌려준다(0이면 그대로).

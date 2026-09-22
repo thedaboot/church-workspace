@@ -120,6 +120,36 @@ export function stripActionSection(markdown) {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// ── 되쓰기 — 부품에서 고친 것을 본문 도막으로 되돌린다 (2026-09-22) ─────────
+// 화면은 이 도막을 **부품으로만** 고친다(편집기 본문에서는 감춘다). 그래서 고친 결과를
+// 다시 마크다운으로 적는 자리가 필요하다. **읽는 모양과 적는 모양이 같아야 한다** —
+// 여기서 적은 줄을 parseActionItems가 그대로 다시 읽을 수 있어야 왕복이 닫힌다.
+export function formatActionLine(it) {
+  const who = (it?.names || []).filter(Boolean).map(n => `@${n}`).join(' ');
+  const iso = String(it?.dueDate || '');
+  const due = /^\d{4}-\d{2}-\d{2}$/.test(iso)
+    ? `${Number(iso.slice(5, 7))}월 ${Number(iso.slice(8, 10))}일까지`
+    : String(it?.dueText || '').trim();
+  return `- ${[who, String(it?.what || '').trim(), due].filter(Boolean).join(' · ')}`;
+}
+
+// 본문 + 항목들 → 도막이 맨 아래에 붙은 본문. 할 일이 빈 줄은 버린다(빈 줄을 남기면
+// 다음에 읽을 때 사라져서 사람이 "지워졌나?" 한다). 항목이 하나도 없으면 도막도 없다.
+export function writeActionSection(body, items) {
+  const rows = (items || []).filter(it => String(it?.what || '').trim());
+  const rest = stripActionSection(body);
+  if (!rows.length) return rest;
+  return [rest, '', `### ${ACTION_HEADING}`, ...rows.map(formatActionLine)]
+    .join('\n').replace(/^\n+/, '').trim();
+}
+
+// 맡는 쪽 이름표 — **세 명까지는 이름, 그보다 많으면 외 N명**(사용자 결정 2026-09-22).
+export function namesLabel(names) {
+  const a = (names || []).filter(Boolean);
+  if (a.length <= 3) return a.join(' · ');
+  return `${a.slice(0, 3).join(' · ')} 외 ${a.length - 3}명`;
+}
+
 // 이 항목이 이미 하위 업무가 되었나 — 제목 글자로 견준다(띄어쓰기·대소문자를 접는다).
 // 통합 검색의 norm과 같은 판단이다(layout.jsx): 사람이 옮겨 적으면서 띄어쓰기가 흔들린다.
 export const titleKey = (v) => String(v || '').toLowerCase().replace(/\s+/g, '');

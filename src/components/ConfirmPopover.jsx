@@ -103,12 +103,16 @@ const TONE = {
   ok: 'bg-accent hover:opacity-90 text-white',
 };
 
-export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel = '취소', onConfirm, children, title, tone = 'danger', className = 'inline-flex' }) {
+// `altLabel`·`onAlt`를 주면 **길이 셋**이 된다(2026-09-22 — 업무 창의 '닫기'가 그렇다:
+// 저장하고 닫기 / 무시하고 닫기 / 돌아가기). 셋일 때는 가로로 늘어놓지 않고 **세로로
+// 쌓는다** — 폰에서 가로로 셋을 두면 글자가 줄어들어 어느 것이 무엇인지 안 읽힌다.
+export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel = '취소', onConfirm, children, title, tone = 'danger', className = 'inline-flex', altLabel = '', onAlt = null }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
   const popRef = useRef(null);
-  const [pos, place] = useAnchoredPos(triggerRef, open, W, EST_H);
+  const stacked = !!altLabel;
+  const [pos, place] = useAnchoredPos(triggerRef, open, W, stacked ? EST_H + 80 : EST_H);
 
   useEffect(() => {
     if (!open) return;
@@ -135,11 +139,22 @@ export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel =
       style={{ position: 'fixed', left: pos.left, top: pos.top, width: W }}
       className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150"
     >
-      <p className="text-xs text-fg-secondary leading-relaxed mb-2.5 whitespace-pre-line break-words">{message}</p>
-      <div className="flex justify-end gap-2">
-        <button type="button" onClick={() => setOpen(false)} className="text-xs px-2.5 py-1.5 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">{cancelLabel}</button>
-        <button type="button" onClick={() => { setOpen(false); onConfirm?.(); }} className={`text-xs px-2.5 py-1.5 rounded-md transition active:scale-95 font-semibold ${TONE[tone] || TONE.danger}`}>{confirmLabel}</button>
-      </div>
+      <p className={`text-xs leading-relaxed whitespace-pre-line break-words ${stacked ? 'font-bold text-fg mb-2.5' : 'text-fg-secondary mb-2.5'}`}>{message}</p>
+      {stacked ? (
+        <div className="flex flex-col gap-1.5">
+          <button type="button" onClick={() => { setOpen(false); onAlt?.(); }}
+            className="w-full text-xs font-semibold px-2.5 py-2.5 rounded-md bg-accent hover:bg-accent-strong text-white transition active:scale-95">{altLabel}</button>
+          <button type="button" onClick={() => { setOpen(false); onConfirm?.(); }}
+            className={`w-full text-xs font-semibold px-2.5 py-2.5 rounded-md transition active:scale-95 ${TONE[tone] || TONE.danger}`}>{confirmLabel}</button>
+          <button type="button" onClick={() => setOpen(false)}
+            className="w-full text-xs font-semibold px-2.5 py-2.5 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">{cancelLabel}</button>
+        </div>
+      ) : (
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={() => setOpen(false)} className="text-xs px-2.5 py-1.5 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">{cancelLabel}</button>
+          <button type="button" onClick={() => { setOpen(false); onConfirm?.(); }} className={`text-xs px-2.5 py-1.5 rounded-md transition active:scale-95 font-semibold ${TONE[tone] || TONE.danger}`}>{confirmLabel}</button>
+        </div>
+      )}
     </div>,
     document.body
   ) : null;
