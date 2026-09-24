@@ -58,8 +58,12 @@ function isoOf(text, now) {
   const y = base.getFullYear();
   const pad = (n) => String(n).padStart(2, '0');
   const same = `${y}-${pad(month)}-${pad(day)}`;
+  // 기준일도 **로컬** 연·월·일로 적는다 — toISOString()은 UTC라 한국 시간 오전 9시 전에는
+  // 어제가 되어 반년 경계에서 해가 하루 어긋났다(2026-09-24). 이 파일은 import가 없어야
+  // 해서 utils.localDate를 부르지 않고 그 자리에서 조립한다.
+  const today = `${y}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`;
   // 기준일보다 반년 넘게 지난 날짜면 다음 해로 본다(회의록은 앞일을 적는다)
-  const diffDays = (Date.parse(`${same}T00:00:00Z`) - Date.parse(`${base.toISOString().slice(0, 10)}T00:00:00Z`)) / 86400000;
+  const diffDays = (Date.parse(`${same}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000;
   return diffDays < -182 ? `${y + 1}-${pad(month)}-${pad(day)}` : same;
 }
 

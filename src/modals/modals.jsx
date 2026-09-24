@@ -807,7 +807,7 @@ function SubtaskList({ value = [], onChange, readOnly = false, members = [] }) {
                     들어갔다 나오게 하면 아무도 쓰지 않는다 */}
                 <button
                   type="button" onClick={() => toggle(s.id)}
-                  className="w-[18px] h-[18px] rounded-[5px] shrink-0 flex items-center justify-center transition-colors"
+                  className="w-[18px] h-[18px] rounded-sm shrink-0 flex items-center justify-center transition-colors"
                   style={s.done
                     ? { background: 'var(--app-tag-green-fg)' }
                     : { border: '1.5px solid var(--app-line)' }}

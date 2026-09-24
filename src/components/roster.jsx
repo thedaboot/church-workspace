@@ -84,7 +84,8 @@ const birthdayLabel = (mmdd) => {
   return m ? `${+m[1]}월 ${+m[2]}일` : '';
 };
 
-const RowSkeleton = () => (
+// 명단 한 줄 자리(가입자 탭 membersView도 같은 것을 쓴다).
+export const RowSkeleton = () => (
   <div className="flex items-center gap-2.5 py-2.5">
     <Skeleton className="w-8 h-8 rounded-full shrink-0" />
     <div className="flex-1 min-w-0 space-y-1.5">
@@ -93,6 +94,10 @@ const RowSkeleton = () => (
     </div>
   </div>
 );
+
+// 줄 등장 지연(ms). 상한을 둔다 — 명단은 쉰 줄이 넘어서 순번을 끝까지 주면 아래쪽이
+// 1.5초 뒤에 뜬다. stagger는 useEnterStagger()의 값(첫 마운트에만 참). membersView도 쓴다.
+export const rowDelay = (i, stagger) => (stagger ? Math.min(i, 12) * 30 : 0);
 
 const Head = ({ title, count, children }) => (
   <div className="flex items-center gap-2 mb-2.5">
@@ -376,7 +381,6 @@ export function RosterPanel({
   // 걸린 줄만 몇백 ms 뒤에 나타난다(useEnterStagger 주석). 지연 상한도 둔다:
   // 명단은 쉰 줄이 넘어서 순번을 끝까지 주면 아래쪽이 1.5초 뒤에 뜬다.
   const stagger = useEnterStagger();
-  const rowDelay = (i) => (stagger ? Math.min(i, 12) * 30 : 0);
 
   const handlers = {
     close: () => setOpenId(null),
@@ -412,11 +416,11 @@ export function RosterPanel({
         </button>
         {/* 연도 — 고를 값이 셋뿐이라 세그먼트 컨트롤이다(탭 줄과 같은 짜임) */}
         <div className="flex shrink-0 basis-full sm:basis-auto sm:order-2">
-          <span role="group" aria-label="연도" className="flex p-[3px] rounded-[8px] shrink-0"
+          <span role="group" aria-label="연도" className="flex p-[3px] rounded-md shrink-0"
             style={{ background: 'var(--app-surface-hover)' }}>
             {years.map(y => (
               <button key={y} type="button" data-year={y} onClick={() => on.year?.(y)} aria-pressed={year === y}
-                className="px-2.5 py-[6px] rounded-[5px] text-[12px] font-semibold tabular-nums transition-colors"
+                className="px-2.5 py-[6px] rounded-sm text-[12px] font-semibold tabular-nums transition-colors"
                 style={{
                   background: year === y ? 'var(--app-surface)' : 'transparent',
                   color: year === y ? 'var(--app-ink)' : 'var(--app-ink-muted)',
@@ -447,7 +451,7 @@ export function RosterPanel({
         return (
           <PersonRow key={p.id} person={p} linked={profileById.get(p.profile_id)}
             sun={(sunMap.get(p.id) || []).join(', ')} badges={personBadges(p, roleSet)}
-            open={open} busy={!!busy[p.id]} delay={rowDelay(i)} onOpen={() => setOpenId(open ? null : p.id)}>
+            open={open} busy={!!busy[p.id]} delay={rowDelay(i, stagger)} onOpen={() => setOpenId(open ? null : p.id)}>
             {open && (
               <EditPanel person={p} linked={profileById.get(p.profile_id)} link={link}
                 roleSet={roleSet} year={year} busy={!!busy[p.id]} on={handlers} />
@@ -462,7 +466,7 @@ export function RosterPanel({
           {shownGone.map((p, i) => (
             <PersonRow key={p.id} person={p} linked={profileById.get(p.profile_id)}
               sun={(sunMap.get(p.id) || []).join(', ')} badges={personBadges(p, roleMap.get(p.id) || new Set())}
-              busy={!!busy[p.id]} delay={rowDelay(i)} right={
+              busy={!!busy[p.id]} delay={rowDelay(i, stagger)} right={
                 <button type="button" className={`${BTN_QUIET} shrink-0`} disabled={!!busy[p.id]}
                   onClick={() => on.remove?.(p, false)}>
                   {busy[p.id] ? <Loader2 size={13} className="animate-spin" /> : <Undo2 size={13} />} 되돌리기

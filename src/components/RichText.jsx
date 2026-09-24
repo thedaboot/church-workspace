@@ -211,7 +211,7 @@ export const RichText = React.memo(({ content, onToggleTodo }) => {
                     <button
                       type="button" disabled={!onToggleTodo}
                       onClick={() => onToggleTodo?.(it.idx)}
-                      className={`w-[16px] h-[16px] mt-[3px] rounded-[4px] shrink-0 flex items-center justify-center transition-colors ${onToggleTodo ? '' : 'cursor-default'}`}
+                      className={`w-[16px] h-[16px] mt-[3px] rounded-xs shrink-0 flex items-center justify-center transition-colors ${onToggleTodo ? '' : 'cursor-default'}`}
                       style={it.checked
                         ? { background: 'var(--app-tag-green-fg)' }
                         : { border: '1.5px solid var(--app-line)' }}

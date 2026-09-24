@@ -390,19 +390,19 @@ function SongThumb({ link, big = false }) {
   }, [src]);
   if (!src || failed) {
     return (
-      <span className={`worship-song-thumb-fallback ${box} shrink-0 inline-flex items-center justify-center rounded-[5px]`}
+      <span className={`worship-song-thumb-fallback ${box} shrink-0 inline-flex items-center justify-center rounded-sm`}
         style={{ background: 'var(--app-surface-hover)' }}>
         <Music size={big ? 13 : 11} className={link ? 'text-accent-text' : 'text-fg-faint'} />
       </span>
     );
   }
   return (
-    <span className={`worship-song-thumbbox ${box} shrink-0 relative inline-block overflow-hidden rounded-[5px]`}
+    <span className={`worship-song-thumbbox ${box} shrink-0 relative inline-block overflow-hidden rounded-sm`}
       style={{ background: 'var(--app-surface-hover)' }}>
-      {!loaded && <span className="worship-song-thumb-skeleton absolute inset-0 dc-skeleton rounded-[5px]" />}
+      {!loaded && <span className="worship-song-thumb-skeleton absolute inset-0 dc-skeleton rounded-sm" />}
       <img ref={imgRef} src={src} alt="" loading="lazy" draggable={false}
         onLoad={() => setLoaded(true)} onError={() => setFailed(true)}
-        className={`worship-song-thumb w-full h-full rounded-[5px] object-cover transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`} />
+        className={`worship-song-thumb w-full h-full rounded-sm object-cover transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`} />
     </span>
   );
 }
@@ -976,7 +976,7 @@ function SongsEdit({ rows, people, leader, playlistUrl = '', recent = [], onLead
           {[0, 1, 2].map(k => (
             <li key={k} className="flex items-center gap-1.5 py-2.5" style={ROW_LINE}>
               <span className={NUM}>{rows.length + k + 1}</span>
-              <span className="w-10 h-6 shrink-0 rounded-[5px] dc-skeleton" />
+              <span className="w-10 h-6 shrink-0 rounded-sm dc-skeleton" />
               <span className="flex-1 h-[30px] rounded-xs dc-skeleton" />
             </li>
           ))}
@@ -1111,11 +1111,11 @@ function ServicePaper({ service, nameOf }) {
       </div>
 
       <div className={`${SHEET_BOX} flex flex-col gap-4`}>
-        <div className="rounded-[12px] overflow-hidden border border-line">
+        <div className="rounded-lg overflow-hidden border border-line">
           <ServiceSheetOne sheetRef={one} date={date} kind={kind} title={service?.title || ''}
             refStr={service?.passage_ref || ''} preacher={service?.preacher || ''} verses={verses || []} />
         </div>
-        <div className="rounded-[12px] overflow-hidden border border-line">
+        <div className="rounded-lg overflow-hidden border border-line">
           <ServiceSheetTwo sheetRef={two} date={date} kind={kind} team={PRAISE_TEAM}
             leader={service?.praise_leader || ''} songs={service?.songs || []}
             roles={service?.roles || []} notices={service?.notices || []} nameOf={nameOf} />
@@ -1232,7 +1232,7 @@ function MyNote({ note, serviceId = '', serviceDate = '', passageRef = '', passa
         // **저장하면 바로 종이다**(사용자 요청 2026-09-09). 공유되는 그림과 화면이 같은
         // 것이라야 "이 모양으로 나간다"를 눌러 보기 전에 안다.
         <div className={`worship-note-read ${SHEET_BOX}`}>
-          <div className="rounded-[12px] overflow-hidden border border-line">
+          <div className="rounded-lg overflow-hidden border border-line">
             <NoteSheet sheetRef={sheetRef} date={paperDate(serviceDate)} kind="예배 노트"
               passageRef={passageRef} passageTitle={passageTitle} sections={sections} cut={NOTE_CUT} />
           </div>

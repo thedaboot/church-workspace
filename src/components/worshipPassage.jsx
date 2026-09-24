@@ -6,6 +6,8 @@ import { parseRef, formatRef } from '../services/bibleRef.js';
 import { PassageSkeleton } from './wordBible.jsx';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { keepVisible } from '../utils.js';
+// 바깥 클릭·Esc로 닫는다. 팝오버가 body 포털로 나가 있으므로 바깥 판정에 팝오버 자신도 넣는다.
+import { useDismiss } from '../hooks/useDismiss.js';
 
 // ============================================================================
 // 주보의 본문 선택 — 범위 고르기(PassagePicker) · 본문 펼치기(PassageBody)
@@ -37,23 +39,6 @@ const NUM_W = 216;      // 여섯 칸 그리드 + 좌우 여백
 const NUM_EST_H = 210;
 
 const range = (n) => Array.from({ length: Math.max(0, n) }, (_, i) => i + 1);
-
-// 바깥 클릭·Esc로 닫는다. 팝오버가 body 포털로 나가 있으므로 바깥 판정에 팝오버 자신도
-// 넣어야 한다(ConfirmPopover가 같은 이유로 그렇게 한다).
-function useDismiss(open, close, refs) {
-  const cb = useRef(close);
-  cb.current = close;
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (e) => { if (!refs.some(r => r.current?.contains(e.target))) cb.current(); };
-    const onKey = (e) => { if (e.key === 'Escape') cb.current(); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-    // refs는 렌더마다 새 배열이지만 담긴 ref 객체는 그대로다 — open에만 반응하면 된다
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-}
 
 // 숫자 하나를 고르는 그리드 팝오버(장·절 공용).
 // 시편 119편처럼 176절짜리도 있어서 목록은 스크롤한다 — 열 때 고른 번호가 보이게

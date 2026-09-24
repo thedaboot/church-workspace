@@ -2,12 +2,12 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
-import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byCompleted, completedTime, spreadLabels, scrollParentOf, weekEndOf } from '../utils.js';
+import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byCompleted, completedTime, spreadLabels, scrollParentOf, weekEndOf, localDate } from '../utils.js';
 import { usePresence } from '../services/presence.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
-import { useForceGraph } from '../hooks/useForceGraph.js';
+import { useForceGraph, hoverProps } from '../hooks/useForceGraph.js';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { YearPicker } from '../components/layout.jsx';
 
@@ -22,10 +22,7 @@ import { YearPicker } from '../components/layout.jsx';
 export const prefersReducedMotion = () => typeof window !== 'undefined'
   && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-export const ISO_TODAY = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+export const ISO_TODAY = () => localDate(new Date());
 // 남은 날 수 (음수 = 지남). 자정 기준으로 비교해야 "오늘"이 시간대에 따라 흔들리지 않는다.
 export const daysLeft = (iso, today = ISO_TODAY()) =>
   Math.round((new Date(`${iso}T00:00:00`) - new Date(`${today}T00:00:00`)) / 86400000);
@@ -131,7 +128,7 @@ export function Bar({ ratio, color, height = 4 }) {
 export function StatusSegments({ counts, total }) {
   const pct = (n) => (total ? `${((n / total) * 100).toFixed(1)}%` : '0%');
   return (
-    <span className="flex rounded-[4px] overflow-hidden" style={{ height: 7, background: 'var(--p-track)' }}>
+    <span className="flex rounded-xs overflow-hidden" style={{ height: 7, background: 'var(--p-track)' }}>
       {CONFIG.STATUSES.slice().reverse().map(s => (
         <span key={s} className="block h-full" style={{ width: pct(counts[s] || 0), background: STATUS_BAR[s] }} />
       ))}
@@ -216,7 +213,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
             return (
               <div
                 key={t.id}
-                className="dc-row flex items-center gap-3 p-2.5 -mx-2.5 rounded-[8px] hover:bg-surface-hover transition-colors"
+                className="dc-row flex items-center gap-3 p-2.5 -mx-2.5 rounded-md hover:bg-surface-hover transition-colors"
                 style={{ animationDelay: delay, transitionDuration: '120ms' }}
               >
                 {/* 완료 처리 — 목록에서 바로 끝낼 수 있어야 '지금 뭘 해야 하나' 화면이 된다.
@@ -312,7 +309,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                         className="sm:hidden inline-flex ml-auto mr-1.5 w-4 h-4 text-[9px]" />
                     </span>
                   </span>
-                  <span className="hidden sm:inline-flex shrink-0 items-center gap-1.5 pl-[7px] pr-[9px] py-[3px] rounded-[4px]"
+                  <span className="hidden sm:inline-flex shrink-0 items-center gap-1.5 pl-[7px] pr-[9px] py-[3px] rounded-xs"
                     style={{ background: CONFIG.STATUS_BG_VAR[t.status] || 'transparent' }}
                     title={t.status}>
                     <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_DOT_VAR[t.status] }} />
@@ -327,7 +324,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
           {hidden > 0 && (
             <button
               type="button" onClick={() => setExpanded(p => ({ ...p, [g.key]: true }))}
-              className="w-full mt-1 py-2 rounded-[8px] text-[11.5px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-[0.99]"
+              className="w-full mt-1 py-2 rounded-md text-[11.5px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-[0.99]"
             >{hidden}건 더 보기</button>
           )}
         </div>
@@ -690,7 +687,7 @@ export function ActivityFeed({ feed, tasksById, onOpenTask }) {
                밀려 오른쪽이 16px 빈다(사용자가 지적한 공백). 그렇다고 w-full을 빼면 button은
                폼 요소라 display:flex여도 **내용 폭으로 줄어든다** — 줄마다 폭이 달라져 시간
                라벨이 제각각 섰다. 음수 마진만큼을 폭에 직접 더해 준다. */
-            className="w-[calc(100%+16px)] flex items-start gap-2 py-[7px] -mx-2 px-2 rounded-[8px] text-left hover:bg-surface-hover transition-colors border-t border-line/60 first-of-type:border-t-0">
+            className="w-[calc(100%+16px)] flex items-start gap-2 py-[7px] -mx-2 px-2 rounded-md text-left hover:bg-surface-hover transition-colors border-t border-line/60 first-of-type:border-t-0">
             {inner}
           </button>
         ) : (
@@ -907,16 +904,10 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
   const curId = hiId ?? pinId;
   const curIdx = curId == null ? -1 : nodes.findIndex(n => n.id === curId);
   const cur = curIdx >= 0 ? curIdx : null;
-  // **호버는 진짜 마우스에만.** `onMouseEnter`는 터치에서도 브라우저가 흉내내 발생하고
-  // `onMouseLeave`는 안 오는 경우가 있어서, 폰에서 한 번 만진 노드의 강조가 그대로
-  // 남았다 — 스크롤하거나 딴 데를 눌러도 "갑자기 다른 프로젝트가 강조되는" 것으로
-  // 보였다(사용자 지적 2026-08-31). pointerType으로 걸러서 **터치에는 호버가 아예
-  // 없게** 한다. 터치에서 강조를 보는 길은 사람 노드를 눌러 두는 것(pin)뿐이고,
-  // 그건 기준이 분명하다(누르면 켜지고 다시 누르거나 빈 데를 누르면 꺼진다).
-  const hoverProps = (id) => ({
-    onPointerEnter: (e) => { if (e.pointerType === 'mouse') setHiId(id); },
-    onPointerLeave: (e) => { if (e.pointerType === 'mouse') setHiId(null); },
-  });
+  // **호버는 진짜 마우스에만**(hooks/useForceGraph.js의 hoverProps — 그래프 뷰와 한 벌).
+  // 터치에서 강조를 보는 길은 사람 노드를 눌러 두는 것(pin)뿐이고, 그건 기준이 분명하다
+  // (누르면 켜지고 다시 누르거나 빈 데를 누르면 꺼진다).
+  const hoverOn = hoverProps(setHiId);
 
 
   // 만진(또는 탭해 둔) 노드와 그 이웃만 또렷하게 — 나머지는 흐린다
@@ -1059,7 +1050,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
                 title={`${n.m.name} — 눌러서 이 사람의 연결만 보기`}
                 className="flex flex-col items-center gap-0.5"
                 onClick={() => setPinId(picked ? null : n.id)}
-                {...hoverProps(n.id)}>
+                {...hoverOn(n.id)}>
                 <Avatar name={n.m.name} url={n.m.avatarUrl}
                   className={`flex w-[20px] h-[20px] text-[9px] pointer-events-none ${picked ? 'ring-2 ring-accent' : ''}`} />
                 <span className={`text-[9px] leading-none whitespace-nowrap pointer-events-none ${picked ? 'text-fg font-bold' : 'text-fg-muted'}`}>{n.m.name}</span>
@@ -1071,7 +1062,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
               // 남은 업무 수를 칩 안에 붙인다(사용자 결정 2026-08-31) — 연결과 부담을
               // 한 번에 읽는다. 0건이면 숫자를 쓰지 않는다(없는 것을 굳이 말하지 않는다).
               <button key={n.id} type="button" title={`${n.t} 보드로${n.left ? ` · 남은 업무 ${n.left}건` : ''}`} style={base}
-                {...hoverProps(n.id)}
+                {...hoverOn(n.id)}
                 onClick={() => onOpenTeam(n.t)}
                 className="inline-flex items-center gap-1 pl-2 pr-[7px] py-[3px] rounded-full text-[10.5px] font-bold whitespace-nowrap bg-surface border border-line shadow-soft transition hover:opacity-70">
                 <span style={{ color: teamColor(n.t) }}>{n.t}</span>
@@ -1085,9 +1076,9 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
           return (
             <button key={n.id} type="button" title={`${n.p.title} 열기`} {...drag}
               style={{ ...base, ...drag.style, cursor: 'grab' }}
-              {...hoverProps(n.id)}
+              {...hoverOn(n.id)}
               onClick={() => onOpenProject(n.p.id)}
-              className={`px-2.5 py-1 rounded-[8px] bg-surface shadow-soft border border-line font-bold text-fg whitespace-nowrap truncate transition hover:opacity-70 ${compact ? 'text-[10.5px] max-w-[128px]' : 'text-[11.5px] max-w-[200px]'}`}>
+              className={`px-2.5 py-1 rounded-md bg-surface shadow-soft border border-line font-bold text-fg whitespace-nowrap truncate transition hover:opacity-70 ${compact ? 'text-[10.5px] max-w-[128px]' : 'text-[11.5px] max-w-[200px]'}`}>
               {n.p.title}
             </button>
           );

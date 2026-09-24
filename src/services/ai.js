@@ -1,6 +1,6 @@
 import { supabase } from './supabaseClient.js';
 import { store } from '../store/workspaceStore.js';
-import { extractMentions, MENTION_TAIL } from '../utils.js';
+import { extractMentions, MENTION_TAIL, localDate } from '../utils.js';
 
 // ============================================================================
 // 6-2. AI Service Layer — /api/ai 서버 프록시 경유 (API 키는 서버에만)
@@ -117,8 +117,6 @@ const withDow = (iso) => {
   const d = new Date(`${iso}T00:00:00`);
   return Number.isNaN(d.getTime()) ? iso : `${iso}(${DOW[d.getDay()]})`;
 };
-// 로컬 기준 YYYY-MM-DD. toISOString()은 UTC라 한국 시간 오전 9시 이전에 어제가 된다.
-const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const DAY_MS = 86400000;
 const daysBetween = (fromIso, toIso) =>
   Math.round((new Date(`${toIso}T00:00:00`) - new Date(`${fromIso}T00:00:00`)) / DAY_MS);
@@ -239,7 +237,8 @@ export function resolveTaskLinks(text, task = null, { origin = appOrigin() } = {
 }
 
 export function buildTaskContext(task, now = new Date()) {
-  const today = isoOf(now);
+  // 로컬 기준 YYYY-MM-DD(utils.localDate). toISOString()은 UTC라 한국 시간 오전 9시 이전에 어제가 된다.
+  const today = localDate(now);
   const s = store.getState();
   const project = s.projects.byId[task.projectId];
   const byId = s.tasks.byId;

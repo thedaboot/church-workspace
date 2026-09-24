@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import { ArrowLeftRight, CheckSquare, MessageSquare, Paperclip } from 'lucide-react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
-  useDraggable, useDroppable, pointerWithin, rectIntersection,
+  useDraggable, useDroppable,
 } from '@dnd-kit/core';
+import { dropCollision } from './dropCollision.js';
 import { CONFIG, teamPaint, teamColor } from '../config.js';
 import { subtaskProgress } from '../utils.js';
 import { Avatar } from './Avatar.jsx';
@@ -20,14 +21,7 @@ import { useEnterStagger } from '../hooks/useEnterStagger.js';
 // 캘린더는 같은 자리에 놓이는 다른 보기라 calendar.jsx로 나눠 뒀다.
 // ============================================================================
 
-// 놓을 곳은 "손가락/커서가 있는 곳" 기준으로 판단한다.
-// 기본값(rectIntersection)은 끌고 있는 카드의 사각형이 가장 많이 겹친 대상을 고르는데,
-// 카드 폭이 상태 칩보다 훨씬 넓어서 엉뚱한 칩에 놓이곤 했다(실측: 완료에 놓았는데 보류 중).
-// 포인터가 어떤 대상 안에도 없을 때만 기존 방식으로 되돌린다.
-const dropCollision = (args) => {
-  const hit = pointerWithin(args);
-  return hit.length ? hit : rectIntersection(args);
-};
+// 놓을 곳은 "손가락/커서가 있는 곳" 기준으로 판단한다(dropCollision.js — 동아리·모바일 탭과 한 벌).
 // 남은 날 → 라벨. 완료는 날짜만, 지난 건은 "N일 지남"으로 눈에 걸리게.
 const ddLabel = (task) => {
   if (!task.dueDate) return '';
@@ -108,7 +102,7 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action 
               </span>
             )}
             {task.dueDate && (
-              <span className="text-[11px] font-bold tabular-nums px-1.5 py-px rounded-[4px]"
+              <span className="text-[11px] font-bold tabular-nums px-1.5 py-px rounded-xs"
                 style={{ background: late ? 'var(--app-tag-red)' : 'transparent', color: late ? 'var(--app-tag-red-fg)' : 'var(--app-ink-muted)' }}>
                 {ddLabel(task)}
               </span>
@@ -169,13 +163,13 @@ function StatusMoveButton({ task, onStatusChange }) {
         <div
           ref={popRef}
           style={{ position: 'fixed', left: pos.left, top: pos.top, width: 150 }}
-          className="dc-pop z-[90] bg-surface border border-line rounded-[8px] shadow-soft p-[5px]"
+          className="dc-pop z-[90] bg-surface border border-line rounded-md shadow-soft p-[5px]"
         >
           {CONFIG.STATUSES.map(s => (
             <button
               key={s} type="button"
               onClick={(e) => { e.stopPropagation(); setOpen(false); if (s !== task.status) onStatusChange(task, s); }}
-              className="w-full flex items-center gap-2 px-2 py-[7px] rounded-[5px] text-left text-[12.5px] transition-colors hover:bg-surface-hover"
+              className="w-full flex items-center gap-2 px-2 py-[7px] rounded-sm text-left text-[12.5px] transition-colors hover:bg-surface-hover"
               style={{
                 background: s === task.status ? 'var(--app-surface-hover)' : 'transparent',
                 color: s === task.status ? 'var(--app-ink)' : 'var(--app-ink-muted)',

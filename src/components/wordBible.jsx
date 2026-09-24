@@ -252,7 +252,7 @@ export function PassageText({
             } : undefined}
             // 도착 강조(focus)는 3초 뒤에 꺼진다(BibleTab) — 그때 툭 사라지지 않게
             // 배경·테두리에 전이를 건다. 속성을 못 박는 이유는 §6-17-b와 같다.
-            className={`dc-verse rounded-[4px] transition-[color,background-color,box-shadow] duration-300 motion-reduce:transition-none ${blank ? 'text-fg-faint' : 'text-fg-secondary'} ${
+            className={`dc-verse rounded-xs transition-[color,background-color,box-shadow] duration-300 motion-reduce:transition-none ${blank ? 'text-fg-faint' : 'text-fg-secondary'} ${
               on || isPicked ? '-mx-1.5 px-1.5' : ''} ${on && !isPicked ? 'bg-accent-weak' : ''} ${
               isPicked ? 'dc-verse-picked' : ''} ${onPickVerse ? 'cursor-pointer' : ''}`}
             style={style}
@@ -336,12 +336,12 @@ function VerseTool({ label, current, lit, onPaint, onErase }) {
 // ── 글자 크기 Aa 3단계 ─────────────────────────────────────────────────────
 function FontSteps({ step, onChange }) {
   return (
-    <span className="flex p-[3px] rounded-[8px] shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
+    <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
       {FONT_STEPS.map((f, i) => (
         <button
           key={i} onClick={() => onChange(i)} title={['작게', '보통', '크게'][i]}
           aria-label={`글자 ${['작게', '보통', '크게'][i]}`} aria-pressed={step === i}
-          className="px-2 py-[3px] rounded-[5px] font-bold leading-none transition-colors"
+          className="px-2 py-[3px] rounded-sm font-bold leading-none transition-colors"
           style={{
             fontSize: [11, 13, 15][i],
             background: step === i ? 'var(--app-surface)' : 'transparent',
@@ -904,11 +904,11 @@ export function BibleTab({ initialRef = '' }) {
 
       {/* 목차 · 북마크 · 형광펜 — 어느 폭에서도, 본문을 읽는 중에도 늘 여기 있다 */}
       <div className="flex items-center gap-2 pb-3.5">
-        <span className="flex p-[3px] rounded-[8px] shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
+        <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
           {PANES.map(([key, label]) => (
             <button
               key={key} data-pane={key} onClick={() => pickPane(key)} aria-pressed={pane === key}
-              className="px-3 py-[6px] rounded-[5px] text-[12px] font-semibold transition-colors"
+              className="px-3 py-[6px] rounded-sm text-[12px] font-semibold transition-colors"
               style={{
                 background: pane === key ? 'var(--app-surface)' : 'transparent',
                 color: pane === key ? 'var(--app-ink)' : 'var(--app-ink-muted)',
@@ -1380,7 +1380,7 @@ function SearchResults({ query, results, progress, searching, aiHits = [], aiWai
                   {results.map(r => (
                     <button key={`${r.bookId}-${r.chapter}-${r.verse}`} onClick={() => onOpen(r)}
                       data-hit={verseKey(r.bookId, r.chapter, r.verse)}
-                      className="text-left py-2.5 px-2.5 -mx-2.5 rounded-[8px] hover:bg-surface-hover transition-colors">
+                      className="text-left py-2.5 px-2.5 -mx-2.5 rounded-md hover:bg-surface-hover transition-colors">
                       <span className="block text-[11.5px] font-bold text-accent-text tabular-nums">
                         {r.name} {r.chapter}:{r.verse}
                       </span>
@@ -1402,7 +1402,7 @@ function SearchResults({ query, results, progress, searching, aiHits = [], aiWai
                   {aiHits.map(h => (
                     <button key={`ai-${h.bookId}-${h.chapter}-${h.verse}`} onClick={() => onOpen(h)}
                       data-ai-hit={verseKey(h.bookId, h.chapter, h.verse)}
-                      className="text-left py-2.5 px-2.5 -mx-2.5 rounded-[8px] hover:bg-surface-hover transition-colors">
+                      className="text-left py-2.5 px-2.5 -mx-2.5 rounded-md hover:bg-surface-hover transition-colors">
                       <span className="block text-[11.5px] font-bold text-accent-text tabular-nums">
                         {hitLabel(h)}
                       </span>

@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { UserCheck, UserX, ShieldCheck, Shield, Plus, Loader2, Merge } from 'lucide-react';
 import { Avatar } from '../components/Avatar.jsx';
-import { Skeleton } from '../components/media.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
-import { RosterPanel } from '../components/roster.jsx';
+import { RosterPanel, RowSkeleton, rowDelay } from '../components/roster.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText, objectParticle } from '../services/errorText.js';
 import { agoLabel, visitOrder, isoTime, mergeActivitySeen } from '../utils.js';
@@ -77,16 +76,6 @@ const Section = ({ title, count, children, hint }) => (
   </section>
 );
 
-const RowSkeleton = () => (
-  <div className="flex items-center gap-2.5 py-2.5">
-    <Skeleton className="w-8 h-8 rounded-full shrink-0" />
-    <div className="flex-1 min-w-0 space-y-1.5">
-      <Skeleton className="h-3 w-24 rounded" />
-      <Skeleton className="h-2 w-16 rounded" />
-    </div>
-  </div>
-);
-
 // 가입자 한 줄. **화면 함수 밖에 둔다** — 안에서 만들면 렌더마다 새 컴포넌트 타입이라
 // 리액트가 줄을 통째로 떼었다 다시 붙이고, `.dc-row` 등장 모션이 그때마다 처음부터 돈다.
 // 이 화면은 useMinuteTick으로 1분마다 다시 그리므로 목록이 1분마다 한 번씩 떠올랐다.
@@ -140,9 +129,8 @@ export function MembersView({ isAdmin, isMaster }) {
   // 줄 등장은 앱의 관례대로 `.dc-row` + 순번 지연이고 **첫 마운트에만** 준다
   // (useEnterStagger 주석 — 수락·환송으로 줄이 구역을 옮길 때 그 줄만 뒤늦게 나타나면
   //  "순서"가 아니라 지각으로 읽힌다). 지연 상한도 둔다 — 가입자가 쉰 명이면 아래쪽이
-  //  1.5초 뒤에 뜬다.
+  //  1.5초 뒤에 뜬다(rowDelay는 명단 탭과 한 벌 · components/roster.jsx).
   const stagger = useEnterStagger();
-  const rowDelay = (i) => (stagger ? Math.min(i, 12) * 30 : 0);
   // **'다녀감'은 대시보드와 같은 값이어야 한다**(사용자 지적 2026-09-05 — 두 화면의
   // 싱크). 이 화면의 목록(cloud.listMembersAdmin)은 열 때 한 번 받는 스냅샷이라 그대로
   // 두면 그 시각이 굳고, 위의 useMinuteTick이 굳은 값을 늙히기까지 해서 열어 둔 만큼
@@ -413,10 +401,10 @@ export function MembersView({ isAdmin, isMaster }) {
 
       {/* 사람의 축이 둘이다 — 가입한 '계정'과 청년부 전체 '명단'(파일 머리말) */}
       <div className="flex items-center gap-2 pb-4">
-        <span className="flex p-[3px] rounded-[8px] shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
+        <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
           {TABS.map(([key, label]) => (
             <button key={key} type="button" onClick={() => setTab(key)} aria-pressed={tab === key}
-              className="px-3.5 py-[6px] rounded-[5px] text-[12.5px] font-semibold transition-colors"
+              className="px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors"
               style={{
                 background: tab === key ? 'var(--app-surface)' : 'transparent',
                 color: tab === key ? 'var(--app-ink)' : 'var(--app-ink-muted)',
@@ -439,7 +427,7 @@ export function MembersView({ isAdmin, isMaster }) {
             <Section title="승인을 기다리는 사람" count={waiting.length}
               hint="수락하기 전에는 프로젝트도 업무도 볼 수 없어요.">
               {waiting.map((row, i) => (
-                <MemberRow key={row.id} row={row} delay={rowDelay(i)} {...rowProps(row)} action={
+                <MemberRow key={row.id} row={row} delay={rowDelay(i, stagger)} {...rowProps(row)} action={
                   <button type="button" disabled={!!busy[row.id]} onClick={() => approve(row, true)}
                     className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
                     {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />} 수락
@@ -451,7 +439,7 @@ export function MembersView({ isAdmin, isMaster }) {
 
           <Section title="함께하는 사람" count={members.length}>
             {members.map((row, i) => (
-              <MemberRow key={row.id} row={row} delay={rowDelay(i)} {...rowProps(row)} action={
+              <MemberRow key={row.id} row={row} delay={rowDelay(i, stagger)} {...rowProps(row)} action={
                 <span className="flex items-center gap-1">
                   {/* 합치기는 마스터만 — 남의 댓글·담당자를 다른 계정으로 옮기는 일이다 */}
                   {isMaster && (
@@ -507,7 +495,7 @@ export function MembersView({ isAdmin, isMaster }) {
             <Section title="합친 계정" count={mergedRows.length}
               hint="한 사람이 여러 계정으로 들어온 경우예요. 업무·댓글·노트는 남긴 계정으로 옮겨졌어요.">
               {mergedRows.map((row, i) => (
-                <MemberRow key={row.id} row={row} delay={rowDelay(i)} {...rowProps(row)} action={
+                <MemberRow key={row.id} row={row} delay={rowDelay(i, stagger)} {...rowProps(row)} action={
                   <span className="members-merged shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-fg-faint">
                     <Merge size={13} />
                     {nameById.get(row.merged_into)
@@ -525,7 +513,7 @@ export function MembersView({ isAdmin, isMaster }) {
             <Section title="환송한 사람" count={removed.length}
               hint="다시 초대하면 수락 대기 없이 바로 돌아와요. 지난 댓글·기록은 계속 남아 있어요.">
               {removed.map((row, i) => (
-                <MemberRow key={row.id} row={row} delay={rowDelay(i)} {...rowProps(row)} action={
+                <MemberRow key={row.id} row={row} delay={rowDelay(i, stagger)} {...rowProps(row)} action={
                   <button type="button" disabled={!!busy[row.id]} onClick={() => approve(row, true)}
                     className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
                     {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />} 다시 초대하기
@@ -545,7 +533,7 @@ export function MembersView({ isAdmin, isMaster }) {
               const who = (rows || []).find(r => (r.email || '').toLowerCase() === a.email);
               return (
                 <div key={a.email} className="dc-row flex items-center gap-2.5 py-2.5"
-                  style={{ borderBottom: '1px solid var(--app-line)', animationDelay: `${rowDelay(i)}ms` }}>
+                  style={{ borderBottom: '1px solid var(--app-line)', animationDelay: `${rowDelay(i, stagger)}ms` }}>
                   {who
                     ? <Avatar name={who.display_name} url={who.avatar_url} className="flex w-8 h-8 text-[13px] shrink-0" />
                     : <span className="w-8 h-8 rounded-full bg-accent-weak flex items-center justify-center shrink-0"><ShieldCheck size={15} className="text-accent-text" /></span>}

@@ -1084,13 +1084,16 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 멤버 화면(가입자 목록·청년 명단)도 같은 규칙이다 — 검색으로 목록이 갈릴 때
   // 순번을 계속 주면 새로 걸린 줄만 뒤늦게 나타난다(2026-09-07).
   const mem = readFileSync(new URL('../src/views/membersView.jsx', import.meta.url), 'utf8');
+  // rowDelay는 roster.jsx 한 벌을 가져다 쓴다(2026-09-24)
   assert.ok(/const stagger = useEnterStagger\(\);/.test(mem)
-    && /stagger \? Math\.min\(i, 12\) \* 30 : 0/.test(mem)
+    && /import \{[^}]*\browDelay\b[^}]*\} from '\.\.\/components\/roster\.jsx'/.test(mem)
+    && /delay=\{rowDelay\(i, stagger\)\}/.test(mem)
     && /className="dc-row flex items-center gap-2\.5 py-2\.5"/.test(mem),
     '가입자 목록 줄이 첫 렌더에서만 순번 지연을 준다');
   const ros = readFileSync(new URL('../src/components/roster.jsx', import.meta.url), 'utf8');
   assert.ok(/const stagger = useEnterStagger\(\);/.test(ros)
-    && /stagger \? Math\.min\(i, 12\) \* 30 : 0/.test(ros)
+    && /export const rowDelay = \(i, stagger\) => \(stagger \? Math\.min\(i, 12\) \* 30 : 0\);/.test(ros)
+    && /delay=\{rowDelay\(i, stagger\)\}/.test(ros)
     && /className="dc-row py-2\.5"/.test(ros),
     '청년 명단 줄도 첫 렌더에서만 순번 지연을 준다');
   console.log('PASS  순차 등장 배선 5가지');
@@ -1335,13 +1338,17 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 //     안 오는 경우가 있어서 강조가 그대로 남았다 → pointerType으로 걸렀다.
 // 되돌리기 검사: 어느 한 줄을 되돌리면 그 단정이 깨진다.
 {
+  // 호버 핸들러는 useForceGraph.js의 공장 한 벌이다(2026-09-24 — 두 파일에 같은 것이 있었다)
+  const forceHook = readFileSync(new URL('../src/hooks/useForceGraph.js', import.meta.url), 'utf8');
+  assert.ok(/onPointerEnter: \(e\) => \{ if \(e\.pointerType === 'mouse'\) setHiId\(id\); \}/.test(forceHook),
+    '호버는 진짜 마우스에만 켠다');
+  assert.ok(/onPointerLeave: \(e\) => \{ if \(e\.pointerType === 'mouse'\) setHiId\(null\); \}/.test(forceHook),
+    '호버를 끄는 것도 마우스에만');
   for (const f of ['../src/views/dashboardParts.jsx', '../src/components/depgraph.jsx']) {
     const src = readFileSync(new URL(f, import.meta.url), 'utf8');
     const who = f.includes('depgraph') ? '그래프 뷰' : '연결 지도';
-    assert.ok(/onPointerEnter: \(e\) => \{ if \(e\.pointerType === 'mouse'\) setHiId\(id\); \}/.test(src),
-      who + ': 호버는 진짜 마우스에만 켠다');
-    assert.ok(/onPointerLeave: \(e\) => \{ if \(e\.pointerType === 'mouse'\) setHiId\(null\); \}/.test(src),
-      who + ': 호버를 끄는 것도 마우스에만');
+    assert.ok(/const hoverOn = hoverProps\(setHiId\);/.test(src) && /\{\.\.\.hoverOn\(n\.id\)\}/.test(src),
+      who + ': 노드 호버는 공용 공장(hoverProps)을 쓴다');
     assert.ok(!/onMouseEnter=/.test(src), who + ': onMouseEnter를 안 쓴다(터치에서 흉내로 발생한다)');
     assert.ok(/nodes\.findIndex\(n => n\.id === /.test(src),
       who + ': 고른 노드를 id로 찾는다(인덱스로 들고 있으면 딴 노드를 가리킨다)');
@@ -2079,9 +2086,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     // 여러 줄 import도 걷는다(worship.js의 cloud import가 2026-09-07부터 두 줄) — 중괄호 안에는 }가 없어
     // 다음 import까지 삼키지 않는다
     .replace(/^import \{[^}]*\} from '\.\/(supabaseClient|cloud|image)\.js';\s*$/gm, '')
-    .replace(/^import .*from '\.\.\/utils\.js';\s*$/gm, 'const generateId = () => "id";')
+    // localDate·byName은 2026-09-24부터 utils·people에서 온다(한 벌로 모았다)
+    .replace(/^import .*from '\.\.\/utils\.js';\s*$/gm, 'const generateId = () => "id"; const localDate = (d) => new Date(d).toLocaleDateString("sv-SE");')
     .replace(/^import .*from '\.\/people\.js';\s*$/gm,
-      'const guestStore = () => ({ all: () => ({}), rows: () => [], set: () => {} });');
+      'const guestStore = () => ({ all: () => ({}), rows: () => [], set: () => {} }); const byName = (a, b) => String(a?.name || "").localeCompare(String(b?.name || ""), "ko");');
   const dir = mkdtempSync(join(tmpdir(), 'v2hon-'));
   const pf = join(dir, 'people.mjs');
   // titleText.js는 순수 모듈이라 그대로 옆에 둔다(2026-09-08 — 유튜브 제목 NFKC 정규화)
@@ -3568,9 +3576,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   };
   const src = 'const supabase = null; const myUid = () => null;\n' + raw
     .replace(/^import \{[^}]*\} from '\.\/(supabaseClient|cloud|image)\.js';\s*$/gm, '')
-    .replace(/^import .*from '\.\.\/utils\.js';\s*$/gm, 'const generateId = () => "id";')
+    // localDate·byName은 2026-09-24부터 utils·people에서 온다(한 벌로 모았다)
+    .replace(/^import .*from '\.\.\/utils\.js';\s*$/gm, 'const generateId = () => "id"; const localDate = (d) => new Date(d).toLocaleDateString("sv-SE");')
     .replace(/^import .*from '\.\/people\.js';\s*$/gm,
-      `const guestStore = () => ({ all: () => ({}), rows: (t) => (${JSON.stringify(seed)})[t] || [], set: () => {} });`);
+      `const guestStore = () => ({ all: () => ({}), rows: (t) => (${JSON.stringify(seed)})[t] || [], set: () => {} }); const byName = (a, b) => String(a?.name || "").localeCompare(String(b?.name || ""), "ko");`);
   const dir = mkdtempSync(join(tmpdir(), 'b2svc-'));
   writeFileSync(join(dir, 'titleText.js'), readFileSync(new URL('../src/services/titleText.js', import.meta.url), 'utf8'));
   const wf = join(dir, 'worship.mjs');
@@ -3883,4 +3892,26 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/key: `\$\{selectedId \|\| ''\}:\$\{guide \? textHash\(JSON\.stringify\(guide\)\) : 0\}`/.test(src),
     '굽기 열쇠가 글의 해시를 쓴다(길이가 아니라)');
   console.log('PASS  가이드 굽기 열쇠 4가지');
+}
+
+// ── 회의록 날짜의 반년 경계는 로컬 날짜로 잰다 (services/actionItems.js · 2026-09-24) ─────────
+// 기준일을 toISOString()(UTC)으로 적어서 한국 시간 오전 9시 전에는 어제가 되었고, 반년 경계에
+// 걸린 날짜의 해가 하루 차이로 갈렸다. 검사 기계의 시간대와 상관없이 재려고 **로컬 게터만 한국
+// 시간을 돌려주는 Date**를 만든다(UTC 값은 그대로).
+// 되돌리기 검사: 기준일을 base.toISOString().slice(0, 10)으로 되돌리면 첫 단정이 깨진다.
+{
+  const A = await import(new URL('../src/services/actionItems.js', import.meta.url).href);
+  const KST = 9 * 3600000;
+  class KstDate extends Date {
+    getFullYear() { return new Date(this.getTime() + KST).getUTCFullYear(); }
+    getMonth() { return new Date(this.getTime() + KST).getUTCMonth(); }
+    getDate() { return new Date(this.getTime() + KST).getUTCDate(); }
+  }
+  // 한국 시간 2026-12-31 00:30 = UTC 2026-12-30 15:30. 7월 1일은 로컬 기준 183일 전 → 다음 해.
+  const now = new KstDate('2026-12-30T15:30:00Z');
+  assert.strictEqual(now.getDate(), 31);
+  const due = (text) => A.parseActionItems(`### ${A.ACTION_HEADING}\n- 노준석 · 예산안 정리 · ${text}`, { now })[0].dueDate;
+  assert.strictEqual(due('7월 1일까지'), '2027-07-01', '반년 경계는 로컬 오늘로 잰다(UTC 어제가 아니라)');
+  assert.strictEqual(due('7월 2일까지'), '2026-07-02', '182일 전까지는 같은 해다');
+  console.log('PASS  회의록 날짜 반년 경계가 로컬 기준 2가지');
 }

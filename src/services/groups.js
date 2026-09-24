@@ -1,5 +1,5 @@
 import { supabase, myUid } from './supabaseClient.js';
-import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, fetchMyPerson, guestStore } from './people.js';
+import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, fetchMyPerson, guestStore, byName } from './people.js';
 import { SUNDAY_KIND, kstNow, fetchMyNote, saveMyNote } from './worship.js';
 import { insertNotifications } from './cloud.js';
 import { generateId } from '../utils.js';
@@ -95,11 +95,9 @@ export const canEditClub = (perms, club) => !!perms?.isAdmin
 export const canManageClub = (perms, groupId) =>
   !!perms?.isAdmin || (!!groupId && (perms?.ledClubIds || []).includes(groupId));
 
-// 이름 순서는 한 군데서 정한다 — 화면마다 다르면 같은 사람이 자리를 옮겨 다닌다.
-// localeCompare('ko')라야 한글이 ㄱㄴㄷ으로 선다(기본 정렬은 유니코드 코드포인트라
-// 겹받침·한자 이름에서 어긋난다).
-export const byName = (a, b) =>
-  String(a?.name || '').localeCompare(String(b?.name || ''), 'ko');
+// 이름 순서는 people.js의 byName 한 벌이다(예배와 같이 쓴다). 화면이 이 파일에서 가져가던
+// 자리가 있어 그대로 다시 내보낸다.
+export { byName };
 
 // 그 모임의 사람들 — **리더가 맨 앞, 나머지는 가나다순**이고, 편성 명단에 없어도
 // 세운다(0037의 관례와 같다). 예전에는 group_members가 온 차례 그대로여서 넣은

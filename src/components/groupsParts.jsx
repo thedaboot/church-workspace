@@ -5,6 +5,7 @@ import { Avatar } from './Avatar.jsx';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { byName } from '../services/groups.js';
 import { isMobileViewport, keepVisible } from '../utils.js';
+import { useDismiss } from '../hooks/useDismiss.js';
 
 // ============================================================================
 // 모임 화면의 공용 부품 — 사람 동그라미 · 명단에서 고르기 · 짧은 목록 고르기 · 카드 껍데기
@@ -114,27 +115,11 @@ export function PersonTag({ person, badge, tag, right, className = '' }) {
   );
 }
 
-// 바깥 누름 · Esc로 닫기(layout.jsx의 useDismiss와 같은 규칙 — 그쪽은 내보내지 않는다).
-// touchstart까지 듣는다: 터치 기기에는 mousedown이 늦게(또는 아예 안) 온다.
-// **ref를 여러 개 받는다** — 목록이 body 포털로 나가 있으면 앵커의 자손이 아니라서,
-// 앵커만 보면 목록 안을 누르는 것이 '바깥'으로 잡힌다(§6-0). mousedown에서 닫히면
-// 그 뒤의 click은 사라진 버튼에 닿지 않아 순 옮기기가 한 건도 안 먹었을 것이다.
-function useDismiss(open, close, ...refs) {
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (e) => { if (!refs.some(r => r.current?.contains(e.target))) close(); };
-    const onKey = (e) => { if (e.key === 'Escape') close(); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('touchstart', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('touchstart', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-}
+// 바깥 누름 · Esc로 닫기는 hooks/useDismiss.js 한 벌이다. 이 파일의 피커만 touch:true —
+// 터치 기기에는 mousedown이 늦게(또는 아예 안) 온다. **목록 ref도 같이 넘긴다** — 목록이
+// body 포털로 나가 있으면 앵커의 자손이 아니라서, 앵커만 보면 목록 안을 누르는 것이
+// '바깥'으로 잡힌다(§6-0). mousedown에서 닫히면 그 뒤의 click은 사라진 버튼에 닿지 않아
+// 순 옮기기가 한 건도 안 먹었을 것이다.
 
 // 이 파일의 피커 목록은 **데스크톱에서 body 포털**이다(§6-1). absolute + z-50으로 두었더니
 // `.dc-row`·`.dc-card`의 등장 애니메이션이 `animation-fill-mode: both`로 끝난 뒤에도
@@ -202,7 +187,7 @@ export function PersonPick({
   const selected = useMemo(() => people.find(p => p.id === value) || null, [people, value]);
 
   const close = () => { setOpen(false); setQuery(''); };
-  useDismiss(open, close, rootRef, menuRef);
+  useDismiss(open, close, [rootRef, menuRef], { touch: true });
 
   // 목록의 폭은 **칸의 폭**이다 — 포털로 나가면 w-full이 뜻을 잃는다. 그 폭을 여기서
   // state로 따로 재던 자리다(ResizeObserver). 지금은 useAnchoredPos가 자리를 잡을 때마다
@@ -340,7 +325,7 @@ export function MenuPick({ items = [], onPick, label, empty, children, className
   // 언제나 포털이다(머리말) — 이 값은 남겨 두지 않는다.
   const rootRef = useRef(null);
   const menuRef = useRef(null);
-  useDismiss(open, () => setOpen(false), rootRef, menuRef);
+  useDismiss(open, () => setOpen(false), [rootRef, menuRef], { touch: true });
   // 폭은 내용이 정한다(w-max). 그린 뒤 실제 폭으로 다시 재야 오른쪽 끝이 트리거에 맞는다 —
   // 레이아웃 패스 안에서 다시 잡으므로 자리가 튀어 보이지 않는다.
   useLayoutEffect(() => { if (open) setW(menuRef.current?.offsetWidth || MENU_EST_W); }, [open, items.length]);

@@ -198,7 +198,7 @@ export function LinkAddPopover({ onAdd }) {
     <span className="inline-flex shrink-0" ref={rootRef}>
       <span ref={btnRef} className="inline-flex">
         <button type="button" onClick={() => { place(); setOpen(v => !v); }}
-          className="text-[11px] text-fg-faint px-1.5 py-px rounded-[4px] transition-colors hover:text-fg-muted"
+          className="text-[11px] text-fg-faint px-1.5 py-px rounded-xs transition-colors hover:text-fg-muted"
           style={{ border: '1px dashed var(--app-line)' }}>+ 참고 링크</button>
       </span>
       {open && createPortal(

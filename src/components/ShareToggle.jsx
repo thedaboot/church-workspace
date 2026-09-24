@@ -45,12 +45,12 @@ export function ShareChip({ state, label }) {
 export function ShareToggle({ value, disabled, onChange, shareLabel = '더다붓에 공유하기', className = '' }) {
   const OPTIONS = [[false, '나만 보기', Lock], [true, shareLabel, Users]];
   return (
-    <span className={`share-toggle flex p-[3px] rounded-[8px] shrink-0 ${disabled ? 'opacity-40' : ''} ${className}`}
+    <span className={`share-toggle flex p-[3px] rounded-md shrink-0 ${disabled ? 'opacity-40' : ''} ${className}`}
       style={{ background: 'var(--app-surface-hover)' }}>
       {OPTIONS.map(([v, label, Icon]) => (
         <button
           key={label} onClick={() => onChange(v)} disabled={disabled} aria-pressed={value === v}
-          className="grow inline-flex items-center justify-center gap-1.5 px-2.5 py-[5px] rounded-[5px] text-[11.5px] font-semibold whitespace-nowrap transition-colors"
+          className="grow inline-flex items-center justify-center gap-1.5 px-2.5 py-[5px] rounded-sm text-[11.5px] font-semibold whitespace-nowrap transition-colors"
           style={{
             background: value === v ? 'var(--app-surface)' : 'transparent',
             color: value === v ? 'var(--app-ink)' : 'var(--app-ink-muted)',

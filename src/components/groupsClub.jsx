@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import { Plus, Trash2, Check, X, Pencil, QrCode } from 'lucide-react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
-  useDraggable, useDroppable, pointerWithin, rectIntersection,
+  useDraggable, useDroppable,
 } from '@dnd-kit/core';
+import { dropCollision } from './dropCollision.js';
 import { SectionHead } from '../views/dashboardParts.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { DatePicker } from './DatePicker.jsx';
@@ -41,12 +42,7 @@ const ClubQrModal = lazy(() => import('./ClubQr.jsx').then(m => ({ default: m.Cl
 // 폭은 대시보드 계열 하나다 — 여기서 max-w로 다시 좁히지 않는다(groupsSun.jsx 머리말).
 // ============================================================================
 
-// 놓을 곳은 "손가락/커서가 있는 곳" 기준(보드와 같은 판단 — §6-11).
-// pointerWithin이 비었을 때만 사각형 겹침으로 떨어진다.
-const dropCollision = (args) => {
-  const hit = pointerWithin(args);
-  return hit.length ? hit : rectIntersection(args);
-};
+// 놓을 곳은 "손가락/커서가 있는 곳" 기준(보드와 같은 판단 — §6-11 · dropCollision.js 한 벌).
 
 // 생성기의 칸은 **모두 같은 높이**다(34px). 라벨이 칸 위에 앉는 짜임이라 칸 높이가
 // 다르면 아래를 맞춘 만큼 라벨 줄이 어긋나 계단처럼 보인다. 예배 만들기와 같은 값·같은

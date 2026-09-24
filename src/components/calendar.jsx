@@ -5,7 +5,7 @@ import { STATUS_BAR, STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectMembers } from '../store/selectors.js';
-import { birthdayMap, birthdaysOn, snapCols } from '../utils.js';
+import { birthdayMap, birthdaysOn, snapCols, localDate } from '../utils.js';
 import { Avatar } from './Avatar.jsx';
 
 // ============================================================================
@@ -23,7 +23,7 @@ const CAL_LANES = 2;            // 주당 보여줄 띠 줄 수. 넘치면 그 �
 const CAL_MIN_YEAR = new Date().getFullYear();
 const CAL_MAX_YEAR = 2030;
 
-const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const isoOf = localDate;   // 브라우저 로컬 'YYYY-MM-DD' — utils에 한 벌
 const addDays = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return isoOf(d); };
 const mdOf = (iso) => `${Number(iso.slice(5, 7))}. ${Number(iso.slice(8, 10))}.`;
 
@@ -190,7 +190,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
     <div className="flex flex-col h-full min-h-0">
       {/* 상단: 이전/다음 붙은 쌍 + 연월 + 건수 + 상태 범례 */}
       <div className="flex items-center gap-2.5 pb-2 shrink-0 flex-wrap">
-        <span className="flex rounded-[8px] overflow-hidden shrink-0" style={{ border: '1px solid var(--app-line)' }}>
+        <span className="flex rounded-md overflow-hidden shrink-0" style={{ border: '1px solid var(--app-line)' }}>
           <button onClick={shift(-1)} disabled={!canPrev} title="이전 달"
             className="w-7 h-7 flex items-center justify-center text-fg-muted hover:bg-surface-hover transition-colors disabled:opacity-30">
             <ChevronLeft size={15} />
@@ -484,7 +484,7 @@ function DaySheet({ iso, list, onTaskClick, tight = false, birthdays = [], onNew
           return (
             <button key={t.id} onClick={() => onTaskClick(t)}
               /* w-full+-mx-2는 왼쪽으로만 8px 밀린다(피드에서 잡은 함정 — §6-9-d) */
-              className="dc-row w-[calc(100%+16px)] flex items-center gap-2.5 py-2 text-left hover:bg-surface-hover rounded-[8px] px-2 -mx-2 transition-colors border-t border-line/60 first-of-type:border-t-0"
+              className="dc-row w-[calc(100%+16px)] flex items-center gap-2.5 py-2 text-left hover:bg-surface-hover rounded-md px-2 -mx-2 transition-colors border-t border-line/60 first-of-type:border-t-0"
               style={{ animationDelay: `${Math.min(birthdays.length + i, 12) * 22}ms` }}>
               <span className="shrink-0 w-[3px] h-7 rounded-full" style={teamPaint(t.teams, true)} />
               <span className="flex-1 min-w-0">
@@ -494,7 +494,7 @@ function DaySheet({ iso, list, onTaskClick, tight = false, birthdays = [], onNew
                     .filter(Boolean).join(' · ')}
                 </span>
               </span>
-              <span className="shrink-0 inline-flex items-center gap-1.5 pl-[7px] pr-[9px] py-[3px] rounded-[4px]"
+              <span className="shrink-0 inline-flex items-center gap-1.5 pl-[7px] pr-[9px] py-[3px] rounded-xs"
                 style={{ background: CONFIG.STATUS_BG_VAR[t.status] }}>
                 <span className="w-1.5 h-1.5 rounded-full" style={{ background: STATUS_DOT_VAR[t.status] }} />
                 <span className="text-[11px] font-semibold" style={{ color: CONFIG.STATUS_FG_VAR[t.status] }}>{t.status}</span>

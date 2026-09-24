@@ -611,11 +611,11 @@ export function GroupsView() {
       {/* 탭 줄도 아래 카드와 같은 폭 안에 선다 — 왼쪽 끝에 두면 내용과 세로선이 어긋난다.
           '새 …'는 이 줄의 오른쪽에 둔다: 따로 한 줄을 차지하면 버튼만 떠 있게 보인다. */}
       <div className="flex items-center gap-2 pb-3.5">
-        <span className="flex p-[3px] rounded-[8px] shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
+        <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
           {tabs.map(([key, label]) => (
             <button key={key} type="button"
               onClick={() => { setTab(key); setCreating(null); }} aria-pressed={active === key}
-              className="groups-tab px-3.5 py-[6px] rounded-[5px] text-[12.5px] font-semibold transition-colors"
+              className="groups-tab px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors"
               style={{
                 background: active === key ? 'var(--app-surface)' : 'transparent',
                 color: active === key ? 'var(--app-ink)' : 'var(--app-ink-muted)',

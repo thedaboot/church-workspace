@@ -13,6 +13,13 @@ import { supabase, myUid } from './supabaseClient.js';
 // 사람을 이름으로 매칭하지 않는다(§6-26) — 연결은 people.profile_id 하나다.
 // ============================================================================
 
+// 이름 순서는 한 군데서 정한다 — 화면마다 다르면 같은 사람이 자리를 옮겨 다닌다.
+// localeCompare('ko')라야 한글이 ㄱㄴㄷ으로 선다(기본 정렬은 유니코드 코드포인트라
+// 겹받침·한자 이름에서 어긋난다). 모임(groups.js)·예배(worship.js)가 같이 쓴다 —
+// groups.js가 worship.js를 import하므로 둘 다 부를 수 있는 이 파일에 둔다(순환 방지).
+export const byName = (a, b) =>
+  String(a?.name || '').localeCompare(String(b?.name || ''), 'ko');
+
 // 명단 전체. removed_at이 있는 사람은 기본으로 뺀다(내용은 남기고 목록에서만).
 export async function fetchPeople({ includeRemoved = false } = {}) {
   if (!supabase) return [];

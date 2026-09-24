@@ -177,3 +177,14 @@ export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact =
 
   return { pos: pRef.current, bindDrag };
 }
+
+// 노드 강조(호버) 핸들러 공장 — 연결 지도와 그래프 뷰가 같은 규칙을 쓴다(갈라 두지 말 것).
+// **호버는 진짜 마우스에만.** `onMouseEnter`는 터치에서도 브라우저가 흉내내 발생하고
+// `onMouseLeave`는 안 오는 경우가 있어서, 폰에서 한 번 만진 노드의 강조가 그대로
+// 남았다 — 스크롤하거나 딴 데를 눌러도 "갑자기 다른 프로젝트가 강조되는" 것으로
+// 보였다(사용자 지적 2026-08-31). pointerType으로 걸러서 **터치에는 호버가 아예 없게** 한다.
+// 쓰는 법: `const hoverOn = hoverProps(setHiId);` → `<g {...hoverOn(n.id)}>`
+export const hoverProps = (setHiId) => (id) => ({
+  onPointerEnter: (e) => { if (e.pointerType === 'mouse') setHiId(id); },
+  onPointerLeave: (e) => { if (e.pointerType === 'mouse') setHiId(null); },
+});

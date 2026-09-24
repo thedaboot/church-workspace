@@ -1,10 +1,10 @@
 import { supabase, myUid } from './supabaseClient.js';
-import { fetchPeople, fetchGroups, fetchGroupMembers, fetchMyPerson, fetchRoles, guestStore } from './people.js';
+import { fetchPeople, fetchGroups, fetchGroupMembers, fetchMyPerson, fetchRoles, guestStore, byName } from './people.js';
 import { listServiceFiles, uploadServiceFile as uploadServiceFileToDrive, ensureServiceFolder, deleteAttachment,
   insertNotifications, getMyProfile } from './cloud.js';
 import { downscaleImage, FILE_MAX_DIM } from './image.js';
 import { cleanTitle } from './titleText.js';
-import { generateId } from '../utils.js';
+import { generateId, localDate } from '../utils.js';
 
 // ============================================================================
 // v2 예배 — 주보(services) · 출석(attendance) · 내 예배 노트(service_notes)
@@ -192,7 +192,7 @@ export function servicePaperName(service) {
 export function nextSundayDate(from = new Date()) {
   const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
   d.setDate(d.getDate() + ((7 - d.getDay()) % 7));
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return localDate(d);
 }
 
 const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
@@ -361,9 +361,7 @@ export const canToggleGroup = (perms, groupId) =>
   !!perms?.canCheckAll
   || (!!groupId && !HEAD_GROUPS.has(groupId) && (perms?.ledGroupIds || []).includes(groupId));
 
-// 이름 가나다순. localeCompare('ko')라야 'ㄱㄴㄷ'이 맞는다 — 기본 비교는 코드포인트
-// 순서라 한글도 얼추 맞지만 자모 조합·영문 섞임에서 어긋난다.
-const byKoName = (a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'ko');
+// 이름 가나다순은 people.js의 byName 한 벌이다(모임과 같이 쓴다).
 
 // 순별로 묶은 명단. 순장은 편성 명단에 없어도 자기 순에 세운다(0036 same_sun과 같다).
 // 어느 순에도 없는 사람은 맨 끝 '순 미지정' 묶음으로.
@@ -384,8 +382,8 @@ export function groupRoster({ people = [], groups = [], members = [], roles = []
   // 그 해 부장. 한 사람이 부장이면서 교역자일 일은 없지만, 겹치면 교역자가 이긴다
   // (호칭도 people.js honorific이 같은 차례로 가른다).
   const directorIds = new Set((roles || []).filter(r => r?.role === DIRECTOR_GROUP && r?.person_id).map(r => r.person_id));
-  const pastors = people.filter(p => p?.is_pastor).sort(byKoName);
-  const directors = people.filter(p => !p?.is_pastor && directorIds.has(p.id)).sort(byKoName);
+  const pastors = people.filter(p => p?.is_pastor).sort(byName);
+  const directors = people.filter(p => !p?.is_pastor && directorIds.has(p.id)).sort(byName);
   // 이 사람들은 '순 미지정'에서 뺀다(순 편성 여부와 무관하다 — placed와는 다른 집합이다)
   const headed = new Set([...pastors, ...directors].map(p => p.id));
   const heads = [
@@ -403,13 +401,13 @@ export function groupRoster({ people = [], groups = [], members = [], roles = []
     };
     const leader = g.leader_person_id ? take(g.leader_person_id) : null;
     const rest = members.filter(m => m.group_id === g.id)
-      .map(m => take(m.person_id)).filter(Boolean).sort(byKoName);
+      .map(m => take(m.person_id)).filter(Boolean).sort(byName);
     return {
       id: g.id, name: g.name, leaderPersonId: g.leader_person_id,
       people: leader ? [leader, ...rest] : rest,
     };
   });
-  const rest = people.filter(p => !placed.has(p.id) && !headed.has(p.id)).sort(byKoName);
+  const rest = people.filter(p => !placed.has(p.id) && !headed.has(p.id)).sort(byName);
   if (rest.length) buckets.push({ id: null, name: UNASSIGNED, leaderPersonId: null, people: rest });
   return [...heads, ...buckets];
 }

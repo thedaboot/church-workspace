@@ -212,7 +212,7 @@ function NoteRow({ note, service, onShare }) {
           RichText로 그려서, 도막 제목이 맨 글자로 서고 카카오톡으로 나가는 그림과
           목록의 모습이 달랐다. 폭은 종이 규격 그대로(560px 상한, 가운데). */}
       <div className="mysun-note-sheet mt-2 w-full max-w-[560px] mx-auto">
-        <div className="rounded-[12px] overflow-hidden border border-line">
+        <div className="rounded-lg overflow-hidden border border-line">
           {/* 구절도 같이 넘긴다(사용자 지적 2026-09-11 — 여기만 비어 있었다).
               옛 노트에 '본문' 도막이 있으면 종이가 그쪽 글을 머리로 올리고, 그 도막이
               없으면 이 주보의 구절이 선다(paper.jsx NoteSheet) */}

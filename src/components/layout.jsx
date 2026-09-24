@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import { LayoutDashboard, CheckSquare, Search, X, Hash, ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users, Archive, CalendarDays, CalendarClock, Smartphone, Church, BookOpen, HeartHandshake, Home, Briefcase } from 'lucide-react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
-  useDraggable, useDroppable, pointerWithin, rectIntersection,
+  useDraggable, useDroppable,
 } from '@dnd-kit/core';
+import { dropCollision } from './dropCollision.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsList, selectActiveProjectsList, selectArchivedProjectsList,
@@ -23,6 +24,8 @@ import { isAppLink } from '../services/entryQuery.js';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
+// 바깥 클릭 / Esc 로 닫히는 팝오버(프로필 메뉴·프로젝트 더보기·알림·검색 공용)
+import { useDismiss } from '../hooks/useDismiss.js';
 import { CONFIG } from '../config.js';
 import logoLight from '../assets/logo-light.webp';
 import logoDark from '../assets/logo-dark.webp';
@@ -142,19 +145,6 @@ export function ViewerFaces({ projectId = null, cardId = null, className = '' })
       ))}
     </span>
   );
-}
-
-// 바깥 클릭 / Esc 로 닫히는 팝오버 (프로필 메뉴·프로젝트 더보기 공용)
-function useDismiss(open, close, refs) {
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e) => { if (!refs.some(r => r.current?.contains(e.target))) close(); };
-    const onKey = (e) => { if (e.key === 'Escape') close(); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
 }
 
 // 프로필 아바타 → 내 정보·테마·로그아웃.
@@ -584,12 +574,8 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
   );
 });
 
-// 놓을 곳은 "손가락이 있는 곳" 기준이다. 포인터가 어떤 탭에도 안 걸치면(탭 사이 여백)
-// 기본 방식으로 되돌린다 — 그러지 않으면 끌던 것이 조용히 제자리로 돌아간다.
-const tabCollision = (args) => {
-  const hit = pointerWithin(args);
-  return hit.length ? hit : rectIntersection(args);
-};
+// 놓을 곳은 "손가락이 있는 곳" 기준이다(dropCollision.js — 보드와 한 벌). 포인터가 어떤
+// 탭에도 안 걸치면(탭 사이 여백) 기본 방식으로 되돌린다.
 
 // 모바일 프로젝트 탭 한 개 — 끌 수도 있고(길게 누르기) 놓을 수도 있다.
 // dnd-kit은 ref를 하나만 받으므로 두 훅의 ref를 손으로 합친다(보드 카드와 같은 방식).
@@ -660,7 +646,7 @@ const MobileProjectTabs = React.memo(({
   };
   return (
     <DndContext
-      sensors={sensors} collisionDetection={tabCollision}
+      sensors={sensors} collisionDetection={dropCollision}
       // 자동 스크롤을 통째로 끈다 — 손가락이 줄 끝에 가면 줄이 옆으로 밀려서, 놓으려던
       // 탭이 손가락 밑에서 빠져나간다(§6-10에서 상태 칩에 실제로 그랬다). 화면 밖의
       // 탭으로 옮기려면 먼저 줄을 밀어 그 탭을 보이게 하면 된다.

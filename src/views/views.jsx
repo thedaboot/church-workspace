@@ -303,7 +303,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   const filterSegments = DASH_FILTERS.map(f => (
     <button
       key={f} onClick={() => setFilter(f)}
-      className="dc-press flex-1 lg:flex-none px-3 py-1.5 rounded-[5px] text-[12.5px] font-semibold transition-colors"
+      className="dc-press flex-1 lg:flex-none px-3 py-1.5 rounded-sm text-[12.5px] font-semibold transition-colors"
       style={{
         background: filter === f ? 'var(--app-surface)' : 'transparent',
         color: filter === f ? 'var(--app-ink)' : 'var(--app-ink-muted)',
@@ -344,7 +344,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
         </div>
         {/* 이 필터가 실제로 건드리는 것은 KPI와 마감 목록뿐이다 — 사람 칸은 필터와
             무관하다(§6-31). 그래서 모바일에서는 '업무' 탭 안으로 내려간다. */}
-        <div className="hidden lg:flex items-center gap-1 shrink-0 p-[3px] rounded-[8px]" style={{ background: 'var(--app-surface-hover)' }}>
+        <div className="hidden lg:flex items-center gap-1 shrink-0 p-[3px] rounded-md" style={{ background: 'var(--app-surface-hover)' }}>
           {filterSegments}
         </div>
       </div>
@@ -354,11 +354,11 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
           §8의 "기능을 숨기지 않습니다"와 부딪히지만, 탭 세 칸은 언제나 보이고 지금
           상태는 이미 숨긴 것과 다름없다는 판단이다(사용자 결정).
           데스크톱은 2열이 그대로라 이 줄이 없다. */}
-      <div role="tablist" aria-label="대시보드" className="flex lg:hidden items-center gap-1 p-[3px] mb-2.5 rounded-[8px]" style={{ background: 'var(--app-surface-hover)' }}>
+      <div role="tablist" aria-label="대시보드" className="flex lg:hidden items-center gap-1 p-[3px] mb-2.5 rounded-md" style={{ background: 'var(--app-surface-hover)' }}>
         {DASH_TABS.map(t => (
           <button
             key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
-            className="dc-press flex-1 py-1.5 rounded-[5px] text-[12.5px] font-semibold transition-colors"
+            className="dc-press flex-1 py-1.5 rounded-sm text-[12.5px] font-semibold transition-colors"
             style={{
               background: tab === t ? 'var(--app-surface)' : 'transparent',
               color: tab === t ? 'var(--app-ink)' : 'var(--app-ink-muted)',
@@ -368,7 +368,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
           </button>
         ))}
       </div>
-      <div className={`${tab === '업무' ? 'flex' : 'hidden'} lg:hidden items-center gap-1 mb-2.5 p-[3px] rounded-[8px]`} style={{ background: 'var(--app-surface-hover)' }}>
+      <div className={`${tab === '업무' ? 'flex' : 'hidden'} lg:hidden items-center gap-1 mb-2.5 p-[3px] rounded-md`} style={{ background: 'var(--app-surface-hover)' }}>
         {filterSegments}
       </div>
 
@@ -719,7 +719,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
         {/* 그리드에서는 첫 줄 오른쪽 칸을 명시한다 — 자동 배치에 맡기면 아래 줄 다음(3번째
             줄)으로 떨어진다 */}
         <button onClick={onNewTask}
-          className="dc-press row-start-1 col-start-2 inline-flex items-center gap-1.5 pl-[11px] pr-3.5 py-[7px] rounded-[8px] text-[12.5px] font-bold text-white whitespace-nowrap shrink-0 hover:brightness-[1.07] transition-[filter]"
+          className="dc-press row-start-1 col-start-2 inline-flex items-center gap-1.5 pl-[11px] pr-3.5 py-[7px] rounded-md text-[12.5px] font-bold text-white whitespace-nowrap shrink-0 hover:brightness-[1.07] transition-[filter]"
           style={{ background: 'var(--app-accent)', boxShadow: '0 1px 2px rgba(25,23,32,.18), inset 0 1px 0 rgba(255,255,255,.22)' }}>
           {/* -translate-y-px: 화면에 **찍힌 잉크**로 재면 아이콘 중심이 글자 중심보다 1px
               아래에 앉는다(사용자 지적 2026-08-30). 배율 1·1.25·2 모두에서 같은 값이고,
@@ -732,10 +732,10 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
 
       {/* ── 필터 줄: 보기 전환 + 팀 칩(데스크톱) / 한 줄 필터 버튼(모바일) ── */}
       <div className="flex items-center gap-2.5 py-[11px] flex-wrap shrink-0">
-        <span className="flex p-[3px] rounded-[8px] shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
+        <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
           {[['kanban', '보드'], ['calendar', '캘린더'], ['graph', '그래프']].map(([v, label]) => (
             <button key={v} onClick={() => setViewMode(v)}
-              className="px-3 py-[5px] rounded-[5px] text-[12.5px] font-semibold transition-colors"
+              className="px-3 py-[5px] rounded-sm text-[12.5px] font-semibold transition-colors"
               style={{
                 background: viewMode === v ? 'var(--app-surface)' : 'transparent',
                 color: viewMode === v ? 'var(--app-ink)' : 'var(--app-ink-muted)',

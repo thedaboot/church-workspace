@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CONFIG, teamPaint } from '../config.js';
 import { depLayers } from '../utils.js';
-import { useForceGraph } from '../hooks/useForceGraph.js';
+import { useForceGraph, hoverProps } from '../hooks/useForceGraph.js';
 import { STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
 
 // ============================================================================
@@ -121,16 +121,10 @@ export function DepGraph({ tasks, onTaskClick }) {
   const [hiId, setHiId] = useState(null);
   const hiIdx = hiId == null ? -1 : nodes.findIndex(n => n.id === hiId);
   const hi = hiIdx >= 0 ? hiIdx : null;
-  // **호버는 진짜 마우스에만.** `onMouseEnter`는 터치에서도 브라우저가 흉내내 발생하고
-  // `onMouseLeave`는 안 오는 경우가 있어서, 폰에서 한 번 만진 노드의 강조가 그대로
-  // 남았다 — 스크롤하거나 딴 데를 눌러도 "갑자기 다른 프로젝트가 강조되는" 것으로
-  // 보였다(사용자 지적 2026-08-31). pointerType으로 걸러서 **터치에는 호버가 아예
-  // 없게** 한다. 터치에서 강조를 보는 길은 업무를 눌러 창을 여는 것이고,
-  // 이 화면은 강조 자체가 마우스용 보조다(연결 지도와 같은 규칙 — 갈라 두지 말 것).
-  const hoverProps = (id) => ({
-    onPointerEnter: (e) => { if (e.pointerType === 'mouse') setHiId(id); },
-    onPointerLeave: (e) => { if (e.pointerType === 'mouse') setHiId(null); },
-  });
+  // **호버는 진짜 마우스에만**(hooks/useForceGraph.js의 hoverProps — 연결 지도와 한 벌).
+  // 터치에서 강조를 보는 길은 업무를 눌러 창을 여는 것이고, 이 화면은 강조 자체가
+  // 마우스용 보조다.
+  const hoverOn = hoverProps(setHiId);
 
   const linked = useMemo(() => {
     if (hi == null) return null;
@@ -194,7 +188,7 @@ export function DepGraph({ tasks, onTaskClick }) {
             return (
               <button key={n.id} type="button" {...drag}
                 onClick={() => onTaskClick(t)}
-                {...hoverProps(n.id)}
+                {...hoverOn(n.id)}
                 title={`${t.title}${t.assignees?.length ? ` · ${t.assignees.join(', ')}` : ''} · ${t.status}`}
                 // 연결 지도의 필과 같은 시각 언어 — [팀 레일 | 상태 점 | 제목].
                 // 맨 점 + 밑 글자는 허전하고 무엇을 누르는지도 흐렸다(사용자 지적).

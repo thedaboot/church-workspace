@@ -143,12 +143,12 @@ export function WordView({ initialTab = 'qt', initialRef = '' }) {
   return (
     <div className="dc-screen pb-6">
       <div className="flex items-center gap-2 pb-3.5">
-        <span className="flex p-[3px] rounded-[8px] shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
+        <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
           {SEGMENTS.map(([key, label]) => (
             // aria-pressed는 성경 읽기의 [본문|북마크|형광펜] 세그먼트와 같은 한 벌이다 —
             // 색만으로 고른 것을 말하면 화면을 읽어 주는 기기에는 아무 표시도 안 남는다
             <button key={key} onClick={() => pick(key)} aria-pressed={tab === key}
-              className="px-3.5 py-[6px] rounded-[5px] text-[12.5px] font-semibold transition-colors"
+              className="px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors"
               style={{
                 background: tab === key ? 'var(--app-surface)' : 'transparent',
                 color: tab === key ? 'var(--app-ink)' : 'var(--app-ink-muted)',
@@ -572,7 +572,7 @@ function QtTab() {
                 구절은 `day.schedule.passage_ref`에 있어서 늘 빈 칸이 나갔다. 2026-09-10에
                 편집 종이가 같은 값을 쓰면서 드러났다) */}
             <div data-note-read="1" className={reading ? QT_SHEET_BOX : 'hidden'}>
-              <div className="rounded-[12px] overflow-hidden border border-line">
+              <div className="rounded-lg overflow-hidden border border-line">
                 {/* 제목이 있으면 머리가 제목 → 구절 순이 된다(예배 노트와 같은 부품) */}
                 <NoteSheet sheetRef={qtSheetRef} date={paperDate(date)} kind="묵상 노트"
                   passageRef={passageRef} passageTitle={entry?.title || ''}
@@ -870,7 +870,7 @@ function ShareFeed({ rows = [], members = [], myName = '', date, passageRef = ''
           머리의 구절은 '내 묵상' 칸과 **같은 값**(그날 구절 전체 이름 · §6-32-w)이고
           제목은 쓴 사람이 종이 위에 적어 둔 것이다(0062). */}
       <div data-share-paper={cur.mine ? 'mine' : 'other'} className={`mt-3 ${QT_SHEET_BOX}`}>
-        <div className="rounded-[12px] overflow-hidden border border-line">
+        <div className="rounded-lg overflow-hidden border border-line">
           <NoteSheet date={paperDate(date)} kind="묵상 노트"
             passageRef={passageRef} passageTitle={cur.title || ''}
             sections={sections} cut={QT_CUT} />
@@ -1007,7 +1007,7 @@ function Grass({ today, onPick, reloadKey = 0 }) {
               return (
                 <button
                   key={d} onClick={() => onPick(d)} title={shortDayLabel(d)} aria-label={shortDayLabel(d)}
-                  className="rounded-[4px] flex items-center justify-center text-[9.5px] font-semibold tabular-nums leading-none transition active:scale-90"
+                  className="rounded-xs flex items-center justify-center text-[9.5px] font-semibold tabular-nums leading-none transition active:scale-90"
                   style={{
                     width: CELL, height: CELL,
                     background: has ? 'var(--app-tag-green)' : 'var(--app-surface-hover)',
