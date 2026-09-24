@@ -444,7 +444,7 @@ export function WorshipView({ onOpenBible } = {}) {
   // 한 번에 상세 네 조회가 통째로 다시 돌았다(services/cache.js의 접두 주석).
   //
   // 홈은 같이 비운다 — 홈 카드가 주보·출석·공유 노트를 그대로 세고 있어서(homeView의
-  // home:worship·home:sun), 안 비우면 예배에서 저장한 것이 홈에서는 다음 날까지 옛 값이다.
+  // home:services·home:sun·home:present), 안 비우면 예배에서 저장한 것이 홈에서는 다음 날까지 옛 값이다.
   const invalidate = useCallback(() => {
     dropCache('worship:list'); dropCache('home'); cached.refresh();
   }, [cached.refresh]);
@@ -452,7 +452,13 @@ export function WorshipView({ onOpenBible } = {}) {
   // 남이 주보를 만들거나 발행하면 목록에 몇 초 안에 뜬다(0049 · services/liveV2.js).
   // **상세·출석 화면에서는 건너뛴다** — 거기서는 편집 중인 초안과 방금 누른 출석 칩이
   // 화면에 있고, 그 신호는 나올 때 한 번에 흐른다(캐시는 그 사이에도 비워진다).
-  useLiveRefresh('worship', invalidate, screen === 'list');
+  // 신호 길에서는 **홈을 비우지 않는다**(2026-09-24) — 바뀐 표에 딸린 홈 접두는 liveV2가 이미
+  // 골라 비웠다. 여기서 'home'을 통째로 비우면 상관없는 카드(오늘의 QT 등)의 캐시까지 사라져
+  // 다음 홈 진입이 스켈레톤부터였다. 내 저장 뒤(invalidate)에는 그대로 비운다.
+  const liveInvalidate = useCallback(() => {
+    dropCache('worship:list'); cached.refresh();
+  }, [cached.refresh]);
+  useLiveRefresh('worship', liveInvalidate, screen === 'list');
 
   const open = useCallback(async (svc, { edit = false } = {}) => {
     setEditOnOpen(edit);

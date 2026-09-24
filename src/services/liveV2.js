@@ -34,29 +34,40 @@ const DEBOUNCE_MS = 300;
 // 표 → 비울 캐시 접두(services/cache.js의 실제 키 모양).
 // **kind는 접두의 첫 마디다** — 표를 화면 이름으로 한 번 더 적어 두면 한쪽만 고쳐서
 // 어긋난다. 'worship:svc'는 주보 상세 한 벌(명단·출석·노트·송폼)이고 'worship'은
-// 목록까지 포함한다.
-// 홈은 **접두를 쪼개지 않는다**('home:qt'가 아니라 'home'). 카드 넷이 다 작은 조회라
-// 통째로 비워도 싸고, 쪼개 두면 홈이 카드를 하나 더 붙이거나 열쇠 이름을 바꿀 때
-// 여기가 조용히 낡는다(실제로 회차 중에 home:worship → home:services로 바뀌었다).
+// 목록까지 포함한다. 화면은 kind로 신호를 받고, **어느 표가 바뀌었는지**도 같이 받아
+// 필요한 조회만 다시 읽을 수 있다(아래 refreshTouched).
+//
+// 홈은 **카드마다 접두를 쪼갠다**(2026-09-24 — 전에는 'home' 하나였다). 하나로 두면 주보
+// UPDATE 한 번(자동 저장)에 홈 카드 넷이 조회 14개를 통째로 다시 쏘았다. 쪼갠 접두는
+// homeView의 useCached 열쇠 앞 두 도막과 **글자가 같아야 하고**(home:qt:<날짜> ·
+// home:services:<날짜> · home:sun:<연도> · home:present:<주보>:<순>), homeView의
+// refreshTouched 표에도 같은 넷이 있어야 한다. 어긋나면 비우기만 하고 다시 읽지 않는 칸이
+// 생겨 다음 진입이 스켈레톤부터다(2026-09-06 모임 화면의 같은 버그) — tests/logcheck가
+// 세 자리를 맞대 본다.
+//   · 주보 → 예배 카드 + 참석 수(세는 주일이 바뀔 수 있다)
+//   · 출석 → 예배 목록 열쇠(출석이 든 주일을 고른다) + 참석 수. 손님 출석은 참석 수를 안 센다
+//   · 예배 노트 → 내 순(공유된 노트 수) · 묵상 → 오늘의 QT('묵상 기록함')
+//   · 명단·순 → 내 순 + 참석 수(순 구성원이 바뀐다)
+const HOME_SUN = ['home:sun', 'home:present'];
 const TABLE_CACHE = {
-  services:          ['worship', 'home'],
-  attendance:        ['worship:svc', 'home', 'groups:mine'],
-  service_notes:     ['worship:svc', 'home', 'groups:mine'],
-  qt_entries:        ['word:qt', 'home'],
+  services:          ['worship', 'home:services', 'home:present'],
+  attendance:        ['worship:svc', 'home:services', 'home:present', 'groups:mine'],
+  service_notes:     ['worship:svc', 'home:sun', 'groups:mine'],
+  qt_entries:        ['word:qt', 'home:qt'],
   // 명단·순이 바뀌면 출석 명단도 바뀐다 — 모임·명단·주보 상세·홈이 같이 낡는다.
   // 모임 쪽 접두는 **셋으로 나눠 적는다**(2026-09-09) — `'groups'` 하나로 두면 글자 비교라
   // `groups:guide:*`(순모임 가이드 본문)까지 딸려 지워지는데, 가이드는 이 표들과 무관하고
   // 신호를 받아 다시 읽는 사람도 없어서 남이 순 편성을 만질 때마다 내 화면의 가이드 캐시만
   // 조용히 사라졌다(groupsView의 GROUP_KEYS와 같은 목록이어야 한다).
-  people:            ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', 'home'],
-  people_roles:      ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', 'home'],
-  groups:            ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', 'home'],
-  group_members:     ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', 'home'],
-  club_applications: ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', 'home'],
+  people:            ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', ...HOME_SUN],
+  people_roles:      ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', ...HOME_SUN],
+  groups:            ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', ...HOME_SUN],
+  group_members:     ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', ...HOME_SUN],
+  club_applications: ['groups:all', 'groups:roster', 'groups:mine', 'roster', 'worship:svc', ...HOME_SUN],
   // 0056(2026-09-09)이 발행에 더한 둘. 순모임 가이드는 본문(`groups:guide:<주보>`)과 고정 id·주보
-  // 목록(`groups:mine`)이 낡고, 손님 출석은 출석 수를 세는 자리(주보 상세·홈·내 순)가 낡는다.
+  // 목록(`groups:mine`)이 낡고, 손님 출석은 출석 수를 세는 자리(주보 상세·홈 예배 목록·내 순)가 낡는다.
   sun_guides:        ['groups:guide', 'groups:mine'],
-  attendance_guests: ['worship:svc', 'home', 'groups:mine'],
+  attendance_guests: ['worship:svc', 'home:services', 'groups:mine'],
 };
 
 export const V2_TABLES = Object.keys(TABLE_CACHE);
@@ -64,19 +75,39 @@ export const prefixesOf = (table) => TABLE_CACHE[table] || [];
 export const kindsOf = (table) => [...new Set(prefixesOf(table).map(p => p.split(':')[0]))];
 export const ALL_KINDS = [...new Set(V2_TABLES.flatMap(kindsOf))];
 
+// 바뀐 표들 → 그 표들이 비운 접두 가운데 **표에 적힌 것만** 다시 읽는다(순수).
+//   refreshTouched(tables, { 'home:qt': qtQ.refresh, 'home:services': svcQ.refresh, … })
+// 표 목록이 비어 있으면(어디서 왔는지 모르는 신호) 전부 읽는다 — 덜 읽어 낡는 것보다 낫다.
+// 돌려주는 값은 다시 읽은 접두 목록이다(검사가 본다).
+export function refreshTouched(tables, map) {
+  const list = Array.isArray(tables) && tables.length ? tables : null;
+  const hit = list ? new Set(list.flatMap(prefixesOf)) : null;
+  const called = [];
+  for (const [prefix, fn] of Object.entries(map || {})) {
+    if (hit && !hit.has(prefix)) continue;
+    called.push(prefix);
+    try { fn?.(); } catch (e) { console.error(`[liveV2] ${prefix} 재조회 실패:`, e); }
+  }
+  return called;
+}
+
 // ── 신호 큐 (순수 — 검사가 이것만 떼어 돌린다) ───────────────────────────────
 // 표 이름을 밀어 넣으면 캐시를 비우고, 디바운스가 끝나면 **모아 둔 kind들을 한 번에**
-// 넘긴다. 모르는 표는 아무 일도 하지 않는다(false).
+// 넘긴다 — 둘째 인자로 그동안 바뀐 표 목록도 같이 준다(notify(kinds, tables)).
+// 모르는 표는 아무 일도 하지 않는다(false).
 export function createSignalQueue({ drop, notify, delay = DEBOUNCE_MS }) {
   const pending = new Set();
+  const tables = new Set();
   let timer = null;
   const arm = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
       const kinds = [...pending];
+      const changed = [...tables];
       pending.clear();
-      if (kinds.length) notify(kinds);
+      tables.clear();
+      if (kinds.length) notify(kinds, changed);
     }, delay);
   };
   return {
@@ -85,6 +116,7 @@ export function createSignalQueue({ drop, notify, delay = DEBOUNCE_MS }) {
       if (!prefixes.length) return false;
       prefixes.forEach(drop);
       kindsOf(table).forEach(k => pending.add(k));
+      tables.add(table);
       arm();
       return true;
     },
@@ -92,20 +124,34 @@ export function createSignalQueue({ drop, notify, delay = DEBOUNCE_MS }) {
     pushAll() {
       V2_TABLES.forEach(t => prefixesOf(t).forEach(drop));
       ALL_KINDS.forEach(k => pending.add(k));
+      V2_TABLES.forEach(t => tables.add(t));
       arm();
     },
     pendingKinds: () => [...pending],
+    pendingTables: () => [...tables],
   };
 }
 
 // ── 막아 둔 동안의 신호 (순수 — 검사가 이것만 떼어 돌린다) ──────────────────
 // enabled가 false인 동안 온 신호는 **버리지 않고 기억**했다가, 다시 켜질 때 한 번만
-// 흘린다. 여러 번 왔어도 한 번이다(재조회는 한 번이면 최신이다).
+// 흘린다. 여러 번 왔어도 한 번이다(재조회는 한 번이면 최신이다). 바뀐 표 목록은
+// 그동안 온 것을 **합쳐서** 넘긴다 — 마지막 신호의 표만 넘기면 앞서 바뀐 표의 조회가 빠진다.
 export function createGate(call) {
   let missed = false;
+  const tables = new Set();
   return {
-    signal(enabled) { if (enabled) call(); else missed = true; },
-    enable(enabled) { if (!enabled || !missed) return; missed = false; call(); },
+    signal(enabled, changed = []) {
+      if (enabled) { call(changed); return; }
+      missed = true;
+      (changed || []).forEach(t => tables.add(t));
+    },
+    enable(enabled) {
+      if (!enabled || !missed) return;
+      missed = false;
+      const changed = [...tables];
+      tables.clear();
+      call(changed);
+    },
     missed: () => missed,
   };
 }
@@ -113,11 +159,11 @@ export function createGate(call) {
 // ── 구독자 명부 ─────────────────────────────────────────────────────────────
 const subs = new Map();   // kind → Set<fn>
 
-function fanOut(kinds) {
+function fanOut(kinds, tables) {
   for (const kind of kinds) {
     for (const fn of subs.get(kind) || []) {
       // 한 화면의 재조회가 실패해도 나머지는 돌아야 한다
-      try { fn(); } catch (e) { console.error(`[liveV2] ${kind} 재조회 실패:`, e); }
+      try { fn(tables); } catch (e) { console.error(`[liveV2] ${kind} 재조회 실패:`, e); }
     }
   }
 }
@@ -177,8 +223,9 @@ async function ensureChannel() {
 }
 
 // ── 화면이 쓰는 훅 ──────────────────────────────────────────────────────────
-// kind의 신호가 오면 refresh()를 부른다(마운트 중에만). useCached가 돌려주는 refresh를
-// 그대로 넘기면 된다.
+// kind의 신호가 오면 refresh(tables)를 부른다(마운트 중에만). tables는 바뀐 표 이름 목록이다 —
+// 통째로 다시 읽는 화면은 무시하면 되고(useCached가 돌려주는 refresh를 그대로 넘기면 된다),
+// 조회가 여럿인 화면은 refreshTouched로 해당 조회만 고른다(homeView).
 //
 //   useLiveRefresh('worship', invalidate);
 //   useLiveRefresh('worship', invalidate, screen === 'list');   // 편집 중에는 건너뛴다
@@ -190,10 +237,10 @@ export function useLiveRefresh(kind, refresh, enabled = true) {
   const fnRef = useRef(refresh);
   const onRef = useRef(enabled);
   const gate = useRef(null);
-  if (!gate.current) gate.current = createGate(() => fnRef.current?.());
+  if (!gate.current) gate.current = createGate((tables) => fnRef.current?.(tables));
   useEffect(() => { fnRef.current = refresh; onRef.current = enabled; });
 
-  useEffect(() => subscribeKind(kind, () => gate.current.signal(onRef.current)), [kind]);
+  useEffect(() => subscribeKind(kind, (tables) => gate.current.signal(onRef.current, tables)), [kind]);
   useEffect(() => { gate.current.enable(enabled); }, [enabled]);
 }
 

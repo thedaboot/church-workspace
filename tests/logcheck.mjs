@@ -1754,16 +1754,18 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // react·supabase·cache import만 걷어내면 순수 부분을 노드에서 그대로 부를 수 있다
   // (supabaseClient는 import.meta.env를 읽어서 노드에서 던진다)
   writeFileSync(f, raw.replace(/^import .*from '(react|\.\/supabaseClient\.js|\.\/cache\.js)';\s*$/gm, ''));
-  const { prefixesOf, kindsOf, V2_TABLES, ALL_KINDS, createSignalQueue, createGate } =
+  const { prefixesOf, kindsOf, V2_TABLES, ALL_KINDS, createSignalQueue, createGate, refreshTouched } =
     await import(pathToFileURL(f).href);
 
   // ① 표 → 캐시 접두 · kind는 접두의 첫 마디
-  assert.deepStrictEqual(prefixesOf('services'), ['worship', 'home']);
+  // 홈은 카드마다 접두를 쪼갠다(2026-09-24) — 주보 저장 한 번에 홈 조회 14개가 통째로 돌지 않게
+  assert.deepStrictEqual(prefixesOf('services'), ['worship', 'home:services', 'home:present']);
   assert.deepStrictEqual(kindsOf('services'), ['worship', 'home']);
   assert.deepStrictEqual(kindsOf('qt_entries'), ['word', 'home'],
     '나눔은 말씀 화면과 홈 카드를 같이 흔든다');
-  assert.ok(V2_TABLES.every(t => !prefixesOf(t).some(p => p.startsWith('home:'))),
-    '홈은 접두를 쪼개지 않는다 — 카드 열쇠 이름이 바뀌어도 낡지 않게');
+  assert.ok(V2_TABLES.every(t => !prefixesOf(t).includes('home')),
+    "맨 'home' 접두를 쓰지 않는다 — 쓰면 상관없는 카드 캐시까지 지워진다");
+  assert.deepStrictEqual(prefixesOf('qt_entries'), ['word:qt', 'home:qt'], '묵상은 오늘의 QT 카드만');
   assert.ok(prefixesOf('attendance').includes('groups:mine'),
     '출석은 모임 화면의 내 순 소식(참석 수)도 낡게 한다');
   assert.deepStrictEqual(kindsOf('people'), ['groups', 'roster', 'worship', 'home'],
@@ -1773,7 +1775,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 모임 접두는 셋으로 나눠 적는다 — 'groups' 하나면 가이드 캐시(groups:guide:*)가 딸려 지워진다(2026-09-09)
   assert.ok(V2_TABLES.every(t => !prefixesOf(t).includes('groups')), "맨 'groups' 접두를 쓰지 않는다");
   assert.deepStrictEqual(prefixesOf('sun_guides'), ['groups:guide', 'groups:mine'], '가이드가 바뀌면 본문과 고정 id가 같이 낡는다');
-  assert.ok(prefixesOf('attendance_guests').includes('home') && prefixesOf('attendance_guests').includes('groups:mine'),
+  assert.ok(prefixesOf('attendance_guests').includes('home:services') && prefixesOf('attendance_guests').includes('groups:mine'),
     '손님 출석도 참석 수를 세는 자리를 낡게 한다');
   assert.deepStrictEqual([...ALL_KINDS].sort(), ['groups', 'home', 'roster', 'word', 'worship']);
 
@@ -1781,7 +1783,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   {
     const dropped = [];
     const calls = [];
-    const q = createSignalQueue({ drop: p => dropped.push(p), notify: ks => calls.push(ks), delay: 5 });
+    const q = createSignalQueue({ drop: p => dropped.push(p), notify: (ks, ts) => calls.push(Object.assign([...ks], { tables: ts })), delay: 5 });
     assert.strictEqual(q.push('cards'), false, '모르는 표는 아무 일도 하지 않는다');
     assert.strictEqual(q.push('services'), true);
     q.push('attendance'); q.push('qt_entries');
@@ -1791,11 +1793,14 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     await new Promise(r => setTimeout(r, 30));
     assert.strictEqual(calls.length, 1, '세 이벤트가 재조회 한 번으로 합쳐진다');
     assert.deepStrictEqual([...calls[0]].sort(), ['groups', 'home', 'word', 'worship']);
+    assert.deepStrictEqual([...calls[0].tables].sort(), ['attendance', 'qt_entries', 'services'],
+      '알림에 그동안 바뀐 표 목록이 같이 실린다(화면이 해당 조회만 고른다)');
     // 재접속 — 끊겨 있던 동안의 이벤트는 오지 않았으니 전부 한 번 다시 읽는다
     q.pushAll();
     await new Promise(r => setTimeout(r, 30));
     assert.strictEqual(calls.length, 2);
     assert.deepStrictEqual([...calls[1]].sort(), [...ALL_KINDS].sort());
+    assert.deepStrictEqual([...calls[1].tables].sort(), [...V2_TABLES].sort(), '재접속이면 표도 전부다');
   }
 
   // ③ enabled가 false면 건너뛰고, 다시 켜질 때 한 번만 흘린다(편집 중인 주보 보호)
@@ -1811,6 +1816,45 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     assert.strictEqual(n, 2, '나오면 한 번만 흐른다(두 번 왔어도 한 번)');
     g.enable(true);
     assert.strictEqual(n, 2, '기억이 없으면 아무 일도 없다');
+    // 막혀 있던 동안 바뀐 표는 합쳐서 넘긴다 — 마지막 신호의 표만 넘기면 앞의 조회가 빠진다
+    const got = [];
+    const g2 = createGate((ts) => got.push(ts));
+    g2.signal(true, ['qt_entries']);
+    g2.signal(false, ['services']); g2.signal(false, ['people']);
+    g2.enable(true);
+    assert.deepStrictEqual(got[0], ['qt_entries'], '켜져 있으면 받은 표 그대로');
+    assert.deepStrictEqual([...got[1]].sort(), ['people', 'services'], '막힌 동안의 표를 합친다');
+  }
+
+  // ③-b 홈은 바뀐 표에 딸린 카드만 다시 읽는다(2026-09-24 · 주보가 바뀌면 예배 목록 + 참석 수만)
+  // 되돌리기 검사: TABLE_CACHE의 services를 'home' 하나로 되돌리면 첫 단정이, homeView 표에서
+  // 한 줄을 빼면 '빠짐없이 든다'가 깨진다.
+  {
+    const HOME = ['home:qt', 'home:services', 'home:sun', 'home:present'];
+    const route = (tables) => refreshTouched(tables, Object.fromEntries(HOME.map(p => [p, () => {}])));
+    assert.deepStrictEqual(route(['services']), ['home:services', 'home:present'],
+      '주보가 바뀌면 예배 카드와 참석 수만 — 오늘의 QT·내 순은 그대로');
+    assert.deepStrictEqual(route(['qt_entries']), ['home:qt'], '묵상은 QT 카드만');
+    assert.deepStrictEqual(route(['service_notes']), ['home:sun'], '예배 노트 공유는 내 순(공유된 노트 수)만');
+    assert.deepStrictEqual(route(['attendance']), ['home:services', 'home:present'], '출석은 세는 주일과 참석 수');
+    assert.deepStrictEqual(route(['sun_guides']), [], '가이드는 홈과 무관하다');
+    assert.deepStrictEqual(route(['group_members', 'qt_entries']), ['home:qt', 'home:sun', 'home:present']);
+    assert.deepStrictEqual(route([]), HOME, '어디서 왔는지 모르는 신호면 전부 읽는다');
+    assert.deepStrictEqual(route(undefined), HOME);
+    // 세 자리가 같은 접두 넷을 쓰는지 — TABLE_CACHE의 home 접두 · homeView의 useCached 열쇠 ·
+    // homeView의 refreshTouched 표. 어긋나면 비우기만 하고 안 읽는 칸이 생긴다(다음 진입 스켈레톤).
+    const homeSrc = readFileSync(new URL('../src/views/homeView.jsx', import.meta.url), 'utf8');
+    const tablePrefixes = [...new Set(V2_TABLES.flatMap(prefixesOf).filter(p => p.startsWith('home')))].sort();
+    assert.deepStrictEqual(tablePrefixes, [...HOME].sort(), 'liveV2가 비우는 홈 접두는 이 넷뿐이다');
+    const keys = [...homeSrc.matchAll(/useCached\(`(home:\w+):/g)].map(m => m[1]).sort();
+    assert.deepStrictEqual(keys, [...HOME].sort(), '홈의 useCached 열쇠 앞 두 도막이 그 넷과 같다');
+    const block = (homeSrc.match(/useLiveRefresh\('home', \(tables\) => refreshTouched\(tables, \{([\s\S]*?)\}\)\);/) || [])[1] || '';
+    const routed = [...block.matchAll(/'(home:\w+)': (\w+)\.refresh/g)];
+    assert.deepStrictEqual(routed.map(m => m[1]).sort(), [...HOME].sort(), '홈의 신호 표가 접두 넷을 빠짐없이 든다');
+    const cachedNames = [...homeSrc.matchAll(/const (\w+) = useCached\(`(home:\w+):/g)]
+      .map(m => `${m[2]}=${m[1]}`).sort();
+    assert.deepStrictEqual(routed.map(m => `${m[1]}=${m[2]}`).sort(), cachedNames,
+      '접두마다 그 열쇠를 쓰는 조회를 다시 읽는다(열쇠와 refresh의 짝이 맞다)');
   }
 
   // ④ 채널 규칙 — 게스트 no-op · 로그인 뒤에만 · 같은 topic 걷어내기(§6-3)
@@ -1824,8 +1868,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // ⑤ 뷰 배선 — 빠지면 다시 '나갔다 들어와야 보이는' 자리로 돌아간다
   const view = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
   const worship = view('../src/views/worshipView.jsx');
-  assert.ok(/useLiveRefresh\('worship', invalidate, screen === 'list'\)/.test(worship),
+  assert.ok(/useLiveRefresh\('worship', liveInvalidate, screen === 'list'\)/.test(worship),
     '예배 목록은 실시간으로 갱신하되 상세·출석 화면에서는 건너뛴다');
+  assert.ok(/const liveInvalidate = useCallback\(\(\) => \{\s*dropCache\('worship:list'\); cached\.refresh\(\);/.test(worship),
+    "신호 길에서는 홈을 통째로 비우지 않는다 — liveV2가 바뀐 표의 홈 접두만 이미 비웠다");
   assert.ok(/useLiveRefresh\('word', refreshQt\)/.test(view('../src/views/wordView.jsx')),
     '그날 나눔 피드가 실시간이다');
   // **그 화면의 useCached를 하나도 빠뜨리지 않는지**를 소스에서 센다 — 카드를 하나 더
@@ -1837,13 +1883,12 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   };
   assert.ok(allRefreshed(view('../src/views/groupsView.jsx'), 'groups'),
     '모임 화면의 useCached 묶음이 하나도 빠짐없이 다시 읽는다');
-  assert.ok(allRefreshed(view('../src/views/homeView.jsx'), 'home'),
-    '홈 카드가 하나도 빠짐없이 다시 읽는다');
+  // 홈은 한 줄이 아니라 refreshTouched 표다 — 빠짐없이 드는지는 위 ③-b가 본다
   const members = view('../src/views/membersView.jsx');
   assert.ok(/const rosterTick = useLiveTick\('roster'\)/.test(members)
     && /\[isAdmin, tab, year, rosterTick\]/.test(members),
     '명단은 effect가 읽으므로 틱을 deps에 얹는다');
-  console.log('PASS  v2 실시간 라우팅 31가지');
+  console.log('PASS  v2 실시간 라우팅 48가지');
 }
 
 // ── 화면 데이터 캐시의 계약 (services/cache.js · 2026-09-06) ─────────────────

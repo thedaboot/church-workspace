@@ -11,7 +11,7 @@ import { loadPassage } from '../services/bible.js';
 import { kindLabel, formatServiceDate, fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday } from '../services/worship.js';
 import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotes, attendanceSunday } from '../services/groups.js';
 import { useCached } from '../services/cache.js';
-import { useLiveRefresh } from '../services/liveV2.js';
+import { useLiveRefresh, refreshTouched } from '../services/liveV2.js';
 import logoLight from '../assets/logo-light.png';
 import logoDark from '../assets/logo-dark.png';
 
@@ -616,9 +616,16 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
       return ok.filter(id => mine.has(id)).length;
     }), [lastSundayId, mySunId, sunIds?.join(',') || '']);
 
-  // 홈은 첫 화면이라 여기가 가장 오래 떠 있다 — 주보 발행·나눔·명단이 바뀌면 카드
-  // 셋을 같이 다시 읽는다(0049 · services/liveV2.js).
-  useLiveRefresh('home', () => { qtQ.refresh(); svcQ.refresh(); sunQ.refresh(); attQ.refresh(); });
+  // 홈은 첫 화면이라 여기가 가장 오래 떠 있다 — 주보 발행·나눔·명단이 바뀌면 **그 표에
+  // 딸린 카드만** 다시 읽는다(0049 · services/liveV2.js). 주보 자동 저장 한 번에 카드 넷
+  // 조회 14개가 통째로 돌던 것을 2026-09-24에 갈랐다 — 주보가 바뀌면 예배 목록과 참석 수만.
+  // 접두 넷은 liveV2의 TABLE_CACHE와 글자가 같아야 한다(거기 주석 · tests/logcheck).
+  useLiveRefresh('home', (tables) => refreshTouched(tables, {
+    'home:qt': qtQ.refresh,
+    'home:services': svcQ.refresh,
+    'home:sun': sunQ.refresh,
+    'home:present': attQ.refresh,
+  }));
 
   // 값은 **언제나** 이 모양이다. 예전에는 셋이 다 로딩 중일 때만 `null`(=통짜 스켈레톤)
   // 이었는데, 하나라도 오면 그 순간 있는 카드만 세워서 늦은 갈래가 나중에 앞자리로
