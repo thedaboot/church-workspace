@@ -5,7 +5,7 @@
 로그인 설정 없이도 로컬(게스트) 모드로 돕니다.
 
 - 레포: `github.com/thedaboot/church-workspace` · 배포: Vercel (`main` 푸시 시 자동)
-- 코드 위치·함정·관례는 [`HANDOFF.md`](HANDOFF.md)입니다. 새로 합류했다면 그 문서부터 읽으세요.
+- 코드 위치·관례는 [`HANDOFF.md`](HANDOFF.md), 함정은 [`docs/PITFALLS.md`](docs/PITFALLS.md)입니다. 새로 합류했다면 HANDOFF부터 읽으세요.
 
 ## 시작하기
 
@@ -79,15 +79,15 @@ src/  App.jsx(조립·라우팅 상태) · config.js(팀·상태 상수) · inde
       store/(useSyncExternalStore 스토어 + 셀렉터) · services/(도메인·Supabase·마크다운·AI)
       hooks/(컨트롤러) · components/(내비·칸반·캘린더·그래프·에디터·미리보기·종이·링크)
       views/(화면) · modals/(업무 상세·수정, 프로필, 프로젝트)
-api/  서버 함수 — ai · drive · drive-file · share · push · yt
+api/  서버 함수 — ai · drive · drive-file · share · push · yt (`_lib.js`는 공용 머리 · 라우트 아님)
 public/bible/  개역한글 66권 json(책 단위 청크)
 ```
 
-**화면 ↔ 파일 지도는 [`HANDOFF.md`](HANDOFF.md) §3입니다.** 상태는 `{ byId, allIds }`로
+**화면 ↔ 파일 지도는 [`HANDOFF.md`](HANDOFF.md) §4입니다.** 상태는 `{ byId, allIds }`로
 정규화해 Map 룩업으로 읽고, 화면(views) → 컨트롤러(hooks) → 서비스(services) → Supabase
 순으로 책임을 나눴습니다. 에디터 문서 모델과 저장 형식(마크다운) 사이의 변환은
 `services/markdown.js`에만 있어서, 에디터를 바꿔도 뷰어·AI·기존 데이터가 영향을 받지 않습니다.
-디자인 토큰·모션·그리드 규칙은 HANDOFF §4.2이고 값은 모두 `src/index.css` 한 곳에 있습니다.
+디자인 토큰·모션·그리드 규칙은 `docs/PITFALLS.md` §4.2이고 값은 모두 `src/index.css` 한 곳에 있습니다.
 
 ## 로그인 (선택)
 
@@ -118,7 +118,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 
 ### 마이그레이션
 
-`supabase/migrations/`를 순서대로 적용합니다. **0001~0066은 전부 라이브 DB에 적용되어
+`supabase/migrations/`를 순서대로 적용합니다. **0001~0072는 전부 라이브 DB에 적용되어
 있습니다**(적용 방법과 원장 주의사항은 HANDOFF §5).
 
 | 파일 | 내용 | 적용 |
@@ -189,6 +189,15 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0064_people_gender` | `people.gender`(`m`/`f`, nullable) — 주보·홈의 호칭이 `OOO 청년`에서 `OOO 형제/자매`로. 비어 있으면 그대로 `청년` | ✅ |
 | `0065_bible_recent_searches` | `bible_state.recent_searches` — 성경 읽기 최근 검색어(최신이 앞). 상한 30·중복 제거는 `services/word.js`가 한다 | ✅ |
 | `0066_personal_tables_default_effective_uid` | 개인 표 셋(`service_notes`·`qt_entries`·`bible_state`)의 `profile_id` 기본값도 `effective_uid()`로 — 정책과 어긋나 합친 계정만 막히던 덫을 미리 닫는다 | ✅ |
+| `0067_people_birthday_to_profile` | 명단에서 고친 생일을 트리거가 계정(`profiles.birthday`)으로 옮긴다 — 달력이 바로 따라온다 | ✅ |
+| `0068_people_teams_to_profile` | 명단 소속(`people.teams`)을 계정 소속(`profile_teams`)으로 · `teams`에 순장·순원. `임원진`은 건드리지 않는다 | ✅ |
+| `0069_pastor_team_from_is_pastor` | 계정의 `교역자` 소속은 명단 직분 토글(`people.is_pastor`)이 정한다 | ✅ |
+| `0070_profile_team_id_follows` | 대표 팀(`profiles.team_id`)도 소속을 따라간다 | ✅ |
+| `0071_rls_hardening` | 스스로 올릴 수 없는 칸을 막는다 — 프로필 승인·합치기·이메일 가드 트리거 · 작성자 칸 가드 · 댓글 수정은 쓴 사람만 · 비관리자는 교역자·계정 연결 명단 추가 금지 · 알림 보낸 이름은 서버가 · 딥링크에 공백·역슬래시 금지 · `recount_card`·`fix_profile_team_id` 실행 권한 회수 · storage 승인 게이트 · 합친 계정의 `profiles_insert` | ✅ |
+| `0072_files_name_nfc` | 첨부 이름을 NFC로(맥에서 온 NFD 이름이 검색에 안 걸리던 것) — 데이터만, 스키마 변화 없음 | ✅ |
+
+옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
+채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다.
 
 ## 딥링크 · 공유 · 환경변수
 
