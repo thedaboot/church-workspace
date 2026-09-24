@@ -12,6 +12,8 @@ const src = readFileSync(SRC, 'utf8');
 const patched = src
   .replace(/import \{ supabase \} from '\.\/supabaseClient\.js';/, 'export const supabase = null;')
   .replace(/from '\.\.\/utils\.js';/, `from '${pathToFileURL(`${ROOT}/src/utils.js`).href}';`)
+  // aiPeople.js는 순수 모듈이라 그대로 쓴다(2026-09-25) — 임시 폴더에서 도니 절대 경로로
+  .replace(/from '\.\/aiPeople\.js';/, `from '${pathToFileURL(`${ROOT}/src/services/aiPeople.js`).href}';`)
   .replace(/import \{ store \} from '\.\.\/store\/workspaceStore\.js';/, `
 const STATE = globalThis.__STATE;
 export const store = { getState: () => STATE };`);
@@ -46,7 +48,8 @@ globalThis.__STATE = {
     t6: mk('t6','작년 포스터 제작',['미디어팀'],'완료','2025-06-01','2025-06-20',['시온'],'p3'),
   }, allIds:['t0','t1','t2','t3','t4','t5','t6'] },
 };
-const { buildTaskContext, peopleContext, sanitizeMentions, resolveTaskLinks, AiService } = await import(pathToFileURL(file).href);
+if (!patched.includes('/src/services/aiPeople.js')) { console.log('FAIL  aiPeople import 줄을 못 바꿨어요 (ai.js의 import가 바뀌었나요)'); process.exit(1); }
+const { buildTaskContext, peopleContext, sanitizeMentions, resolveTaskLinks, AiService, setAiRoster } = await import(pathToFileURL(file).href);
 const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}${d?' — '+d:''}`);
 
 const NOW = new Date('2026-07-24T10:00:00');   // 콘티 마감(7/26) 이틀 전
@@ -95,8 +98,10 @@ check('완료된 업무는 "지금 돌아가는 일"에 안 들어간다',
 {
   const t0 = globalThis.__STATE.tasks.byId.t0;
   const people = peopleContext(t0, []);
-  check('담당자의 팀과 직함이 실린다',
-    people.includes('노준석 | 찬양팀 | 순장 · 찬양팀장') && people.includes('조준환 | 임원진·찬양팀 | 예배팀장'));
+  check('담당자의 팀과 부를 말이 실린다',
+    people.includes('노준석 | 팀: 찬양팀 | 부를 때: 노준석 찬양팀장님')
+    && people.includes('조준환 | 팀: 임원진·찬양팀 | 부를 때: 조준환 예배팀장님 | 맡은 일: 찬양팀 남자 싱어'),
+    people.replace(/\n/g, ' / '));
   check('이 업무에 없는 사람은 안 실린다', !people.includes('문진혁') && !people.includes('박지호'), people.replace(/\n/g,' / '));
   const withMention = peopleContext({ ...t0, assignees:['시온'] }, [], { withMention: true });
   check('다듬기용으로 부르면 멘션 표기가 붙는다', withMention.includes('멘션은 @시온'));
@@ -105,6 +110,74 @@ check('완료된 업무는 "지금 돌아가는 일"에 안 들어간다',
   check('본문에서 @로 불린 사람도 실린다', mentioned.includes('문진혁'));
   const fromComment = peopleContext({ ...t0, assignees:[], comments:[{ author:'x', text:'@박지호 확인 부탁' }] }, []);
   check('댓글에서 @로 불린 사람도 실린다', fromComment.includes('박지호'));
+}
+
+// ── 직함 고르기 · 순 자리 · 글에 나온 사람 (2026-09-25 · AI 감사 결정 1·3·6·7·9·13) ──────────
+// 명단 한 벌(worship.fetchRoster 모양)은 setAiRoster로 쥐여 준다 — 실제 앱은 처음 AI를 부를 때
+// 한 번 읽는다(ai.js loadAiRoster). 명단 쪽 이름 '강꽃님'·'배현민'은 표시명과 다른 짝이다.
+{
+  const st = globalThis.__STATE;
+  const extra = [
+    { id:'u6', name:'임성빈', team:'교역자', teams:['교역자'], role:'전도사 · 담당 교역자' },
+    { id:'u7', name:'신효진', team:'임원진', teams:['임원진'], role:'부장' },
+    { id:'u8', name:'김윤주', team:'엔지니어팀', teams:['엔지니어팀','순장'], role:'순장' },
+    { id:'u9', name:'꽃님', team:'웰컴팀', teams:['웰컴팀','순원'], role:'' },
+    { id:'u10', name:'현민스', team:'순장', teams:['순장'], role:'순장' },
+    { id:'u11', name:'김승찬', team:'찬양팀', teams:['찬양팀','순장'], role:'순장 · 찬양팀 일렉(팀에서 유일)' },
+    // 지은 이름 — role_note에 직함이 없고 연도 직분만 있는 사람(결정 1의 채우는 쪽)
+    { id:'u12', name:'한가람', team:'임원진', teams:['임원진'], role:'' },
+  ];
+  st.members.push(...extra);
+  st.members.find(m => m.name === '노준석').teams = ['찬양팀', '순장'];
+  const person = (id, name, profile_id, extraCols = {}) => ({ id, name, roster_name: name, profile_id, is_pastor: false, ...extraCols });
+  setAiRoster({
+    people: [
+      person('p1', '노준석', 'u1'), person('p2', '조준환', 'u2'), person('p6', '임성빈', 'u6', { is_pastor: true }),
+      person('p7', '신효진', 'u7'), person('p9', '꽃님', 'u9', { roster_name: '강꽃님' }),
+      person('p10', '현민스', 'u10', { roster_name: '배현민' }), person('p11', '김승찬', 'u11'),
+      person('p12', '한가람', 'u12'), person('p13', '천미가입', null),
+    ],
+    groups: [{ id:'g1', type:'sun', name:'TT순', leader_person_id:'p1' }, { id:'g2', type:'sun', name:'오순도순', leader_person_id:'p10' }],
+    members: [{ group_id:'g1', person_id:'p9' }, { group_id:'g1', person_id:'p2' }],
+    roles: [{ person_id:'p2', role:'lead_team' }, { person_id:'p7', role:'director' }, { person_id:'p12', role:'treasurer' }],
+  });
+  const lineOf = (ctx, name) => (ctx.split('\n').find(l => l.startsWith(`${name} `) || l.startsWith(`${name}(`)) || '(없음)');
+  const t0 = st.tasks.byId.t0;                                   // 찬양 콘티 결정 · 워십팀·찬양팀
+  const praise = peopleContext(t0, []);
+  check('찬양팀 업무에서 노준석은 찬양팀장님(결정 3)', lineOf(praise, '노준석').includes('부를 때: 노준석 찬양팀장님'), lineOf(praise, '노준석'));
+  const sunTask = { ...t0, id:'s1', title:'순모임 나눔 정리', teams:['순장'], content:'', assignees:['노준석'] };
+  check('순 업무에서 노준석은 순장님(결정 3)', lineOf(peopleContext(sunTask, []), '노준석').includes('부를 때: 노준석 순장님'),
+    lineOf(peopleContext(sunTask, []), '노준석'));
+  const sunByText = { ...t0, id:'s2', title:'9월 셋째 주 나눔', teams:['임원진'], content:'각 순 순원 출석 확인', assignees:['노준석'] };
+  check('글이 순을 말해도 순장님(담당 팀이 순이 아니어도)', lineOf(peopleContext(sunByText, []), '노준석').includes('노준석 순장님'));
+  const other = { ...t0, id:'s3', title:'대림절 TF', teams:['임원진'], content:'', assignees:['노준석'] };
+  check('순도 팀도 안 맞으면 순 아닌 첫 직함(찬양팀장님)', lineOf(peopleContext(other, []), '노준석').includes('노준석 찬양팀장님'));
+  check('조준환은 연도 직분이 리더팀장이어도 예배팀장님(결정 1 — role_note가 이긴다)',
+    lineOf(praise, '조준환').includes('부를 때: 조준환 예배팀장님') && !lineOf(praise, '조준환').includes('리더팀장'), lineOf(praise, '조준환'));
+  const staff = peopleContext({ ...other, assignees:['임성빈', '신효진', '한가람', '김윤주'] }, []);
+  check('임성빈은 전도사님 · 교역자님이 아니다(결정 6)',
+    lineOf(staff, '임성빈').includes('부를 때: 임성빈 전도사님') && !staff.includes('교역자님'), lineOf(staff, '임성빈'));
+  check('신효진은 부장님(결정 7)', lineOf(staff, '신효진').includes('부를 때: 신효진 부장님'), lineOf(staff, '신효진'));
+  check('role_note에 직함이 없으면 연도 직분이 채운다(결정 1)', lineOf(staff, '한가람').includes('부를 때: 한가람 총무님'), lineOf(staff, '한가람'));
+  check('직함이 하나뿐이면 어느 업무에서나 그 직함(김윤주 순장님)', lineOf(staff, '김윤주').includes('김윤주 순장님'), lineOf(staff, '김윤주'));
+  check('순 자리는 팀과 따로 적는다(결정 9 · 명단이 있으면 순 이름까지)',
+    lineOf(praise, '노준석').includes('| 팀: 찬양팀 | 순: TT순 순장 |') && lineOf(praise, '조준환').includes('| 순: TT순 순원 |'),
+    `${lineOf(praise, '노준석')} / ${lineOf(praise, '조준환')}`);
+  check('명단이 없으면 팀의 순장·순원에서 순 칸을 채운다', lineOf(staff, '김윤주').includes('| 팀: 엔지니어팀 | 순: 순장 |'), lineOf(staff, '김윤주'));
+  check('팀 칸에 순장·순원이 섞이지 않는다', !/팀: [^|]*순[장원]/.test(praise + staff), (praise + staff).replace(/\n/g, ' / '));
+
+  // 글에 이름으로 나온 가입자(결정 13) — 표시명 · 명단 이름 · 이름 두 글자 · 'OO순'
+  const said = { ...other, id:'s4', assignees:[], content:'### 승찬\n- 좋았다\n강꽃님 자매가 도와줌\n현민순(오순도순) 모임\n운전자(준석)가 고생' };
+  const found = peopleContext(said, []);
+  check('이름 두 글자로 적힌 가입자가 실린다(### 승찬 · (준석))', found.includes('김승찬 |') && found.includes('노준석 |'), found.replace(/\n/g, ' / '));
+  check('명단 이름으로 적힌 가입자가 표시명으로 실린다(강꽃님 → 꽃님)', lineOf(found, '꽃님').startsWith('꽃님(명단 이름 강꽃님)'), lineOf(found, '꽃님'));
+  check('OO순으로 적힌 순장이 실린다(현민순 → 현민스)', found.includes('현민스(명단 이름 배현민)'), found.replace(/\n/g, ' / '));
+  const noise = peopleContext({ ...other, id:'s5', assignees:[], content:'시온의 영광이 비치는 아침 · 선착순 20명 · 오순도순 모여 · 교역자 회의' }, []);
+  check('흔한 낱말·붙여 쓴 말은 사람으로 안 잡는다(시온의 영광 · 선착순 · 오순도순)', noise === '', noise.replace(/\n/g, ' / '));
+  check('미가입 명단 사람은 싣지 않는다(가입자만)', !found.includes('천미가입'));
+  st.members.splice(st.members.length - extra.length, extra.length);
+  st.members.find(m => m.name === '노준석').teams = ['찬양팀'];
+  setAiRoster(null);
 }
 
 // ── AI가 쓴 멘션 검사 (2026-08-28) ─────────────────────────────────────────
@@ -127,7 +200,13 @@ await AiService.summarizeTask(globalThis.__STATE.tasks.byId.t0);
 check('요약 프롬프트에 주변 상황이 들어간다', captured.prompt.includes('[지금 이 업무의 주변 상황]'));
 check('요약 프롬프트에 관련된 사람이 들어간다', captured.prompt.includes('[이 업무에 관련된 사람]'));
 check('챙길 것은 남은 하위 업무만 - 끝낸 것을 챙기라 하면 틀린 요약이다',
-  captured.sys.includes('"남은 하위 업무" 줄에 적힌 것만') && captured.sys.includes('그 요약은 틀린 것이다'));
+  captured.sys.includes('"남은 하위 업무" 줄이 있으면 그 줄에 적힌 것만') && captured.sys.includes('그 요약은 틀린 것이다'));
+// 결정 11(2026-09-25) — 하위 업무가 없으면 본문에서 할 일을 고른다. "남은 하위 업무가 없어요"를 썼다(A/B title-2)
+check('챙길 것: 남은 하위 업무가 없으면 본문에서 고르고, 없다고만 쓰지 말라고 한다',
+  captured.sys.includes('**상세 내용과 댓글에서 아직 안 끝난 일**을 골라 써라')
+  && captured.sys.includes('하위 업무가 없다고만 적고 끝내지 마라'));
+check('챙길 것 규칙이 "없어요" 문장을 예로 들지 않는다(모델이 예문을 베낀다)',
+  !/남은 하위 업무가? 없어요/.test(captured.sys) && !captured.prompt.includes('없음(전부 완료)'));
 check('요약 규칙에 "마감일까지 끝내라는 말 금지"가 있다',
   captured.sys.includes('마감일까지 끝내라는 말은 절대 쓰지 마라'));
 check('요약 규칙에 사역 진행 순서가 있다',
@@ -151,7 +230,11 @@ check('회계는 절차를 심지 않고 메뉴얼 업무를 가리킨다',
   && !captured.sys.includes('두 분의 결재'));
 check('순과 조를 구분하라는 규칙이 있다', captured.sys.includes('순과 조는 다르다'));
 check('워십팀이 찬양팀과 다르다는 것을 알려준다', captured.sys.includes('찬양팀과 다른 팀이다'));
-check('청년부 규모를 알려준다', captured.sys.includes('약 40명'));
+check('청년부 규모를 알려준다(약 55명 · 2026-09-25)', captured.sys.includes('약 55명') && !captured.sys.includes('약 40명'));
+check('예배팀장과 찬양팀장이 다른 자리라고 알려준다(결정 2)',
+  captured.sys.includes('예배팀장은 찬양팀장과 다른 자리다') && captured.sys.includes('찬양팀·엔지니어팀·워십팀에 걸친 예배 전체'));
+check('호칭 규칙: 부를 때 글자 그대로 · 교역자님 금지',
+  captured.sys.includes('"부를 때" 글자를 그대로') && captured.sys.includes('"교역자님"이라고 부르지 마라'));
 // §8의 문구 톤을 AI도 받아야 한다 — 요약은 카드에 고정돼 남는 글이다
 check('견주는 표현 금지가 규칙에 있다', captured.sys.includes('누가 누구와 견주는 표현을 절대 쓰지 마라'));
 check('판정어 금지가 규칙에 있다', captured.sys.includes('부하, 과부하, 병목'));
@@ -200,6 +283,32 @@ check('우리 표현으로 바꾸라는 표가 있다',
   captured.sys.includes('3층 본당') && captured.sys.includes('셀·소그룹 → 순'));
 check('원문에 없는 사람을 멘션하지 말라는 규칙이 있다', captured.sys.includes('원문에 나오지 않은 사람은 멘션하지 마라'));
 check('다듬기 프롬프트에 멘션 표기가 실린다', captured.prompt.includes('멘션은 @노준석'));
+// 예시 3·4의 사람은 지은 이름이다(2026-09-25) — 실명을 쓰면 모델이 그 사람을 다른 카드로 끌어왔고
+// 공개 레포에 교인 이름·직함 짝이 남는다. 예시 4가 줄마다 '9월 26일까지'를 붙여 모델이 그 날짜를 베꼈다.
+{
+  const examples = captured.prompt.split('[오늘]')[0];
+  const real = ['조해리', '박지호', '김승찬', '정민경', '조준환', '민경', '준환', '해리', '지호', '이시온'];
+  check('다듬기 예시에 실제 교인 이름이 없다', !real.some(n => examples.includes(n) || captured.sys.includes(n)),
+    real.filter(n => examples.includes(n) || captured.sys.includes(n)).join(','));
+  check('다듬기 예시·규칙에 9월 26일이 없다(베껴 쓰던 기한)', !/9월 26일|26일까지/.test(examples + captured.sys));
+  check('예시 4는 기한이 적힌 줄에만 날짜를 붙인다',
+    examples.includes('- @한가람 @최서율 · 4월 콘티 확정(이번 주 안)\n') || examples.includes('- @한가람 @최서율 · 4월 콘티 확정(이번 주 안)\r\n'));
+  check('예시의 사람 목록이 실제 한 줄 모양(부를 때)과 같다', examples.includes('  한가람 | 팀: 찬양팀·임원진 | 부를 때: 한가람 총무님 | 멘션은 @한가람'));
+  check('예시 날짜를 옮겨 적지 말라고 한다', captured.sys.includes('예시에 나온 날짜를 옮겨 적지 마라'));
+}
+// 다듬기에 싣는 사람 = 담당자 · @ · **초안에 이름으로 나온 가입자**만(결정 13)
+{
+  const t3 = globalThis.__STATE.tasks.byId.t3;                   // 간식·음료 구매 · 담당 박지호
+  captured = null;
+  await AiService.polishText('간식 목록 정리 준석 형제가 영수증 모아줌 시온의 영광 틀기', t3);
+  // 예시 3·4도 '[이 업무에 관련된 사람]'이라는 글자를 쓴다 — 실제 목록은 마지막 것이다
+  const at = captured.prompt.lastIndexOf('\n[이 업무에 관련된 사람]');
+  const ppl = at < 0 ? '' : captured.prompt.slice(at).split('이제 아래 초안')[0];
+  check('다듬기: 초안에 이름 두 글자로 나온 가입자가 실린다(준석 형제 → 노준석)', ppl.includes('노준석 |'), ppl.trim().replace(/\n/g, ' / '));
+  check('다듬기: 담당자는 그대로 실린다', ppl.includes('박지호 |'));
+  check('다듬기: 초안에 없는 가입자는 안 실린다(시온의 영광은 사람이 아니다)',
+    !ppl.includes('시온 |') && !ppl.includes('조준환') && !ppl.includes('문진혁'), ppl.trim().replace(/\n/g, ' / '));
+}
 
 // ── 관련 업무 링크 (2026-08-30) ────────────────────────────────────────────
 // 모델에게 uuid를 쓰게 하면 지어내서 죽은 링크가 된다. 표시만 쓰게 하고 제목 정확
@@ -310,6 +419,14 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
     && ctx2.includes('- 이미 끝낸 하위 업무(끝났다 — 챙기라고 말하지 마라): 곡 목록 확정')
     && ctx2.indexOf('남은 하위 업무') < ctx2.indexOf('이미 끝낸 하위 업무'),
     (ctx2.split('\n').filter(l=>l.includes('하위 업무')).join(' / ') || '(없음)'));
+  // 결정 11 — 다 끝났거나 안 나눴을 때도 챙길 것의 재료(본문)를 가리킨다. '없음(전부 완료)'만 적으면
+  // 모델이 "남은 하위 업무는 없어요"를 챙길 것에 그대로 썼다(A/B title-2 · 3회 중 2회).
+  const allDone = buildTaskContext({ ...st.tasks.byId.t0, subtasks: [{ id:'s1', title:'곡 목록 확정', done:true }] }, NOW);
+  const noSubs = buildTaskContext({ ...st.tasks.byId.t0, subtasks: [] }, NOW);
+  check('하위 업무가 다 끝나면 본문에서 챙길 것을 고르라고 한다',
+    allDone.includes('하위 업무는 모두 끝났다(챙길 것은 상세 내용·댓글에서') && !allDone.includes('없음'),
+    (allDone.split('\n').filter(l=>l.includes('하위 업무')).join(' / ') || '(없음)'));
+  check('하위 업무가 없으면 본문에서 챙길 것을 고르라고 한다', noSubs.includes('하위 업무는 아직 나누지 않았다(챙길 것은 상세 내용·댓글에서'));
 
   // 첨부 발췌(0030) — 파일 3개·합계 3000자 상한에서 잘리는지
   const long = 'ㄱ'.repeat(2000);

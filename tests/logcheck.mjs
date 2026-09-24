@@ -4145,3 +4145,69 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(D.planSync(D.buildDocs(src, ['file']), extra, ['file']), { embed: [], move: [], drop: [] }, '--kind file이 카드 조각을 지운다');
   console.log('PASS  문서 임베딩 뒷단(0074 모양 · 조각·해시 · 글 모양 · 증분 계획)');
 }
+
+// ── AI가 사람을 부르는 말 · 글에 나온 사람 (services/aiPeople.js · 2026-09-25 AI 감사 결정 1·3·6·7·9·13) ──
+// 순수 모듈이라 여기서 바로 부른다. 프롬프트에 실리는 모양은 tests/aictx가 본다.
+{
+  const P = await import(new URL('../src/services/aiPeople.js', import.meta.url).href);
+  // role_note → 직함 / 맡은 일. 끝이 ~장·총무·회계·전도사인 두 낱말까지가 직함이다.
+  assert.deepStrictEqual(P.splitRoleNote('순장 · 찬양팀장'), { titles: ['순장', '찬양팀장'], notes: [] });
+  assert.deepStrictEqual(P.splitRoleNote('예배팀장 · 찬양팀 남자 싱어'), { titles: ['예배팀장'], notes: ['찬양팀 남자 싱어'] });
+  assert.deepStrictEqual(P.splitRoleNote('총무 · 회계 · 찬양팀 여자 싱어').titles, ['총무', '회계']);
+  assert.deepStrictEqual(P.splitRoleNote('청년부 회장 · 여러 팀을 섬기는 팀원'), { titles: ['청년부 회장'], notes: ['여러 팀을 섬기는 팀원'] });
+  assert.deepStrictEqual(P.splitRoleNote('전도사 · 담당 교역자').titles, ['전도사'], "'교역자'를 직함으로 읽었다(결정 6 — 전도사님으로 부른다)");
+  assert.deepStrictEqual(P.splitRoleNote('담당 교역자(전도사님)').titles, ['전도사'], '괄호 속 옛 직함을 못 읽었다');
+  assert.deepStrictEqual(P.splitRoleNote('부장님').titles, ['부장'], "뒤에 붙은 '님'을 안 뗐다(부장님님)");
+  assert.deepStrictEqual(P.splitRoleNote('순장 · 찬양팀 일렉(팀에서 유일)'), { titles: ['순장'], notes: ['찬양팀 일렉(팀에서 유일)'] });
+  // 결정 1 — role_note가 이긴다. 연도 직분·교역자는 role_note에 직함이 없을 때만 채운다
+  const info = { isPastor: false, roles: ['lead_team'] };
+  assert.deepStrictEqual(P.titlesOf({ role: '예배팀장 · 찬양팀 남자 싱어' }, info).titles, ['예배팀장'], '연도 직분(리더팀장)이 role_note를 밀어냈다');
+  assert.deepStrictEqual(P.titlesOf({ role: '' }, info).titles, ['리더팀장'], 'role_note가 비었는데 연도 직분이 안 채운다');
+  assert.deepStrictEqual(P.titlesOf({ role: '' }, { isPastor: true, roles: ['director'] }).titles, ['전도사', '부장']);
+  // 결정 3 — 업무가 고른다
+  const both = ['순장', '찬양팀장'];
+  assert.strictEqual(P.pickTitle(both, P.taskScope({ title: '찬양 콘티 결정', teams: ['찬양팀'] })), '찬양팀장');
+  assert.strictEqual(P.pickTitle(both, P.taskScope({ title: '순모임 준비', teams: ['임원진'] })), '순장');
+  assert.strictEqual(P.pickTitle(both, P.taskScope({ title: '양육', teams: ['순원'] })), '순장', '담당 팀이 순원이면 순 일이다');
+  assert.strictEqual(P.pickTitle(both, P.taskScope({ title: '대림절 TF', teams: ['임원진'] })), '찬양팀장', '순 아닌 첫 직함이어야 한다');
+  assert.strictEqual(P.pickTitle(both, P.taskScope({ title: '선착순 20명 모집', teams: ['웰컴팀'] })), '찬양팀장', "'선착순'을 순 일로 읽었다");
+  assert.strictEqual(P.pickTitle(['리더순장'], P.taskScope({ title: '월례회', text: '리더순장님 참석' })), '리더순장');
+  assert.strictEqual(P.isSunTask({ title: '월례회', text: '리더순장님 참석' }), false, "'리더순장'이라는 직함 글자를 순 일로 읽었다");
+  assert.strictEqual(P.pickTitle(['리더팀장', '웰컴팀장'], P.taskScope({ title: '조 편성', teams: ['웰컴팀'] })), '웰컴팀장');
+  assert.strictEqual(P.pickTitle(['찬양팀장', '예배팀장'], P.taskScope({ title: '10월 찬양 예배', teams: ['찬양팀', '엔지니어팀'] })), '찬양팀장', '팀이 맞는 직함이 예배팀장보다 먼저다');
+  assert.strictEqual(P.pickTitle(['리더팀장', '예배팀장'], P.taskScope({ title: '10월 찬양 예배', teams: ['임원진'] })), '예배팀장', '예배 전반의 일인데 예배팀장을 안 골랐다');
+  assert.strictEqual(P.pickTitle(['순장'], P.taskScope({ title: 'PPT 제작', teams: ['엔지니어팀'] })), '순장', '직함이 하나면 그 직함이다');
+  assert.strictEqual(P.callName('신효진', '부장'), '신효진 부장님');
+  assert.strictEqual(P.callName('강희라', ''), '강희라 청년');
+  // 결정 13 — 글에 나온 가입자(열쇠: 표시명 · 명단 이름 · 이름 두 글자)
+  const members = [
+    { id: 'a', name: '노준석' }, { id: 'b', name: '시온' }, { id: 'c', name: '꽃님' }, { id: 'd', name: '현민스' }, { id: 'e', name: '이하랑Alex' },
+  ];
+  const idx = P.rosterIndex({
+    people: [{ id: 'p1', name: '노준석', roster_name: '노준석', profile_id: 'a' }, { id: 'p2', name: '시온', roster_name: '이시온', profile_id: 'b' },
+      { id: 'p3', name: '꽃님', roster_name: '강꽃님', profile_id: 'c' }, { id: 'p4', name: '현민스', roster_name: '배현민', profile_id: 'd' },
+      { id: 'p5', name: '이하랑Alex', roster_name: '이하랑', profile_id: 'e' }],
+    groups: [{ id: 'g', type: 'sun', name: 'TT순', leader_person_id: 'p1' }], members: [{ group_id: 'g', person_id: 'p3' }], roles: [],
+  }, members);
+  assert.strictEqual(idx.get('노준석').sun, 'TT순 순장');
+  assert.strictEqual(idx.get('꽃님').sun, 'TT순 순원');
+  const found = (s) => [...P.mentionedMembers(s, members, idx)].sort();
+  assert.deepStrictEqual(found('### 준석\n- 좋았다'), ['노준석'], '줄 끝의 이름 두 글자를 못 찾았다');
+  assert.deepStrictEqual(found('운전자(준석)가 고생'), ['노준석']);
+  assert.deepStrictEqual(found('준석순(TT순)'), ['노준석'], "'OO순'을 못 찾았다");
+  assert.deepStrictEqual(found('강꽃님 자매'), ['꽃님'], '명단 이름으로 표시명을 못 찾았다');
+  assert.deepStrictEqual(found('현민순 모임'), ['현민스'], '명단 이름의 두 글자로 별명 표시명을 못 찾았다');
+  assert.deepStrictEqual(found('하랑 의견'), ['이하랑Alex']);
+  assert.deepStrictEqual(found('이시온 자매 · 시온 형제 · (시온)'), ['시온']);
+  assert.deepStrictEqual(found('시온의 영광이 비치는 아침 · 주의 시온 성'), [], "찬양 가사의 '시온'을 사람으로 읽었다");
+  assert.deepStrictEqual(found('노준석님'), ['노준석']);
+  assert.deepStrictEqual(found('민스 · 이하랑의 · 선착순'), ['이하랑Alex'], "별명에서 뗀 두 글자('민스')를 열쇠로 썼다");
+  assert.deepStrictEqual(found('현준석 형제'), [], '다른 사람 이름 안의 두 글자를 잡았다');
+  // 한 줄 — 순 자리는 팀과 따로(결정 9)
+  const line = P.personLine({ name: '노준석', teams: ['찬양팀', '순장'], role: '순장 · 찬양팀장' },
+    { info: idx.get('노준석'), scope: P.taskScope({ title: '콘티', teams: ['찬양팀'] }), withMention: true });
+  assert.strictEqual(line, '노준석 | 팀: 찬양팀 | 순: TT순 순장 | 부를 때: 노준석 찬양팀장님 | 멘션은 @노준석');
+  assert.strictEqual(P.personLine({ name: '현민스', teams: ['순장'], role: '순장' }, { info: idx.get('현민스') }),
+    '현민스(명단 이름 배현민) | 팀: 미지정 | 순: 순장 | 부를 때: 현민스 순장님');
+  console.log('PASS  AI 사람 줄(aiPeople — 직함 고르기 · 순 칸 · 글에 나온 가입자)');
+}
