@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase, resetMyUid } from './supabaseClient.js';
 import { store } from '../store/workspaceStore.js';
 import { isKakaoInApp, returnToOf, authErrorInUrl } from '../utils.js';

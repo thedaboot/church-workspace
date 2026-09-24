@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 // ============================================================================
 // 초경량 토스트 — 전역 showToast(message)로 호출

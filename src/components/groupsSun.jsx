@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { SectionHead } from '../views/dashboardParts.jsx';
 import { Skeleton } from './media.jsx';

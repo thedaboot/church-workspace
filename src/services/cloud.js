@@ -88,17 +88,11 @@ export async function listProfiles() {
 // `new Date()`로 만들어 보냈는데, 같은 화면에서 나란히 비교되는 `activity.created_at`은
 // DB의 now()라 기기 시계가 어긋난 만큼 "1분 전 수정 · 4분 전 다녀감"이 됐다
 // (이 앱은 기기 시계가 어긋난다는 것을 이미 안다 — 위 withClockSkewRetry).
-// 함수가 아직 없는 환경(마이그레이션 전 미리보기 배포)에서는 예전 update로 떨어진다.
+// 0048 이전 환경을 위한 `profiles` update 폴백은 지웠다(0048이 라이브에 있다 · 2026-09-24).
 export async function touchLastSeen() {
   try {
     const { error } = await client().rpc('touch_last_seen');
-    if (!error) return;
-    if (error.code !== 'PGRST202' && !/touch_last_seen/.test(error.message || '')) throw error;
-    // 폴백도 **남긴 계정 행**에 찍는다 — 화면의 얼굴은 그 행에서 오므로(0063)
-    // 자기 행에 찍으면 합친 계정만 영영 '오늘 다녀간 사람'에서 빠진다.
-    const uid = await myUid();
-    if (!uid) return;
-    await client().from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', uid);
+    if (error) throw error;
   } catch (e) {
     console.warn('[cloud] 접속 시각 기록 생략:', e.message);
   }

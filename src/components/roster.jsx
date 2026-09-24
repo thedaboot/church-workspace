@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus, Check, Link2, Link2Off, UserX, Undo2, Loader2, Pencil, X, Search, CalendarDays } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';

@@ -1,4 +1,3 @@
-import React from 'react';
 import { FileText, File, FileSpreadsheet, Presentation } from 'lucide-react';
 
 // ============================================================================

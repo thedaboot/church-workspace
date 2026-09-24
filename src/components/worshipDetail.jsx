@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck,
   ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText, X,
   Share2 } from 'lucide-react';
@@ -22,8 +22,6 @@ import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
 import { readCache, writeCache, dropCache } from '../services/cache.js';
 import { NoteSheet, NotePaper, ServiceSheetOne, ServiceSheetTwo, PAPER, paperDate } from './paper.jsx';
 import { useSheetShare } from '../hooks/useSheetShare.jsx';
-import { showToast } from './Toast.jsx';
-import { failText } from '../services/errorText.js';
 
 // 미리보기 창(+PdfView)은 열 때만 받는다 — 첨부를 안 여는 사람까지 그 무게를 받지 않게(2026-09-24).
 const FilePreviewModal = lazy(() => import('./FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));

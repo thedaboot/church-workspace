@@ -1,8 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FileText, Table, Presentation, ExternalLink, Maximize2, Minimize2, X } from 'lucide-react';
 import { docEmbedKind, docEmbedSrc, docThumbUrl, DOC_KIND_LABEL } from '../services/docEmbed.js';
-import { verifyViewPw, isLocked } from '../services/viewPw.js';
 import { useMyEmail } from '../services/auth.jsx';
 import { Skeleton } from './media.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -20,7 +19,6 @@ import { useIsMobile } from '../hooks/useIsMobile.js';
 //   <DocEmbedModal url title onClose />                     (전체 화면 모달)
 //     └ **폰 + 슬라이드**는 iframe이 아니다 — 첫 장 그림 한 장과 새 탭 버튼뿐(§6-29-y-2)
 //   <PwPrompt onOk onCancel />                              (비밀번호 한 줄 — 첨부와 같은 모양)
-//   <DocLinkGate row url title>여는 것</DocLinkGate>         (잠겼으면 묻고, 맞으면 모달)
 //   <DocKindIcon kind size />                                (종류 표시 하나)
 //
 // 판정·주소 만들기는 `services/docEmbed.js`에 있다(순수 함수라 노드에서 바로 검사한다).
@@ -41,10 +39,10 @@ import { useIsMobile } from '../hooks/useIsMobile.js';
 //
 // 비밀번호(view_pw·view_pw_salt — 0053)는 **화면 가림**이다(첨부 0023과 같은 한계 ·
 // services/viewPw.js). DocEmbedModal 자신은 비밀번호를 모른다 — 부르는 쪽이 먼저 확인하고
-// 통과했을 때만 연다(DocLinkGate가 그 순서를 대신 밟아 준다).
+// 통과했을 때만 연다.
 // ============================================================================
 
-export { docEmbedKind, docEmbedSrc, docThumbUrl, DOC_KIND_LABEL };
+export { docEmbedKind };
 
 const KIND_ICON = { doc: FileText, sheet: Table, slide: Presentation };
 
@@ -237,39 +235,5 @@ export function PwPrompt({ onOk, onCancel, className = '' }) {
         className="px-2.5 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">열기</button>
       {wrong && <span className="text-[11px] text-tag-red-fg">비밀번호가 맞지 않아요</span>}
     </form>
-  );
-}
-
-// 잠겨 있으면 묻고, 맞으면 창을 여는 한 벌.
-// row: { view_pw, view_pw_salt } (없거나 비어 있으면 바로 연다)
-// children: 누르면 열리는 것(링크 글자·버튼 등) — 이 부품은 감싸기만 하고 모양을 정하지 않는다.
-// pwClassName: 비밀번호 줄을 어디에 어떻게 둘지는 부르는 쪽이 정한다(창 안 · 목록 아래 등).
-//
-// **한 번 맞춘 것은 이 화면이 살아 있는 동안 다시 묻지 않는다**(첨부 목록의 `unlocked`와 같은 판단).
-// 화면 가림이라 그 이상 조일 이유가 없고, 닫을 때마다 다시 묻는 창은 편집을 방해한다.
-export function DocLinkGate({ row, url, title = '', children, className = '', pwClassName = 'mt-2' }) {
-  const [asking, setAsking] = useState(false);
-  const [open, setOpen] = useState(false);
-  const unlocked = useRef(false);
-  const start = () => {
-    if (isLocked(row) && !unlocked.current) { setAsking(true); return; }
-    setOpen(true);
-  };
-  return (
-    <>
-      <span className={className} onClick={start}>{children}</span>
-      {asking && (
-        <PwPrompt
-          className={pwClassName}
-          onOk={async (pw) => {
-            const ok = await verifyViewPw(row, pw);
-            if (ok) { unlocked.current = true; setAsking(false); setOpen(true); }
-            return ok;
-          }}
-          onCancel={() => setAsking(false)}
-        />
-      )}
-      {open && <DocEmbedModal url={url} title={title} onClose={() => setOpen(false)} />}
-    </>
   );
 }

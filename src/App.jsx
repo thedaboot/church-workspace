@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { Analytics } from '@vercel/analytics/react';
 import { store, useCanUndo, useCanRedo } from './store/workspaceStore.js';
 import { useWorkspaceController } from './hooks/controllers.js';

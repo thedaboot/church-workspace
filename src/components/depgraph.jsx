@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CONFIG, teamPaint } from '../config.js';
 import { depLayers } from '../utils.js';
 import { useForceGraph } from '../hooks/useForceGraph.js';

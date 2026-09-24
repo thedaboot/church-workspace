@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { avatarColor } from '../utils.js';
 import { getAvatar } from '../services/cloudSync.js';
 

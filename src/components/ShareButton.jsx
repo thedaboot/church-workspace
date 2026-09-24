@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Share2, Check } from 'lucide-react';
 import { showToast } from './Toast.jsx';
 

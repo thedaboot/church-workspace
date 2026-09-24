@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
