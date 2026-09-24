@@ -35,7 +35,13 @@ export const useWorkspaceController = () => {
     const unsub = store.subscribe(() => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        localStorage.setItem('church_app_v4', JSON.stringify(store.getState()));
+        // 저장 공간이 가득하거나 막힌 브라우저에서 setItem이 던진다 — 타이머 안이라 잡지 않으면
+        // 잡히지 않은 오류로 콘솔에만 남는다. 화면 상태는 그대로 두고 경고만 남긴다.
+        try {
+          localStorage.setItem('church_app_v4', JSON.stringify(store.getState()));
+        } catch (e) {
+          console.warn('[guest] 로컬 저장 실패:', e?.message);
+        }
       }, 300);
     });
     return () => { clearTimeout(timer); unsub(); };

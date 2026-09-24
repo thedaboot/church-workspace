@@ -214,7 +214,9 @@ function ThemeMenuItem({ className }) {
     const next = theme === 'dark' ? 'light' : 'dark';
     document.documentElement.dataset.theme = next;
     document.documentElement.setAttribute('data-seed-user-color-scheme', next);
-    localStorage.setItem('theme', next);
+    // 저장이 막힌 브라우저(사생활 보호 창·저장 공간 가득)에서 setItem이 던지면 토글째 죽었다 —
+    // 그때는 이번 화면에서만 바뀐다.
+    try { localStorage.setItem('theme', next); } catch { /* 기억만 못 한다 */ }
     setTheme(next);
   };
   return (
