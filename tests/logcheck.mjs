@@ -4029,3 +4029,119 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(twice[0] === 'x' && twice[1] !== 'x' && new Set(twice).size === 2, '한 열쇠를 두 줄에 주지 않는다');
   console.log('PASS  주보 편집 줄 열쇠 7가지');
 }
+
+// ── 업무·댓글·첨부 임베딩 뒷단 (0074 doc_vec · api/_docsync.js · scripts/embed-docs.mjs · 배치 E4) ──
+// 0074는 원본 FK 셋 중 정확히 하나 · cascade · (kind, source_id, chunk) 유일 · 벡터 인덱스 없음 ·
+// 읽기만 승인된 사람 · RPC는 invoker. 동기화의 열쇠는 **임베딩한 글의 해시**다(updated_at 아님).
+// 되돌리기 검사: chunkText의 `<= max`를 `<= max + 500`으로 바꾸면 '조각은 max 이하'가, buildDocs의
+// service_id 거르기를 지우면 '주보 첨부는 넣지 않는다'가, 0074에 create index를 더하면 '인덱스 없이'가,
+// 정책의 is_approved()를 true로 바꾸면 '읽기 정책 하나'가 깨진다.
+{
+  const mig = readFileSync(new URL('../supabase/migrations/0074_doc_vec.sql', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const body = mig.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  for (const [col, tbl] of [['card_id', 'cards'], ['comment_id', 'comments'], ['file_id', 'files']]) {
+    assert.ok(new RegExp(`${col}\\s+uuid references public\\.${tbl}\\(id\\) on delete cascade,`).test(body), `doc_vec.${col}가 ${tbl}를 cascade로 잇지 않는다(지운 원본의 벡터가 남는다)`);
+  }
+  assert.ok(/kind\s+text not null check \(kind in \('card', 'comment', 'file'\)\)/.test(body), 'doc_vec.kind 목록이 다르다');
+  assert.ok(/source_id\s+uuid generated always as \(coalesce\(card_id, comment_id, file_id\)\) stored/.test(body), 'source_id 생성 칸이 없다');
+  assert.ok(/num_nonnulls\(card_id, comment_id, file_id\) = 1/.test(body), '원본이 정확히 하나라는 제약이 없다');
+  for (const k of ['card', 'comment', 'file']) assert.ok(new RegExp(`kind <> '${k}'\\s+or ${k}_id\\s+is not null`).test(body), `kind='${k}'가 ${k}_id를 가리킨다는 제약이 없다`);
+  assert.ok(/constraint doc_vec_source_chunk unique \(kind, source_id, chunk\)/.test(body), '(kind, source_id, chunk) 유일 제약이 없다 — upsert 열쇠');
+  assert.ok(/vec\s+extensions\.halfvec\(768\) not null/.test(body) && /body_hash\s+text not null/.test(body), 'vec·body_hash 칸 모양이 다르다');
+  assert.ok(!/create\s+(unique\s+)?index/i.test(body) && !/using\s+(hnsw|ivfflat)/i.test(body), '0074는 벡터 인덱스 없이다(전수 비교 · 무료 500MB)');
+  assert.ok(/alter table public\.doc_vec enable row level security;/.test(body), 'doc_vec에 RLS가 없다');
+  const pols = [...body.matchAll(/create policy (\w+) on public\.doc_vec\s+for (\w+) using \(([^;]*)\);/g)];
+  assert.deepStrictEqual(pols.map(m => [m[2], m[3]]), [['select', 'public.is_approved()']], '읽기 정책 하나(승인된 사람)만 있어야 한다 — 쓰기는 서버 키만');
+  assert.ok(/revoke insert, update, delete, truncate on public\.doc_vec from anon, authenticated;/.test(body), '클라이언트 쓰기 권한을 빼지 않았다');
+  assert.ok(!/alter publication/i.test(body), 'doc_vec을 실시간 발행에 넣었다');
+  assert.ok(/create or replace function public\.match_docs\(q extensions\.halfvec\(768\), k int default 20, kinds text\[\] default null\)\nreturns table \(kind text, card_id uuid, comment_id uuid, file_id uuid, project_id uuid, chunk int, body text, score real\)\nlanguage sql stable security invoker\nset search_path = public, extensions, pg_temp/.test(body),
+    'match_docs 서명·invoker·search_path가 다르다');
+  assert.ok(/order by d\.vec <=> q/.test(body) && /\(1 - \(d\.vec <=> q\)\)::real as score/.test(body), 'match_docs가 코사인 거리로 세우지 않는다');
+  assert.ok(/coalesce\(t\.card_id, c\.card_id, f\.card_id\)/.test(body), '댓글·첨부 조각에 그 업무 id를 붙이지 않는다');
+  assert.ok(/revoke execute on function public\.match_docs\(extensions\.halfvec, int, text\[\]\) from public, anon;/.test(body), 'anon이 match_docs를 부를 수 있다');
+  assert.ok(/-- drop table if exists public\.doc_vec;/.test(mig) && /-- drop function if exists public\.match_docs/.test(mig), '0074 맨 아래에 되돌리는 SQL이 없다');
+
+  const ai = await import(new URL('../api/ai.js', import.meta.url).href);
+  const D = await import(new URL('../api/_docsync.js', import.meta.url).href);
+  assert.strictEqual(Number(/halfvec\((\d+)\) not null/.exec(body)[1]), ai.EMBED_DIM, '0074의 차원과 api/ai.js의 EMBED_DIM이 다르다');
+  const ds = readFileSync(new URL('../api/_docsync.js', import.meta.url), 'utf8');
+  assert.ok(/import \{ EMBED_MODEL, EMBED_DIM, unitVec \} from '\.\/ai\.js';/.test(ds), '_docsync가 모델·차원·정규화를 api/ai.js에서 가져오지 않는다(두 벌이 된다)');
+  assert.ok(/return unitVec\(v\);/.test(ds) && /v\.length !== EMBED_DIM/.test(ds), '_docsync가 차원 확인·단위 길이 맞추기를 안 한다');
+  assert.ok(/from '\.\.\/api\/_docsync\.js'/.test(readFileSync(new URL('../scripts/embed-docs.mjs', import.meta.url), 'utf8')), '스크립트가 크론과 같은 동기화(_docsync)를 쓰지 않는다');
+  assert.deepStrictEqual(D.docRequests(['가']), [{ model: 'models/gemini-embedding-001', content: { parts: [{ text: '가' }] }, taskType: 'RETRIEVAL_DOCUMENT', outputDimensionality: 768 }]);
+
+  // 해시 — 임베딩한 글의 sha256
+  assert.strictEqual(D.sha256('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+
+  // 조각 — 짧으면 그대로 · 비면 없음 · 길면 max 이하로 문단 경계 · 앞 조각 끝이 다음 조각 앞에 겹친다
+  assert.deepStrictEqual(D.chunkText('  짧은 글  '), ['짧은 글']);
+  assert.deepStrictEqual(D.chunkText(''), []);
+  const paras = Array.from({ length: 14 }, (_, i) => `## 문단 ${i}\n- 할 일 ${i}: ${'준비 '.repeat(30 + i * 4)}끝${i}`);
+  const long = paras.join('\n\n');
+  const ch = D.chunkText(long);
+  assert.ok(ch.length >= 3, '긴 글을 여러 조각으로 나누지 않는다');
+  assert.ok(ch.every(c => c.length <= D.CHUNK_MAX), `조각은 max(${D.CHUNK_MAX}) 이하 — ${ch.map(c => c.length)}`);
+  for (let i = 0; i < paras.length; i++) assert.ok(ch.some(c => c.includes(`끝${i}`)), `문단 ${i}가 어느 조각에도 없다`);
+  assert.ok(ch.slice(1).every(c => /^## 문단|^- 할 일|^준비/.test(c)), '조각이 문단·줄 경계가 아닌 자리에서 시작한다');
+  for (let i = 1; i < ch.length; i++) {
+    const head = ch[i].split('\n')[0];
+    assert.ok(ch[i - 1].endsWith(head) && head.length <= D.CHUNK_OVERLAP, `조각 ${i}가 앞 조각 끝과 겹치지 않는다`);
+  }
+  assert.deepStrictEqual(D.chunkText(long), ch, '같은 글인데 조각이 달라진다(해시가 흔들린다)');
+  const flat = D.chunkText('셀 '.repeat(2000));          // 엑셀 발췌처럼 줄바꿈 없는 통짜
+  assert.ok(flat.length > 1 && flat.every(c => c.length <= D.CHUNK_MAX), '줄바꿈 없는 긴 발췌를 max 이하로 자르지 않는다');
+
+  // 글 만들기 — 카드 · 댓글 · 첨부(사진 캡션 그대로 · 주보 첨부·빈 발췌·업무 없는 댓글은 뺀다)
+  const P = 'p-1', C1 = 'c-1', C2 = 'c-2';
+  const src = {
+    projects: [{ id: P, name: '2026 하계 수련회' }],
+    cards: [
+      { id: C1, project_id: P, title: '피드백 및 강평회', updated_at: '2026-09-01',
+        description: '[회의록](https://docs.google.com/x) ==정한 것== **39명**\n\n### 청년별 담당 업무\n- @임성빈 · 결산안 · 9월 30일까지' },
+      { id: C2, project_id: P, title: '숙소', description: '' },
+    ],
+    comments: [{ id: 'm-1', card_id: C1, body: '결산 공유해주세요' }, { id: 'm-2', card_id: 'gone', body: '고아' }, { id: 'm-3', card_id: C2, body: '  ' }],
+    files: [
+      { id: 'f-1', card_id: C1, name: '결산안.xlsx', text_excerpt: '교회지원 3,500,000' },
+      { id: 'f-2', card_id: C1, name: 'IMG.JPG', text_excerpt: '[사진] 제주 해안에서 청년 두 명' },
+      { id: 'f-3', card_id: C1, name: '빈.pdf', text_excerpt: '' },
+      { id: 'f-4', card_id: null, service_id: 's-1', name: '큐시트.pdf', text_excerpt: '작성 중 주보' },
+      { id: 'f-5', card_id: C1, service_id: 's-1', name: '콘티.pdf', text_excerpt: '작성 중 주보' },
+    ],
+  };
+  const docs = D.buildDocs(src);
+  const byId = (id) => docs.filter(d => d.source_id === id);
+  assert.strictEqual(byId(C1)[0].body, '2026 하계 수련회 / 피드백 및 강평회\n회의록 정한 것 39명\n\n### 청년별 담당 업무\n- @임성빈 · 결산안 · 9월 30일까지',
+    '카드 글 모양이 다르다(링크 주소·강조는 걷고 담당 업무 도막·@이름은 그대로)');
+  assert.strictEqual(byId(C2)[0].body, '2026 하계 수련회 / 숙소', '본문이 빈 업무는 머리줄만으로 한 조각');
+  assert.strictEqual(byId('m-1')[0].body, '피드백 및 강평회 · 댓글: 결산 공유해주세요');
+  assert.strictEqual(byId('m-1')[0].project_id, P, '댓글 조각에 업무의 프로젝트가 안 붙는다');
+  assert.strictEqual(byId('f-1')[0].body, '피드백 및 강평회 · 첨부: 결산안.xlsx\n교회지원 3,500,000');
+  assert.strictEqual(byId('f-2')[0].body, '피드백 및 강평회 · 첨부: IMG.JPG\n[사진] 제주 해안에서 청년 두 명', '사진 캡션의 [사진] 접두를 잃었다');
+  for (const gone of ['m-2', 'm-3', 'f-3', 'f-4']) assert.strictEqual(byId(gone).length, 0, `${gone}는 넣지 않아야 한다`);
+  assert.strictEqual(byId('f-5').length, 0, '주보 첨부는 넣지 않는다(작성 중 주보의 발췌가 전원에게 샌다)');
+  for (const d of docs) {
+    const ids = [d.card_id, d.comment_id, d.file_id].filter(Boolean);
+    assert.deepStrictEqual(ids, [d.source_id], '조각 행의 원본 칸이 정확히 하나가 아니다(0074 제약)');
+    assert.strictEqual(d[`${d.kind}_id`], d.source_id, 'kind와 원본 칸이 어긋난다');
+    assert.strictEqual(d.body_hash, D.sha256(d.body), '해시가 임베딩한 글의 sha256이 아니다');
+  }
+  const touched = D.buildDocs({ ...src, cards: src.cards.map(c => ({ ...c, updated_at: '2030-01-01', status: 'done' })) });
+  assert.deepStrictEqual(touched.map(d => d.body_hash), docs.map(d => d.body_hash), 'updated_at·상태만 바뀌었는데 해시가 달라진다(매일 다시 임베딩한다)');
+  assert.deepStrictEqual(D.buildDocs(src, ['comment']).map(d => d.kind), ['comment'], 'kinds로 한 종류만 고르지 않는다');
+
+  // 증분 계획 — 같으면 0 · 글이 바뀌면 embed · 프로젝트만 옮기면 move · 조각이 줄면 drop · 다른 종류는 안 건드림
+  const existing = docs.map((d, i) => ({ id: i + 1, kind: d.kind, source_id: d.source_id, chunk: d.chunk, body_hash: d.body_hash, project_id: d.project_id }));
+  assert.deepStrictEqual(D.planSync(docs, existing), { embed: [], move: [], drop: [] }, '바뀐 것이 없는데 할 일이 생긴다');
+  const edited = D.buildDocs({ ...src, comments: [{ ...src.comments[0], body: '결산 올렸어요' }] });
+  const p1 = D.planSync(edited, existing);
+  assert.deepStrictEqual(p1.embed.map(d => d.source_id), ['m-1'], '고친 댓글만 다시 임베딩해야 한다');
+  const moved = D.buildDocs({ ...src, projects: [...src.projects, { id: 'p-2', name: '2026 하계 수련회' }], cards: src.cards.map(c => c.id === C2 ? { ...c, project_id: 'p-2' } : c) });
+  const p2 = D.planSync(moved, existing);
+  assert.strictEqual(p2.embed.length, 0, '이름이 같은 프로젝트로 옮겼을 뿐인데 다시 임베딩한다');
+  assert.deepStrictEqual(p2.move, [{ id: existing.find(r => r.source_id === C2).id, project_id: 'p-2' }], '옮긴 업무의 project_id를 고치지 않는다');
+  const extra = [...existing, { id: 99, kind: 'card', source_id: C1, chunk: 5, body_hash: 'old', project_id: P }];
+  assert.deepStrictEqual(D.planSync(docs, extra).drop, [99], '줄어든 조각을 지우지 않는다');
+  assert.deepStrictEqual(D.planSync(D.buildDocs(src, ['file']), extra, ['file']), { embed: [], move: [], drop: [] }, '--kind file이 카드 조각을 지운다');
+  console.log('PASS  문서 임베딩 뒷단(0074 모양 · 조각·해시 · 글 모양 · 증분 계획)');
+}
