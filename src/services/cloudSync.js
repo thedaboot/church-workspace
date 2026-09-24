@@ -3,7 +3,7 @@ import { statusToDb, statusFromDb } from './cloud.js';
 import { setWriteObserver } from './supabaseClient.js';
 import {
   normalize, httpsImage, extractMentions, isoTime, seenOnlyChange,
-  dueForHeartbeat, HEARTBEAT_MS, LEAVE_STAMP_MS, WRITE_STAMP_MS,
+  dueForHeartbeat, HEARTBEAT_MS, LEAVE_STAMP_MS, WRITE_STAMP_MS, subtasksForDb,
 } from '../utils.js';
 
 // ============================================================================
@@ -570,11 +570,8 @@ const cardPatch = (task) => ({
   due_date: task.dueDate || null,
   assignees: task.assignees || [],
   position: task.position ?? 0,
-  // 이름이 빈 줄은 저장하지 않는다 — 수정 중에 잠깐 비우는 것은 막지 않지만
-  // 그대로 저장되면 아무 뜻 없는 체크박스가 남는다
-  subtasks: (Array.isArray(task.subtasks) ? task.subtasks : [])
-    .filter(s => s && String(s.title || '').trim())
-    .map(s => ({ id: s.id, title: String(s.title).trim(), done: !!s.done })),
+  // 이름이 빈 줄은 버리고, 맡은 사람·기한은 싣는다(utils.subtasksForDb 머리말)
+  subtasks: subtasksForDb(task.subtasks),
   depends_on: Array.isArray(task.dependsOn) ? task.dependsOn : [],
 });
 

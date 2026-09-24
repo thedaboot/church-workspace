@@ -203,6 +203,20 @@ export function weekEndOf(todayIso) {
   return new Date(d.getTime() + (6 - d.getUTCDay()) * 86400000).toISOString().slice(0, 10);
 }
 
+// 하위 업무를 DB(cards.subtasks jsonb)에 적는 모양. 이름이 빈 줄은 버린다(아무 뜻 없는 체크박스).
+// **맡은 사람·기한도 싣는다**(2026-09-24) — 예전에는 {id,title,done}만 적어서, 담당 업무에서
+// 내려온 이름·날짜가 저장(체크 한 번에도 카드 전체를 쓴다)마다 잘려 나갔다. 게스트는 이 길을
+// 안 타서 검사가 못 봤다. 빈 값은 키째 뺀다 — 손으로 더한 줄은 예전 모양 그대로다.
+export function subtasksForDb(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter(s => s && String(s.title || '').trim())
+    .map(s => ({
+      id: s.id, title: String(s.title).trim(), done: !!s.done,
+      ...(String(s.assignee || '').trim() ? { assignee: String(s.assignee).trim() } : {}),
+      ...(/^\d{4}-\d{2}-\d{2}$/.test(String(s.due || '')) ? { due: s.due } : {}),
+    }));
+}
+
 // 하위 업무(cards.subtasks) 진척 — 보드 카드와 업무 창이 같이 쓴다.
 // 순수 함수라 utils에 둔다(보드가 모달을 가져오는 방향이 되지 않게).
 // 고정된 요약이 낡았나 — 고정한 뒤에 카드가 바뀌었으면(체크·본문 수정) 참.

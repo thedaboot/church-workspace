@@ -102,7 +102,17 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const dir2 = mkdtempSync(join(tmpdir(), 'sub-'));
   const f2 = join(dir2, 'utils.mjs');
   writeFileSync(f2, src);
-  const { subtaskProgress } = await import(pathToFileURL(f2).href);
+  const { subtaskProgress, subtasksForDb } = await import(pathToFileURL(f2).href);
+  // 저장 모양이 맡은 사람·기한을 잘라내지 않는다(2026-09-24 — 체크하면 얼굴·날짜가 사라졌다)
+  assert.deepStrictEqual(
+    subtasksForDb([{ id: 'a', title: ' 콘티 확정 ', done: 1, assignee: '노준석, 조준환', due: '2026-09-26', x: 9 },
+                   { id: 'b', title: '손으로 적은 줄', done: false, assignee: '', due: '' },
+                   { id: 'c', title: '  ', done: false }]),
+    [{ id: 'a', title: '콘티 확정', done: true, assignee: '노준석, 조준환', due: '2026-09-26' },
+     { id: 'b', title: '손으로 적은 줄', done: false }],
+    '사람·기한은 싣고, 빈 값은 키째 빼고, 이름 빈 줄은 버린다');
+  assert.ok(readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8').includes('subtasks: subtasksForDb(task.subtasks)'),
+    '클라우드 저장이 subtasksForDb를 쓴다');
   assert.deepStrictEqual(subtaskProgress([]), { total: 0, done: 0, ratio: 0 }, '빈 목록은 0/0 · 비율 0(NaN 금지)');
   assert.deepStrictEqual(subtaskProgress(), { total: 0, done: 0, ratio: 0 }, '인자가 없어도 안전하다');
   assert.deepStrictEqual(
