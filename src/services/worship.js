@@ -1,7 +1,7 @@
 import { supabase, myUid } from './supabaseClient.js';
 import { fetchPeople, fetchGroups, fetchGroupMembers, fetchMyPerson, fetchRoles, guestStore, byName } from './people.js';
 import { listServiceFiles, uploadServiceFile as uploadServiceFileToDrive, ensureServiceFolder, deleteAttachment,
-  insertNotifications, getMyProfile } from './cloud.js';
+  insertNotifications, getMyProfile, setFileExcerpt } from './cloud.js';
 import { downscaleImage, FILE_MAX_DIM } from './image.js';
 import { cleanTitle } from './titleText.js';
 import { generateId, localDate } from '../utils.js';
@@ -587,12 +587,27 @@ export async function uploadServiceFile(service, file, folderId = null, { kind =
   // 사진으로 찍어 온 송폼도 있다 — 첨부와 같이 보내기 직전에 줄인다(§6-29-m).
   // 사진이 아니거나 이미 작으면 원본 그대로 간다.
   const sending = await downscaleImage(file, FILE_MAX_DIM, 0.9);
-  return uploadServiceFileToDrive(sending, {
+  const row = await uploadServiceFileToDrive(sending, {
     serviceId: service.id,
     serviceDate: service.service_date,
     serviceFolderId: folderId || service.drive_folder_id || null,
     kind: k,
   });
+  // 큐시트는 **올리는 순간** 요지를 뽑아 둔다 — 브라우저가 바이트를 이미 쥐고 있어 다운로드가
+  // 없고, 순모임 가이드가 그 한 칸(files.text_excerpt)만 읽는다(services/cueDigest.js · 결정 12).
+  // 기다리지 않는다 — 업무 첨부의 fillExcerpt와 같은 판단(발췌 때문에 업로드가 늦어지면 안 된다).
+  if (k === CUESHEET && row?.id) void fillCueExcerpt(row, file);
+  return row;
+}
+
+async function fillCueExcerpt(row, file) {
+  try {
+    const { extractFileText } = await import('./fileText.js');
+    const text = await extractFileText(file, { kind: CUESHEET });
+    if (text) await setFileExcerpt(row.id, text);
+  } catch (e) {
+    console.warn('[worship] 큐시트 요지를 저장하지 못했다:', row?.name, e?.message || e);
+  }
 }
 
 // 지우는 길은 업무 첨부와 한 벌이다 — **DB 행부터, 실체는 그 뒤 최선으로**(§6-29-e).

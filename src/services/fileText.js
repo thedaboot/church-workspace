@@ -19,6 +19,7 @@
 // ============================================================================
 import './pdfPolyfill.js';
 import { looksLikeText, htmlToText } from './textQuality.js';
+import { cueDigest } from './cueDigest.js';
 
 const EXCERPT_MAX = 2000;   // DB에 넣는 상한. 프롬프트 예산과 같은 판단이다.
 const PDF_PAGES = 10;              // PDF는 앞 10쪽까지만 훑는다
@@ -55,9 +56,28 @@ const collect = (root) => {
   return out.parts.join(' ').slice(0, EXCERPT_MAX);
 };
 
+// 큐시트(주보의 `kind='cuesheet'`)는 앞 2000자가 아니라 **몇 줄의 요지**를 둔다(2026-09-25 · 결정 12 ·
+// services/cueDigest.js) — 순모임 가이드가 그 한 칸을 읽는다. 워드는 표 칸을 가려 읽고, 그 밖의
+// 모양(PDF 등)은 아래 글 뽑기로 앞부분을 얻은 뒤 거기서 주제·전례색·이름표 붙은 줄만 줍는다
+// (PDF는 앞 2000자라 설교 칸까지 못 닿을 수 있다 — 지금 큐시트는 셋 다 워드다).
+async function cueSheetText(file) {
+  try {
+    if (extOf(file?.name) === 'docx') {
+      const { parseDocx } = await import('./docx.js');
+      return cueDigest(await parseDocx(await file.arrayBuffer()));
+    }
+    const text = await extractFileText(file);
+    return text ? cueDigest(text) : '';
+  } catch (e) {
+    console.warn('[fileText] 큐시트 요지를 뽑지 못했다:', file?.name, e?.message || e);
+    return '';
+  }
+}
+
 // 뽑지 못하면 빈 문자열을 돌려준다. **절대 던지지 않는다** — 이 값 때문에 업로드가
 // 막히면 안 된다(첨부는 되는데 발췌만 없는 편이 낫다).
-export async function extractFileText(file) {
+export async function extractFileText(file, { kind = null } = {}) {
+  if (kind === 'cuesheet') return cueSheetText(file);
   const ext = extOf(file?.name);
   const type = String(file?.type || '');
   try {

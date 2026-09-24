@@ -29,8 +29,10 @@ const isFallbackText = (t) => t === 'AI 기능은 로그인 후 사용할 수 �
   .replace(/import \{ kindLabel, formatServiceDate, SUNDAY_KIND \} from '\.\/worship\.js';/,
     `const SUNDAY_KIND = 'sunday';
 const kindLabel = (k) => (k === 'sunday' ? '주일 4부 젊은이 예배' : (k || '예배'));
-const formatServiceDate = (iso) => String(iso || '');`);
-if (patched === src) { console.log('FAIL  import 줄을 못 바꿨어요 (sunGuide.js의 import가 바뀌었나요)'); process.exit(1); }
+const formatServiceDate = (iso) => String(iso || '');`)
+  // cueDigest.js는 순수 모듈(import 0)이라 그대로 쓴다 — 임시 폴더에서 도니 절대 경로로
+  .replace(/from '\.\/cueDigest\.js';/, `from '${new URL('../src/services/cueDigest.js', import.meta.url).href}';`);
+if (patched === src || /from '\.\/cueDigest\.js'/.test(patched)) { console.log('FAIL  import 줄을 못 바꿨어요 (sunGuide.js의 import가 바뀌었나요)'); process.exit(1); }
 const dir = mkdtempSync(join(tmpdir(), 'sunguide-'));
 const file = join(dir, 'sunGuide.mjs');
 writeFileSync(file, patched);
@@ -139,6 +141,77 @@ check('유튜브 링크는 프롬프트에 싣지 않는다',
 check('큐시트 링크는 프롬프트에 싣지 않는다',
   !G.buildGuidePrompt({ service: { ...SERVICE, cue_sheet: { url: 'https://docs.google.com/x', title: '9월 큐시트' } } })
     .prompt.includes('docs.google.com'));
+
+// ── 큐시트 요지 (2026-09-25 · AI 감사 결정 12 · services/cueDigest.js) ────────────
+// 가이드에 싣는 것은 앞 2000자가 아니라 **주제·전례색 한 줄 + 설교·결단 칸**이다. 픽스처는 라이브
+// 큐시트(2026-09-20 워드)의 표 모양을 베꼈고 사람 이름만 지은 이름으로 바꿨다(공개 레포).
+// 되돌리기 검사: 인용 가드(REF)를 빼면 요12:3 본문이, 담당자 칸을 읽으면 이름이, STAGE를 빼면
+// 봉헌자 줄이, 순서 칸 거르기(SECTION)를 빼면 교독문(새번역)이 요지에 들어와 아래가 깨진다.
+{
+  const D = await import(new URL('../src/services/cueDigest.js', import.meta.url).href);
+  const cell = (text) => ({ span: 1, merged: false, paras: String(text).split('\n').map(t => ({ t: 'p', runs: t ? [{ text: t }] : [] })) });
+  const row = (...cells) => cells.map(cell);
+  const DOC = { blocks: [
+    { t: 'p', runs: [{ text: '20260920' }] },
+    { t: 'p', runs: [{ text: '서부교회 더다붓 청년부 예배 큐시트' }] },
+    { t: 'table', rows: [row('주제', '오순절 후 열 일곱번째 주일'), row('전례색', '초록색 – 생명의 희열과 희망의 색, 교회의 성장, 성숙')] },
+    { t: 'table', rows: [
+      row('시간', '순서', '담당자', '내용,멘트(기타)', '조명', '음향', '영상'),
+      row('13:00\n~\n13:20', '더다붓청년부는 \n기도로 예배를\n준비합니다', '', '• 찬양팀 악보출력, 세팅 후 연습\n• 웰컴팀 주보 세팅', '전체 on', '리본\n찬양연습', '미디어\n체크'),
+      row('여는 전례\nLiturgt of Opening'),
+      row('13:33', '예배로의 초대', '홍길동', '집례자 다 함께 일어나시겠습니다.\n[시105:1-6, 37-45, 새번역]\n1 너희는 주님께 감사하면서, 그의 이름을 불러라.\n2 그에게 노래하면서, 그를 찬양하면서', '강단 on', '인도자\n마이크 on', '예배로의\n부름 PPT'),
+      row('13:58\n~\n14:00', '말씀봉독', '홍길동', '봉독자 오늘 우리에게 주신 말씀은\n[삿9:7-15]\n7 사람들이 요담에게 그 일을 알리매', '전체 on', '봉독자\n마이크 on', '말씀 ppt'),
+      row('14:00\n~\n14:20', '설교', '홍길동', '•제목 당신은 기름을 들고 있습니다.\n•본문 사사기 9장 7절-15절\n‘. [요12:3] 마리아는 지극히 비싼 향유 곧 순전한 나드 한 근을 가져다가’’ 부터 반주 시작\n[롬12:1]\n1 그러므로 형제들아 너희 몸을 산 제사로 드리라', '반주부터\n강단 on', '설교자\n마이크 on', '말씀 \n슬라이드'),
+      row('14:20\n~\n14:25', '결단 및 봉헌', '홍길동\n&\n리본워십', '찬양 나의 맘 받으소서\n *봉헌자 : 김아무 청년\n‘다 같이 일어나서 찬양합니다.’ 때에 헌금함을 가지고 앞으로 나아옵니다.', '강단 on', '싱어 on', '찬양가사'),
+      row('14:25\n~\n14:28', '봉헌기도', '다같이', '집례자 주님께 봉헌하며 한 목소리로 기도합니다.', '강단 on', '건반 on', ''),
+    ] },
+  ] };
+  const dg = D.cueDigest(DOC);
+  check('큐시트 요지: 주제·전례색이 한 줄이다(결정 12 ⓒ)',
+    dg.split('\n')[0] === '주제: 오순절 후 열 일곱번째 주일 · 전례색: 초록색 - 생명의 희열과 희망의 색, 교회의 성장, 성숙', dg);
+  check('큐시트 요지: 설교 칸의 제목·본문·인용 구절 표시만(결정 12 ⓑ)',
+    dg.includes('설교: 제목: 당신은 기름을 들고 있습니다. · 본문: 사사기 9장 7절-15절 · 인용 구절: 요12:3 · 인용 구절: 롬12:1'), dg);
+  check('큐시트 요지: 설교·결단 말고 다른 순서 칸은 싣지 않는다(준비 순서 · 교독문 · 봉독)',
+    dg.split('\n').length === 3 && !/악보출력|시105|삿9|봉독/.test(dg), dg);
+  check('큐시트 요지: 결단 칸의 적용 찬양', dg.includes('결단 및 봉헌: 찬양: 나의 맘 받으소서'), dg);
+  check('큐시트 요지: 성경 인용문은 본문째 뺀다(새번역 교독문 · 번역 표시 없는 설교 인용)',
+    !/너희는 주님께|마리아는|요담에게|그러므로 형제들아|새번역/.test(dg), dg);
+  check('큐시트 요지: 사람 이름·진행 지시가 없다(담당자 칸 · 봉헌자 · 반주 · 마이크)',
+    !/홍길동|김아무|봉헌자|반주|마이크|헌금함|집례자/.test(dg), dg);
+  check('큐시트 요지: 엔 대시를 하이픈으로(가이드 글에 대시가 번지지 않게)', !/[—–]/.test(dg));
+  check('큐시트 요지는 1200자 이하', dg.length <= D.CUE_DIGEST_MAX && D.CUE_DIGEST_MAX === 1200, `${dg.length}자`);
+  // 옛 발췌(앞 2000자 · 표 칸이 한 줄로 붙은 글) — 설교 칸까지 못 닿은 라이브 발췌 그대로의 모양
+  const flat = '2026 0 9 20 서부교회 더다붓 청년부 예배 큐시트 주제 오순절 후 열 일곱 번 째 주일 전례색 초록 색 – 생명의 희열과 희망의 색, 교회의 성장, 성숙 시간 순서 담당자 내용,멘트(기타) 조명 음향 영상 13:00 ~ 13:20 더다붓청년부는 기도로 예배를 준비합니다 • 찬양 팀 악보출력 13:33 예배로의 초대 홍길동 집례 자 [시105:1-6, 37-45, 새번역] 1 너희는 주님께 감사하면서';
+  check('큐시트 요지(글): 잘린 옛 발췌에서도 주제·전례색은 건진다',
+    D.cueDigest(flat) === '주제: 오순절 후 열 일곱 번 째 주일 · 전례색: 초록 색 - 생명의 희열과 희망의 색, 교회의 성장, 성숙', D.cueDigest(flat));
+  const flat2 = `${flat} 14:00 ~ 14:20 설교 홍길동 •제목 당신은 기름을 들고 있습니다. •본문 사사기 9장 7절-15절 ‘. [요12:3] 마리아는 지극히 비싼 향유’’ 부터 반주 시작 반주부터 강단 on 14:20 ~ 14:25 결단 및 봉헌 홍길동 & 리본워십 찬양 나의 맘 받으소서 *봉헌자 : 김아무 청년 ‘다 같이 일어나서 찬양합니다.’ 14:25 ~ 14:28 봉헌기도`;
+  const dg2 = D.cueDigest(flat2);
+  check('큐시트 요지(글): 설교·결단 도막의 이름표 붙은 것만 줍는다',
+    dg2.includes('설교: 제목: 당신은 기름을 들고 있습니다. · 본문: 사사기 9장 7절-15절 · 인용 구절: 요12:3')
+    && dg2.includes('결단 및 봉헌: 찬양: 나의 맘 받으소서') && !/홍길동|김아무|마리아는/.test(dg2), dg2);
+  check('큐시트 요지: 건질 것이 없으면 빈 글', D.cueDigest({ blocks: [] }) === '' && D.cueDigest('') === '');
+
+  // 프롬프트에 싣는다 — 요지는 주보 줄 아래, 본문 위. 요지 모양이 아닌 긴 글(옛 앞 2000자)은 싣지 않는다
+  const withCue = G.buildGuidePrompt({ service: SERVICE, passageText, cueText: dg }).prompt;
+  check('가이드 프롬프트에 큐시트 요지가 실린다',
+    withCue.includes('[큐시트에서 (주제·전례색·설교)]\n' + dg)
+    && withCue.indexOf('[큐시트에서') < withCue.indexOf('[본문 (개역한글)]'), withCue.slice(0, 400));
+  check('가이드 프롬프트가 인용 구절을 옮기거나 굵게 감싸지 말라고 한다',
+    withCue.includes('옮겨 적거나 굵게 감싸지 마라') && system.includes('주보와 어긋나면 주보를 따른다'));
+  check('요지가 없으면 큐시트 도막이 없다', !prompt.includes('[큐시트에서'));
+  check('요지 모양이 아닌 긴 발췌는 싣지 않는다(옛 앞 2000자 · 교독문·이름)',
+    !G.buildGuidePrompt({ service: SERVICE, passageText, cueText: 'ㄱ'.repeat(1900) }).prompt.includes('[큐시트에서'));
+  // 배선(클라우드 경로라 게스트 스위트가 못 본다 · §3-5): 올리는 순간 요지 → files.text_excerpt → 가이드
+  const ws = readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8');
+  const ft = readFileSync(new URL('../src/services/fileText.js', import.meta.url), 'utf8');
+  check('큐시트는 올리는 순간 요지를 뽑아 둔다(worship.uploadServiceFile → fileText kind)',
+    /if \(k === CUESHEET && row\?\.id\) void fillCueExcerpt\(row, file\);/.test(ws)
+    && /extractFileText\(file, \{ kind: CUESHEET \}\)/.test(ws) && /setFileExcerpt\(row\.id, text\)/.test(ws));
+  check('fileText: 큐시트 갈래는 앞 2000자가 아니라 요지다',
+    /if \(kind === 'cuesheet'\) return cueSheetText\(file\);/.test(ft) && /cueDigest\(await parseDocx\(/.test(ft));
+  check('generateGuide가 그 주보의 큐시트 요지를 읽어 넘긴다',
+    /cueText: await cueQ/.test(src) && /\.eq\('kind', 'cuesheet'\)/.test(src) && /\.eq\('service_id', serviceId\)/.test(src));
+}
 
 // 절 줄 만들기
 check('장을 건너는 범위는 장:절로 적는다',

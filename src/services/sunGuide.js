@@ -3,6 +3,7 @@ import { guestStore } from './people.js';
 import { AiService, isFallbackText } from './ai.js';
 import { loadPassage } from './bible.js';
 import { kindLabel, formatServiceDate, SUNDAY_KIND } from './worship.js';
+import { CUE_DIGEST_MAX } from './cueDigest.js';
 
 // ============================================================================
 // 순모임 가이드 — 주보 한 건당 한 벌. AI가 템플릿의 **내용만** 채운다 (0039 · 0055)
@@ -19,6 +20,7 @@ import { kindLabel, formatServiceDate, SUNDAY_KIND } from './worship.js';
 //
 // 그래서 이 파일이 하는 일은 넷이다.
 //   1. 주보(제목·구절·설교자)와 **개역한글 본문 텍스트**를 프롬프트에 싣는다.
+//      큐시트 파일이 있으면 그 **요지**(주제·전례색·설교 칸 · services/cueDigest.js)도 싣는다.
 //   2. 돌아온 글을 JSON으로 읽고 **모양과 글자수를 우리가 강제한다**(fitGuide).
 //      모델에게 상한을 말해도 넘긴다 — 넘긴 글이 그대로 종이에 들어가면 비례가 무너진다.
 //      자를 때는 문장 경계에서 자른다.
@@ -227,6 +229,7 @@ const GUIDE_SYSTEM = [
   '너는 청년부 순모임 가이드의 초안을 쓴다. 주일 설교 본문을 순원들이 함께 읽고 나눌 수 있게 정리한다.',
   '',
   '- **지어내지 마라.** 아래 실린 본문과 설교 제목 안에서만 쓴다. 본문에 없는 사건·인물·인용을 만들지 마라.',
+  '- 큐시트 줄(주제·전례색·설교)은 설교의 방향을 알려 주는 **참고**다. 주보와 어긋나면 주보를 따른다.',
   '- 존댓말 설명체로 쓴다("~합니다" · "~입니다").',
   '- 문구 톤: 담백하게, 본문이 말하는 것을 그대로 말해라. 번역투를 쓰지 마라.',
   '  · **누가 누구와 견주는 표현을 절대 쓰지 마라.** 이 글은 순원들이 둘러앉아 같이 읽는다.',
@@ -239,9 +242,17 @@ const GUIDE_SYSTEM = [
 ].join('\n');
 
 // 주보 한 건 → { prompt, system }. 본문 텍스트는 부르는 쪽이 넘긴다(generateGuide가
-// bible.js로 받아 온다) — 그래야 이 함수가 네트워크 없이 검사된다.
-export function buildGuidePrompt({ service, passageText = '' } = {}) {
+// bible.js로 받아 온다) — 그래야 이 함수가 네트워크 없이 검사된다. 큐시트 요지(`cueText`)도
+// 같다 — generateGuide가 fetchCueDigest로 그 주보의 큐시트 발췌 한 칸을 읽어 넘긴다.
+// 요지 모양이 아닌 긴 글(요지를 만들기 전의 옛 앞 2000자 발췌)은 싣지 않는다 — 준비 순서·교독문(새번역)·
+// 담당자 이름이 가득해서 가이드의 원칙(개역한글만 · 순원 지목 금지)과 부딪힌다.
+export const cueLines = (cueText) => {
+  const t = str(cueText);
+  return t && t.length <= CUE_DIGEST_MAX ? t : '';
+};
+export function buildGuidePrompt({ service, passageText = '', cueText = '' } = {}) {
   const s = service || {};
+  const cue = cueLines(cueText);
   const prompt = [
     '[주보]',
     `예배: ${kindLabel(s.kind)} · ${formatServiceDate(s.service_date)}`,
@@ -250,10 +261,16 @@ export function buildGuidePrompt({ service, passageText = '' } = {}) {
     `설교자: ${str(s.preacher) || '(아직 없음)'}`,
     // 찬양은 **제목만** 싣는다(사용자 요청 2026-09-21 — 맥락을 더 주고 싶다).
     // 유튜브 링크는 빼는데, 모델이 읽을 것이 없는 글자이면서 프롬프트만 길어진다.
-    // **큐시트는 싣지 않는다** — `services.cue_sheet`는 링크 한 칸({url, title, …} ·
-    // 0053)이라 담긴 본문이 없다. 큐시트 글을 싣고 싶으면 첨부(files.text_excerpt)에서
-    // 와야 하고, 그건 지난 첨부 백필이 먼저다.
+    // **큐시트 링크는 싣지 않는다** — `services.cue_sheet`는 링크 한 칸({url, title, …} ·
+    // 0053)이라 담긴 본문이 없다. 싣는 것은 **큐시트 파일의 요지**(files.text_excerpt ·
+    // services/cueDigest.js · 2026-09-25)다 — 주제·전례색 한 줄과 설교·결단 칸만.
     `찬양: ${songLine(s)}`,
+    ...(cue ? [
+      '',
+      '[큐시트에서 (주제·전례색·설교)]',
+      cue,
+      '- 위 인용 구절은 번호만 있고 본문이 실려 있지 않다. 옮겨 적거나 굵게 감싸지 마라. 굵게는 아래 개역한글 본문에서만 한다.',
+    ] : []),
     '',
     '[본문 (개역한글)]',
     passageText || '(본문 텍스트를 받지 못했습니다. 위 구절만 보고 쓰되, 본문에 없는 내용을 지어내지 마라.)',
@@ -318,11 +335,28 @@ const SAMPLE_GUIDE = {
   questionNote: '고단한 한 주를 보낸 순원이 있다면 다같이 카페에 가서 달달한 것 먹기!',
 };
 
+// 그 주보의 큐시트 요지 한 칸(가장 최근에 올린 큐시트). 가이드 패널은 주보 행만 들고 있어서
+// 여기서 한 번 읽는다 — 가벼운 한 줄 조회이고, 드라이브에서 문서를 받지 않는다. 게스트·없음은 빈 글.
+export async function fetchCueDigest(serviceId) {
+  if (!supabase || !serviceId) return '';
+  const { data, error } = await supabase.from('files')
+    .select('text_excerpt').eq('service_id', serviceId).eq('kind', 'cuesheet')
+    .not('text_excerpt', 'is', null)
+    .order('created_at', { ascending: false }).limit(1);
+  if (error) throw error;
+  return str(data?.[0]?.text_excerpt);
+}
+
 // 주보 한 건으로 초안 만들기. 실패(게스트·로그인 없음·모양 깨짐)는 **null**이다.
 // 본문을 못 읽어도 멈추지 않는다 — 구절만 싣고 만든다(주보에 구절이 아직 없을 수 있다).
+// 큐시트 요지도 같다 — 못 읽으면 없이 만든다.
 export async function generateGuide(service) {
   if (!service) return null;
   let passageText = '';
+  const cueQ = fetchCueDigest(service.id).catch((e) => {
+    console.warn('[sunGuide] 큐시트 요지를 읽지 못했어요:', e?.message || e);
+    return '';
+  });
   if (service.passage_ref) {
     try {
       const loaded = await loadPassage(service.passage_ref);
@@ -331,7 +365,7 @@ export async function generateGuide(service) {
       console.error('[sunGuide] 본문을 읽지 못했어요:', e);
     }
   }
-  const { prompt, system } = buildGuidePrompt({ service, passageText });
+  const { prompt, system } = buildGuidePrompt({ service, passageText, cueText: await cueQ });
   let body = parseGuide(await AiService.callGemini(prompt, system));
   // ponytail: 로컬 vite에는 /api/ai 서버 함수가 없어 AI가 늘 실패한다. 개발 모드에서만 사용자가
   // 준 템플릿 원문(창세기 21장 예시)을 그대로 돌려 **틀과 편집 흐름을 볼 수 있게** 한다.
