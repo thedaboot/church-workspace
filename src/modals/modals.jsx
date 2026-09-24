@@ -522,7 +522,7 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
   );
 };
 
-// ── 맡는 사람 고르기 ────────────────────────────────────────────────────────
+// ── 담당자 고르기 ────────────────────────────────────────────────────────
 // 담당자 칸(AssigneePicker)과 달리 **한 줄 안에 들어가야** 해서 칩 하나를 누르면
 // 목록이 뜨는 모양이다. 목록에 없는 이름은 넣지 않는다(그쪽과 같은 규칙) — 다만
 // 이미 적혀 있는 팀 이름(`엔지니어팀`)은 그대로 두고 지울 수만 있다.
@@ -575,7 +575,7 @@ function OwnerPicker({ names = [], members = [], onChange }) {
             ))}
           </span>
         )}
-        <span className="truncate max-w-[9rem]">{names.length ? namesLabel(names) : '맡는 사람'}</span>
+        <span className="truncate max-w-[9rem]">{names.length ? namesLabel(names) : '담당자'}</span>
       </button>
       {pop}
     </span>
@@ -666,7 +666,7 @@ function ActionItems({ items = [], subtasks = [], members = [], editable = false
           return (
             <div key={k} className="flex flex-wrap items-center gap-2 py-2">
 
-              {/* ① 체크 + 맡는 사람 — 두 폭 모두 맨 앞 */}
+              {/* ① 체크 + 담당자 — 두 폭 모두 맨 앞 */}
               <span className="order-1 flex items-center gap-2 min-w-0">
                 <input type="checkbox" checked={on} onChange={() => toggle(k)}
                   disabled={!String(it?.what || '').trim()}
