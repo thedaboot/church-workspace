@@ -135,14 +135,16 @@ export function PinnedLinkChip({ link, canLock, onRemove, onSetPw }) {
         {kind ? <DocKindIcon kind={kind} size={11} /> : <LinkIcon url={link.url} />}{link.title}
       </a>
       {locked && <Lock size={12} className="shrink-0 text-fg-faint" aria-label="비밀번호가 걸린 링크" />}
+      {/* 자물쇠·X는 마우스 데스크톱에서만 hover로 드러난다(pointer-fine) — 아이패드처럼 md 이상인
+          터치 기기에는 hover가 없어서 `md:opacity-0`이면 삭제가 아예 없는 것처럼 보였다(§8). */}
       {canLock && (
         <button type="button" onClick={() => acc.togglePane('set')}
-          className="md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0"
+          className="pointer-fine:md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0"
           title="비밀번호 설정">
           {isLocked(link) ? <Lock size={12} /> : <LockOpen size={12} />}
         </button>
       )}
-      <button onClick={onRemove} className="md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0" title="링크 삭제"><X size={10} /></button>
+      <button onClick={onRemove} className="pointer-fine:md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0" title="링크 삭제"><X size={10} /></button>
       {pane && createPortal(
         <div ref={bodyRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: LINK_POP_W }}
           className="dc-pop bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90]">
