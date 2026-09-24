@@ -1396,7 +1396,10 @@ check('보안 헤더 — 강제는 frame-ancestors 하나 · 초안은 Report-On
   const html = read('index.html');
   const inline = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1];
   assert.ok(inline, 'index.html의 인라인 테마 스크립트를 못 찾았다');
-  const sha = createHash('sha256').update(inline, 'utf8').digest('base64');
+  // 배포되는 파일은 git이 LF로 두는 것이다 — 윈도우 작업 사본(autocrlf)은 CRLF라 그대로 재면 다른 해시가 나온다
+  const sha = createHash('sha256').update(inline.replace(/
+/g, '
+'), 'utf8').digest('base64');
   assert.ok(ro.includes(`'sha256-${sha}'`), `인라인 테마 스크립트 해시가 바뀌었다 — vercel.json에 'sha256-${sha}'`);
   assert.match(filesvc, /res\.setHeader\('X-Content-Type-Options', 'nosniff'\)/, '첨부 중계가 nosniff를 싣지 않는다');
   // /pdfjs/는 주소에 해시가 없다 — immutable로 두면 pdf.js를 올린 뒤 새 JS + 옛 wasm이 섞인다
