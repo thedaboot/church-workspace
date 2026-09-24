@@ -2,7 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, lazy, Sus
 import { createPortal } from 'react-dom';
 import { CheckSquare, Clock, X, User, Hash, Wand2, Undo2, CalendarRange, Trash2, Check, Pin, ArrowLeftRight, Maximize2, Minimize2, PanelRight, PanelRightClose } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { formatDate, formatDay, isMobileViewport, keepVisible, generateId, subtaskProgress, summaryOutdated, toggleTodoLine, byNewest, taskEditDirty } from '../utils.js';
+import { formatDate, formatDay, isMobileViewport, keepVisible, generateId, subtaskProgress, summaryOutdated, toggleTodoLine, byNewest, taskEditDirty, mergeTaskEdit } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { AiService, isFallbackText } from '../services/ai.js';
@@ -122,7 +122,16 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     try { localStorage.setItem('task_side_closed', v ? '1' : '0'); } catch { /* 프라이빗 모드 */ }
     return !v;
   });
-  useEffect(() => { if (isEditMode) submittingRef.current = false; }, [isEditMode]);
+  // '수정'을 누른 순간의 카드 — 고친 게 있는지(dirty)와 저장할 칸(mergeTaskEdit)의 기준이다
+  // (2026-09-25 감사 S3). 이 효과가 도는 때의 formData가 곧 그 순간의 카드다 — 보기 모드에서는
+  // 위 효과가 formData를 스토어의 카드로 맞춰 두고, 수정 모드로 넘어간 첫 렌더에는 아직 아무도
+  // 안 고쳤다.
+  const editBaseRef = useRef(null);
+  useEffect(() => {
+    if (isEditMode) { submittingRef.current = false; editBaseRef.current = formData; }
+    else editBaseRef.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditMode]);
 
   // 새 업무에서 골라둔 첨부(File 객체) — 파일은 카드 id가 있어야 올라가므로(files가
   // 카드를 참조) 저장 직후에 올린다. 쓰는 사람에게는 "처음부터 첨부"와 같다.
@@ -165,7 +174,9 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
       return;
     }
     submittingRef.current = true;
-    const saved = onSave(formData);
+    // 내가 고친 칸만 내 값이고 나머지는 지금 카드의 값이다 — 그 사이 남이 체크한 하위 업무가
+    // 내 저장으로 풀리지 않게(utils.mergeTaskEdit). 새 업무는 견줄 카드가 없다.
+    const saved = onSave(task.id ? mergeTaskEdit(formData, editBaseRef.current, source) : formData);
     if (!task.id && cloudMode && saved?.id && pendingFiles.length) uploadPending(saved);
   };
   const commentCount = (formData.comments || []).filter(c => !c.parentId).length;
@@ -174,6 +185,35 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     formData.updatedBy && `수정: ${formData.updatedBy}`,
     formatDate(formData.updatedBy ? formData.updatedAt : formData.createdAt),
   ].filter(Boolean).join(' · ');
+
+  // 수정 중에 **정말 바뀐 것이 있나** — 닫기(푸터·머리줄 ✕·딤)가 물어볼지 정한다.
+  // 견주는 것은 수정을 누른 순간의 카드다(editBaseRef · 감사 S3). 스냅숏이 서기 전 첫
+  // 렌더에는 지금 카드와 견준다 — 그때는 formData가 곧 그 카드다.
+  const dirty = isEditMode && taskEditDirty(formData, editBaseRef.current || source);
+
+  // 고친 것이 있는 동안에는 **새로고침·창 닫기·앱 밖으로 뒤로 가기**도 묻는다(감사 S8) —
+  // 브라우저가 제 문구로 묻는다(우리 글자가 아니다). 안 고쳤으면 걸지 않는다.
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const onBefore = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onBefore);
+    return () => window.removeEventListener('beforeunload', onBefore);
+  }, [dirty]);
+
+  // 머리줄 ✕도 푸터의 '닫기'와 **같은 확인**을 거친다(감사 4) — 예전에는 푸터만 물었고
+  // ✕와 딤은 고친 것을 말없이 버렸다. 딤을 누르면 이 ✕의 확인을 연다(자리가 같은 창 하나).
+  const closeXRef = useRef(null);
+  const confirmClose = (children, className) => (
+    <ConfirmPopover
+      message="저장하지 않은 내용이 있어요"
+      altLabel="저장하고 닫기" onAlt={() => handleSubmit({ preventDefault() {} })}
+      confirmLabel="무시하고 닫기" onConfirm={onClose}
+      cancelLabel="돌아가기"
+      className={className}>
+      {children}
+    </ConfirmPopover>
+  );
+  const closeX = <button onClick={dirty ? undefined : onClose} title="닫기" aria-label="닫기" className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>;
 
   // ── 공용 조각 (데스크톱/모바일 레이아웃이 재사용) ──
   const headerInner = (
@@ -195,12 +235,14 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         )}
         {/* 아이콘만 있는 버튼에는 이름이 있어야 한다 — 옆의 공유·접기·전체 화면은
             title이 있는데 이것만 없어서 화면 낭독기에는 "버튼"으로만 읽혔다 */}
-        <button onClick={onClose} title="닫기" aria-label="닫기" className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"><X size={18} strokeWidth={1.75}/></button>
+        {/* 감싸는 틀은 두 경우 모두 같은 inline-flex 한 겹이다 — 확인이 붙고 떨어져도 ✕의
+            자리가 움직이지 않는다 */}
+        <span ref={closeXRef} className="inline-flex">
+          {dirty ? confirmClose(closeX, 'inline-flex') : closeX}
+        </span>
       </div>
     </>
   );
-  // 수정 중에 **정말 바뀐 것이 있나** — 닫기가 물어볼지 정한다
-  const dirty = isEditMode && taskEditDirty(formData, source);
 
   const footerInner = (
     <>
@@ -230,15 +272,9 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
             **깃발이 아니라 값을 견준다**(utils.taskEditDirty) — 커서만 옮겨도 서는
             깃발로 물으면 안 고친 사람에게도 창이 떠서 금방 성가신 것이 되고, 그러면
             사람은 창을 안 읽고 누른다. 안 고쳤으면 그냥 닫힌다. */}
-        {dirty ? (
-          <ConfirmPopover
-            message="저장하지 않은 내용이 있어요"
-            altLabel="저장하고 닫기" onAlt={() => handleSubmit({ preventDefault() {} })}
-            confirmLabel="무시하고 닫기" onConfirm={onClose}
-            cancelLabel="돌아가기"
-            className="flex-1 sm:flex-none">
-            <button type="button" className="w-full px-4 py-2 text-xs font-medium text-fg-muted bg-surface-hover hover:bg-line rounded-md transition active:scale-95">닫기</button>
-          </ConfirmPopover>
+        {dirty ? confirmClose(
+          <button type="button" className="w-full px-4 py-2 text-xs font-medium text-fg-muted bg-surface-hover hover:bg-line rounded-md transition active:scale-95">닫기</button>,
+          'flex-1 sm:flex-none',
         ) : (
           <button onClick={onClose} className="flex-1 sm:flex-none px-4 py-2 text-xs font-medium text-fg-muted bg-surface-hover hover:bg-line rounded-md transition active:scale-95">닫기</button>
         )}
@@ -311,7 +347,12 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
     <div
       ref={overlayRef}
       onMouseDown={(e) => { downOnOverlay.current = e.target === overlayRef.current; }}
-      onClick={(e) => { if (e.target === overlayRef.current && downOnOverlay.current) onClose(); }}
+      onClick={(e) => {
+        if (e.target !== overlayRef.current || !downOnOverlay.current) return;
+        // 고친 것이 있으면 닫지 않고 ✕의 확인을 연다(감사 4 — 딤도 말없이 버렸다)
+        if (dirty) closeXRef.current?.querySelector('button')?.click();
+        else onClose();
+      }}
       className={`fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-in fade-in duration-200 ${expanded ? 'p-0' : 'p-2 md:p-4'}`}
     >
       {/* 전체 화면이면 창이 뷰포트를 다 쓴다 — 딤·모서리·최대 폭이 전부 사라져야

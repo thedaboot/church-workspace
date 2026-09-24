@@ -3439,6 +3439,32 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  정말 바뀐 게 있나 8가지');
 }
 
+// ── 수정한 칸만 내 것으로 저장한다 (utils.mergeTaskEdit · 2026-09-25 감사 S3) ──────
+// 수정 폼은 '수정'을 누른 순간의 카드(base)를 들고 있다가 저장 때 통째로 보냈다 — 그 사이
+// 남이 체크한 하위 업무가 내 저장으로 풀렸다. 게스트 모드는 클라우드 저장(cardPatch)을 안
+// 타지만 보내는 값은 이 함수가 정한다(§3-5). 되돌리기 검사: `editChanged(...) ? mine[k] : live[k]`를
+// `mine[k]`로 바꾸면(= 예전처럼 통째로) 첫 단정이, live 대신 mine을 펼치면 넷째가 깨진다.
+{
+  const U = await import(new URL('../src/utils.js', import.meta.url).href);
+  const base = { id: 'c1', title: '포스터', content: '본문', status: '진행 중', assignees: ['노준석'],
+    subtasks: [{ id: 'a', title: '시안', done: false }], position: 3, aiSummary: '' };
+  const live = { ...base, subtasks: [{ id: 'a', title: '시안', done: true }], status: '검토', position: 7, aiSummary: '요약' };
+  const mine = { ...base, title: '포스터 (고침)' };
+  const m = U.mergeTaskEdit(mine, base, live);
+  assert.strictEqual(m.subtasks[0].done, true, '남이 체크한 하위 업무가 내 저장으로 풀리지 않는다');
+  assert.strictEqual(m.status, '검토', '남이 바꾼 상태도 그대로다');
+  assert.strictEqual(m.title, '포스터 (고침)', '내가 고친 칸은 내 값이다');
+  assert.strictEqual(m.position, 7, '수정 폼이 안 고치는 칸(순서)은 지금 카드의 값이다');
+  assert.strictEqual(m.aiSummary, '요약', '고정 요약도 지금 카드의 값이다');
+  const mine2 = { ...base, subtasks: [...base.subtasks, { id: 'b', title: '인쇄', done: false }] };
+  assert.strictEqual(U.mergeTaskEdit(mine2, base, live).subtasks.length, 2, '내가 하위 업무를 고쳤으면 내 목록이다(칸 단위)');
+  assert.strictEqual(U.mergeTaskEdit(mine, null, live), mine, '기준이 없으면(새 업무) 그대로 보낸다');
+  // dirty는 스냅숏과 견준다 — 남이 바꾼 칸은 '내가 고친 것'이 아니다
+  assert.strictEqual(U.taskEditDirty(base, base), false);
+  assert.strictEqual(U.taskEditDirty(base, live), true, '(참고) 살아 있는 카드와 견주면 안 고쳐도 고친 것이 된다');
+  console.log('PASS  수정한 칸만 내 것으로 9가지');
+}
+
 // ── 0071 보안 조이기의 모양 (보안 감사 2026-09-24) ──────────────────────────
 // 라이브 DB는 검사가 못 보므로 파일만 본다(적용 결과는 psql로 눈으로 · §3-3). 핵심은 셋:
 // 프로필 가드가 **예외 없이 되돌리기만** 하는지(내 정보 저장 upsert가 행을 통째로 보낼 수 있다),

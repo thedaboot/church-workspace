@@ -598,10 +598,27 @@ const editShape = (v, key) => {
   return v == null ? '' : v;
 };
 
+const editChanged = (now, was, k) =>
+  JSON.stringify(editShape(now?.[k], k)) !== JSON.stringify(editShape(was?.[k], k));
+
+// `was`는 **수정을 누른 순간의 스냅숏**이다(2026-09-25 감사 S3) — 실시간으로 바뀌는 카드와
+// 견주면 남이 하위 업무를 체크한 것만으로 "고친 게 있다"가 되어 안 고친 사람에게도 창이 떴다.
 export function taskEditDirty(now, was) {
   if (!now || !was) return false;
-  return TASK_EDIT_KEYS.some(k =>
-    JSON.stringify(editShape(now[k], k)) !== JSON.stringify(editShape(was[k], k)));
+  return TASK_EDIT_KEYS.some(k => editChanged(now, was, k));
+}
+
+// ── 수정한 칸만 내 것으로 (2026-09-25 감사 S3) ──────────────────────────────
+// 수정 폼은 '수정'을 누른 순간의 카드(base)를 들고 있다가 저장 때 통째로 보냈다 — 그 사이
+// 남이 체크한 하위 업무·바꾼 상태가 내 저장으로 되돌아갔다. 그래서 **내가 base에서 바꾼 칸만**
+// 내 값을 쓰고 나머지는 지금 스토어의 카드(live)를 쓴다. 저장 경로(cardPatch)는 그대로이고
+// 보내는 값만 달라진다 — 칸 단위이므로 같은 칸을 둘이 고치면 나중 저장이 이긴다(예전과 같다).
+// 수정 폼이 고치는 칸은 TASK_EDIT_KEYS뿐이라 나머지(순서·요약·작성자…)도 live가 맞다.
+export function mergeTaskEdit(mine, base, live) {
+  if (!mine || !base || !live) return mine;
+  const out = { ...live };
+  for (const k of TASK_EDIT_KEYS) out[k] = editChanged(mine, base, k) ? mine[k] : live[k];
+  return out;
 }
 
 // ── 키보드가 올라왔을 때 커서를 어디로 옮겨야 하나 (2026-09-22) ─────────────
