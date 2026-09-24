@@ -204,3 +204,41 @@ console.log('마크다운 중첩 라운드트립 자체검증 통과 (30 asserts
   assert.strictEqual(round('1. 첫째\n- 사이\n2. 둘째'), '1. 첫째\n- 사이\n2. 둘째');
   console.log('줄 구조 왕복 안정 통과 (20 asserts)');
 }
+
+// ── 붙여 넣은 글줄이 저장 뒤 다른 물건이 되지 않는다 (2026-09-25 감사 7) ─────
+// 카카오톡·메모에서 붙인 `# 1부 설교 요약`·`- 준비물`·`1. 찬양`은 편집기에서 그냥 글이다.
+// 저장할 때 `\`로 막고 읽을 때 뗀다(markdown.js needsEscape) — 노트에서는 그 줄이 도막이
+// 되어 맨 아래로 옮겨졌다(ensureNoteSections는 제목 줄만 도막으로 본다).
+// **되돌리기**: serializeParagraph의 escapeLine을 빼면 아래 첫 줄부터 깨진다.
+{
+  const P = (t) => (t ? { type: 'paragraph', content: [{ type: 'text', text: t }] } : { type: 'paragraph' });
+  const H = (t) => ({ type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: t }] });
+  const doc = (...c) => ({ type: 'doc', content: c });
+  let n = 0;
+  for (const text of ['# 1부 설교 요약', '### 기도', '- 준비물', '* 별표', '1. 찬양', '3) 셋째', '---', '  - 들여쓴 줄', '- [ ] 체크처럼', '2026. 9월 수련회', '\\# 원래 역슬래시', '\\\\- 두 겹']) {
+    const md = docToMd(doc(P(text)));
+    const back = mdToDoc(md).content;
+    assert.strictEqual(back.length, 1, `${JSON.stringify(text)}가 블록 둘 이상이 된다: ${JSON.stringify(md)}`);
+    assert.strictEqual(back[0].type, 'paragraph', `${JSON.stringify(text)}가 ${back[0].type}이 된다 (${JSON.stringify(md)})`);
+    assert.strictEqual(back[0].content[0].text, text, `글자가 바뀐다: ${JSON.stringify(text)} → ${JSON.stringify(back[0].content[0].text)}`);
+    assert.strictEqual(round(md), md, `왕복이 흔들린다: ${JSON.stringify(md)}`);
+    n += 4;
+  }
+  // 평범한 글·해시태그·음수는 그대로 적는다(막지 않는다)
+  for (const text of ['#해시태그', '-1도', '2026.9월', '그냥 글', '\\ 역슬래시 뒤 공백']) { assert.strictEqual(docToMd(doc(P(text))), text); n++; }
+  // 진짜 제목·목록은 그대로 제목·목록이다
+  assert.strictEqual(mdToDoc('# 제목').content[0].type, 'heading');
+  assert.strictEqual(mdToDoc('- 항목').content[0].type, 'bulletList');
+  // 노트: 붙여 넣은 `# 1부 설교 요약`이 도막이 되거나 자리를 옮기지 않는다
+  const N = await import(new URL('../src/services/noteTemplate.js', import.meta.url).href);
+  const pasted = docToMd(doc(H('말씀 요약'), P('# 1부 설교 요약'), P('- 은혜'), H('나의 결단'), P(), H('기도')));
+  const saved = N.ensureNoteSections(pasted, N.WORSHIP_SECTIONS);
+  assert.deepStrictEqual(N.splitNoteSections(saved).map(s => s.title), ['말씀 요약'], `붙인 줄이 도막이 된다: ${JSON.stringify(saved)}`);
+  assert.ok(saved.startsWith('### 말씀 요약\n\\# 1부 설교 요약\n\\- 은혜\n### 나의 결단'), `붙인 줄이 자리를 옮긴다: ${JSON.stringify(saved)}`);
+  // 읽는 쪽 둘(업무 보기 RichText · 노트 종이)도 같은 함수로 뗀다 — 한쪽만 떼면 `\`가 글자로 찍힌다
+  const rich = readFileSync(new URL('../src/components/RichText.jsx', import.meta.url), 'utf8');
+  const paper = readFileSync(new URL('../src/components/paper.jsx', import.meta.url), 'utf8');
+  assert.ok(rich.includes('unescapeLine(line)'), 'RichText가 막아 둔 줄을 뗀다');
+  assert.ok(paper.includes('unescapeLine(raw)'), '종이가 막아 둔 줄을 뗀다');
+  console.log(`붙여 넣은 글줄 막기 통과 (${n + 6} asserts)`);
+}

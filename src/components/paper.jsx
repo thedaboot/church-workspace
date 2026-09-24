@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import logoLight from '../assets/logo-light.webp';
-import { tokenizeInline, IMAGE_LINE_RE } from '../services/markdown.js';
+import { tokenizeInline, IMAGE_LINE_RE, unescapeLine } from '../services/markdown.js';
 
 // ============================================================================
 // 종이 — 예배 노트 · 묵상 노트 · 주보가 **바깥으로 나갈 때** 입는 옷 (2026-09-09)
@@ -155,6 +155,9 @@ function paperBlocks(text) {
     else out.push({ type, items: [item], key: item.key, ...(extra || {}) });
   };
   String(text || '').split('\n').forEach((raw, i) => {
+    // `\`로 막아 둔 글줄은 문법처럼 생겼어도 문단이다(markdown.js needsEscape와 한 쌍)
+    const plain = unescapeLine(raw);
+    if (plain !== null) { out.push({ type: 'p', value: plain, key: i }); return; }
     const line = raw.trim();
     // 줄 **전체**가 사진 주소일 때만 사진이다(markdown.js IMAGE_LINE_RE와 같은 판정)
     if (IMAGE_LINE_RE.test(line)) { out.push({ type: 'img', src: line, key: i }); return; }

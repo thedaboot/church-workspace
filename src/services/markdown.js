@@ -64,6 +64,40 @@ const paragraph = (text) => {
 };
 const listItem = (text) => ({ type: 'listItem', content: [paragraph(text)] });
 
+// ── 글줄이 블록 문법으로 읽히지 않게 (2026-09-25) ────────────────────────────
+// 카카오톡·메모에서 붙여 넣은 `# 1부 설교 요약`·`- 준비물`·`1. 찬양` 같은 줄은 편집기에서는
+// **그냥 글**인데, 저장하면 그 글자 그대로 적혀서 다시 열면 제목·목록이 됐다(노트에서는
+// 제목이 곧 도막이라 `ensureNoteSections`가 그 줄을 맨 아래로 옮겼다). 그래서 **문단의 줄이
+// 블록 문법처럼 생겼으면 저장할 때 앞에 `\`를 붙이고, 읽을 때 뗀다**(마크다운의 그 관례).
+// 보는 모양(아래 셋)은 mdToDoc의 판정 순서와 같아야 한다: 구분선 · 제목 · 체크·불릿 · 번호.
+// 이미지 주소 단독 줄은 넣지 않는다 — 주소 한 줄을 그림으로 여는 것은 원래 규칙이다.
+//
+// `\`로 시작하는 글 자체도 지킨다: 글이 `\- x`이면 `\\- x`로 적는다(needsEscape의 둘째 줄).
+// 그래야 읽을 때 한 겹만 떼어 원래 글이 된다 — 옛 글에 우연히 `\# x`가 있어도 다시 적으면
+// 같은 글자로 돌아간다(tests/mdcheck가 왕복을 단정한다).
+// 읽는 쪽 셋(mdToDoc · RichText · paper)이 **이 두 함수를 같이 쓴다** — 한쪽만 떼면
+// 종이나 업무 보기에 `\`가 글자로 찍힌다.
+const isBlockSyntax = (s) =>
+  /^(-{3,}|\*{3,}|_{3,})$/.test(s.trim())
+  || /^#{1,4}\s/.test(s)
+  || /^\s*[-*]\s/.test(s)
+  || /^\s*\d+[.)]\s/.test(s);
+export function needsEscape(s) {
+  const text = String(s ?? '');
+  if (isBlockSyntax(text)) return true;
+  const m = /^(\s*)\\([\s\S]*)$/.exec(text);
+  return !!m && needsEscape(m[1] + m[2]);
+}
+// 저장할 때 — 앞 공백(들여쓰기)은 그대로 두고 그 뒤에 `\` 하나
+const escapeLine = (s) => (needsEscape(s) ? s.replace(/^(\s*)/, '$1\\') : s);
+// 읽을 때 — `\`로 막아 둔 줄이면 뗀 글을, 아니면 null(그 줄은 평소대로 판정한다)
+export function unescapeLine(line) {
+  const m = /^(\s*)\\([\s\S]*)$/.exec(String(line ?? ''));
+  if (!m) return null;
+  const text = m[1] + m[2];
+  return needsEscape(text) ? text : null;
+}
+
 // ── 마크다운 문자열 → TipTap doc JSON ───────────────────────────────────────
 export function mdToDoc(md) {
   const content = [];
@@ -71,6 +105,10 @@ export function mdToDoc(md) {
 
   for (const raw of lines) {
     const line = raw.trim();
+
+    // `\`로 막아 둔 글줄 — 문법처럼 생겼어도 문단이다(위 needsEscape)
+    const plain = unescapeLine(raw);
+    if (plain !== null) { content.push(paragraph(plain)); continue; }
 
     // 이미지 단독 줄
     if (IMAGE_LINE_RE.test(line)) { content.push({ type: 'image', attrs: { src: line } }); continue; }
@@ -169,9 +207,9 @@ function serializeInlineContent(content = [], br = '\n') {
     return '';
   }).join('');
 }
-// 문단 — 하드브레이크로 갈린 줄마다 pad를 붙인다
+// 문단 — 하드브레이크로 갈린 줄마다 블록 문법처럼 생겼으면 막는다(위 needsEscape)
 const serializeParagraph = (content, pad = '') =>
-  serializeInlineContent(content).split('\n').map(l => `${pad}${l}`).join('\n');
+  serializeInlineContent(content).split('\n').map(l => escapeLine(`${pad}${l}`)).join('\n');
 
 // listItem 안의 블록들을 줄 배열로. **중첩 목록도 들여쓰지 않고 같은 줄에 편다**(2026-09-25) —
 // 읽는 쪽(mdToDoc·RichText·종이)은 들여쓰기를 보지 않아서, 들여 적어도 다시 열면 평평해지고

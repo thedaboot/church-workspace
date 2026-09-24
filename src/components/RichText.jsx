@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { tokenizeInline, MD_LINK_RE, IMAGE_LINE_RE } from '../services/markdown.js';
+import { tokenizeInline, MD_LINK_RE, IMAGE_LINE_RE, unescapeLine } from '../services/markdown.js';
 import { SmartImage, ImageLightbox } from './media.jsx';
 import { docEmbedKind, DocEmbedModal, DocKindIcon } from './DocEmbed.jsx';
 import { splitMention } from '../utils.js';
@@ -132,6 +132,9 @@ const parseBlocks = (text) => {
   const blocks = [];
   let todoIdx = -1;   // 본문 전체에서 몇 번째 체크 항목인지 — 토글(utils.toggleTodoLine)의 좌표
   for (const [i, line] of text.split('\n').entries()) {
+    // `\`로 막아 둔 글줄은 문법처럼 생겼어도 문단이다(markdown.js needsEscape와 한 쌍)
+    const plain = unescapeLine(line);
+    if (plain !== null) { blocks.push({ type: 'p', value: plain, key: i }); continue; }
     // [텍스트](URL) 형태의 링크 줄은 이미지로 오인하지 않고 단락으로(인라인에서 링크 렌더)
     const isMdLinkLine = MD_LINK_RE.test(line.trim());
     // 줄 **전체**가 이미지 URL일 때만 이미지 블록으로 본다(에디터의 IMAGE_LINE_RE와 같은 판정).

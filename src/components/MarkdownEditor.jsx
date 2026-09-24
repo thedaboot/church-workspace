@@ -19,6 +19,7 @@ import { isMobileViewport, keepVisible } from '../utils.js';
 import { downscaleImage, BODY_MAX_DIM } from '../services/image.js';
 import { Extension } from '@tiptap/core';
 import { Plugin } from '@tiptap/pm/state';
+import { Slice, Fragment } from '@tiptap/pm/model';
 
 // 제목에서 Enter를 치면 **본문으로 떨어진다.** 기본 동작은 같은 제목이 이어지는데,
 // 제목을 연달아 쓰는 일은 거의 없고 대개 그 아래에 내용을 적는다(사용자 지적
@@ -415,6 +416,17 @@ export function MarkdownEditor({
         event.preventDefault();
         editorRef.current?.chain().focus().setLink({ href: text }).run();
         return true;
+      },
+      // **평문 붙여넣기는 줄마다 문단, 빈 줄은 빈 문단이다**(2026-09-25 감사 7). 기본 파서는
+      // 줄바꿈 여러 개를 한 번의 문단 가름으로 읽어서, 카카오톡·메모에서 붙인 글의 빈 줄이
+      // 사라졌다. 줄 앞의 `#`·`-`·`1.`은 그냥 글자로 들어오고, 저장할 때 markdown.js가 막아
+      // 두므로 다시 열어도 제목·목록이 되지 않는다(노트에서는 도막이 생기거나 옮겨지지 않는다).
+      // 서식이 있는 붙여넣기(text/html)는 이 길을 타지 않는다 — 그쪽은 원래대로다.
+      clipboardTextParser: (text, _$context, _plain, view) => {
+        const { schema } = view.state;
+        const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+        const nodes = lines.map(l => schema.nodes.paragraph.create(null, l ? schema.text(l) : null));
+        return new Slice(Fragment.from(nodes), 1, 1);
       },
       handleDrop: (_view, event) => {
         const img = Array.from(event.dataTransfer?.files || []).find(f => (f.type || '').startsWith('image/'));

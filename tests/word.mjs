@@ -1053,6 +1053,32 @@ await ev(`(() => {
   if (at) ed.chain().deleteRange({ from: at[0], to: at[1] }).run();
 })()`);
 await sleep(300);
+// **평문 붙여넣기는 줄마다 문단, 빈 줄은 빈 문단**(2026-09-25 감사 7) — 카카오톡·메모의 글.
+// 줄 앞의 `#`·`-`는 글자로 들어오고 도막(제목)이 생기지 않는다(저장 때 막는 것은 mdcheck).
+// **되돌리기**: MarkdownEditor의 `clipboardTextParser`를 빼면 빈 줄이 사라져 깨진다.
+const pasted = await ev(`(async () => {
+  const t = document.querySelector('.qt-note-editor .tiptap');
+  const h = t && [...t.children].find(el => el.tagName === 'H3' && el.textContent.trim() === '나의 결단');
+  const p = h && h.nextElementSibling;
+  if (!p) return null;
+  t.focus();
+  const r = document.createRange(); r.selectNodeContents(p); r.collapse(true);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  const dt = new DataTransfer(); dt.setData('text/plain', '# 붙인 제목\\n\\n- 붙인 줄');
+  t.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  await new Promise(res => setTimeout(res, 300));
+  const kids = [...t.children].map(el => el.tagName + ':' + el.textContent.trim());
+  // 붙인 줄을 걷어 뒤 검사들이 보던 모양으로 돌려놓는다(빈 줄은 LockedHeadings가 도로 세운다)
+  const ed = t.editor; let a = null, z = null;
+  ed.state.doc.forEach((n, off) => { if (n.type.name === 'heading' && n.textContent === '나의 결단') a = off + n.nodeSize;
+    if (n.type.name === 'heading' && n.textContent === '기도') z = off; });
+  if (a !== null && z !== null) ed.chain().deleteRange({ from: a, to: z }).run();
+  return kids;
+})()`, true);
+check('평문을 붙이면 빈 줄이 남고 # · - 줄이 제목·목록이 되지 않는다',
+  JSON.stringify((pasted || []).slice(0, 5)) === JSON.stringify(['H3:나의 결단', 'P:# 붙인 제목', 'P:', 'P:- 붙인 줄', 'H3:기도']),
+  JSON.stringify(pasted));
+await sleep(300);
 
 // **목록 글머리는 글 칸 안에 선다**(사용자 지적 2026-09-11 — `1.`·`•`가 종이 왼쪽 끝까지
 // 밀려 나갔다). 도막 칸의 `padding-left: 12px`이 `.tiptap ul`의 들여쓰기를 덮어써서, 칸
