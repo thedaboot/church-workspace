@@ -7,7 +7,7 @@ import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
 import { ConfirmPopover, useAnchoredPos } from './ConfirmPopover.jsx';
 import { formatBytes, fileKind } from './fileRow.jsx';
-import { keepVisible } from '../utils.js';
+import { keepVisible, stableRowKeys } from '../utils.js';
 import { PassagePicker, PassageBody } from './worshipPassage.jsx';
 import { loadPassage } from '../services/bible.js';
 import { EmptyBookMark } from './wordBible.jsx';
@@ -199,6 +199,19 @@ export function WorshipEmpty({ text }) {
       <p className="mt-3 text-[13.5px] font-semibold text-fg">{text}</p>
     </div>
   );
+}
+
+// 편집 줄의 열쇠(저장하지 않는다 — utils.stableRowKeys 머리말). 렌더 중에 ref만 고친다:
+// 같은 rows면 같은 열쇠를 돌려주므로 두 번 그려도(StrictMode) 값이 같다.
+function useRowKeys(rows) {
+  const box = useRef({ rows: [], keys: [] });
+  const seq = useRef(0);
+  const cur = box.current;
+  if (cur.rows !== rows) {
+    cur.keys = stableRowKeys(cur.rows, cur.keys, rows, () => `row${++seq.current}`);
+    cur.rows = rows;
+  }
+  return cur.keys;
 }
 
 // 배열 한 칸 옮기기 (담당자·찬양·광고 공용). 끝에서는 그대로 둔다.
@@ -786,6 +799,7 @@ const isSeeded = (seeded, r) => !!String(r?.name || '').trim()
 
 function RolesEdit({ rows, people, onChange, seeded = [], onClearPrefill }) {
   const set = (i, patch) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  const keys = useRowKeys(rows);
   const anySeeded = rows.some(r => isSeeded(seeded, r));
   return (
     <div className={LIST}>
@@ -804,7 +818,7 @@ function RolesEdit({ rows, people, onChange, seeded = [], onClearPrefill }) {
       )}
       <ul style={{ borderTop: rows.length ? '1px solid var(--app-line)' : 'none' }}>
         {rows.map((r, i) => (
-          <li key={i} className="worship-role-edit group flex flex-wrap items-center gap-1.5 py-2.5" style={ROW_LINE}>
+          <li key={keys[i]} className="worship-role-edit group flex flex-wrap items-center gap-1.5 py-2.5" style={ROW_LINE}>
             <span className={NUM}>{i + 1}</span>
             {/* 역할은 칩처럼 — 이름 칸과 생김새가 같으면 어느 쪽이 무엇인지 매번 읽어야 한다 */}
             <input className={`${ROLE_CHIP} w-[5.75rem] sm:w-[7rem] shrink-0`} value={r.role || ''} aria-label="역할"
@@ -838,6 +852,7 @@ function SongsEdit({ rows, people, leader, playlistUrl = '', recent = [], onLead
   const [busy, setBusy] = useState(false);
   const [looking, setLooking] = useState(() => new Set());   // 제목을 받아 오는 중인 줄
   const set = (i, patch) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  const keys = useRowKeys(rows);
 
   // 인도자는 **이름 글자 하나**로 저장된다(0044 `services.praise_leader`) — 담당자
   // 줄처럼 person 연결을 따로 들고 있지 않다. 그래도 동그라미(연결 표시)는 붙어야
@@ -942,7 +957,7 @@ function SongsEdit({ rows, people, leader, playlistUrl = '', recent = [], onLead
       )}
       <ul style={{ borderTop: rows.length ? '1px solid var(--app-line)' : 'none' }}>
         {rows.map((s, i) => (
-          <li key={i} className="worship-song-row group flex flex-wrap items-center gap-1.5 py-2.5" style={ROW_LINE}>
+          <li key={keys[i]} className="worship-song-row group flex flex-wrap items-center gap-1.5 py-2.5" style={ROW_LINE}>
             <span className={NUM}>{i + 1}</span>
             {/* 제목을 받아 오는 중이면 그 자리를 스켈레톤 한 줄이 지킨다 */}
             {looking.has(i) ? (
@@ -1010,11 +1025,12 @@ function SongsEdit({ rows, people, leader, playlistUrl = '', recent = [], onLead
 // 읽는 순서가 흐려진다. 대신 제목 칸과 내용 textarea가 카드 폭을 다 쓴다.
 function NoticesEdit({ rows, onChange }) {
   const set = (i, patch) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  const keys = useRowKeys(rows);
   return (
     <div className={LIST}>
       <ul className="space-y-2">
         {rows.map((n, i) => (
-          <li key={i} className="worship-notice-row group p-3 md:p-4 rounded-[10px]" style={CARD_BOX}>
+          <li key={keys[i]} className="worship-notice-row group p-3 md:p-4 rounded-[10px]" style={CARD_BOX}>
             <div className="flex items-center gap-1.5 pb-1.5">
               <span className="text-[11.5px] font-bold text-fg-muted tabular-nums">광고 {i + 1}</span>
               <span className={`${ROW} shrink-0 ml-auto ${TOOLS}`}>

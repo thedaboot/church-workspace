@@ -4004,3 +4004,28 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(E.vecLiteral([0.1, -0.25]), '[0.100000,-0.250000]');
   console.log('PASS  성경 임베딩 뒷단(0073 모양 · 모델·차원·정규화 한 벌 · 절 목록) 35가지');
 }
+
+// ── 주보 편집 줄의 열쇠 (utils.stableRowKeys · 2026-09-24) ─────────────────────────────
+// 줄에 id가 없어 key={i}였다 — 옮기기·지우기에서 한 줄의 상태가 옆 줄로 넘어갔다. 열쇠는
+// 저장하지 않는다(jsonb 모양 그대로). 되돌리기 검사: 함수가 자리 번호를 돌려주게 바꾸면
+// 옮기기·지우기 단정이 깨지고, ②(같은 자리 이어 쓰기)를 빼면 고치기 단정이 깨진다.
+{
+  const U = await import(new URL('../src/utils.js', import.meta.url).href);
+  let n = 0; const mint = () => `n${++n}`;
+  const a = { role: '대표기도', name: '김' }, b = { role: '광고', name: '이' }, c = { role: '헌금', name: '박' };
+  const k0 = U.stableRowKeys([], [], [a, b, c], mint);
+  assert.deepStrictEqual(k0, ['n1', 'n2', 'n3'], '처음에는 줄마다 새 열쇠');
+  assert.deepStrictEqual(U.stableRowKeys([a, b, c], k0, [b, a, c], mint), ['n2', 'n1', 'n3'], '옮기면 열쇠가 줄을 따라간다');
+  assert.deepStrictEqual(U.stableRowKeys([a, b, c], k0, [a, c], mint), ['n1', 'n3'], '지우면 남은 줄의 열쇠가 그대로다');
+  const b2 = { ...b, name: '이수' };
+  assert.deepStrictEqual(U.stableRowKeys([a, b, c], k0, [a, b2, c], mint), ['n1', 'n2', 'n3'],
+    '그 자리에서 고친 줄(새 객체)은 열쇠를 이어 쓴다 — 칠 때마다 칸이 새로 마운트되지 않게');
+  const d = { role: '', name: '' };
+  const kAdd = U.stableRowKeys([a, b, c], k0, [a, b, c, d], mint);
+  assert.ok(kAdd.slice(0, 3).join() === 'n1,n2,n3' && !k0.includes(kAdd[3]), '더한 줄은 새 열쇠');
+  const fresh = [{ ...a }, { ...b }, { ...c }];
+  assert.deepStrictEqual(U.stableRowKeys([a, b, c], k0, fresh, mint), ['n1', 'n2', 'n3'], '통째로 다시 읽으면 자리대로 잇는다');
+  const twice = U.stableRowKeys([a, b], ['x', 'y'], [a, a], mint);
+  assert.ok(twice[0] === 'x' && twice[1] !== 'x' && new Set(twice).size === 2, '한 열쇠를 두 줄에 주지 않는다');
+  console.log('PASS  주보 편집 줄 열쇠 7가지');
+}

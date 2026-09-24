@@ -88,6 +88,31 @@ export const normalize = (array) => array.reduce((acc, item) => {
   return acc;
 }, { byId: {}, allIds: [] });
 
+// 편집 목록의 줄 열쇠 — **저장하지 않는다**(주보 roles·songs·notices jsonb 모양 그대로 · 0036).
+// 줄에 id 칸이 없어서 key={i}였는데, 그러면 줄을 옮기거나 지울 때 리액트가 **자리로** 짝을
+// 지어 한 줄의 상태(열린 목록·삭제 확인)가 옆 줄로 넘어간다. 여기서 이전 렌더의 줄과 짝을 짓는다:
+//   ① 같은 객체면 그 열쇠(옮기기·지우기는 filter/splice라 객체가 그대로다)
+//   ② 아니면 같은 자리의 옛 줄이 새 목록에서 사라졌을 때만 그 자리 열쇠(그 자리에서 고친 줄 —
+//      고치면 `{...r, ...patch}`로 새 객체가 된다. 입력 중에 열쇠가 바뀌면 칸이 새로 마운트되어
+//      글자를 칠 때마다 포커스를 잃는다)
+//   ③ 그 밖(새로 더한 줄)은 새 열쇠. 바깥에서 통째로 갈아 끼우면(다시 읽기) ②로 자리대로 잇는다.
+// 한 열쇠를 두 줄에 주지 않는다. 순수 함수라 여기 둔다(tests/logcheck).
+export function stableRowKeys(prevRows = [], prevKeys = [], rows = [], mint) {
+  const byObj = new Map();
+  prevRows.forEach((r, i) => { if (r && typeof r === 'object' && !byObj.has(r)) byObj.set(r, prevKeys[i]); });
+  const inNext = new Set(rows);
+  const used = new Set();
+  return rows.map((r, i) => {
+    let k = byObj.get(r);
+    if (k !== undefined && !used.has(k)) { used.add(k); return k; }
+    k = prevKeys[i];
+    if (k !== undefined && !used.has(k) && !inNext.has(prevRows[i])) { used.add(k); return k; }
+    k = mint();
+    used.add(k);
+    return k;
+  });
+}
+
 // 목록에서 방향키로 옮긴 항목이 스크롤 영역 밖이면 보이게 끌어온다.
 // ref 콜백으로 쓴다: ref={i === activeIdx ? keepVisible : null}
 // (활성 항목이 바뀔 때만 호출되므로 useEffect가 필요 없다)
