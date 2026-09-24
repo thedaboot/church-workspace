@@ -297,7 +297,14 @@ check('다듬기 프롬프트에 멘션 표기가 실린다', captured.prompt.in
   check('예시 4는 기한이 적힌 줄에만 날짜를 붙인다',
     examples.includes('- @한가람 @최서율 · 4월 콘티 확정(이번 주 안)\n') || examples.includes('- @한가람 @최서율 · 4월 콘티 확정(이번 주 안)\r\n'));
   check('예시의 사람 목록이 실제 한 줄 모양(부를 때)과 같다', examples.includes('  한가람 | 팀: 찬양팀·임원진 | 부를 때: 한가람 총무님 | 멘션은 @한가람'));
-  check('예시 날짜를 옮겨 적지 말라고 한다', captured.sys.includes('예시에 나온 날짜를 옮겨 적지 마라'));
+  check('예시 날짜를 옮겨 적지 말라고 한다', captured.sys.includes('예시에 나온 날짜를 옮겨 적지 마라')
+    && captured.sys.includes('원문에 날짜가 하나도 없으면 이 도막의 어느 줄에도 날짜를 붙이지 마라'));
+  // 예시 4의 날짜는 원문의 공동 기한('17일까지') 하나다 — 연습 날짜(4월 25일)를 두었더니 25일이 베껴졌다
+  const ex4 = examples.slice(examples.indexOf('---예시 4')).replace('이 예시의 오늘은 4월 13일이다', '');
+  check('예시 4에는 공동 기한 말고 날짜가 없다',
+    [...ex4.matchAll(/(\d{1,2})월\s?(\d{1,2})일/g)].every(m => m[0].replace(/\s/g, '') === '4월17일')
+    && [...ex4.matchAll(/(\d{1,2})월(\d{1,2})일/g)].length === 0 && !/\d+일까지/.test(ex4.replace(/17일까지/g, '')),
+    [...ex4.matchAll(/\d{1,2}월\s?\d{1,2}일/g)].map(m => m[0]).join(','));
 }
 // 다듬기에 싣는 사람 = 담당자 · @ · **초안에 이름으로 나온 가입자**만(결정 13)
 {
