@@ -8,7 +8,7 @@ import { CARD, CARD_STYLE, Empty } from '../components/groupsParts.jsx';
 import { ISO_TODAY, byDue } from './dashboardParts.jsx';
 import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry } from '../services/word.js';
 import { loadPassage } from '../services/bible.js';
-import { kindLabel, formatServiceDate, fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday } from '../services/worship.js';
+import { kindLabel, formatServiceDate, fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday, countsSince, HOME_SERVICE_COLS } from '../services/worship.js';
 import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotes, attendanceSunday } from '../services/groups.js';
 import { useCached } from '../services/cache.js';
 import { useLiveRefresh, refreshTouched } from '../services/liveV2.js';
@@ -560,10 +560,14 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
   // 참석 수를 세는 주보는 **출석이 실제로 들어온 가장 최근 주일**이다(groups.attendanceSunday).
   // 주일 당일이라도 출석을 부르고 나면 그날 것으로 바뀌고, 아직 아무 주일에도 출석이
   // 없으면 지난 주일로 떨어진다. 그래서 주보별 출석 수를 같이 받아 온다 — 목록 한 번에
-  // 조회 하나가 더 붙을 뿐이고(worship.fetchAttendanceCounts는 표 두 개를 통째로 센다),
-  // 예배 목록과 같은 열쇠에 담기므로 다음 진입에는 네트워크가 없다.
+  // 조회 하나가 더 붙을 뿐이고, 예배 목록과 같은 열쇠에 담기므로 다음 진입에는 네트워크가 없다.
+  // **둘 다 가볍게 읽는다**(2026-09-24): 주보는 이 카드가 읽는 칸만(worship.HOME_SERVICE_COLS),
+  // 출석 수는 최근 여덟 주 주보 것만(countsSince) — 찾는 것이 '출석이 든 가장 최근 주일' 하나라서다.
   const svcQ = useCached(`home:services:${day}`, loud('예배 목록', async () => {
-    const [list, counts] = await Promise.all([fetchServices(), fetchAttendanceCounts()]);
+    const [list, counts] = await Promise.all([
+      fetchServices({ columns: HOME_SERVICE_COLS }),
+      fetchAttendanceCounts({ since: countsSince(day) }),
+    ]);
     // **한 번만 고른다.** 예전에는 `latest`와 `latestToday`가 각각 attendanceSunday를
     // 불러서 같은 목록을 두 번 거르고 두 번 정렬했다 — 값이 갈릴 일은 없지만 한쪽만
     // 고치면 조용히 어긋나는 짝이 하나 더 있는 셈이었다.

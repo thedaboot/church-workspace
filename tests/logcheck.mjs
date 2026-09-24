@@ -3549,4 +3549,83 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const after = vm.runInContext('[Iterator, Iterator.prototype.map, Iterator.prototype.toArray, Promise.try, Math.sumPrecise]', now);
   before.forEach((f, i) => { if (typeof f === 'function') assert.strictEqual(after[i], f, `네이티브를 덮었다(${i})`); });
   console.log('PASS  pdf.js 6.3 옛 브라우저 폴리필 15가지');
+// ── 홈·모임은 주보를 가볍게 읽는다 (worship.fetchServices columns · fetchAttendanceCounts since · 2026-09-24) ──
+// 홈·모임은 '출석이 든 가장 최근 주일' 하나를 찾으려고 출석 표 두 개를 통째로 읽고, 주보는
+// 찬양·광고·임사자 jsonb까지 받았다. 이제 출석은 최근 여덟 주 주보 것만, 주보는 그 화면이 읽는
+// 칸만이다. **칸을 빼면 그 칸을 읽는 소비자가 조용히 빈 값을 본다** — 그래서 소비자가 읽는 칸이
+// 전부 들어 있는지를 소스에서 맞대 본다. 예배 목록은 지난 주보마다 '출석 N명'이라 전체를 센다.
+// 되돌리기 검사: GUIDE_SERVICE_COLS에서 songs를 빼면 '가이드 프롬프트가 읽는 칸'이, 게스트
+// 갈래의 since 거르기를 지우면 '게스트도 같은 창'이 깨진다.
+{
+  const raw = readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8');
+  const seed = {
+    services: [{ id: 'old', service_date: '2026-06-01' }, { id: 'new', service_date: '2026-09-20' }],
+    attendance: [{ service_id: 'old' }, { service_id: 'new' }, { service_id: 'new' }],
+    attendance_guests: [{ service_id: 'old' }, { service_id: 'new' }],
+  };
+  const src = 'const supabase = null; const myUid = () => null;\n' + raw
+    .replace(/^import \{[^}]*\} from '\.\/(supabaseClient|cloud|image)\.js';\s*$/gm, '')
+    .replace(/^import .*from '\.\.\/utils\.js';\s*$/gm, 'const generateId = () => "id";')
+    .replace(/^import .*from '\.\/people\.js';\s*$/gm,
+      `const guestStore = () => ({ all: () => ({}), rows: (t) => (${JSON.stringify(seed)})[t] || [], set: () => {} });`);
+  const dir = mkdtempSync(join(tmpdir(), 'b2svc-'));
+  writeFileSync(join(dir, 'titleText.js'), readFileSync(new URL('../src/services/titleText.js', import.meta.url), 'utf8'));
+  const wf = join(dir, 'worship.mjs');
+  writeFileSync(wf, src);
+  const W = await import(pathToFileURL(wf).href);
+
+  // ① 창 — 오늘(KST 날짜 글자)에서 56일 전. 달·해를 넘어도 글자로만 셈한다
+  assert.strictEqual(W.COUNT_WINDOW_DAYS, 56, '여덟 주');
+  assert.strictEqual(W.countsSince('2026-09-24'), '2026-07-30');
+  assert.strictEqual(W.countsSince('2026-01-10'), '2025-11-15', '해를 넘는다');
+  assert.strictEqual(W.countsSince('2024-03-01', 1), '2024-02-29', '윤년');
+  assert.strictEqual(W.countsSince('nope'), '', '못 읽는 날짜면 빈 글자 — 그러면 전체를 센다');
+
+  // ② 게스트 갈래도 같은 창으로 센다(명단 출석 + 손님)
+  assert.deepStrictEqual(await W.fetchAttendanceCounts(), { old: 2, new: 3 }, 'since 없으면 전체');
+  assert.deepStrictEqual(await W.fetchAttendanceCounts({ since: '2026-07-30' }), { new: 3 },
+    'since가 있으면 그 날짜 이후 주보만 — 게스트도 같은 창');
+
+  // ③ 클라우드 갈래 — 주보 날짜로 붙여 거른다(왕복 하나 · 두 표 모두)
+  assert.ok(/select\('service_id, services!inner\(service_date\)'\)\.gte\('services\.service_date', since\)/.test(raw),
+    '출석 수의 창은 services!inner로 붙여 주보 날짜로 거른다');
+  assert.ok(/count\('attendance'\), count\('attendance_guests'\)/.test(raw), '명단 출석과 손님 둘 다 같은 창');
+
+  // ④ 배선 — 홈·모임은 창과 가벼운 열, 예배 목록은 전체
+  const view = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const home = view('../src/views/homeView.jsx');
+  const groups = view('../src/views/groupsView.jsx');
+  const worshipV = view('../src/views/worshipView.jsx');
+  assert.ok(/fetchServices\(\{ columns: HOME_SERVICE_COLS \}\)/.test(home)
+    && /fetchAttendanceCounts\(\{ since: countsSince\(day\) \}\)/.test(home), '홈은 가벼운 열 + 여덟 주');
+  assert.ok(/fetchServices\(\{ columns: GUIDE_SERVICE_COLS \}\)/.test(groups)
+    && /fetchAttendanceCounts\(\{ since: countsSince\(\) \}\)/.test(groups), '모임은 가이드 열 + 여덟 주');
+  assert.ok(/fetchServices\(\), fetchAttendanceCounts\(\)\]/.test(worshipV),
+    '예배 목록은 전체 열·전체 출석 — 지난 주보마다 출석 N명 · 최근 곡 · 임사자 물려받기');
+
+  // ⑤ 소비자가 읽는 칸이 전부 들어 있나
+  const cols = (s) => new Set(s.split(',').map(c => c.trim()));
+  const homeCols = cols(W.HOME_SERVICE_COLS);
+  const guideCols = cols(W.GUIDE_SERVICE_COLS);
+  // 홈 카드가 읽는 칸(church.service.X) + 고르는 함수 셋(pickService·pastSunday·attendanceSunday)이 보는 칸
+  const cardReads = [...new Set([...home.matchAll(/church\.service\.(\w+)/g)].map(m => m[1]))];
+  assert.ok(cardReads.length >= 4, `홈 카드가 읽는 칸을 찾았다(${cardReads})`);
+  for (const c of [...cardReads, 'id', 'kind', 'status', 'service_date']) {
+    assert.ok(homeCols.has(c), `홈 주보 열에 ${c}가 있다`);
+  }
+  // 모임은 홈 칸 전부 + 가이드 프롬프트가 읽는 칸(sunGuide.songLine · buildGuidePrompt · generateGuide)
+  // 작업 사본이 CRLF일 수 있다(autocrlf) — 함수 끝('\n}\n')을 찾기 전에 줄끝을 맞춘다
+  const guideSrc = view('../src/services/sunGuide.js').replace(/\r\n/g, '\n');
+  const body = (sig) => {
+    const at = guideSrc.indexOf(sig);
+    return at < 0 ? '' : guideSrc.slice(at, guideSrc.indexOf('\n}\n', at));
+  };
+  const promptSrc = ['export function songLine(', 'export function buildGuidePrompt(', 'export async function generateGuide(']
+    .map(body).join('\n');
+  const guideReads = [...new Set([...promptSrc.matchAll(/\b(?:s|service)\??\.(\w+)/g)].map(m => m[1]))];
+  assert.ok(guideReads.includes('songs') && guideReads.includes('praise_leader') && guideReads.includes('passage_ref'),
+    `가이드가 읽는 칸을 찾았다(${guideReads})`);
+  for (const c of guideReads) assert.ok(guideCols.has(c), `모임 주보 열에 가이드 프롬프트가 읽는 ${c}가 있다`);
+  for (const c of homeCols) assert.ok(guideCols.has(c), `모임 열은 홈 열을 다 담는다(${c})`);
+  console.log('PASS  홈·모임 주보 가볍게 읽기 14가지');
 }

@@ -12,7 +12,7 @@ import { ClubsPanel } from '../components/groupsClub.jsx';
 import { WITH_ICON, useClosing, useSettled } from '../components/groupsParts.jsx';
 import { SunGuidePanel } from '../components/sunGuide.jsx';
 import { guideServices, pinnedGuideId, SUN_GUIDE_ON } from '../services/sunGuide.js';
-import { fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday } from '../services/worship.js';
+import { fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday, countsSince, GUIDE_SERVICE_COLS } from '../services/worship.js';
 import {
   fetchGroupPerms, fetchGroupsRoster, fetchApplications, fetchSunSharedNotes, fetchMeetings,
   createGroup, saveGroup, saveClubInfo, addMember, removeMember, moveMember, reorderClubs,
@@ -200,8 +200,10 @@ export function GroupsView() {
       // 수가 있어야 어느 주일을 셀지 정해진다(groups.js attendanceSunday).
       // 고정된 가이드는 곁가지다 — 못 읽어도 나머지는 서야 한다(그때는 가장 최근 주일이
       // 기본이 된다). 짧은 질의 하나라 목록·출석 수와 같이 보낸다.
+      // 주보는 가이드 프롬프트까지 읽는 칸만(worship.GUIDE_SERVICE_COLS), 출석 수는 최근 여덟
+      // 주 것만(countsSince) 받는다 — 홈과 같은 판단이다(2026-09-24).
       const [services, counts, pinnedGuide] = await Promise.all([
-        fetchServices(), fetchAttendanceCounts(),
+        fetchServices({ columns: GUIDE_SERVICE_COLS }), fetchAttendanceCounts({ since: countsSince() }),
         canViewGuide ? pinnedGuideId().catch(() => null) : null,
       ]);
       const service = latestSunday(services) || null;                              // 가이드 몫

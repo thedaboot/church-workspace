@@ -249,6 +249,17 @@ export const pastSunday = (services = [], today = kstNow().slice(0, 10)) => (ser
     && String(s.service_date) < String(today))
   .sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)))[0] || null;
 
+// 홈·모임이 출석 수를 세는 창 — 오늘(KST)에서 여덟 주 전부터(fetchAttendanceCounts의 since).
+// 둘이 찾는 것은 '출석이 실제로 들어온 가장 최근 주일' 하나라(groups.attendanceSunday),
+// 여덟 주 안에 아무 주일에도 출석이 없으면 예전처럼 지난 주일(pastSunday)로 떨어진다.
+// 날짜는 'YYYY-MM-DD' 글자만 셈한다 — UTC 자정으로 세우고 UTC로 읽으니 시간대가 끼지 않는다.
+export const COUNT_WINDOW_DAYS = 56;
+export function countsSince(today = kstNow().slice(0, 10), days = COUNT_WINDOW_DAYS) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(today || ''));
+  if (!m) return '';
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] - days)).toISOString().slice(0, 10);
+}
+
 // ── 유튜브 주소 (순수 — 노드에서 바로 검사된다) ────────────────────────────
 // 재생목록·영상 id를 주소에서 뽑는다. **호스트를 먼저 본다** — 이 값이 그대로 서버
 // 함수(api/yt.js)로 가기 때문에, 아무 주소나 받으면 우리 서버가 남의 심부름을 하는
@@ -408,10 +419,22 @@ export const countPresent = (list = [], present) => list.filter(p => present?.ha
 
 // ── 주보 ────────────────────────────────────────────────────────────────────
 
+// 가벼운 열 두 벌(2026-09-24) — 목록 전체를 읽되 **그 화면이 실제로 읽는 칸만** 받는다.
+// 주보 한 행에는 찬양·광고·임사자·큐시트(jsonb)가 들어 있어 홈·모임이 그걸 매번 통째로
+// 받았다. 칸을 뺄 때는 그 화면의 소비자를 전부 봐야 한다:
+//   · 홈(homeView svcQ): pickService·pastSunday·attendanceSunday(id·kind·status·service_date)
+//     + 카드(title·preacher · 누르면 id로 상세). passage_ref는 여유로 싣는다.
+//   · 모임(groupsView mineQ): 위에 더해 순모임 가이드가 **고른 주보로 프롬프트를 만든다**
+//     (sunGuide.buildGuidePrompt — title·passage_ref·preacher·songs·praise_leader).
+// 예배 화면은 전체(COLS)다 — 상세·recentSongs·prefillRoles가 roles·notices까지 읽는다.
+// 게스트는 저장된 행을 그대로 준다(칸을 거르지 않는다 — 작은 목록이다).
+export const HOME_SERVICE_COLS = 'id, kind, service_date, status, title, passage_ref, preacher';
+export const GUIDE_SERVICE_COLS = `${HOME_SERVICE_COLS}, songs, praise_leader`;
+
 // 작성 중(draft)은 편집 자격자에게만 온다 — 화면이 아니라 RLS가 거른다(0036).
-export async function fetchServices() {
+export async function fetchServices({ columns = COLS } = {}) {
   if (!supabase) return [...guestRows('services')].sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)));
-  const { data, error } = await supabase.from('services').select(COLS).order('service_date', { ascending: false });
+  const { data, error } = await supabase.from('services').select(columns).order('service_date', { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
@@ -668,15 +691,25 @@ export async function removeGuest(id) {
 // 주보별 출석 수 — 목록 카드의 '출석 N명'이 쓴다(발행된 지난 예배만 그린다).
 // **카드마다 세지 않는다**: 표 두 개를 통째로 한 번씩 읽어 service_id로 센다(주보 수 × 50행
 // 수준이라 목록 한 번에 조회 두 번이면 끝난다 — §6-20의 '개수를 따로 세는 경로'와 같은 판단).
-export async function fetchAttendanceCounts() {
+//
+// `since`('YYYY-MM-DD')를 주면 **그 날짜 이후 주보의 출석만** 센다(2026-09-24). 홈·모임은
+// 출석이 든 가장 최근 주일 하나만 찾으므로(groups.attendanceSunday) 해가 갈수록 커지는 표
+// 전체가 필요 없다. 거르는 것은 주보 날짜라 `services!inner(service_date)`로 붙여 걸러 낸다
+// (최근 주보 id를 먼저 읽어 `.in()`으로 하면 왕복이 하나 는다). 예배 목록은 지난 주보마다
+// '출석 N명'을 그리므로 since 없이 전체를 센다.
+export async function fetchAttendanceCounts({ since = '' } = {}) {
   let rows;
   if (!supabase) {
     rows = [...guestRows('attendance'), ...guestRows('attendance_guests')];
+    if (since) {
+      const recent = new Set(guestRows('services').filter(s => String(s?.service_date || '') >= since).map(s => s.id));
+      rows = rows.filter(r => recent.has(r?.service_id));
+    }
   } else {
-    const [att, gst] = await Promise.all([
-      supabase.from('attendance').select('service_id'),
-      supabase.from('attendance_guests').select('service_id'),
-    ]);
+    const count = (table) => (since
+      ? supabase.from(table).select('service_id, services!inner(service_date)').gte('services.service_date', since)
+      : supabase.from(table).select('service_id'));
+    const [att, gst] = await Promise.all([count('attendance'), count('attendance_guests')]);
     if (att.error) throw att.error;
     if (gst.error) throw gst.error;
     rows = [...(att.data ?? []), ...(gst.data ?? [])];
