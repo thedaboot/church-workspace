@@ -10,7 +10,7 @@ import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry } from '../service
 import { loadPassage } from '../services/bible.js';
 import { kindLabel, formatServiceDate, fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday, countsSince, HOME_SERVICE_COLS } from '../services/worship.js';
 import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotes, attendanceSunday } from '../services/groups.js';
-import { useCached } from '../services/cache.js';
+import { useCached, pruneCache } from '../services/cache.js';
 import { useLiveRefresh, refreshTouched } from '../services/liveV2.js';
 import logoLight from '../assets/logo-light.webp';
 import logoDark from '../assets/logo-dark.webp';
@@ -535,7 +535,10 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
   // 본문 첫 절까지 같이 싣는다 — 구절 번호만 있으면 카드의 둘째 줄이 늘 비어 있다
   // (사용자 지적 2026-09-03 — "오늘의 QT·내 순은 아래가 빈다"). 성경은 정적 파일이라
   // 게스트에서도 읽히고, 캐시에 함께 들어가서 다음 진입에는 네트워크가 없다.
+  // 열쇠에 날짜가 들어 있어 **어제 열쇠는 다시 읽힐 일이 없다** — 새로 읽을 때 오늘 것만 남기고
+  // 치운다(안 치우면 날마다 한 벌씩 localStorage에 쌓인다 · 2026-09-24). 예배 목록 열쇠도 같다.
   const qtQ = useCached(`home:qt:${day}`, loud('오늘 본문', async () => {
+    pruneCache('home:qt:', `home:qt:${day}`);
     const [qt, entry] = await Promise.all([fetchSchedule(day), fetchMyEntry(day)]);
     let first = '';
     if (qt?.passage_ref) {
@@ -564,6 +567,7 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
   // **둘 다 가볍게 읽는다**(2026-09-24): 주보는 이 카드가 읽는 칸만(worship.HOME_SERVICE_COLS),
   // 출석 수는 최근 여덟 주 주보 것만(countsSince) — 찾는 것이 '출석이 든 가장 최근 주일' 하나라서다.
   const svcQ = useCached(`home:services:${day}`, loud('예배 목록', async () => {
+    pruneCache('home:services:', `home:services:${day}`);
     const [list, counts] = await Promise.all([
       fetchServices({ columns: HOME_SERVICE_COLS }),
       fetchAttendanceCounts({ since: countsSince(day) }),

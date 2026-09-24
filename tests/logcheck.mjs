@@ -3795,3 +3795,72 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/\{mineSettled && !guideWait \? \(/.test(gv), '받는 동안은 딸린 섹션 스켈레톤 한 덩이가 선다');
   console.log('PASS  무거운 부품은 열 때만 7가지');
 }
+
+// ── 방금 읽은 화면은 15초 안에 다시 읽지 않는다 · 날짜 열쇠 정리 (services/cache.js · 2026-09-24) ──
+// 홈 → 예배 → 홈을 오가면 홈 카드 넷이 조회 14개를 그때마다 또 쏘았다. 이제 재마운트가 15초 안이고
+// 클라우드면 캐시 값을 **새 값(stale:false)으로** 세우고 끝낸다 — stale로 두면 새로 읽은 한 벌을
+// 기다리는 groupsView의 QR 딥링크 판정(bundleFresh)이 영영 멈춘다. 실시간 신호·쓰기 뒤의 dropCache와
+// 계정 전환(setCacheScope)은 그 표시를 같이 지운다. 홈의 날짜 열쇠는 오늘 것만 남긴다.
+// 되돌리기 검사: dropCache의 loadedAt 지우기를 빼면 '비우면 다시 읽는다'가, 건너뛸 때 stale:false를
+// stale:true로 바꾸면 '새 값으로 세운다'가 깨진다.
+{
+  const raw = readFileSync(new URL('../src/services/cache.js', import.meta.url), 'utf8');
+  const mk = (persist) => 'const setStorageRelief = () => {}; '
+    + raw.replace(/^import[^\n]*\n/gm, '')
+      .replace('const persist = () => !!supabase;', `const persist = () => ${persist};`);
+  const dir = mkdtempSync(join(tmpdir(), 'b9cache-'));
+  writeFileSync(join(dir, 'cloud.mjs'), mk('true'));
+  writeFileSync(join(dir, 'guest.mjs'), mk('false'));
+  const store = new Map();
+  globalThis.localStorage = {
+    get length() { return store.size; }, key: (i) => [...store.keys()][i] ?? null,
+    getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => { store.set(k, String(v)); },
+    removeItem: (k) => { store.delete(k); },
+  };
+  const C = await import(pathToFileURL(join(dir, 'cloud.mjs')).href);
+  const G = await import(pathToFileURL(join(dir, 'guest.mjs')).href);
+
+  C.setCacheScope('u1');
+  const t0 = 1_000_000;
+  C.writeCache('home:qt:2026-09-24', { a: 1 });
+  assert.strictEqual(C.cacheFresh('home:qt:2026-09-24', t0), false, '쓰기만 한 값은 "방금 읽은 값"이 아니다(읽기가 성공해야)');
+  C.noteLoaded('home:qt:2026-09-24', t0);
+  assert.strictEqual(C.FRESH_MS, 15000);
+  assert.strictEqual(C.cacheFresh('home:qt:2026-09-24', t0 + 14_999), true, '15초 안이면 다시 읽지 않는다');
+  assert.strictEqual(C.cacheFresh('home:qt:2026-09-24', t0 + 15_000), false, '15초가 지나면 읽는다');
+  C.noteLoaded('home:qt:2026-09-24', t0);
+  C.dropCache('home:qt');
+  assert.strictEqual(C.cacheFresh('home:qt:2026-09-24', t0 + 1), false, '비우면(실시간·쓰기 뒤) 다시 읽는다');
+  C.writeCache('home:qt:2026-09-24', { a: 2 });   // 비운 뒤 누가 손으로 써 넣어도 '방금 읽은 값'은 아니다
+  assert.strictEqual(C.cacheFresh('home:qt:2026-09-24', t0 + 2), false, '비우면 "방금 읽었다" 표시도 같이 지운다');
+  C.writeCache('home:sun:2026', { b: 1 }); C.noteLoaded('home:sun:2026', t0);
+  C.setCacheScope('u2');
+  C.writeCache('home:sun:2026', { b: 2 });
+  assert.strictEqual(C.cacheFresh('home:sun:2026', t0 + 1), false, '계정을 바꾸면 표시도 지운다');
+  G.writeCache('x', 1); G.noteLoaded('x', t0);
+  assert.strictEqual(G.cacheFresh('x', t0 + 1), false, '게스트는 언제나 다시 읽는다(검사 스위트가 시드를 바꾼다)');
+
+  // 날짜 열쇠 정리 — 오늘 것만 남긴다(이웃 갈래는 그대로)
+  C.writeCache('home:qt:2026-09-22', 1); C.writeCache('home:qt:2026-09-23', 2); C.writeCache('home:qt:2026-09-24', 3);
+  C.writeCache('home:services:2026-09-23', 4);
+  C.noteLoaded('home:qt:2026-09-23', t0);
+  C.pruneCache('home:qt:', 'home:qt:2026-09-24');
+  const left = [...store.keys()].filter(k => k.startsWith('church_cache_v1:u2:home:')).sort();
+  assert.deepStrictEqual(left, ['church_cache_v1:u2:home:qt:2026-09-24', 'church_cache_v1:u2:home:services:2026-09-23',
+    'church_cache_v1:u2:home:sun:2026'], '어제·그제 QT 열쇠만 치운다');
+  assert.strictEqual(C.readCache('home:qt:2026-09-23'), undefined, '메모리에서도 치운다');
+  assert.deepStrictEqual(C.readCache('home:qt:2026-09-24'), 3, '오늘 것은 남는다');
+  delete globalThis.localStorage;
+
+  // 훅 배선(소스) — 건너뛰면 stale:false · 마운트/열쇠 바뀜에서만 · refresh는 언제나
+  assert.ok(/const skip = \(!mounted\.current \|\| keyChanged\) && cacheFresh\(key\);/.test(raw),
+    '건너뛰는 것은 마운트·열쇠가 바뀐 때뿐(deps만 바뀌면 loader가 달라졌으니 읽는다)');
+  assert.ok(/if \(skip\) \{[\s\S]{0,200}setState\(s => \(s\.stale \|\| s\.loading \? \{ data: readCache\(key\), loading: false, stale: false, error: null \} : s\)\);\s*return;/.test(raw),
+    '건너뛸 때는 캐시 값을 새 값(stale:false)으로 세운다');
+  assert.ok(/writeCache\(k, v\);\s*noteLoaded\(k\);/.test(raw), '읽기가 성공해야 "방금 읽었다"가 선다');
+  assert.ok(/const refresh = useCallback\(\(\) => run\(keyRef\.current\), \[run\]\);/.test(raw), 'refresh()는 언제나 읽는다');
+  const home = readFileSync(new URL('../src/views/homeView.jsx', import.meta.url), 'utf8');
+  assert.ok(/pruneCache\('home:qt:', `home:qt:\$\{day\}`\)/.test(home) && /pruneCache\('home:services:', `home:services:\$\{day\}`\)/.test(home),
+    '홈은 날짜 열쇠 둘을 오늘 것만 남긴다');
+  console.log('PASS  15초 재조회 생략·날짜 열쇠 정리 17가지');
+}

@@ -23,6 +23,15 @@ import { supabase, setStorageRelief } from './supabaseClient.js';
 
 const PREFIX = 'church_cache_v1';
 const mem = new Map();
+// 열쇠마다 **이 탭에서 마지막으로 새로 읽어 온 시각**(useCached의 run이 성공한 때). 화면을
+// 오가는 재마운트가 15초 안이면 다시 읽지 않는다(아래 FRESH_MS). 메모리에만 둔다 — 새로고침한
+// 탭은 언제나 다시 읽는다.
+const loadedAt = new Map();
+// 홈 → 예배 → 홈을 15초 안에 오가면 홈 카드 넷이 조회 14개를 또 쏘았다(2026-09-24). 방금 읽은
+// 값이고 그 사이 바뀐 것은 실시간 신호가 dropCache로 비우므로(그러면 여기서도 지워진다) 다시
+// 읽을 이유가 없다. **클라우드(persist)일 때만** — 게스트는 검사 스위트가 localStorage 시드를
+// 바꿔 가며 화면을 다시 여는데, 그때 옛 값에 머물면 검사가 흔들린다.
+export const FRESH_MS = 15000;
 let scope = 'anon';
 const persist = () => !!supabase;
 const skey = (k) => `${PREFIX}:${scope}:${k}`;
@@ -50,6 +59,7 @@ export function setCacheScope(uid) {
   if (next === scope) return;
   scope = next;
   mem.clear();
+  loadedAt.clear();
   // **지금 scope 것만 남긴다.** 로그아웃·계정 전환이 쌓아 둔 남의 키는 다시 읽힐 일이
   // 없는데 자리만 먹는다(그리고 그 사람의 명단·묵상이 기기에 남는다).
   purgeKeys(k => !k.startsWith(`${PREFIX}:${scope}:`));
@@ -88,20 +98,49 @@ export function writeCache(key, value) {
 // 열쇠의 첫 도막을 다르게 짓는다(성경 상태는 'bible:state'다 — wordBible STATE_KEY).
 export function dropCache(prefix = '') {
   for (const k of [...mem.keys()]) if (k.startsWith(prefix)) mem.delete(k);
+  for (const k of [...loadedAt.keys()]) if (k.startsWith(prefix)) loadedAt.delete(k);
   const head = `${PREFIX}:${scope}:${prefix}`;
   purgeKeys(k => k.startsWith(head));
 }
 
+// prefix로 시작하는 키 가운데 keep 하나만 남기고 비운다 — 날짜가 열쇠에 든 캐시가 날마다 한 벌씩
+// 쌓이지 않게(홈의 `home:qt:<날짜>`·`home:services:<날짜>` · 2026-09-24). 어제 열쇠는 다시 읽힐
+// 일이 없는데 localStorage 자리만 먹는다.
+export function pruneCache(prefix, keep) {
+  for (const k of [...mem.keys()]) if (k.startsWith(prefix) && k !== keep) mem.delete(k);
+  for (const k of [...loadedAt.keys()]) if (k.startsWith(prefix) && k !== keep) loadedAt.delete(k);
+  const head = `${PREFIX}:${scope}:${prefix}`;
+  const kept = skey(keep);
+  purgeKeys(k => k.startsWith(head) && k !== kept);
+}
+
+// 이 열쇠를 방금(FRESH_MS 안에) 새로 읽었고 값이 아직 있는가 — useCached가 재마운트에서 다시
+// 읽을지 정한다. 클라우드일 때만 참이다(FRESH_MS 주석).
+export function cacheFresh(key, now = Date.now()) {
+  if (!persist() || !mem.has(key)) return false;
+  const t = loadedAt.get(key);
+  return t != null && now - t < FRESH_MS;
+}
+
+// useCached의 run이 성공했을 때 부른다(검사도 부른다)
+export function noteLoaded(key, now = Date.now()) { loadedAt.set(key, now); }
+
 // 화면용 훅. 캐시가 있으면 그것을 바로 돌려주고(loading=false, stale=true) 뒤에서 loader를
 // 돌려 갈아 끼운다. 캐시가 없으면 loading=true(스켈레톤). deps가 바뀌면 다시 읽는다.
 //   const { data, loading, stale, error, refresh } = useCached(`worship:list:${year}`, () => loadServices(year), [year]);
+//
+// **재마운트가 방금 읽은 열쇠면 다시 읽지 않는다**(cacheFresh · 15초 · 클라우드만). 그때는 캐시 값을
+// **stale:false로** 세운다 — stale로 두면 "새로 읽은 한 벌"을 기다리는 화면(groupsView bundleFresh의
+// QR 딥링크 판정)이 영영 기다린다. 생략은 마운트·열쇠가 바뀐 때뿐이다 — 같은 열쇠에서 deps만 바뀌면
+// loader가 달라진 것이라 읽는다. refresh()는 언제나 읽는다.
 export function useCached(key, loader, deps = []) {
   const [state, setState] = useState(() => {
     const hit = readCache(key);
-    return { data: hit, loading: hit === undefined, stale: hit !== undefined, error: null };
+    return { data: hit, loading: hit === undefined, stale: hit !== undefined && !cacheFresh(key), error: null };
   });
   const token = useRef(0);
   const keyRef = useRef(key);
+  const mounted = useRef(false);
 
   const run = useCallback(async (k) => {
     const my = ++token.current;
@@ -109,6 +148,7 @@ export function useCached(key, loader, deps = []) {
       const v = await loader();
       if (my !== token.current) return;
       writeCache(k, v);
+      noteLoaded(k);
       setState({ data: v, loading: false, stale: false, error: null });
     } catch (e) {
       if (my !== token.current) return;
@@ -118,10 +158,19 @@ export function useCached(key, loader, deps = []) {
   }, deps);
 
   useEffect(() => {
-    if (keyRef.current !== key) {
+    const keyChanged = keyRef.current !== key;
+    const skip = (!mounted.current || keyChanged) && cacheFresh(key);
+    mounted.current = true;
+    if (keyChanged) {
       keyRef.current = key;
       const hit = readCache(key);
-      setState({ data: hit, loading: hit === undefined, stale: hit !== undefined, error: null });
+      setState({ data: hit, loading: hit === undefined, stale: hit !== undefined && !skip, error: null });
+    }
+    if (skip) {
+      // 방금 읽은 값이다 — 그 값을 새 값으로 세우고 끝낸다(위 주석)
+      token.current += 1;   // 앞서 떠난 읽기가 늦게 와서 덮지 않게
+      setState(s => (s.stale || s.loading ? { data: readCache(key), loading: false, stale: false, error: null } : s));
+      return;
     }
     run(key);
   // eslint-disable-next-line react-hooks/exhaustive-deps
