@@ -3915,3 +3915,27 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(due('7월 2일까지'), '2026-07-02', '182일 전까지는 같은 해다');
   console.log('PASS  회의록 날짜 반년 경계가 로컬 기준 2가지');
 }
+
+// ── 첨부 이름은 NFC (cloud.uploadOwnedFile · 검색 norm · 0072 · 2026-09-24) ─────────────────
+// 맥에서 고른 파일 이름은 한글이 자모로 풀린 NFD로 와서, 같은 글자를 쳐도 검색에 안 걸렸다.
+// 되돌리기 검사: 검색 norm에서 .normalize('NFC')를 빼면 첫 단정이, 업로드의 name 한 벌을
+// file.name으로 되돌리면 둘째·셋째가 깨진다.
+{
+  const lay = readFileSync(new URL('../src/components/layout.jsx', import.meta.url), 'utf8');
+  const normSrc = /const norm = (\(x\) => [^\n]+);/.exec(lay)?.[1];
+  assert.ok(normSrc, '검색의 norm을 찾지 못했다');
+  const norm = (0, eval)(normSrc);
+  const nfd = '주보 파일.pdf'.normalize('NFD');
+  assert.ok(nfd !== '주보 파일.pdf' && norm(nfd).includes(norm('주보파일')),
+    '자모로 풀린(NFD) 이름도 같은 글자로 친 검색어에 걸린다');
+  const cloud = readFileSync(new URL('../src/services/cloud.js', import.meta.url), 'utf8');
+  const up = /async function uploadOwnedFile[\s\S]*?\n}\n/.exec(cloud.replace(/\r\n/g, '\n'))?.[0] || '';
+  assert.ok(/const name = String\(file\.name \|\| ''\)\.normalize\('NFC'\);/.test(up),
+    '업로드는 이름을 NFC로 한 번 맞춘다');
+  assert.ok(up && !/file\.name/.test(up.replace(/const name = String\(file\.name[^\n]*/, '')),
+    '업로드 흐름은 맞춘 name만 쓴다(file.name을 다시 읽지 않는다)');
+  const mig = readFileSync(new URL('../supabase/migrations/0072_files_name_nfc.sql', import.meta.url), 'utf8');
+  assert.ok(/disable trigger trg_cards_updated_meta;[\s\S]*update public\.files set name = normalize\(name, NFC\) where name <> normalize\(name, NFC\);[\s\S]*enable trigger trg_cards_updated_meta;/.test(mig),
+    '0072는 카드 시각 트리거를 끄고 옛 행을 NFC로 맞춘 뒤 다시 켠다');
+  console.log('PASS  첨부 이름 NFC 4가지');
+}

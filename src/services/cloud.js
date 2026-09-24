@@ -657,9 +657,9 @@ const INLINE_MAX = 3 * 1024 * 1024;
 // 돌려주는 것: { drive } 또는 { storagePath } 중 하나.
 // `prefix`는 Storage에 둘 자리의 앞머리다 — 업무 첨부는 `<프로젝트>/<업무>`,
 // 주보 송폼은 `services/<주보>`(0047). 부르는 쪽이 정한다.
-async function uploadViaStorage(file, { prefix, key, folderHint }) {
+async function uploadViaStorage(file, { prefix, key, folderHint, name = file.name }) {
   const c = client();
-  const safe = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safe = (name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = `${prefix}/${newKey()}-${safe}`;
   const put = await c.storage.from(ATTACH_BUCKET).upload(path, file, {
     contentType: file.type || undefined, upsert: false, cacheControl: '2592000',
@@ -682,7 +682,7 @@ async function uploadViaStorage(file, { prefix, key, folderHint }) {
       ...folderHint,
       key,
       url: signed,
-      name: file.name, mimeType: file.type || undefined,
+      name, mimeType: file.type || undefined,
     }, folderHint);
     // 드라이브로 갔으니 옮겨 담는 자리는 치운다. 실패해도 던지지 않는다 —
     // 남은 사본은 용량만 차지하고, 그것 때문에 첨부가 막히면 안 된다.
@@ -777,14 +777,18 @@ export async function grantCopyEditors(row, emails = []) {
 // 한 벌로 둔다. 두 벌로 두면 고칠 때마다 한쪽만 고쳐진다(§6-29 머리말의 그 함정).
 // ============================================================================
 async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder }) {
+  // 이름은 **NFC로 한 번 맞춘 것**을 이 흐름 전체가 쓴다. 맥(사파리·파인더)에서 고른 파일은
+  // 한글이 자모로 풀린 NFD로 오는데, 그대로 저장하면 같은 글자를 쳐도 검색에 안 걸리고
+  // 드라이브에서도 이름이 다른 파일로 보인다(라이브 15행 · 2026-09-24 · 0072가 옛 행을 맞춘다).
+  const name = String(file.name || '').normalize('NFC');
   const c = client();
   const key = newKey();
-  const copyKind = previewCopyOf(file.name);   // 'spreadsheet'|'document'|'presentation'|null
+  const copyKind = previewCopyOf(name);   // 'spreadsheet'|'document'|'presentation'|null
   let up = null;          // 드라이브에 올라간 경우
   let storagePath = null; // Storage에 남긴 경우(스크립트가 v5거나 옮기기 실패)
   try {
     if ((file.size ?? 0) > INLINE_MAX) {
-      const out = await uploadViaStorage(file, { prefix, key, folderHint });
+      const out = await uploadViaStorage(file, { prefix, key, folderHint, name });
       up = out.drive || null;
       storagePath = out.storagePath || null;
     } else {
@@ -792,21 +796,21 @@ async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder
         action: 'upload',
         ...folderHint,
         key,
-        name: file.name, mimeType: file.type || undefined,
+        name, mimeType: file.type || undefined,
         dataBase64: await fileToBase64(file),
       }, folderHint);
     }
   } catch (e) {
     if (!e.notConfigured) throw e;
     // 드라이브가 없는 환경 — 예전 경로 그대로
-    return uploadToStorageOnly(file, { owner, prefix });
+    return uploadToStorageOnly(file, { owner, prefix, name });
   }
 
   let row;
   try {
     row = unwrap(await c.from('files').insert({
       ...owner,
-      name: file.name,
+      name,
       mime_type: file.type || null,
       size_bytes: file.size ?? null,
       ...(up
@@ -841,7 +845,7 @@ async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder
   // 행이 이미 있으므로 사본 id는 몇 초 뒤 UPDATE로 따라 붙는다.
   if (up && !row.preview_file_id) {
     attachPreviewCopy(row, {
-      fileId: up.id, name: file.name, folderId: up.folderId,
+      fileId: up.id, name, folderId: up.folderId,
       kind: copyKind, version: up.version,
       cueEditors: row.kind === 'cuesheet',
     });
@@ -938,9 +942,9 @@ export async function renameDriveFolder(folderId, newName) {
 
 // 예전 경로(Supabase Storage). 드라이브 이전 파일과 미설정 환경이 쓴다.
 // owner·prefix는 위 uploadOwnedFile이 넘긴다 — 업무 첨부든 주보 송폼이든 같은 길이다.
-async function uploadToStorageOnly(file, { owner, prefix }) {
+async function uploadToStorageOnly(file, { owner, prefix, name = file.name }) {
   const c = client();
-  const safe = (file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safe = (name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
   // 열쇠 만들기는 위 newKey 한 벌이다(randomUUID가 없는 브라우저 폴백까지 거기 있다)
   const path = `${prefix}/${newKey()}-${safe}`;
   // cacheControl: 경로에 uuid가 박혀 있어 **같은 주소가 다른 그림이 될 수 없다.**
@@ -954,7 +958,7 @@ async function uploadToStorageOnly(file, { owner, prefix }) {
   try {
     return unwrap(await c.from('files').insert({
       ...owner,
-      name: file.name,
+      name,
       mime_type: file.type || null,
       storage_path: path,
       size_bytes: file.size ?? null,

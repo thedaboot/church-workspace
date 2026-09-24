@@ -870,7 +870,9 @@ function SearchResults({ query, onPick }) {
   const results = useMemo(() => {
     // 공백을 지우고 비교한다 — "버스 견적"이 "전세버스 견적서"를 못 찾던 것(§1.3)이
     // 대부분 띄어쓰기 차이였다. RAG 없이 잡히는 것부터 잡는다.
-    const norm = (x) => String(x || '').toLowerCase().replace(/\s+/g, '');
+    // NFC로 맞춰 비교한다 — 맥에서 올린 파일 이름은 한글이 자모로 풀린 NFD로 저장돼 있어
+    // 같은 글자를 쳐도 안 걸렸다(업로드는 이제 NFC로 저장한다 · 0072가 옛 행을 맞춘다).
+    const norm = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/\s+/g, '');
     const q = norm(deferred);
     if (q.length < 2) return null;
     const hit = (x) => norm(x).includes(q);
