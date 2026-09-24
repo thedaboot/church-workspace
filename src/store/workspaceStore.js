@@ -13,6 +13,31 @@ import { isCloudEnabled } from '../services/supabaseClient.js';
 // 메모리가 계속 늘어났다(클라우드 모드는 실행 취소 버튼 자체를 숨기는데도).
 const HISTORY_LIMIT = 20;
 
+// 대시보드 '최근 활동'이 들고 있는 줄 수. cloud.listRecentActivity(limit = 30)와 같은 값이어야
+// 한다 — 여기만 늘리면 새로고침할 때 줄이 도로 줄어든다.
+export const ACTIVITY_FEED_LIMIT = 30;
+
+const atMs = (e) => {
+  const t = Date.parse(e?.at || '');
+  return Number.isFinite(t) ? t : 0;
+};
+
+// 새 활동 한 줄을 피드 앞에 얹는다(순수 · PREPEND_ACTIVITY · 2026-09-24). 줄은 activity INSERT의
+// payload.new를 cloudSync.activityFeedToApp으로 바꾼 것이다.
+//   · 같은 id는 한 번만 — 다시 읽은 피드와 실시간이 겹쳐 와도 줄이 둘이 되지 않는다(새 값이 이긴다)
+//   · 서버와 같은 순서(created_at 내림차순)로 세운다 — 이벤트가 앞뒤 바뀌어 와도 자리가 맞는다
+//   · 30줄에서 자른다(서버 조회와 같은 상한)
+// 원래 배열은 건드리지 않는다. id가 없는 줄은 얹지 않고 그대로 돌려준다.
+export function prependActivity(feed, entry, limit = ACTIVITY_FEED_LIMIT) {
+  const list = Array.isArray(feed) ? feed : [];
+  if (!entry || entry.id == null) return list;
+  return [entry, ...list.filter(e => e?.id !== entry.id)]
+    .map((e, i) => [e, i])
+    .sort((a, b) => (atMs(b[0]) - atMs(a[0])) || (a[1] - b[1]))
+    .map(([e]) => e)
+    .slice(0, limit);
+}
+
 class WorkspaceStore {
   constructor(initialState) {
     this.state = { past: [], present: initialState, future: [] };
@@ -41,6 +66,12 @@ class WorkspaceStore {
       // 기록하지 않는다(SYNC_TASK와 같은 이유 — 아래 '기록 안 하는 액션' 분기에서 걸러진다)
       case 'SET_ACTIVITY_FEED':
         nextState = { ...currentState, activityFeed: action.payload };
+        break;
+      // 새 활동 한 줄을 피드 앞에 얹는다 — activity INSERT의 payload.new(2026-09-24). 예전에는
+      // INSERT마다 피드를 통째로 다시 읽었다. 같은 id는 한 번 · 30줄 유지(아래 prependActivity).
+      // INSERT가 아닌 변경(지움·고침)은 부르는 쪽이 예전처럼 SET_ACTIVITY_FEED로 다시 읽는다.
+      case 'PREPEND_ACTIVITY':
+        nextState = { ...currentState, activityFeed: prependActivity(currentState.activityFeed, action.payload) };
         break;
       // 다녀간 시각만 바뀐 사람 한 칸 — profiles의 심장박동(§4.8)이 실시간으로 올 때.
       // 전체 재조회(LOAD_STATE)로 흘리면 5분마다 사람마다 워크스페이스를 통째로 다시
@@ -158,7 +189,7 @@ class WorkspaceStore {
     // 이름은 SYNC_TASK이고, 오타 때문에 서버에서 온 카드 1건이 되돌리기 기록에 그대로
     // 쌓였다(실시간 재조회가 잦은 탭에서 past가 계속 늘어나는 바로 그 증상).
     } else if (action.type === 'SYNC_TASK' || action.type === 'SET_ACTIVITY_FEED'
-      || action.type === 'SYNC_MEMBER_SEEN') {
+      || action.type === 'PREPEND_ACTIVITY' || action.type === 'SYNC_MEMBER_SEEN') {
       this.state = { ...this.state, present: nextState };
     } else {
       this.state = {

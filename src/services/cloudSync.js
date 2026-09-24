@@ -760,7 +760,7 @@ export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {
 //   cards        → 그 카드 1건만 다시 읽기 (삭제는 바로 제거)
 //   comments/files/comment_reactions → 목록 화면에 안 나오는 데이터
 //                → 열려 있는 업무 창일 때만 상세 갱신
-//   activity     → 대시보드 피드만 다시 읽기
+//   activity     → INSERT면 그 한 줄을 피드 앞에 얹기(onActivityFeed(entry)), 그 밖은 피드만 다시 읽기
 //   profiles     → 다녀간 시각만 바뀐 UPDATE(심장박동)면 그 사람 한 칸만 스토어에 얹기,
 //                  그 밖의 변경(가입·이름·사진·팀·승인)은 전체 재조회
 //   그 외(projects·resource_links) → 전체 재조회 (드문 변경)
@@ -789,8 +789,11 @@ export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActiv
     }
     // 활동은 대시보드 피드만 다시 읽는다(쿼리 1개). 전체 재조회로 흘리면 저장 한 번에
     // 기록이 여러 건이라 모든 접속자가 그때마다 워크스페이스를 다시 읽게 된다.
+    // **INSERT는 읽지도 않는다**(2026-09-24) — payload.new가 곧 피드 한 줄이라(listRecentActivity와
+    // 같은 칸) 피드 줄 모양으로 바꿔 넘기고, 부르는 쪽이 앞에 얹는다. 지움·고침은 null(다시 읽기).
     if (table === 'activity') {
-      onActivityFeed?.();
+      const entry = payload.eventType === 'INSERT' && row.id ? activityFeedToApp(row) : null;
+      onActivityFeed?.(entry);
       return;
     }
     // **다녀간 시각만 바뀐 profiles UPDATE는 심장박동이다**(§4.8 · 사람마다 5분에 한 번).

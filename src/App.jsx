@@ -97,6 +97,7 @@ import { ToastHost, showToast } from './components/Toast.jsx';
 import { setTaskLinkOpener } from './components/RichText.jsx';
 import { setEntryQuery, isAppLink } from './services/entryQuery.js';
 import * as cloudSync from './services/cloudSync.js';
+import { createIdBatcher } from './services/realtimeBatch.js';
 import { subscribePresence, trackWhere } from './services/presence.js';
 import logoLight from './assets/logo-light.png';
 import logoDark from './assets/logo-dark.png';
@@ -309,19 +310,28 @@ function WorkspaceShell() {
     if (!cloudMode) return;
     let timer = null;
     let feedTimer = null;
+    // 카드 이벤트는 **200ms 모아 id마다 한 번** 읽는다(2026-09-24). 저장 한 번이 cards UPDATE를
+    // 여러 건 만들어(내 저장의 에코 포함) 같은 카드를 서너 번 읽었고, 늦게 온 옛 응답이 새 값을
+    // 덮을 수도 있었다. 모으는 사이에 편집이 시작되면 그 id들은 편집이 끝날 때로 미룬다.
+    const cards = createIdBatcher((ids) => {
+      if (isEditingRef.current) { ids.forEach(id => pendingCardsRef.current.add(id)); return; }
+      ids.forEach(id => syncCard(id));
+    }, 200);
     const unsub = cloudSync.subscribeWorkspace({
       // 편집 중이면 미뤘다가 **그 카드만** 다시 읽는다. 예전에는 전체 재조회를
       // 예약했는데, 그러면 저장 한 번에 워크스페이스를 통째로 다시 읽고 그 과정에서
       // 열려 있는 창의 댓글·활동이 비었다(위 reloadCloud 주석).
       onCard: (id) => {
         if (isEditingRef.current) { if (id) pendingCardsRef.current.add(id); return; }
-        syncCard(id);
+        cards.add(id);
       },
       onCardDelete: (id) => { if (id) store.dispatch({ type: 'DELETE_TASK', payload: id }); },
       onCardDetail: (id) => { if (!isEditingRef.current) syncCardDetail(id); },
       // 최근 활동 피드만 다시 읽는다(쿼리 1개). 저장 한 번에 기록이 여러 건 생기므로
       // 500ms 모아서 한 번만. 편집 중에도 막지 않는다 — 폼을 건드리는 갱신이 아니다.
-      onActivityFeed: () => {
+      // **새 기록(INSERT)은 읽지 않고 그 줄을 앞에 얹는다**(entry · 2026-09-24 — 쿼리 0개).
+      onActivityFeed: (entry) => {
+        if (entry) { store.dispatch({ type: 'PREPEND_ACTIVITY', payload: entry }); return; }
         clearTimeout(feedTimer);
         feedTimer = setTimeout(() => {
           cloudSync.loadActivityFeed()
@@ -339,7 +349,7 @@ function WorkspaceShell() {
         timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e)); }, 300);
       },
     });
-    return () => { clearTimeout(timer); clearTimeout(feedTimer); unsub(); };
+    return () => { clearTimeout(timer); clearTimeout(feedTimer); cards.cancel(); unsub(); };
   }, [cloudMode, reloadCloud, syncCard, syncCardDetail]);
 
   // 지금 접속해 있는 사람(presence) — DB에 아무것도 쓰지 않고, 연결이 끊기면 서버가

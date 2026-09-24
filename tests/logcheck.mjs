@@ -3629,3 +3629,78 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   for (const c of homeCols) assert.ok(guideCols.has(c), `모임 열은 홈 열을 다 담는다(${c})`);
   console.log('PASS  홈·모임 주보 가볍게 읽기 14가지');
 }
+
+// ── 워크스페이스 실시간을 덜 읽는다 — 카드 모으기 · 활동 한 줄 얹기 (2026-09-24) ──────────
+// 카드 저장 한 번이 cards 이벤트를 여러 건 만들어 같은 카드를 서너 번 읽었고(늦은 옛 응답이 새
+// 값을 덮는 경합까지), 활동 INSERT 한 건마다 피드 30줄을 통째로 다시 읽었다. 이제 카드는 200ms
+// 모아 id마다 한 번, 활동 INSERT는 payload.new를 피드 앞에 얹는다(쿼리 0개).
+// 게스트 모드는 이 길을 안 탄다(구독이 없다) — 그래서 여기서 순수 조각과 배선을 본다.
+// 되돌리기 검사: prependActivity의 id 거르기를 지우면 '같은 id는 한 번'이, createIdBatcher의
+// `if (!timer)`를 지우고 매번 타이머를 걸면 '첫 id부터 잰다'가 깨진다.
+{
+  // ① 활동 한 줄 얹기 — 스토어의 순수 함수(1665줄 블록과 같은 방식으로 import를 걷는다)
+  const src = readFileSync(new URL('../src/store/workspaceStore.js', import.meta.url), 'utf8')
+    .replace(/import \{ useSyncExternalStore \} from 'react';/, 'const useSyncExternalStore = () => {};')
+    .replace(/import \{ isCloudEnabled \} from '\.\.\/services\/supabaseClient\.js';/,
+      'const isCloudEnabled = () => false;')
+    .replace("'../services/domain.js'", JSON.stringify(new URL('../src/services/domain.js', import.meta.url).href));
+  const d = mkdtempSync(join(tmpdir(), 'b3store-'));
+  const f = join(d, 'store.mjs');
+  writeFileSync(f, src);
+  globalThis.localStorage = { getItem: () => null };
+  const S = await import(pathToFileURL(f).href);
+  delete globalThis.localStorage;
+  const row = (id, min) => ({ id, action: `a${id}`, at: `2026-09-24T01:${String(min).padStart(2, '0')}:00.000+00:00` });
+  const feed = Array.from({ length: 30 }, (_, i) => row(`r${i}`, 59 - i));   // 최신이 앞
+  const fresh = row('new', 59);
+  const next = S.prependActivity(feed, { ...fresh, at: '2026-09-24T02:00:00.000+00:00' });
+  assert.strictEqual(next[0].id, 'new', '새 줄이 맨 앞');
+  assert.strictEqual(next.length, 30, '30줄을 넘지 않는다(서버 조회와 같은 상한)');
+  assert.ok(!next.some(e => e.id === 'r29'), '가장 오래된 줄이 밀려난다');
+  assert.notStrictEqual(next, feed, '새 배열이다(스토어가 바뀐 것을 안다)');
+  assert.strictEqual(feed.length, 30, '원래 피드는 그대로');
+  const twice = S.prependActivity(next, { ...next[0], action: '고친 값' });
+  assert.strictEqual(twice.filter(e => e.id === 'new').length, 1, '같은 id는 한 번만');
+  assert.strictEqual(twice[0].action, '고친 값', '겹치면 새 값이 이긴다');
+  // 늦게 도착한 옛 이벤트는 제 시각 자리에 선다(서버 순서 = created_at 내림차순)
+  const late = S.prependActivity([row('b', 30), row('a', 10)], row('mid', 20));
+  assert.deepStrictEqual(late.map(e => e.id), ['b', 'mid', 'a'], '시각 순서로 끼어든다');
+  assert.strictEqual(S.prependActivity(feed, null), feed, '줄이 없으면 그대로');
+  assert.strictEqual(S.ACTIVITY_FEED_LIMIT, 30);
+  assert.ok(/listRecentActivity\(limit = 30\)/.test(readFileSync(new URL('../src/services/cloud.js', import.meta.url), 'utf8')),
+    '서버 조회의 상한과 같은 값');
+  // 액션이 되돌리기 기록에 쌓이지 않는다(SET_ACTIVITY_FEED와 같은 이유 — 내 조작이 아니다)
+  S.store.dispatch({ type: 'LOAD_STATE', payload: { currentUser: {}, members: [], activityFeed: [row('x', 1)],
+    projects: { byId: {}, allIds: [] }, tasks: { byId: {}, allIds: [] } } });
+  S.store.dispatch({ type: 'PREPEND_ACTIVITY', payload: row('y', 2) });
+  assert.deepStrictEqual(S.store.getState().activityFeed.map(e => e.id), ['y', 'x'], 'PREPEND_ACTIVITY가 앞에 얹는다');
+  assert.strictEqual(S.store.canUndo(), false, 'PREPEND_ACTIVITY는 past에 쌓이지 않는다');
+
+  // ② 카드 id 모으기 — 창은 첫 id부터, id마다 한 번
+  const { createIdBatcher } = await import(new URL('../src/services/realtimeBatch.js', import.meta.url).href);
+  const flushed = [];
+  const b = createIdBatcher((ids) => flushed.push(ids), 20);
+  b.add('c1'); b.add('c2'); b.add('c1'); b.add(null);
+  assert.deepStrictEqual(flushed, [], '창이 닫히기 전에는 흘리지 않는다');
+  await new Promise(r => setTimeout(r, 12));
+  b.add('c3');                                  // 창 안 — 타이머를 다시 걸지 않는다
+  await new Promise(r => setTimeout(r, 14));
+  assert.deepStrictEqual(flushed, [['c1', 'c2', 'c3']], '첫 id부터 잰 창에 id마다 한 번');
+  b.add('c9'); b.cancel();
+  await new Promise(r => setTimeout(r, 30));
+  assert.strictEqual(flushed.length, 1, '걷으면 모아 둔 것을 버린다');
+
+  // ③ 배선 — 라우팅과 App
+  const sync = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
+  assert.ok(/eventType === 'INSERT' && row\.id \? activityFeedToApp\(row\) : null;\s*onActivityFeed\?\.\(entry\)/.test(sync),
+    'activity INSERT는 피드 줄 모양으로 넘기고, 그 밖은 null(다시 읽기)');
+  const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.ok(/onActivityFeed: \(entry\) => \{\s*if \(entry\) \{ store\.dispatch\(\{ type: 'PREPEND_ACTIVITY', payload: entry \}\); return; \}/.test(app),
+    '새 기록은 읽지 않고 얹는다');
+  assert.ok(/loadActivityFeed\(\)[\s\S]{0,120}SET_ACTIVITY_FEED/.test(app), '지움·고침은 예전처럼 다시 읽는다');
+  assert.ok(/createIdBatcher\(\(ids\) => \{\s*if \(isEditingRef\.current\) \{ ids\.forEach\(id => pendingCardsRef\.current\.add\(id\)\); return; \}\s*ids\.forEach\(id => syncCard\(id\)\);\s*\}, 200\)/.test(app),
+    '카드는 200ms 모아 id마다 한 번 · 모으는 사이 편집이 시작되면 편집 뒤로 미룬다');
+  assert.ok(/onCard: \(id\) => \{[\s\S]{0,160}cards\.add\(id\);/.test(app), 'onCard는 곧장 읽지 않고 모은다');
+  assert.ok(/cards\.cancel\(\); unsub\(\);/.test(app), '구독을 걷을 때 모아 둔 것도 걷는다');
+  console.log('PASS  워크스페이스 실시간 덜 읽기 22가지');
+}
