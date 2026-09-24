@@ -3388,6 +3388,15 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 항목을 다 지우면 도막도 없어진다
   assert.ok(!A.writeActionSection(md, []).includes(A.ACTION_HEADING), '항목이 없으면 도막도 없다');
 
+  // **사람이 친 앞 글은 한 글자도 안 바뀐다**(2026-09-25 감사 3) — 업무 창 편집기의 value는
+  // stripActionSection(writeActionSection(친 글, 항목))이다. 둘이 다르면 편집기가 문서를
+  // 통째로 갈아 끼워 커서가 끝으로 튄다(맨 앞 빈 줄·들여쓰기·끝 공백을 치는 순간).
+  // 되돌리기 검사: stripActionSection 끝에 `.trim()`을 되살리면 셋이, 빈 줄 접기를 되살리면 넷째가 깨진다.
+  for (const typed of ['  들여쓴 첫 줄' + NL + '회의 메모', NL + '회의 메모', '회의 메모  ', '가' + NL + NL + NL + '나', '회의 메모']) {
+    assert.strictEqual(A.stripActionSection(A.writeActionSection(typed, items)), typed,
+      `편집기 value가 친 글과 다르다: ${JSON.stringify(typed)}`);
+  }
+
   // 날짜는 ISO로 들고 다니다가 우리 표기로 적는다
   assert.ok(A.formatActionLine({ names: ['가'], what: '할 일', dueDate: '2026-10-05' })
     .endsWith('10월 5일까지'), 'ISO를 우리 표기로 적는다');
@@ -3398,7 +3407,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(A.namesLabel(['가', '나', '다']), '가 · 나 · 다');
   assert.strictEqual(A.namesLabel(['가', '나', '다', '라', '마']), '가 · 나 · 다 외 2명');
   assert.strictEqual(A.namesLabel([]), '');
-  console.log('PASS  담당 업무 되쓰기·이름표 10가지');
+  console.log('PASS  담당 업무 되쓰기·이름표 15가지');
 }
 
 // ── 업무 창에서 정말 바뀐 게 있나 (utils.taskEditDirty) ──────────────────────

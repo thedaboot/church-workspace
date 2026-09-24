@@ -119,9 +119,16 @@ export function stripActionSection(markdown) {
   for (let i = at + 1; i < lines.length; i++) {
     if (/^#{1,4}\s/.test(lines[i])) { end = i; break; }
   }
-  const out = [...lines.slice(0, at), ...lines.slice(end)];
-  // 걷어낸 자리에 빈 줄이 겹쳐 남지 않게 다듬는다
-  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  // 걷어낸 자리에 빈 줄이 겹쳐 남지 않게 **그 이음매만** 다듬는다(2026-09-25 감사 3).
+  // 예전에는 글 전체를 `trim()`하고 빈 줄을 접었다 — 업무 창의 편집기는 이 글을 value로
+  // 받으므로, 사람이 쓴 맨 앞 빈 줄·들여쓰기·끝 공백이 value에서 사라지는 순간 편집기가
+  // "밖에서 글이 바뀌었다"로 읽고 문서를 통째로 갈아 끼워 커서가 끝으로 튀었다.
+  // 사람이 쓴 줄은 한 글자도 안 건드린다: 도막 앞에 writeActionSection이 넣은 빈 줄만 걷는다.
+  const before = lines.slice(0, at);
+  const after = lines.slice(end);
+  if (after.length) { while (before.length > 1 && before.at(-1) === '' && before.at(-2) === '') before.pop(); }
+  else { while (before.length && before.at(-1) === '') before.pop(); }
+  return [...before, ...after].join('\n');
 }
 
 // ── 되쓰기 — 부품에서 고친 것을 본문 도막으로 되돌린다 (2026-09-22) ─────────
@@ -143,8 +150,10 @@ export function writeActionSection(body, items) {
   const rows = (items || []).filter(it => String(it?.what || '').trim());
   const rest = stripActionSection(body);
   if (!rows.length) return rest;
-  return [rest, '', `### ${ACTION_HEADING}`, ...rows.map(formatActionLine)]
-    .join('\n').replace(/^\n+/, '').trim();
+  // 앞 글(rest)은 다듬지 않는다 — stripActionSection이 이 글을 그대로 돌려줘야 편집기의
+  // value가 사람이 친 글과 같다(위 stripActionSection 주석). 앞 글이 없을 때만 빈 줄을 안 넣는다.
+  const block = [`### ${ACTION_HEADING}`, ...rows.map(formatActionLine)];
+  return (rest ? [rest, '', ...block] : block).join('\n');
 }
 
 // 맡는 쪽 이름표 — **세 명까지는 이름, 그보다 많으면 외 N명**(사용자 결정 2026-09-22).
