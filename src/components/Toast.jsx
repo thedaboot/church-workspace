@@ -38,9 +38,11 @@ export function ToastHost() {
 
   if (!toast) return null;
   // 모바일 하단 탭바(약 4.5rem + safe-area) 위로 띄운다 — 그냥 bottom-6이면
-  // 되돌리기 버튼이 탭바에 가려 눌리지 않는다
+  // 되돌리기 버튼이 탭바에 가려 눌리지 않는다.
+  // z는 body 포털 창들(첨부 미리보기·문서 창 z-100 · 공유 시트 z-120)보다 위다 — 이 토스트는
+  // #root 안에 있고 포털은 body 끝에 붙어 문서 순서가 뒤라, 같은 z면 창이 토스트를 덮는다.
   return (
-    <div className="fixed left-1/2 -translate-x-1/2 z-[100] pointer-events-none px-4 w-full flex justify-center bottom-[calc(6rem+env(safe-area-inset-bottom))] md:bottom-6">
+    <div className="fixed left-1/2 -translate-x-1/2 z-[130] pointer-events-none px-4 w-full flex justify-center bottom-[calc(6rem+env(safe-area-inset-bottom))] md:bottom-6">
       <div
         key={toast.id} role="status" data-toast=""
         // 폭을 묶는다 — max-w를 화면 폭으로 두면 데스크톱에서 긴 문구가 한 줄로
