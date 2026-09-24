@@ -452,7 +452,9 @@ svg.lucide { stroke-width: 1.4px; }
 .tiptap strong { font-weight: 700; }
 .tiptap s { opacity: .8; }
 .tiptap mark { background: var(--app-tag-yellow); color: var(--app-tag-yellow-fg); border-radius: 3px; padding: 0 .125rem; }
-.tiptap a { color: var(--app-accent-text); text-decoration: underline; word-break: break-all; }
+/* 링크 줄바꿈은 넘칠 때만(anywhere) — break-all은 한글 라벨까지 글자마다 끊었다(RichText의 LINK_CLS와 같다).
+   종이(paper.jsx)는 그림으로 굽는 길이라 break-all을 그대로 둔다. */
+.tiptap a { color: var(--app-accent-text); text-decoration: underline; overflow-wrap: anywhere; }
 .tiptap img { max-width: 100%; max-height: 16rem; object-fit: contain; border: 1px solid var(--app-line); border-radius: .75rem; margin: .5rem 0; }
 .tiptap img.ProseMirror-selectednode { outline: 2px solid var(--app-accent); }
 /* Placeholder (빈 첫 문단에만) */

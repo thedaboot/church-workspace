@@ -12,7 +12,9 @@ import { splitMention } from '../utils.js';
 //    중첩을 지원하면 "쓴 그대로 보인다"가 깨지므로 파서를 하나로 유지한다.
 // ============================================================================
 
-const LINK_CLS = 'text-accent-text underline mx-0.5 break-all hover:text-accent-strong';
+// 줄바꿈은 overflow-wrap:anywhere — break-all은 한글 라벨(`[회의록](…)`)까지 글자마다 끊어
+// 아무 데서나 줄이 갈렸다. anywhere는 **넘칠 때만** 끊으므로 라벨은 낱말대로, 긴 URL은 잘린다.
+const LINK_CLS = 'text-accent-text underline mx-0.5 [overflow-wrap:anywhere] hover:text-accent-strong';
 
 // 우리 앱을 가리키는 링크(`?p=<projectId>&t=<taskId>`)는 새 창이 아니라 **앱 안에서**
 // 그 업무 창을 연다. App이 여는 함수를 여기 등록한다 — showToast(Toast.jsx)와 같은
