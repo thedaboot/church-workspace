@@ -3452,3 +3452,56 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   }
   console.log(`PASS  0071 보안 조이기의 모양 ${n}가지`);
 }
+
+// ── pdf.js 6.3이 옛 브라우저에서 모듈째 죽지 않는다 (services/pdfPolyfill.js) ──
+// 6.3은 모듈 맨 위에서 `Iterator.prototype.join`을 본다 — `Iterator` 전역이 없으면(사파리 18.4 ·
+// 크롬 122 미만) ReferenceError로 PDF가 통째로 안 열린다. 노드에는 다 있으므로 **새 전역 칸(vm)을
+// 만들어 그 셋을 지운 뒤** 폴리필을 돌리고, 설치된 pdf.mjs의 그 첫 줄과 pdf.js가 실제로 쓰는
+// 모양(`keys().filter().toArray()` 등)을 그대로 부른다.
+// 되돌리기 검사: 폴리필의 `globalThis.Iterator` 세우기를 지우면 첫 단정이 ReferenceError로 깨진다.
+{
+  const vm = await import('node:vm');
+  const poly = readFileSync(new URL('../src/services/pdfPolyfill.js', import.meta.url), 'utf8');
+  const pdfSrc = readFileSync(new URL('../node_modules/pdfjs-dist/build/pdf.mjs', import.meta.url), 'utf8');
+  const head = pdfSrc.slice(pdfSrc.indexOf('if (typeof Iterator.prototype.join'), pdfSrc.indexOf('\n}\n', pdfSrc.indexOf('if (typeof Iterator.prototype.join')) + 3);
+  assert.ok(head.includes('Iterator.prototype.join = function'), '설치된 pdf.mjs에서 Iterator 첫 줄을 못 찾았다(판이 바뀌었나?)');
+  const old = vm.createContext({});
+  vm.runInContext(`
+    const P = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
+    for (const k of ['map', 'filter', 'some', 'every', 'find', 'forEach', 'toArray', 'reduce', 'take', 'drop', 'flatMap']) delete P[k];
+    delete globalThis.Iterator; delete Promise.try; delete Math.sumPrecise;`, old);
+  assert.strictEqual(vm.runInContext('typeof Iterator', old), 'undefined', '옛 브라우저 흉내가 안 됐다');
+  vm.runInContext(poly, old);
+  vm.runInContext(head, old);                     // pdf.js 6.3의 모듈 첫 줄 — 여기서 죽으면 PDF가 통째로 안 열린다
+  const r = vm.runInContext(`({
+    filt: new Set([3, 1, 2]).keys().filter(x => x > 1).toArray(),
+    find: new Map([['a', 1], ['b', 2]]).keys().find(k => k === 'b'),
+    some: new Map([['a', { n: 1 }]]).values().some(v => v.n === 1),
+    join: new Map([['x', 'A'], ['y', 'B']]).values().join(''),
+    map: [1, 2].values().map((v, i) => v * 10 + i).toArray(),
+    each: (() => { let s = 0; [1, 2, 3].values().forEach(v => { s += v; }); return s; })(),
+    every: [2, 4].values().every(v => v % 2 === 0),
+    sum: Math.sumPrecise([0.5, 1.5, 2]),
+    iterIsProto: Iterator.prototype === Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]())),
+  })`, old);
+  assert.deepStrictEqual([...r.filt], [3, 2], 'Set.keys().filter().toArray() (pdf.js 텍스트 레이어)');
+  assert.strictEqual(r.find, 'b', 'Map.keys().find() (pdf.js 범위 읽기)');
+  assert.strictEqual(r.some, true, 'Map.values().some() (편집기 · 폼)');
+  assert.strictEqual(r.join, 'AB', 'values().join() (XFA)');
+  assert.deepStrictEqual([...r.map], [10, 21], 'map은 순번을 둘째 인자로 준다');
+  assert.strictEqual(r.each, 6);
+  assert.strictEqual(r.every, true);
+  assert.strictEqual(r.sum, 4, 'Math.sumPrecise');
+  assert.strictEqual(r.iterIsProto, true, 'Iterator.prototype이 내장 이터레이터들이 물려받는 그 객체가 아니다');
+  const tried = await vm.runInContext(`Promise.try(() => { throw new Error('동기 오류'); }).then(() => 'ok', e => e.message)`, old);
+  assert.strictEqual(tried, '동기 오류', 'Promise.try가 동기 오류를 거절로 바꾸지 않는다(워커 메시지 처리)');
+  assert.strictEqual(await vm.runInContext(`Promise.try((a, b) => a + b, 2, 3)`, old), 5, 'Promise.try가 인자를 넘기지 않는다');
+
+  // 이미 있는 브라우저(노드 그대로)에서는 아무것도 바꾸지 않는다 — 네이티브가 언제나 더 빠르다
+  const now = vm.createContext({});
+  const before = vm.runInContext('[Iterator, Iterator.prototype.map, Iterator.prototype.toArray, Promise.try, Math.sumPrecise]', now);
+  vm.runInContext(poly, now);
+  const after = vm.runInContext('[Iterator, Iterator.prototype.map, Iterator.prototype.toArray, Promise.try, Math.sumPrecise]', now);
+  before.forEach((f, i) => { if (typeof f === 'function') assert.strictEqual(after[i], f, `네이티브를 덮었다(${i})`); });
+  console.log('PASS  pdf.js 6.3 옛 브라우저 폴리필 15가지');
+}

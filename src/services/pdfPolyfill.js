@@ -21,6 +21,16 @@
 //
 // 이미 있는 브라우저에서는 아무것도 하지 않는다(네이티브가 언제나 더 빠르다).
 // 새 판으로 올린 뒤 PDF가 안 열리면 **여기에 빠진 메서드가 또 있는지부터** 보세요.
+//
+// **6.3(2026-09-24 보안 업그레이드)에서 하나가 더 늘었다 — 이번 것은 모듈을 통째로 죽인다.**
+// pdf.mjs·pdf.worker.mjs가 **모듈 맨 위에서** `typeof Iterator.prototype.join`을 본다. `Iterator`
+// 전역이 없는 브라우저(크롬 122 · 사파리 18.4 · 파이어폭스 131 미만)에서는 그 줄이 ReferenceError라
+// PDF 모듈이 불러와지지도 않는다. 그래서 `Iterator` 전역을 세우고(모든 내장 이터레이터가 이미
+// 물려받는 %IteratorPrototype%을 가리키게 — 새 객체를 만들면 Map·Set의 이터레이터가 못 본다),
+// pdf.js가 이터레이터에 부르는 도우미(filter·some·find·map·forEach·toArray·join)를 채운다.
+// 같은 김에 6.x가 확인 없이 쓰는 둘도 채운다 — `Promise.try`(워커 메시지 처리가 전부 이것이다 ·
+// 크롬 128 · 사파리 18.2 미만에 없다)와 `Math.sumPrecise`(워커 글자 배치 · 아직 없는 브라우저가
+// 많다. 여기 것은 그냥 더하기라 아주 큰 수의 끝자리 정밀도만 다르다).
 // ============================================================================
 const U8 = Uint8Array.prototype;
 
@@ -95,4 +105,49 @@ for (const Ctor of [typeof Response === 'function' ? Response : null, typeof Blo
       async value() { return new Uint8Array(await this.arrayBuffer()); },
     });
   }
+}
+
+// ── `Iterator` 전역과 도우미 (6.3 · 머리말 마지막 문단) ─────────────────────
+// %IteratorPrototype% — 배열·Map·Set·제너레이터의 이터레이터가 모두 물려받는 그 객체다.
+// 여기에 붙여야 `map.keys().filter(…)`가 된다(pdf.js가 실제로 그렇게 쓴다).
+const ITER_PROTO = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
+if (typeof globalThis.Iterator !== 'function') {
+  // 추상 생성자 — 직접 new 할 일은 없다. pdf.js는 `Iterator.prototype`만 본다.
+  const Iterator = function Iterator() {};
+  Iterator.prototype = ITER_PROTO;
+  Object.defineProperty(globalThis, 'Iterator', { configurable: true, writable: true, value: Iterator });
+}
+// 걸러 내는 둘(map·filter)은 제너레이터로 돌려준다 — 제너레이터도 %IteratorPrototype%을
+// 물려받으므로 `.filter(…).toArray()`처럼 이어 부를 수 있다. 콜백의 둘째 인자는 순번(표준과 같다).
+const ITER_HELPERS = {
+  *map(fn) { let i = 0; for (const v of this) yield fn(v, i++); },
+  *filter(fn) { let i = 0; for (const v of this) if (fn(v, i++)) yield v; },
+  some(fn) { let i = 0; for (const v of this) if (fn(v, i++)) return true; return false; },
+  every(fn) { let i = 0; for (const v of this) if (!fn(v, i++)) return false; return true; },
+  find(fn) { let i = 0; for (const v of this) if (fn(v, i++)) return v; return undefined; },
+  forEach(fn) { let i = 0; for (const v of this) fn(v, i++); },
+  toArray() { return [...this]; },
+  // 표준 도우미가 아니다 — pdf.js가 스스로 붙이는 것과 같은 모양(그쪽은 없을 때만 붙인다)
+  join(separator) { return [...this].join(separator); },
+};
+for (const [name, value] of Object.entries(ITER_HELPERS)) {
+  if (typeof ITER_PROTO[name] !== 'function') {
+    Object.defineProperty(ITER_PROTO, name, { configurable: true, writable: true, value });
+  }
+}
+
+// `Promise.try(fn, ...args)` — fn이 동기로 던져도 거절된 약속이 된다.
+if (typeof Promise.try !== 'function') {
+  Object.defineProperty(Promise, 'try', {
+    configurable: true, writable: true,
+    value(fn, ...args) { return new Promise((resolve) => resolve(fn(...args))); },
+  });
+}
+
+// `Math.sumPrecise(iterable)` — 여기서는 보통 더하기다(머리말).
+if (typeof Math.sumPrecise !== 'function') {
+  Object.defineProperty(Math, 'sumPrecise', {
+    configurable: true, writable: true,
+    value(items) { let s = 0; for (const x of items) s += x; return s; },
+  });
 }
