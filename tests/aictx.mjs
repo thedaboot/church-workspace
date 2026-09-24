@@ -14,6 +14,8 @@ const patched = src
   .replace(/from '\.\.\/utils\.js';/, `from '${pathToFileURL(`${ROOT}/src/utils.js`).href}';`)
   // aiPeople.js는 순수 모듈이라 그대로 쓴다(2026-09-25) — 임시 폴더에서 도니 절대 경로로
   .replace(/from '\.\/aiPeople\.js';/, `from '${pathToFileURL(`${ROOT}/src/services/aiPeople.js`).href}';`)
+  // 명단 한 벌은 supabase 쪽이라 가짜로 — 검사는 setAiRoster로 직접 쥐여 준다(supabase가 null이면 부르지도 않는다)
+  .replace(/import \{ fetchRoster \} from '\.\/worship\.js';/, 'const fetchRoster = async () => null;')
   .replace(/import \{ store \} from '\.\.\/store\/workspaceStore\.js';/, `
 const STATE = globalThis.__STATE;
 export const store = { getState: () => STATE };`);
@@ -48,7 +50,7 @@ globalThis.__STATE = {
     t6: mk('t6','작년 포스터 제작',['미디어팀'],'완료','2025-06-01','2025-06-20',['시온'],'p3'),
   }, allIds:['t0','t1','t2','t3','t4','t5','t6'] },
 };
-if (!patched.includes('/src/services/aiPeople.js')) { console.log('FAIL  aiPeople import 줄을 못 바꿨어요 (ai.js의 import가 바뀌었나요)'); process.exit(1); }
+if (!patched.includes('/src/services/aiPeople.js') || /from '\.\/worship\.js'/.test(patched)) { console.log('FAIL  aiPeople import 줄을 못 바꿨어요 (ai.js의 import가 바뀌었나요)'); process.exit(1); }
 const { buildTaskContext, peopleContext, sanitizeMentions, resolveTaskLinks, AiService, setAiRoster } = await import(pathToFileURL(file).href);
 const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}${d?' — '+d:''}`);
 

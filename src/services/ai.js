@@ -2,6 +2,7 @@ import { supabase } from './supabaseClient.js';
 import { store } from '../store/workspaceStore.js';
 import { extractMentions, MENTION_TAIL, localDate } from '../utils.js';
 import { rosterIndex, mentionedMembers, personLine, taskScope } from './aiPeople.js';
+import { fetchRoster } from './worship.js';
 
 // ============================================================================
 // 6-2. AI Service Layer — /api/ai 서버 프록시 경유 (API 키는 서버에만)
@@ -157,8 +158,8 @@ const EXCERPT_TOTAL = 3000;     // 발췌 합계 글자 상한
 // (꽃님/강꽃님)은 명단 쪽이라 **처음 AI를 부를 때 한 번 읽고 10분 쥐고 있는다**
 // (worship.fetchRoster — 주보 상세가 쓰는 그 한 벌 · 왕복 둘). 그 뒤 요약·다듬기는 네트워크 0이다.
 // 못 읽으면(3초 · 권한 · 게스트) 멈추지 않고 가입자 정보만으로 부른다 — 순 칸은 팀의
-// 순장·순원에서, 이름 찾기는 표시명에서 온다. worship.js는 **동적으로** 부른다 —
-// 노드 검사(tests/aictx)가 ai.js를 그대로 읽는데, 정적 import면 supabase를 물고 들어온다.
+// 순장·순원에서, 이름 찾기는 표시명에서 온다. worship.js는 정적으로 부른다 — 이미 메인 번들에 있어
+// 동적 import는 칸을 못 나누고 빌드 경고만 남긴다. 노드 검사(tests/aictx)는 그 import 줄을 가짜로 바꾼다.
 const ROSTER_TTL_MS = 10 * 60 * 1000;
 const ROSTER_WAIT_MS = 3000;
 let rosterMemo = null;                        // { at, value }
@@ -170,7 +171,6 @@ async function loadAiRoster(now = Date.now()) {
   if (rosterMemo && now - rosterMemo.at < ROSTER_TTL_MS) return rosterMemo.value;
   let timer;
   try {
-    const { fetchRoster } = await import('./worship.js');
     const year = Number(localDate(new Date(now)).slice(0, 4));
     const value = await Promise.race([
       fetchRoster(year),
