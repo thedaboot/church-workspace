@@ -1,6 +1,6 @@
 # 더다붓 워크스페이스 (church-workspace)
 
-교회 청년부·임원진·사역 팀을 위한 협업 툴입니다. 청년 ~50명의 교회 생활(홈·예배·말씀·모임)과
+교회 청년부·임원진·사역 팀을 위한 협업 툴입니다. 청년 ~55명의 교회 생활(홈·예배·말씀·모임)과
 스태프의 업무(칸반·캘린더·대시보드)를 한 앱에 담고, Supabase를 DB로 두고 Vercel에 배포합니다.
 로그인 설정 없이도 로컬(게스트) 모드로 돕니다.
 
@@ -118,7 +118,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 
 ### 마이그레이션
 
-`supabase/migrations/`를 순서대로 적용합니다. **0001~0072는 전부 라이브 DB에 적용되어
+`supabase/migrations/`를 순서대로 적용합니다. **0001~0074는 전부 라이브 DB에 적용되어
 있습니다**(적용 방법과 원장 주의사항은 HANDOFF §5).
 
 | 파일 | 내용 | 적용 |
@@ -195,9 +195,15 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0070_profile_team_id_follows` | 대표 팀(`profiles.team_id`)도 소속을 따라간다 | ✅ |
 | `0071_rls_hardening` | 스스로 올릴 수 없는 칸을 막는다 — 프로필 승인·합치기·이메일 가드 트리거 · 작성자 칸 가드 · 댓글 수정은 쓴 사람만 · 비관리자는 교역자·계정 연결 명단 추가 금지 · 알림 보낸 이름은 서버가 · 딥링크에 공백·역슬래시 금지 · `recount_card`·`fix_profile_team_id` 실행 권한 회수 · storage 승인 게이트 · 합친 계정의 `profiles_insert` | ✅ |
 | `0072_files_name_nfc` | 첨부 이름을 NFC로(맥에서 온 NFD 이름이 검색에 안 걸리던 것) — 데이터만, 스키마 변화 없음 | ✅ |
+| `0073_bible_vec` | pgvector + 성경 절 임베딩 `bible_vec`(halfvec 768 · 31,067행) + `match_bible` RPC — 읽기는 승인된 사람만, 쓰기는 서버 키 · 인덱스 없이 | ✅ |
+| `0074_doc_vec` | 업무·댓글·업무 첨부 발췌의 조각 임베딩 `doc_vec`(원본 FK cascade · 해시 증분) + `match_docs` RPC — 주보 첨부·개인 표는 넣지 않는다 · 인덱스 없이 | ✅ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
-채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다.
+채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.
+
+임베딩(검색 화면은 아직 없습니다): `node scripts/embed-bible.mjs`는 성경 전체를 `bible_vec`에 한 번 넣고(로컬 · 약 15분 · `--dry-run`),
+`node scripts/embed-docs.mjs`는 업무·댓글·첨부를 `doc_vec`에 맞춥니다(전체·증분 · `--dry-run` · `--kind`) — 평소에는 8시 크론이 증분을 돕니다.
+`scripts/compare-bible-search.mjs`는 AI 검색과 벡터 검색을 질의 30개로 견준 한 번짜리 도구입니다. 셋 다 `.env`의 서버 키가 필요합니다.
 
 ## 딥링크 · 공유 · 환경변수
 
@@ -208,13 +214,14 @@ public/bible/  개역한글 66권 json(책 단위 청크)
   HTML을, 사람에게는 앱으로 리디렉션을 줍니다(`api/share.js`, `s-maxage=300`).
   점검은 [카카오 공유 디버거](https://developers.kakao.com/tool/debugger/sharing).
 - `/api/push` — POST는 앱이 알림을 만든 직후, GET은 Vercel Cron이 부릅니다(`vercel.json`의
-  `crons` — 23:00 UTC = 08:00 KST 마감 임박 · `?job=worship`은 02:30 UTC = 11:30 KST 오늘 예배).
+  `crons` — 23:00 UTC = 08:00 KST 마감 임박, 그 뒤 문서 임베딩 증분 · `?job=worship`은 02:30 UTC = 11:30 KST 오늘 예배 ·
+  `?job=embed`는 임베딩만 손으로 부르는 길).
 
 | 변수 | 용도 | 노출 |
 |---|---|---|
 | `VITE_SUPABASE_URL` · `VITE_SUPABASE_ANON_KEY` | Supabase 프로젝트 | 클라이언트 |
 | `VITE_VAPID_PUBLIC_KEY` | 웹 푸시 구독용 공개키 | 클라이언트 |
-| `GEMINI_API_KEY` | Gemini 호출 키 | **서버 전용** |
+| `GEMINI_API_KEY` | Gemini 호출 키(`/api/ai` · 8시 크론의 문서 임베딩) | **서버 전용** |
 | `SUPABASE_SECRET_KEY` | RLS 우회 조회 · 세션 검증 | **서버 전용** |
 | `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` · `VAPID_SUBJECT` | 웹 푸시 서명·연락처 | 서버(개인키는 전용) |
 | `DRIVE_WEBAPP_URL` · `DRIVE_WEBAPP_TOKEN` | 개인 드라이브 Apps Script 웹앱 주소와 공유 값 | **서버 전용** |
