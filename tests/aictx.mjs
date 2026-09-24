@@ -2,8 +2,9 @@
 import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
-const ROOT = 'C:/Users/노준석/Desktop/church_workspace';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+// 이 파일이 있는 레포를 본다 — 절대 경로로 박아 두면 worktree에서 돌려도 본 레포의 ai.js를 읽었다(2026-09-24)
+const ROOT = fileURLToPath(new URL('..', import.meta.url)).replace(/\\/g, '/').replace(/\/$/, '');
 const SRC = `${ROOT}/src/services/ai.js`;
 const src = readFileSync(SRC, 'utf8');
 // store import만 우리 가짜로 바꿔치기 (supabaseClient도 안 타게)
@@ -326,6 +327,19 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
   check('발췌 합계가 3000자에서 잘린다', (ctx3.match(/ㄱ/g) || []).length === 3000,
     `${(ctx3.match(/ㄱ/g) || []).length}자`);
   check('발췌가 없는 첨부는 이름만 나온다', ctx3.includes('사진.jpg') && !ctx3.includes('사진.jpg: '));
+  // 문서 발췌가 사진 캡션보다 먼저다(2026-09-24) — 백필한 사진 캡션([사진] 접두)이 올린 차례대로
+  // 앞 3칸을 차지해 문서의 글을 밀어냈다. 되돌리기: ai.js의 isCaption 정렬을 빼면 깨진다.
+  st.tasks.byId.t0.attachments = [
+    { name:'행사1.jpg', text_excerpt: '[사진] 무대 위 찬양팀 다섯 명' },
+    { name:'행사2.jpg', text_excerpt: '[사진] 현수막에 여름 수련회' },
+    { name:'행사3.jpg', text_excerpt: '[사진] 식당 테이블' },
+    { name:'결산.xlsx', text_excerpt: '야식 찬조 30,000원' },
+  ];
+  const ctx4 = buildTaskContext(st.tasks.byId.t0, NOW);
+  check('문서 발췌가 사진 캡션보다 먼저 실린다',
+    ctx4.includes('결산.xlsx: 야식 찬조') && ctx4.includes('행사1.jpg: [사진]')
+    && ctx4.indexOf('결산.xlsx: ') < ctx4.indexOf('행사1.jpg: ') && !ctx4.includes('행사3.jpg: '),
+    (ctx4.split('\n').filter(l => /^\s+· /.test(l)).join(' / ') || '(없음)'));
   // 되돌려 놓는다 — 위쪽 검사들이 이 상태를 전제하지 않게
   delete st.tasks.byId.t1.dependsOn; st.tasks.byId.t0.attachments = []; delete st.tasks.byId.t0.subtasks;
 }

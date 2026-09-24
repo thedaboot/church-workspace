@@ -884,7 +884,8 @@ function SearchResults({ query, onPick }) {
       (t.assignees || []).some(hit) ||
       (t.teams || []).some(hit) ||
       // 첨부는 이름뿐 아니라 **안에 든 글자**도 본다(files.text_excerpt, 0030).
-      // "야식 찬조"로 결산 엑셀이 잡힌다. 사진은 발췌가 없어 이름으로만 잡힌다.
+      // "야식 찬조"로 결산 엑셀이 잡힌다. 백필한 사진에는 Gemini 캡션([사진] 접두)이 있어
+      // 그 글로도 잡힌다 · 새로 올리는 사진에는 캡션이 생기지 않아 이름으로만 잡힌다.
       (t.attachments || []).some(a => (typeof a === 'string' ? hit(a) : (hit(a?.name) || hit(a?.text_excerpt)))) ||
       (t.comments || []).some(c => hit(c?.text))
     );

@@ -277,16 +277,23 @@ export function buildTaskContext(task, now = new Date()) {
     .slice(0, ARCHIVE_LIMIT);
 
   // 첨부는 이름과 발췌 — "포스터_시안2.png"가 있으면 시안 단계라는 뜻이고,
-  // 문서라면 안에 든 글이 더 정확하다(files.text_excerpt, 0030). 사진은 발췌가 없다.
+  // 문서라면 안에 든 글이 더 정확하다(files.text_excerpt, 0030). 백필한 사진에는 Gemini
+  // 캡션([사진] 접두)이 있다 · 새로 올리는 사진에는 캡션이 생기지 않는다
+  // (scripts/backfill_attachments.mjs).
   // 클라우드에서 목록을 아직 안 받았으면 개수(fileCount)라도 준다.
   const atts = (task.attachments || []).map(a => (typeof a === 'string' ? { name: a } : a)).filter(a => a?.name);
   const fileLine = atts.length
     ? `- 첨부 파일 ${atts.length}개: ${atts.slice(0, 10).map(a => a.name).join(', ')}${atts.length > 10 ? ' 외' : ''}`
     : (task.fileCount ? `- 첨부 파일 ${task.fileCount}개(이름 미확인)` : '');
   // 첨부 행은 DB 모양 그대로 스토어에 들어간다(snake_case) — 화면·미리보기가 그렇게 읽는다
+  // **문서 발췌를 먼저, 사진 캡션은 뒤에** 싣는다. 올린 차례대로 앞 3개를 고르면 사진이 많은
+  // 업무에서 캡션이 결산·기획 문서의 글을 밀어냈다(라이브: 캡션 236건 · 문서 20건 · 2026-09-24).
+  // 같은 갈래 안에서는 원래 차례 그대로다(sort는 안정적이다). 상한(3개·3000자)은 그대로.
+  const isCaption = (a) => String(a.text_excerpt).startsWith('[사진]');
   let budget = EXCERPT_TOTAL;
   const excerpts = atts
     .filter(a => a.text_excerpt)
+    .sort((a, b) => Number(isCaption(a)) - Number(isCaption(b)))
     .slice(0, EXCERPT_FILES)
     .map(a => {
       if (budget <= 0) return '';
