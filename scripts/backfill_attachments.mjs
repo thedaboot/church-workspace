@@ -6,6 +6,12 @@
 //   node scripts/backfill_attachments.mjs --fix --limit 5   # 앞 5건만
 //   node scripts/backfill_attachments.mjs --fix --redo      # 이미 있는 발췌도 다시
 //   node scripts/backfill_attachments.mjs --only doc|photo  # 문서만 · 사진만
+//   node scripts/backfill_attachments.mjs --cuesheet        # 주보 큐시트만 — 요지를 다시 만들어 보여준다
+//   node scripts/backfill_attachments.mjs --cuesheet --fix  # 그 요지를 적는다(이미 있는 발췌를 덮는다)
+//
+// 큐시트(`files.kind='cuesheet'`)의 발췌는 앞 2000자가 아니라 **요지**다(services/cueDigest.js ·
+// 2026-09-25) — 순모임 가이드가 그 한 칸을 읽는다. 앱은 올리는 순간 만들고, 그전에 올라간 것은
+// --cuesheet가 드라이브에서 받아 다시 만든다(Gemini를 부르지 않는다).
 //
 // .env에서 읽는 값: VITE_SUPABASE_URL + SUPABASE_SECRET_KEY(RLS를 우회해 모든 행을 읽고 쓴다),
 // GEMINI_API_KEY(사진·글자 없는 PDF를 읽힌다).
@@ -149,6 +155,37 @@ async function describeWithGemini(mime, buf, attempt = 0) {
   const j = await r.json();
   if (!r.ok) throw new Error(`gemini ${r.status}: ${JSON.stringify(j).slice(0, 200)}`);
   return (j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '').trim().replace(/[—–]/g, '-');
+}
+
+// ── 큐시트 요지 (--cuesheet) ─────────────────────────────────────────────────
+// 앱의 fileText(kind='cuesheet')와 같은 길: 워드는 표 칸을 가려 읽고, 그 밖은 글을 뽑아 거기서 줍는다.
+if (process.argv.includes('--cuesheet')) {
+  const { cueDigest } = await import('../src/services/cueDigest.js');
+  const { data: cues, error: ce } = await db.from('files')
+    .select('id, name, drive_file_id, service_id, text_excerpt').eq('kind', 'cuesheet').eq('source', 'drive').order('created_at');
+  if (ce) { console.error('DB 조회 실패:', ce.message); process.exit(1); }
+  const list = (cues || []).filter(r => r.drive_file_id).slice(0, LIMIT);
+  console.log(`큐시트 ${list.length}건${FIX ? '' : ' — 읽기만. 실제로 적으려면 --fix'}`);
+  let wrote = 0, failed = 0;
+  for (const r of list) {
+    try {
+      const buf = await download(r.drive_file_id);
+      const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      const text = extOf(r.name) === 'docx'
+        ? cueDigest(await (await import('../src/services/docx.js')).parseDocx(ab))
+        : cueDigest(await extractDoc(r.name, buf));
+      console.log(`\n  ${r.name}  (지금 ${String(r.text_excerpt || '').length}자 → ${text.length}자)\n${text.replace(/^/gm, '    ') || '    (빈 요지 — 적지 않는다)'}`);
+      if (!FIX || !text) continue;
+      const { error: e2 } = await db.from('files').update({ text_excerpt: text }).eq('id', r.id);
+      if (e2) throw e2;
+      wrote++;
+    } catch (e) {
+      failed++;
+      console.warn(`  ✗ ${r.name}: ${e.message || e}`);
+    }
+  }
+  console.log(`\n${FIX ? `적음 ${wrote}` : '읽기만'} · 실패 ${failed}`);
+  process.exit(failed ? 1 : 0);
 }
 
 // ── 본체 ─────────────────────────────────────────────────────────────────────
