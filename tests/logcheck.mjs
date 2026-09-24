@@ -1530,12 +1530,13 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const preload = /<link rel="preload"[^>]*>/.exec(html)?.[0] || '';
   assert.ok(/as="image"/.test(preload), '로고 preload가 없다 — 번들이 다 온 뒤에야 요청이 나간다');
-  assert.ok(/href="\/src\/assets\/logo-light\.png"/.test(preload),
+  // 2026-09-24: 로고는 표시 크기의 3배(328×240) WebP다 — preload도 같은 파일·같은 형식을 가리킨다
+  assert.ok(/href="\/src\/assets\/logo-light\.webp"/.test(preload) && /type="image\/webp"/.test(preload),
     'preload는 **소스 경로**를 가리켜야 vite가 해시 붙은 /assets/… 로 바꿔 준다(손으로 적으면 다음 빌드에 죽은 preload가 된다)');
 
   const login = readFileSync(new URL('../src/components/LoginScreen.jsx', import.meta.url), 'utf8');
   const img = /<img src=\{logoLight\}[^]*?\/>/.exec(login)?.[0] || '';
-  assert.ok(/width="640" height="469"/.test(img),
+  assert.ok(/width="328" height="240"/.test(img),
     '로고 img에 원본 크기가 없다 — 안 들어온 동안 칸이 가로 전체로 벌어진다');
 
   const vc = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));

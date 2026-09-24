@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import logoLight from '../assets/logo-light.png';
+import logoLight from '../assets/logo-light.webp';
 import { tokenizeInline, IMAGE_LINE_RE } from '../services/markdown.js';
 
 // ============================================================================
@@ -247,7 +247,7 @@ function PaperText({ text }) {
 function PaperTail({ right = 'THE DABOOT MINISTRY' }) {
   return (
     <div className="paper-tail flex items-end justify-between gap-3 mt-[14px]">
-      <img className="paper-logo block" src={logoLight} width="640" height="469"
+      <img className="paper-logo block" src={logoLight} width="328" height="240"
         style={{ height: 20, width: 'auto' }} alt="더다붓" decoding="async" />
       <span className="paper-mark text-[8.5px] font-extrabold tracking-[2.2px]"
         style={{ color: PAPER.faint }}>{right}</span>

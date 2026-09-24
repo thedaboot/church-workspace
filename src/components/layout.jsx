@@ -24,8 +24,8 @@ import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { CONFIG } from '../config.js';
-import logoLight from '../assets/logo-light.png';
-import logoDark from '../assets/logo-dark.png';
+import logoLight from '../assets/logo-light.webp';
+import logoDark from '../assets/logo-dark.webp';
 
 // ============================================================================
 // 11. UI Views (데이터를 구독하는 프레젠테이션 컴포넌트)

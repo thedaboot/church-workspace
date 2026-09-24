@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Heart, Loader2, Pencil, Pin, Share2, Wand2 } from 'lucide-react';
-import logoLight from '../assets/logo-light.png';
+import logoLight from '../assets/logo-light.webp';
 import { Skeleton } from './media.jsx';
 import { SectionHead } from '../views/dashboardParts.jsx';
 import { BTN, BTN_QUIET, MenuPick, WITH_ICON } from './groupsParts.jsx';
@@ -204,7 +204,7 @@ function Sheet({ guide, dateLabel, sheetRef }) {
 
       <article className="sun-guide-page mt-3 px-5 md:px-8 pt-[46px] md:pt-[54px] pb-7"
         style={{ background: CARD, borderRadius: DOME }}>
-        <img src={logoLight} width="640" height="469" alt="더다붓" decoding="async"
+        <img src={logoLight} width="328" height="240" alt="더다붓" decoding="async"
           className="sun-guide-logo block mx-auto h-9 md:h-10 w-auto" />
 
         <SheetHead className="mt-5">주일 본문</SheetHead>

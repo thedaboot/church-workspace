@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '../services/auth.jsx';
-import logoLight from '../assets/logo-light.png';
+import logoLight from '../assets/logo-light.webp';
 
 // ============================================================================
 // 로그인 화면 (Supabase OAuth — 구글 / 카카오)
@@ -33,7 +33,7 @@ export function LoginScreen({ waiting = false }) {
             칸을 가로 전체로 벌려서, 깨진 이미지 아이콘이 왼쪽 끝에 붙고 alt 글자만 가운데
             뜬다 — 카카오톡 인앱에서 실제로 그렇게 보였다(2026-09-06). 비율이 적혀 있으면
             들어오기 전에도 자리가 109×80으로 잡혀서 그림만 나중에 채워진다. */}
-        <img src={logoLight} width="640" height="469" alt="더다붓" decoding="async" fetchPriority="high"
+        <img src={logoLight} width="328" height="240" alt="더다붓" decoding="async" fetchPriority="high"
           className="h-20 w-auto mx-auto mb-6 drop-shadow-[0_8px_28px_rgba(55,53,47,0.18)]" />
         <h1 className="text-xl font-bold text-[#2b2833] tracking-[-0.25px] mb-2">더다붓 워크스페이스</h1>
         <p className="text-sm text-[#6b6675] mb-10 leading-relaxed">함께 준비하고, 함께 섬기는 청년들의 공간<br />같이 만들어봐요!</p>

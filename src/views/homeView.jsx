@@ -12,8 +12,8 @@ import { kindLabel, formatServiceDate, fetchServices, fetchAttendance, fetchAtte
 import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotes, attendanceSunday } from '../services/groups.js';
 import { useCached } from '../services/cache.js';
 import { useLiveRefresh, refreshTouched } from '../services/liveV2.js';
-import logoLight from '../assets/logo-light.png';
-import logoDark from '../assets/logo-dark.png';
+import logoLight from '../assets/logo-light.webp';
+import logoDark from '../assets/logo-dark.webp';
 
 // ============================================================================
 // v2 홈 — 교회 생활 한 화면 (docs/V2.md §3 · IA A안의 첫 탭)
@@ -832,9 +832,9 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
           자바스크립트로 테마를 읽어 한 장만 고르면, 헤더의 토글로 테마를 바꿀 때
           이 그림만 다시 그려지지 않는다. */}
       <p className="home-mark mt-9 flex justify-center">
-        <img src={logoLight} width="640" height="469" alt="더다붓" decoding="async"
+        <img src={logoLight} width="328" height="240" alt="더다붓" decoding="async"
           className="home-mark-logo h-6 w-auto opacity-60 dark:hidden" />
-        <img src={logoDark} width="640" height="469" alt="더다붓" decoding="async"
+        <img src={logoDark} width="328" height="240" alt="더다붓" decoding="async"
           className="home-mark-logo h-6 w-auto opacity-60 hidden dark:block" />
       </p>
     </div>

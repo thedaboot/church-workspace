@@ -15,7 +15,7 @@
          보였다(사용자 신고). preload는 HTML을 읽는 순간 번들과 나란히 시작하므로 React가
          그릴 때는 이미 캐시에 있다. 경로는 vite가 빌드 때 해시 붙은 /assets/… 로 바꿔 준다
          — 손으로 /assets/… 를 적으면 해시가 바뀌는 순간 죽은 preload가 된다. -->
-    <link rel="preload" as="image" fetchpriority="high" href="/src/assets/logo-light.png" />
+    <link rel="preload" as="image" type="image/webp" fetchpriority="high" href="/src/assets/logo-light.webp" />
     <title>더다붓 워크스페이스</title>
 
     <!-- 홈 화면에 추가(PWA) — 안드로이드는 manifest, iOS는 apple-* 메타를 본다 -->
