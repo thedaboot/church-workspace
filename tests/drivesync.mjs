@@ -1404,6 +1404,8 @@ check('보안 헤더 — 강제는 frame-ancestors 하나 · 초안은 Report-On
   const pdfjsCache = (vercel.headers || []).find(x => x.source === '/pdfjs/(.*)')?.headers?.[0]?.value;
   assert.strictEqual(pdfjsCache, 'public, max-age=86400, stale-while-revalidate=604800', '/pdfjs/ 캐시가 /bible/과 다르다');
   assert.ok(vercel.functions?.['api/push.js']?.maxDuration >= 60, 'api/push.js 시간 제한을 명시하지 않았다(배치가 기본값에 잘린다)');
+});
+
 check('첨부 발췌도 미리보기와 같은 PDF 워커를 쓴다 (fileText · 2026-09-24)', () => {
   // fileText가 워커를 pdf.worker로 바로 가리키면 **전역 GlobalWorkerOptions.workerSrc를 폴리필 없는
   // 워커로 덮는다** — 첨부를 한 번 올린 뒤로는 PdfView도 그 워커를 써서 옛 iOS에서 미리보기가

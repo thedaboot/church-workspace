@@ -3550,6 +3550,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const after = vm.runInContext('[Iterator, Iterator.prototype.map, Iterator.prototype.toArray, Promise.try, Math.sumPrecise]', now);
   before.forEach((f, i) => { if (typeof f === 'function') assert.strictEqual(after[i], f, `네이티브를 덮었다(${i})`); });
   console.log('PASS  pdf.js 6.3 옛 브라우저 폴리필 15가지');
+}
+
 // ── 홈·모임은 주보를 가볍게 읽는다 (worship.fetchServices columns · fetchAttendanceCounts since · 2026-09-24) ──
 // 홈·모임은 '출석이 든 가장 최근 주일' 하나를 찾으려고 출석 표 두 개를 통째로 읽고, 주보는
 // 찬양·광고·임사자 jsonb까지 받았다. 이제 출석은 최근 여덟 주 주보 것만, 주보는 그 화면이 읽는
