@@ -555,8 +555,8 @@ function 권한승인() {
 | v8 | 사본을 **워드(구글 문서)·PPT(구글 슬라이드)** 까지 · 사본 만들기를 `upload`에서 떼어 `convert` 액션으로(두 단계) · 모든 답에 `version`. **배포하지 않고 건너뛰었다**(사용자 결정 2026-09-08) |
 | v9 | 업로드 왕복 3→2 — `Drive.Files.create`에 이름·부모·열쇠·설명을 한 요청에 싣고 공유는 `Permissions.create` 하나(`createInFolder`) |
 | v10 | **큐시트 사본에만** 이름 있는 계정 둘(`CUE_EDITORS`)을 편집자로 — 앱이 `convert`에 `cueEditors`를 실을 때만. `role:'writer'`+`type:'anyone'`은 쓰지 않는다(링크를 아는 누구나 고치게 되는 길 — HANDOFF §7). 2026-09-09 배포 |
-| v11 | **업무 첨부 사본에도 편집자를** — `convert`가 `editors: string[]`(올린 사람 + 관리자 + 마스터)을 받는다(`editorsFor`·`addEditors`). 이미 만들어진 사본에 뒤늦게 붙이는 액션 **`grantEditors`**. `cueEditors: true`는 v10 앱 호환으로 계속 받는다. `'anyone'`은 여전히 `reader`뿐이다. 배포하지 않고 v12로 건너뛴다 |
-| v12 | **워크스페이스 폴더 밖 id를 거절한다**(보안 감사 2026-09-24 · `underRoot`·`mustBeUnderRoot`) — `trash`·`list`(폴더 id)·`grantEditors`·`convert`·폴더를 id로 받는 모든 액션(`folderFor` — `upload`·`uploadFromUrl`·`ensureFolder`·`renameFolder`). 부모를 따라 `ROOT_FOLDER_ID`까지 올라가 보고, 확인한 폴더는 `CacheService`에 6시간. 워크스페이스 폴더 자체는 `trash`가 받지 않는다. 없는 폴더의 `list`는 예전처럼 빈 목록이다. 액션 목록은 v11과 같다. **지금 판**(아직 배포 전 — v11 내용을 포함한다) |
+| v11 | **업무 첨부 사본에도 편집자를** — `convert`가 `editors: string[]`(올린 사람 + 관리자 + 마스터)을 받는다(`editorsFor`·`addEditors`). 이미 만들어진 사본에 뒤늦게 붙이는 액션 **`grantEditors`**. `cueEditors: true`는 v10 앱 호환으로 계속 받는다. `'anyone'`은 여전히 `reader`뿐이다. 2026-09-11 배포(사용자 확인) |
+| v12 | **워크스페이스 폴더 밖 id를 거절한다**(보안 감사 2026-09-24 · `underRoot`·`mustBeUnderRoot`) — `trash`·`list`(폴더 id)·`grantEditors`·`convert`·폴더를 id로 받는 모든 액션(`folderFor` — `upload`·`uploadFromUrl`·`ensureFolder`·`renameFolder`). 부모를 따라 `ROOT_FOLDER_ID`까지 올라가 보고, 확인한 폴더는 `CacheService`에 6시간. 워크스페이스 폴더 자체는 `trash`가 받지 않는다. 없는 폴더의 `list`는 예전처럼 빈 목록이다. 액션 목록은 v11과 같다. **지금 판**(아직 배포 전 — v11 위에 얹었다) |
 
 액션 목록은 v7부터 v10까지 같았고 **v11에서 `grantEditors` 하나가 늘었습니다**(v12도 같다)
 (`upload`·`uploadFromUrl`·`ensureFolder`·`renameFolder`·`trash`·`list`·`convert`·`grantEditors`)

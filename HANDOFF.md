@@ -32,7 +32,7 @@
 6. **Vercel이 푸시 웹훅을 놓칠 때가 있다**("고쳤는데 안 보인다"의 정체) — `gh api repos/thedaboot/church-workspace/deployments?per_page=1`로 새 배포를 확인하고, 없으면 `git commit
    --allow-empty`로 재트리거한다.
 7. **이 환경(Claude Code)의 권한 분류기가 `supabase db push`를 막는다** — 사용자에게 `! <명령>`으로 넘긴다.
-8. **Apps Script는 어시스턴트가 올릴 수 없다.** 문서는 v12, 배포된 판은 v10이다(v11은 건너뛴다 · §2). 고칠 것이 생기면 `docs/APPS_SCRIPT.md`를 고치고 사용자에게 부탁한다(배포 URL이 같으면 Vercel 환경변수는 그대로. 새 배포를 만들면 Production·Development 둘 다
+8. **Apps Script는 어시스턴트가 올릴 수 없다.** 문서는 v12, 배포된 판은 v11이다(2026-09-11 사용자 확인 · §2). 고칠 것이 생기면 `docs/APPS_SCRIPT.md`를 고치고 사용자에게 부탁한다(배포 URL이 같으면 Vercel 환경변수는 그대로. 새 배포를 만들면 Production·Development 둘 다
    고쳐야 한다). `ROOT_FOLDER_ID`·`SHARED_TOKEN`은 스크립트 안에만 있으니 코드를 갈아 끼울 때 그 두 줄은 남긴다.
 9. **스크린샷을 레포 루트에 흘리지 마세요**(실제로 8장이 커밋됐다) — 임시 출력은 스크래치 폴더로.
 
@@ -43,7 +43,7 @@
 감사 다섯 갈래와 라이브 DB 조사로 배치 A~E를 짰다. 화면 모양·문구를 바꾸지 않는 것만 했고, 바꾸는 것은 아래 ★로 남겼다.
 
 - **나간 것**: 0071(칸 가드)·0072(첨부 이름 NFC) 라이브 적용 · A 보안(`api/_lib.js` 공용 머리 · 드라이브 프록시가 대상·칸을 본다 · 의존성 · 보안 헤더 · 알림 딥링크 출처) · B 성능(홈 실시간은 바뀐 표만 · 주보 가벼운 열 · 카드 실시간 모으기 · 15초 재조회 생략 · 모달류 넷 lazy · 로고 WebP · 안 쓰는 캐릭터 컷) · C 정리(죽은 코드 · 중복 합치기 · 첨부 발췌 백필 스크립트) — 푸시 끝. **D(모양이 안 바뀌는 UI 결함)는 진행 중**, 그다음이 E(임베딩).
-- **Apps Script는 v12 문서가 기준**이다(v11은 배포하지 않고 건너뛴다) — 배포는 사용자 몫. 올리기 전에 `node scripts/drive_check.mjs`(읽기만)에 '워크스페이스 폴더 밖' 줄이 없는지 본다.
+- **Apps Script는 v12 문서가 기준**이다(배포된 판은 v11) — 배포는 사용자 몫. 올리기 전에 `node scripts/drive_check.mjs`(읽기만)에 '워크스페이스 폴더 밖' 줄이 없는지 본다.
 - **푸시 받는 사람은 50명이 상한이다** — 멤버가 50을 넘으면 넘친 사람은 푸시만 조용히 빠진다(앱 안 알림은 간다). 그때 `api/push.js`의 상한을 올린다.
 - **CSP는 `frame-ancestors 'none'` 하나만 강제**하고 나머지는 Report-Only 초안이다 — 콘솔 보고를 모아 다듬은 뒤 올린다(pdf.js의 `isEvalSupported` 갈래를 먼저 본다).
 
@@ -58,7 +58,6 @@
 
 **사용자 판단 대기**(★ — 하지 않는다 · 시각·문구는 목업으로 묻는다 · §8):
 
-- `@seed-design/css`의 base.css(62kB · `var(--seed-*)` 참조 0) 제거 — `vite.config.js`의 "파운데이션 토큰만 쓴다" 결정과 얽힌다 · `design/*.png` 6.8MB를 레포 밖으로.
 - 읽기 실패에 '다시 시도' 자리(예배·모임·멤버는 지금 토스트만) · 모바일 대시보드가 상태 칩을 숨기는 것(`dashboardParts` — 색만으로 상태를 말한다).
 - 시각 통일: 주 버튼 17벌 · 모달 틀 11벌 · 섹션 머리줄 6벌 · "없어요" 문구 약 30개 · 인라인 저장/취소 순서 · 9px 이하 글자·faint 대비 · `Skeleton`에 넘긴 4·5px 모서리 여섯 곳이 지금 8px로 그려진다(PITFALLS 9-bw).
 - 노트 도막별 자리표 문구(사용자가 정한다) · 노트 읽기/편집 종이 높이 차(그대로 / 편집 빈 자리 줄이기 / 읽기 상자에 min-height · §6-32-p) · 주보 상세 실시간(편집 중 폼을 덮지 않을 방법이 먼저).
@@ -218,7 +217,7 @@ vite.config.js                dev 전용 `/api/<name>` 미들웨어(게스트 �
 public/sw.js                  서비스 워커 — 푸시 표시 + 클릭 시 딥링크. 캐싱은 하지 않는다
 public/bible/                 (v2) 개역한글 66권 json + index.json
 public/chars/                 (v2) 캐릭터 5컷(webp · @2x 포함 10장) — 홈(sparkle-wave·heart·book·coffee·laptop) · 말씀(book) · 예배 노트(heart).
-                              원본(177~225px) 이상으로 키우지 않는다. 새 컷은 원본 시트(`design/chars.png`)에서 다시 자른다
+                              원본(177~225px) 이상으로 키우지 않는다. 새 컷은 원본 시트(레포 밖 `Desktop/church_workspace_design/chars.png`)에서 다시 자른다
 public/ 그 밖                 아이콘·매니페스트·OG·스크린샷
 scripts/subset_suit.py subset_symbols.py make_icons.py  폰트·아이콘 생성(한 번 돌리고 결과물을 커밋)
 scripts/drive_check.mjs       드라이브 ↔ DB 어긋남 점검(`--fix`를 붙여야 고친다 · §6-29-j)
@@ -227,7 +226,6 @@ scripts/bible_check.mjs       성경 json 정합 검사(tests/bibleref와 짝)
 scripts/backfill_attachments.mjs  옛 첨부 발췌 백필 — 문서는 앱 파서, 사진·글자 없는 PDF는 Gemini(`--fix`를 붙여야 적는다)
 supabase/migrations/          0001~0072 — 표는 README, 최근 것은 §5
 tests/                        검증 스위트 + 러너 — 목록은 tests/README.md
-design/                       원본 시트(chars.png·char.png) — 배포에 안 실림
 ```
 
 업무 창 네 파일은 `modals.jsx`가 `attachments.jsx`·`comments.jsx`를 쓰고 `settings.jsx`는 App이 직접 가져온다. **새 전역 화면을 만들면 `App.jsx`의 `GLOBAL_MENUS`에 넣으세요** — 없으면
