@@ -3864,3 +3864,21 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '홈은 날짜 열쇠 둘을 오늘 것만 남긴다');
   console.log('PASS  15초 재조회 생략·날짜 열쇠 정리 17가지');
 }
+
+// ── 순모임 가이드 굽기 열쇠는 글의 해시 (components/sunGuide.jsx · 2026-09-24) ─────────────
+// 열쇠가 JSON 길이였을 때는 같은 글자 수로 고치면(오타 하나) 열쇠가 그대로라 **옛 그림이 나갔다**.
+// 되돌리기 검사: 열쇠를 `.length`로 되돌리면 마지막 단정이 깨진다.
+{
+  const src = readFileSync(new URL('../src/components/sunGuide.jsx', import.meta.url), 'utf8');
+  const fn = /const textHash = (\(str\) => \{[\s\S]*?\n\};)/.exec(src.replace(/\r\n/g, '\n'))?.[1];
+  assert.ok(fn, 'textHash를 찾지 못했다');
+  const textHash = (0, eval)(fn.slice(0, -1));
+  const a = JSON.stringify({ points: [{ body: '하나님이 들으셨다' }] });
+  const b = JSON.stringify({ points: [{ body: '하나님이 들으셨나' }] });   // 같은 길이, 한 글자만 다르다
+  assert.strictEqual(a.length, b.length);
+  assert.notStrictEqual(textHash(a), textHash(b), '같은 글자 수라도 글이 다르면 열쇠가 다르다');
+  assert.strictEqual(textHash(a), textHash(String(a)), '같은 글이면 같은 열쇠');
+  assert.ok(/key: `\$\{selectedId \|\| ''\}:\$\{guide \? textHash\(JSON\.stringify\(guide\)\) : 0\}`/.test(src),
+    '굽기 열쇠가 글의 해시를 쓴다(길이가 아니라)');
+  console.log('PASS  가이드 굽기 열쇠 4가지');
+}

@@ -303,6 +303,13 @@ const SKELETON = (
   </div>
 );
 
+// 짧은 문자열 해시(FNV-1a 32비트) — 굽기 열쇠용. 암호가 아니라 "글이 바뀌었나"만 가른다.
+const textHash = (str) => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(36);
+};
+
 // ── 패널 ────────────────────────────────────────────────────────────────────
 // props (모임 화면과의 계약):
 //   services         — 고를 수 있는 주보들(발행된 주일 · 최근순 · sunGuide.guideServices)
@@ -445,9 +452,12 @@ export function SunGuidePanel({
   // 라이브러리를 받아 공유 자격을 잃던 것 · **누를 때 굽느라 그 자격을 또 잃던 것**
   // (그림을 미리 구워 둔다) · 긴 종이에서 캔버스가 상한을 넘어 빈 그림이 되던 것 ·
   // 마지막 갈래까지 실패해도 아무 말이 없던 것. 여기서 남은 일은 파일 이름뿐이다.
+  //
+  // 굽기 열쇠는 **글의 해시**다(2026-09-24). 예전에는 JSON 길이라, 같은 글자 수로 고치면(오타 하나를
+  // 바로잡는 흔한 경우) 열쇠가 그대로여서 **옛 그림이 나갔다**.
   const img = useSheetShare({
     refs: [sheetRef], background: PAPER,
-    key: `${selectedId || ''}:${guide ? JSON.stringify(guide).length : 0}`,
+    key: `${selectedId || ''}:${guide ? textHash(JSON.stringify(guide)) : 0}`,
     fileName: `순모임 가이드 ${guideDateLabel(selected?.service_date)}`.trim(),
     what: '이미지를 저장하지 못했어요',
   });
