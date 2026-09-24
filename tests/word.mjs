@@ -973,7 +973,28 @@ check('굵게·형광펜·목록 셋은 그대로 있다',
   noteBar.keep.length === 4 && noteBar.lists.length === 3, JSON.stringify(noteBar));
 
 check('손대지 않은 템플릿으로는 저장할 수 없다', (await saveDisabled()) === true);
-await ev(`(() => { const el = document.querySelector('.tiptap'); el && el.focus(); })()`);
+// focus()만 하고 바로 쓰면 커서가 도막 제목(h3)에 앉을 때가 있다 — 그러면 LockedHeadings가
+// 그 입력을 물려서 저장이 안 열린다(타이밍에 따라 붙었다 떨어졌다). 위 제목 칸처럼
+// **진짜 마우스로** 마지막 문단을 눌러 커서를 문단에 둔다.
+const paraAt = await ev(`(() => {
+  const ps = document.querySelectorAll('.qt-note-editor .tiptap p');
+  const p = ps[ps.length - 1];
+  if (!p) return null;
+  p.scrollIntoView({ block: 'center' });
+  const r = p.getBoundingClientRect();
+  return { x: Math.round(r.left + Math.min(20, r.width / 2)), y: Math.round(r.top + r.height / 2) };
+})()`);
+if (paraAt) {
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: paraAt.x, y: paraAt.y, button: 'left', clickCount: 1 });
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: paraAt.x, y: paraAt.y, button: 'left', clickCount: 1 });
+  await sleep(250);
+}
+const caretInP = await ev(`(() => {
+  const n = getSelection().anchorNode;
+  const el = n && (n.nodeType === 1 ? n : n.parentElement);
+  return !!(el && el.closest('.tiptap p'));
+})()`);
+check('노트 본문 문단을 누르면 커서가 문단에 간다', !!paraAt && caretInP === true, JSON.stringify([paraAt, caretInP]));
 await send('Input.insertText', { text: '오늘은 이 말씀이 마음에 남았어요' });
 await sleep(400);
 check('한 줄이라도 쓰면 저장이 열린다', (await saveDisabled()) === false);
