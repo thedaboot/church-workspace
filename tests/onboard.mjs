@@ -76,7 +76,7 @@ await clickInBox('찬양팀'); await sleep(180);
 await clickInBox('임원진'); await sleep(180);
 const ready = await ev(`(() => { const box=${BOX};
   const b=[...box.querySelectorAll('button')].find(x=>/시작하기|저장/.test(x.textContent));
-  const primary=[...box.querySelectorAll('p')].map(p=>p.textContent.trim()).find(t=>/대표 팀/.test(t));
+  const primary=[...box.querySelectorAll('p')].map(p=>p.textContent.trim()).find(t=>/대표 (팀|소속)/.test(t)); // 문구가 '대표 소속은…'으로 바뀌었다(07d66fc)
   return { off:b.disabled, primary }; })()`);
 check('이름·팀을 채우면 저장이 열린다', ready.off === false);
 check('대표 팀을 알려준다', /찬양팀/.test(ready.primary || ''), String(ready.primary));
