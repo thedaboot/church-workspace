@@ -361,7 +361,7 @@ const seenRows = await ev(`(() => {
     const row=cell.parentElement;
     if(!row) return;
     const time=[...row.querySelectorAll('span')]
-      .filter(x=>!x.children.length && /^([0-9]+(초|분|시간|일|주|개월|년) 전|기록 없음|접속 중)$/.test(x.textContent.trim()))
+      .filter(x=>!x.children.length && /^([0-9]+(초|분|시간|일|주|개월|년) 전|방문 전|접속 중)$/.test(x.textContent.trim()))
       .map(x=>x.textContent.trim());
     if(time.length) out[nameEl.textContent.trim().replace(/나$/,'').trim()]=time[time.length-1];
   });

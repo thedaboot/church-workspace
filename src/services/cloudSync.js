@@ -311,7 +311,7 @@ const cardToTask = (card) => ({
 
 const commentToApp = (c, reactionsBy) => ({
   id: c.id,
-  author: profileIdToName.get(c.author_id) || '알 수 없음',
+  author: profileIdToName.get(c.author_id) || '이름 미상',
   text: c.body,
   timestamp: c.created_at,
   parentId: c.parent_id || null,
@@ -321,7 +321,7 @@ const commentToApp = (c, reactionsBy) => ({
   reactions: (reactionsBy?.get(c.id) || []).map(r => ({
     kind: r.kind,
     userId: r.user_id,
-    name: profileIdToName.get(r.user_id) || '알 수 없음',
+    name: profileIdToName.get(r.user_id) || '이름 미상',
   })),
 });
 
@@ -357,7 +357,7 @@ export function toggleReaction(reactions = [], kind, me) {
 const activityToApp = (a) => ({
   id: a.id,
   action: a.action,
-  author: profileIdToName.get(a.actor_id) || '알 수 없음',
+  author: profileIdToName.get(a.actor_id) || '이름 미상',
   timestamp: a.created_at,
 });
 
@@ -516,7 +516,7 @@ const activityFeedToApp = (a) => ({
   // '다녀감'에 겹쳐 쓴다(utils.mergeActivitySeen). 이름으로 짝을 지으면 동명이인에서
   // 어긋나고, 이름이 바뀐 사람은 짝을 잃는다.
   actorId: a.actor_id || null,
-  actorName: profileIdToName.get(a.actor_id) || '알 수 없음',
+  actorName: profileIdToName.get(a.actor_id) || '이름 미상',
   action: a.action,
   cardId: a.card_id || null,
   projectId: a.project_id || null,

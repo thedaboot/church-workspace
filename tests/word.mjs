@@ -1477,7 +1477,7 @@ await clickText('삭제');
 await sleep(900);
 const gone = await ev(`(() => ({
   stored: JSON.parse(localStorage.getItem('word_qt_entries') || '{}')[${JSON.stringify(today)}] || null,
-  feedEmpty: document.body.innerText.includes('이 날짜에 올라온 나눔이 아직 없어요'),
+  feedEmpty: document.body.innerText.includes('이 날짜에 올라온 QT 나눔이 아직 없어요'),
   editor: (document.querySelector('.tiptap') || {}).innerText || '',
   toggleOff: [...document.querySelectorAll('button')]
     .filter(b => ['나만 보기', '더다붓에 공유하기'].includes(b.textContent.trim())).every(b => b.disabled),
@@ -1488,7 +1488,7 @@ check('진짜 삭제는 그 날 묵상을 없앤다', gone.stored === null && go
 // 지운 뒤에는 다시 '아직 아무것도 안 쓴 날'이라 템플릿이 선다(빈 칸이 아니다)
 check('지우고 나면 템플릿이 다시 선다', gone.editor.includes('나의 결단'), JSON.stringify(gone.editor));
 check('나눔이 비면 한 줄로 말한다',
-  (await ev(`(() => { const p=[...document.querySelectorAll('p')].find(x=>x.textContent.includes('올라온 나눔이 아직 없어요')); return !!p && !p.parentElement.querySelector('img[src*="/chars/"]'); })()`)) === true);
+  (await ev(`(() => { const p=[...document.querySelectorAll('p')].find(x=>x.textContent.includes('올라온 QT 나눔이 아직 없어요')); return !!p && !p.parentElement.querySelector('img[src*="/chars/"]'); })()`)) === true);
 check('저장된 글이 없으면 공유 토글은 꺼져 있다', gone.toggleOff === true, JSON.stringify(gone));
 check('지울 것이 없으면 휴지통도 없다', gone.trash === false, JSON.stringify(gone));
 
@@ -1541,7 +1541,7 @@ const otherGone = await ev(`(() => ({
   stored: (JSON.parse(localStorage.getItem('word_qt_shared') || '{}')[${JSON.stringify(word.kstToday())}] || []).length,
   chips: document.querySelectorAll('[data-share-person]').length,
   papers: document.querySelectorAll('[data-share-feed] .paper-sheet').length,
-  empty: document.body.innerText.includes('이 날짜에 올라온 나눔이 아직 없어요'),
+  empty: document.body.innerText.includes('이 날짜에 올라온 QT 나눔이 아직 없어요'),
 }))()`);
 check('마스터가 지우면 그 칩과 종이가 사라진다',
   otherGone.stored === 0 && otherGone.chips === 0 && otherGone.papers === 0 && otherGone.empty,

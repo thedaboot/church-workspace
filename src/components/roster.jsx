@@ -239,7 +239,7 @@ function AccountRow({ person, linked, link, busy, onLink, onUnlink }) {
           className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-surface-hover transition-colors text-left disabled:opacity-40">
           <Avatar name={c.display_name} url={c.avatar_url || null} className="flex w-7 h-7 text-xs shrink-0" />
           <span className="flex-1 min-w-0">
-            <span className="block text-[12.5px] text-fg truncate">{c.display_name || '이름 없음'}</span>
+            <span className="block text-[12.5px] text-fg truncate">{c.display_name || '이름 미입력'}</span>
             <span className="block text-[10.5px] text-fg-faint truncate">{c.email || ''}</span>
           </span>
         </button>

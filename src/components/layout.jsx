@@ -925,7 +925,7 @@ function SearchResults({ query, onPick }) {
               <span className="w-6 h-6 rounded-md bg-tag-green text-tag-green-fg flex items-center justify-center shrink-0"><CheckSquare size={13} strokeWidth={1.75} /></span>
               <span className="flex-1 min-w-0">
                 <span className="block text-sm text-fg truncate">{highlight(t.title, q)}</span>
-                <span className="block text-[10px] text-fg-faint truncate">{projectsMap[t.projectId]?.title || '프로젝트 없음'}</span>
+                <span className="block text-[10px] text-fg-faint truncate">{projectsMap[t.projectId]?.title || '프로젝트 미지정'}</span>
               </span>
             </button>
           ))}
@@ -1220,7 +1220,7 @@ function NotificationBell({ onOpenTask, onOpenLink }) {
           {items.length === 0 ? (
             <div className="text-center py-8 px-3">
               <span className="inline-flex w-8 h-8 rounded-full bg-tag-yellow text-tag-yellow-fg items-center justify-center mb-2"><Bell size={13} strokeWidth={1.75} /></span>
-              <p className="text-xs text-fg-faint">새 알림이 없어요</p>
+              <p className="text-xs text-fg-faint">새로운 알림이 없어요</p>
             </div>
           ) : (
             <div className="divide-y divide-line/60">

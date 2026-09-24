@@ -100,7 +100,7 @@ function MemberRow({ row, action, delay = 0, isOnline = false, at = '', below = 
         )}
       </span>
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-semibold text-fg truncate">{row.display_name || '이름 없음'}</p>
+        <p className="text-[13px] font-semibold text-fg truncate">{row.display_name || '이름 미입력'}</p>
         <p className="text-[10.5px] truncate" style={{ color: isOnline ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)' }}>
           {[row.created_at && `${agoLabel(row.created_at)} 가입`,
             isOnline ? '접속 중' : (at && `${agoLabel(at)} 다녀감`)].filter(Boolean).join(' · ')}
@@ -475,8 +475,8 @@ export function MembersView({ isAdmin, isMaster }) {
                         className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-surface-hover transition-colors text-left disabled:opacity-40">
                         <Avatar name={m.display_name} url={m.avatar_url} className="flex w-7 h-7 text-xs shrink-0" />
                         <span className="flex-1 min-w-0">
-                          <span className="block text-[13px] text-fg truncate">{m.display_name || '이름 없음'}</span>
-                          <span className="block text-[10.5px] text-fg-faint truncate">{m.email || '로그인 이메일 없음'}</span>
+                          <span className="block text-[13px] text-fg truncate">{m.display_name || '이름 미입력'}</span>
+                          <span className="block text-[10.5px] text-fg-faint truncate">{m.email || '로그인 이메일 미등록'}</span>
                         </span>
                       </button>
                     </ConfirmPopover>
@@ -565,8 +565,8 @@ export function MembersView({ isAdmin, isMaster }) {
                     className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-surface-hover transition-colors text-left disabled:opacity-40">
                     <Avatar name={m.display_name} url={m.avatar_url} className="flex w-7 h-7 text-xs shrink-0" />
                     <span className="flex-1 min-w-0">
-                      <span className="block text-[13px] text-fg truncate">{m.display_name || '이름 없음'}</span>
-                      <span className="block text-[10.5px] text-fg-faint truncate">{m.email || '로그인 이메일 없음'}</span>
+                      <span className="block text-[13px] text-fg truncate">{m.display_name || '이름 미입력'}</span>
+                      <span className="block text-[10.5px] text-fg-faint truncate">{m.email || '로그인 이메일 미등록'}</span>
                     </span>
                   </button>
                 ))}

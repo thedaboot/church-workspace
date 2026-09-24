@@ -67,7 +67,7 @@ const teamChipsOf = (counts) => Object.keys(CONFIG.TEAMS).filter(n => counts[n])
 const progressByProject = (list, projectsMap) => [...groupBy(list, t => t.projectId).entries()]
   .map(([id, rows]) => ({
     id,
-    title: projectsMap[id]?.title || '프로젝트 없음',
+    title: projectsMap[id]?.title || '프로젝트 미지정',
     done: rows.reduce((n, t) => n + (t.status === '완료' ? 1 : 0), 0),
     total: rows.length,
   }));
@@ -260,8 +260,8 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   // 남은 게 없는 날에도 할 일이 있는 것처럼 읽힌다
   const greeting = myOverdue ? `${myName}님, 밀린 업무부터 정리해봐요`
     : myToday ? `${myName}님, 오늘 마감되는 업무만 남았어요`
-    : myOpen.length ? `${myName}님, 당장 급한 업무는 없어요`
-    : `${myName}님, 남은 업무가 없어요`;
+    : myOpen.length ? `${myName}님, 오늘은 여유가 좀 있네요`
+    : `${myName}님, 맡은 업무를 다 마쳤어요`;
   // 내 지연은 없는데 KPI의 '지연'에는 숫자가 있는 경우가 있다(남의 것). 그때
   // "지연된 업무가 없네요"라고 하면 바로 아래 칸과 어긋나 보인다.
   // 그렇다고 "내가 맡은 업무에는 없네요"라고 하면 남과 견주는 문장이 된다 — 여기는
@@ -454,7 +454,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
             ))}
             {/* 고른 해에 프로젝트가 없을 수 있다 — 다른 해에는 있다는 뜻이므로
                 '아직'이라고 하지 않는다(달력의 `해당 날짜에는 업무가 없어요`와 같은 결). */}
-            {!projectStats.length && <p className="pb-4 text-[11px] text-fg-faint">{year}년에는 프로젝트가 없어요</p>}
+            {!projectStats.length && <p className="pb-4 text-[11px] text-fg-faint">{year}년에 프로젝트는 아직 없어요</p>}
           </Card>
           </div>
 
@@ -976,7 +976,7 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
         />
         <ProjectProgressList
           title="내가 맡은 프로젝트" items={myProjects} color="var(--p-blue)"
-          empty="아직 맡은 업무가 없어요" onNavigate={onNavigate}
+          empty="맡은 업무가 생기면 여기에 보여요" onNavigate={onNavigate}
         />
       </div>
     </div>
@@ -1040,7 +1040,7 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
               {m.left > 0 && <span className="text-[11px] text-fg-faint tabular-nums">{m.left}</span>}
             </span>
           ))}
-          {!members.length && <span className="text-[11.5px] text-fg-faint whitespace-nowrap">아직 이 팀에 속한 사람이 없어요</span>}
+          {!members.length && <span className="text-[11.5px] text-fg-faint whitespace-nowrap">아직 이 팀에 속한 청년이 없어요</span>}
         </div>
       </div>
 

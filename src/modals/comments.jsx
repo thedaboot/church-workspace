@@ -95,7 +95,7 @@ const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => (
           {count > 0 && (
             <span className={`flex items-center pl-0.5 ${extra > 0 ? 'pr-1' : 'pr-2'}`}>
               {shown.map((p, i) => (
-                <Avatar key={`${p.userId}-${i}`} name={p.name || '알 수 없음'}
+                <Avatar key={`${p.userId}-${i}`} name={p.name || '이름 미상'}
                   className="flex w-[15px] h-[15px] text-[8.5px] leading-none -ml-[5px] first:ml-0 ring-[1.5px] ring-surface animate-in fade-in zoom-in-75 duration-200" />
               ))}
               {/* 넘치는 사람만 +N으로 접는다. aria에 조사를 붙이면 '확인를'이 되므로
@@ -141,7 +141,7 @@ function ReactionPeopleModal({ kind, people, onClose }) {
           {people.map((p, i) => (
             <div key={`${p.userId}-${i}`} className="flex items-center gap-2.5 py-2.5">
               <Avatar name={p.name || ''} className="flex w-7 h-7 text-xs" />
-              <span className="text-[13px] font-semibold text-fg truncate">{p.name || '알 수 없음'}</span>
+              <span className="text-[13px] font-semibold text-fg truncate">{p.name || '이름 미상'}</span>
             </div>
           ))}
         </div>
@@ -455,7 +455,7 @@ export const ActivityPanel = React.memo(({ logs, loading = false }) => {
   if (all.length === 0) return (
     <div className="text-center mt-6">
       <span className="inline-flex w-8 h-8 rounded-full bg-tag-purple text-tag-purple-fg items-center justify-center mb-2"><span className="w-1.5 h-1.5 rounded-full bg-current" /></span>
-      <p className="text-xs text-fg-faint">아직 활동 기록이 없어요.</p>
+      <p className="text-xs text-fg-faint">아직 활동 기록이 없어요</p>
     </div>
   );
 

@@ -281,7 +281,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                         <span className="text-[10.5px] font-semibold whitespace-nowrap" style={{ color: CONFIG.STATUS_FG_VAR[t.status] || 'var(--app-ink-muted)' }}>{t.status}</span>
                       </span>
                       <span className="sm:hidden shrink-0 w-0.5 h-0.5 rounded-full" style={{ background: 'var(--app-line)' }} />
-                      <span className="text-[10.5px] text-fg-faint truncate">{projectsMap[t.projectId]?.title || '프로젝트 없음'}</span>
+                      <span className="text-[10.5px] text-fg-faint truncate">{projectsMap[t.projectId]?.title || '프로젝트 미지정'}</span>
                       {/* 팀이 여럿이면 `웰컴팀 외 2팀`. 예전에는 teams[0] 하나만 그려서
                           여러 팀이 붙은 업무는 나머지가 화면 어디에도 없었다 — "9월
                           월례회는 웰컴팀 일"로 읽혔다(사용자 지적 2026-08-29).
@@ -386,7 +386,7 @@ export function TeamLeftGrid({ stats, onOpenTeam }) {
 // 한다(가장 많이 맡은 사람 기준의 상대 길이).
 // 담당자가 없는 업무는 여기 세지 않는다 — 아무에게도 얹혀 있지 않은 일이다.
 export function PersonLoadGrid({ people, onOpenPerson }) {
-  if (!people.length) return <p className="text-[11px] text-fg-faint">남은 업무를 맡은 사람이 없어요</p>;
+  if (!people.length) return <p className="text-[11px] text-fg-faint">모두 정리되었어요</p>;
   const max = people[0].left || 1;
   return (
     <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -602,7 +602,7 @@ export function MembersModal({ members, myName, onClose }) {
                     (0019 이전 가입자에게 '아직 방문 전'은 틀린 말이었다 — 사용자 지적) */}
                 <span className="text-[11px] tabular-nums whitespace-nowrap shrink-0"
                   style={{ color: isOnline ? 'var(--app-tag-green-fg)' : 'var(--app-ink-muted)' }}>
-                  {isOnline ? '접속 중' : (agoLabel(lastVisitOf(m)) || '기록 없음')}
+                  {isOnline ? '접속 중' : (agoLabel(lastVisitOf(m)) || '방문 전')}
                 </span>
               </div>
             );
@@ -987,7 +987,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
             팀의 띠는 그 팀 색으로 한 겹 더 밝힌다. 선 아래에 깔린다(pointer-events 없음). */}
         {!projects.length && (
           <p className="absolute inset-0 flex items-center justify-center text-[11px] text-fg-faint">
-            {year}년에는 프로젝트가 없어요
+            {year}년에 프로젝트는 아직 없어요
           </p>
         )}
         {bands.map((b, k) => {

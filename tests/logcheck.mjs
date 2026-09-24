@@ -1384,7 +1384,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     "'프로젝트 진행' 칸과 **같은 부품**을 쓴다(연도 고르기를 두 벌 만들지 않는다)");
   // 2026-08-31: onPick은 스크롤 보정을 거치는 pickYear다(그 아래 블록)
   assert.ok(/onPick=\{pickYear\} compact \/>/.test(parts), '지도 머리줄에 연도 고르기가 있다');
-  assert.ok(/\{year\}년에는 프로젝트가 없어요/.test(parts),
+  assert.ok(/\{year\}년에 프로젝트는 아직 없어요/.test(parts),
     "그 해에 프로젝트가 없으면 그림 대신 한 줄('아직'이라고 하지 않는다)");
 
   // 몇 개까지 겹치지 않나 — 상한을 바꿀 때 이 계산을 다시 하라.

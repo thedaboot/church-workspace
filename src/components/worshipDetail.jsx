@@ -359,7 +359,7 @@ function RolesTab({ rows, people, nameOf }) {
                 폭 상한을 걷어내니 이름과 역할이 화면 양 끝으로 갈라졌다(위 지적의
                 재발). 붙여 두면 어느 폭에서도 '누가 무엇을' 한 눈에 읽힌다. */}
             {r.role && <span className={`${ROLE_VIEW} shrink-0`}>{r.role}</span>}
-            <span className="min-w-0 text-[13px] font-semibold text-fg truncate">{shown || '이름 없음'}</span>
+            <span className="min-w-0 text-[13px] font-semibold text-fg truncate">{shown || '이름 미입력'}</span>
             <span className="flex-1" />
           </li>
         );

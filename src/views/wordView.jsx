@@ -838,7 +838,7 @@ function ShareFeed({ rows = [], members = [], myName = '', date, passageRef = ''
   };
   const sections = useMemo(() => splitNoteSections(cur?.body || ''), [cur?.body]);
   if (!rows.length) {
-    return <p className="text-[11.5px] text-fg-faint">이 날짜에 올라온 나눔이 아직 없어요</p>;
+    return <p className="text-[11.5px] text-fg-faint">이 날짜에 올라온 QT 나눔이 아직 없어요</p>;
   }
   return (
     <div data-share-feed="1">

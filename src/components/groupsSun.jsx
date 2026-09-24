@@ -363,7 +363,7 @@ function SunRow({ group, suns, people, members, unplaced, leaderPool, onRename, 
             right={p.id === group.leader_person_id ? null : (
               <>
                 <MenuPick className="sun-move" label={`${p.name} 순 옮기기`} items={others}
-                  empty="옮길 다른 순이 아직 없어요"
+                  empty="다른 순이 만들어지면 옮길 수 있어요"
                   onPick={id => onMoveMember(group, id, p)}>순 옮기기</MenuPick>
                 <ConfirmPopover message={`${p.name}님을 ${group.name}에서 뺄까요?`} confirmLabel="빼기"
                   onConfirm={() => onRemoveMember(group, p)}>

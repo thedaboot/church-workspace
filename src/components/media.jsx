@@ -62,7 +62,7 @@ export function SmartImage({ src, alt = '', className = '', style = undefined, w
         />
       )}
       {state === 'error' && (
-        <span className="absolute inset-0 flex items-center justify-center text-[10px] text-fg-faint">불러올 수 없어요</span>
+        <span className="absolute inset-0 flex items-center justify-center text-[10px] text-fg-faint">불러오지 못했어요</span>
       )}
     </span>
   );
