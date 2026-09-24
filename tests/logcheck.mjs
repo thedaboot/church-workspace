@@ -3939,3 +3939,68 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '0072는 카드 시각 트리거를 끄고 옛 행을 NFC로 맞춘 뒤 다시 켠다');
   console.log('PASS  첨부 이름 NFC 4가지');
 }
+
+// ── 성경 임베딩 뒷단 (0073 bible_vec · scripts/embed-bible.mjs · api/ai.js embed · 배치 E) ──────
+// 절 쪽(스크립트)과 질문 쪽(api/ai.js)이 모델·차원·정규화를 한 벌로 써야 벡터끼리 견줄 수 있다 —
+// 갈려도 오류 없이 엉뚱한 절만 나온다. 0073은 인덱스 없이 · 읽기만 승인된 사람 · RPC는 invoker.
+// 되돌리기 검사: embedRows의 unitVec(v)를 v로 되돌리면 '맞춘 벡터를 넣는다'가, 0073에 create index를
+// 더하면 '인덱스 없이'가, 정책의 is_approved()를 true로 바꾸면 '읽기 정책 하나'가 깨진다.
+{
+  const mig = readFileSync(new URL('../supabase/migrations/0073_bible_vec.sql', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const body = mig.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');   // 주석(되돌리기 SQL)은 빼고 본다
+  assert.ok(/create extension if not exists vector with schema extensions;/.test(body), '0073이 vector를 extensions 스키마에 두지 않는다');
+  assert.ok(/vec\s+extensions\.halfvec\(768\) not null/.test(body), 'bible_vec.vec이 halfvec(768) not null이 아니다');
+  assert.ok(/ref\s+text primary key/.test(body) && /body\s+text not null/.test(body), 'bible_vec의 ref·body 칸 모양이 다르다');
+  assert.ok(!/create\s+(unique\s+)?index/i.test(body) && !/using\s+(hnsw|ivfflat)/i.test(body), '0073은 인덱스 없이다(전수 비교 · 무료 500MB)');
+  assert.ok(/alter table public\.bible_vec enable row level security;/.test(body), 'bible_vec에 RLS가 없다');
+  const pols = [...body.matchAll(/create policy (\w+) on public\.bible_vec\s+for (\w+) using \(([^;]*)\);/g)];
+  assert.deepStrictEqual(pols.map(m => [m[2], m[3]]), [['select', 'public.is_approved()']], '읽기 정책 하나(승인된 사람)만 있어야 한다 — 쓰기는 서비스 키만');
+  assert.ok(/revoke insert, update, delete, truncate on public\.bible_vec from anon, authenticated;/.test(body), '클라이언트 쓰기 권한을 빼지 않았다');
+  assert.ok(/create or replace function public\.match_bible\(q extensions\.halfvec\(768\), k int default 30\)\nreturns table \(ref text, book text, chapter int, verse int, body text, score real\)\nlanguage sql stable security invoker\nset search_path = public, extensions, pg_temp/.test(body),
+    'match_bible 서명·invoker·search_path가 다르다');
+  assert.ok(/order by b\.vec <=> q/.test(body) && /\(1 - \(b\.vec <=> q\)\)::real as score/.test(body), 'match_bible이 코사인 거리로 세우지 않는다');
+  assert.ok(/revoke execute on function public\.match_bible\(extensions\.halfvec, int\) from public, anon;/.test(body), 'anon이 match_bible을 부를 수 있다');
+  assert.ok(/-- drop table if exists public\.bible_vec;/.test(mig), '0073 맨 아래에 되돌리는 SQL이 없다');
+
+  const ai = await import(new URL('../api/ai.js', import.meta.url).href);
+  const E = await import(new URL('../scripts/embed-bible.mjs', import.meta.url).href);
+  assert.strictEqual(ai.EMBED_MODEL, 'gemini-embedding-001');
+  assert.strictEqual(ai.EMBED_DIM, 768);
+  assert.strictEqual(Number(/halfvec\((\d+)\) not null/.exec(body)[1]), ai.EMBED_DIM, '0073의 차원과 api/ai.js의 EMBED_DIM이 다르다');
+  assert.strictEqual(E.TASK_TYPE, 'RETRIEVAL_DOCUMENT');
+  assert.strictEqual(E.EMBED_BATCH, 100, 'batchEmbedContents 한 번의 상한은 100이다');
+  // 정규화 — 단위 길이 · 방향 유지 · 0·NaN은 던진다
+  assert.deepStrictEqual(ai.unitVec([3, 4]), [0.6, 0.8]);
+  const u = ai.unitVec(Array.from({ length: 768 }, (_, i) => Math.sin(i) * 0.02));
+  assert.ok(Math.abs(Math.hypot(...u) - 1) < 1e-9, 'unitVec이 단위 길이를 만들지 않는다');
+  assert.throws(() => ai.unitVec([0, 0]), /길이가 0/);
+  assert.throws(() => ai.unitVec([1, NaN]), /숫자가 아닌/);
+  const es = readFileSync(new URL('../scripts/embed-bible.mjs', import.meta.url), 'utf8');
+  assert.ok(/import \{ EMBED_MODEL, EMBED_DIM, unitVec \} from '\.\.\/api\/ai\.js';/.test(es), '스크립트가 모델·차원·정규화를 api/ai.js에서 가져오지 않는다(두 벌이 된다)');
+  assert.ok(/return \{ raw: Math\.hypot\(\.\.\.v\), vec: unitVec\(v\) \};/.test(es), '스크립트가 맞춘 벡터를 넣지 않는다(768차원 출력은 정규화되어 오지 않는다)');
+  assert.ok(/v\.length !== EMBED_DIM/.test(es), '스크립트가 차원을 확인하지 않는다');
+  // 요청 모양 — 절 쪽 DOCUMENT · 질문 쪽 QUERY · 둘 다 768
+  const [req] = E.docRequests([{ ref: '요한복음 3:16', body: '하나님이 세상을' }]);
+  assert.deepStrictEqual(req, { model: 'models/gemini-embedding-001', content: { parts: [{ text: '요한복음 3:16 하나님이 세상을' }] },
+    taskType: 'RETRIEVAL_DOCUMENT', outputDimensionality: 768 });
+  const q = ai.embedQueryPayload('가'.repeat(600));
+  assert.strictEqual(q.taskType, 'RETRIEVAL_QUERY');
+  assert.strictEqual(q.outputDimensionality, 768);
+  assert.strictEqual(q.content.parts[0].text.length, ai.MAX_EMBED_QUERY, '질문을 500자로 자르지 않는다');
+  // 절 목록 — 편집 표기 36절을 뺀 31,067절 · ref는 formatRef 모양이고 parseRef가 다시 읽는다
+  const verses = E.loadVerses();
+  assert.strictEqual(verses.length, 31067);
+  assert.deepStrictEqual(verses[0], { book: 'gen', chapter: 1, verse: 1, ref: '창세기 1:1', body: '태초에 하나님이 천지를 창조하시니라' });
+  assert.ok(!verses.some(v => E.PLACEHOLDER_RE.test(v.body)), '편집 표기뿐인 절이 들어갔다');
+  assert.ok(verses.some(v => v.ref === '신명기 3:9'), '괄호로 감싼 진짜 본문(신 3:9)까지 뺐다');
+  assert.strictEqual(new Set(verses.map(v => v.ref)).size, verses.length, 'ref가 겹친다(primary key)');
+  const { parseRef } = await import(new URL('../src/services/bibleRef.js', import.meta.url).href);
+  const books = JSON.parse(readFileSync(new URL('../public/bible/index.json', import.meta.url), 'utf8'));
+  for (const v of E.spreadSample(verses, 50)) {
+    const p = parseRef(v.ref, books);
+    assert.deepStrictEqual([p?.bookId, p?.start.chapter, p?.start.verse], [v.book, v.chapter, v.verse], `parseRef가 ${v.ref}를 못 읽는다`);
+  }
+  assert.strictEqual(E.loadVerses({ book: 'jud' }).length, 25);
+  assert.strictEqual(E.vecLiteral([0.1, -0.25]), '[0.100000,-0.250000]');
+  console.log('PASS  성경 임베딩 뒷단(0073 모양 · 모델·차원·정규화 한 벌 · 절 목록) 35가지');
+}
