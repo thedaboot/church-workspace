@@ -9,13 +9,25 @@
 //
 // 그리는 것이 아니라 읽는 것이므로 서식·색·좌표는 버린다. 화면에 그리는 쪽은
 // components/SheetView·OfficeView이고 그쪽이 원본이다.
+//
+// **pdf.js는 미리보기(PdfView)와 같은 판으로 연다**(2026-09-24). 여기서 워커를 pdf.worker로
+// 바로 가리키면 **전역 GlobalWorkerOptions.workerSrc를 폴리필 없는 워커로 덮어서**, 첨부를 한 번
+// 올린 뒤로는 PdfView도 그 워커를 써 옛 iOS에서 PDF 미리보기가 막혔다(§6-29-z-15). 그래서
+// 폴리필을 먼저 싣고 같은 껍데기(pdfWorkerEntry.js)를 쓴다 — 워커 파일이 한 벌이 되니 같은 것을
+// 두 번 받지도 않는다. 한글 CID 글꼴을 풀 cmaps도 같은 자리에서 받는다(PdfView의 PDFJS_ASSETS —
+// 없으면 한글이 발췌에서 통째로 빠진다).
 // ============================================================================
+import './pdfPolyfill.js';
+import { looksLikeText, htmlToText } from './textQuality.js';
 
 const EXCERPT_MAX = 2000;   // DB에 넣는 상한. 프롬프트 예산과 같은 판단이다.
 const PDF_PAGES = 10;              // PDF는 앞 10쪽까지만 훑는다
 
 const extOf = (name) => (String(name || '').match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
 const PLAIN = ['txt', 'md', 'csv', 'json', 'log'];
+const HTML = ['html', 'htm'];
+// PdfView.PDFJS_ASSETS 가운데 글자를 뽑는 데 드는 것(vite.config.js가 /pdfjs/로 내준다)
+const PDF_TEXT_ASSETS = { cMapUrl: '/pdfjs/cmaps/', cMapPacked: true, standardFontDataUrl: '/pdfjs/standard_fonts/' };
 
 // 파서가 돌려준 구조에서 글자만 걷는다. `text`와 `v`(엑셀 셀의 표시값)만 본다 —
 // 통째로 훑으면 스타일 이름·경로 같은 것까지 딸려 온다.
@@ -49,6 +61,10 @@ export async function extractFileText(file) {
   const ext = extOf(file?.name);
   const type = String(file?.type || '');
   try {
+    // HTML은 태그·스타일·스크립트를 걷고 글만 둔다 — 원문을 그대로 두면 태그가 2천 자를 먼저 채운다
+    if (HTML.includes(ext) || type === 'text/html') {
+      return htmlToText(await file.text()).slice(0, EXCERPT_MAX);
+    }
     if (PLAIN.includes(ext) || type.startsWith('text/')) {
       return (await file.text()).slice(0, EXCERPT_MAX);
     }
@@ -68,8 +84,8 @@ export async function extractFileText(file) {
     }
     if (ext === 'pdf' || type === 'application/pdf') {
       const pdfjs = await import('pdfjs-dist');
-      pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
-      const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+      pdfjs.GlobalWorkerOptions.workerSrc = (await import('./pdfWorkerEntry.js?worker&url')).default;
+      const doc = await pdfjs.getDocument({ ...PDF_TEXT_ASSETS, data: await file.arrayBuffer() }).promise;
       const parts = [];
       let len = 0;
       for (let p = 1; p <= Math.min(doc.numPages, PDF_PAGES) && len < EXCERPT_MAX; p++) {
@@ -77,7 +93,9 @@ export async function extractFileText(file) {
         const line = content.items.map(i => i.str).join(' ').trim();
         if (line) { parts.push(line); len += line.length + 1; }
       }
-      return parts.join('\n').slice(0, EXCERPT_MAX);
+      // 악보·콘티 PDF는 화음 글자와 기호 부스러기만 나온다 — 글이 아니면 비워 둔다(textQuality)
+      const text = parts.join('\n').slice(0, EXCERPT_MAX);
+      return looksLikeText(text) ? text : '';
     }
   } catch (e) {
     // 사진·암호 걸린 문서·깨진 파일은 여기로 온다. 흔한 일이라 조용히 넘긴다.

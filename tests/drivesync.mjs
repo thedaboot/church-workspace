@@ -1404,6 +1404,19 @@ check('보안 헤더 — 강제는 frame-ancestors 하나 · 초안은 Report-On
   const pdfjsCache = (vercel.headers || []).find(x => x.source === '/pdfjs/(.*)')?.headers?.[0]?.value;
   assert.strictEqual(pdfjsCache, 'public, max-age=86400, stale-while-revalidate=604800', '/pdfjs/ 캐시가 /bible/과 다르다');
   assert.ok(vercel.functions?.['api/push.js']?.maxDuration >= 60, 'api/push.js 시간 제한을 명시하지 않았다(배치가 기본값에 잘린다)');
+check('첨부 발췌도 미리보기와 같은 PDF 워커를 쓴다 (fileText · 2026-09-24)', () => {
+  // fileText가 워커를 pdf.worker로 바로 가리키면 **전역 GlobalWorkerOptions.workerSrc를 폴리필 없는
+  // 워커로 덮는다** — 첨부를 한 번 올린 뒤로는 PdfView도 그 워커를 써서 옛 iOS에서 미리보기가
+  // 막혔다(위 '옛 브라우저에서도 PDF가 그려진다'의 다른 입구). 같은 껍데기·같은 폴리필이어야 한다.
+  const ft = read('src/services/fileText.js');
+  assert.match(ft, /pdfWorkerEntry\.js\?worker&url/, 'fileText가 워커 껍데기를 지나지 않는다');
+  assert.ok(!/pdf\.worker\.min\.mjs/.test(ft), 'fileText가 폴리필 없는 워커를 가리킨다 — PdfView의 워커까지 덮는다');
+  assert.match(ft, /^import '\.\/pdfPolyfill\.js';/m, 'fileText 쪽 폴리필이 없다');
+  // 워커 주소를 넣는 곳이 두 군데여도 **같은 파일**이어야 한다(두 벌이면 마지막에 넣은 쪽이 이긴다)
+  const workerSrcs = ['src/services/fileText.js', 'src/components/PdfView.jsx']
+    .map(p => /import\('([^']*pdfWorkerEntry\.js\?worker&url)'\)/.exec(read(p))?.[1]?.replace(/^.*\//, ''));
+  assert.deepStrictEqual(workerSrcs, ['pdfWorkerEntry.js?worker&url', 'pdfWorkerEntry.js?worker&url'],
+    '발췌와 미리보기가 다른 워커를 가리킨다');
 });
 
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');

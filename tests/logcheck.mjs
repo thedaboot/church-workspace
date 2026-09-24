@@ -3704,3 +3704,59 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/cards\.cancel\(\); unsub\(\);/.test(app), '구독을 걷을 때 모아 둔 것도 걷는다');
   console.log('PASS  워크스페이스 실시간 덜 읽기 22가지');
 }
+
+// ── 첨부 발췌가 글인가 · HTML은 글만 (services/textQuality.js · fileText.js · 2026-09-24) ──
+// 악보·콘티 PDF에서 pdf.js가 뽑는 것은 화음 글자와 기호 부스러기다 — 그게 발췌로 들어가면 AI
+// 요약이 읽을 것 없는 기호 2천 자를 싣는다. HTML 첨부는 원문이 그대로 들어가 태그가 자리를
+// 먼저 채웠다. 앱은 **PDF에만** 글 판정을 걸고, 한글 수는 보지 않는다(영어 문서를 비우면 안 된다).
+// 되돌리기 검사: WEIRD에서 굽은 따옴표를 빼면 '인쇄물 따옴표·글머리표'가, fileText에서
+// looksLikeText 거르기를 지우면 'PDF에만 건다'가 깨진다.
+{
+  const T = await import(new URL('../src/services/textQuality.js', import.meta.url).href);
+  const ko = '하나님이 그 아이의 소리를 들으셨나니 하나님의 사자가 하늘에서부터 하갈을 불러 가라사대 하갈아 무슨 일이냐 두려워 말라.';
+  assert.strictEqual(T.looksLikeText(ko), true, '한국어 본문은 글이다');
+  assert.strictEqual(T.looksLikeText('The Lord is my shepherd; I shall not want. He makes me lie down in green pastures.'), true,
+    '영어 문서도 글이다 — 앱은 한글 수를 보지 않는다');
+  assert.strictEqual(T.looksLikeText('“은혜” — 2부 순서 • 찬양 • 기도 • 말씀 ‘아멘’ 「광고」 <공지> 10:30~12:00'), true,
+    '워드 PDF의 인쇄물 따옴표·줄표·글머리표는 기호 부스러기가 아니다');
+  const debris = 'G D/F# ¤ Em ☆ C □ ⇌ 十 ♩ ♪ ¤ ☆ □ ⇌ 十 Am7 ¤ ☆ □ ♩ ♪ ¤ ☆ □';
+  assert.strictEqual(T.looksLikeText(debris), false, '악보 부스러기는 글이 아니다');
+  assert.strictEqual(T.looksLikeText('����� ��� ������ �� ���'), false, '깨진 글자(U+FFFD)는 글이 아니다');
+  assert.strictEqual(T.looksLikeText(''), false, '빈 글은 글이 아니다');
+  assert.strictEqual(T.looksLikeText('   \n '), false);
+  assert.strictEqual(T.looksLikeText('A-1'), true, '짧아도 글이면 글이다(앱은 글자 수 하한이 없다)');
+  // 백필 스크립트가 쓰는 더 엄한 문턱(사진·스캔 PDF를 Gemini로 넘길지)
+  assert.strictEqual(T.looksLikeText('Am7 G C D Em F G Am C D G Em', { minHangul: 30 }), false, '백필 문턱: 한글 30자');
+  assert.strictEqual(T.looksLikeText(ko, { minLength: 20, minHangul: 30 }), true);
+  const st = T.textStats('가나 다 ¤');
+  assert.deepStrictEqual([st.length, st.readable, st.weird, st.hangul], [4, 3, 1, 3], '공백을 뺀 몸통으로 센다');
+  // 경계값 — 60%·5%
+  assert.strictEqual(T.looksLikeText('가'.repeat(19) + '¤'), true, '기호 5%는 글');
+  assert.strictEqual(T.looksLikeText('가'.repeat(18) + '¤¤'), false, '기호 10%는 글이 아니다');
+  assert.strictEqual(T.looksLikeText('가'.repeat(6) + '....'), true, '읽히는 글자 60%는 글');
+  assert.strictEqual(T.looksLikeText('가'.repeat(5) + '.....'), false, '읽히는 글자 50%는 글이 아니다');
+
+  // HTML → 글
+  const html = `<!doctype html><html><head><title>t</title><style>body{color:red}</style>
+    <script>alert("x<y")</script></head><body><!-- 주석 --><h1>주보</h1><p>하나&nbsp;&amp;&#32;둘 &lt;셋&gt; &#xAC00;</p>
+    <noscript>켜 주세요</noscript><ul><li>찬양</li><li>기도</li></ul><svg><text>그림</text></svg></body></html>`;
+  const got = T.htmlToText(html);
+  assert.strictEqual(got, '주보\n하나 & 둘 <셋> 가\n찬양\n기도', `태그·스타일·스크립트를 걷고 글만(${JSON.stringify(got)})`);
+  assert.ok(!/alert|color:red|주석|켜 주세요|그림/.test(got), '스크립트·스타일·주석·noscript·svg 내용은 버린다');
+  assert.strictEqual(T.htmlToText(''), '');
+
+  // 배선 — fileText
+  const ft = readFileSync(new URL('../src/services/fileText.js', import.meta.url), 'utf8');
+  const firstImport = ft.search(/^import /m);
+  assert.ok(firstImport >= 0 && ft.slice(firstImport).startsWith("import './pdfPolyfill.js';"),
+    '폴리필이 맨 먼저 실린다(pdf.js보다 앞)');
+  assert.ok(/await import\('\.\/pdfWorkerEntry\.js\?worker&url'\)/.test(ft), 'PdfView와 같은 워커 껍데기');
+  assert.ok(!/pdf\.worker\.min\.mjs/.test(ft), '폴리필 없는 워커를 따로 가리키지 않는다(전역 workerSrc를 덮는다)');
+  assert.ok(/getDocument\(\{ \.\.\.PDF_TEXT_ASSETS,/.test(ft) && /cMapUrl: '\/pdfjs\/cmaps\/'/.test(ft),
+    '한글 CID 글꼴을 풀 cmaps를 싣는다');
+  assert.strictEqual((ft.match(/looksLikeText\(/g) || []).length, 1, '글 판정은 한 자리(PDF)에만');
+  assert.ok(/return looksLikeText\(text\) \? text : '';\s*\}/.test(ft), 'PDF에 글 판정을 건다');
+  assert.ok(/HTML\.includes\(ext\) \|\| type === 'text\/html'\) \{\s*return htmlToText\(/.test(ft),
+    'HTML은 태그를 걷는다(일반 텍스트보다 먼저 본다)');
+  console.log('PASS  첨부 발췌 글 판정·HTML 25가지');
+}
