@@ -598,4 +598,59 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
   assert.equal(await clickOpens('/?p=worship&s=abc'), 'https://church-workspace.vercel.app/?p=worship&s=abc', '우리 딥링크가 안 열린다');
 }
 
+// ── /api/ai의 임베딩 갈래 (배치 E3 · 0073) ─────────────────────────────────────
+// { embed } 갈래도 글 만들기와 **같은 인증 머리**를 지나야 한다 — 따로 두면 승인 전 계정이
+// 우리 키로 임베딩을 돌린다. 제미나이는 가짜 fetch로 바꿔치고 실제 함수를 돌린다.
+// 되돌리기 검사: handler에서 embed 분기를 requireApprovedUser 위로 올리면 첫 단정이 깨진다.
+{
+  const aiApi = await import('file://' + join(ROOT, 'api', 'ai.js').replace(/\\/g, '/'));
+  const fakeRes = () => { const r = { code: 0, body: null }; r.status = (c) => { r.code = c; return r; }; r.json = (b) => { r.body = b; return r; }; return r; };
+  const realFetch = globalThis.fetch;
+  const prevKey = process.env.GEMINI_API_KEY;
+  const calls = [];
+  let reply = null;
+  globalThis.fetch = async (url, init) => { calls.push({ url: String(url), body: JSON.parse(init?.body || '{}') }); return reply(); };
+  try {
+    process.env.GEMINI_API_KEY = 'test-key';
+    // ① 토큰이 없으면 제미나이를 부르기 전에 401
+    reply = () => { throw new Error('인증 전에 밖으로 나갔다'); };
+    const r1 = fakeRes();
+    await aiApi.default({ method: 'POST', headers: {}, body: { embed: '두려울 때' } }, r1);
+    assert.equal(r1.code, 401, '임베딩 갈래가 인증 머리를 지나지 않는다');
+    assert.equal(calls.length, 0, '인증 전에 제미나이를 불렀다');
+
+    // ② 성공 — RETRIEVAL_QUERY · 768 · 500자로 자름 · 단위 길이로 맞춰 돌려준다
+    const raw = Array.from({ length: 768 }, (_, i) => Math.cos(i) * 0.021);   // 길이 약 0.58(실제 출력과 비슷)
+    reply = () => new Response(JSON.stringify({ embedding: { values: raw } }), { status: 200 });
+    const r2 = fakeRes();
+    await aiApi.handleEmbed('  위로 ' + '가'.repeat(700), 'test-key', r2);
+    assert.equal(r2.code, 200);
+    assert.equal(r2.body.vec.length, 768);
+    assert.ok(Math.abs(Math.hypot(...r2.body.vec) - 1) < 1e-9, '질문 벡터를 단위 길이로 맞추지 않는다(절 쪽과 어긋난다)');
+    const sent = calls.at(-1);
+    assert.match(sent.url, /models\/gemini-embedding-001:embedContent$/);
+    assert.equal(sent.body.taskType, 'RETRIEVAL_QUERY');
+    assert.equal(sent.body.outputDimensionality, 768);
+    assert.equal(sent.body.content.parts[0].text.length, 500, '질문을 500자로 자르지 않는다');
+    assert.ok(sent.body.content.parts[0].text.startsWith('위로 '), '앞뒤 공백을 걷지 않는다');
+
+    // ③ 빈 질문 400 · 차원이 다르면 502 · 제미나이 오류 502
+    const r3 = fakeRes(); await aiApi.handleEmbed('   ', 'test-key', r3);
+    assert.equal(r3.code, 400);
+    const r3b = fakeRes(); await aiApi.handleEmbed(42, 'test-key', r3b);
+    assert.equal(r3b.code, 400, '글자가 아닌 embed를 받는다');
+    reply = () => new Response(JSON.stringify({ embedding: { values: raw.slice(0, 100) } }), { status: 200 });
+    const r4 = fakeRes(); await aiApi.handleEmbed('위로', 'test-key', r4);
+    assert.equal(r4.code, 502, '차원이 다른 벡터를 돌려준다');
+    reply = () => new Response(JSON.stringify({ error: { message: 'quota' } }), { status: 429 });
+    const r5 = fakeRes(); await aiApi.handleEmbed('위로', 'test-key', r5);
+    assert.equal(r5.code, 502);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (prevKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = prevKey;
+  }
+  const src = readFileSync(join(ROOT, 'api', 'ai.js'), 'utf8');
+  assert.ok(src.indexOf('await requireApprovedUser(req, res)') < src.indexOf('if (body.embed != null)'), '임베딩 분기가 인증보다 앞에 있다');
+}
+
 console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론(마감 임박 + 예배 당일 job 갈래·중복 방지·N+1 없음)·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수·합친 계정의 알림·구독(0063)');
