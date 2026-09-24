@@ -833,6 +833,46 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   delete st.tasks.byId[tid].subtasks;
 }
 
+// ── 업무 보기가 수정 편집기와 같은 줄에 선다 · 하위 업무 추가 칸의 글 시작 (2026-09-25 · 목업 A1·B2) ──
+// 빈 줄은 한 줄 높이(예전 8px), 들여쓰기는 그대로(예전 접힘) — 수정↔보기 때 줄이 뛰지 않는다.
+// 하위 업무 추가 칸은 글이 편집기 글과 같은 x에서 시작한다(px-2 → px-3).
+// **되돌리기**: RichText의 빈 줄을 `h-2`로, p의 `whitespace-break-spaces`를 빼면 첫 줄이,
+// 추가 칸을 px-2로 되돌리면 둘째 줄이 깨진다.
+{
+  const tid = 't0';
+  const keep = st.tasks.byId[tid].content;
+  st.tasks.byId[tid].content = '첫 줄\n    들여쓴 줄\n\n빈 줄 뒤 글\n\n\n빈 줄 둘 뒤 글\n마지막 줄';
+  const LINES = (sel) => `(() => {
+    const box = document.querySelector(${JSON.stringify(sel)}); if (!box) return null; const out = [];
+    const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT); let n;
+    while ((n = w.nextNode())) {
+      if (!n.textContent.trim()) continue;
+      const r = document.createRange(); const lead = n.textContent.length - n.textContent.trimStart().length;
+      r.setStart(n, lead); r.setEnd(n, n.textContent.length); const rc = r.getClientRects()[0]; if (!rc) continue;
+      out.push([n.textContent.trim().slice(0, 6), rc.top, rc.left]);
+    }
+    return out;
+  })()`;
+  const rel = (a) => (a || []).map(([t, y, x]) => [t, Math.round((y - a[0][1]) * 2) / 2, Math.round((x - a[0][2]) * 2) / 2]);
+  for (const m of [DESK, { width: 375, height: 812, deviceScaleFactor: 1, mobile: true }]) {
+    await load(m, `/?p=p1&t=${tid}`);
+    await sleep(600);
+    const view = rel(await ev(LINES('.prose')));
+    await ev(clickText('수정')); await sleep(1400);
+    const edit = rel(await ev(LINES('.tiptap')));
+    const off = view.map((v, i) => (edit[i] ? [v[0], v[1] - edit[i][1], v[2] - edit[i][2]] : [v[0], 'x'])).filter(d => d[1] !== 0 || d[2] !== 0);
+    check(`${m.width}px: 업무 보기의 줄이 편집기와 같은 자리에 선다(빈 줄 한 줄 · 들여쓰기 그대로)`,
+      view.length === 5 && edit.length === 5 && off.length === 0, JSON.stringify({ view, edit, off }));
+    const xs = await ev(`(() => {
+      const t = document.querySelector('.tiptap'); const i = [...document.querySelectorAll('input')].filter(x => (x.placeholder || '').startsWith('예:')).pop();
+      if (!t || !i) return null; const cs = getComputedStyle(i);
+      return { editor: Math.round(t.getBoundingClientRect().left), add: Math.round(i.getBoundingClientRect().left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft)) };
+    })()`);
+    check(`${m.width}px: 하위 업무 추가 칸의 글이 편집기 글과 같은 x에서 시작한다`, !!xs && Math.abs(xs.editor - xs.add) <= 1, JSON.stringify(xs));
+  }
+  st.tasks.byId[tid].content = keep;
+}
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,6).join('\n'):'\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

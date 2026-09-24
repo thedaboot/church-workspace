@@ -142,7 +142,12 @@ function paperInline(text, keyBase) {
 
 // 줄 배열 → 블록 배열. 판정 순서는 markdown.js·RichText와 **같다**(체크 → 불릿 → 번호) —
 // 체크 항목은 불릿 패턴에도 걸려서 순서가 바뀌면 `[ ]`가 글자로 남는다.
-// 빈 줄은 접는다(인쇄물이라 라벨 옆에 빈 줄을 그대로 세우면 도막이 헐렁해진다).
+// **글 사이 빈 줄은 한 줄 그대로 그린다**(사용자 결정 2026-09-25 · 목업 A1 — "편집 화면과
+// 같게"). 예전에는 인쇄물이라 접었는데, 사람이 엔터 두 번으로 나눈 문단이 읽기에서 붙어
+// 버리고 수정↔저장 때 줄이 30px 넘게 뛰었다. 줄 간격·빈 줄·들여쓰기가 편집 종이
+// (index.css `.note-paper .tiptap`)와 같은 값이다(index.css `.paper-note .paper-row-body`).
+// 도막 앞뒤의 빈 줄은 splitNoteSections가 이미 걷었다 — 도막은 여전히 한 줄이고 빈 도막에
+// 높이를 주지 않는다(§7).
 const TODO_RE = /^\s*[-*]\s+\[( |x|X)\]\s?(.*)$/;
 const BULLET_RE = /^\s*[-*]\s+(.*)$/;
 const NUM_RE = /^\s*(\d+)[.)]\s+(.*)$/;
@@ -167,7 +172,7 @@ function paperBlocks(text) {
     if (ul) { push('ul', { value: ul[1], key: i }); return; }
     const ol = NUM_RE.exec(raw);
     if (ol) { push('ol', { value: ol[2], key: i }, { start: Number(ol[1]) || 1 }); return; }
-    if (!line) return;
+    if (!line) { out.push({ type: 'gap', key: i }); return; }
     // 도막 제목은 이미 왼쪽 라벨로 올라가 있다 — 남은 `#`은 걷고 글만 세운다
     const h = HEAD_RE.exec(raw);
     out.push({ type: 'p', value: h ? h[1] : raw, key: i });
@@ -177,7 +182,8 @@ function paperBlocks(text) {
 
 // 목록의 들여쓰기는 편집 종이와 같은 1.25rem이다(index.css `.tiptap ul`) — 글머리는
 // 글자 칸 **밖**에 그려지므로 이 자리가 곧 글머리가 설 자리다(§6-32-u).
-const LIST_STYLE = { paddingLeft: '1.25rem', margin: '0 0 0.125rem' };
+// 목록 앞뒤 여백은 index.css `.paper-note .paper-row-body`가 편집 종이와 같은 값으로 준다(A1).
+const LIST_STYLE = { paddingLeft: '1.25rem', margin: 0 };
 // 체크 상자 — 편집 종이의 체크박스(index.css `.note-paper .tiptap`)와 같은 16px·같은 색.
 function PaperCheck({ done }) {
   return (
@@ -238,6 +244,9 @@ function PaperText({ text }) {
                 ))}
               </ul>
             );
+          // 빈 줄 — 글자 한 줄 높이(편집기의 빈 문단과 같다)
+          case 'gap':
+            return <p key={b.key} className="paper-line paper-gap"><br /></p>;
           default:
             return <p key={b.key} className="paper-line">{paperInline(b.value, b.key)}</p>;
         }

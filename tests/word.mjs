@@ -2936,6 +2936,49 @@ check('QT 본문 읽기 실패를 빈 상태와 갈라 표시한다',
 check('saveBibleState가 성공·실패를 답으로 돌려준다',
   (await word.saveBibleState({ lastRef: 'gen 1', bookmarks: [], highlights: [] }))?.ok === true);
 
+// ── 읽기 종이가 편집 종이와 같은 줄에 선다 (사용자 결정 2026-09-25 · 목업 A1) ───────
+// 수정을 눌러도·저장해도 줄이 한 픽셀도 움직이지 않아야 한다. 글 사이 빈 줄 · 빈 줄 둘 ·
+// 들여쓰기 · 불릿 · 번호 · 체크가 섞인 묵상으로 두 폭(두 열 1440 · 한 열 375)에서 글자 줄마다
+// 도막 위선 기준 y와 글 시작 x(앞 공백 뒤)를 잰다.
+// **되돌리기**: index.css의 `.paper-note .paper-row-body > *` 줄 사이 4px을 빼면, 또는 paper.jsx의
+// 'gap'(빈 줄)을 예전처럼 접으면 깨진다.
+{
+  const BODY = '### 나의 결단\n첫 줄\n    들여쓴 줄\n\n빈 줄 뒤 글\n\n\n빈 줄 둘 뒤 글\n- 불릿 하나\n- 불릿 둘\n1. 번호 하나\n2. 번호 둘\n- [ ] 할 일\n마지막 줄\n### 기도\n기도 한 줄';
+  const LINES = (root) => `(() => {
+    const box = document.querySelector(${JSON.stringify(root)});
+    if (!box) return null;
+    const base = box.getBoundingClientRect(); const out = [];
+    const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT); let n;
+    while ((n = w.nextNode())) {
+      if (!n.textContent.trim() || n.parentElement.closest('label')) continue;
+      const r = document.createRange(); const lead = n.textContent.length - n.textContent.trimStart().length;
+      r.setStart(n, lead); r.setEnd(n, n.textContent.length);
+      const rc = r.getClientRects()[0]; if (!rc) continue;
+      out.push([n.textContent.trim().slice(0, 6), Math.round((rc.top - base.top) * 2) / 2, Math.round((rc.left - base.left) * 2) / 2]);
+    }
+    return out;
+  })()`;
+  for (const [w, h, mobile] of [[1440, 900, false], [375, 812, true]]) {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile });
+    await reload();
+    await ev(`localStorage.setItem('word_qt_entries', ${JSON.stringify(JSON.stringify({ [today]: { body: BODY, title: '', shared: false } }))})`);
+    await reload(); await sleep(1200);
+    await clickText('말씀');
+    await waitFor(`document.querySelector('[data-note-read] .paper-rows .paper-row-body')`);
+    await sleep(800);
+    const read = await ev(LINES('[data-note-read] .paper-rows'));
+    await clickText('수정');
+    await waitFor(`(() => { const t = document.querySelector('.qt-note-editor .tiptap'); return t && t.offsetParent; })()`);
+    await sleep(600);
+    const edit = await ev(LINES('.qt-note-editor .paper-rows .tiptap'));
+    const off = (read || []).map((r, i) => (edit?.[i] ? [r[0], r[1] - edit[i][1], r[2] - edit[i][2]] : [r[0], 'x'])).filter(d => d[1] !== 0 || d[2] !== 0);
+    check(`${w}px: 읽기 종이의 글자 줄이 편집 종이와 같은 자리에 선다(빈 줄·들여쓰기·목록)`,
+      !!read && !!edit && read.length === edit.length && read.length >= 13 && off.length === 0,
+      JSON.stringify({ n: [read?.length, edit?.length], off }));
+    await clickText('취소');
+  }
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.slice(0, 6).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill();

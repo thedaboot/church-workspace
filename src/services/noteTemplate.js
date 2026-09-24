@@ -199,10 +199,19 @@ function splitRaw(md) {
   return out;
 }
 
+// 도막 앞뒤의 **빈 줄만** 걷는다(2026-09-25 · 목업 A1) — 예전에는 `trim()`이라 첫 줄의
+// 들여쓰기까지 지워서 종이의 첫 줄만 편집 화면보다 왼쪽에 섰다. 글 사이 빈 줄은 남는다.
+const dropEdgeBlanks = (lines) => {
+  let a = 0, z = lines.length;
+  while (a < z && !lines[a].trim()) a++;
+  while (z > a && !lines[z - 1].trim()) z--;
+  return lines.slice(a, z).join('\n');
+};
+
 export function splitNoteSections(md) {
   return splitRaw(md)
-    .map(s => ({ title: s.title, body: s.lines.join('\n').trim() }))
-    .filter(s => !!s.body);
+    .map(s => ({ title: s.title, body: dropEdgeBlanks(s.lines) }))
+    .filter(s => !!s.body.trim());
 }
 
 // ── 도막 제목은 지워지지 않는다 (2026-09-09 사용자 결정) ────────────────────

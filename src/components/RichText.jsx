@@ -242,10 +242,14 @@ export const RichText = React.memo(({ content, onToggleTodo }) => {
             return <ul key={block.key} className="list-disc pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key}>{renderInline(it.value, it.key)}</li>)}</ul>;
           case 'ol':
             return <ol key={block.key} start={block.start || 1} className="list-decimal pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key}>{renderInline(it.value, it.key)}</li>)}</ol>;
+          // **빈 줄은 글자 한 줄 높이 · 들여쓰기는 그대로**(사용자 결정 2026-09-25 · 목업 A1 —
+          // 편집 화면과 같게). 예전에는 빈 줄이 8px(h-2)이고 앞 공백이 접혀서, 엔터 두 번으로
+          // 나눈 문단이 보기에서 붙고 수정↔보기 때 줄이 뛰었다. 빈 줄은 빈 문단 하나라 어느
+          // 글자 크기(업무 본문 · 댓글 · 요약)에서도 그 자리의 한 줄이다.
           case 'gap':
-            return <div key={block.key} className="h-2" />;
+            return <p key={block.key} className="mb-1 text-fg leading-relaxed"><br /></p>;
           default:
-            return <p key={block.key} className="mb-1 text-fg leading-relaxed">{renderInline(block.value, block.key)}</p>;
+            return <p key={block.key} className="mb-1 text-fg leading-relaxed whitespace-break-spaces">{renderInline(block.value, block.key)}</p>;
         }
       })}
     </>
