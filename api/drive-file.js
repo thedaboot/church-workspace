@@ -46,6 +46,10 @@ export default async function handler(req, res) {
     const buf = Buffer.from(await r.arrayBuffer());
     if (buf.length > MAX_BYTES) { res.status(413).json({ error: '파일이 너무 큽니다. 새 탭에서 열어주세요.' }); return; }
     res.setHeader('Content-Type', type);
+    // 종류는 드라이브가 준 값 그대로다 — 브라우저가 내용을 보고 다른 종류로 **짐작하면**(MIME
+    // 스니핑) 글자 파일이 HTML로 읽혀 우리 출처에서 돌 수 있다. vercel.json의 전역 헤더와 같은
+    // 값이지만 함수 응답에도 확실히 싣는다(보안 감사 2026-09-24).
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     // 30일 + immutable — drive_file_id가 가리키는 바이트는 우리 흐름에서 **불변**이다
     // (첨부는 '보기' 링크라 아무도 못 고치고, 파일을 다시 올리면 id가 새로 생긴다).
     // 예전 1시간짜리는 다음 날 같은 결산안(3.8MB)을 열 때마다 통째로 다시 받았다.

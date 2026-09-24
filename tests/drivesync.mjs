@@ -1374,5 +1374,36 @@ check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () =
   });
 }
 
+// ── 보안 헤더 (vercel.json · 보안 감사 2026-09-24) ──────────────────────────
+// 강제하는 CSP는 `frame-ancestors 'none'` **하나뿐**이다 — 나머지를 강제하면 구글 문서·유튜브
+// iframe·blob 워커·인라인 테마 스크립트 중 하나만 빠져도 화면이 조용히 깨진다. 전체 초안은
+// Report-Only로 먼저 내고 콘솔 보고를 본 뒤에 올린다. 인라인 테마 스크립트(index.html)를 고치면
+// 해시가 바뀐다 — 아래 단정이 그 어긋남을 잡는다.
+const { createHash } = await import('node:crypto');
+check('보안 헤더 — 강제는 frame-ancestors 하나 · 초안은 Report-Only · 테마 스크립트 해시가 맞다', () => {
+  const all = (vercel.headers || []).find(h => h.source === '/(.*)');
+  assert.ok(all, "vercel.json에 전역('/(.*)') 헤더가 없다");
+  const h = Object.fromEntries(all.headers.map(x => [x.key, x.value]));
+  assert.strictEqual(h['X-Content-Type-Options'], 'nosniff');
+  assert.strictEqual(h['Referrer-Policy'], 'strict-origin-when-cross-origin');
+  assert.strictEqual(h['Permissions-Policy'], 'camera=(), microphone=(), geolocation=()');
+  assert.strictEqual(h['Content-Security-Policy'], "frame-ancestors 'none'", '강제 CSP에 다른 지시어가 섞였다');
+  const ro = h['Content-Security-Policy-Report-Only'] || '';
+  for (const need of ['wss://*.supabase.co', 'https://docs.google.com', 'https://www.youtube.com',
+    'https://view.officeapps.live.com', "worker-src 'self' blob:", 'https://lh3.googleusercontent.com', 'https://*.kakaocdn.net']) {
+    assert.ok(ro.includes(need), `Report-Only 초안에 ${need}가 없다`);
+  }
+  const html = read('index.html');
+  const inline = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1];
+  assert.ok(inline, 'index.html의 인라인 테마 스크립트를 못 찾았다');
+  const sha = createHash('sha256').update(inline, 'utf8').digest('base64');
+  assert.ok(ro.includes(`'sha256-${sha}'`), `인라인 테마 스크립트 해시가 바뀌었다 — vercel.json에 'sha256-${sha}'`);
+  assert.match(filesvc, /res\.setHeader\('X-Content-Type-Options', 'nosniff'\)/, '첨부 중계가 nosniff를 싣지 않는다');
+  // /pdfjs/는 주소에 해시가 없다 — immutable로 두면 pdf.js를 올린 뒤 새 JS + 옛 wasm이 섞인다
+  const pdfjsCache = (vercel.headers || []).find(x => x.source === '/pdfjs/(.*)')?.headers?.[0]?.value;
+  assert.strictEqual(pdfjsCache, 'public, max-age=86400, stale-while-revalidate=604800', '/pdfjs/ 캐시가 /bible/과 다르다');
+  assert.ok(vercel.functions?.['api/push.js']?.maxDuration >= 60, 'api/push.js 시간 제한을 명시하지 않았다(배치가 기본값에 잘린다)');
+});
+
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);
