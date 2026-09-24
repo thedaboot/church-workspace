@@ -3375,3 +3375,80 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(U.taskEditDirty(null, base), false, '한쪽이 없으면 묻지 않는다');
   console.log('PASS  정말 바뀐 게 있나 8가지');
 }
+
+// ── 0071 보안 조이기의 모양 (보안 감사 2026-09-24) ──────────────────────────
+// 라이브 DB는 검사가 못 보므로 파일만 본다(적용 결과는 psql로 눈으로 · §3-3). 핵심은 셋:
+// 프로필 가드가 **예외 없이 되돌리기만** 하는지(내 정보 저장 upsert가 행을 통째로 보낼 수 있다),
+// 그 트리거가 이메일 트리거보다 **이름순 앞**인지, 정책을 **더하지 않고** alter만 하는지(§6-31-a).
+// 되돌리기 검사: 가드에서 `new.merged_into := old.merged_into`를 지우면 첫 묶음이 깨진다.
+{
+  const m71 = readFileSync(new URL('../supabase/migrations/0071_rls_hardening.sql', import.meta.url), 'utf8');
+  const sql = m71.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  let n = 0;
+  const ok = (cond, msg) => { assert.ok(cond, msg); n++; };
+
+  // ① 프로필 가드 — 관리자·서버 문맥(auth.uid() 없음)은 통과, 나머지는 일곱 칸을 옛 값으로
+  ok(/create or replace function public\.guard_profile_columns\(\)/.test(sql), '0071에 guard_profile_columns가 있다');
+  ok(/if auth\.uid\(\) is null or public\.is_admin\(\) then\s+return new;/.test(sql),
+    '가드는 서버 문맥·관리자(merge_profiles 포함)를 그대로 둔다');
+  for (const c of ['approved', 'approved_at', 'approved_by', 'removed_at', 'removed_by', 'merged_into', 'email']) {
+    ok(new RegExp(`new\\.${c}\\s*:=\\s*old\\.${c};`).test(sql), `비관리자 UPDATE는 ${c}를 옛 값으로 되돌린다`);
+  }
+  ok(/if tg_op = 'INSERT' then[\s\S]*?new\.approved := false;[\s\S]*?new\.merged_into := null;[\s\S]*?return new;/.test(sql),
+    '행이 없을 때의 INSERT로도 스스로 승인할 수 없다');
+  ok(!/raise exception/i.test(sql), '0071은 예외를 던지지 않는다 — 되돌리기만(내 정보 저장이 실패하면 안 된다)');
+  const guard = sql.match(/create trigger (\w+) before insert or update on public\.profiles/);
+  ok(guard && guard[1] < 'trg_sync_profile_email',
+    '프로필 가드 트리거가 trg_sync_profile_email보다 이름순 앞이다(비운 email을 그 트리거가 채운다)');
+  ok(/alter policy profiles_insert on public\.profiles\s+with check \(id = any \(array\[auth\.uid\(\), public\.effective_uid\(\)\]\)\);/.test(sql),
+    'profiles_insert가 남긴 계정 id도 받는다(합친 계정의 내 정보 upsert)');
+
+  // ② 작성자 칸 — 트리거 넷 + insert with check 넷
+  for (const [t, c] of [['cards', 'created_by'], ['files', 'uploaded_by'], ['comments', 'author_id']]) {
+    ok(new RegExp(`create trigger trg_${t}_guard_author before insert or update of ${c} on public\\.${t}\\s+for each row execute function public\\.guard_author_column\\('${c}'\\);`).test(sql),
+      `${t}.${c}에 작성자 가드(INSERT·UPDATE)가 있다`);
+  }
+  ok(/create trigger trg_activity_guard_author before insert on public\.activity\s+for each row execute function public\.guard_author_column\('actor_id'\);/.test(sql),
+    'activity.actor_id에 작성자 가드(INSERT)가 있다');
+  for (const [t, c] of [['cards', 'created_by'], ['files', 'uploaded_by'], ['comments', 'author_id'], ['activity', 'actor_id']]) {
+    ok(new RegExp(`alter policy ${t}_insert on public\\.${t}\\s+with check \\([\\s\\S]*?public\\.is_approved\\(\\)[\\s\\S]*?${c} = any \\(array\\[auth\\.uid\\(\\), public\\.effective_uid\\(\\)\\]\\)[\\s\\S]*?\\);`).test(sql),
+      `${t}_insert가 승인 게이트를 유지하고 ${c}를 내 id(두 id)로 묶는다`);
+  }
+  ok(/alter policy files_insert[\s\S]*?\(service_id is null or public\.can_edit_service\(\)\)/.test(sql),
+    'files_insert는 0047의 주보 송폼 갈래를 그대로 둔다');
+
+  // ③ 댓글 고치기 · ④ 명단 추가
+  ok(/alter policy comments_update on public\.comments\s+using \(public\.is_approved\(\) and \(author_id = any[^\n]*\)\s+with check \(public\.is_approved\(\) and \(author_id = any/.test(sql),
+    'comments_update는 쓴 사람(두 id)·관리자만 — using과 with check 둘 다');
+  ok(/alter policy people_insert[\s\S]*?not is_pastor[\s\S]*?profile_id is null/.test(sql),
+    '비관리자의 명단 추가는 교역자·계정 연결 없이만(0069 트리거가 계정 권한을 올린다)');
+
+  // ⑤ 알림 — 보낸 사람 이름 트리거 · 딥링크 CHECK
+  ok(/create trigger trg_notifications_actor_name before insert on public\.notifications/.test(sql),
+    '알림 INSERT에 actor_name 트리거가 있다');
+  ok(/if auth\.uid\(\) is null then\s+return new;[\s\S]*?where p\.id = public\.effective_uid\(\)/.test(sql),
+    '서버 배치는 그대로, 로그인 문맥은 effective_uid의 표시 이름으로');
+  ok(sql.includes("link like '/%' and link not like '//%' and link !~ '[\\s\\\\]'"),
+    "딥링크 CHECK가 공백류·역슬래시를 막는다('/\\t/evil.com')");
+
+  // ⑥ 함수 둘 · ⑦ storage
+  for (const f of ['recount_card', 'fix_profile_team_id']) {
+    ok(new RegExp(`revoke execute on function public\\.${f}\\(uuid\\) from public, anon, authenticated;`).test(sql),
+      `${f}의 바깥 실행 권한을 public·anon·authenticated에서 걷는다`);
+  }
+  for (const p of ['attachments_select_authenticated', 'attachments_insert_authenticated', 'content_images_insert_own']) {
+    ok(new RegExp(`alter policy "${p}" on storage\\.objects[\\s\\S]*?public\\.is_approved\\(\\)\\s*\\);`).test(sql),
+      `storage 정책 ${p}에 승인 게이트가 있다`);
+  }
+
+  // 정책 수를 늘리지 않는다 · 되돌리는 SQL
+  ok(!/create policy|drop policy/i.test(sql), '0071은 정책을 만들거나 지우지 않는다 — alter만(§6-31-a)');
+  ok(!/projects_delete/.test(sql), 'projects_delete(0021 전원 삭제)는 사용자 결정이라 건드리지 않는다');
+  for (const line of ['drop trigger if exists trg_profiles_guard on public.profiles;',
+    'drop function if exists public.guard_author_column();',
+    'alter policy people_insert on public.people with check (public.is_admin() or public.can_check_all_attendance() or public.leads_any_sun());',
+    'grant execute on function public.recount_card(uuid) to public, anon, authenticated;']) {
+    ok(m71.includes(`--   ${line}`), `0071의 되돌리는 SQL에 '${line.slice(0, 40)}…'이 있다`);
+  }
+  console.log(`PASS  0071 보안 조이기의 모양 ${n}가지`);
+}
