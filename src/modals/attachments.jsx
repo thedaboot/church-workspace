@@ -686,7 +686,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
             </ul>
             <p className="text-[10px] text-tag-red-fg/80 mt-1">용량을 줄이거나 링크(리소스)로 공유해 주세요.</p>
           </div>
-          <button type="button" onClick={() => setRejected([])} className="p-0.5 rounded text-tag-red-fg/70 hover:text-tag-red-fg transition shrink-0" title="닫기"><X size={13} /></button>
+          <button type="button" onClick={() => setRejected([])} className="relative before:absolute before:-inset-2 p-0.5 rounded text-tag-red-fg/70 hover:text-tag-red-fg transition shrink-0" title="닫기"><X size={13} /></button>
         </div>
       )}
       {pendingRows > 0 && items.length === 0 && (

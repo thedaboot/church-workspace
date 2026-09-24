@@ -47,7 +47,8 @@ const ROW = 'flex items-center gap-1.5';
 // 칸 생김새가 화면마다 다를 이유가 없다. 여기서 더하는 것은 min-w-0뿐이다(flex 안에서
 // 줄어들 수 있게 · §6-9-c).
 const INPUT = `min-w-0 ${FIELD}`;
-const ICON_BTN = 'p-1.5 rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors disabled:opacity-30';
+// 누르는 자리는 before로 3px 넓힌다(모양은 그대로) — 순서 버튼끼리 틈이 6px(gap-1.5)이라 그 절반.
+const ICON_BTN = 'relative before:absolute before:-inset-[3px] p-1.5 rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors disabled:opacity-30';
 const SAVE_DELAY = 900;
 
 // ── 이 파일이 되풀이해서 쓰는 모양 한 벌 ────────────────────────────────────

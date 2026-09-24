@@ -66,7 +66,8 @@ export const FIELD = 'text-[13px] px-2 py-1.5 bg-surface border border-line roun
 // 글자를 나란히 둘 때 JSX에 `<Plus /> 새 동아리`라고 쓰면 **글자 앞 공백이 그대로 남아**
 // gap 위에 3~4px이 더 붙는다 — 버튼마다 사이가 6.2~8.7px로 제각각이었다(실측).
 // 그래서 글자는 언제나 <span>으로 감싸 공백을 없애고 간격은 gap 하나로만 준다.
-export const ICON_BTN = 'inline-flex items-center justify-center p-1 rounded text-fg-faint hover:text-fg hover:bg-surface-hover transition active:scale-95';
+// 누르는 자리는 before로 2px 넓힌다(모양은 그대로) — 이웃과의 틈이 4px(PersonTag의 gap-1)이라 그 절반.
+export const ICON_BTN = 'relative before:absolute before:-inset-0.5 inline-flex items-center justify-center p-1 rounded text-fg-faint hover:text-fg hover:bg-surface-hover transition active:scale-95';
 export const WITH_ICON = 'inline-flex items-center gap-1.5';
 
 // 라벨이 붙은 칸 한 자리 — 만들기 카드에서 쓴다(새 동아리). 프로젝트 만들기 창의

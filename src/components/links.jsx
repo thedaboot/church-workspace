@@ -144,7 +144,9 @@ export function PinnedLinkChip({ link, canLock, onRemove, onSetPw }) {
           {isLocked(link) ? <Lock size={12} /> : <LockOpen size={12} />}
         </button>
       )}
-      <button onClick={onRemove} className="pointer-fine:md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0" title="링크 삭제"><X size={10} /></button>
+      {/* 누르는 자리만 넓힌다(before 가상 요소 · 모양은 그대로). 옆 칸과의 틈이 4~7px이라 가로는
+          그 절반만, 세로로 넉넉히 — 옆 버튼·다음 칩의 자리를 빼앗지 않게. */}
+      <button onClick={onRemove} className="relative before:absolute before:-inset-y-2 before:-inset-x-0.5 pointer-fine:md:opacity-0 md:group-hover/link:opacity-100 transition-opacity text-fg-faint shrink-0" title="링크 삭제"><X size={10} /></button>
       {pane && createPortal(
         <div ref={bodyRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: LINK_POP_W }}
           className="dc-pop bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90]">

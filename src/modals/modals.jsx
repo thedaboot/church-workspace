@@ -485,7 +485,7 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
         {value.map(name => (
           <span key={name} className="inline-flex items-center gap-1 bg-accent-weak text-accent-text rounded-full pl-2 pr-1 py-0.5 text-[11px] font-medium">
             {name}
-            <button type="button" onClick={() => remove(name)} className="hover:bg-accent/20 rounded-full p-0.5 transition active:scale-95" title="제거"><X size={11} /></button>
+            <button type="button" onClick={() => remove(name)} className="relative before:absolute before:-inset-x-1 before:-inset-y-[5px] hover:bg-accent/20 rounded-full p-0.5 transition active:scale-95" title="제거"><X size={11} /></button>
           </span>
         ))}
         <input

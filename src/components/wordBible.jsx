@@ -891,7 +891,7 @@ export function BibleTab({ initialRef = '' }) {
                   </button>
                   <button type="button" data-recent-drop="" onClick={() => dropRecent(r.q)}
                     aria-label={`최근 검색어에서 ${r.q} 지우기`}
-                    className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
+                    className="relative before:absolute before:-inset-y-[3px] before:-left-px before:-right-1.5 shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
                     <X size={12} />
                   </button>
                 </span>
@@ -1178,7 +1178,7 @@ function MarkBookGroup({ book, items, count, kind, open, onToggle, onOpenItem, o
                 <button
                   onClick={() => onRemoveItem(it.refs)}
                   aria-label={`${label} ${kind === 'bookmark' ? '북마크' : '형광펜'} 지우기`}
-                  className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors"
+                  className="relative before:absolute before:-inset-y-0.5 before:-left-px before:-right-1 shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors"
                 >
                   <X size={12} />
                 </button>
