@@ -1018,6 +1018,41 @@ const lockedHeads = await ev(`(() => {
 check('중제목은 전체 선택 후 입력에도 지워지지 않는다',
   JSON.stringify(lockedHeads.heads) === JSON.stringify(['나의 결단', '기도'])
   && lockedHeads.hasTyped === false, JSON.stringify(lockedHeads));
+// **`나의 결단` 아래 빈 줄에서 백스페이스를 쳐도 그 줄이 남는다**(2026-09-25 감사 1).
+// 예전에는 그 문단이 지워지고 커서가 잠긴 제목 끝으로 올라가서, 거기서 친 글이 **조용히
+// 버려졌다**(제목을 바꾸는 트랜잭션이라 LockedHeadings가 물린다). 진짜 키로 친다.
+// **되돌리기**: LockedHeadings의 `props.handleKeyDown`·`appendTransaction`을 빼면 깨진다.
+await ev(`(() => {
+  const t = document.querySelector('.qt-note-editor .tiptap');
+  const h = t && [...t.children].find(el => el.tagName === 'H3' && el.textContent.trim() === '나의 결단');
+  const p = h && h.nextElementSibling;
+  if (!p || p.tagName !== 'P' || p.textContent.trim()) return;
+  t.focus();
+  const r = document.createRange(); r.selectNodeContents(p); r.collapse(true);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+})()`);
+await sleep(200);
+await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+await sleep(150);
+await send('Input.insertText', { text: '결단 한 줄' });
+await sleep(400);
+const loneLine = await ev(`(() => {
+  const t = document.querySelector('.qt-note-editor .tiptap');
+  const kids = [...t.children].map(el => el.tagName + ':' + el.textContent.trim());
+  return { kids, kept: kids[1] === 'P:결단 한 줄' && kids[2] === 'H3:기도' };
+})()`);
+check('잠긴 도막 아래 빈 줄에서 백스페이스를 쳐도 쓴 글이 버려지지 않는다',
+  loneLine.kept === true, JSON.stringify(loneLine));
+// 뒤 검사들이 보던 모양(그 줄이 빈 줄)으로 돌려놓는다 — 그 줄의 글만 지운다
+await ev(`(() => {
+  const ed = document.querySelector('.qt-note-editor .tiptap')?.editor;
+  if (!ed) return;
+  let at = null;
+  ed.state.doc.forEach((n, off, i) => { if (i === 1 && n.type.name === 'paragraph' && n.content.size) at = [off + 1, off + n.nodeSize - 1]; });
+  if (at) ed.chain().deleteRange({ from: at[0], to: at[1] }).run();
+})()`);
+await sleep(300);
 
 // **목록 글머리는 글 칸 안에 선다**(사용자 지적 2026-09-11 — `1.`·`•`가 종이 왼쪽 끝까지
 // 밀려 나갔다). 도막 칸의 `padding-left: 12px`이 `.tiptap ul`의 들여쓰기를 덮어써서, 칸

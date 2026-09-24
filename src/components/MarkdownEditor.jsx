@@ -79,6 +79,24 @@ const LockedHeadings = Extension.create({
       });
       return set;
     };
+    // **도막마다 쓸 줄이 하나는 있어야 한다**(2026-09-25 감사 1). `나의 결단` 아래 빈 줄에서
+    // 백스페이스를 치면 그 문단이 지워지고 커서가 잠긴 제목 끝으로 올라갔다 — 거기서 친 글은
+    // 제목을 바꾸는 일이라 위 filterTransaction이 **조용히 버렸다**(쓰는데 아무것도 안 써진다).
+    // 두 겹으로 막는다: ① 그 자리의 백스페이스·Delete는 아무 일도 하지 않는다(커서가 줄에 남는다)
+    // ② 그래도 다른 길(범위 지우기·잘라내기)로 잠긴 제목 바로 뒤가 제목이나 문서 끝이 되면
+    // 빈 문단 하나를 도로 끼운다. mdToDoc이 '제목으로 끝나면 빈 문단'을 붙이는 것과 같은 규칙을
+    // 쓰는 동안에도 지키는 것이다.
+    const isLocked = (node) => node?.type.name === 'heading' && titles.includes(node.textContent.trim());
+    const loneLine = (state) => {
+      const { selection, doc } = state;
+      const { $from } = selection;
+      if (!selection.empty || $from.depth !== 1) return false;
+      const para = $from.parent;
+      if (para.type.name !== 'paragraph' || para.content.size) return false;
+      const i = $from.index(0);
+      const next = i + 1 < doc.childCount ? doc.child(i + 1) : null;
+      return i > 0 && isLocked(doc.child(i - 1)) && (!next || next.type.name === 'heading');
+    };
     return [new Plugin({
       filterTransaction: (tr, state) => {
         if (!tr.docChanged || bypass()) return true;
@@ -88,6 +106,25 @@ const LockedHeadings = Extension.create({
         const after = found(tr.doc);
         for (const t of before) if (!after.has(t)) return false;
         return true;
+      },
+      props: {
+        handleKeyDown: (view, event) => {
+          if (event.key !== 'Backspace' && event.key !== 'Delete') return false;
+          return loneLine(view.state);
+        },
+      },
+      appendTransaction: (trs, _old, state) => {
+        if (!trs.some(t => t.docChanged)) return null;
+        const at = [];
+        state.doc.forEach((node, offset, index) => {
+          if (!isLocked(node)) return;
+          const next = index + 1 < state.doc.childCount ? state.doc.child(index + 1) : null;
+          if (!next || next.type.name === 'heading') at.push(offset + node.nodeSize);
+        });
+        if (!at.length) return null;
+        const tr = state.tr;
+        for (const pos of at.reverse()) tr.insert(pos, state.schema.nodes.paragraph.create());
+        return tr;
       },
     })];
   },
