@@ -5,7 +5,7 @@ import { loadBibleIndex, loadBook, loadPassage } from '../services/bible.js';
 import { parseRef, formatRef } from '../services/bibleRef.js';
 import { PassageSkeleton } from './wordBible.jsx';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
-import { keepVisible } from '../utils.js';
+import { keepVisible, imeComposing } from '../utils.js';
 // 바깥 클릭·Esc로 닫는다. 팝오버가 body 포털로 나가 있으므로 바깥 판정에 팝오버 자신도 넣는다.
 import { useDismiss } from '../hooks/useDismiss.js';
 
@@ -125,6 +125,7 @@ function BookInput({ books, book, onPick, onClear, className = '' }) {
   const choose = (b) => { setText(b.name); setOpen(false); setActiveIdx(0); onPick(b.id); };
 
   const onKeyDown = (e) => {
+    if (imeComposing(e)) return;   // 조합을 끝내는 Enter로 고르지 않는다
     if (e.key === 'Escape') { setOpen(false); setText(book?.name || ''); return; }
     if (!open || !suggestions.length) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => Math.min(i + 1, suggestions.length - 1)); }

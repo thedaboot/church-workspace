@@ -15,6 +15,7 @@ import { NoteSheet, paperDate } from './paper.jsx';
 import { NOTE_CUT } from './worshipDetail.jsx';
 import { splitNoteSections } from '../services/noteTemplate.js';
 import { guidePickLabel } from '../services/sunGuide.js';
+import { imeComposing } from '../utils.js';
 
 // ============================================================================
 // 순 — 내 순 카드(구성원 · 최근 주일 예배 출석 · 공유된 예배 노트) · 순 편성 관리 구역
@@ -285,7 +286,7 @@ export function SunAdminPanel({
         <div className={`sun-new ${closingCreate ? EXIT : 'dc-card'} relative z-20 p-2.5 mb-4 flex flex-wrap items-center gap-1.5 ${CARD}`} style={CARD_STYLE}>
           <input value={name} onChange={e => setName(e.target.value)} aria-label="새 순 이름"
             placeholder="예: 꼬순" autoFocus
-            onKeyDown={e => { if (e.key === 'Enter' && name.trim()) submit(); }}
+            onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter' && name.trim()) submit(); }}
             className={`${FIELD} w-full sm:w-40`} />
           <PersonPick label="새 순의 순장" people={unplaced} value={leaderId} onChange={setLeaderId}
             placeholder="순장 지정" allowClear className="flex-1 min-w-[9rem] sm:max-w-[13rem]" />
@@ -342,7 +343,7 @@ function SunRow({ group, suns, people, members, unplaced, leaderPool, onRename, 
           순장 · 인원)를 DOM에 그대로 두기 위해서다. */}
       <div className="flex flex-wrap items-center gap-2">
         <input value={draft} onChange={e => setDraft(e.target.value)} onBlur={commit}
-          onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+          onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') e.currentTarget.blur(); }}
           aria-label={`${group.name} 순 이름`}
           className={`sun-name ${FIELD} font-bold order-1 flex-1 sm:flex-none sm:w-[9.5rem]`} />
         <PersonPick label={`${group.name} 순장`} people={leaderPool} value={group.leader_person_id || ''}

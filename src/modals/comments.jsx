@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Pencil, Trash2, Heart, ThumbsUp, Check } from 'lucide-react';
-import { formatDate, isMobileViewport, keepVisible } from '../utils.js';
+import { formatDate, isMobileViewport, keepVisible, imeComposing, coarsePointer } from '../utils.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { RichText } from '../components/RichText.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
@@ -192,7 +192,7 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions
           <>
             <textarea
               autoFocus value={editText} onChange={e => setEditText(e.target.value)} aria-label="댓글 수정"
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(); } if (e.key === 'Escape') setEditing(false); }}
+              onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter' && !e.shiftKey && !coarsePointer()) { e.preventDefault(); saveEdit(); } if (e.key === 'Escape') setEditing(false); }}
               className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg resize-none h-14 focus:border-accent focus:shadow-soft outline-none transition-all"
             />
             <div className="flex justify-end items-center gap-1.5 mt-1.5">
@@ -400,8 +400,9 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
                     placeholder="@이름 으로 멘션..."
                     className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg placeholder:text-fg-faint resize-none h-14 focus:border-accent focus:shadow-soft outline-none transition-all"
                     onKeyDown={e => {
-                      // 댓글 입력과 같다 — Enter는 등록, Shift+Enter는 줄바꿈
-                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitReply(c.id); }
+                      if (imeComposing(e)) return;
+                      // 댓글 입력과 같다 — Enter는 등록, Shift+Enter는 줄바꿈(손가락 기기는 Enter가 줄바꿈 · 아래 CommentInput)
+                      if (e.key === 'Enter' && !e.shiftKey && !coarsePointer()) { e.preventDefault(); submitReply(c.id); }
                       if (e.key === 'Escape') closeReply(c.id);
                     }}
                   />
@@ -490,7 +491,10 @@ export const CommentInput = ({ onAdd, members = [] }) => {
         as="textarea" value={val} onChange={setVal} members={members} dropUp
         placeholder="@이름 으로 멘션..."
         className="w-full text-xs border border-line rounded-xs p-2 focus:ring-2 focus:ring-accent outline-none resize-none h-14 bg-surface text-fg placeholder:text-fg-faint"
-        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+        // **손가락 기기에서는 Enter가 줄바꿈이다**(2026-09-25 감사 9) — 폰 키보드에는 Shift+Enter가
+        // 없어서 Enter가 곧 등록이면 댓글·답글·댓글 수정에서 줄을 바꿀 길이 없었다. 등록은
+        // 옆의 버튼이 한다(세 칸 모두 버튼이 있다). 마우스·트랙패드 기기는 예전 그대로다.
+        onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter' && !e.shiftKey && !coarsePointer()) { e.preventDefault(); submit(); } }}
       />
       <div className="flex justify-end mt-2 items-center">
         <button onClick={submit} disabled={!val.trim()} className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-3 py-1.5 rounded-md text-[10px] font-bold transition active:scale-95">등록</button>

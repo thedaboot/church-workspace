@@ -23,6 +23,7 @@ import {
   recentSongs as worshipRecentSongs, prefillRoles as worshipPrefillRoles,
 } from '../services/worship.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
+import { imeComposing } from '../utils.js';
 
 // ============================================================================
 // v2 예배 화면 — 주보 목록/상세(말씀·임사자·찬양·광고) · 작성/발행 · 출석 체크 · 예배 노트
@@ -214,7 +215,7 @@ function NewServiceForm({ onCreate, onCancel, closing = false }) {
         {other && (
           <LabeledField label="이름" className="worship-new-name w-full sm:flex-1 sm:basis-40 sm:min-w-0 sm:max-w-[24rem]">
             <input value={name} onChange={e => setName(e.target.value)} aria-label="예배 이름" placeholder="예: 금요 열정 예배"
-              autoFocus onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+              autoFocus onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
               className={`${FIELD} w-full`} />
           </LabeledField>
         )}

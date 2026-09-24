@@ -9,6 +9,7 @@ import * as cloud from '../services/cloud.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
+import { imeComposing } from '../utils.js';
 
 // ============================================================================
 // 설정 창 — 내 정보(사진·이름·소속·연결된 계정) / 프로젝트 만들기·이름 수정
@@ -267,7 +268,7 @@ export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
           placeholder="예: 2026 하계 수련회"
           className="w-full border border-line p-2.5 rounded-xs mb-4 text-[13px] bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none"
           autoFocus
-          onKeyDown={e => { if (e.key === 'Enter') submit(); }}
+          onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') submit(); }}
         />
         {/* 연도는 **만든 날짜에서 뽑지 않는다.** 해가 바뀌기 전에 미리 만드는
             프로젝트('2027 동계 수련회'를 2026년 8월에 만드는 일)가 실제로 있었고,

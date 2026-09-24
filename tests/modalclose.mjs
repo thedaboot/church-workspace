@@ -478,6 +478,64 @@ check('다시 펴진다', reopened.found && reopened.width > 100, JSON.stringify
   check('등록하면 입력창이 닫힌다', after.box === false, JSON.stringify(after));
 }
 
+// ── 손가락 기기에서는 Enter가 줄바꿈 · 조합 중 Enter는 등록이 아니다 (2026-09-25 감사 9·S6) ──
+// 폰 키보드에는 Shift+Enter가 없어서 Enter가 곧 등록이면 댓글에서 줄을 바꿀 길이 없었다.
+// 등록은 옆 '등록' 버튼이 한다. 마우스 기기는 예전처럼 Enter가 등록이다.
+// 한글 조합을 끝내는 Enter(isComposing)는 어느 기기에서도 등록이 아니다.
+// 되돌리기 검사: CommentInput의 `!coarsePointer()`를 빼면 ①이, `imeComposing(e)` 가드를
+// 빼면 ③이 깨진다.
+{
+  const countComments = () => ev(`(JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.r1.comments || []).filter(c => !c.parentId).length`);
+  const enterKey = async () => {
+    await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+    await send('Input.dispatchKeyEvent', { type: 'char', text: '\r', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+    await sleep(300);
+  };
+  const INPUT = `[...document.querySelectorAll('textarea')].find(t => /@이름/.test(t.placeholder) && !t.closest('.ml-8'))`;
+  const focusInput = () => ev(`(() => { const t = ${INPUT}; if (!t) return false; t.focus(); t.setSelectionRange(t.value.length, t.value.length); return true; })()`);
+  // ① 폰(터치): Enter는 줄바꿈
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
+  await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired');
+  await sleep(1300);
+  const coarse = await ev(`matchMedia('(pointer: coarse)').matches`);
+  await openCard();
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('댓글 ('))?.click()`); await sleep(500);
+  const before = await countComments();
+  const focused = await focusInput();
+  await send('Input.insertText', { text: '첫 줄' });
+  await enterKey();
+  await send('Input.insertText', { text: '둘째 줄' });
+  await sleep(200);
+  const phone = await ev(`(() => { const t = ${INPUT}; return t ? t.value : null; })()`);
+  check('① 폰에서는 댓글 칸의 Enter가 줄바꿈이다(등록되지 않는다)',
+    coarse === true && focused === true && phone === '첫 줄\n둘째 줄' && (await countComments()) === before,
+    JSON.stringify({ coarse, focused, phone }));
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '등록')?.click()`); await sleep(600);
+  const posted = await ev(`(() => { const cs = JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.r1.comments || []; return cs[cs.length - 1]?.text; })()`);
+  check('② 폰에서는 등록 버튼으로 두 줄 댓글이 올라간다', posted === '첫 줄\n둘째 줄', JSON.stringify(posted));
+  // ③ 데스크톱: 조합 중 Enter는 등록이 아니고, 보통 Enter는 예전처럼 등록이다
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired');
+  await sleep(1300);
+  await openCard();
+  await sleep(400);
+  const n0 = await countComments();
+  await focusInput();
+  await send('Input.insertText', { text: '조합 중인 글' });
+  await sleep(200);
+  await ev(`(() => { const t = ${INPUT}; t && t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 229, isComposing: true, bubbles: true, cancelable: true })); })()`);
+  await sleep(400);
+  const n1 = await countComments();
+  check('③ 한글 조합을 끝내는 Enter로는 등록되지 않는다', n1 === n0, JSON.stringify({ n0, n1 }));
+  await focusInput();
+  await enterKey();
+  const n2 = await countComments();
+  check('④ 데스크톱에서는 Enter가 예전처럼 등록이다', n2 === n0 + 1, JSON.stringify({ n0, n2 }));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

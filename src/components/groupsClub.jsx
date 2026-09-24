@@ -15,7 +15,7 @@ import {
 } from './groupsParts.jsx';
 import { groupPeople, canManageClub, canEditClub, myGroupIds, notInGroup } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
-import { reorderIds } from '../utils.js';
+import { reorderIds, imeComposing } from '../utils.js';
 
 // QR 창(qrcode 포함)은 열 때만 받는다(2026-09-24)
 const ClubQrModal = lazy(() => import('./ClubQr.jsx').then(m => ({ default: m.ClubQrModal })));
@@ -148,7 +148,7 @@ function ClubList({ clubs, people, members, apps, perms, creating, closingCreate
             <LabeledField label="동아리 이름" className="club-new-name">
               <input value={name} onChange={e => setName(e.target.value)} aria-label="동아리 이름"
                 placeholder="예: 통통" autoFocus
-                onKeyDown={e => { if (e.key === 'Enter' && name.trim()) submit(); }}
+                onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter' && name.trim()) submit(); }}
                 className={`${FIELD} w-full`} />
             </LabeledField>
             <LabeledField label="동아리장" className="club-new-leader">
@@ -159,7 +159,7 @@ function ClubList({ clubs, people, members, apps, perms, creating, closingCreate
           <LabeledField label="설명 (선택)" className="club-new-note mt-2.5 sm:max-w-[46rem]">
             <input value={note} onChange={e => setNote(e.target.value)} aria-label="동아리 설명"
               placeholder="예: 통기타 동아리"
-              onKeyDown={e => { if (e.key === 'Enter' && name.trim()) submit(); }}
+              onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter' && name.trim()) submit(); }}
               className={`${FIELD} w-full`} />
           </LabeledField>
           {/* 확정 왼쪽 / 나가기 오른쪽(§8) — 이 화면의 다른 도구 줄과 같은 자리다 */}
@@ -338,7 +338,7 @@ function ClubDetail({
               className={`${FIELD} font-bold w-full sm:w-40`} />
             <input value={draft.note} onChange={e => setDraft(d => ({ ...d, note: e.target.value }))}
               aria-label="동아리 설명 고치기" placeholder="예: 통기타 동아리"
-              onKeyDown={e => { if (e.key === 'Enter') submitEdit(); }}
+              onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') submitEdit(); }}
               className={`${FIELD} flex-1 min-w-[8rem] sm:max-w-[26rem]`} />
             <button type="button" onClick={submitEdit} disabled={!draft.name.trim()}
               className={`club-edit-save shrink-0 ${BTN}`}>저장</button>
@@ -450,7 +450,7 @@ function ClubDetail({
               <LabeledField label="제목"
                 className="club-meet-title order-1 w-full sm:order-2 sm:w-auto sm:flex-1 sm:basis-40 sm:min-w-0 sm:max-w-[26rem]">
                 <input value={title} onChange={e => setTitle(e.target.value)} aria-label="모임 제목"
-                  placeholder="예: 9월 첫 모임" onKeyDown={e => { if (e.key === 'Enter') submitMeeting(); }}
+                  placeholder="예: 9월 첫 모임" onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') submitMeeting(); }}
                   className={`${FIELD} ${NEW_H} w-full`} />
               </LabeledField>
               <LabeledField label="날짜" className="order-2 shrink-0 sm:order-1">

@@ -15,7 +15,7 @@ import { uploadContentImage } from '../services/cloud.js';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
-import { isMobileViewport, keepVisible } from '../utils.js';
+import { isMobileViewport, keepVisible, imeComposing } from '../utils.js';
 import { downscaleImage, BODY_MAX_DIM } from '../services/image.js';
 import { Extension } from '@tiptap/core';
 import { Plugin } from '@tiptap/pm/state';
@@ -393,6 +393,8 @@ export function MarkdownEditor({
       handleKeyDown: (_view, event) => {
         const list = suggestionsRef.current;
         if (!mentionRef.current || !list.length) return false;
+        // 한글 조합을 끝내는 Enter로 멘션을 고르지 않는다(utils.imeComposing)
+        if (imeComposing(event)) return false;
         if (event.key === 'ArrowDown') { setActiveIdx(i => (i + 1) % list.length); return true; }
         if (event.key === 'ArrowUp') { setActiveIdx(i => (i - 1 + list.length) % list.length); return true; }
         if (event.key === 'Enter' || event.key === 'Tab') { pickRef.current(list[activeIdxRef.current]); return true; }
@@ -741,7 +743,7 @@ function Toolbar({
               </p>
               <input
                 autoFocus={!isMobileViewport()} value={href} onChange={e => setHref(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyLink(); } }}
+                onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); applyLink(); } }}
                 placeholder="https://..." aria-label="주소"
                 className="w-full text-xs px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint"
               />

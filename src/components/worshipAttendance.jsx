@@ -4,6 +4,7 @@ import { groupRoster, countPresent, canToggleGroup, kindLabel, formatServiceDate
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import { BTN, BTN_QUIET } from './groupsParts.jsx';
 import { SaveState, BTN_SOFT } from './worshipDetail.jsx';
+import { imeComposing } from '../utils.js';
 
 // ============================================================================
 // 예배 출석 체크 (docs/V2.md 결정 6 · 0035·0036)
@@ -202,7 +203,7 @@ export function AttendanceScreen({
             <div className="flex items-center gap-1.5 max-w-[26rem]">
               <input
                 autoFocus value={newName} onChange={e => setNewName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+                onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); add(); } }}
                 aria-label="미등록 출석자 이름" placeholder="예: 다붓이"
                 className="flex-1 min-w-0 text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint" />
               <button type="button" onClick={add} disabled={busy || !newName.trim() || !checkOpen}

@@ -4,7 +4,7 @@ import { ChevronDown, X } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { byName } from '../services/groups.js';
-import { isMobileViewport, keepVisible } from '../utils.js';
+import { isMobileViewport, keepVisible, imeComposing } from '../utils.js';
 import { useDismiss } from '../hooks/useDismiss.js';
 
 // ============================================================================
@@ -242,6 +242,7 @@ export function PersonPick({
   };
 
   const onKeyDown = (e) => {
+    if (imeComposing(e)) return;   // 조합을 끝내는 Enter로 고르지 않는다
     if (e.key === 'ArrowDown') { e.preventDefault(); openMenu(); setIdx(i => Math.min(i + 1, hits.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setIdx(i => Math.max(i - 1, 0)); }
     else if (e.key === 'Enter') {

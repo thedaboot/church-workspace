@@ -2,7 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, lazy, Sus
 import { createPortal } from 'react-dom';
 import { CheckSquare, Clock, X, User, Hash, Wand2, Undo2, CalendarRange, Trash2, Check, Pin, ArrowLeftRight, Maximize2, Minimize2, PanelRight, PanelRightClose } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { formatDate, formatDay, isMobileViewport, keepVisible, generateId, subtaskProgress, summaryOutdated, toggleTodoLine, byNewest, taskEditDirty, mergeTaskEdit } from '../utils.js';
+import { formatDate, formatDay, isMobileViewport, keepVisible, generateId, subtaskProgress, summaryOutdated, toggleTodoLine, byNewest, taskEditDirty, mergeTaskEdit, imeComposing } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { AiService, isFallbackText } from '../services/ai.js';
@@ -522,6 +522,7 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
   const remove = (name) => onChange(value.filter(v => v !== name));
 
   const onKeyDown = (e) => {
+    if (imeComposing(e)) return;   // 조합을 끝내는 Enter로 고르지 않는다
     if (e.key === 'Enter') {
       e.preventDefault();
       // 목록에 있는 것만 넣는다 — 입력한 글자를 그대로 담당자로 만들지 않는다
@@ -937,7 +938,7 @@ function SubtaskList({ value = [], onChange, readOnly = false, members = [] }) {
       {!readOnly && (
         <input
           value={draft} onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+          onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); add(); } }}
           onBlur={add}
           // '입력하고 Enter'라고만 적혀 있었는데 onBlur로도 추가된다. 방법을 설명하는
           // 대신 예시를 두는 쪽이 낫다 — '하위 업무'가 무엇인지 모르는 사람에게는

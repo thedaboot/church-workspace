@@ -626,6 +626,18 @@ export function mergeTaskEdit(mine, base, live) {
   return out;
 }
 
+// ── Enter로 확정하는 칸 (2026-09-25 감사 S6·9) ──────────────────────────────
+// **한글 조합 중의 Enter는 확정이 아니다.** 맥·아이폰은 조합 중인 마지막 글자를 끝내는 Enter를
+// 칸에 그대로 보내서(isComposing, 옛 브라우저는 keyCode 229), 그 Enter로 등록이 한 번 돌고
+// 조합이 끝난 글자가 칸에 남아 한 번 더 등록되거나 마지막 글자만 남았다. Enter로 무언가를
+// 하는 칸은 전부 이것부터 본다. React 이벤트든 DOM 이벤트든 받는다.
+export const imeComposing = (e) =>
+  !!(e?.nativeEvent?.isComposing ?? e?.isComposing) || e?.keyCode === 229 || e?.nativeEvent?.keyCode === 229;
+// 손가락으로 쓰는 기기인가 — 댓글 칸의 Enter가 줄바꿈이 되는 자리(감사 9). 폰 키보드에는
+// Shift+Enter가 없어서 Enter가 곧 등록이면 줄을 바꿀 길이 아예 없었다. 등록은 옆 버튼이 한다.
+export const coarsePointer = () =>
+  typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+
 // ── 키보드가 올라왔을 때 커서를 어디로 옮겨야 하나 (2026-09-22) ─────────────
 // `caret`은 지금 커서(또는 쓰고 있는 칸)의 자리, `view`는 **쓸 수 있는 띠**다 —
 // 보이는 창에서 아래 도구 줄(저장·취소)을 뺀 구간. 굴려야 할 거리를 돌려준다(0이면 그대로).

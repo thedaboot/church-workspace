@@ -7,7 +7,7 @@ import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
 import { ConfirmPopover, useAnchoredPos } from './ConfirmPopover.jsx';
 import { formatBytes, fileKind } from './fileRow.jsx';
-import { keepVisible, stableRowKeys } from '../utils.js';
+import { keepVisible, stableRowKeys, imeComposing } from '../utils.js';
 import { PassagePicker, PassageBody } from './worshipPassage.jsx';
 import { loadPassage } from '../services/bible.js';
 import { EmptyBookMark } from './wordBible.jsx';
@@ -745,6 +745,7 @@ function PersonNameInput({ row, people, onPick, seeded = false }) {
   const choose = (p) => { onPick({ name: p.name, personId: p.id }); setOpen(false); setActiveIdx(0); };
 
   const onKeyDown = (e) => {
+    if (imeComposing(e)) return;   // 조합을 끝내는 Enter로 고르지 않는다
     if (!open || !suggestions.length) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => Math.min(i + 1, suggestions.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)); }
@@ -916,7 +917,7 @@ function SongsEdit({ rows, people, leader, playlistUrl = '', recent = [], onLead
           <input className="flex-1 min-w-0 bg-transparent text-[13px] py-0.5 outline-none text-fg placeholder:text-fg-faint"
             value={url} aria-label="유튜브 재생목록 주소"
             onChange={e => setUrl(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); pull(); } }}
+            onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); pull(); } }}
             placeholder="예: https://www.youtube.com/playlist?list=..." />
           {(url.trim() || playlistUrl) && (
             <button type="button" onClick={clearPlaylist} aria-label="재생목록 지우기" title="재생목록 지우기"

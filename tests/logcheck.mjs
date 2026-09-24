@@ -3469,6 +3469,44 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  수정한 칸만 내 것으로 9가지');
 }
 
+// ── 한글 조합 중의 Enter는 확정이 아니다 (utils.imeComposing · 2026-09-25 감사 S6) ──────
+// 맥·아이폰은 조합 중인 마지막 글자를 끝내는 Enter를 칸에 그대로 보낸다 — 그 Enter로 등록이
+// 한 번 돌고, 끝난 글자가 칸에 남았다. **Enter로 무언가를 하는 칸은 전부** 이 가드를 먼저 본다:
+// 소스에서 `e.key === 'Enter'`가 나오는 핸들러마다 같은 핸들러 안에 imeComposing이 있어야 한다.
+// 되돌리기 검사: 한 곳에서 `if (imeComposing(e)) return;`을 지우면 둘째 단정이 그 파일을 짚는다.
+{
+  const U = await import(new URL('../src/utils.js', import.meta.url).href);
+  assert.strictEqual(U.imeComposing({ nativeEvent: { isComposing: true } }), true, 'React 이벤트의 조합');
+  assert.strictEqual(U.imeComposing({ isComposing: true }), true, 'DOM 이벤트의 조합');
+  assert.strictEqual(U.imeComposing({ keyCode: 229 }), true, '옛 브라우저(keyCode 229)');
+  assert.strictEqual(U.imeComposing({ key: 'Enter', nativeEvent: { isComposing: false, keyCode: 13 }, keyCode: 13 }), false, '보통 Enter');
+  const { readdirSync, readFileSync: rf, statSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const root = new URL('../src/', import.meta.url);
+  const walk = (dir) => readdirSync(dir).flatMap(n => {
+    const p = join(dir, n);
+    return statSync(p).isDirectory() ? walk(p) : (/\.(jsx?|mjs)$/.test(n) ? [p] : []);
+  });
+  const missing = [];
+  let seen = 0;
+  const { fileURLToPath } = await import('node:url');
+  for (const file of walk(fileURLToPath(root))) {
+    const lines = rf(file, 'utf8').split(/\r?\n/);
+    lines.forEach((line, i) => {
+      if (!/\b(e|event)\.key === 'Enter'/.test(line)) return;
+      // 성경 절 고르기(wordBible)는 글 칸이 아니다 — Enter·Space로 누르는 줄이다
+      if (/e\.key !== 'Enter'/.test(line)) return;
+      seen++;
+      // 같은 줄, 아니면 그 핸들러의 앞 8줄 안에 가드가 있어야 한다
+      const near = lines.slice(Math.max(0, i - 8), i + 1).join('\n');
+      if (!/imeComposing\((e|event)\)/.test(near)) missing.push(`${file.split(/[\\/]src[\\/]/)[1]}:${i + 1}`);
+    });
+  }
+  assert.ok(seen >= 20, `Enter 핸들러를 못 찾는다(${seen})`);
+  assert.deepStrictEqual(missing, [], `조합 가드가 없는 Enter 핸들러: ${missing.join(', ')}`);
+  console.log(`PASS  한글 조합 중 Enter 가드(핸들러 ${seen}곳) 6가지`);
+}
+
 // ── 0071 보안 조이기의 모양 (보안 감사 2026-09-24) ──────────────────────────
 // 라이브 DB는 검사가 못 보므로 파일만 본다(적용 결과는 psql로 눈으로 · §3-3). 핵심은 셋:
 // 프로필 가드가 **예외 없이 되돌리기만** 하는지(내 정보 저장 upsert가 행을 통째로 보낼 수 있다),

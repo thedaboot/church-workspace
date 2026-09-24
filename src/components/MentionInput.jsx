@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { keepVisible } from '../utils.js';
+import { keepVisible, imeComposing } from '../utils.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 
 // ============================================================================
@@ -81,6 +81,8 @@ export function MentionInput({
   };
 
   const handleKeyDown = (e) => {
+    // 조합 중(한글 마지막 글자를 끝내는 Enter)에는 멘션도 등록도 하지 않는다(utils.imeComposing)
+    if (imeComposing(e)) return;
     if (showPopover) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => (i + 1) % filtered.length); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => (i - 1 + filtered.length) % filtered.length); return; }
