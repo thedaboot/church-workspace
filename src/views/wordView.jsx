@@ -361,12 +361,23 @@ function QtTab() {
 
   // 편집 중에는 주기적으로 브라우저에 남긴다(사용자 결정 2026-09-14). 저장된 글과 같아지는
   // 순간(저장·취소·삭제) 지운다 — 되살릴 것이 없는 초안이 자리만 차지하지 않게.
+  //
+  // **기다리는 동안 떠나면 그 자리에서 남긴다**(2026-09-25 감사 5) — 쓰고 1.2초 안에 화면을
+  // 옮기거나 날짜를 바꾸면 타이머만 치워지고 마지막 글이 사라졌다. 아직 못 남긴 글을
+  // pendingDraft에 들고 있다가, 이 열쇠(날짜)를 떠날 때(날짜 바꿈·화면 떠남) 바로 쓴다.
+  const pendingDraft = useRef(null);
   useEffect(() => {
     if (!ready) return undefined;
-    if (!dirty) { dropCache(draftKey); return undefined; }
-    const t = setTimeout(() => writeCache(draftKey, { body, title, at: Date.now() }), NOTE_DRAFT_DELAY);
+    if (!dirty) { pendingDraft.current = null; dropCache(draftKey); return undefined; }
+    const value = { body, title, at: Date.now() };
+    pendingDraft.current = { key: draftKey, value };
+    const t = setTimeout(() => { writeCache(draftKey, value); pendingDraft.current = null; }, NOTE_DRAFT_DELAY);
     return () => clearTimeout(t);
   }, [ready, dirty, body, title, draftKey]);
+  useEffect(() => () => {
+    const p = pendingDraft.current;
+    if (p && p.key === draftKey) { writeCache(p.key, p.value); pendingDraft.current = null; }
+  }, [draftKey]);
 
   // ── 종이(읽기 모드) — 예배 노트와 같은 부품, 캐릭터만 book ────────────────
   const qtSections = useMemo(() => splitNoteSections(entry?.body || ''), [entry?.body]);

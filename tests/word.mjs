@@ -1553,6 +1553,34 @@ check('나눔이 비면 한 줄로 말한다',
 check('저장된 글이 없으면 공유 토글은 꺼져 있다', gone.toggleOff === true, JSON.stringify(gone));
 check('지울 것이 없으면 휴지통도 없다', gone.trash === false, JSON.stringify(gone));
 
+// 11-b-1) **쓰고 곧바로 화면을 옮겨도 초안이 남는다**(2026-09-25 감사 5). 초안은 쓰다 멈추고
+// 1.2초 뒤에 남는데, 그 안에 다른 화면으로 가면 타이머만 치워지고 마지막 글이 사라졌다.
+// 떠날 때(열쇠가 바뀌거나 화면이 내려갈 때) 그 자리에서 남긴다.
+// 되돌리기 검사: wordView의 `[draftKey]` 정리 효과(pendingDraft를 쓰는 것)를 빼면 깨진다.
+await ev(`(() => { const t = document.querySelector('.qt-note-editor .tiptap'); if (!t) return;
+  const p = [...t.children].find(el => el.tagName === 'P');
+  t.focus(); const r = document.createRange(); r.selectNodeContents(p); r.collapse(true);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); })()`);
+await send('Input.insertText', { text: '막 쓰고 떠난 글' });
+await sleep(150);
+await clickText('예배');
+await sleep(700);
+await clickText('말씀');
+await waitFor(`document.querySelector('.qt-note-editor .tiptap')`);
+await sleep(900);
+const draftBack = await ev(`(() => ({
+  state: [...document.querySelectorAll('.worship-save-state')].map(e => e.textContent.trim()).join('|'),
+  text: (document.querySelector('.qt-note-editor .tiptap') || {}).innerText || '',
+}))()`);
+check('묵상을 쓰고 곧바로 화면을 옮겼다 돌아와도 막 쓴 글이 남는다',
+  draftBack.state.includes('작성 중인 노트') && draftBack.text.includes('막 쓰고 떠난 글'), JSON.stringify(draftBack));
+// 뒤 검사들이 보던 모양(아무것도 안 쓴 오늘)으로 — 게스트 초안은 탭 메모리라 새로 불러오면 없다
+await reload();
+await sleep(1200);
+await clickText('말씀');
+await waitFor(`document.querySelector('.qt-note-editor .tiptap')`);
+await sleep(600);
+
 // 11-c) 남의 나눔은 **마스터만** 지운다(사용자 결정 2026-09-05 · 0045
 // qt_entries_delete_master). 공유 해제가 아니라 그 사람의 그날 묵상 행이 없어지므로
 // 문구도 그걸 말해야 한다.

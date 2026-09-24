@@ -1418,6 +1418,55 @@ check("'나만 보기'로 되돌리면 칩이 '나만 볼게요'다",
   backRow.shared === false && backRow.chip === '나만 볼게요' && backRow.body.includes('기쁨은'),
   JSON.stringify(backRow));
 
+// **고치는 중에 공유를 바꿔도 쓰던 글이 그대로다**(2026-09-25 감사 S1·S2). 예전에는 공유가
+// 돌려준 note가 MyNote의 효과를 다시 돌려 편집기 글을 저장본으로 되돌리고 편집을 닫았다.
+// 되돌리기 검사: MyNote 효과의 `synced.current.key === draftKey` 갈래를 빼면 깨진다.
+await ev(`document.querySelector('.worship-note-edit')?.click()`); await sleep(700);
+await waitFor(`!!document.querySelector('.worship-note .tiptap')`);
+await sleep(300);
+// 커서는 **도막 제목이 아니라 문단**에 둔다 — 그냥 focus()하면 첫 제목(잠김)에 앉아 글이 안 들어간다
+await ev(`(() => { const t = document.querySelector('.worship-note .tiptap'); if (!t) return;
+  const p = [...t.children].find(el => el.tagName === 'P');
+  t.focus(); const r = document.createRange(); r.selectNodeContents(p); r.collapse(true);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); })()`);
+await sleep(150);
+await send('Input.insertText', { text: '공유 중 고친 글' });
+await sleep(300);
+await ev(`document.querySelectorAll('.worship-note button[aria-pressed]')[1]?.click()`);
+await sleep(900);
+const shareWhileEdit = await ev(`(() => {
+  const rows = JSON.parse(localStorage.getItem('church_worship_v1')).service_notes;
+  return { editor: !!document.querySelector('.worship-note .tiptap'),
+    text: document.querySelector('.worship-note .tiptap')?.innerText || '',
+    shared: rows[0]?.shared_to_sun, storedHasEdit: (rows[0]?.body || '').includes('공유 중 고친 글') };
+})()`);
+check('고치는 중에 공유를 바꿔도 편집이 닫히지 않고 쓰던 글이 남는다',
+  shareWhileEdit.editor === true && shareWhileEdit.text.includes('공유 중 고친 글') && shareWhileEdit.shared === true
+  && shareWhileEdit.storedHasEdit === false, JSON.stringify(shareWhileEdit));
+// **쓰고 곧바로 나가도 초안이 남는다**(감사 5) — 초안은 1.2초 뒤에 쓰이는데, 그 안에 목록으로
+// 나가면 타이머만 치워지고 마지막 글이 사라졌다. 떠날 때 그 자리에서 남긴다.
+// 되돌리기 검사: MyNote의 `[draftKey]` 정리 효과(pendingDraft를 쓰는 것)를 빼면 깨진다.
+await ev(`(() => { const t = document.querySelector('.worship-note .tiptap'); if (!t) return;
+  const p = [...t.children].find(el => el.tagName === 'P' && el.textContent.includes('공유 중 고친 글')) || [...t.children].find(el => el.tagName === 'P');
+  t.focus(); const r = document.createRange(); r.selectNodeContents(p); r.collapse(false);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); })()`);
+await sleep(150);
+await send('Input.insertText', { text: ' 막 친 글' });
+await sleep(150);
+await ev(`${byText('목록으로')}.click()`); await sleep(700);
+await ev(`document.querySelector('.worship-card').click()`); await sleep(1200);
+await waitFor(`!!document.querySelector('.worship-note')`);
+await sleep(400);
+const draftBack = await ev(`(() => ({
+  state: document.querySelector('.worship-note .worship-save-state')?.textContent.trim() || '',
+  text: document.querySelector('.worship-note .tiptap')?.innerText || '',
+}))()`);
+check('노트를 쓰고 곧바로 나갔다 돌아와도 막 친 글이 남아 있다',
+  draftBack.state === '작성 중인 노트' && draftBack.text.includes('막 친 글'), JSON.stringify(draftBack));
+// 뒤 검사들이 보던 모양으로 — 초안을 버리고 공유를 되돌린다
+await ev(`document.querySelector('.worship-note-cancel')?.click()`); await sleep(500);
+await ev(`document.querySelectorAll('.worship-note button[aria-pressed]')[0]?.click()`); await sleep(900);
+
 // 서비스 계약 — setNoteShared(serviceId, shared)는 **글을 건드리지 않고** 공유만 바꾸고,
 // 노트가 없으면 아무것도 만들지 않는다(모임 화면이 같은 함수를 쓴다)
 const contract = await ev(`(async () => {

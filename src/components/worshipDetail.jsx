@@ -1210,20 +1210,53 @@ function MyNote({ note, serviceId = '', serviceDate = '', passageRef = '', passa
   // **초안은 바로 이 자리에서 되살린다**(2026-09-14) — 따로 효과를 두면 이 효과와
   // 번갈아 글을 갈아 끼운다. 되살아나는 것은 **같은 주보로 돌아왔을 때뿐**이다(열쇠가
   // 주보 한 건이다). 저장된 글과 같은 초안은 되살릴 것이 없으므로 그냥 서버 값이 선다.
+  //
+  // **같은 주보에서 note만 새로 온 경우에는 고치던 글을 건드리지 않는다**(2026-09-25 감사 S1·S2).
+  // 공유 토글(setNoteShared)이 돌려준 행, 캐시로 먼저 그린 뒤 도착한 조회 결과가 그 경우다 —
+  // 예전에는 그때마다 편집기 글을 저장본으로 되돌리고 편집을 닫아서, 쓰던 노트가 사라졌다.
+  // 판정은 말씀 화면과 같은 규칙이다(word.js shouldAdoptBody): 마지막으로 넣어 준 글에서 한
+  // 글자라도 고쳤으면 그대로 두고, 안 고쳤으면 새 값을 넣는다. 편집 모드는 사람이 '수정'을
+  // 눌러 연 것이면 그대로 두고(userEditing), 아니면 예전처럼 '저장된 게 있나'로 정한다.
+  const synced = useRef({ key: null, body: '', note: undefined });
+  const userEditing = useRef(false);
+  const bodyNow = useRef(body);
+  bodyNow.current = body;
   useEffect(() => {
     const fresh = bodyOrTemplate(note?.body, tpl);
+    if (synced.current.key === draftKey) {
+      // 같은 note로 한 번 더 도는 것(개발 모드 StrictMode의 두 번 돌리기)은 새로 온 값이 아니다 —
+      // 거기서 넣으면 방금 되살린 초안을 저장본으로 덮는다
+      if (synced.current.note === note) return;
+      synced.current.note = note;
+      if (bodyNow.current !== synced.current.body) return;   // 고치는 중 — 쓰던 글이 이긴다
+      synced.current.body = fresh;
+      setBody(fresh);
+      if (!userEditing.current) setEditing(!note);
+      return;
+    }
+    synced.current = { key: draftKey, body: fresh, note };
+    userEditing.current = false;
     const draft = readCache(draftKey);
-    if (hasDraft(draft, fresh)) { setBody(draft.body); setState('draft'); setEditing(true); return; }
+    if (hasDraft(draft, fresh)) { setBody(draft.body); setState('draft'); setEditing(true); userEditing.current = true; return; }
     setBody(fresh); setEditing(!note);
   }, [note, tpl, draftKey]);
 
   // 편집 중에는 주기적으로 브라우저에 남긴다. 저장된 글과 같아지는 순간(저장·취소·
   // 되돌아옴) 지운다 — 되살릴 것이 없는 초안이 자리만 차지하지 않게.
+  // **기다리는 동안 떠나면 그 자리에서 남긴다**(2026-09-25 감사 5) — 쓰고 1.2초 안에 목록으로
+  // 나가거나 다른 주보를 열면 타이머만 치워지고 마지막 글이 사라졌다(말씀 화면과 같은 짝).
+  const pendingDraft = useRef(null);
   useEffect(() => {
-    if (body === base) { dropCache(draftKey); return undefined; }
-    const t = setTimeout(() => writeCache(draftKey, { body, at: Date.now() }), NOTE_DRAFT_DELAY);
+    if (body === base) { pendingDraft.current = null; dropCache(draftKey); return undefined; }
+    const value = { body, at: Date.now() };
+    pendingDraft.current = { key: draftKey, value };
+    const t = setTimeout(() => { writeCache(draftKey, value); pendingDraft.current = null; }, NOTE_DRAFT_DELAY);
     return () => clearTimeout(t);
   }, [body, base, draftKey]);
+  useEffect(() => () => {
+    const p = pendingDraft.current;
+    if (p && p.key === draftKey) { writeCache(p.key, p.value); pendingDraft.current = null; }
+  }, [draftKey]);
 
   const save = async () => {
     if (busy || !hasText || !dirty) return;
@@ -1231,15 +1264,25 @@ function MyNote({ note, serviceId = '', serviceDate = '', passageRef = '', passa
     // **도막 제목은 지워지지 않는다**(사용자 결정 2026-09-09 — "중제목들 안 지워지게").
     // 편집기에서 지웠어도 저장되는 글에는 세 도막이 그 순서로 서 있다. 사람이 쓴
     // 글과 새로 만든 도막은 그대로 남는다(services/noteTemplate.js ensureNoteSections).
-    const ok = await onSave({ body: ensureNoteSections(body, WORSHIP_SECTIONS), sharedToSun: shared });
+    const kept = ensureNoteSections(body, WORSHIP_SECTIONS);
+    const ok = await onSave({ body: kept, sharedToSun: shared });
     setBusy(false); setState(ok ? 'saved' : '');
     // 저장했으면 초안은 할 일을 다 했다. **실패하면 남긴다** — 그때가 초안이 가장 필요한 때다
-    if (ok) { dropCache(draftKey); setEditing(false); }
+    // 편집기 글도 저장된 글로 맞춘다 — 저장이 돌려준 note는 위 효과가 '고치는 중'으로 보고
+    // 건너뛰므로(S1), 여기서 맞추지 않으면 도막이 되살아난 만큼 저장 직후에도 dirty로 남는다.
+    if (ok) {
+      const next = bodyOrTemplate(kept, tpl);
+      synced.current.body = next; userEditing.current = false;
+      setBody(next); dropCache(draftKey); setEditing(false);
+    }
   };
 
   // 취소는 **저장된 글로 되돌리고** 읽기 모드로 나간다(고치던 것을 버린다).
   // 되돌리는 조작이므로 초안도 같이 지운다(사용자 결정 2026-09-14).
-  const cancel = () => { dropCache(draftKey); setBody(base); setState(''); setEditing(false); };
+  const cancel = () => {
+    synced.current.body = base; userEditing.current = false;
+    dropCache(draftKey); setBody(base); setState(''); setEditing(false);
+  };
 
   // 공유만 바꾼다 — 글은 저장된 것을 그대로 둔다(편집 중인 글은 건드리지 않는다).
   // onShare는 부르는 쪽이 services의 setNoteShared로 잇는다(모임 화면도 같은 함수를 쓴다).
@@ -1300,7 +1343,7 @@ function MyNote({ note, serviceId = '', serviceDate = '', passageRef = '', passa
       <div className={NOTE_TOOLS}>
         {reading ? (
           <span className="flex items-center gap-2">
-            <button type="button" onClick={() => setEditing(true)} className={`worship-note-edit ${BTN_SOFT}`}>수정</button>
+            <button type="button" onClick={() => { userEditing.current = true; setEditing(true); }} className={`worship-note-edit ${BTN_SOFT}`}>수정</button>
             <button type="button" onClick={img.share} disabled={img.busy}
               className={`worship-note-image ${WITH_ICON} ${BTN_QUIET}`}>
               {/* 아이콘은 `Share2`다(사용자 결정 2026-09-10) — 하는 일이 내려받기가
@@ -1351,7 +1394,11 @@ export function ServiceDetail({
   const editing = draft !== null;
   const shown = editing ? draft : service;
   const rows = (k) => (Array.isArray(shown?.[k]) ? shown[k] : []);
-  const set = (patch) => { dirty.current = true; setDraft(d => ({ ...d, ...patch })); };
+  // 고친 횟수 — 저장이 **보낸 뒤에 또 고쳤는지** 안다(2026-09-25 감사 S7). 저장이 도는 사이
+  // 친 글자가 있는데 먼저 끝난 저장이 dirty를 내려서, 곧바로 '목록으로'를 누르면 마지막 글자가
+  // 안 넘어갔다. 끝난 저장은 자기가 보낸 뒤로 고친 것이 없을 때만 dirty를 내린다.
+  const edits = useRef(0);
+  const set = (patch) => { dirty.current = true; edits.current += 1; setDraft(d => ({ ...d, ...patch })); };
   // 이름 → 호칭 한 벌. 명단(is_pastor)과 그 해 직분(people_roles)이 재료다 —
   // 둘 다 출석 명단과 같은 조회에서 온다(worship.fetchRoster).
   const nameOf = useMemo(() => honorificsOf(people, personRoles), [people, personRoles]);
@@ -1395,9 +1442,10 @@ export function ServiceDetail({
     if (!editing || !dirty.current) return undefined;
     const t = setTimeout(async () => {
       setSaveState('saving');
+      const sent = edits.current;
       const ok = await onSave(patchOf(draft));
       setSaveState(ok ? 'saved' : '');
-      if (ok) dirty.current = false;
+      if (ok && edits.current === sent) dirty.current = false;
     }, SAVE_DELAY);
     return () => clearTimeout(t);
   }, [draft, editing, onSave]);
