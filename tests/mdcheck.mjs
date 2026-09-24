@@ -128,3 +128,37 @@ console.log('마크다운 중첩 라운드트립 자체검증 통과 (30 asserts
   assert.strictEqual(round('# 제목'), '# 제목', '단계를 가리지 않는다');
   console.log('제목으로 끝나는 문서 통과 (4 asserts)');
 }
+
+// ── 저장이 빈 줄을 합치지 않는다 (2026-09-25 감사 2) ─────────────────────────
+// 빈 문단 N개 = 줄바꿈 N+1개. 예전 docToMd는 `\n{3,}`를 `\n\n`으로 접어서 편집기에 빈 줄
+// 둘을 두고 저장하면 다시 열 때 하나였다. 옛 글은 이미 접힌 채라 읽는 모양은 그대로다.
+// 도막 안의 빈 줄·첫 줄 들여쓰기는 noteTemplate.ensureNoteSections가 `trim()`으로 지웠다.
+// **되돌리기**: docToMd에 `.replace(/\n{3,}/g, '\n\n')`을 되살리면 첫 줄이, ensureNoteSections를
+// splitNoteSections(다듬은 모양)로 되돌리면 도막 줄들이 깨진다.
+{
+  const P = (t) => (t ? { type: 'paragraph', content: [{ type: 'text', text: t }] } : { type: 'paragraph' });
+  const doc = (...c) => ({ type: 'doc', content: c });
+  assert.strictEqual(docToMd(doc(P('가'), P(), P(), P('나'))), '가\n\n\n나', '빈 문단 둘 = 줄바꿈 셋');
+  assert.strictEqual(docToMd(doc(P('가'), P(), P(), P(), P('나'))), '가\n\n\n\n나', '빈 문단 셋 = 줄바꿈 넷');
+  for (const src of ['가\n\n나', '가\n\n\n나', '가\n\n\n\n나', '### 기도\n\n\n가', '\n가', '가  \n나', '  가\n    나']) {
+    assert.strictEqual(round(src), src, `빈 줄·들여쓰기가 왕복에서 바뀐다: ${JSON.stringify(src)} → ${JSON.stringify(round(src))}`);
+  }
+  const N = await import(new URL('../src/services/noteTemplate.js', import.meta.url).href);
+  const W = N.WORSHIP_SECTIONS;
+  const cases = [
+    '### 말씀 요약\n은혜\n\n### 나의 결단\n\n### 기도',
+    '### 말씀 요약\n첫 문단\n\n\n둘째 문단\n\n### 나의 결단\n\n### 기도',
+    '### 말씀 요약\n   들여쓴 첫 줄\n    들여쓴 둘째\n\n### 나의 결단\n\n### 기도',
+    '### 말씀 요약\n\n은혜\n\n### 나의 결단\n\n### 기도',
+  ];
+  for (const typed of cases) {
+    const saved = N.ensureNoteSections(typed, W);
+    assert.strictEqual(saved.replace(/\n+$/, ''), typed, `저장이 도막 안의 글을 바꾼다: ${JSON.stringify(typed)} → ${JSON.stringify(saved)}`);
+    // 다시 열고(편집기) 다시 저장해도 같은 글 — 저장할 때마다 자라거나 줄지 않는다
+    const again = N.ensureNoteSections(round(N.bodyOrTemplate(saved, N.worshipNoteTemplate())), W);
+    assert.strictEqual(again, saved, `재저장에서 흔들린다: ${JSON.stringify(saved)} → ${JSON.stringify(again)}`);
+  }
+  // 종이는 예전 그대로 도막 앞뒤를 걷어 그린다(★ — 빈 줄을 그리는 모양은 따로 정한다)
+  assert.deepStrictEqual(N.splitNoteSections(N.ensureNoteSections(cases[3], W)), [{ title: '말씀 요약', body: '은혜' }]);
+  console.log('빈 줄·들여쓰기 보존 통과 (18 asserts)');
+}

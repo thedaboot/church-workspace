@@ -222,10 +222,12 @@ function serializeBlock(block) {
 }
 
 // ── TipTap doc JSON → 마크다운 문자열 ──────────────────────────────────────
+// **빈 줄을 합치지 않는다**(2026-09-25). 예전에는 `\n{3,}`를 `\n\n`으로 접어서 빈 문단
+// 둘·셋을 두고 저장하면 다시 열 때 하나였다 — 빈 문단 N개는 줄바꿈 N+1개이고 읽는 쪽
+// (mdToDoc)은 이미 그대로 읽는다. 옛 글은 이미 접힌 채 저장돼 있어 읽는 모양이 그대로다.
 export function docToMd(doc) {
   const blocks = doc?.content || [];
   const lines = [];
   for (const b of blocks) lines.push(...serializeBlock(b));
-  // 하드브레이크가 만든 개행을 줄 단위로 펴고, 끝의 빈 줄은 정리
-  return lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '');
+  return lines.join('\n').replace(/\s+$/, '');
 }

@@ -180,7 +180,10 @@ export function hasDraft(draft, base = '', baseTitle = '') {
 // 빈 도막은 버린다 — 종이에 라벨만 남은 빈 줄이 생기면 구멍으로 보인다.
 // **걷는 도막('본문')은 여기서 이미 없다**(2026-09-14) — 읽기 종이·나눔 피드·순 노트가
 // 전부 이 함수를 지나므로 한 자리만 지키면 된다.
-export function splitNoteSections(md) {
+// 도막을 가르기만 하고 **글은 한 글자도 다듬지 않은** 모양 — `[{ title, lines }]`.
+// 종이(splitNoteSections)는 여기서 앞뒤 공백을 걷어 그리고, 저장(ensureNoteSections)은
+// 이 줄들을 그대로 되적는다(2026-09-25 — 저장이 빈 줄·첫 줄 들여쓰기를 지웠다).
+function splitRaw(md) {
   const out = [];
   let cur = { title: '', lines: [] };
   for (const raw of dropLegacySections(md).split('\n')) {
@@ -193,7 +196,11 @@ export function splitNoteSections(md) {
     }
   }
   out.push(cur);
-  return out
+  return out;
+}
+
+export function splitNoteSections(md) {
+  return splitRaw(md)
     .map(s => ({ title: s.title, body: s.lines.join('\n').trim() }))
     .filter(s => !!s.body);
 }
@@ -214,19 +221,26 @@ export function splitNoteSections(md) {
 //   · 아는 도막은 **그 순서대로** 세우고 각자의 글을 그대로 얹는다
 //   · 첫 제목보다 앞에 있던 글(제목을 다 지운 경우)은 맨 위에 그대로 남긴다
 //   · 사람이 새로 만든 도막(아는 이름이 아닌 것)은 **뒤에 붙인다** — 지우지 않는다
+//
+// **도막 안의 글은 그대로 되적는다**(2026-09-25) — 예전에는 종이용 모양(splitNoteSections)을
+// 지나서 도막마다 앞뒤를 `trim()`했고, 그래서 저장할 때마다 도막 앞·뒤의 빈 줄과 첫 줄의
+// 들여쓰기가 사라졌다(편집기에서 두고 저장해도 다시 열면 없었다). 이제 도막 사이의 줄을
+// 한 글자도 안 건드린다: 편집기의 글이 이미 이 순서라면 저장되는 글은 그 글 그대로다.
+// 빈 도막을 버리는 것(사람이 만든 새 도막 중 글이 없는 것)은 예전과 같다.
 export function ensureNoteSections(md, sections = WORSHIP_SECTIONS) {
-  const parsed = splitNoteSections(md);
+  const parsed = splitRaw(md);
   const want = sections || [];
   const byTitle = new Map();
   const extra = [];
   let lead = '';
   for (const sec of parsed) {
-    if (!sec.title) { lead = lead ? `${lead}\n${sec.body}` : sec.body; continue; }
-    if (want.includes(sec.title) && !byTitle.has(sec.title)) byTitle.set(sec.title, sec.body);
-    else extra.push(sec);
+    const body = sec.lines.join('\n');
+    if (!sec.title) { lead = body.replace(/^\n+|\n+$/g, ''); continue; }
+    if (want.includes(sec.title) && !byTitle.has(sec.title)) byTitle.set(sec.title, body);
+    else if (body.trim()) extra.push({ title: sec.title, body });
   }
   const lines = [];
-  if (lead.trim()) lines.push(lead.trim(), '');
+  if (lead.trim()) lines.push(lead, '');
   for (const title of want) {
     lines.push(`### ${title}`);
     lines.push(byTitle.get(title) || '');
