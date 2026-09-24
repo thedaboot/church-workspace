@@ -1,6 +1,6 @@
 import webpush from 'web-push';
 import { notifLine } from '../src/services/notifyText.js';
-import { adminClient, readJson, bearer, requireApprovedUser, safeEqual } from './_lib.js';
+import { adminClient, readJson, bearer, requireApprovedUser, safeEqual, sameOriginPath } from './_lib.js';
 
 // ============================================================================
 // /api/push — 웹 푸시 발송. 두 입구가 한 파일에 있다.
@@ -167,12 +167,15 @@ async function handleSend(req, res) {
     .filter(id => typeof id === 'string' && id && id !== user.id))].slice(0, MAX_RECIPIENTS);
   if (!ids.length) { res.status(200).json({ sent: 0 }); return; }
 
+  // 예배·모임 알림(0053)은 우리 주소 한 칸(link)으로 간다 — 업무 알림은 예전 그대로.
+  // 앞글자만 보면 `'/\t/evil.com'`이 지나간다 — 브라우저와 같은 파서로 풀어 우리 출처인지 본다
+  // (_lib.js sameOriginPath · public/sw.js 알림 클릭도 같은 규칙 · 0071 DB CHECK).
+  const safeLink = sameOriginPath(link);
   const result = await sendToProfiles(db, ids, {
     title: notifLine(kind, await actorNameOf(db, user.id, actorName)),
     body: String(preview || '').slice(0, MAX_PREVIEW),
-    // 예배·모임 알림(0053)은 우리 주소 한 칸(link)으로 간다 — 업무 알림은 예전 그대로.
-    url: (typeof link === 'string' && link.startsWith('/') && !link.startsWith('//')) ? link : deepLink(projectId, cardId),
-    tag: cardId ? `card:${cardId}` : (link ? `link:${link}` : 'thedaboot'),
+    url: safeLink || deepLink(projectId, cardId),
+    tag: cardId ? `card:${cardId}` : (safeLink ? `link:${safeLink}` : 'thedaboot'),
   });
   res.status(200).json(result);
 }

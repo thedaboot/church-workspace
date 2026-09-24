@@ -47,7 +47,14 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || '/';
+  // **우리 출처 안의 주소만 연다**(보안 감사 2026-09-24). 서버와 DB는 앞글자(`/`로 시작,
+  // `//`가 아님)만 봤는데, `'/\t/evil.com'`은 그 둘을 지나고 브라우저의 URL 파서가 탭을 지워
+  // `//evil.com` — 남의 사이트가 된다. 브라우저와 같은 파서로 풀어서 출처를 견준다.
+  let url = '/';
+  try {
+    const u = new URL(event.notification.data?.url || '/', self.location.origin);
+    if (u.origin === self.location.origin) url = u.href;
+  } catch { /* 못 읽는 주소는 첫 화면으로 */ }
   event.waitUntil((async () => {
     const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     // 이미 열려 있는 탭을 재사용한다. 매번 새 창을 열면 아이폰에서 PWA가 여러 개

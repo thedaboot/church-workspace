@@ -563,4 +563,39 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
   }
 }
 
+// ── 알림 딥링크는 우리 출처 안에서만 (서버 · 서비스 워커 · 보안 감사 2026-09-24) ──
+// 앞글자만 보면(`/`로 시작 · `//` 아님) `'/\t/evil.com'`이 지나가고, 브라우저의 URL 파서가
+// 탭을 지워 `//evil.com`(남의 출처)으로 연다. 서버와 워커 둘 다 브라우저와 같은 파서로 본다.
+// 되돌리기 검사: sw.js의 `u.origin === self.location.origin` 확인을 지우면 워커 줄이 깨진다.
+{
+  const BAD = ['/\t/evil.com', '/\n/evil.com', '//evil.com', '/\\evil.com', '\\\\evil.com', 'https://evil.com/x', 'javascript:alert(1)', '', null, 42];
+  for (const b of BAD) assert.equal(lib.sameOriginPath(b), null, `서버가 남의 출처 딥링크를 받는다: ${JSON.stringify(b)}`);
+  assert.equal(lib.sameOriginPath('/?p=worship&s=abc'), '/?p=worship&s=abc', '주보 딥링크가 막힌다');
+  assert.equal(lib.sameOriginPath('/?p=groups'), '/?p=groups');
+  const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
+  assert.ok(/const safeLink = sameOriginPath\(link\);/.test(src) && /url: safeLink \|\| deepLink\(projectId, cardId\)/.test(src),
+    'POST가 딥링크를 앞글자로만 본다');
+
+  // 서비스 워커를 가짜 전역으로 실제로 돌려 알림 클릭이 어디를 여는지 본다
+  const clickOpens = async (url) => {
+    const handlers = {};
+    const opened = [];
+    const self = {
+      location: { origin: 'https://church-workspace.vercel.app' },
+      addEventListener: (t, fn) => { handlers[t] = fn; },
+      skipWaiting() {}, registration: { showNotification: async () => {} },
+      clients: { claim: async () => {}, matchAll: async () => [], openWindow: async (u) => { opened.push(u); } },
+    };
+    new Function('self', 'navigator', sw)(self, {});
+    let wait;
+    handlers.notificationclick({ notification: { close() {}, data: { url } }, waitUntil: (p) => { wait = p; } });
+    await wait;
+    return new URL(opened[0], self.location.origin).href;   // 거절이면 '/'(첫 화면)
+  };
+  for (const b of ['/\t/evil.com', '//evil.com', '/\\evil.com', 'https://evil.com/']) {
+    assert.equal(await clickOpens(b), 'https://church-workspace.vercel.app/', `알림 클릭이 남의 출처를 연다: ${JSON.stringify(b)}`);
+  }
+  assert.equal(await clickOpens('/?p=worship&s=abc'), 'https://church-workspace.vercel.app/?p=worship&s=abc', '우리 딥링크가 안 열린다');
+}
+
 console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론(마감 임박 + 예배 당일 job 갈래·중복 방지·N+1 없음)·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수·합친 계정의 알림·구독(0063)');
