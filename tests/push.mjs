@@ -523,4 +523,44 @@ assert.ok(/addEventListener\('notificationclick'/.test(sw), 'sw에 클릭 처리
     '알림 한 건마다 DB를 다시 묻고 있다 (N+1)');
 }
 
+// ── 공용 머리 · 상한 · 크론 비밀 비교 (보안 감사 2026-09-24 · api/_lib.js) ───
+// 예전에는 ai·yt·push(POST)가 **로그인만** 봐서 승인 전 계정도 제미나이·유튜브 키와 푸시를
+// 쓸 수 있었고, 몸통 크기도 받는 사람 수도 끝이 없었다. 크론 비밀은 `!==`로 견줘 걸린 시간으로
+// 앞자리가 샌다. 되돌리기 검사: handleWorshipToday의 safeEqual을 `bearer(req) !== secret`로
+// 되돌리면 '크론 두 갈래' 줄이 깨진다.
+const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g, '/'));
+{
+  assert.equal(lib.safeEqual('s3cret-value', 's3cret-value'), true, '같은 비밀을 거절한다');
+  assert.equal(lib.safeEqual('s3cret-valuf', 's3cret-value'), false, '한 글자 다른 비밀을 받는다');
+  assert.equal(lib.safeEqual('s3cret', 's3cret-value'), false, '길이가 다르면 던지지 말고 거절');
+  assert.equal(lib.safeEqual(null, 's3cret-value'), false, '토큰이 없으면 거절');
+  assert.equal(lib.safeEqual('', ''), false, '비밀이 비어 있으면 누구도 통과하지 않는다');
+
+  const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
+  assert.ok(!/bearer\(req\) !== secret/.test(src), '크론 비밀을 !==로 견준다(시간으로 앞자리가 샌다)');
+  for (const fn of ['handleDueSoon', 'handleWorshipToday']) {
+    const at = src.indexOf(`async function ${fn}`);
+    assert.ok(/if \(!safeEqual\(bearer\(req\), secret\)\)/.test(src.slice(at, at + 400)), `크론 두 갈래 — ${fn}이 safeEqual을 안 쓴다`);
+  }
+  const send = src.slice(src.indexOf('async function handleSend'), src.indexOf('export const kstDate'));
+  assert.ok(/requireApprovedUser\(req, res, \{ supabase: db \}\)/.test(send), 'POST가 승인을 안 본다(로그인만 본다)');
+  assert.equal(api.MAX_RECIPIENTS, 50);
+  assert.equal(api.MAX_PREVIEW, 200, '미리보기 상한이 DB의 알림 INSERT 정책(0053 · 200자)과 다르다');
+  assert.ok(/\[\.\.\.new Set\([\s\S]*?\)\]\.slice\(0, MAX_RECIPIENTS\)/.test(send), '받는 사람을 중복 제거 뒤 상한으로 자르지 않는다');
+  assert.ok(/String\(preview \|\| ''\)\.slice\(0, MAX_PREVIEW\)/.test(send), '미리보기를 자르지 않는다');
+  // 제목의 '누가'는 서버가 정한다 — 몸통의 actorName('관리자')을 그대로 싣지 않는다(0071 트리거와 같은 값)
+  assert.ok(/notifLine\(kind, await actorNameOf\(db, user\.id, actorName\)\)/.test(send), '푸시 제목에 몸통의 actorName을 그대로 싣는다');
+
+  // 다섯 라우트가 한 벌의 머리를 쓴다 — 새 라우트가 승인 확인을 빼먹을 자리가 없게
+  const ai = readFileSync(join(ROOT, 'api', 'ai.js'), 'utf8');
+  assert.ok(/const MAX_PROMPT = 60000;/.test(ai) && /const MAX_SYSTEM = 20000;/.test(ai), 'AI 글자 상한이 없다');
+  assert.ok(/status\(413\)/.test(ai), 'AI 상한을 넘으면 413으로 가르지 않는다');
+  for (const f of ['ai.js', 'yt.js', 'drive.js', 'drive-file.js', 'push.js']) {
+    const code = readFileSync(join(ROOT, 'api', f), 'utf8');
+    assert.ok(/requireApprovedUser\(req, res/.test(code), `api/${f}가 공용 머리(requireApprovedUser)를 안 쓴다`);
+    assert.ok(!/auth\.getUser\(/.test(code), `api/${f}가 세션을 따로 확인한다 — 승인 확인이 빠지는 자리다`);
+    assert.ok(!/async function readJson\(/.test(code), `api/${f}에 readJson이 또 있다(_lib.js 한 벌)`);
+  }
+}
+
 console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론(마감 임박 + 예배 당일 job 갈래·중복 방지·N+1 없음)·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수·합친 계정의 알림·구독(0063)');

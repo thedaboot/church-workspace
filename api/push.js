@@ -1,12 +1,12 @@
-import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
 import { notifLine } from '../src/services/notifyText.js';
+import { adminClient, readJson, bearer, requireApprovedUser, safeEqual } from './_lib.js';
 
 // ============================================================================
 // /api/push — 웹 푸시 발송. 두 입구가 한 파일에 있다.
 // ----------------------------------------------------------------------------
 //   POST  앱이 알림 행을 넣은 직후 부른다(cloud.insertNotifications 안에서).
-//         Authorization: Bearer <supabase access token> 으로 로그인만 확인한다.
+//         Authorization: Bearer <supabase access token> — **승인된 사람만**(_lib.js).
 //   GET   하루 한 번 Vercel Cron이 깨운다(vercel.json의 crons). Authorization: Bearer <CRON_SECRET>.
 //         `?job` 하나로 갈린다 — 크론 자리가 **두 개까지**라(Vercel Hobby) 배치가 늘 때마다
 //         라우트를 새로 파지 않고 이 입구를 나눠 쓴다.
@@ -25,25 +25,31 @@ const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBL
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT;
 
-const admin = () => createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
+const admin = adminClient;
 
 // VAPID 키가 없으면 **발송만** 건너뛴다. 마감 임박 배치는 앱 안 알림도 만들기 때문에,
 // 키가 없다고 라우트 전체를 501로 막으면 종에도 아무것도 안 뜬다.
 const pushReady = () => !!(VAPID_PUBLIC && VAPID_PRIVATE && VAPID_SUBJECT);
 if (pushReady()) webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
 
-async function readJson(req) {
-  if (req.body && typeof req.body === 'object') return req.body;
-  const chunks = [];
-  for await (const c of req) chunks.push(c);
-  const raw = Buffer.concat(chunks).toString('utf8');
-  try { return JSON.parse(raw || '{}'); } catch { return {}; }
-}
+// POST 한 번에 받는 사람 상한과 미리보기 글자 상한(보안 감사 2026-09-24). 미리보기는 DB의
+// 알림 INSERT 정책(0053 · 200자)과 같은 값이다. 받는 사람이 제일 많은 것은 주보 발행
+// 알림(승인 멤버 전원)이고 2026-09-24에 22명이다 — **멤버가 50명을 넘으면 여기를 올리세요**
+// (넘친 사람에게는 앱 안 알림만 가고 푸시가 조용히 빠진다).
+export const MAX_RECIPIENTS = 50;
+export const MAX_PREVIEW = 200;
 
-const bearer = (req) => {
-  const auth = req.headers.authorization || '';
-  return auth.startsWith('Bearer ') ? auth.slice(7) : null;
-};
+// 푸시 제목의 '누가'는 **서버가 정한다** — 몸통의 actorName을 그대로 쓰면 아무 이름('관리자')이나
+// 실을 수 있다. 앱 안 알림 행도 0071 트리거가 같은 값으로 덮는다(합친 계정은 남긴 계정의 이름).
+async function actorNameOf(db, uid, fallback) {
+  const { data: me } = await db.from('profiles').select('display_name, merged_into').eq('id', uid).maybeSingle();
+  let name = me?.display_name;
+  if (me?.merged_into) {
+    const { data: keep } = await db.from('profiles').select('display_name').eq('id', me.merged_into).maybeSingle();
+    name = keep?.display_name || name;
+  }
+  return String(name || '').trim() || fallback || '누군가';
+}
 
 // 딥링크는 이미 있다 — /?p=<projectId>&t=<cardId>
 // (kstDate와 함께 tests/push.mjs가 직접 부른다 — 그래서 export)
@@ -147,22 +153,23 @@ async function sendToProfiles(db, profileIds, payload) {
 async function handleSend(req, res) {
   // POST는 푸시가 전부인 입구다. 키가 없으면 할 일이 없다 — 앱은 이 응답을 무시한다.
   if (!pushReady()) { res.status(501).json({ error: '푸시가 아직 설정되지 않았습니다 (VAPID 키 3종 필요).' }); return; }
-  const token = bearer(req);
-  if (!token) { res.status(401).json({ error: '인증이 필요합니다.' }); return; }
 
+  // 승인된 사람만 — 예전에는 로그인만 봐서 승인 전 계정도 아무에게나 푸시를 보낼 수 있었다
   const db = admin();
-  const { data: { user }, error: authErr } = await db.auth.getUser(token);
-  if (authErr || !user) { res.status(401).json({ error: '유효하지 않은 세션입니다.' }); return; }
+  const user = await requireApprovedUser(req, res, { supabase: db });
+  if (!user) return;
 
   const { recipientIds, kind, actorName, cardId, projectId, preview, link } = await readJson(req);
   // 자기 자신에게는 보내지 않는다(앱 안 알림도 같은 규칙 — cloudSync가 먼저 걸러내지만
   // 여기서도 막아 둔다. 알림은 종류가 늘 때마다 호출부가 늘어나는 자리다).
-  const ids = (recipientIds || []).filter(id => id && id !== user.id);
+  // 같은 id가 여럿이면 하나로 — 상한은 **거른 뒤의** 수로 센다.
+  const ids = [...new Set((Array.isArray(recipientIds) ? recipientIds : [])
+    .filter(id => typeof id === 'string' && id && id !== user.id))].slice(0, MAX_RECIPIENTS);
   if (!ids.length) { res.status(200).json({ sent: 0 }); return; }
 
   const result = await sendToProfiles(db, ids, {
-    title: notifLine(kind, actorName),
-    body: preview || '',
+    title: notifLine(kind, await actorNameOf(db, user.id, actorName)),
+    body: String(preview || '').slice(0, MAX_PREVIEW),
     // 예배·모임 알림(0053)은 우리 주소 한 칸(link)으로 간다 — 업무 알림은 예전 그대로.
     url: (typeof link === 'string' && link.startsWith('/') && !link.startsWith('//')) ? link : deepLink(projectId, cardId),
     tag: cardId ? `card:${cardId}` : (link ? `link:${link}` : 'thedaboot'),
@@ -183,7 +190,7 @@ export const kstDate = (offsetDays = 0, now = Date.now()) => new Date(
 async function handleDueSoon(req, res) {
   const secret = process.env.CRON_SECRET;
   if (!secret) { res.status(501).json({ error: 'CRON_SECRET이 설정되지 않았습니다.' }); return; }
-  if (bearer(req) !== secret) { res.status(401).json({ error: '인증이 필요합니다.' }); return; }
+  if (!safeEqual(bearer(req), secret)) { res.status(401).json({ error: '인증이 필요합니다.' }); return; }
 
   const db = admin();
   const today = kstDate(0);
@@ -272,7 +279,7 @@ const serviceLabel = (kind) => (kind === 'sunday' ? SUNDAY_LABEL : (kind || '예
 async function handleWorshipToday(req, res) {
   const secret = process.env.CRON_SECRET;
   if (!secret) { res.status(501).json({ error: 'CRON_SECRET이 설정되지 않았습니다.' }); return; }
-  if (bearer(req) !== secret) { res.status(401).json({ error: '인증이 필요합니다.' }); return; }
+  if (!safeEqual(bearer(req), secret)) { res.status(401).json({ error: '인증이 필요합니다.' }); return; }
 
   const db = admin();
   const today = kstDate(0);

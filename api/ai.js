@@ -1,8 +1,8 @@
-import { createClient } from '@supabase/supabase-js';
+import { readJson, requireApprovedUser } from './_lib.js';
 
 // ============================================================================
 // /api/ai — Gemini 프록시. 클라이언트에 API 키를 노출하지 않는다.
-//   요구: Authorization: Bearer <supabase access token> (getUser로 검증)
+//   요구: Authorization: Bearer <supabase access token> · **승인된 사람만**(_lib.js)
 //   모델: gemini-3.1-flash-lite
 // ============================================================================
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent';
@@ -13,13 +13,11 @@ const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemi
 // 플랫폼보다 우리가 먼저 잡아야 하므로 그보다 짧게 잡는다.
 const GEMINI_BUDGET_MS = 25 * 1000;
 
-async function readJson(req) {
-  if (req.body && typeof req.body === 'object') return req.body;
-  const chunks = [];
-  for await (const c of req) chunks.push(c);
-  const raw = Buffer.concat(chunks).toString('utf8');
-  try { return JSON.parse(raw || '{}'); } catch { return {}; }
-}
+// 글자 수 상한(보안 감사 2026-09-24) — 없으면 승인된 한 사람이 우리 키로 아무 크기나 보낼 수
+// 있다. 넉넉히 잡았다: 라이브에서 가장 긴 업무 본문이 2,812자 + 첨부 발췌 3,000자이고,
+// 시스템 지시는 docs/AI.md 배경 지식(약 14.7kB)이 실린다(services/ai.js).
+const MAX_PROMPT = 60000;
+const MAX_SYSTEM = 20000;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
@@ -27,17 +25,17 @@ export default async function handler(req, res) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) { res.status(501).json({ error: 'AI가 아직 설정되지 않았습니다 (GEMINI_API_KEY 필요).' }); return; }
 
-  const auth = req.headers.authorization || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-  if (!token) { res.status(401).json({ error: '인증이 필요합니다.' }); return; }
-
-  // 세션(access token) 검증 — 로그인 사용자만 프록시 이용
-  const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-  if (authErr || !user) { res.status(401).json({ error: '유효하지 않은 세션입니다.' }); return; }
+  // 승인된 사람만 — 예전에는 로그인만 봐서 승인 전 계정도 우리 키를 쓸 수 있었다
+  if (!(await requireApprovedUser(req, res))) return;
 
   const { prompt, systemInstruction } = await readJson(req);
-  if (!prompt) { res.status(400).json({ error: 'prompt가 필요합니다.' }); return; }
+  if (!prompt || typeof prompt !== 'string') { res.status(400).json({ error: 'prompt가 필요합니다.' }); return; }
+  if (systemInstruction != null && typeof systemInstruction !== 'string') { res.status(400).json({ error: 'systemInstruction은 글자여야 합니다.' }); return; }
+  if (prompt.length > MAX_PROMPT || (systemInstruction || '').length > MAX_SYSTEM) {
+    console.error('[ai] 상한 초과:', prompt.length, (systemInstruction || '').length);
+    res.status(413).json({ error: '보낸 글이 너무 길어요' });
+    return;
+  }
 
   const payload = { contents: [{ parts: [{ text: prompt }] }] };
   if (systemInstruction) payload.systemInstruction = { parts: [{ text: systemInstruction }] };

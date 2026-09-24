@@ -1,9 +1,9 @@
-import { createClient } from '@supabase/supabase-js';
 import { cleanTitle } from '../src/services/titleText.js';
+import { readJson, requireApprovedUser } from './_lib.js';
 
 // ============================================================================
 // /api/yt — 유튜브 재생목록·영상 제목 프록시.
-//   요구: Authorization: Bearer <supabase access token> (getUser로 검증 — api/ai.js와 같다)
+//   요구: Authorization: Bearer <supabase access token> · **승인된 사람만**(_lib.js — api/ai.js와 같다)
 //   { listId }  → YOUTUBE_API_KEY가 있으면 Data API playlistItems(50개씩 페이지 넘김, 전체)
 //                 없으면 https://www.youtube.com/feeds/videos.xml?playlist_id=<id>  (RSS, 최신 15곡)
 //                 → { items: [{ title, videoId }] }
@@ -28,14 +28,6 @@ import { cleanTitle } from '../src/services/titleText.js';
 const TIMEOUT_MS = 8000;
 const LIST_ID = /^[A-Za-z0-9_-]{10,64}$/;
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
-
-async function readJson(req) {
-  if (req.body && typeof req.body === 'object') return req.body;
-  const chunks = [];
-  for await (const c of req) chunks.push(c);
-  const raw = Buffer.concat(chunks).toString('utf8');
-  try { return JSON.parse(raw || '{}'); } catch { return {}; }
-}
 
 // 8초 안에 못 받으면 끊는다 — 유튜브가 늦어도 함수 예산을 다 태우지 않는다
 async function getText(url) {
@@ -68,14 +60,8 @@ function parseFeed(xml) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
 
-  const auth = req.headers.authorization || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-  if (!token) { res.status(401).json({ error: '인증이 필요합니다.' }); return; }
-
-  // 세션(access token) 검증 — 로그인 사용자만 프록시 이용
-  const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-  if (authErr || !user) { res.status(401).json({ error: '유효하지 않은 세션입니다.' }); return; }
+  // 승인된 사람만 — 예전에는 로그인만 봐서 승인 전 계정도 우리 유튜브 키를 쓸 수 있었다
+  if (!(await requireApprovedUser(req, res))) return;
 
   const { listId, videoId } = await readJson(req);
 

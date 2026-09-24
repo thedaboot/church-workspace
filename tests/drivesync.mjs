@@ -207,8 +207,8 @@ check('스크립트가 워드·PPT도 네이티브 사본으로 만든다', () =
   assert.match(scriptmd, /GOOGLE_SHEETS/, '엑셀 변환이 사라졌다(v7 동작이 깨진다)');
   assert.match(scriptmd, /convertTo/, 'convertTo를 모르면 워드·PPT 요청이 무시된다');
   // 버전을 안 실어 보내면 부르는 쪽이 v7에 워드를 보내 쓰레기 사본을 만든다
-  // 앱의 게이트는 `>= 8`이다(cloud.attachPreviewCopy) — 지금 판(11)은 그 조건을 그대로 지난다
-  assert.match(scriptmd, /const SCRIPT_VERSION = 11;/, '버전 상수가 11이 아니다');
+  // 앱의 게이트는 `>= 8`이다(cloud.attachPreviewCopy) — 지금 판(12)은 그 조건을 그대로 지난다
+  assert.match(scriptmd, /const SCRIPT_VERSION = 12;/, '버전 상수가 12가 아니다');
   assert.match(scriptmd, /out\.version = SCRIPT_VERSION/, '답에 버전을 안 싣는다');
   // 사본 종류는 **확장자**가 정한다 — 부르는 쪽 값을 믿으면 잘못 보낸 한 번이 영영 남는다
   assert.ok(/COPY_AS\[String\(name/.test(scriptmd), '사본 종류를 확장자로 정하지 않는다');
@@ -276,12 +276,14 @@ check('앱이 보내는 편집자 — 큐시트는 둘, 첨부는 올린 사람+
     /supabase\.from\('admins'\)/.test(api), 'cloud.js가 관리자 표를 직접 읽는다');
   assert.match(api, /const EDITOR_ACTIONS = new Set\(\['convert', 'grantEditors'\]\)/,
     '프록시가 편집자 액션을 모른다');
-  assert.match(api, /body\.editors = await editorsFor\(supabase, body, user\);/,
+  assert.match(api, /body\.editors = await editorsFor\(supabase, user\);/,
     '프록시가 편집자 명단을 채우지 않는다');
-  const ef = api.slice(api.indexOf('async function editorsFor('), api.indexOf('async function readJson('));
+  const ef = api.slice(api.indexOf('async function editorsFor('), api.indexOf('async function mayGrantEditors('));
   assert.ok(ef, 'editorsFor를 못 찾았다');
   assert.match(ef, /supabase\.from\('admins'\)\.select\('email'\)/, '관리자·마스터를 명단에 안 넣는다');
-  assert.match(ef, /\[user\.email, \.\.\.asked/, '부르는 사람을 명단에 안 넣는다');
+  assert.match(ef, /\[user\.email, \.\.\./, '부르는 사람을 명단에 안 넣는다');
+  // 브라우저가 보낸 목록은 섞지 않는다(2026-09-24) — 섞으면 아무 이메일이나 편집자가 된다
+  assert.ok(!/body\.|asked/.test(ef), '편집자 명단에 브라우저가 보낸 editors를 섞는다');
   assert.match(ef, /EMAIL_RE\.test\(e\)/, '이메일 형식을 안 본다');
   // 큐시트는 `editors`를 아예 안 보내므로 여기서 관리자가 얹히면 안 된다
   assert.match(api, /EDITOR_ACTIONS\.has\(action\) && Array\.isArray\(body\.editors\)/,
@@ -690,8 +692,10 @@ check('승인 확인이 합친 계정을 따라간다(두 경로가 같은 헬�
   const helper = read('src/services/approval.js');
   assert.match(helper, /select\('approved, merged_into'\)/, '승인 칸만 읽고 있다 — 합친 계정을 못 따라간다');
   assert.match(helper, /me\.merged_into/, '남긴 계정 행을 한 번 더 읽지 않는다');
+  // 두 경로는 api/_lib.js의 requireApprovedUser 한 벌을 거치고, 그 안에서 이 헬퍼를 부른다(2026-09-24)
+  assert.ok(/isApprovedProfile\(supabase, user\.id\)/.test(read('api/_lib.js')), 'api/_lib.js가 공용 헬퍼를 안 쓴다');
   for (const [name, code] of [['api/drive.js', api], ['api/drive-file.js', filesvc]]) {
-    assert.ok(/isApprovedProfile\(supabase, user\.id\)/.test(code), `${name}이 공용 헬퍼를 안 쓴다`);
+    assert.ok(/requireApprovedUser\(req, res/.test(code), `${name}이 공용 머리(requireApprovedUser)를 안 쓴다`);
     assert.ok(!/from\('profiles'\)\.select\('approved'\)/.test(code),
       `${name}이 아직 승인 칸을 직접 읽는다 — 합친 계정이 403이 된다`);
   }
@@ -1211,6 +1215,164 @@ check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () =
   // 주석에서 옛 이름을 설명하는 것은 괜찮다 — **옵션으로 적혀 있는지**만 본다.
   assert.ok(!/advancedChunks\s*:/.test(vite), '옛 이름을 아직 옵션으로 쓰고 있다 — 둘 다 있으면 옛 이름이 무시된다');
 });
+
+// ── 보안 감사 2026-09-24: 프록시가 부르는 사람·대상·칸을 본다 (api/drive.js · api/_lib.js) ──
+// 예전 프록시는 **로그인·승인만** 보고 몸통을 통째로 스크립트에 넘겼다. 그래서 승인된 누구나
+// 아무 파일 id로 자기를 편집자로 붙이고(grantEditors), 아무 이메일을 편집자로 싣고(editors),
+// 아무 주소를 스크립트가 받아 가게 할 수 있었다(uploadFromUrl). 트리 밖 id는 Apps Script v12가
+// 막는다(아래 마지막 검사) — 프록시는 id가 드라이브 어디 있는지 모른다.
+// 가짜 DB로 **실제 함수를 돌린다**(노드에서 api/drive.js를 import한다 — 부작용 없는 모듈이다).
+// 되돌리기 검사: mayGrantEditors에서 `mine.has(r.uploaded_by)` 갈래를 `true`로 바꾸면
+// '남의 사본' 줄이 깨진다.
+{
+  const mockDb = ({ profiles = {}, files = [], admins = [], users = {} } = {}) => ({
+    auth: {
+      getUser: async (t) => (users[t]
+        ? { data: { user: users[t] }, error: null }
+        : { data: { user: null }, error: new Error('invalid token') }),
+    },
+    from(table) {
+      const filters = [];
+      const rows = () => {
+        let r = table === 'profiles' ? Object.entries(profiles).map(([id, p]) => ({ id, ...p }))
+          : table === 'files' ? files : table === 'admins' ? admins.map(email => ({ email })) : [];
+        for (const [k, v, op] of filters) {
+          r = r.filter(x => (op === 'ilike' ? String(x[k]).toLowerCase() === String(v).toLowerCase() : x[k] === v));
+        }
+        return r;
+      };
+      const q = {
+        select: () => q,
+        eq: (k, v) => { filters.push([k, v]); return q; },
+        ilike: (k, v) => { filters.push([k, v, 'ilike']); return q; },
+        single: async () => ({ data: rows()[0] ?? null }),
+        maybeSingle: async () => ({ data: rows()[0] ?? null }),
+        then: (ok, bad) => Promise.resolve({ data: rows() }).then(ok, bad),
+      };
+      return q;
+    },
+  });
+  const mockRes = () => ({
+    statusCode: 200, body: null,
+    status(c) { this.statusCode = c; return this; },
+    json(o) { this.body = o; return this; },
+  });
+
+  process.env.VITE_SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://abc.supabase.co';
+  const OURS = new URL(process.env.VITE_SUPABASE_URL).origin;
+  const lib = await import('../api/_lib.js');
+  const drive = await import('../api/drive.js');
+
+  // requireApprovedUser — 다섯 갈래
+  const db = mockDb({
+    profiles: { A: { approved: true }, B: { approved: false, merged_into: 'A' }, U: { approved: false }, M: { approved: false } },
+    admins: ['boss@x.com'],
+    users: { ta: { id: 'A', email: 'a@x.com' }, tb: { id: 'B', email: 'b@x.com' }, tu: { id: 'U', email: 'u@x.com' }, tm: { id: 'M', email: 'Boss@x.com' } },
+  });
+  const run = async (auth, opts = {}) => {
+    const res = mockRes();
+    const user = await lib.requireApprovedUser({ headers: auth ? { authorization: auth } : {} }, res, { supabase: db, ...opts });
+    return { user, res };
+  };
+  const noTok = await run(null);
+  const badTok = await run('Bearer nope');
+  const unapproved = await run('Bearer tu', { forbidden: '승인된 사용자만 파일을 올릴 수 있습니다.' });
+  const approved = await run('Bearer ta');
+  const merged = await run('Bearer tb');
+  const admin = await run('Bearer tm');
+  check('공용 머리가 로그인·승인·합친 계정·관리자를 가른다 (requireApprovedUser)', () => {
+    assert.strictEqual(noTok.user, null); assert.strictEqual(noTok.res.statusCode, 401, '토큰 없음 → 401');
+    assert.strictEqual(badTok.user, null); assert.strictEqual(badTok.res.statusCode, 401, '틀린 토큰 → 401');
+    assert.strictEqual(unapproved.user, null); assert.strictEqual(unapproved.res.statusCode, 403, '미승인 → 403');
+    assert.strictEqual(unapproved.res.body?.error, '승인된 사용자만 파일을 올릴 수 있습니다.', '부르는 쪽의 403 문구를 싣는다');
+    assert.strictEqual(approved.user?.id, 'A', '승인된 사람은 통과');
+    assert.strictEqual(merged.user?.id, 'B', '합친 계정은 남긴 계정의 승인 칸을 본다(0063)');
+    assert.strictEqual(admin.user?.id, 'M', '관리자 표(이메일, 대소문자 무시)에 있으면 통과 — DB의 is_approved()도 그렇다');
+  });
+
+  // grantEditors 자격 — 사본의 주인(두 id)·관리자만
+  const gdb = mockDb({
+    profiles: { A: { approved: true }, B: { approved: false, merged_into: 'A' }, C: { approved: true } },
+    files: [{ uploaded_by: 'A', preview_file_id: 'COPY_A' }, { uploaded_by: 'B', preview_file_id: 'COPY_B' }],
+    admins: ['boss@x.com'],
+  });
+  const may = async (id, email, fileId) => drive.mayGrantEditors(gdb, { id, email }, fileId);
+  const grant = {
+    own: await may('A', 'a@x.com', 'COPY_A'),
+    mergedOwnsKeep: await may('B', 'b@x.com', 'COPY_A'),
+    mergedOwnsOwn: await may('B', 'b@x.com', 'COPY_B'),
+    other: await may('C', 'c@x.com', 'COPY_A'),
+    admin: await may('C', 'boss@x.com', 'COPY_A'),
+    unknown: await may('A', 'a@x.com', 'SOMEONE_ELSES_DOC'),
+    empty: await may('A', 'a@x.com', ''),
+  };
+  check('grantEditors는 그 사본을 올린 사람(두 id)·관리자만 (api/drive.js mayGrantEditors)', () => {
+    assert.strictEqual(grant.own, true, '올린 사람');
+    assert.strictEqual(grant.mergedOwnsKeep, true, '합친 계정 — 남긴 계정이 올린 사본');
+    assert.strictEqual(grant.mergedOwnsOwn, true, '합친 계정 — 자기 id로 올린 사본');
+    assert.strictEqual(grant.other, false, '남의 사본에 자기를 편집자로 붙일 수 있다');
+    assert.strictEqual(grant.admin, true, '관리자');
+    assert.strictEqual(grant.unknown, false, '앱이 모르는 파일 id(files.preview_file_id에 없음)도 통과한다');
+    assert.strictEqual(grant.empty, false, '빈 id');
+  });
+
+  check('uploadFromUrl은 우리 Storage의 attachments 서명 주소만 (isOurSignedUrl)', () => {
+    const ok = `${OURS}/storage/v1/object/sign/attachments/p1/c1/k-file.pdf?token=abc`;
+    assert.ok(drive.isOurSignedUrl(ok), '앱이 만드는 서명 주소가 막힌다');
+    for (const bad of [
+      'https://evil.example/storage/v1/object/sign/attachments/x',
+      `${OURS.replace('https:', 'http:')}/storage/v1/object/sign/attachments/x`,
+      `${OURS}/storage/v1/object/sign/content-images/x`,
+      `${OURS}/storage/v1/object/public/attachments/x`,
+      `${OURS}.evil.example/storage/v1/object/sign/attachments/x`,
+      `${OURS}@evil.example/storage/v1/object/sign/attachments/x`,
+      '/storage/v1/object/sign/attachments/x', '', null, 'not a url',
+    ]) assert.ok(!drive.isOurSignedUrl(bad), `받으면 안 되는 주소를 받는다: ${bad}`);
+  });
+
+  check('스크립트로 넘기는 칸은 이름을 아는 것만 · 편집자는 서버가 (api/drive.js)', () => {
+    assert.ok(!/\.\.\.body/.test(api), '몸통을 통째로 스크립트에 넘긴다');
+    assert.match(api, /body: JSON\.stringify\(forward\)/, '화이트리스트를 거친 칸을 보내지 않는다');
+    assert.match(api, /const forward = \{ action, token \};\s+for \(const k of FORWARD_KEYS\)/, '넘길 칸을 FORWARD_KEYS로 거르지 않는다');
+    // 스크립트가 읽는 칸(body.*)은 전부 넘어가야 한다 — 빠지면 그 기능이 조용히 죽는다
+    const scriptReads = new Set([...scriptmd.matchAll(/body\.([a-zA-Z0-9]+)/g)].map(m => m[1]));
+    for (const k of ['token', 'action']) scriptReads.delete(k);
+    for (const k of scriptReads) assert.ok(drive.FORWARD_KEYS.includes(k), `스크립트가 body.${k}를 읽는데 프록시가 안 넘긴다`);
+    for (const k of drive.FORWARD_KEYS) assert.ok(scriptReads.has(k), `프록시가 넘기는 ${k}를 스크립트가 안 읽는다(죽은 칸)`);
+    // 검사는 스크립트를 부르기 **전에**
+    const call = api.indexOf('await fetch(url');
+    assert.ok(api.indexOf("action === 'uploadFromUrl' && !isOurSignedUrl(") > 0 && api.indexOf("action === 'uploadFromUrl' && !isOurSignedUrl(") < call,
+      'uploadFromUrl 주소 확인이 스크립트 호출보다 뒤다');
+    assert.ok(api.indexOf("action === 'grantEditors' && !(await mayGrantEditors(") > 0 && api.indexOf("action === 'grantEditors' && !(await mayGrantEditors(") < call,
+      'grantEditors 자격 확인이 스크립트 호출보다 뒤다');
+    // 502는 원문을 싣는다(사용자 결정 · PITFALLS §6-29-e) — 감사에서 기각된 항목이라 되돌리지 않는다
+    assert.match(api, /\(\$\{e\.message \|\| e\}\)/, '닿지 못한 502에서 원문을 뺐다(§6-29-e)');
+  });
+
+  check('dev 서버가 api/_*를 라우트로 부르지 않는다 (vite.config.js)', () => {
+    const vite = read('vite.config.js');
+    assert.match(vite, /const NOT_A_ROUTE = \(name\) => name\.startsWith\('_'\);/, '`_` 이름을 가르는 판정이 없다');
+    assert.match(vite, /if \(NOT_A_ROUTE\(name\)\) \{ res\.statusCode = 404;/, 'dev가 /api/_lib을 부르거나 소스를 돌려준다');
+  });
+
+  check('Apps Script v12가 워크스페이스 폴더 밖 id를 거절한다 (underRoot)', () => {
+    assert.match(scriptmd, /function underRoot\(id\)/, 'underRoot가 없다');
+    assert.match(scriptmd, /CacheService\.getScriptCache\(\)/, '확인한 폴더를 캐시하지 않는다 — 업로드마다 왕복이 붙는다');
+    assert.match(scriptmd, /if \(cur === ROOT_FOLDER_ID \|\| cache\.get\('root:' \+ cur\) === '1'\)/, 'ROOT_FOLDER_ID까지 올라가 보지 않는다');
+    const body = (name, until) => scriptmd.slice(scriptmd.indexOf(name), scriptmd.indexOf(until, scriptmd.indexOf(name) + 1));
+    assert.match(body('function trash(body)', '\n}'), /mustBeUnderRoot\(body\.fileId/, 'trash가 트리 밖 id를 지운다');
+    assert.match(body('function trash(body)', '\n}'), /=== ROOT_FOLDER_ID\) return \{ error/, 'trash가 워크스페이스 폴더 자체를 지울 수 있다');
+    assert.match(body('function grantEditors(body)', '\n}'), /mustBeUnderRoot\(body\.fileId/, 'grantEditors가 트리 밖 문서에 편집자를 붙인다');
+    assert.match(body('function convertExisting(body)', '\n}'), /mustBeUnderRoot\(body\.fileId/, 'convert가 트리 밖 문서를 베낀다');
+    assert.match(body('function folderFor(body)', '\n}'), /mustBeUnderRoot\(body\.folderId/, '폴더 id를 받는 액션이 트리 밖 폴더를 쓴다');
+    const list = body('function list(body)', '\n}');
+    assert.match(list, /mustBeUnderRoot\(body\.folderId/, 'list가 트리 밖 폴더의 목록을 내준다');
+    // 없는 폴더는 여전히 빈 목록 — drive_check의 판 확인이 그것을 본다. 트리 밖은 **오류**여야
+    // drive_check --fix가 그 업무의 첨부를 유령으로 세어 지우지 않는다.
+    assert.ok(list.indexOf('catch (err) { return { files: [] }; }') < list.indexOf('mustBeUnderRoot('),
+      'list가 없는 폴더보다 트리 밖을 먼저 본다 — 판 확인(없는 폴더 = 빈 목록)이 깨진다');
+  });
+}
 
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);

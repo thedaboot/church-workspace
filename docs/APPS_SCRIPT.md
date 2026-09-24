@@ -1,4 +1,4 @@
-# Apps Script — 붙여넣을 코드 (v11)
+# Apps Script — 붙여넣을 코드 (v12)
 
 개인 지메일 드라이브는 서비스 계정으로 못 만진다(공유 드라이브가 없어 소유권도 용량도
 서비스 계정에 갈 수 없다). 남는 길은 소유자 계정으로 도는 웹앱 하나이고, 우리 서버는 그
@@ -23,7 +23,7 @@ URL로 요청만 보낸다 — 토큰 만료도 갱신 관리도 없다. 구조�
 ```js
 // **이 스크립트가 몇 판인지.** 모든 답(json)에 실려 나간다 — 부르는 쪽이 "이 계정에
 // v8 이상이 올라갔나"를 물을 자리가 여기 말고는 없다(아래 json 참고). 앱은 `>= 8`만 본다.
-const SCRIPT_VERSION = 11;
+const SCRIPT_VERSION = 12;
 
 const KEY_PREFIX = 'wskey:';   // v6까지 description에 쓰던 접두사 — 읽기 위해 남긴다
 const KEY_PROP = 'wskey';      // v7부터는 appProperties에 쓴다(질의로 찾을 수 있다)
@@ -56,15 +56,64 @@ function doPost(e) {
   }
 }
 
+// ── v12: 이 id가 우리 폴더(ROOT_FOLDER_ID) 아래인가 ─────────────────────────
+// 이 스크립트는 **소유자(마스터) 계정으로** 돈다 — 그 계정 드라이브의 무엇이든 만질 수 있다.
+// 그런데 id는 앱이 보낸다. 우리 서버(api/drive.js)는 id가 어디 있는지 모르고, DB에 적힌
+// id조차 승인된 누구나 고쳐 적을 수 있다(보안 감사 2026-09-24). 그래서 트리 **밖**의 id
+// (마스터의 개인 문서)를 받으면 휴지통으로 보내거나 목록을 내주거나 편집자를 붙일 수 있었다.
+// 부모를 따라 ROOT_FOLDER_ID까지 올라가 보고, 못 닿으면 거절한다.
+//
+// **확인한 폴더는 캐시한다**(CacheService · 6시간). 업로드마다 같은 업무 폴더를 다시 물으면
+// 왕복이 두세 번 붙는다 — 캐시가 있으면 파일은 부모 한 번, 폴더는 0번이다. 파일 id는 캐시하지
+// 않는다(한 번 지우면 끝이라 다시 물을 일이 없다). 거절은 캐시하지 않는다 — 방금 만든 폴더가
+// 한 번 거절됐다고 6시간 막히면 안 된다.
+// 드라이브는 2020년부터 파일마다 부모가 하나다 — parents[0]만 따라간다.
+var ROOT_CACHE_SEC = 6 * 3600;
+var FOLDER_MIME = 'application/vnd.google-apps.folder';
+function underRoot(id) {
+  if (!id) return false;
+  id = String(id);
+  if (id === ROOT_FOLDER_ID) return true;
+  var cache = CacheService.getScriptCache();
+  var chain = [];                                  // 올라가며 지난 폴더(닿으면 전부 캐시)
+  var cur = id;
+  for (var depth = 0; depth < 12; depth++) {       // 우리 트리는 네 겹이다(워크스페이스/프로젝트/업무/파일)
+    if (cur === ROOT_FOLDER_ID || cache.get('root:' + cur) === '1') {
+      if (chain.length) cache.putAll(chain.reduce(function (m, c) { m['root:' + c] = '1'; return m; }, {}), ROOT_CACHE_SEC);
+      return true;
+    }
+    var f;
+    try {
+      f = Drive.Files.get(cur, { fields: 'id,mimeType,parents', supportsAllDrives: true });
+    } catch (err) {
+      return false;                                // 못 찾거나 못 보는 것 — 우리 것이 아니다
+    }
+    if (f.mimeType === FOLDER_MIME) chain.push(cur);
+    if (!f.parents || !f.parents.length) return false;   // 내 드라이브 맨 위까지 왔다
+    cur = f.parents[0];
+  }
+  return false;
+}
+
+// 트리 밖이면 던진다 — doPost의 catch가 `{ error }`로 돌려준다(api/drive.js가 502 scriptError로 싣는다).
+function mustBeUnderRoot(id, what) {
+  if (!underRoot(id)) throw new Error((what || '대상') + '이(가) 워크스페이스 폴더 밖에 있습니다');
+}
+
 // ── 폴더 ────────────────────────────────────────────────────────────────────
 // id가 있으면 id로, 없으면 path를 따라 내려가며 찾거나 만든다.
 // id를 먼저 보는 것이 중요하다 — 이름으로만 찾으면 프로젝트 이름을 바꾼 순간
 // 예전 파일은 옛 폴더에, 새 파일은 새 폴더에 쌓인다.
+// **v12: id가 트리 밖이면 path로 떨어지지 않고 거절한다** — 떨어지면 renameFolder가 엉뚱한
+// ('기타') 폴더 이름을 바꾸고, upload은 밖에서 온 요청을 조용히 받아 준다.
 function folderFor(body) {
   if (body.folderId) {
     try {
-      return DriveApp.getFolderById(body.folderId);
+      var byId = DriveApp.getFolderById(body.folderId);
+      mustBeUnderRoot(body.folderId, '폴더');
+      return byId;
     } catch (err) {
+      if (String(err && err.message || err).indexOf('워크스페이스 폴더 밖') >= 0) throw err;
       // **D: "못 찾음"일 때만 폴백한다.** 예전에는 여기서 전부 삼켜서, 권한 오류나
       // 일시적 오류에도 path로 떨어져 **폴더 트리를 새로 팠다**. 이름이 같은 폴더가
       // 둘 생기면 그때부터 같은 업무의 파일이 두 군데로 갈린다.
@@ -299,6 +348,7 @@ function addEditors(copyId, editors) {
 // 이미 편집자인 계정은 구글이 그대로 둔다(멱등).
 function grantEditors(body) {
   if (!body.fileId) return { error: 'fileId가 없습니다' };
+  mustBeUnderRoot(body.fileId, '파일');           // v12 — 트리 밖 문서에 편집자를 붙이지 않는다
   var editors = editorsFor(body);
   if (!editors.length) return { granted: 0, fileId: body.fileId };
   return { granted: addEditors(body.fileId, editors), fileId: body.fileId };
@@ -377,6 +427,9 @@ function uploadFromUrl(body) {
 // 종류는 여기서도 **확장자**가 정한다 — body.convertTo는 "만들어 달라"는 뜻일 뿐이라
 // 읽지 않는다. 부르는 쪽이 잘못 보내도 사본 종류가 틀어지지 않는다.
 function convertExisting(body) {
+  // v12 — 트리 밖 문서를 베껴 편집자를 붙이면 그 내용을 가져가는 길이 된다. 사본을 둘 폴더도 본다.
+  mustBeUnderRoot(body.fileId, '파일');
+  if (body.folderId) mustBeUnderRoot(body.folderId, '폴더');
   var name = body.name;
   var parent = body.folderId;
   if (!name || !parent) {
@@ -393,6 +446,10 @@ function list(body) {
   var folder;
   if (body.folderId) {
     try { folder = DriveApp.getFolderById(body.folderId); } catch (err) { return { files: [] }; }
+    // v12 — 트리 밖 폴더의 목록을 내주지 않는다. **빈 목록이 아니라 오류로** 돌려준다:
+    // 빈 목록이면 scripts/drive_check.mjs가 그 업무의 첨부를 전부 '드라이브에 없는 유령'으로
+    // 세고 --fix가 행을 지운다. 없는 폴더는 위처럼 빈 목록 그대로다(drive_check의 판 확인이 그것을 본다).
+    mustBeUnderRoot(body.folderId, '폴더');
   } else {
     folder = DriveApp.getFolderById(ROOT_FOLDER_ID);
     var path = body.path && body.path.length ? body.path : [body.projectName || '기타'];
@@ -416,12 +473,15 @@ function renameFolder(body) {
 // 앱에서 잘못 지운 것을 복구할 길이 없으면 그건 싱크가 아니라 유실이다.
 // 파일이든 폴더든 id 하나로 지운다(고급 서비스는 둘을 가르지 않아서
 // getFileById가 폴더에서 실패하던 왕복이 없어진다).
+// **v12: 트리 밖 id는 지우지 않는다** — 워크스페이스 폴더 자체(ROOT_FOLDER_ID)도 지우지 않는다.
 function trash(body) {
+  if (!body.fileId || String(body.fileId) === ROOT_FOLDER_ID) return { error: '지울 수 없는 대상입니다' };
+  mustBeUnderRoot(body.fileId, '지울 대상');
   Drive.Files.update({ trashed: true }, body.fileId, null, { supportsAllDrives: true });
   return { trashed: body.fileId };
 }
 
-// **모든 답에 스크립트 버전을 싣는다**(v8부터 · 지금 10).
+// **모든 답에 스크립트 버전을 싣는다**(v8부터 · 지금 12).
 // 왜 액션을 하나 더 만들지 않았나: 액션을 늘리면 api/drive.js의 허용 목록(ACTIONS)까지
 // 같이 넓혀야 하고, 그 둘이 같은지 보는 검사(tests/drivesync)도 따라 움직여야 한다.
 // 답에 한 칸 얹는 쪽이 싸다. **v7 이하는 이 값이 없다(undefined)** — 부르는 쪽은 그것을
@@ -452,8 +512,16 @@ function 권한승인() {
 2. 저장 → **배포 → 배포 관리 → 연필(수정) → 버전 '새 버전' → 배포**.
    **새 배포를 만들지 마세요** — 같은 배포의 새 버전이면 URL이 그대로입니다. URL이 바뀌면
    Vercel 환경변수 `DRIVE_WEBAPP_URL`을 Production·Development 둘 다 고쳐야 합니다.
-3. 그 밖에 바꿀 것은 없습니다. 권한 승인(`권한승인` 실행)은 v7에서 이미 받았고 v8 이후로
-   새로 쓰는 권한이 없습니다.
+3. 그 밖에 바꿀 것은 없습니다. 권한 승인(`권한승인` 실행)은 v7에서 이미 받았습니다.
+   v12가 새로 쓰는 것은 `CacheService`(확인한 폴더 기억) 하나입니다 — 배포 뒤 첫 요청이
+   권한 오류로 실패하면 편집기에서 `권한승인`을 한 번 실행하세요.
+4. **v12를 올리기 전에** — v12는 `ROOT_FOLDER_ID`(워크스페이스 폴더) **밖**의 id를 거절합니다.
+   지금 DB에 적힌 폴더·파일(`projects`·`cards`·`services`의 `drive_folder_id`, `files`의
+   `drive_file_id`·`preview_file_id`)은 전부 `더다붓 워크스페이스/…` 아래에 만들어졌지만(docs/DRIVE.md
+   구조), 누가 드라이브에서 폴더를 손으로 **워크스페이스 밖으로 옮겼다면** 그 업무의 업로드·삭제가
+   '워크스페이스 폴더 밖' 오류로 막힙니다. 올린 뒤 `node scripts/drive_check.mjs`(읽기만)를 돌려
+   `! … 폴더를 못 읽었어요 (… 워크스페이스 폴더 밖 …)` 줄이 없는지 보세요. 있으면 그 폴더를 워크스페이스
+   안으로 되돌려 놓습니다(`--fix`는 그 줄을 건너뛰므로 행이 지워지지는 않습니다).
 
 ## 올린 뒤 확인할 것
 
@@ -473,6 +541,8 @@ function 권한승인() {
    로그인 상태(서드파티 쿠키)를 쓰고 아이폰 사파리·카카오 인앱이 그것을 막습니다.
    머리줄의 **'구글 문서에서 편집'**(새 탭)으로 확인하세요.
 5. `node scripts/drive_check.mjs` — 어긋남 0건이면 끝입니다.
+6. **v12: 트리 밖은 거절** — 위 drive_check에 '워크스페이스 폴더 밖' 줄이 없고, 앱에서 첨부 올리기·
+   지우기·'구글 문서에서 편집'이 그대로 되는지(확인한 폴더는 6시간 캐시라 두 번째부터 빠릅니다).
 
 ## 판 이력
 
@@ -485,9 +555,10 @@ function 권한승인() {
 | v8 | 사본을 **워드(구글 문서)·PPT(구글 슬라이드)** 까지 · 사본 만들기를 `upload`에서 떼어 `convert` 액션으로(두 단계) · 모든 답에 `version`. **배포하지 않고 건너뛰었다**(사용자 결정 2026-09-08) |
 | v9 | 업로드 왕복 3→2 — `Drive.Files.create`에 이름·부모·열쇠·설명을 한 요청에 싣고 공유는 `Permissions.create` 하나(`createInFolder`) |
 | v10 | **큐시트 사본에만** 이름 있는 계정 둘(`CUE_EDITORS`)을 편집자로 — 앱이 `convert`에 `cueEditors`를 실을 때만. `role:'writer'`+`type:'anyone'`은 쓰지 않는다(링크를 아는 누구나 고치게 되는 길 — HANDOFF §7). 2026-09-09 배포 |
-| v11 | **업무 첨부 사본에도 편집자를** — `convert`가 `editors: string[]`(올린 사람 + 관리자 + 마스터)을 받는다(`editorsFor`·`addEditors`). 이미 만들어진 사본에 뒤늦게 붙이는 액션 **`grantEditors`**. `cueEditors: true`는 v10 앱 호환으로 계속 받는다. `'anyone'`은 여전히 `reader`뿐이다. **지금 판**(아직 배포 전) |
+| v11 | **업무 첨부 사본에도 편집자를** — `convert`가 `editors: string[]`(올린 사람 + 관리자 + 마스터)을 받는다(`editorsFor`·`addEditors`). 이미 만들어진 사본에 뒤늦게 붙이는 액션 **`grantEditors`**. `cueEditors: true`는 v10 앱 호환으로 계속 받는다. `'anyone'`은 여전히 `reader`뿐이다. 배포하지 않고 v12로 건너뛴다 |
+| v12 | **워크스페이스 폴더 밖 id를 거절한다**(보안 감사 2026-09-24 · `underRoot`·`mustBeUnderRoot`) — `trash`·`list`(폴더 id)·`grantEditors`·`convert`·폴더를 id로 받는 모든 액션(`folderFor` — `upload`·`uploadFromUrl`·`ensureFolder`·`renameFolder`). 부모를 따라 `ROOT_FOLDER_ID`까지 올라가 보고, 확인한 폴더는 `CacheService`에 6시간. 워크스페이스 폴더 자체는 `trash`가 받지 않는다. 없는 폴더의 `list`는 예전처럼 빈 목록이다. 액션 목록은 v11과 같다. **지금 판**(아직 배포 전 — v11 내용을 포함한다) |
 
-액션 목록은 v7부터 v10까지 같았고 **v11에서 `grantEditors` 하나가 늘었습니다**
+액션 목록은 v7부터 v10까지 같았고 **v11에서 `grantEditors` 하나가 늘었습니다**(v12도 같다)
 (`upload`·`uploadFromUrl`·`ensureFolder`·`renameFolder`·`trash`·`list`·`convert`·`grantEditors`)
 — `api/drive.js`의 허용 목록과 같은지는 `tests/drivesync`가 봅니다.
 

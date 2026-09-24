@@ -29,7 +29,11 @@ import { pathToFileURL } from 'node:url';
 // 어차피 401이고, 브라우저 검증 스위트가 보는 서버라 건드리지 않는 쪽이 안전하다.
 // apply:'serve'라 `vite build`·프로덕션에는 아무 영향이 없다.
 // ============================================================================
+// **`_`로 시작하는 이름은 라우트가 아니다**(api/_lib.js — 형제들이 import하는 공용 머리).
+// Vercel이 그렇게 가르므로(404) 여기서도 404로 끝낸다 — 그냥 넘기면(next) 위에 적은 그
+// 함정대로 Vite가 **그 파일의 소스**를 돌려준다.
 const API_ROUTE = /^\/api\/([A-Za-z0-9_-]+)\/?$/;
+const NOT_A_ROUTE = (name) => name.startsWith('_');
 
 // Vercel은 content-type이 json이면 req.body에 파싱된 객체를 넣어 준다. 핸들러들의
 // readJson()은 그게 없으면 req 스트림을 직접 읽는데, 여기서 이미 다 읽어 버리므로
@@ -80,6 +84,7 @@ function devApiFunctions(mode) {
       server.middlewares.use(async (req, res, next) => {
         const name = API_ROUTE.exec((req.url || '').split('?')[0])?.[1];
         if (!name) return next();
+        if (NOT_A_ROUTE(name)) { res.statusCode = 404; res.end(); return; }
         const file = resolve(apiDir, `${name}.js`);
         if (!existsSync(file)) return next();
         try {

@@ -1,5 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-import { isApprovedProfile } from '../src/services/approval.js';
+import { adminClient, readJson, requireApprovedUser, isAdminEmail, myIds } from './_lib.js';
 
 // ============================================================================
 // /api/drive — 개인 구글 드라이브(Apps Script 웹앱) 프록시
@@ -41,15 +40,17 @@ const MAX_EDITORS = 20;
 // (0022 `admins_select`). 일반 사용자가 그대로 읽으면 오류가 아니라 **0행**이 오므로,
 // 클라이언트에서 만들면 관리자가 빠진 채 편집자가 붙고 아무도 그것을 모른다.
 // 여기는 보안 키로 읽는다. 덤으로 관리자 이메일 명단이 브라우저로 나가지 않는다.
+// **브라우저가 보낸 `editors`는 읽지 않는다**(보안 감사 2026-09-24). 예전에는 재료로 섞었는데,
+// 그러면 로그인한 누구나 아무 이메일이나 편집자로 붙일 수 있었다. 앱이 싣는 것은 어차피
+// 올린 사람 자신(세션 이메일)뿐이라 명단은 달라지지 않는다.
 // **빈 배열이라도 보냈으면 채운다 — 안 보냈으면 손대지 않는다.** 큐시트는 `cueEditors`
 // 하나만 보내고 편집자는 스크립트의 `CUE_EDITORS` 둘뿐이라(사용자 결정 2026-09-09),
 // 여기서 관리자를 얹으면 그 결정이 조용히 넓어진다.
 // 왕복 하나가 붙지만 이 두 액션만이다 — 사진·PDF는 사본이 없어 `convert`를 안 부르고,
 // 업로드(`upload`)에서 관리자 표를 다시 묻던 것은 2026-09-08에 걷었다(§6-29 머리말).
-async function editorsFor(supabase, body, user) {
-  const asked = body.editors;
+async function editorsFor(supabase, user) {
   const { data: admins } = await supabase.from('admins').select('email');
-  const all = [user.email, ...asked, ...(admins || []).map(a => a.email)];
+  const all = [user.email, ...(admins || []).map(a => a.email)];
   const seen = new Set();
   const out = [];
   for (const raw of all) {
@@ -61,6 +62,40 @@ async function editorsFor(supabase, body, user) {
   }
   return out;
 }
+
+// **뒤늦게 편집자를 붙이는 것(grantEditors)은 그 사본의 주인·관리자만**(보안 감사 2026-09-24).
+// 화면은 이미 그렇게 막는데(attachments.jsx `canEditCopy`) 서버가 안 봐서, 로그인한 누구나
+// 아무 파일 id로 자기를 편집자로 붙일 수 있었다. 사본은 `files.preview_file_id`로 앱이 안다.
+// 올린 사람은 **두 id를 다 내 것으로 본다**(합친 계정 · §6-34-i · DB의 files_delete와 같은 규칙).
+export async function mayGrantEditors(supabase, user, fileId) {
+  if (!fileId) return false;
+  const { data: rows } = await supabase.from('files').select('uploaded_by').eq('preview_file_id', fileId);
+  if (!rows?.length) return false;
+  const mine = await myIds(supabase, user.id);
+  if (rows.some(r => mine.has(r.uploaded_by))) return true;
+  return isAdminEmail(supabase, user.email);
+}
+
+// 큰 파일은 브라우저가 Storage에 올리고 **서명 주소만** 보낸다(cloud.uploadViaStorage).
+// 스크립트는 그 주소를 받아 간다 — 아무 주소나 넘기면 우리 스크립트(마스터 계정)가 남의 주소를
+// 대신 받아 드라이브에 쌓는 심부름꾼이 된다. 우리 Storage의 attachments 서명 주소만 받는다.
+// 출처는 VITE_SUPABASE_URL과 같아야 한다 — supabase-js의 storage `useNewHostname`
+// (`<ref>.storage.supabase.co`)을 켜면 서명 주소의 호스트가 바뀌므로 여기도 같이 고친다.
+const SIGNED_PATH = '/storage/v1/object/sign/attachments/';
+export function isOurSignedUrl(raw) {
+  try {
+    const u = new URL(String(raw || ''));
+    const ours = new URL(String(process.env.VITE_SUPABASE_URL || ''));
+    return u.protocol === 'https:' && u.origin === ours.origin && u.pathname.startsWith(SIGNED_PATH);
+  } catch { return false; }
+}
+
+// 스크립트로 넘기는 칸은 **이름을 아는 것만**(보안 감사 2026-09-24). 예전에는 몸통을 통째로
+// 넘겨서, 스크립트가 새 칸을 읽기 시작하면 그 칸이 검사 없이 열렸다. 폴더 구조를 바꿀 때는
+// 여기 한 줄을 같이 고친다(docs/APPS_SCRIPT.md의 `body.*`가 목록이다 — tests/drivesync가 맞춰 본다).
+// `convert`는 옛 화면 호환이다(캐시된 탭이 upload에 실어 보낸다 · APPS_SCRIPT.md upload).
+export const FORWARD_KEYS = ['dataBase64', 'name', 'mimeType', 'key', 'retry', 'folderId', 'projectName',
+  'path', 'cardTitle', 'url', 'fileId', 'newName', 'convertTo', 'convert', 'editors', 'cueEditors'];
 
 // 스크립트가 이 시간 안에 답하지 않으면 **우리가 먼저 끊는다.**
 // 안 끊으면 함수가 죽을 때까지 매달리고, 그때 브라우저가 받는 것은 JSON이 아니라
@@ -75,16 +110,6 @@ async function editorsFor(supabase, body, user) {
 // 잰 값(20MB 59초/121초)은 재는 사람의 업로드 회선이었다. 진짜 값은 아래 성공 로그
 // (`→ 성공 (N ms)`)에 남으므로 배포 뒤 그것으로 정한다.
 const SCRIPT_BUDGET_MS = 55 * 1000;
-// body는 그대로 넘긴다(projectName·path·cardTitle·folderId 등) — 폴더 구조를 바꿀 때
-// 여기를 같이 고칠 필요가 없다. 검사하는 것은 action과 파일 크기뿐이다.
-
-async function readJson(req) {
-  if (req.body && typeof req.body === 'object') return req.body;
-  const chunks = [];
-  for await (const c of req) chunks.push(c);
-  const raw = Buffer.concat(chunks).toString('utf8');
-  try { return JSON.parse(raw || '{}'); } catch { return {}; }
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
@@ -95,34 +120,27 @@ export default async function handler(req, res) {
   // 501을 보고 부르는 쪽이 예전 경로로 되돌린다(푸시 알림이 없는 환경과 같은 처리).
   if (!url || !token) { res.status(501).json({ error: '드라이브가 아직 설정되지 않았습니다.' }); return; }
 
-  const auth = req.headers.authorization || '';
-  const accessToken = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-  if (!accessToken) { res.status(401).json({ error: '인증이 필요합니다.' }); return; }
-
-  const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(accessToken);
-  if (authErr || !user) { res.status(401).json({ error: '세션이 유효하지 않습니다.' }); return; }
-
   // 승인된 사람만(0022). 로그인만으로 드라이브에 파일을 쌓게 두면 승인 절차가
   // 무의미해진다 — RLS는 DB만 지키고 이 경로는 DB를 거치지 않는다.
-  // **관리자 표는 승인 칸이 아닐 때만 본다**(2026-09-08). 예전에는 둘을 언제나 물어서
-  // 업로드마다 왕복이 하나씩 더 붙었다 — 승인된 사람(거의 전부)에게는 답이 이미 정해져 있다.
-  // **합친 계정은 남긴 계정의 칸을 본다**(services/approval.js · 0063). 여기는 서비스
-  // 키라 DB의 is_approved()를 쓸 수 없어서, 합친 계정으로 로그인하면 첨부 업로드가
-  // 통째로 403이었다(그 행은 환송 처리라 approved = false다).
-  const approved = await isApprovedProfile(supabase, user.id);
-  if (!approved) {
-    const { data: admin } = await supabase.from('admins').select('email').ilike('email', user.email || ' ');
-    if (!(admin && admin.length)) {
-      console.error('[drive] 승인 확인 실패:', user.email);
-      res.status(403).json({ error: '승인된 사용자만 파일을 올릴 수 있습니다.' });
-      return;
-    }
-  }
+  // 합친 계정·관리자 예외·왕복 아끼기는 _lib.js의 requireApprovedUser 한 벌이 본다.
+  const supabase = adminClient();
+  const user = await requireApprovedUser(req, res, { supabase, forbidden: '승인된 사용자만 파일을 올릴 수 있습니다.' });
+  if (!user) return;
 
   const body = await readJson(req);
   const action = body.action || 'upload';
   if (!ACTIONS.has(action)) { res.status(400).json({ error: '알 수 없는 요청입니다.' }); return; }
+
+  if (action === 'uploadFromUrl' && !isOurSignedUrl(body.url)) {
+    console.error('[drive] uploadFromUrl 주소 거절:', user.email, String(body.url || '').slice(0, 80));
+    res.status(400).json({ error: '올릴 파일 주소가 올바르지 않습니다.' });
+    return;
+  }
+  if (action === 'grantEditors' && !(await mayGrantEditors(supabase, user, String(body.fileId || '')))) {
+    console.error('[drive] grantEditors 거절:', user.email, body.fileId);
+    res.status(403).json({ error: '이 파일의 편집 권한은 올린 사람과 관리자만 줄 수 있습니다.' });
+    return;
+  }
 
   if (action === 'upload') {
     const b64 = String(body.dataBase64 || '');
@@ -132,11 +150,13 @@ export default async function handler(req, res) {
     if (b64.length * 0.75 > MAX_BYTES) { res.status(413).json({ error: `${MAX_MB}MB를 넘는 파일은 올릴 수 없어요` }); return; }
   }
 
-  // 편집자 명단은 **여기서** 만든다(위 editorsFor). 브라우저가 보낸 목록은 재료일 뿐이고,
+  // 편집자 명단은 **여기서** 만든다(위 editorsFor). 브라우저가 보낸 목록은 버리고,
   // 실제로 나가는 것은 부르는 사람 + 관리자·마스터다.
   if (EDITOR_ACTIONS.has(action) && Array.isArray(body.editors)) {
-    body.editors = await editorsFor(supabase, body, user);
+    body.editors = await editorsFor(supabase, user);
   }
+  const forward = { action, token };
+  for (const k of FORWARD_KEYS) if (body[k] !== undefined) forward[k] = body[k];
 
   // 무엇이 막혔는지 서버에도 남긴다. 첨부가 안 올라가는데 화면에도 로그에도
   // 아무 단서가 없어서 짐작만 하게 된 적이 있다(사용자 지적).
@@ -148,7 +168,7 @@ export default async function handler(req, res) {
     const r = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, action, token }),
+      body: JSON.stringify(forward),
       signal: ctl.signal,
     });
     const text = await r.text();

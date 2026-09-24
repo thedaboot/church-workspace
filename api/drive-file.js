@@ -1,5 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-import { isApprovedProfile } from '../src/services/approval.js';
+import { requireApprovedUser } from './_lib.js';
 
 // ============================================================================
 // /api/drive-file — 드라이브 파일 바이트 프록시 (GET ?id=<drive_file_id>)
@@ -26,14 +25,9 @@ export default async function handler(req, res) {
   const id = String(req.query?.id || '');
   if (!/^[A-Za-z0-9_-]{10,}$/.test(id)) { res.status(400).json({ error: '파일 id가 올바르지 않습니다.' }); return; }
 
-  const auth = req.headers.authorization || '';
-  const accessToken = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-  if (!accessToken) { res.status(401).json({ error: '인증이 필요합니다.' }); return; }
-  const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(accessToken);
-  if (authErr || !user) { res.status(401).json({ error: '세션이 유효하지 않습니다.' }); return; }
-  // 합친 계정은 남긴 계정의 칸을 본다(api/drive.js와 같은 헬퍼 · 0063)
-  if (!(await isApprovedProfile(supabase, user.id))) { res.status(403).json({ error: '승인된 사용자만 볼 수 있습니다.' }); return; }
+  // 합친 계정은 남긴 계정의 칸을 본다(api/drive.js와 같은 머리 · _lib.js · 0063)
+  const user = await requireApprovedUser(req, res, { forbidden: '승인된 사용자만 볼 수 있습니다.' });
+  if (!user) return;
 
   // 실제 소요는 여기 로그에만 남는다 — 브라우저에서 재면 보는 사람의 회선을 재게 된다
   // (§6-29-l에서 업로드로 한 번 데인 길이다). 19MB PDF가 개발 회선에서 8-12초였다.
