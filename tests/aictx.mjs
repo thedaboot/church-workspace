@@ -196,6 +196,11 @@ check('완료된 업무는 "지금 돌아가는 일"에 안 들어간다',
   check('문장부호가 붙어도 이름만 보고 판단한다',
     sanitizeMentions('@노준석, @임재훈.', names) === '@노준석, 임재훈.',
     sanitizeMentions('@노준석, @임재훈.', names));
+  // 굵게·형광펜 안의 멘션도 살아남는다(2026-09-25 · 라이브 카드 3장에서 `@`가 떼어졌다).
+  // 되돌리기 검사: utils.MENTION_TAIL에서 `*=`를 빼면 깨진다.
+  const fmt = '**@노준석** 확인 · 담당(@시온)** · ==@노준석==';
+  check('서식 안의 멘션은 @를 떼지 않는다(서식 기호는 이름이 아니다)',
+    sanitizeMentions(fmt, names) === fmt, sanitizeMentions(fmt, names));
 }
 
 // 실제로 프롬프트에 붙는지 — callGemini를 가로채 프롬프트를 들여다본다

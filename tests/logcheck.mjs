@@ -66,6 +66,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(splitMention('@노준석)."'), { name: '노준석', tail: ')."' });
   assert.deepStrictEqual(splitMention('@)'), { name: '', tail: ')' }, '이름이 비면 칩을 만들지 않는다');
   assert.deepStrictEqual(extractMentions('웰컴팀 ( @박지호) · @시온.'), ['박지호', '시온'], '뽑는 쪽도 같은 꼬리 규칙');
+  // 서식 안의 멘션(2026-09-25 · 라이브 카드 3장) — 굵게·형광펜·밑줄·취소선 기호도 꼬리다.
+  // 되돌리기 검사: MENTION_TAIL에서 `*=_~` 를 빼면 이 줄이 깨진다.
+  assert.deepStrictEqual(extractMentions('**@양민혁** 확인 · 담당(@박지호)** · ==@시온== · __@조해리__ · ~~@김윤주~~ · @노준석_서브'),
+    ['양민혁', '박지호', '시온', '조해리', '김윤주', '노준석_서브'], '서식 기호는 이름이 아니다(가운데 _는 이름이다)');
   const rich = readFileSync(new URL('../src/components/RichText.jsx', import.meta.url), 'utf8');
   assert.ok(rich.includes('splitMention(p)'), 'RichText가 splitMention으로 칩과 꼬리를 가른다');
   assert.ok(!/\/\^@\\S\+\$\//.test(rich), 'RichText가 `@\\S+` 통째로 칩을 만들지 않는다');
