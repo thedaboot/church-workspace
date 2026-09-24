@@ -6,7 +6,6 @@ import { createPortal } from 'react-dom';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
-import { FilePreviewModal } from './FilePreviewModal.jsx';
 import { formatBytes, fileKind } from './fileRow.jsx';
 import { keepVisible } from '../utils.js';
 import { PassagePicker, PassageBody } from './worshipPassage.jsx';
@@ -25,6 +24,9 @@ import { NoteSheet, NotePaper, ServiceSheetOne, ServiceSheetTwo, PAPER, paperDat
 import { useSheetShare } from '../hooks/useSheetShare.jsx';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
+
+// 미리보기 창(+PdfView)은 열 때만 받는다 — 첨부를 안 여는 사람까지 그 무게를 받지 않게(2026-09-24).
+const FilePreviewModal = lazy(() => import('./FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));
 
 // ============================================================================
 // 주보 상세 — 말씀 · 담당자 · 찬양 · 광고 + 내 예배 노트 (docs/V2.md 결정 4·5·7)
@@ -1537,11 +1539,13 @@ export function ServiceDetail({
           사진 넘기기는 이미지끼리만 도는데, 그 목록은 **연 줄과 같은 갈래**만 준다 —
           찬양 탭에서 연 송폼이 말씀 탭 큐시트로 넘어가면 어디에 있는지 알 수 없다. */}
       {preview && (
+        <Suspense fallback={null}>
         <FilePreviewModal row={preview} initialSrc={null} onClose={() => setPreview(null)}
           rows={fileKindOf(preview) === CUESHEET ? cueFiles : songForms}
           /* 큐시트 사본만, 교역자·마스터만 편집 화면으로 연다(사용자 결정 2026-09-09).
              송폼·업무 첨부는 그대로 보기다(§7) */
           canEditCopy={fileKindOf(preview) === CUESHEET && !!perms.canEditCue} />
+        </Suspense>
       )}
 
       {/* 모바일 편집 도구 줄 — 화면 아래에 붙는다. 하단 탭바(4.5rem + safe-area) 위에

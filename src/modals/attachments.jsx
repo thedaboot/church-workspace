@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { Paperclip, UploadCloud, Loader2, AlertTriangle, Eye, Trash2, X, Lock, LockOpen } from 'lucide-react';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 // 크기 표기·종류 칩은 주보 송폼(0047)과 **같은 한 벌**이다 — components/fileRow.jsx
@@ -6,7 +6,6 @@ import { formatBytes, fileKind } from '../components/fileRow.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { uploadAttachment, getAttachmentUrls, getAttachmentThumbUrls, deleteAttachment, listCardFiles, setFilePassword, checkFilePassword, driveImageUrl, setFileExcerpt, grantCopyEditors } from '../services/cloud.js';
-import { FilePreviewModal } from '../components/FilePreviewModal.jsx';
 import { SmartImage, Skeleton } from '../components/media.jsx';
 import { useStore, store } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
@@ -17,6 +16,9 @@ import { sheetPreviewUrl } from '../utils.js';
 // 확장자 표는 **한 벌이다**(previewKind.js) — 여기에 목록을 또 적어 두면 새 확장자를
 // 붙일 때 한쪽만 고쳐져서 "미리보기는 되는데 펼쳐지지 않는 파일"이 생긴다.
 import { SHEET_EXT, extOf } from '../services/previewKind.js';
+
+// 미리보기 창(+PdfView)은 열 때만 받는다 — 첨부를 안 여는 사람까지 그 무게를 받지 않게(2026-09-24).
+const FilePreviewModal = lazy(() => import('../components/FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));
 
 // ============================================================================
 // 업무 창의 첨부 파일 영역 (클라우드 모드 전용)
@@ -751,6 +753,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
         </div>
       )}
       {preview && (
+        <Suspense fallback={null}>
         <FilePreviewModal
           row={preview}
           /* 구글 사본을 고칠 수 있는 사람 — **올린 사람 + 관리자(마스터 포함)**
@@ -770,6 +773,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
           initialSrc={null}
           onClose={() => setPreview(null)}
         />
+        </Suspense>
       )}
     </div>
   );

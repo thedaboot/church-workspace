@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, ChevronDown, Check, X, Trash2, Pencil, Lock, LockOpen } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
@@ -18,7 +18,6 @@ import {
 } from './dashboardParts.jsx';
 import { Board } from '../components/boards.jsx';
 import { CalendarBoard } from '../components/calendar.jsx';
-import { DepGraph } from '../components/depgraph.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { isMyUid } from '../services/supabaseClient.js';
 import * as cloudSync from '../services/cloudSync.js';
@@ -30,6 +29,9 @@ import { ConfirmPopover, useAnchoredPos } from '../components/ConfirmPopover.jsx
 import { PinnedLinkChip, LinkAddPopover } from '../components/links.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
+
+// 선후관계 그래프는 그 보기로 바꿀 때만 받는다(2026-09-24)
+const DepGraph = lazy(() => import('../components/depgraph.jsx').then(m => ({ default: m.DepGraph })));
 
 // ============================================================================
 // 11. UI Views (데이터를 구독하는 프레젠테이션 컴포넌트)
@@ -786,7 +788,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
         {viewMode === 'kanban' && <Board tasks={filteredTasks} onStatusChange={onStatusChange} onReorder={onReorder} onTaskClick={onTaskClick} />}
         {viewMode === 'calendar' && <CalendarBoard tasks={filteredTasks} onTaskClick={onTaskClick} onNewTask={onNewTask} />}
         {/* 그래프(0020): 선후관계. 필터를 그대로 물려받는다 — 팀을 고르면 그 팀 순서만 남는다 */}
-        {viewMode === 'graph' && <DepGraph tasks={filteredTasks} onTaskClick={onTaskClick} />}
+        {viewMode === 'graph' && <Suspense fallback={null}><DepGraph tasks={filteredTasks} onTaskClick={onTaskClick} /></Suspense>}
       </div>
     </div>
   );

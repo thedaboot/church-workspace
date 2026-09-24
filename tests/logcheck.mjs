@@ -3761,3 +3761,37 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     'HTML은 태그를 걷는다(일반 텍스트보다 먼저 본다)');
   console.log('PASS  첨부 발췌 글 판정·HTML 25가지');
 }
+
+// ── 조건부로 뜨는 무거운 부품은 열 때만 받는다 (2026-09-24) ─────────────────────────────
+// 미리보기 창(+PdfView) · 순모임 가이드 패널 · 선후관계 그래프 · 동아리 QR 창은 누르거나 자격이
+// 있을 때만 뜨는데 첫 번들에 실려 있었다. **한 곳이라도 정적 import가 남으면 그 파일은 도로 첫
+// 번들로 끌려 들어간다** — 그래서 모든 사용처를 본다. 가이드 패널은 React.lazy가 아니라 미리
+// 받아 두고 딸린 섹션의 스켈레톤 한 덩이로 기다린다(Suspense 폴백이 두 번째 스켈레톤이 된다 —
+// tests/groups '딸린 두 섹션의 스켈레톤은 하나다').
+// 되돌리기 검사: attachments.jsx의 import를 정적으로 되돌리면 첫 단정이 깨진다.
+{
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  const all = ['modals/attachments.jsx', 'components/worshipDetail.jsx', 'components/groupsClub.jsx',
+    'views/views.jsx', 'views/groupsView.jsx'];
+  const lazyOf = { FilePreviewModal: 'FilePreviewModal.jsx', ClubQrModal: 'ClubQr.jsx', DepGraph: 'depgraph.jsx' };
+  for (const p of all) {
+    const s = src(p);
+    for (const [name, file] of Object.entries(lazyOf)) {
+      assert.ok(!new RegExp(`^import \\{[^}]*\\b${name}\\b[^}]*\\} from '[^']*${file.replace('.', '\\.')}';`, 'm').test(s),
+        `${p}가 ${name}을 정적으로 import한다 — 첫 번들로 끌려 들어간다`);
+    }
+    assert.ok(!/^import [^;]*from '[^']*components\/sunGuide\.jsx';/m.test(s) && !/^import [^;]*from '\.\/sunGuide\.jsx';/m.test(s),
+      `${p}가 가이드 패널을 정적으로 import한다`);
+  }
+  assert.ok(/const FilePreviewModal = lazy\(\(\) => import\('\.\.\/components\/FilePreviewModal\.jsx'\)/.test(src('modals/attachments.jsx')),
+    '업무 첨부의 미리보기 창은 lazy');
+  assert.ok(/const FilePreviewModal = lazy\(\(\) => import\('\.\/FilePreviewModal\.jsx'\)/.test(src('components/worshipDetail.jsx')),
+    '송폼·큐시트의 미리보기 창은 lazy');
+  assert.ok(/<Suspense fallback=\{null\}><ClubQrModal/.test(src('components/groupsClub.jsx')), 'QR 창은 lazy · 폴백 없음');
+  assert.ok(/<Suspense fallback=\{null\}><DepGraph/.test(src('views/views.jsx')), '그래프는 lazy · 폴백 없음');
+  const gv = src('views/groupsView.jsx');
+  assert.ok(/import\('\.\.\/components\/sunGuide\.jsx'\)/.test(gv), '가이드 패널은 동적으로 받는다');
+  assert.ok(/if \(!canViewGuide \|\| GuidePanel \|\| guideFailed\) return undefined;/.test(gv), '볼 자격이 있을 때만 받는다');
+  assert.ok(/\{mineSettled && !guideWait \? \(/.test(gv), '받는 동안은 딸린 섹션 스켈레톤 한 덩이가 선다');
+  console.log('PASS  무거운 부품은 열 때만 7가지');
+}

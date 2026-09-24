@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, Trash2, Check, X, Pencil, QrCode } from 'lucide-react';
 import {
@@ -12,10 +12,12 @@ import {
   CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, WITH_ICON, EXIT, useClosing,
   PersonTag, PersonPick, LabeledField, Empty, PeopleMark, MeetMark,
 } from './groupsParts.jsx';
-import { ClubQrModal } from './ClubQr.jsx';
 import { groupPeople, canManageClub, canEditClub, myGroupIds, notInGroup } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
 import { reorderIds } from '../utils.js';
+
+// QR 창(qrcode 포함)은 열 때만 받는다(2026-09-24)
+const ClubQrModal = lazy(() => import('./ClubQr.jsx').then(m => ({ default: m.ClubQrModal })));
 
 // ============================================================================
 // 동아리 — 목록(끌어서 순서 조정) · 상세(구성원 · 멤버 추가 · 가입 신청 · 모임과 출석)
@@ -328,7 +330,7 @@ function ClubDetail({
         <span className="flex-1" />
         <button type="button" onClick={onBack} className={BTN_QUIET}>목록으로</button>
       </div>
-      {qrOpen && <ClubQrModal club={club} onClose={() => setQrOpen(false)} />}
+      {qrOpen && <Suspense fallback={null}><ClubQrModal club={club} onClose={() => setQrOpen(false)} /></Suspense>}
 
       <div className={`p-4 ${CARD}`} style={CARD_STYLE}>
         {/* 이름·설명은 머리줄에서 그 자리에 고친다 — 따로 창을 띄우면 무엇을 고치는

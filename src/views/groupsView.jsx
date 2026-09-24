@@ -10,7 +10,6 @@ import { takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
 import { MySunPanel, SunNotesSection, SunAdminPanel } from '../components/groupsSun.jsx';
 import { ClubsPanel } from '../components/groupsClub.jsx';
 import { WITH_ICON, useClosing, useSettled } from '../components/groupsParts.jsx';
-import { SunGuidePanel } from '../components/sunGuide.jsx';
 import { guideServices, pinnedGuideId, SUN_GUIDE_ON } from '../services/sunGuide.js';
 import { fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday, countsSince, GUIDE_SERVICE_COLS } from '../services/worship.js';
 import {
@@ -50,6 +49,14 @@ import {
 // ============================================================================
 
 const THIS_YEAR = new Date().getFullYear();
+
+// 순모임 가이드 패널(components/sunGuide.jsx · 35kB)은 **볼 자격이 있을 때만** 받는다(2026-09-24).
+// 자격자는 순장·관리자뿐이라 대다수는 이 파일을 받을 일이 없다. React.lazy + Suspense로 두면 받는
+// 동안 폴백이 **두 번째 스켈레톤**으로 꽂혀 자리가 두 번 흔들린다(사용자 지적 2026-09-03 · tests/groups
+// '딸린 두 섹션의 스켈레톤은 하나다') — 그래서 자격이 서는 순간 미리 받아 두고, 받을 때까지는 딸린
+// 섹션의 스켈레톤(MINE_SKELETON) 한 덩이가 그대로 선다. 한 번 받으면 모듈에 남아 다음 진입은 기다리지 않는다.
+let guideModule = null;
+const loadGuideModule = () => import('../components/sunGuide.jsx').then((m) => { guideModule = m; return m; });
 
 // 이 화면이 들고 있는 캐시 접두 — **쓰기 뒤에 비우는 것과 다시 읽는 것이 같아야 한다**
 // (아래 refresh 주석). `groups:guide:*`는 여기 없다: 그것은 주보 한 건에 붙는 별개의
@@ -192,6 +199,19 @@ export function GroupsView() {
     return { canView, canCreate: canView, canPin: canView && !!perms?.isMaster };
   }, [perms, leadsASun]);
   const canViewGuide = guidePerms.canView;
+  // 패널 부품 — 자격이 서면 받는다(위 loadGuideModule). 못 받으면(오프라인 등) 가이드 자리만 빠지고
+  // 노트는 그대로 선다 — 스켈레톤이 영영 남으면 안 된다.
+  const [GuidePanel, setGuidePanel] = useState(() => guideModule?.SunGuidePanel || null);
+  const [guideFailed, setGuideFailed] = useState(false);
+  useEffect(() => {
+    if (!canViewGuide || GuidePanel || guideFailed) return undefined;
+    let alive = true;
+    loadGuideModule()
+      .then((m) => { if (alive) setGuidePanel(() => m.SunGuidePanel); })
+      .catch((e) => { console.error('[groups] 순모임 가이드를 불러오지 못했어요:', e); if (alive) setGuideFailed(true); });
+    return () => { alive = false; };
+  }, [canViewGuide, GuidePanel, guideFailed]);
+  const guideWait = canViewGuide && !GuidePanel && !guideFailed;
 
   const mineKey = `groups:mine:${sunId || 'none'}:${myPersonId || 'anon'}`;
   const mineQ = useCached(mineKey, async () => {
@@ -634,15 +654,16 @@ export function GroupsView() {
           {/* 노트와 가이드는 **한 덩이로** 뜬다(한 키·한 스켈레톤 — 위 주석). 순 카드
               밑이다: 이 탭의 주인은 내 순이고 가이드는 그 순으로 무엇을 할지다. 위에
               두면 탭을 열자마자 AI 종이 세 장이 화면을 채우고 명단이 접혀 내려갔다. */}
-          {mineSettled ? (
+          {mineSettled && !guideWait ? (
             <>
               {!!sun && <SunNotesSection notes={mineQ.data?.notes || []} onShare={shareNote} />}
               {/* 가이드 본문은 **패널이 읽는다** — 기준 주보를 사람이 고르므로(0055·사용자
                   스펙 2026-09-08) 한 벌을 미리 읽어 두는 것으로는 모자란다. 여기서 주는 것은
                   고를 수 있는 주보들과 기본값(고정 · 없으면 가장 최근 주일)이다. 저장·고정
                   뒤에는 캐시를 비우고 한 벌을 다시 읽어 다음 진입에도 새 값이 먼저 선다. */}
-              {SUN_GUIDE_ON && (
-                <SunGuidePanel service={service} perms={guidePerms}
+              {/* 볼 자격이 없으면 패널이 어차피 null을 그린다 — 부품을 받지도 않는다(위 GuidePanel). */}
+              {SUN_GUIDE_ON && GuidePanel && (
+                <GuidePanel service={service} perms={guidePerms}
                   services={mineQ.data?.guideServiceList || []}
                   pinnedServiceId={mineQ.data?.pinnedGuide || ''}
                   loading={mineQ.loading}
