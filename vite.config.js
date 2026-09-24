@@ -5,10 +5,6 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-// SEED Design은 파운데이션 토큰(@seed-design/css/base.css)만 쓴다. 컴포넌트를 하나도
-// 쓰지 않으므로 @seed-design/react와 vite 플러그인은 뺐다(플러그인은 컴포넌트 레시피를
-// 생성하는 용도다). 다시 컴포넌트를 도입하면 그때 되돌리면 된다.
-
 // ============================================================================
 // dev 서버에서 api/*.js 돌리기 (2026-09-05)
 // ----------------------------------------------------------------------------

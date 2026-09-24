@@ -56,11 +56,6 @@
      내는데 이 줄이 없어서 그 막대만 색 없이 track만 남았다. 값은 위 여덟과 같은 규칙
      (--app-tag-orange 바닥과 글자색 사이). 팀을 더하면 여기도 같이 봐야 한다. */
   --p-orange: #d9a075;
-  /* SEED 오버라이드 (향후 SEED 컴포넌트 대비) */
-  --seed-color-bg-brand-solid: #3f6fc4;
-  --seed-color-bg-brand-solid-pressed: #33589c;
-  --seed-color-bg-brand-weak: #e8eefa;
-  --seed-color-fg-brand: #3f6fc4;
 }
 
 /* ── 다크 (data-theme 속성 기반 — 헤더 토글로 전환. docs/PITFALLS.md §4.2) ── */
@@ -85,9 +80,6 @@
     --p-gray: #5d5b57;  --p-brown: #87695a;  --p-purple: #75659b; --p-pink: #96667c;
     --p-orange: #8b6647;
 
-    /* SEED 오버라이드 (다크) */
-    --seed-color-bg-brand-weak: #202a3a;
-    --seed-color-fg-brand: #8fb4ea;
 }
 
 /* ── Tailwind 토큰 연결: 기존 클래스명 유지 + 신규 ── */
