@@ -160,6 +160,9 @@ const aiSrcForSearch = readFileSync(new URL('src/services/ai.js', ROOT), 'utf8')
   .replace(/import \{ supabase(, myUid)? \} from '\.\/supabaseClient\.js';/,
     'export const supabase = null; const myUid = async () => null;')
   .replace(/from '\.\.\/utils\.js';/, "from '" + new URL('src/utils.js', ROOT).href + "';")
+  // aiPeople.js는 순수 모듈이라 그대로, 명단 읽기(worship.fetchRoster)는 supabase를 물어서 빈 것으로 — aictx와 같다
+  .replace(/from '\.\/aiPeople\.js';/, "from '" + new URL('src/services/aiPeople.js', ROOT).href + "';")
+  .replace(/import \{ fetchRoster \} from '\.\/worship\.js';/, 'const fetchRoster = async () => null;')
   .replace(/import \{ store \} from '\.\.\/store\/workspaceStore\.js';/,
     'export const store = { getState: () => ({ tasks: { byId: {} }, projects: { byId: {}, allIds: [] }, members: [] }) };');
 const aiFile = join(tmp, 'ai.mjs');
