@@ -538,9 +538,11 @@ export function MembersView({ isAdmin, isMaster }) {
                     ? <Avatar name={who.display_name} url={who.avatar_url} className="flex w-8 h-8 text-[13px] shrink-0" />
                     : <span className="w-8 h-8 rounded-full bg-accent-weak flex items-center justify-center shrink-0"><ShieldCheck size={15} className="text-accent-text" /></span>}
                   <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-semibold text-fg truncate">
-                      {who?.display_name || a.email}
-                      {isMaster && a.is_master && <span className="ml-1.5 text-[10px] font-bold text-accent-text">마스터</span>}
+                    {/* 뱃지는 잘리는 글자 **밖**의 형제다 — 안에 두면 이름(또는 긴 이메일)이 길 때
+                        '마스터'가 같이 말줄임에 먹혀 사라졌다. 줄은 baseline으로 맞춰 모양이 같다. */}
+                    <p className="flex items-baseline min-w-0 text-[13px] font-semibold text-fg">
+                      <span className="truncate">{who?.display_name || a.email}</span>
+                      {isMaster && a.is_master && <span className="ml-1.5 shrink-0 text-[10px] font-bold text-accent-text">마스터</span>}
                     </p>
                     <p className="text-[10.5px] text-fg-faint truncate">{a.email}</p>
                   </div>

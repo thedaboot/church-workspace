@@ -92,7 +92,8 @@ const MINE_SKELETON = (
   <div className="mine-skeleton mt-6 space-y-3">
     <Skeleton className="h-4 w-40 rounded-md" />
     <Skeleton className="w-full h-[86px] rounded-[10px]" />
-    <Skeleton className="w-full h-[120px] rounded-[20px]" />
+    {/* 가이드 종이의 모서리와 같다(sunGuide의 rounded-[14px]) — 자리가 바뀔 때 모서리가 튀지 않게 */}
+    <Skeleton className="w-full h-[120px] rounded-[14px]" />
   </div>
 );
 

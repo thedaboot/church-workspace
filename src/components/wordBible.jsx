@@ -987,7 +987,7 @@ export function BibleTab({ initialRef = '' }) {
               <div className="hidden md:flex w-11 shrink-0 justify-center">
                 {canPrev && (
                   <button data-chap-nav="prev" onClick={() => move(-1)} aria-label="이전 장" title="이전 장"
-                    className={chapNav} style={{ top: '45vh' }}>
+                    className={chapNav} style={{ top: '45dvh' }}>
                     <ChevronLeft size={16} />
                   </button>
                 )}
@@ -1014,7 +1014,7 @@ export function BibleTab({ initialRef = '' }) {
               <div className="hidden md:flex w-11 shrink-0 justify-center">
                 {canNext && (
                   <button data-chap-nav="next" onClick={() => move(1)} aria-label="다음 장" title="다음 장"
-                    className={chapNav} style={{ top: '45vh' }}>
+                    className={chapNav} style={{ top: '45dvh' }}>
                     <ChevronRight size={16} />
                   </button>
                 )}
