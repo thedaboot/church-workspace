@@ -4171,8 +4171,13 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(P.pickTitle(both, P.taskScope({ title: '양육', teams: ['순원'] })), '순장', '담당 팀이 순원이면 순 일이다');
   assert.strictEqual(P.pickTitle(both, P.taskScope({ title: '대림절 TF', teams: ['임원진'] })), '찬양팀장', '순 아닌 첫 직함이어야 한다');
   assert.strictEqual(P.pickTitle(both, P.taskScope({ title: '선착순 20명 모집', teams: ['웰컴팀'] })), '찬양팀장', "'선착순'을 순 일로 읽었다");
-  assert.strictEqual(P.pickTitle(['리더순장'], P.taskScope({ title: '월례회', text: '리더순장님 참석' })), '리더순장');
-  assert.strictEqual(P.isSunTask({ title: '월례회', text: '리더순장님 참석' }), false, "'리더순장'이라는 직함 글자를 순 일로 읽었다");
+  assert.strictEqual(P.pickTitle(['리더순장'], P.taskScope({ title: '월례회', content: '리더순장님 참석' })), '리더순장');
+  assert.strictEqual(P.isSunText({ text: '리더순장님 참석 · 리더순장 보고 · 리더 순장' }), false, "'리더순장'이라는 직함 글자를 순 일로 읽었다");
+  // 본문만 순을 말할 때는 약한 신호 — 세 번 이상이어야 하고, 업무 팀의 직함이 있으면 그쪽이 이긴다
+  assert.strictEqual(P.pickTitle(both, P.taskScope({ title: '피드백', teams: ['찬양팀'], content: '## 순장 피드백' })), '찬양팀장', '본문의 순 한 번으로 순장을 골랐다');
+  assert.strictEqual(P.pickTitle(both, P.taskScope({ title: '나눔', teams: ['임원진'], content: '각 순 순원 출석 · 순모임 장소' })), '순장', '본문이 순 이야기인데 순장을 안 골랐다');
+  assert.strictEqual(P.pickTitle(both, P.taskScope({ title: '개선', teams: ['찬양팀'], content: '순장 권한 · 순원 목록 · 순 편성 화면' })), '찬양팀장', '업무 팀 직함이 약한 순 신호보다 먼저다');
+  assert.strictEqual(P.pickTitle(both, P.taskScope({ title: '나눔', teams: ['임원진'], content: '순장 한 번' })), '찬양팀장', '본문의 순 한 번은 순 일이 아니다');
   assert.strictEqual(P.pickTitle(['리더팀장', '웰컴팀장'], P.taskScope({ title: '조 편성', teams: ['웰컴팀'] })), '웰컴팀장');
   assert.strictEqual(P.pickTitle(['찬양팀장', '예배팀장'], P.taskScope({ title: '10월 찬양 예배', teams: ['찬양팀', '엔지니어팀'] })), '찬양팀장', '팀이 맞는 직함이 예배팀장보다 먼저다');
   assert.strictEqual(P.pickTitle(['리더팀장', '예배팀장'], P.taskScope({ title: '10월 찬양 예배', teams: ['임원진'] })), '예배팀장', '예배 전반의 일인데 예배팀장을 안 골랐다');

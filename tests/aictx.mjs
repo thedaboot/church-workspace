@@ -148,8 +148,11 @@ check('완료된 업무는 "지금 돌아가는 일"에 안 들어간다',
   const sunTask = { ...t0, id:'s1', title:'순모임 나눔 정리', teams:['순장'], content:'', assignees:['노준석'] };
   check('순 업무에서 노준석은 순장님(결정 3)', lineOf(peopleContext(sunTask, []), '노준석').includes('부를 때: 노준석 순장님'),
     lineOf(peopleContext(sunTask, []), '노준석'));
-  const sunByText = { ...t0, id:'s2', title:'9월 셋째 주 나눔', teams:['임원진'], content:'각 순 순원 출석 확인', assignees:['노준석'] };
+  const sunByText = { ...t0, id:'s2', title:'9월 셋째 주 나눔', teams:['임원진'], content:'각 순 순원 출석 확인 · 순모임 장소 정하기', assignees:['노준석'] };
   check('글이 순을 말해도 순장님(담당 팀이 순이 아니어도)', lineOf(peopleContext(sunByText, []), '노준석').includes('노준석 순장님'));
+  // 본문에 순이 한두 번 곁가지로 나오면(수련회 피드백의 '## 순장 피드백' 한 도막) 순 일이 아니다 — 업무 팀 직함이 이긴다
+  const aside = { ...t0, id:'s2b', title:'피드백 및 강평회', teams:['찬양팀','임원진'], content:'## 순장 피드백\n- 좋았다', assignees:['노준석'] };
+  check('본문에 순이 곁가지로 나오면 업무 팀의 직함(찬양팀장님)', lineOf(peopleContext(aside, []), '노준석').includes('노준석 찬양팀장님'), lineOf(peopleContext(aside, []), '노준석'));
   const other = { ...t0, id:'s3', title:'대림절 TF', teams:['임원진'], content:'', assignees:['노준석'] };
   check('순도 팀도 안 맞으면 순 아닌 첫 직함(찬양팀장님)', lineOf(peopleContext(other, []), '노준석').includes('노준석 찬양팀장님'));
   check('조준환은 연도 직분이 리더팀장이어도 예배팀장님(결정 1 — role_note가 이긴다)',

@@ -75,14 +75,22 @@ export function titlesOf(member, info = null) {
 
 // ── 업무가 어떤 자리인가 ────────────────────────────────────────────────────
 export const isSunTitle = (t) => /순장$/.test(String(t || '').replace(/\s+/g, ''));
-// 순 일의 신호: 담당 팀에 순장·순원이 있거나, 제목·본문이 순을 말한다. '리더순장'은
-// 직함이라 걷고 본다(리더 모임 참석자 줄에 이름과 같이 적힌다). 순 이름(TT순·선착순…)은
+// 순 일의 신호는 두 세기다.
+//   · 센 신호 — 담당 팀에 순장·순원이 있거나 **제목**이 순을 말한다('순별 양육 미수료자').
+//   · 약한 신호 — 본문이 순을 **세 번 이상** 말한다. 한두 번은 곁가지다: 라이브 카드에서 수련회
+//     피드백의 '## 순장 피드백' 한 도막, 워크스페이스 개선 카드의 '순장 권한' 같은 기능 이름이 그랬다
+//     (2026-09-25 · 84장 중 본문에만 순이 나오는 카드 9장이 전부 1~3번).
+//     약한 신호는 **업무 팀의 직함이 없을 때만** 순장을 고른다(pickTitle).
+// '리더순장'은 직함이라 걷고 센다(리더 모임 참석자 줄에 적힌다). 순 이름(TT순·선착순…)은
 // 신호로 쓰지 않는다 — '선착순 20명'처럼 흔한 말과 겹친다.
-const SUN_WORDS = /순모임|순원|순장|순별|순\s?편성|순\s?배정|순\s?나눔|내\s순|각\s순|우리\s순|순\s모임/;
-export function isSunTask({ teams = [], title = '', text = '' } = {}) {
+const SUN_WORDS = /순모임|순원|순장|순별|순\s?편성|순\s?배정|순\s?나눔|내\s순|각\s순|우리\s순|순\s모임/g;
+const sunCount = (s) => (String(s || '').replace(/리더\s?순장/g, '').match(SUN_WORDS) || []).length;
+export const SUN_TEXT_MIN = 3;
+export function isSunTask({ teams = [], title = '' } = {}) {
   if ((teams || []).some(t => t === '순장' || t === '순원')) return true;
-  return SUN_WORDS.test(`${title}\n${text}`.replace(/리더\s?순장/g, ''));
+  return sunCount(title) > 0;
 }
+export const isSunText = ({ text = '' } = {}) => sunCount(text) >= SUN_TEXT_MIN;
 // 예배 전반의 일 — 예배를 세우는 팀이 둘 이상 걸렸거나 제목이 예배를 말한다
 const WORSHIP_TEAMS = ['찬양팀', '엔지니어팀', '워십팀'];
 export const isWorshipTask = ({ teams = [], title = '' } = {}) =>
@@ -90,10 +98,11 @@ export const isWorshipTask = ({ teams = [], title = '' } = {}) =>
 
 export function taskScope(task = {}, text = '') {
   const t = { teams: task.teams || [], title: task.title || '', text: text || task.content || '' };
-  return { teams: t.teams, sun: isSunTask(t), worship: isWorshipTask(t) };
+  return { teams: t.teams, sun: isSunTask(t), sunText: isSunText(t), worship: isWorshipTask(t) };
 }
 
-// 직함 고르기(결정 3). 차례가 곧 규칙이다.
+// 직함 고르기(결정 3). 차례가 곧 규칙이다:
+//   센 순 신호 → 순장 · 업무 팀의 직함 · 약한 순 신호 → 순장 · 예배 전반 → 예배팀장 · 순 아닌 첫 직함.
 export function pickTitle(titles = [], scope = {}) {
   if (!titles.length) return '';
   const sunT = titles.filter(isSunTitle);
@@ -103,6 +112,7 @@ export function pickTitle(titles = [], scope = {}) {
     const hit = other.find(t => t.replace(/\s+/g, '').startsWith(team));
     if (hit) return hit;
   }
+  if (scope.sunText && sunT.length) return sunT[0];
   if (scope.worship) {
     const w = other.find(t => t.includes('예배팀장'));
     if (w) return w;
