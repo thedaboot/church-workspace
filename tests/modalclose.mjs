@@ -368,8 +368,15 @@ check('다시 펴진다', reopened.found && reopened.width > 100, JSON.stringify
   // @을 치면 멤버 제안이 뜬다
   check('답글 작성칸에 글을 넣을 수 있다', (await setBox('@노')) === true, 'textarea가 없으면 false');
   await sleep(400);
+  // 멘션 목록은 body 포털이다(MentionInput · HANDOFF §8) — 작성칸 안이 아니라 **문서에서**,
+  // 이 작성칸의 왼쪽 끝에 붙어 선 판을 찾는다(댓글 입력칸의 목록과 헷갈리지 않게).
   const sug = await ev(`(() => { const r = ${BOX}; if (!r) return [];
-    return [...r.box.querySelectorAll('button')].filter(b => b.getBoundingClientRect().width > 0)
+    const ta = r.box.querySelector('textarea'); if (!ta) return [];
+    const x = ta.parentElement.getBoundingClientRect().left;
+    const list = [...document.body.children].find(c => /max-h-48/.test(c.className || '')
+      && Math.abs(c.getBoundingClientRect().left - x) < 2);
+    if (!list) return [];
+    return [...list.querySelectorAll('button')].filter(b => b.getBoundingClientRect().width > 0)
       .map(b => b.textContent.trim()).filter(s => /^@/.test(s)); })()`);
   check('@을 치면 멤버 제안이 뜬다', sug.some(s => /노준석/.test(s)), JSON.stringify(sug));
 
