@@ -389,7 +389,7 @@ function DependsRow({ formData, setFormData }) {
           </span>
         ))}
         {options.length > 0 && (
-          <select value="" onChange={(e) => add(e.target.value)}
+          <select value="" onChange={(e) => add(e.target.value)} aria-label="선행 업무"
             className="text-[11px] text-fg-muted bg-surface border border-line rounded-full px-2 py-1 outline-none focus:border-accent max-w-[200px]">
             <option value="">{chosen.length ? '+ 더 추가' : '+ 먼저 끝나야 하는 업무'}</option>
             {options.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
@@ -505,7 +505,7 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
           onChange={e => { setInput(e.target.value); setOpen(true); setActiveIdx(0); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder={value.length ? '추가…' : '멤버 이름으로 찾기'}
+          placeholder={value.length ? '추가…' : '멤버 이름으로 찾기'} aria-label="담당자"
           className="flex-1 min-w-[8rem] bg-transparent text-xs text-fg placeholder:text-fg-faint outline-none py-0.5"
         />
       </div>
@@ -874,7 +874,7 @@ function SubtaskList({ value = [], onChange, readOnly = false, members = [] }) {
                   <input
                     value={s.title}
                     onChange={e => rename(s.id, e.target.value)}
-                    placeholder="예: 포스터 시안 만들기"
+                    placeholder="예: 포스터 시안 만들기" aria-label="하위 업무"
                     className={`flex-1 min-w-0 text-[13px] bg-transparent border border-transparent rounded-xs px-1.5 py-1 outline-none transition-colors hover:border-line focus:border-accent focus:bg-surface ${s.done ? 'text-fg-faint line-through' : 'text-fg'} placeholder:text-fg-faint`}
                   />
                 )}
@@ -901,7 +901,7 @@ function SubtaskList({ value = [], onChange, readOnly = false, members = [] }) {
           // '입력하고 Enter'라고만 적혀 있었는데 onBlur로도 추가된다. 방법을 설명하는
           // 대신 예시를 두는 쪽이 낫다 — '하위 업무'가 무엇인지 모르는 사람에게는
           // 방법보다 "여기에 무엇을 적는 칸인지"가 먼저다.
-          placeholder="예: 포스터 시안 만들기"
+          placeholder="예: 포스터 시안 만들기" aria-label="하위 업무"
           className="w-full mt-2 text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint"
         />
       )}
@@ -941,7 +941,7 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
   return (
     <form className="space-y-4">
       {/* 모바일은 autoFocus 금지 — 열자마자 키보드가 화면 절반을 덮는다 */}
-      <input ref={titleRef} type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="업무 제목 입력" className="w-full text-xl md:text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus={!isMobileViewport()} />
+      <input ref={titleRef} type="text" name="title" value={formData.title || ''} onChange={handleChange} placeholder="업무 제목 입력" aria-label="업무 제목 입력" className="w-full text-xl md:text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" required autoFocus={!isMobileViewport()} />
 
       <div className="border-y border-line divide-y divide-line/60">
         <PropertyRow icon={<CheckSquare size={13} className="text-fg-faint" />} label="상태">
@@ -1158,7 +1158,7 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
             ? <div className="text-xs text-fg-muted animate-pulse">업무 내용과 댓글을 분석하고 있습니다...</div>
             : editing
               ? <textarea
-                  value={draft} onChange={e => setDraft(e.target.value)} rows={5} autoFocus
+                  value={draft} onChange={e => setDraft(e.target.value)} rows={5} autoFocus aria-label="3줄 요약"
                   className="w-full text-xs leading-relaxed text-fg bg-surface border border-line rounded-xs px-2 py-1.5 outline-none focus:border-accent resize-y"
                 />
               : <div className="text-xs text-fg-secondary whitespace-pre-wrap"><RichText content={shown} /></div>}

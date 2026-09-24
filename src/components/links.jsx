@@ -80,6 +80,7 @@ function LinkPwFields({ link, busy, onSave }) {
           onChange={(e) => setPw(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && pw) onSave(pw); }}
           placeholder={link.view_pw ? '새 비밀번호' : '비밀번호를 정해주세요'}
+          aria-label={link.view_pw ? '새 비밀번호' : '비밀번호를 정해주세요'}
           className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"
         />
         <button type="button" disabled={busy || !pw} onClick={() => onSave(pw)}
@@ -210,9 +211,9 @@ export function LinkAddPopover({ onAdd }) {
           className="dc-pop bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90]">
           <div className="space-y-2">
             <input autoFocus value={draft.title} onChange={e => setDraft(p => ({ ...p, title: e.target.value }))}
-              placeholder="이름" className={FIELD_CLS} />
+              placeholder="이름" aria-label="이름" className={FIELD_CLS} />
             <input value={draft.url} onChange={e => setDraft(p => ({ ...p, url: e.target.value }))}
-              placeholder="https://..." onKeyDown={e => { if (e.key === 'Enter') save(); }} className={FIELD_CLS} />
+              placeholder="https://..." aria-label="주소" onKeyDown={e => { if (e.key === 'Enter') save(); }} className={FIELD_CLS} />
             <div className="flex justify-end gap-2 pt-1">
               <button type="button" onClick={() => setOpen(false)}
                 className="text-xs px-2.5 py-1 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">취소</button>

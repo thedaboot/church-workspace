@@ -668,7 +668,7 @@ function Toolbar({
               <input
                 autoFocus={!isMobileViewport()} value={href} onChange={e => setHref(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyLink(); } }}
-                placeholder="https://..."
+                placeholder="https://..." aria-label="주소"
                 className="w-full text-xs px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint"
               />
               <div className="flex justify-end gap-2 mt-2">

@@ -300,7 +300,7 @@ function PasswordGate({ row, onUnlock }) {
       <input
         type="password" value={pw} autoComplete="off"
         onChange={(e) => { setPw(e.target.value); setWrong(false); }}
-        placeholder="비밀번호"
+        placeholder="비밀번호" aria-label="비밀번호"
         className="w-32 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"
       />
       <button type="submit" className="px-2.5 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11px] font-semibold transition active:scale-95">열기</button>
@@ -325,6 +325,7 @@ function PasswordSetter({ row, onDone }) {
         <input
           type="text" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="off"
           placeholder={row.view_pw ? '새 비밀번호' : '비밀번호를 정해주세요'}
+          aria-label={row.view_pw ? '새 비밀번호' : '비밀번호를 정해주세요'}
           className="w-40 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"
         />
         <button type="button" disabled={busy || !pw} onClick={() => save(pw)}

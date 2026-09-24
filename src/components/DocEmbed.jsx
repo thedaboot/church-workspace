@@ -167,7 +167,7 @@ export function DocEmbedModal({ url, title = '', onClose }) {
                   글자는 버튼 하나뿐이다 — 안내 문구를 새로 만들지 않는다(§8 · 첨부에서
                   사용자가 목업 B안을 골랐다). */}
               {!thumbFailed && thumb && (
-                <button type="button" onClick={() => window.open(url, '_blank', 'noreferrer')}
+                <button type="button" onClick={() => window.open(url, '_blank', 'noreferrer')} aria-label={title || label}
                   className="w-full max-w-[42rem] aspect-video rounded-md border border-line bg-white overflow-hidden transition active:scale-[0.99]">
                   <img
                     src={thumb} alt="" draggable={false} loading="eager"
@@ -225,7 +225,7 @@ export function PwPrompt({ onOk, onCancel, className = '' }) {
       <input
         type="password" value={pw} autoComplete="off" autoFocus
         onChange={(e) => { setPw(e.target.value); setWrong(false); }}
-        placeholder="비밀번호"
+        placeholder="비밀번호" aria-label="비밀번호"
         className="w-32 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"
       />
       {/* 취소 왼쪽 / 확정 오른쪽 — 팝오버의 버튼 배치는 §8 그대로다 */}

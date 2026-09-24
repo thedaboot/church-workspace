@@ -191,7 +191,7 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions
              연필을 누른 사람이 나올 길 없이 갇혔다. 취소가 왼쪽·저장이 오른쪽(§8). */
           <>
             <textarea
-              autoFocus value={editText} onChange={e => setEditText(e.target.value)}
+              autoFocus value={editText} onChange={e => setEditText(e.target.value)} aria-label="댓글 수정"
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(); } if (e.key === 'Escape') setEditing(false); }}
               className="w-full text-xs border border-line rounded-xs px-2 py-1.5 bg-surface text-fg resize-none h-14 focus:border-accent focus:shadow-soft outline-none transition-all"
             />

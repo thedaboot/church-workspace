@@ -152,7 +152,7 @@ export function ProfileModal({ onClose, onSave }) {
         {/* text-[13px]: 업무 창의 입력칸들(하위 업무·링크 13px)과 같은 크기 —
             text-sm(14px)은 12px 라벨 옆에서 입력만 커 보였다(실제 지적) */}
         <input
-          type="text" value={name} onChange={e => setName(e.target.value)}
+          type="text" value={name} onChange={e => setName(e.target.value)} aria-label="이름"
           className="w-full border border-line rounded-xs p-2 mb-4 text-[13px] bg-surface text-fg focus:ring-2 focus:ring-accent outline-none"
         />
 
@@ -263,7 +263,7 @@ export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
         <h3 className="font-bold text-fg mb-4 flex items-center gap-2"><Hash size={18} className="text-accent"/> {renaming ? '프로젝트 이름 수정' : '새 프로젝트 생성'}</h3>
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">프로젝트 이름</label>
         <input
-          type="text" value={title} onChange={e => onTitleChange(e.target.value)}
+          type="text" value={title} onChange={e => onTitleChange(e.target.value)} aria-label="프로젝트 이름"
           placeholder="예: 2026 하계 수련회"
           className="w-full border border-line p-2.5 rounded-xs mb-4 text-[13px] bg-surface text-fg placeholder:text-fg-faint focus:ring-2 focus:ring-accent outline-none"
           autoFocus
@@ -275,7 +275,7 @@ export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
             사람이 고칠 수 있게 둔다. */}
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">연도</label>
         <select
-          value={year} onChange={e => setYear(Number(e.target.value))}
+          value={year} onChange={e => setYear(Number(e.target.value))} aria-label="연도"
           className="w-full border border-line p-2.5 rounded-xs mb-6 text-[13px] bg-surface text-fg focus:ring-2 focus:ring-accent outline-none"
         >
           {YEARS.map(y => <option key={y} value={y}>{y}년</option>)}

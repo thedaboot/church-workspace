@@ -833,7 +833,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       return (
         <div className="relative w-full h-full flex flex-col items-center justify-center px-4">
           {/* 16:9 종이 — `gdoc` 틀과 같은 테두리·모서리·흰 바탕이다(구글 그림은 밝다). */}
-          <button type="button" onClick={openCopy}
+          <button type="button" onClick={openCopy} aria-label={cur.name}
             className="w-full max-w-[42rem] aspect-video rounded-md border border-line bg-white overflow-hidden transition active:scale-[0.99]">
             <img
               src={thumb} alt="" draggable={false} loading="eager"

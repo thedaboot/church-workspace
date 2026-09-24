@@ -984,12 +984,12 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
                   <input
                     autoFocus type="text" value={query} onChange={e => setQuery(e.target.value)}
                     /* 속성은 첫 줄로 고정하고 보이는 글자는 SearchHint가 그린다 */
-                    placeholder={SEARCH_HINTS[0]}
+                    placeholder={SEARCH_HINTS[0]} aria-label={SEARCH_HINTS[0]}
                     className="pl-9 pr-3 py-2 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all placeholder:text-transparent"
                   />
                   <SearchHint show={!query} left="2.25rem" size="text-sm" />
                 </div>
-                <button onClick={closeMobile} className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0"><X size={18} /></button>
+                <button onClick={closeMobile} aria-label="닫기" className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0"><X size={18} /></button>
               </div>
               {active && (
                 <div className="mt-2 max-h-[70dvh] overflow-y-auto">
@@ -1011,7 +1011,7 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
         type="text" value={query}
         onChange={e => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        placeholder={SEARCH_HINTS[0]}
+        placeholder={SEARCH_HINTS[0]} aria-label={SEARCH_HINTS[0]}
         className="pl-8 pr-3 h-8 text-[12.5px] bg-surface/60 border border-line rounded-sm focus:bg-surface focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all placeholder:text-transparent"
       />
       <SearchHint show={!query} left="2rem" size="text-[12.5px]" />
