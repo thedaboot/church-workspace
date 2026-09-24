@@ -95,7 +95,9 @@ await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 
 await sleep(80);
 await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 await sleep(800);
-const tapped = await ev(`(() => ({ modal: !!document.querySelector('.fixed.inset-0.z-50') }))()`);
+// 모바일 업무 창은 inset-0이 아니라 `fixed inset-x-0 top-0 h-[var(--app-vh)] z-50`이다(886f889 —
+// 키보드에 댓글 칸이 가리던 것). inset-0에 기대지 않고 .fixed.z-50만 본다.
+const tapped = await ev(`(() => ({ modal: !!document.querySelector('.fixed.z-50') }))()`);
 const s3 = await statusOf(g.title);
 check('짧은 탭은 상세 열기(상태 안 바뀜)', s3.status === b3.status, `${b3.status} → ${s3.status}`);
 check('짧은 탭으로 모달 열림', tapped.modal === true, `modal ${tapped.modal}`);
