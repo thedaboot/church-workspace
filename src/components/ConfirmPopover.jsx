@@ -36,6 +36,7 @@ const EST_H = 110; // 높이 추정치(위/아래 배치 판단용)
 //     (rect 읽기 한 번뿐이고 값이 같으면 상태도 안 바꾼다 — 다시 그리지 않는다)
 export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, measuredRef = null, opts = null) {
   const matchWidth = !!opts?.matchWidth;
+  const alignStart = opts?.align === 'start';
   const [pos, setPos] = useState({ left: 0, top: 0, width: width || 0 });
   const seen = useRef(null);   // 마지막으로 자리를 잡을 때의 앵커 상자(아래 rAF 고리가 견준다)
   const place = useCallback(() => {
@@ -48,11 +49,17 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
     const vh = vv?.height || window.innerHeight;
     const ox = vv?.offsetLeft || 0;
     const oy = vv?.offsetTop || 0;
-    const w = (matchWidth && r.width) ? r.width : width;
+    // 잰 팝오버가 있으면 **실제 폭**으로 가둔다 — 달력(w-max)은 추정 폭(268)보다 좁아서, 추정으로
+    // 가두면 폰에서 오른쪽 버튼의 달력이 필요보다 왼쪽으로 더 밀렸다(2026-09-24).
+    // offsetWidth는 transform(zoom-in) 영향을 안 받는다.
+    const w = (matchWidth && r.width) ? r.width : (measuredRef?.current?.offsetWidth || width);
     const h = measuredRef?.current?.offsetHeight || estHeight;
     const minLeft = ox + gap;
     const maxLeft = Math.max(minLeft, ox + vw - w - gap);
-    const left = Math.min(Math.max(r.right - w, minLeft), maxLeft);
+    // 기본은 **앵커 오른쪽 끝에 맞춘다**(휴지통·더보기처럼 줄 끝에 선 버튼). `align: 'start'`는
+    // 왼쪽 끝에 맞춘다 — 날짜 칸은 폭이 좁고 줄 앞쪽에 서서, 오른쪽에 맞추면 달력이 버튼보다
+    // 왼쪽으로 삐져 "다른 데서 뜬다"로 보였다(2026-09-24 사용자 신고).
+    const left = Math.min(Math.max(alignStart ? r.left : r.right - w, minLeft), maxLeft);
     // 아래가 기본이다. **아래가 짧을 때만** 위로 뒤집고, 위가 더 짧으면 그대로 아래에
     // 둔다 — 키보드가 올라오면 위아래가 다 짧아서, 그때 뒤집으면 칸을 덮을 뿐이다.
     const below = (oy + vh) - r.bottom;
@@ -65,7 +72,7 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
     top = Math.min(Math.max(top, oy + gap), Math.max(oy + gap, oy + vh - h - gap));
     // 같은 자리면 상태를 바꾸지 않는다 — 아래 rAF 고리가 헛되이 다시 그리지 않게.
     setPos(p => ((p.left === left && p.top === top && p.width === w) ? p : { left, top, width: w }));
-  }, [triggerRef, width, estHeight, gap, measuredRef, matchWidth]);
+  }, [triggerRef, width, estHeight, gap, measuredRef, matchWidth, alignStart]);
 
   // useLayoutEffect: 브라우저가 그리기 전에 위치를 확정한다.
   // useEffect였을 때는 첫 프레임이 {0,0}에 그려지고 그 다음 프레임에 제자리로
@@ -146,7 +153,7 @@ export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel =
       ref={popRef}
       onClick={e => e.stopPropagation()}
       style={{ position: 'fixed', left: pos.left, top: pos.top, width: W }}
-      className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150"
+      className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-3 transition-none animate-in fade-in zoom-in-95 duration-150"
     >
       <p className={`text-xs leading-relaxed whitespace-pre-line break-words ${stacked ? 'font-bold text-fg mb-2.5' : 'text-fg-secondary mb-2.5'}`}>{message}</p>
       {stacked ? (

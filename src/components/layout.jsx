@@ -194,7 +194,7 @@ function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', childr
         <div
           ref={popRef}
           style={{ position: 'fixed', left: pos.left, top: pos.top, width: 224 }}
-          className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 animate-in fade-in zoom-in-95 duration-150"
+          className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150"
         >
           <div className="px-2.5 py-2 mb-1 border-b border-line">
             <p className="text-[13px] font-semibold text-fg truncate">{currentUser.name}</p>
@@ -395,7 +395,7 @@ export const TopNav = React.memo(({
               </button>
             </span>
             {moreOpen && createPortal(
-              <div ref={morePopRef} style={{ position: 'fixed', left: morePos.left, top: morePos.top, width: 224 }} className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 max-h-72 overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+              <div ref={morePopRef} style={{ position: 'fixed', left: morePos.left, top: morePos.top, width: 224 }} className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 max-h-72 overflow-y-auto transition-none animate-in fade-in zoom-in-95 duration-150">
                 <YearFolders active={rest} archived={archivedForMore} onPick={(id) => { setMoreOpen(false); setActiveMenu(id); }} />
               </div>,
               document.body
@@ -462,7 +462,7 @@ export function YearPicker({ year, years, yearCounts = {}, onPick, compact = fal
       </span>
       {open && createPortal(
         <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: 112 }}
-          className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 max-h-72 overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+          className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 max-h-72 overflow-y-auto transition-none animate-in fade-in zoom-in-95 duration-150">
           {years.map(y => (
             <button key={y} onClick={() => { setOpen(false); onPick(y); }}
               className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-[13px] text-left tabular-nums transition-colors hover:bg-surface-hover ${y === year ? 'text-fg font-bold' : 'text-fg-muted'}`}>
@@ -1217,7 +1217,7 @@ function NotificationBell({ onOpenTask, onOpenLink }) {
       {open && (
         <div
           style={{ position: 'fixed', left: pos.left, top: pos.top, width: 320 }}
-          className="z-[90] max-w-[calc(100vw-2rem)] max-h-96 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated animate-in fade-in zoom-in-95 duration-150"
+          className="z-[90] max-w-[calc(100vw-2rem)] max-h-96 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated transition-none animate-in fade-in zoom-in-95 duration-150"
         >
           <div className="flex items-center justify-between px-3 py-2.5 border-b border-line sticky top-0 bg-surface">
             <span className="text-xs font-bold text-fg">알림</span>

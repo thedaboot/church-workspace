@@ -725,7 +725,10 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
 // 이라 좁은 화면에서 화면 밖으로 나갔다(포털 + 세로 클램프로) ③ 초록 표가 흐름대로
 // 접혔다(order/basis로 좁을 때 2줄 · 넓을 때 1줄을 못 박았다).
 // 되돌리기 검사: ActionItems의 `rows` 상태를 지우면 '항목 추가'가, DatePicker의 포털을
-// 되돌리면 '달력이 화면 안에'가, 줄의 order를 지우면 '초록 표가 첫 줄에'가 깨진다.
+// 되돌리면 '달력이 화면 안에'가, 하위 업무 줄의 '두 줄/한 줄'은 **모양만 지킨다** —
+// 375px에서는 order·basis를 빼도 저절로 같은 모양으로 접혀서 되돌려도 안 깨졌다(2026-09-24 확인).
+// 2026-09-24: 내린 줄은 위에서 빠지고 본문 도막에서도 지워진다(초록 '하위 업무' 표는 없앴다) —
+// 편집기 onCreate가 남은 줄(rest)을 본문에 안 적으면 '본문 도막에서 지워진다'가 깨진다.
 {
   const AC = ['### 정한 것', '- 주제를 예배자로 바꿔요', '', '### 청년별 담당 업무',
     '- @노준석 @이시온 · 10월 콘티 확정 · 9월 26일까지',
@@ -750,23 +753,49 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
     await sleep(350);
     await ev(`[...document.querySelectorAll('.action-items button')].find(b => b.textContent.trim() === '하위 업무로')?.click()`);
     await sleep(800);
-    const shape = await ev(`${ROWS}.map(r => {
+    // 내린 줄은 위에서 빠진다(2026-09-24) — 남는 것은 '항목 추가'로 만든 빈 줄 하나뿐
+    const left = await ev(`[...document.querySelectorAll('.action-items input[aria-label="할 일"]')].map(i => i.value)`);
+    check(`${tag}: 내린 줄은 위 구역에서 빠진다`, JSON.stringify(left) === '[""]', JSON.stringify(left));
+    // 아래 하위 업무 줄에 사람 칩·기한 칩이 서고, 좁으면 두 줄 · 넓으면 한 줄
+    const shape = await ev(`[...document.querySelectorAll('.subtask-row')].map(r => {
       const kids=[...r.children].map(c => c.getBoundingClientRect()).filter(b => b.width>0);
       const band=(b)=>Math.round((b.top+b.bottom)/2/12);
-      const chip=r.querySelector('span.bg-tag-green');
-      return { lines: [...new Set(kids.map(band))].length, hasChip: !!chip,
-               chipBand: chip ? band(chip.getBoundingClientRect()) : -1,
-               firstBand: kids.length ? band(kids[0]) : -1 };
+      const bandOf=(el)=>el ? band(el.getBoundingClientRect()) : -1;
+      return { lines: [...new Set(kids.map(band))].length,
+               // 좁을 때 [체크][사람] … [🗑] / [할 일][기한] — 사람과 🗑이 같은 줄, 할 일은 다음 줄
+               ownerBand: bandOf(r.querySelector('button[aria-label$="완료"]')),
+               trashBand: bandOf(r.querySelector('button[aria-label$="삭제"]')),
+               inputBand: bandOf(r.querySelector('input')),
+               owner: [...r.querySelectorAll('button')].map(b => b.textContent.trim()).find(t => /노준석|엔지니어팀/.test(t)) || '',
+               due: r.querySelector('button[aria-label="기한"]')?.textContent.trim() || '' };
     })`);
-    const withChip = (shape || []).filter(r => r.hasChip);
-    check(`${tag}: 초록 표가 첫 줄에 같이 선다`,
-      withChip.length > 0 && withChip.every(r => r.chipBand === r.firstBand), JSON.stringify(shape));
+    check(`${tag}: 하위 업무 줄에 사람·기한이 같이 내려온다`,
+      (shape || []).length === 2 && shape.every(r => r.owner && r.due === '9월 26일'), JSON.stringify(shape));
     check(`${tag}: ${w < 768 ? '좁은 화면은 두 줄' : '넓은 화면은 한 줄'}`,
-      (shape || []).length > 0 && shape.every(r => r.lines === (w < 768 ? 2 : 1)),
-      JSON.stringify((shape || []).map(r => r.lines)));
+      (shape || []).length > 0 && shape.every(r => r.lines === (w < 768 ? 2 : 1)
+        && r.ownerBand === r.trashBand && (w < 768 ? r.inputBand !== r.ownerBand : r.inputBand === r.ownerBand)),
+      JSON.stringify(shape));
 
-    await ev(`[...document.querySelectorAll('.action-items button')].find(b => b.getAttribute('aria-label') === '기한')?.click()`);
-    await sleep(700);
+    // 달력은 **그 자리에서** 뜬다(2026-09-24 사용자 신고 "위에서 오고 다른 데서 온다") —
+    // 첫 프레임부터 버튼 왼쪽 아래에 서 있어야 한다. 되돌리기: DatePicker의 transition-none을 빼면
+    // 첫 프레임이 화면 왼쪽 위(8,8)에서 미끄러져 내려오고, align:'start'를 빼면 왼쪽이 버튼과 어긋난다.
+    const fly = await ev(`new Promise(async (done) => {
+      const t=document.querySelector('.subtask-row button[aria-label="기한"]');
+      t.scrollIntoView({ block: 'center' }); await new Promise(r => setTimeout(r, 300));
+      const tr=t.getBoundingClientRect();
+      t.click(); const fr=[];
+      for (let i=0;i<10;i++) { await new Promise(r => requestAnimationFrame(r));
+        const d=document.querySelector('[data-datepicker]'); if (!d) continue;
+        const r=d.getBoundingClientRect(); fr.push([Math.round(r.left), Math.round(r.top), Math.round(r.bottom), d.offsetWidth]); }
+      done({ tl: Math.round(tr.left), tt: Math.round(tr.top), tb: Math.round(tr.bottom), vw: innerWidth, fr });
+    })`, true);
+    const f0 = fly?.fr?.[0];
+    check(`${tag}: 달력이 첫 프레임부터 버튼 자리에서 뜬다`,
+      // 왼쪽 = 버튼 왼쪽 끝을 화면 안으로 가둔 값(폰에서 오른쪽 버튼이면 안쪽으로 당겨진다)
+      !!f0 && Math.abs(f0[0] - Math.min(Math.max(fly.tl, 8), fly.vw - f0[3] - 8)) <= 8
+        && (Math.abs(f0[1] - fly.tb) <= 12 || Math.abs(f0[2] - fly.tt) <= 12),
+      JSON.stringify(fly));
+    await sleep(400);
     const cal = await ev(`(() => {
       const d=document.querySelector('[data-datepicker]'); if(!d) return null;
       const r=d.getBoundingClientRect();
@@ -776,6 +805,15 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
     check(`${tag}: 날짜 달력이 열린다`, !!cal && cal.days > 20, JSON.stringify(cal));
     check(`${tag}: 날짜 달력이 화면 안에 들어온다`,
       !!cal && cal.l >= 0 && cal.rt <= cal.vw && cal.t >= 0 && cal.b <= cal.vh, JSON.stringify(cal));
+    if (w === 1440) {
+      await ev(clickText('저장')); await sleep(900);
+      const saved = await ev(`(() => { const t=JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId[${JSON.stringify(tid)}];
+        return { content: t.content, subs: (t.subtasks||[]).map(s => [s.title, s.assignee || '', s.due || '']) }; })()`);
+      check('저장하면 내린 줄은 본문 도막에서 지워진다',
+        !!saved && !/콘티 확정|영상 송출/.test(saved.content) && /주제를 예배자로/.test(saved.content), JSON.stringify(saved?.content));
+      check('저장된 하위 업무가 사람·기한을 들고 있다',
+        !!saved && saved.subs.length === 2 && saved.subs.every(s => s[1] && /^\d{4}-09-26$/.test(s[2])), JSON.stringify(saved?.subs));
+    }
   }
   // 체크칸은 **두 테마에서 다 우리 바탕**이다(라이트에서 검게 뜨던 자리 — accent-color만
   // 주면 켰을 때의 색만 바뀌고 꺼진 상자는 브라우저 기본 모양이 그대로 나온다)

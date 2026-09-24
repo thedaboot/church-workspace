@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -67,12 +67,16 @@ export function DatePicker({ value, onChange, children = null, triggerClassName 
   // 선택하는 것도 화면에 안 들어온다"). 예전에는 `absolute left-0 top-full`이라
   // 트리거가 오른쪽에 있으면 달력(약 260px)이 화면 밖으로 나갔고, 상자에 overflow가
   // 걸린 자리에서는 잘리기까지 했다. ConfirmPopover가 같은 문제를 이미 이렇게 풀었다.
-  const [pos] = useAnchoredPos(triggerRef, open, POP_W, POP_H, 8, popRef);
+  // 버튼 **왼쪽 끝**에서 연다 — 그 자리에서 뜨게(2026-09-24 사용자 신고 "위에서 오고 다른 데서 온다").
+  // 미끄러져 들어오던 것은 transition-none이 막는다(PITFALLS 17-b).
+  const [pos] = useAnchoredPos(triggerRef, open, POP_W, POP_H, 8, popRef, { align: 'start' });
 
   // 열 때마다 선택값(없으면 오늘) 기준으로 뷰 동기화.
   // **고른 값을 읽는 자와 같은 자로 읽어야 한다** — 연도 없는 모드에서 parseValue로
   // 읽었더니 늘 null이 되어 2월 13일인 사람의 칸을 열어도 이번 달이 떴다.
-  useEffect(() => {
+  // useLayoutEffect: 그리기 전에 달을 맞춘다 — 그린 뒤에 맞추면 5주↔6주로 높이가 바뀌어,
+  // 위로 뒤집혀 선 달력은 윗변이 한 번 더 움직였다.
+  useLayoutEffect(() => {
     if (!open) return;
     const base = (yearless ? parseMonthDay(value) : parseValue(value))
       || { y: Math.max(MIN_YEAR, Math.min(MAX_YEAR, today.getFullYear())), m: today.getMonth() };
@@ -128,10 +132,13 @@ export function DatePicker({ value, onChange, children = null, triggerClassName 
     setView({ y, m: y === today.getFullYear() ? today.getMonth() : 0 });
   };
 
+  // 커지는 기준점을 버튼 쪽 모서리에 둔다 — 가운데서 커지면 몇 px 옆에서 들어오는 것처럼 보인다.
+  // 위로 뒤집혀 섰으면 아래 모서리다.
+  const flipped = open && pos.top < (triggerRef.current?.getBoundingClientRect().top ?? 0);
   const pop = open ? createPortal(
     <div ref={popRef} data-datepicker="" role="dialog" aria-label={ariaLabel}
-      style={{ position: 'fixed', left: pos.left, top: pos.top }}
-      className="z-[90] w-max bg-surface border border-line rounded-lg shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150">
+      style={{ position: 'fixed', left: pos.left, top: pos.top, transformOrigin: flipped ? 'bottom left' : 'top left' }}
+      className="z-[90] w-max bg-surface border border-line rounded-lg shadow-elevated p-3 transition-none animate-in fade-in zoom-in-95 duration-150">
 
           <div className="flex items-center justify-between mb-2">
             <button type="button" onClick={goPrev} disabled={!canPrev} className={`p-1 rounded-md text-fg-muted transition active:scale-95 ${canPrev ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`}><ChevronLeft size={16} /></button>

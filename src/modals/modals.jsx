@@ -256,6 +256,8 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         onSubtasksChange={(next) => onSave({ ...formData, subtasks: next })}
         // 본문 체크리스트도 같은 길 — 보기 모드에서 바로 눌리고 content만 바뀐다
         onTodoToggle={(idx) => onSave({ ...formData, content: toggleTodoLine(formData.content, idx) })}
+        // 담당 업무를 내릴 때 — 하위 업무와 본문 도막이 한 번에 바뀐다(저장도 한 번)
+        onPatch={(patch) => onSave({ ...formData, ...patch })}
         />;
   const commentsPanel = listsReady
     /* members: 답글 입력창도 댓글 입력창과 같은 @멘션 자동완성을 쓴다 */
@@ -520,18 +522,6 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
   );
 };
 
-// ── 청년별 담당 업무 (2026-09-21 사용자 요청) ─────────────────────────────
-// 다듬기가 회의록에서 "누가 · 무엇을 · 언제까지"를 뽑아 두는데, 그게 본문 글자로만
-// 남아서 손으로 하위 업무를 만들지 않으면 그대로 사라졌다. 여기서 그 줄을 세우고
-// **아직 업무가 아닌 것만** 고를 수 있게 한다.
-//
-// **저장 자리를 늘리지 않는다** — 항목은 본문에서 매번 읽고(services/actionItems.js),
-// '업무가 되었나'는 하위 업무 제목으로 견준다. 회의록이 아닌 카드에서는 도막이 없어
-// 빈 배열이 나오고 이 구역은 아예 그려지지 않는다.
-//
-// 만들 때 **이름·날짜는 하위 업무에 안 실린다** — cards.subtasks는 {id,title,done}뿐이다
-// (0013 이후 그 모양이다). 이름과 기한은 본문 그 줄에 그대로 남아 있으니 잃는 것은 없고,
-// 제목만 옮겨야 다음에 열었을 때 같은 줄을 다시 찾는다(matchSubtask가 제목으로 견준다).
 // ── 맡는 사람 고르기 ────────────────────────────────────────────────────────
 // 담당자 칸(AssigneePicker)과 달리 **한 줄 안에 들어가야** 해서 칩 하나를 누르면
 // 목록이 뜨는 모양이다. 목록에 없는 이름은 넣지 않는다(그쪽과 같은 규칙) — 다만
@@ -562,7 +552,7 @@ function OwnerPicker({ names = [], members = [], onChange }) {
 
   const pop = open ? createPortal(
     <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: 210 }}
-      className="z-[90] max-h-60 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150">
+      className="z-[90] max-h-60 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none animate-in fade-in zoom-in-95 duration-150">
       {list.map(n => (
         <button key={n} type="button" onClick={() => toggle(n)}
           className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left text-[12.5px] transition-colors ${names.includes(n) ? 'bg-accent-weak text-accent-text font-semibold' : 'text-fg-muted hover:bg-surface-hover'}`}>
@@ -606,9 +596,15 @@ function OwnerPicker({ names = [], members = [], onChange }) {
 // 그래서 **여기서 줄을 들고 있고**, 바깥 글이 정말 달라졌을 때만 다시 읽는다.
 //
 // 줄 짜임(사용자 요청 "데스크톱·모바일 모두 잘 들어와야 한다"):
-//   좁은 화면 → 첫 줄 [체크][사람] … [표][✕] · 둘째 줄 [할 일][날짜]
-//   넓은 화면 → 한 줄 [체크][사람][할 일][날짜][표][✕]
+//   좁은 화면 → 첫 줄 [체크][사람] … [✕] · 둘째 줄 [할 일][날짜]
+//   넓은 화면 → 한 줄 [체크][사람][할 일][날짜][✕]
 // order와 basis로 가른다 — 같은 마크업 한 벌이라 두 폭이 어긋날 자리가 없다.
+//
+// **내린 줄은 여기 없다**(2026-09-24 그릴링 — "체크해서 내린 것만 하위에 쌓이고, 위에는
+// 안 내린 것만"). '하위 업무로'는 그 줄을 **본문 도막에서 지우고** cards.subtasks로 옮긴다
+// (onCreate(만든 것, 남은 줄)). 그 뒤로 사람·기한은 아래 SubtaskList가 고친다 — 본문에
+// 옛 이름이 남아 AI 요약이 그걸 읽는 일이 없게. 다듬기를 다시 돌려 같은 제목이 또
+// 뽑히면 matchSubtask로 거른다(그 줄도 다음에 내릴 때 같이 걷힌다).
 function ActionItems({ items = [], subtasks = [], members = [], editable = false, onChange, onCreate }) {
   const [rows, setRows] = useState(items);
   // 내가 적어 보낸 것이 그대로 돌아왔으면 그냥 둔다(빈 줄이 살아남는다).
@@ -626,7 +622,7 @@ function ActionItems({ items = [], subtasks = [], members = [], editable = false
   const keyOf = (it, i) => it.raw || `row-${i}`;
   const picked = pending.filter((it, i) => String(it?.what || '').trim() && !off.has(keyOf(it, i)));
 
-  if (!shown.length) return null;
+  if (!pending.length) return null;
 
   const push = (next) => { setRows(next); onChange?.(next); };
   const toggle = (k) => setOff(prev => {
@@ -639,12 +635,15 @@ function ActionItems({ items = [], subtasks = [], members = [], editable = false
   const addRow = () => push([...shown, { names: [], name: '', what: '', dueText: '', dueDate: '', raw: `새 줄 ${Date.now()}` }]);
   const make = () => {
     if (!picked.length) return;
+    // 남는 줄 = 안 고른 것 중 아직 업무가 아닌 것(이미 하위 업무인 줄도 이참에 걷는다)
+    const rest = shown.filter(it => !picked.includes(it) && !matchSubtask(it, subtasks));
     onCreate?.(picked.map(it => ({
       id: generateId(), title: it.what, done: false,
       // 이름·기한을 같이 옮긴다(2026-09-22) — 없는 줄은 그냥 비어 있다
       ...(it.names?.length ? { assignee: it.names.join(', ') } : {}),
       ...(it.dueDate ? { due: it.dueDate } : {}),
-    })));
+    })), rest);
+    setRows(rest);
     setOff(new Set());
   };
 
@@ -660,20 +659,19 @@ function ActionItems({ items = [], subtasks = [], members = [], editable = false
       </div>
       <div className="divide-y divide-line/60 border-y border-line">
         {shown.map((it, i) => {
-          const made = matchSubtask(it, subtasks);
+          // 내린 줄은 그리지 않는다 — i는 shown의 자리 그대로라 setAt·removeAt이 안 어긋난다
+          if (matchSubtask(it, subtasks)) return null;
           const k = keyOf(it, i);
-          const on = !made && !!String(it?.what || '').trim() && !off.has(k);
+          const on = !!String(it?.what || '').trim() && !off.has(k);
           return (
             <div key={k} className="flex flex-wrap items-center gap-2 py-2">
 
               {/* ① 체크 + 맡는 사람 — 두 폭 모두 맨 앞 */}
               <span className="order-1 flex items-center gap-2 min-w-0">
-                {!made && (
-                  <input type="checkbox" checked={on} onChange={() => toggle(k)}
-                    disabled={!String(it?.what || '').trim()}
-                    aria-label={`${it.what || '이 줄'} 고르기`}
-                    className="action-check shrink-0 disabled:opacity-40" />
-                )}
+                <input type="checkbox" checked={on} onChange={() => toggle(k)}
+                  disabled={!String(it?.what || '').trim()}
+                  aria-label={`${it.what || '이 줄'} 고르기`}
+                  className="action-check shrink-0 disabled:opacity-40" />
                 {editable ? (
                   <OwnerPicker names={it.names || []} members={members}
                     onChange={(names) => setAt(i, { names, name: names[0] || '' })} />
@@ -689,13 +687,8 @@ function ActionItems({ items = [], subtasks = [], members = [], editable = false
                 ) : null)}
               </span>
 
-              {/* ③ 표·지우기 — 좁을 때는 첫 줄 오른쪽 끝, 넓을 때는 줄의 맨 끝 */}
+              {/* ③ 지우기 — 좁을 때는 첫 줄 오른쪽 끝, 넓을 때는 줄의 맨 끝 */}
               <span className="order-2 sm:order-3 ml-auto sm:ml-0 flex items-center gap-1 shrink-0">
-                {made && (
-                  <span className="inline-flex items-center gap-1 h-[26px] px-2.5 rounded-md bg-tag-green text-tag-green-fg text-[11px] font-semibold whitespace-nowrap">
-                    <Check size={12} strokeWidth={3} />하위 업무
-                  </span>
-                )}
                 {editable && (
                   <button type="button" onClick={() => removeAt(i)} aria-label="이 줄 지우기"
                     className="p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95">
@@ -752,7 +745,17 @@ function ActionItems({ items = [], subtasks = [], members = [], editable = false
 // cards.subtasks(jsonb) 컬럼 하나로 둔다 — 카드와 언제나 같이 읽고 쓰므로 조인
 // 테이블이 필요 없고, 컬럼 통째 쓰기라 저장이 겹쳐도 깨지지 않는다(0013에서
 // 담당자를 조인으로 옮겼다가 겹친 저장이 duplicate key로 깨졌던 것과 반대 성질).
-function SubtaskList({ value = [], onChange, readOnly = false }) {
+//
+// 맡은 사람·기한(2026-09-24 그릴링): 담당 업무에서 내려온 줄은 이 둘을 들고 온다. 내린 뒤로는
+// **여기가 기준이다** — 수정 모드에서 위와 같은 OwnerPicker·DatePicker로 고친다(모든 카드).
+// assignee는 `'노준석, 박지호'` 글자로 둔다(0013 이후 jsonb 모양 그대로 — 칸을 늘리지 않았다).
+// 줄 짜임은 ActionItems와 같은 order/basis 한 벌이다:
+//   좁은 화면 → 첫 줄 [체크][사람] … [기한 또는 🗑] · 둘째 줄 [할 일](수정이면 [할 일][기한])
+//   넓은 화면 → 한 줄 [체크][사람][할 일][기한][🗑]
+// 보기 모드에서 사람이 없는 줄은 둘째 줄로 내릴 까닭이 없어 한 줄이다.
+const ownersOf = (s) => String(s?.assignee || '').split(',').map(x => x.trim()).filter(Boolean);
+
+function SubtaskList({ value = [], onChange, readOnly = false, members = [] }) {
   const [draft, setDraft] = useState('');
   const { total, done } = subtaskProgress(value);
 
@@ -764,6 +767,12 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
   };
   const toggle = (id) => onChange(value.map(s => (s.id === id ? { ...s, done: !s.done } : s)));
   const rename = (id, title) => onChange(value.map(s => (s.id === id ? { ...s, title } : s)));
+  // 비우면 키를 뺀다 — 손으로 더한 줄과 같은 모양({id,title,done})으로 돌아간다
+  const patch = (id, key, v) => onChange(value.map(s => {
+    if (s.id !== id) return s;
+    const { [key]: _drop, ...rest } = s;
+    return v ? { ...rest, [key]: v } : rest;
+  }));
   // 빈 이름으로 남은 줄은 저장할 때 걸러낸다(입력 중 잠깐 비는 것은 막지 않는다)
   const remove = (id) => onChange(value.filter(s => s.id !== id));
 
@@ -780,67 +789,93 @@ function SubtaskList({ value = [], onChange, readOnly = false }) {
         <span className="flex-1 min-w-[40px]"><Bar ratio={total ? done / total : 0} color="var(--p-blue)" height={3} /></span>
       </div>
       <div className="divide-y divide-line/60 border-y border-line">
-        {value.map(s => (
-          <div key={s.id} className="flex items-center gap-2.5 py-2">
-            {/* 보기 모드에서도 체크는 눌린다 — 하위 업무를 끝낼 때마다 수정 모드로
-                들어갔다 나오게 하면 아무도 쓰지 않는다 */}
-            <button
-              type="button" onClick={() => toggle(s.id)}
-              className="w-[18px] h-[18px] rounded-[5px] shrink-0 flex items-center justify-center transition-colors"
-              style={s.done
-                ? { background: 'var(--app-tag-green-fg)' }
-                : { border: '1.5px solid var(--app-line)' }}
-              aria-pressed={s.done} aria-label={`${s.title} ${s.done ? '완료 취소' : '완료'}`}
-            >
-              {s.done && <Check size={11} strokeWidth={3} className="text-white" />}
-            </button>
-            {/* 수정 모드에서는 언제나 입력칸이다 — '눌러서 고치기'로 감추면 고칠 수
-                있다는 것 자체가 안 보인다. 삭제 버튼도 hover로 숨기지 않는다
-                (터치 기기에는 hover가 없다). */}
-            {/* 맡은 사람 — '청년별 담당 업무'에서 만든 줄에는 이름이 실려 온다(2026-09-22).
-                손으로 더한 줄에는 없고, 그때는 자리도 안 잡는다. 여럿이면 얼굴이 겹쳐 선다. */}
-            {s.assignee && (
-              <span className="shrink-0 flex items-center">
-                {String(s.assignee).split(',').map(x => x.trim()).filter(Boolean).slice(0, 3).map((n, i) => (
-                  <Avatar key={n} name={n} title={String(s.assignee)}
-                    className={`flex w-[21px] h-[21px] text-[10px] ${i ? '-ml-1.5 ring-[1.5px] ring-surface' : ''}`} />
-                ))}
-              </span>
-            )}
-            {readOnly ? (
-              <span className={`flex-1 min-w-0 text-[13px] break-words ${s.done ? 'text-fg-faint line-through' : 'text-fg'}`}>{s.title}</span>
-            ) : (
-              <input
-                value={s.title}
-                onChange={e => rename(s.id, e.target.value)}
-                placeholder="예: 포스터 시안 만들기"
-                className={`flex-1 min-w-0 text-[13px] bg-transparent border border-transparent rounded-xs px-1.5 py-1 outline-none transition-colors hover:border-line focus:border-accent focus:bg-surface ${s.done ? 'text-fg-faint line-through' : 'text-fg'} placeholder:text-fg-faint`}
-              />
-            )}
-            {/* 기한도 같이 내려온다. `formatDate`가 우리 표기를 정한다(한 벌이다). */}
-            {s.due && (
-              <span className={`shrink-0 text-[11px] tabular-nums whitespace-nowrap ${s.done ? 'text-fg-faint' : 'text-fg-muted'}`}>
-                {formatDay(s.due)}까지
-              </span>
-            )}
-            {/* 한 번 누르면 바로 지워졌다 — 체크박스 옆 작은 휴지통이라 잘못 누르기 쉽고,
-                하위 업무는 실행 취소가 없다(클라우드 모드에서는 Undo를 감춘다).
-                삭제 확인은 §7대로 ConfirmPopover로 통일한다. */}
-            {!readOnly && (
-              <ConfirmPopover
-                className="shrink-0 inline-flex"
-                title="이 하위 업무 삭제"
-                message={s.title.trim() ? `'${s.title.trim()}'을(를) 삭제할까요?` : '이 하위 업무를 삭제할까요?'}
-                onConfirm={() => remove(s.id)}
-              >
-                <button type="button" aria-label={`${s.title || '이름 없는 하위 업무'} 삭제`}
-                  className="p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors">
-                  <Trash2 size={13} />
+        {value.map(s => {
+          const owners = ownersOf(s);
+          // 좁은 화면에서 할 일을 둘째 줄로 내리나 — 수정 모드이거나 사람이 있을 때
+          const twoLine = !readOnly || owners.length > 0;
+          const due = s.due && (
+            <span className={`shrink-0 text-[11px] tabular-nums whitespace-nowrap ${s.done ? 'text-fg-faint' : 'text-fg-muted'}`}>
+              {formatDay(s.due)}까지
+            </span>
+          );
+          return (
+            <div key={s.id} className="subtask-row flex flex-wrap items-center gap-2 py-2">
+
+              {/* ① 체크 + 맡은 사람 — 두 폭 모두 맨 앞 */}
+              <span className="order-1 flex items-center gap-2 min-w-0">
+                {/* 보기 모드에서도 체크는 눌린다 — 하위 업무를 끝낼 때마다 수정 모드로
+                    들어갔다 나오게 하면 아무도 쓰지 않는다 */}
+                <button
+                  type="button" onClick={() => toggle(s.id)}
+                  className="w-[18px] h-[18px] rounded-[5px] shrink-0 flex items-center justify-center transition-colors"
+                  style={s.done
+                    ? { background: 'var(--app-tag-green-fg)' }
+                    : { border: '1.5px solid var(--app-line)' }}
+                  aria-pressed={s.done} aria-label={`${s.title} ${s.done ? '완료 취소' : '완료'}`}
+                >
+                  {s.done && <Check size={11} strokeWidth={3} className="text-white" />}
                 </button>
-              </ConfirmPopover>
-            )}
-          </div>
-        ))}
+                {readOnly ? (owners.length > 0 && (
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <span className="flex items-center shrink-0">
+                      {owners.slice(0, 3).map((n, i) => (
+                        <Avatar key={n} name={n} className={`flex w-[21px] h-[21px] text-[10px] ${i ? '-ml-1.5 ring-[1.5px] ring-surface' : ''}`} />
+                      ))}
+                    </span>
+                    <span className={`text-xs font-semibold truncate ${s.done ? 'text-fg-faint' : 'text-fg'}`}>{namesLabel(owners)}</span>
+                  </span>
+                )) : (
+                  <OwnerPicker names={owners} members={members}
+                    onChange={(names) => patch(s.id, 'assignee', names.join(', '))} />
+                )}
+              </span>
+
+              {/* ③ 기한(보기) · 지우기(수정) — 좁을 때는 첫 줄 오른쪽 끝, 넓을 때는 줄의 맨 끝 */}
+              <span className={`${twoLine ? 'order-2' : 'order-3'} sm:order-3 ml-auto sm:ml-0 flex items-center gap-1 shrink-0`}>
+                {readOnly && due}
+                {/* 한 번 누르면 바로 지워졌다 — 체크박스 옆 작은 휴지통이라 잘못 누르기 쉽고,
+                    하위 업무는 실행 취소가 없다(클라우드 모드에서는 Undo를 감춘다).
+                    삭제 확인은 §7대로 ConfirmPopover로 통일한다. */}
+                {!readOnly && (
+                  <ConfirmPopover
+                    className="shrink-0 inline-flex"
+                    title="이 하위 업무 삭제"
+                    message={s.title.trim() ? `'${s.title.trim()}'을(를) 삭제할까요?` : '이 하위 업무를 삭제할까요?'}
+                    onConfirm={() => remove(s.id)}
+                  >
+                    <button type="button" aria-label={`${s.title || '이름 없는 하위 업무'} 삭제`}
+                      className="p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors">
+                      <Trash2 size={13} />
+                    </button>
+                  </ConfirmPopover>
+                )}
+              </span>
+
+              {/* ② 할 일 (+ 수정이면 기한 칩) — 좁을 때는 둘째 줄을 체크 폭만큼 들여서, 넓을 때는 가운데 */}
+              <span className={`${twoLine ? 'order-3 basis-full pl-[26px]' : 'order-2 flex-1'} sm:order-2 sm:basis-auto sm:flex-1 sm:pl-0 flex items-center gap-2 min-w-0`}>
+                {/* 수정 모드에서는 언제나 입력칸이다 — '눌러서 고치기'로 감추면 고칠 수
+                    있다는 것 자체가 안 보인다. 삭제 버튼도 hover로 숨기지 않는다
+                    (터치 기기에는 hover가 없다). */}
+                {readOnly ? (
+                  <span className={`flex-1 min-w-0 text-[13px] break-words ${s.done ? 'text-fg-faint line-through' : 'text-fg'}`}>{s.title}</span>
+                ) : (
+                  <input
+                    value={s.title}
+                    onChange={e => rename(s.id, e.target.value)}
+                    placeholder="예: 포스터 시안 만들기"
+                    className={`flex-1 min-w-0 text-[13px] bg-transparent border border-transparent rounded-xs px-1.5 py-1 outline-none transition-colors hover:border-line focus:border-accent focus:bg-surface ${s.done ? 'text-fg-faint line-through' : 'text-fg'} placeholder:text-fg-faint`}
+                  />
+                )}
+                {!readOnly && (
+                  <DatePicker value={s.due || ''} onChange={(v) => patch(s.id, 'due', v)} ariaLabel="기한"
+                    triggerClassName={`shrink-0 inline-flex items-center gap-1 h-[30px] px-2.5 text-[11.5px] text-fg-muted bg-surface border border-line rounded-md hover:bg-surface-hover transition-colors whitespace-nowrap ${s.due ? '' : 'border-dashed'}`}>
+                    <span>{s.due ? formatDay(s.due) : '기한'}</span>
+                  </DatePicker>
+                )}
+              </span>
+            </div>
+          );
+        })}
         {/* readOnly + 항목 0개는 위에서 이미 return null이라 여기 오지 않는다 */}
         {!total && (
           <p className="py-2.5 text-[11px] text-fg-faint">업무를 여러 개로 나누면 하나씩 체크할 수 있어요</p>
@@ -974,12 +1009,18 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
           onChange={(next) => setFormData(prev => ({
             ...prev, content: writeActionSection(stripActionSection(prev.content), next),
           }))}
-          onCreate={made => setFormData(prev => ({ ...prev, subtasks: [...(prev.subtasks || []), ...made] }))}
+          // 내린 줄은 본문 도막에서 빠진다 — 남은 줄만 도로 적는다
+          onCreate={(made, rest) => setFormData(prev => ({
+            ...prev,
+            subtasks: [...(prev.subtasks || []), ...made],
+            content: writeActionSection(stripActionSection(prev.content), rest),
+          }))}
         />
       </div>
 
       <SubtaskList
         value={formData.subtasks || []}
+        members={members}
         onChange={(next) => setFormData(prev => ({ ...prev, subtasks: next }))}
       />
 
@@ -992,7 +1033,7 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
   );
 });
 
-const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange, onTodoToggle }) => {
+const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileActivity, onSubtasksChange, onTodoToggle, onPatch }) => {
   const [summary, setSummary] = useState('');      // 이번에 AI가 만든 것(고정 전)
   const [revealed, setRevealed] = useState(false); // 고정된 요약을 펼쳤는지
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -1174,7 +1215,10 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
       {/* 회의록이면 다듬기가 뽑아 둔 담당 업무 줄이 여기 선다 — 하위 업무 **바로 위**다.
           만들면 아래 목록으로 내려가므로 두 구역이 이어서 읽힌다. */}
       <ActionItems items={parseActionItems(formData.content)} subtasks={formData.subtasks || []}
-        onCreate={made => onSubtasksChange([...(formData.subtasks || []), ...made])} />
+        onCreate={(made, rest) => onPatch({
+          subtasks: [...(formData.subtasks || []), ...made],
+          content: writeActionSection(stripActionSection(formData.content), rest),
+        })} />
 
       <SubtaskList value={formData.subtasks || []} onChange={onSubtasksChange} readOnly />
 

@@ -658,7 +658,7 @@ function Toolbar({
           {linkOpen && (
             <div
               style={{ position: 'fixed', left: linkPos.left, top: linkPos.top, width: 256 }}
-              className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-2.5 animate-in fade-in zoom-in-95 duration-150"
+              className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-2.5 transition-none animate-in fade-in zoom-in-95 duration-150"
             >
               {/* 무엇에 링크가 걸리는지 먼저 말한다 — 고른 것이 없으면 주소가 그대로 글자가
                   된다는 것도 알려 준다(예전에는 눌러 봐야 알았다) */}
