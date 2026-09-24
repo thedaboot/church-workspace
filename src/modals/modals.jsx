@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckSquare, Clock, X, User, Hash, Wand2, Undo2, CalendarRange, Trash2, Check, Pin, ArrowLeftRight, Maximize2, Minimize2, PanelRight, PanelRightClose } from 'lucide-react';
 import { CONFIG } from '../config.js';
@@ -443,6 +443,7 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
   const [open, setOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
   const rootRef = useRef(null);
+  const popRef = useRef(null);   // 포털로 나간 목록(또는 '없는 이름' 줄) — 바깥 누름 판정에 같이 넣는다
 
   const suggestions = useMemo(() => {
     const q = input.trim().toLowerCase();
@@ -453,9 +454,20 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
     return q ? uniq.filter(m => m.toLowerCase().includes(q)) : uniq;
   }, [input, members, value]);
 
+  // 목록은 **body 포털**이다(HANDOFF §8 '떠 있는 것') — 업무 창은 overflow 있는 상자라
+  // absolute 목록이 잘리거나 좁은 폭에서 화면 밖으로 나갔다. 칸 상자의 왼쪽 끝에서 연다.
+  const listOpen = open && (suggestions.length > 0 || !!input.trim());
+  const [pos, place] = useAnchoredPos(rootRef, listOpen, 160, 200, 8, popRef, { align: 'start' });
+  // 거르면 줄 수가 바뀐다 — 위로 뒤집혀 선 목록이 칸에서 떨어져 뜨지 않게 다시 잰다
+  useLayoutEffect(() => { if (listOpen) place(); }, [listOpen, suggestions.length, place]);
+
   useEffect(() => {
     if (!open) return;
-    const onDown = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false); };
+    // 목록이 포털이라 rootRef의 자손이 아니다 — **목록도 '안'으로 센다**(useDismiss 머리말과 같은 이유)
+    const onDown = (e) => {
+      if (rootRef.current?.contains(e.target) || popRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
@@ -499,13 +511,14 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
       </div>
       {/* 찾는 이름이 목록에 없을 때 — 왜 안 들어가는지 알려준다.
           아무 안내 없이 Enter가 먹히지 않으면 입력이 씹힌 것처럼 보인다. */}
-      {open && input.trim() && suggestions.length === 0 && (
-        <p className="absolute left-0 top-full z-50 mt-1 px-2.5 py-2 text-[11px] text-fg-muted bg-surface border border-line rounded-lg shadow-elevated">
+      {open && input.trim() && suggestions.length === 0 && createPortal(
+        <p ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
+          className="z-[90] px-2.5 py-2 text-[11px] text-fg-muted bg-surface border border-line rounded-lg shadow-elevated">
           등록된 멤버에 없는 이름이에요
-        </p>
-      )}
-      {open && suggestions.length > 0 && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-max min-w-[10rem] max-w-[min(18rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150">
+        </p>, document.body)}
+      {open && suggestions.length > 0 && createPortal(
+        <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
+          className="z-[90] w-max min-w-[10rem] max-w-[min(18rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none animate-in fade-in zoom-in-95 duration-150">
           {suggestions.map((name, i) => (
             <button key={name} type="button" onMouseDown={e => { e.preventDefault(); add(name); }}
               // 방향키로 목록 밖까지 내려가도 활성 항목이 보이게
@@ -516,8 +529,7 @@ const AssigneePicker = ({ value = [], onChange, members = [] }) => {
               <span className="truncate">{name}</span>
             </button>
           ))}
-        </div>
-      )}
+        </div>, document.body)}
     </div>
   );
 };

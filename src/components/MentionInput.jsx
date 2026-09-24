@@ -1,5 +1,7 @@
-import { useState, useRef, useMemo, useCallback } from 'react';
+import { useState, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { keepVisible } from '../utils.js';
+import { useAnchoredPos } from './ConfirmPopover.jsx';
 
 // ============================================================================
 // @멘션 자동완성 입력 (textarea / input 공용)
@@ -11,12 +13,19 @@ import { keepVisible } from '../utils.js';
 // - members: 표시명 문자열 배열
 // - dropUp: 팝오버를 입력창 위로(댓글 입력처럼 화면 하단일 때)
 // - elementRef: 실제 textarea/input DOM 참조를 부모로 넘김(본문 이미지 붙여넣기 등)
+// - 목록은 **body 포털 + useAnchoredPos**다(HANDOFF §8 '떠 있는 것') — 예전의 absolute는
+//   좁은 화면에서 옆으로 나가거나 overflow 있는 상자(업무 창 사이드바)에 잘릴 수 있었다.
+//   dropUp은 prefer:'above'(위가 모자라면 아래로). `max-h-48` 클래스는 검사가 목록을 찾는
+//   열쇠라 그대로 둔다(tests/navsmoke). 이 목록은 바깥 누름으로 닫지 않고 blur로 닫힌다 —
+//   항목은 mousedown에서 preventDefault로 포커스를 지키므로 포털이어도 그대로다.
 // ============================================================================
 export function MentionInput({
   as = 'textarea', value, onChange, members = [], className = '',
   onKeyDown, onPaste, dropUp = false, elementRef, ...rest
 }) {
   const innerRef = useRef(null);
+  const wrapRef = useRef(null);
+  const popRef = useRef(null);
   const [mention, setMention] = useState(null); // { query, start }
   const [activeIdx, setActiveIdx] = useState(0);
 
@@ -39,6 +48,11 @@ export function MentionInput({
   }, [mention, members]);
 
   const showPopover = !!mention && filtered.length > 0;
+  const [pos, place] = useAnchoredPos(wrapRef, showPopover, 144, 192, 8, popRef,
+    { align: 'start', ...(dropUp ? { prefer: 'above' } : {}) });
+  // 글자를 칠수록 목록이 줄어든다 — 위로 선 목록은 높이가 바뀌면 칸에서 떨어져 뜨므로
+  // 줄 수가 바뀔 때마다 다시 잰다(아래로 선 목록은 윗변이 그대로라 달라지지 않는다).
+  useLayoutEffect(() => { if (showPopover) place(); }, [showPopover, filtered.length, place]);
 
   const detectMention = (text, caret) => {
     const before = text.slice(0, caret);
@@ -79,7 +93,7 @@ export function MentionInput({
   const Tag = as === 'input' ? 'input' : 'textarea';
 
   return (
-    <div className="relative">
+    <div className="relative" ref={wrapRef}>
       <Tag
         ref={setRef}
         value={value}
@@ -91,8 +105,9 @@ export function MentionInput({
         className={className}
         {...rest}
       />
-      {showPopover && (
-        <div className={`absolute left-0 z-50 w-max min-w-[9rem] max-w-[min(16rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150 ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+      {showPopover && createPortal(
+        <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
+          className="z-[90] w-max min-w-[9rem] max-w-[min(16rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none animate-in fade-in zoom-in-95 duration-150">
           {filtered.map((name, i) => (
             <button
               key={name} type="button"
@@ -106,8 +121,7 @@ export function MentionInput({
               <span className="truncate">{name}</span>
             </button>
           ))}
-        </div>
-      )}
+        </div>, document.body)}
     </div>
   );
 }

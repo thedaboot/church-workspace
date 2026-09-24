@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, ChevronDown, Bookmark, Search, X, Highlighter, Eraser } from 'lucide-react';
 import { loadBibleIndex, loadBook, forEachPool, warmBooks, POOL } from '../services/bible.js';
 import { parseRef } from '../services/bibleRef.js';
@@ -15,6 +16,7 @@ import { failText } from '../services/errorText.js';
 import { SectionHead, Card, prefersReducedMotion } from '../views/dashboardParts.jsx';
 import { SearchHint } from './layout.jsx';
 import { Skeleton } from './media.jsx';
+import { useAnchoredPos } from './ConfirmPopover.jsx';
 
 // ============================================================================
 // 성경 읽기 — 목차 · 리더 · 본문 검색 · 북마크 · 형광펜 · 이어읽기 (docs/V2.md 결정 12)
@@ -540,6 +542,8 @@ export function BibleTab({ initialRef = '' }) {
   // 최근 검색어 줄은 **검색어를 비운 채 칸에 들어왔을 때** 선다(0065)
   const [focused, setFocused] = useState(false);
   const inputRef = useRef(null);
+  const searchFormRef = useRef(null);
+  const recentRef = useRef(null);
   // **bible_state가 도착한 뒤에만 검색어를 남긴다.** 검색 칸은 첫 진입 순간부터 눌리는데,
   // 아직 안 읽어 온 상태로 update를 부르면 빈 북마크·형광펜이 그대로 서버에 덮인다
   // (북마크·형광펜 버튼은 장을 펼쳐야 눌려서 이 위험이 검색 칸에만 있다). 그 짧은 사이에
@@ -822,6 +826,13 @@ export function BibleTab({ initialRef = '' }) {
   // 최근 검색어 판이 서는 조건 — **검색 칸 안 안내 문구의 회전도 이 값이 멈춘다**(아래
   // SearchHint). 두 자리가 같은 값을 봐야 판이 열린 순간과 문구가 멎는 순간이 어긋나지 않는다.
   const recentOpen = focused && !typed && recent.length > 0;
+  // 최근 검색어 판은 **body 포털**이다(HANDOFF §8 '떠 있는 것') — 폭은 검색 칸에서 잰다.
+  // 바깥 누름으로 닫는 훅이 없다: 칸의 blur가 닫고, 판의 mousedown preventDefault가 포커스를
+  // 지켜서 포털이어도 판 안을 누르는 동안은 열려 있다.
+  const [recentPos, placeRecent] = useAnchoredPos(searchFormRef, recentOpen, 320, 288, 8, recentRef,
+    { matchWidth: true, align: 'start' });
+  // 한 줄을 지우면 판이 줄어든다 — 위로 뒤집혀 선 판이 칸에서 떨어져 뜨지 않게 다시 잰다
+  useLayoutEffect(() => { if (recentOpen) placeRecent(); }, [recentOpen, recent.length, placeRecent]);
 
   // 북마크·형광펜 — 책으로 묶어 정경 순으로. 파싱이 안 되는 옛 값은 그룹에 못 들어가므로
   // 개수는 실제로 그린 줄로 센다
@@ -845,7 +856,7 @@ export function BibleTab({ initialRef = '' }) {
     <div className="min-w-0">
       {/* 검색 · 글자 크기 — 목차에서도 리더에서도 같은 자리 */}
       <div data-col="searchbar" className="flex items-center gap-2 pb-2.5">
-        <form
+        <form ref={searchFormRef}
           onSubmit={e => { e.preventDefault(); runSearch(typed); }}
           className="relative flex-1 min-w-0 flex items-center gap-1.5 px-2.5 h-9 rounded-md"
           style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}
@@ -877,10 +888,11 @@ export function BibleTab({ initialRef = '' }) {
               **onMouseDown의 preventDefault가 이 판을 쓸 수 있게 만든다** — 없으면 칸이
               먼저 포커스를 잃어 판이 사라지고 클릭이 허공에 떨어진다(누르는 순간 사라지는
               목록이 된다). 터치에서도 브라우저가 click 앞에 mousedown을 보내므로 같다. */}
-          {recentOpen && (
+          {recentOpen && createPortal(
             <div
-              data-recent="" onMouseDown={e => e.preventDefault()}
-              className="absolute left-0 top-full z-50 mt-1 w-full max-h-72 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 animate-in fade-in zoom-in-95 duration-150"
+              ref={recentRef} data-recent="" onMouseDown={e => e.preventDefault()}
+              style={{ position: 'fixed', left: recentPos.left, top: recentPos.top, width: recentPos.width }}
+              className="z-[90] max-h-72 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150"
             >
               <p className="px-2 pt-0.5 pb-1 text-[11px] font-bold text-fg-faint">최근 검색어</p>
               {recent.map(r => (
@@ -896,8 +908,7 @@ export function BibleTab({ initialRef = '' }) {
                   </button>
                 </span>
               ))}
-            </div>
-          )}
+            </div>, document.body)}
         </form>
         <FontSteps step={step} onChange={n => { setStep(n); saveFontStep(n); }} />
       </div>

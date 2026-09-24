@@ -1905,13 +1905,19 @@ check('찬양 편집 머리에 고정 팀명과 인도자 칸이 있다(팀 이�
 
 await ev(typeIn('.worship-praise-edit input[aria-label="이름"]', '김승'));
 await sleep(400);
-const praiseSugg = await ev(`(() => ({
-  n: document.querySelectorAll('.worship-praise-edit .worship-person-list button').length,
-  first: document.querySelector('.worship-praise-edit .worship-person-list button')?.innerText.trim() || '',
-}))()`);
+// 목록은 body 포털이다(PersonNameInput · HANDOFF §8) — 인도자 칸 안이 아니라 **문서에서** 찾되,
+// 인도자 칸의 왼쪽 끝에 붙어 선 판을 고른다(다른 칸의 목록이 열려 있어도 헷갈리지 않게).
+const PRAISE_LIST = `(() => { const f = document.querySelector('.worship-praise-edit .worship-person');
+  if (!f) return null; const x = f.getBoundingClientRect().left;
+  return [...document.querySelectorAll('.worship-person-list')].find(l => Math.abs(l.getBoundingClientRect().left - x) < 2) || null; })()`;
+const praiseSugg = await ev(`(() => { const l = ${PRAISE_LIST}; return {
+  n: l ? l.querySelectorAll('button').length : 0,
+  first: l?.querySelector('button')?.innerText.trim() || '',
+  portal: !!l && l.parentElement === document.body,
+}; })()`);
 check('인도자 칸도 담당자와 같은 명단 자동완성을 쓴다',
-  praiseSugg.n === 1 && praiseSugg.first.includes('김승찬'), JSON.stringify(praiseSugg));
-await ev(`document.querySelector('.worship-praise-edit .worship-person-list button')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`);
+  praiseSugg.n === 1 && praiseSugg.first.includes('김승찬') && praiseSugg.portal === true, JSON.stringify(praiseSugg));
+await ev(`${PRAISE_LIST}?.querySelector('button')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`);
 await sleep(1700);
 const praiseSaved = await ev(`(() => {
   const row = JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.kind === '성탄절 예배');

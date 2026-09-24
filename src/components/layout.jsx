@@ -943,11 +943,18 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
   const [open, setOpen] = useState(false);        // 데스크톱 드롭다운
   const [mobileOpen, setMobileOpen] = useState(false); // 모바일 오버레이
   const rootRef = useRef(null);
+  const listRef = useRef(null);
   const active = query.trim().length >= 2;
 
-  // 데스크톱: 바깥 클릭 / Escape 닫기. 드롭다운이 rootRef 안에 있으므로(포털이 아니다)
-  // 프로필 메뉴·더보기와 **같은 훅**을 쓴다 — 닫는 규칙이 여러 벌이면 한쪽만 고쳐진다.
-  useDismiss(open, () => setOpen(false), [rootRef]);
+  // 데스크톱 결과 판은 **body 포털**이다(HANDOFF §8 '떠 있는 것') — 폭은 검색칸에서 잰다
+  // (matchWidth). z는 z-[80]: 프로필 메뉴가 z-[90]이고 검사(tests/mobbits)가 body의 첫 z-[90]을
+  // 그 메뉴로 본다 — 같은 z를 쓰면 엉뚱한 판을 잰다.
+  const listOpen = open && active;
+  const [listPos] = useAnchoredPos(rootRef, listOpen, 320, 320, 8, listRef, { matchWidth: true, align: 'start' });
+
+  // 데스크톱: 바깥 클릭 / Escape 닫기. 프로필 메뉴·더보기와 **같은 훅**을 쓴다 — 닫는 규칙이
+  // 여러 벌이면 한쪽만 고쳐진다. 결과 판이 포털이라 **그 판도 '안'으로** 넘긴다(useDismiss 머리말).
+  useDismiss(open, () => setOpen(false), [rootRef, listRef]);
 
   const reset = () => setQuery('');
   const closeMobile = () => { setMobileOpen(false); reset(); };
@@ -1008,11 +1015,11 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
         className="pl-8 pr-3 h-8 text-[12.5px] bg-surface/60 border border-line rounded-sm focus:bg-surface focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all placeholder:text-transparent"
       />
       <SearchHint show={!query} left="2rem" size="text-[12.5px]" />
-      {open && active && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-full max-h-80 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 animate-in fade-in zoom-in-95 duration-150">
+      {listOpen && createPortal(
+        <div ref={listRef} style={{ position: 'fixed', left: listPos.left, top: listPos.top, width: listPos.width }}
+          className="z-[80] max-h-80 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150">
           <SearchResults query={query} onPick={pick} />
-        </div>
-      )}
+        </div>, document.body)}
     </div>
   );
 }

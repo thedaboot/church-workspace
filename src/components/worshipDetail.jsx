@@ -5,7 +5,7 @@ import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, Clipboar
 import { createPortal } from 'react-dom';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
-import { ConfirmPopover } from './ConfirmPopover.jsx';
+import { ConfirmPopover, useAnchoredPos } from './ConfirmPopover.jsx';
 import { formatBytes, fileKind } from './fileRow.jsx';
 import { keepVisible } from '../utils.js';
 import { PassagePicker, PassageBody } from './worshipPassage.jsx';
@@ -697,6 +697,7 @@ function PersonNameInput({ row, people, onPick, seeded = false }) {
   const [open, setOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
   const rootRef = useRef(null);
+  const listRef = useRef(null);
   const name = row.name || '';
   const linked = useMemo(
     () => (row.personId ? (people || []).find(p => p.id === row.personId) : null),
@@ -709,9 +710,21 @@ function PersonNameInput({ row, people, onPick, seeded = false }) {
     return q ? all.filter(p => String(p.name).toLowerCase().includes(q)) : all;
   }, [name, people]);
 
+  // 목록은 **body 포털**이다(HANDOFF §8 '떠 있는 것') — 375px에서 오른쪽 칸(인도자)의 목록이
+  // 화면 밖으로 나갈 수 있었다. 칸의 왼쪽 끝에서 연다. 클래스 `worship-person-list`는
+  // 검사가 문서에서 찾는 열쇠다(tests/worship).
+  const listOpen = open && suggestions.length > 0;
+  const [pos, place] = useAnchoredPos(rootRef, listOpen, 160, 192, 8, listRef, { align: 'start' });
+  // 글자를 칠수록 줄 수가 바뀐다 — 위로 뒤집혀 선 목록이 칸에서 떨어져 뜨지 않게 다시 잰다
+  useLayoutEffect(() => { if (listOpen) place(); }, [listOpen, suggestions.length, place]);
+
   useEffect(() => {
     if (!open) return undefined;
-    const onDown = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false); };
+    // 목록이 포털이라 rootRef의 자손이 아니다 — **목록도 '안'으로 센다**(useDismiss 머리말과 같은 이유)
+    const onDown = (e) => {
+      if (rootRef.current?.contains(e.target) || listRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
@@ -740,8 +753,9 @@ function PersonNameInput({ row, people, onPick, seeded = false }) {
           className="flex-1 min-w-0 bg-transparent text-[13px] text-fg placeholder:text-fg-faint outline-none py-0.5"
         />
       </div>
-      {open && suggestions.length > 0 && (
-        <div className="worship-person-list absolute left-0 top-full z-50 mt-1 w-max min-w-[10rem] max-w-[min(18rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150">
+      {listOpen && createPortal(
+        <div ref={listRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
+          className="worship-person-list z-[90] w-max min-w-[10rem] max-w-[min(18rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none animate-in fade-in zoom-in-95 duration-150">
           {suggestions.map((p, i) => (
             <button key={p.id} type="button" onMouseDown={e => { e.preventDefault(); choose(p); }}
               ref={i === activeIdx ? keepVisible : null}
@@ -750,8 +764,7 @@ function PersonNameInput({ row, people, onPick, seeded = false }) {
               <span className="truncate">{p.name}</span>
             </button>
           ))}
-        </div>
-      )}
+        </div>, document.body)}
     </div>
   );
 }
