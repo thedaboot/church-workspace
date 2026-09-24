@@ -653,4 +653,101 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
   assert.ok(src.indexOf('await requireApprovedUser(req, res)') < src.indexOf('if (body.embed != null)'), '임베딩 분기가 인증보다 앞에 있다');
 }
 
-console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론(마감 임박 + 예배 당일 job 갈래·중복 방지·N+1 없음)·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수·합친 계정의 알림·구독(0063)');
+// ── 8시 크론에 얹은 문서 임베딩 (배치 E4 · 0074 doc_vec · api/_docsync.js) ────────────
+// 크론 자리가 둘뿐이라 마감 임박 배치 **뒤에** 얹었다. 지켜야 할 것: 알림이 먼저 · 임베딩이 죽어도
+// 알림 응답은 그대로 · 비밀 없이는 둘 다 안 돈다 · ?job=embed도 같은 비밀 · 함수 시간 제한 안.
+// Supabase(PostgREST)와 제미나이를 가짜 fetch 하나로 바꿔치고 실제 handler를 돌린다.
+// 되돌리기 검사: handleDueSoonThenEmbed에서 runEmbedSync를 handleDueSoon 앞으로 올리면 '알림이 먼저'가,
+// runEmbedSync의 try/catch를 걷으면 '임베딩이 죽어도 알림 응답은 200'이, handleEmbedJob의 safeEqual 줄을
+// 지우면 '?job=embed는 비밀이 있어야'가 깨진다.
+{
+  const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
+  assert.equal(vercel.functions?.['api/push.js']?.maxDuration * 1000, api.PUSH_MAX_MS, 'push.js의 PUSH_MAX_MS가 vercel.json maxDuration과 다르다');
+  assert.equal((vercel.crons || []).length, 2, '임베딩은 새 크론이 아니라 8시 크론에 얹는다(Hobby 두 개 상한)');
+  assert.ok(!(vercel.crons || []).some(c => /job=embed/.test(c.path)), '?job=embed는 손으로 부르는 길이다 — 크론 자리를 쓰지 않는다');
+  assert.ok(/if \(req\.query\?\.job === 'embed'\) return await handleEmbedJob\(req, res, started\);/.test(src), 'GET이 job=embed로 갈리지 않는다');
+  assert.ok(/return await handleDueSoonThenEmbed\(req, res, started\);/.test(src), 'job 없는 GET(8시 크론)이 임베딩을 얹은 길로 가지 않는다');
+  {
+    const at = src.indexOf('async function handleEmbedJob');
+    assert.ok(/if \(!safeEqual\(bearer\(req\), secret\)\)/.test(src.slice(at, at + 400)), 'handleEmbedJob이 크론 비밀(safeEqual)을 안 본다');
+  }
+  // 예산 — 남은 시간에서 여유를 빼고 40초를 넘지 않는다
+  assert.equal(api.embedBudget(1000, 1000), api.EMBED_BUDGET_MS);
+  assert.ok(api.embedBudget(0, 30000) <= api.PUSH_MAX_MS - 30000 - 5000, '알림 배치가 쓴 시간을 예산에서 빼지 않는다');
+  assert.equal((await api.runEmbedSync(1000)).skipped != null, true, '예산이 5초도 안 남았는데 임베딩을 시작한다');
+
+  const fakeRes = () => { const r = { code: 0, body: null }; r.status = (c) => { r.code = c; return r; }; r.json = (b) => { r.body = b; return r; }; return r; };
+  const realFetch = globalThis.fetch;
+  const saved = Object.fromEntries(['CRON_SECRET', 'VITE_SUPABASE_URL', 'SUPABASE_SECRET_KEY', 'GEMINI_API_KEY'].map(k => [k, process.env[k]]));
+  const calls = [];
+  let geminiFails = false;
+  const CARD = '11111111-1111-4111-8111-111111111111';
+  const table = (url) => /\/rest\/v1\/([a-z_]+)/.exec(url)?.[1];
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input?.url || input);
+    const method = (init.method || input?.method || 'GET').toUpperCase();
+    const t = table(url);
+    calls.push({ url, method, t: t || (url.includes('generativelanguage') ? 'gemini' : '?') });
+    const json = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } });
+    if (url.includes('generativelanguage')) {
+      if (geminiFails) return json({ error: { message: 'bad' } }, 400);
+      const n = JSON.parse(init.body).requests.length;
+      return json({ embeddings: Array.from({ length: n }, (_, i) => ({ values: Array.from({ length: 768 }, (_, j) => Math.cos(i + j)) })) });
+    }
+    if (t === 'cards' && /due_date/.test(decodeURIComponent(url))) return json([]);   // 마감 임박 없음
+    if (t === 'cards') return json([{ id: CARD, project_id: null, title: '수련회 숙소', description: '2박 3일 예약' }]);
+    if (t === 'projects' || t === 'comments' || t === 'files') return json([]);
+    if (t === 'doc_vec' && method === 'GET') return json([]);
+    if (t === 'doc_vec') return new Response(null, { status: 201 });
+    return json([]);
+  };
+  try {
+    Object.assign(process.env, { CRON_SECRET: 'cron-test-secret', VITE_SUPABASE_URL: 'http://supabase.test', SUPABASE_SECRET_KEY: 'svc', GEMINI_API_KEY: 'gem' });
+    const auth = { authorization: 'Bearer cron-test-secret' };
+
+    // ① 비밀이 없으면 401 · 아무것도 안 부른다
+    const r1 = fakeRes();
+    await api.default({ method: 'GET', headers: {}, query: {} }, r1);
+    assert.equal(r1.code, 401);
+    assert.equal(calls.length, 0, '크론 비밀 없이 DB·제미나이를 불렀다');
+
+    // ② 8시 크론: 알림(마감 임박 조회)이 먼저, 그다음 임베딩 · 응답에 둘 다
+    const r2 = fakeRes();
+    await api.default({ method: 'GET', headers: auth, query: {} }, r2);
+    assert.equal(r2.code, 200);
+    assert.equal(r2.body.cards, 0, '마감 임박 응답이 빠졌다');
+    assert.equal(r2.body.embed?.embedded, 1, `임베딩이 안 돌았다: ${JSON.stringify(r2.body.embed)}`);
+    const firstDue = calls.findIndex(c => c.t === 'cards' && /due_date/.test(decodeURIComponent(c.url)));
+    const firstEmbed = calls.findIndex(c => c.t === 'doc_vec' || c.t === 'gemini' || c.t === 'projects');
+    assert.ok(firstDue === 0 && firstEmbed > firstDue, '알림이 먼저다 — 임베딩이 마감 임박 배치보다 앞서 돈다');
+    const up = calls.find(c => c.t === 'doc_vec' && c.method === 'POST');
+    assert.ok(up && /on_conflict=kind%2Csource_id%2Cchunk|on_conflict=kind,source_id,chunk/.test(up.url), 'doc_vec upsert가 (kind, source_id, chunk) 열쇠를 안 쓴다');
+
+    // ③ 임베딩이 죽어도(제미나이 400) 알림 응답은 그대로 200
+    calls.length = 0; geminiFails = true;
+    const r3 = fakeRes();
+    await api.default({ method: 'GET', headers: auth, query: {} }, r3);
+    assert.equal(r3.code, 200, '임베딩 실패가 알림 크론을 죽였다');
+    assert.equal(r3.body.cards, 0);
+    assert.equal(r3.body.embed?.error, '실패');
+    geminiFails = false;
+
+    // ④ ?job=embed — 비밀 없으면 401(아무것도 안 부름) · 있으면 임베딩만(마감 임박 조회 없음)
+    calls.length = 0;
+    const r4 = fakeRes();
+    await api.default({ method: 'GET', headers: { authorization: 'Bearer wrong' }, query: { job: 'embed' } }, r4);
+    assert.equal(r4.code, 401, '?job=embed가 비밀 없이 돈다');
+    assert.equal(calls.length, 0);
+    const r5 = fakeRes();
+    await api.default({ method: 'GET', headers: auth, query: { job: 'embed' } }, r5);
+    assert.equal(r5.code, 200);
+    assert.equal(r5.body.embed?.embedded, 1);
+    assert.ok(!calls.some(c => c.t === 'cards' && /due_date/.test(decodeURIComponent(c.url))), '?job=embed가 마감 임박 알림까지 돌린다');
+    assert.ok(!calls.some(c => c.t === 'notifications'), '?job=embed가 알림 표를 건드린다');
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+}
+
+console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론(마감 임박 + 예배 당일 job 갈래·중복 방지·N+1 없음 · 8시 뒤 문서 임베딩·job=embed)·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수·합친 계정의 알림·구독(0063)');

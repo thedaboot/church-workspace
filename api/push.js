@@ -1,6 +1,7 @@
 import webpush from 'web-push';
 import { notifLine } from '../src/services/notifyText.js';
 import { adminClient, readJson, bearer, requireApprovedUser, safeEqual, sameOriginPath } from './_lib.js';
+import { syncDocVectors } from './_docsync.js';
 
 // ============================================================================
 // /api/push — 웹 푸시 발송. 두 입구가 한 파일에 있다.
@@ -11,7 +12,9 @@ import { adminClient, readJson, bearer, requireApprovedUser, safeEqual, sameOrig
 //         `?job` 하나로 갈린다 — 크론 자리가 **두 개까지**라(Vercel Hobby) 배치가 늘 때마다
 //         라우트를 새로 파지 않고 이 입구를 나눠 쓴다.
 //           (없음)          오늘·내일 마감인데 완료가 아닌 카드의 담당자에게 due_soon
+//                           → 그 **뒤에** 업무·댓글·첨부 임베딩 증분(doc_vec · 0074 · 시간 예산 안에서만)
 //           job=worship     오늘(KST) 발행된 주보가 있으면 승인 멤버 전원에게 worship_today
+//           job=embed       임베딩 증분만(손으로 부르는 길 · 크론에는 없다 — 자리가 둘뿐이다)
 //
 // 왜 pg_cron이 아니라 Vercel Cron인가: DB에서 푸시를 보내려면 pg_net으로 HTTP를
 // 쳐야 하고, 그러면 발송 로직이 SQL과 JS 두 곳에 갈라진다. 보존 기간 정리(0012)는
@@ -351,14 +354,84 @@ async function handleWorshipToday(req, res) {
   res.status(200).json({ services: services.length, notified: wanted.length, sent });
 }
 
+// ── 8시 크론에 얹은 문서 임베딩 (배치 E4 · 0074 doc_vec · api/_docsync.js) ─────────
+// 크론 자리가 둘뿐이라(Vercel Hobby · 이미 둘) 새 크론을 못 판다 — 마감 임박 배치 **뒤에** 얹는다.
+// 규칙 셋:
+//   ① 알림이 먼저다. handleDueSoon이 다 끝난 뒤에야 임베딩을 시작한다.
+//   ② 임베딩이 무엇으로 실패해도 알림 응답은 그대로 나간다(runEmbedSync는 던지지 않는다).
+//   ③ 함수 시간 제한(vercel.json의 maxDuration 60초) 안에서 응답한다 — 예산은 남은 시간에서
+//      여유를 뺀 만큼이고, 그 안에 안 끝나면 기다리지 않고 응답한다(못 한 조각은 다음 날 잇는다).
+// 응답을 먼저 보내고 뒤에서 돌리지 않는 이유: Vercel 함수는 응답이 끝나면 멈출 수 있다(waitUntil이
+// 필요하다). 크론은 응답 시각을 따지지 않으므로 알림을 다 보낸 뒤 임베딩까지 하고 한 번에 응답한다.
+export const PUSH_MAX_MS = 60 * 1000;      // vercel.json functions["api/push.js"].maxDuration과 같아야 한다
+export const EMBED_BUDGET_MS = 40 * 1000;  // 하루치 증분은 대개 요청 한 번(수 초)이다
+const EMBED_MARGIN_MS = 8 * 1000;          // 응답을 쓰고 로그를 남길 여유
+
+// 부른 뒤 남은 시간으로 예산을 정한다(알림 배치가 쓴 시간을 뺀다)
+export const embedBudget = (started, now = Date.now()) =>
+  Math.min(EMBED_BUDGET_MS, PUSH_MAX_MS - EMBED_MARGIN_MS - (now - started));
+
+// 임베딩 증분 — **던지지 않는다**. 예산을 넘기면 기다리지 않고 멈춘 채로 요약을 돌려준다.
+export async function runEmbedSync(budgetMs) {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) return { skipped: 'GEMINI_API_KEY 없음' };
+  if (!(budgetMs >= 5000)) return { skipped: '시간 없음' };
+  let timer;
+  try {
+    const work = syncDocVectors(admin(), { geminiKey, budgetMs, log: (m) => console.log(m) });
+    // 동기화 안의 DB 왕복에는 시간 상한이 없다 — 예산 + 5초를 넘기면 결과를 기다리지 않는다
+    const cap = new Promise((resolve) => { timer = setTimeout(() => resolve({ timeout: true }), budgetMs + 5000); });
+    const s = await Promise.race([work, cap]);
+    if (s.timeout) { console.error('[push] 문서 임베딩이 시간 안에 안 끝났다'); work.catch(e => console.error('[push] 문서 임베딩 실패(늦게):', e)); return { error: '시간 초과' }; }
+    const out = { docs: s.docs, embedded: s.embedded, dropped: s.dropped, moved: s.moved, remaining: s.remaining, ms: s.ms };
+    if (s.stopped) out.stopped = s.stopped;
+    console.log('[push] 문서 임베딩:', JSON.stringify(out));
+    return out;
+  } catch (e) {
+    console.error('[push] 문서 임베딩 실패:', e);
+    return { error: '실패' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 응답을 잡아 두는 자리 — handleDueSoon은 그대로 두고(여러 갈래에서 res에 곧장 쓴다) 그 결과만 받는다
+function heldResponse() {
+  const h = { code: 200, body: null };
+  h.status = (c) => { h.code = c; return h; };
+  h.json = (b) => { h.body = b; return h; };
+  return h;
+}
+
+// GET(job 없음) — 마감 임박 알림 → 문서 임베딩 → 한 번에 응답
+async function handleDueSoonThenEmbed(req, res, started) {
+  const held = heldResponse();
+  await handleDueSoon(req, held);
+  // 크론 비밀이 틀리거나 없으면 거기서 끝이다(임베딩도 같은 비밀 뒤에 있다)
+  if (held.code === 401 || held.code === 501) { res.status(held.code).json(held.body); return; }
+  const embed = await runEmbedSync(embedBudget(started));
+  res.status(held.code).json({ ...(held.body || {}), embed });
+}
+
+// GET ?job=embed — 손으로 부르는 길(같은 CRON_SECRET). 알림은 건드리지 않는다.
+async function handleEmbedJob(req, res, started) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) { res.status(501).json({ error: 'CRON_SECRET이 설정되지 않았습니다.' }); return; }
+  if (!safeEqual(bearer(req), secret)) { res.status(401).json({ error: '인증이 필요합니다.' }); return; }
+  if (!process.env.GEMINI_API_KEY) { res.status(501).json({ error: 'GEMINI_API_KEY가 설정되지 않았습니다.' }); return; }
+  const embed = await runEmbedSync(embedBudget(started));
+  res.status(embed.error ? 502 : 200).json({ embed });
+}
+
 export default async function handler(req, res) {
+  const started = Date.now();
   try {
     if (req.method === 'POST') return await handleSend(req, res);
     // 크론이 부르는 배치. vercel.json이 `/api/push?job=worship`으로 넘긴다.
     if (req.method === 'GET') {
-      return (req.query?.job === 'worship')
-        ? await handleWorshipToday(req, res)
-        : await handleDueSoon(req, res);
+      if (req.query?.job === 'worship') return await handleWorshipToday(req, res);
+      if (req.query?.job === 'embed') return await handleEmbedJob(req, res, started);
+      return await handleDueSoonThenEmbed(req, res, started);
     }
     res.status(405).json({ error: 'Method not allowed' });
   } catch (e) {
