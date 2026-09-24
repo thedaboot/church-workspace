@@ -944,7 +944,8 @@ function SubtaskList({ value = [], onChange, readOnly = false, members = [] }) {
           // 대신 예시를 두는 쪽이 낫다 — '하위 업무'가 무엇인지 모르는 사람에게는
           // 방법보다 "여기에 무엇을 적는 칸인지"가 먼저다.
           placeholder="예: 포스터 시안 만들기" aria-label="하위 업무"
-          className="w-full mt-2 text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint"
+          // px-3 — 글이 위 상세 내용 편집기(p-3)와 같은 x에서 시작한다(사용자 결정 2026-09-25 · 목업 B2)
+          className="w-full mt-2 text-[13px] px-3 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint"
         />
       )}
     </div>
