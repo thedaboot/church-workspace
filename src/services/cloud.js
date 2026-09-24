@@ -573,7 +573,7 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 export const driveImageUrl = (fileId, size = 200) =>
   `https://lh3.googleusercontent.com/d/${fileId}=w${size}-h${size}-c`;
 // 미리보기용 — 자르지 않고(=s: 긴 변 기준) 크게. 주소가 고정이라 브라우저가 캐싱한다
-// (서명 URL은 발급마다 달라서 캐시가 통째로 빗나갔다 — §1.3 Egress에서 겪은 함정).
+// (서명 URL은 발급마다 달라서 캐시가 통째로 빗나갔다 — Egress에서 겪은 함정).
 export const driveImageFullUrl = (fileId, size = 1600) =>
   `https://lh3.googleusercontent.com/d/${fileId}=s${size}`;
 

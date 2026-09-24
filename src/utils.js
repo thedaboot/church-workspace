@@ -430,7 +430,7 @@ export function agoLabel(ts, now = Date.now()) {
 // 다녀간 시각(profiles.last_seen_at) 심장박동의 간격.
 // 예전에는 앱을 열 때 한 번만 찍어서, 두 시간을 계속 쓰고 있어도 남들 화면에는
 // '2시간 전 다녀감'으로 보였다(사용자 지적 2026-08-30).
-// **쓰기 비용**: 사람당 5분에 UPDATE 한 번이다(§1.3). 화면이 숨겨져 있으면 아예 안 찍고,
+// **쓰기 비용**: 사람당 5분에 UPDATE 한 번이다(PITFALLS §4.8). 화면이 숨겨져 있으면 아예 안 찍고,
 // 다시 보일 때도 이 간격을 넘겼을 때만 찍는다 — 탭을 자주 오가는 것이 곧 쓰기가 되면 안 된다.
 export const HEARTBEAT_MS = 5 * 60 * 1000;
 export const dueForHeartbeat = (lastAt, now = Date.now(), everyMs = HEARTBEAT_MS) =>
@@ -500,7 +500,7 @@ export const isoTime = (raw) => {
 // 이 profiles UPDATE가 **심장박동뿐인가** — 다녀간 시각 말고는 아무것도 안 바뀌었나.
 // 맞으면 부르는 쪽(cloudSync.subscribeWorkspace)이 전체 재조회 대신 스토어의 그 사람
 // 한 칸만 고친다. 5분마다 사람마다 오는 이벤트라, 전체 재조회로 흘리면 접속자 전원이
-// 그때마다 워크스페이스를 통째로 다시 읽는다(§1.3 Egress · §6-21 라우팅).
+// 그때마다 워크스페이스를 통째로 다시 읽는다(Egress · §6-21 라우팅).
 // `updated_at`은 트리거가 같이 올리므로 셈에서 뺀다.
 // **볼 키를 열거하지 않는다**: 열거하면 나중에 컬럼이 늘 때 그 변경을 놓친다(§6-21-a의
 // '알 수 없음'과 같은 길이다). 모르는 키가 하나라도 다르면 false이고, 그러면 부르는 쪽이
@@ -729,7 +729,7 @@ export function forceStep(pos, vel, nodes, edges, W, H, opts = {}) {
   const alpha = opts.alpha ?? 1;
   const skipSet = opts.skip;
   // **부드럽게**(사용자 지적 2026-08-31 — "모바일에서 탄성이 엄청난 그래프처럼 된다").
-  // 같은 실행 안에서 상수만 바꿔 재고 골랐다(§1.3의 A/B 규칙). 사람 15·팀 7·프로젝트 15,
+  // 같은 실행 안에서 상수만 바꿔 재고 골랐다(HANDOFF §2 '성능은 측정하지 않았다'의 A/B 규칙). 사람 15·팀 7·프로젝트 15,
   // 옛 상수(SPRING .02 · DAMP .8 · MAX_V 18) → 지금:
   //   최고 속도  52~54 → 18 px/프레임   (초기 폭발이 "탄성"으로 읽힌 주범)
   //   방향 반전  3.5~4.9 → 1.0~1.3 회/노드 (= 출렁임)
@@ -738,7 +738,7 @@ export function forceStep(pos, vel, nodes, edges, W, H, opts = {}) {
   // 낮추고, SPRING이 약해져 진동이 줄어든다. **냉각(alpha)은 그대로다** — 그건
   // 2026-08-27에 이미 고른 방식이고 여기서 바꾸는 것은 '한 틱이 얼마나 세냐'뿐이다.
   // REPEL은 안 낮췄다: 낮추면 라벨 겹침이 늘어난다(겹침은 지금 9 → 4로 줄었다).
-  // 재보는 스크립트는 커밋하지 않았다 — 다시 재려면 §1.3대로 상수만 바꿔 한 실행 안에서.
+  // 재보는 스크립트는 커밋하지 않았다 — 다시 재려면 그 A/B 규칙대로 상수만 바꿔 한 실행 안에서.
   const REPEL = 2400, SPRING = 0.013, ANCHOR_X = 0.022, ANCHOR_Y = 0.014, DAMP = 0.66, MAX_V = 6;
   const skip = (i) => nodes[i].fixed || (skipSet ? skipSet.has(i) : false);
   for (let i = 0; i < nodes.length; i++) {

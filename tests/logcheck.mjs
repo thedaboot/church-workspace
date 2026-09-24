@@ -708,7 +708,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 
 // ── 지금 여기를 보고 있는 사람 (utils.viewersOf) ───────────────────────────
 // 프로젝트 탭 옆·업무 줄 오른쪽 얼굴이 보는 판정. 게스트 스위트는 presence 집합이
-// 언제나 비어 있어 화면으로는 못 보므로(§1.1) 여기서 지킨다.
+// 언제나 비어 있어 화면으로는 못 보므로(HANDOFF §1-4) 여기서 지킨다.
 // 되돌리기 검사: viewersOf에서 `e.id === meId` 걸러내기를 빼면 '본인 제외' 단정이,
 // limit를 안 보면 '최대 세 명' 단정이, **at으로 하나만 남기는 부분**을 빼면
 // '한 사람은 한 곳에만'·'옮기면 옛 자리에서 즉시 빠진다' 단정이 깨진다.
@@ -1285,7 +1285,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 
 // ── 지도가 한 번만 배치되나 · 끌기 손맛 · 빈 그래프 (소스 단정) ───────────────
 // 앞의 셋은 **소스로만** 지킨다. 브라우저로 재보려 했지만 측정 창이 이미 두 배치가
-// 끝난 뒤에 열려서 그 순간을 못 봤다 — 숫자로 못 재는 것에 숫자를 대지 않는다(§1.3).
+// 끝난 뒤에 열려서 그 순간을 못 봤다 — 숫자로 못 재는 것에 숫자를 대지 않는다(HANDOFF §2 '성능은 측정하지 않았다').
 // 되돌리기 검사: 각 단정은 그 줄을 되돌리면 깨진다.
 {
   const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
@@ -1531,7 +1531,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 //   ③ img에 width/height가 없어서, 안 들어온 동안 `w-auto`가 칸을 가로 전체로 벌린다
 //      (깨진 아이콘이 왼쪽 끝, alt 글자만 가운데 — 실제로 그 모양이었다).
 // 되돌리기 검사(실제로 해 봤다): index.html의 preload 줄을 지우거나 href를 손으로
-// 적은 /assets/logo-light.png로 바꾸면, vercel.json의 /assets/ 규칙을 빼면,
+// 적은 /assets/logo-light.webp로 바꾸면, vercel.json의 /assets/ 규칙을 빼면,
 // LoginScreen의 width/height를 지우면 아래가 각각 깨진다.
 {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');

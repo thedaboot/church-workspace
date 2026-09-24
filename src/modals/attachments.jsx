@@ -87,9 +87,8 @@ const addUploaded = (cardId, row) => {
 
 // 첨부에서 글자를 뽑아 DB와 스토어에 붙인다(0030). 실패는 조용히 넘긴다 —
 // 발췌는 없어도 앱이 도는 값이고, 이것 때문에 첨부가 막히면 안 된다.
-// ponytail: 새로 올리는 파일만 채운다. 지난 232건(그중 글자가 든 것은 4건)은
-// 백필하지 않는다 — 드라이브에서 다시 받는 것은 Egress를 늘리는 일이다(§1.3).
-// 필요해지면 미리보기가 이미 받아 파싱한 바이트로 그 자리에서 채우면 된다.
+// 새로 올리는 파일만 채운다. 그전 첨부는 scripts/backfill_attachments.mjs가 한 번 채웠다
+// (2026-09-24 · 사진 캡션도 그 스크립트만 만든다).
 async function fillExcerpt(cardId, row, file) {
   try {
     const { extractFileText } = await import('../services/fileText.js');

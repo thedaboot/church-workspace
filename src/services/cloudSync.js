@@ -232,7 +232,7 @@ export async function notifyReaction(authorName, { actorName, cardId, projectId,
 // **쓰기는 곧 '지금'이다**(2026-09-06 · 사용자 지적 2026-09-05): 5분 박동은
 // *아무것도 안 하는 사람*의 상한이라, 그 사이에 업무를 고친 사람이 남들 화면에서는
 // "1분 전 수정 · 4분 전 다녀감"이라는 모순으로 보였다(라이브에서 225초 어긋나 있었다).
-// 쓰기 한 번에 UPDATE 한 칸을 얹는 값은 거의 없다(§1.3 — 실측 활동량으로 하루 11건쯤).
+// 쓰기 한 번에 UPDATE 한 칸을 얹는 값은 거의 없다(PITFALLS §4.8 — 실측 활동량으로 하루 11건쯤).
 let lastSeenStampAt = 0;
 export function markSeen(everyMs = HEARTBEAT_MS, now = Date.now()) {
   if (!dueForHeartbeat(lastSeenStampAt, now, everyMs)) return false;
@@ -798,7 +798,7 @@ export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActiv
     }
     // **다녀간 시각만 바뀐 profiles UPDATE는 심장박동이다**(§4.8 · 사람마다 5분에 한 번).
     // 그것까지 전체 재조회로 흘리면 접속자 전원이 5분마다 워크스페이스를 통째로 다시
-    // 읽는다(§1.3 Egress). 그 사람의 그 칸만 스토어에 얹고 끝낸다 — 이름·사진·팀·승인
+    // 읽는다(Egress). 그 사람의 그 칸만 스토어에 얹고 끝낸다 — 이름·사진·팀·승인
     // 같은 다른 칸이 같이 바뀌었으면 seenOnlyChange가 false라 아래 전체 재조회로 간다.
     // 직전 행이 필요해서 profileRows(마지막으로 읽은 행)를 같이 본다.
     if (table === 'profiles' && payload.eventType === 'UPDATE' && onMemberSeen) {

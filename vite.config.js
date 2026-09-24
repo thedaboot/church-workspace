@@ -16,7 +16,7 @@ import { pathToFileURL } from 'node:url';
 // 부르면 Vite의 정적/변환 미들웨어가 **그 파일의 소스 코드**를 돌려줬다. HTML 첨부
 // 미리보기를 sandbox iframe에 srcdoc으로 넣었더니 화면에 api/drive-file.js가 떠서
 // 잡혔다. PDF 중계·유튜브(api/yt.js)·AI(api/ai.js)도 그래서 여태 배포에서만
-// 확인이 됐다(HANDOFF §1.1 "api/yt.js는 배포에서만 돕니다").
+// 확인이 됐다.
 //
 // 무엇을 흉내내나: 핸들러들이 실제로 쓰는 표면만이다 —
 //   req.method · req.headers · req.query · req.body(JSON)
