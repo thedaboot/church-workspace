@@ -98,9 +98,12 @@ check('닫기 버튼도 그대로 동작', (await isOpen()) === false);
 // 5) 하위 업무 삭제는 확인을 거친다
 // 예전에는 휴지통을 한 번 누르면 바로 지워졌다. 체크박스 옆 13px 아이콘이라 잘못
 // 누르기 쉽고, 하위 업무에는 실행 취소가 없다(클라우드 모드에서는 Undo를 감춘다).
+// 팝오버는 '삭제할까요'가 든 z-[90]로 좁힌다 — 하위 업무 줄의 담당자 칩(OwnerPicker)도
+// z-[90] 팝오버를 띄운다(d00f818). 아무 z-[90]나 잡으면 엉뚱한 팝오버를 읽는다.
+const POP_JS = `[...document.querySelectorAll('div')]
+    .find(x => typeof x.className === 'string' && x.className.includes('z-[90]') && /삭제할까요/.test(x.textContent))`;
 const popover = () => ev(`(() => {
-  const d = [...document.querySelectorAll('div')]
-    .find(x => typeof x.className === 'string' && x.className.includes('z-[90]'));
+  const d = ${POP_JS};
   if (!d) return null;
   return { buttons: [...d.querySelectorAll('button')].map(b => b.textContent.trim()) };
 })()`);
@@ -114,7 +117,9 @@ const clickTrash = async () => {
   const r = await ev(`(() => {
     const cb = ${SUB_CB}[0];
     if (!cb) return null;
-    const trash = [...cb.parentElement.querySelectorAll('button')].find(b => b !== cb);
+    // 줄이 [span: 체크+담당자 칩][span: 휴지통]으로 갈렸다(d00f818) — 체크의 형제 중
+    // 아무 버튼이나 고르면 담당자 칩을 누른다. 줄 안에서 aria-label '… 삭제'로 찾는다.
+    const trash = cb.closest('.subtask-row')?.querySelector('button[aria-label$=" 삭제"]');
     if (!trash) return null;
     trash.scrollIntoView({ block: 'center' });
     trash.click();
@@ -124,11 +129,14 @@ const clickTrash = async () => {
   return r;
 };
 const popClick = async (label) => {
-  await ev(`(() => {
-    const d = [...document.querySelectorAll('div')]
-      .find(x => typeof x.className === 'string' && x.className.includes('z-[90]'));
+  const found = await ev(`(() => {
+    const d = ${POP_JS};
+    if (!d) return false;
     [...d.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})?.click();
+    return true;
   })()`);
+  // 팝오버가 없으면 던지지 않고 FAIL 한 줄로 남긴다(§6-40)
+  if (!found) check(`삭제 확인 팝오버에서 '${label}'을 누른다`, false, '팝오버 없음');
   await sleep(350);
 };
 
