@@ -155,43 +155,53 @@ function serializeText(node) {
   return text;
 }
 
-function serializeInlineContent(content = []) {
+// `br`: 줄 안의 하드브레이크(Shift+Enter)를 무엇으로 적나. **문단만 줄바꿈이다** —
+// 제목·목록·체크 항목은 한 줄이 곧 한 블록이라, 거기서 `\n`을 적으면 다시 열 때 둘째 줄이
+// 그 블록 밖의 문단으로 떨어졌다(2026-09-25 감사). 그 자리들에서는 공백으로 잇는다 —
+// 글은 한 글자도 안 잃고 블록 안에 남는다(편집기도 그 자리의 Shift+Enter를 막는다 ·
+// MarkdownEditor BlockBreaks).
+function serializeInlineContent(content = [], br = '\n') {
   return content.map(n => {
     if (n.type === 'text') return serializeText(n);
-    if (n.type === 'hardBreak') return '\n';
+    if (n.type === 'hardBreak') return br;
     // 인라인 이미지는 우리 서브셋에 없으므로 URL만 남긴다
     if (n.type === 'image') return n.attrs?.src || '';
     return '';
   }).join('');
 }
+// 문단 — 하드브레이크로 갈린 줄마다 pad를 붙인다
+const serializeParagraph = (content, pad = '') =>
+  serializeInlineContent(content).split('\n').map(l => `${pad}${l}`).join('\n');
 
-// listItem 안의 블록들을 줄 배열로 (중첩 목록은 들여쓰기 — 뷰어는 같은 레벨로 렌더)
-function serializeListItem(item, marker, depth) {
+// listItem 안의 블록들을 줄 배열로. **중첩 목록도 들여쓰지 않고 같은 줄에 편다**(2026-09-25) —
+// 읽는 쪽(mdToDoc·RichText·종이)은 들여쓰기를 보지 않아서, 들여 적어도 다시 열면 평평해지고
+// 그 다음 저장에서야 들여쓰기가 사라졌다(값이 저장할 때마다 흔들렸다). 처음부터 평평하게
+// 적으면 한 번에 굳는다. 편집기도 Tab으로 들이는 길을 막았다(MarkdownEditor BlockBreaks).
+function serializeListItem(item, marker) {
   const lines = [];
-  const pad = '  '.repeat(depth);
   const blocks = item.content || [];
   blocks.forEach((b, i) => {
     if (b.type === 'paragraph') {
-      const text = serializeInlineContent(b.content);
-      if (i === 0) lines.push(`${pad}${marker} ${text}`);
-      else if (text) lines.push(`${pad}  ${text}`);
+      if (i === 0) lines.push(`${marker} ${serializeInlineContent(b.content, ' ')}`);
+      // 항목 안 둘째 문단은 예전처럼 두 칸 들여 적는다(다시 열면 들여쓴 문단이다)
+      else if (serializeInlineContent(b.content)) lines.push(serializeParagraph(b.content, '  '));
     } else if (b.type === 'bulletList' || b.type === 'orderedList') {
-      lines.push(...serializeList(b, depth + 1));
+      lines.push(...serializeList(b));
     } else {
       lines.push(...serializeBlock(b));
     }
   });
-  if (!lines.length) lines.push(`${pad}${marker} `);
+  if (!lines.length) lines.push(`${marker} `);
   return lines;
 }
 
-function serializeList(list, depth = 0) {
+function serializeList(list) {
   const ordered = list.type === 'orderedList';
   const start = ordered ? (list.attrs?.start ?? 1) : 1;
   const lines = [];
   (list.content || []).forEach((item, i) => {
     const marker = ordered ? `${start + i}.` : '-';
-    lines.push(...serializeListItem(item, marker, depth));
+    lines.push(...serializeListItem(item, marker));
   });
   return lines;
 }
@@ -200,16 +210,16 @@ function serializeBlock(block) {
   switch (block.type) {
     case 'heading': {
       const level = Math.min(Math.max(block.attrs?.level || 1, 1), 4);
-      return [`${'#'.repeat(level)} ${serializeInlineContent(block.content)}`];
+      return [`${'#'.repeat(level)} ${serializeInlineContent(block.content, ' ')}`];
     }
     case 'bulletList':
     case 'orderedList':
-      return serializeList(block, 0);
+      return serializeList(block);
     // 체크리스트 — 항목당 한 줄(- [ ] / - [x]). 항목 안은 문단 하나만 본다
     // (에디터에서 taskItem에 문단을 더 쌓는 조작을 열어두지 않았다 — nested: false).
     case 'taskList':
       return (block.content || []).map(item =>
-        `- [${item.attrs?.checked ? 'x' : ' '}] ${serializeInlineContent(item.content?.[0]?.content)}`);
+        `- [${item.attrs?.checked ? 'x' : ' '}] ${serializeInlineContent(item.content?.[0]?.content, ' ')}`);
     case 'image':
       return [block.attrs?.src || ''];
     // 구분선은 언제나 `---`로 적는다 — 읽을 때는 ***·___도 받지만(mdToDoc) 쓸 때는 한 벌이다
@@ -217,17 +227,35 @@ function serializeBlock(block) {
       return ['---'];
     case 'paragraph':
     default:
-      return [serializeInlineContent(block.content)];
+      return [serializeParagraph(block.content)];
   }
+}
+
+// 이어진 번호 줄은 읽을 때 **한 목록**이 된다(mdToDoc — 첫 숫자가 start, 나머지는 차례).
+// 그래서 적을 때도 그 차례로 적는다: 번호 목록 둘이 맞붙었거나(`1. 가` 뒤에 새 목록 `1. 나`)
+// 중첩 번호가 펴졌을 때, 적힌 숫자와 다시 읽은 숫자가 달라 다음 저장에서 값이 바뀌었다.
+const OL_LINE = /^(\s*)(\d+)([.)]\s+[\s\S]*)$/;
+function renumberRuns(lines) {
+  let prev = null;
+  return lines.map(line => {
+    const m = OL_LINE.exec(line);
+    if (!m) { prev = null; return line; }
+    // 첫 숫자는 읽는 쪽과 같은 셈이다(`Number(…) || 1` — 0은 1로 읽는다)
+    const n = prev === null ? (Number(m[2]) || 1) : prev + 1;
+    prev = n;
+    return `${m[1]}${n}${m[3]}`;
+  });
 }
 
 // ── TipTap doc JSON → 마크다운 문자열 ──────────────────────────────────────
 // **빈 줄을 합치지 않는다**(2026-09-25). 예전에는 `\n{3,}`를 `\n\n`으로 접어서 빈 문단
 // 둘·셋을 두고 저장하면 다시 열 때 하나였다 — 빈 문단 N개는 줄바꿈 N+1개이고 읽는 쪽
 // (mdToDoc)은 이미 그대로 읽는다. 옛 글은 이미 접힌 채 저장돼 있어 읽는 모양이 그대로다.
+// 끝은 **줄바꿈만** 걷는다(끝에 남은 빈 문단). 공백까지 걷으면 끝의 빈 항목 `- `가 `-`가
+// 되어 다시 열면 글자 `-`였다.
 export function docToMd(doc) {
   const blocks = doc?.content || [];
   const lines = [];
   for (const b of blocks) lines.push(...serializeBlock(b));
-  return lines.join('\n').replace(/\s+$/, '');
+  return renumberRuns(lines.join('\n').split('\n')).join('\n').replace(/\n+$/, '');
 }

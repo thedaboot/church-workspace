@@ -24,29 +24,53 @@ import { Plugin } from '@tiptap/pm/state';
 // 제목을 연달아 쓰는 일은 거의 없고 대개 그 아래에 내용을 적는다(사용자 지적
 // 2026-08-30 — H1~H4 전부). 불릿·번호·체크는 그대로 이어진다: 그건 같은 종류가
 // 연달아 오는 것이 정상이고, 빈 항목에서 Enter를 치면 TipTap이 알아서 빠져나온다.
+// **어디서 치든 다음 줄은 본문이다**(사용자 결정 2026-08-30 — 처음에는 줄 끝에서만
+// 그렇게 했는데 가운데서도 같기를 원했다). 제목을 연달아 쓰는 일은 거의 없다.
+// splitBlock({ keepMarks: true })라야 형광펜·굵기 같은 서식이 따라온다 —
+// 그냥 splitBlock이면 뒤쪽이 맨 글자가 된다.
+// setNode는 **가른 뒤**에 부른다: 먼저 부르면 앞쪽 제목까지 본문이 된다.
+const exitHeading = (editor) => editor.chain()
+  .splitBlock({ keepMarks: true })
+  // **줄 끝에서는 splitBlock이 이미 문단을 만들어 놓는다.** 그때 setNode를 또 부르면
+  // "바꿀 것이 없다"며 false가 나오고, 그 false가 이 단축키의 반환값이 되어
+  // ProseMirror가 **기본 Enter를 한 번 더 돌린다** → 빈 문단이 하나 더 생겼다
+  // (사용자 지적 2026-08-30 — "줄바꿈이 두 번 된다"). 가운데서 가른 경우에는
+  // 뒤쪽이 제목 그대로라 setNode가 실제로 일을 한다 — 그때만 부른다.
+  .command(({ state, commands }) =>
+    state.selection.$from.parent.type.name === 'paragraph' || commands.setNode('paragraph'))
+  .run();
+
 const HeadingExit = Extension.create({
   name: 'headingExit',
   addKeyboardShortcuts() {
     return {
-      Enter: () => {
-        const { editor } = this;
-        if (!editor.isActive('heading')) return false;
-        // **어디서 치든 다음 줄은 본문이다**(사용자 결정 2026-08-30 — 처음에는 줄 끝에서만
-        // 그렇게 했는데 가운데서도 같기를 원했다). 제목을 연달아 쓰는 일은 거의 없다.
-        // splitBlock({ keepMarks: true })라야 형광펜·굵기 같은 서식이 따라온다 —
-        // 그냥 splitBlock이면 뒤쪽이 맨 글자가 된다.
-        // setNode는 **가른 뒤**에 부른다: 먼저 부르면 앞쪽 제목까지 본문이 된다.
-        return editor.chain()
-          .splitBlock({ keepMarks: true })
-          // **줄 끝에서는 splitBlock이 이미 문단을 만들어 놓는다.** 그때 setNode를 또 부르면
-          // "바꿀 것이 없다"며 false가 나오고, 그 false가 이 단축키의 반환값이 되어
-          // ProseMirror가 **기본 Enter를 한 번 더 돌린다** → 빈 문단이 하나 더 생겼다
-          // (사용자 지적 2026-08-30 — "줄바꿈이 두 번 된다"). 가운데서 가른 경우에는
-          // 뒤쪽이 제목 그대로라 setNode가 실제로 일을 한다 — 그때만 부른다.
-          .command(({ state, commands }) =>
-            state.selection.$from.parent.type.name === 'paragraph' || commands.setNode('paragraph'))
-          .run();
-      },
+      Enter: () => (this.editor.isActive('heading') ? exitHeading(this.editor) : false),
+    };
+  },
+});
+
+// 저장 형식(한 줄 = 한 블록)이 담지 못하는 모양을 **쓰는 자리에서 만들지 않는다**(2026-09-25 감사).
+//  · 제목·목록·체크 안 Shift+Enter(줄 안 줄바꿈): 저장하면 둘째 줄이 그 블록 밖 문단으로
+//    떨어졌다. 그 자리에서는 Enter와 같게 한다 — 제목은 아래 본문으로, 목록·체크는 새 항목.
+//    (저장 쪽도 그 자리의 줄바꿈을 공백으로 적는다 · markdown.js serializeInlineContent)
+//  · 목록 안 Tab(들여 중첩): 읽는 쪽이 들여쓰기를 보지 않아 다시 열면 평평했다. 들이지 않는다.
+// 문단 안 Shift+Enter는 그대로다 — 줄바꿈 N개는 저장에서도 N줄이다.
+// 멘션 목록이 떠 있을 때의 Tab은 editorProps.handleKeyDown이 먼저 가져간다(키맵보다 앞선다).
+const BlockBreaks = Extension.create({
+  name: 'blockBreaks',
+  priority: 1000,   // HardBreak(Shift-Enter)·ListItem(Tab)보다 먼저
+  addKeyboardShortcuts() {
+    const lineBreak = () => {
+      const { editor } = this;
+      if (editor.isActive('heading')) return exitHeading(editor);
+      if (editor.isActive('taskItem')) return editor.commands.splitListItem('taskItem');
+      if (editor.isActive('listItem')) return editor.commands.splitListItem('listItem');
+      return false;
+    };
+    return {
+      'Shift-Enter': lineBreak,
+      'Mod-Enter': lineBreak,
+      Tab: () => this.editor.isActive('listItem'),
     };
   },
 });
@@ -357,6 +381,7 @@ export function MarkdownEditor({
       // 맞추기 위해 명시한다(index.css의 .tiptap 규칙과 한 쌍)
       Placeholder.configure({ placeholder: placeholder || '내용을 입력하세요...', dataAttribute: 'data-placeholder' }),
       HeadingExit,
+      BlockBreaks,
       // 문서를 통째로 교체하는 중에는 통과시킨다(위 머리말의 함정)
       LockedHeadings.configure({ titles: lockedHeadings, bypass: () => replacingRef.current }),
     ],

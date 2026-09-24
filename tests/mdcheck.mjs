@@ -162,3 +162,45 @@ console.log('마크다운 중첩 라운드트립 자체검증 통과 (30 asserts
   assert.deepStrictEqual(N.splitNoteSections(N.ensureNoteSections(cases[3], W)), [{ title: '말씀 요약', body: '은혜' }]);
   console.log('빈 줄·들여쓰기 보존 통과 (18 asserts)');
 }
+
+// ── 편집기 줄 구조가 저장에서 흔들리지 않는다 (2026-09-25 감사 6) ───────────
+// 기준은 **값이 왕복에서 바뀌지 않는 것**이다: 저장한 글을 다시 열어 다시 저장해도 같은 글.
+// 네 갈래가 흔들렸다 — ① 목록·제목·체크 안 Shift+Enter(둘째 줄이 블록 밖 문단이 됐다)
+// ② 끝의 빈 불릿(글자 `-`가 됐다) ③ 중첩 불릿(펴지면서 두 번에 걸쳐 바뀌었다)
+// ④ 맞붙은 번호 목록(`1.`·`1.`로 적혔다가 다시 열면 `1.`·`2.`).
+// **되돌리기**: serializeInlineContent의 `br` 인자를 무시하면(언제나 '\n') ①이, 끝 정리를
+// `\s+$`로 되돌리면 ②가, renumberRuns를 빼면 ④가 깨진다.
+{
+  const T = (t) => ({ type: 'text', text: t });
+  const BR = { type: 'hardBreak' };
+  const P = (...c) => (c.length ? { type: 'paragraph', content: c } : { type: 'paragraph' });
+  const doc = (...c) => ({ type: 'doc', content: c });
+  const li = (...c) => ({ type: 'listItem', content: c });
+  const task = (p, checked = false) => ({ type: 'taskItem', attrs: { checked }, content: [p] });
+  const stable = (d, label) => {
+    const once = docToMd(d);
+    assert.strictEqual(round(once), once, `${label}: 다시 열어 저장하면 값이 바뀐다 ${JSON.stringify(once)} → ${JSON.stringify(round(once))}`);
+    return once;
+  };
+  // ① 블록 안 Shift+Enter — 글은 그 블록 안에 남는다(공백으로 잇는다)
+  assert.strictEqual(stable(doc({ type: 'bulletList', content: [li(P(T('가'), BR, T('이어')))] }), '불릿 안 Shift+Enter'), '- 가 이어');
+  assert.strictEqual(stable(doc({ type: 'heading', attrs: { level: 2 }, content: [T('제목'), BR, T('둘째')] }), '제목 안 Shift+Enter'), '## 제목 둘째');
+  assert.strictEqual(stable(doc({ type: 'taskList', content: [task(P(T('할일'), BR, T('메모')))] }), '체크 안 Shift+Enter'), '- [ ] 할일 메모');
+  // 문단 안 Shift+Enter 셋은 빈 줄 둘이다(예전에는 접혀서 하나)
+  assert.strictEqual(stable(doc(P(T('가'), BR, BR, BR, T('나'))), 'Shift+Enter 셋'), '가\n\n\n나');
+  // ② 끝의 빈 항목은 빈 항목 그대로
+  assert.strictEqual(stable(doc({ type: 'bulletList', content: [li(P(T('가'))), li(P())] }), '끝의 빈 불릿'), '- 가\n- ');
+  assert.strictEqual(mdToDoc('- 가\n- ').content.length, 1, '끝의 빈 불릿이 글자 `-` 문단으로 떨어지지 않는다');
+  assert.strictEqual(stable(doc({ type: 'taskList', content: [task(P(T('가'))), task(P())] }), '끝의 빈 체크'), '- [ ] 가\n- [ ] ');
+  assert.strictEqual(round('가\n# '), '가\n# ', '끝의 빈 제목도 제목 그대로');
+  // ③ 중첩은 처음 저장에서 평평하게 굳는다
+  assert.strictEqual(stable(doc({ type: 'bulletList', content: [li(P(T('가')), { type: 'bulletList', content: [li(P(T('나')))] })] }), '중첩 불릿'), '- 가\n- 나');
+  assert.strictEqual(round(round('- 가\n  - 나\n- 다')), round('- 가\n  - 나\n- 다'), '옛 들여쓴 불릿도 한 번에 굳는다');
+  // ④ 맞붙은 번호 목록은 다시 열었을 때의 차례로 적는다
+  assert.strictEqual(stable(doc(
+    { type: 'orderedList', attrs: { start: 1 }, content: [li(P(T('가')))] },
+    { type: 'orderedList', attrs: { start: 1 }, content: [li(P(T('나')))] }), '번호 둘이 붙음'), '1. 가\n2. 나');
+  // 사이에 다른 블록이 끼면 뒤 목록의 숫자는 그대로다(09-11의 규칙과 부딪히지 않는다)
+  assert.strictEqual(round('1. 첫째\n- 사이\n2. 둘째'), '1. 첫째\n- 사이\n2. 둘째');
+  console.log('줄 구조 왕복 안정 통과 (20 asserts)');
+}
