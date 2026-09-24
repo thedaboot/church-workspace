@@ -60,7 +60,9 @@ const clickText=t=>`[...document.querySelectorAll('button')].find(b=>b.textConte
 await load(MOB);
 const nav = await ev(`(() => {
   const bar=document.querySelector('nav');
-  const tabs=[...bar.querySelectorAll('button')].map(b=>b.textContent.trim());
+  // 바는 교회 층·업무 층 두 벌이 겹쳐 있다(db35e3d) — nav 전체의 버튼을 세면 열이 나온다.
+  // 업무 바를 보는 검사이므로 업무 층만 센다(navsmoke와 같은 방식).
+  const tabs=[...(bar.querySelector('.tab-bar-work')?.querySelectorAll('button')||[])].map(b=>b.textContent.trim());
   const head=document.querySelector('div.md\\\\:hidden');
   const headBtns=[...head.querySelectorAll('button')].map(b=>b.getAttribute('title')||b.textContent.trim());
   return { tabs, headBtns, tabHasSettings: tabs.includes('설정'),
