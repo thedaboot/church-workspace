@@ -448,6 +448,34 @@ await sleep(250);
 await goto('말씀');
 check('교회 화면끼리 옮겨도 맨 위에서 열린다', (await mainTop()) === 0, String(await mainTop()));
 
+// ── 상단 검색 결과 판 (2026-09-25 검색 결과 감사) ─────────────────────────────
+// 결과 판은 칸 폭을 따르는데(matchWidth) 768~1030px에서 칸이 54~310px로 줄어든다 — 판이
+// 글자 하나 폭의 기둥이 됐다. 320px 아래로 줄이지 않고 화면 안에 가둔다(minWidth).
+// 되돌리기 검사: layout.jsx SearchBox의 `minWidth: 320`을 지우면 첫 단정이 깨진다.
+const deskSearch = async (w, q) => {
+  await send('Emulation.setDeviceMetricsOverride', { width: w, height: 800, deviceScaleFactor: 1, mobile: false });
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1400);
+  await ev(`(() => { const inp = [...document.querySelectorAll('input[placeholder*="검색"]')].find(i => i.getBoundingClientRect().width > 0);
+    inp.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(inp, ${JSON.stringify(q)});
+    inp.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await sleep(600);
+};
+const searchList = `(() => {
+  const inp = [...document.querySelectorAll('input[placeholder*="검색"]')].find(i => i.getBoundingClientRect().width > 0);
+  const list = [...document.body.children].find(c => String(c.className || '').includes('z-[80]'));
+  if (!list) return { none: true };
+  const b = list.getBoundingClientRect();
+  return { inputW: Math.round(inp.getBoundingClientRect().width), w: Math.round(b.width), l: Math.round(b.left), r: Math.round(b.right),
+    t: Math.round(b.top), b: Math.round(b.bottom), vw: innerWidth, vh: innerHeight, n: list.querySelectorAll('button').length,
+    active: document.activeElement === inp ? 'input' : (list.contains(document.activeElement) ? 'list:' + document.activeElement.textContent.trim().slice(0, 12) : document.activeElement.tagName) };
+})()`;
+for (const w of [800, 1440]) {
+  await deskSearch(w, '프로젝트');
+  const sl = await ev(searchList);
+  check(`검색 결과 판이 좁은 칸에서도 320px 폭(${w}px)`, sl.w >= 320 && sl.n >= 8, JSON.stringify(sl));
+  check(`검색 결과 판이 화면 안에 선다(${w}px)`, sl.l >= 0 && sl.r <= sl.vw && sl.b <= sl.vh, JSON.stringify(sl));
+}
+
 
 // ── 화면 전환 모션 (사용자 요청 2026-09-07) ─────────────────────────────────
 // 교회 축(홈·예배·말씀·모임)끼리 옮길 때만 방향이 있다 — 탭 차례로 오른쪽이면

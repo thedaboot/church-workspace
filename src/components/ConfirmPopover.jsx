@@ -25,6 +25,8 @@ const EST_H = 110; // 높이 추정치(위/아래 배치 판단용)
 // opts.matchWidth를 주면 **폭도 앵커에서 잰다**(width 인자는 첫 배치용 대비값이 된다) —
 // 부르는 쪽이 폭을 따로 state로 들고 있으면 그 값이 낡는다(모바일에서 칸 폭이 바뀌는데
 // 목록은 옛 폭으로 서 있었다). 잰 폭은 pos.width로 돌려준다.
+// opts.minWidth는 그 잰 폭의 **아래 한계**다(화면 폭 안으로는 가둔다) — 상단 검색칸은
+// 768~1030px에서 54~310px로 줄어드는데, 결과 판이 그 폭을 그대로 따라가 54px 기둥이 됐다(2026-09-25).
 //
 // ── 모바일 키보드 (사용자 보고 2026-09-08 · 아이폰) ─────────────────────────
 // "멤버 추가·순원 추가·순장 지정에서 목록이 밀려 뜬다 — 아마 키 입력 때문에."
@@ -41,6 +43,7 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
   const matchWidth = !!opts?.matchWidth;
   const alignStart = opts?.align === 'start';
   const preferAbove = opts?.prefer === 'above';
+  const minWidth = opts?.minWidth || 0;
   const [pos, setPos] = useState({ left: 0, top: 0, width: width || 0 });
   const seen = useRef(null);   // 마지막으로 자리를 잡을 때의 앵커 상자(아래 rAF 고리가 견준다)
   const place = useCallback(() => {
@@ -56,7 +59,8 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
     // 잰 팝오버가 있으면 **실제 폭**으로 가둔다 — 달력(w-max)은 추정 폭(268)보다 좁아서, 추정으로
     // 가두면 폰에서 오른쪽 버튼의 달력이 필요보다 왼쪽으로 더 밀렸다(2026-09-24).
     // offsetWidth는 transform(zoom-in) 영향을 안 받는다.
-    const w = (matchWidth && r.width) ? r.width : (measuredRef?.current?.offsetWidth || width);
+    const w = (matchWidth && r.width) ? Math.min(Math.max(r.width, minWidth), vw - gap * 2)
+      : (measuredRef?.current?.offsetWidth || width);
     const h = measuredRef?.current?.offsetHeight || estHeight;
     const minLeft = ox + gap;
     const maxLeft = Math.max(minLeft, ox + vw - w - gap);
@@ -77,7 +81,7 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
     top = Math.min(Math.max(top, oy + gap), Math.max(oy + gap, oy + vh - h - gap));
     // 같은 자리면 상태를 바꾸지 않는다 — 아래 rAF 고리가 헛되이 다시 그리지 않게.
     setPos(p => ((p.left === left && p.top === top && p.width === w) ? p : { left, top, width: w }));
-  }, [triggerRef, width, estHeight, gap, measuredRef, matchWidth, alignStart, preferAbove]);
+  }, [triggerRef, width, estHeight, gap, measuredRef, matchWidth, minWidth, alignStart, preferAbove]);
 
   // useLayoutEffect: 브라우저가 그리기 전에 위치를 확정한다.
   // useEffect였을 때는 첫 프레임이 {0,0}에 그려지고 그 다음 프레임에 제자리로

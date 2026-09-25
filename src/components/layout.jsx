@@ -949,8 +949,10 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
   // 데스크톱 결과 판은 **body 포털**이다(HANDOFF §8 '떠 있는 것') — 폭은 검색칸에서 잰다
   // (matchWidth). z는 z-[80]: 프로필 메뉴가 z-[90]이고 검사(tests/mobbits)가 body의 첫 z-[90]을
   // 그 메뉴로 본다 — 같은 z를 쓰면 엉뚱한 판을 잰다.
+  // 폭은 칸을 따르되 **320px 아래로는 줄이지 않는다**(minWidth) — 768~1030px에서 칸이 54~310px로
+  // 줄어 결과 판이 글자 하나 폭의 기둥이 됐다(2026-09-25 · tests/navsmoke). 넓힌 판은 화면 안으로 갇힌다.
   const listOpen = open && active;
-  const [listPos] = useAnchoredPos(rootRef, listOpen, 320, 320, 8, listRef, { matchWidth: true, align: 'start' });
+  const [listPos] = useAnchoredPos(rootRef, listOpen, 320, 320, 8, listRef, { matchWidth: true, minWidth: 320, align: 'start' });
 
   // 데스크톱: 바깥 클릭 / Escape 닫기. 프로필 메뉴·더보기와 **같은 훅**을 쓴다 — 닫는 규칙이
   // 여러 벌이면 한쪽만 고쳐진다. 결과 판이 포털이라 **그 판도 '안'으로** 넘긴다(useDismiss 머리말).
