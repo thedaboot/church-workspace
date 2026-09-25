@@ -408,7 +408,8 @@ export async function shareOrSave(files, { toast, what = '파일을 내보내지
   // 마지막 갈래 — 화면에 띄운다. 브라우저 API가 필요 없으니 어디서든 된다.
   if (onOverlay) { onOverlay(list); return 'overlay'; }
   if (toast) {
-    toast(failText(what, { human: why ? `공유 창이 열리지 않았어요 (${why})` : '이 브라우저에서는 저장할 수 없어요' }));
+    // 거부된 이름(NotAllowedError 같은 영어)은 위 console.warn에만 — 화면은 사람 말만(§8)
+    toast(failText(what, { human: why ? '다시 한 번 눌러주세요' : '이 브라우저에서는 저장할 수 없어요' }));
   }
   return 'overlay';
 }

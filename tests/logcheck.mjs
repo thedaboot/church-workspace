@@ -3340,10 +3340,11 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const perm = auth.slice(auth.indexOf("resetMyUid();"));
   assert.ok(/if \(!res\) \{[\s\S]*?return;/.test(perm),
     '자격을 못 물어봤으면 알던 값을 그대로 둔다(아니오로 바꾸지 않는다)');
-  assert.ok(/r\.some\(x => x\.error\) \? null :/.test(perm),
+  // 판정은 approvalWatch.permFromRpc 한 벌 — 끝의 '승인 대기 자동 전환' 구역이 함수를 단정한다
+  assert.ok(/return permFromRpc\(await Promise\.all/.test(auth),
     'rpc 셋 중 하나라도 실패하면 그 회차는 통째로 버린다 — 반만 믿으면 더 나쁘다');
   assert.ok(/setTimeout\(r, 1500\)/.test(perm), '한 번은 다시 물어본다');
-  assert.ok(perm.indexOf('if (!res)') < perm.indexOf('approved: !!ap.data'),
+  assert.ok(perm.indexOf('if (!res)') < perm.indexOf('setPerm(res)'),
     '값을 덮어쓰는 줄은 실패 관문 **뒤**에 있다 — 앞에 있으면 관문이 아무 일도 안 한다');
   console.log('PASS  승인 대기 화면이 헛뜨지 않는다 6가지');
 }
@@ -4558,4 +4559,67 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/s === CONFIG\.STATUS_ONGOING\s*\?\s*\{ \.\.\.prev, status: s, startDate: '', dueDate: '' \}/.test(modals), '업무 창에서 상시를 고르는 순간 날짜를 비운다');
   assert.ok(/formData\.status !== CONFIG\.STATUS_ONGOING && \(/.test(modals), '상시면 시작일·마감일 칸이 없다');
   console.log('PASS  상시(0075)와 업무 셈 한 벌(taskCounts — 지연 · 구간 · 방치 · 진척 · 고른 해)');
+}
+
+// ── 승인 대기가 저절로 넘어가기 · 승인 알림 · 화면에 기술 원문 안 싣기 (2026-09-25) ──
+// 승인 여부를 토큰 갱신(한 시간)마다만 물어서, 관리자가 수락해도 기다리는 사람은 새로고침해야 했다.
+// 대기 중에는 실시간 내 profiles 행 · 다시 보일 때 · 30초 주기로 다시 묻는다(클라우드 전용 — 게스트
+// 스위트가 못 본다). 판정은 approvalWatch.js 순수 함수로 여기서 단정하고, 배선은 소스로 본다.
+{
+  const W = await import(new URL('../src/services/approvalWatch.js', import.meta.url).href);
+  const ok = (data) => ({ data, error: null });
+  assert.deepStrictEqual(W.permFromRpc([ok(false), ok(false), ok(true)]), { isAdmin: false, isMaster: false, approved: true });
+  assert.deepStrictEqual(W.permFromRpc([ok(null), ok(null), ok(null)]), { isAdmin: false, isMaster: false, approved: false });
+  assert.strictEqual(W.permFromRpc([ok(true), { data: null, error: { message: 'x' } }, ok(true)]), null, '하나라도 실패면 모름(null) — 아니오로 바꾸지 않는다');
+  assert.strictEqual(W.permFromRpc(null), null);
+  assert.strictEqual(W.permFromRpc([ok(true)]), null);
+  assert.ok(W.shouldWatchApproval({ enabled: true, hasSession: true, approved: false }), '대기로 확정되면 지켜본다');
+  assert.ok(!W.shouldWatchApproval({ enabled: true, hasSession: true, approved: null }), '아직 모르면 지켜보지 않는다');
+  assert.ok(!W.shouldWatchApproval({ enabled: true, hasSession: true, approved: true }), '승인되면 그만 본다');
+  assert.ok(!W.shouldWatchApproval({ enabled: true, hasSession: false, approved: false }));
+  assert.ok(!W.shouldWatchApproval({ enabled: false, hasSession: true, approved: false }), '게스트는 해당 없음');
+  assert.ok(W.approvalRowPassed({ approved: true, removed_at: null }));
+  assert.ok(!W.approvalRowPassed({ approved: false }), '이름·사진 쓰기로 온 행은 다시 묻지 않는다');
+  assert.ok(!W.approvalRowPassed({ approved: true, removed_at: '2026-09-25' }));
+  assert.ok(!W.approvalRowPassed(null));
+  assert.ok(W.APPROVAL_POLL_MS >= 20000 && W.APPROVAL_POLL_MS <= 60000, '가벼운 주기 — 20~60초');
+
+  const authSrc = readFileSync(new URL('../src/services/auth.jsx', import.meta.url), 'utf8');
+  assert.ok(/shouldWatchApproval\(\{ enabled, hasSession: !!uid, approved: perm\.approved \}\)/.test(authSrc), '대기 판정은 perm.approved(null/false 구분)로');
+  assert.ok(/table: 'profiles', filter: `id=eq\.\$\{uid\}`/.test(authSrc), '실시간은 내 profiles 행만');
+  assert.ok(/approvalRowPassed\(payload\.new\)/.test(authSrc), '실시간 행은 approvalRowPassed로 거른다');
+  assert.ok(/setInterval\(recheck, APPROVAL_POLL_MS\)/.test(authSrc) && /visibilitychange/.test(authSrc), '주기 + 다시 보일 때');
+  assert.ok(/supabase\.removeChannel\(channel\)/.test(authSrc), '떠날 때 채널을 걷는다');
+  assert.strictEqual((authSrc.match(/permFromRpc\(/g) || []).length, 1, '처음 물음과 다시 묻기가 askPerm 한 벌');
+
+  // 승인 알림 — 시스템 갈래 문구 · 관리자 수락에서 보낸다 · 체크 제약과 INSERT 정책을 같이(관리자만)
+  const N = await import(new URL('../src/services/notifyText.js', import.meta.url).href);
+  assert.ok(N.isSystemNotif('approved'));
+  assert.strictEqual(N.notifLine('approved', '노준석'), '가입이 승인되었어요');
+  assert.strictEqual(N.notifArea('approved'), 'group', '시계 아이콘이 아니라 사람들 아이콘');
+  const memSrc = readFileSync(new URL('../src/views/membersView.jsx', import.meta.url), 'utf8');
+  assert.ok(/if \(next\) \{\s*cloud\.insertNotifications\(\[row\.id\], \{ kind: 'approved'/.test(memSrc), '수락하면 그 사람에게 approved 알림');
+  const mig = readFileSync(new URL('../supabase/migrations/0076_approved_notification.sql', import.meta.url), 'utf8')
+    .split('\n').filter(l => !/^\s*--/.test(l)).join('\n');
+  assert.ok(/notifications_kind_check[\s\S]*'approved'\)\);/.test(mig), '체크 제약에 approved');
+  assert.ok(/or \(kind = 'approved' and public\.is_admin\(\)\)/.test(mig), 'approved는 관리자만 넣는다');
+
+  // 화면에 기술 원문을 싣지 않는다(§8) — 계정 연결 토스트 · 오류 화면 · 미리보기 · 공유 거부 이름 · api 401
+  const { linkErrorReason } = await import(new URL('../src/services/errorText.js', import.meta.url).href);
+  assert.strictEqual(linkErrorReason({ code: 'identity_already_exists', message: 'Identity is already linked to another user' }), '이미 따로 가입된 계정이에요');
+  assert.strictEqual(linkErrorReason({ message: 'Manual linking is disabled' }), '관리자에게 알려주세요');
+  assert.strictEqual(linkErrorReason({ message: 'Failed to fetch' }), '인터넷 연결을 확인하고 다시 시도해주세요');
+  assert.strictEqual(linkErrorReason({ message: 'Unexpected provider state' }), '잠시 후 다시 시도해주세요', '영어 원문은 화면에 안 싣는다');
+  const setSrc = readFileSync(new URL('../src/modals/settings.jsx', import.meta.url), 'utf8');
+  assert.ok(!/Manual Linking|Supabase 설정|error\.message|e\.message/.test(setSrc), '계정 연결 토스트에 원문·제품명 없음');
+  assert.ok(/계정을 연결하지 못했어요\\n\$\{linkErrorReason\(err\)\}/.test(setSrc), '두 줄 — 무엇을 못했는지 / 이유');
+  const ebSrc = readFileSync(new URL('../src/components/ErrorBoundary.jsx', import.meta.url), 'utf8');
+  assert.ok(!/error\?\.toString\(\)|렌더링 중 오류/.test(ebSrc) && /data-error-boundary/.test(ebSrc), '오류 화면에 TypeError 원문 없음');
+  const fpSrc = readFileSync(new URL('../src/components/FilePreviewModal.jsx', import.meta.url), 'utf8');
+  assert.ok(!/setError\([^)]*(e\.message|String\(e\))/.test(fpSrc) && !/new Error\(`HTTP/.test(fpSrc), "미리보기 실패에 원문·'HTTP 404' 없음");
+  const shSrc = readFileSync(new URL('../src/services/shareImage.js', import.meta.url), 'utf8');
+  assert.ok(!/\(\$\{why\}\)/.test(shSrc), '공유 거부 이름(NotAllowedError)을 토스트에 싣지 않는다');
+  const libSrc = readFileSync(new URL('../api/_lib.js', import.meta.url), 'utf8');
+  assert.ok(!/세션이 유효하지 않습니다|'인증이 필요합니다\.'/.test(libSrc.split('export async function requireApprovedUser')[1] || 'x'), 'api 401은 사람 말');
+  console.log('PASS  승인 대기 자동 전환(approvalWatch) · 승인 알림(0076) · 화면에 기술 원문 안 싣기');
 }

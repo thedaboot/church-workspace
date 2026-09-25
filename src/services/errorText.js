@@ -92,6 +92,20 @@ export function errorReason(err) {
   return '잠시 후 다시 시도해주세요';
 }
 
+// 계정 연결(내 정보 → 연결된 계정) 실패의 뒷도막. 로그인 쪽 오류는 영어 원문뿐이라
+// errorReason의 '원문이라도' 갈래로 떨어지면 영어 문장이 그대로 뜬다(예전 토스트는 거기에
+// 설정 화면 이름까지 붙였다). 아는 두 가지만 사람 말로 바꾸고, 나머지는 errorReason의
+// 사람 말(인터넷·로그인)만 쓰고 원문이 남으면 일반 문구로 떨어진다. 앞도막('구글 계정을
+// 연결하지 못했어요')은 부르는 쪽(modals/settings.jsx)이 붙이므로 여기는 한 줄이다.
+export function linkErrorReason(err) {
+  const code = String(err?.code ?? '');
+  const msg = String(err?.message ?? '').toLowerCase();
+  if (code === 'identity_already_exists' || msg.includes('already linked')) return '이미 따로 가입된 계정이에요';
+  if (code === 'manual_linking_disabled' || msg.includes('manual linking')) return '관리자에게 알려주세요';
+  const r = errorReason(err);
+  return /[가-힣]/.test(r) ? r : '잠시 후 다시 시도해주세요';
+}
+
 // 토스트 한 줄. `what`은 이미 완결된 문장입니다 — '업무를 저장하지 못했어요'
 // '무엇을 못 했는지'와 '왜'는 **언제나 줄을 바꿔** 잇는다(사용자 결정 2026-09-03 — 마침표도
 // ' · '도 아니다). 토스트가 whitespace-pre-line이라 줄바꿈이 그대로 그려진다.

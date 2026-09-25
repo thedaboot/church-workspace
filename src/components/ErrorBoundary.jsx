@@ -16,8 +16,10 @@ export class ErrorBoundary extends React.Component {
         <div className="p-6 bg-surface border border-line rounded-lg shadow-soft m-4 flex items-start gap-3">
           <AlertTriangle className="text-tag-red-fg shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <h3 className="text-fg font-bold text-sm">컴포넌트 렌더링 중 오류가 발생했습니다.</h3>
-            <p className="text-tag-red-fg text-xs mt-1 break-words">{this.state.error?.toString()}</p>
+            {/* 실패 문구는 두 줄(§8) — 원문(`TypeError: …`)은 componentDidCatch가 콘솔에 남긴다.
+                `data-error-boundary`는 tests/errhunt가 이 화면을 찾는 자리다(문구에 기대지 않는다). */}
+            <h3 data-error-boundary className="text-fg font-bold text-sm">화면을 그리지 못했어요</h3>
+            <p className="text-fg-muted text-xs mt-1 break-words">다시 시도해도 같으면 새로고침해주세요</p>
             <button onClick={() => this.setState({ hasError: false })} className="mt-3 px-3 py-1 bg-tag-red text-tag-red-fg hover:opacity-80 text-xs rounded-md font-semibold transition active:scale-95">다시 시도</button>
           </div>
         </div>

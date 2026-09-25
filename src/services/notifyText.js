@@ -33,6 +33,8 @@ const SYSTEM_TEXT = {
   due_soon: '마감이 다가왔어요',
   worship_today: '오늘 예배가 있어요',
   club_accepted: '동아리 가입이 수락되었어요',
+  // 관리자가 가입을 수락하면 본인에게(0076) — club_accepted와 같은 이유로 시스템 갈래
+  approved: '가입이 승인되었어요',
 };
 
 export const isSystemNotif = (kind) => kind in SYSTEM_TEXT;
@@ -48,6 +50,6 @@ export const notifLine = (kind, actorName) => (
 //   'task'(업무) · 'worship'(예배) · 'group'(모임)
 export const notifArea = (kind) => {
   if (kind === 'worship_today' || kind === 'service_published' || kind === 'note_shared') return 'worship';
-  if (kind === 'club_apply' || kind === 'club_accepted' || kind === 'meeting_new') return 'group';
+  if (kind === 'club_apply' || kind === 'club_accepted' || kind === 'meeting_new' || kind === 'approved') return 'group';
   return 'task';
 };

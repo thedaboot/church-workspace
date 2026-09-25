@@ -8,7 +8,7 @@ import { supabase } from '../services/supabaseClient.js';
 import * as cloud from '../services/cloud.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { showToast } from '../components/Toast.jsx';
-import { failText } from '../services/errorText.js';
+import { failText, linkErrorReason } from '../services/errorText.js';
 import { imeComposing } from '../utils.js';
 import { BTN_CONFIRM, BTN_CONFIRM_QUIET } from '../components/buttons.js';
 
@@ -21,6 +21,8 @@ import { BTN_CONFIRM, BTN_CONFIRM_QUIET } from '../components/buttons.js';
 // 자르기 UI는 두지 않는다 — 얼굴은 대개 가운데에 있고, 원형으로 보여줄 거라 미세한
 // 위치는 티가 안 난다. 필요해지면 그때 붙이면 된다.
 const AVATAR_PX = 256;
+// 계정 연결 실패 토스트의 앞도막('구글 계정을 연결하지 못했어요') — 아래 ACCOUNTS의 label과 같은 말
+const LINK_LABEL = { google: '구글', kakao: '카카오' };
 async function squareThumb(file) {
   const bmp = await createImageBitmap(file);
   const side = Math.min(bmp.width, bmp.height);
@@ -91,11 +93,16 @@ export function ProfileModal({ onClose, onSave }) {
   const linkProvider = async (provider) => {
     if (!supabase || linking) return;
     setLinking(provider);
+    // 실패 문구는 두 줄(§8) — 원문은 콘솔에만. 뒷도막은 errorText.linkErrorReason.
+    const fail = (err) => {
+      console.error('[auth] 계정 연결 실패:', err);
+      showToast(`${LINK_LABEL[provider] || ''} 계정을 연결하지 못했어요\n${linkErrorReason(err)}`.trim());
+    };
     try {
       const { error } = await supabase.auth.linkIdentity({ provider });
-      if (error) showToast(`연결 실패: ${error.message} · Supabase 설정에서 Manual Linking이 켜져 있는지 확인해 주세요.`);
+      if (error) fail(error);
     } catch (e) {
-      showToast(`연결 실패: ${e.message} · Supabase 설정에서 Manual Linking이 켜져 있는지 확인해 주세요.`);
+      fail(e);
     } finally {
       setLinking(null);
     }

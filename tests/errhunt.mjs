@@ -87,7 +87,7 @@ for (const [stateName, st] of Object.entries(STATES)) {
       if (action) await ev(action, action.startsWith('(async'));
       await sleep(action ? 900 : 400);
       const boundary = await ev(`(() => {
-        const h3 = [...document.querySelectorAll('h3')].find(e => /렌더링 중 오류/.test(e.textContent));
+        const h3 = document.querySelector('h3[data-error-boundary]');
         if (!h3) return null;
         return h3.parentElement.querySelector('p')?.textContent || '(메시지 없음)';
       })()`);

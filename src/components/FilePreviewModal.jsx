@@ -18,6 +18,18 @@ const SlideLazy = lazy(() => import('./OfficeView.jsx').then(m => ({ default: m.
 const DocView = (props) => <Suspense fallback={<PreparingFrame />}><DocLazy {...props} /></Suspense>;
 const SlideView = (props) => <Suspense fallback={<PreparingFrame />}><SlideLazy {...props} /></Suspense>;
 
+// 미리보기 실패 문구(Fallback에 선다) — 두 줄(§8), 원문은 콘솔에만.
+//  · 받기 실패: 뒷도막은 errorText가 만든다 — 우리 API가 준 이유(e.human · 드라이브 중계)를
+//    먼저 보고 인터넷·로그인·서버를 가른다(§6-29-e — 드라이브 원문은 그대로 둔다).
+//  · 받았는데 못 그림(pdf.js·워드/PPT 파서): 파서의 영어 원문은 쓰는 사람에게 소용이 없다 —
+//    할 수 있는 일은 새 탭에서 여는 것뿐이다.
+// 경고로 남긴다(console.error가 아니다) — 파일 탓인 실패를 '콘솔 오류 0' 검사가 회귀로 읽지 않게.
+const previewFail = (e) => { console.warn('[preview] 미리보기 실패:', e); return failText('미리보기를 열지 못했어요', e); };
+const drawFail = (e, what) => { console.warn('[preview] 그리기 실패:', e); return `${what}\n새 탭에서 열어보세요`; };
+// fetch가 ok가 아닐 때 — 상태를 실어 errorText가 401·413·5xx를 가르게 하고, 나머지(403·404)는
+// 이 메시지가 뒷도막으로 선다('HTTP 404'가 화면에 뜨던 자리).
+const httpFail = (r) => Object.assign(new Error('새 탭에서 열어보세요'), { status: r.status });
+
 // ============================================================================
 // 첨부 미리보기 — 새 탭으로 스토리지 링크를 던지지 않고 앱 안에서 본다.
 // ----------------------------------------------------------------------------
@@ -471,7 +483,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     let alive = true;
     getFileOpenUrl(cur)
       .then(u => { if (alive) setUrl(u); })
-      .catch(e => { if (alive) setError(e.message || String(e)); });
+      .catch(e => { if (alive) setError(previewFail(e)); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cur.id]);
@@ -486,21 +498,21 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     let alive = true;
     const put = (t) => { if (alive) setText(t.slice(0, MAX_TEXT_CHARS)); };
     if (local) {
-      local.text().then(put).catch(e => { if (alive) setError(e.message || String(e)); });
+      local.text().then(put).catch(e => { if (alive) setError(previewFail(e)); });
       return () => { alive = false; };
     }
     if (cur.source === 'drive' && cur.drive_file_id) {
       fetchDriveFileBlob(cur.drive_file_id)
         .then(b => b.text())
         .then(put)
-        .catch(e => { if (alive) setError(e.human || e.message || String(e)); });
+        .catch(e => { if (alive) setError(previewFail(e)); });
       return () => { alive = false; };
     }
     if (!url) return;
     fetch(url)
-      .then(r => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(r => (r.ok ? r.text() : Promise.reject(httpFail(r))))
       .then(put)
-      .catch(e => { if (alive) setError(e.message || String(e)); });
+      .catch(e => { if (alive) setError(previewFail(e)); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, url, cur.id]);
@@ -515,14 +527,14 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     if (cur.source === 'drive' && cur.drive_file_id) {
       fetchDriveFileBlob(cur.drive_file_id)
         .then(b => { if (alive) setOfficeBlob(b); })
-        .catch(e => { if (alive) setError(e.human || e.message || String(e)); });
+        .catch(e => { if (alive) setError(previewFail(e)); });
       return () => { alive = false; };
     }
     if (!url) return;
     fetch(url)
-      .then(r => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(r => (r.ok ? r.blob() : Promise.reject(httpFail(r))))
       .then(b => { if (alive) setOfficeBlob(b); })
-      .catch(e => { if (alive) setError(e.message || String(e)); });
+      .catch(e => { if (alive) setError(previewFail(e)); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, url, cur.id]);
@@ -538,12 +550,12 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     if (cur.source === 'drive' && cur.drive_file_id) {
       fetchDriveFileBlob(cur.drive_file_id)
         .then(b => { if (alive) setPdfSrc({ blob: b }); })
-        .catch(e => { if (alive) setError(e.human || e.message || String(e)); });
+        .catch(e => { if (alive) setError(previewFail(e)); });
       return () => { alive = false; };
     }
     if (!url) return;
     fetch(url)
-      .then(r => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(r => (r.ok ? r.blob() : Promise.reject(httpFail(r))))
       .then(b => { if (alive) setPdfSrc({ blob: b }); })
       .catch(() => { if (alive) setPdfSrc({ src: url }); }); // 실패하면 주소로
     return () => { alive = false; };
@@ -564,7 +576,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     let alive = true; let obj = null;
     fetchDriveFileBlob(cur.drive_file_id)
       .then(b => { if (!alive) return; obj = URL.createObjectURL(b); setBlobSrc(obj); })
-      .catch(e => { if (alive) setError(e.human || e.message || String(e)); });
+      .catch(e => { if (alive) setError(previewFail(e)); });
     return () => { alive = false; if (obj) URL.revokeObjectURL(obj); setBlobSrc(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, cur.id]);
@@ -807,7 +819,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
     if (kind === 'doc' || kind === 'slide') {
       if (!officeBlob) return <PreparingFrame />;
       const View = kind === 'doc' ? DocView : SlideView;
-      return <View blob={officeBlob} onError={(e) => setError(`${kind === 'doc' ? '문서' : '슬라이드'}를 읽지 못했어요 · ${e.message || e}`)} />;
+      return <View blob={officeBlob} onError={(e) => setError(drawFail(e, `${kind === 'doc' ? '문서' : '슬라이드'}를 읽지 못했어요`))} />;
     }
     // 워드·PPT에 변환 사본이 있으면 **구글이 그린 화면**을 그대로 띄운다(사용자 요청
     // 2026-09-08 — "그냥 실제 뷰로 볼 수 있게끔, 우리 엑셀 미리보기 하는 것처럼"). 우리
@@ -942,7 +954,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
           // 불려서 리스너가 계속 붙었다 떨어진다.
           onBox={setZoomBox}
           onToggleZoom={(px, py) => zoomTo(zoomRef.current > ZOOM_MIN ? ZOOM_MIN : ZOOM_TAP, px, py)}
-          onError={(e) => setError(`미리보기를 그릴 수 없어요\n${e.message || e}`)}
+          onError={(e) => setError(drawFail(e, '미리보기를 그릴 수 없어요'))}
         />
       );
     }
@@ -1101,7 +1113,7 @@ function Fallback({ row, message, onOpen }) {
     <div className="text-center px-6 py-10">
       <span className="inline-flex w-12 h-12 rounded-lg bg-tag-gray text-tag-gray-fg items-center justify-center mb-3"><FileQuestion size={22} strokeWidth={1.75} /></span>
       <p className="text-sm text-fg font-medium truncate max-w-xs mx-auto">{row.name}</p>
-      <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{message}</p>
+      <p className="text-xs text-fg-muted mt-1.5 leading-relaxed whitespace-pre-line">{message}</p>
       <button type="button" onClick={onOpen} className={`mt-4 inline-flex items-center gap-1.5 ${BTN}`}>
         <ExternalLink size={13} /> 새 탭에서 열기
       </button>

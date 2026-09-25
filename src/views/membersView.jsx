@@ -245,6 +245,14 @@ export function MembersView({ isAdmin, isMaster }) {
         ? { ...r, approved: next, removed_at: next ? null : new Date().toISOString() }
         : r)));
       showToast(next ? `${row.display_name || '이 분'}을 수락했어요` : `${row.display_name || '이 분'}을 환송했어요`);
+      // 수락된 사람에게 알림 한 건(0076 · 문구는 notifyText SYSTEM_TEXT). 대기 화면은 그쪽
+      // auth.jsx가 승인을 지켜보다 저절로 넘기고, 이 알림은 들어온 뒤 종에 남는다.
+      // actor_name은 not null이라 싣지만 DB가 내 표시 이름으로 덮는다(0071).
+      // 실패해도 수락은 이미 끝났다 — 콘솔에만 남긴다(0076 전에는 체크 제약에 걸린다).
+      if (next) {
+        cloud.insertNotifications([row.id], { kind: 'approved', actorName: '관리자' })
+          .catch(err => console.warn('[cloud] 승인 알림 실패:', err));
+      }
     } catch (e) {
       console.error('[cloud] 승인 변경 실패:', e);
       showToast(failText(next ? '수락하지 못했어요' : '환송하지 못했어요', e));

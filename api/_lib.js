@@ -44,13 +44,16 @@ export async function isAdminEmail(supabase, email) {
 // **합친 계정은 남긴 계정의 칸을 본다**(services/approval.js · 0063) — 서비스 키라 DB의
 // is_approved()를 못 쓴다. 관리자 표는 승인 칸이 아닐 때만 본다 — 승인된 사람(거의 전부)
 // 에게는 답이 이미 정해져 있어 왕복을 하나 아낀다(2026-09-08 api/drive.js의 판단 그대로).
+// 401의 이유는 화면에 그대로 선다(드라이브·유튜브 중계가 out.error를 err.human으로 싣는다) —
+// '세션이 유효하지 않습니다' 같은 기술 용어 대신 errorText의 401 문구와 같은 두 줄(§8).
+const LOGIN_AGAIN = '로그인이 풀렸어요\n새로고침하고 다시 로그인해주세요';
 export async function requireApprovedUser(req, res, { supabase = null, forbidden = '승인된 사용자만 쓸 수 있습니다.' } = {}) {
   const token = bearer(req);
-  if (!token) { res.status(401).json({ error: '인증이 필요합니다.' }); return null; }
+  if (!token) { res.status(401).json({ error: LOGIN_AGAIN }); return null; }
   supabase = supabase || adminClient();
   const { data, error } = await supabase.auth.getUser(token);
   const user = data?.user;
-  if (error || !user) { res.status(401).json({ error: '세션이 유효하지 않습니다.' }); return null; }
+  if (error || !user) { res.status(401).json({ error: LOGIN_AGAIN }); return null; }
   if (await isApprovedProfile(supabase, user.id)) return user;
   if (await isAdminEmail(supabase, user.email)) return user;
   console.error('[api] 승인 확인 실패:', user.email);

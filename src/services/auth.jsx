@@ -3,10 +3,12 @@ import { supabase, resetMyUid } from './supabaseClient.js';
 import { store } from '../store/workspaceStore.js';
 import { isKakaoInApp, returnToOf, authErrorInUrl } from '../utils.js';
 import { setEntryQuery } from './entryQuery.js';
+import { APPROVAL_POLL_MS, permFromRpc, shouldWatchApproval, approvalRowPassed } from './approvalWatch.js';
 
 // ============================================================================
 // 인증 컨텍스트 (Supabase OAuth: 구글 / 카카오)
 // - supabase 미설정(.env 없음) 시 enabled=false → 게스트 모드로 통과
+// - 승인 대기 중에는 승인을 지켜본다(실시간·다시 보일 때·30초 — 판정은 approvalWatch.js)
 // ============================================================================
 const AuthContext = createContext({ enabled: false, session: null, loading: false, isAdmin: true, isMaster: true, approved: true, signIn: () => {}, signOut: () => {}, autoSignInKakao: () => false });
 
@@ -66,6 +68,16 @@ const consumeReturnTo = () => {
 // 있는 동안 남으므로 그 경우의 마지막 방어선이다).
 let autoKakaoTried = false;
 
+// 자격 세 가지를 한 번 묻는다. 셋 다 security definer 함수라 RLS를 우회해서 답하므로
+// 승인 대기자도 자기 상태를 안다. 답 읽기는 approvalWatch.permFromRpc 한 벌(실패면 null).
+const askPerm = async () => {
+  try {
+    return permFromRpc(await Promise.all([
+      supabase.rpc('is_admin'), supabase.rpc('is_master'), supabase.rpc('is_approved'),
+    ]));
+  } catch { return null; }
+};
+
 export function AuthProvider({ children }) {
   const enabled = !!supabase;
   const [session, setSession] = useState(null);
@@ -101,8 +113,7 @@ export function AuthProvider({ children }) {
     if (name && !store.getState().currentUser.name) store.dispatch({ type: 'UPDATE_USER', payload: { name } });
   }, [session]);
 
-  // 세션이 생기거나 바뀌면 권한을 다시 묻는다. 두 값 다 security definer 함수라
-  // RLS를 우회해서 답하므로, 승인 대기자도 자기 상태는 알 수 있다.
+  // 세션이 생기거나 바뀌면 권한을 다시 묻는다(askPerm).
   useEffect(() => {
     if (!enabled) return;
     // 세션이 바뀌면 '내 id'를 다시 묻는다 — 안 버리면 다른 사람으로 로그인했는데
@@ -116,16 +127,10 @@ export function AuthProvider({ children }) {
       // 끊기면 rpc가 에러로 돌아오고 예전에는 `!!null`이 false가 되어 멀쩡히 쓰던
       // 사람이 '승인을 기다려주세요' 화면으로 떨어졌다. 실패하면 **앞서 알던 값을
       // 그대로 두고**, 한 번 더 물어본다. 그래도 안 되면 다음 갱신 때 또 묻는다.
-      const ask = async () => {
-        const r = await Promise.all([
-          supabase.rpc('is_admin'), supabase.rpc('is_master'), supabase.rpc('is_approved'),
-        ]);
-        return r.some(x => x.error) ? null : r;
-      };
-      let res = await ask();
+      let res = await askPerm();
       if (!res && alive) {
         await new Promise(r => setTimeout(r, 1500));
-        if (alive) res = await ask();
+        if (alive) res = await askPerm();
       }
       if (!alive) return;
       if (!res) {
@@ -134,11 +139,43 @@ export function AuthProvider({ children }) {
         console.error('[auth] 자격을 확인하지 못했어요 — 알던 값을 그대로 둡니다');
         return;
       }
-      const [a, m, ap] = res;
-      setPerm({ isAdmin: !!a.data, isMaster: !!m.data, approved: !!ap.data });
+      setPerm(res);
     })();
     return () => { alive = false; };
   }, [enabled, session]);
+
+  // **승인 대기 화면이 떠 있는 동안은 승인을 지켜본다**(2026-09-25). 위 물음은 세션이 바뀔
+  // 때만(토큰 갱신 · 약 한 시간) 돌아서, 관리자가 수락해도 새로고침하거나 한 시간을 기다려야
+  // 들어왔다. 세 갈래로 다시 묻는다(approvalWatch.js 머리말) — 실시간 내 profiles 행 ·
+  // 앱이 다시 보일 때 · 30초 주기. 판정은 같은 askPerm이고, 승인되는 순간 AuthGate가
+  // 워크스페이스를 마운트한다. 실패하면 알던 값(대기)을 그대로 둔다 — 다음 갈래가 또 묻는다.
+  const uid = session?.user?.id || null;
+  const watching = shouldWatchApproval({ enabled, hasSession: !!uid, approved: perm.approved });
+  useEffect(() => {
+    if (!watching) return;
+    let alive = true;
+    let busy = false;
+    const recheck = async () => {
+      if (busy || document.visibilityState === 'hidden') return;
+      busy = true;
+      const res = await askPerm();
+      busy = false;
+      if (alive && res) setPerm(res);
+    };
+    const channel = supabase.channel(`approval:${uid}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${uid}` },
+        (payload) => { if (approvalRowPassed(payload.new)) recheck(); })
+      .subscribe();
+    const timer = setInterval(recheck, APPROVAL_POLL_MS);
+    const onVisible = () => { if (document.visibilityState === 'visible') recheck(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      supabase.removeChannel(channel);
+    };
+  }, [watching, uid]);
 
   const signIn = (provider) => {
     // 떠나기 전에 지금 자리를 적어 둔다 — 돌아오면 consumeReturnTo가 그 자리로 보낸다
