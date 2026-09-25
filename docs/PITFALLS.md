@@ -349,6 +349,8 @@
 12-b. **카드를 드롭 대상으로 만들면 컬럼 드롭 경로가 거의 안 쓰인다** — 그래도 컬럼·상태 칩 갈래는 **빈 자리에 놓는 경우**를 위해 남는다. 지우지 마세요(`drag`·`dragdesk`가 검사한다).
 12-c. **draggable 노드의 ref 콜백에 조건을 넣지 말 것** — 콜백 신원이 바뀌면 React가 ref를 떼었다 붙이고 그 순간 dnd-kit이 들고 있던 노드가 사라진다. 부수 동작은 `useEffect`로. 모바일 탭은 길게 누르기
     (TouchSensor delay 300 · tolerance 8)이고 끼워 넣기·저장은 데스크톱과 한 벌(`utils.reorderIds` · 0021).
+12-d. **보드 `handleDragEnd`의 마지막 갈래는 모르는 드롭 id를 상태 이름으로 저장한다** — 상시 줄(`ONGOING_DROP = 'ongoing-row'`)의 갈래를 빼 보니 `status: 'ongoing-row'`가 그대로
+    저장됐다(2026-09-25 되돌리기 검사). 새 드롭 대상을 더하면 **그 갈래를 ② 앞에** 둔다. 상시 칩은 `.ongoing-chip`이다 — `.board-card`로 두면 첫 카드를 집는 검사(`drag`·`dragdesk`)가 칩을 집는다.
 12-f. **탭 줄 앞 칸(`services/tabRank.js`)이 선 뒤의 끌기 번호는 position 순 전체로 매긴다**(2026-09-25) — 화면 순서(앞 칸 + 나머지)로 `reorderIds`를 부르면
     앞 칸 프로젝트들의 position이 맨 앞 번호로 덮여, 활동이 줄어 앞 칸에서 내려올 때 원래 자리가 아니라 맨 앞에 선다. 앞 칸 탭은 끌 수도 놓을 자리도 될 수 없다(데스크톱 `draggable`·폰 `disabled`).
     측정 줄(`useTabFit`)의 세로선 자리는 **연도 뒤**(kids 인덱스를 밀지 않게) — 앞 칸이 있을 때만 폭 계산에 넣는다.
@@ -576,6 +578,9 @@
     `attachments`를 payload에서 빼고 `SYNC_TASK`로 병합한다(그 셋은 스토어의 것이 원본 · §6-22).
 28-b. **전체 재조회(`LOAD_STATE`)는 열려 있는 업무 창의 댓글·활동을 비운다**(§6-20) — `reloadCloud`가 재조회 뒤 **열린 창의 카드만** 상세를 다시 읽고, 편집 중 카드 변경은 그 카드만 다시
     읽는다(`pendingCardsRef`). **§6-28-a를 고치고도 증상이 그대로였다**(원인이 둘이었다).
+28-c. **지연·마감 구간·남은 업무·2주 방치·진척은 `services/taskCounts.js` 하나다**(2026-09-25) — 화면에서 `t.dueDate < today`·`status !== '완료'`를 새로 적지 마세요. 보류 중이
+    '지연'으로, 상시가 '남은 업무'·진척 분모로 샌다(그렇게 여섯 곳이 어긋나 있었다 · `logcheck`가 views에 손 판정이 없는지 본다). **`CONFIG.STATUSES`는 보드 칸 넷**이고 상태를 **고르는** 자리는
+    `STATUS_PICK`(상시 맨 아래)이다 — 칸·범례·비중 바를 만드는 자리에 `STATUS_PICK`을 쓰면 다섯째 칸이 생긴다.
 29-a. **`services/cloudSync.js`에서 스토어를 import하지 마세요** — `assignees`·`push` 검사가 cloudSync를 노드에서 돌리므로 통째로 `ERR_MODULE_NOT_FOUND`가 된다. 화면에 반영할 값은 부르는 쪽이
     넣는다.
 
