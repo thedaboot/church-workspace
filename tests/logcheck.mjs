@@ -2164,8 +2164,12 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/pastSunday\(list, day\)/.test(home), "홈의 '지난 주일'은 오늘보다 앞선 주보다");
   // 인도자는 **홈에서 뺐다**(사용자 결정 2026-09-06). 주보 상세에는 그대로 있다 —
   // 호칭 규칙(honorificsOf)이 홈에서 쓰이지 않게 됐으니 그 재료도 같이 사라져야 한다.
-  assert.ok(!/praise_leader/.test(home), '홈 예배 카드는 인도자를 싣지 않는다');
-  assert.ok(!/honorificsOf/.test(home), '홈에서 안 쓰는 호칭 한 벌은 만들지 않는다');
+  // 2026-09-25 사용자 결정으로 **오늘의 예배 카드에서만** 인도자를 싣는다(찬양 칸 머리). 평소 카드(LinkCard)의
+  // 메타 줄에는 여전히 없다 — 그 줄이 praise_leader를 읽지 않는지를 본다.
+  const metaAt = home.indexOf('kindLabel(church.service.kind)');
+  const metaLine = metaAt > 0 ? home.slice(metaAt, metaAt + 200) : '';
+  assert.ok(metaLine && !/praise_leader/.test(metaLine), '평소 홈 예배 카드의 메타 줄은 인도자를 싣지 않는다');
+  assert.ok(/찬양 · 인도 \$\{leader\}/.test(home) && /leader=\{leaderLabel\}/.test(home), '오늘의 예배 카드는 찬양 칸 머리에 인도자(본명+호칭)');
   assert.ok(/worship-praise-leader/.test(detail), '주보 상세는 인도자를 그대로 보여 준다');
   // 홈 캐릭터 — **그림이 도착한 뒤에** 등장 연출이 걸린다(모바일에서 모션이 빈 자리에서
   // 먼저 끝나던 자리 · 사용자 2026-09-06). 히어로는 우선순위까지 올려 먼저 받는다.

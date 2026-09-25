@@ -19,6 +19,8 @@ import { fetchActivityBetween, fetchMyNoteSundays } from '../services/moments.js
 import { guestActivityRows } from '../services/tabRank.js';
 import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotesByService, attendanceSunday } from '../services/groups.js';
 import { useCached, pruneCache } from '../services/cache.js';
+import { fetchPeople, fetchRoles, honorificsOf } from '../services/people.js';
+import { realNameOf } from '../services/serviceView.js';
 import { useLiveRefresh, refreshTouched } from '../services/liveV2.js';
 import logoLight from '../assets/logo-light.webp';
 import logoDark from '../assets/logo-dark.webp';
@@ -473,8 +475,9 @@ function Showcase({ onNavigate }) {
 // **히어로 캐릭터(HERO_CUT)는 그대로 선다**(사용자 확인 — 캐릭터가 사라지면 안 된다).
 //
 // 찬양 줄은 **주보에 적힌 제목 한 줄 그대로**다('팀 - 제목' 표기는 주보 쪽 순수 함수가 따로 맡는다).
-// 찬양 인도자는 싣지 않는다 — '인도자는 홈에 싣지 않는다'(사용자 결정 2026-09-06 · tests/logcheck)가 그대로다
-// (목업 3번에는 '찬양 · 인도 OOO'가 있었다 — 사용자에게 다시 묻는 자리로 남겼다).
+// 찬양 칸 머리는 `찬양 · 인도 OOO 형제`다(사용자 결정 2026-09-25 — 오늘의 예배 카드에서만. 평소 홈 예배
+// 카드에는 여전히 인도자를 싣지 않는다 · 2026-09-06). 이름은 주보 상세와 같은 규칙 — 명단 본명 +
+// 호칭(serviceView.realNameOf · people.honorificsOf). 명단을 못 읽으면 주보에 적힌 글자 그대로.
 // 광고는 **주보 종이 2쪽과 같은 모양**이다(components/paper.jsx ServiceSheetTwo — 사용자 요구
 // 2026-09-25: 목업에서 본문이 빈 광고가 가운데로 떠서 오류로 보였다). 번호 칸 · 왼쪽 정렬 · 제목 굵게 +
 // 본문은 줄바꿈 그대로, 본문이 빈 광고는 제목만 같은 들여쓰기로. 제목도 본문도 없는 줄은 뺀다.
@@ -485,7 +488,7 @@ export const noticeRows = (rows) => (Array.isArray(rows) ? rows : [])
   .map(n => ({ title: String(n?.title || '').trim(), body: String(n?.body || '').trim() }))
   .filter(n => n.title || n.body);
 
-function TodayWorshipCard({ service, open, att, onOpen, onOpenSun, delay, enter = 'dc-card' }) {
+function TodayWorshipCard({ service, open, att, leader = '', onOpen, onOpenSun, delay, enter = 'dc-card' }) {
   const songs = (Array.isArray(service.songs) ? service.songs : []).filter(s => String(s?.title || '').trim());
   const notices = noticeRows(service.notices);
   const playlist = String(service.praise_playlist_url || '').trim();
@@ -493,7 +496,7 @@ function TodayWorshipCard({ service, open, att, onOpen, onOpenSun, delay, enter 
     songs: songs.length ? (
       <div key="songs" data-part="songs" className={TODAY_PART}>
         <p className={PART_LABEL}>
-          <span className="min-w-0 truncate">찬양</span>
+          <span className="home-today-songs-head min-w-0 truncate">{leader ? `찬양 · 인도 ${leader}` : '찬양'}</span>
           {playlist ? (
             <a href={playlist} target="_blank" rel="noreferrer"
               className="home-today-playlist shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold text-accent-text hover:underline">
@@ -1032,6 +1035,20 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
   const nowDay = nowK.slice(0, 10);
   const todayService = (svcQ.data?.published || []).find(s => s.service_date === nowDay) || null;
   const sunday = sundayMode(todayService, nowK);
+  // 오늘의 예배 카드의 찬양 인도자 — 주일 모드일 때만 명단을 읽는다(평소 홈은 명단을 읽지 않는다)
+  const leaderRaw = sunday ? String(todayService?.praise_leader || '').trim() : '';
+  const [leaderLabel, setLeaderLabel] = useState('');
+  useEffect(() => {
+    let off = false;
+    setLeaderLabel(leaderRaw);
+    if (!leaderRaw) return undefined;
+    Promise.all([fetchPeople(), fetchRoles(year)]).then(([people, roles]) => {
+      if (off) return;
+      const r = realNameOf(people)(leaderRaw);
+      setLeaderLabel(honorificsOf(people, roles)(r.found ? r.name : leaderRaw));
+    }).catch(() => {});
+    return () => { off = true; };
+  }, [leaderRaw, year]);
   const slots = orderedSlots({
     qt: { loading: qtQ.loading, has: !!church.qt },
     worship: { loading: svcQ.loading, has: sunday || !!church.service },
@@ -1095,7 +1112,7 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
     // setEntryQuery를 여기서 직접 부르지 않는 이유도 그것이다 — 딥링크 진입점은 App 하나다.
     // onOpenLink가 없으면(HomeView를 다른 데서 쓰면) 예전처럼 목록으로 떨어진다.
     worship: (delay, enter) => (sunday ? (
-      <TodayWorshipCard enter={enter} delay={delay} service={todayService}
+      <TodayWorshipCard enter={enter} delay={delay} service={todayService} leader={leaderLabel}
         open={attendanceOpen(todayService, nowK)}
         att={{
           sunName: church.sun?.name || '', count: church.sunCount, leaderName: church.leaderName,

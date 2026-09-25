@@ -1278,7 +1278,7 @@ const todayCard = () => ev(`(() => {
     nums: lis.map(li => li.firstElementChild.textContent.trim()),
     songs: [...c.querySelectorAll('.home-today-song')].map(s => s.textContent.trim()),
     songLink: !!c.querySelector('[data-part="songs"] a[href*="youtube"]'),
-    leader: c.textContent.includes('조해리'),
+    leader: c.querySelector('.home-today-songs-head')?.textContent.trim() || '',
     cut: !!cut && cut.getBoundingClientRect().height > 50,
     overflow: document.documentElement.scrollWidth > innerWidth + 1,
   };
@@ -1289,8 +1289,11 @@ check('예배 날 08:00 뒤에는 오늘의 예배가 격자 맨 앞 두 칸', s
 check('내 순 카드는 출석 칸으로 들어가 격자에서 빠진다', !sunBefore.sun && sunBefore.cells.join(',') === 'worship,qt,tasks', JSON.stringify(sunBefore.cells));
 check('13:30 전에는 찬양이 앞 · 출석은 잠긴 표시만', sunBefore.today === 'before' && sunBefore.parts.join(',') === 'songs,notices,att' && sunBefore.lock === '13:30부터',
   JSON.stringify({ parts: sunBefore.parts, lock: sunBefore.lock }));
-check('찬양은 주보의 제목 한 줄 그대로 · 링크가 있으면 연다 · 인도자는 싣지 않는다(2026-09-06)',
-  sunBefore.songs.join('|') === '마커스워십 - 나의 맘 받으소서|WELOVE - 모든 상황 속에서' && sunBefore.songLink && !sunBefore.leader, JSON.stringify(sunBefore.songs));
+// 찬양 칸 머리에 인도자(사용자 결정 2026-09-25 — 오늘의 예배 카드에서만). 게스트는 명단이 없어 적힌 글자 그대로다.
+// 되돌리기 검사: TodayWorshipCard에 leader를 넘기지 않으면 머리가 '찬양'만 남아 깨진다.
+check('찬양은 주보의 제목 한 줄 그대로 · 링크가 있으면 연다 · 머리에 찬양 인도자',
+  sunBefore.songs.join('|') === '마커스워십 - 나의 맘 받으소서|WELOVE - 모든 상황 속에서' && sunBefore.songLink
+  && sunBefore.leader === '찬양 · 인도 조해리', JSON.stringify({ songs: sunBefore.songs, head: sunBefore.leader }));
 check('광고는 종이처럼 — 번호 · 왼쪽 정렬 · 본문이 빈 광고도 같은 들여쓰기 · 빈 줄은 뺀다',
   sunBefore.notices.length === 3 && sunBefore.nums.join(',') === '1,2,3' && sunBefore.align.every(a => a === 'left' || a === 'start')
   && new Set(sunBefore.titleX).size === 1 && sunBefore.notices[1] === '2다음 주 예배 안내', JSON.stringify({ n: sunBefore.notices, x: sunBefore.titleX }));
