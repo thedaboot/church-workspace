@@ -18,6 +18,7 @@ import { myUid } from '../services/supabaseClient.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
 import { splitFrontTabs, pickProjectToOpen } from '../services/tabRank.js';
 import { useTabFrontStats } from '../services/tabFront.js';
+import { isOpen } from '../services/taskCounts.js';
 import { Avatar } from './Avatar.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import * as push from '../services/push.js';
@@ -273,7 +274,7 @@ export const TopNav = React.memo(({
   // (사용자 결정 2026-09-01, 2026-08-24의 "모든 해" 결정을 대체). 다른 해는
   // 연도 버튼으로 바꿔 보고, 검색·알림으로 열면 useTabYear가 그 해로 따라간다.
   const archivedForMore = archived.filter(p => p.id !== activeMenu && projectYear(p) === year);
-  const myTasksCount = useStore(selectMyTasks).filter(t => t.status !== '완료').length;
+  const myTasksCount = useStore(selectMyTasks).filter(isOpen).length;
   // 몇 개까지 탭으로 보일지는 화면 폭이 정한다(useTabFit). 보관함이 있으면 탭이 다
   // 들어가도 '더보기'는 남아야 하므로 그 폭까지 계산에 넣는다.
   const tabRowRef = useRef(null);
@@ -738,7 +739,7 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
   const projectsList = useStore(selectActiveProjectsList);
   const allProjects = useStore(selectProjectsList);
   const currentUser = useStore(selectCurrentUser);
-  const myTasksCount = useStore(selectMyTasks).filter(t => t.status !== '완료').length;
+  const myTasksCount = useStore(selectMyTasks).filter(isOpen).length;
   const isProject = allProjects.some(p => p.id === activeMenu);
   const [year] = useProjectYear();
   const frontStats = useTabFrontStats();
