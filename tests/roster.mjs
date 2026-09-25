@@ -319,7 +319,8 @@ const seenRow = await ev(`(() => {
   const sec = [...document.querySelectorAll('section')]
     .find(s => (s.querySelector('h3')?.textContent || '').includes('함께하는 사람'));
   if (!sec) return { ok: false };
-  const names = [...sec.querySelectorAll('p.font-semibold')].map(p => p.textContent.trim());
+  // 이름은 줄의 첫 말줄임 칸이다 — 옆에 '명단 미연결' 칩이 붙을 수 있어 p 전체 글자로 읽지 않는다(2026-09-25)
+  const names = [...sec.querySelectorAll('.dc-row')].map(r => r.querySelector('span.truncate')?.textContent.trim());
   const metas = [...sec.querySelectorAll('p.truncate:not(.font-semibold)')].map(p => p.textContent.trim());
   return { ok: true, names, first: names[0], meta: metas[0], body: document.body.innerText.includes('7분 전 다녀감') };
 })()`);
@@ -690,6 +691,72 @@ await send('Emulation.clearDeviceMetricsOverride');
   check('다시 시도를 누르면 그 해 명단을 다시 읽는다(D2)', !retried.failed, JSON.stringify(retried));
   const mine = logs.splice(logsBefore).filter(l => !l.includes('[roster] 명단 조회 실패'));
   logs.push(...mine);
+}
+
+// ── 수락하며 명단 잇기 (2026-09-25 · 목업 mockup-traces 7 권장안) ─────────────────────
+// 수락하면 줄은 자리를 지키고 '수락됨' + 아래로 '청년 명단과 잇기' 판(미연결 N명 · 이름으로 찾기 · 이름순 ·
+// 누르면 바로 연결 · 미리 골라 두지 않음). 판을 닫으면 '함께하는 사람'으로 내려가고, 이어지지 않은 사람은
+// 이름 옆 '명단 미연결' 칩 — 누르면 같은 판. 게스트에서는 승인 값을 명단 저장 칸(profiles)에 적는다.
+// **되돌리기**: membersView의 `if (next && withLink)` 줄을 지우면 첫 검사가, ProfileLinkPanel의
+// `!p.profile_id && !p.removed_at`를 지우면 후보 검사가 깨진다.
+{
+  const poll2 = async (expr, to = 5000) => { const t0 = Date.now(); while (Date.now() - t0 < to) { if (await ev(expr)) return true; await sleep(100); } return false; };
+  await ev(`localStorage.setItem('church_roster_v1', ${JSON.stringify(JSON.stringify(seed))})`);
+  await send('Page.navigate', { url: `${URL_BASE}/?p=members` });
+  await wait('Page.loadEventFired');
+  await poll2(`[...document.querySelectorAll('h3')].some(h => h.textContent.includes('승인을 기다리는 사람'))`);
+  await sleep(400);
+  const secRows = (title) => `[...([...document.querySelectorAll('section')].find(s => (s.querySelector('h3')?.textContent || '').includes('${title}'))?.querySelectorAll('.dc-row') || [])]`;
+  const rowOf = (title, name) => `${secRows(title)}.find(r => r.querySelector('.truncate')?.textContent.trim() === '${name}')`;
+  // 처음부터 이어지지 않은 가입자(조해리)에게는 칩이 있다
+  const chip0 = await ev(`(() => ({ hari: !!(${rowOf('함께하는 사람', '조해리')})?.querySelector('[data-unlinked]'),
+    yun: !!(${rowOf('함께하는 사람', '김윤주')})?.querySelector('[data-unlinked]') }))()`);
+  check("명단에 이어지지 않은 가입자 이름 옆에만 '명단 미연결' 칩", chip0.hari === true && chip0.yun === false, JSON.stringify(chip0));
+
+  await ev(`[...((${rowOf('승인을 기다리는 사람', '대기중')})?.querySelectorAll('button') || [])].find(b => b.textContent.trim() === '수락')?.click()`);
+  await poll2(`!!document.querySelector('[data-link-panel="u6"]')`);
+  const acc = await ev(`(() => {
+    const row = ${rowOf('승인을 기다리는 사람', '대기중')};
+    const pan = document.querySelector('[data-link-panel="u6"]');
+    return { stays: !!row, badge: row?.querySelector('.members-accepted')?.textContent.trim() || '',
+      inRow: !!row?.contains(pan), head: pan?.querySelector('p')?.innerText.replace(/\\s+/g, ' ') || '',
+      ph: pan?.querySelector('input')?.getAttribute('placeholder') || '',
+      cands: [...(pan?.querySelectorAll('[data-link-person]') || [])].map(b => b.innerText.split('\\n')[0]),
+      stored: (JSON.parse(localStorage.getItem('church_roster_v1')).profiles.find(p => p.id === 'u6') || {}).approved };
+  })()`);
+  check("수락하면 줄은 자리를 지키고 '수락됨' + 줄 아래 '청년 명단과 잇기' 판",
+    acc.stays && acc.badge === '수락됨' && acc.inRow && acc.head === '청년 명단과 잇기 미연결 3명' && acc.stored === true, JSON.stringify(acc));
+  check("검색칸 자리표 '이름으로 찾기' · 후보는 미연결(환송 제외) 이름순 · 미리 고른 것 없음",
+    acc.ph === '이름으로 찾기' && JSON.stringify(acc.cands) === JSON.stringify(['강예은', '박 시현', '천진영']), JSON.stringify(acc.cands));
+  // 이름으로 찾기
+  await ev(`(() => { const i = document.querySelector('[data-link-panel="u6"] input'); if (!i) return;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '천');
+    i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await sleep(150);
+  const found = await ev(`[...document.querySelectorAll('[data-link-panel="u6"] [data-link-person]')].map(b => b.innerText.split('\\n')[0])`);
+  check('이름으로 찾으면 후보가 준다', JSON.stringify(found) === '["천진영"]', JSON.stringify(found));
+  // 누르면 바로 연결 → 판이 닫히고 줄이 '함께하는 사람'으로 내려간다
+  await ev(`document.querySelector('[data-link-panel="u6"] [data-link-person="p2"]')?.click()`);
+  await poll2(`!document.querySelector('[data-link-panel="u6"]')`);
+  await sleep(300);
+  const linked = await ev(`(() => ({
+    stored: (JSON.parse(localStorage.getItem('church_roster_v1')).people.find(p => p.id === 'p2') || {}).profile_id,
+    waiting: !!(${rowOf('승인을 기다리는 사람', '대기중')}), down: !!(${rowOf('함께하는 사람', '대기중')}),
+    chip: !!(${rowOf('함께하는 사람', '대기중')})?.querySelector('[data-unlinked]'),
+  }))()`);
+  check("누르면 바로 연결되고 판이 닫히며 '함께하는 사람'으로 내려간다(칩 없음)",
+    linked.stored === 'u6' && !linked.waiting && linked.down && !linked.chip, JSON.stringify(linked));
+  // 칩을 누르면 같은 판 — 닫기로 미루면 칩은 남는다
+  await ev(`(${rowOf('함께하는 사람', '조해리')})?.querySelector('[data-unlinked]')?.click()`);
+  await poll2(`!!document.querySelector('[data-link-panel="u4"]')`);
+  const chipPanel = await ev(`(() => { const pan = document.querySelector('[data-link-panel="u4"]');
+    return { open: !!pan, inRow: !!(${rowOf('함께하는 사람', '조해리')})?.contains(pan),
+      cands: [...(pan?.querySelectorAll('[data-link-person]') || [])].map(b => b.innerText.split('\\n')[0]) }; })()`);
+  check("'명단 미연결' 칩을 누르면 그 줄 아래 같은 판(이어진 사람은 후보에서 빠진다)",
+    chipPanel.open && chipPanel.inRow && JSON.stringify(chipPanel.cands) === JSON.stringify(['강예은', '박 시현']), JSON.stringify(chipPanel));
+  await ev(`[...document.querySelectorAll('[data-link-panel="u4"] button')].find(b => b.textContent.trim() === '닫기')?.click()`);
+  await sleep(250);
+  check("'닫기'로 미루면 칩이 남는다", (await ev(`!document.querySelector('[data-link-panel]') && !!(${rowOf('함께하는 사람', '조해리')})?.querySelector('[data-unlinked]')`)) === true);
 }
 
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 2).join(' | '));

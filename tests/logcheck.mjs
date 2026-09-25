@@ -1898,7 +1898,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 홈은 한 줄이 아니라 refreshTouched 표다 — 빠짐없이 드는지는 위 ③-b가 본다
   const members = view('../src/views/membersView.jsx');
   assert.ok(/const rosterTick = useLiveTick\('roster'\)/.test(members)
-    && /\[isAdmin, tab, year, rosterTick(, bookRetry)?\]/.test(members),
+    && /\[isAdmin, (tab, )?year, rosterTick(, bookRetry)?\]/.test(members),
     '명단은 effect가 읽으므로 틱을 deps에 얹는다');
   console.log('PASS  v2 실시간 라우팅 48가지');
 }
@@ -4873,4 +4873,136 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/from\('service_notes'\)[\s\S]{0,120}\.eq\('profile_id', uid\);/.test(ws.slice(ws.indexOf('export async function fetchMyNotes'))),
     '내 노트 모아 보기는 profile_id로 거른다(읽기 정책은 같은 순의 공유 노트도 준다)');
   console.log('PASS  교회력(큐시트 대조 3) · 광고 → 달력(라이브 13건 안 읽힘 · .ics · 구글) · 찬양 줄 · 본명 · 장 나누기 · 내 노트 목록');
+}
+
+// ── 흔적과 움직임(2026-09-25 · 목업 mockup-traces 3~7 · 완료 손맛 · 앞 칸 넛지) ─────────────
+// 순수 규칙은 services/traces.js 한 벌 — 여기서는 규칙과 화면 배선을 같이 본다.
+{
+  const T = await import(new URL('../src/services/traces.js', import.meta.url).href);
+  const TC = await import(new URL('../src/services/taskCounts.js', import.meta.url).href);
+  const H = 3600000;
+  const now = Date.parse('2026-09-25T12:00:00Z');
+  const base = { at: now - 10 * H, me: new Set(['me', 'me-merged']) };
+
+  // 지난 방문 이후 남이 움직였나 — 내 것(합친 계정 포함)·기준 이전·기준이 없으면 아니다
+  assert.strictEqual(T.isFreshMove(now - H, 'other', base), true);
+  assert.strictEqual(T.isFreshMove(now - H, 'me', base), false, '내 움직임에는 점이 없다');
+  assert.strictEqual(T.isFreshMove(now - H, 'me-merged', base), false, '합친 계정도 나다');
+  assert.strictEqual(T.isFreshMove(now - 11 * H, 'other', base), false, '지난 방문 전의 움직임');
+  assert.strictEqual(T.isFreshMove(now - H, 'other', null), false, '처음 온 사람(기준 없음)에게는 점이 없다');
+  assert.strictEqual(T.isFreshMove(new Date(now - H).toISOString(), 'other', base), true, 'ISO 글자도 받는다');
+
+  // 탭 점 — 연 뒤의 움직임만 · 보고 있는 프로젝트에는 없다
+  const rows = [
+    { projectId: 'p1', actor: 'other', at: now - 2 * H },
+    { projectId: 'p2', actor: 'me', at: now - 2 * H },
+    { projectId: 'p3', actor: 'other', at: now - 20 * H },
+    { projectId: 'p4', actor: 'other', at: now - 5 * H },
+    { projectId: 'p5', actor: 'other', at: now - H },
+  ];
+  const fresh = T.freshProjectIds(rows, base, { p4: now - 3 * H }, 'p5');
+  assert.deepStrictEqual([...fresh].sort(), ['p1'], '남의 움직임 · 기준 뒤 · 연 뒤 · 보는 중 아님');
+  assert.strictEqual(T.freshProjectIds(rows, null).size, 0);
+
+  // 최근 활동 묶기 — 맨 윗줄이 내 것이어도 그 아래 남의 새 줄이 있으면 점
+  const feed = [
+    { id: 'a1', cardId: 'c1', actorId: 'me', at: new Date(now - H).toISOString() },
+    { id: 'a2', cardId: 'c1', actorId: 'other', at: new Date(now - 2 * H).toISOString() },
+    { id: 'a3', cardId: 'c2', actorId: 'other', at: new Date(now - 30 * H).toISOString() },
+    { id: 'a4', cardId: 'c3', actorName: '조해리', at: new Date(now - 3 * H).toISOString() },
+  ];
+  const g = T.groupFeed(feed, base);
+  assert.deepStrictEqual(g.map(r => [r.cardId, r.more, r.fresh]), [['c1', 1, true], ['c2', 0, false], ['c3', 0, true]],
+    '카드별 한 줄 + 외 N건 · 점은 묶음 안의 남의 새 줄 · 게스트는 이름이 열쇠');
+  assert.deepStrictEqual(T.groupFeed(feed).map(r => r.fresh), [false, false, false], '기준이 없으면 점 없음');
+
+  // 업무 밖 줄 — 알림 문구 그대로 · 사람을 모르면 세우지 않는다 · 묵상 문구
+  const names = { u1: '임성빈', u2: '노준석', u3: '김승찬' };
+  const ex = T.extraFeedRows({
+    services: [
+      { id: 's1', title: '포도주 틀에서', published_at: '2026-09-11T07:06:41Z', published_by: 'u1' },
+      { id: 's2', title: '옛 주보', published_at: '2026-09-01T00:00:00Z', published_by: null },
+    ],
+    meetings: [
+      { id: 'm1', group_id: 'g1', meeting_date: '2026-09-27', created_at: '2026-09-14T11:00:15Z', created_by: 'u2' },
+      { id: 'm2', group_id: 'gone', meeting_date: '2026-09-28', created_at: '2026-09-15T00:00:00Z', created_by: 'u2' },
+    ],
+    qts: [{ id: 'q1', profile_id: 'u3', qt_date: '2026-09-20', title: '', updated_at: '2026-09-20T01:00:00Z' }],
+    nameOf: (id) => names[id] || '',
+    groupName: (id) => (id === 'g1' ? '통통' : ''),
+    passageOf: (d) => (d === '2026-09-20' ? '사사기 11:12-28' : ''),
+  });
+  assert.deepStrictEqual(ex.map(r => [r.kind, r.head, r.text]), [
+    ['service', '포도주 틀에서', '임성빈님이 이번 주 주보를 발행했어요'],
+    ['meeting', '통통 · 26. 9. 27.', '노준석님이 동아리 모임 일정을 잡았어요'],
+    ['qt', '사사기 11:12-28', '김승찬님이 오늘 QT 묵상을 나눴어요'],
+  ], '발행한 사람을 모르는 주보 · 지워진 동아리의 모임은 서지 않는다');
+  assert.deepStrictEqual(ex.map(r => r.link), ['/?p=worship&s=s1', '/?p=groups&g=g1', '/?p=word']);
+
+  // 섞기 — 시간순(최근 먼저) · 업무 밖 줄에도 점
+  const mixed = T.mixFeed(
+    [{ id: 'x', at: '2026-09-20T00:00:00Z' }, { id: 'y', at: '2026-09-10T00:00:00Z' }],
+    [{ id: 'svc:1', actorId: 'other', at: '2026-09-15T00:00:00Z' }, { id: 'svc:2', actorId: 'me', at: '2026-09-25T11:00:00Z' }],
+    base);
+  assert.deepStrictEqual(mixed.map(r => r.id), ['svc:2', 'x', 'svc:1', 'y']);
+  assert.deepStrictEqual(mixed.filter(r => r.id.startsWith('svc')).map(r => r.fresh), [false, false], '내 발행·기준 전 발행에는 점이 없다');
+  assert.strictEqual(T.FEED_FIRST, 5); assert.strictEqual(T.FEED_STEP, 10);
+
+  // 동아리 모임 — 오늘은 다가오는 쪽 · 가까운 날부터 / 지난 것은 최근부터
+  const ms = [
+    { id: 'a', meeting_date: '2026-09-12' }, { id: 'b', meeting_date: '2026-09-27' },
+    { id: 'c', meeting_date: '2026-09-25' }, { id: 'd', meeting_date: '2026-09-01' }, { id: 'e', meeting_date: '2026-10-04' },
+  ];
+  const sp = T.splitMeetings(ms, '2026-09-25');
+  assert.deepStrictEqual(sp.upcoming.map(m => m.id), ['c', 'b', 'e'], '오늘 포함 · 가까운 날부터');
+  assert.deepStrictEqual(sp.past.map(m => m.id), ['a', 'd'], '지난 모임은 최근부터');
+  assert.strictEqual(T.PAST_MEETINGS_SHOWN, 3);
+
+  // 완료한 업무(최근 7일) — 오늘 포함 7일 · 로컬 날짜 · 끝낸 시각을 모르면 넣지 않는다
+  const when = (t) => t.completedAt;
+  const today = '2026-09-25';
+  const done = (d) => ({ status: '완료', completedAt: d });
+  assert.strictEqual(TC.isRecentlyDone(done('2026-09-25'), when, today), true);
+  assert.strictEqual(TC.isRecentlyDone(done('2026-09-19'), when, today), true, '오늘 포함 7일째(9/19)');
+  assert.strictEqual(TC.isRecentlyDone(done('2026-09-18'), when, today), false, '8일째는 빠진다');
+  assert.strictEqual(TC.isRecentlyDone(done(''), when, today), false, '끝낸 시각을 모름');
+  assert.strictEqual(TC.isRecentlyDone({ status: '진행 중', completedAt: '2026-09-25' }, when, today), false);
+  assert.strictEqual(TC.recentDoneCount([done('2026-09-25'), done('2026-09-18')], when, today), 1, '지난 7일 셈도 같은 판정');
+
+  // 배선 — 화면이 이 규칙을 쓰는가
+  const src = (f) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8');
+  const views = src('views/views.jsx');
+  assert.ok(/isRecentlyDone\(t, completedTime, today\)/.test(views) && (views.match(/recentDone: /g) || []).length >= 2,
+    '내 업무·팀 보드의 기본 목록이 최근 7일 완료를 넣고 머리를 바꾼다');
+  const dp = src('views/dashboardParts.jsx');
+  assert.ok(/label: '완료한 업무', note: `최근 \$\{RECENT_DONE_DAYS\}일`/.test(dp), "구간 머리 '완료한 업무' + '최근 7일'");
+  assert.ok(/mixFeed\(groupFeed\(act, base\), ex, base\)/.test(dp) && /FEED_STEP/.test(dp), '피드는 섞고 열 줄씩 편다');
+  assert.ok(/dc-ring-now/.test(dp) && /COMPLETE_DRAW_MS/.test(dp), '마감 목록 완료 원은 그리고 나서 저장한다');
+  const fx = src('services/feedExtras.js');
+  assert.ok(/\.eq\('status', 'published'\)/.test(fx), '주보는 발행된 것만 읽는다(편집 자격자에게 초안이 오지 않게)');
+  assert.ok(/\.eq\('shared', true\)/.test(fx), '묵상은 나눈 것만 — 비공개 묵상을 섞지 않는다');
+  const app = src('App.jsx');
+  const cap = app.indexOf('captureSeenBase({ at: profile?.last_seen_at');
+  const stamp = app.indexOf('cloudSync.markSeen(0)');
+  assert.ok(cap > 0 && stamp > cap, '지난 방문 기준 시각은 첫 찍기(markSeen(0)) 전에 붙잡는다');
+  const lay = src('components/layout.jsx');
+  assert.ok(/최근 활발한 프로젝트/.test(lay) && /최근 7일 동안 \{nudge\.people\}명이 보고 있어요/.test(lay)
+    && /앞에 있는 프로젝트는 자동으로 조정돼요\./.test(lay) && /이 프로젝트는 구분선 뒤에서 움직일 수 있어요\./.test(lay),
+    '앞 칸 넛지 문구(사용자 확정)');
+  assert.ok(/NUDGE_MS = 2500/.test(lay) && /front_nudge_seen/.test(lay), '넛지는 2.5초 · 본 브라우저는 hover로 안 뜬다');
+  const mod = src('modals/modals.jsx');
+  assert.ok(/dc-check-now/.test(mod) && /dc-strike-now/.test(mod), '하위 업무 체크의 선 그리기·취소선');
+  const css = src('index.css');
+  assert.ok(/\.dc-check-now path \{ stroke-dasharray: 1; animation: dc-draw \.24s var\(--ease-out-quint\) \.06s both; \}/.test(css), '체크 240ms · 60ms 지연');
+  assert.ok(/animation: dc-strike \.22s var\(--ease-out-quint\) \.12s both/.test(css), '취소선 220ms · 120ms 지연');
+  assert.ok(/\.dc-ring-now \{ animation: dc-pop-86 \.2s/.test(css) && /from \{ transform: scale\(\.86\); \}/.test(css), '원 .86 → 1 · 200ms');
+
+  // 0079 — 발행 시각·사람 · 모임을 잡은 사람
+  const mig = readFileSync(new URL('../supabase/migrations/0079_feed_published_at.sql', import.meta.url), 'utf8');
+  assert.ok(/add column if not exists published_at timestamptz/.test(mig) && /add column if not exists published_by uuid/.test(mig));
+  assert.ok(/group_meetings add column if not exists created_by uuid[\s\S]*default public\.effective_uid\(\)/.test(mig));
+  assert.ok(/old\.status is distinct from 'published'/.test(mig), '발행으로 바뀌는 순간에만 찍는다');
+  assert.ok(/elsif tg_op = 'UPDATE' and auth\.uid\(\) is not null then/.test(mig), '되돌리기는 로그인한 사람에게만(백필은 통과)');
+  assert.ok(/n\.kind = 'service_published'/.test(mig) && /to_char\(m\.meeting_date, 'YY\. FMMM\. FMDD\.'\)/.test(mig), '백필은 알림에서');
+  console.log('PASS  흔적과 움직임(점 판정 · 피드 묶기·섞기·업무 밖 줄 · 모임 나누기 · 최근 7일 완료 · 넛지·손맛 배선 · 0079)');
 }

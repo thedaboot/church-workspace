@@ -16,6 +16,7 @@ import {
 import { groupPeople, canManageClub, canEditClub, myGroupIds, notInGroup, meetingDateShort } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
 import { reorderIds, imeComposing } from '../utils.js';
+import { splitMeetings, PAST_MEETINGS_SHOWN } from '../services/traces.js';
 
 // QR 창(qrcode 포함)은 열 때만 받는다(2026-09-24)
 const ClubQrModal = lazy(() => import('./ClubQr.jsx').then(m => ({ default: m.ClubQrModal })));
@@ -271,7 +272,7 @@ function ClubDetail({
   // `key={club:<id>}`)가 상세를 통째로 다시 마운트하므로 상태가 스스로 초기값으로 돌아간다.
   // 남겨 두는 것은 그 key가 바뀌면(같은 자리에서 동아리만 갈아 끼우게 되면) 되살아나는
   // 함정이라서다 — 그때 셋 중 하나만 빠져 있으면 그 칸만 남는다.
-  useEffect(() => { setEditing(false); setQrOpen(false); setAdding(false); }, [club.id]);
+  useEffect(() => { setEditing(false); setQrOpen(false); setAdding(false); setPastOpen(false); }, [club.id]);
 
   const list = useMemo(() => groupPeople({ people, group: club, members }), [people, club, members]);
   const byId = useMemo(() => new Map(people.map(p => [p.id, p])), [people]);
@@ -287,6 +288,10 @@ function ClubDetail({
   // 이미 든 사람은 '멤버 추가' 후보가 아니다 — 넣어 봐야 아무 일도 안 일어난다.
   const candidates = useMemo(() => notInGroup(people, club, members), [people, club, members]);
 
+  // 다가오는 / 지난 모임(traces.splitMeetings) — 오늘은 한국 날짜다(모임 날짜가 한국 날짜)
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+  const { upcoming, past } = useMemo(() => splitMeetings(meetings, today), [meetings, today]);
+  const [pastOpen, setPastOpen] = useState(false);
   const submitMeeting = async () => {
     const ok = await onCreateMeeting(club, { date, title: title.trim() });
     if (ok) { closeMeet(() => { setAdding(false); setTitle(''); }); }
@@ -428,12 +433,23 @@ function ClubDetail({
           </div>
           )}
 
-          <SectionHead right={!adding && (
+        </div>
+      )}
+
+      {/* 모임 — **다가오는 모임 / 지난 모임** 두 구역(사용자 결정 2026-09-25 · 목업 mockup-traces 6 권장안).
+          다가오는 = 오늘 포함 가까운 날부터(그날 출석을 체크하는 자리) · 지난 = 최근부터 세 개, 나머지는
+          'N건 더 보기'. 나누는 규칙은 services/traces.splitMeetings(KST 날짜). '모임 만들기'는 다가오는 모임
+          머리 오른쪽이다(만들 수 있는 사람에게만 — manage). 다가오는 쪽이 비면 상태 한 줄 `다음 모임 미정`
+          (예전의 그림 + '예정된 모임이 아직 없어요'를 대신한다 · §8 문구 톤), 지난 쪽이 비면 구역째 없다.
+          지난 모임의 칩은 흐리게 하지 않는다(출석 수정 자격은 manage 하나 — 구성원에게는 이미 .6이다). */}
+      {(meetings.length > 0 || manage || !!meetingsFail) && (
+        <div className="club-meetings mt-6">
+          <SectionHead right={manage && !adding && (
             <button type="button" onClick={() => setAdding(true)}
               className={`club-meet-new-open ${WITH_ICON} px-2 py-1 rounded-md text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95`}>
               <Plus size={12} /><span>모임 만들기</span>
             </button>
-          )}>모임</SectionHead>
+          )}>다가오는 모임</SectionHead>
 
           {/* 생성기 — 날짜는 오늘이 이미 채워져 있어서 **한 번 눌러 만든다**.
               예전에는 날짜·제목·버튼이 저마다 한 줄을 차지해 세 줄이었고, 정작 채울 것은
@@ -474,29 +490,42 @@ function ClubDetail({
                 className={`club-meet-cancel order-4 shrink-0 ml-auto ${BTN_QUIET}`}>취소</button>
             </div>
           )}
-        </div>
-      )}
 
-      {(meetings.length > 0 || manage || !!meetingsFail) && (
-        <div className={manage ? 'mt-2' : 'mt-6'}>
-          {!manage && <SectionHead>모임</SectionHead>}
-          <div className="space-y-2">
-            {meetings.map(m => (
-              <MeetingRow key={m.id} meeting={m} list={list} manage={manage}
-                onToggle={onToggleMeeting} onDelete={onDeleteMeeting} />
-            ))}
-          </div>
-          {/* 이 빈 자리는 화면 한 판이 아니라 카드 아래에 딸린 구역이라 세로를 줄여
-              잡는다 — 46vh를 그대로 쓰면 동아리 카드 뒤로 빈 화면이 한 판 더 붙는다 */}
-          {!meetings.length && !meetingsFail && (
-            <Empty className="club-meet-empty" mark={<MeetMark />} minH="28vh"
-              title="예정된 모임이 아직 없어요" />
-          )}
           {/* 못 읽었을 때는 없는 것과 가른다(D2) — 같은 그림 + 두 줄 + '다시 시도' */}
-          {!!meetingsFail && (
+          {meetingsFail ? (
             <Empty className="club-meet-failed" mark={<MeetMark />} minH="28vh" title={MEET_FAIL}>
               <FailTail reason={meetingsFail.reason} onRetry={meetingsFail.onRetry} />
             </Empty>
+          ) : (
+            <>
+              {upcoming.length > 0 ? (
+                <div className="club-meet-upcoming space-y-2">
+                  {upcoming.map(m => (
+                    <MeetingRow key={m.id} meeting={m} list={list} manage={manage}
+                      onToggle={onToggleMeeting} onDelete={onDeleteMeeting} />
+                  ))}
+                </div>
+              ) : (
+                <p className="club-meet-empty pt-0.5 pb-1 text-[11.5px] text-fg-muted">다음 모임 미정</p>
+              )}
+              {past.length > 0 && (
+                <div className="club-meet-past mt-5">
+                  <SectionHead>지난 모임</SectionHead>
+                  <div className="space-y-2">
+                    {(pastOpen ? past : past.slice(0, PAST_MEETINGS_SHOWN)).map(m => (
+                      <MeetingRow key={m.id} meeting={m} list={list} manage={manage}
+                        onToggle={onToggleMeeting} onDelete={onDeleteMeeting} />
+                    ))}
+                  </div>
+                  {!pastOpen && past.length > PAST_MEETINGS_SHOWN && (
+                    <button type="button" onClick={() => setPastOpen(true)}
+                      className="club-meet-past-more w-full mt-1 py-2 rounded-md text-[11.5px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-[0.99]">
+                      {past.length - PAST_MEETINGS_SHOWN}건 더 보기
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

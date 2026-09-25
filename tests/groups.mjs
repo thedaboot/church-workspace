@@ -2208,13 +2208,57 @@ check('마스터가 동아리를 만들고 동아리장을 정한다',
   madeClub.made === true && madeClub.leader === 'p7' && madeClub.cards === 4, JSON.stringify(madeClub));
 check('동아리장은 그 동아리의 구성원으로도 들어간다', madeClub.member === true);
 
-// 아직 아무 모임도 안 잡힌 동아리 — 문구는 '예정된 모임이 아직 없어요'(사용자 지시)
+// 아직 아무 모임도 안 잡힌 동아리 — 다가오는 모임 머리 아래 상태 한 줄 `다음 모임 미정`(2026-09-25 ·
+// 목업 mockup-traces 6 · 예전의 그림 + '예정된 모임이 아직 없어요'를 대신한다). 지난 모임 구역은 없다.
 await openClub('달리기'); await sleep(800);
-const emptyMeet = await ev(`document.querySelector('.club-meet-empty')?.textContent.trim() || ''`);
-check('모임이 없을 때 문구', emptyMeet === '예정된 모임이 아직 없어요', emptyMeet);
-// 이 자리는 카드 아래에 딸린 구역이라 세로를 줄여 잡는다(minH 28vh) — 화면 한 판이 아니다
-const meetEmpty = await centered('.club-meet-empty');
-isCentered('예정된 모임이 없는 자리', meetEmpty, 140);
+const emptyMeet = await ev(`(() => ({
+  text: document.querySelector('.club-meet-empty')?.textContent.trim() || '',
+  mark: !!document.querySelector('.club-meet-empty svg'),
+  past: !!document.querySelector('.club-meet-past'),
+  // '모임 만들기'는 다가오는 모임 머리 오른쪽이다
+  headWithMake: [...document.querySelectorAll('.club-meetings h3, .club-meetings h2, .club-meetings span')]
+    .some(e => e.textContent.trim() === '다가오는 모임') && !!document.querySelector('.club-meetings .club-meet-new-open'),
+}))()`);
+check('모임이 없을 때 — 다가오는 모임 머리 · 상태 한 줄 · 지난 모임 구역 없음',
+  emptyMeet.text === '다음 모임 미정' && !emptyMeet.mark && !emptyMeet.past && emptyMeet.headWithMake, JSON.stringify(emptyMeet));
+// 다가오는 모임(오늘 포함 · 가까운 날부터) / 지난 모임(최근부터 세 개 + 'N건 더 보기')
+{
+  const pad = (n) => String(n).padStart(2, '0');
+  const kst = new Date(Date.now() + 9 * 3600000);
+  const day = (off) => { const d = new Date(kst.getTime() + off * 86400000); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`; };
+  await ev(`(() => {
+    const all = JSON.parse(localStorage.getItem('church_groups_v1'));
+    const g = all.groups.find(x => x.name === '달리기');
+    const rows = [['r1', 7, '다음 달리기'], ['r2', 0, '오늘 달리기'], ['r3', -1, '어제 달리기'], ['r4', -8, '지난주 달리기'],
+      ['r5', -15, '두 주 전'], ['r6', -30, '한 달 전']].map(([id, off, title]) => ({ id, group_id: g.id, meeting_date: ({ ${[7, 0, -1, -8, -15, -30].map(o => `'${o}': '${day(o)}'`).join(', ')} })[off], title, attendance: [], note: null }));
+    all.group_meetings = [...(all.group_meetings || []), ...rows];
+    localStorage.setItem('church_groups_v1', JSON.stringify(all));
+  })()`);
+  await ev(`${byText('목록으로')}.click()`); await sleep(500);
+  await openClub('달리기'); await sleep(900);
+  const split = await ev(`(() => ({
+    up: [...document.querySelectorAll('.club-meet-upcoming .club-meeting')].map(m => m.innerText.split('\\n').find(l => l.includes('달리기')) || m.innerText),
+    past: [...document.querySelectorAll('.club-meet-past .club-meeting')].map(m => m.innerText),
+    more: document.querySelector('.club-meet-past-more')?.textContent.trim() || '',
+    empty: !!document.querySelector('.club-meet-empty'),
+    dim: [...document.querySelectorAll('.club-meet-past .club-meeting')].map(m => getComputedStyle(m).opacity),
+  }))()`);
+  check('다가오는 모임은 오늘 포함 · 가까운 날부터',
+    split.up.length === 2 && split.up[0].includes('오늘 달리기') && split.up[1].includes('다음 달리기') && !split.empty, JSON.stringify(split));
+  check("지난 모임은 최근부터 세 개 + '1건 더 보기'",
+    split.past.length === 3 && split.past[0].includes('어제 달리기') && split.past[2].includes('두 주 전') && split.more === '1건 더 보기',
+    JSON.stringify(split));
+  check('지난 모임은 흐리게 하지 않는다', split.dim.every(o => o === '1'), JSON.stringify(split.dim));
+  await ev(`document.querySelector('.club-meet-past-more')?.click()`); await sleep(300);
+  const opened = await ev(`document.querySelectorAll('.club-meet-past .club-meeting').length`);
+  check("'더 보기'를 누르면 지난 모임이 다 선다", opened === 4, String(opened));
+  // 다른 동아리로 갔다 오면 다시 접힌다(열어 둔 것이 다음 동아리로 새지 않는다)
+  await ev(`(() => { const all = JSON.parse(localStorage.getItem('church_groups_v1'));
+    all.group_meetings = all.group_meetings.filter(m => !/^r[1-6]$/.test(m.id));
+    localStorage.setItem('church_groups_v1', JSON.stringify(all)); })()`);
+}
+await ev(`${byText('목록으로')}.click()`); await sleep(500);
+await openClub('달리기'); await sleep(800);
 const appEmpty = await centered('.club-app-empty');
 isCentered('가입 신청이 없는 자리', appEmpty, 120);
 await ev(`${byText('목록으로')}.click()`); await sleep(500);

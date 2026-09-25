@@ -819,7 +819,16 @@ function SubtaskList({ value = [], onChange, readOnly = false, members = [] }) {
     onChange([...value, { id: generateId(), title: t, done: false }]);
     setDraft('');
   };
-  const toggle = (id) => onChange(value.map(s => (s.id === id ? { ...s, done: !s.done } : s)));
+  // 작은 완료의 손맛(2026-09-25 · index.css `.dc-check-now`·`.dc-strike-now`) — **방금 체크한 줄만** 체크를
+  // 선으로 그리고 취소선을 왼쪽에서 긋는다. 실시간으로 남이 체크한 줄·다시 연 창에는 이 값이 없어 그대로
+  // 선다. 되돌리면 바로 지운다(움직임 없음). 취소선이 다 그어지면(animationend) 떼어 line-through로 돌아간다
+  // (PITFALLS 9-ch — 수정 모드의 입력칸에는 가상 요소가 없어 그리지 않는다).
+  const [justDone, setJustDone] = useState(null);
+  const toggle = (id) => {
+    const cur = value.find(s => s.id === id);
+    setJustDone(cur && !cur.done ? id : null);
+    onChange(value.map(s => (s.id === id ? { ...s, done: !s.done } : s)));
+  };
   const rename = (id, title) => onChange(value.map(s => (s.id === id ? { ...s, title } : s)));
   // 비우면 키를 뺀다 — 손으로 더한 줄과 같은 모양({id,title,done})으로 돌아간다
   const patch = (id, key, v) => onChange(value.map(s => {
@@ -861,13 +870,19 @@ function SubtaskList({ value = [], onChange, readOnly = false, members = [] }) {
                     들어갔다 나오게 하면 아무도 쓰지 않는다 */}
                 <button
                   type="button" onClick={() => toggle(s.id)}
-                  className="w-[18px] h-[18px] rounded-sm shrink-0 flex items-center justify-center transition-colors"
+                  className="w-[18px] h-[18px] rounded-sm shrink-0 flex items-center justify-center transition-colors duration-[120ms]"
                   style={s.done
                     ? { background: 'var(--app-tag-green-fg)' }
                     : { border: '1.5px solid var(--app-line)' }}
                   aria-pressed={s.done} aria-label={`${s.title} ${s.done ? '완료 취소' : '완료'}`}
                 >
-                  {s.done && <Check size={11} strokeWidth={3} className="text-white" />}
+                  {/* lucide Check와 같은 선이지만 pathLength=1이 있어야 선으로 그릴 수 있다 */}
+                  {s.done && (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                      aria-hidden className={`w-[11px] h-[11px] text-white${justDone === s.id ? ' dc-check-now' : ''}`}>
+                      <path pathLength="1" d="M20 6 9 17l-5-5" />
+                    </svg>
+                  )}
                 </button>
                 {readOnly ? (owners.length > 0 && (
                   <span className="flex items-center gap-1.5 min-w-0">
@@ -911,7 +926,9 @@ function SubtaskList({ value = [], onChange, readOnly = false, members = [] }) {
                     있다는 것 자체가 안 보인다. 삭제 버튼도 hover로 숨기지 않는다
                     (터치 기기에는 hover가 없다). */}
                 {readOnly ? (
-                  <span className={`flex-1 min-w-0 text-[13px] break-words ${s.done ? 'text-fg-faint line-through' : 'text-fg'}`}>{s.title}</span>
+                  <span data-subtask-title=""
+                    onAnimationEnd={(e) => { if (e.animationName === 'dc-strike' && justDone === s.id) setJustDone(null); }}
+                    className={`flex-1 min-w-0 text-[13px] break-words ${s.done ? `text-fg-faint line-through${justDone === s.id ? ' dc-strike-now' : ''}` : 'text-fg'}`}>{s.title}</span>
                 ) : (
                   <input
                     value={s.title}

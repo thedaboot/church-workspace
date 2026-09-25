@@ -100,6 +100,7 @@ import * as cloudSync from './services/cloudSync.js';
 import { createIdBatcher } from './services/realtimeBatch.js';
 import { subscribePresence, trackWhere } from './services/presence.js';
 import { refreshTabFront } from './services/tabFront.js';
+import { captureSeenBase, captureGuestSeenBase } from './services/sinceSeen.js';
 import logoLight from './assets/logo-light.webp';
 import logoDark from './assets/logo-dark.webp';
 import { BTN_CONFIRM } from './components/buttons.js';
@@ -248,6 +249,9 @@ function WorkspaceShell() {
     try {
       setLoadError(null);
       const profile = await reloadCloud();
+      // 지난 방문의 기준 시각(services/sinceSeen.js) — **아래 첫 찍기가 덮기 전에** 붙잡는다.
+      // 방금 읽은 내 프로필 행의 last_seen_at이 "지난번에 떠난 때"다. 합친 계정은 두 id가 다 '나'다.
+      captureSeenBase({ at: profile?.last_seen_at, me: [profile?.id, profile?.merged_into] });
       // 다녀갔다고 찍는다(0019) — 대시보드의 '오늘 다녀간 사람'이 보는 값.
       // 기다리지 않고 실패도 삼킨다: 얼굴 하나가 덜 뜨는 일이라 로드를 막을 이유가 없다.
       // 방금 읽은 목록에는 이 값이 없다(로드가 먼저 끝났다) — 그래서 화면은 **나를 언제나
@@ -269,7 +273,7 @@ function WorkspaceShell() {
   }, [reloadCloud]);
 
   useEffect(() => {
-    if (!cloudMode) { setCloudReady(true); return; }
+    if (!cloudMode) { captureGuestSeenBase(store.getState().currentUser?.name); setCloudReady(true); return; }
     initialLoad();
   }, [cloudMode, initialLoad]);
 

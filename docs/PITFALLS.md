@@ -851,3 +851,34 @@ inside`로 바꾸지 마세요** — TipTap의 `li`는 안에 문단(블록)을 
 
 **32-zf.** **dev 서버가 뜰 때 파싱 오류가 있으면 의존성 미리 묶기를 건너뛴다**(`Failed to run dependency scan`) — 그 뒤로는 새 의존성을 만날 때마다 vite가 페이지를 통째로 다시 불러서 브라우저 스위트가
     `Inspected target navigated or closed`·엉뚱한 `null`로 죽는다(코드 원인이 아니다). 고친 뒤에는 **게스트 서버를 껐다가 다시 띄우세요**(Windows에서 백그라운드 셸만 끄면 node가 남아 포트를 쥔다 — 프로세스를 직접 끈다).
+### 흔적과 움직임 (2026-09-25)
+
+12-g. **폰 앞 칸 탭은 끌기만 막고 놓을 자리로는 켜 둔다**(`MobileProjectTab`의 `useDroppable({ disabled: archived })`) — 놓을 자리까지 끄면
+뒤쪽 탭을 그 위로 가져와도 dnd-kit이 `over`를 안 알려 줘서 넛지(`앞에 있는 프로젝트는 자동으로 조정돼요.`)를 띄울 수 없다. 놓아도 순서가
+안 바뀌는 것은 `onDragEnd`의 `frontIds` 거르기가 지킨다 — 그 줄을 지우면 앞 칸 위에 놓은 탭이 position을 바꾼다. 앞 칸 위의
+`bg-accent-weak`(놓을 자리 표시)도 끈다(`!front`).
+
+12-h. **데스크톱 앞 칸 탭은 `draggable`이 아니라 dragstart가 안 온다** — '끌려고 한다'는 마우스를 누른 채 6px 넘게 움직인 것으로
+잡는다(`onPointerDown`·`onPointerMove` · 마우스만). hover 말풍선은 `(hover: hover) and (pointer: fine)`에서만이고, 한 번이라도 말풍선을
+본 브라우저(`front_nudge_seen`)에서는 hover로 안 뜬다 — 끌 때는 언제나 뜬다. dragover는 쉬지 않고 오므로 **같은 탭·같은 말이 떠 있으면
+타이머를 늘리지 않는다**(안 그러면 올려 둔 동안 안 사라진다).
+
+9-cg. **마감 목록의 완료 손맛은 저장 전에 그린다** — 대시보드는 끝낸 줄을 목록에서 빼므로 저장부터 하면 움직일 자리가 사라진다.
+완료를 확정하면 그 줄이 360ms(`COMPLETE_DRAW_MS`) 동안 채운 원 + 선 체크(`.dc-ring-now`·`.dc-check-now`)로 서고 **그 뒤에**
+`onComplete`를 부른다. 그래서 **확정 직후 상태를 보는 검사는 기다려야 한다**(`tests/traces`는 0.7초). 되돌리기와 reduced-motion은
+기다리지 않는다. 실시간으로 남이 끝낸 줄은 이 길을 안 타서 그리지 않는다.
+
+9-ch. **하위 업무 취소선은 그리는 동안만 가상 요소다** — `.dc-strike-now`가 `text-decoration-line`을 끄고 `::after`를 scaleX로
+늘린다. `::after`의 animationend는 **원래 요소에서** 온다(`e.animationName === 'dc-strike'`) — 그때 클래스를 떼어 보통
+`line-through`로 돌아간다(여러 줄 제목도 줄마다 그어진다). 수정 모드의 입력칸(`input`)에는 가상 요소가 없어 그리지 않는다.
+reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가 line-through를 되살린다.
+
+31-k. **최근 활동에 섞는 업무 밖 움직임은 RLS에만 기대지 말고 조회에서 거른다**(`services/feedExtras.js`) — `services_select`는
+주보 편집 자격자에게 **초안**도 돌려주고, `qt_entries_select`는 **내 비공개 묵상**도 돌려준다. 그대로 섞으면 편집자의 대시보드에
+발행 안 한 주보가, 내 대시보드에 남에게 안 보이는 묵상 줄이 선다. `status = 'published'`·`shared = true`를 쿼리에 직접 건다
+(`tests/logcheck`가 단정한다). 0079 칸(`published_at` 등)이 없을 때는 그 갈래만 비운다 — 대시보드의 곁가지라 오류 화면을 띄우지 않는다.
+
+42-i. **게스트의 '지난 방문'(`seen_base_v1`)은 앱을 열 때마다 지금으로 바뀐다** — 한 번 심고 여러 번 이동하면 두 번째 화면부터
+점이 하나도 안 선다. 검사는 **이동할 때마다 다시 심는다**(`tests/traces`의 `go`). 클라우드의 기준 시각은 `App.initialLoad`에서
+`reloadCloud`가 돌려준 **내 프로필 행**의 `last_seen_at`이다 — 바로 다음 줄의 `markSeen(0)`이 덮기 전 값이라야 "지난번에 떠난 때"다
+(스토어의 members 값은 곧 실시간 박동으로 바뀐다). 두 줄의 차례는 `tests/logcheck`가 본다.

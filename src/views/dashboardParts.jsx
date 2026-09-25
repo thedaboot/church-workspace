@@ -9,8 +9,14 @@ import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { useForceGraph, hoverProps } from '../hooks/useForceGraph.js';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
-import { bucketOf, isOverdue, isStaleNoDue, STALE_NODUE_DAYS, personLoad } from '../services/taskCounts.js';
+import { bucketOf, isOverdue, isStaleNoDue, STALE_NODUE_DAYS, personLoad, RECENT_DONE_DAYS } from '../services/taskCounts.js';
 import { YearPicker } from '../components/layout.jsx';
+import { useStore, ACTIVITY_FEED_LIMIT } from '../store/workspaceStore.js';
+import { selectMembers, selectCurrentUser } from '../store/selectors.js';
+import { useSeenBase } from '../services/sinceSeen.js';
+import { groupFeed, extraFeedRows, mixFeed, FEED_FIRST, FEED_STEP } from '../services/traces.js';
+import { loadFeedExtras, loadMoreActivity } from '../services/feedExtras.js';
+import { setEntryQuery } from '../services/entryQuery.js';
 
 // ============================================================================
 // 리디자인 공용 조각 — 대시보드 / 내 업무 / 팀 보드가 같은 부품을 쓴다.
@@ -57,9 +63,13 @@ export const byDue = (a, b) => String(a.dueDate || '9999').localeCompare(String(
 // '내 업무'에서 완료를 누를 때마다 그 줄이 몇 년 전 업무들 아래로 사라졌다.
 // **그 구간은 날짜 칸도 마감일이 아니라 끝낸 날이다**(아래 dateOf) — 정렬 기준이
 // 화면에 없으면 목록이 뒤죽박죽으로 읽힌다(사용자 지적 2026-08-31).
-export function groupByDue(tasks, today = ISO_TODAY()) {
+// recentDone: 기본 목록(상태 칩을 안 고른 내 업무 · 팀 보드) 맨 아래의 **최근 7일 안에 완료한 업무**
+// (사용자 결정 2026-09-25 · 목업 mockup-traces 3). 그 구간만 머리가 `완료한 업무` + 흐린 `최근 7일`이다 —
+// '완료' 칩으로 전부 볼 때는 예전 이름 그대로. 무엇이 7일 안인지는 taskCounts.isRecentlyDone이 정한다.
+export function groupByDue(tasks, today = ISO_TODAY(), { recentDone = false } = {}) {
   return BUCKETS.map(b => ({
     ...b,
+    ...(recentDone && b.key === 'done' ? { label: '완료한 업무', note: `최근 ${RECENT_DONE_DAYS}일` } : null),
     items: tasks.filter(t => bucketOf(t, today) === b.key).sort(b.key === 'done' ? byCompleted : byDue),
   })).filter(g => g.items.length);
 }
@@ -151,12 +161,28 @@ export function KpiCell({ dot, label, value, unit = '건', note, ratio, bar, ale
 // ── 마감 그룹 리스트 ──────────────────────────────────────────────────────
 // 대시보드·내 업무·팀 보드가 같이 쓴다. meta로 프로젝트만/팀까지 표시를 고른다.
 const GROUP_LIMIT = 30;   // 한 구간에 먼저 그리는 줄 수. 나머지는 '더 보기'
+const COMPLETE_DRAW_MS = 360;   // 완료 원이 튀고 체크가 다 그려지는 시간(60ms 지연 + 240ms) + 여유
 
 export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, showTeam = true, emptyHint }) {
   const [expanded, setExpanded] = useState({});   // { [구간 key]: true }
   // 순차 등장은 처음 열 때만 — 그 뒤에 구간을 옮겨 다시 마운트되는 줄(완료로 옮긴 업무,
   // '더 보기'로 펼친 줄)은 지연 없이 바로 나타나야 한다(useEnterStagger 주석).
   const stagger = useEnterStagger();
+  // 작은 완료의 손맛(2026-09-25 · index.css `.dc-ring-now`·`.dc-check-now`): 완료를 확정하면 **그 자리에서**
+  // 원이 채워지며 튀고 체크가 그려진 뒤(340ms) 저장한다 — 대시보드는 끝낸 줄을 목록에서 빼므로 저장부터
+  // 하면 움직임이 보일 자리가 없다. 방금 누른 줄에만 걸리고(실시간으로 남이 끝낸 줄은 이 길을 안 탄다),
+  // 되돌리기는 기다리지 않는다. 움직임을 줄인 사람에게는 기다릴 까닭이 없어 바로 저장한다(PITFALLS 9-cg).
+  const [pending, setPending] = useState(() => new Set());
+  const pendTimers = useRef([]);
+  useEffect(() => () => pendTimers.current.forEach(clearTimeout), []);
+  const complete = (t, next) => {
+    if (next !== '완료' || prefersReducedMotion()) { onComplete(t, next); return; }
+    setPending(p => new Set(p).add(t.id));
+    pendTimers.current.push(setTimeout(() => {
+      setPending(p => { const n = new Set(p); n.delete(t.id); return n; });
+      onComplete(t, next);
+    }, COMPLETE_DRAW_MS));
+  };
 
   if (!groups.length) {
     // 빈 화면은 남는 공간의 정가운데에 — 위쪽에 붙어 있으면 아래가 통째로 비어 보인다
@@ -183,6 +209,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
           <div className="flex items-center gap-2 pb-[5px]">
             <span className="text-xs font-bold" style={{ color: g.fg }}>{g.label}</span>
             <span className="text-[11px] font-semibold tabular-nums text-fg-muted">{g.items.length}건</span>
+            {g.note && <span data-group-note="" className="text-[11px] tabular-nums text-fg-muted whitespace-nowrap">{g.note}</span>}
             {staleCount > 0 && (
               <span className="text-[11px] font-semibold tabular-nums whitespace-nowrap" style={{ color: 'var(--app-status-hold)' }}>
                 · {STALE_NODUE_DAYS / 7}주 넘은 것 {staleCount}건
@@ -193,6 +220,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
           {shown.map(t => {
             const delay = stagger ? `${Math.min(seen++, 12) * 22}ms` : '0ms';
             const done = t.status === '완료';
+            const drawing = !done && pending.has(t.id);   // 방금 완료를 누른 줄(저장 전 340ms)
             // 빨강은 taskCounts.isOverdue 하나 — 보류 중인 업무의 지난 마감은 회색이다
             const over = isOverdue(t, today);
             const isToday = g.key === 'today';
@@ -209,11 +237,19 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                     한 번의 오터치로 상태가 바뀌지 않게 확인을 한 번 받는다.
                     이미 끝난 건은 같은 자리에서 되돌린다(같은 상태로 저장은 아무 일도 안 하니
                     버튼이 죽은 것처럼 보였다). */}
-                {done ? (
+                {drawing ? (
+                  <span className="shrink-0 inline-flex">
+                    <span aria-hidden data-done-drawing=""
+                      className="dc-ring-now w-5 h-5 rounded-full flex items-center justify-center"
+                      style={{ background: 'var(--app-tag-green-fg)' }}>
+                      <Checkmark filled now />
+                    </span>
+                  </span>
+                ) : done ? (
                   <ConfirmPopover
                     className="shrink-0 inline-flex" tone="ok" confirmLabel="되돌리기"
                     title="완료 취소" message={`'${t.title}'을 다시 진행 중으로 되돌릴까요?`}
-                    onConfirm={() => onComplete(t, '진행 중')}
+                    onConfirm={() => complete(t, '진행 중')}
                   >
                     <span
                       role="button" aria-label={`${t.title} 완료 취소`}
@@ -227,7 +263,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                   <ConfirmPopover
                     className="shrink-0 inline-flex" tone="ok" confirmLabel="완료"
                     title="완료로 옮기기" message={`'${t.title}'을 완료로 옮길까요?`}
-                    onConfirm={() => onComplete(t, '완료')}
+                    onConfirm={() => complete(t, '완료')}
                   >
                     <span
                       role="button" aria-label={`${t.title} 완료로 옮기기`}
@@ -341,12 +377,13 @@ function AllClearMark() {
 }
 
 // 완료 버튼 안의 체크 — 미완료는 hover에서 진해지고, 끝낸 건은 초록 원 위 흰 체크
-function Checkmark({ filled = false }) {
+// now — 방금 누른 완료: 체크를 선으로 그린다(pathLength=1 · index.css `.dc-check-now`)
+function Checkmark({ filled = false, now = false }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke={filled ? '#fff' : 'var(--app-tag-green-fg)'} strokeWidth="2.4"
       strokeLinecap="round" strokeLinejoin="round"
-      className={filled ? 'w-[11px] h-[11px]' : 'w-[11px] h-[11px] opacity-40 group-hover/done:opacity-100 transition-opacity'}>
-      <path d="M20 6 9 17l-5-5" />
+      className={filled ? `w-[11px] h-[11px]${now ? ' dc-check-now' : ''}` : 'w-[11px] h-[11px] opacity-40 group-hover/done:opacity-100 transition-opacity'}>
+      <path pathLength="1" d="M20 6 9 17l-5-5" />
     </svg>
   );
 }
@@ -599,78 +636,169 @@ export function MembersModal({ members, myName, onClose }) {
 //
 // **카드별로 묶는다.** 한 카드를 다듬으면 기록이 줄줄이 생겨서(제목·내용·상태가 각
 // 한 줄) 같은 제목이 여덟 줄 반복됐고, 그게 대시보드를 길게 만든 주범이었다(사용자
-// 지적). 카드마다 가장 최근 한 줄 + '외 N건'으로 접고, 다섯 카드까지만 그린다.
+// 지적). 카드마다 가장 최근 한 줄 + '외 N건'으로 접고, 처음에는 다섯 줄만 그린다.
 // '내 업무만 보기'는 접었다 — 이 칸의 값은 남들이 움직이는 게 보이는 것이라,
 // 내 것만 남기면 참여를 부르는 자리가 내 메아리 방이 된다.
-const FEED_ROWS = 5;
+//
+// '더보기'(사용자 결정 2026-09-25 · 목업 mockup-traces 4 권장안): 다섯 줄 아래 한 줄, 누르면 창을 띄우지
+// 않고 **그 자리에서 열 줄씩** 편다. 편 뒤에는 '접기'. 펴고 접는 높이는 grid-template-rows 0fr↔1fr
+// (TopNav 탭 줄과 같은 기법 · 240ms · reduced-motion이면 없다 · index.css `.dc-feed-*`).
+// **업무 밖 움직임도 섞는다** — 주보 발행 · 동아리 모임 일정 · 더다붓에 나눈 QT 묵상. 같은 줄 모양
+// (얼굴 · 무엇 · 누가 무엇을 · 언제)이고 문장은 알림 문구다(services/traces.extraFeedRows · feedExtras).
+// **지난 방문 이후 남이 움직인 줄**에는 왼쪽에 옅은 점(traces.isFreshMove · 기준 시각은 sinceSeen) —
+// 다음에 앱을 열 때까지 둔다. 카드별로 묶는 규칙(groupFeed)도 traces.js로 옮겼다(점 판정과 한 벌).
+const DEEP_ACTIVITY = 200;   // '더보기'를 처음 누를 때 활동을 이만큼 더 읽는다(클라우드)
+const FEED_HELD = ACTIVITY_FEED_LIMIT;   // 스토어 피드의 상한(workspaceStore)
 
-// 카드별 최근 한 줄 + 나머지 개수. 피드는 이미 최신순이라 처음 만나는 줄이 최근 것이다.
-function groupFeed(feed) {
-  const seen = new Map();
-  const out = [];
-  for (const a of feed) {
-    const key = a.cardId || a.id;
-    const head = seen.get(key);
-    if (head) { head.more += 1; continue; }
-    const row = { ...a, more: 0 };
-    seen.set(key, row);
-    out.push(row);
-  }
-  return out;
-}
-
-export function ActivityFeed({ feed, tasksById, onOpenTask }) {
+export function ActivityFeed({ feed, tasksById, onOpenTask, onNavigate }) {
   // 줄 오른쪽의 'N분 전'이 굳지 않게 — 대시보드는 켜 둔 채로 오래 보는 화면이다.
   // 훅은 조건부 return보다 **먼저** 불러야 한다(리액트 규칙).
   useMinuteTick();
-  if (!feed.length) return null;
+  const base = useSeenBase();
+  const members = useStore(selectMembers);
+  const me = useStore(selectCurrentUser);
+  const [extras, setExtras] = useState(null);
+  const [deep, setDeep] = useState(null);       // '더보기' 뒤 더 읽은 활동(클라우드)
+  const [count, setCount] = useState(FEED_FIRST);
+  const [closing, setClosing] = useState(false);
+  const closeTimer = useRef(0);
+  useEffect(() => {
+    let alive = true;
+    loadFeedExtras({ guestName: me.name }).then(d => { if (alive) setExtras(d); })
+      .catch(e => console.warn('[feed] 업무 밖 움직임을 읽지 못했어요:', e));
+    return () => { alive = false; clearTimeout(closeTimer.current); };
+  }, [me.name]);
+
+  const nameById = useMemo(() => new Map(members.map(m => [m.id, m.name])), [members]);
+  const rows = useMemo(() => {
+    // 활동: 더 읽은 것이 있으면 합친다(같은 줄은 스토어 쪽 — 실시간으로 얹힌 최신 줄)
+    let act = feed;
+    if (deep) {
+      const have = new Set(feed.map(a => a.id));
+      act = [...feed, ...deep.filter(a => !have.has(a.id))].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    }
+    // 읽은 활동이 상한에 닿았으면 그보다 옛날의 업무 밖 줄은 세우지 않는다 — 활동이 비어 있는 구간에
+    // 주보·모임만 서면 그동안 업무에서 아무 일도 없었던 것처럼 읽힌다.
+    const full = act.length >= (deep ? DEEP_ACTIVITY : FEED_HELD);
+    const oldest = full && act.length ? Date.parse(act[act.length - 1].at) : -Infinity;
+    const ex = extras ? extraFeedRows({
+      services: extras.services, meetings: extras.meetings, qts: extras.qts,
+      nameOf: (id) => nameById.get(id) || (id === me.name ? me.name : ''),
+      groupName: (id) => extras.groupNames[id] || '',
+      passageOf: (d) => extras.passages[d] || '',
+    }).filter(r => Date.parse(r.at) >= oldest) : [];
+    return mixFeed(groupFeed(act, base), ex, base);
+  }, [feed, deep, extras, base, nameById, me.name]);
+
+  if (!rows.length) return null;
+
+  const more = () => {
+    setCount(c => c + FEED_STEP);
+    // 활동은 스토어에 서른 줄뿐이다 — 처음 펼 때 한 번 더 깊게 읽는다(업무 밖 줄과 시간이 맞게)
+    if (!deep && feed.length >= FEED_HELD) {
+      loadMoreActivity(DEEP_ACTIVITY).then(list => {
+        if (list) setDeep(list.map(a => ({
+          id: a.id, actorId: a.actor_id || null, actorName: nameById.get(a.actor_id) || '이름 미상',
+          action: a.action, cardId: a.card_id || null, projectId: a.project_id || null, at: a.created_at,
+        })));
+      }).catch(e => console.warn('[feed] 활동을 더 읽지 못했어요:', e));
+    }
+  };
+  const folded = () => { clearTimeout(closeTimer.current); setClosing(false); setCount(FEED_FIRST); };
+  const fold = () => {
+    if (prefersReducedMotion()) { folded(); return; }
+    setClosing(true);
+    // transitionend를 못 받는 경우(탭이 뒤로 가 있는 동안 등)의 안전망
+    clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(folded, 400);
+  };
+
+  const openLink = (link) => {
+    const q = link.slice(link.indexOf('?') + 1);
+    setEntryQuery(q);
+    const p = new URLSearchParams(q).get('p');
+    if (p) onNavigate?.(p);
+  };
+
+  const row = (a, first) => {
+    const task = a.kind ? null : (a.cardId ? tasksById[a.cardId] : null);
+    const head = a.kind ? a.head : (task ? task.title : a.actorName);
+    const line = a.kind ? a.text : `${task ? `${a.actorName}님이 ` : ''}${a.action}`;
+    const inner = (
+      <>
+        {a.fresh && <span aria-hidden data-fresh-dot="" className="absolute left-px top-[15px] w-[5px] h-[5px] rounded-full bg-accent opacity-60" />}
+        <Avatar name={a.actorName} className="flex w-[22px] h-[22px] text-[10.5px] mt-px" />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-1.5 min-w-0">
+            {/* 카드가 지워졌으면 제목 없이 문장만 남는다 — 기록은 지워지지 않는다.
+                min-w-0: flex 항목은 기본 최소 폭이 내용 폭이라, 없으면 긴 제목이
+                시간 라벨을 오른쪽 끝에서 밀어낸다(줄마다 시간 x가 달라진다). */}
+            <span className="text-[11px] font-semibold text-fg truncate min-w-0">{head}</span>
+            <span className="flex-1" />
+            <span className="text-[10px] text-fg-muted tabular-nums whitespace-nowrap shrink-0">{agoLabel(a.at)}</span>
+          </span>
+          <span className="block text-[11px] text-fg-muted truncate">
+            {line}
+            {a.more > 0 && <span className="text-fg-muted"> 외 {a.more}건</span>}
+          </span>
+        </span>
+      </>
+    );
+    // 줄 사이 선은 **첫 줄만 뺀다** — 편 묶음은 부모가 달라 first-of-type이 묶음마다 다시 걸린다
+    const edge = first ? '' : ' border-t border-line/60';
+    const go = a.kind ? () => openLink(a.link) : (task ? () => onOpenTask(task) : null);
+    // 누를 곳이 있으면 버튼이다. 없으면(지워진 카드) 그냥 줄이다
+    return go ? (
+      /* dc-row(줄 등장 애니메이션)를 쓰지 않는다 — 이 카드는 PeopleStrip처럼 정적인
+         부속 정보이고, .dc-row는 마감 목록의 "행"이라는 뜻으로 검사들도 그 클래스로
+         목록을 찾는다(여기 붙이면 피드 줄이 마감 목록 행으로 세어진다). */
+      <button key={a.id} type="button" onClick={go} data-feed-row={a.kind || 'activity'}
+        /* 폭은 calc(100%+16px)이어야 한다. w-full(=100%)에 -mx-2를 얹으면 왼쪽으로만 8px
+           밀려 오른쪽이 16px 빈다(사용자가 지적한 공백). 그렇다고 w-full을 빼면 button은
+           폼 요소라 display:flex여도 **내용 폭으로 줄어든다** — 줄마다 폭이 달라져 시간
+           라벨이 제각각 섰다. 음수 마진만큼을 폭에 직접 더해 준다. */
+        className={`relative w-[calc(100%+16px)] flex items-start gap-2 py-[7px] -mx-2 px-2 rounded-md text-left hover:bg-surface-hover transition-colors${edge}`}>
+        {inner}
+      </button>
+    ) : (
+      /* 버튼 줄과 같은 박스(-mx-2 px-2)를 준다 — 다르면 이 줄만 16px 좁아져서
+         시간 라벨이 다른 줄과 다른 x에 선다(정렬이 흐트러진 원인 중 하나) */
+      <div key={a.id} data-feed-row="activity" className={`relative flex items-start gap-2 py-[7px] -mx-2 px-2${edge}`}>
+        {inner}
+      </div>
+    );
+  };
+
+  const shown = rows.slice(0, count);
+  const chunks = [];
+  for (let i = FEED_FIRST; i < shown.length; i += FEED_STEP) chunks.push(shown.slice(i, i + FEED_STEP));
+  const hasMore = rows.length > count;
+  const FEED_BTN = 'flex-1 py-2 rounded-md text-[11.5px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-[0.99] disabled:opacity-40';
   return (
     <Card className="px-4 py-[15px]">
       <div className="pb-2">
         <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">최근 활동</h3>
       </div>
-      {groupFeed(feed).slice(0, FEED_ROWS).map(a => {
-        const task = a.cardId ? tasksById[a.cardId] : null;
-        const inner = (
-          <>
-            <Avatar name={a.actorName} className="flex w-[22px] h-[22px] text-[10.5px] mt-px" />
-            <span className="min-w-0 flex-1">
-              <span className="flex items-baseline gap-1.5 min-w-0">
-                {/* 카드가 지워졌으면 제목 없이 문장만 남는다 — 기록은 지워지지 않는다.
-                    min-w-0: flex 항목은 기본 최소 폭이 내용 폭이라, 없으면 긴 제목이
-                    시간 라벨을 오른쪽 끝에서 밀어낸다(줄마다 시간 x가 달라진다). */}
-                <span className="text-[11px] font-semibold text-fg truncate min-w-0">{task ? task.title : a.actorName}</span>
-                <span className="flex-1" />
-                <span className="text-[10px] text-fg-muted tabular-nums whitespace-nowrap shrink-0">{agoLabel(a.at)}</span>
-              </span>
-              <span className="block text-[11px] text-fg-muted truncate">
-                {task ? `${a.actorName}님이 ` : ''}{a.action}
-                {a.more > 0 && <span className="text-fg-muted"> 외 {a.more}건</span>}
-              </span>
-            </span>
-          </>
-        );
-        // 카드가 있으면 눌러서 연다. 없으면(지워진 카드) 그냥 줄이다
-        return task ? (
-          /* dc-row(줄 등장 애니메이션)를 쓰지 않는다 — 이 카드는 PeopleStrip처럼 정적인
-             부속 정보이고, .dc-row는 마감 목록의 "행"이라는 뜻으로 검사들도 그 클래스로
-             목록을 찾는다(여기 붙이면 피드 줄이 마감 목록 행으로 세어진다). */
-          <button key={a.id} type="button" onClick={() => onOpenTask(task)}
-            /* 폭은 calc(100%+16px)이어야 한다. w-full(=100%)에 -mx-2를 얹으면 왼쪽으로만 8px
-               밀려 오른쪽이 16px 빈다(사용자가 지적한 공백). 그렇다고 w-full을 빼면 button은
-               폼 요소라 display:flex여도 **내용 폭으로 줄어든다** — 줄마다 폭이 달라져 시간
-               라벨이 제각각 섰다. 음수 마진만큼을 폭에 직접 더해 준다. */
-            className="w-[calc(100%+16px)] flex items-start gap-2 py-[7px] -mx-2 px-2 rounded-md text-left hover:bg-surface-hover transition-colors border-t border-line/60 first-of-type:border-t-0">
-            {inner}
-          </button>
-        ) : (
-          /* 버튼 줄과 같은 박스(-mx-2 px-2)를 준다 — 다르면 이 줄만 16px 좁아져서
-             시간 라벨이 다른 줄과 다른 x에 선다(정렬이 흐트러진 원인 중 하나) */
-          <div key={a.id} className="flex items-start gap-2 py-[7px] -mx-2 px-2 border-t border-line/60 first-of-type:border-t-0">
-            {inner}
+      {shown.slice(0, FEED_FIRST).map((a, i) => row(a, i === 0))}
+      {chunks.length > 0 && (
+        <div className="dc-feed-fold" data-closing={closing ? 'true' : undefined}
+          onTransitionEnd={(e) => { if (closing && e.target === e.currentTarget && e.propertyName === 'grid-template-rows') folded(); }}>
+          <div className="min-h-0 overflow-hidden">
+            {chunks.map((chunk, ci) => (
+              // 새로 편 열 줄만 0fr → 1fr로 자란다(이미 편 묶음은 그대로)
+              <div key={ci} className="dc-feed-chunk">
+                <div className="min-h-0 overflow-hidden">{chunk.map(a => row(a, false))}</div>
+              </div>
+            ))}
           </div>
-        );
-      })}
+        </div>
+      )}
+      {(hasMore || count > FEED_FIRST) && (
+        <div className="flex -mx-2 mt-1">
+          {hasMore && <button type="button" data-feed-more="" onClick={more} className={FEED_BTN}>더보기</button>}
+          {count > FEED_FIRST && <button type="button" data-feed-fold="" onClick={fold} disabled={closing} className={FEED_BTN}>접기</button>}
+        </div>
+      )}
     </Card>
   );
 }

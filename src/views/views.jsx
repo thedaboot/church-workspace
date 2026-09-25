@@ -2,7 +2,7 @@ import React, { lazy, Suspense, useState, useMemo, useRef, useEffect } from 'rea
 import { Plus, ChevronDown, Check, Trash2, Pencil } from 'lucide-react';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
 import { groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear, datedTasks, mergeActivitySeen, teamChips as teamMemberChips, completedTime } from '../utils.js';
-import { isDone, isOpen, isOngoing, isRunning, isOverdue, dueCounts, progressOf, teamLeftStats, inProjects, recentDoneCount } from '../services/taskCounts.js';
+import { isDone, isOpen, isOngoing, isRunning, isOverdue, dueCounts, progressOf, teamLeftStats, inProjects, recentDoneCount, isRecentlyDone } from '../services/taskCounts.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
 import { YearPicker } from '../components/layout.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -499,7 +499,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
               모바일에서는 '청년' 탭 맨 끝이다: 피드는 둘러보는 정보라 '지금 해야
               할 것'(마감 목록)보다 앞설 이유가 없다. */}
           <div className={pane('청년')}>
-            <ActivityFeed feed={feed} tasksById={tasksById} onOpenTask={onTaskClick} />
+            <ActivityFeed feed={feed} tasksById={tasksById} onOpenTask={onTaskClick} onNavigate={onNavigate} />
           </div>
 
         </div>
@@ -949,7 +949,9 @@ function SlidersIcon() {
 }
 
 // ── 내 업무 ───────────────────────────────────────────────────────────────
-// 상태 칩은 다중 선택. 아무것도 고르지 않으면 미완료 전체를 보여준다.
+// 상태 칩은 다중 선택. 아무것도 고르지 않으면 미완료 전체 + 맨 아래 **최근 7일 안에 완료한 업무**
+// (사용자 결정 2026-09-25 · 목업 mockup-traces 3 — 완료를 누른 줄이 눈앞에서 사라지지 않게. 7일이 지나면
+// 조용히 빠지고, 전부 보려면 '완료' 칩). 머리의 'N건 남음'은 그대로 남은 것만 센다.
 export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStatusChange, onNavigate }) {
   const currentUser = useStore(selectCurrentUser);
   const myTasks = useStore(selectMyTasks);
@@ -962,8 +964,8 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
   // 언제나 빗나가서(의존성이 늘 새 참조다) 상태 칩 하나를 눌러도 목록 전체를 다시 묶었다.
   const shown = useMemo(() => (statusFilter.length
     ? myTasks.filter(t => statusFilter.includes(t.status))
-    : myTasks.filter(t => t.status !== '완료')), [myTasks, statusFilter]);
-  const groups = useMemo(() => groupByDue(shown, today), [shown, today]);
+    : myTasks.filter(t => !isDone(t) || isRecentlyDone(t, completedTime, today))), [myTasks, statusFilter, today]);
+  const groups = useMemo(() => groupByDue(shown, today, { recentDone: !statusFilter.length }), [shown, today, statusFilter.length]);
 
   // 남은 수는 상시를 빼고, 지난 마감은 대시보드 KPI의 '지연'과 같은 판정(보류 중 빼고)
   const openCount = myTasks.filter(isOpen).length;
@@ -1030,8 +1032,9 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
   const today = ISO_TODAY();
   const teamTasks = useMemo(() => tasksList.filter(t => (t.teams || []).includes(teamName)), [tasksList, teamName]);
   // 묶어 두지 않으면 아래 groupByDue의 useMemo가 매 렌더 빗나간다(새 배열 = 새 참조)
-  // 마감 목록은 끝낸 것만 뺀다(상시는 제 구간) · 머리의 'N건 남음'은 상시를 뺀 남은 업무다
-  const openTasks = useMemo(() => teamTasks.filter(t => !isDone(t)), [teamTasks]);
+  // 마감 목록은 끝낸 것을 빼되 **최근 7일 안에 완료한 업무**는 맨 아래 구간에 둔다(내 업무와 같다 ·
+  // 2026-09-25) · 상시는 제 구간 · 머리의 'N건 남음'은 상시를 뺀 남은 업무다
+  const openTasks = useMemo(() => teamTasks.filter(t => !isDone(t) || isRecentlyDone(t, completedTime, today)), [teamTasks, today]);
   const leftCount = useMemo(() => teamTasks.filter(isOpen).length, [teamTasks]);
   // 상태 칸의 막대 분모 — 상시를 뺀 수(상시는 네 칸 어디에도 없다)
   const kpiTotal = useMemo(() => progressOf(teamTasks).total, [teamTasks]);
@@ -1052,7 +1055,7 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
   const yearIds = useYearProjectIds();
   const teamProjects = useMemo(() => progressByProject(teamTasks, projectsMap, yearIds), [teamTasks, projectsMap, yearIds]);
 
-  const groups = useMemo(() => groupByDue(openTasks, today), [openTasks, today]);
+  const groups = useMemo(() => groupByDue(openTasks, today, { recentDone: true }), [openTasks, today]);
 
   return (
     <div className="dc-screen pb-6">

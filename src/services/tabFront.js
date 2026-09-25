@@ -14,6 +14,9 @@ import * as cloudSync from './cloudSync.js';
 import { activityStats, guestActivityRows, FRONT_DAYS } from './tabRank.js';
 
 let stats = null;          // { [projectId]: { people, lastAt } } — null이면 앞 칸 없음
+// 잰 줄 그대로 — 탭 왼쪽의 '지난 방문 이후 남이 움직인 곳' 점(traces.freshProjectIds)이 본다.
+// 같은 때(열 때·다시 보일 때)에만 바뀌므로 점도 보는 동안 튀지 않는다.
+let rows = [];
 let seq = 0;
 const subs = new Set();
 
@@ -21,11 +24,12 @@ export async function refreshTabFront(cloudMode) {
   const my = ++seq;
   try {
     const now = Date.now();
-    const rows = cloudMode
+    const got = cloudMode
       ? await cloudSync.loadTabActivity(FRONT_DAYS, now)
       : guestActivityRows(store.getState().tasks);
     if (my !== seq) return;                 // 더 나중에 시작한 읽기가 이긴다
-    stats = activityStats(rows, now);
+    stats = activityStats(got, now);
+    rows = got;
     subs.forEach(fn => fn());
   } catch (e) {
     // 못 읽으면 지난 값을 그대로 둔다 — 탭 순서가 한 번 덜 새로워질 뿐이라 알리지 않는다
@@ -35,7 +39,12 @@ export async function refreshTabFront(cloudMode) {
 
 const subscribe = (fn) => { subs.add(fn); return () => subs.delete(fn); };
 const getSnapshot = () => stats;
+const getRows = () => rows;
 
 export function useTabFrontStats() {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+export function useTabActivityRows() {
+  return useSyncExternalStore(subscribe, getRows, getRows);
 }

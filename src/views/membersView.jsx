@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { UserCheck, UserX, ShieldCheck, Shield, Plus, Loader2, Merge } from 'lucide-react';
 import { Avatar } from '../components/Avatar.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
-import { RosterPanel, RowSkeleton, rowDelay } from '../components/roster.jsx';
+import { RosterPanel, RowSkeleton, rowDelay, ProfileLinkPanel } from '../components/roster.jsx';
 import { FailLeft } from '../components/groupsParts.jsx';
 import { BTN } from '../components/buttons.js';
 import { showToast } from '../components/Toast.jsx';
@@ -18,6 +18,11 @@ import { isCloudEnabled } from '../services/supabaseClient.js';
 import { readCache, writeCache, dropCache } from '../services/cache.js';
 import { useLiveTick } from '../services/liveV2.js';
 import * as roster from '../services/roster.js';
+import { guestStore } from '../services/people.js';
+
+// 게스트 모드의 계정 목록(roster.guestProfiles와 같은 칸) — 수락을 게스트 스위트가 눌러 볼 수 있게
+// 그 칸에 승인 값을 적는다(클라우드에는 없는 길 · 아래 approve).
+const guestAccounts = guestStore('church_roster_v1');
 
 // ============================================================================
 // 전역 '멤버' 화면 — 관리자만 (0022)
@@ -88,7 +93,8 @@ const Section = ({ title, count, children, hint }) => (
 // 그 값을 이미 왼쪽의 'N분 전 가입'으로 보여주고 있다. 같은 값을 두 번 적지 않는다.
 // `below` — 줄 아래에 펴지는 판(계정 합치기의 고르는 목록). 줄 안에 넣으면 아바타·이름과
 // 같은 가로 흐름에 끼어 이름이 짜부라진다.
-function MemberRow({ row, action, delay = 0, isOnline = false, at = '', below = null }) {
+// `chip` — 이름 옆에 붙는 것('명단 미연결' 칩). 이름이 길면 이름이 줄고 칩은 남는다.
+function MemberRow({ row, action, delay = 0, isOnline = false, at = '', below = null, chip = null }) {
   return (
     <div className="dc-row py-2.5"
       style={{ borderBottom: '1px solid var(--app-line)', animationDelay: `${delay}ms` }}>
@@ -101,7 +107,10 @@ function MemberRow({ row, action, delay = 0, isOnline = false, at = '', below = 
         )}
       </span>
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-semibold text-fg truncate">{row.display_name || '이름 미입력'}</p>
+        <p className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[13px] font-semibold text-fg truncate">{row.display_name || '이름 미입력'}</span>
+          {chip}
+        </p>
         <p className="text-[10.5px] truncate" style={{ color: isOnline ? 'var(--app-tag-green-fg)' : 'var(--app-ink-muted)' }}>
           {[row.created_at && `${agoLabel(row.created_at)} 가입`,
             isOnline ? '접속 중' : (at && `${agoLabel(at)} 다녀감`)].filter(Boolean).join(' · ')}
@@ -179,8 +188,10 @@ export function MembersView({ isAdmin, isMaster }) {
   }, []);
   useEffect(() => { if (isAdmin) load(); }, [isAdmin, load]);
 
-  // 명단은 '청년 명단' 탭을 열 때 처음 받는다 — 가입자만 보러 온 사람에게 네 번의
-  // 왕복을 미리 물리지 않는다. 연도를 바꾸면 그 해의 직분·순 편성을 다시 받는다.
+  // 명단은 **가입자 탭에서도** 받는다(2026-09-25) — 가입을 수락한 자리에서 명단과 잇고, 아직 명단에
+  // 이어지지 않은 사람 이름 옆에 '명단 미연결' 칩을 세우려면 누가 이어져 있는지 알아야 한다(아래 잇기 판).
+  // 예전에는 '청년 명단' 탭을 열 때만 받았다. 캐시(roster:<해>)를 먼저 그리므로 두 탭이 한 벌을 나눠 쓴다.
+  // 연도를 바꾸면 그 해의 직분·순 편성을 다시 받는다.
   //
   // **캐시가 있으면 그것이 첫 화면이다.** readCache는 render에서 읽는다(effect는 그림을
   // 그린 뒤에 돌아서, effect에서 채우면 매 진입마다 스켈레톤이 한 프레임 스친다).
@@ -203,7 +214,7 @@ export function MembersView({ isAdmin, isMaster }) {
   };
 
   useEffect(() => {
-    if (!isAdmin || tab !== 'roster') return undefined;
+    if (!isAdmin) return undefined;
     const key = `roster:${year}`;
     let alive = true;
     (async () => {
@@ -224,7 +235,7 @@ export function MembersView({ isAdmin, isMaster }) {
       }
     })();
     return () => { alive = false; };
-  }, [isAdmin, tab, year, rosterTick, bookRetry]);
+  }, [isAdmin, year, rosterTick, bookRetry]);
 
   if (!isAdmin) {
     return (
@@ -236,15 +247,21 @@ export function MembersView({ isAdmin, isMaster }) {
 
   const mark = (key, on) => setBusy(prev => ({ ...prev, [key]: on }));
 
-  const approve = async (row, next) => {
+  // withLink: 승인 대기에서 수락했을 때만 잇기 판을 편다('다시 초대하기'는 이미 명단에 있던 사람이다)
+  const approve = async (row, next, withLink = false) => {
     mark(row.id, true);
     try {
-      await cloud.setApproved(row.id, next);
+      if (isCloudEnabled()) await cloud.setApproved(row.id, next);
+      else {
+        guestAccounts.set('profiles', guestAccounts.rows('profiles').map(r => (r.id === row.id
+          ? { ...r, approved: next, removed_at: next ? null : new Date().toISOString() } : r)));
+      }
       // removed_at도 같이 바꾼다 — 안 그러면 환송한 사람이 어느 구역에도 안 남는다
       setRows(prev => prev.map(r => (r.id === row.id
         ? { ...r, approved: next, removed_at: next ? null : new Date().toISOString() }
         : r)));
       showToast(next ? `${row.display_name || '이 분'}을 수락했어요` : `${row.display_name || '이 분'}을 환송했어요`);
+      if (next && withLink) { setJustAccepted(prev => ({ ...prev, [row.id]: true })); setLinkFor(row.id); }
       // 수락된 사람에게 알림 한 건(0076 · 문구는 notifyText SYSTEM_TEXT). 대기 화면은 그쪽
       // auth.jsx가 승인을 지켜보다 저절로 넘기고, 이 알림은 들어온 뒤 종에 남는다.
       // actor_name은 not null이라 싣지만 DB가 내 표시 이름으로 덮는다(0071).
@@ -286,6 +303,14 @@ export function MembersView({ isAdmin, isMaster }) {
   // my_person_id()가 null이라 자격이 통째로 사라진다(0035).
   // 되돌릴 수 없으므로 ConfirmPopover로 한 번 묻는다.
   const [mergeFor, setMergeFor] = useState('');   // 남길 계정 id (팝업이 열린 줄)
+  // ── 수락하며 명단 잇기 (사용자 결정 2026-09-25 · 목업 mockup-traces 7 권장안) ─────────────
+  // 수락하면 그 줄은 **자리를 지키고** 버튼 자리에 '수락됨'이 서며, 줄 아래로 '청년 명단과 잇기' 판이
+  // 펴진다(ProfileLinkPanel). 판을 닫을 때(잇거나 '닫기') 그 줄이 '함께하는 사람'으로 내려간다 — 누른 줄이
+  // 손가락 밑에서 사라지지 않게. 미룬 사람은 '함께하는 사람' 이름 옆 '명단 미연결' 칩이 같은 판을 다시 편다.
+  // 자동으로 잇지 않는다(§6-26) — 이름이 같아도 미리 골라 두지 않는다.
+  const [justAccepted, setJustAccepted] = useState({});   // { [계정 id]: true } — 판이 닫힐 때까지 위 구역에
+  const [linkFor, setLinkFor] = useState('');              // 잇기 판이 열린 계정 id
+  const closeLink = () => { setLinkFor(''); setJustAccepted({}); };
   const mergeInto = async (keep, drop) => {
     mark(keep.id, true);
     try {
@@ -391,9 +416,23 @@ export function MembersView({ isAdmin, isMaster }) {
     }, next ? '직분을 지정하지 못했어요' : '직분 지정을 해제하지 못했어요'),
   };
 
+  // 가입자 → 명단 사람 잇기. 명단 탭의 '계정 연결'(rosterOn.link)과 같은 쓰기·같은 토스트다.
+  const linkAccount = (account, person) => write(person.id, () => roster.linkProfile(person.id, account.id), () => {
+    patchPerson(person.id, { profile_id: account.id });
+    showToast('계정을 연결했어요');
+    closeLink();
+  }, '계정을 연결하지 못했어요');
+  const people = shownBook?.people || null;
+  const linkedIds = new Set((people || []).map(p => p.profile_id).filter(Boolean));
+  const linkPanel = (row) => (
+    <ProfileLinkPanel account={row} people={people || []} ready={!!people}
+      busy={Object.values(busy).some(Boolean)} onLink={(p) => linkAccount(row, p)} onClose={closeLink} />
+  );
+
   // 환송한 사람은 '승인을 기다리는 사람'으로 다시 올라오지 않는다(0027) —
   // 방금 내보낸 사람을 다시 수락하라고 화면이 조르면 안 된다(사용자 지적).
-  const waiting = (rows || []).filter(r => !r.approved && !r.removed_at);
+  // 방금 수락한 줄은 잇기 판이 닫힐 때까지 이 구역에 남는다(위 justAccepted)
+  const waiting = (rows || []).filter(r => (!r.approved && !r.removed_at) || justAccepted[r.id]);
   // **합친 계정은 환송한 사람과 따로 센다**(사용자 요구 2026-09-10 — "환송 쪽 말고 그냥
   // 아예 구분해서 보여주면 안 되나"). 겉모습은 같지만(둘 다 approved=false + removed_at)
   // 성격이 다르다: 환송은 다시 부를 수 있고, 합친 계정은 다시 부를 것이 없다(0060).
@@ -406,7 +445,7 @@ export function MembersView({ isAdmin, isMaster }) {
   // 접속 중인 사람이 맨 위인 것까지 같다 — 그 자리를 안 넘기면 같은 목록이 두 화면에서
   // 다른 순서로 선다(MembersModal은 넘긴다).
   const members = visitOrder(
-    (rows || []).filter(r => r.approved)
+    (rows || []).filter(r => r.approved && !justAccepted[r.id])
       .map(r => ({ ...r, name: r.display_name || '', lastSeenAt: seenAt(r), joinedAt: r.created_at })),
     online,
   );
@@ -461,23 +500,35 @@ export function MembersView({ isAdmin, isMaster }) {
               hint="수락하기 전에는 프로젝트도 업무도 볼 수 없어요.">
               {waiting.map((row, i) => (
                 <MemberRow key={row.id} row={row} delay={rowDelay(i, stagger)} {...rowProps(row)} action={
-                  <button type="button" disabled={!!busy[row.id]} onClick={() => approve(row, true)}
-                    className={`shrink-0 inline-flex items-center gap-1.5 ${BTN}`}>
-                    {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />} 수락
-                  </button>
-                } />
+                  justAccepted[row.id] ? (
+                    <span className="members-accepted shrink-0 px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg text-[10.5px] font-bold">수락됨</span>
+                  ) : (
+                    <button type="button" disabled={!!busy[row.id]} onClick={() => approve(row, true, true)}
+                      className={`shrink-0 inline-flex items-center gap-1.5 ${BTN}`}>
+                      {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />} 수락
+                    </button>
+                  )
+                } below={linkFor === row.id ? linkPanel(row) : null} />
               ))}
             </Section>
           )}
 
           <Section title="함께하는 사람" count={members.length}>
             {members.map((row, i) => (
-              <MemberRow key={row.id} row={row} delay={rowDelay(i, stagger)} {...rowProps(row)} action={
+              <MemberRow key={row.id} row={row} delay={rowDelay(i, stagger)} {...rowProps(row)}
+                chip={people && !linkedIds.has(row.id) ? (
+                  <button type="button" data-unlinked={row.id} aria-expanded={linkFor === row.id}
+                    onClick={() => { setMergeFor(''); setLinkFor(v => (v === row.id ? '' : row.id)); }}
+                    className="members-unlinked shrink-0 px-1.5 py-px rounded-xs bg-tag-yellow text-tag-yellow-fg text-[10px] font-bold transition active:scale-95">
+                    명단 미연결
+                  </button>
+                ) : null}
+                action={
                 <span className="flex items-center gap-1">
                   {/* 합치기는 마스터만 — 남의 댓글·담당자를 다른 계정으로 옮기는 일이다 */}
                   {isMaster && (
                     <button type="button" disabled={!!busy[row.id]}
-                      onClick={() => setMergeFor(v => (v === row.id ? '' : row.id))}
+                      onClick={() => { setLinkFor(''); setMergeFor(v => (v === row.id ? '' : row.id)); }}
                       className="members-merge shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-hover text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
                       {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <Merge size={13} />} 계정 합치기
                     </button>
@@ -490,7 +541,7 @@ export function MembersView({ isAdmin, isMaster }) {
                     </button>
                   </ConfirmPopover>
                 </span>
-              } below={mergeFor === row.id ? (
+              } below={linkFor === row.id ? linkPanel(row) : mergeFor === row.id ? (
                 <div className="members-merge-pick mt-2 border border-line rounded-lg p-1.5 max-h-60 overflow-y-auto">
                   <p className="px-2 py-1.5 text-[11px] text-fg-muted leading-relaxed">
                     <span className="font-bold text-fg">{row.display_name || '이 계정'}</span>으로 합칠 계정을 고르세요.

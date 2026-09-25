@@ -276,6 +276,44 @@
   .dc-draw-ring { animation: none !important; }
 }
 
+/* ── 작은 완료의 손맛 (사용자 결정 2026-09-25 · 목업 mockup-grace 4) ─────────────
+   **두 자리만** — 업무 창의 하위 업무 체크와 마감 목록(대시보드·내 업무·팀 보드 공용 DueGroupList)의 완료 원.
+   **방금 누른 것에만** 클래스를 붙인다(실시간으로 남이 끝낸 줄·다시 연 화면에는 안 붙는다 — 부르는 쪽이
+   고른다). 되돌릴 때는 클래스가 없어 그대로 바뀐다. 체크는 dc-draw와 같은 pathLength=1 방식이고,
+   움직이는 것은 stroke-dashoffset·transform뿐이다(§4.2). 취소선은 text-decoration 대신 가상 요소를 scaleX로
+   늘린다 — 그리는 동안만 줄을 가상 요소로 바꾸고, 끝나면 부르는 쪽이 클래스를 떼어 line-through로 돌아간다
+   (여러 줄 제목도 줄마다 그어진다). */
+@keyframes dc-pop-86 { from { transform: scale(.86); } to { transform: none; } }
+@keyframes dc-strike { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.dc-check-now path { stroke-dasharray: 1; animation: dc-draw .24s var(--ease-out-quint) .06s both; }
+.dc-ring-now { animation: dc-pop-86 .2s var(--ease-out-quint) both; }
+.dc-strike-now { position: relative; text-decoration-line: none !important; }
+.dc-strike-now::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 52%; height: 1px; background: currentColor;
+  transform-origin: left; animation: dc-strike .22s var(--ease-out-quint) .12s both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dc-check-now path, .dc-ring-now { animation: none !important; stroke-dashoffset: 0; }
+  .dc-strike-now { text-decoration-line: line-through !important; }
+  .dc-strike-now::after { display: none; }
+}
+
+/* ── 최근 활동 '더보기'·'접기' (2026-09-25 · 목업 mockup-traces 4) ─────────────────
+   그 자리에서 열 줄씩 편다 — 새로 편 묶음(.dc-feed-chunk)이 0fr → 1fr로 자라고(마운트 애니메이션),
+   '접기'는 편 묶음 전체(.dc-feed-fold)가 1fr → 0fr로 줄어든 뒤 줄을 뗀다(transitionend · dashboardParts).
+   max-height 방식은 값을 추정해야 해서 끝에서 뚝 끊긴다(TopNav 탭 줄과 같은 판단). */
+@keyframes dc-feed-open { from { grid-template-rows: 0fr; opacity: 0; } to { grid-template-rows: 1fr; opacity: 1; } }
+.dc-feed-fold {
+  display: grid; grid-template-rows: 1fr;
+  transition: grid-template-rows .24s var(--ease-out-quint), opacity .24s var(--ease-out-quint);
+}
+.dc-feed-fold[data-closing='true'] { grid-template-rows: 0fr; opacity: 0; }
+.dc-feed-chunk { display: grid; grid-template-rows: 1fr; animation: dc-feed-open .24s var(--ease-out-quint) both; }
+@media (prefers-reduced-motion: reduce) {
+  .dc-feed-fold { transition: none; }
+  .dc-feed-chunk { animation: none; }
+}
+
 /* ── 스켈레톤 ───────────────────────────────────────────────────────────────
    animate-pulse(투명도 1↔.5)는 **흰 배경 위 옅은 회색에서 눈에 안 보인다.**
    "로딩 중"이 아니라 "빈 상자가 떡하니 있다"로 읽혔다(사용자 지적).

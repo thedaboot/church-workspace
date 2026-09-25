@@ -23,7 +23,7 @@ const ORDER = [
   'errhunt', 'handoff',
   'navsmoke', 'onebar', 'mobbits', 'bottomgap', 'modalclose',
   'home', 'worship', 'word', 'groups', 'roster',
-  'batch10', 'batch11', 'dashfix', 'wide',
+  'batch10', 'batch11', 'dashfix', 'wide', 'traces',
   'share', 'onboard', 'three', 'themefit', 'calfit', 'drag', 'dragdesk',
 ];
 

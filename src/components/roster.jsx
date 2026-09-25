@@ -6,7 +6,7 @@ import { Skeleton } from './media.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { DatePicker } from './DatePicker.jsx';
 import { BTN as BTN_BASE, BTN_QUIET as BTN_QUIET_BASE, FIELD as FIELD_BASE, WITH_ICON, LabeledField, FailLeft } from './groupsParts.jsx';
-import { CONFIG } from '../config.js';
+import { CONFIG, teamColor, teamBgColor } from '../config.js';
 import { objectParticle } from '../services/errorText.js';
 import {
   ROLE_LABEL, YEAR_ROLES, PASTOR_LABEL, GENDERS, GENDER_LABEL,
@@ -251,6 +251,58 @@ function AccountRow({ person, linked, link, busy, onLink, onUnlink }) {
     <button type="button" className={BTN_QUIET} onClick={() => setPick(true)} data-link-open={person.id}>
       <Link2 size={13} /> 계정 연결
     </button>
+  );
+}
+
+// ── 가입자 → 청년 명단 잇기 (사용자 결정 2026-09-25 · 목업 mockup-traces 7 권장안) ─────────
+// 멤버 화면 '가입자' 탭에서 쓴다 — 가입을 수락한 줄 아래(또는 '명단 미연결' 칩을 누른 줄 아래)에 펴진다.
+// 자리·모양은 계정 합치기 판과 같은 below 판이다. 위 AccountRow(사람 → 계정)의 반대 방향이다(계정 → 사람).
+//   · 후보 = 아직 계정이 없는 명단 사람(환송 제외) · **이름순 그대로** — 이름이 비슷한 순으로 올리지 않는다
+//     (계정 이름과 명단 본명이 다른 경우가 많다 — 꽃님/강꽃님)
+//   · **미리 골라 두지 않는다** — 이름이 같아도 자동으로 잇지 않는다(§6-26). 누르면 **바로** 잇는다
+//     (AccountRow와 같은 방식 · 되돌리기는 명단의 '연결 해제')
+//   · 통신은 부르는 쪽(membersView)이 한다 — 여기는 props만 그린다(파일 머리말)
+export function ProfileLinkPanel({ account, people = [], ready = true, busy = false, onLink, onClose }) {
+  const [q, setQ] = useState('');
+  const unlinked = useMemo(() => (people || []).filter(p => !p.profile_id && !p.removed_at), [people]);
+  const shown = useMemo(() => searchPeople(unlinked, q), [unlinked, q]);
+  return (
+    <div data-link-panel={account.id} className="members-link-pick mt-2 border border-line rounded-lg p-1.5">
+      <p className="flex items-baseline gap-2 px-2 pt-1 pb-1.5">
+        <span className="text-[12px] font-bold text-fg">청년 명단과 잇기</span>
+        {ready && <span className="text-[11px] text-fg-muted tabular-nums">미연결 {unlinked.length}명</span>}
+      </p>
+      {/* 이름으로 찾기 — 명단 탭의 찾기 칸과 같은 모양(성경 리더 검색 폼 한 벌) */}
+      <div className="mx-1 mb-1 flex items-center gap-1.5 px-2.5 h-9 rounded-md"
+        style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
+        <Search size={14} className="shrink-0 text-fg-faint" />
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="이름으로 찾기" aria-label="이름으로 찾기"
+          className="flex-1 min-w-0 bg-transparent text-[12.5px] text-fg placeholder:text-fg-faint outline-none" />
+        {q && (
+          <button type="button" onClick={() => setQ('')} aria-label="검색어 지우기"
+            className="shrink-0 p-1 -mr-1 rounded text-fg-faint hover:text-fg transition-colors"><X size={13} /></button>
+        )}
+      </div>
+      <div className="max-h-56 overflow-y-auto">
+        {!ready ? (
+          <Skeleton className="h-4 w-40 rounded my-2 mx-2" />
+        ) : shown.map(p => (
+          <button key={p.id} type="button" disabled={busy} onClick={() => onLink(p)} data-link-person={p.id}
+            className="w-full flex items-center gap-2 px-2 py-2 rounded-md hover:bg-surface-hover transition-colors text-left disabled:opacity-40">
+            <span className="min-w-0 truncate text-[12.5px] font-semibold text-fg">{p.name}</span>
+            {GENDER_LABEL[p.gender] && <span className="shrink-0 text-[11px] text-fg-muted">{GENDER_LABEL[p.gender]}</span>}
+            <span className="ml-auto flex items-center gap-1 shrink-0">
+              {(p.teams || []).map(t => (
+                <span key={t} className="px-1.5 py-px rounded-xs text-[10px] font-bold"
+                  style={{ background: teamBgColor(t), color: teamColor(t) }}>{t}</span>
+              ))}
+            </span>
+          </button>
+        ))}
+      </div>
+      <button type="button" onClick={onClose}
+        className="w-full mt-1 py-2 rounded-md text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition-colors">닫기</button>
+    </div>
   );
 }
 

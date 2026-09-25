@@ -201,6 +201,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0076_approved_notification` | 알림 종류 `approved`(가입이 승인되었어요) — 체크 제약 + INSERT 정책(관리자만 넣는다) | ✅ |
 | `0077_guide_pinned_notice` | 순모임 가이드 고정 알림 — 알림 종류 `guide_pinned`(CHECK + INSERT 정책) · `sun_guides.pin_notified_at`(가이드당 한 번만 보낸다) | ✅ |
 | `0078_meeting_tomorrow_notice` | 동아리 모임 전날 알림 — 알림 종류 `meeting_tomorrow`(CHECK만 · 서버가 서비스 키로 넣어 INSERT 정책은 그대로) | ✅ |
+| `0079_feed_published_at` | 최근 활동에 섞는 업무 밖 움직임의 시각·사람 — `services.published_at`·`published_by`(발행으로 바뀔 때 트리거가 채운다 · 옛 발행본은 발행 알림으로 백필) · `group_meetings.created_by`(기본값 effective_uid()) | ⏳ |
 | `0082_sun_guide_pin_per_service` | 순모임 가이드 고정을 주보마다(다른 주보의 고정을 풀지 않음) · 고정된 최종본을 `sun_guide_finals`에 보관 | ✅ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가

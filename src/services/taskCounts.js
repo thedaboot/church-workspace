@@ -123,8 +123,12 @@ export function personLoad(tasks) {
 // '지난 7일 간 N건 끝냈어요' — 오늘 포함 7일(오늘과 앞 엿새). 예전에는 `<= 7`이라 8일을 셌다.
 // whenOf는 끝낸 시각(utils.completedTime — cards.completed_at)을 주는 함수다(여기는 import 0).
 export const RECENT_DONE_DAYS = 7;
+// 끝낸 날(로컬 날짜)이 오늘 포함 7일 안인가 — 내 업무·팀 보드 맨 아래 '완료한 업무' 구간(2026-09-25)도
+// 이 판정 하나다(168시간이 아니라 날짜로 — 셈 기준 §8). 끝낸 시각을 모르면 넣지 않는다(NaN < 7은 false).
+export const isRecentlyDone = (t, whenOf, today = todayIso()) =>
+  isDone(t) && ageDays(whenOf(t), today) < RECENT_DONE_DAYS;
 export const recentDoneCount = (tasks, whenOf, today = todayIso()) =>
-  (tasks || []).filter(t => isDone(t) && ageDays(whenOf(t), today) < RECENT_DONE_DAYS).length;
+  (tasks || []).filter(t => isRecentlyDone(t, whenOf, today)).length;
 
 // 고른 해 프로젝트의 업무만 — ids는 Set(대시보드가 projectsOfYear(보관 제외)로 만든다)
 export const inProjects = (tasks, ids) => (tasks || []).filter(t => t && ids.has(t.projectId));
