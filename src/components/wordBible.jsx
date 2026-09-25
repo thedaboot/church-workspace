@@ -10,7 +10,7 @@ import { AiService, aiEnabled } from '../services/ai.js';
 import {
   loadBibleState, saveBibleState, loadFontStep, saveFontStep,
   chapterKey, parseChapterKey, verseKey, parseVerseKey, bibleSearchStore,
-  pushRecentSearch, removeRecentSearch,
+  pushRecentSearch, removeRecentSearch, compactText, matchRanges,
 } from '../services/word.js';
 import { showToast } from './Toast.jsx';
 import { readCache, writeCache } from '../services/cache.js';
@@ -70,7 +70,10 @@ const SWIPE_MIN = 60;              // px — 이만큼 가로로 쓸면 장을 �
 // dropCache('word'…)가 이 값까지 가져갔다(그러면 다음 진입에서 형광펜이 통째로 다시
 // 로딩된다). 갈래가 다르면 열쇠의 첫 도막도 다르게 짓는다.
 const STATE_KEY = 'bible:state';
-const RESULT_LIMIT = 50;           // 결과 상한(스펙). 넘으면 거기서 멈춘다
+// 낱말 결과는 **한 번에 50줄씩** 그린다(2026-09-25 — 예전에는 50건에서 훑기를 멈춰서 '하나님'·'사랑'
+// 같은 흔한 말은 창세기·출애굽기에서 끝나고 신약이 통째로 빠졌다). 이제 66권을 끝까지 훑어 건수는
+// 전부 세고, 줄은 50씩 '더 보기'로 이어 편다(수천 줄을 한 번에 그리면 폰이 멈춘다).
+const RESULT_PAGE = 50;
 // 검색 결과로 들어온 절의 테두리 강조가 남아 있는 시간(사용자 요청 2026-09-08 —
 // "그 이후 강조 표시가 3초 후에는 없어져도 될 것 같음"). 도착한 절을 못 찾는 일이
 // 없게 데려다는 주되, 계속 테두리가 남아 있으면 그 절만 다른 글처럼 읽힌다.
@@ -536,6 +539,11 @@ export function BibleTab({ initialRef = '' }) {
   const [query, setQuery] = useState('');
   const [typed, setTyped] = useState('');
   const [results, setResults] = useState([]);
+  const [shown, setShown] = useState(RESULT_PAGE);    // 낱말 결과 중 그리는 줄 수('더 보기'로 는다)
+  // 검색 결과에서 절을 열었나 — 그러면 결과를 지우지 않고 들고 있다가 머리줄의 되돌아가기가
+  // 목차 대신 **결과로** 돌아간다(2026-09-25 — 예전에는 절을 여는 순간 결과가 지워져 같은 검색을
+  // 다시 쳐야 했다). 장을 넘겨도 그대로다(결과 속 절 앞뒤를 읽다가 돌아오는 흐름).
+  const [fromSearch, setFromSearch] = useState(false);
   const [progress, setProgress] = useState(null);     // { done, total } · null이면 안 돌고 있다
   // 뜻으로 찾은 구절(services/bibleSearch.js). aiWait는 답을 기다리는 중인가 —
   // 게스트 모드(로그인이 없는 빌드)에서는 묻지도 않으므로 둘 다 그대로 비어 있다.
@@ -680,15 +688,20 @@ export function BibleTab({ initialRef = '' }) {
     refOf: (chapter, verse) => verseKey(place.bookId, chapter, verse),
     guard: () => Date.now() - swipedAt.current < 400,   // 방금 쓸었다면 그건 넘기려던 손이다
   });
-  const goto = (bookId, chapter, at = null, delta = 0) => {
+  // keepSearch: 검색 결과를 들고 간다(결과에서 절을 열 때 · 결과에서 연 장을 넘길 때). 그 밖의 길
+  // (목차·북마크·형광펜)은 예전처럼 검색을 접는다.
+  const goto = (bookId, chapter, at = null, delta = 0, keepSearch = false) => {
     setDir(delta);
     setPane('toc');          // 북마크·형광펜 줄에서 왔어도 이제 보는 것은 본문이다
     setPlace({ bookId, chapter });
     setFocus(at);
     paint.clear();      // 자리를 옮기면 고른 절이 사라진다 — 선택도 같이 내린다
-    setQuery(''); setTyped(''); setResults([]); setProgress(null);
-    setAiHits([]); setAiWait(false);
-    searchToken.current++;
+    setFromSearch(keepSearch);
+    if (!keepSearch) {
+      setQuery(''); setTyped(''); setResults([]); setProgress(null);
+      setAiHits([]); setAiWait(false);
+      searchToken.current++;
+    }
     update({ ...state, lastRef: chapterKey(bookId, chapter) });
   };
 
@@ -702,8 +715,8 @@ export function BibleTab({ initialRef = '' }) {
     const at = books[idx];
     const next = place.chapter + delta;
     const nb = books[idx + delta];
-    if (next >= 1 && next <= at.chapters) goto(place.bookId, next, null, delta);
-    else if (nb) goto(nb.id, delta > 0 ? 1 : nb.chapters, null, delta);
+    if (next >= 1 && next <= at.chapters) goto(place.bookId, next, null, delta, fromSearch);
+    else if (nb) goto(nb.id, delta > 0 ? 1 : nb.chapters, null, delta, fromSearch);
     else return;
     setHoldH(cardRef.current?.offsetHeight || 0);
     scrollWanted.current = true;
@@ -736,25 +749,26 @@ export function BibleTab({ initialRef = '' }) {
   };
 
   // 낱말 그대로 찾기 — **받는 것만 겹친다**(forEachPool). 훑기는 목록 순서 그대로라
-  // 결과 줄도 50건에서 잘리는 자리도 정경 순이다. 한 권이 끝날 때마다 결과·진행을 그린다.
+  // 결과 줄이 정경 순이다. 한 권이 끝날 때마다 결과·진행을 그린다. 66권을 끝까지 훑는다(RESULT_PAGE).
+  // **띄어쓰기는 지우고 견준다**(services/word.js compactText) — '사랑 하는'을 '사랑하는'으로 쳐도 걸린다.
   const runKeyword = async (q, token) => {
-    setResults([]); setProgress({ done: 0, total: books.length });
+    setResults([]); setShown(RESULT_PAGE); setProgress({ done: 0, total: books.length });
+    const needle = compactText(q);
     const out = [];
     await forEachPool(books, POOL, b => loadBook(b.id), async (data, b, i) => {
       if (token !== searchToken.current) return false;
       if (data) {
-        for (let c = 0; c < data.chapters.length && out.length < RESULT_LIMIT; c++) {
+        const packed = packedOf(data);
+        for (let c = 0; c < data.chapters.length; c++) {
           const verses = data.chapters[c];
           for (let v = 0; v < verses.length; v++) {
-            if (!verses[v].includes(q)) continue;
+            if (!packed[c][v].includes(needle)) continue;
             out.push({ bookId: b.id, name: b.name, chapter: c + 1, verse: v + 1, text: verses[v] });
-            if (out.length >= RESULT_LIMIT) break;
           }
         }
       }
       setResults(out.slice());
       setProgress({ done: i + 1, total: books.length });
-      if (out.length >= RESULT_LIMIT) return false;
       await new Promise(r => setTimeout(r, 0));   // 진행이 화면에 그려질 틈
       return true;
     });
@@ -789,6 +803,7 @@ export function BibleTab({ initialRef = '' }) {
     const q = raw.trim();
     const token = ++searchToken.current;
     setQuery(q);
+    setFromSearch(false);
     setPane('toc');           // 결과는 본문 열의 자리에 그린다
     setFocus(null);
     setDir(0);
@@ -814,6 +829,7 @@ export function BibleTab({ initialRef = '' }) {
 
   const clearSearch = () => {
     searchToken.current++;
+    setFromSearch(false);
     setQuery(''); setTyped(''); setResults([]); setProgress(null);
     setAiHits([]); setAiWait(false);
   };
@@ -835,7 +851,7 @@ export function BibleTab({ initialRef = '' }) {
   // 이 책에 켜진 형광펜 — PassageText는 '장:절' → 색 Map으로 본다
   const marks = useMemo(() => (place ? marksFor(state.highlights, `${place.bookId} `) : null), [state.highlights, place]);
 
-  const searching = !!progress && progress.done < progress.total && results.length < RESULT_LIMIT;
+  const searching = !!progress && progress.done < progress.total;
 
   // AI를 부를 수 있는 자리인지는 한 세션 안에서 바뀌지 않는다(!!supabase)
   const hints = useMemo(() => searchHints(aiEnabled()), []);
@@ -867,8 +883,10 @@ export function BibleTab({ initialRef = '' }) {
   };
 
   // 화면이 바뀌는 단위 — 이 값이 달라지면 Swap이 새로 들여보낸다
+  // 결과에서 절을 연 동안(fromSearch)은 검색어가 살아 있어도 본문이 선다
+  const showResults = !!query && !(fromSearch && place);
   const viewKey = pane !== 'toc' ? `m:${pane}`
-    : query ? `q:${query}` : place ? `p:${placeKey}` : pickedBook ? `b:${pickedBook}` : 'toc';
+    : showResults ? `q:${query}` : place ? `p:${placeKey}` : pickedBook ? `b:${pickedBook}` : 'toc';
 
   return (
     <div className="min-w-0">
@@ -973,11 +991,12 @@ export function BibleTab({ initialRef = '' }) {
             onRemoveItem={refs => update({ ...state, highlights: (state.highlights || []).filter(h => !refs.includes(h?.ref)) },
               '형광펜을 지우지 못했어요')}
           />
-        ) : query ? (
+        ) : showResults ? (
           <SearchResults
             query={query} results={results} progress={progress} searching={searching}
             aiHits={aiHits} aiWait={aiWait} aiFrom={aiFrom} step={step}
-            onOpen={r => goto(r.bookId, r.chapter, { chapter: r.chapter, verse: r.verse })}
+            shown={shown} onMore={() => setShown(n => n + RESULT_PAGE)}
+            onOpen={r => goto(r.bookId, r.chapter, { chapter: r.chapter, verse: r.verse }, 0, true)}
           />
         ) : place ? (
           <div ref={bodyRef} data-col="read" className="min-w-0">
@@ -985,10 +1004,13 @@ export function BibleTab({ initialRef = '' }) {
                 양쪽 버튼은 shrink-0에 44px 터치 타깃이다(사용자 피드백 2026-09-02 4차) */}
             <div ref={headRef} data-chap-head="" className="flex items-center gap-1.5 pb-3">
               {/* 되돌아가기는 **목차**다(사용자 결정 2026-09-05 — 세그먼트가 '본문'이 되면서
-                  '목차'가 비었다). 장 그리드의 되돌아가는 버튼도 같은 이름이라 한 벌이다 */}
-              <button onClick={() => { setDir(-1); setPlace(null); setPickedBook(null); }}
+                  '목차'가 비었다). 장 그리드의 되돌아가는 버튼도 같은 이름이라 한 벌이다.
+                  **검색 결과에서 연 절이면 '결과'다**(2026-09-25) — 누르면 들고 있던 결과가 그대로
+                  선다(다시 훑지 않는다). 글자는 '목차'와 같은 결의 두 글자로 둔다. */}
+              <button data-back={fromSearch ? 'results' : 'toc'}
+                onClick={() => { setDir(-1); if (fromSearch) { setFromSearch(false); return; } setPlace(null); setPickedBook(null); }}
                 className={`${btn} shrink-0 pl-2 pr-3 h-11 text-fg-muted hover:bg-surface-hover`}>
-                <ChevronLeft size={15} />목차
+                <ChevronLeft size={15} />{fromSearch ? '결과' : '목차'}
               </button>
               <h3 className="bible-place flex-1 min-w-0 truncate text-[15px] font-extrabold text-fg tracking-[-0.3px]">
                 {here?.name} {place.chapter}장
@@ -1397,7 +1419,7 @@ export function searchHeads({ query, count = 0, searching = false, progress = nu
   };
 }
 
-function SearchResults({ query, results, progress, searching, aiHits = [], aiWait = false, aiFrom = 'ai', step = 1, onOpen }) {
+function SearchResults({ query, results, progress, searching, aiHits = [], aiWait = false, aiFrom = 'ai', step = 1, shown = RESULT_PAGE, onMore, onOpen }) {
   const heads = searchHeads({
     query, count: results.length, searching, progress, aiCount: aiHits.length, aiWait, aiFrom,
   });
@@ -1419,7 +1441,7 @@ function SearchResults({ query, results, progress, searching, aiHits = [], aiWai
               <ResultHead count={heads.keyword.count}>{heads.keyword.title}</ResultHead>
               {results.length ? (
                 <div className="flex flex-col">
-                  {results.map(r => (
+                  {results.slice(0, shown).map(r => (
                     <button key={`${r.bookId}-${r.chapter}-${r.verse}`} onClick={() => onOpen(r)}
                       data-hit={verseKey(r.bookId, r.chapter, r.verse)}
                       className="text-left py-2.5 px-2.5 -mx-2.5 rounded-md hover:bg-surface-hover transition-colors">
@@ -1431,6 +1453,14 @@ function SearchResults({ query, results, progress, searching, aiHits = [], aiWai
                       </span>
                     </button>
                   ))}
+                  {/* 끝에서 이어 편다 — 대시보드 마감 목록의 '더 보기'와 같은 모양(행동이 아니라 펼치기라
+                      accent 채움이 아니다 · §8 색 규칙) */}
+                  {results.length > shown && (
+                    <button type="button" data-more="" onClick={onMore}
+                      className="w-full mt-1 py-2 rounded-md text-[11.5px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-[0.99]">
+                      더 보기
+                    </button>
+                  )}
                 </div>
               ) : <PassageSkeleton lines={5} step={step} />}
             </div>
@@ -1464,18 +1494,32 @@ function SearchResults({ query, results, progress, searching, aiHits = [], aiWai
 // 찾은 말을 표시한다 — 색은 토큰(tag-yellow)이라 다크에서도 따라온다.
 // **한 절에 여러 번 나오면 다 표시한다.** 앞의 하나만 칠하면 뒤의 것은 안 찾은 글자처럼
 // 읽힌다(창세기 1:27 '하나님이 자기 형상 곧 하나님의 형상대로'처럼 한 줄에 두 번 오는
-// 절이 흔하다). 나누는 것은 정규식이 아니라 문자열이라 검색어에 특수문자가 와도 그대로다.
+// 절이 흔하다). 자리는 services/word.js matchRanges가 **띄어쓰기를 무시하고** 찾아 원문 자리로
+// 돌려준다 — 칠하는 글자는 절에 적힌 그대로다('사랑하는'으로 찾으면 '사랑 하는'이 칠해진다).
 function highlight(text, q) {
-  const parts = q ? String(text).split(q) : [];
-  if (parts.length < 2) return text;
-  return parts.map((rest, i) => (
-    <React.Fragment key={i}>
-      {i > 0 && (
-        <mark className="rounded-[2px] px-0.5" style={{ background: 'var(--app-tag-yellow)', color: 'var(--app-tag-yellow-fg)' }}>
-          {q}
-        </mark>
-      )}
-      {rest}
-    </React.Fragment>
-  ));
+  const str = String(text);
+  const ranges = matchRanges(str, q);
+  if (!ranges.length) return text;
+  const out = [];
+  let from = 0;
+  ranges.forEach(([a, b], i) => {
+    if (a > from) out.push(<React.Fragment key={`t${i}`}>{str.slice(from, a)}</React.Fragment>);
+    out.push(
+      <mark key={`m${i}`} className="rounded-[2px] px-0.5" style={{ background: 'var(--app-tag-yellow)', color: 'var(--app-tag-yellow-fg)' }}>
+        {str.slice(a, b)}
+      </mark>,
+    );
+    from = b;
+  });
+  if (from < str.length) out.push(<React.Fragment key="tail">{str.slice(from)}</React.Fragment>);
+  return out;
+}
+
+// 책 한 권의 절을 **띄어쓰기를 지운 모양**으로 한 번만 만들어 둔다 — 검색마다 3만 절을 다시 지우지
+// 않게. 책 데이터(loadBook의 값)는 메모리 캐시에 남는 같은 객체라 WeakMap 열쇠로 맞다.
+const packedBooks = new WeakMap();
+function packedOf(data) {
+  let p = packedBooks.get(data);
+  if (!p) { p = data.chapters.map(vs => vs.map(compactText)); packedBooks.set(data, p); }
+  return p;
 }

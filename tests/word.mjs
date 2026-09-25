@@ -1640,6 +1640,21 @@ check('마스터가 지우면 그 칩과 종이가 사라진다',
   JSON.stringify(otherGone));
 await ev(`localStorage.removeItem('word_qt_shared')`);
 
+// ── QT 본문의 구절 → 성경 읽기 (2026-09-25) ────────────────────────────────
+// 주보 상세는 구절을 누르면 성경 읽기의 그 장으로 가는데(worshipDetail WordTab) QT 본문 카드는 글자뿐이었다.
+// 같은 모양(점선 밑줄 버튼)으로 그 장을 편다. 세그먼트를 손으로 옮기면 그 구절을 내려놓는다 — 아래
+// '세그먼트 전환'이 목차에서 시작하는 것이 그 단정이다.
+// 되돌리기: wordView QtPassage의 `onOpenBible && schedule.passage_ref` 갈래를 지우면 첫째가 깨진다.
+{
+  const refBtn = await ev(`(document.querySelector('.qt-open-bible') || {}).textContent?.trim() || ''`);
+  const opened = refBtn ? await clickSel('.qt-open-bible') : false;
+  await waitFor(`document.querySelector('.bible-place')`, 6000);
+  const place = await ev(`(document.querySelector('.bible-place') || {}).textContent?.trim() || ''`);
+  check('QT 본문의 구절을 누르면 성경 읽기의 그 장이 열린다',
+    opened && !!refBtn && place === `${refBtn.replace(/:.*$/, '')}장`, `${refBtn} → ${place}`);
+  await clickText('QT'); await sleep(900);
+}
+
 // ── 성경 읽기 ───────────────────────────────────────────────────────────────
 check('세그먼트 전환', await clickText('성경 읽기'));
 await sleep(1000);
@@ -2427,6 +2442,18 @@ check('결과를 누르면 그 장으로 간다', jumped.head === '창세기 1�
 check('도착 강조는 3초 뒤에 사라진다',
   (await ev(`(async () => { await new Promise(r => setTimeout(r, 2600));
     return !document.querySelector('[data-focus="1"]'); })()`, true)) === true);
+// **결과에서 연 절의 되돌아가기는 '결과'다**(2026-09-25) — 예전에는 여는 순간 결과가 지워지고 '목차'로만
+// 돌아가 같은 검색을 다시 쳐야 했다. 누르면 들고 있던 결과가 그대로 선다(다시 훑지 않는다).
+// 되돌리기: wordBible goto의 `keepSearch` 갈래를 걷어 늘 검색을 지우면 깨진다.
+{
+  const back = await ev(`(() => { const b = document.querySelector('button[data-back]');
+    return b ? { kind: b.dataset.back, text: b.textContent.trim() } : null; })()`);
+  check("결과에서 연 절의 되돌아가기는 '결과'다", back?.kind === 'results' && back?.text === '결과', JSON.stringify(back));
+  await clickSel('button[data-back]');
+  await sleep(700);
+  const again = await ev(`(() => ({ head: ${headSpans('[data-hits="keyword"]')}, rows: document.querySelectorAll('button[data-hit]').length }))()`);
+  check('누르면 그 검색 결과가 다시 선다', again.head[0] === '태초에' && again.rows > 0, JSON.stringify(again));
+}
 
 // 못 찾았을 때의 빈 자리 — question 컷(사용자 결정 2026-09-03). 책 파일은 이미 받아 둔
 // 것이라 두 번째 검색은 훑기만 한다.
@@ -2492,9 +2519,37 @@ const capHead = await ev(`(async () => {
   }
   return { head: [], rows: 0, col: '' };
 })()`, true);
-check('상한에 걸려도 그냥 50건이라고 말한다',
-  capHead.rows === 50 && capHead.head[1] === '50건' && !capHead.col.includes('앞에서부터'),
+// **이제 50건에서 멈추지 않는다**(2026-09-25) — 흔한 말은 50건이 창세기·출애굽기에서 끝나 신약이 통째로
+// 빠졌다. 66권을 끝까지 훑어 건수는 전부 세고, 줄은 50씩 그리고 끝의 '더 보기'로 이어 편다.
+// 되돌리기: wordBible의 `results.slice(0, shown)`을 `results`로 바꾸면 첫째가, '더 보기' 버튼을 지우면 둘째가 깨진다.
+const capTotal = Number(String(capHead.head[1] || '').replace(/[^\d]/g, '')) || 0;
+check('흔한 말은 전부 세고 줄은 50까지만 그린다',
+  capHead.rows === 50 && capTotal > 50 && !capHead.col.includes('앞에서부터'),
   JSON.stringify({ head: capHead.head, rows: capHead.rows }));
+const more = await clickSel('button[data-more]');
+await sleep(500);
+const moreRows = await ev(`({ rows: document.querySelectorAll('button[data-hit]').length,
+  nt: [...document.querySelectorAll('button[data-hit]')].some(b => /^(mat|mrk|luk|jhn|act|rom|1co|2co|gal|eph|php|col|1th|2th|1ti|2ti|tit|phm|heb|jas|1pe|2pe|1jn|2jn|3jn|jud|rev) /.test(b.dataset.hit)) })`);
+check("끝의 '더 보기'로 50줄씩 이어 편다", more && moreRows.rows === 100, JSON.stringify(moreRows));
+
+// **띄어쓰기가 달라도 찾는다**(2026-09-25) — 개역한글의 띄어쓰기가 오늘과 달라 친 대로 견주면 0건이 흔했다.
+// 칠하는 글자는 절에 적힌 그대로다(공백 포함). 되돌리기: runKeyword의 `packed[c][v]`를 `verses[v]`로 바꾸면 깨진다.
+await ev(`(() => {
+  const i = document.querySelector('input[aria-label="어떤 본문을 찾으시나요?"]');
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '태초에하나님이');
+  i.dispatchEvent(new Event('input', { bubbles: true }));
+  i.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+})()`);
+const spaced = await ev(`(async () => {
+  for (let i = 0; i < 60; i++) {
+    const row = document.querySelector('button[data-hit="gen 1:1"]');
+    if (row) return { found: true, mark: row.querySelector('mark')?.textContent || '' };
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return { found: false, mark: '' };
+})()`, true);
+check('띄어쓰기를 붙여 쳐도 찾고, 절의 글자 그대로 칠한다',
+  spaced.found && spaced.mark === '태초에 하나님이', JSON.stringify(spaced));
 
 await clickSel('button[aria-label="검색어 지우기"]');
 await sleep(600);

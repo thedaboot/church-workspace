@@ -133,12 +133,19 @@ const PASSAGE_MIN_H = 320;
 export function WordView({ initialTab = 'qt', initialRef = '' }) {
   const [tab, setTab] = useState(initialRef ? 'read' : initialTab);
   const [dir, setDir] = useState(0);
+  // 성경 읽기가 펼 구절 — 주보에서 넘어온 것(initialRef)이 처음 값이고, QT 본문의 구절을 누르면
+  // 그 구절로 바뀐다(아래 openBible). BibleTab은 이 값이 바뀔 때마다 그 장을 다시 편다.
+  const [readRef, setReadRef] = useState(initialRef);
+  useEffect(() => { if (initialRef) { setReadRef(initialRef); setTab('read'); } }, [initialRef]);
 
   const pick = (key) => {
     if (key === tab) return;
     setDir(SEGMENTS.findIndex(s => s[0] === key) > SEGMENTS.findIndex(s => s[0] === tab) ? 1 : -1);
     setTab(key);
   };
+  // QT 본문의 구절 → 성경 읽기의 그 장(주보의 구절과 같은 길 · worshipDetail WordTab). 같은 화면
+  // 안이라 App을 거치지 않고 세그먼트만 옮긴다.
+  const openBible = (ref) => { if (!ref) return; setReadRef(ref); pick('read'); };
 
   return (
     <div className="dc-screen pb-6">
@@ -147,7 +154,9 @@ export function WordView({ initialTab = 'qt', initialRef = '' }) {
           {SEGMENTS.map(([key, label]) => (
             // aria-pressed는 성경 읽기의 [본문|북마크|형광펜] 세그먼트와 같은 한 벌이다 —
             // 색만으로 고른 것을 말하면 화면을 읽어 주는 기기에는 아무 표시도 안 남는다
-            <button key={key} onClick={() => pick(key)} aria-pressed={tab === key}
+            // 세그먼트를 손으로 옮기면 넘어온 구절을 내려놓는다 — 다시 '성경 읽기'로 오면 이어읽기 자리다
+            // (내려놓지 않으면 QT·주보에서 한 번 넘어간 장이 탭을 오갈 때마다 다시 펼쳐졌다).
+            <button key={key} onClick={() => { if (key !== tab) setReadRef(''); pick(key); }} aria-pressed={tab === key}
               className="px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors"
               style={{
                 background: tab === key ? 'var(--app-surface)' : 'transparent',
@@ -158,14 +167,14 @@ export function WordView({ initialTab = 'qt', initialRef = '' }) {
       </div>
 
       <Swap k={tab} dir={dir}>
-        {tab === 'qt' ? <QtTab /> : <BibleTab initialRef={initialRef} />}
+        {tab === 'qt' ? <QtTab onOpenBible={openBible} /> : <BibleTab initialRef={readRef} />}
       </Swap>
     </div>
   );
 }
 
 // ── QT ──────────────────────────────────────────────────────────────────────
-function QtTab() {
+function QtTab({ onOpenBible }) {
   const members = useStore(selectMembers);
   const currentUser = useStore(selectCurrentUser);
   const { session, isMaster } = useAuth();
@@ -568,7 +577,7 @@ function QtTab() {
         {/* 본문 — 기다리는 동안에도 같은 자리에 같은 크기로 서 있는다 */}
         <div ref={slotRef} style={{ minHeight: slotH }}>
           {/* 구절은 종이와 **같은 글자**로 적는다 — 책 이름 전체(passageRef) */}
-          <Swap k={date} dir={dir}><QtPassage day={day} date={date} minH={slotH} refText={passageRef} /></Swap>
+          <Swap k={date} dir={dir}><QtPassage day={day} date={date} minH={slotH} refText={passageRef} onOpenBible={onOpenBible} /></Swap>
         </div>
 
         {/* 내 묵상 — 저장된 글이 있으면 읽기 모드, '수정'을 눌러야 편집기다(머리말) */}
@@ -707,7 +716,8 @@ function QtTab() {
 // 아래 칸들이 올라왔다 내려간다(QtTab 머리말) — 줄 수도 자리에 맞춰 늘린다.
 // refText: 책 이름 전체로 편 구절(bibleRef.fullRef). **종이와 같은 글자여야 한다** —
 // 한쪽만 약자면 같은 화면에 두 표기가 선다. 없으면 저장된 글자 그대로 적는다.
-export function QtPassage({ day, date, minH = PASSAGE_MIN_H, refText = '' }) {
+// onOpenBible(ref): 구절 줄을 누르면 성경 읽기의 그 장으로(주보 WordTab과 같은 모양 · 없으면 글자만).
+export function QtPassage({ day, date, minH = PASSAGE_MIN_H, refText = '', onOpenBible }) {
   // QT 본문 형광펜(사용자 결정 2026-09-05). **그날의 것**이다 — "따로 모아두지 말고, 보려면
   // 해당 날짜를 보면 된다". bible_state.highlights에 같이 두되 ref 앞에 `qt:<날짜>`를 붙여
   // 리더의 형광펜·모아보기와 갈라 둔다(parseVerseKey가 못 읽는 모양이라 모아보기에 오르지
@@ -747,7 +757,14 @@ export function QtPassage({ day, date, minH = PASSAGE_MIN_H, refText = '' }) {
       {schedule.label && (
         <h3 className="text-[15.5px] font-extrabold text-fg tracking-[-0.3px]">{schedule.label}</h3>
       )}
-      <p className={`text-[12px] font-bold text-accent-text ${schedule.label ? 'mt-0.5' : ''}`}>{refText || schedule.passage_ref}</p>
+      <p className={`text-[12px] font-bold text-accent-text ${schedule.label ? 'mt-0.5' : ''}`}>
+        {onOpenBible && schedule.passage_ref
+          ? <button type="button" onClick={() => onOpenBible(schedule.passage_ref)}
+              className="qt-open-bible underline decoration-dotted underline-offset-2 hover:text-fg transition">
+              {refText || schedule.passage_ref}
+            </button>
+          : (refText || schedule.passage_ref)}
+      </p>
       <div className="mt-3.5">
         {passage?.verses?.length
           ? <PassageText
