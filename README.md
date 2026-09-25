@@ -201,6 +201,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0076_approved_notification` | 알림 종류 `approved`(가입이 승인되었어요) — 체크 제약 + INSERT 정책(관리자만 넣는다) | ✅ |
 | `0077_guide_pinned_notice` | 순모임 가이드 고정 알림 — 알림 종류 `guide_pinned`(CHECK + INSERT 정책) · `sun_guides.pin_notified_at`(가이드당 한 번만 보낸다) | ✅ |
 | `0078_meeting_tomorrow_notice` | 동아리 모임 전날 알림 — 알림 종류 `meeting_tomorrow`(CHECK만 · 서버가 서비스 키로 넣어 INSERT 정책은 그대로) | ✅ |
+| `0082_sun_guide_pin_per_service` | 순모임 가이드 고정을 주보마다(다른 주보의 고정을 풀지 않음) · 고정된 최종본을 `sun_guide_finals`에 보관 | ✅ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.

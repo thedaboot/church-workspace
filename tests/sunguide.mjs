@@ -440,10 +440,17 @@ await G.pinGuide('svc-1', true);
 check('고정하면 그 주보가 고정된 주보다',
   (await G.pinnedGuideId()) === 'svc-1' && (await G.loadGuide('svc-1')).pinned === true,
   await G.pinnedGuideId());
+await new Promise(r => setTimeout(r, 5));
 await G.pinGuide('svc-2', true);
-check('고정은 한 번에 하나다(앞엣것이 풀린다)',
-  (await G.pinnedGuideId()) === 'svc-2' && (await G.loadGuide('svc-1')).pinned === false,
+// 0082 — 고정은 주보마다 따로다. 되돌리기 검사: 게스트 pinGuide를 옛 모양(`pinned: !!on && r.service_id === serviceId`)으로
+// 되돌리면 이 단정이 깨진다.
+check('다른 주보를 고정해도 앞엣것은 풀리지 않고, 처음 여는 것은 나중 것',
+  (await G.pinnedGuideId()) === 'svc-2' && (await G.loadGuide('svc-1')).pinned === true,
   json((globalThis.__ROWS || []).map(r => [r.service_id, !!r.pinned])));
+check('고정 행 중 주보 날짜가 가장 늦은 것을 연다(latestPinned)',
+  G.latestPinned([{ service_id: 'a', services: { service_date: '2026-09-13' } },
+    { service_id: 'b', services: { service_date: '2026-09-20' } }]) === 'b'
+  && G.latestPinned([]) === null);
 // 저장은 body만 갈아 끼운다 — 마스터가 고정해 둔 행을 저장 한 번으로 풀면 안 된다
 await G.saveGuide('svc-2', { ...GUIDE, passage: { ref: '요한복음 8:12-20', title: '고쳐 쓴 제목' } });
 check('저장해도 고정은 그대로다',
@@ -451,7 +458,9 @@ check('저장해도 고정은 그대로다',
   && (await G.loadGuide('svc-2')).body.passage.title === '고쳐 쓴 제목',
   json((globalThis.__ROWS || []).map(r => [r.service_id, !!r.pinned])));
 await G.pinGuide('svc-2', false);
-check('고정을 풀면 아무것도 고정되지 않는다', (await G.pinnedGuideId()) === null);
+check('하나를 풀면 남은 고정본이 처음 여는 것', (await G.pinnedGuideId()) === 'svc-1');
+await G.pinGuide('svc-1', false);
+check('다 풀면 아무것도 고정되지 않는다', (await G.pinnedGuideId()) === null);
 
 // ── 고정 알림 받는 사람 (0077 · 사용자 요청 2026-09-25) ────────────────────
 // 그 해 순의 순장(leader_person_id)의 계정 — 가입 전(계정 없음)은 빠지고, 같은 계정은 한 번.

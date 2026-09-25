@@ -425,14 +425,26 @@ export async function guidedServiceIds(serviceIds = []) {
   return (data || []).filter((r) => isGuideShape(r.body)).map((r) => r.service_id);
 }
 
-// 지금 고정된 가이드가 붙은 주보 id(없으면 null). 화면은 이 값으로 **처음 여는 한 벌**을
-// 정한다 — 고정이 있으면 그것, 없으면 가장 최근 주일이다.
+// 처음 여는 한 벌의 주보 id(없으면 null) — **고정된 것 중 가장 최근 주보**(0082: 고정은
+// 주보마다 따로라 여럿일 수 있다). 고정이 하나도 없으면 화면이 가장 최근 주일을 연다.
+// 게스트 행에는 주보 날짜가 없어 가장 나중에 고정한 것으로 대신한다.
 export async function pinnedGuideId() {
-  if (!supabase) return guestRows(GUEST_TABLE).find((r) => r.pinned)?.service_id || null;
+  if (!supabase) {
+    const pinned = guestRows(GUEST_TABLE).filter((r) => r.pinned);
+    pinned.sort((a, b) => String(b.pinned_at || '').localeCompare(String(a.pinned_at || '')));
+    return pinned[0]?.service_id || null;
+  }
   const { data, error } = await supabase.from('sun_guides')
-    .select('service_id').eq('pinned', true).maybeSingle();
+    .select('service_id, services!inner(service_date)').eq('pinned', true);
   if (error) throw error;
-  return data?.service_id || null;
+  return latestPinned(data);
+}
+
+// 순수 — 고정 행들 중 주보 날짜가 가장 늦은 것(logcheck가 단정한다)
+export function latestPinned(rows = []) {
+  const list = (rows || []).filter((r) => r?.service_id)
+    .sort((a, b) => String(b.services?.service_date || '').localeCompare(String(a.services?.service_date || '')));
+  return list[0]?.service_id || null;
 }
 
 export async function saveGuide(serviceId, body) {
@@ -459,13 +471,15 @@ export async function saveGuide(serviceId, body) {
   return fitted;
 }
 
-// 고정 스위치 — **마스터만**(0055 set_sun_guide_pinned). 자격 판정도 '고정은 한 번에
-// 하나'도 DB의 함수가 들고 있다. 화면은 버튼을 감출 뿐이다.
+// 고정 스위치 — **마스터만**(0055 set_sun_guide_pinned · 0082부터 주보마다 따로 — 다른
+// 주보의 고정을 풀지 않는다). 자격 판정은 DB의 함수가 들고 있다. 화면은 버튼을 감출 뿐이다.
+// 고정된 본문은 DB 트리거가 sun_guide_finals에 최종본으로 보관한다(0082).
 export async function pinGuide(serviceId, on) {
   if (!serviceId) return false;
   if (!supabase) {
     guestSet(GUEST_TABLE, guestRows(GUEST_TABLE)
-      .map((r) => ({ ...r, pinned: !!on && r.service_id === serviceId })));
+      .map((r) => (r.service_id === serviceId
+        ? { ...r, pinned: !!on, pinned_at: on ? new Date().toISOString() : null } : r)));
     return !!on;
   }
   const { error } = await supabase.rpc('set_sun_guide_pinned',
