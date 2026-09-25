@@ -198,8 +198,8 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0073_bible_vec` | pgvector + 성경 절 임베딩 `bible_vec`(halfvec 768 · 31,067행) + `match_bible` RPC — 읽기는 승인된 사람만, 쓰기는 서버 키 · 인덱스 없이 | ✅ |
 | `0074_doc_vec` | 업무·댓글·업무 첨부 발췌의 조각 임베딩 `doc_vec`(원본 FK cascade · 해시 증분) + `match_docs` RPC — 주보 첨부·개인 표는 넣지 않는다 · 인덱스 없이 | ✅ |
 | `0075_card_status_ongoing` | 업무 상태 `ongoing`(상시) 허용 — 값만, 기존 행은 그대로 | ✅ |
-| `0076_approved_notification` | 알림 종류 `approved`(가입이 승인되었어요) — 체크 제약 + INSERT 정책(관리자만 넣는다) | ⏳ |
-| `0077_guide_pinned_notice` | 순모임 가이드 고정 알림 — 알림 종류 `guide_pinned`(CHECK + INSERT 정책) · `sun_guides.pin_notified_at`(가이드당 한 번만 보낸다) | ⏳ |
+| `0076_approved_notification` | 알림 종류 `approved`(가입이 승인되었어요) — 체크 제약 + INSERT 정책(관리자만 넣는다) | ✅ |
+| `0077_guide_pinned_notice` | 순모임 가이드 고정 알림 — 알림 종류 `guide_pinned`(CHECK + INSERT 정책) · `sun_guides.pin_notified_at`(가이드당 한 번만 보낸다) | ✅ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.
