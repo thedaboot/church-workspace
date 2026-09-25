@@ -2378,6 +2378,44 @@ check('AI를 기다리는 동안에는 건수가 없다',
 check('낱말 결과가 있으면 두 머리줄이 다 선다',
   aiHead.both.keyword.title === '감사와 찬양' && aiHead.both.keyword.count === '3건' && !!aiHead.both.ai,
   JSON.stringify(aiHead.both));
+// AI를 못 물었을 때만 벡터로 채운다(사용자 결정 S-a 2026-09-25). '못 물었다'와 '답이 비었다'를 가르는
+// 판정(aiBibleSearchOutcome의 failed)과, 그때의 머리줄('{검색어}와/과 관련된 성경 구절')을 본다.
+// 벡터 왕복 자체는 로그인 뒤에만 돌아 게스트에서는 못 탄다(실기기 확인).
+// **되돌리기**: aiBibleSearchOutcome의 `if (!isAiAnswer(text)) return { … failed: true }`를 지우면 첫 단정이,
+// searchHeads의 aiFrom 갈래를 지우면 둘째 단정이 깨진다.
+const vecFall = await ev(`(async () => {
+  const s = await import('/src/services/bibleSearch.js');
+  const b = await import('/src/services/bible.js');
+  const w = await import('/src/components/wordBible.jsx');
+  const books = await b.loadBibleIndex();
+  const run = (q, fake) => s.aiBibleSearchOutcome(q, books, b.loadBook, fake);
+  const threw = await run('벡터 대체 하나', async () => { throw new Error('x'); });
+  const guide = await run('벡터 대체 둘', async () => '오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+  const empty = await run('벡터 대체 셋', async () => '[]');
+  const made = await run('벡터 대체 넷', async () => '["도마복음 1:1"]');
+  const ok = await run('벡터 대체 다섯', async () => '["시편 23:1"]');
+  const done = { done: 66, total: 66 };
+  return {
+    failed: [threw.failed, guide.failed, empty.failed, made.failed, ok.failed], okN: ok.hits.length,
+    vecHead: w.searchHeads({ query: '두려움', count: 0, progress: done, aiCount: 5, aiFrom: 'vec' }).ai,
+    vecHead2: w.searchHeads({ query: '평화', count: 2, progress: done, aiCount: 3, aiFrom: 'vec' }).ai,
+    aiHead: w.searchHeads({ query: '두려움', count: 0, progress: done, aiCount: 5 }).ai,
+  };
+})()`, true);
+check('AI를 못 물었을 때(던짐·안내 문구)만 실패이고 빈 답·지어낸 참조는 실패가 아니다(S-a)',
+  JSON.stringify(vecFall.failed) === '[true,true,false,false,false]' && vecFall.okN === 1, JSON.stringify(vecFall));
+check("벡터로 채운 도막의 머리줄은 '{검색어}와/과 관련된 성경 구절'이고 평소 머리줄은 그대로다(S-a)",
+  vecFall.vecHead?.title === '두려움과 관련된 성경 구절' && vecFall.vecHead.count === '5건'
+  && vecFall.vecHead2?.title === '평화와 관련된 성경 구절'
+  && vecFall.aiHead?.title === '두려움에 대해 AI가 찾은 구절', JSON.stringify(vecFall));
+{
+  // 벡터는 AI가 실패했을 때만 · 게스트에서는 묻지 않는다 — 부르는 자리의 소스로 본다
+  const src = readFileSync(new URL('../src/components/wordBible.jsx', import.meta.url), 'utf8');
+  check('벡터 대체는 AI 실패 뒤에만 · 클라우드에서만 묻는다(S-a)',
+    /if \(!out\.failed \|\| !semanticOn\(\)\) \{ setAiHits\(out\.hits\); setAiWait\(false\); return; \}/.test(src)
+    && /bibleVecHits\(await matchBible\(q\), books\)/.test(src));
+}
+
 await clickSel('button[data-hit]');
 await sleep(1000);
 const jumped = await ev(`(() => ({ head: (document.querySelector('h3')||{}).textContent || '',

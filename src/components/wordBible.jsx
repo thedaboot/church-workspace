@@ -3,7 +3,9 @@ import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, ChevronDown, Bookmark, Search, X, Highlighter, Eraser } from 'lucide-react';
 import { loadBibleIndex, loadBook, forEachPool, warmBooks, POOL } from '../services/bible.js';
 import { parseRef } from '../services/bibleRef.js';
-import { aiBibleSearch, hitLabel } from '../services/bibleSearch.js';
+import { aiBibleSearchOutcome, hitLabel } from '../services/bibleSearch.js';
+import { semanticOn, matchBible } from '../services/semantic.js';
+import { andParticle, bibleVecHits } from '../services/vecSearch.js';
 import { AiService, aiEnabled } from '../services/ai.js';
 import {
   loadBibleState, saveBibleState, loadFontStep, saveFontStep,
@@ -539,6 +541,8 @@ export function BibleTab({ initialRef = '' }) {
   // 게스트 모드(로그인이 없는 빌드)에서는 묻지도 않으므로 둘 다 그대로 비어 있다.
   const [aiHits, setAiHits] = useState([]);
   const [aiWait, setAiWait] = useState(false);
+  // AI 도막에 선 줄이 어디서 왔나 — 'ai'(평소) | 'vec'(AI를 못 물어서 벡터로 채웠다 · S-a). 머리줄만 달라진다.
+  const [aiFrom, setAiFrom] = useState('ai');
   const searchToken = useRef(0);
   const bodyRef = useRef(null);
   // 최근 검색어 줄은 **검색어를 비운 채 칸에 들어왔을 때** 선다(0065)
@@ -759,16 +763,26 @@ export function BibleTab({ initialRef = '' }) {
 
   // 뜻으로 찾기 — 제미나이가 고른 구절을 우리 본문으로 확인해서 돌려준다
   // (services/bibleSearch.js). **실패는 조용하다** — 그 도막을 감출 뿐이다.
+  //
+  // **AI를 못 물었으면(실패·시간 초과) 그 자리에 벡터 결과를 같은 줄 모양으로 세운다**(사용자 결정 S-a
+  // 2026-09-25). 평소 화면은 그대로다 — 비교에서 AI가 이겼으므로(HANDOFF §7) AI가 답한 자리에는 벡터를
+  // 섞지 않고, 지금까지 아무것도 안 뜨던 자리만 채운다. 머리줄은 '{검색어}와/과 관련된 성경 구절'.
+  // 벡터도 실패하면 예전처럼 도막째 감춘다. 게스트에서는 둘 다 묻지 않는다(aiEnabled · semanticOn).
   const runAi = async (q, token) => {
     if (!aiEnabled()) return;          // 게스트 모드에서는 묻지도 않는다(빈 자리도 안 뜬다)
-    setAiWait(true);
-    let hits = [];
+    setAiWait(true); setAiFrom('ai');
+    let out = { hits: [], failed: false };
     // 다섯째 인자가 **사람들 사이에 공유되는 캐시**다(0057) — 남이 같은 말로 이미
     // 물어봤으면 AI를 부르지 않는다(사용자 요청 2026-09-09).
-    try { hits = await aiBibleSearch(q, books, loadBook, AiService.callGemini, bibleSearchStore); }
-    catch { hits = []; }
+    try { out = await aiBibleSearchOutcome(q, books, loadBook, AiService.callGemini, bibleSearchStore); }
+    catch { out = { hits: [], failed: true }; }
     if (token !== searchToken.current) return;
-    setAiHits(hits); setAiWait(false);
+    if (!out.failed || !semanticOn()) { setAiHits(out.hits); setAiWait(false); return; }
+    let vec = [];
+    try { vec = bibleVecHits(await matchBible(q), books); }
+    catch (e) { console.warn('[word] 관련된 성경 구절을 받지 못했어요:', e); }
+    if (token !== searchToken.current) return;
+    setAiFrom('vec'); setAiHits(vec); setAiWait(false);
   };
 
   const runSearch = (raw) => {
@@ -962,7 +976,7 @@ export function BibleTab({ initialRef = '' }) {
         ) : query ? (
           <SearchResults
             query={query} results={results} progress={progress} searching={searching}
-            aiHits={aiHits} aiWait={aiWait} step={step}
+            aiHits={aiHits} aiWait={aiWait} aiFrom={aiFrom} step={step}
             onOpen={r => goto(r.bookId, r.chapter, { chapter: r.chapter, verse: r.verse })}
           />
         ) : place ? (
@@ -1365,8 +1379,9 @@ function ResultHead({ children, count = '' }) {
 // · **0건이면서 AI가 답을 들고 있으면 낱말 머리줄을 아예 안 세운다** — '감사와 찬양 0건'
 //   위에 AI 결과가 붙으면 찾은 것이 없다는 말처럼 읽힌다.
 // · AI 도막은 '<검색어>에 대해 AI가 찾은 구절' + 건수. 기다리는 중에는 건수가 없다.
+// · AI를 못 물어 벡터로 채운 도막(aiFrom 'vec' · S-a)은 '<검색어>와/과 관련된 성경 구절'이다(받침으로 가른다).
 // 순수 함수라 브라우저에서 그대로 불러 검사한다(tests/word.mjs).
-export function searchHeads({ query, count = 0, searching = false, progress = null, aiCount = 0, aiWait = false }) {
+export function searchHeads({ query, count = 0, searching = false, progress = null, aiCount = 0, aiWait = false, aiFrom = 'ai' }) {
   const aiShown = aiWait || aiCount > 0;
   const empty = !count && !aiShown && !searching;
   const scan = `${progress?.done ?? 0}/${progress?.total ?? 0}권 훑는 중 · ${count}건`;
@@ -1375,13 +1390,16 @@ export function searchHeads({ query, count = 0, searching = false, progress = nu
     keyword: count > 0 || searching || empty
       ? { title: query, count: searching ? scan : `${count}건` }
       : null,
-    ai: aiShown ? { title: `${query}에 대해 AI가 찾은 구절`, count: aiWait ? '' : `${aiCount}건` } : null,
+    ai: aiShown ? {
+      title: aiFrom === 'vec' ? `${query}${andParticle(query)} 관련된 성경 구절` : `${query}에 대해 AI가 찾은 구절`,
+      count: aiWait ? '' : `${aiCount}건`,
+    } : null,
   };
 }
 
-function SearchResults({ query, results, progress, searching, aiHits = [], aiWait = false, step = 1, onOpen }) {
+function SearchResults({ query, results, progress, searching, aiHits = [], aiWait = false, aiFrom = 'ai', step = 1, onOpen }) {
   const heads = searchHeads({
-    query, count: results.length, searching, progress, aiCount: aiHits.length, aiWait,
+    query, count: results.length, searching, progress, aiCount: aiHits.length, aiWait, aiFrom,
   });
   return (
     <div data-col="search" className="min-w-0">
@@ -1419,7 +1437,7 @@ function SearchResults({ query, results, progress, searching, aiHits = [], aiWai
           )}
 
           {heads.ai && (
-            <div data-hits="ai" className="min-w-0">
+            <div data-hits="ai" data-from={aiFrom} className="min-w-0">
               <ResultHead count={heads.ai.count}>{heads.ai.title}</ResultHead>
               {aiHits.length ? (
                 <div className="flex flex-col">

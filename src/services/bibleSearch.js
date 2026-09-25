@@ -16,7 +16,8 @@ import { DASH_RULE } from './ai.js';
 //   · 화면에 뜨는 글자는 언제나 우리가 가진 개역한글 본문이다(모델이 절을 잘못 외워도
 //     그 글이 화면에 나가지 않는다).
 // 2026-09-25: 벡터 뒷단은 0073(`bible_vec` 31,067행)으로 생겼지만 질의 30개 비교에서 이 길을
-// 못 이겼다 — 화면은 여전히 이 파일이고 벡터는 실패 시 대체 후보다(HANDOFF §7).
+// 못 이겼다 — 화면은 여전히 이 파일이다(HANDOFF §7). 벡터는 **AI를 못 물었을 때만** 그 자리를 채운다
+// (aiBibleSearchOutcome의 failed → components/wordBible.jsx runAi · 사용자 결정 S-a 2026-09-25).
 //
 // 이 파일은 순수하다(브라우저 API를 쓰지 않는다) — 프롬프트·파싱·해석을 노드에서
 // 그대로 검사한다(tests/word.mjs 1절). 부르는 쪽만 AiService.callGemini를 잇는다.
@@ -138,12 +139,25 @@ const memo = new Map();
 // query_norm 값이 이 함수의 결과다(열쇠를 만드는 자리는 이 한 곳뿐이어야 한다).
 export const normalizeQuery = (q) => String(q || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
+// 모델이 **답을 했는가**(빈 배열 '[]'도 답이다). 실패·시간 초과 때 callGemini는 던지지 않고
+// 안내 문구(ai.js MSG — 로그인·배포·실패)를 돌려주는데, 그 글에는 JSON 배열이 없다. 이 판정이
+// '없어서 없다'(답이 [])와 '못 물어서 없다'(실패)를 가른다 — 성경 검색의 벡터 대체(S-a)가 뒤쪽에만 선다.
+export function isAiAnswer(text) {
+  const s = String(text || '').replace(/```(?:json)?/gi, '');
+  const from = s.indexOf('[');
+  const to = s.lastIndexOf(']');
+  if (from < 0 || to < from) return false;
+  try { return Array.isArray(JSON.parse(s.slice(from, to + 1))); } catch { return false; }
+}
+
 // 물음 하나를 끝까지 — call(prompt, system)은 부르는 쪽이 AiService.callGemini로 잇는다.
-// 실패·빈 답·안내 문구는 전부 빈 배열이다(화면은 그때 그 칸을 통째로 감춘다).
-export async function aiBibleSearch(query, books, loadBook, call, store = null) {
+// { hits, failed }: failed는 AI를 **못 물었을 때**(던짐 · 안내 문구 · 시간 초과)만 참이다 —
+// 그때 화면은 AI 도막 자리에 벡터 결과(0073 · match_bible)를 같은 모양으로 세운다(사용자 결정 S-a
+// 2026-09-25 · wordBible runAi). 답이 빈 배열이거나 참조가 전부 지어낸 것이면 failed가 아니다(그 칸은 감춘다).
+export async function aiBibleSearchOutcome(query, books, loadBook, call, store = null) {
   const key = normalizeQuery(query);
-  if (!key) return [];
-  if (memo.has(key)) return memo.get(key);
+  if (!key) return { hits: [], failed: false };
+  if (memo.has(key)) return { hits: memo.get(key), failed: false };
   // 남이 이미 물어본 말이면 AI를 부르지 않는다. 캐시는 **있으면 좋은 것**이라 읽기가
   // 실패하면 조용히 AI로 간다(캐시 때문에 검색이 안 되는 일이 없어야 한다).
   let refs = null;
@@ -152,7 +166,8 @@ export async function aiBibleSearch(query, books, loadBook, call, store = null) 
   if (!fromCache) {
     const { prompt, system } = buildBibleSearchPrompt(query, books);
     let text = '';
-    try { text = await call(prompt, system); } catch { return []; }
+    try { text = await call(prompt, system); } catch { return { hits: [], failed: true }; }
+    if (!isAiAnswer(text)) return { hits: [], failed: true };
     refs = parseBibleSearchJson(text);
   }
   // 본문 글자는 캐시에 담지 않고 언제나 여기서 붙인다 — 성경 데이터를 갈아도 캐시가
@@ -160,8 +175,13 @@ export async function aiBibleSearch(query, books, loadBook, call, store = null) 
   const hits = await resolveBibleHits(refs, books, loadBook);
   // 빈 답은 어디에도 캐시하지 않는다 — 로그인·배포가 안 되어 안내 문구가 온 것일 수 있고,
   // 그러면 그 물음이 영영 빈 칸이 된다(ai.js가 안내 문구를 캐시하지 않는 것과 같다)
-  if (!hits.length) return hits;
+  if (!hits.length) return { hits, failed: false };
   memo.set(key, hits);
   if (!fromCache && store) { try { await store.set(key, refs); } catch { /* 캐시는 있으면 좋은 것 */ } }
-  return hits;
+  return { hits, failed: false };
+}
+
+// 줄만 — 실패·빈 답·안내 문구는 전부 빈 배열이다(예전 모양 그대로 · tests/word가 이 모양을 본다).
+export async function aiBibleSearch(query, books, loadBook, call, store = null) {
+  return (await aiBibleSearchOutcome(query, books, loadBook, call, store)).hits;
 }
