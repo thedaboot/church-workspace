@@ -3693,6 +3693,126 @@ await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: watcher.ide
   void logsBefore;
 }
 
+// ── 13) 표지 사진 (0081 · 사용자 결정 2026-09-26 · 목업 mockup-followup 2 · mockup-grace 2) ─────────────
+// 게스트에는 드라이브가 없어 바이트가 메모리(blob 주소)에 있다 — **새로고침하지 않고** 화면 안에서만 이어 간다.
+// 사진은 캔버스로 그린 400×600 세로 사진(위·아래 두 색)이다.
+// 되돌려서 깨뜨린 것(§3-5): CoverTools의 onPick에서 setCoverDlg를 지우면 '올리자마자 표지 위치 창'이,
+// worshipView uploadCover의 removeServiceFile(old)를 지우면 '주보당 한 장'이, ServicePaper가 cover를
+// ServiceStory에 넘기지 않으면 '스토리 표지' 줄이 깨진다. 창이 안 뜨면 그 줄을 FAIL로 남기고 이 묶음을 건너뛴다.
+cover: {
+  const cardOf = (t) => `[...document.querySelectorAll('.worship-card')].find(c => c.innerText.includes(${JSON.stringify(t)}))`;
+  const seed3 = JSON.parse(JSON.stringify(seed));
+  await ev(`(() => { localStorage.setItem('church_worship_v1', ${JSON.stringify(JSON.stringify(seed3))}); localStorage.setItem('theme', 'light'); })()`);
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+  await sleep(600); await ev(GO); await waitFor(HAS_CARD);
+  await ev(`${cardOf('흔들리지 않는 기쁨')}.click()`); await waitFor(HAS_DETAIL); await sleep(700);
+  const noToolsView = await ev(`!document.querySelector('.worship-cover-tools')`);
+  await ev(`document.querySelector('.worship-edit-open').click()`); await sleep(500);
+  const tools0 = await ev(`[...document.querySelectorAll('.worship-cover-tools button')].map(b => b.textContent.trim())`);
+  check("표지 도구는 수정 중에만 · 사진이 없으면 '표지 사진' 하나", noToolsView && JSON.stringify(tools0) === JSON.stringify(['표지 사진']), JSON.stringify({ noToolsView, tools0 }));
+
+  const pick = (top, bottom) => ev(`(async () => {
+    const c = document.createElement('canvas'); c.width = 400; c.height = 600;
+    const x = c.getContext('2d'); x.fillStyle = '${top}'; x.fillRect(0, 0, 400, 300); x.fillStyle = '${bottom}'; x.fillRect(0, 300, 400, 300);
+    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    const f = new File([blob], 'cover.png', { type: 'image/png' });
+    const dt = new DataTransfer(); dt.items.add(f);
+    const input = document.querySelector('.worship-cover-tools input[type=file]');
+    input.files = dt.files; input.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`, true);
+  await pick('#c0392b', '#2c5aa0');
+  const opened = await waitFor(`!!document.querySelector('.worship-cover-dialog .worship-cover-frame')`, 5000); await sleep(400);
+  if (!opened) { check('올리자마자 표지 위치 창이 뜬다', false, '창 없음'); await ev(`localStorage.removeItem('church_worship_v1')`); break cover; }
+  const dlg = await ev(`(() => { const d = document.querySelector('.worship-cover-dialog'), st = document.querySelector('.worship-cover-stage');
+    const fr = document.querySelector('.worship-cover-frame'); const r = d.getBoundingClientRect(), s = st.getBoundingClientRect(), f = fr.getBoundingClientRect();
+    return { now: st.getAttribute('aria-valuenow'), role: st.getAttribute('role'), bottom: Math.round(innerHeight - r.bottom), full: Math.round(r.width) === innerWidth,
+      ratio: +(f.height / f.width).toFixed(3), frameW: Math.round(f.width - s.width), sw: Math.round(s.width), sh: Math.round(s.height),
+      card: !!d.querySelector('.worship-cover-preview-card .cover-img'),
+      back: getComputedStyle(document.querySelector('.worship-cover-back')).backgroundColor }; })()`);
+  check('올리자마자 표지 위치 창 — 폰은 아래에서 올라오는 창 · slider 50 · 카드 비율(343:76) 틀이 사진 폭을 다 쓴다 · 카드 미리보기 · 뒤판 50%',
+    dlg.now === '50' && dlg.role === 'slider' && dlg.bottom === 0 && dlg.full && Math.abs(dlg.ratio - 76 / 343) < 0.01 && Math.abs(dlg.frameW) <= 1 && dlg.card
+    && /^(rgba\(0, 0, 0, 0\.5\)|oklab\(0 0 0 \/ 0\.5\))$/.test(dlg.back), JSON.stringify(dlg));
+  // ↑↓ 키 5%씩 · 위아래로 끌기
+  await ev(`(() => { const st = document.querySelector('.worship-cover-stage'); st.focus();
+    for (const k of ['ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowUp']) st.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); })()`);
+  await sleep(150);
+  const afterKeys = await ev(`document.querySelector('.worship-cover-stage').getAttribute('aria-valuenow')`);
+  const dragRes = await ev(`(async () => { const st = document.querySelector('.worship-cover-stage'), fr = document.querySelector('.worship-cover-frame');
+    const s = st.getBoundingClientRect(), top0 = fr.getBoundingClientRect().top; const cx = s.left + s.width / 2, cy = s.top + s.height / 2;
+    st.dispatchEvent(new PointerEvent('pointerdown', { clientX: cx, clientY: cy, pointerId: 7, bubbles: true }));
+    st.dispatchEvent(new PointerEvent('pointermove', { clientX: cx + 80, clientY: cy + 2000, pointerId: 7, bubbles: true }));
+    st.dispatchEvent(new PointerEvent('pointerup', { clientX: cx + 80, clientY: cy + 2000, pointerId: 7, bubbles: true }));
+    await new Promise(r => setTimeout(r, 120));
+    const f = fr.getBoundingClientRect(); return { now: st.getAttribute('aria-valuenow'), bottomGap: Math.round(s.bottom - f.bottom), left: Math.round(f.left - s.left), moved: Math.round(f.top - top0) }; })()`, true);
+  check('↑↓ 키는 5%씩 · 끌면 위아래로만(옆으로 끌어도 가로는 그대로) · 끝에서 멈춘다',
+    afterKeys === '60' && dragRes.now === '100' && Math.abs(dragRes.bottomGap) <= 1 && dragRes.left === 0 && dragRes.moved > 0, JSON.stringify({ afterKeys, dragRes }));
+  // 70%로 맞추고 저장
+  await ev(`(() => { const st = document.querySelector('.worship-cover-stage');
+    for (let i = 0; i < 6; i += 1) st.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true })); })()`);
+  await sleep(100);
+  await ev(`document.querySelector('.worship-cover-save').click()`);
+  await waitFor(`!document.querySelector('.worship-cover-dialog')`, 4000); await sleep(400);
+  const saved = await ev(`(() => { const g = JSON.parse(localStorage.getItem('church_worship_v1'));
+    const covers = (g.files || []).filter(f => f.kind === 'cover'); const s = g.services.find(x => x.id === 's1');
+    const head = document.querySelector('.worship-head'), img = head?.querySelector('.cover-img');
+    return { y: s.cover_focus_y, covers: covers.length, sid: covers[0]?.service_id, has: head?.classList.contains('has-cover'), h: Math.round(head.getBoundingClientRect().height),
+      pos: img && getComputedStyle(img).objectPosition, date: getComputedStyle(head.querySelector('.worship-head-date')).color,
+      tools: [...document.querySelectorAll('.worship-cover-tools button')].map(b => b.textContent.trim()) }; })()`);
+  check("저장하면 cover_focus_y 하나(0.7) · 표지 files 한 행(kind 'cover') · 상세 머리에 사진(폰 76~92px · object-position 50% 70% · 흰 글자) · 도구 셋",
+    saved.y === 0.7 && saved.covers === 1 && saved.sid === 's1' && saved.has && saved.h >= 76 && saved.h <= 92 && saved.pos === '50% 70%'
+    && saved.date === 'rgb(255, 255, 255)' && JSON.stringify(saved.tools) === JSON.stringify(['표지 사진', '표지 위치', '표지 사진 제거']), JSON.stringify(saved));
+
+  // 종이에는 없음 · 스토리 표지 · 목록 카드
+  await ev(`document.querySelector('.worship-save-mobile').click()`); await sleep(600);
+  const paperNo = await ev(`!document.querySelector('.worship-paper .cover-img') && !!document.querySelector('.paper-service-1')`);
+  await waitFor(`document.querySelector('.worship-story-open') && !document.querySelector('.worship-story-open').disabled`, 5000);
+  await ev(`document.querySelector('.worship-story-open').click()`); await waitFor(`!!document.querySelector('.story-root')`, 3000); await sleep(300);
+  const storyCov = await ev(`(() => { const c = document.querySelector('.story-card[data-page="cover"]'); const img = c?.querySelector('.cover-img');
+    return { has: c?.classList.contains('has-cover'), pos: img && getComputedStyle(img).objectPosition, ink: c && getComputedStyle(c).color }; })()`);
+  await ev(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`); await sleep(250);
+  check('주보 종이에는 사진이 없고 · 넘기면서 보기 표지는 사진 위 흰 글자(같은 위치)',
+    paperNo && storyCov.has && storyCov.pos === '50% 70%' && storyCov.ink === 'rgb(255, 255, 255)', JSON.stringify({ paperNo, storyCov }));
+  await ev(`${byText('목록으로')}.click()`); await waitFor(HAS_CARD); await sleep(300);
+  const card = await ev(`(() => { const c = ${cardOf('흔들리지 않는 기쁨')}, o = ${cardOf('깨어 기도하라')};
+    return { has: c.classList.contains('has-cover'), img: c.querySelector('.cover-img')?.getAttribute('src')?.slice(0, 5), pos: c.querySelector('.cover-img') && getComputedStyle(c.querySelector('.cover-img')).objectPosition,
+      title: getComputedStyle(c.querySelector('.worship-card-title')).color, other: o.classList.contains('has-cover') }; })()`);
+  check('예배 목록 카드 — 그 주보만 사진 위 흰 글자(같은 위치) · 다른 카드는 그대로',
+    card.has && card.img === 'blob:' && card.pos === '50% 70%' && card.title === 'rgb(255, 255, 255)' && !card.other, JSON.stringify(card));
+
+  // 새 사진 — 옛 표지는 지워지고(주보당 한 장) 위치는 .5로 돌아가며 창이 다시 뜬다
+  await ev(`${cardOf('흔들리지 않는 기쁨')}.click()`); await waitFor(HAS_DETAIL); await sleep(500);
+  await ev(`document.querySelector('.worship-edit-open').click()`); await sleep(400);
+  const firstId = await ev(`JSON.parse(localStorage.getItem('church_worship_v1')).files.find(f => f.kind === 'cover').id`);
+  await pick('#27ae60', '#f1c40f');
+  await waitFor(`!!document.querySelector('.worship-cover-dialog .worship-cover-frame')`, 5000); await sleep(700);
+  const again = await ev(`(() => { const g = JSON.parse(localStorage.getItem('church_worship_v1')); const cs = g.files.filter(f => f.kind === 'cover');
+    return { now: document.querySelector('.worship-cover-stage').getAttribute('aria-valuenow'), n: cs.length, same: cs[0]?.id === ${JSON.stringify(firstId)},
+      y: g.services.find(x => x.id === 's1').cover_focus_y }; })()`);
+  check('새 사진을 올리면 창이 50에서 다시 뜨고 · 옛 표지는 지워져 한 장만 남고 · 저장 값도 .5로',
+    again.now === '50' && again.n === 1 && !again.same && again.y === 0.5, JSON.stringify(again));
+  await ev(`document.querySelector('.worship-cover-cancel').click()`); await sleep(300);
+  // 데스크톱 — 가운데 창 + 상세 머리 미리보기
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }); await sleep(500);
+  await ev(`document.querySelector('.worship-cover-move').click()`);
+  await waitFor(`!!document.querySelector('.worship-cover-dialog .worship-cover-frame')`, 4000); await sleep(400);
+  const desk = await ev(`(() => { const r = document.querySelector('.worship-cover-dialog').getBoundingClientRect();
+    const h = document.querySelector('.worship-cover-preview-head'); return { cy: Math.round((r.top + r.bottom) / 2 - innerHeight / 2), cx: Math.round((r.left + r.right) / 2 - innerWidth / 2),
+      w: Math.round(r.width), head: !!h && getComputedStyle(h).display !== 'none' && !!h.querySelector('.cover-img'),
+      head92: Math.round(document.querySelector('.worship-head').getBoundingClientRect().height) }; })()`);
+  await ev(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`); await sleep(250);
+  const deskClosed = await ev(`!document.querySelector('.worship-cover-dialog')`);
+  check('데스크톱은 가운데 창(560px 이하) · 카드와 상세 머리 미리보기 둘 · 머리 92px · Esc로 닫힌다',
+    Math.abs(desk.cy) <= 2 && Math.abs(desk.cx) <= 2 && desk.w <= 560 && desk.head && desk.head92 >= 92 && deskClosed, JSON.stringify({ desk, deskClosed }));
+  // 제거
+  await ev(`document.querySelector('.worship-cover-remove').click()`); await sleep(250);
+  await ev(`[...document.querySelectorAll('button')].filter(b => b.textContent.trim() === '제거').pop().click()`); await sleep(500);
+  const gone = await ev(`(() => { const g = JSON.parse(localStorage.getItem('church_worship_v1'));
+    return { rows: g.files.filter(f => f.kind === 'cover').length, has: document.querySelector('.worship-head').classList.contains('has-cover'),
+      season: document.querySelector('.worship-head').dataset.season }; })()`);
+  check("'표지 사진 제거' — 행이 지워지고 머리는 절기 색으로 돌아온다", gone.rows === 0 && !gone.has && !!gone.season, JSON.stringify(gone));
+  await ev(`localStorage.removeItem('church_worship_v1')`);
+}
+
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 
 console.log(results.join('\n'));

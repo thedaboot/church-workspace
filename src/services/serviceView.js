@@ -128,3 +128,56 @@ export function myNoteRows(notes = [], services = []) {
     .filter(r => r.service && String(r.note?.body || '').trim() && !isTemplateOnly(r.note.body, r.service.passage_ref || ''))
     .sort((a, b) => String(b.service.service_date || '').localeCompare(String(a.service.service_date || '')));
 }
+
+// ── 표지 사진 (0081 · 사용자 결정 2026-09-26 · 목업 mockup-followup 2 · mockup-grace 2) ──────
+// 사진은 주보 첨부와 같은 길로 그 주보의 드라이브 폴더에 가고 `files.kind = 'cover'` 한 장이다.
+// 보일 부분은 `services.cover_focus_y` 0~1 하나 — 그리는 쪽은 `object-fit: cover` +
+// `object-position: 50% {y*100}%` 한 줄이라 폰 카드(4.5:1)·폰 머리·데스크톱 머리 어디서나
+// "사진의 y% 줄 = 틀의 y% 줄"로 같은 줄이 보인다(가로 값은 없다 — 틀이 사진보다 늘 가로로 길다).
+// 받는 주소는 lh3의 **자르지 않은** 사진(`=w720`, 1배 화면은 `=w360`)이다. `-c`(가운데 자르기)를
+// 붙이면 서버가 위치를 버린다. 드라이브 업로드는 링크 보기(anyone·reader)라 로그인 없이 온다
+// (docs/APPS_SCRIPT.md · 첨부 썸네일과 같은 근거) — 공개 보기(api/service-view)도 같은 주소다.
+// 우선순위는 **사진 > 절기 색 > 기본 그라데이션**(HANDOFF §8 교회력).
+export const COVER_KIND = 'cover';
+export const COVER_RATIO = 76 / 343;        // 목록 카드 비율 — 표지 위치 창의 틀
+export const clampFocus = (y) => {
+  const n = Number(y);
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.5;
+};
+export const coverPosition = (y) => `50% ${Math.round(clampFocus(y) * 1000) / 10}%`;
+export const coverUrl = (fileId, w = 720) => `https://lh3.googleusercontent.com/d/${fileId}=w${w}`;
+
+// 표지 한 장 → <img>에 줄 { src, srcSet } | null. 방금 올린 사진·게스트는 브라우저 안 주소(`_src`)다
+// (드라이브가 섬네일을 만들기 전 몇 초 동안 lh3가 비어 있을 수 있다). Storage로 떨어진 옛 경로
+// (드라이브 미설정)는 주소가 없어 null — 사진 없이 절기 색으로 선다.
+export function coverImage(cover) {
+  if (!cover) return null;
+  if (cover._src) return { src: cover._src, srcSet: undefined };
+  const id = cover.drive_file_id;
+  if (!id) return null;
+  return { src: coverUrl(id, 720), srcSet: `${coverUrl(id, 360)} 1x, ${coverUrl(id, 720)} 2x` };
+}
+
+// 목록 한 번에 모은 표지 행들 → { service_id: 행 } — 한 주보에 두 장이 겹쳐 있으면(새 것을 넣고
+// 옛 것을 지우는 사이) **가장 최근** 한 장이다. 표지가 아닌 행은 무시한다.
+export function coverMap(rows = []) {
+  const out = {};
+  for (const r of rows || []) {
+    if (!r?.service_id || (r.kind && r.kind !== COVER_KIND)) continue;
+    const prev = out[r.service_id];
+    if (!prev || String(r.created_at || '') >= String(prev.created_at || '')) out[r.service_id] = r;
+  }
+  return out;
+}
+
+// 표지 위치 창 — 사진 상자(stageW×stageH) 위 카드 비율 틀의 자리. 틀은 폭을 다 쓰고 위아래로만 간다.
+// 파노라마처럼 사진이 틀보다 납작하면 틀이 사진 높이에 멈춘다(그때 y는 뜻이 없다 — 가운데).
+export function coverFrame(stageW, stageH, y, ratio = COVER_RATIO) {
+  const h = Math.min(stageH, stageW * ratio);
+  return { top: clampFocus(y) * Math.max(0, stageH - h), height: h };
+}
+// 끌기 — 시작 값 + 손가락이 간 거리 / 틀이 움직일 수 있는 거리
+export function dragFocus(startY, dy, stageW, stageH, ratio = COVER_RATIO) {
+  const range = stageH - Math.min(stageH, stageW * ratio);
+  return range > 0 ? clampFocus(startY + dy / range) : clampFocus(startY);
+}

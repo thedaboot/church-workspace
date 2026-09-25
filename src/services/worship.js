@@ -2,7 +2,8 @@ import { supabase, myUid } from './supabaseClient.js';
 import { fetchPeople, fetchGroups, fetchGroupMembers, fetchMyPerson, fetchRoles, guestStore, byName } from './people.js';
 import { listServiceFiles, uploadServiceFile as uploadServiceFileToDrive, ensureServiceFolder, deleteAttachment,
   insertNotifications, getMyProfile, setFileExcerpt } from './cloud.js';
-import { downscaleImage, FILE_MAX_DIM } from './image.js';
+import { downscaleImage, FILE_MAX_DIM, BODY_MAX_DIM } from './image.js';
+import { COVER_KIND, coverMap } from './serviceView.js';
 import { cleanTitle } from './titleText.js';
 import { generateId, localDate } from '../utils.js';
 
@@ -24,7 +25,8 @@ import { generateId, localDate } from '../utils.js';
 // 경로(RLS·실데이터)는 사람이 확인해야 한다 — HANDOFF §3-6.
 // ============================================================================
 
-const COLS = 'id, kind, service_date, status, title, passage_ref, preacher, roles, songs, notices, praise_leader, praise_playlist_url, attendance_note, cue_sheet, drive_folder_id, created_at, updated_at';
+// cover_focus_y — 표지 사진의 보일 세로 위치(0081). 이 칸 때문에 0081이 먼저 나가야 한다(HANDOFF §3-4).
+const COLS = 'id, kind, service_date, status, title, passage_ref, preacher, roles, songs, notices, praise_leader, praise_playlist_url, attendance_note, cue_sheet, drive_folder_id, cover_focus_y, created_at, updated_at';
 
 // ── 최근에 부른 곡 (2026-09-21 사용자 요청) ─────────────────────────────────
 // 찬양팀이 콘티를 짤 때 실제로 겪는 물음은 "이 곡 저번 달에 부르지 않았나"다.
@@ -169,6 +171,7 @@ export const PRAISE_TEAM = 'Re:born 워십';
 const { all: guestAll, rows: guestRows, set: guestSet } = guestStore('church_worship_v1');
 
 // ── 순수 헬퍼 (브라우저 없이도 검사된다) ────────────────────────────────────
+
 
 // 종류 이름. 'sunday'만 상수고 나머지는 만든 사람이 적은 이름 그대로다(결정 14).
 export const kindLabel = (kind) => (kind === SUNDAY_KIND ? SUNDAY_LABEL : (kind || '예배'));
@@ -563,6 +566,9 @@ const guestBytes = new Map();   // files.id → 고른 File (게스트 세션 �
 // 그때 주보에 붙는 파일은 송폼 하나뿐이었고, 0054의 백필도 같은 값을 넣었다.
 export const SONGFORM = 'songform';
 export const CUESHEET = 'cuesheet';
+// 표지 사진(0081) — 주보당 한 장. 송폼·큐시트와 같은 표·같은 폴더·같은 업로드 한 벌이다.
+export const COVER = COVER_KIND;
+const KINDS = [SONGFORM, CUESHEET, COVER];
 export const fileKindOf = (f) => (f?.kind || SONGFORM);
 export const filesOfKind = (files, kind) => (files || []).filter(f => fileKindOf(f) === kind);
 
@@ -584,7 +590,7 @@ export async function ensureServiceDriveFolder(service) {
 
 // `kind`를 안 주면 송폼이다 — 0047부터의 호출부를 그대로 두기 위해서다.
 export async function uploadServiceFile(service, file, folderId = null, { kind = SONGFORM } = {}) {
-  const k = kind === CUESHEET ? CUESHEET : SONGFORM;
+  const k = KINDS.includes(kind) ? kind : SONGFORM;
   if (!supabase) {
     const row = {
       id: generateId(), service_id: service.id, kind: k, name: file.name,
@@ -596,7 +602,8 @@ export async function uploadServiceFile(service, file, folderId = null, { kind =
   }
   // 사진으로 찍어 온 송폼도 있다 — 첨부와 같이 보내기 직전에 줄인다(§6-29-m).
   // 사진이 아니거나 이미 작으면 원본 그대로 간다.
-  const sending = await downscaleImage(file, FILE_MAX_DIM, 0.9);
+  // 표지는 lh3에서 폭 720으로만 받는다 — 본문 이미지 상한(1600)이면 충분하고 올리는 바이트가 준다.
+  const sending = await downscaleImage(file, k === COVER ? BODY_MAX_DIM : FILE_MAX_DIM, 0.9);
   const row = await uploadServiceFileToDrive(sending, {
     serviceId: service.id,
     serviceDate: service.service_date,
@@ -620,9 +627,28 @@ async function fillCueExcerpt(row, file) {
   }
 }
 
+// 표지 — **목록 한 번에 한 조회**(주보마다 부르지 않는다). 읽기 정책은 첨부와 같아서(0047) 작성 중
+// 주보의 표지는 편집 자격자에게만 온다. 돌려주는 모양은 { service_id: 행 }(serviceView.coverMap).
+// 게스트는 바이트가 메모리에만 있으므로 이번 세션에 올린 것만 선다(새로고침하면 사진 없이).
+const guestCoverSrc = new Map();   // files.id → blob 주소(게스트 · 한 번만 만든다)
+export async function fetchCovers() {
+  if (!supabase) {
+    return coverMap(guestRows('files').filter(f => f.kind === COVER && guestBytes.has(f.id)).map((f) => {
+      if (!guestCoverSrc.has(f.id)) guestCoverSrc.set(f.id, URL.createObjectURL(guestBytes.get(f.id)));
+      return { ...f, _src: guestCoverSrc.get(f.id) };
+    }));
+  }
+  const { data, error } = await supabase.from('files')
+    .select('id, service_id, kind, name, source, drive_file_id, storage_path, preview_file_id, created_at')
+    .eq('kind', COVER).order('created_at', { ascending: true });
+  if (error) throw error;
+  return coverMap(data ?? []);
+}
+
 // 지우는 길은 업무 첨부와 한 벌이다 — **DB 행부터, 실체는 그 뒤 최선으로**(§6-29-e).
 export async function removeServiceFile(row) {
   if (!supabase) {
+    if (guestCoverSrc.has(row.id)) { URL.revokeObjectURL(guestCoverSrc.get(row.id)); guestCoverSrc.delete(row.id); }
     guestBytes.delete(row.id);
     guestSet('files', guestRows('files').filter(f => f.id !== row.id));
     return;

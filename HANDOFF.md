@@ -173,6 +173,8 @@ src/components/Toast.jsx      토스트(`[data-toast]` · 폭 상한 28rem · §
 src/components/wordBible.jsx  (v2) 성경 리더 — 본문|북마크|형광펜 · useVersePaint · searchHeads(§6-9-bs)
 src/components/worshipDetail.jsx  (v2) 주보 상세·편집·발행 · 송폼·큐시트 · 내 예배 노트 · useFillRest(§6-9-h)
 src/components/worshipPassage.jsx (v2) 본문 선택 피커 + PassageBody(§6-9-j)
+src/components/worshipStory.jsx (v2) 주보 '넘기면서 보기' 여섯 장 — 폰에서만 · 장 나누기는 serviceView.packPages(§32-zd)
+src/components/worshipCover.jsx (v2) 표지 사진 — CoverImg · 수정 중 도구 줄 · `표지 위치` 창(0081 · §32-zg~zi)
 src/components/worshipAttendance.jsx (v2) 출석 체크 — 순별 칩·손님 · 13:30 게이트(§6-19-c)
 src/components/groupsSun.jsx  (v2) 내 순 · 순 편성
 src/components/groupsClub.jsx (v2) 동아리 카드·신청·리더 도구·dnd 순서(§6-9-bi)
@@ -273,7 +275,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0076** 알림 종류 `approved`(관리자만 넣는다). **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at`. **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만 · 미적용). **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거). **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`. 0081은 비어 있다(표지 사진 `cover_focus_y`에 쓴다). 다음 번호는 0083.
+  **0076** 알림 종류 `approved`(관리자만 넣는다). **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at`. **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만 · 미적용). **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거). **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`. **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) — **⏳ 미적용, 코드보다 먼저 나가야 한다**(예배 목록 조회가 그 칸을 읽는다). 다음 번호는 0083.
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.
@@ -436,10 +438,15 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
   보여주면 훨씬 빠르게 정해진다.
 - **교회력(절기)**(사용자 결정 2026-09-25 · `services/churchYear.js` — DB 칸 없이 날짜로 계산): 표기는 한국 개신교 관례이고 **'오순절'이 아니라 '성령강림'**이다(`성령강림절 후 제N주일`). **색은 특별 절기에만** —
   대림·사순 보라 · 성탄·주현(1/6까지)·부활 흰/금 · 성령강림주일 그 주 빨강. 연중(주현절 후·성령강림절 후)은 절기 초록 대신 **우리 기본 톤**(accent-weak 물 · 표지는 accent→night)이고 이름 줄은 연중에도 선다.
-  자리: 예배 목록 카드(위쪽 물 + 메타 앞 6px 점 — 연중은 점 없음) · 상세 머리 · **주보 종이 머리 띠**(PDF에도 · 연중은 인디고 그대로) · 스토리 표지. 우선순위는 **표지 사진(다음 배치) > 절기 색 > 기본 그라데이션**.
+  자리: 예배 목록 카드(위쪽 물 + 메타 앞 6px 점 — 연중은 점 없음) · 상세 머리 · **주보 종이 머리 띠**(PDF에도 · 연중은 인디고 그대로) · 스토리 표지. 우선순위는 **표지 사진(0081 · 아래) > 절기 색 > 기본 그라데이션**.
   큐시트 전례색과의 대조는 `tests/logcheck`가 라이브 세 장(9/6·9/13·9/20)으로 본다 — 새 해 큐시트가 오면 거기 한 줄씩 더한다.
 - **주보 스토리 '넘기면서 보기'**(`components/worshipStory.jsx`): **폰에서만**(데스크톱에는 버튼이 없다 · `md:hidden`). 여섯 장 · 자동 넘김 없음 · 가장자리 20px 밀기 무시(카카오 인앱 뒤로 가기).
   찬양 줄은 **`팀 - 제목`(첫 ` - `)만 나누고** `제목 | 팀`·`제목ㅣ팀`은 한 줄 그대로다(지어내서 나누지 않는다 · `serviceView.splitSongTitle`). 마지막 장 문구 `오늘 섬겨준 이들`·`주보 전체 보기`·`처음부터`는 사용자 문구다.
+- **주보 표지 사진**(0081 · 사용자 결정 2026-09-26 · 목업 `mockup-followup` 2 · `mockup-grace` 2): 주보 **수정 중** 머리 아래 도구 줄 `표지 사진` · `표지 위치` · `표지 사진 제거`(사용자 문구 · 편집 자격자만).
+  사진은 첨부와 같은 길로 그 주보의 드라이브 폴더에 가고 `files.kind='cover'` 한 장(새로 올리면 옛 것은 휴지통) · 올리자마자 `표지 위치` 창(343:76 틀을 위아래로만 · ↑↓ · 폰 아래 창 · 데스크톱 가운데 창)이 .5로 뜬다 ·
+  저장 값은 `services.cover_focus_y` 하나 · 그리기는 lh3 `=w720`(1x `=w360` · `-c` 금지) + `object-position: 50% {y}%` + 어두운 덮개 · 자리는 예배 목록 카드 · 상세 머리(폰 76 · 넓은 폭 92px) · 스토리 표지 · 공개 보기.
+  **종이(PDF)·홈 카드에는 싣지 않는다.** 사진이 오면 절기 물은 빠지고 점만 흰 테두리로 남는다. 목록은 `worship.fetchCovers` 한 조회(실패해도 목록은 선다).
+- **넘기면서 보기의 광고는 전부다**(사용자 요청 2026-09-26) — 제목만 있는 광고도 제목 한 줄로 선다(종이·홈 오늘의 예배 카드와 같게). 제목도 본문도 없는 줄만 빠진다(`serviceView.storyNotices`).
 - **주보의 사람 이름은 명단 본명**(사용자 결정 2026-09-25 · `serviceView.realNameOf`): 종이·상세의 섬기는 이들·찬양 인도·'다음 주 예배 위원' 광고·스토리에서 계정 표시 이름 대신 명단 이름('이하랑Alex' → '이하랑 형제').
   **보이는 자리에서만 고른다** — 저장된 `roles[].name`(그때의 표시 이름)과 편집 칸은 그대로라 위 '이름·사진은 잇지 않는다'와 부딪히지 않는다. 명단에 없는 이름은 적힌 그대로.
 - **내 예배 노트 모아 보기**(예배 머리줄 '새 주보' 왼쪽 `내 예배 노트`): 쓴 것만 최근순 · `순에 공유` 칩 · 데스크톱 목록|종이 · 폰 목록→종이 · 종이 위 `주보에서 열기`. **0건 문구 `예배 노트가 아직 없어요`는 사용자가 직접 고른 것이다**

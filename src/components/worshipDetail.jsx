@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck,
   ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText, X,
-  Share2, CalendarPlus, GalleryHorizontalEnd, NotebookPen } from 'lucide-react';
+  Share2, CalendarPlus, GalleryHorizontalEnd, NotebookPen, ImagePlus, MoveVertical } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
@@ -26,6 +26,8 @@ import { churchSeason } from '../services/churchYear.js';
 import { realNameOf, realNamesInRoleLines, isNextWeekNotice } from '../services/serviceView.js';
 import { readNoticeDate, noticeDateLabel } from '../services/noticeDate.js';
 import { ServiceStory } from './worshipStory.jsx';
+import { CoverImg, CoverDialog, useCoverShown } from './worshipCover.jsx';
+import { coverImage } from '../services/serviceView.js';
 
 // 미리보기 창(+PdfView)은 열 때만 받는다 — 첨부를 안 여는 사람까지 그 무게를 받지 않게(2026-09-24).
 const FilePreviewModal = lazy(() => import('./FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));
@@ -1135,7 +1137,7 @@ const SHEET_BOX = 'paper-box w-full max-w-[560px] mx-auto';
 //
 // **'넘기면서 보기'는 폰에서만**이다(사용자 결정 2026-09-25) — 데스크톱에는 버튼을 두지 않는다
 // (`md:hidden`). 본문이 붙기 전에는 PDF와 같이 잠긴다(말씀 장을 나눌 재료가 없다).
-function ServicePaper({ service, nameOf, real = null, rosterKey = '' }) {
+function ServicePaper({ service, nameOf, real = null, rosterKey = '', cover = null }) {
   const [verses, setVerses] = useState(null);
   const [story, setStory] = useState(false);
   const storyBtn = useRef(null);
@@ -1207,12 +1209,38 @@ function ServicePaper({ service, nameOf, real = null, rosterKey = '' }) {
         </div>
       </div>
 
-      {story && <ServiceStory service={service} verses={verses || []} nameOf={nameOf} realName={real} onClose={closeStory} />}
+      {story && <ServiceStory service={service} verses={verses || []} nameOf={nameOf} realName={real} cover={cover} onClose={closeStory} />}
 
       {/* 공유·저장이 막힌 브라우저에서 마지막 갈래 — 쪽마다 그림으로 띄운다
           (hooks/useSheetShare.jsx). **그리지 않으면 그 갈래가 아무것도 안 한다.** */}
       {pdf.overlay}
 
+    </div>
+  );
+}
+
+// ── 표지 사진 도구 줄 (0081) — 주보 **수정 중** 머리 아래 · 편집 자격자만(부르는 쪽이 가린다).
+// 문구는 사용자 문구 그대로: `표지 사진`(올리기) · `표지 위치` · `표지 사진 제거`. 창·그리기는 worshipCover.jsx.
+function CoverTools({ cover, busy = false, onPick, onPosition, onRemove }) {
+  const input = useRef(null);
+  return (
+    <div className="worship-cover-tools flex flex-wrap items-center gap-1.5 -mt-2 mb-4">
+      <input ref={input} type="file" accept="image/*" className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onPick(f); }} />
+      <button type="button" onClick={() => input.current?.click()} disabled={busy}
+        className="worship-cover-pick shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface border border-line text-[11.5px] font-semibold text-fg transition active:scale-95 hover:bg-surface-hover disabled:opacity-40">
+        <ImagePlus size={13} /> 표지 사진
+      </button>
+      {cover && (
+        <>
+          <button type="button" onClick={onPosition} className={`worship-cover-move ${WITH_ICON} ${BTN_QUIET}`}>
+            <MoveVertical size={13} /> 표지 위치
+          </button>
+          <ConfirmPopover onConfirm={onRemove} message="표지 사진을 지울까요?" confirmLabel="제거">
+            <button type="button" className={`worship-cover-remove ${BTN_QUIET}`}>표지 사진 제거</button>
+          </ConfirmPopover>
+        </>
+      )}
     </div>
   );
 }
@@ -1578,11 +1606,15 @@ export function ServiceDetail({
   service, people = [], personRoles = [], perms = {}, note = null, canWriteNote = false, startEditing = false,
   files = [], recentSongs = [], prefill = [], onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
   onPullPlaylist, onLookupTitle, onShareNote, onUploadFiles, onRemoveFile, onAddToCalendar, focusNote = false,
+  cover = null, onUploadCover, onRemoveCover, onSaveCoverFocus,
 }) {
   const [tab, setTab] = useState('paper');
   const [draft, setDraft] = useState(null);     // null이면 보기 모드
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(null);     // 미리보기로 열어 둔 파일 행
+  // 표지 위치 창(0081) — { src, focus } | null. 새 사진을 고르면 **곧바로** .5로 열린다(업로드를 기다리지 않는다).
+  const [coverDlg, setCoverDlg] = useState(null);
+  const photo = useCoverShown(cover);
   // 주보 파일은 한 표에서 한 번에 오고(0047의 files.service_id) **여기서 갈래로 갈린다**
   // (0054의 files.kind). kind가 없는 행은 송폼이다 — 0054 이전에 심긴 행(게스트 시드·옛
   // 주보)이 그렇고, 마이그레이션의 백필도 같은 값을 넣었다.
@@ -1643,6 +1675,7 @@ export function ServiceDetail({
     dirty.current = false; setSaveState('');
     setTab(service?.status === 'published' ? 'paper' : 'word');
     setPreview(null);
+    setCoverDlg(null);
     setDraft(startEditing && perms.canEdit ? draftOf(service) : null);
     // 주보가 바뀔 때만 — startEditing은 그때 부르는 쪽이 정해서 넘긴다
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1715,13 +1748,15 @@ export function ServiceDetail({
           화면 맨 위에서 한 번에 읽히도록 상자로 묶었다(목록 카드와 같은 껍데기다). */}
       {/* 교회력 물 한 겹(2026-09-25) — 왼쪽에서 오른쪽으로 옅어진다. 특별 절기는 그 색, 연중은
           우리 기본 톤(index.css `.season-wash`). 인라인 background 줄임말은 물을 덮으므로 색만 준다. */}
-      <header className="worship-head season-wash flex items-center gap-2 mb-4 p-3 rounded-[10px]"
+      {/* 표지 사진(0081)이 있으면 사진이 이긴다 — 폰 76px · 넓은 폭 92px, 글자는 아래에 앉는다(index.css `.has-cover`) */}
+      <header className={`worship-head season-wash relative flex items-center gap-2 mb-4 p-3 rounded-[10px]${photo.shown ? ' has-cover' : ''}`}
         data-season={churchSeason(service.service_date)?.color || 'plain'}
         style={{ backgroundColor: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
+        {photo.shown && <CoverImg cover={cover} focus={service.cover_focus_y} onFail={photo.onFail} />}
         {/* 한 줄에 종류·상태·날짜·설교자. **줄을 늘리지 않는다** — 이 자리가 두 줄이 되면
             그만큼 아래 빈 탭의 가운데가 위로 밀린다(검사가 화면의 1/3을 요구한다). */}
         <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 min-w-0 flex-1">
-          <span className="px-2 py-0.5 rounded-full bg-tag-blue text-tag-blue-fg text-[10.5px] font-bold">{kindLabel(service.kind)}</span>
+          <span className="worship-head-kind px-2 py-0.5 rounded-full bg-tag-blue text-tag-blue-fg text-[10.5px] font-bold">{kindLabel(service.kind)}</span>
           {isDraft && <span className="worship-draft-badge px-2 py-0.5 rounded-full bg-tag-yellow text-tag-yellow-fg text-[10.5px] font-bold">작성 중</span>}
           <span className="worship-head-date text-[12.5px] font-bold text-fg">{formatServiceDate(service.service_date)}</span>
           {/* 설교자는 **넓은 폭(≥640)에서만** 머리줄에 — 375에서는 둘째 줄로 내려가 머리 카드가
@@ -1760,12 +1795,26 @@ export function ServiceDetail({
                 className={`worship-save shrink-0 hidden md:inline-flex ${BTN}`}>저장</button>
               <ConfirmPopover className="shrink-0 hidden md:inline-flex" onConfirm={onDelete}
                 message={<><span className="font-bold text-fg">이 주보를 삭제할까요?</span><br />모든 내용이 같이 사라지니 신중하게 선택해주세요</>}>
-                <button type="button" className="px-2.5 py-1.5 rounded-md text-tag-red-fg hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">삭제</button>
+                <button type="button" className="worship-head-delete px-2.5 py-1.5 rounded-md text-tag-red-fg hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95">삭제</button>
               </ConfirmPopover>
             </>
           )}
         </div>
       </header>
+
+      {/* 표지 사진 도구 — **수정 중에만**, 편집 자격자에게만(사용자 문구 `표지 사진`·`표지 위치`·`표지 사진 제거`).
+          종이(PDF)에는 싣지 않는다. */}
+      {perms.canEdit && editing && onUploadCover && (
+        <CoverTools cover={cover} busy={!!cover?._pending}
+          onPick={(file) => { setCoverDlg({ src: URL.createObjectURL(file), focus: 0.5, own: true }); void onUploadCover(file); }}
+          onPosition={() => { const img = coverImage(cover); if (img) setCoverDlg({ src: img.src, focus: service.cover_focus_y ?? 0.5 }); }}
+          onRemove={onRemoveCover} />
+      )}
+      {coverDlg && (
+        <CoverDialog src={coverDlg.src} focus={coverDlg.focus} title={service.title || ''}
+          dateLabel={formatServiceDate(service.service_date)} kindLabel={kindLabel(service.kind)}
+          onCancel={() => { if (coverDlg.own) URL.revokeObjectURL(coverDlg.src); setCoverDlg(null); }} onSave={onSaveCoverFocus} />
+      )}
 
       {/* `aria-selected`는 **`role="tab"`인 요소에만** 뜻이 있다(그냥 button에 달면 보조
           기기가 무시한다). 대시보드 탭 줄(views.jsx)이 이미 tablist/tab 한 벌이라 같은
@@ -1782,7 +1831,7 @@ export function ServiceDetail({
 
       <div className="worship-tabpanel">
         {activeTab === 'paper' && (
-          <ServicePaper service={service} nameOf={nameOf} real={real} rosterKey={rosterKey} />
+          <ServicePaper service={service} nameOf={nameOf} real={real} rosterKey={rosterKey} cover={cover} />
         )}
         {activeTab === 'word' && (editing
           ? <WordEdit draft={draft} set={set} cueFiles={cueFiles} canEdit={!!(editing && perms.canEdit)}

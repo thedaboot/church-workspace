@@ -6,6 +6,7 @@ import { paperDate, paperRoles } from './paper.jsx';
 import { kindLabel, PRAISE_TEAM } from '../services/worship.js';
 import { churchSeason } from '../services/churchYear.js';
 import { splitSongTitle, packPages, storyNotices, nextWeekRoles, realNameText } from '../services/serviceView.js';
+import { CoverImg, useCoverShown } from './worshipCover.jsx';
 
 // ============================================================================
 // 주보 스토리 — '넘기면서 보기' (사용자 결정 2026-09-25 · 목업 mockup-story 권장안)
@@ -24,7 +25,8 @@ import { splitSongTitle, packPages, storyNotices, nextWeekRoles, realNameText } 
 // 세로로 내려간다(덮개 버튼이 손가락을 먹으면 스크롤이 안 된다).
 //
 // 뒤판·등장은 전면 미리보기 규칙(검정 80% · 150ms — HANDOFF §8 D9), 모션을 끈 사람에게는 걸지 않는다.
-// 색: 표지만 교회력 색(특별 절기) · 연중은 우리 기본 톤(accent → night) 그라데이션. 나머지 장은 앱
+// 색: 표지만 교회력 색(특별 절기) · 연중은 우리 기본 톤(accent → night) 그라데이션.
+// **표지 사진**(0081)이 있으면 사진이 이긴다 — 사진 위 어두운 덮개 + 흰 글자(COVER.photo · index.css `.has-cover`). 나머지 장은 앱
 // 토큰이라 라이트·다크를 따라간다 — 종이와 달리 인쇄물이 아니라 화면이다.
 // 이름은 명단 본명 + 호칭이다(부르는 쪽의 nameOf · serviceView.realNameOf).
 // ============================================================================
@@ -37,6 +39,7 @@ const COVER = {
   gold: { bg: 'linear-gradient(165deg, #f6eedb 0%, #e9dcbc 100%)', ink: '#4f3b1a', bar: 'rgba(79,59,26,.2)', barOn: '#4f3b1a' },
   red: { bg: 'linear-gradient(165deg, #9a4038 0%, #6f2b25 100%)', ink: '#ffffff', bar: 'rgba(255,255,255,.28)', barOn: '#fff' },
   plain: { bg: 'linear-gradient(160deg, #3f6fc4 0%, #213183 78%)', ink: '#ffffff', bar: 'rgba(255,255,255,.28)', barOn: '#fff' },
+  photo: { bg: '#141620', ink: '#ffffff', bar: 'rgba(255,255,255,.32)', barOn: '#fff' },
 };
 // 12px 아래로 내려갈 수 있는 글은 muted로 칠한다(HANDOFF §8 D9 — faint는 12px 이상에만) ·
 // 최소 10px(max()로 바닥을 둔다 — 장 글자 크기가 화면 높이를 따라가므로)
@@ -105,13 +108,14 @@ function useSplit(probeRef, count, deps) {
   return pages;
 }
 
-export function ServiceStory({ service, verses = [], nameOf, realName, onClose }) {
+export function ServiceStory({ service, verses = [], nameOf, realName, cover: coverPhoto = null, onClose }) {
   const rootRef = useRef(null);
   const wordProbe = useRef(null);
   const noticeProbe = useRef(null);
   const [i, setI] = useState(0);
   const season = useMemo(() => churchSeason(service?.service_date), [service?.service_date]);
-  const cover = COVER[season?.color || 'plain'];
+  const photo = useCoverShown(coverPhoto);
+  const cover = COVER[photo.shown ? 'photo' : (season?.color || 'plain')];
   const date = paperDate(service?.service_date);
   const kind = kindLabel(service?.kind);
   const songs = Array.isArray(service?.songs) ? service.songs : [];
@@ -181,8 +185,9 @@ export function ServiceStory({ service, verses = [], nameOf, realName, onClose }
     const base = `story-card absolute inset-0 flex flex-col transition-opacity duration-150 motion-reduce:transition-none ${on ? 'opacity-100 visible' : 'opacity-0 invisible'}`;
     if (p.kind === 'cover') {
       return (
-        <section key={k} data-page="cover" aria-hidden={!on} className={`${base} justify-end`}
+        <section key={k} data-page="cover" aria-hidden={!on} className={`${base} justify-end${photo.shown ? ' has-cover story-cover-photo' : ''}`}
           style={{ ...CARD_PAD, paddingBottom: '1.8em', background: cover.bg, color: cover.ink }}>
+          {photo.shown && <CoverImg cover={coverPhoto} focus={service?.cover_focus_y} onFail={photo.onFail} />}
           <div className="flex flex-col gap-[.35em]">
             {season?.name && <span className="story-season" style={{ fontSize: '.74em', fontWeight: 700, letterSpacing: '.02em', opacity: 0.85 }}>{season.name}</span>}
             <span style={{ fontSize: '.92em', fontWeight: 800, letterSpacing: '-.02em' }}>{kind}</span>

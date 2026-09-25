@@ -906,7 +906,7 @@ export async function ensureServiceFolder(service) {
 
 // `kind`를 안 주면 'songform'이다 — 0047부터 이 함수를 부른 자리가 전부 송폼이었고,
 // 0054가 옛 행을 그 값으로 백필했다. null로 두면 업무 첨부(card_id)와 구분이 없어진다.
-export const SERVICE_FILE_KINDS = ['songform', 'cuesheet'];
+export const SERVICE_FILE_KINDS = ['songform', 'cuesheet', 'cover'];   // cover = 표지 사진(0081)
 export async function uploadServiceFile(file, { serviceId, serviceDate, serviceFolderId, kind = 'songform' }) {
   const folderHint = serviceFolderId
     ? { folderId: serviceFolderId }

@@ -2098,6 +2098,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const pf = join(dir, 'people.mjs');
   // titleText.js는 순수 모듈이라 그대로 옆에 둔다(2026-09-08 — 유튜브 제목 NFKC 정규화)
   writeFileSync(join(dir, 'titleText.js'), readFileSync(new URL('../src/services/titleText.js', import.meta.url), 'utf8'));
+  // serviceView.js(표지 갈래 · 0081)와 그것이 부르는 noteTemplate.js도 순수 모듈이라 그대로 옆에 둔다
+  for (const f of ['serviceView.js', 'noteTemplate.js']) writeFileSync(join(dir, f), readFileSync(new URL(`../src/services/${f}`, import.meta.url), 'utf8'));
   const wf = join(dir, 'worship.mjs');
   writeFileSync(pf, strip(readFileSync(new URL('../src/services/people.js', import.meta.url), 'utf8')));
   writeFileSync(wf, strip(readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8')));
@@ -3669,6 +3671,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
       `const guestStore = () => ({ all: () => ({}), rows: (t) => (${JSON.stringify(seed)})[t] || [], set: () => {} }); const byName = (a, b) => String(a?.name || "").localeCompare(String(b?.name || ""), "ko");`);
   const dir = mkdtempSync(join(tmpdir(), 'b2svc-'));
   writeFileSync(join(dir, 'titleText.js'), readFileSync(new URL('../src/services/titleText.js', import.meta.url), 'utf8'));
+  // serviceView.js(표지 갈래 · 0081)와 그것이 부르는 noteTemplate.js도 순수 모듈이라 그대로 옆에 둔다
+  for (const f of ['serviceView.js', 'noteTemplate.js']) writeFileSync(join(dir, f), readFileSync(new URL(`../src/services/${f}`, import.meta.url), 'utf8'));
   const wf = join(dir, 'worship.mjs');
   writeFileSync(wf, src);
   const W = await import(pathToFileURL(wf).href);
@@ -3699,7 +3703,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     && /fetchAttendanceCounts\(\{ since: countsSince\(day\) \}\)/.test(home), '홈은 가벼운 열 + 여덟 주');
   assert.ok(/fetchServices\(\{ columns: GUIDE_SERVICE_COLS \}\)/.test(groups)
     && /fetchAttendanceCounts\(\{ since: countsSince\(\) \}\)/.test(groups), '모임은 가이드 열 + 여덟 주');
-  assert.ok(/fetchServices\(\), fetchAttendanceCounts\(\)\]/.test(worshipV),
+  assert.ok(/fetchServices\(\), fetchAttendanceCounts\(\),/.test(worshipV),
     '예배 목록은 전체 열·전체 출석 — 지난 주보마다 출석 N명 · 최근 곡 · 임사자 물려받기');
 
   // ⑤ 소비자가 읽는 칸이 전부 들어 있나
@@ -4851,6 +4855,37 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     [{ role: '대표 기도', value: '강서윤 자매' }, { role: '헌금봉헌', value: '윤현서 자매' }]);
   assert.deepStrictEqual(SV.storyNotices([{ title: '다음 주 예배 위원', body: 'x: y' }, { title: '제목만', body: '  ' }, { title: '', body: ' ' }, {}, { title: '교우동정', body: '생일' }, { title: '', body: '본문만' }]).map(n => n.title || n.body),
     ['제목만', '교우동정', '본문만'], '스토리 광고는 전부(제목만 있는 것도) · 둘 다 빈 줄만 뺀다 · 다음 주 위원은 마지막 장으로');
+  // 표지 사진(0081) — lh3 자르지 않은 주소(=w720 · 1x =w360 · -c 없음) · 위치 한 칸 · 목록 한 번에 가장 최근 한 장 · 틀 끌기
+  assert.deepStrictEqual(SV.coverImage({ drive_file_id: 'abc' }), { src: 'https://lh3.googleusercontent.com/d/abc=w720',
+    srcSet: 'https://lh3.googleusercontent.com/d/abc=w360 1x, https://lh3.googleusercontent.com/d/abc=w720 2x' });
+  assert.ok(!/-c\b|=w\d+-h/.test(SV.coverImage({ drive_file_id: 'x' }).srcSet), '자르는 주소(-c)를 쓰지 않는다 — 위치를 서버가 버린다');
+  assert.deepStrictEqual(SV.coverImage({ _src: 'blob:1', drive_file_id: 'abc' }), { src: 'blob:1', srcSet: undefined }, '방금 올린 것은 브라우저 안 주소가 이긴다');
+  assert.strictEqual(SV.coverImage({ source: 'storage', storage_path: 'a/b' }), null, '드라이브 id가 없으면 사진 없이');
+  assert.strictEqual(SV.coverImage(null), null);
+  assert.deepStrictEqual([SV.coverPosition(0.7), SV.coverPosition(undefined), SV.coverPosition(-1), SV.coverPosition(2), SV.coverPosition(0.333)],
+    ['50% 70%', '50% 50%', '50% 0%', '50% 100%', '50% 33.3%']);
+  const cm = SV.coverMap([{ id: 'a', service_id: 's1', kind: 'cover', created_at: '2026-09-01' }, { id: 'b', service_id: 's1', kind: 'cover', created_at: '2026-09-02' },
+    { id: 'c', service_id: 's2', kind: 'songform', created_at: '2026-09-03' }, { id: 'd', service_id: 's3', created_at: '2026-09-03' }]);
+  assert.deepStrictEqual(Object.fromEntries(Object.entries(cm).map(([k, v]) => [k, v.id])), { s1: 'b', s3: 'd' }, '겹치면 가장 최근 · 표지 아닌 갈래는 버린다');
+  const fr = SV.coverFrame(343, 514.5, 0.5);
+  assert.ok(Math.abs(fr.height - 76) < 1e-9 && Math.abs(fr.top - (514.5 - 76) / 2) < 1e-9, '틀은 카드 비율 · 폭을 다 쓰고 y만큼 내려간다');
+  assert.deepStrictEqual(SV.coverFrame(343, 50, 0.9), { top: 0, height: 50 }, '사진이 틀보다 납작하면 사진 높이에 멈춘다');
+  assert.strictEqual(SV.dragFocus(0.5, 438.5 / 2, 343, 514.5), 1, '틀이 갈 수 있는 거리의 절반을 내리면 끝');
+  assert.strictEqual(SV.dragFocus(0.5, -9999, 343, 514.5), 0);
+  assert.strictEqual(SV.dragFocus(0.3, 40, 343, 50), 0.3, '움직일 거리가 없으면 그대로');
+  // 표지 배선 — 같은 업로드 한 벌(kind만) · 목록 한 번에 한 조회 · 조회 칸 · 종이에는 없다 · 0081 모양
+  const cl = readFileSync(new URL('../src/services/cloud.js', import.meta.url), 'utf8');
+  const wsvc = readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8');
+  const wview = readFileSync(new URL('../src/views/worshipView.jsx', import.meta.url), 'utf8');
+  const wpaper = readFileSync(new URL('../src/components/paper.jsx', import.meta.url), 'utf8');
+  const m81 = readFileSync(new URL('../supabase/migrations/0081_service_cover.sql', import.meta.url), 'utf8');
+  assert.ok(/SERVICE_FILE_KINDS = \['songform', 'cuesheet', 'cover'\]/.test(cl), 'cloud.uploadServiceFile이 cover 갈래를 받는다');
+  assert.ok(/const COLS = '[^']*\bcover_focus_y\b/.test(wsvc), '주보 조회에 cover_focus_y');
+  assert.ok(/\.from\('files'\)[\s\S]{0,160}\.eq\('kind', COVER\)/.test(wsvc) && !/fetchCovers\(s\.id|fetchCovers\(svc/.test(wview), '표지는 목록 한 번에 한 조회(주보마다 부르지 않는다)');
+  assert.ok(/sendServiceFile\(file, await serviceFolder\(\), COVER\)/.test(wview) && /removeServiceFile\(old\)/.test(wview), '표지도 같은 업로드 길 · 새 것 뒤에 옛 것을 지운다');
+  assert.ok(!/cover/i.test(wpaper), '주보 종이(PDF)는 표지를 모른다');
+  assert.ok(/'songform', 'cuesheet', 'cover'/.test(m81) && /cover_focus_y real not null default 0\.5/.test(m81) && /cover_focus_y >= 0 and cover_focus_y <= 1/.test(m81),
+    '0081 — files.kind에 cover · services.cover_focus_y 0~1 기본 .5');
   // 장 나누기 — 넘치면 다음 장 · 혼자 넘는 것은 혼자 · 못 쟀으면 한 장
   assert.deepStrictEqual(SV.packPages([100, 100, 100], 250, 10), [[0, 2], [2, 3]]);
   assert.deepStrictEqual(SV.packPages([100, 400, 50], 250, 10), [[0, 1], [1, 2], [2, 3]]);

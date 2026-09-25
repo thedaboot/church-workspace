@@ -21,8 +21,9 @@ import {
   fetchPlaylistSongs, fetchVideoTitle, setNoteShared,
   fetchServiceFiles, ensureServiceDriveFolder, uploadServiceFile, removeServiceFile, SONGFORM,
   recentSongs as worshipRecentSongs, prefillRoles as worshipPrefillRoles,
-  fetchMyNotes, noticeIcsUrl,
+  fetchMyNotes, noticeIcsUrl, fetchCovers, COVER,
 } from '../services/worship.js';
+import { CoverImg, useCoverShown } from '../components/worshipCover.jsx';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 import { imeComposing, isKakaoInApp } from '../utils.js';
 import { churchSeason } from '../services/churchYear.js';
@@ -129,12 +130,15 @@ const metaParts = (service) => [
 // 뜻이 없어진다. 모양은 index.css `.season-wash`. **배경은 backgroundColor로 준다** — 인라인
 // `background` 줄임말은 background-image까지 none으로 덮어 클래스의 물이 사라진다.
 const CARD_SEASON_STYLE = { backgroundColor: 'var(--app-surface)', border: '1px solid var(--app-line)' };
-function ServiceCard({ service, onOpen, attended = 0 }) {
+// **표지 사진**(0081)이 있으면 사진이 이긴다 — 절기 물은 빠지고 점만 흰 테두리로 남는다(index.css `.has-cover`).
+function ServiceCard({ service, onOpen, attended = 0, cover = null }) {
   const isDraft = service.status !== 'published';
   const season = churchSeason(service.service_date);
+  const photo = useCoverShown(cover);
   return (
     <button type="button" onClick={() => onOpen(service)} data-season={season?.color || 'plain'}
-      className={`worship-card season-wash dc-card w-full text-left px-4 py-3.5 ${CARD}`} style={CARD_SEASON_STYLE}>
+      className={`worship-card season-wash dc-card relative w-full text-left px-4 py-3.5 ${CARD}${photo.shown ? ' has-cover' : ''}`} style={CARD_SEASON_STYLE}>
+      {photo.shown && <CoverImg cover={cover} focus={service.cover_focus_y} onFail={photo.onFail} />}
       <div className="flex items-start gap-2">
         <p className="worship-card-title flex-1 min-w-0 text-[15px] font-bold text-fg tracking-[-0.2px] break-words">
           {service.title || '설교 제목 미정'}
@@ -253,7 +257,7 @@ function NewServiceForm({ onCreate, onCancel, closing = false }) {
 // failed — 캐시 없는 첫 읽기가 실패했을 때 { reason, onRetry }(D2). 그때 services는 빈 목록이
 // 아니라 **없는 것**이고(부르는 쪽 services === null), 빈 문구 자리에 실패 두 줄이 선다.
 // onOpenNotes — '내 예배 노트' 모아 보기(2026-09-25). 노트를 쓸 수 있는 사람(가입자 · 게스트)에게만 선다.
-function ServiceList({ services, perms, counts = {}, onOpen, onCreate, onOpenNotes = null, failed = null }) {
+function ServiceList({ services, perms, counts = {}, covers = {}, onOpen, onCreate, onOpenNotes = null, failed = null }) {
   // 출석 수는 **지난 예배**에만 붙인다 — 오늘·앞으로 올 예배의 '출석 0명'은 아직 부르지
   // 않았다는 뜻이지 아무도 안 왔다는 뜻이 아니다(그 예배의 출석은 출석 화면이 말한다).
   // 오늘은 **한국 시간**이고 그 셈은 services/worship.js의 kstNow 한 벌이다 —
@@ -331,7 +335,7 @@ function ServiceList({ services, perms, counts = {}, onOpen, onCreate, onOpenNot
           날짜·종류·본문·설교자가 다 한 줄에 선다(index.css의 메타 규칙과 한 벌이다). */}
       <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
         {shown.map(s => (
-          <ServiceCard key={s.id} service={s} onOpen={onOpen}
+          <ServiceCard key={s.id} service={s} onOpen={onOpen} cover={covers[s.id] || null}
             attended={String(s.service_date) < today ? (counts[s.id] || 0) : 0} />
         ))}
       </div>
@@ -420,8 +424,10 @@ export function WorshipView({ onOpenBible } = {}) {
   // 게스트에서는 캐시가 메모리에만 있어서(cache.js) 새로고침하면 첫 진입과 같다.
   const year = new Date().getFullYear();
   const cached = useCached(`worship:list:${year}`,
-    () => Promise.all([fetchWorshipPerms(year, { isMaster, isAdmin }), fetchServices(), fetchAttendanceCounts()])
-      .then(([ps, rows, n]) => ({ perms: ps, services: rows, counts: n })),
+    // 표지(0081)는 목록 한 번에 한 조회다. 꾸밈이라 **실패해도 목록은 선다**(사진 없이 절기 색으로).
+    () => Promise.all([fetchWorshipPerms(year, { isMaster, isAdmin }), fetchServices(), fetchAttendanceCounts(),
+      fetchCovers().catch((e) => { console.warn('[worship] 표지 조회 실패 — 사진 없이 선다:', e?.message || e); return {}; })])
+      .then(([ps, rows, n, cv]) => ({ perms: ps, services: rows, counts: n, covers: cv })),
     [isMaster, isAdmin, year]);
 
   // 캐시 값은 **첫 렌더부터** 들고 있다(useState 초기값) — 이펙트에서 넣으면 한 프레임
@@ -429,6 +435,7 @@ export function WorshipView({ onOpenBible } = {}) {
   const [perms, setPerms] = useState(() => cached.data?.perms ?? null);
   const [services, setServices] = useState(() => cached.data?.services ?? null);
   const [counts, setCounts] = useState(() => cached.data?.counts ?? {});   // 주보 id → 출석 수(손님 포함)
+  const [covers, setCovers] = useState(() => cached.data?.covers ?? {});   // 주보 id → 표지 files 행(0081)
   const [openId, setOpenId] = useState(null);
   const [screen, setScreen] = useState('list');      // 'list' | 'detail' | 'attendance' | 'notes'
   // 내 예배 노트 모아 보기(2026-09-25) — null이면 읽는 중. 노트 행만 받고 주보는 이미 손에 있는
@@ -465,6 +472,10 @@ export function WorshipView({ onOpenBible } = {}) {
     if (!cached.data) return;
     setPerms(cached.data.perms); setServices(cached.data.services);
     setCounts(cached.data.counts || {});
+    // 방금 올린 표지는 브라우저 안 주소(_src)를 쥔 채 둔다 — 드라이브가 섬네일을 만들기 전 몇 초 동안
+    // lh3가 비어 있어서, 다시 읽은 행으로 갈아 끼우면 사진이 잠깐 사라진다. 같은 행일 때만 이어 준다.
+    setCovers(prev => Object.fromEntries(Object.entries(cached.data.covers || {}).map(([sid, row]) => [sid,
+      (prev[sid]?.id === row.id && prev[sid]?._src) ? { ...row, _src: prev[sid]._src } : row])));
   }, [cached.data]);
 
   // 읽기 실패 — **캐시가 있으면** 지난 목록이 그대로 서 있으니 토스트로 한 번 말한다.
@@ -797,6 +808,20 @@ export function WorshipView({ onOpenBible } = {}) {
   // **고르자마자 목록에 선다**(§6-29-k). 드라이브 왕복이 5~10초라 그동안 아무것도
   // 안 보이면 화면이 아무 일도 안 하는 것처럼 읽힌다. 바이트는 메모리에만 있으므로
   // 아직 없는 것(삭제)은 그 줄에 달지 않는다.
+  // **폴더를 파일보다 먼저**(§6-29-h) — 가벼운 호출로 한 번만 판다. 실패해도 올린다:
+  // 스크립트가 path로 폴더를 찾는 폴백이 있어 파일은 제자리에 간다.
+  const serviceFolder = useCallback(async () => {
+    let folderId = null;
+    try { folderId = await ensureServiceDriveFolder(service); }
+    catch (e) { console.error('[worship] 주보 폴더 확보 실패:', e); }
+    if (folderId && !service.drive_folder_id) {
+      setServices(list => (list || []).map(s => (s.id === service.id ? { ...s, drive_folder_id: folderId } : s)));
+    }
+    return folderId;
+  }, [service]);
+  // 주보 파일이 드라이브로 가는 **한 자리**(§6-29-u) — 송폼·큐시트·표지(0081)가 kind만 달리해 여기를 지난다
+  const sendServiceFile = useCallback((file, folderId, kind) => uploadServiceFile(service, file, folderId, { kind }), [service]);
+
   const uploadFiles = useCallback(async (fileList, kind = SONGFORM) => {
     const picked = Array.from(fileList || []);
     if (!picked.length || !service) return;
@@ -813,18 +838,11 @@ export function WorshipView({ onOpenBible } = {}) {
       source: 'local', _pending: true, _file: f,
     }));
     setFiles(prev => [...prev, ...staged]);
-    // **폴더를 파일보다 먼저**(§6-29-h) — 가벼운 호출로 한 번만 판다. 실패해도 올린다:
-    // 스크립트가 path로 폴더를 찾는 폴백이 있어 파일은 제자리에 간다.
-    let folderId = null;
-    try { folderId = await ensureServiceDriveFolder(service); }
-    catch (e) { console.error('[worship] 주보 폴더 확보 실패:', e); }
-    if (folderId && !service.drive_folder_id) {
-      setServices(list => (list || []).map(s => (s.id === service.id ? { ...s, drive_folder_id: folderId } : s)));
-    }
+    const folderId = await serviceFolder();
     for (let i = 0; i < ok.length; i += 1) {
       const stagedId = staged[i].id;
       try {
-        const row = await uploadServiceFile(service, ok[i], folderId, { kind });
+        const row = await sendServiceFile(ok[i], folderId, kind);
         setFiles(prev => prev.map(x => (x.id === stagedId ? row : x)));
       } catch (e) {
         console.error('[worship] 주보 파일 올리기 실패:', e);
@@ -833,7 +851,7 @@ export function WorshipView({ onOpenBible } = {}) {
       }
     }
     invalidate();
-  }, [service, invalidate]);
+  }, [service, invalidate, serviceFolder, sendServiceFile]);
 
   // **줄을 먼저 지우고 서버에 알린다**(§6-29-e와 같은 순서 · 첨부와 한 벌).
   // 실패하면 되돌린다 — 지워진 척하고 사라지면 파일을 잃은 것으로 읽힌다.
@@ -849,6 +867,53 @@ export function WorshipView({ onOpenBible } = {}) {
       showToast(fail(`'${row.name}'을(를) 지우지 못했어요`, e, { 42501: NEED_EDIT_FILE }));
     }
   }, [invalidate]);
+
+  // ── 표지 사진 (0081) ──────────────────────────────────────────────────────
+  // 올리는 길은 위 송폼·큐시트와 **한 벌**이다(uploadServiceFile · 같은 폴더 · kind만 'cover').
+  // 주보당 한 장 — 새 것이 들어간 **뒤에** 옛 것을 지운다(올리다 실패하면 옛 표지가 그대로 남게).
+  // 새 사진은 보일 위치를 .5로 되돌린다(창은 화면이 곧바로 연다 — worshipDetail).
+  // 고르자마자 브라우저 안 주소(_src)로 먼저 선다(§6-29-k — 드라이브 왕복이 5~10초다).
+  const uploadCover = useCallback(async (file) => {
+    if (!service || !file) return false;
+    if (!String(file.type || '').startsWith('image/')) { showToast('표지는 사진 파일만 올릴 수 있어요'); return false; }
+    if (file.size > MAX_UPLOAD_BYTES) { showToast(`'${file.name}'은(는) ${MAX_UPLOAD_MB}MB를 넘어 올리지 못했어요.`); return false; }
+    const sid = service.id;
+    const old = covers[sid] && !covers[sid]._pending ? covers[sid] : null;
+    const local = URL.createObjectURL(file);
+    setCovers(prev => ({ ...prev, [sid]: { id: `local:${file.name}`, service_id: sid, kind: COVER, _pending: true, _src: local } }));
+    if (Number(service.cover_focus_y ?? 0.5) !== 0.5) void save({ cover_focus_y: 0.5 });
+    try {
+      const row = await sendServiceFile(file, await serviceFolder(), COVER);
+      setCovers(prev => ({ ...prev, [sid]: { ...row, _src: row._src || local } }));
+      if (old?.id) {
+        try { await removeServiceFile(old); } catch (e) { console.error('[worship] 옛 표지 정리 실패:', e); }
+      }
+      invalidate();
+      return true;
+    } catch (e) {
+      console.error('[worship] 표지 올리기 실패:', e);
+      setCovers(prev => { const next = { ...prev }; if (old) next[sid] = old; else delete next[sid]; return next; });
+      showToast(fail('표지 사진을 올리지 못했어요', e, { 42501: NEED_EDIT_FILE }));
+      return false;
+    }
+  }, [service, covers, save, invalidate, serviceFolder, sendServiceFile]);
+
+  const removeCover = useCallback(async () => {
+    const sid = service?.id;
+    const row = sid ? covers[sid] : null;
+    if (!row || row._pending) return;
+    setCovers(prev => { const next = { ...prev }; delete next[sid]; return next; });
+    try {
+      await removeServiceFile(row);
+      invalidate();
+    } catch (e) {
+      console.error('[worship] 표지 제거 실패:', e);
+      setCovers(prev => ({ ...prev, [sid]: row }));
+      showToast(fail('표지 사진을 지우지 못했어요', e, { 42501: NEED_EDIT_FILE }));
+    }
+  }, [service, covers, invalidate]);
+
+  const saveCoverFocus = useCallback((y) => save({ cover_focus_y: y }), [save]);
 
   // 올리는 중에 탭을 닫으면 그 파일은 드라이브에도 DB에도 없이 사라진다 — 바이트가
   // 메모리에만 있기 때문이다(§6-29-k). 업무 첨부와 같이 브라우저가 먼저 묻는다.
@@ -1006,6 +1071,7 @@ export function WorshipView({ onOpenBible } = {}) {
         service={service} people={roster.people} personRoles={roster.roles} perms={perms} note={note} canWriteNote={canWriteNote}
         startEditing={editOnOpen} files={files} recentSongs={recentSongs} prefill={prefill}
         onUploadFiles={uploadFiles} onRemoveFile={removeFile}
+        cover={covers[service.id] || null} onUploadCover={uploadCover} onRemoveCover={removeCover} onSaveCoverFocus={saveCoverFocus}
         onBack={() => { setScreen('list'); setOpenId(null); setEditOnOpen(false); setNoteOnOpen(false); }}
         onSave={save} onPublish={publish} onDelete={drop} onSaveNote={saveNote}
         onOpenAttendance={() => { setEditOnOpen(false); setNoteOnOpen(false); setScreen('attendance'); }}
@@ -1021,6 +1087,6 @@ export function WorshipView({ onOpenBible } = {}) {
   // 스켈레톤이 영영 남지 않게 하는 것은 위 진입 이펙트의 ② 갈래다.
   if (wantId) return DETAIL_LOADING;
 
-  return <ServiceList services={services} perms={perms} counts={counts} onOpen={open} onCreate={create}
+  return <ServiceList services={services} perms={perms} counts={counts} covers={covers} onOpen={open} onCreate={create}
     onOpenNotes={canWriteNote ? openNotes : null} />;
 }

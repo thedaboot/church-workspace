@@ -614,10 +614,16 @@ check('송폼 드라이브 자리는 예배/<날짜> 한 벌이고 폴더가 파
     '폴더 id를 services에 안 적는다 — 다음 업로드가 같은 이름 폴더를 또 만든다');
   // §6-29-h: 무거운 호출(파일 쓰기)이 폴더 만들기까지 겸하면 첫 업로드가 가장 느리다
   const folderAt = view.search(/ensureServiceDriveFolder\(service\)/);
-  const upAt = view.search(/await uploadServiceFile\(service/);
+  // 2026-09-26(표지 0081): 폴더 확보는 serviceFolder 한 벌, 드라이브로 가는 자리는 sendServiceFile 한 벌이고
+  // 송폼·큐시트(uploadFiles)와 표지(uploadCover)가 둘 다 **폴더를 먼저** 받아 넘긴다
+  const upAt = view.search(/uploadServiceFile\(service/);
   assert.ok(folderAt > 0, 'ensureServiceDriveFolder 호출을 못 찾았다');
   assert.ok(upAt > 0, 'uploadServiceFile 호출을 못 찾았다');
   assert.ok(folderAt < upAt, '폴더 확보가 업로드보다 뒤에 있다');
+  const bulk = view.slice(view.indexOf('const uploadFiles = useCallback'));
+  assert.ok(bulk.search(/await serviceFolder\(\)/) > 0 && bulk.search(/await serviceFolder\(\)/) < bulk.search(/sendServiceFile\(ok\[i\]/),
+    '송폼·큐시트가 폴더를 받기 전에 올린다');
+  assert.match(view, /sendServiceFile\(file, await serviceFolder\(\), COVER\)/, '표지가 폴더를 받기 전에 올린다');
 });
 
 check('초기 로드가 주보 송폼까지 끌어오지 않는다', () => {
@@ -658,8 +664,9 @@ check('큐시트 파일이 송폼과 같은 길을 지나고 갈래는 kind 한 
   // 업로드 길은 **하나**다 — 큐시트가 두 번째 uploadServiceFile 호출부를 만들면 §6-29-u다
   const ups = [...view.matchAll(/uploadServiceFile\(/g)].length;
   assert.strictEqual(ups, 1, `worshipView에 uploadServiceFile 호출이 ${ups}군데다 — 첨부를 올리는 길은 하나여야 한다`);
-  assert.match(view, /uploadServiceFile\(service, ok\[i\], folderId, \{ kind \}\)/,
+  assert.match(view, /uploadServiceFile\(service, file, folderId, \{ kind \}\)/,
     '업로드가 갈래를 안 싣는다 — 큐시트로 고른 파일이 송폼으로 저장된다');
+  assert.match(view, /sendServiceFile\(ok\[i\], folderId, kind\)/, '송폼·큐시트 업로드가 갈래를 안 넘긴다');
   assert.match(wsvc, /export async function uploadServiceFile\(service, file, folderId = null, \{ kind = SONGFORM \} = \{\}\)/,
     'worship.uploadServiceFile의 기본 갈래가 송폼이 아니다 — 옛 호출부의 뜻이 바뀐다');
   // 게스트 저장 자리도 갈래를 들고 있어야 브라우저 검사가 두 줄을 갈라 볼 수 있다

@@ -898,3 +898,16 @@ reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가
     섞은 차례는 localStorage `bible_mood_memo` 한 벌 — 닫히는 순간 그때 보인 칩(`last`)과 시각을 적고, 1분이 지나 열면 새로 섞어 `last`를 뒤로 민다.
 53-g. **장을 '본' 기록은 5초 타이머가 남긴다**(`READ_DWELL_MS` + 100ms · 장을 옮기면 풀린다) — 켬/끔을 **타이머가 끝날 때** 읽는다(판에서 방금 끈 사람의 줄이 남지 않게). 끄면 `clearMyReads`가 내 줄을 모두 지운다.
     지난주 줄은 11:30 배치(`api/push.js handleWorshipThenMeetings`) 끝의 delete 한 줄이 지운다 — **크론을 새로 만들지 않는다**(자리가 둘뿐이다 · `tests/logcheck`가 `vercel.json` 크론 둘을 단정한다).
+
+### 주보 표지 사진 (2026-09-26 · 0081)
+
+**32-zg.** **lh3 주소에 `-c`(가운데 자르기)를 붙이지 않는다** — 서버가 잘라 버리면 `object-position`으로 고른 위치가 사라진다. 자르지 않은 `=w720`(1x `=w360`)을 받아
+    CSS `object-fit: cover`가 자른다(`serviceView.coverImage` · `tests/logcheck`). 방금 올린 사진은 드라이브가 섬네일을 만들기 전 몇 초 동안 lh3가 비어 있을 수 있어
+    **브라우저 안 주소(`_src`)를 쥔 채 둔다** — 목록을 다시 읽어도 같은 행이면 이어 준다(`worshipView` covers 병합). lh3가 깨지면 `CoverImg`가 스스로 빠지고 절기 색으로 선다.
+
+**32-zh.** **`.has-cover`에 position을 주지 않는다** — 커스텀 CSS는 층 밖이라 Tailwind 유틸리티를 이긴다. `position: relative`를 두면 스토리 장의
+    `absolute inset-0`이 풀려 장이 겹치지 않고 아래로 쌓인다. 자리는 부모가 `relative`/`absolute`로 정하고 `.has-cover`는 `isolation`·`overflow`·덮개만 맡는다.
+
+**32-zi.** **주보 파일이 드라이브로 가는 자리는 `worshipView.sendServiceFile` 하나다** — 표지를 붙이면서 `uploadServiceFile(` 호출이 둘이 되자 `tests/drivesync`의
+    '업로드 길은 하나'(§6-29-u)가 깨졌다. 폴더 확보도 `serviceFolder` 한 벌이고 송폼·큐시트·표지가 **폴더를 먼저** 받아 넘긴다. 표지는 **새 행을 넣은 뒤에** 옛 행을 지운다
+    (올리다 실패하면 옛 표지가 남게) — 그래서 유일 인덱스를 두지 않았고 읽는 쪽(`coverMap`)은 가장 최근 한 장을 쓴다.
