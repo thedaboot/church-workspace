@@ -865,7 +865,10 @@ export function BibleTab({ initialRef = '' }) {
              내려가는데 키보드의 '검색'으로 내면 그대로 남아 결과 절반을 가렸다. 마우스에서는 칸에 남는다
              (이어서 고쳐 치는 자리다). */
           onSubmit={e => { e.preventDefault(); runSearch(typed); if (coarsePointer()) inputRef.current?.blur(); }}
-          className="relative flex-1 min-w-0 flex items-center gap-1.5 px-2.5 h-9 rounded-md"
+          /* 포커스 테두리는 **칸 상자(form)** 에 선다(2026-09-25). 앱 전역의 `*:focus-visible`(index.css ·
+             레이어 밖이라 `outline-none` 유틸을 이긴다)이 안쪽 input에 걸려, 둥근 칸 안에 네모 테두리가
+             아이콘에 붙어 떴다. 같은 테두리(accent 2px · 2px 띄움)를 상자로 옮기고 input은 끈다. */
+          className="relative flex-1 min-w-0 flex items-center gap-1.5 px-2.5 h-9 rounded-md has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-accent"
           style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}
         >
           <Search size={14} className="shrink-0 text-fg-faint" />
@@ -875,7 +878,7 @@ export function BibleTab({ initialRef = '' }) {
             onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
             /* 속성은 첫 줄로 고정하고 보이는 글자는 SearchHint가 돌린다(layout.jsx와 한 벌) */
             placeholder={BIBLE_HINTS[0]} aria-label={BIBLE_HINTS[0]}
-            className="flex-1 min-w-0 bg-transparent text-[12.5px] text-fg placeholder:text-transparent outline-none"
+            className="flex-1 min-w-0 bg-transparent text-[12.5px] text-fg placeholder:text-transparent outline-none!"
           />
           {/* 왼쪽 여백은 아이콘 폭 그대로 — 패딩 10px + 아이콘 14px + 사이 6px */}
           {/* 최근 검색어 판이 떠 있는 동안에는 **첫 줄에 고정**한다(사용자 결정 2026-09-14).

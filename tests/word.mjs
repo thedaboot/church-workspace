@@ -3043,6 +3043,14 @@ const bibleSearchBox = async (w, h) => {
     return { w: Math.round(r.width), up: on(cx, r.top - 5), down: on(cx, r.bottom + 5), right: on(r.right + 5, cy), left: on(r.left - 3, cy) };
   })()`);
   check('검색어 지우기 단추는 둘레를 눌러도 닿는다', clr.up && clr.down && clr.right && clr.left, JSON.stringify(clr));
+  // ④ 포커스 테두리는 둥근 칸 상자에 서고 안쪽 input에는 없다 — 전역 `*:focus-visible`이 input에 걸려
+  //    둥근 칸 안에 네모 테두리가 아이콘에 붙어 떴다.
+  //    되돌리기 검사: input의 `outline-none!`을 `outline-none`으로 되돌리면 ④가 깨진다.
+  await ev(`document.querySelector('[data-col="searchbar"] input').focus()`);
+  await sleep(150);
+  const ring = await ev(`(() => { const i = document.querySelector('[data-col="searchbar"] input'); const a = getComputedStyle(i), b = getComputedStyle(i.form);
+    return { fv: i.matches(':focus-visible'), input: a.outlineStyle, form: b.outlineStyle + ' ' + b.outlineWidth }; })()`);
+  check('성경 검색 칸의 포커스 테두리는 칸 상자에 선다(안쪽 input에는 없다)', ring.fv && ring.input === 'none' && ring.form === 'solid 2px', JSON.stringify(ring));
   await send('Emulation.setTouchEmulationEnabled', { enabled: false });
 }
 await ev(`localStorage.removeItem('word_bible_state')`);
