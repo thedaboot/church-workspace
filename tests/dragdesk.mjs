@@ -181,6 +181,22 @@ if (col.found) {
   check('카드를 상시 줄에 놓으면 상시가 되고 날짜가 지워진다', moved?.status === '상시' && !moved.dueDate && !moved.startDate, JSON.stringify(moved));
   check('줄의 머리가 `상시 2`로', await ev(`document.querySelector('[data-ongoing-row]')?.firstElementChild.textContent.trim() || null`) === '상시 2', '');
 
+  // 칩끼리 순서 바꾸기(사용자 요청 2026-09-25) — 둘째 칩을 첫째 칩 위에 놓으면 앞으로 온다.
+  // 되돌리기 검사: OngoingChip의 `useDroppable({ id: \`card:${task.id}\` })`를 빼면 줄 빈 자리(⓪)로
+  // 떨어져 맨 끝에 남고 이 단정이 깨진다.
+  const chipOrder = () => ev(`[...document.querySelectorAll('.ongoing-chip')].map(c => c.title)`);
+  const before = await chipOrder();
+  const sw = await ev(`(() => {
+    const cs = [...document.querySelectorAll('.ongoing-chip')];
+    if (cs.length < 2) return null;
+    const a = cs[0].getBoundingClientRect(), b = cs[1].getBoundingClientRect();
+    return { from: { x: b.left + 20, y: b.top + b.height / 2 }, to: { x: a.left + 12, y: a.top + a.height / 2 } };
+  })()`);
+  if (sw) await drag(sw.from, sw.to);
+  const after = await chipOrder();
+  check('상시 칩을 다른 칩 위에 놓으면 그 자리로 순서가 바뀐다',
+    !!sw && before?.length === 2 && after?.[0] === before[1] && after?.[1] === before[0], JSON.stringify({ before, after }));
+
   // 칩 → '진행 중' 칸 머리 바로 아래
   const k = await ev(`(() => {
     const chip = [...document.querySelectorAll('.ongoing-chip')].find(x => x.textContent.includes('예배 순번표'));

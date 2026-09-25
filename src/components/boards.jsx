@@ -300,13 +300,18 @@ function EmptyColumnMark() {
 // ── 상시 줄 ─────────────────────────────────────────────────────────────────
 // 칩 = 제목 + 담당자 얼굴(날짜 없음 — 상시는 마감이 없다). 누르면 업무 창, 끌면 칸으로.
 // 카드(.board-card)와 클래스를 가른다 — 검사(drag·dragdesk)가 첫 .board-card를 카드로 집는다.
+// 칩도 카드처럼 `card:` 드롭 대상이다(사용자 요청 2026-09-25 — 줄 안 순서를 끌어서 바꾼다).
+// 그러면 handleDragEnd ①이 상시 목록(byStatus['상시'])에서 자리를 잡아 position을 다시 매긴다 —
+// 칸의 카드를 칩 위에 놓으면 상시가 되면서 그 자리에 들어간다.
 function OngoingChip({ task, onTaskClick }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `card:${task.id}` });
+  const setRefs = React.useCallback((el) => { setNodeRef(el); setDropRef(el); }, [setNodeRef, setDropRef]);
   return (
     <div
-      ref={setNodeRef} {...attributes} {...listeners}
+      ref={setRefs} {...attributes} {...listeners}
       onClick={() => onTaskClick(task)} data-ongoing-chip={task.id} title={task.title}
-      className={`ongoing-chip inline-flex max-w-full min-w-0 items-center gap-1.5 pl-2.5 py-[3px] rounded-full border border-line bg-surface cursor-grab active:cursor-grabbing hover:bg-surface-hover transition-colors ${task.assignees.length ? 'pr-1' : 'pr-2.5'} ${isDragging ? 'opacity-40' : ''}`}
+      className={`ongoing-chip inline-flex max-w-full min-w-0 items-center gap-1.5 pl-2.5 py-[3px] rounded-full border border-line bg-surface cursor-grab active:cursor-grabbing hover:bg-surface-hover transition-colors ${task.assignees.length ? 'pr-1' : 'pr-2.5'} ${isDragging ? 'opacity-40' : ''} ${isOver && !isDragging ? 'shadow-[inset_2px_0_0_0_var(--app-accent)]' : ''}`}
     >
       <OngoingChipInner task={task} />
     </div>
@@ -405,9 +410,13 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
     const task = tasks.find(t => t.id === active.id);
     if (!task) return;
 
-    // ⓪ 상시 줄에 놓았다 → 상시로. 줄 안 순서는 없다(마감일 순 · 사람이 정할 칸이 아니다).
+    // ⓪ 상시 줄의 빈 자리에 놓았다 → 상시로, 줄 맨 끝에. 칩 위에 놓은 것은 ①이 받는다
+    //    (칩도 'card:' 대상 — 줄 안 순서 바꾸기).
     if (raw === ONGOING_DROP) {
       if (task.status !== ONGOING) onStatusChange(task, ONGOING);
+      const row = (byStatus[ONGOING] || []).filter(t => t.id !== task.id);
+      row.push(task);
+      onReorder?.(row.map((t, i) => ({ id: t.id, position: i + 1 })));
       return;
     }
 
