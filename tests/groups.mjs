@@ -2942,6 +2942,46 @@ check('다크에서도 글자가 배경에 묻히지 않는다', dc.every(([, v]
 
 await send('Emulation.clearDeviceMetricsOverride');
 
+// ── 읽기 실패 자리(D2 · 사용자 결정 2026-09-25) ────────────────────────────
+// 캐시 없는 첫 읽기가 실패하면 빈 한 벌(EMPTY_BUNDLE)로 '아직 만들어진 동아리가 없어요'를 세우지
+// 않고, 탭 자리에 사람 그림 + 토스트 첫 줄 + errorReason + '다시 시도'가 선다. 토스트는 없다.
+// 실패는 게스트 저장 자리를 망가뜨려 만든다(people: 1 → 목록 거르기에서 던진다).
+// **되돌리기**: groupsView의 `{baseFailed && (<Empty … groups-load-failed …>)}`를 지우면 첫 검사가,
+// 토스트 이펙트의 `&& baseQ.data`를 지우면 둘째 검사가 깨진다.
+{
+  const logsBefore = logs.length;
+  const poll = async (expr, to = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < to) { if (await ev(expr)) return true; await sleep(120); } return false; };
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+  await ev(`localStorage.setItem('church_groups_v1', JSON.stringify({ people: 1, groups: 1, group_members: 1 }))`);
+  await send('Page.navigate', { url: `${URL_BASE}/?p=groups` });
+  await wait('Page.loadEventFired');
+  await poll(`!!document.querySelector('.groups-load-failed')`);
+  const failed = await ev(`(() => {
+    const box = document.querySelector('.groups-load-failed');
+    const r = box?.getBoundingClientRect();
+    return { box: !!box, text: box?.innerText || '', mark: !!box?.querySelector('svg'),
+      tabs: document.querySelectorAll('.groups-tab').length,
+      empty: document.body.innerText.includes('아직 만들어진 동아리가 없어요'),
+      inView: !!r && r.left >= 0 && r.right <= innerWidth,
+      toast: [...document.querySelectorAll('[data-toast]')].map(t => t.innerText) };
+  })()`);
+  check('모임 첫 읽기가 실패하면 탭 자리에 실패 두 줄과 다시 시도가 선다(D2 · 375)',
+    failed.box && failed.mark && failed.text.startsWith('내 순과 동아리를 불러오지 못했어요')
+    && failed.text.includes('다시 시도') && failed.tabs >= 2 && !failed.empty && failed.inView,
+    JSON.stringify(failed));
+  await sleep(500);
+  const toastNow = await ev(`[...document.querySelectorAll('[data-toast]')].map(t => t.innerText)`);
+  check('모임 읽기 실패는 토스트로 한 번 더 말하지 않는다(D2)', failed.toast.length === 0 && toastNow.length === 0, JSON.stringify(toastNow));
+  await ev(`localStorage.removeItem('church_groups_v1')`);
+  await ev(`document.querySelector('.groups-load-failed .load-fail-retry')?.click()`);
+  await poll(`!document.querySelector('.groups-load-failed') && !!document.querySelector('.groups-screen')`, 6000);
+  const retried = await ev(`({ failed: !!document.querySelector('.groups-load-failed'), screen: !!document.querySelector('.groups-screen') })`);
+  check('다시 시도를 누르면 모임을 다시 읽는다(D2)', !retried.failed && retried.screen, JSON.stringify(retried));
+  const mine = logs.splice(logsBefore).filter(l => !l.includes('[groups] 모임 목록 실패'));
+  logs.push(...mine);
+  await send('Emulation.clearDeviceMetricsOverride');
+}
+
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 
 console.log(results.join('\n'));

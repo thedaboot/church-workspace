@@ -419,13 +419,41 @@ export function MeetMark() {
 // 카드 아래에 딸린 작은 구역(동아리 상세의 모임)은 호출부가 줄여 준다.
 // 캐릭터 컷 갈래(cut)는 없다 — 회차 8에서 '홈 말고는 캐릭터 없음'으로 정해서 부르는 곳
 // 여덟 자리가 모두 mark만 넘긴다. 홈은 자기 <img>로 직접 그린다(homeView의 HERO_CUT·타일).
-export function Empty({ mark, title, hint, minH = '46vh', className = '' }) {
+export function Empty({ mark, title, hint, minH = '46vh', className = '', children }) {
   return (
     <div className={`flex flex-col items-center justify-center text-center ${className}`}
-      style={{ minHeight: minH }}>
+      style={{ minHeight: minH }} role={children ? 'alert' : undefined}>
       {mark}
       <p className="text-[13.5px] font-semibold text-fg mt-3">{title}</p>
       {hint && <p className="mt-1 text-xs text-fg-faint">{hint}</p>}
+      {children}
+    </div>
+  );
+}
+
+// ── 읽기 실패 자리 (D2 · 사용자 결정 2026-09-25) ──────────────────────────
+// 캐시가 없는 첫 읽기가 실패하면 **빈 자리에 실패를 세운다** — 빈 목록을 앉히면 "아직 없어요"가
+// 서서 실패가 "아직 안 올라왔다"로 읽혔다. 첫 줄(무엇을 못 했는지)은 부르는 쪽이 빈 자리의 제목
+// 자리에 그리고(그 화면의 토스트 첫 줄 그대로), 여기는 둘째 줄(errorReason)과 '다시 시도'다.
+// 이 자리가 서면 같은 말을 하는 토스트는 띄우지 않는다(한 번만 말한다). 버튼은 공용 BTN(작은 단 · §8).
+// 누르면 **그 화면의 읽기만** 다시 돈다(onRetry). 예배 목록·모임·멤버 관리 세 화면이 쓴다.
+export function FailTail({ reason, onRetry }) {
+  return (
+    <>
+      <p className="load-fail-reason mt-1 text-xs leading-[1.625] text-fg-muted whitespace-pre-line">{reason}</p>
+      <div className="mt-3">
+        <button type="button" onClick={onRetry} className={`load-fail-retry ${BTN}`}>다시 시도</button>
+      </div>
+    </>
+  );
+}
+
+// 목록이 왼쪽 정렬인 자리(멤버 관리 — 가입자·청년 명단)의 실패 한 벌. 빈 문구 자리(py-6)에 선다.
+export function FailLeft({ title, reason, onRetry, className = '' }) {
+  return (
+    <div className={`load-failed py-6 text-left ${className}`} role="alert">
+      <p className="load-fail-title text-[13.5px] font-semibold text-fg">{title}</p>
+      <FailTail reason={reason} onRetry={onRetry} />
     </div>
   );
 }

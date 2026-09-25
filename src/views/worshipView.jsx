@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, PencilLine } from 'lucide-react';
 import { Skeleton } from '../components/media.jsx';
 import { showToast } from '../components/Toast.jsx';
-import { failText } from '../services/errorText.js';
+import { failText, errorReason } from '../services/errorText.js';
 import { useAuth } from '../services/auth.jsx';
 import { useCached, readCache, writeCache, dropCache } from '../services/cache.js';
 import { useLiveRefresh } from '../services/liveV2.js';
 import { entryParam, takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
 import { DatePicker } from '../components/DatePicker.jsx';
-import { BTN, BTN_QUIET, FIELD, LabeledField } from '../components/groupsParts.jsx';
+import { BTN, BTN_QUIET, FIELD, LabeledField, FailTail } from '../components/groupsParts.jsx';
 import { ServiceDetail, WorshipEmpty } from '../components/worshipDetail.jsx';
 import { AttendanceScreen } from '../components/worshipAttendance.jsx';
 import {
@@ -79,10 +79,14 @@ const NEED_EDIT = '주보는 회장·교역자·미디어팀·관리자만 쓸 �
 // 그대로 보고, 0054의 kind는 자격에 영향이 없다)
 const NEED_EDIT_FILE = '파일은 주보를 쓰는 사람만 붙이고 지울 수 있어요';
 const GONE = '이 주보가 이미 지워졌어요\n새로고침해주세요';
-const fail = (what, err, byCode = {}) => {
+const fail = (what, err, byCode = {}) => failText(what, { human: reasonOf(err, byCode) });
+// 뒷도막만 — 읽기 실패 자리(D2)의 둘째 줄이 토스트의 둘째 줄과 같은 말을 하게 한 벌로 둔다
+const reasonOf = (err, byCode = {}) => {
   const why = err?.human || byCode[String(err?.code ?? '')];
-  return failText(what, why ? { human: why } : err);
+  return errorReason(why ? { human: why } : err);
 };
+const LIST_FAIL = '주보 목록을 받지 못했어요';
+const LIST_FAIL_BY = { 42501: '승인된 멤버만 주보를 볼 수 있어요' };
 
 const CARD = 'rounded-[10px] shadow-soft transition active:scale-[.995]';
 const CARD_STYLE = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
@@ -233,7 +237,9 @@ function NewServiceForm({ onCreate, onCancel, closing = false }) {
   );
 }
 
-function ServiceList({ services, perms, counts = {}, onOpen, onCreate }) {
+// failed — 캐시 없는 첫 읽기가 실패했을 때 { reason, onRetry }(D2). 그때 services는 빈 목록이
+// 아니라 **없는 것**이고(부르는 쪽 services === null), 빈 문구 자리에 실패 두 줄이 선다.
+function ServiceList({ services, perms, counts = {}, onOpen, onCreate, failed = null }) {
   // 출석 수는 **지난 예배**에만 붙인다 — 오늘·앞으로 올 예배의 '출석 0명'은 아직 부르지
   // 않았다는 뜻이지 아무도 안 왔다는 뜻이 아니다(그 예배의 출석은 출석 화면이 말한다).
   // 오늘은 **한국 시간**이고 그 셈은 services/worship.js의 kstNow 한 벌이다 —
@@ -308,7 +314,11 @@ function ServiceList({ services, perms, counts = {}, onOpen, onCreate }) {
             attended={String(s.service_date) < today ? (counts[s.id] || 0) : 0} />
         ))}
       </div>
-      {!shown.length && (
+      {failed ? (
+        <WorshipEmpty className="worship-load-failed" text={LIST_FAIL}>
+          <FailTail reason={failed.reason} onRetry={failed.onRetry} />
+        </WorshipEmpty>
+      ) : !shown.length && (
         <WorshipEmpty text={draftsOnly ? '작성 중인 주보가 아직 없어요' : '발행된 주보가 아직 없어요'} />
       )}
     </div>
@@ -431,12 +441,21 @@ export function WorshipView({ onOpenBible } = {}) {
     setCounts(cached.data.counts || {});
   }, [cached.data]);
 
+  // 읽기 실패 — **캐시가 있으면** 지난 목록이 그대로 서 있으니 토스트로 한 번 말한다.
+  // **캐시가 없으면**(첫 진입) 빈 목록을 앉히지 않는다: 그러면 '발행된 주보가 아직 없어요'가 서서
+  // 실패가 "아직 없다"로 읽혔다(D2 · 사용자 결정 2026-09-25). services는 null(= 없음)로 두고
+  // 빈 문구 자리에 실패 두 줄 + '다시 시도'가 선다 — 그때는 토스트를 띄우지 않는다(한 번만 말한다).
+  // retryOf는 '다시 시도'로 다시 읽는 중인 그 실패다 — useCached는 다시 읽는 동안에도 error를
+  // 들고 있어서, 이것 없이는 누른 뒤에도 실패 자리가 그대로 서 있다(그동안은 스켈레톤).
+  const [retryOf, setRetryOf] = useState(null);
+  const listFailed = services === null && !!cached.error && cached.error !== retryOf;
   useEffect(() => {
     if (!cached.error) return;
     console.error('[worship] 주보 목록 실패:', cached.error);
-    showToast(fail('주보 목록을 받지 못했어요', cached.error, { 42501: '승인된 멤버만 주보를 볼 수 있어요' }));
-    setPerms(p => p || worshipPerms({ isMaster, isAdmin })); setServices(l => l || []);
-  }, [cached.error, isMaster, isAdmin]);
+    if (cached.data) showToast(fail(LIST_FAIL, cached.error, LIST_FAIL_BY));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cached.error]);
+  const retryList = useCallback(() => { setRetryOf(cached.error); cached.refresh(); }, [cached.error, cached.refresh]);
 
   // 쓰기 뒤에는 캐시를 비우고 다시 읽는다 — 안 비우면 다음 진입에서 옛 값이 한 번 보인다.
   //
@@ -511,7 +530,9 @@ export function WorshipView({ onOpenBible } = {}) {
     // 이미 손에 있으니 그대로 이어서 본다(한 프레임을 버리지 않는다).
     const taken = takeEntryParam('s');
     if (taken && taken !== wantId) { setWantId(taken); return; }
-    if (!wantId || !services) return;
+    if (!wantId) return;
+    // 목록을 못 읽었다(캐시도 없다) — 딥링크를 내려놓는다. 안 그러면 상세 스켈레톤이 영영 남는다.
+    if (!services) { if (listFailed) setWantId(null); return; }
     const svc = services.find(s => s.id === wantId);
     if (svc) { setWantId(null); open(svc); return; }
     // 목록에 없다 — 두 갈래다.
@@ -521,7 +542,7 @@ export function WorshipView({ onOpenBible } = {}) {
     //    **포기하고 목록을 보여 준다.** 안 그러면 스켈레톤이 영영 남는다.
     if (cached.stale && !cached.error) return;
     setWantId(null);
-  }, [entrySignal, services, open, wantId, cached.stale, cached.error]);
+  }, [entrySignal, services, open, wantId, cached.stale, cached.error, listFailed]);
 
   const create = useCallback(async (v) => {
     try {
@@ -855,6 +876,13 @@ export function WorshipView({ onOpenBible } = {}) {
     try { return await fetchVideoTitle(url); } catch { return ''; }
   }, []);
 
+  // 첫 읽기 실패(캐시 없음) — 목록 껍데기(머리줄·거르기 칩)에 빈 자리 대신 실패가 선다(D2).
+  // 자격은 못 읽었으니 계정 속성으로만 판정한다(버튼을 감추는 용도 — 실제 경계는 RLS).
+  if (listFailed) {
+    return <ServiceList services={[]} perms={perms || worshipPerms({ isMaster, isAdmin })}
+      onOpen={open} onCreate={create}
+      failed={{ reason: reasonOf(cached.error, LIST_FAIL_BY), onRetry: retryList }} />;
+  }
   // 딥링크로 들어오는 중이면 목록 스켈레톤도 아니다 — 갈 데는 상세다(DETAIL_LOADING 머리말)
   if (!perms || services === null) return wantId ? DETAIL_LOADING : LOADING;
 

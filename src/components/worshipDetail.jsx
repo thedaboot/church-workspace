@@ -190,13 +190,15 @@ function useFillRest() {
   return [ref, minH];
 }
 
-export function WorshipEmpty({ text }) {
+// children — 읽기 실패 때 제목 아래에 붙는 둘째 줄과 '다시 시도'(groupsParts FailTail · D2).
+export function WorshipEmpty({ text, className = '', children }) {
   const [ref, minH] = useFillRest();
   return (
-    <div ref={ref} className="worship-empty flex flex-col items-center justify-center text-center"
-      style={{ minHeight: minH === null ? '46vh' : `${minH}px` }}>
+    <div ref={ref} className={`worship-empty flex flex-col items-center justify-center text-center ${className}`}
+      style={{ minHeight: minH === null ? '46vh' : `${minH}px` }} role={children ? 'alert' : undefined}>
       <EmptyBookMark />
       <p className="mt-3 text-[13.5px] font-semibold text-fg">{text}</p>
+      {children}
     </div>
   );
 }

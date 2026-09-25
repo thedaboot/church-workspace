@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Skeleton } from '../components/media.jsx';
 import { showToast } from '../components/Toast.jsx';
-import { failText, objectParticle } from '../services/errorText.js';
+import { failText, errorReason, objectParticle } from '../services/errorText.js';
 import { useAuth } from '../services/auth.jsx';
 import { useCached, dropCache } from '../services/cache.js';
 import { useLiveRefresh } from '../services/liveV2.js';
 import { takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
 import { MySunPanel, SunNotesSection, SunAdminPanel } from '../components/groupsSun.jsx';
 import { ClubsPanel } from '../components/groupsClub.jsx';
-import { WITH_ICON, useClosing, useSettled } from '../components/groupsParts.jsx';
+import { WITH_ICON, useClosing, useSettled, Empty, PeopleMark, FailTail } from '../components/groupsParts.jsx';
 import { guideServices, pinnedGuideId, SUN_GUIDE_ON } from '../services/sunGuide.js';
 import { fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday, countsSince, GUIDE_SERVICE_COLS } from '../services/worship.js';
 import {
@@ -97,9 +97,11 @@ const MINE_SKELETON = (
   </div>
 );
 
-// 읽지 못했을 때의 한 벌 — 자격은 groupPerms() 기본값이다. 손으로 적은 한 벌을 두면
-// 자격이 하나 늘 때마다 이 줄이 뒤처져서, 아무것도 못 하는 화면이 아니라 **되지 않을
-// 버튼이 선 화면**이 된다.
+// 읽지 못했을 때 **탭 줄을 세우는** 한 벌 — 자격은 groupPerms() 기본값이다. 손으로 적은 한 벌을
+// 두면 자격이 하나 늘 때마다 이 줄이 뒤처져서, 아무것도 못 하는 화면이 아니라 **되지 않을
+// 버튼이 선 화면**이 된다. 탭 내용은 이 한 벌로 그리지 않는다 — 빈 목록이 '아직 없어요'로
+// 읽혀서, 그 자리에는 실패가 선다(baseFailed · D2).
+const BASE_FAIL = '내 순과 동아리를 불러오지 못했어요';
 const EMPTY_BUNDLE = { perms: groupPerms(), apps: [], people: [], suns: [], clubs: [], members: [], allGroups: [] };
 
 export function GroupsView() {
@@ -149,12 +151,18 @@ export function GroupsView() {
     }
   }, [year]);
 
-  const state = baseQ.data || (baseQ.error ? EMPTY_BUNDLE : null);
+  // 캐시 없는 첫 읽기가 실패했다(D2 · 사용자 결정 2026-09-25). retryOf는 '다시 시도'로 다시
+  // 읽는 중인 그 실패다 — useCached는 다시 읽는 동안에도 error를 들고 있다(그동안은 스켈레톤).
+  const [retryOf, setRetryOf] = useState(null);
+  const baseFailed = !baseQ.data && !!baseQ.error && baseQ.error !== retryOf;
+  const state = baseQ.data || (baseFailed ? EMPTY_BUNDLE : null);
   const admin = adminQ.data || null;
 
-  // 읽기 실패는 한 번만 말한다 — 캐시된 값이 있으면 화면은 그대로 서 있다.
+  // 읽기 실패는 한 번만 말한다 — 캐시된 값이 있으면 화면은 그대로 서 있고 토스트가 말한다.
+  // 캐시가 없으면 탭 자리의 실패 두 줄이 말한다(토스트는 띄우지 않는다).
   useEffect(() => {
-    if (baseQ.error) showToast(failText('내 순과 동아리를 불러오지 못했어요', baseQ.error));
+    if (baseQ.error && baseQ.data) showToast(failText(BASE_FAIL, baseQ.error));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseQ.error]);
   useEffect(() => {
     if (adminQ.error) showToast(failText('그 해 순 편성을 불러오지 못했어요', adminQ.error));
@@ -645,7 +653,14 @@ export function GroupsView() {
           위에 두면 탭을 열자마자 AI 종이 세 장이 화면을 채우고 순 명단이 접혀 내려갔다.
           가이드의 기준 예배는 '가장 최근 발행 주일 예배'(service)이고, 출석 줄은 다른
           예배를 본다(attService — 위 mineQ 주석). 2026-09-08에 갈라졌다. */}
-      {active === 'mine' && (
+      {baseFailed && (
+        <Empty className="groups-load-failed" mark={<PeopleMark />} title={BASE_FAIL}>
+          <FailTail reason={errorReason(baseQ.error)}
+            onRetry={() => { setRetryOf(baseQ.error); baseQ.refresh(); }} />
+        </Empty>
+      )}
+
+      {active === 'mine' && !baseFailed && (
         <>
           {/* 출석 줄은 **자리부터 잡는다** — 첫 진입(캐시 없음)에 아무것도 안 그리면
               값이 도착하는 순간 카드가 한 줄만큼 튄다. loading은 노트·가이드와 같은
@@ -675,7 +690,7 @@ export function GroupsView() {
         </>
       )}
 
-      {active === 'club' && (
+      {active === 'club' && !baseFailed && (
         <ClubsPanel clubs={clubs} people={state.people} members={state.members} apps={state.apps}
           perms={perms} openClub={openClub} meetings={meetings}
           creating={creating === 'club'} closingCreate={closingCreate} onCloseCreate={shutCreate}
@@ -689,7 +704,7 @@ export function GroupsView() {
       {/* 지난 해를 처음 고르면 그 해 편성이 오는 동안 잠깐 비어 있다. 예전에는 그때
           **구역째** 스켈레톤으로 갈아 끼워서 방금 누른 연도 고르개가 사라졌다가 돌아왔다.
           이제 껍데기(연도 줄·만들기 칸)는 그대로 서 있고 순 목록 자리만 스켈레톤이다. */}
-      {active === 'sun' && (
+      {active === 'sun' && !baseFailed && (
         <SunAdminPanel year={year} years={years} loading={!adminData}
           suns={adminData?.suns || []} people={adminData?.people || []}
           members={adminData?.members || []} onYear={setYear}

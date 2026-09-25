@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { UserCheck, UserX, ShieldCheck, Shield, Plus, Loader2, Merge } from 'lucide-react';
 import { Avatar } from '../components/Avatar.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { RosterPanel, RowSkeleton, rowDelay } from '../components/roster.jsx';
+import { FailLeft } from '../components/groupsParts.jsx';
 import { showToast } from '../components/Toast.jsx';
-import { failText, objectParticle } from '../services/errorText.js';
+import { failText, errorReason, objectParticle } from '../services/errorText.js';
 import { agoLabel, visitOrder, isoTime, mergeActivitySeen } from '../utils.js';
 import { usePresence } from '../services/presence.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
@@ -61,7 +62,6 @@ const THIS_YEAR = new Date().getFullYear();
 // 두지 않는다 — 그 해에는 아무 줄도 없어서 빈 화면이 거짓말처럼 읽힌다(0035·0037).
 const ROSTER_FIRST_YEAR = 2026;
 const YEARS = [0, 1, 2].map(i => Math.max(THIS_YEAR, ROSTER_FIRST_YEAR) + i);
-const EMPTY_BOOK = { people: [], roles: [], suns: [], groupMembers: [] };
 const byName = (a, b) => String(a.name).localeCompare(String(b.name), 'ko');
 
 const Section = ({ title, count, children, hint }) => (
@@ -115,7 +115,14 @@ function MemberRow({ row, action, delay = 0, isOnline = false, at = '', below = 
 
 export function MembersView({ isAdmin, isMaster }) {
   const [tab, setTab] = useState('account');
-  const [rows, setRows] = useState(null);       // null = 아직 받는 중
+  const [rows, setRows] = useState(null);       // null = 아직 받는 중(또는 못 받음 — rowsError)
+  // 가입자 목록을 못 받았다(D2) — 이 목록은 캐시가 없어서 실패하면 언제나 첫 읽기다. 빈 목록을
+  // 앉히지 않고 그 자리에 실패 두 줄 + '다시 시도'가 선다(토스트는 띄우지 않는다 — 한 번만 말한다).
+  const [rowsError, setRowsError] = useState(null);
+  // 명단을 '다시 시도'로 다시 읽을 때 올리는 숫자 — 명단 읽기 effect의 deps에 얹는다
+  const [bookRetry, setBookRetry] = useState(0);
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
   const [admins, setAdmins] = useState(null);
   const [busy, setBusy] = useState({});         // { profileId|email|personId|'add': true }
   const [pickOpen, setPickOpen] = useState(false);   // 관리자로 지정할 사람 고르기
@@ -154,6 +161,7 @@ export function MembersView({ isAdmin, isMaster }) {
   };
 
   const load = useCallback(async () => {
+    setRowsError(null);
     // 게스트 모드에는 클라우드가 없다 — 던지게 두면 화면을 열 때마다 콘솔 오류다
     if (!isCloudEnabled()) { setRows(roster.guestProfiles()); setAdmins([]); return; }
     try {
@@ -162,8 +170,10 @@ export function MembersView({ isAdmin, isMaster }) {
       setAdmins(as);   // [{ email, is_master }]
     } catch (e) {
       console.error('[cloud] 멤버 목록 실패:', e);
-      showToast(failText('멤버 목록을 받지 못했어요', e));
-      setRows([]); setAdmins([]);
+      // 받아 둔 목록이 있으면(이 화면에서 다시 읽은 경우) 그대로 두고 토스트로 말한다
+      if (rowsRef.current) showToast(failText('멤버 목록을 받지 못했어요', e));
+      else setRowsError(e);
+      setAdmins(prev => prev || []);
     }
   }, []);
   useEffect(() => { if (isAdmin) load(); }, [isAdmin, load]);
@@ -178,6 +188,8 @@ export function MembersView({ isAdmin, isMaster }) {
   const rosterTick = useLiveTick('roster');
   const bookKey = `roster:${year}`;
   const shownBook = book?.key === bookKey ? book.data : readCache(bookKey);
+  // 그 해 명단을 못 받았고 캐시도 없다(D2) — 빈 명단이 아니라 실패 자리다
+  const bookError = book?.key === bookKey && !shownBook ? book.error : null;
   // 명단을 고치면 **명단을 읽는 다른 화면의 캐시도 비운다**(2026-09-06). 사람·직분·순
   // 편성은 여기서만 고치는데, 모임(groups:*)과 예배 상세(worship:svc:* — 출석 명단)는
   // 그 값을 각자 캐시해 두고 있다. 안 비우면 순장을 바꾸거나 새 청년을 넣은 뒤 예배·모임
@@ -203,14 +215,15 @@ export function MembersView({ isAdmin, isMaster }) {
       } catch (e) {
         console.error('[roster] 명단 조회 실패:', e);
         if (!alive) return;
-        showToast(failText('명단을 받지 못했어요', e));
-        // 캐시도 없을 때만 빈 명단으로 앉힌다 — 아무것도 안 하면 스켈레톤이 걷히지
-        // 않고, 캐시를 덮으면 지난 값이 사라진다.
-        if (readCache(key) === undefined) setBook({ key, data: EMPTY_BOOK });
+        // 캐시가 있으면 지난 값이 그대로 서 있다 — 토스트로 한 번 말한다. 캐시도 없으면
+        // 빈 명단을 앉히지 않고(그러면 '청년 명단이 아직 비어 있어요'가 선다) 실패 자리를
+        // 세운다(D2 · 그때는 토스트 없이 그 자리가 말한다). 캐시를 덮으면 지난 값이 사라진다.
+        if (readCache(key) === undefined) setBook({ key, data: null, error: e });
+        else showToast(failText('명단을 받지 못했어요', e));
       }
     })();
     return () => { alive = false; };
-  }, [isAdmin, tab, year, rosterTick]);
+  }, [isAdmin, tab, year, rosterTick, bookRetry]);
 
   if (!isAdmin) {
     return (
@@ -417,9 +430,20 @@ export function MembersView({ isAdmin, isMaster }) {
           RosterPanel의 뿌리가 이미 .dc-screen이라 여기서 한 겹 더 씌우지 않는다. */}
       {tab === 'roster' ? (
         <RosterPanel {...(shownBook || {})} profiles={rows || []} profilesReady={rows !== null}
-          year={year} years={YEARS} busy={busy} loading={!shownBook} on={rosterOn} />
+          year={year} years={YEARS} busy={busy} loading={!shownBook && !bookError} on={rosterOn}
+          failed={bookError ? {
+            title: '명단을 받지 못했어요', reason: errorReason(bookError),
+            onRetry: () => { setBook(b => ({ ...b, error: null })); setBookRetry(n => n + 1); },
+          } : null} />
       ) : rows === null ? (
-        <div className="dc-screen"><RowSkeleton /><RowSkeleton /><RowSkeleton /></div>
+        rowsError ? (
+          <div className="dc-screen">
+            <FailLeft className="members-load-failed" title="멤버 목록을 받지 못했어요"
+              reason={errorReason(rowsError)} onRetry={load} />
+          </div>
+        ) : (
+          <div className="dc-screen"><RowSkeleton /><RowSkeleton /><RowSkeleton /></div>
+        )
       ) : (
         <div className="dc-screen">
           {/* 대기자가 있을 때만 그린다 — 없는 줄을 그리면 "할 일이 있다"로 읽힌다 */}

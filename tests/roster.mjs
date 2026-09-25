@@ -655,6 +655,43 @@ check('칩 줄을 끝까지 밀면 오른쪽에 여백이 남는다',
   chipTail && chipTail.over === true && chipTail.gap >= 10, JSON.stringify(chipTail));
 await send('Emulation.clearDeviceMetricsOverride');
 
+// ── 읽기 실패 자리(D2 · 사용자 결정 2026-09-25) ────────────────────────────
+// 그 해 명단을 못 받았고 캐시도 없으면 '청년 명단이 아직 비어 있어요'가 아니라 빈 문구 자리에
+// 왼쪽 정렬로 토스트 첫 줄 + errorReason + '다시 시도'가 선다(목록이 왼쪽이라). 토스트는 없다.
+// **되돌리기**: membersView의 `setBook({ key, data: null, error: e })`를 옛 `data: EMPTY_BOOK`으로
+// 돌리면 빈 문구가 서서 첫 검사가 깨진다.
+{
+  const logsBefore = logs.length;
+  const poll = async (expr, to = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < to) { if (await ev(expr)) return true; await sleep(120); } return false; };
+  const saved = await ev(`localStorage.getItem('church_roster_v1')`);
+  await ev(`localStorage.setItem('church_roster_v1', JSON.stringify({ people: 1 }))`);
+  await send('Page.navigate', { url: `${URL_BASE}/?p=members` });
+  await wait('Page.loadEventFired');
+  await poll(`!!${`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '청년 명단')`}`);
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '청년 명단').click()`);
+  await poll(`!!document.querySelector('.roster-load-failed')`);
+  const failed = await ev(`(() => {
+    const box = document.querySelector('.roster-load-failed');
+    const head = [...document.querySelectorAll('h3')].find(h => h.textContent.trim() === '청년 명단');
+    const title = box?.querySelector('.load-fail-title');
+    return { box: !!box, text: box?.innerText || '', align: box && getComputedStyle(box).textAlign,
+      leftGap: title && head ? Math.round(title.getBoundingClientRect().left - head.getBoundingClientRect().left) : null,
+      empty: document.body.innerText.includes('청년 명단이 아직 비어 있어요'),
+      toast: [...document.querySelectorAll('[data-toast]')].map(t => t.innerText) };
+  })()`);
+  check('명단 첫 읽기가 실패하면 빈 문구 자리에 왼쪽 정렬로 실패와 다시 시도가 선다(D2)',
+    failed.box && failed.text.startsWith('명단을 받지 못했어요') && failed.text.includes('다시 시도')
+    && failed.align === 'left' && failed.leftGap === 0 && !failed.empty && failed.toast.length === 0,
+    JSON.stringify(failed));
+  await ev(saved === null ? `localStorage.removeItem('church_roster_v1')` : `localStorage.setItem('church_roster_v1', ${JSON.stringify(saved)})`);
+  await ev(`document.querySelector('.roster-load-failed .load-fail-retry')?.click()`);
+  await poll(`!document.querySelector('.roster-load-failed')`, 6000);
+  const retried = await ev(`({ failed: !!document.querySelector('.roster-load-failed'), skel: !!document.querySelector('section.dc-screen .animate-pulse') })`);
+  check('다시 시도를 누르면 그 해 명단을 다시 읽는다(D2)', !retried.failed, JSON.stringify(retried));
+  const mine = logs.splice(logsBefore).filter(l => !l.includes('[roster] 명단 조회 실패'));
+  logs.push(...mine);
+}
+
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 2).join(' | '));
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.slice(0, 6).join('\n') : '\n콘솔 오류 없음');

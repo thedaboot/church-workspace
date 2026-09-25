@@ -3451,6 +3451,59 @@ check('딥링크의 주보가 목록에 없으면 스켈레톤이 남지 않고 
   JSON.stringify(fellBack));
 await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: watcher.identifier });
 
+// ── 읽기 실패 자리(D2 · 사용자 결정 2026-09-25) ────────────────────────────
+// 캐시 없는 첫 읽기가 실패하면 '발행된 주보가 아직 없어요'가 아니라 같은 그림 + 토스트 첫 줄 +
+// errorReason + '다시 시도'가 빈 자리에 서고, 토스트는 띄우지 않는다. 게스트 캐시는 메모리뿐이라
+// 새로 연 페이지는 캐시가 없다. 실패는 게스트 저장 자리를 망가뜨려 만든다(services: 1 → 펼치기에서 던진다).
+// **되돌리기**: worshipView의 `if (listFailed) { return <ServiceList … failed … /> }`를 지우면
+// 스켈레톤이 남고, 에러 이펙트의 `if (cached.data)`를 지우면 토스트가 같이 뜬다.
+{
+  const logsBefore = logs.length;
+  await ev(`localStorage.setItem('church_worship_v1', JSON.stringify({ services: 1 }))`);
+  await send('Page.navigate', { url: `${URL_BASE}/?p=worship` });
+  await wait('Page.loadEventFired');
+  await waitFor(`!!document.querySelector('.worship-load-failed')`, 8000);
+  const failed = await ev(`(() => {
+    const box = document.querySelector('.worship-load-failed');
+    const btn = box?.querySelector('.load-fail-retry');
+    const cs = btn && getComputedStyle(btn);
+    return { box: !!box, text: box?.innerText || '', mark: !!box?.querySelector('svg'),
+      emptyText: [...document.querySelectorAll('.worship-empty')].some(e => e.innerText.includes('아직 없어요')),
+      toast: [...document.querySelectorAll('[data-toast]')].map(t => t.innerText),
+      btnFont: cs?.fontSize, btnH: btn ? Math.round(btn.getBoundingClientRect().height) : 0,
+      reasonColor: box && getComputedStyle(box.querySelector('.load-fail-reason')).color,
+      muted: getComputedStyle(document.documentElement).getPropertyValue('--app-ink-muted').trim() };
+  })()`);
+  check('주보 목록 첫 읽기가 실패하면 빈 자리에 실패 두 줄과 다시 시도가 선다(D2)',
+    failed.box && failed.mark && failed.text.startsWith('주보 목록을 받지 못했어요')
+    && failed.text.includes('다시 시도') && !failed.emptyText && failed.btnFont === '11.5px' && failed.btnH === 29,
+    JSON.stringify(failed));
+  await sleep(500);
+  const toastNow = await ev(`[...document.querySelectorAll('[data-toast]')].map(t => t.innerText)`);
+  check('그 실패는 토스트로 한 번 더 말하지 않는다(D2)', failed.toast.length === 0 && toastNow.length === 0, JSON.stringify(toastNow));
+  // 다시 시도 — 저장 자리를 되살리고 누르면 그 화면의 읽기만 다시 돈다(페이지를 다시 열지 않는다)
+  await ev(`localStorage.setItem('church_worship_v1', JSON.stringify({ services: [] }))`);
+  await ev(`document.querySelector('.worship-load-failed .load-fail-retry')?.click()`);
+  await waitFor(`!document.querySelector('.worship-load-failed') && !!document.querySelector('.worship-empty')`, 6000);
+  const retried = await ev(`(() => ({ failed: !!document.querySelector('.worship-load-failed'),
+    empty: document.querySelector('.worship-empty')?.innerText || '' }))()`);
+  check('다시 시도를 누르면 목록을 다시 읽고, 비어 있으면 그제야 빈 문구가 선다(D2)',
+    !retried.failed && retried.empty.includes('발행된 주보가 아직 없어요'), JSON.stringify(retried));
+  // 딥링크로 들어왔는데 목록을 못 읽었다 — 상세 스켈레톤이 영영 남지 않고 실패 자리가 선다
+  await ev(`localStorage.setItem('church_worship_v1', JSON.stringify({ services: 1 }))`);
+  await send('Page.navigate', { url: `${URL_BASE}/?p=worship&s=s1` });
+  await wait('Page.loadEventFired');
+  await waitFor(`!!document.querySelector('.worship-load-failed')`, 8000);
+  const deep = await ev(`(() => ({ failed: !!document.querySelector('.worship-load-failed'),
+    skel: !!document.querySelector('.worship-detail-loading') }))()`);
+  check('딥링크 진입에서 목록을 못 읽어도 상세 스켈레톤이 남지 않고 실패 자리가 선다(D2)',
+    deep.failed && !deep.skel, JSON.stringify(deep));
+  // 일부러 낸 실패의 콘솔 줄은 이 검사의 몫이다 — 아래 '콘솔 오류 0'에서 뺀다
+  const mine = logs.splice(logsBefore).filter(l => !l.includes('[worship] 주보 목록 실패'));
+  logs.push(...mine);
+  await ev(`localStorage.removeItem('church_worship_v1')`);
+}
+
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 
 console.log(results.join('\n'));

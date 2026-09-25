@@ -5,7 +5,7 @@ import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { Skeleton } from './media.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { DatePicker } from './DatePicker.jsx';
-import { BTN as BTN_BASE, BTN_QUIET as BTN_QUIET_BASE, FIELD as FIELD_BASE, WITH_ICON, LabeledField } from './groupsParts.jsx';
+import { BTN as BTN_BASE, BTN_QUIET as BTN_QUIET_BASE, FIELD as FIELD_BASE, WITH_ICON, LabeledField, FailLeft } from './groupsParts.jsx';
 import { CONFIG } from '../config.js';
 import { objectParticle } from '../services/errorText.js';
 import {
@@ -356,7 +356,7 @@ function PersonRow({ person, linked, sun, badges, open, busy, right, children, d
 // ── 명단 구역 전체 ──────────────────────────────────────────────────────────
 export function RosterPanel({
   people = [], roles = [], suns = [], groupMembers = [], profiles = [], profilesReady = true,
-  year, years = [], busy = {}, loading = false, on = {},
+  year, years = [], busy = {}, loading = false, on = {}, failed = null,
 }) {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
@@ -438,8 +438,11 @@ export function RosterPanel({
         </div>
       )}
 
-      <Head title="청년 명단" count={loading ? null : shown.length} />
-      {loading ? (
+      <Head title="청년 명단" count={loading || failed ? null : shown.length} />
+      {/* 못 받았다(D2) — 빈 문구 자리에 실패 두 줄 + '다시 시도'. 목록이 왼쪽 정렬이라 이것도 왼쪽이다 */}
+      {failed ? (
+        <FailLeft className="roster-load-failed" title={failed.title} reason={failed.reason} onRetry={failed.onRetry} />
+      ) : loading ? (
         <><RowSkeleton /><RowSkeleton /><RowSkeleton /></>
       ) : shown.length === 0 ? (
         <p className="py-6 text-[12.5px] text-fg-muted">
