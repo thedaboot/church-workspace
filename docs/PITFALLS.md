@@ -349,6 +349,9 @@
 12-b. **카드를 드롭 대상으로 만들면 컬럼 드롭 경로가 거의 안 쓰인다** — 그래도 컬럼·상태 칩 갈래는 **빈 자리에 놓는 경우**를 위해 남는다. 지우지 마세요(`drag`·`dragdesk`가 검사한다).
 12-c. **draggable 노드의 ref 콜백에 조건을 넣지 말 것** — 콜백 신원이 바뀌면 React가 ref를 떼었다 붙이고 그 순간 dnd-kit이 들고 있던 노드가 사라진다. 부수 동작은 `useEffect`로. 모바일 탭은 길게 누르기
     (TouchSensor delay 300 · tolerance 8)이고 끼워 넣기·저장은 데스크톱과 한 벌(`utils.reorderIds` · 0021).
+12-f. **탭 줄 앞 칸(`services/tabRank.js`)이 선 뒤의 끌기 번호는 position 순 전체로 매긴다**(2026-09-25) — 화면 순서(앞 칸 + 나머지)로 `reorderIds`를 부르면
+    앞 칸 프로젝트들의 position이 맨 앞 번호로 덮여, 활동이 줄어 앞 칸에서 내려올 때 원래 자리가 아니라 맨 앞에 선다. 앞 칸 탭은 끌 수도 놓을 자리도 될 수 없다(데스크톱 `draggable`·폰 `disabled`).
+    측정 줄(`useTabFit`)의 세로선 자리는 **연도 뒤**(kids 인덱스를 밀지 않게) — 앞 칸이 있을 때만 폭 계산에 넣는다.
 
 ### 캘린더
 
@@ -390,6 +393,10 @@
     표를 구독에 추가하면 기본이 전체 재조회**이니 라우팅에 같이 적는다. comments의 DELETE payload에는 `card_id`가 없다(replica identity가 PK뿐).
 21-a. **모듈 캐시로 들고 있는 표는 그 원본 테이블을 구독하지 않으면 영영 낡는다** — `profileIdToName`이 그랬고, 새로 가입한 사람을 화면이 영영 몰라 담당자가 조용히 지워졌다(0018로 `profiles`를 발행에 넣었다). **캐시해 둔
     조회 결과를 만들 때마다 "이 표가 바뀌면 누가 알려주나"를 같이 정하세요.**
+21-b. **업무 채널이 끊겼다 다시 붙으면 그 사이 변경은 오지 않는다**(2026-09-25) — `subscribeAll`이 상태를 받아 `realtimeStatus.reconnectWatcher`가 '끊겼다 → SUBSCRIBED'일 때만
+    `onReconnect`를 부르고 App이 `reloadCloud`(편집 중이면 미룸)를 한다. **처음 SUBSCRIBED에서 부르지 마세요** — 첫 로드 직후 워크스페이스를 한 번 더 읽는다. v2 채널(`liveV2.js`)도 같은 규칙이다.
+    탭 줄 앞 칸 숫자(`tabFront.js`)는 이 길을 **타지 않는다** — 열 때·보일 때만 잰다(보는 동안 탭이 튀지 않게).
+
 22. **스토어 히스토리는 최근 20개까지** — `LOAD_STATE`는 기록을 초기화하고 `SYNC_TASK`는 기록하지 않는다. `SYNC_TASK`는 카드 1건을 **병합**한다(`UPSERT_TASK`로 바꾸면 댓글·활동·첨부가 날아간다).
 23. **`store.canUndo()`를 렌더 중에 그냥 부르면 갱신되지 않는다** — `useCanUndo()`/`useCanRedo()`로 구독한다.
 24. **`cards.position`은 아무도 채우지 않는다**(전부 0) — 정렬 키로 쓰면 순서가 뒤바뀐다. 컬럼 안 순서는 `dashboardParts.byDue`가 소유한다.

@@ -1356,7 +1356,20 @@ export async function listRecentActivity(limit = 30) {
     .order('created_at', { ascending: false }).limit(limit));
 }
 
-export function subscribeAll(onChange) {
+// 탭 줄 앞 칸(services/tabRank.js)이 보는 줄 — 최근 며칠 동안 프로젝트에 남은 활동의 주인과 시각.
+// 앱을 열 때와 다시 보일 때만 부른다(tabFront.js). 1000줄에서 자른다(PostgREST 상한) —
+// 넘치면 가장 오래된 날의 줄이 빠질 뿐이고, 최근 순이라 앞 칸 판정에는 거의 영향이 없다.
+export async function listProjectActivitySince(sinceIso) {
+  return unwrap(await client().from('activity')
+    .select('project_id, actor_id, created_at')
+    .gte('created_at', sinceIso)
+    .not('project_id', 'is', null)
+    .order('created_at', { ascending: false }).limit(1000));
+}
+
+// onStatus: 채널 상태('SUBSCRIBED'·'CHANNEL_ERROR'·'TIMED_OUT'·'CLOSED') — 다시 붙었을 때
+// 따라잡기 읽기를 하려고 받는다(cloudSync.subscribeWorkspace · realtimeStatus.js).
+export function subscribeAll(onChange, onStatus) {
   const c = client();
   const channel = c.channel('workspace-all')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, onChange)
@@ -1372,7 +1385,7 @@ export function subscribeAll(onChange) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, onChange)
     // 대시보드 '최근 활동' 피드(0020). 라우팅은 전체 재조회가 아니라 피드만 다시 읽기다
     .on('postgres_changes', { event: '*', schema: 'public', table: 'activity' }, onChange)
-    .subscribe();
+    .subscribe((status) => onStatus?.(status));
   return () => c.removeChannel(channel);
 }
 

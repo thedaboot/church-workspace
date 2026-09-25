@@ -16,6 +16,8 @@ import { formatRelative, projectYear, reorderIds, viewersOf, imeComposing } from
 import { usePresenceViews, presenceMe } from '../services/presence.js';
 import { myUid } from '../services/supabaseClient.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
+import { splitFrontTabs, pickProjectToOpen } from '../services/tabRank.js';
+import { useTabFrontStats } from '../services/tabFront.js';
 import { Avatar } from './Avatar.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import * as push from '../services/push.js';
@@ -58,11 +60,15 @@ function splitProjectTabs(projectsList, activeMenu, max) {
   return { shown, rest: projectsList.filter(p => !shownIds.has(p.id)) };
 }
 
+// 앞 칸과 나머지 사이의 얇은 세로선(데스크톱·폰 한 벌). 줄이 items-end라 self-center로 글자
+// 높이에 맞춘다 — 점·라벨·안내 문구는 두지 않는다(사용자 결정 2026-09-25).
+const TAB_DIVIDER = 'shrink-0 self-center w-px h-4 mx-1 bg-line';
+
 // 탭 줄에 몇 개가 들어가는지 실제 폭으로 잰다. 보이지 않는 측정 줄(measureRef)에
 // 전체 탭 + '더보기' + '+ 프로젝트'를 같은 클래스로 그려 두고, 줄 폭 안에서
 // "탭 k개 + (남는 게 있으면) 더보기 + '+ 프로젝트'"가 들어가는 최대 k를 고른다.
 // 글자 폭 추정(폰트 상수 곱하기)으로 하지 않는 이유: 제목 길이가 제각각이라 반드시 어긋난다.
-function useTabFit(tabRowRef, measureRef, count, alwaysMore) {
+function useTabFit(tabRowRef, measureRef, count, alwaysMore, withDivider = false) {
   const [fit, setFit] = useState(count);
   useLayoutEffect(() => {
     const row = tabRowRef.current;
@@ -75,10 +81,13 @@ function useTabFit(tabRowRef, measureRef, count, alwaysMore) {
       const moreW = kids[count]?.offsetWidth || 0;
       const plusW = kids[count + 1]?.offsetWidth || 0;
       const yearW = kids[count + 2]?.offsetWidth || 0;   // 줄 맨 앞의 연도 버튼(항상 있다)
+      // 앞 칸과 나머지 사이의 세로선(tabRank.js) — 앞 칸이 있을 때만 선다. 넘쳐서 안 설 때도
+      // 빼 두면 한 칸이 모자랄 수는 있어도 넘치지는 않는다.
+      const divW = withDivider ? (kids[count + 3]?.getBoundingClientRect().width || 0) + 8 : 0;
       const cs = getComputedStyle(row);
       // -16: 측정 span과 실제 button 렌더 사이의 미세 오차(서브픽셀·보더) 여유.
       // 딱 맞는 경계(800px에 670px 탭)에서 몇 px 넘쳐 '+ 프로젝트'가 잘렸다.
-      const avail = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - plusW - yearW - 16;
+      const avail = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - plusW - yearW - divW - 16;
       let used = 0, k = 0;
       for (let i = 0; i < count; i++) {
         const needMore = alwaysMore || i < count - 1;  // 이 뒤에 더보기가 서야 하나
@@ -96,7 +105,7 @@ function useTabFit(tabRowRef, measureRef, count, alwaysMore) {
     document.fonts?.ready?.then(calc);
     window.addEventListener('resize', calc);
     return () => { ro.disconnect(); window.removeEventListener('resize', calc); };
-  }, [tabRowRef, measureRef, count, alwaysMore]);
+  }, [tabRowRef, measureRef, count, alwaysMore, withDivider]);
   return fit;
 }
 
@@ -248,8 +257,15 @@ export const TopNav = React.memo(({
   // 지금 보고 있는 것은 해가 달라도, 보관됐어도 탭에 남는다 — 어디 있는지 표시가
   // 화면에서 사라지면 안 된다. 갈래를 둘로 나눠 쓰면 **보관된 것을 다른 해에서
   // 열었을 때 같은 탭이 두 번 들어간다**(navsmoke가 잡았다) — 한 번만 더한다.
-  const tabSource = activeProject && !yearList.some(p => p.id === activeMenu)
+  const posSource = activeProject && !yearList.some(p => p.id === activeMenu)
     ? [...yearList, activeProject] : yearList;
+  // **앞 칸**(사용자 결정 2026-09-25 · services/tabRank.js): 최근 7일 동안 여럿이 움직인 프로젝트
+  // 다섯까지가 맨 앞에 서고, 그 뒤가 손으로 정한 position 순서다. 숫자는 앱을 열 때·다시 보일
+  // 때만 새로 잰다(tabFront.js). 후보는 고른 해의 것뿐이다(다른 해에서 끌어올린 것은 뒤에 남는다).
+  const frontStats = useTabFrontStats();
+  const { front } = splitFrontTabs(yearList, frontStats);
+  const frontIds = new Set(front.map(p => p.id));
+  const tabSource = front.length ? [...front, ...posSource.filter(p => !frontIds.has(p.id))] : posSource;
   // 보관된 것을 열어 두면 위 줄이 그걸 탭으로 끌어올린다 — 그때 보관함 목록에도 그대로
   // 두면 **같은 프로젝트가 탭과 더보기에 동시에** 보인다(실제로 그렇게 보였다).
   // 지금 보고 있는 것은 이미 탭에 있으니 목록에서 뺀다.
@@ -262,8 +278,13 @@ export const TopNav = React.memo(({
   // 들어가도 '더보기'는 남아야 하므로 그 폭까지 계산에 넣는다.
   const tabRowRef = useRef(null);
   const measureRef = useRef(null);
-  const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0);
+  const tabFit = useTabFit(tabRowRef, measureRef, tabSource.length, archivedForMore.length > 0, front.length > 0);
   const { shown, rest } = splitProjectTabs(tabSource, activeMenu, tabFit);
+  const showMore = rest.length > 0 || archivedForMore.length > 0;
+  // 세로선은 **마지막 앞 칸 탭 바로 뒤**에 한 번 — 뒤에 무언가(뒤쪽 탭이나 더보기)가 설 때만.
+  // 폭이 좁아 지금 보는 탭이 마지막 칸에 끌어올려지면(splitProjectTabs) 그 탭이 '뒤'라 선이 그 앞에 선다.
+  const lastFrontIdx = shown.reduce((k, p, i) => (frontIds.has(p.id) ? i : k), -1);
+  const dividerAfter = lastFrontIdx >= 0 && (lastFrontIdx < shown.length - 1 || showMore) ? lastFrontIdx : -1;
   // 프로젝트 탭 줄은 업무 축 화면에서만 — 교회 생활 화면(홈·예배·말씀·모임)에서는 접힌다
   const showProjectRow = !CHURCH_MENUS.includes(activeMenu);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -278,9 +299,12 @@ export const TopNav = React.memo(({
   // 모바일은 가로 스크롤과 부딪히지 않게 **길게 눌러** 시작한다(MobileTopBar) —
   // 끼워 넣는 규칙(utils.reorderIds)과 저장(saveTabOrder)은 양쪽이 같은 것을 쓴다.
   const [dragTabId, setDragTabId] = useState(null);
+  // 앞 칸 탭은 끌 수도, 놓을 자리도 될 수 없다 — 그 자리는 활동이 정하지 position이 아니다.
+  // 번호는 **position 순 전체**(posSource)로 매긴다: 앞 칸 것도 그 안의 제자리를 지켜야, 앞 칸에서
+  // 내려올 때 원래 자리로 돌아간다(앞 칸을 빼고 다시 매기면 엉뚱한 자리에 선다).
   const dropTab = (targetId) => {
-    if (!dragTabId || dragTabId === targetId) return;
-    const next = reorderIds(tabSource.map(p => p.id), dragTabId, targetId);
+    if (!dragTabId || dragTabId === targetId || frontIds.has(dragTabId) || frontIds.has(targetId)) return;
+    const next = reorderIds(posSource.map(p => p.id), dragTabId, targetId);
     if (next) saveTabOrder(next, allProjects, cloudMode);
   };
 
@@ -350,14 +374,18 @@ export const TopNav = React.memo(({
               **맨 뒤**에 둔다: 앞에 끼우면 useTabFit의 kids 인덱스가 통째로 밀려
               탭 폭이 엉뚱하게 잡힌다(800px에서 8개가 다 들어간다고 나왔다). */}
           <span className="shrink-0 inline-flex items-center gap-1 pr-1.5 pt-2.5 pb-2 text-[13px] font-semibold tabular-nums">{year} <ChevronDown size={13} /></span>
+          {/* 앞 칸 세로선 — 연도 **뒤**에 둔다(kids 인덱스를 밀지 않게) */}
+          <span className={TAB_DIVIDER} />
         </div>
         <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} />
-        {shown.map(p => (
+        {shown.map((p, i) => (
+          <React.Fragment key={p.id}>
           <button
-            key={p.id} onClick={() => setActiveMenu(p.id)}
-            draggable
+            onClick={() => setActiveMenu(p.id)}
+            data-front={frontIds.has(p.id) ? '' : undefined}
+            draggable={!frontIds.has(p.id)}
             onDragStart={() => setDragTabId(p.id)}
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={(e) => { if (!frontIds.has(p.id)) e.preventDefault(); }}
             onDrop={(e) => { e.preventDefault(); dropTab(p.id); }}
             onDragEnd={() => setDragTabId(null)}
             // truncate(overflow-hidden)를 버튼에 직접 주면 **경계에 걸친 얼굴이 잘린다**
@@ -380,8 +408,10 @@ export const TopNav = React.memo(({
                 z-[1]: 뒤 형제 탭이 나중에 그려져 걸친 부분을 덮는 것을 막는다. */}
             <ViewerFaces projectId={p.id} className="absolute top-1 -right-1 z-[1]" />
           </button>
+          {i === dividerAfter && <span aria-hidden data-tab-divider className={TAB_DIVIDER} />}
+          </React.Fragment>
         ))}
-        {(rest.length > 0 || archivedForMore.length > 0) && (
+        {showMore && (
           <span ref={moreRootRef} className="inline-flex">
             <span ref={moreBtnRef} className="inline-flex">
               <button onClick={() => { placeMore(); setMoreOpen(o => !o); }} className="px-3 pt-2.5 pb-2 -mb-px inline-flex items-center gap-1 text-[13px] font-semibold text-fg-muted hover:text-fg border-b-2 border-transparent transition-colors">
@@ -530,7 +560,12 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
   const allForYear = useStore(selectProjectsList);
   const { year, setYear, years, yearCounts } = useTabYear(allForYear, activeMenu);
   const yearList = activeList.filter(p => projectYear(p) === year);
-  const base = project && !project.archived && !yearList.some(p => p.id === activeMenu) ? [...yearList, project] : yearList;
+  const posBase = project && !project.archived && !yearList.some(p => p.id === activeMenu) ? [...yearList, project] : yearList;
+  // 앞 칸(데스크톱 TopNav와 같은 규칙 · services/tabRank.js) — 폰은 전부 그리므로 더보기가 없다
+  const frontStats = useTabFrontStats();
+  const { front } = splitFrontTabs(yearList, frontStats);
+  const frontIds = new Set(front.map(p => p.id));
+  const base = front.length ? [...front, ...posBase.filter(p => !frontIds.has(p.id))] : posBase;
   // 그 해의 보관 프로젝트 — 지금 열어 둔 것은 아래에서 한 번만 더한다.
   // **여기서 빼지 않으면 같은 프로젝트가 두 번 선다**: 보관된 것을 열어 두면 아래 줄이
   // 이미 탭으로 끌어올리기 때문이다(데스크톱 archivedForMore가 같은 함정 · navsmoke가 잡았다).
@@ -572,6 +607,7 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
           projectsList={projectsList} activeMenu={activeMenu} setActiveMenu={setActiveMenu}
           onOpenProject={onOpenProject} allProjects={allForYear} cloudMode={cloudMode}
           year={year} setYear={setYear} years={years} yearCounts={yearCounts}
+          frontIds={frontIds} orderIds={posBase.map(p => p.id)}
         />
       )}
     </div>
@@ -586,9 +622,11 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
 // 'tab:' 접두사로 끌고 있는 것(active.id = 프로젝트 id)과 놓는 자리를 가른다.
 // **보관된 탭은 끌 수도, 놓을 자리도 될 수 없다**(disabled) — 순서는 projects.position에
 // 저장되는데 보관된 것은 그 순서에 끼지 않기로 되어 있다(saveTabOrder 주석).
-function MobileProjectTab({ project, active, archived = false, onSelect }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: project.id, disabled: archived });
-  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `tab:${project.id}`, disabled: archived });
+// **앞 칸 탭(front)도 같다** — 그 자리는 활동이 정하므로 끌어도 position이 바뀌면 안 된다.
+function MobileProjectTab({ project, active, archived = false, front = false, onSelect }) {
+  const locked = archived || front;
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: project.id, disabled: locked });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `tab:${project.id}`, disabled: locked });
   const nodeRef = useRef(null);
   // **ref 콜백에 조건을 넣지 않는다** — 콜백 신원이 바뀌면 React가 ref를 떼었다 다시
   // 붙이는데, 끄는 도중이면 dnd-kit이 들고 있던 노드가 그 순간 사라진다.
@@ -599,10 +637,11 @@ function MobileProjectTab({ project, active, archived = false, onSelect }) {
   useEffect(() => { if (active) nodeRef.current?.scrollIntoView({ inline: 'nearest', block: 'nearest' }); }, [active]);
   // 보관 탭에는 dnd 속성을 아예 얹지 않는다 — disabled면 dnd-kit이 `aria-disabled="true"`를
   // 붙이는데, 눌러서 열 수 있는 버튼을 보조기기에 "못 쓰는 버튼"으로 알리게 된다.
-  const dragProps = archived ? {} : { ...attributes, ...listeners };
+  const dragProps = locked ? {} : { ...attributes, ...listeners };
   return (
     <button
       ref={setRefs} {...dragProps}
+      data-front={front ? '' : undefined}
       onClick={() => onSelect(project.id)}
       className={`relative shrink-0 px-3 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap ${active ? 'text-fg border-fg' : archived ? 'text-fg-faint border-transparent' : 'text-fg-muted border-transparent'} ${isDragging ? 'opacity-40' : ''} ${isOver && !isDragging ? 'bg-accent-weak rounded-t-md' : ''}`}
     >
@@ -625,7 +664,7 @@ function MobileProjectTab({ project, active, archived = false, onSelect }) {
 // 스크롤과 드래그가 같은 제스처를 두고 싸운다. 그래서 TouchSensor의 delay로 가른다.
 const MobileProjectTabs = React.memo(({
   projectsList, activeMenu, setActiveMenu, onOpenProject, allProjects, cloudMode,
-  year, setYear, years, yearCounts,
+  year, setYear, years, yearCounts, frontIds, orderIds,
 }) => {
   const [dragId, setDragId] = useState(null);
   // 터치와 마우스는 센서를 분리한다(§6-12) — 하나로 합치면 모바일에서 드래그가 아예
@@ -641,10 +680,10 @@ const MobileProjectTabs = React.memo(({
     setDragId(null);
     if (!over) return;
     const targetId = String(over.id).replace(/^tab:/, '');
-    // 순서를 매기는 목록에서 **보관된 탭은 뺀다** — 그것들은 줄 끝에 이어 세울 뿐
-    // position에 끼지 않는다(saveTabOrder 주석). 끌기·놓기도 막혀 있어서(disabled)
-    // 여기 id가 들어올 일은 없지만, 목록에 남겨 두면 번호가 그쪽으로 새 나간다.
-    const orderIds = projectsList.filter(p => !p.archived).map(p => p.id);
+    // 순서를 매기는 목록은 **position 순 전체**(orderIds — 보관된 탭은 없다)다. 보관된 탭은
+    // 줄 끝에 이어 세울 뿐 position에 끼지 않고(saveTabOrder 주석), 앞 칸 탭은 position 안의
+    // 제자리를 지킨다(데스크톱 dropTab과 같은 이유). 둘 다 끌기·놓기가 막혀 있다(disabled).
+    if (frontIds?.has(String(active.id)) || frontIds?.has(targetId)) return;
     const next = reorderIds(orderIds, String(active.id), targetId);
     if (next) saveTabOrder(next, allProjects, cloudMode);
   };
@@ -663,8 +702,14 @@ const MobileProjectTabs = React.memo(({
         {/* 연도는 미는 칸 **안**에 둔다 — 같은 종류가 이어지는 줄이고(§8), 밖으로
             빼면 좁은 화면에서 탭이 시작하는 자리가 그만큼 밀린다 */}
         <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} compact />
-        {projectsList.map(p => (
-          <MobileProjectTab key={p.id} project={p} active={activeMenu === p.id} archived={!!p.archived} onSelect={setActiveMenu} />
+        {projectsList.map((p, i) => (
+          <React.Fragment key={p.id}>
+            <MobileProjectTab project={p} active={activeMenu === p.id} archived={!!p.archived} front={!!frontIds?.has(p.id)} onSelect={setActiveMenu} />
+            {/* 앞 칸 뒤 세로선 — 마지막 앞 칸 탭 바로 뒤, 뒤에 탭이 더 있을 때만 */}
+            {frontIds?.has(p.id) && i < projectsList.length - 1 && !frontIds.has(projectsList[i + 1].id) && (
+              <span aria-hidden data-tab-divider className={TAB_DIVIDER} />
+            )}
+          </React.Fragment>
         ))}
         {/* 데스크톱과 같은 이유로 투명 2px을 깐다(§6의 항목 참고) */}
         <button onClick={onOpenProject} className="shrink-0 px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint whitespace-nowrap">+ 프로젝트</button>
@@ -695,11 +740,20 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
   const currentUser = useStore(selectCurrentUser);
   const myTasksCount = useStore(selectMyTasks).filter(t => t.status !== '완료').length;
   const isProject = allProjects.some(p => p.id === activeMenu);
+  const [year] = useProjectYear();
+  const frontStats = useTabFrontStats();
+  // 마지막으로 본 프로젝트 — 아래 '업무' 탭의 lastWork와 같은 결(이번 세션 동안만 기억한다)
+  const lastProject = useRef(null);
+  useEffect(() => { if (isProject) lastProject.current = activeMenu; }, [activeMenu, isProject]);
   const myTeam = (currentUser.teams?.length ? currentUser.teams : [currentUser.team]).filter(Boolean)[0];
-  // '프로젝트' 탭: 보던 프로젝트가 없으면 첫 프로젝트, 그것도 없으면 새로 만들기
+  // '프로젝트' 탭(2026-09-25 · tabRank.pickProjectToOpen): 마지막으로 본 것이 고른 해에 있으면 그것,
+  // 아니면 **고른 해의 탭 순서 첫 프로젝트**(앞 칸 → position — 위 탭 줄과 같은 순서), 그 해가 비면
+  // 가장 최근 해의 첫 것, 아무것도 없으면 새로 만들기. 예전에는 해를 안 보고 position 첫 것을 열어서
+  // 작년 프로젝트가 앞이면 그걸 열고 연도 선택까지 작년으로 끌려갔다.
   const goProject = () => {
     if (isProject) return;
-    if (projectsList.length) setActiveMenu(projectsList[0].id);
+    const id = pickProjectToOpen({ active: projectsList, all: allProjects, year, lastId: lastProject.current, stats: frontStats, yearOf: projectYear });
+    if (id) setActiveMenu(id);
     else onOpenProject();
   };
   // 소속이 없는 사람은 팀 보드로 갈 곳이 없으니 프로필 설정으로 안내한다

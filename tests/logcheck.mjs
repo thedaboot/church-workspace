@@ -4365,3 +4365,89 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/max-h-\[360px\]/.test(laySrc), '데스크톱 결과 판은 360px까지');
   console.log('PASS  뜻 검색 결과를 줄로(vecSearch — 와/과 · 발췌 · 업무 묶기 · 성경 대체 줄 · 게스트 네트워크 0)');
 }
+
+// ── 프로젝트 탭 줄 앞 칸 · 업무 실시간 재접속 따라잡기 · 폰 '프로젝트' 버튼 (2026-09-25) ──
+{
+  const R = await import(new URL('../src/services/tabRank.js', import.meta.url).href);
+  const S = await import(new URL('../src/services/realtimeStatus.js', import.meta.url).href);
+  const now = Date.parse('2026-09-25T12:00:00Z');
+  const ago = (h) => new Date(now - h * 3600000).toISOString();
+  const rows = [
+    // p1: 셋(가장 많음)
+    { projectId: 'p1', actor: 'a', at: ago(1) }, { projectId: 'p1', actor: 'b', at: ago(30) }, { projectId: 'p1', actor: 'c', at: ago(50) },
+    // p2: 둘 · 마지막 2시간 전 / p3: 둘 · 마지막 1시간 전 → p3이 앞
+    { projectId: 'p2', actor: 'a', at: ago(2) }, { projectId: 'p2', actor: 'b', at: ago(5) },
+    { projectId: 'p3', actor: 'a', at: ago(1) }, { projectId: 'p3', actor: 'c', at: ago(9) },
+    // p4: 한 사람이 여러 번 — 사람 수 1이라 앞 칸에 못 든다
+    { projectId: 'p4', actor: 'a', at: ago(1) }, { projectId: 'p4', actor: 'a', at: ago(2) }, { projectId: 'p4', actor: 'a', at: ago(3) },
+    // p5: 둘인데 하나가 8일 전 — 창 밖이라 1명
+    { projectId: 'p5', actor: 'a', at: ago(3) }, { projectId: 'p5', actor: 'b', at: ago(24 * 8) },
+    // 주인·프로젝트 없는 줄은 버린다
+    { projectId: null, actor: 'a', at: ago(1) }, { projectId: 'p1', actor: null, at: ago(1) },
+  ];
+  const st = R.activityStats(rows, now);
+  assert.deepStrictEqual(st.p1, { people: 3, lastAt: now - 3600000 });
+  assert.strictEqual(st.p4.people, 1, '같은 사람은 한 번');
+  assert.strictEqual(st.p5.people, 1, '7일 밖은 세지 않는다');
+  assert.strictEqual(R.FRONT_DAYS, 7); assert.strictEqual(R.FRONT_MAX, 5); assert.strictEqual(R.FRONT_MIN_PEOPLE, 2);
+  const P = (id) => ({ id, title: id });
+  const list = ['p5', 'p4', 'p2', 'p9', 'p3', 'p1'].map(P);   // position 순
+  const sp = R.splitFrontTabs(list, st);
+  assert.deepStrictEqual(sp.front.map(p => p.id), ['p1', 'p3', 'p2'], '사람 수 많은 순 · 같으면 최근 활동이 앞 · 2명 이상만');
+  assert.deepStrictEqual(sp.rest.map(p => p.id), ['p5', 'p4', 'p9'], '나머지는 position 순 그대로 · 앞 칸 것은 빠진다');
+  assert.deepStrictEqual(R.splitFrontTabs(list, null).front, [], '숫자가 없으면(게스트 첫 화면 · 못 읽음) 앞 칸 없음');
+  assert.deepStrictEqual(R.splitFrontTabs(list, {}).rest.map(p => p.id), list.map(p => p.id), '앞 칸 0개 = 지금 순서 그대로');
+  // 다섯까지
+  const many = {}; const mlist = [];
+  for (let i = 0; i < 7; i++) { many['q' + i] = { people: 2 + i, lastAt: i }; mlist.push(P('q' + i)); }
+  const ms = R.splitFrontTabs(mlist, many);
+  assert.deepStrictEqual(ms.front.map(p => p.id), ['q6', 'q5', 'q4', 'q3', 'q2'], '다섯까지');
+  assert.deepStrictEqual(ms.rest.map(p => p.id), ['q0', 'q1']);
+  // 후보는 목록(고른 해·보관 제외) 안에서만 — 목록에 없는 바쁜 프로젝트가 칸을 먹지 않는다
+  assert.deepStrictEqual(R.splitFrontTabs([P('p2'), P('p9')], st).front.map(p => p.id), ['p2']);
+  // 게스트 — 스토어 업무의 activityLog로 같은 줄
+  const gt = { allIds: ['t1', 't2', 't3'], byId: {
+    t1: { projectId: 'g1', activityLog: [{ author: '가', timestamp: ago(1) }, { author: '나', timestamp: ago(2) }] },
+    t2: { projectId: 'g1', activityLog: [{ author: '가', timestamp: ago(3) }] },
+    t3: { projectId: null, activityLog: [{ author: '다', timestamp: ago(1) }] } } };
+  const gr = R.guestActivityRows(gt);
+  assert.strictEqual(gr.length, 3, '프로젝트 없는 업무는 버린다');
+  assert.deepStrictEqual(R.activityStats(gr, now).g1, { people: 2, lastAt: now - 3600000 });
+  // 폰 '프로젝트' 버튼이 열 곳
+  const yr = (p) => p.year;
+  const act = [{ id: 'old1', year: '2026' }, { id: 'n1', year: '2027' }, { id: 'n2', year: '2027' }];
+  const all = [...act, { id: 'arch', year: '2027', archived: true }];
+  const pick = (o) => R.pickProjectToOpen({ active: act, all, yearOf: yr, stats: null, lastId: null, ...o });
+  assert.strictEqual(pick({ year: '2027' }), 'n1', '고른 해의 첫 것 — position 첫 것(작년)이 아니다');
+  assert.strictEqual(pick({ year: '2027', stats: { n2: { people: 2, lastAt: 1 } } }), 'n2', '앞 칸이 있으면 그것이 첫 것');
+  assert.strictEqual(pick({ year: '2027', lastId: 'n2' }), 'n2', '마지막으로 본 것이 고른 해에 있으면 그것');
+  assert.strictEqual(pick({ year: '2027', lastId: 'old1' }), 'n1', '마지막으로 본 것이 다른 해면 고른 해의 첫 것');
+  assert.strictEqual(pick({ year: '2027', lastId: 'gone' }), 'n1', '지워진 것은 건너뛴다');
+  assert.strictEqual(pick({ year: '2028' }), 'n1', '고른 해가 비면 가장 최근 해의 첫 것');
+  assert.strictEqual(R.pickProjectToOpen({ active: [], all: [], year: '2027', yearOf: yr }), null, '아무것도 없으면 새로 만들기');
+  // 재접속 판정 — 처음 SUBSCRIBED는 무시, 끊겼다 다시 붙을 때만 한 번
+  let n = 0;
+  const w = S.reconnectWatcher(() => { n++; });
+  w('SUBSCRIBED'); assert.strictEqual(n, 0, '처음 붙을 때는 부르지 않는다');
+  w('SUBSCRIBED'); assert.strictEqual(n, 0);
+  w('TIMED_OUT'); w('CHANNEL_ERROR'); assert.strictEqual(n, 0, '끊긴 동안은 부르지 않는다');
+  w('SUBSCRIBED'); assert.strictEqual(n, 1, '다시 붙으면 한 번');
+  w('SUBSCRIBED'); assert.strictEqual(n, 1, '이어서 온 SUBSCRIBED는 또 부르지 않는다');
+  w('CLOSED'); w('SUBSCRIBED'); assert.strictEqual(n, 2, 'CLOSED 뒤에도');
+  S.reconnectWatcher(undefined)('CLOSED');   // 콜백이 없어도 던지지 않는다
+  // 배선: 업무 채널이 상태를 받고 · App이 재접속에 재조회하고 · 앞 칸 숫자는 열 때·보일 때만 잰다
+  const cloudSrc = readFileSync(new URL('../src/services/cloud.js', import.meta.url), 'utf8');
+  const syncSrc = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
+  const appSrc = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const laySrc2 = readFileSync(new URL('../src/components/layout.jsx', import.meta.url), 'utf8');
+  assert.ok(/\.subscribe\(\(status\) => onStatus\?\.\(status\)\);/.test(cloudSrc), '업무 채널 subscribe가 상태를 넘긴다');
+  assert.ok(/\}, reconnectWatcher\(onReconnect\)\);/.test(syncSrc), 'subscribeWorkspace가 재접속 판정을 붙인다');
+  assert.ok(/onReconnect: \(\) => \{\s*if \(isEditingRef\.current\) \{ pendingReloadRef\.current = true; return; \}[\s\S]{0,200}reloadCloud\(\)/.test(appSrc), 'App이 재접속에 재조회(편집 중이면 미룬다)');
+  const calls = appSrc.match(/refreshTabFront\(/g) || [];
+  assert.strictEqual(calls.length, 2, '앞 칸 숫자는 첫 로드 뒤 한 번 + 보일 때 한 번 — 실시간 경로에서 부르지 않는다');
+  assert.ok(/if \(!document\.hidden\) refreshTabFront\(cloudMode\)/.test(appSrc), '다시 보일 때만');
+  assert.ok(/draggable=\{!frontIds\.has\(p\.id\)\}/.test(laySrc2), '데스크톱 앞 칸 탭은 끌 수 없다');
+  assert.ok(/const locked = archived \|\| front;/.test(laySrc2), '폰 앞 칸 탭도 끌기·놓기가 막힌다');
+  assert.ok(/reorderIds\(posSource\.map\(p => p\.id\), dragTabId, targetId\)/.test(laySrc2), '번호는 position 순 전체로 매긴다');
+  console.log('PASS  탭 줄 앞 칸(tabRank — 사람 수·최근·2명 이상·다섯·게스트 줄) · 폰 프로젝트 버튼 · 업무 채널 재접속 따라잡기');
+}

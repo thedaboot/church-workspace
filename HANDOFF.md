@@ -197,6 +197,8 @@ src/services/domain.js        TaskService·ActivityService(§6-28)
 src/services/presence.js      지금 접속한 사람 — 워크스페이스 스토어 밖 미니 스토어(§4.9·§6-24-b)
 src/services/liveV2.js        v2 실시간 — 채널 하나 · 표 → 캐시 접두 · useLiveRefresh(§6-24-a) · 홈 접두 넷은 homeView와 맞춘다(logcheck)
 src/services/realtimeBatch.js 카드 실시간을 200ms 모아 id마다 한 번 — 순수 모듈(App.onCard)
+src/services/realtimeStatus.js 업무 채널 재접속 판정(끊겼다 다시 붙을 때만) — 순수(§6-21-b)
+src/services/tabRank.js       탭 줄 앞 칸 규칙·폰 '프로젝트' 버튼이 열 곳 — 순수 · tabFront.js가 열 때·보일 때 잰다(§6-12-f)
 src/services/cache.js         화면 데이터 캐시(메모리+localStorage, 사용자별) · useCached(§6-24-d·24-e·24-f)
 src/services/entryQuery.js    진입 주소의 나머지 값을 모듈 첫 실행 때 붙잡는다(§6-24-c)
 src/services/ai.js            Gemini 프롬프트·컨텍스트·요약 캐시 · 명단 한 벌 10분 쥐기 — 배경 지식 원본은 `docs/AI.md`(§4.4·§6-43~46)
@@ -386,6 +388,9 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 - **읽기 = 편집**(사용자 결정 A1 · 2026-09-25): 노트 읽기 종이와 업무 보기는 편집 화면과 같은 줄에 선다 — 빈 줄은 한 줄, 들여쓰기 유지, 줄 간격은 `.note-paper .tiptap`의 값(주보 종이는 그대로 · PITFALLS 9-aa-11).
   하위 업무 추가 칸은 `px-3`(B2 — 상세 내용 편집기 글과 같은 x).
 - **빈 자리 문구**(사용자가 목업에서 25곳을 골랐다 · 2026-09-25): `미지정` · `미입력` · `미등록` · `방문 전` · `이름 미상`처럼 상태를 짧게 — "없어요"로 끝내지 않는다(아래 문구 톤).
+- **프로젝트 탭 줄 앞 칸**(사용자 결정 2026-09-25 · 목업 권장안 A · `services/tabRank.js`): 최근 7일 동안 그 프로젝트에서 무언가 한 사람(`activity.actor_id` 고유 · 합친 계정은 하나) 수가
+  많은 순, 같으면 최근 활동이 앞 · **두 명 이상**만 · 다섯까지. 그 뒤는 position 순(앞 칸에 오른 것은 빠진다) · 사이에 얇은 세로선 하나(문구·점 없음) · 앞 칸 탭은 끌 수 없다.
+  숫자는 **앱을 열 때와 다시 보일 때만** 잰다(`tabFront.js` — 보는 동안 탭이 튀지 않게). 폰 하단 '프로젝트'는 마지막으로 본 것(고른 해) → 고른 해의 탭 순서 첫 것.
 - **담당자는 `담당자`라고 쓴다**(2026-09-24 — '맡는 사람'을 바꿨다). 업무 창의 담당자 칸과 같은 말이다.
 - **청년별 담당 업무에서 '하위 업무로' 내린 줄은 본문 도막에서 지우고 `cards.subtasks`로 옮긴다**(2026-09-24) — 그 뒤 담당자·기한의 기준은 subtasks 하나다. 다듬기로 같은 제목이 또 뽑히면 `matchSubtask`로 거르고, 다 내리면 위 구역이 사라진다(되돌리는 길은 §7).
 - **하단바 '업무' 층의 파랑은 따로 둔 토큰이다**(`--app-work-bar` #3f6fc4 · 사용자가 목업 넷에서 골랐다) — 다크의 accent를 따라가면 흰 글자 대비가 3.4:1로 떨어진다.

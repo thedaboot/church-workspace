@@ -1,6 +1,7 @@
 import * as cloud from './cloud.js';
 import { statusToDb, statusFromDb } from './cloud.js';
 import { setWriteObserver } from './supabaseClient.js';
+import { reconnectWatcher } from './realtimeStatus.js';
 import {
   normalize, httpsImage, extractMentions, isoTime, seenOnlyChange,
   dueForHeartbeat, HEARTBEAT_MS, LEAVE_STAMP_MS, WRITE_STAMP_MS, subtasksForDb,
@@ -529,6 +530,19 @@ export async function loadActivityFeed() {
   return (rows || []).map(activityFeedToApp);
 }
 
+// 탭 줄 앞 칸의 재료(services/tabRank.js) — 최근 days일의 프로젝트 활동을 [{ projectId, actor, at }]로.
+// **합친 계정은 남긴 계정으로 센다** — 한 사람이 두 계정으로 움직였다고 '두 명'이 되면
+// 혼자 쓴 프로젝트가 앞 칸에 오른다(0060 merged_into · 담당자 변환과 같은 규칙).
+export async function loadTabActivity(days, now = Date.now()) {
+  const since = new Date(now - days * 86400000).toISOString();
+  const rows = await cloud.listProjectActivitySince(since);
+  return (rows || []).filter(r => r.actor_id).map(r => ({
+    projectId: r.project_id,
+    actor: profileRows.get(r.actor_id)?.merged_into || r.actor_id,
+    at: r.created_at,
+  }));
+}
+
 // ── 카드 1건 읽기 ────────────────────────────────────────────────────────────
 // 업무 창을 열 때의 상세(댓글·활동). 초기 로드에서 빠진 것을 여기서 채운다.
 export async function loadCardDetail(cardId) {
@@ -766,7 +780,9 @@ export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {
 //   그 외(projects·resource_links) → 전체 재조회 (드문 변경)
 // comments의 DELETE payload에는 card_id가 없다(replica identity가 PK뿐) → cardId가
 // 비면 "지금 열려 있는 카드"로 본다. 호출부가 그렇게 처리한다.
-export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActivityFeed, onMemberSeen, onFullReload }) {
+// onReconnect: 채널이 끊겼다가 다시 붙었을 때 한 번(realtimeStatus.reconnectWatcher) — 폰이 잠든 사이의
+// 변경은 이벤트로 오지 않으니 부르는 쪽이 따라잡기 읽기를 한다. 처음 붙을 때는 부르지 않는다.
+export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActivityFeed, onMemberSeen, onFullReload, onReconnect }) {
   return cloud.subscribeAll((payload) => {
     const table = payload?.table;
     const row = payload?.new || {};
@@ -813,7 +829,7 @@ export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActiv
     // profiles가 여기로 오는 것이 중요하다 — primeMaps가 다시 돌아야 새로 가입한 사람의
     // id→이름이 이 탭에 생긴다(0018). 카드 1건만 다시 읽는 경로로 옮기면 안 된다.
     onFullReload();
-  });
+  }, reconnectWatcher(onReconnect));
 }
 
 // Supabase 에러를 사람이 읽을 한 줄로 (message + code + details)

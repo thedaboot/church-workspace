@@ -99,6 +99,7 @@ import { setEntryQuery, isAppLink } from './services/entryQuery.js';
 import * as cloudSync from './services/cloudSync.js';
 import { createIdBatcher } from './services/realtimeBatch.js';
 import { subscribePresence, trackWhere } from './services/presence.js';
+import { refreshTabFront } from './services/tabFront.js';
 import logoLight from './assets/logo-light.webp';
 import logoDark from './assets/logo-dark.webp';
 import { BTN_CONFIRM } from './components/buttons.js';
@@ -349,9 +350,28 @@ function WorkspaceShell() {
         clearTimeout(timer);
         timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e)); }, 300);
       },
+      // **끊겼다가 다시 붙으면 전체를 한 번 읽는다**(2026-09-25) — 폰이 잠든 사이의 카드·활동 변경은
+      // 이벤트로 오지 않는다. reloadCloud가 카드·프로젝트·활동 피드를 다 읽고 열린 창의 상세도 채운다.
+      // 편집 중이면 위와 같이 미룬다(폼을 덮지 않는다). 처음 붙을 때는 오지 않는다(realtimeStatus.js).
+      onReconnect: () => {
+        if (isEditingRef.current) { pendingReloadRef.current = true; return; }
+        clearTimeout(timer);
+        timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재접속 뒤 재조회 실패:', e)); }, 300);
+      },
     });
     return () => { clearTimeout(timer); clearTimeout(feedTimer); cards.cancel(); unsub(); };
   }, [cloudMode, reloadCloud, syncCard, syncCardDetail]);
+
+  // 프로젝트 탭 줄 앞 칸(services/tabFront.js) — **첫 로드 뒤 한 번 + 앱이 다시 보일 때만** 잰다.
+  // 보고 있는 동안에는 다시 재지 않는다: 남의 활동으로 탭이 움직이면 누르려던 탭이 손가락 밑에서 튄다.
+  // 클라우드는 첫 로드(프로필 — 합친 계정 풀기)가 끝난 뒤에 잰다.
+  useEffect(() => {
+    if (!cloudReady) return undefined;
+    refreshTabFront(cloudMode);
+    const onVisible = () => { if (!document.hidden) refreshTabFront(cloudMode); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [cloudMode, cloudReady]);
 
   // 지금 접속해 있는 사람(presence) — DB에 아무것도 쓰지 않고, 연결이 끊기면 서버가
   // 바로 지운다. 값은 전용 미니 스토어로 흐른다(LOAD_STATE가 상태를 통째로 갈아치우는
