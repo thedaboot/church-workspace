@@ -20,8 +20,21 @@ import { Avatar } from './Avatar.jsx';
 // 교회 달력이라 일요일은 '주일'로 표기한다.
 const WEEKDAYS = ['주일', '월', '화', '수', '목', '금', '토'];
 const CAL_LANES = 2;            // 주당 보여줄 띠 줄 수. 넘치면 그 날짜에 +N건
-const CAL_MIN_YEAR = new Date().getFullYear();
-const CAL_MAX_YEAR = 2030;
+// 오갈 수 있는 달 — **2026년 1월부터 내년 12월까지**(2026-09-25). 예전에는 하한이 '올해'라
+// 해가 바뀌면 지난해 12월 행사를 달력에서 다시 볼 길이 없었고, 상한은 2030으로 박혀 있었다.
+// 기록은 앱을 쓰기 시작한 2026년 1월부터 쌓이니 그 달이 바닥이고, 위는 일정을 미리 잡는 몫으로
+// 올해 + 1년이면 된다. 값은 달 순번(y*12+m)으로 견준다 — 해만 가두면 1월에서 뒤로 가는 순간
+// 12월로 튄다(예전 shift가 그랬다 · 버튼이 막혀 있어 드러나지 않았을 뿐이다).
+export const CAL_START = { y: 2026, m: 0 };
+export function calendarBounds(now = new Date()) {
+  const y = now.getFullYear();
+  return { min: CAL_START, max: { y: Math.max(CAL_START.y, y + 1), m: 11 } };
+}
+const monthIdx = (v) => v.y * 12 + v.m;
+export function clampMonth(v, bounds) {
+  const i = Math.min(monthIdx(bounds.max), Math.max(monthIdx(bounds.min), monthIdx(v)));
+  return { y: Math.floor(i / 12), m: i % 12 };
+}
 
 const isoOf = localDate;   // 브라우저 로컬 'YYYY-MM-DD' — utils에 한 벌
 const addDays = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return isoOf(d); };
@@ -92,9 +105,10 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
   const members = useStore(selectMembers);
   const bdays = React.useMemo(() => birthdayMap(members), [members]);
   const todayIso = isoOf(new Date());
+  const bounds = React.useMemo(() => calendarBounds(), []);
   const [view, setView] = React.useState(() => {
     const d = new Date();
-    return { y: Math.max(CAL_MIN_YEAR, Math.min(CAL_MAX_YEAR, d.getFullYear())), m: d.getMonth() };
+    return clampMonth({ y: d.getFullYear(), m: d.getMonth() }, bounds);
   });
   const [selected, setSelected] = React.useState(todayIso);
 
@@ -144,13 +158,9 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tasks, gridStart, weekCount, laneFit]);
 
-  const canPrev = !(view.y === CAL_MIN_YEAR && view.m === 0);
-  const canNext = !(view.y === CAL_MAX_YEAR && view.m === 11);
-  const shift = (n) => () => setView(v => {
-    const d = new Date(v.y, v.m + n, 1);
-    const y = Math.max(CAL_MIN_YEAR, Math.min(CAL_MAX_YEAR, d.getFullYear()));
-    return { y, m: d.getMonth() };
-  });
+  const canPrev = monthIdx(view) > monthIdx(bounds.min);
+  const canNext = monthIdx(view) < monthIdx(bounds.max);
+  const shift = (n) => () => setView(v => clampMonth({ y: v.y, m: v.m + n }, bounds));
 
   // 날짜 → 그 날 걸쳐 있는 업무. 한 번 만들어 두고 칸마다 꺼내 쓴다.
   // 예전에는 칸마다 목록 전체를 다시 filter해서, 모바일 달력(42칸)은 렌더마다

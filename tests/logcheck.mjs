@@ -4623,3 +4623,85 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(!/세션이 유효하지 않습니다|'인증이 필요합니다\.'/.test(libSrc.split('export async function requireApprovedUser')[1] || 'x'), 'api 401은 사람 말');
   console.log('PASS  승인 대기 자동 전환(approvalWatch) · 승인 알림(0076) · 화면에 기술 원문 안 싣기');
 }
+
+// ── 2026-09-25 묶음: 모임·홈·성경 검색·달력의 순수 로직 ─────────────────────
+// ① 동아리 카드 '다음 동아리 모임 26. 9. 28.' — 날짜 모양(YY. M. D.)과 동아리마다 가장 이른 앞날(오늘 포함)
+// ② 홈 내 순 카드의 '공유된 노트 N'은 주보별 개수에서 그 주보 것만(countByService)
+// ③ 노트 공유 알림 링크는 그 주보를 싣는다(note= · s가 아니다 — 예배 화면이 s를 먼저 집는다)
+// ④ 성경 낱말 검색은 띄어쓰기를 지우고 견주고, 칠할 자리는 원문 자리로 돌려준다(matchRanges)
+// ⑤ 전체 일정 달력은 2026년 1월 ~ 내년 12월(calendarBounds · clampMonth)
+// 되돌리기 검사(§3-5): nextMeetingDates의 `d < today`를 지우면 ①-b가, countByService의 `+ 1`을 `= 1`로
+// 바꾸면 ②가, matchRanges의 `continue`(공백 건너뛰기)를 지우면 ④-b가, calendarBounds의 `y + 1`을 `y`로
+// 바꾸면 ⑤-a가 깨진다.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'b0925-'));
+  const gsrc = readFileSync(new URL('../src/services/groups.js', import.meta.url), 'utf8')
+    .replace(/^import .*$/gm, '')
+    .replace(/^/, "const supabase = null; const myUid = async () => null; const kstNow = () => '2026-09-25 10:00:00';"
+      + " const SUNDAY_KIND = 'sunday'; const generateId = () => 'id'; const insertNotifications = async () => 0;"
+      + " const fetchMyNote = async () => null; const saveMyNote = async () => null; const byName = () => 0;"
+      + " const guestStore = () => ({ all: () => ({}), rows: () => [], set: () => {} });\n");
+  const gf = join(dir, 'groups.mjs');
+  writeFileSync(gf, gsrc);
+  const G = await import(pathToFileURL(gf).href);
+  assert.strictEqual(G.meetingDateShort('2026-09-28'), '26. 9. 28.', '사용자 문구의 날짜 모양 그대로');
+  assert.strictEqual(G.meetingDateShort('2027-01-05'), '27. 1. 5.');
+  assert.strictEqual(G.meetingDateShort(''), '');
+  const next = G.nextMeetingDates([
+    { group_id: 'a', meeting_date: '2026-10-03' }, { group_id: 'a', meeting_date: '2026-09-28' },
+    { group_id: 'b', meeting_date: '2026-09-20' },                       // 지난 모임 — 다음이 아니다
+    { group_id: 'c', meeting_date: '2026-09-25' },                       // 오늘은 '다음'에 든다
+    { group_id: '', meeting_date: '2026-09-30' }, { group_id: 'd', meeting_date: 'bad' },
+  ], '2026-09-25');
+  assert.deepStrictEqual(next, { a: '2026-09-28', c: '2026-09-25' }, '동아리마다 가장 이른 앞날 · 지난 것과 깨진 행은 버린다');
+
+  assert.deepStrictEqual(G.countByService([
+    { service_id: 's1' }, { service_id: 's1' }, { service_id: 's2' }, { service_id: null },
+    { service_id: 's2', body: '   ' },                                  // 게스트 행 — 빈 노트는 세지 않는다
+  ]), { s1: 2, s2: 1 }, '주보별로 센다(전 기간 합계가 아니다)');
+
+  const wsrc = readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8');
+  assert.ok(/link: noteSharedLink\(service\.id\)/.test(wsrc) && /noteSharedLink = \(serviceId\) => `\/\?p=groups&note=\$\{serviceId\}`/.test(wsrc),
+    '노트 공유 알림은 그 주보를 note=로 싣는다');
+  const gvsrc = readFileSync(new URL('../src/views/groupsView.jsx', import.meta.url), 'utf8');
+  assert.ok(/entryOf\('note'\)/.test(gvsrc) && /entryOf\('guide'\)/.test(gvsrc), '모임 화면이 note·guide를 읽는다');
+
+  const wordSrc = readFileSync(new URL('../src/services/word.js', import.meta.url), 'utf8')
+    .replace(/import \{ supabase, myUid \} from '\.\/supabaseClient\.js';/, 'const supabase = null; const myUid = async () => null;');
+  const wf = join(dir, 'word.mjs');
+  writeFileSync(wf, wordSrc);
+  const W = await import(pathToFileURL(wf).href);
+  assert.strictEqual(W.compactText(' 사랑 하는\t자 '), '사랑하는자');
+  assert.deepStrictEqual(W.matchRanges('하나님이 자기 형상 곧 하나님의 형상대로', '하나님'), [[0, 3], [13, 16]], '한 절에 두 번');
+  const verse = '내가 너희를 사랑 하는 것 같이';
+  const r = W.matchRanges(verse, '사랑하는');
+  assert.deepStrictEqual(r, [[7, 12]], '띄어쓰기가 달라도 찾고, 원문 자리(공백 포함)로 돌려준다');
+  assert.strictEqual(verse.slice(r[0][0], r[0][1]), '사랑 하는');
+  assert.deepStrictEqual(W.matchRanges('태초에 하나님이', '태초 에하나님'), [[0, 7]], '검색어 쪽 공백도 지운다');
+  assert.deepStrictEqual(W.matchRanges('아무 말', '   '), [], '빈 검색어는 없음');
+  const bibleSrc = readFileSync(new URL('../src/components/wordBible.jsx', import.meta.url), 'utf8');
+  assert.ok(/packed\[c\]\[v\]\.includes\(needle\)/.test(bibleSrc) && /const needle = compactText\(q\)/.test(bibleSrc),
+    '성경 낱말 검색은 띄어쓰기를 지운 모양으로 견준다');
+  assert.ok(!/RESULT_LIMIT/.test(bibleSrc), '50건에서 훑기를 멈추지 않는다(더 보기로 이어 편다)');
+
+  const cal = readFileSync(new URL('../src/components/calendar.jsx', import.meta.url), 'utf8');
+  const cut = (re, what) => { const m = re.exec(cal); assert.ok(m, `calendar.jsx에 ${what}가 있다`); return m[0]; };
+  const cf = join(dir, 'cal.mjs');
+  writeFileSync(cf, [
+    cut(/^export const CAL_START = .*$/m, 'CAL_START'),
+    cut(/^export function calendarBounds\([\s\S]*?\n\}/m, 'calendarBounds'),
+    cut(/^const monthIdx = .*$/m, 'monthIdx'),
+    cut(/^export function clampMonth\([\s\S]*?\n\}/m, 'clampMonth'),
+  ].join('\n'));
+  const C = await import(pathToFileURL(cf).href);
+  const b26 = C.calendarBounds(new Date(2026, 8, 25));
+  assert.deepStrictEqual(b26, { min: { y: 2026, m: 0 }, max: { y: 2027, m: 11 } }, '2026년 1월 ~ 내년 12월');
+  const b27 = C.calendarBounds(new Date(2027, 0, 3));
+  assert.deepStrictEqual(b27.min, { y: 2026, m: 0 }, '2027년이 되어도 2026년 12월 행사를 볼 수 있다');
+  assert.deepStrictEqual(C.clampMonth({ y: 2027, m: -1 }, b27), { y: 2026, m: 11 }, '1월에서 뒤로 가면 지난해 12월');
+  assert.deepStrictEqual(C.clampMonth({ y: 2026, m: -1 }, b27), { y: 2026, m: 0 }, '바닥(2026년 1월) 아래로는 안 간다');
+  assert.deepStrictEqual(C.clampMonth({ y: 2028, m: 0 }, b27), { y: 2028, m: 0 });
+  assert.deepStrictEqual(C.clampMonth({ y: 2028, m: 12 }, b27), { y: 2028, m: 11 }, '위(내년 12월)로도 가둔다');
+  assert.ok(!/CAL_MAX_YEAR|= 2030/.test(cal), '2030 상한이 박혀 있지 않다');
+  console.log('PASS  9월 25일 묶음(다음 동아리 모임 · 주보별 공유 노트 · 노트 알림 링크 · 성경 띄어쓰기 · 달력 연도)');
+}
