@@ -19,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 const src = readFileSync(new URL('../src/services/sunGuide.js', import.meta.url), 'utf8');
 const patched = src
   .replace(/import \{ supabase \} from '\.\/supabaseClient\.js';/, 'const supabase = null;')
-  // 고정 알림(0076)이 명단·순 읽기와 알림 관문을 부른다 — 게스트(supabase null)에서는 부르기 전에 돌아가므로 빈 가짜로 둔다
+  // 고정 알림(0077)이 명단·순 읽기와 알림 관문을 부른다 — 게스트(supabase null)에서는 부르기 전에 돌아가므로 빈 가짜로 둔다
   .replace(/import \{ insertNotifications \} from '\.\/cloud\.js';/, 'const insertNotifications = async () => 0;')
   .replace(/import \{ guestStore, fetchGroups, fetchPeople \} from '\.\/people\.js';/,
     'const fetchGroups = async () => []; const fetchPeople = async () => []; const guestStore = () => ({ all: () => ({}), rows: () => globalThis.__ROWS || [], set: (t, l) => { globalThis.__SET = [t, l]; globalThis.__ROWS = l; } });')
@@ -453,7 +453,7 @@ check('저장해도 고정은 그대로다',
 await G.pinGuide('svc-2', false);
 check('고정을 풀면 아무것도 고정되지 않는다', (await G.pinnedGuideId()) === null);
 
-// ── 고정 알림 받는 사람 (0076 · 사용자 요청 2026-09-25) ────────────────────
+// ── 고정 알림 받는 사람 (0077 · 사용자 요청 2026-09-25) ────────────────────
 // 그 해 순의 순장(leader_person_id)의 계정 — 가입 전(계정 없음)은 빠지고, 같은 계정은 한 번.
 // 되돌리기 검사: guideNoticeTargets의 `new Set`을 걷으면 둘째가, `.filter(Boolean)`을 걷으면 첫째가 깨진다.
 {

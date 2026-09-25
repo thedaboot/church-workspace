@@ -324,7 +324,7 @@ const GUIDE_FAIL = '순모임 가이드를 불러오지 못했어요';
 //                      스켈레톤이 두 겹이 된다.
 //   onChanged()      — 저장·고정 뒤. 바깥이 '지금 고정된 주보'를 다시 읽게 알린다.
 //   focus            — 알림으로 들어온 자리(groupsView mineFocus). `focus.guide`가 주보 id면 그
-//                      주보를 고르고 이 섹션으로 내려 준다(가이드 고정 알림 · 0076).
+//                      주보를 고르고 이 섹션으로 내려 준다(가이드 고정 알림 · 0077).
 export function SunGuidePanel({
   services = [], service, pinnedServiceId = '', perms, loading = false, onChanged, focus = null,
 }) {
@@ -459,7 +459,7 @@ export function SunGuidePanel({
     setBusy('pin');
     try {
       await pinGuide(selectedId, on);
-      // 고정하면 그 해 순장들에게 한 통(0076) — 기다리지 않는다. 실패는 그 안에서 삼킨다
+      // 고정하면 그 해 순장들에게 한 통(0077) — 기다리지 않는다. 실패는 그 안에서 삼킨다
       // (고정은 이미 됐다). 한 가이드에 한 번만 가는 것도 그 안에서 가른다.
       if (on) void notifyGuidePinned(selected);
       await reread();
