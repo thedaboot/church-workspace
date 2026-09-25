@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { SectionHead } from '../views/dashboardParts.jsx';
 import { Skeleton } from './media.jsx';
@@ -114,7 +114,10 @@ export function MySunPanel({ myPerson, sun, people, members, service, present, l
 //   · 줄마다 노트 종이(components/paper.jsx NoteSheet)를 세운다 — 쓴 사람 화면과 같은 모양
 //   · **한 주보씩 본다** — 머리줄의 고르개로 주보를 바꾼다. 전부 이어 세우면 종이가
 //     사람 수만큼 길어져 스크롤이 끝나지 않는다(종이 하나가 화면 한 판이다)
-export function SunNotesSection({ notes = [], onShare }) {
+// focus — 알림으로 들어온 자리(groupsView mineFocus). `focus.note`가 그 주보 id면 그 주보를 고르고
+// 이 구역으로 내려 준다. 목록에 없으면(공유를 거뒀거나 아직 캐시 목록이면) 고른 값만 들고 있다가
+// 새로 읽은 목록에 나타나면 그 주보가 선다.
+export function SunNotesSection({ notes = [], onShare, focus = null }) {
   // 고를 수 있는 주보 — 공유된 노트가 **있는** 주보만, 최근순. 노트가 없는 주보를
   // 세우면 골라 놓고 빈 화면을 보게 된다.
   const services = useMemo(() => {
@@ -126,9 +129,15 @@ export function SunNotesSection({ notes = [], onShare }) {
     }
     return [...seen.values()].sort((a, b) => String(b.date).localeCompare(String(a.date)));
   }, [notes]);
-  const [picked, setPicked] = useState('');
+  const [picked, setPicked] = useState(() => focus?.note || '');
   const cur = services.find(x => x.id === picked) || services[0] || null;
   const rows = useMemo(() => notes.filter(n => n.serviceId === cur?.id), [notes, cur]);
+  const rootRef = useRef(null);
+  useEffect(() => {
+    if (!focus?.note) return;
+    setPicked(focus.note);
+    rootRef.current?.scrollIntoView({ block: 'start' });
+  }, [focus]);
 
   const pick = services.length ? (
     <MenuPick className="mysun-note-pick" label="주보 고르기"
@@ -139,7 +148,7 @@ export function SunNotesSection({ notes = [], onShare }) {
   ) : null;
 
   return (
-    <div className="mysun-notes mt-6">
+    <div ref={rootRef} className="mysun-notes mt-6 scroll-mt-3">
       <SectionHead right={pick}>내 순에 공유된 예배 노트</SectionHead>
       {rows.length > 0 ? (
         <div className="space-y-4">

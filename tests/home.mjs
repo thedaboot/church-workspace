@@ -140,10 +140,17 @@ const WORSHIP_DRAFT = {
 
 // notes: 우리 순에 공유된 예배 노트 수 — 홈 '내 순' 메타의 마지막 도막이다.
 // 기본은 0이라 그 도막이 아예 안 그려진다(다른 검사의 기대값이 그대로다).
-const groupsSeed = (personId, notes = 0) => ({
-  service_notes: Array.from({ length: notes }, (_, i) => ({
-    id: `n${i}`, profile_id: `u${i}`, shared_to_sun: true, body: '노트 한 줄',
-  })),
+// **카드가 세는 주보(지난 주일 s0)의 노트다.** other는 다른 주보(s1)에 공유된 노트 수 — 카드가
+// 전 기간 합계를 세던 때(2026-09-25에 고침)에는 이것까지 더해졌다.
+const groupsSeed = (personId, notes = 0, other = 0) => ({
+  service_notes: [
+    ...Array.from({ length: notes }, (_, i) => ({
+      id: `n${i}`, service_id: 's0', profile_id: `u${i}`, shared_to_sun: true, body: '노트 한 줄',
+    })),
+    ...Array.from({ length: other }, (_, i) => ({
+      id: `o${i}`, service_id: 's1', profile_id: `v${i}`, shared_to_sun: true, body: '다른 주보의 노트',
+    })),
+  ],
   people: [
     { id: 'p1', name: '김윤주', profile_id: 'u1' },
     { id: 'p2', name: '천진영', profile_id: null },
@@ -169,6 +176,7 @@ const plant = (o = {}) => {
     localStorage.setItem('church_app_v4', JSON.stringify(v.app));
     if (v.qt) localStorage.setItem('word_qt_schedule', JSON.stringify(v.qt));
     if (v.entries) localStorage.setItem('word_qt_entries', JSON.stringify(v.entries));
+    if (v.shared) localStorage.setItem('word_qt_shared', JSON.stringify(v.shared));
     if (v.worship) localStorage.setItem('church_worship_v1', JSON.stringify(v.worship));
     if (v.groups) localStorage.setItem('church_groups_v1', JSON.stringify(v.groups));
     localStorage.setItem('theme', v.theme);
@@ -513,10 +521,35 @@ check('내 순 — 메타 줄에 인원과 지난 주일 참석이 한 줄로',
 
 // 노트 도막의 이름은 **'공유된 노트'**다(사용자 지시 2026-09-07 — '공유 노트'에서 고쳤다).
 // 노트의 종류 이름이 아니라 '공유된 상태'를 말하는 자리다.
-await enter({ groups: groupsSeed('p6', 2) });
+// 세는 것은 **카드가 가리키는 그 주보(참석 수를 센 주일)의 노트만**이다 — 다른 주보에 공유된 셋은 빠진다.
+// 되돌리기 검사: homeView의 `sunQ.data.notes[lastSundayId]`를 모든 값의 합으로 바꾸면 깨진다.
+await enter({ groups: groupsSeed('p6', 2, 3) });
 const notesMeta = await text('.home-sun-meta');
-check("내 순 — 노트 도막은 '공유된 노트 N'이다",
+check("내 순 — 노트 도막은 '공유된 노트 N'이다(그 주보의 것만)",
   notesMeta.endsWith('공유된 노트 2') && !notesMeta.includes('공유 노트'), String(notesMeta));
+
+// 오늘의 QT 카드의 '오늘의 나눔 N'(사용자 요청 2026-09-25) — 그 날 더다붓에 공유된 묵상 수. 누가 썼는지는
+// 말하지 않고, 0이면 도막째 없다(위 기본 씨앗 — 내 묵상은 비공개). 꼬리는 첫 절이 길어도 잘리지 않는다.
+// 되돌리기 검사: homeView의 `church.qtShared > 0 &&`를 지우면 첫째가, qtQ의 countSharedEntries를 빼면 둘째가 깨진다.
+check("나눔이 없는 날에는 '오늘의 나눔'이 없다",
+  qt.first.indexOf('오늘의 나눔') < 0 && !(await ev(`!!document.querySelector('.home-qt-shared')`)), qt.first);
+await enter({
+  entries: { [TODAY]: { body: '오늘 묵상 한 줄', shared: true } },
+  shared: { [TODAY]: [{ id: 'x1', name: '김윤주', body: '나눔 하나' }, { id: 'x2', name: '천진영', body: '나눔 둘' }] },
+});
+const qtShared = await ev(`(() => {
+  const line = document.querySelector('.home-qt-first');
+  const tail = document.querySelector('.home-qt-shared');
+  const card = document.querySelector('.home-qt');
+  if (!line || !tail || !card) return { ok: false };
+  const t = tail.getBoundingClientRect(), c = line.getBoundingClientRect();
+  return { ok: true, text: line.textContent.replace(/\u00a0/g, ' ').trim(), tail: tail.textContent.trim(),
+    inside: t.right <= c.right + 0.5 && t.width > 0, names: /김윤주|천진영/.test(card.innerText) };
+})()`);
+check("나눔이 있으면 메타 끝에 '오늘의 나눔 N'(내 공유 포함 · 이름은 없다)",
+  qtShared.ok && qtShared.tail === '· 오늘의 나눔 3' && qtShared.text.endsWith('· 묵상 기록함 · 오늘의 나눔 3') && !qtShared.names,
+  JSON.stringify(qtShared));
+check('꼬리는 줄 안에 다 보인다(첫 절만 말줄임)', qtShared.inside === true, JSON.stringify(qtShared));
 await enter();
 
 // ── 2b) 카드 넷이 같은 구조·같은 높이인가 (사용자 지적 2026-09-03) ──────────

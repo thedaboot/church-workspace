@@ -2982,6 +2982,94 @@ await send('Emulation.clearDeviceMetricsOverride');
   await send('Emulation.clearDeviceMetricsOverride');
 }
 
+// ── 2026-09-25 묶음: 다음 동아리 모임 · 모임/가이드 읽기 실패 자리 · 알림 딥링크 ──────────
+// ① 동아리 목록 카드에 `다음 동아리 모임 YY. M. D.` 한 줄 — 앞으로 잡힌 모임이 없으면 줄이 없다.
+// ② 동아리 상세의 모임을 못 읽으면 '예정된 모임이 아직 없어요'가 아니라 실패 두 줄 + 다시 시도(D2).
+// ③ 순모임 가이드를 못 읽으면 고르는 줄·'주보로 만들기'가 아니라 실패 자리(있는 가이드를 덮는 길을 막는다).
+// ④ 노트 공유 알림(note=)은 그 주보의 공유 노트를, 가이드 고정 알림(guide=)은 그 주보의 가이드를 편다.
+// 되돌리기: groupsClub의 `{!!next && (` 줄을 지우면 ①이, groupsView fetchMeetings의 catch에서
+// setMeetingsFail을 빼면 ②가, sunGuide의 showChooser에서 `&& !guideFailed`를 지우면 ③이,
+// groupsView 진입 이펙트의 `entryOf('note')`·`entryOf('guide')` 갈래를 지우면 ④가 깨진다.
+{
+  const logsBefore = logs.length;
+  const poll = async (expr, to = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < to) { if (await ev(expr)) return true; await sleep(120); } return false; };
+  const ME6 = { personId: 'p6', isMaster: false, isAdmin: false, roles: [] };
+  const ME1 = { personId: 'p1', isMaster: false, isAdmin: false, roles: [] };
+  const AHEAD = dayShift(KST_TODAY, 3);
+  const shortLabel = (iso) => { const [y, m, d] = iso.split('-'); return `${y.slice(2)}. ${+m}. ${+d}.`; };
+
+  // ①
+  await enter(ME6, 'light', `g.group_meetings.push({ id: 'mt9', group_id: 'gc2', meeting_date: '${AHEAD}', title: '다음 모임', attendance: [], note: null },
+    { id: 'mt8', group_id: 'gc2', meeting_date: '${dayShift(KST_TODAY, 10)}', title: '그다음', attendance: [], note: null });`);
+  await tab('동아리'); await sleep(600);
+  const nextLine = await ev(`(() => {
+    const card = (n) => [...document.querySelectorAll('.club-card')].find(c => c.querySelector('.club-name').textContent.trim() === n);
+    return { gc2: card('말씀읽기')?.querySelector('.club-next-meet')?.textContent.trim() || '',
+             gc1: !!card('통통')?.querySelector('.club-next-meet'),
+             gc3: !!card('서부버튼')?.querySelector('.club-next-meet') };
+  })()`);
+  check("동아리 카드에 '다음 동아리 모임 YY. M. D.' — 가장 이른 앞날 하나",
+    nextLine.gc2 === `다음 동아리 모임 ${shortLabel(AHEAD)}`, JSON.stringify(nextLine));
+  check('지난 모임만 있거나 모임이 없으면 그 줄이 없다', !nextLine.gc1 && !nextLine.gc3, JSON.stringify(nextLine));
+
+  // ②
+  await enter(ME6, 'light', `g.group_meetings = 1;`);
+  await tab('동아리'); await sleep(500);
+  await openClub('통통');
+  await poll(`!!document.querySelector('.club-meet-failed')`, 5000);
+  const meetFail = await ev(`(() => { const b = document.querySelector('.club-meet-failed');
+    return { box: !!b, text: b?.innerText || '', mark: !!b?.querySelector('svg'),
+      empty: !!document.querySelector('.club-meet-empty'),
+      toast: [...document.querySelectorAll('[data-toast]')].map(t => t.innerText) }; })()`);
+  check('모임을 못 읽으면 빈 자리 대신 실패 두 줄과 다시 시도(D2)',
+    meetFail.box && meetFail.mark && meetFail.text.startsWith('모임 일정을 불러오지 못했어요') && meetFail.text.includes('다시 시도')
+    && !meetFail.empty && meetFail.toast.length === 0, JSON.stringify(meetFail));
+  await ev(`(() => { const g = JSON.parse(localStorage.getItem('church_groups_v1')); g.group_meetings = []; localStorage.setItem('church_groups_v1', JSON.stringify(g)); })()`);
+  await ev(`document.querySelector('.club-meet-failed .load-fail-retry')?.click()`);
+  await poll(`!document.querySelector('.club-meet-failed') && !!document.querySelector('.club-meet-empty')`, 5000);
+  check('다시 시도를 누르면 모임을 다시 읽는다',
+    await ev(`!document.querySelector('.club-meet-failed') && !!document.querySelector('.club-meet-empty')`));
+
+  // ③ — 가이드 저장 자리를 망가뜨린다(p6은 TT순 순장이라 가이드를 본다)
+  await ev(plant(ME6, 'light', '', true));
+  await ev(`localStorage.setItem('church_sunguide_v1', JSON.stringify({ sun_guides: 1 }))`);
+  await send('Page.navigate', { url: `${URL_BASE}/?p=groups` }); await wait('Page.loadEventFired');
+  await poll(`!!document.querySelector('.sun-guide-load-failed')`, 8000);
+  const guideFail = await ev(`(() => { const b = document.querySelector('.sun-guide-load-failed');
+    return { box: !!b, text: b?.innerText || '', chooser: !!document.querySelector('.sun-guide-choices'),
+      create: !!document.querySelector('.sun-guide-create') }; })()`);
+  check("가이드를 못 읽으면 '주보로 만들기' 대신 실패 자리(D2)",
+    guideFail.box && guideFail.text.startsWith('순모임 가이드를 불러오지 못했어요') && guideFail.text.includes('다시 시도')
+    && !guideFail.chooser && !guideFail.create, JSON.stringify(guideFail));
+  await ev(`localStorage.setItem('church_sunguide_v1', JSON.stringify({ sun_guides: ${JSON.stringify(GUIDE_ROWS.one)} }))`);
+  await ev(`document.querySelector('.sun-guide-load-failed .load-fail-retry')?.click()`);
+  await poll(`!document.querySelector('.sun-guide-load-failed') && !!document.querySelector('.sun-guide-sheet')`, 6000);
+  check('다시 시도를 누르면 가이드를 다시 읽는다',
+    await ev(`!document.querySelector('.sun-guide-load-failed') && !!document.querySelector('.sun-guide-sheet')`));
+
+  // ④ 노트 — 기본은 가장 최근 주보(s1)인데 note=s0이면 지난 주일의 노트가 선다
+  await ev(plant(ME1, 'light', '', 'pinned'));
+  await send('Page.navigate', { url: `${URL_BASE}/?p=groups&note=s0` }); await wait('Page.loadEventFired');
+  await poll(`!!document.querySelector('.mysun-note')`, 8000);
+  const noteLink = await ev(`(() => ({ text: document.querySelector('.mysun-notes')?.innerText || '',
+    pick: document.querySelector('.mysun-note-pick')?.textContent.trim() || '' }))()`);
+  check('노트 공유 알림(note=)은 그 주보의 공유 노트를 편다',
+    noteLink.text.includes('지난 주일에 나눈 노트') && !noteLink.text.includes('붙드시는 손'), JSON.stringify(noteLink).slice(0, 300));
+
+  // ④ 가이드 — 고정된 것(s0)이 기본인데 guide=s1이면 그 주보의 가이드가 서고 그 자리로 내려온다
+  await ev(plant(ME1, 'light', '', 'pinned'));
+  await send('Page.navigate', { url: `${URL_BASE}/?p=groups&guide=s1` }); await wait('Page.loadEventFired');
+  await poll(`!!document.querySelector('.sun-guide-sheet')`, 8000);
+  await sleep(400);
+  const guideLink = await ev(`(() => { const s = document.querySelector('.sun-guide'); const r = s?.getBoundingClientRect();
+    return { ref: document.querySelector('.sun-guide-ref')?.textContent.trim() || '', top: r ? Math.round(r.top) : -1, vh: innerHeight }; })()`);
+  check('가이드 고정 알림(guide=)은 그 주보의 가이드를 연다', guideLink.ref.includes('빌립보서 4:4-7'), JSON.stringify(guideLink));
+  check('그 가이드 자리로 내려 준다', guideLink.top >= 0 && guideLink.top < guideLink.vh / 2, JSON.stringify(guideLink));
+
+  const mineLogs = logs.splice(logsBefore).filter(l => !/모임 일정 실패|다음 모임 날짜 실패|가이드를 받지 못했어요|가이드 유무를 받지 못했어요/.test(l));
+  logs.push(...mineLogs);
+}
+
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 
 console.log(results.join('\n'));

@@ -498,7 +498,13 @@ export async function notifyServicePublished(service) {
 
 // 노트를 순에 공유로 **바꾸는 순간** — 그 해 내 순의 순장 한 사람에게. 이미 공유 상태에서
 // 다시 저장하는 것은 알림이 아니다(부르는 쪽이 false→true일 때만 부른다).
-// 내가 그 순의 순장이면 알릴 사람이 없다. 링크는 순장이 노트를 읽는 자리(모임 화면)다.
+// 내가 그 순의 순장이면 알릴 사람이 없다. 링크는 순장이 노트를 읽는 자리(모임 화면)이고
+// **그 주보를 싣는다**(`note=<주보 id>` · entryQuery의 약속). 없으면 모임 화면이 가장 최근
+// 주보를 골라서, 지난 주보의 노트를 공유했을 때 엉뚱한 주보의 노트 목록이 섰다.
+// `s`를 쓰지 않는 이유: 예배 화면이 떠 있는 채로 종을 누르면 그 화면의 진입 이펙트가
+// `s`를 먼저 집어 가서 그 주보 상세를 연다(worshipView — 화면이 바뀌기 전에 돈다).
+export const noteSharedLink = (serviceId) => `/?p=groups&note=${serviceId}`;
+
 export async function notifyNoteShared(service) {
   if (!supabase || !service?.id) return 0;
   try {
@@ -519,7 +525,7 @@ export async function notifyNoteShared(service) {
       kind: 'note_shared',
       actorName: profile?.display_name || me.name || '누군가',
       preview: formatServiceDate(service.service_date),
-      link: '/?p=groups',
+      link: noteSharedLink(service.id),
     });
   } catch (e) {
     console.error('[worship] 노트 공유 알림 실패:', e);

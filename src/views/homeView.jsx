@@ -7,10 +7,10 @@ import { Skeleton } from '../components/media.jsx';
 import { CARD, CARD_STYLE, Empty } from '../components/groupsParts.jsx';
 import { ISO_TODAY, byDue } from './dashboardParts.jsx';
 import { isOpen, isOverdue } from '../services/taskCounts.js';
-import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry } from '../services/word.js';
+import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry, countSharedEntries } from '../services/word.js';
 import { loadPassage } from '../services/bible.js';
 import { kindLabel, formatServiceDate, fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday, countsSince, HOME_SERVICE_COLS } from '../services/worship.js';
-import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotes, attendanceSunday } from '../services/groups.js';
+import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotesByService, attendanceSunday } from '../services/groups.js';
 import { useCached, pruneCache } from '../services/cache.js';
 import { useLiveRefresh, refreshTouched } from '../services/liveV2.js';
 import logoLight from '../assets/logo-light.webp';
@@ -541,7 +541,10 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
   // 치운다(안 치우면 날마다 한 벌씩 localStorage에 쌓인다 · 2026-09-24). 예배 목록 열쇠도 같다.
   const qtQ = useCached(`home:qt:${day}`, loud('오늘 본문', async () => {
     pruneCache('home:qt:', `home:qt:${day}`);
-    const [qt, entry] = await Promise.all([fetchSchedule(day), fetchMyEntry(day)]);
+    // 나눔 수는 곁줄이다 — 못 읽으면 그 도막만 안 선다(0과 같은 모양 · 카드는 그대로)
+    const [qt, entry, shared] = await Promise.all([
+      fetchSchedule(day), fetchMyEntry(day), countSharedEntries(day).catch(() => 0),
+    ]);
     let first = '';
     if (qt?.passage_ref) {
       try {
@@ -549,7 +552,7 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
         first = p?.verses?.[0]?.text || '';
       } catch (e) { console.error('[home] 본문 첫 절을 읽지 못했어요:', e); }
     }
-    return { qt: qt || null, first, written: !!String(entry?.body || '').trim() };
+    return { qt: qt || null, first, written: !!String(entry?.body || '').trim(), shared };
   }), [day]);
 
   // **주보 목록은 한 번만 읽는다.** 예전에는 여기서 한 번, 아래 '내 순'에서 지난 주일을
@@ -598,8 +601,11 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
     const sun = me && roster ? mySun(me, roster.suns, roster.members) : null;
     if (!sun) return { sun: null };
     const people = groupPeople({ people: roster.people, group: sun, members: roster.members });
-    // 나눔은 **개수만** 쓴다 — 본문·이름·사진까지 실어 와서 .length를 읽던 자리다.
-    const notes = await countSunSharedNotes().catch(() => 0);
+    // 나눔은 **주보별 개수만** 쓴다 — 본문·이름·사진까지 실어 와서 .length를 읽던 자리다.
+    // 카드가 세는 것은 그중 **참석 수를 센 그 주보**의 것이다(아래 church.sunNotes) — 예전에는 전
+    // 기간 합계라 '지난 주일 N명 참석 · 공유된 노트 12'가 그 주일과 상관없는 수였다(2026-09-25).
+    // 주보 목록(svcQ)을 기다리지 않으려고 주보별로 받아 두고 화면이 꺼낸다 — 열쇠·실시간 접두는 그대로다.
+    const notes = await countSunSharedNotesByService().catch(() => ({}));
     return {
       sun,
       ids: people.map(p => p.id),
@@ -649,8 +655,11 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
     leaderName: sunQ.data?.leaderName || '',
     sunPresent: attQ.data ?? null,
     sunPresentToday: !!svcQ.data?.latestToday,
-    sunNotes: sunQ.data?.notes || 0,
+    // 옛 캐시는 전 기간 합계(숫자)를 들고 있다 — 그 값은 쓰지 않는다(다시 읽으면 주보별로 바뀐다)
+    sunNotes: (lastSundayId && sunQ.data?.notes && typeof sunQ.data.notes === 'object')
+      ? (sunQ.data.notes[lastSundayId] || 0) : 0,
     qtFirst: qtQ.data?.first || '',
+    qtShared: qtQ.data?.shared || 0,
   };
 
   const name = currentUser?.name || '';
@@ -691,10 +700,15 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
       <LinkCard slot="qt" enter={enter} className="home-qt" label="오늘의 QT" icon={BookOpen} delay={delay} title="말씀으로"
         onOpen={() => onNavigate('word')}
         focus={<span className="home-qt-ref">{church.qt.passage_ref}</span>}
+        // '오늘의 나눔 N'(사용자 요청 2026-09-25) — 그 날 더다붓에 공유된 묵상 수. 누가 썼는지는
+        // 말하지 않고 0이면 도막째 없다. 꼬리 둘(묵상 기록함 · 오늘의 나눔)은 **잘리지 않는다** —
+        // 긴 첫 절만 말줄임이 되고 꼬리는 줄 끝에 남는다(예전에는 첫 절이 길면 '묵상 기록함'이 잘려 나갔다).
         meta={
-          <span className={`home-qt-first ${ONE_LINE}`}>
-            {church.qtFirst || church.qt.label || ''}
-            {church.written && <span className="home-qt-done"> · 묵상 기록함</span>}
+          <span className="home-qt-first flex min-w-0 overflow-hidden whitespace-nowrap">
+            <span className="home-qt-verse min-w-0 overflow-hidden text-ellipsis">{church.qtFirst || church.qt.label || ''}</span>
+            {/* 앞 공백은 NBSP다 — flex 항목 맨 앞의 보통 공백은 접혀 사라진다 */}
+            {church.written && <span className="home-qt-done shrink-0">{' · 묵상 기록함'}</span>}
+            {church.qtShared > 0 && <span className="home-qt-shared shrink-0">{` · 오늘의 나눔 ${church.qtShared}`}</span>}
           </span>
         } />
     ),

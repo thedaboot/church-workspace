@@ -3,17 +3,17 @@ import { Heart, Loader2, Pencil, Pin, Share2, Wand2 } from 'lucide-react';
 import logoLight from '../assets/logo-light.webp';
 import { Skeleton } from './media.jsx';
 import { SectionHead } from '../views/dashboardParts.jsx';
-import { BTN, BTN_QUIET, MenuPick, WITH_ICON } from './groupsParts.jsx';
+import { BTN, BTN_QUIET, MenuPick, WITH_ICON, Empty, NoteMark, FailTail } from './groupsParts.jsx';
 import { showToast } from './Toast.jsx';
 import { supabase } from '../services/supabaseClient.js';
 import { dropCache, useCached } from '../services/cache.js';
-import { failText } from '../services/errorText.js';
+import { failText, errorReason } from '../services/errorText.js';
 import { useSheetShare } from '../hooks/useSheetShare.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import {
   LIMITS,
   fitGuide, generateGuide, guideDateLabel, guidePickLabel, guideServiceDate, guideServiceLabel,
-  guidedServiceIds, loadGuide, pinGuide, saveGuide, splitBold,
+  guidedServiceIds, loadGuide, notifyGuidePinned, pinGuide, saveGuide, splitBold,
 } from '../services/sunGuide.js';
 
 // ============================================================================
@@ -310,6 +310,9 @@ const textHash = (str) => {
   return (h >>> 0).toString(36);
 };
 
+// 가이드 읽기 실패의 첫 줄 — 실패 자리의 제목과 토스트의 첫 줄이 같은 글이다(D2)
+const GUIDE_FAIL = '순모임 가이드를 불러오지 못했어요';
+
 // ── 패널 ────────────────────────────────────────────────────────────────────
 // props (모임 화면과의 계약):
 //   services         — 고를 수 있는 주보들(발행된 주일 · 최근순 · sunGuide.guideServices)
@@ -320,8 +323,10 @@ const textHash = (str) => {
 //                      바깥 컨테이너가 한 덩이 스켈레톤을 그리므로, 여기서 또 그리면
 //                      스켈레톤이 두 겹이 된다.
 //   onChanged()      — 저장·고정 뒤. 바깥이 '지금 고정된 주보'를 다시 읽게 알린다.
+//   focus            — 알림으로 들어온 자리(groupsView mineFocus). `focus.guide`가 주보 id면 그
+//                      주보를 고르고 이 섹션으로 내려 준다(가이드 고정 알림 · 0076).
 export function SunGuidePanel({
-  services = [], service, pinnedServiceId = '', perms, loading = false, onChanged,
+  services = [], service, pinnedServiceId = '', perms, loading = false, onChanged, focus = null,
 }) {
   const canView = !!perms?.canView;
   const canCreate = !!perms?.canCreate;
@@ -336,8 +341,14 @@ export function SunGuidePanel({
   // 있게끔"). 고정이 없으면 가장 최근 주일이다.
   const defaultId = (pinnedServiceId && list.some((s) => s.id === pinnedServiceId))
     ? pinnedServiceId : (service?.id || list[0]?.id || '');
-  const [picked, setPicked] = useState('');
+  const [picked, setPicked] = useState(() => focus?.guide || '');
   const selectedId = (picked && list.some((s) => s.id === picked)) ? picked : defaultId;
+  const sectionRef = useRef(null);
+  useEffect(() => {
+    if (!focus?.guide) return;
+    setPicked(focus.guide);
+    sectionRef.current?.scrollIntoView({ block: 'start' });
+  }, [focus]);
   const selected = list.find((s) => s.id === selectedId) || service || null;
 
   const [draft, setDraft] = useState(null);
@@ -368,11 +379,24 @@ export function SunGuidePanel({
     [canView, idsKey],
   );
   const have = useMemo(() => new Set(haveQ.data || []), [haveQ.data]);
-  // 가이드는 이 화면의 곁가지다 — 못 받아도 순 명단은 그대로 서야 한다
+  // 가이드는 이 화면의 곁가지다 — 못 받아도 순 명단은 그대로 서야 한다.
+  // **못 읽은 것을 '가이드 없음'으로 두지 않는다**(D2 · HANDOFF §8 '읽기 실패 자리'). 예전에는 콘솔에만
+  // 남고 고르는 줄 + '주보로 만들기'가 섰다 — 가이드가 있는 주보에서 그걸 누르면 **있는 가이드를
+  // 새 초안으로 덮는 길**이었다. 캐시가 없으면 종이 자리에 실패 두 줄 + '다시 시도'(guideFailed),
+  // 캐시가 있으면 지난 종이를 둔 채 토스트다. retryOf는 다시 읽는 동안 들고 있는 그 실패(24-g).
+  // 주보별 '가이드 있음' 꼬리표(haveQ)는 곁의 곁이라 콘솔에만 남긴다 — 꼬리표가 빠질 뿐 고르고
+  // 여는 길은 그대로다.
+  const [retryOf, setRetryOf] = useState(null);
+  const guideFailed = !guideQ.data && !!guideQ.error && guideQ.error !== retryOf;
   useEffect(() => {
-    if (guideQ.error) console.error('[sunGuide] 가이드를 받지 못했어요:', guideQ.error);
+    if (!guideQ.error) return;
+    console.error('[sunGuide] 가이드를 받지 못했어요:', guideQ.error);
+    if (guideQ.data) showToast(failText(GUIDE_FAIL, guideQ.error));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guideQ.error]);
+  useEffect(() => {
     if (haveQ.error) console.error('[sunGuide] 주보별 가이드 유무를 받지 못했어요:', haveQ.error);
-  }, [guideQ.error, haveQ.error]);
+  }, [haveQ.error]);
   // 고른 주보가 바뀌면 쓰던 초안을 접는다 — 다른 주보의 종이에 앞 주보의 초안이
   // 얹히면 무엇을 저장하는지 알 수 없다.
   useEffect(() => { setDraft(null); setMaking(false); }, [selectedId]);
@@ -435,6 +459,9 @@ export function SunGuidePanel({
     setBusy('pin');
     try {
       await pinGuide(selectedId, on);
+      // 고정하면 그 해 순장들에게 한 통(0076) — 기다리지 않는다. 실패는 그 안에서 삼킨다
+      // (고정은 이미 됐다). 한 가이드에 한 번만 가는 것도 그 안에서 가른다.
+      if (on) void notifyGuidePinned(selected);
       await reread();
       showToast(on ? '순모임 가이드를 고정했어요' : '순모임 가이드 고정을 풀었어요');
     } catch (e) {
@@ -469,8 +496,10 @@ export function SunGuidePanel({
   const dateLabel = guideDateLabel(selected.service_date);
   const editing = !!draft;
   const showSheet = !editing && !making && !guideQ.loading && !!guide;
-  // 고른 주보에 아직 가이드가 없으면 **고르는 줄부터** 편다(Chooser 머리말).
-  const showChooser = !editing && !making && !guideQ.loading && !guide;
+  // 고른 주보에 아직 가이드가 없으면 **고르는 줄부터** 편다(Chooser 머리말). 못 읽었으면 그 자리에
+  // 실패가 선다(위 guideFailed) — 없는 것과 못 읽은 것을 가른다.
+  const showFail = !editing && !making && !guideQ.loading && !guide && guideFailed;
+  const showChooser = !editing && !making && !guideQ.loading && !guide && !guideFailed;
 
   // 동작은 **머리줄 오른쪽 끝**에 선다 — '모임' 섹션의 '모임 만들기'와 같은 자리다.
   // 모바일에서는 줄이 모자라니 접힌다(flex-wrap) — 감추지 않는다(§8).
@@ -555,7 +584,7 @@ export function SunGuidePanel({
   // 위쪽 여백이 없던 자리라 가이드 머리줄이 마지막 노트 카드에 9px 붙어, 노트 목록에
   // 딸린 줄처럼 읽혔다(1440에서 실측).
   return (
-    <section className="sun-guide dc-card mt-6 pt-1">
+    <section ref={sectionRef} className="sun-guide dc-card mt-6 pt-1 scroll-mt-3">
       {/* 모바일 — 머리줄에는 고르개 하나만, 버튼은 아래 한 줄(옆으로 밀린다).
           데스크톱 — 예전처럼 머리줄 오른쪽에 다 선다(넷 이상이면 접히므로 wrapRight). */}
       {isMobile ? (
@@ -573,6 +602,12 @@ export function SunGuidePanel({
         {editing && (
           <Editor draft={draft} setDraft={setDraft} busy={working} onSave={save} onRegen={make}
             onCancel={() => setDraft(null)} />
+        )}
+        {showFail && (
+          <Empty className="sun-guide-load-failed" mark={<NoteMark />} minH="20vh" title={GUIDE_FAIL}>
+            <FailTail reason={errorReason(guideQ.error)}
+              onRetry={() => { setRetryOf(guideQ.error); guideQ.refresh(); }} />
+          </Empty>
         )}
         {showChooser && (
           <>

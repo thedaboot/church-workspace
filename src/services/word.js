@@ -232,6 +232,19 @@ export async function fetchSharedEntries(date) {
   }));
 }
 
+// 그 날 나눔의 **개수만**(홈 오늘의 QT 카드 '오늘의 나눔 N' · 사용자 요청 2026-09-25). 누가 썼는지는
+// 묻지 않는다 — 카드는 수만 말한다. 조건은 fetchSharedEntries와 같고(공유 · 본문이 빈 글은 빼고)
+// head:true라 행은 오지 않는다. 게스트는 같은 목록의 길이다(내 로컬 나눔 포함).
+export async function countSharedEntries(date) {
+  if (!supabase) return (await fetchSharedEntries(date)).length;
+  const { count, error } = await supabase.from('qt_entries')
+    .select('id', { count: 'exact', head: true })
+    .eq('qt_date', date).eq('shared', true)
+    .not('body', 'is', null).neq('body', '');
+  if (error) throw error;
+  return count ?? 0;
+}
+
 // 잔디 — **내 기록 날짜만**. 남의 것은 애초에 묻지 않는다(결정 10).
 export async function fetchMyEntryDates(from, to) {
   if (!supabase) {
@@ -266,6 +279,31 @@ export const RECENT_SEARCH_MAX = 30;
 const recentRows = (list) => arr(list)
   .map(r => ({ q: String(r?.q ?? '').trim(), at: String(r?.at ?? '') }))
   .filter(r => r.q);
+
+// ── 성경 낱말 검색의 맞춤 (2026-09-25) ────────────────────────────────────
+// **띄어쓰기를 지우고 견준다.** 개역한글은 띄어쓰기가 오늘 맞춤법과 달라('사랑 하는'·'하나님의 아들')
+// 사람이 친 대로 견주면 0건이 흔했다. 상단 검색(layout.jsx norm)과 같은 판단이다 — 공백만 지운다
+// (한글에는 대소문자가 없고, 영문이 섞일 일도 없다). 절 안의 **원래 글자 자리**도 돌려줘야 결과 줄에서
+// 찾은 말을 칠할 수 있어서, 지운 글자에서 찾은 자리를 원문 자리로 되돌린다.
+export const compactText = (s) => String(s || '').replace(/\s+/g, '');
+
+// text 안에서 q가 나오는 자리들 — 공백은 양쪽 다 무시한다. [[시작, 끝), …] 원문 인덱스, 겹치지 않게 앞에서부터.
+export function matchRanges(text, q) {
+  const str = String(text || '');
+  const needle = compactText(q);
+  if (!needle) return [];
+  const at = [];            // 지운 글자 i → 원문 자리
+  let packed = '';
+  for (let i = 0; i < str.length; i++) {
+    if (/\s/.test(str[i])) continue;
+    at.push(i); packed += str[i];
+  }
+  const out = [];
+  for (let from = packed.indexOf(needle); from >= 0; from = packed.indexOf(needle, from + needle.length)) {
+    out.push([at[from], at[from + needle.length - 1] + 1]);
+  }
+  return out;
+}
 
 // **검색이 시작될 때 한 번** 부른다(글자를 칠 때마다 부르면 '사'·'사사'·'사사기'가
 // 세 줄로 쌓인다). 같은 검색어면 줄을 새로 쌓지 않고 **맨 위로 올리면서 시각만** 간다.

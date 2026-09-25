@@ -398,6 +398,26 @@ assert.equal(notify.notifLine('note_shared', '김윤주'), '김윤주님이 예�
 assert.equal(notify.notifArea('worship_today'), 'worship');
 assert.equal(notify.notifArea('service_published'), 'worship');
 assert.equal(notify.notifArea('note_shared'), 'worship');
+// 가이드 고정(0076) — 사용자 문구 그대로 · 누가 고정했는지 말하지 않는 시스템 갈래 · 모임 아이콘.
+// DB의 CHECK와 INSERT 정책 **둘 다** 넓혀야 한다(0007에서 밟은 함정) — 고정은 마스터가 앱에서 만드는
+// 알림이라 INSERT 정책에 있어야 한다. 되돌리기 검사: 0076의 정책 목록에서 'guide_pinned'를 지우면 깨진다.
+assert.equal(notify.notifLine('guide_pinned', '노준석'), '이번 예배 순모임 가이드가 도착했어요!');
+assert.ok(notify.isSystemNotif('guide_pinned'));
+assert.equal(notify.notifArea('guide_pinned'), 'group');
+{
+  const m76 = readFileSync(join(ROOT, 'supabase', 'migrations', '0076_guide_pinned_notice.sql'), 'utf8').replace(/\r\n/g, '\n');
+  const body76 = m76.slice(0, m76.indexOf('-- ── 확인'));
+  const check76 = body76.slice(body76.indexOf('add constraint notifications_kind_check'), body76.indexOf('drop policy'));
+  const pol76 = body76.slice(body76.indexOf('create policy "notifications_insert_authenticated"'));
+  const wc76 = pol76.slice(0, pol76.indexOf(');'));
+  const kinds = ['mention', 'reply', 'assign', 'due_soon', 'approval', 'reaction', 'worship_today',
+    'service_published', 'note_shared', 'club_apply', 'club_accepted', 'meeting_new', 'guide_pinned'];
+  for (const k of kinds) assert.ok(check76.includes(`'${k}'`), `0076의 체크 제약에 ${k}가 없다`);
+  assert.ok(wc76.includes("'guide_pinned'"), '가이드 고정 알림은 앱이 넣는다 — INSERT 정책에 있어야 한다');
+  assert.ok(!wc76.includes("'due_soon'") && !wc76.includes("'worship_today'") && !wc76.includes("'approval'"),
+    '서버·트리거가 만드는 종류를 INSERT 정책에 넣으면 로그인 사용자가 위조할 수 있다');
+  assert.ok(/add column if not exists pin_notified_at timestamptz/.test(body76), '한 번만 보내는 칸(pin_notified_at)');
+}
 
 // 서비스 워커는 빌드를 타지 않으므로(public/) 파일이 그대로 배포된다
 const sw = readFileSync(join(ROOT, 'public', 'sw.js'), 'utf8');

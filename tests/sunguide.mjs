@@ -19,15 +19,18 @@ import { pathToFileURL } from 'node:url';
 const src = readFileSync(new URL('../src/services/sunGuide.js', import.meta.url), 'utf8');
 const patched = src
   .replace(/import \{ supabase \} from '\.\/supabaseClient\.js';/, 'const supabase = null;')
-  .replace(/import \{ guestStore \} from '\.\/people\.js';/,
-    'const guestStore = () => ({ all: () => ({}), rows: () => globalThis.__ROWS || [], set: (t, l) => { globalThis.__SET = [t, l]; globalThis.__ROWS = l; } });')
+  // 고정 알림(0076)이 명단·순 읽기와 알림 관문을 부른다 — 게스트(supabase null)에서는 부르기 전에 돌아가므로 빈 가짜로 둔다
+  .replace(/import \{ insertNotifications \} from '\.\/cloud\.js';/, 'const insertNotifications = async () => 0;')
+  .replace(/import \{ guestStore, fetchGroups, fetchPeople \} from '\.\/people\.js';/,
+    'const fetchGroups = async () => []; const fetchPeople = async () => []; const guestStore = () => ({ all: () => ({}), rows: () => globalThis.__ROWS || [], set: (t, l) => { globalThis.__SET = [t, l]; globalThis.__ROWS = l; } });')
   .replace(/import \{ AiService, isFallbackText \} from '\.\/ai\.js';/,
     `const AiService = { callGemini: async (p, s) => { globalThis.__CALL = { p, s }; return globalThis.__AI ?? ''; } };
 const isFallbackText = (t) => t === 'AI 기능은 로그인 후 사용할 수 있어요.';`)
   .replace(/import \{ loadPassage \} from '\.\/bible\.js';/,
     'const loadPassage = async () => globalThis.__PASSAGE ?? null;')
-  .replace(/import \{ kindLabel, formatServiceDate, SUNDAY_KIND \} from '\.\/worship\.js';/,
+  .replace(/import \{ kindLabel, formatServiceDate, serviceYear, SUNDAY_KIND \} from '\.\/worship\.js';/,
     `const SUNDAY_KIND = 'sunday';
+const serviceYear = (iso) => Number(String(iso || '').slice(0, 4));
 const kindLabel = (k) => (k === 'sunday' ? '주일 4부 젊은이 예배' : (k || '예배'));
 const formatServiceDate = (iso) => String(iso || '');`)
   // cueDigest.js는 순수 모듈(import 0)이라 그대로 쓴다 — 임시 폴더에서 도니 절대 경로로
@@ -449,6 +452,21 @@ check('저장해도 고정은 그대로다',
   json((globalThis.__ROWS || []).map(r => [r.service_id, !!r.pinned])));
 await G.pinGuide('svc-2', false);
 check('고정을 풀면 아무것도 고정되지 않는다', (await G.pinnedGuideId()) === null);
+
+// ── 고정 알림 받는 사람 (0076 · 사용자 요청 2026-09-25) ────────────────────
+// 그 해 순의 순장(leader_person_id)의 계정 — 가입 전(계정 없음)은 빠지고, 같은 계정은 한 번.
+// 되돌리기 검사: guideNoticeTargets의 `new Set`을 걷으면 둘째가, `.filter(Boolean)`을 걷으면 첫째가 깨진다.
+{
+  const people = [
+    { id: 'p1', profile_id: 'u1' }, { id: 'p2', profile_id: null }, { id: 'p3', profile_id: 'u3' },
+  ];
+  const one = G.guideNoticeTargets({ suns: [{ leader_person_id: 'p1' }, { leader_person_id: 'p2' }, { leader_person_id: null }], people });
+  check('고정 알림은 계정이 이어진 순장에게만', json(one) === json(['u1']), json(one));
+  const two = G.guideNoticeTargets({ suns: [{ leader_person_id: 'p1' }, { leader_person_id: 'p1' }, { leader_person_id: 'p3' }], people });
+  check('같은 계정은 한 번', json(two) === json(['u1', 'u3']), json(two));
+  check('딥링크는 모임 화면의 그 가이드(entryQuery guide)', G.guidePinnedLink('svc-9') === '/?p=groups&guide=svc-9');
+  check('게스트에서는 보내지 않는다(네트워크 0)', (await G.notifyGuidePinned({ id: 'svc-1', service_date: '2026-09-27' })) === 0);
+}
 
 if (fails) { console.log(`\n${fails}개 실패`); process.exit(1); }
 console.log('\n순모임 가이드 로직 이상 없음');

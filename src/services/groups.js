@@ -435,22 +435,29 @@ export async function fetchSunSharedNotes() {
     }));
 }
 
-// 같은 목록의 **개수만** 필요할 때(홈의 메타 줄). 본문·이름·사진까지 다 실어 와서
-// .length만 읽던 자리를 count(head) 한 번으로 바꾼다 — 조건은 위와 글자 그대로 같다
-// (공유된 것만). head:true라 행은 오지 않고 숫자만 온다.
-// 본문이 빈 노트는 위 목록이 걸러 내는데 count는 못 거른다 → 서버에서 같이 좁힌다.
-export async function countSunSharedNotes() {
-  if (!supabase) {
-    return guestRows('service_notes')
-      .filter(n => n.shared_to_sun && String(n.body || '').trim())
-      .length;
+// 같은 목록의 **주보별 개수만** 필요할 때(홈 내 순 카드의 '공유된 노트 N'). 조건은 위와 글자 그대로
+// 같다(공유된 것 · 본문이 빈 노트는 빼고) — 본문·이름·사진 없이 주보 id 한 칸만 받는다.
+// **전체 합계가 아니다**(2026-09-25 고침): 카드가 '지난 주일 N명 참석'과 나란히 세우는 숫자라
+// 전 기간을 더하면 그 주일과 상관없는 수가 섰다. 화면이 카드가 가리키는 주보 id로 꺼낸다.
+// 반환은 `{ [serviceId]: n }` — 캐시에 JSON으로 담긴다.
+export const countByService = (rows = []) => {
+  const out = {};
+  for (const r of rows || []) {
+    const id = r?.service_id;
+    if (!id || !String(r?.body ?? 'x').trim()) continue;
+    out[id] = (out[id] || 0) + 1;
   }
-  const { count, error } = await supabase.from('service_notes')
-    .select('id', { count: 'exact', head: true })
+  return out;
+};
+
+export async function countSunSharedNotesByService() {
+  if (!supabase) return countByService(guestRows('service_notes').filter(n => n.shared_to_sun));
+  const { data, error } = await supabase.from('service_notes')
+    .select('service_id')
     .not('body', 'is', null).neq('body', '')
     .eq('shared_to_sun', true);
   if (error) throw error;
-  return count ?? 0;
+  return countByService(data);
 }
 
 // 내 노트의 공유 여부만 바꾼다. 본문은 그대로 다시 넘긴다 — 예배 쪽 저장이 upsert 한
@@ -467,6 +474,38 @@ export async function setNoteShared(serviceId, shared) {
   }
   const mine = await fetchMyNote(serviceId);
   await saveMyNote(serviceId, { body: mine?.body || '', sharedToSun: !!shared });
+}
+
+// ── 동아리 목록 카드의 '다음 동아리 모임' (사용자 요청 2026-09-25) ─────────────
+// 카드마다 한 줄 — `다음 동아리 모임 26. 9. 28.`(사용자 문구·날짜 모양 그대로). 다음 모임이 없으면
+// 줄이 서지 않는다(빈 자리 문구를 두지 않는다 — §8 "없어요"로 끝내지 않기).
+// **여러 동아리를 한 번에 가볍게 읽는다** — 동아리마다 fetchMeetings를 부르면 카드 수만큼 왕복이고
+// 출석 배열까지 딸려 온다. 여기는 group_id·meeting_date 두 칸, 오늘(KST) 이후만 받아 동아리마다
+// 가장 이른 날 하나를 고른다. 오늘 모임은 '다음'에 든다(오늘 저녁 모임을 아침에 보는 자리다).
+export const meetingDateShort = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  return m ? `${m[1].slice(2)}. ${+m[2]}. ${+m[3]}.` : '';
+};
+
+export function nextMeetingDates(rows = [], today = kstNow().slice(0, 10)) {
+  const out = {};
+  for (const r of rows || []) {
+    const d = String(r?.meeting_date || '').slice(0, 10);
+    if (!r?.group_id || !/^\d{4}-\d{2}-\d{2}$/.test(d) || d < today) continue;
+    if (!out[r.group_id] || d < out[r.group_id]) out[r.group_id] = d;
+  }
+  return out;
+}
+
+// 동아리 id를 먼저 알 필요가 없게 **모임 전체에서** 오늘 이후만 받는다 — 목록 읽기(fetchGroupsRoster)와
+// 나란히 보낼 수 있다(모임 행은 동아리 몇 개의 앞으로 잡힌 일정뿐이라 짧다). 카드는 자기 id로 꺼낸다.
+export async function fetchNextMeetings(today = kstNow().slice(0, 10)) {
+  if (!supabase) return nextMeetingDates(guestRows('group_meetings'), today);
+  const { data, error } = await supabase.from('group_meetings')
+    .select('group_id, meeting_date').gte('meeting_date', today)
+    .order('meeting_date', { ascending: true });
+  if (error) throw error;
+  return nextMeetingDates(data, today);
 }
 
 export async function fetchMeetings(groupId) {

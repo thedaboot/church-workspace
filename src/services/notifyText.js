@@ -35,6 +35,9 @@ const SYSTEM_TEXT = {
   club_accepted: '동아리 가입이 수락되었어요',
   // 관리자가 가입을 수락하면 본인에게(0076) — club_accepted와 같은 이유로 시스템 갈래
   approved: '가입이 승인되었어요',
+  // 마스터가 순모임 가이드를 고정하면 그 해 순장들에게(0077 · 사용자 문구 그대로). 받는 사람에게
+  // 중요한 것은 누가 고정했는지가 아니라 가이드가 왔다는 것이라 시스템 갈래다.
+  guide_pinned: '이번 예배 순모임 가이드가 도착했어요!',
 };
 
 export const isSystemNotif = (kind) => kind in SYSTEM_TEXT;
@@ -50,6 +53,6 @@ export const notifLine = (kind, actorName) => (
 //   'task'(업무) · 'worship'(예배) · 'group'(모임)
 export const notifArea = (kind) => {
   if (kind === 'worship_today' || kind === 'service_published' || kind === 'note_shared') return 'worship';
-  if (kind === 'club_apply' || kind === 'club_accepted' || kind === 'meeting_new' || kind === 'approved') return 'group';
+  if (kind === 'club_apply' || kind === 'club_accepted' || kind === 'meeting_new' || kind === 'approved' || kind === 'guide_pinned') return 'group';
   return 'task';
 };

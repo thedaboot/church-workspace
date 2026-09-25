@@ -11,9 +11,9 @@ import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { DatePicker } from './DatePicker.jsx';
 import {
   CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, WITH_ICON, EXIT, useClosing,
-  PersonTag, PersonPick, LabeledField, Empty, PeopleMark, MeetMark,
+  PersonTag, PersonPick, LabeledField, Empty, PeopleMark, MeetMark, FailTail,
 } from './groupsParts.jsx';
-import { groupPeople, canManageClub, canEditClub, myGroupIds, notInGroup } from '../services/groups.js';
+import { groupPeople, canManageClub, canEditClub, myGroupIds, notInGroup, meetingDateShort } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
 import { reorderIds, imeComposing } from '../utils.js';
 
@@ -62,10 +62,12 @@ const DATE_TRIGGER = `inline-flex items-center gap-1.5 ${NEW_H} border border-li
 // 그래서 겉 한 겹을 여기서 만든다 — App이 화면 사이에 하는 것과 **같은 짜임**이다
 // (겉은 7px 가로 이동, 속 `dc-screen`은 페이드. 투명도는 한 겹에서만 — index.css 주석).
 const NAV_IN = 'dc-nav dc-nav-fwd';
+// 모임 일정 읽기 실패의 첫 줄(D2 — 실패 자리의 제목)
+const MEET_FAIL = '모임 일정을 불러오지 못했어요';
 const NAV_BACK = 'dc-nav dc-nav-back';
 
 export function ClubsPanel({
-  clubs, people, members, apps, perms, openClub, meetings, creating, closingCreate, onCloseCreate,
+  clubs, people, members, apps, perms, openClub, meetings, meetingsFail = null, nextMeet = {}, creating, closingCreate, onCloseCreate,
   onOpen, onBack, onCreateClub, onEditClub, onApply, onCancelApply, onAccept, onDecline,
   onAddMember, onRemoveMember, onReorder, onCreateMeeting, onToggleMeeting, onDeleteMeeting,
 }) {
@@ -83,12 +85,12 @@ export function ClubsPanel({
     <div key={openId ? `club:${openId}` : 'clubs'} className={navRef.current.cls}>
       {openClub ? (
         <ClubDetail club={openClub} people={people} members={members} apps={apps} perms={perms}
-          meetings={meetings} onBack={onBack} onApply={onApply} onCancelApply={onCancelApply}
+          meetings={meetings} meetingsFail={meetingsFail} onBack={onBack} onApply={onApply} onCancelApply={onCancelApply}
           onAccept={onAccept} onDecline={onDecline} onAddMember={onAddMember} onRemoveMember={onRemoveMember}
           onEditClub={onEditClub} onCreateMeeting={onCreateMeeting} onToggleMeeting={onToggleMeeting}
           onDeleteMeeting={onDeleteMeeting} />
       ) : (
-        <ClubList clubs={clubs} people={people} members={members} apps={apps} perms={perms}
+        <ClubList clubs={clubs} people={people} members={members} apps={apps} perms={perms} nextMeet={nextMeet}
           creating={creating} closingCreate={closingCreate} onCloseCreate={onCloseCreate} onOpen={onOpen}
           onCreateClub={onCreateClub} onReorder={onReorder} />
       )}
@@ -97,7 +99,7 @@ export function ClubsPanel({
 }
 
 // ── 목록 ────────────────────────────────────────────────────────────────────
-function ClubList({ clubs, people, members, apps, perms, creating, closingCreate, onCloseCreate, onOpen, onCreateClub, onReorder }) {
+function ClubList({ clubs, people, members, apps, perms, nextMeet = {}, creating, closingCreate, onCloseCreate, onOpen, onCreateClub, onReorder }) {
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [leaderId, setLeaderId] = useState('');
@@ -180,7 +182,7 @@ function ClubList({ clubs, people, members, apps, perms, creating, closingCreate
         onDragCancel={() => setDragId(null)} onDragEnd={handleDragEnd}>
         <div className="space-y-2">
           {clubs.map(g => (
-            <ClubCard key={g.id} club={g} people={people} members={members}
+            <ClubCard key={g.id} club={g} people={people} members={members} next={nextMeet[g.id] || ''}
               joined={mine.has(g.id)} pending={myPending.has(g.id)} onOpen={onOpen} />
           ))}
         </div>
@@ -190,7 +192,7 @@ function ClubList({ clubs, people, members, apps, perms, creating, closingCreate
           <DragOverlay dropAnimation={{ duration: 220, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>
             {dragged ? (
               <div className={`p-3.5 bg-surface border border-line shadow-elevated rotate-1 scale-[.98] opacity-95 cursor-grabbing ${CARD}`}>
-                <ClubCardInner club={dragged} people={people} members={members}
+                <ClubCardInner club={dragged} people={people} members={members} next={nextMeet[dragged.id] || ''}
                   joined={mine.has(dragged.id)} pending={myPending.has(dragged.id)} />
               </div>
             ) : null}
@@ -206,7 +208,8 @@ function ClubList({ clubs, people, members, apps, perms, creating, closingCreate
 }
 
 // 카드 속 내용 — 실제 카드와 끌고 있는 미리보기가 같이 쓴다.
-function ClubCardInner({ club, people, members, joined, pending }) {
+// next — 다음 동아리 모임 날짜('YYYY-MM-DD' · groups.fetchNextMeetings). 없으면 그 줄이 서지 않는다.
+function ClubCardInner({ club, people, members, joined, pending, next = '' }) {
   const list = groupPeople({ people, group: club, members });
   const leaderName = people.find(p => p.id === club.leader_person_id)?.name || '';
   return (
@@ -224,13 +227,16 @@ function ClubCardInner({ club, people, members, joined, pending }) {
       <p className="mt-1 text-[11.5px] text-fg-muted">
         {[leaderName ? `동아리장 ${leaderName}` : '', `${list.length}명`].filter(Boolean).join(' · ')}
       </p>
+      {!!next && (
+        <p className="club-next-meet mt-0.5 text-[11.5px] text-fg-muted tabular-nums">다음 동아리 모임 {meetingDateShort(next)}</p>
+      )}
     </>
   );
 }
 
 // 끌어서 순서를 바꾸는 카드. 카드 자체가 드롭 대상이라 목록 어디에나 끼워 넣을 수 있다
 // (컬럼이 따로 없는 한 줄짜리 목록이라 프로젝트 탭과 같은 모양이다).
-function ClubCard({ club, people, members, joined, pending, onOpen }) {
+function ClubCard({ club, people, members, joined, pending, next = '', onOpen }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: club.id });
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: club.id });
   // dnd-kit은 ref를 하나만 받으므로 손으로 합친다. **조건을 넣지 않는다**(§6-12-c) —
@@ -240,14 +246,14 @@ function ClubCard({ club, people, members, joined, pending, onOpen }) {
     <button ref={setRefs} {...attributes} {...listeners} type="button" onClick={() => onOpen(club)}
       className={`club-card dc-card w-full text-left p-3.5 cursor-grab active:cursor-grabbing transition ${CARD} ${isDragging ? 'opacity-40' : ''} ${isOver && !isDragging ? 'shadow-[inset_0_2px_0_0_var(--app-accent)]' : ''}`}
       style={CARD_STYLE}>
-      <ClubCardInner club={club} people={people} members={members} joined={joined} pending={pending} />
+      <ClubCardInner club={club} people={people} members={members} joined={joined} pending={pending} next={next} />
     </button>
   );
 }
 
 // ── 상세 ────────────────────────────────────────────────────────────────────
 function ClubDetail({
-  club, people, members, apps, perms, meetings, onBack, onApply, onCancelApply,
+  club, people, members, apps, perms, meetings, meetingsFail = null, onBack, onApply, onCancelApply,
   onAccept, onDecline, onAddMember, onRemoveMember, onEditClub, onCreateMeeting, onToggleMeeting,
   onDeleteMeeting,
 }) {
@@ -471,7 +477,7 @@ function ClubDetail({
         </div>
       )}
 
-      {(meetings.length > 0 || manage) && (
+      {(meetings.length > 0 || manage || !!meetingsFail) && (
         <div className={manage ? 'mt-2' : 'mt-6'}>
           {!manage && <SectionHead>모임</SectionHead>}
           <div className="space-y-2">
@@ -482,9 +488,15 @@ function ClubDetail({
           </div>
           {/* 이 빈 자리는 화면 한 판이 아니라 카드 아래에 딸린 구역이라 세로를 줄여
               잡는다 — 46vh를 그대로 쓰면 동아리 카드 뒤로 빈 화면이 한 판 더 붙는다 */}
-          {!meetings.length && (
+          {!meetings.length && !meetingsFail && (
             <Empty className="club-meet-empty" mark={<MeetMark />} minH="28vh"
               title="예정된 모임이 아직 없어요" />
+          )}
+          {/* 못 읽었을 때는 없는 것과 가른다(D2) — 같은 그림 + 두 줄 + '다시 시도' */}
+          {!!meetingsFail && (
+            <Empty className="club-meet-failed" mark={<MeetMark />} minH="28vh" title={MEET_FAIL}>
+              <FailTail reason={meetingsFail.reason} onRetry={meetingsFail.onRetry} />
+            </Empty>
           )}
         </div>
       )}

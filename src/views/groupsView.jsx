@@ -13,7 +13,7 @@ import { WITH_ICON, useClosing, useSettled, Empty, PeopleMark, FailTail } from '
 import { guideServices, pinnedGuideId, SUN_GUIDE_ON } from '../services/sunGuide.js';
 import { fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday, countsSince, GUIDE_SERVICE_COLS } from '../services/worship.js';
 import {
-  fetchGroupPerms, fetchGroupsRoster, fetchApplications, fetchSunSharedNotes, fetchMeetings,
+  fetchGroupPerms, fetchGroupsRoster, fetchApplications, fetchSunSharedNotes, fetchMeetings, fetchNextMeetings,
   createGroup, saveGroup, saveClubInfo, addMember, removeMember, moveMember, reorderClubs,
   applyToClub, cancelApplication, acceptApplication, declineApplication,
   createMeeting, saveMeetingAttendance, deleteMeeting, setNoteShared,
@@ -102,7 +102,7 @@ const MINE_SKELETON = (
 // 버튼이 선 화면**이 된다. 탭 내용은 이 한 벌로 그리지 않는다 — 빈 목록이 '아직 없어요'로
 // 읽혀서, 그 자리에는 실패가 선다(baseFailed · D2).
 const BASE_FAIL = '내 순과 동아리를 불러오지 못했어요';
-const EMPTY_BUNDLE = { perms: groupPerms(), apps: [], people: [], suns: [], clubs: [], members: [], allGroups: [] };
+const EMPTY_BUNDLE = { perms: groupPerms(), apps: [], people: [], suns: [], clubs: [], members: [], allGroups: [], nextMeet: {} };
 
 export function GroupsView() {
   const { isMaster, isAdmin } = useAuth();
@@ -127,12 +127,15 @@ export function GroupsView() {
   // (groups.js canEditClub·canManageClub). 예전에 perms가 메서드를 들고 있었다.
   const baseQ = useCached(`groups:all:${THIS_YEAR}`, async () => {
     try {
-      const [perms, roster, apps] = await Promise.all([
+      // 동아리 카드의 '다음 동아리 모임'(groups.fetchNextMeetings)은 곁줄이다 — 못 읽으면 그 줄만
+      // 안 서고 목록은 그대로 선다(빈 값 {}는 '다음 모임 없음'과 같은 모양이지만 줄 하나라 가르지 않는다).
+      const [perms, roster, apps, nextMeet] = await Promise.all([
         fetchGroupPerms(THIS_YEAR, { isMaster, isAdmin }),
         fetchGroupsRoster(THIS_YEAR),
         fetchApplications(),
+        fetchNextMeetings().catch((e) => { console.error('[groups] 다음 모임 날짜 실패:', e); return {}; }),
       ]);
-      return { perms, apps, ...roster };
+      return { perms, apps, nextMeet, ...roster };
     } catch (e) {
       console.error('[groups] 모임 목록 실패:', e);
       throw e;
@@ -284,14 +287,23 @@ export function GroupsView() {
   // 동아리 상세를 열 때 그 동아리의 모임을 읽는다. **캐시에 넣지 않는다** — 출석을
   // 누르면 그 자리에서 바뀌는 값이라(toggleMeeting) 캐시와 화면이 갈리기 쉽고,
   // 상세로 들어가는 한 번의 조작에 딸린 짧은 읽기다.
+  // **못 읽으면 '예정된 모임이 아직 없어요'로 두지 않는다**(D2 · HANDOFF §8 '읽기 실패 자리') —
+  // 예전에는 콘솔에만 남아 빈 목록과 같은 화면이었다. 캐시가 없는 읽기라 언제나 모임 자리에
+  // 실패 두 줄 + '다시 시도'가 선다(meetingsFail · 토스트는 띄우지 않는다). meetingsTry는 다시 읽기 신호다.
+  const [meetingsFail, setMeetingsFail] = useState(null);
+  const [meetingsTry, setMeetingsTry] = useState(0);
   useEffect(() => {
+    setMeetingsFail(null);
     if (!openClubId) { setMeetings([]); return undefined; }
     let alive = true;
     fetchMeetings(openClubId)
       .then(rows => { if (alive) setMeetings(rows); })
-      .catch(e => console.error('[groups] 모임 일정 실패:', e));
+      .catch(e => {
+        console.error('[groups] 모임 일정 실패:', e);
+        if (alive) { setMeetings([]); setMeetingsFail(e || true); }
+      });
     return () => { alive = false; };
-  }, [openClubId]);
+  }, [openClubId, meetingsTry]);
 
   // 내 노트의 공유를 그 줄에서 켜고 끈다(사용자 결정 2026-09-03). 노트 한 벌만
   // 다시 읽는다 — 순·동아리는 그대로다.
@@ -424,6 +436,7 @@ export function GroupsView() {
     try {
       await createMeeting(club.id, { date, title });
       setMeetings(await fetchMeetings(club.id));
+      baseQ.refresh();                     // 목록 카드의 '다음 동아리 모임'도 따라오게
       // 그 동아리 구성원 전부에게 한 통(0053 meeting_new). 동아리장은 groupPeople이
       // 맨 앞에 세우고, 만든 사람 자신은 insertNotifications가 걸러 낸다.
       const ids = groupPeople({ people: state?.people || [], group: club, members: state?.members || [] })
@@ -436,7 +449,7 @@ export function GroupsView() {
       showToast(failText('모임을 만들지 못했어요', e));
       return false;
     }
-  }, [state, me]);
+  }, [state, me, baseQ.refresh]);
 
   // 모임 일정 삭제 — 만들 때와 같은 결이다(모임은 캐시에 넣지 않으므로 dropCache도
   // 한 벌 다시 읽기도 없다. 그 동아리의 모임만 다시 읽어 내 화면을 바로 맞춘다).
@@ -446,6 +459,7 @@ export function GroupsView() {
     try {
       await deleteMeeting(meeting.id);
       setMeetings(await fetchMeetings(meeting.group_id));
+      baseQ.refresh();
       showToast('모임을 지웠어요');
       return true;
     } catch (e) {
@@ -453,7 +467,7 @@ export function GroupsView() {
       showToast(failText('모임을 지우지 못했어요', e));
       return false;
     }
-  }, []);
+  }, [baseQ.refresh]);
 
   // 출석은 먼저 화면에 반영하고 실패하면 되돌린다(예배 출석과 같은 방식).
   const toggleMeeting = useCallback(async (meeting, personId) => {
@@ -548,10 +562,20 @@ export function GroupsView() {
   const entryTick = useEntryQuery();
   const [entry, setEntry] = useState(null);
   const openedRef = useRef(null);
+  // 알림이 가리키는 **내 순 탭의 한 주보**(entryQuery의 note · guide). 노트 공유 알림은 그 주보의
+  // 공유 노트를, 가이드 고정 알림은 그 주보의 가이드를 편다 — 값이 없으면 두 구역은 저마다의
+  // 기본(가장 최근 · 고정된 것)을 연다. 매번 새 객체라 같은 알림을 두 번 눌러도 다시 편다.
+  const [mineFocus, setMineFocus] = useState(null);
   useEffect(() => {
     const g = entryOf('g');
     const ap = entryOf('apply');
     if (g) setEntry({ g, apply: ap === '1' });
+    const note = entryOf('note');
+    const guide = entryOf('guide');
+    if (note || guide) {
+      setTab('mine'); setOpenClubId(null); setCreating(null);
+      setMineFocus({ note: note || '', guide: guide || '' });
+    }
   }, [entryTick]);
 
   // 지금 그리는 한 벌이 **캐시가 아니라 방금 읽어 온 것**인가(cache.js의 stale 신호).
@@ -623,7 +647,7 @@ export function GroupsView() {
         <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
           {tabs.map(([key, label]) => (
             <button key={key} type="button"
-              onClick={() => { setTab(key); setCreating(null); }} aria-pressed={active === key}
+              onClick={() => { setTab(key); setCreating(null); setMineFocus(null); }} aria-pressed={active === key}
               className="groups-tab px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors"
               style={{
                 background: active === key ? 'var(--app-surface)' : 'transparent',
@@ -672,7 +696,7 @@ export function GroupsView() {
               두면 탭을 열자마자 AI 종이 세 장이 화면을 채우고 명단이 접혀 내려갔다. */}
           {mineSettled && !guideWait ? (
             <>
-              {!!sun && <SunNotesSection notes={mineQ.data?.notes || []} onShare={shareNote} />}
+              {!!sun && <SunNotesSection notes={mineQ.data?.notes || []} onShare={shareNote} focus={mineFocus} />}
               {/* 가이드 본문은 **패널이 읽는다** — 기준 주보를 사람이 고르므로(0055·사용자
                   스펙 2026-09-08) 한 벌을 미리 읽어 두는 것으로는 모자란다. 여기서 주는 것은
                   고를 수 있는 주보들과 기본값(고정 · 없으면 가장 최근 주일)이다. 저장·고정
@@ -682,7 +706,7 @@ export function GroupsView() {
                 <GuidePanel service={service} perms={guidePerms}
                   services={mineQ.data?.guideServiceList || []}
                   pinnedServiceId={mineQ.data?.pinnedGuide || ''}
-                  loading={mineQ.loading}
+                  loading={mineQ.loading} focus={mineFocus}
                   onChanged={() => { dropCache('groups:mine'); mineQ.refresh(); }} />
               )}
             </>
@@ -692,7 +716,9 @@ export function GroupsView() {
 
       {active === 'club' && !baseFailed && (
         <ClubsPanel clubs={clubs} people={state.people} members={state.members} apps={state.apps}
+          nextMeet={state.nextMeet || {}}
           perms={perms} openClub={openClub} meetings={meetings}
+          meetingsFail={meetingsFail ? { reason: errorReason(meetingsFail), onRetry: () => setMeetingsTry(n => n + 1) } : null}
           creating={creating === 'club'} closingCreate={closingCreate} onCloseCreate={shutCreate}
           onOpen={g => setOpenClubId(g.id)} onBack={() => setOpenClubId(null)}
           onCreateClub={newClub} onEditClub={editClub} onApply={apply} onCancelApply={cancelApply}

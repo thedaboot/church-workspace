@@ -1,8 +1,9 @@
 import { supabase } from './supabaseClient.js';
-import { guestStore } from './people.js';
+import { guestStore, fetchGroups, fetchPeople } from './people.js';
+import { insertNotifications } from './cloud.js';
 import { AiService, isFallbackText } from './ai.js';
 import { loadPassage } from './bible.js';
-import { kindLabel, formatServiceDate, SUNDAY_KIND } from './worship.js';
+import { kindLabel, formatServiceDate, serviceYear, SUNDAY_KIND } from './worship.js';
 import { CUE_DIGEST_MAX } from './cueDigest.js';
 
 // ============================================================================
@@ -471,4 +472,56 @@ export async function pinGuide(serviceId, on) {
     { p_service_id: serviceId, p_on: !!on });
   if (error) throw error;
   return !!on;
+}
+
+// ── 고정 알림 (사용자 요청 2026-09-25 · 0076) ───────────────────────────────
+// 마스터가 가이드를 고정하면 **그 해 순장들에게** 한 통 — 앱 안 알림 + 푸시(insertNotifications가
+// 둘을 한 자리에서 보낸다). 문구는 사용자가 준 그대로이고 누가 고정했는지는 말하지 않는
+// 시스템 갈래다(notifyText SYSTEM_TEXT.guide_pinned). 누르면 모임 화면이 그 가이드를 편다
+// (`guide=<주보 id>` · entryQuery의 약속 · groupsView mineFocus).
+//
+// 순장 판정은 모임 화면·출석 정책과 같은 한 벌이다 — **그 해 순의 leader_person_id**(0037).
+// 가이드의 해는 주보 날짜의 해다(worship.serviceYear). 명단에만 있고 가입 전인 순장은
+// 계정이 없어 빠지고, 고정한 사람 자신은 insertNotifications가 거른다.
+//
+// **한 가이드에 한 번만 보낸다.** 고정을 풀었다 다시 걸면(잘못 눌렀다 되돌리는 흔한 손) 순장
+// 전원에게 같은 알림이 두 번 간다. 알림 표는 받는 사람만 읽을 수 있어(RLS) 보낸 적이 있는지
+// 알림 표로는 알 수 없다 — 그래서 가이드 행에 한 칸(`pin_notified_at` · 0076)을 두고
+// **비어 있을 때만 채우는 UPDATE**로 차지한다. 채워진 행이 돌아온 쪽만 보낸다(두 마스터가
+// 동시에 눌러도 한 번이다). 마이그레이션이 아직이면 이 UPDATE가 실패하고 알림도 안 간다 —
+// 알림 종류 CHECK도 같은 파일이라 어차피 넣을 수 없다.
+export const guidePinnedLink = (serviceId) => `/?p=groups&guide=${serviceId}`;
+
+// 받을 계정 — 순마다 순장 한 사람, 계정이 이어진 사람만, 같은 계정은 한 번.
+export function guideNoticeTargets({ suns = [], people = [] } = {}) {
+  const byId = new Map((people || []).map((p) => [p.id, p]));
+  const ids = (suns || [])
+    .map((g) => byId.get(g.leader_person_id)?.profile_id || null)
+    .filter(Boolean);
+  return [...new Set(ids)];
+}
+
+export async function notifyGuidePinned(service) {
+  if (!supabase || !service?.id) return 0;
+  try {
+    const { data, error } = await supabase.from('sun_guides')
+      .update({ pin_notified_at: new Date().toISOString() })
+      .eq('service_id', service.id).is('pin_notified_at', null)
+      .select('service_id');
+    if (error) throw error;
+    if (!(data || []).length) return 0;            // 이미 보낸 가이드다
+    const [suns, people] = await Promise.all([
+      fetchGroups('sun', serviceYear(service.service_date)), fetchPeople(),
+    ]);
+    const ids = guideNoticeTargets({ suns, people });
+    if (!ids.length) return 0;
+    return await insertNotifications(ids, {
+      kind: 'guide_pinned',
+      preview: [formatServiceDate(service.service_date), service.title || ''].filter(Boolean).join(' · '),
+      link: guidePinnedLink(service.id),
+    });
+  } catch (e) {
+    console.error('[sunGuide] 가이드 고정 알림 실패:', e);
+    return 0;
+  }
 }
