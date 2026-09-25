@@ -296,6 +296,22 @@
     댓글 수정·삭제(`comments.jsx`) · 프로젝트 이름 연필(`views.jsx`).
 9-by. **작은 아이콘 버튼의 누르는 자리를 넓히는 폭은 이웃 조작과의 틈의 절반까지만** — 넘으면 뒤에 오는 버튼(positioned)이 앞 버튼의 가장자리를 빼앗는다. 모양은 그대로(`before:` 가상 요소 · 배경 없음).
     가로로 미는 줄(`x-scroll-lock` = overflow-y:hidden) 안에서는 세로로 넓힌 몫이 잘린다(참고 링크 X의 실제 자리는 14×줄 높이). `boards.jsx`의 카드 줄은 끌기 검사가 좌표를 재서 손대지 않았다.
+9-bz. **`export { X } from './a.js'`는 이 파일 안에 이름 X를 만들지 않는다** — 다시 내보내기만 한다. D9에서 `groupsParts`의 `BTN`을
+    `components/buttons.js`로 옮기며 그렇게 적었더니 같은 파일의 `FailTail`이 `BTN`을 읽다가 **ReferenceError**로 죽었다(`vite build`는 못 잡는다 —
+    실행해야 터진다). 옮긴 이름을 그 파일에서도 쓰면 `import { X } from …; export { X };`.
+9-ca. **`*:focus-visible`(index.css)은 레이어 밖이라 `outline-none` 유틸을 이긴다** — 테두리 없는 input을 둥근 상자 안에 둔 칸(성경 검색 ·
+    담당자 칸 등)은 상자 안쪽에 네모 테두리가 뜬다. 성경 검색은 상자에 `has-[input:focus-visible]:outline-*` + input에 `outline-none!`로 옮겼다.
+    나머지 칸은 전역 규칙을 고칠지부터 정해야 한다(HANDOFF §2 ★).
+9-cb. **flex 항목에 준 z-index는 position 없이도 쌓임 맥락을 만든다** — 상단바 상자(`z-20`) 안의 fixed `z-50` 판이 밖의 탭바(`z-40`) 아래에
+    깔렸다. **상단바 안에 fixed 판을 새로 두지 말고 body로 포털한다**(모바일 검색 판이 그렇다).
+9-cc. **dvh는 아이폰 키보드를 모른다** — 키보드 위에서 끝나야 하는 높이는 `--app-vh`(App.jsx가 visualViewport로 채운다)로 가둔다(모바일 검색 판 ·
+    성경 최근 검색어 판의 `fitHeight`).
+9-cd. **내용이 바뀌는 스크롤 상자는 scrollTop을 물려받는다** — 검색 결과 상자는 검색어가 바뀌면 0으로 되돌린다(`SearchBox`의 useLayoutEffect).
+9-ce. **달력 모바일 칸은 375에서 49px이다** — 날짜 숫자 + 생일 얼굴(13px) + `+N`(10px)이 틈 4px로 겨우 들어간다(두 자리 날짜에서 여유 0.6px).
+    이 줄에 무엇을 더하거나 틈을 넓히면 칸을 넘는다(D9에서 6px 틈이 그랬다 · `tests/calfit`이 잰다).
+9-cf. **최소 글자 10px · 12px 미만은 muted**(D9) — 새 줄을 쓸 때 `text-[9px]`·`text-[11px] text-fg-faint` 같은 조합을 쓰지 않는다.
+    예외는 얼굴 원 안의 머리글자와 종이(주보 종이 `paper.jsx` · 가이드 표지)다. `tests/handoff`가 소스를, `tests/themefit`이 v2·전역 화면의
+    계산값을 본다 — **색을 부모에 두고 글자 크기를 자식에 두면 소스 검사는 못 잡는다**(보드 상태 칩의 개수가 그랬다 · themefit이 잡았다).
 
 그 밖에 이 자리에서 고친 것(번호 없음):
 - **`+ 프로젝트`만 `border-b-2 border-transparent`가 없었다** — 탭 줄이 `items-end`라 글자가 2px 내려앉는다.
@@ -392,6 +408,9 @@
 24-e. **캐시는 자리도 관리해야 한다**(`services/cache.js`) — scope(사용자)를 바꿀 때 옛 키를 지우고 (`setCacheScope` → `purgeKeys`), 한도에 걸리면 이 scope를 비우고 한 번만 다시
     넣는다(localStorage는 5MB에 닿는 순간부터 모든 쓰기가 조용히 실패해 캐시가 옛 값에 영영 굳는다).
 24-f. **캐시 열쇠의 첫 도막을 서로의 접두가 되게 짓지 마세요**(`dropCache`는 접두로 지운다) — 화면 것은 `bible:state`, 사용자별 저장 자리는 `word_bible_state:<uid>`로 **일부러 다른 도막**이다.
+24-g. **`useCached`는 다시 읽는 동안에도 `error`를 들고 있다**(성공해야 비운다) — '다시 시도'를 누른 뒤에도 실패 자리가 그대로 서 있지
+    않게 **누른 그 실패(`retryOf`)를 기억해 두고 다른 실패일 때만** 실패로 본다(예배 목록·모임 · D2). 그리고 **실패와 빈 목록을 같은 `[]`로
+    두지 않는다** — 빈 목록을 앉히면 '아직 없어요'가 서서 실패가 "아직 안 올라왔다"로 읽힌다(주보 목록은 `null` 그대로 · 명단은 `book.error`).
 24-c. **딥링크의 나머지 값은 App이 주소를 `/`로 정리하기 전에 붙잡아야 한다** — `services/entryQuery.js`가 모듈 첫 실행 때 스냅샷을 뜬다. **OAuth 왕복은 그 스냅샷보다 늦다** → `auth.consumeReturnTo`가
     다시 실어 준다.
 
@@ -620,6 +639,13 @@
 42-d. **worktree가 CRLF로 풀리면 소스를 `\n`으로 자르는 노드 검사가 앱과 상관없이 깨진다**(전역 `core.autocrlf=true` · `tests/push`의 체크 제약 단정 등) — `git -c core.autocrlf=false checkout -- .`로 LF로 다시 푼다. 본 작업 사본은 LF다.
 42-e. **`tests/word`·`tests/aictx`는 `ai.js`를 임시 폴더로 복사해 import를 갈아 끼운다** — `ai.js`에 import를 새로 더하면 **두 파일 다** 갈아 끼우기를 고쳐야 한다(2026-09-25 `aiPeople.js`·`fetchRoster`를 더했을 때
     word가 시작하자마자 죽었다). 순수 모듈은 절대 주소로, supabase를 무는 것은 빈 것으로.
+42-f. **등장 연출(zoom-in-95 150ms) 중인 창의 크기를 `getBoundingClientRect()`로 재면 줄어든 값이 나온다**(40px 버튼이 38) — 크기는
+    `offsetHeight`로 잰다(변형을 안 탄다). 그리고 Tailwind v4의 `bg-black/50`은 계산값이 `rgba(0, 0, 0, 0.5)`가 아니라 **`oklab(0 0 0 / 0.5)`**다 — 둘 다 받는다.
+42-g. **폰 키보드 흉내**: `Object.defineProperty(visualViewport, 'height', { get })` + `visualViewport.dispatchEvent(new Event('resize'))` —
+    레이아웃 뷰포트는 그대로라 아이폰과 같다. 끝나면 `delete visualViewport.height`. CDP로 키·`insertText`를 보내기 전에는 `Page.bringToFront` —
+    안 하면 포커스 이벤트·키가 안 들어간다(`tests/mobbits`·`word`).
+42-h. **게스트에서 읽기 실패를 만드는 법** — 그 화면의 게스트 저장 자리를 모양이 틀린 값으로 덮는다(`church_worship_v1`에 `{ services: 1 }` →
+    펼치기에서 던진다). 게스트 캐시는 메모리뿐이라 새로 연 페이지는 '캐시 없는 첫 읽기'다(`tests/worship`·`groups`·`roster`의 D2). 콘솔 줄은 그 검사가 가져간다.
 
 ### AI
 
@@ -638,6 +664,9 @@
 46-d. **임베딩 쪽에서 밟은 것** — ① supabase-js의 `head: true`는 **표가 없어도** 204 · error null이 온다 — 표가 있는지는 GET으로 본다. ② 스크립트가 `PGRST303 JWT issued at future`로 멈추면 이 PC 시계가 몇 초 앞선 것이다(다시 돌리면 된다).
     ③ 성경의 편집 표기 36절(`(없음)`·`(N절에 포함되어 있음)`)은 넣지 않는다 — 내용이 없어 어느 질문에도 엉뚱하게 가까워진다(괄호로 감싼 진짜 본문은 넣는다 · `tests/logcheck`).
     ④ 카드 `updated_at`은 담당자·상태만 바뀌어도 밀린다 — 증분 열쇠는 **임베딩한 글의 sha256**이다(`api/_docsync.js`).
+46-e. **`callGemini`는 실패해도 던지지 않는다 — 안내 문구를 돌려준다**(§6-43) — 그래서 "AI가 답을 안 했다"와 "답이 빈 배열이었다"가
+    둘 다 빈 결과로 떨어진다. 성경 검색의 벡터 대체(S-a)는 앞쪽에만 서야 하므로 `bibleSearch.isAiAnswer`(글에 JSON 배열이 있나)로 가른다
+    (`aiBibleSearchOutcome`의 `failed`). 새로 AI 결과를 대체하는 길을 만들면 같은 판정을 쓴다.
 
 ### 짧은 목록(MenuPick)은 떠서 나온다 (2026-09-09 · §6-9-an의 예외)
 
