@@ -6,6 +6,7 @@ import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { byName } from '../services/groups.js';
 import { isMobileViewport, keepVisible, imeComposing } from '../utils.js';
 import { useDismiss } from '../hooks/useDismiss.js';
+import { BTN } from './buttons.js';
 
 // ============================================================================
 // 모임 화면의 공용 부품 — 사람 동그라미 · 명단에서 고르기 · 짧은 목록 고르기 · 카드 껍데기
@@ -58,7 +59,7 @@ export const CARD = 'rounded-[10px] shadow-soft';
 export const CARD_STYLE = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
 
 // 작은 주 버튼은 앱 전체가 한 벌이다(components/buttons.js — 두 단 · D9). 모임·예배·명단이 여기서 가져가던 이름을 그대로 둔다.
-export { BTN } from './buttons.js';
+export { BTN };
 export const BTN_QUIET = 'px-2.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';
 export const FIELD = 'text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint';
 
