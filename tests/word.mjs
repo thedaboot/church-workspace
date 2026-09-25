@@ -3033,6 +3033,16 @@ const bibleSearchBox = async (w, h) => {
   const sub = await ev(`({ coarse: matchMedia('(pointer: coarse)').matches, focused: document.activeElement === document.querySelector('[data-col="searchbar"] input'),
     hint: document.querySelector('[data-col="searchbar"] input').enterKeyHint, hits: document.querySelectorAll('[data-hit]').length })`);
   check('폰에서 검색 칸의 Enter로 내면 키보드가 내려가고 결과가 선다', sub.coarse && !sub.focused && sub.hint === 'search' && sub.hits > 0, JSON.stringify(sub));
+  // ③ 검색어 지우기(X)는 21px 단추라 폰에서 빗나갔다 — 둘레 5px 안을 눌러도 그 단추다.
+  //    되돌리기 검사: X 단추의 before: 넓힘을 지우면 ③이 깨진다.
+  const clr = await ev(`(() => {
+    const b = document.querySelector('[aria-label="검색어 지우기"]');
+    if (!b) return { none: true };
+    const r = b.getBoundingClientRect(); const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const on = (x, y) => b.contains(document.elementFromPoint(x, y));
+    return { w: Math.round(r.width), up: on(cx, r.top - 5), down: on(cx, r.bottom + 5), right: on(r.right + 5, cy), left: on(r.left - 3, cy) };
+  })()`);
+  check('검색어 지우기 단추는 둘레를 눌러도 닿는다', clr.up && clr.down && clr.right && clr.left, JSON.stringify(clr));
   await send('Emulation.setTouchEmulationEnabled', { enabled: false });
 }
 await ev(`localStorage.removeItem('word_bible_state')`);

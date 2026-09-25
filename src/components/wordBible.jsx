@@ -887,7 +887,7 @@ export function BibleTab({ initialRef = '' }) {
             /* 누르는 자리는 21px이라 폰에서 잘 빗나갔다 — 칸 높이 안(위아래 7px)과 글자 크기 단추까지
                틈의 절반(오른쪽 7px)만큼 넓힌다(HANDOFF §8 · PITFALLS 9-by · 2026-09-25) */
             <button type="button" onClick={clearSearch} aria-label="검색어 지우기"
-              className="shrink-0 p-1 -mr-1 rounded text-fg-faint hover:text-fg transition-colors">
+              className="relative before:absolute before:-inset-y-[7px] before:-left-1 before:-right-[7px] shrink-0 p-1 -mr-1 rounded text-fg-faint hover:text-fg transition-colors">
               <X size={13} />
             </button>
           )}
