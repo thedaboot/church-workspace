@@ -428,8 +428,10 @@ export const countPresent = (list = [], present) => list.filter(p => present?.ha
 //     (sunGuide.buildGuidePrompt — title·passage_ref·preacher·songs·praise_leader).
 // 예배 화면은 전체(COLS)다 — 상세·recentSongs·prefillRoles가 roles·notices까지 읽는다.
 // 게스트는 저장된 행을 그대로 준다(칸을 거르지 않는다 — 작은 목록이다).
-export const HOME_SERVICE_COLS = 'id, kind, service_date, status, title, passage_ref, preacher';
-export const GUIDE_SERVICE_COLS = `${HOME_SERVICE_COLS}, songs, praise_leader`;
+// 홈은 **예배 날 '오늘의 예배' 카드**가 찬양·광고까지 한 장에 싣는다(2026-09-25 · homeView 주일 모드) —
+// songs·notices·praise_leader·praise_playlist_url을 더했고, 그러면 가이드 칸(songs·praise_leader)을 다 품어서 둘이 같아졌다.
+export const HOME_SERVICE_COLS = 'id, kind, service_date, status, title, passage_ref, preacher, songs, notices, praise_leader, praise_playlist_url';
+export const GUIDE_SERVICE_COLS = HOME_SERVICE_COLS;
 
 // 작성 중(draft)은 편집 자격자에게만 온다 — 화면이 아니라 RLS가 거른다(0036).
 export async function fetchServices({ columns = COLS } = {}) {

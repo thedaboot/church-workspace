@@ -86,6 +86,11 @@ const LS = {
   shared: 'word_qt_shared',       // { 'YYYY-MM-DD': [{ id, name, avatarUrl?, body }] }
   bible: 'word_bible_state',      // { lastRef, bookmarks, highlights, recentSearches }
   font: 'word_bible_font',        // 0 | 1 | 2
+  // 이번 주 이 장을 본 사람(0080). 게스트에는 남이 없어 남의 줄을 여기 심는다(tests/word.mjs) —
+  // 내가 적은 줄은 따로 둔다(내 줄은 얼굴에 서지 않는다).
+  reads: 'word_bible_reads',            // { 'gen 3': [{ profile_id, name, avatarUrl? }] }
+  readsMine: 'word_bible_reads_mine',   // [{ chapter_key, week_start }]
+  readShare: 'word_bible_read_share',   // true | false — 나도 나누기
 };
 const lsGet = (key, fallback) => {
   try {
@@ -246,18 +251,135 @@ export async function countSharedEntries(date) {
 }
 
 // 잔디 — **내 기록 날짜만**. 남의 것은 애초에 묻지 않는다(결정 10).
+// **제목이 같이 온다**(2026-09-25 · 목업 '지난 기록' 2번) — 달력 아래 그 달 묵상 목록이 '날짜 · 제목'을
+// 한 줄씩 세운다(제목이 비면 그 날 구절을 흐리게 · fetchScheduleRange). 본문은 싣지 않는다.
+// → [{ date, title }] 날짜 오름차순
 export async function fetchMyEntryDates(from, to) {
   if (!supabase) {
     return Object.entries(lsGet(LS.entries, {}))
       .filter(([d, v]) => d >= from && d <= to && (v?.body || '').trim())
-      .map(([d]) => d).sort();
+      .map(([d, v]) => ({ date: d, title: entryTitle(v).trim() }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
   const uid = await myId();
   if (!uid) return [];
   const { data, error } = await supabase.from('qt_entries')
-    .select('qt_date').eq('profile_id', uid).gte('qt_date', from).lte('qt_date', to);
+    .select('qt_date, title').eq('profile_id', uid).gte('qt_date', from).lte('qt_date', to);
   if (error) throw error;
-  return (data ?? []).map(r => r.qt_date).sort();
+  return (data ?? []).map(r => ({ date: r.qt_date, title: entryTitle(r).trim() }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// 그 기간의 읽기표 — [{ qt_date, passage_ref }] 날짜 오름차순. 달력 아래 목록의 흐린 구절과
+// '이번 주 이 장을 본 사람'의 나눔 보기(이 장에 걸친 날)가 쓴다. 게스트는 심어 둔 일정.
+export async function fetchScheduleRange(from, to) {
+  if (!supabase) {
+    return Object.entries(lsGet(LS.schedule, {}))
+      .filter(([d]) => d >= from && d <= to)
+      .map(([d, v]) => ({ qt_date: d, passage_ref: String(v?.passage_ref || '') }))
+      .sort((a, b) => a.qt_date.localeCompare(b.qt_date));
+  }
+  const { data, error } = await supabase.from('qt_schedule')
+    .select('qt_date, passage_ref').gte('qt_date', from).lte('qt_date', to).order('qt_date');
+  if (error) throw error;
+  return data ?? [];
+}
+
+// ── 이번 주 이 장을 본 사람 (0080 bible_reads) ──────────────────────────────
+// 판정(주 셈·나 빼기·이름순)은 services/bibleReads.js(순수)다. 여기는 왕복만 한다.
+// **실패는 조용하다** — 얼굴은 있으면 좋은 곁줄이라, 못 읽으면 그 자리가 안 설 뿐이다(본문은 그대로).
+// 게스트에는 남이 없어서 심어 둔 자리(word_bible_reads)를 남의 줄로 본다(나눔의 word_qt_shared와 같은 방식).
+//
+// 장을 열 때 **한 번** 읽는다(실시간 없음 — 사용자 결정). 이름·사진은 부르는 쪽이 멤버 목록에서 붙인다
+// (profiles를 조인하면 행마다 이름이 두 벌이 된다 — 나눔 칩이 멤버 목록을 원본으로 보는 것과 같다).
+// → [{ profile_id, name?, avatarUrl? }]
+export async function fetchChapterReaders(chapter, weekStart) {
+  if (!supabase) return (lsGet(LS.reads, {})[chapter] || []).filter(r => r && r.profile_id);
+  const { data, error } = await supabase.from('bible_reads')
+    .select('profile_id').eq('chapter_key', chapter).eq('week_start', weekStart);
+  if (error) throw error;
+  return data ?? [];
+}
+
+// 장을 5초 넘게 펼쳤다 — 이번 주 이 장에 내 줄 하나(같은 주·같은 장은 한 줄 · ignoreDuplicates).
+// 켬/끔은 부르는 쪽이 먼저 본다(loadReadShare) — 꺼져 있으면 부르지 않는다.
+export async function markChapterRead(chapter, weekStart) {
+  if (!supabase) {
+    const mine = lsGet(LS.readsMine, []).filter(r => !(r.chapter_key === chapter && r.week_start === weekStart));
+    lsSet(LS.readsMine, [...mine, { chapter_key: chapter, week_start: weekStart }]);
+    return;
+  }
+  const uid = await myId();
+  if (!uid) return;
+  const { error } = await supabase.from('bible_reads').upsert(
+    { profile_id: uid, chapter_key: chapter, week_start: weekStart },
+    { onConflict: 'profile_id,chapter_key,week_start', ignoreDuplicates: true },
+  );
+  if (error) throw error;
+}
+
+// '나도 나누기'를 끄면 **내 줄을 모두 지운다**(사용자 결정 — 기록을 남기지 않고 지움)
+export async function clearMyReads() {
+  if (!supabase) { lsSet(LS.readsMine, []); return; }
+  const uid = await myId();
+  if (!uid) return;
+  const { error } = await supabase.from('bible_reads').delete().eq('profile_id', uid);
+  if (error) throw error;
+}
+
+// 켬/끔 — bible_state.share_reads 한 칸(0080). **bible_state의 큰 읽기·쓰기(load/saveBibleState)와
+// 따로 둔다**: 0080이 아직 안 나간 판에서 그 한 벌에 이 칸을 넣으면 북마크·형광펜 저장까지 같이 실패한다.
+// 못 읽으면 켬(기본값)으로 본다. 한 번 읽은 값은 모듈이 들고 있다(장 머리의 판과 내 정보가 같은 값).
+// 계정이 바뀌면 다시 읽는다(열쇠가 uid다 — 한 기기에서 계정을 바꿔도 앞사람 값을 쓰지 않게).
+let readShareMemo = null;   // { uid, on }
+export async function loadReadShare() {
+  if (!supabase) return lsGet(LS.readShare, true) !== false;
+  try {
+    const uid = await myId();
+    if (!uid) return true;
+    if (readShareMemo?.uid === uid) return readShareMemo.on;
+    const { data, error } = await supabase.from('bible_state').select('share_reads').eq('profile_id', uid).maybeSingle();
+    if (error) throw error;
+    readShareMemo = { uid, on: data?.share_reads !== false };
+    return readShareMemo.on;
+  } catch (e) {
+    console.warn('[word] 나도 나누기 값을 읽지 못했어요:', e);
+    return true;
+  }
+}
+// 끄면 내 줄도 같이 지운다. 실패는 던진다 — 부르는 쪽(토글)이 되돌리고 토스트로 알린다.
+export async function saveReadShare(on) {
+  const next = !!on;
+  if (!supabase) lsSet(LS.readShare, next);
+  else {
+    const uid = await myId();
+    if (!uid) throw new Error('로그인이 필요합니다');
+    const { error } = await supabase.from('bible_state').upsert(
+      { profile_id: uid, share_reads: next, updated_at: new Date().toISOString() },
+      { onConflict: 'profile_id' },
+    );
+    if (error) throw error;
+    readShareMemo = { uid, on: next };
+  }
+  if (!next) await clearMyReads();
+}
+
+// 이 사람들 중 **그 날들에 묵상을 공유해 둔 사람**의 날짜 — [{ profile_id, qt_date }].
+// '나눔 보기'가 선다(그 사람이 이 장에 걸친 QT 묵상을 공유했을 때만). 공유 글은 RLS가 모두에게 연다(0036).
+export async function fetchSharedOn(dates, profileIds) {
+  if (!dates?.length || !profileIds?.length) return [];
+  if (!supabase) {
+    const all = lsGet(LS.shared, {});
+    return dates.flatMap(d => (all[d] || [])
+      .filter(r => r?.profile_id && profileIds.includes(r.profile_id) && String(r.body || '').trim())
+      .map(r => ({ profile_id: r.profile_id, qt_date: d })));
+  }
+  const { data, error } = await supabase.from('qt_entries')
+    .select('profile_id, qt_date').eq('shared', true)
+    .in('qt_date', dates).in('profile_id', profileIds)
+    .not('body', 'is', null).neq('body', '');
+  if (error) throw error;
+  return data ?? [];
 }
 
 // ── bible_state — 이어읽기 · 북마크 · 형광펜 · 최근 검색어 ──────────────────

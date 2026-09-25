@@ -179,6 +179,8 @@ const plant = (o = {}) => {
     if (v.shared) localStorage.setItem('word_qt_shared', JSON.stringify(v.shared));
     if (v.worship) localStorage.setItem('church_worship_v1', JSON.stringify(v.worship));
     if (v.groups) localStorage.setItem('church_groups_v1', JSON.stringify(v.groups));
+    if (v.now) localStorage.setItem('test_kst_now', v.now);
+    if (v.bible) localStorage.setItem('word_bible_state', JSON.stringify(v.bible));
     localStorage.setItem('theme', v.theme);
   })()`;
 };
@@ -201,6 +203,12 @@ await send('Page.enable'); await send('Runtime.enable');
 // 뒤에 물어보면 언제나 없다. 문서가 만들어지기 전에 감시자를 심어 두고 나중에 묻는다.
 // **첫 그림의 자리 차례를 통째로 적어 둔다**(2026-09-07): 예전에는 '스켈레톤이 있었나'만
 // 봤는데, 진짜로 지켜야 하는 것은 **아직 안 온 갈래도 제 자리를 잡고 있는가**다.
+// 홈의 '지금'(주일 모드 · 지난 해의 오늘 · 발자취)은 개발 서버에서 window.__kstNow로 정할 수 있다
+// (homeView momentNow). **기본은 오늘 07:00** — 오늘 주보를 심는 검사(3b·3c)가 돌리는 시각에 따라
+// 주일 모드(08:00~)로 바뀌지 않게. 시각을 정하는 검사는 plant({ now })로 넘긴다(아래 '은혜와 리듬').
+await send('Page.addScriptToEvaluateOnNewDocument', {
+  source: `window.__kstNow = localStorage.getItem('test_kst_now') || '${TODAY} 07:00:00';`,
+});
 await send('Page.addScriptToEvaluateOnNewDocument', {
   source: `
     window.__firstSlots = null; window.__firstSkel = 0;
@@ -1229,6 +1237,151 @@ check('다크에서도 히어로 글자가 바탕에 묻히지 않는다', dh.ev
 check('다크에서 히어로 글자도 색을 바꾼다(토큰을 쓴다)',
   darkPaint.greeting.fg !== lightPaint.greeting.fg && darkPaint.tagline.fg !== lightPaint.tagline.fg,
   `${lightPaint.greeting?.fg} → ${darkPaint.greeting?.fg}`);
+
+// ── 은혜와 리듬(2026-09-25 · 목업 3·7·8번) — 오늘의 예배 · 지난 해의 오늘 · 발자취 ──────────────
+// 시각은 plant({ now })로 정한다(homeView momentNow · 개발 서버에서만 듣는다).
+// 되돌리기 검사: orderedSlots의 sunday 갈래를 지우면 '예배가 맨 앞 두 칸'·'내 순 카드는 빠진다'가,
+// TodayWorshipCard의 order 뒤집기를 지우면 '13:30 뒤에는 출석이 앞'이, 광고 줄의 번호 칸을 지우면 '광고는 종이처럼'이,
+// 알약 자리를 지우면 '작년 이맘때'·'발자취 입구'가 깨진다.
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+const WORSHIP_SUN = { services: [
+  { id: 's0', kind: 'sunday', service_date: shift(TODAY, -7), status: 'published', title: '지난 주일', passage_ref: '', preacher: '' },
+  { id: 's1', kind: 'sunday', service_date: TODAY, status: 'published', title: '당신은 기름을 들고 있습니다', passage_ref: '사사기 9:7-15',
+    preacher: '임성빈 전도사님', praise_leader: '조해리', praise_playlist_url: '',
+    songs: [{ title: '마커스워십 - 나의 맘 받으소서', link: 'https://www.youtube.com/watch?v=abc' }, { title: 'WELOVE - 모든 상황 속에서' }],
+    notices: [
+      { title: '다음 주 예배 위원', body: '대표기도: 이수빈 형제\n헌금봉헌: 윤현서 자매' },
+      { title: '다음 주 예배 안내', body: '' },
+      { title: '교우동정', body: '생일자: 조현재 형제' },
+      { title: '', body: '' },
+    ] },
+] };
+const todayCard = () => ev(`(() => {
+  const grid = document.querySelector('.home-cards');
+  const c = document.querySelector('.home-today');
+  const cells = grid ? [...grid.children].map(x => x.dataset.slot) : [];
+  if (!c) return { none: true, cells, sun: !!document.querySelector('.home-sun') };
+  const g = grid.getBoundingClientRect(), r = c.getBoundingClientRect();
+  const lis = [...c.querySelectorAll('[data-notice]')];
+  const titleX = lis.map(li => { const s = li.querySelector('span.min-w-0 > span') || li.lastElementChild; return Math.round(s.getBoundingClientRect().left); });
+  const cut = document.querySelector('.home-cut');
+  return {
+    first: cells[0], cells, wide: Math.abs(r.width - g.width) < 2, today: c.dataset.today,
+    label: c.querySelector('.home-card-head')?.textContent.trim(),
+    parts: [...c.querySelectorAll('[data-part]')].map(p => p.dataset.part),
+    sun: !!document.querySelector('.home-sun'),
+    lock: c.querySelector('[data-att-lock]')?.textContent.trim() || '',
+    count: c.querySelector('[data-att-count]')?.textContent.trim() || '',
+    btns: [...c.querySelectorAll('[data-part="att"] button')].map(b => b.textContent.trim()),
+    notices: lis.map(li => li.textContent.trim()), titleX,
+    align: lis.map(li => getComputedStyle(li).textAlign),
+    nums: lis.map(li => li.firstElementChild.textContent.trim()),
+    songs: [...c.querySelectorAll('.home-today-song')].map(s => s.textContent.trim()),
+    songLink: !!c.querySelector('[data-part="songs"] a[href*="youtube"]'),
+    leader: c.textContent.includes('조해리'),
+    cut: !!cut && cut.getBoundingClientRect().height > 50,
+    overflow: document.documentElement.scrollWidth > innerWidth + 1,
+  };
+})()`);
+await enter({ worship: WORSHIP_SUN, now: `${TODAY} 11:40:00` });
+const sunBefore = await todayCard();
+check('예배 날 08:00 뒤에는 오늘의 예배가 격자 맨 앞 두 칸', sunBefore.first === 'worship' && sunBefore.wide && sunBefore.label === '오늘 예배', JSON.stringify(sunBefore));
+check('내 순 카드는 출석 칸으로 들어가 격자에서 빠진다', !sunBefore.sun && sunBefore.cells.join(',') === 'worship,qt,tasks', JSON.stringify(sunBefore.cells));
+check('13:30 전에는 찬양이 앞 · 출석은 잠긴 표시만', sunBefore.today === 'before' && sunBefore.parts.join(',') === 'songs,notices,att' && sunBefore.lock === '13:30부터',
+  JSON.stringify({ parts: sunBefore.parts, lock: sunBefore.lock }));
+check('찬양은 주보의 제목 한 줄 그대로 · 링크가 있으면 연다 · 인도자는 싣지 않는다(2026-09-06)',
+  sunBefore.songs.join('|') === '마커스워십 - 나의 맘 받으소서|WELOVE - 모든 상황 속에서' && sunBefore.songLink && !sunBefore.leader, JSON.stringify(sunBefore.songs));
+check('광고는 종이처럼 — 번호 · 왼쪽 정렬 · 본문이 빈 광고도 같은 들여쓰기 · 빈 줄은 뺀다',
+  sunBefore.notices.length === 3 && sunBefore.nums.join(',') === '1,2,3' && sunBefore.align.every(a => a === 'left' || a === 'start')
+  && new Set(sunBefore.titleX).size === 1 && sunBefore.notices[1] === '2다음 주 예배 안내', JSON.stringify({ n: sunBefore.notices, x: sunBefore.titleX }));
+check('히어로 캐릭터는 그대로 선다', sunBefore.cut === true);
+await enter({ worship: { ...WORSHIP_SUN, attendance: [{ service_id: 's1', person_id: 'p1' }, { service_id: 's1', person_id: 'p2' }, { service_id: 's1', person_id: 'x9' }] },
+  now: `${TODAY} 15:10:00` });
+const sunAfter = await todayCard();
+check('13:30 뒤에는 출석이 앞 · 우리 순 오늘 참석 수', sunAfter.today === 'after' && sunAfter.parts[0] === 'att' && sunAfter.count.replace(/\s+/g, ' ') === '2 / 3명 참석',
+  JSON.stringify({ parts: sunAfter.parts, count: sunAfter.count }));
+check('출석 체크는 순장에게만 · 예배 노트는 누구나', !sunAfter.btns.includes('출석 체크') && sunAfter.btns.includes('예배 노트'), JSON.stringify(sunAfter.btns));
+await enter({ worship: WORSHIP_SUN, now: `${TODAY} 07:59:00` });
+const sunEarly = await todayCard();
+check('07:59에는 평소 홈(카드 넷 그대로)', sunEarly.none === true && sunEarly.sun === true, JSON.stringify(sunEarly));
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
+await enter({ worship: WORSHIP_SUN, now: `${TODAY} 11:40:00` });
+const sunPhone = await todayCard();
+check('375에서도 오늘의 예배가 맨 앞 · 가로로 넘치지 않는다', sunPhone.first === 'worship' && !sunPhone.overflow && sunPhone.cut, JSON.stringify({ first: sunPhone.first, overflow: sunPhone.overflow }));
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+
+// 지난 해의 오늘 — 작년 오늘 ±7일 activity가 가장 많은 작년 프로젝트 하나 · 모두에게 같은 줄
+const LOG = (iso) => [{ id: `l${iso}`, action: '상태를 바꿨습니다.', author: '조해리', timestamp: iso }];
+const YA_APP = {
+  ...APP,
+  projects: { byId: {
+    old: { id: 'old', title: '2026 하계 수련회', year: 2026, archived: true, pinnedLinks: [] },
+    now: { id: 'now', title: '2027 하계 수련회', year: 2027, pinnedLinks: [] },
+  }, allIds: ['old', 'now'] },
+  tasks: { byId: {
+    y1: { ...mkTask({ id: 'y1', title: '수련회 포스터 제작', status: '완료', due: '2026-08-03' }), projectId: 'old', activityLog: [...LOG('2026-07-30T03:00:00Z'), ...LOG('2026-07-31T03:00:00Z')] },
+    y2: { ...mkTask({ id: 'y2', title: '기도카드 제작', status: '완료', due: '2026-07-26' }), projectId: 'old', activityLog: LOG('2026-07-28T03:00:00Z') },
+    y3: { ...mkTask({ id: 'y3', title: '올해 포스터', status: '진행 중', due: '2027-07-30' }), projectId: 'now', activityLog: [...LOG('2026-07-30T01:00:00Z'), ...LOG('2026-07-30T02:00:00Z'), ...LOG('2026-07-30T04:00:00Z'), ...LOG('2026-07-30T05:00:00Z')] },
+  }, allIds: ['y1', 'y2', 'y3'] },
+};
+await enter({ app: YA_APP, now: '2027-07-29 10:00:00' });
+const ya = await ev(`(() => { const b = document.querySelector('[data-year-ago]'); return b ? b.textContent.trim() : null; })()`);
+check("태그라인 아래 '작년 이맘때' + 작년 프로젝트(보관이어도) — 올해 프로젝트는 고르지 않는다", ya === '작년 이맘때2026 하계 수련회', String(ya));
+await ev(`document.querySelector('[data-year-ago]')?.click()`);
+await sleep(300);
+const yaOpen = await ev(`(() => ({
+  head: document.querySelector('[data-year-ago-project]')?.textContent.trim() || '',
+  rows: [...document.querySelectorAll('[data-year-ago-task]')].map(b => b.textContent.trim()),
+}))()`);
+check('누르면 그 창에 마감·완료가 걸린 업무가 날짜순으로 펴진다', yaOpen.head === '2026 · 2026 하계 수련회' && yaOpen.rows.join('|') === '7. 26.기도카드 제작|8. 3.수련회 포스터 제작',
+  JSON.stringify(yaOpen));
+await ev(`document.querySelector('[data-year-ago-task="y2"]')?.click()`);
+await sleep(700);
+const yaModal = await ev(`(() => { const m = document.querySelector('.fixed.inset-0.z-50'); return !!m && m.innerText.includes('기도카드 제작'); })()`);
+check('줄을 누르면 그 업무 창이 열린다', yaModal === true);
+await enter({ app: YA_APP });
+check('지금(기본 시각 · 작년 창에 활동 없음)은 알약이 서지 않는다', await ev(`!document.querySelector('[data-year-ago], [data-footprint]')`));
+
+// 발자취 — 12월 둘째 주일 ~ 1월 6일 · 나만 보는 한 장
+const FOOT_APP = {
+  ...APP,
+  projects: { byId: { p1: { id: 'p1', title: '2026 하계 수련회', year: 2026, pinnedLinks: [] } }, allIds: ['p1'] },
+  tasks: { byId: { f1: { ...mkTask({ id: 'f1', title: '포스터', status: '완료', due: '2026-08-01' }), assignees: ['노준석', '조해리', '김승찬'] } }, allIds: ['f1'] },
+};
+const FOOT_BIBLE = { lastRef: '', recentSearches: [],
+  highlights: [{ ref: 'jdg 3:1', at: '2026-09-08T01:00:00Z', color: 'yellow' }, { ref: 'jdg 3:2', at: '2026-09-08T01:00:00Z', color: 'yellow' }, { ref: 'psa 23:1', at: '2025-05-01T01:00:00Z', color: 'green' }],
+  bookmarks: [{ ref: 'luk 2', label: '누가복음 2장', at: '2026-09-12T01:00:00Z' }] };
+await enter({ app: FOOT_APP, bible: FOOT_BIBLE, now: '2026-12-20 10:00:00' });
+const footPill = await ev(`document.querySelector('[data-footprint]')?.textContent.trim() || null`);
+check("12월 둘째 주일부터 같은 자리에 '2026년의 발자취' 입구", footPill === '2026년의 발자취' && await ev(`!document.querySelector('[data-year-ago]')`), String(footPill));
+await ev(`document.querySelector('[data-footprint]')?.click()`);
+await waitFoot();
+async function waitFoot() { for (let i = 0; i < 40; i++) { if (await ev(`!!document.querySelector('[data-foot]')`)) return; await sleep(150); } }
+const foot = await ev(`(() => {
+  const page = document.querySelector('.home-foot-page');
+  return {
+    home: !!document.querySelector('.home-cards'),
+    title: page?.querySelector('h2')?.textContent.trim(), sub: page?.querySelector('header p')?.textContent.trim(),
+    secs: [...document.querySelectorAll('[data-foot]')].map(s => s.querySelector('h4').textContent.trim()),
+    verse: document.querySelector('[data-foot="verses"] blockquote')?.textContent.trim() || '',
+    verses: document.querySelectorAll('[data-foot="verses"] blockquote').length,
+    marks: document.querySelector('[data-foot="bookmarks"]')?.textContent || '',
+    faces: document.querySelectorAll('[data-foot="projects"] .rounded-full').length,
+    back: document.querySelector('[data-foot-back]')?.textContent.trim(),
+    counts: /\\d+\\s*(개|건|번|회|명)/.test(page?.innerText || ''),
+  };
+})()`);
+check("발자취는 창이 아니라 화면 — '2026년의 발자취' · '예수님과 함께 걸어온 한 해' · 홈으로",
+  !foot.home && foot.title === '2026년의 발자취' && foot.sub === '예수님과 함께 걸어온 한 해' && foot.back === '홈으로', JSON.stringify(foot));
+check('구역은 마음에 남긴 구절 · 다시금 펼치게 된 말씀 · 더다붓과 함께한 프로젝트(쓴 노트가 없으면 그 구역은 없다)',
+  foot.secs.join('|') === '마음에 남긴 구절|다시금 펼치게 된 말씀|더다붓과 함께한 프로젝트', JSON.stringify(foot.secs));
+check('형광펜 구절은 본문까지 · 이어진 절은 한 줄 · 다른 해는 빠진다', foot.verses === 1 && foot.verse.includes('사사기 3:1-2') && foot.verse.length > 30, foot.verse.slice(0, 60));
+check('북마크한 장 · 같이 한 얼굴 · 합계·횟수 글자 없음', foot.marks.includes('누가복음 2장') && foot.faces === 2 && !foot.counts, JSON.stringify({ faces: foot.faces, counts: foot.counts }));
+await ev(`document.querySelector('[data-foot-back]')?.click()`);
+await sleep(400);
+check("'홈으로'로 돌아온다", await ev(`!!document.querySelector('.home-cards') && !document.querySelector('[data-foot]')`));
+await enter({ app: FOOT_APP, bible: FOOT_BIBLE, now: '2027-01-07 10:00:00' });
+check('1월 7일부터는 발자취 입구가 없다', await ev(`!document.querySelector('[data-footprint]')`));
 
 await send('Emulation.clearDeviceMetricsOverride');
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));

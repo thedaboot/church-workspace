@@ -2,6 +2,7 @@ import webpush from 'web-push';
 import { notifLine } from '../src/services/notifyText.js';
 import { adminClient, readJson, bearer, requireApprovedUser, safeEqual, sameOriginPath } from './_lib.js';
 import { syncDocVectors } from './_docsync.js';
+import { weekStartOf } from '../src/services/bibleReads.js';
 
 // ============================================================================
 // /api/push — 웹 푸시 발송. 두 입구가 한 파일에 있다.
@@ -382,6 +383,13 @@ async function handleMeetingEve(req, res) {
   res.status(200).json({ meetings: meetings.length, notified: wanted.length, sent });
 }
 
+// ── 11:30 배치 끝: 지난주 '이 장을 본 사람' 줄 지우기 (0080 bible_reads) ─────────
+// 새 크론을 만들지 않고 ?job=worship 배치 끝에 얹었다(크론 자리가 둘뿐이다). 주는 주일 시작 — 앱과 같은 셈(bibleReads.weekStartOf).
+async function dropLastWeekReads(db) {
+  const { error } = await db.from('bible_reads').delete().lt('week_start', weekStartOf(kstDate(0)));
+  if (error) console.error('[push] 지난주 bible_reads 정리 실패:', error);
+}
+
 // ── GET ?job=worship: 예배 당일 배치 (0053) ────────────────────────────────
 // 오늘(KST) 날짜의 **발행된** 주보를 찾아 승인 멤버 전원에게 알린다. 크론은 11:30 KST
 // (`30 2 * * *` UTC)에 돌아 예배(13:30) 두 시간 전이다.
@@ -533,6 +541,7 @@ async function handleWorshipThenMeetings(req, res) {
   if (w.code === 401 || w.code === 501) { res.status(w.code).json(w.body); return; }
   const m = heldResponse();
   await handleMeetingEve(req, m);
+  await dropLastWeekReads(admin());   // 지난주 '이 장을 본 사람' 줄(0080) — 실패해도 알림 응답은 그대로다
   res.status(w.code !== 200 ? w.code : m.code).json({ ...(w.body || {}), meeting: m.body });
 }
 

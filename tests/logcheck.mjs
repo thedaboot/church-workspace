@@ -3064,7 +3064,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/const pickRecent = \(q\) => \{[^}]*runSearch\(q\);/.test(bible),
     '최근 검색어를 누르면 지금 검색을 시작하는 그 길로 간다');
   assert.ok(/removeRecentSearch\(state\.recentSearches, q\)/.test(bible), '줄마다 지울 수 있다');
-  assert.ok(/const recentOpen = focused && !typed && recent\.length > 0;/.test(bible),
+  // 2026-09-25부터는 '이런 마음일 때' 칩이 있으면(AI 있는 판) 최근 검색어가 없어도 판이 선다(목업 5번)
+  assert.ok(/const recentOpen = focused && !typed && \(recent\.length > 0 \|\| moodsOn\);/.test(bible),
     '검색어를 비운 채 칸에 들어왔을 때만 목록이 선다');
   // 판이 떠 있는 동안 칸 안 안내 문구는 첫 줄에 멎는다(사용자 결정 2026-09-14) —
   // 같은 `recentOpen` 하나를 봐야 판이 열린 순간과 문구가 멎는 순간이 어긋나지 않는다
@@ -3078,7 +3079,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '읽기는 bible_state를 읽던 그 한 벌에 얹혀 있다');
   assert.ok(/recent_searches: recentRows\(next\.recentSearches\)/.test(src),
     '쓰기도 그 upsert 한 벌이다');
-  assert.strictEqual((src.match(/from\('bible_state'\)/g) || []).length, 2,
+  // 0080의 나도 나누기(share_reads)는 **일부러 따로 오간다**(loadReadShare·saveReadShare — 0080이 늦게 나가도
+  // 북마크·형광펜 저장이 같이 실패하지 않게). 그 둘을 빼면 여전히 읽기·쓰기 한 벌이다.
+  const stateTrips = src.split(/(?=from\('bible_state'\))/).slice(1).filter(c => !/^from\('bible_state'\)[^;]*share_reads/.test(c));
+  assert.strictEqual(stateTrips.length, 2,
     'bible_state를 오가는 왕복은 읽기·쓰기 둘뿐이다');
 
   console.log('PASS  성경 읽기 최근 검색어 (0065) 21가지');
@@ -5005,4 +5009,154 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/elsif tg_op = 'UPDATE' and auth\.uid\(\) is not null then/.test(mig), '되돌리기는 로그인한 사람에게만(백필은 통과)');
   assert.ok(/n\.kind = 'service_published'/.test(mig) && /to_char\(m\.meeting_date, 'YY\. FMMM\. FMDD\.'\)/.test(mig), '백필은 알림에서');
   console.log('PASS  흔적과 움직임(점 판정 · 피드 묶기·섞기·업무 밖 줄 · 모임 나누기 · 최근 7일 완료 · 넛지·손맛 배선 · 0079)');
+}
+
+// ── 은혜와 리듬 묶음(2026-09-25 · 목업 '은혜와 리듬' 3·5·6·7·8 · '지난 기록' 2) ──────────────
+// 홈의 날짜로 켜지는 세 자리(homeMoments) · 이번 주 이 장을 본 사람(bibleReads · 0080) · 마음 칩(moodPick·moods).
+// 되돌리기 검사: sundayMode의 SUNDAY_FROM 비교를 지우면 '07:59에는 아직'이, pickYearAgo의 작년 거르기를 지우면
+// '올해 프로젝트는 고르지 않는다'가, readersView의 나 빼기를 지우면 '나는 빠진다'가, fitMoods의 폰 상한을 지우면
+// '폰은 넷까지'가, reshuffle의 뒤로 밀기를 지우면 '방금 본 칩은 뒤로'가, push.js의 delete 한 줄을 지우면 '지난주 줄을 지운다'가 깨진다.
+{
+  const M = await import(new URL('../src/services/homeMoments.js', import.meta.url).href);
+  // ① 오늘의 예배 — 발행된 오늘 주보 + 08:00~자정
+  const svc = { status: 'published', service_date: '2026-09-27' };
+  assert.strictEqual(M.sundayMode(svc, '2026-09-27 07:59:59'), false, '07:59에는 아직');
+  assert.strictEqual(M.sundayMode(svc, '2026-09-27 08:00:00'), true, '08:00부터');
+  assert.strictEqual(M.sundayMode(svc, '2026-09-27 23:59:59'), true, '자정까지');
+  assert.strictEqual(M.sundayMode(svc, '2026-09-28 09:00:00'), false, '다음 날은 아니다');
+  assert.strictEqual(M.sundayMode({ ...svc, status: 'draft' }, '2026-09-27 10:00:00'), false, '작성 중 주보는 켜지 않는다');
+  assert.strictEqual(M.sundayMode(null, '2026-09-27 10:00:00'), false);
+  // ② 지난 해의 오늘 — 창 · 고르기
+  assert.deepStrictEqual(M.yearAgoWindow('2027-07-29'), { year: 2026, from: '2026-07-22', to: '2026-08-05' }, '작년 오늘 ±7일');
+  assert.deepStrictEqual(M.yearAgoWindow('2028-02-29'), { year: 2027, from: '2027-02-21', to: '2027-03-07' }, '2월 29일은 작년 28일로');
+  assert.strictEqual(M.yearAgoWindow('nope'), null);
+  const at = (d, h = 12) => new Date(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10), h).toISOString();
+  const projects = [
+    { id: 'camp', year: 2026, title: '2026 하계 수련회', archived: true },
+    { id: 'help', year: 2026, title: '동수교회 청소년부 수련회 지원' },
+    { id: 'now', year: 2027, title: '2027 하계 수련회' },
+  ];
+  const rows = [
+    ...Array.from({ length: 5 }, () => ({ projectId: 'camp', at: at('2026-07-30') })),
+    ...Array.from({ length: 3 }, () => ({ projectId: 'help', at: at('2026-08-01') })),
+    ...Array.from({ length: 9 }, () => ({ projectId: 'now', at: at('2026-07-30') })),   // 올해(2027) 프로젝트 — 고르지 않는다
+    ...Array.from({ length: 9 }, () => ({ projectId: 'help', at: at('2026-08-20') })),  // 창 밖
+  ];
+  const tasks = [
+    { id: 't1', projectId: 'camp', title: '포스터 제작', dueDate: '2026-08-03', completedAt: '' },
+    { id: 't2', projectId: 'camp', title: '기도카드 제작', dueDate: '2026-07-01', completedAt: at('2026-07-30') },
+    { id: 't3', projectId: 'camp', title: '슈링클스 제작', dueDate: '2026-07-26', completedAt: '' },
+    { id: 't4', projectId: 'camp', title: '정산', dueDate: '2026-08-04', completedAt: '' },
+    { id: 't5', projectId: 'camp', title: '창 밖 업무', dueDate: '2026-09-01', completedAt: '' },
+    { id: 't6', projectId: 'help', title: '다른 프로젝트', dueDate: '2026-07-30', completedAt: '' },
+  ];
+  const ya = M.pickYearAgo({ today: '2027-07-29', rows, projects, tasks });
+  assert.strictEqual(ya.project.id, 'camp', '창 안 활동이 가장 많은 작년 프로젝트(보관이어도) · 올해 프로젝트는 고르지 않는다');
+  assert.deepStrictEqual(ya.tasks.map(x => [x.task.id, x.date]), [['t3', '2026-07-26'], ['t2', '2026-07-30'], ['t1', '2026-08-03']],
+    '그 창에 마감·완료가 걸린 업무 셋까지 · 날짜순 · 완료가 창 안이면 끝낸 날');
+  const tie = M.pickYearAgo({ today: '2027-07-29', projects, tasks: [],
+    rows: [{ projectId: 'camp', at: at('2026-07-23') }, { projectId: 'help', at: at('2026-07-24') }] });
+  assert.strictEqual(tie.project.id, 'help', '같으면 최근 활동이 앞');
+  assert.strictEqual(M.pickYearAgo({ today: '2026-09-25', rows, projects, tasks }), null, '작년 창에 활동이 없으면 줄이 없다(2027-07-25 전의 지금)');
+  assert.ok(M.yearAgoWindow('2027-07-17').to < M.ACTIVITY_SINCE && M.yearAgoWindow('2027-07-18').to >= M.ACTIVITY_SINCE,
+    '기록 시작일(2026-07-25)에 창(±7일)이 닿는 첫날은 2027-07-18 — 그 전에는 묻지도 않는다');
+  // ③ 발자취 — 12월 둘째 주일 ~ 1월 6일
+  assert.strictEqual(M.secondSundayOfDecember(2026), '2026-12-13');
+  assert.strictEqual(M.secondSundayOfDecember(2027), '2027-12-12');
+  assert.strictEqual(M.footprintYear('2026-12-12'), null, '둘째 주일 전날은 아직');
+  assert.strictEqual(M.footprintYear('2026-12-13'), 2026, '둘째 주일부터');
+  assert.strictEqual(M.footprintYear('2026-12-31'), 2026);
+  assert.strictEqual(M.footprintYear('2027-01-06'), 2026, '1월 6일(주현절)까지 — 돌아보는 해는 지난해');
+  assert.strictEqual(M.footprintYear('2027-01-07'), null, '1월 7일부터는 없다');
+  assert.strictEqual(M.footprintYear('2026-09-25'), null);
+  const fs = M.footprintSections({
+    year: 2026, myName: '노준석',
+    highlights: [
+      { ref: 'jdg 3:2', at: '2026-09-08T01:00:00Z' }, { ref: 'jdg 3:1', at: '2026-09-08T01:00:00Z' },
+      { ref: 'qt:2026-09-20 jdg 9:7', at: '2026-09-20T01:00:00Z' }, { ref: 'jdg 9:7', at: '2026-09-21T01:00:00Z' },
+      { ref: 'psa 23:1', at: '2025-12-01T01:00:00Z' },
+    ],
+    bookmarks: [{ ref: 'luk 2', label: '누가복음 2장', at: '2026-09-12T01:00:00Z' }, { ref: 'jdg 3', at: '2026-09-08T01:00:00Z' }],
+    notes: [{ serviceId: 's2', title: '포도주 틀에서', date: '2026-09-13' }, { serviceId: 's1', title: '전쟁터에 선 사람', date: '2026-09-06' }],
+    projects: [{ id: 'p1', year: 2026, title: '2026 예배 2.0' }, { id: 'p0', year: 2025, title: '지난해' }],
+    tasks: [
+      { projectId: 'p1', assignees: ['노준석', '조준환', '김승찬', '임성빈', '가나다'] },
+      { projectId: 'p1', assignees: ['조해리'] },
+      { projectId: 'p0', assignees: ['노준석', '양민혁'] },
+    ],
+  });
+  assert.deepStrictEqual(fs.passages.map(p => `${p.bookId} ${p.chapter}:${p.from}-${p.to}`), ['jdg 3:1-2', 'jdg 9:7-7'],
+    '이어진 절은 한 줄 · QT에서 칠한 같은 절은 한 번 · 다른 해는 빠진다');
+  assert.deepStrictEqual(fs.chapters.map(c => c.ref), ['jdg 3', 'luk 2'], '북마크는 넣은 날 순');
+  assert.deepStrictEqual(fs.sundays.map(n => n.serviceId), ['s1', 's2'], '예배 노트는 주보 날짜 순 · 설교 제목만');
+  assert.deepStrictEqual(fs.together.map(t => [t.project.id, t.faces]), [['p1', ['가나다', '김승찬', '임성빈']]],
+    '그 해 내가 담당한 업무의 프로젝트만 · 같이 한 얼굴은 이름순 셋까지(나를 빼고)');
+  assert.ok(!JSON.stringify(fs).match(/"(count|total|rank)"/), '합계·순위 칸이 없다');
+
+  // ④ 이번 주 이 장을 본 사람(0080)
+  const R = await import(new URL('../src/services/bibleReads.js', import.meta.url).href);
+  assert.strictEqual(R.weekStartOf('2026-09-25'), '2026-09-20', '주는 주일 시작');
+  assert.strictEqual(R.weekStartOf('2026-09-20'), '2026-09-20');
+  assert.strictEqual(R.weekStartOf('2026-09-26'), '2026-09-20', '토요일까지 같은 주');
+  assert.strictEqual(R.weekStartOf('2027-01-01'), '2026-12-27', '해를 넘는다');
+  assert.strictEqual(R.READ_DWELL_MS, 5000, '5초 넘게');
+  const rv = R.readersView([
+    { profile_id: 'me', name: '노준석' }, { profile_id: 'a', name: '조해리' }, { profile_id: 'b', name: '김승찬' },
+    { profile_id: 'c', name: '시온' }, { profile_id: 'd', name: '박지호' }, { profile_id: 'b', name: '김승찬' }, { profile_id: 'e', name: '' },
+  ], 'me');
+  assert.deepStrictEqual(rv.all.map(p => p.name), ['김승찬', '박지호', '시온', '조해리'], '나는 빠지고 · 같은 사람은 한 번 · 이름순');
+  assert.deepStrictEqual([rv.faces.length, rv.more], [3, 1], '얼굴 셋 + +1');
+  assert.deepStrictEqual(R.readersView([{ profile_id: 'me', name: '노준석' }], 'me').all, [], '나뿐이면 0명(자리째 없다)');
+  const parse = (s) => { const m = /^(\S+) (\d+)(?::\d+)?(?:-(\d+))?/.exec(s); return m ? { bookId: m[1], start: { chapter: +m[2] }, end: { chapter: +m[2] } } : null; };
+  assert.deepStrictEqual(R.qtDatesCovering([{ qt_date: '2026-09-21', passage_ref: 'jdg 9:1-21' }, { qt_date: '2026-09-22', passage_ref: 'jdg 10:1' },
+    { qt_date: '2026-09-20', passage_ref: 'jdg 9:22' }], 'jdg', 9, parse), ['2026-09-20', '2026-09-21'], '이 장에 걸친 날만');
+
+  // ⑤ 마음 칩 — 한 줄 · 폰 넷까지 · 1분 · 방금 본 칩은 뒤로
+  const P = await import(new URL('../src/services/moodPick.js', import.meta.url).href);
+  const { MOODS, moodAsk } = await import(new URL('../src/data/moods.js', import.meta.url).href);
+  assert.strictEqual(MOODS.length, 50, '후보 50');
+  assert.strictEqual(new Set(MOODS).size, 50, '겹치지 않는다');
+  for (const t of ['결정을 앞두고 있을 때', '기도 응답이 늦다고 생각될 때', '새로운 시작을 할 때', '유혹에 맞서 싸울 때', '감사가 안 나올 때', '시험을 앞두고 있을 때']) {
+    assert.ok(MOODS.includes(t), `사용자가 고친 칩: ${t}`);
+  }
+  for (const t of ['결정을 앞두고', '기다림이 길 때', '새로 시작할 때', '유혹 앞에서', '감사가 안 될 때', '시험을 앞두고']) {
+    assert.ok(!MOODS.includes(t), `옛 칩은 없다: ${t}`);
+  }
+  assert.strictEqual(moodAsk('지칠 때'), '지칠 때 읽을 성경 말씀', 'AI 물음은 한 틀');
+  const widths = { 0: 70, 1: 190, 2: 80, 3: 90, 4: 60, 5: 75, 6: 65 };
+  const order = [1, 0, 2, 3, 4, 5, 6];
+  const phone = P.fitMoods(order, widths, 331);
+  const used = (ids) => ids.reduce((s, i, k) => s + widths[i] + (k ? P.MOOD_GAP : 0), 0);
+  assert.ok(phone.length <= 4 && used(phone) <= 331, `폰은 넷까지 · 한 줄 폭 안(${phone} = ${used(phone)}px)`);
+  assert.deepStrictEqual(P.fitMoods(order, widths, 220), [0, 4, 5], '폰은 셋을 채운다 — 긴 칩이 앞이라 셋이 안 들어가면 건너뛴다(줄은 넘지 않는다)');
+  assert.deepStrictEqual(P.fitMoods([1, 0, 2], widths, 160), [0, 2], '긴 칩이 앞이어도 짧은 칩으로 찬다');
+  const wide = P.fitMoods(order, widths, 700);
+  assert.ok(wide.length > 4 && used(wide) <= 700, '데스크톱은 폭에 들어가는 만큼');
+  let seed = 7; const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const memo = { order: P.shuffledOrder(50, rand), shownAt: 1_000_000, last: [3, 7, 11] };
+  assert.deepStrictEqual(P.orderOnOpen(memo, 50, 1_000_000 + 59_000, rand), memo.order, '1분 안에 다시 열면 같은 차례');
+  const again = P.orderOnOpen(memo, 50, 1_000_000 + 60_000, rand);
+  assert.deepStrictEqual(again.slice(-3).sort((a, b) => a - b), [3, 7, 11], '1분이 지나면 새로 섞고 방금 본 칩은 뒤로');
+  assert.strictEqual(new Set(again).size, 50);
+  assert.strictEqual(P.validMemo({ order: [0, 1], shownAt: 1 }, 50), null, '후보 수가 바뀐 기억은 버린다');
+
+  // ⑥ 배선 — 11:30 배치 끝의 지난주 지우기(크론을 새로 만들지 않는다) · 0080 모양 · §7 예외 줄
+  const push = readFileSync(new URL('../api/push.js', import.meta.url), 'utf8');
+  const wtm = push.slice(push.indexOf('async function handleWorshipThenMeetings'), push.indexOf('// GET ?job=embed'));
+  assert.ok(/await dropLastWeekReads\(admin\(\)\)/.test(wtm)
+    && /async function dropLastWeekReads\(db\) \{\s*const \{ error \} = await db\.from\('bible_reads'\)\.delete\(\)\.lt\('week_start', weekStartOf\(kstDate\(0\)\)\)/.test(push), '11:30 배치 끝에서 지난주 줄을 지운다');
+  const vercel = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
+  assert.strictEqual((vercel.crons || []).length, 2, '크론은 둘 그대로');
+  const mig = readFileSync(new URL('../supabase/migrations/0080_bible_reads.sql', import.meta.url), 'utf8');
+  const sql = mig.split('\n').filter(l => !/^\s*--/.test(l)).join('\n');
+  assert.ok(/primary key \(profile_id, chapter_key, week_start\)/.test(sql), '누가·어느 장·어느 주 셋이 열쇠');
+  assert.ok(!/(verse|seen_at|count)\s/.test(sql.slice(sql.indexOf('create table'), sql.indexOf(');'))), '절·시각·횟수 칸이 없다');
+  assert.ok(/bible_reads_select[\s\S]*?for select using \(public\.is_approved\(\)\)/.test(sql), '읽기는 승인된 전원');
+  assert.ok(/bible_reads_insert[\s\S]*?profile_id = public\.effective_uid\(\)/.test(sql) && /bible_reads_delete[\s\S]*?profile_id = public\.effective_uid\(\)/.test(sql), '쓰기·지우기는 본인만');
+  assert.ok(!/for update|for all/.test(sql), 'update 정책 없음');
+  assert.ok(/share_reads boolean not null default true/.test(sql), '나도 나누기는 bible_state 한 칸 · 기본 켬');
+  assert.ok(!/supabase_realtime/.test(sql), '실시간 발행에 넣지 않는다');
+  const handoff = readFileSync(new URL('../HANDOFF.md', import.meta.url), 'utf8');
+  assert.ok(/카드별 조회 추적[^\n]*\n\|[^\n]*성경 장 보기는 예외/.test(handoff), 'HANDOFF §7에 성경 장 보기 예외 줄이 카드별 조회 추적 바로 아래에 있다');
+  console.log('PASS  은혜와 리듬 묶음(오늘의 예배 · 지난 해의 오늘 · 발자취 · 이 장을 본 사람 · 마음 칩)');
 }

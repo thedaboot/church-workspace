@@ -11,7 +11,17 @@ import {
   loadBibleState, saveBibleState, loadFontStep, saveFontStep,
   chapterKey, parseChapterKey, verseKey, parseVerseKey, bibleSearchStore,
   pushRecentSearch, removeRecentSearch, compactText, matchRanges,
+  kstToday, weekRange, fetchScheduleRange, fetchChapterReaders, markChapterRead, fetchSharedOn,
+  loadReadShare, saveReadShare,
 } from '../services/word.js';
+import { READ_DWELL_MS, weekStartOf, readersView, qtDatesCovering } from '../services/bibleReads.js';
+import { MOODS, moodAsk } from '../data/moods.js';
+import { MOOD_CHIP, MOOD_GAP, fitMoods, orderOnOpen, validMemo } from '../services/moodPick.js';
+import { useStore } from '../store/workspaceStore.js';
+import { selectMembers } from '../store/selectors.js';
+import { myUidSync } from '../services/supabaseClient.js';
+import { useDismiss } from '../hooks/useDismiss.js';
+import { Avatar } from './Avatar.jsx';
 import { showToast } from './Toast.jsx';
 import { readCache, writeCache } from '../services/cache.js';
 import { failText } from '../services/errorText.js';
@@ -518,7 +528,130 @@ export function useVersePaint({ state, update, refOf, name, guard = null }) {
   return { onPickVerse: pickVerse, picked, toolAt, tool, clear: () => setSel(null) };
 }
 
-export function BibleTab({ initialRef = '' }) {
+// ── "이런 마음일 때" (사용자 결정 2026-09-25 · 목업 '은혜와 리듬' 5번) ─────────────
+// 최근 검색어 판 맨 위의 칩 **한 줄**. 규칙은 services/moodPick.js 머리말 — 여기는 폭을 재는 일만 한다.
+// 섞인 차례는 이 브라우저에 한 벌 기억한다(localStorage — 막혀 있으면 이 탭 안에서만): 판을 닫고 1분 안에
+// 다시 열면 같은 칩, 지나면 새로 섞고 방금 보였던 칩은 뒤로 민다.
+const MOOD_MEMO = 'bible_mood_memo';   // { order, shownAt, last }
+let moodMemo = null;                   // localStorage가 막힌 기기의 대신 자리
+const readMoodMemo = () => {
+  try { const raw = localStorage.getItem(MOOD_MEMO); if (raw) return validMemo(JSON.parse(raw), MOODS.length); } catch { /* 막혔거나 깨졌다 */ }
+  return validMemo(moodMemo, MOODS.length);
+};
+const writeMoodMemo = (memo) => {
+  moodMemo = memo;
+  try { localStorage.setItem(MOOD_MEMO, JSON.stringify(memo)); } catch { /* 사파리 비공개 모드 */ }
+};
+export function MoodChips({ order, width = 0, onPick, onFit }) {
+  const rowRef = useRef(null);
+  const probeRef = useRef(null);
+  const [fit, setFit] = useState(null);   // 한 줄에 드는 후보 번호들(null이면 아직 안 쟀다)
+  // **실제로 그린 칩 폭을 잰다** — 글자 수로 어림하면 글꼴·크기에 따라 넘친다. 보이지 않는 줄에 후보를
+  // 전부 세워 offsetWidth(판의 zoom 등장 연출에 안 흔들린다)를 읽고, 소수점 몫으로 1px씩 넉넉히 잡는다.
+  // 그리기 전에(layout) 정하므로 넘친 칩이 한 프레임 보였다 사라지는 일이 없다.
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    const probe = probeRef.current;
+    if (!row || !probe) return;
+    const widths = [...probe.children].map(c => c.offsetWidth + 1);
+    const next = fitMoods(order, widths, row.clientWidth, MOOD_GAP);
+    setFit(next);
+    onFit?.(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order, width]);
+  return (
+    <>
+      <p className="px-2 pt-0.5 pb-1 text-[11px] font-bold text-fg-muted">이런 마음일 때</p>
+      <div ref={rowRef} data-moods="" className="relative flex flex-nowrap gap-1.5 overflow-hidden px-1.5 pt-0.5 pb-2.5">
+        {(fit || []).map(i => (
+          <button key={i} type="button" data-mood={MOODS[i]} onClick={() => onPick(MOODS[i])} className={MOOD_CHIP}>
+            {MOODS[i]}
+          </button>
+        ))}
+        {/* 재는 줄 — 자리를 차지하지 않고 보이지 않는다(검사·화면 읽기에도 안 잡히게 aria-hidden) */}
+        <span ref={probeRef} aria-hidden="true" className="absolute left-0 top-0 flex gap-1.5 invisible pointer-events-none h-0 overflow-hidden">
+          {MOODS.map(label => <span key={label} className={MOOD_CHIP}>{label}</span>)}
+        </span>
+      </div>
+    </>
+  );
+}
+
+// ── 이번 주 이 장을 본 사람 (0080 · 사용자 결정 2026-09-25 · 목업 '은혜와 리듬' 6번) ──────
+// 장 머리의 제목과 북마크 사이 — 얼굴 셋 + '+N', 나 제외, **이름순**, 시각·횟수·절 없음, 0명이면 자리째 없다.
+// 누르면 판(body 포털 · HANDOFF §8 '떠 있는 것'): 제목 · 이름 줄(그 사람이 이 장에 걸친 이번 주 QT 묵상을
+// 공유해 뒀으면 '나눔 보기') · 판 아래 '나도 나누기'(끄면 내 기록을 지우고 다시 남기지 않는다 — 내 정보에도 같은 토글).
+// §7 '카드별 조회 추적'의 **예외다**(사용자 결정 — 공동체성). 되돌리지 말 것.
+const READERS_W = 236;
+function ChapterReaders({ view, shared = {}, onOpenShare }) {
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [share, setShare] = useState(true);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { let alive = true; loadReadShare().then(v => { if (alive) setShare(v); }); return () => { alive = false; }; }, []);
+  useDismiss(open, () => setOpen(false), [btnRef, popRef]);
+  const [pos] = useAnchoredPos(btnRef, open, READERS_W, 240, 8, popRef);
+  const toggleShare = async () => {
+    if (busy) return;
+    const next = !share;
+    setShare(next); setBusy(true);
+    try { await saveReadShare(next); }
+    catch (e) { setShare(!next); showToast(failText('나도 나누기를 바꾸지 못했어요', e)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <>
+      <button ref={btnRef} type="button" data-readers="" onClick={() => setOpen(o => !o)}
+        aria-expanded={open} aria-label="이번 주 이 장을 본 사람"
+        className="shrink-0 flex items-center h-11 px-1.5 rounded-md hover:bg-surface-hover transition-colors">
+        {view.faces.map((p, i) => (
+          <Avatar key={p.profile_id} name={p.name} url={p.avatarUrl || undefined}
+            className={`flex w-[21px] h-[21px] text-[10px] ring-[1.5px] ring-surface ${i ? '-ml-1.5' : ''}`} />
+        ))}
+        {view.more > 0 && <span data-readers-more="" className="ml-1 text-[11px] font-bold text-fg-muted tabular-nums">+{view.more}</span>}
+      </button>
+      {open && createPortal(
+        <div ref={popRef} data-readers-pop=""
+          style={{ position: 'fixed', left: pos.left, top: pos.top, width: READERS_W }}
+          className="z-[90] bg-surface border border-line rounded-xl shadow-elevated p-2 transition-none animate-in fade-in zoom-in-95 duration-150">
+          <p className="px-1.5 pt-0.5 pb-1.5 text-[11px] font-bold text-fg-muted">이번 주 이 장을 본 사람</p>
+          <div className="max-h-[220px] overflow-y-auto">
+            {view.all.map(p => (
+              <div key={p.profile_id} data-reader={p.name} className="flex items-center gap-2 p-1.5 rounded-md text-[12.5px] font-semibold text-fg">
+                <Avatar name={p.name} url={p.avatarUrl || undefined} className="flex w-[21px] h-[21px] text-[10px]" />
+                <span className="min-w-0 truncate">{p.name}</span>
+                {shared[p.profile_id] && onOpenShare && (
+                  <button type="button" data-reader-share="" onClick={() => { setOpen(false); onOpenShare(shared[p.profile_id], p.profile_id); }}
+                    className="ml-auto shrink-0 px-1.5 py-0.5 rounded text-[11px] font-bold text-accent-text hover:bg-accent-weak transition-colors">
+                    나눔 보기
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <button type="button" role="switch" aria-checked={share} data-read-share="" onClick={toggleShare} disabled={busy}
+            className="w-full mt-1.5 pt-2 pb-0.5 px-1.5 border-t border-line flex items-center justify-between text-[11.5px] font-semibold text-fg-muted">
+            <span>나도 나누기</span>
+            <ShareSwitch on={share} />
+          </button>
+        </div>, document.body)}
+    </>
+  );
+}
+
+// 켬/끔 스위치 모양 한 벌 — 장 머리의 판과 내 정보(settings.jsx)가 같이 쓴다
+export function ShareSwitch({ on }) {
+  return (
+    <span aria-hidden="true" className="relative shrink-0 w-[30px] h-[18px] rounded-full transition-colors"
+      style={{ background: on ? 'var(--app-accent)' : 'var(--app-line)' }}>
+      <span className="absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-[left] duration-150"
+        style={{ left: on ? 14 : 2 }} />
+    </span>
+  );
+}
+
+export function BibleTab({ initialRef = '', onOpenShare }) {
   const [books, setBooks] = useState([]);
   // **캐시가 있으면 그 값으로 시작한다**(사용자 요청 2026-09-03 — "매번 스켈레톤이 아니라
   // 캐시된 값이 먼저"). 이어읽기·북마크·형광펜은 이 화면이 직접 고치기도 해서
@@ -557,6 +690,7 @@ export function BibleTab({ initialRef = '' }) {
   const [focused, setFocused] = useState(false);
   const inputRef = useRef(null);
   const searchFormRef = useRef(null);
+  const searchRowRef = useRef(null);   // 칸 + 글자 크기 줄 — 마음 칩이 있으면 판이 이 폭을 쓴다
   const recentRef = useRef(null);
   // **bible_state가 도착한 뒤에만 검색어를 남긴다.** 검색 칸은 첫 진입 순간부터 눌리는데,
   // 아직 안 읽어 온 상태로 update를 부르면 빈 북마크·형광펜이 그대로 서버에 덮인다
@@ -653,6 +787,56 @@ export function BibleTab({ initialRef = '' }) {
   const here = place ? bookOf(place.bookId) : null;
   const placeKey = place ? chapterKey(place.bookId, place.chapter) : '';
   const loaded = !!place && chap?.key === placeKey;
+
+  // ── 이번 주 이 장을 본 사람(0080) — 장을 열 때 **한 번** 읽는다(실시간 없음) ─────────────
+  // 이름·사진은 멤버 목록이 원본이다(나눔 칩과 같다). 게스트의 심어 둔 줄은 이름을 들고 온다.
+  // '나눔 보기'는 이번 주 읽기표에서 이 장에 걸친 날 → 그 날 공유해 둔 묵상이 있는 사람만.
+  const members = useStore(selectMembers);
+  const [readers, setReaders] = useState(null);   // { key, rows, shared: { [profile_id]: 날짜 } }
+  useEffect(() => {
+    if (!place || !books.length) return undefined;
+    let alive = true;
+    const key = placeKey;
+    const today = kstToday();
+    (async () => {
+      const rows = await fetchChapterReaders(key, weekStartOf(today));
+      const me = myUidSync() || '';
+      const ids = [...new Set(rows.map(r => r.profile_id))].filter(id => id && id !== me);
+      let shared = {};
+      if (ids.length) {
+        const [ws, we] = weekRange(today);
+        const sch = await fetchScheduleRange(ws, we).catch(() => []);
+        const dates = qtDatesCovering(sch, place.bookId, place.chapter, ref => parseRef(ref, books));
+        const on = await fetchSharedOn(dates, ids).catch(() => []);
+        for (const r of on) if (!shared[r.profile_id] || r.qt_date > shared[r.profile_id]) shared[r.profile_id] = r.qt_date;
+      }
+      if (alive) setReaders({ key, rows, shared });
+    })().catch(e => { console.warn('[word] 이 장을 본 사람을 읽지 못했어요:', e); if (alive) setReaders(null); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placeKey, books]);
+  const readersOf = useMemo(() => {
+    if (!readers || readers.key !== placeKey) return readersView([], '');
+    const byId = new Map((members || []).map(m => [m.id, m]));
+    return readersView(readers.rows.map(r => {
+      const m = byId.get(r.profile_id);
+      return { profile_id: r.profile_id, name: m?.name || r.name || '', avatarUrl: m?.avatarUrl || r.avatarUrl || '' };
+    }), myUidSync() || '');
+  }, [readers, placeKey, members]);
+
+  // 장을 **5초 넘게** 펼쳐 두면 이번 주 이 장에 내 줄 하나(나도 나누기가 켜져 있을 때만).
+  // 목차에서 훑고 지나간 장은 적히지 않는다 — 장을 옮기면 타이머가 풀린다.
+  useEffect(() => {
+    if (!loaded || !placeKey) return undefined;
+    const key = placeKey;
+    const t = setTimeout(async () => {
+      try {
+        if (!(await loadReadShare())) return;
+        await markChapterRead(key, weekStartOf(kstToday()));
+      } catch (e) { console.warn('[word] 이 장을 본 기록을 남기지 못했어요:', e); }
+    }, READ_DWELL_MS + 100);
+    return () => clearTimeout(t);
+  }, [loaded, placeKey]);
 
   // 검색·형광펜 목록에서 들어온 절로 데려간다
   useEffect(() => {
@@ -799,7 +983,8 @@ export function BibleTab({ initialRef = '' }) {
     setAiFrom('vec'); setAiHits(vec); setAiWait(false);
   };
 
-  const runSearch = (raw) => {
+  // recentAs: 최근 검색어에 남길 글자(칩 — AI 물음 대신 칩 글자 그대로 · 목업 5번). 없으면 검색어 그대로.
+  const runSearch = (raw, recentAs = '') => {
     const q = raw.trim();
     const token = ++searchToken.current;
     setQuery(q);
@@ -811,7 +996,7 @@ export function BibleTab({ initialRef = '' }) {
     if (!q) { setResults([]); setProgress(null); return; }
     // 최근 검색어는 **여기 한 자리**에서만 쌓인다(0065) — 검색이 실제로 시작되는 곳이다.
     // 글자를 칠 때(setTyped) 남기면 '사'·'사사'·'사사기'가 세 줄이 된다.
-    if (stateArrived.current) update({ ...state, recentSearches: pushRecentSearch(state.recentSearches, q) });
+    if (stateArrived.current) update({ ...state, recentSearches: pushRecentSearch(state.recentSearches, recentAs || q) });
     // 둘을 **같이** 띄운다 — AI 답을 기다리느라 낱말 결과가 늦으면 안 된다
     runKeyword(q, token);
     runAi(q, token);
@@ -821,6 +1006,9 @@ export function BibleTab({ initialRef = '' }) {
   // 칸의 글자도 같이 채운다 — 폼으로 냈을 때와 화면이 같아야 한다. 칸에서 손을 떼면
   // 목록이 닫히고(focused) 폰에서는 키보드도 내려간다.
   const pickRecent = (q) => { setTyped(q); inputRef.current?.blur(); runSearch(q); };
+  // "이런 마음일 때" 칩 — 같은 길(runSearch)로 **한 틀의 물음**('{칩} 읽을 성경 말씀')을 검색한다.
+  // 칸에는 칩 글자가 서고 최근 검색어에도 칩 글자가 남는다.
+  const pickMood = (label) => { setTyped(label); inputRef.current?.blur(); runSearch(moodAsk(label), label); };
   const dropRecent = (q) => update(
     { ...state, recentSearches: removeRecentSearch(state.recentSearches, q) },
     '최근 검색어를 지우지 못했어요',
@@ -857,13 +1045,33 @@ export function BibleTab({ initialRef = '' }) {
   const hints = useMemo(() => searchHints(aiEnabled()), []);
   // 최근 검색어 판이 서는 조건 — **검색 칸 안 안내 문구의 회전도 이 값이 멈춘다**(아래
   // SearchHint). 두 자리가 같은 값을 봐야 판이 열린 순간과 문구가 멎는 순간이 어긋나지 않는다.
-  const recentOpen = focused && !typed && recent.length > 0;
+  // **칩이 있으면 최근 검색어가 없어도 판이 뜬다**(목업 5번). 게스트(AI 없음)에는 칩이 없다 — 낱말 검색으로
+  // '지칠 때'를 찾으면 0건이라 없는 것을 약속하는 자리가 된다(searchHints와 같은 근거).
+  const moodsOn = hints.length > 1;   // = aiEnabled() — 한 세션 안에서 바뀌지 않는다
+  const recentOpen = focused && !typed && (recent.length > 0 || moodsOn);
+  // 칩 차례 — 판이 **열리는 순간** 한 번 정한다(1분 안이면 기억한 차례, 지났으면 새로 섞고 방금 본 칩은 뒤로).
+  // 닫히는 순간 그때 보였던 칩과 시각을 적는다(services/moodPick.js). 렌더 중에 정해야 칩이 첫 그림부터 맞다.
+  const wasOpen = useRef(false);
+  const moodOrderRef = useRef(null);
+  const moodShown = useRef([]);
+  if (moodsOn && recentOpen !== wasOpen.current) {
+    if (recentOpen) {
+      const memo = readMoodMemo();
+      moodOrderRef.current = orderOnOpen(memo, MOODS.length);
+      writeMoodMemo({ order: moodOrderRef.current, shownAt: memo?.shownAt || 0, last: memo?.last || [] });
+    } else if (moodOrderRef.current) {
+      writeMoodMemo({ order: moodOrderRef.current, shownAt: Date.now(), last: moodShown.current });
+    }
+    wasOpen.current = recentOpen;
+  }
   // 최근 검색어 판은 **body 포털**이다(HANDOFF §8 '떠 있는 것') — 폭은 검색 칸에서 잰다.
   // 바깥 누름으로 닫는 훅이 없다: 칸의 blur가 닫고, 판의 mousedown preventDefault가 포커스를
   // 지켜서 포털이어도 판 안을 누르는 동안은 열려 있다.
   // 키보드가 올라와 칸 아래가 짧으면 **판을 그 자리에 맞게 줄인다**(fitHeight · 2026-09-25) — 전에는
   // 가두기가 288px 판을 칸 위로 끌어올려 검색 칸을 덮었다(375×667 · 키보드 300px).
-  const [recentPos, placeRecent] = useAnchoredPos(searchFormRef, recentOpen, 320, RECENT_MAX_H, 8, recentRef,
+  // 마음 칩이 있으면(AI 있는 판) 판은 **검색 줄 전체 폭**이다(목업 5번 — 폰 375에서 칸 폭만 쓰면 칩이 두 개밖에 안 든다).
+  // 칩이 없는 판(게스트)은 예전처럼 칸 폭이다.
+  const [recentPos, placeRecent] = useAnchoredPos(moodsOn ? searchRowRef : searchFormRef, recentOpen, 320, RECENT_MAX_H, 8, recentRef,
     { matchWidth: true, align: 'start', fitHeight: true });
   // 한 줄을 지우면 판이 줄어든다 — 위로 뒤집혀 선 판이 칸에서 떨어져 뜨지 않게 다시 잰다
   useLayoutEffect(() => { if (recentOpen) placeRecent(); }, [recentOpen, recent.length, placeRecent]);
@@ -891,7 +1099,7 @@ export function BibleTab({ initialRef = '' }) {
   return (
     <div className="min-w-0">
       {/* 검색 · 글자 크기 — 목차에서도 리더에서도 같은 자리 */}
-      <div data-col="searchbar" className="flex items-center gap-2 pb-2.5">
+      <div ref={searchRowRef} data-col="searchbar" className="flex items-center gap-2 pb-2.5">
         <form ref={searchFormRef}
           /* 손가락 기기에서는 낸 뒤 **키보드를 내린다**(2026-09-25) — 최근 검색어를 누를 때(pickRecent)는
              내려가는데 키보드의 '검색'으로 내면 그대로 남아 결과 절반을 가렸다. 마우스에서는 칸에 남는다
@@ -939,7 +1147,9 @@ export function BibleTab({ initialRef = '' }) {
                 maxHeight: Math.min(RECENT_MAX_H, recentPos.maxHeight ?? RECENT_MAX_H) }}
               className="z-[90] overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150"
             >
-              <p className="px-2 pt-0.5 pb-1 text-[11px] font-bold text-fg-muted">최근 검색어</p>
+              {moodsOn && <MoodChips order={moodOrderRef.current} width={recentPos.width} onPick={pickMood} onFit={f => { moodShown.current = f; }} />}
+              {moodsOn && recent.length > 0 && <hr className="border-0 h-px bg-line mx-1.5 mb-1.5" />}
+              {recent.length > 0 && <p className="px-2 pt-0.5 pb-1 text-[11px] font-bold text-fg-muted">최근 검색어</p>}
               {recent.map(r => (
                 <span key={r.q} className="flex items-center gap-0.5">
                   <button type="button" data-recent-q={r.q} onClick={() => pickRecent(r.q)}
@@ -1015,6 +1225,9 @@ export function BibleTab({ initialRef = '' }) {
               <h3 className="bible-place flex-1 min-w-0 truncate text-[15px] font-extrabold text-fg tracking-[-0.3px]">
                 {here?.name} {place.chapter}장
               </h3>
+              {readersOf.all.length > 0 && (
+                <ChapterReaders key={placeKey} view={readersOf} shared={readers?.shared} onOpenShare={onOpenShare} />
+              )}
               <button onClick={toggleBookmark} title={marked ? '북마크 지우기' : '북마크에 넣기'}
                 aria-label={marked ? '북마크 지우기' : '북마크에 넣기'}
                 className={`${btn} shrink-0 w-11 h-11 ${marked ? 'text-accent-text bg-accent-weak' : 'text-fg-muted hover:bg-surface-hover'}`}>

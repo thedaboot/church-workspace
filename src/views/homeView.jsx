@@ -1,15 +1,22 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, Church, ChevronRight, ListChecks, Users } from 'lucide-react';
+import { BookOpen, Church, ChevronLeft, ChevronRight, ClipboardCheck, ExternalLink, History, ListChecks, ListMusic,
+  Lock, Map as MapIcon, PencilLine, Users } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
-import { selectCurrentUser, selectMyTasks } from '../store/selectors.js';
+import { selectCurrentUser, selectMyTasks, selectTasksList, selectProjectsList } from '../store/selectors.js';
+import { Avatar } from '../components/Avatar.jsx';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { Skeleton } from '../components/media.jsx';
 import { CARD, CARD_STYLE, Empty } from '../components/groupsParts.jsx';
 import { ISO_TODAY, byDue } from './dashboardParts.jsx';
 import { isOpen, isOverdue } from '../services/taskCounts.js';
-import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry, countSharedEntries } from '../services/word.js';
-import { loadPassage } from '../services/bible.js';
-import { kindLabel, formatServiceDate, fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday, countsSince, HOME_SERVICE_COLS } from '../services/worship.js';
+import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry, countSharedEntries, loadBibleState } from '../services/word.js';
+import { loadPassage, loadBook, loadBibleIndex } from '../services/bible.js';
+import { kindLabel, formatServiceDate, fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday, countsSince, HOME_SERVICE_COLS,
+  kstNow, attendanceOpen, ATTEND_OPEN_HM } from '../services/worship.js';
+import { sundayMode, yearAgoWindow, pickYearAgo, footprintYear, footprintSections, localDayOf, ACTIVITY_SINCE } from '../services/homeMoments.js';
+import { isCloudEnabled } from '../services/supabaseClient.js';
+import { fetchActivityBetween, fetchMyNoteSundays } from '../services/moments.js';
+import { guestActivityRows } from '../services/tabRank.js';
 import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotesByService, attendanceSunday } from '../services/groups.js';
 import { useCached, pruneCache } from '../services/cache.js';
 import { useLiveRefresh, refreshTouched } from '../services/liveV2.js';
@@ -129,6 +136,10 @@ const HERO_GREETINGS = {
 export const heroGreeting = (hour, name = '') => HERO_GREETINGS[heroSlot(hour)](String(name || '').trim());
 
 const kstHour = () => Number(new Date().toLocaleString('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', hour12: false }));
+// 주일 모드 · 지난 해의 오늘 · 발자취가 보는 '지금'(KST 'YYYY-MM-DD HH:mm:ss'). **개발 서버에서만** 검사가
+// `window.__kstNow`로 시각을 정할 수 있다(tests/home — 08시·13:30·12월을 기다릴 수 없다). 배포 빌드에서는
+// import.meta.env.DEV가 거짓이라 이 갈래가 통째로 빠진다(workspaceStore의 window.__store와 같은 관례).
+const momentNow = () => (import.meta.env?.DEV && typeof window !== 'undefined' && window.__kstNow) || kstNow();
 
 // 배경 글로우 — 캐릭터의 파스텔(하늘·라벤더)과 같은 계열이다. **토큰으로 만든다**:
 // accent-weak·tag-purple은 다크에서 어두운 남색·보라로 바뀌므로 테마를 저절로 따라간다
@@ -453,6 +464,316 @@ function Showcase({ onNavigate }) {
   );
 }
 
+// ── 오늘의 예배 (주일 모드 · 사용자 결정 2026-09-25 · 목업 '은혜와 리듬' 3번) ────────────
+// 발행된 주보의 날짜가 오늘(KST)이면 08:00~자정(homeMoments.sundayMode) 예배 카드가 격자 맨 앞에서
+// **두 칸**을 차지하고 말씀 · 찬양 · 광고 · 출석을 한 장에 담는다. 08시 뒤에 발행되면 발행된 주보를
+// 읽는 순간부터 켜진다(주보 실시간이 예배 목록을 다시 읽는다). 머리 글자는 기존 '오늘 예배'
+// (homeWorshipLabel) 그대로다. 13:30(worship.ATTEND_OPEN_HM) 전에는 찬양이 앞, 뒤에는 출석이 앞 —
+// 순서만 바뀐다. 내 순 카드는 출석 칸으로 들어가 격자에서 빠진다(orderedSlots의 sunday).
+// **히어로 캐릭터(HERO_CUT)는 그대로 선다**(사용자 확인 — 캐릭터가 사라지면 안 된다).
+//
+// 찬양 줄은 **주보에 적힌 제목 한 줄 그대로**다('팀 - 제목' 표기는 주보 쪽 순수 함수가 따로 맡는다).
+// 찬양 인도자는 싣지 않는다 — '인도자는 홈에 싣지 않는다'(사용자 결정 2026-09-06 · tests/logcheck)가 그대로다
+// (목업 3번에는 '찬양 · 인도 OOO'가 있었다 — 사용자에게 다시 묻는 자리로 남겼다).
+// 광고는 **주보 종이 2쪽과 같은 모양**이다(components/paper.jsx ServiceSheetTwo — 사용자 요구
+// 2026-09-25: 목업에서 본문이 빈 광고가 가운데로 떠서 오류로 보였다). 번호 칸 · 왼쪽 정렬 · 제목 굵게 +
+// 본문은 줄바꿈 그대로, 본문이 빈 광고는 제목만 같은 들여쓰기로. 제목도 본문도 없는 줄은 뺀다.
+const TODAY_PART = 'home-today-part min-w-0 px-4 pt-3 pb-3.5 md:px-[18px] border-t border-line first:border-t-0 lg:border-t-0 lg:border-l lg:first:border-l-0';
+const PART_LABEL = 'home-today-label flex items-center justify-between gap-1.5 mb-1.5 text-[11px] font-bold text-fg-muted';
+const LINE_BTN = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line text-[11.5px] font-semibold text-fg whitespace-nowrap hover:bg-surface-hover transition-colors';
+export const noticeRows = (rows) => (Array.isArray(rows) ? rows : [])
+  .map(n => ({ title: String(n?.title || '').trim(), body: String(n?.body || '').trim() }))
+  .filter(n => n.title || n.body);
+
+function TodayWorshipCard({ service, open, att, onOpen, onOpenSun, delay, enter = 'dc-card' }) {
+  const songs = (Array.isArray(service.songs) ? service.songs : []).filter(s => String(s?.title || '').trim());
+  const notices = noticeRows(service.notices);
+  const playlist = String(service.praise_playlist_url || '').trim();
+  const parts = {
+    songs: songs.length ? (
+      <div key="songs" data-part="songs" className={TODAY_PART}>
+        <p className={PART_LABEL}>
+          <span className="min-w-0 truncate">찬양</span>
+          {playlist ? (
+            <a href={playlist} target="_blank" rel="noreferrer"
+              className="home-today-playlist shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold text-accent-text hover:underline">
+              <ListMusic size={12} className="shrink-0" />재생목록
+            </a>
+          ) : null}
+        </p>
+        <ol className="list-none p-0 m-0">
+          {songs.map((s, i) => {
+            const link = String(s.link || '').trim();
+            const body = (
+              <>
+                <span className="w-[14px] shrink-0 text-[11px] font-bold text-fg-muted tabular-nums">{i + 1}</span>
+                <span className="home-today-song flex-1 min-w-0 truncate">{s.title}</span>
+                {link ? <ExternalLink size={12} className="shrink-0 text-fg-faint" /> : null}
+              </>
+            );
+            return (
+              <li key={i}>
+                {link
+                  ? <a href={link} target="_blank" rel="noreferrer" className="flex items-center gap-2 h-[26px] text-[12.5px] text-fg hover:text-accent-text">{body}</a>
+                  : <span className="flex items-center gap-2 h-[26px] text-[12.5px] text-fg">{body}</span>}
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+    ) : null,
+    notices: notices.length ? (
+      <div key="notices" data-part="notices" className={TODAY_PART}>
+        <button type="button" onClick={onOpen} className={`${PART_LABEL} w-full text-left`}>
+          <span>광고</span><ChevronRight size={13} className="shrink-0 text-fg-faint" />
+        </button>
+        <ol className="home-today-notices list-none p-0 m-0">
+          {notices.map((n, i) => (
+            <li key={i} data-notice="" className="flex gap-2 py-[3px] text-[12.5px] leading-[1.6] text-left">
+              <span className="w-[14px] shrink-0 text-[11px] font-bold text-fg-muted tabular-nums pt-[2px]">{i + 1}</span>
+              <span className="min-w-0 break-words">
+                {n.title ? <span className="block font-bold text-fg">{n.title}</span> : null}
+                {n.body ? <span className="block whitespace-pre-line text-fg-secondary">{n.body}</span> : null}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    ) : null,
+    // 출석 — 13:30 전에는 잠긴 표시만, 뒤에는 우리 순의 오늘 참석 수. 순이 없는 계정은 전체 수만.
+    // 버튼은 그 주보 상세로 간다(출석 체크는 순장에게만 — 체크할 수 있는 사람만 보게).
+    att: (
+      <div key="att" data-part="att" className={TODAY_PART}>
+        <button type="button" onClick={att.sunName ? onOpenSun : onOpen} className={`${PART_LABEL} w-full text-left`}>
+          <span className="min-w-0 truncate">{att.sunName ? `출석 · ${att.sunName}` : '출석'}</span>
+          <ChevronRight size={13} className="shrink-0 text-fg-faint" />
+        </button>
+        {!open ? (
+          <>
+            <span data-att-lock="" className="inline-flex items-center gap-1 px-2 py-[3px] rounded-full bg-surface-hover text-[11px] font-bold text-fg-muted">
+              <Lock size={11} className="shrink-0" />{`${ATTEND_OPEN_HM}부터`}
+            </span>
+            {att.sunName ? (
+              <p className={`mt-2 text-[12px] text-fg-muted ${ONE_LINE}`}>
+                {[`${att.count}명`, att.present != null && !att.presentToday ? `지난 주일 ${att.present}명 참석` : ''].filter(Boolean).join(' · ')}
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {att.sunName ? (
+              <p data-att-count="" className="leading-none">
+                <span className="text-[22px] font-extrabold text-fg tracking-[-0.6px] tabular-nums">{att.presentToday ? att.present : 0}</span>
+                <span className="text-[12px] font-semibold text-fg-muted">{` / ${att.count}명 참석`}</span>
+              </p>
+            ) : null}
+            <p className={`mt-1.5 text-[12px] text-fg-muted ${ONE_LINE}`}>
+              {['이번 주일', att.total ? `전체 ${att.total}명` : '', att.leaderName ? `순장 ${att.leaderName}` : ''].filter(Boolean).join(' · ')}
+            </p>
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {att.amLeader ? <button type="button" onClick={onOpen} className={LINE_BTN}><ClipboardCheck size={13} className="shrink-0" />출석 체크</button> : null}
+              <button type="button" onClick={onOpen} className={LINE_BTN}><PencilLine size={13} className="shrink-0" />예배 노트</button>
+            </div>
+          </>
+        )}
+      </div>
+    ),
+  };
+  const order = open ? ['att', 'songs', 'notices'] : ['songs', 'notices', 'att'];
+  return (
+    <div data-slot="worship" data-state="ready" data-today={open ? 'after' : 'before'}
+      className={`home-card home-today ${enter} md:col-span-2 flex flex-col items-stretch overflow-hidden ${CARD}`}
+      style={{ ...CARD_STYLE, animationDelay: `${delay}ms` }}>
+      <button type="button" onClick={onOpen} title="예배로"
+        className="home-today-top block w-full text-left p-4 pb-3.5 md:p-[18px] md:pb-4">
+        <span className="home-card-head flex items-center justify-between gap-1.5 h-[18px] mb-2">
+          <span className="flex items-center gap-1.5 min-w-0">
+            <Church size={13} className="text-fg-faint shrink-0" />
+            <span className="text-[11.5px] font-semibold text-fg-muted truncate">{homeWorshipLabel(service.service_date, service.service_date)}</span>
+          </span>
+          <ChevronRight size={14} className="home-card-go text-fg-faint shrink-0" />
+        </span>
+        <span className="home-today-title block text-[17px] font-extrabold text-fg tracking-[-0.3px] leading-snug">
+          {service.title || '설교 제목 미정'}
+        </span>
+        <span className={`home-today-meta mt-1 text-[12px] leading-[1.45] text-fg-muted ${ONE_LINE}`}>
+          {[kindLabel(service.kind), service.passage_ref || '', service.preacher || ''].filter(Boolean).join(' · ')}
+        </span>
+      </button>
+      <div className="home-today-grid grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,.9fr)] border-t border-line">
+        {order.map(k => parts[k]).filter(Boolean)}
+      </div>
+    </div>
+  );
+}
+
+// ── 지난 해의 오늘 · 한 해의 발자취 입구 (목업 '은혜와 리듬' 7·8번 · 사용자 결정 2026-09-25) ──────
+// 태그라인 아래 알약 한 줄. 모양은 날짜 칩과 같은 껍데기다. 발자취 기간(12월 둘째 주일~1월 6일)에는
+// 발자취 입구가 이 자리를 쓴다(homeMoments.footprintYear).
+// 지난 해의 오늘은 **모두에게 같은 줄**이다 — 누르면 그 창에 마감·완료가 걸린 업무 셋까지 펴지고,
+// 줄은 업무 창으로, 머리는 그 프로젝트로 간다(보관된 것이어도). activity가 2026-07-25부터라 창(±7일)이
+// 처음 닿는 2027-07-18 전에는 안 보이는 것이 정상이다.
+const PILL = 'home-pill inline-flex items-center gap-1.5 max-w-full mt-3 pl-3 pr-2 py-[5px] rounded-full text-[12px] text-fg-muted shadow-soft transition-colors hover:bg-surface-hover';
+const dotDate = (iso) => `${+iso.slice(5, 7)}. ${+iso.slice(8, 10)}.`;
+
+function YearAgoPill({ pick, onOpenProject, onOpenTask }) {
+  const [open, setOpen] = useState(false);
+  const { project, window: win, tasks } = pick;
+  return (
+    <>
+      <button type="button" data-year-ago="" aria-expanded={open} onClick={() => setOpen(o => !o)} className={PILL} style={CARD_STYLE}>
+        <History size={13} className="shrink-0 text-fg-faint" />
+        <span className="shrink-0">작년 이맘때</span>
+        <b className="min-w-0 truncate font-bold text-fg">{project.title}</b>
+        <ChevronRight size={14} className={`shrink-0 text-fg-faint transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+      {open && (
+        <div data-year-ago-panel="" className="mx-auto mt-2.5 max-w-[340px] text-left p-2 rounded-xl border border-line bg-surface shadow-elevated">
+          <button type="button" data-year-ago-project="" onClick={() => onOpenProject(project)}
+            className="w-full flex items-center justify-between gap-2 px-1.5 pt-0.5 pb-1.5 text-[11px] font-bold text-fg-muted text-left hover:text-fg transition-colors">
+            <span className="min-w-0 truncate">{`${win.year} · ${project.title}`}</span>
+            <ChevronRight size={13} className="shrink-0" />
+          </button>
+          {tasks.map(({ task, date }) => (
+            <button key={task.id} type="button" data-year-ago-task={task.id} onClick={() => onOpenTask(task)}
+              className="w-full flex items-center gap-2 p-1.5 rounded-md text-left text-[12.5px] text-fg hover:bg-surface-hover transition-colors">
+              <span className="w-[52px] shrink-0 text-[11.5px] font-bold text-fg-muted tabular-nums">{dotDate(date)}</span>
+              <span className="min-w-0 truncate">{task.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── 한 해의 발자취 — 나만 보는 한 장(창이 아니라 화면 · '홈으로'로 돌아온다) ──────────────
+// 제목 '{해}년의 발자취' · 부제 '예수님과 함께 걸어온 한 해' · 구역 넷(사용자 문구 2026-09-25):
+// 마음에 남긴 구절(내 형광펜 + 본문) · 다시금 펼치게 된 말씀(북마크한 장) · 예배 노트를 작성한 주일(설교
+// 제목만) · 더다붓과 함께한 프로젝트(그 해 내가 담당한 업무의 프로젝트 + 같이 한 얼굴 셋).
+// **숫자·합계·순위·공유가 없다**(§8 · 나만 보는 장에 공유를 붙이면 견주는 물건이 된다). 노트·묵상 글은
+// 싣지 않는다. 빈 구역은 자리째 서지 않는다. 고르는 규칙은 homeMoments.footprintSections.
+// **App의 전역 화면이 아니다** — 홈 안의 한 상태(page)라 GLOBAL_MENUS를 건드리지 않는다.
+const FOOT_GLOW = {
+  backgroundRepeat: 'no-repeat',
+  backgroundImage: [
+    'radial-gradient(26rem 10rem at 10% 0%, color-mix(in srgb, var(--app-tag-purple) 80%, transparent), transparent 70%)',
+    'radial-gradient(20rem 9rem at 95% 10%, color-mix(in srgb, var(--app-accent-weak) 90%, transparent), transparent 70%)',
+  ].join(','),
+};
+const monthDay = (iso) => `${+String(iso).slice(5, 7)}월 ${+String(iso).slice(8, 10)}일`;
+const FootSection = ({ name, title, children }) => (
+  <section data-foot={name} className="px-5 pt-3.5 pb-4 border-t border-line">
+    <h4 className="mb-2 text-[11.5px] font-bold text-fg-muted">{title}</h4>
+    {children}
+  </section>
+);
+
+function FootprintPage({ year, onBack, onOpenLink, onNavigate }) {
+  const currentUser = useStore(selectCurrentUser);
+  const tasks = useStore(selectTasksList);
+  const projects = useStore(selectProjectsList);
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const [state, notes, books] = await Promise.all([
+        loadBibleState().catch(() => null),
+        fetchMyNoteSundays(year).catch((e) => { console.warn('[home] 예배 노트를 쓴 주일을 읽지 못했어요:', e); return []; }),
+        loadBibleIndex().catch(() => []),
+      ]);
+      const sec = footprintSections({
+        year, highlights: state?.highlights || [], bookmarks: state?.bookmarks || [], notes,
+        tasks, projects, myName: currentUser?.name || '',
+      });
+      // 구절 본문 — 그 책 파일만 받는다(bible.js가 책 단위로 캐시한다). 못 받으면 참조만 선다.
+      const nameOf = (id) => books.find(b => b.id === id)?.name || id;
+      const passages = await Promise.all(sec.passages.map(async (p) => {
+        let text = '';
+        try {
+          const book = await loadBook(p.bookId);
+          text = (book?.chapters?.[p.chapter - 1] || []).slice(p.from - 1, p.to).join(' ');
+        } catch { /* 참조만 */ }
+        return { ...p, text, label: `${nameOf(p.bookId)} ${p.chapter}:${p.from}${p.to > p.from ? `-${p.to}` : ''}` };
+      }));
+      const chapters = sec.chapters.map(c => ({ ...c, label: c.label || `${nameOf(c.bookId)} ${c.chapter}장` }));
+      if (alive) setData({ ...sec, passages, chapters });
+    })().catch(e => { console.error('[home] 발자취를 읽지 못했어요:', e); if (alive) setData({ passages: [], chapters: [], sundays: [], together: [] }); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year]);
+
+  return (
+    <div className="home-screen home-footprint dc-screen pb-8">
+      <button type="button" data-foot-back="" onClick={onBack}
+        className="inline-flex items-center gap-0.5 h-11 pl-2 pr-3 -ml-2 mb-1 rounded-md text-[13px] font-semibold text-fg-muted hover:bg-surface-hover transition-colors">
+        <ChevronLeft size={15} />홈으로
+      </button>
+      <div className="home-foot-page overflow-hidden rounded-[14px] border border-line bg-surface">
+        <header className="px-5 pt-[22px] pb-4" style={FOOT_GLOW}>
+          <h2 className="text-[22px] font-extrabold text-fg tracking-[-0.6px]">{`${year}년의 발자취`}</h2>
+          <p className="mt-1 text-[12.5px] text-fg-muted">예수님과 함께 걸어온 한 해</p>
+        </header>
+        {!data ? (
+          <div className="px-5 pt-3.5 pb-5 border-t border-line space-y-2.5" aria-hidden="true">
+            <SkelLine className="text-[13px]" w="72%" /><SkelLine className="text-[13px]" w="58%" /><SkelLine className="text-[13px]" w="64%" />
+          </div>
+        ) : (
+          <>
+            {data.passages.length > 0 && (
+              <FootSection name="verses" title="마음에 남긴 구절">
+                {data.passages.map(p => (
+                  <blockquote key={`${p.bookId} ${p.chapter}:${p.from}`} className="m-0 mb-2.5 last:mb-0 pl-3 border-l-2 text-[13px] leading-[1.75] text-fg"
+                    style={{ borderColor: 'var(--app-tag-red)' }}>
+                    {p.text || null}
+                    <cite className="block not-italic mt-0.5 text-[11px] font-bold text-fg-muted">{`${p.label} · ${+localDayOf(p.at).slice(5, 7)}월`}</cite>
+                  </blockquote>
+                ))}
+              </FootSection>
+            )}
+            {data.chapters.length > 0 && (
+              <FootSection name="bookmarks" title="다시금 펼치게 된 말씀">
+                {data.chapters.map(c => (
+                  <div key={c.ref} className="flex items-baseline gap-2.5 py-1 text-[12.5px] text-fg">
+                    <span className="w-16 shrink-0 text-[11.5px] font-bold text-fg-muted">{monthDay(localDayOf(c.at))}</span>
+                    <span className="min-w-0 truncate">{c.label}</span>
+                  </div>
+                ))}
+              </FootSection>
+            )}
+            {data.sundays.length > 0 && (
+              <FootSection name="notes" title="예배 노트를 작성한 주일">
+                {data.sundays.map(n => (
+                  <button key={n.serviceId} type="button" onClick={() => (onOpenLink ? onOpenLink(`/?p=worship&s=${n.serviceId}`) : onNavigate('worship'))}
+                    className="w-full flex items-baseline gap-2.5 py-1 text-left text-[12.5px] text-fg hover:text-accent-text transition-colors">
+                    <span className="w-16 shrink-0 text-[11.5px] font-bold text-fg-muted">{monthDay(n.date)}</span>
+                    <span className="min-w-0 truncate">{n.title || '설교 제목 미정'}</span>
+                  </button>
+                ))}
+              </FootSection>
+            )}
+            {data.together.length > 0 && (
+              <FootSection name="projects" title="더다붓과 함께한 프로젝트">
+                {data.together.map(({ project, faces }) => (
+                  <button key={project.id} type="button" onClick={() => onNavigate(project.id)}
+                    className="w-full flex items-center gap-2.5 py-1.5 text-left text-[12.5px] text-fg hover:text-accent-text transition-colors">
+                    <b className="flex-1 min-w-0 truncate font-bold">{project.title}</b>
+                    <span className="flex shrink-0">
+                      {faces.map((n, i) => (
+                        <Avatar key={n} name={n} className={`flex w-[21px] h-[21px] text-[10px] ring-[1.5px] ring-surface ${i ? '-ml-1.5' : ''}`} />
+                      ))}
+                    </span>
+                  </button>
+                ))}
+              </FootSection>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── 자리를 지키는 스켈레톤 카드 ─────────────────────────────────────────────
 // **카드와 같은 상자, 같은 줄 높이**다. 예전에는 카드 줄 전체를 104px짜리 회색 상자 넷으로
 // 대신했는데, 갈래가 하나라도 도착하면 그 통짜 스켈레톤이 통째로 사라지고 **있는 카드만**
@@ -501,8 +822,11 @@ function CardSkeleton({ slot, delay, enter = 'dc-card' }) {
 // 'none'만 목록에서 빠지므로 남은 카드가 격자의 빈 칸을 차례로 메운다(1열 · md 2열).
 // **'wait'을 빼면 안 된다** — 그게 예전의 버그다(늦은 갈래가 나중에 끼어들어 자리가 밀렸다).
 const SLOT_ORDER = ['qt', 'worship', 'tasks', 'sun'];
-export function orderedSlots(branch = {}) {
-  return SLOT_ORDER
+// **예배 날(주일 모드)에는** 예배가 맨 앞에서 두 칸을 차지하고 내 순은 그 카드의 출석 칸으로 들어간다
+// (사용자 결정 2026-09-25) — 격자에는 오늘의 QT · 내 업무 한 쌍이 남는다(짝이 홀수로 남지 않게).
+const SUNDAY_ORDER = ['worship', 'qt', 'tasks'];
+export function orderedSlots(branch = {}, { sunday = false } = {}) {
+  return (sunday ? SUNDAY_ORDER : SLOT_ORDER)
     .map((key) => {
       const b = branch[key] || {};
       return { key, state: b.loading ? 'wait' : (b.has ? 'ready' : 'none') };
@@ -520,6 +844,12 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
   // 구간 경계(heroSlot의 6·10·18·23시)를 넘는 순간 리렌더 하나 때문에 인사말이 바뀐다.
   const [hour] = useState(kstHour);
   const year = Number(day.slice(0, 4)) || new Date().getFullYear();
+  // 주일 모드·지난 해의 오늘·발자취가 보는 '지금' — 인사말처럼 **한 번만** 잡는다(보는 동안 카드가 바뀌지 않게).
+  // 지난 해의 오늘은 업무 셈과 같은 **로컬 날짜**다(§8) — 검사가 시각을 정했으면 그 날짜.
+  const [nowK] = useState(momentNow);
+  const momentDay = (import.meta.env?.DEV && typeof window !== 'undefined' && window.__kstNow) ? nowK.slice(0, 10) : ISO_TODAY();
+  // 홈 안의 한 장 — 'footprint'면 발자취 화면(App의 전역 화면이 아니다)
+  const [page, setPage] = useState('home');
 
   // **캐시가 있으면 그것을 먼저 그린다**(사용자 요청 2026-09-03 — "매번 스켈레톤이
   // 아니라 캐시된 값이 먼저 보이게"). services/cache.js의 useCached가 마지막에 읽은
@@ -583,6 +913,9 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
     const withAtt = attendanceSunday(list, counts, day);
     return {
       service: pickService(list) || null,
+      // 오늘의 예배(주일 모드)가 찾는 자리 — 발행본 중 앞쪽 몇 개와 주보별 출석 수(전체 N명)
+      published: list.filter(s => s?.status === 'published').slice(0, 6),
+      counts: counts || {},
       latest: withAtt || pastSunday(list, day) || null,
       // 참석 수를 세는 주보가 **오늘** 것인가 — 주일 당일에 출석을 부른 뒤에는 그 날
       // 주보가 잡히므로 '지난 주일'이라 부르면 사실과 어긋난다(사용자 결정 2026-09-08:
@@ -608,6 +941,8 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
     const notes = await countSunSharedNotesByService().catch(() => ({}));
     return {
       sun,
+      // 오늘의 예배 카드의 '출석 체크'는 순장에게만 선다(체크할 수 있는 사람만 보게)
+      amLeader: !!me?.id && sun.leader_person_id === me.id,
       ids: people.map(p => p.id),
       count: people.length,
       leaderName: roster.people.find(p => p.id === sun.leader_person_id)?.name || '',
@@ -643,6 +978,32 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
     'home:present': attQ.refresh,
   }));
 
+  // ── 지난 해의 오늘 · 발자취 입구 (homeMoments) ─────────────────────────────
+  // 발자취 기간(12월 둘째 주일~1월 6일)에는 발자취 입구가, 그 밖에는 지난 해의 오늘이 태그라인 아래에 선다.
+  // 지난 해의 오늘은 **useCached를 쓰지 않는다** — 홈의 캐시 열쇠 넷은 liveV2 실시간 접두와 짝이다
+  // (tests/logcheck). activity 창은 홈을 열 때 한 번 묻고, 창이 기록 시작일(ACTIVITY_SINCE)보다 앞이면
+  // 묻지도 않는다. 게스트는 스토어 업무의 activityLog로 같은 줄을 만든다(tabRank.guestActivityRows).
+  const footYear = footprintYear(momentDay);
+  const tasksList = useStore(selectTasksList);
+  const projectsList = useStore(selectProjectsList);
+  const [yaRows, setYaRows] = useState(null);   // null = 아직(또는 게스트) · [] = 없음
+  useEffect(() => {
+    const win = yearAgoWindow(momentDay);
+    if (footYear || !win || !isCloudEnabled() || win.to < ACTIVITY_SINCE) return undefined;
+    let alive = true;
+    fetchActivityBetween(win.from, win.to)
+      .then(rows => { if (alive) setYaRows(rows || []); })
+      .catch(e => console.warn('[home] 작년 이맘때 활동을 읽지 못했어요:', e));
+    return () => { alive = false; };
+  }, [momentDay, footYear]);
+  const yearAgo = useMemo(() => {
+    if (footYear) return null;
+    const rows = isCloudEnabled()
+      ? (yaRows || [])
+      : guestActivityRows({ byId: Object.fromEntries(tasksList.map(t => [t.id, t])), allIds: tasksList.map(t => t.id) });
+    return pickYearAgo({ today: momentDay, rows, projects: projectsList, tasks: tasksList });
+  }, [footYear, yaRows, momentDay, projectsList, tasksList]);
+
   // 값은 **언제나** 이 모양이다. 예전에는 셋이 다 로딩 중일 때만 `null`(=통짜 스켈레톤)
   // 이었는데, 하나라도 오면 그 순간 있는 카드만 세워서 늦은 갈래가 나중에 앞자리로
   // 끼어들었다. 지금은 카드 자리가 먼저 서고(orderedSlots) 갈래마다 제 칸이 바뀐다.
@@ -667,12 +1028,16 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
 
   // 카드 자리 넷 — 순서는 처음부터 고정이고, 아직 안 온 갈래는 스켈레톤으로 그 자리에
   // 서 있는다(위 orderedSlots). 업무는 스토어 값이라 기다릴 것이 없다(loading 없음).
+  // 오늘의 예배(주일 모드) — 발행된 오늘 주보 + 08:00~자정(homeMoments.sundayMode). 13:30 전후로 칸 순서만 바뀐다.
+  const nowDay = nowK.slice(0, 10);
+  const todayService = (svcQ.data?.published || []).find(s => s.service_date === nowDay) || null;
+  const sunday = sundayMode(todayService, nowK);
   const slots = orderedSlots({
     qt: { loading: qtQ.loading, has: !!church.qt },
-    worship: { loading: svcQ.loading, has: !!church.service },
+    worship: { loading: svcQ.loading, has: sunday || !!church.service },
     tasks: { loading: false, has: myTasks.length > 0 },
     sun: { loading: sunQ.loading, has: !!church.sun },
-  });
+  }, { sunday });
 
   // 등장 방식은 **처음 그려질 때 한 번만** 정해지고 그 뒤로 바뀌지 않는다 — 클래스가
   // 바뀌면 애니메이션이 처음부터 다시 돌아서, 가만히 있던 카드가 이유 없이 한 번 더
@@ -729,7 +1094,17 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
     // worshipView의 진입 이펙트)라서 주보 상세로 드는 문이 둘이 되지 않는다.
     // setEntryQuery를 여기서 직접 부르지 않는 이유도 그것이다 — 딥링크 진입점은 App 하나다.
     // onOpenLink가 없으면(HomeView를 다른 데서 쓰면) 예전처럼 목록으로 떨어진다.
-    worship: (delay, enter) => (
+    worship: (delay, enter) => (sunday ? (
+      <TodayWorshipCard enter={enter} delay={delay} service={todayService}
+        open={attendanceOpen(todayService, nowK)}
+        att={{
+          sunName: church.sun?.name || '', count: church.sunCount, leaderName: church.leaderName,
+          present: church.sunPresent, presentToday: church.sunPresentToday, amLeader: !!sunQ.data?.amLeader,
+          total: svcQ.data?.counts?.[todayService.id] || 0,
+        }}
+        onOpen={() => (onOpenLink ? onOpenLink(`/?p=worship&s=${todayService.id}`) : onNavigate('worship'))}
+        onOpenSun={() => onNavigate('groups')} />
+    ) : (
       <LinkCard slot="worship" enter={enter} className="home-worship" icon={Church} delay={delay} title="예배로"
         label={homeWorshipLabel(church.service.service_date, day)}
         onOpen={() => (onOpenLink
@@ -745,7 +1120,7 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
             ].filter(Boolean).join(' · ')}
           </span>
         } />
-    ),
+    )),
     tasks: (delay, enter) => (
       <TasksCard slot="tasks" enter={enter} tasks={myTasks} today={today} delay={delay}
         onOpenList={() => onNavigate('myTasks')} onOpenTask={onTaskClick} />
@@ -778,6 +1153,10 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
     ),
   };
 
+  if (page === 'footprint' && footYear) {
+    return <FootprintPage year={footYear} onBack={() => setPage('home')} onOpenLink={onOpenLink} onNavigate={onNavigate} />;
+  }
+
   return (
     <div className="home-screen dc-screen pb-8">
       {/* 히어로 — 가운데 정렬 랜딩. 글이 먼저 서고 그 아래에 컷 무리가 한 장면으로
@@ -805,6 +1184,16 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
               style={CARD_STYLE}>{shortDayLabel(day)}</p>
           </div>
           <p className="home-tagline mt-2.5 text-[15px] md:text-[17px] text-fg-muted">{TAGLINE}</p>
+          {/* 태그라인 아래 알약 한 줄 — 발자취 기간이면 발자취 입구, 아니면 지난 해의 오늘(있을 때만) */}
+          {footYear ? (
+            <button type="button" data-footprint="" onClick={() => setPage('footprint')} className={PILL} style={CARD_STYLE}>
+              <MapIcon size={13} className="shrink-0 text-fg-faint" />
+              <b className="min-w-0 truncate font-bold text-fg">{`${footYear}년의 발자취`}</b>
+              <ChevronRight size={14} className="shrink-0 text-fg-faint" />
+            </button>
+          ) : yearAgo ? (
+            <YearAgoPill pick={yearAgo} onOpenProject={(p) => onNavigate(p.id)} onOpenTask={onTaskClick} />
+          ) : null}
         </div>
 
         {/* 캐릭터 한 장 — 글이 다 들어온 뒤에 선다(§4.2 · 글의 .dc-card가 .28s다).

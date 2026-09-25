@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Check, Hash, Archive } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { useStore } from '../store/workspaceStore.js';
@@ -11,6 +11,8 @@ import { showToast } from '../components/Toast.jsx';
 import { failText, linkErrorReason } from '../services/errorText.js';
 import { imeComposing } from '../utils.js';
 import { BTN_CONFIRM, BTN_CONFIRM_QUIET } from '../components/buttons.js';
+import { loadReadShare, saveReadShare } from '../services/word.js';
+import { ShareSwitch } from '../components/wordBible.jsx';
 
 // ============================================================================
 // 설정 창 — 내 정보(사진·이름·소속·연결된 계정) / 프로젝트 만들기·이름 수정
@@ -72,6 +74,19 @@ export function ProfileModal({ onClose, onSave }) {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
   const shownAvatar = avatarUrl !== undefined ? avatarUrl : (user.avatarUrl || '');
+  // 성경 읽기 '이번 주 이 장을 본 사람'의 나도 나누기(0080) — 장 머리 판의 토글과 **같은 값·같은 글자**다.
+  // '저장'을 기다리지 않고 누르는 순간 저장한다(판의 토글과 같게 · 끄면 내 기록을 지운다).
+  const [readShare, setReadShare] = useState(true);
+  const [readBusy, setReadBusy] = useState(false);
+  useEffect(() => { let alive = true; loadReadShare().then(v => { if (alive) setReadShare(v); }); return () => { alive = false; }; }, []);
+  const toggleReadShare = async () => {
+    if (readBusy) return;
+    const next = !readShare;
+    setReadShare(next); setReadBusy(true);
+    try { await saveReadShare(next); }
+    catch (e) { setReadShare(!next); showToast(failText('나도 나누기를 바꾸지 못했어요', e)); }
+    finally { setReadBusy(false); }
+  };
 
   const pickPhoto = async (e) => {
     const file = e.target.files?.[0];
@@ -186,6 +201,16 @@ export function ProfileModal({ onClose, onSave }) {
         <p className="text-[11px] text-fg-muted mb-4">
           {teams.length > 1 ? <>대표 소속은 <span className="font-semibold text-fg-muted">{teams[0]}</span>이에요 (아바타 색·기본 팀 보드에 쓰여요)</> : ' '}
         </p>
+
+        {/* 첫 설정(온보딩)에는 세우지 않는다 — 이름·소속만 묻는 자리다 */}
+        {!onboarding && <div className="mb-4">
+          <label className="block text-xs font-semibold text-fg-muted mb-1.5">성경 읽기</label>
+          <button type="button" role="switch" aria-checked={readShare} data-read-share="" onClick={toggleReadShare} disabled={readBusy}
+            className="w-full flex items-center justify-between gap-2.5 px-3 py-2 border border-line rounded-md text-sm text-fg">
+            <span>나도 나누기</span>
+            <ShareSwitch on={readShare} />
+          </button>
+        </div>}
 
         {cloudMode && (
           <div className="mb-6">

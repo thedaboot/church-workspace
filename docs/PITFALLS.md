@@ -882,3 +882,19 @@ reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가
 점이 하나도 안 선다. 검사는 **이동할 때마다 다시 심는다**(`tests/traces`의 `go`). 클라우드의 기준 시각은 `App.initialLoad`에서
 `reloadCloud`가 돌려준 **내 프로필 행**의 `last_seen_at`이다 — 바로 다음 줄의 `markSeen(0)`이 덮기 전 값이라야 "지난번에 떠난 때"다
 (스토어의 members 값은 곧 실시간 박동으로 바뀐다). 두 줄의 차례는 `tests/logcheck`가 본다.
+### 은혜와 리듬 — 홈의 날짜로 켜지는 자리 · 이 장을 본 사람 · 마음 칩 (2026-09-25)
+
+53-a. **홈의 '지금'은 `homeView.momentNow` 한 자리다** — 주일 모드(08:00~자정)·지난 해의 오늘·발자취가 이 값을 본다. 개발 서버에서만 `window.__kstNow`로 정할 수 있고(`tests/home`이
+    기본 오늘 07:00으로 심는다 — **안 심으면 오늘 주보를 심는 옛 검사가 08시 뒤에 돌 때 주일 모드로 바뀌어 깨진다**), 배포 빌드는 `import.meta.env.DEV`가 거짓이라 그 갈래가 없다.
+53-b. **홈에 `useCached` 열쇠를 더하지 않는다** — 홈의 열쇠 넷은 liveV2 실시간 접두와 짝이라(`tests/logcheck` ③-b) 다섯째를 만들면 그 단정이 깨진다. 지난 해의 오늘은 `useState`+`useEffect`로 한 번 묻고,
+    창이 activity 기록 시작일(`homeMoments.ACTIVITY_SINCE` 2026-07-25)보다 앞이면 **묻지도 않는다**(창이 ±7일이라 처음 닿는 날은 2027-07-18).
+53-c. **발자취는 App의 전역 화면이 아니라 홈 안의 한 상태(`page`)다** — `GLOBAL_MENUS`·`App.jsx`를 건드리지 않으려고. 새로고침하면 홈으로 돌아오는 것이 정상이다.
+53-d. **오늘의 예배 카드의 광고는 주보 종이 2쪽(`paper.jsx ServiceSheetTwo`)과 같은 규칙이다** — 번호 칸 · 왼쪽 정렬 · 제목 굵게 + 본문 `whitespace-pre-line` · 본문이 빈 광고는 제목만 같은
+    들여쓰기로. 가운데 정렬로 두면 본문 빈 광고가 떠서 오류로 읽힌다(목업에서 사용자가 짚었다). 찬양 인도자는 **싣지 않는다**(2026-09-06 결정 · `tests/logcheck`가 `praise_leader`를 홈 소스에서 찾으면 깬다).
+53-e. **`bible_state.share_reads`는 큰 읽기·쓰기(`load/saveBibleState`)와 따로 오간다**(`loadReadShare`·`saveReadShare`) — 0080이 늦게 나간 판에서 그 한 벌에 칸을 넣으면 북마크·형광펜 저장까지 같이
+    실패한다. 그래서 `tests/logcheck`의 'bible_state 왕복은 둘뿐'은 share_reads 줄을 빼고 센다. 값은 uid 열쇠로 모듈이 들고 있다(한 기기에서 계정을 바꿔도 앞사람 값을 쓰지 않게).
+53-f. **마음 칩은 실제로 그린 폭을 재서 고른다**(`moodPick.fitMoods` · 보이지 않는 줄의 `offsetWidth + 1`) — 글자 수로 어림하면 넘친다. `getBoundingClientRect`를 쓰지 않는 이유는 판의 `zoom-in-95`
+    등장 연출이 그 값을 줄이기 때문이다. **칩이 있는 판은 검색 줄 전체 폭**(`searchRowRef`)이다 — 칸 폭(375에서 약 237px)만 쓰면 폰에 칩이 둘밖에 안 든다. 게스트(칩 없음)는 예전처럼 칸 폭이다.
+    섞은 차례는 localStorage `bible_mood_memo` 한 벌 — 닫히는 순간 그때 보인 칩(`last`)과 시각을 적고, 1분이 지나 열면 새로 섞어 `last`를 뒤로 민다.
+53-g. **장을 '본' 기록은 5초 타이머가 남긴다**(`READ_DWELL_MS` + 100ms · 장을 옮기면 풀린다) — 켬/끔을 **타이머가 끝날 때** 읽는다(판에서 방금 끈 사람의 줄이 남지 않게). 끄면 `clearMyReads`가 내 줄을 모두 지운다.
+    지난주 줄은 11:30 배치(`api/push.js handleWorshipThenMeetings`) 끝의 delete 한 줄이 지운다 — **크론을 새로 만들지 않는다**(자리가 둘뿐이다 · `tests/logcheck`가 `vercel.json` 크론 둘을 단정한다).

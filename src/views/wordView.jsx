@@ -27,7 +27,7 @@ import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap, useBibleSt
 import {
   kstToday, shiftDay, dayLabel, shortDayLabel, monthDays, shiftMonth, weekRange, shouldAdoptBody,
   fetchSchedule, fetchMyEntry, saveMyEntry, deleteMyEntry, deleteEntryAsMaster,
-  fetchSharedEntries, fetchMyEntryDates,
+  fetchSharedEntries, fetchMyEntryDates, fetchScheduleRange,
 } from '../services/word.js';
 
 // ============================================================================
@@ -146,6 +146,10 @@ export function WordView({ initialTab = 'qt', initialRef = '' }) {
   // QT 본문의 구절 → 성경 읽기의 그 장(주보의 구절과 같은 길 · worshipDetail WordTab). 같은 화면
   // 안이라 App을 거치지 않고 세그먼트만 옮긴다.
   const openBible = (ref) => { if (!ref) return; setReadRef(ref); pick('read'); };
+  // 성경 읽기 장 머리의 '나눔 보기'(이번 주 이 장을 본 사람 · 0080) → QT의 그 날, 그 사람의 종이.
+  // 같은 화면 안이라 세그먼트만 옮기고 QT 탭이 날짜·사람을 받는다.
+  const [qtFocus, setQtFocus] = useState(null);   // { date, profileId }
+  const openShare = (date, profileId) => { if (!date) return; setQtFocus({ date, profileId }); setReadRef(''); pick('qt'); };
 
   return (
     <div className="dc-screen pb-6">
@@ -167,20 +171,21 @@ export function WordView({ initialTab = 'qt', initialRef = '' }) {
       </div>
 
       <Swap k={tab} dir={dir}>
-        {tab === 'qt' ? <QtTab onOpenBible={openBible} /> : <BibleTab initialRef={readRef} />}
+        {tab === 'qt' ? <QtTab onOpenBible={openBible} focus={qtFocus} /> : <BibleTab initialRef={readRef} onOpenShare={openShare} />}
       </Swap>
     </div>
   );
 }
 
 // ── QT ──────────────────────────────────────────────────────────────────────
-function QtTab({ onOpenBible }) {
+function QtTab({ onOpenBible, focus = null }) {
   const members = useStore(selectMembers);
   const currentUser = useStore(selectCurrentUser);
   const { session, isMaster } = useAuth();
   const today = kstToday();
 
-  const [date, setDate] = useState(today);
+  // '나눔 보기'로 들어오면 그 날부터 연다(focus — WordView.openShare)
+  const [date, setDate] = useState(() => focus?.date || today);
   const [dir, setDir] = useState(0);
   const [day, setDay] = useState({ loading: true, schedule: null, passage: null });
   // 저장된 묵상 — **어느 날짜의 것인지 같이 들고 있는다**(본문이 그러는 것과 같은 이유).
@@ -698,6 +703,7 @@ function QtTab({ onOpenBible }) {
             {feed === null
               ? <FeedSkeleton />
               : <ShareFeed rows={feedRows} members={members} myName={currentUser?.name || ''}
+                  wantPerson={focus?.date === date ? focus.profileId : ''}
                   date={date} passageRef={passageRef}
                   onEdit={editMine} isMaster={isMaster} onDeleteOther={removeShared} />}
           </div>
@@ -705,7 +711,7 @@ function QtTab({ onOpenBible }) {
       </div>
 
       <div className="min-w-0">
-        <Grass today={today} onPick={go} reloadKey={grassKey} />
+        <Grass today={today} picked={date} onPick={go} reloadKey={grassKey} />
       </div>
     </div>
   );
@@ -851,12 +857,19 @@ const PERSON_CHIP_ROW = 'flex items-center gap-1.5 flex-nowrap min-w-0 overflow-
   + " after:content-[''] after:shrink-0 after:w-3";
 
 function ShareFeed({ rows = [], members = [], myName = '', date, passageRef = '',
-  onEdit, isMaster = false, onDeleteOther }) {
+  onEdit, isMaster = false, onDeleteOther, wantPerson = '' }) {
   const byId = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
   // 고르는 것은 **사람이지 자리가 아니다** — 순번으로 들면 남이 하나 올리는 순간 보고
   // 있던 종이가 다른 사람 것으로 바뀐다. 날짜를 넘겨 그 id가 없어지면 목록의 첫 사람으로
   // 떨어진다(mergeFeed 순서 그대로 — 내 것이 있으면 그게 첫째다).
   const [pickedId, setPickedId] = useState('');
+  // 성경 읽기의 '나눔 보기'로 왔으면 그 사람의 칩을 한 번 골라 둔다(목록이 늦게 와도 도착하면 고른다)
+  const wanted = useRef('');
+  useEffect(() => {
+    if (!wantPerson || wanted.current === wantPerson) return;
+    const row = rows.find(r => r.profile_id === wantPerson);
+    if (row) { wanted.current = wantPerson; setPickedId(row.id); }
+  }, [wantPerson, rows]);
   const cur = rows.find(r => r.id === pickedId) || rows[0];
   // 이름·사진의 원본은 워크스페이스 멤버 목록이다(profiles에서 온다).
   // 게스트 모드의 로컬 나눔은 언제나 내 글이라 프로필이 붙지 않는다.
@@ -957,8 +970,13 @@ const GRID_MIN_H = HEAD_H + 6 * CELL + 6 * GAP;
 
 const monthKey = (iso) => iso.slice(0, 7);
 const NO_DATES = [];
+const NO_REFS = {};
+// 그 달 묵상 목록 — 일곱 줄까지 펴 두고 넘치면 'N건 더 보기'(목업 '지난 기록' 2번)
+const MONTH_ROWS = 7;
+// '2026-09-24' → '9. 24. 목'
+const monthRowDate = (iso) => `${+iso.slice(5, 7)}. ${+iso.slice(8, 10)}. ${WEEK_HEAD[new Date(`${iso}T00:00:00Z`).getUTCDay()]}`;
 
-function Grass({ today, onPick, reloadKey = 0 }) {
+function Grass({ today, picked = '', onPick, reloadKey = 0 }) {
   const [view, setView] = useState(today);          // 보고 있는 달(그 달의 아무 날)
   const month = useMemo(() => monthDays(view), [view]);
   const [weekStart, weekEnd] = useMemo(() => weekRange(today), [today]);
@@ -975,21 +993,38 @@ function Grass({ today, onPick, reloadKey = 0 }) {
 
   // 달마다 한 번만 읽고 기억한다. 값을 달 열쇠로 들고 있으므로 **넘긴 첫 프레임에
   // 앞 달의 초록이 남지 않는다**(늦게 오는 값으로 덮는 방식이면 한 프레임 남는다).
+  // 값은 [{ date, title }]다(제목이 같이 온다 — 아래 그 달 묵상 목록). 구절은 따로 읽는다(ref).
   const [byMonth, setByMonth] = useState({});
-  const dates = byMonth[key] || NO_DATES;
+  const rows = byMonth[key]?.rows || NO_DATES;
+  const refOf = byMonth[key]?.refs || NO_REFS;
+  const dates = useMemo(() => rows.map(r => r.date), [rows]);
   const stale = useRef(false);
   useEffect(() => { stale.current = true; }, [reloadKey]);   // 저장·삭제 뒤에는 기억을 못 믿는다
   useEffect(() => {
     let alive = true;
-    fetchMyEntryDates(from, to).then(v => {
+    // 구절은 곁줄이다 — 못 읽으면 제목 없는 줄의 흐린 구절만 빈다(달력·문장은 그대로)
+    // 읽기표는 약자로 저장되어 있다(0038) — 이 조회 안에서 한 번 책 이름 전체로 편다(§6-32-w와 같은 자리)
+    Promise.all([
+      fetchMyEntryDates(from, to),
+      fetchScheduleRange(first, last).catch(() => []),
+      loadBibleIndex().catch(() => null),
+    ]).then(([v, sch, books]) => {
       if (!alive) return;
-      setByMonth(m => (stale.current ? { [key]: v } : { ...m, [key]: v }));
+      const full = (ref) => (books ? fullRef(ref, books) : ref);
+      const val = { rows: v, refs: Object.fromEntries(sch.map(r => [r.qt_date, full(r.passage_ref)])) };
+      setByMonth(m => (stale.current ? { [key]: val } : { ...m, [key]: val }));
       stale.current = false;
     }).catch(() => {});
     return () => { alive = false; };
-  }, [key, from, to, reloadKey]);
+  }, [key, from, to, first, last, reloadKey]);
 
   const set = useMemo(() => new Set(dates), [dates]);
+  // 그 달 묵상 — **최근 날짜부터** 한 줄씩(이번 주가 걸친 앞 달 날짜는 빼고 그 달 것만)
+  const monthRows = useMemo(() => rows.filter(r => r.date >= first && r.date <= last)
+    .sort((a, b) => b.date.localeCompare(a.date)), [rows, first, last]);
+  const [allRows, setAllRows] = useState(false);
+  useEffect(() => { setAllRows(false); }, [key]);   // 달을 넘기면 다시 접힌다
+  const shownRows = allRows ? monthRows : monthRows.slice(0, MONTH_ROWS);
   const inMonth = month.days.filter(d => set.has(d)).length;
   const inWeek = dates.filter(d => d >= weekStart && d <= weekEnd).length;
   const navBtn = 'w-9 h-7 shrink-0 flex items-center justify-center rounded-md text-fg-muted hover:bg-surface-hover disabled:opacity-35 disabled:hover:bg-transparent transition active:scale-95';
@@ -1058,6 +1093,34 @@ function Grass({ today, onPick, reloadKey = 0 }) {
               : `${month.month}월 ${inMonth}번 기록했어요`}
           </p>
         </div>
+        {/* 그 달 묵상 — 달력 **아래** 가는 선 하나 + 최근 날짜부터 한 줄씩(목업 '지난 기록' 2번 · 사용자 승인
+            2026-09-25). 줄은 '날짜 · 제목'이고 제목이 비면 그 날 구절을 흐리게. 누르면 달력 칸과 같은 길(onPick)로
+            그 날로 간다. 스트릭·숫자 강조는 없다(결정 10) — 위 문장이 그대로 수를 말한다. 기록이 없는 달은 줄째 없다. */}
+        {monthRows.length > 0 && (
+          <div data-qt-month="" className="mt-3 pt-1.5 border-t border-line">
+            {shownRows.map((r, i) => {
+              const ref = refOf[r.date] || '';
+              return (
+                <button key={r.date} type="button" data-qt-row={r.date} onClick={() => onPick(r.date)}
+                  className={`w-full flex items-center gap-2.5 py-[7px] px-2 -mx-2 rounded-md text-left transition-colors hover:bg-surface-hover
+                    ${r.date === picked ? 'bg-surface-hover' : ''}`}
+                  style={{ width: 'calc(100% + 1rem)', borderTop: i ? '1px solid color-mix(in srgb, var(--app-line) 60%, transparent)' : undefined }}>
+                  <span className="shrink-0 w-[52px] text-[11.5px] font-bold text-fg-muted tabular-nums">{monthRowDate(r.date)}</span>
+                  {r.title
+                    ? <span data-qt-row-title="" className="flex-1 min-w-0 truncate text-[12.5px] text-fg">{r.title}</span>
+                    : <span data-qt-row-ref="" className="flex-1 min-w-0 truncate text-[12.5px] text-fg-muted">{ref}</span>}
+                </button>
+              );
+            })}
+            {/* 일곱 줄을 넘으면 그 자리에서 편다(마감 목록과 같은 말투) */}
+            {!allRows && monthRows.length > MONTH_ROWS && (
+              <button type="button" data-qt-more="" onClick={() => setAllRows(true)}
+                className="mt-1 px-2 -mx-2 py-1.5 rounded-md text-[11.5px] font-semibold text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors">
+                {`${monthRows.length - MONTH_ROWS}건 더 보기`}
+              </button>
+            )}
+          </div>
+        )}
       </Card>
     </div>
   );
