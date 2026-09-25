@@ -111,10 +111,11 @@ export function packPages(heights = [], avail = 0, gap = 0) {
   return pages;
 }
 
-// 스토리 광고 장에 설 광고 — **내용이 있는 것만**(제목만 있는 광고는 종이가 싣는다) ·
-// '다음 주 예배 위원'은 마지막 장으로 옮겨 가므로 여기서 뺀다.
+// 스토리 광고 장에 설 광고 — **전부**다(사용자 요청 2026-09-26 — 제목만 있는 광고도 종이·홈 오늘의
+// 예배 카드처럼 제목 한 줄로 선다). 제목도 본문도 없는 줄만 뺀다 · '다음 주 예배 위원'은 마지막 장으로
+// 옮겨 가므로 여기서 뺀다. 공개 보기(api/service-view)도 이 규칙 한 벌이다.
 export const storyNotices = (notices = []) => (notices || [])
-  .filter(n => String(n?.body || '').trim() && !isNextWeekNotice(n));
+  .filter(n => (String(n?.title || '').trim() || String(n?.body || '').trim()) && !isNextWeekNotice(n));
 
 // ── 내 예배 노트 모아 보기 (2026-09-25) ────────────────────────────────────
 // 내 노트 행 + 주보 목록 → [{ service, note }] — **쓴 것만**(빈 노트·손대지 않은 템플릿은

@@ -4849,8 +4849,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '대표기도: 강꽃님 자매\n헌금 봉헌: 이하랑\n- 광고: 한상록 강사님\n그냥 글', '이름 칸만 바꾸고 호칭·나머지 줄은 그대로');
   assert.deepStrictEqual(SV.nextWeekRoles([{ title: '교우동정', body: '생일자: 조현재 형제 9/20' }, { title: '다음 주 예배 위원', body: '대표 기도: 강서윤 자매\n\n헌금봉헌: 윤현서 자매' }]),
     [{ role: '대표 기도', value: '강서윤 자매' }, { role: '헌금봉헌', value: '윤현서 자매' }]);
-  assert.deepStrictEqual(SV.storyNotices([{ title: '다음 주 예배 위원', body: 'x: y' }, { title: '빈', body: '  ' }, { title: '교우동정', body: '생일' }]).map(n => n.title), ['교우동정'],
-    '스토리 광고는 내용 있는 것만 · 다음 주 위원은 마지막 장으로');
+  assert.deepStrictEqual(SV.storyNotices([{ title: '다음 주 예배 위원', body: 'x: y' }, { title: '제목만', body: '  ' }, { title: '', body: ' ' }, {}, { title: '교우동정', body: '생일' }, { title: '', body: '본문만' }]).map(n => n.title || n.body),
+    ['제목만', '교우동정', '본문만'], '스토리 광고는 전부(제목만 있는 것도) · 둘 다 빈 줄만 뺀다 · 다음 주 위원은 마지막 장으로');
   // 장 나누기 — 넘치면 다음 장 · 혼자 넘는 것은 혼자 · 못 쟀으면 한 장
   assert.deepStrictEqual(SV.packPages([100, 100, 100], 250, 10), [[0, 2], [2, 3]]);
   assert.deepStrictEqual(SV.packPages([100, 400, 50], 250, 10), [[0, 1], [1, 2], [2, 3]]);

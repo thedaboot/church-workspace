@@ -3525,7 +3525,7 @@ await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: watcher.ide
     songs: [{ title: '마커스워십 - 오 베들레헴', link: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }, { title: '기쁘다 구주 오셨네 | 찬송가' }],
     praise_leader: '하랑Alex', praise_playlist_url: '',
     notices: [{ title: '다음 주 예배 위원', body: '대표기도: 하랑Alex 형제' },
-      { title: '송구영신 예배', body: `12월 31일(${eveWd}) 오후 10시 본당` }, { title: '빈 광고', body: '' }],
+      { title: '송구영신 예배', body: `12월 31일(${eveWd}) 오후 10시 본당` }, { title: '제목만 광고', body: '' }, { title: '', body: '' }],
     attendance_note: '' });
   seed2.service_notes = [];
   const plant2 = (s) => `(() => { localStorage.setItem('church_worship_v1', ${JSON.stringify(JSON.stringify(s))}); localStorage.setItem('theme', 'light'); })()`;
@@ -3622,7 +3622,8 @@ await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: watcher.ide
     JSON.stringify(songs.teams) === JSON.stringify(['마커스워십']) && JSON.stringify(songs.titles) === JSON.stringify(['오 베들레헴', '기쁘다 구주 오셨네 | 찬송가'])
     && songs.leader === '이하랑 형제', JSON.stringify(songs));
   await tap(0.8); const sn = await ev(S);
-  check('광고 장 — 내용 있는 광고만(다음 주 위원은 마지막 장으로)', sn.page === 'notices' && sn.text.includes('송구영신 예배') && !sn.text.includes('빈 광고') && !sn.text.includes('다음 주 예배 위원'), JSON.stringify(sn));
+  const snItems = await ev(`document.querySelectorAll('.story-card[aria-hidden="false"] .story-notice').length`);
+  check('광고 장 — 제목만 있는 광고까지 전부 · 빈 줄은 빠진다 · 다음 주 위원은 마지막 장으로', sn.page === 'notices' && sn.text.includes('송구영신 예배') && sn.text.includes('제목만 광고') && snItems === 2 && !sn.text.includes('다음 주 예배 위원'), JSON.stringify({ ...sn, snItems }));
   await tap(0.8); const se = await ev(S);
   check("마지막 장 — '오늘 섬겨준 이들' · '다음 주 예배 위원'(본명) · 두 버튼 · 진행 막대 칸 = 장 수",
     se.page === 'end' && se.text.includes('오늘 섬겨준 이들') && se.text.includes('다음 주 예배 위원') && (se.text.match(/이하랑 형제/g) || []).length === 2

@@ -13,7 +13,7 @@ import { splitSongTitle, packPages, storyNotices, nextWeekRoles, realNameText } 
 // 종이를 대신하지 않는 **또 하나의 보기**다. 폰에서만 들어온다(주보 탭 도구 줄 'PDF로 공유' 옆 ·
 // 데스크톱에는 버튼이 없다 — worshipDetail ServicePaper). 장은 이 차례다:
 //   표지(절기 줄 · 예배 · 날짜 · 설교 제목 · 설교자) → 말씀(본문을 장 높이로 나눔) → 찬양 →
-//   광고(내용 있는 것만 · 넘치면 나눔) → 마지막 장(오늘 섬겨준 이들 · 다음 주 예배 위원 ·
+//   광고(전부 — 제목만 있는 것도 한 줄 · 넘치면 나눔) → 마지막 장(오늘 섬겨준 이들 · 다음 주 예배 위원 ·
 //   주보 전체 보기 · 처음부터)
 // 예배 순서 장은 없다 — 주보에 순서 칸이 없어서 지어내지 않으면 채울 게 없다(목업 판단).
 //
@@ -75,7 +75,7 @@ function NoticeItem({ n, no }) {
       <span style={{ ...LAB, paddingTop: '.25em' }}>{no}</span>
       <span className="min-w-0">
         {n.title ? <span className="block text-fg break-words" style={{ fontWeight: 800, fontSize: '.94em', letterSpacing: '-.01em' }}>{n.title}</span> : null}
-        <span className="block text-fg-secondary whitespace-pre-line break-words" style={{ fontSize: '.9em', lineHeight: 1.7 }}>{n.body}</span>
+        {String(n.body || '').trim() ? <span className="block text-fg-secondary whitespace-pre-line break-words" style={{ fontSize: '.9em', lineHeight: 1.7 }}>{n.body}</span> : null}
       </span>
     </div>
   );
