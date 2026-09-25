@@ -28,6 +28,11 @@ const EST_H = 110; // 높이 추정치(위/아래 배치 판단용)
 // opts.minWidth는 그 잰 폭의 **아래 한계**다(화면 폭 안으로는 가둔다) — 상단 검색칸은
 // 768~1030px에서 54~310px로 줄어드는데, 결과 판이 그 폭을 그대로 따라가 54px 기둥이 됐다(2026-09-25).
 //
+// opts.fitHeight를 주면 **고른 쪽(위/아래)에 남은 높이**를 pos.maxHeight로 돌려주고, 세로 가두기도
+// 그 높이로 줄인 판을 기준으로 한다 — 부르는 쪽은 그 값으로 판의 max-height를 줄인다(스크롤 목록).
+// 없으면 키보드가 올라와 위아래가 다 짧을 때 가두기가 판을 **칸 위로 끌어올려 칸을 덮었다**
+// (성경 최근 검색어 · 375×667에서 키보드 300px — 2026-09-25).
+//
 // ── 모바일 키보드 (사용자 보고 2026-09-08 · 아이폰) ─────────────────────────
 // "멤버 추가·순원 추가·순장 지정에서 목록이 밀려 뜬다 — 아마 키 입력 때문에."
 // 칸에 포커스가 가면 iOS는 키보드를 올리면서 **보이는 뷰포트(visualViewport)를 줄이고
@@ -44,6 +49,7 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
   const alignStart = opts?.align === 'start';
   const preferAbove = opts?.prefer === 'above';
   const minWidth = opts?.minWidth || 0;
+  const fitHeight = !!opts?.fitHeight;
   const [pos, setPos] = useState({ left: 0, top: 0, width: width || 0 });
   const seen = useRef(null);   // 마지막으로 자리를 잡을 때의 앵커 상자(아래 rAF 고리가 견준다)
   const place = useCallback(() => {
@@ -61,7 +67,10 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
     // offsetWidth는 transform(zoom-in) 영향을 안 받는다.
     const w = (matchWidth && r.width) ? Math.min(Math.max(r.width, minWidth), vw - gap * 2)
       : (measuredRef?.current?.offsetWidth || width);
-    const h = measuredRef?.current?.offsetHeight || estHeight;
+    // fitHeight면 줄어든 상자가 아니라 **줄이기 전 높이**(내용 높이와 estHeight — 부르는 쪽의 max-h —
+    // 중 작은 것)로 위/아래를 고른다. 줄인 높이로 다시 고르면 위아래가 비슷할 때 부를 때마다 뒤집힌다.
+    const m = measuredRef?.current;
+    const h = (m && (fitHeight ? Math.min(m.scrollHeight + 2, estHeight) : m.offsetHeight)) || estHeight;
     const minLeft = ox + gap;
     const maxLeft = Math.max(minLeft, ox + vw - w - gap);
     // 기본은 **앵커 오른쪽 끝에 맞춘다**(휴지통·더보기처럼 줄 끝에 선 버튼). `align: 'start'`는
@@ -73,15 +82,18 @@ export function useAnchoredPos(triggerRef, open, width, estHeight, gap = GAP, me
     const below = (oy + vh) - r.bottom;
     const above = r.top - oy;
     const up = preferAbove ? !(above < h + gap && below > above) : (below < h + gap && above > below);
-    let top = up ? Math.max(oy + gap, r.top - h - 4) : r.bottom + 4;
+    const maxHeight = fitHeight ? Math.max(0, Math.floor((up ? above : below) - gap - 4)) : undefined;
+    const hh = fitHeight ? Math.min(h, maxHeight) : h;   // 줄인 뒤의 높이로 가둔다
+    let top = up ? Math.max(oy + gap, r.top - hh - 4) : r.bottom + 4;
     // **어느 쪽에 두든 화면 안으로 가둔다**(2026-09-22 · 폰에서 날짜 달력이 아래로
     // 넘쳤다: bottom 872 > 창 860). 위 판정은 '어느 쪽이 더 넓은가'를 고르는 것이고,
     // 고른 쪽이 그래도 모자랄 수 있다(첫 배치 때는 팝오버 높이를 아직 재지 못한다).
     // 가로는 이미 minLeft·maxLeft로 가두고 있었는데 세로만 빠져 있었다.
-    top = Math.min(Math.max(top, oy + gap), Math.max(oy + gap, oy + vh - h - gap));
+    top = Math.min(Math.max(top, oy + gap), Math.max(oy + gap, oy + vh - hh - gap));
     // 같은 자리면 상태를 바꾸지 않는다 — 아래 rAF 고리가 헛되이 다시 그리지 않게.
-    setPos(p => ((p.left === left && p.top === top && p.width === w) ? p : { left, top, width: w }));
-  }, [triggerRef, width, estHeight, gap, measuredRef, matchWidth, minWidth, alignStart, preferAbove]);
+    setPos(p => ((p.left === left && p.top === top && p.width === w && p.maxHeight === maxHeight) ? p
+      : { left, top, width: w, maxHeight }));
+  }, [triggerRef, width, estHeight, gap, measuredRef, matchWidth, minWidth, fitHeight, alignStart, preferAbove]);
 
   // useLayoutEffect: 브라우저가 그리기 전에 위치를 확정한다.
   // useEffect였을 때는 첫 프레임이 {0,0}에 그려지고 그 다음 프레임에 제자리로

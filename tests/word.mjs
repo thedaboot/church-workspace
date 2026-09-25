@@ -2982,6 +2982,45 @@ check('saveBibleState가 성공·실패를 답으로 돌려준다',
   }
 }
 
+// ── 성경 검색 칸 (2026-09-25 검색 결과 감사) ────────────────────────────────
+// 폰(375×667)에서 최근 검색어 20줄을 심고 칸에 들어간다. 키보드는 아이폰처럼 **보이는 창만** 300px
+// 줄여 흉내 낸다(레이아웃 뷰포트는 그대로).
+//  ① 판이 칸 아래에 붙어 서고 보이는 창 안에서 끝난다 — 전에는 가두기가 288px 판을 칸 위로 끌어올려
+//     검색 칸을 덮었다. 되돌리기 검사: wordBible의 `fitHeight: true`를 지우면 ①이 깨진다.
+const bibleSearchBox = async (w, h) => {
+  await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: w < 768 });
+  await reload();
+  const recent = Array.from({ length: 20 }, (_, i) => ({ q: `검색어 ${i}`, at: '2026-09-20T00:00:00Z' }));
+  await ev(`localStorage.setItem('word_bible_state', ${JSON.stringify(JSON.stringify({ lastRef: '', bookmarks: [], highlights: [], recentSearches: recent }))})`);
+  await reload(); await sleep(1200);
+  await clickText('말씀'); await sleep(500);
+  await clickText('성경 읽기');
+  await waitFor(`document.querySelector('[data-col="searchbar"] input')`);
+  await sleep(400);
+  await send('Page.bringToFront');
+  await ev(`document.querySelector('[data-col="searchbar"] input').focus()`);
+  await sleep(300);
+};
+{
+  await bibleSearchBox(375, 667);
+  await ev(`(() => { const vv = window.visualViewport; const h = vv.height - 300;
+    Object.defineProperty(vv, 'height', { configurable: true, get: () => h });
+    vv.dispatchEvent(new Event('resize')); })()`);
+  await sleep(400);
+  const rp = await ev(`(() => {
+    const inp = document.querySelector('[data-col="searchbar"] form').getBoundingClientRect();
+    const p = document.querySelector('[data-recent]');
+    if (!p) return { none: true };
+    const r = p.getBoundingClientRect();
+    return { formBottom: Math.round(inp.bottom), top: Math.round(r.top), bottom: Math.round(r.bottom), vis: window.visualViewport.height,
+      scrolls: p.scrollHeight > p.clientHeight };
+  })()`);
+  check('키보드가 올라와도 최근 검색어 판이 칸을 덮지 않고 보이는 창 안에 선다',
+    rp.top >= rp.formBottom && rp.bottom <= rp.vis && rp.scrolls, JSON.stringify(rp));
+  await ev(`delete window.visualViewport.height; window.visualViewport.dispatchEvent(new Event('resize'))`);
+}
+await ev(`localStorage.removeItem('word_bible_state')`);
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.slice(0, 6).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill();

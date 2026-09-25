@@ -386,6 +386,7 @@ const paneIndex = (key) => PANES.findIndex(p => p[0] === key);
 // ── 성경 읽기 탭 ────────────────────────────────────────────────────────────
 // ── 상태 저장 · 형광펜 칠하기 — 리더(BibleTab)와 QT 본문(wordView QtPassage)이 같이 쓴다 ──
 const EMPTY_STATE = { lastRef: '', bookmarks: [], highlights: [], recentSearches: [] };
+const RECENT_MAX_H = 288;   // 최근 검색어 판의 높이 상한(예전 max-h-72) — 키보드가 있으면 더 줄어든다
 
 // what을 주면 **못 남겼을 때 이유까지 말한다**(사용자 피드백 2026-09-03 — 예외 문구).
 // 예전에는 saveBibleState가 실패를 삼켜서, 클라우드에 안 남은 형광펜이 화면에는
@@ -829,8 +830,10 @@ export function BibleTab({ initialRef = '' }) {
   // 최근 검색어 판은 **body 포털**이다(HANDOFF §8 '떠 있는 것') — 폭은 검색 칸에서 잰다.
   // 바깥 누름으로 닫는 훅이 없다: 칸의 blur가 닫고, 판의 mousedown preventDefault가 포커스를
   // 지켜서 포털이어도 판 안을 누르는 동안은 열려 있다.
-  const [recentPos, placeRecent] = useAnchoredPos(searchFormRef, recentOpen, 320, 288, 8, recentRef,
-    { matchWidth: true, align: 'start' });
+  // 키보드가 올라와 칸 아래가 짧으면 **판을 그 자리에 맞게 줄인다**(fitHeight · 2026-09-25) — 전에는
+  // 가두기가 288px 판을 칸 위로 끌어올려 검색 칸을 덮었다(375×667 · 키보드 300px).
+  const [recentPos, placeRecent] = useAnchoredPos(searchFormRef, recentOpen, 320, RECENT_MAX_H, 8, recentRef,
+    { matchWidth: true, align: 'start', fitHeight: true });
   // 한 줄을 지우면 판이 줄어든다 — 위로 뒤집혀 선 판이 칸에서 떨어져 뜨지 않게 다시 잰다
   useLayoutEffect(() => { if (recentOpen) placeRecent(); }, [recentOpen, recent.length, placeRecent]);
 
@@ -891,8 +894,9 @@ export function BibleTab({ initialRef = '' }) {
           {recentOpen && createPortal(
             <div
               ref={recentRef} data-recent="" onMouseDown={e => e.preventDefault()}
-              style={{ position: 'fixed', left: recentPos.left, top: recentPos.top, width: recentPos.width }}
-              className="z-[90] max-h-72 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150"
+              style={{ position: 'fixed', left: recentPos.left, top: recentPos.top, width: recentPos.width,
+                maxHeight: Math.min(RECENT_MAX_H, recentPos.maxHeight ?? RECENT_MAX_H) }}
+              className="z-[90] overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150"
             >
               <p className="px-2 pt-0.5 pb-1 text-[11px] font-bold text-fg-faint">최근 검색어</p>
               {recent.map(r => (
