@@ -4293,3 +4293,75 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '현민스(명단 이름 배현민) | 팀: 미지정 | 순: 순장 | 부를 때: 현민스 순장님');
   console.log('PASS  AI 사람 줄(aiPeople — 직함 고르기 · 순 칸 · 글에 나온 가입자)');
 }
+
+// ── 뜻 검색 결과를 줄로 (services/vecSearch.js · 사용자 결정 G-a · S-a 2026-09-25) ──────────
+// 화면(상단 검색의 '관련된 업무 내용' · 성경 검색의 AI 실패 대체)은 게스트 모드에서 안 돈다(네트워크 0) —
+// 그래서 모양을 바꾸는 순수 로직은 여기서 본다. **되돌리기**: andParticle의 `% 28 ? '과' : '와'`를
+// 뒤집거나, relatedTasks의 exclude 검사·같은 업무 묶기를 지우면 깨진다.
+{
+  const V = await import(new URL('../src/services/vecSearch.js', import.meta.url).href);
+  // 와/과 — 받침으로 가른다(사용자 문구 '{검색어}과 관련된 성경 구절')
+  assert.strictEqual(V.withAnd('두려움'), '두려움과');
+  assert.strictEqual(V.withAnd('사랑'), '사랑과');
+  assert.strictEqual(V.withAnd('믿음 소망'), '믿음 소망과');
+  assert.strictEqual(V.withAnd('평화'), '평화와');
+  assert.strictEqual(V.withAnd('재물과 돈'), '재물과 돈과');
+  assert.strictEqual(V.withAnd('진로 고민'), '진로 고민과');
+  assert.strictEqual(V.withAnd('기도'), '기도와');
+  assert.strictEqual(V.andParticle('걱정?'), '과', '끝의 문장부호는 건너뛴다');
+  assert.strictEqual(V.andParticle('요한복음 3'), '과', '숫자는 읽는 소리로(삼)');
+  assert.strictEqual(V.andParticle('시편 23:2'), '와', '숫자는 읽는 소리로(이)');
+  assert.strictEqual(V.andParticle('love'), '와', '한글이 아니면 와');
+  assert.strictEqual(V.andParticle(''), '와');
+  // 조각 → 발췌 한 줄 (api/_docsync.js buildDocs의 모양)
+  assert.strictEqual(V.docExcerpt({ kind: 'comment', body: '수련회 차량 대절 견적 · 댓글: 버스 두 대\n견적 받았어요' }), '버스 두 대 견적 받았어요');
+  assert.strictEqual(V.docExcerpt({ kind: 'file', body: '청년부 2분기 결산 · 첨부: 결산안.xlsx\n수련회 숙소비,\n차량 대절비' }), '결산안.xlsx · 수련회 숙소비, 차량 대절비');
+  assert.strictEqual(V.docExcerpt({ kind: 'file', body: '업무 · 첨부: 사진.jpg' }), '사진.jpg', '발췌가 없으면 파일명만');
+  assert.strictEqual(V.docExcerpt({ kind: 'card', body: '2026 여름 수련회 / 장소 답사\n숙소 1인당   비용' }), '숙소 1인당 비용');
+  assert.strictEqual(V.docExcerpt({ kind: 'card', body: '프로젝트 / 제목만' }), '', '본문 없는 업무는 빈 발췌');
+  // 조각들 → 업무 줄: 가까운 순 · 업무 하나에 한 줄 · 위에 선 업무 빼기 · 모르는 업무 빼기 · 다섯까지
+  const tasksById = { a: { id: 'a', title: 'A' }, b: { id: 'b', title: 'B' }, c: { id: 'c', title: 'C' },
+    d: { id: 'd', title: 'D' }, e: { id: 'e', title: 'E' }, f: { id: 'f', title: 'F' }, g: { id: 'g', title: 'G' } };
+  const rows = [
+    { kind: 'card', card_id: 'a', body: 'P / A', score: 0.9 },                    // 머리줄만 — 발췌를 빌린다
+    { kind: 'comment', card_id: 'b', body: 'B · 댓글: 비', score: 0.85 },
+    { kind: 'comment', card_id: 'a', body: 'A · 댓글: 에이 댓글', score: 0.8 },
+    { kind: 'file', card_id: 'x', body: 'X · 첨부: 없는.pdf\n글', score: 0.79 },   // 스토어에 없는 업무
+    { kind: 'file', card_id: 'c', body: 'C · 첨부: 씨.pdf\n씨 발췌', score: 0.7 },
+    { kind: 'card', card_id: 'd', body: 'P / D\n디', score: 0.6 },
+    { kind: 'card', card_id: 'e', body: 'P / E\n이', score: 0.5 },
+    { kind: 'card', card_id: 'f', body: 'P / F\n에프', score: 0.4 },
+    { kind: 'card', card_id: 'g', body: 'P / G\n지', score: 0.3 },
+  ];
+  const got = V.relatedTasks(rows, { tasksById, exclude: new Set(['d']) });
+  assert.deepStrictEqual(got.map(r => r.task.id), ['a', 'b', 'c', 'e', 'f'], '가까운 순 · 한 업무 한 줄 · 위의 업무·모르는 업무 빼고 다섯');
+  assert.deepStrictEqual([got[0].kind, got[0].excerpt], ['comment', '에이 댓글'], '빈 발췌는 같은 업무의 다음 조각에서 빌린다');
+  assert.deepStrictEqual([got[2].kind, got[2].excerpt], ['file', '씨.pdf · 씨 발췌']);
+  assert.strictEqual(V.relatedTasks(rows, { tasksById: new Map(Object.entries(tasksById)), limit: 2 }).length, 2, 'Map도 받는다 · limit');
+  assert.deepStrictEqual(V.relatedTasks(null, { tasksById }), []);
+  assert.deepStrictEqual(V.RELATED_KIND_LABEL, { comment: '댓글', file: '첨부', card: '상세 내용' });
+  assert.ok(V.RELATED_LIMIT === 5 && V.RELATED_DEBOUNCE_MS >= 350 && V.RELATED_K >= 10, '다섯 줄 · 350ms 이상 기다린다 · k 10 이상');
+  assert.ok(!V.relatedReady('가') && !V.relatedReady(' 가 ') && V.relatedReady('가나') && V.relatedReady('가 나'), '공백을 뺀 두 글자부터');
+  assert.strictEqual(V.relatedKey('  찬양   기획 '), '찬양 기획');
+  assert.strictEqual(V.vecParam([0.5, -1]), '[0.5,-1]');
+  // 성경 대체 줄 — match_bible 행 → AI 줄과 같은 모양 · 모르는 책·겹친 절 버림
+  const books = [{ id: 'isa', name: '이사야' }, { id: 'psa', name: '시편' }];
+  const bh = V.bibleVecHits([
+    { ref: '이사야 41:10', book: 'isa', chapter: 41, verse: 10, body: '두려워 말라' },
+    { ref: '이사야 41:10', book: 'isa', chapter: 41, verse: 10, body: '두려워 말라' },
+    { ref: '??', book: 'zzz', chapter: 1, verse: 1, body: 'x' },
+    { ref: '시편 23:4', book: 'psa', chapter: 23, verse: 4, body: '사망의' },
+  ], books);
+  assert.deepStrictEqual(bh, [
+    { bookId: 'isa', name: '이사야', chapter: 41, verse: 10, to: 10, text: '두려워 말라' },
+    { bookId: 'psa', name: '시편', chapter: 23, verse: 4, to: 4, text: '사망의' },
+  ]);
+  // 게스트에서는 네트워크 0 — semanticOn이 클라우드 클라이언트를 보고, 상단 검색이 그것으로 구역을 가른다
+  const semSrc = readFileSync(new URL('../src/services/semantic.js', import.meta.url), 'utf8');
+  const laySrc = readFileSync(new URL('../src/components/layout.jsx', import.meta.url), 'utf8');
+  assert.ok(/export const semanticOn = \(\) => !!supabase;/.test(semSrc), 'semanticOn은 클라우드 클라이언트가 있을 때만 참');
+  assert.ok(/const ready = semanticOn\(\) && relatedReady\(query\);/.test(laySrc), '상단 검색의 뜻 결과는 semanticOn일 때만 묻는다');
+  assert.ok(/>관련된 업무 내용</.test(laySrc), "구역 머리는 사용자 문구 '관련된 업무 내용'");
+  assert.ok(/max-h-\[360px\]/.test(laySrc), '데스크톱 결과 판은 360px까지');
+  console.log('PASS  뜻 검색 결과를 줄로(vecSearch — 와/과 · 발췌 · 업무 묶기 · 성경 대체 줄 · 게스트 네트워크 0)');
+}

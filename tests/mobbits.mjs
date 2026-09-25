@@ -84,6 +84,37 @@ check('검색 결과가 나온다', hits >= 1, `결과 버튼 ${hits}개`);
 await ev(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);
 await sleep(350);
 
+// ── 모바일 검색 판: '검색 결과가 없어요'는 판의 가운데 · 게스트에는 뜻 검색 구역이 없다 (G-a 2026-09-25) ──
+// 되돌리기 검사: SearchResults의 `none` 문구에서 text-center를 지우면 첫 단정이 깨진다.
+{
+  await ev(`[...document.querySelectorAll('button[title="검색"]')].pop().click()`);
+  await sleep(450);
+  await ev(`(() => {
+    const inp = [...document.querySelectorAll('input[placeholder*="검색"]')].find(i => i.getBoundingClientRect().width > 0);
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(inp, '없는말없는말');
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  const everRelated = await ev(`(async () => { let seen = false; for (let i = 0; i < 18; i++) { if (document.querySelector('.search-related')) seen = true; await new Promise(r => setTimeout(r, 50)); } return seen; })()`, true);
+  const none = await ev(`(() => {
+    const p = document.querySelector('.search-none');
+    if (!p) return { found: false };
+    const panel = p.closest('.fixed > div');
+    const cs = getComputedStyle(panel);
+    const P = panel.getBoundingClientRect();
+    const l = P.left + parseFloat(cs.paddingLeft), r = P.right - parseFloat(cs.paddingRight);
+    const area = p.parentElement.getBoundingClientRect();
+    const range = document.createRange(); range.selectNodeContents(p); const g = range.getBoundingClientRect();
+    return { found: true, dx: +Math.abs((g.left + g.right) / 2 - (l + r) / 2).toFixed(1),
+      dy: +Math.abs((g.top + g.bottom) / 2 - (area.top + area.bottom) / 2).toFixed(1),
+      related: !!document.querySelector('.search-related'),
+      ai: performance.getEntriesByType('resource').filter(e => /\\/api\\/ai/.test(e.name)).length };
+  })()`);
+  check("모바일 검색: '검색 결과가 없어요'가 판의 가로·세로 가운데에 선다", none.found && none.dx <= 1 && none.dy <= 1, JSON.stringify(none));
+  check('모바일 검색: 게스트에서는 관련된 업무 내용 구역도 /api/ai 요청도 없다', none.found && !none.related && !everRelated && none.ai === 0, JSON.stringify({ ...none, everRelated }));
+  await ev(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);
+  await sleep(350);
+}
+
 // 3) 테마: 하단 '내 정보' → 메뉴 → 다크 모드
 await ev(`document.querySelector('div.md\\\\:hidden button[title="설정"]').click()`);
 await sleep(450);

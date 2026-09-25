@@ -501,6 +501,38 @@ for (const w of [800, 1440]) {
   check('결과 줄에서 Enter로 그 프로젝트가 열리고 판이 닫힌다', went.p === 'p2' && !went.list, JSON.stringify(went));
 }
 
+// ── 검색 결과가 없어요 · 관련된 업무 내용 (사용자 결정 G-a 2026-09-25) ───────────────
+// '검색 결과가 없어요'는 그 문구가 서는 자리(판)의 가로·세로 가운데다. 뜻 검색 구역('관련된 업무 내용')은
+// 클라우드에서만 선다 — 게스트에서는 구역도 없고 질문 임베딩(/api/ai)도 나가지 않는다(디바운스 뒤까지 본다).
+// 판의 최대 높이는 두 구역이 들어가도록 360px.
+// 되돌리기 검사: SearchResults의 `none` 문구에서 text-center를 지우면 첫 단정이, useRelated의
+// `semanticOn() &&`를 지우면(게스트에서도 묻는다) 둘째 단정이 깨진다.
+{
+  await deskSearch(1440, '없');   // 한 글자 — 결과 판은 아직 없다(두 글자부터)
+  await ev(`(() => { const inp = [...document.querySelectorAll('input[placeholder*="검색"]')].find(i => i.getBoundingClientRect().width > 0);
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(inp, '없는말없는말');
+    inp.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  // 뜻 검색 디바운스(400ms) 앞뒤를 50ms마다 훑는다 — 한 번이라도 구역(뼈대 포함)이 서면 걸린다
+  const everRelated = await ev(`(async () => { let seen = false; for (let i = 0; i < 16; i++) { if (document.querySelector('.search-related')) seen = true; await new Promise(r => setTimeout(r, 50)); } return seen; })()`, true);
+  const none = await ev(`(() => {
+    const list = [...document.body.children].find(c => String(c.className || '').includes('z-[80]'));
+    const p = list?.querySelector('.search-none');
+    if (!p) return { found: false };
+    const cs = getComputedStyle(list);
+    const L = list.getBoundingClientRect();
+    const box = { l: L.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), r: L.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight),
+      t: L.top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop), b: L.bottom - parseFloat(cs.borderBottomWidth) - parseFloat(cs.paddingBottom) };
+    const range = document.createRange(); range.selectNodeContents(p); const g = range.getBoundingClientRect();
+    return { found: true, text: p.textContent.trim(), dx: +Math.abs((g.left + g.right) / 2 - (box.l + box.r) / 2).toFixed(1),
+      dy: +Math.abs((g.top + g.bottom) / 2 - (box.t + box.b) / 2).toFixed(1),
+      related: !!document.querySelector('.search-related'), maxH: cs.maxHeight,
+      ai: performance.getEntriesByType('resource').filter(e => /\\/api\\/ai/.test(e.name)).length };
+  })()`);
+  check("데스크톱 검색: '검색 결과가 없어요'가 판의 가로·세로 가운데에 선다", none.found && none.text === '검색 결과가 없어요' && none.dx <= 1 && none.dy <= 1, JSON.stringify(none));
+  check('게스트에서는 관련된 업무 내용 구역도 /api/ai 요청도 없다', none.found && !none.related && !everRelated && none.ai === 0, JSON.stringify({ ...none, everRelated }));
+  check('데스크톱 검색 결과 판의 최대 높이는 360px', none.maxH === '360px', JSON.stringify(none));
+}
+
 
 // ── 화면 전환 모션 (사용자 요청 2026-09-07) ─────────────────────────────────
 // 교회 축(홈·예배·말씀·모임)끼리 옮길 때만 방향이 있다 — 탭 차례로 오른쪽이면

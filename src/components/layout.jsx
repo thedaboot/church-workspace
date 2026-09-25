@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
-import { LayoutDashboard, CheckSquare, Search, X, Hash, ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users, Archive, CalendarDays, CalendarClock, Smartphone, Church, BookOpen, HeartHandshake, Home, Briefcase } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Search, X, Hash, ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users, Archive, CalendarDays, CalendarClock, Smartphone, Church, BookOpen, HeartHandshake, Home, Briefcase, MessageSquare, Paperclip } from 'lucide-react';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable,
@@ -9,7 +9,7 @@ import { dropCollision } from './dropCollision.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsList, selectActiveProjectsList, selectArchivedProjectsList,
-  selectProjectsMap, selectMyTasks, selectTasksList, selectMembers
+  selectProjectsMap, selectMyTasks, selectTasksList, selectTasks, selectMembers
 } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
 import { formatRelative, projectYear, reorderIds, viewersOf, imeComposing } from '../utils.js';
@@ -26,6 +26,9 @@ import { failText } from '../services/errorText.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 // 바깥 클릭 / Esc 로 닫히는 팝오버(프로필 메뉴·프로젝트 더보기·알림·검색 공용)
 import { useDismiss } from '../hooks/useDismiss.js';
+import { Skeleton } from './media.jsx';
+import { semanticOn, matchDocs, peekDocs } from '../services/semantic.js';
+import { relatedKey, relatedReady, relatedTasks, RELATED_KIND_LABEL, RELATED_DEBOUNCE_MS } from '../services/vecSearch.js';
 import { CONFIG } from '../config.js';
 import logoLight from '../assets/logo-light.webp';
 import logoDark from '../assets/logo-dark.webp';
@@ -858,13 +861,66 @@ export const SearchHint = ({ show, left, size, hints = SEARCH_HINTS }) => {
   );
 };
 
+// ── 관련된 업무 내용 (뜻 검색 · 사용자 결정 G-a 2026-09-25) ──────────────────
+// 글자 결과는 공백을 뺀 includes라 띄어쓰기·낱말이 조금만 달라도 못 찾고('찬양 기획' ↛ '찬양예배 기획'),
+// 클라우드에서는 열어 본 업무의 댓글·첨부만 손에 있다(PITFALLS 6-20). 그래서 글자 결과 **아래에**
+// doc_vec(0074)으로 찾은 업무를 최대 다섯 줄 세운다 — 위에 이미 선 업무는 빼고, 줄마다 어디에 걸렸는지
+// 한 줄('댓글 · ' · '첨부 · ' · '상세 내용 · '). 모양은 services/vecSearch.js, 왕복은 services/semantic.js.
+//   · 두 글자부터 · 치는 동안은 묻지 않는다(RELATED_DEBOUNCE_MS) · 같은 물음은 메모리에서 · 옛 물음은 끊는다
+//   · 도는 동안은 글 없이 줄 모양 뼈대만 · 못 찾았거나 실패하면 구역째 없다(설명 줄 없음)
+//   · **게스트 모드에서는 구역도 네트워크도 없다**(semanticOn) — 그래서 검사는 이 길을 못 탄다(실기기 확인)
+function useRelated(query) {
+  const ready = semanticOn() && relatedReady(query);
+  const key = relatedKey(query);
+  const [got, setGot] = useState({ key: '', rows: null });
+  useEffect(() => {
+    if (!ready) return undefined;
+    const hit = peekDocs(key);
+    if (hit) { setGot({ key, rows: hit }); return undefined; }
+    const ctl = new AbortController();
+    const t = setTimeout(() => {
+      matchDocs(key, { signal: ctl.signal })
+        .then(rows => { if (!ctl.signal.aborted) setGot({ key, rows }); })
+        .catch(e => {
+          if (ctl.signal.aborted || e?.name === 'AbortError') return;
+          console.warn('[search] 관련된 업무 내용을 받지 못했어요:', e);
+          setGot({ key, rows: [] });
+        });
+    }, RELATED_DEBOUNCE_MS);
+    return () => { clearTimeout(t); ctl.abort(); };
+  }, [ready, key]);
+  if (!ready) return { on: false, loading: false, rows: [] };
+  const rows = got.key === key ? got.rows : (peekDocs(key) || null);
+  return { on: true, loading: rows === null, rows: rows || [] };
+}
+
+// 뜻 결과 한 줄의 표시 — 업무는 초록(글자 결과와 같다), 댓글은 파랑, 첨부는 주황(목업에서 정한 색)
+const RELATED_ICON = {
+  card: { Icon: CheckSquare, cls: 'bg-tag-green text-tag-green-fg' },
+  comment: { Icon: MessageSquare, cls: 'bg-tag-blue text-tag-blue-fg' },
+  file: { Icon: Paperclip, cls: 'bg-tag-orange text-tag-orange-fg' },
+};
+
+// 기다리는 동안의 줄 — 실제 줄(아이콘 24 · 제목 20 · 아랫줄 15 · py-2.5)과 같은 높이를 잡는다
+const RelatedSkeleton = () => (
+  <div className="search-related-skel flex items-center gap-2 px-2 py-2.5" aria-hidden="true">
+    <Skeleton className="w-6 h-6 rounded-md shrink-0" />
+    <span className="flex-1 min-w-0">
+      <span className="flex items-center h-5"><Skeleton className="h-2.5 w-[70%] rounded-xs" /></span>
+      <span className="flex items-center h-[15px]"><Skeleton className="h-2 w-[45%] rounded-xs" /></span>
+    </span>
+  </div>
+);
+
 // 결과 계산 + 렌더 (검색 중일 때만 마운트 → store 구독·계산도 그때만 발생)
 // useDeferredValue로 타이핑 입력과 무거운 결과 렌더를 분리해 렉 방지
 function SearchResults({ query, onPick }) {
   const projectsList = useStore(selectProjectsList);
   const tasksList = useStore(selectTasksList);
+  const tasksById = useStore(selectTasks).byId;
   const projectsMap = useStore(selectProjectsMap);
   const deferred = useDeferredValue(query);
+  const related = useRelated(deferred);
 
   const results = useMemo(() => {
     // 공백을 지우고 비교한다 — "버스 견적"이 "전세버스 견적서"를 못 찾던 것(§1.3)이
@@ -891,45 +947,79 @@ function SearchResults({ query, onPick }) {
     return { projectHits, taskHits };
   }, [deferred, projectsList, tasksList]);
 
+  const pShown = results ? results.projectHits.slice(0, SEARCH_LIMIT) : [];
+  const tShown = results ? results.taskHits.slice(0, SEARCH_LIMIT) : [];
+  // 위에 이미 선 업무는 뜻 결과에서 뺀다(같은 업무를 두 번 세우지 않는다)
+  const shownIds = tShown.map(t => t.id).join(',');
+  const relatedRows = useMemo(
+    () => relatedTasks(related.rows, { tasksById, exclude: new Set(shownIds ? shownIds.split(',') : []) }),
+    [related.rows, tasksById, shownIds],
+  );
+
   if (!results) return null;
   const empty = results.projectHits.length === 0 && results.taskHits.length === 0;
-  if (empty) return <p className="px-3 py-6 text-center text-xs text-fg-faint">검색 결과가 없어요</p>;
+  const showRelated = related.on && (related.loading || relatedRows.length > 0);
+  // '검색 결과가 없어요'는 **그 문구가 서는 자리의 가운데**다 — 뜻 결과 구역이 있으면 글자 결과
+  // 자리(구역 위) 안에서, 없으면 판 전체에서 가로·세로 가운데(사용자 요청 2026-09-25 · tests/navsmoke·mobbits).
+  const none = <p className="search-none px-3 py-6 text-center text-xs text-fg-faint">검색 결과가 없어요</p>;
+  if (empty && !showRelated) return none;
 
-  const pShown = results.projectHits.slice(0, SEARCH_LIMIT);
-  const tShown = results.taskHits.slice(0, SEARCH_LIMIT);
   const pMore = results.projectHits.length - pShown.length;
   const tMore = results.taskHits.length - tShown.length;
   const q = deferred.trim();
 
   return (
     <>
-      {pShown.length > 0 && (
-        <div className="mb-1">
-          <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-muted uppercase tracking-wider">프로젝트</p>
-          {pShown.map(p => (
-            <button key={p.id} onClick={() => onPick('project', p)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
-              <span className="w-6 h-6 rounded-md bg-tag-purple text-tag-purple-fg flex items-center justify-center shrink-0"><Hash size={13} strokeWidth={1.75} /></span>
-              <span className="text-sm text-fg truncate min-w-0">{highlight(p.title, q)}</span>
-              {/* 보관된 것도 검색에는 나온다(지운 게 아니다) — 대신 그렇다고 표시한다 */}
-              {p.archived && <span className="shrink-0 text-[10px] text-fg-muted">보관</span>}
-            </button>
-          ))}
-          {pMore > 0 && <p className="px-2 py-1 text-[10px] text-fg-muted">그 외 {pMore}건 더 있어요</p>}
-        </div>
-      )}
-      {tShown.length > 0 && (
-        <div>
-          <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-muted uppercase tracking-wider">업무</p>
-          {tShown.map(t => (
-            <button key={t.id} onClick={() => onPick('task', t)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
-              <span className="w-6 h-6 rounded-md bg-tag-green text-tag-green-fg flex items-center justify-center shrink-0"><CheckSquare size={13} strokeWidth={1.75} /></span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-sm text-fg truncate">{highlight(t.title, q)}</span>
-                <span className="block text-[10px] text-fg-muted truncate">{projectsMap[t.projectId]?.title || '프로젝트 미지정'}</span>
-              </span>
-            </button>
-          ))}
-          {tMore > 0 && <p className="px-2 py-1 text-[10px] text-fg-muted">그 외 {tMore}건 더 있어요</p>}
+      <div className="search-text">
+        {empty && none}
+        {pShown.length > 0 && (
+          <div className="mb-1">
+            <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-muted uppercase tracking-wider">프로젝트</p>
+            {pShown.map(p => (
+              <button key={p.id} onClick={() => onPick('project', p)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
+                <span className="w-6 h-6 rounded-md bg-tag-purple text-tag-purple-fg flex items-center justify-center shrink-0"><Hash size={13} strokeWidth={1.75} /></span>
+                <span className="text-sm text-fg truncate min-w-0">{highlight(p.title, q)}</span>
+                {/* 보관된 것도 검색에는 나온다(지운 게 아니다) — 대신 그렇다고 표시한다 */}
+                {p.archived && <span className="shrink-0 text-[10px] text-fg-muted">보관</span>}
+              </button>
+            ))}
+            {pMore > 0 && <p className="px-2 py-1 text-[10px] text-fg-muted">그 외 {pMore}건 더 있어요</p>}
+          </div>
+        )}
+        {tShown.length > 0 && (
+          <div>
+            <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-muted uppercase tracking-wider">업무</p>
+            {tShown.map(t => (
+              <button key={t.id} onClick={() => onPick('task', t)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
+                <span className="w-6 h-6 rounded-md bg-tag-green text-tag-green-fg flex items-center justify-center shrink-0"><CheckSquare size={13} strokeWidth={1.75} /></span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm text-fg truncate">{highlight(t.title, q)}</span>
+                  <span className="block text-[10px] text-fg-muted truncate">{projectsMap[t.projectId]?.title || '프로젝트 미지정'}</span>
+                </span>
+              </button>
+            ))}
+            {tMore > 0 && <p className="px-2 py-1 text-[10px] text-fg-muted">그 외 {tMore}건 더 있어요</p>}
+          </div>
+        )}
+      </div>
+      {showRelated && (
+        <div className="search-related mt-1" aria-busy={related.loading || undefined}>
+          <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-muted uppercase tracking-wider">관련된 업무 내용</p>
+          {related.loading ? <><RelatedSkeleton /><RelatedSkeleton /></> : relatedRows.map(({ task, kind, excerpt }) => {
+            const { Icon, cls } = RELATED_ICON[kind] || RELATED_ICON.card;
+            return (
+              <button key={task.id} onClick={() => onPick('task', task)} data-kind={kind}
+                className="search-related-row w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
+                <span className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${cls}`}><Icon size={13} strokeWidth={1.75} /></span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm text-fg truncate">{task.title}</span>
+                  <span className="block text-[10px] text-fg-muted truncate">
+                    {excerpt ? `${RELATED_KIND_LABEL[kind]} · ${excerpt}` : (projectsMap[task.projectId]?.title || '프로젝트 미지정')}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </>
@@ -952,7 +1042,7 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
   // 폭은 칸을 따르되 **320px 아래로는 줄이지 않는다**(minWidth) — 768~1030px에서 칸이 54~310px로
   // 줄어 결과 판이 글자 하나 폭의 기둥이 됐다(2026-09-25 · tests/navsmoke). 넓힌 판은 화면 안으로 갇힌다.
   const listOpen = open && active;
-  const [listPos] = useAnchoredPos(rootRef, listOpen, 320, 320, 8, listRef, { matchWidth: true, minWidth: 320, align: 'start' });
+  const [listPos] = useAnchoredPos(rootRef, listOpen, 320, 360, 8, listRef, { matchWidth: true, minWidth: 320, align: 'start' });
 
   // 데스크톱: 바깥 클릭 / Escape 닫기. 프로필 메뉴·더보기와 **같은 훅**을 쓴다 — 닫는 규칙이
   // 여러 벌이면 한쪽만 고쳐진다. 결과 판이 포털이라 **그 판도 '안'으로** 넘긴다(useDismiss 머리말).
@@ -1057,7 +1147,7 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
       <SearchHint show={!query} left="2rem" size="text-[12.5px]" />
       {listOpen && createPortal(
         <div ref={listRef} onKeyDown={onListKey} style={{ position: 'fixed', left: listPos.left, top: listPos.top, width: listPos.width }}
-          className="z-[80] max-h-80 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150">
+          className="z-[80] max-h-[360px] overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150">
           <SearchResults query={query} onPick={pick} />
         </div>, document.body)}
     </div>
