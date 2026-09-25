@@ -989,20 +989,29 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
       <div className="border-y border-line divide-y divide-line/60">
         <PropertyRow icon={<CheckSquare size={13} className="text-fg-faint" />} label="상태">
           <div className="flex flex-wrap gap-1.5">
-            {CONFIG.STATUSES.map(s => (
-              <button key={s} type="button" onClick={() => setFormData(prev => ({ ...prev, status: s }))}
+            {/* 상시는 맨 아래(config STATUS_PICK). 상시로 고르는 순간 날짜 두 칸을 비운다 —
+                상시는 마감이 없는 업무이고, 칸을 숨기기만 하면 옛 날짜가 남아 달력·마감 셈에 선다.
+                저장 쪽(domain.updateWithLogs)도 같은 일을 한 번 더 한다. */}
+            {CONFIG.STATUS_PICK.map(s => (
+              <button key={s} type="button" onClick={() => setFormData(prev => (s === CONFIG.STATUS_ONGOING
+                ? { ...prev, status: s, startDate: '', dueDate: '' }
+                : { ...prev, status: s }))}
                 className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all active:scale-95 ${(formData.status || '시작 전') === s ? CONFIG.STATUS_STYLES[s] + ' border-transparent shadow-soft' : 'bg-surface text-fg-muted border-line hover:bg-surface-hover'}`}>
                 {s}
               </button>
             ))}
           </div>
         </PropertyRow>
-        <PropertyRow icon={<CalendarRange size={13} className="text-fg-faint" />} label="시작일">
-          <DatePicker value={formData.startDate || ''} onChange={(v) => setFormData(prev => ({ ...prev, startDate: v }))} />
-        </PropertyRow>
-        <PropertyRow icon={<Clock size={13} className="text-fg-faint" />} label="마감일">
-          <DatePicker value={formData.dueDate || ''} onChange={(v) => setFormData(prev => ({ ...prev, dueDate: v }))} />
-        </PropertyRow>
+        {formData.status !== CONFIG.STATUS_ONGOING && (
+          <>
+            <PropertyRow icon={<CalendarRange size={13} className="text-fg-faint" />} label="시작일">
+              <DatePicker value={formData.startDate || ''} onChange={(v) => setFormData(prev => ({ ...prev, startDate: v }))} />
+            </PropertyRow>
+            <PropertyRow icon={<Clock size={13} className="text-fg-faint" />} label="마감일">
+              <DatePicker value={formData.dueDate || ''} onChange={(v) => setFormData(prev => ({ ...prev, dueDate: v }))} />
+            </PropertyRow>
+          </>
+        )}
         <PropertyRow icon={<Hash size={13} className="text-fg-faint" />} label="담당 팀">
           <div className="flex flex-wrap gap-1.5">
             {Object.entries(CONFIG.TEAMS).map(([team, colorClass]) => {
@@ -1167,8 +1176,8 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
       <h2 className="text-xl md:text-2xl font-extrabold text-fg leading-tight tracking-[-0.6px]">{formData.title}</h2>
       <div className="mt-4 border-y border-line divide-y divide-line/60 text-xs">
         <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">담당자</span><span className="font-medium text-fg">{formData.assignees?.join(', ') || '미지정'}</span></div>
-        {formData.startDate && <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">시작일</span><span className="font-semibold text-fg">{new Date(formData.startDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</span></div>}
-        {formData.dueDate && <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">마감일</span><span className="font-semibold text-fg">{new Date(formData.dueDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</span></div>}
+        {formData.startDate && formData.status !== CONFIG.STATUS_ONGOING && <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">시작일</span><span className="font-semibold text-fg">{new Date(formData.startDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</span></div>}
+        {formData.dueDate && formData.status !== CONFIG.STATUS_ONGOING && <div className="flex items-center gap-0 py-2.5"><span className="w-24 shrink-0 text-fg-muted">마감일</span><span className="font-semibold text-fg">{new Date(formData.dueDate).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}</span></div>}
         <DependsViewRow dependsOn={formData.dependsOn} />
       </div>
 

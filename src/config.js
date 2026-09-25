@@ -32,30 +32,43 @@ export const CONFIG = {
     '순원': 'bg-tag-orange text-tag-orange-fg',
   },
   // 보드 컬럼 순서 = 이 배열 순서. DB 값 매핑은 STATUS_DB(인덱스가 아니라 이름 기준)
+  // **`상시`는 여기 없다** — 보드 칸이 아니라 칸 위의 한 줄이다(boards.jsx OngoingRow).
+  // 이 배열을 돌며 칸·범례·비중 바를 만드는 자리가 여럿이라, 넣으면 다섯째 칸이 생긴다.
   STATUSES: ['시작 전', '진행 중', '보류 중', '완료'],
+  // 마감 없이 계속 살아 있는 업무(순번표·현황표·양식·메뉴얼 — 0075 'ongoing' · 2026-09-25 사용자 결정).
+  // 가짜 마감(12-27 · 12-31)을 넣어 버틴 업무가 있었다. 달력·지연·마감 구간·남은 업무 셈에
+  // 들어가지 않는다(services/taskCounts.js가 한 벌로 판정한다).
+  STATUS_ONGOING: '상시',
+  // 상태를 **고르는** 자리(업무 창 · 상태 옮기기 · 내 업무 칩)의 순서 — 상시는 맨 아래
+  STATUS_PICK: ['시작 전', '진행 중', '보류 중', '완료', '상시'],
   STATUS_STYLES: {
     '시작 전': 'bg-tag-gray text-tag-gray-fg border-line',
     '진행 중': 'bg-tag-blue text-tag-blue-fg border-line',
     '보류 중': 'bg-tag-yellow text-tag-yellow-fg border-line',
-    '완료': 'bg-tag-green text-tag-green-fg border-line'
+    '완료': 'bg-tag-green text-tag-green-fg border-line',
+    '상시': 'bg-tag-purple text-tag-purple-fg border-line',
   },
   // 컬럼 헤더 dot 색 (상태별)
   STATUS_DOTS: {
     '시작 전': 'bg-fg-faint',
     '진행 중': 'bg-accent',
     '보류 중': 'bg-status-hold',
-    '완료': 'bg-tag-green-fg'
+    '완료': 'bg-tag-green-fg',
+    '상시': 'bg-tag-purple-fg',
   },
   // 앱 표기 ↔ DB(cards.status) 값. 순서를 바꿔도 매핑이 깨지지 않게 이름으로 못 박는다.
-  STATUS_DB: { '시작 전': 'todo', '진행 중': 'doing', '보류 중': 'hold', '완료': 'done' },
+  // cloud.js의 statusFromDb는 이 표를 뒤집어 쓴다 — 여기 없는 DB 값은 '시작 전'으로 떨어진다.
+  STATUS_DB: { '시작 전': 'todo', '진행 중': 'doing', '보류 중': 'hold', '완료': 'done', '상시': 'ongoing' },
   // 상태 칩용 실제 색값 (인라인 style에서 쓴다 — Tailwind 클래스로는 값을 꺼낼 수 없다)
   STATUS_BG_VAR: {
     '시작 전': 'var(--app-tag-gray)', '진행 중': 'var(--app-tag-blue)',
     '보류 중': 'var(--app-tag-yellow)', '완료': 'var(--app-tag-green)',
+    '상시': 'var(--app-tag-purple)',
   },
   STATUS_FG_VAR: {
     '시작 전': 'var(--app-tag-gray-fg)', '진행 중': 'var(--app-tag-blue-fg)',
     '보류 중': 'var(--app-tag-yellow-fg)', '완료': 'var(--app-tag-green-fg)',
+    '상시': 'var(--app-tag-purple-fg)',
   },
   // 팀 이름을 배지가 아니라 글자색으로 쓸 때 (보드 카드). TEAMS와 같은 색 계열.
   TEAM_FG: {

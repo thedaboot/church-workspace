@@ -1,17 +1,18 @@
 import React, { lazy, Suspense, useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, ChevronDown, Check, Trash2, Pencil } from 'lucide-react';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
-import { groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear, datedTasks, mergeActivitySeen, teamChips as teamMemberChips, weekEndOf, completedTime } from '../utils.js';
+import { groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear, datedTasks, mergeActivitySeen, teamChips as teamMemberChips, completedTime } from '../utils.js';
+import { isDone, isOpen, isOngoing, isRunning, isOverdue, dueCounts, progressOf, teamLeftStats, inProjects, recentDoneCount } from '../services/taskCounts.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
 import { YearPicker } from '../components/layout.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { store, useStore } from '../store/workspaceStore.js';
 import {
   selectCurrentUser, selectProjectsMap, selectActiveProjectsList, selectMyTasks,
-  selectDashboardStats, selectTasksList, selectMembers, selectActivityFeed, selectTasks, selectProjectsList
+  selectTasksList, selectMembers, selectActivityFeed, selectTasks, selectProjectsList
 } from '../store/selectors.js';
 import {
-  ISO_TODAY, daysLeft, ageDays, groupByDue, KpiCell, Bar, StatusSegments,
+  ISO_TODAY, daysLeft, groupByDue, KpiCell, Bar, StatusSegments,
   DueGroupList, TeamLeftGrid, PersonLoadGrid, personLoad, SectionHead, Card, PeopleStrip, MembersModal, ActivityFeed, NetworkMap,
   STATUS_DOT_VAR, STATUS_BAR,
 } from './dashboardParts.jsx';
@@ -64,13 +65,21 @@ const teamCountsOf = (list) => {
 const teamChipsOf = (counts) => Object.keys(CONFIG.TEAMS).filter(n => counts[n]);
 
 // 업무 목록 → 프로젝트별 진척. '내 업무'와 팀 보드의 옆 칸이 같은 셈을 쓴다.
-const progressByProject = (list, projectsMap) => [...groupBy(list, t => t.projectId).entries()]
-  .map(([id, rows]) => ({
-    id,
-    title: projectsMap[id]?.title || '프로젝트 미지정',
-    done: rows.reduce((n, t) => n + (t.status === '완료' ? 1 : 0), 0),
-    total: rows.length,
-  }));
+// **고른 해의 보관 안 한 프로젝트만**(ids) — 대시보드 '프로젝트 진행'과 같은 기준이다(2026-09-25 셈 감사).
+// 예전에는 모든 해·보관 프로젝트가 섞여 이 칸만 해마다 길어졌다(대시보드가 2026-08-29에 고친 그 증상).
+// 진척은 taskCounts.progressOf — 상시는 끝나지 않는 일이라 분모에서 빠지고, 상시만 있는 프로젝트는 줄이 없다.
+const progressByProject = (list, projectsMap, ids) => [...groupBy(list, t => t.projectId).entries()]
+  .filter(([id]) => ids.has(id))
+  .map(([id, rows]) => ({ id, title: projectsMap[id]?.title || '프로젝트 미지정', ...progressOf(rows) }))
+  .filter(p => p.total > 0);
+
+// 고른 해의 보관 안 한 프로젝트 id — 대시보드 '프로젝트 진행'·연결 지도·팀별/청년별과 내 업무·팀 보드의
+// 프로젝트 칸이 같은 값을 본다(useProjectYear 모듈 스토어 하나).
+function useYearProjectIds() {
+  const [year] = useProjectYear();
+  const activeProjects = useStore(selectActiveProjectsList);
+  return useMemo(() => new Set(projectsOfYear(activeProjects, year).map(p => p.id)), [activeProjects, year]);
+}
 
 // 그 결과를 그리는 옆 칸. 제목·막대 색·빈 줄 문구만 화면마다 다르다.
 function ProjectProgressList({ title, items, color, empty, onNavigate }) {
@@ -94,7 +103,6 @@ function ProjectProgressList({ title, items, color, empty, onNavigate }) {
 }
 
 export const DashboardView = React.memo(function DashboardView({ onNavigate, onTaskClick, onStatusChange, filter, setFilter }) {
-  const { teamStats } = useStore(selectDashboardStats);
   const currentUser = useStore(selectCurrentUser);
   const tasksList = useStore(selectTasksList);
   const projectsMap = useStore(selectProjectsMap);
@@ -108,6 +116,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   const allProjectsForYears = useStore(selectProjectsList);
   const { years, yearCounts } = useYearOptions(allProjectsForYears);
   const projectsList = useMemo(() => projectsOfYear(activeProjects, year), [activeProjects, year]);
+  const yearProjectIds = useMemo(() => new Set(projectsList.map(p => p.id)), [projectsList]);
   // **연결 지도도 고른 해만 본다**(사용자 결정 2026-08-31 — 해가 쌓이면 프로젝트 층이
   // 넘쳐 라벨이 겹친다). 예전 주석에는 "해로 거르지 않는다 — 해로 자르면 작년까지
   // 이어온 관계가 사라진다"고 적어 두었는데 사용자가 뒤집었습니다: 연도를 바꾸면
@@ -130,25 +139,31 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasksList, filter, myName, myTeams.join(',')]);
 
-  // 필터와 무관한 전체 — 인사말·팀별·청년별이 본다(사람은 업무 필터의 대상이 아니다, §6-31)
-  const open = useMemo(() => tasksList.filter(t => t.status !== '완료'), [tasksList]);
+  // 필터와 무관한 **남은 업무**(완료·상시 빼고 — taskCounts.isOpen) — 인사말·세그먼트 숫자가 본다
+  // (사람은 업무 필터의 대상이 아니다, §6-31). 상시는 끝낼 일이 아니라 '남은 N건'에 섞지 않는다.
+  const open = useMemo(() => tasksList.filter(isOpen), [tasksList]);
   // 세그먼트 칩에 붙는 숫자는 **고르기 전에** 알아야 하므로 필터 밖에서 센다
   const mine = useMemo(() => open.filter(t => (t.assignees || []).includes(myName)), [open, myName]);
   const teamOpen = useMemo(() => open.filter(t => (t.teams || []).some(x => myTeams.includes(x))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [open, myTeams.join(',')]);
-  const shown = useMemo(() => scoped.filter(t => t.status !== '완료'), [scoped]);
+  // 아래 마감 목록 — 끝낸 것만 뺀다(상시는 목록의 제 구간에 선다)
+  const shown = useMemo(() => scoped.filter(t => !isDone(t)), [scoped]);
+  // KPI 분모('남은 업무 N건 중')는 상시를 뺀 남은 업무다
+  const shownOpen = shown.filter(isOpen).length;
 
-  const overdueCount = shown.filter(t => t.dueDate && t.dueDate < today).length;
-  const todayCount = shown.filter(t => t.dueDate === today).length;
-  // KPI의 '이번 주'는 아래 마감 목록의 '이번 주' 구간과 같은 기준이어야 한다
-  // (dashboardParts.bucketOf) — 주일에 시작해 토요일에 끝나는 달력의 주다.
-  const weekEnd = weekEndOf(today);
-  const weekCount = shown.filter(t => t.dueDate && t.dueDate > today && t.dueDate <= weekEnd).length;
+  // KPI 세 칸은 **아래 목록의 구간을 센다**(taskCounts.dueCounts = bucketOf 한 벌) — 따로 셈을 두면
+  // 보류 중인 업무가 KPI에서는 '지연'인데 목록에서는 아닌 식으로 둘이 다른 말을 한다.
+  // '이번 주'는 주일에 시작해 토요일에 끝나는 달력의 주의 **내일부터** 토요일까지다(오늘은 '오늘 마감').
+  const due = dueCounts(shown, today);
+  const overdueCount = due.overdue;
+  const todayCount = due.today;
+  const weekCount = due.week;
   const groups = useMemo(() => groupByDue(shown, today), [shown, today]);
 
-  const doneAll = scoped.length - shown.length;
-  const progress = scoped.length ? Math.round((doneAll / scoped.length) * 100) : 0;
+  // 전체 진척도 — 끝낸 수 / (전체 - 상시)
+  const { done: doneAll, total: progressTotal } = progressOf(scoped);
+  const progress = progressTotal ? Math.round((doneAll / progressTotal) * 100) : 0;
 
   // 지난 7일 간 끝낸 건수 — 이 화면은 앞만 보기 때문에 정리한 성과가 바로 사라진다.
   // **끝낸 날은 completedTime이다**(cards.completed_at · 0033/0034). 예전 주석은 "완료 시각을
@@ -156,12 +171,15 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   // 끝낸 날이 아니다 — 끝난 업무에 첨부를 하나 올리기만 해도(0016의 file_count 트리거가
   // 카드를 건드린다) 오늘로 밀려서 **한 달 전에 끝낸 업무가 이 줄에 다시 세어졌다**.
   // 마감 목록의 '끝낸 업무' 구간이 세우고 보여주는 값과 같은 함수다(§4.12).
-  const doneRecent = useMemo(
-    () => tasksList.filter(t => t.status === '완료' && ageDays(completedTime(t), today) <= 7).length,
-    [tasksList, today]);
+  // 7일은 오늘 포함 7일이고 날짜는 로컬이다(taskCounts.recentDoneCount — 예전에는 8일 · UTC 날짜였다).
+  const doneRecent = useMemo(() => recentDoneCount(tasksList, completedTime, today), [tasksList, today]);
 
-  // 청년별 남은 업무 — 담당자별 집계. 팀별과 같은 기준(필터와 무관한 전체)으로 센다
-  const people = useMemo(() => personLoad(open, today), [open, today]);
+  // 팀별·청년별 남은 업무 — **고른 해의 보관 안 한 프로젝트 업무**만 센다(2026-09-25 셈 감사).
+  // 예전에는 모든 해·보관 프로젝트를 세서, 바로 아래 연결 지도(고른 해)의 팀 칩과 같은 팀의
+  // 남은 수가 달랐다. 두 칸이 연도 고르기 바로 옆에 있으므로 그 값을 따른다. 필터와는 무관하다.
+  const yearTasks = useMemo(() => inProjects(tasksList, yearProjectIds), [tasksList, yearProjectIds]);
+  const teamStats = useMemo(() => teamLeftStats(yearTasks), [yearTasks]);
+  const people = useMemo(() => personLoad(yearTasks), [yearTasks]);
 
   // 최근 활동 피드(#3) — 클라우드는 서버 피드, 게스트는 tasks의 activityLog에서 파생
   const feed = useStore(selectActivityFeed);
@@ -194,7 +212,6 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   // 업무 수는 굵기로만 씁니다(0건이면 가장 얇은 선).
   // 지도가 쓰는 값들은 **고른 해 프로젝트의 업무만** 훑는다 — 안 그러면 딴 해에만
   // 있는 팀이 빈 줄로 남고, 팀 칩의 남은 수도 딴 해 업무를 같이 센다.
-  const yearProjectIds = useMemo(() => new Set(projectsList.map(p => p.id)), [projectsList]);
   const { teamsInUse, teamProjects, teamLeft, memberLoad } = useMemo(() => {
     const teamSet = new Set();
     const pairCount = new Map();      // `팀|프로젝트` → 업무 수
@@ -206,7 +223,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
         teamSet.add(team);
         const key = `${team}|${t.projectId}`;
         pairCount.set(key, (pairCount.get(key) || 0) + 1);
-        if (t.status !== '완료') left[team] = (left[team] || 0) + 1;
+        if (isOpen(t)) left[team] = (left[team] || 0) + 1;
         for (const a of (t.assignees || [])) {
           const k2 = `${a}|${team}`;
           load.set(k2, (load.get(k2) || 0) + 1);
@@ -233,16 +250,20 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
     let nearest = null;
     for (const t of list) {
       counts[t.status] = (counts[t.status] || 0) + 1;
-      if (t.dueDate && t.status !== '완료' && (nearest === null || t.dueDate < nearest)) nearest = t.dueDate;
+      // 가장 가까운 마감은 **돌아가는 일**(시작 전·진행 중)에서만 — 보류 중의 지난 마감으로
+      // 'N일 지남'이 빨갛게 서면 KPI의 지연과 다른 말을 한다
+      if (t.dueDate && isRunning(t) && (nearest === null || t.dueDate < nearest)) nearest = t.dueDate;
     }
     const dd = nearest ? daysLeft(nearest, today) : null;
+    // 막대 분모는 상시를 뺀 수(상시는 네 색 어디에도 없다 — 넣으면 막대가 영영 안 찬다)
+    const total = progressOf(list).total;
     return {
-      ...p, counts, total: list.length,
+      ...p, counts, total,
       dueLabel: dueLabelOf(dd),
       urgent: dd !== null && dd <= 2,
       // 예전에는 `완료 7 · 진행 3 · 보류 0 · 시작 전 2`였다. 바로 위 세그먼트 바가
       // 이미 같은 말을 색으로 하고 있어서, 이 줄은 모바일에서 높이만 먹었다.
-      summary: `${list.length}건 중 ${counts['완료'] || 0}건`,
+      summary: `${total}건 중 ${counts['완료'] || 0}건`,
     };
   }), [projectsList, tasksByProject, today]);
 
@@ -253,8 +274,10 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
 
   // 인사말이 세는 범위는 '내 것 + 담당자 없는 것'이다 — 이유는 utils.myScope 주석에.
   const myOpen = useMemo(() => myScope(open, myName), [open, myName]);
-  const myOverdue = myOpen.filter(t => t.dueDate && t.dueDate < today).length;
-  const myToday = myOpen.filter(t => t.dueDate === today).length;
+  // 지연·오늘은 KPI와 같은 구간 셈이다(보류 중은 지연이 아니다)
+  const myDue = dueCounts(myOpen, today);
+  const myOverdue = myDue.overdue;
+  const myToday = myDue.today;
 
   // 지금 상태를 그대로 말한다 — 지연이 0인데 "오늘 할 일만 남았어요"라고 하면
   // 남은 게 없는 날에도 할 일이 있는 것처럼 읽힌다
@@ -282,15 +305,15 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
       <KpiCell
         label="지연" value={overdueCount} note={overdueCount ? '마감이 지난 업무' : '전부 기한 내'} delay={0}
         dot="var(--app-tag-red-fg)" bar="var(--p-red)" alert={overdueCount > 0}
-        ratio={shown.length ? overdueCount / shown.length : 0}
+        ratio={shownOpen ? overdueCount / shownOpen : 0}
       />
       <KpiCell
-        label="오늘 마감" value={todayCount} note={`남은 업무 ${shown.length}건 중`} delay={40}
-        dot="var(--app-accent)" bar="var(--p-blue)" ratio={shown.length ? todayCount / shown.length : 0}
+        label="오늘 마감" value={todayCount} note={`남은 업무 ${shownOpen}건 중`} delay={40}
+        dot="var(--app-accent)" bar="var(--p-blue)" ratio={shownOpen ? todayCount / shownOpen : 0}
       />
       <KpiCell
         label="이번 주" value={weekCount} note="이번 주 토요일까지" delay={80}
-        dot="var(--app-status-hold)" bar="var(--p-yellow)" ratio={shown.length ? weekCount / shown.length : 0}
+        dot="var(--app-status-hold)" bar="var(--p-yellow)" ratio={shownOpen ? weekCount / shownOpen : 0}
       />
     </>
   );
@@ -322,9 +345,9 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
       <div className="flex items-baseline gap-[5px]">
         <span className="text-[34px] font-extrabold leading-none tabular-nums text-fg" style={{ letterSpacing: '-1.8px' }}>{progress}%</span>
         <span className="flex-1" />
-        <span className="text-[10.5px] text-fg-muted tabular-nums whitespace-nowrap">{doneAll}/{scoped.length}건</span>
+        <span className="text-[10.5px] text-fg-muted tabular-nums whitespace-nowrap">{doneAll}/{progressTotal}건</span>
       </div>
-      <Bar ratio={scoped.length ? doneAll / scoped.length : 0} color="var(--p-blue)" />
+      <Bar ratio={progressTotal ? doneAll / progressTotal : 0} color="var(--p-blue)" />
     </>
   );
 
@@ -485,8 +508,8 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
       {/* 연결 지도(#28) — 내가 어디에 붙어 있는지 한 장. 세 열(사람·팀·프로젝트)이 640px을
           쓰므로 사이드 칸(360px)에 넣으면 프로젝트 열이 잘린다 → 본문 아래 전폭으로 둔다.
           클라우드에서만 그린다(멤버가 있어야 사람 열이 있다).
-          **해로 거르지 않는다** — "내가 어디에 붙어 있는지"가 이 그림의 일이고,
-          해로 자르면 작년까지 이어온 관계가 통째로 사라진다. */}
+          **고른 해만 본다**(사용자 결정 2026-08-31 — 위 projectsList·yearProjectIds 주석). 예전 주석은
+          "해로 거르지 않는다"였는데 코드와 반대였다. */}
       {members.length > 0 && (
         <div className={`${tab === '연결' ? 'block' : 'hidden'} lg:block pt-6`}>
           <NetworkMap
@@ -587,16 +610,20 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   // 이 프로젝트에 누가 붙어 있나 — 대시보드의 '청년별 남은 업무'와 같은 함수다.
   // 끝난 업무의 담당자는 세지 않는다: '붙어 있다'는 지금 맡고 있다는 뜻이고, 프로젝트를
   // 다 끝내면 아무도 안 남는 것이 맞다(빈 자리는 다른 것으로 채우지 않는다).
-  const { people, doneCount, projectMeta } = useMemo(() => {
-    const done = projectTasks.filter(t => t.status === '완료').length;
-    const openDues = projectTasks.filter(t => t.dueDate && t.status !== '완료').map(t => t.dueDate).sort();
+  const { people, doneCount, progressTotal, projectMeta } = useMemo(() => {
+    const { done, total } = progressOf(projectTasks);
+    // 가장 가까운 마감은 돌아가는 일에서만(대시보드 '프로젝트 진행'과 같은 셈)
+    const openDues = projectTasks.filter(t => t.dueDate && isRunning(t)).map(t => t.dueDate).sort();
     const dd = openDues[0] ? daysLeft(openDues[0], ISO_TODAY()) : null;
     return {
-      people: personLoad(projectTasks.filter(t => t.status !== '완료')),
+      people: personLoad(projectTasks),
       doneCount: done,
+      progressTotal: total,
       projectMeta: [`${projectTasks.length}건`, `완료 ${done}건`, dueLabelOf(dd)].join(' · '),
     };
   }, [projectTasks]);
+  // 달력에는 상시가 얹히지 않는다(날짜가 없는 것이 상시의 모양이다 · 옛 행에 날짜가 남아 있어도)
+  const calendarTasks = useMemo(() => filteredTasks.filter(t => !isOngoing(t)), [filteredTasks]);
 
   const shareBtn = <ShareButton url={`${window.location.origin}/s/p/${project.id}`} what="프로젝트" />;
   // 삭제는 전원에게 연다(사용자 결정 2026-08-24, RLS도 0021에서 같이 열었다).
@@ -648,7 +675,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
               <span className="text-[11px] text-fg-muted tabular-nums whitespace-nowrap truncate min-w-0">{projectMeta}</span>
               {/* 값만 있는 줄이 비어 보여서 진척 바로 채운다 — 대시보드가 쓰는 부품 그대로 */}
               <span className="flex-1 max-w-[130px] min-w-[36px] md:w-14 md:flex-none">
-                <Bar ratio={projectTasks.length ? doneCount / projectTasks.length : 0} color="var(--p-blue)" height={3} />
+                <Bar ratio={progressTotal ? doneCount / progressTotal : 0} color="var(--p-blue)" height={3} />
               </span>
               {/* 담당자 얼굴. 값·바 다음에 두는 이유: `완료 5건`과 진척 바는 같은 사실이라
                   둘 사이를 다른 것으로 가르지 않는다.
@@ -784,7 +811,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
         {/* 순서 바꾸기는 프로젝트 보드에서만 — 대시보드·내 업무·팀 보드는 여러
             프로젝트가 섞여 있어서 "이 컬럼의 순서"라는 말이 성립하지 않는다 */}
         {viewMode === 'kanban' && <Board tasks={filteredTasks} onStatusChange={onStatusChange} onReorder={onReorder} onTaskClick={onTaskClick} />}
-        {viewMode === 'calendar' && <CalendarBoard tasks={filteredTasks} onTaskClick={onTaskClick} onNewTask={onNewTask} />}
+        {viewMode === 'calendar' && <CalendarBoard tasks={calendarTasks} onTaskClick={onTaskClick} onNewTask={onNewTask} />}
         {/* 그래프(0020): 선후관계. 필터를 그대로 물려받는다 — 팀을 고르면 그 팀 순서만 남는다 */}
         {viewMode === 'graph' && <Suspense fallback={null}><DepGraph tasks={filteredTasks} onTaskClick={onTaskClick} /></Suspense>}
       </div>
@@ -813,8 +840,10 @@ export const ScheduleView = React.memo(function ScheduleView({ onTaskClick }) {
   const teamChips = useMemo(() => teamChipsOf(teamCounts), [teamCounts]);
 
   const toggleTeam = (team) => setSelectedTeams(prev => prev.includes(team) ? prev.filter(t => t !== team) : [...prev, team]);
+  // 상시는 달력에 얹히지 않는다(ProjectView의 calendarTasks와 같은 이유)
   const shown = useMemo(
-    () => (selectedTeams.length ? tasksList.filter(t => (t.teams || []).some(x => selectedTeams.includes(x))) : tasksList),
+    () => (selectedTeams.length ? tasksList.filter(t => (t.teams || []).some(x => selectedTeams.includes(x))) : tasksList)
+      .filter(t => !isOngoing(t)),
     [tasksList, selectedTeams]);
 
   // 달력에 실제로 얹히는 것은 날짜가 있는 업무뿐 — 머리글 숫자도 그 기준으로 센다.
@@ -936,11 +965,13 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
     : myTasks.filter(t => t.status !== '완료')), [myTasks, statusFilter]);
   const groups = useMemo(() => groupByDue(shown, today), [shown, today]);
 
-  const openCount = myTasks.filter(t => t.status !== '완료').length;
-  const lateCount = myTasks.filter(t => t.status !== '완료' && t.dueDate && t.dueDate < today).length;
+  // 남은 수는 상시를 빼고, 지난 마감은 대시보드 KPI의 '지연'과 같은 판정(보류 중 빼고)
+  const openCount = myTasks.filter(isOpen).length;
+  const lateCount = myTasks.filter(t => isOverdue(t, today)).length;
 
-  // 내가 맡은 프로젝트별 진행 (프로젝트마다 다시 filter하지 않고 한 번 묶는다)
-  const myProjects = useMemo(() => progressByProject(myTasks, projectsMap), [myTasks, projectsMap]);
+  // 내가 맡은 프로젝트별 진행 (프로젝트마다 다시 filter하지 않고 한 번 묶는다) — 고른 해만
+  const yearIds = useYearProjectIds();
+  const myProjects = useMemo(() => progressByProject(myTasks, projectsMap, yearIds), [myTasks, projectsMap, yearIds]);
 
   return (
     <div className="dc-screen pb-6">
@@ -951,7 +982,8 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
           <p className="text-[12.5px] text-fg-muted tabular-nums">{openCount}건 남음{lateCount ? ` · 지난 마감 ${lateCount}건` : ''}</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-          {CONFIG.STATUSES.map(s => {
+          {/* 상시도 고를 수 있다(맨 뒤 · config STATUS_PICK) — 칸이 아니라 걸러 보는 칩이다 */}
+          {CONFIG.STATUS_PICK.map(s => {
             const on = statusFilter.includes(s);
             return (
               <button key={s} onClick={() => toggle(s)}
@@ -998,7 +1030,11 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
   const today = ISO_TODAY();
   const teamTasks = useMemo(() => tasksList.filter(t => (t.teams || []).includes(teamName)), [tasksList, teamName]);
   // 묶어 두지 않으면 아래 groupByDue의 useMemo가 매 렌더 빗나간다(새 배열 = 새 참조)
-  const openTasks = useMemo(() => teamTasks.filter(t => t.status !== '완료'), [teamTasks]);
+  // 마감 목록은 끝낸 것만 뺀다(상시는 제 구간) · 머리의 'N건 남음'은 상시를 뺀 남은 업무다
+  const openTasks = useMemo(() => teamTasks.filter(t => !isDone(t)), [teamTasks]);
+  const leftCount = useMemo(() => teamTasks.filter(isOpen).length, [teamTasks]);
+  // 상태 칸의 막대 분모 — 상시를 뺀 수(상시는 네 칸 어디에도 없다)
+  const kpiTotal = useMemo(() => progressOf(teamTasks).total, [teamTasks]);
 
   // 상태별 건수 — 상태마다 다시 filter하지 않고 한 번만 센다
   const counts = useMemo(() => {
@@ -1013,7 +1049,8 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
   // 같은 이름이 다른 뜻으로 서지 않게 들여올 때 이름을 갈라 둔다.
   const members = useMemo(() => teamMemberChips(storeMembers, tasksList, teamName), [storeMembers, tasksList, teamName]);
 
-  const teamProjects = useMemo(() => progressByProject(teamTasks, projectsMap), [teamTasks, projectsMap]);
+  const yearIds = useYearProjectIds();
+  const teamProjects = useMemo(() => progressByProject(teamTasks, projectsMap, yearIds), [teamTasks, projectsMap, yearIds]);
 
   const groups = useMemo(() => groupByDue(openTasks, today), [openTasks, today]);
 
@@ -1025,7 +1062,7 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
             <span className="w-[9px] h-[9px] rounded-[2px] shrink-0" style={{ background: teamColor(teamName) }} />
             {teamName}
           </h2>
-          <p className="text-[12.5px] text-fg-muted tabular-nums">{openTasks.length}건 남음 · {teamProjects.length}개 프로젝트 참여</p>
+          <p className="text-[12.5px] text-fg-muted tabular-nums">{leftCount}건 남음 · {teamProjects.length}개 프로젝트 참여</p>
         </div>
         {/* 사람 칩은 **제목 아래 새 줄**에 왼쪽부터 선다(사용자 지적 2026-09-07).
             제목 오른쪽에 붙여 두면 폭에 따라 두 명만 첫 줄에 서고 나머지가 접혔고,
@@ -1050,7 +1087,7 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
           style={{ gap: 1, background: 'var(--app-line)', border: '1px solid var(--app-line)' }}>
           {['시작 전', '진행 중', '보류 중'].map((s, i) => (
             <KpiCell key={s} label={s} value={counts[s]} note="" delay={i * 40}
-              dot={STATUS_DOT_VAR[s]} bar={STATUS_BAR[s]} ratio={teamTasks.length ? counts[s] / teamTasks.length : 0} />
+              dot={STATUS_DOT_VAR[s]} bar={STATUS_BAR[s]} ratio={kpiTotal ? counts[s] / kpiTotal : 0} />
           ))}
         </div>
         {/* 대시보드 진척도 칸과 같은 이유로 .dc-kpi + 순번 지연 (앞 3칸 다음) */}
@@ -1064,9 +1101,9 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
             <span className="text-[34px] font-extrabold leading-none tabular-nums" style={{ letterSpacing: '-1.8px', color: 'var(--app-tag-green-fg)' }}>{counts['완료']}</span>
             <span className="text-xs font-semibold" style={{ color: 'var(--app-tag-green-fg)' }}>건</span>
             <span className="flex-1" />
-            <span className="text-[10.5px] tabular-nums whitespace-nowrap" style={{ color: 'var(--app-tag-green-fg)', opacity: .7 }}>전체 {teamTasks.length}건 중</span>
+            <span className="text-[10.5px] tabular-nums whitespace-nowrap" style={{ color: 'var(--app-tag-green-fg)', opacity: .7 }}>전체 {kpiTotal}건 중</span>
           </div>
-          <Bar ratio={teamTasks.length ? counts['완료'] / teamTasks.length : 0} color="var(--p-green)" />
+          <Bar ratio={kpiTotal ? counts['완료'] / kpiTotal : 0} color="var(--p-green)" />
         </div>
       </div>
 

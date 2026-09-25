@@ -57,8 +57,14 @@ export const ActivityService = {
   },
 };
 
+// 상시면 날짜 두 칸을 비운다(앱 안의 빈 날짜는 '' — cloudSync.cardPatch가 null로 보낸다)
+const ONGOING = '상시';
+export const withoutDatesIfOngoing = (data) => (data?.status === ONGOING && (data.startDate || data.dueDate)
+  ? { ...data, startDate: '', dueDate: '' }
+  : data);
+
 export const TaskService = {
-  create: (data, author) => ({
+  create: (rawData, author) => { const data = withoutDatesIfOngoing(rawData); return {
     ...data,
     id: generateId(),
     status: data.status || '시작 전',
@@ -72,7 +78,7 @@ export const TaskService = {
     completedAt: (data.status || '시작 전') === '완료' ? new Date().toISOString() : '',
     comments: [],
     activityLog: [ActivityService.createLog('업무를 생성했습니다.', author)]
-  }),
+  }; },
   // 바뀐 업무와 **이번에 생긴 활동 기록**을 같이 돌려준다.
   //
   // 호출부가 나중에 "새 기록이 뭐였지"를 되계산하게 두면 안 된다. 예전에는 컨트롤러가
@@ -90,7 +96,11 @@ export const TaskService = {
     if (newStatus !== '완료' && oldStatus === '완료') return '';
     return before || '';
   },
-  updateWithLogs: (oldTask, newData, author) => {
+  updateWithLogs: (oldTask, rawData, author) => {
+    // 상시(0075)는 마감이 없는 업무다 — **상시로 들어가거나 상시인 채로 저장될 때 시작일·마감일을 지운다**.
+    // 저장 경로(업무 창 · 보드 끌기 · 상태 옮기기 · 목록 완료 되돌리기)가 모두 여기를 지나므로 한 곳에서 한다.
+    // 아래 generateFieldLogs가 '마감일을 지웠습니다'를 남긴다(무엇이 사라졌는지 활동에 보인다).
+    const newData = withoutDatesIfOngoing(rawData);
     // updatedBy — 작성자와 마지막으로 고친 사람이 다를 때 창에서 구분해 보여준다.
     // 클라우드에서는 트리거(cards.updated_by)가 채운 값을 다시 받지만, 저장 직후에도
     // 바로 보이려면 여기서도 넣어야 한다. newData 뒤에 둬서 폼에 실려온 옛 값을 덮는다.

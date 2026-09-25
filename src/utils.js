@@ -216,7 +216,8 @@ export function snapCols(width, dpr = 1, gap = 1, n = 7) {
 // 실제로 웰컴팀 7건 중 4건이 마감 미정인 9·10·11·12월 월례회였다). 달력이 빠뜨린 것이
 // 아니라 셈의 기준이 둘이었다. 마감 미정을 달력에 억지로 얹지는 않는다 — 마감일
 // 필수화는 §7에서 뺐고, 마감 미정은 대시보드의 제 구간에서 보인다.
-export const datedTasks = (list) => (list || []).filter(t => t?.startDate || t?.dueDate);
+// **상시는 날짜가 남아 있어도 달력에 서지 않는다**(2026-09-25 · 상시로 바꾸면 날짜를 지우지만 옛 행·동시 저장을 막는다).
+export const datedTasks = (list) => (list || []).filter(t => (t?.startDate || t?.dueDate) && t.status !== '상시');
 
 // 업무의 '이번 주'가 끝나는 날 — 오늘이 속한 주의 **토요일** ISO 날짜.
 // 한 주는 주일(일요일)에 시작한다(사용자 지시 2026-09-08 "업무 이번 주 - 주일을
@@ -918,7 +919,7 @@ export function forceBounds(node, W, H, drag = false) {
 export function teamChips(members, tasks, teamName) {
   const left = new Map();
   for (const t of (tasks || [])) {
-    if (t.status === '완료' || !(t.teams || []).includes(teamName)) continue;
+    if (t.status === '완료' || t.status === '상시' || !(t.teams || []).includes(teamName)) continue;   // 상시는 남은 업무가 아니다(taskCounts.isOpen)
     for (const a of (t.assignees || [])) left.set(a, (left.get(a) || 0) + 1);
   }
   const list = (members || []).length

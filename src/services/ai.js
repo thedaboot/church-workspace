@@ -139,12 +139,14 @@ function duePhrase(dueIso, todayIso) {
 }
 
 // ── 한 줄 표기 ──────────────────────────────────────────────────────────────
+// 상시(0075 · 순번표·양식처럼 마감 없이 계속 쓰는 업무)는 '일정 없음'·'마감 미정'으로 싣지 않는다 —
+// 그렇게 실으면 모델이 "마감을 정하라"고 챙길 것에 넣는다.
 const fmtTask = (t) => [
   t.title,
   t.status,
   t.teams?.length ? t.teams.join('·') : '팀 미지정',
   t.assignees?.length ? t.assignees.join(', ') : '담당자 미지정',
-  [t.startDate, t.dueDate].filter(Boolean).map(withDow).join('~') || '일정 없음',
+  [t.startDate, t.dueDate].filter(Boolean).map(withDow).join('~') || (t.status === '상시' ? '마감 없이 계속' : '일정 없음'),
 ].join(' | ');
 
 const NEARBY_LIMIT = 12;        // 같은 프로젝트
@@ -385,7 +387,7 @@ export function buildTaskContext(task, now = new Date()) {
     '',
     '[지금 이 업무의 주변 상황]',
     projLine,
-    `- 이 업무: ${fmtTask(task)} | ${duePhrase(task.dueDate, today)}`,
+    `- 이 업무: ${fmtTask(task)} | ${task.status === '상시' ? '상시 업무라 마감이 없다' : duePhrase(task.dueDate, today)}`,
     subLine,
     fileLine,
     excerpts.length ? ['- 첨부 파일 안의 글(앞부분만):', ...excerpts].join('\n') : '',

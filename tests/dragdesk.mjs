@@ -132,6 +132,79 @@ if (col.found) {
 }
 
 
+// ── 상시 줄 (0075 · 사용자가 목업에서 고른 C안) ────────────────────────────
+// 상시는 칸이 아니라 네 칸 **위 한 줄**이다. 카드를 줄에 놓으면 상시(날짜가 지워진다),
+// 줄의 칩을 칸에 놓으면 그 상태. 공용 시드에 상시 한 건('예배 순번표')이 있다.
+// 되돌리기 검사: boards.jsx의 `if (raw === ONGOING_DROP)` 갈래를 빼면 '카드를 줄에 놓으면 상시'가 깨진다.
+{
+  const drag = async (from, to) => {
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from.x, y: from.y, button: 'left', clickCount: 1 });
+    for (let i = 1; i <= 16; i++) {
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', button: 'left',
+        x: from.x + (to.x - from.x) * (i / 16), y: from.y + (to.y - from.y) * (i / 16) });
+      await sleep(25);
+    }
+    await sleep(150);
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: to.x, y: to.y, button: 'left', clickCount: 1 });
+    await sleep(900);
+  };
+  const taskOf = (title) => ev(`(() => {
+    const s = JSON.parse(localStorage.getItem('church_app_v4'));
+    const t = Object.values(s.tasks.byId).find(x => x.title === ${JSON.stringify(title)});
+    return t ? { status: t.status, dueDate: t.dueDate || '', startDate: t.startDate || '' } : null;
+  })()`);
+  await reload();
+  const row = await ev(`(() => {
+    const r = document.querySelector('[data-ongoing-row]');
+    if (!r) return null;
+    const chips = [...r.querySelectorAll('.ongoing-chip')];
+    const heads = [...document.querySelectorAll('h3')].map(h => h.textContent.trim()).filter(t => /^(시작 전|진행 중|보류 중|완료|상시)$/.test(t));
+    const rr = r.getBoundingClientRect();
+    const firstCol = document.querySelector('.board-card')?.getBoundingClientRect();
+    return { pill: r.firstElementChild.textContent.trim(), chips: chips.map(c => c.textContent.trim()), heads,
+      aboveCols: !!firstCol && rr.bottom <= firstCol.top, noDate: chips.every(c => !/D-|지남|\\d+\\. \\d+\\./.test(c.textContent)) };
+  })()`);
+  check('상시 줄이 칸 위에 서고 머리에 `상시 1`', !!row && row.pill === '상시 1' && row.aboveCols, JSON.stringify(row));
+  check('상시는 다섯째 칸이 아니다', !!row && row.heads.length === 4 && !row.heads.includes('상시'), JSON.stringify(row?.heads));
+  check('상시 칩은 제목 + 얼굴(날짜 없음)', !!row && row.chips.length === 1 && row.chips[0].startsWith('예배 순번표') && row.noDate, JSON.stringify(row?.chips));
+
+  // 카드 → 상시 줄 (셀렉터를 못 찾으면 던지지 않고 FAIL로 남긴다 · PITFALLS §6-40)
+  const c = await ev(`(() => {
+    const card = document.querySelector('.board-card'); const row = document.querySelector('[data-ongoing-row]');
+    if (!card || !row) return null;
+    const cr = card.getBoundingClientRect(), rr = row.getBoundingClientRect();
+    return { title: card.querySelector('span[class*="text-sm"]').textContent.trim(),
+      from: { x: cr.left + cr.width / 2, y: cr.top + 26 }, to: { x: rr.right - 40, y: rr.top + rr.height / 2 } };
+  })()`);
+  if (c) await drag(c.from, c.to);
+  const moved = c ? await taskOf(c.title) : null;
+  check('카드를 상시 줄에 놓으면 상시가 되고 날짜가 지워진다', moved?.status === '상시' && !moved.dueDate && !moved.startDate, JSON.stringify(moved));
+  check('줄의 머리가 `상시 2`로', await ev(`document.querySelector('[data-ongoing-row]')?.firstElementChild.textContent.trim() || null`) === '상시 2', '');
+
+  // 칩 → '진행 중' 칸 머리 바로 아래
+  const k = await ev(`(() => {
+    const chip = [...document.querySelectorAll('.ongoing-chip')].find(x => x.textContent.includes('예배 순번표'));
+    const head = [...document.querySelectorAll('h3')].find(x => x.textContent.trim() === '진행 중');
+    if (!chip || !head) return null;
+    const cr = chip.getBoundingClientRect(), h = head.getBoundingClientRect();
+    return { from: { x: cr.left + 20, y: cr.top + cr.height / 2 }, to: { x: h.left + 20, y: h.bottom + 60 } };
+  })()`);
+  if (k) await drag(k.from, k.to);
+  const back = await taskOf('예배 순번표');
+  check('상시 칩을 칸에 놓으면 그 상태가 된다', !!k && back?.status === '진행 중', JSON.stringify(back));
+
+  // 짧게 누르면 업무 창
+  const chip2 = await ev(`(() => { const el = document.querySelector('.ongoing-chip'); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left + 20, y: r.top + r.height / 2 }; })()`);
+  if (chip2) {
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: chip2.x, y: chip2.y, button: 'left', clickCount: 1 });
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: chip2.x, y: chip2.y, button: 'left', clickCount: 1 });
+    await sleep(800);
+  }
+  check('상시 칩을 누르면 업무 창이 열린다', !!chip2 && await ev(`!!document.querySelector('.fixed.inset-0.z-50')`), '');
+  await ev(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await sleep(400);
+}
+
+
 // ── 같은 컬럼 맨 밑으로 옮기기 ─────────────────────────────────────────────
 // 컬럼의 빈 자리(마지막 카드 아래)에 놓으면 맨 밑으로 간다. 예전에는 같은 상태면
 // 그냥 돌아가서 **맨 밑으로 못 옮겼다**(사용자 지적).

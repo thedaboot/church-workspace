@@ -1656,10 +1656,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok((src.match(/console\.error\('\[share\]/g) || []).length >= 3,
     '조회 실패를 로그로 남기지 않는 갈래가 있다');
 
-  // 상태 라벨은 앱과 같은 글자여야 한다 — DB는 todo/doing/hold/done 네 가지다(0006).
+  // 상태 라벨은 앱과 같은 글자여야 한다 — DB는 todo/doing/hold/done(0006) + ongoing(0075 상시)이다.
   const { CONFIG } = await import(new URL('../src/config.js', import.meta.url).href);
   const ko = Object.fromEntries(
-    [...src.matchAll(/(todo|doing|hold|done): '([^']+)'/g)].map(m => [m[1], m[2]]));
+    [...src.matchAll(/(todo|doing|hold|done|ongoing): '([^']+)'/g)].map(m => [m[1], m[2]]));
   const want = Object.fromEntries(Object.entries(CONFIG.STATUS_DB).map(([k, v]) => [v, k]));
   assert.deepStrictEqual(ko, want, '공유 카드의 상태 글자가 config.js의 STATUSES와 다르다');
   console.log('PASS  공유 카드 메타 5가지');
@@ -2723,15 +2723,16 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(weekEndOf(), '', '인자가 없어도 안전하다');
   assert.strictEqual(weekEndOf('아무거나'), '', '날짜가 아니면 빈 문자열');
 
-  // 화면 두 곳이 실제로 이 규칙을 쓰는가 — bucketOf는 JSX 안이라 노드가 못 부른다.
+  // 화면 두 곳이 실제로 이 규칙을 쓰는가 — 구간 판정은 services/taskCounts.bucketOf 한 벌이다(2026-09-25).
   const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
   const views = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');
-  assert.ok(/function bucketOf[\s\S]{0,600}?weekEndOf\(today\)/.test(parts),
+  const tc = readFileSync(new URL('../src/services/taskCounts.js', import.meta.url), 'utf8');
+  assert.ok(/function bucketOf[\s\S]{0,800}?weekEndOf\(today\)/.test(tc),
     '마감 구간의 이번 주는 weekEndOf로 자른다');
   assert.ok(!/daysLeft\([^)]*\)\s*<=\s*6/.test(parts) && !/daysLeft\([^)]*\)\s*<=\s*6/.test(views),
     "굴러가는 '6일 내' 창은 어디에도 남아 있지 않다");
-  assert.ok(/weekEndOf\(today\)[\s\S]{0,300}?weekCount[\s\S]{0,200}?dueDate <= weekEnd/.test(views),
-    "KPI '이번 주'도 같은 기준으로 센다(숫자와 아래 목록이 어긋나면 안 된다)");
+  assert.ok(/const due = dueCounts\(shown, today\);[\s\S]{0,200}?const weekCount = due\.week;/.test(views),
+    "KPI '이번 주'도 같은 기준(아래 목록의 구간)으로 센다(숫자와 아래 목록이 어긋나면 안 된다)");
   assert.ok(/note="이번 주 토요일까지"/.test(views) && !/앞으로 일주일 내/.test(views),
     "KPI 밑줄은 그 숫자가 무엇인지 말한다 — '앞으로 일주일 내'는 이제 거짓이다");
 
@@ -4450,4 +4451,111 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/const locked = archived \|\| front;/.test(laySrc2), '폰 앞 칸 탭도 끌기·놓기가 막힌다');
   assert.ok(/reorderIds\(posSource\.map\(p => p\.id\), dragTabId, targetId\)/.test(laySrc2), '번호는 position 순 전체로 매긴다');
   console.log('PASS  탭 줄 앞 칸(tabRank — 사람 수·최근·2명 이상·다섯·게스트 줄) · 폰 프로젝트 버튼 · 업무 채널 재접속 따라잡기');
+}
+
+// ── 상시(0075)와 업무 셈 한 벌 (services/taskCounts · 2026-09-25 셈 감사) ─────────
+// 지연 · 마감 구간 · 남은 업무 · 2주 방치 · 진척이 화면마다 따로 적혀 있어서 보류 중인 업무가
+// 대시보드 KPI에서는 '지연'이고 보드 카드도 빨갰다. 상시(마감 없이 계속 쓰는 업무)를 더하면서
+// 판정을 taskCounts 한 곳에 모았다 — 여기서는 그 판정과 화면의 배선을 같이 본다.
+// 되돌리기 검사(실제로 해서 깨지는 것을 확인했다): isRunning에서 `&& t.status !== HOLD`를 빼면
+// '보류 중은 지연이 아니다'가, isStaleNoDue의 `t.updatedAt ||`를 빼면 '2주 방치는 고친 날로'가,
+// domain.withoutDatesIfOngoing을 `(data) => data`로 바꾸면 '상시로 바꾸면 날짜를 지운다'가 깨진다.
+{
+  const { CONFIG } = await import(new URL('../src/config.js', import.meta.url).href);
+  const TC = await import(new URL('../src/services/taskCounts.js', import.meta.url).href);
+  const { datedTasks, teamChips } = await import(new URL('../src/utils.js', import.meta.url).href);
+
+  // config — 상시는 보드 칸 배열에 없고 고르기 목록의 맨 아래다
+  assert.deepStrictEqual(CONFIG.STATUSES, ['시작 전', '진행 중', '보류 중', '완료'], '보드 칸은 넷 그대로(상시는 칸이 아니다)');
+  assert.strictEqual(CONFIG.STATUS_PICK.at(-1), '상시', '상태 고르기에서 상시는 맨 아래');
+  assert.strictEqual(CONFIG.STATUS_DB['상시'], 'ongoing');
+  for (const s of CONFIG.STATUS_PICK) {
+    assert.ok(CONFIG.STATUS_STYLES[s] && CONFIG.STATUS_DOTS[s] && CONFIG.STATUS_BG_VAR[s] && CONFIG.STATUS_FG_VAR[s], `${s}의 색이 네 표에 다 있다`);
+  }
+  assert.ok(/tag-purple/.test(CONFIG.STATUS_STYLES['상시']) && /tag-purple/.test(CONFIG.STATUS_BG_VAR['상시']), '상시는 보라 태그');
+
+  // 0075 — 체크 제약에 ongoing · 되돌리는 SQL
+  const mig = readFileSync(new URL('../supabase/migrations/0075_card_status_ongoing.sql', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const body = mig.split('\n').filter(l => !/^\s*--/.test(l)).join('\n');
+  assert.ok(/check \(status in \('todo', 'doing', 'hold', 'done', 'ongoing'\)\)/.test(body), '0075가 ongoing을 허용한다');
+  assert.ok(/-- update public\.cards set status = 'todo' where status = 'ongoing';/.test(mig), '0075 맨 아래에 되돌리는 SQL이 있다');
+
+  // 상시로 바꾸면 날짜를 지운다(활동 기록도 남는다) · 다른 상태는 날짜를 그대로
+  const b = { id: 't', title: '순번표', status: '진행 중', assignees: [], teams: [], startDate: '2026-09-01', dueDate: '2026-12-31', activityLog: [], comments: [] };
+  const on = TaskService.updateWithLogs(b, { ...b, status: '상시' }, '노준석');
+  assert.deepStrictEqual([on.task.startDate, on.task.dueDate], ['', ''], '상시로 바꾸면 시작일·마감일이 빈다');
+  assert.deepStrictEqual(on.logs.map(l => l.action), [
+    "상태를 '진행 중'에서 '상시'(으)로 변경했습니다.", '시작일을 지웠습니다.', '마감일을 지웠습니다.',
+  ], '지운 날짜가 활동에 남는다');
+  assert.strictEqual(TaskService.update(b, { ...b, status: '보류 중' }, '노준석').dueDate, '2026-12-31', '보류 중은 날짜를 그대로 둔다');
+  assert.strictEqual(TaskService.create({ ...b, status: '상시' }, '노준석').dueDate, '', '만들 때부터 상시여도 날짜가 없다');
+
+  // 판정 — 오늘은 2026-09-23(수) · 그 주 토요일은 26일
+  const today = '2026-09-23';
+  const T = (status, dueDate = '', extra = {}) => ({ status, dueDate, assignees: [], teams: [], ...extra });
+  assert.ok(TC.isOverdue(T('시작 전', '2026-09-20'), today) && TC.isOverdue(T('진행 중', '2026-09-22'), today), '돌아가는 일의 지난 마감은 지연');
+  assert.ok(!TC.isOverdue(T('보류 중', '2026-09-01'), today), '보류 중은 지연이 아니다');
+  assert.ok(!TC.isOverdue(T('완료', '2026-09-01'), today) && !TC.isOverdue(T('상시', '2026-09-01'), today), '완료·상시는 지연이 아니다');
+  assert.ok(!TC.isOverdue(T('진행 중', today), today), '오늘 마감은 아직 지연이 아니다');
+  const cases = [
+    [T('진행 중', '2026-09-22'), 'overdue'], [T('진행 중', today), 'today'], [T('시작 전', '2026-09-24'), 'week'],
+    [T('시작 전', '2026-09-26'), 'week'], [T('시작 전', '2026-09-27'), 'later'], [T('시작 전'), 'nodue'],
+    [T('상시'), 'ongoing'], [T('상시', '2026-09-22'), 'ongoing'], [T('보류 중', today), 'hold'], [T('보류 중', '2026-09-01'), 'hold'],
+    [T('완료', '2026-09-01'), 'done'],
+  ];
+  for (const [t, k] of cases) assert.strictEqual(TC.bucketOf(t, today), k, `${t.status} ${t.dueDate || '(없음)'} → ${k}`);
+  assert.strictEqual(TC.bucketOf(T('시작 전', '2026-09-27'), '2026-09-27'), 'today', '주일은 새 주의 시작(오늘)');
+  assert.strictEqual(TC.bucketOf(T('시작 전', '2026-10-03'), '2026-09-27'), 'week', '주일에 보면 그 주 토요일까지가 이번 주');
+  const dc = TC.dueCounts(cases.map(c => c[0]), today);
+  assert.deepStrictEqual([dc.overdue, dc.today, dc.week, dc.later, dc.nodue, dc.ongoing, dc.hold, dc.done], [1, 1, 2, 1, 1, 2, 2, 1],
+    'KPI가 세는 수 = 목록의 구간 수');
+
+  // 2주 방치 — 마지막으로 고친 날 기준 · 보류·상시는 빠진다
+  const old = '2026-08-01T03:00:00Z';
+  assert.ok(!TC.isStaleNoDue(T('시작 전', '', { createdAt: old, updatedAt: '2026-09-20T03:00:00Z' }), today), '만든 지 오래여도 최근에 고쳤으면 방치가 아니다');
+  assert.ok(TC.isStaleNoDue(T('진행 중', '', { createdAt: old, updatedAt: '2026-09-05T03:00:00Z' }), today), '2주 넘게 손대지 않은 마감 미정');
+  assert.ok(TC.isStaleNoDue(T('시작 전', '', { createdAt: old }), today), '고친 날이 없으면 만든 날로');
+  assert.ok(!TC.isStaleNoDue(T('보류 중', '', { createdAt: old, updatedAt: old }), today), '보류 중은 방치 표시에서 뺀다');
+  assert.ok(!TC.isStaleNoDue(T('상시', '', { createdAt: old, updatedAt: old }), today), '상시는 방치 표시에서 뺀다');
+  assert.ok(!TC.isStaleNoDue(T('시작 전', '2026-12-01', { createdAt: old, updatedAt: old }), today), '마감이 있으면 방치 표시가 아니다');
+
+  // 날짜는 로컬 — 로컬 23일 0시 30분에 만든 것은 오늘 나이 0(UTC 앞 10자로 자르면 서울에서는 1이 된다)
+  assert.strictEqual(TC.ageDays(new Date(2026, 8, 23, 0, 30).toISOString(), today), 0, '타임스탬프는 로컬 날짜로 센다');
+  assert.strictEqual(TC.ageDays('2026-09-20', today), 3, "'YYYY-MM-DD'는 그대로");
+  // 지난 7일 = 오늘 포함 7일
+  const ago = (n) => new Date(2026, 8, 23 - n, 12).toISOString();
+  const done = [0, 6, 7].map(n => ({ status: '완료', completedAt: ago(n) }));
+  assert.strictEqual(TC.recentDoneCount(done, t => t.completedAt, today), 2, '엿새 전까지 · 이레 전은 빠진다(예전에는 8일을 셌다)');
+
+  // 남은 업무·진척·팀별·청년별 — 상시는 끝낼 일이 아니다
+  const L = [
+    T('완료', '', { teams: ['웰컴팀'], assignees: ['가'] }), T('진행 중', '2026-09-01', { teams: ['웰컴팀'], assignees: ['가'] }),
+    T('보류 중', '2026-09-01', { teams: ['웰컴팀'], assignees: ['나'] }), T('상시', '', { teams: ['웰컴팀', '찬양팀'], assignees: ['가', '나'] }),
+  ];
+  assert.deepStrictEqual(TC.progressOf(L), { done: 1, total: 3 }, '진척 분모에서 상시를 뺀다');
+  const tl = TC.teamLeftStats(L);
+  assert.deepStrictEqual(tl.map(s => s.name), Object.keys(CONFIG.TEAMS), '팀 순서는 config');
+  assert.deepStrictEqual(tl.find(s => s.name === '웰컴팀'), { name: '웰컴팀', total: 3, done: 1 });
+  assert.deepStrictEqual(tl.find(s => s.name === '찬양팀'), { name: '찬양팀', total: 0, done: 0 }, '상시만 있는 팀은 0');
+  assert.deepStrictEqual(TC.personLoad(L), [{ name: '가', left: 1 }, { name: '나', left: 1 }], '청년별: 완료·상시 빼고 · 지연 수는 없다');
+  assert.deepStrictEqual(TC.inProjects([{ projectId: 'a' }, { projectId: 'b' }, null], new Set(['a'])), [{ projectId: 'a' }], '고른 해 프로젝트만');
+  // 달력·팀 칩도 상시를 세지 않는다
+  assert.deepStrictEqual(datedTasks([{ status: '상시', dueDate: '2026-09-30' }, { status: '시작 전', dueDate: '2026-09-30' }]).length, 1, '상시는 날짜가 남아도 달력에 없다');
+  assert.deepStrictEqual(teamChips([], [T('상시', '', { teams: ['웰컴팀'], assignees: ['가'] })], '웰컴팀'), [], '팀 칩 남은 수에 상시가 없다');
+
+  // 배선 — 화면이 이 판정을 쓰는가
+  const src = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const views = src('../src/views/views.jsx'), parts = src('../src/views/dashboardParts.jsx'), boards = src('../src/components/boards.jsx'), modals = src('../src/modals/modals.jsx');
+  assert.ok(/const due = dueCounts\(shown, today\);/.test(views) && /const myDue = dueCounts\(myOpen, today\);/.test(views), 'KPI·인사말이 구간 셈을 쓴다');
+  assert.ok(!/dueDate < today/.test(views), 'views에 손으로 적은 지연 판정이 남아 있지 않다');
+  assert.ok(/teamLeftStats\(yearTasks\)/.test(views) && /personLoad\(yearTasks\)/.test(views), '팀별·청년별은 고른 해 업무만 센다(연결 지도와 같은 값)');
+  assert.ok(/progressByProject\(myTasks, projectsMap, yearIds\)/.test(views) && /progressByProject\(teamTasks, projectsMap, yearIds\)/.test(views), "'내가 맡은 프로젝트'·'참여 프로젝트'도 고른 해만");
+  assert.ok(!/p\.late/.test(parts), "청년별 남은 업무에 사람마다 '지연 N건'이 없다(견주는 구조 · §8)");
+  assert.ok(/key: 'ongoing', label: '상시'/.test(parts) && /key: 'hold', label: '보류 중'/.test(parts), '마감 목록에 상시·보류 중 구간이 따로 있다');
+  assert.ok(/const isLate = \(task\) => isOverdue\(/.test(boards), '보드 카드의 빨간 마감도 isOverdue 하나');
+  assert.ok(/raw === ONGOING_DROP/.test(boards) && /onStatusChange\(task, ONGOING\)/.test(boards), '상시 줄에 놓으면 상시가 된다');
+  assert.ok(/ongoing\.length > 0 && <OngoingRow/.test(boards), '상시가 0건이면 줄이 서지 않는다');
+  assert.ok(/s === CONFIG\.STATUS_ONGOING\s*\?\s*\{ \.\.\.prev, status: s, startDate: '', dueDate: '' \}/.test(modals), '업무 창에서 상시를 고르는 순간 날짜를 비운다');
+  assert.ok(/formData\.status !== CONFIG\.STATUS_ONGOING && \(/.test(modals), '상시면 시작일·마감일 칸이 없다');
+  console.log('PASS  상시(0075)와 업무 셈 한 벌(taskCounts — 지연 · 구간 · 방치 · 진척 · 고른 해)');
 }

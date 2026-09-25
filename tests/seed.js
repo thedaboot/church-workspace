@@ -21,6 +21,14 @@
     };
     allIds.push(id);
   }
+  // 상시(0075) 한 건 — 날짜 없이 보드 위 한 줄에 선다. drag·dragdesk·modalclose가 그 줄을 지나 카드를 집는다.
+  byId.t150 = {
+    id: 't150', projectId: 'p1', title: '예배 순번표', content: '', status: '상시',
+    assignees: ['노준석'], teams: ['임원진'], startDate: '', dueDate: '', position: 0,
+    author: '노준석', createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-20T00:00:00Z',
+    comments: [], activityLog: [], attachments: [],
+  };
+  allIds.push('t150');
   localStorage.setItem('church_app_v4', JSON.stringify({
     currentUser: { name: '노준석', team: '임원진' },
     projects: { byId: { p1: { id: 'p1', title: '2026 하계 수련회', pinnedLinks: [] } }, allIds: ['p1'] },

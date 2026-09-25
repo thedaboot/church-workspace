@@ -1,5 +1,3 @@
-import { CONFIG } from '../config.js';
-
 // ============================================================================
 // 3. Memoized Selectors (Reselect 패턴 직접 구현)
 // ============================================================================
@@ -73,35 +71,9 @@ export const selectMyTasks = createSelector(
   (tasksList, user) => tasksList.filter(t => (t.assignees || []).includes(user.name))
 );
 
-// 팀별 통계 — 업무 목록을 한 번만 훑는다.
-// 예전에는 팀(7개)마다 전체 목록을 다시 filter해서 O(팀×업무)였다.
-export const selectDashboardStats = createSelector(
-  [selectTasksList, selectProjectsMap],
-  (tasksList, projectsMap) => {
-    const totalTasks = tasksList.length;
-    let completedTasks = 0;
-
-    const acc = new Map(Object.keys(CONFIG.TEAMS).map(name => [name, { total: 0, done: 0, projects: new Set() }]));
-    for (const t of tasksList) {
-      if (t.status === '완료') completedTasks++;
-      for (const team of (t.teams || [])) {
-        const s = acc.get(team);
-        if (!s) continue;                       // config에 없는 팀 이름은 무시
-        s.total++;
-        if (t.status === '완료') s.done++;
-        const title = projectsMap[t.projectId]?.title;
-        if (title) s.projects.add(title);
-      }
-    }
-
-    const teamStats = [...acc.entries()].map(([name, s]) => ({
-      name, total: s.total, done: s.done,
-      progress: s.total === 0 ? 0 : Math.round((s.done / s.total) * 100),
-      projects: [...s.projects],
-    }));
-    return { progress: totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100), teamStats };
-  }
-);
+// 팀별 남은 업무(예전 selectDashboardStats)는 services/taskCounts.teamLeftStats로 옮겼다(2026-09-25 셈 감사) —
+// 스토어 전체(모든 해·보관 프로젝트)를 세서 대시보드의 연결 지도(고른 해)와 같은 팀의 숫자가 달랐다.
+// 고른 해는 스토어 밖(useProjectYear 모듈 스토어)이라 셀렉터가 아니라 화면이 자른다.
 
 // 날짜별 업무 맵은 캘린더가 자기 안에서 만든다(boards.jsx의 tasksByDate) —
 // 캘린더가 보는 목록은 프로젝트·팀 필터를 거친 것이라, 스토어 전체로 만든 맵을

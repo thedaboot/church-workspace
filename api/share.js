@@ -12,7 +12,7 @@ import { createClient } from '@supabase/supabase-js';
 // ============================================================================
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // 라벨은 config.js의 STATUSES와 같은 글자다 — 한쪽만 고치면 공유 카드와 앱이 갈린다.
-const STATUS_KO = { todo: '시작 전', doing: '진행 중', hold: '보류 중', done: '완료' };
+const STATUS_KO = { todo: '시작 전', doing: '진행 중', hold: '보류 중', done: '완료', ongoing: '상시' };
 const esc = (s = '') => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 

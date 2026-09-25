@@ -6,6 +6,7 @@ import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { Skeleton } from '../components/media.jsx';
 import { CARD, CARD_STYLE, Empty } from '../components/groupsParts.jsx';
 import { ISO_TODAY, byDue } from './dashboardParts.jsx';
+import { isOpen, isOverdue } from '../services/taskCounts.js';
 import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry } from '../services/word.js';
 import { loadPassage } from '../services/bible.js';
 import { kindLabel, formatServiceDate, fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday, countsSince, HOME_SERVICE_COLS } from '../services/worship.js';
@@ -285,7 +286,8 @@ function LinkCard({ className, slot, enter = 'dc-card', label, icon: Icon, onOpe
 // 카드 머리는 목록으로, 줄은 그 업무 창으로 간다 — 그래서 이 카드만 통짜 버튼이
 // 아니다(버튼 안에 버튼을 넣을 수 없다).
 function TasksCard({ tasks, today, onOpenList, onOpenTask, delay, slot, enter = 'dc-card' }) {
-  const open = useMemo(() => tasks.filter(t => t.status !== '완료'), [tasks]);
+  // 남은 업무 = 완료·상시 빼고(taskCounts.isOpen) — 내 업무 화면의 'N건 남음'과 같은 수
+  const open = useMemo(() => tasks.filter(isOpen), [tasks]);
   // 가까운 마감 **셋까지**. 마감이 없는 업무는 byDue가 뒤로 보낸다(목록 화면과 같은
   // 규칙). 넘치는 것은 세지 않고 마지막 줄에 '+N건 더'로 접는다 — 업무가 쌓일수록
   // 이 카드만 자라서 옆 카드와 높이가 어긋났다(사용자 지적 2026-09-03).
@@ -318,7 +320,7 @@ function TasksCard({ tasks, today, onOpenList, onOpenTask, delay, slot, enter = 
                 이 글꼴·크기에서 57.5px다 — 60px면 어떤 날짜도 한 줄이다. 폭을 못 박는
                 이유는 그대로다: 세 줄의 제목이 같은 자리에서 시작해야 한다. */}
             <span className="home-task-due shrink-0 w-[60px] whitespace-nowrap text-[11.5px] font-bold tabular-nums"
-              style={{ color: t.dueDate && t.dueDate < today ? 'var(--app-tag-red-fg)' : 'var(--app-ink-muted)' }}>
+              style={{ color: isOverdue(t, today) ? 'var(--app-tag-red-fg)' : 'var(--app-ink-muted)' }}>
               {homeDueLabel(t.dueDate)}
             </span>
             <span className="flex-1 min-w-0 text-[12.5px] font-semibold text-fg truncate">{t.title}</span>

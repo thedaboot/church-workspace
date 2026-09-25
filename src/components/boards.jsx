@@ -15,23 +15,29 @@ import { useStore } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
+import { isOverdue, todayIso } from '../services/taskCounts.js';
 
 // ============================================================================
-// 칸반 보드 (dnd-kit) — 카드 · 상태 칩 · 컬럼
+// 칸반 보드 (dnd-kit) — 카드 · 상태 칩 · 컬럼 · 상시 줄
 // 캘린더는 같은 자리에 놓이는 다른 보기라 calendar.jsx로 나눠 뒀다.
+// **상시(0075)는 칸이 아니다** — 네 칸 위 한 줄(OngoingRow)에 칩으로 선다(사용자가 목업에서 고른 C안 ·
+// 2026-09-25). 카드를 그 줄에 놓으면 상시, 줄의 칩을 칸에 놓으면 그 상태다. 0건이면 줄이 없다.
 // ============================================================================
+const ONGOING = CONFIG.STATUS_ONGOING;
+const ONGOING_DROP = 'ongoing-row';   // 줄의 드롭 id — 컬럼(상태 이름)·'card:'·'chip:'과 겹치지 않게
 
 // 놓을 곳은 "손가락/커서가 있는 곳" 기준으로 판단한다(dropCollision.js — 동아리·모바일 탭과 한 벌).
-// 남은 날 → 라벨. 완료는 날짜만, 지난 건은 "N일 지남"으로 눈에 걸리게.
+// 남은 날 → 라벨. 완료·보류 중은 날짜만(회색), 지난 건은 "N일 지남"으로 눈에 걸리게.
+// 보류 중은 멈춘 일이라 지연이 아니다(taskCounts.isOverdue · 2026-09-25 셈 감사) — 예전에는
+// 보류 카드의 지난 마감이 빨간 'N일 지남'으로 서서 대시보드 KPI의 지연과 다른 말을 했다.
 const ddLabel = (task) => {
   if (!task.dueDate) return '';
   const d = Math.round((new Date(`${task.dueDate}T00:00:00`) - new Date(new Date().toDateString())) / 86400000);
-  if (task.status === '완료') return `${Number(task.dueDate.slice(5, 7))}. ${Number(task.dueDate.slice(8, 10))}.`;
+  if (task.status === '완료' || task.status === '보류 중') return `${Number(task.dueDate.slice(5, 7))}. ${Number(task.dueDate.slice(8, 10))}.`;
   if (d < 0) return `${-d}일 지남`;
   return d === 0 ? '오늘' : `D-${d}`;
 };
-const isLate = (task) => !!task.dueDate && task.status !== '완료'
-  && new Date(`${task.dueDate}T00:00:00`) < new Date(new Date().toDateString());
+const isLate = (task) => isOverdue(task, todayIso());
 
 // 카드 내부 프레젠테이션 (실제 카드 + DragOverlay 미리보기 공용)
 // 좌측 3px 팀 컬러 레일 → 팀명(10px) → 제목(14px) → 담당자·D-day (핸드오프 규격)
@@ -123,7 +129,7 @@ function StatusMoveButton({ task, onStatusChange }) {
   const rootRef = React.useRef(null);
   const btnRef = React.useRef(null);
   const popRef = React.useRef(null);
-  const [pos, place] = useAnchoredPos(btnRef, open, 150, 160, 8, popRef);
+  const [pos, place] = useAnchoredPos(btnRef, open, 150, 192, 8, popRef);
 
   React.useEffect(() => {
     if (!open) return;
@@ -165,7 +171,8 @@ function StatusMoveButton({ task, onStatusChange }) {
           style={{ position: 'fixed', left: pos.left, top: pos.top, width: 150 }}
           className="dc-pop z-[90] bg-surface border border-line rounded-md shadow-soft p-[5px]"
         >
-          {CONFIG.STATUSES.map(s => (
+          {/* 상시도 고를 수 있다(맨 아래 · config STATUS_PICK) — 칸이 아니라 보드 위 줄로 간다 */}
+          {CONFIG.STATUS_PICK.map(s => (
             <button
               key={s} type="button"
               onClick={(e) => { e.stopPropagation(); setOpen(false); if (s !== task.status) onStatusChange(task, s); }}
@@ -290,6 +297,53 @@ function EmptyColumnMark() {
   );
 }
 
+// ── 상시 줄 ─────────────────────────────────────────────────────────────────
+// 칩 = 제목 + 담당자 얼굴(날짜 없음 — 상시는 마감이 없다). 누르면 업무 창, 끌면 칸으로.
+// 카드(.board-card)와 클래스를 가른다 — 검사(drag·dragdesk)가 첫 .board-card를 카드로 집는다.
+function OngoingChip({ task, onTaskClick }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
+  return (
+    <div
+      ref={setNodeRef} {...attributes} {...listeners}
+      onClick={() => onTaskClick(task)} data-ongoing-chip={task.id} title={task.title}
+      className={`ongoing-chip inline-flex max-w-full min-w-0 items-center gap-1.5 pl-2.5 py-[3px] rounded-full border border-line bg-surface cursor-grab active:cursor-grabbing hover:bg-surface-hover transition-colors ${task.assignees.length ? 'pr-1' : 'pr-2.5'} ${isDragging ? 'opacity-40' : ''}`}
+    >
+      <OngoingChipInner task={task} />
+    </div>
+  );
+}
+function OngoingChipInner({ task }) {
+  return (
+    <>
+      <span className="min-w-0 truncate text-[12px] font-semibold text-fg" style={{ letterSpacing: '-0.1px' }}>{task.title}</span>
+      {task.assignees.length > 0 && (
+        <span className="flex items-center shrink-0">
+          {task.assignees.slice(0, 2).map(a => (
+            <Avatar key={a} name={a} className="flex w-[18px] h-[18px] text-[9.5px] -ml-[5px] first:ml-0 ring-[1.5px] ring-surface" />
+          ))}
+          {task.assignees.length > 2 && <span className="ml-1 text-[10.5px] text-fg-muted tabular-nums">+{task.assignees.length - 2}</span>}
+        </span>
+      )}
+    </>
+  );
+}
+// 줄 전체가 드롭 대상이다. 폰에서도 가로로 넘치지 않게 칩이 줄을 바꾼다(flex-wrap).
+function OngoingRow({ tasks, dragging, onTaskClick }) {
+  const { setNodeRef, isOver } = useDroppable({ id: ONGOING_DROP });
+  return (
+    <div
+      ref={setNodeRef} data-ongoing-row=""
+      className={`shrink-0 flex flex-wrap items-center gap-1.5 mb-3 p-1 -m-1 rounded-md transition-colors duration-150 ${isOver ? 'bg-accent-weak/70 outline outline-1 outline-dashed outline-accent' : dragging ? 'outline outline-1 outline-dashed outline-line' : ''}`}
+    >
+      <span className="shrink-0 inline-flex items-center gap-1 px-2 py-[3px] rounded-full text-[11px] font-bold tabular-nums"
+        style={{ background: 'var(--app-tag-purple)', color: 'var(--app-tag-purple-fg)' }}>
+        {ONGOING} {tasks.length}
+      </span>
+      {tasks.map(t => <OngoingChip key={t.id} task={t} onTaskClick={onTaskClick} />)}
+    </div>
+  );
+}
+
 export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick, showProjectBadge }) => {
   const projectsMap = useStore(selectProjectsMap);
   const [activeId, setActiveId] = React.useState(null);
@@ -301,13 +355,18 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
   // 컬럼 안 순서는 **손으로 정한 순서**(cards.position, 0024)가 먼저고, 값이 같으면
   // 예전처럼 마감일 순으로 떨어진다. 0024 백필 전에는 전부 0이라 예전과 똑같이 보인다
   // — 값이 다 같을 때 Postgres가 순서를 보장하지 않는 함정(§6-24)을 2차 키가 막는다.
+  // 상시는 m['상시']에 모인다 — 칸은 CONFIG.STATUSES만 돌므로 칸이 생기지 않고, 위 줄이 이 목록을 쓴다.
   const byStatus = React.useMemo(() => {
     const m = {};
     CONFIG.STATUSES.forEach(s => { m[s] = []; });
+    m[ONGOING] = [];
     tasks.forEach(t => { (m[t.status] || (m[t.status] = [])).push(t); });
     Object.values(m).forEach(list => list.sort((a, b) => ((a.position ?? 0) - (b.position ?? 0)) || byDue(a, b)));
     return m;
   }, [tasks]);
+  const ongoing = byStatus[ONGOING];
+  // 칸 머리의 비중 바 분모 — 칸에 서는 업무만(상시를 넣으면 네 바의 합이 1이 안 된다)
+  const boardCount = tasks.length - ongoing.length;
 
   // 모바일은 컬럼이 80vw라 4개를 동시에 못 보여준다 → 상단에 상태 칩으로
   // 4개 상태와 건수를 한눈에 보여주고, 누르면 그 컬럼으로 스크롤한다.
@@ -345,6 +404,12 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
     const raw = String(over.id);
     const task = tasks.find(t => t.id === active.id);
     if (!task) return;
+
+    // ⓪ 상시 줄에 놓았다 → 상시로. 줄 안 순서는 없다(마감일 순 · 사람이 정할 칸이 아니다).
+    if (raw === ONGOING_DROP) {
+      if (task.status !== ONGOING) onStatusChange(task, ONGOING);
+      return;
+    }
 
     // ① 카드 위에 놓았다 → 그 카드 자리에 끼워 넣는다(같은 상태 안 순서 바꾸기).
     //    다른 컬럼의 카드 위에 놓으면 상태도 같이 바뀌고 그 자리에 들어간다.
@@ -394,6 +459,7 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
       onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}
     >
       <div className="h-full flex flex-col min-h-0">
+        {ongoing.length > 0 && <OngoingRow tasks={ongoing} dragging={!!activeId} onTaskClick={onTaskClick} />}
         {/* 모바일 전용 상태 칩 — 평소엔 요약·이동, 드래그 중에는 드롭 타깃이 된다.
             (화면에 컬럼 하나만 보이는 모바일에서 옆 컬럼까지 끌고 갈 필요가 없도록) */}
         <div className="md:hidden flex gap-1.5 mb-2.5 overflow-x-auto scrollbar-hide x-scroll-lock shrink-0">
@@ -421,7 +487,7 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
           className={`flex-1 min-h-0 flex gap-[14px] md:gap-[22px] pb-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:none] ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}
         >
           {CONFIG.STATUSES.map(status => (
-            <ColumnDroppable key={status} status={status} dragging={!!activeId} count={(byStatus[status] || []).length} share={tasks.length ? (byStatus[status] || []).length / tasks.length : 0} empty={(byStatus[status] || []).length === 0}>
+            <ColumnDroppable key={status} status={status} dragging={!!activeId} count={(byStatus[status] || []).length} share={boardCount ? (byStatus[status] || []).length / boardCount : 0} empty={(byStatus[status] || []).length === 0}>
               {(byStatus[status] || []).map((task, i) => (
                 /* 순번 지연은 보드를 처음 열 때만 — 컬럼을 옮겨 다시 마운트되는 카드에
                    순번을 주면 드롭 연출이 끝난 뒤에도 최대 240ms 더 사라져 있었다
@@ -441,7 +507,12 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
         // 놓으면 제자리로 미끄러져 들어간다 — null(즉시 사라짐)은 카드가 순간이동한
         // 것처럼 보였다. 220ms면 끌던 손맛이 남고 다음 조작을 막지도 않는다.
         <DragOverlay dropAnimation={{ duration: 220, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>
-          {activeTask ? (
+          {activeTask?.status === ONGOING ? (
+            // 상시 칩은 칩 모양 그대로 들린다
+            <div className="inline-flex max-w-[260px] items-center gap-1.5 pl-2.5 pr-1 py-[3px] rounded-full border border-line bg-surface shadow-elevated opacity-95 cursor-grabbing">
+              <OngoingChipInner task={activeTask} />
+            </div>
+          ) : activeTask ? (
             // 끌고 있는 동안만 상자로 세운다 — 손에 들린 게 무엇인지 보여야 하니까
             <div className="bg-surface px-3.5 py-3 rounded-sm border border-line shadow-elevated rotate-1 scale-[.98] opacity-95 cursor-grabbing">
               <TaskCardInner task={activeTask} projectsMap={projectsMap} showProjectBadge={showProjectBadge} />

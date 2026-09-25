@@ -201,7 +201,8 @@ const pop = await ev(`(() => { const p=[...document.body.children].find(c=>/z-\\
   return { w: Math.round(p.getBoundingClientRect().width), origin: cs.transformOrigin,
            items: [...p.querySelectorAll('button')].map(b=>b.textContent.trim()) }; })()`);
 check('보드: 상태 팝오버 150px', pop && pop.w === 150, JSON.stringify(pop && { w: pop.w }));
-check('보드: 팝오버에 4개 상태', pop && pop.items.length === 4, JSON.stringify(pop && pop.items));
+// 상시(0075)는 칸이 아니어도 고를 수 있다 — 맨 아래
+check('보드: 팝오버에 상태 다섯(상시가 맨 아래)', pop && pop.items.length === 5 && pop.items[4] === '상시', JSON.stringify(pop && pop.items));
 
 // ── 3. 캘린더 ──
 await load(DESK, '/?p=p1');

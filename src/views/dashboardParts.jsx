@@ -2,13 +2,14 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
-import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byCompleted, completedTime, spreadLabels, scrollParentOf, weekEndOf, localDate } from '../utils.js';
+import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byCompleted, completedTime, spreadLabels, scrollParentOf, localDate } from '../utils.js';
 import { usePresence } from '../services/presence.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { useForceGraph, hoverProps } from '../hooks/useForceGraph.js';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
+import { bucketOf, isOverdue, isStaleNoDue, STALE_NODUE_DAYS, personLoad } from '../services/taskCounts.js';
 import { YearPicker } from '../components/layout.jsx';
 
 // ============================================================================
@@ -27,41 +28,25 @@ export const ISO_TODAY = () => localDate(new Date());
 export const daysLeft = (iso, today = ISO_TODAY()) =>
   Math.round((new Date(`${iso}T00:00:00`) - new Date(`${today}T00:00:00`)) / 86400000);
 const mdLabel = (iso) => `${Number(iso.slice(5, 7))}. ${Number(iso.slice(8, 10))}.`;
-// 지난 날 수 (오늘 - 그날). ISO 날짜든 타임스탬프든 앞 10자만 본다.
-export const ageDays = (iso, today = ISO_TODAY()) => daysLeft(today, String(iso).slice(0, 10));
+// 청년별 셈은 services/taskCounts.js 한 벌이다 — 여기서는 이어서 내보내기만 한다
+// (views가 이 파일에서 가져간다).
+export { personLoad };
 
-// 마감이 정해지지 않은 채 이만큼 지나면 표시한다 — 마감 미정은 막지 않지만
-// 조용히 묻히게 두지도 않는다(마감을 필수로 만들면 아무 날짜나 넣어서 '지연'
-// 숫자가 거짓이 된다).
-const STALE_NODUE_DAYS = 14;
-const isStaleNoDue = (t, today = ISO_TODAY()) =>
-  !t.dueDate && t.status !== '완료' && !!t.createdAt && ageDays(t.createdAt, today) >= STALE_NODUE_DAYS;
-
-// 마감 기준 구간 — 지연 / 오늘 / 이번 주(그 주 토요일까지) / 그 이후 / 마감 미정 / 완료
+// 마감 기준 구간 — 판정은 taskCounts.bucketOf(열쇠)이고 여기는 라벨·색만 둔다.
 // '마감 미정'을 따로 두는 이유: 예전에는 '다음 주 이후'에 섞여 있어서 마감을 정하지
 // 않은 업무가 몇 건인지 아무 데도 안 보였다. 마감 중심 화면인데 마감이 없는 업무가
-// 가장 조용히 묻혔다.
+// 가장 조용히 묻혔다. **상시**(마감 없이 계속 사는 업무)와 **보류 중**(멈춘 일)은 날짜
+// 구간에 섞지 않고 제 구간을 가진다 — 마감 미정에 섞이면 '2주 넘은 것'이 거짓이 된다.
 const BUCKETS = [
   { key: 'overdue', label: '지연', fg: 'var(--app-tag-red-fg)' },
   { key: 'today', label: '오늘 마감', fg: 'var(--app-ink)' },
   { key: 'week', label: '이번 주', fg: 'var(--app-ink)' },
   { key: 'later', label: '다음 주 이후', fg: 'var(--app-ink-muted)' },
   { key: 'nodue', label: '마감 미정', fg: 'var(--app-ink-muted)' },
+  { key: 'ongoing', label: '상시', fg: 'var(--app-tag-purple-fg)' },
+  { key: 'hold', label: '보류 중', fg: 'var(--app-ink-muted)' },
   { key: 'done', label: '끝낸 업무', fg: 'var(--app-tag-green-fg)' },
 ];
-function bucketOf(task, today = ISO_TODAY()) {
-  // 끝낸 업무는 마감이 지났어도 '지연'이 아니다 — 이미 끝난 일을 밀린 일로 세면
-  // '내 업무'에서 완료 탭을 볼 때마다 전부 빨갛게 지연으로 보였다
-  // 반환값은 BUCKETS의 인덱스다 — 배열 순서를 바꾸면 여기도 같이 고쳐야 한다
-  if (task.status === '완료') return 5;
-  if (!task.dueDate) return 4;              // 마감 미정 — 자기 구간을 가진다
-  if (task.dueDate < today) return 0;
-  if (task.dueDate === today) return 1;
-  // '이번 주'는 주일에 시작해 토요일에 끝나는 달력의 주다(utils.weekEndOf, 사용자 지시
-  // 2026-09-08). 굴러가는 6일 창이 아니라서 금요일에는 '이번 주'에 토요일 하루만 남고,
-  // 그 뒤는 전부 '다음 주 이후'다 — 라벨과 실제가 같은 말을 한다.
-  return task.dueDate <= weekEndOf(today) ? 2 : 3;
-}
 // 마감 없는 업무가 뒤로 가도록 정렬 (마감일 오름차순).
 // 칸반 컬럼 안 순서도 이걸 쓴다 — 목록과 보드가 서로 다른 순서를 보이면 안 된다.
 export const byDue = (a, b) => String(a.dueDate || '9999').localeCompare(String(b.dueDate || '9999'));
@@ -73,16 +58,17 @@ export const byDue = (a, b) => String(a.dueDate || '9999').localeCompare(String(
 // **그 구간은 날짜 칸도 마감일이 아니라 끝낸 날이다**(아래 dateOf) — 정렬 기준이
 // 화면에 없으면 목록이 뒤죽박죽으로 읽힌다(사용자 지적 2026-08-31).
 export function groupByDue(tasks, today = ISO_TODAY()) {
-  return BUCKETS.map((b, i) => ({
+  return BUCKETS.map(b => ({
     ...b,
-    items: tasks.filter(t => bucketOf(t, today) === i).sort(b.key === 'done' ? byCompleted : byDue),
+    items: tasks.filter(t => bucketOf(t, today) === b.key).sort(b.key === 'done' ? byCompleted : byDue),
   })).filter(g => g.items.length);
 }
 
 // 줄 왼쪽 날짜 칸에 무엇을 쓰나. '끝낸 업무'는 끝낸 날(정렬 기준과 같은 값),
 // 나머지는 마감일. 끝낸 날을 모르는 옛 데이터는 마감일로 떨어진다.
+// 끝낸 날은 **로컬 날짜**다(타임스탬프 앞 10자는 UTC라 한국 아침 9시 전에 끝낸 것이 전날로 찍혔다).
 export const rowDate = (t, bucketKey) => (bucketKey === 'done'
-  ? (completedTime(t).slice(0, 10) || t.dueDate || '')
+  ? (localDate(completedTime(t)) || t.dueDate || '')
   : (t.dueDate || ''));
 
 // 상태 → 진행 바 파스텔
@@ -91,6 +77,7 @@ export const STATUS_BAR = {
   '진행 중': 'var(--p-blue)',
   '보류 중': 'var(--p-yellow)',
   '완료': 'var(--p-green)',
+  '상시': 'var(--p-purple)',
 };
 // 상태 → 점 색 (CSS 변수 — 인라인 style에서 쓴다)
 export const STATUS_DOT_VAR = {
@@ -98,6 +85,7 @@ export const STATUS_DOT_VAR = {
   '진행 중': 'var(--app-accent)',
   '보류 중': 'var(--app-status-hold)',
   '완료': 'var(--app-tag-green-fg)',
+  '상시': 'var(--app-tag-purple-fg)',
 };
 
 // ── 진행 바 (scaleX) ───────────────────────────────────────────────────────
@@ -188,7 +176,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
         // 가장 긴 DOM이 되고(줄마다 확인 팝오버가 둘), 재조회 때마다 전부 다시 만들어진다.
         const shown = expanded[g.key] ? g.items : g.items.slice(0, GROUP_LIMIT);
         const hidden = g.items.length - shown.length;
-        // 마감 미정 구간에서 2주 넘게 마감이 안 정해진 건수 — 제목 줄에만 적는다
+        // 마감 미정 구간에서 2주 넘게 손대지 않은 건수(taskCounts.isStaleNoDue) — 제목 줄에만 적는다
         const staleCount = g.key === 'nodue' ? g.items.filter(t => isStaleNoDue(t, today)).length : 0;
         return (
         <div key={g.key} className="pb-4">
@@ -205,8 +193,9 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
           {shown.map(t => {
             const delay = stagger ? `${Math.min(seen++, 12) * 22}ms` : '0ms';
             const done = t.status === '완료';
-            const over = !done && t.dueDate && t.dueDate < today;
-            const isToday = !done && t.dueDate === today;
+            // 빨강은 taskCounts.isOverdue 하나 — 보류 중인 업무의 지난 마감은 회색이다
+            const over = isOverdue(t, today);
+            const isToday = g.key === 'today';
             // 한 줄에서 두 번(title·색) 묻던 판정 — 값이 같아야 노란 글자와 그 설명이 짝이 된다
             const stale = isStaleNoDue(t, today);
             const teams = teamsLabel(t.teams);
@@ -258,14 +247,15 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                   <span className="shrink-0 w-11 text-[11.5px] font-bold tabular-nums"
                     title={done
                       ? (t.dueDate ? `끝낸 날 · 마감은 ${mdLabel(t.dueDate)}였어요` : '끝낸 날')
-                      : stale ? `${STALE_NODUE_DAYS / 7}주 넘게 마감이 정해지지 않았어요` : undefined}
+                      : stale ? `마감 미정으로 ${STALE_NODUE_DAYS / 7}주 넘게 그대로예요` : undefined}
                     style={{
                       color: over ? 'var(--app-tag-red-fg)'
                         : isToday ? 'var(--app-ink)'
                         : stale ? 'var(--app-status-hold)'
                         : 'var(--app-ink-muted)',
                     }}>
-                    {rowDate(t, g.key) ? mdLabel(rowDate(t, g.key)) : '미정'}
+                    {/* 상시는 날짜가 없는 것이 제 모양이라 '미정'을 쓰지 않는다(칸은 비워 제목 자리를 맞춘다) */}
+                    {rowDate(t, g.key) ? mdLabel(rowDate(t, g.key)) : g.key === 'ongoing' ? '' : '미정'}
                   </span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-[13.5px] font-semibold text-fg truncate" style={{ letterSpacing: '-0.2px' }}>{t.title}</span>
@@ -398,31 +388,14 @@ export function PersonLoadGrid({ people, onOpenPerson }) {
             <span className="flex-1" />
             <span className="text-[11px] font-semibold text-fg tabular-nums shrink-0">{p.left}건</span>
           </span>
-          <span className="block mt-[5px]"><Bar ratio={p.left / max} color={p.late ? 'var(--p-red)' : 'var(--p-blue)'} /></span>
-          {/* 지연을 안고 있는 사람만 한 줄 더 — 건수만으로는 '많이 맡았다'와
-              '밀려 있다'가 구분되지 않는다 */}
-          {p.late > 0 && (
-            <span className="block mt-[3px] text-[10px] tabular-nums" style={{ color: 'var(--app-tag-red-fg)' }}>지연 {p.late}건</span>
-          )}
+          {/* 사람마다 빨간 '지연 N건'·빨간 막대를 두었다가 걷었다(사용자 결정 2026-09-25) —
+              누가 밀렸는지 가리키는 줄이 되어 사람끼리 견주는 구조였다(§8). 지연은 업무 쪽
+              (KPI·마감 목록)에서 보인다. */}
+          <span className="block mt-[5px]"><Bar ratio={p.left / max} color="var(--p-blue)" /></span>
         </div>
       ))}
     </div>
   );
-}
-
-// 담당자별 남은 업무 집계 — 많이 맡은 사람 순. 목록을 한 번만 훑는다.
-export function personLoad(openTasks, today = ISO_TODAY()) {
-  const m = new Map();
-  for (const t of openTasks) {
-    for (const name of (t.assignees || [])) {
-      if (!name) continue;
-      const s = m.get(name) || { name, left: 0, late: 0 };
-      s.left++;
-      if (t.dueDate && t.dueDate < today) s.late++;
-      m.set(name, s);
-    }
-  }
-  return [...m.values()].sort((a, b) => b.left - a.left || a.name.localeCompare(b.name, 'ko'));
 }
 
 // ── 섹션 제목 (줄 있는 것 / 없는 것) ──────────────────────────────────────
