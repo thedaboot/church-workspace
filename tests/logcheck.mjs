@@ -4705,3 +4705,172 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(!/CAL_MAX_YEAR|= 2030/.test(cal), '2030 상한이 박혀 있지 않다');
   console.log('PASS  9월 25일 묶음(다음 동아리 모임 · 주보별 공유 노트 · 노트 알림 링크 · 성경 띄어쓰기 · 달력 연도)');
 }
+
+// ── 교회력 · 광고 → 내 달력 · 주보를 보여 주는 규칙 (2026-09-25 사용자 결정) ────────────
+// 셋 다 import 없는 순수 모듈이라 그대로 부른다(churchYear · noticeDate) — serviceView는 순수 모듈
+// noteTemplate 하나만 import한다. 화면 배선은 소스로 못 박는다.
+// 되돌려서 깨뜨린 것(§3-5): churchSeason의 성령강림절 후 번호를 `weeks(pent, t) + 1`로 바꾸면 큐시트
+// 대조가, splitSongTitle을 `' | '`에서도 나누게 하면 찬양 줄 단정이, readNoticeDate의 요일 확인을
+// 지우면 '(토) 틀린 요일' 단정이 깨진다.
+{
+  const CY = await import(new URL('../src/services/churchYear.js', import.meta.url).href);
+  // 부활절 — 알려진 해 넷
+  assert.deepStrictEqual([2024, 2025, 2026, 2027].map(CY.easterDate), ['2024-03-31', '2025-04-20', '2026-04-05', '2027-03-28']);
+
+  // **큐시트 전례색과 날짜 계산 대조** — 라이브 큐시트 세 장의 요지(files.text_excerpt, 2026-09-25 SELECT)
+  // 그대로다. 예배팀은 '오순절 후'라고 적고 우리는 '성령강림절 후'라고 부른다(사용자 결정) — 번호와
+  // 색이 같아야 한다. 다른 해의 큐시트가 오면 여기에 한 줄씩 더한다.
+  const CUE = [
+    ['2026-09-06', '주제: 오순절 후 열 다섯번째 주일 · 전례색: 초록색 - 생명의 희열과 희망의 색, 교회의 성장, 성숙'],
+    ['2026-09-13', '주제: 오순절 후 열 여섯 번째 주일 · 전례색: 초록색 - 생명의 희열과 희망의 색, 교회의 성장, 성숙'],
+    ['2026-09-20', '주제: 오순절 후 열 일곱번째 주일 · 전례색: 초록색 - 생명의 희열과 희망의 색, 교회의 성장, 성숙'],
+  ];
+  const UNIT = { 한: 1, 하나: 1, 두: 2, 둘: 2, 세: 3, 셋: 3, 네: 4, 넷: 4, 다섯: 5, 여섯: 6, 일곱: 7, 여덟: 8, 아홉: 9 };
+  const TEN = { 열: 10, 스물: 20, 스무: 20, 서른: 30 };
+  const ordinal = (w) => {
+    let s = w.replace(/\s+/g, '').replace(/번째$/, '');
+    let n = 0;
+    for (const [k, v] of Object.entries(TEN)) if (s.startsWith(k)) { n = v; s = s.slice(k.length); break; }
+    return n + (s ? (UNIT[s] ?? NaN) : 0);
+  };
+  const COLOR = { 초록색: 'green', 보라색: 'purple', 흰색: 'white', 백색: 'white', 빨간색: 'red', 붉은색: 'red' };
+  for (const [date, text] of CUE) {
+    const m = /오순절 후 (.+?번째) 주일 · 전례색: (\S+)/.exec(text);
+    assert.ok(m, `큐시트 요지 모양이 바뀌었다: ${text}`);
+    const s = CY.churchSeason(date);
+    assert.strictEqual(s.liturgical, COLOR[m[2]], `${date} 전례색 — 큐시트 ${m[2]} · 계산 ${s.liturgical}`);
+    assert.strictEqual(s.name, `성령강림절 후 제${ordinal(m[1])}주일`, `${date} 절기 번호 — 큐시트 ${m[1]}`);
+    assert.strictEqual(s.color, null, '연중은 절기 색이 없다(기본 톤)');
+  }
+  // 한 해의 경계들
+  const nm = (d) => CY.churchSeason(d).name;
+  const col = (d) => CY.churchSeason(d).color;
+  assert.strictEqual(nm('2026-11-29'), '대림절 제1주일'); assert.strictEqual(col('2026-11-29'), 'purple');
+  assert.strictEqual(nm('2026-11-22'), '성령강림절 후 제26주일', '대림 전날 주일까지 연중');
+  assert.strictEqual(nm('2026-12-20'), '대림절 제4주일');
+  assert.strictEqual(nm('2026-12-25'), '성탄절'); assert.strictEqual(col('2026-12-25'), 'gold');
+  assert.strictEqual(nm('2027-01-03'), '성탄절', '새해 첫 닷새는 지난해 성탄절 기간');
+  assert.strictEqual(nm('2027-01-06'), '주현절'); assert.strictEqual(col('2027-01-06'), 'gold');
+  assert.strictEqual(nm('2027-01-10'), '주현절 후 제1주일'); assert.strictEqual(col('2027-01-10'), null, '주현절 뒤는 연중');
+  assert.strictEqual(nm('2027-02-10'), '사순절', '재의 수요일(부활절 −46일)'); assert.strictEqual(col('2027-02-10'), 'purple');
+  assert.strictEqual(nm('2027-02-14'), '사순절 제1주일');
+  assert.strictEqual(nm('2027-03-28'), '부활주일'); assert.strictEqual(col('2027-03-28'), 'gold');
+  assert.strictEqual(nm('2027-04-04'), '부활절 제2주일');
+  assert.strictEqual(nm('2026-05-24'), '성령강림주일'); assert.strictEqual(col('2026-05-24'), 'red');
+  assert.strictEqual(nm('2026-05-29'), '성령강림절'); assert.strictEqual(col('2026-05-29'), 'red', '빨강은 그 주 토요일까지');
+  assert.strictEqual(nm('2026-05-31'), '성령강림절 후 제1주일'); assert.strictEqual(col('2026-05-31'), null);
+  assert.strictEqual(nm('2026-09-25'), '성령강림절 후', '주일이 아니면 번호가 없다');
+  assert.strictEqual(CY.churchSeason('bad'), null);
+  assert.deepStrictEqual(Object.keys(CY.SEASON_MAST).sort(), ['gold', 'purple', 'red'], '종이 띠 색은 특별 절기 셋뿐(연중은 인디고 그대로)');
+
+  // ── 광고 → 날짜 ──
+  const ND = await import(new URL('../src/services/noticeDate.js', import.meta.url).href);
+  const rd = (title, body, svc) => ND.readNoticeDate({ title, body }, svc);
+  // 라이브 광고(9/6·9/13·9/20)는 하나도 읽히지 않는다 — 달만 · 연도만 · 상대 말 · 빈 본문 · 생일 줄
+  const LIVE = [
+    ['2026-09-20', '다음 주 예배 위원', '대표기도: 이수빈 형제\n헌금봉헌: 윤현서 자매'], ['2026-09-20', '교우동정', '생일자: 조현재 형제 9/20'],
+    ['2026-09-20', '다음 주 예배 안내', ''], ['2026-09-20', '예배 캠페인', ''], ['2026-09-13', '교우 동정', '없음'],
+    ['2026-09-13', '다음 주 예배 위원', '대표 기도: 강서윤 자매\n헌금 봉헌: 윤현서 자매'], ['2026-09-13', '9월 월례회', ''],
+    ['2026-09-13', '청년부 회장 추천', ''], ['2026-09-06', '다음 주 예배 위원', '대표기도: 문진혁 형제\n헌금봉헌: 조준환 형제'],
+    ['2026-09-06', '9월 월례회', ''], ['2026-09-06', '다붓 팟캐스트 ', ''], ['2026-09-06', '팀장 모임', ''], ['2026-09-06', '27년도 회장 선출', ''],
+  ];
+  for (const [svc, t, b] of LIVE) assert.strictEqual(rd(t, b, svc), null, `라이브 광고는 안 읽힌다: ${t}`);
+  assert.strictEqual(rd('교우동정', '생일자: 조현재 형제 10/4', '2026-09-20'), null, "'생일' 줄은 뒷날이어도 건너뛴다");
+  assert.deepStrictEqual(rd('10월 월례회', '10월 11일(주일) 예배 후 청년부실', '2026-09-27'), { date: '2026-10-11', time: null });
+  assert.strictEqual(rd('10월 월례회', '10월 11일(토) 예배 후', '2026-09-27'), null, '요일이 틀리면 칩 없음');
+  assert.deepStrictEqual(rd('사역팀장 선출', '10/11 까지 추천서 제출', '2026-09-27'), { date: '2026-10-11', time: null }, 'M/D');
+  assert.deepStrictEqual(rd('x', '10.3 14:30 모임', '2026-09-27'), { date: '2026-10-03', time: '14:30' }, 'M.D · H:MM');
+  assert.deepStrictEqual(rd('가을 체육대회', '25일 오후 2시, 자세한 장소는 다음 주 광고', '2026-10-18'), { date: '2026-10-25', time: '14:00' }, 'D일 · 상대 말은 거들지 않는다');
+  assert.deepStrictEqual(rd('x', '3일 오전 10시 반', '2026-09-27'), { date: '2026-10-03', time: '10:30' }, '지난 D일은 다음 달 · 반');
+  assert.deepStrictEqual(rd('송구영신', '1월 3일 오후 7시 30분', '2026-12-27'), { date: '2027-01-03', time: '19:30' }, '연말의 1월은 새해');
+  assert.strictEqual(rd('x', '9월 20일 오후 1시 반', '2026-09-20'), null, '주보 날짜 당일은 칩 없음');
+  assert.strictEqual(rd('x', '9월 13일', '2026-09-20'), null, '지난 날은 칩 없음');
+  assert.strictEqual(rd('예배 2.0', '', '2026-09-27'), null, "'2.0'은 날짜가 아니다");
+  assert.strictEqual(rd('수련회', '3일간 진행', '2026-09-27'), null, "'3일간'은 기간이다");
+  assert.strictEqual(rd('x', '2월 30일', '2026-01-04'), null, '없는 날');
+  assert.strictEqual(ND.noticeDateLabel({ date: '2026-10-11', time: '14:00' }), '10월 11일 (일) 오후 2:00', '칩 글자(목업)');
+  assert.strictEqual(ND.noticeDateLabel({ date: '2026-10-11', time: null }), '10월 11일 (일)');
+  assert.strictEqual(ND.noticeDateLabel({ date: '2026-10-11', time: '00:05' }), '10월 11일 (일) 오전 12:05');
+  // .ics — 한국 시간은 UTC(Z)로 · 하루 종일은 DATE · 글자 이스케이프 · 75옥텟 접기 · CRLF
+  const ev = ND.noticeEvent({ id: 'svc1', service_date: '2026-09-27' }, { title: '10월 월례회, 청년부', body: '예배 후; 청년부실' }, 2,
+    { date: '2026-10-11', time: '14:00' }, '주일 4부 젊은이 예배');
+  assert.deepStrictEqual([ev.uid, ev.title, ev.description], ['svc1-2@thedaboot', '10월 월례회, 청년부', '예배 후; 청년부실\n(2026.09.27 주일 4부 젊은이 예배 광고)']);
+  const ics = ND.buildIcs({ ...ev, now: Date.UTC(2026, 8, 27) });
+  assert.ok(ics.includes('\r\nDTSTART:20261011T050000Z\r\nDTEND:20261011T060000Z\r\n'), '오후 2시 KST = 05:00Z, 1시간');
+  assert.ok(ics.includes('SUMMARY:10월 월례회\\, 청년부'), '쉼표 이스케이프');
+  assert.ok(ics.includes('DESCRIPTION:예배 후\\; 청년부실\\n'), '세미콜론·줄바꿈 이스케이프');
+  assert.ok(ics.split('\r\n').every(l => new TextEncoder().encode(l).length <= 75), '한 줄 75옥텟 이하(접기)');
+  const allDay = ND.buildIcs({ uid: 'u', title: 't', date: '2026-12-31', time: null, now: 0 });
+  assert.ok(allDay.includes('DTSTART;VALUE=DATE:20261231\r\nDTEND;VALUE=DATE:20270101'), '하루 종일은 다음 날까지');
+  const g = new URL(ND.googleCalendarUrl({ title: '월례회', date: '2026-10-11', time: '23:30' }));
+  assert.strictEqual(g.searchParams.get('dates'), '20261011T233000/20261012T003000', '구글 주소는 한국 시간 그대로 · 자정을 넘으면 다음 날');
+  assert.strictEqual(g.searchParams.get('ctz'), 'Asia/Seoul');
+  assert.strictEqual(ND.kakaoExternal('https://a.b/api/ics?s=1&n=2'), 'kakaotalk://web/openExternal?url=https%3A%2F%2Fa.b%2Fapi%2Fics%3Fs%3D1%26n%3D2');
+
+  // api/ics — 공용 머리 · 같은 파서 · 발행본만 · 서명 비교는 safeEqual · 토큰은 주소에 싣지 않는다
+  const icsApi = readFileSync(new URL('../api/ics.js', import.meta.url), 'utf8');
+  assert.ok(/requireApprovedUser\(req, res/.test(icsApi) && !/auth\.getUser\(/.test(icsApi), 'api/ics는 공용 승인 머리를 쓴다');
+  assert.ok(/from '\.\.\/src\/services\/noticeDate\.js'/.test(icsApi) && /readNoticeDate\(notice, data\.service_date\)/.test(icsApi), '서버도 같은 파서로 다시 읽는다');
+  assert.ok(/data\.status !== 'published'/.test(icsApi), '발행된 주보만');
+  assert.ok(/safeEqual\(/.test(icsApi) && /e < Date\.now\(\)/.test(icsApi), '서명·만료를 본다');
+  assert.ok(!/access_token|Bearer \$\{/.test(icsApi.replace(/\/\/.*$/gm, '')), '주소에 접근 토큰을 싣지 않는다');
+
+  // ── 주보를 보여 주는 규칙 ──
+  const SV = await import(new URL('../src/services/serviceView.js', import.meta.url).href);
+  // 찬양 줄 — 라이브 제목 그대로. `팀 - 제목`만 나누고 나머지는 한 줄 그대로(지어내서 나누지 않는다)
+  assert.deepStrictEqual(SV.splitSongTitle('F.I.A LIVE WORSHIP - 예배하는 이에게 (피아버전)'), { team: 'F.I.A LIVE WORSHIP', title: '예배하는 이에게 (피아버전)' });
+  assert.deepStrictEqual(SV.splitSongTitle('팀룩워십 - 주를 바라보며 + 주를 찾는 모든 자들이'), { team: '팀룩워십', title: '주를 바라보며 + 주를 찾는 모든 자들이' });
+  assert.deepStrictEqual(SV.splitSongTitle('A - B - C'), { team: 'A', title: 'B - C' }, '첫 " - " 기준');
+  for (const t of ['예배하는 이에게ㅣMidnight Worship', '빛으로 비추시네 | YKDC | OPEN WORSHIP', '하나님의 나라 | 아이자야씩스티원',
+    '예수로 살리  l Anointing', '예수의 길 | 마커스워십', '주 은혜임을', '주-은혜', ' - 제목만', '팀만 - ']) {
+    assert.deepStrictEqual(SV.splitSongTitle(t), { team: '', title: t.trim() }, `나누지 않는다: ${t}`);
+  }
+  // 본명 — personId로, 이름만이면 표시 이름·본명 둘 다 열쇠로. 없으면 그대로(지어내지 않는다)
+  const people = [
+    { id: 'a', name: '이하랑Alex', roster_name: '이하랑' }, { id: 'b', name: '꽃님', roster_name: '강꽃님' },
+    { id: 'c', name: '조준환', roster_name: '조준환' }, { id: 'd', name: '김서진' },
+  ];
+  const real = SV.realNameOf(people);
+  assert.deepStrictEqual(real('이하랑Alex', 'a'), { name: '이하랑', found: true });
+  assert.deepStrictEqual(real('옛 이름', 'b'), { name: '강꽃님', found: true }, 'id가 이긴다');
+  assert.deepStrictEqual(real('꽃님'), { name: '강꽃님', found: true }, '이름만 — 표시 이름');
+  assert.deepStrictEqual(real('강꽃님'), { name: '강꽃님', found: true }, '이름만 — 본명');
+  assert.deepStrictEqual(real('김서진'), { name: '김서진', found: true }, '게스트 모양(roster_name 없음)');
+  assert.deepStrictEqual(real('한상록 강사님'), { name: '한상록 강사님', found: false }, '객원은 그대로');
+  assert.strictEqual(SV.realNamesInRoleLines('대표기도: 꽃님 자매\n헌금 봉헌: 이하랑Alex\n- 광고: 한상록 강사님\n그냥 글', real),
+    '대표기도: 강꽃님 자매\n헌금 봉헌: 이하랑\n- 광고: 한상록 강사님\n그냥 글', '이름 칸만 바꾸고 호칭·나머지 줄은 그대로');
+  assert.deepStrictEqual(SV.nextWeekRoles([{ title: '교우동정', body: '생일자: 조현재 형제 9/20' }, { title: '다음 주 예배 위원', body: '대표 기도: 강서윤 자매\n\n헌금봉헌: 윤현서 자매' }]),
+    [{ role: '대표 기도', value: '강서윤 자매' }, { role: '헌금봉헌', value: '윤현서 자매' }]);
+  assert.deepStrictEqual(SV.storyNotices([{ title: '다음 주 예배 위원', body: 'x: y' }, { title: '빈', body: '  ' }, { title: '교우동정', body: '생일' }]).map(n => n.title), ['교우동정'],
+    '스토리 광고는 내용 있는 것만 · 다음 주 위원은 마지막 장으로');
+  // 장 나누기 — 넘치면 다음 장 · 혼자 넘는 것은 혼자 · 못 쟀으면 한 장
+  assert.deepStrictEqual(SV.packPages([100, 100, 100], 250, 10), [[0, 2], [2, 3]]);
+  assert.deepStrictEqual(SV.packPages([100, 400, 50], 250, 10), [[0, 1], [1, 2], [2, 3]]);
+  assert.deepStrictEqual(SV.packPages([10, 20], 0, 0), [[0, 2]]);
+  assert.deepStrictEqual(SV.packPages([], 100, 0), []);
+  // 내 노트 목록 — 쓴 것만 · 주보가 있는 것만 · 최근 예배가 앞
+  const svcs = [{ id: 's1', service_date: '2026-09-06', passage_ref: '사사기 3:1-11' }, { id: 's2', service_date: '2026-09-20', passage_ref: '' }];
+  const rows = SV.myNoteRows([
+    { service_id: 's1', body: '### 말씀 요약\n은혜\n\n### 나의 결단\n\n### 기도\n' },
+    { service_id: 's2', body: '### 말씀 요약\n기쁨' },
+    { service_id: 'gone', body: '지워진 주보의 노트' },
+    { service_id: 's1', body: '### 말씀 요약\n\n### 나의 결단\n\n### 기도\n' },
+    { service_id: 's2', body: '   ' },
+  ], svcs);
+  assert.deepStrictEqual(rows.map(r => r.service.id), ['s2', 's1'], '템플릿만 남은 노트·빈 노트·주보 없는 노트는 뺀다');
+
+  // 배선 — 화면이 이 규칙들을 실제로 쓰는가
+  const wd = readFileSync(new URL('../src/components/worshipDetail.jsx', import.meta.url), 'utf8');
+  const wv = readFileSync(new URL('../src/views/worshipView.jsx', import.meta.url), 'utf8');
+  const pp = readFileSync(new URL('../src/components/paper.jsx', import.meta.url), 'utf8');
+  const ws = readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8');
+  assert.ok(/data-season=\{season\?\.color \|\| 'plain'\}/.test(wv) && /worship-season-dot/.test(wv), '주보 카드에 절기 물·점');
+  assert.ok(/worship-head season-wash/.test(wd) && /churchSeason\(service\.service_date\)/.test(wd), '상세 머리에 절기 물');
+  assert.ok(/season=\{season\} className="paper-service paper-service-1"/.test(pp) && /season=\{season\} className="paper-service paper-service-2"/.test(pp), '주보 종이 두 쪽 머리 띠에 절기');
+  assert.ok(/nameOf\(r\.name, r\.personId \|\| r\.person_id \|\| null\)/.test(pp), '종이 섬기는 이들은 personId로 본명을 찾는다');
+  assert.ok(/const r = real\(name, personId\);/.test(wd) && /honor\(r\.found \? r\.name : name, personId\)/.test(wd), '상세의 이름은 본명 + 호칭');
+  assert.ok(/worship-story-open md:hidden/.test(wd), "'넘기면서 보기'는 폰에서만(데스크톱에 버튼 없음)");
+  assert.ok(/from\('service_notes'\)[\s\S]{0,120}\.eq\('profile_id', uid\);/.test(ws.slice(ws.indexOf('export async function fetchMyNotes'))),
+    '내 노트 모아 보기는 profile_id로 거른다(읽기 정책은 같은 순의 공유 노트도 준다)');
+  console.log('PASS  교회력(큐시트 대조 3) · 광고 → 달력(라이브 13건 안 읽힘 · .ics · 구글) · 찬양 줄 · 본명 · 장 나누기 · 내 노트 목록');
+}

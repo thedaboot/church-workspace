@@ -139,7 +139,9 @@ export function prefillRoles(services, { onDate, kind = SUNDAY_KIND, people = []
     if (!PREFILL_KEYS.has(key) || byRole.has(key)) continue;
     const name = bareName(m[2]);
     if (!name) continue;
-    const found = (people || []).find(x => String(x?.name || '').trim() === name);
+    // 광고는 본명으로 적힐 때가 많다('강서윤 자매') — 계정 표시 이름(name)뿐 아니라 명단에 적힌
+    // 이름(roster_name · people.js withDisplayName)도 같은 사람으로 본다(2026-09-25).
+    const found = (people || []).find(x => String(x?.name || '').trim() === name || String(x?.roster_name || '').trim() === name);
     byRole.set(key, { role: PREFILL_LABEL.get(key), name, personId: found?.id ?? null });
   }
   // 적힌 순서가 아니라 **우리 차례대로** 세운다(대표기도 → 헌금봉헌). 주보마다 적는
@@ -890,6 +892,44 @@ export async function fetchMyNote(serviceId) {
     .select('id, body, shared_to_sun').eq('service_id', serviceId).eq('profile_id', uid).maybeSingle();
   if (error) throw error;
   return data ?? null;
+}
+
+// 내 예배 노트 전부 — 예배 화면의 '내 예배 노트' 모아 보기(2026-09-25).
+// **profile_id로 반드시 거른다.** service_notes의 읽기 정책(0036·0061)은 `내 것 OR (같은 순에
+// 공유된 것)`이라, 거르지 않으면 순원이 공유한 노트까지 '내 노트'로 섞여 온다. 쓰기는 내 것만이다.
+// 합친 계정이면 남긴 계정의 id다(myUid · effective_uid와 같은 규칙).
+// 빈 노트·템플릿만 남은 노트를 거르고 주보와 잇는 것은 serviceView.myNoteRows(순수)의 몫이다.
+export async function fetchMyNotes() {
+  if (!supabase) return guestRows('service_notes').map(n => ({ ...n }));
+  const uid = await myUid();
+  if (!uid) return [];
+  const { data, error } = await supabase.from('service_notes')
+    .select('id, service_id, body, shared_to_sun, updated_at').eq('profile_id', uid);
+  if (error) throw error;
+  return data ?? [];
+}
+
+// ── 광고 → 내 달력 (api/ics.js · 2026-09-25) ────────────────────────────────
+// .ics는 **브라우저가 주소를 직접 여는 것**이라(아이폰 Safari가 캘린더 '추가' 화면을 띄우는 길)
+// 요청에 Authorization 머리를 실을 수 없다. 접근 토큰을 주소에 싣지도 않는다 — 방문 기록·서버
+// 로그에 남는다. 그래서 두 걸음이다: ① 로그인한 채로 POST하면 서버가 승인을 보고 **10분짜리
+// 서명 주소**를 준다 ② 그 주소를 연다(서버가 서명·만료를 보고, 같은 파서로 광고를 다시 읽는다).
+// 게스트에는 서버가 없다 — 부르는 쪽이 blob으로 대신한다.
+export async function noticeIcsUrl(serviceId, index) {
+  if (!supabase) return null;
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw cantErr(WHY_LOGIN, true);
+  const r = await fetch('/api/ics', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ s: serviceId, n: index }),
+  });
+  const out = await r.json().catch(() => ({}));
+  if (r.ok && out.url) return out.url;
+  if (r.status === 401) throw cantErr(WHY_LOGIN, true);
+  if (r.status === 404 && !out.error) throw cantErr(WHY_DEPLOY, true);
+  throw cantErr(out.error || '일정을 만들지 못했어요\n잠시 후 다시 시도해주세요');
 }
 
 export async function saveMyNote(serviceId, { body = '', sharedToSun = false }) {

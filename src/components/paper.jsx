@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import logoLight from '../assets/logo-light.webp';
 import { tokenizeInline, IMAGE_LINE_RE, unescapeLine } from '../services/markdown.js';
+import { SEASON_MAST } from '../services/churchYear.js';
 
 // ============================================================================
 // 종이 — 예배 노트 · 묵상 노트 · 주보가 **바깥으로 나갈 때** 입는 옷 (2026-09-09)
@@ -64,11 +65,26 @@ const PHOTO_MAX_H = 260;
 // 종이 위쪽 인디고 띠. 왼쪽 날짜(가는 굵기·숫자 등간격), 오른쪽 종이 이름(800).
 // **읽기와 편집이 같은 부품을 쓴다**(2026-09-10) — 그래서 export다. 편집 화면에 같은
 // 마크업을 한 벌 더 적으면 한쪽만 고쳐진다(§6-32-p).
-export function PaperMast({ date, kind }) {
+//
+// **주보 종이에는 교회력이 선다**(사용자 결정 2026-09-25 · services/churchYear.js) — `season`을
+// 주면 날짜 위에 절기 이름 한 줄('성령강림절 후 제17주일')이 서고, 특별 절기면 띠가 그 절기의
+// 짙은 색이 된다(SEASON_MAST — 종이는 다크를 따라가지 않으므로 라이트 한 벌 · §6-32-i). 연중은
+// 이름 줄만 서고 띠는 인디고 그대로다. PDF로도 그대로 나간다. 노트 종이는 season을 안 준다 —
+// 그때는 마크업이 예전과 한 글자도 다르지 않다(편집·읽기 종이의 줄 위치 검사가 그대로 선다).
+export function PaperMast({ date, kind, season = null }) {
+  const tone = season?.color ? SEASON_MAST[season.color] : null;
+  const dateEl = <span className="paper-mast-date text-[12px] font-light tracking-[0.04em] tabular-nums opacity-[0.82]">{date}</span>;
   return (
     <div className="paper-mast flex items-end justify-between gap-3 px-[18px] pt-[13px] pb-[14px]"
-      style={{ background: PAPER.night, color: '#fff' }}>
-      <span className="paper-mast-date text-[12px] font-light tracking-[0.04em] tabular-nums opacity-[0.82]">{date}</span>
+      data-season={season ? (season.color || 'plain') : undefined}
+      style={{ background: tone?.bg || PAPER.night, color: tone?.ink || '#fff',
+        ...(tone?.edge ? { borderBottom: `1px solid ${tone.edge}` } : {}) }}>
+      {season?.name ? (
+        <span className="flex flex-col gap-px min-w-0">
+          <span className="paper-mast-season text-[10.5px] font-semibold tracking-[-0.01em] opacity-[0.92]">{season.name}</span>
+          {dateEl}
+        </span>
+      ) : dateEl}
       <span className="paper-mast-kind text-[15px] font-extrabold tracking-[-0.03em]">{kind}</span>
     </div>
   );
@@ -272,7 +288,7 @@ function PaperTail({ right = 'THE DABOOT MINISTRY' }) {
 // JSX인 것은 아니다 — 편집기(ProseMirror)가 그리는 글은 index.css가 칠해야 하고,
 // 종이는 다크를 따라가지 않으므로(32-i) 그 규칙이 앱 토큰을 쓸 수 없다. hex를 CSS에
 // 한 벌 더 적으면 두 자리가 갈라지므로, **여기 한 벌**을 변수로 내려 준다.
-export function PaperSheet({ sheetRef, date, kind, children, className = '', style = null }) {
+export function PaperSheet({ sheetRef, date, kind, children, className = '', style = null, season = null }) {
   return (
     <div ref={sheetRef} className={`paper-sheet ${className}`}
       style={{
@@ -282,7 +298,7 @@ export function PaperSheet({ sheetRef, date, kind, children, className = '', sty
         '--paper-accent': PAPER.accent, '--paper-mark': PAPER.mark, '--paper-check': PAPER.check,
         ...(style || {}),
       }}>
-      <PaperMast date={date} kind={kind} />
+      <PaperMast date={date} kind={kind} season={season} />
       <div className="paper-body px-[18px] pt-[20px] pb-[18px]">{children}</div>
     </div>
   );
@@ -385,9 +401,9 @@ export function NoteSheet({ sheetRef, date, kind, passageRef = '', passageTitle 
 // **본문을 전부 적는다**(사용자 결정 2026-09-09 — "주보에서 모든 본문 말씀이 다 적혀야
 // 하고, 말씀 요약은 안 해줘도 돼"). 그래서 이 쪽은 본문 길이만큼 길어지고, 찬양·광고는
 // 2쪽에서 새로 시작하므로 밀리지 않는다. PDF가 알아서 다음 장으로 넘긴다.
-export function ServiceSheetOne({ sheetRef, date, kind, title, refStr, preacher, verses = [] }) {
+export function ServiceSheetOne({ sheetRef, date, kind, title, refStr, preacher, verses = [], season = null }) {
   return (
-    <PaperSheet sheetRef={sheetRef} date={date} kind={kind} className="paper-service paper-service-1">
+    <PaperSheet sheetRef={sheetRef} date={date} kind={kind} season={season} className="paper-service paper-service-1">
       <p className="paper-pgno text-[9px] tracking-[0.1em]" style={{ color: PAPER.faint }}>1 / 2 · 말씀</p>
       {title ? (
         <p className="paper-wt text-[17px] font-extrabold tracking-[-0.035em] leading-[1.25] mt-2.5 break-words"
@@ -428,12 +444,13 @@ export const paperRoles = (rows = []) =>
   (rows || []).filter(r => (r?.name || r?.person_id) && !PAPER_ROLE_SKIP.includes(roleKey(r?.role)));
 
 export function ServiceSheetTwo({
-  sheetRef, date, kind, team, leader, songs = [], roles = [], notices = [], nameOf, cut = null, tagline = '',
+  sheetRef, date, kind, team, leader, songs = [], roles = [], notices = [], nameOf, cut = null, tagline = '', season = null,
 }) {
   const rows = paperRoles(roles);
-  const who = (r) => (nameOf ? nameOf(r.name) : r.name);
+  // personId를 같이 넘긴다 — 명단 본명·호칭을 id로 찾는다(이름은 계정 표시 이름일 수 있다 · serviceView.realNameOf)
+  const who = (r) => (nameOf ? nameOf(r.name, r.personId || r.person_id || null) : r.name);
   return (
-    <PaperSheet sheetRef={sheetRef} date={date} kind={kind} className="paper-service paper-service-2">
+    <PaperSheet sheetRef={sheetRef} date={date} kind={kind} season={season} className="paper-service paper-service-2">
       <div className="flex items-start justify-between gap-2.5">
         <p className="paper-pgno text-[9px] tracking-[0.1em]" style={{ color: PAPER.faint }}>2 / 2 · 찬양 · 광고</p>
         {cut ? <img className="paper-cut block shrink-0" src={cut.src} width={cut.w} height={cut.h}

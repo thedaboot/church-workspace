@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, PencilLine } from 'lucide-react';
+import { Plus, PencilLine, NotebookPen } from 'lucide-react';
 import { Skeleton } from '../components/media.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText, errorReason } from '../services/errorText.js';
@@ -9,7 +9,7 @@ import { useLiveRefresh } from '../services/liveV2.js';
 import { entryParam, takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { BTN, BTN_QUIET, FIELD, LabeledField, FailTail } from '../components/groupsParts.jsx';
-import { ServiceDetail, WorshipEmpty } from '../components/worshipDetail.jsx';
+import { ServiceDetail, WorshipEmpty, MyNotesScreen, BTN_SOFT } from '../components/worshipDetail.jsx';
 import { AttendanceScreen } from '../components/worshipAttendance.jsx';
 import {
   SUNDAY_KIND, kindLabel, formatServiceDate, nextSundayDate, serviceYear, worshipPerms, mergeSongs, kstNow,
@@ -21,9 +21,13 @@ import {
   fetchPlaylistSongs, fetchVideoTitle, setNoteShared,
   fetchServiceFiles, ensureServiceDriveFolder, uploadServiceFile, removeServiceFile, SONGFORM,
   recentSongs as worshipRecentSongs, prefillRoles as worshipPrefillRoles,
+  fetchMyNotes, noticeIcsUrl,
 } from '../services/worship.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
-import { imeComposing } from '../utils.js';
+import { imeComposing, isKakaoInApp } from '../utils.js';
+import { churchSeason } from '../services/churchYear.js';
+import { myNoteRows } from '../services/serviceView.js';
+import { buildIcs, googleCalendarUrl, kakaoExternal, noticeEvent } from '../services/noticeDate.js';
 
 // ============================================================================
 // v2 예배 화면 — 주보 목록/상세(말씀·임사자·찬양·광고) · 작성/발행 · 출석 체크 · 예배 노트
@@ -118,11 +122,19 @@ const metaParts = (service) => [
 // 발행본이면 출석 수가 선다(두 상태가 같이 오는 일은 없다 — 작성 중은 발행 전이다).
 // 출석 수를 **메타 줄에 넣지 않은 이유**: 그 줄은 폭에 따라 도막을 빼는 컨테이너 쿼리로
 // 한 줄을 지키는데(§6-9-q · index.css), 도막을 하나 더 얹으면 그 계산이 통째로 어긋난다.
+//
+// **교회력 물 한 겹**(2026-09-25 · services/churchYear.js) — 카드 위쪽이 절기 색으로 옅게 물들고
+// 메타 줄 앞에 6px 점이 선다. 특별 절기(대림·성탄·주현·사순·부활·성령강림 주간)만 색이고, 연중은
+// 우리 기본 톤이 더 옅게 서며 **점이 없다** — 점은 "이번 주는 특별한 절기"라는 표시라 매주 서면
+// 뜻이 없어진다. 모양은 index.css `.season-wash`. **배경은 backgroundColor로 준다** — 인라인
+// `background` 줄임말은 background-image까지 none으로 덮어 클래스의 물이 사라진다.
+const CARD_SEASON_STYLE = { backgroundColor: 'var(--app-surface)', border: '1px solid var(--app-line)' };
 function ServiceCard({ service, onOpen, attended = 0 }) {
   const isDraft = service.status !== 'published';
+  const season = churchSeason(service.service_date);
   return (
-    <button type="button" onClick={() => onOpen(service)}
-      className={`worship-card dc-card w-full text-left px-4 py-3.5 ${CARD}`} style={CARD_STYLE}>
+    <button type="button" onClick={() => onOpen(service)} data-season={season?.color || 'plain'}
+      className={`worship-card season-wash dc-card w-full text-left px-4 py-3.5 ${CARD}`} style={CARD_SEASON_STYLE}>
       <div className="flex items-start gap-2">
         <p className="worship-card-title flex-1 min-w-0 text-[15px] font-bold text-fg tracking-[-0.2px] break-words">
           {service.title || '설교 제목 미정'}
@@ -136,6 +148,7 @@ function ServiceCard({ service, onOpen, attended = 0 }) {
       </div>
       {/* 도막마다 span이고 구분점은 그 앞에 붙는다 — 도막이 빠지면 구분점도 같이 빠진다 */}
       <p className="worship-card-meta mt-1 text-[12.5px] leading-relaxed text-fg-muted truncate">
+        {season?.color && <span className="worship-season-dot" aria-hidden="true" />}
         {metaParts(service).map(([k, v], i) => (
           <span key={k} className={`worship-meta-${k}`}>{i ? ' · ' : ''}{v}</span>
         ))}
@@ -239,7 +252,8 @@ function NewServiceForm({ onCreate, onCancel, closing = false }) {
 
 // failed — 캐시 없는 첫 읽기가 실패했을 때 { reason, onRetry }(D2). 그때 services는 빈 목록이
 // 아니라 **없는 것**이고(부르는 쪽 services === null), 빈 문구 자리에 실패 두 줄이 선다.
-function ServiceList({ services, perms, counts = {}, onOpen, onCreate, failed = null }) {
+// onOpenNotes — '내 예배 노트' 모아 보기(2026-09-25). 노트를 쓸 수 있는 사람(가입자 · 게스트)에게만 선다.
+function ServiceList({ services, perms, counts = {}, onOpen, onCreate, onOpenNotes = null, failed = null }) {
   // 출석 수는 **지난 예배**에만 붙인다 — 오늘·앞으로 올 예배의 '출석 0명'은 아직 부르지
   // 않았다는 뜻이지 아무도 안 왔다는 뜻이 아니다(그 예배의 출석은 출석 화면이 말한다).
   // 오늘은 **한국 시간**이고 그 셈은 services/worship.js의 kstNow 한 벌이다 —
@@ -268,6 +282,13 @@ function ServiceList({ services, perms, counts = {}, onOpen, onCreate, failed = 
       <div className="flex items-center gap-2 mb-4">
         <h2 className="text-lg md:text-xl font-extrabold text-fg tracking-[-0.4px]">예배</h2>
         <span className="flex-1" />
+        {/* '새 주보' 왼쪽 — 연한 accent(들어가는 버튼 · §8 색 규칙). 노트가 없어도 선다(목업 판단) */}
+        {onOpenNotes && (
+          <button type="button" onClick={onOpenNotes}
+            className={`worship-mynotes-open inline-flex items-center gap-1.5 ${BTN_SOFT}`}>
+            <NotebookPen size={13} /> 내 예배 노트
+          </button>
+        )}
         {perms.canEdit && !creating && (
           <button type="button" onClick={() => setCreating(true)}
             className="worship-new-open inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95">
@@ -409,13 +430,18 @@ export function WorshipView({ onOpenBible } = {}) {
   const [services, setServices] = useState(() => cached.data?.services ?? null);
   const [counts, setCounts] = useState(() => cached.data?.counts ?? {});   // 주보 id → 출석 수(손님 포함)
   const [openId, setOpenId] = useState(null);
-  const [screen, setScreen] = useState('list');      // 'list' | 'detail' | 'attendance'
+  const [screen, setScreen] = useState('list');      // 'list' | 'detail' | 'attendance' | 'notes'
+  // 내 예배 노트 모아 보기(2026-09-25) — null이면 읽는 중. 노트 행만 받고 주보는 이미 손에 있는
+  // 목록과 잇는다(serviceView.myNoteRows — 조회 하나). 캐시는 목록과 같은 자리 관례(worship: 접두).
+  const [myNotes, setMyNotes] = useState(() => readCache('worship:mynotes'));
+  const [notesFail, setNotesFail] = useState(null);
   const [roster, setRoster] = useState({ people: [], groups: [], members: [], roles: [] });
   const [present, setPresent] = useState(() => new Set());
   const [guests, setGuests] = useState([]);          // 이 주보의 미등록 출석자(0053)
   const [note, setNote] = useState(null);
   const [files, setFiles] = useState([]);                // 이 주보에 붙은 파일 — 송폼·큐시트 한 목록(0047·0054)
   const [editOnOpen, setEditOnOpen] = useState(false);   // 만들자마자 수정 화면으로
+  const [noteOnOpen, setNoteOnOpen] = useState(false);   // 열자마자 내 예배 노트 칸으로(0건 자리의 '예배 노트 쓰기')
 
   // 노트는 가입자 누구나 쓴다(결정 7). 게스트 모드에는 로그인이 없다 — 그때도 연다.
   const canWriteNote = !enabled || !!session;
@@ -466,7 +492,8 @@ export function WorshipView({ onOpenBible } = {}) {
   // 홈은 같이 비운다 — 홈 카드가 주보·출석·공유 노트를 그대로 세고 있어서(homeView의
   // home:services·home:sun·home:present), 안 비우면 예배에서 저장한 것이 홈에서는 다음 날까지 옛 값이다.
   const invalidate = useCallback(() => {
-    dropCache('worship:list'); dropCache('home'); cached.refresh();
+    // 내 노트 목록도 같이 — 노트를 저장·공유한 뒤 모아 보기로 가면 새 글이 서야 한다
+    dropCache('worship:list'); dropCache('worship:mynotes'); dropCache('home'); cached.refresh();
   }, [cached.refresh]);
 
   // 남이 주보를 만들거나 발행하면 목록에 몇 초 안에 뜬다(0049 · services/liveV2.js).
@@ -480,8 +507,9 @@ export function WorshipView({ onOpenBible } = {}) {
   }, [cached.refresh]);
   useLiveRefresh('worship', liveInvalidate, screen === 'list');
 
-  const open = useCallback(async (svc, { edit = false } = {}) => {
+  const open = useCallback(async (svc, { edit = false, note: toNote = false } = {}) => {
     setEditOnOpen(edit);
+    setNoteOnOpen(toNote);
     setOpenId(svc.id); setScreen('detail');
     // 지난번에 열어 본 주보면 명단·출석·노트를 **먼저 그린다** — 없을 때만 빈 자리에서
     // 시작한다(present는 Set이라 캐시에는 배열로 둔다 — cache.js는 JSON만 받는다)
@@ -876,6 +904,70 @@ export function WorshipView({ onOpenBible } = {}) {
     try { return await fetchVideoTitle(url); } catch { return ''; }
   }, []);
 
+  // ── 내 예배 노트 모아 보기 (2026-09-25) ─────────────────────────────────────
+  // 들어올 때마다 다시 읽는다 — 지난번 값(캐시)이 있으면 그것을 먼저 세운다(목록과 같은 관례).
+  // 못 읽었을 때: 캐시가 있으면 그대로 두고 토스트, 없으면 빈 자리에 실패 두 줄(D2 · 토스트 없음).
+  const NOTES_FAIL = '내 예배 노트를 받지 못했어요';
+  const loadNotes = useCallback(async () => {
+    setNotesFail(null);
+    try {
+      const rows = await fetchMyNotes();
+      setMyNotes(rows); writeCache('worship:mynotes', rows);
+    } catch (e) {
+      console.error('[worship] 내 예배 노트 실패:', e);
+      if (readCache('worship:mynotes')) showToast(fail(NOTES_FAIL, e));
+      else setNotesFail(e);
+    }
+  }, []);
+  const openNotes = useCallback(() => { setScreen('notes'); void loadNotes(); }, [loadNotes]);
+  const noteRows = useMemo(() => (myNotes ? myNoteRows(myNotes, services || []) : null), [myNotes, services]);
+  // 0건 자리의 '{M월 D일} 예배 노트 쓰기'가 가리키는 주보 — 발행본 중 오늘(KST)까지 드린 가장 최근 것.
+  // 홈 예배 카드(미래 포함)와 기준이 다르다: 아직 드리지 않은 예배의 노트를 권하지 않는다.
+  const writeTarget = useMemo(() => {
+    const today = kstNow().slice(0, 10);
+    return (services || []).filter(s => s?.status === 'published' && /^\d{4}-\d{2}-\d{2}$/.test(String(s.service_date || ''))
+      && String(s.service_date) <= today)
+      .sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)))[0] || null;
+  }, [services]);
+
+  // ── 광고 → 내 달력 (2026-09-25 · api/ics.js · services/noticeDate.js) ─────────
+  // 기기마다 길이 다르다(목업 '넣는 길'):
+  //   · 안드로이드 — 구글 캘린더 템플릿 주소(앱이 받는다 · 구글 캘린더 앱은 .ics를 못 여는 기기가 많다)
+  //   · 아이폰·데스크톱 — 서버의 서명 주소(.ics를 text/calendar로 연다 → 캘린더 '추가' 화면)
+  //   · 카카오 인앱 — 위 주소를 `kakaotalk://web/openExternal`로 기본 브라우저에 넘긴다(안내 문구 없음 ·
+  //     실기기 확인 대상 — 인앱 웹뷰는 text/calendar를 받아도 아무 일도 안 하거나 내려받기로 떨어진다)
+  //   · 게스트 — 서버가 없다. 같은 글자로 만든 .ics를 blob으로 내려받는다.
+  // 안드로이드 주소는 누른 그 자리에서 만든다(await 없이 — 새 창을 여는 자격이 살아 있을 때).
+  const addToCalendar = useCallback(async (svc, index, notice, read) => {
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+    const kakao = isKakaoInApp(ua);
+    const ev = noticeEvent(svc, notice, index, read, kindLabel(svc.kind));
+    if (/Android/i.test(ua)) {
+      const g = googleCalendarUrl(ev);
+      if (kakao) window.location.href = kakaoExternal(g);
+      else window.open(g, '_blank', 'noopener');
+      return;
+    }
+    try {
+      const url = await noticeIcsUrl(svc.id, index);
+      if (!url) {
+        // 게스트(서버 없음) — blob
+        const blob = new Blob([buildIcs(ev)], { type: 'text/calendar;charset=utf-8' });
+        const href = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = href; a.download = `${ev.title}.ics`; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(href), 10000);
+        return;
+      }
+      const abs = new URL(url, window.location.origin).href;
+      window.location.href = kakao ? kakaoExternal(abs) : abs;
+    } catch (e) {
+      if (!e?.quiet) console.error('[worship] 달력에 넣기 실패:', e);
+      showToast(fail('달력에 넣지 못했어요', e));
+    }
+  }, []);
+
   // 첫 읽기 실패(캐시 없음) — 목록 껍데기(머리줄·거르기 칩)에 빈 자리 대신 실패가 선다(D2).
   // 자격은 못 읽었으니 계정 속성으로만 판정한다(버튼을 감추는 용도 — 실제 경계는 RLS).
   if (listFailed) {
@@ -885,6 +977,15 @@ export function WorshipView({ onOpenBible } = {}) {
   }
   // 딥링크로 들어오는 중이면 목록 스켈레톤도 아니다 — 갈 데는 상세다(DETAIL_LOADING 머리말)
   if (!perms || services === null) return wantId ? DETAIL_LOADING : LOADING;
+
+  if (screen === 'notes') {
+    return (
+      <MyNotesScreen rows={noteRows} onBack={() => setScreen('list')}
+        writeTarget={writeTarget} onWrite={(svc) => open(svc, { note: true })}
+        failed={notesFail && !myNotes ? { reason: reasonOf(notesFail), onRetry: () => { setNotesFail(null); void loadNotes(); } } : null}
+        onOpenService={(svc) => open(svc)} />
+    );
+  }
 
   if (screen === 'attendance' && service) {
     return (
@@ -905,11 +1006,12 @@ export function WorshipView({ onOpenBible } = {}) {
         service={service} people={roster.people} personRoles={roster.roles} perms={perms} note={note} canWriteNote={canWriteNote}
         startEditing={editOnOpen} files={files} recentSongs={recentSongs} prefill={prefill}
         onUploadFiles={uploadFiles} onRemoveFile={removeFile}
-        onBack={() => { setScreen('list'); setOpenId(null); setEditOnOpen(false); }}
+        onBack={() => { setScreen('list'); setOpenId(null); setEditOnOpen(false); setNoteOnOpen(false); }}
         onSave={save} onPublish={publish} onDelete={drop} onSaveNote={saveNote}
-        onOpenAttendance={() => { setEditOnOpen(false); setScreen('attendance'); }}
+        onOpenAttendance={() => { setEditOnOpen(false); setNoteOnOpen(false); setScreen('attendance'); }}
         onOpenBible={onOpenBible}
         onPullPlaylist={pullPlaylist} onLookupTitle={lookupTitle} onShareNote={shareNote}
+        onAddToCalendar={addToCalendar} focusNote={noteOnOpen}
       />
     );
   }
@@ -919,5 +1021,6 @@ export function WorshipView({ onOpenBible } = {}) {
   // 스켈레톤이 영영 남지 않게 하는 것은 위 진입 이펙트의 ② 갈래다.
   if (wantId) return DETAIL_LOADING;
 
-  return <ServiceList services={services} perms={perms} counts={counts} onOpen={open} onCreate={create} />;
+  return <ServiceList services={services} perms={perms} counts={counts} onOpen={open} onCreate={create}
+    onOpenNotes={canWriteNote ? openNotes : null} />;
 }

@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck,
   ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText, X,
-  Share2 } from 'lucide-react';
+  Share2, CalendarPlus, GalleryHorizontalEnd, NotebookPen } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
@@ -13,7 +13,7 @@ import { loadPassage } from '../services/bible.js';
 import { EmptyBookMark } from './wordBible.jsx';
 import { DocEmbedModal, docEmbedKind } from './DocEmbed.jsx';
 import { objectParticle } from '../services/errorText.js';
-import { BTN, BTN_QUIET, WITH_ICON, FIELD } from './groupsParts.jsx';
+import { BTN, BTN_QUIET, WITH_ICON, FIELD, FailTail, NoteMark } from './groupsParts.jsx';
 import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM,
   filesOfKind, fileKindOf, servicePaperName, SONGFORM, CUESHEET, songKey, weeksAgoOf } from '../services/worship.js';
 import { honorificsOf } from '../services/people.js';
@@ -22,6 +22,10 @@ import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
 import { readCache, writeCache, dropCache } from '../services/cache.js';
 import { NoteSheet, NotePaper, ServiceSheetOne, ServiceSheetTwo, PAPER, paperDate } from './paper.jsx';
 import { useSheetShare } from '../hooks/useSheetShare.jsx';
+import { churchSeason } from '../services/churchYear.js';
+import { realNameOf, realNamesInRoleLines, isNextWeekNotice } from '../services/serviceView.js';
+import { readNoticeDate, noticeDateLabel } from '../services/noticeDate.js';
+import { ServiceStory } from './worshipStory.jsx';
 
 // 미리보기 창(+PdfView)은 열 때만 받는다 — 첨부를 안 여는 사람까지 그 무게를 받지 않게(2026-09-24).
 const FilePreviewModal = lazy(() => import('./FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));
@@ -191,12 +195,14 @@ function useFillRest() {
 }
 
 // children — 읽기 실패 때 제목 아래에 붙는 둘째 줄과 '다시 시도'(groupsParts FailTail · D2).
-export function WorshipEmpty({ text, className = '', children }) {
+// mark — 그림을 바꿀 때(내 예배 노트 0건은 노트 그림 · groupsParts NoteMark). alert — children이
+// 실패가 아니라 할 일 버튼일 때 false로 준다(그때는 경고 역할이 아니다).
+export function WorshipEmpty({ text, className = '', children, mark = null, alert = null }) {
   const [ref, minH] = useFillRest();
   return (
     <div ref={ref} className={`worship-empty flex flex-col items-center justify-center text-center ${className}`}
-      style={{ minHeight: minH === null ? '46vh' : `${minH}px` }} role={children ? 'alert' : undefined}>
-      <EmptyBookMark />
+      style={{ minHeight: minH === null ? '46vh' : `${minH}px` }} role={(alert ?? !!children) ? 'alert' : undefined}>
+      {mark || <EmptyBookMark />}
       <p className="mt-3 text-[13.5px] font-semibold text-fg">{text}</p>
       {children}
     </div>
@@ -584,8 +590,15 @@ function ServiceFiles({ files = [], canEdit, onPick, onOpen, onRemove,
 // 광고 한 건 — 제목은 굵게, 본문은 두 줄에서 접는다(긴 광고 셋이면 화면을 다 먹었다).
 // 접힘 여부는 **실제로 넘쳤을 때만** 묻는다 — 한 줄짜리 광고에 '펼치기'가 붙으면
 // 누를 것이 없는 버튼이 된다.
-function NoticeCard({ notice, index }) {
+//
+// **날짜가 읽힌 광고에는 본문 아래에 달력 칩이 선다**(광고 → 내 달력 · 2026-09-25 · services/noticeDate.js).
+// 칩 글자가 곧 "무엇을 읽었는지"의 확인이다(`10월 11일 (일) 오후 2:00`) — 못 읽은 광고에는 아무것도 없다.
+// 누르면 부르는 쪽(worshipView)이 기기에 맞는 길로 폰 기본 달력에 넣는다.
+function NoticeCard({ notice, index, serviceDate = '', onCalendar }) {
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const read = useMemo(() => readNoticeDate(notice, serviceDate), [notice, serviceDate]);
+  const chip = read ? noticeDateLabel(read) : '';
   const [over, setOver] = useState(false);
   const bodyRef = useRef(null);
   // **폭이 바뀌면 다시 잰다.** 넘침은 글자 수가 아니라 줄 수로 정해지므로 같은 광고가
@@ -623,15 +636,30 @@ function NoticeCard({ notice, index }) {
           )}
         </div>
       )}
+      {chip && onCalendar && (
+        <div className="mt-2 pl-7">
+          <button type="button" disabled={busy}
+            onClick={async () => { setBusy(true); try { await onCalendar(index, notice, read); } finally { setBusy(false); } }}
+            className="worship-notice-cal inline-flex items-center gap-1.5 px-2.5 py-[5px] rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40">
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <CalendarPlus size={13} />}
+            <span>{chip}</span>
+          </button>
+        </div>
+      )}
     </li>
   );
 }
 
-function NoticesTab({ rows }) {
+// '다음 주 예배 위원' 광고의 이름은 본명으로 세운다(real · serviceView.realNamesInRoleLines) —
+// 저장된 광고 글은 그대로다. 나머지 광고는 사람이 쓴 글이라 한 글자도 안 건드린다.
+function NoticesTab({ rows, serviceDate = '', onCalendar, real = null }) {
   if (!rows.length) return <WorshipEmpty text="광고를 아직 적지 않았어요" />;
   return (
     <ul className={`${LIST} space-y-2`}>
-      {rows.map((n, i) => <NoticeCard key={i} notice={n} index={i} />)}
+      {rows.map((n, i) => (
+        <NoticeCard key={i} index={i} serviceDate={serviceDate} onCalendar={onCalendar}
+          notice={real && isNextWeekNotice(n) ? { ...n, body: realNamesInRoleLines(n.body, real) } : n} />
+      ))}
     </ul>
   );
 }
@@ -1100,19 +1128,38 @@ const SHEET_BOX = 'paper-box w-full max-w-[560px] mx-auto';
 //
 // 송폼·큐시트 파일은 종이에 없다 — 그것은 바깥으로 나가는 인쇄물의 내용이 아니라
 // 우리끼리 여는 파일이고, 각자의 탭(말씀·찬양)에 그대로 있다.
-function ServicePaper({ service, nameOf }) {
+//
+// **교회력**(2026-09-25): 머리 띠에 절기 이름 한 줄이 서고, 특별 절기면 띠가 그 절기 색이다
+// (paper.jsx PaperMast · services/churchYear.js). PDF에도 그대로 들어간다(사용자 결정).
+// **이름은 명단 본명**이다(nameOf · '다음 주 예배 위원' 광고는 real) — 저장된 글은 그대로다.
+//
+// **'넘기면서 보기'는 폰에서만**이다(사용자 결정 2026-09-25) — 데스크톱에는 버튼을 두지 않는다
+// (`md:hidden`). 본문이 붙기 전에는 PDF와 같이 잠긴다(말씀 장을 나눌 재료가 없다).
+function ServicePaper({ service, nameOf, real = null, rosterKey = '' }) {
   const [verses, setVerses] = useState(null);
+  const [story, setStory] = useState(false);
+  const storyBtn = useRef(null);
   const one = useRef(null);
   const two = useRef(null);
   const date = paperDate(service?.service_date);
   const kind = kindLabel(service?.kind);
+  const season = useMemo(() => churchSeason(service?.service_date), [service?.service_date]);
+  const notices = useMemo(() => (service?.notices || [])
+    .map(n => (real && isNextWeekNotice(n) ? { ...n, body: realNamesInRoleLines(n.body, real) } : n)),
+  [service?.notices, real]);
+  const closeStory = useCallback(() => {
+    setStory(false);
+    // 닫으면 누른 버튼으로 초점을 돌려준다(키보드로 연 사람이 제자리를 잃지 않게)
+    setTimeout(() => { try { storyBtn.current?.focus({ preventScroll: true }); } catch { /* 옛 브라우저 */ } }, 0);
+  }, []);
 
   // **누르기 전에 PDF까지 구워 둔다** — 폰에서는 굽는 시간이 공유 시트를 열 자격보다
   // 길어서 "데스크톱은 되는데 모바일은 안 된다"였다(hooks/useSheetShare.js 머리말).
   // 열쇠에 본문 절 수를 넣는다: 본문이 늦게 붙으므로, 그 전에 구운 PDF는 버려야 한다.
   const pdf = useSheetShare({
     refs: [one, two], kind: 'pdf', background: PAPER.surface,
-    key: `${service?.id || ''}:${service?.updated_at || ''}:${verses ? verses.length : 'wait'}`,
+    // 명단이 늦게 오면 이름(본명·호칭)이 바뀐다 — 그 전에 구운 PDF도 버린다(rosterKey)
+    key: `${service?.id || ''}:${service?.updated_at || ''}:${verses ? verses.length : 'wait'}:${rosterKey}`,
     // 파일 이름은 `2026.09.06 주일 4부 젊은이 예배_주보`다(services/worship.js
     // servicePaperName · 사용자 결정 2026-09-11) — 카카오톡 목록에서 이름만 보고
     // 어느 예배의 주보인지 알아야 한다
@@ -1141,19 +1188,26 @@ function ServicePaper({ service, nameOf }) {
           {pdf.busy ? <Loader2 size={13} className="animate-spin" /> : <Share2 size={13} />}
           <span>PDF로 공유</span>
         </button>
+        <button ref={storyBtn} type="button" onClick={() => setStory(true)} disabled={verses === null}
+          className={`worship-story-open md:hidden ${WITH_ICON} ${BTN}`}>
+          <GalleryHorizontalEnd size={13} />
+          <span>넘기면서 보기</span>
+        </button>
       </div>
 
       <div className={`${SHEET_BOX} flex flex-col gap-4`}>
         <div className="rounded-lg overflow-hidden border border-line">
-          <ServiceSheetOne sheetRef={one} date={date} kind={kind} title={service?.title || ''}
+          <ServiceSheetOne sheetRef={one} date={date} kind={kind} title={service?.title || ''} season={season}
             refStr={service?.passage_ref || ''} preacher={service?.preacher || ''} verses={verses || []} />
         </div>
         <div className="rounded-lg overflow-hidden border border-line">
-          <ServiceSheetTwo sheetRef={two} date={date} kind={kind} team={PRAISE_TEAM}
+          <ServiceSheetTwo sheetRef={two} date={date} kind={kind} team={PRAISE_TEAM} season={season}
             leader={service?.praise_leader || ''} songs={service?.songs || []}
-            roles={service?.roles || []} notices={service?.notices || []} nameOf={nameOf} />
+            roles={service?.roles || []} notices={notices} nameOf={nameOf} />
         </div>
       </div>
+
+      {story && <ServiceStory service={service} verses={verses || []} nameOf={nameOf} realName={real} onClose={closeStory} />}
 
       {/* 공유·저장이 막힌 브라우저에서 마지막 갈래 — 쪽마다 그림으로 띄운다
           (hooks/useSheetShare.jsx). **그리지 않으면 그 갈래가 아무것도 안 한다.** */}
@@ -1168,7 +1222,11 @@ function ServicePaper({ service, nameOf }) {
 // 아직 다 쓰지 않은 글을 남에게 보인다. 자리·열쇠 관례는 services/cache.js가 가진 것을
 // 그대로 쓴다(사용자별 · §6-24-d). 열쇠는 **주보 한 건마다** 하나다 — 날짜만으로는 같은
 // 날 두 예배(주일 4부·금요)의 노트가 한 초안을 나눠 쓴다.
-function MyNote({ note, serviceId = '', serviceDate = '', passageRef = '', passageTitle = '', onSave, onShare }) {
+//
+// focus — '내 예배 노트'의 0건 자리에서 `{M월 D일} 예배 노트 쓰기`로 들어왔다(2026-09-25). 이 칸까지
+// 내려가 편집 상태로 연다(저장된 노트가 있으면 '수정'을 누른 것과 같다).
+function MyNote({ note, serviceId = '', serviceDate = '', passageRef = '', passageTitle = '', onSave, onShare, focus = false }) {
+  const sectionRef = useRef(null);
   // **처음 여는 노트는 템플릿으로 시작한다**(사용자 요청 2026-09-08 — 옛 순 노트
   // 템플릿을 우리 디자인으로). services/noteTemplate.js가 도막 제목 셋을 세운다 —
   // 구절은 종이 머리(PaperNoteHead)에 서므로 도막으로 한 번 더 두지 않는다(2026-09-12).
@@ -1261,6 +1319,30 @@ function MyNote({ note, serviceId = '', serviceDate = '', passageRef = '', passa
     if (p && p.key === draftKey) { writeCache(p.key, p.value); pendingDraft.current = null; }
   }, [draftKey]);
 
+  useEffect(() => {
+    if (!focus) return undefined;
+    userEditing.current = true; setEditing(true);
+    // 편집기는 lazy로 늦게 붙는다 — 한 박자 뒤에 내려간다(모션을 끈 사람에게는 바로)
+    const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const el = sectionRef.current;
+    const go = (behavior) => el?.scrollIntoView({ block: 'start', behavior });
+    const t = setTimeout(() => go(smooth ? 'smooth' : 'auto'), 120);
+    // 위쪽 종이는 본문(개역한글)이 늦게 붙어서 내려간 뒤에 자란다 — 그러면 노트 칸이 화면 밖으로
+    // 밀린다. 2초 동안은 위가 자랄 때마다 다시 맞춘다(사람이 손으로 움직이면 그만둔다).
+    const box = el?.parentElement;
+    let live = true;
+    const stop = () => { live = false; };
+    const ro = box ? new ResizeObserver(() => { if (live) go('auto'); }) : null;
+    const t2 = setTimeout(() => { if (box) ro.observe(box); }, 140);
+    const t3 = setTimeout(stop, 2200);
+    window.addEventListener('wheel', stop, { passive: true });
+    window.addEventListener('touchstart', stop, { passive: true });
+    return () => {
+      clearTimeout(t); clearTimeout(t2); clearTimeout(t3); ro?.disconnect();
+      window.removeEventListener('wheel', stop); window.removeEventListener('touchstart', stop);
+    };
+  }, [focus, serviceId]);
+
   const save = async () => {
     if (busy || !hasText || !dirty) return;
     setBusy(true); setState('saving'); setShareState('');
@@ -1297,7 +1379,7 @@ function MyNote({ note, serviceId = '', serviceDate = '', passageRef = '', passa
   };
 
   return (
-    <section className="worship-note mt-7">
+    <section ref={sectionRef} className="worship-note mt-7 scroll-mt-4">
       <div className="flex items-center gap-2 pb-2.5">
         <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">내 예배 노트</h3>
         <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
@@ -1377,11 +1459,125 @@ function MyNote({ note, serviceId = '', serviceDate = '', passageRef = '', passa
   );
 }
 
+// ── 내 예배 노트 모아 보기 (사용자 결정 2026-09-25 · 목업 mockup-traces 1) ──────────
+// 예배 화면 머리줄의 '내 예배 노트'가 여는 **같은 화면 안의 자리**다(말씀 세그먼트에 칸을 더하지
+// 않는다 — 노트는 주보에서 쓰고 주보에서 고치므로 가는 길이 둘이 되면 안 된다). 목록에는 **쓴 것만**
+// 최근 예배가 앞이고(serviceView.myNoteRows), 공유한 노트에는 `순에 공유` 칩이 선다.
+// 누르면 그 노트 종이(NoteSheet — 주보 아래 노트와 같은 부품)가 선다: 데스크톱(≥768)은 목록 | 종이
+// 두 칸이고 처음부터 맨 위 노트가 서 있다, 폰은 목록 → 종이(돌아가기 '내 예배 노트').
+// 고치는 곳은 여전히 주보 한 곳이라 종이 위에는 `주보에서 열기` 하나뿐이다.
+//
+// rows는 [{ service, note }] | null(읽는 중). failed는 캐시 없는 첫 읽기 실패 — 빈 자리에 실패 두 줄과
+// '다시 시도'가 선다(HANDOFF §8 D2 · 토스트는 띄우지 않는다).
+//
+// **0건일 때**(사용자 결정 2026-09-25 · 목업 mockup-followup 1): 노트 그림 + `예배 노트가 아직 없어요`
+// (사용자가 직접 고른 문구 — §8의 '없어요' 규칙보다 앞선다) + 연한 accent 버튼 `{M월 D일} 예배 노트
+// 쓰기`. 버튼이 가리키는 주보(writeTarget)는 발행본 중 service_date ≤ 오늘(KST)인 가장 최근 것이다 —
+// 아직 드리지 않은 예배의 노트를 권하지 않는다. 누르면 그 주보 상세의 내 예배 노트 칸까지 내려가
+// 편집 상태로 연다. 노트가 한 건이라도 있으면 이 버튼은 없다.
+const NOTE_CARD = 'worship-mynote-card w-full text-left px-4 py-3.5 rounded-[10px] shadow-soft transition active:scale-[.995]';
+const monthDay = (iso) => { const m = /^\d{4}-(\d{2})-(\d{2})/.exec(String(iso || '')); return m ? `${+m[1]}월 ${+m[2]}일` : ''; };
+export function MyNotesScreen({ rows = null, failed = null, onBack, onOpenService, writeTarget = null, onWrite }) {
+  const [picked, setPicked] = useState(null);      // 폰에서 누른 노트(주보 id) — 없으면 목록
+  const list = rows || [];
+  // 데스크톱은 고른 게 없으면 맨 위 노트를 세운다(두 칸이 처음부터 차 있게)
+  const shownId = picked || list[0]?.service?.id || null;
+  const shown = list.find(r => r.service.id === shownId) || null;
+  const sections = useMemo(() => splitNoteSections(shown?.note?.body || ''), [shown?.note?.body]);
+  const openBtn = shown && (
+    <button type="button" onClick={() => onOpenService(shown.service)}
+      className={`worship-mynote-open ${WITH_ICON} ${BTN_QUIET}`}>
+      <NotebookPen size={13} /> <span>주보에서 열기</span>
+    </button>
+  );
+  return (
+    <div className="worship-mynotes dc-screen pb-10">
+      {/* 폰에서 종이를 보는 동안은 돌아가기가 '내 예배 노트'(목록)다 — 예배로 가는 돌아가기는 숨는다 */}
+      <div className={`${picked ? 'hidden md:flex' : 'flex'} items-center mb-1.5`}>
+        <button type="button" onClick={onBack}
+          className="worship-mynotes-back inline-flex items-center gap-1 -ml-1 px-1.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[12.5px] font-semibold transition active:scale-95">
+          <ArrowLeft size={14} /> 예배
+        </button>
+      </div>
+      {picked && (
+        <div className="flex md:hidden items-center gap-2 mb-2.5">
+          <button type="button" onClick={() => setPicked(null)}
+            className="worship-mynotes-list inline-flex items-center gap-1 -ml-1 px-1.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[12.5px] font-semibold transition active:scale-95">
+            <ArrowLeft size={14} /> 내 예배 노트
+          </button>
+          <span className="flex-1" />
+          {openBtn}
+        </div>
+      )}
+      <h2 className={`${picked ? 'hidden md:block' : ''} text-lg md:text-xl font-extrabold text-fg tracking-[-0.4px] mb-4`}>내 예배 노트</h2>
+
+      {failed ? (
+        <WorshipEmpty className="worship-mynotes-failed" text="내 예배 노트를 받지 못했어요">
+          <FailTail reason={failed.reason} onRetry={failed.onRetry} />
+        </WorshipEmpty>
+      ) : rows === null ? (
+        <div className="worship-mynotes-loading grid gap-2.5 md:w-[340px]" aria-hidden="true">
+          {[0, 1, 2].map(k => <div key={k} className="h-[76px] rounded-[10px] dc-skeleton" />)}
+        </div>
+      ) : !list.length ? (
+        <WorshipEmpty className="worship-mynotes-empty" text="예배 노트가 아직 없어요" mark={<NoteMark />} alert={false}>
+          {writeTarget && onWrite && (
+            <div className="mt-3">
+              <button type="button" onClick={() => onWrite(writeTarget)} className={`worship-mynotes-write ${BTN_SOFT}`}>
+                {monthDay(writeTarget.service_date)} 예배 노트 쓰기
+              </button>
+            </div>
+          )}
+        </WorshipEmpty>
+      ) : (
+        <div className="md:grid md:grid-cols-[340px_minmax(0,1fr)] md:gap-7 md:items-start">
+          <ul className={`worship-mynotes-listbox ${picked ? 'hidden md:grid' : 'grid'} gap-2.5`}>
+            {list.map(({ service, note }) => {
+              const on = service.id === shownId;
+              return (
+                <li key={service.id}>
+                  <button type="button" onClick={() => setPicked(service.id)} aria-pressed={on}
+                    className={`${NOTE_CARD} ${on ? 'md:ring-2 md:ring-accent' : ''}`}
+                    style={{ backgroundColor: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
+                    <span className="flex items-start gap-2">
+                      <span className="worship-mynote-title flex-1 min-w-0 text-[15px] font-bold text-fg tracking-[-0.2px] break-words">
+                        {service.title || '설교 제목 미정'}
+                      </span>
+                      {note.shared_to_sun && (
+                        <span className="worship-mynote-shared shrink-0 mt-0.5 px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg text-[10.5px] font-bold whitespace-nowrap">순에 공유</span>
+                      )}
+                    </span>
+                    <span className="worship-mynote-meta block mt-1 text-[12.5px] leading-relaxed text-fg-muted truncate">
+                      {[formatServiceDate(service.service_date), service.passage_ref].filter(Boolean).join(' · ')}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {shown && (
+            <div className={`worship-mynote-paper ${picked ? 'block' : 'hidden md:block'} min-w-0`}>
+              <div className="hidden md:flex justify-end mb-2">{openBtn}</div>
+              <div className={SHEET_BOX}>
+                <div className="rounded-lg overflow-hidden border border-line">
+                  <NoteSheet date={paperDate(shown.service.service_date)} kind="예배 노트"
+                    passageRef={shown.service.passage_ref || ''} passageTitle={shown.service.title || ''}
+                    sections={sections} cut={NOTE_CUT} />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 상세 ─────────────────────────────────────────────────────────────────────
 export function ServiceDetail({
   service, people = [], personRoles = [], perms = {}, note = null, canWriteNote = false, startEditing = false,
   files = [], recentSongs = [], prefill = [], onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
-  onPullPlaylist, onLookupTitle, onShareNote, onUploadFiles, onRemoveFile,
+  onPullPlaylist, onLookupTitle, onShareNote, onUploadFiles, onRemoveFile, onAddToCalendar, focusNote = false,
 }) {
   const [tab, setTab] = useState('paper');
   const [draft, setDraft] = useState(null);     // null이면 보기 모드
@@ -1404,7 +1600,19 @@ export function ServiceDetail({
   const set = (patch) => { dirty.current = true; edits.current += 1; setDraft(d => ({ ...d, ...patch })); };
   // 이름 → 호칭 한 벌. 명단(is_pastor)과 그 해 직분(people_roles)이 재료다 —
   // 둘 다 출석 명단과 같은 조회에서 온다(worship.fetchRoster).
-  const nameOf = useMemo(() => honorificsOf(people, personRoles), [people, personRoles]);
+  //
+  // **이름은 명단 본명으로 세운다**(사용자 결정 2026-09-25 · serviceView.realNameOf) — 계정 표시
+  // 이름('이하랑Alex'·'꽃님')이 저장돼 있어도 보기에서는 '이하랑 형제'·'강꽃님 자매'다. 저장된
+  // roles·praise_leader는 그대로고 편집 줄의 이름 칸도 그 글자 그대로다. HANDOFF §8의 '이름·사진은
+  // 명단↔계정을 잇지 않는다'와 부딪히지 않는다 — 어느 쪽도 덮지 않고 **보일 때 고를 뿐**이다.
+  // 명단에 없는 이름(객원)은 적힌 그대로이고 호칭도 붙지 않는다(honorific의 ⑤).
+  const honor = useMemo(() => honorificsOf(people, personRoles), [people, personRoles]);
+  const real = useMemo(() => realNameOf(people), [people]);
+  const nameOf = useCallback((name, personId = null) => {
+    const r = real(name, personId);
+    return honor(r.found ? r.name : name, personId);
+  }, [real, honor]);
+  const rosterKey = `${(people || []).length}:${(personRoles || []).length}`;
 
   // 임사자 줄이 **아직 하나도 없을 때만** 지난 주보에서 둘을 물려받는다(2026-09-21).
   // 이미 적은 주보를 다시 열 때 덮어쓰면 사람이 지운 줄이 되살아난다.
@@ -1505,7 +1713,11 @@ export function ServiceDetail({
           **한 덩이 카드다**(2026-09-07). 예전에는 칩과 날짜가 캔버스 위에 그냥 얹혀 있어서
           그 위 도구 줄과 아래 탭 줄 사이에 아무것도 없는 띠가 났다 — 무엇을 보고 있는지가
           화면 맨 위에서 한 번에 읽히도록 상자로 묶었다(목록 카드와 같은 껍데기다). */}
-      <header className="worship-head flex items-center gap-2 mb-4 p-3 rounded-[10px]" style={CARD_BOX}>
+      {/* 교회력 물 한 겹(2026-09-25) — 왼쪽에서 오른쪽으로 옅어진다. 특별 절기는 그 색, 연중은
+          우리 기본 톤(index.css `.season-wash`). 인라인 background 줄임말은 물을 덮으므로 색만 준다. */}
+      <header className="worship-head season-wash flex items-center gap-2 mb-4 p-3 rounded-[10px]"
+        data-season={churchSeason(service.service_date)?.color || 'plain'}
+        style={{ backgroundColor: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
         {/* 한 줄에 종류·상태·날짜·설교자. **줄을 늘리지 않는다** — 이 자리가 두 줄이 되면
             그만큼 아래 빈 탭의 가운데가 위로 밀린다(검사가 화면의 1/3을 요구한다). */}
         <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 min-w-0 flex-1">
@@ -1570,7 +1782,7 @@ export function ServiceDetail({
 
       <div className="worship-tabpanel">
         {activeTab === 'paper' && (
-          <ServicePaper service={service} nameOf={nameOf} />
+          <ServicePaper service={service} nameOf={nameOf} real={real} rosterKey={rosterKey} />
         )}
         {activeTab === 'word' && (editing
           ? <WordEdit draft={draft} set={set} cueFiles={cueFiles} canEdit={!!(editing && perms.canEdit)}
@@ -1601,7 +1813,8 @@ export function ServiceDetail({
         )}
         {activeTab === 'notices' && (editing
           ? <NoticesEdit rows={rows('notices')} onChange={v => set({ notices: v })} />
-          : <NoticesTab rows={rows('notices')} />)}
+          : <NoticesTab rows={rows('notices')} serviceDate={service.service_date} real={real}
+              onCalendar={onAddToCalendar && !isDraft ? (i, n, r) => onAddToCalendar(service, i, n, r) : null} />)}
       </div>
 
       {/* **발행 전에는 노트 자리가 없다**(사용자 결정 2026-09-09 — "발행하기 전에는 예배
@@ -1610,7 +1823,7 @@ export function ServiceDetail({
           쓰인 셈이 된다. */}
       {canWriteNote && !editing && !isDraft && (
         <MyNote note={note} serviceId={service?.id || ''} serviceDate={service?.service_date || ''} passageRef={service?.passage_ref || ''}
-          passageTitle={service?.title || ''} onSave={onSaveNote} onShare={onShareNote} />
+          passageTitle={service?.title || ''} onSave={onSaveNote} onShare={onShareNote} focus={focusNote} />
       )}
 
       {/* 파일 미리보기 — 업무 첨부와 **같은 창**이다. 송폼도 큐시트 파일도 이 창 하나로

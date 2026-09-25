@@ -3504,6 +3504,194 @@ await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: watcher.ide
   await ev(`localStorage.removeItem('church_worship_v1')`);
 }
 
+
+// ── 12) 교회력 · 넘기면서 보기 · 본명 · 내 예배 노트 · 광고 → 달력 (사용자 결정 2026-09-25) ─────
+// 저장 자리를 새로 심는다: 지난해 성탄절 주보(흰/금 — 늘 과거라 검사 시기와 무관) + 명단의 본명이
+// 계정 표시 이름과 다른 사람(p9 · '하랑Alex' → '이하랑'). 게스트의 명단 행은 그대로 오므로
+// roster_name을 직접 싣는다(클라우드는 people.js withDisplayName이 채운다).
+// 되돌려서 깨뜨린 것(§3-5): ServicePaper의 story 버튼에서 `md:hidden`을 빼면 '데스크톱에 버튼 없음'이,
+// ServiceDetail nameOf의 real(...)을 걷으면 '본명' 줄이, 스토리 onPointerDown의 가장자리 확인을 지우면
+// '가장자리 밀기' 줄이 깨진다.
+{
+  const logsBefore = logs.length;
+  const XMAS = `${Y - 1}-12-25`;
+  const WDN = ['일', '월', '화', '수', '목', '금', '토'];
+  const eveWd = WDN[new Date(Date.UTC(Y - 1, 11, 31)).getUTCDay()];
+  const seed2 = JSON.parse(JSON.stringify(seed));
+  seed2.people.push({ id: 'p9', name: '하랑Alex', roster_name: '이하랑', profile_id: 'u9', gender: 'm' });
+  seed2.services.push({ id: 's9', kind: 'sunday', service_date: XMAS, status: 'published',
+    title: '성탄의 기쁨', passage_ref: '누가복음 2:1-14', preacher: '임성빈 전도사님',
+    roles: [{ role: '대표기도', personId: 'p9', name: '하랑Alex' }],
+    songs: [{ title: '마커스워십 - 오 베들레헴', link: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }, { title: '기쁘다 구주 오셨네 | 찬송가' }],
+    praise_leader: '하랑Alex', praise_playlist_url: '',
+    notices: [{ title: '다음 주 예배 위원', body: '대표기도: 하랑Alex 형제' },
+      { title: '송구영신 예배', body: `12월 31일(${eveWd}) 오후 10시 본당` }, { title: '빈 광고', body: '' }],
+    attendance_note: '' });
+  seed2.service_notes = [];
+  const plant2 = (s) => `(() => { localStorage.setItem('church_worship_v1', ${JSON.stringify(JSON.stringify(s))}); localStorage.setItem('theme', 'light'); })()`;
+  const reload = async (w, h) => {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: w < 768 });
+    await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+    await sleep(600); await ev(GO); await waitFor(HAS_CARD);
+  };
+  const cardOf = (t) => `[...document.querySelectorAll('.worship-card')].find(c => c.innerText.includes(${JSON.stringify(t)}))`;
+  await ev(plant2(seed2));
+  await reload(1440, 900);
+
+  // 교회력 — 카드
+  const cards = await ev(`(() => { const x = ${cardOf('성탄의 기쁨')}, p = ${cardOf('흔들리지 않는 기쁨')};
+    return { x: x?.dataset.season, xDot: !!x?.querySelector('.worship-season-dot'), xImg: x && getComputedStyle(x).backgroundImage.includes('gradient'),
+      p: p?.dataset.season, pDot: !!p?.querySelector('.worship-season-dot'), pImg: p && getComputedStyle(p).backgroundImage.includes('gradient') }; })()`);
+  check('주보 카드 — 특별 절기는 그 색 물과 6px 점, 연중은 기본 톤 물만(점 없음)',
+    cards.x === 'gold' && cards.xDot && cards.xImg && cards.p === 'plain' && !cards.pDot && cards.pImg, JSON.stringify(cards));
+
+  // 연중 주보(s1)의 종이 — 이름 줄은 서고 띠는 인디고 그대로
+  await ev(`${cardOf('흔들리지 않는 기쁨')}.click()`); await waitFor(HAS_DETAIL); await sleep(900);
+  const plainMast = await ev(`(async () => {
+    const m = await import('/src/services/churchYear.js');
+    const mast = document.querySelector('.paper-service-1 .paper-mast');
+    return { want: m.churchSeason(${JSON.stringify(PAST1)}).name, got: mast?.querySelector('.paper-mast-season')?.textContent.trim(),
+      bg: mast && getComputedStyle(mast).backgroundColor, two: document.querySelectorAll('.paper-service-2 .paper-mast-season').length,
+      head: document.querySelector('.worship-head')?.dataset.season }; })()`, true);
+  check('연중 주보 종이 — 머리 띠에 절기 이름 줄(두 쪽) · 띠는 인디고 · 상세 머리는 기본 톤',
+    plainMast.got === plainMast.want && plainMast.bg === 'rgb(33, 49, 131)' && plainMast.two === 1 && plainMast.head === 'plain', JSON.stringify(plainMast));
+  const storyBtnDesk = await ev(`(() => { const b = document.querySelector('.worship-story-open'); return b ? getComputedStyle(b).display : 'none-el'; })()`);
+  check("'넘기면서 보기'는 데스크톱에 서지 않는다", storyBtnDesk === 'none', storyBtnDesk);
+  await ev(`${byText('목록으로')}.click()`); await waitFor(HAS_CARD);
+
+  // 성탄 주보 — 띠 색 · 본명 · 광고 칩
+  await ev(`${cardOf('성탄의 기쁨')}.click()`); await waitFor(HAS_DETAIL); await sleep(1000);
+  const xmas = await ev(`(() => { const mast = document.querySelector('.paper-service-1 .paper-mast');
+    return { name: mast?.querySelector('.paper-mast-season')?.textContent.trim(), bg: mast && getComputedStyle(mast).backgroundColor,
+      head: document.querySelector('.worship-head')?.dataset.season,
+      p2: document.querySelector('.paper-service-2')?.innerText.replace(/\\s+/g, ' ') || '' }; })()`);
+  check('성탄 주보 — 종이 띠가 흰/금이고 이름 줄은 성탄절 · 상세 머리 물도 금',
+    xmas.name === '성탄절' && xmas.bg === 'rgb(241, 231, 207)' && xmas.head === 'gold', JSON.stringify({ ...xmas, p2: undefined }));
+  check('주보 종이의 이름은 명단 본명 + 호칭(섬기는 이들 · 찬양 인도 · 다음 주 위원)',
+    (xmas.p2.match(/이하랑 형제/g) || []).length >= 3 && !xmas.p2.includes('하랑Alex'), xmas.p2.slice(0, 200));
+  await tabClick('담당자'); await sleep(300);
+  const roleName = await ev(`document.querySelector('.worship-role-row')?.innerText.replace(/\\s+/g, ' ')`);
+  check('담당자 탭도 본명 + 호칭', /이하랑 형제/.test(roleName || '') && !/하랑Alex/.test(roleName || ''), roleName);
+  await tabClick('광고'); await sleep(300);
+  const chips = await ev(`[...document.querySelectorAll('.worship-notice-cal')].map(b => b.innerText.trim())`);
+  check('광고 — 날짜가 읽힌 광고에만 달력 칩(읽은 날짜·시각)', JSON.stringify(chips) === JSON.stringify([`12월 31일 (${eveWd}) 오후 10:00`]), JSON.stringify(chips));
+  // 게스트는 서버가 없다 — 같은 글자로 만든 .ics가 blob으로 내려간다
+  await ev(`(() => { window.__ics = null; const o = URL.createObjectURL; URL.createObjectURL = (b) => { b.text().then(t => { window.__ics = t; }); return o.call(URL, b); }; })()`);
+  await ev(`document.querySelector('.worship-notice-cal').click()`);
+  await waitFor(`!!window.__ics`, 4000);
+  const ics = await ev(`window.__ics || ''`);
+  check('게스트에서 칩을 누르면 .ics(blob) — 오후 10시 KST = 13:00Z · 제목은 광고 제목',
+    ics.includes('SUMMARY:송구영신 예배') && ics.includes(`DTSTART:${Y - 1}1231T130000Z`) && ics.includes('BEGIN:VEVENT'), ics.slice(0, 160));
+
+  // 넘기면서 보기 — 폰
+  await reload(390, 844);
+  await ev(`${cardOf('성탄의 기쁨')}.click()`); await waitFor(HAS_DETAIL); await sleep(1100);
+  await waitFor(`document.querySelector('.worship-story-open') && !document.querySelector('.worship-story-open').disabled`, 5000);
+  await ev(`document.querySelector('.worship-story-open').click()`);
+  await waitFor(`!!document.querySelector('.story-root')`, 3000); await sleep(400);
+  const S = `(() => { const r = document.querySelector('.story-root'); if (!r) return null;
+    const on = r.querySelector('.story-card[aria-hidden="false"]');
+    return { page: r.dataset.page, i: +r.dataset.index, n: r.querySelectorAll('.story-segs i').length, text: on ? on.innerText.replace(/\\s+/g, ' ') : '' }; })()`;
+  const s0 = await ev(S);
+  check('넘기면서 보기 — 표지에 절기 줄 · 예배 · 날짜 · 설교 제목 · 설교자',
+    s0?.page === 'cover' && ['성탄절', '주일 4부 젊은이 예배', XMAS.replace(/-/g, '. '), '성탄의 기쁨', '임성빈 전도사님'].every(t => s0.text.includes(t)), JSON.stringify(s0));
+  const tap = async (fx) => {
+    const x = Math.round(390 * fx), y = 500;
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+    await sleep(250);
+  };
+  const swipe = (x0, x1) => ev(`(() => { const r = document.querySelector('.story-root');
+    r.dispatchEvent(new PointerEvent('pointerdown', { clientX: ${x0}, clientY: 500, bubbles: true }));
+    r.dispatchEvent(new PointerEvent('pointerup', { clientX: ${x1}, clientY: 505, bubbles: true })); })()`);
+  await tap(0.8); const s1 = await ev(S);
+  await tap(0.15); const s2 = await ev(S);
+  check('오른쪽 2/3 누름 = 다음(말씀) · 왼쪽 1/3 = 이전', s1.i === 1 && s1.page === 'word' && s2.i === 0, JSON.stringify([s1.page, s1.i, s2.i]));
+  await tap(0.8);                                   // 말씀 첫 장(1)에서 민다
+  await swipe(384, 200); await sleep(200); const s3 = await ev(S);   // 오른쪽 가장자리에서 왼쪽으로 = 받지 않는다
+  await swipe(300, 120); await sleep(200); const s4 = await ev(S);   // 안쪽에서 왼쪽으로 = 다음
+  await swipe(100, 300); await sleep(200); const s5 = await ev(S);   // 안쪽에서 오른쪽으로 = 이전
+  check('가장자리 20px에서 시작한 밀기는 받지 않고, 안쪽에서 밀면 넘어간다', s3.i === 1 && s4.i === 2 && s5.i === 1, JSON.stringify([s3.i, s4.i, s5.i]));
+  // 찬양 장까지
+  for (let k = 0; k < 8; k++) { const s = await ev(S); if (s.page === 'songs') break; await tap(0.8); }
+  const songs = await ev(`(() => { const on = document.querySelector('.story-card[aria-hidden="false"]');
+    return { teams: [...on.querySelectorAll('.story-song-team')].map(x => x.textContent.trim()),
+      titles: [...on.querySelectorAll('.story-song-title')].map(x => x.textContent.trim()),
+      leader: on.querySelector('.story-leader')?.textContent.trim() }; })()`);
+  check("찬양 장 — '팀 - 제목'만 나누고 나머지는 한 줄 그대로 · 인도자는 본명",
+    JSON.stringify(songs.teams) === JSON.stringify(['마커스워십']) && JSON.stringify(songs.titles) === JSON.stringify(['오 베들레헴', '기쁘다 구주 오셨네 | 찬송가'])
+    && songs.leader === '이하랑 형제', JSON.stringify(songs));
+  await tap(0.8); const sn = await ev(S);
+  check('광고 장 — 내용 있는 광고만(다음 주 위원은 마지막 장으로)', sn.page === 'notices' && sn.text.includes('송구영신 예배') && !sn.text.includes('빈 광고') && !sn.text.includes('다음 주 예배 위원'), JSON.stringify(sn));
+  await tap(0.8); const se = await ev(S);
+  check("마지막 장 — '오늘 섬겨준 이들' · '다음 주 예배 위원'(본명) · 두 버튼 · 진행 막대 칸 = 장 수",
+    se.page === 'end' && se.text.includes('오늘 섬겨준 이들') && se.text.includes('다음 주 예배 위원') && (se.text.match(/이하랑 형제/g) || []).length === 2
+    && se.text.includes('주보 전체 보기') && se.text.includes('처음부터') && se.n === se.i + 1, JSON.stringify(se));
+  await ev(`document.querySelector('.story-card[aria-hidden="false"] .story-restart').click()`); await sleep(200);
+  const sr = await ev(S);
+  await ev(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`); await sleep(250);
+  const closed = await ev(`!document.querySelector('.story-root') && !!document.querySelector('.paper-service-1')`);
+  check("'처음부터'는 표지로 · Esc는 닫고 종이로 돌아온다", sr.i === 0 && closed, JSON.stringify({ i: sr.i, closed }));
+  await ev(`document.querySelector('.worship-story-open').click()`); await sleep(60);
+  const dim = await ev(`(() => { const d = document.querySelector('.worship-story');
+    const cs = d && getComputedStyle(d); return cs ? { bg: cs.backgroundColor, dur: cs.animationDuration } : null; })()`);
+  check('뒤판은 전면 미리보기 값(검정 80% · 150ms)', dim && /^(rgba\(0, 0, 0, 0\.8\)|oklab\(0 0 0 \/ 0\.8\))$/.test(dim.bg) && dim.dur === '0.15s', JSON.stringify(dim));
+  await ev(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`); await sleep(200);
+
+  // 내 예배 노트 — 0건이면 노트 그림 + 문구 + '{M월 D일} 예배 노트 쓰기'
+  await reload(1440, 900);
+  await ev(`document.querySelector('.worship-mynotes-open').click()`);
+  await waitFor(`!!document.querySelector('.worship-mynotes-empty, .worship-mynote-card')`, 5000);
+  const [, pm, pd] = /^\d{4}-(\d{2})-(\d{2})$/.exec(PAST1);
+  const empty = await ev(`(() => { const e = document.querySelector('.worship-mynotes-empty');
+    return e ? { text: e.innerText.replace(/\\s+/g, ' '), mark: !!e.querySelector('svg'), btn: e.querySelector('.worship-mynotes-write')?.textContent.trim() } : null; })()`);
+  check("내 예배 노트 0건 — 노트 그림 · '예배 노트가 아직 없어요' · 가장 최근 드린 주보의 '예배 노트 쓰기'",
+    empty && empty.mark && empty.text.startsWith('예배 노트가 아직 없어요') && empty.btn === `${+pm}월 ${+pd}일 예배 노트 쓰기`, JSON.stringify(empty));
+  await ev(`document.querySelector('.worship-mynotes-write').click()`);
+  await waitFor(`!!document.querySelector('.worship-detail .worship-note-editor')`, 6000); await sleep(1400);
+  const wrote = await ev(`(() => { const n = document.querySelector('.worship-note'); const r = n?.getBoundingClientRect();
+    return { head: document.querySelector('.worship-head-date')?.textContent.trim(), editor: !!document.querySelector('.worship-note-editor'),
+      inView: !!r && r.top < innerHeight && r.bottom > 0 }; })()`);
+  check('그 버튼은 그 주보 상세의 내 예배 노트 칸을 편집 상태로 열고 그 자리까지 내려간다', wrote.editor && wrote.inView, JSON.stringify(wrote));
+
+  // 노트가 있으면 — 쓴 것만 최근순 · 순에 공유 칩 · 데스크톱 두 칸 · 주보에서 열기
+  seed2.service_notes = [
+    { service_id: 's9', body: '### 말씀 요약\n성탄의 말씀\n\n### 나의 결단\n\n### 기도\n', shared_to_sun: false },
+    { service_id: 's1', body: '### 말씀 요약\n흔들리지 않는 기쁨을 붙든다\n\n### 나의 결단\n\n### 기도\n', shared_to_sun: true },
+    { service_id: 's2', body: '### 말씀 요약\n\n### 나의 결단\n\n### 기도\n', shared_to_sun: false },
+  ];
+  await ev(plant2(seed2));
+  await reload(1440, 900);
+  await ev(`document.querySelector('.worship-mynotes-open').click()`);
+  await waitFor(`!!document.querySelector('.worship-mynote-card')`, 5000); await sleep(300);
+  const nl = await ev(`(() => ({ cards: [...document.querySelectorAll('.worship-mynote-card')].map(c => c.querySelector('.worship-mynote-title').textContent.trim() + (c.querySelector('.worship-mynote-shared') ? '|공유' : '')),
+    paper: document.querySelector('.worship-mynote-paper .paper-ref-title')?.textContent.trim(),
+    paperShown: (() => { const p = document.querySelector('.worship-mynote-paper'); return !!p && getComputedStyle(p).display !== 'none'; })(),
+    write: !!document.querySelector('.worship-mynotes-write') }))()`);
+  check("노트 목록 — 쓴 것만 최근 예배 앞 · 공유한 노트에 '순에 공유' · 데스크톱은 맨 위 노트 종이가 옆에 · 쓰기 버튼 없음",
+    JSON.stringify(nl.cards) === JSON.stringify(['흔들리지 않는 기쁨|공유', '성탄의 기쁨']) && nl.paperShown && nl.paper === '흔들리지 않는 기쁨' && !nl.write, JSON.stringify(nl));
+  await ev(`document.querySelectorAll('.worship-mynote-card')[1].click()`); await sleep(250);
+  const nl2 = await ev(`document.querySelector('.worship-mynote-paper .paper-ref-title')?.textContent.trim()`);
+  await ev(`[...document.querySelectorAll('.worship-mynote-open')].find(b => b.offsetParent).click()`);
+  await waitFor(HAS_DETAIL, 5000); await sleep(400);
+  const back = await ev(`document.querySelector('.paper-service-1 .paper-wt')?.textContent.trim()`);
+  check("다른 노트를 누르면 그 종이 · '주보에서 열기'는 그 주보 상세로", nl2 === '성탄의 기쁨' && back === '성탄의 기쁨', JSON.stringify({ nl2, back }));
+  // 폰 — 목록 → 종이(돌아가기 '내 예배 노트')
+  await reload(390, 844);
+  await ev(`document.querySelector('.worship-mynotes-open').click()`);
+  await waitFor(`!!document.querySelector('.worship-mynote-card')`, 5000); await sleep(300);
+  const ph0 = await ev(`(() => { const p = document.querySelector('.worship-mynote-paper'); return !p || getComputedStyle(p).display === 'none'; })()`);
+  await ev(`document.querySelector('.worship-mynote-card').click()`); await sleep(300);
+  const ph1 = await ev(`(() => ({ list: getComputedStyle(document.querySelector('.worship-mynotes-listbox')).display,
+    paper: getComputedStyle(document.querySelector('.worship-mynote-paper')).display,
+    back: [...document.querySelectorAll('.worship-mynotes-list')].some(b => b.offsetParent && b.textContent.includes('내 예배 노트')) }))()`);
+  check('폰은 목록 → 종이(목록은 숨고 돌아가기가 선다)', ph0 && ph1.list === 'none' && ph1.paper !== 'none' && ph1.back, JSON.stringify({ ph0, ph1 }));
+
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await ev(`localStorage.removeItem('church_worship_v1')`);
+  void logsBefore;
+}
+
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 
 console.log(results.join('\n'));
