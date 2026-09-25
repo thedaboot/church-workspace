@@ -3019,6 +3019,22 @@ const bibleSearchBox = async (w, h) => {
     rp.top >= rp.formBottom && rp.bottom <= rp.vis && rp.scrolls, JSON.stringify(rp));
   await ev(`delete window.visualViewport.height; window.visualViewport.dispatchEvent(new Event('resize'))`);
 }
+//  ② 손가락 기기에서 키보드의 '검색'(Enter)으로 내면 키보드가 내려간다(칸의 포커스를 놓는다) —
+//     최근 검색어를 누를 때만 내려가고 직접 친 검색은 키보드가 결과를 가린 채 남았다.
+//     되돌리기 검사: wordBible 검색 폼 onSubmit의 blur를 지우면 ②가 깨진다.
+{
+  await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+  await bibleSearchBox(375, 667);
+  await send('Input.insertText', { text: '사랑' });
+  await sleep(200);
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  await waitFor(`document.querySelector('[data-hit]')`);
+  const sub = await ev(`({ coarse: matchMedia('(pointer: coarse)').matches, focused: document.activeElement === document.querySelector('[data-col="searchbar"] input'),
+    hint: document.querySelector('[data-col="searchbar"] input').enterKeyHint, hits: document.querySelectorAll('[data-hit]').length })`);
+  check('폰에서 검색 칸의 Enter로 내면 키보드가 내려가고 결과가 선다', sub.coarse && !sub.focused && sub.hint === 'search' && sub.hits > 0, JSON.stringify(sub));
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false });
+}
 await ev(`localStorage.removeItem('word_bible_state')`);
 
 console.log(results.join('\n'));

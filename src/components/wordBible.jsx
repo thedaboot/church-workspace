@@ -17,6 +17,7 @@ import { SectionHead, Card, prefersReducedMotion } from '../views/dashboardParts
 import { SearchHint } from './layout.jsx';
 import { Skeleton } from './media.jsx';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
+import { coarsePointer } from '../utils.js';
 
 // ============================================================================
 // 성경 읽기 — 목차 · 리더 · 본문 검색 · 북마크 · 형광펜 · 이어읽기 (docs/V2.md 결정 12)
@@ -860,13 +861,16 @@ export function BibleTab({ initialRef = '' }) {
       {/* 검색 · 글자 크기 — 목차에서도 리더에서도 같은 자리 */}
       <div data-col="searchbar" className="flex items-center gap-2 pb-2.5">
         <form ref={searchFormRef}
-          onSubmit={e => { e.preventDefault(); runSearch(typed); }}
+          /* 손가락 기기에서는 낸 뒤 **키보드를 내린다**(2026-09-25) — 최근 검색어를 누를 때(pickRecent)는
+             내려가는데 키보드의 '검색'으로 내면 그대로 남아 결과 절반을 가렸다. 마우스에서는 칸에 남는다
+             (이어서 고쳐 치는 자리다). */
+          onSubmit={e => { e.preventDefault(); runSearch(typed); if (coarsePointer()) inputRef.current?.blur(); }}
           className="relative flex-1 min-w-0 flex items-center gap-1.5 px-2.5 h-9 rounded-md"
           style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}
         >
           <Search size={14} className="shrink-0 text-fg-faint" />
           <input
-            ref={inputRef}
+            ref={inputRef} enterKeyHint="search"
             value={typed} onChange={e => setTyped(e.target.value)}
             onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
             /* 속성은 첫 줄로 고정하고 보이는 글자는 SearchHint가 돌린다(layout.jsx와 한 벌) */
@@ -880,6 +884,8 @@ export function BibleTab({ initialRef = '' }) {
           <SearchHint show={!typed && !query} left="1.875rem" size="text-[12.5px]"
             hints={recentOpen ? hints.slice(0, 1) : hints} />
           {(typed || query) && (
+            /* 누르는 자리는 21px이라 폰에서 잘 빗나갔다 — 칸 높이 안(위아래 7px)과 글자 크기 단추까지
+               틈의 절반(오른쪽 7px)만큼 넓힌다(HANDOFF §8 · PITFALLS 9-by · 2026-09-25) */
             <button type="button" onClick={clearSearch} aria-label="검색어 지우기"
               className="shrink-0 p-1 -mr-1 rounded text-fg-faint hover:text-fg transition-colors">
               <X size={13} />
