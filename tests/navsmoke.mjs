@@ -475,6 +475,31 @@ for (const w of [800, 1440]) {
   check(`검색 결과 판이 좁은 칸에서도 320px 폭(${w}px)`, sl.w >= 320 && sl.n >= 8, JSON.stringify(sl));
   check(`검색 결과 판이 화면 안에 선다(${w}px)`, sl.l >= 0 && sl.r <= sl.vw && sl.b <= sl.vh, JSON.stringify(sl));
 }
+// 키보드로 결과 열기 — 판이 body 포털이라 Tab으로는 닿지 않는다. ↓로 들어가 ↑↓로 옮기고 Enter로 연다.
+// 되돌리기 검사: SearchBox의 onKeyDown={onInputKey}를 지우면 첫 단정이 깨진다.
+{
+  const key = async (k, code) => {
+    // Enter는 text가 있어야 버튼이 눌린다(keypress → click)
+    await send('Input.dispatchKeyEvent', k === 'Enter' ? { type: 'keyDown', key: k, code: k, windowsVirtualKeyCode: code, text: '\r' }
+      : { type: 'rawKeyDown', key: k, code: k, windowsVirtualKeyCode: code });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code: k, windowsVirtualKeyCode: code });
+    await sleep(120);
+  };
+  await send('Page.bringToFront');
+  await key('ArrowDown', 40);
+  const k1 = (await ev(searchList)).active;
+  await key('ArrowDown', 40);
+  const k2 = (await ev(searchList)).active;
+  await key('ArrowUp', 38); await key('ArrowUp', 38);
+  const k3 = (await ev(searchList)).active;
+  check('검색 칸에서 ↓로 결과 첫 줄에 들어간다', k1 === 'list:프로젝트 1', String(k1));
+  check('↑↓로 결과 줄을 옮기고 첫 줄에서 ↑는 칸으로', k2 === 'list:프로젝트 2' && k3 === 'input', `${k2} → ${k3}`);
+  await key('ArrowDown', 40); await key('ArrowDown', 40);
+  await key('Enter', 13);
+  await sleep(500);
+  const went = await ev(`({ p: new URLSearchParams(location.search).get('p'), list: [...document.body.children].some(c => String(c.className || '').includes('z-[80]')) })`);
+  check('결과 줄에서 Enter로 그 프로젝트가 열리고 판이 닫힌다', went.p === 'p2' && !went.list, JSON.stringify(went));
+}
 
 
 // ── 화면 전환 모션 (사용자 요청 2026-09-07) ─────────────────────────────────

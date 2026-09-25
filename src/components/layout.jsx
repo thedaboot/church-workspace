@@ -12,7 +12,7 @@ import {
   selectProjectsMap, selectMyTasks, selectTasksList, selectMembers
 } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
-import { formatRelative, projectYear, reorderIds, viewersOf } from '../utils.js';
+import { formatRelative, projectYear, reorderIds, viewersOf, imeComposing } from '../utils.js';
 import { usePresenceViews, presenceMe } from '../services/presence.js';
 import { myUid } from '../services/supabaseClient.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
@@ -971,6 +971,27 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
 
   const pick = (kind, item) => { onSearchSelect(kind, item); setOpen(false); setMobileOpen(false); reset(); };
 
+  // ── 키보드로 결과 고르기 (데스크톱 · 2026-09-25) ──────────────────────────
+  // 결과 판이 body 포털이라 **Tab으로는 닿지 않는다**(DOM 순서가 문서 맨 끝이다) — 키보드로는
+  // 결과를 열 길이 아예 없었다. ↓로 판에 들어가고 ↑↓로 줄을 옮긴다. 여는 것은 줄 버튼의
+  // Enter(브라우저 기본)이고, 첫 줄에서 ↑ · Esc는 칸으로 돌아간다(Esc는 useDismiss가 판도 닫는다).
+  // 표시는 앱 전역의 focus-visible 테두리 그대로다 — 새 모양을 더하지 않는다.
+  const inputRef = useRef(null);
+  const onInputKey = (e) => {
+    if (imeComposing(e)) return;   // 조합 중 ↓는 글자 확정이다
+    if (e.key === 'ArrowDown' && listOpen) {
+      const first = listRef.current?.querySelector('button');
+      if (first) { e.preventDefault(); first.focus(); }
+    }
+  };
+  const onListKey = (e) => {
+    const btns = [...(listRef.current?.querySelectorAll('button') || [])];
+    const i = btns.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); btns[Math.min(i + 1, btns.length - 1)]?.focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); (i <= 0 ? inputRef.current : btns[i - 1])?.focus(); }
+    else if (e.key === 'Escape') inputRef.current?.focus();
+  };
+
   // 아이콘 트리거 + 전체폭 오버레이 (모바일 상단바)
   if (variant === 'icon') {
     return (
@@ -1015,15 +1036,15 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
     <div className="relative w-full max-w-[320px]" ref={rootRef}>
       <Search className="w-[15px] h-[15px] absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-faint" />
       <input
-        type="text" value={query}
+        ref={inputRef} type="text" value={query}
         onChange={e => { setQuery(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => setOpen(true)} onKeyDown={onInputKey}
         placeholder={SEARCH_HINTS[0]} aria-label={SEARCH_HINTS[0]}
         className="pl-8 pr-3 h-8 text-[12.5px] bg-surface/60 border border-line rounded-sm focus:bg-surface focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all placeholder:text-transparent"
       />
       <SearchHint show={!query} left="2rem" size="text-[12.5px]" />
       {listOpen && createPortal(
-        <div ref={listRef} style={{ position: 'fixed', left: listPos.left, top: listPos.top, width: listPos.width }}
+        <div ref={listRef} onKeyDown={onListKey} style={{ position: 'fixed', left: listPos.left, top: listPos.top, width: listPos.width }}
           className="z-[80] max-h-80 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150">
           <SearchResults query={query} onPick={pick} />
         </div>, document.body)}
