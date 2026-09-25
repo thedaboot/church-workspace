@@ -933,7 +933,7 @@ function ShareFeed({ rows = [], members = [], myName = '', date, passageRef = ''
 const WEEK_HEAD = ['일', '월', '화', '수', '목', '금', '토'];
 const CELL = 20;   // px — 칸 한 변(숫자가 들어가는 최소 크기)
 const GAP = 3;     // px — 칸 사이
-const HEAD_H = 10; // px — 요일 머리글 한 줄(9px + pb-px)
+const HEAD_H = 11; // px — 요일 머리글 한 줄(10px + pb-px · 최소 글자 10px — D9)
 // 6주 짜리 달의 높이. 5주 달을 볼 때도 이만큼 잡아 두어야 달을 넘길 때 아래가 안 튄다
 // (한 줄이 23px이라 9월 ↔ 8월에서 카드가 통째로 오르내렸다).
 const GRID_MIN_H = HEAD_H + 6 * CELL + 6 * GAP;
@@ -1023,7 +1023,7 @@ function Grass({ today, onPick, reloadKey = 0 }) {
                     width: CELL, height: CELL,
                     background: has ? 'var(--app-tag-green)' : 'var(--app-surface-hover)',
                     // 기록한 날은 초록 위의 짙은 초록, 안 한 날은 옅은 바닥 위의 무채색 —
-                    // 9.5px이라 faint로 두면 안 읽힌다(대비를 한 단계 올렸다)
+                    // 10px이라 faint로 두면 안 읽힌다(대비를 한 단계 올렸다)
                     color: has ? 'var(--app-tag-green-fg)' : 'var(--app-ink-muted)',
                     opacity: d > today ? 0.45 : 1,
                     boxShadow: d === today ? 'inset 0 0 0 1.5px var(--app-accent)' : undefined,
