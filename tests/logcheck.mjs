@@ -1434,7 +1434,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 그 해에 프로젝트가 없어도 칸이 통째로 접히지 않는다 — 접히면 위 보정으로도 못 막는다
   assert.ok(/className="relative select-none" style=\{\{ height: H \}\}/.test(parts),
     '지도 칸의 높이는 프로젝트가 없어도 그대로다');
-  assert.ok(/absolute inset-0 flex items-center justify-center text-\[11px\] text-fg-faint/.test(parts),
+  assert.ok(/absolute inset-0 flex items-center justify-center text-\[11px\] text-fg-muted/.test(parts),
     '빈 줄은 그 높이 안 가운데에 선다');
 
   const utils = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
@@ -1898,7 +1898,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 홈은 한 줄이 아니라 refreshTouched 표다 — 빠짐없이 드는지는 위 ③-b가 본다
   const members = view('../src/views/membersView.jsx');
   assert.ok(/const rosterTick = useLiveTick\('roster'\)/.test(members)
-    && /\[isAdmin, tab, year, rosterTick\]/.test(members),
+    && /\[isAdmin, tab, year, rosterTick(, bookRetry)?\]/.test(members),
     '명단은 effect가 읽으므로 틱을 deps에 얹는다');
   console.log('PASS  v2 실시간 라우팅 48가지');
 }
