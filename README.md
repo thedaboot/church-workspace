@@ -197,7 +197,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0072_files_name_nfc` | 첨부 이름을 NFC로(맥에서 온 NFD 이름이 검색에 안 걸리던 것) — 데이터만, 스키마 변화 없음 | ✅ |
 | `0073_bible_vec` | pgvector + 성경 절 임베딩 `bible_vec`(halfvec 768 · 31,067행) + `match_bible` RPC — 읽기는 승인된 사람만, 쓰기는 서버 키 · 인덱스 없이 | ✅ |
 | `0074_doc_vec` | 업무·댓글·업무 첨부 발췌의 조각 임베딩 `doc_vec`(원본 FK cascade · 해시 증분) + `match_docs` RPC — 주보 첨부·개인 표는 넣지 않는다 · 인덱스 없이 | ✅ |
-| `0075_card_status_ongoing` | 업무 상태 `ongoing`(상시) 허용 — 값만, 기존 행은 그대로 | ⬜ |
+| `0075_card_status_ongoing` | 업무 상태 `ongoing`(상시) 허용 — 값만, 기존 행은 그대로 | ✅ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.
