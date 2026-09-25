@@ -99,8 +99,27 @@ const PROBE = `(() => {
     const cr = ratio(fg, bgOf(el));
     if (cr < 2.0) low.push({ text: (el.textContent || '').trim().slice(0, 20), ratio: Math.round(cr * 100) / 100, color: cs.color });
   }
+  // ④ 최소 글자·흐린 글자(D9 · 2026-09-25): 10px 미만 글은 얼굴 원 안의 머리글자뿐이고,
+  // 12px 미만 글은 faint가 아니라 muted다(faint는 12px 이상·자리표·아이콘). 종이(인쇄 문서)는 뺀다.
+  const faintRgb = (() => { const d = document.createElement('span'); d.style.color = 'var(--app-ink-faint)'; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v; })();
+  const inFace = (el) => { for (let n = el, i = 0; n && i < 3; n = n.parentElement, i++) { const r = n.getBoundingClientRect(); const br = parseFloat(getComputedStyle(n).borderTopLeftRadius); if (r.width <= 26 && Math.abs(r.width - r.height) < 1.5 && br >= r.width / 2 - 1) return true; } return false; };
+  const tiny = [], faintSmall = [];
+  for (const el of document.querySelectorAll('body *')) {
+    if (el.closest('[class*="paper"], [class*="sun-guide"], svg, script, style')) continue;
+    const own = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+    if (!own) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) continue;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+    const px = parseFloat(cs.fontSize);
+    const t = (el.textContent || '').trim().slice(0, 16);
+    if (px < 10 && !inFace(el)) tiny.push(t + ' ' + px);
+    if (px < 12 && cs.color === faintRgb) faintSmall.push(t + ' ' + px);
+  }
   const de = document.documentElement;
   return {
+    tiny: tiny.slice(0, 6), tinyCount: tiny.length, faintSmall: faintSmall.slice(0, 6), faintSmallCount: faintSmall.length,
     low: low.slice(0, 6), lowCount: low.length,
     banned: banned.slice(0, 6), bannedCount: banned.length,
     xOverflow: Math.max(0, de.scrollWidth - de.clientWidth),
@@ -111,6 +130,9 @@ const PROBE = `(() => {
 const SCREENS = [
   ['대시보드', '/'],
   ['프로젝트 보드', '/?p=p1'],
+  // D9의 최소 글자·흐린 글자는 앱 전체 규칙이라 v2 화면과 전역 화면도 돈다(2026-09-25)
+  ['내 업무', '/?p=myTasks'], ['전체 일정', '/?p=schedule'], ['홈', '/?p=home'], ['예배', '/?p=worship'],
+  ['말씀', '/?p=word'], ['모임', '/?p=groups'], ['멤버', '/?p=members'],
 ];
 
 for (const [theme, themeLabel] of [['light', '라이트'], ['dark', '다크']]) {
@@ -127,6 +149,8 @@ for (const [theme, themeLabel] of [['light', '라이트'], ['dark', '다크']]) 
       check(`${tag} — 글자가 배경에 묻히지 않는다`, r.lowCount === 0, `${r.lowCount}건 ${JSON.stringify(r.low)}`);
       check(`${tag} — Tailwind 기본 팔레트를 쓰지 않는다`, r.bannedCount === 0, `${r.bannedCount}건 ${JSON.stringify(r.banned)}`);
       check(`${tag} — 가로로 넘치지 않는다`, r.xOverflow === 0, `${r.xOverflow}px`);
+      check(`${tag} — 10px 미만 글자가 없다(얼굴 머리글자 빼고 · D9)`, r.tinyCount === 0, `${r.tinyCount}건 ${JSON.stringify(r.tiny)}`);
+      check(`${tag} — 12px 미만 글은 faint가 아니다(D9)`, r.faintSmallCount === 0, `${r.faintSmallCount}건 ${JSON.stringify(r.faintSmall)}`);
     }
     // 업무 창도 같은 조건에서 한 번 (댓글·활동·본문 체크리스트가 여기 있다)
     await send('Page.navigate', { url: URL_BASE + '/?p=p1' });
@@ -146,6 +170,8 @@ for (const [theme, themeLabel] of [['light', '라이트'], ['dark', '다크']]) 
       const r = await ev(PROBE);
       check(`${tag} — 글자가 배경에 묻히지 않는다`, r.lowCount === 0, `${r.lowCount}건 ${JSON.stringify(r.low)}`);
       check(`${tag} — Tailwind 기본 팔레트를 쓰지 않는다`, r.bannedCount === 0, `${r.bannedCount}건 ${JSON.stringify(r.banned)}`);
+      check(`${tag} — 10px 미만 글자가 없다(얼굴 머리글자 빼고 · D9)`, r.tinyCount === 0, `${r.tinyCount}건 ${JSON.stringify(r.tiny)}`);
+      check(`${tag} — 12px 미만 글은 faint가 아니다(D9)`, r.faintSmallCount === 0, `${r.faintSmallCount}건 ${JSON.stringify(r.faintSmall)}`);
       // 본문 체크리스트 체크박스는 직접 그린다(브라우저 기본을 쓰면 다크에서 새까맣다)
       const cb = await ev(`(() => {
         const i = document.querySelector('.tiptap input[type="checkbox"], main input[type="checkbox"]');

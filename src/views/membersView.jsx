@@ -4,6 +4,7 @@ import { Avatar } from '../components/Avatar.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { RosterPanel, RowSkeleton, rowDelay } from '../components/roster.jsx';
 import { FailLeft } from '../components/groupsParts.jsx';
+import { BTN } from '../components/buttons.js';
 import { showToast } from '../components/Toast.jsx';
 import { failText, errorReason, objectParticle } from '../services/errorText.js';
 import { agoLabel, visitOrder, isoTime, mergeActivitySeen } from '../utils.js';
@@ -68,10 +69,10 @@ const Section = ({ title, count, children, hint }) => (
   <section className="mb-7">
     <div className="flex items-center gap-2 mb-2.5">
       <h3 className="text-[13px] font-bold text-fg">{title}</h3>
-      {count != null && <span className="text-[11px] text-fg-faint tabular-nums">{count}명</span>}
+      {count != null && <span className="text-[11px] text-fg-muted tabular-nums">{count}명</span>}
       <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
     </div>
-    {hint && <p className="text-[11px] text-fg-faint mb-2.5 leading-relaxed">{hint}</p>}
+    {hint && <p className="text-[11px] text-fg-muted mb-2.5 leading-relaxed">{hint}</p>}
     {children}
   </section>
 );
@@ -101,7 +102,7 @@ function MemberRow({ row, action, delay = 0, isOnline = false, at = '', below = 
       </span>
       <div className="flex-1 min-w-0">
         <p className="text-[13px] font-semibold text-fg truncate">{row.display_name || '이름 미입력'}</p>
-        <p className="text-[10.5px] truncate" style={{ color: isOnline ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)' }}>
+        <p className="text-[10.5px] truncate" style={{ color: isOnline ? 'var(--app-tag-green-fg)' : 'var(--app-ink-muted)' }}>
           {[row.created_at && `${agoLabel(row.created_at)} 가입`,
             isOnline ? '접속 중' : (at && `${agoLabel(at)} 다녀감`)].filter(Boolean).join(' · ')}
         </p>
@@ -453,7 +454,7 @@ export function MembersView({ isAdmin, isMaster }) {
               {waiting.map((row, i) => (
                 <MemberRow key={row.id} row={row} delay={rowDelay(i, stagger)} {...rowProps(row)} action={
                   <button type="button" disabled={!!busy[row.id]} onClick={() => approve(row, true)}
-                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
+                    className={`shrink-0 inline-flex items-center gap-1.5 ${BTN}`}>
                     {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />} 수락
                   </button>
                 } />
@@ -469,14 +470,14 @@ export function MembersView({ isAdmin, isMaster }) {
                   {isMaster && (
                     <button type="button" disabled={!!busy[row.id]}
                       onClick={() => setMergeFor(v => (v === row.id ? '' : row.id))}
-                      className="members-merge shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
+                      className="members-merge shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-hover text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
                       {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <Merge size={13} />} 계정 합치기
                     </button>
                   )}
                   <ConfirmPopover message={`${row.display_name || '이 분'}을 환송할까요? 지난 댓글·기록은 그대로 남아요.`}
                     onConfirm={() => approve(row, false)}>
                     <button type="button" disabled={!!busy[row.id]}
-                      className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
+                      className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-fg-muted hover:text-tag-red-fg hover:bg-surface-hover text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
                       <UserX size={13} /> 환송해주기
                     </button>
                   </ConfirmPopover>
@@ -500,7 +501,7 @@ export function MembersView({ isAdmin, isMaster }) {
                         <Avatar name={m.display_name} url={m.avatar_url} className="flex w-7 h-7 text-xs shrink-0" />
                         <span className="flex-1 min-w-0">
                           <span className="block text-[13px] text-fg truncate">{m.display_name || '이름 미입력'}</span>
-                          <span className="block text-[10.5px] text-fg-faint truncate">{m.email || '로그인 이메일 미등록'}</span>
+                          <span className="block text-[10.5px] text-fg-muted truncate">{m.email || '로그인 이메일 미등록'}</span>
                         </span>
                       </button>
                     </ConfirmPopover>
@@ -520,7 +521,7 @@ export function MembersView({ isAdmin, isMaster }) {
               hint="한 사람이 여러 계정으로 들어온 경우예요. 업무·댓글·노트는 남긴 계정으로 옮겨졌어요.">
               {mergedRows.map((row, i) => (
                 <MemberRow key={row.id} row={row} delay={rowDelay(i, stagger)} {...rowProps(row)} action={
-                  <span className="members-merged shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-fg-faint">
+                  <span className="members-merged shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-fg-muted">
                     <Merge size={13} />
                     {nameById.get(row.merged_into)
                       ? `${nameById.get(row.merged_into)}(으)로 합쳤어요`
@@ -568,12 +569,12 @@ export function MembersView({ isAdmin, isMaster }) {
                       <span className="truncate">{who?.display_name || a.email}</span>
                       {isMaster && a.is_master && <span className="ml-1.5 shrink-0 text-[10px] font-bold text-accent-text">마스터</span>}
                     </p>
-                    <p className="text-[10.5px] text-fg-faint truncate">{a.email}</p>
+                    <p className="text-[10.5px] text-fg-muted truncate">{a.email}</p>
                   </div>
                   {isMaster && (
                     <ConfirmPopover message={`${who?.display_name || a.email}을 관리자에서 해제할까요?`} onConfirm={() => dropAdmin(a.email)}>
                       <button type="button" disabled={!!busy[a.email]}
-                        className="shrink-0 px-2.5 py-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
+                        className="shrink-0 px-2.5 py-1.5 rounded-md text-fg-muted hover:text-tag-red-fg hover:bg-surface-hover text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
                         해제하기
                       </button>
                     </ConfirmPopover>
@@ -592,7 +593,7 @@ export function MembersView({ isAdmin, isMaster }) {
                     <Avatar name={m.display_name} url={m.avatar_url} className="flex w-7 h-7 text-xs shrink-0" />
                     <span className="flex-1 min-w-0">
                       <span className="block text-[13px] text-fg truncate">{m.display_name || '이름 미입력'}</span>
-                      <span className="block text-[10.5px] text-fg-faint truncate">{m.email || '로그인 이메일 미등록'}</span>
+                      <span className="block text-[10.5px] text-fg-muted truncate">{m.email || '로그인 이메일 미등록'}</span>
                     </span>
                   </button>
                 ))}
@@ -601,12 +602,12 @@ export function MembersView({ isAdmin, isMaster }) {
               </div>
             ) : (
               <button type="button" onClick={() => setPickOpen(true)}
-                className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95">
+                className={`mt-3 inline-flex items-center gap-1.5 ${BTN}`}>
                 <Plus size={13} /> 가입한 사람 중에서 지정하기
               </button>
             ))}
 
-            <p className="mt-2.5 text-[10.5px] text-fg-faint leading-relaxed">
+            <p className="mt-2.5 text-[10.5px] text-fg-muted leading-relaxed">
               <Shield size={11} className="inline -mt-0.5 mr-1" />
               자기 자신은 해제할 수 없어요.
             </p>

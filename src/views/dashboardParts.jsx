@@ -153,7 +153,7 @@ export function KpiCell({ dot, label, value, unit = '건', note, ratio, bar, ale
         <span className="text-[34px] font-extrabold leading-none tabular-nums" style={{ letterSpacing: '-1.8px', color: fg }}>{value}</span>
         {unit && <span className="text-xs font-semibold" style={{ color: alert ? 'var(--app-tag-red-fg)' : 'var(--app-ink-muted)' }}>{unit}</span>}
         <span className="flex-1" />
-        {note && <span className="hidden md:inline text-[10.5px] tabular-nums whitespace-nowrap text-fg-faint">{note}</span>}
+        {note && <span className="hidden md:inline text-[10.5px] tabular-nums whitespace-nowrap text-fg-muted">{note}</span>}
       </div>
       <Bar ratio={ratio} color={bar} />
     </div>
@@ -194,7 +194,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
         <div key={g.key} className="pb-4">
           <div className="flex items-center gap-2 pb-[5px]">
             <span className="text-xs font-bold" style={{ color: g.fg }}>{g.label}</span>
-            <span className="text-[11px] font-semibold tabular-nums text-fg-faint">{g.items.length}건</span>
+            <span className="text-[11px] font-semibold tabular-nums text-fg-muted">{g.items.length}건</span>
             {staleCount > 0 && (
               <span className="text-[11px] font-semibold tabular-nums whitespace-nowrap" style={{ color: 'var(--app-status-hold)' }}>
                 · {STALE_NODUE_DAYS / 7}주 넘은 것 {staleCount}건
@@ -281,7 +281,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                         <span className="text-[10.5px] font-semibold whitespace-nowrap" style={{ color: CONFIG.STATUS_FG_VAR[t.status] || 'var(--app-ink-muted)' }}>{t.status}</span>
                       </span>
                       <span className="sm:hidden shrink-0 w-0.5 h-0.5 rounded-full" style={{ background: 'var(--app-line)' }} />
-                      <span className="text-[10.5px] text-fg-faint truncate">{projectsMap[t.projectId]?.title || '프로젝트 미지정'}</span>
+                      <span className="text-[10.5px] text-fg-muted truncate">{projectsMap[t.projectId]?.title || '프로젝트 미지정'}</span>
                       {/* 팀이 여럿이면 `웰컴팀 외 2팀`. 예전에는 teams[0] 하나만 그려서
                           여러 팀이 붙은 업무는 나머지가 화면 어디에도 없었다 — "9월
                           월례회는 웰컴팀 일"로 읽혔다(사용자 지적 2026-08-29).
@@ -386,7 +386,7 @@ export function TeamLeftGrid({ stats, onOpenTeam }) {
 // 한다(가장 많이 맡은 사람 기준의 상대 길이).
 // 담당자가 없는 업무는 여기 세지 않는다 — 아무에게도 얹혀 있지 않은 일이다.
 export function PersonLoadGrid({ people, onOpenPerson }) {
-  if (!people.length) return <p className="text-[11px] text-fg-faint">모두 정리되었어요</p>;
+  if (!people.length) return <p className="text-[11px] text-fg-muted">모두 정리되었어요</p>;
   const max = people[0].left || 1;
   return (
     <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -473,7 +473,7 @@ function FaceRow({ people, max = 8, size = 'w-[18px] h-[18px] text-[9px]' }) {
           className={`flex ${size} -ml-[5px] first:ml-0 ring-[1.5px] ring-surface`} />
       ))}
       {people.length > max && (
-        <span className="ml-[5px] text-[10.5px] text-fg-faint tabular-nums">+{people.length - max}</span>
+        <span className="ml-[5px] text-[10.5px] text-fg-muted tabular-nums">+{people.length - max}</span>
       )}
     </span>
   );
@@ -565,9 +565,9 @@ export function MembersModal({ members, myName, onClose }) {
   // 조상 containing block이 되어, 그냥 fixed로 두면 뷰포트가 아니라 그 안쪽을 기준으로
   // 박힌다 — 실제로 창이 화면 아래쪽에 나타나 하단 탭바에 잘렸다.
   return createPortal(
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-150"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-sm max-h-[80dvh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-sm max-h-[80dvh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
         <div className="px-5 pt-5 pb-3 shrink-0">
           <h3 className="font-bold text-fg tracking-[-0.25px]">가입한 사람 {ordered.length}명</h3>
         </div>
@@ -588,7 +588,7 @@ export function MembersModal({ members, myName, onClose }) {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-[13px] font-semibold text-fg truncate">
-                    {m.name}{m.name === myName && <span className="ml-1 text-[10px] font-normal text-fg-faint">나</span>}
+                    {m.name}{m.name === myName && <span className="ml-1 text-[10px] font-normal text-fg-muted">나</span>}
                   </span>
                   {/* 대표 팀만 보여주면 겸직(찬양팀+임원진)이 안 보인다 — 전부 적는다.
                       색은 첫 팀(대표) 것 하나만: 글자마다 딴 색이면 태그 잔치가 된다 */}
@@ -668,11 +668,11 @@ export function ActivityFeed({ feed, tasksById, onOpenTask }) {
                     시간 라벨을 오른쪽 끝에서 밀어낸다(줄마다 시간 x가 달라진다). */}
                 <span className="text-[11px] font-semibold text-fg truncate min-w-0">{task ? task.title : a.actorName}</span>
                 <span className="flex-1" />
-                <span className="text-[10px] text-fg-faint tabular-nums whitespace-nowrap shrink-0">{agoLabel(a.at)}</span>
+                <span className="text-[10px] text-fg-muted tabular-nums whitespace-nowrap shrink-0">{agoLabel(a.at)}</span>
               </span>
               <span className="block text-[11px] text-fg-muted truncate">
                 {task ? `${a.actorName}님이 ` : ''}{a.action}
-                {a.more > 0 && <span className="text-fg-faint"> 외 {a.more}건</span>}
+                {a.more > 0 && <span className="text-fg-muted"> 외 {a.more}건</span>}
               </span>
             </span>
           </>
@@ -963,7 +963,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
     <Card className="px-4 py-[15px]">
       <div className="flex items-center gap-2 pb-1">
         <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 연결 지도</h3>
-        <span className="text-[10px] text-fg-faint truncate">사람 → 팀 → 프로젝트</span>
+        <span className="text-[10px] text-fg-muted truncate">사람 → 팀 → 프로젝트</span>
         {/* 연도 고르기 — **'프로젝트 진행' 칸·탭 줄과 같은 하나의 값**이다
             (useProjectYear 모듈 스토어). 여기서 바꾸면 그 둘도 따라간다.
             해가 쌓일수록 프로젝트 층이 넘쳐 라벨이 겹치므로 이 칸에도 필요해졌다
@@ -986,7 +986,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
             말해 준다(2026-08-31 읽기 보조). 홀수 띠만 칠해서 줄무늬로 읽히게 하고, 고른
             팀의 띠는 그 팀 색으로 한 겹 더 밝힌다. 선 아래에 깔린다(pointer-events 없음). */}
         {!projects.length && (
-          <p className="absolute inset-0 flex items-center justify-center text-[11px] text-fg-faint">
+          <p className="absolute inset-0 flex items-center justify-center text-[11px] text-fg-muted">
             {year}년에 프로젝트는 아직 없어요
           </p>
         )}
@@ -1006,9 +1006,9 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
           );
         })}
         {/* 열 머리글 — 팀 열(가운데)은 고정이라 정확하고, 사람·프로젝트는 영역(zx)의 가운데쯤이다 */}
-        <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * AX.m, top: 0, transform: 'translateX(-50%)' }}>사람</span>
-        <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * AX.t, top: 0, transform: 'translateX(-50%)' }}>팀</span>
-        <span className="absolute text-[9.5px] font-bold text-fg-faint" style={{ left: offX + W * AX.p, top: 0, transform: 'translateX(-50%)' }}>프로젝트</span>
+        <span className="absolute text-[10px] font-bold text-fg-muted" style={{ left: offX + W * AX.m, top: 0, transform: 'translateX(-50%)' }}>사람</span>
+        <span className="absolute text-[10px] font-bold text-fg-muted" style={{ left: offX + W * AX.t, top: 0, transform: 'translateX(-50%)' }}>팀</span>
+        <span className="absolute text-[10px] font-bold text-fg-muted" style={{ left: offX + W * AX.p, top: 0, transform: 'translateX(-50%)' }}>프로젝트</span>
         <svg className="absolute inset-0 pointer-events-none" width={cw} height={H} aria-hidden>
           {edges.map(([a, b, , color, weight], i) => {
             const on = cur != null && (a === cur || b === cur);
@@ -1053,7 +1053,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
                 {...hoverOn(n.id)}>
                 <Avatar name={n.m.name} url={n.m.avatarUrl}
                   className={`flex w-[20px] h-[20px] text-[9px] pointer-events-none ${picked ? 'ring-2 ring-accent' : ''}`} />
-                <span className={`text-[9px] leading-none whitespace-nowrap pointer-events-none ${picked ? 'text-fg font-bold' : 'text-fg-muted'}`}>{n.m.name}</span>
+                <span className={`text-[10px] leading-none whitespace-nowrap pointer-events-none ${picked ? 'text-fg font-bold' : 'text-fg-muted'}`}>{n.m.name}</span>
               </button>
             );
           }
@@ -1067,7 +1067,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
                 className="inline-flex items-center gap-1 pl-2 pr-[7px] py-[3px] rounded-full text-[10.5px] font-bold whitespace-nowrap bg-surface border border-line shadow-soft transition hover:opacity-70">
                 <span style={{ color: teamColor(n.t) }}>{n.t}</span>
                 {n.left > 0 && (
-                  <span className="text-[9.5px] font-semibold tabular-nums text-fg-faint">{n.left}</span>
+                  <span className="text-[10px] font-semibold tabular-nums text-fg-muted">{n.left}</span>
                 )}
               </button>
             );

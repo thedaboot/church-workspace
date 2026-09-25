@@ -8,6 +8,7 @@ import { docEmbedKind, DocEmbedModal, DocKindIcon, PwPrompt } from './DocEmbed.j
 import { isLocked, verifyViewPw } from '../services/viewPw.js';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
+import { BTN } from './buttons.js';
 
 // ============================================================================
 // 참고 링크 부품 — **프로젝트 헤더 하나가 쓴다** (views.jsx)
@@ -84,13 +85,13 @@ function LinkPwFields({ link, busy, onSave }) {
           className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"
         />
         <button type="button" disabled={busy || !pw} onClick={() => onSave(pw)}
-          className="px-2.5 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 disabled:opacity-40 shrink-0">설정</button>
+          className={`${BTN} shrink-0`}>설정</button>
         {link.view_pw && (
           <button type="button" disabled={busy} onClick={() => onSave('')}
             className="px-2.5 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95 shrink-0">잠금 해제</button>
         )}
       </div>
-      <p className="mt-1.5 text-[10px] text-fg-faint leading-relaxed">
+      <p className="mt-1.5 text-[10px] text-fg-muted leading-relaxed">
         비밀번호를 아는 사람만 앱에서 열 수 있어요.
       </p>
     </>
@@ -203,7 +204,7 @@ export function LinkAddPopover({ onAdd }) {
     <span className="inline-flex shrink-0" ref={rootRef}>
       <span ref={btnRef} className="inline-flex">
         <button type="button" onClick={() => { place(); setOpen(v => !v); }}
-          className="text-[11px] text-fg-faint px-1.5 py-px rounded-xs transition-colors hover:text-fg-muted"
+          className="text-[11px] text-fg-muted px-1.5 py-px rounded-xs transition-colors hover:text-fg"
           style={{ border: '1px dashed var(--app-line)' }}>+ 참고 링크</button>
       </span>
       {open && createPortal(
@@ -218,7 +219,7 @@ export function LinkAddPopover({ onAdd }) {
               <button type="button" onClick={() => setOpen(false)}
                 className="text-xs px-2.5 py-1 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">취소</button>
               <button type="button" onClick={save} disabled={!ready}
-                className="text-xs px-2.5 py-1 bg-accent hover:bg-accent-strong disabled:bg-line text-white rounded-md transition active:scale-95">추가</button>
+                className={BTN}>추가</button>
             </div>
           </div>
         </div>, document.body)}

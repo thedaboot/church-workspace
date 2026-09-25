@@ -16,6 +16,7 @@ import { sheetPreviewUrl } from '../utils.js';
 // 확장자 표는 **한 벌이다**(previewKind.js) — 여기에 목록을 또 적어 두면 새 확장자를
 // 붙일 때 한쪽만 고쳐져서 "미리보기는 되는데 펼쳐지지 않는 파일"이 생긴다.
 import { SHEET_EXT, extOf } from '../services/previewKind.js';
+import { BTN } from '../components/buttons.js';
 
 // 미리보기 창(+PdfView)은 열 때만 받는다 — 첨부를 안 여는 사람까지 그 무게를 받지 않게(2026-09-24).
 const FilePreviewModal = lazy(() => import('../components/FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));
@@ -258,7 +259,7 @@ export const PendingAttachments = ({ files = [], onChange }) => {
         <input ref={inputRef} type="file" multiple className="hidden" onChange={e => { add(e.target.files); e.target.value = ''; }} />
         <UploadCloud size={20} strokeWidth={1.75} className="mx-auto text-fg-faint mb-1" />
         <p className="text-[11px] text-fg-muted">파일을 끌어다 놓거나 클릭해서 선택하세요</p>
-        <p className="text-[10px] text-fg-faint mt-0.5">저장하면 올라가요 · 최대 {MAX_UPLOAD_MB}MB</p>
+        <p className="text-[10px] text-fg-muted mt-0.5">저장하면 올라가요 · 최대 {MAX_UPLOAD_MB}MB</p>
       </div>
       {rejected.length > 0 && (
         <p className="mt-2 text-[11px] text-tag-red-fg">한 파일당 {MAX_UPLOAD_MB}MB까지 올릴 수 있어요 · {rejected.map(f => f.name).join(', ')}</p>
@@ -272,7 +273,7 @@ export const PendingAttachments = ({ files = [], onChange }) => {
                 <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-fg truncate">{f.name}</p>
-                  <p className="text-[10px] text-fg-faint mt-0.5">{formatBytes(f.size)}</p>
+                  <p className="text-[10px] text-fg-muted mt-0.5">{formatBytes(f.size)}</p>
                 </div>
                 <button type="button" onClick={() => remove(i)} className="p-1.5 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95" title="빼기"><X size={14} /></button>
               </div>
@@ -329,13 +330,13 @@ function PasswordSetter({ row, onDone }) {
           className="w-40 px-2 py-1.5 rounded-md border border-line bg-surface text-[13px] text-fg outline-none focus:border-accent transition-colors"
         />
         <button type="button" disabled={busy || !pw} onClick={() => save(pw)}
-          className="px-2.5 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">설정</button>
+          className={BTN}>설정</button>
         {row.view_pw && (
           <button type="button" disabled={busy} onClick={() => save('')}
             className="px-2.5 py-1.5 rounded-md bg-surface-hover text-fg-muted text-[11px] font-semibold transition active:scale-95">잠금 해제</button>
         )}
       </div>
-      <p className="mt-1.5 text-[10px] text-fg-faint leading-relaxed">
+      <p className="mt-1.5 text-[10px] text-fg-muted leading-relaxed">
         비밀번호를 아는 사람만 앱에서 열 수 있어요.
       </p>
     </div>
@@ -380,7 +381,7 @@ function InlineSheet({ row }) {
   // 표를 그렸는데(SheetView) 2026-08-30에 지웠다: 같은 표를 두 벌로 그리면 어느 쪽이
   // 기준인지 화면에서 안 보인다. 백필은 scripts/backfill_sheet_preview.mjs가 한다.
   if (!sheetUrl) {
-    return <p className="text-[11px] text-fg-faint py-2">이 파일은 표로 펼칠 수 없어요 · 새 탭에서 열어주세요</p>;
+    return <p className="text-[11px] text-fg-muted py-2">이 파일은 표로 펼칠 수 없어요 · 새 탭에서 열어주세요</p>;
   }
   return (
     <div className="pb-2">
@@ -447,7 +448,7 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
         <p className="text-xs text-fg truncate">{row.name}</p>
         {/* 올리는 중에도 크기는 그대로 말해 준다. '올리는 중'은 상태이지 안내가 아니다 —
             이게 없으면 새 탭 버튼이 왜 없는지 아무도 모른다. */}
-        <p className="text-[10px] mt-0.5 flex items-center gap-1 text-fg-faint">
+        <p className="text-[10px] mt-0.5 flex items-center gap-1 text-fg-muted">
           {pending && <Loader2 size={10} className="animate-spin shrink-0" />}
           {pending ? `드라이브에 올리는 중 · ${formatBytes(row.size_bytes)}` : formatBytes(row.size_bytes)}
         </p>
@@ -464,7 +465,7 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
       {/* 엑셀은 행 아래로 바로 펼친다 — 글자 버튼: hover 뒤에 숨기지 않는다(§8) */}
       {onToggleEmbed && (
         <button type="button" onClick={onToggleEmbed}
-          className="shrink-0 px-1.5 py-1 rounded-md text-[11px] font-semibold text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95">
+          className="shrink-0 px-1.5 py-1 rounded-md text-[11px] font-semibold text-fg-muted hover:text-accent-text hover:bg-surface-hover transition active:scale-95">
           {embedded ? '접기' : '펼쳐보기'}
         </button>
       )}
@@ -672,7 +673,7 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
           <input ref={inputRef} type="file" multiple className="hidden" onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
           <UploadCloud size={20} strokeWidth={1.75} className="mx-auto text-fg-faint mb-1" />
           <p className="text-[11px] text-fg-muted">파일을 끌어다 놓거나 클릭해서 선택하세요</p>
-          <p className="text-[10px] text-fg-faint mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 {MAX_UPLOAD_MB}MB</p>
+          <p className="text-[10px] text-fg-muted mt-0.5">이미지는 붙여넣기(Ctrl/⌘+V)도 돼요 · 최대 {MAX_UPLOAD_MB}MB</p>
         </div>
       )}
       {!readOnly && rejected.length > 0 && (

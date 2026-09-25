@@ -51,7 +51,7 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action 
       <span className="shrink-0 w-[3px] rounded-full my-0.5" style={rail} />
       <span className="flex-1 min-w-0">
         {showProjectBadge && projectsMap[task.projectId] && (
-          <span className="block text-[10px] text-fg-faint mb-0.5 truncate">{projectsMap[task.projectId].title}</span>
+          <span className="block text-[10px] text-fg-muted mb-0.5 truncate">{projectsMap[task.projectId].title}</span>
         )}
         <span className="flex items-center gap-1.5 mb-[3px] min-w-0">
           <span className="flex-1 min-w-0 flex flex-wrap gap-x-1.5">
@@ -73,7 +73,7 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action 
                 <Avatar name={task.assignees[0]} className="flex w-[18px] h-[18px] text-[9.5px]" />
                 <span className="text-[11px] text-fg-muted truncate">{task.assignees[0]}{task.assignees.length > 1 ? ` +${task.assignees.length - 1}` : ''}</span>
               </>
-            ) : <span className="text-[11px] text-fg-faint truncate">담당자 미지정</span>}
+            ) : <span className="text-[11px] text-fg-muted truncate">담당자 미지정</span>}
           </span>
           <span className="shrink-0 inline-flex items-center gap-2">
             {/* 하위 업무 진척 — 카드를 열지 않아도 몇 단계 남았는지 보인다.
@@ -81,7 +81,7 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action 
                 항목이 없으면 아무것도 안 그린다. */}
             {sub.total > 0 && (
               <span className="inline-flex items-center gap-1 text-[10.5px] tabular-nums"
-                style={{ color: sub.done === sub.total ? 'var(--app-tag-green-fg)' : 'var(--app-ink-faint)' }}
+                style={{ color: sub.done === sub.total ? 'var(--app-tag-green-fg)' : 'var(--app-ink-muted)' }}
                 title={`하위 업무 ${sub.done}/${sub.total}`}>
                 <CheckSquare size={10} strokeWidth={2} />{sub.done}/{sub.total}
               </span>
@@ -90,13 +90,13 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action 
                 (0016의 comment_count·file_count — 트리거가 DB에서 유지한다).
                 0이면 그리지 않는다: 대화가 없다는 것을 굳이 말할 필요가 없다. */}
             {counts.comments > 0 && (
-              <span className="inline-flex items-center gap-1 text-[10.5px] tabular-nums text-fg-faint"
+              <span className="inline-flex items-center gap-1 text-[10.5px] tabular-nums text-fg-muted"
                 title={`댓글 ${counts.comments}`}>
                 <MessageSquare size={10} strokeWidth={2} />{counts.comments}
               </span>
             )}
             {counts.files > 0 && (
-              <span className="inline-flex items-center gap-1 text-[10.5px] tabular-nums text-fg-faint"
+              <span className="inline-flex items-center gap-1 text-[10.5px] tabular-nums text-fg-muted"
                 title={`첨부 ${counts.files}`}>
                 <Paperclip size={10} strokeWidth={2} />{counts.files}
               </span>
@@ -227,7 +227,7 @@ function StatusChip({ status, count, current, dragging, isDraggedStatus, onClick
   let tone;
   if (dragging) {
     if (isOver) tone = 'bg-accent-weak border-accent text-accent-text shadow-soft scale-105';
-    else if (isDraggedStatus) tone = 'bg-surface-2 border-line border-dashed text-fg-faint';
+    else if (isDraggedStatus) tone = 'bg-surface-2 border-line border-dashed text-fg-muted';
     else tone = 'bg-surface border-accent border-dashed text-fg-muted';
   } else {
     tone = current ? 'bg-surface border-accent text-fg shadow-soft' : 'bg-surface-2 border-line text-fg-muted';
@@ -236,7 +236,7 @@ function StatusChip({ status, count, current, dragging, isDraggedStatus, onClick
     <button ref={setNodeRef} type="button" onClick={onClick} className={`${base} ${tone}`}>
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${CONFIG.STATUS_DOTS[status] || 'bg-fg-faint'}`} />
       {status}
-      <span className="text-fg-faint font-normal">{count}</span>
+      <span className="text-fg-muted font-normal">{count}</span>
     </button>
   );
 }
@@ -255,7 +255,7 @@ function ColumnDroppable({ status, count, share, dragging, empty, children }) {
       <div className="flex items-center gap-[7px] pb-2 shrink-0" style={{ borderBottom: '1px solid var(--app-line)' }}>
         <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATUS_DOT_VAR[status] }} />
         <h3 className="text-[12.5px] font-bold text-fg">{status}</h3>
-        <span className="text-[11.5px] font-semibold text-fg-faint tabular-nums">{count}</span>
+        <span className="text-[11.5px] font-semibold text-fg-muted tabular-nums">{count}</span>
         <span className="flex-1" />
         <span className="block w-11 rounded-full overflow-hidden shrink-0" style={{ height: 3, background: 'var(--p-track)' }}>
           <span className="dc-bar-fill block h-full rounded-full"
@@ -267,7 +267,7 @@ function ColumnDroppable({ status, count, share, dragging, empty, children }) {
         {empty && !dragging && (
           <div className="py-[22px] text-center">
             <EmptyColumnMark />
-            <p className="text-[11px] text-fg-faint">아직 업무가 없어요</p>
+            <p className="text-[11px] text-fg-muted">아직 업무가 없어요</p>
           </div>
         )}
         {/* 드래그 중일 때만 드롭 존 안내 표시 */}
@@ -407,7 +407,7 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
           ))}
         </div>
         {activeId && (
-          <p className="md:hidden text-center text-[10px] text-fg-faint mb-1.5 -mt-0.5">위 상태 칩에 놓으면 바로 옮겨져요</p>
+          <p className="md:hidden text-center text-[10px] text-fg-muted mb-1.5 -mt-0.5">위 상태 칩에 놓으면 바로 옮겨져요</p>
         )}
         <div
           ref={scrollRef} onScroll={onScroll}

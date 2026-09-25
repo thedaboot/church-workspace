@@ -645,7 +645,7 @@ function QtTab() {
                 </>
               ) : (
                 <button onClick={save} disabled={!dirty || !hasText || saving}
-                  className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95">
+                  className="bg-accent enabled:hover:bg-accent-strong text-white px-4 py-1.5 rounded-md text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40">
                   저장
                 </button>
               )}
@@ -849,7 +849,7 @@ function ShareFeed({ rows = [], members = [], myName = '', date, passageRef = ''
   };
   const sections = useMemo(() => splitNoteSections(cur?.body || ''), [cur?.body]);
   if (!rows.length) {
-    return <p className="text-[11.5px] text-fg-faint">이 날짜에 올라온 QT 나눔이 아직 없어요</p>;
+    return <p className="text-[11.5px] text-fg-muted">이 날짜에 올라온 QT 나눔이 아직 없어요</p>;
   }
   return (
     <div data-share-feed="1">
@@ -993,7 +993,7 @@ function Grass({ today, onPick, reloadKey = 0 }) {
           <button onClick={() => goMonth(-1)} aria-label="지난 달" className={navBtn}>
             <ChevronLeft size={14} />
           </button>
-          <span className="text-[11px] text-fg-faint tabular-nums whitespace-nowrap">{month.year}년 {month.month}월</span>
+          <span className="text-[11px] text-fg-muted tabular-nums whitespace-nowrap">{month.year}년 {month.month}월</span>
           {/* 앞날의 기록은 있을 수 없다 — 이번 달에서는 잠근다 */}
           <button onClick={() => goMonth(1)} aria-label="다음 달" disabled={isNow} className={navBtn}>
             <ChevronRight size={14} />
@@ -1010,7 +1010,7 @@ function Grass({ today, onPick, reloadKey = 0 }) {
           <div className="grid content-start"
             style={{ gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP, minHeight: GRID_MIN_H }}>
             {WEEK_HEAD.map(w => (
-              <span key={w} className="text-[9px] font-semibold text-fg-faint text-center leading-none pb-px">{w}</span>
+              <span key={w} className="text-[10px] font-semibold text-fg-muted text-center leading-none pb-px">{w}</span>
             ))}
             {Array.from({ length: month.lead }, (_, i) => <span key={`b${i}`} />)}
             {month.days.map(d => {
@@ -1018,7 +1018,7 @@ function Grass({ today, onPick, reloadKey = 0 }) {
               return (
                 <button
                   key={d} onClick={() => onPick(d)} title={shortDayLabel(d)} aria-label={shortDayLabel(d)}
-                  className="rounded-xs flex items-center justify-center text-[9.5px] font-semibold tabular-nums leading-none transition active:scale-90"
+                  className="rounded-xs flex items-center justify-center text-[10px] font-semibold tabular-nums leading-none transition active:scale-90"
                   style={{
                     width: CELL, height: CELL,
                     background: has ? 'var(--app-tag-green)' : 'var(--app-surface-hover)',

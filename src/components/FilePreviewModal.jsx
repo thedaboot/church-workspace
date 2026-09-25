@@ -86,6 +86,7 @@ const ZOOM_KINDS = new Set(['image', 'pdf']);
 const officeSrc = (url) => `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
 // 드라이브 미리보기 주소는 순수 함수라 utils에 있다(노드에서 바로 검사한다 — §3-5).
 import { driveSrc, sheetPreviewUrl } from '../utils.js';
+import { BTN } from './buttons.js';
 
 // 어느 뷰어로 그리고 있는지 — 화면 아래 한 줄에 그대로 적는다.
 // 예전에는 이 문구가 조건 없이 '마이크로소프트 오피스 미리보기로 표시해요'였다.
@@ -764,7 +765,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
             ? <RichText content={text} />
             : <pre className="text-xs text-fg-secondary whitespace-pre-wrap break-words font-mono leading-relaxed">{text}</pre>}
           {text.length >= MAX_TEXT_CHARS && (
-            <p className="pt-2 text-center text-[10px] text-fg-faint">앞부분만 보여줘요 · 전체는 새 탭에서 열기</p>
+            <p className="pt-2 text-center text-[10px] text-fg-muted">앞부분만 보여줘요 · 전체는 새 탭에서 열기</p>
           )}
         </div>
       );
@@ -797,7 +798,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
             {!htmlReady && <PreparingFrame absolute />}
           </div>
           {text.length >= MAX_TEXT_CHARS && (
-            <p className="pt-2 text-center text-[10px] text-fg-faint">앞부분만 보여줘요 · 전체는 새 탭에서 열기</p>
+            <p className="pt-2 text-center text-[10px] text-fg-muted">앞부분만 보여줘요 · 전체는 새 탭에서 열기</p>
           )}
         </div>
       );
@@ -843,7 +844,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
           </button>
           {/* 글자는 이 버튼 하나다. 모양·문구는 Fallback의 것과 같은 것을 쓴다. */}
           <button type="button" onClick={openCopy}
-            className="mt-4 inline-flex items-center gap-1.5 bg-accent hover:bg-accent-strong text-white px-4 py-2 rounded-md text-xs font-medium transition active:scale-95">
+            className={`mt-4 inline-flex items-center gap-1.5 ${BTN}`}>
             <ExternalLink size={13} /> 새 탭에서 열기
           </button>
         </div>
@@ -973,7 +974,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       // **공통 조상**(이 딤)에서 나서 창이 제멋대로 닫혔다(업무 창과 같은 판정).
       onMouseDown={(e) => { downOnDim.current = e.target === dimRef.current; }}
       onClick={(e) => { if (e.target === dimRef.current && downOnDim.current) onClose(); }}
-      className={`fixed inset-0 z-[100] bg-black/70 flex items-center justify-center animate-in fade-in duration-150 ${wide ? 'p-0' : 'p-0 md:p-6'}`}>
+      className={`fixed inset-0 z-[100] bg-black/80 flex items-center justify-center animate-in fade-in duration-150 ${wide ? 'p-0' : 'p-0 md:p-6'}`}>
       <div
         onClick={e => e.stopPropagation()}
         // 높이를 확정해 둔다 — max-h만 주면 안쪽 h-full(미리보기 영역)이 기준을 못 잡아
@@ -996,11 +997,11 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
                 밖으로 나가니 알려야 한다. 그 외에는 붙이지 않는다(사용자 결정
                 2026-08-27 — 새 안내 줄은 먼저 물어보고 붙일 것). */}
             {kind === 'office' && (
-              <p className="text-[10px] text-fg-faint mt-0.5">{viewerNote(cur)}</p>
+              <p className="text-[10px] text-fg-muted mt-0.5">{viewerNote(cur)}</p>
             )}
             {/* 새 탭 버튼이 왜 없는지 말해 준다 — 상태를 그대로 말하는 줄이다 */}
             {local && (
-              <p className="text-[10px] text-fg-faint mt-0.5 flex items-center gap-1">
+              <p className="text-[10px] text-fg-muted mt-0.5 flex items-center gap-1">
                 <Loader2 size={10} className="animate-spin shrink-0" /> 드라이브에 올리는 중
               </p>
             )}
@@ -1081,7 +1082,7 @@ function PreparingFrame({ absolute = false, stalled = false, onOpen = null }) {
           <p className="text-xs text-fg-muted">미리보기가 응답하지 않아요.</p>
           {onOpen && (
             <button type="button" onClick={onOpen}
-              className="inline-flex items-center gap-1.5 bg-accent hover:bg-accent-strong text-white px-4 py-2 rounded-md text-xs font-medium transition active:scale-95">
+              className={`inline-flex items-center gap-1.5 ${BTN}`}>
               <ExternalLink size={13} /> 새 탭에서 열기
             </button>
           )}
@@ -1101,7 +1102,7 @@ function Fallback({ row, message, onOpen }) {
       <span className="inline-flex w-12 h-12 rounded-lg bg-tag-gray text-tag-gray-fg items-center justify-center mb-3"><FileQuestion size={22} strokeWidth={1.75} /></span>
       <p className="text-sm text-fg font-medium truncate max-w-xs mx-auto">{row.name}</p>
       <p className="text-xs text-fg-muted mt-1.5 leading-relaxed">{message}</p>
-      <button type="button" onClick={onOpen} className="mt-4 inline-flex items-center gap-1.5 bg-accent hover:bg-accent-strong text-white px-4 py-2 rounded-md text-xs font-medium transition active:scale-95">
+      <button type="button" onClick={onOpen} className={`mt-4 inline-flex items-center gap-1.5 ${BTN}`}>
         <ExternalLink size={13} /> 새 탭에서 열기
       </button>
     </div>

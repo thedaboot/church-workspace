@@ -57,7 +57,7 @@ const SAVE_DELAY = 900;
 // 값을 찾으러 아래로 내려가야 했다(모듈 평가 순서로는 문제가 없었다).
 const ROW_LINE = { borderBottom: '1px solid var(--app-line)' };
 const CARD_BOX = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
-const NUM = 'w-5 shrink-0 text-[11px] font-bold text-fg-faint tabular-nums';
+const NUM = 'w-5 shrink-0 text-[11px] font-bold text-fg-muted tabular-nums';
 // 보기 줄의 역할 칩 — 편집 줄의 ROLE_CHIP과 같은 색·같은 모양이되 입력칸이 아니다
 // (누를 수 없는 것에 focus 스타일을 달아 두면 눌러 보게 된다).
 const ROLE_VIEW = 'px-2.5 py-0.5 rounded-full bg-accent-weak text-accent-text text-[11.5px] font-semibold';
@@ -116,7 +116,7 @@ export function SaveState({ state, savedLabel = '저장되었어요' }) {
   const plain = state === 'saving' ? '저장하는 중' : (state === 'draft' ? '작성 중인 노트' : '');
   return (
     <span className={`worship-save-state text-[10.5px] ${
-      done ? 'px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg font-bold' : 'text-fg-faint'}`}>
+      done ? 'px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg font-bold' : 'text-fg-muted'}`}>
       {done ? savedLabel : plain}
     </span>
   );
@@ -520,7 +520,7 @@ function ServiceFileRow({ row, cls = 'worship-songform', what = '송폼', canDel
       <div className="min-w-0 flex-1">
         <p className={`${cls}-name text-[13px] text-fg break-words`}>{row.name}</p>
         {/* 올리는 중에도 크기는 그대로 말해 준다 — '올리는 중'은 상태이지 안내가 아니다 */}
-        <p className={`${cls}-meta mt-0.5 flex items-center gap-1 text-[10.5px] text-fg-faint`}>
+        <p className={`${cls}-meta mt-0.5 flex items-center gap-1 text-[10.5px] text-fg-muted`}>
           {pending && <Loader2 size={10} className="shrink-0 animate-spin" />}
           {pending ? `드라이브에 올리는 중 · ${formatBytes(row.size_bytes)}` : formatBytes(row.size_bytes)}
         </p>

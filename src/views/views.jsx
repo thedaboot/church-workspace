@@ -87,7 +87,7 @@ function ProjectProgressList({ title, items, color, empty, onNavigate }) {
             <span className="block mt-[5px]"><Bar ratio={p.total ? p.done / p.total : 0} color={color} /></span>
           </button>
         ))}
-        {!items.length && <p className="text-[11px] text-fg-faint">{empty}</p>}
+        {!items.length && <p className="text-[11px] text-fg-muted">{empty}</p>}
       </div>
     </div>
   );
@@ -322,7 +322,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
       <div className="flex items-baseline gap-[5px]">
         <span className="text-[34px] font-extrabold leading-none tabular-nums text-fg" style={{ letterSpacing: '-1.8px' }}>{progress}%</span>
         <span className="flex-1" />
-        <span className="text-[10.5px] text-fg-faint tabular-nums whitespace-nowrap">{doneAll}/{scoped.length}건</span>
+        <span className="text-[10.5px] text-fg-muted tabular-nums whitespace-nowrap">{doneAll}/{scoped.length}건</span>
       </div>
       <Bar ratio={scoped.length ? doneAll / scoped.length : 0} color="var(--p-blue)" />
     </>
@@ -438,7 +438,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
                 <span className="text-[15px] font-extrabold text-fg tabular-nums shrink-0" style={{ letterSpacing: '-0.6px' }}>
                   {Math.round((yearDone / yearTotal) * 100)}%
                 </span>
-                <span className="text-[10.5px] text-fg-faint tabular-nums whitespace-nowrap shrink-0">{yearDone}/{yearTotal}건</span>
+                <span className="text-[10.5px] text-fg-muted tabular-nums whitespace-nowrap shrink-0">{yearDone}/{yearTotal}건</span>
               </div>
             )}
             {projectStats.map(p => (
@@ -449,12 +449,12 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
                     style={{ color: p.urgent ? 'var(--app-tag-red-fg)' : 'var(--app-ink-muted)' }}>{p.dueLabel}</span>
                 </div>
                 <StatusSegments counts={p.counts} total={p.total} />
-                <p className="mt-[5px] text-[10.5px] text-fg-faint tabular-nums">{p.summary}</p>
+                <p className="mt-[5px] text-[10.5px] text-fg-muted tabular-nums">{p.summary}</p>
               </div>
             ))}
             {/* 고른 해에 프로젝트가 없을 수 있다 — 다른 해에는 있다는 뜻이므로
                 '아직'이라고 하지 않는다(달력의 `해당 날짜에는 업무가 없어요`와 같은 결). */}
-            {!projectStats.length && <p className="pb-4 text-[11px] text-fg-faint">{year}년에 프로젝트는 아직 없어요</p>}
+            {!projectStats.length && <p className="pb-4 text-[11px] text-fg-muted">{year}년에 프로젝트는 아직 없어요</p>}
           </Card>
           </div>
 
@@ -667,7 +667,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
                       className="flex w-[18px] h-[18px] text-[9px] -ml-[5px] first:ml-0 ring-[1.5px] ring-canvas" />
                   ))}
                   {people.length > 4 && (
-                    <span className="ml-[5px] text-[10.5px] text-fg-faint tabular-nums">+{people.length - 4}</span>
+                    <span className="ml-[5px] text-[10.5px] text-fg-muted tabular-nums">+{people.length - 4}</span>
                   )}
                 </span>
               )}
@@ -765,7 +765,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
                 }}>
                 <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: teamColor(name) }} />
                 {name}
-                <span className="text-[10.5px] tabular-nums" style={{ color: on ? teamColor(name) : 'var(--app-ink-faint)' }}>{teamCounts[name]}</span>
+                <span className="text-[10.5px] tabular-nums" style={{ color: on ? teamColor(name) : 'var(--app-ink-muted)' }}>{teamCounts[name]}</span>
               </button>
             );
           })}
@@ -888,7 +888,7 @@ function TeamFilterBar({ teams, counts, total, shownCount, selected, onToggle, o
               style={{ background: selected.length ? 'transparent' : 'var(--app-surface-hover)', fontWeight: selected.length ? 500 : 700 }}>
               <span className="w-[7px] h-[7px] rounded-[2px] shrink-0" style={{ background: 'var(--app-ink)' }} />
               <span className="flex-1">전체 팀</span>
-              <span className="text-[11.5px] text-fg-faint tabular-nums">{total}</span>
+              <span className="text-[11.5px] text-fg-muted tabular-nums">{total}</span>
             </button>
             {teams.map(name => {
               const on = selected.includes(name);
@@ -898,7 +898,7 @@ function TeamFilterBar({ teams, counts, total, shownCount, selected, onToggle, o
                   style={{ background: on ? teamBgColor(name) : 'transparent', color: on ? teamColor(name) : 'var(--app-ink)', fontWeight: on ? 700 : 500 }}>
                   <span className="w-[7px] h-[7px] rounded-[2px] shrink-0" style={{ background: teamColor(name) }} />
                   <span className="flex-1 truncate">{name}</span>
-                  <span className="text-[11.5px] text-fg-faint tabular-nums">{counts[name]}</span>
+                  <span className="text-[11.5px] text-fg-muted tabular-nums">{counts[name]}</span>
                   {on && <Check size={13} className="shrink-0 [stroke-width:2.4px]" style={{ color: teamColor(name) }} />}
                 </button>
               );
@@ -1037,10 +1037,10 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
               style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
               <Avatar name={m.name} className="flex w-5 h-5 text-[10px]" />
               <span className="text-[11.5px] font-semibold text-fg whitespace-nowrap">{m.name}</span>
-              {m.left > 0 && <span className="text-[11px] text-fg-faint tabular-nums">{m.left}</span>}
+              {m.left > 0 && <span className="text-[11px] text-fg-muted tabular-nums">{m.left}</span>}
             </span>
           ))}
-          {!members.length && <span className="text-[11.5px] text-fg-faint whitespace-nowrap">아직 이 팀에 속한 청년이 없어요</span>}
+          {!members.length && <span className="text-[11.5px] text-fg-muted whitespace-nowrap">아직 이 팀에 속한 청년이 없어요</span>}
         </div>
       </div>
 

@@ -214,6 +214,78 @@ for (const dpr of [1, 1.25, 2]) {
   check(`격자선이 고르다 (dpr ${dpr})`, !!g && g.spread <= 0.25, JSON.stringify(g));
 }
 
+// ── 날짜 칸의 +N (D9 · 2026-09-25) ─────────────────────────────────────────
+// 생일 +N · 업무 +N이 8~9px faint에서 **10px muted**로 올라갔다(최소 글자). 커진 +N이 칸을
+// 넘거나 잘리지 않는지, 날짜 숫자·얼굴·점과 **같은 가운데 줄**에 서는지, 얼굴과 +N의 틈이
+// 4px인지를 모바일 375 · 데스크톱 1440 × 라이트 · 다크에서 잰다. 오늘 생일인 셋을 심는다
+// (데스크톱은 얼굴 둘 + '+1', 모바일은 얼굴 하나 + '+2'), 오늘 업무 다섯은 위 시드 그대로('+2').
+// **되돌리기**: calendar.jsx 모바일 칸의 `gap-1`을 옛 `gap-[6px]`로 두면 틈 검사가,
+// `text-[10px]`을 옛 8px로 두면 글자 검사가 깨진다.
+{
+  const MMDD = TODAY.slice(5);
+  const bd = (id, name) => ({ id, name, avatarUrl: '', team: '찬양팀', teams: ['찬양팀'], birthday: MMDD, lastSeenAt: '', joinedAt: '2026-07-01T00:00:00Z' });
+  const stB = { ...st, members: [bd('u1', '노준석'), bd('u2', '강민지'), bd('u3', '박지호')] };
+  const measure = () => ev(`(() => {
+    const muted = getComputedStyle(document.documentElement).getPropertyValue('--app-ink-muted').trim();
+    const rgb = (c) => { const d = document.createElement('span'); d.style.color = c; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v; };
+    const M = rgb(muted);
+    const R = (el) => el.getBoundingClientRect();
+    const cy = (r) => (r.top + r.bottom) / 2;
+    const txt = (el) => { const cs = getComputedStyle(el); return { px: parseFloat(cs.fontSize), muted: cs.color === M }; };
+    const out = {};
+    const mHead = [...document.querySelectorAll('.cal-m-head')].find(h => h.querySelector('.cal-bday-more'));
+    if (mHead) {
+      const cell = mHead.closest('button'); const c = R(cell);
+      const [num, face, more] = [mHead.children[0], mHead.children[1], mHead.querySelector('.cal-bday-more')];
+      const dots = cell.querySelector('.cal-m-dots'); const dmore = dots?.querySelector('.cal-task-more'); const dot = dots?.firstElementChild;
+      out.mob = {
+        inCell: [...mHead.children].every(k => R(k).left >= c.left - 0.5 && R(k).right <= c.right + 0.5)
+          && (!dmore || (R(dmore).right <= c.right + 0.5)),
+        gapNumFace: +(R(face).left - R(num).right).toFixed(1), gapFaceMore: +(R(more).left - R(face).right).toFixed(1),
+        dy: +Math.max(Math.abs(cy(R(num)) - cy(R(face))), Math.abs(cy(R(more)) - cy(R(face)))).toFixed(1),
+        dotDy: dmore && dot ? +Math.abs(cy(R(dmore)) - cy(R(dot))).toFixed(1) : null,
+        more: txt(more), dmore: dmore ? txt(dmore) : null, cellW: Math.round(c.width),
+      };
+    }
+    const dHead = [...document.querySelectorAll('.cal-d-head')].find(h => h.querySelector('.cal-bday-more'));
+    if (dHead && dHead.offsetParent) {
+      const faces = [...dHead.querySelectorAll('[title$="님 생일"]')]; const more = dHead.querySelector('.cal-bday-more');
+      const num = dHead.children[0]; const col = R(dHead);
+      out.desk = {
+        inCol: R(more).right <= col.right + 0.5 && dHead.scrollWidth <= dHead.clientWidth + 1,
+        gapFaceMore: +(R(more).left - R(faces[faces.length - 1]).right).toFixed(1),
+        dy: +Math.max(Math.abs(cy(R(num)) - cy(R(faces[0]))), Math.abs(cy(R(more)) - cy(R(faces[0])))).toFixed(1),
+        more: txt(more), faces: faces.length,
+      };
+    }
+    return out;
+  })()`);
+  for (const theme of ['light', 'dark']) {
+    for (const [w, h, mobile] of [[375, 812, true], [1440, 900, false]]) {
+      await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile });
+      await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+      await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(stB))}); localStorage.setItem('theme', '${theme}')`);
+      await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1200);
+      await ev(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='캘린더')?.click()`); await sleep(1000);
+      const m = await measure();
+      if (mobile) {
+        const x = m.mob;
+        check(`모바일 달력 칸의 +N이 칸 안에 10px muted로 선다 (${theme} · ${w})`,
+          !!x && x.inCell && x.more.px >= 10 && x.more.muted && (!x.dmore || (x.dmore.px >= 10 && x.dmore.muted)), JSON.stringify(x));
+        check(`모바일 달력 칸의 숫자·얼굴·+N이 같은 가운데 줄 · 틈 4px (${theme})`,
+          !!x && x.dy <= 1 && Math.abs(x.gapNumFace - 4) <= 0.6 && Math.abs(x.gapFaceMore - 4) <= 0.6
+          && (x.dotDy === null || x.dotDy <= 1), JSON.stringify(x));
+      } else {
+        const x = m.desk;
+        check(`데스크톱 날짜 줄의 생일 +N이 10px muted · 얼굴과 4px · 같은 가운데 줄 (${theme})`,
+          !!x && x.inCol && x.faces === 2 && x.more.px >= 10 && x.more.muted
+          && Math.abs(x.gapFaceMore - 4) <= 0.6 && x.dy <= 1, JSON.stringify(x));
+      }
+    }
+  }
+  await send('Emulation.clearDeviceMetricsOverride');
+}
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.join('\n'):'\n콘솔 오류 없음');
 ws.close();chrome.kill();process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

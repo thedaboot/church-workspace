@@ -3470,7 +3470,7 @@ await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: watcher.ide
     return { box: !!box, text: box?.innerText || '', mark: !!box?.querySelector('svg'),
       emptyText: [...document.querySelectorAll('.worship-empty')].some(e => e.innerText.includes('아직 없어요')),
       toast: [...document.querySelectorAll('[data-toast]')].map(t => t.innerText),
-      btnFont: cs?.fontSize, btnH: btn ? Math.round(btn.getBoundingClientRect().height) : 0,
+      btnFont: cs?.fontSize, btnH: btn ? btn.offsetHeight : 0,
       reasonColor: box && getComputedStyle(box.querySelector('.load-fail-reason')).color,
       muted: getComputedStyle(document.documentElement).getPropertyValue('--app-ink-muted').trim() };
   })()`);

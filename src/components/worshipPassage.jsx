@@ -326,7 +326,7 @@ export function PassageBody({ refStr }) {
               <p className="worship-chapter mt-3.5 mb-1.5 text-[11.5px] font-bold text-fg-muted tabular-nums">{v.chapter}장</p>
             )}
             <p className="worship-verse flex gap-2 py-[3px] text-[14px] leading-[1.85] text-fg-secondary">
-              <span className="w-5 shrink-0 text-right text-[11px] font-bold text-fg-faint tabular-nums pt-[5px]">{v.verse}</span>
+              <span className="w-5 shrink-0 text-right text-[11px] font-bold text-fg-muted tabular-nums pt-[5px]">{v.verse}</span>
               <span className="min-w-0 break-words">{v.text}</span>
             </p>
           </React.Fragment>

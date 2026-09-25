@@ -70,7 +70,7 @@ export function MySunPanel({ myPerson, sun, people, members, service, present, l
           <h2 className="mysun-name text-[17px] font-extrabold text-fg tracking-[-0.3px]">{sun.name}</h2>
           {leaderName && <span className="mysun-leader text-[11.5px] text-fg-muted">순장 {leaderName}</span>}
           <span className="flex-1" />
-          <span className="text-[11.5px] text-fg-faint">{list.length}명</span>
+          <span className="text-[11.5px] text-fg-muted">{list.length}명</span>
         </div>
 
         {/* 첫 진입(캐시 없음)에는 **같은 높이의 자리**를 먼저 잡는다 — 아무것도 안
@@ -349,7 +349,7 @@ function SunRow({ group, suns, people, members, unplaced, leaderPool, onRename, 
         <PersonPick label={`${group.name} 순장`} people={leaderPool} value={group.leader_person_id || ''}
           onChange={id => onSetLeader(group, id)} placeholder="순장 지정" allowClear
           className="sun-leader-pick order-3 basis-full sm:order-2 sm:basis-auto sm:w-[11rem]" />
-        <span className="sun-count order-2 shrink-0 text-[11.5px] text-fg-faint sm:order-3 sm:ml-auto">{list.length}명</span>
+        <span className="sun-count order-2 shrink-0 text-[11.5px] text-fg-muted sm:order-3 sm:ml-auto">{list.length}명</span>
       </div>
 
       {/* 이름과 그 사람의 조작(옮기기·빼기)은 한 칸 안에서 붙어 있어야 한다 —

@@ -164,7 +164,7 @@ export function DocView({ blob, onError }) {
           </React.Fragment>
         ))}
         {doc.truncated && (
-          <p className="pt-3 text-center text-[10px] text-fg-faint">앞부분만 보여줘요 · 전체는 새 탭에서 열기</p>
+          <p className="pt-3 text-center text-[10px] text-fg-muted">앞부분만 보여줘요 · 전체는 새 탭에서 열기</p>
         )}
       </div>
     </div>
@@ -213,7 +213,7 @@ function Slide({ slide, deck, index }) {
         );
       })}
       {/* 몇 번째 장인지 — 슬라이드를 세로로 쌓아 보므로 번호가 없으면 어디쯤인지 모른다 */}
-      <span className="absolute bottom-1.5 right-2 text-[10px] text-fg-faint select-none">{index + 1}</span>
+      <span className="absolute bottom-1.5 right-2 text-[10px] text-fg-muted select-none">{index + 1}</span>
     </div>
   );
 }
@@ -242,7 +242,7 @@ export function SlideView({ blob, onError }) {
       <div className="mx-auto max-w-[56rem] space-y-3 p-1">
         {deck.slides.map((s, i) => <Slide key={i} slide={s} deck={deck} index={i} />)}
         {deck.truncated && (
-          <p className="pt-1 text-center text-[10px] text-fg-faint">앞부분만 보여줘요 · 전체는 새 탭에서 열기</p>
+          <p className="pt-1 text-center text-[10px] text-fg-muted">앞부분만 보여줘요 · 전체는 새 탭에서 열기</p>
         )}
       </div>
     </div>

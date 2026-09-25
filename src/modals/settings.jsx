@@ -10,6 +10,7 @@ import { Avatar } from '../components/Avatar.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { imeComposing } from '../utils.js';
+import { BTN_CONFIRM, BTN_CONFIRM_QUIET } from '../components/buttons.js';
 
 // ============================================================================
 // 설정 창 — 내 정보(사진·이름·소속·연결된 계정) / 프로젝트 만들기·이름 수정
@@ -112,8 +113,8 @@ export function ProfileModal({ onClose, onSave }) {
   const dismiss = useDismissModal(onClose, !onboarding);
 
   return (
-    <div {...dismiss} className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm max-h-[90dvh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
+    <div {...dismiss} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+      <div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm max-h-[90dvh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
         <h3 className="font-bold text-fg mb-1 tracking-[-0.25px]">{onboarding ? '반가워요! 먼저 알려주세요' : '내 정보'}</h3>
         <p className="text-xs text-fg-muted mb-4 leading-relaxed">
           {onboarding
@@ -175,7 +176,7 @@ export function ProfileModal({ onClose, onSave }) {
             );
           })}
         </div>
-        <p className="text-[11px] text-fg-faint mb-4">
+        <p className="text-[11px] text-fg-muted mb-4">
           {teams.length > 1 ? <>대표 소속은 <span className="font-semibold text-fg-muted">{teams[0]}</span>이에요 (아바타 색·기본 팀 보드에 쓰여요)</> : ' '}
         </p>
 
@@ -201,7 +202,7 @@ export function ProfileModal({ onClose, onSave }) {
 
         <div className="flex gap-2">
           {/* 첫 로그인에는 취소가 없다 — 이름·팀 없이 들어가면 멘션·팀 보드가 빈다 */}
-          {!onboarding && <button onClick={onClose} className="flex-1 bg-surface-hover hover:bg-line text-fg-muted py-2.5 rounded-md text-sm font-medium transition active:scale-95">취소</button>}
+          {!onboarding && <button onClick={onClose} className={`flex-1 ${BTN_CONFIRM_QUIET}`}>취소</button>}
           <button
             onClick={() => {
               if (!canSave) return;
@@ -213,7 +214,7 @@ export function ProfileModal({ onClose, onSave }) {
               onClose();
             }}
             disabled={!canSave || uploading}
-            className="flex-1 bg-accent hover:bg-accent-strong disabled:bg-line text-white py-2.5 rounded-md text-sm font-medium transition active:scale-95"
+            className={`flex-1 ${BTN_CONFIRM}`}
           >
             {onboarding ? '시작하기' : '저장'}
           </button>
@@ -259,8 +260,8 @@ export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
   const dismiss = useDismissModal(onClose);
 
   return (
-    <div {...dismiss} className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-200">
+    <div {...dismiss} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+      <div className="bg-surface p-5 md:p-6 rounded-lg shadow-elevated border border-line w-full max-w-sm animate-in fade-in zoom-in-95 duration-150">
         <h3 className="font-bold text-fg mb-4 flex items-center gap-2"><Hash size={18} className="text-accent"/> {renaming ? '프로젝트 이름 수정' : '새 프로젝트 생성'}</h3>
         <label className="block text-xs font-semibold text-fg-muted mb-1.5">프로젝트 이름</label>
         <input
@@ -309,8 +310,8 @@ export function ProjectModal({ onClose, onSave, onArchive, project = null }) {
           </div>
         )}
         <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 bg-surface-hover hover:bg-line text-fg-muted py-2.5 rounded-md text-sm font-medium transition active:scale-95">취소</button>
-          <button onClick={submit} disabled={!clean || unchanged} className="flex-1 bg-accent hover:bg-accent-strong disabled:bg-line text-white py-2.5 rounded-md text-sm font-medium transition active:scale-95">{renaming ? '저장' : '생성하기'}</button>
+          <button onClick={onClose} className={`flex-1 ${BTN_CONFIRM_QUIET}`}>취소</button>
+          <button onClick={submit} disabled={!clean || unchanged} className={`flex-1 ${BTN_CONFIRM}`}>{renaming ? '저장' : '생성하기'}</button>
         </div>
       </div>
     </div>

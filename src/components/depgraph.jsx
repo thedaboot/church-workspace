@@ -142,7 +142,7 @@ export function DepGraph({ tasks, onTaskClick }) {
         {/* 안내 줄은 빈 상태(연결이 하나도 없을 때)에만 — 그 외에는 붙이지 않는다
             (사용자 결정 2026-08-27). */}
         {!hasEdges && (
-          <p className="text-[11px] text-fg-faint min-w-0">업무를 열어 '선행 업무'를 정하면 여기서 순서를 볼 수 있어요</p>
+          <p className="text-[11px] text-fg-muted min-w-0">업무를 열어 '선행 업무'를 정하면 여기서 순서를 볼 수 있어요</p>
         )}
         <span className="flex-1" />
         <span className="hidden sm:flex items-center gap-2.5">

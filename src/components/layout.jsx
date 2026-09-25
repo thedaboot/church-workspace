@@ -459,7 +459,7 @@ export function YearPicker({ year, years, yearCounts = {}, onPick, compact = fal
               className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-[13px] text-left tabular-nums transition-colors hover:bg-surface-hover ${y === year ? 'text-fg font-bold' : 'text-fg-muted'}`}>
               <span className="flex-1">{y}년</span>
               {/* 그 해 프로젝트 수 — 빈 해를 열어보고서야 아는 일이 없게 */}
-              {yearCounts[y] > 0 && <span className="text-[10.5px] text-fg-faint">{yearCounts[y]}</span>}
+              {yearCounts[y] > 0 && <span className="text-[10.5px] text-fg-muted">{yearCounts[y]}</span>}
             </button>
           ))}
         </div>,
@@ -493,7 +493,7 @@ function YearFolders({ active, archived, onPick }) {
     <>
       {years.map(year => (
         <div key={year}>
-          <p className="px-2.5 pt-2 pb-0.5 text-[10px] font-bold text-fg-faint tabular-nums first:pt-1">{year}</p>
+          <p className="px-2.5 pt-2 pb-0.5 text-[10px] font-bold text-fg-muted tabular-nums first:pt-1">{year}</p>
           {byYear.get(year).map(({ p, isArchived }) => (
             <button key={p.id} onClick={() => onPick(p.id)}
               className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-[13px] transition-colors text-left ${isArchived ? 'text-fg-faint hover:text-fg-muted' : 'text-fg-muted hover:text-fg'} hover:bg-surface-hover`}>
@@ -501,7 +501,7 @@ function YearFolders({ active, archived, onPick }) {
                 ? <Archive size={13} className="shrink-0" />
                 : <Hash size={14} className="shrink-0 text-fg-faint" />}
               <span className="truncate">{p.title}</span>
-              {isArchived && <span className="ml-auto shrink-0 text-[10px] text-fg-faint">보관됨</span>}
+              {isArchived && <span className="ml-auto shrink-0 text-[10px] text-fg-muted">보관됨</span>}
             </button>
           ))}
         </div>
@@ -767,7 +767,7 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
   // 두 벌이 동시에 있어야 한다. `data-tab-bar`가 어느 층이 위인지를 정한다.
   return (
     <nav ref={navRef} data-tab-bar={inChurch ? 'church' : 'work'} className="md:hidden fixed inset-x-0 bottom-0 z-40 bg-surface">
-      <div aria-hidden={!inChurch} className={`tab-bar-base ${LAYER} border-line [--tab-on:var(--app-ink)] [--tab-off:var(--app-ink-faint)] [--tab-dot:var(--app-accent)]`}>
+      <div aria-hidden={!inChurch} className={`tab-bar-base ${LAYER} border-line [--tab-on:var(--app-ink)] [--tab-off:var(--app-ink-muted)] [--tab-dot:var(--app-accent)]`}>
         {churchTabs(inChurch)}
       </div>
       {/* 업무 층 — **색과 위선은 index.css의 `.tab-bar-work`가 준다**(`--app-work-bar`).
@@ -905,31 +905,31 @@ function SearchResults({ query, onPick }) {
     <>
       {pShown.length > 0 && (
         <div className="mb-1">
-          <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-faint uppercase tracking-wider">프로젝트</p>
+          <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-muted uppercase tracking-wider">프로젝트</p>
           {pShown.map(p => (
             <button key={p.id} onClick={() => onPick('project', p)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
               <span className="w-6 h-6 rounded-md bg-tag-purple text-tag-purple-fg flex items-center justify-center shrink-0"><Hash size={13} strokeWidth={1.75} /></span>
               <span className="text-sm text-fg truncate min-w-0">{highlight(p.title, q)}</span>
               {/* 보관된 것도 검색에는 나온다(지운 게 아니다) — 대신 그렇다고 표시한다 */}
-              {p.archived && <span className="shrink-0 text-[10px] text-fg-faint">보관</span>}
+              {p.archived && <span className="shrink-0 text-[10px] text-fg-muted">보관</span>}
             </button>
           ))}
-          {pMore > 0 && <p className="px-2 py-1 text-[10px] text-fg-faint">그 외 {pMore}건 더 있어요</p>}
+          {pMore > 0 && <p className="px-2 py-1 text-[10px] text-fg-muted">그 외 {pMore}건 더 있어요</p>}
         </div>
       )}
       {tShown.length > 0 && (
         <div>
-          <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-faint uppercase tracking-wider">업무</p>
+          <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-muted uppercase tracking-wider">업무</p>
           {tShown.map(t => (
             <button key={t.id} onClick={() => onPick('task', t)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
               <span className="w-6 h-6 rounded-md bg-tag-green text-tag-green-fg flex items-center justify-center shrink-0"><CheckSquare size={13} strokeWidth={1.75} /></span>
               <span className="flex-1 min-w-0">
                 <span className="block text-sm text-fg truncate">{highlight(t.title, q)}</span>
-                <span className="block text-[10px] text-fg-faint truncate">{projectsMap[t.projectId]?.title || '프로젝트 미지정'}</span>
+                <span className="block text-[10px] text-fg-muted truncate">{projectsMap[t.projectId]?.title || '프로젝트 미지정'}</span>
               </span>
             </button>
           ))}
-          {tMore > 0 && <p className="px-2 py-1 text-[10px] text-fg-faint">그 외 {tMore}건 더 있어요</p>}
+          {tMore > 0 && <p className="px-2 py-1 text-[10px] text-fg-muted">그 외 {tMore}건 더 있어요</p>}
         </div>
       )}
     </>
@@ -1010,8 +1010,8 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
             안에 둔 z-50 판이 하단 탭바(z-40)보다 아래에 깔렸다. 탭바가 어둡게 덮이지 않고 눌렸고,
             가로 폰에서는 마지막 결과가 탭바 밑에 가렸다(tests/mobbits). */}
         {mobileOpen && createPortal(
-          <div className="fixed inset-0 z-50 bg-black/40 animate-in fade-in duration-150" onClick={closeMobile}>
-            <div className="absolute inset-x-0 top-0 bg-surface border-b border-line shadow-elevated p-3 animate-in slide-in-from-top-2 duration-150" onClick={e => e.stopPropagation()}>
+          <div className="fixed inset-0 z-50 bg-black/50 animate-in fade-in duration-150" onClick={closeMobile}>
+            <div className="absolute inset-x-0 top-0 bg-surface border-b border-line shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
               <div className="flex items-center gap-2">
                 <div className="relative flex-1 min-w-0">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-fg-faint" />
@@ -1139,7 +1139,7 @@ function PushRow() {
           : <Bell size={13} strokeWidth={1.75} className="shrink-0 text-fg-muted" />}
       <span className="flex-1 min-w-0">
         <span className="block text-[11px] text-fg">{on ? '이 기기로 알림 받는 중' : '이 기기로 알림 받기'}</span>
-        <span className="block text-[9px] text-fg-faint mt-0.5">{on ? '눌러서 끄기' : '앱을 닫아도 알림이 와요'}</span>
+        <span className="block text-[10px] text-fg-muted mt-0.5">{on ? '눌러서 끄기' : '앱을 닫아도 알림이 와요'}</span>
       </span>
     </button>
   );
@@ -1245,7 +1245,7 @@ function NotificationBell({ onOpenTask, onOpenLink }) {
         >
           <Bell size={18} strokeWidth={1.75} />
           {unread > 0 && (
-            <span className="absolute top-1.5 right-1.5 bg-tag-red-fg text-white text-[9px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center">
+            <span className="absolute top-1.5 right-1.5 bg-tag-red-fg text-white text-[10px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center">
               {unread > 9 ? '9+' : unread}
             </span>
           )}
@@ -1300,7 +1300,7 @@ function NotificationBell({ onOpenTask, onOpenLink }) {
                           : <><span className="font-semibold text-fg">{n.actor_name}</span>님이 {notifText(n.kind)}</>}
                       </span>
                       {n.preview && <span className="block text-[10px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
-                      <span className="block text-[9px] text-fg-faint mt-0.5">{formatRelative(n.created_at)}</span>
+                      <span className="block text-[10px] text-fg-muted mt-0.5">{formatRelative(n.created_at)}</span>
                     </span>
                   </button>
                   {/* hover로 숨기지 않는다 — 터치 기기에는 hover가 없어서 이 기능이 아예

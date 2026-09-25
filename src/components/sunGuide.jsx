@@ -114,7 +114,7 @@ function Field({ label, value, onChange, limit, rows = 2 }) {
         <span className="flex-1" />
         {limit != null && (
           <span className="sun-guide-count text-[10.5px] tabular-nums"
-            style={{ color: over ? 'var(--app-tag-red-fg)' : 'var(--app-ink-faint)' }}>
+            style={{ color: over ? 'var(--app-tag-red-fg)' : 'var(--app-ink-muted)' }}>
             {value.length}/{limit}
           </span>
         )}
@@ -499,7 +499,7 @@ export function SunGuidePanel({
           **아무 설명 없이 사라져** 있었다(locked) — 이 배지가 그 이유를 말하는 유일한 자리다.
           고정한 사람 이름은 DB에만 남는다. */}
       {pinned && !canPin && (
-        <span className="sun-guide-pinned inline-flex items-center gap-1 text-[10px] text-fg-faint">
+        <span className="sun-guide-pinned inline-flex items-center gap-1 text-[10px] text-fg-muted">
           <Pin size={9} />고정
         </span>
       )}

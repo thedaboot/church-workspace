@@ -181,7 +181,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
       style={colStyle ? { ...colStyle, gap: 1, paddingLeft: 1, paddingRight: 1 } : undefined}>
       {WEEKDAYS.map((w, i) => (
         <span key={w} className="text-[10.5px] font-bold text-center"
-          style={{ color: i === 0 ? 'var(--app-tag-red-fg)' : i === 6 ? 'var(--app-tag-blue-fg)' : 'var(--app-ink-faint)' }}>{w}</span>
+          style={{ color: i === 0 ? 'var(--app-tag-red-fg)' : i === 6 ? 'var(--app-tag-blue-fg)' : 'var(--app-ink-muted)' }}>{w}</span>
       ))}
     </div>
   );
@@ -202,7 +202,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
           </button>
         </span>
         <h3 className="text-[14.5px] font-extrabold text-fg tabular-nums">{view.y}년 {view.m + 1}월</h3>
-        <span className="text-[11.5px] text-fg-faint tabular-nums">{monthTasks.length}건</span>
+        <span className="text-[11.5px] text-fg-muted tabular-nums">{monthTasks.length}건</span>
         <span className="flex-1" />
         <span className="hidden sm:flex items-center gap-2.5">
           {CONFIG.STATUSES.map(s => (
@@ -255,7 +255,6 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
               <div className="relative grid grid-cols-7 pt-1.5 shrink-0 pointer-events-none" style={{ gap: 1, ...colStyle }}>
                 {Array.from({ length: 7 }, (_, i) => {
                   const iso = addDays(ws, i);
-                  const inMonth = Number(iso.slice(5, 7)) === view.m + 1;
                   // 생일은 날짜 숫자 **옆**에 작은 얼굴로. 띠 레인에 넣지 않는 이유는
                   // 레인이 두 줄뿐이라(CAL_LANES) 생일이 업무 띠를 밀어내기 때문이다.
                   const bl = birthdaysOn(bdays, iso);
@@ -263,9 +262,10 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
                     /* gap-2: 날짜 숫자와 생일 얼굴 사이. 4px로 두었더니 숫자에 얼굴이
                        눌어붙어 보였다 — 원은 채워진 도형이라 글자보다 여백을 더 먹는다
                        (참고 링크 표시에서 같은 판단을 했다: 3px → 5px) */
-                    <span key={iso} className="px-1.5 flex items-center gap-2 min-w-0">
-                      <span className="text-[10.5px] font-semibold tabular-nums shrink-0"
-                        style={{ color: inMonth ? 'var(--app-ink-muted)' : 'var(--app-ink-faint)' }}>
+                    <span key={iso} className="cal-d-head px-1.5 flex items-center gap-2 min-w-0">
+                      {/* 달 밖의 날도 muted다(12px 미만 글은 faint를 안 쓴다 · D9) — 달 안팎은 칸 바탕
+                          (surface ↔ canvas)이 가른다 */}
+                      <span className="text-[10.5px] font-semibold tabular-nums shrink-0 text-fg-muted">
                         {Number(iso.slice(8, 10))}
                       </span>
                       {bl.slice(0, 2).map(p => (
@@ -273,8 +273,10 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
                           title={`${p.name}님 생일`}
                           className="flex w-[14px] h-[14px] text-[8px] -ml-[3px] first:ml-0 ring-1 ring-surface" />
                       ))}
+                      {/* +N은 얼굴에 4px로 붙는다(-ml-1이 gap-2의 8px에서 4를 뺀다) — 모바일 달력 칸과 같은 틈.
+                          10px muted가 최소 글자다(D9 · §8) */}
                       {bl.length > 2 && (
-                        <span className="text-[9px] text-fg-faint tabular-nums leading-none">+{bl.length - 2}</span>
+                        <span className="cal-bday-more -ml-1 text-[10px] text-fg-muted tabular-nums leading-none">+{bl.length - 2}</span>
                       )}
                     </span>
                   );
@@ -301,7 +303,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
                       <span key={i} className="px-1.5">
                         {n > 0 && (
                           <button onClick={() => setSelected(addDays(ws, i))} title={`${n}건 더 — 눌러서 목록으로`}
-                            className="pointer-events-auto flex items-center gap-[3px] text-[10px] leading-none font-semibold text-fg-faint hover:text-fg-muted transition-colors">
+                            className="pointer-events-auto flex items-center gap-[3px] text-[10px] leading-none font-semibold text-fg-muted hover:text-fg transition-colors">
                             {(overflowTasks[i] || []).slice(0, 3).map((t, k) => (
                               <span key={k} className="w-[5px] h-[5px] rounded-full shrink-0" style={{ background: teamColor(t.teams?.[0]) }} />
                             ))}
@@ -413,21 +415,21 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
                 boxShadow: isSel && !isToday ? 'inset 0 0 0 1.5px var(--app-accent)' : 'none',
               }}>
               {/* 날짜 숫자 + 생일 얼굴. 52px 칸이라 한 명까지만 그리고 나머지는 +N —
-                  칸을 넘기면 아래 점(업무)이 밀려 내려간다 */}
-              <span className="flex items-center justify-center gap-[6px] min-w-0 px-0.5">
-                <span className="text-[11px] font-semibold tabular-nums shrink-0"
-                  style={{ color: inMonth ? 'var(--app-ink-muted)' : 'var(--app-ink-faint)' }}>{Number(iso.slice(8, 10))}</span>
+                  칸을 넘기면 아래 점(업무)이 밀려 내려간다. 틈은 4px 하나다(D9 — +N을 10px로
+                  키우면서 6px로는 375 칸에 안 들어가 4로 줄였다 · tests/calfit이 칸 안인지 잰다) */}
+              <span className="cal-m-head flex items-center justify-center gap-1 min-w-0 px-0.5">
+                <span className="text-[11px] font-semibold tabular-nums shrink-0 text-fg-muted">{Number(iso.slice(8, 10))}</span>
                 {bl.slice(0, 1).map(p => (
                   <Avatar key={p.id || p.name} name={p.name} url={p.avatarUrl}
                     className="flex w-[13px] h-[13px] text-[7.5px]" />
                 ))}
-                {bl.length > 1 && <span className="text-[8px] text-fg-faint leading-none tabular-nums">+{bl.length - 1}</span>}
+                {bl.length > 1 && <span className="cal-bday-more text-[10px] text-fg-muted leading-none tabular-nums">+{bl.length - 1}</span>}
               </span>
-              <span className="flex items-center justify-center gap-[3px] flex-wrap px-1">
+              <span className="cal-m-dots flex items-center justify-center gap-[3px] flex-wrap px-1">
                 {list.slice(0, 3).map(t => (
                   <span key={t.id} className="w-[5px] h-[5px] rounded-full" style={{ background: teamColor(t.teams?.[0]) }} />
                 ))}
-                {list.length > 3 && <span className="text-[8px] text-fg-faint leading-none">+{list.length - 3}</span>}
+                {list.length > 3 && <span className="cal-task-more text-[10px] text-fg-muted leading-none tabular-nums">+{list.length - 3}</span>}
               </span>
             </button>
           );
@@ -450,7 +452,7 @@ function DaySheet({ iso, list, onTaskClick, tight = false, birthdays = [], onNew
     <div className={`${tight ? '' : 'pt-3'} shrink-0`}>
       <div className="flex items-center gap-2 pb-2">
         <h4 className="text-[12.5px] font-bold text-fg">{Number(iso.slice(5, 7))}월 {Number(iso.slice(8, 10))}일</h4>
-        <span className="text-[11px] text-fg-faint tabular-nums">{list.length}건</span>
+        <span className="text-[11px] text-fg-muted tabular-nums">{list.length}건</span>
         <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
         {/* 고른 날짜가 마감일로 들어간 새 업무 창을 연다 — 달력에서 날짜를 이미 골랐는데
             헤더의 '새 업무'로 가면 마감일을 다시 고르게 된다 */}
@@ -478,7 +480,7 @@ function DaySheet({ iso, list, onTaskClick, tight = false, birthdays = [], onNew
       {list.length === 0
         ? (birthdays.length
             ? null
-            : <p className="py-4 text-center text-[11px] text-fg-faint">해당 날짜에는 업무가 없어요</p>)
+            : <p className="py-4 text-center text-[11px] text-fg-muted">해당 날짜에는 업무가 없어요</p>)
         : list.map((t, i) => {
           const s = spanOf(t);
           return (
@@ -489,7 +491,7 @@ function DaySheet({ iso, list, onTaskClick, tight = false, birthdays = [], onNew
               <span className="shrink-0 w-[3px] h-7 rounded-full" style={teamPaint(t.teams, true)} />
               <span className="flex-1 min-w-0">
                 <span className="block text-[13px] font-semibold text-fg truncate">{t.title}</span>
-                <span className="block text-[10.5px] text-fg-faint truncate">
+                <span className="block text-[10.5px] text-fg-muted truncate">
                   {[t.teams?.join(', '), t.assignees?.join(', '), s && (s.start === s.end ? mdOf(s.end) : `${mdOf(s.start)} ~ ${mdOf(s.end)}`)]
                     .filter(Boolean).join(' · ')}
                 </span>

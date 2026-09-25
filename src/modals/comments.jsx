@@ -11,6 +11,7 @@ import { myUidSync } from '../services/supabaseClient.js';
 import { store } from '../store/workspaceStore.js';
 import { showToast } from '../components/Toast.jsx';
 import { reactionSummary, toggleReaction, commentReactionCloud, notifyReaction } from '../services/cloudSync.js';
+import { BTN } from '../components/buttons.js';
 
 // ============================================================================
 // 업무 창의 댓글 · 활동 기록 패널
@@ -128,9 +129,9 @@ function ReactionPeopleModal({ kind, people, onClose }) {
   }, [onClose]);
   return createPortal(
     // 업무 창이 z-50이라 그 위로 올린다
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4 animate-in fade-in duration-200"
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 animate-in fade-in duration-150"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-xs max-h-[80dvh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-xs max-h-[80dvh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
         <div className="px-5 pt-5 pb-3 shrink-0 flex items-center gap-2">
           <span className={`inline-flex w-6 h-6 rounded-full border items-center justify-center shrink-0 ${on}`}>
             <Icon size={12} {...(fill ? { fill: 'currentColor' } : {})} />
@@ -174,8 +175,8 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 mb-0.5">
           <span className="font-semibold text-[11px] text-fg">{c.author}</span>
-          <span className="text-[9px] text-fg-faint">{formatDate(c.timestamp)}</span>
-          {c.edited && <span className="text-[9px] text-fg-faint">(수정됨)</span>}
+          <span className="comment-stamp text-[10px] text-fg-muted">{formatDate(c.timestamp)}</span>
+          {c.edited && <span className="text-[10px] text-fg-muted">(수정됨)</span>}
           {isOwner && !editing && (
             <span className="ml-auto flex items-center gap-1.5 opacity-100 pointer-fine:md:opacity-0 md:group-hover/comment:opacity-100 transition-opacity">
               <button onClick={() => { setEditText(c.text); setEditing(true); }} className="relative before:absolute before:-inset-[3px] text-fg-faint hover:text-fg-muted transition-colors" title="수정"><Pencil size={11} /></button>
@@ -199,7 +200,7 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions
               <button type="button" onClick={() => setEditing(false)}
                 className="px-2.5 py-1.5 rounded-md text-[10px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95">취소</button>
               <button type="button" onClick={saveEdit} disabled={!editText.trim()}
-                className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-3 py-1.5 rounded-md text-[10px] font-bold transition active:scale-95">저장</button>
+                className={BTN}>저장</button>
             </div>
           </>
         ) : (
@@ -391,7 +392,7 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
                 // keepVisible: 모바일에서 키보드가 올라와도 입력칸이 가려지지 않게
                 // 열릴 때 한 번 스크롤해 준다(담당자·멘션 팝오버와 같은 헬퍼).
                 <div ref={keepVisible} className="animate-in fade-in duration-200">
-                  <p className="text-[10px] text-fg-faint mb-1">
+                  <p className="text-[10px] text-fg-muted mb-1">
                     <span className="font-semibold text-fg-muted">{c.author}</span>님에게 답글
                   </p>
                   <MentionInput
@@ -410,7 +411,7 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
                     <button type="button" onClick={() => closeReply(c.id)}
                       className="px-2.5 py-1.5 rounded-md text-[10px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95">취소</button>
                     <button type="button" onClick={() => submitReply(c.id)} disabled={!(replyDrafts[c.id] || '').trim()}
-                      className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-3 py-1.5 rounded-md text-[10px] font-bold transition active:scale-95">답글</button>
+                      className={BTN}>답글</button>
                   </div>
                 </div>
               )}
@@ -467,7 +468,7 @@ export const ActivityPanel = React.memo(({ logs, loading = false }) => {
           <div className={`mt-1 w-[7px] h-[7px] rounded-full ring-4 ring-surface-2 z-10 shrink-0 ${activityDotColor(l.action)}`}></div>
           <div className="min-w-0">
             <p className="text-[11px] text-fg-secondary leading-snug"><span className="font-semibold text-fg">{l.author}</span>님이 {l.action}</p>
-            <p className="text-[9px] text-fg-faint mt-0.5">{formatDate(l.timestamp)}</p>
+            <p className="text-[10px] text-fg-muted mt-0.5">{formatDate(l.timestamp)}</p>
           </div>
         </div>
       ))}
@@ -497,7 +498,7 @@ export const CommentInput = ({ onAdd, members = [] }) => {
         onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter' && !e.shiftKey && !coarsePointer()) { e.preventDefault(); submit(); } }}
       />
       <div className="flex justify-end mt-2 items-center">
-        <button onClick={submit} disabled={!val.trim()} className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-3 py-1.5 rounded-md text-[10px] font-bold transition active:scale-95">등록</button>
+        <button onClick={submit} disabled={!val.trim()} className={BTN}>등록</button>
       </div>
     </div>
   );

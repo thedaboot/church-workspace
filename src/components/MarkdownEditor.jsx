@@ -20,6 +20,7 @@ import { downscaleImage, BODY_MAX_DIM } from '../services/image.js';
 import { Extension } from '@tiptap/core';
 import { Plugin } from '@tiptap/pm/state';
 import { Slice, Fragment } from '@tiptap/pm/model';
+import { BTN } from './buttons.js';
 
 // 제목에서 Enter를 치면 **본문으로 떨어진다.** 기본 동작은 같은 제목이 이어지는데,
 // 제목을 연달아 쓰는 일은 거의 없고 대개 그 아래에 내용을 적는다(사용자 지적
@@ -738,7 +739,7 @@ function Toolbar({
             >
               {/* 무엇에 링크가 걸리는지 먼저 말한다 — 고른 것이 없으면 주소가 그대로 글자가
                   된다는 것도 알려 준다(예전에는 눌러 봐야 알았다) */}
-              <p className="text-[10.5px] text-fg-faint mb-1.5 truncate">
+              <p className="text-[10.5px] text-fg-muted mb-1.5 truncate">
                 {picked ? <>‘<span className="text-fg-muted font-semibold">{picked}</span>’에 링크를 걸어요.</> : '주소가 그대로 글자가 돼요.'}
               </p>
               <input
@@ -749,7 +750,7 @@ function Toolbar({
               />
               <div className="flex justify-end gap-2 mt-2">
                 <button type="button" onClick={() => setLinkOpen(false)} className="text-xs px-2.5 py-1 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">취소</button>
-                <button type="button" onClick={applyLink} disabled={!href.trim()} className="text-xs px-2.5 py-1 bg-accent hover:bg-accent-strong disabled:bg-line text-white rounded-md transition active:scale-95">적용</button>
+                <button type="button" onClick={applyLink} disabled={!href.trim()} className={BTN}>적용</button>
               </div>
             </div>
           )}

@@ -68,6 +68,22 @@ check('첫 로그인: 채우라는 안내 노출', m.warn === true);
 check('이름 칸에 예시 placeholder 없음', !m.namePlaceholder, `placeholder="${m.namePlaceholder}"`);
 check('팀 칩 7개', m.chips === 7, `${m.chips}개`);
 
+// 확정 단(D9 · 2026-09-25): 창 맨 아래 확정은 13px · 600 · 40px · 모서리 8px이고 비활성은 opacity .4다
+// (예전 bg-line은 라이트에서 1.41:1로 안 보였다). 뒤판은 검정 50% · 150ms.
+// **되돌리기**: settings.jsx의 BTN_CONFIRM을 옛 `disabled:bg-line … text-sm font-medium`으로 두면 깨진다.
+const tier = await ev(`(() => {
+  const box=${BOX}; if (!box) return null;
+  const b=[...box.querySelectorAll('button')].find(x=>/시작하기|저장/.test(x.textContent)); if (!b) return null;
+  const cs=getComputedStyle(b), back=getComputedStyle(box.parentElement);
+  return { px: cs.fontSize, w: cs.fontWeight, h: b.offsetHeight, r: cs.borderTopLeftRadius,
+    off: b.disabled, opacity: cs.opacity, bg: cs.backgroundColor,
+    accent: (() => { const d=document.createElement('i'); d.style.color='var(--app-accent)'; document.body.appendChild(d); const v=getComputedStyle(d).color; d.remove(); return v; })(),
+    back: back.backgroundColor, backMs: back.animationDuration, boxMs: getComputedStyle(box).animationDuration };
+})()`);
+check('첫 로그인 시작하기는 확정 단이다(13px · 600 · 40px · 8px)', !!tier && tier.px === '13px' && tier.w === '600' && tier.h === 40 && tier.r === '8px', JSON.stringify(tier));
+check('비활성 확정 버튼은 accent 그대로 opacity .4다(bg-line 아님)', !!tier && tier.off && tier.opacity === '0.4' && tier.bg === tier.accent, JSON.stringify(tier));
+check('대화창 뒤판은 검정 50% · 뒤판과 창 모두 150ms', !!tier && /^(rgba\(0, 0, 0, 0\.5\)|oklab\(0 0 0 \/ 0\.5\))$/.test(tier.back) && tier.backMs === '0.15s' && tier.boxMs === '0.15s', JSON.stringify(tier));
+
 await ev(`(() => { const box=${BOX}; const inp=box.querySelector('input[type=text]');
   const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
   set.call(inp,'테스트'); inp.dispatchEvent(new Event('input',{bubbles:true})); })()`);

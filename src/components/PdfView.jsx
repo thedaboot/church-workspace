@@ -308,12 +308,12 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
         </>
       )}
       {status === 'ready' && pageCount > MAX_PAGES && (
-        <p className="absolute bottom-1 inset-x-0 text-center text-[10px] text-fg-faint">
+        <p className="absolute bottom-1 inset-x-0 text-center text-[10px] text-fg-muted">
           {MAX_PAGES}쪽까지만 보여줘요 · 전체는 새 탭에서 열기
         </p>
       )}
       {status === 'ready' && drawn < Math.min(pageCount, MAX_PAGES) && (
-        <span className="absolute top-1 right-2 text-[10px] text-fg-faint bg-surface/80 rounded px-1.5 py-0.5">
+        <span className="absolute top-1 right-2 text-[10px] text-fg-muted bg-surface/80 rounded px-1.5 py-0.5">
           {drawn}/{Math.min(pageCount, MAX_PAGES)}쪽
         </span>
       )}

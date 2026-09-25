@@ -907,7 +907,7 @@ export function BibleTab({ initialRef = '' }) {
                 maxHeight: Math.min(RECENT_MAX_H, recentPos.maxHeight ?? RECENT_MAX_H) }}
               className="z-[90] overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150"
             >
-              <p className="px-2 pt-0.5 pb-1 text-[11px] font-bold text-fg-faint">최근 검색어</p>
+              <p className="px-2 pt-0.5 pb-1 text-[11px] font-bold text-fg-muted">최근 검색어</p>
               {recent.map(r => (
                 <span key={r.q} className="flex items-center gap-0.5">
                   <button type="button" data-recent-q={r.q} onClick={() => pickRecent(r.q)}
@@ -1161,7 +1161,7 @@ function MarkBookGroup({ book, items, count, kind, open, onToggle, onOpenItem, o
         {/* 개수는 이름 **바로 옆**이다 — 오른쪽 끝에 붙이면 열이 넓어질수록 이름과 개수가
             멀어져 한 줄로 읽히지 않는다(폭 상한을 없앤 2026-09-03 회차) */}
         <span className="min-w-0 truncate text-[11.5px] font-bold text-fg">{book.name}</span>
-        <span className="shrink-0 text-[11px] text-fg-faint tabular-nums">
+        <span className="shrink-0 text-[11px] text-fg-muted tabular-nums">
           {count}{kind === 'bookmark' ? '장' : '절'}
         </span>
         <span className="flex-1" />
@@ -1230,7 +1230,7 @@ function MarkSection({ title, unit, empty, groups, total, kind, onOpenItem, onRe
   return (
     <div data-col={kind} className="min-w-0">
       <SectionHead right={total
-        ? <span className="text-[11px] text-fg-faint tabular-nums shrink-0">{total}{unit}</span> : null}>
+        ? <span className="text-[11px] text-fg-muted tabular-nums shrink-0">{total}{unit}</span> : null}>
         {title}
       </SectionHead>
       {!total ? (
@@ -1282,7 +1282,7 @@ function Toc({ books, ready, failed = null, picked, setPicked, onOpen }) {
             <ChevronLeft size={14} />목차
           </button>
           <h3 className="flex-1 min-w-0 truncate text-[15px] font-extrabold text-fg tracking-[-0.3px]">{b.name}</h3>
-          <span className="shrink-0 text-[11.5px] text-fg-faint tabular-nums">{b.chapters}장</span>
+          <span className="shrink-0 text-[11.5px] text-fg-muted tabular-nums">{b.chapters}장</span>
         </div>
         <div className="grid gap-1.5 grid-cols-6 sm:grid-cols-8 lg:grid-cols-10">
           {Array.from({ length: b.chapters }, (_, i) => (
@@ -1301,7 +1301,7 @@ function Toc({ books, ready, failed = null, picked, setPicked, onOpen }) {
     <div data-col="toc" className="min-w-0 flex flex-col gap-6">
       {[['구약', books.slice(0, OT_COUNT)], ['신약', books.slice(OT_COUNT)]].map(([title, list]) => (
         <div key={title}>
-          <SectionHead right={<span className="text-[11px] text-fg-faint tabular-nums shrink-0">{list.length}권</span>}>
+          <SectionHead right={<span className="text-[11px] text-fg-muted tabular-nums shrink-0">{list.length}권</span>}>
             {title}
           </SectionHead>
           <div className="grid gap-1.5 grid-cols-3 sm:grid-cols-5 lg:grid-cols-7">
@@ -1352,7 +1352,7 @@ function ResultHead({ children, count = '' }) {
   return (
     <div className={resultHead}>
       <span className="text-[12.5px] font-bold text-fg truncate min-w-0">{children}</span>
-      {!!count && <span className="text-[11.5px] text-fg-faint tabular-nums shrink-0">{count}</span>}
+      {!!count && <span className="text-[11.5px] text-fg-muted tabular-nums shrink-0">{count}</span>}
       <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
     </div>
   );

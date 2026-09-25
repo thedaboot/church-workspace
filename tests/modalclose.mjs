@@ -534,6 +534,30 @@ check('다시 펴진다', reopened.found && reopened.width > 100, JSON.stringify
   await enterKey();
   const n2 = await countComments();
   check('④ 데스크톱에서는 Enter가 예전처럼 등록이다', n2 === n0 + 1, JSON.stringify({ n0, n2 }));
+
+  // ── D9(2026-09-25): 댓글 등록은 작은 단(11.5px · 600 · 29px · 비활성 opacity .4) ·
+  // 업무 창 뒤판은 검정 50% · 뒤판과 창 모두 150ms · 댓글 시각·(수정됨)은 10px muted.
+  // **되돌리기**: comments.jsx 등록을 옛 `text-[10px] font-bold … disabled:bg-line`으로 두면 첫 검사가,
+  // modals.jsx 뒤판을 `bg-black/60 … duration-200`으로 두면 둘째 검사가 깨진다.
+  const d9 = await ev(`(() => {
+    const t = ${INPUT}; if (!t) return null;
+    const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '등록');
+    const back = [...document.querySelectorAll('div')].find(d => /fixed inset-0/.test(d.className || '') && /z-50/.test(d.className || '') && d.querySelector('textarea'));
+    const panel = back?.firstElementChild;
+    const accent = (() => { const d = document.createElement('i'); d.style.color = 'var(--app-accent)'; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v; })();
+    const muted = (() => { const d = document.createElement('i'); d.style.color = 'var(--app-ink-muted)'; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v; })();
+    const stamp = document.querySelector('.comment-stamp');
+    const cs = b && getComputedStyle(b);
+    return b && back ? { px: cs.fontSize, w: cs.fontWeight, h: b.offsetHeight, off: b.disabled,
+      opacity: cs.opacity, bgIsAccent: cs.backgroundColor === accent,
+      back: getComputedStyle(back).backgroundColor, backMs: getComputedStyle(back).animationDuration,
+      panelMs: panel && getComputedStyle(panel).animationDuration,
+      stamp: stamp ? { px: getComputedStyle(stamp).fontSize, muted: getComputedStyle(stamp).color === muted } : null } : null;
+  })()`);
+  check('D9: 댓글 등록은 작은 단 — 11.5px · 600 · 29px, 빈 칸이면 accent 그대로 opacity .4',
+    !!d9 && d9.px === '11.5px' && d9.w === '600' && d9.h === 29 && d9.off === true && d9.opacity === '0.4' && d9.bgIsAccent, JSON.stringify(d9));
+  check('D9: 업무 창 뒤판은 검정 50% · 뒤판과 창 150ms', !!d9 && /^(rgba\(0, 0, 0, 0\.5\)|oklab\(0 0 0 \/ 0\.5\))$/.test(d9.back) && d9.backMs === '0.15s' && d9.panelMs === '0.15s', JSON.stringify(d9));
+  check('D9: 댓글 시각은 10px muted', !!d9 && !!d9.stamp && d9.stamp.px === '10px' && d9.stamp.muted, JSON.stringify(d9?.stamp));
 }
 
 console.log(results.join('\n'));

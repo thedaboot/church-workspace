@@ -408,7 +408,7 @@ function ClubDetail({
                     <PersonTag person={byId.get(a.person_id) || { name: '' }} />
                     <span className="flex-1" />
                     <button type="button" onClick={() => onAccept(a)} aria-label="수락"
-                      className={`club-accept ${WITH_ICON} px-2.5 py-1.5 rounded-md bg-accent text-white text-[11.5px] font-semibold transition active:scale-95`}>
+                      className={`club-accept ${WITH_ICON} ${BTN}`}>
                       <Check size={13} /><span>수락</span>
                     </button>
                     <button type="button" onClick={() => onDecline(a)} aria-label="거절"
@@ -508,7 +508,7 @@ function MeetingRow({ meeting, list, manage, onToggle, onDelete }) {
         <span className="club-meeting-date text-[12.5px] font-bold text-fg">{when}</span>
         {meeting.title && <span className="text-[12px] text-fg-secondary break-words">{meeting.title}</span>}
         <span className="flex-1" />
-        <span className="club-meeting-count text-[11.5px] text-fg-faint">{present.size}/{list.length}</span>
+        <span className="club-meeting-count text-[11.5px] text-fg-muted">{present.size}/{list.length}</span>
         {manage && onDelete && (
           <ConfirmPopover
             className="inline-flex self-center"

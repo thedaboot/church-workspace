@@ -255,7 +255,7 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         {/* 작성자 · (고친 적이 있으면) 마지막으로 고친 사람 · 그 시각.
             한 번도 고치지 않았으면 만든 시각을 보여준다 — 예전에는 수정한 사람이
             안 나와서, 작성자와 수정자가 다를 때 누가 손댔는지 알 수 없었다. */}
-        <div className="text-[10px] text-fg-faint hidden md:block truncate">{metaLine}</div>
+        <div className="text-[10px] text-fg-muted hidden md:block truncate">{metaLine}</div>
       </div>
       {/* 할 일(수정·저장)이 왼쪽, 나가기(닫기)가 오른쪽. 두 모드에서 자리를 같게 둔다 —
           저장이 오른쪽이고 수정이 왼쪽이면, 저장한 순간 손가락 밑의 버튼이 다른 뜻이 된다.
@@ -353,11 +353,11 @@ export function TaskModalShell({ task, isEditMode, onClose, onEdit, onSave, onAd
         if (dirty) closeXRef.current?.querySelector('button')?.click();
         else onClose();
       }}
-      className={`fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-in fade-in duration-200 ${expanded ? 'p-0' : 'p-2 md:p-4'}`}
+      className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-150 ${expanded ? 'p-0' : 'p-2 md:p-4'}`}
     >
       {/* 전체 화면이면 창이 뷰포트를 다 쓴다 — 딤·모서리·최대 폭이 전부 사라져야
           "확대된 창"이 아니라 "전체 화면"으로 읽힌다. 복귀 버튼은 헤더의 같은 자리. */}
-      <div className={`bg-surface shadow-elevated border border-line w-full flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200 ${expanded ? 'max-w-none h-full rounded-none border-0' : 'max-w-5xl h-[100dvh] md:h-[85dvh] rounded-lg'}`}>
+      <div className={`bg-surface shadow-elevated border border-line w-full flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-150 ${expanded ? 'max-w-none h-full rounded-none border-0' : 'max-w-5xl h-[100dvh] md:h-[85dvh] rounded-lg'}`}>
         <div className="flex-1 flex flex-col border-r-0 md:border-r border-line overflow-y-auto">
           {/* sticky 헤더·푸터에 backdrop-blur를 쓰면 스크롤 프레임마다 뒤 내용을
               다시 블러링해서 새 업무/수정 창 스크롤이 눌린다 → 불투명 배경으로 */}
@@ -437,7 +437,7 @@ function DependsRow({ formData, setFormData }) {
           </select>
         )}
         {!options.length && !chosen.length && (
-          <span className="text-[11px] text-fg-faint">이 프로젝트에 다른 업무가 생기면 고를 수 있어요</span>
+          <span className="text-[11px] text-fg-muted">이 프로젝트에 다른 업무가 생기면 고를 수 있어요</span>
         )}
       </div>
     </PropertyRow>
@@ -838,7 +838,7 @@ function SubtaskList({ value = [], onChange, readOnly = false, members = [] }) {
       <div className="flex items-center gap-2 mb-1.5">
         <label className="block text-xs text-fg-muted shrink-0">하위 업무</label>
         {total > 0 && (
-          <span className="text-[11px] font-semibold text-fg-faint tabular-nums">{done}/{total}</span>
+          <span className="text-[11px] font-semibold text-fg-muted tabular-nums">{done}/{total}</span>
         )}
         <span className="flex-1 min-w-[40px]"><Bar ratio={total ? done / total : 0} color="var(--p-blue)" height={3} /></span>
       </div>
@@ -932,7 +932,7 @@ function SubtaskList({ value = [], onChange, readOnly = false, members = [] }) {
         })}
         {/* readOnly + 항목 0개는 위에서 이미 return null이라 여기 오지 않는다 */}
         {!total && (
-          <p className="py-2.5 text-[11px] text-fg-faint">업무를 여러 개로 나누면 하나씩 체크할 수 있어요</p>
+          <p className="py-2.5 text-[11px] text-fg-muted">업무를 여러 개로 나누면 하나씩 체크할 수 있어요</p>
         )}
       </div>
       {!readOnly && (
@@ -1185,7 +1185,7 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
                 고치기·다시 만들기·고정 해제가 무엇에 걸리는지 알아야 한다.
                 누가 고정했는지는 DB에만 남는다(cards.ai_summary_by). */}
             {showingPinned && canPin && (
-              <span className="inline-flex items-center gap-1 text-[10px] text-fg-faint">
+              <span className="inline-flex items-center gap-1 text-[10px] text-fg-muted">
                 <Pin size={9} />고정
               </span>
             )}
@@ -1194,7 +1194,7 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
                 일부러 재생성하지 않으므로, 낡았다는 사실은 눈에 보여야 한다).
                 문구는 사용자가 정했다(2026-08-29). */}
             {showingPinned && canPin && summaryOutdated(formData.updatedAt, formData.aiSummaryAt) && (
-              <span className="text-[10px] text-fg-faint">· 고정한 뒤로 업무가 바뀌었어요</span>
+              <span className="text-[10px] text-fg-muted">· 고정한 뒤로 업무가 바뀌었어요</span>
             )}
           </div>
           {isAiLoading
@@ -1217,7 +1217,7 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
                     {pinning ? '저장하는 중...' : '저장'}
                   </button>
                   <button onClick={() => setEditing(false)} disabled={pinning}
-                    className="text-[10px] text-fg-faint hover:text-fg-muted transition-colors disabled:opacity-40">취소</button>
+                    className="text-[10px] text-fg-muted hover:text-fg transition-colors disabled:opacity-40">취소</button>
                 </>
               ) : showingPinned ? (
                 <>
@@ -1226,7 +1226,7 @@ const TaskViewer = React.memo(({ formData, cloudMode, userId, isAdmin, onFileAct
                   <button onClick={runAi} disabled={pinning}
                     className="text-[10px] text-accent-text hover:underline transition-colors disabled:opacity-40">다시 만들기</button>
                   <button onClick={() => setPinnedSummary('')} disabled={pinning}
-                    className="text-[10px] text-fg-faint hover:text-fg-muted transition-colors disabled:opacity-40">고정 해제</button>
+                    className="text-[10px] text-fg-muted hover:text-fg transition-colors disabled:opacity-40">고정 해제</button>
                 </>
               ) : (
                 <>

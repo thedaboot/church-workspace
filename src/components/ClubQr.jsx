@@ -203,7 +203,7 @@ export function ClubQrModal({ club, onClose }) {
     <div className="club-qr-back fixed inset-0 z-[95] flex items-center justify-center p-4 bg-black/50 animate-in fade-in duration-150"
       role="dialog" aria-modal="true" aria-label={`${club.name} 가입 신청 QR`}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="club-qr w-full max-w-[21rem] p-4 rounded-[14px] shadow-elevated animate-in fade-in zoom-in-95"
+      <div className="club-qr w-full max-w-[21rem] p-4 rounded-[14px] shadow-elevated animate-in fade-in zoom-in-95 duration-150"
         style={CARD_STYLE} onMouseDown={e => e.stopPropagation()}>
         {failed ? (
           <p className="club-qr-failed py-10 text-center text-[13px] text-fg-muted whitespace-pre-line">

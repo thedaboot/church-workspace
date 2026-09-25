@@ -149,7 +149,7 @@ export function DatePicker({ value, onChange, children = null, triggerClassName 
           </div>
           {!yearless && (
             <div className="grid grid-cols-7 mb-1">
-              {WEEKDAYS.map(d => <div key={d} className="w-8 h-6 flex items-center justify-center text-[10px] text-fg-faint">{d}</div>)}
+              {WEEKDAYS.map(d => <div key={d} className="w-8 h-6 flex items-center justify-center text-[10px] text-fg-muted">{d}</div>)}
             </div>
           )}
           <div className="grid grid-cols-7">
@@ -177,7 +177,7 @@ export function DatePicker({ value, onChange, children = null, triggerClassName 
           </div>
           <div className="flex items-center justify-between mt-2 pt-2 border-t border-line">
             {allowClear
-              ? <button type="button" onClick={clear} className="text-[11px] text-fg-faint hover:text-fg-muted px-1.5 py-1 rounded-md hover:bg-surface-hover transition active:scale-95">지우기</button>
+              ? <button type="button" onClick={clear} className="text-[11px] text-fg-muted hover:text-fg px-1.5 py-1 rounded-md hover:bg-surface-hover transition active:scale-95">지우기</button>
               : <span />}
             <button type="button" onClick={jumpToday} className="text-[11px] text-accent-text hover:bg-surface-hover px-1.5 py-1 rounded-md transition active:scale-95">오늘</button>
           </div>

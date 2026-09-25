@@ -150,7 +150,7 @@ export function useSheetShare({ refs, key, background, kind = 'png', fileName, w
   // §8이 금지하는 '사용법 안내'와 다르다: 여기서는 그것이 유일한 조작이고, 안 적으면
   // 그림만 뜨고 무엇을 해야 할지 알 수 없다.
   const overlay = useMemo(() => (shown ? createPortal(
-    <div className="sheet-save fixed inset-0 z-[120] flex flex-col bg-black/80 dc-pop"
+    <div className="sheet-save fixed inset-0 z-[120] flex flex-col bg-black/80 animate-in fade-in duration-150"
       onClick={close} role="dialog" aria-label="저장할 그림">
       <div className="flex items-center justify-between gap-3 px-4 py-3 shrink-0">
         <p className="text-[12px] text-white/80">그림을 길게 눌러 저장하거나 공유할 수 있어요</p>

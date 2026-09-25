@@ -23,6 +23,49 @@ const wait=async(m,to=20000)=>{const s=Date.now();while(Date.now()-s<to){const i
 const ev=async(e,a=false)=>{const r=await send('Runtime.evaluate',{expression:e,awaitPromise:a,returnByValue:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description);return r.result.value;};
 const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}${d?' — '+d:''}`);
 
+// ── D9 모양 통일 — 소스로 지킨다(2026-09-25 · 사용자 결정 D9-a · components/buttons.js 머리말) ──
+// 화면을 다 돌지 않아도 새로 들어오는 줄이 규칙을 어기면 바로 깨지게 소스를 훑는다.
+// ① 주 버튼 비활성은 opacity .4 하나 — `disabled:bg-line`이 소스에 없다
+// ② 10px 미만 글자는 얼굴 원 안의 머리글자(Avatar·PersonFace·FaceRow의 w-/h- 원)와 종이(paper · 가이드 표지)뿐
+// ③ 12px 미만 글에 text-fg-faint를 같이 쓰지 않는다(muted로) — 같은 className 문자열 안에서 본다
+// ④ 대화창 뒤판은 검정 50%, 전면 미리보기는 80% — 그 밖의 값(/40·/60·/70)이 없다
+// **되돌리기**: 어느 한 줄을 옛 값(예: comments.jsx 댓글 시각 `text-[9px] text-fg-faint`)으로 두면 깨진다.
+{
+  const { readdirSync, readFileSync, statSync } = await import('node:fs');
+  const SRC = new URL('../src/', import.meta.url);
+  const walk = (u) => readdirSync(u).flatMap(n => { const c = new URL(n, u); return statSync(c).isDirectory() ? walk(new URL(n + '/', u)) : [c]; });
+  const files = walk(SRC).filter(u => /\.(jsx|js)$/.test(u.pathname));
+  const bgLine = [], tiny = [], faintSmall = [], backs = [];
+  for (const u of files) {
+    const name = decodeURIComponent(u.pathname).split('/src/')[1];
+    const lines = readFileSync(u, 'utf8').split('\n');
+    lines.forEach((l, i) => {
+      if (/^\s*\/\//.test(l)) return;
+      const at = `${name}:${i + 1}`;
+      if (/disabled:bg-line/.test(l)) bgLine.push(at);
+      for (const m of l.matchAll(/text-\[(\d+(?:\.\d+)?)px\]/g)) {
+        if (Number(m[1]) >= 10) continue;
+        const face = /<(Avatar|PersonFace)\b|FaceRow|size = 'w-\[|w-\[1[3-9]px\] h-\[1[3-9]px\]|w-\[20px\] h-\[20px\]|w-[45] h-[45]/.test(l);
+        const paper = /paper|sun-guide-mark/.test(name + ' ' + l);
+        if (!face && !paper) tiny.push(`${at} ${m[0]}`);
+      }
+      for (const m of l.matchAll(/(["'`])((?:(?!\1).)*?)\1/g)) {
+        const body = m[2];
+        if (/(?:^|\s)text-fg-faint(?:\s|$)/.test(body) && /(?:^|\s)text-\[(?:[0-9]|1[01])(?:\.\d+)?px\]/.test(body) && !/paper/.test(name)) faintSmall.push(at);
+      }
+      for (const m of l.matchAll(/fixed inset-0[^"'`]*bg-black\/(\d+)/g)) if (!['50', '80'].includes(m[1])) backs.push(`${at} /${m[1]}`);
+    });
+  }
+  check('D9: 주 버튼 비활성에 bg-line을 쓰지 않는다(opacity .4)', bgLine.length === 0, bgLine.join(' · '));
+  check('D9: 10px 미만 글자는 얼굴 머리글자·종이뿐이다', tiny.length === 0, tiny.join(' · '));
+  check('D9: 12px 미만 글에 faint를 쓰지 않는다', faintSmall.length === 0, faintSmall.join(' · '));
+  check('D9: 뒤판은 대화창 50% · 전면 미리보기 80% 두 값뿐이다', backs.length === 0, backs.join(' · '));
+  const btnSrc = readFileSync(new URL('components/buttons.js', SRC), 'utf8');
+  check('D9: 버튼 두 단 — 작은 단 11.5px·600 · 확정 단 13px·600·40px, 둘 다 비활성 opacity .4',
+    /BTN = 'px-3 py-1\.5 rounded-md bg-accent text-white text-\[11\.5px\] font-semibold[^']*disabled:opacity-40'/.test(btnSrc)
+    && /min-h-10 px-4 py-2\.5 rounded-md text-\[13px\] font-semibold[^']*disabled:opacity-40/.test(btnSrc));
+}
+
 const D=(off)=>{const d=new Date();d.setDate(d.getDate()+off);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
 const T=[
  ['찬양 콘티 확정',['워십팀','찬양팀'],'완료',D(-14),D(-8),['노준석']],

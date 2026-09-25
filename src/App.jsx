@@ -101,6 +101,7 @@ import { createIdBatcher } from './services/realtimeBatch.js';
 import { subscribePresence, trackWhere } from './services/presence.js';
 import logoLight from './assets/logo-light.webp';
 import logoDark from './assets/logo-dark.webp';
+import { BTN_CONFIRM } from './components/buttons.js';
 
 // activeMenu에는 화면 이름이나 프로젝트 id가 들어간다 — 여기 없는 값은 프로젝트로 본다.
 // 새 전역 화면을 만들면 이 목록에도 넣어야 그 이름이 프로젝트 id로 오해되지 않는다
@@ -136,7 +137,7 @@ function CloudErrorScreen({ reason, onRetry, retrying }) {
       <p className="text-xs text-fg-muted leading-relaxed max-w-sm mb-6 break-words">{reason}</p>
       <button
         onClick={onRetry} disabled={retrying}
-        className="bg-accent hover:bg-accent-strong disabled:bg-line text-white px-5 py-2.5 rounded-md text-xs font-medium transition active:scale-95"
+        className={BTN_CONFIRM}
       >
         {retrying ? '다시 시도 중...' : '다시 시도'}
       </button>

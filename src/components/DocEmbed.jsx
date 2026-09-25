@@ -5,6 +5,7 @@ import { docEmbedKind, docEmbedSrc, docThumbUrl, DOC_KIND_LABEL } from '../servi
 import { useMyEmail } from '../services/auth.jsx';
 import { Skeleton } from './media.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { BTN } from './buttons.js';
 
 // ============================================================================
 // 구글 문서·시트·슬라이드 링크를 **앱 안에서 열어 편집**하는 창 (2026-09-07)
@@ -100,7 +101,7 @@ export function DocEmbedModal({ url, title = '', onClose }) {
   const label = DOC_KIND_LABEL[kind] || '문서';
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] bg-black/70 animate-in fade-in duration-150" onClick={onClose}>
+    <div className="fixed inset-0 z-[100] bg-black/80 animate-in fade-in duration-150" onClick={onClose}>
       {/* 모바일은 화면을 다 쓴다(100dvh — 주소 줄이 접혔다 펴져도 창이 흔들리지 않는다).
           데스크톱은 가장자리를 남긴 둥근 카드다: 뒤가 보여야 이 창이 앱 위에 떠 있는 것으로 읽힌다. */}
       <div
@@ -126,7 +127,7 @@ export function DocEmbedModal({ url, title = '', onClose }) {
                 (§6-34-h-3) "여기서 바로 고칠 수 있어요"가 거짓이 된다. 새 낱말을 만들지
                 않고 원래 뒷절이 말하던 **편집**을 폰에서 참인 자리(새 탭)로 옮겼고,
                 슬라이드는 첫 장만 그림으로 세우므로 사용자가 준 문장을 그대로 쓴다. */}
-            <p className="text-[10px] text-fg-faint mt-0.5 leading-snug">
+            <p className="text-[10px] text-fg-muted mt-0.5 leading-snug">
               {label}는 구글에서 열려요 · {isMobile
                 ? (slideCard ? '새 탭에서 열면 전체 PPT를 볼 수 있어요' : '새 탭에서 열면 고칠 수 있어요')
                 : '편집 권한이 있는 링크면 여기서 바로 고칠 수 있어요'}
@@ -138,7 +139,7 @@ export function DocEmbedModal({ url, title = '', onClose }) {
           <a
             href={url} target="_blank" rel="noreferrer" title="새 탭에서 열기"
             className={slow && !ready
-              ? 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-accent text-white text-[11px] font-semibold transition active:scale-95 whitespace-nowrap'
+              ? `inline-flex items-center gap-1.5 whitespace-nowrap ${BTN}`
               : 'p-2 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95'}
           >
             <ExternalLink size={16} className="shrink-0" />{slow && !ready && '새 탭에서 열기'}
@@ -177,7 +178,7 @@ export function DocEmbedModal({ url, title = '', onClose }) {
                 </button>
               )}
               <button type="button" onClick={() => window.open(url, '_blank', 'noreferrer')}
-                className="mt-4 inline-flex items-center gap-1.5 bg-accent hover:bg-accent-strong text-white px-4 py-2 rounded-md text-xs font-medium transition active:scale-95">
+                className={`mt-4 inline-flex items-center gap-1.5 ${BTN}`}>
                 <ExternalLink size={13} /> 새 탭에서 열기
               </button>
             </>

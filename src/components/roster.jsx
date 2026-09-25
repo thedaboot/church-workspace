@@ -102,7 +102,7 @@ export const rowDelay = (i, stagger) => (stagger ? Math.min(i, 12) * 30 : 0);
 const Head = ({ title, count, children }) => (
   <div className="flex items-center gap-2 mb-2.5">
     <h3 className="text-[13px] font-bold text-fg shrink-0">{title}</h3>
-    {count != null && <span className="text-[11px] text-fg-faint tabular-nums shrink-0">{count}명</span>}
+    {count != null && <span className="text-[11px] text-fg-muted tabular-nums shrink-0">{count}명</span>}
     <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
     {children}
   </div>
@@ -120,7 +120,7 @@ const Chip = ({ on, onClick, disabled, children, className = '' }) => (
 const PanelRow = ({ label, sub, children }) => (
   <div className="flex items-start gap-2 min-w-0">
     <p className="shrink-0 w-[3.4rem] pt-1.5 text-[11px] font-semibold text-fg-muted">
-      {label}{sub && <span className="block font-normal text-fg-faint tabular-nums">{sub}</span>}
+      {label}{sub && <span className="block font-normal text-fg-muted tabular-nums">{sub}</span>}
     </p>
     <div className="flex-1 min-w-0">{children}</div>
   </div>
@@ -188,7 +188,7 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
 
       <div>
         <label className="block text-[11px] font-semibold text-fg-muted mb-1.5">
-          소속 <span className="font-normal text-fg-faint">여러 개 고를 수 있어요</span>
+          소속 <span className="font-normal text-fg-muted">여러 개 고를 수 있어요</span>
         </label>
         <div className={CHIP_ROW}>
           {TEAM_CHIPS.map(([t, color]) => (
@@ -230,7 +230,7 @@ function AccountRow({ person, linked, link, busy, onLink, onUnlink }) {
     return <Skeleton className="h-4 w-40 rounded my-1.5" />;
   }
   if (link.status === 'none') {
-    return <p className="py-1.5 text-[11.5px] text-fg-faint">연결할 수 있는 가입자가 없어요</p>;
+    return <p className="py-1.5 text-[11.5px] text-fg-muted">연결할 수 있는 가입자가 없어요</p>;
   }
   return pick ? (
     <div className="border border-line rounded-lg p-1.5 max-h-56 overflow-y-auto">
@@ -240,7 +240,7 @@ function AccountRow({ person, linked, link, busy, onLink, onUnlink }) {
           <Avatar name={c.display_name} url={c.avatar_url || null} className="flex w-7 h-7 text-xs shrink-0" />
           <span className="flex-1 min-w-0">
             <span className="block text-[12.5px] text-fg truncate">{c.display_name || '이름 미입력'}</span>
-            <span className="block text-[10.5px] text-fg-faint truncate">{c.email || ''}</span>
+            <span className="block text-[10.5px] text-fg-muted truncate">{c.email || ''}</span>
           </span>
         </button>
       ))}
@@ -335,7 +335,7 @@ function PersonRow({ person, linked, sun, badges, open, busy, right, children, d
                 className={`shrink-0 px-1.5 py-px rounded-xs text-[10px] font-bold ${BADGE_STYLE[b] || 'bg-tag-gray text-tag-gray-fg'}`}>{b}</span>
             ))}
           </p>
-          <p className="text-[10.5px] text-fg-faint truncate">
+          <p className="text-[10.5px] text-fg-muted truncate">
             {meta.join(' · ')}
             {sun && <>{meta.length ? ' · ' : ''}<span data-sun={sun}>{sun}</span></>}
           </p>
