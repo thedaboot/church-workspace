@@ -996,8 +996,11 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
                 </div>
                 <button onClick={closeMobile} aria-label="닫기" className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0"><X size={18} /></button>
               </div>
+              {/* 높이는 **보이는 창(--app-vh · App.jsx)** 안으로도 가둔다(2026-09-25) — 70dvh만으로는
+                  아이폰 키보드가 올라와도 줄지 않아(dvh는 키보드를 모른다) 마지막 결과가 키보드 밑에
+                  남았고, 끝까지 내려도 닿지 않았다. 5rem = 목록 위(칸 줄 58px) + 아래 여백 12px + 틈. */}
               {active && (
-                <div className="mt-2 max-h-[70dvh] overflow-y-auto">
+                <div className="mt-2 max-h-[min(70dvh,calc(var(--app-vh,100dvh)_-_5rem))] overflow-y-auto">
                   <SearchResults query={query} onPick={pick} />
                 </div>
               )}

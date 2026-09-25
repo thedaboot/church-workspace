@@ -189,6 +189,9 @@ check('다시 라이트로 돌아온다', (await ev(`document.documentElement.da
 // 실제로 그 줄이 눌리는지**(elementFromPoint)를 본다 — 탭바가 위에 깔려 있거나 보이는 창 밖이면 깨진다.
 //  ① 가로 폰(667×375): 패널이 상단바 상자(flex 항목 z-20)의 쌓임 맥락에 갇혀 탭바(z-40) 밑에 깔렸다.
 //     되돌리기 검사: layout.jsx SearchBox(icon)의 createPortal을 걷으면 ①이 깨진다.
+//  ② 키보드(아이폰 흉내 — 레이아웃 뷰포트는 그대로, 보이는 창만 300px 줄인다): 목록 높이가
+//     70dvh라 키보드가 올라와도 줄지 않아 마지막 결과가 키보드 밑에 남았다.
+//     되돌리기 검사: 목록의 max-h를 `max-h-[70dvh]`로 되돌리면 ②가 깨진다.
 {
   const many = { currentUser: st.currentUser, projects: st.projects, tasks: { byId: {}, allIds: [] } };
   for (let i = 0; i < 40; i++) {
@@ -225,6 +228,15 @@ check('다시 라이트로 돌아온다', (await ev(`document.documentElement.da
   const land = await ev(lastRow);
   check('가로 폰: 검색 결과 마지막 줄이 탭바에 가리지 않는다', land.scrolled && land.hitMid && land.hitBottom && land.bottom <= land.vis, JSON.stringify(land));
   await ev(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await sleep(300);
+
+  await openSearch(375, 667);
+  await ev(`(() => { const vv = window.visualViewport; const h = vv.height - 300;
+    Object.defineProperty(vv, 'height', { configurable: true, get: () => h });
+    vv.dispatchEvent(new Event('resize')); })()`);
+  await sleep(300);
+  const kb = await ev(lastRow);
+  check('키보드가 올라와도 검색 결과 마지막 줄이 보이는 창 안에 온다', kb.scrolled && kb.bottom <= kb.vis, JSON.stringify(kb));
+  await ev(`delete window.visualViewport.height; window.visualViewport.dispatchEvent(new Event('resize'))`);
 }
 
 console.log(results.join('\n'));
