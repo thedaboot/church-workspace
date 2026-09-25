@@ -184,6 +184,49 @@ check('다시 라이트로 돌아온다', (await ev(`document.documentElement.da
     vh.set === `${vh.vv}px` && vh.shrunk === vh.vv - 137 && vh.back === vh.vv, JSON.stringify(vh));
 }
 
+// ── 모바일 검색 패널: 결과가 많아도 마지막 줄까지 보인다 (2026-09-25 검색 결과 감사) ─────
+// 업무 40개가 걸리는 시드로 패널을 열고 목록을 끝까지 내린 뒤, **마지막 줄의 한가운데와 아래끝에서
+// 실제로 그 줄이 눌리는지**(elementFromPoint)를 본다 — 탭바가 위에 깔려 있거나 보이는 창 밖이면 깨진다.
+//  ① 가로 폰(667×375): 패널이 상단바 상자(flex 항목 z-20)의 쌓임 맥락에 갇혀 탭바(z-40) 밑에 깔렸다.
+//     되돌리기 검사: layout.jsx SearchBox(icon)의 createPortal을 걷으면 ①이 깨진다.
+{
+  const many = { currentUser: st.currentUser, projects: st.projects, tasks: { byId: {}, allIds: [] } };
+  for (let i = 0; i < 40; i++) {
+    const id = 'm' + i;
+    many.tasks.byId[id] = { ...st.tasks.byId.t0, id, title: `수련회 준비 ${i}`, position: i };
+    many.tasks.allIds.push(id);
+  }
+  const openSearch = async (w, h) => {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: true });
+    await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(many))})`);
+    await send('Page.navigate', { url: URL_BASE + '/' }); await wait('Page.loadEventFired'); await sleep(1400);
+    await ev(`[...document.querySelectorAll('button[title="검색"]')].pop().click()`); await sleep(400);
+    await ev(`(() => { const inp = document.activeElement;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(inp, '수련회');
+      inp.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await sleep(600);
+  };
+  const lastRow = `(() => {
+    const inp = document.activeElement;
+    const list = inp?.tagName === 'INPUT' && [...inp.closest('.fixed').querySelectorAll('div')].find(d => /overflow-y-auto/.test(d.className));
+    if (!list) return { none: true };
+    list.scrollTop = 1e6;
+    const rows = [...list.querySelectorAll('button, p')];
+    const last = rows[rows.length - 1];
+    const r = last.getBoundingClientRect();
+    const vis = window.visualViewport.height;
+    const x = r.left + r.width / 2;
+    const hitMid = last.contains(document.elementFromPoint(x, r.top + r.height / 2));
+    const hitBottom = last.contains(document.elementFromPoint(x, r.bottom - 2));
+    return { text: last.textContent.trim().slice(0, 16), top: Math.round(r.top), bottom: Math.round(r.bottom), vis, hitMid, hitBottom,
+      scrolled: list.scrollTop > 0 };
+  })()`;
+  await openSearch(667, 375);
+  const land = await ev(lastRow);
+  check('가로 폰: 검색 결과 마지막 줄이 탭바에 가리지 않는다', land.scrolled && land.hitMid && land.hitBottom && land.bottom <= land.vis, JSON.stringify(land));
+  await ev(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await sleep(300);
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.slice(0, 5).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

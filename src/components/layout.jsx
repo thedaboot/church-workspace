@@ -976,8 +976,11 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
     return (
       <>
         <button className="p-2 rounded-md text-fg-muted transition active:scale-95 shrink-0" onClick={() => setMobileOpen(true)} title="검색"><Search size={19} /></button>
-        {/* 불투명 배경 — 모바일 GPU 비용 큰 blur 미사용 */}
-        {mobileOpen && (
+        {/* 불투명 배경 — 모바일 GPU 비용 큰 blur 미사용.
+            **body 포털이다**(2026-09-25) — 상단바 상자가 flex 항목에 z-20이라 쌓임 맥락을 만들어,
+            안에 둔 z-50 판이 하단 탭바(z-40)보다 아래에 깔렸다. 탭바가 어둡게 덮이지 않고 눌렸고,
+            가로 폰에서는 마지막 결과가 탭바 밑에 가렸다(tests/mobbits). */}
+        {mobileOpen && createPortal(
           <div className="fixed inset-0 z-50 bg-black/40 animate-in fade-in duration-150" onClick={closeMobile}>
             <div className="absolute inset-x-0 top-0 bg-surface border-b border-line shadow-elevated p-3 animate-in slide-in-from-top-2 duration-150" onClick={e => e.stopPropagation()}>
               <div className="flex items-center gap-2">
@@ -999,8 +1002,7 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
                 </div>
               )}
             </div>
-          </div>
-        )}
+          </div>, document.body)}
       </>
     );
   }
