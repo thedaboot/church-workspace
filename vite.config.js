@@ -201,6 +201,9 @@ export default defineConfig(({ mode }) => ({
   ],
   build: {
     rollupOptions: {
+      // 입구 둘 — 앱(index.html)과 주보 공개 보기(service-view.html · api/service-view.js가 받아 데이터를 끼운다).
+      // 공개 보기는 supabase를 import하지 않으므로 벤더 칸(@supabase 포함)을 받더라도 붙지는 않는다.
+      input: { main: resolve(process.cwd(), 'index.html'), view: resolve(process.cwd(), 'service-view.html') },
       // 이름은 `codeSplitting`이다 — 옛 이름 `advancedChunks`는 rolldown이 deprecated로
       // 표시했고(빌드 때 경고가 뜬다) **둘 다 적으면 옛 이름이 무시된다.** 걷어내는 판이
       // 오면 오류 없이 조용히 벤더 칸만 사라지고, 그러면 첫 화면이 두 배가 된다(§6-29-z-18).

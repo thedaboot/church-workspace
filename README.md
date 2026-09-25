@@ -221,6 +221,9 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 - `/s/p/<projectId>` · `/s/t/<taskId>` · `/s/c/<groupId>` — 공유 링크. 크롤러에는 OG 메타
   HTML을, 사람에게는 앱으로 리디렉션을 줍니다(`api/share.js`, `s-maxage=300`).
   점검은 [카카오 공유 디버거](https://developers.kakao.com/tool/debugger/sharing).
+- `/w/<serviceId>/<sig>` — **주보 공개 보기**(로그인 없이 · 발행본만). 서명은 서버 비밀에서 갈라 낸 HMAC이라
+  추측할 수 없고 만료가 없습니다. `api/service-view.js`가 필요한 칸만 읽어 `service-view.html`에 끼워 보내고
+  (OG: 설교 제목 · 날짜 · 표지 사진/절기 색), 틀리거나 발행 전이면 404 짧은 페이지입니다. 앱의 주보 탭 '링크로 공유'가 이 주소를 받습니다.
 - `/api/push` — POST는 앱이 알림을 만든 직후, GET은 Vercel Cron이 부릅니다(`vercel.json`의
   `crons` — 23:00 UTC = 08:00 KST 마감 임박, 그 뒤 문서 임베딩 증분 · `?job=worship`은 02:30 UTC = 11:30 KST 오늘 예배, 이어서 내일 동아리 모임 ·
   `?job=embed`는 임베딩만 손으로 부르는 길).

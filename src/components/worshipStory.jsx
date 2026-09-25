@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom';
 import { X, ExternalLink } from 'lucide-react';
 import { BTN_CONFIRM, BTN_CONFIRM_QUIET } from './buttons.js';
 import { paperDate, paperRoles } from './paper.jsx';
-import { kindLabel, PRAISE_TEAM } from '../services/worship.js';
 import { churchSeason } from '../services/churchYear.js';
-import { splitSongTitle, packPages, storyNotices, nextWeekRoles, realNameText } from '../services/serviceView.js';
+// **worship.js(supabase)를 부르지 않는다** — 공개 보기(src/serviceViewMain.jsx)가 이 부품을 로그인 없이 그린다
+import { splitSongTitle, packPages, storyNotices, nextWeekRoles, realNameText, kindLabel, PRAISE_TEAM } from '../services/serviceView.js';
 import { CoverImg, useCoverShown } from './worshipCover.jsx';
 
 // ============================================================================
@@ -108,7 +108,10 @@ function useSplit(probeRef, count, deps) {
   return pages;
 }
 
-export function ServiceStory({ service, verses = [], nameOf, realName, cover: coverPhoto = null, onClose }) {
+// 공개 보기(src/serviceViewMain.jsx · 2026-09-26)는 같은 부품을 이렇게 부른다: closable=false(닫을 곳이 없다 —
+// X·Esc 없음) · onAll = 종이 보기로 · rootClassName으로 데스크톱에서 가운데 세로 판.
+export function ServiceStory({ service, verses = [], nameOf, realName, cover: coverPhoto = null, onClose, onAll = null,
+  closable = true, rootClassName = '' }) {
   const rootRef = useRef(null);
   const wordProbe = useRef(null);
   const noticeProbe = useRef(null);
@@ -143,20 +146,22 @@ export function ServiceStory({ service, verses = [], nameOf, realName, cover: co
   useEffect(() => { try { rootRef.current?.focus({ preventScroll: true }); } catch { /* 옛 브라우저 */ } }, []);
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+      if (e.key === 'Escape') { if (closable) { e.preventDefault(); onClose(); } }
       else if (e.key === 'ArrowRight') { e.preventDefault(); go(at + 1); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); go(at - 1); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [at, go, onClose]);
+  }, [at, go, onClose, closable]);
 
   // 밀기 — 가장자리 20px에서 시작한 것은 받지 않는다. 밀었으면 뒤따르는 click(누름 넘김)을 먹는다.
   const start = useRef(null);
   const swiped = useRef(false);
   const onPointerDown = (e) => {
-    const w = rootRef.current?.clientWidth || window.innerWidth;
-    start.current = (e.clientX < EDGE || e.clientX > w - EDGE) ? null : { x: e.clientX, y: e.clientY };
+    // 판 안의 x로 잰다 — 공개 보기의 데스크톱 판은 화면 가운데에 선다
+    const r = rootRef.current?.getBoundingClientRect() || { left: 0, width: window.innerWidth };
+    const x = e.clientX - r.left;
+    start.current = (x < EDGE || x > r.width - EDGE) ? null : { x: e.clientX, y: e.clientY };
   };
   const onPointerUp = (e) => {
     const s = start.current;
@@ -307,7 +312,7 @@ export function ServiceStory({ service, verses = [], nameOf, realName, cover: co
           )}
         </div>
         <div className="flex flex-col gap-2 pt-3 shrink-0">
-          <button type="button" onClick={onClose} className={`story-close-all w-full ${BTN_CONFIRM}`}>주보 전체 보기</button>
+          <button type="button" onClick={onAll || onClose} className={`story-close-all w-full ${BTN_CONFIRM}`}>주보 전체 보기</button>
           <button type="button" onClick={() => go(0)} className={`story-restart w-full ${BTN_CONFIRM_QUIET}`}>처음부터</button>
         </div>
       </section>
@@ -318,7 +323,7 @@ export function ServiceStory({ service, verses = [], nameOf, realName, cover: co
     <div className="worship-story fixed inset-0 z-[100] bg-black/80 motion-safe:animate-in motion-safe:fade-in duration-150 transition-none"
       role="dialog" aria-modal="true" aria-label="넘기면서 보기">
       <div ref={rootRef} tabIndex={-1} data-page={page?.kind} data-index={at}
-        className="story-root absolute inset-0 overflow-hidden outline-none select-none bg-surface text-fg"
+        className={`story-root absolute inset-0 overflow-hidden outline-none select-none bg-surface text-fg ${rootClassName}`}
         style={{ containerType: 'size', touchAction: 'pan-y' }}
         onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerCancel={() => { start.current = null; }}
         onClick={onClick}>
@@ -354,10 +359,12 @@ export function ServiceStory({ service, verses = [], nameOf, realName, cover: co
             </div>
             <div className="flex items-center justify-between gap-[.6em]" style={{ color: tone ? tone.ink : 'var(--app-ink-muted)' }}>
               <span className="truncate" style={{ fontSize: 'max(10px, .7em)', fontWeight: 600, fontVariantNumeric: 'tabular-nums', opacity: tone ? 0.85 : 1 }}>{date} · {kind}</span>
-              <button type="button" onClick={onClose} aria-label="닫기"
-                className="story-x pointer-events-auto relative before:absolute before:-inset-2 grid place-items-center w-8 h-8 -my-2 -mr-1.5 rounded-full">
-                <X size={18} />
-              </button>
+              {closable && (
+                <button type="button" onClick={onClose} aria-label="닫기"
+                  className="story-x pointer-events-auto relative before:absolute before:-inset-2 grid place-items-center w-8 h-8 -my-2 -mr-1.5 rounded-full">
+                  <X size={18} />
+                </button>
+              )}
             </div>
           </div>
         </div>

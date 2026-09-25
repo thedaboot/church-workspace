@@ -3,7 +3,9 @@ import { fetchPeople, fetchGroups, fetchGroupMembers, fetchMyPerson, fetchRoles,
 import { listServiceFiles, uploadServiceFile as uploadServiceFileToDrive, ensureServiceFolder, deleteAttachment,
   insertNotifications, getMyProfile, setFileExcerpt } from './cloud.js';
 import { downscaleImage, FILE_MAX_DIM, BODY_MAX_DIM } from './image.js';
-import { COVER_KIND, coverMap } from './serviceView.js';
+import { COVER_KIND, coverMap, SUNDAY_KIND, kindLabel, PRAISE_TEAM } from './serviceView.js';
+// 종류 이름·찬양팀 이름은 순수 모듈(serviceView.js)이 정본이다 — 공개 보기(서버·공개 페이지)도 같은 글자를 쓴다
+export { SUNDAY_KIND, kindLabel, PRAISE_TEAM };
 import { cleanTitle } from './titleText.js';
 import { generateId, localDate } from '../utils.js';
 
@@ -151,8 +153,6 @@ export function prefillRoles(services, { onDate, kind = SUNDAY_KIND, people = []
   return PREFILL_ROLES.map(r => byRole.get(roleKey(r))).filter(Boolean);
 }
 
-export const SUNDAY_KIND = 'sunday';
-const SUNDAY_LABEL = '주일 4부 젊은이 예배';
 const UNASSIGNED = '순 미지정';
 // 순 묶음 **위**에 서는 두 묶음(2026-09-07). 부장·교역자는 어느 순에도 편성되어 있지 않아
 // '순 미지정'으로 떨어졌는데, 그 이름은 "아직 순을 못 정한 청년"이라는 뜻이라 어긋난다.
@@ -161,20 +161,13 @@ export const PASTOR_GROUP = 'pastor';
 export const DIRECTOR_GROUP = 'director';
 const HEAD_GROUPS = new Map([[PASTOR_GROUP, '전도사님'], [DIRECTOR_GROUP, '부장님']]);
 
-// 찬양팀 이름은 **고정 상수**다(사용자 결정 2026-09-05: "찬양팀의 이름은 Re:born
-// 워십이라 고정해줘도 나쁘지 않겠다"). 팀이 하나뿐이라 주보마다 적을 값이 아니고,
-// 바뀌면 여기 한 줄만 고친다. 인도자는 격주로 바뀌므로 주보 행의 칸이다
-// (`services.praise_leader` — 0044).
-export const PRAISE_TEAM = 'Re:born 워십';
+// 찬양팀 이름(PRAISE_TEAM)은 고정 상수이고 serviceView.js에 있다(위 import · 0044).
 
 // ── 게스트 시드 (클라우드가 없을 때의 저장 자리) ────────────────────────────
 const { all: guestAll, rows: guestRows, set: guestSet } = guestStore('church_worship_v1');
 
 // ── 순수 헬퍼 (브라우저 없이도 검사된다) ────────────────────────────────────
 
-
-// 종류 이름. 'sunday'만 상수고 나머지는 만든 사람이 적은 이름 그대로다(결정 14).
-export const kindLabel = (kind) => (kind === SUNDAY_KIND ? SUNDAY_LABEL : (kind || '예배'));
 
 // 파일 이름에서 걷어야 하는 글자 — 윈도·맥·안드로이드가 공통으로 막는 아홉 자.
 // 종류 이름은 주보를 만든 사람이 적은 글이라 무엇이든 들어올 수 있다(kindLabel 주석).
@@ -958,6 +951,26 @@ export async function noticeIcsUrl(serviceId, index) {
   if (r.status === 401) throw cantErr(WHY_LOGIN, true);
   if (r.status === 404 && !out.error) throw cantErr(WHY_DEPLOY, true);
   throw cantErr(out.error || '일정을 만들지 못했어요\n잠시 후 다시 시도해주세요');
+}
+
+// 주보 공개 보기 주소(사용자 결정 2026-09-26 · api/service-view.js) — 로그인한 승인 멤버가 발행본에 대해 받는다.
+// 서명은 서버 비밀로만 만들 수 있어 서버에 묻는다(한 주보에 한 주소 — 부르는 쪽이 주보마다 한 번 쥔다).
+// 게스트는 서버가 없다 → null(버튼을 세우지 않는다). 돌려주는 것은 경로(`/w/<id>/<sig>`)다.
+export async function publicServiceUrl(serviceId) {
+  if (!supabase) return null;
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw cantErr(WHY_LOGIN, true);
+  const r = await fetch('/api/service-view', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ s: serviceId }),
+  });
+  const out = await r.json().catch(() => ({}));
+  if (r.ok && out.url) return out.url;
+  if (r.status === 401) throw cantErr(WHY_LOGIN, true);
+  if (r.status === 404 && !out.error) throw cantErr(WHY_DEPLOY, true);
+  throw cantErr(out.error || '링크를 만들지 못했어요\n잠시 후 다시 시도해주세요');
 }
 
 export async function saveMyNote(serviceId, { body = '', sharedToSun = false }) {

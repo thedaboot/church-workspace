@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -2099,7 +2099,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // titleText.js는 순수 모듈이라 그대로 옆에 둔다(2026-09-08 — 유튜브 제목 NFKC 정규화)
   writeFileSync(join(dir, 'titleText.js'), readFileSync(new URL('../src/services/titleText.js', import.meta.url), 'utf8'));
   // serviceView.js(표지 갈래 · 0081)와 그것이 부르는 noteTemplate.js도 순수 모듈이라 그대로 옆에 둔다
-  for (const f of ['serviceView.js', 'noteTemplate.js']) writeFileSync(join(dir, f), readFileSync(new URL(`../src/services/${f}`, import.meta.url), 'utf8'));
+  for (const f of ['serviceView.js', 'noteTemplate.js', 'honorific.js']) writeFileSync(join(dir, f), readFileSync(new URL(`../src/services/${f}`, import.meta.url), 'utf8'));
   const wf = join(dir, 'worship.mjs');
   writeFileSync(pf, strip(readFileSync(new URL('../src/services/people.js', import.meta.url), 'utf8')));
   writeFileSync(wf, strip(readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8')));
@@ -2948,6 +2948,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // ③ 호칭 여섯 갈래 — 교역자 · 부장 · 형제 · 자매 · 아직 비어 있음 · 명단 밖
   const strip = (t) => t.replace(/^import \{[^}]*\} from '\.\/(supabaseClient|cloud|image)\.js';\s*$/gm, '');
   const pf = join(dir, 'people.mjs');
+  // 호칭은 2026-09-26부터 순수 모듈 honorific.js에 있고 people.js가 다시 내보낸다
+  writeFileSync(join(dir, 'honorific.js'), src('../src/services/honorific.js'));
   writeFileSync(pf, strip(src('../src/services/people.js')));
   const { honorific, honorificsOf, HONORIFIC } = await import(pathToFileURL(pf).href);
   assert.deepStrictEqual(HONORIFIC,
@@ -3672,7 +3674,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const dir = mkdtempSync(join(tmpdir(), 'b2svc-'));
   writeFileSync(join(dir, 'titleText.js'), readFileSync(new URL('../src/services/titleText.js', import.meta.url), 'utf8'));
   // serviceView.js(표지 갈래 · 0081)와 그것이 부르는 noteTemplate.js도 순수 모듈이라 그대로 옆에 둔다
-  for (const f of ['serviceView.js', 'noteTemplate.js']) writeFileSync(join(dir, f), readFileSync(new URL(`../src/services/${f}`, import.meta.url), 'utf8'));
+  for (const f of ['serviceView.js', 'noteTemplate.js', 'honorific.js']) writeFileSync(join(dir, f), readFileSync(new URL(`../src/services/${f}`, import.meta.url), 'utf8'));
   const wf = join(dir, 'worship.mjs');
   writeFileSync(wf, src);
   const W = await import(pathToFileURL(wf).href);
@@ -4886,6 +4888,95 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(!/cover/i.test(wpaper), '주보 종이(PDF)는 표지를 모른다');
   assert.ok(/'songform', 'cuesheet', 'cover'/.test(m81) && /cover_focus_y real not null default 0\.5/.test(m81) && /cover_focus_y >= 0 and cover_focus_y <= 1/.test(m81),
     '0081 — files.kind에 cover · services.cover_focus_y 0~1 기본 .5');
+  // ── 주보 공개 보기 (사용자 결정 2026-09-26 · api/service-view.js · src/serviceViewMain.jsx) ──
+  // 되돌려서 깨뜨린 것(§3-5): publicService가 service를 통째로 펼치면({ ...service }) '싣지 않는 칸' 줄이,
+  // loadPublic의 status 확인을 지우면 '작성 중은 404' 줄이, worshipStory가 worship.js를 다시 import하면 'supabase를 안 문다' 줄이 깨진다.
+  {
+    const pubPeople = [{ id: 'a', name: '이하랑Alex', roster_name: '이하랑', gender: 'm' }, { id: 'b', name: '꽃님', roster_name: '강꽃님', gender: 'f' },
+      { id: 'c', name: '양민혁', roster_name: '양민혁', is_pastor: true }];
+    const pubSvc = { id: 's1', kind: 'sunday', service_date: '2026-09-20', status: 'published', title: '제목', passage_ref: '사사기 9:7-15', preacher: '임성빈 전도사님',
+      roles: [{ role: '대표기도', personId: 'a', name: '이하랑Alex' }, { role: '말씀', personId: 'c', name: '양민혁' }, { role: '헌금봉헌', name: '한상록 강사님' }, { role: '', name: '' }],
+      songs: [{ title: 'A - B', link: 'https://youtu.be/x' }, { title: 'C', link: 'javascript:alert(1)' }, { title: '' }],
+      notices: [{ title: '다음 주 예배 위원', body: '대표기도: 꽃님 자매' }, { title: '제목만', body: '' }, { title: '', body: '' }],
+      praise_leader: '꽃님', attendance_note: '출석 메모 비밀', cue_sheet: { url: 'https://docs.google.com/x' }, drive_folder_id: 'F', created_by: 'u1', cover_focus_y: 0.7 };
+    const pub = SV.publicService(pubSvc, { people: pubPeople, roles: [], cover: { drive_file_id: 'D1', id: 'f9', name: 'x.jpg' } });
+    assert.deepStrictEqual(Object.keys(pub).sort(), ['cover', 'cover_focus_y', 'id', 'kind', 'notices', 'passage_ref', 'praise_leader', 'preacher', 'roles', 'service_date', 'songs', 'title'],
+      '공개로 싣는 칸은 이것뿐 — 출석 메모·큐시트·폴더·작성자는 없다');
+    assert.ok(!JSON.stringify(pub).includes('출석 메모') && !JSON.stringify(pub).includes('personId') && !JSON.stringify(pub).includes('docs.google'), '속 칸이 새지 않는다');
+    assert.deepStrictEqual(pub.roles, [{ role: '대표기도', name: '이하랑 형제' }, { role: '말씀', name: '양민혁 전도사님' }, { role: '헌금봉헌', name: '한상록 강사님' }],
+      '이름은 서버에서 명단 본명 + 호칭으로(객원은 그대로) · 빈 줄은 뺀다');
+    assert.strictEqual(pub.praise_leader, '강꽃님 자매');
+    assert.deepStrictEqual(pub.notices, [{ title: '다음 주 예배 위원', body: '대표기도: 강꽃님 자매' }, { title: '제목만', body: '' }], '다음 주 위원 줄도 본명 · 빈 광고만 뺀다');
+    assert.deepStrictEqual(pub.songs, [{ title: 'A - B', link: 'https://youtu.be/x' }, { title: 'C', link: '' }], 'https 링크만');
+    assert.deepStrictEqual([pub.cover, pub.cover_focus_y], [{ drive_file_id: 'D1' }, 0.7]);
+    assert.strictEqual(SV.publicService(null), null);
+
+    process.env.SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY || 'logcheck-secret';
+    const SVW = await import(new URL('../api/service-view.js', import.meta.url).href);
+    const ID = '11111111-2222-4333-8444-555555555555', ID2 = '11111111-2222-4333-8444-555555555556';
+    const sig = SVW.viewSig(ID);
+    assert.ok(/^[A-Za-z0-9_-]{22}$/.test(sig) && SVW.viewSig(ID) === sig && SVW.viewSig(ID2) !== sig, '서명은 22글자 · 같은 주보는 같은 서명 · 주보마다 다르다');
+    assert.strictEqual(SVW.viewPath(ID), `/w/${ID}/${sig}`);
+    assert.ok(SVW.sigOk(ID, sig) && !SVW.sigOk(ID2, sig) && !SVW.sigOk(ID, sig.slice(0, 21) + (sig[21] === 'A' ? 'B' : 'A')) && !SVW.sigOk('not-uuid', sig), '서명이 틀리면 거절');
+    // 가짜 조회 — select는 칸을 거르지 않는다(서버가 받은 행을 그대로 넘기면 속 칸이 샌다는 것까지 본다)
+    const fakeDb = (tables) => ({ from(t) {
+      let rows = [...(tables[t] || [])];
+      const q = { select: () => q, eq: (k, v) => { rows = rows.filter(r => r[k] === v); return q; }, in: (k, vs) => { rows = rows.filter(r => vs.includes(r[k])); return q; },
+        order: (k, o = {}) => { rows.sort((a, b) => (o.ascending === false ? -1 : 1) * String(a[k]).localeCompare(String(b[k]))); return q; }, limit: (n) => { rows = rows.slice(0, n); return q; },
+        maybeSingle: async () => ({ data: rows[0] || null, error: null }), then: (res, rej) => Promise.resolve({ data: rows, error: null }).then(res, rej) };
+      return q; } });
+    const tables = {
+      services: [{ ...pubSvc, id: ID }, { ...pubSvc, id: ID2, status: 'draft' }],
+      files: [{ service_id: ID, kind: 'cover', drive_file_id: 'OLD', created_at: '2026-09-01' }, { service_id: ID, kind: 'cover', drive_file_id: 'NEW', created_at: '2026-09-02' },
+        { service_id: ID, kind: 'songform', drive_file_id: 'SF', created_at: '2026-09-03' }],
+      people: [{ id: 'a', name: '이하랑', profile_id: 'u9', gender: 'm' }, { id: 'b', name: '강꽃님', profile_id: 'u8', gender: 'f' }, { id: 'c', name: '양민혁', is_pastor: true }],
+      people_roles: [], profiles: [{ id: 'u9', display_name: '이하랑Alex' }, { id: 'u8', display_name: '꽃님' }],
+    };
+    const shell = '<html><head><title>더다붓 주보</title><!--service-view:head--></head><body></body></html>';
+    const ok = await SVW.servePublic({ supabase: fakeDb(tables), id: ID, sig, origin: 'https://x.app', shell });
+    const dataJson = /<script type="application\/json" id="service-data">([\s\S]*?)<\/script>/.exec(ok.html)?.[1] || '';
+    const data = JSON.parse(dataJson || 'null');
+    assert.strictEqual(ok.status, 200);
+    assert.ok(data && data.roles[0].name === '이하랑 형제' && data.praise_leader === '강꽃님 자매' && data.cover.drive_file_id === 'NEW', '표시 이름으로 저장된 이름도 본명 + 호칭 · 표지는 가장 최근 한 장');
+    assert.ok(!ok.html.includes('출석 메모 비밀') && !ok.html.includes('docs.google.com/x') && !/"status"/.test(dataJson), '페이지에 속 칸이 없다');
+    assert.ok(ok.html.includes('<meta property="og:title" content="제목"/>') && ok.html.includes('og:description" content="2026년 9월 20일 · 주일 4부 젊은이 예배"')
+      && ok.html.includes('og:image" content="https://lh3.googleusercontent.com/d/NEW=w1200"') && (ok.html.match(/<title>/g) || []).length === 1, 'OG — 설교 제목 · 날짜 · 표지 사진');
+    const noCover = await SVW.servePublic({ supabase: fakeDb({ ...tables, files: [] }), id: ID, sig, origin: 'https://x.app', shell });
+    assert.ok(noCover.html.includes('og:image" content="https://x.app/og/season-plain.png"'), '표지가 없으면 절기 색 그림(연중은 기본 톤)');
+    assert.ok(existsSync(new URL('../public/og/season-plain.png', import.meta.url)) && existsSync(new URL('../public/og/season-purple.png', import.meta.url)), '절기 그림 파일');
+    const xss = await SVW.servePublic({ supabase: fakeDb({ ...tables, services: [{ ...pubSvc, id: ID, title: '</script><script>alert(1)</script>' }] }), id: ID, sig, origin: 'https://x.app', shell });
+    assert.ok(!xss.html.includes('</script><script>alert(1)') && xss.html.includes('\\u003c/script>'), '데이터 블록이 </script>로 끊기지 않는다');
+    for (const [why, args] of [['서명이 틀림', { id: ID, sig: 'x'.repeat(22) }], ['작성 중', { id: ID2, sig: SVW.viewSig(ID2) }], ['없는 주보', { id: '11111111-2222-4333-8444-000000000000', sig: SVW.viewSig('11111111-2222-4333-8444-000000000000') }]]) {
+      const r = await SVW.servePublic({ supabase: fakeDb(tables), ...args, origin: 'https://x.app', shell });
+      assert.ok(r.status === 404 && r.html.includes(SV.PUBLIC_MISSING) && !r.html.includes('service-data'), `${why}이면 404 모양의 짧은 페이지`);
+    }
+    const svwSrc = readFileSync(new URL('../api/service-view.js', import.meta.url), 'utf8');
+    assert.ok(/requireApprovedUser\(req, res/.test(svwSrc) && /data\.status !== 'published'/.test(svwSrc), '주소를 받는 POST는 승인 멤버 · 발행본만');
+    assert.ok(!/attendance|service_notes|qt_entries|bible_state/.test(svwSrc.replace(/\/\/.*$/gm, '')), '서버는 출석·노트·개인 표를 읽지 않는다');
+    // 공개 페이지는 supabase에 붙지 않는다 — 입구에서 상대 import를 따라가며 supabaseClient에 닿는지 본다
+    const seen = new Set();
+    const walk = (url) => {
+      const key = url.href; if (seen.has(key)) return; seen.add(key);
+      const text = readFileSync(url, 'utf8');
+      for (const m of text.matchAll(/^\s*(?:import|export)\s(?:[^'"]*?from\s+)?'(\.[^']+)'/gm)) {
+        if (/\.(css|webp|png|svg)$/.test(m[1])) continue;
+        walk(new URL(m[1], url));
+      }
+    };
+    walk(new URL('../src/serviceViewMain.jsx', import.meta.url));
+    const reached = [...seen].map(h => h.split('/src/')[1] || h);
+    assert.ok(reached.includes('components/worshipStory.jsx') && reached.includes('components/paper.jsx'), '공개 보기는 스토리·종이 부품 그대로');
+    assert.ok(!reached.some(r => /services\/(supabaseClient|worship|people|groups|cloud)\.js$/.test(r)), `공개 보기는 supabase를 안 문다 — ${reached.filter(r => /services\/(supabaseClient|worship|people|groups|cloud)/.test(r)).join(', ')}`);
+    // 배선 — 주소 · 입구 · 앱 안 버튼
+    const vj = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
+    assert.ok(vj.rewrites.some(r => r.source === '/w/:id/:sig' && r.destination === '/api/service-view?id=:id&sig=:sig'), 'vercel.json /w/ 주소');
+    assert.ok(/view: resolve\(process\.cwd\(\), 'service-view\.html'\)/.test(readFileSync(new URL('../vite.config.js', import.meta.url), 'utf8')), '빌드 입구에 service-view.html');
+    const themeOf = (f) => /<script>\s*\/\/ 첫 페인트 전에 테마 결정[\s\S]*?<\/script>/.exec(readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\r\n/g, '\n'))?.[0];   // 작업 사본은 CRLF일 수 있다(배포는 LF)
+    assert.ok(themeOf('../service-view.html') && themeOf('../service-view.html') === themeOf('../index.html'), '공개 페이지 테마 스크립트가 앱과 같다(CSP 해시 한 벌)');
+    assert.ok(readFileSync(new URL('../service-view.html', import.meta.url), 'utf8').includes('<!--service-view:head-->'), '껍데기에 끼울 자리');
+    const wdSrc = readFileSync(new URL('../src/components/worshipDetail.jsx', import.meta.url), 'utf8');
+    assert.ok(/worship-paper-link[\s\S]{0,200}링크로 공유/.test(wdSrc) && /onShareLink\(service\.id\)/.test(wdSrc), "주보 탭 도구 줄에 '링크로 공유'(주소는 탭이 열릴 때 미리 받는다)");
+  }
   // 장 나누기 — 넘치면 다음 장 · 혼자 넘는 것은 혼자 · 못 쟀으면 한 장
   assert.deepStrictEqual(SV.packPages([100, 100, 100], 250, 10), [[0, 2], [2, 3]]);
   assert.deepStrictEqual(SV.packPages([100, 400, 50], 250, 10), [[0, 1], [1, 2], [2, 3]]);

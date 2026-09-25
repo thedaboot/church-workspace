@@ -911,3 +911,22 @@ reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가
 **32-zi.** **주보 파일이 드라이브로 가는 자리는 `worshipView.sendServiceFile` 하나다** — 표지를 붙이면서 `uploadServiceFile(` 호출이 둘이 되자 `tests/drivesync`의
     '업로드 길은 하나'(§6-29-u)가 깨졌다. 폴더 확보도 `serviceFolder` 한 벌이고 송폼·큐시트·표지가 **폴더를 먼저** 받아 넘긴다. 표지는 **새 행을 넣은 뒤에** 옛 행을 지운다
     (올리다 실패하면 옛 표지가 남게) — 그래서 유일 인덱스를 두지 않았고 읽는 쪽(`coverMap`)은 가장 최근 한 장을 쓴다.
+
+### 주보 공개 보기 (2026-09-26)
+
+**32-zj.** **공개 페이지는 supabase를 부르는 모듈을 한 줄도 import하지 않는다** — `worship.js`·`people.js`·`groupsParts.jsx`(→ `groups.js`)를
+    물면 `supabaseClient.js`가 모듈을 읽는 순간 클라이언트를 만들고, 같은 출처에 앱 세션이 남아 있으면 토큰 갱신까지 나간다. 그래서 종류 이름·찬양팀은
+    `serviceView.js`로, 호칭은 `honorific.js`로 옮기고(원래 자리는 다시 내보낸다) 표지 도구 줄(`CoverTools`)은 `worshipDetail.jsx`로 옮겼다.
+    `tests/logcheck`가 `src/serviceViewMain.jsx`에서 상대 import를 **따라가며**(맨 `import '…'`까지) 닿는지 본다. 벤더 칸에 @supabase가 들어 있어도 부르지 않으면 붙지 않는다.
+
+**32-zk.** **서버에서 이름을 다 풀어 보낸다** — 공개 페이지에 명단(`people`)을 넘기면 화면에 안 서는 사람의 이름·성별·직분까지 로그인 없이 읽힌다.
+    `publicService`가 역할·찬양 인도·'다음 주 예배 위원' 줄을 본명 + 호칭으로 바꿔 글자만 싣고 personId도 뺀다. 공개 보기는 `nameOf`가 글자 그대로다.
+
+**32-zl.** **공유 주소는 누르기 전에 받아 둔다** — 서명은 서버 비밀로만 만들 수 있어 서버에 물어야 하는데, 누른 뒤 `await fetch` 다음에
+    `navigator.share`를 부르면 폰 브라우저가 사용자 동작이 끝났다고 보고 거절한다(PDF를 미리 굽는 것과 같은 이유 · §32-g). 주보 탭이 열릴 때 받아 두고
+    (`worshipView.getShareLink` — 주보마다 한 번), 실패했을 때만 누른 순간 다시 묻는다.
+
+**32-zm.** **공개 보기 검사는 CDP Fetch로 서버 응답을 흉내 낸다** — 게스트 서버에는 `/api`가 없다. `tests/worship`이 진짜 `servePublic`을 가짜 조회로 불러
+    HTML을 만들고 `/w/…` 요청을 가로채 돌려준다. `Page.navigate`는 응답이 올 때까지 끝나지 않으므로 **기다리지 말고** 먼저 `Fetch.requestPaused`를 받는다.
+    가로챈 페이지에서는 vite HMR 소켓이 안 붙어 콘솔에 `[vite]` 줄이 남는다(dev 소음 — 그 묶음에서만 거른다).
+    테마 스크립트 대조는 CRLF를 LF로 바꿔 잰다 — 윈도 작업 사본의 index.html은 CRLF다.

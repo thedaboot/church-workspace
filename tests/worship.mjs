@@ -3813,6 +3813,95 @@ cover: {
   await ev(`localStorage.removeItem('church_worship_v1')`);
 }
 
+// ── 14) 주보 공개 보기 (사용자 결정 2026-09-26 · api/service-view.js · src/serviceViewMain.jsx) ──────────
+// 게스트 서버에는 /api가 없다 — 이 검사 프로세스가 **진짜 서버 함수**(servePublic)를 가짜 조회로 불러 HTML을 만들고,
+// 크롬이 `/w/<id>/<sig>`를 요청하면 CDP Fetch로 그 HTML을 돌려준다. 껍데기는 게스트 서버의 service-view.html,
+// 스크립트(src/serviceViewMain.jsx)는 게스트 서버가 그대로 변환해 준다 — 배포와 같은 길이다.
+// 되돌려서 깨뜨린 것(§3-5): ServiceStory의 closable 확인을 지우면 'X 없음'이, serviceViewMain의 onAll을 빼면
+// '주보 전체 보기 → 종이'가, rootClassName을 빼면 '데스크톱 가운데 판'이 깨진다.
+publicView: {
+  const logsBefore = logs.length;
+  process.env.SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY || 'worship-suite-secret';
+  const SVW = await import(new URL('../api/service-view.js', import.meta.url).href);
+  const ID = '11111111-2222-4333-8444-555555555555', DRAFT = '11111111-2222-4333-8444-555555555556';
+  const sig = SVW.viewSig(ID);
+  const fakeDb = (tables) => ({ from(t) {
+    let rows = [...(tables[t] || [])];
+    const q = { select: () => q, eq: (k, v) => { rows = rows.filter(r => r[k] === v); return q; }, in: (k, vs) => { rows = rows.filter(r => vs.includes(r[k])); return q; },
+      order: () => q, limit: (n) => { rows = rows.slice(0, n); return q; },
+      maybeSingle: async () => ({ data: rows[0] || null, error: null }), then: (res, rej) => Promise.resolve({ data: rows, error: null }).then(res, rej) };
+    return q; } });
+  const svc = { id: ID, kind: 'sunday', service_date: PAST1, status: 'published', title: '흔들리지 않는 기쁨', passage_ref: '이사야 32:9-10', preacher: '임성빈 전도사님',
+    roles: [{ role: '대표기도', personId: 'p9', name: '하랑Alex' }], songs: [{ title: '마커스워십 - 오 베들레헴' }], praise_leader: '하랑Alex',
+    notices: [{ title: '겨울 수련회 신청', body: '1월 20일까지' }, { title: '제목만 광고', body: '' }, { title: '다음 주 예배 위원', body: '대표기도: 하랑Alex 형제' }],
+    attendance_note: '출석 메모 비밀', cover_focus_y: 0.5 };
+  const db = fakeDb({ services: [svc, { ...svc, id: DRAFT, status: 'draft' }], files: [],
+    people: [{ id: 'p9', name: '이하랑', profile_id: 'u9', gender: 'm' }], people_roles: [], profiles: [{ id: 'u9', display_name: '하랑Alex' }] });
+  const shellText = await (await fetch(`${URL_BASE}/service-view.html`)).text();
+  const answer = async (url) => {
+    const m = /\/w\/([^/]+)\/([^/?#]+)/.exec(url);
+    return SVW.servePublic({ supabase: db, id: m?.[1], sig: m?.[2], origin: URL_BASE, shell: shellText });
+  };
+  await send('Fetch.enable', { patterns: [{ urlPattern: '*/w/*', requestStage: 'Request' }] });
+  const openPublic = async (path, w, h) => {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: w < 768 });
+    const nav = send('Page.navigate', { url: `${URL_BASE}${path}` });
+    const paused = await wait('Fetch.requestPaused');
+    const out = await answer(paused.params.request.url);
+    await send('Fetch.fulfillRequest', { requestId: paused.params.requestId, responseCode: out.status,
+      responseHeaders: [{ name: 'Content-Type', value: 'text/html; charset=utf-8' }], body: Buffer.from(out.html, 'utf8').toString('base64') });
+    await nav; await wait('Page.loadEventFired'); await sleep(500);
+    return out;
+  };
+  const out = await openPublic(`/w/${ID}/${sig}`, 390, 844);
+  const opened = await waitFor(`!!document.querySelector('.story-root')`, 8000);
+  if (!opened) { check('공개 보기 — 넘기면서 보기가 선다', false, await ev(`document.body.innerText.slice(0, 120)`)); await send('Fetch.disable'); break publicView; }
+  const cover = await ev(`(() => { const r = document.querySelector('.story-root'); const on = r.querySelector('.story-card[aria-hidden="false"]');
+    return { page: r.dataset.page, n: r.querySelectorAll('.story-segs i').length, x: !!document.querySelector('.story-x'), text: on.innerText.replace(/\\s+/g, ' '),
+      title: document.title, og: document.querySelector('meta[property="og:title"]')?.content, data: document.getElementById('service-data')?.textContent || '' }; })()`);
+  check('공개 보기 — 로그인 없이 넘기면서 보기 표지(설교 제목) · 닫기 없음 · 제목·OG는 설교 제목 · 속 칸 없음',
+    out.status === 200 && cover.page === 'cover' && cover.text.includes('흔들리지 않는 기쁨') && !cover.x && cover.title === '흔들리지 않는 기쁨'
+    && cover.og === '흔들리지 않는 기쁨' && !cover.data.includes('출석 메모') && !/"status"/.test(cover.data), JSON.stringify({ ...cover, data: cover.data.length }));
+  await ev(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`); await sleep(200);
+  const stay = await ev(`!!document.querySelector('.story-root')`);
+  const T = `(() => { const r = document.querySelector('.story-root'); const on = r.querySelector('.story-card[aria-hidden="false"]'); return { page: r.dataset.page, text: on.innerText.replace(/\\s+/g, ' ') }; })()`;
+  const seen = {};
+  for (let k = 0; k < 10; k += 1) {
+    const s = await ev(T); seen[s.page] = (seen[s.page] ? seen[s.page] + ' | ' : '') + s.text;
+    if (s.page === 'end') break;
+    await ev(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))`); await sleep(200);
+  }
+  check('공개 보기 — Esc로 닫히지 않고 · 여섯 장(말씀·찬양·광고 전부·마지막 장) · 이름은 명단 본명 + 호칭',
+    stay && (seen.word || '').includes('9') && (seen.songs || '').includes('오 베들레헴') && (seen.songs || '').includes('이하랑 형제')
+    && (seen.notices || '').includes('제목만 광고') && (seen.notices || '').includes('겨울 수련회 신청') && !(seen.notices || '').includes('다음 주 예배 위원')
+    && (seen.end || '').includes('다음 주 예배 위원') && ((seen.end || '').match(/이하랑 형제/g) || []).length === 2 && !(seen.end || '').includes('하랑Alex'), JSON.stringify(seen).slice(0, 400));
+  await ev(`document.querySelector('.story-card[aria-hidden="false"] .story-close-all').click()`); await sleep(500);
+  const paper = await ev(`(() => ({ story: !!document.querySelector('.story-root'), one: !!document.querySelector('.paper-service-1'), two: document.querySelector('.paper-service-2')?.innerText.replace(/\\s+/g, ' ') || '',
+    back: !!document.querySelector('.service-view-story'), links: [...document.querySelectorAll('a')].map(a => a.getAttribute('href')) }))()`);
+  check("마지막 장 '주보 전체 보기' → 종이 두 쪽(이름은 본명) · 앱으로 가는 링크 없음",
+    !paper.story && paper.one && paper.two.includes('이하랑 형제') && paper.back && paper.links.every(h => /^https:\/\/(www\.)?youtu/.test(h || '')), JSON.stringify({ ...paper, two: paper.two.slice(0, 80) }));
+  await ev(`document.querySelector('.service-view-story').click()`); await sleep(400);
+  const backStory = await ev(`document.querySelector('.story-root')?.dataset.page`);
+  check("종이의 '넘기면서 보기'는 스토리로 돌아온다", backStory === 'cover', String(backStory));
+  // 데스크톱 — 가운데 세로 판
+  await openPublic(`/w/${ID}/${sig}`, 1440, 900);
+  await waitFor(`!!document.querySelector('.story-root')`, 8000); await sleep(300);
+  const desk = await ev(`(() => { const r = document.querySelector('.story-root').getBoundingClientRect(); return { w: Math.round(r.width), cx: Math.round((r.left + r.right) / 2 - innerWidth / 2), h: Math.round(r.height) }; })()`);
+  check('데스크톱은 가운데 세로 판(30rem · 화면 높이)', desk.w === 480 && Math.abs(desk.cx) <= 1 && desk.h === 900, JSON.stringify(desk));
+  // 서명이 틀리거나 발행 전이면 404 모양의 짧은 페이지
+  const bad = await openPublic(`/w/${ID}/${'A'.repeat(22)}`, 390, 844);
+  const badText = await ev(`document.body.innerText.trim()`);
+  const draft = await openPublic(`/w/${DRAFT}/${SVW.viewSig(DRAFT)}`, 390, 844);
+  const draftText = await ev(`document.body.innerText.trim()`);
+  check('서명이 틀리거나 발행 전이면 404 짧은 페이지(주보 없음)', bad.status === 404 && draft.status === 404
+    && badText === '잘못된 주소이거나 발행 전인 주보예요' && draftText === badText && !bad.html.includes('service-data'), JSON.stringify({ badText, draftText }));
+  await send('Fetch.disable');
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  // 가로챈 페이지에서는 dev 서버의 HMR 소켓이 붙지 않아 vite 클라이언트가 콘솔에 남긴다 — 배포에는 없는 dev 소음이다
+  const mine = logs.splice(logsBefore).filter(l => !/\[vite\]|Vite server/.test(l));
+  logs.push(...mine);
+}
+
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 3).join(' / '));
 
 console.log(results.join('\n'));

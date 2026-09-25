@@ -4,6 +4,10 @@
     {
       "source": "/s/:type/:id",
       "destination": "/api/share?type=:type&id=:id"
+    },
+    {
+      "source": "/w/:id/:sig",
+      "destination": "/api/service-view?id=:id&sig=:sig"
     }
   ],
   "crons": [

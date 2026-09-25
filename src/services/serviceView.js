@@ -1,11 +1,24 @@
 import { isTemplateOnly } from './noteTemplate.js';
+import { honorificsOf } from './honorific.js';
 
 // ============================================================================
 // 주보를 **보여 주는 쪽**의 순수 규칙 — 본명 · 찬양 줄 · 스토리 장 나누기 · 내 노트 목록
 // ----------------------------------------------------------------------------
 // 저장 모양은 하나도 바꾸지 않는다. 여기 있는 것은 전부 "이미 있는 값을 어떻게 세우나"다.
-// import는 순수 모듈(noteTemplate.js) 하나뿐이라 노드(tests/logcheck)에서 그대로 부른다.
+// import는 순수 모듈(noteTemplate.js · honorific.js)뿐이라 노드(tests/logcheck)와 서버(api/service-view.js)가
+// 그대로 부르고, 공개 페이지(src/serviceViewMain.jsx)도 supabase 없이 쓴다.
 // ============================================================================
+
+// ── 종류 이름 · 찬양팀 (worship.js에서 옮겨 왔다 · 다시 내보낸다) ──────────
+// 종류 이름. 'sunday'만 상수고 나머지는 만든 사람이 적은 이름 그대로다(docs/V2.md 결정 14).
+export const SUNDAY_KIND = 'sunday';
+export const SUNDAY_LABEL = '주일 4부 젊은이 예배';
+export const kindLabel = (kind) => (kind === SUNDAY_KIND ? SUNDAY_LABEL : (kind || '예배'));
+// 찬양팀 이름은 **고정 상수**다(사용자 결정 2026-09-05: "찬양팀의 이름은 Re:born
+// 워십이라 고정해줘도 나쁘지 않겠다"). 팀이 하나뿐이라 주보마다 적을 값이 아니고,
+// 바뀌면 여기 한 줄만 고친다. 인도자는 격주로 바뀌므로 주보 행의 칸이다
+// (`services.praise_leader` — 0044).
+export const PRAISE_TEAM = 'Re:born 워십';
 
 // ── 명단 본명 (사용자 결정 2026-09-25) ─────────────────────────────────────
 // 주보(종이·상세의 섬기는 이·찬양 인도·다음 주 위원)와 스토리에서는 **계정 표시 이름 대신
@@ -180,4 +193,44 @@ export function coverFrame(stageW, stageH, y, ratio = COVER_RATIO) {
 export function dragFocus(startY, dy, stageW, stageH, ratio = COVER_RATIO) {
   const range = stageH - Math.min(stageH, stageW * ratio);
   return range > 0 ? clampFocus(startY + dy / range) : clampFocus(startY);
+}
+
+// ── 주보 공개 보기 (사용자 결정 2026-09-26 · api/service-view.js · src/serviceViewMain.jsx) ──────────
+// 로그인 없이 열리는 주소라 **서버가 필요한 칸만 골라** 넘긴다 — 이 함수가 그 목록의 정본이다.
+// 싣는 것: 넘기면서 보기·종이가 그리는 것뿐(종류·날짜·제목·본문 구절·설교자·찬양·광고·섬기는 이·
+// 찬양 인도·표지). **싣지 않는 것**: 출석·출석 메모·노트·큐시트·드라이브 폴더·작성자·personId 같은
+// 속 칸(개인 표는 애초에 읽지 않는다). 이름은 앱 화면과 같은 규칙(명단 본명 + 호칭 · PDF와 같다 —
+// 사용자 결정)으로 **서버에서 다 풀어** 보낸다 — 공개 페이지에 명단을 통째로 주지 않는다.
+// people은 fetchPeople의 모양(계정이 이어진 사람은 name = 표시 이름 · roster_name = 명단 이름)이다.
+// 서명이 틀렸거나 발행 전 — 서버 404 페이지와 공개 페이지가 같은 한 줄을 쓴다('없어요'로 끝내지 않는다 · HANDOFF §8)
+export const PUBLIC_MISSING = '잘못된 주소이거나 발행 전인 주보예요';
+export function publicService(service, { people = [], roles = [], cover = null } = {}) {
+  if (!service) return null;
+  const real = realNameOf(people);
+  const honor = honorificsOf(people, roles);
+  const nameOf = (name, personId = null) => {
+    const r = real(name, personId);
+    return honor(r.found ? r.name : name, personId);
+  };
+  const str = (v) => String(v ?? '');
+  return {
+    id: str(service.id),
+    kind: str(service.kind || SUNDAY_KIND),
+    service_date: str(service.service_date).slice(0, 10),
+    title: str(service.title),
+    passage_ref: str(service.passage_ref),
+    preacher: str(service.preacher),
+    praise_leader: service.praise_leader ? nameOf(service.praise_leader) : '',
+    roles: (Array.isArray(service.roles) ? service.roles : [])
+      .filter(r => r && (str(r.role).trim() || str(r.name).trim()))
+      .map(r => ({ role: str(r.role), name: str(r.name).trim() ? nameOf(r.name, r.personId || r.person_id || null) : '' })),
+    songs: (Array.isArray(service.songs) ? service.songs : [])
+      .filter(s => s && str(s.title).trim())
+      .map(s => ({ title: str(s.title), link: /^https:\/\//.test(str(s.link)) ? str(s.link) : '' })),
+    notices: (Array.isArray(service.notices) ? service.notices : [])
+      .filter(n => n && (str(n.title).trim() || str(n.body).trim()))
+      .map(n => ({ title: str(n.title), body: isNextWeekNotice(n) ? realNamesInRoleLines(n.body, real) : str(n.body) })),
+    cover_focus_y: clampFocus(service.cover_focus_y ?? 0.5),
+    cover: cover?.drive_file_id ? { drive_file_id: str(cover.drive_file_id) } : null,
+  };
 }

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- 주보 공개 보기(사용자 결정 2026-09-26) — 로그인 없이 여는 페이지. 서버(api/service-view.js)가 이 껍데기를
+         받아 제목·OG 메타와 주보 데이터(<script type="application/json" id="service-data">)를 끼워 넣어 보낸다.
+         이 주소(/service-view.html)를 그냥 열면 데이터가 없어 '주보를 찾을 수 없어요'가 선다.
+         앱(index.html)과 다른 입구라 supabase를 싣지 않는다(src/serviceViewMain.jsx). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <title>더다붓 주보</title>
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f5f4" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#191919" />
+    <!--service-view:head-->
+    <script>
+      // 첫 페인트 전에 테마 결정: 저장된 선택 > 시스템 설정
+      (function () {
+        var t = localStorage.getItem('theme');
+        if (t !== 'light' && t !== 'dark') {
+          t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/serviceViewMain.jsx"></script>
+  </body>
+</html>

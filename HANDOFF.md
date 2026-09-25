@@ -245,6 +245,10 @@ api/push.js                   POST=앱 알림을 푸시로 / GET=마감 임박·
 api/drive.js                  Apps Script 프록시 — 업로드·폴더·휴지통(55초에 끊는다 · §6-29-f·29-g)
 api/drive-file.js             드라이브 파일 바이트 중계(앱 안 뷰어용 · §6-29-c·29-z-3)
 api/share.js                  공유 링크 OG 메타 — 조회 `error`를 반드시 읽는다(§6-31-d·31-e)
+api/service-view.js           주보 공개 보기 `/w/<id>/<sig>` — 서명(HMAC · SUPABASE_SECRET_KEY에서 가름) · 필요한 칸만 · OG · 404 짧은 페이지(§32-zj~zm)
+service-view.html             공개 보기 껍데기(두 번째 빌드 입구 · 테마 스크립트는 index.html과 한 글자도 다르지 않게 — CSP 해시)
+src/serviceViewMain.jsx       공개 보기 화면 — worshipStory·paper 그대로 · **supabase를 부르는 모듈을 import하지 않는다**(logcheck가 따라간다)
+src/services/honorific.js     호칭 순수 모듈(people.js가 다시 내보낸다) — 서버·공개 보기도 같은 규칙
 api/yt.js                     유튜브 재생목록·제목 중계(ai.js와 같은 Bearer 인증)
 vite.config.js                dev 전용 `/api/<name>` 미들웨어(게스트 모드 제외 · §6-29-z-4) + pdf.js 보조 자료를 `/pdfjs/`로(§6-29-z-9)
                               + 첫 화면 벤더 칸 `EAGER_VENDORS` — 통째로 묶으면 첫 화면이 2배(§6-29-z-18)
@@ -254,6 +258,7 @@ public/chars/                 (v2) 캐릭터 5컷(webp · @2x 포함 10장) — 
                               원본(177~225px) 이상으로 키우지 않는다. 새 컷은 원본 시트(레포 밖 `Desktop/church_workspace_design/chars.png`)에서 다시 자른다
 public/ 그 밖                 아이콘·매니페스트·OG·스크린샷
 scripts/subset_suit.py subset_symbols.py make_icons.py  폰트·아이콘 생성(한 번 돌리고 결과물을 커밋)
+scripts/make_og_season.py     공개 보기 카카오톡 카드의 절기 색 그림 넷(`public/og/season-*.png` · 스토리 표지 색과 같은 값)
 scripts/drive_check.mjs       드라이브 ↔ DB 어긋남 점검(`--fix`를 붙여야 고친다 · §6-29-j)
 scripts/migrate_to_drive.mjs reset_drive_migration.mjs backfill_sheet_preview.mjs  이관·되돌리기·사본 백필
 scripts/bible_check.mjs       성경 json 정합 검사(tests/bibleref와 짝)
@@ -446,6 +451,11 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
   사진은 첨부와 같은 길로 그 주보의 드라이브 폴더에 가고 `files.kind='cover'` 한 장(새로 올리면 옛 것은 휴지통) · 올리자마자 `표지 위치` 창(343:76 틀을 위아래로만 · ↑↓ · 폰 아래 창 · 데스크톱 가운데 창)이 .5로 뜬다 ·
   저장 값은 `services.cover_focus_y` 하나 · 그리기는 lh3 `=w720`(1x `=w360` · `-c` 금지) + `object-position: 50% {y}%` + 어두운 덮개 · 자리는 예배 목록 카드 · 상세 머리(폰 76 · 넓은 폭 92px) · 스토리 표지 · 공개 보기.
   **종이(PDF)·홈 카드에는 싣지 않는다.** 사진이 오면 절기 물은 빠지고 점만 흰 테두리로 남는다. 목록은 `worship.fetchCovers` 한 조회(실패해도 목록은 선다).
+- **주보 공개 보기**(사용자 결정 2026-09-26 — 로그인 없이 열리는 주소 · **사람 이름도 그대로**, PDF와 같게): `/w/<주보>/<서명>` · 발행본만 · 만료 없음(끊으려면 발행을 되돌린다).
+  화면은 넘기면서 보기와 **같은 부품**(닫기·Esc 없음 · 데스크톱은 가운데 30rem 판) + 마지막 장 `주보 전체 보기`는 **종이 두 쪽**(PDF 만들기는 없다) + 종이 위 `넘기면서 보기`.
+  싣는 칸은 `serviceView.publicService`가 정본(출석·메모·노트·큐시트·개인 표 없음 · 이름은 서버에서 본명 + 호칭으로 풀어 보낸다 — 명단을 통째로 주지 않는다).
+  앱 안 입구는 주보 탭 도구 줄 `PDF로 공유` 옆 **`링크로 공유`**(후보: 공개 주소 복사 · 링크 복사 · 링크로 공유 — `PDF로 공유`와 짝) · **전원에게**(발행본은 누구나 본다) ·
+  주소는 탭이 열릴 때 미리 받는다(기본 공유창 · 없으면 복사) · 게스트에는 없다. 카카오톡 카드 미리보기는 **실기기 확인 대상**이다.
 - **넘기면서 보기의 광고는 전부다**(사용자 요청 2026-09-26) — 제목만 있는 광고도 제목 한 줄로 선다(종이·홈 오늘의 예배 카드와 같게). 제목도 본문도 없는 줄만 빠진다(`serviceView.storyNotices`).
 - **주보의 사람 이름은 명단 본명**(사용자 결정 2026-09-25 · `serviceView.realNameOf`): 종이·상세의 섬기는 이들·찬양 인도·'다음 주 예배 위원' 광고·스토리에서 계정 표시 이름 대신 명단 이름('이하랑Alex' → '이하랑 형제').
   **보이는 자리에서만 고른다** — 저장된 `roles[].name`(그때의 표시 이름)과 편집 칸은 그대로라 위 '이름·사진은 잇지 않는다'와 부딪히지 않는다. 명단에 없는 이름은 적힌 그대로.

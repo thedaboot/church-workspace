@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck,
   ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText, X,
-  Share2, CalendarPlus, GalleryHorizontalEnd, NotebookPen, ImagePlus, MoveVertical } from 'lucide-react';
+  Share2, CalendarPlus, GalleryHorizontalEnd, NotebookPen, ImagePlus, MoveVertical, Link2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
@@ -12,7 +12,8 @@ import { PassagePicker, PassageBody } from './worshipPassage.jsx';
 import { loadPassage } from '../services/bible.js';
 import { EmptyBookMark } from './wordBible.jsx';
 import { DocEmbedModal, docEmbedKind } from './DocEmbed.jsx';
-import { objectParticle } from '../services/errorText.js';
+import { objectParticle, failText } from '../services/errorText.js';
+import { showToast } from './Toast.jsx';
 import { BTN, BTN_QUIET, WITH_ICON, FIELD, FailTail, NoteMark } from './groupsParts.jsx';
 import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM,
   filesOfKind, fileKindOf, servicePaperName, SONGFORM, CUESHEET, songKey, weeksAgoOf } from '../services/worship.js';
@@ -1137,7 +1138,12 @@ const SHEET_BOX = 'paper-box w-full max-w-[560px] mx-auto';
 //
 // **'넘기면서 보기'는 폰에서만**이다(사용자 결정 2026-09-25) — 데스크톱에는 버튼을 두지 않는다
 // (`md:hidden`). 본문이 붙기 전에는 PDF와 같이 잠긴다(말씀 장을 나눌 재료가 없다).
-function ServicePaper({ service, nameOf, real = null, rosterKey = '', cover = null }) {
+// **'링크로 공유'**(사용자 결정 2026-09-26 — 주보 공개 보기 · api/service-view.js): 로그인 없이 열리는 주소를
+// 기본 공유창으로(없으면 복사). 주소는 **이 탭이 열릴 때 미리 받아 둔다** — 누른 뒤에 서버를 기다리면 폰
+// 브라우저가 공유창을 열 자격(사용자 동작)을 잃는다(PDF를 미리 굽는 것과 같은 이유). 발행본에만 이 탭이 있고
+// 발행본은 모두가 보므로 **전원에게** 선다. 게스트(서버 없음)에는 onShareLink가 null을 돌려 버튼이 없다.
+function ServicePaper({ service, nameOf, real = null, rosterKey = '', cover = null, onShareLink = null }) {
+  const [link, setLink] = useState(null);      // null(받는 중) | 주소 | Error | ''(게스트 — 버튼 없음)
   const [verses, setVerses] = useState(null);
   const [story, setStory] = useState(false);
   const storyBtn = useRef(null);
@@ -1168,6 +1174,33 @@ function ServicePaper({ service, nameOf, real = null, rosterKey = '', cover = nu
     fileName: servicePaperName(service), what: '주보를 내보내지 못했어요',
   });
 
+  const fetchLink = useCallback(() => (onShareLink && service?.id
+    ? onShareLink(service.id).then(u => u || '')
+    : Promise.resolve('')), [onShareLink, service?.id]);
+  useEffect(() => {
+    let alive = true;
+    setLink(null);
+    fetchLink().then(u => { if (alive) setLink(u); }).catch((e) => { if (alive) setLink(e instanceof Error ? e : new Error(String(e))); });
+    return () => { alive = false; };
+  }, [fetchLink]);
+  const shareLink = async () => {
+    let url = typeof link === 'string' ? link : '';
+    if (!url) {
+      // 미리 받기가 실패했으면 지금 다시 묻는다 — 이때는 공유창 대신 복사로 끝날 수 있다
+      try { url = await fetchLink(); setLink(url); } catch (e) {
+        if (!e?.quiet) console.error('[worship] 공개 주소 실패:', e);
+        showToast(failText('링크를 만들지 못했어요', e));
+        return;
+      }
+      if (!url) return;
+    }
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try { await navigator.share({ url }); return; } catch (e) { if (e?.name === 'AbortError') return; }
+    }
+    try { await navigator.clipboard.writeText(url); showToast('링크를 복사했어요'); }
+    catch { showToast(`복사하지 못했어요\n${url}`); }
+  };
+
   // 본문 전문. 못 읽는 구절은 빈 배열이고 종이에는 구절 표기만 남는다(PassageBody와 같은 규칙).
   useEffect(() => {
     let alive = true;
@@ -1190,6 +1223,13 @@ function ServicePaper({ service, nameOf, real = null, rosterKey = '', cover = nu
           {pdf.busy ? <Loader2 size={13} className="animate-spin" /> : <Share2 size={13} />}
           <span>PDF로 공유</span>
         </button>
+        {link !== '' && (
+          <button type="button" onClick={shareLink} disabled={link === null}
+            className={`worship-paper-link ${WITH_ICON} ${BTN}`}>
+            <Link2 size={13} />
+            <span>링크로 공유</span>
+          </button>
+        )}
         <button ref={storyBtn} type="button" onClick={() => setStory(true)} disabled={verses === null}
           className={`worship-story-open md:hidden ${WITH_ICON} ${BTN}`}>
           <GalleryHorizontalEnd size={13} />
@@ -1606,7 +1646,7 @@ export function ServiceDetail({
   service, people = [], personRoles = [], perms = {}, note = null, canWriteNote = false, startEditing = false,
   files = [], recentSongs = [], prefill = [], onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
   onPullPlaylist, onLookupTitle, onShareNote, onUploadFiles, onRemoveFile, onAddToCalendar, focusNote = false,
-  cover = null, onUploadCover, onRemoveCover, onSaveCoverFocus,
+  cover = null, onUploadCover, onRemoveCover, onSaveCoverFocus, onShareLink = null,
 }) {
   const [tab, setTab] = useState('paper');
   const [draft, setDraft] = useState(null);     // null이면 보기 모드
@@ -1831,7 +1871,7 @@ export function ServiceDetail({
 
       <div className="worship-tabpanel">
         {activeTab === 'paper' && (
-          <ServicePaper service={service} nameOf={nameOf} real={real} rosterKey={rosterKey} cover={cover} />
+          <ServicePaper service={service} nameOf={nameOf} real={real} rosterKey={rosterKey} cover={cover} onShareLink={onShareLink} />
         )}
         {activeTab === 'word' && (editing
           ? <WordEdit draft={draft} set={set} cueFiles={cueFiles} canEdit={!!(editing && perms.canEdit)}

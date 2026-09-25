@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, PencilLine, NotebookPen } from 'lucide-react';
 import { Skeleton } from '../components/media.jsx';
 import { showToast } from '../components/Toast.jsx';
@@ -21,7 +21,7 @@ import {
   fetchPlaylistSongs, fetchVideoTitle, setNoteShared,
   fetchServiceFiles, ensureServiceDriveFolder, uploadServiceFile, removeServiceFile, SONGFORM,
   recentSongs as worshipRecentSongs, prefillRoles as worshipPrefillRoles,
-  fetchMyNotes, noticeIcsUrl, fetchCovers, COVER,
+  fetchMyNotes, noticeIcsUrl, fetchCovers, COVER, publicServiceUrl,
 } from '../services/worship.js';
 import { CoverImg, useCoverShown } from '../components/worshipCover.jsx';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
@@ -1033,6 +1033,18 @@ export function WorshipView({ onOpenBible } = {}) {
     }
   }, []);
 
+  // 주보 공개 보기 주소(2026-09-26 · api/service-view.js) — 주보마다 한 번만 묻고 쥔다(서명은 늘 같다).
+  // 실패는 쥐지 않는다(다음에 다시 묻는다). 게스트는 null → 버튼이 서지 않는다.
+  const shareLinks = useRef(new Map());
+  const getShareLink = useCallback((id) => {
+    if (!shareLinks.current.has(id)) {
+      shareLinks.current.set(id, publicServiceUrl(id)
+        .then(path => (path ? new URL(path, window.location.origin).href : ''))
+        .catch((e) => { shareLinks.current.delete(id); throw e; }));
+    }
+    return shareLinks.current.get(id);
+  }, []);
+
   // 첫 읽기 실패(캐시 없음) — 목록 껍데기(머리줄·거르기 칩)에 빈 자리 대신 실패가 선다(D2).
   // 자격은 못 읽었으니 계정 속성으로만 판정한다(버튼을 감추는 용도 — 실제 경계는 RLS).
   if (listFailed) {
@@ -1072,6 +1084,7 @@ export function WorshipView({ onOpenBible } = {}) {
         startEditing={editOnOpen} files={files} recentSongs={recentSongs} prefill={prefill}
         onUploadFiles={uploadFiles} onRemoveFile={removeFile}
         cover={covers[service.id] || null} onUploadCover={uploadCover} onRemoveCover={removeCover} onSaveCoverFocus={saveCoverFocus}
+        onShareLink={getShareLink}
         onBack={() => { setScreen('list'); setOpenId(null); setEditOnOpen(false); setNoteOnOpen(false); }}
         onSave={save} onPublish={publish} onDelete={drop} onSaveNote={saveNote}
         onOpenAttendance={() => { setEditOnOpen(false); setNoteOnOpen(false); setScreen('attendance'); }}
