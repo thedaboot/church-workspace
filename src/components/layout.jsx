@@ -1009,6 +1009,10 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-fg-faint" />
                   <input
                     autoFocus type="text" value={query} onChange={e => setQuery(e.target.value)}
+                    /* 키보드의 '검색'(Enter)은 **키보드를 내린다**(2026-09-25) — 전에는 아무 일도 없어
+                       키보드를 내릴 길이 없었고, 그 뒤에 결과 절반이 가려 있었다. 결과는 이미 떠 있다. */
+                    enterKeyHint="search"
+                    onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') e.currentTarget.blur(); }}
                     /* 속성은 첫 줄로 고정하고 보이는 글자는 SearchHint가 그린다 */
                     placeholder={SEARCH_HINTS[0]} aria-label={SEARCH_HINTS[0]}
                     className="pl-9 pr-3 py-2 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all placeholder:text-transparent"

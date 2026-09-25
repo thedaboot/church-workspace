@@ -237,6 +237,15 @@ check('다시 라이트로 돌아온다', (await ev(`document.documentElement.da
   const kb = await ev(lastRow);
   check('키보드가 올라와도 검색 결과 마지막 줄이 보이는 창 안에 온다', kb.scrolled && kb.bottom <= kb.vis, JSON.stringify(kb));
   await ev(`delete window.visualViewport.height; window.visualViewport.dispatchEvent(new Event('resize'))`);
+  // ③ 키보드의 '검색'(Enter)은 키보드를 내리고(칸의 포커스를 놓는다) 결과는 그대로 둔다.
+  //    되돌리기 검사: 모바일 칸의 onKeyDown을 지우면 ③이 깨진다.
+  await send('Page.bringToFront');
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  await sleep(250);
+  const ent = await ev(`(() => { const inp = [...document.querySelectorAll('input[placeholder*="검색"]')].find(i => i.getBoundingClientRect().width > 0);
+    return { focused: document.activeElement === inp, hint: inp?.enterKeyHint, rows: inp ? inp.closest('.fixed').querySelectorAll('button').length : 0 }; })()`);
+  check('모바일 검색 칸의 Enter는 키보드를 내리고 결과는 남긴다', ent.focused === false && ent.hint === 'search' && ent.rows > 8, JSON.stringify(ent));
 }
 
 console.log(results.join('\n'));
