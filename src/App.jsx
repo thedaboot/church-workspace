@@ -103,6 +103,7 @@ import { refreshTabFront } from './services/tabFront.js';
 import logoLight from './assets/logo-light.webp';
 import logoDark from './assets/logo-dark.webp';
 import { BTN_CONFIRM } from './components/buttons.js';
+import { errorReason } from './services/errorText.js';
 
 // activeMenu에는 화면 이름이나 프로젝트 id가 들어간다 — 여기 없는 값은 프로젝트로 본다.
 // 새 전역 화면을 만들면 이 목록에도 넣어야 그 이름이 프로젝트 id로 오해되지 않는다
@@ -135,7 +136,7 @@ function CloudErrorScreen({ reason, onRetry, retrying }) {
       <img src={logoLight} alt="더다붓" className="h-12 w-auto mb-6 dark:hidden" />
       <img src={logoDark} alt="더다붓" className="h-12 w-auto mb-6 hidden dark:block" />
       <h1 className="text-base font-bold text-fg tracking-[-0.25px] mb-1.5">데이터를 불러오지 못했어요</h1>
-      <p className="text-xs text-fg-muted leading-relaxed max-w-sm mb-6 break-words">{reason}</p>
+      <p className="text-xs text-fg-muted leading-relaxed max-w-sm mb-6 break-words whitespace-pre-line">{reason}</p>
       <button
         onClick={onRetry} disabled={retrying}
         className={BTN_CONFIRM}
@@ -262,7 +263,7 @@ function WorkspaceShell() {
       setCloudReady(true);
     } catch (e) {
       console.error('[cloud] 초기 로드 실패:', e);
-      setLoadError(cloudSync.formatCloudError(e));
+      setLoadError(errorReason(e)); // 원문(message · code · details)은 콘솔에만
       setCloudReady(false);
     }
   }, [reloadCloud]);

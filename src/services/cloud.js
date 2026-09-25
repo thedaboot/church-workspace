@@ -10,6 +10,7 @@ import { previewCopyOf } from './previewKind.js';
 // supabase가 딸려 가지 않는다(반대 방향은 안 된다 — viewPw.js 머리말).
 import { GOOGLE_EDITOR } from '../utils.js';
 import { makeViewPw, verifyViewPw } from './viewPw.js';
+import { errorReason } from './errorText.js';
 
 // ============================================================================
 // 6. Persistence Layer — Supabase 클라우드 영속 계층
@@ -19,7 +20,7 @@ import { makeViewPw, verifyViewPw } from './viewPw.js';
 // ============================================================================
 
 const client = () => {
-  if (!supabase) throw new Error('Supabase가 설정되지 않았습니다. VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY 를 확인하세요.');
+  if (!supabase) throw new Error('클라우드에 연결되지 않은 모드예요'); // 게스트·개발(VITE_SUPABASE_URL 미설정)에서만
   return supabase;
 };
 

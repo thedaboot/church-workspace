@@ -2390,7 +2390,7 @@ const vecFall = await ev(`(async () => {
   const books = await b.loadBibleIndex();
   const run = (q, fake) => s.aiBibleSearchOutcome(q, books, b.loadBook, fake);
   const threw = await run('벡터 대체 하나', async () => { throw new Error('x'); });
-  const guide = await run('벡터 대체 둘', async () => '오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+  const guide = await run('벡터 대체 둘', async () => 'AI 답을 받지 못했어요. 잠시 후 다시 시도해주세요.');
   const empty = await run('벡터 대체 셋', async () => '[]');
   const made = await run('벡터 대체 넷', async () => '["도마복음 1:1"]');
   const ok = await run('벡터 대체 다섯', async () => '["시편 23:1"]');

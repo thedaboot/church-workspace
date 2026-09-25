@@ -411,9 +411,10 @@ export function buildTaskContext(task, now = new Date()) {
 // 로그인한 뒤에도 계속 "로그인 후 사용할 수 있어요"가 나온다.
 const MSG = {
   needLogin: 'AI 기능은 로그인 후 사용할 수 있어요.',
-  needDeploy: 'AI 기능은 배포 환경에서 동작해요 (로컬은 `npx vercel dev` 필요).',
-  needKey: 'AI 기능이 아직 설정되지 않았어요 (관리자에게 GEMINI_API_KEY 설정을 요청하세요).',
-  failed: '오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+  needDeploy: 'AI 기능은 배포된 앱에서만 쓸 수 있어요.',
+  needKey: 'AI 기능이 아직 준비되지 않았어요. 관리자에게 알려주세요.',
+  failed: 'AI 답을 받지 못했어요. 잠시 후 다시 시도해주세요.',
+  offline: 'AI에 묻지 못했어요. 인터넷 연결을 확인하고 다시 시도해주세요.',
 };
 const FALLBACKS = new Set(Object.values(MSG));
 // **답이 영영 안 올 수 있다 — 끊는 자리를 우리가 정한다.** 브라우저 기본 타임아웃은
@@ -480,8 +481,9 @@ export const AiService = {
         console.warn(`AI 응답이 ${CALL_TIMEOUT_MS}ms 안에 오지 않아 끊었습니다.`);
         return MSG.failed;
       }
+      // 배포에서도 네트워크가 끊기면 여기로 온다 — '배포 환경이 아니다'가 아니라 연결 문제로 말한다
       console.error("AI 요청 실패:", error);
-      return MSG.needDeploy;
+      return MSG.offline;
     } finally {
       clearTimeout(timer);
     }
