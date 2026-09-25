@@ -14,6 +14,7 @@ import { syncDocVectors } from './_docsync.js';
 //           (없음)          오늘·내일 마감인데 완료가 아닌 카드의 담당자에게 due_soon
 //                           → 그 **뒤에** 업무·댓글·첨부 임베딩 증분(doc_vec · 0074 · 시간 예산 안에서만)
 //           job=worship     오늘(KST) 발행된 주보가 있으면 승인 멤버 전원에게 worship_today
+//                           → 이어서 내일(KST) 동아리 모임이 있으면 그 구성원에게 meeting_tomorrow(0078)
 //           job=embed       임베딩 증분만(손으로 부르는 길 · 크론에는 없다 — 자리가 둘뿐이다)
 //
 // 왜 pg_cron이 아니라 Vercel Cron인가: DB에서 푸시를 보내려면 pg_net으로 HTTP를
@@ -269,6 +270,118 @@ async function handleDueSoon(req, res) {
   res.status(200).json({ cards: cards.length, notified: fresh.length, sent, skipped: wanted.length - fresh.length });
 }
 
+// ── GET ?job=worship의 두 번째 갈래: 동아리 모임 전날 (0078) ─────────────────
+// 모임 날짜가 **내일(KST)**인 동아리 모임이 있으면 그 동아리 구성원에게 앱 안 알림 + 푸시 한 통.
+// 당일 알림은 없다(사용자 결정 2026-09-25).
+//
+// 왜 11:30 배치에 얹었나: 크론 자리는 둘뿐이고(08:00 마감 임박 · 11:30 예배 당일) 전날 저녁이
+// 가장 좋지만 없다. 08:00은 이르고(7시를 8시로 옮긴 이유 그대로) 그 뒤에 임베딩이 60초 예산을
+// 나눠 쓴다. 11:30은 둘 중 늦은 시각이고, 같은 결(예배·모임 · 링크 축 중복 방지)의 시스템 알림 배치다.
+//
+// 받는 사람: 그 동아리의 group_members + 동아리장(앱의 meeting_new가 쓰는 groupPeople과 같은 집합)
+// 중 명단에서 환송되지 않았고 계정이 이어진 사람 → 승인·미환송 프로필. 합친 계정은 남긴 계정으로
+// 보낸다(알림 읽기 정책이 effective_uid다). **모임을 만든 사람도 받는다** — 보내는 사람이 없는 알림이다.
+// 한 동아리에 내일 모임이 둘이면 한 통(열쇠가 동아리 링크다).
+//
+// 문구는 notifyText meeting_tomorrow(`내일 {동아리 이름} 모임이 있어요`) — 동아리 이름은 actor_name
+// 칸에 싣는다. preview는 모임 제목(없으면 비운다 — '내일'이 이미 날짜다). 링크는 앱의 동아리 알림과
+// 같은 `/?p=groups&g=<동아리>`(services/groups.js clubLink — 브라우저 모듈이라 import하지 않는다).
+export const clubLink = (groupId) => (groupId ? `/?p=groups&g=${groupId}` : '/?p=groups');
+
+// 순수 — 질의 결과를 받아 넣을 알림을 고른다(tests/push.mjs가 직접 부른다).
+//   meetings  group_meetings + groups(id, name, type, removed_at, leader_person_id, group_members(person_id))
+//   accounts  Map(person_id → 받을 profile id) — 환송·미승인·계정 없는 사람은 이미 빠져 있다
+//   recent    최근 20시간의 meeting_tomorrow 알림 [{ recipient_id, link }]
+export function meetingEveRows(meetings = [], accounts = new Map(), recent = []) {
+  const seen = new Set((recent || []).map(r => `${r.recipient_id}|${r.link}`));
+  const out = [];
+  for (const m of meetings || []) {
+    const g = m.groups;
+    if (!g || g.type !== 'club' || g.removed_at) continue;
+    const link = clubLink(g.id || m.group_id);
+    const persons = [g.leader_person_id, ...(g.group_members || []).map(x => x.person_id)];
+    for (const pid of persons) {
+      const to = pid && accounts.get(pid);
+      if (!to || seen.has(`${to}|${link}`)) continue;
+      seen.add(`${to}|${link}`);
+      out.push({
+        recipientId: to,
+        link,
+        club: String(g.name || '').trim().slice(0, 100),
+        preview: String(m.title || '').trim().slice(0, MAX_PREVIEW) || null,
+      });
+    }
+  }
+  return out;
+}
+
+async function handleMeetingEve(req, res) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) { res.status(501).json({ error: 'CRON_SECRET이 설정되지 않았습니다.' }); return; }
+  if (!safeEqual(bearer(req), secret)) { res.status(401).json({ error: '인증이 필요합니다.' }); return; }
+
+  const db = admin();
+  const tomorrow = kstDate(1);
+
+  const { data: meetings, error } = await db
+    .from('group_meetings')
+    .select('id, group_id, title, meeting_date, groups!inner(id, name, type, removed_at, leader_person_id, group_members(person_id))')
+    .eq('meeting_date', tomorrow).eq('groups.type', 'club').is('groups.removed_at', null);
+  if (error) { console.error('[push] 내일 동아리 모임 조회 실패:', error); res.status(502).json({ error: 'DB 조회 실패' }); return; }
+  if (!meetings?.length) { res.status(200).json({ meetings: 0, notified: 0, sent: 0 }); return; }
+
+  // 명단 → 계정. 계정이 없는 사람(profile_id null)은 받을 자리가 없다.
+  const personIds = [...new Set(meetings.flatMap(m => [m.groups?.leader_person_id, ...(m.groups?.group_members || []).map(x => x.person_id)]).filter(Boolean))];
+  const { data: people, error: pErr } = await db
+    .from('people').select('id, profile_id').in('id', personIds).is('removed_at', null).not('profile_id', 'is', null);
+  if (pErr) { console.error('[push] 동아리 구성원 조회 실패:', pErr); res.status(502).json({ error: 'DB 조회 실패' }); return; }
+  const { data: profs, error: prErr } = await db
+    .from('profiles').select('id, merged_into').in('id', [...new Set((people || []).map(p => p.profile_id))])
+    .eq('approved', true).is('removed_at', null);
+  if (prErr) { console.error('[push] 구성원 계정 조회 실패:', prErr); res.status(502).json({ error: 'DB 조회 실패' }); return; }
+  const keep = new Map((profs || []).map(p => [p.id, p.merged_into || p.id]));
+  const accounts = new Map();
+  for (const p of people || []) if (keep.has(p.profile_id)) accounts.set(p.id, keep.get(p.profile_id));
+
+  // 같은 날 두 번 알리지 않는다 — worship_today와 같은 방식(넣기 전에 읽어서 거른다 · 열쇠는 받는 사람+링크)
+  const since = new Date(Date.now() - 20 * 3600e3).toISOString();
+  const links = [...new Set(meetings.map(m => clubLink(m.groups?.id || m.group_id)))];
+  const { data: recent, error: recentErr } = await db
+    .from('notifications').select('recipient_id, link')
+    .eq('kind', 'meeting_tomorrow').gte('created_at', since).in('link', links);
+  if (recentErr) { console.error('[push] 최근 알림 조회 실패:', recentErr); res.status(502).json({ error: 'DB 조회 실패' }); return; }
+
+  const wanted = meetingEveRows(meetings, accounts, recent);
+  if (!wanted.length) { res.status(200).json({ meetings: meetings.length, notified: 0, sent: 0 }); return; }
+
+  const { error: insErr } = await db.from('notifications').insert(wanted.map(w => ({
+    recipient_id: w.recipientId,
+    actor_name: w.club || '더다붓',
+    kind: 'meeting_tomorrow',
+    preview: w.preview,
+    link: w.link,
+  })));
+  if (insErr) { console.error('[push] meeting_tomorrow 생성 실패:', insErr); res.status(502).json({ error: '알림 생성 실패' }); return; }
+
+  // 구독·안 읽은 수는 루프 밖에서 한 번만(N+1 없음) · 동아리 단위로 보낸다(문구가 동아리마다 다르다)
+  let sent = 0;
+  if (pushReady()) {
+    const targets = await loadTargets(db, wanted.map(w => w.recipientId));
+    const dead = [];
+    for (const link of new Set(wanted.map(w => w.link))) {
+      const group = wanted.filter(w => w.link === link);
+      sent += await pushWith(targets, group.map(w => w.recipientId), {
+        title: notifLine('meeting_tomorrow', group[0].club),
+        body: group[0].preview || '',
+        url: link,
+        tag: `link:${link}`,
+      }, dead);
+    }
+    await dropDead(db, dead);
+  }
+  res.status(200).json({ meetings: meetings.length, notified: wanted.length, sent });
+}
+
 // ── GET ?job=worship: 예배 당일 배치 (0053) ────────────────────────────────
 // 오늘(KST) 날짜의 **발행된** 주보를 찾아 승인 멤버 전원에게 알린다. 크론은 11:30 KST
 // (`30 2 * * *` UTC)에 돌아 예배(13:30) 두 시간 전이다.
@@ -413,6 +526,16 @@ async function handleDueSoonThenEmbed(req, res, started) {
   res.status(held.code).json({ ...(held.body || {}), embed });
 }
 
+// GET ?job=worship(11:30 크론) — 예배 당일 → 동아리 모임 전날. 한쪽이 DB 오류로 죽어도 다른 쪽은 돈다.
+async function handleWorshipThenMeetings(req, res) {
+  const w = heldResponse();
+  await handleWorshipToday(req, w);
+  if (w.code === 401 || w.code === 501) { res.status(w.code).json(w.body); return; }
+  const m = heldResponse();
+  await handleMeetingEve(req, m);
+  res.status(w.code !== 200 ? w.code : m.code).json({ ...(w.body || {}), meeting: m.body });
+}
+
 // GET ?job=embed — 손으로 부르는 길(같은 CRON_SECRET). 알림은 건드리지 않는다.
 async function handleEmbedJob(req, res, started) {
   const secret = process.env.CRON_SECRET;
@@ -429,7 +552,7 @@ export default async function handler(req, res) {
     if (req.method === 'POST') return await handleSend(req, res);
     // 크론이 부르는 배치. vercel.json이 `/api/push?job=worship`으로 넘긴다.
     if (req.method === 'GET') {
-      if (req.query?.job === 'worship') return await handleWorshipToday(req, res);
+      if (req.query?.job === 'worship') return await handleWorshipThenMeetings(req, res);
       if (req.query?.job === 'embed') return await handleEmbedJob(req, res, started);
       return await handleDueSoonThenEmbed(req, res, started);
     }

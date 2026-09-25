@@ -200,6 +200,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0075_card_status_ongoing` | 업무 상태 `ongoing`(상시) 허용 — 값만, 기존 행은 그대로 | ✅ |
 | `0076_approved_notification` | 알림 종류 `approved`(가입이 승인되었어요) — 체크 제약 + INSERT 정책(관리자만 넣는다) | ✅ |
 | `0077_guide_pinned_notice` | 순모임 가이드 고정 알림 — 알림 종류 `guide_pinned`(CHECK + INSERT 정책) · `sun_guides.pin_notified_at`(가이드당 한 번만 보낸다) | ✅ |
+| `0078_meeting_tomorrow_notice` | 동아리 모임 전날 알림 — 알림 종류 `meeting_tomorrow`(CHECK만 · 서버가 서비스 키로 넣어 INSERT 정책은 그대로) | ⏳ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.
@@ -217,7 +218,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
   HTML을, 사람에게는 앱으로 리디렉션을 줍니다(`api/share.js`, `s-maxage=300`).
   점검은 [카카오 공유 디버거](https://developers.kakao.com/tool/debugger/sharing).
 - `/api/push` — POST는 앱이 알림을 만든 직후, GET은 Vercel Cron이 부릅니다(`vercel.json`의
-  `crons` — 23:00 UTC = 08:00 KST 마감 임박, 그 뒤 문서 임베딩 증분 · `?job=worship`은 02:30 UTC = 11:30 KST 오늘 예배 ·
+  `crons` — 23:00 UTC = 08:00 KST 마감 임박, 그 뒤 문서 임베딩 증분 · `?job=worship`은 02:30 UTC = 11:30 KST 오늘 예배, 이어서 내일 동아리 모임 ·
   `?job=embed`는 임베딩만 손으로 부르는 길).
 
 | 변수 | 용도 | 노출 |

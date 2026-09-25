@@ -7,7 +7,7 @@
 // 두 갈래다.
 //  · 사람이 만든 알림(actor 있음): "○○님이 {문구}" — NOTIF_TEXT
 //  · 시스템 알림(actor 없음):     문구 그대로 — SYSTEM_TEXT. due_soon은 배치가 만들고,
-//    worship_today는 예배 당일 11:30 배치, club_accepted는 동아리장이 눌렀지만 받는 사람에게
+//    worship_today는 예배 당일 11:30 배치(같은 배치가 동아리 모임 전날 meeting_tomorrow도), club_accepted는 동아리장이 눌렀지만 받는 사람에게
 //    중요한 것은 "누가"가 아니라 "수락됐다"라서 시스템 갈래로 둔다(0053).
 // preview는 문구 아래 한 줄(주보 제목·동아리 이름 등) — 종 팝오버가 그대로 보여 준다.
 // ============================================================================
@@ -38,6 +38,10 @@ const SYSTEM_TEXT = {
   // 마스터가 순모임 가이드를 고정하면 그 해 순장들에게(0077 · 사용자 문구 그대로). 받는 사람에게
   // 중요한 것은 누가 고정했는지가 아니라 가이드가 왔다는 것이라 시스템 갈래다.
   guide_pinned: '이번 예배 순모임 가이드가 도착했어요!',
+  // 동아리 모임 전날 11:30 배치(0078 · api/push.js)가 그 동아리 구성원에게. 이 종류만 문구에
+  // 동아리 이름이 들어가서 함수다 — 서버가 actor_name 칸에 **동아리 이름**을 싣는다(보내는 사람이
+  // 없는 알림이라 그 칸이 비어 있다 · 서비스 키로 넣어 0071 트리거도 덮지 않는다).
+  meeting_tomorrow: (club) => (club ? `내일 ${club} 모임이 있어요` : '내일 동아리 모임이 있어요'),
 };
 
 export const isSystemNotif = (kind) => kind in SYSTEM_TEXT;
@@ -45,14 +49,16 @@ export const isSystemNotif = (kind) => kind in SYSTEM_TEXT;
 export const notifText = (kind) => NOTIF_TEXT[kind] || NOTIF_TEXT.mention;
 
 // 알림 한 줄 (토스트·푸시 제목에 그대로 쓴다)
-export const notifLine = (kind, actorName) => (
-  isSystemNotif(kind) ? SYSTEM_TEXT[kind] : `${actorName || '누군가'}님이 ${notifText(kind)}`
-);
+export const notifLine = (kind, actorName) => {
+  if (!isSystemNotif(kind)) return `${actorName || '누군가'}님이 ${notifText(kind)}`;
+  const t = SYSTEM_TEXT[kind];
+  return typeof t === 'function' ? t(String(actorName || '').trim()) : t;
+};
 
 // 어느 화면 갈래의 알림인가 — 종 팝오버가 아이콘을 고를 때 쓴다(업무 알림은 아바타).
 //   'task'(업무) · 'worship'(예배) · 'group'(모임)
 export const notifArea = (kind) => {
   if (kind === 'worship_today' || kind === 'service_published' || kind === 'note_shared') return 'worship';
-  if (kind === 'club_apply' || kind === 'club_accepted' || kind === 'meeting_new' || kind === 'approved' || kind === 'guide_pinned') return 'group';
+  if (kind === 'club_apply' || kind === 'club_accepted' || kind === 'meeting_new' || kind === 'approved' || kind === 'guide_pinned' || kind === 'meeting_tomorrow') return 'group';
   return 'task';
 };

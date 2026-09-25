@@ -772,4 +772,122 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
   }
 }
 
-console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론(마감 임박 + 예배 당일 job 갈래·중복 방지·N+1 없음 · 8시 뒤 문서 임베딩·job=embed)·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수·합친 계정의 알림·구독(0063)');
+// ── 동아리 모임 전날 알림 (0078 · 11:30 크론의 두 번째 갈래) ─────────────────────
+// 사용자 결정: 모임 **전날**, 그 동아리 구성원에게만 앱 안 알림 + 푸시 한 통 · 당일은 없음.
+// 되돌리기 검사: handleMeetingEve의 kstDate(1)을 kstDate(0)으로 바꾸면 '내일 날짜로 찾는다'가,
+// meetingEveRows에서 seen(recent) 거르기를 걷으면 '두 번 돌아도 한 번'이, 동아리장 줄을 빼면
+// '동아리장도 받는다'가, handleWorshipThenMeetings에서 모임 갈래를 빼면 E2E가 깨진다.
+{
+  // 문구 — 동아리 이름은 actor_name 칸에서 온다(종 팝오버도 그 값을 넘긴다)
+  assert.equal(notify.notifLine('meeting_tomorrow', '통통'), '내일 통통 모임이 있어요');
+  assert.equal(notify.notifLine('meeting_tomorrow', ''), '내일 동아리 모임이 있어요', '이름이 비면 문구가 깨진다');
+  assert.ok(notify.isSystemNotif('meeting_tomorrow'));
+  assert.equal(notify.notifArea('meeting_tomorrow'), 'group');
+  const layoutSrc = readFileSync(join(ROOT, 'src', 'components', 'layout.jsx'), 'utf8');
+  assert.ok(/notifLine\(n\.kind, n\.actor_name\)/.test(layoutSrc), '종 팝오버가 시스템 알림에 actor_name(동아리 이름)을 넘기지 않는다');
+
+  // 내일(KST) 경계 — 11:30 KST(02:30 UTC)에 돌면 내일은 KST 다음 날 · KST 자정(15:00 UTC)에서 넘어간다
+  assert.equal(api.kstDate(1, Date.parse('2026-09-26T02:30:00Z')), '2026-09-27', '11:30 배치의 내일');
+  assert.equal(api.kstDate(1, Date.parse('2026-09-26T14:59:00Z')), '2026-09-27', 'KST 23:59의 내일');
+  assert.equal(api.kstDate(1, Date.parse('2026-09-26T15:00:00Z')), '2026-09-28', 'KST 자정이 지나면 내일도 넘어간다');
+  assert.equal(api.kstDate(1, Date.parse('2026-12-31T02:30:00Z')), '2027-01-01', '해 넘김');
+
+  // 링크는 앱의 동아리 알림(groups.js clubLink)과 같은 모양이어야 한다
+  assert.equal(api.clubLink('g1'), '/?p=groups&g=g1');
+  const gSrc = readFileSync(join(ROOT, 'src', 'services', 'groups.js'), 'utf8');
+  assert.ok(gSrc.includes("export const clubLink = (groupId) => (groupId ? `/?p=groups&g=${groupId}` : '/?p=groups');"),
+    'services/groups.js clubLink와 api/push.js clubLink가 갈라졌다');
+
+  // 대상 고르기(순수)
+  const club = (id, extra = {}) => ({ id, name: '통통', type: 'club', removed_at: null, leader_person_id: 'lead', group_members: [{ person_id: 'a' }, { person_id: 'b' }, { person_id: 'noacct' }], ...extra });
+  const accounts = new Map([['lead', 'U-lead'], ['a', 'U-a'], ['b', 'U-b'], ['x', 'U-x']]);
+  let rows = api.meetingEveRows([{ group_id: 'g1', title: ' 9월 모임 ', groups: club('g1') }], accounts, []);
+  assert.deepEqual(rows.map(r => r.recipientId).sort(), ['U-a', 'U-b', 'U-lead'], '구성원+동아리장 중 계정 있는 사람만');
+  assert.ok(rows.every(r => r.link === '/?p=groups&g=g1' && r.club === '통통' && r.preview === '9월 모임'));
+  rows = api.meetingEveRows([{ group_id: 'g1', title: '', groups: club('g1') }], accounts, []);
+  assert.ok(rows.every(r => r.preview === null), '제목이 없으면 preview를 비운다');
+  // 중복 방지 — 이미 받은 (사람, 링크)는 빠진다 · 한 동아리에 내일 모임이 둘이어도 한 통
+  rows = api.meetingEveRows([{ group_id: 'g1', groups: club('g1') }, { group_id: 'g1', title: '둘째', groups: club('g1') }],
+    accounts, [{ recipient_id: 'U-a', link: '/?p=groups&g=g1' }]);
+  assert.deepEqual(rows.map(r => r.recipientId).sort(), ['U-b', 'U-lead'], '크론이 두 번 돌면 두 통 간다');
+  // 순·지운 동아리는 대상이 아니다 · 다른 동아리 구성원은 받지 않는다
+  assert.equal(api.meetingEveRows([{ group_id: 's', groups: club('s', { type: 'sun' }) }], accounts, []).length, 0);
+  assert.equal(api.meetingEveRows([{ group_id: 'r', groups: club('r', { removed_at: '2026-01-01' }) }], accounts, []).length, 0);
+  assert.ok(!api.meetingEveRows([{ group_id: 'g1', groups: club('g1') }], accounts, []).some(r => r.recipientId === 'U-x'),
+    '그 동아리 밖의 사람에게 간다');
+
+  // 마이그레이션 0078 — CHECK에만 더하고 INSERT 정책은 건드리지 않는다(서버가 서비스 키로 넣는다)
+  const m78 = readFileSync(join(ROOT, 'supabase', 'migrations', '0078_meeting_tomorrow_notice.sql'), 'utf8').replace(/\r\n/g, '\n');
+  const body78 = m78.slice(0, m78.indexOf('-- ── 확인'));
+  const check78 = body78.slice(body78.indexOf('add constraint notifications_kind_check'));
+  for (const k of ['mention', 'reply', 'assign', 'due_soon', 'approval', 'reaction', 'worship_today', 'service_published',
+    'note_shared', 'club_apply', 'club_accepted', 'meeting_new', 'approved', 'guide_pinned', 'meeting_tomorrow']) {
+    assert.ok(check78.includes(`'${k}'`), `0078의 체크 제약에 ${k}가 없다`);
+  }
+  assert.ok(!/^\s*(create|drop) policy/m.test(body78), '0078이 INSERT 정책을 건드린다 — 로그인 사용자가 위조할 수 있게 된다');
+  assert.equal((vercel.crons || []).length, 2, '모임 전날 알림은 새 크론이 아니라 11:30 배치에 얹는다');
+
+  // E2E — 가짜 PostgREST로 실제 handler(?job=worship)를 돌린다
+  const fakeRes = () => { const r = { code: 0, body: null }; r.status = (c) => { r.code = c; return r; }; r.json = (b) => { r.body = b; return r; }; return r; };
+  const realFetch = globalThis.fetch;
+  const saved = Object.fromEntries(['CRON_SECRET', 'VITE_SUPABASE_URL', 'SUPABASE_SECRET_KEY'].map(k => [k, process.env[k]]));
+  const calls = [];
+  let recentRows = [];
+  let servicesFail = false;
+  const table = (url) => /\/rest\/v1\/([a-z_]+)/.exec(url)?.[1];
+  globalThis.fetch = async (input, init = {}) => {
+    const url = decodeURIComponent(String(input?.url || input));
+    const method = (init.method || input?.method || 'GET').toUpperCase();
+    const t = table(url);
+    const body = init.body ? JSON.parse(init.body) : null;
+    calls.push({ url, method, t, body });
+    const json = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } });
+    if (t === 'services') return servicesFail ? json({ message: 'boom' }, 500) : json([]);
+    if (t === 'group_meetings') return json([{ id: 'm1', group_id: 'g1', title: '9월 모임', meeting_date: api.kstDate(1), groups: club('g1') }]);
+    if (t === 'people') return json([{ id: 'lead', profile_id: 'P-lead' }, { id: 'a', profile_id: 'P-a' }, { id: 'b', profile_id: 'P-b' }]);
+    if (t === 'profiles') return json([{ id: 'P-lead', merged_into: null }, { id: 'P-a', merged_into: 'P-keep' }, { id: 'P-b', merged_into: null }]);
+    if (t === 'notifications' && method === 'GET') return json(recentRows);
+    if (t === 'notifications' && method === 'POST') return new Response(null, { status: 201 });
+    return json([]);
+  };
+  try {
+    Object.assign(process.env, { CRON_SECRET: 'cron-test-secret', VITE_SUPABASE_URL: 'http://supabase.test', SUPABASE_SECRET_KEY: 'svc' });
+    const auth = { authorization: 'Bearer cron-test-secret' };
+    const r0 = fakeRes();
+    await api.default({ method: 'GET', headers: {}, query: { job: 'worship' } }, r0);
+    assert.equal(r0.code, 401);
+    assert.equal(calls.length, 0, '크론 비밀 없이 DB를 불렀다');
+
+    const r1 = fakeRes();
+    await api.default({ method: 'GET', headers: auth, query: { job: 'worship' } }, r1);
+    assert.equal(r1.code, 200);
+    const q = calls.find(c => c.t === 'group_meetings');
+    assert.ok(q && q.url.includes(`meeting_date=eq.${api.kstDate(1)}`), `내일(KST) 날짜로 찾지 않는다: ${q?.url}`);
+    const ins = calls.find(c => c.t === 'notifications' && c.method === 'POST');
+    assert.ok(ins, '모임 전날 알림을 넣지 않는다');
+    assert.deepEqual(ins.body.map(r => r.recipient_id).sort(), ['P-b', 'P-keep', 'P-lead'], '합친 계정은 남긴 계정으로 · 동아리장 포함');
+    assert.ok(ins.body.every(r => r.kind === 'meeting_tomorrow' && r.actor_name === '통통' && r.link === '/?p=groups&g=g1' && r.preview === '9월 모임'));
+    assert.equal(r1.body.meeting?.notified, 3);
+
+    // 두 번째 실행 — 최근 20시간 안에 넣은 것이 보이면 아무것도 넣지 않는다
+    recentRows = ins.body.map(r => ({ recipient_id: r.recipient_id, link: r.link }));
+    calls.length = 0;
+    const r2 = fakeRes();
+    await api.default({ method: 'GET', headers: auth, query: { job: 'worship' } }, r2);
+    const rq = calls.find(c => c.t === 'notifications' && c.method === 'GET');
+    assert.ok(rq && rq.url.includes('kind=eq.meeting_tomorrow') && /created_at=gte\./.test(rq.url), '최근 알림을 보고 거르지 않는다');
+    assert.ok(!calls.some(c => c.t === 'notifications' && c.method === 'POST'), '크론이 두 번 돌면 알림이 두 번 간다');
+    assert.equal(r2.body.meeting?.notified, 0);
+
+    // 예배 당일 갈래가 DB 오류로 죽어도 모임 갈래는 돈다
+    recentRows = []; servicesFail = true; calls.length = 0;
+    const r3 = fakeRes();
+    await api.default({ method: 'GET', headers: auth, query: { job: 'worship' } }, r3);
+    assert.ok(calls.some(c => c.t === 'notifications' && c.method === 'POST'), '예배 갈래 실패가 모임 전날 알림을 막았다');
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+}
+
+console.log('PASS push — 문구·KST 날짜·딥링크·insert 모양·새 담당자만·댓글 반응(토글·본인 제외·표 없어도 안 죽음·RLS·실시간 라우팅·칩 라벨·아이콘 가운데·얼굴 인라인/+N)·마이그레이션·크론(마감 임박 + 예배 당일 job 갈래·중복 방지·N+1 없음 · 8시 뒤 문서 임베딩·job=embed)·sw·재조회 상세 복구·저장이 목록을 안 덮음·manifest·설치 안내·뱃지 수·합친 계정의 알림·구독(0063)·동아리 모임 전날(0078 · 내일 KST·대상·중복 방지·문구)');

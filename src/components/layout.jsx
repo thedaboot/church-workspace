@@ -1441,7 +1441,7 @@ function NotificationBell({ onOpenTask, onOpenLink }) {
                     <span className="flex-1 min-w-0">
                       <span className="block text-[11px] text-fg-secondary leading-snug">
                         {isSystemNotif(n.kind)
-                          ? notifLine(n.kind)
+                          ? notifLine(n.kind, n.actor_name)
                           : <><span className="font-semibold text-fg">{n.actor_name}</span>님이 {notifText(n.kind)}</>}
                       </span>
                       {n.preview && <span className="block text-[10px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
