@@ -958,6 +958,14 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
   // 여러 벌이면 한쪽만 고쳐진다. 결과 판이 포털이라 **그 판도 '안'으로** 넘긴다(useDismiss 머리말).
   useDismiss(open, () => setOpen(false), [rootRef, listRef]);
 
+  // 검색어가 바뀌면 목록을 맨 위로 — 목록 상자가 그대로 남아 스크롤 위치를 물려받아서, 내려 본
+  // 뒤에 한 글자를 더 치면 새 결과의 가운데(또는 첫 줄이 반쯤 잘린 자리)부터 보였다(2026-09-25).
+  const mobileListRef = useRef(null);
+  useLayoutEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = 0;
+    if (mobileListRef.current) mobileListRef.current.scrollTop = 0;
+  }, [query]);
+
   const reset = () => setQuery('');
   const closeMobile = () => { setMobileOpen(false); reset(); };
 
@@ -1025,7 +1033,7 @@ function SearchBox({ onSearchSelect, variant = 'inline' }) {
                   아이폰 키보드가 올라와도 줄지 않아(dvh는 키보드를 모른다) 마지막 결과가 키보드 밑에
                   남았고, 끝까지 내려도 닿지 않았다. 5rem = 목록 위(칸 줄 58px) + 아래 여백 12px + 틈. */}
               {active && (
-                <div className="mt-2 max-h-[min(70dvh,calc(var(--app-vh,100dvh)_-_5rem))] overflow-y-auto">
+                <div ref={mobileListRef} className="mt-2 max-h-[min(70dvh,calc(var(--app-vh,100dvh)_-_5rem))] overflow-y-auto">
                   <SearchResults query={query} onPick={pick} />
                 </div>
               )}

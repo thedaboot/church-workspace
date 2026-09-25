@@ -246,6 +246,19 @@ check('다시 라이트로 돌아온다', (await ev(`document.documentElement.da
   const ent = await ev(`(() => { const inp = [...document.querySelectorAll('input[placeholder*="검색"]')].find(i => i.getBoundingClientRect().width > 0);
     return { focused: document.activeElement === inp, hint: inp?.enterKeyHint, rows: inp ? inp.closest('.fixed').querySelectorAll('button').length : 0 }; })()`);
   check('모바일 검색 칸의 Enter는 키보드를 내리고 결과는 남긴다', ent.focused === false && ent.hint === 'search' && ent.rows > 8, JSON.stringify(ent));
+  // ④ 내려 본 뒤 검색어를 바꾸면 새 결과는 맨 위부터 선다(목록 상자가 스크롤 위치를 물려받았다).
+  //    되돌리기 검사: SearchBox의 scrollTop = 0 useLayoutEffect를 지우면 ④가 깨진다.
+  const top = await ev(`(async () => {
+    const inp = [...document.querySelectorAll('input[placeholder*="검색"]')].find(i => i.getBoundingClientRect().width > 0);
+    const list = [...inp.closest('.fixed').querySelectorAll('div')].find(d => /overflow-y-auto/.test(d.className));
+    list.scrollTop = 1e6;
+    const before = list.scrollTop;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(inp, '수련회 준비');
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 400));
+    return { before, after: list.scrollTop, more: list.scrollHeight > list.clientHeight };
+  })()`, true);
+  check('검색어를 바꾸면 결과 목록이 맨 위부터 선다', top.before > 0 && top.after === 0 && top.more, JSON.stringify(top));
 }
 
 console.log(results.join('\n'));
