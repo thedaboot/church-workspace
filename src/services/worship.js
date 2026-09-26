@@ -321,7 +321,7 @@ export function mergeSongs(rows = [], picked = []) {
 }
 
 // 자격 판정 — 0035·0036·0042·**0045**의 서버 함수와 같은 식이다(DB가 진실이고 여기는 거울).
-//   주보 작성·발행 = 관리자(마스터 포함) + 교역자 + 올해 회장 + 미디어팀  (can_edit_service)
+//   주보 작성·발행 = 관리자(마스터 포함) + 교역자 + 올해 회장 + 미디어팀 + 조준환(0083)  (can_edit_service)
 //   출석 전체      = 관리자(마스터 포함) + 교역자 + 올해 **리더순장**     (can_check_all_attendance)
 //   출석 자기 순   = 올해 그 순의 순장                                   (leads_sun_of)
 //
@@ -331,6 +331,8 @@ export function mergeSongs(rows = [], picked = []) {
 // 미디어팀은 명단 속성(people.teams)이라 연도와 무관하고, 회장·리더순장은 연도별 직분이다.
 // 나머지 사람은 발행된 주보를 읽기만 한다 — 화면에서 버튼을 감추지만 경계는 RLS다.
 const MEDIA_TEAM = '미디어팀';
+// 규칙 밖에서 주보를 쓰는 사람(명단 id) — 사용자 결정 2026-09-27 '조준환 한 사람만' · 서버는 0083
+export const SERVICE_EDITOR_PEOPLE = ['d2a6ea3d-aa9a-41ce-a6e8-7c43728402b0'];   // 조준환
 // 전체 출석은 **리더순장 하나**다(0043의 다섯 직분 중). 부장·총무·리더팀장은 빠진다.
 const LEAD_SUNJANG = 'lead_sunjang';
 
@@ -338,7 +340,8 @@ export function worshipPerms({ isMaster = false, isAdmin = false, myPerson = nul
   const roles = myRoles || [];
   const pastor = !!myPerson?.is_pastor;
   const media = (myPerson?.teams || []).includes(MEDIA_TEAM);
-  const canEdit = !!isMaster || !!isAdmin || pastor || roles.includes('president') || media;
+  const canEdit = !!isMaster || !!isAdmin || pastor || roles.includes('president') || media
+    || SERVICE_EDITOR_PEOPLE.includes(myPerson?.id);
   const canCheckAll = !!isMaster || !!isAdmin || pastor || roles.includes(LEAD_SUNJANG);
   const led = ledGroupIds || [];
   // **큐시트 사본을 고칠 수 있는 사람은 교역자·마스터뿐이다**(사용자 결정 2026-09-09 —

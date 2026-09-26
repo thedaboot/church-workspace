@@ -205,6 +205,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0080_bible_reads` | 이번 주 이 장을 본 사람 — `bible_reads(profile_id, chapter_key, week_start)`(주일 시작 · 읽기 승인 전원 · 쓰기·지우기 본인 · 지난주 줄은 11:30 배치가 지운다) · `bible_state.share_reads`(나도 나누기 · 기본 켬) | ✅ |
 | `0081_service_cover` | 주보 표지 사진 — `files.kind`에 `cover`(주보당 한 장 · 그 주보의 드라이브 폴더) · `services.cover_focus_y`(보일 세로 위치 0~1 · 기본 .5) | ✅ |
 | `0082_sun_guide_pin_per_service` | 순모임 가이드 고정을 주보마다(다른 주보의 고정을 풀지 않음) · 고정된 최종본을 `sun_guide_finals`에 보관 | ✅ |
+| `0083_service_editor_person` | 주보 작성·발행에 조준환 한 사람(명단 id)을 더한다 — 앱 쪽 거울은 `worship.js` `SERVICE_EDITOR_PEOPLE` | ✅ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.

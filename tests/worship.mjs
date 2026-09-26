@@ -248,6 +248,9 @@ const pure = await ev(`(async () => {
     cueMedia: cue({ myPerson: { teams: ['미디어팀'] } }),
     cuePlain: cue({}),
     president: perms({ myRoles: ['president'] }),
+    // 조준환 한 사람(0083 · 사용자 결정 2026-09-27) — 찬양팀·팀장이라는 규칙이 아니다
+    junhwan: perms({ myPerson: { id: 'd2a6ea3d-aa9a-41ce-a6e8-7c43728402b0', teams: ['찬양팀', '순원'] }, myRoles: ['lead_team'] }),
+    praiseLead: perms({ myPerson: { id: 'x', teams: ['찬양팀'] }, myRoles: ['lead_team'] }),
     pastor: perms({ myPerson: { is_pastor: true } }),
     treasurer: perms({ myRoles: ['treasurer'] }),
     master: perms({ isMaster: true }),
@@ -362,6 +365,8 @@ check('큐시트 편집은 교역자·마스터만(관리자·회장·미디어�
   JSON.stringify([pure.cueMaster, pure.cuePastor, pure.cueAdmin, pure.cuePresident, pure.cueMedia, pure.cuePlain]));
 // **2026-09-05 규칙**: 주보 = 관리자·교역자·회장·미디어팀 / 전체 출석 = 관리자·교역자·리더순장.
 // 회장은 주보를 쓰지만 남의 순 출석까지 만지지는 않는다(자기 순 순장이면 그 순만).
+check('조준환은 주보 작성 · 같은 찬양팀장이라도 다른 사람은 아니다',
+  JSON.stringify(pure.junhwan) === '[true,false,false]' && JSON.stringify(pure.praiseLead) === '[false,false,false]', JSON.stringify([pure.junhwan, pure.praiseLead]));
 check('회장은 주보 작성 · 전체 출석은 아니다', JSON.stringify(pure.president) === '[true,false,false]', JSON.stringify(pure.president));
 // 0042에서 빠졌던 교역자가 **주보로 돌아왔다**(사용자 결정 2026-09-05)
 check('교역자는 주보도 쓰고 전체 출석도 한다',
