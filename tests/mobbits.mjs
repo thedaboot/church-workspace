@@ -213,6 +213,28 @@ check('다시 라이트로 돌아온다', (await ev(`document.documentElement.da
   })()`);
   check('화면 뿌리 높이가 보이는 창을 따라간다',
     vh.set === `${vh.vv}px` && vh.shrunk === vh.vv - 137 && vh.back === vh.vv, JSON.stringify(vh));
+
+  // 키보드가 내려갔는데 resize가 안 와서 **줄어든 높이가 남는** 경우(2026-09-27 신고 — 어느 페이지를 가도
+  // 아래 절반이 비고 스크롤도 그 안에서만 된다). 입력칸에 포커스가 없으면 키보드가 있을 수 없으니
+  // 뿌리는 레이아웃 높이 아래로 줄지 않아야 하고, 글을 쓰는 중이면 예전처럼 줄어야 한다(§6-42-g 흉내).
+  // **되돌리기**(§3-5): App.jsx visibleH의 `editing() ? h : Math.max(h, window.innerHeight)`를 `h`로 바꾸면 ①이 깨진다.
+  const stuck = await ev(`(async () => {
+    const v = window.visualViewport, full = v.height, de = document.documentElement;
+    const read = () => de.style.getPropertyValue('--app-vh').trim();
+    document.activeElement?.blur?.();
+    Object.defineProperty(v, 'height', { get: () => full / 2, configurable: true });
+    v.dispatchEvent(new Event('resize'));
+    const idle = read();
+    const inp = document.createElement('input');
+    document.body.appendChild(inp); inp.focus();
+    v.dispatchEvent(new Event('resize'));
+    const typing = read();
+    inp.remove(); delete v.height;
+    v.dispatchEvent(new Event('resize'));
+    return { full: Math.round(full), idle, typing };
+  })()`, true);
+  check('① 키보드 없이 남은 작은 높이로 화면 뿌리가 줄지 않는다', stuck.idle === `${stuck.full}px`, JSON.stringify(stuck));
+  check('② 글을 쓰는 중이면 키보드만큼 줄어든다', stuck.typing === `${Math.round(stuck.full / 2)}px`, JSON.stringify(stuck));
 }
 
 // ── 모바일 검색 패널: 결과가 많아도 마지막 줄까지 보인다 (2026-09-25 검색 결과 감사) ─────

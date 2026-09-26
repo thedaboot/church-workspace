@@ -425,6 +425,8 @@ assert.equal(notify.notifArea('guide_pinned'), 'group');
 const sw = readFileSync(join(ROOT, 'public', 'sw.js'), 'utf8');
 assert.ok(/addEventListener\('push'/.test(sw) && /showNotification/.test(sw), 'sw가 푸시를 띄우지 않는다');
 assert.ok(/addEventListener\('notificationclick'/.test(sw), 'sw에 클릭 처리가 없다');
+// 같은 tag로 갈아 끼우는 알림도 울려야 한다(renotify 없으면 두 번째부터 소리·진동이 없다 · 갤럭시 신고)
+assert.ok(/renotify: true/.test(sw) && /vibrate: \[/.test(sw), 'sw 알림에 renotify·vibrate가 없다');
 
 // ── 전체 재조회가 열린 업무 창의 댓글·활동을 비우지 않는다 ──────────────────
 // 클라우드 전용 경로라 게스트 스위트가 볼 수 없다. LOAD_STATE는 모든 카드의

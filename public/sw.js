@@ -28,6 +28,11 @@ self.addEventListener('push', (event) => {
     badge: '/icon-192.png',
     // 같은 업무에 대한 알림은 겹쳐 쌓이지 않고 마지막 것으로 갱신된다.
     tag: data.tag || 'thedaboot',
+    // **갈아 끼울 때도 다시 울린다**(2026-09-27 갤럭시 신고 — 푸시는 오는데 진동이 없다).
+    // renotify가 없으면 같은 tag의 두 번째 알림부터는 소리·진동 없이 조용히 바뀐다.
+    // vibrate는 채널 설정이 우선인 기기(안드로이드 8+)에서는 무시되지만 해가 없다.
+    renotify: true,
+    vibrate: [200, 100, 200],
     data: { url: data.url || '/' },
   });
 

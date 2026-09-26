@@ -575,26 +575,49 @@ function WorkspaceShell() {
     const vv = window.visualViewport;
     if (!vv) return undefined;
     const root = document.documentElement;
-    let lastH = vv.height;
+    // **작은 값이 남지 않게 한다**(2026-09-27 신고 — 폰·패드에서 어느 페이지를 가도 화면 아래 절반이
+    // 비고 스크롤도 그 안에서만 된다). 키보드가 올라와 줄어든 높이는 키보드가 내려갈 때 resize가
+    // 와야 되돌아오는데, 그 이벤트가 안 오는 때가 있다(홈 화면 웹앱 · 앱을 오갈 때). 그래서
+    // **입력칸에 포커스가 없으면 키보드가 있을 수 없으니** 레이아웃 높이(innerHeight)보다 작게 두지 않는다.
+    // 배율을 곱하는 것은 손가락 확대 때 보이는 창이 배율만큼 작아지기 때문이다(2배면 정확히 절반).
+    const editing = () => {
+      const a = document.activeElement;
+      return !!a && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+    };
+    const visibleH = () => {
+      const h = vv.height * (vv.scale || 1);
+      return editing() ? h : Math.max(h, window.innerHeight);
+    };
+    let lastH = visibleH();
     const apply = () => {
-      root.style.setProperty('--app-vh', `${Math.round(vv.height)}px`);
+      const h = visibleH();
+      root.style.setProperty('--app-vh', `${Math.round(h)}px`);
       // 아이폰이 이미 문서를 밀어 놨으면 되돌린다. 뿌리가 보이는 창만큼이면 문서는
       // 스크롤될 것이 없으므로 이 호출은 대개 아무 일도 하지 않는다(되돌릴 때만 움직인다).
       if (window.scrollY > 0) window.scrollTo(0, 0);
       // **키보드가 올라오면 커서를 보이는 자리로 끌어온다**(2026-09-22 신고).
       // 80px은 키보드와 주소창 여닫힘을 가르는 선이다(주소창은 이보다 적게 움직인다).
-      const shrank = vv.height < lastH - 80;
-      lastH = vv.height;
+      const shrank = h < lastH - 80;
+      lastH = h;
       if (shrank) requestAnimationFrame(keepCaretVisibleSettled);
     };
     apply();
     vv.addEventListener('resize', apply);
     vv.addEventListener('scroll', apply);
+    // 뒤로 갔다 돌아오거나 돌렸을 때 resize가 안 오는 브라우저가 있다 — 옛 값이 남지 않게 다시 잰다
+    const reapply = () => { if (!document.hidden) apply(); };
+    document.addEventListener('visibilitychange', reapply);
+    window.addEventListener('pageshow', reapply);
+    window.addEventListener('orientationchange', reapply);
+    // 입력칸에서 빠지면(키보드가 내려가는 순간) resize를 기다리지 않고 한 번 더 잰다
+    let tBlur = 0;
+    const onBlur = () => { clearTimeout(tBlur); tBlur = setTimeout(apply, 250); };
+    document.addEventListener('focusout', onBlur);
     // 글을 쓰는 동안 커서가 아래로 내려가도 따라간다 — 키보드가 올라와 있을 때만이고,
     // selectionchange는 글자마다 오므로 한 박자 묶는다(매번 굴리면 화면이 떤다).
     let t = 0;
     const onSel = () => {
-      if (vv.height >= window.innerHeight - 80) return;   // 키보드가 없으면 할 일이 없다
+      if (visibleH() >= window.innerHeight - 80) return;   // 키보드가 없으면 할 일이 없다
       clearTimeout(t);
       t = setTimeout(keepCaretVisible, 120);
     };
@@ -602,6 +625,11 @@ function WorkspaceShell() {
     return () => {
       clearTimeout(t);
       document.removeEventListener('selectionchange', onSel);
+      document.removeEventListener('visibilitychange', reapply);
+      window.removeEventListener('pageshow', reapply);
+      window.removeEventListener('orientationchange', reapply);
+      clearTimeout(tBlur);
+      document.removeEventListener('focusout', onBlur);
       vv.removeEventListener('resize', apply);
       vv.removeEventListener('scroll', apply);
       root.style.removeProperty('--app-vh');

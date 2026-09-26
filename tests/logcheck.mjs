@@ -3318,7 +3318,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '한 상자로 모자라면 바깥 상자를 이어서 민다');
   assert.ok(!/behavior: 'smooth'/.test(app),
     '커서 맞추기는 바로 민다 — 부드럽게 하면 여러 번 부르는 것과 서로 싸운다');
-  assert.ok(/vv\.height < lastH - 80/.test(vv),
+  assert.ok(/const shrank = h < lastH - 80/.test(vv),
     '키보드와 주소창 여닫힘을 가른다 — 주소창은 이보다 적게 움직인다');
   assert.ok(/selectionchange/.test(vv) && /setTimeout\(keepCaretVisible, 120\)/.test(vv),
     '글을 쓰는 동안 커서가 내려가도 따라간다(글자마다 굴리지 않게 한 박자 묶는다)');
@@ -4567,6 +4567,9 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/progressByProject\(myTasks, projectsMap, yearIds\)/.test(views) && /progressByProject\(teamTasks, projectsMap, yearIds\)/.test(views), "'내가 맡은 프로젝트'·'참여 프로젝트'도 고른 해만");
   assert.ok(!/p\.late/.test(parts), "청년별 남은 업무에 사람마다 '지연 N건'이 없다(견주는 구조 · §8)");
   assert.ok(/key: 'ongoing', label: '상시'/.test(parts) && /key: 'hold', label: '보류 중'/.test(parts), '마감 목록에 상시·보류 중 구간이 따로 있다');
+  // 2026-09-27 — 대시보드·내 업무·팀 업무 목록에서 상시는 기본으로 빠지고, 내 업무의 '상시' 칩을 고를 때만 선다
+  assert.ok(/ongoing = false \} = \{\}\) \{\s*return BUCKETS\.filter\(b => ongoing \|\| b\.key !== 'ongoing'\)/.test(parts), '목록은 기본으로 상시 구간을 뺀다');
+  assert.ok(/ongoing: statusFilter\.includes\(CONFIG\.STATUS_ONGOING\)/.test(views) && (views.match(/groupByDue\([^)]*ongoing/g) || []).length === 1, "상시 구간은 내 업무의 '상시' 칩에서만");
   assert.ok(/const isLate = \(task\) => isOverdue\(/.test(boards), '보드 카드의 빨간 마감도 isOverdue 하나');
   assert.ok(/raw === ONGOING_DROP/.test(boards) && /onStatusChange\(task, ONGOING\)/.test(boards), '상시 줄에 놓으면 상시가 된다');
   assert.ok(/ongoing\.length > 0 && <OngoingRow/.test(boards), '상시가 0건이면 줄이 서지 않는다');

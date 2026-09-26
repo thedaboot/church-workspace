@@ -147,7 +147,7 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   const teamOpen = useMemo(() => open.filter(t => (t.teams || []).some(x => myTeams.includes(x))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [open, myTeams.join(',')]);
-  // 아래 마감 목록 — 끝낸 것만 뺀다(상시는 목록의 제 구간에 선다)
+  // 아래 마감 목록 — 끝낸 것만 뺀다(상시는 groupByDue가 뺀다 · 2026-09-27)
   const shown = useMemo(() => scoped.filter(t => !isDone(t)), [scoped]);
   // KPI 분모('남은 업무 N건 중')는 상시를 뺀 남은 업무다
   const shownOpen = shown.filter(isOpen).length;
@@ -965,7 +965,7 @@ export const MyTasksView = React.memo(function MyTasksView({ onTaskClick, onStat
   const shown = useMemo(() => (statusFilter.length
     ? myTasks.filter(t => statusFilter.includes(t.status))
     : myTasks.filter(t => !isDone(t) || isRecentlyDone(t, completedTime, today))), [myTasks, statusFilter, today]);
-  const groups = useMemo(() => groupByDue(shown, today, { recentDone: !statusFilter.length }), [shown, today, statusFilter.length]);
+  const groups = useMemo(() => groupByDue(shown, today, { recentDone: !statusFilter.length, ongoing: statusFilter.includes(CONFIG.STATUS_ONGOING) }), [shown, today, statusFilter]);
 
   // 남은 수는 상시를 빼고, 지난 마감은 대시보드 KPI의 '지연'과 같은 판정(보류 중 빼고)
   const openCount = myTasks.filter(isOpen).length;
@@ -1033,7 +1033,7 @@ export const TeamView = React.memo(function TeamView({ teamName, onTaskClick, on
   const teamTasks = useMemo(() => tasksList.filter(t => (t.teams || []).includes(teamName)), [tasksList, teamName]);
   // 묶어 두지 않으면 아래 groupByDue의 useMemo가 매 렌더 빗나간다(새 배열 = 새 참조)
   // 마감 목록은 끝낸 것을 빼되 **최근 7일 안에 완료한 업무**는 맨 아래 구간에 둔다(내 업무와 같다 ·
-  // 2026-09-25) · 상시는 제 구간 · 머리의 'N건 남음'은 상시를 뺀 남은 업무다
+  // 2026-09-25) · 상시는 목록에 없다(보드 한 줄에만) · 머리의 'N건 남음'은 상시를 뺀 남은 업무다
   const openTasks = useMemo(() => teamTasks.filter(t => !isDone(t) || isRecentlyDone(t, completedTime, today)), [teamTasks, today]);
   const leftCount = useMemo(() => teamTasks.filter(isOpen).length, [teamTasks]);
   // 상태 칸의 막대 분모 — 상시를 뺀 수(상시는 네 칸 어디에도 없다)

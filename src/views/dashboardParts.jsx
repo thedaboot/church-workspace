@@ -66,8 +66,10 @@ export const byDue = (a, b) => String(a.dueDate || '9999').localeCompare(String(
 // recentDone: 기본 목록(상태 칩을 안 고른 내 업무 · 팀 보드) 맨 아래의 **최근 7일 안에 완료한 업무**
 // (사용자 결정 2026-09-25 · 목업 mockup-traces 3). 그 구간만 머리가 `완료한 업무` + 흐린 `최근 7일`이다 —
 // '완료' 칩으로 전부 볼 때는 예전 이름 그대로. 무엇이 7일 안인지는 taskCounts.isRecentlyDone이 정한다.
-export function groupByDue(tasks, today = ISO_TODAY(), { recentDone = false } = {}) {
-  return BUCKETS.map(b => ({
+// ongoing: 상시 구간을 세울지. **기본은 뺀다**(사용자 결정 2026-09-27 — 대시보드·내 업무·팀 업무에서
+// 상시를 보이지 않게). 상시는 보드 네 칸 위 한 줄에서만 보이고, 내 업무에서 '상시' 칩을 골랐을 때만 여기 선다.
+export function groupByDue(tasks, today = ISO_TODAY(), { recentDone = false, ongoing = false } = {}) {
+  return BUCKETS.filter(b => ongoing || b.key !== 'ongoing').map(b => ({
     ...b,
     ...(recentDone && b.key === 'done' ? { label: '완료한 업무', note: `최근 ${RECENT_DONE_DAYS}일` } : null),
     items: tasks.filter(t => bucketOf(t, today) === b.key).sort(b.key === 'done' ? byCompleted : byDue),
