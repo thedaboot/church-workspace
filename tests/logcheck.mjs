@@ -5329,3 +5329,160 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/changed\.includes\('teams'\) \?/.test(sync) && /changed\.includes\('assignees'\) &&/.test(sync), '팀·담당자 조인도 바뀌었을 때만 다시 쓴다');
   console.log('PASS  바뀐 칸만 저장 · 하위 업무 줄 단위 병합');
 }
+
+// ── 내 달력 구독 (0085 · services/calendarFeed.js · api/ics.js · 2026-09-28) ─────────────
+// 프로젝트 달력에서 고른 업무 → 폰·구글 달력 구독 주소(`/cal/<feed>/<서명>.ics`). 화면과 서버가 같은 순수
+// 모듈을 본다 — 설명 문장 · 날짜 글자 · 하루 종일 일정(끝은 다음 날) · 이스케이프·75옥텟 접기·CRLF ·
+// 구글 cid 주소 · 기기 → 버튼 · 저장 줄 세우기(400ms 모음 · 하나씩 · 옛 응답 버림) · 서버 배선.
+// 되돌리기 검사(2026-09-28): feedEvent의 `+ DAY`를 빼면 DTEND 단정이, api/ics.js의
+// `onConflict: 'owner,project_id'`를 지우면 배선 단정이, createFeedSaver의 `if (busy) { again = true; return; }`를
+// 걷으면 '보내는 중에는 하나만' 단정이 깨지는 것을 보고 되돌렸다.
+{
+  process.env.SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY || 'test-secret';
+  const F = await import(new URL('../src/services/calendarFeed.js', import.meta.url).href);
+  const { CONFIG } = await import(new URL('../src/config.js', import.meta.url).href);
+
+  // 설명 문장(목업 문구 그대로)
+  assert.strictEqual(F.feedSentence([]), '내 달력에 넣을 업무를 골라 주세요.');
+  assert.strictEqual(F.feedSentence(['임원 선출']), '임원 선출 업무가 내 달력에 일정으로 들어가요.');
+  assert.strictEqual(F.feedSentence(['A', 'B']), 'A, B 업무가 내 달력에 일정으로 들어가요.');
+  assert.strictEqual(F.feedSentence(['A', 'B', 'C']), 'A, B 업무 외 1건이 내 달력에 일정으로 들어가요.');
+  assert.strictEqual(F.feedSentence(['A', 'B', 'C', 'D', 'E']), 'A, B 업무 외 3건이 내 달력에 일정으로 들어가요.');
+
+  // 날짜 글자
+  assert.strictEqual(F.feedDateLabel({ dueDate: '2026-10-11' }), '10월 11일');
+  assert.strictEqual(F.feedDateLabel({ startDate: '2026-10-11', dueDate: '' }), '10월 11일', '시작일만 있으면 그 하루');
+  assert.strictEqual(F.feedDateLabel({ startDate: '2026-10-04', dueDate: '2026-10-25' }), '10월 4일 ~ 25일');
+  assert.strictEqual(F.feedDateLabel({ startDate: '2026-09-28', dueDate: '2026-10-03' }), '9월 28일 ~ 10월 3일', '달을 넘으면 달을 다시 적는다');
+  assert.strictEqual(F.feedDateLabel({ startDate: '2026-10-25', dueDate: '2026-10-04' }), '10월 4일 ~ 25일', '거꾸로 적힌 기간은 뒤집는다(calendar spanOf)');
+  assert.strictEqual(F.feedDateLabel({}), '');
+
+  // 고를 수 있는 업무 · 처음 골라 둘 것
+  const T = (id, title, status, startDate, dueDate, assignees = []) => ({ id, title, status, startDate, dueDate, assignees });
+  const tasks = [T('c', '사역기획모임', '시작 전', '2026-10-04', '2026-10-25', ['노준석']), T('o', '순번표', '상시', '', '2026-12-31'),
+    T('n', '마감 미정', '시작 전', '', ''), T('a', '임원진 선출', '보류 중', '', '2026-09-27'), T('b', '사역팀장 선출', '완료', '', '2026-10-11', ['노준석', '강꽃님'])];
+  const pick = F.feedPickable(tasks);
+  assert.deepStrictEqual(pick.map(t => t.id), ['a', 'c', 'b'], '상시·날짜 없는 업무는 빠지고 이른 날부터 · 완료는 남는다');
+  assert.deepStrictEqual(F.feedDefaultPick(pick, '노준석'), ['c', 'b'], '처음에는 내가 담당자인 업무');
+  assert.deepStrictEqual(F.feedDefaultPick(pick, '없는 사람'), [], '없으면 아무것도 고르지 않는다');
+
+  // 상태 글자 — config.STATUS_DB를 뒤집은 것과 같다
+  assert.deepStrictEqual(F.STATUS_KO, Object.fromEntries(Object.entries(CONFIG.STATUS_DB).map(([a, d]) => [d, a])));
+  assert.ok(F.feedKeepRow({ status: 'done', due_date: '2026-10-11' }) && !F.feedKeepRow({ status: 'ongoing', due_date: '2026-10-11' })
+    && !F.feedKeepRow({ status: 'todo', start_date: null, due_date: null }), '서버 거름: 상시·날짜 없음은 빠지고 완료는 남는다');
+
+  // .ics
+  const link = F.taskLink('https://church-workspace.vercel.app', 'p1', 'c1');
+  assert.strictEqual(link, 'https://church-workspace.vercel.app/?p=p1&t=c1', '앱 딥링크(App.jsx ?p=&t=)');
+  const long = '2027 더다붓 사역기획모임, 준비; 첫째\n둘째 — 아주 긴 제목이 이어져서 한 줄 칠십오 옥텟을 훌쩍 넘어가는 경우';
+  const ev1 = F.feedEvent({ id: 'c1', title: long, status: '진행 중', startDate: '2026-10-04', dueDate: '2026-10-25', assignees: ['노준석', '강꽃님'] }, link);
+  const ev2 = F.feedEvent({ id: 'c2', title: '임원 선출', status: '완료', startDate: '2026-10-11', dueDate: '', assignees: [] }, link);
+  assert.strictEqual(ev1.end, '20261026', '끝은 다음 날(DTEND;VALUE=DATE는 그 날을 빼고 센다)');
+  assert.strictEqual(ev2.start, '2026-10-11'); assert.strictEqual(ev2.end, '20261012', '시작일만 있으면 하루');
+  assert.strictEqual(F.feedEvent({ id: 'x', title: 'x', status: '시작 전' }, link), null);
+  const ics = F.buildFeedIcs({ calName: F.feedCalName('2027 사역기획'), events: [ev1, ev2], now: Date.UTC(2026, 8, 28, 3, 0) });
+  assert.ok(ics.endsWith('\r\n') && !/[^\r]\n/.test(ics), '줄 끝은 모두 CRLF');
+  for (const l of ics.split('\r\n')) assert.ok(new TextEncoder().encode(l).length <= 75, `75옥텟 이하: ${l}`);
+  const lines = ics.replace(/\r\n /g, '').split('\r\n');   // 접은 줄을 편다
+  assert.ok(lines.includes('X-WR-CALNAME:더다붓 · 2027 사역기획') && lines.includes('REFRESH-INTERVAL;VALUE=DURATION:PT1H')
+    && lines.includes('X-PUBLISHED-TTL:PT1H'), '달력 이름 · 다시 읽는 간격');
+  assert.deepStrictEqual(lines.filter(l => l.startsWith('UID:')), ['UID:card-c1@thedaboot', 'UID:card-c2@thedaboot'], 'UID는 업무 id — 고치면 같은 일정이 바뀐다');
+  assert.ok(lines.includes('DTSTART;VALUE=DATE:20261004') && lines.includes('DTEND;VALUE=DATE:20261026')
+    && lines.includes('DTSTART;VALUE=DATE:20261011') && lines.includes('DTEND;VALUE=DATE:20261012'), '하루 종일 일정');
+  assert.ok(lines.includes('SUMMARY:2027 더다붓 사역기획모임\\, 준비\\; 첫째\\n둘째 — 아주 긴 제목이 이어져서 한 줄 칠십오 옥텟을 훌쩍 넘어가는 경우'), '쉼표·쌍반점·줄바꿈 이스케이프');
+  const desc = lines.find(l => l.startsWith('DESCRIPTION:') && l.includes('임원 선출'));
+  assert.strictEqual(desc, `DESCRIPTION:임원 선출 · 완료\\n더다붓 워크스페이스에서 열기\\n${link}`, '담당자가 없으면 그 줄을 뺀다');
+  assert.ok(lines.some(l => l.startsWith('DESCRIPTION:') && l.includes('\\n담당자 노준석\\, 강꽃님\\n더다붓 워크스페이스에서 열기\\n')), '담당자 줄');
+  assert.ok(lines.includes(`URL:${link}`) && lines.includes('DTSTAMP:20260928T030000Z'));
+
+  // 주소 · 기기 → 버튼
+  const urls = F.feedUrls('church-workspace.vercel.app', 'f1', 'S_ig-1');
+  assert.deepStrictEqual(urls, { url: 'https://church-workspace.vercel.app/cal/f1/S_ig-1.ics', webcal: 'webcal://church-workspace.vercel.app/cal/f1/S_ig-1.ics' });
+  assert.strictEqual(F.googleSubscribeUrl(urls.webcal), 'https://calendar.google.com/calendar/r?cid=webcal%3A%2F%2Fchurch-workspace.vercel.app%2Fcal%2Ff1%2FS_ig-1.ics');
+  const UA = {
+    iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    ipad: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+    android: 'Mozilla/5.0 (Linux; Android 14; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Mobile Safari/537.36',
+    mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36',
+    win: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36',
+  };
+  const labels = (ua, touch = 0) => F.feedButtons(F.feedDevice(ua, touch)).map(b => b.label);
+  assert.deepStrictEqual(labels(UA.iphone), ['아이폰 달력에 추가', '주소 복사']);
+  assert.deepStrictEqual(labels(UA.ipad, 5), ['아이폰 달력에 추가', '주소 복사'], '아이패드는 Mac UA + 터치로 가른다');
+  assert.deepStrictEqual(labels(UA.android), ['구글 캘린더에 추가', '주소 복사']);
+  assert.deepStrictEqual(labels(UA.mac), ['구글 캘린더에 추가', 'Mac 캘린더에 추가', '주소 복사']);
+  assert.deepStrictEqual(labels(UA.mac, 10), ['구글 캘린더에 추가', 'Mac 캘린더에 추가', '주소 복사'], 'Mac 크롬 UA는 터치 점이 있어도 Mac');
+  assert.deepStrictEqual(labels(UA.win), ['구글 캘린더에 추가', '주소 복사']);
+  assert.ok(F.feedButtons(F.feedDevice(UA.iphone))[0].primary && F.feedIsMobile(F.feedDevice(UA.android)) && !F.feedIsMobile(F.feedDevice(UA.mac)));
+  assert.deepStrictEqual(F.feedHref('webcal', urls, false), { href: urls.webcal, how: 'location' });
+  assert.deepStrictEqual(F.feedHref('google', urls, false), { href: F.googleSubscribeUrl(urls.webcal), how: 'window' });
+  const kakao = F.feedDevice(`${UA.iphone} KAKAOTALK 10.8.0`);
+  assert.ok(kakao.kakao && kakao.os === 'ios');
+  assert.deepStrictEqual(F.feedHref('webcal', urls, true), { href: `kakaotalk://web/openExternal?url=${encodeURIComponent(urls.webcal)}`, how: 'location' }, '카카오 인앱은 기본 브라우저로 넘긴다');
+  assert.strictEqual(F.feedHref('copy', urls), null); assert.strictEqual(F.feedHref('webcal', null), null);
+
+  // 저장 줄 세우기 — 가짜 시계 · 손으로 끝내는 요청
+  {
+    let now = 0; const timers = [];
+    const setTimer = (fn, ms) => { const t = { fn, at: now + ms, dead: false }; timers.push(t); return t; };
+    const clearTimer = (t) => { if (t) t.dead = true; };
+    const tick = async (ms) => { now += ms; for (const t of timers.filter(x => !x.dead && x.at <= now)) { t.dead = true; t.fn(); } await new Promise(r => setImmediate(r)); };
+    const sent = []; const done = [];
+    let release = [];
+    const send = (cards) => { sent.push(cards); return new Promise(r => release.push(() => r({ url: `u${sent.length}`, cards }))); };
+    const s = F.createFeedSaver(send, { delay: 400, setTimer, clearTimer, onDone: (out) => done.push(out.url) });
+    s.set(['a']); await tick(100); s.set(['a', 'b']); await tick(100); s.set(['b']);
+    await tick(399); assert.strictEqual(sent.length, 0, '400ms 안의 체크는 모은다');
+    await tick(1); assert.deepStrictEqual(sent, [['b']], '마지막 것 하나만 보낸다');
+    s.set(['b', 'c']); await tick(400); s.set(['c']); await tick(400);
+    assert.strictEqual(sent.length, 1, '보내는 중에는 하나만 — 끝날 때까지 기다린다');
+    assert.ok(s.pending);
+    release.shift()(); await tick(0); await tick(0);
+    assert.deepStrictEqual(sent, [['b'], ['c']], '끝나면 그사이 바뀐 것 중 마지막 것을 한 번 더');
+    release.shift()(); await tick(0); await tick(0);
+    assert.deepStrictEqual(done, ['u1', 'u2']); assert.ok(!s.pending);
+    s.set(['d']); s.flush(); await tick(0);
+    assert.deepStrictEqual(sent.at(-1), ['d'], 'flush는 기다리지 않고 보낸다(창 닫기·버튼)');
+    release.shift()(); await tick(0);
+    // 실패해도 다음 저장은 간다
+    const s2 = F.createFeedSaver(() => Promise.reject(new Error('x')), { delay: 1, setTimer, clearTimer, onFail: () => done.push('fail') });
+    s2.set(['z']); await tick(1); await tick(0);
+    assert.strictEqual(done.at(-1), 'fail');
+  }
+
+  // 배선 — 재작성 · 크론 둘 · upsert 열쇠 · 승인 확인 · 서명 접두 · 광고 길 그대로
+  const vj = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
+  assert.ok(vj.rewrites.some(r => r.source === '/cal/:f/:file' && r.destination === '/api/ics?f=:f&sig=:file'), '/cal/ 재작성');
+  assert.strictEqual(vj.crons.length, 2, '크론은 둘 그대로(Hobby)');
+  assert.ok(!existsSync(new URL('../api/calendar.js', import.meta.url)) && !existsSync(new URL('../api/feed.js', import.meta.url)), '함수 파일을 늘리지 않는다');
+  const icsSrc = readFileSync(new URL('../api/ics.js', import.meta.url), 'utf8');
+  assert.ok(/\.upsert\(\{ owner, project_id: project, card_ids: kept[^}]*\}, \{ onConflict: 'owner,project_id' \}\)/.test(icsSrc), 'POST는 (owner, project_id) upsert');
+  assert.ok(/const owner = await ownerOf\(supabase, user\.id\)/.test(icsSrc), '주인은 세션에서 정한다(몸통을 믿지 않는다)');
+  assert.ok(/if \(!feed \|\| !\(await ownerApproved\(supabase, feed\.owner\)\)\) \{ gone\(res\); return; \}/.test(icsSrc)
+    && /isApprovedProfile\(supabase, owner\)/.test(icsSrc) && /isAdminEmail\(supabase, data\?\.email\)/.test(icsSrc), 'GET은 매번 주인의 승인을 본다');
+  assert.ok(/safeEqual\(sig, calSig\(f\)\)/.test(icsSrc) && /`cal:\$\{process\.env\.SUPABASE_SECRET_KEY/.test(icsSrc) && /`ics:\$\{process\.env\.SUPABASE_SECRET_KEY/.test(icsSrc),
+    '구독 서명은 cal: 접두(광고 ics:와 다른 열쇠)');
+  assert.ok(/'Cache-Control', 'public, max-age=300'/.test(icsSrc) && /picked\.has\(r\.id\) && feedKeepRow\(r\)/.test(icsSrc), '캐시 5분 · 지금 남은 업무만');
+  assert.ok(/\.eq\('project_id', feed\.project_id\)/.test(icsSrc), '다른 프로젝트로 간 업무는 빠진다');
+  assert.ok(/const a = argsOf\(body\);/.test(icsSrc) && /sign\(a\.s, a\.n, e\)/.test(icsSrc) && /\?s=\$\{a\.s\}&n=\$\{a\.n\}&e=\$\{e\}&sig=/.test(icsSrc), '광고 → 내 달력 길은 그대로');
+  const { calSig } = await import(new URL('../api/ics.js', import.meta.url).href);
+  const { createHmac } = await import('node:crypto');
+  const id = '11111111-2222-3333-4444-555555555555';
+  assert.strictEqual(calSig(id), calSig(id), '서명은 늘 같다(주소가 바뀌지 않는다)');
+  assert.notStrictEqual(calSig(id), createHmac('sha256', `ics:${process.env.SUPABASE_SECRET_KEY}`).update(id).digest('base64url'));
+  assert.ok(/^[A-Za-z0-9_-]+$/.test(calSig(id)), '서명은 주소에 그대로 싣는 글자');
+  const mig = readFileSync(new URL('../supabase/migrations/0085_calendar_feeds.sql', import.meta.url), 'utf8');
+  const migCode = mig.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  assert.ok(/unique \(owner, project_id\)/.test(migCode) && /references public\.projects\(id\) on delete cascade/.test(migCode)
+    && /for select using \(owner = public\.effective_uid\(\)\)/.test(migCode), '0085: 한 사람·한 프로젝트 한 줄 · 본인만 읽기');
+  assert.ok(!/for (insert|update|delete|all)/.test(migCode) && !/publication/.test(migCode), '0085: 쓰기 정책 없음(서버만) · 실시간 밖');
+  // 화면 — 프로젝트 달력에만 · 게스트에는 없다
+  const viewsSrc = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');
+  assert.strictEqual((viewsSrc.match(/headerExtra=/g) || []).length, 1, '내 달력은 프로젝트 달력에만(전체 일정에는 없다)');
+  assert.ok(/const feedButton = useMemo\(\(\) => \(cloudOn \? <MyCalendarButton/.test(viewsSrc), '게스트(cloudOn 아님)에는 세우지 않는다');
+  const feedUi = readFileSync(new URL('../src/components/calendarFeed.jsx', import.meta.url), 'utf8');
+  assert.ok(feedUi.includes('이 주소를 아는 사람도 동일하게 업무 제목과 마감일을 등록할 수 있어요.') && feedUi.includes('마감일을 바꾸면 내 달력에는 몇 시간 뒤에 반영돼요.')
+    && feedUi.includes("failText('달력 주소를 만들지 못했어요', { human: '잠시 뒤 다시 눌러 주세요' })"), '고지 두 줄 · 실패 두 줄(목업 문구)');
+  assert.ok(/transition-none animate-in fade-in zoom-in-95 duration-150/.test(feedUi), '떠 있는 판은 transition-none(PITFALLS 17-b)');
+  console.log('PASS  내 달력 구독(문장 · 날짜 · .ics · 기기별 버튼 · 저장 줄 세우기 · 서버 배선)');
+}

@@ -41,8 +41,9 @@
 ### 14차 — 다음 세션 할 일 (2026-09-27 사용자가 정함 · 13차는 `fec45b1`까지 배포 · 0082까지 라이브)
 
 1. ~~화면 아래 절반 잘림~~ · 2. ~~갤럭시 진동~~ — 고쳐 푸시함(PITFALLS 9-aa-5-a · §4.3). **실기기 확인 대기**: 키보드를 쓴 뒤 다른 화면으로 가도 아래가 안 비는지 · 같은 업무 알림이 두 번째에도 진동하는지. 갤럭시는 첫 알림부터 안 울렸다 → 크롬 사이트 설정 → 알림 → 진동(사용자 확인 2026-09-27 · 코드 밖).
-3. **프로젝트 달력 ↔ 폰 기본 달력 연동**(추후). 13차 `api/ics.js`(서명 주소 · `SUPABASE_SECRET_KEY`에서 갈라 낸 HMAC)를
-   딛고 **프로젝트별 구독 주소**(webcal · 마감이 있는 업무 → 일정)로 간다. 목업(https://claude.ai/artifact/LjFx2L7u3HL4gWPLj5d6eu · v3: '내 달력' · 업무를 골라 넣는다 · 고른 것은 서버에 한 줄로 두고 주소는 그대로) 승인 대기.
+3. **프로젝트 달력 ↔ 폰 기본 달력 연동 — '내 달력'**(목업 v3 승인 · https://claude.ai/artifact/LjFx2L7u3HL4gWPLj5d6eu). 지었다: 프로젝트 달력 머리 끝 `내 달력` → 업무를 골라 넣는다(처음은 내가 담당자인 것) →
+   고른 것은 `calendar_feeds` 한 줄(0085 · **⏳ 적용 전 — 코드보다 먼저**) · 주소 `/cal/<feed>/<서명>.ics`(서명 접두 `cal:` · 만료 없음 · 주인 승인이 풀리면 404) · 구독은 한 시간 간격.
+   **실기기 확인 대기**: 아이폰 webcal 구독 · 갤럭시 구글 `cid=webcal://` 구독 · 데스크톱 구글·Mac 캘린더 · 카카오 인앱에서 기본 브라우저로 넘어가는지 · 마감을 바꾼 뒤 몇 시간 안에 따라오는지.
 4. ~~조준환 주보 권한~~ — 사용자 결정 '한 사람만' → 0083(명단 id) + `worship.js` `SERVICE_EDITOR_PEOPLE` · 라이브 적용. 사람을 더 넣을 일이 생기면 규칙으로 바꿀지 다시 묻는다.
 5. ~~대시보드·내 업무·팀 업무에서 상시 숨김~~ — 푸시함(`groupByDue`가 기본으로 뺀다 · 내 업무의 '상시' 칩을 고를 때만 선다 · 보드 한 줄은 그대로).
 6. **업무 본문 같이 고치기**(2026-09-28 사용자 요청 — 노션처럼). 1단계 '바뀐 칸만 저장'은 끝(PITFALLS 19-e-1). 설계: Tiptap Collaboration(Yjs) + Supabase 방송(비공개 채널 `coedit:<id>`) + 덧붙이기만 하는 `card_doc_updates` + 사본 `card_docs` + `cards.description`은 마크다운 거울(검색·AI·목록 그대로) + 편집 끝에 `card_doc_versions`. 실측 방송 왕복 중앙 154ms(한쪽 약 80ms). 엔진은 worktree에서 짓는 중, 화면 목업 https://claude.ai/artifact/411k23Kq2YpJQwrfc63D1q 승인 대기(저장 버튼 없음 · 이름표 커서 · 수정 기록 탭 · 불러오는 동안 뼈대).
@@ -107,6 +108,7 @@ src/components/roster.jsx     (v2) 청년 명단 — 연도 세그먼트·직분
 src/components/ShareButton.jsx  프로젝트·카드 공유 링크
 src/components/ShareToggle.jsx  공유 토글 한 벌 — 말씀 묵상·예배 노트·내 순 노트가 같은 부품
 src/components/sunGuide.jsx   (v2) 순모임 가이드 패널 — 주보 피커·이미지로 공유·고정(§4.4·§6-9-av)
+src/components/calendarFeed.jsx 프로젝트 달력 머리의 `내 달력` — 업무 고르기 팝오버/아래 창 · 규칙·.ics·기기별 버튼은 services/calendarFeed.js(서버 api/ics.js와 한 벌 · 0085)
 src/components/Toast.jsx      토스트(`[data-toast]` · 폭 상한 28rem · §8)
 src/components/wordBible.jsx  (v2) 성경 리더 — 본문|북마크|형광펜 · useVersePaint · searchHeads(§6-9-bs)
 src/components/worshipDetail.jsx  (v2) 주보 상세·편집·발행 · 송폼·큐시트 · 내 예배 노트 · useFillRest(§6-9-h)
@@ -184,6 +186,7 @@ api/drive.js                  Apps Script 프록시 — 업로드·폴더·휴�
 api/drive-file.js             드라이브 파일 바이트 중계(앱 안 뷰어용 · §6-29-c·29-z-3)
 api/share.js                  공유 링크 OG 메타 — 조회 `error`를 반드시 읽는다(§6-31-d·31-e)
 api/service-view.js           주보 공개 보기 `/w/<id>/<sig>` — 서명(HMAC · SUPABASE_SECRET_KEY에서 가름) · 필요한 칸만 · OG · 404 짧은 페이지(§32-zj~zm)
+api/ics.js                    광고 한 건 → .ics(10분 서명 주소) · **내 달력 구독** POST {project, cards} upsert(owner, project_id) / GET `/cal/<feed>/<서명>.ics`(vercel.json 재작성 · 주인 승인 확인)
 service-view.html             공개 보기 껍데기(두 번째 빌드 입구 · 테마 스크립트는 index.html과 한 글자도 다르지 않게 — CSP 해시)
 src/serviceViewMain.jsx       공개 보기 화면 — worshipStory·paper 그대로 · **supabase를 부르는 모듈을 import하지 않는다**(logcheck가 따라간다)
 src/services/honorific.js     호칭 순수 모듈(people.js가 다시 내보낸다) — 서버·공개 보기도 같은 규칙

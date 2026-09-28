@@ -18,6 +18,7 @@ import {
 } from './dashboardParts.jsx';
 import { Board } from '../components/boards.jsx';
 import { CalendarBoard } from '../components/calendar.jsx';
+import { MyCalendarButton } from '../components/calendarFeed.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { isMyUid } from '../services/supabaseClient.js';
 import * as cloudSync from '../services/cloudSync.js';
@@ -624,6 +625,10 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   }, [projectTasks]);
   // 달력에는 상시가 얹히지 않는다(날짜가 없는 것이 상시의 모양이다 · 옛 행에 날짜가 남아 있어도)
   const calendarTasks = useMemo(() => filteredTasks.filter(t => !isOngoing(t)), [filteredTasks]);
+  // 내 달력(0085)은 팀 필터와 상관없이 이 프로젝트 업무 전부에서 고른다 · 게스트에는 서버가 없어 세우지 않는다.
+  // 요소를 묶어 둔다 — 렌더마다 새로 만들면 CalendarBoard(memo)가 매번 다시 그려진다.
+  const feedButton = useMemo(() => (cloudOn ? <MyCalendarButton projectId={projectId} tasks={projectTasks} /> : null),
+    [cloudOn, projectId, projectTasks]);
 
   const shareBtn = <ShareButton url={`${window.location.origin}/s/p/${project.id}`} what="프로젝트" />;
   // 삭제는 전원에게 연다(사용자 결정 2026-08-24, RLS도 0021에서 같이 열었다).
@@ -811,7 +816,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
         {/* 순서 바꾸기는 프로젝트 보드에서만 — 대시보드·내 업무·팀 보드는 여러
             프로젝트가 섞여 있어서 "이 컬럼의 순서"라는 말이 성립하지 않는다 */}
         {viewMode === 'kanban' && <Board tasks={filteredTasks} onStatusChange={onStatusChange} onReorder={onReorder} onTaskClick={onTaskClick} />}
-        {viewMode === 'calendar' && <CalendarBoard tasks={calendarTasks} onTaskClick={onTaskClick} onNewTask={onNewTask} />}
+        {viewMode === 'calendar' && <CalendarBoard tasks={calendarTasks} onTaskClick={onTaskClick} onNewTask={onNewTask} headerExtra={feedButton} />}
         {/* 그래프(0020): 선후관계. 필터를 그대로 물려받는다 — 팀을 고르면 그 팀 순서만 남는다 */}
         {viewMode === 'graph' && <Suspense fallback={null}><DepGraph tasks={filteredTasks} onTaskClick={onTaskClick} /></Suspense>}
       </div>

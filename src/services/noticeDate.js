@@ -120,8 +120,8 @@ const stampUtc = (t) => new Date(t).toISOString().replace(/[-:]/g, '').replace(/
 const ymd = (t) => new Date(t).toISOString().slice(0, 10).replace(/-/g, '');
 
 // RFC 5545 글자 이스케이프 + 75옥텟 접기(한글은 3옥텟이라 글자 수로 자르면 넘는다)
-const icsText = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
-function fold(line) {
+export const icsText = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+export function fold(line) {
   const out = [];
   let cur = '';
   let bytes = 0;

@@ -1473,3 +1473,19 @@ export async function mergeProfiles(keepId, dropId) {
   if (error) throw error;
   return data || {};
 }
+
+// ── 내 달력 구독 (0085 · api/ics.js · services/calendarFeed.js) ──────────────
+// cards를 빼면 저장된 것을 묻는다({ cards: null }이면 아직 없다), 주면 **고른 것 전체**로 덮는다
+// (차이가 아니라 전체라 같은 요청이 두 번 가도 결과가 같다). → { cards, url, webcal }
+export async function projectCalendarFeed(projectId, cards) {
+  const token = (await getSession())?.session?.access_token;
+  if (!token) { const e = new Error('로그인이 필요해요'); e.status = 401; throw e; }
+  const r = await fetch('/api/ics', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(cards === undefined ? { project: projectId } : { project: projectId, cards }),
+  });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(out.error || `calendar feed ${r.status}`); e.status = r.status; throw e; }
+  return out;
+}

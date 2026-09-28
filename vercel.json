@@ -8,6 +8,10 @@
     {
       "source": "/w/:id/:sig",
       "destination": "/api/service-view?id=:id&sig=:sig"
+    },
+    {
+      "source": "/cal/:f/:file",
+      "destination": "/api/ics?f=:f&sig=:file"
     }
   ],
   "crons": [

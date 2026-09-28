@@ -97,7 +97,9 @@ function layoutWeek(weekStart, tasks, laneCount = CAL_LANES) {
 // 띠를 날짜 위에 절대 배치로 얹으면 날짜가 가려지고 다음 주로 넘친다(핸드오프 경고).
 // onNewTask(iso)는 프로젝트 캘린더만 넘긴다 — 전체 일정에는 "어느 프로젝트에 만들지"가
 // 없어서 버튼을 두지 않는다(ScheduleView는 이 prop을 넘기지 않는다).
-export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
+// headerExtra: 머리 오른쪽 끝(범례 뒤)에 붙는 것 — 프로젝트 달력의 `내 달력`(components/calendarFeed.jsx)만 준다.
+// 전체 일정은 여러 프로젝트가 섞여 있어 '이 프로젝트의 구독'이 성립하지 않는다.
+export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, headerExtra = null }) => {
   const isMobile = useIsMobile();
   // 생일도 달력에 얹는다(0019). 업무가 아니므로 건수에 세지 않고 띠 레인도 쓰지 않는다 —
   // 날짜 숫자 옆의 작은 얼굴과, 그 날 목록의 첫 줄로만 나온다. 그래야 "업무가 없는 날"이
@@ -198,7 +200,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* 상단: 이전/다음 붙은 쌍 + 연월 + 건수 + 상태 범례 */}
+      {/* 상단: 이전/다음 붙은 쌍 + 연월 + 건수 + 상태 범례 + (프로젝트만) 내 달력 */}
       <div className="flex items-center gap-2.5 pb-2 shrink-0 flex-wrap">
         <span className="flex rounded-md overflow-hidden shrink-0" style={{ border: '1px solid var(--app-line)' }}>
           <button onClick={shift(-1)} disabled={!canPrev} title="이전 달"
@@ -221,6 +223,12 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask }) => {
             </span>
           ))}
         </span>
+        {headerExtra && (
+          <>
+            <span className="hidden sm:block w-px h-4 shrink-0" style={{ background: 'var(--app-line)' }} />
+            {headerExtra}
+          </>
+        )}
       </div>
 
       {isMobile ? (
