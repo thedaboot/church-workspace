@@ -173,12 +173,15 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions
     <div className="flex items-start gap-2.5 group/comment">
       <Avatar name={c.author || ''} className="flex w-6 h-6 text-[10px] mt-0.5" />
       <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2 mb-0.5">
+        {/* 시각과 '수정됨'은 **꺾이지 않는 한 덩어리**다(2026-09-28 사용자 지적 — 좁은 칸에서 '9월 25일 오후 / 07:39'로
+            꺾였다). 칸이 모자라면 덩어리째 다음 줄로 내려간다(flex-wrap) — 시각 가운데가 갈라지지 않는다. */}
+        <div className="flex flex-wrap items-baseline gap-x-2 mb-0.5">
           <span className="font-semibold text-[11px] text-fg">{c.author}</span>
-          <span className="comment-stamp text-[10px] text-fg-muted">{formatDate(c.timestamp)}</span>
-          {c.edited && <span className="text-[10px] text-fg-muted">(수정됨)</span>}
+          <span className="comment-stamp text-[10px] text-fg-muted whitespace-nowrap">
+            {formatDate(c.timestamp)}{c.edited && ' · 수정됨'}
+          </span>
           {isOwner && !editing && (
-            <span className="ml-auto flex items-center gap-1.5 opacity-100 pointer-fine:md:opacity-0 md:group-hover/comment:opacity-100 transition-opacity">
+            <span className="ml-auto self-center flex items-center gap-1.5 opacity-100 pointer-fine:md:opacity-0 md:group-hover/comment:opacity-100 transition-opacity">
               <button onClick={() => { setEditText(c.text); setEditing(true); }} className="relative before:absolute before:-inset-[3px] text-fg-faint hover:text-fg-muted transition-colors" title="수정"><Pencil size={11} /></button>
               <ConfirmPopover message={hasReplies ? '댓글을 삭제할까요? 답글도 함께 삭제돼요.' : '댓글을 삭제할까요?'} onConfirm={() => onDelete(c.id)}>
                 <button type="button" className="relative before:absolute before:-inset-[3px] text-fg-faint hover:text-tag-red-fg transition-colors" title="삭제"><Trash2 size={11} /></button>

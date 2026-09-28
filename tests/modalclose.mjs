@@ -552,12 +552,14 @@ check('다시 펴진다', reopened.found && reopened.width > 100, JSON.stringify
       opacity: cs.opacity, bgIsAccent: cs.backgroundColor === accent,
       back: getComputedStyle(back).backgroundColor, backMs: getComputedStyle(back).animationDuration,
       panelMs: panel && getComputedStyle(panel).animationDuration,
-      stamp: stamp ? { px: getComputedStyle(stamp).fontSize, muted: getComputedStyle(stamp).color === muted } : null } : null;
+      stamp: stamp ? { px: getComputedStyle(stamp).fontSize, muted: getComputedStyle(stamp).color === muted, nowrap: getComputedStyle(stamp).whiteSpace === 'nowrap' } : null } : null;
   })()`);
   check('D9: 댓글 등록은 작은 단 — 11.5px · 600 · 29px, 빈 칸이면 accent 그대로 opacity .4',
     !!d9 && d9.px === '11.5px' && d9.w === '600' && d9.h === 29 && d9.off === true && d9.opacity === '0.4' && d9.bgIsAccent, JSON.stringify(d9));
   check('D9: 업무 창 뒤판은 검정 50% · 뒤판과 창 150ms', !!d9 && /^(rgba\(0, 0, 0, 0\.5\)|oklab\(0 0 0 \/ 0\.5\))$/.test(d9.back) && d9.backMs === '0.15s' && d9.panelMs === '0.15s', JSON.stringify(d9));
   check('D9: 댓글 시각은 10px muted', !!d9 && !!d9.stamp && d9.stamp.px === '10px' && d9.stamp.muted, JSON.stringify(d9?.stamp));
+  // 2026-09-28 — 시각('9월 25일 오후 07:39 · 수정됨')이 좁은 칸에서 가운데가 꺾였다. **되돌리기**: comment-stamp의 whitespace-nowrap을 걷으면 깨진다.
+  check('댓글 시각·수정됨은 꺾이지 않는 한 덩어리', !!d9?.stamp?.nowrap, JSON.stringify(d9?.stamp));
 }
 
 console.log(results.join('\n'));
