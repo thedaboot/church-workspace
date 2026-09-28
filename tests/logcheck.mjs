@@ -5293,3 +5293,39 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/카드별 조회 추적[^\n]*\n\|[^\n]*성경 장 보기는 예외/.test(handoff), 'HANDOFF §7에 성경 장 보기 예외 줄이 카드별 조회 추적 바로 아래에 있다');
   console.log('PASS  은혜와 리듬 묶음(오늘의 예배 · 지난 해의 오늘 · 발자취 · 이 장을 본 사람 · 마음 칩)');
 }
+
+// ── 바뀐 칸만 저장 · 하위 업무 줄 단위 병합 (2026-09-28) ────────────────────────
+// 수정 모드 동안에는 실시간 반영을 멈춰 두므로 병합 기준(live)이 '수정을 누른 순간'이다. 예전 저장은
+// 모든 칸을 통째로 덮어써서 **A가 제목만 고쳐도 그사이 B가 바꾼 상태가 되돌아갔다**.
+// 되돌리기 검사: controllers의 `{ changed: taskChangedKeys(task, oldData), base: oldData }`를 걷으면
+// 배선 단정이, utils.mergeSubtasks의 `subSame(m, b) ? t : m`을 `m`으로 바꾸면 ②가 깨진다.
+{
+  const U = await import(new URL('../src/utils.js', import.meta.url).href);
+  const base = { title: '임원 선출', content: '본문', status: '시작 전', dueDate: '2026-10-11', startDate: '', assignees: ['가'], teams: ['웰컴팀'],
+    subtasks: [{ id: 's1', title: '공지', done: false }, { id: 's2', title: '투표', done: false }], dependsOn: [], position: 0, projectId: 'p' };
+  // ① A는 제목만 고쳤다 — 보낼 칸은 제목 하나(상태·하위 업무는 서버 값을 건드리지 않는다)
+  const live = { ...base };                                    // 수정 모드 동안 멈춘 스토어 = base
+  const mine = U.mergeTaskEdit({ ...base, title: '임원진 선출' }, base, live);
+  assert.deepStrictEqual(U.taskChangedKeys(mine, live), ['title'], '제목만 고치면 제목만 보낸다');
+  assert.strictEqual(U.taskChangedKeys(mine, null), null, '새 업무는 전부 보낸다');
+  assert.deepStrictEqual(U.taskChangedKeys({ ...base, position: 3 }, base), ['position'], '순서도 바뀐 칸으로 센다');
+  // ② 하위 업무 — 나는 s1을, 서버(B)는 s2를 체크했다 → 둘 다 체크
+  const mySubs = [{ id: 's1', title: '공지', done: true }, { id: 's2', title: '투표', done: false }];
+  const theirs = [{ id: 's1', title: '공지', done: false }, { id: 's2', title: '투표', done: true }];
+  assert.deepStrictEqual(U.mergeSubtasks(base.subtasks, mySubs, theirs).map(s => s.done), [true, true], '서로 다른 줄을 체크하면 둘 다 남는다');
+  // ③ 내가 더한 줄 · 서버에만 생긴 줄 · 내가 지운 줄 · 서버가 지운 줄
+  const m3 = [{ id: 's2', title: '투표', done: false }, { id: 's3', title: '결과 공지', done: false }];         // s1 지움 · s3 더함
+  const t3 = [{ id: 's1', title: '공지', done: false }, { id: 's4', title: '장소', done: false }];             // s2 지움 · s4 더함
+  assert.deepStrictEqual(U.mergeSubtasks(base.subtasks, m3, t3).map(s => s.id), ['s3', 's4'], '지운 줄은 양쪽 모두 존중하고 새 줄은 둘 다');
+  // ④ 서버가 지운 줄을 내가 고쳤으면 살린다(내 수정이 사라지지 않게)
+  assert.deepStrictEqual(U.mergeSubtasks(base.subtasks, [{ id: 's2', title: '투표', done: true }], [{ id: 's1', title: '공지', done: false }]).map(s => s.id), ['s2'],
+    '서버가 지운 줄이라도 내가 고쳤으면 남는다 · 내가 지운 s1은 빠진다');
+  // 배선
+  const ctl = readFileSync(new URL('../src/hooks/controllers.js', import.meta.url), 'utf8');
+  const sync = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
+  assert.ok(/cardUpsertCloud\(task, isNew, \{ changed: taskChangedKeys\(task, oldData\), base: oldData \}\)/.test(ctl), '저장은 바뀐 칸 목록과 이전 카드를 넘긴다');
+  assert.ok(/const patch = pickCols\(cardPatch\(task\), changed\)/.test(sync) && /mergeSubtasks\(base\.subtasks, task\.subtasks, now\.subtasks\)/.test(sync),
+    '클라우드 쓰기는 바뀐 칸만 · 하위 업무는 서버의 지금 목록과 합친다');
+  assert.ok(/changed\.includes\('teams'\) \?/.test(sync) && /changed\.includes\('assignees'\) &&/.test(sync), '팀·담당자 조인도 바뀌었을 때만 다시 쓴다');
+  console.log('PASS  바뀐 칸만 저장 · 하위 업무 줄 단위 병합');
+}

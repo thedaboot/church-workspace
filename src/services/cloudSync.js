@@ -4,7 +4,7 @@ import { setWriteObserver } from './supabaseClient.js';
 import { reconnectWatcher } from './realtimeStatus.js';
 import {
   normalize, httpsImage, extractMentions, isoTime, seenOnlyChange,
-  dueForHeartbeat, HEARTBEAT_MS, LEAVE_STAMP_MS, WRITE_STAMP_MS, subtasksForDb,
+  dueForHeartbeat, HEARTBEAT_MS, LEAVE_STAMP_MS, WRITE_STAMP_MS, subtasksForDb, mergeSubtasks,
 } from '../utils.js';
 
 // ============================================================================
@@ -575,6 +575,14 @@ export async function loadCardPatch(cardId) {
 }
 
 // ── 앱 → DB 쓰기 (컨트롤러가 로컬 반영 후 호출; id는 로컬 uuid 재사용) ───────
+// 앱 칸 → DB 칸. 바뀐 칸만 보낼 때 이 표로 고른다(teams·assignees 조인은 cardUpsertCloud가 따로).
+const CARD_COLS = {
+  projectId: ['project_id'], title: ['title'], content: ['description'], status: ['status'],
+  startDate: ['start_date'], dueDate: ['due_date'], assignees: ['assignees'], position: ['position'],
+  subtasks: ['subtasks'], dependsOn: ['depends_on'], teams: [],
+};
+const pickCols = (patch, keys) => Object.fromEntries(
+  keys.flatMap(k => CARD_COLS[k] || []).map(c => [c, patch[c]]));
 const cardPatch = (task) => ({
   project_id: task.projectId,
   title: task.title,
@@ -612,7 +620,23 @@ const cardWrites = new Map();
 // 자기 문구로 말할 수 있어야 한다(예전에는 첨부가 files_card_id_fkey 원문을 그대로 띄웠다).
 export function cardWritePromise(id) { return cardWrites.get(id) || Promise.resolve(true); }
 
-export async function cardUpsertCloud(task, isNew) {
+// changed: 바뀐 앱 칸 목록(utils.taskChangedKeys) — 없으면(새 업무·옛 호출) 전부 보낸다.
+// base: 고치기 전 카드. 하위 업무가 바뀌었으면 **보내기 직전에 서버의 지금 목록을 읽어 줄 단위로
+// 합친다**(utils.mergeSubtasks) — 둘이 서로 다른 줄을 체크해도 한쪽이 풀리지 않게.
+export async function cardUpsertCloud(task, isNew, { changed = null, base = null } = {}) {
+  if (!isNew && changed) {
+    if (!changed.length) return null;               // 바뀐 게 없으면 쓰지 않는다
+    const patch = pickCols(cardPatch(task), changed);
+    if (changed.includes('subtasks') && base) {
+      const now = await write(() => cloud.getCard(task.id)).catch(() => null);
+      if (now) patch.subtasks = subtasksForDb(mergeSubtasks(base.subtasks, task.subtasks, now.subtasks));
+    }
+    const teamIds = changed.includes('teams') ? (task.teams || []).map(n => teamNameToId.get(n)).filter(Boolean) : undefined;
+    const assigneeIds = changed.includes('assignees') && profileIdToName.size ? assigneeIdsOf(task.assignees) : undefined;
+    const p = write(() => cloud.updateCard(task.id, patch, teamIds, assigneeIds));
+    cardWrites.set(task.id, p.then(() => true, () => false));
+    return p;
+  }
   const teamIds = (task.teams || []).map(n => teamNameToId.get(n)).filter(Boolean);
   // 프로필 맵이 비어 있으면(=아직 로드되지 않았다) 이름을 id로 바꿀 수 없다.
   // 그때 빈 배열을 넘기면 updateCard가 담당자 조인 행을 통째로 지운다 → undefined를

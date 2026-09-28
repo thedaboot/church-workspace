@@ -617,13 +617,45 @@ export function taskEditDirty(now, was) {
 // ── 수정한 칸만 내 것으로 (2026-09-25 감사 S3) ──────────────────────────────
 // 수정 폼은 '수정'을 누른 순간의 카드(base)를 들고 있다가 저장 때 통째로 보냈다 — 그 사이
 // 남이 체크한 하위 업무·바꾼 상태가 내 저장으로 되돌아갔다. 그래서 **내가 base에서 바꾼 칸만**
-// 내 값을 쓰고 나머지는 지금 스토어의 카드(live)를 쓴다. 저장 경로(cardPatch)는 그대로이고
+// 내 값을 쓰고 나머지는 지금 스토어의 카드(live)를 쓴다. 서버에는 그중 바뀐 칸만 간다(taskChangedKeys)
 // 보내는 값만 달라진다 — 칸 단위이므로 같은 칸을 둘이 고치면 나중 저장이 이긴다(예전과 같다).
 // 수정 폼이 고치는 칸은 TASK_EDIT_KEYS뿐이라 나머지(순서·요약·작성자…)도 live가 맞다.
 export function mergeTaskEdit(mine, base, live) {
   if (!mine || !base || !live) return mine;
   const out = { ...live };
   for (const k of TASK_EDIT_KEYS) out[k] = editChanged(mine, base, k) ? mine[k] : live[k];
+  return out;
+}
+
+// ── 서버에 보낼 칸 (2026-09-28 · 바뀐 칸만 저장) ─────────────────────────────
+// 저장은 예전에 카드의 모든 칸을 통째로 덮어썼다(cardPatch). 그런데 수정 모드 동안에는 실시간
+// 반영을 멈춰 두므로(App.jsx isEditingRef) mergeTaskEdit의 live가 '수정을 누른 순간'에 멈춰 있고,
+// 그래서 **내가 안 건드린 칸까지 그 순간의 값으로 되돌렸다**(B가 바꾼 상태가 A의 제목 저장으로 풀렸다).
+// 이제 저장은 이전 카드(was)에서 바뀐 칸만 보낸다 — 안 바뀐 칸은 서버의 값을 건드리지 않는다.
+const SAVE_EXTRA_KEYS = ['position', 'projectId'];
+export function taskChangedKeys(now, was) {
+  if (!was) return null;                            // 새 업무 — 전부 보낸다
+  return [...TASK_EDIT_KEYS, ...SAVE_EXTRA_KEYS].filter(k => editChanged(now, was, k));
+}
+
+// 하위 업무 셋 갈래 병합 — base(내가 보던 것) → mine(내가 고친 것), theirs(지금 서버).
+// 하위 업무는 한 칸(jsonb 배열)이라 칸 단위로는 둘이 서로 다른 줄을 체크해도 한쪽이 풀린다.
+// 그래서 **줄(id) 단위로** 합친다: 내가 바꾼 줄·더한 줄·지운 줄만 내 것, 나머지는 서버 것.
+// 차례는 내 차례를 따르고, 서버에만 새로 생긴 줄은 뒤에 붙인다. id가 없는 옛 줄은 제목으로 가른다.
+const subKey = (s) => (s?.id ? `id:${s.id}` : `t:${String(s?.title || '').trim()}`);
+const subSame = (a, b) => JSON.stringify(editShape([a], 'subtasks')) === JSON.stringify(editShape([b], 'subtasks'));
+export function mergeSubtasks(base, mine, theirs) {
+  const B = new Map((base || []).map(s => [subKey(s), s]));
+  const M = new Map((mine || []).map(s => [subKey(s), s]));
+  const T = new Map((theirs || []).map(s => [subKey(s), s]));
+  const out = [];
+  for (const [k, m] of M) {
+    const b = B.get(k), t = T.get(k);
+    if (!b) { out.push(m); continue; }             // 내가 더한 줄
+    if (!t) { if (!subSame(m, b)) out.push(m); continue; }   // 서버에서 지운 줄 — 내가 고쳤으면 살린다
+    out.push(subSame(m, b) ? t : m);               // 내가 안 고쳤으면 서버 것
+  }
+  for (const [k, t] of T) if (!M.has(k) && !B.has(k)) out.push(t);   // 서버에만 새로 생긴 줄
   return out;
 }
 

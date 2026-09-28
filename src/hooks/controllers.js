@@ -2,7 +2,7 @@ import { useEffect, useCallback } from 'react';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
 import { TaskService } from '../services/domain.js';
-import { generateId } from '../utils.js';
+import { generateId, taskChangedKeys } from '../utils.js';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { showToast } from '../components/Toast.jsx';
@@ -90,7 +90,9 @@ export const useWorkspaceController = () => {
       if (folderId && oldData?.title !== task.title) {
         cloudSync.renameCardFolder(folderId, task.title);
       }
-      cloudSync.cardUpsertCloud(task, isNew)
+      // **바뀐 칸만** 보낸다(utils.taskChangedKeys) — 수정 모드 동안 멈춰 있던 스토어 값으로 남이 바꾼
+      // 칸을 되돌리지 않게. 견주는 것은 부르는 쪽이 준 이전 카드(oldData)다.
+      cloudSync.cardUpsertCloud(task, isNew, { changed: taskChangedKeys(task, oldData), base: oldData })
         .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id))
         .then(() => mentionIds.length && cloudSync.notifyMentions(task.content, {
           actorName: currentUser.name, cardId: task.id, projectId: task.projectId, recipientIds: mentionIds,
