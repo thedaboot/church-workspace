@@ -42,7 +42,7 @@
 
 1. ~~화면 아래 절반 잘림~~ · 2. ~~갤럭시 진동~~ — 고쳐 푸시함(PITFALLS 9-aa-5-a · §4.3). **실기기 확인 대기**: 키보드를 쓴 뒤 다른 화면으로 가도 아래가 안 비는지 · 같은 업무 알림이 두 번째에도 진동하는지. 갤럭시는 첫 알림부터 안 울렸다 → 크롬 사이트 설정 → 알림 → 진동(사용자 확인 2026-09-27 · 코드 밖).
 3. **프로젝트 달력 ↔ 폰 기본 달력 연동 — '내 달력'**(목업 v3 승인 · https://claude.ai/artifact/LjFx2L7u3HL4gWPLj5d6eu). 지었다: 프로젝트 달력 머리 끝 `내 달력` → 업무를 골라 넣는다(처음은 내가 담당자인 것) →
-   고른 것은 `calendar_feeds` 한 줄(0085 · **⏳ 적용 전 — 코드보다 먼저**) · 주소 `/cal/<feed>/<서명>.ics`(서명 접두 `cal:` · 만료 없음 · 주인 승인이 풀리면 404) · 구독은 한 시간 간격.
+   고른 것은 `calendar_feeds` 한 줄(0085 · 라이브 적용 2026-09-28) · 주소 `/cal/<feed>/<서명>.ics`(서명 접두 `cal:` · 만료 없음 · 주인 승인이 풀리면 404) · 구독은 한 시간 간격.
    **실기기 확인 대기**: 아이폰 webcal 구독 · 갤럭시 구글 `cid=webcal://` 구독 · 데스크톱 구글·Mac 캘린더 · 카카오 인앱에서 기본 브라우저로 넘어가는지 · 마감을 바꾼 뒤 몇 시간 안에 따라오는지.
 4. ~~조준환 주보 권한~~ — 사용자 결정 '한 사람만' → 0083(명단 id) + `worship.js` `SERVICE_EDITOR_PEOPLE` · 라이브 적용. 사람을 더 넣을 일이 생기면 규칙으로 바꿀지 다시 묻는다.
 5. ~~대시보드·내 업무·팀 업무에서 상시 숨김~~ — 푸시함(`groupByDue`가 기본으로 뺀다 · 내 업무의 '상시' 칩을 고를 때만 선다 · 보드 한 줄은 그대로).
@@ -221,7 +221,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0076** 알림 종류 `approved`(관리자만 넣는다). **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at`. **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만 · 미적용). **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거). **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`. **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) — **⏳ 미적용, 코드보다 먼저 나가야 한다**(예배 목록 조회가 그 칸을 읽는다). **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책) — **⏳ 미적용 · 엔진만 있고 화면은 아직**(`services/coedit/index.js` 머리말). 다음 번호는 0085.
+  **0076** 알림 종류 `approved`(관리자만 넣는다). **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at`. **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만 · 미적용). **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거). **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`. **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`). **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책) — 라이브 적용 2026-09-28 · 엔진만 있고 화면은 아직(`services/coedit/index.js` 머리말). **0085** `calendar_feeds`(내 달력) 적용. 다음 번호는 0086.
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.
