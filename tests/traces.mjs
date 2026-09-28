@@ -260,8 +260,10 @@ const before = await ev(`({ still: !!(${box('둘째 단계')})?.querySelector('s
 check('이미 끝난 줄(다시 연 창)에는 그리지 않는다', before.still === false && before.strike === false, JSON.stringify(before));
 await ev(`(${box('첫 단계')}).click()`); await sleep(40);
 const drawn = await ev(`(() => { const s = ${title('첫 단계')}; return { check: !!(${box('첫 단계')})?.querySelector('svg.dc-check-now'),
-  strike: s?.classList.contains('dc-strike-now'), after: s ? getComputedStyle(s, '::after').animationName : '' }; })()`);
-check('방금 체크한 줄 — 체크가 선으로 그려지고 취소선이 지나간다', drawn.check && drawn.strike && drawn.after === 'dc-strike', JSON.stringify(drawn));
+  strike: s?.classList.contains('dc-strike-now'), after: s ? getComputedStyle(s).animationName : '',
+  // 그리는 요소가 글자만큼인가(인라인 · 줄 폭이 아니다 — 2026-09-28 '줄 끝까지 그었다가 돌아온다')
+  inline: s ? getComputedStyle(s).display === 'inline' && s.getBoundingClientRect().width < s.parentElement.getBoundingClientRect().width : false }; })()`);
+check('방금 체크한 줄 — 체크가 선으로 그려지고 취소선이 지나간다', drawn.check && drawn.strike && drawn.after === 'dc-strike' && drawn.inline, JSON.stringify(drawn));
 await sleep(700);
 const settled = await ev(`(() => { const s = ${title('첫 단계')}; return { strike: s?.classList.contains('dc-strike-now'), line: s ? getComputedStyle(s).textDecorationLine : '' }; })()`);
 check('다 그어지면 보통 취소선으로 돌아간다', settled.strike === false && settled.line === 'line-through', JSON.stringify(settled));

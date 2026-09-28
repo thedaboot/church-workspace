@@ -926,9 +926,13 @@ function SubtaskList({ value = [], onChange, readOnly = false, members = [] }) {
                     있다는 것 자체가 안 보인다. 삭제 버튼도 hover로 숨기지 않는다
                     (터치 기기에는 hover가 없다). */}
                 {readOnly ? (
-                  <span data-subtask-title=""
-                    onAnimationEnd={(e) => { if (e.animationName === 'dc-strike' && justDone === s.id) setJustDone(null); }}
-                    className={`flex-1 min-w-0 text-[13px] break-words ${s.done ? `text-fg-faint line-through${justDone === s.id ? ' dc-strike-now' : ''}` : 'text-fg'}`}>{s.title}</span>
+                  // 바깥은 자리(flex-1), 안은 **글자만큼인 인라인**이다 — 취소선을 그리는 요소가 줄 폭이면 줄 끝까지
+                  // 그었다가 끝나는 순간 글자 폭으로 되돌아왔다(2026-09-28 사용자 지적). 인라인이라 여러 줄도 줄마다 글자 끝까지.
+                  <span className="flex-1 min-w-0 text-[13px] break-words">
+                    <span data-subtask-title=""
+                      onAnimationEnd={(e) => { if (e.animationName === 'dc-strike' && justDone === s.id) setJustDone(null); }}
+                      className={s.done ? `text-fg-faint line-through${justDone === s.id ? ' dc-strike-now' : ''}` : 'text-fg'}>{s.title}</span>
+                  </span>
                 ) : (
                   <input
                     value={s.title}
