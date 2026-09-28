@@ -666,6 +666,10 @@
     안 하면 포커스 이벤트·키가 안 들어간다(`tests/mobbits`·`word`).
 42-h. **게스트에서 읽기 실패를 만드는 법** — 그 화면의 게스트 저장 자리를 모양이 틀린 값으로 덮는다(`church_worship_v1`에 `{ services: 1 }` →
     펼치기에서 던진다). 게스트 캐시는 메모리뿐이라 새로 연 페이지는 '캐시 없는 첫 읽기'다(`tests/worship`·`groups`·`roster`의 D2). 콘솔 줄은 그 검사가 가져간다.
+42-j. **노드 검사에서 `setTimeout(…, 1)`로 메시지를 흉내 내면 윈도에서는 한 번에 15ms씩 걸린다** — 세 번 오가는 악수를 `sleep(30)`으로
+    기다렸다가 '안 모였다'로 FAIL이 났다(코드는 멀쩡했다 · `tests/coedit`). 시간으로 기다리지 말고 **오가는 것이 다 닿을 때까지** 센다(`bus().settle()`).
+42-k. **`y-protocols`의 `Awareness`는 3초 점검 타이머를 건다** — 검사에서 `destroy()`를 빠뜨리면 전부 PASS를 찍고도 노드가 안 끝나 러너가 멈춘다.
+    만든 것은 다 `destroy()`하고, 스위트 끝에 `process.exit(0)`을 둔다.
 
 ### AI
 
@@ -935,3 +939,15 @@ reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가
     HTML을 만들고 `/w/…` 요청을 가로채 돌려준다. `Page.navigate`는 응답이 올 때까지 끝나지 않으므로 **기다리지 말고** 먼저 `Fetch.requestPaused`를 받는다.
     가로챈 페이지에서는 vite HMR 소켓이 안 붙어 콘솔에 `[vite]` 줄이 남는다(dev 소음 — 그 묶음에서만 거른다).
     테마 스크립트 대조는 CRLF를 LF로 바꿔 잰다 — 윈도 작업 사본의 index.html은 CRLF다.
+
+### 업무 본문 같이 쓰기 (2026-09-28 · 0084 · 엔진만)
+
+**32-zn.** **TipTap 3의 Collaboration은 `y-prosemirror`가 아니라 `@tiptap/y-tiptap`(그 갈래)을 문다** — 심기·되돌리기·통째로 갈기에서 `y-prosemirror`를
+    따로 불러 쓰면 `ySyncPluginKey`가 두 벌이 되어 편집기의 되돌리기(그 열쇠를 출처로 따라간다)가 우리 트랜잭션을 못 알아본다. 같이 쓰기 코드는
+    `@tiptap/y-tiptap`에서만 가져온다(`services/coedit/core.js`). 스키마도 한 벌이다(`services/editorSchema.js` — 편집기와 심기가 같이 쓴다).
+
+**32-zo.** **기록을 접을 때 id 차례를 커밋 차례로 믿으면 글이 빈다** — bigserial은 넣을 때 매겨지고 커밋은 늦을 수 있어서, 102까지 읽고 102로 접으면
+    아직 안 보이던 101이 스냅샷 없이 지워진다. `card_doc_compact`가 30초 넘게 지난 기록까지로 upto를 줄이고, upto는 앞으로만 간다(둘이 동시에 접으면 뒤 것은 false).
+
+**32-zp.** **시간 초과 뒤 다시 보낼 때 새 편집과 섞어 보내면 기록이 겹친다** — '실패'가 아니라 '모른다'라서 이미 들어갔을 수 있다. 덩어리를 봉하고
+    **같은 열쇠(client_id)로** 다시 보낸다(`core.createBatcher` · DB는 on conflict do nothing). 새 편집은 다음 덩어리다.

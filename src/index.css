@@ -543,6 +543,16 @@ svg.lucide { stroke-width: 1.4px; }
 .tiptap ul[data-type="taskList"] input[type="checkbox"]:focus-visible {
   outline: 2px solid var(--app-accent); outline-offset: 1px;
 }
+/* 같이 쓰기의 남의 커서(CollaborationCaret · 0084) — collab을 넘긴 편집기에만 생긴다.
+   색은 사람마다(awareness의 user.color) 요소에 직접 박힌다. 이름표는 글줄을 밀지 않게 띄운다. */
+.tiptap .collaboration-carets__caret {
+  position: relative; margin: 0 -1px; border-left: 2px solid; border-right: 0;
+  word-break: normal; pointer-events: none;
+}
+.tiptap .collaboration-carets__label {
+  position: absolute; left: -2px; top: -1.35em; padding: 0 .3rem; border-radius: 4px 4px 4px 0;
+  color: #fff; font-size: 12px; font-weight: 600; line-height: 1.35; white-space: nowrap; user-select: none;
+}
 .tiptap ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--app-ink-faint); text-decoration: line-through; }
 .tiptap strong { font-weight: 700; }
 .tiptap s { opacity: .8; }

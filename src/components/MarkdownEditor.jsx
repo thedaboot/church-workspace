@@ -1,11 +1,9 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useEditor, useEditorState, EditorContent } from '@tiptap/react';
-import { StarterKit } from '@tiptap/starter-kit';
-import { Highlight } from '@tiptap/extension-highlight';
-import { Image } from '@tiptap/extension-image';
 import { Placeholder } from '@tiptap/extension-placeholder';
-// starter-kit이 이미 물고 있는 패키지라 새 다운로드가 없다(3.29.0 동일)
-import { TaskList, TaskItem } from '@tiptap/extension-list';
+// 노드·마크(StarterKit·형광펜·체크리스트·이미지)는 한 벌이다 — 같이 쓰기가 마크다운에서
+// 문서를 심을 때 같은 스키마를 써야 해서 거기로 옮겼다(services/editorSchema.js 머리말)
+import { bodyExtensions } from '../services/editorSchema.js';
 import {
   Bold, Italic, Underline, Strikethrough, Highlighter,
   Heading1, Heading2, Heading3, Heading4, List, ListOrdered, ListTodo, Link2, Unlink, Loader2, Minus,
@@ -288,12 +286,18 @@ function useStickyTop(ref) {
 // 제거"). 도막 제목이 고정이라 제목을 새로 만들 일이 없고(단계를 바꾸면 그 도막이 종이에서
 // 라벨로 안 올라가는 것처럼 보인다), 종이에는 선을 긋지 않으며 링크도 쓰지 않는다.
 //
+// `collab` — 업무 본문 같이 쓰기(0084 · services/coedit/index.js `openCoedit`이 주는 `co.collab`).
+// **없으면 예전과 한 글자도 다르지 않다**(예배 노트·말씀 화면은 안 넘긴다). 있으면
+// StarterKit의 되돌리기를 끄고 Collaboration + CollaborationCaret을 끼우며, `value`는 처음에도
+// 나중에도 보지 않는다. 확장은 부르는 쪽이 만들어 넘긴다 — 그래야 yjs가 이 부품의 조각에
+// 실리지 않고 같이 쓰기를 여는 순간에만 받아진다. 편집기를 만들 때 한 번 읽는다(바꾸려면 다시 마운트).
+//
 // `frame` — 편집 칸을 감싸는 틀. 받으면 `frame(<EditorContent/>)`로 그 안에 넣는다.
 // 노트가 이것으로 **종이 안에서 쓰기**를 만든다(components/paper.jsx `NotePaper`).
 // 서식 바는 틀 **밖·위**에 그대로 남는다 — sticky로 따라 내려오는 것이 그 자리다.
 export function MarkdownEditor({
   value, onChange, members = [], cloudMode = false, placeholder, className = '',
-  lockedHeadings = [], tools = 'all', frame = null,
+  lockedHeadings = [], tools = 'all', frame = null, collab = null,
 }) {
   const lastEmitted = useRef(value ?? '');
   // 문서를 통째로 교체하는 중인가 — 그때는 중제목 고정을 통과시킨다(LockedHeadings 머리말)
@@ -363,22 +367,9 @@ export function MarkdownEditor({
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3, 4] },
-        // 우리 마크다운 서브셋에 없는 블록·마크는 비활성화
-        blockquote: false, codeBlock: false, code: false,
-        // 구분선 — `---`를 치면 바로 선이 된다(StarterKit의 입력 규칙). `***`·`___`도 같이
-        // 받는다. 저장 형식은 언제나 `---` 한 줄이다(markdown.js).
-        horizontalRule: {},
-        // 생 URL은 평문으로 유지해야 하므로 자동 링크화 금지
-        link: { openOnClick: false, autolink: false, linkOnPaste: false },
-      }),
-      Highlight,
-      // 본문 체크리스트 — 저장 형식은 `- [ ]`/`- [x]` 한 줄(markdown.js).
-      // nested: false — 중첩 체크리스트는 서브셋에 없다(직렬화가 첫 문단만 본다).
-      TaskList,
-      TaskItem.configure({ nested: false }),
-      Image.configure({ inline: false, allowBase64: false }),
+      // 같이 쓰기면 되돌리기를 Collaboration이 가져간다(위 collab 머리말)
+      ...bodyExtensions({ undoRedo: !collab }),
+      ...(collab ? collab.extensions : []),
       // dataAttribute 기본값은 'placeholder' — CSS content: attr(data-placeholder)와
       // 맞추기 위해 명시한다(index.css의 .tiptap 규칙과 한 쌍)
       Placeholder.configure({ placeholder: placeholder || '내용을 입력하세요...', dataAttribute: 'data-placeholder' }),
@@ -387,7 +378,8 @@ export function MarkdownEditor({
       // 문서를 통째로 교체하는 중에는 통과시킨다(위 머리말의 함정)
       LockedHeadings.configure({ titles: lockedHeadings, bypass: () => replacingRef.current }),
     ],
-    content: mdToDoc(value),
+    // 같이 쓰기면 문서는 Yjs가 채운다 — 여기서 또 넣으면 두 벌이 된다
+    content: collab ? undefined : mdToDoc(value),
     autofocus: false, // 모바일에서 키보드가 즉시 올라오는 것 방지
     editorProps: {
       attributes: { class: 'tiptap outline-none' },
@@ -500,8 +492,10 @@ export function MarkdownEditor({
   useEffect(() => { pickRef.current = pick; }, [pick]);
 
   // 외부에서 value가 바뀐 경우(AI 다듬기, 다른 업무 열기)만 문서를 교체
+  // 같이 쓰기에서는 value를 보지 않는다 — 원본은 Yjs 문서이고, 바깥 값으로 통째로 갈면
+  // 남이 쓰던 글까지 지운 것으로 퍼진다.
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || collab) return;
     const incoming = value ?? '';
     if (incoming === lastEmitted.current) return;
     if (incoming === docToMd(editor.getJSON())) return;
@@ -511,7 +505,7 @@ export function MarkdownEditor({
     replacingRef.current = true;
     try { editor.commands.setContent(mdToDoc(incoming), { emitUpdate: false }); }
     finally { replacingRef.current = false; }
-  }, [value, editor]);
+  }, [value, editor, collab]);
 
   // 툴바 활성 상태 — 필요한 불리언만 구독해 타이핑마다 전체 리렌더되지 않게
   const active = useEditorState({
