@@ -136,6 +136,14 @@ export const docJSON = (ydoc) => yXmlFragmentToProsemirrorJSON(ydoc.getXmlFragme
 export const docMarkdown = (ydoc) => docToMd(docJSON(ydoc));
 // 저장하는 모양 그대로(본문 + 맨 아래 담당 업무 도막) — 거울·판이 이것을 쓴다
 export const fullMarkdown = (ydoc) => writeActionSection(docMarkdown(ydoc), readActions(ydoc));
+// 마크다운을 **심었다가 다시 읽은 글** — 같이 쓰기가 비추는 글과 같은 모양이다. 열 때 description과
+// 문서가 '달랐나'(divergedAtOpen)는 이것끼리 견준다: 옛 저장 길이 남긴 글은 줄 끝 공백·빈 줄 모양이
+// 달라서, 날것끼리 견주면 내용이 같아도 늘 '다르다'가 된다.
+export function normalizeMarkdown(markdown, schema) {
+  const d = new Y.Doc();
+  Y.applyUpdate(d, seedState(markdown, schema));
+  return fullMarkdown(d);
+}
 
 // 통째로 갈기 — AI 다듬기 · '이 버전으로 되돌리기'. **한 트랜잭션**이라 남에게는 편집 한 번으로
 // 퍼지고, 출처를 편집기와 같은 ySyncPluginKey로 달아서 Collaboration의 되돌리기(UndoManager —

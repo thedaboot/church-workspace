@@ -442,9 +442,13 @@ assert.ok(/renotify: true/.test(sw) && /vibrate: \[/.test(sw), 'sw 알림에 ren
   assert.ok(body.includes('LOAD_STATE'), 'reloadCloud가 LOAD_STATE를 안 쓴다');
   assert.ok(body.includes('openCardIdRef'), '재조회 뒤 열린 창의 카드를 보지 않는다');
   assert.ok(body.includes('loadCardDetail'), '재조회 뒤 상세를 다시 읽지 않는다');
-  // 편집 중 카드 이벤트는 전체 재조회가 아니라 그 카드만 다시 읽어야 한다
-  assert.ok(/onCard:[\s\S]{0,400}pendingCardsRef/.test(app),
-    '편집 중 카드 변경이 전체 재조회로 예약된다(그 카드만 다시 읽어야 한다)');
+  // 카드 이벤트는 전체 재조회가 아니라 그 카드만 다시 읽어야 한다
+  assert.ok(/onCard: \(id\) => cards\.add\(id\)/.test(app) && /createIdBatcher\(\(ids\) => \{ ids\.forEach\(id => syncCard\(id\)\)/.test(app),
+    '카드 변경이 전체 재조회로 예약된다(그 카드만 다시 읽어야 한다)');
+  // 2026-09-28 — 편집 중에 재조회를 미루지 않게 되어, 열린 창의 상세는 **갈아 끼우기 전에** 읽는다
+  // (먼저 넣고 읽으면 그 왕복 동안 창의 댓글·활동이 빈다)
+  assert.ok(body.indexOf('loadCardDetail') > 0 && body.indexOf('loadCardDetail') < body.indexOf('LOAD_STATE'),
+    '열린 창의 상세를 LOAD_STATE 전에 읽지 않는다');
 }
 
 // ── 업무 저장이 댓글·활동·첨부를 덮지 않는다 (§6-22 · §6-28-a) ──────────────

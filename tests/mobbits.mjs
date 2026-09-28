@@ -162,7 +162,7 @@ check('다시 라이트로 돌아온다', (await ev(`document.documentElement.da
 {
   await send('Page.navigate', { url: URL_BASE + '/?p=p1&t=t0' });
   await wait('Page.loadEventFired'); await sleep(1400);
-  await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='수정'); b&&b.click(); })()`);
+  // 업무 창은 연 채로 고친다(2026-09-28) — 수정을 누르지 않아도 입력칸이 서 있다
   await sleep(1200);
   // 본문 편집기(tiptap)는 lazy 청크라 차가운 dev 서버에서 늦게 붙는다 — 재기 전에 기다린다(병렬 실행 때 흔들림)
   for (let i = 0; i < 40 && !(await ev(`!!document.querySelector('.tiptap')`)); i++) await sleep(150);

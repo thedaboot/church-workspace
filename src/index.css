@@ -391,6 +391,13 @@
 @media (prefers-reduced-motion: reduce) {
   .dc-skeleton::after { animation: none; transform: none; opacity: .4; }
 }
+/* 업무 창 본문 뼈대의 글줄(modals.jsx EditorSkeleton · 목업 2026-09-28) — 줄마다 늦게 시작해서 위에서
+   아래로 차례로 숨 쉰다. opacity만 움직인다(§4.2). */
+@keyframes dc-skel-breathe { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+.dc-skel-line { animation: dc-skel-breathe 1.4s ease-in-out infinite both; }
+@media (prefers-reduced-motion: reduce) {
+  .dc-skel-line { animation: none; opacity: .7; }
+}
 
 *:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
 

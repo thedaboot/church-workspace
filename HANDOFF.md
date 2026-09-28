@@ -46,7 +46,9 @@
    **실기기 확인 대기**: 아이폰 webcal 구독 · 갤럭시 구글 `cid=webcal://` 구독 · 데스크톱 구글·Mac 캘린더 · 카카오 인앱에서 기본 브라우저로 넘어가는지 · 마감을 바꾼 뒤 몇 시간 안에 따라오는지.
 4. ~~조준환 주보 권한~~ — 사용자 결정 '한 사람만' → 0083(명단 id) + `worship.js` `SERVICE_EDITOR_PEOPLE` · 라이브 적용. 사람을 더 넣을 일이 생기면 규칙으로 바꿀지 다시 묻는다.
 5. ~~대시보드·내 업무·팀 업무에서 상시 숨김~~ — 푸시함(`groupByDue`가 기본으로 뺀다 · 내 업무의 '상시' 칩을 고를 때만 선다 · 보드 한 줄은 그대로).
-6. **업무 본문 같이 고치기**(2026-09-28 사용자 요청 — 노션처럼). 1단계 '바뀐 칸만 저장'은 끝(PITFALLS 19-e-1). 설계: Tiptap Collaboration(Yjs) + Supabase 방송(비공개 채널 `coedit:<id>`) + 덧붙이기만 하는 `card_doc_updates` + 사본 `card_docs` + `cards.description`은 마크다운 거울(검색·AI·목록 그대로) + 편집 끝에 `card_doc_versions`. 실측 방송 왕복 중앙 154ms(한쪽 약 80ms). 엔진은 worktree에서 짓는 중, 화면 목업 https://claude.ai/artifact/411k23Kq2YpJQwrfc63D1q 승인 대기(저장 버튼 없음 · 이름표 커서 · 수정 기록 탭 · 불러오는 동안 뼈대).
+6. **업무 본문 같이 고치기**(2026-09-28 사용자 요청 — 노션처럼). 1단계 '바뀐 칸만 저장'은 끝(PITFALLS 19-e-1). 설계: Tiptap Collaboration(Yjs) + Supabase 방송(비공개 채널 `coedit:<id>`) + 덧붙이기만 하는 `card_doc_updates` + 사본 `card_docs` + `cards.description`은 마크다운 거울(검색·AI·목록 그대로) + 편집 끝에 `card_doc_versions`. 실측 방송 왕복 중앙 154ms(한쪽 약 80ms).
+   **화면을 붙였다**(목업 승인 https://claude.ai/artifact/411k23Kq2YpJQwrfc63D1q): 수정·저장 버튼 없음(칸마다 저장 · 제목 600ms · 게스트 본문 800ms · 닫을 때 흘림) · 이름표 커서 · 머리줄 얼굴 · `버전 기록` 탭(고친 곳 · `이 버전으로 되돌리기`) · 불러오는 동안 글줄 뼈대 · 새 업무는 `만들기`. 결정: 고친 곳은 **바로 앞 판 → 그 판**(목록의 'N줄 추가 · M줄 제거'와 같은 것) · 남의 현재 줄 물들이기는 뺐다(확장이 싸게 안 된다) · 빈 목록 문구 `기록 전`.
+   **실기기·두 기기 확인 대기**: 두 사람이 한 본문을 동시에(커서 이름표 · 얼굴 · 줄 끝 글자 수렴) · 창을 닫자마자 다른 사람 화면에 description이 따라오는지 · 버전 기록 줄·되돌리기 · 옛 앱 사용자가 고친 본문을 받아들이는지(PITFALLS 32-zq) · 활동이 세션당 한 줄인지 · 멘션 알림이 새 이름에만.
 
 ## 3. 이 레포의 흐름 (새 기능을 붙일 때)
 
@@ -127,7 +129,9 @@ src/views/homeView.jsx        (v2) 홈 — 인사말 + 카드 넷. 자기 저장
 src/views/worshipView.jsx     (v2) 예배 — 주보 목록 → 상세/작성/발행 → 출석
 src/views/wordView.jsx        (v2) 말씀 — [QT | 성경 읽기] · 내 묵상은 저장하면 종이 · 나눔은 사람 칩 + 종이 하나(§6-32-p·19-b·19-b-1)
 src/views/groupsView.jsx      (v2) 모임 — 내 순 · 동아리 · 순 편성
-src/modals/modals.jsx         업무 창 — TaskModalShell·TaskViewer·TaskEditor·SubtaskList·담당자·선행 업무(§4.9)
+src/modals/modals.jsx         업무 창 — TaskModalShell(칸마다 저장 · 닫을 때 흘림)·TaskLive(연 채로 고치기)·TaskEditor(새 업무 `만들기`)·SubtaskList·담당자·선행 업무(§4.9 · 19-e-2)
+src/modals/coedit.jsx         업무 창의 같이 쓰기 — useCoedit(늦게 연다 · 받아들이기) · 머리줄 얼굴 · 버전 기록 탭 · 고친 곳(32-zq·32-zr)
+src/services/coedit/          같이 쓰기 엔진(0084) — index.js 여는 곳 · core.js 순수 · store.js Supabase · view.js 화면 순수(색·판 글자·줄 차이 · import 0)
 src/modals/attachments.jsx    업무 창의 첨부 구역 — 업로드·미리보기·삭제·구글 사본 편집 자격(§6-34-h · startUploads는 §6-29-u)
 src/modals/comments.jsx       업무 창의 댓글·반응·활동 기록 패널(§4.11)
 src/modals/settings.jsx       내 정보(사진·이름·팀) / 프로젝트 만들기·이름 수정(§4.7·§6-34-g)
@@ -221,7 +225,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0076** 알림 종류 `approved`(관리자만 넣는다). **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at`. **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만 · 미적용). **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거). **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`. **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`). **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책) — 라이브 적용 2026-09-28 · 엔진만 있고 화면은 아직(`services/coedit/index.js` 머리말). **0085** `calendar_feeds`(내 달력) 적용. 다음 번호는 0086.
+  **0076** 알림 종류 `approved`(관리자만 넣는다). **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at`. **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만 · 미적용). **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거). **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`. **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`). **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책) — 라이브 적용 2026-09-28 · 업무 창에 붙었다(`modals/coedit.jsx`). **0085** `calendar_feeds`(내 달력) 적용. 다음 번호는 0086.
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.
@@ -325,7 +329,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
   `relative before:absolute before:-inset-…`(배경 없는 가상 요소)로 넓히되 **이웃 조작과의 틈의 절반까지만**(PITFALLS 9-by).
 - **주 버튼은 두 단이다**(D9 · 2026-09-25 · `components/buttons.js`): 작은 단 `BTN`(11.5px·600·29px — 도구 줄·입력 줄 옆: 댓글 등록·답글·저장, 새 주보, 가입 신청,
   팝오버의 추가·적용) · 확정 단 `BTN_CONFIRM`(13px·600·40px — 창 맨 아래 확정: 내 정보 저장·시작하기·프로젝트 만들기, 짝 취소는 `BTN_CONFIRM_QUIET`). **비활성은 opacity .4 하나**
-  (`disabled:bg-line` 금지 — 라이트 1.41:1). 업무 창 아래 줄(저장·수정·닫기)은 상시 도구 줄이라 두 단 밖이다. 새 accent 버튼은 둘 중 하나를 쓴다.
+  (`disabled:bg-line` 금지 — 라이트 1.41:1). 업무 창 아래 줄(새 업무의 `만들기`·닫기 · 있는 업무는 `저장됨`·닫기 — 2026-09-28 수정·저장 버튼을 걷었다)은 상시 도구 줄이라 두 단 밖이다. 새 accent 버튼은 둘 중 하나를 쓴다.
 - **뒤판은 두 값**(D9): 대화창(업무 창·내 정보·프로젝트·동아리 QR·모바일 검색·가입한 사람·댓글 반응)은 검정 50% · 뒤판 fade 150ms · 창 fade+zoom-95 150ms,
   전면 미리보기(파일·문서·사진·그림 저장)는 80% · 150ms.
 - **최소 글자 10px · 12px 미만 글은 faint 대신 muted**(D9) — faint는 12px 이상 보조 글·자리표·아이콘에만. 예외는 얼굴 원 안의 머리글자와 종이(인쇄 문서).

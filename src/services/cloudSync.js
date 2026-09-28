@@ -77,6 +77,8 @@ export function getMemberNames() { return memberNames.slice(); }
 // 게스트 모드에서는 표가 비어 있어 언제나 글자 원이다.
 // 이 표는 loadCloudState에서만 다시 만들어진다 — profiles를 실시간 구독하는 이유(§6-21-a).
 export function getAvatar(name) { return nameToAvatar.get(name) || ''; }
+// 프로필 id → 표시명(합친 계정은 남긴 계정 이름) — 업무 창 '버전 기록'의 누가(card_doc_versions.by)
+export function profileName(id) { return (id && profileIdToName.get(id)) || ''; }
 
 // ── @멘션 추출 · 수신자 매핑 ────────────────────────────────────────────────
 // 뽑는 규칙은 utils.js가 원본이다 — AI가 쓴 멘션을 검사하는 쪽(services/ai.js)도

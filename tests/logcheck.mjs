@@ -2475,7 +2475,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '접속 표시 열쇠가 세션 uid다 — 합친 계정은 접속해도 얼굴이 안 밝는다');
   assert.ok(/export function myUidSync/.test(sc) && /export function isMyUid/.test(sc),
     '자격 판정이 쓸 동기 접근이 없다');
-  assert.ok(/isMyUid\(task\.created_by, userId\)/.test(src('../src/modals/modals.jsx')),
+  // 업무 창은 스토어의 지금 카드(source)를 본다(2026-09-28 — 창을 연 채로 고친다)
+  assert.ok(/isMyUid\((task|source)\.created_by, userId\)/.test(src('../src/modals/modals.jsx')),
     '업무 삭제 자격이 세션 uid만 본다');
 
   console.log('PASS  링크 카드 축·자리 · 계정 합치기 38가지 · 0063 나머지 자리 40가지');
@@ -3803,9 +3804,12 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/onActivityFeed: \(entry\) => \{\s*if \(entry\) \{ store\.dispatch\(\{ type: 'PREPEND_ACTIVITY', payload: entry \}\); return; \}/.test(app),
     '새 기록은 읽지 않고 얹는다');
   assert.ok(/loadActivityFeed\(\)[\s\S]{0,120}SET_ACTIVITY_FEED/.test(app), '지움·고침은 예전처럼 다시 읽는다');
-  assert.ok(/createIdBatcher\(\(ids\) => \{\s*if \(isEditingRef\.current\) \{ ids\.forEach\(id => pendingCardsRef\.current\.add\(id\)\); return; \}\s*ids\.forEach\(id => syncCard\(id\)\);\s*\}, 200\)/.test(app),
-    '카드는 200ms 모아 id마다 한 번 · 모으는 사이 편집이 시작되면 편집 뒤로 미룬다');
-  assert.ok(/onCard: \(id\) => \{[\s\S]{0,160}cards\.add\(id\);/.test(app), 'onCard는 곧장 읽지 않고 모은다');
+  // 2026-09-28 — 업무 창에 수정 모드가 없어져 **편집 중이라고 미루지 않는다**(창이 칸마다 스토어의 지금 값을
+  // 그린다). 미루는 갈래가 되살아나면 남이 바꾼 칸이 열린 창에 안 들어온다.
+  assert.ok(/createIdBatcher\(\(ids\) => \{ ids\.forEach\(id => syncCard\(id\)\); \}, 200\)/.test(app),
+    '카드는 200ms 모아 id마다 한 번');
+  assert.ok(!/isEditingRef|pendingCardsRef|pendingReloadRef/.test(app), '편집 중에 카드 반영을 미루는 갈래가 없다');
+  assert.ok(/onCard: \(id\) => cards\.add\(id\)/.test(app), 'onCard는 곧장 읽지 않고 모은다');
   assert.ok(/cards\.cancel\(\); unsub\(\);/.test(app), '구독을 걷을 때 모아 둔 것도 걷는다');
   console.log('PASS  워크스페이스 실시간 덜 읽기 22가지');
 }
@@ -4458,7 +4462,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const laySrc2 = readFileSync(new URL('../src/components/layout.jsx', import.meta.url), 'utf8');
   assert.ok(/\.subscribe\(\(status\) => onStatus\?\.\(status\)\);/.test(cloudSrc), '업무 채널 subscribe가 상태를 넘긴다');
   assert.ok(/\}, reconnectWatcher\(onReconnect\)\);/.test(syncSrc), 'subscribeWorkspace가 재접속 판정을 붙인다');
-  assert.ok(/onReconnect: \(\) => \{\s*if \(isEditingRef\.current\) \{ pendingReloadRef\.current = true; return; \}[\s\S]{0,200}reloadCloud\(\)/.test(appSrc), 'App이 재접속에 재조회(편집 중이면 미룬다)');
+  assert.ok(/onReconnect: \(\) => \{\s*clearTimeout\(timer\);[\s\S]{0,200}reloadCloud\(\)/.test(appSrc), 'App이 재접속에 재조회(업무 창이 열려 있어도 — 2026-09-28)');
   const calls = appSrc.match(/refreshTabFront\(/g) || [];
   assert.strictEqual(calls.length, 2, '앞 칸 숫자는 첫 로드 뒤 한 번 + 보일 때 한 번 — 실시간 경로에서 부르지 않는다');
   assert.ok(/if \(!document\.hidden\) refreshTabFront\(cloudMode\)/.test(appSrc), '다시 보일 때만');
@@ -4574,7 +4578,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/raw === ONGOING_DROP/.test(boards) && /onStatusChange\(task, ONGOING\)/.test(boards), '상시 줄에 놓으면 상시가 된다');
   assert.ok(/ongoing\.length > 0 && <OngoingRow/.test(boards), '상시가 0건이면 줄이 서지 않는다');
   assert.ok(/s === CONFIG\.STATUS_ONGOING\s*\?\s*\{ \.\.\.prev, status: s, startDate: '', dueDate: '' \}/.test(modals), '업무 창에서 상시를 고르는 순간 날짜를 비운다');
-  assert.ok(/formData\.status !== CONFIG\.STATUS_ONGOING && \(/.test(modals), '상시면 시작일·마감일 칸이 없다');
+  // 속성 칸은 새 업무 폼과 업무 창이 한 벌(TaskProps · data)이다(2026-09-28)
+  assert.ok(/\bdata\.status !== CONFIG\.STATUS_ONGOING && \(/.test(modals), '상시면 시작일·마감일 칸이 없다');
   console.log('PASS  상시(0075)와 업무 셈 한 벌(taskCounts — 지연 · 구간 · 방치 · 진척 · 고른 해)');
 }
 

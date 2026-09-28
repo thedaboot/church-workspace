@@ -22,17 +22,24 @@ const ymdKo = (s) => {
   return m ? `${m[1]}년 ${Number(m[2])}월 ${Number(m[3])}일` : s;
 };
 
+// 본문을 고친 기록 한 줄 — 저장 길(generateFieldLogs)과 같이 쓰기의 세션 끝(controllers
+// handleContentSession)이 같은 글자를 남긴다
+export const CONTENT_LOG = '상세 내용을 수정했습니다.';
+export const contentDiffers = (a, b) => normContent(a) !== normContent(b);
+
 export const ActivityService = {
   createLog: (action, author) => ({ id: generateId(), action, author, timestamp: new Date().toISOString() }),
   generateStatusLog: (oldStatus, newStatus, author) => ActivityService.createLog(`상태를 '${oldStatus}'에서 '${newStatus}'(으)로 변경했습니다.`, author),
 
   // 상태 외 필드 변경도 활동 기록에 남긴다 (바뀐 항목만, 항목별로 1건)
-  generateFieldLogs: (oldTask, newData, author) => {
+  // skipContent — 본문을 조용히 저장할 때(같이 쓰기의 거울 · 게스트 본문 자동 저장). 그때 본문 기록은
+  // 편집 세션이 끝날 때 한 줄만 남는다(controllers.handleContentSession) — 글자마다 한 줄씩 쌓이지 않게.
+  generateFieldLogs: (oldTask, newData, author, { skipContent = false } = {}) => {
     const logs = [];
     const add = (msg) => logs.push(ActivityService.createLog(msg, author));
 
     if ((oldTask.title || '') !== (newData.title || '')) add(`제목을 '${newData.title || ''}'(으)로 변경했습니다.`);
-    if (normContent(oldTask.content) !== normContent(newData.content)) add('상세 내용을 수정했습니다.');
+    if (!skipContent && contentDiffers(oldTask.content, newData.content)) add(CONTENT_LOG);
 
     for (const [key, label] of [['startDate', '시작일'], ['dueDate', '마감일']]) {
       const before = oldTask[key] || '';
@@ -96,7 +103,7 @@ export const TaskService = {
     if (newStatus !== '완료' && oldStatus === '완료') return '';
     return before || '';
   },
-  updateWithLogs: (oldTask, rawData, author) => {
+  updateWithLogs: (oldTask, rawData, author, { skipContent = false } = {}) => {
     // 상시(0075)는 마감이 없는 업무다 — **상시로 들어가거나 상시인 채로 저장될 때 시작일·마감일을 지운다**.
     // 저장 경로(업무 창 · 보드 끌기 · 상태 옮기기 · 목록 완료 되돌리기)가 모두 여기를 지나므로 한 곳에서 한다.
     // 아래 generateFieldLogs가 '마감일을 지웠습니다'를 남긴다(무엇이 사라졌는지 활동에 보인다).
@@ -111,7 +118,7 @@ export const TaskService = {
     };
     const logs = [];
     if (oldTask.status !== newData.status) logs.push(ActivityService.generateStatusLog(oldTask.status, newData.status, author));
-    logs.push(...ActivityService.generateFieldLogs(oldTask, newData, author));
+    logs.push(...ActivityService.generateFieldLogs(oldTask, newData, author, { skipContent }));
     if (logs.length) updated.activityLog = [...(updated.activityLog || []), ...logs];
     return { task: updated, logs };
   },

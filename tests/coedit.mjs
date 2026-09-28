@@ -489,5 +489,94 @@ await check('배선 — 편집기 prop · 조각 · 0084 모양 · 옛 글 채�
   assert.strictEqual(rows[0].upto, 0);
 });
 
+
+// ⑨ 업무 창 화면의 순수 부분(services/coedit/view.js · 2026-09-28) ─────────────────
+// 되돌리기 검사(§3-5 · 2026-09-28 실제로 걷어 확인): versionLabel에서 `.filter(Boolean)`을 빼면
+// '0인 쪽은 뺀다'가, PALETTE에 '#3f6fc4'보다 밝은 색(예: '#5b8def')을 넣으면 대비가 FAIL.
+const V = await import(new URL('../src/services/coedit/view.js', import.meta.url).href);
+await check('얼굴·이름표 색 — 흰 글자 대비 4.5:1 이상 · 사람마다 고정 · 서로 다른 색', () => {
+  const lum = (h) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255)
+    .map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+    .reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+  for (const c of V.PALETTE) {
+    assert.ok(/^#[0-9a-f]{6}$/.test(c), `${c}는 #rrggbb여야 한다(CollaborationCaret이 그 모양만 받는다)`);
+    const ratio = 1.05 / (lum(c) + 0.05);
+    assert.ok(ratio >= 4.5, `${c} — 흰 글자 대비 ${ratio.toFixed(2)}`);
+  }
+  assert.strictEqual(new Set(V.PALETTE).size, V.PALETTE.length, '같은 색이 두 번');
+  assert.ok(V.PALETTE.length >= 6, '색이 너무 적으면 두 사람이 같은 색이 되기 쉽다');
+  const id = '6f1c2d3e-0000-4000-8000-000000000001';
+  assert.strictEqual(V.userColor(id), V.userColor(id), '같은 사람은 같은 색');
+  assert.ok(V.PALETTE.includes(V.userColor(id)) && V.PALETTE.includes(V.userColor('')), '늘 팔레트 안');
+});
+await check("판 목록 뒷말 — '2줄 추가 · 1줄 제거' · 0인 쪽은 뺀다 · 가장 오래된 판은 '처음 작성한 본문'", () => {
+  assert.strictEqual(V.versionLabel({ added: 2, removed: 1 }), '2줄 추가 · 1줄 제거');
+  assert.strictEqual(V.versionLabel({ added: 3, removed: 0 }), '3줄 추가');
+  assert.strictEqual(V.versionLabel({ added: 0, removed: 4 }), '4줄 제거');
+  assert.strictEqual(V.versionLabel({ added: 0, removed: 0 }), '');
+  assert.strictEqual(V.versionLabel({ added: 9, removed: 9 }, true), '처음 작성한 본문');
+});
+await check("판 시각 — '오늘 오후 3:12' · '어제 오전 9:05' · 같은 해는 날짜 · 다른 해는 해까지", () => {
+  const now = new Date(2026, 8, 28, 22, 0);
+  assert.strictEqual(V.versionTime(new Date(2026, 8, 28, 15, 12), now), '오늘 오후 3:12');
+  assert.strictEqual(V.versionTime(new Date(2026, 8, 28, 0, 7), now), '오늘 오전 12:07');
+  assert.strictEqual(V.versionTime(new Date(2026, 8, 27, 9, 5), now), '어제 오전 9:05');
+  assert.strictEqual(V.versionTime(new Date(2026, 8, 25, 12, 30), now), '9월 25일 오후 12:30');
+  assert.strictEqual(V.versionTime(new Date(2025, 11, 31, 23, 59), now), '2025년 12월 31일 오후 11:59');
+  assert.strictEqual(V.versionTime('없는 날'), '');
+});
+await check('고친 곳 보기 — 줄 차이(같은·더한·뺀 줄) · 셈이 판 목록과 같다 · 바로 앞 판 → 이 판', () => {
+  const rows = V.lineDiff('가\n나\n다\n라', '가\n나2\n다\n라\n마');
+  assert.deepStrictEqual(rows.map(r => `${r.op}:${r.text}`), ['same:가', 'add:나2', 'del:나', 'same:다', 'same:라', 'add:마']);
+  // 셈은 엔진의 lineDiffCounts와 같다(목록의 'N줄 추가 · M줄 제거'를 누르면 그만큼이 보인다)
+  const pairs = [['', 'a\nb'], ['a\nb\nc', 'a\nc'], [SAMPLE, SAMPLE.replace('수련회', '가을 수련회') + '\n더한 줄'], ['x', '']];
+  for (const [a, b] of pairs) {
+    const r = V.lineDiff(a, b);
+    const c = C.lineDiffCounts(a, b);
+    assert.deepStrictEqual({ added: r.filter(x => x.op === 'add').length, removed: r.filter(x => x.op === 'del').length }, c, JSON.stringify([a.slice(0, 20), b.slice(0, 20)]));
+    assert.strictEqual(r.filter(x => x.op !== 'del').map(x => x.text).join('\n'), b, '더한 줄 + 같은 줄 = 뒤 글');
+  }
+  const versions = [{ id: 3, md: '가\n나\n다' }, { id: 2, md: '가\n다' }, { id: 1, md: '가' }];   // 최신이 앞
+  assert.deepStrictEqual(V.versionDiff(versions, 0).map(r => r.op), ['same', 'add', 'same'], '바로 앞 판에서');
+  assert.deepStrictEqual(V.versionDiff(versions, 2).map(r => `${r.op}:${r.text}`), ['add:가'], '가장 오래된 판은 빈 글에서');
+  assert.deepStrictEqual(V.versionDiff(versions, 9), []);
+});
+await check('머리줄 얼굴 — awareness에서 · 나 먼저 · 같은 사람은 한 번 · 이름 없는 상태는 뺀다', () => {
+  const states = new Map([
+    [7, { user: { id: 'u2', name: '조해리', color: '#c0392b' } }],
+    [5, { user: { id: 'me', name: '노준석', color: '#2f6fb5' } }],
+    [9, { user: { id: 'u2', name: '조해리', color: '#c0392b' } }],     // 같은 사람의 둘째 창
+    [4, {}],                                                          // 아직 이름을 안 실은 창
+    [8, { user: { id: 'u3', name: '이시온' } }],
+  ]);
+  const f = V.facesFrom(states, 5);
+  assert.deepStrictEqual(f.map(x => x.name), ['노준석', '조해리', '이시온']);
+  assert.ok(f[0].me && !f[1].me);
+  assert.strictEqual(f[2].color, V.userColor('u3'), '색이 없으면 id로 고른다');
+  assert.deepStrictEqual(V.facesFrom(null, 1), []);
+});
+await check('열 때 달랐나(divergedAtOpen)는 심었다 읽은 모양끼리 견준다 — 옛 글의 표기 차이만으로는 다르지 않다', () => {
+  const legacy = '**==강조==**\n* 별 목록\n1) 번호';   // 옛 저장이 남긴 표기 — 심었다 읽으면 ==**강조**== · - · 1.
+  const d = new Y.Doc(); Y.applyUpdate(d, C.seedState(legacy, schema));
+  assert.notStrictEqual(C.fullMarkdown(d), legacy, '(전제) 날것끼리는 다르다');
+  assert.strictEqual(C.fullMarkdown(d), C.normalizeMarkdown(legacy, schema), '같은 글이면 같다');
+  assert.notStrictEqual(C.fullMarkdown(d), C.normalizeMarkdown(legacy + '\n다른 줄', schema), '글이 다르면 다르다');
+});
+await check('업무 창 배선 — 엔진은 늦게 받고 · 거울은 조용히 · 세션 끝에 한 번 · 게스트는 800ms', () => {
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+  const modals = src('../src/modals/modals.jsx'), ui = src('../src/modals/coedit.jsx'), view = src('../src/services/coedit/view.js');
+  assert.ok(!/^import[^\n]*coedit\/(index|core|store)\.js/m.test(modals) && !/^import[^\n]*coedit\/(index|core|store)\.js/m.test(ui), '업무 창은 엔진을 정적으로 부르지 않는다');
+  assert.ok(/import\('\.\.\/services\/coedit\/index\.js'\)/.test(ui), '엔진은 import()로 늦게');
+  assert.ok(!/^import /m.test(view), 'view.js는 import 0(첫 조각에 실린다)');
+  assert.ok(/onMirror: \(md\) => commit\(\{ content: md \}, \{ silentContent: true \}\)/.test(modals), '거울은 조용한 저장(활동·멘션은 세션 끝)');
+  assert.ok(/onVersion: \(\{ startMd, endMd \}\) => onSessionRef\.current\?\.\(cardId, startMd, endMd\)/.test(modals), '세션 끝에 한 번');
+  const ctrl = src('../src/hooks/controllers.js');
+  assert.ok(/skipContent: silentContent/.test(ctrl) && /!silentContent && \(oldData\?\.content/.test(ctrl), '조용한 저장은 본문 기록·멘션을 만들지 않는다');
+  assert.ok(/newMentionsOnly\(endMd, startMd, currentUser\.name\)/.test(ctrl), '세션 끝에는 새 멘션만');
+  assert.ok(/export const BODY_IDLE_MS = 800;/.test(modals) && /export const NAME_IDLE_MS = 600;/.test(modals), '게스트 본문 800ms · 제목 600ms');
+  assert.ok(/card\?\.content \|\| ''/.test(ui) && /cardWritePromise\(cardId\)/.test(ui), '새로 만든 업무는 카드 행이 들어간 뒤에 연다');
+  assert.ok(/co\.adoptCheck\(live\.updatedAt\)/.test(ui) && /if \(!adopting\) cb\.current\.onVersion/.test(ui), '받아들이기는 엔진이 셋을 보고 · 그 세션은 활동을 안 남긴다');
+});
+
 if (failed) { console.log(`\n${failed} FAIL`); process.exit(1); }
 process.exit(0);   // awareness의 점검 타이머가 남아 있어도 끝낸다

@@ -196,7 +196,7 @@ function WorkspaceShell() {
     return DASH_FILTERS.includes(f) ? f : DASH_FILTER_DEFAULT;
   });
   const pendingTaskIdRef = useRef(new URLSearchParams(window.location.search).get('t'));
-  const [modalState, setModalState] = useState({ isOpen: false, task: null, isEditMode: false });
+  const [modalState, setModalState] = useState({ isOpen: false, task: null });
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState(null); // 이름 수정할 프로젝트
@@ -223,7 +223,15 @@ function WorkspaceShell() {
   useEffect(() => { openCardIdRef.current = modalState.isOpen ? (modalState.task?.id || null) : null; }, [modalState]);
   const reloadCloud = useCallback(async () => {
     const { state, profile } = await cloudSync.loadCloudState();
+    // 열린 창의 상세는 **갈아 끼우기 전에** 읽어 둔다(2026-09-28) — 업무 창에 수정 모드가 없어져
+    // 재조회를 미뤄 둘 자리가 없어졌다. 먼저 넣고 나서 읽으면 그 왕복 동안 창의 댓글·활동이 빈다.
+    const openFirst = openCardIdRef.current;
+    const openDetail = openFirst ? await cloudSync.loadCardDetail(openFirst).catch(() => null) : null;
     store.dispatch({ type: 'LOAD_STATE', payload: state });
+    if (openDetail && openCardIdRef.current === openFirst) {
+      store.dispatch({ type: 'SYNC_TASK', payload: { id: openFirst, ...openDetail } });
+      return profile;
+    }
     // **전체 재조회는 모든 카드의 댓글·활동을 빈 배열로 되돌린다**(초기 로드가 읽지
     // 않는 값이다 — §6-20). 업무 창이 열려 있으면 그 카드만 다시 읽어 채워 준다.
     // 이게 없으면 창은 열려 있는데 카드 id가 그대로라 상세 효과가 다시 돌지 않아서,
@@ -283,14 +291,13 @@ function WorkspaceShell() {
     setRetrying(false);
   }, [initialLoad]);
 
-  // 실시간: 변경 감지 → 300ms debounce 재조회
-  // 편집 중에는 LOAD_STATE가 폼을 갈아치우며 타이핑 렉·입력 유실을 일으키므로
-  // 재조회를 보류하고, 편집이 끝나면 밀린 변경을 1회 반영한다.
-  const isEditing = modalState.isOpen && modalState.isEditMode;
-  const isEditingRef = useRef(isEditing);
-  const pendingReloadRef = useRef(false);
-  const pendingCardsRef = useRef(new Set());   // 편집 중에 바뀐 카드들(그 카드만 다시 읽는다)
-  useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
+  // 실시간: 변경 감지 → 카드는 그 카드만, 나머지는 300ms 모아 재조회.
+  // **편집 중이라고 미루지 않는다**(2026-09-28 — 업무 창에 수정 모드가 없어졌다). 예전에는 수정 폼이
+  // 스토어 카드의 사본을 들고 있어서 LOAD_STATE가 폼을 갈아치웠고, 그래서 수정 중에는 모든 카드 반영을
+  // 미뤘다. 지금 업무 창은 칸마다 스토어의 지금 값을 그리고(남이 바꾼 상태·하위 업무가 바로 보인다),
+  // 막 치고 있는 제목만 초점이 있는 동안 창이 들고 있으며, 본문은 같이 쓰기(Yjs)가 원본이다 —
+  // 덮일 폼이 없다. 남은 보호는 하나: 전체 재조회가 열린 창의 댓글·활동을 비우지 않게
+  // reloadCloud가 상세를 먼저 읽는다(위).
 
   // 카드 1건만 다시 읽어 반영한다 — 예전에는 카드 한 장이 바뀌어도 워크스페이스
   // 전체를 다시 읽었다(쿼리 11개). 서버에서 사라진 카드면 로컬에서도 지운다.
@@ -320,20 +327,12 @@ function WorkspaceShell() {
     // 카드 이벤트는 **200ms 모아 id마다 한 번** 읽는다(2026-09-24). 저장 한 번이 cards UPDATE를
     // 여러 건 만들어(내 저장의 에코 포함) 같은 카드를 서너 번 읽었고, 늦게 온 옛 응답이 새 값을
     // 덮을 수도 있었다. 모으는 사이에 편집이 시작되면 그 id들은 편집이 끝날 때로 미룬다.
-    const cards = createIdBatcher((ids) => {
-      if (isEditingRef.current) { ids.forEach(id => pendingCardsRef.current.add(id)); return; }
-      ids.forEach(id => syncCard(id));
-    }, 200);
+    const cards = createIdBatcher((ids) => { ids.forEach(id => syncCard(id)); }, 200);
     const unsub = cloudSync.subscribeWorkspace({
-      // 편집 중이면 미뤘다가 **그 카드만** 다시 읽는다. 예전에는 전체 재조회를
-      // 예약했는데, 그러면 저장 한 번에 워크스페이스를 통째로 다시 읽고 그 과정에서
-      // 열려 있는 창의 댓글·활동이 비었다(위 reloadCloud 주석).
-      onCard: (id) => {
-        if (isEditingRef.current) { if (id) pendingCardsRef.current.add(id); return; }
-        cards.add(id);
-      },
+      // **그 카드만** 다시 읽는다 — 전체 재조회로 보내면 저장 한 번에 워크스페이스를 통째로 읽는다
+      onCard: (id) => cards.add(id),
       onCardDelete: (id) => { if (id) store.dispatch({ type: 'DELETE_TASK', payload: id }); },
-      onCardDetail: (id) => { if (!isEditingRef.current) syncCardDetail(id); },
+      onCardDetail: (id) => syncCardDetail(id),
       // 최근 활동 피드만 다시 읽는다(쿼리 1개). 저장 한 번에 기록이 여러 건 생기므로
       // 500ms 모아서 한 번만. 편집 중에도 막지 않는다 — 폼을 건드리는 갱신이 아니다.
       // **새 기록(INSERT)은 읽지 않고 그 줄을 앞에 얹는다**(entry · 2026-09-24 — 쿼리 0개).
@@ -351,15 +350,13 @@ function WorkspaceShell() {
       // 편집 중에도 막지 않는다: 폼을 건드리지 않는 갱신이다(활동 피드와 같은 판단).
       onMemberSeen: (patch) => store.dispatch({ type: 'SYNC_MEMBER_SEEN', payload: patch }),
       onFullReload: () => {
-        if (isEditingRef.current) { pendingReloadRef.current = true; return; }
         clearTimeout(timer);
         timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e)); }, 300);
       },
       // **끊겼다가 다시 붙으면 전체를 한 번 읽는다**(2026-09-25) — 폰이 잠든 사이의 카드·활동 변경은
       // 이벤트로 오지 않는다. reloadCloud가 카드·프로젝트·활동 피드를 다 읽고 열린 창의 상세도 채운다.
-      // 편집 중이면 위와 같이 미룬다(폼을 덮지 않는다). 처음 붙을 때는 오지 않는다(realtimeStatus.js).
+      // 처음 붙을 때는 오지 않는다(realtimeStatus.js).
       onReconnect: () => {
-        if (isEditingRef.current) { pendingReloadRef.current = true; return; }
         clearTimeout(timer);
         timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재접속 뒤 재조회 실패:', e)); }, 300);
       },
@@ -426,20 +423,6 @@ function WorkspaceShell() {
     };
   }, [cloudMode]);
 
-  // 편집 종료 시 보류된 재조회 1회 실행
-  useEffect(() => {
-    if (!cloudMode || isEditing) return;
-    const cards = pendingCardsRef.current;
-    if (cards.size) {
-      const ids = [...cards];
-      cards.clear();
-      ids.forEach(id => syncCard(id));
-    }
-    if (!pendingReloadRef.current) return;
-    pendingReloadRef.current = false;
-    reloadCloud().catch(e => console.error('[cloud] 재조회 실패:', e));
-  }, [cloudMode, isEditing, reloadCloud, syncCard]);
-
   // Ctrl/⌘+Z · Shift+Ctrl/⌘+Z — 버튼 툴팁이 예전부터 이 단축키를 안내하고 있었는데
   // 정작 핸들러가 없었다. 버튼과 같은 조건(게스트 모드)에서만 받고,
   // 글자를 입력하는 중이거나 창이 열려 있으면 넘긴다(입력 되돌리기를 가로채면 안 된다).
@@ -457,8 +440,9 @@ function WorkspaceShell() {
     return () => window.removeEventListener('keydown', onKey);
   }, [cloudMode, modalState.isOpen, isProfileModalOpen, isProjectModalOpen, renameTarget]);
 
-  const openTaskModal = useCallback((task, isEditMode = false) => {
-    setModalState({ isOpen: true, task, isEditMode });
+  // 업무 창에는 수정 모드가 없다(2026-09-28) — 있는 업무는 연 채로 고치고, id가 없으면 만들기 폼이다
+  const openTaskModal = useCallback((task) => {
+    setModalState({ isOpen: true, task });
   }, []);
 
   // 업무 창 핸들러의 기준 카드는 모달을 연 시점의 스냅샷(modalState.task)이 아니라
@@ -524,7 +508,7 @@ function WorkspaceShell() {
     openTaskModal({
       projectId: activeMenu, status: '시작 전', assignees: [], teams: [],
       ...(typeof dueDate === 'string' ? { dueDate } : {}),
-    }, true);
+    });
   }, [openTaskModal, activeMenu]);
 
   // 통합 검색 선택: 프로젝트 → 이동 / 업무 → 이동 + 모달 오픈
@@ -706,8 +690,8 @@ function WorkspaceShell() {
       // 낡은 사본에 덮이지 않게(openTaskModal 위 주석과 같은 이유).
       const tid = q.get('t');
       const task = tid ? s.tasks.byId[tid] : null;
-      if (task) { setActiveMenu(task.projectId); setModalState({ isOpen: true, task, isEditMode: false }); return; }
-      setModalState({ isOpen: false, task: null, isEditMode: false });
+      if (task) { setActiveMenu(task.projectId); setModalState({ isOpen: true, task }); return; }
+      setModalState({ isOpen: false, task: null });
       const pid = q.get('p');
       setActiveMenu(pid && s.projects.byId[pid] ? pid : 'dashboard');
     };
@@ -838,15 +822,22 @@ function WorkspaceShell() {
       {modalState.isOpen && (
         <ErrorBoundary>
           <TaskModalShell
-            task={modalState.task} isEditMode={modalState.isEditMode}
-            onClose={() => setModalState({ isOpen: false, task: null, isEditMode: false })}
-            onEdit={() => setModalState(prev => ({ ...prev, isEditMode: true }))}
-            onSave={(newData) => { const saved = controller.handleSaveTask(newData, modalState.task.id ? liveModalTask() : null); setModalState({ isOpen: true, task: saved, isEditMode: false }); return saved; }}
+            task={modalState.task}
+            onClose={() => setModalState({ isOpen: false, task: null })}
+            // 칸마다 저장한다 — 창이 이전 카드(oldData = 스토어의 지금 카드)를 같이 넘겨서 바뀐 칸만 간다.
+            // 새 업무(id 없음)를 만들면 창이 그 카드로 넘어가 곧바로 고칠 수 있다.
+            onSave={(newData, oldData, opts) => {
+              const isNew = !modalState.task.id;
+              const saved = controller.handleSaveTask(newData, isNew ? null : (oldData || liveModalTask()), opts);
+              if (isNew) setModalState({ isOpen: true, task: saved });
+              return saved;
+            }}
+            onContentSession={controller.handleContentSession}
             onAddComment={(text, parentId = null) => { const updated = controller.handleAddComment(liveModalTask(), text, parentId); setModalState(prev => ({ ...prev, task: updated })); }}
             onUpdateComment={(commentId, newText) => { const updated = controller.handleUpdateComment(liveModalTask(), commentId, newText); setModalState(prev => ({ ...prev, task: updated })); }}
             onDeleteComment={(commentId) => { const updated = controller.handleDeleteComment(liveModalTask(), commentId); setModalState(prev => ({ ...prev, task: updated })); }}
             onFileActivity={(action) => { const updated = controller.handleFileActivity(liveModalTask(), action); setModalState(prev => ({ ...prev, task: updated })); }}
-            onDelete={() => { controller.handleDeleteTask(modalState.task); setModalState({ isOpen: false, task: null, isEditMode: false }); }}
+            onDelete={() => { controller.handleDeleteTask(modalState.task); setModalState({ isOpen: false, task: null }); }}
           />
         </ErrorBoundary>
       )}

@@ -223,7 +223,7 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions
 
 // 상세(댓글·활동)를 읽어 오는 동안의 자리 — 아무것도 안 그리면 "첫 댓글을 남겨보세요!"
 // 같은 빈 상태가 먼저 번쩍였다가 내용이 나타난다. 빈 상태는 "정말 없다"를 뜻해야 한다.
-const ListSkeleton = ({ rows = 3 }) => (
+export const ListSkeleton = ({ rows = 3 }) => (
   <div className="space-y-4 py-1" aria-hidden>
     {Array.from({ length: rows }, (_, i) => (
       <div key={i} className="flex items-start gap-2.5">

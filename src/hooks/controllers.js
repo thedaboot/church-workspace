@@ -1,7 +1,7 @@
 import { useEffect, useCallback } from 'react';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
-import { TaskService } from '../services/domain.js';
+import { TaskService, CONTENT_LOG, contentDiffers } from '../services/domain.js';
 import { generateId, taskChangedKeys } from '../utils.js';
 import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
@@ -47,13 +47,19 @@ export const useWorkspaceController = () => {
     return () => { clearTimeout(timer); unsub(); };
   }, [cloudOn]);
 
-  const handleSaveTask = useCallback((newData, oldData = null) => {
+  // opts.silentContent — 본문을 **조용히** 저장한다(업무 창의 자동 저장 · 같이 쓰기의 거울). 본문 활동
+  //   기록과 새 멘션 알림을 여기서 만들지 않는다 — 글자마다 저장되는 길이라 그대로 두면 활동이
+  //   글자 수만큼 쌓이고 멘션이 반쯤 친 이름으로 간다. 그 둘은 편집 세션이 끝날 때 한 번
+  //   handleContentSession이 한다. 본문 밖의 칸(담당자 등)은 그대로 기록·알림이 간다.
+  // opts.onSettled(ok) — 클라우드 쓰기가 끝나면(게스트는 곧바로) 부른다. 업무 창의 '저장됨'이 이것을 본다.
+  const handleSaveTask = useCallback((newData, oldData = null, opts = {}) => {
+    const { silentContent = false, onSettled } = opts;
     const isNew = !oldData;
     // 새 기록은 만든 자리에서 같이 받는다 — 나중에 스냅샷 두 개를 비교해 되계산하면
     // 그 둘이 어긋날 때 서버에 이미 있는 기록을 다시 넣게 된다(domain.js 주석 참고)
     const { task, logs } = isNew
       ? { task: TaskService.create(newData, currentUser.name), logs: null }
-      : TaskService.updateWithLogs(oldData, newData, currentUser.name);
+      : TaskService.updateWithLogs(oldData, newData, currentUser.name, { skipContent: silentContent });
 
     if (isNew) {
       store.dispatch({ type: 'UPSERT_TASK', payload: task });
@@ -77,7 +83,7 @@ export const useWorkspaceController = () => {
       // 새 카드는 생성 기록 하나가 전부다
       const addedLogs = logs ?? (task.activityLog || []);
       // 상세 내용이 바뀐 경우, 이전 본문에 없던 새 멘션만 알림
-      const contentChanged = (oldData?.content || '') !== (task.content || '');
+      const contentChanged = !silentContent && (oldData?.content || '') !== (task.content || '');
       const mentionIds = contentChanged
         ? cloudSync.newMentionsOnly(task.content, oldData?.content, currentUser.name)
         : [];
@@ -100,11 +106,32 @@ export const useWorkspaceController = () => {
         .then(() => assignIds.length && cloudSync.notifyAssignees(assignIds, {
           actorName: currentUser.name, cardId: task.id, projectId: task.projectId, preview: task.title,
         }))
-        .catch(reportCloudError('업무를 저장하지 못했어요'));
+        .then(() => onSettled?.(true), (e) => { onSettled?.(false); reportCloudError('업무를 저장하지 못했어요')(e); });
+    } else {
+      onSettled?.(true);
     }
     // 창에 돌려주는 것도 **스토어의 살아 있는 카드**다. task를 그대로 주면
     // 폼의 빈 목록이 그대로 화면에 실린다(스토어는 위에서 지켰는데 화면만 비는 꼴).
     return store.getState().tasks.byId[task.id] || task;
+  }, [currentUser.name, cloudOn]);
+
+  // 본문 편집 세션 하나가 끝났다(같이 쓰기의 onVersion · 게스트는 창을 닫을 때) — 본문 기록 **한 줄**과
+  // 이 세션에서 새로 생긴 멘션의 알림. 저장 자체는 이미 조용히 끝났다(handleSaveTask의 silentContent).
+  // 카드는 스토어의 지금 것을 쓴다 — 창이 닫힌 뒤에 불려도 된다(같이 쓰기는 닫을 때 세션을 끝낸다).
+  const handleContentSession = useCallback((cardId, startMd, endMd) => {
+    const task = store.getState().tasks.byId[cardId];
+    if (!task || !contentDiffers(startMd, endMd)) return;
+    const updated = TaskService.addActivity(task, CONTENT_LOG, currentUser.name);
+    const entry = updated.activityLog[updated.activityLog.length - 1];
+    // 목록만 붙인다(SYNC_TASK) — 카드 통째로 넣으면 그 사이 온 칸을 옛 값으로 덮는다(§6-22)
+    store.dispatch({ type: 'SYNC_TASK', payload: { id: cardId, activityLog: updated.activityLog } });
+    if (!cloudOn) return;
+    const mentionIds = cloudSync.newMentionsOnly(endMd, startMd, currentUser.name);
+    cloudSync.activityAddCloud([entry], task.projectId, cardId)
+      .then(() => mentionIds.length && cloudSync.notifyMentions(endMd, {
+        actorName: currentUser.name, cardId, projectId: task.projectId, recipientIds: mentionIds,
+      }))
+      .catch(reportCloudError('활동 기록을 남기지 못했어요'));
   }, [currentUser.name, cloudOn]);
 
   const handleAddComment = useCallback((task, text, parentId = null) => {
@@ -216,6 +243,6 @@ export const useWorkspaceController = () => {
     if (cloudOn) cloudSync.profileUpdateCloud(profile).catch(reportCloudError('내 정보를 저장하지 못했어요'));
   }, [cloudOn]);
 
-  return { handleSaveTask, handleReorderTasks, handleDeleteTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleRenameProject, handleArchiveProject, handleUpdateUser, undo: store.undo, redo: store.redo };
+  return { handleSaveTask, handleContentSession, handleReorderTasks, handleDeleteTask, handleAddComment, handleUpdateComment, handleDeleteComment, handleFileActivity, handleAddProject, handleRenameProject, handleArchiveProject, handleUpdateUser, undo: store.undo, redo: store.redo };
 };
 

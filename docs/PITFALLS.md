@@ -391,6 +391,11 @@
 19-e. **업무 창의 '고쳤나'는 수정을 누른 순간의 스냅숏과 견준다** — 저장은 `utils.mergeTaskEdit`: 내가 바꾼 칸만 내 값, 나머지는 **지금** 카드(그 사이 남이 바꾼 칸을 내 저장이 되돌리지 않게).
 19-e-1. **그 '지금 카드'는 수정 모드 동안 멈춰 있다**(2026-09-28) — 편집 중에는 실시간 반영을 미루므로(`App.jsx` isEditingRef) live가 곧 수정을 누른 순간이고, 저장이 모든 칸을 통째로 덮어써서 **A가 제목만 고쳐도 그사이 B가 바꾼 상태·하위 업무가 되돌아갔다**. 이제 서버에는 **바뀐 칸만** 간다(`utils.taskChangedKeys` → `cloudSync.cardUpsertCloud`의 `pickCols`), 하위 업무는 보내기 직전에 서버 목록을 읽어 **줄 단위로** 합친다(`utils.mergeSubtasks`). 같은 칸(특히 본문)을 둘이 고치면 여전히 나중 저장이 이긴다. 검사 `logcheck`.
     같은 칸을 둘이 고치면 나중 저장이 이긴다. ✕·딤도 푸터와 같은 확인을 거치고, 고쳤을 때만 beforeunload.
+19-e-2. **업무 창에는 수정 모드가 없다**(2026-09-28 · 목업 승인) — 19-e·19-e-1이 풀던 '창이 든 사본' 문제가 자리째 사라졌다. 창은 칸마다 **스토어의 지금 카드**를 그리고,
+    저장은 `onSave(새 카드, 지금 스토어 카드)`(TaskModalShell `commit`)라 바뀐 칸만 간다. 창이 드는 것은 **막 치고 있는 것**뿐이다(초점이 있는 제목·하위 업무 이름 — `useNameDraft` · 게스트 본문).
+    그래서 `App.jsx`는 **실시간을 더는 미루지 않는다**(isEditingRef·pendingCardsRef를 걷었다 · `tests/logcheck`가 되살아나지 않는지 본다). 남은 보호 하나: 전체 재조회가 열린 창의 댓글·활동을
+    비우지 않게 `reloadCloud`가 상세를 **LOAD_STATE 전에** 읽는다(§6-20 · `tests/push`). 닫을 때 묻지 않고 밀린 쓰기를 흘린다(flushers · pagehide) — 새 업무 폼만 예전처럼 묻는다.
+    `mergeTaskEdit`·`taskEditDirty`는 이제 새 업무 폼의 '적은 게 있나'에만 쓰인다.
 
 ### 데이터 로드 · 실시간
 
@@ -670,6 +675,8 @@
     기다렸다가 '안 모였다'로 FAIL이 났다(코드는 멀쩡했다 · `tests/coedit`). 시간으로 기다리지 말고 **오가는 것이 다 닿을 때까지** 센다(`bus().settle()`).
 42-k. **`y-protocols`의 `Awareness`는 3초 점검 타이머를 건다** — 검사에서 `destroy()`를 빠뜨리면 전부 PASS를 찍고도 노드가 안 끝나 러너가 멈춘다.
     만든 것은 다 `destroy()`하고, 스위트 끝에 `process.exit(0)`을 둔다.
+42-l. **헤드리스 창은 초점이 없어서 `el.blur()`가 blur 이벤트를 안 낸다**(`document.hasFocus()` false) — 업무 창 제목의 '떠나면 저장'이 검사에서만 안 됐다. `Emulation.setFocusEmulationEnabled({ enabled: true })`를
+    먼저 켠다(`tests/modalclose`). `focus()`는 activeElement만 옮기고 이벤트는 없을 수 있다.
 
 ### AI
 
@@ -940,7 +947,7 @@ reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가
     가로챈 페이지에서는 vite HMR 소켓이 안 붙어 콘솔에 `[vite]` 줄이 남는다(dev 소음 — 그 묶음에서만 거른다).
     테마 스크립트 대조는 CRLF를 LF로 바꿔 잰다 — 윈도 작업 사본의 index.html은 CRLF다.
 
-### 업무 본문 같이 쓰기 (2026-09-28 · 0084 · 엔진만)
+### 업무 본문 같이 쓰기 (2026-09-28 · 0084)
 
 **32-zn.** **TipTap 3의 Collaboration은 `y-prosemirror`가 아니라 `@tiptap/y-tiptap`(그 갈래)을 문다** — 심기·되돌리기·통째로 갈기에서 `y-prosemirror`를
     따로 불러 쓰면 `ySyncPluginKey`가 두 벌이 되어 편집기의 되돌리기(그 열쇠를 출처로 따라간다)가 우리 트랜잭션을 못 알아본다. 같이 쓰기 코드는
@@ -951,3 +958,16 @@ reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가
 
 **32-zp.** **시간 초과 뒤 다시 보낼 때 새 편집과 섞어 보내면 기록이 겹친다** — '실패'가 아니라 '모른다'라서 이미 들어갔을 수 있다. 덩어리를 봉하고
     **같은 열쇠(client_id)로** 다시 보낸다(`core.createBatcher` · DB는 on conflict do nothing). 새 편집은 다음 덩어리다.
+
+**32-zq.** **열 때 description이 문서와 다르면 한 번 받아들이되, 셋이 다 맞을 때만**(`modals/coedit.jsx` useCoedit · 엔진 `adoptCheck`) — 옛 앱(캐시)을 쓰는 사람이 같이 쓰기 밖에서 본문을 고치면
+    Yjs가 모르고, 다음 거울이 그 글을 문서의 옛 글로 덮어 **그 사람의 편집이 조용히 사라진다**. 그런데 거꾸로 문서가 새것일 때도 달라 보인다 — 누가 지금 쓰는 중(거울은 2초 뒤)이거나, 탭이 닫혀 거울이 끊겼다.
+    그때 받아들이면 **그 사람이 막 친 글이 그 사람 화면에서 지워진다**. 그래서 ① 심었다 읽은 모양끼리 달랐고(`core.normalizeMarkdown` — 날것끼리면 옛 표기 `**==x==**`만으로도 늘 다르다)
+    ② 1.5초(hello 왕복) 뒤에도 문서에 나 말고 아무도 없고 ③ `cards.updated_at`이 문서의 마지막 기록보다 늦을 때만, 그리고 그 사이 내가 안 쳤을 때만 `replaceAll`한다.
+    받아들인 세션은 곧바로 끝내고(flush) 그 onVersion을 건너뛴다 — 내 이름의 활동·멘션이 서지 않게(판은 한 줄 선다).
+
+**32-zr.** **거울은 조용한 저장이다 — 활동·멘션은 세션 끝에 한 번**(`controllers.handleSaveTask({ silentContent })` · `handleContentSession`) — 거울은 2초 조용할 때마다 description을 쓰므로 예전 저장
+    길을 그대로 타면 '상세 내용을 수정했습니다'가 몇 초마다 쌓이고 멘션이 반쯤 친 이름으로 간다. 게스트 본문(800ms 자동 저장)도 같은 규칙이다 — 활동 한 줄은 창을 닫을 때. 치는 동안의 '저장됨' 돌기는
+    ydoc의 내 편집(출처가 심볼이 아닌 것)으로 세우고, 거울이 안 가면(쳤다 지웠다) 2.6초 뒤 스스로 푼다.
+
+**32-zs.** **끝낸 하위 업무의 이름은 글자(span)로 선다**(업무 창 SubtaskTitle) — 방금 체크한 줄의 취소선을 긋는 자리가 그 인라인 글자라서(9-ch) 입력칸이면 그릴 곳이 없다. 글자를 누르면 입력칸이 된다.
+    안 끝낸 줄은 늘 입력칸이다(`data-subtask-title`은 둘 다에 있다 — `tests/traces`가 둘을 같은 이름으로 찾는다).

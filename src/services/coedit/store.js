@@ -40,5 +40,18 @@ export function supabaseStore(supabase) {
     compact: (cardId, upto, state) => run(() => supabase.rpc('card_doc_compact', { p_card: cardId, p_upto: upto, p_state: state })).then(Boolean),
     addVersion: (cardId, { md, added, removed }, key) => run(() => supabase.from('card_doc_versions')
       .upsert({ client_id: key, card_id: cardId, md, added, removed }, { onConflict: 'client_id', ignoreDuplicates: true })),
+    // 문서가 마지막으로 바뀐 때(가장 늦은 기록 · 없으면 스냅샷) — 열 때 description이 문서보다 새것인지
+    // 가를 때만 읽는다(index.js adoptCheck)
+    async latestAt(cardId) {
+      const row = await run(() => supabase.from('card_doc_updates').select('at').eq('card_id', cardId)
+        .order('id', { ascending: false }).limit(1).maybeSingle());
+      if (row?.at) return row.at;
+      const snap = await run(() => supabase.from('card_docs').select('updated_at').eq('card_id', cardId).maybeSingle());
+      return snap?.updated_at || null;
+    },
+    // 판 목록 — 업무 창 '버전 기록' 탭이 열릴 때만 읽는다(최신이 앞 · 50판까지)
+    versions: (cardId, limit = 50) => run(() => supabase.from('card_doc_versions')
+      .select('id, by, at, md, added, removed').eq('card_id', cardId)
+      .order('at', { ascending: false }).order('id', { ascending: false }).limit(limit)),
   };
 }

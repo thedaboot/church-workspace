@@ -1,26 +1,24 @@
 // ============================================================================
 // 업무 본문 같이 쓰기 — 여는 곳 하나 (0084 · 순수 부분은 core.js)
 // ----------------------------------------------------------------------------
-// **화면에는 아직 안 붙었다**(엔진만). 붙일 때의 모양:
+// **업무 창이 여는 곳은 modals/coedit.jsx의 useCoedit 하나다**(2026-09-28). 모양:
 //
 //   const { openCoedit } = await import('../services/coedit/index.js');   // 늦게 — yjs가 첫 화면에 안 실린다
-//   const co = await openCoedit({ cardId, user: { name, color: '#rrggbb' }, markdown: task.content,
-//     onMirror: (md) => cardUpsertCloud({ ...task, content: md }, false, { changed: ['content'] }),
-//     onVersion: ({ startMd, endMd, added, removed }) => {
-//       // 새 멘션만: cloudSync.newMentionsOnly(endMd, startMd, 내 이름) · 활동 기록은 여기서 한 줄
-//     } });
+//   const co = await openCoedit({ cardId, user: { id, name, color: '#rrggbb' }, markdown: task.content,
+//     onMirror: (md) => …조용한 저장(handleSaveTask silentContent — 활동·멘션 없음),
+//     onVersion: ({ startMd, endMd }) => …세션 끝 한 번(handleContentSession — 활동 한 줄 · 새 멘션만) });
 //   <MarkdownEditor collab={co.collab} … />       // value는 무시된다 · 문서는 co.ydoc이 원본
 //   co.actions.read() / add(item) / update(id, patch) / remove(id) / replace(items)   // 담당 업무 부품
 //   co.replaceAll(md)       // AI 다듬기 · '이 버전으로 되돌리기' — 한 트랜잭션 · 되돌리기 한 걸음
-//   // 닫을 때: 편집기를 먼저 내리고 await co.destroy()
+//   // 닫을 때: 편집기를 먼저 내리고 co.destroy()(업무 창은 한 박자 미룬다)
 //
-// onMirror는 **기존 저장 길**로 보내야 한다(활동·실시간 반영이 그 길에 붙어 있다). 마지막으로 비춘
+// onMirror는 **기존 저장 길**로 보내야 한다(바뀐 칸만 · 실시간 반영이 그 길에 붙어 있다). 마지막으로 비춘
 // 글과 같으면 부르지 않는다. 판(card_doc_versions)은 여기서 직접 넣고(줄 수 셈 포함), onVersion은
 // 화면이 멘션·활동을 세션당 한 번 하라고 부른다.
 //
-// `divergedAtOpen` — 열 때 description과 Yjs 문서의 글이 달랐나. 같이 쓰기 밖의 길(옛 저장·다른
-// 화면)이 description을 고치면 Yjs가 모르고, 다음 거울이 그것을 덮는다. 붙일 때 그 길들을
-// `replaceAll`로 돌리거나, 이 값으로 사람에게 물을지 화면이 정한다(미결 — 엔진은 판단하지 않는다).
+// `divergedAtOpen` — 열 때 description과 Yjs 문서의 글이 달랐나(심었다 읽은 모양끼리 — core.normalizeMarkdown).
+// 같이 쓰기 밖의 길(옛 앱을 아직 쓰는 사람)이 description을 고치면 Yjs가 모르고, 다음 거울이 그것을 덮는다.
+// 업무 창은 `adoptCheck(cards.updated_at)`이 참일 때만 한 번 `replaceAll(description)`로 받아들인다(아래 · useCoedit).
 //
 // 순서(0084 설계): 채널에 먼저 붙고 → DB(스냅샷 + 그 뒤 기록)를 읽고 → 둘 다 되면 hello.
 // 채널이 먼저인 까닭은 읽는 사이에 남이 쓴 것을 놓치지 않기 위해서다(받은 것은 그대로 적용 —
@@ -38,11 +36,14 @@ import { supabase as defaultClient } from '../supabaseClient.js';
 import { bodySchema } from '../editorSchema.js';
 import {
   FIELD, ACTIONS, REMOTE, toB64, newKey, createPeer, createPersister, createMirror, loadDoc, shouldCompact, isCompactor,
-  fullMarkdown, readActions, addAction, updateAction, removeAction, replaceActions, replaceAll,
+  fullMarkdown, normalizeMarkdown, readActions, addAction, updateAction, removeAction, replaceActions, replaceAll,
 } from './core.js';
 import { supabaseStore } from './store.js';
 
 export const coeditTopic = (cardId) => `coedit:${cardId}`;
+
+// '버전 기록' 탭 — 판 목록만 읽는다(같이 쓰기를 열지 않아도 된다)
+export const loadVersions = (cardId, client = defaultClient) => supabaseStore(client).versions(cardId);
 const EVENTS = ['u', 's1', 's2', 'aw'];
 
 // 채널 — 비공개(0084의 realtime.messages 정책) · 내 것은 안 받는다(self: false)
@@ -106,7 +107,8 @@ export async function openCoedit({
   const first = await loadDoc({ ydoc, store, cardId, markdown, schema });
   upto = first.upto;
   loaded = true;
-  const divergedAtOpen = fullMarkdown(ydoc) !== String(markdown ?? '');
+  // 심었다 읽은 모양끼리 견준다(core.normalizeMarkdown 머리말) — 날것끼리면 옛 글은 늘 '다르다'다
+  const divergedAtOpen = fullMarkdown(ydoc) !== normalizeMarkdown(markdown, schema);
   if (provider.status === 'SUBSCRIBED') peer.hello();
 
   // 접기 — upto는 앞으로만 간다(0084). false = 누가 이미 그만큼 접었다 → 할 일 없음
@@ -187,8 +189,21 @@ export async function openCoedit({
     provider.destroy();
   }
 
+  // description을 받아들여도 되나(열 때 달랐을 때만 묻는다 · 업무 창 useCoedit) — **셋 다** 맞아야 한다:
+  //   ① 열 때 달랐다  ② 지금 문서에 나 말고 아무도 없다(누가 쓰는 중이면 그 사람의 거울이 아직 안 갔을
+  //   뿐이다 — 받아들이면 그 사람이 막 친 글이 그 사람 화면에서 지워진다)  ③ 카드가 문서보다 늦게
+  //   바뀌었다(cards.updated_at > 마지막 기록) — 같이 쓰기 밖의 길(옛 앱)이 본문을 고쳤다는 뜻이다.
+  //   거꾸로(문서가 더 새것)면 거울이 못 갔을 뿐이다(탭이 닫혀 끊겼다) — 다음 거울이 description을 맞춘다.
+  async function adoptCheck(cardUpdatedAt) {
+    if (!divergedAtOpen) return false;
+    if ([...awareness.getStates().keys()].some(id => id !== ydoc.clientID)) return false;
+    const at = await store.latestAt(cardId).catch(() => null);
+    const card = Date.parse(cardUpdatedAt || '');
+    return Number.isFinite(card) && (!at || card > Date.parse(at));
+  }
+
   return {
-    ydoc, awareness, provider, collab, destroy, flush: flushAll, divergedAtOpen,
+    ydoc, awareness, provider, collab, destroy, flush: flushAll, divergedAtOpen, adoptCheck,
     markdown: () => fullMarkdown(ydoc),
     replaceAll: (md) => replaceAll(ydoc, md, schema),
     actions: {
