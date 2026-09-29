@@ -51,6 +51,12 @@
    **보기/수정을 다시 나눴다**(2026-09-29 · 목업 승인): 있는 업무는 **보기가 기본**(예전 보기 화면 짜임 — 하위 업무 체크·본문 체크리스트·담당 업무 내리기는 보기에서 곧바로 저장) → `수정`(연한 accent) → 위의 수정 화면(칸마다 저장) → `수정 완료`(진한 accent — 밀린 쓰기를 흘리고 같이 쓰기 세션을 끝낸 뒤 보기로). 묻는 창은 없다. 같이 쓰기는 **보기에서도 열린다**(문서에 보는 사람으로 들어가 머리줄 얼굴에 선다 · awareness `editing`·`line`) — 머리줄 얼굴은 사진(Avatar) · 수정 중이면 그 사람 색 고리 + 연필 · 보기 화면은 남이 수정 중이면 본문 위 알약 `○○○님이 수정 중`(둘 넘으면 `○○○님 외 N명이 수정 중`)과 그 사람 커서 줄의 옅은 물 + 18px 얼굴(본문 통 오른쪽 28px 안 — 목업은 얼굴이 잘렸다) · 보기 본문은 문서의 마크다운(150ms)이라 남이 치는 글이 따라온다 · 이름표 커서는 14px 사진 + 이름 알약 · 버전 기록 줄은 사진(폰 32 · 넓은 폭 24) · 고친 곳은 **본문처럼 그린 줄**(서식만 바뀐 줄도 뺀 줄 → 더한 줄 한 쌍). 게스트도 보기/수정은 같다(얼굴 없이).
    **실기기·두 기기 확인 대기**: 두 사람이 한 본문을 동시에(커서 이름표 사진 · 얼굴 · 줄 끝 글자 수렴) · 한 사람은 보기 화면에서 알약·줄 얼굴이 그 사람 커서를 따라가는지(초점을 잃으면 걷힌다) · 보기 화면 본문이 남의 글을 따라오는지 · `수정 완료` 뒤 판 한 줄·활동 한 줄 · 창을 닫자마자 다른 사람 화면에 description이 따라오는지 · 버전 기록 줄·되돌리기 · 옛 앱 사용자가 고친 본문을 받아들이는지(PITFALLS 32-zq) · 활동이 세션당 한 줄인지 · 멘션 알림이 새 이름에만.
 
+   **두 사람 실측(2026-09-29 · 라이브 Supabase · 로컬 vite 클라우드 모드 · 헤드리스 크롬 둘+늦게 온 셋째 창)**: `scripts/coedit-live/`
+   (`setup` → 매번 `fresh`·`reset` → `e2e` → `teardown` · 임시 계정 둘 + 2099년 프로젝트 · 끝나면 전부 지우고 uuid 칸 전수 검사로 0건 확인).
+   동시 입장 · 수정 중 알약·연필 · 커서 줄 사진(안 잘림) · 보기 화면 실시간(약 0.2초) · 다른 줄/같은 자리/지우는 줄 동시 입력 수렴 ·
+   제목↔상태 동시 저장 · 거울(손 뗀 뒤 0.3초) · 오프라인 뒤 합치기 · 늦게 온 창 · 닫는 순간 막 친 글 · 판·editors·서식 diff ·
+   되돌리기(두 번 포함) · 새로고침 · 브라우저 끄면 0.3초 안에 표시가 걷힘 · 로그인 없이는 표·채널·함수 전부 막힘 — 전부 통과.
+
 ## 3. 이 레포의 흐름 (새 기능을 붙일 때)
 
 기능을 여럿 붙이면서 매번 같은 순서를 밟았다. 그대로 하면 된다.
@@ -226,7 +232,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0076** 알림 종류 `approved`(관리자만 넣는다). **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at`. **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만 · 미적용). **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거). **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`. **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`). **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책) — 라이브 적용 2026-09-28 · 업무 창에 붙었다(`modals/coedit.jsx`). **0085** `calendar_feeds`(내 달력) 적용. 다음 번호는 0086.
+  **0076** 알림 종류 `approved`(관리자만 넣는다). **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at`. **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만 · 미적용). **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거). **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`. **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`). **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책) — 라이브 적용 2026-09-28 · 업무 창에 붙었다(`modals/coedit.jsx`). **0085** `calendar_feeds`(내 달력) 적용. **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` — 둘 다 2026-09-29 적용. 다음 번호는 0088.
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.

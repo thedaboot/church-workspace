@@ -295,7 +295,7 @@ export function PresenceMarks({ box, editors, content }) {
 
 // ── 버전 기록 탭 ────────────────────────────────────────────────────────────
 // 탭을 처음 열 때 읽는다(card_doc_versions · 최신이 앞). 줄: 그 사람 색 점(첫 글자) · 이름 ·
-// `오늘 오후 3:12 · 2줄 추가 · 1줄 제거`(0인 쪽은 뺀다 · 가장 오래된 판은 `처음 작성한 본문`).
+// `오늘 오후 3:12 · 2줄 추가 · 1줄 제거`(0인 쪽은 뺀다 · 기준 판(0086)은 `처음 작성한 본문`).
 // 줄을 누르면 본문 자리가 그 판의 **고친 곳**(바로 앞 판 → 이 판의 줄 차이 · view.versionDiff)으로 바뀐다.
 // 실패는 빈 자리에 선다(§8 D2 — 토스트 없이 제목 · 까닭 · 다시 시도).
 // load — 개발 빌드의 가짜 판 목록(useDevFake)만 넘긴다. 줄의 얼굴은 사진(Avatar) · 폰 32px · 넓은 폭 24px.
@@ -334,15 +334,25 @@ export function VersionPanel({ cardId, pickedId, onPick, refreshKey = 0, load = 
   return (
     <div data-version-list="" className="space-y-1 -mx-1">
       {list.map((v, i) => {
-        const name = profileName(v.by) || '이름 미상';
-        const label = versionLabel(v, i === list.length - 1);
+        // 그 판 사이에 같이 고친 사람(0087 editors) — 세션을 끝낸 사람 한 명만 세우면 남이 친 글까지 그 사람 것으로 읽혔다
+        const others = (v.editors || []).filter(id => id && id !== v.by);
+        const lead = profileName(v.by) || '이름 미상';
+        const name = others.length ? `${lead} 외 ${others.length}명` : lead;
+        const label = versionLabel(v);
         const on = v.id === pickedId;
         return (
           <button key={v.id} type="button" data-version-row={v.id} aria-pressed={on}
             onClick={() => onPick?.({ version: v, name, time: versionTime(v.at, now), rows: versionDiff(list, i) })}
             className={`w-full flex items-center gap-2.5 md:gap-2 px-1.5 py-2 rounded-md text-left transition-colors ${on ? 'bg-accent-weak' : 'hover:bg-surface-hover'}`}>
-            <Avatar name={name} title="" fallbackClass="text-white"
-              className="flex w-8 h-8 md:w-6 md:h-6 text-[12px] md:text-[10px]" style={{ background: userColor(v.by || name) }} />
+            <span className={`relative shrink-0 flex ${others[0] ? "mr-1.5" : ""}`} title={[lead, ...others.map(id => profileName(id) || '이름 미상')].join(', ')}>
+              <Avatar name={lead} title="" fallbackClass="text-white"
+                className="flex w-8 h-8 md:w-6 md:h-6 text-[12px] md:text-[10px]" style={{ background: userColor(v.by || lead) }} />
+              {others[0] && (
+                <Avatar name={profileName(others[0]) || '?'} title="" fallbackClass="text-white"
+                  className="flex absolute -right-1.5 -bottom-1 w-[18px] h-[18px] md:w-4 md:h-4 text-[9px] md:text-[8px] ring-2 ring-surface"
+                  style={{ background: userColor(others[0]) }} />
+              )}
+            </span>
             <span className="min-w-0 flex-1">
               <span className={`block text-xs font-semibold truncate ${on ? 'text-accent-text' : 'text-fg'}`}>{name}</span>
               <span className="block text-[11px] text-fg-muted mt-0.5">{[versionTime(v.at, now), label].filter(Boolean).join(' · ')}</span>

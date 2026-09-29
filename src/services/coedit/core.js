@@ -263,8 +263,9 @@ export function createBatcher({ delay, flush, timers = globalThis, makeKey = new
 // ── 사람 사이(전송 무관) ────────────────────────────────────────────────────
 // send(event, payload)는 채널 쪽이 준다. 받은 것은 receive(event, payload)로 넣는다.
 // hello()는 **채널에 붙을 때마다**(처음·다시 붙음) 부른다 — 끊긴 사이의 차이를 서로 채운다.
-export function createPeer({ ydoc, awareness, send, throttleMs = 50, awarenessMs = 200, timers = globalThis }) {
-  const out = createBatcher({ delay: throttleMs, timers, flush: (u) => { send('u', { u: toB64(u) }); } });
+// onRemote(clientID) — 남의 편집('u')을 적용한 뒤 **보낸 사람**을 알린다(판의 editors · 0087). 편집 메시지에는 보낸 이(c)를 싣는다.
+export function createPeer({ ydoc, awareness, send, onRemote, throttleMs = 50, awarenessMs = 200, timers = globalThis }) {
+  const out = createBatcher({ delay: throttleMs, timers, flush: (u) => { send('u', { u: toB64(u), c: ydoc.clientID }); } });
   const onUpdate = (u, origin) => { if (isLocal(origin)) out.push(u); };
   ydoc.on('update', onUpdate);
 
@@ -288,6 +289,7 @@ export function createPeer({ ydoc, awareness, send, throttleMs = 50, awarenessMs
     receive(event, payload) {
       try {
         if (event === 'u' || event === 's2') Y.applyUpdate(ydoc, fromB64(payload.u), REMOTE);
+        if (event === 'u' && Number.isFinite(payload.c)) onRemote?.(payload.c);
         else if (event === 's1') {
           const diff = Y.encodeStateAsUpdate(ydoc, fromB64(payload.sv));
           if (!isEmptyUpdate(diff)) send('s2', { u: toB64(diff) });
@@ -371,6 +373,7 @@ export function createPersister({ ydoc, store, cardId, delay = 1000, timers = gl
 export function createMirror({ ydoc, onMirror, onVersion, idleMs = 2000, sessionMs = 60000, timers = globalThis, markdownOf = fullMarkdown }) {
   let mirrored = markdownOf(ydoc);
   let sessionStart = null;           // null = 세션 밖
+  const others = new Set();          // 세션 동안 편집을 보낸 남(사용자 id · 0087)
   let idleT = null, sessionT = null;
   const mirror = () => {
     idleT = null;
@@ -384,7 +387,9 @@ export function createMirror({ ydoc, onMirror, onVersion, idleMs = 2000, session
     const md = markdownOf(ydoc);
     const start = sessionStart;
     sessionStart = null;
-    if (md !== start) onVersion?.({ startMd: start, endMd: md, ...lineDiffCounts(start, md) });
+    const withWhom = [...others];
+    others.clear();
+    if (md !== start) onVersion?.({ startMd: start, endMd: md, others: withWhom, ...lineDiffCounts(start, md) });
   };
   const before = (tr) => {
     if (sessionStart === null && isLocal(tr.origin)) sessionStart = markdownOf(ydoc);
@@ -402,6 +407,8 @@ export function createMirror({ ydoc, onMirror, onVersion, idleMs = 2000, session
     // 창을 닫을 때 — 남은 거울과 판을 지금 쓴다
     flush() { if (sessionT) timers.clearTimeout(sessionT); endSession(); },
     get inSession() { return sessionStart !== null; },
+    // 남의 편집이 들어왔다 — 내 세션 안이면 그 사람을 판의 editors에 넣는다
+    noteRemote(userId) { if (sessionStart !== null && userId) others.add(userId); },
     destroy() {
       ydoc.off('beforeTransaction', before);
       ydoc.off('afterTransaction', after);

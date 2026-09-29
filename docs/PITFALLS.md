@@ -991,3 +991,13 @@ reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가
 **32-zw.** **'카드가 바뀌면 보기로'를 효과로 하면 첫 상태가 무엇이든 보기가 된다** — `useEffect(() => setMode('view'), [cardId])`는 마운트에도 돌아서 `useState('edit')`로 되돌려도
     검사가 안 깨졌다(되돌리기 검사가 헛돌았다). 이전 카드 id를 state로 들고 **렌더 중에** 견줘 돌린다(`if (modeCard !== cardId) …`) — 앞 카드의 수정 화면이 한 번 그려지지도 않는다.
     같은 까닭으로 데스크톱 업무 창의 스크롤 통은 `scrollbar-gutter: stable`이다 — 보기(짧다)와 수정(길다)을 오가며 막대가 생겼다 없어져 닫기 버튼이 옆으로 뛰었다.
+**32-zx.** **나간 사람은 awareness가 아니라 채널 presence로 안다**(2026-09-29 두 사람 실측) — awareness는 30초 동안 소식이
+    없어야 사람을 지워서, 고치던 사람이 브라우저를 끄거나 폰을 잠그면 `수정 중`이 32초 남았다. `coedit/index.js` 채널이 clientID를
+    presence 열쇠로 track하고, leave가 오면 그 clientID의 awareness를 바로 지운다(0.3초). 다시 붙으면 hello가 되살린다.
+    **실측 함정**: 윈도우에서 크롬 본체만 죽이면 네트워크 프로세스가 소켓을 붙잡아 '끄기'가 흉내 나지 않는다 — `taskkill /T /F`.
+**32-zy.** **같이 쓰기 전부터 있던 본문은 기준 판으로 남긴다**(0086 `card_doc_baseline` · kind `baseline`) — 없으면 처음 고친 사람의
+    판이 `처음 작성한 본문`으로 서고 고친 곳 보기가 빈 글과 견줬다. 문서를 열 때 한 번(판이 있으면 DB가 거른다 · 둘이 동시에 열어도
+    업무 id에서 만든 client_id로 한 줄). `처음 작성한 본문`은 기준 판에만 붙는다(`view.versionLabel`).
+**32-zz.** **판에는 그 사이에 같이 고친 사람을 전부 싣는다**(0087 `editors`) — 판은 세션을 끝낸 사람의 본문이라 그 세션 동안 남이 친
+    글도 들어간다. 편집 메시지('u')에 보낸 이 clientID를 싣고 받는 쪽이 awareness의 user.id로 바꿔 세션에 모은다(`core.createMirror`
+    noteRemote — 세션 밖의 남은 안 싣는다). 목록은 `○○○ 외 N명` + 겹친 얼굴.

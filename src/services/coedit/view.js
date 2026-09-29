@@ -95,10 +95,11 @@ export function presenceInk(color) {
   return { bg: `${hexOf(c)}${Math.round(PILL_ALPHA * 255).toString(16).padStart(2, '0')}`, light: light.ink, dark: dark.ink, bgLight: light.bg, bgDark: dark.bg };
 }
 
-// 판 목록 뒷말. 0인 쪽은 뺀다(`2줄 추가`만) · 가장 오래된 판은 늘 `처음 작성한 본문`이다 —
-// 그 판의 줄 수는 '세션 시작 글'과의 차이라 처음 쓴 사람에게는 뜻이 없다.
-export function versionLabel(v, oldest = false) {
-  if (oldest) return '처음 작성한 본문';
+// 판 목록 뒷말. 0인 쪽은 뺀다(`2줄 추가`만) · `처음 작성한 본문`은 **기준 판**(0086 kind 'baseline' — 같이 쓰기 전부터
+// 있던 본문)에만 붙인다. 예전에는 가장 오래된 판이면 늘 그 말이었는데, 이미 본문이 있던 업무를 처음 고친 사람의
+// 판까지 '처음 작성'이 되었다(2026-09-29 두 사람 실측). 빈 업무에서 처음 쓴 판은 `N줄 추가`로 선다.
+export function versionLabel(v) {
+  if (v?.kind === 'baseline') return '처음 작성한 본문';
   const added = Number(v?.added) || 0;
   const removed = Number(v?.removed) || 0;
   return [added && `${added}줄 추가`, removed && `${removed}줄 제거`].filter(Boolean).join(' · ');

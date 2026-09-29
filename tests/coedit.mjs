@@ -288,6 +288,37 @@ await check('두 사람이 동시에 처음 열어도 한 벌만 심는다', asy
   assert.notStrictEqual(C.docMarkdown(x), md, '(대조) 따로 심으면 합칠 때 겹친다');
 });
 
+// ⑥-0 판의 editors(0087) — 내 세션 동안 편집을 보낸 사람만 · 편집 메시지에는 보낸 이(c)가 실린다.
+// 되돌리기 검사: core.createMirror의 noteRemote에서 `sessionStart !== null &&`을 걷으면 '세션 밖' 단정이,
+// createPeer 'u' 수신의 onRemote 호출을 걷으면 '보낸 이' 단정이 깨진다.
+await check('판에는 그 세션 동안 같이 고친 사람이 실린다(세션 밖의 남은 안 싣는다) · 편집 메시지에 보낸 이', async () => {
+  const a = new Y.Doc();
+  Y.applyUpdate(a, C.seedState('처음', schema), C.DB);
+  const versions = [];
+  const m = C.createMirror({ ydoc: a, idleMs: 5, sessionMs: 30, onVersion: (v) => versions.push(v) });
+  m.noteRemote('u-before');                      // 세션 밖 — 안 싣는다
+  typeAt(a, 0, 0, '나');
+  m.noteRemote('u-2'); m.noteRemote('u-2'); m.noteRemote('u-3');
+  m.flush();
+  assert.deepStrictEqual(versions[0].others, ['u-2', 'u-3'], '세션 안의 남만 · 한 번씩');
+  typeAt(a, 0, 0, '또');
+  m.flush();
+  assert.deepStrictEqual(versions[1].others, [], '다음 세션은 비어서 시작한다');
+  m.destroy();
+  // 보낸 이
+  const sent = [], got = [];
+  const x = new Y.Doc(), y = new Y.Doc();
+  const px = C.createPeer({ ydoc: x, send: (e, p) => sent.push([e, p]), throttleMs: 1 });
+  const py = C.createPeer({ ydoc: y, send: () => {}, onRemote: (c) => got.push(c) });
+  x.transact(() => x.getText('t').insert(0, '가'), LOCAL);
+  for (let i = 0; i < 50 && !sent.length; i++) await sleep(5);
+  const [ev, pl] = sent.find(([e]) => e === 'u');
+  assert.strictEqual(ev, 'u'); assert.strictEqual(pl.c, x.clientID, '편집 메시지에 보낸 이');
+  py.receive('u', pl);
+  assert.deepStrictEqual(got, [x.clientID], '받는 쪽이 보낸 이를 안다');
+  assert.strictEqual(y.getText('t').toString(), '가');
+});
+
 // ⑥ 거울 · 판 ─────────────────────────────────────────────────────────────────
 await check('내가 고치면 조용할 때 거울 한 번 · 세션이 끝나면 판 한 번(시작·끝 글 · 줄 수) · 받은 편집만으로는 안 쓴다', async () => {
   const a = new Y.Doc();
@@ -308,7 +339,7 @@ await check('내가 고치면 조용할 때 거울 한 번 · 세션이 끝나�
   for (let i = 0; i < 50 && !mirrors.length; i++) await sleep(10);
   assert.deepStrictEqual(mirrors, ['나나처음남'], '조용해지면 한 번');
   for (let i = 0; i < 50 && !versions.length; i++) await sleep(10);
-  assert.deepStrictEqual(versions, [{ startMd: '처음남', endMd: '나나처음남', added: 1, removed: 1 }], '세션 시작 글 = 첫 편집 직전(받은 편집 포함) · 줄 수');
+  assert.deepStrictEqual(versions, [{ startMd: '처음남', endMd: '나나처음남', others: [], added: 1, removed: 1 }], '세션 시작 글 = 첫 편집 직전(받은 편집 포함) · 줄 수');
   // 고쳤다가 되돌려 같은 글이면 판도 거울도 없다 · 닫을 때(flush) 남은 거울을 지금 쓴다
   typeAt(a, 0, 0, 'Z');
   a.transact(() => textAt(a, 0).delete(0, 1), LOCAL);
@@ -515,7 +546,9 @@ await check("판 목록 뒷말 — '2줄 추가 · 1줄 제거' · 0인 쪽은 �
   assert.strictEqual(V.versionLabel({ added: 3, removed: 0 }), '3줄 추가');
   assert.strictEqual(V.versionLabel({ added: 0, removed: 4 }), '4줄 제거');
   assert.strictEqual(V.versionLabel({ added: 0, removed: 0 }), '');
-  assert.strictEqual(V.versionLabel({ added: 9, removed: 9 }, true), '처음 작성한 본문');
+  assert.strictEqual(V.versionLabel({ added: 9, removed: 0, kind: 'baseline' }), '처음 작성한 본문', '기준 판(0086)만 처음 작성한 본문');
+  // 이미 본문이 있던 업무를 처음 고친 판(가장 오래된 세션 판)은 줄 수로 선다(2026-09-29 두 사람 실측)
+  assert.strictEqual(V.versionLabel({ added: 2, removed: 1, kind: 'session' }), '2줄 추가 · 1줄 제거');
 });
 await check("판 시각 — '오늘 오후 3:12' · '어제 오전 9:05' · 같은 해는 날짜 · 다른 해는 해까지", () => {
   const now = new Date(2026, 8, 28, 22, 0);

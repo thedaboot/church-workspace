@@ -52,9 +52,13 @@ export const loadVersions = (cardId, client = defaultClient) => supabaseStore(cl
 const EVENTS = ['u', 's1', 's2', 'aw'];
 
 // 채널 — 비공개(0084의 realtime.messages 정책) · 내 것은 안 받는다(self: false)
-function channelProvider({ client, topic, onMessage, onSubscribed }) {
-  const ch = client.channel(topic, { config: { private: true, broadcast: { self: false } } });
+// **나간 사람은 채널 presence로 안다**(2026-09-29 두 사람 실측) — awareness는 30초 동안 소식이 없어야 사람을 지워서,
+// 고치던 사람이 브라우저를 끄거나 폰을 잠그면 `수정 중`이 32초 남았다. presence는 소켓이 끊기는 순간 서버가
+// leave를 보낸다 → 그 clientID의 awareness를 바로 지운다. 다시 붙으면 hello·다음 awareness 소식이 되살린다.
+function channelProvider({ client, topic, onMessage, onSubscribed, presenceKey, onLeave }) {
+  const ch = client.channel(topic, { config: { private: true, broadcast: { self: false }, presence: { key: String(presenceKey) } } });
   for (const event of EVENTS) ch.on('broadcast', { event }, ({ payload }) => onMessage(event, payload));
+  ch.on('presence', { event: 'leave' }, ({ key }) => { const id = Number(key); if (Number.isFinite(id)) onLeave?.(id); });
   let status = 'INIT';
   let warned = false;
   const start = async () => {
@@ -62,7 +66,7 @@ function channelProvider({ client, topic, onMessage, onSubscribed }) {
     try { await client.realtime.setAuth(); } catch (e) { console.warn('[coedit] 실시간 인증 실패:', e); }
     ch.subscribe((s, err) => {
       status = s;
-      if (s === 'SUBSCRIBED') onSubscribed();
+      if (s === 'SUBSCRIBED') { ch.track({ at: Date.now() }).catch?.(() => {}); onSubscribed(); }
       else if ((s === 'CHANNEL_ERROR' || s === 'TIMED_OUT') && !warned) {
         // 정책(0084)이 없거나 승인 전이면 여기로 온다 — 혼자 쓰기와 저장은 그대로 된다
         warned = true;
@@ -152,6 +156,8 @@ export async function openCoedit({
   const inbox = [];                   // peer가 서기 전에 온 메시지
   const provider = channelProvider({
     client, topic: coeditTopic(cardId),
+    presenceKey: ydoc.clientID,
+    onLeave: (id) => { if (id !== ydoc.clientID && awareness.getStates().has(id)) removeAwarenessStates(awareness, [id], 'presence-leave'); },
     onMessage: (e, p) => (peer ? peer.receive(e, p) : inbox.push([e, p])),
     // 처음 붙은 것은 hello만(읽기는 아래에서 이미 한다) · 그 뒤에 또 붙으면 다시 읽고 hello
     onSubscribed: () => {
@@ -160,7 +166,12 @@ export async function openCoedit({
       if (joins === 1) peer.hello(); else catchUp();
     },
   });
-  peer = createPeer({ ydoc, awareness, send: (e, p) => provider.send(e, p) });
+  let mirror = null;
+  peer = createPeer({
+    ydoc, awareness, send: (e, p) => provider.send(e, p),
+    // 보낸 사람 clientID → 그 사람(awareness의 user.id) — 판의 editors(0087)
+    onRemote: (c) => { const uid = awareness.getStates().get(c)?.user?.id; if (uid && uid !== user.id) mirror?.noteRemote(uid); },
+  });
   for (const [e, p] of inbox.splice(0)) peer.receive(e, p);
 
   // 처음 읽기 — 스냅샷이 없으면 마크다운에서 심는다(두 번 심기 막기는 core.loadDoc)
@@ -170,6 +181,9 @@ export async function openCoedit({
   // 심었다 읽은 모양끼리 견준다(core.normalizeMarkdown 머리말) — 날것끼리면 옛 글은 늘 '다르다'다
   const divergedAtOpen = fullMarkdown(ydoc) !== normalizeMarkdown(markdown, schema);
   if (provider.status === 'SUBSCRIBED') peer.hello();
+  // 기준 판(0086) — 같이 쓰기 전부터 있던 본문을 판 목록 맨 아래 한 줄로(판이 이미 있으면 DB가 거른다).
+  // 없으면 처음 고친 사람의 판이 `처음 작성한 본문`으로 서고, 고친 곳 보기가 빈 글과 견줬다(두 사람 실측).
+  store.baseline(cardId, fullMarkdown(ydoc)).catch(e => console.warn('[coedit] 기준 판 남기기 실패:', e));
 
   // 접기 — upto는 앞으로만 간다(0084). false = 누가 이미 그만큼 접었다 → 할 일 없음
   if (shouldCompact(first.rowCount)) {
@@ -190,11 +204,11 @@ export async function openCoedit({
   }
 
   const persister = createPersister({ ydoc, store, cardId });
-  const mirror = createMirror({
+  mirror = createMirror({
     ydoc,
     onMirror: (md) => { try { onMirror?.(md); } catch (e) { console.warn('[coedit] 거울 쓰기 실패:', e); } },
     onVersion: (v) => {
-      store.addVersion(cardId, { md: v.endMd, added: v.added, removed: v.removed }, newKey())
+      store.addVersion(cardId, { md: v.endMd, added: v.added, removed: v.removed, editors: [...new Set([user.id, ...(v.others || [])].filter(Boolean))] }, newKey())
         .catch(e => console.warn('[coedit] 판 남기기 실패:', e));
       try { onVersion?.(v); } catch (e) { console.warn('[coedit] 세션 끝 처리 실패:', e); }
     },

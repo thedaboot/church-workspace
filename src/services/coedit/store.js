@@ -38,8 +38,8 @@ export function supabaseStore(supabase) {
     append: (cardId, data, key) => run(() => supabase.from('card_doc_updates')
       .upsert({ client_id: key, card_id: cardId, data }, { onConflict: 'client_id', ignoreDuplicates: true })),
     compact: (cardId, upto, state) => run(() => supabase.rpc('card_doc_compact', { p_card: cardId, p_upto: upto, p_state: state })).then(Boolean),
-    addVersion: (cardId, { md, added, removed }, key) => run(() => supabase.from('card_doc_versions')
-      .upsert({ client_id: key, card_id: cardId, md, added, removed }, { onConflict: 'client_id', ignoreDuplicates: true })),
+    addVersion: (cardId, { md, added, removed, editors = [] }, key) => run(() => supabase.from('card_doc_versions')
+      .upsert({ client_id: key, card_id: cardId, md, added, removed, editors }, { onConflict: 'client_id', ignoreDuplicates: true })),
     // 문서가 마지막으로 바뀐 때(가장 늦은 기록 · 없으면 스냅샷) — 열 때 description이 문서보다 새것인지
     // 가를 때만 읽는다(index.js adoptCheck)
     async latestAt(cardId) {
@@ -49,9 +49,11 @@ export function supabaseStore(supabase) {
       const snap = await run(() => supabase.from('card_docs').select('updated_at').eq('card_id', cardId).maybeSingle());
       return snap?.updated_at || null;
     },
+    // 기준 판(0086) — 원래 본문을 판 한 줄로. 판이 이미 있거나 누가 먼저 넣었으면 DB가 거른다(false)
+    baseline: (cardId, md) => run(() => supabase.rpc('card_doc_baseline', { p_card: cardId, p_md: md })).then(Boolean),
     // 판 목록 — 업무 창 '버전 기록' 탭이 열릴 때만 읽는다(최신이 앞 · 50판까지)
     versions: (cardId, limit = 50) => run(() => supabase.from('card_doc_versions')
-      .select('id, by, at, md, added, removed').eq('card_id', cardId)
+      .select('id, by, at, md, added, removed, kind, editors').eq('card_id', cardId)
       .order('at', { ascending: false }).order('id', { ascending: false }).limit(limit)),
   };
 }

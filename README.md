@@ -210,6 +210,8 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0083_service_editor_person` | 주보 작성·발행에 조준환 한 사람(명단 id)을 더한다 — 앱 쪽 거울은 `worship.js` `SERVICE_EDITOR_PEOPLE` | ✅ |
 | `0084_card_coedit` | 업무 본문 같이 쓰기의 저장 자리 — `card_doc_updates`(추가만 · base64 Yjs · `client_id` 멱등) · `card_docs`(스냅샷 · `upto`) · `card_doc_versions`(세션마다 한 판 · 줄 수) · 함수 `card_doc_seed`(먼저 넣은 쪽만)·`card_doc_compact`(upto는 앞으로만 · 30초) · 비공개 채널 `coedit:` 정책(`realtime.messages`). 옛 글 채우기 `scripts/seed-card-docs.mjs --dry-run` | ✅ |
 | `0085_calendar_feeds` | 내 달력 구독 — 한 사람·한 프로젝트에 한 줄(고른 업무 id 배열) · 본인만 읽기 · 쓰기는 서버(`api/ics.js`)만 · 실시간 밖 | ✅ |
+| `0086_card_doc_baseline` | 같이 쓰기 전부터 있던 본문을 기준 판 한 줄로(`kind` `baseline` · 함수 `card_doc_baseline` · 두 사람이 동시에 열어도 한 줄) | ✅ |
+| `0087_card_doc_version_editors` | 판마다 그 사이에 같이 고친 사람(`editors uuid[]` · 목록은 `○○○ 외 N명`) | ✅ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.
