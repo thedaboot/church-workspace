@@ -7,6 +7,7 @@
 // 누가 비춰도 같은 글자)·판(세션 시작·끝 글 · 줄 수) · 담당 업무 도막(Y.Array 왕복 · 줄 단위) ·
 // 통째로 갈기(한 트랜잭션 · 되돌리기 한 걸음) ⑦ 기록 실패·시간 초과 뒤 **같은 열쇠로** 다시 보내기
 // ⑧ 배선(편집기 prop · yjs가 첫 화면·편집기 조각에 안 실리는지 · 0084 모양 · 옛 글 채우기)
+// ⑨ 업무 창 화면의 순수 부분(view.js) ⑩ 보기/수정 나눔(2026-09-29 — 수정 중인 사람 · 커서 줄 · 알약 대비 · 고친 곳 한 쌍)
 //
 // 되돌리기 검사(§3-5) — 2026-09-28에 실제로 걷어서 확인했다:
 //   · core.loadDoc의 `for (const r of rows) Y.applyUpdate(...)` 줄을 걷으면 ③·④·⑦ 넷이 FAIL
@@ -527,7 +528,8 @@ await check("판 시각 — '오늘 오후 3:12' · '어제 오전 9:05' · 같�
 });
 await check('고친 곳 보기 — 줄 차이(같은·더한·뺀 줄) · 셈이 판 목록과 같다 · 바로 앞 판 → 이 판', () => {
   const rows = V.lineDiff('가\n나\n다\n라', '가\n나2\n다\n라\n마');
-  assert.deepStrictEqual(rows.map(r => `${r.op}:${r.text}`), ['same:가', 'add:나2', 'del:나', 'same:다', 'same:라', 'add:마']);
+  // 고친 줄은 뺀 줄 → 더한 줄 차례(2026-09-29 — 줄을 본문처럼 그리므로 옛 모양이 먼저 서야 읽힌다)
+  assert.deepStrictEqual(rows.map(r => `${r.op}:${r.text}`), ['same:가', 'del:나', 'add:나2', 'same:다', 'same:라', 'add:마']);
   // 셈은 엔진의 lineDiffCounts와 같다(목록의 'N줄 추가 · M줄 제거'를 누르면 그만큼이 보인다)
   const pairs = [['', 'a\nb'], ['a\nb\nc', 'a\nc'], [SAMPLE, SAMPLE.replace('수련회', '가을 수련회') + '\n더한 줄'], ['x', '']];
   for (const [a, b] of pairs) {
@@ -555,6 +557,71 @@ await check('머리줄 얼굴 — awareness에서 · 나 먼저 · 같은 사람
   assert.strictEqual(f[2].color, V.userColor('u3'), '색이 없으면 id로 고른다');
   assert.deepStrictEqual(V.facesFrom(null, 1), []);
 });
+
+// ⑩ 보기/수정 나눔(2026-09-29) — 수정 중인 사람 · 커서 줄 · 알약 · 고친 곳 한 쌍
+// 되돌리기 검사(§3-5 · 2026-09-29 실제로 걷어 확인): caretLine이 표시 글자를 끼우지 않고 **최상위 블록 번호**를
+// 돌려주게 하면(`return $pos.index(0)`) '목록·빈 줄 뒤의 줄 번호'가, lineDiff의 뺀 줄 우선을 되돌리면 '서식만 바뀐 줄'이 FAIL.
+await check('얼굴에 수정 중인가 · 커서 줄 — 같은 사람의 창 중 하나라도 수정 중이면 수정 중 · 줄은 그 창의 것', () => {
+  const states = new Map([
+    [5, { user: { id: 'me', name: '노준석', color: '#2f6fb5' }, editing: false }],
+    [7, { user: { id: 'u2', name: '조해리', color: '#c0392b' } }],                         // 보기만(첫 창)
+    [9, { user: { id: 'u2', name: '조해리', color: '#c0392b' }, editing: true, line: 3 }],  // 같은 사람 둘째 창 — 수정 중
+    [8, { user: { id: 'u3', name: '이시온', avatar: 'https://x/y.jpg' }, editing: false, line: 5 }],  // 보기인데 줄이 남은 창
+    [6, { user: { id: 'u4', name: '문진우' }, editing: true, line: -1 }],                  // 이상한 줄은 버린다
+  ]);
+  const f = V.facesFrom(states, 5);
+  const by = Object.fromEntries(f.map(x => [x.name, x]));
+  assert.deepStrictEqual(f.map(x => x.name), ['노준석', '조해리', '이시온', '문진우']);
+  assert.ok(!by['노준석'].editing && by['노준석'].me);
+  assert.ok(by['조해리'].editing && by['조해리'].line === 3, '둘째 창이 수정 중이면 그 사람은 수정 중 · 줄은 그 창');
+  assert.ok(!by['이시온'].editing && by['이시온'].line === null, '보기 화면이면 줄이 없다');
+  assert.strictEqual(by['이시온'].avatar, 'https://x/y.jpg', '사진 주소를 싣는다');
+  assert.ok(by['문진우'].editing && by['문진우'].line === null);
+});
+await check("보기 화면 알약 — '○○○님이 수정 중' · 둘 넘으면 '○○○님 외 N명이 수정 중' · 두 테마 모두 4.5:1", () => {
+  assert.strictEqual(V.presenceLabel([]), '');
+  assert.strictEqual(V.presenceLabel([{ name: '조해리' }]), '조해리님이 수정 중');
+  assert.strictEqual(V.presenceLabel([{ name: '조해리' }, { name: '이시온' }]), '조해리님 외 1명이 수정 중');
+  assert.strictEqual(V.presenceLabel([{ name: '조해리' }, { name: '이시온' }, { name: '문진우' }]), '조해리님 외 2명이 수정 중');
+  // 표면 값은 index.css와 한 쌍이다
+  const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
+  assert.ok(new RegExp(`--app-surface: ${V.SURFACE.light};`).test(css) && new RegExp(`--app-surface: ${V.SURFACE.dark};`).test(css), 'SURFACE가 index.css의 --app-surface와 같다');
+  assert.ok(/\.coedit-pill \{ color: var\(--pi-light\); \}/.test(css) && /:root\[data-theme='dark'\] \.coedit-pill \{ color: var\(--pi-dark\); \}/.test(css), '테마마다 글자색을 가른다');
+  for (const c of [...V.PALETTE, '#5b8def', '#e0a020']) {
+    const ink = V.presenceInk(c);
+    const l = V.contrast(ink.light, ink.bgLight), d = V.contrast(ink.dark, ink.bgDark);
+    assert.ok(l >= 4.5, `${c} 라이트 ${l.toFixed(2)}`);
+    assert.ok(d >= 4.5, `${c} 다크 ${d.toFixed(2)}`);
+    assert.ok(/^#[0-9a-f]{8}$/.test(ink.bg), '물은 #rrggbbaa');
+  }
+});
+await check('커서 줄(caretLine) — 편집기 문서의 자리 → 거울 마크다운의 줄 번호(목록 · 체크 · 빈 줄 · 구분선 · 담당 업무 도막 앞)', () => {
+  const md = '# 제목\n첫 문단\n\n- 하나\n- 둘\n1. 번호\n- [ ] 할 일\n---\n끝';
+  const doc = schema.nodeFromJSON(mdToDoc(md));
+  const lines = md.split('\n');
+  const got = [];
+  doc.descendants((n, pos) => { if (n.isTextblock) got.push([n.textContent, C.caretLine(doc, pos + 1 + n.content.size)]); });
+  for (const [text, line] of got) assert.strictEqual(lines[line].replace(/^(#+ |- \[ \] |- |\d+\. )/, ''), text, `${text} → ${line}`);
+  let hr = null; doc.descendants((n, pos) => { if (n.type.name === 'horizontalRule') hr = pos; });
+  assert.strictEqual(C.caretLine(doc, hr), 7, '글자를 넣을 수 없는 자리(구분선)는 그 블록의 줄');
+  // 하드 브레이크로 갈린 둘째 줄
+  const d2 = schema.nodeFromJSON(mdToDoc('가\n나'));
+  const br = schema.nodeFromJSON({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '위' }, { type: 'hardBreak' }, { type: 'text', text: '아래' }] }, ...d2.toJSON().content] });
+  assert.strictEqual(C.caretLine(br, 5), 1, '하드 브레이크 뒤는 다음 줄');
+  assert.strictEqual(C.caretLine(br, br.content.size - 1), 3);
+  // 본문 줄은 거울(담당 업무 도막이 붙은 글)의 같은 줄이다
+  const y = new Y.Doc(); Y.applyUpdate(y, C.seedState(md + '\n\n### 청년별 담당 업무\n- 노준석: 버스 알아보기', schema));
+  const full = C.fullMarkdown(y).split('\n');
+  for (const [text, line] of got) assert.ok(full[line].endsWith(text), `거울 ${line}줄`);
+  assert.ok(Number.isInteger(C.caretLine(doc, 99999)), '문서 밖 자리는 끝으로 당긴다(던지지 않는다)');
+});
+await check('고친 곳 — 글자는 같고 서식만 바뀐 줄은 뺀 줄 → 더한 줄 한 쌍', () => {
+  const r = V.lineDiff('가\n숙소 ==배정==은\n다', '가\n숙소 배정은\n다');
+  assert.deepStrictEqual(r.map(x => `${x.op}:${x.text}`), ['same:가', 'del:숙소 ==배정==은', 'add:숙소 배정은', 'same:다']);
+  const r2 = V.lineDiff('**굵게**\n- [ ] 할 일', '굵게\n- [x] 할 일');
+  assert.deepStrictEqual(r2.filter(x => x.op === 'del').map(x => x.text), ['**굵게**', '- [ ] 할 일']);
+  assert.strictEqual(r2.findIndex(x => x.op === 'del') < r2.findIndex(x => x.op === 'add'), true, '뺀 줄이 먼저');
+});
 await check('열 때 달랐나(divergedAtOpen)는 심었다 읽은 모양끼리 견준다 — 옛 글의 표기 차이만으로는 다르지 않다', () => {
   const legacy = '**==강조==**\n* 별 목록\n1) 번호';   // 옛 저장이 남긴 표기 — 심었다 읽으면 ==**강조**== · - · 1.
   const d = new Y.Doc(); Y.applyUpdate(d, C.seedState(legacy, schema));
@@ -576,6 +643,15 @@ await check('업무 창 배선 — 엔진은 늦게 받고 · 거울은 조용�
   assert.ok(/export const BODY_IDLE_MS = 800;/.test(modals) && /export const NAME_IDLE_MS = 600;/.test(modals), '게스트 본문 800ms · 제목 600ms');
   assert.ok(/card\?\.content \|\| ''/.test(ui) && /cardWritePromise\(cardId\)/.test(ui), '새로 만든 업무는 카드 행이 들어간 뒤에 연다');
   assert.ok(/co\.adoptCheck\(live\.updatedAt\)/.test(ui) && /if \(!adopting\) cb\.current\.onVersion/.test(ui), '받아들이기는 엔진이 셋을 보고 · 그 세션은 활동을 안 남긴다');
+  // 2026-09-29 보기/수정 나눔 — 보기 화면에도 얼굴이 서고(편집기 없이 user를 싣는다) · 수정 중이면 editing · 커서 줄 · 사진 이름표
+  const idx = src('../src/services/coedit/index.js');
+  assert.ok(/awareness\.setLocalStateField\('user', user\);\s*\n[\s\S]{0,40}const collab = \{/.test(idx.replace(/\r/g, '')), '열자마자 user를 싣는다(보기 화면에는 편집기가 없다)');
+  assert.ok(/CollaborationCaret\.configure\(\{ provider: \{ awareness \}, user, render: caretRender \}\)/.test(idx) && /caretLineExtension\(awareness\)/.test(idx), '이름표는 사진 알약 · 커서 줄 확장');
+  assert.ok(/editor\.isFocused \? caretLine\(editor\.state\.doc, editor\.state\.selection\.head\) : null/.test(idx) && /onDestroy\(\) \{[\s\S]{0,120}setLocalStateField\('line', null\)/.test(idx), '줄은 초점이 있을 때만 · 편집기가 내려가면 걷는다');
+  assert.ok(/awareness\?\.setLocalStateField\('editing', editing\)/.test(modals) && /const editing = !isNew && mode === 'edit';/.test(modals), '수정 화면일 때만 editing');
+  assert.ok(/const \[mode, setMode\] = useState\('view'\);/.test(modals) && /if \(modeCard !== cardId\) \{ setModeCard\(cardId\); setMode\('view'\); \}/.test(modals), '있는 업무는 보기로 연다 · 다른 업무로 넘어가면 보기로');
+  assert.ok(/export const LIVE_MD_MS = 150;/.test(ui) && /docSource\(co\) \|\| fake\?\.doc/.test(modals), '보기 본문은 문서의 마크다운(150ms)');
+  assert.ok(/avatar: getAvatar\(who\) \|\| ''/.test(ui), '이름표·얼굴에 사진 주소를 싣는다');
 });
 
 if (failed) { console.log(`\n${failed} FAIL`); process.exit(1); }

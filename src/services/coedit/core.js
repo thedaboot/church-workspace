@@ -26,6 +26,7 @@
 import * as Y from 'yjs';
 import { encodeAwarenessUpdate, applyAwarenessUpdate } from 'y-protocols/awareness';
 import { prosemirrorJSONToYDoc, yXmlFragmentToProsemirrorJSON, updateYFragment, ySyncPluginKey } from '@tiptap/y-tiptap';
+import { Slice, Fragment } from '@tiptap/pm/model';
 import { mdToDoc, docToMd } from '../markdown.js';
 import { stripActionSection, parseActionItems, writeActionSection } from '../actionItems.js';
 
@@ -162,6 +163,29 @@ export function replaceAll(ydoc, markdown, schema, origin = ySyncPluginKey) {
     updateYFragment(ydoc, ydoc.getXmlFragment(FIELD), node, { mapping: new Map(), isOMark: new Map() });
     replaceActions(ydoc, items);
   }, origin);
+}
+
+// ── 커서의 마크다운 줄 번호 — 보기 화면이 '누가 어느 줄에 있나'를 그리는 좌표 ─────────────
+// 쓰는 쪽 편집기가 재서 awareness에 싣는다(index.js caretLineExtension · `line`). 보는 쪽은 편집기 없이
+// 거울 마크다운을 줄마다 그리므로(RichText `data-line`) **그 마크다운의 줄 번호**가 곧 좌표다.
+// 재는 법: 커서 자리에 표시 글자 하나를 끼운 문서를 docToMd로 적고 그 글자가 든 줄을 찾는다 — 목록·체크리스트·
+// 하드 브레이크·빈 문단까지 적는 쪽과 한 벌이라 따로 셀 규칙이 없다. 글자를 넣을 수 없는 자리(그림·구분선을
+// 고른 것)는 그 블록 앞에 표시 문단을 끼워 그 블록의 첫 줄을 준다. 본문 마크다운의 줄은 거울(fullMarkdown)의
+// 같은 줄이다 — 담당 업무 도막은 맨 뒤에 붙는다.
+export const CARET_MARK = '';
+export function caretLine(doc, pos) {
+  try {
+    const schema = doc.type.schema;
+    const $pos = doc.resolve(Math.max(0, Math.min(pos, doc.content.size)));
+    let marked;
+    if ($pos.parent.inlineContent) marked = doc.replace($pos.pos, $pos.pos, new Slice(Fragment.from(schema.text(CARET_MARK)), 0, 0));
+    else {
+      const at = $pos.depth ? $pos.before(1) : Math.min($pos.pos, doc.content.size);
+      marked = doc.replace(at, at, new Slice(Fragment.from(schema.nodes.paragraph.create(null, schema.text(CARET_MARK))), 0, 0));
+    }
+    const i = docToMd(marked.toJSON()).split('\n').findIndex(l => l.includes(CARET_MARK));
+    return i >= 0 ? i : null;
+  } catch { return null; }
 }
 
 // ── 줄 차이 셈 — 판 목록의 `2줄 추가 · 1줄 제거` ──────────────────────────────

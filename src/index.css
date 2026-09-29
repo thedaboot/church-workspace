@@ -559,10 +559,22 @@ svg.lucide { stroke-width: 1.4px; }
   position: relative; margin: 0 -1px; border-left: 2px solid; border-right: 0;
   word-break: normal; pointer-events: none;
 }
+/* 이름표는 알약 — 14px 얼굴(사진 · 없으면 첫 글자) + 이름(흰 글자 · 팔레트가 4.5:1을 지킨다 · 2026-09-29) */
 .tiptap .collaboration-carets__label {
-  position: absolute; left: -2px; top: -1.35em; padding: 0 .3rem; border-radius: 4px 4px 4px 0;
-  color: #fff; font-size: 12px; font-weight: 600; line-height: 1.35; white-space: nowrap; user-select: none;
+  position: absolute; left: -2px; top: -20px; height: 18px; padding: 0 7px 0 2px; border-radius: 9px 9px 9px 2px;
+  display: inline-flex; align-items: center; gap: 4px;
+  color: #fff; font-size: 11.5px; font-weight: 600; line-height: 1; white-space: nowrap; user-select: none;
 }
+.tiptap .collaboration-carets__face {
+  width: 14px; height: 14px; border-radius: 9999px; overflow: hidden; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgb(255 255 255 / .28); font-size: 9px; font-weight: 700;
+}
+.tiptap .collaboration-carets__face img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 보기 화면의 '○○○님이 수정 중' 알약 — 물은 그 사람 색 12%, 글자는 테마마다 4.5:1이 되게 섞은 값
+   (modals/coedit.jsx PresencePill · coedit/view.presenceInk가 두 값을 준다 · tests/coedit가 잰다) */
+.coedit-pill { color: var(--pi-light); }
+:root[data-theme='dark'] .coedit-pill { color: var(--pi-dark); }
 .tiptap ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--app-ink-faint); text-decoration: line-through; }
 .tiptap strong { font-weight: 700; }
 .tiptap s { opacity: .8; }

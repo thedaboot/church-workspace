@@ -63,7 +63,8 @@ const VIEWS = [
   ['프로젝트 보드', '/?p=p1', null],
   ['프로젝트 캘린더', '/?p=p1', `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='캘린더')?.click()`],
   ['업무 상세', '/?p=p1', `document.querySelector('.board-card')?.click()`],
-  // 업무 창에 수정 모드가 없어졌다(2026-09-28 — 연 채로 고친다) — 그 자리에 만들기 폼을 본다
+  // 보기가 기본이고 '수정'으로 수정 화면에 들어간다(2026-09-29 되살렸다) · 만들기 폼도 본다
+  ['업무 수정', '/?p=p1', `(async()=>{document.querySelector('.board-card')?.click();await new Promise(r=>setTimeout(r,700));[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='수정')?.click();})()`],
   ['새 업무 만들기', '/?p=p1', `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='새 업무')?.click()`],
   // title로 정확히 집는다 — 텍스트로 찾으면 마감 리스트 행 버튼이 먼저 걸려 팀 보드로 못 간다
   ['팀 보드', '/', `document.querySelector('main button[title="찬양팀 보드로"]')?.click()`],

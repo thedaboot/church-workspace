@@ -196,22 +196,25 @@ function ContentImage({ src }) {
 
 // onToggleTodo(idx): 본문 체크리스트의 idx번째 항목을 뒤집는다 — 업무 창 보기 모드만
 // 넘긴다(하위 업무처럼 보기에서 바로 눌린다). 안 넘기면(댓글·요약 등) 읽기 전용이다.
-export const RichText = React.memo(({ content, onToggleTodo }) => {
+// lineAttrs: 줄마다 `data-line`(마크다운 줄 번호)을 단다 — 업무 창 보기 화면이 '누가 어느 줄을 고치는 중인가'를
+// 그 줄 옆에 세우는 좌표다(modals/coedit.jsx PresenceMarks · 엔진 core.caretLine과 같은 번호). 모양은 안 바뀐다.
+export const RichText = React.memo(({ content, onToggleTodo, lineAttrs = false }) => {
   const blocks = useMemo(() => parseBlocks(content), [content]);
+  const ln = (k) => (lineAttrs ? { 'data-line': k } : null);
   return (
     <>
       {blocks.map(block => {
         switch (block.type) {
           case 'rule':
             // 본문 안의 선은 카드 테두리보다 옅다 — 글을 가르는 표시이지 상자가 아니다
-            return <hr key={block.key} className="my-3 border-0 h-px" style={{ background: 'var(--app-line)' }} />;
+            return <hr key={block.key} {...ln(block.key)} className="my-3 border-0 h-px" style={{ background: 'var(--app-line)' }} />;
           case 'image':
-            return <div key={block.key} className="my-2"><ContentImage src={block.value} /></div>;
+            return <div key={block.key} {...ln(block.key)} className="my-2"><ContentImage src={block.value} /></div>;
           case 'todo':
             return (
               <div key={block.key} className="mb-1 space-y-1">
                 {block.items.map(it => (
-                  <div key={it.key} className="flex items-start gap-2 leading-relaxed">
+                  <div key={it.key} {...ln(it.key)} className="flex items-start gap-2 leading-relaxed">
                     {/* 하위 업무 체크박스와 같은 표기(초록 채움 + 흰 체크) — 같은 뜻은 같은 모양 */}
                     <button
                       type="button" disabled={!onToggleTodo}
@@ -233,23 +236,23 @@ export const RichText = React.memo(({ content, onToggleTodo }) => {
             );
           case 'heading': {
             const Tag = `h${block.level}`;
-            return <Tag key={block.key} className={HEADING_CLS[block.level]}>{renderInline(block.value, block.key)}</Tag>;
+            return <Tag key={block.key} {...ln(block.key)} className={HEADING_CLS[block.level]}>{renderInline(block.value, block.key)}</Tag>;
           }
           // 글자 크기는 호출부가 정한다 — 여기서 text-sm을 박아 두면 댓글(11px 이름 옆),
           // 요약(text-xs 래퍼) 안에서도 14px로 커져서 주변과 어긋났다(실제 지적).
           // 본문은 TaskViewer 래퍼가 text-sm을 준다.
           case 'ul':
-            return <ul key={block.key} className="list-disc pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key}>{renderInline(it.value, it.key)}</li>)}</ul>;
+            return <ul key={block.key} className="list-disc pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key} {...ln(it.key)}>{renderInline(it.value, it.key)}</li>)}</ul>;
           case 'ol':
-            return <ol key={block.key} start={block.start || 1} className="list-decimal pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key}>{renderInline(it.value, it.key)}</li>)}</ol>;
+            return <ol key={block.key} start={block.start || 1} className="list-decimal pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key} {...ln(it.key)}>{renderInline(it.value, it.key)}</li>)}</ol>;
           // **빈 줄은 글자 한 줄 높이 · 들여쓰기는 그대로**(사용자 결정 2026-09-25 · 목업 A1 —
           // 편집 화면과 같게). 예전에는 빈 줄이 8px(h-2)이고 앞 공백이 접혀서, 엔터 두 번으로
           // 나눈 문단이 보기에서 붙고 수정↔보기 때 줄이 뛰었다. 빈 줄은 빈 문단 하나라 어느
           // 글자 크기(업무 본문 · 댓글 · 요약)에서도 그 자리의 한 줄이다.
           case 'gap':
-            return <p key={block.key} className="mb-1 text-fg leading-relaxed"><br /></p>;
+            return <p key={block.key} {...ln(block.key)} className="mb-1 text-fg leading-relaxed"><br /></p>;
           default:
-            return <p key={block.key} className="mb-1 text-fg leading-relaxed whitespace-break-spaces">{renderInline(block.value, block.key)}</p>;
+            return <p key={block.key} {...ln(block.key)} className="mb-1 text-fg leading-relaxed whitespace-break-spaces">{renderInline(block.value, block.key)}</p>;
         }
       })}
     </>

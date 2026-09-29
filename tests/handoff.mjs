@@ -320,14 +320,16 @@ const modal = await ev(`(() => {
   if(!m) return null;
   const t=m.textContent;
   return { open:true, hasTabs: /댓글|활동/.test(t), hasShare: !!m.querySelector('button[title*="공유"]'),
-           hasEdit: [...m.querySelectorAll('button')].some(b=>/^(수정|저장)$/.test(b.textContent.trim())) };
+           hasEdit: [...m.querySelectorAll('button')].some(b=>b.textContent.trim()==='수정'),
+           hasSave: [...m.querySelectorAll('button')].some(b=>b.textContent.trim()==='저장') };
 })()`);
 check('업무 상세: 열린다', modal?.open === true);
 check('업무 상세: 댓글·활동 탭', modal?.hasTabs === true);
 check('업무 상세: 공유 버튼', modal?.hasShare === true);
-// 2026-09-28 — 수정 모드가 없다(연 채로 고치고 칸마다 저장). 수정·저장 버튼이 없어야 한다.
-check('업무 상세: 수정·저장 버튼이 없다(연 채로 고친다)', modal?.hasEdit === false, JSON.stringify(modal));
-await sleep(600);
+// 2026-09-29 — 보기가 기본이고 '수정'으로 수정 화면에 들어간다. 저장 버튼은 없다(칸마다 저절로).
+check("업무 상세: 보기에 '수정' 버튼 · 저장 버튼은 없다", modal?.hasEdit === true && modal?.hasSave === false, JSON.stringify(modal));
+await ev(clickText('수정'));
+await sleep(1200);
 const edit = await ev(`(() => {
   const m=document.querySelector('.fixed.inset-0.z-50'); const t=m?m.textContent:'';
   return { title: !!m?.querySelector('input[name=title]'),
@@ -395,6 +397,7 @@ check('업무 창: 제목이 저절로 저장소에 반영된다', saved === tru
   const enterAt = async (content, lefts, typed) => {
     st.tasks.byId[firstId].content = content;
     await load(DESK, `/?p=p1&t=${firstId}`);
+    await ev(clickText('수정'));   // 보기가 기본이다(2026-09-29)
     await sleep(1400);
     // 제목 줄을 눌러 커서를 넣고 End로 줄 끝까지 — 클릭 x좌표에 기대지 않는다
     const p = await ev(`(() => { const h=document.querySelector('.tiptap h1,.tiptap h2');
@@ -442,6 +445,7 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   const firstId = Object.keys(st.tasks.byId)[0];
   st.tasks.byId[firstId].content = 긴본문;
   await load(DESK, `/?p=p1&t=${firstId}`);
+  await ev(clickText('수정'));
   await sleep(1400);
   // 끝까지 내려 바를 붙인 뒤에 잰다(스크롤과 재기를 한 번에 하면 옛 자리가 나온다)
   await ev(`(() => {
@@ -661,8 +665,13 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
       // `inset-0` 대신 앱 뿌리와 같은 높이(`--app-vh`)를 쓰게 바뀌었다 — 그 자리를 클래스
       // 글자로 붙잡고 있으면 화면이 나아질 때마다 이 검사가 헛으로 깨진다.
       이름: '업무 창', path: `/?p=p1&t=${firstId}`, tip: '.fixed.z-50 .tiptap',
-      // 연 채로 고친다(2026-09-28) — 편집기가 곧바로 선다
-      열기: async () => waitFor(`document.querySelector('.fixed.z-50 .tiptap')`),
+      // 보기가 기본이다(2026-09-29) — '수정'을 눌러 편집기를 세운다
+      열기: async () => {
+        const 수정 = `[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '수정')`;
+        if (!await waitFor(수정)) return false;
+        await ev(`${수정}.click()`);
+        return waitFor(`document.querySelector('.fixed.z-50 .tiptap')`);
+      },
     },
     {
       이름: '예배 노트', path: '/?p=worship', tip: '.worship-note .tiptap',
@@ -746,10 +755,11 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   check("업무 보기: '참고 링크'라는 말도 '+ 링크'도 없다",
     view.참고링크문구 === false && view.추가링크 === false && view.추가참고링크 === false && view.옛줄 === false,
     JSON.stringify(view));
-  // 보기와 수정이 한 화면이 되었다(2026-09-28) — 편집기가 선 뒤에 한 번 더 잰다
+  // 수정 화면으로 들어가 한 번 더 잰다(2026-09-29 보기/수정 나눔 — 2026-09-28 이전 모양으로 되살렸다)
+  await ev(clickText('수정'));
   await sleep(1100);
   const edit2 = await ev(box);
-  check('업무 창(편집기가 선 뒤): 링크를 붙이는 버튼이 없다',
+  check('업무 수정: 링크를 붙이는 버튼이 없다',
     edit2.추가링크 === false && edit2.추가참고링크 === false && edit2.링크줄 === false, JSON.stringify(edit2));
   // 되돌린 것은 **업무 창뿐이다** — 같은 링크가 프로젝트 헤더에는 그대로 서 있다
   check('프로젝트 헤더의 참고 링크 칩은 그대로다', edit2.헤더칩 === true, JSON.stringify(edit2));
@@ -780,7 +790,7 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   for (const w of [1440, 375]) {
     const tag = `${w}px 담당 업무`;
     await load({ width: w, height: 860, deviceScaleFactor: 1, mobile: w < 768 }, `/?p=p1&t=${tid}`);
-    await sleep(1100);
+    await ev(clickText('수정')); await sleep(1100);
 
     const before = await ev(`document.querySelectorAll('.action-items input[aria-label="할 일"]').length`);
     await ev(`[...document.querySelectorAll('.action-items button')].find(b => b.textContent.includes('항목 추가'))?.click()`);
@@ -872,10 +882,12 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
   delete st.tasks.byId[tid].subtasks;
 }
 
-// ── 업무 창 편집기의 줄 · 하위 업무 추가 칸의 글 시작 (2026-09-25 · 목업 A1·B2 · 2026-09-28 보기 화면 걷음) ──
+// ── 업무 보기가 수정 편집기와 같은 줄에 선다 · 하위 업무 추가 칸의 글 시작 (2026-09-25 · 목업 A1·B2) ──
+// 빈 줄은 한 줄 높이(예전 8px), 들여쓰기는 그대로(예전 접힘) — 수정↔보기 때 줄이 뛰지 않는다.
+// (2026-09-28에 보기 화면이 없어져 걷었다가 2026-09-29 보기/수정 나눔으로 되살렸다.)
 // 하위 업무 추가 칸은 글이 편집기 글과 같은 x에서 시작한다(px-2 → px-3).
-// **되돌리기**: 추가 칸을 px-2로 되돌리면 둘째 줄이 깨진다. (보기 ↔ 편집 줄 비교는 보기 화면이 없어져
-// 걷었다 — 노트 종이의 같은 검사는 tests/word에 그대로 있다.)
+// **되돌리기**: RichText의 빈 줄을 `h-2`로, p의 `whitespace-break-spaces`를 빼면 첫 줄이,
+// 추가 칸을 px-2로 되돌리면 둘째 줄이 깨진다.
 {
   const tid = 't0';
   const keep = st.tasks.byId[tid].content;
@@ -892,12 +904,15 @@ const 긴본문 = Array.from({ length: 40 }, (_, i) => `본문 ${i + 1}번째 �
     return out;
   })()`;
   const rel = (a) => (a || []).map(([t, y, x]) => [t, Math.round((y - a[0][1]) * 2) / 2, Math.round((x - a[0][2]) * 2) / 2]);
-  // 2026-09-28 — 업무 창에 보기 화면이 없어졌다(연 채로 고친다). '보기의 줄이 편집기와 같은 자리' 검사는
-  // 견줄 보기가 없어 걷었고, 편집기가 빈 줄·들여쓰기를 그대로 세우는지만 남긴다(보기 = 편집 자체가 되었다).
   for (const m of [DESK, { width: 375, height: 812, deviceScaleFactor: 1, mobile: true }]) {
     await load(m, `/?p=p1&t=${tid}`);
-    await sleep(1400);
+    await sleep(600);
+    const view = rel(await ev(LINES('.prose')));
+    await ev(clickText('수정')); await sleep(1400);
     const edit = rel(await ev(LINES('.tiptap')));
+    const off = view.map((v, i) => (edit[i] ? [v[0], v[1] - edit[i][1], v[2] - edit[i][2]] : [v[0], 'x'])).filter(d => d[1] !== 0 || d[2] !== 0);
+    check(`${m.width}px: 업무 보기의 줄이 편집기와 같은 자리에 선다(빈 줄 한 줄 · 들여쓰기 그대로)`,
+      view.length === 5 && edit.length === 5 && off.length === 0, JSON.stringify({ view, edit, off }));
     check(`${m.width}px: 업무 창 편집기가 다섯 줄을 세우고 들여쓴 줄은 안으로 든다`,
       edit.length === 5 && edit[1][2] > 0 && edit[2][1] > edit[1][1], JSON.stringify(edit));
     const xs = await ev(`(() => {

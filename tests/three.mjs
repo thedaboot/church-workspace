@@ -606,11 +606,12 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
   check('그래프 보기에 업무 노드가 전부 나온다', g.nodes === START_COUNT + 2, JSON.stringify(g));
   check('선행 업무 선이 그려진다', g.paths >= 1, `path ${g.paths}개`);
   check('선행이 있는 업무는 오른쪽 열로 밀린다', g.cols >= 2, `${g.cols}열`);
-  // 업무 창에 '선행 업무' 칸이 있다(2026-09-28부터 연 채로 고친다 — 수정 버튼 없음)
+  // 수정 화면에 '선행 업무' 칸이 있다(2026-09-29 — 보기가 기본이고 '수정'으로 들어간다)
   await ev(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='보드')?.click()`);
   await sleep(600);
   await ev(`document.querySelector('.board-card')?.click()`);
   await sleep(800);
+  await ev(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='수정')?.click()`);
   await sleep(700);
   const dep = await ev(`(() => {
     // PropertyRow의 라벨은 아이콘+글자가 든 div다 — 태그를 가리지 않고 찾는다
@@ -618,7 +619,7 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
     const sel=[...document.querySelectorAll('select')].find(s=>/먼저 끝나야|더 추가/.test(s.textContent));
     return { label: !!label, select: !!sel, options: sel ? sel.options.length : 0 };
   })()`);
-  check('업무 창에 선행 업무 칸이 있다', dep.label === true && dep.select === true, JSON.stringify(dep));
+  check('수정 화면에 선행 업무 칸이 있다', dep.label === true && dep.select === true, JSON.stringify(dep));
   check('선행 업무 후보에 같은 프로젝트 업무가 나온다', dep.options > 1, `${dep.options}개`);
 }
 

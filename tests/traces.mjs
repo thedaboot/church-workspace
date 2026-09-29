@@ -255,7 +255,8 @@ check('팀 보드에도 같은 구간', !!teamDone && teamDone.note === '최근 
 // ── 9) 하위 업무 체크 — 선 그리기 · 취소선 · 되돌리기는 즉시 ─────────────────────
 await go('/?p=p1&t=s1', 1800);
 const box = (t) => `[...document.querySelectorAll('.subtask-row button[aria-pressed]')].find(b => b.getAttribute('aria-label').startsWith('${t} '))`;
-// 업무 창은 연 채로 고친다(2026-09-28) — 끝낸 줄의 이름은 글자(span), 안 끝낸 줄은 입력칸이다. 둘 다 data-subtask-title
+// 업무 창은 보기로 연다(2026-09-29) — 보기에서는 이름이 모두 글자(span)이고, 수정 화면은 끝낸 줄만 글자 · 안 끝낸 줄은
+// 입력칸이다(32-zs). 둘 다 data-subtask-title이라 어느 쪽이든 같은 이름으로 찾는다.
 const title = (t) => `[...document.querySelectorAll('[data-subtask-title]')].find(s => (s.tagName === 'INPUT' ? s.value : s.textContent).trim() === '${t}')`;
 const before = await ev(`({ still: !!(${box('둘째 단계')})?.querySelector('svg.dc-check-now'), strike: (${title('둘째 단계')})?.className.includes('dc-strike-now') })`);
 check('이미 끝난 줄(다시 연 창)에는 그리지 않는다', before.still === false && before.strike === false, JSON.stringify(before));

@@ -12,6 +12,10 @@
 //   co.replaceAll(md)       // AI 다듬기 · '이 버전으로 되돌리기' — 한 트랜잭션 · 되돌리기 한 걸음
 //   // 닫을 때: 편집기를 먼저 내리고 co.destroy()(업무 창은 한 박자 미룬다)
 //
+// awareness의 내 상태(2026-09-29 · 보기/수정 나눔): `user`({ id, name, color, avatar } — 열자마자 싣는다, 보기 화면에는
+// 편집기가 없다) · `editing`(업무 창이 수정 화면일 때만 true — 창이 싣는다) · `line`(커서가 선 마크다운 줄 — 편집기
+// 확장이 싣는다 · 초점이 없으면 null) · `cursor`(이름표 커서 — y-tiptap). 보는 쪽은 view.facesFrom으로 읽는다.
+//
 // onMirror는 **기존 저장 길**로 보내야 한다(바뀐 칸만 · 실시간 반영이 그 길에 붙어 있다). 마지막으로 비춘
 // 글과 같으면 부르지 않는다. 판(card_doc_versions)은 여기서 직접 넣고(줄 수 셈 포함), onVersion은
 // 화면이 멘션·활동을 세션당 한 번 하라고 부른다.
@@ -32,11 +36,12 @@ import * as Y from 'yjs';
 import { Awareness, removeAwarenessStates } from 'y-protocols/awareness';
 import { Collaboration } from '@tiptap/extension-collaboration';
 import { CollaborationCaret } from '@tiptap/extension-collaboration-caret';
+import { Extension } from '@tiptap/core';
 import { supabase as defaultClient } from '../supabaseClient.js';
 import { bodySchema } from '../editorSchema.js';
 import {
   FIELD, ACTIONS, REMOTE, toB64, newKey, createPeer, createPersister, createMirror, loadDoc, shouldCompact, isCompactor,
-  fullMarkdown, normalizeMarkdown, readActions, addAction, updateAction, removeAction, replaceActions, replaceAll,
+  fullMarkdown, normalizeMarkdown, caretLine, readActions, addAction, updateAction, removeAction, replaceActions, replaceAll,
 } from './core.js';
 import { supabaseStore } from './store.js';
 
@@ -74,6 +79,61 @@ function channelProvider({ client, topic, onMessage, onSubscribed }) {
     },
     destroy: () => client.removeChannel(ch),
   };
+}
+
+// 남의 커서 이름표 — 그 사람 색 알약 안에 14px 얼굴(사진 · 없거나 깨지면 첫 글자) + 이름(흰 글자).
+// 모양은 index.css `.collaboration-carets__*`. 색은 CollaborationCaret이 #rrggbb만 넘긴다(아니면 transparent).
+function caretRender(user) {
+  const color = /^#[0-9a-f]{6}$/i.test(user?.color || '') ? user.color : PALETTE_FALLBACK;
+  const caret = document.createElement('span');
+  caret.classList.add('collaboration-carets__caret');
+  caret.style.borderColor = color;
+  const label = document.createElement('div');
+  label.classList.add('collaboration-carets__label');
+  label.style.backgroundColor = color;
+  const face = document.createElement('span');
+  face.classList.add('collaboration-carets__face');
+  const initial = () => { face.textContent = (user?.name || '?')[0]; };
+  if (user?.avatar) {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.onerror = () => { img.remove(); initial(); };
+    img.src = user.avatar;
+    face.appendChild(img);
+  } else initial();
+  label.append(face, document.createTextNode(user?.name || ''));
+  caret.append(label);
+  return caret;
+}
+const PALETTE_FALLBACK = '#5b55c9';
+
+// 커서가 선 마크다운 줄 번호를 awareness `line`에 싣는다(core.caretLine) — 보기 화면이 편집기 없이 그 줄에
+// 얼굴을 세운다. 선택이 움직일 때마다 재면 긴 본문에서 무거우니 120ms에 한 번, 바뀌었을 때만.
+// **초점이 없으면 null**이다 — 이름표 커서(y-tiptap)가 초점을 잃으면 걷히는 것과 같게(제목 칸에 가 있는 사람의 줄을
+// 본문에 남기지 않는다). 편집기가 내려가면(수정 완료) 걷는다. 확장 하나를 편집기가 다시 설 때마다 같이 쓴다.
+function caretLineExtension(awareness) {
+  let timer = null;
+  let last;
+  const publish = (editor) => {
+    timer = null;
+    if (editor.isDestroyed) return;
+    const line = editor.isFocused ? caretLine(editor.state.doc, editor.state.selection.head) : null;
+    if (line === last) return;
+    last = line;
+    awareness.setLocalStateField('line', line);
+  };
+  const soon = (editor) => { if (!timer) timer = setTimeout(() => publish(editor), 120); };
+  return Extension.create({
+    name: 'coeditCaretLine',
+    onSelectionUpdate() { soon(this.editor); },
+    onUpdate() { soon(this.editor); },
+    onFocus() { soon(this.editor); },
+    onBlur() { soon(this.editor); },
+    onDestroy() {
+      clearTimeout(timer); timer = null; last = undefined;
+      if (awareness.getLocalState()) awareness.setLocalStateField('line', null);
+    },
+  });
 }
 
 export async function openCoedit({
@@ -160,13 +220,19 @@ export async function openCoedit({
   const onHide = () => { flushAll(); };
   if (typeof window !== 'undefined') window.addEventListener('pagehide', onHide);
 
+  // **편집기가 없어도 얼굴이 선다** — 업무 창의 보기 화면은 편집기를 띄우지 않고 이 문서에 들어온다(2026-09-29).
+  // 예전에는 CollaborationCaret이 편집기를 만들 때 user를 실었다. `editing`(수정 화면인가)은 업무 창이,
+  // `line`(커서 줄)은 아래 caretLineExtension이 싣는다.
+  awareness.setLocalStateField('user', user);
+
   const collab = {
     ydoc, awareness, user,
     extensions: [
       // 되돌리기는 이 확장의 것(Yjs UndoManager — **내 편집만** 물린다). StarterKit의 undoRedo는
       // MarkdownEditor가 collab일 때 끈다.
       Collaboration.configure({ document: ydoc, field: FIELD }),
-      CollaborationCaret.configure({ provider: { awareness }, user }),
+      CollaborationCaret.configure({ provider: { awareness }, user, render: caretRender }),
+      caretLineExtension(awareness),
     ],
   };
 

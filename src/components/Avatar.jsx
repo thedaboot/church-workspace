@@ -18,7 +18,8 @@ import { getAvatar } from '../services/cloudSync.js';
 //
 // 사진이 깨지면(주소가 죽었거나 카카오 CDN이 막았거나) **글자 원으로 돌아간다.** 깨진 이미지
 // 아이콘을 그대로 두면 그 사람만 화면이 고장 난 것처럼 보인다.
-export function Avatar({ name = '', url, className = '', title, fallbackClass }) {
+// `style` — 부르는 쪽 색(같이 쓰기 얼굴은 사람마다 정해진 색 바탕 · fallbackClass로 글자색만 준다).
+export function Avatar({ name = '', url, className = '', title, fallbackClass, style }) {
   const [broken, setBroken] = useState(false);
   const src = url !== undefined ? url : getAvatar(name);
   const letter = name[0] || '?';
@@ -26,6 +27,7 @@ export function Avatar({ name = '', url, className = '', title, fallbackClass })
   return (
     <span
       title={title ?? name}
+      style={style}
       className={`rounded-full items-center justify-center font-bold overflow-hidden shrink-0 ${showImg ? 'bg-surface-hover' : (fallbackClass || avatarColor(name))} ${className}`}
     >
       {showImg

@@ -1,4 +1,5 @@
-// 업무 창: 바깥 클릭으로 닫히는지 / 안쪽 클릭·드래그로는 안 닫히는지 · 칸마다 저절로 저장(2026-09-28 — 수정·저장 버튼 없음)
+// 업무 창: 바깥 클릭으로 닫히는지 / 안쪽 클릭·드래그로는 안 닫히는지 · 보기가 기본 → `수정` → 칸마다 저절로 저장 → `수정 완료`
+// (2026-09-29 보기/수정 나눔 · 저장 버튼 없음) · 보기 화면의 수정 중 알약·줄 표시·살아 있는 본문·고친 곳(개발 빌드의 가짜 같이 쓰기)
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,6 +32,8 @@ const check = (n, p, d = '') => results.push(`${p ? 'PASS' : 'FAIL'}  ${n}${d ? 
 // 나아질 때마다 이 검사가 헛으로 깨진다(tests/handoff도 같은 이유로 고쳤다).
 const isOpen = () => ev(`!!document.querySelector('.fixed.z-50')`);
 const openCard = async () => { await ev(`document.querySelector('.board-card').click()`); await sleep(700); };
+// 보기가 기본이다(2026-09-29) — 칸을 고치는 검사는 '수정'을 눌러 수정 화면으로 들어간 뒤에 한다
+const enterEdit = async () => { await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '수정')?.click()`); await sleep(500); };
 const geom = () => ev(`(() => {
   const ov = document.querySelector('.fixed.z-50');
   const panel = ov.firstElementChild;
@@ -79,20 +82,33 @@ check('안에서 바깥으로 드래그해도 닫히지 않는다', (await isOpe
 await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.querySelector('svg'))?.click()`);
 await sleep(400);
 const stillOpen = await isOpen();
-// 푸터(2026-09-28 · 저장 버튼 없음): 수정·저장 버튼이 없고, '저장됨'(작은 체크)이 닫기 바로 왼쪽에 같은 줄로
-// 선다. 예전 검사('수정이 닫기보다 왼쪽 · 색이 다르다')는 **수정 버튼이 없어져서** 이 모양으로 바꿨다 —
-// 지키던 것(할 일과 나가기가 섞이지 않는다)은 닫기 하나만 남아 저절로 풀렸다.
-const footer = await ev(`(() => {
-  const btns=[...document.querySelectorAll('.fixed.z-50 button')].map(b=>b.textContent.trim());
-  const close=[...document.querySelectorAll('.fixed.z-50 button')].find(b=>b.textContent.trim()==='닫기');
-  const mark=document.querySelector('.fixed.z-50 [data-save-state]');
-  if(!close||!mark) return { close:!!close, mark:!!mark };
-  const mr=mark.getBoundingClientRect(), cr=close.getBoundingClientRect();
-  return { noEdit: !btns.includes('수정') && !btns.includes('저장'), state: mark.getAttribute('data-save-state'),
-           text: mark.textContent.trim(), markLeftOfClose: mr.right <= cr.left, sameRow: Math.abs((mr.top+mr.bottom)/2-(cr.top+cr.bottom)/2) < 4 };
-})()`);
-check('업무 창 푸터: 수정·저장 버튼이 없다', footer.noEdit === true, JSON.stringify(footer));
-check("업무 창 푸터: '저장됨'이 닫기 바로 왼쪽 같은 줄", footer.state === 'saved' && footer.text === '저장됨' && footer.markLeftOfClose && footer.sameRow, JSON.stringify(footer));
+// 푸터(2026-09-29 · 보기/수정 나눔 · 목업 승인): 보기는 삭제 · 메타 · `수정`(연한 accent) · `닫기`, 수정은 삭제 · 메타 ·
+// '저장됨' · `수정 완료`(진한 accent) · `닫기`. 저장 버튼은 어디에도 없다(칸마다 저절로). 지키는 것: 할 일이 왼쪽 ·
+// 나가기가 오른쪽이고 **닫기 자리가 두 화면에서 같다** · 할 일과 나가기는 색이 다르다(§8).
+// 되돌리기 검사(§3-5 · 2026-09-29 실제로 걷어 확인): TaskModalShell의 `useState('view')`를 'edit'로 두면 첫 검사가 깨진다.
+const FOOT = `(() => {
+  const m=document.querySelector('.fixed.z-50'); const bs=[...m.querySelectorAll('button')];
+  const by=(t)=>bs.find(b=>b.textContent.trim()===t); const r=(e)=>e&&e.getBoundingClientRect();
+  const close=by('닫기'), edit=by('수정'), done=by('수정 완료'), mark=m.querySelector('[data-save-state]');
+  const mid=(x)=>x&&(x.top+x.bottom)/2;
+  return { view: !!m.querySelector('[data-task-view]'), titleInput: !!m.querySelector('input[name="title"]'),
+    edit: !!edit, done: !!done, save: !!by('저장'), mark: mark?.getAttribute('data-save-state') || null, markText: mark?.textContent.trim() || '',
+    order: (edit||done) && close ? r(edit||done).right <= r(close).left : null,
+    markLeft: mark && done ? r(mark).right <= r(done).left : null,
+    sameRow: close && (edit||done) ? Math.abs(mid(r(edit||done)) - mid(r(close))) < 4 && (!mark || Math.abs(mid(r(mark)) - mid(r(close))) < 4) : null,
+    closeX: close ? Math.round(r(close).left) : null,
+    colors: close && (edit||done) ? [getComputedStyle(edit||done).backgroundColor, getComputedStyle(close).backgroundColor] : null };
+})()`;
+const vf = await ev(FOOT);
+check('보기가 기본이다 — 있는 업무를 열면 보기 화면(제목 입력칸 없음)', vf.view === true && vf.titleInput === false, JSON.stringify(vf));
+check("보기 푸터: '수정'이 닫기 왼쪽 같은 줄 · 색이 다르다 · 저장 버튼·'저장됨' 없음",
+  vf.edit && !vf.done && !vf.save && vf.mark === null && vf.order && vf.sameRow && vf.colors[0] !== vf.colors[1], JSON.stringify(vf));
+await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b=>b.textContent.trim()==='수정')?.click()`); await sleep(700);
+const ef = await ev(FOOT);
+check("'수정'을 누르면 그 자리에서 수정 화면(제목 입력칸)", ef.view === false && ef.titleInput === true, JSON.stringify(ef));
+check("수정 푸터: '저장됨' · '수정 완료' · '닫기' 차례로 같은 줄 · 닫기 자리가 보기와 같다 · 저장 버튼 없음",
+  ef.done && !ef.edit && !ef.save && ef.mark === 'saved' && ef.markText === '저장됨' && ef.markLeft && ef.order && ef.sameRow
+  && Math.abs(ef.closeX - vf.closeX) <= 1 && ef.colors[0] !== ef.colors[1], JSON.stringify(ef));
 
 if (stillOpen) { await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '닫기').click()`); await sleep(400); }
 check('닫기 버튼도 그대로 동작', (await isOpen()) === false);
@@ -143,9 +159,9 @@ const popClick = async (label) => {
 };
 
 await openCard();
-await sleep(300);
+await enterEdit();
 
-// 하위 업무 한 건 추가(수정 모드가 없다 — 연 창에서 바로). 입력칸은 '예:'로 시작하는 placeholder로 찾는다 —
+// 하위 업무 한 건 추가(수정 화면에서). 입력칸은 '예:'로 시작하는 placeholder로 찾는다 —
 // 문구가 '단계를 입력하고 Enter'에서 예시로 바뀐 자리다.
 const subBox = await ev(`(() => {
   const i = [...document.querySelectorAll('input')].find(x => (x.placeholder || '').startsWith('예:'));
@@ -154,7 +170,7 @@ const subBox = await ev(`(() => {
   const r = i.getBoundingClientRect();
   return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
 })()`);
-check('연 창에 하위 업무 입력칸이 있다(예시 placeholder)', !!subBox);
+check('수정 화면에 하위 업무 입력칸이 있다(예시 placeholder)', !!subBox);
 
 await mouse('mousePressed', subBox.x, subBox.y);
 await mouse('mouseReleased', subBox.x, subBox.y);
@@ -257,7 +273,7 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   comments: [], activityLog: [], attachments: [], ...extra });
 {
   await seedOne(baseTask('w1', { title: '댓글 보존 확인' }));
-  await ev(`document.querySelector('.board-card').click()`); await sleep(700);
+  await ev(`document.querySelector('.board-card').click()`); await sleep(700); await enterEdit();
   const seeded = await ev(`(() => {
     if (!window.__store) return false;
     window.__store.dispatch({ type: 'SYNC_TASK', payload: { id: 'w1',
@@ -303,7 +319,7 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
 {
   await seedOne(baseTask('x1', { title: '닫기 확인', subtasks: [{ id: 's1', title: '시안', done: false }] }));
   const isSaving = () => ev(`document.querySelector('[data-save-state]')?.getAttribute('data-save-state')`);
-  await ev(`document.querySelector('.board-card').click()`); await sleep(800);
+  await ev(`document.querySelector('.board-card').click()`); await sleep(800); await enterEdit();
   // ①
   await setTitle('닫기 확인 1'); await sleep(250);
   const mid = { stored: (await stored('x1')).title, mark: await isSaving() };
@@ -354,13 +370,13 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   const logs5 = (x1.activityLog || []).filter(l => l.action === '상세 내용을 수정했습니다.').length;
   check('⑤ 본문을 고친 활동은 창을 닫을 때 한 줄', logs5 === 1, JSON.stringify((x1.activityLog || []).map(l => l.action)));
   // 딤으로 닫아도
-  await ev(`document.querySelector('.board-card').click()`); await sleep(700);
+  await ev(`document.querySelector('.board-card').click()`); await sleep(700); await enterEdit();
   await setTitle('닫기 확인 5'); await sleep(80);
   g = await geom();
   await mouse('mousePressed', g.dim.x, g.dim.y); await mouse('mouseReleased', g.dim.x, g.dim.y); await sleep(400);
   check('⑥ 딤으로 닫아도 묻지 않고 밀린 제목이 저장된다', (await isOpen()) === false && (await stored('x1')).title === '닫기 확인 5');
   // 푸터 닫기 · 페이지를 떠날 때(pagehide)
-  await ev(`document.querySelector('.board-card').click()`); await sleep(700);
+  await ev(`document.querySelector('.board-card').click()`); await sleep(700); await enterEdit();
   await setTitle('닫기 확인 6'); await sleep(80);
   await ev(`window.dispatchEvent(new Event('pagehide'))`); await sleep(400);
   check('⑥ 페이지를 떠날 때(pagehide) 밀린 제목을 흘린다', (await stored('x1')).title === '닫기 확인 6');
@@ -368,7 +384,7 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   await ev(`${byLabel('닫기')}.click()`); await sleep(400);
   check('⑥ 푸터 닫기도 흘린 뒤 닫는다', (await isOpen()) === false && (await stored('x1')).title === '닫기 확인 7');
   // ⑦ 남이 바꾼 것이 창에 바로 선다 · 내 제목 저장이 그것을 되돌리지 않는다
-  await ev(`document.querySelector('.board-card').click()`); await sleep(700);
+  await ev(`document.querySelector('.board-card').click()`); await sleep(700); await enterEdit();
   await setTitle('닫기 확인 8'); await sleep(100);
   await ev(`window.__store?.dispatch({ type: 'SYNC_TASK', payload: { id: 'x1', status: '보류 중', subtasks: [{ id: 's1', title: '시안', done: false }] } })`);
   await sleep(200);
@@ -381,13 +397,36 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   const x7 = await stored('x1');
   check('⑦ 내 제목 저장이 그 사이 남이 바꾼 칸을 되돌리지 않는다',
     x7.title === '닫기 확인 8' && x7.status === '보류 중' && x7.subtasks?.[0]?.done === false, JSON.stringify({ t: x7.title, s: x7.status, d: x7.subtasks?.[0]?.done }));
+  // ⑧ 수정 완료(2026-09-29) — 600ms를 기다리지 않고 밀린 제목·본문을 흘린 뒤 보기로 돌아온다 · 묻지 않는다 ·
+  // 게스트 본문을 고친 활동은 그때 한 줄
+  const tip2 = await ev(`(() => { const t = document.querySelector('.fixed.z-50 .tiptap'); if (!t) return null; t.scrollIntoView({ block: 'center' });
+    const r = t.getBoundingClientRect(); return { x: Math.round(r.left + 20), y: Math.round(r.top + 12) }; })()`);
+  if (tip2) {
+    await mouse('mousePressed', tip2.x, tip2.y); await mouse('mouseReleased', tip2.x, tip2.y); await sleep(150);
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'End', code: 'End', windowsVirtualKeyCode: 35 });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'End', code: 'End', windowsVirtualKeyCode: 35 });
+    await send('Input.insertText', { text: ' 끝' }); await sleep(80);
+  }
+  // 제목은 칸에 초점을 둔 채(떠나지 않고) 곧바로 수정 완료 — 600ms 타이머도, 떠나기 저장도 아직이다
+  await setTitle('닫기 확인 9'); await sleep(80);
+  const logsBefore = ((await stored('x1')).activityLog || []).filter(l => l.action === '상세 내용을 수정했습니다.').length;
+  await ev(`${byLabel('수정 완료')}?.click()`); await sleep(450);
+  const done8 = await ev(`(() => { const m = document.querySelector('.fixed.z-50'); if (!m) return null;
+    const t = JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.x1;
+    return { open: true, view: !!m.querySelector('[data-task-view]'), h2: m.querySelector('[data-task-view] h2')?.textContent,
+      body: m.querySelector('[data-view-body]')?.textContent || '', title: t.title, content: t.content,
+      logs: (t.activityLog || []).filter(l => l.action === '상세 내용을 수정했습니다.').length,
+      ask: !![...document.querySelectorAll('div')].find(x => typeof x.className === 'string' && x.className.includes('z-[90]') && /저장하지 않은 내용/.test(x.textContent)) }; })()`);
+  check('⑧ 수정 완료는 밀린 제목·본문을 곧바로 흘리고 보기로 돌아온다(묻지 않는다)',
+    !!done8 && done8.view && done8.title === '닫기 확인 9' && done8.h2 === '닫기 확인 9' && /끝/.test(done8.content) && /끝/.test(done8.body) && !done8.ask, JSON.stringify(done8));
+  check('⑧ 본문을 고친 활동은 수정 완료에 한 줄', !!done8 && done8.logs === logsBefore + 1, JSON.stringify({ logsBefore, after: done8?.logs }));
   await ev(`${byLabel('닫기')}.click()`); await sleep(400);
 }
 
-// ── 새 업무 · 게스트의 버전 기록 · 머리줄 얼굴 (2026-09-28) ─────────────────────
-// 새 업무는 예전 만들기 폼 그대로이고 확정 버튼이 `만들기`다. 만들면 그 자리에서 '연 채로 고치기'가 된다.
-// 게스트에는 같이 쓰기가 없어 '버전 기록' 탭이 서지 않는다. 얼굴은 개발 빌드의 가짜 awareness로 그려 본다
-// (window.__coeditFake — 실제 사람 사이는 클라우드에서만 볼 수 있다).
+// ── 새 업무 · 게스트의 버전 기록 · 머리줄 얼굴 (2026-09-28 · 2026-09-29 보기/수정 나눔) ─────────────
+// 새 업무는 예전 만들기 폼 그대로이고 확정 버튼이 `만들기`다. 만들면 그 자리에서 그 업무의 **보기 화면**이 된다.
+// 게스트에는 같이 쓰기가 없어 '버전 기록' 탭이 서지 않는다. 얼굴·수정 중 알약·줄 표시·살아 있는 본문·고친 곳은
+// 개발 빌드의 가짜로 그려 본다(coedit.jsx useDevFake — 실제 사람 사이는 클라우드에서만 볼 수 있다).
 {
   await seedOne(baseTask('n0', { title: '있는 업무' }));
   await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '새 업무')?.click()`); await sleep(800);
@@ -399,28 +438,115 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   await ev(`${byLabel('만들기')}.click()`); await sleep(900);
   const made = await ev(`(() => { const m = document.querySelector('.fixed.z-50'); if (!m) return null;
     const st = JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId;
-    return { open: true, head: /업무 세부 정보/.test(m.textContent), title: m.querySelector('input[name="title"]')?.value,
-      mark: m.querySelector('[data-save-state]')?.getAttribute('data-save-state'),
+    return { open: true, head: /업무 세부 정보/.test(m.textContent), view: !!m.querySelector('[data-task-view]'),
+      h2: m.querySelector('[data-task-view] h2')?.textContent, edit: [...m.querySelectorAll('button')].some(b => b.textContent.trim() === '수정'),
       stored: Object.values(st).some(t => t.title === '새로 만든 업무') }; })()`);
-  check('새 업무: 만들면 창이 그 업무의 연 채로 고치기로 넘어간다', !!made && made.head && made.title === '새로 만든 업무' && made.mark === 'saved' && made.stored, JSON.stringify(made));
+  check('새 업무: 만들면 창이 그 업무의 보기 화면으로 넘어간다', !!made && made.head && made.view && made.h2 === '새로 만든 업무' && made.edit && made.stored, JSON.stringify(made));
   const tabs = await ev(`[...document.querySelectorAll('.fixed.z-50 button')].map(b => b.textContent.trim()).filter(t => /^(댓글|활동|버전 기록)/.test(t))`);
   check("게스트: '버전 기록' 탭이 없다(댓글 · 활동만)", JSON.stringify(tabs.map(t => t.replace(/ \(\d+\)$/, ''))) === '["댓글","활동"]', JSON.stringify(tabs));
   await ev(`${byLabel('닫기')}.click()`); await sleep(400);
-  // 얼굴 — 가짜 awareness: 나 · 조해리 · 나(다른 창) → 얼굴 둘, 나 먼저
+  // 얼굴 — 가짜 awareness: 나 · 조해리 · 나(다른 창) → 얼굴 둘, 나 먼저 · 사진이 없으면 그 사람 색 바탕 첫 글자(Avatar)
   await ev(`window.__coeditFake = [[11, { user: { id: 'me', name: '노준석', color: '#2f6fb5' } }], [12, { user: { id: 'u2', name: '조해리', color: '#c0392b' } }], [13, { user: { id: 'me', name: '노준석', color: '#2f6fb5' } }]]`);
   await ev(`document.querySelector('.board-card').click()`); await sleep(700);
-  const faces = await ev(`(() => { const f = document.querySelector('.fixed.z-50 [data-coedit-faces]'); if (!f) return null;
+  const FACES = `(() => { const f = document.querySelector('.fixed.z-50 [data-coedit-faces]'); if (!f) return null;
     const share = document.querySelector('.fixed.z-50 button[title*="공유"]');
     const kids = [...f.children]; const r = kids.map(k => k.getBoundingClientRect());
-    return { names: kids.map(k => k.title), letters: kids.map(k => k.textContent.trim()), bg: kids.map(k => getComputedStyle(k).backgroundColor),
-      overlap: r.length === 2 ? Math.round(r[0].right - r[1].left) : null,
-      leftOfShare: !!share && f.getBoundingClientRect().right <= share.getBoundingClientRect().left + 1 }; })()`);
+    return { names: kids.map(k => k.title), letters: kids.map(k => k.textContent.trim()), bg: kids.map(k => getComputedStyle(k.firstElementChild).backgroundColor),
+      editing: kids.map(k => k.hasAttribute('data-editing')), pencil: kids.map(k => !!k.querySelector('[data-pencil]')),
+      ring: kids.map(k => getComputedStyle(k).boxShadow),
+      overlap: r.length >= 2 ? Math.round(r[0].right - r[1].left) : null,
+      leftOfShare: !!share && f.getBoundingClientRect().right <= share.getBoundingClientRect().left + 1 }; })()`;
+  const faces = await ev(FACES);
   check('머리줄 얼굴: 같은 사람은 한 번 · 나 먼저 · 첫 글자 · 그 사람의 색', !!faces
     && JSON.stringify(faces.names) === '["노준석","조해리"]' && JSON.stringify(faces.letters) === '["노","조"]'
     && faces.bg[0] === 'rgb(47, 111, 181)' && faces.bg[1] === 'rgb(192, 57, 43)', JSON.stringify(faces));
   check('머리줄 얼굴: 6px 겹치고 공유 버튼 왼쪽에 선다', !!faces && faces.overlap === 6 && faces.leftOfShare, JSON.stringify(faces));
+  check('머리줄 얼굴: 보기만 하는 사람은 고리·연필이 없다', !!faces && !faces.editing.some(Boolean) && !faces.pencil.some(Boolean), JSON.stringify(faces));
+  // 내가 수정 화면에 들어가면 내 얼굴에 내 색 고리 + 연필(awareness editing)
+  await ev(`${byLabel('수정')}?.click()`); await sleep(400);
+  const mine = await ev(FACES);
+  check("머리줄 얼굴: 수정 중이면 그 사람 색 고리 + 연필 · title '이름 · 수정 중'", !!mine && mine.editing[0] && mine.pencil[0]
+    && mine.names[0] === '노준석 · 수정 중' && /rgb\(47, 111, 181\) 0px 0px 0px 2px/.test(mine.ring[0]) && !mine.editing[1], JSON.stringify(mine));
   await ev(`delete window.__coeditFake`);
   await ev(`${byLabel('닫기')}.click()`); await sleep(400);
+}
+
+// ── 보기 화면: 누가 수정 중인가 · 그 사람이 있는 줄 · 살아 있는 본문 · 고친 곳 (2026-09-29 · 목업 승인) ──────
+// 지키는 것: ① 보기 본문은 문서의 마크다운을 그리고 문서가 바뀌면 따라온다(남이 치는 글) ② 나 말고 수정 중인 사람이
+// 있으면 본문 위 알약 — 한 사람 `조해리님이 수정 중` · 둘 넘으면 `조해리님 외 1명이 수정 중` ③ 그 사람의 커서 줄에
+// 옅은 물 + 18px 얼굴이 줄 오른쪽 끝에 **잘리지 않고** 선다(얼굴 오른쪽 끝 ≤ 통 오른쪽 끝 ≤ 스크롤 통의 보이는 끝 ·
+// 글자가 얼굴 밑으로 들어가지 않는다) — 375·1280 둘 다 ④ 고친 곳은 줄마다 본문처럼 그린다(형광펜이 <mark>) ·
+// 서식만 바뀐 줄은 뺀 줄 → 더한 줄 한 쌍.
+// 되돌리기 검사(§3-5 · 2026-09-29 실제로 걷어 확인): TaskView의 `liveMd ?? task.content`를 `task.content`로 두면 ①이,
+// 본문 통의 `pr-7`을 걷으면 ③의 '글자가 얼굴 밑으로 안 들어간다'(375)가 깨진다.
+{
+  const LIVE0 = '# 준비\n장소는 **양평 수양관**으로 정했어요. 숙소 배정은 다음 주까지 마치고 버스는 두 대로 알아봐요.\n\n- 버스 대절\n- 식단표';
+  const PREV = '# 준비\n장소는 **양평 수양관**으로 정했어요. ==숙소 배정==은 다음 주까지.';
+  const seedLive = (editors) => `window.__coeditFake = [[11, { user: { id: 'me', name: '노준석', color: '#2f6fb5' } }], ${editors}];
+    window.__coeditFakeMd = ${JSON.stringify(LIVE0)};
+    window.__coeditFakeVersions = [{ id: 2, by: 'u2', at: new Date().toISOString(), md: ${JSON.stringify(LIVE0)}, added: 4, removed: 1 },
+      { id: 1, by: 'me', at: new Date(Date.now() - 3600e3).toISOString(), md: ${JSON.stringify(PREV)}, added: 2, removed: 0 }];`;
+  const HAERI = `[12, { user: { id: 'u2', name: '조해리', color: '#c0392b' }, editing: true, line: 1 }]`;
+  const SION = `[13, { user: { id: 'u3', name: '이시온', color: '#1e7a46' }, editing: true, line: 4 }]`;
+  const PROBE = `(() => { const m = document.querySelector('.fixed.z-50'); if (!m) return null;
+    const box = m.querySelector('[data-view-body]'); const pill = m.querySelector('[data-presence-pill]');
+    let sc = box && box.parentElement; while (sc && !/(auto|scroll)/.test(getComputedStyle(sc).overflowY)) sc = sc.parentElement;
+    const b = box?.getBoundingClientRect(), s = sc?.getBoundingClientRect();
+    const marks = [...m.querySelectorAll('[data-line-mark]')].map(k => { const r = k.getBoundingClientRect(); const line = [...box.querySelectorAll('[data-line]')]
+      .find(e => { const q = e.getBoundingClientRect(); return r.top >= q.top - 1 && r.bottom <= q.bottom + 1; });
+      // 그 줄 글자의 오른쪽 끝(줄마다 — Range의 client rect들)
+      let textRight = 0; if (line) { const rg = document.createRange(); rg.selectNodeContents(line); for (const q of rg.getClientRects()) textRight = Math.max(textRight, q.right); }
+      return { name: k.dataset.lineMark, left: r.left, right: r.right + 1.5, w: r.width, line: line?.dataset.line ?? null, textRight }; });
+    return { body: box?.textContent || '', pill: pill ? pill.querySelector('.truncate')?.textContent : null,
+      box: b && { l: b.left, r: b.right }, scroll: s && { l: s.left, r: s.right }, marks,
+      tints: [...m.querySelectorAll('[data-line-tint]')].map(t => t.dataset.lineTint),
+      docW: document.documentElement.scrollWidth, vw: innerWidth }; })()`;
+  for (const [w, h] of [[1280, 900], [375, 812]]) {
+    const tag = `${w}px`;
+    await seedOne(baseTask('p0', { title: '보기 확인', content: PREV }));
+    if (w < 768) {
+      await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: true });
+      await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1300);
+    } else {
+      await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+    }
+    await ev(seedLive(HAERI));
+    await ev(`document.querySelector('.board-card').click()`); await sleep(900);
+    const one = await ev(PROBE);
+    check(`${tag} ① 보기 본문은 문서의 마크다운이다(스토어 본문이 아니다)`, !!one && /두 대로 알아봐요/.test(one.body) && !/==/.test(one.body), JSON.stringify(one?.body));
+    check(`${tag} ② 한 사람이 수정 중이면 '조해리님이 수정 중'`, one?.pill === '조해리님이 수정 중', JSON.stringify(one?.pill));
+    const mk = one?.marks?.[0];
+    check(`${tag} ③ 그 사람의 커서 줄(1)에 물과 얼굴이 선다`, one?.marks?.length === 1 && mk.name === '조해리' && mk.line === '1' && JSON.stringify(one.tints) === '["1"]', JSON.stringify(one?.marks));
+    check(`${tag} ③ 줄 표시 얼굴이 잘리지 않는다(얼굴 끝 ≤ 통 끝 ≤ 스크롤 통의 보이는 끝 · 18px)`,
+      !!mk && mk.right <= one.box.r + 0.5 && one.box.r <= one.scroll.r && Math.round(mk.w) === 18 && one.docW <= one.vw, JSON.stringify({ mk, box: one?.box, scroll: one?.scroll, docW: one?.docW }));
+    check(`${tag} ③ 글자가 얼굴 밑으로 들어가지 않는다(줄 글자 끝 ≤ 얼굴 왼쪽)`, !!mk && mk.textRight > 0 && mk.textRight <= mk.left + 0.5, JSON.stringify(mk));
+    // 둘째 사람이 들어오고, 조해리가 글을 더 친다
+    await ev(`window.__coeditFake.push(${SION}); window.__coeditFakeMd += '\\n- 숙소 방 배정'; window.dispatchEvent(new Event('coedit-fake'))`);
+    await sleep(400);
+    const two = await ev(PROBE);
+    check(`${tag} ② 둘이 수정 중이면 '조해리님 외 1명이 수정 중'`, two?.pill === '조해리님 외 1명이 수정 중', JSON.stringify(two?.pill));
+    check(`${tag} ① 문서가 바뀌면 보기 본문이 따라온다`, !!two && /숙소 방 배정/.test(two.body), JSON.stringify(two?.body));
+    check(`${tag} ③ 두 사람의 줄에 저마다 얼굴`, JSON.stringify(two?.marks?.map(x => [x.name, x.line])) === '[["조해리","1"],["이시온","4"]]'
+      && two.marks.every(x => x.right <= two.box.r + 0.5), JSON.stringify(two?.marks));
+    // ④ 고친 곳 — 버전 기록 탭(가짜 판)에서 최신 판을 누른다: 앞 판의 ==숙소 배정== 줄이 뺀 줄, 새 줄이 더한 줄
+    await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '버전 기록')?.click()`); await sleep(600);
+    await ev(`document.querySelector('[data-version-row]')?.click()`); await sleep(500);
+    const diff = await ev(`(() => { const d = document.querySelector('[data-version-diff]'); if (!d) return null;
+      const rows = [...d.querySelectorAll('[data-diff]')];
+      return { ops: rows.map(r => r.dataset.diff), del: rows.filter(r => r.dataset.diff === 'del').map(r => ({ mark: !!r.querySelector('mark'), strong: !!r.querySelector('strong'), text: r.textContent.trim(), deco: getComputedStyle(r.querySelector('[data-diff-line]')).textDecorationLine, op: getComputedStyle(r.querySelector('[data-diff-line]')).opacity })),
+        add: rows.filter(r => r.dataset.diff === 'add').map(r => ({ strong: !!r.querySelector('strong'), li: !!r.querySelector('li'), text: r.textContent.trim() })),
+        head: !!d.querySelector('[data-diff="same"] h1'), raw: /\\*\\*|==|^#/.test(d.textContent),
+        pill: !!document.querySelector('.fixed.z-50 [data-presence-pill]'), docW: document.documentElement.scrollWidth, vw: innerWidth }; })()`);
+    check(`${tag} ④ 고친 곳은 본문처럼 그린다(제목 · 굵게 · 형광펜 <mark> · 목록 — 마크다운 기호가 안 보인다)`,
+      !!diff && diff.head && !diff.raw && diff.del[0]?.mark && diff.del[0]?.strong && diff.add.some(a => a.strong) && diff.add.some(a => a.li), JSON.stringify(diff));
+    check(`${tag} ④ 서식이 바뀐 줄은 뺀 줄 → 더한 줄 한 쌍 · 뺀 줄은 취소선 + 흐리게`,
+      !!diff && diff.ops.indexOf('del') >= 0 && diff.ops[diff.ops.indexOf('del') + 1] === 'add' && diff.del[0].deco === 'line-through' && Number(diff.del[0].op) < 1 && diff.docW <= diff.vw, JSON.stringify(diff?.ops));
+    check(`${tag} ④ 고친 곳을 보는 동안에는 수정 중 알약을 걷는다`, !!diff && diff.pill === false);
+    await ev(`delete window.__coeditFake; delete window.__coeditFakeMd; delete window.__coeditFakeVersions`);
+    await ev(`${byLabel('닫기')}.click()`); await sleep(400);
+  }
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
 }
 
 // ── 답글 UX (2026-08-31 사용자 요청 — "댓글은 좋은데 답글도 챙겨줘") ──────────
