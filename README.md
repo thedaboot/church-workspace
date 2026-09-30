@@ -218,7 +218,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 
 임베딩(상단 검색의 '관련된 업무 내용'과 성경 검색의 대체가 씁니다): `node scripts/embed-bible.mjs`는 성경 전체를 `bible_vec`에 한 번 넣고(로컬 · 약 15분 · `--dry-run`),
 `node scripts/embed-docs.mjs`는 업무·댓글·첨부를 `doc_vec`에 맞춥니다(전체·증분 · `--dry-run` · `--kind`) — 평소에는 8시 크론이 증분을 돕니다.
-`scripts/compare-bible-search.mjs`는 AI 검색과 벡터 검색을 질의 30개로 견준 한 번짜리 도구입니다. 셋 다 `.env`의 서버 키가 필요합니다.
+둘 다 `.env`의 서버 키가 필요합니다. (AI 검색과 벡터 검색을 질의 30개로 견준 한 번짜리 도구 `scripts/compare-bible-search.mjs`는 지웠습니다 — git 이력)
 
 ## 딥링크 · 공유 · 환경변수
 

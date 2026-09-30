@@ -226,12 +226,12 @@ public/ 그 밖                 아이콘·매니페스트·OG·스크린샷
 scripts/subset_suit.py subset_symbols.py make_icons.py  폰트·아이콘 생성(한 번 돌리고 결과물을 커밋)
 scripts/make_og_season.py     공개 보기 카카오톡 카드의 절기 색 그림 넷(`public/og/season-*.png` · 스토리 표지 색과 같은 값)
 scripts/drive_check.mjs       드라이브 ↔ DB 어긋남 점검(`--fix`를 붙여야 고친다 · §6-29-j)
-scripts/migrate_to_drive.mjs reset_drive_migration.mjs backfill_sheet_preview.mjs  이관·되돌리기·사본 백필
+scripts/migrate_to_drive.mjs backfill_sheet_preview.mjs  이관·사본 백필(되돌리기 `reset_drive_migration.mjs`는 지웠다 — git 이력)
 scripts/bible_check.mjs       성경 json 정합 검사(tests/bibleref와 짝)
 scripts/backfill_attachments.mjs  옛 첨부 발췌 백필 — 문서는 앱 파서, 사진·글자 없는 PDF는 Gemini(`--fix`를 붙여야 적는다) · `--cuesheet`는 큐시트 요지(Gemini 없음)
 scripts/embed-bible.mjs       성경 → bible_vec 한 번(로컬 · --dry-run · 이어하기)
 scripts/embed-docs.mjs        doc_vec 전체·증분 · --dry-run(조각·토큰·비용) · --kind
-scripts/compare-bible-search.mjs  AI 검색 대 벡터 검색을 질의 30개로(한 번 쓰고 만 도구 · §7의 근거)
+(지운 스크립트 — git 이력의 scripts/compare-bible-search.mjs)  AI 검색 대 벡터 검색을 질의 30개로(한 번 쓰고 만 도구 · §7의 근거)
 supabase/migrations/          0001~0087 — 표는 README, 최근 것은 §5
 tests/                        검증 스위트 + 러너 — 목록은 tests/README.md
 ```
@@ -315,7 +315,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 | 수요 예배 | **하지 않는다** — AI 배경 지식·화면 문구에 넣지 말 것(예배는 주일 4부 청년 예배·금요 열정 예배) |
 | Gemini 모델 교체 | `3.1-flash-lite` 유지. 2026-08-29 A/B 6회(3.5는 호칭 '님'을 빼먹었다)에 이어 **2026-09-25 A/B**(3.1-lite 대 3.5-flash-lite 각 30회): 3.5-lite는 '님'을 30번 중 5번 빼먹고 · 가이드 JSON이 깨지고 · 기한을 지어냈다. 새 A/B 근거 없이 제안 금지. **다음 A/B는 두 lite 모델로만, 부르기 전에 비용을 먼저 말한다**(그날 3.5-flash·3.8-flash까지 불러 지적받았다) |
 | 카카오 SDK 공유 | 하지 않는다(2026-09-25). PDF는 기본 공유창으로 카카오톡에 파일째 가고 업무·프로젝트 링크는 `/s/` 공유 주소가 카드로 뜬다 — 기본 공유창이 없는 곳은 카카오 인앱뿐이다. JS 키는 받아 두었다(쓰지 않으므로 값은 적지 않는다) |
-| 벡터 성경 검색을 AI 검색 대신으로 | 2026-09-25 질의 30개 비교(`scripts/compare-bible-search.mjs`)에서 못 이겼다 — AI 줄 평균 11.7 중 벡터 top-30과 겹친 것 5.9, 벡터는 낱말이 닮은 절을 가져왔다(욥 27:20 같은). AI 검색이 앞이고 벡터는 실패 시 대체·후보 추리기 후보(§2) |
+| 벡터 성경 검색을 AI 검색 대신으로 | 2026-09-25 질의 30개 비교(지운 스크립트 — git 이력의 `scripts/compare-bible-search.mjs`)에서 못 이겼다 — AI 줄 평균 11.7 중 벡터 top-30과 겹친 것 5.9, 벡터는 낱말이 닮은 절을 가져왔다(욥 27:20 같은). AI 검색이 앞이고 벡터는 실패 시 대체·후보 추리기 후보(§2) |
 | 팀장 칸(DB) | AI가 업무 팀의 팀장을 고르는 데는 `role_note`의 `OO팀장`을 읽는 것으로 같다(스토어에 있어 네트워크 0) — 칸을 따로 두면 role_note와 두 곳이 어긋난다(회계 절차를 베꼈다 어긋난 것과 같은 구조) |
 | 서식 바를 모바일에서 키보드 위 고정으로 | 2026-09-11에 하루 안에 `bottom`→`top`→`body` 포털까지 갔는데 실기기 아이폰에서 끝내 키보드 위에 안 섰다 — **되돌렸다**. 모든 폭에서 sticky-top 하나다(§6-9-aa-4) |
 | 노트 도막을 세 줄(4rem)로 벌리기 | 2026-09-18 하루 안에 넣고 뺐다 — 글을 쓰면 줄 간격이 벌어져 "노트가 완전 난리". 도막은 한 줄, 빈 자리는 종이 아래 한 덩어리(2026-09-03) |

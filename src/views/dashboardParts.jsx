@@ -868,7 +868,6 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
     ? Math.min(FM.H_MAX_MOB, Math.max(FM.H_MIN_MOB, rows * FM.ROW_MOB + 60))
     : Math.min(FM.H_MAX_DESK, Math.max(FM.H_MIN_DESK, rows * FM.ROW_DESK + 60));
   const W = cw;   // 카드 폭을 그대로 쓴다(좌우 여백을 만들지 않는다)
-  const offX = 0;
   const AX = compact ? FM.AX_MOB : FM.AX_DESK;
   const ZX = compact ? FM.ZX_MOB : FM.ZX_DESK;
   const ZXD = compact ? FM.ZXD_MOB : FM.ZXD_DESK;
@@ -958,7 +957,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
       const y = r.k >= 0 ? inBand(r.k, r.j, r.n) : spread(r.j, r.n);
       push({
         id: `p:${pr.id}`, kind: 'project', p: pr,
-        // pr = 라벨 반폭 + 여유. 이 값이 라벨 폭보다 작으면 좁은 데스크톱(offX가 0인
+        // pr = 라벨 반폭 + 여유. 이 값이 라벨 폭보다 작으면 좁은 데스크톱(좌우 여백이 없는
         // 폭)에서 라벨 오른쪽이 카드 밖으로 나간다.
         pl: 56, pr: compact ? 66 : 96,
         // **한 열로 세운다.** 두 열(홀짝 지그재그)로 벌려 봤더니 선이 오히려 더
@@ -994,7 +993,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
   // (사용자 지시 2026-08-31 — "힘 엔진은 같이 가져가라"). 상수·미리 돌리기·선 길이
   // 규칙을 여기서 고치면 그 화면도 같이 따라온다. 갈라 두지 마세요.
   // **끌기는 그대로 둡니다**(사용자 지시 2026-08-31 — "끌기는 왜 빼").
-  const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, offX, compact });
+  const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, compact });
   // hover(데스크톱) 또는 탭(모바일)으로 고른 노드. 사람 노드는 갈 곳이 없으므로
   // **탭이 곧 포커스**다 — 터치 기기에는 hover가 없어서 이 기능이 아예 없었다(§8).
   // **고른 노드는 인덱스가 아니라 id로 기억한다.** 인덱스로 들고 있으면 목록이 다시
@@ -1099,7 +1098,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
           return (
             <span key={b.team} aria-hidden className="absolute pointer-events-none"
               style={{
-                left: offX, top: b.y0, width: W, height: b.y1 - b.y0,
+                left: 0, top: b.y0, width: W, height: b.y1 - b.y0,
                 background: isCur || near
                   ? `color-mix(in srgb, ${teamColor(b.team)} 12%, transparent)`
                   : k % 2 ? 'var(--app-surface-hover)' : 'transparent',
@@ -1109,15 +1108,15 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
           );
         })}
         {/* 열 머리글 — 팀 열(가운데)은 고정이라 정확하고, 사람·프로젝트는 영역(zx)의 가운데쯤이다 */}
-        <span className="absolute text-[10px] font-bold text-fg-muted" style={{ left: offX + W * AX.m, top: 0, transform: 'translateX(-50%)' }}>사람</span>
-        <span className="absolute text-[10px] font-bold text-fg-muted" style={{ left: offX + W * AX.t, top: 0, transform: 'translateX(-50%)' }}>팀</span>
-        <span className="absolute text-[10px] font-bold text-fg-muted" style={{ left: offX + W * AX.p, top: 0, transform: 'translateX(-50%)' }}>프로젝트</span>
+        <span className="absolute text-[10px] font-bold text-fg-muted" style={{ left: W * AX.m, top: 0, transform: 'translateX(-50%)' }}>사람</span>
+        <span className="absolute text-[10px] font-bold text-fg-muted" style={{ left: W * AX.t, top: 0, transform: 'translateX(-50%)' }}>팀</span>
+        <span className="absolute text-[10px] font-bold text-fg-muted" style={{ left: W * AX.p, top: 0, transform: 'translateX(-50%)' }}>프로젝트</span>
         <svg className="absolute inset-0 pointer-events-none" width={cw} height={H} aria-hidden>
           {edges.map(([a, b, , color, weight], i) => {
             const on = cur != null && (a === cur || b === cur);
             const dim = cur != null && !on;
-            const x1 = offX + (pos[a]?.x || 0), y1 = yOf(a);
-            const x2 = offX + (pos[b]?.x || 0), y2 = yOf(b);
+            const x1 = (pos[a]?.x || 0), y1 = yOf(a);
+            const x2 = (pos[b]?.x || 0), y2 = yOf(b);
             const bend = Math.min(26, Math.hypot(x2 - x1, y2 - y1) * 0.12);
             // 굵기 = 같이 맡은 업무 수(사용자 결정 2026-08-31). 0.9~3.2px 사이로 누른다 —
             // 상한이 없으면 업무가 많은 한 줄이 화면을 갈라 버리고, 하한이 없으면
@@ -1138,7 +1137,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
           if (!P) return null;
           const dim = linked && !linked.has(i);
           const base = {
-            position: 'absolute', left: offX + P.x, top: yOf(i), transform: 'translate(-50%, -50%)',
+            position: 'absolute', left: P.x, top: yOf(i), transform: 'translate(-50%, -50%)',
             opacity: dim ? 0.22 : 1, transition: 'opacity 200ms',
           };
           if (n.kind === 'member') {
