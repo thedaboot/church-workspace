@@ -808,7 +808,16 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(viewersOf(null, { projectId: 'p1' }, opts), [], 'null도 안전하다');
   assert.deepStrictEqual(viewersOf(entries, {}, opts), [], '물은 곳이 없으면 아무도 아니다');
   assert.deepStrictEqual(viewersOf(entries, { projectId: 'p1' }, {}), ['u-me', 'u1', 'u2'], '내 id를 모르면 아무도 안 뺀다');
-  console.log('PASS  지금 보고 있는 사람 25가지');
+  // 보드 카드의 '수정 중'(2026-09-30) — entries로 최신 meta를 받고, 수정 중은 **그 사람의 최신 자리**의 값이다
+  const editingTabs = [
+    { id: 'u1', projectId: 'p1', cardId: 'c1', at: 100, editing: true },
+    { id: 'u1', projectId: 'p1', cardId: 'c2', at: 200, editing: false },
+    { id: 'u2', projectId: 'p1', cardId: 'c2', at: 150, editing: true },
+  ];
+  const got = viewersOf(editingTabs, { cardId: 'c2' }, { ...opts, entries: true });
+  assert.deepStrictEqual(got.map(e => [e.id, e.editing]), [['u1', false], ['u2', true]], '사람마다 최신 meta의 수정 중');
+  assert.deepStrictEqual(viewersOf(editingTabs, { cardId: 'c1' }, { ...opts, entries: true }), [], '옛 탭의 수정 중은 안 뜬다');
+  console.log('PASS  지금 보고 있는 사람 27가지');
 }
 
 // ── presence가 자리와 함께 시각을 실어 보내는지 (services/presence.js 소스 단정) ──
@@ -831,7 +840,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     'track에 그 자리에서 찍은 시각을 실지 않는다 — 재접속이 옛 자리를 되살린다');
   // 구독을 떼면서 자리를 지우면, 다시 붙었을 때 App의 trackWhere effect는 자리가
   // 그대로라 다시 불리지 않아 `{null, null}`이 나간다 → 얼굴이 통째로 사라진다.
-  const teardown = src.slice(src.lastIndexOf('return () => {'));
+  const tdAt = src.lastIndexOf('return () => {');
+  const teardown = src.slice(tdAt, tdAt + src.slice(tdAt).search(/\r?\n\}\r?\n/));   // 그 함수 끝까지만(뒤의 trackEditing은 meta를 고친다)
   assert.ok(!/^\s*meta = \{/m.test(teardown) && !/^\s*where = \{/m.test(teardown),
     '구독을 뗄 때 보고 있는 자리를 지우지 않는다(연결만 소유한다)');
   console.log('PASS  presence가 자리와 시각을 실어 보낸다 4가지');
@@ -2178,7 +2188,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const metaAt = home.indexOf('kindLabel(church.service.kind)');
   const metaLine = metaAt > 0 ? home.slice(metaAt, metaAt + 200) : '';
   assert.ok(metaLine && !/praise_leader/.test(metaLine), '평소 홈 예배 카드의 메타 줄은 인도자를 싣지 않는다');
-  assert.ok(/찬양 · 인도 \$\{leader\}/.test(home) && /leader=\{leaderLabel\}/.test(home), '오늘의 예배 카드는 찬양 칸 머리에 인도자(본명+호칭)');
+  assert.ok(/찬양 인도 \$\{leader\}/.test(home) && /leader=\{leaderLabel\}/.test(home), '오늘의 예배 카드는 찬양 칸 머리에 인도자(본명+호칭)');
   assert.ok(/worship-praise-leader/.test(detail), '주보 상세는 인도자를 그대로 보여 준다');
   // 홈 캐릭터 — **그림이 도착한 뒤에** 등장 연출이 걸린다(모바일에서 모션이 빈 자리에서
   // 먼저 끝나던 자리 · 사용자 2026-09-06). 히어로는 우선순위까지 올려 먼저 받는다.

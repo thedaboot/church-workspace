@@ -780,8 +780,9 @@ const isNewerWhere = (a, b) => {
   return (Number(a?.seq) || 0) >= (Number(b?.seq) || 0);
 };
 
+// opts.entries — id 대신 그 사람의 최신 meta를 돌려준다(보드 얼굴이 `editing`을 본다 · 2026-09-30).
 export function viewersOf(entries, match = {}, opts = {}) {
-  const { meId = null, limit = 3 } = opts;
+  const { meId = null, limit = 3, entries: asEntries = false } = opts;
   const wantCard = match?.cardId || null;
   const wantProject = match?.projectId || null;
   if (!wantCard && !wantProject) return [];
@@ -797,7 +798,7 @@ export function viewersOf(entries, match = {}, opts = {}) {
   const ids = [];
   for (const e of latest.values()) {
     if (wantCard ? e.cardId !== wantCard : e.projectId !== wantProject) continue;
-    ids.push(e.id);
+    ids.push(asEntries ? e : e.id);
     if (limit > 0 && ids.length >= limit) break;
   }
   return ids;

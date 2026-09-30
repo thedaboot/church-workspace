@@ -37,6 +37,7 @@ import { getMemberNames, loadCardDetail, cardSummaryCloud, cardWritePromise } fr
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { showToast } from '../components/Toast.jsx';
+import { trackEditing } from '../services/presence.js';
 
 // ============================================================================
 // 업무 창 — 보기(TaskView · 기본) / 수정(TaskLive · 칸마다 저절로 저장) / 만들기 폼(TaskEditor · 새 업무) /
@@ -216,6 +217,8 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   const editors = useMemo(() => faces.filter(f => !f.me && f.editing), [faces]);
   // 내가 수정 화면인지 남에게 알린다(awareness `editing`)
   useEffect(() => { awareness?.setLocalStateField('editing', editing); }, [awareness, editing]);
+  // 보드 카드 얼굴에도 — 같이 쓰기 문서 밖(presence)이라 창을 열지 않은 사람도 본다
+  useEffect(() => { trackEditing(editing); return () => trackEditing(false); }, [editing]);
   // 보기 화면의 본문 — 문서의 마크다운(남이 치는 글이 150ms 안에 따라온다). 문서가 없으면(게스트 · 여는 중 · 실패) null →
   // 스토어의 본문을 그린다.
   const liveSrc = useMemo(() => docSource(co) || fake?.doc || null, [co, fake]);

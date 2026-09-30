@@ -475,8 +475,8 @@ function Showcase({ onNavigate }) {
 // **히어로 캐릭터(HERO_CUT)는 그대로 선다**(사용자 확인 — 캐릭터가 사라지면 안 된다).
 //
 // 찬양 줄은 **주보에 적힌 제목 한 줄 그대로**다('팀 - 제목' 표기는 주보 쪽 순수 함수가 따로 맡는다).
-// 찬양 칸 머리는 `찬양 · 인도 OOO 형제`다(사용자 결정 2026-09-25 — 오늘의 예배 카드에서만. 평소 홈 예배
-// 카드에는 여전히 인도자를 싣지 않는다 · 2026-09-06). 이름은 주보 상세와 같은 규칙 — 명단 본명 +
+// 찬양 칸 머리는 `찬양 인도 OOO 형제`다(사용자 결정 2026-09-25 · 가운뎃점은 2026-09-30에 걷었다 — 주보 상세의
+// '찬양 인도 OOO'와 같은 말). 평소 홈 예배 카드도 메타 끝에 같은 글자를 싣는다(2026-09-30 · 06일 결정을 뒤집었다). 이름은 주보 상세와 같은 규칙 — 명단 본명 +
 // 호칭(serviceView.realNameOf · people.honorificsOf). 명단을 못 읽으면 주보에 적힌 글자 그대로.
 // 광고는 **주보 종이 2쪽과 같은 모양**이다(components/paper.jsx ServiceSheetTwo — 사용자 요구
 // 2026-09-25: 목업에서 본문이 빈 광고가 가운데로 떠서 오류로 보였다). 번호 칸 · 왼쪽 정렬 · 제목 굵게 +
@@ -496,7 +496,7 @@ function TodayWorshipCard({ service, open, att, leader = '', onOpen, onOpenSun, 
     songs: songs.length ? (
       <div key="songs" data-part="songs" className={TODAY_PART}>
         <p className={PART_LABEL}>
-          <span className="home-today-songs-head min-w-0 truncate">{leader ? `찬양 · 인도 ${leader}` : '찬양'}</span>
+          <span className="home-today-songs-head min-w-0 truncate">{leader ? `찬양 인도 ${leader}` : '찬양'}</span>
           {playlist ? (
             <a href={playlist} target="_blank" rel="noreferrer"
               className="home-today-playlist shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold text-accent-text hover:underline">
@@ -1035,8 +1035,9 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
   const nowDay = nowK.slice(0, 10);
   const todayService = (svcQ.data?.published || []).find(s => s.service_date === nowDay) || null;
   const sunday = sundayMode(todayService, nowK);
-  // 오늘의 예배 카드의 찬양 인도자 — 주일 모드일 때만 명단을 읽는다(평소 홈은 명단을 읽지 않는다)
-  const leaderRaw = sunday ? String(todayService?.praise_leader || '').trim() : '';
+  // 예배 카드의 찬양 인도자 — 오늘의 예배든 평소 카드든 그 카드의 주보 것(2026-09-30 · 평소 카드에도 싣는다).
+  // 인도자가 적힌 주보일 때만 명단을 읽는다.
+  const leaderRaw = String((sunday ? todayService : church.service)?.praise_leader || '').trim();
   const [leaderLabel, setLeaderLabel] = useState('');
   useEffect(() => {
     let off = false;
@@ -1101,8 +1102,8 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
     // 둘은 홈에서 할 일을 알려주지 않았고, '누구의 설교인가'가 제목 다음으로 궁금한 것이다.
     // `services.preacher`는 자유 텍스트라 호칭을 붙이지 않는다(이미 '임성빈 전도사님'처럼
     // 적는다 — services/people.js 호칭 주석). 빈 값이면 그 도막만 빠진다(filter(Boolean)).
-    // 인도자는 **홈에 싣지 않는다**(사용자 결정 2026-09-06). 주보 상세에는 그대로
-    // 있다 — 홈 카드는 '무슨 예배에 무슨 설교'까지고, 누가 인도하는지는 들어가서 볼 일.
+    // **메타 끝에 `찬양 인도 OOO 형제`**(사용자 결정 2026-09-30 — 2026-09-06의 '홈에 싣지 않는다'를 뒤집었다.
+    // 오늘의 예배 카드와 같은 글자). 한 줄이라 좁으면 끝에서 잘린다 — 설교자가 먼저다.
     // 카드 머리 글자는 날짜가 정한다(homeWorshipLabel) — 홈이 잡아 둔 그 날(day)로 센다.
     //
     // **누르면 목록이 아니라 그 주보 상세로 간다**(사용자 결정 2026-09-18 — "해당 걸
@@ -1134,6 +1135,7 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
               kindLabel(church.service.kind),
               homeDateLabel(church.service.service_date),
               church.service.preacher || '',
+              leaderLabel ? `찬양 인도 ${leaderLabel}` : '',
             ].filter(Boolean).join(' · ')}
           </span>
         } />

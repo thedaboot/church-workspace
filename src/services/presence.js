@@ -123,7 +123,7 @@ const healRefs = ({ currentPresences }) => {
 const entriesOf = (state) => Object.entries(state || {}).flatMap(([id, metas]) =>
   (metas && metas.length ? metas : [{}]).map(m => ({
     id, projectId: m.projectId || null, cardId: m.cardId || null,
-    at: Number(m.at) || 0, seq: Number(m.seq) || 0,
+    at: Number(m.at) || 0, seq: Number(m.seq) || 0, editing: !!m.editing,
   })));
 
 // ── 탭이 다시 보일 때 (모바일에서 오래 백그라운드에 있다가 돌아오는 경우) ──────
@@ -227,5 +227,15 @@ export function trackWhere(next) {
   const m = nextWhereMeta(meta, next);
   if (!m) return;                      // 같은 자리다 — 아무것도 안 보낸다
   meta = m;
+  if (joined && channel && !document.hidden) channel.track(meta);
+}
+
+// 업무 창이 수정 화면인가(2026-09-30 · 사용자 요청 — 보드 카드 얼굴도 업무 창 안처럼 '수정 중'을 가른다).
+// 자리가 아니라 **그 자리의 상태**라 `at`을 새로 찍지 않는다. 업무를 옮기면 nextWhereMeta가 새 meta를
+// 만들면서 저절로 풀린다(editing 없음 = false).
+export function trackEditing(on) {
+  const v = !!on;
+  if (!!meta.editing === v) return;
+  meta = { ...meta, editing: v };
   if (joined && channel && !document.hidden) channel.track(meta);
 }

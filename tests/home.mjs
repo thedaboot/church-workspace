@@ -493,14 +493,12 @@ check('예배 카드 — 초점은 설교 제목', worship.title === '흔들리�
 // 메타 한 줄 — 예배 종류 · 날짜 · 설교자. 칩으로 쌓지 않는다.
 // **끝은 설교자다**(사용자 결정 2026-09-14 — 담당자 N · 찬양 N을 뺐다. 숫자 둘은 홈에서
 // 할 일을 알려주지 않았고 '누구의 설교인가'가 제목 다음으로 궁금한 것이다).
-check('메타 줄에 예배 종류 · 날짜 · 설교자가 한 줄로',
-  worship.sub === `주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 김승찬`,
-  `${worship.sub} / 주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 김승찬`);
+check('메타 줄에 예배 종류 · 날짜 · 설교자 · 찬양 인도가 한 줄로',
+  worship.sub === `주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 김승찬 · 찬양 인도 조해리`,
+  `${worship.sub} / 주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 김승찬 · 찬양 인도 조해리`);
 check('발행된 주보에는 작성 중 표시가 없다', worship.draft === false);
-// 인도자는 홈에 싣지 않는다(사용자 결정 2026-09-06). 주보(s1)에는 praise_leader가
-// 있고 주보 상세는 그대로 보여 준다 — 홈 카드 한 줄에만 없다.
-check('예배 카드 — 인도자는 홈 메타 줄에 없다',
-  !worship.sub.includes('인도') && !worship.sub.includes('조해리'), worship.sub);
+// 인도자는 메타 끝이다(사용자 결정 2026-09-30 — 2026-09-06의 '홈에 싣지 않는다'를 뒤집었다).
+check('예배 카드 — 찬양 인도는 설교자 뒤', worship.sub.endsWith('· 찬양 인도 조해리'), worship.sub);
 
 const mine = await ev(`(() => ({
   count: document.querySelector('.home-task-count')?.textContent.trim() || '',
@@ -1293,7 +1291,7 @@ check('13:30 전에는 찬양이 앞 · 출석은 잠긴 표시만', sunBefore.t
 // 되돌리기 검사: TodayWorshipCard에 leader를 넘기지 않으면 머리가 '찬양'만 남아 깨진다.
 check('찬양은 주보의 제목 한 줄 그대로 · 링크가 있으면 연다 · 머리에 찬양 인도자',
   sunBefore.songs.join('|') === '마커스워십 - 나의 맘 받으소서|WELOVE - 모든 상황 속에서' && sunBefore.songLink
-  && sunBefore.leader === '찬양 · 인도 조해리', JSON.stringify({ songs: sunBefore.songs, head: sunBefore.leader }));
+  && sunBefore.leader === '찬양 인도 조해리', JSON.stringify({ songs: sunBefore.songs, head: sunBefore.leader }));
 check('광고는 종이처럼 — 번호 · 왼쪽 정렬 · 본문이 빈 광고도 같은 들여쓰기 · 빈 줄은 뺀다',
   sunBefore.notices.length === 3 && sunBefore.nums.join(',') === '1,2,3' && sunBefore.align.every(a => a === 'left' || a === 'start')
   && new Set(sunBefore.titleX).size === 1 && sunBefore.notices[1] === '2다음 주 예배 안내', JSON.stringify({ n: sunBefore.notices, x: sunBefore.titleX }));

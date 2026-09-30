@@ -14,6 +14,7 @@ import {
 import { useAuth } from '../services/auth.jsx';
 import { formatRelative, projectYear, reorderIds, viewersOf, imeComposing } from '../utils.js';
 import { usePresenceViews, presenceMe } from '../services/presence.js';
+import { userColor } from '../services/coedit/view.js';
 import { myUid } from '../services/supabaseClient.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
 import { splitFrontTabs, pickProjectToOpen } from '../services/tabRank.js';
@@ -216,26 +217,46 @@ function saveTabOrder(orderedIds, allProjects, cloudMode) {
 // 값은 presence 미니 스토어에서 온다. **아무 데도 남지 않는다**(§7의 '카드별 조회
 // 추적'과 다른 점) — 그 사람이 나가면 얼굴도 같이 사라진다.
 // 게스트 모드에서는 집합이 언제나 비어 있어 아무것도 그리지 않는다.
+//
+// **업무 카드에서는 '수정 중'을 가른다**(2026-09-30 · 사용자 요청 — 업무 창 안과 똑같이): 그 사람 색(userColor —
+// 같이 쓰기 이름표와 같은 색) 1.5px 고리 + 오른쪽 아래 작은 연필 · 사진은 그대로. 고리 선 얼굴 곁은 덜 겹친다
+// (업무 창 머리줄과 같은 까닭 — 5px 겹치면 고리가 이웃에 가린다). 프로젝트 탭은 가르지 않는다.
 export function ViewerFaces({ projectId = null, cardId = null, className = '' }) {
   const views = usePresenceViews();
   const members = useStore(selectMembers);
   const people = useMemo(() => {
-    const ids = viewersOf(views, { projectId, cardId }, { meId: presenceMe(), limit: 3 });
-    if (!ids.length) return [];
+    const list = viewersOf(views, { projectId, cardId }, { meId: presenceMe(), limit: 3, entries: true });
+    if (!list.length) return [];
     const byId = new Map(members.map(m => [m.id, m]));
     // 이름을 못 찾은 id는 버린다 — 얼굴도 이름도 없는 동그라미는 그릴 이유가 없다
-    return ids.map(id => byId.get(id)).filter(Boolean);
+    return list.map(e => ({ m: byId.get(e.id), editing: !!cardId && e.editing })).filter(p => p.m);
   }, [views, members, projectId, cardId]);
   if (!people.length) return null;
+  const allEditing = people.every(p => p.editing);
   return (
     <span className={`inline-flex items-center ${className}`}
-      title={`${people.map(p => p.name).join(' · ')} 님이 지금 보고 있어요`}>
-      {people.map(m => (
-        <Avatar key={m.id} name={m.name} url={m.avatarUrl}
-          // leading-none: 이 크기(15px 원 · 8.5px 글자)에서는 기본 줄높이가 글자를
-          // 위로 밀어 첫 글자가 원의 가운데에서 벗어나 보인다(사용자 지적 2026-08-30)
-          className="flex w-[15px] h-[15px] text-[8.5px] leading-none -ml-[5px] first:ml-0 ring-[1.5px] ring-surface" />
-      ))}
+      title={`${people.map(p => p.editing ? `${p.m.name} · 수정 중` : p.m.name).join(', ')} 님이 지금 ${allEditing ? '수정하고' : '보고'} 있어요`}>
+      {people.map(({ m, editing }, i) => {
+        const tight = i > 0 && (editing || people[i - 1].editing);
+        const color = editing ? userColor(m.id) : null;
+        return (
+          <span key={m.id} data-viewer-face={m.name} data-editing={editing ? '' : undefined}
+            className={`relative inline-flex rounded-full shrink-0 ${i ? (tight ? '-ml-[2px]' : '-ml-[5px]') : ''}`}
+            style={{ zIndex: 5 - i, boxShadow: editing ? `0 0 0 1.5px ${color}, 0 0 0 3px var(--app-surface)` : '0 0 0 1.5px var(--app-surface)' }}>
+            {/* leading-none: 이 크기(15px 원 · 8.5px 글자)에서는 기본 줄높이가 글자를
+                위로 밀어 첫 글자가 원의 가운데에서 벗어나 보인다(사용자 지적 2026-08-30) */}
+            <Avatar name={m.name} url={m.avatarUrl} title=""
+              className="flex w-[15px] h-[15px] text-[8.5px] leading-none" />
+            {editing && (
+              <span aria-hidden data-pencil=""
+                className="absolute -right-[3px] -bottom-[3px] w-2 h-2 rounded-full inline-flex items-center justify-center"
+                style={{ background: color, boxShadow: '0 0 0 1.2px var(--app-surface)' }}>
+                <Pencil size={5} strokeWidth={3.5} color="#fff" />
+              </span>
+            )}
+          </span>
+        );
+      })}
     </span>
   );
 }
