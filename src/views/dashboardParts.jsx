@@ -566,7 +566,7 @@ export function PeopleStrip({ members, myName, seen, birthdays, joined, onOpenMe
 export function MembersModal({ members, myName, onClose }) {
   const online = usePresence();
   // 오른쪽 끝의 'N분 전'은 그릴 때의 시각으로 굳는다 — 창을 열어 둔 동안 같이 늙게 한다
-  useMinuteTick();
+  useMinuteTick(10000);   // 초 단위 '다녀감'이 굳지 않게
   const ordered = React.useMemo(() => visitOrder(members, online), [members, online]);
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };

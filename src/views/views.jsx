@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, ChevronDown, Check, Trash2, Pencil } from 'lucide-react';
 import { CONFIG, teamColor, teamBgColor, teamBar } from '../config.js';
+import { usePresenceLeft } from '../services/presence.js';
 import { groupBy, myScope, seenToday, birthdaysWithin, joinedWithin, projectsOfYear, datedTasks, mergeActivitySeen, teamChips as teamMemberChips, completedTime } from '../utils.js';
 import { isDone, isOpen, isOngoing, isRunning, isOverdue, dueCounts, progressOf, teamLeftStats, inProjects, recentDoneCount, isRecentlyDone } from '../services/taskCounts.js';
 import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
@@ -194,7 +195,9 @@ export const DashboardView = React.memo(function DashboardView({ onNavigate, onT
   // 두 값이 어긋난 화면이 구조적으로 안 나온다. 아무도 안 밀렸으면 **같은 배열**이
   // 그대로 나와서 아래 연결 지도가 저장 한 번마다 다시 배치되지 않는다.
   const storeMembers = useStore(selectMembers);
-  const members = useMemo(() => mergeActivitySeen(storeMembers, feed), [storeMembers, feed]);
+  // 떠난 순간(presence)도 겹친다 — 멤버 관리와 같은 함수·같은 세 값이다
+  const left = usePresenceLeft();
+  const members = useMemo(() => mergeActivitySeen(storeMembers, feed, left), [storeMembers, feed, left]);
   const seenTodayList = useMemo(() => seenToday(members, myName), [members, myName]);
   // 생일은 일주일 전부터, 환영은 사흘만 — 인사가 오래 걸려 있으면 낡는다(사용자 판단)
   const birthdayList = useMemo(() => birthdaysWithin(members, 7), [members]);

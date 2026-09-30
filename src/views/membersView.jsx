@@ -8,12 +8,13 @@ import { BTN } from '../components/buttons.js';
 import { showToast } from '../components/Toast.jsx';
 import { failText, errorReason, objectParticle } from '../services/errorText.js';
 import { agoLabel, visitOrder, isoTime, mergeActivitySeen } from '../utils.js';
-import { usePresence } from '../services/presence.js';
+import { usePresence, usePresenceLeft } from '../services/presence.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectMembers, selectActivityFeed } from '../store/selectors.js';
 import * as cloud from '../services/cloud.js';
+import { onProfilesChanged } from '../services/cloudSync.js';
 import { isCloudEnabled } from '../services/supabaseClient.js';
 import { readCache, writeCache, dropCache } from '../services/cache.js';
 import { useLiveTick } from '../services/liveV2.js';
@@ -142,7 +143,7 @@ export function MembersView({ isAdmin, isMaster }) {
   const [book, setBook] = useState(null);       // { key, data } | null
   const online = usePresence();
   // 줄마다 'N분 전 가입 · N분 전 다녀감'이 있다 — 이 화면을 열어 두면 그 글자가 굳는다
-  useMinuteTick();
+  useMinuteTick(tab === 'account' ? 10000 : 60000);   // 초 단위 '다녀감'은 가입자 탭에만 있다 — 명단 탭까지 10초로 그리지 않는다
   // 줄 등장은 앱의 관례대로 `.dc-row` + 순번 지연이고 **첫 마운트에만** 준다
   // (useEnterStagger 주석 — 수락·환송으로 줄이 구역을 옮길 때 그 줄만 뒤늦게 나타나면
   //  "순서"가 아니라 지각으로 읽힌다). 지연 상한도 둔다 — 가입자가 쉰 명이면 아래쪽이
@@ -159,7 +160,8 @@ export function MembersView({ isAdmin, isMaster }) {
   // 대시보드 사람 칸과 **같은 함수**(utils.mergeActivitySeen)를 지나야 두 화면이 같이 움직인다.
   const storeMembersRaw = useStore(selectMembers);
   const feed = useStore(selectActivityFeed);
-  const storeMembers = useMemo(() => mergeActivitySeen(storeMembersRaw, feed), [storeMembersRaw, feed]);
+  const left = usePresenceLeft();
+  const storeMembers = useMemo(() => mergeActivitySeen(storeMembersRaw, feed, left), [storeMembersRaw, feed, left]);
   const seenById = useMemo(
     () => new Map(storeMembers.map(m => [m.id, m.lastSeenAt || ''])), [storeMembers]);
   // 둘 중 나중 것. 스토어를 항상 믿지 않는 이유는 업무 창을 편집하는 동안 전체 재조회가
@@ -187,6 +189,13 @@ export function MembersView({ isAdmin, isMaster }) {
     }
   }, []);
   useEffect(() => { if (isAdmin) load(); }, [isAdmin, load]);
+  // 누가 가입하거나 다른 관리자가 수락·환송하면 다시 받는다(박동은 오지 않는다 · cloudSync) — 한 박자 모아서
+  useEffect(() => {
+    if (!isAdmin || !isCloudEnabled()) return undefined;
+    let t = 0;
+    const off = onProfilesChanged(() => { clearTimeout(t); t = setTimeout(load, 400); });
+    return () => { clearTimeout(t); off(); };
+  }, [isAdmin, load]);
 
   // 명단은 **가입자 탭에서도** 받는다(2026-09-25) — 가입을 수락한 자리에서 명단과 잇고, 아직 명단에
   // 이어지지 않은 사람 이름 옆에 '명단 미연결' 칩을 세우려면 누가 이어져 있는지 알아야 한다(아래 잇기 판).

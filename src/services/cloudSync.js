@@ -808,6 +808,9 @@ export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {
 // 비면 "지금 열려 있는 카드"로 본다. 호출부가 그렇게 처리한다.
 // onReconnect: 채널이 끊겼다가 다시 붙었을 때 한 번(realtimeStatus.reconnectWatcher) — 폰이 잠든 사이의
 // 변경은 이벤트로 오지 않으니 부르는 쪽이 따라잡기 읽기를 한다. 처음 붙을 때는 부르지 않는다.
+const profileListeners = new Set();
+export const onProfilesChanged = (fn) => { profileListeners.add(fn); return () => profileListeners.delete(fn); };
+
 export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActivityFeed, onMemberSeen, onFullReload, onReconnect }) {
   return cloud.subscribeAll((payload) => {
     const table = payload?.table;
@@ -851,6 +854,9 @@ export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActiv
         return;
       }
     }
+    // 멤버 관리 화면은 자기 목록(승인 대기·환송 포함 — 스토어에는 없다)을 따로 들고 있다 — 가입·수락·
+    // 이름·사진이 바뀌면 알려서 새로고침 없이 따라오게 한다(2026-09-30). 박동은 위에서 이미 끝났다.
+    if (table === 'profiles') profileListeners.forEach(fn => fn());
     // 나머지(projects · resource_links · profiles)는 전체 재조회.
     // profiles가 여기로 오는 것이 중요하다 — primeMaps가 다시 돌아야 새로 가입한 사람의
     // id→이름이 이 탭에 생긴다(0018). 카드 1건만 다시 읽는 경로로 옮기면 안 된다.

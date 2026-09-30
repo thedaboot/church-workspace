@@ -27,10 +27,31 @@ let meId = null;            // 내 profile id(합친 계정이면 남긴 계정 
 const listeners = new Set();
 const NO_VIEWS = [];
 
+// **떠난 순간**(2026-09-30 · 사용자 요구 — "떠나면 그거대로 바로"). 접속 중이던 사람이 목록에서 빠지면
+// 그 시각을 `{ actorId, at }`으로 남긴다 — utils.mergeActivitySeen이 활동 줄과 같은 모양으로 겹쳐 쓴다.
+// 예전에는 떠난 뒤의 'N분 전 다녀감'이 서버의 last_seen_at(떠날 때 keepalive 한 번 · 1분 하한 · 폰이
+// 죽으면 마지막 5분 박동)을 기다렸다. presence leave는 서버가 곧바로 알리므로 이쪽이 더 빠르고 정확하다.
+// **내가 막 깨어났거나 막 다시 붙은 뒤 10초는 적지 않는다** — 폰이 잠든 사이에 떠난 사람이 깨어나는
+// 순간 한꺼번에 빠지는데, 그걸 '방금'으로 적으면 10분 전에 떠난 사람이 '방금 다녀감'이 된다.
+// ponytail: 세션 동안 쌓기만 한다 — 사람 수(약 55)가 상한이다.
+let left = NO_VIEWS;
+let quietUntil = 0;
+const QUIET_MS = 10000;
+export const hushLeaves = (now = Date.now()) => { quietUntil = now + QUIET_MS; };
+
 // getSnapshot은 같은 참조를 돌려줘야 한다 — 여기서만 교체되므로 안전하다
 function setPresence(entries, me = null) {
   const list = entries && entries.length ? entries : NO_VIEWS;
-  online = new Set(list.map(e => e.id));
+  const next = new Set(list.map(e => e.id));
+  const now = Date.now();
+  if (me && now >= quietUntil && !(typeof document !== 'undefined' && document.hidden)) {
+    const gone = [...online].filter(id => !next.has(id) && id !== me);
+    if (gone.length) {
+      const at = new Date(now).toISOString();
+      left = [...left.filter(e => !gone.includes(e.actorId)), ...gone.map(actorId => ({ actorId, at }))];
+    }
+  }
+  online = next;
   views = list;
   meId = me;
   listeners.forEach(l => l());
@@ -51,6 +72,11 @@ export function usePresence() {
 // 매번 새 배열이면 무한 리렌더가 된다(§4.9).
 export function usePresenceViews() {
   return useSyncExternalStore(subscribe, () => views);
+}
+
+// 떠난 사람과 그 시각 — [{ actorId, at }]. 다녀간 시각에 겹쳐 쓰는 쪽은 utils.mergeActivitySeen.
+export function usePresenceLeft() {
+  return useSyncExternalStore(subscribe, () => left);
 }
 
 // ── 채널 ────────────────────────────────────────────────────────────────────
@@ -133,7 +159,17 @@ export function subscribePresence() {
   const c = supabase;
   if (!c) return () => {};
   let stopped = false;
-  const onVisible = () => { if (!document.hidden) nudgeConnection(); };
+  // **화면이 숨으면 자리를 거둔다**(2026-09-30 · 사용자 요구 — 떠나면 바로 빠지게). 예전에는 소켓이 살아
+  // 있는 한 뒤로 보낸 탭·잠근 폰도 '접속 중'이고 얼굴도 그 업무에 붙어 있었다(폰은 소켓이 죽는 수십 초 뒤,
+  // 데스크톱 뒤 탭은 끝내 안 빠졌다). 유예를 두지 않는다 — 잠근 폰은 타이머가 얼어서 유예 뒤가 오지 않는다.
+  // 다시 보이면 `at`을 새로 찍어 다시 싣는다 — 지금 보고 있는 기기가 그 사람의 '가장 최근 자리'가 된다.
+  const onVisible = () => {
+    if (document.hidden) { if (joined && channel) channel.untrack(); return; }
+    hushLeaves();
+    meta = { ...meta, at: Date.now(), seq: (Number(meta.seq) || 0) + 1 };
+    if (joined && channel) channel.track(meta);
+    nudgeConnection();
+  };
   document.addEventListener('visibilitychange', onVisible);
   (async () => {
     // **열쇠는 남긴 계정의 id다**(0063). 접속 표시는 멤버 목록·명단의 행 id와 맞춰야
@@ -158,6 +194,8 @@ export function subscribePresence() {
       // 아래에서 최신 meta가 한 번에 나간다(실측: 재접속 때 이 콜백이 다시 불린다).
       if (status !== 'SUBSCRIBED') { joined = false; return; }
       joined = true;
+      hushLeaves();                    // 다시 붙은 직후의 한꺼번 빠짐은 '방금 떠남'이 아니다
+      if (document.hidden) return;     // 숨은 채 다시 붙었다 — 보일 때 onVisible이 싣는다
       // 붙기 전에 정해진 자리도 여기서 한 번에 나간다. `at`을 같이 실어야
       // viewersOf가 "이 사람의 지금 자리"를 고를 수 있다(기기·탭이 여럿일 때).
       // **여기서 at을 새로 찍지 않는다** — 위 meta 주석의 그 버그다.
@@ -189,5 +227,5 @@ export function trackWhere(next) {
   const m = nextWhereMeta(meta, next);
   if (!m) return;                      // 같은 자리다 — 아무것도 안 보낸다
   meta = m;
-  if (joined && channel) channel.track(meta);
+  if (joined && channel && !document.hidden) channel.track(meta);
 }

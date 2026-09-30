@@ -42,8 +42,15 @@
 
 - **새로 받은 일은 없다.** 사용자 실기기 확인 결과부터 묻는다 — 아래 1·2(키보드 뒤 화면 · 진동) · 3(내 달력 구독: 아이폰·갤럭시 구글·카카오 인앱) ·
   6(폰 두 대로 같이 쓰기 · 폰을 잠그면 `수정 중`이 걷히는지). 이상이 오면 `scripts/coedit-live`로 재현부터(임시 계정 → 끝나면 teardown + uuid 칸 전수 0건).
+- **떠남 추적**(2026-09-30 사용자 요청 — 실시간성): ① 화면이 숨으면(탭 전환·폰 잠금) presence 자리를 곧바로 거둔다 —
+  남의 화면에서 얼굴·`접속 중`이 빠지고, 다시 보이면 `at`을 새로 찍어 다시 싣는다(`presence.js` · 유예 없음: 잠근 폰은 타이머가 언다)
+  ② 떠난 순간을 presence가 적어 `mergeActivitySeen`의 셋째 값으로 겹친다 — 서버 스탬프를 기다리지 않고 '3초 전 다녀감'(깨어나거나 다시 붙은 뒤 10초는 안 적는다)
+  ③ '가입한 사람'·멤버 관리 가입자 탭은 10초 틱 ④ 멤버 관리 목록은 profiles 변경(가입·수락·환송)에 다시 받는다(`cloudSync.onProfilesChanged`)
+  ⑤ 같이 쓰기도 화면이 숨으면 awareness를 걷고 보이면 되싣는다(판은 세우지 않는다 — `persister`만 흘림).
+  **실기기 확인 대기**: 폰 잠금 → 다른 폰에서 얼굴·`수정 중`이 곧바로 빠지고 '초 전 다녀감'이 서는지 · 풀면 되돌아오는지 · 데스크톱 뒤 탭도 같은지.
 - 사용자 결정: 내 달력은 **구독 방식 그대로**(한 번에 넣기 버튼은 안 만든다 · 2026-09-29) · 푸시는 **온전한 테스트 + 엣지 케이스가 전부 통과한 뒤** · 테스트로 만든 DB 기록은 전부 지운다.
-- 열린 질문(사용자가 정하면 한 줄): 형광펜 글자 바로 뒤에 치면 형광펜이 이어진다(편집기 기본 — 그대로 둠) · 판 비교는 '바로 앞 판 → 그 판'.
+- 열린 질문(사용자가 정하면 한 줄): 형광펜 글자 바로 뒤에 치면 형광펜이 이어진다(편집기 기본 — 그대로 둠) · 판 비교는 '바로 앞 판 → 그 판' ·
+  오늘의 예배 카드의 `찬양 · 인도 OOO 형제` 머리를 그대로 둘지(§8 '은혜와 리듬'의 ★).
 
 ### 14차 — 한 일 (2026-09-27 사용자가 정한 다섯 + 추가)
 
@@ -225,7 +232,7 @@ scripts/backfill_attachments.mjs  옛 첨부 발췌 백필 — 문서는 앱 파
 scripts/embed-bible.mjs       성경 → bible_vec 한 번(로컬 · --dry-run · 이어하기)
 scripts/embed-docs.mjs        doc_vec 전체·증분 · --dry-run(조각·토큰·비용) · --kind
 scripts/compare-bible-search.mjs  AI 검색 대 벡터 검색을 질의 30개로(한 번 쓰고 만 도구 · §7의 근거)
-supabase/migrations/          0001~0074 — 표는 README, 최근 것은 §5
+supabase/migrations/          0001~0087 — 표는 README, 최근 것은 §5
 tests/                        검증 스위트 + 러너 — 목록은 tests/README.md
 ```
 
@@ -234,12 +241,12 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 
 ## 5. 데이터 · 스키마 · 비밀
 
-- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0074`이고 **전부 라이브 DB에 적용**되어 있다. 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
+- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0087`이고 **전부 라이브 DB에 적용**되어 있다. 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
   **0064** `people.gender` · **0065** `bible_state.recent_searches` · **0066** 개인 표 기본값도 `effective_uid()` · **0067~0070** 명단(`people`)의 생일·소속·교역자·대표 팀을 트리거가 계정으로 옮긴다(§8) ·
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0076** 알림 종류 `approved`(관리자만 넣는다). **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at`. **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만 · 미적용). **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거). **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`. **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`). **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책) — 라이브 적용 2026-09-28 · 업무 창에 붙었다(`modals/coedit.jsx`). **0085** `calendar_feeds`(내 달력) 적용. **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` — 둘 다 2026-09-29 적용. 다음 번호는 0088.
+  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads` · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors`. 다음 번호는 0088.
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.

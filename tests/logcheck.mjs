@@ -951,7 +951,14 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.notStrictEqual(mergeActivitySeen(M, feed), M, '실제로 밀린 사람이 있으면 새 배열');
   assert.deepStrictEqual(mergeActivitySeen([], feed), [], '멤버가 없어도 안전하다');
   assert.deepStrictEqual(mergeActivitySeen(undefined, undefined), [], '인자가 없어도 안전하다');
-  console.log('PASS  쓰기는 곧 지금 12가지');
+  // 떠난 순간(presence.usePresenceLeft · 2026-09-30) — 피드가 비어도 겹친다
+  const gone = [{ actorId: 'u2', at: '2026-09-05T16:00:00.000Z' }];
+  assert.strictEqual(lastVisitOf(mergeActivitySeen(M, [], gone)[1]), '2026-09-05T16:00:00.000Z',
+    '방금 떠난 사람은 그 순간이 다녀간 시각이다');
+  assert.strictEqual(lastVisitOf(mergeActivitySeen(M, feed, gone)[0]), '2026-09-05T15:58:34.026Z',
+    '떠남과 활동이 같이 와도 사람마다 제 값');
+  assert.strictEqual(mergeActivitySeen(M, [], []), M, '떠난 사람이 없으면 그대로');
+  console.log('PASS  쓰기는 곧 지금 15가지');
 }
 
 // ── 다녀간 시각을 찍는 자리가 하나인가 (services/cloudSync.js · App.jsx 소스 단정) ──
@@ -990,15 +997,15 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(minuteOf(59_999), 0, '1분 안에서는 값이 그대로다(헛렌더가 없다)');
   assert.strictEqual(minuteOf(60_000), 1, '1분이 지나면 값이 바뀐다 → 라벨이 다시 그려진다');
   assert.strictEqual(typeof minuteOf(), 'number', '틱은 숫자 하나다(새 객체가 아니다)');
-  assert.ok(/setInterval\(\(\) => setMinute\(minuteOf\(\)\), 60000\)/.test(raw), '1분 간격이다');
+  assert.ok(/useMinuteTick\(stepMs = 60000\)/.test(raw) && /setInterval\(.*, stepMs\)/.test(raw), '기본 1분 간격이다');
   assert.ok(/clearInterval/.test(raw), '언마운트하면 타이머를 끈다');
 
   // 훅이 붙어 있어야 하는 자리 — 빠지면 그 화면의 'N분 전'이 다시 굳는다
   const members = readFileSync(new URL('../src/views/membersView.jsx', import.meta.url), 'utf8');
-  assert.ok(/useMinuteTick\(\)/.test(members), '멤버 관리 화면이 1분 틱을 쓴다');
+  assert.ok(/useMinuteTick\(tab === 'account' \? 10000 : 60000\)/.test(members), '멤버 관리 화면이 10초 틱을 쓴다(떠난 순간의 초 단위)');
   const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
-  assert.strictEqual((parts.match(/useMinuteTick\(\)/g) || []).length, 2,
-    '가입한 사람 모달과 최근 활동 피드 둘 다 1분 틱을 쓴다');
+  assert.strictEqual((parts.match(/useMinuteTick\(10000\)/g) || []).length, 1, '가입한 사람 모달은 10초 틱');
+  assert.strictEqual((parts.match(/useMinuteTick\(\)/g) || []).length, 1, '최근 활동 피드는 1분 틱');
   console.log('PASS  1분 틱 8가지');
 }
 

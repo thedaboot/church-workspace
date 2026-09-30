@@ -233,6 +233,25 @@ export async function openCoedit({
   const flushAll = () => { peer.flush(); mirror.flush(); return persister.flush(); };
   const onHide = () => { flushAll(); };
   if (typeof window !== 'undefined') window.addEventListener('pagehide', onHide);
+  // **화면이 숨으면 내 표시를 걷는다**(2026-09-30 — 폰을 잠그면 남의 화면에 `수정 중`·커서가 소켓이 죽을 때까지
+  // 30초 넘게 남았다). 걷으면서 모아 둔 편집·커서를 보내고, 다시 보이면 그 상태 그대로 다시 싣는다.
+  // 유예가 없는 까닭은 presence.js와 같다(잠근 폰은 타이머가 언다).
+  let parked = null;
+  const onVis = () => {
+    if (document.hidden) {
+      const st = awareness.getLocalState();
+      if (!st) return;
+      parked = st;
+      // 편집 조각만 보낸다 — mirror.flush는 편집 세션을 끝내 판을 세운다(잠글 때마다 판이 서면 안 된다)
+      persister.flush().catch(() => {});
+      removeAwarenessStates(awareness, [ydoc.clientID], 'local');
+      peer.flush();
+    } else if (parked) {
+      awareness.setLocalState(parked);
+      parked = null;
+    }
+  };
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVis);
 
   // **편집기가 없어도 얼굴이 선다** — 업무 창의 보기 화면은 편집기를 띄우지 않고 이 문서에 들어온다(2026-09-29).
   // 예전에는 CollaborationCaret이 편집기를 만들 때 user를 실었다. `editing`(수정 화면인가)은 업무 창이,
@@ -255,6 +274,7 @@ export async function openCoedit({
     if (destroyed) return;
     destroyed = true;
     if (typeof window !== 'undefined') window.removeEventListener('pagehide', onHide);
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVis);
     const done = flushAll();
     // 떠난다고 알린다 — 남들 화면에서 내 커서가 30초 동안 남아 있지 않게
     removeAwarenessStates(awareness, [ydoc.clientID], 'local');

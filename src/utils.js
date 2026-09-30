@@ -491,11 +491,13 @@ export const WRITE_STAMP_MS = 60 * 1000;
 // **바뀐 것이 없으면 받은 배열을 그대로 돌려준다** — 활동 피드는 남이 저장할 때마다
 // 새로 오는데, 여기서 매번 새 배열을 만들면 그 배열을 보는 연결 지도가 저장 한 번마다
 // 다시 배치된다(useMemo 의존성이 참조로 비교된다).
-export function mergeActivitySeen(members = [], feed = []) {
+// `left`는 presence가 본 **떠난 순간**([{ actorId, at }] · presence.usePresenceLeft)이다 — 활동 줄과 같은 모양이라
+// 같은 규칙으로 겹친다(2026-09-30). 떠난 사람이 서버 스탬프를 기다리지 않고 곧바로 '방금 다녀감'이 된다.
+export function mergeActivitySeen(members = [], feed = [], left = []) {
   const list = members || [];
-  if (!list.length || !feed?.length) return list;
+  if (!list.length || (!feed?.length && !left?.length)) return list;
   const latest = new Map();
-  for (const a of feed) {
+  for (const a of [...(feed || []), ...(left || [])]) {
     const id = a?.actorId;
     if (!id) continue;                       // 게스트 피드에는 id가 없다(이름뿐) — 그냥 넘긴다
     const at = isoTime(a.at);
