@@ -16,14 +16,14 @@ import { useEffect, useState } from 'react';
 // 절대 시각을 그리는 자리(업무 창 댓글의 formatDate처럼 '8월 30일 오후 3:12')는 늙지
 // 않으므로 붙이지 않는다.
 // ============================================================================
-export const minuteOf = (ms = Date.now()) => Math.floor(ms / 60000);
+export const minuteOf = (ms = Date.now(), stepMs = 60000) => Math.floor(ms / stepMs);
 
 // `stepMs` — 사람 목록('가입한 사람'·멤버 관리)은 10초다(2026-09-30). 떠난 순간이 곧바로 '3초 전 다녀감'으로
 // 서는데(presence.usePresenceLeft) 1분 틱이면 그 글자가 1분 동안 '3초 전'으로 굳는다.
 export function useMinuteTick(stepMs = 60000) {
-  const [tick, setTick] = useState(() => Math.floor(Date.now() / stepMs));
+  const [tick, setTick] = useState(() => minuteOf(Date.now(), stepMs));
   useEffect(() => {
-    const id = setInterval(() => setTick(Math.floor(Date.now() / stepMs)), stepMs);
+    const id = setInterval(() => setTick(minuteOf(Date.now(), stepMs)), stepMs);
     return () => clearInterval(id);
   }, [stepMs]);
   return tick;
