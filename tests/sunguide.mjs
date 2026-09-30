@@ -34,8 +34,10 @@ const serviceYear = (iso) => Number(String(iso || '').slice(0, 4));
 const kindLabel = (k) => (k === 'sunday' ? '주일 4부 젊은이 예배' : (k || '예배'));
 const formatServiceDate = (iso) => String(iso || '');`)
   // cueDigest.js는 순수 모듈(import 0)이라 그대로 쓴다 — 임시 폴더에서 도니 절대 경로로
-  .replace(/from '\.\/cueDigest\.js';/, `from '${new URL('../src/services/cueDigest.js', import.meta.url).href}';`);
-if (patched === src || /from '\.\/cueDigest\.js'/.test(patched)) { console.log('FAIL  import 줄을 못 바꿨어요 (sunGuide.js의 import가 바뀌었나요)'); process.exit(1); }
+  .replace(/from '\.\/cueDigest\.js';/, `from '${new URL('../src/services/cueDigest.js', import.meta.url).href}';`)
+  // aiText.js도 순수 모듈(import 0)이다 — 대시 뒤처리(plainDashes)
+  .replace(/from '\.\/aiText\.js';/, `from '${new URL('../src/services/aiText.js', import.meta.url).href}';`);
+if (patched === src || /from '\.\/(cueDigest|aiText)\.js'/.test(patched)) { console.log('FAIL  import 줄을 못 바꿨어요 (sunGuide.js의 import가 바뀌었나요)'); process.exit(1); }
 const dir = mkdtempSync(join(tmpdir(), 'sunguide-'));
 const file = join(dir, 'sunGuide.mjs');
 writeFileSync(file, patched);
@@ -231,6 +233,11 @@ check('코드펜스로 감싼 JSON을 읽는다',
   G.parseGuide('```json\n' + json(GUIDE) + '\n```')?.passage.ref === '요한복음 8:12-20');
 check('앞뒤 잡문이 있어도 읽는다',
   G.parseGuide(`알겠습니다. 아래와 같이 만들었습니다.\n${json(GUIDE)}\n도움이 되었길 바랍니다.`)?.points.length === 3);
+// 엠/엔 대시는 규칙만으로 새어 나온다 — 코드가 하이픈으로 바꾼다(aiText.plainDashes · 되돌리기: parseGuide에서 plainDashes를 빼면 깨진다)
+{
+  const dashed = G.parseGuide(json({ ...GUIDE, points: GUIDE.points.map((p, i) => (i ? p : { ...p, body: '빛 — 어둠 – 생명' })) }));
+  check('가이드의 엠/엔 대시는 하이픈으로 바뀐다', dashed?.points[0].body === '빛 - 어둠 - 생명', dashed?.points[0].body);
+}
 check('JSON이 아니면 null', G.parseGuide('가이드를 만들었습니다.') === null);
 check('빈 답은 null', G.parseGuide('') === null && G.parseGuide(null) === null);
 check('AI 안내 문구는 null (§6-43)',

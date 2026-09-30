@@ -5,6 +5,7 @@ import { AiService, isFallbackText } from './ai.js';
 import { loadPassage } from './bible.js';
 import { kindLabel, formatServiceDate, serviceYear, SUNDAY_KIND } from './worship.js';
 import { CUE_DIGEST_MAX } from './cueDigest.js';
+import { plainDashes } from './aiText.js';
 
 // ============================================================================
 // 순모임 가이드 — 주보 한 건당 한 벌. AI가 템플릿의 **내용만** 채운다 (0039 · 0055)
@@ -315,7 +316,8 @@ export function parseGuide(text) {
   const close = s.lastIndexOf('}');
   if (open < 0 || close <= open) return null;
   let parsed;
-  try { parsed = JSON.parse(s.slice(open, close + 1)); } catch { return null; }
+  // 엠/엔 대시는 코드가 하이픈으로 바꾼다(aiText.plainDashes) — 프롬프트 규칙만으로는 가끔 새어 나온다
+  try { parsed = JSON.parse(plainDashes(s.slice(open, close + 1))); } catch { return null; }
   return isGuideShape(parsed) ? fitGuide(parsed) : null;
 }
 

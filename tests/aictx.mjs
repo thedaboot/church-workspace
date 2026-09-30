@@ -14,6 +14,8 @@ const patched = src
   .replace(/from '\.\.\/utils\.js';/, `from '${pathToFileURL(`${ROOT}/src/utils.js`).href}';`)
   // aiPeople.js는 순수 모듈이라 그대로 쓴다(2026-09-25) — 임시 폴더에서 도니 절대 경로로
   .replace(/from '\.\/aiPeople\.js';/, `from '${pathToFileURL(`${ROOT}/src/services/aiPeople.js`).href}';`)
+  // aiText.js도 순수 모듈이다(날짜 주석 · 댓글 · 대시 · 요약 모양)
+  .replace(/from '\.\/aiText\.js';/, `from '${pathToFileURL(`${ROOT}/src/services/aiText.js`).href}';`)
   // 명단 한 벌은 supabase 쪽이라 가짜로 — 검사는 setAiRoster로 직접 쥐여 준다(supabase가 null이면 부르지도 않는다)
   .replace(/import \{ fetchRoster \} from '\.\/worship\.js';/, 'const fetchRoster = async () => null;')
   .replace(/import \{ store \} from '\.\.\/store\/workspaceStore\.js';/, `
@@ -48,9 +50,11 @@ globalThis.__STATE = {
     t4: mk('t4','체육대회 물품 준비',['웰컴팀'],'진행 중','2026-09-01','2026-09-20',['박지호'],'p2'),
     t5: mk('t5','작년 콘티 확정',['찬양팀'],'완료','2025-07-10','2025-07-24',['노준석'],'p3'),
     t6: mk('t6','작년 포스터 제작',['미디어팀'],'완료','2025-06-01','2025-06-20',['시온'],'p3'),
-  }, allIds:['t0','t1','t2','t3','t4','t5','t6'] },
+    // 다른 프로젝트에서 지금 돌아가는 일 중 찬양팀 것 — t4(웰컴팀)는 콘티 업무와 팀이 안 겹친다
+    t7: mk('t7','체육대회 응원가 연습',['찬양팀'],'진행 중','2026-09-01','2026-09-19',['노준석'],'p2'),
+  }, allIds:['t0','t1','t2','t3','t4','t5','t6','t7'] },
 };
-if (!patched.includes('/src/services/aiPeople.js') || /from '\.\/worship\.js'/.test(patched)) { console.log('FAIL  aiPeople import 줄을 못 바꿨어요 (ai.js의 import가 바뀌었나요)'); process.exit(1); }
+if (!patched.includes('/src/services/aiPeople.js') || !patched.includes('/src/services/aiText.js') || /from '\.\/worship\.js'/.test(patched)) { console.log('FAIL  aiPeople import 줄을 못 바꿨어요 (ai.js의 import가 바뀌었나요)'); process.exit(1); }
 const { buildTaskContext, peopleContext, sanitizeMentions, resolveTaskLinks, AiService, setAiRoster } = await import(pathToFileURL(file).href);
 const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}${d?' — '+d:''}`);
 
@@ -59,9 +63,9 @@ const ctx = buildTaskContext(globalThis.__STATE.tasks.byId.t0, NOW);
 check('프로젝트 이름이 실린다', ctx.includes('2026 하계 수련회'), '');
 check('이 업무의 팀·담당자·일정이 실린다',
   ctx.includes('워십팀·찬양팀') && ctx.includes('노준석, 조준환')
-  && /2026-07-12\([일월화수목금토]\)~2026-07-26\([일월화수목금토]\)/.test(ctx));
+  && /2026-07-12\([일월화수목금토][^~]*\)~2026-07-26\([일월화수목금토]/.test(ctx));
 // 요일이 없으면 AI가 ISO 문자열만 보고 주일·수요 예배를 알아낼 수 없다
-check('날짜에 요일이 붙는다', /2026-08-02\(일\)/.test(ctx), (ctx.split('\n').find(l=>l.includes('2026-08-02')) || '(없음)'));
+check('날짜에 요일이 붙는다', /2026-08-02\(일[ )]/.test(ctx), (ctx.split('\n').find(l=>l.includes('2026-08-02')) || '(없음)'));
 check('같은 팀을 공유하는 업무가 먼저 온다',
   ctx.indexOf('악보·송폼 제작') < ctx.indexOf('간식·음료 구매'),
   `악보 ${ctx.indexOf('악보·송폼 제작')} / 간식 ${ctx.indexOf('간식·음료 구매')}`);
@@ -87,7 +91,19 @@ check('마감까지 남은 날을 알려준다', ctx.includes('마감까지 2일
 // ── 다른 프로젝트 (2026-08-28) ─────────────────────────────────────────────
 // 재료는 listAllCards가 이미 스토어에 다 올려 두었다. 프로젝트 경계만 풀면 된다.
 check('다른 프로젝트에서 지금 돌아가는 일이 실린다',
-  ctx.includes('[다른 프로젝트에서 지금 돌아가는 일]') && ctx.includes('2026 가을 체육대회 / 체육대회 물품 준비'));
+  ctx.includes('[다른 프로젝트에서 지금 돌아가는 일]') && ctx.includes('2026 가을 체육대회 / 체육대회 응원가 연습'));
+// 팀이 겹치는 것만 싣는다(2026-09-30) — 예전에는 겹치는 것이 모자라면 남의 팀 일로 여덟 칸을 채웠다.
+// 되돌리기: otherActive에 !sharesTeam 갈래를 되살리면 깨진다.
+check('팀이 안 겹치는 다른 프로젝트 일은 안 실린다', !ctx.includes('체육대회 물품 준비'));
+{
+  const lone = buildTaskContext({ ...globalThis.__STATE.tasks.byId.t0, id:'lone', teams:['엔지니어팀'] }, NOW);
+  check('팀이 겹치는 다른 프로젝트 일이 없으면 그 도막이 없다', !lone.includes('[다른 프로젝트에서 지금 돌아가는 일]'));
+}
+// 날짜 주석(2026-09-30 · aiText.dateLabel) — 2026-07-26은 7월 마지막 주일, 8월 2일은 첫 주일이자 악보 업무의 마감
+check('마지막 주일에 Q예배가, 주일 마감에 전날 준비가 붙는다',
+  ctx.includes('2026-07-26(일 · 마지막 주 Q예배 · 준비는 25일(토)까지)') && ctx.includes('2026-08-02(일 · 준비는 1일(토)까지)'),
+  (ctx.split('\n').find(l => l.startsWith('- 이 업무:')) || '(없음)'));
+check('시작일에는 준비 줄이 안 붙는다', !/2026-07-12\([^)]*준비/.test(ctx));
 check('같은 팀이 예전에 끝낸 업무가 아카이브로 실린다',
   ctx.includes('[같은 팀이 예전에 끝낸 업무') && ctx.includes('2025 하계 수련회 / 작년 콘티 확정'));
 // 팀이 안 겹치는 예전 업무까지 부르면 프롬프트가 남의 일로 채워진다
@@ -254,7 +270,8 @@ check('요약에서는 @를 쓰지 말라고 한다', captured.sys.includes('사
 {
   const t = { ...globalThis.__STATE.tasks.byId.t1, id: 'cache-1', updatedAt: '2026-07-20T00:00:00Z' };
   let calls = 0;
-  AiService.callGemini = async () => { calls++; return '1. **현황** - 그대로예요'; };
+  const OK3 = '1. **현황** - 그대로예요.\n2. **챙길 것** - 곡 목록을 봐요.\n3. **다음 단계** - 연습을 잡아요.';
+  AiService.callGemini = async () => { calls++; return OK3; };
   const first = await AiService.summarizeTask(t);
   const second = await AiService.summarizeTask(t);
   check('같은 카드를 두 번 요약해도 호출은 한 번', calls === 1, `${calls}회`);
@@ -268,6 +285,29 @@ check('요약에서는 @를 쓰지 말라고 한다', captured.sys.includes('사
   await AiService.summarizeTask({ ...t, updatedAt: '2026-07-21T00:00:00Z', subtasks: subs });
   await AiService.summarizeTask({ ...t, updatedAt: '2026-07-21T00:00:00Z', subtasks: [{ id: 's1', title: '곡 목록', done: true }] });
   check('하위 업무 체크가 캐시를 무효로 만든다(서버 왕복 전에도)', calls === 4, `${calls}회`);
+  // 댓글은 updatedAt을 바꾸지 않는다 — 댓글 수·마지막 댓글 id가 열쇠에 있어야 새 댓글 뒤에 다시 만든다(2026-09-30).
+  // 되돌리기: summaryKey에서 commentsFingerprint를 빼면 깨진다.
+  const t2 = { ...t, updatedAt: '2026-07-22T00:00:00Z' };
+  calls = 0;
+  await AiService.summarizeTask(t2);
+  await AiService.summarizeTask({ ...t2, comments: [{ id: 'c1', author: '노준석', text: '곡 바꿨어요' }] });
+  await AiService.summarizeTask({ ...t2, comments: [{ id: 'c1', author: '노준석', text: '곡 바꿨어요' }] });
+  check('새 댓글이 캐시를 무효로 만든다', calls === 2, `${calls}회`);
+  // 날이 바뀌면 '마감까지 N일'이 바뀐다 — 오늘 날짜가 열쇠에 있다. 되돌리기: summaryKey에서 localDate(now)를 빼면 깨진다.
+  await AiService.summarizeTask(t2, { now: new Date('2026-07-23T10:00:00') });
+  await AiService.summarizeTask(t2, { now: new Date('2026-07-23T22:00:00') });
+  check('날이 바뀌면 다시 만들고, 같은 날에는 캐시', calls === 3, `${calls}회`);
+  // 3줄 모양이 아닌 답은 보여 주되 캐시하지 않는다. 되돌리기: isSummaryShape 조건을 빼면 깨진다.
+  AiService.clearSummaryCache();
+  calls = 0;
+  AiService.callGemini = async () => { calls++; return '요약입니다. 콘티가 나왔어요.'; };
+  const bad = await AiService.summarizeTask(t);
+  await AiService.summarizeTask(t);
+  check('3줄 모양이 아닌 답은 보여 주되 캐시하지 않는다', calls === 2 && bad === '요약입니다. 콘티가 나왔어요.', `${calls}회 / ${bad}`);
+  // 엠/엔 대시는 코드가 하이픈으로 — 되돌리기: summarizeTask의 plainDashes를 빼면 깨진다
+  AiService.callGemini = async () => OK3.replace('그대로예요.', '콘티 — 확정 – 대기예요.');
+  const dashed = await AiService.summarizeTask({ ...t, id: 'dash-1' });
+  check('요약의 엠/엔 대시는 하이픈으로 바뀐다', dashed.includes('콘티 - 확정 - 대기예요.') && !/[—–]/.test(dashed), dashed.replace(/\n/g, ' / '));
   // 안내 문구는 캐시에 남지 않는다 — 로그인한 뒤에도 계속 그 문구가 나오면 안 된다
   AiService.clearSummaryCache();
   calls = 0;
@@ -476,6 +516,69 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
     (ctx4.split('\n').filter(l => /^\s+· /.test(l)).join(' / ') || '(없음)'));
   // 되돌려 놓는다 — 위쪽 검사들이 이 상태를 전제하지 않게
   delete st.tasks.byId.t1.dependsOn; st.tasks.byId.t0.attachments = []; delete st.tasks.byId.t0.subtasks;
+}
+
+// ── 요약 프롬프트: 후행 담당 · 하위 업무 담당·기한 · 댓글 타임라인 (2026-09-30) ─────────
+{
+  const st = globalThis.__STATE;
+  st.tasks.byId.t2.dependsOn = ['t0'];                     // 사운드 체크(문진혁)는 콘티 확정을 기다린다
+  const t0 = { ...st.tasks.byId.t0, id: 't0', subtasks: [
+    { id: 's1', title: '송폼 제작', done: false, assignee: '시온', due: '2026-10-03' },
+    { id: 's2', title: '곡 목록 확정', done: true },
+  ], comments: [
+    { id: 'c1', author: '노준석', text: '콘티 초안 올렸어요', timestamp: '2026-07-20T03:00:00Z', parentId: null },
+    { id: 'c2', author: '조준환', text: '확인했어요', timestamp: '2026-07-21T03:00:00Z', parentId: 'c1' },
+  ] };
+  AiService.clearSummaryCache();
+  captured = null;
+  AiService.callGemini = async (prompt, sys) => { captured = { prompt, sys }; return ''; };
+  await AiService.summarizeTask(t0, { now: NOW });
+  const at = captured.prompt.lastIndexOf('[이 업무에 관련된 사람]');
+  const ppl = at < 0 ? '' : captured.prompt.slice(at);
+  // 되돌리기: summarizeTask의 related에서 후행 갈래를 빼면 깨진다
+  check('요약: 후행 업무 담당자의 부를 때 줄이 실린다', ppl.includes('문진혁 |'), ppl.replace(/\n/g, ' / '));
+  check('요약: 하위 업무 담당자도 사람 목록에 실린다', ppl.includes('시온 |'), ppl.replace(/\n/g, ' / '));
+  check('요약: 하위 업무에 담당·기한이 붙는다', captured.prompt.includes('송폼 제작(담당 시온 · 10월 3일(토))'),
+    (captured.prompt.split('\n').find(l => l.includes('남은 하위 업무')) || '(없음)'));
+  check('요약: 댓글에 날짜가 붙고 답글은 들여 쓴다',
+    captured.prompt.includes('[7/20(월)] 노준석: 콘티 초안 올렸어요\n  ↳ [7/21(화)] 조준환: 확인했어요'),
+    (captured.prompt.split('[댓글 타임라인]')[1] || '').slice(0, 120).replace(/\n/g, ' / '));
+  const many = Array.from({ length: 23 }, (_, i) => ({ id: `m${i}`, author: '노준석', text: `댓글 ${i}`, timestamp: `2026-07-${String(i + 1).padStart(2, '0')}T03:00:00Z` }));
+  await AiService.summarizeTask({ ...t0, comments: many }, { now: NOW });
+  check('요약: 댓글은 최근 20개만, 그 앞은 개수만', captured.prompt.includes('(그 앞 댓글 3개 생략)')
+    && !captured.prompt.includes(': 댓글 2\n') && captured.prompt.includes(': 댓글 22'));
+  delete st.tasks.byId.t2.dependsOn;
+}
+
+// ── 다듬기 예시가 스스로 규칙을 어기지 않는다 (사용자 결정 2026-09-30) ─────────────
+// 예시는 규칙보다 세게 먹는다(docs/AI.md §1 — 예시의 날짜가 베껴졌다). 그래서 예시의 after가
+//  ① before에 없는 사람을 멘션하면("원문에 나오지 않은 사람은 멘션하지 마라" 위반 · 멘션은 알림이다),
+//  ② before에 없는 상품명을 링크 이름으로 지어내면 그대로 베껴진다.
+// 되돌리기: 예시 4 before의 '참석 가람 서율 다온'을 지우거나 예시 2에 '초코파이 대용량'을 되살리면 깨진다.
+{
+  captured = null;
+  AiService.callGemini = async (prompt, sys) => { captured = { prompt, sys }; return ''; };
+  await AiService.polishText('초안', globalThis.__STATE.tasks.byId.t0);
+  const examples = captured.prompt.split('[오늘]')[0];
+  const blocks = examples.split(/---예시 \d/).slice(1).map(b => {
+    const before = (b.split('before:')[1] || '').split('after:')[0];
+    const after = (b.split('after:')[1] || '').split('---예시 끝---')[0];
+    return { before, after };
+  });
+  check('다듬기 예시 넷이 before/after로 읽힌다', blocks.length === 4 && blocks.every(x => x.before.trim() && x.after.trim()));
+  const badMentions = blocks.flatMap((x, i) => [...x.after.matchAll(/@([가-힣A-Za-z]+)/g)].map(m => m[1])
+    .filter(n => !n.endsWith('팀') && !x.before.includes(n) && !x.before.includes(n.slice(1)))
+    .map(n => `예시${i + 1}:@${n}`));
+  check('다듬기 예시: after의 멘션은 before에 나온 사람뿐', !badMentions.length, badMentions.join(', '));
+  const badLinks = blocks.flatMap((x, i) => [...x.after.matchAll(/\[([^\]_]+)_[^\]]+\]\(/g)].map(m => m[1])
+    .filter(name => !x.before.includes(name.trim())).map(n => `예시${i + 1}:${n}`));
+  check('다듬기 예시: 링크의 상품명은 before의 낱말뿐', !badLinks.length, badLinks.join(', '));
+  check('다듬기 규칙: 팀 업무는 원문에 나온 그 팀 사람에게', captured.sys.includes('그 목록에서 원문에 나온 그 팀 사람을 찾아 붙여라'));
+  // 다듬기 결과의 엠/엔 대시도 하이픈으로 — 주소 안은 그대로. 되돌리기: polishText의 plainDashes를 빼면 깨진다
+  AiService.callGemini = async () => '- 준비 — 확인 [간식_네이버](https://x.com/a–b)';
+  const out = await AiService.polishText('초안');
+  check('다듬기의 엠/엔 대시는 하이픈으로(주소 안은 그대로)', out === '- 준비 - 확인 [간식_네이버](https://x.com/a–b)', out);
+  AiService.callGemini = async (prompt, sys) => { captured = { prompt, sys }; return ''; };
 }
 
 // ── 답이 안 오면 우리가 끊는다 (2026-09-09 · 소스 단정) ─────────────────────
