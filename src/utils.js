@@ -616,22 +616,9 @@ export function taskEditDirty(now, was) {
   return TASK_EDIT_KEYS.some(k => editChanged(now, was, k));
 }
 
-// ── 수정한 칸만 내 것으로 (2026-09-25 감사 S3) ──────────────────────────────
-// 수정 폼은 '수정'을 누른 순간의 카드(base)를 들고 있다가 저장 때 통째로 보냈다 — 그 사이
-// 남이 체크한 하위 업무·바꾼 상태가 내 저장으로 되돌아갔다. 그래서 **내가 base에서 바꾼 칸만**
-// 내 값을 쓰고 나머지는 지금 스토어의 카드(live)를 쓴다. 서버에는 그중 바뀐 칸만 간다(taskChangedKeys)
-// 보내는 값만 달라진다 — 칸 단위이므로 같은 칸을 둘이 고치면 나중 저장이 이긴다(예전과 같다).
-// 수정 폼이 고치는 칸은 TASK_EDIT_KEYS뿐이라 나머지(순서·요약·작성자…)도 live가 맞다.
-export function mergeTaskEdit(mine, base, live) {
-  if (!mine || !base || !live) return mine;
-  const out = { ...live };
-  for (const k of TASK_EDIT_KEYS) out[k] = editChanged(mine, base, k) ? mine[k] : live[k];
-  return out;
-}
-
 // ── 서버에 보낼 칸 (2026-09-28 · 바뀐 칸만 저장) ─────────────────────────────
 // 저장은 예전에 카드의 모든 칸을 통째로 덮어썼다(cardPatch). 그런데 수정 모드 동안에는 실시간
-// 반영을 멈춰 두므로(App.jsx isEditingRef) mergeTaskEdit의 live가 '수정을 누른 순간'에 멈춰 있고,
+// 반영을 멈춰 두었으므로(옛 App.jsx isEditingRef) 옛 병합(mergeTaskEdit — 지웠다)의 live가 '수정을 누른 순간'에 멈춰 있고,
 // 그래서 **내가 안 건드린 칸까지 그 순간의 값으로 되돌렸다**(B가 바꾼 상태가 A의 제목 저장으로 풀렸다).
 // 이제 저장은 이전 카드(was)에서 바뀐 칸만 보낸다 — 안 바뀐 칸은 서버의 값을 건드리지 않는다.
 const SAVE_EXTRA_KEYS = ['position', 'projectId'];

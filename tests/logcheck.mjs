@@ -3465,32 +3465,6 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  정말 바뀐 게 있나 8가지');
 }
 
-// ── 수정한 칸만 내 것으로 저장한다 (utils.mergeTaskEdit · 2026-09-25 감사 S3) ──────
-// 수정 폼은 '수정'을 누른 순간의 카드(base)를 들고 있다가 저장 때 통째로 보냈다 — 그 사이
-// 남이 체크한 하위 업무가 내 저장으로 풀렸다. 게스트 모드는 클라우드 저장(cardPatch)을 안
-// 타지만 보내는 값은 이 함수가 정한다(§3-5). 되돌리기 검사: `editChanged(...) ? mine[k] : live[k]`를
-// `mine[k]`로 바꾸면(= 예전처럼 통째로) 첫 단정이, live 대신 mine을 펼치면 넷째가 깨진다.
-{
-  const U = await import(new URL('../src/utils.js', import.meta.url).href);
-  const base = { id: 'c1', title: '포스터', content: '본문', status: '진행 중', assignees: ['노준석'],
-    subtasks: [{ id: 'a', title: '시안', done: false }], position: 3, aiSummary: '' };
-  const live = { ...base, subtasks: [{ id: 'a', title: '시안', done: true }], status: '검토', position: 7, aiSummary: '요약' };
-  const mine = { ...base, title: '포스터 (고침)' };
-  const m = U.mergeTaskEdit(mine, base, live);
-  assert.strictEqual(m.subtasks[0].done, true, '남이 체크한 하위 업무가 내 저장으로 풀리지 않는다');
-  assert.strictEqual(m.status, '검토', '남이 바꾼 상태도 그대로다');
-  assert.strictEqual(m.title, '포스터 (고침)', '내가 고친 칸은 내 값이다');
-  assert.strictEqual(m.position, 7, '수정 폼이 안 고치는 칸(순서)은 지금 카드의 값이다');
-  assert.strictEqual(m.aiSummary, '요약', '고정 요약도 지금 카드의 값이다');
-  const mine2 = { ...base, subtasks: [...base.subtasks, { id: 'b', title: '인쇄', done: false }] };
-  assert.strictEqual(U.mergeTaskEdit(mine2, base, live).subtasks.length, 2, '내가 하위 업무를 고쳤으면 내 목록이다(칸 단위)');
-  assert.strictEqual(U.mergeTaskEdit(mine, null, live), mine, '기준이 없으면(새 업무) 그대로 보낸다');
-  // dirty는 스냅숏과 견준다 — 남이 바꾼 칸은 '내가 고친 것'이 아니다
-  assert.strictEqual(U.taskEditDirty(base, base), false);
-  assert.strictEqual(U.taskEditDirty(base, live), true, '(참고) 살아 있는 카드와 견주면 안 고쳐도 고친 것이 된다');
-  console.log('PASS  수정한 칸만 내 것으로 9가지');
-}
-
 // ── 한글 조합 중의 Enter는 확정이 아니다 (utils.imeComposing · 2026-09-25 감사 S6) ──────
 // 맥·아이폰은 조합 중인 마지막 글자를 끝내는 Enter를 칸에 그대로 보낸다 — 그 Enter로 등록이
 // 한 번 돌고, 끝난 글자가 칸에 남았다. **Enter로 무언가를 하는 칸은 전부** 이 가드를 먼저 본다:
@@ -4328,13 +4302,13 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 {
   const V = await import(new URL('../src/services/vecSearch.js', import.meta.url).href);
   // 와/과 — 받침으로 가른다(사용자 문구 '{검색어}과 관련된 성경 구절')
-  assert.strictEqual(V.withAnd('두려움'), '두려움과');
-  assert.strictEqual(V.withAnd('사랑'), '사랑과');
-  assert.strictEqual(V.withAnd('믿음 소망'), '믿음 소망과');
-  assert.strictEqual(V.withAnd('평화'), '평화와');
-  assert.strictEqual(V.withAnd('재물과 돈'), '재물과 돈과');
-  assert.strictEqual(V.withAnd('진로 고민'), '진로 고민과');
-  assert.strictEqual(V.withAnd('기도'), '기도와');
+  assert.strictEqual(V.andParticle('두려움'), '과');
+  assert.strictEqual(V.andParticle('사랑'), '과');
+  assert.strictEqual(V.andParticle('믿음 소망'), '과');
+  assert.strictEqual(V.andParticle('평화'), '와');
+  assert.strictEqual(V.andParticle('재물과 돈'), '과');
+  assert.strictEqual(V.andParticle('진로 고민'), '과');
+  assert.strictEqual(V.andParticle('기도'), '와');
   assert.strictEqual(V.andParticle('걱정?'), '과', '끝의 문장부호는 건너뛴다');
   assert.strictEqual(V.andParticle('요한복음 3'), '과', '숫자는 읽는 소리로(삼)');
   assert.strictEqual(V.andParticle('시편 23:2'), '와', '숫자는 읽는 소리로(이)');
@@ -5317,7 +5291,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     subtasks: [{ id: 's1', title: '공지', done: false }, { id: 's2', title: '투표', done: false }], dependsOn: [], position: 0, projectId: 'p' };
   // ① A는 제목만 고쳤다 — 보낼 칸은 제목 하나(상태·하위 업무는 서버 값을 건드리지 않는다)
   const live = { ...base };                                    // 수정 모드 동안 멈춘 스토어 = base
-  const mine = U.mergeTaskEdit({ ...base, title: '임원진 선출' }, base, live);
+  const mine = { ...base, title: '임원진 선출' };
   assert.deepStrictEqual(U.taskChangedKeys(mine, live), ['title'], '제목만 고치면 제목만 보낸다');
   assert.strictEqual(U.taskChangedKeys(mine, null), null, '새 업무는 전부 보낸다');
   assert.deepStrictEqual(U.taskChangedKeys({ ...base, position: 3 }, base), ['position'], '순서도 바뀐 칸으로 센다');

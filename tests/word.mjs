@@ -2338,15 +2338,15 @@ const aiPipe = await ev(`(async () => {
   let asked = 0;
   const fake = async () => { asked++;
     return '네 아래와 같아요 [{"ref":"빌립보서 4:6","why":"염려 대신 기도"},{"ref":"도마복음 1:1","why":"없는 책"}] 도움이 되길!'; };
-  const first = await m.aiBibleSearch('불안할 때 어떻게 하나요', books, b.loadBook, fake);
-  const again = await m.aiBibleSearch('  불안할 때  어떻게 하나요  ', books, b.loadBook, fake);
+  const first = (await m.aiBibleSearchOutcome('불안할 때 어떻게 하나요', books, b.loadBook, fake)).hits;
+  const again = (await m.aiBibleSearchOutcome('  불안할 때  어떻게 하나요  ', books, b.loadBook, fake)).hits;
   // 공유 캐시(0057)를 흉내 낸 그릇 — 남이 이미 물어본 말이면 AI를 부르지 않아야 한다
   const shared = new Map([['감사란 무엇인가', ['시편 100:4']]]);
   const store = { get: async (k) => shared.get(k) || null, set: async (k, refs) => { shared.set(k, refs); } };
   let asked2 = 0;
   const fake2 = async () => { asked2++; return '["빌립보서 4:6"]'; };
-  const hit = await m.aiBibleSearch('  감사란   무엇인가 ', books, b.loadBook, fake2, store);
-  const miss = await m.aiBibleSearch('낙심할 때', books, b.loadBook, fake2, store);
+  const hit = (await m.aiBibleSearchOutcome('  감사란   무엇인가 ', books, b.loadBook, fake2, store)).hits;
+  const miss = (await m.aiBibleSearchOutcome('낙심할 때', books, b.loadBook, fake2, store)).hits;
   return { n: first.length, label: m.hitLabel(first[0] || null), hasWhy: ('why' in (first[0] || {})),
            text: ((first[0] || {}).text || '').slice(0, 10), asked, cachedN: again.length,
            cachedLabel: m.hitLabel(hit[0] || null), askedAfterCache: asked2,
@@ -2375,7 +2375,7 @@ const aiHead = await ev(`(async () => {
   const w = await import('/src/components/wordBible.jsx');
   const books = await b.loadBibleIndex();
   const fake = async () => '[{"ref":"빌립보서 4:6","why":"염려 대신 기도"},{"ref":"시편 23:1","why":"목자 되심"}]';
-  const hits = await s.aiBibleSearch('감사와 찬양', books, b.loadBook, fake);
+  const hits = (await s.aiBibleSearchOutcome('감사와 찬양', books, b.loadBook, fake)).hits;
   const done = { done: 66, total: 66 };
   return { n: hits.length,
     zero: w.searchHeads({ query: '감사와 찬양', count: 0, progress: done, aiCount: hits.length }),

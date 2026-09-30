@@ -180,8 +180,3 @@ export async function aiBibleSearchOutcome(query, books, loadBook, call, store =
   if (!fromCache && store) { try { await store.set(key, refs); } catch { /* 캐시는 있으면 좋은 것 */ } }
   return { hits, failed: false };
 }
-
-// 줄만 — 실패·빈 답·안내 문구는 전부 빈 배열이다(예전 모양 그대로 · tests/word가 이 모양을 본다).
-export async function aiBibleSearch(query, books, loadBook, call, store = null) {
-  return (await aiBibleSearchOutcome(query, books, loadBook, call, store)).hits;
-}

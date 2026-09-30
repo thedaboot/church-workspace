@@ -5,7 +5,7 @@
 //   · 상단 전체 검색(G-a) — 글자 결과 아래 '관련된 업무 내용' 구역. match_docs(0074)의 조각을
 //     업무 하나씩으로 묶어 최대 다섯 줄, 줄마다 어디에 걸렸는지 한 줄('댓글 · ' · '첨부 · ' · '상세 내용 · ').
 //   · 성경 읽기 검색(S-a) — AI 검색이 실패·시간 초과일 때만 그 자리에 match_bible(0073)의 절을
-//     같은 줄 모양으로. 머리는 '{검색어}와/과 관련된 성경 구절'(받침으로 가른다 — withAnd).
+//     같은 줄 모양으로. 머리는 '{검색어}와/과 관련된 성경 구절'(받침으로 가른다 — andParticle).
 // 통신(질문 임베딩 · rpc)은 services/semantic.js가 한다. 여기는 모양만 바꾼다.
 // ============================================================================
 
@@ -23,7 +23,7 @@ export const relatedKey = (q) => String(q || '').normalize('NFC').trim().replace
 // 문턱은 공백을 뺀 길이로 잰다(글자 결과 SearchResults의 norm과 같다)
 export const relatedReady = (q) => relatedKey(q).replace(/\s/g, '').length >= RELATED_MIN_CHARS;
 
-// rpc 인자 — halfvec은 '[0.1,0.2,…]' 글자로 넘긴다(scripts/compare-bible-search.mjs와 같은 길)
+// rpc 인자 — halfvec은 '[0.1,0.2,…]' 글자로 넘긴다(지운 비교 스크립트 scripts/compare-bible-search.mjs와 같은 길 — git 이력)
 export const vecParam = (vec) => `[${(vec || []).join(',')}]`;
 
 // ── 와/과 ───────────────────────────────────────────────────────────────────
@@ -40,7 +40,6 @@ export function andParticle(word) {
   if (/[0-9]/.test(last)) return DIGIT_BATCHIM.has(last) ? '과' : '와';
   return '와';
 }
-export const withAnd = (word) => `${String(word || '').trim()}${andParticle(word)}`;
 
 // ── 조각 → 발췌 한 줄 ─────────────────────────────────────────────────────────
 // doc_vec.body의 모양은 api/_docsync.js buildDocs가 정한다:
