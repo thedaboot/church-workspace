@@ -3,6 +3,7 @@ import { store } from '../store/workspaceStore.js';
 import { extractMentions, MENTION_TAIL, localDate } from '../utils.js';
 import { rosterIndex, mentionedMembers, personLine, taskScope } from './aiPeople.js';
 import { fetchRoster } from './worship.js';
+import { dateLabel, subtaskLabel, commentTimeline, plainDashes, isSummaryShape } from './aiText.js';
 
 // ============================================================================
 // 6-2. AI Service Layer — /api/ai 서버 프록시 경유 (API 키는 서버에만)
@@ -119,13 +120,10 @@ const TONE_RULES = [
 export const DASH_RULE = '- 문장 안에서 엠 대시(—)나 엔 대시(–)는 절대 쓰지 마라. 필요하면 일반 하이픈(-)을 써라.';
 
 // ── 날짜 ────────────────────────────────────────────────────────────────────
-// 날짜에 요일을 붙인다 — AI가 ISO 문자열만 보고 요일을 맞히지 못한다.
-const DOW = ['일', '월', '화', '수', '목', '금', '토'];
-const withDow = (iso) => {
-  if (!iso) return iso;
-  const d = new Date(`${iso}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? iso : `${iso}(${DOW[d.getDay()]})`;
-};
+// 날짜에 요일을 붙인다 — AI가 ISO 문자열만 보고 요일을 맞히지 못한다. 주일이면 둘째 주 성찬 예배·마지막 주
+// Q예배를, 마감이 주일이면 '준비는 N일(토)까지'를 코드가 셈해 붙인다(aiText.dateLabel — 모델이 몇째 주인지 셈하다 틀린다).
+const withDow = (iso) => dateLabel(iso);
+const withDue = (iso) => dateLabel(iso, { due: true });
 const DAY_MS = 86400000;
 const daysBetween = (fromIso, toIso) =>
   Math.round((new Date(`${toIso}T00:00:00`) - new Date(`${fromIso}T00:00:00`)) / DAY_MS);
@@ -146,7 +144,7 @@ const fmtTask = (t) => [
   t.status,
   t.teams?.length ? t.teams.join('·') : '팀 미지정',
   t.assignees?.length ? t.assignees.join(', ') : '담당자 미지정',
-  [t.startDate, t.dueDate].filter(Boolean).map(withDow).join('~') || (t.status === '상시' ? '마감 없이 계속' : '일정 없음'),
+  [t.startDate && withDow(t.startDate), t.dueDate && withDue(t.dueDate)].filter(Boolean).join('~') || (t.status === '상시' ? '마감 없이 계속' : '일정 없음'),
 ].join(' | ');
 
 const NEARBY_LIMIT = 12;        // 같은 프로젝트
@@ -313,10 +311,9 @@ export function buildTaskContext(task, now = new Date()) {
   //  ⓑ 아카이브: 같은 팀이 **예전에 끝낸** 업무. "작년엔 이 시점에 뭘 했나"가 여기서 온다.
   const others = all.filter(t => t.projectId !== task.projectId);
   const projName = (t) => s.projects.byId[t.projectId]?.title || s.projects.byId[t.projectId]?.name || '다른 프로젝트';
-  const otherActive = [
-    ...others.filter(t => t.status !== '완료' && sharesTeam(t)).sort(byDate),
-    ...others.filter(t => t.status !== '완료' && !sharesTeam(t)).sort(byDate),
-  ].slice(0, OTHER_ACTIVE_LIMIT);
+  //  **팀이 겹치는 것만** 싣는다 — 예전에는 겹치는 것이 모자라면 남의 팀 일로 여덟 칸을 채웠고, 모델이 그걸
+  //  이 업무의 다음 단계로 끌어왔다. 겹치는 것이 없으면 도막 자체가 없다.
+  const otherActive = others.filter(t => t.status !== '완료' && sharesTeam(t)).sort(byDate).slice(0, OTHER_ACTIVE_LIMIT);
   const archive = others
     .filter(t => t.status === '완료' && sharesTeam(t))
     .sort((a, b) => String(b.dueDate || b.startDate || '').localeCompare(String(a.dueDate || a.startDate || '')))
@@ -358,8 +355,9 @@ export function buildTaskContext(task, now = new Date()) {
   // "남은 하위 업무: 없음(전부 완료)"가 실렸다 — 모델이 아니라 이 한 글자가
   // "모두 완료했어요" 요약의 진짜 원인이었다(사용자가 세 번 재현해 준 그 증상).
   // 검사 픽스처도 text로 만들어서 못 잡았다 — 픽스처는 실제 모양을 베껴야 한다.
-  const subDone = subs.filter(x => x.done).map(x => x.title).filter(Boolean);
-  const subLeft = subs.filter(x => !x.done).map(x => x.title).filter(Boolean);
+  // 청년별 담당 업무에서 내린 하위 업무는 담당(assignee)·기한(due)도 들고 있다(modals.jsx ActionItems) — 같이 싣는다.
+  const subDone = subs.filter(x => x.done && x.title).map(subtaskLabel);
+  const subLeft = subs.filter(x => !x.done && x.title).map(subtaskLabel);
   // 남은 것을 **먼저, 제 줄로** 준다. 한 줄에 '끝낸 것 · 남은 것'으로 붙였더니
   // 라이브에서 모델이 둘을 섞어 이미 끝낸 항목을 "마무리해야 해요"로 올렸다
   // (사용자 신고 2026-08-29 — 4/5 완료 카드에서 완료된 연결 지도·파일 이관을 챙기라고 함).
@@ -445,7 +443,11 @@ const summaryCache = new Map();
 // 체크하고 곧바로 다시 요약을 누르면 체크 전 요약이 캐시에서 나왔다. 요약이
 // 끝낸 것/남은 것을 갈라 말하는 이상 체크 하나가 답을 바꾼다(사용자 강조 2026-08-29).
 const subsFingerprint = (task) => (task.subtasks || []).map(x => (x.done ? '1' : '0')).join('');
-const summaryKey = (task) => `${task.id || 'new'}:${task.updatedAt || ''}:${subsFingerprint(task)}`;
+// 댓글 수·마지막 댓글 id도 넣는다 — 댓글은 카드의 updatedAt을 바꾸지 않아서 새 댓글이 달려도 옛 요약이 나왔다.
+// 오늘 날짜도 넣는다 — 요약이 '마감까지 N일'을 말하므로 날이 바뀌면 답이 바뀐다.
+const commentsFingerprint = (task) => { const c = task.comments || []; return `${c.length}:${c[c.length - 1]?.id || ''}`; };
+const summaryKey = (task, now = new Date()) =>
+  `${task.id || 'new'}:${task.updatedAt || ''}:${subsFingerprint(task)}:${commentsFingerprint(task)}:${localDate(now)}`;
 
 export const AiService = {
   callGemini: async (prompt, systemInstruction = "") => {
@@ -491,23 +493,32 @@ export const AiService = {
   // 캐시를 비우는 손잡이 — 카드를 저장한 뒤처럼 강제로 다시 만들어야 할 때
   clearSummaryCache: () => summaryCache.clear(),
 
-  summarizeTask: async (task) => {
-    const cached = summaryCache.get(summaryKey(task));
+  // now는 검사가 날짜를 바꿔 보려는 손잡이다(화면은 넘기지 않는다)
+  summarizeTask: async (task, { now = new Date() } = {}) => {
+    const cached = summaryCache.get(summaryKey(task, now));
     if (cached) return cached;
     await loadAiRoster();     // 10분에 한 번만 읽는다(위 ROSTER_TTL_MS) — 캐시에 걸리면 여기까지 오지 않는다
-    const commentsText = (task.comments || []).map(c => `${c.author}: ${c.text}`).join('\n');
+    const commentsText = commentTimeline(task.comments);
     const meta = [
       task.assignees?.length ? `담당자: ${task.assignees.join(', ')}` : '',
       task.dueDate ? `마감일: ${task.dueDate}` : '',
     ].filter(Boolean).join(' · ');
-    const related = [...(task.dependsOn || []).map(id => store.getState().tasks.byId[id]).filter(Boolean)];
+    // 부를 사람 = 선행 업무 담당 + **후행 업무 담당**(buildTaskContext의 blockedBy와 같은 셈 — 다음 단계가 그 사람을 부른다)
+    //  + 하위 업무 담당(하위 업무 줄에 '담당 OOO'가 실린다)
+    const st = store.getState();
+    const allTasks = (st.tasks.allIds || []).map(id => st.tasks.byId[id]).filter(Boolean);
+    const related = [
+      ...(task.dependsOn || []).map(id => st.tasks.byId[id]).filter(Boolean),
+      ...allTasks.filter(t => t.projectId === task.projectId && t.id !== task.id && (t.dependsOn || []).includes(task.id)),
+      { assignees: (task.subtasks || []).flatMap(x => String(x?.assignee || '').split(',').map(n => n.trim()).filter(Boolean)) },
+    ];
     const prompt = [
       `업무 제목: ${task.title}`,
       `상세 내용: ${task.content || '(없음)'}`,
       meta && `[정보] ${meta}`,
       `\n[댓글 타임라인]\n${commentsText || '(댓글 없음)'}`,
       '',
-      buildTaskContext(task),
+      buildTaskContext(task, now),
       '',
       peopleContext(task, related),
       '\n위 업무를 아래 형식에 맞춰 요약해줘.',
@@ -555,9 +566,12 @@ export const AiService = {
       '',
       ORG_CONTEXT,
     ].join('\n');
-    const text = await AiService.callGemini(prompt, sysPrompt);
-    // 안내 문구는 캐시에 넣지 않는다 — 로그인하거나 배포된 뒤에도 계속 그 문구가 나온다
-    if (text && !FALLBACKS.has(text)) summaryCache.set(summaryKey(task), text);
+    const raw = await AiService.callGemini(prompt, sysPrompt);
+    if (FALLBACKS.has(raw)) return raw;
+    const text = plainDashes(raw);
+    // 안내 문구는 캐시에 넣지 않는다 — 로그인하거나 배포된 뒤에도 계속 그 문구가 나온다.
+    // 3줄 모양이 아닌 답도 넣지 않는다 — 보여는 주되, 다시 누르면 새로 묻는다.
+    if (text && isSummaryShape(text)) summaryCache.set(summaryKey(task, now), text);
     return text;
   },
   // task를 넘기면 주변 상황(같은 프로젝트 업무·팀·담당자)을 배경 지식으로 함께 준다.
@@ -580,15 +594,17 @@ export const AiService = {
       '- 방 배정',
       '- 김집사님께 견적 받기',
       '',
+      // 링크 이름은 **원문의 낱말**(간식·포장지)과 주소의 쇼핑몰뿐이다 — 예전 예시는 '초코파이 대용량'처럼 원문에 없는
+      // 상품명을 지어 붙였고, 그 예시가 "지어내지 마라"보다 세게 먹는다(예시는 베껴진다 · docs/AI.md §1).
       '---예시 2 (쇼핑 링크 나열)---',
       'before:',
       '간식 이거 https://smartstore.naver.com/main/products/1234567?query=abc 20봉지 그리고 포장지 https://www.coupang.com/vp/products/999?itemId=88 이건 50장',
       'after:',
       '### 간식',
-      '- [초코파이 대용량_네이버](https://smartstore.naver.com/main/products/1234567?query=abc) **20봉지**',
+      '- [간식_네이버](https://smartstore.naver.com/main/products/1234567?query=abc) **20봉지**',
       '',
       '### 포장지',
-      '- [선물 포장지_쿠팡](https://www.coupang.com/vp/products/999?itemId=88) **50장**',
+      '- [포장지_쿠팡](https://www.coupang.com/vp/products/999?itemId=88) **50장**',
       '',
       // **예시의 사람은 지은 이름이다**(2026-09-25). 실명을 쓰면 모델이 그 사람을 다른 카드에
       // 끌어와 불렀고(A/B), 공개 레포에 교인 이름·직함 짝이 남는다. 지은 이름은 명단에 없는 것으로 골랐다.
@@ -623,7 +639,9 @@ export const AiService = {
       // **이 예시가 규칙보다 강하게 먹는다**(2026-09-22). 앞의 예시 하나만 있을 때는
       // 할 일이 여럿이어도 한 줄만 뽑아 왔다. 여기서 세 가지를 한꺼번에 보여 준다:
       //   ① 팀별로 흩어진 할 일을 하나도 빠뜨리지 않는 것,
-      //   ② **관련된 사람 목록의 소속을 보고 팀 업무를 사람에게 내리는 것**(여럿이면 한 줄에 여럿),
+      //   ② **관련된 사람 목록의 소속을 보고 팀 업무를 사람에게 내리는 것**(여럿이면 한 줄에 여럿) —
+      //      단 **원문에 나온 사람에게만**(멘션은 알림이다). 예전 before에는 이름이 하나도 없는데 after가 셋을
+      //      멘션해서 "원문에 나오지 않은 사람은 멘션하지 마라"를 예시가 스스로 어겼다 → before에 참석자를 적었다.
       //   ③ 그 목록에 그 팀 사람이 없으면 팀 이름으로 두는 것.
       // **기한은 원문이 걸어 둔 줄에만**(2026-09-25). 예전 예시는 줄마다 '9월 26일까지'를 붙여서,
       // 모델이 기한이 없는 카드에도 그 날짜를 그대로 베껴 왔다(A/B polish-2 — 원문에 26일이 없다).
@@ -636,9 +654,10 @@ export const AiService = {
       '  서다온 | 팀: 웰컴팀·미디어팀 | 부를 때: 서다온 리더팀장님 | 멘션은 @서다온',
       '  최서율 | 팀: 찬양팀 | 부를 때: 최서율 청년 | 멘션은 @최서율',
       'before:',
-      '4월 찬양예배 주제 전도에서 예배자로 바꿈 예배시간 15시30분에서 15시로 당김 각 팀장님들 17일까지 댓글로 진행상황 공유 찬양팀 콘티 이번주내 확정 웰컴팀은 오픈퀘스천 질문 컨펌하고 조편성 방법 정하기 미디어팀 예배전영상 제작현황이랑 업로드 마감일 엔지니어팀 송출계획 역할분담 ppt 완료일정 전날 연습가능한지 확인필요',
+      '참석 가람 서율 다온 4월 찬양예배 주제 전도에서 예배자로 바꿈 예배시간 15시30분에서 15시로 당김 각 팀장님들 17일까지 댓글로 진행상황 공유 찬양팀 콘티 이번주내 확정 웰컴팀은 오픈퀘스천 질문 컨펌하고 조편성 방법 정하기 미디어팀 예배전영상 제작현황이랑 업로드 마감일 엔지니어팀 송출계획 역할분담 ppt 완료일정 전날 연습가능한지 확인필요',
       'after:',
       '### 4월 찬양 예배 준비',
+      '- 참석: 한가람 총무님, 최서율 청년, 서다온 리더팀장님',
       '',
       '### 정한 것',
       '- 4월 주제를 전도에서 ==예배자==로 바꿔요',
@@ -648,7 +667,7 @@ export const AiService = {
       '- ==예배 전날 연습이 가능한지== 팀원·팀장 일정을 확인해야 해요',
       '',
       '### 청년별 담당 업무',
-      // 찬양팀이 목록에 둘(한가람·최서율) → 한 줄에 여럿. 기한은 원문의 '이번 주 안' 그대로
+      // 찬양팀이 원문(참석)에도 목록에도 둘(한가람·최서율) → 한 줄에 여럿. 기한은 원문의 '이번 주 안' 그대로
       '- @한가람 @최서율 · 4월 콘티 확정(이번 주 안)',
       // 웰컴팀·미디어팀은 서다온 하나씩 → 각각 그 사람에게. '각 팀장님들 17일까지'는 진행 상황 공유에 걸린 기한이다
       '- @서다온 · Open Question 질문 컨펌하고 조편성 방법 정하기 · 4월 17일까지',
@@ -676,6 +695,7 @@ export const AiService = {
       '- 원문의 내용·의도·수량·가격·메모·고민 포인트·링크는 절대 삭제하지 마라. 다듬는 거지 요약이 아니다.',
       '- 우리 마크다운 서브셋만 써라: #~#### 제목, - 불릿, 1. 번호, **굵게**, ==형광펜==, [이름](URL) 링크. 표와 코드블록은 쓰지 마라.',
       '- 긴 쇼핑/상품 URL은 반드시 `[상품명_쇼핑몰](원본URL)` 한 줄 링크로 축약해라. 쿼리스트링까지 원본 URL 그대로 링크 안에 넣어라.',
+      '  상품명은 원문에 적힌 말로만 적어라(원문이 "간식"이라고만 했으면 "간식"). 쇼핑몰은 주소에서 읽는다. 없는 상품명을 지어내지 마라.',
       '- 성격이 다른 묶음(예: 포장지/간식/안내문/남은 일)은 ### 제목으로 섹션을 나눠라.',
       '- 톤은 청년부 팀원에게 말하듯 간결하고 친근하게. 과한 격식은 빼라.',
       '- 이모지는 원문에 있던 것만 유지하고 새로 넣지 마라.',
@@ -711,9 +731,9 @@ export const AiService = {
       '',
       '누구에게 붙이나 — **"[이 업무에 관련된 사람]" 목록을 보고 정해라**(그 목록에 소속이 적혀 있다):',
       '- 원문이 사람을 짚었으면 그 사람(`@한가람`).',
-      '- 팀만 짚었으면, 또는 일의 성격으로 팀이 분명하면, **그 목록에서 그 팀 사람을 찾아 붙여라.**',
+      '- 팀만 짚었으면, 또는 일의 성격으로 팀이 분명하면, **그 목록에서 원문에 나온 그 팀 사람을 찾아 붙여라.**',
       '  · 그 팀 사람이 여럿이면 **한 줄에 여럿** 적어라: `- @한가람 @서다온 · 조편성 방법 정하기`',
-      '  · 그 목록에 그 팀 사람이 하나도 없으면 **팀 이름으로** 적어라: `- @엔지니어팀 · PPT 완료 일정 잡기`',
+      '  · 원문에 나온 그 팀 사람이 하나도 없으면 **팀 이름으로** 적어라: `- @엔지니어팀 · PPT 완료 일정 잡기`',
       '  · **목록에 없는 사람 이름을 지어내지 마라.**',
       '- 일의 성격으로 팀을 고르는 기준: 콘티·송폼·찬양 곡은 찬양팀 / 영상·포스터는 미디어팀 /',
       '  예배용 PPT·조명·사운드·송출은 엔지니어팀 / 조편성·안내·물품·새가족·Open Question은 웰컴팀 /',
@@ -769,6 +789,6 @@ export const AiService = {
     const out = await AiService.callGemini(prompt, sysPrompt);
     // 안내 문구는 그대로 돌려준다 — 부르는 쪽이 isFallbackText로 걸러 본문을 지킨다.
     // 죽은 멘션을 되돌리고, `[[업무:제목]]` 표시를 링크로 바꾼 뒤에 본문으로 나간다.
-    return isFallbackText(out) ? out : resolveTaskLinks(sanitizeMentions(out), task);
+    return isFallbackText(out) ? out : resolveTaskLinks(sanitizeMentions(plainDashes(out)), task);
   }
 };

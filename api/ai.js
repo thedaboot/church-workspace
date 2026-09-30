@@ -60,6 +60,17 @@ const GEMINI_BUDGET_MS = 25 * 1000;
 const MAX_PROMPT = 60000;
 const MAX_SYSTEM = 20000;
 
+// generateContent 답 → { text } 또는 { error }. 글은 **모든 조각을 잇는다** — 첫 조각만 읽으면 답이 여러
+// part로 쪼개져 올 때 뒤가 잘린다. 생각 조각(thought)은 싣지 않는다. finishReason이 있고 STOP이 아니면
+// (MAX_TOKENS · SAFETY · RECITATION …) 끝나지 않은 답이라 실패다. 이유가 없으면(옛 모양) 그대로 받는다.
+export function geminiText(result) {
+  const cand = result?.candidates?.[0];
+  const reason = cand?.finishReason;
+  if (reason && reason !== 'STOP') return { text: '', error: reason };
+  const text = (cand?.content?.parts || []).filter(p => p && !p.thought && typeof p.text === 'string').map(p => p.text).join('');
+  return { text };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
 
@@ -96,7 +107,10 @@ export default async function handler(req, res) {
     });
     const result = await r.json();
     if (!r.ok) { console.error('[ai] Gemini 오류:', result); res.status(502).json({ error: 'Gemini 호출 실패' }); return; }
-    const text = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const { text, error } = geminiText(result);
+    // 중간에 끊긴 답(MAX_TOKENS · SAFETY 등)은 실패로 돌려준다 — 잘린 글이 요약·본문에 그대로 들어가면 안 된다.
+    // 클라이언트는 404·501이 아닌 non-OK를 전부 '답을 받지 못했어요'(MSG.failed)로 보인다.
+    if (error) { console.error('[ai] Gemini 답이 끝나지 않았다:', error); res.status(502).json({ error: 'Gemini 호출 실패' }); return; }
     res.status(200).json({ text });
   } catch (e) {
     // 시간 초과는 504로 가른다 — 부르는 쪽이 "다시 해볼 만한 실패"를 알 수 있어야 한다

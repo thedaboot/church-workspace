@@ -4305,6 +4305,60 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  AI 사람 줄(aiPeople — 직함 고르기 · 순 칸 · 글에 나온 가입자)');
 }
 
+// ── AI 글 조각 (services/aiText.js · api/ai.js geminiText · 2026-09-30) ──────────
+// 날짜 주석(성찬 · Q예배 · 주일 마감의 전날 준비) · 하위 업무 담당·기한 · 댓글 타임라인 · 대시 뒤처리 · 요약 모양 · 제미나이 답 잇기.
+{
+  const T = await import(new URL('../src/services/aiText.js', import.meta.url).href);
+  // 2026-10: 4일·11일·18일·25일이 주일 → 11일이 둘째 주, 25일이 마지막 주
+  assert.strictEqual(T.sundayNote('2026-10-11'), '둘째 주 성찬 예배');
+  assert.strictEqual(T.sundayNote('2026-10-25'), '마지막 주 Q예배');
+  assert.strictEqual(T.sundayNote('2026-10-04'), '', '첫째 주는 아무것도');
+  assert.strictEqual(T.sundayNote('2026-10-18'), '', '셋째 주는 아무것도');
+  assert.strictEqual(T.sundayNote('2026-10-10'), '', '주일이 아니면 아무것도');
+  assert.strictEqual(T.sundayNote('2026-08-30'), '마지막 주 Q예배', '8월은 30일이 마지막 주일(다섯째)');
+  assert.strictEqual(T.sundayNote('2026-08-23'), '', '다섯 주일인 달의 넷째는 마지막이 아니다');
+  assert.strictEqual(T.dateLabel('2026-10-10'), '2026-10-10(토)');
+  assert.strictEqual(T.dateLabel('2026-10-11'), '2026-10-11(일 · 둘째 주 성찬 예배)', '마감이 아니면 준비 줄이 없다');
+  assert.strictEqual(T.dateLabel('2026-10-11', { due: true }), '2026-10-11(일 · 둘째 주 성찬 예배 · 준비는 10일(토)까지)');
+  assert.strictEqual(T.dateLabel('2026-11-01', { due: true }), '2026-11-01(일 · 준비는 10월 31일(토)까지)', '전날이 앞 달이면 달까지');
+  assert.strictEqual(T.dateLabel('2026-10-09', { due: true }), '2026-10-09(금)', '주일이 아닌 마감에는 준비 줄이 없다');
+  assert.strictEqual(T.dateLabel(''), '');
+  assert.strictEqual(T.dateLabel('미정'), '미정', '날짜가 아니면 그대로');
+  assert.strictEqual(T.subtaskLabel({ title: '송폼 제작', assignee: '한가람', due: '2026-10-03' }), '송폼 제작(담당 한가람 · 10월 3일(토))');
+  assert.strictEqual(T.subtaskLabel({ title: '송폼 제작', due: '2026-10-03' }), '송폼 제작(10월 3일(토))');
+  assert.strictEqual(T.subtaskLabel({ title: '송폼 제작' }), '송폼 제작', '담당·기한이 없으면 제목만');
+  // 댓글 — 날짜 · 답글 들여쓰기 · 최근 20개
+  const c = (id, day, text, parentId = null) => ({ id, author: '가람', text, timestamp: `2026-09-${String(day).padStart(2, '0')}T03:00:00Z`, parentId });
+  assert.strictEqual(T.commentTimeline([c('a', 23, '첫 댓글'), c('b', 24, '답글', 'a')]),
+    '[9/23(수)] 가람: 첫 댓글\n  ↳ [9/24(목)] 가람: 답글');
+  const many = Array.from({ length: 25 }, (_, i) => c(`m${i}`, 1 + i, `댓글 ${i}`));
+  const tl = T.commentTimeline(many).split('\n');
+  assert.strictEqual(tl[0], '(그 앞 댓글 5개 생략)');
+  assert.strictEqual(tl.length, 21, '생략 줄 + 최근 20개');
+  assert.ok(tl[1].endsWith('댓글 5') && tl[20].endsWith('댓글 24'), '남는 것은 최근 20개');
+  assert.strictEqual(T.commentTimeline([]), '');
+  assert.ok(!T.commentTimeline(many.slice(0, 3)).includes('생략'), '20개 이하는 생략 줄이 없다');
+  // 대시 — 주소 안은 그대로
+  assert.strictEqual(T.plainDashes('준비 — 확인 – 끝'), '준비 - 확인 - 끝');
+  assert.strictEqual(T.plainDashes('[간식_네이버 — 링크](https://x.com/a—b?q=1–2) 끝—'), '[간식_네이버 - 링크](https://x.com/a—b?q=1–2) 끝-');
+  assert.strictEqual(T.plainDashes(null), '');
+  // 요약 모양
+  const ok = '1. **현황** - 콘티가 나왔어요.\n2. **챙길 것** - 송폼을 만들어요.\n3. **다음 단계** - 연습 일정을 잡아요.';
+  assert.ok(T.isSummaryShape(ok) && T.isSummaryShape(`\n${ok}\n`), '3줄 모양');
+  assert.ok(!T.isSummaryShape('1. **현황** - 그대로예요'), '한 줄은 아니다');
+  assert.ok(!T.isSummaryShape(`요약입니다\n${ok}`), '앞에 잡말이 붙으면 아니다');
+  assert.ok(!T.isSummaryShape(ok.replace('**챙길 것**', '**할 일**')), '라벨이 다르면 아니다');
+  // 제미나이 답 — 조각을 잇고, 끝나지 않은 답은 실패
+  const ai = await import(new URL('../api/ai.js', import.meta.url).href);
+  assert.deepStrictEqual(ai.geminiText({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '앞 ' }, { text: '생각', thought: true }, { text: '뒤' }] } }] }), { text: '앞 뒤' });
+  assert.deepStrictEqual(ai.geminiText({ candidates: [{ content: { parts: [{ text: '옛 모양' }] } }] }), { text: '옛 모양' }, '이유가 없으면 받는다');
+  assert.strictEqual(ai.geminiText({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '잘린' }] } }] }).error, 'MAX_TOKENS');
+  assert.deepStrictEqual(ai.geminiText({}), { text: '' });
+  const aiSrc = readFileSync(new URL('../api/ai.js', import.meta.url), 'utf8');
+  assert.ok(/if \(error\) \{[^\n]*res\.status\(502\)/.test(aiSrc), '끝나지 않은 답은 502(클라이언트가 MSG.failed로 보인다)');
+  console.log('PASS  AI 글 조각(aiText — 날짜 주석 · 하위 업무 · 댓글 · 대시 · 요약 모양 · geminiText)');
+}
+
 // ── 뜻 검색 결과를 줄로 (services/vecSearch.js · 사용자 결정 G-a · S-a 2026-09-25) ──────────
 // 화면(상단 검색의 '관련된 업무 내용' · 성경 검색의 AI 실패 대체)은 게스트 모드에서 안 돈다(네트워크 0) —
 // 그래서 모양을 바꾸는 순수 로직은 여기서 본다. **되돌리기**: andParticle의 `% 28 ? '과' : '와'`를
