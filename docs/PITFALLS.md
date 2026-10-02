@@ -586,6 +586,11 @@
     번들 구성을 다시 재려면 소스맵을 켜고 `mappings`를 풀어 소스별 바이트를 더하면 된다 — 실측(2026-09-14): 앱 코드 612 · supabase 195 · react-dom 174 · dnd-kit 40 · lucide 18 kB.
 29-z-18-a. **그 벤더 칸 옵션의 이름은 `codeSplitting`이다**(2026-09-19). 옛 이름 `advancedChunks`는 rolldown이 deprecated로 표시했고 빌드 때 경고가 뜬다 — 그리고 **둘 다 적으면 옛 이름이 무시된다**. 걷어내는 판이 오면 오류 없이 조용히 벤더 칸만 사라지고 첫 화면이 다시 2배가 된다(위 항목). `groups`의 모양은 그대로다. `tests/drivesync`가 목록뿐 아니라 **이름까지** 단정한다 — 목록만 보던 옛 검사는 이름이 바뀌어도 전부 통과했다.
 29-z-19. **맥(사파리·파인더)에서 고른 파일 이름은 NFD다** — 한글이 자모로 풀려 와서 눈에는 같은 이름인데 검색에 안 걸린다. 올릴 때 `cloud.uploadOwnedFile`이 NFC로 맞추고 검색은 양쪽을 NFC로 비교한다(옛 행은 0072). **이름을 비교하는 새 자리도 `normalize('NFC')`를 거친다.**
+29-z-20. **로컬(localhost)에서는 lh3 그림이 형식과 상관없이 섞여서 실패한다** — 구글이 `Referer: http://localhost…`가 실린 lh3 요청에 **429(HTML)** 를 주고 크롬은 그것을 ORB로 끊는다(실측 2026-10-02: localhost Referer 60번 중 50번 429 · 배포 주소 Referer와 Referer 없음은 60/60 200).
+    그래서 dev 서버에서 gif·webp가 '불러오지 못했어요'여도 **배포 버그가 아니다**. 실측(`scripts/attach-live`)은 `LH3_NOREF=1`로 문서의 리퍼러를 끈다.
+29-z-21. **dev 서버 둘이 `node_modules/.vite`를 같이 쓰면 올리던 첨부가 끊긴다** — 워크트리가 node_modules를 이어 붙이면 캐시도 같이 쓰게 되고, 늦게 묶이는 의존성(pdf.js 워커 · 발췌가 처음 부를 때)이 생기면
+    vite가 'optimized dependencies changed. reloading'으로 페이지를 새로 고친다. 2026-10-02 실측에서 그 순간 올리던 다섯 개 중 둘은 드라이브에만 남고(행을 못 만듦) 셋은 아예 안 갔고, 섞인 청크 때문에 편집기가 `localsInner`로 죽었다.
+    배포에는 없는 일이다. 실측은 `scripts/attach-live/vite.isolated.config.mjs`(캐시 자리만 따로)로 띄우고 올리기 전에 그 의존성을 한 번 불러 둔다.
 
 ### 서비스 계층
 
