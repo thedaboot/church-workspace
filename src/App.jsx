@@ -10,7 +10,7 @@ import { TaskModalShell } from './modals/modals.jsx';
 import { ProfileModal, ProjectModal } from './modals/settings.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
-import { caretShift } from './utils.js';
+import { caretShift, topPosition } from './utils.js';
 
 // ── 키보드가 올라와도 커서가 보이게 (2026-09-22 신고) ───────────────────────
 // 폰에서 업무 상세를 고칠 때, 커서가 있는 줄이 **저장·취소 바 뒤로** 들어가 손으로
@@ -477,9 +477,14 @@ function WorkspaceShell() {
   // 시각(updated_at) 대신 상태값을 보는 이유: 되돌리려는 것이 상태이므로 "그 상태가
   // 아직 내가 만든 그대로인가"가 정확히 물어야 할 질문이다(제목만 고친 사람의
   // 변경을 이유로 되돌리기를 막을 필요는 없다).
-  const handleStatusChange = useCallback((t, status) => {
+  // **상태를 바꾸면 그 상태의 맨 위로 간다**(사용자 요청 2026-10-02 — 상태 버튼·모바일 상단 칩으로 옮기면 자리가 뒤죽박죽).
+  // position은 칸 안 순서(0024)라 그대로 두면 옮겨 간 칸에서 옛 번호대로 아무 데나 끼었다. 그 상태 업무 전체의 가장
+  // 작은 값보다 하나 작게 — 프로젝트 보드든 팀·내 업무 보드든 맨 위다. 상태와 한 저장(patch 하나)으로 나간다.
+  // `keepPosition` — 카드를 직접 끌어 놓은 자리(보드 ⓪①·컬럼 빈 자리)는 보드가 순서를 따로 매기므로 건드리지 않는다.
+  const handleStatusChange = useCallback((t, status, { keepPosition = false } = {}) => {
     const prev = t.status;
-    saveTask({ ...t, status }, t);
+    const top = keepPosition || prev === status ? null : topPosition(Object.values(store.getState().tasks.byId), status, t.id);
+    saveTask({ ...t, status, ...(top === null ? {} : { position: top }) }, t);
     if (prev === status) return;
     showToast(`'${t.title}'을 ${status}로 옮겼어요`, {
       label: '되돌리기',

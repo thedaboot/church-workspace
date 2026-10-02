@@ -953,3 +953,15 @@ export function teamChips(members, tasks, teamName) {
     : [...left.entries()].map(([name, n]) => ({ name, left: n }));
   return list.sort((a, b) => b.left - a.left || a.name.localeCompare(b.name, 'ko'));
 }
+
+// 그 상태 맨 위에 설 position — 그 상태 업무들 가운데 가장 작은 값 - 1(자기 자신은 뺀다 · 없으면 0).
+// App.handleStatusChange가 상태 버튼·상단 칩으로 옮길 때 쓴다(2026-10-02).
+export function topPosition(tasks, status, selfId = null) {
+  let min = null;
+  for (const t of tasks || []) {
+    if (!t || t.id === selfId || t.status !== status) continue;
+    const p = Number(t.position ?? 0);
+    if (min === null || p < min) min = p;
+  }
+  return (min === null ? 1 : min) - 1;
+}

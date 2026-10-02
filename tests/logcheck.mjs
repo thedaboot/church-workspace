@@ -4635,7 +4635,16 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/ongoing = false \} = \{\}\) \{\s*return BUCKETS\.filter\(b => ongoing \|\| b\.key !== 'ongoing'\)/.test(parts), '목록은 기본으로 상시 구간을 뺀다');
   assert.ok(/ongoing: statusFilter\.includes\(CONFIG\.STATUS_ONGOING\)/.test(views) && (views.match(/groupByDue\([^)]*ongoing/g) || []).length === 1, "상시 구간은 내 업무의 '상시' 칩에서만");
   assert.ok(/const isLate = \(task\) => isOverdue\(/.test(boards), '보드 카드의 빨간 마감도 isOverdue 하나');
-  assert.ok(/raw === ONGOING_DROP/.test(boards) && /onStatusChange\(task, ONGOING\)/.test(boards), '상시 줄에 놓으면 상시가 된다');
+  assert.ok(/raw === ONGOING_DROP/.test(boards) && /onStatusChange\(task, ONGOING(, \{ keepPosition: true \})?\)/.test(boards), '상시 줄에 놓으면 상시가 된다');
+  // 상태 버튼·상단 칩으로 옮기면 그 상태 맨 위(2026-10-02) — 직접 끌어 놓은 자리(⓪①·컬럼 빈 자리)는 보드가 순서를 매긴다
+  const { topPosition } = await import(new URL('../src/utils.js', import.meta.url).href);
+  const TP = [{ id: 'a', status: '진행 중', position: 3 }, { id: 'b', status: '진행 중', position: -2 }, { id: 'c', status: '완료', position: -9 }];
+  assert.strictEqual(topPosition(TP, '진행 중', 'x'), -3, '그 상태의 가장 작은 값보다 하나 작다(다른 상태는 안 본다)');
+  assert.strictEqual(topPosition(TP, '진행 중', 'b'), 2, '자기 자신은 빼고 센다');
+  assert.strictEqual(topPosition(TP, '보류 중'), 0, '빈 상태면 0');
+  const appSrc = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.ok(/topPosition\(Object\.values\(store\.getState\(\)\.tasks\.byId\), status, t\.id\)/.test(appSrc), '상태 바꾸기가 맨 위 position을 같이 싣는다');
+  assert.ok(/if \(isChip\) \{ onStatusChange\(task, target\); return; \}/.test(boards), '상단 칩은 맨 아래로 다시 매기지 않는다(상태 바꾸기의 맨 위를 덮는다)');
   assert.ok(/ongoing\.length > 0 && <OngoingRow/.test(boards), '상시가 0건이면 줄이 서지 않는다');
   assert.ok(/s === CONFIG\.STATUS_ONGOING\s*\?\s*\{ \.\.\.prev, status: s, startDate: '', dueDate: '' \}/.test(modals), '업무 창에서 상시를 고르는 순간 날짜를 비운다');
   // 속성 칸은 새 업무 폼과 업무 창이 한 벌(TaskProps · data)이다(2026-09-28)

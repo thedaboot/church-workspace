@@ -284,6 +284,37 @@ if (col.found) {
   }
 }
 
+// ── 상태 버튼으로 옮기면 그 컬럼 **맨 위**(사용자 요청 2026-10-02 — 옛 순서 번호대로 아무 데나 끼었다) ──
+// 시작 전의 두 장을 차례로 '진행 중'으로 옮긴다 — 나중에 옮긴 것이 위다. 순서는 보드 정렬 그대로(position)
+// 저장 값으로 본다. 되돌리기: App.handleStatusChange에서 topPosition을 빼면 깨진다.
+{
+  const order = (st) => ev(`(() => {
+    const s = JSON.parse(localStorage.getItem('church_app_v4'));
+    return Object.values(s.tasks.byId).filter(t => t.projectId === 'p1' && t.status === ${JSON.stringify(st)})
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map(t => t.title);
+  })()`);
+  const moveVia = async (title, to) => {
+    await reload();
+    await ev(`(() => {
+      const card = [...document.querySelectorAll('.board-card')].find(c => c.querySelector('span[class*="text-sm"]')?.textContent.trim() === ${JSON.stringify(title)});
+      card.querySelector('button[title="상태 옮기기"]').click();
+    })()`);
+    await sleep(300);
+    await ev(`(() => { [...document.querySelectorAll('.dc-pop button')].find(b => b.textContent.trim().startsWith(${JSON.stringify(to)})).click(); })()`);
+    await sleep(900);
+  };
+  const start = await order('시작 전');
+  if (start.length >= 2) {
+    const [x, y] = start.slice(-2);
+    await moveVia(x, '진행 중');
+    await moveVia(y, '진행 중');
+    const col = await order('진행 중');
+    check('상태 버튼으로 옮기면 그 컬럼 맨 위에 선다', col[0] === y && col.indexOf(x) > 0, `${x} → ${y} 순으로 옮김 · ${JSON.stringify(col)}`);
+  } else {
+    check('상태 버튼 검사에 쓸 시작 전 카드가 둘 이상 있다', false, JSON.stringify(start));
+  }
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

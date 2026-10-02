@@ -413,7 +413,7 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
     // ⓪ 상시 줄의 빈 자리에 놓았다 → 상시로, 줄 맨 끝에. 칩 위에 놓은 것은 ①이 받는다
     //    (칩도 'card:' 대상 — 줄 안 순서 바꾸기).
     if (raw === ONGOING_DROP) {
-      if (task.status !== ONGOING) onStatusChange(task, ONGOING);
+      if (task.status !== ONGOING) onStatusChange(task, ONGOING, { keepPosition: true });
       const row = (byStatus[ONGOING] || []).filter(t => t.id !== task.id);
       row.push(task);
       onReorder?.(row.map((t, i) => ({ id: t.id, position: i + 1 })));
@@ -438,20 +438,23 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
       // 아래로 끌 때 나를 뺀 만큼 자리가 당겨져 제자리로 돌아온다(테스트가 잡았다).
       if (fromIdx > -1 && fromIdx < overIdx) at += 1;
       col.splice(at, 0, task);
-      if (task.status !== destStatus) onStatusChange(task, destStatus);
+      if (task.status !== destStatus) onStatusChange(task, destStatus, { keepPosition: true });
       onReorder?.(col.map((t, i) => ({ id: t.id, position: i + 1 })));
       return;
     }
 
-    // ② 컬럼('시작 전') 또는 모바일 상태 칩('chip:시작 전')에 놓았다 → 맨 아래로.
-    //    상태 칩은 **상태를 바꾸는 자리**라 같은 상태면 아무 일도 하지 않는다.
+    // ② 컬럼('시작 전') 또는 모바일 상태 칩('chip:시작 전')에 놓았다.
+    //    상태 칩은 **상태를 바꾸는 자리**라 같은 상태면 아무 일도 하지 않고, 바꾸면 그 상태 **맨 위**다
+    //    (사용자 요청 2026-10-02 — 상태 버튼과 같은 길 · App.handleStatusChange가 position을 정한다).
+    //    컬럼 빈 자리는 손으로 놓은 것이라 맨 아래다.
     //    컬럼의 빈 자리(마지막 카드 아래)는 다르다 — 같은 컬럼이어도 맨 밑으로
     //    보내는 뜻이다. 예전에는 여기서 그냥 돌아가서 **맨 밑으로 못 옮겼다**
     //    (사용자 지적).
     const isChip = raw.startsWith('chip:');
     const target = isChip ? raw.slice(5) : raw;
     if (isChip && task.status === target) return;
-    if (task.status !== target) onStatusChange(task, target);
+    if (isChip) { onStatusChange(task, target); return; }
+    if (task.status !== target) onStatusChange(task, target, { keepPosition: true });
     const col = (byStatus[target] || []).filter(t => t.id !== task.id);
     col.push(task);
     onReorder?.(col.map((t, i) => ({ id: t.id, position: i + 1 })));
