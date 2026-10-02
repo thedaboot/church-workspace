@@ -17,6 +17,13 @@ export const BODY_MAX_DIM = 1600;
 // 첨부: 원본에 가까운 쪽. 2560px면 레티나 화면에도 충분하고 확대해서 볼 수도 있다.
 export const FILE_MAX_DIM = 2560;
 
+// RGBA 화소 배열에 투명(알파 < 255)이 있나 — `step`화소마다 하나씩 본다(2560px 그림도 한순간이다).
+// ponytail: 듬성듬성 본다 — 한 화소짜리 투명은 놓칠 수 있다. 그러면 예전처럼 JPEG로 간다(검은 점 하나).
+export function hasTransparency(data, step = 4) {
+  for (let i = 3; i < (data?.length || 0); i += 4 * step) if (data[i] < 255) return true;
+  return false;
+}
+
 export async function downscaleImage(file, maxDim = BODY_MAX_DIM, quality = 0.82) {
   if (!(file?.type || '').startsWith('image/') || file.type === 'image/gif') return file;
   try {
@@ -28,13 +35,19 @@ export async function downscaleImage(file, maxDim = BODY_MAX_DIM, quality = 0.82
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(bmp.width * scale);
     canvas.height = Math.round(bmp.height * scale);
-    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
     bmp.close?.();
-    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality));
+    // **투명한 그림은 PNG 그대로 줄인다**(첨부 점검 2026-10-02) — JPEG에는 투명이 없어 비친 자리가 검게 칠해졌다.
+    // 투명할 수 있는 종류(png·webp)만 화소를 훑는다 — 사진(jpeg)은 볼 것이 없다.
+    const alpha = (file.type === 'image/png' || file.type === 'image/webp')
+      && hasTransparency(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
+    const type = alpha ? 'image/png' : 'image/jpeg';
+    const blob = await new Promise(r => canvas.toBlob(r, type, quality));
     // 줄였는데 더 커지는 경우가 있다(작은 png 등) — 그러면 원본이 맞다
     if (!blob || blob.size >= file.size) return file;
-    return new File([blob], `${(file.name || 'image').replace(/\.[^.]+$/, '')}.jpg`,
-      { type: 'image/jpeg', lastModified: file.lastModified });
+    return new File([blob], `${(file.name || 'image').replace(/\.[^.]+$/, '')}.${alpha ? 'png' : 'jpg'}`,
+      { type, lastModified: file.lastModified });
   } catch {
     return file;
   }

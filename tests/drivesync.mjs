@@ -873,7 +873,7 @@ check('승인 확인이 합친 계정을 따라간다(두 경로가 같은 헬�
     // 아이폰 사파리가 iframe 안 구글 쿠키를 분할해서, 계정 목록은 읽히는데 문서를 열
     // 자격은 안 와 '액세스 권한 필요'가 떴다(읽기 화면조차 아니다). 보기 주소는
     // 로그인을 안 쓰므로 늘 뜨고, 폰에서 고치는 길은 위 새 탭 버튼 하나다.
-    assert.match(branch, /canEditCopy && !isMobile && copyEditUrl\(cur, \{ email: myEmail \}\)/,
+    assert.match(branch, /canEditCopy && (inlineEdit && )?!isMobile && copyEditUrl\(cur, \{ email: myEmail \}\)/,
       '폰에서도 편집 주소를 싣는다 — 아이폰 사파리에서 첨부가 통째로 안 열린다');
   });
 

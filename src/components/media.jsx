@@ -52,7 +52,7 @@ export function SmartImage({ src, alt = '', className = '', style = undefined, w
         </span>
       )}
       {src && (
-        <img
+        <img referrerPolicy="no-referrer"
           src={src} alt={alt} title={title} onClick={onClick} style={style}
           /* 브라우저의 '이미지 끌어놓기'를 끊는다 — 시작되면 그 손짓 동안 mouseup·click이
              통째로 사라져서 **버튼이 죽은 것처럼 보인다**(usePanDrag 머리말 · §6-29-z-16).

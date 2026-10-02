@@ -5403,6 +5403,35 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  바뀐 칸만 저장 · 하위 업무 줄 단위 병합 · 팀만 바꾼 저장');
 }
 
+// ── 첨부 점검 뒤 넷 (2026-10-02 사용자 결정) ────────────────────────────────────────
+// ① 지난 주보 큐시트는 앱 안 창을 보기로(inlineEdit) ② 가이드 요지는 편집 사본에서 다시 ③ 투명 PNG는 PNG로 줄인다
+// ④ 드라이브 그림(lh3)에 no-referrer. 되돌리기: worshipDetail의 `< kstToday()`를 지우면 ①, sunGuide의 as: 'docx'를
+// 지우면 ②, hasTransparency의 `< 255`를 `< 0`으로 바꾸면 ③이 깨진다.
+{
+  const fpm = readFileSync(new URL('../src/components/FilePreviewModal.jsx', import.meta.url), 'utf8');
+  const wdet = readFileSync(new URL('../src/components/worshipDetail.jsx', import.meta.url), 'utf8');
+  assert.ok(/canEditCopy && inlineEdit && !isMobile && copyEditUrl/.test(fpm), '앱 안 편집 화면은 inlineEdit일 때만');
+  assert.ok(/inlineEdit=\{[^}]*service\.service_date < kstToday\(\)/.test(wdet), '지난 주보 큐시트는 inlineEdit이 꺼진다');
+  const sg = readFileSync(new URL('../src/services/sunGuide.js', import.meta.url), 'utf8');
+  const dig = sg.slice(sg.indexOf('export async function fetchCueDigest'));
+  assert.ok(/fetchDriveFileBlob\(row\.preview_file_id, \{ as: 'docx' \}\)/.test(dig) && /kind: 'cuesheet'/.test(dig), '요지는 사본을 docx로 받아 큐시트 갈래로 뽑는다');
+  assert.ok(/return str\(row\.text_excerpt\);\s*\}/.test(dig), '실패하면 저장된 요지로 떨어진다');
+  const img = readFileSync(new URL('../src/services/image.js', import.meta.url), 'utf8');
+  const dirI = mkdtempSync(join(tmpdir(), 'img-'));
+  const fI = join(dirI, 'image.mjs');
+  writeFileSync(fI, img);
+  const { hasTransparency } = await import(pathToFileURL(fI).href);
+  const px = (a) => new Uint8ClampedArray(Array.from({ length: 64 }, (_, i) => [10, 20, 30, a(i)]).flat());
+  assert.strictEqual(hasTransparency(px(() => 255)), false, '불투명 그림은 JPEG로 간다');
+  assert.strictEqual(hasTransparency(px(i => (i === 8 ? 0 : 255))), true, '투명 화소가 있으면 PNG로 간다');
+  assert.ok(/alpha \? 'image\/png' : 'image\/jpeg'/.test(img), '투명이면 PNG로 굽는다');
+  for (const f of ['DocEmbed.jsx', 'FilePreviewModal.jsx', 'media.jsx', 'worshipCover.jsx', 'worshipDetail.jsx']) {
+    const t = readFileSync(new URL(`../src/components/${f}`, import.meta.url), 'utf8');
+    assert.ok(/<img referrerPolicy="no-referrer"/.test(t), `${f}의 드라이브 그림에 no-referrer가 없다(localhost Referer는 429 · PITFALLS 29-z-20)`);
+  }
+  console.log('PASS  첨부 점검 뒤 넷(보기 창 · 사본 요지 · 투명 PNG · no-referrer)');
+}
+
 // ── 내 달력 구독 (0085 · services/calendarFeed.js · api/ics.js · 2026-09-28) ─────────────
 // 프로젝트 달력에서 고른 업무 → 폰·구글 달력 구독 주소(`/cal/<feed>/<서명>.ics`). 화면과 서버가 같은 순수
 // 모듈을 본다 — 설명 문장 · 날짜 글자 · 하루 종일 일정(끝은 다음 날) · 이스케이프·75옥텟 접기·CRLF ·

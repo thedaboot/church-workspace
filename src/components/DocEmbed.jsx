@@ -170,7 +170,7 @@ export function DocEmbedModal({ url, title = '', onClose }) {
               {!thumbFailed && thumb && (
                 <button type="button" onClick={() => window.open(url, '_blank', 'noreferrer')} aria-label={title || label}
                   className="w-full max-w-[42rem] aspect-video rounded-md border border-line bg-white overflow-hidden transition active:scale-[0.99]">
-                  <img
+                  <img referrerPolicy="no-referrer"
                     src={thumb} alt="" draggable={false} loading="eager"
                     onError={() => setThumbFailed(true)}
                     className="w-full h-full object-contain"

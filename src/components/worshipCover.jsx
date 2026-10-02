@@ -27,7 +27,7 @@ export function CoverImg({ cover, focus = 0.5, onFail, className = '' }) {
   const [bad, setBad] = useState(null);
   if (!img || bad === img.src) return null;
   return (
-    <img className={`cover-img ${className}`} alt="" aria-hidden="true" decoding="async" draggable={false}
+    <img referrerPolicy="no-referrer" className={`cover-img ${className}`} alt="" aria-hidden="true" decoding="async" draggable={false}
       src={img.src} srcSet={img.srcSet} style={{ objectPosition: coverPosition(focus) }}
       onError={() => { setBad(img.src); onFail?.(); }} />
   );
@@ -121,7 +121,7 @@ export function CoverDialog({ src, focus = 0.5, title = '', dateLabel = '', kind
             className="worship-cover-stage relative mx-auto rounded-lg overflow-hidden select-none cursor-grab active:cursor-grabbing outline-none focus-visible:ring-2 focus-visible:ring-accent"
             style={{ width: box.w || '100%', height: box.h || 200, touchAction: 'none', background: '#223' }}
             onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onKeyDown={onKey}>
-            <img src={src} alt="" draggable={false} className="absolute inset-0 w-full h-full block pointer-events-none"
+            <img referrerPolicy="no-referrer" src={src} alt="" draggable={false} className="absolute inset-0 w-full h-full block pointer-events-none"
               onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth || 4, h: e.currentTarget.naturalHeight || 3 })} />
             {box.h > 0 && (
               <>

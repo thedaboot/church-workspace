@@ -338,16 +338,34 @@ const SAMPLE_GUIDE = {
   questionNote: '고단한 한 주를 보낸 순원이 있다면 다같이 카페에 가서 달달한 것 먹기!',
 };
 
-// 그 주보의 큐시트 요지 한 칸(가장 최근에 올린 큐시트). 가이드 패널은 주보 행만 들고 있어서
-// 여기서 한 번 읽는다 — 가벼운 한 줄 조회이고, 드라이브에서 문서를 받지 않는다. 게스트·없음은 빈 글.
+// 그 주보의 큐시트 요지 한 칸(가장 최근에 올린 큐시트). 가이드 패널은 주보 행만 들고 있어서 여기서 한 번 읽는다.
+// **구글 편집 사본이 있으면 사본에서 다시 뽑는다**(사용자 결정 2026-10-02) — 사람들은 사본을 고치는데 요지(files.text_excerpt)는
+// 올리던 순간의 원본에서 뽑은 것이라, 구글에서 고친 큐시트가 가이드에 안 들어갔다. 사본을 .docx로 받아(api/drive-file ?as=docx)
+// 올릴 때와 같은 함수(fileText.extractFileText · cuesheet)로 뽑고, 달라졌으면 그 칸도 고쳐 둔다(쓸 자격이 없으면 조용히 넘어간다).
+// 받기·뽑기가 실패하면 저장된 요지 그대로다. 게스트·없음은 빈 글.
 export async function fetchCueDigest(serviceId) {
   if (!supabase || !serviceId) return '';
   const { data, error } = await supabase.from('files')
-    .select('text_excerpt').eq('service_id', serviceId).eq('kind', 'cuesheet')
-    .not('text_excerpt', 'is', null)
+    .select('id, name, text_excerpt, preview_file_id').eq('service_id', serviceId).eq('kind', 'cuesheet')
     .order('created_at', { ascending: false }).limit(1);
   if (error) throw error;
-  return str(data?.[0]?.text_excerpt);
+  const row = data?.[0];
+  if (!row) return '';
+  if (row.preview_file_id) {
+    try {
+      const [{ fetchDriveFileBlob, setFileExcerpt }, { extractFileText }] = await Promise.all([import('./cloud.js'), import('./fileText.js')]);
+      const blob = await fetchDriveFileBlob(row.preview_file_id, { as: 'docx' });
+      const name = `${String(row.name || '큐시트').replace(/\.[^.]+$/, '')}.docx`;
+      const fresh = str(await extractFileText(new File([blob], name, { type: blob.type }), { kind: 'cuesheet' }));
+      if (fresh) {
+        if (fresh !== str(row.text_excerpt)) setFileExcerpt(row.id, fresh).catch(() => {});
+        return fresh;
+      }
+    } catch (e) {
+      console.warn('[sunGuide] 큐시트 사본에서 요지를 다시 뽑지 못했어요 — 저장된 요지를 쓴다:', e?.message || e);
+    }
+  }
+  return str(row.text_excerpt);
 }
 
 // 주보 한 건으로 초안 만들기. 실패(게스트·로그인 없음·모양 깨짐)는 **null**이다.

@@ -227,7 +227,7 @@ function PaperText({ text }) {
           // 안 그러면 foreignObject 안에서 그 자리가 통째로 빈다.
           case 'img':
             return (
-              <img key={b.key} className="paper-photo block" src={b.src} alt="" decoding="async"
+              <img referrerPolicy="no-referrer" key={b.key} className="paper-photo block" src={b.src} alt="" decoding="async"
                 style={{
                   width: '100%', maxHeight: PHOTO_MAX_H, objectFit: 'contain',
                   borderRadius: 12, border: `1px solid ${PAPER.line}`, margin: '6px 0',

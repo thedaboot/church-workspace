@@ -128,7 +128,10 @@ const imgSrcOf = (r) => (r?.source === 'local'
 // `onGrantEdit` — 누른 그 자리에서 편집자를 붙여야 하는 갈래(업무 첨부)만 넘긴다.
 // 큐시트 사본은 만들 때 이미 두 계정이 붙어 있어(Apps Script `CUE_EDITORS`) 넘기지 않고,
 // 그래서 이 앵커의 기본 동작(새 탭)으로 바로 간다 — 스크립트 판이 낮아도 그 길은 산다.
-export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose, canEditCopy = false, onGrantEdit = null }) {
+// `inlineEdit` — 앱 안 창(데스크톱)을 곧 편집 화면으로 열지(기본 = canEditCopy). **지난 주보의 큐시트는 false**다
+// (사용자 결정 2026-10-02 · 9/20 큐시트를 보다가 그 자리에서 10/04 것으로 고쳐 쓴 일) — 보기 화면으로 열고,
+// 고치는 길은 머리줄의 편집 버튼(새 탭) 하나다.
+export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose, canEditCopy = false, onGrantEdit = null, inlineEdit = canEditCopy }) {
   const isMobile = useIsMobile();
   // 구글 문서 주소의 `authuser=`에 실을 내 로그인 이메일(§6-34-h). 게스트는 빈 문자열.
   const myEmail = useMyEmail();
@@ -848,7 +851,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
           {/* 16:9 종이 — `gdoc` 틀과 같은 테두리·모서리·흰 바탕이다(구글 그림은 밝다). */}
           <button type="button" onClick={openCopy} aria-label={cur.name}
             className="w-full max-w-[42rem] aspect-video rounded-md border border-line bg-white overflow-hidden transition active:scale-[0.99]">
-            <img
+            <img referrerPolicy="no-referrer"
               src={thumb} alt="" draggable={false} loading="eager"
               onError={() => setThumbFailed(true)}
               className="w-full h-full object-contain"
@@ -876,7 +879,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
       // 크롬에서는 편집까지 된다(사용자 확인). 즉 관리자에게만, 폰에서만 나던 길이다.
       // 보기 주소(`previewCopyUrl`)는 로그인을 아예 쓰지 않아 여기서 늘 뜬다.
       // 폰에서 고치는 길은 머리줄의 '구글 문서에서 편집'(새 탭 = 1차 쿠키) 하나다.
-      const src = (canEditCopy && !isMobile && copyEditUrl(cur, { email: myEmail })) || previewCopyUrl(cur);
+      const src = (canEditCopy && inlineEdit && !isMobile && copyEditUrl(cur, { email: myEmail })) || previewCopyUrl(cur);
       // 종류 판정이 사본을 확인하고 왔으므로 여기서 src가 빌 일은 없다. 그래도 빈 iframe을
       // 띄우느니 새 탭을 내주는 쪽이 정직하다(스켈레톤만 남으면 영영 안 걷힌다).
       if (!src) return <Fallback row={cur} message="미리보기를 준비하지 못했어요." onOpen={openExternal} />;

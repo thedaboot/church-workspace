@@ -3,6 +3,7 @@ import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, Clipboar
   ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText, X,
   Share2, CalendarPlus, GalleryHorizontalEnd, NotebookPen, ImagePlus, MoveVertical, Link2, FilePen } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { kstToday } from '../services/word.js';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
 import { ConfirmPopover, useAnchoredPos } from './ConfirmPopover.jsx';
@@ -440,7 +441,7 @@ function SongThumb({ link, big = false }) {
     <span className={`worship-song-thumbbox ${box} shrink-0 relative inline-block overflow-hidden rounded-sm`}
       style={{ background: 'var(--app-surface-hover)' }}>
       {!loaded && <span className="worship-song-thumb-skeleton absolute inset-0 dc-skeleton rounded-sm" />}
-      <img ref={imgRef} src={src} alt="" loading="lazy" draggable={false}
+      <img referrerPolicy="no-referrer" ref={imgRef} src={src} alt="" loading="lazy" draggable={false}
         onLoad={() => setLoaded(true)} onError={() => setFailed(true)}
         className={`worship-song-thumb w-full h-full rounded-sm object-cover transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`} />
     </span>
@@ -1957,7 +1958,9 @@ export function ServiceDetail({
           rows={fileKindOf(preview) === CUESHEET ? cueFiles : songForms}
           /* 큐시트 사본만, 교역자·마스터만 편집 화면으로 연다(사용자 결정 2026-09-09).
              송폼·업무 첨부는 그대로 보기다(§7) */
-          canEditCopy={fileKindOf(preview) === CUESHEET && !!perms.canEditCue} />
+          canEditCopy={fileKindOf(preview) === CUESHEET && !!perms.canEditCue}
+          /* 지난 주보(예배 날짜가 오늘(KST) 앞)의 큐시트는 앱 안 창을 보기로 연다 — 편집은 머리줄 버튼으로만(2026-10-02) */
+          inlineEdit={fileKindOf(preview) === CUESHEET && !!perms.canEditCue && !(service?.service_date && service.service_date < kstToday())} />
         </Suspense>
       )}
 
