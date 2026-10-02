@@ -590,11 +590,12 @@ export const driveImageFullUrl = (fileId, size = 1600) =>
 
 // 드라이브 파일 바이트 — PDF를 앱 안 pdf.js로 그릴 때 쓴다(/api/drive-file 주석).
 // 브라우저는 drive.google.com에 CORS로 막히므로 서버가 얇게 중계한다.
-export async function fetchDriveFileBlob(fileId) {
+// `as: 'docx'` — 구글 문서를 .docx로 내보내 받는다(api/drive-file.js의 그 갈래)
+export async function fetchDriveFileBlob(fileId, { as = null } = {}) {
   const { session } = await getSession();
   const token = session?.access_token;
   if (!token) throw new Error('로그인이 필요합니다.');
-  const r = await fetch(`/api/drive-file?id=${encodeURIComponent(fileId)}`, {
+  const r = await fetch(`/api/drive-file?id=${encodeURIComponent(fileId)}${as === 'docx' ? '&as=docx' : ''}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!r.ok) {
@@ -727,10 +728,11 @@ async function uploadViaStorage(file, { prefix, key, folderHint, name = file.nam
 // 실어 보내는 version으로 가른다(v7 이하에는 그 칸이 없다 → 0으로 읽힌다).
 // 엑셀은 v7도 제대로 만들므로 버전을 안 따진다.
 function attachPreviewCopy(row, { fileId, name, folderId, kind, version, cueEditors = false }) {
-  if (!kind || !fileId) return;
-  if (kind !== 'spreadsheet' && Number(version || 0) < 8) return;
-  // **await 하지 않는다.** 첨부는 이미 목록에 서 있고, 사본은 늦게 붙어도 된다.
-  (async () => {
+  if (!kind || !fileId) return null;
+  if (kind !== 'spreadsheet' && Number(version || 0) < 8) return null;
+  // **보통은 await 하지 않는다.** 첨부는 이미 목록에 서 있고, 사본은 늦게 붙어도 된다.
+  // 약속은 돌려준다 — `지난 큐시트로 바로 편집`은 사본이 서야 편집 화면을 열 수 있다(uploadOwnedFile awaitCopy).
+  return (async () => {
     try {
       // name·folderId를 같이 보내면 스크립트가 파일을 다시 묻지 않는다(왕복 한 번 절약).
       //
@@ -787,7 +789,7 @@ export async function grantCopyEditors(row, emails = []) {
 // 행을 못 만들면 올린 파일 되돌리기 — 는 **두 갈래가 똑같아야 하는 것들**이라 여기
 // 한 벌로 둔다. 두 벌로 두면 고칠 때마다 한쪽만 고쳐진다(§6-29 머리말의 그 함정).
 // ============================================================================
-async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder }) {
+async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder, awaitCopy = false }) {
   // 이름은 **NFC로 한 번 맞춘 것**을 이 흐름 전체가 쓴다. 맥(사파리·파인더)에서 고른 파일은
   // 한글이 자모로 풀린 NFD로 오는데, 그대로 저장하면 같은 글자를 쳐도 검색에 안 걸리고
   // 드라이브에서도 이름이 다른 파일로 보인다(라이브 15행 · 2026-09-24 · 0072가 옛 행을 맞춘다).
@@ -855,11 +857,12 @@ async function uploadOwnedFile(file, { folderHint, owner, prefix, rememberFolder
   // 미리보기 사본은 **여기서 기다리지 않는다**(위 attachPreviewCopy 머리말).
   // 행이 이미 있으므로 사본 id는 몇 초 뒤 UPDATE로 따라 붙는다.
   if (up && !row.preview_file_id) {
-    attachPreviewCopy(row, {
+    const copying = attachPreviewCopy(row, {
       fileId: up.id, name, folderId: up.folderId,
       kind: copyKind, version: up.version,
       cueEditors: row.kind === 'cuesheet',
     });
+    if (awaitCopy && copying) await copying;   // 실패해도 던지지 않는다(attachPreviewCopy가 삼킨다) — 행은 그대로 선다
   }
 
   // 부르는 쪽(병렬 업로드)이 나머지 파일을 이 폴더 id로 바로 넣을 수 있게 실어 보낸다
@@ -917,7 +920,7 @@ export async function ensureServiceFolder(service) {
 // `kind`를 안 주면 'songform'이다 — 0047부터 이 함수를 부른 자리가 전부 송폼이었고,
 // 0054가 옛 행을 그 값으로 백필했다. null로 두면 업무 첨부(card_id)와 구분이 없어진다.
 export const SERVICE_FILE_KINDS = ['songform', 'cuesheet', 'cover'];   // cover = 표지 사진(0081)
-export async function uploadServiceFile(file, { serviceId, serviceDate, serviceFolderId, kind = 'songform' }) {
+export async function uploadServiceFile(file, { serviceId, serviceDate, serviceFolderId, kind = 'songform', awaitCopy = false }) {
   const folderHint = serviceFolderId
     ? { folderId: serviceFolderId }
     : { path: serviceFolderPath(serviceDate) };
@@ -926,6 +929,7 @@ export async function uploadServiceFile(file, { serviceId, serviceDate, serviceF
     owner: { service_id: serviceId, kind: SERVICE_FILE_KINDS.includes(kind) ? kind : 'songform' },
     prefix: `services/${serviceId}`,
     rememberFolder: serviceFolderId ? null : (folderId) => setServiceFolder(serviceId, folderId),
+    awaitCopy,
   });
 }
 

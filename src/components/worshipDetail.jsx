@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, ChevronUp, ChevronDown, ExternalLink, ClipboardCheck,
   ListMusic, PencilLine, Music, Loader2, Paperclip, UploadCloud, Eye, FileText, X,
-  Share2, CalendarPlus, GalleryHorizontalEnd, NotebookPen, ImagePlus, MoveVertical, Link2 } from 'lucide-react';
+  Share2, CalendarPlus, GalleryHorizontalEnd, NotebookPen, ImagePlus, MoveVertical, Link2, FilePen } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { Avatar } from './Avatar.jsx';
@@ -16,7 +16,7 @@ import { objectParticle, failText } from '../services/errorText.js';
 import { showToast } from './Toast.jsx';
 import { BTN, BTN_QUIET, WITH_ICON, FIELD, FailTail, NoteMark } from './groupsParts.jsx';
 import { kindLabel, formatServiceDate, attendanceVisible, youtubeThumb, youtubeListId, youtubePlaylistUrl, PRAISE_TEAM,
-  filesOfKind, fileKindOf, servicePaperName, SONGFORM, CUESHEET, songKey, weeksAgoOf } from '../services/worship.js';
+  filesOfKind, fileKindOf, servicePaperName, SONGFORM, CUESHEET, songKey, weeksAgoOf, fetchLastCuesheet } from '../services/worship.js';
 import { honorificsOf } from '../services/people.js';
 import { worshipNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
   ensureNoteSections, WORSHIP_SECTIONS, noteDraftKey, hasDraft, NOTE_DRAFT_DELAY } from '../services/noteTemplate.js';
@@ -300,8 +300,16 @@ function CueSheetView({ cue, files = [], onOpen }) {
 // 남아 어긋나 보였다. 좁으면 둘 다 한 열로 쌓인다.
 //
 // 파일 줄은 송폼과 **같은 부품**이다(ServiceFiles) — 라벨·클래스·받는 확장자만 다르다.
-function CueSheetEdit({ value, onChange, files = [], canEdit, onPick, onOpen, onRemove }) {
+// `lastCue`·`onCopyLast` — **지난 큐시트로 바로 편집**(사용자 요청 2026-10-02 · 문구도 사용자 것). 이 주보에 큐시트
+// 파일이 없고 지난 주보에 있을 때만 선다(worship.fetchLastCuesheet · 큐시트 편집 자격자만 — 부르는 쪽이 거른다).
+function CueSheetEdit({ value, onChange, files = [], canEdit, onPick, onOpen, onRemove, lastCue = null, onCopyLast = null }) {
   const cur = value || {};
+  const [copying, setCopying] = useState(false);
+  const copyLast = async () => {
+    if (copying) return;
+    setCopying(true);
+    try { await onCopyLast(lastCue); } finally { setCopying(false); }
+  };
   const [url, setUrl] = useState(cur.url || '');
   const bad = !!url.trim() && !docEmbedKind(url.trim());
 
@@ -330,7 +338,14 @@ function CueSheetEdit({ value, onChange, files = [], canEdit, onPick, onOpen, on
       </div>
       <ServiceFiles files={files} canEdit={canEdit} onPick={onPick} onOpen={onOpen} onRemove={onRemove}
         label="파일" what="큐시트 파일" cls="worship-cue-file" sectionCls="worship-cue-files"
-        accept={CUE_ACCEPT} topLine={false} />
+        accept={CUE_ACCEPT} topLine={false}
+        extra={lastCue && onCopyLast && !files.length ? (
+          <button type="button" onClick={copyLast} disabled={copying}
+            title={lastCue.file?.name || ''}
+            className={`worship-cue-copy-last shrink-0 ${WITH_ICON} ${BTN}`}>
+            {copying ? <Loader2 size={13} className="animate-spin" /> : <FilePen size={13} />}<span>지난 큐시트로 바로 편집</span>
+          </button>
+        ) : null} />
     </div>
   );
 }
@@ -555,7 +570,7 @@ function ServiceFileRow({ row, cls = 'worship-songform', what = '송폼', canDel
 
 function ServiceFiles({ files = [], canEdit, onPick, onOpen, onRemove,
   label = '송폼', what = '송폼', cls = 'worship-songform', sectionCls = 'worship-songforms',
-  accept, topLine = true }) {
+  accept, topLine = true, extra = null }) {
   const inputRef = useRef(null);
   if (!canEdit && !files.length) return null;
   return (
@@ -571,6 +586,7 @@ function ServiceFiles({ files = [], canEdit, onPick, onOpen, onRemove,
             <input ref={inputRef} type="file" multiple className="hidden" tabIndex={-1} aria-hidden="true"
               {...(accept ? { accept } : {})}
               onChange={e => { onPick(e.target.files); e.target.value = ''; }} />
+            {extra}
             <button type="button" onClick={() => inputRef.current?.click()}
               className={`${cls}-add shrink-0 ${WITH_ICON} ${BTN}`}>
               <UploadCloud size={13} /><span>파일 올리기</span>
@@ -710,7 +726,7 @@ const Field = ({ label, children, wide = false }) => (
   </div>
 );
 
-function WordEdit({ draft, set, cueFiles = [], canEdit, onPick, onOpen, onRemove }) {
+function WordEdit({ draft, set, cueFiles = [], canEdit, onPick, onOpen, onRemove, lastCue = null, onCopyLast = null }) {
   return (
     <div className={`worship-word-edit ${LIST} grid gap-3 sm:grid-cols-2`}>
       <Field label="설교 제목">
@@ -729,7 +745,8 @@ function WordEdit({ draft, set, cueFiles = [], canEdit, onPick, onOpen, onRemove
       {/* 큐시트는 말씀 탭의 마지막 구역이다(0053) — 설교와 같이 쓰는 문서라 여기가 맞다.
           링크 두 칸 아래에 파일 줄이 붙는다(0054). */}
       <CueSheetEdit value={draft.cue_sheet} onChange={v => set({ cue_sheet: v })}
-        files={cueFiles} canEdit={canEdit} onPick={onPick} onOpen={onOpen} onRemove={onRemove} />
+        files={cueFiles} canEdit={canEdit} onPick={onPick} onOpen={onOpen} onRemove={onRemove}
+        lastCue={lastCue} onCopyLast={onCopyLast} />
     </div>
   );
 }
@@ -1645,7 +1662,7 @@ export function MyNotesScreen({ rows = null, failed = null, onBack, onOpenServic
 export function ServiceDetail({
   service, people = [], personRoles = [], perms = {}, note = null, canWriteNote = false, startEditing = false,
   files = [], recentSongs = [], prefill = [], onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
-  onPullPlaylist, onLookupTitle, onShareNote, onUploadFiles, onRemoveFile, onAddToCalendar, focusNote = false,
+  onPullPlaylist, onLookupTitle, onShareNote, onUploadFiles, onRemoveFile, onAddToCalendar, focusNote = false, onCopyLastCue = null,
   cover = null, onUploadCover, onRemoveCover, onSaveCoverFocus, onShareLink = null,
 }) {
   const [tab, setTab] = useState('paper');
@@ -1660,6 +1677,21 @@ export function ServiceDetail({
   // 주보)이 그렇고, 마이그레이션의 백필도 같은 값을 넣었다.
   const songForms = useMemo(() => filesOfKind(files, SONGFORM), [files]);
   const cueFiles = useMemo(() => filesOfKind(files, CUESHEET), [files]);
+  // 지난 큐시트 — 고치는 중이고 · 큐시트 편집 자격(구글 사본을 고칠 수 있는 사람)이 있고 · 이 주보에 큐시트 파일이 없을 때만 묻는다
+  const [lastCue, setLastCue] = useState(null);
+  const wantLastCue = draft !== null && !!perms.canEdit && !!perms.canEditCue && !!onCopyLastCue && !cueFiles.length;
+  useEffect(() => {
+    if (!wantLastCue) { setLastCue(null); return undefined; }
+    let alive = true;
+    fetchLastCuesheet(service).then(c => { if (alive) setLastCue(c); })
+      .catch(e => console.warn('[worship] 지난 큐시트를 찾지 못했다:', e));
+    return () => { alive = false; };
+  }, [wantLastCue, service?.id, service?.service_date]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // 올라가고 사본이 서면 그 파일 창을 연다 — 데스크톱은 그 창이 곧 구글 편집 화면이다(canEditCopy)
+  const copyLastCue = useCallback(async (prev) => {
+    const row = await onCopyLastCue(prev);
+    if (row) setPreview(row);
+  }, [onCopyLastCue]);
   const [saveState, setSaveState] = useState('');   // '' | 'saving' | 'saved'
   const dirty = useRef(false);
   const editing = draft !== null;
@@ -1876,7 +1908,7 @@ export function ServiceDetail({
         {activeTab === 'word' && (editing
           ? <WordEdit draft={draft} set={set} cueFiles={cueFiles} canEdit={!!(editing && perms.canEdit)}
               onPick={fs => onUploadFiles(fs, CUESHEET)} onOpen={setPreview}
-              onRemove={onRemoveFile} />
+              onRemove={onRemoveFile} lastCue={lastCue} onCopyLast={copyLastCue} />
           : <WordTab service={service} onOpenBible={onOpenBible} cueFiles={cueFiles} onOpenFile={setPreview} />)}
         {activeTab === 'roles' && (editing
           ? <RolesEdit rows={rows('roles')} people={people} onChange={v => set({ roles: v })}

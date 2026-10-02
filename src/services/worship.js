@@ -1,7 +1,7 @@
 import { supabase, myUid } from './supabaseClient.js';
 import { fetchPeople, fetchGroups, fetchGroupMembers, fetchMyPerson, fetchRoles, guestStore, byName } from './people.js';
 import { listServiceFiles, uploadServiceFile as uploadServiceFileToDrive, ensureServiceFolder, deleteAttachment,
-  insertNotifications, getMyProfile, setFileExcerpt } from './cloud.js';
+  insertNotifications, getMyProfile, setFileExcerpt, fetchDriveFileBlob } from './cloud.js';
 import { downscaleImage, FILE_MAX_DIM, BODY_MAX_DIM } from './image.js';
 import { COVER_KIND, coverMap, SUNDAY_KIND, kindLabel, PRAISE_TEAM } from './serviceView.js';
 // 종류 이름·찬양팀 이름은 순수 모듈(serviceView.js)이 정본이다 — 공개 보기(서버·공개 페이지)도 같은 글자를 쓴다
@@ -585,7 +585,8 @@ export async function ensureServiceDriveFolder(service) {
 }
 
 // `kind`를 안 주면 송폼이다 — 0047부터의 호출부를 그대로 두기 위해서다.
-export async function uploadServiceFile(service, file, folderId = null, { kind = SONGFORM } = {}) {
+// `awaitCopy` — 구글 편집 사본이 설 때까지 기다린다(`지난 큐시트로 바로 편집`이 곧바로 편집 화면을 연다)
+export async function uploadServiceFile(service, file, folderId = null, { kind = SONGFORM, awaitCopy = false } = {}) {
   const k = KINDS.includes(kind) ? kind : SONGFORM;
   if (!supabase) {
     const row = {
@@ -605,12 +606,69 @@ export async function uploadServiceFile(service, file, folderId = null, { kind =
     serviceDate: service.service_date,
     serviceFolderId: folderId || service.drive_folder_id || null,
     kind: k,
+    awaitCopy,
   });
   // 큐시트는 **올리는 순간** 요지를 뽑아 둔다 — 브라우저가 바이트를 이미 쥐고 있어 다운로드가
   // 없고, 순모임 가이드가 그 한 칸(files.text_excerpt)만 읽는다(services/cueDigest.js · 결정 12).
   // 기다리지 않는다 — 업무 첨부의 fillExcerpt와 같은 판단(발췌 때문에 업로드가 늦어지면 안 된다).
   if (k === CUESHEET && row?.id) void fillCueExcerpt(row, file);
   return row;
+}
+
+// ── 지난 큐시트로 바로 편집 (사용자 요청 2026-10-02) ─────────────────────────────
+// 9/20 큐시트의 구글 편집 사본을 고쳐 10/04 큐시트를 만들어 버린 일이 있었다 — 지난 주 것을 고쳐 다음 주 것을
+// 만드는 것이 실제 쓰는 법인데 그 길이 없었다. 그래서 새 주보의 큐시트 칸에서 **지난 큐시트를 이 주보로 복사**해
+// 곧바로 편집 화면을 연다. 복사할 글은 원본 .docx가 아니라 **편집 사본**이다(사람들이 고치는 곳 · as=docx로 내보낸다).
+// 사본이 없으면 원본 바이트 그대로. 그 뒤는 손으로 올린 큐시트와 같은 길(uploadServiceFile)이다.
+//
+// 이름은 지난 날짜를 이 주보 날짜로 바꾼다 — '20260920_…' → '20261004_…'(YYYYMMDD · YY.MM.DD · YYYY-MM-DD 어느
+// 모양이든 같은 모양으로). 날짜가 안 보이면 앞에 'YYYYMMDD_'를 붙인다.
+const ymd = (iso) => String(iso || '').slice(0, 10).split('-');
+export function cueNameFor(name, fromDate, toDate) {
+  const n = String(name || '큐시트.docx');
+  const [fy, fm, fd] = ymd(fromDate);
+  const [ty, tm, td] = ymd(toDate);
+  if (!ty) return n;
+  const forms = [
+    [`${fy}${fm}${fd}`, `${ty}${tm}${td}`],
+    [`${fy}-${fm}-${fd}`, `${ty}-${tm}-${td}`],
+    [`${fy.slice(2)}.${fm}.${fd}`, `${ty.slice(2)}.${tm}.${td}`],
+  ];
+  for (const [a, b] of forms) if (fy && n.includes(a)) return n.split(a).join(b);
+  return `${ty}${tm}${td}_${n}`;
+}
+// 이 날짜 **앞** 주보 중 큐시트 파일이 있는 가장 가까운 것 — { service, file } | null. 한 주보에 여럿이면 마지막에 올린 것.
+export function pickLastCue(services, files, beforeDate) {
+  const byService = new Map();
+  for (const f of files || []) {
+    if (fileKindOf(f) !== CUESHEET || !f.service_id) continue;
+    const cur = byService.get(f.service_id);
+    if (!cur || String(f.created_at || '') > String(cur.created_at || '')) byService.set(f.service_id, f);
+  }
+  const prev = (services || []).filter(s => s.service_date && s.service_date < beforeDate && byService.has(s.id))
+    .sort((a, b) => b.service_date.localeCompare(a.service_date))[0];
+  return prev ? { service: prev, file: byService.get(prev.id) } : null;
+}
+export async function fetchLastCuesheet(service) {
+  if (!supabase || !service?.service_date) return null;   // 게스트에는 드라이브가 없다 — 버튼이 서지 않는다
+  const { data: svcs, error } = await supabase.from('services').select('id, service_date')
+    .lt('service_date', service.service_date).order('service_date', { ascending: false }).limit(8);
+  if (error) throw error;
+  if (!svcs?.length) return null;
+  const { data: files, error: e2 } = await supabase.from('files')
+    .select('id, service_id, kind, name, mime_type, source, drive_file_id, preview_file_id, created_at')
+    .eq('kind', CUESHEET).in('service_id', svcs.map(s => s.id));
+  if (e2) throw e2;
+  return pickLastCue(svcs, (files || []).filter(f => f.source === 'drive' && f.drive_file_id), service.service_date);
+}
+const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+export async function lastCueFile(prev, toDate) {
+  const f = prev.file;
+  const exported = !!f.preview_file_id;
+  const blob = await fetchDriveFileBlob(exported ? f.preview_file_id : f.drive_file_id, { as: exported ? 'docx' : null });
+  let name = cueNameFor(f.name, prev.service.service_date, toDate);
+  if (exported && !/\.docx$/i.test(name)) name = `${name.replace(/\.[^.]+$/, '')}.docx`;
+  return new File([blob], name, { type: exported ? DOCX_TYPE : (f.mime_type || blob.type || '') });
 }
 
 async function fillCueExcerpt(row, file) {

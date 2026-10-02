@@ -19,7 +19,7 @@ import {
   notifyServicePublished, notifyNoteShared,
   saveAttendanceNote as saveAttendanceNoteRow,
   fetchPlaylistSongs, fetchVideoTitle, setNoteShared,
-  fetchServiceFiles, ensureServiceDriveFolder, uploadServiceFile, removeServiceFile, SONGFORM,
+  fetchServiceFiles, ensureServiceDriveFolder, uploadServiceFile, removeServiceFile, SONGFORM, CUESHEET, lastCueFile,
   recentSongs as worshipRecentSongs, prefillRoles as worshipPrefillRoles,
   fetchMyNotes, noticeIcsUrl, fetchCovers, COVER, publicServiceUrl,
 } from '../services/worship.js';
@@ -820,16 +820,18 @@ export function WorshipView({ onOpenBible } = {}) {
     return folderId;
   }, [service]);
   // 주보 파일이 드라이브로 가는 **한 자리**(§6-29-u) — 송폼·큐시트·표지(0081)가 kind만 달리해 여기를 지난다
-  const sendServiceFile = useCallback((file, folderId, kind) => uploadServiceFile(service, file, folderId, { kind }), [service]);
+  const sendServiceFile = useCallback((file, folderId, kind, opts = {}) => uploadServiceFile(service, file, folderId, { kind, ...opts }), [service]);
 
-  const uploadFiles = useCallback(async (fileList, kind = SONGFORM) => {
+  // 올라간 행들을 돌려준다(`지난 큐시트로 바로 편집`이 그 행으로 미리보기·편집 창을 연다)
+  const uploadFiles = useCallback(async (fileList, kind = SONGFORM, { awaitCopy = false } = {}) => {
     const picked = Array.from(fileList || []);
-    if (!picked.length || !service) return;
+    const done = [];
+    if (!picked.length || !service) return done;
     // 용량 초과는 여기서 걸러 낸다 — 상한은 config.js 한 곳이고 첨부와 같은 값이다
     picked.filter(f => f.size > MAX_UPLOAD_BYTES)
       .forEach(f => showToast(`'${f.name}'은(는) ${MAX_UPLOAD_MB}MB를 넘어 첨부하지 못했어요.`));
     const ok = picked.filter(f => f.size <= MAX_UPLOAD_BYTES);
-    if (!ok.length) return;
+    if (!ok.length) return done;
     const staged = ok.map(f => ({
       id: `local:${f.name}:${f.size}:${f.lastModified}:${Math.random().toString(36).slice(2, 8)}`,
       // 갈래를 **올리는 중인 줄에도** 실어 둔다 — 안 실으면 그 줄이 fileKindOf의 기본값
@@ -842,8 +844,9 @@ export function WorshipView({ onOpenBible } = {}) {
     for (let i = 0; i < ok.length; i += 1) {
       const stagedId = staged[i].id;
       try {
-        const row = await sendServiceFile(ok[i], folderId, kind);
+        const row = await sendServiceFile(ok[i], folderId, kind, { awaitCopy });
         setFiles(prev => prev.map(x => (x.id === stagedId ? row : x)));
+        done.push(row);
       } catch (e) {
         console.error('[worship] 주보 파일 올리기 실패:', e);
         setFiles(prev => prev.filter(x => x.id !== stagedId));
@@ -851,7 +854,22 @@ export function WorshipView({ onOpenBible } = {}) {
       }
     }
     invalidate();
+    return done;
   }, [service, invalidate, serviceFolder, sendServiceFile]);
+
+  // 지난 큐시트를 이 주보로 복사해 올린다(worship.lastCueFile — 편집 사본의 최신 글) — 올라간 행 | null
+  const copyLastCue = useCallback(async (prev) => {
+    if (!service || !prev) return null;
+    let file;
+    try { file = await lastCueFile(prev, service.service_date); }
+    catch (e) {
+      console.error('[worship] 지난 큐시트 받기 실패:', e);
+      showToast(fail('지난 큐시트를 가져오지 못했어요', e));
+      return null;
+    }
+    const rows = await uploadFiles([file], CUESHEET, { awaitCopy: true });
+    return rows[0] || null;
+  }, [service, uploadFiles]);
 
   // **줄을 먼저 지우고 서버에 알린다**(§6-29-e와 같은 순서 · 첨부와 한 벌).
   // 실패하면 되돌린다 — 지워진 척하고 사라지면 파일을 잃은 것으로 읽힌다.
@@ -1082,7 +1100,7 @@ export function WorshipView({ onOpenBible } = {}) {
       <ServiceDetail
         service={service} people={roster.people} personRoles={roster.roles} perms={perms} note={note} canWriteNote={canWriteNote}
         startEditing={editOnOpen} files={files} recentSongs={recentSongs} prefill={prefill}
-        onUploadFiles={uploadFiles} onRemoveFile={removeFile}
+        onUploadFiles={uploadFiles} onRemoveFile={removeFile} onCopyLastCue={copyLastCue}
         cover={covers[service.id] || null} onUploadCover={uploadCover} onRemoveCover={removeCover} onSaveCoverFocus={saveCoverFocus}
         onShareLink={getShareLink}
         onBack={() => { setScreen('list'); setOpenId(null); setEditOnOpen(false); setNoteOnOpen(false); }}

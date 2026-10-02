@@ -2121,7 +2121,22 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   writeFileSync(pf, strip(readFileSync(new URL('../src/services/people.js', import.meta.url), 'utf8')));
   writeFileSync(wf, strip(readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8')));
   const { honorific, honorificsOf } = await import(pathToFileURL(pf).href);
-  const { pastSunday, recentSongs, weeksAgoOf, songKey, prefillRoles, PREFILL_ROLES } = await import(pathToFileURL(wf).href);
+  const { pastSunday, recentSongs, weeksAgoOf, songKey, prefillRoles, PREFILL_ROLES, cueNameFor, pickLastCue } = await import(pathToFileURL(wf).href);
+
+  // 지난 큐시트로 바로 편집(2026-10-02) — 이름의 날짜는 이 주보 날짜로, 고르는 것은 이 날짜 **앞**의 가장 가까운 큐시트
+  assert.strictEqual(cueNameFor('20260920_더다붓청년예배 큐시트.docx', '2026-09-20', '2026-10-04'), '20261004_더다붓청년예배 큐시트.docx');
+  assert.strictEqual(cueNameFor('26.09.20 큐시트.docx', '2026-09-20', '2026-10-04'), '26.10.04 큐시트.docx', 'YY.MM.DD 모양도');
+  assert.strictEqual(cueNameFor('큐시트.docx', '2026-09-20', '2026-10-04'), '20261004_큐시트.docx', '날짜가 없으면 앞에 붙인다');
+  const CS = [{ id: 'a', service_date: '2026-09-20' }, { id: 'b', service_date: '2026-09-27' }, { id: 'c', service_date: '2026-10-11' }];
+  const CF = [
+    { id: 'f1', service_id: 'a', kind: 'cuesheet', created_at: '1' },
+    { id: 'f2', service_id: 'b', kind: 'songform', created_at: '1' },
+    { id: 'f3', service_id: 'c', kind: 'cuesheet', created_at: '1' },
+  ];
+  assert.strictEqual(pickLastCue(CS, CF, '2026-10-04')?.file.id, 'f1', '송폼만 있는 주보는 건너뛰고 · 뒤 날짜는 안 본다');
+  assert.strictEqual(pickLastCue(CS, CF, '2026-09-20'), null, '앞에 큐시트가 없으면 null(버튼이 안 선다)');
+  const driveFile = readFileSync(new URL('../api/drive-file.js', import.meta.url), 'utf8');
+  assert.ok(/export\?format=docx/.test(driveFile) && /asDocx \? 'private, no-store'/.test(driveFile), 'as=docx는 구글 문서 내보내기 · 캐시하지 않는다');
 
   // ① 세 갈래 + 객원 — 교역자 '전도사님' · 그 해 부장 '부장님' · 나머지 '청년'
   assert.strictEqual(honorific('임성빈', { isPastor: true }), '임성빈 전도사님');

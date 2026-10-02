@@ -33,8 +33,14 @@ export default async function handler(req, res) {
   // (§6-29-l에서 업로드로 한 번 데인 길이다). 19MB PDF가 개발 회선에서 8-12초였다.
   const t0 = Date.now();
   try {
+    // `?as=docx` — 구글 문서(편집 사본)를 .docx로 내보내 받는다(2026-10-02 · `지난 큐시트로 바로 편집`).
+    // 사본이 사람들이 실제로 고치는 곳이라 최신 글은 원본이 아니라 거기에 있다. 사본도 '링크를 아는 사람은 보기'라
+    // 로그인 없이 export가 된다(라이브 확인). 내용이 바뀌는 문서라 아래 30일 immutable 캐시를 쓰지 않는다.
+    const asDocx = req.query?.as === 'docx';
     // uc?export=download 는 공개 파일이면 리다이렉트를 따라 실제 바이트에 닿는다
-    const r = await fetch(`https://drive.google.com/uc?export=download&id=${id}`, { redirect: 'follow' });
+    const r = await fetch(asDocx
+      ? `https://docs.google.com/document/d/${id}/export?format=docx`
+      : `https://drive.google.com/uc?export=download&id=${id}`, { redirect: 'follow' });
     if (!r.ok) { res.status(502).json({ error: `드라이브가 파일을 주지 않았습니다 (${r.status}).` }); return; }
     const type = r.headers.get('content-type') || 'application/octet-stream';
     // 큰 파일이면 구글이 바이러스 검사 경고 HTML을 준다 — 그건 파일이 아니다.
@@ -55,7 +61,7 @@ export default async function handler(req, res) {
     // 예전 1시간짜리는 다음 날 같은 결산안(3.8MB)을 열 때마다 통째로 다시 받았다.
     // public이 아니라 private인 이유: 이 경로는 승인된 사용자 검사를 지나므로
     // CDN(공유 캐시)에 앉히면 그 검사가 비켜진다 — 브라우저 캐시에만 앉힌다.
-    res.setHeader('Cache-Control', 'private, max-age=2592000, immutable');
+    res.setHeader('Cache-Control', asDocx ? 'private, no-store' : 'private, max-age=2592000, immutable');
     console.log(`[drive-file] ${id} ${Math.round(buf.length / 1024)}KB → 성공 (${Date.now() - t0}ms)`);
     res.status(200).send(buf);
   } catch (e) {

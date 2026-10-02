@@ -590,7 +590,7 @@ const mig = read('supabase/migrations/0047_service_files.sql');
 const migKind = read('supabase/migrations/0054_files_kind.sql');
 
 check('송폼이 업무 첨부와 같은 업로드 한 벌을 지난다', () => {
-  assert.match(cloud, /async function uploadOwnedFile\(file, \{ folderHint, owner, prefix, rememberFolder \}\)/,
+  assert.match(cloud, /async function uploadOwnedFile\(file, \{ folderHint, owner, prefix, rememberFolder(, awaitCopy = false)? \}\)/,
     '공용 업로드 함수(uploadOwnedFile)가 없다');
   // 3MB 갈래를 판정하는 자리가 둘이면 한쪽만 고쳐진다
   const gates = [...cloud.matchAll(/> INLINE_MAX/g)].length;
@@ -664,10 +664,10 @@ check('큐시트 파일이 송폼과 같은 길을 지나고 갈래는 kind 한 
   // 업로드 길은 **하나**다 — 큐시트가 두 번째 uploadServiceFile 호출부를 만들면 §6-29-u다
   const ups = [...view.matchAll(/uploadServiceFile\(/g)].length;
   assert.strictEqual(ups, 1, `worshipView에 uploadServiceFile 호출이 ${ups}군데다 — 첨부를 올리는 길은 하나여야 한다`);
-  assert.match(view, /uploadServiceFile\(service, file, folderId, \{ kind \}\)/,
+  assert.match(view, /uploadServiceFile\(service, file, folderId, \{ kind(, \.\.\.opts)? \}\)/,
     '업로드가 갈래를 안 싣는다 — 큐시트로 고른 파일이 송폼으로 저장된다');
-  assert.match(view, /sendServiceFile\(ok\[i\], folderId, kind\)/, '송폼·큐시트 업로드가 갈래를 안 넘긴다');
-  assert.match(wsvc, /export async function uploadServiceFile\(service, file, folderId = null, \{ kind = SONGFORM \} = \{\}\)/,
+  assert.match(view, /sendServiceFile\(ok\[i\], folderId, kind(, \{ awaitCopy \})?\)/, '송폼·큐시트 업로드가 갈래를 안 넘긴다');
+  assert.match(wsvc, /export async function uploadServiceFile\(service, file, folderId = null, \{ kind = SONGFORM(, awaitCopy = false)? \} = \{\}\)/,
     'worship.uploadServiceFile의 기본 갈래가 송폼이 아니다 — 옛 호출부의 뜻이 바뀐다');
   // 게스트 저장 자리도 갈래를 들고 있어야 브라우저 검사가 두 줄을 갈라 볼 수 있다
   const svcUp = wsvc.slice(wsvc.indexOf('export async function uploadServiceFile'));
@@ -685,7 +685,8 @@ check('큐시트 파일이 송폼과 같은 길을 지나고 갈래는 kind 한 
 check('파일 중계는 불변 캐시다(재열람 왕복 0)', () => {
   // drive_file_id의 바이트는 불변이다(첨부는 보기 링크 · 다시 올리면 id가 새로 생긴다).
   // 1시간짜리로 되돌리면 다음 날 같은 3.8MB 결산안을 열 때마다 통째로 다시 받는다.
-  assert.match(filesvc, /Cache-Control', 'private, max-age=2592000, immutable'/, '불변 캐시가 아니다');
+  assert.match(filesvc, /Cache-Control', (asDocx \? 'private, no-store' : )?'private, max-age=2592000, immutable'/, '불변 캐시가 아니다');
+  // 구글 문서 내보내기(as=docx · 지난 큐시트)만 캐시하지 않는다 — 내용이 바뀌는 문서다
   // public로 바꾸면 안 된다 — 승인 검사를 지난 응답이 공유 캐시(CDN)에 앉으면
   // 그 검사가 비켜진다
   assert.ok(!/Cache-Control', 'public/.test(filesvc), '공유 캐시에 앉히면 승인 검사가 비켜진다');
