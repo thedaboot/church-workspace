@@ -493,12 +493,13 @@ check('예배 카드 — 초점은 설교 제목', worship.title === '흔들리�
 // 메타 한 줄 — 예배 종류 · 날짜 · 설교자. 칩으로 쌓지 않는다.
 // **끝은 설교자다**(사용자 결정 2026-09-14 — 담당자 N · 찬양 N을 뺐다. 숫자 둘은 홈에서
 // 할 일을 알려주지 않았고 '누구의 설교인가'가 제목 다음으로 궁금한 것이다).
-check('메타 줄에 예배 종류 · 날짜 · 설교자 · 찬양 인도가 한 줄로',
-  worship.sub === `주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 김승찬 · 찬양 인도 조해리`,
-  `${worship.sub} / 주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 김승찬 · 찬양 인도 조해리`);
+check('메타 줄에 예배 종류 · 날짜 · 설교자가 한 줄로',
+  worship.sub === `주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 김승찬`,
+  `${worship.sub} / 주일 4부 젊은이 예배 · ${svcDate(shift(TODAY, 3))} · 김승찬`);
 check('발행된 주보에는 작성 중 표시가 없다', worship.draft === false);
-// 인도자는 메타 끝이다(사용자 결정 2026-09-30 — 2026-09-06의 '홈에 싣지 않는다'를 뒤집었다).
-check('예배 카드 — 찬양 인도는 설교자 뒤', worship.sub.endsWith('· 찬양 인도 조해리'), worship.sub);
+// 인도자는 평소 카드에 싣지 않는다(사용자 결정 2026-09-06 · 09-30에 실었다가 10-02에 다시 뺐다).
+check('예배 카드 — 인도자는 홈 메타 줄에 없다',
+  !worship.sub.includes('인도') && !worship.sub.includes('조해리'), worship.sub);
 
 const mine = await ev(`(() => ({
   count: document.querySelector('.home-task-count')?.textContent.trim() || '',
