@@ -734,6 +734,18 @@ check('승인 확인이 합친 계정을 따라간다(두 경로가 같은 헬�
     assert.strictEqual(previewKind({ name: 'a.pptx', source: 'local' }), 'slide', '올리는 중인 PPT');
   });
 
+  // 사본을 만드는 확장자는 **전부** 그 사본으로 열려야 한다(첨부 실측 2026-10-02 — xlsm은 시트 사본을 만들어
+  // 놓고 미리보기가 드라이브 파일 뷰어였다). 표가 한 벌(COPY_TARGET)이라도 여는 쪽 목록(SHEET_EXT·OFFICE_EXT)에
+  // 빠지면 같은 일이 난다 — 확장자를 늘릴 때 이 검사가 그 짝을 잡는다.
+  check('사본을 만드는 확장자는 전부 사본으로 연다 (xlsm 포함)', () => {
+    for (const ext of ['xlsx', 'xlsm', 'xls', 'csv', 'docx', 'doc', 'pptx', 'ppt']) {
+      const k = previewKind(copy(`a.${ext}`));
+      assert.ok(['sheet', 'gdoc'].includes(k), `사본 있는 .${ext}가 ${k}로 간다 — 사본을 안 쓴다`);
+      assert.strictEqual(k === 'sheet', previewCopyOf(`a.${ext}`) === 'spreadsheet', `.${ext}의 갈래가 사본 종류와 어긋난다`);
+    }
+    assert.ok(sheetPreviewUrl(copy('매크로.xlsm'))?.includes('/spreadsheets/d/COPY1/'), 'xlsm 사본 보기 주소가 없다');
+  });
+
   // **폰에서는 슬라이드 사본을 iframe에 싣지 않는다**(사용자 결정 2026-09-18 · 목업 B안).
   // 구글 슬라이드를 iframe으로 실으면 홈 화면 앱(PWA) 웹뷰가 **통째로 죽는다** —
   // `/embed`(발표 플레이어)도 `/preview`(드라이브식)도 마찬가지였다(사용자 실기기 3회).
@@ -1176,6 +1188,9 @@ check('확대한 그림·PDF는 끌어서 밀고, 브라우저 끌어놓기는 �
   //    통째로 사라진다. 놓은 자리에 따라 창이 닫히거나 아무 일도 안 난 것처럼 보였다.
   const media = read('src/components/media.jsx');
   const pdfview = read('src/components/PdfView.jsx');
+  // 그림이 안 오면 '준비하고 있어요'(돌아가는 고리)가 걷혀야 한다 — 예전에는 `state !== 'ready'`를 따라가
+  // '불러오지 못했어요'와 같은 자리에 겹쳐 서서 끝나지 않는 로딩으로 읽혔다(첨부 실측 2026-10-02).
+  assert.match(media, /\{loadingText && state === 'loading' && \(/, '그림이 실패해도 준비 중 문구가 남는다(실패 문구와 겹친다)');
   assert.match(media, /export function usePanDrag/, '끌어서 미는 한 벌이 없다');
   // **주석이 아니라 `<img>`에 실제로 붙어 있어야 한다** — 처음 쓴 단정은 머리말의
   // 낱말에도 걸려서, 속성을 지워도 통과했다(되돌려 확인하다 잡았다).
