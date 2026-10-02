@@ -42,6 +42,9 @@ const COPY_TARGET = {
   pptx: 'presentation', ppt: 'presentation',
 };
 export const previewCopyOf = (name) => COPY_TARGET[extOf(name)] || null;
+// 편집 버튼 글자 — 사본의 종류 이름으로(사용자 요청 2026-10-02 · 시트는 시트, 문서는 문서). 모르면 문서.
+const EDIT_LABEL = { spreadsheet: '구글 시트에서 편집', document: '구글 문서에서 편집', presentation: '구글 슬라이드에서 편집' };
+export const copyEditLabel = (name) => EDIT_LABEL[previewCopyOf(name)] || EDIT_LABEL.document;
 
 // 종류 → [주소의 종류 칸, 그 뒤]. 사본은 그 종류의 **네이티브 구글 파일**이므로 주소도
 // 종류를 맞춰야 한다 — 문서 사본을 `spreadsheets/d/…`로 열면 아무것도 안 뜬다.

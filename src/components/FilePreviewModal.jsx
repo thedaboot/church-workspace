@@ -52,7 +52,7 @@ const httpFail = (r) => Object.assign(new Error('새 탭에서 열어보세요')
 // ============================================================================
 // 종류 판정(previewKind)과 확장자 목록은 services/previewKind.js에 있다 — 순수 함수라
 // 노드에서 검사한다(tests/logcheck.mjs). 여기는 그리는 쪽만 남았다.
-import { previewKind, extOf, previewCopyUrl, copyEditUrl, previewCopyOf, slideThumbUrl } from '../services/previewKind.js';
+import { previewKind, extOf, previewCopyUrl, copyEditUrl, previewCopyOf, slideThumbUrl, copyEditLabel } from '../services/previewKind.js';
 // 바이트를 받아 **우리가 직접 그리는** 형식들. 엑셀('sheet')은 여기 없다 — 표는 구글이
 // 그리므로 25MB를 통째로 받아 파싱하고 그 결과를 안 쓰는 낭비였다(2026-08-29).
 const BYTE_KINDS = new Set(['doc', 'slide']);
@@ -1028,7 +1028,7 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
               className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold whitespace-nowrap transition active:scale-95 ${granting ? 'opacity-60 pointer-events-none' : ''}`}>
               {granting
                 ? <Loader2 size={13} strokeWidth={1.8} className="animate-spin" />
-                : <SquarePen size={13} strokeWidth={1.8} />} 구글 문서에서 편집
+                : <SquarePen size={13} strokeWidth={1.8} />} {copyEditLabel(cur.name)}
             </a>
           )}
           {/* 확대 버튼(`－ 100% ＋`)은 걷었다 — 사용자 결정 2026-09-14. 사진·PDF는 손가락으로

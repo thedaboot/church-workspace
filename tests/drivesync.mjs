@@ -714,7 +714,7 @@ check('승인 확인이 합친 계정을 따라간다(두 경로가 같은 헬�
 // 실제 뷰로 볼 수 있게끔 해줄 수 있나? 우리 엑셀 미리보기 하는 것처럼!!"
 // 엑셀과 같은 길이다 — 올릴 때 만든 네이티브 사본(files.preview_file_id)을 iframe으로.
 {
-  const { previewKind, previewCopyUrl, copyEditUrl, previewCopyOf, slideThumbUrl } = await import('../src/services/previewKind.js');
+  const { previewKind, previewCopyUrl, copyEditUrl, previewCopyOf, slideThumbUrl, copyEditLabel } = await import('../src/services/previewKind.js');
   const { sheetPreviewUrl } = await import('../src/utils.js');
   const drive = (name, extra = {}) => ({ name, mime_type: '', source: 'drive', drive_file_id: 'f1', ...extra });
   const copy = (name) => drive(name, { preview_file_id: 'COPY1' });
@@ -849,7 +849,7 @@ check('승인 확인이 합친 계정을 따라간다(두 경로가 같은 헬�
       '편집 주소가 자격(canEditCopy)에 매여 있지 않다');
     const btn = preview.slice(preview.indexOf('{editHref && ('), preview.indexOf('{!isMobile && ('));
     assert.ok(btn, '편집 버튼을 못 찾았다');
-    assert.match(btn, /구글 문서에서 편집/, '버튼 글자가 없다');
+    assert.match(btn, /\{copyEditLabel\(cur\.name\)\}/, '버튼 글자가 사본 종류를 안 따른다');
     assert.match(btn, /target="_blank"/, '새 탭이 아니면 서드파티 쿠키에 다시 걸린다');
     assert.match(btn, /rel="noreferrer"/, 'rel이 없다');
     // 숨기는 조건(hover·모바일 감추기)을 달지 않는다 — 폰에서 이것뿐이다
@@ -892,6 +892,10 @@ check('승인 확인이 합친 계정을 따라간다(두 경로가 같은 헬�
     for (const n of ['a.docx', 'a.doc']) assert.strictEqual(previewCopyOf(n), 'document', n);
     for (const n of ['a.pptx', 'a.ppt']) assert.strictEqual(previewCopyOf(n), 'presentation', n);
     for (const n of ['a.pdf', 'a.png', 'a.zip', 'a', '']) assert.strictEqual(previewCopyOf(n), null, n);
+    // 편집 버튼 글자는 사본의 종류 이름(2026-10-02)
+    assert.strictEqual(copyEditLabel('결산.xlsx'), '구글 시트에서 편집');
+    assert.strictEqual(copyEditLabel('큐시트.docx'), '구글 문서에서 편집');
+    assert.strictEqual(copyEditLabel('설교.pptx'), '구글 슬라이드에서 편집');
     // 스크립트의 표와 확장자 목록이 같아야 한다 — 한쪽만 늘면 "사본은 있는데 안 열리는 파일"
     const inScript = new Set([...scriptmd.matchAll(/(\w+):\s*\['GOOGLE_(\w+)'/g)].map(m => m[1]));
     for (const ext of ['xlsx', 'xlsm', 'xls', 'csv', 'docx', 'doc', 'pptx', 'ppt']) {
