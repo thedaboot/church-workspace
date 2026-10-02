@@ -32,13 +32,13 @@
       "maxDuration": 30
     },
     "api/ai.js": {
-      "maxDuration": 30
+      "maxDuration": 60
     },
     "api/yt.js": {
       "maxDuration": 15
     },
     "api/push.js": {
-      "maxDuration": 60
+      "maxDuration": 300
     }
   },
   "headers": [

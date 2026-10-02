@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef, lazy, Suspense } from 'react';
 import { Analytics } from '@vercel/analytics/react';
 import { store, useCanUndo, useCanRedo } from './store/workspaceStore.js';
 import { useWorkspaceController } from './hooks/controllers.js';
@@ -93,6 +93,8 @@ import { WorshipView } from './views/worshipView.jsx';
 import { WordView } from './views/wordView.jsx';
 import { setCacheScope } from './services/cache.js';
 import { GroupsView } from './views/groupsView.jsx';
+// 위키는 늦게 싣는다 — 첫 화면 번들에 넣지 않는다(다붓이 입구를 눌러야 받는다 · 0088)
+const WikiView = lazy(() => import('./views/wikiView.jsx'));
 import { ToastHost, showToast } from './components/Toast.jsx';
 import { setTaskLinkOpener } from './components/RichText.jsx';
 import { setEntryQuery, isAppLink } from './services/entryQuery.js';
@@ -109,7 +111,7 @@ import { errorReason } from './services/errorText.js';
 // activeMenu에는 화면 이름이나 프로젝트 id가 들어간다 — 여기 없는 값은 프로젝트로 본다.
 // 새 전역 화면을 만들면 이 목록에도 넣어야 그 이름이 프로젝트 id로 오해되지 않는다
 // (오해되면 '없는 프로젝트'로 판정돼 대시보드로 튕긴다 · §3).
-const GLOBAL_MENUS = ['dashboard', 'myTasks', 'schedule', 'members', 'home', 'worship', 'word', 'groups'];
+const GLOBAL_MENUS = ['dashboard', 'myTasks', 'schedule', 'members', 'home', 'worship', 'word', 'groups', 'wiki'];
 
 // 교회 생활 축의 차례 — 하단 바(모바일)·상단 첫 묶음(데스크톱)에 서는 순서 그대로다
 // (docs/V2.md §3). 화면 전환 모션의 **방향**을 여기서 읽는다: 차례가 뒤인 쪽으로 가면
@@ -808,6 +810,7 @@ function WorkspaceShell() {
           {activeMenu === 'worship' && <WorshipView onOpenBible={openBible} />}
           {activeMenu === 'word' && <WordView initialRef={wordRef} />}
           {activeMenu === 'groups' && <GroupsView />}
+          {activeMenu === 'wiki' && <Suspense fallback={null}><WikiView onTaskClick={handleTaskClick} onOpenLink={handleOpenLink} /></Suspense>}
           {activeMenu === "myTasks" && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {isProjectScreen && (

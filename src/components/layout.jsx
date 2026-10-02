@@ -23,6 +23,7 @@ import { useSeenBase, useOpenedProjects, markProjectOpened } from '../services/s
 import { freshProjectIds } from '../services/traces.js';
 import { isOpen } from '../services/taskCounts.js';
 import { Avatar } from './Avatar.jsx';
+import { DaboutiPill, DaboutiFace } from './dabooti.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import * as push from '../services/push.js';
 import { notifLine, notifText, isSystemNotif, notifArea } from '../services/notifyText.js';
@@ -406,7 +407,7 @@ export const TopNav = React.memo(({
     onPointerLeave: () => { press.current = null; },
   });
   // 프로젝트 탭 줄은 업무 축 화면에서만 — 교회 생활 화면(홈·예배·말씀·모임)에서는 접힌다
-  const showProjectRow = !CHURCH_MENUS.includes(activeMenu);
+  const showProjectRow = !CHURCH_MENUS.includes(activeMenu) && activeMenu !== 'wiki';
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRootRef = useRef(null);
   const moreBtnRef = useRef(null);
@@ -464,6 +465,8 @@ export const TopNav = React.memo(({
               <button onClick={redo} disabled={!canRedo} className={`p-1.5 rounded text-fg-muted transition active:scale-95 ${canRedo ? 'hover:bg-surface-hover' : 'opacity-30 cursor-not-allowed'}`} title="다시 실행"><Redo2 size={16} /></button>
             </div>
           )}
+          {/* 다붓이 — 두 묶음 밖, 찾기 바로 앞(사용자 결정 2026-10-02 · 목업 v12) */}
+          <DaboutiPill active={activeMenu === 'wiki'} onClick={() => setActiveMenu('wiki')} />
           <SearchBox onSearchSelect={onSearchSelect} variant="inline" />
           {cloudMode && <NotificationBell onOpenTask={onOpenTask} onOpenLink={onOpenLink} />}
           <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} />
@@ -718,6 +721,8 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
         {/* 오른쪽 아이콘 넷은 **같은 36px 칸**에 앉힌다(사용자 지적 2026-09-03 — 버튼마다 패딩·flex-1이
             달라 간격이 들쭉날쭉했다). 칸이 크기를 정하니 안의 버튼 패딩은 상관없다. */}
         <div className="ml-auto flex items-center gap-0.5 shrink-0">
+          {/* 다붓이 얼굴 — 아이콘 줄 맨 앞(옅은 파란 고리로 다른 아이콘과 가른다 · 목업 v12) */}
+          <span className="w-9 h-9 flex items-center justify-center"><DaboutiFace active={activeMenu === 'wiki'} onClick={() => setActiveMenu('wiki')} /></span>
           <span className="w-9 h-9 flex items-center justify-center">
             <button
               onClick={() => setActiveMenu('schedule')} title="전체 일정"
@@ -923,10 +928,13 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
   // 교회 생활(홈·예배·말씀·모임·업무)과 업무(홈·프로젝트·내 업무·대시보드·팀).
   // '업무'에 들어가면 바가 통째로 기존 네 칸(+홈)으로 바뀌어 손 습관이 남고,
   // 겹(상단 줄 수)은 늘지 않는다. '홈'으로 돌아온다.
-  const inChurch = CHURCH_MENUS.includes(activeMenu);
+  // 위키는 어느 층에도 속하지 않는다 — 들어오기 전 층을 그대로 둔다(다붓이 얼굴은 두 층 어디서나 누른다 · 0088)
+  const lastLayer = useRef(true);
+  const inChurch = activeMenu === 'wiki' ? lastLayer.current : CHURCH_MENUS.includes(activeMenu);
+  useEffect(() => { if (activeMenu !== 'wiki') lastLayer.current = CHURCH_MENUS.includes(activeMenu); }, [activeMenu]);
   // 업무 모드에서 마지막으로 보던 화면 — '업무' 탭이 여기로 돌려보낸다
   const lastWork = useRef('dashboard');
-  useEffect(() => { if (!inChurch) lastWork.current = activeMenu; }, [activeMenu, inChurch]);
+  useEffect(() => { if (!inChurch && activeMenu !== 'wiki') lastWork.current = activeMenu; }, [activeMenu, inChurch]);
 
   // 두 벌이 **동시에 그려져 있다**(아래 nav) — 지금 쓰는 층이 아니면 초점도 안 받게
   // `live=false`를 준다. 안 그러면 탭 키가 안 보이는 다섯 개를 먼저 지난다.
@@ -1008,6 +1016,7 @@ function menuTitle(activeMenu, projectsMap, currentUser) {
   if (activeMenu === 'worship') return '예배';
   if (activeMenu === 'word') return '말씀';
   if (activeMenu === 'groups') return '모임';
+  if (activeMenu === 'wiki') return '위키';
   if (activeMenu.startsWith('team:')) return `${activeMenu.split(':')[1]} 보드`;
   return projectsMap[activeMenu]?.title || '워크스페이스';
 }

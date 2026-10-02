@@ -212,12 +212,16 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0085_calendar_feeds` | 내 달력 구독 — 한 사람·한 프로젝트에 한 줄(고른 업무 id 배열) · 본인만 읽기 · 쓰기는 서버(`api/ics.js`)만 · 실시간 밖 | ✅ |
 | `0086_card_doc_baseline` | 같이 쓰기 전부터 있던 본문을 기준 판 한 줄로(`kind` `baseline` · 함수 `card_doc_baseline` · 두 사람이 동시에 열어도 한 줄) | ✅ |
 | `0087_card_doc_version_editors` | 판마다 그 사이에 같이 고친 사람(`editors uuid[]` · 목록은 `○○○ 외 N명`) | ✅ |
+| `0088_wiki` | 더다붓 위키 + 다붓이 — `wiki_pages`(장 블록 · 서버만 쓴다 · `src_hash`) · `wiki_edits`(사람이 고친 문장 · 승인 전원 · 고친 사람은 트리거가 세션으로) · `dabooti_questions`(물어본 글 · **누가 물었는지 칸 없음** · 서버만) | ✅ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.
 
 임베딩(상단 검색의 '관련된 업무 내용'과 성경 검색의 대체가 씁니다): `node scripts/embed-bible.mjs`는 성경 전체를 `bible_vec`에 한 번 넣고(로컬 · 약 15분 · `--dry-run`),
 `node scripts/embed-docs.mjs`는 업무·댓글·첨부를 `doc_vec`에 맞춥니다(전체·증분 · `--dry-run` · `--kind`) — 평소에는 8시 크론이 증분을 돕니다.
+위키(0088): 평소에는 8시 크론이 임베딩 뒤에 몰랐던 질문을 다시 묻고 **원본이 바뀐 장만** 다시 모읍니다. 손으로는
+`node scripts/wiki-build.mjs`(`--force` 전부 · `--only=<장 id>` · `--dry` 모델 없이 뼈대만), 클라우드 경로 실측은
+`node --env-file=.env scripts/wiki-live.mjs`(임시 계정 → 끝나면 지우고 흔적 0건 확인).
 둘 다 `.env`의 서버 키가 필요합니다. (AI 검색과 벡터 검색을 질의 30개로 견준 한 번짜리 도구 `scripts/compare-bible-search.mjs`는 지웠습니다 — git 이력)
 
 ## 딥링크 · 공유 · 환경변수

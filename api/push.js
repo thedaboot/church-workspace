@@ -2,6 +2,8 @@ import webpush from 'web-push';
 import { notifLine } from '../src/services/notifyText.js';
 import { adminClient, readJson, bearer, requireApprovedUser, safeEqual, sameOriginPath } from './_lib.js';
 import { syncDocVectors } from './_docsync.js';
+import { buildWiki } from './_wikiBuild.js';
+import { reaskUnknown } from './_wikiAsk.js';
 import { weekStartOf } from '../src/services/bibleReads.js';
 
 // ============================================================================
@@ -484,7 +486,7 @@ async function handleWorshipToday(req, res) {
 //      여유를 뺀 만큼이고, 그 안에 안 끝나면 기다리지 않고 응답한다(못 한 조각은 다음 날 잇는다).
 // 응답을 먼저 보내고 뒤에서 돌리지 않는 이유: Vercel 함수는 응답이 끝나면 멈출 수 있다(waitUntil이
 // 필요하다). 크론은 응답 시각을 따지지 않으므로 알림을 다 보낸 뒤 임베딩까지 하고 한 번에 응답한다.
-export const PUSH_MAX_MS = 60 * 1000;      // vercel.json functions["api/push.js"].maxDuration과 같아야 한다
+export const PUSH_MAX_MS = 300 * 1000;     // vercel.json functions["api/push.js"].maxDuration과 같아야 한다(위키 갈래 때문에 60→300 · 0088)
 export const EMBED_BUDGET_MS = 40 * 1000;  // 하루치 증분은 대개 요청 한 번(수 초)이다
 const EMBED_MARGIN_MS = 8 * 1000;          // 응답을 쓰고 로그를 남길 여유
 
@@ -531,7 +533,27 @@ async function handleDueSoonThenEmbed(req, res, started) {
   // 크론 비밀이 틀리거나 없으면 거기서 끝이다(임베딩도 같은 비밀 뒤에 있다)
   if (held.code === 401 || held.code === 501) { res.status(held.code).json(held.body); return; }
   const embed = await runEmbedSync(embedBudget(started));
-  res.status(held.code).json({ ...(held.body || {}), embed });
+  const wiki = await runWiki(started);
+  res.status(held.code).json({ ...(held.body || {}), embed, wiki });
+}
+
+// 위키 — 임베딩 **뒤에**, 남은 시간 안에서만(0088 · api/_wikiBuild.js). 먼저 몰랐던 질문을 다시 묻고
+// (찾은 답이 자주 묻는 질문 장에 실리게) 바뀐 장만 다시 모은다. 시간이 모자라 못 한 장은 다음 날 한다(해시가 그대로 남는다).
+// **던지지 않는다** — 위키가 실패해도 알림 응답은 그대로다.
+const WIKI_MARGIN_MS = 15 * 1000;
+export async function runWiki(started, now = Date.now()) {
+  if (!process.env.GEMINI_API_KEY) return { skipped: 'GEMINI_API_KEY 없음' };
+  const left = PUSH_MAX_MS - WIKI_MARGIN_MS - (now - started);
+  if (left < 30 * 1000) return { skipped: '시간 없음' };
+  try {
+    const db = admin();
+    const reask = await reaskUnknown(db, { budgetMs: Math.min(60 * 1000, left / 4) });
+    const built = await buildWiki(db, { budgetMs: PUSH_MAX_MS - WIKI_MARGIN_MS - (Date.now() - started) - 20 * 1000 });
+    return { reask, built: built.built.length, skipped: built.skipped, pending: built.pending.length, faq: built.faq, usage: built.usage };
+  } catch (e) {
+    console.error('[push] 위키 갈래 실패:', e);
+    return { error: String(e?.message || e).slice(0, 200) };
+  }
 }
 
 // GET ?job=worship(11:30 크론) — 예배 당일 → 동아리 모임 전날. 한쪽이 DB 오류로 죽어도 다른 쪽은 돈다.

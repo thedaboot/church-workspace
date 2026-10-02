@@ -1,4 +1,4 @@
-import { readJson, requireApprovedUser } from './_lib.js';
+import { readJson, requireApprovedUser, bearer, adminClient } from './_lib.js';
 
 // ============================================================================
 // /api/ai — Gemini 프록시. 클라이언트에 API 키를 노출하지 않는다.
@@ -6,6 +6,8 @@ import { readJson, requireApprovedUser } from './_lib.js';
 //   몸통 두 갈래:
 //     { prompt, systemInstruction } → { text }   gemini-3.1-flash-lite (글 만들기)
 //     { embed: '<질문>' }            → { vec }    gemini-embedding-001 (질문 임베딩 · 0073)
+//     { ask: '<질문>', prev? }        → { id, status, sentences, files }   다붓이에게 물어보기(0088 · api/_wikiAsk.js)
+//     { feedback: { id, v } }         → { ok }     답에 '도움이 됐어요/안 됐어요'(v: good|bad|null)
 //   임베딩을 따로 라우트로 두지 않은 이유: 인증 머리·키·시간 상한이 같고, Vercel 함수가
 //   하나 늘면 vercel.json·dev 서버·tests/push의 다섯 라우트 목록을 같이 고쳐야 한다.
 // ============================================================================
@@ -83,6 +85,7 @@ export default async function handler(req, res) {
   const body = await readJson(req);
   // 임베딩 갈래 — 인증은 위에서 이미 봤다(두 갈래가 같은 머리를 지난다)
   if (body.embed != null) { await handleEmbed(body.embed, geminiKey, res); return; }
+  if (body.ask != null || body.feedback != null) { await handleAsk(req, body, res); return; }
 
   const { prompt, systemInstruction } = body;
   if (!prompt || typeof prompt !== 'string') { res.status(400).json({ error: 'prompt가 필요합니다.' }); return; }
@@ -161,5 +164,36 @@ export async function handleEmbed(raw, geminiKey, res) {
     res.status(502).json({ error: 'Gemini 요청 실패' });
   } finally {
     clearTimeout(killer);
+  }
+}
+
+// ── 다붓이에게 물어보기 (0088) ──────────────────────────────────────────────
+// 답하기는 api/_wikiAsk.js 한 벌(밤 크론의 다시 묻기와 같다). 늦게 불러온다 — 다른 갈래의 첫 실행을 무겁게 하지 않고,
+// _wikiAsk가 이 파일의 임베딩 상수를 다시 가져가는 고리를 첫 평가 밖으로 뺀다.
+// 찾기는 **묻는 사람의 세션**으로 한다(userClient → RLS). 저장·피드백·상한 확인만 서버 키.
+// 누가 물었는지는 저장하지 않는다 — 상한도 사람별이 아니라 전체 1분 30번이다.
+const ASK_PER_MINUTE = 30;
+async function handleAsk(req, body, res) {
+  const { answerQuestion, saveAnswer, setFeedback, userClient } = await import('./_wikiAsk.js');
+  const admin = adminClient();
+  if (body.feedback != null) {
+    const ok = await setFeedback(admin, body.feedback?.id, body.feedback?.v ?? null);
+    res.status(ok ? 200 : 400).json({ ok });
+    return;
+  }
+  const q = typeof body.ask === 'string' ? body.ask.trim() : '';
+  if (!q) { res.status(400).json({ error: 'ask는 비어 있지 않은 글자여야 합니다.' }); return; }
+  if (q.length > 300) { res.status(413).json({ error: '질문이 너무 길어요\n300자 안으로 줄여 주세요' }); return; }
+  const { count } = await admin.from('dabooti_questions').select('id', { count: 'exact', head: true }).gte('created_at', new Date(Date.now() - 60e3).toISOString());
+  if ((count || 0) >= ASK_PER_MINUTE) { res.status(429).json({ error: '지금 물어보는 사람이 많아요\n잠시 후 다시 물어봐 주세요' }); return; }
+  try {
+    const out = await answerQuestion(q, { db: userClient(bearer(req)), admin, prev: typeof body.prev === 'string' ? body.prev : '' });
+    const id = await saveAnswer(admin, q, out);
+    const { dropped, ...shown } = out;
+    res.status(200).json({ id, ...shown });
+  } catch (e) {
+    console.error('[ai] 다붓이 답 실패:', e?.message || e);
+    await saveAnswer(admin, q, { status: 'failed', sentences: [], dropped: [] }).catch(() => {});
+    res.status(e?.name === 'AbortError' ? 504 : 502).json({ error: '답을 받지 못했어요\n잠시 후 다시 물어봐 주세요' });
   }
 }

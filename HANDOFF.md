@@ -38,9 +38,23 @@
 
 ## 2. 남은 일
 
-### 16차 — 시작점: 다붓이 위키 구현 (15차는 2026-10-03 `c7ff3b2`까지 배포)
+### 16차 — 다붓이 위키 지음 (2026-10-03 · 0088 라이브 · 위키는 실데이터로 채움)
 
-**할 일**: 목업(v12 승인 · https://claude.ai/artifact/LKarXC8WVahATdEuyivvRp)대로 '더다붓 위키 + 다붓이에게 물어보기'를 **실제로 짓고 실제 데이터로 채운다**(사용자 요청 2026-10-03 — 문장은 사용자가 나중에 고친다). 모델은 **gemini-3.1-flash-lite 그대로**(3.5-lite와 비교 끝 — 아래). 흐름은 §3(저장 자리 → 0088~ → 코드 → 검사 → 문서).
+**한 일**: 목업 v12대로 '더다붓 위키 + 다붓이에게 물어보기'를 지었다 — 상단 알약(데스크톱 · 찾기 앞)·폰 얼굴(아이콘 줄 맨 앞) → 위키
+(왼쪽 장 목록 · 가운데 물어보기) · 장 28개(행사 11 · 팀 7 · 매주 하는 일 2 · 예배 2 · 말씀 · 모임 2 · 함께 쓰는 글 3) · ✎ 수정 · 자가 개선 고리.
+자리: `views/wikiView.jsx` · `components/dabooti.jsx` · `services/wiki.js`·`wikiCore.js` · `api/_wikiBuild.js`·`_wikiAsk.js`(`/api/ai { ask }`) · 8시 크론.
+지키는 것과 고리는 `docs/AI.md` §5, 함정은 PITFALLS 33-a~f. 사용자 요청으로 물어본 뒤 자리표는 **`다붓이에게 더 물어보기`**(목업의 '더 물어보기'에서).
+- **구현 중 정한 것**(뒤집으려면 말해 주세요): 자주 묻는 질문 장은 `함께 쓰는 글` 묶음(사람이 답을 적는 자리라서) · 장 목록 숫자 옆 점 = 마지막으로 본 뒤
+  다시 모인 장(이 브라우저만) · 답마다 👍/👎(나쁨은 '모르는 질문'으로) · 명단·미수료자 업무와 `회계` 프로젝트는 어느 장에도 안 싣는다(다붓이는 회계
+  '매뉴얼' 업무를 근거로 답한다 — 정본이 그쪽) · 위키 문장에 금액·사고·한 사람의 사정은 쓰지 않는다 · 사람 이름은 쓰지 않는다(업무 제목 칩은 그대로).
+- **사실 메모 확인 요청**: '가을 체육대회 개요' 업무 날짜가 아직 **10월 25일**이라 위키 행사 장 머리에 그렇게 선다(리더십 회의 기록과 다붓이 답은 10월 31일).
+  업무 날짜를 고치면 다음 날 아침 장이 따라온다.
+- **실기기 확인 대기(16차)**: 실제 계정으로 다붓이 답 · 근거 칩(업무 창·주보로 이동) · 파일 카드(미리보기 · 비밀번호 파일은 업무 창) · 👍/👎 ·
+  ✎ 수정 → 저장 → 초록 줄 + 내 사진 · 폰 하단 바 위 입력 칸 · 다크 모드 · 내일 8시 크론 뒤 `wiki` 갈래(응답 JSON의 `wiki`)가 도는지.
+
+<details><summary>16차 시작점에 적어 둔 결정 · 시범 메모(그대로 둔다)</summary>
+
+**할 일(당시)**: 목업(v12 승인 · https://claude.ai/artifact/LKarXC8WVahATdEuyivvRp)대로 '더다붓 위키 + 다붓이에게 물어보기'를 **실제로 짓고 실제 데이터로 채운다**(사용자 요청 2026-10-03 — 문장은 사용자가 나중에 고친다). 모델은 **gemini-3.1-flash-lite 그대로**(3.5-lite와 비교 끝 — 아래). 흐름은 §3(저장 자리 → 0088~ → 코드 → 검사 → 문서).
 
 - **정해진 것(사용자 결정 2026-10-02~03)**
   - 이름: 캐릭터는 **다붓이**. 입구 문구 `다붓이에게 물어보기`. 묶음 `함께 쓰는 글`(더다붓 소개 · 자주 쓰는 말 — 청년부 개요만, 회계 등은 넣지 않음) · `행사` · `팀` · `매주 하는 일` · `예배` · `말씀` · `모임`. 표시 `업무에서 자동으로 수집`(주보면 '주보에서…') · `함께 작성` · `수정` · `수정 중` · `수정한 곳 N` · `노준석 · 10월 2일 수정`(프로필 사진) · `기록 전` · 여러 팀 일은 **`다붓했던 일`**. '선행 업무 사슬'·'협업'·'소관'·'계보' 같은 말 금지 — 근거 칩에 실제 업무 이름. 글은 **해요체 하나**.
@@ -51,7 +65,13 @@
   - 다붓이: 근거 있을 때만 · 문장마다 근거 · 없으면 모른다(`없어요` 끝 대신 `찾지 못했어요`/`기록 전`) · 위치 질문은 **파일 카드**(누르면 미리보기)·업무 링크 · 찾기는 **묻는 사람 권한으로**(RLS) · 업무 글 속 지시는 자료로만 · 출석·노트·비밀값·이메일 요청은 **코드가 먼저 걸러 모델을 안 부른다** · 물어본 글은 **저장한다**(자주 묻는 질문·몰랐던 질문으로 위키 보강 — **누가 물었는지는 남기지 않는** 익명안을 권했고 사용자 반대 없음).
   - 사실 메모: 9/27 주보 제목 `Qusetion Day!`는 **그 표기가 맞다**(오타로 고치지 말 것) · 가을 체육대회는 **10월 31일**(10/25로 적힌 업무가 있다) · 큐시트 설교 제목과 주보 제목은 **살짝 다를 수 있다**(어긋남으로 짚지 않는다).
 - **시범에서 배운 것**(`C:\fltmp\claude\wiki-pilot\v2\` — 레포 밖 · `wiki2.mjs`·`ab.mjs`·`render.json`·`answers.json`): 사실을 코드가 정하니 지어내기는 사라졌지만 글이 '업무 상태는 완료예요'처럼 기계적이었다 → **날짜·상태·팀·앞뒤 업무는 화면 요소(날짜 줄·팀 칩·근거 칩)로, 모델은 묶음 내용만 두세 문장**. 검증 호출(문장↔근거)은 엄격함이 들쭉날쭉 — '근거에 없는 주장'만 보게 좁힐 것. 모델 비교(질문 14 × 5회 × 2): 3.1-lite 지어냄 0·오답 0 / 3.5-lite 지어냄 1·오답 4(날짜 단정)·없는 낱말 · 비용 3.1 $0.023 대 3.5 $0.031 → **3.1-lite 유지**(약점: '찾지 못했어요' 답에 엉뚱한 근거 칩 · '없어요' 끝 → 코드로 막는다). 온도는 지금 `api/ai.js`에 없어 답이 매번 다르다.
-- **실기기 확인 대기(15차 몫)**: 폰 잠금·뒤 탭 → 얼굴·`수정 중`이 곧바로 빠지고 '초 전 다녀감' · 보드 카드 수정 중 고리·연필 · 담당 팀만 바꾼 저장 · 지난 큐시트로 바로 편집(10/11 주보) · 지난 주보 큐시트는 보기 창 · 가이드가 고친 큐시트를 읽는지 · 상태 버튼·상단 칩 → 맨 위.
+
+</details>
+
+- **15차 실기기 확인**: 사용자 "다 되긴 한다"(2026-10-03). 코드 훑기에서 나온 결함(고치지 않았다 · 사용자에게 알림):
+  ① 상태 이동 **되돌리기**가 status만 되돌리고 position은 안 되돌려 원래 칸의 맨 위에 선다(App.jsx 되돌리기) ·
+  ② pptx·xlsx 큐시트는 `lastCueFile`·`fetchCueDigest`가 문서 내보내기(.docx)만 시도해 실패한다 ·
+  ③ 큐시트가 여럿이고 최신 것이 PDF·사진이면 가이드 요지가 빈다(예전 조회의 '요지가 비어 있지 않은 것' 조건이 빠졌다 · sunGuide.js).
 
 ### 15차 — 시작점 (14차는 2026-09-30 `db2c137`까지 배포 · 0087까지 라이브)
 
@@ -175,6 +195,10 @@ src/views/homeView.jsx        (v2) 홈 — 인사말 + 카드 넷. 자기 저장
 src/views/worshipView.jsx     (v2) 예배 — 주보 목록 → 상세/작성/발행 → 출석
 src/views/wordView.jsx        (v2) 말씀 — [QT | 성경 읽기] · 내 묵상은 저장하면 종이 · 나눔은 사람 칩 + 종이 하나(§6-32-p·19-b·19-b-1)
 src/views/groupsView.jsx      (v2) 모임 — 내 순 · 동아리 · 순 편성
+src/views/wikiView.jsx        위키 — 왼쪽 장 목록 | 물어보기·장(블록 모양마다 그리기 · ✎ 수정 · 고친 줄 겹침) · 폰은 첫 화면 → 장(‹ 위키) · 늦게 싣는다(0088)
+src/components/dabooti.jsx    다붓이 입구(상단 알약·폰 얼굴·위키 안 칸) · 물어보기 판(칩 · 말풍선 · 근거 칩 · 파일 카드 · 👍/👎) · 효과는 index.css `dab-*`
+src/services/wikiCore.js      위키·다붓이 순수 모듈(import 0 · 서버와 한 벌) — 함께 쓰는 글 초안 · 거르기(prefilter) · 고친 줄 겹치기 · 근거 없는 문장 버리기 — logcheck
+src/services/wiki.js          위키 읽기·고치기 저장 · /api/ai { ask } · 피드백 · 게스트는 초안(검사는 window.__wikiFixture)
 src/modals/modals.jsx         업무 창 — TaskModalShell(보기↔수정 · 칸마다 저장 · `수정 완료`·닫을 때 흘림)·TaskView(보기 · 기본)·TaskLive(수정 화면)·TaskEditor(새 업무 `만들기`)·SubtaskList·담당자·선행 업무(§4.9 · 19-e-2·19-e-3)
 src/modals/coedit.jsx         업무 창의 같이 쓰기 — useCoedit(늦게 연다 · 받아들이기) · 머리줄 얼굴 · 보기의 수정 중 알약·줄 표시·살아 있는 본문 · 버전 기록 탭 · 고친 곳(그린 줄) · 개발용 가짜(32-zq·32-zr·32-zt~zw)
 src/services/coedit/          같이 쓰기 엔진(0084) — index.js 여는 곳(awareness user·editing·line · 사진 이름표) · core.js 순수(caretLine 포함) · store.js Supabase · view.js 화면 순수(색·알약 대비·판 글자·줄 차이 · import 0)
@@ -229,9 +253,11 @@ src/services/bible.js bibleRef.js  (v2) public/bible 로더·캐시 / 구절 파
 src/services/noteTemplate.js  (v2) 노트 템플릿·LEGACY_SECTIONS·isTemplateOnly·ensureNoteSections(§6-9-as·32-l)
 src/assets/                   SUIT 서브셋 + symbols(보조 글꼴) + 로고 — 생성 스크립트는 scripts/(§4.2·§6-9-au)
 api/_lib.js                   api 공용 머리 — readJson·requireApprovedUser·safeEqual·sameOriginPath. `_`로 시작해 라우트가 아니다(dev도 건너뛴다)
-api/ai.js                     Gemini 프록시(25초에 끊는다 · §6-9-bn) · `{ embed }` 질문 임베딩 — EMBED_MODEL·unitVec을 스크립트·_docsync가 가져다 쓴다
+api/ai.js                     Gemini 프록시(25초에 끊는다 · §6-9-bn) · `{ embed }` 질문 임베딩 — EMBED_MODEL·unitVec을 스크립트·_docsync가 가져다 쓴다 · `{ ask }`·`{ feedback }` 다붓이(0088)
+api/_wikiBuild.js             위키 장 만들기 — 원본 모으기(서버 키) → 장 뼈대(코드가 사실) → 문장 쓰기 → 검증 → 저장 · 바뀐 장만(src_hash) · 자주 묻는 질문 장(docs/AI.md §5)
+api/_wikiAsk.js               다붓이 답 — 근거 모으기(묻는 사람 세션) → 답 → 검증(두 번) → 파일 카드 · 저장(익명) · 밤에 다시 묻기
 api/_docsync.js               업무·댓글·첨부 → doc_vec 증분(조각·해시·계획·임베딩) — 8시 크론·?job=embed·스크립트 한 벌
-api/push.js                   POST=앱 알림을 푸시로 / GET=마감 임박·오늘 예배+내일 동아리 모임 배치(`?job` · §4.3) · 8시 뒤 문서 임베딩 · `?job=embed`
+api/push.js                   POST=앱 알림을 푸시로 / GET=마감 임박·오늘 예배+내일 동아리 모임 배치(`?job` · §4.3) · 8시 뒤 문서 임베딩 → 위키(다시 묻기·바뀐 장) · `?job=embed` · 300초
 api/drive.js                  Apps Script 프록시 — 업로드·폴더·휴지통(55초에 끊는다 · §6-29-f·29-g)
 api/drive-file.js             드라이브 파일 바이트 중계(앱 안 뷰어용 · §6-29-c·29-z-3)
 api/share.js                  공유 링크 OG 메타 — 조회 `error`를 반드시 읽는다(§6-31-d·31-e)
@@ -245,7 +271,7 @@ vite.config.js                dev 전용 `/api/<name>` 미들웨어(게스트 �
                               + 첫 화면 벤더 칸 `EAGER_VENDORS` — 통째로 묶으면 첫 화면이 2배(§6-29-z-18)
 public/sw.js                  서비스 워커 — 푸시 표시 + 클릭 시 딥링크. 캐싱은 하지 않는다
 public/bible/                 (v2) 개역한글 66권 json + index.json
-public/chars/                 (v2) 캐릭터 5컷(webp · @2x 포함 10장) — 홈(sparkle-wave·heart·book·coffee·laptop) · 말씀(book) · 예배 노트(heart).
+public/chars/                 (v2) 캐릭터 7컷(webp · @2x 포함 14장) — 홈(sparkle-wave·heart·book·coffee·laptop) · 말씀(book) · 예배 노트(heart) · 다붓이(question · 물음표) · 더다붓 소개(umbrella · 우산).
                               원본(177~225px) 이상으로 키우지 않는다. 새 컷은 원본 시트(레포 밖 `Desktop/church_workspace_design/chars.png`)에서 다시 자른다
 public/ 그 밖                 아이콘·매니페스트·OG·스크린샷
 scripts/subset_suit.py subset_symbols.py make_icons.py  폰트·아이콘 생성(한 번 돌리고 결과물을 커밋)
@@ -257,8 +283,9 @@ scripts/bible_check.mjs       성경 json 정합 검사(tests/bibleref와 짝)
 scripts/backfill_attachments.mjs  옛 첨부 발췌 백필 — 문서는 앱 파서, 사진·글자 없는 PDF는 Gemini(`--fix`를 붙여야 적는다) · `--cuesheet`는 큐시트 요지(Gemini 없음)
 scripts/embed-bible.mjs       성경 → bible_vec 한 번(로컬 · --dry-run · 이어하기)
 scripts/embed-docs.mjs        doc_vec 전체·증분 · --dry-run(조각·토큰·비용) · --kind
+scripts/wiki-build.mjs        위키 한 번(--force · --only= · --dry) · scripts/wiki-live.mjs 다붓이·고치기 클라우드 실측(임시 계정 → 흔적 0건)
 (지운 스크립트 — git 이력의 scripts/compare-bible-search.mjs)  AI 검색 대 벡터 검색을 질의 30개로(한 번 쓰고 만 도구 · §7의 근거)
-supabase/migrations/          0001~0087 — 표는 README, 최근 것은 §5
+supabase/migrations/          0001~0088 — 표는 README, 최근 것은 §5
 tests/                        검증 스위트 + 러너 — 목록은 tests/README.md
 ```
 
@@ -267,12 +294,12 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 
 ## 5. 데이터 · 스키마 · 비밀
 
-- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0087`이고 **전부 라이브 DB에 적용**되어 있다. 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
+- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0088`이고 **전부 라이브 DB에 적용**되어 있다. 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
   **0064** `people.gender` · **0065** `bible_state.recent_searches` · **0066** 개인 표 기본값도 `effective_uid()` · **0067~0070** 명단(`people`)의 생일·소속·교역자·대표 팀을 트리거가 계정으로 옮긴다(§8) ·
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads` · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors`. 다음 번호는 0088.
+  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads` · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만). 다음 번호는 0089.
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.
