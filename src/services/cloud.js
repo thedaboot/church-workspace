@@ -320,6 +320,16 @@ async function resetCardJoin(table, column, cardId, ids) {
 }
 
 export async function updateCard(id, patch, teamIds, assigneeIds) {
+  // **카드 행에 보낼 칸이 없으면**(담당 팀만 바꿨다 — 팀은 조인 표뿐) 빈 update를 보내지 않는다(2026-10-02 사용자 제보 —
+  // '임원진으로 담당 팀을 바꾸면 저장이 안 된다 · 제목을 먼저 적어주세요'). PostgREST는 빈 몸통 update에 0행(PGRST116)을
+  // 돌려주고, 그걸 아래 '행이 없다' 폴백이 받아 `{ id }`만으로 upsert해 title not-null(23502)로 깨졌다.
+  // 조인을 **먼저** 쓰고 그다음 updated_at만 올린다 — 남의 화면은 cards UPDATE 신호로 그 카드를 다시 읽으므로
+  // (card_teams는 실시간 구독에 없다) 순서가 거꾸로면 옛 팀을 읽는다. 카드가 정말 없으면 이 update가 PGRST116을 던진다.
+  if (!Object.keys(patch || {}).length) {
+    if (teamIds !== undefined) await resetCardJoin('card_teams', 'team_id', id, teamIds);
+    if (assigneeIds !== undefined) await resetCardJoin('card_assignees', 'profile_id', id, assigneeIds);
+    return unwrap(await client().from('cards').update({ updated_at: new Date().toISOString() }).eq('id', id).select().single());
+  }
   let card;
   try {
     card = unwrap(await client().from('cards').update(patch).eq('id', id).select().single());

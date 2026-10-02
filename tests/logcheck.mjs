@@ -5377,7 +5377,15 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/const patch = pickCols\(cardPatch\(task\), changed\)/.test(sync) && /mergeSubtasks\(base\.subtasks, task\.subtasks, now\.subtasks\)/.test(sync),
     '클라우드 쓰기는 바뀐 칸만 · 하위 업무는 서버의 지금 목록과 합친다');
   assert.ok(/changed\.includes\('teams'\) \?/.test(sync) && /changed\.includes\('assignees'\) &&/.test(sync), '팀·담당자 조인도 바뀌었을 때만 다시 쓴다');
-  console.log('PASS  바뀐 칸만 저장 · 하위 업무 줄 단위 병합');
+  // 담당 팀만 바꾸면 카드 칸은 0개다(CARD_COLS.teams = []) — 빈 update는 PGRST116 → upsert({id}) → title 23502였다(2026-10-02)
+  const cloudSrc = readFileSync(new URL('../src/services/cloud.js', import.meta.url), 'utf8');
+  const upd = cloudSrc.slice(cloudSrc.indexOf('export async function updateCard'));
+  assert.ok(/teams: \[\]/.test(sync), '팀은 카드 칸이 없다(조인 표뿐) — 그래서 아래 갈래가 필요하다');
+  const emptyAt = upd.search(/if \(!Object\.keys\(patch \|\| \{\}\)\.length\) \{/);
+  assert.ok(emptyAt >= 0 && emptyAt < upd.indexOf(".update(patch)"), '빈 patch는 cards.update(patch)보다 먼저 갈라진다');
+  const branch = upd.slice(emptyAt, upd.indexOf(".update(patch)"));
+  assert.ok(branch.indexOf("resetCardJoin('card_teams'") < branch.indexOf('updated_at'), '조인을 먼저 쓰고 그다음 updated_at으로 신호를 낸다');
+  console.log('PASS  바뀐 칸만 저장 · 하위 업무 줄 단위 병합 · 팀만 바꾼 저장');
 }
 
 // ── 내 달력 구독 (0085 · services/calendarFeed.js · api/ics.js · 2026-09-28) ─────────────
