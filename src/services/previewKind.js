@@ -20,7 +20,10 @@ export const TEXT_EXT = ['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'log', '
 const HTML_EXT = ['html', 'htm'];
 export const OFFICE_EXT = ['doc', 'docx', 'ppt', 'pptx'];   // 앱이 못 그려서 구글 편집기 미리보기로 남는 것
 // 우리 표로 직접 그리는 것. csv는 파싱이 몇 줄이라 같이 본다.
-export const SHEET_EXT = ['xlsx', 'xls', 'csv'];
+// **xlsm(매크로 엑셀)도 여기다**(첨부 실측 2026-10-02). 아래 COPY_TARGET과 스크립트(COPY_AS)는 xlsm에 시트 사본을
+// 만드는데 이 목록에만 빠져 있어서, 사본을 만들어 놓고 미리보기는 드라이브 파일 뷰어로 떨어지고
+// '펼쳐보기'·비밀번호도 안 섰다 — 아래 머리말이 경고하는 "사본은 있는데 안 열리는 파일" 그대로였다.
+export const SHEET_EXT = ['xlsx', 'xlsm', 'xls', 'csv'];
 // 스프레드시트도 **우리가 받아 주는 크기면 우리가 그린다.** 예전에는 8MB에서 갈랐는데,
 // 파서가 시트를 끝까지 읽고 나서 500줄로 자르던 시절의 값이다 — 그때는 6.4MB짜리가
 // 3.3초 동안 탭을 멎게 했다. 지금은 500줄을 채우면 거기서 멈춘다(xlsx.js) — 같은 파일이

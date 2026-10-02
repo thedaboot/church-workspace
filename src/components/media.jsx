@@ -41,7 +41,10 @@ export function SmartImage({ src, alt = '', className = '', style = undefined, w
       {state !== 'ready' && (
         <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <Skeleton className={skeletonClassName || 'w-full h-full'} />
-          {loadingText && (
+          {/* **받는 중일 때만** 돈다. 예전에는 `state !== 'ready'`를 그대로 따라가서, 그림이 안 오면
+              '미리보기를 준비하고 있어요'(돌아가는 고리)와 아래 '불러오지 못했어요'가 **같은 자리에 겹쳐**
+              끝나지 않는 로딩처럼 보였다(첨부 실측 2026-10-02 · scripts/attach-live). */}
+          {loadingText && state === 'loading' && (
             <span className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-fg-muted">
               <Loader2 size={14} className="animate-spin" /> {loadingText}
             </span>

@@ -233,6 +233,7 @@ public/ 그 밖                 아이콘·매니페스트·OG·스크린샷
 scripts/subset_suit.py subset_symbols.py make_icons.py  폰트·아이콘 생성(한 번 돌리고 결과물을 커밋)
 scripts/make_og_season.py     공개 보기 카카오톡 카드의 절기 색 그림 넷(`public/og/season-*.png` · 스토리 표지 색과 같은 값)
 scripts/drive_check.mjs       드라이브 ↔ DB 어긋남 점검(`--fix`를 붙여야 고친다 · §6-29-j)
+scripts/attach-live/          첨부 실측(라이브) — setup(임시 계정·2099 프로젝트·주보) → e2e(확장자마다 올리기·폴더·행·사본·미리보기·확대·구글 편집·비밀번호·삭제) → teardown(드라이브 휴지통 + uuid 칸 0건) · dev 서버는 vite.isolated.config(§6-29-z-20·21)
 scripts/migrate_to_drive.mjs backfill_sheet_preview.mjs  이관·사본 백필(되돌리기 `reset_drive_migration.mjs`는 지웠다 — git 이력)
 scripts/bible_check.mjs       성경 json 정합 검사(tests/bibleref와 짝)
 scripts/backfill_attachments.mjs  옛 첨부 발췌 백필 — 문서는 앱 파서, 사진·글자 없는 PDF는 Gemini(`--fix`를 붙여야 적는다) · `--cuesheet`는 큐시트 요지(Gemini 없음)
