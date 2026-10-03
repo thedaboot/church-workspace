@@ -1041,5 +1041,6 @@ reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가
 `innerHeight`도 같이 줄어 표시가 끝내 안 섰다(2026-10-04 실기기 · 첫 판이 그랬다). `tests/wiki`는 창 높이를 통째로 줄여(둘이 같이 주는 아이폰 흉내) 본다.
 **33-p.** **바닥 칸을 누르면 아이폰이 화면 전체를 끌어올렸다가 되돌린다** — 실기기 기록(2026-10-04): 누르고 77ms에 visualViewport가 873→487로
 줄면서 **offsetTop 299**(scrollY·main.scrollTop은 0 — 앱이 아니라 아이폰이 민다) → 92ms 뿌리가 487로 → 108ms offsetTop 0. 초점 순간 한 프레임
-`opacity: 0`은 **안 막았다**. 고친 것: 누르는 순간(`touchstart`) 지난번 키보드 높이(`App.jsx`가 `kbH:<전체 높이>`로 기억)만큼 `--app-vh`를 미리 줄여
-칸이 이미 키보드 위에 있게 한다(`dabooti.jsx preKeyboard` · 처음 한 번은 기억이 없어 그대로 · 초점이 안 오면 700ms 뒤 되돌림).
+`opacity: 0`은 **안 막았다**. 고친 것: **손을 떼는 순간(`touchend`)** 기본 동작을 막고 지난번 키보드 높이(`App.jsx`가 `kbH:<전체 높이>`로 기억)만큼
+`--app-vh`를 줄인 뒤 우리가 `focus()`한다(`dabooti.jsx tapEnd` · 끌기·처음 한 번은 기본 동작). **`touchstart`에서 줄이면 안 된다** — 칸이 손가락 아래에서
+옮겨가 탭이 칸 밖에서 끝나 키보드가 아예 안 떴다(같은 날 실기기 · 7aab0a6).

@@ -208,15 +208,20 @@ try {
       await ev(`document.querySelector('.dab-input input').focus()`);
       await sleep(150);
       const kbState = `(()=>{const m=document.querySelector('main');const i=document.querySelector('.dab-input input');return {pb:parseFloat(getComputedStyle(m).paddingBottom), gap:Math.round(m.getBoundingClientRect().bottom-document.querySelector('.dab-input').getBoundingClientRect().bottom), outline:getComputedStyle(i).outlineStyle}})()`;
-      // 누르는 순간 지난번 키보드 높이만큼 뿌리를 미리 줄인다(아이폰이 화면 전체를 끌어올리지 않게 · 실기기 기록 2026-10-04) ·
-      // 초점이 안 오면(끌기) 되돌린다
-      await ev(`document.activeElement.blur()`); await sleep(500);   // blur 뒤 다시 재는 것(App.jsx 250ms)이 되돌리기를 대신하지 않게 먼저 끝낸다
+      // 손을 떼는 순간 지난번 키보드 높이만큼 뿌리를 미리 줄이고 초점을 준다(아이폰이 화면 전체를 끌어올리지 않게 · 실기기 기록 2026-10-04)
+      // touchstart에서 줄였더니 칸이 손가락 아래에서 옮겨가 키보드가 아예 안 떴다 — 누를 때는 그대로, 뗄 때 초점까지 · 끌기는 건드리지 않는다
+      await ev(`document.activeElement.blur()`); await sleep(500);
       await ev(`localStorage.setItem('kbH:'+innerHeight, '500')`);
-      await ev(`document.querySelector('.dab-input input').dispatchEvent(new TouchEvent('touchstart',{bubbles:true}))`);
-      const pre = await ev(`document.documentElement.style.getPropertyValue('--app-vh')`);
-      await sleep(900);
-      const undo = await ev(`document.documentElement.style.getPropertyValue('--app-vh')`);
-      check(`폰: 칸을 누르는 순간 뿌리를 미리 줄이고, 초점이 안 오면 되돌린다`, pre === '500px' && undo === '844px', JSON.stringify({ pre, undo }));
+      const touch = (type, y) => `(()=>{const i=document.querySelector('.dab-input input');const r=i.getBoundingClientRect();const t=new Touch({identifier:1,target:i,clientX:r.left+20,clientY:${y}});i.dispatchEvent(new TouchEvent('${type}',{bubbles:true,cancelable:true,touches:'${type}'==='touchend'?[]:[t],changedTouches:[t]}))})()`;
+      const y0 = await ev(`document.querySelector('.dab-input input').getBoundingClientRect().top+10`);
+      await ev(touch('touchstart', y0));
+      const mid = await ev(`document.documentElement.style.getPropertyValue('--app-vh')`);
+      await ev(touch('touchend', y0));
+      const tap = await ev(`({vh:document.documentElement.style.getPropertyValue('--app-vh'), focused:document.activeElement===document.querySelector('.dab-input input')})`);
+      check(`폰: 누를 때는 그대로, 떼는 순간 뿌리를 미리 줄이고 칸에 초점`, mid === '844px' && tap.vh === '500px' && tap.focused, JSON.stringify({ mid, ...tap }));
+      await ev(`document.activeElement.blur()`); await sleep(500);
+      await ev(touch('touchstart', y0)); await ev(touch('touchend', y0 - 60));
+      check(`폰: 끌기(손가락이 움직임)는 건드리지 않는다`, await ev(`document.documentElement.style.getPropertyValue('--app-vh')==='844px' && document.activeElement!==document.querySelector('.dab-input input')`));
       await ev(`document.querySelector('.dab-input input').focus()`);
       await sleep(150);
       const noKb = await ev(kbState);
