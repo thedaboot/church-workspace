@@ -589,7 +589,10 @@ function WorkspaceShell() {
       // innerHeight와 견주면 안 된다 — 아이폰은 키보드가 뜨면 innerHeight도 같이 줄어 표시가 끝내 안 섰다(2026-10-04 실기기).
       // 입력칸에 초점이 없을 때 잰 높이를 기준으로 둔다.
       if (!editing()) fullH = h;
-      root.toggleAttribute('data-kb', editing() && h < fullH - 80);
+      const kb = editing() && h < fullH - 80;
+      root.toggleAttribute('data-kb', kb);
+      // 키보드가 뜬 높이를 기억해 둔다 — 바닥 칸을 누르는 순간 뿌리를 미리 줄이는 데 쓴다(dabooti.jsx preKeyboard · PITFALLS 33-p)
+      if (kb) { try { localStorage.setItem(`kbH:${Math.round(fullH)}`, String(Math.round(h))); } catch { /* 저장소 막힘 */ } }
       // 아이폰이 이미 문서를 밀어 놨으면 되돌린다. 뿌리가 보이는 창만큼이면 문서는
       // 스크롤될 것이 없으므로 이 호출은 대개 아무 일도 하지 않는다(되돌릴 때만 움직인다).
       if (window.scrollY > 0) window.scrollTo(0, 0);

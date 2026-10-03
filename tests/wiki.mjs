@@ -208,8 +208,17 @@ try {
       await ev(`document.querySelector('.dab-input input').focus()`);
       await sleep(150);
       const kbState = `(()=>{const m=document.querySelector('main');const i=document.querySelector('.dab-input input');return {pb:parseFloat(getComputedStyle(m).paddingBottom), gap:Math.round(m.getBoundingClientRect().bottom-document.querySelector('.dab-input').getBoundingClientRect().bottom), outline:getComputedStyle(i).outlineStyle}})()`;
-      // 초점 순간 한 프레임만 투명(아이폰이 페이지를 끌어올리지 않게) — 그 뒤에는 반드시 다시 보인다
-      check(`폰: 초점 뒤 칸 글자가 다시 보인다`, await ev(`getComputedStyle(document.querySelector('.dab-input input')).opacity === '1'`));
+      // 누르는 순간 지난번 키보드 높이만큼 뿌리를 미리 줄인다(아이폰이 화면 전체를 끌어올리지 않게 · 실기기 기록 2026-10-04) ·
+      // 초점이 안 오면(끌기) 되돌린다
+      await ev(`document.activeElement.blur()`); await sleep(500);   // blur 뒤 다시 재는 것(App.jsx 250ms)이 되돌리기를 대신하지 않게 먼저 끝낸다
+      await ev(`localStorage.setItem('kbH:'+innerHeight, '500')`);
+      await ev(`document.querySelector('.dab-input input').dispatchEvent(new TouchEvent('touchstart',{bubbles:true}))`);
+      const pre = await ev(`document.documentElement.style.getPropertyValue('--app-vh')`);
+      await sleep(900);
+      const undo = await ev(`document.documentElement.style.getPropertyValue('--app-vh')`);
+      check(`폰: 칸을 누르는 순간 뿌리를 미리 줄이고, 초점이 안 오면 되돌린다`, pre === '500px' && undo === '844px', JSON.stringify({ pre, undo }));
+      await ev(`document.querySelector('.dab-input input').focus()`);
+      await sleep(150);
       const noKb = await ev(kbState);
       check(`폰: 키보드 없이 초점만 있으면 칸은 하단 바 위 그대로 · 네모 테두리 없음`, noKb.pb >= 80 && noKb.outline === 'none', JSON.stringify(noKb));
       // 키보드 흉내 — 아이폰처럼 보이는 창과 innerHeight가 **같이** 준다(innerHeight와 견주던 판은 여기서 표시가 안 섰다 · 2026-10-04 실기기)
