@@ -16,7 +16,8 @@ import { useSyncExternalStore } from 'react';
 //                apply = 1이면 그 동아리 가입 신청까지 · t = 업무 id(기존) ·
 //                note = 모임 화면에서 펼 공유 노트의 주보 id · guide = 펼 순모임 가이드의 주보 id
 //                (모임 화면 값은 `s`와 이름을 가른다 — 예배 화면이 떠 있으면 그쪽이 `s`를 먼저 집는다) ·
-//                qt = 말씀 화면 QT에서 열 날짜(YYYY-MM-DD · 위키 QT 본문 일정)
+//                qt = 말씀 화면 QT에서 열 날짜(YYYY-MM-DD · 위키 QT 본문 일정) ·
+//                wiki = 위키에서 열 장 id(마스터 알림 → 자주 묻는 질문 `faq`)
 // ============================================================================
 let params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
 const listeners = new Set();

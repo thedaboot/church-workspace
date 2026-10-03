@@ -16,6 +16,7 @@ import { weekStartOf } from '../src/services/bibleReads.js';
 //         라우트를 새로 파지 않고 이 입구를 나눠 쓴다.
 //           (없음)          오늘·내일 마감인데 완료가 아닌 카드의 담당자에게 due_soon
 //                           → 그 **뒤에** 업무·댓글·첨부 임베딩 증분(doc_vec · 0074 · 시간 예산 안에서만)
+//                           → 위키(0088) → 다붓이가 모르는 질문이 있으면 마스터에게 푸시 한 통(notifyMasterUnknown)
 //           job=worship     오늘(KST) 발행된 주보가 있으면 승인 멤버 전원에게 worship_today
 //                           → 이어서 내일(KST) 동아리 모임이 있으면 그 구성원에게 meeting_tomorrow(0078)
 //           job=embed       임베딩 증분만(손으로 부르는 길 · 크론에는 없다 — 자리가 둘뿐이다)
@@ -549,11 +550,43 @@ export async function runWiki(started, now = Date.now()) {
     const db = admin();
     const reask = await reaskUnknown(db, { budgetMs: Math.min(60 * 1000, left / 4) });
     const built = await buildWiki(db, { budgetMs: PUSH_MAX_MS - WIKI_MARGIN_MS - (Date.now() - started) - 20 * 1000 });
-    return { reask, built: built.built.length, skipped: built.skipped, pending: built.pending.length, faq: built.faq, usage: built.usage };
+    const master = await notifyMasterUnknown(db).catch(e => { console.error('[push] 마스터 알림 실패:', e); return { error: '실패' }; });
+    return { reask, built: built.built.length, skipped: built.skipped, pending: built.pending.length, faq: built.faq, usage: built.usage, master };
   } catch (e) {
     console.error('[push] 위키 갈래 실패:', e);
     return { error: String(e?.message || e).slice(0, 200) };
   }
+}
+
+// ── 위키 갈래 끝: 다붓이가 모르는 질문을 마스터에게 (사용자 결정 2026-10-04) ──────────
+// 지난 24시간에 물어본 질문 가운데 몰랐거나(unknown — 알려 주는 말도 여기) '도움이 안 됐어요'를 받은 것을 묶음(norm)으로 세어
+// 하나라도 있으면 마스터(admins.is_master — is_master()와 같은 표)에게 푸시 **한 통**. 누르면 위키 자주 묻는 질문 장(`/?p=wiki&wiki=faq`).
+// 앱 안 알림 행은 만들지 않는다 — notifications.kind CHECK에 새 종류가 필요해서(마이그레이션). 하루 한 번은 tag(`dabooti:<KST 날짜>`)로
+// 기기에서 한 칸만 남게 한다(같은 날 손으로 다시 부르면 그 칸을 바꿔 다시 울린다 · 크론은 하루 한 번이다).
+export const MASTER_FAQ_LINK = '/?p=wiki&wiki=faq';
+export function unknownCount(rows = []) {
+  return new Set((rows || []).filter(r => r && r.via !== 'nightly' && (r.status === 'unknown' || r.feedback === 'bad')).map(r => r.norm)).size;
+}
+export const masterNotice = (n, day) => ({ title: `다붓이가 모르는 질문 ${n}개`, body: '자주 묻는 질문에서 답을 적어 주세요', url: MASTER_FAQ_LINK, tag: `dabooti:${day}` });
+
+async function notifyMasterUnknown(db, now = Date.now()) {
+  const { data: rows, error } = await db.from('dabooti_questions').select('norm, status, feedback, via')
+    .gte('created_at', new Date(now - 24 * 3600e3).toISOString());
+  if (error) throw error;
+  const n = unknownCount(rows);
+  if (!n) return { unknown: 0, sent: 0 };
+  const { data: masters, error: mErr } = await db.from('admins').select('email').eq('is_master', true);
+  if (mErr) throw mErr;
+  const emails = new Set((masters || []).map(m => String(m.email || '').toLowerCase()).filter(Boolean));
+  const { data: profs, error: pErr } = await db.from('profiles').select('id, email');
+  if (pErr) throw pErr;
+  const ids = (profs || []).filter(p => emails.has(String(p.email || '').toLowerCase())).map(p => p.id);
+  if (!ids.length || !pushReady()) return { unknown: n, sent: 0 };
+  const targets = await loadTargets(db, ids);
+  const dead = [];
+  const sent = await pushWith(targets, ids, masterNotice(n, kstDate(0, now)), dead);
+  await dropDead(db, dead);
+  return { unknown: n, sent };
 }
 
 // GET ?job=worship(11:30 크론) — 예배 당일 → 동아리 모임 전날. 한쪽이 DB 오류로 죽어도 다른 쪽은 돈다.

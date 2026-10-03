@@ -7,6 +7,7 @@ import {
   FAQ_SOURCE, FAQ_ID, TITLE_KEY, headKey, visiblePages, boldParts, toggleBold,
 } from '../services/wikiCore.js';
 import { useAuth } from '../services/auth.jsx';
+import { entryParam, takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
 import { loadBibleIndex } from '../services/bible.js';
 import { fullRef } from '../services/bibleRef.js';
 import { AskPanel, AskEntry, CiteChip, chipsFrom } from '../components/dabooti.jsx';
@@ -92,6 +93,13 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
   }, [page?.id, page?.built_at]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const go = (id) => { if (id === FAQ_ID && !isMaster) return; setDir(id === null ? 'back' : 'fwd'); setSel(id); document.querySelector('main')?.scrollTo?.({ top: 0 }); };
+  // 딥링크 `/?p=wiki&wiki=<장 id>` — 8시 크론의 마스터 알림('다붓이가 모르는 질문 N개' → 자주 묻는 질문)이 연다(services/entryQuery)
+  const entry = useEntryQuery();
+  useEffect(() => {
+    if (!pages.length || !entryParam('wiki')) return;
+    const id = takeEntryParam('wiki');
+    if (pages.some(p => p.id === id)) go(id);
+  }, [entry, pages.length]);  // eslint-disable-line react-hooks/exhaustive-deps
   const openCite = (c) => {
     if (!c) return;
     if (c.t === 'page') { go(c.id); return; }

@@ -230,25 +230,121 @@ export function editRows(pageId, blocks, drafts) {
 }
 
 // ── 다붓이: 모델 앞에서 코드가 거른다 ─────────────────────────────────────────
-// 한 사람의 기록(출석·노트·묵상·성경 읽은 기록·기도제목) · 사람 평가 · 비밀 값과 지시 무시 요청은
-// 모델을 부르지 않는다(사용자 결정 2026-10-02). 걸렸으면 { kind, answer }.
-const SECRET = /이전\s?(?:지시|명령|규칙)|지시를?\s?무시|규칙을?\s?무시|무시하고|ignore\s+(?:all|previous|the)|system\s?prompt|시스템\s?프롬프트|프롬프트를|비밀\s?번호|패스워드|password|이메일|e-?mail|메일\s?주소|토큰|api\s?키|키\s?값|서비스\s?키|회원\s?(?:목록|명단)|가입자\s?(?:목록|명단)|전체\s?명단/i;
-const PERSONAL = /출석|결석|안\s?(?:왔|나왔|온)\s?사람|빠진\s?사람|누가.{0,12}(?:안\s?(?:왔|나왔|했)|빠졌)|기도\s?제목|묵상|큐티|예배\s?노트|내\s?노트|성경\s?(?:읽은|읽기\s?기록)|헌금.{0,8}(?:누가|얼마)|연락처|전화\s?번호|휴대폰|생년월일|집\s?주소|사는\s?곳/i;
+// 개인 노트·묵상 · 비밀 값 · 지시 무시 · 연락처 같은 개인 정보 · 한 사람의 사정 · 사람 평가는 모델을 부르지 않는다
+// (사용자 결정 2026-10-02 · 2026-10-04에 고침). 걸렸으면 { kind, answer } — 답은 **왜 못 하는지** 한 문장(갈래마다 하나).
+// 2026-10-04부터 거르지 않는 것: 명단(회원·가입자·전체 명단 — 근거에 있는 이름만 답한다) · 출석(근거가 없으면 모르는 질문으로 간다).
+const OVERRIDE = /이전\s?(?:지시|명령|규칙)|지시를?\s?무시|규칙을?\s?무시|무시하고|ignore\s+(?:all|previous|the)|system\s?prompt|시스템\s?프롬프트|프롬프트를/i;
+const SECRET = /비밀\s?번호|패스워드|password|토큰|api\s?키|키\s?값|서비스\s?키|이메일|e-?mail|메일\s?주소/i;
+const NOTE = /묵상|큐티|예배\s?노트|내\s?노트|(?:누구|남|다른\s?사람)의?\s?노트|성경\s?(?:읽은|읽기\s?기록)/i;
+const CONTACT = /연락처|전화\s?번호|휴대폰|핸드폰|생년월일|집\s?주소|사는\s?곳/i;
+const PRIVATE = /기도\s?제목|헌금.{0,8}(?:누가|얼마)|(?:개인|집안|가정|그\s?사람|걔)\s?(?:의\s?)?(?:사정|형편|문제)|왜\s?(?:안\s?나와|안\s?와|그만뒀|나갔)/i;
 // 새 글을 만들어 달라는 요청(기획안·초안·공지 써 줘) — 다붓이는 기록을 찾아 알려 주고, 글을 지어 주지 않는다(2026-10-03 사용자 결정 —
 // '내년 동계수련회 기획안 만들어줘'가 모르는 질문에 섰다). 자주 묻는 질문에도 서지 않는다(refused).
 const MAKE = /(?:만들어|작성해|써|짜|짜서|지어|그려)\s?(?:줘|주세요|줄래|줄 수|달라)|초안\s?(?:좀|을|를)?\s?(?:만들|작성|써)/;
 const JUDGE = /누가\s?(?:제일|가장|더)\s?(?:잘|못|열심|게으|늦)|(?:성실|불성실|게으른|열심인)\s?사람|순위|랭킹|평가해/i;
 export const PREFILTER_ANSWERS = {
-  secret: '그건 알려 드릴 수 없어요. 계정 정보와 비밀 값은 다붓이가 다루지 않아요.',
-  personal: '출석이나 노트, 묵상 같은 한 사람 한 사람의 기록은 다붓이가 다루지 않아요.',
-  judge: '사람을 서로 견주거나 평가하는 질문은 다붓이가 다루지 않아요.',
-  make: '다붓이는 기록에서 찾아 알려 드려요. 새 글을 만들어 드리지는 않아요.',
+  override: '다붓이가 지키는 규칙을 바꾸라는 요청은 따르지 않아요.',
+  secret: '비밀번호 같은 값은 다붓이가 알려 드리지 않아요.',
+  note: '개인 묵상 노트는 본인만 보는 글이라 다붓이가 열어 보지 않아요.',
+  contact: '연락처 같은 개인 정보는 다붓이가 알려 드리지 않아요.',
+  private: '한 사람의 사정은 다붓이가 다루지 않아요.',
+  judge: '사람을 서로 견주거나 평가하는 건 다붓이가 하지 않아요.',
+  // 사용자 문구(2026-10-04) — 거른 답(refused)이라 자주 묻는 질문에 서지 않는다
+  make: '아직은 무언가를 만들어 드리기 어려워요. 가능해지면 꼭 말씀드릴게요.',
 };
 export function prefilter(q) {
   const s = String(q || '');
-  const kind = SECRET.test(s) ? 'secret' : PERSONAL.test(s) ? 'personal' : JUDGE.test(s) ? 'judge' : MAKE.test(s) ? 'make' : null;
+  const kind = OVERRIDE.test(s) ? 'override' : SECRET.test(s) ? 'secret' : NOTE.test(s) ? 'note' : CONTACT.test(s) ? 'contact'
+    : PRIVATE.test(s) ? 'private' : JUDGE.test(s) ? 'judge' : MAKE.test(s) ? 'make' : null;
   return kind ? { kind, answer: PREFILTER_ANSWERS[kind] } : null;
 }
+
+// ── 다붓이: 모델 없이 코드가 답하는 말 (사용자 결정 2026-10-04) ─────────────────
+// 다붓이 자신(누가 만들었나) · 인사·고마움·칭찬 · 알려 주는 말(질문이 아닌 문장)은 근거를 찾지 않는다.
+// 정보 답은 지금처럼 담백한 해요체이고, 이쪽만 조금 다정하게 — 짧게(1~2문장) · 이모지 없음 · 교회 사실은 말하지 않는다.
+// talkKind(질문, 앞 질문들) → { kind, answer, status } 또는 null(근거를 찾는 보통 길).
+//   self      다붓이를 누가 만들었나 · 만든 사람을 알려 줌 — answered(칩 없음 · 저장하지 않는다)
+//   greet · thanks · praise · ok · bye — answered(저장하지 않는다)
+//   statement 알려 주는 말 — unknown으로 저장해 마스터가 자주 묻는 질문 › 모르는 질문에서 위키에 옮긴다
+export const MAKER = '노준석';
+export const TALK_ANSWERS = {
+  makerAsk: '청년부에서 가장 목소리가 좋은 위대하신 노준석 개발자님이 만들었어요!',
+  makerTold: '맞아요! 저를 만들어주신 분은 노준석 개발자님이세요.',
+  makerKnown: '네, 저를 만들어주신 분은 노준석 개발자님이세요.',
+  makerOther: '저를 만들어주신 분은 노준석 개발자님이세요.',
+  greet: '안녕하세요! 궁금한 게 있으면 편하게 물어봐 주세요.',
+  thanks: '도움이 됐다니 기뻐요! 또 궁금한 게 있으면 물어봐 주세요.',
+  praise: '칭찬해 주셔서 고마워요! 더 잘 찾아 볼게요.',
+  ok: '네, 좋아요! 또 궁금한 게 있으면 물어봐 주세요.',
+  bye: '네, 다음에 또 만나요! 좋은 하루 보내세요.',
+  statement: '알려 주셔서 고마워요! 정리해서 내일 아침에 학습해 둘게요.',
+};
+// 다붓이를 부르는 말 — '더다붓'(청년부 이름)은 아니다
+const SELF = /(?<![가-힣])(?:너|넌|너는|너를|너의|니|니가|네가|당신)(?![가-힣])|(?<!더)다붓(?:이|아)/;
+const MAKE_WORD = /만들|만든|개발|제작|창조|아빠|아버지|엄마|어머니|부모|주인|창시/;
+const MAKER_ASK = /(?:누가|누구).{0,10}(?:만들|만든|개발|제작|창조)|(?:만든|만들어\s?준|개발한|제작한)\s?(?:사람|분|이|애)|(?:개발자|제작자|아빠|아버지|엄마|어머니|부모|주인).{0,6}(?:누구|누가|뭐)/;
+// 물음 — 물음표 · 물음 말 · 부탁(…줘)은 알려 주는 말이 아니다
+const ASKING = /[?？]|언제|어디|누구|누가|뭐|뭘|무엇|무슨|어떤|어떻|어때|어땠|왜|몇|얼마|어느|알려|보여|찾아|궁금|있나|있니|없나|인가|인지|일까|는지|던가|맞아|맞나|맞죠|맞지|(?:니|냐|나요|까요|까|ㄹ까|가요|나|래요|대요)$/;
+const REQUEST = /줘|주세요|주실|줄래|줄 수|달라|해\s?봐/;
+// 알려 주는 말의 꼴 — ① 이름·말 + 이다(…이야 · …예요) ② 은/는·에·까지·부터가 든 서술(…송폼은 금요일에 나와)
+const COPULA_END = /(?:이야|야|이에요|예요|에요|입니다|이다|이래|이거든|거든|이잖아|잖아|임)$/;
+const PLAIN_END = /(?:와|와요|해|해요|돼|돼요|어|어요|아|아요|다|요|함|음|네|지)$/;
+const INFO_PARTICLE = /[가-힣A-Za-z0-9](?:은|는|에|에서|까지|부터|이랑|랑)\s/;
+const GREET = /^(?:안녕|하이|hi|hello|헬로|ㅎㅇ|반가워|반갑|좋은\s?(?:아침|하루|저녁))/i;
+const THANKS = /고마|감사|땡큐|thank|thx|ㄳ|ㄱㅅ/i;
+const PRAISE = /잘했|잘하네|잘한다|최고|똑똑|귀여|귀엽|대단|멋져|멋지|짱|사랑해|천재/;
+const OK = /^(?:응|ㅇㅇ|ㅇㅋ|오케이|ok|알겠|알았|그래|넵|네|예|좋아|좋네|ㅎㅎ|ㅋㅋ)/i;
+const BYE = /^(?:잘\s?가|바이|bye|다음에\s?(?:봐|또)|또\s?봐|수고)/i;
+
+// 꾸밈(부르는 말·문장부호·웃음)을 걷은 알맹이
+const core = (s) => String(s || '').replace(/(?<!더)다붓(?:이|아)?(?:야|아)?/g, ' ').replace(/[!.~,…\s]+/g, ' ').replace(/(?:ㅎ|ㅋ|ㅠ|ㅜ){2,}/g, ' ').trim();
+
+export function isAsking(q) {
+  const s = String(q || '').trim().replace(/[!.~…\s]+$/, '');
+  return ASKING.test(s) || REQUEST.test(s);
+}
+
+// 알려 주는 말인가 — 물음·부탁이 아니고, 이다 꼴이거나 은/는·에가 든 서술이며 내용 낱말이 둘 이상
+export function isStatement(q) {
+  const s = String(q || '').trim().replace(/[!.~…\s]+$/, '');
+  if (!s || isAsking(s)) return false;
+  if (termsOf(s).length < 2) return false;
+  if (COPULA_END.test(s)) return true;
+  return PLAIN_END.test(s) && INFO_PARTICLE.test(`${s} `);
+}
+
+const makerTold = (s) => !isAsking(s) && MAKE_WORD.test(s) && (SELF.test(s) || new RegExp(MAKER).test(s));
+export function talkKind(q, prev = []) {
+  const s = String(q || '').trim();
+  if (!s) return null;
+  const earlier = (Array.isArray(prev) ? prev : String(prev || '').split('\n')).map(x => String(x).trim()).filter(Boolean);
+  // 부르는 말이 없어도 다른 대상이 없으면('누가 만들었어?') 다붓이 이야기다 — '이 포스터 누가 만들었어?'는 아니다
+  const self = SELF.test(s) || !termsOf(s).filter(t => !MAKE_WORD.test(t)).length;
+  // 다붓이를 누가 만들었나 — 앞에서 사용자가 알려 줬으면 '네, …'
+  if (MAKER_ASK.test(s) && isAsking(s) && self) {
+    const told = earlier.some(x => makerTold(x) && x.includes(MAKER));
+    return { kind: 'self', status: 'answered', answer: told ? TALK_ANSWERS.makerKnown : TALK_ANSWERS.makerAsk };
+  }
+  // 만든 사람을 알려 줌('너 아빠 노준석이야' · '알아둬 다붓아 너의 개발자는 노준석이야')
+  if (makerTold(s) && SELF.test(s)) {
+    return { kind: 'self', status: 'answered', answer: s.includes(MAKER) ? TALK_ANSWERS.makerTold : TALK_ANSWERS.makerOther };
+  }
+  const c = core(s);
+  if (!isAsking(s) || /^[?？]*$/.test(c)) {
+    if (THANKS.test(c) && c.length <= 30) return { kind: 'thanks', status: 'answered', answer: TALK_ANSWERS.thanks };
+    if (GREET.test(c) && c.length <= 20) return { kind: 'greet', status: 'answered', answer: TALK_ANSWERS.greet };
+    if (BYE.test(c) && c.length <= 15) return { kind: 'bye', status: 'answered', answer: TALK_ANSWERS.bye };
+    if (PRAISE.test(c) && c.length <= 20) return { kind: 'praise', status: 'answered', answer: TALK_ANSWERS.praise };
+    if (OK.test(c) && c.length <= 8) return { kind: 'ok', status: 'answered', answer: TALK_ANSWERS.ok };
+    if (!c) return { kind: 'greet', status: 'answered', answer: TALK_ANSWERS.greet };   // '다붓아!'만
+  }
+  if (isStatement(s)) return { kind: 'statement', status: 'unknown', answer: TALK_ANSWERS.statement };
+  return null;
+}
+
+// 사람을 묻는 질문 — 근거에 가입자 이름·팀·직함 줄을 싣는다(묻는 사람 세션 · RLS)
+const PEOPLE_Q = /누구|누가|명단|멤버|팀원|사역자|전도사|목사|교역자|팀장|인도자|싱어|가입자|담당자|들어가\s?있|소속/;
+export const isPeopleQuestion = (q) => PEOPLE_Q.test(String(q || ''));
 
 // 같은 질문 묶기 — 띄어쓰기·문장부호를 걷는다
 export const normQ = (q) => String(q || '').toLowerCase().replace(/[\s?!.,~'"·…]+/g, '');
@@ -333,6 +429,9 @@ export function keepCited(sentences, evidence, extraCheck = () => []) {
     if (!text) continue;
     if (!ids.length) { dropped.push({ text, why: '근거 없음' }); continue; }
     if (issues.length) { dropped.push({ text, why: issues.join(', ') }); continue; }
+    // 금액은 그 문장이 가리킨 근거에 **글자 그대로** 있을 때만(사용자 결정 2026-10-04 · 비밀번호 첨부 내용은 근거에 오지 않는다)
+    const money = strangeAmounts(text, ids.map(id => byId.get(id).text).join(' '));
+    if (money.length) { dropped.push({ text, why: `근거에 없는 금액 ${money.join(', ')}` }); continue; }
     const cites = [];
     for (const id of ids) {
       const c = byId.get(id).cite;
@@ -343,12 +442,20 @@ export function keepCited(sentences, evidence, extraCheck = () => []) {
   return { kept, dropped };
 }
 
+// 금액 — '50,000원' · '3만 원' · '12000원' · '1,200,000'(천 단위 쉼표). 글의 금액 가운데 근거에 글자 그대로(빈칸 무시) 없는 것.
+const AMOUNT = /\d[\d,]*(?:\.\d+)?\s?(?:만\s?|천\s?|억\s?)*원|\d{1,3}(?:,\d{3})+/g;
+export function strangeAmounts(text, evidenceText) {
+  const hay = String(evidenceText || '').replace(/\s+/g, '');
+  return [...String(text || '').matchAll(AMOUNT)].map(m => m[0].trim()).filter(a => !hay.includes(a.replace(/\s+/g, '')));
+}
+
 // '찾지 못했어요' 답의 칩 — 문장에 그 근거의 이름이 나올 때만 단다(엉뚱한 칩을 막는다 · 시범 약점)
 export function notFoundCites(text, cites) {
   return (cites || []).filter(c => c?.label && String(text).includes(String(c.label).replace(/\.\w+$/, '')));
 }
 
-export const NOT_FOUND = '기록에서 찾지 못했어요. 이 질문은 위키의 자주 묻는 질문에 남겨 둘게요.';
+// 모르는 질문의 답(사용자 문구 2026-10-04) — 크론이 8시(KST)에 돈다. 자주 묻는 질문 장은 마스터만 보니 그 장 이야기는 답 글에 넣지 않는다(마스터에게는 화면이 칩을 단다).
+export const NOT_FOUND = '워크스페이스에서는 그런 내용을 찾을 수가 없어서, 해당 질문은 보완해서 내일 아침에 학습해 둘게요.';
 
 // 문장이 근거에 글자 그대로 기대는가 — 내용 낱말(termsOf 규칙 · 조사·물음 말 걷음)이 **셋 이상이고 전부** 근거 글에 있으면 true.
 // 다붓이 답의 코드 검사(api/_wikiAsk.js) — 참이면 모델 검사를 건너뛴다. 낱말이 적은 문장은 모델이 본다(관계가 틀릴 여지).

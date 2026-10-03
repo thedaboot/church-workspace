@@ -13,7 +13,8 @@ import { geminiText } from './ai.js';
 //   · 날짜·상태·팀·앞뒤 업무는 화면 요소(블록 제목·상태 칩·근거 칩)로 코드가 세운다.
 //   · 모델은 업무 본문·하위 업무·댓글·가이드에서 뽑은 조각(S1…)만 보고 블록마다 두세 문장을 쓴다.
 //     문장마다 어느 조각에서 왔는지 적게 하고, 두 번째 호출이 '근거에 없는 주장'만 찾아 걸러 낸다.
-//   · 사람 이름이 든 줄은 조각에 싣지 않는다(위키는 모두가 읽는 곳 · 사람을 견주지 않는다 §8).
+//   · 사람 이름은 써도 된다(사용자 결정 2026-10-04) — 다만 **그 블록 조각에 있는 이름만**. 조각에 없는 이름이 든 문장은 코드가 버린다
+//     (nameMatcher.strangers). 사람을 견주거나 평가하는 말은 여전히 쓰지 않는다(§8).
 // 자가 개선: 사람이 고친 문장(wiki_edits의 before → text)을 '사람이 고친 예'로 프롬프트에 싣는다 —
 //   다음에 다시 쓸 때 그 말투와 표현을 따른다. 사람이 지운 문장은 '쓰지 말 것'이다.
 //   고친 줄 자체는 다시 모아도 덮지 않는다(화면이 겹쳐 그린다 · wikiCore.overlayEdits).
@@ -87,18 +88,28 @@ export async function findProblems(sys, lines, opts) {
 
 // ── 사람 이름 ────────────────────────────────────────────────────────────────
 // 가입자 표시명 · 명단 이름 · 세 글자 이름의 뒤 두 글자(흔한 낱말은 빼고) + 직함 붙은 바깥 이름.
+// hasName(글) → 이름이 있나 · hasName.strangers(글, 근거) → 글에 있는데 **근거에 없는** 이름들(지어낸 이름을 버린다 · 2026-10-04)
 const OUTSIDE = [/[가-힣]{2,4}\s?(?:목사|선생|전도사|간사|집사|권사|장로|교수)님/, /(?<![가-힣])[가-힣]{3}\s?(?:형제|자매)/, /@\S/, /\(with\.?\s*[^)]*\)/i];
+const OUTSIDE_NAME = /(?<![가-힣])([가-힣]{3})\s?(?:목사|선생|전도사|간사|집사|권사|장로|교수)님|(?<![가-힣])([가-힣]{3})\s?(?:형제|자매)/g;
 export function nameMatcher(names) {
-  const keys = new Set();
+  const people = [];
   for (const n of names || []) {
     const s = String(n || '').trim();
     if (s.length < 2) continue;
-    keys.add(s);
+    const keys = [s];
     const h = (s.match(/[가-힣]+/) || [''])[0];
-    if (h.length === 3 && !COMMON_GIVEN.has(h.slice(1))) keys.add(h.slice(1));
+    if (h.length === 3 && !COMMON_GIVEN.has(h.slice(1))) keys.push(h.slice(1));
+    people.push({ name: s, keys });
   }
-  const list = [...keys];
-  return (text) => list.some(k => hitsName(text, k)) || OUTSIDE.some(re => re.test(String(text || '')));
+  const list = people.flatMap(p => p.keys);
+  const fn = (text) => list.some(k => hitsName(text, k)) || OUTSIDE.some(re => re.test(String(text || '')));
+  fn.strangers = (text, hay) => {
+    const t = String(text || ''); const h = String(hay || '');
+    const out = people.filter(p => p.keys.some(k => hitsName(t, k)) && !p.keys.some(k => hitsName(h, k))).map(p => p.name);
+    for (const m of t.matchAll(OUTSIDE_NAME)) { const nm = m[1] || m[2]; if (!h.includes(nm) && !out.includes(nm)) out.push(nm); }
+    return out;
+  };
+  return fn;
 }
 
 // ── 글 조각 ──────────────────────────────────────────────────────────────────
@@ -107,8 +118,8 @@ const strip = (s) => String(s || '')
   .replace(/\*\*|__|==|[*_]{1,3}(?=\S)|(?<=\S)[*_]{1,3}/g, '').replace(/\s+/g, ' ').trim();
 const cleanHead = (s) => strip(s.replace(/^#+\s*/, '')).replace(/@\S+/g, '').replace(/\(\s*[,\s]*\)/g, '').replace(/\s+/g, ' ').trim();
 
-// 본문 → [{ head, text }]. 소제목을 앞에 달고, 사람 이름이 든 줄·가사 자투리는 버린다(시범 그대로).
-export function snippetsOf(text, hasName) {
+// 본문 → [{ head, text }]. 소제목을 앞에 달고, 가사 자투리는 버린다. 사람 이름이 든 줄도 싣는다(2026-10-04 · 예전에는 버렸다).
+export function snippetsOf(text) {
   const out = []; let head = ''; let parent = ''; let buf = null;
   const flush = () => {
     if (buf && buf.items.length) out.push(buf.items.length === 1 ? { head: buf.head, text: buf.items[0] } : { head: buf.head, text: `${buf.items.join(', ')} (${buf.items.length}개)` });
@@ -123,8 +134,7 @@ export function snippetsOf(text, hasName) {
     if (!body || body.length < 2) continue;
     if (!bullet && !/[.:)다요음함]$/.test(body)) continue;
     if (/:$/.test(body) && body.length < 40) { flush(); parent = body.replace(/:$/, '').trim(); continue; }
-    if (hasName(body)) continue;
-    const h = [head, parent].filter(x => x && !hasName(x)).join(' > ');
+    const h = [head, parent].filter(Boolean).join(' > ');
     if (bullet && /\((?:[A-G][#b]?)(?:-[A-G][#b]?)?\)$/.test(body)) {
       if (!buf || buf.head !== h) { flush(); buf = { head: h, items: [] }; }
       buf.items.push(body); continue;
@@ -176,13 +186,13 @@ const cardDate = (c) => c.start_date || c.due_date || '';
 const byDate = (a, b) => String(cardDate(a) || '9999').localeCompare(String(cardDate(b) || '9999'));
 export const projectTitle = (name, year) => String(name || '').replace(new RegExp(`^${year || '\\d{4}'}\\s+`), '').replace(/^더다붓\s+/, '').trim() || name;
 
-function cardSnips(D, c, hasName, { comments = true } = {}) {
-  const s = snippetsOf(c.description, hasName);
-  const subs = (Array.isArray(c.subtasks) ? c.subtasks : []).filter(x => x?.title && !hasName(x.title));
+function cardSnips(D, c, { comments = true } = {}) {
+  const s = snippetsOf(c.description);
+  const subs = (Array.isArray(c.subtasks) ? c.subtasks : []).filter(x => x?.title);
   if (subs.length) s.push({ head: '하위 업무', text: `${subs.map(x => strip(x.title)).join(', ')} (${subs.length}개, 끝낸 것 ${subs.filter(x => x.done).length}개)` });
   if (comments) for (const m of D.comments.filter(m => m.card_id === c.id)) {
     const b = strip(m.body);
-    if (b.length >= 6 && !hasName(b)) s.push({ head: `댓글 ${mdLabel(kstDate(m.created_at))}`, text: b.slice(0, 200) });
+    if (b.length >= 6) s.push({ head: `댓글 ${mdLabel(kstDate(m.created_at))}`, text: b.slice(0, 200) });
   }
   return s.map(x => ({ ...x, cite: cardCite(c) }));
 }
@@ -191,7 +201,7 @@ function cardSnips(D, c, hasName, { comments = true } = {}) {
 const sectionTitle = (c) => c.title;
 
 // 업무 묶음 → 블록들: 이음 두 문장(lead) · 업무마다 section · 글이 비어 있는 업무는 '기록 전'
-function cardBlocks(D, cards, hasName, { leadMax = 2, perCard = 4, multiAsChips = false, team = null } = {}) {
+function cardBlocks(D, cards, { leadMax = 2, perCard = 4, multiAsChips = false, team = null } = {}) {
   const blocks = [];
   const all = [];
   const solo = multiAsChips ? cards.filter(c => c.teams.length <= 1) : cards;
@@ -199,7 +209,7 @@ function cardBlocks(D, cards, hasName, { leadMax = 2, perCard = 4, multiAsChips 
   const empty = [];
   const secs = [];
   for (const c of [...solo].sort(byDate)) {
-    const snips = cardSnips(D, c, hasName);
+    const snips = cardSnips(D, c);
     if (!snips.length) { empty.push(c); continue; }
     all.push(...snips);
     secs.push({ key: `c:${c.id}`, type: 'section', title: sectionTitle(c), meta: { status: STATUS[c.status] || '', cardId: c.id, date: cardDate(c), when: taskWhen(c.start_date, c.due_date) }, cites: [cardCite(c)], items: [], snips, max: perCard });
@@ -214,7 +224,6 @@ function cardBlocks(D, cards, hasName, { leadMax = 2, perCard = 4, multiAsChips 
 }
 
 export function skeletons(D) {
-  const hasName = nameMatcher(D.names);
   const year = D.today.slice(0, 4);
   const pages = [];
   const usable = D.projects.filter(p => !EXCLUDED_PROJECT.test(p.name));
@@ -230,7 +239,7 @@ export function skeletons(D) {
   events.forEach((p, i) => {
     const cs = cardsOf(p.id);
     pages.push({ id: `p:${p.id}`, grp: '행사', title: projectTitle(p.name, year), kind: 'auto', position: i, source: '업무', source_count: cs.length,
-      blocks: cardBlocks(D, cs, hasName) });
+      blocks: cardBlocks(D, cs) });
   });
 
   // 팀 — 그 팀만 걸린 업무는 '맡은 일', 여러 팀이 걸린 업무는 '다붓했던 일'(이름만 · 한 팀의 일로 쓰지 않는다)
@@ -244,7 +253,7 @@ export function skeletons(D) {
     const line = teamLine(team);
     const blocks = [];
     if (line) blocks.push({ key: 'about', type: 'plain', items: [{ key: 'about1', text: line, by: 'code', cites: [pageCite('intro', '더다붓 소개')] }] });
-    blocks.push(...cardBlocks(D, cs, hasName, { leadMax: 0, perCard: 2, multiAsChips: true, team }));
+    blocks.push(...cardBlocks(D, cs, { leadMax: 0, perCard: 2, multiAsChips: true, team }));
     pages.push({ id: `team:${team}`, grp: '팀', title: team, kind: 'auto', position: i, source: '업무', source_count: cs.length, meta: { team }, blocks });
   });
 
@@ -253,7 +262,7 @@ export function skeletons(D) {
   if (leaders && cardsOf(leaders.id).length) {
     const cs = cardsOf(leaders.id);
     pages.push({ id: 'weekly:leaders', grp: '매주 하는 일', title: '리더십 회의', kind: 'auto', position: 0, source: '업무', source_count: cs.length,
-      blocks: cardBlocks(D, cs, hasName, { leadMax: 1, perCard: 2 }) });
+      blocks: cardBlocks(D, cs, { leadMax: 1, perCard: 2 }) });
   }
   const svcs = D.services;
   if (svcs.length) {
@@ -286,7 +295,7 @@ export function skeletons(D) {
         }
         const note = sundayNote(s.service_date).replace(/^(둘째|마지막) 주 /, '');
         return { key: `s:${s.id}`, type: 'sermon', meta: { date: s.service_date, label: note, title: s.title || '', passage: s.passage_ref || '', points, guide: !!g, serviceId: s.id },
-          cites: [svcCite(s, g ? '주보 · 가이드' : '주보')], items: [], snips: snips.filter(x => !hasName(x.text)), max: 2 };
+          cites: [svcCite(s, g ? '주보 · 가이드' : '주보')], items: [], snips, max: 2 };
       }) });
     pages.push({ id: 'songs', grp: '예배', title: '예배 찬양', kind: 'auto', position: 1, source: '주보', source_count: thisYear.length,
       // 주일마다 한 블록 — 곡은 번호 목록('부른 사람 - 곡'을 갈라 곡을 앞에 · 가독성 · 사용자 요청 2026-10-03)
@@ -384,7 +393,7 @@ const STYLE = [
   '- 해요체만 쓴다(~해요, ~이에요, ~있어요, ~했어요). "~다", "~습니다", "~함"으로 끝내지 마라. "없어요"로 끝내지 마라.',
   '- 짧고 쉬운 문장. 번역투와 추상어("~을 통해", "~에 대한", "~를 바탕으로", "이루어지다", "진행되다", "방향성", "역량")를 쓰지 마라.',
   '- 엠 대시(—)·엔 대시(–)를 쓰지 마라. 협업, 소관, 계보, 사슬, 핵심, 선행 업무라는 말을 쓰지 마라. 판정하는 말(부하, 병목, 지지부진)과 칭찬·평가도 쓰지 마라.',
-  '- 사람 이름을 쓰지 마라. 누가 무엇을 맡았는지, 누가 참석했는지는 쓰지 마라.',
+  '- 사람 이름은 조각에 적힌 그대로만 쓴다. 조각에 없는 이름·직함을 만들지 마라. 사람을 칭찬하거나 견주지 마라.',
   '- 돈 액수(예산·결산·합의금), 사고, 한 사람의 사정은 쓰지 마라. 모두가 읽는 위키다.',
 ].join('\n');
 
@@ -408,7 +417,7 @@ const WRITE_SYS = [
 const VERIFY_SYS = [
   '너는 위키 문장을 검사한다. 문장마다 [근거]가 붙어 있다. 근거에 적힌 글자만 보고, **근거에 없는 주장**만 찾는다.',
   '각 [근거 묶음] 아래 문장은 그 묶음만 보고 판정한다. extra에 넣는 것: 근거에 없는 사실·날짜·숫자·이유·결과 / 근거에 없는 동사(정했다·준비했다·마쳤다) / 근거보다 넓은 말(매달·늘·모든) /',
-  '  계획·후보를 이미 한 일로 쓴 것 / 사람 이름 / 근거와 다르게 읽히는 문장.',
+  '  계획·후보를 이미 한 일로 쓴 것 / 근거에 없는 사람 이름·직함 / 근거와 다르게 읽히는 문장.',
   '말을 쉽게 바꾼 것, 해요체로 바꾼 것, 근거의 낱말을 줄인 것, 근거 목록의 일부만 옮긴 것은 extra가 아니다. 문체는 보지 마라.',
   '근거가 할 일·체크리스트·안건이면 그것을 "~해요"·"~할 예정이에요"·"~이 적혀 있어요"로 옮긴 것은 extra가 아니다. 이미 끝냈다(~했어요, 마쳤어요)고 쓴 것만 extra다.',
   '출력: {"problems":[{"n":번호,"extra":["근거에 없는 주장"]}]} — 근거에 없는 주장이 있는 문장만 싣는다. 모두 괜찮으면 problems는 [].',
@@ -444,6 +453,7 @@ export async function fillPage(pg, { edits = [], hasName = () => false, log = nu
     }
     const raw = parseModelJson(await gen(WRITE_SYS, parts.join('\n'), { log, call: `write:${pg.id}`, schema: SCHEMA.write })) || [];
     const bySid = new Map(idx.map(x => [x.sid, x]));
+    const blockEv = (key) => idx.filter(x => x.b === key).map(x => `${x.head ? `${x.head}: ` : ''}${x.text}`).join(' / ').slice(0, 12000);
     const count = {};
     const cand = [];
     for (const r of Array.isArray(raw) ? raw : []) {
@@ -453,7 +463,9 @@ export async function fillPage(pg, { edits = [], hasName = () => false, log = nu
       if (!blk || !sids.length || !whole) { if (whole) dropped.push({ text: whole, why: '조각 번호가 맞지 않음' }); continue; }
       // 문장마다 따로 본다 — 한 덩어리로 보면 한 마디만 틀려도 옳은 문장까지 같이 버려진다
       whole.split(/(?<=요[.!?])\s+/).map(t => t.trim()).filter(Boolean).forEach((one, k) => {
-        const iss = [...styleIssues(one), ...(hasName(one) ? ['사람 이름'] : [])];
+        // 이름은 그 블록 조각에 있는 것만(지어낸 이름은 버린다 · 2026-10-04)
+        const strangers = hasName.strangers ? hasName.strangers(one, blockEv(blk.key)) : [];
+        const iss = [...styleIssues(one), ...(strangers.length ? [`근거에 없는 이름 ${strangers.join(', ')}`] : [])];
         if (iss.length) { dropped.push({ text: one, why: iss.join(', ') }); return; }
         count[blk.key] = (count[blk.key] || 0) + 1;
         if (count[blk.key] > blk.max) return;
@@ -462,7 +474,6 @@ export async function fillPage(pg, { edits = [], hasName = () => false, log = nu
     }
     // 검증 근거는 **그 블록의 조각 전체**(같은 업무·같은 가이드)다 — 모델이 옆 조각 번호를 달면 맞는 문장도
     // 버려졌다(2026-10-03 · 39명 참석 같은 사실). 블록 밖의 말은 여전히 걸린다. 20문장씩 나눠 묻는다(답이 빠진다).
-    const blockEv = (key) => idx.filter(x => x.b === key).map(x => `${x.head ? `${x.head}: ` : ''}${x.text}`).join(' / ').slice(0, 12000);
     // 근거는 블록마다 한 번만 싣고 그 아래에 그 블록의 문장을 단다(문장마다 근거를 되풀이하면 길어서 잘라야 했고,
     // 잘린 뒤쪽에 있던 사실이 '근거에 없음'으로 걸렸다)
     const blockKeys = [...new Set(cand.map(c => c.b))];

@@ -47,7 +47,7 @@ try {
   const f = await call(token, { ask: '9월 20일 큐시트 어디 있어요?' });
   check('위치 질문: 파일 카드(미리보기 행 모양)', f.body?.files?.length > 0 && f.body.files[0].drive_file_id !== undefined && /말씀 탭/.test(f.body.files[0].where), JSON.stringify(f.body?.files?.[0] || {}).slice(0, 200));
   if (f.body?.id) qIds.push(f.body.id);
-  const r = await call(token, { ask: '지난주에 누가 출석 안 했어요?' });
+  const r = await call(token, { ask: '내 묵상 노트 보여줘' });
   check('거른 질문: 모델 없이 refused', r.body?.status === 'refused');
   if (r.body?.id) qIds.push(r.body.id);
   const row = (await admin.from('dabooti_questions').select('*').eq('id', a.body.id).single()).data;
