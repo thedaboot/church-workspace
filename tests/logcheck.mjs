@@ -6035,3 +6035,24 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(build.includes('if (!first.get(c.n) || !second.get(c.n)) kept.push(c);'), '검사: 두 번 다 걸려야 버린다');
   console.log('PASS  위키 · 다붓이 5(준비 업무 · 늦은 기록 · 팀 소개 카드 · 사고 · 빈 문장 · 질문 목록 · 다른 팀과 했던 일 · 기록 전 접기 · 순장 · 리더십 회의 · 되풀이)');
 }
+
+// ── 위키 · 다붓이 6 (2026-10-04 사용자 결정) — 함께 쓰는 글 '워크스페이스 사용법'(services/wikiGuide.js) ──
+{
+  const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
+  const g = W.SEED_PAGES.find(p => p.id === 'guide');
+  assert.ok(g && g.grp === '함께 쓰는 글' && g.title === '워크스페이스 사용법' && g.kind === 'human', '사용법 장이 함께 쓰는 글 초안에 있다');
+  const pos = (id) => W.SEED_PAGES.find(p => p.id === id).position;
+  assert.ok(pos('terms') < g.position && g.position < 3, '자주 쓰는 말 다음 · 자주 묻는 질문(3) 앞');
+  assert.ok(readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8').includes("title: '자주 묻는 질문', kind: 'auto', position: 3,"), '자주 묻는 질문은 사용법 뒤');
+  assert.deepStrictEqual(g.blocks.map(b => b.title), ['화면 둘러보기', '가입과 승인', '주보 보기', 'QT 나눔', '업무 만들기와 담당 지정', '내 달력', '알림 켜기',
+    '3줄 요약', 'AI 문맥 다듬기', '순모임 가이드', '성경 본문 AI 검색', '관련된 업무 내용', '다붓이에게 물어보기', '위키']);
+  const lines = g.blocks.flatMap(b => b.items);
+  assert.strictEqual(new Set(lines.map(it => it.key)).size, lines.length, '줄 열쇠가 겹치지 않는다');
+  for (const b of g.blocks) assert.ok(b.type === 'list' && b.items.length >= 2 && b.items.length <= 5, `${b.title}: 목록 두 줄에서 다섯 줄`);
+  for (const it of lines) {
+    assert.strictEqual(it.by, 'seed');
+    assert.deepStrictEqual(W.styleIssues(W.stripBold(it.text)), [], `글 규칙: ${it.text}`);
+    assert.ok(!/비용|요금|과금|유료|무료|\d\s?원|₩|\$/.test(it.text), `비용 이야기 없음: ${it.text}`);
+  }
+  console.log('PASS  위키 · 다붓이 6(워크스페이스 사용법 · 자리 · 소제목 · 해요체 · 대시 · 금지어 · 비용 말 없음)');
+}

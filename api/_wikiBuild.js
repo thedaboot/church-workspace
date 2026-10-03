@@ -527,7 +527,7 @@ export function faqPage(D) {
   const order = (a, b) => (b.meta.n - a.meta.n) || String(b.at).localeCompare(String(a.at));
   const clean = (x) => { const { at, ...rest } = x; return rest; };
   return {
-    id: 'faq', grp: '함께 쓰는 글', title: '자주 묻는 질문', kind: 'auto', position: 2, source: FAQ_SOURCE, source_count: known.length + unknown.length,
+    id: 'faq', grp: '함께 쓰는 글', title: '자주 묻는 질문', kind: 'auto', position: 3, source: FAQ_SOURCE, source_count: known.length + unknown.length,
     blocks: [
       { key: 'known', type: 'faq', title: '자주 묻는 질문', items: known.sort(order).slice(0, 30).map(clean) },
       { key: 'unknown', type: 'faq', title: '다붓이가 아직 모르는 질문', items: unknown.sort(order).slice(0, 30).map(clean) },
