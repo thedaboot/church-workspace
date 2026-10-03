@@ -163,6 +163,11 @@ try {
     && await ev(`document.querySelector('.dab-answer').textContent.includes('개인 묵상 노트는 본인만 보는 글이라 다붓이가 열어 보지 않아요.')`));
   check("물어본 뒤 자리표는 '다붓이에게 더 물어보기'", await ev(`document.querySelector('.dab-input input').placeholder === '다붓이에게 더 물어보기'`));
   check('거른 답에는 피드백 버튼이 없다', await ev(`!document.querySelector('.dab-answer [aria-label="도움이 됐어요"]')`));
+  // 대화는 앱이 떠 있는 동안 남는다 — 다른 탭(홈)에 갔다 다붓이로 돌아와도 그대로(사용자 결정 2026-10-04 · useDabootiChat)
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '홈')?.click()`);
+  check('홈으로 가면 위키가 닫힌다', await until(`!document.querySelector('.wiki-desk')`));
+  await click('.dab-pill');
+  check('다른 탭에 갔다 와도 다붓이 대화가 남는다', await until(`!!document.querySelector('.wiki-desk') && document.querySelectorAll('.dab-answer').length >= 1`));
   // 대화가 시작되면 입력 칸은 화면(main 안쪽) 바닥에 붙는다
   check('대화 중 입력 칸은 화면 아래', await ev(`(()=>{const m=document.querySelector('main');const pb=parseFloat(getComputedStyle(m).paddingBottom);const b=document.querySelector('.dab-input').getBoundingClientRect().bottom;return Math.abs((m.getBoundingClientRect().bottom-pb)-b)<16})()`));
   // 좋아요 — 채움 · 손이 튐 · 빛 조각 · 다붓이 폴짝 / 싫어요 — 좋아요가 풀리고 흔들림 · 고개 숙임

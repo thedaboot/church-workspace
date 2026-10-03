@@ -13,7 +13,7 @@ import { useAuth } from '../services/auth.jsx';
 import { entryParam, takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
 import { loadBibleIndex } from '../services/bible.js';
 import { fullRef } from '../services/bibleRef.js';
-import { AskPanel, AskEntry, CiteChip, chipsFrom } from '../components/dabooti.jsx';
+import { AskPanel, AskEntry, CiteChip, chipsFrom, useDabootiChat } from '../components/dabooti.jsx';
 import { cutSet } from '../components/dabooti.jsx';
 import { CONFIG } from '../config.js';
 import { BTN } from '../components/buttons.js';
@@ -88,7 +88,8 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
   const isMobile = useIsMobile();
   const { data, loading, error, refresh } = useCached('wiki:all', loadWiki);
   const [sel, setSel] = useState(() => (isMobile ? null : 'ask'));   // null(폰 첫 화면) · 'ask' · 장 id
-  const [chat, setChat] = useState([]);
+  // 대화는 앱이 떠 있는 동안 남긴다 — 탭을 오가도 그대로, 다시 열거나 30분 넘게 가려졌다 돌아오면 새로(사용자 결정 2026-10-04)
+  const [chat, setChat] = useDabootiChat();
   const [preview, setPreview] = useState(null);
   const [seen, setSeen] = useState(seenMap);
   const [dir, setDir] = useState('fwd');   // 폰 장 넘김 방향 — 들어가면 오른쪽에서, 돌아오면 왼쪽에서
