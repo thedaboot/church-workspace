@@ -50,6 +50,8 @@ export async function saveWikiEdits(rows) {
 // → { id, status, sentences:[{text, cites}], files:[…] } · 실패는 던진다(err.human = 화면 글)
 export async function askDabooti(q, prev = '') {
   const pf = prefilter(q);
+  // 검사(tests/wiki)가 게스트에 답 하나를 넣는 자리 — 👍/👎·파일 카드를 그려 보려고(클라우드에서는 보지 않는다)
+  if (!supabase && !pf && typeof window !== 'undefined' && window.__dabootiAnswer) return { ...window.__dabootiAnswer };
   if (!supabase) return pf ? { id: null, status: 'refused', sentences: [{ text: pf.answer, cites: [] }], files: [] }
     : { id: null, status: 'unknown', sentences: [{ text: NOT_FOUND, cites: [] }], files: [] };
   const { data: { session } } = await supabase.auth.getSession();

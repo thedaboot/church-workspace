@@ -504,7 +504,8 @@ function WorkspaceShell() {
             return;
           }
         }
-        saveTask({ ...live, status: prev }, live);
+        // 자리(position)도 같이 되돌린다 — 옮길 때 그 상태 맨 위 값을 실어서, 상태만 되돌리면 원래 칸의 맨 위에 섰다(2026-10-03)
+        saveTask({ ...live, status: prev, position: t.position }, live);
         showToast(`${prev}로 되돌렸어요`);
       },
     });

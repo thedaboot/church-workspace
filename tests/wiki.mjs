@@ -37,7 +37,7 @@ const FIX = { pages: [
     { key: 'teams', type: 'teams', title: '팀', items: [it('team1', '콘티와 송폼을 만들어요.', { by: 'seed', meta: { team: '찬양팀' } }), it('team2', '안무를 해요.', { by: 'seed', meta: { team: '워십팀' } })] },
     { key: 'flow', type: 'timeline', items: [it('flow1', '임원진 모임', { by: 'seed', meta: { time: '11:30', sub: true } }), it('flow2', '찬양', { by: 'seed', meta: { time: '13:30' } })] },
   ] },
-  { id: 'faq', grp: '함께 쓰는 글', title: '자주 묻는 질문', kind: 'auto', position: 2, source: '물어본 글', source_count: 2, built_at: '2026-10-03T00:00:00Z', blocks: [
+  { id: 'faq', grp: '함께 쓰는 글', title: '자주 묻는 질문', kind: 'auto', position: 2, source: '다붓이에게 물어본 질문', source_count: 2, built_at: '2026-10-03T00:00:00Z', blocks: [
     { key: 'known', type: 'faq', title: '자주 묻는 질문', items: [it('q:a', '그 전주 금요일까지 나와요.', { meta: { q: '송폼은 언제까지 나와요?', n: 3 } })] },
     { key: 'unknown', type: 'faq', title: '다붓이가 아직 모르는 질문', items: [it('q:b', '', { meta: { q: '리더 MT 어디서 해요?', n: 1 } })] },
   ] },
@@ -57,9 +57,11 @@ const FIX = { pages: [
     { key: 'rows', type: 'rows', title: '발행된 주보', head: ['주일', '설교', '송폼', '큐시트'], rows: [{ cells: ['9월 20일(일)', '아주 긴 설교 제목이 들어가도 폰에서 줄이 넘치지 않아야 해요', '9월 18일(금) 올림', '미등록'], cite: { t: 'service', id: 's1', label: '9월 20일 주보' } }] },
   ] },
 ], edits: [
+  { page_id: 'intro', item_key: 'hero1', block_key: 'hero', text: '첫 줄이에요.\n둘째 줄이에요.', before: '다붓하다는 뜻이에요.', edited_by: null, edited_at: '2026-10-03T01:00:00Z' },
   { page_id: 'p:wol', item_key: 'c:c8:b.0', block_key: 'c:c8', text: '하반기 일정과 임원 선출 준비를 이야기했어요.', before: '하반기 일정을 맞춰 봤어요.', edited_by: null, edited_at: '2026-10-02T03:00:00Z' },
 ] };
-const INIT = (theme, reduce = false) => `window.__wikiFixture=${JSON.stringify(FIX)};try{localStorage.setItem('theme','${theme}')}catch{}${reduce ? '' : ''}`;
+const ANSWER = { id: 'q-test', status: 'answered', sentences: [{ text: '월례회는 둘째 주 순모임 뒤에 해요.', cites: [{ t: 'page', id: 'intro', label: '더다붓 소개' }] }], files: [] };
+const INIT = (theme, reduce = false) => `window.__wikiFixture=${JSON.stringify(FIX)};window.__dabootiAnswer=${JSON.stringify(ANSWER)};try{localStorage.setItem('theme','${theme}')}catch{}${reduce ? '' : ''}`;
 
 await send('Page.enable'); await send('Runtime.enable');
 const open = async ({ mobile, theme = 'light', reduce = false, path = '/?p=wiki' }) => {
@@ -90,6 +92,18 @@ try {
     && await ev(`document.querySelector('.dab-answer').textContent.includes('한 사람 한 사람의 기록은 다붓이가 다루지 않아요')`));
   check("물어본 뒤 자리표는 '다붓이에게 더 물어보기'", await ev(`document.querySelector('.dab-input input').placeholder === '다붓이에게 더 물어보기'`));
   check('거른 답에는 피드백 버튼이 없다', await ev(`!document.querySelector('.dab-answer [aria-label="도움이 됐어요"]')`));
+  // 대화가 시작되면 입력 칸은 화면(main 안쪽) 바닥에 붙는다
+  check('대화 중 입력 칸은 화면 아래', await ev(`(()=>{const m=document.querySelector('main');const pb=parseFloat(getComputedStyle(m).paddingBottom);const b=document.querySelector('.dab-input').getBoundingClientRect().bottom;return Math.abs((m.getBoundingClientRect().bottom-pb)-b)<16})()`));
+  // 좋아요 — 채움 · 손이 튐 · 빛 조각 · 다붓이 폴짝 / 싫어요 — 좋아요가 풀리고 흔들림 · 고개 숙임
+  await ev(`(()=>{const i=document.querySelector('.dab-input input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,'월례회는 언제 해요?');i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})()`);
+  // 두 번째 답과 그 👍 버튼이 그려질 때까지 기다린다(한 번 그리기 전에 눌러 null이 났다)
+  await until(`document.querySelectorAll('.dab-answer').length === 2 && !![...document.querySelectorAll('.dab-answer')].pop().querySelector('[aria-label="도움이 됐어요"]')`);
+  await ev(`[...document.querySelectorAll('.dab-answer')].pop().querySelector('[aria-label="도움이 됐어요"]').click()`);
+  const good = await ev(`(()=>{const a=[...document.querySelectorAll('.dab-answer')].pop();const b=a.querySelector('[aria-label="도움이 됐어요"]');return {pressed:b.getAttribute('aria-pressed'),pop:!!b.querySelector('.dab-thumb-pop'),burst:b.querySelectorAll('.dab-burst i').length,fill:b.querySelector('svg').getAttribute('fill'),hop:!!document.querySelector('.dab-hop')}})()`);
+  check('좋아요: 채움 · 튐 · 빛 조각 여덟 · 다붓이 폴짝', good.pressed === 'true' && good.pop && good.burst === 8 && good.fill === 'currentColor' && good.hop, JSON.stringify(good));
+  await ev(`[...document.querySelectorAll('.dab-answer')].pop().querySelector('[aria-label="도움이 안 됐어요"]').click()`);
+  const bad = await ev(`(()=>{const a=[...document.querySelectorAll('.dab-answer')].pop();return {bad:a.querySelector('[aria-label="도움이 안 됐어요"]').getAttribute('aria-pressed'),good:a.querySelector('[aria-label="도움이 됐어요"]').getAttribute('aria-pressed'),shake:!!a.querySelector('.dab-thumb-shake'),droop:!!document.querySelector('.dab-droop')}})()`);
+  check('싫어요: 좋아요가 풀리고 흔들림 · 고개 숙임', bad.bad === 'true' && bad.good === 'false' && bad.shake && bad.droop, JSON.stringify(bad));
 
   // ── ③ 장 ──────────────────────────────────────────────────────────────────
   await click('.wiki-item', '월례회');
@@ -108,18 +122,37 @@ try {
   check("자주 묻는 질문: 답 없는 질문은 '기록 전'", await until(`!!document.querySelector('.wiki-faq')`)
     && await ev(`(()=>{const f=[...document.querySelectorAll('.wiki-faq')];return f.length===2&&f[1].textContent.includes('리더 MT 어디서 해요?')&&f[1].textContent.includes('기록 전')&&f[0].textContent.includes('3번')})()`));
 
-  // ── ④ 고치기 ──────────────────────────────────────────────────────────────
+  // 줄바꿈 그대로 · 고친 표시는 글 아래 한 줄(옆에 붙이면 글과 줄이 맞지 않았다)
+  await click('.wiki-item', '더다붓 소개');
+  await until(`!!document.querySelector('.wiki-page[data-page="intro"]')`);
+  const hero = await ev(`(()=>{const f=document.querySelector('.wiki-page[data-page="intro"] .wiki-fixed');const t=f.querySelector('.whitespace-pre-line');const w=f.querySelector('.wiki-who');return {lines:Math.round(t.getBoundingClientRect().height/parseFloat(getComputedStyle(t).lineHeight)), below:w.getBoundingClientRect().top>=t.getBoundingClientRect().bottom-1}})()`);
+  check('줄바꿈은 그대로 · 고친 표시는 글 아래', hero.lines >= 2 && hero.below, JSON.stringify(hero));
+  const dot = await ev(`(()=>{const row=document.querySelector('.wiki-time');const line=row.parentElement;const d=getComputedStyle(row,'::before');const lx=line.getBoundingClientRect().left+parseFloat(getComputedStyle(line).borderLeftWidth)/2;const cx=row.getBoundingClientRect().left+parseFloat(d.left)+parseFloat(d.width)/2;return Math.abs(lx-cx)})()`);
+  check('시간표 점은 선 가운데', dot <= 1, String(dot));
+  check('흰 판 없음(앱 바탕 위에 바로)', await ev(`(()=>{const w=getComputedStyle(document.querySelector('.wiki-desk'));return w.borderTopWidth==='0px' && (w.backgroundColor==='rgba(0, 0, 0, 0)'||w.backgroundColor==='transparent')})()`));
+  await click('.wiki-item', '자주 묻는 질문');
+  check('자주 묻는 질문 출처 문구', await until(`!!document.querySelector('.wiki-page[data-page="faq"]')?.textContent.includes('다붓이에게 물어본 질문에서 수집')`));
+  // 마스터(게스트는 마스터)는 장 제목·소제목도 그 자리에서 고친다
   await click('.wiki-item', '월례회');
   await until(`!!document.querySelector('.wiki-page[data-page="p:wol"]')`);
   await click('.wiki-edit', '수정');
-  check('✎ 수정 → 글 칸 · 수정 중', await until(`document.querySelectorAll('.wiki-draft').length >= 3`) && await ev(`document.querySelector('.wiki-page').textContent.includes('월례회 · 수정 중')`));
-  await ev(`(()=>{const t=document.querySelector('.wiki-draft');const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;set.call(t,'한 달에 한 번 모여 지난달을 돌아봐요.');t.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await until(`!!document.querySelector('.wiki-title-draft')`);
+  await ev(`(()=>{const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;const [t,h]=[...document.querySelectorAll('.wiki-title-draft')];set.call(t,'월례회 기록');t.dispatchEvent(new Event('input',{bubbles:true}));set.call(h,'8월 월례회 · 8월 23일(토)');h.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await click('button', '저장');
+  check('마스터: 장 제목·소제목 고치기 → 목록 이름도 바뀐다', await until(`document.querySelector('.wiki-page h2')?.textContent==='월례회 기록'`)
+    && await ev(`[...document.querySelectorAll('.wiki-item')].some(b=>b.textContent.includes('월례회 기록')) && document.querySelector('.wiki-page').textContent.includes('8월 23일(토)')`));
+  // ── ④ 고치기 ──────────────────────────────────────────────────────────────
+  await click('.wiki-item', '월례회 기록');
+  await until(`!!document.querySelector('.wiki-page[data-page="p:wol"]')`);
+  await click('.wiki-edit', '수정');
+  check('✎ 수정 → 글 칸 · 수정 중', await until(`document.querySelectorAll('.wiki-draft').length >= 3`) && await ev(`document.querySelector('.wiki-page').textContent.includes('월례회 기록 · 수정 중')`));
+  await ev(`(()=>{const t=document.querySelector('textarea.wiki-draft');const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;set.call(t,'한 달에 한 번 모여 지난달을 돌아봐요.');t.dispatchEvent(new Event('input',{bubbles:true}))})()`);
   await click('button', '저장');
   check('저장 → 그 줄이 고친 줄 · 수정한 곳 2', await until(`document.querySelectorAll('.wiki-page .wiki-fixed').length === 2`)
     && await ev(`(()=>{const t=document.querySelector('.wiki-page').textContent;return t.includes('한 달에 한 번 모여 지난달을 돌아봐요.')&&t.includes('수정한 곳 2')&&!document.querySelector('.wiki-draft')})()`));
   await click('.wiki-edit', '수정');
   await until(`document.querySelectorAll('.wiki-draft').length >= 3`);
-  await ev(`(()=>{const t=document.querySelector('.wiki-draft');const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;set.call(t,'취소할 글');t.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await ev(`(()=>{const t=document.querySelector('textarea.wiki-draft');const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;set.call(t,'취소할 글');t.dispatchEvent(new Event('input',{bubbles:true}))})()`);
   await click('button', '취소');
   check('취소는 그대로', await until(`!document.querySelector('.wiki-draft')`) && await ev(`!document.querySelector('.wiki-page').textContent.includes('취소할 글')`));
 
@@ -132,8 +165,17 @@ try {
     await ev(`document.querySelector('.md\\\\:hidden .ml-auto button').click()`);
     check(`폰(${theme}): 위키 첫 화면(물어보기 칸 + 목록)`, await until(`!!document.querySelector('.wiki-mobile .dab-ring') && !!document.querySelector('.wiki-mobile .wiki-list')`));
     check(`폰(${theme}): 하단 바 층은 들어오기 전 그대로(교회)`, await ev(`document.querySelector('nav[data-tab-bar]').dataset.tabBar === 'church'`));
-    const over = async () => ev(`document.documentElement.scrollWidth <= innerWidth + 1 && [...document.querySelectorAll('main *')].every(e=>e.getBoundingClientRect().right <= innerWidth + 1)`);
+    // 장 넘김(0.32초 미끄러짐)이 끝난 뒤에 잰다 — 도는 중에는 28px만큼 오른쪽으로 나가 있다
+    const over = async () => { await sleep(450); return ev(`document.documentElement.scrollWidth <= innerWidth + 1 && [...document.querySelectorAll('main *')].every(e=>e.getBoundingClientRect().right <= innerWidth + 1)`); };
     check(`폰(${theme}): 첫 화면 가로 넘침 없음`, await over());
+    // 물어보기 첫 화면은 남은 높이의 가운데 · 장 넘김은 미끄러져 들어온다
+    await click('.dab-ring');
+    await until(`!!document.querySelector('.dab-home')`);
+    const mid = await ev(`(()=>{const h=document.querySelector('.dab-home');const kids=[...h.children];const top=kids[0].getBoundingClientRect().top, bot=kids[kids.length-1].getBoundingClientRect().bottom;const r=h.getBoundingClientRect();return Math.abs((top-r.top)-(r.bottom-bot))})()`);
+    check(`폰(${theme}): 물어보기 첫 화면은 가운데`, mid < 24, String(mid));
+    check(`폰(${theme}): 들어가면 오른쪽에서`, await ev(`!!document.querySelector('.wiki-mobile .wiki-in-fwd')`));
+    await click('button', '위키');
+    check(`폰(${theme}): 돌아오면 왼쪽에서`, await until(`!!document.querySelector('.wiki-mobile .wiki-in-back')`));
     await click('.wiki-item', '주보 만들기');
     check(`폰(${theme}): 행 블록 넘침 없음`, await until(`!!document.querySelector('.wiki-page[data-page="weekly:bulletin"]')`) && await over());
     await click('.wiki-item', '월례회').catch(() => false);

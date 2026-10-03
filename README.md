@@ -213,6 +213,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0086_card_doc_baseline` | 같이 쓰기 전부터 있던 본문을 기준 판 한 줄로(`kind` `baseline` · 함수 `card_doc_baseline` · 두 사람이 동시에 열어도 한 줄) | ✅ |
 | `0087_card_doc_version_editors` | 판마다 그 사이에 같이 고친 사람(`editors uuid[]` · 목록은 `○○○ 외 N명`) | ✅ |
 | `0088_wiki` | 더다붓 위키 + 다붓이 — `wiki_pages`(장 블록 · 서버만 쓴다 · `src_hash`) · `wiki_edits`(사람이 고친 문장 · 승인 전원 · 고친 사람은 트리거가 세션으로) · `dabooti_questions`(물어본 글 · **누가 물었는지 칸 없음** · 서버만) | ✅ |
+| `0089_wiki_title_master` | 위키 제목·소제목 고치기는 마스터만 — `wiki_edits`의 `#` 열쇠 줄(`#title` · `#h:<블록>`)만 `is_master()`로 좁힌다(문장 고치기는 승인 전원 그대로) | ✅ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.

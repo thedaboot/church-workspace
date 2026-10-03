@@ -36,11 +36,15 @@ export default async function handler(req, res) {
     // `?as=docx` — 구글 문서(편집 사본)를 .docx로 내보내 받는다(2026-10-02 · `지난 큐시트로 바로 편집`).
     // 사본이 사람들이 실제로 고치는 곳이라 최신 글은 원본이 아니라 거기에 있다. 사본도 '링크를 아는 사람은 보기'라
     // 로그인 없이 export가 된다(라이브 확인). 내용이 바뀌는 문서라 아래 30일 immutable 캐시를 쓰지 않는다.
-    const asDocx = req.query?.as === 'docx';
+    // 사본 종류대로 내보낸다 — 문서 .docx · 슬라이드 .pptx · 시트 .xlsx(2026-10-03 · pptx·xlsx 큐시트가 docx 내보내기로 실패했다)
+    const EXPORT = {
+      docx: `https://docs.google.com/document/d/${id}/export?format=docx`,
+      pptx: `https://docs.google.com/presentation/d/${id}/export/pptx`,
+      xlsx: `https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`,
+    };
+    const asDocx = Object.hasOwn(EXPORT, String(req.query?.as || ''));
     // uc?export=download 는 공개 파일이면 리다이렉트를 따라 실제 바이트에 닿는다
-    const r = await fetch(asDocx
-      ? `https://docs.google.com/document/d/${id}/export?format=docx`
-      : `https://drive.google.com/uc?export=download&id=${id}`, { redirect: 'follow' });
+    const r = await fetch(asDocx ? EXPORT[req.query.as] : `https://drive.google.com/uc?export=download&id=${id}`, { redirect: 'follow' });
     if (!r.ok) { res.status(502).json({ error: `드라이브가 파일을 주지 않았습니다 (${r.status}).` }); return; }
     const type = r.headers.get('content-type') || 'application/octet-stream';
     // 큰 파일이면 구글이 바이러스 검사 경고 HTML을 준다 — 그건 파일이 아니다.

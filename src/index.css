@@ -824,8 +824,31 @@ svg.lucide { stroke-width: 1.4px; }
 /* 위키 장의 사람이 고친 문장 — 초록 줄 */
 .wiki-fixed { border-left: 2px solid var(--app-tag-green-fg); padding-left: 8px; margin-left: -10px; }
 .wiki-time { position: relative; }
-.wiki-time::before { content: ''; position: absolute; left: -6px; top: calc(6px + .8em - 5px); width: 6px; height: 6px; border-radius: 50%; background: var(--app-surface); border: 2px solid var(--app-accent); }
+.wiki-time::before { content: ''; position: absolute; left: -6px; top: calc(6px + .8em - 5px); width: 10px; height: 10px; border-radius: 50%; background: var(--app-surface); border: 2px solid var(--app-accent); }
 .wiki-time.sub::before { border-color: var(--app-ink-faint); }
 @media (prefers-reduced-motion: reduce) {
   .dab-tilt .dab-face, .dab-ring, .dab-dots span, .dab-bub-in, .dab-q-in { animation: none !important; }
+}
+/* 👍/👎 — 누르면 손이 튀고(좋아요: 작은 빛 조각이 터진다 · 다붓이가 폴짝) 싫어요는 손이 흔들리고 다붓이가 고개를 숙인다 */
+@keyframes dab-thumb-pop { 0% { transform: scale(1); } 35% { transform: scale(1.45) rotate(-14deg); } 65% { transform: scale(.92) rotate(4deg); } 100% { transform: scale(1); } }
+@keyframes dab-thumb-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-3px) rotate(-8deg); } 40% { transform: translateX(3px) rotate(6deg); } 60% { transform: translateX(-2px); } 80% { transform: translateX(1px); } }
+@keyframes dab-burst { from { opacity: 1; transform: rotate(var(--a)) translateY(0) scale(1); } to { opacity: 0; transform: rotate(var(--a)) translateY(-16px) scale(.4); } }
+@keyframes dab-hop { 0%, 100% { transform: translateY(0); } 30% { transform: translateY(-7px) rotate(-6deg); } 55% { transform: translateY(0) scale(1.06, .94); } 75% { transform: translateY(-2px); } }
+@keyframes dab-droop { 0% { transform: rotate(0); } 30% { transform: rotate(-14deg) translateY(2px); } 70% { transform: rotate(-10deg) translateY(2px); } 100% { transform: rotate(0); } }
+.dab-thumb-pop { animation: dab-thumb-pop .5s cubic-bezier(.3, 1.5, .5, 1) both; }
+.dab-thumb-shake { animation: dab-thumb-shake .45s ease-in-out both; }
+.dab-burst { position: absolute; inset: 0; pointer-events: none; }
+.dab-burst i { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: var(--c, var(--app-accent)); animation: dab-burst .55s var(--ease-out-quint) both; }
+.dab-hop { animation: dab-hop .7s var(--ease-out-quint) both; transform-origin: 50% 90%; }
+.dab-droop { animation: dab-droop .9s ease-in-out both; transform-origin: 50% 90%; }
+/* 폰 위키 — 장으로 들어가면 오른쪽에서, 돌아오면 왼쪽에서 미끄러져 들어온다 */
+@keyframes wiki-in-fwd { from { opacity: 0; transform: translate3d(28px, 0, 0); } to { opacity: 1; transform: none; } }
+@keyframes wiki-in-back { from { opacity: 0; transform: translate3d(-28px, 0, 0); } to { opacity: 1; transform: none; } }
+.wiki-in-fwd { animation: wiki-in-fwd .32s var(--ease-out-quint) both; }
+.wiki-in-back { animation: wiki-in-back .32s var(--ease-out-quint) both; }
+/* 보이는 글을 그대로 고친다 — 글 칸이 읽기 글과 같은 글꼴·줄 간격 · 옅은 바탕과 선만 */
+.wiki-draft { font: inherit; letter-spacing: inherit; color: inherit; line-height: inherit; background: color-mix(in srgb, var(--app-accent) 7%, transparent); border-radius: 6px; padding: 2px 6px; margin: -2px -6px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--app-accent) 35%, transparent); outline: none; resize: none; width: calc(100% + 12px); display: block; overflow: hidden; }
+.wiki-draft:focus { box-shadow: 0 0 0 2px var(--app-accent); }
+@media (prefers-reduced-motion: reduce) {
+  .dab-thumb-pop, .dab-thumb-shake, .dab-burst i, .dab-hop, .dab-droop, .wiki-in-fwd, .wiki-in-back { animation: none !important; }
 }

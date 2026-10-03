@@ -49,6 +49,14 @@
   '매뉴얼' 업무를 근거로 답한다 — 정본이 그쪽) · 위키 문장에 금액·사고·한 사람의 사정은 쓰지 않는다 · 사람 이름은 쓰지 않는다(업무 제목 칩은 그대로).
 - **사실 메모 확인 요청**: '가을 체육대회 개요' 업무 날짜가 아직 **10월 25일**이라 위키 행사 장 머리에 그렇게 선다(리더십 회의 기록과 다붓이 답은 10월 31일).
   업무 날짜를 고치면 다음 날 아침 장이 따라온다.
+- **16차 2회(2026-10-03 실기기 피드백 · 사용자 결정)**: 데스크톱 흰 판을 걷고 앱 바탕 위에 · 물어보기 첫 화면은 남은 높이의 가운데 ·
+  대화 입력 칸은 화면 아래 · 시간표 점은 선 위 · 👍/👎 인터랙션(채움 · 튐 · 빛 조각 · 다붓이 폴짝 / 흔들림 · 고개 숙임) · 고친 표시는 글 아래 한 줄 ·
+  보이는 글을 그 자리에서 고친다(줄바꿈 그대로) · **마스터는 장 제목·소제목도 고친다**(0089) · 자주 묻는 질문 출처 `다붓이에게 물어본 질문에서 수집` ·
+  밤 다시 묻기 **7일** · 폰 장 넘김 미끄러짐 · 질문 칩 문구(사용자 것): `월례회는 언제 해요?` · `예배 송폼은 언제까지 나오나요?` · `엔지니어팀은 어떤 팀이에요?` · `10월 4일 예배 큐시트는 어디에 있나요?`.
+  다붓이: 드문 낱말 무게 · 동사 꼬리 걷기 · '이번/다음/지난 주' 코드가 짚기 · 근거 순서(뜻 찾기 맨 뒤) · 글자 그대로 근거면 모델 검사 건너뜀 —
+  실데이터 18문항: 답 14 · 거름 2 · 기록 전 3(10월 월례회 · 다음 주 콘티 · 동계 수련회 기획안 — 전부 실제로 기록 없음).
+  15차 훑기 결함 셋도 고쳤다(되돌리기 position · pptx·xlsx 사본 내보내기 · 큐시트 여럿일 때 요지).
+  **사용자 확인 요청**: '가을 체육대회 개요' 업무의 **날짜 칸**이 아직 10월 25일(본문은 10월 31일로 고침) — 장 제목이 날짜 칸을 따른다.
 - **실기기 확인 대기(16차)**: 실제 계정으로 다붓이 답 · 근거 칩(업무 창·주보로 이동) · 파일 카드(미리보기 · 비밀번호 파일은 업무 창) · 👍/👎 ·
   ✎ 수정 → 저장 → 초록 줄 + 내 사진 · 폰 하단 바 위 입력 칸 · 다크 모드 · 내일 8시 크론 뒤 `wiki` 갈래(응답 JSON의 `wiki`)가 도는지.
 
@@ -68,10 +76,8 @@
 
 </details>
 
-- **15차 실기기 확인**: 사용자 "다 되긴 한다"(2026-10-03). 코드 훑기에서 나온 결함(고치지 않았다 · 사용자에게 알림):
-  ① 상태 이동 **되돌리기**가 status만 되돌리고 position은 안 되돌려 원래 칸의 맨 위에 선다(App.jsx 되돌리기) ·
-  ② pptx·xlsx 큐시트는 `lastCueFile`·`fetchCueDigest`가 문서 내보내기(.docx)만 시도해 실패한다 ·
-  ③ 큐시트가 여럿이고 최신 것이 PDF·사진이면 가이드 요지가 빈다(예전 조회의 '요지가 비어 있지 않은 것' 조건이 빠졌다 · sunGuide.js).
+- **15차 실기기 확인**: 사용자 "다 되긴 한다"(2026-10-03). 코드 훑기에서 나온 결함:
+  ① 상태 이동 되돌리기의 position ② pptx·xlsx 큐시트 사본 내보내기 ③ 큐시트 여럿일 때 요지 — **2026-10-03 고쳤다**(logcheck 단정 · 되돌려 실패 확인).
 
 ### 15차 — 시작점 (14차는 2026-09-30 `db2c137`까지 배포 · 0087까지 라이브)
 
@@ -285,7 +291,7 @@ scripts/embed-bible.mjs       성경 → bible_vec 한 번(로컬 · --dry-run �
 scripts/embed-docs.mjs        doc_vec 전체·증분 · --dry-run(조각·토큰·비용) · --kind
 scripts/wiki-build.mjs        위키 한 번(--force · --only= · --dry) · scripts/wiki-live.mjs 다붓이·고치기 클라우드 실측(임시 계정 → 흔적 0건)
 (지운 스크립트 — git 이력의 scripts/compare-bible-search.mjs)  AI 검색 대 벡터 검색을 질의 30개로(한 번 쓰고 만 도구 · §7의 근거)
-supabase/migrations/          0001~0088 — 표는 README, 최근 것은 §5
+supabase/migrations/          0001~0089 — 표는 README, 최근 것은 §5
 tests/                        검증 스위트 + 러너 — 목록은 tests/README.md
 ```
 
@@ -294,12 +300,12 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 
 ## 5. 데이터 · 스키마 · 비밀
 
-- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0088`이고 **전부 라이브 DB에 적용**되어 있다. 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
+- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0089`이고 **전부 라이브 DB에 적용**되어 있다. 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
   **0064** `people.gender` · **0065** `bible_state.recent_searches` · **0066** 개인 표 기본값도 `effective_uid()` · **0067~0070** 명단(`people`)의 생일·소속·교역자·대표 팀을 트리거가 계정으로 옮긴다(§8) ·
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads` · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만). 다음 번호는 0089.
+  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads` · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만. 다음 번호는 0090.
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.

@@ -14,7 +14,23 @@
 export const WIKI_GROUPS = ['함께 쓰는 글', '행사', '팀', '매주 하는 일', '예배', '말씀', '모임'];
 
 // 출처 표시 — `업무에서 자동으로 수집`(주보면 '주보에서…')
-export const sourceLabel = (source) => `${source || '업무'}에서 자동으로 수집`;
+// 물어본 질문으로 세운 장은 '다붓이에게 물어본 질문에서 수집'(사용자 문구 2026-10-03 · 옛 값 '물어본 글'도 같이)
+export const FAQ_SOURCE = '다붓이에게 물어본 질문';
+export const sourceLabel = (source) => (source === FAQ_SOURCE || source === '물어본 글' ? `${FAQ_SOURCE}에서 수집` : `${source || '업무'}에서 자동으로 수집`);
+
+// 제목 고치기(마스터만 · 0089) — 열쇠가 `#`로 시작한다: 장 제목 `#title` · 블록 소제목 `#h:<블록 열쇠>`
+export const TITLE_KEY = '#title';
+export const headKey = (blockKey) => `#h:${blockKey}`;
+export function overlayTitles(page, edits = []) {
+  const t = new Map(edits.filter(e => String(e.item_key).startsWith('#') && String(e.text).trim()).map(e => [e.item_key, e]));
+  const pt = t.get(TITLE_KEY);
+  return {
+    ...page,
+    title: pt ? pt.text : page.title,
+    originalTitle: page.title,
+    blocks: (page.blocks || []).map(b => { const h = t.get(headKey(b.key)); return h ? { ...b, title: h.text, originalTitle: b.title || '' } : b; }),
+  };
+}
 
 // 고칠 수 있는 블록(행 표와 기록 전 상자는 코드가 원본에서 바로 세운다)
 export const EDITABLE_TYPES = new Set(['hero', 'list', 'plain', 'teams', 'timeline', 'section', 'sermon', 'faq']);
@@ -136,7 +152,8 @@ export function kstDate(ts) {
 // · 같은 열쇠의 줄은 글을 바꾸고 edit을 단다(빈 글자면 줄을 뺀다)
 // · 지금 블록에 그 열쇠가 없으면(원본이 바뀌어 문장이 사라졌다) block_key의 블록 끝에, 그것도 없으면 첫 고칠 수 있는 블록 끝에 붙인다
 //   — 사람이 고친 문장은 어떤 경우에도 사라지지 않는다(사용자 결정 2026-10-02)
-export function overlayEdits(blocks, edits = []) {
+export function overlayEdits(blocks, all = []) {
+  const edits = all.filter(e => !String(e.item_key).startsWith('#'));   // 제목 줄은 overlayTitles가 본다
   const byKey = new Map(edits.map(e => [e.item_key, e]));
   const used = new Set();
   const out = (blocks || []).map(b => {
@@ -208,7 +225,7 @@ export const normQ = (q) => String(q || '').toLowerCase().replace(/[\s?!.,~'"·�
 
 // 질문 → 찾을 낱말. 조사·어미·흔한 물음 말을 걷는다.
 const STOP = new Set(['언제', '언제쯤', '어디', '어디서', '어디에', '어디로', '무슨', '어떤', '무엇', '뭐', '뭘', '누가', '누구', '어떻게', '왜', '얼마나', '있어', '있나', '해요', '했어', '하는', '나와', '알려', '알려줘', '보여', '보여줘', '주세요', '해줘', '정했', '이번', '지난', '다음', '그거', '그건', '저거', '혹시', '그리고', '근데', '파일', '자료']);
-const TAIL = /(?:에서는|에서도|에서|까지는|까지|부터|이에요|예요|이었어요|였어요|인가요|인가|이야|야|은요|는요|이요|은|는|이|가|을|를|에|의|도|와|과|랑|요|해요|했어요|했나요|하나요|돼요|되나요|됐어요|나요|어요|아요|죠|줘)$/;
+const TAIL = /(?:에서는|에서도|에서|으로|에게|처럼|보다|로|까지는|까지|부터|이에요|예요|이었어요|였어요|인가요|인가|이야|야|은요|는요|이요|은|는|이|가|을|를|에|의|도|와|과|랑|요|해요|했어요|했나요|하나요|돼요|되나요|됐어요|나요|어요|아요|죠|줘)$/;
 export function termsOf(q) {
   const words = String(q || '').match(/[가-힣A-Za-z0-9]+/g) || [];
   const out = [];
@@ -216,23 +233,35 @@ export function termsOf(q) {
     let t = w;
     for (let i = 0; i < 2; i++) t = t.replace(TAIL, '');
     if (t.length < 2 || STOP.has(t) || STOP.has(w)) continue;
+    // 동사 꼬리('나오나요'·'나왔어요'·'있나요'·'했나요')는 찾을 낱말이 아니다 — 남으면 낱말 수만 늘어 문턱을 못 넘었다(2026-10-03)
+    if (/^(나오|나왔|나와|있|없|했|됐|돼|되|하나|할|될|어떤|어떻)/.test(t) && t.length <= 3) continue;
     if (!out.includes(t)) out.push(t);
   }
   return out;
 }
 
 // 위키 줄 찾기 — 낱말이 몇 개 걸리는가(장 제목·블록 제목·질문도 본다)
+// 낱말마다 무게를 매긴다 — 위키 줄 가운데 드물게 나오는 낱말일수록 무겁다(log(1 + 줄 수 / 나온 줄 수)).
+// '예배'처럼 어디에나 있는 말이 '송폼' 줄을 밀어내던 것을 막는다(2026-10-03). score는 걸린 낱말 무게의 합, n은 걸린 낱말 수.
 export function scoreWikiItems(pages, terms) {
   const hits = [];
   if (!terms.length) return hits;
+  const rows = [];
   for (const p of pages || []) for (const b of p.blocks || []) for (const it of b.items || []) {
     if (!String(it.text || '').trim()) continue;
-    const hay = `${p.title} ${b.title || ''} ${it.meta?.q || ''} ${it.meta?.team || ''} ${it.meta?.time || ''} ${it.text}`;
-    const score = terms.filter(t => hay.includes(t)).length;
-    if (score) hits.push({ score, page: p, block: b, item: it });
+    rows.push({ hay: `${p.title} ${b.title || ''} ${it.meta?.q || ''} ${it.meta?.team || ''} ${it.meta?.time || ''} ${it.text}`, p, b, it });
+  }
+  const w = termWeights(rows.map(r => r.hay), terms);
+  for (const r of rows) {
+    const got = terms.filter(t => r.hay.includes(t));
+    if (got.length) hits.push({ score: got.reduce((s, t) => s + w.get(t), 0), n: got.length, page: r.p, block: r.b, item: r.it });
   }
   hits.sort((a, b) => b.score - a.score);
   return hits;
+}
+export function termWeights(hays, terms) {
+  const N = Math.max(1, hays.length);
+  return new Map(terms.map(t => [t, Math.log(1 + N / Math.max(1, hays.filter(h => h.includes(t)).length))]));
 }
 
 // ── 글 검사(모델 문장) ───────────────────────────────────────────────────────
@@ -290,3 +319,19 @@ export function notFoundCites(text, cites) {
 }
 
 export const NOT_FOUND = '기록에서 찾지 못했어요. 이 질문은 위키의 자주 묻는 질문에 남겨 둘게요.';
+
+// 문장이 근거에 글자 그대로 기대는가 — 내용 낱말(termsOf 규칙 · 조사·물음 말 걷음)이 **셋 이상이고 전부** 근거 글에 있으면 true.
+// 다붓이 답의 코드 검사(api/_wikiAsk.js) — 참이면 모델 검사를 건너뛴다. 낱말이 적은 문장은 모델이 본다(관계가 틀릴 여지).
+export function groundedIn(sentence, evidenceText) {
+  const toks = termsOf(sentence).filter(t => !/^\d+$/.test(t));
+  const hay = String(evidenceText || '').replace(/\s+/g, ' ');
+  // 끝 한 글자를 뗀 꼴도 같은 낱말로 본다('파일로' · '결산안이' — 조사가 덜 떨어진 경우)
+  return toks.length >= 3 && toks.every(t => hay.includes(t) || (t.length >= 3 && hay.includes(t.slice(0, -1))));
+}
+// 내용 낱말 가운데 그 글에 있는 비율(0~1) — 한 줄이 문장 대부분을 덮는지 볼 때
+export function tokenCoverage(sentence, text) {
+  const toks = termsOf(sentence).filter(t => !/^\d+$/.test(t));
+  if (!toks.length) return 0;
+  const hay = String(text || '');
+  return toks.filter(t => hay.includes(t)).length / toks.length;
+}

@@ -2116,7 +2116,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // titleText.js는 순수 모듈이라 그대로 옆에 둔다(2026-09-08 — 유튜브 제목 NFKC 정규화)
   writeFileSync(join(dir, 'titleText.js'), readFileSync(new URL('../src/services/titleText.js', import.meta.url), 'utf8'));
   // serviceView.js(표지 갈래 · 0081)와 그것이 부르는 noteTemplate.js도 순수 모듈이라 그대로 옆에 둔다
-  for (const f of ['serviceView.js', 'noteTemplate.js', 'honorific.js']) writeFileSync(join(dir, f), readFileSync(new URL(`../src/services/${f}`, import.meta.url), 'utf8'));
+  for (const f of ['serviceView.js', 'noteTemplate.js', 'honorific.js', 'cueDigest.js']) writeFileSync(join(dir, f), readFileSync(new URL(`../src/services/${f}`, import.meta.url), 'utf8'));
   const wf = join(dir, 'worship.mjs');
   writeFileSync(pf, strip(readFileSync(new URL('../src/services/people.js', import.meta.url), 'utf8')));
   writeFileSync(wf, strip(readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8')));
@@ -3680,6 +3680,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
       `const guestStore = () => ({ all: () => ({}), rows: (t) => (${JSON.stringify(seed)})[t] || [], set: () => {} }); const byName = (a, b) => String(a?.name || "").localeCompare(String(b?.name || ""), "ko");`);
   const dir = mkdtempSync(join(tmpdir(), 'b2svc-'));
   writeFileSync(join(dir, 'titleText.js'), readFileSync(new URL('../src/services/titleText.js', import.meta.url), 'utf8'));
+  writeFileSync(join(dir, 'cueDigest.js'), readFileSync(new URL('../src/services/cueDigest.js', import.meta.url), 'utf8'));   // copyExportAs(순수)
   // serviceView.js(표지 갈래 · 0081)와 그것이 부르는 noteTemplate.js도 순수 모듈이라 그대로 옆에 둔다
   for (const f of ['serviceView.js', 'noteTemplate.js', 'honorific.js']) writeFileSync(join(dir, f), readFileSync(new URL(`../src/services/${f}`, import.meta.url), 'utf8'));
   const wf = join(dir, 'worship.mjs');
@@ -5423,7 +5424,15 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/inlineEdit=\{[^}]*service\.service_date < kstToday\(\)/.test(wdet), '지난 주보 큐시트는 inlineEdit이 꺼진다');
   const sg = readFileSync(new URL('../src/services/sunGuide.js', import.meta.url), 'utf8');
   const dig = sg.slice(sg.indexOf('export async function fetchCueDigest'));
-  assert.ok(/fetchDriveFileBlob\(row\.preview_file_id, \{ as: 'docx' \}\)/.test(dig) && /kind: 'cuesheet'/.test(dig), '요지는 사본을 docx로 받아 큐시트 갈래로 뽑는다');
+  assert.ok(/fetchDriveFileBlob\(row\.preview_file_id, \{ as \}\)/.test(dig) && /const as = copyExportAs\(row\.name\)/.test(dig) && /kind: 'cuesheet'/.test(dig), '요지는 사본을 원본 종류대로 받아 큐시트 갈래로 뽑는다');
+  // 15차 훑기 결함(2026-10-03): 큐시트가 여럿이면 사본·요지가 있는 것 · pptx·xlsx 사본 · 되돌리기는 자리까지
+  assert.ok(/\.find\(r => r\.preview_file_id \|\| str\(r\.text_excerpt\)\)/.test(dig) && !/\.limit\(1\)/.test(dig), '큐시트가 여럿이면 사본이나 요지가 있는 최신 것');
+  const { copyExportAs } = await import(new URL('../src/services/cueDigest.js', import.meta.url).href);
+  assert.deepStrictEqual(['a.docx', 'b.PPTX', 'c.xlsx', 'd.pdf', 'e.hwp'].map(copyExportAs), ['docx', 'pptx', 'xlsx', null, null]);
+  const df = readFileSync(new URL('../api/drive-file.js', import.meta.url), 'utf8');
+  assert.ok(/presentation\/d\/\$\{id\}\/export\/pptx/.test(df) && /spreadsheets\/d\/\$\{id\}\/export\?format=xlsx/.test(df), 'drive-file: pptx·xlsx 내보내기');
+  const appU = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.ok(/saveTask\(\{ \.\.\.live, status: prev, position: t\.position \}, live\)/.test(appU), '상태 되돌리기는 자리(position)까지');
   assert.ok(/return str\(row\.text_excerpt\);\s*\}/.test(dig), '실패하면 저장된 요지로 떨어진다');
   const img = readFileSync(new URL('../src/services/image.js', import.meta.url), 'utf8');
   const dirI = mkdtempSync(join(tmpdir(), 'img-'));
@@ -5686,4 +5695,46 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(qTable && !/\b(user_id|asked_by|profile_id|uid|author)\b/.test(qTable) && !/on public\.dabooti_questions for/.test(mig), '물어본 글: 누가 물었는지 칸 없음 · 정책 없음(서버만)');
   assert.ok(mig.includes('new.edited_by := public.effective_uid();'), '고친 사람은 세션이 정한다');
   console.log('PASS  위키 · 다붓이(거르기 · 겹치기 · 고친 줄 · 근거 없는 문장 · 자주 묻는 질문 · 배선)');
+}
+
+// ── 위키 · 다붓이 2 (2026-10-03 실기기 피드백) — 제목 고치기(마스터) · 출처 문구 · 찾을 낱말 · 드문 낱말 · 글자 그대로 근거 · 7일 ──
+{
+  const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
+  // 제목 줄(`#`)은 문장 겹치기에 끼지 않고 제목에만 겹친다
+  const page = { id: 'p', title: '월례회', blocks: [{ key: 'c:1', type: 'section', title: '8월 월례회', items: [{ key: 'a', text: '글', by: 'model' }] }] };
+  const ed = [{ item_key: W.TITLE_KEY, text: '월례회 기록' }, { item_key: W.headKey('c:1'), text: '8월 월례회(토)' }, { item_key: 'a', text: '고친 글', block_key: 'c:1' }];
+  const o = W.overlayTitles(page, ed);
+  assert.strictEqual(o.title, '월례회 기록');
+  assert.strictEqual(o.originalTitle, '월례회');
+  assert.strictEqual(o.blocks[0].title, '8월 월례회(토)');
+  assert.deepStrictEqual(W.overlayEdits(o.blocks, ed)[0].items.map(i => i.text), ['고친 글'], '제목 줄은 문장으로 붙지 않는다');
+  assert.strictEqual(W.sourceLabel(W.FAQ_SOURCE), '다붓이에게 물어본 질문에서 수집');
+  assert.strictEqual(W.sourceLabel('물어본 글'), '다붓이에게 물어본 질문에서 수집', '옛 값도 같은 문구');
+  assert.strictEqual(W.sourceLabel('주보'), '주보에서 자동으로 수집');
+  // 동사 꼬리·조사는 찾을 낱말이 아니다
+  assert.deepStrictEqual(W.termsOf('예배 송폼은 언제까지 나오나요?'), ['예배', '송폼']);
+  assert.deepStrictEqual(W.termsOf('다음 주 찬양 콘티 나왔어요?'), ['찬양', '콘티']);
+  // 드문 낱말이 걸린 줄이 앞선다('예배'는 어디에나 있다)
+  const pages = [{ id: 'x', title: 'x', blocks: [{ key: 'b', type: 'list', items: [
+    { key: '1', text: '예배 PPT를 맡아요.' }, { key: '2', text: '예배 때 안무를 해요.' }, { key: '3', text: '예배는 13:30에 시작해요.' },
+    { key: '4', text: '송폼 · 그 전주 금요일까지 나와요.' }] }] }];
+  assert.strictEqual(W.scoreWikiItems(pages, ['예배', '송폼'])[0].item.key, '4', '송폼 줄이 맨 앞');
+  // 글자 그대로 근거 — 내용 낱말 셋 이상이 전부 있으면 참(조사가 덜 떨어진 꼴도) · 하나라도 없으면 거짓
+  assert.ok(W.groundedIn('9월 20일 큐시트는 9월 20일 주보의 말씀 탭 큐시트 칸에 있어요.', "9월 20일 큐시트 'a.docx'은 9월 20일 주보의 말씀 탭 큐시트 칸에 있어요."));
+  assert.ok(W.groundedIn('하계 수련회 결산 업무의 첨부 파일로 결산안이 있어요.', "파일 '결산안.xlsx'은 업무 '하계 수련회 결산'의 첨부에 있어요."));
+  assert.ok(!W.groundedIn('리더 MT는 다온펜션에서 열려요.', '리더 MT 장소 미정'), '근거에 없는 낱말이 있으면 모델이 본다');
+  assert.ok(!W.groundedIn('월례회예요.', '월례회예요.'), '낱말이 적은 문장은 모델이 본다');
+  assert.ok(W.tokenCoverage('하계 수련회 결산안 파일이 있어요.', '하계 수련회 결산안') >= 0.75);
+  // 서버 배선: 밤 다시 묻기는 7일 · 근거 순서(뜻 찾기가 맨 뒤) · '이번/다음/지난 주'는 코드가 짚는다 · 전부 '찾지 못했어요'면 unknown
+  const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
+  assert.ok(ask.includes('Date.now() - 7 * 864e5') && !ask.includes('Date.now() - 30 * 864e5'), '밤 다시 묻기는 7일');
+  assert.ok(ask.indexOf('// 주보(날짜를 말했거나 주보 이야기)') < ask.indexOf('// 뜻 찾기(doc_vec'), '뜻 찾기는 맨 뒤(잘려도 이쪽이 잘린다)');
+  assert.ok(/: \/다음\\s\?주\/\.test\(q\) \? nextSun/.test(ask), "'다음 주'는 다음 주일");
+  assert.ok(ask.includes("if (onlyMissing) return { status: 'unknown'"), "'찾지 못했어요'뿐이면 unknown(자주 묻는 질문에 선다)");
+  assert.ok(ask.includes('const sure = new Set(kept.map((s, i) => (isSure(s) ? i : -1))'), '글자 그대로 근거면 모델 검사를 건너뛴다');
+  const mig89 = readFileSync(new URL('../supabase/migrations/0089_wiki_title_master.sql', import.meta.url), 'utf8');
+  assert.ok((mig89.match(/left\(item_key, 1\) <> '#' or public\.is_master\(\)/g) || []).length === 3, '0089: 제목 줄(#)은 마스터만 넣고 고친다');
+  const chips = readFileSync(new URL('../src/components/dabooti.jsx', import.meta.url), 'utf8');
+  assert.ok(chips.includes("'예배 송폼은 언제까지 나오나요?', '엔지니어팀은 어떤 팀이에요?'") && chips.includes('예배 큐시트는 어디에 있나요?'), '질문 칩 문구(사용자 것)');
+  console.log('PASS  위키 · 다붓이 2(제목 고치기 · 출처 문구 · 낱말 · 드문 낱말 · 글자 그대로 근거 · 7일 · 칩 문구)');
 }

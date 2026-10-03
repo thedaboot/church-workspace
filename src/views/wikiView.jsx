@@ -1,10 +1,12 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Pencil, Plus, X } from 'lucide-react';
 import { useCached } from '../services/cache.js';
 import { loadWiki, saveWikiEdits, seenMap, markSeen } from '../services/wiki.js';
 import {
-  WIKI_GROUPS, EDITABLE_TYPES, ADDABLE_TYPES, overlayEdits, editStats, editRows, sourceLabel, mdLabel, kstDate,
+  WIKI_GROUPS, EDITABLE_TYPES, ADDABLE_TYPES, overlayEdits, overlayTitles, editStats, editRows, sourceLabel, mdLabel, kstDate,
+  FAQ_SOURCE, TITLE_KEY, headKey,
 } from '../services/wikiCore.js';
+import { useAuth } from '../services/auth.jsx';
 import { AskPanel, AskEntry, CiteChip, chipsFrom } from '../components/dabooti.jsx';
 import { cutSet } from '../components/dabooti.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -30,7 +32,25 @@ const FilePreviewModal = lazy(() => import('../components/FilePreviewModal.jsx')
 // 근거 칩: 업무 → 업무 창 · 주보 → 그 주보 · 파일 → 미리보기(비밀번호 파일은 업무 창으로) · 장 → 그 장.
 // ============================================================================
 
-const UNIT = { 업무: '업무', 주보: '주보', 말씀: '본문', 모임: '모임', '물어본 글': '질문' };
+const UNIT = { 업무: '업무', 주보: '주보', 말씀: '본문', 모임: '모임', '물어본 글': '질문', [FAQ_SOURCE]: '질문' };
+
+// main(스크롤 통)의 **안쪽 높이**를 --wiki-h로 — 물어보기 첫 화면을 그 가운데에, 대화 입력 칸을 그 바닥에 세운다.
+// 상수로 셈하면 폰의 상단 바·하단 바·safe-area가 기기마다 달라 가운데가 위로 쏠렸다(사용자 지적 2026-10-03).
+function useMainHeight(ref) {
+  useLayoutEffect(() => {
+    const main = document.querySelector('main');
+    const el = ref.current;
+    if (!main || !el) return undefined;
+    const set = () => {
+      const cs = getComputedStyle(main);
+      el.style.setProperty('--wiki-h', `${main.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)}px`);
+    };
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(main);
+    return () => ro.disconnect();
+  }, [ref]);
+}
 const STATUS_TAG = new Set(['진행 중', '시작 전', '보류 중', '상시']);
 
 export default function WikiView({ onTaskClick, onOpenLink }) {
@@ -40,12 +60,16 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
   const [chat, setChat] = useState([]);
   const [preview, setPreview] = useState(null);
   const [seen, setSeen] = useState(seenMap);
+  const [dir, setDir] = useState('fwd');   // 폰 장 넘김 방향 — 들어가면 오른쪽에서, 돌아오면 왼쪽에서
+  const { isMaster } = useAuth();
+  const rootRef = useRef(null);
+  useMainHeight(rootRef);
 
   const pages = useMemo(() => {
     if (!data) return [];
     const by = new Map();
     for (const e of data.edits || []) { if (!by.has(e.page_id)) by.set(e.page_id, []); by.get(e.page_id).push(e); }
-    return (data.pages || []).map(p => ({ ...p, blocks: overlayEdits(p.blocks, by.get(p.id) || []), edits: by.get(p.id) || [] }))
+    return (data.pages || []).map(p => { const pe = by.get(p.id) || []; const o = overlayTitles(p, pe); return { ...o, blocks: overlayEdits(o.blocks, pe), edits: pe }; })
       .sort((a, b) => WIKI_GROUPS.indexOf(a.grp) - WIKI_GROUPS.indexOf(b.grp) || a.position - b.position || a.title.localeCompare(b.title));
   }, [data]);
   const page = pages.find(p => p.id === sel) || null;
@@ -57,7 +81,7 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
     setSeen(seenMap());
   }, [page?.id, page?.built_at]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const go = (id) => { setSel(id); document.querySelector('main')?.scrollTo?.({ top: 0 }); };
+  const go = (id) => { setDir(id === null ? 'back' : 'fwd'); setSel(id); document.querySelector('main')?.scrollTo?.({ top: 0 }); };
   const openCite = (c) => {
     if (!c) return;
     if (c.t === 'page') { go(c.id); return; }
@@ -110,7 +134,9 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
     </div>
   ) : null;
 
-  const ask = <AskPanel chat={chat} setChat={setChat} chips={chips} onOpenCite={openCite} onOpenFile={openFile} onOpenFaq={() => go('faq')} />;
+  // 폰은 ‹ 위키 줄(약 40px)만큼 뺀다
+  const ask = <AskPanel chat={chat} setChat={setChat} chips={chips} onOpenCite={openCite} onOpenFile={openFile} onOpenFaq={() => go('faq')}
+    fill={isMobile ? 'calc(var(--wiki-h, 70vh) - 40px)' : 'var(--wiki-h, 70vh)'} />;
   const modal = preview && (
     <Suspense fallback={null}>
       <FilePreviewModal row={preview} rows={[preview]} initialSrc={null} onClose={() => setPreview(null)} />
@@ -120,22 +146,22 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
   // ── 폰 ────────────────────────────────────────────────────────────────────
   if (isMobile) {
     return (
-      <div className="wiki wiki-mobile">
+      <div ref={rootRef} className="wiki wiki-mobile overflow-x-hidden">
         {sel === null && (
-          <div className="dc-screen grid gap-4 pt-1">
+          <div key="index" className={`${dir === 'back' ? 'wiki-in-back' : 'dc-screen'} grid gap-4 pt-1`}>
             <AskEntry onClick={() => go('ask')} className="py-1.5" />
             {body || list}
           </div>
         )}
         {sel !== null && (
-          <div className="dc-screen">
+          <div key={sel} className="wiki-in-fwd">
             <div className="flex items-center justify-between gap-2 -mx-1 mb-1">
               <button type="button" onClick={() => go(null)} className="inline-flex items-center gap-0.5 px-1 py-1.5 text-[13px] font-semibold text-accent-text transition active:scale-95">
                 <ChevronLeft size={16} /> 위키
               </button>
             </div>
             <div className={sel === 'ask' ? '' : 'hidden'}>{ask}</div>
-            {sel !== 'ask' && (body || (page ? <WikiPage key={page.id} page={page} mobile onOpenCite={openCite} onSaved={refresh} /> : null))}
+            {sel !== 'ask' && (body || (page ? <WikiPage key={page.id} page={page} mobile isMaster={isMaster} onOpenCite={openCite} onSaved={refresh} /> : null))}
           </div>
         )}
         {modal}
@@ -145,14 +171,15 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
 
   // ── 데스크톱 ──────────────────────────────────────────────────────────────
   return (
-    <div className="wiki wiki-desk dc-screen grid grid-cols-[236px_minmax(0,1fr)] max-w-[1180px] mx-auto rounded-[10px] border border-line bg-surface min-h-[calc(var(--app-vh,100dvh)-96px)]">
-      <aside className="wiki-side sticky top-0 self-start max-h-[calc(var(--app-vh,100dvh)-96px)] overflow-y-auto border-r border-line px-2.5 py-3.5 grid content-start gap-3.5">
+    // 흰 판(테두리 카드)을 두지 않는다 — 앱 바탕 위에 목록과 글이 바로 선다(사용자 지적 2026-10-03 · 앱에 속한 느낌)
+    <div ref={rootRef} className="wiki wiki-desk dc-screen grid grid-cols-[236px_minmax(0,1fr)] max-w-[1180px] mx-auto">
+      <aside className="wiki-side sticky top-0 self-start overflow-y-auto border-r border-line/70 pr-3 py-1 grid content-start gap-3.5" style={{ height: 'var(--wiki-h, 80vh)' }}>
         <AskEntry active={sel === 'ask'} onClick={() => go('ask')} />
         {body ? null : list}
       </aside>
-      <section className="min-w-0 px-7 py-5">
+      <section className="min-w-0 pl-8 pr-2">
         <div className={sel === 'ask' ? '' : 'hidden'}>{ask}</div>
-        {sel !== 'ask' && (body || (page ? <WikiPage key={page.id} page={page} onOpenCite={openCite} onSaved={refresh} /> : null))}
+        {sel !== 'ask' && (body || (page ? <div key={page.id} className="dc-fade py-1"><WikiPage page={page} isMaster={isMaster} onOpenCite={openCite} onSaved={refresh} /></div> : null))}
       </section>
       {modal}
     </div>
@@ -160,7 +187,7 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
 }
 
 // ── 장 하나 ──────────────────────────────────────────────────────────────────
-function WikiPage({ page, mobile = false, onOpenCite, onSaved }) {
+function WikiPage({ page, mobile = false, isMaster = false, onOpenCite, onSaved }) {
   const [editing, setEditing] = useState(false);
   const [drafts, setDrafts] = useState({});
   const [added, setAdded] = useState([]);   // [{ key, block_key, text }]
@@ -172,7 +199,15 @@ function WikiPage({ page, mobile = false, onOpenCite, onSaved }) {
   const start = () => { setDrafts({}); setAdded([]); setEditing(true); };
   const cancel = () => { setEditing(false); setDrafts({}); setAdded([]); };
   const save = async () => {
+    // 제목·소제목(마스터만 · 0089) — 열쇠 `#title`·`#h:<블록>` · before는 처음 제목
+    const titleRows = [];
+    if (TITLE_KEY in drafts && drafts[TITLE_KEY].trim() && drafts[TITLE_KEY].trim() !== page.title) titleRows.push({ page_id: page.id, item_key: TITLE_KEY, block_key: null, text: drafts[TITLE_KEY].trim(), before: page.originalTitle || page.title });
+    for (const b of page.blocks) {
+      const k = headKey(b.key);
+      if (k in drafts && drafts[k].trim() && drafts[k].trim() !== (b.title || '')) titleRows.push({ page_id: page.id, item_key: k, block_key: b.key, text: drafts[k].trim(), before: b.originalTitle ?? b.title ?? '' });
+    }
     const rows = [
+      ...titleRows,
       ...editRows(page.id, page.blocks, drafts),
       ...added.filter(a => a.text.trim()).map(a => ({ page_id: page.id, item_key: a.key, block_key: a.block_key, text: a.text.trim(), before: '' })),
     ];
@@ -203,7 +238,11 @@ function WikiPage({ page, mobile = false, onOpenCite, onSaved }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <span className="text-[11px] font-bold text-fg-muted">{editing ? `${page.title} · 수정 중` : page.grp}</span>
-          <h2 className={`mt-1 mb-1.5 font-extrabold tracking-[-0.4px] text-fg ${mobile ? 'text-[19px]' : 'text-[22px]'}`}>{page.title}</h2>
+          <h2 className={`mt-1 mb-1.5 font-extrabold tracking-[-0.4px] text-fg ${mobile ? 'text-[19px]' : 'text-[22px]'}`}>
+            {editing && isMaster
+              ? <TitleDraft value={TITLE_KEY in drafts ? drafts[TITLE_KEY] : page.title} onChange={v => setDrafts(d => ({ ...d, [TITLE_KEY]: v }))} label="장 제목" />
+              : page.title}
+          </h2>
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-fg-muted">
             {human ? <Tag green>함께 작성</Tag> : <Tag>{sourceLabel(page.source)}</Tag>}
             {!human && page.source_count > 0 && <span>{UNIT[page.source] || '기록'} {page.source_count}{page.source === '업무' || page.source === '주보' ? '건' : '개'}</span>}
@@ -217,7 +256,7 @@ function WikiPage({ page, mobile = false, onOpenCite, onSaved }) {
 
       <div className="mt-3.5">
         {page.blocks.map((b, i) => (
-          <Block key={b.key} b={b} i={i} page={page} editing={editing} drafts={drafts} setDrafts={setDrafts}
+          <Block key={b.key} b={b} i={i} page={page} editing={editing} isMaster={isMaster} drafts={drafts} setDrafts={setDrafts}
             added={added.filter(a => a.block_key === b.key)} setAdded={setAdded} onOpenCite={onOpenCite} />
         ))}
       </div>
@@ -235,8 +274,8 @@ function Tag({ children, green = false }) {
 function Who({ by, at, name, muted = false }) {
   const n = name || profileName(by) || '';
   return (
-    <span className={`wiki-who inline-flex items-center gap-1 text-[10.5px] font-semibold whitespace-nowrap align-[1px] ${muted ? 'text-fg-muted' : 'text-tag-green-fg'}`}>
-      {n && <Avatar name={n} className="w-4 h-4 text-[8px] flex" />}
+    <span className={`wiki-who inline-flex items-center gap-1 text-[10.5px] leading-4 font-semibold whitespace-nowrap ${muted ? 'text-fg-muted' : 'text-tag-green-fg'}`}>
+      {n && <Avatar name={n} className="w-4 h-4 text-[8px] flex shrink-0" />}
       {n ? `${n} · ` : ''}{mdLabel(kstDate(at))} 수정
     </span>
   );
@@ -252,33 +291,43 @@ function Draft({ value, onChange, onRemove, placeholder }) {
   const ref = useRef(null);
   useEffect(() => { const el = ref.current; if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px`; } }, [value]);
   return (
-    <span className="flex items-start gap-1">
+    // 보이는 글을 그 자리에서 고친다 — 같은 글꼴·줄 간격(index.css .wiki-draft) · 줄바꿈은 그대로 저장되고 읽기도 그대로 바꾼다
+    <span className="flex items-start gap-2">
       <textarea ref={ref} value={value} onChange={e => onChange(e.target.value)} rows={1} placeholder={placeholder}
-        className="wiki-draft flex-1 min-w-0 resize-none rounded-[7px] border border-accent bg-surface px-2.5 py-2 text-[13.5px] leading-[1.7] text-fg outline-none focus:shadow-[0_0_0_3px_var(--app-accent-weak)]" />
+        className="wiki-draft flex-1 min-w-0 placeholder:text-fg-faint" />
       {onRemove && (
         <button type="button" onClick={onRemove} aria-label="이 줄 지우기" title="이 줄 지우기"
-          className="mt-1.5 w-7 h-7 shrink-0 inline-flex items-center justify-center rounded-md text-fg-faint hover:text-fg-muted hover:bg-surface-hover transition active:scale-90"><X size={14} /></button>
+          className="-mt-0.5 w-7 h-7 shrink-0 inline-flex items-center justify-center rounded-md text-fg-faint hover:text-fg-muted hover:bg-surface-hover transition active:scale-90"><X size={14} /></button>
       )}
     </span>
   );
 }
 
-function Block({ b, i, page, editing, drafts, setDrafts, added, setAdded, onOpenCite }) {
+// 제목 칸 — 같은 글꼴로 그 자리에서(마스터만)
+function TitleDraft({ value, onChange, label }) {
+  return <input value={value} onChange={e => onChange(e.target.value)} aria-label={label} maxLength={120} className="wiki-draft wiki-title-draft" />;
+}
+
+function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added, setAdded, onOpenCite }) {
   const canEdit = editing && EDITABLE_TYPES.has(b.type);
   const anim = { animationDelay: `${Math.min(i, 10) * 30}ms` };
   const val = (it) => (it.key in drafts ? drafts[it.key] : it.text);
   const setVal = (it, v) => setDrafts(d => ({ ...d, [it.key]: v }));
   const visible = (b.items || []).filter(it => !(it.key in drafts && drafts[it.key] === '' && it.text !== ''));
-  const h3 = b.title ? <h3 className="text-[14.5px] font-bold tracking-[-0.2px] text-fg mt-5 mb-2">{b.title}</h3> : null;
+  const hk = headKey(b.key);
+  const titleNode = editing && isMaster && b.title
+    ? <TitleDraft value={hk in drafts ? drafts[hk] : b.title} onChange={v => setDrafts(d => ({ ...d, [hk]: v }))} label="소제목" />
+    : b.title;
+  const h3 = b.title ? <h3 className="text-[14.5px] font-bold tracking-[-0.2px] text-fg mt-5 mb-2">{titleNode}</h3> : null;
 
   // 한 줄 — 읽기면 글 + 근거 칩 + (고친 줄이면) 초록 줄과 사람, 고치기면 글 칸
   const line = (it, extra = null) => {
     if (canEdit) return <Draft value={val(it)} onChange={v => setVal(it, v)} onRemove={ADDABLE_TYPES.has(b.type) || it.by === 'model' ? () => setVal(it, '') : null} />;
     return (
       <span className={it.edit ? 'wiki-fixed block' : ''}>
-        {extra}{it.text}
+        <span className="whitespace-pre-line">{extra}{it.text}</span>
         <Cites cites={it.cites} onOpen={onOpenCite} />
-        {it.edit && <span className="ml-1.5"><Who by={it.edit.by} at={it.edit.at} /></span>}
+        {it.edit && <span className="flex mt-1"><Who by={it.edit.by} at={it.edit.at} /></span>}
       </span>
     );
   };
@@ -301,7 +350,7 @@ function Block({ b, i, page, editing, drafts, setDrafts, added, setAdded, onOpen
     return (
       <div className="dc-row flex items-center gap-4 rounded-[10px] px-4 py-4 my-3" style={{ ...anim, background: 'var(--app-hero)' }}>
         <img src="/chars/umbrella.webp" srcSet={cutSet('/chars/umbrella.webp')} width={95} height={98} alt="" aria-hidden="true" draggable="false" className="shrink-0 w-[84px] sm:w-[95px] h-auto" />
-        <p className="min-w-0 text-[13.5px] leading-[1.7] text-fg"><b className="text-[15px]">{b.title}</b><br />{it ? line(it) : null}</p>
+        <p className="min-w-0 flex-1 text-[13.5px] leading-[1.7] text-fg"><b className="text-[15px] block">{titleNode}</b>{it ? line(it) : null}</p>
       </div>
     );
   }
@@ -362,7 +411,7 @@ function Block({ b, i, page, editing, drafts, setDrafts, added, setAdded, onOpen
     return (
       <section className="dc-row" style={anim}>
         <h3 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[14.5px] font-bold tracking-[-0.2px] text-fg mt-5 mb-2">
-          <span>{b.title}</span>
+          <span className="min-w-0 flex-1">{titleNode}</span>
           {STATUS_TAG.has(status) && <Tag>{status}</Tag>}
         </h3>
         {visible.length ? (
@@ -440,7 +489,7 @@ function Block({ b, i, page, editing, drafts, setDrafts, added, setAdded, onOpen
         </div>
         <span className="text-[14px] font-bold tracking-[-0.2px] leading-[1.45] text-fg">{m.title}</span>
         <span className="text-[12px] text-fg-muted">{m.passage}</span>
-        {visible.map(it => <span key={it.key} className="text-[13px] leading-[1.65] mt-[3px] text-fg">{canEdit ? line(it) : <span className={it.edit ? 'wiki-fixed block' : ''}>{it.text}{it.edit && <span className="ml-1.5"><Who by={it.edit.by} at={it.edit.at} /></span>}</span>}</span>)}
+        {visible.map(it => <span key={it.key} className="text-[13px] leading-[1.65] mt-[3px] text-fg">{canEdit ? line(it) : <span className={it.edit ? 'wiki-fixed block' : ''}><span className="whitespace-pre-line">{it.text}</span>{it.edit && <span className="flex mt-1"><Who by={it.edit.by} at={it.edit.at} /></span>}</span>}</span>)}
         {m.points?.length > 0 && (
           <ol className="mt-1.5 p-0 list-none grid gap-[3px]">
             {m.points.map((pt, k) => (

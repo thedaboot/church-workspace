@@ -120,3 +120,9 @@ export function cueDigest(input) {
   }
   return out || (lines[0] || '').slice(0, CUE_DIGEST_MAX);
 }
+
+// 편집 사본을 원본 종류대로 내보낼 형식 — 워드 docx · PPT pptx · 엑셀 xlsx · 그 밖(PDF·한글·사진)은 사본이 없다(2026-10-03)
+export const copyExportAs = (name) => {
+  const ext = String(name || '').split('.').pop().toLowerCase();
+  return /^docx?$/.test(ext) ? 'docx' : /^pptx?$/.test(ext) ? 'pptx' : /^xlsx?$/.test(ext) ? 'xlsx' : null;
+};

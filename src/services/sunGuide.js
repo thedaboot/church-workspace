@@ -4,7 +4,7 @@ import { insertNotifications } from './cloud.js';
 import { AiService, isFallbackText } from './ai.js';
 import { loadPassage } from './bible.js';
 import { kindLabel, formatServiceDate, serviceYear, SUNDAY_KIND } from './worship.js';
-import { CUE_DIGEST_MAX } from './cueDigest.js';
+import { CUE_DIGEST_MAX, copyExportAs } from './cueDigest.js';
 import { plainDashes } from './aiText.js';
 
 // ============================================================================
@@ -347,15 +347,17 @@ export async function fetchCueDigest(serviceId) {
   if (!supabase || !serviceId) return '';
   const { data, error } = await supabase.from('files')
     .select('id, name, text_excerpt, preview_file_id').eq('service_id', serviceId).eq('kind', 'cuesheet')
-    .order('created_at', { ascending: false }).limit(1);
+    .order('created_at', { ascending: false });
   if (error) throw error;
-  const row = data?.[0];
+  // 큐시트가 여럿이면 **사본이 있거나 요지가 있는 것** 중 최신 — 맨 마지막 것이 PDF·사진이면 요지가 비었다(2026-10-03)
+  const row = (data || []).find(r => r.preview_file_id || str(r.text_excerpt));
   if (!row) return '';
-  if (row.preview_file_id) {
+  const as = copyExportAs(row.name);
+  if (row.preview_file_id && as) {
     try {
       const [{ fetchDriveFileBlob, setFileExcerpt }, { extractFileText }] = await Promise.all([import('./cloud.js'), import('./fileText.js')]);
-      const blob = await fetchDriveFileBlob(row.preview_file_id, { as: 'docx' });
-      const name = `${String(row.name || '큐시트').replace(/\.[^.]+$/, '')}.docx`;
+      const blob = await fetchDriveFileBlob(row.preview_file_id, { as });
+      const name = `${String(row.name || '큐시트').replace(/\.[^.]+$/, '')}.${as}`;
       const fresh = str(await extractFileText(new File([blob], name, { type: blob.type }), { kind: 'cuesheet' }));
       if (fresh) {
         if (fresh !== str(row.text_excerpt)) setFileExcerpt(row.id, fresh).catch(() => {});

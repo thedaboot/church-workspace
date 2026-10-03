@@ -7,6 +7,8 @@ import { COVER_KIND, coverMap, SUNDAY_KIND, kindLabel, PRAISE_TEAM } from './ser
 // 종류 이름·찬양팀 이름은 순수 모듈(serviceView.js)이 정본이다 — 공개 보기(서버·공개 페이지)도 같은 글자를 쓴다
 export { SUNDAY_KIND, kindLabel, PRAISE_TEAM };
 import { cleanTitle } from './titleText.js';
+import { copyExportAs } from './cueDigest.js';
+export { copyExportAs };
 import { generateId, localDate } from '../utils.js';
 
 // ============================================================================
@@ -661,14 +663,18 @@ export async function fetchLastCuesheet(service) {
   if (e2) throw e2;
   return pickLastCue(svcs, (files || []).filter(f => f.source === 'drive' && f.drive_file_id), service.service_date);
 }
-const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const OFFICE_TYPE = {
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
 export async function lastCueFile(prev, toDate) {
   const f = prev.file;
-  const exported = !!f.preview_file_id;
-  const blob = await fetchDriveFileBlob(exported ? f.preview_file_id : f.drive_file_id, { as: exported ? 'docx' : null });
+  const as = f.preview_file_id ? copyExportAs(f.name) : null;
+  const blob = await fetchDriveFileBlob(as ? f.preview_file_id : f.drive_file_id, { as });
   let name = cueNameFor(f.name, prev.service.service_date, toDate);
-  if (exported && !/\.docx$/i.test(name)) name = `${name.replace(/\.[^.]+$/, '')}.docx`;
-  return new File([blob], name, { type: exported ? DOCX_TYPE : (f.mime_type || blob.type || '') });
+  if (as && !name.toLowerCase().endsWith(`.${as}`)) name = `${name.replace(/\.[^.]+$/, '')}.${as}`;
+  return new File([blob], name, { type: as ? OFFICE_TYPE[as] : (f.mime_type || blob.type || '') });
 }
 
 async function fillCueExcerpt(row, file) {

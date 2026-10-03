@@ -99,7 +99,9 @@ export function FileCard({ file, onOpen }) {
 // ── 물어보기 판 ──────────────────────────────────────────────────────────────
 // 처음: 가운데에 다붓이 + 질문 칩 + 입력 · 물어본 뒤: 말풍선이 쌓이고 입력은 아래('다붓이에게 더 물어보기').
 // chat/setChat은 부르는 쪽(위키 화면)이 쥔다 — 장을 오가도 대화가 남는다.
-export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, onOpenFaq }) {
+// fill — 판이 차지할 높이(위키 화면이 main의 안쪽 높이를 재서 준다 · CSS 길이). 처음 화면은 그 가운데에 서고,
+// 대화가 시작되면 입력 칸이 그 높이의 바닥(=화면 아래)에 붙는다(사용자 지적 2026-10-03 — 가운데에 떠 있었다).
+export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, onOpenFaq, fill = 'min(520px, calc(var(--app-vh,100dvh) - 220px))' }) {
   const [q, setQ] = useState('');
   const endRef = useRef(null);
   const inputRef = useRef(null);
@@ -122,9 +124,10 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
     }
   };
   const retry = (m) => { setChat(c => c.filter(x => x.id !== m.id)); send(m.q); };
+  // 누를 때마다 react.n이 늘어 애니메이션이 처음부터 다시 돈다(같은 버튼을 다시 누르면 풀린다 — 그때는 움직이지 않는다)
   const rate = (m, v) => {
     const next = m.rated === v ? null : v;
-    setChat(c => c.map(x => (x.id === m.id ? { ...x, rated: next } : x)));
+    setChat(c => c.map(x => (x.id === m.id ? { ...x, rated: next, react: next ? { v: next, n: (x.react?.n || 0) + 1 } : x.react } : x)));
     sendFeedback(m.a?.id, next);
   };
 
@@ -145,7 +148,7 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
 
   if (!chat.length) {
     return (
-      <div className="dab-home flex flex-col items-center justify-center gap-2.5 text-center px-4 py-8 min-h-[min(520px,calc(var(--app-vh,100dvh)-220px))]">
+      <div className="dab-home flex flex-col items-center justify-center gap-2.5 text-center px-4 py-6" style={{ minHeight: fill }}>
         <div className="dab-tilt dc-card flex flex-col items-center gap-1.5">
           <img src={DAB_CUT.src} srcSet={cutSet(DAB_CUT.src)} width={DAB_CUT.w} height={DAB_CUT.h} alt="" aria-hidden="true" draggable="false" className="dab-face" />
           <b className="text-[16px] text-fg tracking-[-0.3px]">다붓이에게 물어보기</b>
@@ -164,13 +167,13 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
   }
 
   return (
-    <div className="dab-chat flex flex-col min-h-[min(520px,calc(var(--app-vh,100dvh)-220px))]">
+    <div className="dab-chat flex flex-col" style={{ minHeight: fill }}>
       <div className="flex-1 grid content-start gap-3 px-1 py-3">
         {chat.map(m => (
           <div key={m.id} className="grid gap-3">
             <div className="dab-q dab-q-in justify-self-end max-w-[82%] rounded-[14px_14px_4px_14px] bg-accent text-white px-3 py-2 text-[13.5px] leading-relaxed break-words">{m.q}</div>
             <div className="grid grid-cols-[34px_1fr] gap-2 items-start">
-              <span className="w-[34px] h-[34px] rounded-full overflow-hidden" style={{ background: 'var(--app-hero)' }}><Face size={34} className="bg-transparent" /></span>
+              <span key={m.react ? `${m.react.v}${m.react.n}` : 'still'} className={`w-[34px] h-[34px] rounded-full overflow-hidden ${m.react?.v === 'good' ? 'dab-hop' : m.react?.v === 'bad' ? 'dab-droop' : ''}`} style={{ background: 'var(--app-hero)' }}><Face size={34} className="bg-transparent" /></span>
               {m.loading ? (
                 <div className="dab-bub-in justify-self-start rounded-[4px_14px_14px_14px] px-3 py-3" style={{ background: 'var(--app-hero)' }} aria-label="다붓이가 답을 찾는 중">
                   <span className="dab-dots inline-flex gap-1"><span /><span /><span /></span>
@@ -188,8 +191,8 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
         ))}
         <div ref={endRef} />
       </div>
-      {/* 폰은 하단 바가 main 위에 떠 있어 그 높이만큼 띄운다(--mobile-tab-bar-h · 데스크톱엔 없다 = 0) */}
-      <div className="sticky pt-2 pb-1 bg-gradient-to-t from-[var(--app-canvas)] via-[var(--app-canvas)] to-transparent" style={{ bottom: 'var(--mobile-tab-bar-h, 0px)' }}>{input}</div>
+      {/* bottom 0 — 스티키 자리는 main의 아래 여백(폰은 하단 바 몫)을 이미 뺀 곳이라 더 띄우면 하단 바 높이만큼 떠 있었다(2026-10-03) */}
+      <div className="sticky bottom-0 pt-2 pb-1 bg-gradient-to-t from-[var(--app-canvas)] via-[var(--app-canvas)] to-transparent">{input}</div>
     </div>
   );
 }
@@ -213,13 +216,33 @@ function Answer({ m, onOpenCite, onOpenFile, onOpenFaq, onRate }) {
       {(a.files || []).map(f => <FileCard key={f.id} file={f} onOpen={onOpenFile} />)}
       {!refused && a.id && (
         <div className="flex items-center gap-0.5 mt-1.5 -mb-1 -ml-1">
-          <button type="button" onClick={() => onRate(m, 'good')} aria-label="도움이 됐어요" title="도움이 됐어요" aria-pressed={m.rated === 'good'}
-            className={`w-7 h-7 inline-flex items-center justify-center rounded-md transition active:scale-90 ${m.rated === 'good' ? 'text-accent-text' : 'text-fg-faint hover:text-fg-muted'}`}><ThumbsUp size={13} /></button>
-          <button type="button" onClick={() => onRate(m, 'bad')} aria-label="도움이 안 됐어요" title="도움이 안 됐어요" aria-pressed={m.rated === 'bad'}
-            className={`w-7 h-7 inline-flex items-center justify-center rounded-md transition active:scale-90 ${m.rated === 'bad' ? 'text-accent-text' : 'text-fg-faint hover:text-fg-muted'}`}><ThumbsDown size={13} /></button>
+          <Thumb m={m} v="good" onRate={onRate} />
+          <Thumb m={m} v="bad" onRate={onRate} />
         </div>
       )}
     </div>
+  );
+}
+
+// 👍/👎 한 칸 — 좋아요는 손이 튀며 빛 조각 여덟 개가 터지고(채움 · accent), 싫어요는 손이 흔들린다(채움 · 붉은 톤).
+// 같은 쪽을 다시 누르면 풀린다. 다붓이 얼굴의 폴짝/고개 숙임은 말풍선 옆 얼굴이 같은 react로 돈다.
+function Thumb({ m, v, onRate }) {
+  const on = m.rated === v;
+  const Icon = v === 'good' ? ThumbsUp : ThumbsDown;
+  const label = v === 'good' ? '도움이 됐어요' : '도움이 안 됐어요';
+  const color = v === 'good' ? 'var(--app-accent-text)' : 'var(--app-tag-red-fg)';
+  const anim = on && m.react?.v === v ? (v === 'good' ? 'dab-thumb-pop' : 'dab-thumb-shake') : '';
+  return (
+    <button type="button" onClick={() => onRate(m, v)} aria-label={label} title={label} aria-pressed={on}
+      className={`dab-thumb relative w-7 h-7 inline-flex items-center justify-center rounded-md transition-colors active:scale-90 ${on ? '' : 'text-fg-faint hover:text-fg-muted hover:bg-surface-hover'}`}
+      style={on ? { color, background: `color-mix(in srgb, ${color} 12%, transparent)` } : undefined}>
+      <span key={on ? `${m.react?.n}` : 'off'} className={`inline-flex ${anim}`}><Icon size={13} fill={on ? 'currentColor' : 'none'} /></span>
+      {on && v === 'good' && (
+        <span key={`b${m.react?.n}`} className="dab-burst" aria-hidden="true" style={{ '--c': color }}>
+          {[0, 45, 90, 135, 180, 225, 270, 315].map(d => <i key={d} style={{ '--a': `${d}deg` }} />)}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -230,7 +253,8 @@ export function chipsFrom(pages) {
   for (const it of faq?.blocks?.[0]?.items || []) if (it.meta?.q && out.length < 3) out.push(it.meta.q);
   const sermon = pages.find(p => p.id === 'sermon');
   const lastSvc = sermon?.blocks?.[0]?.meta?.date;
-  const base = ['월례회는 언제 해요?', '송폼은 언제까지 나와요?', '워십팀은 뭐 하는 팀이에요?', lastSvc ? `${mdLabel(lastSvc)} 큐시트 어디 있어요?` : '큐시트는 어디 있어요?'];
+  // 문구는 사용자 것(2026-10-03)
+  const base = ['월례회는 언제 해요?', '예배 송폼은 언제까지 나오나요?', '엔지니어팀은 어떤 팀이에요?', lastSvc ? `${mdLabel(lastSvc)} 예배 큐시트는 어디에 있나요?` : '예배 큐시트는 어디에 있나요?'];
   for (const b of base) if (out.length < 4 && !out.includes(b)) out.push(b);
   return out;
 }

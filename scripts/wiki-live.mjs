@@ -65,13 +65,15 @@ try {
   check('고친 사람은 몸통이 아니라 세션', !up.error && up.data.edited_by === uid, up.error?.message || up.data?.edited_by);
   const del = await c.from('wiki_edits').delete().eq('item_key', 'live-test').select('item_key');
   check('고친 줄 지우기는 정책이 없다(되돌리기도 고치기다)', !del.error && (del.data || []).length === 0);
+  const t = await c.from('wiki_edits').insert({ page_id: 'terms', item_key: '#title', text: '실측 제목', before: '자주 쓰는 말' });
+  check('마스터가 아니면 제목 줄(#)은 못 넣는다(0089)', !!t.error, t.error?.message || '들어갔다');
   const q2 = await c.from('dabooti_questions').select('id').limit(1);
   check('물어본 글 표는 세션으로 읽지 못한다(서버만)', !q2.error && q2.data.length === 0);
 } catch (e) {
   check('실행', false, e.message);
 } finally {
   // ── 뒤처리 ──
-  await admin.from('wiki_edits').delete().eq('item_key', 'live-test');
+  await admin.from('wiki_edits').delete().in('item_key', ['live-test', '#title']).eq('page_id', 'terms');
   if (qIds.length) await admin.from('dabooti_questions').delete().in('id', qIds);
   if (uid) {
     await admin.from('activity').delete().eq('actor_id', uid);

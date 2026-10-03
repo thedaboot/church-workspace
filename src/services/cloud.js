@@ -595,7 +595,7 @@ export async function fetchDriveFileBlob(fileId, { as = null } = {}) {
   const { session } = await getSession();
   const token = session?.access_token;
   if (!token) throw new Error('로그인이 필요합니다.');
-  const r = await fetch(`/api/drive-file?id=${encodeURIComponent(fileId)}${as === 'docx' ? '&as=docx' : ''}`, {
+  const r = await fetch(`/api/drive-file?id=${encodeURIComponent(fileId)}${['docx', 'pptx', 'xlsx'].includes(as) ? `&as=${as}` : ''}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!r.ok) {

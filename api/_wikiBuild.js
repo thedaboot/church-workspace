@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
-  SEED_PAGES, hashKey, josa, mdLabel, kstDate, overlayEdits, parseModelJson, styleIssues,
+  SEED_PAGES, FAQ_SOURCE, hashKey, josa, mdLabel, kstDate, overlayEdits, parseModelJson, styleIssues,
 } from '../src/services/wikiCore.js';
 import { hitsName, COMMON_GIVEN } from '../src/services/aiPeople.js';
 import { sundayNote } from '../src/services/aiText.js';
@@ -362,7 +362,7 @@ export function faqPage(D) {
   const order = (a, b) => (b.meta.n - a.meta.n) || String(b.at).localeCompare(String(a.at));
   const clean = (x) => { const { at, ...rest } = x; return rest; };
   return {
-    id: 'faq', grp: '함께 쓰는 글', title: '자주 묻는 질문', kind: 'auto', position: 2, source: '물어본 글', source_count: known.length + unknown.length,
+    id: 'faq', grp: '함께 쓰는 글', title: '자주 묻는 질문', kind: 'auto', position: 2, source: FAQ_SOURCE, source_count: known.length + unknown.length,
     blocks: [
       { key: 'known', type: 'faq', title: '자주 묻는 질문', items: known.sort(order).slice(0, 30).map(clean) },
       { key: 'unknown', type: 'faq', title: '다붓이가 아직 모르는 질문', items: unknown.sort(order).slice(0, 30).map(clean) },
