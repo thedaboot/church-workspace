@@ -5,7 +5,8 @@ import { AiService, isFallbackText } from './ai.js';
 import { loadPassage } from './bible.js';
 import { kindLabel, formatServiceDate, serviceYear, SUNDAY_KIND } from './worship.js';
 import { CUE_DIGEST_MAX, copyExportAs } from './cueDigest.js';
-import { plainDashes } from './aiText.js';
+import { plainDashes, dateLabel } from './aiText.js';
+import { wikiContextFor } from './wikiContext.js';
 
 // ============================================================================
 // 순모임 가이드 — 주보 한 건당 한 벌. AI가 템플릿의 **내용만** 채운다 (0039 · 0055)
@@ -252,9 +253,18 @@ export const cueLines = (cueText) => {
   const t = str(cueText);
   return t && t.length <= CUE_DIGEST_MAX ? t : '';
 };
-export function buildGuidePrompt({ service, passageText = '', cueText = '' } = {}) {
+// 위키에서 고른 맥락(services/wikiContext.js · 17차) — 우리 청년부 상황을 알려 주는 참고다. 말씀 요약·질문의 재료는 아니다.
+export const GUIDE_WIKI_NOTE = '- 우리 청년부의 상황을 알려 주는 참고다. 말씀 요약과 질문은 위 주보와 아래 본문에서만 쓴다.';
+export const GUIDE_WIKI_LIMIT = 800;
+// 가이드의 위키 물음 — 예배 종류 · 날짜 주석(둘째 주 성찬 예배 · 마지막 주 Q예배) · 설교 제목 · 본문 구절 · 찬양. 그 주보 자신의 장 블록(s:<id>)은 되먹이지 않는다.
+export function guideWikiQuery(service) {
+  const s = service || {};
+  return [kindLabel(s.kind), s.service_date ? dateLabel(s.service_date) : '', str(s.title), str(s.passage_ref), s.songs?.length ? songLine(s) : '', '순모임'].filter(Boolean).join(' ');
+}
+export function buildGuidePrompt({ service, passageText = '', cueText = '', wikiText = '' } = {}) {
   const s = service || {};
   const cue = cueLines(cueText);
+  const wiki = str(wikiText);
   const prompt = [
     '[주보]',
     `예배: ${kindLabel(s.kind)} · ${formatServiceDate(s.service_date)}`,
@@ -273,6 +283,7 @@ export function buildGuidePrompt({ service, passageText = '', cueText = '' } = {
       cue,
       '- 위 인용 구절은 번호만 있고 본문이 실려 있지 않다. 옮겨 적거나 굵게 감싸지 마라. 굵게는 아래 개역한글 본문에서만 한다.',
     ] : []),
+    ...(wiki ? ['', wiki] : []),
     '',
     '[본문 (개역한글)]',
     passageText || '(본문 텍스트를 받지 못했습니다. 위 구절만 보고 쓰되, 본문에 없는 내용을 지어내지 마라.)',
@@ -380,6 +391,7 @@ export async function generateGuide(service) {
     console.warn('[sunGuide] 큐시트 요지를 읽지 못했어요:', e?.message || e);
     return '';
   });
+  const wikiQ = wikiContextFor(guideWikiQuery(service), { limit: GUIDE_WIKI_LIMIT, exclude: [`s:${service.id}`], note: GUIDE_WIKI_NOTE }).catch(() => '');
   if (service.passage_ref) {
     try {
       const loaded = await loadPassage(service.passage_ref);
@@ -388,7 +400,9 @@ export async function generateGuide(service) {
       console.error('[sunGuide] 본문을 읽지 못했어요:', e);
     }
   }
-  const { prompt, system } = buildGuidePrompt({ service, passageText, cueText: await cueQ });
+  // 위키 맥락 — 1.5초에 끊고 못 읽으면 빈 글(가이드는 위키 없이도 만든다)
+  const wikiText = await wikiQ;
+  const { prompt, system } = buildGuidePrompt({ service, passageText, cueText: await cueQ, wikiText });
   let body = parseGuide(await AiService.callGemini(prompt, system));
   // ponytail: 로컬 vite에는 /api/ai 서버 함수가 없어 AI가 늘 실패한다. 개발 모드에서만 사용자가
   // 준 템플릿 원문(창세기 21장 예시)을 그대로 돌려 **틀과 편집 흐름을 볼 수 있게** 한다.

@@ -164,6 +164,8 @@ const aiSrcForSearch = readFileSync(new URL('src/services/ai.js', ROOT), 'utf8')
   .replace(/from '\.\/aiPeople\.js';/, "from '" + new URL('src/services/aiPeople.js', ROOT).href + "';")
   .replace(/from '\.\/aiText\.js';/, "from '" + new URL('src/services/aiText.js', ROOT).href + "';")
   .replace(/import \{ fetchRoster \} from '\.\/worship\.js';/, 'const fetchRoster = async () => null;')
+  // 위키 맥락(17차 · wikiContext.js → wiki.js가 supabase를 문다) — 성경 검색은 쓰지 않으므로 빈 것으로
+  .replace(/import \{ wikiContextFor, heldWikiStamp \} from '\.\/wikiContext\.js';/, "const wikiContextFor = async () => ''; const heldWikiStamp = () => '';")
   .replace(/import \{ store \} from '\.\.\/store\/workspaceStore\.js';/,
     'export const store = { getState: () => ({ tasks: { byId: {} }, projects: { byId: {}, allIds: [] }, members: [] }) };');
 const aiFile = join(tmp, 'ai.mjs');

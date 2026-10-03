@@ -4,6 +4,7 @@ import { extractMentions, MENTION_TAIL, localDate } from '../utils.js';
 import { rosterIndex, mentionedMembers, personLine, taskScope } from './aiPeople.js';
 import { fetchRoster } from './worship.js';
 import { dateLabel, subtaskLabel, commentTimeline, plainDashes, isSummaryShape } from './aiText.js';
+import { wikiContextFor, heldWikiStamp } from './wikiContext.js';
 
 // ============================================================================
 // 6-2. AI Service Layer — /api/ai 서버 프록시 경유 (API 키는 서버에만)
@@ -446,8 +447,17 @@ const subsFingerprint = (task) => (task.subtasks || []).map(x => (x.done ? '1' :
 // 댓글 수·마지막 댓글 id도 넣는다 — 댓글은 카드의 updatedAt을 바꾸지 않아서 새 댓글이 달려도 옛 요약이 나왔다.
 // 오늘 날짜도 넣는다 — 요약이 '마감까지 N일'을 말하므로 날이 바뀌면 답이 바뀐다.
 const commentsFingerprint = (task) => { const c = task.comments || []; return `${c.length}:${c[c.length - 1]?.id || ''}`; };
+// 위키의 마지막 고친 때도 넣는다(17차) — 마스터가 위키를 고치면 같은 카드라도 요약이 새 맥락으로 다시 나온다.
 const summaryKey = (task, now = new Date()) =>
-  `${task.id || 'new'}:${task.updatedAt || ''}:${subsFingerprint(task)}:${commentsFingerprint(task)}:${localDate(now)}`;
+  `${task.id || 'new'}:${task.updatedAt || ''}:${subsFingerprint(task)}:${commentsFingerprint(task)}:${localDate(now)}:${heldWikiStamp()}`;
+
+// 위키에서 맥락을 고를 물음(services/wikiContext.js) — 업무 제목 · 본문 앞(다듬기면 초안) · 팀 · 프로젝트 이름.
+// 그 업무의 팀 소개 줄을 맨 앞에 두고, 그 업무 자신의 위키 블록(c:<id>)은 되먹이지 않는다.
+function taskWiki(task, text = null) {
+  const project = task ? store.getState().projects?.byId?.[task.projectId] : null;
+  const query = [task?.title, String(text ?? task?.content ?? '').slice(0, 600), (task?.teams || []).join(' '), project?.title].filter(Boolean).join(' ');
+  return wikiContextFor(query, { teams: task?.teams || [], exclude: task?.id ? [`c:${task.id}`] : [] });
+}
 
 export const AiService = {
   callGemini: async (prompt, systemInstruction = "") => {
@@ -497,7 +507,8 @@ export const AiService = {
   summarizeTask: async (task, { now = new Date() } = {}) => {
     const cached = summaryCache.get(summaryKey(task, now));
     if (cached) return cached;
-    await loadAiRoster();     // 10분에 한 번만 읽는다(위 ROSTER_TTL_MS) — 캐시에 걸리면 여기까지 오지 않는다
+    // 명단과 위키는 10분에 한 번만 읽는다(ROSTER_TTL_MS · wikiContext) — 캐시에 걸리면 여기까지 오지 않는다. 위키는 1.5초에 끊는다.
+    const [, wikiCtx] = await Promise.all([loadAiRoster(), taskWiki(task)]);
     const commentsText = commentTimeline(task.comments);
     const meta = [
       task.assignees?.length ? `담당자: ${task.assignees.join(', ')}` : '',
@@ -520,6 +531,8 @@ export const AiService = {
       '',
       buildTaskContext(task, now),
       '',
+      // 위키 맥락(마스터가 확인한 글 · services/wikiContext.js) — 못 읽었거나 고를 줄이 없으면 이 도막이 없고 상수만으로 돈다
+      wikiCtx,
       peopleContext(task, related),
       '\n위 업무를 아래 형식에 맞춰 요약해줘.',
     ].filter(Boolean).join('\n');
@@ -571,13 +584,14 @@ export const AiService = {
     const text = plainDashes(raw);
     // 안내 문구는 캐시에 넣지 않는다 — 로그인하거나 배포된 뒤에도 계속 그 문구가 나온다.
     // 3줄 모양이 아닌 답도 넣지 않는다 — 보여는 주되, 다시 누르면 새로 묻는다.
+    // 열쇠는 위키를 읽은 **뒤에** 다시 셈한다(처음 부를 때는 쥔 위키가 없어 고친 때가 비어 있었다)
     if (text && isSummaryShape(text)) summaryCache.set(summaryKey(task, now), text);
     return text;
   },
   // task를 넘기면 주변 상황(같은 프로젝트 업무·팀·담당자)을 배경 지식으로 함께 준다.
   // 내용을 늘리라는 뜻이 아니라, 사람·팀 이름을 맞게 부르고 엉뚱한 다음 단계를 만들지 않게 하려는 것.
   polishText: async (text, task = null) => {
-    if (task) await loadAiRoster();
+    const [, wikiCtx] = await Promise.all([task ? loadAiRoster() : null, taskWiki(task, text)]);
     const prompt = [
       '아래는 팀원이 카드에 쓴 초안이야. 더다붓 카드 본문 형식으로 다듬어줘. 내용·의도·수량·링크·메모는 하나도 빼지 마.',
       '',
@@ -680,6 +694,7 @@ export const AiService = {
       '',
       task ? '\n' + buildTaskContext(task) : '',
       '',
+      wikiCtx,
       // 다듬기에 싣는 사람 = 담당자 · @로 불린 사람 · **이 초안에 이름으로 나온 가입자**(결정 13)
       task ? peopleContext(task, [], { withMention: true, text }) : '',
       '',

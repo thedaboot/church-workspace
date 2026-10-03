@@ -18,12 +18,21 @@ const patched = src
   .replace(/from '\.\/aiText\.js';/, `from '${pathToFileURL(`${ROOT}/src/services/aiText.js`).href}';`)
   // 명단 한 벌은 supabase 쪽이라 가짜로 — 검사는 setAiRoster로 직접 쥐여 준다(supabase가 null이면 부르지도 않는다)
   .replace(/import \{ fetchRoster \} from '\.\/worship\.js';/, 'const fetchRoster = async () => null;')
+  // 위키 맥락(17차) — wikiContext.js는 wiki.js(supabase)를 부르므로 그 한 줄만 가짜로 바꾼 사본을 쓴다.
+  // 가짜 loadWiki는 globalThis.__WIKI(함수면 불러서 · 던지면 실패)를 돌려준다.
+  .replace(/from '\.\/wikiContext\.js';/, "from './wikiContext.mjs';")
   .replace(/import \{ store \} from '\.\.\/store\/workspaceStore\.js';/, `
 const STATE = globalThis.__STATE;
 export const store = { getState: () => STATE };`);
 const dir = mkdtempSync(join(tmpdir(), 'aictx-'));
 const file = join(dir, 'ai.mjs');
 writeFileSync(file, patched);
+const wsrc = readFileSync(`${ROOT}/src/services/wikiContext.js`, 'utf8');
+const wpatched = wsrc
+  .replace(/import \{ loadWiki \} from '\.\/wiki\.js';/, "const loadWiki = async () => (typeof globalThis.__WIKI === 'function' ? globalThis.__WIKI() : globalThis.__WIKI);")
+  .replace(/from '\.\/wikiCore\.js';/, `from '${pathToFileURL(`${ROOT}/src/services/wikiCore.js`).href}';`);
+if (wpatched.includes("'./wiki.js'") || wpatched.includes("'./wikiCore.js'") || !patched.includes("'./wikiContext.mjs'")) { console.log('FAIL  wikiContext import 줄을 못 바꿨어요'); process.exit(1); }
+writeFileSync(join(dir, 'wikiContext.mjs'), wpatched);
 
 const mk = (id, title, teams, status, sd, dd, assignees, projectId = 'p1') => ({ id, projectId, title, teams, status,
   startDate:sd, dueDate:dd, assignees, content:'', comments:[], activityLog:[], attachments:[] });
@@ -578,6 +587,95 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
   AiService.callGemini = async () => '- 준비 — 확인 [간식_네이버](https://x.com/a–b)';
   const out = await AiService.polishText('초안');
   check('다듬기의 엠/엔 대시는 하이픈으로(주소 안은 그대로)', out === '- 준비 - 확인 [간식_네이버](https://x.com/a–b)', out);
+  AiService.callGemini = async (prompt, sys) => { captured = { prompt, sys }; return ''; };
+}
+
+// ── 위키에서 고른 맥락 (17차 · 사용자 결정 2026-10-04) ───────────────────────────
+// 위키는 마스터만 고치는 교회 맥락의 정본이다. 요약·다듬기·순모임 가이드가 **위키 전체에서 그 업무에 맞는 줄만** 받는다
+// (services/wikiContext.js). 장 묶음은 지은 것이다(실데이터 덤프는 레포에 넣지 않는다).
+{
+  const W = await import(pathToFileURL(join(dir, 'wikiContext.mjs')).href);
+  const { SEED_PAGES } = await import(pathToFileURL(`${ROOT}/src/services/wikiCore.js`).href);
+  const t0 = globalThis.__STATE.tasks.byId.t0;
+  const PAGES = [
+    ...SEED_PAGES.map(p => ({ ...p, updated_at: '2026-10-01T00:00:00Z' })),
+    { id: 'team:찬양팀', grp: '팀', title: '찬양팀', position: 2, updated_at: '2026-10-02T00:00:00Z', blocks: [
+      // 팀 장의 소개 줄은 함께 쓰는 글 초안을 베낀 것 — 마스터가 초안을 고치면 이 옛 글은 안 실린다
+      { key: 'about', type: 'plain', items: [{ key: 'about1', by: 'code', text: '싱어와 연주자가 함께해요. 콘티와 송폼을 만들고 리허설을 해요.' }] },
+      { key: 'c:t0', type: 'section', title: '찬양 콘티 결정', meta: { cardId: 't0' }, items: [{ key: 'c:t0:a', by: 'model', text: '콘티 결정 업무 자체를 줄인 문장이에요.' }] },
+      { key: 'c:x1', type: 'section', title: '송폼 공유', meta: { cardId: 'x1', date: '2026-09-25' }, items: [{ key: 'c:x1:a', by: 'model', text: '송폼은 인도자가 **목요일 저녁**에 단톡방에 올려요.' }] },
+      { key: 'together', type: 'chips', items: [{ key: 't:x', by: 'code', text: '칩으로만 선 콘티 업무 제목' }] },
+      { key: 'gap', type: 'gap', items: [{ key: 'g:x', by: 'code', text: '기록 전인 콘티 업무 제목' }] },
+    ] },
+    // 자주 묻는 질문 장은 어떤 블록 모양이어도 싣지 않는다(마스터만 보는 장 · 0090)
+    { id: 'faq', grp: '함께 쓰는 글', title: '자주 묻는 질문', position: 9, updated_at: '2026-10-02T00:00:00Z', blocks: [
+      { key: 'known', type: 'list', items: [{ key: 'f1', by: 'human', text: '콘티 송폼 찬양팀 FAQ에만있는줄이에요.' }] },
+    ] },
+  ];
+  const EDITS = [
+    { page_id: 'intro', item_key: 'team1', block_key: 'teams', text: '싱어와 연주자, 인도자가 함께해요. 인도자는 주마다 돌아가며 맡아요.', before: '싱어와 연주자가 함께해요. 콘티와 송폼을 만들고 리허설을 해요.', edited_at: '2026-10-03T00:00:00Z' },
+    { page_id: 'intro', item_key: 'h:lead', block_key: 'us', text: '리더팀장은 순장들을 챙기고 리더순장은 순장 모임을 이끌어요.', edited_at: '2026-10-03T01:00:00Z' },
+    { page_id: 'terms', item_key: 'w5', block_key: 'words', text: '', edited_at: '2026-10-03T02:00:00Z' },
+  ];
+  const q0 = '찬양 콘티 결정 송폼 목요일 워십팀 찬양팀 2026 하계 수련회';
+  const pick = (q, o = {}) => W.pickWikiContext(q, { pages: PAGES, edits: EDITS, ...o });
+  const out = pick(q0, { teams: ['워십팀', '찬양팀'], exclude: ['c:t0'] });
+  // 되돌리기: wikiRows에서 overlayEdits를 빼면(원본 블록 그대로) 깨진다
+  check('위키 맥락: 업무 팀 소개 줄이 맨 앞에, 사람이 고친 글로', out.split('\n')[0] === '[워십팀] 예배 때 앞에서 안무를 해요. 찬양팀과는 다른 팀이에요.'
+    && out.split('\n')[1] === '[찬양팀] 싱어와 연주자, 인도자가 함께해요. 인도자는 주마다 돌아가며 맡아요.' && !out.includes('싱어와 연주자가 함께해요'), out.split('\n').slice(0, 2).join(' / '));
+  // 되돌리기: pickWikiContext의 ① 팀 소개 줄 고정을 빼면 깨진다(물음에 낱말이 없으면 아무 줄도 안 선다)
+  check('위키 맥락: 물음 낱말이 없어도 업무 팀 소개 줄은 선다', pick('', { teams: ['찬양팀'] }) === '[찬양팀] 싱어와 연주자, 인도자가 함께해요. 인도자는 주마다 돌아가며 맡아요.', pick('', { teams: ['찬양팀'] }));
+  // 되돌리기: flat에서 stripBold를 빼면 깨진다
+  check('위키 맥락: 드문 낱말이 맞는 줄이 서고 굵게 별표는 걷힌다', out.includes('[찬양팀 · 송폼 공유 · 9월 25일] 송폼은 인도자가 목요일 저녁에 단톡방에 올려요.') && !out.includes('**'), out.replace(/\n/g, ' / '));
+  check('위키 맥락: 그 업무 자신의 장 블록 · 칩 · 기록 전 칸은 안 실린다', !out.includes('콘티 결정 업무 자체') && !out.includes('칩으로만') && !out.includes('기록 전인'));
+  // 되돌리기: SKIP_PAGES에서 FAQ_ID를 빼면 깨진다
+  check('위키 맥락: 자주 묻는 질문 장은 안 실린다', !out.includes('FAQ에만') && !pick('FAQ에만있는줄이에요').includes('FAQ에만'));
+  check('위키 맥락: 사람이 지운 줄(빈 글)은 안 실린다', !pick('월례회 순모임 리더').includes('월례회 · 둘째 주 순모임 뒤에'));
+  check('위키 맥락: 사람이 더한 줄도 고른다', pick('리더팀장 순장 모임').includes('리더팀장은 순장들을 챙기고'), pick('리더팀장 순장 모임').replace(/\n/g, ' / '));
+  // 되돌리기: take의 글자 수 문턱을 빼면 깨진다
+  const short = pick(q0, { teams: ['찬양팀'], limit: 150 });
+  check('위키 맥락: 글자 수 상한을 지킨다', short.length > 0 && short.length <= 150, `${short.length}자`);
+  check('위키 맥락: 장 차례가 달라도 같은 줄(결정적)', W.pickWikiContext(q0, { pages: [...PAGES].reverse(), edits: [...EDITS].reverse(), teams: ['워십팀', '찬양팀'], exclude: ['c:t0'] }) === out);
+  check('위키 맥락: 위키가 비면 빈 글', pick('', { pages: [] }) === '' && W.wikiBlock('') === '');
+
+  // 읽기 — 실패와 늦음은 빈 글이다(상수만으로 돈다). 되돌리기: startLoad의 catch와 wikiContextFor의 try를 같이 빼면 깨진다
+  W.setWikiMemo(null);
+  globalThis.__WIKI = () => { throw new Error('권한 없음'); };
+  check('위키 맥락: 못 읽으면 빈 글', await W.wikiContextFor(q0, { teams: ['찬양팀'] }) === '');
+  W.setWikiMemo(null);
+  globalThis.__WIKI = () => new Promise(() => {});
+  const t1 = Date.now();
+  // 검사 쪽에도 1초 상한 — 끊는 갈래가 없으면 영영 안 돌아와 스위트가 말없이 끝났다(되돌려 보다 겪음)
+  const slow = await Promise.race([W.wikiContextFor(q0, { teams: ['찬양팀'], wait: 50 }), new Promise(r => setTimeout(() => r('(안 돌아옴)'), 1000))]);
+  check('위키 맥락: 늦으면 끊고 빈 글', slow === '' && Date.now() - t1 < 1000, `${Date.now() - t1}ms`);
+
+  // 요약·다듬기 프롬프트에 실린다 / 못 읽으면 도막이 없다
+  W.setWikiMemo({ pages: PAGES, edits: EDITS });
+  AiService.callGemini = async (prompt, sys) => { captured = { prompt, sys }; return ''; };
+  await AiService.summarizeTask(t0, { now: NOW });   // id t0 — 장의 c:t0 블록이 그 업무 자신이다
+  // 되돌리기: summarizeTask 프롬프트에서 wikiCtx를 빼면 깨진다
+  check('요약 프롬프트에 위키 맥락 도막이 실린다', captured.prompt.includes(W.WIKI_CONTEXT_TITLE) && captured.prompt.includes('[찬양팀] 싱어와 연주자, 인도자가')
+    && captured.prompt.includes(W.WIKI_NOTE_OVER_CONSTANTS), (captured.prompt.split(W.WIKI_CONTEXT_TITLE)[1] || '(없음)').slice(0, 120).replace(/\n/g, ' / '));
+  check('요약: 위키 맥락은 그 업무 자신의 위키 블록을 되먹이지 않는다', !captured.prompt.includes('콘티 결정 업무 자체'));
+  await AiService.polishText('콘티 확정했고 송폼은 목요일', t0);
+  check('다듬기 프롬프트에도 위키 맥락 도막이 실린다', captured.prompt.includes(W.WIKI_CONTEXT_TITLE) && captured.prompt.includes('송폼은 인도자가 목요일 저녁에'));
+  W.setWikiMemo(null);
+  globalThis.__WIKI = () => { throw new Error('권한 없음'); };
+  await AiService.summarizeTask({ ...t0, id: 'wiki-2' }, { now: NOW });
+  check('위키를 못 읽으면 요약 프롬프트에 그 도막이 없다(상수만)', !captured.prompt.includes(W.WIKI_CONTEXT_TITLE) && captured.sys.includes('[우리 청년부]'));
+
+  // 캐시 열쇠 — 마스터가 위키를 고치면 같은 카드도 새로 묻는다. 되돌리기: summaryKey에서 heldWikiStamp를 빼면 깨진다
+  const OK = '1. **현황** - 그대로예요.\n2. **챙길 것** - 곡 목록을 봐요.\n3. **다음 단계** - 연습을 잡아요.';
+  let calls = 0;
+  AiService.callGemini = async () => { calls++; return OK; };
+  W.setWikiMemo({ pages: PAGES, edits: EDITS });
+  await AiService.summarizeTask({ ...t0, id: 'wiki-3' }, { now: NOW });
+  await AiService.summarizeTask({ ...t0, id: 'wiki-3' }, { now: NOW });
+  W.setWikiMemo({ pages: PAGES, edits: [...EDITS, { page_id: 'intro', item_key: 'h:new', block_key: 'us', text: '새로 적은 줄이에요.', edited_at: '2026-10-04T00:00:00Z' }] });
+  await AiService.summarizeTask({ ...t0, id: 'wiki-3' }, { now: NOW });
+  check('위키가 바뀌면 같은 카드도 요약을 새로 묻는다(바뀌기 전에는 캐시)', calls === 2, `${calls}번`);
+  W.setWikiMemo(null);
+  delete globalThis.__WIKI;
   AiService.callGemini = async (prompt, sys) => { captured = { prompt, sys }; return ''; };
 }
 

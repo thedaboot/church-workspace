@@ -36,8 +36,11 @@ const formatServiceDate = (iso) => String(iso || '');`)
   // cueDigest.js는 순수 모듈(import 0)이라 그대로 쓴다 — 임시 폴더에서 도니 절대 경로로
   .replace(/from '\.\/cueDigest\.js';/, `from '${new URL('../src/services/cueDigest.js', import.meta.url).href}';`)
   // aiText.js도 순수 모듈(import 0)이다 — 대시 뒤처리(plainDashes)
-  .replace(/from '\.\/aiText\.js';/, `from '${new URL('../src/services/aiText.js', import.meta.url).href}';`);
-if (patched === src || /from '\.\/(cueDigest|aiText)\.js'/.test(patched)) { console.log('FAIL  import 줄을 못 바꿨어요 (sunGuide.js의 import가 바뀌었나요)'); process.exit(1); }
+  .replace(/from '\.\/aiText\.js';/, `from '${new URL('../src/services/aiText.js', import.meta.url).href}';`)
+  // 위키 맥락(17차 · services/wikiContext.js — 고르는 규칙은 tests/aictx가 본다) — 가짜는 받은 인자를 남기고 globalThis.__WIKICTX를 돌려준다
+  .replace(/import \{ wikiContextFor \} from '\.\/wikiContext\.js';/,
+    'const wikiContextFor = async (q, o) => { globalThis.__WIKIQ = { q, o }; return globalThis.__WIKICTX ?? ""; };');
+if (patched === src || /from '\.\/(cueDigest|aiText|wikiContext)\.js'/.test(patched)) { console.log('FAIL  import 줄을 못 바꿨어요 (sunGuide.js의 import가 바뀌었나요)'); process.exit(1); }
 const dir = mkdtempSync(join(tmpdir(), 'sunguide-'));
 const file = join(dir, 'sunGuide.mjs');
 writeFileSync(file, patched);
@@ -410,6 +413,20 @@ check('주보에 설교 제목이 없으면 빈 글이다(화면이 대괄호를
   noTitle?.passage.title === '', json(noTitle?.passage));
 check('본문 텍스트가 프롬프트에 실려 모델에 간다',
   globalThis.__CALL.p.includes('12 예수께서'), '(callGemini에 간 프롬프트)');
+// 위키 맥락(17차) — 위키에서 고른 줄이 가이드 프롬프트에 참고로 실린다. 그 주보 자신의 위키 블록(s:<id>)은 되먹이지 않는다.
+// 되돌리기: generateGuide에서 wikiText를 넘기지 않거나 buildGuidePrompt의 wiki 줄을 빼면 깨진다
+{
+  globalThis.__WIKICTX = '[더다붓 위키에서 고른 맥락(…)]\n' + G.GUIDE_WIKI_NOTE + '\n[자주 쓰는 말] 순모임 가이드 · 설교 말씀으로 나눌 이야기예요.';
+  globalThis.__AI = '```json\n' + json(GUIDE) + '\n```';
+  await G.generateGuide({ ...SERVICE, service_date: '2026-10-11' });
+  check('가이드 프롬프트에 위키 맥락이 실린다', globalThis.__CALL.p.includes('[자주 쓰는 말] 순모임 가이드') && globalThis.__CALL.p.includes(G.GUIDE_WIKI_NOTE));
+  const wq = globalThis.__WIKIQ;
+  check('가이드의 위키 물음: 설교 제목 · 구절 · 날짜 주석 · 그 주보 블록 제외',
+    wq.q.includes('세상의 빛으로 오신 예수님') && wq.q.includes('요한복음 8:12-20') && wq.q.includes('둘째 주 성찬 예배')
+    && wq.o.exclude?.[0] === 's:svc-1' && wq.o.limit === G.GUIDE_WIKI_LIMIT, JSON.stringify(wq));
+  check('위키 맥락이 없으면 그 도막이 없다', !G.buildGuidePrompt({ service: SERVICE, passageText }).prompt.includes(G.GUIDE_WIKI_NOTE));
+  delete globalThis.__WIKICTX;
+}
 globalThis.__AI = 'AI 기능은 로그인 후 사용할 수 있어요.';
 check('게스트·로그인 없음이면 null (화면이 토스트를 띄운다)', (await G.generateGuide(SERVICE)) === null);
 globalThis.__AI = '{ "summary": "모양이 아닙니다" }';
