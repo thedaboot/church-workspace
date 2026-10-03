@@ -268,7 +268,7 @@ export function prefilter(q) {
 //   statement 알려 주는 말 — unknown으로 저장해 마스터가 자주 묻는 질문 › 모르는 질문에서 위키에 옮긴다
 export const MAKER = '노준석';
 export const TALK_ANSWERS = {
-  makerAsk: '청년부에서 가장 목소리가 좋은 위대하신 노준석 개발자님이 만들었어요!',
+  makerAsk: '청년부에서 가장 목소리가 좋은, 위대하신 노준석 개발자님이 만들었어요!',
   makerTold: '맞아요! 저를 만들어주신 분은 노준석 개발자님이세요.',
   makerKnown: '네, 저를 만들어주신 분은 노준석 개발자님이세요.',
   makerOther: '저를 만들어주신 분은 노준석 개발자님이세요.',
@@ -375,7 +375,9 @@ export function scoreWikiItems(pages, terms) {
   const rows = [];
   for (const p of pages || []) for (const b of p.blocks || []) for (const it of b.items || []) {
     if (!String(it.text || '').trim()) continue;
-    rows.push({ hay: `${p.title} ${b.title || ''} ${it.meta?.q || ''} ${it.meta?.team || ''} ${it.meta?.time || ''} ${it.text}`, p, b, it });
+    // 띄어 쓴 글도 붙여 쓴 질문 낱말에 걸리게 붙인 글을 덧붙인다 — '찬양인도자 누구야'가 '찬양 인도자는 …' 줄을 못 찾았다(2026-10-04)
+    const hay = `${p.title} ${b.title || ''} ${it.meta?.q || ''} ${it.meta?.team || ''} ${it.meta?.time || ''} ${it.text}`;
+    rows.push({ hay: `${hay} ${String(it.text).replace(/\s+/g, '')}`, p, b, it });
   }
   const w = termWeights(rows.map(r => r.hay), terms);
   for (const r of rows) {

@@ -5784,7 +5784,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const P = await import(new URL('../api/push.js', import.meta.url).href);
   // 다붓이 자신 — 코드가 답한다(칩 없음 · answered · 저장 안 함)
   const tk = (q, prev) => W.talkKind(q, prev);
-  assert.strictEqual(tk('너 누가 만들었누')?.answer, '청년부에서 가장 목소리가 좋은 위대하신 노준석 개발자님이 만들었어요!');
+  assert.strictEqual(tk('너 누가 만들었누')?.answer, '청년부에서 가장 목소리가 좋은, 위대하신 노준석 개발자님이 만들었어요!');
   assert.strictEqual(tk('너 누가 만들었누')?.status, 'answered');
   assert.strictEqual(tk('누가 만들었어?')?.kind, 'self', '대상이 없으면 다붓이 이야기');
   assert.strictEqual(tk('이 포스터 누가 만들었어?'), null, '다른 것을 누가 만들었나는 보통 질문');
@@ -5848,6 +5848,22 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(pl.includes('찬양팀에는 현재 워크스페이스 가입자로는 가나다(찬양팀장), 라마바가 있어요.') && !pl.some(l => l.startsWith('엔지니어팀')), JSON.stringify(pl));
   assert.ok(A.peopleLines(roster, '사역자가 누구여').includes('청년부 교역자(사역자)는 파하 전도사님이에요.'));
   assert.ok(A.peopleLines(roster, '팀원 명단 알려줘').some(l => l.startsWith('엔지니어팀에는 현재 워크스페이스 가입자로는 사아자(엔지니어팀장), 차카타가')), '팀을 안 말하면 전부');
+  // 붙여 쓴 질문 낱말이 띄어 쓴 위키 줄에 걸린다
+  {
+    const pg = [{ id: 'x', title: '찬양팀', blocks: [{ key: 'about', type: 'plain', items: [{ key: 'a', text: '찬양 인도자는 가나다 청년이에요.' }, { key: 'b', text: '콘티를 만들어요.' }] }] }];
+    const hit = W.scoreWikiItems(pg, W.termsOf('찬양인도자 누구야'));
+    assert.ok(hit.length && hit[0].item.key === 'a', JSON.stringify(hit.map(h => h.item.key)));
+  }
+  // 명단 끝 조사 · 한 사람 부르기(사용자 문장 2026-10-04 — '…, 재훈이가 있어요' · '김승찬 형제가 맡고 있어요')
+  assert.strictEqual(A.listSubject(['노준석', '재훈']), '노준석, 재훈이가', '성 없는 두 글자 받침 이름은 이가');
+  assert.strictEqual(A.listSubject(['가나다', '문진혁(엔지니어팀장)']), '가나다, 문진혁(엔지니어팀장)이', '괄호 직함은 괄호 앞 글자로');
+  assert.strictEqual(A.listSubject(['김승찬', '라마바']), '김승찬, 라마바가');
+  assert.strictEqual(A.callFor({ name: '김승찬', role: '', gender: 'm' }), '김승찬 형제');
+  assert.strictEqual(A.callFor({ name: '정민경', role: '', gender: 'f' }), '정민경 자매');
+  assert.strictEqual(A.callFor({ name: '가나다', role: '찬양팀장', gender: 'm' }), '가나다 형제', '형제·자매가 먼저(직함을 되풀이하지 않는다)');
+  assert.strictEqual(A.callFor({ name: '가나다', role: '찬양팀장' }), '가나다 찬양팀장님', '성별을 모르면 직함');
+  assert.strictEqual(A.callFor({ name: '모름', role: '' }), '모름 청년', '성별을 모르면 청년');
+  assert.ok(A.peopleLines({ members: [{ name: '김승찬', role: '', teams: ['찬양팀'], gender: 'm' }], pastors: [] }, '찬양팀 일렉 누구야').includes('한 사람을 부를 때는 김승찬 형제처럼 불러요.'));
   // 이름 — 근거에 있는 이름은 지나고, 근거에 없는 이름은 걸린다(위키 · 다붓이 같은 규칙)
   const hn = B.nameMatcher(['가나다', '라마바']);
   assert.deepStrictEqual(hn.strangers('찬양팀에는 가나다가 있어요.', '찬양팀에는 현재 워크스페이스 가입자로는 가나다(찬양팀장)'), []);
