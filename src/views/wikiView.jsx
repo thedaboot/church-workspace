@@ -1,18 +1,16 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, Pencil, Plus, X } from 'lucide-react';
+import { createContext, lazy, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Bold, ChevronLeft, Pencil, Plus, X } from 'lucide-react';
 import { useCached } from '../services/cache.js';
 import { loadWiki, saveWikiEdits, seenMap, markSeen } from '../services/wiki.js';
 import {
   WIKI_GROUPS, EDITABLE_TYPES, ADDABLE_TYPES, overlayEdits, overlayTitles, editStats, editRows, sourceLabel, mdLabel, kstDate,
-  FAQ_SOURCE, TITLE_KEY, headKey,
+  FAQ_SOURCE, FAQ_ID, TITLE_KEY, headKey, visiblePages, boldParts, toggleBold,
 } from '../services/wikiCore.js';
 import { useAuth } from '../services/auth.jsx';
 import { loadBibleIndex } from '../services/bible.js';
 import { fullRef } from '../services/bibleRef.js';
 import { AskPanel, AskEntry, CiteChip, chipsFrom } from '../components/dabooti.jsx';
 import { cutSet } from '../components/dabooti.jsx';
-import { Avatar } from '../components/Avatar.jsx';
-import { profileName } from '../services/cloudSync.js';
 import { CONFIG } from '../config.js';
 import { BTN } from '../components/buttons.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -29,8 +27,9 @@ const FilePreviewModal = lazy(() => import('../components/FilePreviewModal.jsx')
 // 데스크톱: 왼쪽 장 목록(맨 위 '다붓이에게 물어보기' 칸 · 묶음 일곱) | 가운데 물어보기 또는 장.
 // 폰: 위키 첫 화면(물어보기 칸 + 장 목록) → 물어보기 / 장(‹ 위키 · ✎ 수정).
 // 장은 서버가 매일 아침 모은 블록이고(api/_wikiBuild.js), 사람이 고친 문장은 wiki_edits를 겹쳐 그린다 —
-// 초록 줄 + 고친 사람 사진 + 'OOO · 10월 2일 수정'. 고친 줄은 다음 날 다시 모아도 덮이지 않는다.
-// 고치기: ✎ 수정 → 줄마다 글 칸 → 저장(바뀐 줄만 upsert) · 함께 쓰는 글의 목록은 줄을 더할 수 있다.
+// 고친 줄은 다음 날 다시 모아도 덮이지 않는다(글에 표시는 없다 · 마스터에게 장 머리 '수정한 곳 N'만).
+// 고치기는 마스터만(0090): ✎ 수정 → 줄마다 글 칸(B = **굵게**) → 저장(바뀐 줄만 upsert) · 함께 쓰는 글의 목록은 줄을 더할 수 있다.
+// 자주 묻는 질문 장은 마스터만 본다(목록·다붓이 링크에서 뺀다 — wikiCore.visiblePages).
 // 근거 칩: 업무 → 업무 창 · 주보 → 그 주보 · 파일 → 미리보기(비밀번호 파일은 업무 창으로) · 장 → 그 장.
 // ============================================================================
 
@@ -71,7 +70,8 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
   const [preview, setPreview] = useState(null);
   const [seen, setSeen] = useState(seenMap);
   const [dir, setDir] = useState('fwd');   // 폰 장 넘김 방향 — 들어가면 오른쪽에서, 돌아오면 왼쪽에서
-  const { isMaster } = useAuth();
+  // 게스트는 늘 마스터라 검사(tests/wiki)는 장 묶음의 member로 마스터 아닌 사람을 흉내 낸다(services/wiki.loadWiki)
+  const isMaster = useAuth().isMaster && !data?.member;
   const rootRef = useRef(null);
   useMainHeight(rootRef);
 
@@ -79,9 +79,9 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
     if (!data) return [];
     const by = new Map();
     for (const e of data.edits || []) { if (!by.has(e.page_id)) by.set(e.page_id, []); by.get(e.page_id).push(e); }
-    return (data.pages || []).map(p => { const pe = by.get(p.id) || []; const o = overlayTitles(p, pe); return { ...o, blocks: overlayEdits(o.blocks, pe), edits: pe }; })
+    return visiblePages(data.pages || [], isMaster).map(p => { const pe = by.get(p.id) || []; const o = overlayTitles(p, pe); return { ...o, blocks: overlayEdits(o.blocks, pe), edits: pe }; })
       .sort((a, b) => WIKI_GROUPS.indexOf(a.grp) - WIKI_GROUPS.indexOf(b.grp) || a.position - b.position || a.title.localeCompare(b.title));
-  }, [data]);
+  }, [data, isMaster]);
   const page = pages.find(p => p.id === sel) || null;
   const chips = useMemo(() => chipsFrom(pages), [pages]);
 
@@ -91,7 +91,7 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
     setSeen(seenMap());
   }, [page?.id, page?.built_at]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const go = (id) => { setDir(id === null ? 'back' : 'fwd'); setSel(id); document.querySelector('main')?.scrollTo?.({ top: 0 }); };
+  const go = (id) => { if (id === FAQ_ID && !isMaster) return; setDir(id === null ? 'back' : 'fwd'); setSel(id); document.querySelector('main')?.scrollTo?.({ top: 0 }); };
   const openCite = (c) => {
     if (!c) return;
     if (c.t === 'page') { go(c.id); return; }
@@ -103,6 +103,8 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
     if (c.t === 'service') { onOpenLink?.(`/?p=worship&s=${c.id}`); return; }
     if (c.t === 'file') openCite({ t: c.cardId ? 'card' : 'service', id: c.cardId || c.serviceId });
   };
+  // QT 본문 일정의 날 → 말씀 탭 QT의 그 날(딥링크 값 qt · services/entryQuery · WordView가 마운트되며 읽는다)
+  const openQt = (date) => onOpenLink?.(`/?p=word&qt=${date}`);
   const openFile = (f) => {
     // 비밀번호 파일은 업무 창에서 연다(비밀번호를 묻는 자리가 거기다)
     if (f.pw && f.card_id) { openCite({ t: 'card', id: f.card_id }); return; }
@@ -145,7 +147,7 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
   ) : null;
 
   // 폰은 ‹ 위키 줄(약 40px)만큼 뺀다
-  const ask = <AskPanel chat={chat} setChat={setChat} chips={chips} onOpenCite={openCite} onOpenFile={openFile} onOpenFaq={() => go('faq')}
+  const ask = <AskPanel chat={chat} setChat={setChat} chips={chips} onOpenCite={openCite} onOpenFile={openFile} onOpenFaq={isMaster ? () => go(FAQ_ID) : null}
     fill={isMobile ? 'calc(var(--wiki-h, 70vh) - 40px)' : 'var(--wiki-h, 70vh)'} />;
   const modal = preview && (
     <Suspense fallback={null}>
@@ -172,7 +174,7 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
               </button>
             </div>
             <div className={sel === 'ask' ? '' : 'hidden'}>{ask}</div>
-            {sel !== 'ask' && (body || (page ? <WikiPage key={page.id} page={page} mobile isMaster={isMaster} onOpenCite={openCite} onSaved={refresh} /> : null))}
+            {sel !== 'ask' && (body || (page ? <WikiPage key={page.id} page={page} mobile isMaster={isMaster} onOpenCite={openCite} onOpenQt={openQt} onSaved={refresh} /> : null))}
           </div>
         )}
         {modal}
@@ -190,7 +192,7 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
       </aside>
       <section className="min-w-0 pl-8 pr-2">
         <div className={sel === 'ask' ? '' : 'hidden'}>{ask}</div>
-        {sel !== 'ask' && (body || (page ? <div key={page.id} className="dc-fade py-1"><WikiPage page={page} isMaster={isMaster} onOpenCite={openCite} onSaved={refresh} /></div> : null))}
+        {sel !== 'ask' && (body || (page ? <div key={page.id} className="dc-fade py-1"><WikiPage page={page} isMaster={isMaster} onOpenCite={openCite} onOpenQt={openQt} onSaved={refresh} /></div> : null))}
       </section>
       {modal}
     </div>
@@ -198,16 +200,29 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
 }
 
 // ── 장 하나 ──────────────────────────────────────────────────────────────────
-function WikiPage({ page, mobile = false, isMaster = false, onOpenCite, onSaved }) {
+// 고치는 글 칸이 마지막으로 잡은 자리 — B(굵게)가 그 칸의 고른 글을 감싼다(폰에서 B를 누르면 칸의 초점이 풀려도 고른 자리는 남는다)
+const DraftCtx = createContext(null);
+
+function WikiPage({ page, mobile = false, isMaster = false, onOpenCite, onOpenQt, onSaved }) {
   const [editing, setEditing] = useState(false);
   const [drafts, setDrafts] = useState({});
   const [added, setAdded] = useState([]);   // [{ key, block_key, text }]
   const [saving, setSaving] = useState(false);
   const stats = editStats(page.blocks);
   const human = page.kind === 'human';
-  const lastWho = stats.last?.by ? profileName(stats.last.by) : '';
+  const lastDraft = useRef(null);   // { el, start, end, onChange }
 
-  const start = () => { setDrafts({}); setAdded([]); setEditing(true); };
+  const start = () => { lastDraft.current = null; setDrafts({}); setAdded([]); setEditing(true); };
+  const bold = () => {
+    const d = lastDraft.current;
+    if (!d || !d.el.isConnected) return;
+    // 칸에 초점이 남아 있으면(데스크톱) 지금 고른 자리를, 아니면(폰 — B를 누르며 초점이 풀렸다) 마지막으로 쥔 자리를
+    const live = document.activeElement === d.el;
+    const r = toggleBold(d.el.value, live ? d.el.selectionStart : d.start, live ? d.el.selectionEnd : d.end);
+    d.onChange(r.value);
+    d.start = r.start; d.end = r.end;
+    requestAnimationFrame(() => { try { d.el.focus(); d.el.setSelectionRange(r.start, r.end); } catch { /* 칸이 사라짐 */ } });
+  };
   const cancel = () => { setEditing(false); setDrafts({}); setAdded([]); };
   const save = async () => {
     // 제목·소제목(마스터만 · 0089) — 열쇠 `#title`·`#h:<블록>` · before는 처음 제목
@@ -233,8 +248,12 @@ function WikiPage({ page, mobile = false, isMaster = false, onOpenCite, onSaved 
     } finally { setSaving(false); }
   };
 
-  const editBar = editing ? (
+  // 고치기는 마스터만(0090) — 마스터가 아니면 ✎ 수정을 세우지 않는다
+  const editBar = !isMaster ? null : editing ? (
     <span className="flex items-center gap-1.5 shrink-0">
+      {/* 누르는 순간 칸의 초점을 뺏지 않는다(데스크톱) — 폰은 lastDraft가 고른 자리를 쥐고 있다 */}
+      <button type="button" onPointerDown={e => e.preventDefault()} onClick={bold} aria-label="굵게" title="굵게"
+        className="wiki-bold w-8 h-[30px] inline-flex items-center justify-center rounded-md text-fg-muted bg-surface-hover transition active:scale-95"><Bold size={14} strokeWidth={2.6} /></button>
       <button type="button" onClick={cancel} className="px-3 py-1.5 rounded-md text-[11.5px] font-semibold text-fg-muted bg-surface-hover transition active:scale-95">취소</button>
       <button type="button" onClick={save} disabled={saving} className={BTN}>저장</button>
     </span>
@@ -247,32 +266,35 @@ function WikiPage({ page, mobile = false, isMaster = false, onOpenCite, onSaved 
   return (
     <article className="wiki-page dc-fade min-w-0" data-page={page.id}>
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <span className="text-[11px] font-bold text-fg-muted">{editing ? `${page.title} · 수정 중` : page.grp}</span>
           <h2 className={`mt-1 mb-1.5 font-extrabold tracking-[-0.4px] text-fg ${mobile ? 'text-[19px]' : 'text-[22px]'}`}>
             {editing && isMaster
               ? <TitleDraft value={TITLE_KEY in drafts ? drafts[TITLE_KEY] : page.title} onChange={v => setDrafts(d => ({ ...d, [TITLE_KEY]: v }))} label="장 제목" />
               : page.title}
           </h2>
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-fg-muted">
-            {human ? <Tag green>함께 작성</Tag> : <Tag>{sourceLabel(page.source)}</Tag>}
-            {!human && page.source_count > 0 && <span>{UNIT[page.source] || '기록'} {page.source_count}{page.source === '업무' || page.source === '주보' ? '건' : '개'}</span>}
-            {!human && page.built_at && <span>{mdLabel(kstDate(page.built_at))}</span>}
-            {!human && stats.n > 0 && <Tag green>수정한 곳 {stats.n}</Tag>}
-            {/* 고친 사람은 장 머리에만 — 문장마다 붙이면 글을 해쳤다(사용자 결정 2026-10-03) */}
-            {!human && stats.last && <Who by={stats.last.by} at={stats.last.at} name={lastWho} muted />}
-            {human && stats.last && <Who by={stats.last.by} at={stats.last.at} name={lastWho} muted />}
-          </div>
+          {/* 누가 고쳤는지('함께 작성' · 'OOO · 날짜 수정')는 걷었다(사용자 결정 2026-10-04) — 출처·기록 수·모은 날만.
+              '수정한 곳 N'은 마스터에게만(고치는 사람이 마스터뿐이라 그쪽에만 쓸모가 있다) */}
+          {!human && (
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-fg-muted">
+              <Tag>{sourceLabel(page.source)}</Tag>
+              {page.source_count > 0 && <span>{UNIT[page.source] || '기록'} {page.source_count}{page.source === '업무' || page.source === '주보' ? '건' : '개'}</span>}
+              {page.built_at && <span>{mdLabel(kstDate(page.built_at))}</span>}
+              {isMaster && stats.n > 0 && <Tag green>수정한 곳 {stats.n}</Tag>}
+            </div>
+          )}
         </div>
         {editBar}
       </div>
 
-      <div className="mt-3.5">
-        {page.blocks.map((b, i) => (
-          <Block key={b.key} b={b} i={i} page={page} editing={editing} isMaster={isMaster} drafts={drafts} setDrafts={setDrafts}
-            added={added.filter(a => a.block_key === b.key)} setAdded={setAdded} onOpenCite={onOpenCite} />
-        ))}
-      </div>
+      <DraftCtx.Provider value={lastDraft}>
+        <div className={human ? 'mt-2' : 'mt-3.5'}>
+          {page.blocks.map((b, i) => (
+            <Block key={b.key} b={b} i={i} page={page} editing={editing} isMaster={isMaster} drafts={drafts} setDrafts={setDrafts}
+              added={added.filter(a => a.block_key === b.key)} setAdded={setAdded} onOpenCite={onOpenCite} onOpenQt={onOpenQt} />
+          ))}
+        </div>
+      </DraftCtx.Provider>
     </article>
   );
 }
@@ -283,15 +305,9 @@ function Tag({ children, green = false }) {
   );
 }
 
-// 'OOO · 10월 2일 수정'(사진) — 업무 창 버전 기록과 같은 모양
-function Who({ by, at, name, muted = false }) {
-  const n = name || profileName(by) || '';
-  return (
-    <span className={`wiki-who inline-flex items-center gap-1 text-[10.5px] leading-4 font-semibold whitespace-nowrap ${muted ? 'text-fg-muted' : 'text-tag-green-fg'}`}>
-      {n && <Avatar name={n} className="w-4 h-4 text-[8px] flex shrink-0" />}
-      {n ? `${n} · ` : ''}{mdLabel(kstDate(at))} 수정
-    </span>
-  );
+// 읽기 글 — 줄바꿈 그대로 · `**굵게**`만 굵게(wikiCore.boldParts)
+function Rich({ text, extra = null }) {
+  return <span className="whitespace-pre-line">{extra}{boldParts(text).map((p, k) => (p.b ? <strong key={k} className="font-bold">{p.t}</strong> : p.t))}</span>;
 }
 
 function Cites({ cites, onOpen, className = 'ml-1.5' }) {
@@ -302,22 +318,24 @@ function Cites({ cites, onOpen, className = 'ml-1.5' }) {
 // 고치는 글 칸 — 내용만큼 늘어난다
 function Draft({ value, onChange, onRemove, placeholder }) {
   const ref = useRef(null);
+  const last = useContext(DraftCtx);
+  const mark = (e) => { if (last) last.current = { el: e.target, start: e.target.selectionStart, end: e.target.selectionEnd, onChange }; };
   useEffect(() => { const el = ref.current; if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px`; } }, [value]);
   return (
     // 보이는 글을 그 자리에서 고친다 — 같은 글꼴·줄 간격(index.css .wiki-draft) · 줄바꿈은 그대로 저장되고 읽기도 그대로 바꾼다
     <span className="flex items-start gap-2">
-      <textarea ref={ref} value={value} onChange={e => onChange(e.target.value)} rows={1} placeholder={placeholder}
+      <textarea ref={ref} value={value} onChange={e => { onChange(e.target.value); mark(e); }} onSelect={mark} onFocus={mark} rows={1} placeholder={placeholder}
         className="wiki-draft flex-1 min-w-0 placeholder:text-fg-faint" />
       {onRemove && (
         <button type="button" onClick={onRemove} aria-label="이 줄 지우기" title="이 줄 지우기"
-          className="-mt-0.5 w-7 h-7 shrink-0 inline-flex items-center justify-center rounded-md text-fg-faint hover:text-fg-muted hover:bg-surface-hover transition active:scale-90"><X size={14} /></button>
+          className="mt-px w-7 h-7 shrink-0 inline-flex items-center justify-center rounded-md text-fg-faint hover:text-fg-muted hover:bg-surface-hover transition active:scale-90"><X size={14} /></button>
       )}
     </span>
   );
 }
 
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];
-function QtDays({ days }) {
+function QtDays({ days, onOpen }) {
   const [books, setBooks] = useState(null);
   useEffect(() => { let on = true; loadBibleIndex().then(b => { if (on) setBooks(b); }).catch(() => {}); return () => { on = false; }; }, []);
   const today = kstDate(new Date().toISOString());
@@ -336,8 +354,10 @@ function QtDays({ days }) {
             const isToday = d.date === today;
             const past = d.date < today;
             return (
-              <li key={d.date} style={{ '--col': d.dow + 1 }} aria-current={isToday ? 'date' : undefined}
-                className={`wiki-qt-day lg:[grid-column-start:var(--col)] flex lg:flex-col lg:items-start items-center gap-3 lg:gap-1 rounded-lg px-3 py-1.5 lg:py-2 lg:min-h-[64px] border ${isToday ? 'border-accent bg-accent-weak' : 'border-line'} ${past ? 'opacity-55' : ''}`}>
+              // 날을 누르면 말씀 탭 QT의 그 날로(onOpen — WikiView.openQt) · 모양은 그대로(달력 손질은 따로 온다)
+              <li key={d.date} style={{ '--col': d.dow + 1 }} className="wiki-qt-day lg:[grid-column-start:var(--col)] flex">
+                <button type="button" onClick={() => onOpen?.(d.date)} aria-current={isToday ? 'date' : undefined} aria-label={`${Number(d.date.slice(5, 7))}월 ${Number(d.date.slice(8))}일 QT 열기 · ${d.ref}`}
+                  className={`w-full text-left flex lg:flex-col lg:items-start items-center gap-3 lg:gap-1 rounded-lg px-3 py-1.5 lg:py-2 lg:min-h-[64px] border cursor-pointer transition active:scale-[.98] hover:bg-surface-hover ${isToday ? 'border-accent bg-accent-weak' : 'border-line'} ${past ? 'opacity-55' : ''}`}>
                 <span className="w-9 lg:w-auto shrink-0 flex lg:flex-row flex-col items-center lg:items-baseline gap-0 lg:gap-1 leading-none">
                   <b className={`text-[15px] tabular-nums ${isToday ? 'text-accent-text' : 'text-fg'}`}>{Number(d.date.slice(8))}</b>
                   <span className={`lg:hidden text-[10.5px] font-semibold ${d.dow === 0 ? 'text-accent-text' : 'text-fg-muted'}`}>{DOW[d.dow]}</span>
@@ -347,6 +367,7 @@ function QtDays({ days }) {
                   {d.ref}{d.label && <span className="block text-[11px] text-fg-muted">{d.label}</span>}
                 </span>
                 {isToday && <span className="lg:hidden ml-auto shrink-0 text-[10.5px] font-bold text-accent-text">오늘</span>}
+                </button>
               </li>
             );
           })}
@@ -361,7 +382,7 @@ function TitleDraft({ value, onChange, label }) {
   return <input value={value} onChange={e => onChange(e.target.value)} aria-label={label} maxLength={120} className="wiki-draft wiki-title-draft" />;
 }
 
-function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added, setAdded, onOpenCite }) {
+function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added, setAdded, onOpenCite, onOpenQt }) {
   const canEdit = editing && EDITABLE_TYPES.has(b.type);
   const anim = { animationDelay: `${Math.min(i, 10) * 30}ms` };
   const val = (it) => (it.key in drafts ? drafts[it.key] : it.text);
@@ -378,7 +399,7 @@ function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added
     if (canEdit) return <Draft value={val(it)} onChange={v => setVal(it, v)} onRemove={ADDABLE_TYPES.has(b.type) || it.by === 'model' ? () => setVal(it, '') : null} />;
     return (
       <span className={it.edit ? 'wiki-fixed block' : ''}>
-        <span className="whitespace-pre-line">{extra}{it.text}</span>
+        <Rich text={it.text} extra={extra} />
         <Cites cites={it.cites} onOpen={onOpenCite} />
       </span>
     );
@@ -402,7 +423,7 @@ function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added
     return (
       <div className="dc-row flex items-center gap-4 rounded-[10px] px-4 py-4 my-3" style={{ ...anim, background: 'var(--app-hero)' }}>
         <img src="/chars/umbrella.webp" srcSet={cutSet('/chars/umbrella.webp')} width={95} height={98} alt="" aria-hidden="true" draggable="false" className="shrink-0 w-[84px] sm:w-[95px] h-auto" />
-        <p className="min-w-0 flex-1 text-[13.5px] leading-[1.7] text-fg"><b className="text-[15px] block">{titleNode}</b>{it ? line(it) : null}</p>
+        <p className="min-w-0 flex-1 text-[13.5px] leading-[1.7] text-fg"><b className={`text-[15px] block ${editing && isMaster ? 'mb-1.5' : ''}`}>{titleNode}</b>{it ? line(it) : null}</p>
       </div>
     );
   }
@@ -558,7 +579,7 @@ function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added
 
   // QT 본문 일정 — 데스크톱은 한 주가 7칸 달력(요일이 줄에 맞는다) · 폰은 촘촘한 줄. 오늘은 강조 · 지난 날은 옅게 ·
   // 본문 약자('삿')는 책 이름 전체로 푼다(QtWeekGrid · 저장값은 그대로)
-  if (b.type === 'qt') return <section className="dc-row" style={anim}>{h3}<QtDays days={b.days || []} /></section>;
+  if (b.type === 'qt') return <section className="dc-row" style={anim}>{h3}<QtDays days={b.days || []} onOpen={onOpenQt} /></section>;
 
   if (b.type === 'sermon') {
     const m = b.meta || {};
@@ -570,7 +591,7 @@ function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added
         </div>
         <span className="text-[14px] font-bold tracking-[-0.2px] leading-[1.45] text-fg">{m.title}</span>
         <span className="text-[12px] text-fg-muted">{m.passage}</span>
-        {visible.map(it => <span key={it.key} className="text-[13px] leading-[1.65] mt-[3px] text-fg">{canEdit ? line(it) : <span className={it.edit ? 'wiki-fixed block' : ''}><span className="whitespace-pre-line">{it.text}</span></span>}</span>)}
+        {visible.map(it => <span key={it.key} className="text-[13px] leading-[1.65] mt-[3px] text-fg">{canEdit ? line(it) : <span className={it.edit ? 'wiki-fixed block' : ''}><Rich text={it.text} /></span>}</span>)}
         {m.points?.length > 0 && (
           <ol className="mt-1.5 p-0 list-none grid gap-[3px]">
             {m.points.map((pt, k) => (

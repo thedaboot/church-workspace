@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import {
   prefilter, termsOf, normQ, scoreWikiItems, termWeights, groundedIn, tokenCoverage, overlayEdits, overlayTitles, keepCited, notFoundCites, parseModelJson,
-  styleIssues, mdLabel, kstDate, NOT_FOUND,
+  styleIssues, mdLabel, kstDate, NOT_FOUND, stripBold,
 } from '../src/services/wikiCore.js';
 import { gen, findProblems, SCHEMA, nameMatcher, projectTitle, WIKI_MODEL } from './_wikiBuild.js';
 import { embedQueryPayload, unitVec, EMBED_MODEL } from './ai.js';
@@ -124,7 +124,7 @@ export async function collectEvidence(q, { db, key, today }) {
     if (hasName(it.text) && h.page.id !== 'suns') continue;
     const where = [h.page.title, h.block.title, it.meta?.team, it.meta?.time].filter(Boolean).join(' > ');
     const q2 = it.meta?.q ? `질문 '${it.meta.q}'의 답: ` : '';
-    push(`(위키 ${where}) ${q2}${it.text}`, { t: 'page', id: h.page.id, label: h.page.title });
+    push(`(위키 ${where}) ${q2}${stripBold(it.text)}`, { t: 'page', id: h.page.id, label: h.page.title });   // 굵게 별표는 걷는다(답에 묻지 않게)
   }
 
   // 지금의 업무(제목에 낱말이 걸리는 것)

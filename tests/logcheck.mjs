@@ -5754,6 +5754,24 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
   assert.ok(ask.includes('업무 마감 ${mdLabel(b, true)}') && ask.includes('업무 날짜는 행사 날짜가 아니다'), '근거에 업무 날짜를 밝히고 행사 날짜와 가른다');
   const view = readFileSync(new URL('../src/views/wikiView.jsx', import.meta.url), 'utf8');
-  assert.strictEqual((view.match(/<Who /g) || []).length, 2, '고친 사람은 장 머리에만(문장마다 붙이지 않는다)');
-  console.log('PASS  위키 · 다붓이 3(업무 날짜 · 만들어 달라는 요청 · 고친 사람은 장 머리에만)');
+  assert.ok(!/<Who |wiki-who|>함께 작성</.test(view), '고친 사람·함께 작성은 장 머리에서도 걷었다(2026-10-04)');
+  // 굵게(2026-10-04) — 읽기는 **…**만 굵게 · 모델에게 주는 위키 글은 별표를 걷는다(답에 묻지 않게)
+  assert.strictEqual(W.stripBold('송폼은 **그 전주 금요일**까지 나와요.'), '송폼은 그 전주 금요일까지 나와요.');
+  assert.strictEqual(W.stripBold('짝 없는 ** 별표'), '짝 없는  별표');
+  assert.deepStrictEqual(W.boldParts('**첫 줄**이에요.\n둘째'), [{ t: '첫 줄', b: true }, { t: '이에요.\n둘째', b: false }]);
+  assert.deepStrictEqual(W.toggleBold('지난달을 돌아봐요', 0, 3), { value: '**지난달**을 돌아봐요', start: 2, end: 5 }, '감싼다');
+  assert.deepStrictEqual(W.toggleBold('**지난달**을 돌아봐요', 2, 5), { value: '지난달을 돌아봐요', start: 0, end: 3 }, '안쪽을 고르고 누르면 푼다');
+  assert.deepStrictEqual(W.toggleBold('**지난달**을', 0, 7), { value: '지난달을', start: 0, end: 3 }, '별표까지 고르고 누르면 푼다');
+  assert.deepStrictEqual(W.toggleBold('가 나 다', 1, 4), { value: '가 **나** 다', start: 4, end: 5 }, '앞뒤 빈칸은 감싸지 않는다');
+  assert.ok(ask.includes('${q2}${stripBold(it.text)}'), '다붓이 근거의 위키 글은 별표를 걷는다');
+  assert.ok(build.includes('고친 뒤: ${stripBold(e.text)}') && build.includes('stripBold(it.text).startsWith('), '위키를 쓸 때 사람이 고친 예도 별표를 걷는다');
+  // 마스터만(0090) — 자주 묻는 질문 장은 마스터에게만 · 고치기 정책은 is_master() 하나
+  const pg = [{ id: 'intro' }, { id: W.FAQ_ID }];
+  assert.deepStrictEqual(W.visiblePages(pg, false).map(p => p.id), ['intro']);
+  assert.deepStrictEqual(W.visiblePages(pg, true).map(p => p.id), ['intro', 'faq']);
+  assert.ok(view.includes('const editBar = !isMaster ? null') && view.includes('onOpenFaq={isMaster ? () => go(FAQ_ID) : null}'), '✎ 수정·자주 묻는 질문 링크는 마스터에게만');
+  const mig90 = readFileSync(new URL('../supabase/migrations/0090_wiki_master_only.sql', import.meta.url), 'utf8').split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  assert.ok(/wiki_edits_insert on public\.wiki_edits\s+with check \(public\.is_master\(\)\)/.test(mig90) && /wiki_edits_update on public\.wiki_edits\s+using \(public\.is_master\(\)\)\s+with check \(public\.is_master\(\)\)/.test(mig90)
+    && mig90.includes("using (public.is_approved() and (id <> 'faq' or public.is_master()))"), '0090: 고치기는 마스터만 · 자주 묻는 질문 장은 마스터만 읽는다');
+  console.log('PASS  위키 · 다붓이 3(업무 날짜 · 만들어 달라는 요청 · 고친 사람 없음 · 굵게 · 마스터만)');
 }

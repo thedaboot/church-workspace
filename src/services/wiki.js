@@ -16,7 +16,8 @@ export async function loadWiki() {
   if (!supabase) {
     // 검사(tests/wiki)가 게스트 모드에 장 묶음을 넣는 자리 — 모든 블록 모양을 그려 보려고(클라우드에서는 보지 않는다)
     const fx = typeof window !== 'undefined' ? window.__wikiFixture : null;
-    if (fx) return { pages: fx.pages, edits: [...(fx.edits || []), ...guestEdits] };
+    // member: true면 마스터가 아닌 사람으로 그린다(게스트는 늘 마스터라 ✎ 수정·자주 묻는 질문 숨김을 볼 길이 없다)
+    if (fx) return { pages: fx.pages, edits: [...(fx.edits || []), ...guestEdits], member: !!fx.member };
     return { pages: SEED_PAGES.map(p => ({ ...p, built_at: null })), edits: [...guestEdits] };
   }
   const [p, e] = await Promise.all([

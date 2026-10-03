@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
-  SEED_PAGES, FAQ_SOURCE, hashKey, taskWhen, josa, mdLabel, kstDate, overlayEdits, parseModelJson, styleIssues,
+  SEED_PAGES, FAQ_SOURCE, hashKey, taskWhen, josa, mdLabel, kstDate, overlayEdits, parseModelJson, styleIssues, stripBold,
 } from '../src/services/wikiCore.js';
 import { hitsName, COMMON_GIVEN } from '../src/services/aiPeople.js';
 import { sundayNote } from '../src/services/aiText.js';
@@ -259,7 +259,7 @@ export function skeletons(D) {
   if (svcs.length) {
     const fileOf = (s, kind) => D.files.filter(f => f.service_id === s.id && f.kind === kind).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))[0];
     const termsNow = overlayEdits(SEED_PAGES[1].blocks, D.edits.filter(e => e.page_id === 'terms'));
-    const word = (w) => ((termsNow[0] || {}).items || []).find(it => it.text.startsWith(`${w} ·`));
+    const word = (w) => ((termsNow[0] || {}).items || []).find(it => stripBold(it.text).startsWith(`${w} ·`));
     const lead = ['콘티', '송폼', '큐시트'].map(word).filter(Boolean).map((it, i) => ({ key: `rule${i + 1}`, text: it.text, by: 'code', cites: [pageCite('terms', '자주 쓰는 말')] }));
     pages.push({ id: 'weekly:bulletin', grp: '매주 하는 일', title: '주보 만들기', kind: 'auto', position: 1, source: '주보', source_count: svcs.length,
       blocks: [
@@ -419,8 +419,9 @@ export function examplesFromEdits(all, limit = 12) {
   const fixed = edits.filter(e => e.before && String(e.text).trim() && e.before !== e.text).slice(0, limit);
   const gone = edits.filter(e => e.before && !String(e.text).trim()).slice(0, 6);
   const out = [];
-  if (fixed.length) out.push('[사람이 고친 예 — 이 말투와 표현을 따라라. 같은 내용이면 고친 뒤 글처럼 써라]', ...fixed.map(e => `- 처음: ${e.before}\n  고친 뒤: ${e.text}`));
-  if (gone.length) out.push('[사람이 지운 문장 — 이런 문장은 쓰지 마라]', ...gone.map(e => `- ${e.before}`));
+  if (fixed.length) out.push('[사람이 고친 예 — 이 말투와 표현을 따라라. 같은 내용이면 고친 뒤 글처럼 써라]', ...fixed.map(e => `- 처음: ${stripBold(e.before)}\n  고친 뒤: ${stripBold(e.text)}`));
+  if (gone.length) out.push('[사람이 지운 문장 — 이런 문장은 쓰지 마라]', ...gone.map(e => `- ${stripBold(e.before)}`));
+  // 굵게 별표(**)는 화면 꾸밈이라 모델에게 보이지 않는다 — 따라 쓰면 문장에 별표가 묻는다(wikiCore.stripBold)
   return out.join('\n');
 }
 

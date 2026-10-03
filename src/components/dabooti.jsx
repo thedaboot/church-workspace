@@ -213,8 +213,10 @@ function Answer({ m, onOpenCite, onOpenFile, onOpenFaq, onRate }) {
   const a = m.a;
   const refused = a.status === 'refused';
   const cites = [];
-  for (const s of a.sentences || []) for (const c of s.cites || []) if (!cites.some(x => x.t === c.t && x.id === c.id)) cites.push(c);
-  if (a.status === 'unknown' && /자주 묻는 질문/.test(a.sentences?.[0]?.text || '')) cites.push({ t: 'page', id: 'faq', label: '자주 묻는 질문' });
+  // 자주 묻는 질문 장은 마스터만 본다(0090) — onOpenFaq가 없으면(마스터 아님) 그 장으로 가는 칩을 세우지 않는다
+  const isFaq = (c) => c.t === 'page' && c.id === 'faq';
+  for (const s of a.sentences || []) for (const c of s.cites || []) if ((onOpenFaq || !isFaq(c)) && !cites.some(x => x.t === c.t && x.id === c.id)) cites.push(c);
+  if (onOpenFaq && a.status === 'unknown' && /자주 묻는 질문/.test(a.sentences?.[0]?.text || '') && !cites.some(isFaq)) cites.push({ t: 'page', id: 'faq', label: '자주 묻는 질문' });
   return (
     <div className={`dab-answer dab-bub-in justify-self-start min-w-0 max-w-full rounded-[4px_14px_14px_14px] px-3 py-2.5 text-[13.5px] leading-[1.7] text-fg ${refused ? 'bg-surface-hover' : ''}`}
       style={refused ? undefined : { background: 'var(--app-hero)' }} data-status={a.status}>
@@ -222,7 +224,7 @@ function Answer({ m, onOpenCite, onOpenFile, onOpenFaq, onRate }) {
       <span className="break-words">{(a.sentences || []).map(s => s.text).join(' ')}</span>
       {cites.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-1.5">
-          {cites.map(c => <CiteChip key={`${c.t}:${c.id}`} cite={c} onOpen={c.id === 'faq' && c.t === 'page' ? onOpenFaq : onOpenCite} />)}
+          {cites.map(c => <CiteChip key={`${c.t}:${c.id}`} cite={c} onOpen={isFaq(c) ? onOpenFaq : onOpenCite} />)}
         </div>
       )}
       {(a.files || []).map(f => <FileCard key={f.id} file={f} onOpen={onOpenFile} />)}

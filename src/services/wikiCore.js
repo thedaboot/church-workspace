@@ -32,6 +32,32 @@ export function overlayTitles(page, edits = []) {
   };
 }
 
+// 자주 묻는 질문 장은 마스터만 본다(사용자 결정 2026-10-04 · 0090) — 화면 목록에서도 뺀다. DB도 마스터에게만 준다.
+export const FAQ_ID = 'faq';
+export const visiblePages = (pages, isMaster) => (isMaster ? pages : pages.filter(p => p.id !== FAQ_ID));
+
+// 굵게 — 위키 글은 `**굵게**`만 안다(마크다운 라이브러리 없이). 읽기는 boldParts로 갈라 그리고,
+// 모델에게 근거·예시로 줄 때는 stripBold로 별표를 걷는다(_wikiAsk · _wikiBuild — 별표가 답에 묻어나지 않게).
+export const stripBold = (t) => String(t ?? '').replace(/\*\*/g, '');
+export function boldParts(t) {
+  return String(t ?? '').split(/\*\*(.+?)\*\*/).map((s, i) => ({ t: s, b: i % 2 === 1 })).filter(p => p.t);
+}
+// 고치기 칸의 B — 고른 글을 `**`로 감싸거나(이미 감싸여 있으면 푼다). 고른 게 없으면 `****` 가운데에 커서.
+// → { value, start, end } (고른 자리는 별표 안쪽 글)
+export function toggleBold(value, start, end) {
+  let s = Math.min(start, end), e = Math.max(start, end);
+  while (s < e && /\s/.test(value[s])) s += 1;
+  while (e > s && /\s/.test(value[e - 1])) e -= 1;
+  const sel = value.slice(s, e);
+  if (sel.length >= 4 && sel.startsWith('**') && sel.endsWith('**')) {
+    return { value: value.slice(0, s) + sel.slice(2, -2) + value.slice(e), start: s, end: e - 4 };
+  }
+  if (value.slice(s - 2, s) === '**' && value.slice(e, e + 2) === '**') {
+    return { value: value.slice(0, s - 2) + sel + value.slice(e + 2), start: s - 2, end: e - 2 };
+  }
+  return { value: `${value.slice(0, s)}**${sel}**${value.slice(e)}`, start: s + 2, end: e + 2 };
+}
+
 // 고칠 수 있는 블록(행 표와 기록 전 상자는 코드가 원본에서 바로 세운다)
 export const EDITABLE_TYPES = new Set(['hero', 'list', 'plain', 'teams', 'timeline', 'section', 'sermon', 'faq']);
 // 사람이 줄을 더할 수 있는 블록(함께 쓰는 글의 목록)

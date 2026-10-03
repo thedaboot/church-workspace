@@ -16,6 +16,7 @@ import { ShareChip, ShareToggle } from '../components/ShareToggle.jsx';
 import { SectionHead, Card } from './dashboardParts.jsx';
 import { loadPassage, loadBibleIndex } from '../services/bible.js';
 import { fullRef } from '../services/bibleRef.js';
+import { entryParam, takeEntryParam } from '../services/entryQuery.js';
 import { qtNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
   ensureNoteSections, QT_SECTIONS, noteDraftKey, hasDraft, NOTE_DRAFT_DELAY } from '../services/noteTemplate.js';
 // 저장 상태 칩은 **예배 노트와 같은 한 벌**이다(worshipDetail의 SaveState) — 같은 뜻의
@@ -148,7 +149,13 @@ export function WordView({ initialTab = 'qt', initialRef = '' }) {
   const openBible = (ref) => { if (!ref) return; setReadRef(ref); pick('read'); };
   // 성경 읽기 장 머리의 '나눔 보기'(이번 주 이 장을 본 사람 · 0080) → QT의 그 날, 그 사람의 종이.
   // 같은 화면 안이라 세그먼트만 옮기고 QT 탭이 날짜·사람을 받는다.
-  const [qtFocus, setQtFocus] = useState(null);   // { date, profileId }
+  // 위키 'QT 본문 일정'의 날을 누르면 `/?p=word&qt=<날짜>`로 온다(services/entryQuery) — 그 날의 QT로 연다.
+  // 처음 값은 지우지 않고 읽고(StrictMode가 초기값 함수를 두 번 부른다) 마운트 뒤에 가져가 지운다.
+  const [qtFocus, setQtFocus] = useState(() => {
+    const d = entryParam('qt');
+    return /^\d{4}-\d{2}-\d{2}$/.test(d || '') ? { date: d, profileId: '' } : null;
+  });   // { date, profileId }
+  useEffect(() => { takeEntryParam('qt'); }, []);
   const openShare = (date, profileId) => { if (!date) return; setQtFocus({ date, profileId }); setReadRef(''); pick('qt'); };
 
   return (
