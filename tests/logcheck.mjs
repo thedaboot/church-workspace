@@ -5738,3 +5738,22 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(chips.includes("'예배 송폼은 언제까지 나오나요?', '엔지니어팀은 어떤 팀이에요?'") && chips.includes('예배 큐시트는 어디에 있나요?'), '질문 칩 문구(사용자 것)');
   console.log('PASS  위키 · 다붓이 2(제목 고치기 · 출처 문구 · 낱말 · 드문 낱말 · 글자 그대로 근거 · 7일 · 칩 문구)');
 }
+
+// ── 위키 · 다붓이 3 (2026-10-03) — 업무 날짜는 업무 날짜로 · 글을 지어 달라는 요청은 거른다 ──
+{
+  const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
+  assert.strictEqual(W.taskWhen('2026-10-25', '2026-10-25'), '업무 날짜 10월 25일');
+  assert.strictEqual(W.taskWhen('', '2026-10-25'), '마감 10월 25일');
+  assert.strictEqual(W.taskWhen('2026-09-22', '2026-09-26'), '업무 기간 9월 22일~9월 26일');
+  assert.strictEqual(W.taskWhen('', ''), '');
+  assert.strictEqual(W.prefilter('내년 동계수련회 기획안좀 만들어줘.')?.kind, 'make');
+  assert.strictEqual(W.prefilter('공지 초안 써줘')?.kind, 'make');
+  assert.strictEqual(W.prefilter('10월 4일 예배 큐시트는 어디에 있나요?'), null);
+  const build = readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8');
+  assert.ok(build.includes('const sectionTitle = (c) => c.title;') && build.includes('when: taskWhen(c.start_date, c.due_date)'), '블록 제목에 날짜를 붙이지 않는다');
+  const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
+  assert.ok(ask.includes('업무 마감 ${mdLabel(b, true)}') && ask.includes('업무 날짜는 행사 날짜가 아니다'), '근거에 업무 날짜를 밝히고 행사 날짜와 가른다');
+  const view = readFileSync(new URL('../src/views/wikiView.jsx', import.meta.url), 'utf8');
+  assert.strictEqual((view.match(/<Who /g) || []).length, 2, '고친 사람은 장 머리에만(문장마다 붙이지 않는다)');
+  console.log('PASS  위키 · 다붓이 3(업무 날짜 · 만들어 달라는 요청 · 고친 사람은 장 머리에만)');
+}

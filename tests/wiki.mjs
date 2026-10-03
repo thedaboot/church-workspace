@@ -43,7 +43,7 @@ const FIX = { pages: [
   ] },
   { id: 'p:wol', grp: '행사', title: '월례회', kind: 'auto', position: 0, source: '업무', source_count: 5, built_at: '2026-10-03T00:00:00Z', blocks: [
     { key: 'lead', type: 'plain', items: [it('lead:x.0', '달마다 한 번 모여요.', { cites: [card('c8', '8월 월례회')] })] },
-    { key: 'c:c8', type: 'section', title: '8월 월례회 · 8월 23일', meta: { status: '완료', cardId: 'c8' }, cites: [card('c8', '8월 월례회')], items: [
+    { key: 'c:c8', type: 'section', title: '8월 월례회', meta: { status: '완료', cardId: 'c8', when: '업무 날짜 8월 23일' }, cites: [card('c8', '8월 월례회')], items: [
       it('c:c8:a.0', '수련회를 돌아봤어요.', { cites: [card('c8', '8월 월례회')] }), it('c:c8:b.0', '하반기 일정을 맞춰 봤어요.', { cites: [card('c8', '8월 월례회')] })] },
     { key: 'c:c9', type: 'section', title: '9월 월례회 · 9월 13일', meta: { status: '진행 중', cardId: 'c9' }, cites: [card('c9', '9월 월례회')], items: [] },
     { key: 'together', type: 'chips', title: '다붓했던 일', items: [it('t:c1', '찬양 콘티 결정', { by: 'code', cites: [card('c1', '찬양 콘티 결정')], meta: { date: '2026-07-12', teams: ['워십팀'] } })] },
@@ -52,6 +52,13 @@ const FIX = { pages: [
   { id: 'sermon', grp: '예배', title: '2026 설교 본문', kind: 'auto', position: 0, source: '주보', source_count: 1, built_at: '2026-10-03T00:00:00Z', blocks: [
     { key: 's:s1', type: 'sermon', meta: { date: '2026-09-20', label: '', title: '당신은 기름을 들고 있습니다', passage: '사사기 9:7-15', points: ['사명을 지키는 나무들', '본분', '가시나무의 협박'] },
       cites: [{ t: 'service', id: 's1', label: '주보 · 가이드' }], items: [it('s:s1:a.0', '나무 비유 이야기예요.')] },
+  ] },
+  { id: 'songs', grp: '예배', title: '예배 찬양', kind: 'auto', position: 1, source: '주보', source_count: 1, built_at: '2026-10-03T00:00:00Z', blocks: [
+    { key: 's:s1', type: 'songs', meta: { date: '2026-09-27', label: 'Q예배', sermon: 'Qusetion Day!' }, cites: [{ t: 'service', id: 's1', label: '9월 27일 주보' }], items: [],
+      songs: [{ title: '주를 바라보며', by: 'GIFTED' }, { title: '샬롬', by: '' }] },
+  ] },
+  { id: 'qt', grp: '말씀', title: 'QT 본문 일정', kind: 'auto', position: 0, source: '말씀', source_count: 3, built_at: '2026-10-03T00:00:00Z', blocks: [
+    { key: 'm:2026-10', type: 'qt', title: '10월', days: [{ date: '2026-10-01', ref: '삿 15:1-20', label: '' }, { date: '2026-10-03', ref: '삿 16:15-31', label: '' }, { date: '2026-10-04', ref: '삿 17:1-13', label: '' }] },
   ] },
   { id: 'weekly:bulletin', grp: '매주 하는 일', title: '주보 만들기', kind: 'auto', position: 1, source: '주보', source_count: 1, built_at: '2026-10-03T00:00:00Z', blocks: [
     { key: 'rows', type: 'rows', title: '발행된 주보', head: ['주일', '설교', '송폼', '큐시트'], rows: [{ cells: ['9월 20일(일)', '아주 긴 설교 제목이 들어가도 폰에서 줄이 넘치지 않아야 해요', '9월 18일(금) 올림', '미등록'], cite: { t: 'service', id: 's1', label: '9월 20일 주보' } }] },
@@ -109,8 +116,9 @@ try {
   await click('.wiki-item', '월례회');
   check('장: 출처 표시 · 기록 수 · 수정한 곳', await until(`!!document.querySelector('.wiki-page[data-page="p:wol"]')`)
     && await ev(`(()=>{const t=document.querySelector('.wiki-page').textContent;return t.includes('업무에서 자동으로 수집')&&t.includes('업무 5건')&&t.includes('수정한 곳 1')})()`));
-  const wol = await ev(`(()=>{const p=document.querySelector('.wiki-page');return {fixed:p.querySelectorAll('.wiki-fixed').length, fixedText:p.querySelector('.wiki-fixed')?.textContent||'', gap:p.textContent.includes('기록 전'), chips:p.querySelectorAll('.wiki-cite').length, status:p.textContent.includes('진행 중'), together:p.textContent.includes('다붓했던 일'), emptySectionChip:[...p.querySelectorAll('h3')].some(h=>h.textContent.includes('9월 월례회'))}})()`);
-  check('고친 줄은 초록 줄 + 고친 글(다시 모은 글을 덮지 않는다)', wol.fixed === 1 && wol.fixedText.includes('임원 선출 준비') && wol.fixedText.includes('10월 2일 수정'), JSON.stringify(wol));
+  const wol = await ev(`(()=>{const p=document.querySelector('.wiki-page');return {fixed:p.querySelectorAll('.wiki-fixed').length, fixedText:p.querySelector('.wiki-fixed')?.textContent||'', gap:p.textContent.includes('기록 전'), chips:p.querySelectorAll('.wiki-cite').length, status:p.textContent.includes('진행 중'), together:p.textContent.includes('다붓했던 일'), emptySectionChip:[...p.querySelectorAll('h3')].some(h=>h.textContent.includes('9월 월례회')), headWho:!!p.querySelector(':scope > div .wiki-who') && p.querySelectorAll('.wiki-who').length===1}})()`);
+  check('고친 줄은 초록 줄 + 고친 글(다시 모은 글을 덮지 않는다) · 고친 사람은 문장이 아니라 장 머리에', wol.fixed === 1 && wol.fixedText.includes('임원 선출 준비') && !wol.fixedText.includes('수정') && wol.headWho, JSON.stringify(wol));
+  check('업무 날짜는 제목이 아니라 옆에 \'업무 날짜\'로', await ev(`(()=>{const h=[...document.querySelectorAll('.wiki-page h3')].find(x=>x.textContent.includes('8월 월례회'));return !!h&&h.querySelector('.wiki-when')?.textContent==='업무 날짜 8월 23일'})()`));
   check('근거 칩 · 기록 전 · 다붓했던 일 · 상태 칩', wol.chips >= 4 && wol.gap && wol.together && wol.status && wol.emptySectionChip, JSON.stringify(wol));
   await click('.wiki-item', '설교 본문');
   check('설교 카드: 날짜 → 제목 → 본문 → 요약 → 가이드 세 마디', await until(`!!document.querySelector('.wiki-sermon')`)
@@ -125,22 +133,29 @@ try {
   // 줄바꿈 그대로 · 고친 표시는 글 아래 한 줄(옆에 붙이면 글과 줄이 맞지 않았다)
   await click('.wiki-item', '더다붓 소개');
   await until(`!!document.querySelector('.wiki-page[data-page="intro"]')`);
-  const hero = await ev(`(()=>{const f=document.querySelector('.wiki-page[data-page="intro"] .wiki-fixed');const t=f.querySelector('.whitespace-pre-line');const w=f.querySelector('.wiki-who');return {lines:Math.round(t.getBoundingClientRect().height/parseFloat(getComputedStyle(t).lineHeight)), below:w.getBoundingClientRect().top>=t.getBoundingClientRect().bottom-1}})()`);
-  check('줄바꿈은 그대로 · 고친 표시는 글 아래', hero.lines >= 2 && hero.below, JSON.stringify(hero));
-  const dot = await ev(`(()=>{const row=document.querySelector('.wiki-time');const line=row.parentElement;const d=getComputedStyle(row,'::before');const lx=line.getBoundingClientRect().left+parseFloat(getComputedStyle(line).borderLeftWidth)/2;const cx=row.getBoundingClientRect().left+parseFloat(d.left)+parseFloat(d.width)/2;return Math.abs(lx-cx)})()`);
+  const hero = await ev(`(()=>{const f=document.querySelector('.wiki-page[data-page="intro"] .wiki-fixed');const t=f.querySelector('.whitespace-pre-line');return {lines:Math.round(t.getBoundingClientRect().height/parseFloat(getComputedStyle(t).lineHeight)), inline:!!f.querySelector('.wiki-who'), head:!!document.querySelector('.wiki-page[data-page="intro"] .wiki-who')}})()`);
+  check('줄바꿈은 그대로 · 고친 사람은 함께 작성 옆에만', hero.lines >= 2 && !hero.inline && hero.head, JSON.stringify(hero));
+  const dot = await ev(`(()=>{const row=document.querySelector('.wiki-time');const a=getComputedStyle(row,'::after');const d=getComputedStyle(row,'::before');const lx=row.getBoundingClientRect().left+parseFloat(a.left)+parseFloat(a.width)/2;const cx=row.getBoundingClientRect().left+parseFloat(d.left)+parseFloat(d.width)/2;return Math.abs(lx-cx)})()`);
   check('시간표 점은 선 가운데', dot <= 1, String(dot));
   check('흰 판 없음(앱 바탕 위에 바로)', await ev(`(()=>{const w=getComputedStyle(document.querySelector('.wiki-desk'));return w.borderTopWidth==='0px' && (w.backgroundColor==='rgba(0, 0, 0, 0)'||w.backgroundColor==='transparent')})()`));
   await click('.wiki-item', '자주 묻는 질문');
   check('자주 묻는 질문 출처 문구', await until(`!!document.querySelector('.wiki-page[data-page="faq"]')?.textContent.includes('다붓이에게 물어본 질문에서 수집')`));
+  // 예배 찬양: 주일 한 장 · 곡 번호 목록(곡 진하게 · 부른 사람 옅게) / QT: 데스크톱 7칸 달력 · 책 이름 전체
+  await click('.wiki-item', '예배 찬양');
+  check('예배 찬양: 주일 카드 · 번호 목록 · 부른 사람', await until(`!!document.querySelector('.wiki-songs')`)
+    && await ev(`(()=>{const c=document.querySelector('.wiki-songs');return c.textContent.includes('Q예배')&&c.textContent.includes('설교 · Qusetion Day!')&&c.querySelectorAll('ol li').length===2&&c.querySelector('ol li').textContent.includes('GIFTED')})()`));
+  await click('.wiki-item', 'QT 본문 일정');
+  check('QT: 책 이름 전체 · 요일 칸 · 주가 바뀌면 새 줄', await until(`document.querySelector('.wiki-qt-day')?.textContent.includes('사사기 15:1-20')`)
+    && await ev(`(()=>{const d=[...document.querySelectorAll('.wiki-qt-day')];const col=e=>getComputedStyle(e).gridColumnStart;return col(d[0])==='5'&&col(d[1])==='7'&&col(d[2])==='1'&&d[0].parentElement!==d[2].parentElement})()`));
   // 마스터(게스트는 마스터)는 장 제목·소제목도 그 자리에서 고친다
   await click('.wiki-item', '월례회');
   await until(`!!document.querySelector('.wiki-page[data-page="p:wol"]')`);
   await click('.wiki-edit', '수정');
   await until(`!!document.querySelector('.wiki-title-draft')`);
-  await ev(`(()=>{const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;const [t,h]=[...document.querySelectorAll('.wiki-title-draft')];set.call(t,'월례회 기록');t.dispatchEvent(new Event('input',{bubbles:true}));set.call(h,'8월 월례회 · 8월 23일(토)');h.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  await ev(`(()=>{const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;const [t,h]=[...document.querySelectorAll('.wiki-title-draft')];set.call(t,'월례회 기록');t.dispatchEvent(new Event('input',{bubbles:true}));set.call(h,'8월 월례회(토)');h.dispatchEvent(new Event('input',{bubbles:true}))})()`);
   await click('button', '저장');
   check('마스터: 장 제목·소제목 고치기 → 목록 이름도 바뀐다', await until(`document.querySelector('.wiki-page h2')?.textContent==='월례회 기록'`)
-    && await ev(`[...document.querySelectorAll('.wiki-item')].some(b=>b.textContent.includes('월례회 기록')) && document.querySelector('.wiki-page').textContent.includes('8월 23일(토)')`));
+    && await ev(`[...document.querySelectorAll('.wiki-item')].some(b=>b.textContent.includes('월례회 기록')) && document.querySelector('.wiki-page').textContent.includes('8월 월례회(토)')`));
   // ── ④ 고치기 ──────────────────────────────────────────────────────────────
   await click('.wiki-item', '월례회 기록');
   await until(`!!document.querySelector('.wiki-page[data-page="p:wol"]')`);

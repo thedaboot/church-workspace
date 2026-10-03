@@ -7,6 +7,8 @@ import {
   FAQ_SOURCE, TITLE_KEY, headKey,
 } from '../services/wikiCore.js';
 import { useAuth } from '../services/auth.jsx';
+import { loadBibleIndex } from '../services/bible.js';
+import { fullRef } from '../services/bibleRef.js';
 import { AskPanel, AskEntry, CiteChip, chipsFrom } from '../components/dabooti.jsx';
 import { cutSet } from '../components/dabooti.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -43,12 +45,20 @@ function useMainHeight(ref) {
     if (!main || !el) return undefined;
     const set = () => {
       const cs = getComputedStyle(main);
-      el.style.setProperty('--wiki-h', `${main.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)}px`);
+      // 데스크톱 프로젝트 탭 줄이 접히는 동안(0.3초) main이 프레임마다 커진다 — 그 줄 높이를 더해 '접힌 뒤 높이'를 처음부터 쓴다.
+      // 안 그러면 프레임마다 판을 다시 그려 접히는 모션이 버벅였다(사용자 지적 2026-10-03). 위키에서는 그 줄이 늘 접힌다.
+      const row = document.querySelector('[data-project-row]');
+      const extra = row ? row.getBoundingClientRect().height : 0;
+      el.style.setProperty('--wiki-h', `${Math.round(main.clientHeight + extra - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom))}px`);
     };
     set();
     const ro = new ResizeObserver(set);
     ro.observe(main);
-    return () => ro.disconnect();
+    // 위키에 있는 동안 스크롤바 자리를 늘 남긴다 — 긴 장(스크롤바 생김)과 짧은 장(없음)을 오갈 때 판 전체가 8px씩
+    // 좌우로 움직였다(사용자 지적 2026-10-03 '내용에 따라 너비가 살짝'). 다른 화면은 건드리지 않게 떠날 때 되돌린다.
+    const prevGutter = main.style.scrollbarGutter;
+    main.style.scrollbarGutter = 'stable';
+    return () => { ro.disconnect(); main.style.scrollbarGutter = prevGutter; };
   }, [ref]);
 }
 const STATUS_TAG = new Set(['진행 중', '시작 전', '보류 중', '상시']);
@@ -248,6 +258,8 @@ function WikiPage({ page, mobile = false, isMaster = false, onOpenCite, onSaved 
             {!human && page.source_count > 0 && <span>{UNIT[page.source] || '기록'} {page.source_count}{page.source === '업무' || page.source === '주보' ? '건' : '개'}</span>}
             {!human && page.built_at && <span>{mdLabel(kstDate(page.built_at))}</span>}
             {!human && stats.n > 0 && <Tag green>수정한 곳 {stats.n}</Tag>}
+            {/* 고친 사람은 장 머리에만 — 문장마다 붙이면 글을 해쳤다(사용자 결정 2026-10-03) */}
+            {!human && stats.last && <Who by={stats.last.by} at={stats.last.at} name={lastWho} muted />}
             {human && stats.last && <Who by={stats.last.by} at={stats.last.at} name={lastWho} muted />}
           </div>
         </div>
@@ -303,6 +315,46 @@ function Draft({ value, onChange, onRemove, placeholder }) {
   );
 }
 
+const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+function QtDays({ days }) {
+  const [books, setBooks] = useState(null);
+  useEffect(() => { let on = true; loadBibleIndex().then(b => { if (on) setBooks(b); }).catch(() => {}); return () => { on = false; }; }, []);
+  const today = kstDate(new Date().toISOString());
+  const weeks = [];
+  for (const d of days) {
+    const dow = new Date(`${d.date}T00:00:00`).getDay();
+    if (!weeks.length || dow === 0) weeks.push([]);
+    weeks[weeks.length - 1].push({ ...d, dow, ref: books ? fullRef(d.ref, books) : d.ref });
+  }
+  return (
+    <div className="grid gap-1.5 lg:gap-2">
+      <div className="hidden lg:grid grid-cols-7 gap-2 px-1 text-[11px] font-bold text-fg-muted">{DOW.map((w, i) => <span key={w} className={i === 0 ? 'text-accent-text' : ''}>{w}</span>)}</div>
+      {weeks.map((w, k) => (
+        <ul key={k} className="m-0 p-0 list-none grid gap-1.5 lg:grid-cols-7 lg:gap-2">
+          {w.map(d => {
+            const isToday = d.date === today;
+            const past = d.date < today;
+            return (
+              <li key={d.date} style={{ '--col': d.dow + 1 }} aria-current={isToday ? 'date' : undefined}
+                className={`wiki-qt-day lg:[grid-column-start:var(--col)] flex lg:flex-col lg:items-start items-center gap-3 lg:gap-1 rounded-lg px-3 py-1.5 lg:py-2 lg:min-h-[64px] border ${isToday ? 'border-accent bg-accent-weak' : 'border-line'} ${past ? 'opacity-55' : ''}`}>
+                <span className="w-9 lg:w-auto shrink-0 flex lg:flex-row flex-col items-center lg:items-baseline gap-0 lg:gap-1 leading-none">
+                  <b className={`text-[15px] tabular-nums ${isToday ? 'text-accent-text' : 'text-fg'}`}>{Number(d.date.slice(8))}</b>
+                  <span className={`lg:hidden text-[10.5px] font-semibold ${d.dow === 0 ? 'text-accent-text' : 'text-fg-muted'}`}>{DOW[d.dow]}</span>
+                  {isToday && <span className="hidden lg:inline text-[10.5px] font-bold text-accent-text">오늘</span>}
+                </span>
+                <span className="min-w-0 text-[13px] lg:text-[12.5px] leading-snug text-fg break-keep">
+                  {d.ref}{d.label && <span className="block text-[11px] text-fg-muted">{d.label}</span>}
+                </span>
+                {isToday && <span className="lg:hidden ml-auto shrink-0 text-[10.5px] font-bold text-accent-text">오늘</span>}
+              </li>
+            );
+          })}
+        </ul>
+      ))}
+    </div>
+  );
+}
+
 // 제목 칸 — 같은 글꼴로 그 자리에서(마스터만)
 function TitleDraft({ value, onChange, label }) {
   return <input value={value} onChange={e => onChange(e.target.value)} aria-label={label} maxLength={120} className="wiki-draft wiki-title-draft" />;
@@ -327,7 +379,6 @@ function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added
       <span className={it.edit ? 'wiki-fixed block' : ''}>
         <span className="whitespace-pre-line">{extra}{it.text}</span>
         <Cites cites={it.cites} onOpen={onOpenCite} />
-        {it.edit && <span className="flex mt-1"><Who by={it.edit.by} at={it.edit.at} /></span>}
       </span>
     );
   };
@@ -394,7 +445,7 @@ function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added
     return (
       <section className="dc-row" style={anim}>
         {h3}
-        <div className="my-1.5 ml-1.5 mb-2.5 border-l-2 border-line">
+        <div className="wiki-timeline my-1.5 ml-1.5 mb-2.5">
           {visible.map(it => (
             <div key={it.key} className={`wiki-time ${it.meta?.sub ? 'sub' : ''} grid grid-cols-[3.4em_1fr] gap-x-3 items-baseline py-1.5 pl-4`}>
               <b className={`text-[13.5px] leading-[1.6] tabular-nums ${it.meta?.sub ? 'text-fg-muted font-semibold' : 'text-accent-text font-bold'}`}>{it.meta?.time}</b>
@@ -412,6 +463,7 @@ function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added
       <section className="dc-row" style={anim}>
         <h3 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[14.5px] font-bold tracking-[-0.2px] text-fg mt-5 mb-2">
           <span className="min-w-0 flex-1">{titleNode}</span>
+          {b.meta?.when && <span className="wiki-when text-[11.5px] font-medium text-fg-muted tabular-nums">{b.meta.when}</span>}
           {STATUS_TAG.has(status) && <Tag>{status}</Tag>}
         </h3>
         {visible.length ? (
@@ -479,6 +531,34 @@ function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added
     );
   }
 
+  // 예배 찬양 — 주일 한 장: 날짜(+ 성찬·Q예배) · 설교 제목 · 곡 번호 목록(곡 진하게 · 부른 사람 옅게)
+  if (b.type === 'songs') {
+    const m = b.meta || {};
+    return (
+      <div className="dc-row wiki-songs border border-line rounded-[9px] px-3.5 py-3 mt-2.5" style={anim}>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <span className="text-[13.5px] font-bold text-fg tabular-nums">{mdLabel(m.date, true)}{m.label ? <span className="ml-1.5 text-[11.5px] font-semibold text-accent-text">{m.label}</span> : null}</span>
+          <Cites cites={b.cites} onOpen={onOpenCite} className="" />
+        </div>
+        {m.sermon && <p className="mt-0.5 text-[12px] text-fg-muted">설교 · {m.sermon}</p>}
+        {b.songs?.length ? (
+          <ol className="mt-2 p-0 list-none grid gap-1.5">
+            {b.songs.map((x, k) => (
+              <li key={k} className="grid grid-cols-[1.6em_1fr] items-baseline">
+                <b className="text-[12px] text-accent-text tabular-nums">{k + 1}</b>
+                <span className="min-w-0 text-[13.5px] leading-snug text-fg">{x.title}{x.by && <span className="block text-[11.5px] text-fg-muted">{x.by}</span>}</span>
+              </li>
+            ))}
+          </ol>
+        ) : <p className="mt-2 text-[12.5px] text-fg-muted">미입력</p>}
+      </div>
+    );
+  }
+
+  // QT 본문 일정 — 데스크톱은 한 주가 7칸 달력(요일이 줄에 맞는다) · 폰은 촘촘한 줄. 오늘은 강조 · 지난 날은 옅게 ·
+  // 본문 약자('삿')는 책 이름 전체로 푼다(QtWeekGrid · 저장값은 그대로)
+  if (b.type === 'qt') return <section className="dc-row" style={anim}>{h3}<QtDays days={b.days || []} /></section>;
+
   if (b.type === 'sermon') {
     const m = b.meta || {};
     return (
@@ -489,7 +569,7 @@ function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added
         </div>
         <span className="text-[14px] font-bold tracking-[-0.2px] leading-[1.45] text-fg">{m.title}</span>
         <span className="text-[12px] text-fg-muted">{m.passage}</span>
-        {visible.map(it => <span key={it.key} className="text-[13px] leading-[1.65] mt-[3px] text-fg">{canEdit ? line(it) : <span className={it.edit ? 'wiki-fixed block' : ''}><span className="whitespace-pre-line">{it.text}</span>{it.edit && <span className="flex mt-1"><Who by={it.edit.by} at={it.edit.at} /></span>}</span>}</span>)}
+        {visible.map(it => <span key={it.key} className="text-[13px] leading-[1.65] mt-[3px] text-fg">{canEdit ? line(it) : <span className={it.edit ? 'wiki-fixed block' : ''}><span className="whitespace-pre-line">{it.text}</span></span>}</span>)}
         {m.points?.length > 0 && (
           <ol className="mt-1.5 p-0 list-none grid gap-[3px]">
             {m.points.map((pt, k) => (

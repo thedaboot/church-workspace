@@ -826,6 +826,10 @@ svg.lucide { stroke-width: 1.4px; }
 .wiki-time { position: relative; }
 .wiki-time::before { content: ''; position: absolute; left: -6px; top: calc(6px + .8em - 5px); width: 10px; height: 10px; border-radius: 50%; background: var(--app-surface); border: 2px solid var(--app-accent); }
 .wiki-time.sub::before { border-color: var(--app-ink-faint); }
+/* 선도 줄마다 같은 요소에 그린다 — 부모 테두리(선)와 자식 가상 요소(점)를 따로 반올림하면 아이폰에서 점이 선 옆으로
+   비켰다(사용자 지적 2026-10-03). 같은 기준(줄의 왼쪽)에서 선 가운데 -1px · 점 가운데 -1px라 어긋날 수 없다 */
+.wiki-time::after { content: ''; position: absolute; left: -2px; top: 0; bottom: 0; width: 2px; background: var(--app-line); }
+.wiki-time::before { z-index: 1; }
 @media (prefers-reduced-motion: reduce) {
   .dab-tilt .dab-face, .dab-ring, .dab-dots span, .dab-bub-in, .dab-q-in { animation: none !important; }
 }

@@ -208,15 +208,19 @@ export function editRows(pageId, blocks, drafts) {
 // 모델을 부르지 않는다(사용자 결정 2026-10-02). 걸렸으면 { kind, answer }.
 const SECRET = /이전\s?(?:지시|명령|규칙)|지시를?\s?무시|규칙을?\s?무시|무시하고|ignore\s+(?:all|previous|the)|system\s?prompt|시스템\s?프롬프트|프롬프트를|비밀\s?번호|패스워드|password|이메일|e-?mail|메일\s?주소|토큰|api\s?키|키\s?값|서비스\s?키|회원\s?(?:목록|명단)|가입자\s?(?:목록|명단)|전체\s?명단/i;
 const PERSONAL = /출석|결석|안\s?(?:왔|나왔|온)\s?사람|빠진\s?사람|누가.{0,12}(?:안\s?(?:왔|나왔|했)|빠졌)|기도\s?제목|묵상|큐티|예배\s?노트|내\s?노트|성경\s?(?:읽은|읽기\s?기록)|헌금.{0,8}(?:누가|얼마)|연락처|전화\s?번호|휴대폰|생년월일|집\s?주소|사는\s?곳/i;
+// 새 글을 만들어 달라는 요청(기획안·초안·공지 써 줘) — 다붓이는 기록을 찾아 알려 주고, 글을 지어 주지 않는다(2026-10-03 사용자 결정 —
+// '내년 동계수련회 기획안 만들어줘'가 모르는 질문에 섰다). 자주 묻는 질문에도 서지 않는다(refused).
+const MAKE = /(?:만들어|작성해|써|짜|짜서|지어|그려)\s?(?:줘|주세요|줄래|줄 수|달라)|초안\s?(?:좀|을|를)?\s?(?:만들|작성|써)/;
 const JUDGE = /누가\s?(?:제일|가장|더)\s?(?:잘|못|열심|게으|늦)|(?:성실|불성실|게으른|열심인)\s?사람|순위|랭킹|평가해/i;
 export const PREFILTER_ANSWERS = {
   secret: '그건 알려 드릴 수 없어요. 계정 정보와 비밀 값은 다붓이가 다루지 않아요.',
   personal: '출석이나 노트, 묵상 같은 한 사람 한 사람의 기록은 다붓이가 다루지 않아요.',
   judge: '사람을 서로 견주거나 평가하는 질문은 다붓이가 다루지 않아요.',
+  make: '다붓이는 기록에서 찾아 알려 드려요. 새 글을 만들어 드리지는 않아요.',
 };
 export function prefilter(q) {
   const s = String(q || '');
-  const kind = SECRET.test(s) ? 'secret' : PERSONAL.test(s) ? 'personal' : JUDGE.test(s) ? 'judge' : null;
+  const kind = SECRET.test(s) ? 'secret' : PERSONAL.test(s) ? 'personal' : JUDGE.test(s) ? 'judge' : MAKE.test(s) ? 'make' : null;
   return kind ? { kind, answer: PREFILTER_ANSWERS[kind] } : null;
 }
 
@@ -334,4 +338,14 @@ export function tokenCoverage(sentence, text) {
   if (!toks.length) return 0;
   const hay = String(text || '');
   return toks.filter(t => hay.includes(t)).length / toks.length;
+}
+
+// 업무 날짜를 **업무 날짜로** 밝힌다 — 행사 날짜가 아니다('가을 체육대회 개요'의 마감 10/25 ≠ 체육대회 10/31 · 사용자 지적 2026-10-03).
+// 시작·마감이 다르면 '업무 기간 A~B' · 같은 하루면 '업무 날짜 A' · 마감만 있으면 '마감 A' · 시작만 있으면 '시작 A' · 없으면 ''
+export function taskWhen(start, due) {
+  if (start && due && start !== due) return `업무 기간 ${mdLabel(start)}~${mdLabel(due)}`;
+  if (start && due) return `업무 날짜 ${mdLabel(due)}`;
+  if (due) return `마감 ${mdLabel(due)}`;
+  if (start) return `시작 ${mdLabel(start)}`;
+  return '';
 }

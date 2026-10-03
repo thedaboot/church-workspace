@@ -477,7 +477,7 @@ export const TopNav = React.memo(({
           (사용자 요청 2026-09-01). grid-rows 0fr↔1fr 전환으로 자연스럽게 접고 편다 —
           max-height 방식은 값을 추정해야 해서 끝에서 뚝 끊긴다. 모션 최소화 설정은 뺀다. */}
       <div className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
-        style={{ gridTemplateRows: showProjectRow ? '1fr' : '0fr' }}>
+        data-project-row style={{ gridTemplateRows: showProjectRow ? '1fr' : '0fr' }}>
       <div className="min-h-0 overflow-hidden">
       <div ref={tabRowRef} className="relative flex items-end px-6 border-t border-line/70 overflow-hidden">
         {/* 측정 전용 줄 — 화면 밖(invisible)에 전체 탭을 실제 클래스로 그려 폭을 잰다.

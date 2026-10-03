@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
-  SEED_PAGES, FAQ_SOURCE, hashKey, josa, mdLabel, kstDate, overlayEdits, parseModelJson, styleIssues,
+  SEED_PAGES, FAQ_SOURCE, hashKey, taskWhen, josa, mdLabel, kstDate, overlayEdits, parseModelJson, styleIssues,
 } from '../src/services/wikiCore.js';
 import { hitsName, COMMON_GIVEN } from '../src/services/aiPeople.js';
 import { sundayNote } from '../src/services/aiText.js';
@@ -187,7 +187,8 @@ function cardSnips(D, c, hasName, { comments = true } = {}) {
   return s.map(x => ({ ...x, cite: cardCite(c) }));
 }
 
-const sectionTitle = (c) => (cardDate(c) ? `${c.title} · ${c.start_date && c.due_date && c.start_date !== c.due_date ? `${mdLabel(c.start_date)}~${mdLabel(c.due_date)}` : mdLabel(cardDate(c))}` : c.title);
+// 블록 제목은 업무 이름만 — 날짜는 '업무 날짜'로 밝혀 옆에 따로 선다(meta.when · 행사 날짜로 읽히지 않게 · 2026-10-03)
+const sectionTitle = (c) => c.title;
 
 // 업무 묶음 → 블록들: 이음 두 문장(lead) · 업무마다 section · 글이 비어 있는 업무는 '기록 전'
 function cardBlocks(D, cards, hasName, { leadMax = 2, perCard = 4, multiAsChips = false, team = null } = {}) {
@@ -201,7 +202,7 @@ function cardBlocks(D, cards, hasName, { leadMax = 2, perCard = 4, multiAsChips 
     const snips = cardSnips(D, c, hasName);
     if (!snips.length) { empty.push(c); continue; }
     all.push(...snips);
-    secs.push({ key: `c:${c.id}`, type: 'section', title: sectionTitle(c), meta: { status: STATUS[c.status] || '', cardId: c.id, date: cardDate(c) }, cites: [cardCite(c)], items: [], snips, max: perCard });
+    secs.push({ key: `c:${c.id}`, type: 'section', title: sectionTitle(c), meta: { status: STATUS[c.status] || '', cardId: c.id, date: cardDate(c), when: taskWhen(c.start_date, c.due_date) }, cites: [cardCite(c)], items: [], snips, max: perCard });
   }
   if (leadMax && all.length) blocks.push({ key: 'lead', type: 'plain', items: [], snips: all.slice(0, 24), max: leadMax });
   blocks.push(...secs);
@@ -288,17 +289,24 @@ export function skeletons(D) {
           cites: [svcCite(s, g ? '주보 · 가이드' : '주보')], items: [], snips: snips.filter(x => !hasName(x.text)), max: 2 };
       }) });
     pages.push({ id: 'songs', grp: '예배', title: '예배 찬양', kind: 'auto', position: 1, source: '주보', source_count: thisYear.length,
-      blocks: [{ key: 'rows', type: 'rows', head: ['주일', '찬양'], rows: [...thisYear].reverse().map(s => ({
-        cells: [mdLabel(s.service_date, true), (Array.isArray(s.songs) ? s.songs : []).map(x => strip(x?.title)).filter(Boolean).join(' · ') || '미입력'], cite: svcCite(s),
-      })) }] });
+      // 주일마다 한 블록 — 곡은 번호 목록('부른 사람 - 곡'을 갈라 곡을 앞에 · 가독성 · 사용자 요청 2026-10-03)
+      blocks: [...thisYear].reverse().map(s => ({
+        key: `s:${s.id}`, type: 'songs', meta: { date: s.service_date, label: sundayNote(s.service_date).replace(/^(둘째|마지막) 주 /, ''), sermon: s.title || '' },
+        cites: [svcCite(s)], items: [],
+        songs: (Array.isArray(s.songs) ? s.songs : []).map(x => strip(x?.title)).filter(Boolean).map(t => {
+          const m = t.match(/^(.+?)\s+-\s+(.+)$/);
+          return m ? { title: m[2].trim(), by: m[1].trim() } : { title: t, by: '' };
+        }),
+      })) });
   }
 
   // 말씀 — QT 본문 일정(이번 달 · 다음 달)
   if (D.qt.length) {
     const months = [...new Set(D.qt.map(r => r.qt_date.slice(0, 7)))];
     pages.push({ id: 'qt', grp: '말씀', title: 'QT 본문 일정', kind: 'auto', position: 0, source: '말씀', source_count: D.qt.filter(r => r.qt_date.startsWith(D.today.slice(0, 7))).length,
-      blocks: months.map(mo => ({ key: `m:${mo}`, type: 'rows', title: `${Number(mo.slice(5))}월`, head: ['날짜', '본문'],
-        rows: D.qt.filter(r => r.qt_date.startsWith(mo)).map(r => ({ cells: [mdLabel(r.qt_date, true), r.label ? `${r.passage_ref} · ${r.label}` : r.passage_ref], today: r.qt_date === D.today })) })) });
+      // 달마다 한 블록, 날짜마다 한 칸 — 화면이 주(주일 시작)로 묶고 오늘은 강조 · 지난 날은 옅게(가독성 · 2026-10-03)
+      blocks: months.map(mo => ({ key: `m:${mo}`, type: 'qt', title: `${Number(mo.slice(5))}월`,
+        days: D.qt.filter(r => r.qt_date.startsWith(mo)).map(r => ({ date: r.qt_date, ref: r.passage_ref, label: r.label || '' })) })) });
   }
 
   // 모임 — 동아리 · 순 편성
