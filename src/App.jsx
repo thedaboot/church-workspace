@@ -591,8 +591,11 @@ function WorkspaceShell() {
       if (!editing()) fullH = h;
       const kb = editing() && h < fullH - 80;
       root.toggleAttribute('data-kb', kb);
-      // 키보드가 뜬 높이를 기억해 둔다 — 바닥 칸을 누르는 순간 뿌리를 미리 줄이는 데 쓴다(dabooti.jsx preKeyboard · PITFALLS 33-p)
-      if (kb) { try { localStorage.setItem(`kbH:${Math.round(fullH)}`, String(Math.round(h))); } catch { /* 저장소 막힘 */ } }
+      // 아이폰은 키보드가 뜨는 순간 보이는 창을 아래로 옮겼다가(offsetTop 299px) 30ms쯤 뒤 되돌린다 — 칸 위치와 상관없이 늘 그랬다
+      // (실기기 기록 2026-10-04). 그 사이 앱이 299px 위로 떠 보였다. 같은 이벤트 안에서 뿌리를 같은 거리만큼 내려 눈에는 안 움직이게 한다.
+      // top(relative)이라 fixed 자손의 기준은 그대로다(transform 금지 — 9-aa-4 ②). 손가락 확대 중(배율 > 1)에는 건드리지 않는다.
+      const pan = (vv.scale || 1) <= 1.01 ? Math.round(vv.offsetTop) : 0;
+      root.style.setProperty('--vv-top', `${pan}px`);
       // 아이폰이 이미 문서를 밀어 놨으면 되돌린다. 뿌리가 보이는 창만큼이면 문서는
       // 스크롤될 것이 없으므로 이 호출은 대개 아무 일도 하지 않는다(되돌릴 때만 움직인다).
       if (window.scrollY > 0) window.scrollTo(0, 0);
@@ -634,6 +637,7 @@ function WorkspaceShell() {
       vv.removeEventListener('resize', apply);
       vv.removeEventListener('scroll', apply);
       root.style.removeProperty('--app-vh');
+      root.style.removeProperty('--vv-top');
     };
   }, []);
 
@@ -777,7 +781,7 @@ function WorkspaceShell() {
   return (
     // bg-canvas는 body가 이미 깔아준다 — 여기에 또 칠하면 -z-10 글로우가 가려진다
     // 높이는 `--app-vh`(위 useEffect가 재 온 **보이는 창**)이고, 없으면 예전대로 100dvh다
-    <div className="flex flex-col h-[var(--app-vh,100dvh)] text-fg font-sans overflow-hidden">
+    <div className="relative top-[var(--vv-top,0px)] flex flex-col h-[var(--app-vh,100dvh)] text-fg font-sans overflow-hidden">
       {/* 배경 파스텔 글로우 (장식 전용 · 상호작용 차단 · 스크롤 고정)
           blur 필터 대신 radial-gradient — index.css의 .app-glow 참고 */}
       <div className="pointer-events-none fixed inset-0 -z-10 app-glow" aria-hidden="true" />

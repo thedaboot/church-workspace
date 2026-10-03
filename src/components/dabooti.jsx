@@ -132,27 +132,6 @@ function runKbProbe(done) {
   requestAnimationFrame(step);
 }
 
-// 아이폰은 칸에 초점이 가는 순간, 키보드에 가릴 칸을 보이게 하려고 화면 전체를 끌어올렸다가(visualViewport.offsetTop 299px)
-// 뿌리(--app-vh)가 줄면 되돌렸다 — '칸만 눌렀는데 페이지가 같이 떴다'(사용자 지적 · 실기기 기록 2026-10-04). 한 프레임 투명은 안 막았다.
-// 손을 떼는 순간 지난번 키보드 높이(App.jsx가 기억)만큼 뿌리를 미리 줄이고 **우리가 초점을 준다** — 칸이 이미 키보드 위라 끌어올릴 일이 없다.
-// touchstart에서 줄이면 안 된다: 칸이 손가락 아래에서 옮겨가 탭이 칸 밖에서 끝나 키보드가 아예 안 떴다(같은 날 실기기).
-// 끌기(10px 넘게 움직임)·이미 초점·기억 없음(처음 한 번)은 기본 동작 그대로.
-let touchAt = null;
-function tapStart(e) { const t = e.touches[0]; touchAt = t ? { x: t.clientX, y: t.clientY } : null; }
-function tapEnd(e) {
-  const el = e.currentTarget;
-  const t = e.changedTouches[0];
-  if (!touchAt || !t || Math.hypot(t.clientX - touchAt.x, t.clientY - touchAt.y) > 10 || document.activeElement === el) return;
-  let h = 0;
-  try { h = Number(localStorage.getItem(`kbH:${Math.round(window.innerHeight)}`)) || 0; } catch { /* 저장소 막힘 */ }
-  if (!h || h >= window.innerHeight - 80) return;
-  e.preventDefault();
-  document.documentElement.style.setProperty('--app-vh', `${h}px`);
-  el.focus();
-  const end = el.value.length;
-  try { el.setSelectionRange(end, end); } catch { /* 옛 브라우저 */ }
-}
-
 export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, onOpenFaq, fill = 'min(520px, calc(var(--app-vh,100dvh) - 220px))' }) {
   const [q, setQ] = useState('');
   const endRef = useRef(null);
@@ -203,7 +182,6 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
       <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} maxLength={300}
         onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); send(); } }}
         enterKeyHint="send"
-        onTouchStart={tapStart} onTouchEnd={tapEnd}
         onFocus={() => { if (isMaster && coarsePointer()) runKbProbe(setProbe); }}
         placeholder={chat.length ? '다붓이에게 더 물어보기' : '예: 수련회 준비는 언제부터 해요?'}
         aria-label={chat.length ? '다붓이에게 더 물어보기' : '다붓이에게 물어보기'}
