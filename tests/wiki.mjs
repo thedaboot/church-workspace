@@ -165,6 +165,8 @@ try {
   await click('button', '저장');
   check('저장 → 그 줄이 고친 줄 · 수정한 곳 2', await until(`document.querySelectorAll('.wiki-page .wiki-fixed').length === 2`)
     && await ev(`(()=>{const t=document.querySelector('.wiki-page').textContent;return t.includes('한 달에 한 번 모여 지난달을 돌아봐요.')&&t.includes('수정한 곳 2')&&!document.querySelector('.wiki-draft')})()`));
+  // 고친 줄은 글에 표시를 달지 않는다 — 왼쪽 초록 줄이 글을 해쳤다(사용자 결정 2026-10-04)
+  check('고친 줄에 왼쪽 줄이 없다', await ev(`[...document.querySelectorAll('.wiki-page .wiki-fixed')].every(f=>{const c=getComputedStyle(f);return parseFloat(c.borderLeftWidth)===0&&parseFloat(c.paddingLeft)===0&&parseFloat(c.marginLeft)===0})`));
   await click('.wiki-edit', '수정');
   await until(`document.querySelectorAll('.wiki-draft').length >= 3`);
   await ev(`(()=>{const t=document.querySelector('textarea.wiki-draft');const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;set.call(t,'취소할 글');t.dispatchEvent(new Event('input',{bubbles:true}))})()`);
@@ -208,12 +210,13 @@ try {
       const kbState = `(()=>{const m=document.querySelector('main');const i=document.querySelector('.dab-input input');return {pb:parseFloat(getComputedStyle(m).paddingBottom), gap:Math.round(m.getBoundingClientRect().bottom-document.querySelector('.dab-input').getBoundingClientRect().bottom), outline:getComputedStyle(i).outlineStyle}})()`;
       const noKb = await ev(kbState);
       check(`폰: 키보드 없이 초점만 있으면 칸은 하단 바 위 그대로 · 네모 테두리 없음`, noKb.pb >= 80 && noKb.outline === 'none', JSON.stringify(noKb));
-      // 헤드리스에는 키보드가 없다 — App.jsx가 키보드가 뜨면 다는 표시를 직접 단다
-      await ev(`document.documentElement.setAttribute('data-kb','')`); await sleep(150);
-      const kb = await ev(kbState);
-      check(`폰: 키보드가 뜨면 하단 바 몫 여백이 걷혀 칸이 바닥에`, kb.pb <= 10 && kb.gap <= 24, JSON.stringify(kb));
-      await ev(`document.documentElement.removeAttribute('data-kb')`);
+      // 키보드 흉내 — 아이폰처럼 보이는 창과 innerHeight가 **같이** 준다(innerHeight와 견주던 판은 여기서 표시가 안 섰다 · 2026-10-04 실기기)
+      await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 500, deviceScaleFactor: 2, mobile: true }); await sleep(400);
+      const kb = await ev(`(()=>{const s=${kbState};s.kb=document.documentElement.hasAttribute('data-kb');return s})()`);
+      check(`폰: 키보드가 뜨면 하단 바 몫 여백이 걷혀 칸이 바닥에`, kb.kb && kb.pb <= 10 && kb.gap <= 24, JSON.stringify(kb));
       await ev(`document.activeElement.blur()`);
+      await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true }); await sleep(400);
+      check(`폰: 키보드가 내려가면 표시가 걷힌다`, await ev(`!document.documentElement.hasAttribute('data-kb')`));
     }
 
     await click('button', '위키');

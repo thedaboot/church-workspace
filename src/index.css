@@ -821,8 +821,7 @@ svg.lucide { stroke-width: 1.4px; }
 @keyframes dab-bub { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
 .dab-bub-in { animation: dab-bub .3s var(--ease-out-quint) both; transform-origin: top left; }
 .dab-q-in { animation: dab-bub .24s var(--ease-out-quint) both; transform-origin: top right; }
-/* 위키 장의 사람이 고친 문장 — 초록 줄 */
-.wiki-fixed { border-left: 2px solid var(--app-tag-green-fg); padding-left: 8px; margin-left: -10px; }
+/* 위키 장의 사람이 고친 문장(.wiki-fixed)은 글에 표시를 달지 않는다 — 왼쪽 초록 줄이 글을 해쳤다(사용자 결정 2026-10-04). 고친 곳은 장 머리 '수정한 곳 N'만 */
 .wiki-time { position: relative; }
 .wiki-time::before { content: ''; position: absolute; left: -6px; top: calc(6px + .8em - 5px); width: 10px; height: 10px; border-radius: 50%; background: var(--app-surface); border: 2px solid var(--app-accent); }
 .wiki-time.sub::before { border-color: var(--app-ink-faint); }
@@ -857,7 +856,7 @@ svg.lucide { stroke-width: 1.4px; }
 .dab-input input:focus-visible { outline: none; }
 /* 폰에서 물어보기 칸에 치는 동안은 키보드가 하단 바를 덮는다 — main의 하단 바 몫 여백을 걷어야 칸이 키보드 바로 위에 선다
    (안 걷으면 칸과 키보드 사이가 그만큼 비었다 · 사용자 지적 2026-10-04). 키보드가 없으면(초점만 남은 안드로이드 뒤로 가기) 그대로 —
-   걷으면 칸이 하단 바 뒤로 숨는다. data-kb는 App.jsx가 보이는 창 높이로 단다 · 판 높이(--wiki-h)는 main의 ResizeObserver가 따라온다 */
+   걷으면 칸이 하단 바 뒤로 숨는다. data-kb는 App.jsx가 초점 없을 때의 높이와 견주어 단다 · 판 높이(--wiki-h)는 main의 ResizeObserver가 따라온다 */
 @media (max-width: 767px) { html[data-kb] main:has(.dab-input input:focus) { padding-bottom: .5rem; } }
 @media (prefers-reduced-motion: reduce) {
   .dab-thumb-pop, .dab-thumb-shake, .dab-burst i, .dab-hop, .dab-droop, .wiki-in-fwd, .wiki-in-back { animation: none !important; }
