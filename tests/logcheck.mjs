@@ -6187,3 +6187,91 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   }
   console.log('PASS  위키 · 다붓이 7(워크스페이스 사용법 · 자리 · 소제목 · 해요체 · 대시 · 금지어 · 비용 말 없음)');
 }
+
+// ── 위키 · 다붓이 8 (17차 · 나무위키식 장 목업 승인 2026-10-04) — 바뀌기 전 조각(코드) · 정해지기까지 · 행사 정보 상자 ·
+//    되풀이 모임 개요(뜻 + 다음 날짜) · 장의 마디와 번호 · 팀 몫 · 지금 하는 일 · 관련 문서 · 글 안 링크 ──
+{
+  const B = await import(new URL('../api/_wikiBuild.js', import.meta.url).href);
+  const L = await import(new URL('../src/services/wikiLive.js', import.meta.url).href);
+  const S = (date, text, card = 'a', head = '') => ({ date, text, head, cite: { t: 'card', id: card, label: card } });
+  // 바뀌기 전 — 기존/변경 이름표 · 제외 · 옛 숫자 값 · 같은 이름표의 다른 값(날짜는 달·날만 견준다)
+  const s1 = S('2026-09-12', '주제: 전도', 'm'), s2 = S('2026-09-12', '15:20 ｜ 광고 및 파송 찬양', 'm'), s3 = S('2026-09-12', '13:00 ｜ 웰컴', 'm');
+  const s4 = S('2026-10-01', '기존 주제: 전도', 'f'), s5 = S('2026-10-01', '변경 주제: 예배자', 'f'), s6 = S('2026-10-01', '파송 찬양 제외', 'f');
+  const s7 = S('2026-09-01', '예배 시간 15:30 시작', 'x'), s8 = S('2026-10-01', '예배 시간 조정: 15:30에서 15:00로 변경', 'f');
+  const old = B.supersededSnips([s1, s2, s3, s4, s5, s6, s7, s8]);
+  assert.deepStrictEqual([s1, s2, s3, s4, s5, s6, s7, s8].map(s => old.has(s)), [true, true, false, true, false, false, true, false], [...old.values()].join(' / '));
+  const d1 = S('2026-09-13', '날짜 : 10월 31일 토요일', 'w'), d2 = S('2026-10-03', '일시: 2026년 10월 31일 (토)', 'e'), p1 = S('2026-09-20', '장소: 한강공원 운동장 괜찮음. 3시간', 'l'), p2 = S('2026-09-27', '장소: 한강공원 운동장 괜찮음.(대관)', 'l2'), p3 = S('2026-09-13', '장소: 실내 체육관', 'w');
+  const old2 = B.supersededSnips([d1, d2, p1, p2, p3]);
+  assert.ok(!old2.has(d1) && !old2.has(p1) && old2.has(p3), '같은 날짜·같은 장소는 바뀐 게 아니다 · 다른 장소는 바뀐 것');
+  assert.ok(!B.supersededSnips([S('2026-09-01', '파송 찬양 제외', 'a', '하위 업무'), s2]).size, '하위 업무 목록은 견주지 않는다');
+  // 정해지기까지 — 정한 말이나 바뀌기 전 줄만 · 댓글·질문·기존 줄은 빼고 · 날짜 순
+  const ds = B.decideSnips([s1, s2, s3, s4, s5, S('2026-10-02', '장소는 한강으로 확정', 'c', '댓글 10월 2일'), S('2026-10-02', '장소: 한강?', 'c')], old);
+  assert.deepStrictEqual(ds.map(s => s.text), ['주제: 전도', '15:20 ｜ 광고 및 파송 찬양', '변경 주제: 예배자']);
+  // 행사 정보 상자 — 늦은 기록의 이름표 값 · 미정·빈칸은 값이 아니다 · 그날 값이 둘이면 뺀다 · 맡은 곳은 많이 걸린 팀 순
+  assert.deepStrictEqual(B.eventInfo([d1, S('2026-09-27', '시간 : 14:00~18:00'), S('2026-09-27', '장소 : 미정'), S('2026-09-27', '장소: 한강공원')], [{ teams: ['임원진', '순장'] }, { teams: ['임원진', '교역자'] }]),
+    [{ k: '날짜', v: '10월 31일 토요일 14:00~18:00' }, { k: '장소', v: '한강공원' }, { k: '맡은 곳', v: '임원진 · 교역자' }]);
+  assert.deepStrictEqual(B.eventInfo([S('2026-09-28', '시간: 10:00~11:20'), S('2026-09-28', '시간: 12:00~13:00')]), [], '주일반·토요반처럼 두 값이면 뺀다');
+  // 되풀이 모임 개요 — 자주 쓰는 말의 뜻(사람이 고친 글) + 다음 날짜(오늘 KST 이후 첫 회차) · 뜻이 없으면 null · 한 번뿐이면 null
+  const C = (id, title, d) => ({ id, title, start_date: d, due_date: d });
+  const monthly = [C('a', '8월 월례회', '2026-08-23'), C('b', '10월 월례회', '2026-10-11'), C('c', '11월 월례회', '2026-11-08')];
+  const terms = [{ text: '월례회 · 둘째 주 순모임 뒤에 리더(임원진) · 순장 · 팀장 · 교역자 · 부장님이 모여요.' }];
+  assert.deepStrictEqual(B.recurringLead('월례회', monthly, { terms, today: '2026-10-04' }).map(i => i.text),
+    ['월례회는 둘째 주 순모임 뒤에 리더(임원진) · 순장 · 팀장 · 교역자 · 부장님이 모여요.', '다음 월례회는 10월 11일(일)이에요.']);
+  assert.strictEqual(B.recurringLead('월례회', monthly, { terms, today: '2026-10-12' })[1].text, '다음 월례회는 11월 8일(일)이에요.');
+  assert.strictEqual(B.recurringLead('리더십 회의', [C('x', '9월 20일 리더십 회의', '2026-09-20'), C('y', '260830 리더쉽회의', '2026-08-30')], { terms, today: '2026-10-04' }), null, '뜻이 없으면 모델 소개 그대로');
+  assert.strictEqual(B.recurringLead('가을 체육대회', [C('e', '가을 체육대회 개요', '2026-10-25')], { terms, today: '2026-10-04' }), null);
+  // 장 뼈대 — 월례회는 개요가 뜻 + 다음 날짜 · 정보 상자는 다음 모임 · 정해지기까지 없음 / 행사는 정보 상자 · 정해지기까지(바뀌기 전 조각) · 바뀌기 전 조각은 블록 재료에서 빠진다
+  const P = (id, name) => ({ id, name, year: 2026, archived: false, position: 0 });
+  const K = (id, pid, title, o = {}) => ({ id, project_id: pid, title, description: '', status: 'done', start_date: null, due_date: null, subtasks: [], updated_at: '2026-09-20T00:00:00Z', teams: [], ...o });
+  const D = { today: '2026-10-04', comments: [], files: [], services: [], guides: [], qt: [], groups: [], meetings: [], names: [], edits: [], projects: [P('W', '2026 월례회'), P('V', '2026 더다붓 예배 2.0')], cards: [
+    K('w8', 'W', '8월 월례회', { description: '- 스튜디오 물품: 냉장고', start_date: '2026-08-23', teams: ['임원진'] }),
+    K('w10', 'W', '10월 월례회', { status: 'todo', start_date: '2026-10-11', due_date: '2026-10-11', teams: ['임원진'] }),
+    K('v1', 'V', '10월 찬양 예배 팀장 미팅', { description: '- 주제: 전도\n- 15:20 ｜ 광고 및 파송 찬양', start_date: '2026-09-12', teams: ['찬양팀'] }),
+    K('v2', 'V', '10월 찬양 예배 변경 사항', { description: '- 기존 주제: 전도\n- 변경 주제: 예배자\n- 파송 찬양 제외', updated_at: '2026-10-01T03:00:00Z', teams: ['찬양팀', '웰컴팀'] }),
+  ] };
+  const pages = B.skeletons(D);
+  const wol = pages.find(p => p.title === '월례회');
+  assert.deepStrictEqual(wol.blocks.map(b => b.key).slice(0, 2), ['info', 'lead']);
+  assert.ok(wol.blocks[1].meta.recurring && wol.blocks[1].items[0].text.startsWith('월례회는 둘째 주') && !wol.blocks[1].snips && !wol.blocks.some(b => b.type === 'decisions'));
+  assert.deepStrictEqual(wol.blocks[0].rows[0], { k: '다음 모임', v: '10월 11일(일)' });
+  const w2 = pages.find(p => p.title === '예배 2.0');
+  const dec = w2.blocks.find(b => b.type === 'decisions');
+  assert.ok(dec && dec.snips.some(s => s.old && s.text.includes('파송')) && dec.snips.some(s => s.text === '변경 주제: 예배자'), JSON.stringify(dec?.snips));
+  const body = w2.blocks.filter(b => b.type !== 'decisions').flatMap(b => b.snips || []).map(s => s.text).join(' | ');
+  assert.ok(!body.includes('광고 및 파송 찬양') && !body.includes('주제: 전도') && body.includes('변경 주제: 예배자'), `바뀌기 전 조각은 장 소개·블록 재료에 없다: ${body}`);
+  assert.deepStrictEqual(w2.blocks.find(b => b.type === 'info').rows, [{ k: '맡은 곳', v: '찬양팀 · 웰컴팀' }]);
+  // 장의 마디 — 팀(개요 · 하는 일 · 구성원 · 지금 하는 일 › 최근에 끝낸 일 · 다른 팀과 했던 일 · 관련 문서) · 행사(개요 · 정해지기까지 · 기록 · 준비)
+  const teamPage = { id: 'team:찬양팀', grp: '팀', blocks: [{ key: 'about', type: 'plain', items: [] }, { key: 'c:k', type: 'section', title: '송폼', meta: { cardId: 'k' }, items: [] }, { key: 'together', type: 'chips', title: '다른 팀과 했던 일', items: [{ key: 't', cites: [{ t: 'card', id: 'w8' }] }] }] };
+  assert.deepStrictEqual(L.outlineOf(teamPage, { related: true }).toc.map(t => `${t.no} ${t.title}`), ['1. 개요', '2. 하는 일', '2.1. 송폼', '3. 구성원', '4. 지금 하는 일', '4.1. 최근에 끝낸 일', '5. 다른 팀과 했던 일', '6. 관련 문서']);
+  const evPage = { id: 'p:x', grp: '행사', blocks: [{ key: 'lead', type: 'plain', items: [] }, { key: 'decide', type: 'decisions', title: '정해지기까지', steps: [{}] }, { key: 'c:a', type: 'section', title: '개요', meta: { cardId: 'a' } }, { key: 'prep', type: 'head', title: '준비' }, { key: 'c:b', type: 'section', title: '포스터', meta: { cardId: 'b' } }] };
+  assert.deepStrictEqual(L.outlineOf(evPage).sections.map(s => `${s.no} ${s.title}${s.live ? `(${s.label})` : ''}`), ['1. 개요', '2. 정해지기까지', '3. 기록', '4. 준비(현재 업무 기준)']);
+  // 팀 몫 · 구성원 차례 · 지금 하는 일(워크스페이스 개선 · 명단은 뺀다)
+  assert.strictEqual(L.teamPart('찬양팀 베이스 · 미디어팀 편집', '찬양팀', ['찬양팀', '미디어팀']), '베이스');
+  assert.strictEqual(L.teamPart('일렉', '찬양팀', ['찬양팀']), '일렉');
+  assert.strictEqual(L.teamPart('일렉', '찬양팀', ['찬양팀', '엔지니어팀']), '', '여러 팀이면 팀 이름 없는 조각은 어느 팀 몫인지 모른다');
+  assert.deepStrictEqual(L.teamMembers('찬양팀', [{ name: '나', role: '', teams: ['찬양팀'] }, { name: '다', role: '찬양팀장', teams: ['찬양팀'] }, { name: '가', role: '싱어', teams: ['찬양팀'] }]).map(m => m.name), ['다', '가', '나']);
+  const w = L.teamWork('찬양팀', [
+    { id: '1', projectId: 'A', title: '콘티', status: '진행 중', teams: ['찬양팀'], dueDate: '2026-10-10' },
+    { id: '2', projectId: 'A', title: '밀린 일', status: '진행 중', teams: ['찬양팀'], dueDate: '2026-10-01' },
+    { id: '3', projectId: 'X', title: '앱 개발', status: '진행 중', teams: ['찬양팀'] },
+    { id: '4', projectId: 'A', title: '찬양팀 명단', status: '완료', teams: ['찬양팀'] },
+    { id: '5', projectId: 'A', title: '송폼', status: '완료', teams: ['찬양팀', '순장', '워십팀'], completedAt: '2026-09-30T20:00:00Z', subtasks: [{ title: 'a', done: true }] },
+  ], [{ id: 'A', title: '2026 예배' }, { id: 'X', title: '2026 워크스페이스 개선' }], '2026-10-04');
+  assert.deepStrictEqual({ doing: w.doing, late: w.late, done: w.done }, { doing: 1, late: 1, done: [{ id: '5', title: '송폼', with: ['워십팀'], date: '10월 1일', sub: '1/1' }] });
+  // 관련 문서 — 근거로 단 업무를 가진 다른 장(많이 겹친 순) + 자주 쓰는 말
+  const pg = (id, title, cardIds, extra = []) => ({ id, title, blocks: [...cardIds.map(c => ({ key: `c:${c}`, type: 'section', meta: { cardId: c }, items: [] })), ...extra] });
+  const all = [pg('p:a', '가을 체육대회', ['e1'], [{ key: 'lead', type: 'plain', items: [{ text: '콘티와 한강공원', cites: [{ t: 'card', id: 'm1' }, { t: 'card', id: 'w1' }] }] }]), pg('weekly:leaders', '리더십 회의', ['m1']), pg('p:w', '월례회', ['w1', 'w2']), pg('p:z', '하계 수련회', ['z']),
+    { id: 'terms', title: '자주 쓰는 말', kind: 'human', blocks: [{ items: [{ text: '콘티 · 예배 찬양 순서예요.' }, { text: '월례회 · 둘째 주에 모여요.' }] }] }];
+  assert.deepStrictEqual(L.relatedPages(all[0], all).map(r => r.title), ['리더십 회의', '월례회', '자주 쓰는 말']);
+  // 글 안 링크 — 장 제목이 자주 쓰는 말보다 앞 · 제 장 이름은 잇지 않는다 · 뒤가 조사일 때만 · 마디마다 처음 한 번
+  const tg = L.linkTargets(all, 'p:w');
+  assert.ok(!tg.some(t => t.word === '월례회') && tg.find(t => t.word === '콘티').id === 'terms' && tg.find(t => t.word === '리더십 회의').id === 'weekly:leaders');
+  const used = new Set();
+  assert.deepStrictEqual(L.linkParts('콘티는 리더십 회의에서 정해요. 콘티장', tg, used).filter(p => p.id).map(p => p.t), ['콘티', '리더십 회의']);
+  assert.deepStrictEqual(L.linkParts('콘티와 송폼', tg, used).filter(p => p.id).length, 0, '같은 마디에서는 처음 한 번만');
+  assert.deepStrictEqual(L.linkParts('콘티장은 콘티', L.linkTargets(all, 'x'), new Set()).map(p => p.id || ''), ['', 'terms'], "'콘티장'의 '콘티'는 잇지 않는다");
+  // 정해지기까지는 items가 아니라 steps — 바뀌기 전 줄이 다붓이 근거(wikiCore.scoreWikiItems는 items만 본다)로 읽히지 않게
+  const build = readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8');
+  assert.ok(build.includes("blocks.push({ ...rest, items: [], steps: items.map(it =>") && build.includes("if (c?.b === 'decide') { if (kept.some(x => x.b === 'decide' && x.date > c.date)) c.old = true; continue; }"), '정해지기까지는 steps · 모델 검사는 버리지 않고 바뀌기 전으로');
+  console.log('PASS  위키 · 다붓이 8(바뀌기 전 조각 · 정해지기까지 · 행사 정보 상자 · 되풀이 모임 개요 · 마디와 번호 · 팀 몫 · 지금 하는 일 · 관련 문서 · 글 안 링크)');
+}

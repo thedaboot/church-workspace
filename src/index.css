@@ -863,3 +863,17 @@ svg.lucide { stroke-width: 1.4px; }
 @media (prefers-reduced-motion: reduce) {
   .dab-thumb-pop, .dab-thumb-shake, .dab-burst i, .dab-hop, .dab-droop, .wiki-in-fwd, .wiki-in-back { animation: none !important; }
 }
+/* 위키 장(17차 · 나무위키식 목업 승인 2026-10-04) — 한글은 낱말로 접는다 · 정보 상자는 넓은 화면에서만 오른쪽 칸(좁으면 맨 위 한 줄 너비) ·
+   목차에서 마디로 옮겨 갈 때 머리가 위에 붙지 않게 여백 · QT 칸은 누르면 살짝 */
+.wiki-page { word-break: keep-all; overflow-wrap: break-word; }
+.wiki-sec, .wiki-sub { scroll-margin-top: 12px; }
+.wiki-body.has-info { display: grid; gap: 20px; align-items: start; }
+@media (min-width: 1180px) {
+  .wiki-body.has-info:not(.is-phone) { grid-template-columns: minmax(0, 1fr) 280px; gap: 28px; }
+  .wiki-body.has-info:not(.is-phone) > .wiki-info { grid-column: 2; grid-row: 1; position: sticky; top: 8px; }
+  .wiki-body.has-info:not(.is-phone) > .wiki-main { grid-column: 1; grid-row: 1; }
+}
+.wiki-qt-cell { transition: transform .15s ease, box-shadow .15s ease; }
+.wiki-qt-cell:hover { transform: translateY(-1px); }
+.wiki-qt-cell:active { transform: scale(.97); }
+@media (prefers-reduced-motion: reduce) { .wiki-qt-cell, .wiki-qt-cell:hover, .wiki-qt-cell:active { transition: none; transform: none; } }

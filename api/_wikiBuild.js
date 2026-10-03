@@ -292,9 +292,162 @@ const sectionOf = (D, c, perCard, extra = {}, seen = new Set()) => {
   return snips.length ? { block: { key: `c:${c.id}`, type: 'section', title: sectionTitle(c), meta, cites: [cardCite(c)], items: [], snips, max: perCard }, snips } : null;
 };
 
+// ── 바뀌기 전 조각(코드가 정한다 · 2026-10-04 사용자 지적 — 예배 2.0 장에 9/12의 '15시 20분 파송 찬양'이 지금 사실로 남았다) ──
+// 늦은 기록이 앞 기록의 말을 바꿨다고 **글로 적었으면** 앞 조각은 바뀌기 전 내용이다. 모델 검사(supersede:)는 그대로 두고 그 앞에서 먼저 걷는다.
+//   ① '기존 주제: 전도'      — 그 줄 자체가 지난 값 · 앞 기록에서 같은 이름표에 그 값을 적은 줄도
+//   ② '변경 주제: 예배자'    — 앞 기록에서 같은 이름표('주제:')에 다른 값을 적은 줄
+//   ③ '파송 찬양 제외'       — 빠진 것('파송 찬양')을 말한 앞 기록 줄(제외·취소·삭제·빼기)
+//   ④ '9곡 → 7곡' · '15:30에서 15:00로 변경' — 숫자가 든 옛 값을 적은 앞 기록 줄
+//   ⑤ 같은 이름표(일시·날짜·장소·시간·주제·대상) 줄이 더 늦은 기록에서 다른 값이면 앞 값('미정'·빈칸은 값이 아니다)
+// snips: [{ head, text, date, cite }] → Map(조각 → 이유). 행사 장에서만 쓴다(팀 장은 서로 다른 일의 기록이 섞여 이름표가 겹친다).
+const escRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const LABEL_LINE = /^([^:：]{1,16}?)\s*[:：]\s*(.+)$/;
+const SAME_LABEL = { 일시: '날짜', 날짜: '날짜', '날짜 확정': '날짜', 일정: '날짜', 장소: '장소', 시간: '시간', 주제: '주제', 대상: '대상', '참석 대상': '대상' };
+const NOT_A_VALUE = /미정|정해지지|^\(|_{2,}|확인\s?(?:필요|요망)|[?？]$/;
+export function supersededSnips(snips) {
+  const old = new Map();
+  // 하위 업무 목록(쉼표로 이은 할 일 제목)은 견주지 않는다 — '…제외' 같은 할 일 제목이 앞 기록을 잘못 걷었다
+  const list = (snips || []).filter(s => s && s.text && s.head !== '하위 업무');
+  const before = (s, c) => s !== c && String(s.date || '') < String(c.date || '');
+  const mark = (s, why) => { if (!old.has(s)) old.set(s, why); };
+  for (const c of list) {
+    const t = String(c.text).replace(/\s+/g, ' ').trim();
+    let m = /^기존\s*([^:：]{1,12}?)\s*[:：]\s*(.+)$/.exec(t);
+    if (m) {
+      const label = m[1].trim(); const v = m[2].trim();
+      mark(c, t);
+      for (const s of list) if (before(s, c) && s.text.includes(label) && s.text.includes(v)) mark(s, t);
+    }
+    m = /^(?:변경(?:된)?|바뀐)\s*([^:：]{1,12}?)\s*[:：]\s*(.+)$/.exec(t);
+    if (m) {
+      const re = new RegExp(`(?:^|[\\s(])${escRe(m[1].trim())}\\s*[:：]\\s*(?!${escRe(m[2].trim())})\\S`);
+      for (const s of list) if (before(s, c) && re.test(s.text)) mark(s, t);
+    }
+    for (const x of t.matchAll(/([가-힣A-Za-z0-9]+(?:\s[가-힣A-Za-z0-9]+)?)\s*(?:은|는|을|를|이|가)?\s*(?:제외|취소|삭제|빼기|뺐)/g)) {
+      const p = x[1].replace(/(?:을|를|은|는|이|가)$/, '').trim();
+      if (p.length < 2 || /^(?:기존|변경|일부|모두|전부|나머지)$/.test(p)) continue;
+      for (const s of list) if (before(s, c) && s.text.includes(p)) mark(s, t);
+    }
+    for (const x of t.matchAll(/(?<![\d:])(\d[\d:.]*[가-힣]{0,2}?)\s*(?:에서|→|->)/g)) {
+      const v = x[1];
+      if (v.length < 2) continue;
+      const re = new RegExp(`(?<![\\d:])${escRe(v)}(?![\\d:])`);
+      for (const s of list) if (before(s, c) && re.test(s.text)) mark(s, t);
+    }
+  }
+  const labelOf = (s) => {
+    const m = LABEL_LINE.exec(String(s.text).trim());
+    const k = m && SAME_LABEL[m[1].replace(/\s+/g, ' ').trim()];
+    if (!k || NOT_A_VALUE.test(m[2].trim())) return null;
+    // 날짜는 달·날만, 시간은 시각만 견준다('10월 31일(토)'와 '2026년 10월 31일 (토)'는 같은 값)
+    const raw = m[2].replace(/\s+/g, '');
+    const md = [...raw.matchAll(/(\d{1,2})월(\d{1,2})일/g)].map(x => `${+x[1]}-${+x[2]}`).join(',');
+    const hm = [...raw.matchAll(/(\d{1,2}):(\d{2})/g)].map(x => `${+x[1]}:${x[2]}`).join(',');
+    // 그 밖의 값은 덧붙인 말(마침표·괄호 뒤) 앞까지만 — '한강공원 운동장 괜찮음. 3시간에…'와 '… 괜찮음.(다목적…)'은 같은 장소다
+    return { k, v: (k === '날짜' && md) || (k === '시간' && hm) || raw.split(/[.(,]/)[0] || raw };
+  };
+  for (const c of list) {
+    const lc = labelOf(c);
+    if (!lc) continue;
+    for (const s of list) {
+      const ls = labelOf(s);
+      // 늦은 값이 앞 값을 품거나(더 자세히) 앞 값이 늦은 값을 품으면 바뀐 게 아니다
+      if (ls && ls.k === lc.k && before(s, c) && !ls.v.includes(lc.v) && !lc.v.includes(ls.v)) mark(s, c.text);
+    }
+  }
+  return old;
+}
+
+// 행사 정보 상자(사용자 승인 목업 2026-10-04) — 기록 글의 '이름표: 값' 줄에서 늦은 기록이 이긴다(지어내지 않는다 · 모르는 줄은 뺀다).
+// 맡은 곳은 그 장 업무의 팀(많이 걸린 순 셋). → [{ k, v }]
+const INFO_KEYS = [['날짜', /^(?:일시|날짜(?:\s?확정)?|행사\s?일시)$/], ['시간', /^시간$/], ['장소', /^장소$/], ['대상', /^(?:참석\s?)?대상(?:\s?및\s?예상\s?인원)?$/]];
+export function eventInfo(snips, cards = []) {
+  // 이름표마다 가장 늦은 기록 날의 값 — 그날 값이 둘 넘게 다르면(주일반·토요반 시간) 하나로 못 정하니 뺀다
+  const by = {};
+  for (const s of snips || []) {
+    const m = LABEL_LINE.exec(String(s.text || '').trim());
+    if (!m) continue;
+    const key = INFO_KEYS.find(([, re]) => re.test(m[1].replace(/\s+/g, ' ').trim()));
+    const v = m[2].replace(/\s+/g, ' ').trim();
+    if (!key || !v || NOT_A_VALUE.test(v)) continue;
+    const d = String(s.date || '');
+    const cur = by[key[0]];
+    if (!cur || d > cur.d) by[key[0]] = { d, vs: [v] };
+    else if (d === cur.d && !cur.vs.includes(v)) {
+      // 한 값이 다른 값을 품으면 같은 값이다('한강공원'과 '한강공원 운동장 괜찮음…') — 짧은 쪽을 남긴다
+      const k = cur.vs.findIndex(x => x.includes(v) || v.includes(x));
+      if (k >= 0) { if (v.length < cur.vs[k].length) cur.vs[k] = v; } else cur.vs.push(v);
+    }
+  }
+  const got = {};
+  for (const [k, x] of Object.entries(by)) if (x.vs.length === 1) got[k] = x.vs[0];
+  const rows = [];
+  if (got.날짜) rows.push({ k: '날짜', v: got.시간 && !/\d{1,2}:\d{2}/.test(got.날짜) ? `${got.날짜} ${got.시간}` : got.날짜 });
+  else if (got.시간) rows.push({ k: '시간', v: got.시간 });
+  if (got.장소) rows.push({ k: '장소', v: got.장소 });
+  if (got.대상) rows.push({ k: '대상', v: got.대상 });
+  const n = new Map();
+  for (const c of cards) for (const t of c.teams || []) if (!AUDIENCE.has(t)) n.set(t, (n.get(t) || 0) + 1);
+  const teams = [...n].sort((a, b) => b[1] - a[1] || TEAM_ORDER.indexOf(a[0]) - TEAM_ORDER.indexOf(b[0])).slice(0, 3).map(x => x[0]);
+  if (teams.length) rows.push({ k: '맡은 곳', v: teams.join(' · ') });
+  return rows;
+}
+
+// 되풀이 모임 장(월례회 …)의 개요 — 자주 쓰는 말의 뜻(사람이 고친 글) 또는 더다붓 소개의 한 달 줄 + 다음 날짜(KST 오늘 기준).
+// 장 첫 줄이 스튜디오 물품 이야기였다(사용자 지적 2026-10-04). 뜻이 없으면 null(모델 소개 그대로).
+// cards: 그 장 업무 · terms/month: 줄 [{ text }] → [{ key, text, by, cites }] | null
+const squash = (s) => String(s || '').replace(/\s+/g, '').replace(/쉽/g, '십');
+export function recurringLead(title, cards, { terms = [], month = [], today = '' } = {}) {
+  const t = String(title || '').trim();
+  if (!t) return null;
+  const same = (cards || []).filter(c => squash(c.title).includes(squash(t)) && /^(?:\d{1,2}월|\d{6}|\d{1,2}월\s?\d{1,2}일)/.test(String(c.title).trim()));
+  if (same.length < 2) return null;
+  const def = terms.map(it => stripBold(it.text)).find(x => x.startsWith(`${t} ·`));
+  const line = def ? `${josa(t, '은', '는')} ${def.slice(t.length + 2).trim()}` : month.map(it => stripBold(it.text)).find(x => x.includes(t));
+  if (!line) return null;
+  const items = [{ key: 'def', text: line, by: 'code', cites: [def ? pageCite('terms', '자주 쓰는 말') : pageCite('intro', '더다붓 소개')] }];
+  const next = same.filter(c => cardDate(c) && cardDate(c) >= today).sort(byDate)[0];
+  if (next) items.push({ key: 'next', text: `다음 ${josa(t, '은', '는')} ${mdLabel(cardDate(next), true)}이에요.`, by: 'code', cites: [cardCite(next)], meta: { date: cardDate(next) } });
+  return items;
+}
+
+// 정해지기까지 — 행사 장의 날짜 있는 기록 가운데 정한 것·바뀐 것을 말한 조각(업무마다 둘 · 늦은 것 여덟). 바뀌기 전 조각도 싣는다(화면이 줄을 긋는다).
+// 시각은 시:분만('누가복음 2:25-32' 같은 장절은 아니다)
+const DECIDE = /일시|날짜|장소|시간|대상|인원|방식|주제|연합|확정|결정|변경|제외|취소|대신|기존|하기로|\d+\s?월\s?\d+\s?일|(?<![\d:])(?:[01]?\d|2[0-3]):[0-5]\d(?![\d-])/;
+const DECIDE_STRONG = /확정|결정|변경|제외|취소|대신|기존|하기로|조정|연합|장소|날짜|일시|주제/;
+export function decideSnips(pool, old = new Map()) {
+  const byCard = new Map();
+  for (const s of pool) {
+    // 글에서만 본다(소제목의 '댓글 9월 12일'이 날짜로 걸렸다) · 정한 말이 든 줄이나 바뀌기 전 줄만 · 댓글·하위 업무 목록은 뺀다 ·
+    // '기존 …' 줄은 바뀐 줄이 말해 주므로 따로 세우지 않는다
+    if (!s.date || s.head === '하위 업무' || /^댓글/.test(s.head || '') || /[?？]$/.test(s.text) || /^기존\s/.test(s.text)) continue;
+    if (!DECIDE.test(s.text) || !(old.has(s) || DECIDE_STRONG.test(s.text))) continue;
+    const k = s.cite?.id || '';
+    if (!byCard.has(k)) byCard.set(k, []);
+    byCard.get(k).push(s);
+  }
+  const score = (s) => (old.has(s) ? 3 : 0) + (DECIDE_STRONG.test(s.text) ? 2 : 0) + (LABEL_LINE.test(s.text) ? 1 : 0);
+  const out = [];
+  // 업무마다 둘 — 바뀌기 전 조각은 이유가 다른 것부터('주제: 전도'와 '파송 찬양'이 둘 다 서게)
+  for (const list of byCard.values()) {
+    const pick = []; const why = new Set();
+    for (const s of [...list].sort((a, b) => score(b) - score(a))) {
+      if (pick.length >= 2) break;
+      if (old.has(s) && why.has(old.get(s)) && list.some(x => !pick.includes(x) && x !== s && (!old.has(x) || !why.has(old.get(x))))) continue;
+      pick.push(s); if (old.has(s)) why.add(old.get(s));
+    }
+    out.push(...pick);
+  }
+  const seen = new Set();
+  // 무게(바뀌기 전 · 정한 말 · 이름표) 순으로 여덟, 같으면 늦은 기록 — 그다음 날짜 순으로 세운다
+  return out.filter(s => (seen.has(s.text) ? false : seen.add(s.text)))
+    .sort((a, b) => score(b) - score(a) || b.date.localeCompare(a.date)).slice(0, 8)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 // 업무 묶음 → 블록들: 이음 문장(lead) · 업무마다 section · 글이 비어 있는 업무는 '기록 전'
 // event: 행사 장 — 행사 기록(결산·개요…)을 맨 앞에, 준비 업무는 '준비' 아래로 · mentions: 다른 회의 기록에서 이 행사를 말한 조각(lead 재료)
-function cardBlocks(D, cards, { leadMax = 2, perCard = 4, multiAsChips = false, team = null, event = false, mentions = [] } = {}) {
+function cardBlocks(D, cards, { leadMax = 2, perCard = 4, multiAsChips = false, team = null, event = false, mentions = [], recurring = false } = {}) {
   const blocks = [];
   const solo = multiAsChips ? cards.filter(c => c.teams.length <= 1) : cards;
   const multi = multiAsChips ? cards.filter(c => c.teams.length > 1) : [];
@@ -310,6 +463,22 @@ function cardBlocks(D, cards, { leadMax = 2, perCard = 4, multiAsChips = false, 
   // 준비와 기록이 둘 다 있을 때만 가른다(전부 준비면 그대로)
   if (event && (!main.length || !prep.length)) { main = [...main, ...prep].sort((a, b) => byDate({ start_date: a.block.meta.date }, { start_date: b.block.meta.date })); prep = []; for (const s of main) delete s.block.meta.prep; }
   if (event) main.sort((a, b) => Number(RECORD_TITLE.test(b.block.title)) - Number(RECORD_TITLE.test(a.block.title)));
+  // 행사 장: 바뀌기 전 조각은 장 소개·블록 재료에서 걷고(지금 사실로 쓰이지 않게) '정해지기까지'에만 바뀌기 전으로 싣는다
+  const pool = [...mentions, ...[...main, ...prep].flatMap(s => s.snips)];
+  let old = new Map();
+  if (event && !recurring) {
+    old = supersededSnips(pool);
+    if (old.size) {
+      for (const s of [...main, ...prep]) {
+        s.snips = s.snips.filter(x => !old.has(x));
+        if (s.block.snips) { if (s.snips.length) s.block.snips = s.snips; else { delete s.block.snips; delete s.block.max; } }
+      }
+      mentions = mentions.filter(x => !old.has(x));
+    }
+    // 정보 상자는 행사 기록 · 다른 회의 기록에서만(준비 업무의 '대상'은 키링을 받을 사람이었다 · 하계 수련회)
+    const info = eventInfo([...mentions, ...main.flatMap(s => s.snips)].filter(x => !old.has(x)), cards);
+    if (info.length) blocks.push({ key: 'info', type: 'info', rows: info, items: [] });
+  }
   const all = [...main, ...prep].flatMap(s => s.snips);
   // 장 소개 재료는 늦은 기록 24개(앞 블록 것만 실으면 바뀌기 전 주제가 소개에 섰다 · 예배 2.0 '전도' 2026-10-04)
   // 행사 장이면 행사 그 자체의 기록(결산·개요)을 먼저 — 늦은 기록만 실었더니 찬조 명단이 하계 수련회 소개가 됐다(2026-10-04)
@@ -317,6 +486,13 @@ function cardBlocks(D, cards, { leadMax = 2, perCard = 4, multiAsChips = false, 
   const rest = [...all].filter(x => !records.includes(x)).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
   const leadSnips = [...records.slice(0, 24), ...rest.slice(-Math.max(0, 24 - records.length)), ...mentions];
   if (leadMax && leadSnips.length) blocks.push({ key: 'lead', type: 'plain', items: [], snips: leadSnips, max: mentions.length ? Math.max(leadMax, 3) : leadMax });
+  if (event && !recurring) {
+    // 행사 기록 · 다른 회의 기록에서만(준비 업무의 '대상'이 하계 수련회의 지금 정해진 내용으로 섰다) — 바뀌기 전 표시는 준비 업무까지 본 것 그대로
+    const ds = decideSnips([...pool.filter(x => mentions.includes(x) || old.has(x)), ...main.flatMap(s => s.snips)], old);
+    if (ds.length >= 2 && new Set(ds.map(s => s.date)).size >= 2) {
+      blocks.push({ key: 'decide', type: 'decisions', title: '정해지기까지', items: [], snips: ds.map(s => (old.has(s) ? { ...s, old: old.get(s) } : s)), max: ds.length });
+    }
+  }
   blocks.push(...main.map(s => s.block));
   if (prep.length) blocks.push({ key: 'prep', type: 'head', title: '준비', items: [] }, ...prep.map(s => s.block));
   // 다른 팀과 했던 일 — 끝난 것만(완료 · 날짜가 지남). 앞으로 할 월례회는 싣지 않는다(사용자 결정 2026-10-04)
@@ -381,13 +557,28 @@ export function skeletons(D) {
   const events = eventProjects.filter(p => eventCards(p).length);
   const lastDate = (p) => eventCards(p).map(cardDate).filter(Boolean).sort().pop() || '';
   events.sort((a, b) => lastDate(b).localeCompare(lastDate(a)));
+  // 함께 쓰는 글의 지금 글(사람이 고친 글 겹침) — 자주 쓰는 말 · 더다붓 소개의 한 달 줄
+  const termsNow = overlayEdits(SEED_PAGES[1].blocks, D.edits.filter(e => e.page_id === 'terms'));
+  const introNowAll = overlayEdits(SEED_PAGES[0].blocks, D.edits.filter(e => e.page_id === 'intro'));
+  const lineSrc = { terms: (termsNow[0] || {}).items || [], month: (introNowAll.find(b => b.key === 'month') || {}).items || [], today: D.today };
   events.forEach((p, i) => {
     const cs = eventCards(p);
     const title = projectTitle(p.name, year);
     const word = eventWord(title);
     const mentions = eventMentions(D, word, liveCards.filter(c => c.project_id !== p.id));
-    pages.push({ id: `p:${p.id}`, grp: '행사', title, kind: 'auto', position: i, source: '업무', source_count: cs.length,
-      blocks: cardBlocks(D, cs, { event: true, mentions }) });
+    // 되풀이 모임(월례회)은 개요를 뜻 + 다음 날짜로(모델 소개 대신 · 사용자 지적 2026-10-04) — 회차마다 다른 이야기라
+    // 이름표 줄(날짜·장소)로 정보 상자를 세우거나 정해지기까지를 묶지 않는다(9월 월례회의 체육대회 날짜가 월례회 날짜로 섰다)
+    const rec = recurringLead(title, cs, lineSrc);
+    const blocks = cardBlocks(D, cs, { event: true, mentions: rec ? [] : mentions, recurring: !!rec });
+    if (rec) {
+      const k = blocks.findIndex(b => b.key === 'lead');
+      const lead = { key: 'lead', type: 'plain', items: rec, meta: { recurring: true } };
+      if (k >= 0) blocks.splice(k, 1, lead); else blocks.unshift(lead);
+      const next = rec.find(it => it.key === 'next');
+      const rows = [...(next ? [{ k: '다음 모임', v: mdLabel(next.meta.date, true) }] : []), ...eventInfo([], cs)];
+      if (rows.length) blocks.unshift({ key: 'info', type: 'info', rows, items: [] });
+    }
+    pages.push({ id: `p:${p.id}`, grp: '행사', title, kind: 'auto', position: i, source: '업무', source_count: cs.length, blocks });
   });
 
   // 팀 — 그 팀만 걸린 업무는 '맡은 일', 여러 팀이 걸린 업무는 '다른 팀과 했던 일'(이름만 · 한 팀의 일로 쓰지 않는다)
@@ -415,7 +606,6 @@ export function skeletons(D) {
   const svcs = D.services;
   if (svcs.length) {
     const fileOf = (s, kind) => D.files.filter(f => f.service_id === s.id && f.kind === kind).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))[0];
-    const termsNow = overlayEdits(SEED_PAGES[1].blocks, D.edits.filter(e => e.page_id === 'terms'));
     const word = (w) => ((termsNow[0] || {}).items || []).find(it => stripBold(it.text).startsWith(`${w} ·`));
     const lead = ['콘티', '송폼', '큐시트'].map(word).filter(Boolean).map((it, i) => ({ key: `rule${i + 1}`, text: it.text, by: 'code', cites: [pageCite('terms', '자주 쓰는 말')] }));
     pages.push({ id: 'weekly:bulletin', grp: '매주 하는 일', title: '주보 만들기', kind: 'auto', position: 1, source: '주보', source_count: svcs.length,
@@ -558,6 +748,7 @@ const WRITE_SYS = [
   '- lead 블록은 장 전체를 소개한다. 행사 장이면 행사 그 자체의 지금 사실(언제·어디서·누구와·몇 명)을 쓴다. 아래 블록에 쓸 문장을 lead에 되풀이하지 마라. 조각에서만 쓴다.',
   '- 조각마다 [기록 날짜]가 붙어 있다(그 기록을 쓰거나 고친 날). 같은 것(날짜·장소·시간·주제·방식·인원)을 두고 조각끼리 다르면 **날짜가 가장 늦은 조각**을 따른다. 바뀌기 전 내용은 지금 사실처럼 쓰지 마라.',
   '- [기록 날짜]는 행사 날짜가 아니다. 문장에 옮기지 마라. 문장의 날짜는 조각 글에 적힌 날짜만 쓴다.',
+  '- "정해지기까지" 블록은 조각 하나마다 문장 하나를 쓴다. 그 기록에서 정하거나 바꾼 것을 그 기록의 말로 옮긴다. 늦은 기록과 달라도 그대로 옮긴다(화면이 바뀌기 전으로 표시한다).',
   '- "(준비 업무)" 블록은 행사 전에 한 준비다. "수련회를 앞두고 교회 안 홍보용 포스터를 만들었어요"처럼 준비로 쓴다. 그 업무의 날짜·일정은 행사 날짜가 아니다. 준비 블록에서 행사의 날짜·일정을 말하지 마라. 행사 날짜는 행사 기록(결산·회의 기록·개요)에서만 온다.',
   '- 내용 없는 문장("워크샵의 목적이 있어요", "장소가 있어요", "댓글로 내용을 확인했어요")을 쓰지 마라. 목적이 무엇인지, 무엇을 확인했는지를 조각에서 옮기고, 조각에 그 내용이 없으면 쓰지 마라.',
   '- 시각은 조각 표기대로 쓴다(14:00~18:00 → "14:00~18:00" 또는 "14시부터 18시까지"). 오전·오후로 바꾸지 마라.',
@@ -716,6 +907,9 @@ export async function fillPage(pg, { edits = [], hasName = () => false, log = nu
       const probs = await findProblems(SUPERSEDE_SYS, lines, { log, call: `supersede:${pg.id}` }).catch(() => null);
       if (probs) for (const [n, why] of probs) {
         const c = kept.find(x => x.n === n);
+        // 정해지기까지의 줄은 버리지 않고 '바뀌기 전'으로 남긴다(더 늦은 줄이 있을 때만)
+        // (모델 검사는 들쭉날쭉해 정해지기까지 안에 더 늦은 줄이 있을 때만 믿는다 — 다른 블록의 늦은 문장으로 줄 넷이 다 '바뀌기 전'이 됐다)
+        if (c?.b === 'decide') { if (kept.some(x => x.b === 'decide' && x.date > c.date)) c.old = true; continue; }
         // 더 늦은 다른 블록이 있을 때만 — 같은 블록 안에서는 서로를 바꾸지 않는다
         if (!c || !kept.some(x => x.date > c.date && x.b !== c.b)) continue;
         kept.splice(kept.indexOf(c), 1);
@@ -732,10 +926,33 @@ export async function fillPage(pg, { edits = [], hasName = () => false, log = nu
       for (const s of c.sids) { const ct = bySid.get(s).cite; if (!cites.some(x => x.t === ct.t && x.id === ct.id)) cites.push(ct); }
       c.item = { key, text: c.text, by: 'model', cites };
     }
-    // 같은 장 안의 되풀이 걷기(장 소개 = 첫 블록 문장 · 사람이 고친 줄)
+    // 정해지기까지 — 줄마다 기록 날짜 · 바뀌기 전(코드가 정한 조각 · 모델 검사) · 마지막 남은 줄이 '지금 정해진 내용'
+    // 모델은 바뀌기 전 조각을 자주 건너뛴다(늦은 기록을 따르라는 규칙 때문) — 문장이 없는 바뀌기 전 조각은 기록 글 그대로 한 줄로 세운다
+    const usedSid = new Set(kept.filter(c => c.b === 'decide').flatMap(c => c.sids));
+    for (const x of idx.filter(x => x.b === 'decide' && x.old && !usedSid.has(x.sid))) {
+      const text = String(x.text).replace(/\s*[｜|]\s*/g, ' · ').replace(/\s+/g, ' ').trim();
+      if (sensitiveIssue(text) || hasName(text)) continue;
+      kept.push({ n: 1e4 + kept.length, b: 'decide', k: 0, text, sids: [x.sid], date: x.date || '', old: true,
+        item: { key: `decide:${hashKey(x.text)}.r`, text, by: 'code', cites: [x.cite] } });
+    }
+    const steps = kept.filter(c => c.b === 'decide').sort((a, b) => a.date.localeCompare(b.date) || a.n - b.n);
+    // 문장이 기댄 조각이 **모두** 바뀌기 전일 때만 — '전도에서 예배자로 바꿨어요'는 옛 조각과 새 조각을 같이 단다
+    // 줄의 출처는 그 날짜의 기록(가장 늦은 조각) — 옛 조각을 같이 단 문장이 옛 회의 이름으로 섰다
+    for (const c of steps) {
+      const latest = [...c.sids].sort((a, b) => String(bySid.get(b).date || '').localeCompare(String(bySid.get(a).date || '')))[0];
+      const lc = bySid.get(latest)?.cite;
+      if (lc) c.item.cites = [lc, ...c.item.cites.filter(x => !(x.t === lc.t && x.id === lc.id))];
+    }
+    for (const c of steps) c.item.meta = { date: c.date, state: c.old || c.sids.every(x => bySid.get(x).old) ? 'old' : '' };
+    // 지금 정해진 내용 = 바뀌지 않은 줄 가운데 정한 말(일시·장소·확정·변경…)이 든 가장 늦은 줄(없으면 가장 늦은 줄)
+    const live = [...steps].reverse().filter(c => c.item.meta.state !== 'old');
+    const says = (c, re) => c.sids.some(x => re.test(bySid.get(x).text));
+    const nowStep = live.find(c => says(c, /확정|결정|변경|취소|제외|일시|날짜|장소|주제/)) || live.find(c => says(c, DECIDE_STRONG)) || live[0];
+    if (nowStep) nowStep.item.meta.state = 'now';
+    // 같은 장 안의 되풀이 걷기(장 소개 = 첫 블록 문장 · 사람이 고친 줄) — 정해지기까지는 뺀다(그때의 기록을 날짜별로 다시 보이는 자리)
     const order = new Map(pg.blocks.map((b, i) => [b.key, i]));
-    const { keep, dropped: rep } = dropRepeats([...kept].sort((a, b) => order.get(a.b) - order.get(b.b) || a.n - b.n), edits.filter(e => e.page_id === pg.id));
-    kept.splice(0, kept.length, ...keep);
+    const { keep, dropped: rep } = dropRepeats([...kept].filter(c => c.b !== 'decide').sort((a, b) => order.get(a.b) - order.get(b.b) || a.n - b.n), edits.filter(e => e.page_id === pg.id));
+    kept.splice(0, kept.length, ...keep, ...steps);
     dropped.push(...rep);
   }
   // 글이 다 걸러진 업무는 '기록 전'이 아니다(글은 있다) — 제목과 근거 칩만 남긴다(화면이 칩을 그린다)
@@ -745,6 +962,11 @@ export async function fillPage(pg, { edits = [], hasName = () => false, log = nu
     const items = [...(rest.items || []), ...kept.filter(k => k.b === b.key).map(k => k.item)];
     // 빈 장 소개는 걷는다 — 다만 마스터가 소개에 더한 줄이 있으면 그 자리로 남긴다(없으면 그 줄이 아래 블록으로 밀려 섰다 · 양육 2기 2026-10-04)
     if (b.type === 'plain' && b.key === 'lead' && !items.length && !edits.some(e => e.page_id === pg.id && e.block_key === 'lead')) continue;
+    // 정해지기까지는 items가 아니라 steps에 — 바뀌기 전 줄이 다붓이·AI 맥락의 위키 줄(items)로 읽히지 않게(wikiCore.scoreWikiItems는 items만 본다)
+    if (b.type === 'decisions') {
+      if (items.length >= 2) blocks.push({ ...rest, items: [], steps: items.map(it => ({ key: it.key, text: it.text, cites: it.cites, date: it.meta?.date || '', state: it.meta?.state || '' })) });
+      continue;
+    }
     blocks.push({ ...rest, items });
   }
   return { blocks, dropped };
