@@ -1,5 +1,5 @@
 import { loadWiki } from './wiki.js';
-import { WIKI_GROUPS, FAQ_ID, overlayEdits, overlayTitles, stripBold, termsOf, termWeights, mdLabel } from './wikiCore.js';
+import { WIKI_GROUPS, FAQ_ID, overlayEdits, overlayTitles, stripBold, termsOf, termWeights, mdLabel, withTeamCards } from './wikiCore.js';
 
 // ============================================================================
 // 위키 → 다른 AI 기능의 맥락 (17차 · 사용자 결정 2026-10-04)
@@ -55,11 +55,11 @@ export function wikiRows(pages = [], edits = [], { exclude = [] } = {}) {
   // 사람이 고치거나 지운 글의 옛 모습 — 다른 장에 같은 글이 그대로 남아 있으면 그 줄도 싣지 않는다
   // (팀 장의 소개 줄은 함께 쓰는 글 초안을 베낀 것이라, 마스터가 '더다붓 소개 › 팀'을 고쳐도 옛 글이 같이 실렸다 · 실데이터 2026-10-04)
   const stale = new Set((edits || []).map(e => flat(e.before)).filter(Boolean));
-  for (const raw of [...(pages || [])].sort(pageOrder)) {
-    if (SKIP_PAGES.has(raw.id)) continue;
-    const pe = by.get(raw.id) || [];
-    const p = overlayTitles(raw, pe);
-    for (const b of overlayEdits(p.blocks, pe)) {
+  // 팀 장 소개 줄은 더다붓 소개 › 팀 카드의 지금 글(wikiCore.withTeamCards)
+  const now = withTeamCards([...(pages || [])].sort(pageOrder).map(raw => { const pe = by.get(raw.id) || []; const o = overlayTitles(raw, pe); return { ...o, blocks: overlayEdits(o.blocks, pe) }; }));
+  for (const p of now) {
+    if (SKIP_PAGES.has(p.id)) continue;
+    for (const b of p.blocks) {
       if (!TEXT_TYPES.has(b.type) || skipBlock.has(b.key)) continue;
       for (const it of b.items || []) {
         const text = flat(it.text);

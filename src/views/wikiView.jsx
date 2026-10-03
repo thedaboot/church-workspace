@@ -4,7 +4,7 @@ import { useCached } from '../services/cache.js';
 import { loadWiki, saveWikiEdits, seenMap, markSeen } from '../services/wiki.js';
 import {
   WIKI_GROUPS, EDITABLE_TYPES, ADDABLE_TYPES, overlayEdits, overlayTitles, editStats, editRows, sourceLabel, mdLabel, kstDate,
-  FAQ_SOURCE, FAQ_ID, TITLE_KEY, headKey, visiblePages, boldParts, toggleBold,
+  FAQ_SOURCE, FAQ_ID, TITLE_KEY, headKey, visiblePages, boldParts, toggleBold, withTeamCards,
 } from '../services/wikiCore.js';
 import { useAuth } from '../services/auth.jsx';
 import { entryParam, takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
@@ -80,7 +80,8 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
     if (!data) return [];
     const by = new Map();
     for (const e of data.edits || []) { if (!by.has(e.page_id)) by.set(e.page_id, []); by.get(e.page_id).push(e); }
-    return visiblePages(data.pages || [], isMaster).map(p => { const pe = by.get(p.id) || []; const o = overlayTitles(p, pe); return { ...o, blocks: overlayEdits(o.blocks, pe), edits: pe }; })
+    // 팀 장 맨 위 소개 줄은 더다붓 소개 › 팀 카드의 지금 글(wikiCore.withTeamCards · 사용자 결정 2026-10-04)
+    return withTeamCards(visiblePages(data.pages || [], isMaster).map(p => { const pe = by.get(p.id) || []; const o = overlayTitles(p, pe); return { ...o, blocks: overlayEdits(o.blocks, pe), edits: pe }; }))
       .sort((a, b) => WIKI_GROUPS.indexOf(a.grp) - WIKI_GROUPS.indexOf(b.grp) || a.position - b.position || a.title.localeCompare(b.title));
   }, [data, isMaster]);
   const page = pages.find(p => p.id === sel) || null;
@@ -494,6 +495,7 @@ function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added
         <h3 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[14.5px] font-bold tracking-[-0.2px] text-fg mt-5 mb-2">
           <span className="min-w-0 flex-1">{titleNode}</span>
           {b.meta?.when && <span className="wiki-when text-[11.5px] font-medium text-fg-muted tabular-nums">{b.meta.when}</span>}
+          {b.meta?.note && <span className="wiki-note text-[11.5px] font-medium text-fg-muted">{b.meta.note}</span>}
           {STATUS_TAG.has(status) && <Tag>{status}</Tag>}
         </h3>
         {visible.length ? (
@@ -503,6 +505,11 @@ function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added
         ) : <Cites cites={b.cites} onOpen={onOpenCite} className="" />}
       </section>
     );
+  }
+
+  // 묶음 머리(행사 장의 '준비' — 그 아래 블록은 행사 전에 한 준비 업무 · 사용자 결정 2026-10-04)
+  if (b.type === 'head') {
+    return <h3 className="wiki-group dc-row text-[12px] font-bold text-fg-muted mt-7 mb-0 pt-3 border-t border-line/70" style={anim}>{titleNode}</h3>;
   }
 
   if (b.type === 'chips') {
@@ -515,6 +522,7 @@ function Block({ b, i, page, editing, isMaster = false, drafts, setDrafts, added
               {it.meta?.date && <span className="tabular-nums w-[4.6em] shrink-0">{mdLabel(it.meta.date)}</span>}
               <Cites cites={it.cites} onOpen={onOpenCite} className="" />
               {it.meta?.teams?.length > 0 && <span className="text-[11px]">{it.meta.teams.join(' · ')}</span>}
+              {it.meta?.note && <span className="wiki-note text-[11px]">{it.meta.note}</span>}
             </li>
           ))}
         </ul>

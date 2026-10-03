@@ -48,8 +48,16 @@ const FIX = { pages: [
     { key: 'c:c8', type: 'section', title: '8월 월례회', meta: { status: '완료', cardId: 'c8', when: '업무 날짜 8월 23일' }, cites: [card('c8', '8월 월례회')], items: [
       it('c:c8:a.0', '수련회를 돌아봤어요.', { cites: [card('c8', '8월 월례회')] }), it('c:c8:b.0', '하반기 일정을 맞춰 봤어요.', { cites: [card('c8', '8월 월례회')] })] },
     { key: 'c:c9', type: 'section', title: '9월 월례회 · 9월 13일', meta: { status: '진행 중', cardId: 'c9' }, cites: [card('c9', '9월 월례회')], items: [] },
-    { key: 'together', type: 'chips', title: '다붓했던 일', items: [it('t:c1', '찬양 콘티 결정', { by: 'code', cites: [card('c1', '찬양 콘티 결정')], meta: { date: '2026-07-12', teams: ['워십팀'] } })] },
+    // 행사 장: 행사 기록 뒤에 '준비' 묶음 머리 · 준비 업무 · 순장은 팀이 아니라 보는 사람 표시(2026-10-04)
+    { key: 'prep', type: 'head', title: '준비', items: [] },
+    { key: 'c:c11', type: 'section', title: '월례회 포스터 제작', meta: { status: '완료', cardId: 'c11', when: '업무 날짜 8월 1일', prep: true, note: '순장도 함께 봐요' }, cites: [card('c11', '월례회 포스터 제작')], items: [
+      it('c:c11:a.0', '월례회를 앞두고 포스터를 만들었어요.', { cites: [card('c11', '월례회 포스터 제작')] })] },
+    { key: 'together', type: 'chips', title: '다른 팀과 했던 일', items: [it('t:c1', '찬양 콘티 결정', { by: 'code', cites: [card('c1', '찬양 콘티 결정')], meta: { date: '2026-07-12', teams: ['워십팀'], note: '순장도 함께 봐요' } })] },
     { key: 'gap', type: 'gap', title: '기록 전', items: [it('g:c10', '10월 월례회', { by: 'code', cites: [card('c10', '10월 월례회')] })] },
+  ] },
+  // 팀 장 — 맨 위 소개 줄은 옛 글로 저장돼 있어도 더다붓 소개 › 팀 카드의 지금 글로 선다(wikiCore.withTeamCards)
+  { id: 'team:찬양팀', grp: '팀', title: '찬양팀', kind: 'auto', position: 0, source: '업무', source_count: 1, built_at: '2026-10-03T00:00:00Z', blocks: [
+    { key: 'about', type: 'plain', items: [it('about1', '옛 소개 글이에요.', { by: 'code', cites: [{ t: 'page', id: 'intro', label: '더다붓 소개' }] })] },
   ] },
   { id: 'sermon', grp: '예배', title: '2026 설교 본문', kind: 'auto', position: 0, source: '주보', source_count: 1, built_at: '2026-10-03T00:00:00Z', blocks: [
     { key: 's:s1', type: 'sermon', meta: { date: '2026-09-20', label: '', title: '당신은 기름을 들고 있습니다', passage: '사사기 9:7-15', points: ['사명을 지키는 나무들', '본분', '가시나무의 협박'] },
@@ -67,6 +75,8 @@ const FIX = { pages: [
   ] },
 ], edits: [
   { page_id: 'intro', item_key: 'hero1', block_key: 'hero', text: '**첫 줄**이에요.\n둘째 줄이에요.', before: '다붓하다는 뜻이에요.', edited_by: null, edited_at: '2026-10-03T01:00:00Z' },
+  { page_id: 'intro', item_key: 'team1', block_key: 'teams', text: '싱어와 연주자가 함께해요.\n콘티와 송폼으로 찬양해요.', before: '콘티와 송폼을 만들어요.', edited_by: null, edited_at: '2026-10-03T02:00:00Z' },
+  { page_id: 'team:찬양팀', item_key: 'u:a1', block_key: 'about', text: '찬양팀 이름은 따로 있어요.', before: '', edited_by: null, edited_at: '2026-10-03T02:00:00Z' },
   { page_id: 'p:wol', item_key: 'c:c8:b.0', block_key: 'c:c8', text: '하반기 일정과 임원 선출 준비를 이야기했어요.', before: '하반기 일정을 맞춰 봤어요.', edited_by: null, edited_at: '2026-10-02T03:00:00Z' },
 ] };
 const ANSWER = { id: 'q-test', status: 'answered', sentences: [{ text: '월례회는 둘째 주 순모임 뒤에 해요.', cites: [{ t: 'page', id: 'intro', label: '더다붓 소개' }] }], files: [] };
@@ -119,11 +129,18 @@ try {
   await click('.wiki-item', '월례회');
   check('장: 출처 표시 · 기록 수 · 수정한 곳', await until(`!!document.querySelector('.wiki-page[data-page="p:wol"]')`)
     && await ev(`(()=>{const t=document.querySelector('.wiki-page').textContent;return t.includes('업무에서 자동으로 수집')&&t.includes('업무 5건')&&t.includes('수정한 곳 1')})()`));
-  const wol = await ev(`(()=>{const p=document.querySelector('.wiki-page');return {fixed:p.querySelectorAll('.wiki-fixed').length, fixedText:p.querySelector('.wiki-fixed')?.textContent||'', gap:p.textContent.includes('기록 전'), chips:p.querySelectorAll('.wiki-cite').length, status:p.textContent.includes('진행 중'), together:p.textContent.includes('다붓했던 일'), emptySectionChip:[...p.querySelectorAll('h3')].some(h=>h.textContent.includes('9월 월례회')), who:p.querySelectorAll('.wiki-who').length}})()`);
+  const wol = await ev(`(()=>{const p=document.querySelector('.wiki-page');return {fixed:p.querySelectorAll('.wiki-fixed').length, fixedText:p.querySelector('.wiki-fixed')?.textContent||'', gap:p.textContent.includes('기록 전'), chips:p.querySelectorAll('.wiki-cite').length, status:p.textContent.includes('진행 중'), together:p.textContent.includes('다른 팀과 했던 일'), emptySectionChip:[...p.querySelectorAll('h3')].some(h=>h.textContent.includes('9월 월례회')), who:p.querySelectorAll('.wiki-who').length}})()`);
   // 고친 사람(사진 · 'OOO · 날짜 수정')은 어디에도 없다 — 장 머리에서도 걷었다(사용자 결정 2026-10-04)
   check('고친 줄은 고친 글(다시 모은 글을 덮지 않는다) · 고친 사람 표시는 어디에도 없다', wol.fixed === 1 && wol.fixedText.includes('임원 선출 준비') && !wol.fixedText.includes('수정') && wol.who === 0 && !/· \d+월 \d+일 수정/.test(await ev(`document.querySelector('.wiki-page').textContent`)), JSON.stringify(wol));
   check('업무 날짜는 제목이 아니라 옆에 \'업무 날짜\'로', await ev(`(()=>{const h=[...document.querySelectorAll('.wiki-page h3')].find(x=>x.textContent.includes('8월 월례회'));return !!h&&h.querySelector('.wiki-when')?.textContent==='업무 날짜 8월 23일'})()`));
-  check('근거 칩 · 기록 전 · 다붓했던 일 · 상태 칩', wol.chips >= 4 && wol.gap && wol.together && wol.status && wol.emptySectionChip, JSON.stringify(wol));
+  check('근거 칩 · 기록 전 · 다른 팀과 했던 일 · 상태 칩', wol.chips >= 4 && wol.gap && wol.together && wol.status && wol.emptySectionChip, JSON.stringify(wol));
+  // '준비' 묶음 머리는 행사 기록 뒤 · 준비 업무 앞 · 보는 사람 표시는 블록 머리와 칩 줄에 작은 글로(2026-10-04)
+  const prep = await ev(`(()=>{const p=document.querySelector('.wiki-page');const g=p.querySelector('.wiki-group');const hs=[...p.querySelectorAll('h3')].map(h=>h.textContent);const gi=hs.findIndex(t=>t==='준비');
+    return {g:g?.textContent||'', order:gi>hs.findIndex(t=>t.includes('8월 월례회'))&&gi<hs.findIndex(t=>t.includes('월례회 포스터 제작')), notes:p.querySelectorAll('.wiki-note').length, old:p.textContent.includes('다붓했던 일')}})()`);
+  check("행사 장: '준비' 머리 · 순장은 보는 사람 표시 · 옛 이름 '다붓했던 일' 없음", prep.g === '준비' && prep.order && prep.notes === 2 && !prep.old, JSON.stringify(prep));
+  await click('.wiki-item', '찬양팀');
+  const about = await ev(`(async()=>{for(let i=0;i<40&&!document.querySelector('.wiki-page[data-page="team:찬양팀"]');i++)await new Promise(r=>setTimeout(r,50));const lis=[...document.querySelectorAll('.wiki-page li')].map(l=>l.textContent);return lis})()`);
+  check('팀 장 소개 줄 = 더다붓 소개 팀 카드의 지금 글(한 줄로) · 팀 장에 더한 줄은 그 아래', about[0]?.startsWith('싱어와 연주자가 함께해요. 콘티와 송폼으로 찬양해요.') && !about.some(t => t.includes('옛 소개 글')) && about[1]?.includes('찬양팀 이름은 따로 있어요.'), JSON.stringify(about));
   await click('.wiki-item', '설교 본문');
   check('설교 카드: 날짜 → 제목 → 본문 → 요약 → 가이드 세 마디', await until(`!!document.querySelector('.wiki-sermon')`)
     && await ev(`(()=>{const c=document.querySelector('.wiki-sermon');return c.textContent.includes('당신은 기름을 들고 있습니다')&&c.textContent.includes('사사기 9:7-15')&&c.querySelectorAll('ol li').length===3})()`));

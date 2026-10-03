@@ -205,6 +205,20 @@ export function overlayEdits(blocks, all = []) {
   return out;
 }
 
+// 팀 장 맨 위 소개 줄(about1)은 **더다붓 소개 › 팀 카드의 지금 글**이다(사용자 결정 2026-10-04) — 장을 다시 모으기 전에도
+// 카드를 고치면 바로 따라간다. pages는 고친 줄을 이미 겹친 모습. 팀 장에서 그 줄을 따로 고쳤으면(edit) 그 글이 이긴다.
+// 카드의 줄바꿈은 좁은 카드용이라 팀 장에서는 한 줄로 편다. 팀 장에 마스터가 더한 줄(u:…)은 그 아래 그대로.
+export const teamCardText = (t) => String(t || '').replace(/\s*\n\s*/g, ' ').trim();
+export function withTeamCards(pages) {
+  const intro = (pages || []).find(p => p.id === 'intro');
+  const card = new Map((((intro?.blocks || []).find(b => b.key === 'teams') || {}).items || []).map(it => [it.meta?.team, teamCardText(it.text)]));
+  return (pages || []).map(p => {
+    const text = String(p.id).startsWith('team:') ? card.get(p.id.slice(5)) : '';
+    if (!text) return p;
+    return { ...p, blocks: (p.blocks || []).map(b => (b.key !== 'about' ? b : { ...b, items: (b.items || []).map(it => (it.key === 'about1' && !it.edit ? { ...it, text } : it)) })) };
+  });
+}
+
 // 그 장에서 사람이 고친 곳 수 · 마지막으로 고친 사람과 때
 export function editStats(blocks) {
   let n = 0; let last = null;
@@ -407,6 +421,50 @@ export function styleIssues(t) {
   if (/없어요[.!?]?$/.test(s)) out.push('없어요 끝');
   if (/\[(?:E|S)\d+\]|\[(?:업무|주보|파일|가이드|기준):/.test(s)) out.push('근거 표시');
   return out;
+}
+
+// ── 위키 장 문장 거르기(사용자 결정 2026-10-04) ─────────────────────────────────
+// 사고·잘못·징계 — 누구 탓인지 없이 부드럽게 옮기라고 했는데도 이 말이 남은 문장은 버린다(모두가 읽는 위키 · 한 사람의 사정).
+// 금액도 위키 장에는 쓰지 않는다(다붓이는 공개 근거에 글자 그대로일 때만 — keepCited).
+const SENSITIVE = /과실|합의금|배상|벌금|징계|사과문|경위서|(?<![가-힣])사고(?!\s?(?:예방|방지|대비))|\d[\d,]*\s?(?:만\s?|천\s?)?원|₩/;
+export const sensitiveIssue = (t) => (SENSITIVE.test(String(t || '')) ? '사고·잘못·금액' : '');
+
+// 내용 없는 문장 — '워크샵의 목적이 있어요.' · '장소가 있어요.' · '댓글로 내용을 확인했어요.'(실데이터 2026-10-04).
+// 조사를 떼고 소제목 낱말(목적·장소·일시…) · 빈 동사 · 장/블록 제목에 있는 낱말을 걷으면 남는 게 없는 문장.
+const HEAD_WORDS = new Set(['목적', '장소', '일시', '날짜', '내용', '개요', '일정', '시간', '주제', '대상', '준비물', '안건', '역할', '사항', '계획', '댓글', '의견', '자세한', '관련']);
+const EMPTY_VERBS = /^(?:있어요|있어|적혀|확인했어요|확인해요|확인할|확인해야|예정이에요|해요|했어요|이에요|예요|있었어요|나눴어요|논의했어요|논의해요|정리했어요|정리해요)$/;
+const JOSA_TAIL = /(?:에서|으로|이에요|예요|의|이|가|은|는|을|를|과|와|로|에|도|만)$/;
+export function emptyClaim(sentence, titles = []) {
+  const known = new Set(titles.flatMap(t => String(t || '').split(/[\s·,()<>]+/)).filter(Boolean));
+  const words = String(sentence || '').replace(/[.!?]+$/, '').split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const rest = words.map(w => w.replace(JOSA_TAIL, '')).filter(w => w && !HEAD_WORDS.has(w) && !EMPTY_VERBS.test(w) && !known.has(w)
+    && ![...known].some(k => k.length >= 2 && (w === k || w.replace(JOSA_TAIL, '') === k)));
+  return rest.length === 0;
+}
+
+// 근거 글에 없는 날짜 — 문장의 'M월 D일'이 근거 글(8월 2일 · 8/2 · 2026-08-02 · 08.02)에 없으면 그 날짜들.
+// 조각에 단 [기록 날짜]를 행사 날짜로 옮긴 적이 있다('8월 2일에 동수교회 청소년부 수련회 집회' — 업무를 고친 날이었다 · 2026-10-04).
+const dateKeys = (text) => {
+  const out = new Set();
+  const t = String(text || '');
+  for (const m of t.matchAll(/(\d{1,2})\s?월\s?(\d{1,2})\s?일/g)) out.add(`${+m[1]}-${+m[2]}`);
+  for (const m of t.matchAll(/(?<![\d.:])(\d{1,2})[/.](\d{1,2})(?![\d:])/g)) out.add(`${+m[1]}-${+m[2]}`);
+  for (const m of t.matchAll(/\d{4}-(\d{2})-(\d{2})/g)) out.add(`${+m[1]}-${+m[2]}`);
+  return out;
+};
+export function strangeDates(text, evidenceText) {
+  const have = dateKeys(evidenceText);
+  return [...String(text || '').matchAll(/(\d{1,2})\s?월\s?(\d{1,2})\s?일/g)].filter(m => !have.has(`${+m[1]}-${+m[2]}`)).map(m => m[0]);
+}
+
+// 같은 말인가 —띄어쓰기·문장부호를 걷어 같거나, 내용 낱말이 서로 80% 넘게 겹치면(장 소개와 첫 블록 문장이 같았다 · 2026-10-04)
+const flatText = (t) => String(t || '').replace(/\*\*/g, '').replace(/[\s.,!?'"·()]+/g, '');
+export function nearSame(a, b) {
+  const x = flatText(a); const y = flatText(b);
+  if (!x || !y) return false;
+  if (x === y || (Math.min(x.length, y.length) >= 12 && (x.includes(y) || y.includes(x)))) return true;
+  return tokenCoverage(a, b) >= 0.8 && tokenCoverage(b, a) >= 0.8;
 }
 
 // 모델 답의 JSON — ```json 울타리·앞뒤 말을 걷고 첫 배열/객체를 읽는다. 못 읽으면 null.

@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import {
   prefilter, termsOf, normQ, scoreWikiItems, termWeights, groundedIn, tokenCoverage, overlayEdits, overlayTitles, keepCited, notFoundCites, parseModelJson,
-  styleIssues, mdLabel, kstDate, NOT_FOUND, stripBold, talkKind, isPeopleQuestion, josa, hasJong, SEED_PAGES,
+  styleIssues, mdLabel, kstDate, NOT_FOUND, stripBold, talkKind, isPeopleQuestion, josa, hasJong, SEED_PAGES, withTeamCards,
 } from '../src/services/wikiCore.js';
 import { gen, findProblems, SCHEMA, nameMatcher, projectTitle, WIKI_MODEL, TEAM_ORDER } from './_wikiBuild.js';
 import { splitRoleNote, callName, PASTOR_TITLE } from '../src/services/aiPeople.js';
@@ -230,7 +230,7 @@ export async function collectEvidence(q, { db, key, today }) {
   // 위키 장(사람이 고친 문장을 겹친 지금 모습)
   const editsBy = new Map();
   for (const e of edits) { if (!editsBy.has(e.page_id)) editsBy.set(e.page_id, []); editsBy.get(e.page_id).push(e); }
-  const now = pages.map(p => { const pe = editsBy.get(p.id) || []; const o = overlayTitles(p, pe); return { ...o, blocks: overlayEdits(o.blocks, pe) }; });
+  const now = withTeamCards(pages.map(p => { const pe = editsBy.get(p.id) || []; const o = overlayTitles(p, pe); return { ...o, blocks: overlayEdits(o.blocks, pe) }; }));
   const hits = scoreWikiItems(now, terms);
   const top = hits[0]?.score || 0;
   // 낱말이 절반 넘게 맞는 줄만 — '9월'·'20일' 하나만 걸린 줄이 근거를 덮어 검사가 흔들렸다(2026-10-03)

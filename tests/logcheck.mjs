@@ -5902,3 +5902,136 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(dab.includes(".slice(-6).map(m => m.q.replace(/\\s*\\n\\s*/g, ' ')).join('\\n')"), '앞 질문들을 줄바꿈으로 보낸다');
   console.log('PASS  위키 · 다붓이 4(이름 · 다붓이 자신 · 인사 · 알려 주는 말 · 모를 때 · 물어볼 사람 · 거르는 이유 · 금액 · 업무 먼저 · 마스터 알림)');
 }
+
+// ── 위키 · 다붓이 5 (2026-10-04 사용자 결정) — 준비 업무 ≠ 행사 · 늦은 기록이 이김 · 팀 소개는 소개 카드 · 사고는 부드럽게 ·
+//    빈 문장 · 질문 목록 · 다른 팀과 했던 일(끝난 것만) · 기록 전 접기 · 순장은 팀이 아니다 · 리더십 회의는 회의만 · 되풀이 걷기 ──
+{
+  const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
+  const B = await import(new URL('../api/_wikiBuild.js', import.meta.url).href);
+  // 빈 문장 — 소제목 낱말·장/블록 제목만 남는 문장은 버린다
+  const t1 = ['리더십 워크샵', '워크샵 기획'];
+  for (const s of ['워크샵의 목적이 있어요.', '워크샵 장소가 있어요.', '댓글로 내용을 확인했어요.', '리더십 워크샵의 목적과 장소를 확인해요.']) {
+    assert.ok(W.emptyClaim(s, t1) && B.wikiSentenceIssues(s, { titles: t1 }).includes('내용 없는 문장'), `빈 문장: ${s}`);
+  }
+  for (const s of ['총 39명이 참석했어요.', '개요 작성하기, 임원들의 의견 묻기를 할 예정이에요.', '워크샵은 9월 6일에 해요.']) assert.ok(!W.emptyClaim(s, t1), `내용 있는 문장: ${s}`);
+  // 사고·잘못·금액 — 남아 있으면 버린다(부드럽게 옮긴 문장은 지난다)
+  assert.ok(W.sensitiveIssue('렌트카 운영 중 운전자 단독 과실로 합의금을 지출했어요.') && W.sensitiveIssue('예산은 총 100만원이에요.') && W.sensitiveIssue('차량 사고가 있었어요.'));
+  assert.ok(!W.sensitiveIssue('렌트카와 관련해 예상하지 못한 지출이 있었어요.') && !W.sensitiveIssue('구급함과 부상자 이송 대책을 맡아요.') && !W.sensitiveIssue('사고 예방 교육을 해요.'));
+  // 준비 업무 블록에 행사 이름 + 날짜 → 버린다(포스터 업무 날짜가 수련회 날짜로 읽혔다)
+  assert.ok(B.wikiSentenceIssues('수련회 일정은 2026년 8월 2일부터 8월 3일까지예요.', { prep: true, pageTitle: '하계 수련회' }).includes('준비 업무에 행사 날짜'));
+  assert.ok(!B.wikiSentenceIssues('수련회 일정은 2026년 8월 2일부터 8월 3일까지예요.', { prep: false, pageTitle: '하계 수련회' }).includes('준비 업무에 행사 날짜'), '행사 기록 블록은 날짜를 말해도 된다');
+  assert.ok(!B.wikiSentenceIssues('10월 3일 연습 일정을 확인해요.', { prep: true, pageTitle: '예배 2.0' }).length, '행사 이름이 없으면 준비 업무 제 날짜');
+  // 틀의 빈칸 · 소제목 낱말만 있는 줄
+  assert.strictEqual(B.fillIn('장소: (실내 체육관 / 야외 운동장 등 대관 장소)'), '');
+  assert.strictEqual(B.fillIn('행사명: (예: 2026 청년부 한마음 체육대회)'), '');
+  assert.strictEqual(B.fillIn('총 예산: ₩___________'), '');
+  assert.strictEqual(B.fillIn('일시: 2026년 10월 31일 (토) 00:00 ~ 00:00'), '일시: 2026년 10월 31일 (토)');
+  assert.strictEqual(B.fillIn('참석 대상: 청년부 지체 및 새신자 총 ___명'), '참석 대상: 청년부 지체 및 새신자');
+  assert.deepStrictEqual(B.snippetsOf('1. 목적\n2. 장소\n- **장소:** (실내 / 야외)\n- 일시: 10월 31일(토)').map(s => s.text), ['일시: 10월 31일(토)']);
+  // 검사 모델의 헛짚음 — 문장에 없는 짧은 조각은 이유가 아니다
+  assert.ok(B.phantomExtra('2026년', '10월 31일 토요일 14:00~18:00에 한강공원에서 열어요.') && !B.phantomExtra('진행해요', '15:30부터 진행해요.') && !B.phantomExtra('리더십 회의에서 다뤘다는 근거가 없음', '아무 문장'));
+  // 기록 전 접기 — 같은 괄호 꼴 셋 이상은 한 줄, 달이 다른 월례회는 그대로
+  const g = (k, t) => ({ key: `g:${k}`, text: t, by: 'code', cites: [{ t: 'card', id: k, label: t }] });
+  const folded = B.foldGap([g('a', '준원조(필름카메라)'), g('b', '결산안'), g('c', '진혁조(필름카메라)'), g('d', '하랑조(필름카메라)')]);
+  assert.deepStrictEqual(folded.map(i => i.text), ['조별 필름카메라 3건', '결산안']);
+  assert.strictEqual(folded[0].cites.length, 3);
+  assert.deepStrictEqual(B.foldGap([g('a', '10월 월례회'), g('b', '11월 월례회'), g('c', '12월 월례회')]).map(i => i.text), ['10월 월례회', '11월 월례회', '12월 월례회']);
+  // 되풀이 — 장 소개가 첫 블록 문장과 같으면 소개를 버린다 · 사람이 고친 줄의 처음 글도
+  const x = (b, key, text) => ({ b, item: { key, text } });
+  const rep = B.dropRepeats([x('lead', 'l1', '9월 27일에는 추석 맞이 행사가 있어요.'), x('c:1', 'a', '9월 27일에는 추석 맞이 행사가 있어요.'), x('c:2', 'b', '9월 27일에는  추석 맞이 행사가 있어요'), x('c:2', 'c', '렌트카 운영 중 합의금이 있었어요.')],
+    [{ page_id: 'p', item_key: 'zz', before: '렌트카 운영 중 합의금이 있었어요.', text: '렌트카와 관련해 지출이 있었어요.' }]);
+  assert.deepStrictEqual(rep.keep.map(k => k.item.key), ['a']);
+  // 장 소개가 아래 문장을 줄여 옮긴 것도 되풀이(내용 낱말 60% 이상이 한 문장에)
+  assert.deepStrictEqual(B.dropRepeats([x('lead', 'l', '2026년 8월 15일부터 17일까지 2박 3일 동안 제주 생명나무숲 펜션에서 하계 수련회를 열었어요.'),
+    x('c:1', 'a', "2026년 8월 15일부터 17일까지 제주 생명나무숲 펜션에서 '제주순례'라는 주제로 수련회를 열었어요.")]).keep.map(k => k.item.key), ['a']);
+  assert.strictEqual(B.dropRepeats([x('lead', 'l', '동수감리교회 드림어스와 연합해 10월 31일 14:00~18:00에 열려요.'), x('c:1', 'a', '2026년 10월 31일 토요일에 청년부 지체와 새신자가 참여해요.')]).keep.length, 2, '다른 말은 남긴다');
+  // 빈 장 소개 — 마스터가 소개에 더한 줄이 있으면 자리로 남긴다(모델을 부르지 않는 장)
+  const emptyLead = { id: 'p:x', grp: '행사', title: 'x', blocks: [{ key: 'lead', type: 'plain', items: [] }, { key: 'c:1', type: 'section', title: 'a', items: [] }] };
+  assert.deepStrictEqual((await B.fillPage(emptyLead, { edits: [] })).blocks.map(b => b.key), ['c:1']);
+  assert.deepStrictEqual((await B.fillPage(emptyLead, { edits: [{ page_id: 'p:x', item_key: 'u:1', block_key: 'lead', text: '사람 줄' }] })).blocks.map(b => b.key), ['lead', 'c:1']);
+  assert.ok(W.nearSame('신앙의 기초를 세워갈 양육 프로그램에 여러분을 초대해요.', '신앙의 기초를 세워갈 양육 프로그램에 여러분을 초대해요') && !W.nearSame('월례회는 둘째 주에 해요.', '수련회는 8월에 가요.'));
+
+  // 장 뼈대(실데이터 꼴의 작은 묶음)
+  const P = (id, name) => ({ id, name, year: 2026, archived: false, position: 0 });
+  const C = (id, pid, title, o = {}) => ({ id, project_id: pid, title, description: '', status: 'done', start_date: null, due_date: null, subtasks: [], updated_at: '2026-09-20T00:00:00Z', teams: [], ...o });
+  const D = { today: '2026-10-04', comments: [], files: [], services: [], guides: [], qt: [], groups: [], meetings: [], names: [], edits: [
+    { page_id: 'intro', item_key: 'team4', block_key: 'teams', text: '카운트다운 영상과 포스터를 만들고,\n주보를 제작하는 팀이에요.', before: '카운트다운 영상과 포스터를 만들어요.' },
+  ], projects: [P('P1', '2026 하계 수련회'), P('P2', '더다붓 임원진 회의'), P('P3', '다붓캐스트'), P('P4', '2026 가을 체육대회'), P('P5', '2026 월례회')], cards: [
+    C('c1', 'P1', '수련회 포스터 제작', { description: '- 수련회 홍보 포스터를 만들어요.', start_date: '2026-08-02', due_date: '2026-08-03', teams: ['미디어팀'] }),
+    C('c2', 'P1', '수련회 결산', { description: '- 일시: 8월 15일~17일\n- 참석 인원: 총 39명', start_date: '2026-08-30', due_date: '2026-09-06', teams: ['교역자'], updated_at: '2026-09-25T00:00:00Z' }),
+    C('c4', 'P1', '찬조 감사 편지', { description: '- 찬조해 주신 분 명단이에요.', updated_at: '2026-09-01T00:00:00Z', teams: ['임원진'] }),
+    C('c3', 'P1', '별빛데이트', { description: '1. 웃게 만든 일은?\n2. 좋아하는 시간대는?\n3. 해소법이 있나요?\n4. 인상 깊은 영화는?\n5. 버킷리스트는?', start_date: '2026-08-16', teams: ['교역자'] }),
+    ...['준원조', '진혁조', '하랑조'].map((n, i) => C(`f${i}`, 'P1', `${n}(필름카메라)`, { teams: ['미디어팀'] })),
+    C('m1', 'P2', '9월 27일 리더십 회의', { description: '### 가을 체육대회\n- 장소: 한강공원\n- 시간 : 14:00~18:00\n### 기타\n- 설거지 봉사는 주일이에요.', start_date: '2026-09-27', teams: ['교역자', '임원진'] }),
+    C('m2', 'P2', '260830 리더쉽회의', { description: '### 가을 체육대회\n- 진행 방식: 연합\n### 기타\n- 설거지 봉사는 주일이에요.', start_date: '2026-08-30', teams: ['교역자', '임원진'] }),
+    C('m3', 'P2', '헌금봉헌', { description: '- 10월 순서예요.', status: 'ongoing', teams: ['교역자', '임원진'] }),
+    C('m4', 'P2', '팟캐스트 브레인스토밍', { description: '- 대본이 필요해요.', status: 'ongoing', teams: ['교역자', '임원진'] }),
+    C('k1', 'P3', '1회차<학업>', { description: '- 학업을 이야기해요.', start_date: '2026-09-12', teams: ['미디어팀'] }),
+    C('e1', 'P4', '가을 체육대회 개요', { description: '- 장소: (실내 체육관 / 야외 운동장)', status: 'todo', due_date: '2026-10-25', teams: ['임원진'] }),
+    C('w1', 'P5', '9월 월례회', { description: '- 대림절 주제는 터널이에요.', start_date: '2026-09-13', teams: ['교역자', '미디어팀', '순장'] }),
+    C('w2', 'P5', '11월 월례회', { status: 'todo', start_date: '2026-11-08', due_date: '2026-11-08', teams: ['교역자', '미디어팀'] }),
+    C('w3', 'P5', '10월 1일 큐시트 연습', { description: '- 연습해요.', status: 'todo', start_date: '2026-10-01', due_date: '2026-10-01', teams: ['미디어팀', '엔지니어팀'] }),
+  ] };
+  const pages = B.skeletons(D);
+  const pg = (id) => pages.find(p => p.id === id);
+  const camp = pages.find(p => p.title === '하계 수련회');
+  // 행사 기록(결산)이 맨 앞 · '준비' 머리 · 준비 업무는 그 아래(meta.prep)
+  const keys = camp.blocks.map(b => b.key);
+  assert.ok(keys.indexOf('c:c2') < keys.indexOf('prep') && keys.indexOf('prep') < keys.indexOf('c:c1') && camp.blocks.find(b => b.key === 'prep').type === 'head', keys.join(' '));
+  assert.ok(camp.blocks.find(b => b.key === 'c:c1').meta.prep && !camp.blocks.find(b => b.key === 'c:c2').meta.prep);
+  assert.strictEqual(camp.blocks.find(b => b.type === 'section').key, 'c:c2', '행사 기록(결산)이 맨 앞 — 날짜가 앞선 별빛데이트보다');
+  // 질문 목록 — 문장으로 옮기지 않고 질문 그대로(모델 재료 없음 · 블록 머리에 '나눈 질문 N개')
+  const star = camp.blocks.find(b => b.key === 'c:c3');
+  assert.ok(star.items.length === 5 && star.items.every(i => i.by === 'code' && i.text.endsWith('?')) && !star.snips && star.meta.note === '나눈 질문 5개', JSON.stringify(star));
+  // 기록 전 접기
+  assert.deepStrictEqual(camp.blocks.find(b => b.key === 'gap').items.map(i => i.text), ['조별 필름카메라 3건']);
+  // 리더십 회의 장은 회의만 · 팟캐스트는 다붓캐스트 장으로 · 헌금봉헌은 어디에도
+  assert.deepStrictEqual(pg('weekly:leaders').blocks.filter(b => b.type === 'section').map(b => b.title), ['260830 리더쉽회의', '9월 27일 리더십 회의']);
+  assert.ok(pages.find(p => p.title === '다붓캐스트').blocks.some(b => b.title === '팟캐스트 브레인스토밍'));
+  // 회의록마다 되풀이되는 줄은 처음 나온 블록에만
+  const lsec = (id) => pg('weekly:leaders').blocks.find(b => b.key === `c:${id}`);
+  assert.ok(lsec('m2').snips.some(s => s.text.includes('설거지')) && !lsec('m1').snips.some(s => s.text.includes('설거지')), '되풀이 줄은 앞 회의에만');
+  assert.ok(!pages.some(p => p.grp !== '팀' && p.blocks.some(b => b.title === '헌금봉헌')), '헌금봉헌은 맞는 장이 없어 빠진다');
+  // 가을 체육대회 — 다른 프로젝트 회의 기록에서 그 행사를 말한 조각이 장 소개 재료로(날짜 순 · 틀의 빈칸은 빠진다)
+  const sports = pages.find(p => p.title === '가을 체육대회');
+  const lead = sports.blocks.find(b => b.key === 'lead');
+  assert.deepStrictEqual(lead.snips.map(s => `${s.date} ${s.text}`), ['2026-08-30 진행 방식: 연합', '2026-09-27 장소: 한강공원', '2026-09-27 시간 : 14:00~18:00']);
+  assert.strictEqual(B.recordDate(D.cards.find(c => c.id === 'm1')), '2026-09-27', '회의 기록의 날 = 회의 날');
+  assert.strictEqual(B.recordDate(D.cards.find(c => c.id === 'e1')), '2026-09-20', '그 밖의 업무 = 마지막으로 고친 날');
+  // 순장은 팀이 아니다 — 팀 장 없음 · 다른 팀과 했던 일의 팀에 없음 · 보는 사람 표시
+  assert.ok(!pages.some(p => p.id === 'team:순장'));
+  const media = pg('team:미디어팀');
+  const tog = media.blocks.find(b => b.key === 'together');
+  assert.strictEqual(tog.title, '다른 팀과 했던 일');
+  // 끝난 것만 — 완료(9월 월례회) · 날짜가 지난 할 일(10월 1일) / 앞으로 할 11월 월례회는 없다
+  assert.deepStrictEqual(tog.items.map(i => i.text), ['9월 월례회', '10월 1일 큐시트 연습']);
+  assert.ok(!tog.items[0].meta.teams.includes('순장') && tog.items[0].meta.note === '순장도 함께 봐요', JSON.stringify(tog.items[0]));
+  assert.ok(B.finishedTask({ status: 'todo', due_date: '2026-10-03' }, '2026-10-04') && !B.finishedTask({ status: 'todo', due_date: '2026-10-04' }, '2026-10-04') && !B.finishedTask({ status: 'ongoing' }, '2026-10-04'));
+  // 팀 장 소개 줄 = 더다붓 소개 › 팀 카드의 지금 글(한 줄로) — 장을 만들 때도, 화면이 겹쳐 그릴 때도
+  assert.strictEqual(media.blocks[0].items[0].text, '카운트다운 영상과 포스터를 만들고, 주보를 제작하는 팀이에요.');
+  const shown = W.withTeamCards([
+    { id: 'intro', blocks: W.overlayEdits(W.SEED_PAGES[0].blocks, D.edits) },
+    { id: 'team:미디어팀', blocks: [{ key: 'about', type: 'plain', items: [{ key: 'about1', text: '카운트다운 영상과 포스터를 만들어요.' }, { key: 'u:1', text: '마스터가 더한 줄이에요.', edit: {} }] }] },
+  ]);
+  assert.deepStrictEqual(shown[1].blocks[0].items.map(i => i.text), ['카운트다운 영상과 포스터를 만들고, 주보를 제작하는 팀이에요.', '마스터가 더한 줄이에요.']);
+  // 화면 · 다붓이 · AI 맥락이 같은 겹치기를 쓴다 · '준비' 머리 · 옛 이름은 어디에도 없다
+  const view = readFileSync(new URL('../src/views/wikiView.jsx', import.meta.url), 'utf8');
+  const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
+  const ctx = readFileSync(new URL('../src/services/wikiContext.js', import.meta.url), 'utf8');
+  const build = readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8');
+  assert.ok(view.includes('return withTeamCards(visiblePages(') && ask.includes('const now = withTeamCards(') && ctx.includes('const now = withTeamCards('), '팀 소개 겹치기 배선');
+  assert.ok(view.includes("if (b.type === 'head')") && view.includes('{b.meta?.note &&') && view.includes('{it.meta?.note &&'), "화면: '준비' 머리 · 보는 사람 표시");
+  assert.ok(![view, ask, build].some(s => s.includes('다붓했던 일')), "옛 이름 '다붓했던 일'");
+  // 모델 쪽(실호출이라 문구로 본다): 늦은 기록이 이긴다 · 준비 업무는 준비로 · 바뀌기 전 걷기는 장마다 한 번 · 장 소개는 늦은 기록으로 · 걸린 문장은 두 번 걸려야
+  assert.ok(build.includes('**날짜가 가장 늦은 조각**을 따른다') && build.includes("${b.meta?.prep ? ' (준비 업무)' : ''}") && build.includes('준비 블록에서 행사의 날짜·일정을 말하지 마라'), '쓰기 프롬프트: 늦은 기록 · 준비 업무');
+  assert.ok(build.includes("call: `supersede:${pg.id}`") && build.includes("if (!c || !kept.some(x => x.date > c.date && x.b !== c.b)) continue;"), '바뀌기 전 걷기: 장마다 한 번 · 더 늦은 다른 블록이 있을 때만');
+  // 장 소개 재료 — 행사 장은 행사 기록(결산)이 먼저, 그다음 늦은 기록(찬조 명단이 하계 수련회 소개가 된 적이 있다)
+  assert.deepStrictEqual(camp.blocks.find(b => b.key === 'lead').snips.slice(0, 2).map(s => s.cite.id), ['c2', 'c2']);
+  // 근거 글에 없는 날짜 — [기록 날짜]를 행사 날짜로 옮긴 문장은 버린다
+  assert.deepStrictEqual(W.strangeDates('8월 2일에 집회가 있어요.', '연습 일정 19:00 ~ 종료 시까지 집회'), ['8월 2일']);
+  assert.deepStrictEqual(W.strangeDates('10월 31일 토요일 14:00~18:00에 열려요.', '날짜 확정 : 10/31(토) / 시간 : 14:00~18:00'), []);
+  assert.deepStrictEqual(W.strangeDates('8월 15일부터 17일까지 했어요.', '일시: 2026-08-15 ~ 17일'), []);
+  assert.ok(build.includes('...strangeDates(one, idx.filter(x => x.b === blk.key)'), '위키 문장도 날짜는 조각 글에 있는 것만');
+  assert.ok(build.includes('if (!first.get(c.n) || !second.get(c.n)) kept.push(c);'), '검사: 두 번 다 걸려야 버린다');
+  console.log('PASS  위키 · 다붓이 5(준비 업무 · 늦은 기록 · 팀 소개 카드 · 사고 · 빈 문장 · 질문 목록 · 다른 팀과 했던 일 · 기록 전 접기 · 순장 · 리더십 회의 · 되풀이)');
+}
