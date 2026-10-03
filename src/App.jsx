@@ -608,6 +608,8 @@ function WorkspaceShell() {
     apply();
     vv.addEventListener('resize', apply);
     vv.addEventListener('scroll', apply);
+    // 아이폰은 창 옮김(vv scroll) 사이에 문서 스크롤(window scroll)도 따로 보낸다 — 그때도 뿌리 위치를 맞춘다(임시 기록 2026-10-04)
+    window.addEventListener('scroll', apply);
     // 뒤로 갔다 돌아오거나 돌렸을 때 resize가 안 오는 브라우저가 있다 — 옛 값이 남지 않게 다시 잰다
     const reapply = () => { if (!document.hidden) apply(); };
     document.addEventListener('visibilitychange', reapply);
@@ -636,6 +638,7 @@ function WorkspaceShell() {
       document.removeEventListener('focusout', onBlur);
       vv.removeEventListener('resize', apply);
       vv.removeEventListener('scroll', apply);
+      window.removeEventListener('scroll', apply);
       root.style.removeProperty('--app-vh');
       root.style.removeProperty('--vv-top');
     };

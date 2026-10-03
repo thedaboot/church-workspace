@@ -1043,4 +1043,4 @@ reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가
 줄면서 **offsetTop 299**(scrollY·main.scrollTop은 0 — 앱이 아니라 아이폰이 민다) → 92ms 뿌리가 487로 → 108ms offsetTop 0. 초점 순간 한 프레임
 `opacity: 0`은 **안 막았다**. 누르기 전에 뿌리를 미리 줄여도(칸 329px — 이미 키보드 위) **똑같이 299px** 옮겼다 — 칸 때문이 아니라 아이폰이 키보드 때
 보이는 창을 늘 옮긴다. 고친 것: `App.jsx`가 visualViewport `scroll`·`resize` 안에서 뿌리를 `top: offsetTop`(relative)만큼 같이 내린다 — 같은 이벤트라
-눈에는 안 움직인다(transform 금지 · 손가락 확대 중엔 0). 버린 길: touchstart에서 뿌리 줄이기는 칸이 손가락 아래에서 옮겨가 **키보드가 아예 안 떴다**(7aab0a6).
+눈에는 안 움직인다(transform 금지 · 손가락 확대 중엔 0). 그 사이 window `scroll`만 따로 오는 프레임도 있어 그것도 듣는다. 버린 길: touchstart에서 뿌리 줄이기는 칸이 손가락 아래에서 옮겨가 **키보드가 아예 안 떴다**(7aab0a6).

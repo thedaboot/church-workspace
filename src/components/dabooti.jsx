@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { ArrowUp, Lock, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { askDabooti, sendFeedback } from '../services/wiki.js';
 import { imeComposing, coarsePointer } from '../utils.js';
 import { mdLabel } from '../services/wikiCore.js';
-import { useAuth } from '../services/auth.jsx';
 
 // ============================================================================
 // 다붓이 — 입구(상단 알약 · 폰 얼굴)와 물어보기 판 (0088 · 16차 · 목업 v12)
@@ -106,32 +104,6 @@ export function FileCard({ file, onOpen }) {
 // chat/setChat은 부르는 쪽(위키 화면)이 쥔다 — 장을 오가도 대화가 남는다.
 // fill — 판이 차지할 높이(위키 화면이 main의 안쪽 높이를 재서 준다 · CSS 길이). 처음 화면은 그 가운데에 서고,
 // 대화가 시작되면 입력 칸이 그 높이의 바닥(=화면 아래)에 붙는다(사용자 지적 2026-10-03 — 가운데에 떠 있었다).
-// ponytail: 임시 기록 — 아이폰에서 칸을 누르면 페이지가 같이 뜨는 원인을 실기기 값으로 본다(PITFALLS 9-aa-4 · 33-p · 2026-10-04).
-// 마스터에게만 · 원인을 잡으면 걷는다. 값이 바뀐 프레임과 이벤트만 적는다.
-function runKbProbe(done) {
-  const vv = window.visualViewport;
-  const main = document.querySelector('main');
-  const t0 = performance.now();
-  const rows = [];
-  let last = '';
-  const sample = (tag) => {
-    const inp = document.querySelector('.dab-input');
-    const r = [vv ? Math.round(vv.height) : '-', vv ? Math.round(vv.offsetTop) : '-', window.innerHeight, Math.round(window.scrollY),
-      main ? Math.round(main.scrollTop) : '-', main ? Math.round(main.getBoundingClientRect().top) : '-', inp ? Math.round(inp.getBoundingClientRect().top) : '-',
-      getComputedStyle(document.documentElement).getPropertyValue('--app-vh').trim(), document.documentElement.hasAttribute('data-kb') ? 'kb' : ''].join(' ');
-    if (r !== last || tag !== 'f') { rows.push(`${Math.round(performance.now() - t0)}${tag} ${r}`); last = r; }
-  };
-  const onR = () => sample('R'), onS = () => sample('S'), onW = () => sample('W');
-  vv?.addEventListener('resize', onR); vv?.addEventListener('scroll', onS); window.addEventListener('scroll', onW);
-  sample('0');
-  const step = () => {
-    sample('f');
-    if (performance.now() - t0 < 1500) requestAnimationFrame(step);
-    else { vv?.removeEventListener('resize', onR); vv?.removeEventListener('scroll', onS); window.removeEventListener('scroll', onW); done(rows.slice(0, 60)); }
-  };
-  requestAnimationFrame(step);
-}
-
 export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, onOpenFaq, fill = 'min(520px, calc(var(--app-vh,100dvh) - 220px))' }) {
   const [q, setQ] = useState('');
   const endRef = useRef(null);
@@ -171,18 +143,11 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
     sendFeedback(m.a?.id, next);
   };
 
-  const { isMaster } = useAuth() || {};
-  const [probe, setProbe] = useState(null);   // ponytail: 임시 기록(runKbProbe) — 걷을 때 같이
-  const probeBox = probe && createPortal(
-    <div onClick={() => setProbe(null)} className="fixed left-2 right-2 top-2 z-[300] max-h-[70vh] overflow-auto rounded-md bg-black/85 text-white p-2 font-mono text-[9px] leading-[1.35] whitespace-pre">
-      {'ms vvH vvTop inH scrY mainScr mainTop inpTop appvh kb  (눌러 닫기)' + String.fromCharCode(10) + probe.join(String.fromCharCode(10))}
-    </div>, document.body);
   const input = (
     <div className="dab-input flex items-center gap-2 rounded-full border border-accent bg-surface pl-4 pr-1.5 py-1.5 w-full shadow-[0_1px_0_rgba(0,0,0,.02)]">
       <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} maxLength={300}
         onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); send(); } }}
         enterKeyHint="send"
-        onFocus={() => { if (isMaster && coarsePointer()) runKbProbe(setProbe); }}
         placeholder={chat.length ? '다붓이에게 더 물어보기' : '예: 수련회 준비는 언제부터 해요?'}
         aria-label={chat.length ? '다붓이에게 더 물어보기' : '다붓이에게 물어보기'}
         className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px] text-fg placeholder:text-fg-faint" />
@@ -209,14 +174,12 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
           </div>
         )}
         <div className="w-full max-w-[520px] mt-1.5 dc-card" style={{ animationDelay: '160ms' }}>{input}</div>
-        {probeBox}
       </div>
     );
   }
 
   return (
     <div className="dab-chat flex flex-col" style={{ minHeight: fill }}>
-      {probeBox}
       <div className="flex-1 grid content-start gap-3 px-1 py-3">
         {chat.map(m => (
           <div key={m.id} className="grid gap-3">

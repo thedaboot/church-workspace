@@ -212,6 +212,9 @@ try {
       const panTop = async (off) => ev(`(()=>{const vv=visualViewport;Object.defineProperty(vv,'offsetTop',{configurable:true,get:()=>${off}});vv.dispatchEvent(new Event('scroll'));const r=document.querySelector('main').parentElement.getBoundingClientRect().top;delete vv.offsetTop;return Math.round(r)})()`);
       const panned = await panTop(299), settled = await panTop(0);
       check(`폰: 아이폰이 보이는 창을 옮기면 뿌리도 같은 거리만큼(되돌아오면 0)`, panned === 299 && settled === 0, JSON.stringify({ panned, settled }));
+      // 창 옮김 사이에 문서 스크롤(window scroll)만 따로 올 때도 맞춘다
+      const viaWin = await ev(`(()=>{const vv=visualViewport;Object.defineProperty(vv,'offsetTop',{configurable:true,get:()=>76});window.dispatchEvent(new Event('scroll'));const r=document.querySelector('main').parentElement.getBoundingClientRect().top;delete vv.offsetTop;vv.dispatchEvent(new Event('scroll'));return Math.round(r)})()`);
+      check(`폰: 문서 스크롤 이벤트만 와도 뿌리 위치를 맞춘다`, viaWin === 76, String(viaWin));
       await ev(`document.querySelector('.dab-input input').focus()`);
       await sleep(150);
       const noKb = await ev(kbState);
