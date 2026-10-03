@@ -189,6 +189,20 @@ try {
     const mid = await ev(`(()=>{const h=document.querySelector('.dab-home');const kids=[...h.children];const top=kids[0].getBoundingClientRect().top, bot=kids[kids.length-1].getBoundingClientRect().bottom;const r=h.getBoundingClientRect();return Math.abs((top-r.top)-(r.bottom-bot))})()`);
     check(`폰(${theme}): 물어보기 첫 화면은 가운데`, mid < 24, String(mid));
     check(`폰(${theme}): 들어가면 오른쪽에서`, await ev(`!!document.querySelector('.wiki-mobile .wiki-in-fwd')`));
+    // 물어보고 👍 → 위키 목록 → 다시 물어보기: 페이지가 밀리지 않고 반응이 다시 돌지 않는다(사용자 지적 2026-10-03)
+    if (theme === 'light') {
+      await ev(`(()=>{const i=document.querySelector('.dab-input input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,'월례회는 언제 해요?');i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})()`);
+      await until(`!!document.querySelector('.dab-answer [aria-label="도움이 됐어요"]')`);
+      await ev(`document.querySelector('.dab-answer [aria-label="도움이 됐어요"]').click()`);
+      await sleep(1200);
+      await click('button', '위키');
+      await until(`!!document.querySelector('.wiki-mobile .wiki-list')`);
+      await click('.dab-ring');
+      await until(`!!document.querySelector('.dab-answer')`);
+      const back = await ev(`({pageY: document.scrollingElement.scrollTop, pageX: document.scrollingElement.scrollLeft, anim: !!document.querySelector('.dab-hop, .dab-droop, .dab-thumb-pop, .dab-thumb-shake, .dab-burst'), pressed: document.querySelector('.dab-answer [aria-label="도움이 됐어요"]').getAttribute('aria-pressed')})`);
+      check(`폰: 물어보기로 돌아와도 페이지가 밀리지 않고 반응이 다시 돌지 않는다(누른 상태는 그대로)`, back.pageY === 0 && back.pageX === 0 && !back.anim && back.pressed === 'true', JSON.stringify(back));
+    }
+
     await click('button', '위키');
     check(`폰(${theme}): 돌아오면 왼쪽에서`, await until(`!!document.querySelector('.wiki-mobile .wiki-in-back')`));
     await click('.wiki-item', '주보 만들기');

@@ -109,7 +109,16 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
   const endRef = useRef(null);
   const inputRef = useRef(null);
   const busy = chat.some(m => m.loading);
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }); }, [chat.length, chat[chat.length - 1]?.loading]);
+  // 새 말풍선이 생기거나 답이 왔을 때만 main(스크롤 통)을 맨 아래로 — 판이 다시 붙을 때(폰: 위키 목록 → 물어보기)는 내리지 않는다.
+  // scrollIntoView는 폰에서 main 말고 페이지 전체까지 밀어 화면이 살짝 밀렸다(사용자 지적 2026-10-03).
+  const seenRef = useRef(`${chat.length}:${chat[chat.length - 1]?.loading ? 1 : 0}`);
+  useEffect(() => {
+    const sig = `${chat.length}:${chat[chat.length - 1]?.loading ? 1 : 0}`;
+    if (seenRef.current === sig) return;
+    seenRef.current = sig;
+    const main = endRef.current?.closest('main');
+    main?.scrollTo({ top: main.scrollHeight, behavior: 'smooth' });
+  }, [chat.length, chat[chat.length - 1]?.loading]);
 
   const send = async (text) => {
     const question = String(text ?? q).trim();
@@ -130,7 +139,7 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
   // 누를 때마다 react.n이 늘어 애니메이션이 처음부터 다시 돈다(같은 버튼을 다시 누르면 풀린다 — 그때는 움직이지 않는다)
   const rate = (m, v) => {
     const next = m.rated === v ? null : v;
-    setChat(c => c.map(x => (x.id === m.id ? { ...x, rated: next, react: next ? { v: next, n: (x.react?.n || 0) + 1 } : x.react } : x)));
+    setChat(c => c.map(x => (x.id === m.id ? { ...x, rated: next, react: next ? { v: next, n: (x.react?.n || 0) + 1, at: Date.now() } : x.react } : x)));
     sendFeedback(m.a?.id, next);
   };
 
@@ -176,7 +185,7 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
           <div key={m.id} className="grid gap-3">
             <div className="dab-q dab-q-in justify-self-end max-w-[82%] rounded-[14px_14px_4px_14px] bg-accent text-white px-3 py-2 text-[13.5px] leading-relaxed break-words">{m.q}</div>
             <div className="grid grid-cols-[34px_1fr] gap-2 items-start">
-              <span key={m.react ? `${m.react.v}${m.react.n}` : 'still'} className={`w-[34px] h-[34px] rounded-full overflow-hidden ${m.react?.v === 'good' ? 'dab-hop' : m.react?.v === 'bad' ? 'dab-droop' : ''}`} style={{ background: 'var(--app-hero)' }}><Face size={34} className="bg-transparent" /></span>
+              <span key={m.react ? `${m.react.v}${m.react.n}` : 'still'} className={`w-[34px] h-[34px] rounded-full overflow-hidden ${fresh(m) ? (m.react.v === 'good' ? 'dab-hop' : 'dab-droop') : ''}`} style={{ background: 'var(--app-hero)' }}><Face size={34} className="bg-transparent" /></span>
               {m.loading ? (
                 <div className="dab-bub-in justify-self-start rounded-[4px_14px_14px_14px] px-3 py-3" style={{ background: 'var(--app-hero)' }} aria-label="다붓이가 답을 찾는 중">
                   <span className="dab-dots inline-flex gap-1"><span /><span /><span /></span>
@@ -227,6 +236,9 @@ function Answer({ m, onOpenCite, onOpenFile, onOpenFaq, onRate }) {
   );
 }
 
+// 반응 애니메이션은 **누른 직후**만 — 판이 다시 붙을 때(위키에 갔다 오기) 또 돌지 않게(사용자 지적 2026-10-03)
+const fresh = (m) => !!m.react && Date.now() - (m.react.at || 0) < 1000;
+
 // 👍/👎 한 칸 — 좋아요는 손이 튀며 빛 조각 여덟 개가 터지고(채움 · accent), 싫어요는 손이 흔들린다(채움 · 붉은 톤).
 // 같은 쪽을 다시 누르면 풀린다. 다붓이 얼굴의 폴짝/고개 숙임은 말풍선 옆 얼굴이 같은 react로 돈다.
 function Thumb({ m, v, onRate }) {
@@ -234,13 +246,13 @@ function Thumb({ m, v, onRate }) {
   const Icon = v === 'good' ? ThumbsUp : ThumbsDown;
   const label = v === 'good' ? '도움이 됐어요' : '도움이 안 됐어요';
   const color = v === 'good' ? 'var(--app-accent-text)' : 'var(--app-tag-red-fg)';
-  const anim = on && m.react?.v === v ? (v === 'good' ? 'dab-thumb-pop' : 'dab-thumb-shake') : '';
+  const anim = on && m.react?.v === v && fresh(m) ? (v === 'good' ? 'dab-thumb-pop' : 'dab-thumb-shake') : '';
   return (
     <button type="button" onClick={() => onRate(m, v)} aria-label={label} title={label} aria-pressed={on}
       className={`dab-thumb relative w-7 h-7 inline-flex items-center justify-center rounded-md transition-colors active:scale-90 ${on ? '' : 'text-fg-faint hover:text-fg-muted hover:bg-surface-hover'}`}
       style={on ? { color, background: `color-mix(in srgb, ${color} 12%, transparent)` } : undefined}>
       <span key={on ? `${m.react?.n}` : 'off'} className={`inline-flex ${anim}`}><Icon size={13} fill={on ? 'currentColor' : 'none'} /></span>
-      {on && v === 'good' && (
+      {on && v === 'good' && fresh(m) && (
         <span key={`b${m.react?.n}`} className="dab-burst" aria-hidden="true" style={{ '--c': color }}>
           {[0, 45, 90, 135, 180, 225, 270, 315].map(d => <i key={d} style={{ '--a': `${d}deg` }} />)}
         </span>
