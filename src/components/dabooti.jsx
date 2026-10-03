@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ArrowUp, Lock, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { askDabooti, sendFeedback } from '../services/wiki.js';
 import { imeComposing, coarsePointer } from '../utils.js';
-import { mdLabel } from '../services/wikiCore.js';
+import { chipPool, rotateChips, normQ, chatExpired } from '../services/wikiCore.js';
+import { fetchMyPerson, fetchGroups, fetchGroupMembers } from '../services/people.js';
 
 // ============================================================================
 // 다붓이 — 입구(상단 알약 · 폰 얼굴)와 물어보기 판 (0088 · 16차 · 목업 v12)
@@ -10,7 +11,65 @@ import { mdLabel } from '../services/wikiCore.js';
 // 컷은 원본 시트에서 자른 '물음표' 컷 하나(public/chars/question · 85×85, @2x 170). 얼굴 자리는 그 컷을
 // 동그라미에 담아 위쪽(50% 20%)을 보인다. 효과는 index.css의 dab-tilt(갸웃) · dab-ring(무지개 테두리).
 // 답은 서버가 근거를 찾고 검증까지 끝낸 것만 온다(api/_wikiAsk.js) — 여기서는 그리기만 한다.
+// 대화는 이 모듈이 쥔다(useDabootiChat · 2026-10-04) — 앱이 떠 있는 동안 화면을 오가도 남고, 새로 열거나
+// 30분 넘게 가려져 있다 돌아오면 빈다(wikiCore.chatExpired · localStorage에 쓰지 않는다 · 메모리만).
 // ============================================================================
+
+// ── 대화 · 같은 질문 답 (메모리만) ─────────────────────────────────────────────
+let chatNow = [];
+const chatSubs = new Set();
+const setChatStore = (next) => {
+  const v = typeof next === 'function' ? next(chatNow) : next;
+  if (v === chatNow) return;
+  chatNow = v;
+  chatSubs.forEach(f => f());
+};
+// 같은 질문을 이 앱 세션 안에서 다시 물으면 서버에 가지 않고 앞의 답을 쓴다(10분 · 30개 · 오래된 것부터 뺀다)
+const ANSWER_TTL = 10 * 60 * 1000;
+const answerMemo = new Map();
+const memoGet = (q) => {
+  const hit = answerMemo.get(normQ(q));
+  if (!hit || Date.now() - hit.at > ANSWER_TTL) return null;
+  return hit.a;
+};
+const memoPut = (q, a) => {
+  const k = normQ(q);
+  answerMemo.delete(k);
+  answerMemo.set(k, { a, at: Date.now() });
+  while (answerMemo.size > 30) answerMemo.delete(answerMemo.keys().next().value);
+};
+let hiddenAt = null;
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+    if (chatExpired(hiddenAt, Date.now())) { setChatStore([]); answerMemo.clear(); }
+    hiddenAt = null;
+  });
+}
+const subscribeChat = (f) => { chatSubs.add(f); return () => chatSubs.delete(f); };
+const chatSnap = () => chatNow;
+export function useDabootiChat() {
+  const chat = useSyncExternalStore(subscribeChat, chatSnap, chatSnap);
+  return [chat, setChatStore];
+}
+
+// 묻는 사람의 순(올해) — '지난 주일 OO순에는 누가 왔나요?' 칩. 순이 없거나 게스트면 ''(칩을 뺀다). 한 번만 읽는다.
+let sunPromise = null;
+function loadMySun() {
+  if (!sunPromise) {
+    sunPromise = (async () => {
+      const me = await fetchMyPerson();
+      if (!me) return '';
+      const year = new Date(Date.now() + 9 * 3600e3).getUTCFullYear();
+      const suns = await fetchGroups('sun', year);
+      const members = await fetchGroupMembers(suns.map(g => g.id));
+      const mine = suns.find(g => g.leader_person_id === me.id || members.some(m => m.group_id === g.id && m.person_id === me.id));
+      return mine?.name || '';
+    })().catch(() => { sunPromise = null; return ''; });
+  }
+  return sunPromise;
+}
+const SUN_MARK = '{순}';   // 칩 문구의 자리표 — 그대로 화면에 나가지 않는다(채우거나 칩을 뺀다)
 
 export const DAB_CUT = { src: '/chars/question.webp', w: 85, h: 85 };
 export const cutSet = (src) => `${src} 1x, ${src.replace(/\.webp$/, '@2x.webp')} 2x`;
@@ -128,9 +187,12 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
     // 앞 질문들을 줄바꿈으로 — 마지막 줄이 바로 앞 질문(모델 문맥) · 앞에서 다붓이에게 알려 준 말도 서버가 본다(_wikiAsk talkKind)
     const prev = chat.filter(m => m.a).slice(-6).map(m => m.q.replace(/\s*\n\s*/g, ' ')).join('\n');
     const id = `${Date.now()}`;
+    const known = memoGet(question);
+    if (known) { setChat(c => [...c, { id, q: question, a: known }]); return; }
     setChat(c => [...c, { id, q: question, loading: true }]);
     try {
       const a = await askDabooti(question, prev);
+      memoPut(question, a);
       setChat(c => c.map(m => (m.id === id ? { ...m, loading: false, a } : m)));
     } catch (e) {
       setChat(c => c.map(m => (m.id === id ? { ...m, loading: false, err: e.human || '답을 받지 못했어요' } : m)));
@@ -144,9 +206,26 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
     sendFeedback(m.a?.id, next);
   };
 
+  // 바뀌는 질문 칩(사용자 결정 2026-10-04) — 셋을 보이고 4초마다 한 칸씩 돌아가며 다음 질문으로 바꾼다.
+  // 칩 위에 손이 있거나 · 칸에 초점이 있거나 · 치는 중이면 멈춘다 · 움직임 줄이기면 돌리지 않는다.
+  const [sun, setSun] = useState('');
+  useEffect(() => { let live = true; loadMySun().then(n => { if (live) setSun(n); }); return () => { live = false; }; }, []);
+  const pool = useMemo(() => chips.map(c => (c.includes(SUN_MARK) ? (sun ? c.replace(SUN_MARK, sun) : '') : c)).filter(Boolean), [chips, sun]);
+  const [rot, setRot] = useState({ slots: [0, 1, 2], turn: 0, next: 3, n: 0 });
+  const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
+  const still = hover || focus || !!q || chat.length > 0;
+  useEffect(() => {
+    if (still || pool.length <= 3 || !window.matchMedia || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
+    const t = setInterval(() => { if (!document.hidden) setRot(r => ({ ...rotateChips(r, pool.length), n: r.n + 1 })); }, CHIP_EVERY);
+    return () => clearInterval(t);
+  }, [still, pool.length]);
+  const shown = rot.slots.map(i => pool[i]).filter(Boolean);
+
   const input = (
     <div className="dab-input flex items-center gap-2 rounded-full border border-accent bg-surface pl-4 pr-1.5 py-1.5 w-full shadow-[0_1px_0_rgba(0,0,0,.02)]">
       <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} maxLength={300}
+        onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}
         onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); send(); } }}
         enterKeyHint="send"
         placeholder={chat.length ? '다붓이에게 더 물어보기' : '예: 수련회 준비는 언제부터 해요?'}
@@ -166,12 +245,9 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
           <img src={DAB_CUT.src} srcSet={cutSet(DAB_CUT.src)} width={DAB_CUT.w} height={DAB_CUT.h} alt="" aria-hidden="true" draggable="false" className="dab-face" />
           <b className="text-[16px] text-fg tracking-[-0.3px]">다붓이에게 물어보기</b>
         </div>
-        {chips.length > 0 && (
-          <div className="flex flex-wrap justify-center gap-1.5 max-w-[560px] mt-1">
-            {chips.map((c, i) => (
-              <button key={c} type="button" onClick={() => send(c)} style={{ animationDelay: `${80 + i * 40}ms` }}
-                className="dab-chip dc-card rounded-full border border-line bg-surface px-3 py-[5px] text-[12px] text-fg transition hover:bg-surface-hover active:scale-95">{c}</button>
-            ))}
+        {shown.length > 0 && (
+          <div className="dab-chips flex flex-wrap justify-center gap-1.5 max-w-[560px] mt-1" onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}>
+            {shown.map((c, i) => <Chip key={`${i}:${c}`} text={c} i={i} swapped={rot.n > 0} onPick={send} />)}
           </div>
         )}
         <div className="w-full max-w-[520px] mt-1.5 dc-card" style={{ animationDelay: '160ms' }}>{input}</div>
@@ -210,6 +286,19 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
   );
 }
 
+// 칩 한 개 — 처음 셋은 화면 등장(dc-card)과 같이, 바뀌어 들어온 칩은 0.45초 아래에서 떠오르며 나타난다(Web Animations — CSS를 더하지 않는다)
+const CHIP_EVERY = 4000;
+function Chip({ text, i, swapped, onPick }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (swapped && ref.current?.animate) ref.current.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 450, easing: 'cubic-bezier(.22,1,.36,1)' });
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <button ref={ref} type="button" onClick={() => onPick(text)} style={swapped ? undefined : { animationDelay: `${80 + i * 40}ms` }}
+      className={`dab-chip ${swapped ? '' : 'dc-card '}rounded-full border border-line bg-surface px-3 py-[5px] text-[12px] text-fg transition hover:bg-surface-hover active:scale-95`}>{text}</button>
+  );
+}
+
 function Answer({ m, onOpenCite, onOpenFile, onOpenFaq, onRate }) {
   const a = m.a;
   const refused = a.status === 'refused';
@@ -223,7 +312,18 @@ function Answer({ m, onOpenCite, onOpenFile, onOpenFaq, onRate }) {
     <div className={`dab-answer dab-bub-in justify-self-start min-w-0 max-w-full rounded-[4px_14px_14px_14px] px-3 py-2.5 text-[13.5px] leading-[1.7] text-fg ${refused ? 'bg-surface-hover' : ''}`}
       style={refused ? undefined : { background: 'var(--app-hero)' }} data-status={a.status}>
       <span className="block text-[11px] font-bold text-accent-text mb-0.5">다붓이</span>
-      <span className="break-words">{(a.sentences || []).map(s => s.text).join(' ')}</span>
+      {a.verses?.length > 0 ? (
+        <>
+          {/* 성경 구절(bible) — 어느 말씀인지 한 줄 · 절마다 한 줄 · 그 아래 말씀 탭 안내(여덟 절 넘을 때) */}
+          <span className="break-words">{a.sentences?.[0]?.text}</span>
+          <span className="dab-verses block mt-1 mb-0.5 pl-2.5 border-l-2 border-line">
+            {a.verses.map(v => <span key={v.n} className="block"><b className="text-[11px] font-semibold text-fg-muted mr-1">{v.n}</b>{v.text}</span>)}
+          </span>
+          {a.sentences.length > 1 && <span className="block break-words">{a.sentences.slice(1).map(s => s.text).join(' ')}</span>}
+        </>
+      ) : (
+        <span className="break-words">{(a.sentences || []).map(s => s.text).join(' ')}</span>
+      )}
       {cites.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-1.5">
           {cites.map(c => <CiteChip key={`${c.t}:${c.id}`} cite={c} onOpen={isFaq(c) ? onOpenFaq : onOpenCite} />)}
@@ -265,15 +365,9 @@ function Thumb({ m, v, onRate }) {
   );
 }
 
-// 처음 화면의 질문 칩 — 자주 묻는 질문(사람들이 실제로 물은 것) 먼저, 모자라면 위키 장에서 만든 기본 질문
+// 처음 화면의 질문 칩 — 사용자 문구 15개(2026-10-04 · wikiCore.chipPool). 큐시트 칩 날짜는 설교 장의 마지막 주보 날,
+// 묻는 사람의 순 칩은 자리표(SUN_MARK)로 두고 AskPanel이 순을 읽어 채운다(순이 없거나 게스트면 뺀다).
 export function chipsFrom(pages) {
-  const out = [];
-  const faq = pages.find(p => p.id === 'faq');
-  for (const it of faq?.blocks?.[0]?.items || []) if (it.meta?.q && out.length < 2) out.push(it.meta.q);
   const sermon = pages.find(p => p.id === 'sermon');
-  const lastSvc = sermon?.blocks?.[0]?.meta?.date;
-  // 문구는 사용자 것(2026-10-03) · 송폼 질문은 뺐다(같은 날 — 모델이 '그 전주 금요일'을 '그 주 금요일'로 옮겨 검증에 걸렸다)
-  const base = ['월례회는 언제 해요?', '엔지니어팀은 어떤 팀이에요?', lastSvc ? `${mdLabel(lastSvc)} 예배 큐시트는 어디에 있나요?` : '예배 큐시트는 어디에 있나요?'];
-  for (const b of base) if (out.length < 3 && !out.includes(b)) out.push(b);
-  return out;
+  return chipPool({ cueDate: sermon?.blocks?.[0]?.meta?.date || '', sun: SUN_MARK });
 }

@@ -5734,7 +5734,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const mig89 = readFileSync(new URL('../supabase/migrations/0089_wiki_title_master.sql', import.meta.url), 'utf8');
   assert.ok((mig89.match(/left\(item_key, 1\) <> '#' or public\.is_master\(\)/g) || []).length === 3, '0089: 제목 줄(#)은 마스터만 넣고 고친다');
   const chips = readFileSync(new URL('../src/components/dabooti.jsx', import.meta.url), 'utf8');
-  assert.ok(chips.includes("const base = ['월례회는 언제 해요?', '엔지니어팀은 어떤 팀이에요?',") && chips.includes('예배 큐시트는 어디에 있나요?') && !chips.includes("'예배 송폼은"), '질문 칩 문구(사용자 것 · 송폼은 뺐다)');
+  // 칩 문구는 2026-10-04에 15개로 바뀌었다(wikiCore.chipPool · 위키 · 다붓이 6) — 여기서는 칩이 그 한 벌에서 오는지와 송폼이 없는지만
+  assert.ok(chips.includes('return chipPool({ cueDate:') && !chips.includes("'예배 송폼은"), '질문 칩은 chipPool에서(송폼은 뺐다)');
   console.log('PASS  위키 · 다붓이 2(제목 고치기 · 출처 문구 · 낱말 · 드문 낱말 · 글자 그대로 근거 · 7일 · 칩 문구)');
 }
 
@@ -6036,7 +6037,137 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  위키 · 다붓이 5(준비 업무 · 늦은 기록 · 팀 소개 카드 · 사고 · 빈 문장 · 질문 목록 · 다른 팀과 했던 일 · 기록 전 접기 · 순장 · 리더십 회의 · 되풀이)');
 }
 
-// ── 위키 · 다붓이 6 (2026-10-04 사용자 결정) — 함께 쓰는 글 '워크스페이스 사용법'(services/wikiGuide.js) ──
+// ── 위키 · 다붓이 6 (2026-10-04 사용자 결정) — 다붓이 설정 · 마음 · 신앙 · 청년부 밖 · 기도제목 · 성경 구절 · 출석 이름 · 생일 날짜 ·
+//    물을 사람 줄 · 바뀌는 칩 15개 · 답 캐시 · 대화 수명 ──
+{
+  const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
+  const A = await import(new URL('../api/_wikiAsk.js', import.meta.url).href);
+  const BOOKS = JSON.parse(readFileSync(new URL('../public/bible/index.json', import.meta.url), 'utf8'));
+  const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
+  const dab = readFileSync(new URL('../src/components/dabooti.jsx', import.meta.url), 'utf8');
+  const tk = (q) => W.talkKind(q, []);
+  // 다붓이 설정 — 사용자 문장 그대로 · 저장 안 함(talkKind의 save는 statement만)
+  const persona = {
+    '다붓이 생일 언제야?': '제 생일은 10월 3일이에요!', '생일 언제야?': '제 생일은 10월 3일이에요!',
+    '너는 뭘 좋아해?': '따뜻한 핫팩과 푹신한 이불, 아우터 사이로 들어오는 시원한 가을 바람을 좋아해요!',
+    '너 몇 살이야?': '26살이에요!', '왜 이름이 다붓이야?': '여러분들과 같이 있는 게 좋아서 다붓이에요!', '왜 다붓이야?': '여러분들과 같이 있는 게 좋아서 다붓이에요!',
+    '너희 왜 둘이야?': '둘이 붙어 있어야 다붓하니까요!', '옆에 있는 애는 누구야?': '다 알면서…',
+    '너 MBTI 뭐야?': '그건 아직 비밀이에요!', '다붓이 키가 몇이야?': '그건 아직 비밀이에요!', '다붓이 사는 곳 어디야?': '그건 아직 비밀이에요!', '너 취미가 뭐야?': '그건 아직 비밀이에요!',
+  };
+  for (const [q, a] of Object.entries(persona)) { assert.strictEqual(W.prefilter(q), null, `${q}: 거르지 않는다`); assert.strictEqual(tk(q)?.answer, a, q); assert.strictEqual(tk(q)?.status, 'answered', q); }
+  assert.strictEqual(tk('너 누가 만들었누')?.kind, 'self', '만든 사람 답은 그대로');
+  // 마음 — 공감 + 이을 사람 · 살고 싶지 않다는 말은 109
+  for (const q of ['요즘 너무 힘들어', '교회 가기 싫어', '외로워', '안녕 다붓아 나 요즘 힘들어']) {
+    const t = tk(q);
+    assert.ok(t?.kind === 'feeling' && t.answer.endsWith(W.CARE_LINK) && t.answer.split(/(?<=[.!?])\s/).length === 3, q);
+  }
+  assert.ok(tk('죽고 싶어')?.answer.includes('109'), '위기 말은 상담 전화까지');
+  assert.strictEqual(W.CARE_LINK, '순장님이나 임성빈 전도사님께 이야기해 보면 힘이 될 거예요.');
+  // 신앙 — 교리를 풀지 않는다 · 정해진 문장
+  for (const q of ['하나님은 왜 고난을 주시나요?', '기도는 어떻게 해야 해?', '구원은 어떻게 받아?', '천국은 진짜 있어?', '예수님은 누구야?']) assert.strictEqual(tk(q)?.answer, W.FAITH_ANSWER, q);
+  assert.ok(W.FAITH_ANSWER.endsWith('이런 이야기는 임성빈 전도사님이나 순장님과 나누면 더 좋을 것 같아요.'));
+  // 청년부 밖
+  for (const q of ['내일 날씨 어때?', '맛집 추천해줘', '과제 좀 도와줘', '삼성전자 주식 살까?']) assert.strictEqual(tk(q)?.answer, '저는 더다붓 청년부에 있는 업무 일부만 알고 있어요!', q);
+  // 기도제목 — 계속 거른다(이유 한 줄)
+  assert.strictEqual(W.prefilter('기도제목 알려줘')?.kind, 'prayer');
+  assert.strictEqual(W.prefilter('누구 전화번호 알려줘')?.kind, 'contact', '사람의 연락처는 그대로 거른다');
+  // 음성 대조 — 업무 질문을 삼키지 않는다
+  for (const q of ['기도회 언제 해?', '예배 언제 시작해?', '수련회 숙소 어디야?', '믿음샘 양육은 어떻게 하나요?', '찬양팀에는 누가 있나요?', '가을 체육대회 몇 명 참석했어?',
+    '수련회 근처 맛집 어디야?', '찬양팀 키보드 누구야?', '믿음샘은 어떻게 신청해?', '성찬 예배 언제야?', '은혜샘채플 어디야?', '대표기도 누가 해?', '이번 달에 생일자는 누가 있나요?', '수련회 준비 힘들어?', '주보는 어디에서 볼 수 있나요?']) {
+    assert.strictEqual(tk(q), null, `${q}: 근거 길`);
+    assert.strictEqual(W.prefilter(q), null, `${q}: 안 거름`);
+  }
+  assert.strictEqual(W.prefilter('큐티 본문 어디야?'), null, 'QT 일정은 묵상 노트가 아니다');
+  assert.strictEqual(W.prefilter('내 큐티 보여줘')?.kind, 'note');
+  // 성경 구절 — 책 이름 그대로 + 장·편·절 · 설교·일정을 묻는 말은 아니다
+  const br = (q) => { const r = W.bibleRefIn(q, BOOKS); return r && `${r.name} ${r.chapter}:${r.from}-${r.to}`; };
+  assert.strictEqual(br('요한복음 3장 16절 알려줘'), '요한복음 3:16-16');
+  assert.strictEqual(br('시편 23편'), '시편 23:null-null');
+  assert.strictEqual(br('롬 8:28'), '로마서 8:28-28');
+  assert.strictEqual(br('요 3:16-18'), '요한복음 3:16-18');
+  for (const q of ['사진 3장 어디 있어?', '사사기 17장 설교 언제야?', '양육 2기 어디까지 했어?', '10월 4일 예배 큐시트는 어디에 있나요?', '오늘 매일 성경 QT 본문은 어디인가요?', '요한복음 99장', '사사기 17장으로 설교했어?']) assert.strictEqual(br(q), null, q);
+  const verses = Array.from({ length: 12 }, (_, i) => ({ chapter: 23, verse: i + 1, text: `절${i + 1}` }));
+  const ba = W.bibleAnswer({ name: '시편', chapter: 23, from: null, to: null }, verses);
+  assert.ok(ba.status === 'answered' && ba.verses.length === W.BIBLE_MAX && ba.sentences[0].text === '시편 23편 말씀이에요(개역한글).' && ba.sentences[1].text === '23편 전체는 말씀 탭에서 볼 수 있어요.', '여덟 절까지 + 말씀 탭');
+  assert.strictEqual(W.bibleAnswer({ name: '요한복음', chapter: 3, from: 16, to: 16 }, verses.slice(0, 1)).sentences.length, 1, '짧으면 안내 없음');
+  // 출석 — 주일 출석만(행사 참석 인원은 업무 질문) · 그 순이면 온 사람과 안 온 사람
+  for (const q of ['지난 주일 TT순에는 누가 왔나요?', '지난주 누가 안 왔어?', '9월 20일 꼬순 출석 알려줘', '우리 순 이번 주 출석 어땠어?', '지난주에 누가 출석 안 했어요?']) assert.ok(W.isAttendanceQuestion(q), q);
+  for (const q of ['가을 체육대회 몇 명 참석했어?', '수련회 누가 왔어?', '출석 체크는 어떻게 해?', '월례회 누가 와?', '이번 주 월례회에 누가 왔어?', '지난주 수련회 몇 명 참석했어?', '찬양팀에는 누가 있나요?']) assert.ok(!W.isAttendanceQuestion(q), q);
+  assert.strictEqual(W.attendanceAnswer({ day: '9월 27일(일)', group: 'TT순', present: ['가', '나'], absent: ['다', '신유리'] }), '9월 27일(일) 주일 TT순에는 가, 나 2명이 왔어요. 오지 않은 사람은 다, 신유리예요.');
+  assert.strictEqual(W.attendanceAnswer({ day: 'D', group: 'TT순', present: ['가'], absent: ['허율'] }), 'D 주일 TT순에는 가 1명이 왔어요. 오지 않은 사람은 허율이에요.');
+  assert.strictEqual(W.attendanceAnswer({ day: 'D', group: 'TT순', present: ['가'], absent: [] }), 'D 주일 TT순에는 가 1명이 왔어요. TT순 모두 왔어요.');
+  assert.strictEqual(W.attendanceAnswer({ day: 'D', present: ['가', '나'], absent: ['다'], guests: ['손'], absentAsked: true }), 'D 주일에는 3명이 왔고, 오지 않은 사람은 다예요.');
+  assert.strictEqual(W.attendanceAnswer({ day: 'D', recorded: false }), 'D 주일 출석은 아직 기록 전이에요.');
+  assert.ok(W.asksAbsent('지난주 누가 안 왔어?') && !W.asksAbsent('지난 주일 TT순에는 누가 왔나요?'));
+  // 생일 — 월·일만(연도·나이 없음) · 사용자 문장 꼴
+  assert.strictEqual(W.birthdayMonth('이번 달에 생일자는 누가 있나요?', '2026-10-04'), 10);
+  assert.strictEqual(W.birthdayMonth('다음 달 생일자', '2026-12-04'), 1);
+  assert.strictEqual(W.birthdayMonth('3월 생일자 알려줘', '2026-10-04'), 3);
+  assert.strictEqual(W.birthdayAnswer(10, [{ call: 'B 자매', mmdd: '10-20' }, { call: 'A 형제', mmdd: '10-12' }, { call: 'C 형제', mmdd: '11-01' }]), '10월 생일자는 A 형제(10월 12일), B 자매(10월 20일)예요.');
+  assert.ok(!/\d{4}|살/.test(W.birthdayAnswer(10, [{ call: 'A 형제', mmdd: '10-12' }])), '연도·나이 없음');
+  // 물을 사람 줄 — 위키에 있으면 답 끝에 한 번만
+  const ev = [{ id: 'E2', text: '(위키 더다붓 소개 > 양육) 믿음샘 양육에 대해 더 궁금한 점은 정민경 리더순장님께 문의해 주세요.', cite: { t: 'page', id: 'intro', label: '더다붓 소개' } }];
+  const tail = W.contactTail([{ text: '믿음샘 양육은 1:1이에요.', ids: ['E2'], cites: [] }, { text: '더 궁금한 점은 정민경 리더순장님께 문의해 주세요.', ids: ['E2'], cites: [] }], ev, ['믿음샘', '양육']);
+  assert.deepStrictEqual(tail.map(s => s.text), ['믿음샘 양육은 1:1이에요.', '믿음샘 양육에 대해 더 궁금한 점은 정민경 리더순장님께 문의해 주세요.']);
+  assert.strictEqual(W.contactTail([{ text: 'x' }], ev, ['체육대회']).length, 1, '다른 일이면 붙이지 않는다');
+  assert.ok(ask.includes('final = contactTail(final, evidence, termsOf(question));'));
+  // 바뀌는 칩 — 15개(순이 없으면 14) · 처음 셋은 다른 갈래 · 한 칸씩 돌아가며 겹치지 않게
+  const pool = W.chipPool({ cueDate: '2026-10-04', sun: 'TT순' });
+  assert.strictEqual(pool.length, 15);
+  assert.strictEqual(W.chipPool({ cueDate: '2026-10-04' }).length, 14, '순이 없으면 그 칩을 뺀다');
+  assert.deepStrictEqual(pool.slice(0, 3), ['찬양 인도자는 누가 하고 있나요?', '10월 4일 예배 큐시트는 어디에 있나요?', '다음 월례회는 언제 하나요?']);
+  for (const c of ['찬양팀에는 누가 있나요?', '이번 달에 생일자는 누가 있나요?', '지난 주일 TT순에는 누가 왔나요?', '지난 주 설교 본문은 어디인가요?', '예배 콘티는 언제 나오나요?', '오늘 매일 성경 QT 본문은 어디인가요?',
+    '가을 체육대회는 언제, 어디서 하나요?', '더다붓해지는 양육 2기는 어디까지 진행되었나요?', '믿음샘 양육은 어떻게 하나요?', '엔지니어팀은 어떤 역할을 하나요?', '순모임 장소는 어디인가요?', '주보는 어디에서 볼 수 있나요?']) assert.ok(pool.includes(c), c);
+  let r = { slots: [0, 1, 2], turn: 0, next: 3 };
+  const seen = new Set(r.slots);
+  for (let k = 0; k < 30; k++) {
+    const before = r.slots.slice();
+    r = W.rotateChips(r, pool.length);
+    assert.strictEqual(new Set(r.slots).size, 3, '보이는 칩은 겹치지 않는다');
+    assert.strictEqual(r.slots.filter((x, i) => x !== before[i]).length, 1, '한 번에 한 칸');
+    r.slots.forEach(x => seen.add(x));
+  }
+  assert.strictEqual(seen.size, 15, '칩 15개가 다 돈다');
+  // 칩 수가 바뀐 뒤(순 칩이 늦게 들어온다) 다음 번호가 보이는 칩과 같으면 건너뛴다
+  assert.deepStrictEqual(W.rotateChips({ slots: [5, 0, 1], turn: 0, next: 0 }, 15).slots, [2, 0, 1]);
+  for (const size of [14, 4, 5]) {   // 순 칩이 없을 때(14) · 적을 때도 보이는 칩은 겹치지 않는다
+    let x = { slots: [0, 1, 2], turn: 0, next: 3 };
+    for (let k = 0; k < 40; k++) { x = W.rotateChips(x, size); assert.strictEqual(new Set(x.slots).size, 3, `칩 ${size}개: 겹침`); }
+  }
+  assert.ok(dab.includes("window.matchMedia('(prefers-reduced-motion: reduce)').matches") && dab.includes('const still = hover || focus || !!q') && dab.includes('const CHIP_EVERY = 4000') && dab.includes('duration: 450'), '4초 · 0.45초 · 손·초점·치는 중 멈춤 · 움직임 줄이기');
+  // 답 캐시 — 묻는 사람마다 근거가 다른 질문은 안 한다 · 오늘 · 데이터가 바뀐 뒤 답한 것만 · 👎 · 마스터만 보는 장
+  assert.ok(W.cacheEligible('엔지니어팀은 어떤 역할을 하나요?') && W.cacheEligible('다음 월례회는 언제 하나요?'));
+  for (const q of ['찬양팀에는 누가 있나요?', '지난 주일 TT순에는 누가 왔나요?', '이번 달에 생일자는 누가 있나요?', '우리 순 모임 장소 어디야?', '내 업무 뭐야?']) assert.ok(!W.cacheEligible(q), q);
+  assert.ok(!W.cacheEligible('엔지니어팀은 어떤 역할을 하나요?', '앞 질문'), '앞 질문을 문맥으로 쓴 답은 다시 쓰지 않는다');
+  const row = { status: 'answered', feedback: null, created_at: '2026-10-04T03:00:00Z', answer: { cacheable: true, sentences: [{ text: 'a', cites: [] }] } };
+  assert.ok(W.cacheFresh(row, '2026-10-04T02:59:00Z', '2026-10-04'), '데이터 변경 뒤 답 → 다시 쓴다');
+  assert.ok(!W.cacheFresh(row, '2026-10-04T03:00:01Z', '2026-10-04'), '답 뒤에 데이터가 바뀌면 다시 찾는다');
+  assert.ok(!W.cacheFresh(row, null, '2026-10-04'), '도장을 못 읽으면 쓰지 않는다');
+  assert.ok(!W.cacheFresh(row, '2026-10-04T02:00:00Z', '2026-10-05'), '어제 답은 쓰지 않는다(날짜가 걸린 질문)');
+  assert.ok(!W.cacheFresh({ ...row, feedback: 'bad' }, '2026-10-04T02:00:00Z', '2026-10-04'));
+  assert.ok(!W.cacheFresh({ ...row, answer: { sentences: row.answer.sentences } }, '2026-10-04T02:00:00Z', '2026-10-04'), '캐시해도 되는 답으로 저장된 것만');
+  assert.ok(!W.cacheFresh({ ...row, answer: { cacheable: true, sentences: [{ text: 'a', cites: [{ t: 'page', id: 'faq' }] }] } }, '2026-10-04T02:00:00Z', '2026-10-04'), '마스터만 보는 장을 근거로 한 답');
+  // 순서: 거르기 → talkKind → 성경 → 출석 → 생일 → 캐시 → 근거 · 밤 다시 묻기는 캐시 끔 · 저장은 캐시해도 되는 답 표시
+  const order = ['const pf = prefilter(question);', 'const talk = talkKind(question, prevLines);', 'const ref = bibleRefIn(question, BOOKS);', 'if (isAttendanceQuestion(question))', 'if (isBirthdayQuestion(question))', 'const hit = await cachedAnswer(admin, question, today)', 'await collectEvidence(question,'];
+  order.reduce((at, s) => { const i = ask.indexOf(s); assert.ok(i > at, `순서: ${s}`); return i; }, -1);
+  assert.ok(ask.includes('answerQuestion(r.question, { db: admin, admin, cache: false })') && ask.includes('...(out.cacheable ? { cacheable: true } : {})'));
+  assert.ok(ask.includes("last('wiki_pages', 'updated_at'), last('wiki_edits', 'edited_at'), last('cards', 'updated_at'), last('services', 'updated_at'), last('files', 'created_at'), last('doc_vec', 'updated_at')"), '데이터 도장');
+  // 함께 쓰는 글 초안 가운데 DB에 아직 없는 장도 근거(새 사용법 장) · 같은 무게면 함께 쓰는 글 먼저
+  assert.ok(ask.includes('SEED_PAGES.filter(sp => !pages.some(p => p.id === sp.id))') && ask.includes('b.score - a.score || human(b) - human(a)'));
+  // 날짜 셈 — 다음 월례회(규칙) · 주일
+  assert.strictEqual(A.secondSunday('2026-10-04'), '2026-10-11');
+  assert.strictEqual(A.secondSunday('2026-10-12'), '2026-11-08');
+  assert.deepStrictEqual(A.sundaysOf('2026-10-04'), { thisSun: '2026-10-04', lastSun: '2026-09-27', nextSun: '2026-10-11' });
+  assert.strictEqual(A.fullBookRef('삿 17:1-13'), '사사기 17:1-13');
+  // 대화 수명 — 30분 넘게 가려져 있다 돌아오면 비운다 · 메모리만
+  assert.ok(W.chatExpired(0, W.CHAT_IDLE_MS) && W.chatExpired(1000, 1000 + 31 * 60e3), '30분 이상 → 비운다');
+  assert.ok(!W.chatExpired(0, W.CHAT_IDLE_MS - 1) && !W.chatExpired(null, Date.now()), '30분 안 · 가려진 적 없음 → 남긴다');
+  assert.ok(dab.includes('export function useDabootiChat()') && dab.includes('if (chatExpired(hiddenAt, Date.now())) { setChatStore([]); answerMemo.clear(); }') && !/(?:localStorage|sessionStorage)\./.test(dab), '모듈이 쥔 대화 · 메모리만');
+  assert.ok(dab.includes('const known = memoGet(question);') && dab.includes('const ANSWER_TTL = 10 * 60 * 1000;'), '같은 질문은 앱 안에서 다시 쓰기');
+  console.log('PASS  위키 · 다붓이 6(다붓이 설정 · 마음 · 신앙 · 청년부 밖 · 기도제목 · 성경 구절 · 출석 이름 · 생일 · 물을 사람 줄 · 칩 15개 · 답 캐시 · 대화 수명)');
+}
+
+// ── 위키 · 다붓이 7 (2026-10-04 사용자 결정) — 함께 쓰는 글 '워크스페이스 사용법'(services/wikiGuide.js) ──
 {
   const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
   const g = W.SEED_PAGES.find(p => p.id === 'guide');
@@ -6054,5 +6185,5 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     assert.deepStrictEqual(W.styleIssues(W.stripBold(it.text)), [], `글 규칙: ${it.text}`);
     assert.ok(!/비용|요금|과금|유료|무료|\d\s?원|₩|\$/.test(it.text), `비용 이야기 없음: ${it.text}`);
   }
-  console.log('PASS  위키 · 다붓이 6(워크스페이스 사용법 · 자리 · 소제목 · 해요체 · 대시 · 금지어 · 비용 말 없음)');
+  console.log('PASS  위키 · 다붓이 7(워크스페이스 사용법 · 자리 · 소제목 · 해요체 · 대시 · 금지어 · 비용 말 없음)');
 }

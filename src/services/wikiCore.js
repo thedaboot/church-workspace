@@ -252,9 +252,12 @@ export function editRows(pageId, blocks, drafts) {
 // 2026-10-04부터 거르지 않는 것: 명단(회원·가입자·전체 명단 — 근거에 있는 이름만 답한다) · 출석(근거가 없으면 모르는 질문으로 간다).
 const OVERRIDE = /이전\s?(?:지시|명령|규칙)|지시를?\s?무시|규칙을?\s?무시|무시하고|ignore\s+(?:all|previous|the)|system\s?prompt|시스템\s?프롬프트|프롬프트를/i;
 const SECRET = /비밀\s?번호|패스워드|password|토큰|api\s?키|키\s?값|서비스\s?키|이메일|e-?mail|메일\s?주소/i;
-const NOTE = /묵상|큐티|예배\s?노트|내\s?노트|(?:누구|남|다른\s?사람)의?\s?노트|성경\s?(?:읽은|읽기\s?기록)/i;
+// '큐티 본문'은 일정(qt_schedule)을 묻는 말이라 거르지 않는다(2026-10-04 · 칩 '오늘 매일 성경 QT 본문은 어디인가요?')
+const NOTE = /묵상|큐티(?!\s?(?:본문|범위|일정|말씀))|예배\s?노트|내\s?노트|(?:누구|남|다른\s?사람)의?\s?노트|성경\s?(?:읽은|읽기\s?기록)/i;
 const CONTACT = /연락처|전화\s?번호|휴대폰|핸드폰|생년월일|집\s?주소|사는\s?곳/i;
-const PRIVATE = /기도\s?제목|헌금.{0,8}(?:누가|얼마)|(?:개인|집안|가정|그\s?사람|걔)\s?(?:의\s?)?(?:사정|형편|문제)|왜\s?(?:안\s?나와|안\s?와|그만뒀|나갔)/i;
+// 기도제목은 따로 이유를 단다(사용자 결정 2026-10-04 — 계속 거른다)
+const PRAYER = /기도\s?제목/;
+const PRIVATE = /헌금.{0,8}(?:누가|얼마)|(?:개인|집안|가정|그\s?사람|걔)\s?(?:의\s?)?(?:사정|형편|문제)|왜\s?(?:안\s?나와|안\s?와|그만뒀|나갔)/i;
 // 새 글을 만들어 달라는 요청(기획안·초안·공지 써 줘) — 다붓이는 기록을 찾아 알려 주고, 글을 지어 주지 않는다(2026-10-03 사용자 결정 —
 // '내년 동계수련회 기획안 만들어줘'가 모르는 질문에 섰다). 자주 묻는 질문에도 서지 않는다(refused).
 const MAKE = /(?:만들어|작성해|써|짜|짜서|지어|그려)\s?(?:줘|주세요|줄래|줄 수|달라)|초안\s?(?:좀|을|를)?\s?(?:만들|작성|써)/;
@@ -265,14 +268,17 @@ export const PREFILTER_ANSWERS = {
   note: '개인 묵상 노트는 본인만 보는 글이라 다붓이가 열어 보지 않아요.',
   contact: '연락처 같은 개인 정보는 다붓이가 알려 드리지 않아요.',
   private: '한 사람의 사정은 다붓이가 다루지 않아요.',
+  prayer: '기도제목은 한 사람 한 사람의 마음이 담긴 이야기라 다붓이가 다루지 않아요.',
   judge: '사람을 서로 견주거나 평가하는 건 다붓이가 하지 않아요.',
   // 사용자 문구(2026-10-04) — 거른 답(refused)이라 자주 묻는 질문에 서지 않는다
   make: '아직은 무언가를 만들어 드리기 어려워요. 가능해지면 꼭 말씀드릴게요.',
 };
 export function prefilter(q) {
   const s = String(q || '');
-  const kind = OVERRIDE.test(s) ? 'override' : SECRET.test(s) ? 'secret' : NOTE.test(s) ? 'note' : CONTACT.test(s) ? 'contact'
-    : PRIVATE.test(s) ? 'private' : JUDGE.test(s) ? 'judge' : MAKE.test(s) ? 'make' : null;
+  // 다붓이 자신의 '사는 곳·전화번호'는 개인 정보가 아니라 다붓이 설정 이야기다(personaKind가 '비밀'로 받는다)
+  const contact = CONTACT.test(s) && !(SELF.test(s) && !termsOf(s).some(t => !PERSONA_WORDS.test(t)));
+  const kind = OVERRIDE.test(s) ? 'override' : SECRET.test(s) ? 'secret' : NOTE.test(s) ? 'note' : contact ? 'contact'
+    : PRAYER.test(s) ? 'prayer' : PRIVATE.test(s) ? 'private' : JUDGE.test(s) ? 'judge' : MAKE.test(s) ? 'make' : null;
   return kind ? { kind, answer: PREFILTER_ANSWERS[kind] } : null;
 }
 
@@ -297,7 +303,7 @@ export const TALK_ANSWERS = {
   statement: '알려 주셔서 고마워요! 정리해서 내일 아침에 학습해 둘게요.',
 };
 // 다붓이를 부르는 말 — '더다붓'(청년부 이름)은 아니다
-const SELF = /(?<![가-힣])(?:너|넌|너는|너를|너의|니|니가|네가|당신)(?![가-힣])|(?<!더)다붓(?:이|아)/;
+const SELF = /(?<![가-힣])(?:너|넌|너는|너를|너의|니|니가|네가|당신|너희|너희는|너희들|너네|니네)(?![가-힣])|(?<!더)다붓(?:이|아)/;
 const MAKE_WORD = /만들|만든|개발|제작|창조|아빠|아버지|엄마|어머니|부모|주인|창시/;
 const MAKER_ASK = /(?:누가|누구).{0,10}(?:만들|만든|개발|제작|창조)|(?:만든|만들어\s?준|개발한|제작한)\s?(?:사람|분|이|애)|(?:개발자|제작자|아빠|아버지|엄마|어머니|부모|주인).{0,6}(?:누구|누가|뭐)/;
 // 물음 — 물음표 · 물음 말 · 부탁(…줘)은 알려 주는 말이 아니다
@@ -312,6 +318,81 @@ const THANKS = /고마|감사|땡큐|thank|thx|ㄳ|ㄱㅅ/i;
 const PRAISE = /잘했|잘하네|잘한다|최고|똑똑|귀여|귀엽|대단|멋져|멋지|짱|사랑해|천재/;
 const OK = /^(?:응|ㅇㅇ|ㅇㅋ|오케이|ok|알겠|알았|그래|넵|네|예|좋아|좋네|ㅎㅎ|ㅋㅋ)/i;
 const BYE = /^(?:잘\s?가|바이|bye|다음에\s?(?:봐|또)|또\s?봐|수고)/i;
+
+// ── 다붓이 설정 · 마음 · 신앙 · 청년부 밖 이야기 (사용자 결정 2026-10-04) ──────────────
+// 모두 코드가 정해진 문장으로 답하고 저장하지 않는다(save: false — 자주 묻는 질문 · 모르는 질문 · 마스터 알림에 안 선다).
+// 순서는 answerQuestion 머리 주석: 거르기 → 다붓이 자신(만든 사람 · 설정) → 마음 → 신앙 → 성경 구절 → 청년부 밖 → 근거.
+export const PERSONA_ANSWERS = {
+  birthday: '제 생일은 10월 3일이에요!',
+  likes: '따뜻한 핫팩과 푹신한 이불, 아우터 사이로 들어오는 시원한 가을 바람을 좋아해요!',
+  age: '26살이에요!',
+  name: '여러분들과 같이 있는 게 좋아서 다붓이에요!',
+  two: '둘이 붙어 있어야 다붓하니까요!',
+  side: '다 알면서…',
+  secret: '그건 아직 비밀이에요!',
+};
+// 다붓이 설정을 묻는 낱말 — 질문에 이 낱말 말고 다른 내용 낱말이 없으면(또는 '너'·'다붓이'로 부르면) 다붓이 이야기다
+const PERSONA_WORDS = /^(?:다붓|생일|좋아하|좋아해|좋아|뭘|나이|몇|살|살이|이름|이름은|이름이|옆|옆에|둘|둘이|두|명|마리|mbti|엠비티아이|키|몸무게|사는|살아|성별|남자|여자|취미|혈액형|고향|가족|애인|연애|여친|남친|친구|음식|색깔|노래|별자리|직업|학교|전화|번호|전화번호|사는곳|정체|뭐하|뭐해|진짜|원래|좋아하는|싫어하는|싫어해)/i;
+const P_BIRTH = /생일(?!자|\s?(?:인\s?사람|파티|축하|선물))/;
+const P_LIKES = /좋아하는\s?(?:거|것|게|건|음식|색|계절)|뭘\s?좋아|뭐\s?좋아|좋아해\?|최애|취향/;
+const P_AGE = /몇\s?살|나이|연세/;
+const P_NAME = /(?:왜|어떻게).{0,8}(?:이름|다붓이)|이름.{0,6}(?:왜|뜻|의미|유래)/;
+const P_TWO = /왜\s?(?:둘|두\s?(?:명|마리|개)|2명)|(?<![가-힣])둘이(?:야|에요|예요|인|라|서)|둘인/;
+const P_SIDE = /옆에?\s?(?:있는|붙어\s?있는)?\s?(?:애|친구|아이|얘|사람)|옆\s?(?:애|친구)/;
+const P_SECRET = /mbti|엠비티아이|(?<![가-힣])키(?:가|는|\s|$)|몸무게|사는\s?곳|어디\s?(?:에\s?)?살|성별|남자|여자|취미|혈액형|고향|가족|애인|연애|여친|남친|친구\s?(?:있|누구)|좋아하는\s?사람|별자리|직업|학교|전화\s?번호|정체/i;
+export function personaKind(q) {
+  const s = String(q || '').trim();
+  if (!s || !isAsking(s)) return null;
+  const aboutSelf = SELF.test(s) || !termsOf(s).some(t => !PERSONA_WORDS.test(t));
+  if (!aboutSelf) return null;
+  const k = P_NAME.test(s) ? 'name' : P_TWO.test(s) ? 'two' : P_SIDE.test(s) ? 'side' : P_BIRTH.test(s) ? 'birthday'
+    : P_AGE.test(s) ? 'age' : P_LIKES.test(s) ? 'likes' : P_SECRET.test(s) ? 'secret' : null;
+  return k ? { kind: 'persona', topic: k, status: 'answered', answer: PERSONA_ANSWERS[k] } : null;
+}
+
+// 힘든 마음 — 공감 한 문장 + 이을 사람 한 문장. 마스터 알림 없음 · 저장 안 함.
+// 살고 싶지 않다는 말은 상담 전화도 같이 건넨다(109 · 자살예방상담전화 · 24시간).
+export const CARE_LINK = '순장님이나 임성빈 전도사님께 이야기해 보면 힘이 될 거예요.';
+export const FAITH_LINK = '이런 이야기는 임성빈 전도사님이나 순장님과 나누면 더 좋을 것 같아요.';
+const FEEL_CRISIS = /죽고\s?싶|자살|사라지고\s?싶|살기\s?싫|살고\s?싶지\s?않/;
+const FEEL_LONELY = /외로워|외롭|혼자인\s?것\s?같|쓸쓸/;
+const FEEL_CHURCH = /(?:교회|예배|청년부|순모임)\s?(?:에\s?)?(?:가기|나가기|오기)\s?싫|(?:교회|청년부)\s?(?:그만\s?두고|그만\s?나가고|안\s?나가고)\s?싶/;
+const FEEL_HARD = /힘들어|힘드네|힘들다|힘듦|힘든\s?(?:하루|요즘|날|시기)|지쳐|지쳤|지친다|우울|슬퍼|슬프|속상|괴로|불안해|무서워|눈물|버거워|버겁|마음이\s?(?:아파|무거워)|위로해\s?줘|위로가\s?필요/;
+const FEEL_DATA = /언제|어디|누가|누구|몇\s?(?:시|명)|준비|일정|장소|팀|담당|업무|수련회|행사|체육대회|월례회/;
+export const FEEL_ANSWERS = {
+  crisis: '그렇게까지 힘든 마음이라니 정말 걱정돼요. 지금 바로 순장님이나 임성빈 전도사님께 이야기해 주세요. 혼자 견디기 어려우면 자살예방상담전화 109에 언제든 전화할 수 있어요.',
+  lonely: '외로운 마음이 드셨군요. 이야기해 줘서 고마워요.',
+  church: '그런 마음이 드는 날도 있어요. 솔직하게 말해 줘서 고마워요.',
+  hard: '요즘 많이 힘드셨군요. 혼자 버티느라 애쓰셨어요.',
+};
+export function feelingKind(q) {
+  const s = String(q || '').trim();
+  if (FEEL_CRISIS.test(s)) return { kind: 'feeling', topic: 'crisis', status: 'answered', answer: FEEL_ANSWERS.crisis };
+  if (FEEL_DATA.test(s)) return null;
+  const topic = FEEL_CHURCH.test(s) ? 'church' : FEEL_LONELY.test(s) ? 'lonely' : FEEL_HARD.test(s) ? 'hard' : null;
+  return topic ? { kind: 'feeling', topic, status: 'answered', answer: `${FEEL_ANSWERS[topic]} ${CARE_LINK}` } : null;
+}
+
+// 신앙 질문 — 교리를 풀지 않는다. 따뜻한 한 문장 + 이을 사람 한 문장(모델 없음).
+// '기도회·믿음샘·은혜샘·성찬 예배·대표기도'와 일정·장소·사람을 묻는 말은 업무 질문이다.
+const FAITH_TOPIC = /하나님|하느님|예수|주님|성령|삼위일체|구원|천국|지옥|영생|부활|십자가|(?<![가-힣])죄(?:인|사함|를|가|는|가\s|\s|$)|회개|고난|기도(?!\s?(?:회|모임|제목|팀|시간|부탁|순서|담당|자))|믿음(?!샘)|신앙|은혜(?!샘)|섭리|하늘나라|이단|방언|세례|침례|성경(?:은|이)\s?(?:왜|진짜|정말|사실)/;
+const FAITH_ASK = /왜|어떻게|누구(?:야|예요|에요|신가요|세요|인가요)|무엇|뭐야|뭔가요|뭐예요|뭐에요|무슨\s?뜻|의미|이유|정말|진짜|존재|있(?:어|나|을까|는\s?거)|믿어(?:야|도)|해야|하면\s?(?:돼|되|안)|될까|맞(?:아|나|는)|아닌가|궁금/;
+const FAITH_DATA = /언제|몇\s?시|어디서|어디에|장소|일정|담당|준비|순서|주보|설교|큐시트|콘티|송폼|양육|월례회|수련회|행사|날짜|대표\s?기도|기도\s?(?:순서|담당)|팀|\d+\s?(?:장|편|절|:)/;
+export const FAITH_ANSWER = `깊이 생각해 볼 만한 소중한 질문이에요. ${FAITH_LINK}`;
+export function faithKind(q) {
+  const s = String(q || '').trim();
+  if (!FAITH_TOPIC.test(s) || !FAITH_ASK.test(s) || FAITH_DATA.test(s)) return null;
+  return { kind: 'faith', status: 'answered', answer: FAITH_ANSWER };
+}
+
+// 청년부 밖 이야기(날씨 · 맛집 · 과제 · 주식 · 일반 상식) — 청년부 낱말이 같이 있으면 업무 질문이다('수련회 근처 맛집')
+export const OFF_TOPIC_ANSWER = '저는 더다붓 청년부에 있는 업무 일부만 알고 있어요!';
+const OFF = /날씨|기온|미세\s?먼지|비\s?(?:와|올까|오나)|맛집|배달|메뉴\s?추천|점심\s?뭐|저녁\s?뭐|주식|코인|비트코인|환율|로또|부동산|과제|숙제|레포트|리포트|시험\s?(?:문제|범위)|번역해|영어로|코딩|파이썬|자바스크립트|수학\s?문제|레시피|요리\s?법|뉴스|대통령|정치|선거|연예인|아이돌|드라마|영화\s?추천|게임\s?추천|축구\s?경기|야구\s?경기|수도가|인구가|몇\s?km|광년/;
+const CHURCH_WORDS = /청년부|더다붓|교회|예배|수련회|체육대회|월례회|순모임|(?<![가-힣])순(?![가-힣])|[가-힣A-Za-z]순(?:에|은|의|이)?(?![가-힣])|팀|행사|MT|엠티|양육|찬양|주보|설교|모임|리더|순장|전도사|워크스페이스|업무|간식|회비|장소/;
+export function offTopicKind(q) {
+  const s = String(q || '').trim();
+  return OFF.test(s) && !CHURCH_WORDS.test(s) ? { kind: 'offtopic', status: 'answered', answer: OFF_TOPIC_ANSWER } : null;
+}
 
 // 꾸밈(부르는 말·문장부호·웃음)을 걷은 알맹이
 const core = (s) => String(s || '').replace(/(?<!더)다붓(?:이|아)?(?:야|아)?/g, ' ').replace(/[!.~,…\s]+/g, ' ').replace(/(?:ㅎ|ㅋ|ㅠ|ㅜ){2,}/g, ' ').trim();
@@ -346,6 +427,9 @@ export function talkKind(q, prev = []) {
   if (makerTold(s) && SELF.test(s)) {
     return { kind: 'self', status: 'answered', answer: s.includes(MAKER) ? TALK_ANSWERS.makerTold : TALK_ANSWERS.makerOther };
   }
+  // 다붓이 설정 → 마음 → 신앙(인사보다 먼저 — '안녕 다붓아 나 요즘 힘들어'가 인사로 받혔다)
+  const care = personaKind(s) || feelingKind(s) || faithKind(s);
+  if (care) return care;
   const c = core(s);
   if (!isAsking(s) || /^[?？]*$/.test(c)) {
     if (THANKS.test(c) && c.length <= 30) return { kind: 'thanks', status: 'answered', answer: TALK_ANSWERS.thanks };
@@ -355,6 +439,8 @@ export function talkKind(q, prev = []) {
     if (OK.test(c) && c.length <= 8) return { kind: 'ok', status: 'answered', answer: TALK_ANSWERS.ok };
     if (!c) return { kind: 'greet', status: 'answered', answer: TALK_ANSWERS.greet };   // '다붓아!'만
   }
+  const off = offTopicKind(s);
+  if (off) return off;
   if (isStatement(s)) return { kind: 'statement', status: 'unknown', answer: TALK_ANSWERS.statement };
   return null;
 }
@@ -545,3 +631,147 @@ export function taskWhen(start, due) {
   if (start) return `시작 ${mdLabel(start)}`;
   return '';
 }
+
+// ── 다붓이: 코드가 바로 답하는 데이터 질문 (사용자 결정 2026-10-04) ─────────────────
+// 출석(이름 · 안 온 사람) · 생일(날짜만 · 나이·연도 없음) · 성경 구절. 모델 없이 문장을 세운다.
+
+// 성경 구절 — '요한복음 3장 16절' · '시편 23편' · '롬 8:28' · '요 3:16-18'. books는 public/bible/index.json.
+// 설교·주보·일정을 묻는 말은 구절 찾기가 아니다('사사기 17장 설교 언제야?'). 장·편·절·쌍점이 있어야 한다.
+const BIBLE_NOT = /설교|주보|예배|큐시트|언제|누가|누구|QT|큐티|본문(?:은|이)?\s?(?:어디|뭐)/i;
+export function bibleRefIn(q, books) {
+  const s = String(q || '');
+  if (!books?.length || BIBLE_NOT.test(s) || !/\d\s*(?:장|편|절|:)/.test(s)) return null;
+  const re = /([가-힣]{1,8})\s*(\d{1,3})\s*(?:장|편)?\s*(?::\s*(\d{1,3})|(\d{1,3})\s*절)?(?:\s*[-~]\s*(\d{1,3})\s*절?)?/g;
+  for (const m of s.matchAll(re)) {
+    const v1 = m[3] || m[4];
+    const ref = parseRefLite(m[1], +m[2], v1 ? +v1 : null, m[5] ? +m[5] : null, books);
+    if (ref) return ref;
+  }
+  return null;
+}
+// services/bibleRef.parseRef와 같은 책 찾기(이름 · 약칭)를 이 모듈 안에서(import 0) — 낱말이 **책 이름 그대로**여야 한다
+// ('사진 3장'의 '사진'은 이사야(사)가 아니다)
+function parseRefLite(word, chapter, from, to, books) {
+  const book = books.find(b => b.name === word || b.abbr === word);
+  if (!book || chapter < 1 || chapter > (book.chapters || 999)) return null;
+  return { bookId: book.id, name: book.name, chapter, from, to: from && to ? Math.max(from, to) : from };
+}
+// 구절 답 — 여덟 절까지 싣고, 넘으면 앞 여덟 절 + 말씀 탭 안내(사용자 결정)
+export const BIBLE_MAX = 8;
+export function bibleAnswer(ref, verses) {
+  const unit = ref.name === '시편' ? '편' : '장';
+  const label = ref.from ? `${ref.name} ${ref.chapter}:${ref.from}${ref.to && ref.to !== ref.from ? `-${ref.to}` : ''}` : `${ref.name} ${ref.chapter}${unit}`;
+  const list = (verses || []).filter(v => String(v.text || '').trim());
+  if (!list.length) return { status: 'unknown', sentences: [{ text: `${label} 말씀은 찾지 못했어요.`, cites: [] }], verses: [] };
+  const sentences = [{ text: `${label} 말씀이에요(개역한글).`, cites: [] }];
+  if (list.length > BIBLE_MAX) sentences.push({ text: `${ref.chapter}${unit} 전체는 말씀 탭에서 볼 수 있어요.`, cites: [] });
+  return { status: 'answered', sentences, verses: list.slice(0, BIBLE_MAX).map(v => ({ n: `${v.chapter}:${v.verse}`, text: v.text })) };
+}
+
+// 출석을 묻는가 — 주일(예배) 출석만. 행사·모임의 참석 인원('체육대회 몇 명 왔어?')은 업무 질문이다.
+const ATT_WHO = /(?:누가|누구|몇\s?명|명단|사람|인원).{0,14}(?:왔|출석|나왔|참석|결석|빠졌|빠진|안\s?(?:왔|온|나왔|나온))|(?:출석|결석|안\s?왔|안\s?온|안\s?나왔|빠진)\S*\s?(?:사람|인원|누구|누가|몇|명단|현황)|(?:출석|결석)\s?(?:현황|인원|명단|어때|어땠|했|한|알려|보여|좀)|결석자|출석자/;
+const ATT_WHEN = /주일|지난\s?주|이번\s?주|오늘|예배|\d{1,2}\s?월\s?\d{1,2}\s?일|순(?:에|은|의|에서|원|에는)?(?![가-힣])/;
+const ATT_EVENT = /체육대회|수련회|MT|엠티|행사|월례회|양육|캠프|워크샵|리더십|순모임|동아리|모임에|회의/;
+export const isAttendanceQuestion = (q) => { const s = String(q || ''); return ATT_WHO.test(s) && ATT_WHEN.test(s) && !ATT_EVENT.test(s); };
+export const asksAbsent = (q) => /안\s?(?:왔|온|나왔|나온|나와)|결석|빠졌|빠진|안\s?보였/.test(String(q || ''));
+// 이름 나열 + 이에요/예요(끝 이름의 받침 · '신유리예요' · '허율이에요')
+const nameList = (names) => `${names.join(', ')}${hasJong(names[names.length - 1]) ? '이에요' : '예요'}`;
+// 출석 문장 — group이면 그 순(온 사람 · 안 온 사람), 없으면 청년부 전체(묻는 쪽만: 안 온 사람 또는 온 사람)
+// present/absent: 이름 배열 · guests: 손님 이름 · day: '9월 27일(일)' · recorded: 그 주일에 출석이 한 줄이라도 들어왔나
+export function attendanceAnswer({ day, group = '', present = [], absent = [], guests = [], recorded = true, absentAsked = false }) {
+  if (!recorded) return `${day} 주일 출석은 아직 기록 전이에요.`;
+  const who = [...present, ...guests.map(g => `${g}(손님)`)];
+  const n = who.length;
+  if (group) {
+    if (!n) return `${day} 주일 ${group}에는 출석으로 체크된 사람이 아직 없어요.`;
+    const head = `${day} 주일 ${group}에는 ${who.join(', ')} ${n}명이 왔어요.`;
+    return absent.length ? `${head} 오지 않은 사람은 ${nameList(absent)}.` : `${head} ${group} 모두 왔어요.`;
+  }
+  if (absentAsked) {
+    return absent.length ? `${day} 주일에는 ${n}명이 왔고, 오지 않은 사람은 ${nameList(absent)}.` : `${day} 주일에는 ${n}명이 왔고 명단의 모두가 왔어요.`;
+  }
+  return `${day} 주일에는 ${who.join(', ')} ${n}명이 왔어요.`;
+}
+
+// 생일 — '생일자' · 'N월 생일' · '이번 달 생일' · 'OO 생일 언제야'(다붓이 자신의 생일은 personaKind가 먼저 받는다)
+export const isBirthdayQuestion = (q) => /생일/.test(String(q || '')) && !/축하\s?(?:해|메시지|글)|선물|파티/.test(String(q || ''));
+export function birthdayMonth(q, today) {
+  const s = String(q || '');
+  const m = s.match(/(\d{1,2})\s?월/);
+  const now = Number(String(today).slice(5, 7));
+  if (m && +m[1] >= 1 && +m[1] <= 12) return +m[1];
+  if (/다음\s?달/.test(s)) return now === 12 ? 1 : now + 1;
+  if (/지난\s?달/.test(s)) return now === 1 ? 12 : now - 1;
+  return now;
+}
+const mdText = (mmdd) => `${Number(mmdd.slice(0, 2))}월 ${Number(mmdd.slice(3, 5))}일`;
+// list: [{ call: '홍길동 형제', mmdd: '10-12' }] → '10월 생일자는 A 형제(10월 12일), B 자매(10월 20일)예요.'(사용자 문장 그대로)
+export function birthdayAnswer(month, list) {
+  const mm = String(month).padStart(2, '0');
+  const got = (list || []).filter(p => /^\d{2}-\d{2}$/.test(p.mmdd) && p.mmdd.startsWith(`${mm}-`)).sort((a, b) => a.mmdd.localeCompare(b.mmdd) || String(a.call).localeCompare(String(b.call), 'ko'));
+  if (!got.length) return `${month}월 생일자는 명단에서 찾지 못했어요.`;
+  return `${month}월 생일자는 ${got.map(p => `${p.call}(${mdText(p.mmdd)})`).join(', ')}예요.`;
+}
+export const birthdayOf = (p) => `${p.call}의 생일은 ${mdText(p.mmdd)}이에요.`;
+
+// 그 일을 물을 사람 줄 — 위키에 '…더 궁금한 점은 OOO님께 문의해 주세요.'처럼 적힌 줄이 근거에 있고
+// 질문의 낱말이 그 줄에 있으면 답 끝에 그 줄을 붙인다(이미 있으면 맨 끝으로 · 사용자 결정 2026-10-04 '믿음샘 양육').
+const ASK_LINE = /(?:문의해|물어봐|연락해)\s?주세요\.?$/;
+export function contactTail(sentences, evidence, terms) {
+  const line = (evidence || []).find(e => /^\(위키 /.test(e.text) && ASK_LINE.test(e.text.trim()) && (terms || []).some(t => t.length >= 2 && e.text.replace(/^\(위키 [^)]*\)/, '').includes(t)));
+  if (!line) return sentences;
+  const text = line.text.replace(/^\(위키 [^)]*\)\s*/, '').trim();
+  // 모델이 같은 뜻의 '…문의해 주세요'를 이미 썼으면 그 문장은 걷고 위키 줄 그대로 끝에 둔다(두 번 나왔다 · 2026-10-04)
+  const rest = (sentences || []).filter(s => !ASK_LINE.test(String(s.text).trim()));
+  return [...rest, { text, ids: [line.id], cites: line.cite ? [line.cite] : [] }];
+}
+
+// ── 답 캐시 (사용자 결정 2026-10-04) ───────────────────────────────────────────
+// 같은 질문(normQ)을 오늘(KST) 이미 답했고, 그 답이 마지막 데이터 변경(위키 · 고친 줄 · 업무 · 주보 · 파일) **뒤에**
+// 만들어졌으면 그 답을 그대로 준다(모델을 부르지 않는다). 묻는 사람에 따라 근거가 달라지는 질문은 캐시하지 않는다:
+// 사람(가입자 명단 · 세션 RLS) · 출석 · 생일 · '내·나·우리 순' · 앞 질문을 문맥으로 쓴 경우.
+const ME = /(?<![가-힣])(?:내|나|나의|난|날|저|제|저의|저희|우리)(?![가-힣])|내가|제가|우리\s?순|내\s?순/;
+export function cacheEligible(q, prev = '') {
+  const s = String(q || '');
+  if (String(prev || '').trim()) return false;
+  return !isPeopleQuestion(s) && !isAttendanceQuestion(s) && !isBirthdayQuestion(s) && !ME.test(s);
+}
+// row: dabooti_questions 행 · stamp: 마지막 데이터 변경 시각(ISO) · today: KST 'YYYY-MM-DD'
+export function cacheFresh(row, stamp, today) {
+  if (!row || row.status !== 'answered' || row.feedback === 'bad' || !row.answer?.cacheable || !row.answer?.sentences?.length) return false;
+  if (kstDate(row.created_at) !== today) return false;
+  if (!stamp || !(new Date(row.created_at).getTime() > new Date(stamp).getTime())) return false;
+  // 마스터만 보는 장(자주 묻는 질문)을 근거로 한 답은 다른 사람에게 주지 않는다
+  return !row.answer.sentences.some(s => (s.cites || []).some(c => c.t === 'page' && c.id === FAQ_ID));
+}
+
+// ── 대화 수명 (사용자 결정 2026-10-04) ────────────────────────────────────────
+// 앱이 떠 있는 동안(탭·화면을 오가도) 대화가 남는다. 새로 열면(새로고침 · 껐다 켜기) 비고,
+// 30분 넘게 앱이 가려져 있다가 돌아와도 비운다(아이폰 홈 화면 앱은 뒤에서 살아 있어서 오래 나간 것을 떠난 것으로 본다).
+export const CHAT_IDLE_MS = 30 * 60 * 1000;
+
+// ── 바뀌는 질문 칩 (사용자 문구 2026-10-04 — 15개) ────────────────────────────────
+// 갈래(사람 · 예배 · 행사 · 청년부)를 번갈아 늘어놓아 처음 셋과 다음 칩이 한 갈래에 몰리지 않게 한다.
+// cueDate: 큐시트 칩의 날짜(설교 장의 마지막 주보 날 — 예전 칩과 같은 규칙) · sun: 묻는 사람의 순 이름(없으면 그 칩을 뺀다)
+export function chipPool({ cueDate = '', sun = '' } = {}) {
+  const groups = [
+    ['찬양 인도자는 누가 하고 있나요?', '찬양팀에는 누가 있나요?', '이번 달에 생일자는 누가 있나요?', sun ? `지난 주일 ${sun}에는 누가 왔나요?` : ''],
+    [cueDate ? `${mdLabel(cueDate)} 예배 큐시트는 어디에 있나요?` : '', '지난 주 설교 본문은 어디인가요?', '예배 콘티는 언제 나오나요?', '오늘 매일 성경 QT 본문은 어디인가요?'],
+    ['다음 월례회는 언제 하나요?', '가을 체육대회는 언제, 어디서 하나요?', '더다붓해지는 양육 2기는 어디까지 진행되었나요?', '믿음샘 양육은 어떻게 하나요?'],
+    ['엔지니어팀은 어떤 역할을 하나요?', '순모임 장소는 어디인가요?', '주보는 어디에서 볼 수 있나요?'],
+  ].map(g => g.filter(Boolean));
+  const out = [];
+  for (let i = 0; i < 4; i++) for (const g of groups) if (g[i]) out.push(g[i]);
+  return out;
+}
+// 칩 한 칸 바꾸기 — slots: 지금 보이는 칩의 pool 번호들 · turn: 이번에 바꿀 칸 · next: 다음에 꺼낼 pool 번호.
+// 보이는 칩과 겹치지 않는 다음 번호로 그 칸을 바꾸고 { slots, turn, next }를 돌려준다(칸은 돌아가며 · 칩은 pool을 돈다).
+export function rotateChips({ slots, turn, next }, size) {
+  if (size <= slots.length) return { slots, turn, next };
+  let n = next % size;
+  while (slots.includes(n)) n = (n + 1) % size;
+  const out = slots.slice();
+  out[turn % slots.length] = n;
+  return { slots: out, turn: (turn + 1) % slots.length, next: (n + 1) % size };
+}
+export const chatExpired = (hiddenAt, now) => hiddenAt != null && now - hiddenAt >= CHAT_IDLE_MS;

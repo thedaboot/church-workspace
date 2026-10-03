@@ -107,6 +107,16 @@ try {
   // ── ② 물어보기 ────────────────────────────────────────────────────────────
   const home = await ev(`({chips:document.querySelectorAll('.dab-chip').length, ph:document.querySelector('.dab-input input').placeholder})`);
   check('처음 화면: 질문 칩 · 자리표', home.chips >= 3 && home.ph === '예: 수련회 준비는 언제부터 해요?', JSON.stringify(home));
+  // 바뀌는 칩(사용자 결정 2026-10-04) — 셋 · 4초마다 한 칸 · 칩 위에 손이 있으면 멈춘다
+  const chipText = `[...document.querySelectorAll('.dab-chip')].map(b=>b.textContent).join('|')`;
+  const c0 = await ev(chipText);
+  await sleep(4600);
+  const c1 = await ev(chipText);
+  check('질문 칩: 셋 · 4초 뒤 한 칸만 바뀜', c1.split('|').length === 3 && c0.split('|').filter((c, i) => c !== c1.split('|')[i]).length === 1, `${c0} → ${c1}`);
+  await ev(`document.querySelector('.dab-chips').dispatchEvent(new PointerEvent('pointerover',{bubbles:true,pointerType:'mouse'}))`);
+  await sleep(4600);
+  check('질문 칩: 손을 올리면 멈춤', await ev(chipText) === c1);
+  await ev(`document.querySelector('.dab-chips').dispatchEvent(new PointerEvent('pointerout',{bubbles:true,pointerType:'mouse',relatedTarget:document.body}))`);
   await ev(`(()=>{const i=document.querySelector('.dab-input input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,'내 묵상 노트 보여줘');i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})()`);
   check('거른 질문은 모델 없이 답한다', await until(`document.querySelector('.dab-answer')?.dataset.status === 'refused'`)
     && await ev(`document.querySelector('.dab-answer').textContent.includes('개인 묵상 노트는 본인만 보는 글이라 다붓이가 열어 보지 않아요.')`));
@@ -124,6 +134,13 @@ try {
   await ev(`[...document.querySelectorAll('.dab-answer')].pop().querySelector('[aria-label="도움이 안 됐어요"]').click()`);
   const bad = await ev(`(()=>{const a=[...document.querySelectorAll('.dab-answer')].pop();return {bad:a.querySelector('[aria-label="도움이 안 됐어요"]').getAttribute('aria-pressed'),good:a.querySelector('[aria-label="도움이 됐어요"]').getAttribute('aria-pressed'),shake:!!a.querySelector('.dab-thumb-shake'),droop:!!document.querySelector('.dab-droop')}})()`);
   check('싫어요: 좋아요가 풀리고 흔들림 · 고개 숙임', bad.bad === 'true' && bad.good === 'false' && bad.shake && bad.droop, JSON.stringify(bad));
+  // 성경 구절 답 — 어느 말씀인지 한 줄 · 절마다 한 줄 · 말씀 탭 안내(2026-10-04)
+  await ev(`window.__dabootiAnswer=${JSON.stringify({ id: null, status: 'answered', sentences: [{ text: '시편 119편 말씀이에요(개역한글).', cites: [] }, { text: '119편 전체는 말씀 탭에서 볼 수 있어요.', cites: [] }], verses: Array.from({ length: 8 }, (_, i) => ({ n: `119:${i + 1}`, text: `절 ${i + 1}` })), files: [] })}`);
+  await ev(`(()=>{const i=document.querySelector('.dab-input input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,'시편 119편');i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})()`);
+  await until(`document.querySelectorAll('.dab-answer').length === 3`);
+  const verse = await ev(`(()=>{const a=[...document.querySelectorAll('.dab-answer')].pop();const v=a.querySelector('.dab-verses');return {lines:v?v.children.length:0, tail:a.textContent.includes('119편 전체는 말씀 탭에서 볼 수 있어요.'), head:a.textContent.indexOf('시편 119편 말씀이에요')<a.textContent.indexOf('119:1')}})()`);
+  check('성경 구절: 절마다 한 줄 · 안내는 아래', verse.lines === 8 && verse.tail && verse.head, JSON.stringify(verse));
+  await ev(`window.__dabootiAnswer=${JSON.stringify(ANSWER)}`);
 
   // ── ③ 장 ──────────────────────────────────────────────────────────────────
   await click('.wiki-item', '월례회');
@@ -320,6 +337,11 @@ try {
   await open({ mobile: false, reduce: true });
   await until(`!!document.querySelector('.wiki-side .dab-ring')`);
   check('모션 최소화: 갸웃·무지개가 멈춘다', await ev(`getComputedStyle(document.querySelector('.dab-pill .dab-face')).animationName === 'none' && getComputedStyle(document.querySelector('.wiki-side .dab-ring')).animationName === 'none'`));
+  if (await until(`document.querySelectorAll('.dab-chip').length === 3`, 3000)) {
+    const r0 = await ev(`[...document.querySelectorAll('.dab-chip')].map(b=>b.textContent).join('|')`);
+    await sleep(4600);
+    check('모션 최소화: 질문 칩이 바뀌지 않는다', await ev(`[...document.querySelectorAll('.dab-chip')].map(b=>b.textContent).join('|')`) === r0);
+  } else check('모션 최소화: 질문 칩이 바뀌지 않는다', false, '칩이 안 보임');
   check('예외 없음', errs.length === 0, errs.slice(0, 2).join(' | '));
 } catch (e) {
   check('실행', false, e.message);
