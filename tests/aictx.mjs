@@ -611,6 +611,10 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
     { id: 'faq', grp: '함께 쓰는 글', title: '자주 묻는 질문', position: 9, updated_at: '2026-10-02T00:00:00Z', blocks: [
       { key: 'known', type: 'list', items: [{ key: 'f1', by: 'human', text: '콘티 송폼 찬양팀 FAQ에만있는줄이에요.' }] },
     ] },
+    // 워크스페이스 사용법 장은 앱 쓰는 법이라 업무 AI 맥락에 싣지 않는다(다붓이만 읽는다)
+    { id: 'guide', grp: '함께 쓰는 글', title: '워크스페이스 사용법', position: 2, updated_at: '2026-10-02T00:00:00Z', blocks: [
+      { key: 'bulletin', type: 'list', title: '주보 보기', items: [{ key: 'b1', by: 'seed', text: '예배 탭에서 콘티 송폼 사용법줄을 골라요.' }] },
+    ] },
   ];
   const EDITS = [
     { page_id: 'intro', item_key: 'team1', block_key: 'teams', text: '싱어와 연주자, 인도자가 함께해요. 인도자는 주마다 돌아가며 맡아요.', before: '싱어와 연주자가 함께해요. 콘티와 송폼을 만들고 리허설을 해요.', edited_at: '2026-10-03T00:00:00Z' },
@@ -630,6 +634,8 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
   check('위키 맥락: 그 업무 자신의 장 블록 · 칩 · 기록 전 칸은 안 실린다', !out.includes('콘티 결정 업무 자체') && !out.includes('칩으로만') && !out.includes('기록 전인'));
   // 되돌리기: SKIP_PAGES에서 FAQ_ID를 빼면 깨진다
   check('위키 맥락: 자주 묻는 질문 장은 안 실린다', !out.includes('FAQ에만') && !pick('FAQ에만있는줄이에요').includes('FAQ에만'));
+  // 되돌리기: SKIP_PAGES에서 'guide'를 빼면 깨진다
+  check('위키 맥락: 워크스페이스 사용법 장은 안 실린다', !out.includes('사용법줄') && !pick('사용법줄을 콘티 송폼').includes('사용법줄'));
   check('위키 맥락: 사람이 지운 줄(빈 글)은 안 실린다', !pick('월례회 순모임 리더').includes('월례회 · 둘째 주 순모임 뒤에'));
   check('위키 맥락: 사람이 더한 줄도 고른다', pick('리더팀장 순장 모임').includes('리더팀장은 순장들을 챙기고'), pick('리더팀장 순장 모임').replace(/\n/g, ' / '));
   // 되돌리기: take의 글자 수 문턱을 빼면 깨진다

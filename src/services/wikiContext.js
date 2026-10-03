@@ -26,7 +26,8 @@ const LINE_MAX = 220;
 const LINES_MAX = 12;           // 칸이 남아도 약한 줄로 채우지 않는다
 const QUERY_MAX = 600;           // 본문은 앞만 본다 — 긴 회의록의 흔한 낱말이 줄을 고르지 않게
 const TEXT_TYPES = new Set(['hero', 'list', 'plain', 'teams', 'timeline', 'section', 'sermon']);
-const SKIP_PAGES = new Set([FAQ_ID, 'qt', 'songs']);
+// 워크스페이스 사용법(guide)은 앱 쓰는 법이라 업무 요약·다듬기·가이드의 맥락이 아니다(다붓이만 읽는다 · 2026-10-04)
+const SKIP_PAGES = new Set([FAQ_ID, 'qt', 'songs', 'guide']);
 
 const flat = (t) => stripBold(t).replace(/\s+/g, ' ').trim();
 const cut = (t, n) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
