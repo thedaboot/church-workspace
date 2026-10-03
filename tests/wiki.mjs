@@ -201,6 +201,19 @@ try {
       await until(`!!document.querySelector('.dab-answer')`);
       const back = await ev(`({pageY: document.scrollingElement.scrollTop, pageX: document.scrollingElement.scrollLeft, anim: !!document.querySelector('.dab-hop, .dab-droop, .dab-thumb-pop, .dab-thumb-shake, .dab-burst'), pressed: document.querySelector('.dab-answer [aria-label="도움이 됐어요"]').getAttribute('aria-pressed')})`);
       check(`폰: 물어보기로 돌아와도 페이지가 밀리지 않고 반응이 다시 돌지 않는다(누른 상태는 그대로)`, back.pageY === 0 && back.pageX === 0 && !back.anim && back.pressed === 'true', JSON.stringify(back));
+      // 칸에 치는 동안은 키보드가 하단 바를 덮는다 — main의 하단 바 몫 여백을 걷고 칸이 바닥에 · 안 칸에 네모 포커스 테두리가 없다(사용자 지적 2026-10-04)
+      await send('Emulation.setFocusEmulationEnabled', { enabled: true });   // 헤드리스는 창에 초점이 없어 :focus가 안 선다
+      await ev(`document.querySelector('.dab-input input').focus()`);
+      await sleep(150);
+      const kbState = `(()=>{const m=document.querySelector('main');const i=document.querySelector('.dab-input input');return {pb:parseFloat(getComputedStyle(m).paddingBottom), gap:Math.round(m.getBoundingClientRect().bottom-document.querySelector('.dab-input').getBoundingClientRect().bottom), outline:getComputedStyle(i).outlineStyle}})()`;
+      const noKb = await ev(kbState);
+      check(`폰: 키보드 없이 초점만 있으면 칸은 하단 바 위 그대로 · 네모 테두리 없음`, noKb.pb >= 80 && noKb.outline === 'none', JSON.stringify(noKb));
+      // 헤드리스에는 키보드가 없다 — App.jsx가 키보드가 뜨면 다는 표시를 직접 단다
+      await ev(`document.documentElement.setAttribute('data-kb','')`); await sleep(150);
+      const kb = await ev(kbState);
+      check(`폰: 키보드가 뜨면 하단 바 몫 여백이 걷혀 칸이 바닥에`, kb.pb <= 10 && kb.gap <= 24, JSON.stringify(kb));
+      await ev(`document.documentElement.removeAttribute('data-kb')`);
+      await ev(`document.activeElement.blur()`);
     }
 
     await click('button', '위키');
@@ -211,6 +224,13 @@ try {
     await click('button', '위키');
     await click('.wiki-item', '월례회');
     check(`폰(${theme}): 장 넘침 없음 · ‹ 위키`, await until(`!!document.querySelector('.wiki-page[data-page="p:wol"]')`) && await over());
+    // 고치기 칸은 글 밖으로 6px 나온다 — 넘김 때문에 가로를 자르는 판에 왼쪽 테두리가 잘리지 않는다(사용자 지적 2026-10-04)
+    await click('.wiki-edit', '수정');
+    await until(`document.querySelectorAll('.wiki-draft').length >= 3`);
+    const clip = await ev(`(()=>{const w=document.querySelector('.wiki-mobile').getBoundingClientRect();return [...document.querySelectorAll('.wiki-draft')].every(d=>{const r=d.getBoundingClientRect();return r.left-2>=w.left&&r.right+2<=w.right})})()`);
+    check(`폰(${theme}): 고치기 칸 테두리가 잘리지 않는다`, clip);
+    await click('button', '취소');
+    await until(`!document.querySelector('.wiki-draft')`);
     await click('button', '위키');
     check(`폰(${theme}): ‹ 위키 → 첫 화면`, await until(`!!document.querySelector('.wiki-mobile .wiki-list') && !document.querySelector('.wiki-page')`));
   }

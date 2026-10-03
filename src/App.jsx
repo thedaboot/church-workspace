@@ -584,6 +584,8 @@ function WorkspaceShell() {
     const apply = () => {
       const h = visibleH();
       root.style.setProperty('--app-vh', `${Math.round(h)}px`);
+      // 키보드가 떠 있다는 표시 — 하단 바(fixed)는 키보드 뒤로 가므로 그 몫 여백을 걷는 화면이 쓴다(index.css 위키 물어보기 칸)
+      root.toggleAttribute('data-kb', h < window.innerHeight - 80);
       // 아이폰이 이미 문서를 밀어 놨으면 되돌린다. 뿌리가 보이는 창만큼이면 문서는
       // 스크롤될 것이 없으므로 이 호출은 대개 아무 일도 하지 않는다(되돌릴 때만 움직인다).
       if (window.scrollY > 0) window.scrollTo(0, 0);
