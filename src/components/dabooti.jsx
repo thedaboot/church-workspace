@@ -148,6 +148,10 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
       <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} maxLength={300}
         onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); send(); } }}
         enterKeyHint="send"
+        // 아이폰은 칸을 누르면 칸을 키보드 위로 보이게 하려고 페이지 전체를 끌어올렸다가, --app-vh가 따라오면 되돌아와
+        // '잠깐 떴다가 조정'됐다(사용자 지적 2026-10-04). 사파리는 초점 순간 투명한 칸은 끌어올리지 않는다 — 한 프레임만 투명하게.
+        // 칸은 화면 바닥(스티키)이라 줄어든 뿌리를 따라 키보드 위로 저절로 온다.
+        onFocus={e => { const el = e.currentTarget; el.style.opacity = '0'; requestAnimationFrame(() => { el.style.opacity = ''; }); }}
         placeholder={chat.length ? '다붓이에게 더 물어보기' : '예: 수련회 준비는 언제부터 해요?'}
         aria-label={chat.length ? '다붓이에게 더 물어보기' : '다붓이에게 물어보기'}
         className="flex-1 min-w-0 bg-transparent outline-none text-[13.5px] text-fg placeholder:text-fg-faint" />

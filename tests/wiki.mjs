@@ -208,6 +208,8 @@ try {
       await ev(`document.querySelector('.dab-input input').focus()`);
       await sleep(150);
       const kbState = `(()=>{const m=document.querySelector('main');const i=document.querySelector('.dab-input input');return {pb:parseFloat(getComputedStyle(m).paddingBottom), gap:Math.round(m.getBoundingClientRect().bottom-document.querySelector('.dab-input').getBoundingClientRect().bottom), outline:getComputedStyle(i).outlineStyle}})()`;
+      // 초점 순간 한 프레임만 투명(아이폰이 페이지를 끌어올리지 않게) — 그 뒤에는 반드시 다시 보인다
+      check(`폰: 초점 뒤 칸 글자가 다시 보인다`, await ev(`getComputedStyle(document.querySelector('.dab-input input')).opacity === '1'`));
       const noKb = await ev(kbState);
       check(`폰: 키보드 없이 초점만 있으면 칸은 하단 바 위 그대로 · 네모 테두리 없음`, noKb.pb >= 80 && noKb.outline === 'none', JSON.stringify(noKb));
       // 키보드 흉내 — 아이폰처럼 보이는 창과 innerHeight가 **같이** 준다(innerHeight와 견주던 판은 여기서 표시가 안 섰다 · 2026-10-04 실기기)
