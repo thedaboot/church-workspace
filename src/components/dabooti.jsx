@@ -265,11 +265,11 @@ function Thumb({ m, v, onRate }) {
 export function chipsFrom(pages) {
   const out = [];
   const faq = pages.find(p => p.id === 'faq');
-  for (const it of faq?.blocks?.[0]?.items || []) if (it.meta?.q && out.length < 3) out.push(it.meta.q);
+  for (const it of faq?.blocks?.[0]?.items || []) if (it.meta?.q && out.length < 2) out.push(it.meta.q);
   const sermon = pages.find(p => p.id === 'sermon');
   const lastSvc = sermon?.blocks?.[0]?.meta?.date;
-  // 문구는 사용자 것(2026-10-03)
-  const base = ['월례회는 언제 해요?', '예배 송폼은 언제까지 나오나요?', '엔지니어팀은 어떤 팀이에요?', lastSvc ? `${mdLabel(lastSvc)} 예배 큐시트는 어디에 있나요?` : '예배 큐시트는 어디에 있나요?'];
-  for (const b of base) if (out.length < 4 && !out.includes(b)) out.push(b);
+  // 문구는 사용자 것(2026-10-03) · 송폼 질문은 뺐다(같은 날 — 모델이 '그 전주 금요일'을 '그 주 금요일'로 옮겨 검증에 걸렸다)
+  const base = ['월례회는 언제 해요?', '엔지니어팀은 어떤 팀이에요?', lastSvc ? `${mdLabel(lastSvc)} 예배 큐시트는 어디에 있나요?` : '예배 큐시트는 어디에 있나요?'];
+  for (const b of base) if (out.length < 3 && !out.includes(b)) out.push(b);
   return out;
 }

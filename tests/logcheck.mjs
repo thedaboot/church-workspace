@@ -5735,7 +5735,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const mig89 = readFileSync(new URL('../supabase/migrations/0089_wiki_title_master.sql', import.meta.url), 'utf8');
   assert.ok((mig89.match(/left\(item_key, 1\) <> '#' or public\.is_master\(\)/g) || []).length === 3, '0089: 제목 줄(#)은 마스터만 넣고 고친다');
   const chips = readFileSync(new URL('../src/components/dabooti.jsx', import.meta.url), 'utf8');
-  assert.ok(chips.includes("'예배 송폼은 언제까지 나오나요?', '엔지니어팀은 어떤 팀이에요?'") && chips.includes('예배 큐시트는 어디에 있나요?'), '질문 칩 문구(사용자 것)');
+  assert.ok(chips.includes("const base = ['월례회는 언제 해요?', '엔지니어팀은 어떤 팀이에요?',") && chips.includes('예배 큐시트는 어디에 있나요?') && !chips.includes("'예배 송폼은"), '질문 칩 문구(사용자 것 · 송폼은 뺐다)');
   console.log('PASS  위키 · 다붓이 2(제목 고치기 · 출처 문구 · 낱말 · 드문 낱말 · 글자 그대로 근거 · 7일 · 칩 문구)');
 }
 
