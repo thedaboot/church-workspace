@@ -7,7 +7,7 @@ import {
 } from '../src/services/wikiCore.js';
 import { teamPart } from '../src/services/wikiLive.js';
 import BOOKS from '../public/bible/index.json' with { type: 'json' };
-import { gen, findProblems, SCHEMA, nameMatcher, projectTitle, WIKI_MODEL, TEAM_ORDER } from './_wikiBuild.js';
+import { gen, findProblems, SCHEMA, nameMatcher, projectTitle, WIKI_MODEL, TEAM_ORDER, commentLine, peopleIndex, rosterOf } from './_wikiBuild.js';
 import { splitRoleNote, callName, PASTOR_TITLE } from '../src/services/aiPeople.js';
 import { embedQueryPayload, unitVec, EMBED_MODEL } from './ai.js';
 
@@ -254,7 +254,28 @@ export function teamHint(q, teamItems, roster) {
 }
 
 // ── 근거 모으기 ──────────────────────────────────────────────────────────────
+// 댓글 조각 → 위키와 같은 댓글 줄(commentLine). 못 읽으면 빈 Map(조각 글 그대로 간다).
+export async function commentLinesFor(db, ids) {
+  const out = new Map();
+  if (!ids.length) return out;
+  try {
+    const { data: rows } = await db.from('comments').select('id, card_id, parent_id, author_id, body, created_at').in('id', ids);
+    const parentIds = [...new Set((rows || []).map(c => c.parent_id).filter(Boolean))];
+    const { data: parents } = parentIds.length ? await db.from('comments').select('id, parent_id, author_id, body, created_at').in('id', parentIds) : { data: [] };
+    const [{ data: profiles }, { data: people }] = await Promise.all([
+      db.from('profiles').select('id, display_name, approved, removed_at, merged_into'),
+      db.from('people').select('name, profile_id, gender, removed_at, is_pastor'),
+    ]);
+    const roster = rosterOf(profiles || [], people || []);
+    const ctx = { people: peopleIndex(roster), names: new Map((profiles || []).map(p => [p.id, String(p.display_name || '').trim()])),
+      byId: new Map([...(parents || []), ...(rows || [])].map(c => [c.id, c])), mentionNames: roster.flatMap(r => [r.name, r.display]).filter(Boolean) };
+    for (const c of rows || []) { const x = commentLine(c, ctx); if (x?.line) out.set(c.id, x.line.slice(0, 380)); }
+  } catch { /* 조각 글 그대로 */ }
+  return out;
+}
+
 export async function collectEvidence(q, { db, key, today }) {
+  let cmtLines = new Map();
   const must = (r) => r.data || [];
   const [pages, edits, cards, projects, files, services, profiles, people, roster, cardTeams] = await Promise.all([
     db.from('wiki_pages').select('id, grp, title, kind, blocks').then(must),
@@ -381,6 +402,7 @@ export async function collectEvidence(q, { db, key, today }) {
   const vec = key ? await embed(q, key) : null;
   if (vec) {
     const { data } = await db.rpc('match_docs', { q: `[${vec.join(',')}]`, k: 10 });
+    cmtLines = await commentLinesFor(db, (data || []).filter(r => r.kind === 'comment' && r.comment_id).map(r => r.comment_id));
     const pwFiles = new Set(files.filter(f => f.view_pw).map(f => f.id));
     let n = 0;
     for (const r of data || []) {
@@ -402,7 +424,9 @@ export async function collectEvidence(q, { db, key, today }) {
       const body = picked.join(' ').replace(/[#*]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 380);
       if (body.length < 12) continue;
       const kind = r.kind === 'comment' ? '댓글' : r.kind === 'file' ? '첨부' : '상세 내용';
-      push(`(업무 '${c.title}'의 ${kind}) ${body}`, r.kind === 'file' && r.file_id ? fileCiteOf(files.find(f => f.id === r.file_id), cardById, svcById) : { t: 'card', id: c.id, label: c.title });
+      // 댓글은 위키와 같은 줄로 — 쓴 사람이 주어 · '@이름'은 부른 사람 · 답글이면 누구 댓글에(2026-10-04 · '@정민경 …'을 주어로 읽었다)
+      const cl = r.kind === 'comment' && r.comment_id ? cmtLines.get(r.comment_id) : '';
+      push(cl ? `(업무 '${c.title}'의 ${cl.startsWith('[답글') ? '답글' : '댓글'}) ${cl}` : `(업무 '${c.title}'의 ${kind}) ${body}`, r.kind === 'file' && r.file_id ? fileCiteOf(files.find(f => f.id === r.file_id), cardById, svcById) : { t: 'card', id: c.id, label: c.title });
       n++;
     }
   }

@@ -6374,6 +6374,14 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 업무 줄에 맡은 팀 · 담당자 — '준비는 누가 해?'에 답할 재료(2026-10-04) · '순장'은 팀이 아니다
   assert.strictEqual(A.cardWho(['임원진', '순장'], ['가나다']), '맡은 팀 임원진 · 순장도 함께 봐요 · 담당자 가나다');
   assert.strictEqual(A.cardWho([], []), '');
+  // 다붓이 댓글 조각도 위키와 같은 댓글 줄(쓴 사람 주어 · @는 부른 사람)로 간다
+  {
+    const askSrc = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
+    assert.ok(askSrc.includes("cmtLines = await commentLinesFor(db,") && askSrc.includes("const cl = r.kind === 'comment' && r.comment_id ? cmtLines.get(r.comment_id) : '';"), '댓글 조각 → commentLine');
+    const fake = { from: (t) => ({ select: () => ({ in: async () => ({ data: t === 'comments' ? [{ id: 'c1', parent_id: null, author_id: 'p1', body: '@가나다 라마바 (4주차/6주차) 완료', created_at: '2026-09-09T03:00:00Z' }] : [] }), then: (f) => f({ data: t === 'profiles' ? [{ id: 'p1', display_name: '사아자', approved: true }, { id: 'p2', display_name: '가나다', approved: true }] : [] }) }) }) };
+    const m = await A.commentLinesFor(fake, ['c1']);
+    assert.ok(/^\[댓글 · [^\]]*\] 사아자 [^:]*씀\(가나다[^)]*부름\): 라마바/.test(m.get('c1') || ''), m.get('c1'));
+  }
   console.log('PASS  위키 · 다붓이 10(이어 묻기 · 코드 갈래 · 가드 · 다시 쓴 꼴로 캐시·저장 · 출석 외 N명 · 팀 몫 · 이미 아는 말)');
 }
 
