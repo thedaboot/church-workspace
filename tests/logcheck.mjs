@@ -5846,9 +5846,9 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(A.leaderOf('찬양팀', { members: [...roster.members, { name: '둘째', role: '찬양팀장', teams: ['찬양팀'] }] }), '', '팀장이 둘이면 없다');
   // 사람 근거 줄 — '워크스페이스 가입자로는' · 팀만 물으면 그 팀 줄만 · 교역자
   const pl = A.peopleLines(roster, '찬양팀에 누가 들어가있어');
-  assert.ok(pl.includes('찬양팀에는 현재 워크스페이스 가입자로는 가나다(찬양팀장), 라마바가 있어요.') && !pl.some(l => l.startsWith('엔지니어팀')), JSON.stringify(pl));
+  assert.ok(pl.includes('찬양팀에는 현재 워크스페이스 가입자로는 가나다(팀장), 라마바(남자 싱어)가 있어요.') && !pl.some(l => l.startsWith('엔지니어팀')), JSON.stringify(pl));
   assert.ok(A.peopleLines(roster, '사역자가 누구여').includes('청년부 교역자(사역자)는 파하 전도사님이에요.'));
-  assert.ok(A.peopleLines(roster, '팀원 명단 알려줘').some(l => l.startsWith('엔지니어팀에는 현재 워크스페이스 가입자로는 사아자(엔지니어팀장), 차카타가')), '팀을 안 말하면 전부');
+  assert.ok(A.peopleLines(roster, '팀원 명단 알려줘').some(l => l.startsWith('엔지니어팀에는 현재 워크스페이스 가입자로는 사아자(팀장), 차카타가')), '팀을 안 말하면 전부');
   // 붙여 쓴 질문 낱말이 띄어 쓴 위키 줄에 걸린다
   {
     const pg = [{ id: 'x', title: '찬양팀', blocks: [{ key: 'about', type: 'plain', items: [{ key: 'a', text: '찬양 인도자는 가나다 청년이에요.' }, { key: 'b', text: '콘티를 만들어요.' }] }] }];
@@ -5900,7 +5900,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const view = readFileSync(new URL('../src/views/wikiView.jsx', import.meta.url), 'utf8');
   assert.ok(view.includes("const id = takeEntryParam('wiki');") && view.includes('if (pages.some(p => p.id === id)) go(id);'), '딥링크 wiki=<장 id>');
   const dab = readFileSync(new URL('../src/components/dabooti.jsx', import.meta.url), 'utf8');
-  assert.ok(dab.includes(".slice(-6).map(m => m.q.replace(/\\s*\\n\\s*/g, ' ')).join('\\n')"), '앞 질문들을 줄바꿈으로 보낸다');
+  assert.ok(dab.includes(".slice(-6).map(m => (m.a.asked || m.q).replace(/\\s*\\n\\s*/g, ' '))"), '앞 질문들을 줄바꿈으로 보낸다(다시 쓴 질문이면 그 꼴 · 위키 · 다붓이 10)');
   console.log('PASS  위키 · 다붓이 4(이름 · 다붓이 자신 · 인사 · 알려 주는 말 · 모를 때 · 물어볼 사람 · 거르는 이유 · 금액 · 업무 먼저 · 마스터 알림)');
 }
 
@@ -6147,8 +6147,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(!W.cacheFresh({ ...row, feedback: 'bad' }, '2026-10-04T02:00:00Z', '2026-10-04'));
   assert.ok(!W.cacheFresh({ ...row, answer: { sentences: row.answer.sentences } }, '2026-10-04T02:00:00Z', '2026-10-04'), '캐시해도 되는 답으로 저장된 것만');
   assert.ok(!W.cacheFresh({ ...row, answer: { cacheable: true, sentences: [{ text: 'a', cites: [{ t: 'page', id: 'faq' }] }] } }, '2026-10-04T02:00:00Z', '2026-10-04'), '마스터만 보는 장을 근거로 한 답');
-  // 순서: 거르기 → talkKind → 성경 → 출석 → 생일 → 캐시 → 근거 · 밤 다시 묻기는 캐시 끔 · 저장은 캐시해도 되는 답 표시
-  const order = ['const pf = prefilter(question);', 'const talk = talkKind(question, prevLines);', 'const ref = bibleRefIn(question, BOOKS);', 'if (isAttendanceQuestion(question))', 'if (isBirthdayQuestion(question))', 'const hit = await cachedAnswer(admin, question, today)', 'await collectEvidence(question,'];
+  // 순서: 거르기 → talkKind → 이어 묻기(위키 · 다붓이 10) → 성경 → 출석 → 생일 → 캐시 → 근거 · 밤 다시 묻기는 캐시 끔 · 저장은 캐시해도 되는 답 표시
+  const order = ['const pf = prefilter(raw);', 'const talk = talkKind(raw, prevLines);', 'const question = await resolveFollowUp(raw,', 'const ref = bibleRefIn(question, BOOKS);', 'if (isAttendanceQuestion(question))', 'if (isBirthdayQuestion(question))', 'const hit = await cachedAnswer(admin, question, today)', 'await collectEvidence(question,'];
   order.reduce((at, s) => { const i = ask.indexOf(s); assert.ok(i > at, `순서: ${s}`); return i; }, -1);
   assert.ok(ask.includes('answerQuestion(r.question, { db: admin, admin, cache: false })') && ask.includes('...(out.cacheable ? { cacheable: true } : {})'));
   assert.ok(ask.includes("last('wiki_pages', 'updated_at'), last('wiki_edits', 'edited_at'), last('cards', 'updated_at'), last('services', 'updated_at'), last('files', 'created_at'), last('doc_vec', 'updated_at')"), '데이터 도장');
@@ -6163,7 +6163,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(W.chatExpired(0, W.CHAT_IDLE_MS) && W.chatExpired(1000, 1000 + 31 * 60e3), '30분 이상 → 비운다');
   assert.ok(!W.chatExpired(0, W.CHAT_IDLE_MS - 1) && !W.chatExpired(null, Date.now()), '30분 안 · 가려진 적 없음 → 남긴다');
   assert.ok(dab.includes('export function useDabootiChat()') && dab.includes('if (chatExpired(hiddenAt, Date.now())) { setChatStore([]); answerMemo.clear(); }') && !/(?:localStorage|sessionStorage)\./.test(dab), '모듈이 쥔 대화 · 메모리만');
-  assert.ok(dab.includes('const known = memoGet(question);') && dab.includes('const ANSWER_TTL = 10 * 60 * 1000;'), '같은 질문은 앱 안에서 다시 쓰기');
+  assert.ok(dab.includes('const known = follow ? null : memoGet(question);') && dab.includes('const ANSWER_TTL = 10 * 60 * 1000;'), '같은 질문은 앱 안에서 다시 쓰기');
   console.log('PASS  위키 · 다붓이 6(다붓이 설정 · 마음 · 신앙 · 청년부 밖 · 기도제목 · 성경 구절 · 출석 이름 · 생일 · 물을 사람 줄 · 칩 15개 · 답 캐시 · 대화 수명)');
 }
 
@@ -6278,4 +6278,98 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const build = readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8');
   assert.ok(build.includes("blocks.push({ ...rest, items: [], steps: items.map(it =>") && build.includes("if (c?.b === 'decide') { if (kept.some(x => x.b === 'decide' && x.date > c.date)) c.old = true; continue; }"), '정해지기까지는 steps · 모델 검사는 버리지 않고 바뀌기 전으로');
   console.log('PASS  위키 · 다붓이 8(바뀌기 전 조각 · 정해지기까지 · 행사 정보 상자 · 되풀이 모임 개요 · 마디와 번호 · 팀 몫 · 지금 하는 일 · 관련 문서 · 글 안 링크)');
+}
+
+// ── 위키 · 다붓이 10 (2026-10-04 사용자 결정) — 이어 묻기('지난주 누가 안 왔어?' → '그럼 콩순에서는?') · 출석 '외 N명' ·
+//    팀 줄은 그 팀 몫(wikiLive.teamPart) · 이미 아는 말은 남기지 않는다 ──
+{
+  const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
+  const A = await import(new URL('../api/_wikiAsk.js', import.meta.url).href);
+  const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
+  const dab = readFileSync(new URL('../src/components/dabooti.jsx', import.meta.url), 'utf8');
+  const TEAMS = ['교역자', '임원진', '찬양팀', '워십팀', '웰컴팀', '미디어팀', '엔지니어팀'];
+  // 이어 묻는 말 알아보기 — 이어 주는 말 · 짧은 '…은?/는?/에서는?/도?' · 내용 낱말 없는 짧은 물음
+  for (const q of ['그럼 콩순에서는?', '그럼 TT순은?', '엔지니어팀은?', '다음 달은?', '준비는 누가 해?', '그럼 Q예배는?', '언제야?', '그리고 장소는?', '다른 팀은?', '정민경도?']) assert.ok(W.looksFollowUp(q), q);
+  for (const q of ['다음 월례회는 언제 하나요?', '주보는 어디에서 볼 수 있나요?', '엔지니어팀은 어떤 역할을 하나요?', '오늘 매일 성경 QT 본문은 어디인가요?', '믿음샘 양육은 어떻게 하나요?', '찬양 인도자는 누가 하고 있나요?', '가을 체육대회는 언제, 어디서 하나요?']) assert.ok(!W.looksFollowUp(q), q);
+  // 코드가 바꿔 끼우는 갈래 — 출석(순 · 주일 · 온/안 온) · 생일(달 · 사람) · 팀 · 행사(바꾸기 · 물을 거리만이면 앞에 붙이기)
+  const R = (q, p) => W.followUpRule(q, p, { teams: TEAMS });
+  assert.strictEqual(R('그럼 콩순에서는?', '지난주 누가 안 왔어?'), '지난주 콩순에서는 누가 안 왔어?');
+  assert.strictEqual(R('그럼 TT순은?', '지난주 콩순에서는 누가 안 왔어?'), '지난주 TT순에서는 누가 안 왔어?', '앞 순을 걷고 새 순');
+  assert.strictEqual(R('이번 주는?', '지난 주일 TT순에는 누가 왔나요?'), '이번 주 TT순에서는 누가 왔나요?', '주일만 바꾸면 순은 그대로');
+  assert.strictEqual(R('온 사람은?', '지난주 누가 안 왔어?'), '지난주 누가 왔어?');
+  assert.ok(W.isAttendanceQuestion(R('그럼 콩순에서는?', '지난주 누가 안 왔어?')), '다시 쓴 말은 출석 갈래로 간다');
+  assert.strictEqual(R('다음 달은?', '이번 달에 생일자는 누가 있나요?'), '다음 달에 생일자는 누가 있나요?');
+  assert.strictEqual(R('정민경은?', '이번 달에 생일자는 누가 있나요?'), '정민경 생일은 언제예요?');
+  assert.strictEqual(R('엔지니어팀은?', '찬양팀에는 누가 있나요?'), '엔지니어팀에는 누가 있나요?');
+  assert.strictEqual(R('팀장은 누구야?', '찬양팀에는 누가 있나요?'), '찬양팀 팀장은 누구야?');
+  assert.strictEqual(R('그럼 수련회는?', '가을 체육대회는 언제, 어디서 하나요?'), '수련회는 언제, 어디서 하나요?');
+  assert.strictEqual(R('준비는 누가 해?', '가을 체육대회는 언제, 어디서 하나요?'), '가을 체육대회 준비는 누가 해?');
+  assert.strictEqual(R('그럼 Q예배는?', '찬양 인도자는 누가 하고 있나요?'), null, '코드가 모르는 갈래는 모델에게');
+  // 모델이 다시 쓴 말의 가드 — 새 말의 내용 낱말이 다 있고 · 앞 질문(또는 앞 답)의 낱말이 남아야 한다 · 아니면 원래 말
+  assert.ok(W.followUpGuard('Q예배 찬양 인도자는 누가 하고 있나요?', '그럼 Q예배는?', '찬양 인도자는 누가 하고 있나요?'));
+  assert.ok(!W.followUpGuard('찬양 인도자는 누가 하고 있나요?', '그럼 Q예배는?', '찬양 인도자는 누가 하고 있나요?'), '새 말의 낱말이 빠졌다(앞 질문만 되풀이)');
+  assert.ok(!W.followUpGuard('Q예배는 언제예요?', '그럼 Q예배는?', '찬양 인도자는 누가 하고 있나요?'), '앞 질문 낱말이 하나도 없다');
+  assert.ok(!W.followUpGuard('그럼 Q예배는?', '그럼 Q예배는?', '찬양 인도자는 누가 하고 있나요?'), '그대로면 다시 쓴 게 아니다');
+  assert.ok(W.followUpGuard('김승찬 생일은 언제예요?', '그 사람 생일은?', '찬양팀 일렉은 누구야?', '찬양팀에서 일렉은 김승찬 형제가 맡고 있어요.'), '앞 답의 이름을 이은 것');
+  assert.strictEqual(await A.resolveFollowUp('그럼 Q예배는?', '찬양 인도자는 누가 하고 있나요?', '', { key: '' }), '그럼 Q예배는?', '모델 없이는 원래 말');
+  assert.strictEqual(await A.resolveFollowUp('엔지니어팀은?', '', '', { key: '' }), '엔지니어팀은?', '앞 질문이 없으면 그대로');
+  assert.strictEqual(await A.resolveFollowUp('다음 월례회는 언제 하나요?', '찬양팀에는 누가 있나요?', '', { key: 'x' }), '다음 월례회는 언제 하나요?', '이어 묻는 말이 아니면 모델도 안 부른다');
+  // 배선 — 다시 쓴 질문으로 갈래가 돈다 · [앞 질문]은 모델에 안 싣는다 · 캐시와 저장은 다시 쓴 꼴 · 화면은 다시 쓴 꼴과 앞 답 첫 문장을 보낸다
+  assert.ok(ask.includes('const canCache = cacheEligible(question);') && !ask.includes('`[앞 질문] ${last') && ask.includes('if (out.asked) question = out.asked;'));
+  assert.ok(dab.includes('const follow = done.length > 0 && looksFollowUp(question);') && dab.includes('[`[답] ${lastA') && dab.includes('if (!follow && !a.asked) memoPut(question, a);'));
+  // 끝까지 — 가짜 DB로(모델 없음): 생일 이어 묻기 · 이미 아는 말 · 다붓이 자신 이야기
+  const chain = (rows) => { const c = new Proxy({}, { get: (_, k) => (k === 'then' ? (res, rej) => Promise.resolve({ data: rows }).then(res, rej) : (k === 'maybeSingle' || k === 'single') ? async () => ({ data: rows[0] || null }) : () => c) }); return c; };
+  const fakeDb = (tables) => ({ from: (t) => chain(tables[t] || []), rpc: async () => ({ data: null }) });
+  const db = fakeDb({
+    people: [{ id: 'p1', name: '임성빈', is_pastor: true, removed_at: null, profile_id: null, gender: 'm', birthday: '11-02' }, { id: 'p2', name: '가나다', gender: 'f', birthday: '10-20', removed_at: null, profile_id: null }],
+    profiles: [], teams: [], profile_teams: [],
+  });
+  const fu = await A.answerQuestion('다음 달은?', { db, key: '', today: '2026-10-04', prev: '이번 달에 생일자는 누가 있나요?\n[답] 10월 생일자는 가나다 자매(10월 20일)예요.' });
+  assert.strictEqual(fu.asked, '다음 달에 생일자는 누가 있나요?');
+  assert.strictEqual(fu.sentences[0].text, '11월 생일자는 임성빈 전도사님(11월 2일)예요.', JSON.stringify(fu));
+  const plain = await A.answerQuestion('이번 달에 생일자는 누가 있나요?', { db, key: '', today: '2026-10-04', prev: '다음 월례회는 언제 하나요?' });
+  assert.ok(!('asked' in plain) && plain.sentences[0].text.startsWith('10월 생일자는'), '이어 묻는 말이 아니면 다시 쓰지 않는다');
+  const knownSt = await A.answerQuestion('임성빈 전도사님이야', { db, key: '', today: '2026-10-04' });
+  assert.ok(knownSt.save === false && knownSt.known && knownSt.sentences[0].text === W.TALK_ANSWERS.statement, '이미 아는 말 — 같은 고마움 · 저장 안 함');
+  const newSt = await A.answerQuestion('체육대회 회비는 만오천원이야', { db, key: '', today: '2026-10-04' });
+  assert.ok(newSt.save === true && newSt.status === 'unknown', '모르는 말은 남긴다');
+  assert.ok(W.knownStatement('임성빈 전도사님이야', ['청년부 교역자(사역자)는 임성빈 전도사님이에요.']) && !W.knownStatement('체육대회는 11월 1일이야', ['가을 체육대회는 10월 31일이에요.', '11월 1일에 회의해요.']), '한 줄에 다 있을 때만');
+  for (const q of ['너 몇 살이야?', '너 아빠 노준석이야', '누가 너 만들었어?']) assert.strictEqual((await A.answerQuestion(q, { db, key: '' })).save, false, `${q} — 저장 안 함`);
+  // 저장은 다시 쓴 질문으로(캐시 norm도 그 꼴)
+  let saved = null;
+  const admin = { from: () => ({ insert: (row) => { saved = row; return { select: () => ({ single: async () => ({ data: { id: 'x' } }) }) }; } }) };
+  await A.saveAnswer(admin, '다음 달은?', { status: 'answered', sentences: [{ text: 'a', cites: [] }], asked: '다음 달에 생일자는 누가 있나요?' });
+  assert.ok(saved.question === '다음 달에 생일자는 누가 있나요?' && saved.norm === W.normQ('다음 달에 생일자는 누가 있나요?'));
+  // 출석 — 청년부 전체는 다섯 넘으면 '외 N명'(총 수는 남긴다) · 순 하나는 다 쓴다
+  const six = ['가', '나', '다', '라', '마', '바', '사'];
+  assert.strictEqual(W.attendanceAnswer({ day: 'D', present: ['ㄱ', 'ㄴ'], absent: six, absentAsked: true }), 'D 주일에는 2명이 왔어요. 가, 나, 다, 라, 마 외 2명이 안 왔어요.');
+  assert.strictEqual(W.attendanceAnswer({ day: 'D', present: six, absent: [] }), 'D 주일에는 가, 나, 다, 라, 마 외 2명이 왔어요. 모두 7명이에요.');
+  assert.strictEqual(W.attendanceAnswer({ day: 'D', present: ['가'], absent: ['나', '다', '라', '마', '바'], absentAsked: true }), 'D 주일에는 1명이 왔고, 오지 않은 사람은 나, 다, 라, 마, 바예요.', '다섯까지는 다');
+  assert.ok(W.attendanceAnswer({ day: 'D', group: 'TT순', present: six, absent: six }).includes('가, 나, 다, 라, 마, 바, 사 7명이 왔어요. 오지 않은 사람은 가, 나, 다, 라, 마, 바, 사예요.'), '순 하나면 다');
+  assert.ok(ask.includes('const bySun = (a, b) => (sunRank.get(a.id) ?? 1e9) - (sunRank.get(b.id) ?? 1e9) || byKo(shownName(a), shownName(b));'), '순 차례 → 이름');
+  // 팀 줄 — 그 팀 몫만(wikiLive.teamPart · 일반 직함 없음 · 그 팀의 장은 '팀장'이 먼저) · 괄호 없는 두 글자 끝 이름만 '이가'
+  const roster = { pastors: [], members: [
+    { name: '조준환', role: '찬양팀 인도자 · 싱어', teams: ['찬양팀'] },
+    { name: '노준석', role: '순장 · 찬양팀장', teams: ['찬양팀', '순장'] },
+    { name: '정민경', role: '리더순장 · 찬양팀 베이스', teams: ['찬양팀', '순장'] },
+    { name: '김승찬', role: '총무 · 일렉', teams: ['찬양팀'] },
+    { name: '재훈', role: '찬양팀 싱어', teams: ['찬양팀'] },
+    { name: '안병현', role: '예배팀장 · 찬양팀 세컨 건반', teams: ['찬양팀'] },
+  ] };
+  const line = A.peopleLines(roster, '찬양팀에는 누가 있나요?').find(l => l.startsWith('찬양팀에는'));
+  assert.strictEqual(line, '찬양팀에는 현재 워크스페이스 가입자로는 노준석(팀장), 조준환(인도자 · 싱어), 정민경(베이스), 김승찬(일렉), 재훈(싱어), 안병현(세컨 건반)이 있어요.');
+  assert.ok(!/순장|총무|회계|예배팀장/.test(line), '일반 직함은 팀 줄에 없다');
+  assert.ok(ask.includes("import { teamPart } from '../src/services/wikiLive.js';"), 'teamPart는 가져다 쓴다(베끼지 않는다)');
+  assert.ok(A.peopleLines({ pastors: [], members: [{ name: '노준석', role: '', teams: ['찬양팀'] }, { name: '재훈', role: '', teams: ['찬양팀'] }] }, '찬양팀 누구').includes('찬양팀에는 현재 워크스페이스 가입자로는 노준석, 재훈이가 있어요.'));
+  assert.strictEqual(A.listSubject(['가나다', '정민경(베이스)']), '가나다, 정민경(베이스)이', '괄호 앞 이름의 받침으로');
+  assert.strictEqual(A.listSubject(['가나다', '이하나(일렉)']), '가나다, 이하나(일렉)가');
+  assert.strictEqual(A.listSubject(['가나다', '재훈(싱어)']), '가나다, 재훈(싱어)이', "괄호가 있으면 '이가' 아님");
+  // 모델이 괄호를 떼고 나열해도 근거 줄 그대로(실답 2026-10-04) · 한 사람 문장은 그대로
+  assert.strictEqual(A.teamListLine('찬양팀에는 현재 워크스페이스 가입자로는 노준석, 조준환, 재훈이 있어요.', ['오늘은 …', line]), line);
+  assert.strictEqual(A.teamListLine('찬양팀에는 노준석, 조준환이 있어요.', [line]), line, "'가입자'가 빠져도");
+  assert.strictEqual(A.teamListLine('찬양팀에서 일렉은 김승찬 형제가 맡고 있어요.', [line]), null, '한 사람 문장');
+  // 출석 명단을 못 읽으면 '모두 왔어요'라고 하지 않는다(던져서 '답을 받지 못했어요')
+  const attDb = fakeDb({ groups: [], services: [{ id: 's1', kind: 'sunday', service_date: '2026-09-27' }], people: [], attendance: [{ person_id: 'x' }], attendance_guests: [] });
+  await assert.rejects(A.attendanceReply('지난주 누가 안 왔어?', { db: attDb, today: '2026-10-04' }), /출석 읽기 실패/);
+  console.log('PASS  위키 · 다붓이 10(이어 묻기 · 코드 갈래 · 가드 · 다시 쓴 꼴로 캐시·저장 · 출석 외 N명 · 팀 몫 · 이미 아는 말)');
 }

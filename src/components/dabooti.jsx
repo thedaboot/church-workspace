@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { ArrowUp, Lock, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { askDabooti, sendFeedback } from '../services/wiki.js';
 import { imeComposing, coarsePointer } from '../utils.js';
-import { chipPool, rotateChips, normQ, chatExpired } from '../services/wikiCore.js';
+import { chipPool, rotateChips, normQ, chatExpired, looksFollowUp } from '../services/wikiCore.js';
 import { fetchMyPerson, fetchGroups, fetchGroupMembers } from '../services/people.js';
 
 // ============================================================================
@@ -184,15 +184,20 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
     if (!question || busy) return;
     setQ('');
     if (coarsePointer()) inputRef.current?.blur();
-    // 앞 질문들을 줄바꿈으로 — 마지막 줄이 바로 앞 질문(모델 문맥) · 앞에서 다붓이에게 알려 준 말도 서버가 본다(_wikiAsk talkKind)
-    const prev = chat.filter(m => m.a).slice(-6).map(m => m.q.replace(/\s*\n\s*/g, ' ')).join('\n');
+    // 앞 질문들을 줄바꿈으로 — 마지막 줄이 바로 앞 질문(서버가 다시 쓴 꼴 a.asked가 있으면 그것) + 맨 끝 '[답] 앞 답 첫 문장'.
+    // 서버가 이어 묻는 말('그럼 콩순에서는?')을 혼자 읽히는 질문으로 다시 쓴다(_wikiAsk resolveFollowUp) · 앞에서 알려 준 말도 본다(talkKind)
+    const done = chat.filter(m => m.a);
+    const lastA = done[done.length - 1]?.a?.sentences?.[0]?.text || '';
+    const prev = [...done.slice(-6).map(m => (m.a.asked || m.q).replace(/\s*\n\s*/g, ' ')), ...(lastA ? [`[답] ${lastA.replace(/\s*\n\s*/g, ' ')}`] : [])].join('\n');
+    // 이어 묻는 말은 앞 대화에 따라 답이 달라서 같은 말 기억(10분)을 쓰지 않는다
+    const follow = done.length > 0 && looksFollowUp(question);
     const id = `${Date.now()}`;
-    const known = memoGet(question);
+    const known = follow ? null : memoGet(question);
     if (known) { setChat(c => [...c, { id, q: question, a: known }]); return; }
     setChat(c => [...c, { id, q: question, loading: true }]);
     try {
       const a = await askDabooti(question, prev);
-      memoPut(question, a);
+      if (!follow && !a.asked) memoPut(question, a);
       setChat(c => c.map(m => (m.id === id ? { ...m, loading: false, a } : m)));
     } catch (e) {
       setChat(c => c.map(m => (m.id === id ? { ...m, loading: false, err: e.human || '답을 받지 못했어요' } : m)));

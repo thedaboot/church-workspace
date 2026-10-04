@@ -687,10 +687,12 @@ export function attendanceAnswer({ day, group = '', present = [], absent = [], g
     const head = `${day} 주일 ${group}에는 ${who.join(', ')} ${n}명이 왔어요.`;
     return absent.length ? `${head} 오지 않은 사람은 ${nameList(absent)}.` : `${head} ${group} 모두 왔어요.`;
   }
+  // 청년부 전체는 다섯 넘으면 '외 N명'(순 차례 → 이름 차례로 넘겨받는다 · attendanceReply)
   if (absentAsked) {
-    return absent.length ? `${day} 주일에는 ${n}명이 왔고, 오지 않은 사람은 ${nameList(absent)}.` : `${day} 주일에는 ${n}명이 왔고 명단의 모두가 왔어요.`;
+    if (!absent.length) return `${day} 주일에는 ${n}명이 왔고 명단의 모두가 왔어요.`;
+    return absent.length > NAME_LIMIT ? `${day} 주일에는 ${n}명이 왔어요. ${fewNames(absent)}이 안 왔어요.` : `${day} 주일에는 ${n}명이 왔고, 오지 않은 사람은 ${nameList(absent)}.`;
   }
-  return `${day} 주일에는 ${who.join(', ')} ${n}명이 왔어요.`;
+  return n > NAME_LIMIT ? `${day} 주일에는 ${fewNames(who)}이 왔어요. 모두 ${n}명이에요.` : `${day} 주일에는 ${who.join(', ')} ${n}명이 왔어요.`;
 }
 
 // 생일 — '생일자' · 'N월 생일' · '이번 달 생일' · 'OO 생일 언제야'(다붓이 자신의 생일은 personaKind가 먼저 받는다)
@@ -725,6 +727,116 @@ export function contactTail(sentences, evidence, terms) {
   const rest = (sentences || []).filter(s => !ASK_LINE.test(String(s.text).trim()));
   return [...rest, { text, ids: [line.id], cites: line.cite ? [line.cite] : [] }];
 }
+
+// ── 이어 묻기 (사용자 결정 2026-10-04 — '지난주 누가 안 왔어?' → '그럼 콩순에서는?') ─────────────────
+// 앞 질문에 기대는 짧은 물음을 **혼자 읽어도 되는 한 질문**으로 다시 쓴다. 그 뒤 갈래(출석·생일·캐시·근거)는 다시 쓴 질문으로 돈다.
+// 화면에는 아무것도 더 보이지 않는다. 순서: 코드가 아는 갈래(출석 · 생일 · 팀 · 행사)는 낱말을 바꿔 끼우고(followUpRule),
+// 아니면 모델 한 번(api/_wikiAsk.js resolveFollowUp) — 그 답은 followUpGuard를 지나야 쓴다(아니면 원래 질문 그대로).
+// 모델 프롬프트에는 [앞 질문]을 더 싣지 않는다 — 문맥은 여기서만 들어간다(그래서 다시 쓴 질문은 그 꼴로 캐시된다).
+const FOLLOW_LEAD = /^(?:그럼|그러면|그리고|그건|그거는|그거|그\s?사람(?:은|이)?|거기(?:는|도|서)?|걔(?:는|도)?|또|다른)(?![가-힣])/;
+const FOLLOW_TAIL = /(?:에서는|에선|에는|이랑은|랑은|하고는|은요|는요|은|는|도)\s*[?？]?$/;
+// 앞 질문의 '무엇'을 바꾸지 않는 낱말(물을 거리) — 이것만 있으면 앞 질문의 대상을 이어 붙인다('준비는 누가 해?')
+const ASPECT = new Set(['준비', '담당', '담당자', '장소', '일정', '시간', '날짜', '비용', '회비', '준비물', '인원', '사람', '사람들', '순서', '내용', '주제', '결과', '진행', '신청', '마감', '팀장', '리더', '인도자', '인도', '그때', '그날', '거기', '명단', '몇명']);
+const VERBISH = /^(?:왔|온|해|하|했|돼|되|됐|있|없|나왔|나와|맡|봐|볼)[가-힣]?(?:어|요|아|지|니|냐|나|까|고|는)?$/;
+const stripLead = (s) => String(s || '').trim().replace(FOLLOW_LEAD, '').trim();
+// 물을 거리·동사 말고 남는 내용 낱말
+export const contentTerms = (q) => termsOf(q).filter(t => !ASPECT.has(t) && !['그럼', '그러면', '그건', '그거', '그거는', '다른'].includes(t) && !(t.length <= 3 && VERBISH.test(t)));
+// 이어지는 물음처럼 보이는가(앞 질문이 있을 때만 부른다) — 이어 주는 말로 시작 · 12자 안의 '…은?/는?/에서는?/도?/이랑은?' · 15자 안에 내용 낱말이 없음
+export function looksFollowUp(q) {
+  const s = String(q || '').trim();
+  if (!s) return false;
+  if (FOLLOW_LEAD.test(s)) return true;
+  if (s.length <= 12 && FOLLOW_TAIL.test(s)) return true;
+  return s.length <= 15 && !contentTerms(s).length && isAsking(s);
+}
+const SUN_IN = /(?:우리|내|저희|제)\s?순|[A-Za-z0-9가-힣]*[A-Za-z0-9가-힣]순(?=(?:에서는|에서|에는|에|은|는|의|도)?(?![가-힣]))/;
+const SUN_PHRASE = /\s*(?:(?:우리|내|저희|제)\s?순|[A-Za-z0-9가-힣]*[A-Za-z0-9가-힣]순)(?:에서는|에서|에는|에|은|는|의)?(?![가-힣])/g;
+const DAY_IN = /지난\s?주(?:일)?|이번\s?주(?:일)?|저번\s?주|오늘|\d{1,2}\s?월\s?\d{1,2}\s?일/;
+const MONTH_IN = /\d{1,2}\s?월(?!\s?\d{1,2}\s?일)|이번\s?달|다음\s?달|지난\s?달|저번\s?달/;
+const NOT_NAME = /^(?:오늘|내일|어제|이번|다음|지난|저번|올해|내년|작년|그럼|그거|거기)$/;
+const EVENT = /(?:(?:가을|봄|여름|겨울|하계|동계|추계|춘계|리더|청년부|\d{1,2}월|다음|이번|지난)\s?)?(?:체육대회|수련회|MT|엠티|월례회|캠프|워크샵|워크숍|양육(?:\s?\d기)?|리더십\s?회의|Q예배|성찬\s?예배|금요\s?(?:열정\s?)?예배|야유회|송년회|부활절|추수감사절|성탄절|크리스마스)/i;
+const tidy = (s) => String(s).replace(/\s+/g, ' ').replace(/\s+([?？,.])/g, '$1').trim();
+// 이어 묻는 말 알맹이 — 이어 주는 말 · 끝 조사 · 물음표를 걷은 것('그럼 콩순에서는?' → '콩순')
+const coreOf = (s) => stripLead(s).replace(/[?？!.~\s]+$/, '').replace(/(?:에서는|에선|에는|이랑은|랑은|하고는|은요|는요|은|는|도|요)$/, '').trim();
+// 팀 이름(또는 앞말 '찬양')이 든 자리 — teams: 팀 이름 목록(서버는 TEAM_ORDER)
+const teamAt = (s, teams) => {
+  for (const t of teams) {
+    if (s.includes(t)) return { team: t, word: t };
+    const stem = t.replace(/팀$/, '');
+    if (stem !== t && stem.length >= 2 && new RegExp(`${stem}(?!팀)`).test(s)) return { team: t, word: stem };
+  }
+  return null;
+};
+
+// 코드가 아는 갈래의 이어 묻기 → 다시 쓴 질문 또는 null(모델에게)
+export function followUpRule(q, prevQ, { teams = [] } = {}) {
+  const s = String(q || '').trim(); const p = String(prevQ || '').trim();
+  if (!s || !p) return null;
+  const core = coreOf(s);
+  const rest = stripLead(s);
+  // 출석 — 순 · 주일 · 온/안 온을 바꿔 끼운다
+  if (isAttendanceQuestion(p)) {
+    const sun = rest.match(SUN_IN)?.[0]?.replace(/\s+/g, ' ');
+    const day = rest.match(DAY_IN)?.[0];
+    const wantAbsent = /안\s?(?:온|왔|나온|나왔)|결석|빠진/.test(rest);
+    const wantPresent = !wantAbsent && /(?:온|왔|나온|나왔|출석한)\s?(?:사람|애|분)/.test(rest);
+    if (!sun && !day && !wantAbsent && !wantPresent) return null;
+    const prevDay = p.match(DAY_IN)?.[0] || '';
+    let tail = p.replace(DAY_IN, ' ').replace(SUN_PHRASE, ' ');
+    if (wantAbsent && !asksAbsent(p)) tail = tail.replace(/(누가|누구)\s?(왔|나왔)/, '$1 안 $2');
+    if (wantPresent && asksAbsent(p)) tail = tail.replace(/안\s?(왔|나왔|온|나온)/, '$1');
+    const prevSun = sun ? '' : (p.match(SUN_IN)?.[0] || '');
+    const where = sun || prevSun;
+    return tidy(`${day || prevDay} ${where ? `${where}에서는` : ''} ${tail}`);
+  }
+  // 생일 — 달 · 사람을 바꿔 끼운다
+  if (isBirthdayQuestion(p)) {
+    const month = rest.match(MONTH_IN)?.[0];
+    if (month) return MONTH_IN.test(p) ? tidy(p.replace(MONTH_IN, month)) : tidy(`${month} ${p}`);
+    if (/^[가-힣]{2,4}$/.test(core) && !NOT_NAME.test(core) && !ASPECT.has(core)) return `${core} 생일은 언제예요?`;
+    return null;
+  }
+  // 팀 — 새 팀 이름만 말했으면 앞 질문의 팀을 바꾼다('찬양팀에는 누가 있나요?' → '엔지니어팀은?')
+  const newTeam = teamAt(core, teams);
+  const prevTeam = teamAt(p, teams);
+  if (newTeam && prevTeam && newTeam.team !== prevTeam.team && !contentTerms(core.replace(newTeam.word, '')).length) {
+    return tidy(p.replace(prevTeam.word, newTeam.team));
+  }
+  // 행사 — 새 행사 이름만 말했으면 바꾸고, 물을 거리만 말했으면('준비는 누가 해?') 앞 질문의 행사(또는 팀)를 앞에 붙인다
+  const newEvent = core.match(EVENT)?.[0];
+  const prevEvent = p.match(EVENT)?.[0];
+  if (newEvent && prevEvent && newEvent !== prevEvent && !contentTerms(core.replace(newEvent, '')).length) return tidy(p.replace(prevEvent, newEvent));
+  if (!contentTerms(rest).length && isAsking(rest)) {
+    const subject = prevEvent || prevTeam?.team;
+    if (subject) return tidy(`${subject} ${rest}`);
+  }
+  return null;
+}
+
+// 모델이 다시 쓴 질문을 써도 되는가 — 새 말의 내용 낱말이 다 있고 · 앞 질문의 낱말이 하나 이상 남고 · 짧을 때만
+const flatK = (t) => String(t || '').replace(/\s+/g, '').toLowerCase();
+const hasTerm = (hay, t) => hay.includes(flatK(t)) || (t.length >= 3 && hay.includes(flatK(t.slice(0, -1))));
+// prevA: 바로 앞 답의 첫 문장('그 사람'이 가리키는 이름) — 그 낱말이 남아도 앞 문맥을 이은 것으로 본다
+export function followUpGuard(rewrite, q, prevQ, prevA = '') {
+  const r = String(rewrite || '').trim();
+  if (!r || r.length > 150 || flatK(r) === flatK(q)) return false;
+  const hay = flatK(r);
+  const mine = termsOf(stripLead(q)).filter(t => !['그럼', '그러면'].includes(t));
+  if (!mine.every(t => hasTerm(hay, t))) return false;
+  const theirs = [...termsOf(prevQ), ...termsOf(prevA)];
+  return !theirs.length || theirs.some(t => hasTerm(hay, t));
+}
+
+// 이미 아는 것을 알려 준 말인가 — 내용 낱말(둘 이상)이 **근거 한 줄에 전부** 있으면 아는 말이다(저장하지 않는다 · 사용자 결정 2026-10-04 '임성빈 전도사님이야')
+export function knownStatement(s, lines = []) {
+  const toks = termsOf(s).filter(t => !/^\d+$/.test(t));
+  if (toks.length < 2) return false;
+  return (lines || []).some(l => { const hay = flatK(l); return toks.every(t => hasTerm(hay, t)); });
+}
+
+// 이름 줄이 길면 앞 다섯과 '외 N명'(사용자 결정 2026-10-04 — 청년부 전체에서 21명을 다 늘어놓았다) · 순 하나면 다 쓴다
+export const NAME_LIMIT = 5;
+const fewNames = (names) => (names.length > NAME_LIMIT ? `${names.slice(0, NAME_LIMIT).join(', ')} 외 ${names.length - NAME_LIMIT}명` : names.join(', '));
 
 // ── 답 캐시 (사용자 결정 2026-10-04) ───────────────────────────────────────────
 // 같은 질문(normQ)을 오늘(KST) 이미 답했고, 그 답이 마지막 데이터 변경(위키 · 고친 줄 · 업무 · 주보 · 파일) **뒤에**
