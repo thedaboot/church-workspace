@@ -6248,6 +6248,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 팀 몫 · 구성원 차례 · 지금 하는 일(워크스페이스 개선 · 명단은 뺀다)
   assert.strictEqual(L.teamPart('찬양팀 베이스 · 미디어팀 편집', '찬양팀', ['찬양팀', '미디어팀']), '베이스');
   assert.strictEqual(L.teamPart('일렉', '찬양팀', ['찬양팀']), '일렉');
+  // 일반 직함은 팀 몫이 아니다 · 그 팀의 장은 '팀장'(사용자 지적 2026-10-04 — '순장 · 찬양팀장'이 섰다)
+  assert.strictEqual(L.teamPart('순장 · 찬양팀장', '찬양팀', ['찬양팀']), '팀장');
+  assert.strictEqual(L.teamPart('예배팀장 · 찬양팀 인도자 · 찬양팀 싱어', '찬양팀', ['찬양팀']), '인도자 · 싱어');
+  assert.strictEqual(L.teamPart('총무 · 회계 · 찬양팀 싱어', '찬양팀', ['찬양팀']), '싱어');
   assert.strictEqual(L.teamPart('일렉', '찬양팀', ['찬양팀', '엔지니어팀']), '', '여러 팀이면 팀 이름 없는 조각은 어느 팀 몫인지 모른다');
   assert.deepStrictEqual(L.teamMembers('찬양팀', [{ name: '나', role: '', teams: ['찬양팀'] }, { name: '다', role: '찬양팀장', teams: ['찬양팀'] }, { name: '가', role: '싱어', teams: ['찬양팀'] }]).map(m => m.name), ['다', '가', '나']);
   const w = L.teamWork('찬양팀', [

@@ -88,21 +88,25 @@ export function outlineOf(page, { related = false } = {}) {
 }
 
 // ── 지금 데이터(가입자 · 업무) ───────────────────────────────────────────────
-// 맡은 일에서 그 팀 몫 — '찬양팀 베이스' → '베이스' · '찬양팀장'은 그대로 · 다른 팀을 말한 조각은 뺀다 ·
-// 팀 이름이 없는 조각('일렉')은 그 사람이 한 팀일 때만 그 팀 몫으로 본다
+// 맡은 일에서 그 팀 몫 — '찬양팀 베이스' → '베이스' · '찬양팀장' → '팀장' · 다른 팀을 말한 조각은 뺀다 ·
+// 팀 이름이 없는 일반 직함('순장' · '총무' · '회계' · '리더순장')은 팀 몫이 아니다(사용자 지적 2026-10-04 — '순장 · 찬양팀장'이 섰다) ·
+// 팀 이름이 없는 맡은 일('일렉')은 그 사람이 한 팀일 때만 그 팀 몫으로 본다
+const GENERAL_TITLE = /(장|총무|회계|전도사|목사|간사)$/;
 export function teamPart(role, team, memberTeams = []) {
   const out = [];
-  for (const seg of String(role || '').split(/\s*[·,/]\s*/).map(s => s.trim()).filter(Boolean)) {
+  for (const seg of String(role || '').split(/\s*[·,/]\s*/).map(x => x.trim()).filter(Boolean)) {
     const said = TEAM_NAMES.filter(t => seg.includes(t) || stemsOf(t).some(x => seg.includes(x)));
-    if (said.includes(team)) out.push(seg.replace(new RegExp(`^${team}\\s+`), '').trim() || seg);
-    else if (!said.length && memberTeams.filter(t => !AUDIENCE.has(t)).length <= 1) out.push(seg);
+    if (said.includes(team)) {
+      const part = seg.replace(new RegExp(`^${team}\\s+`), '').trim();
+      out.push(part === `${team}장` ? '팀장' : part || seg);
+    } else if (!said.length && !GENERAL_TITLE.test(seg.replace(/\([^)]*\)/g, '').trim()) && memberTeams.filter(t => !AUDIENCE.has(t)).length <= 1) out.push(seg);
   }
   return [...new Set(out)].join(' · ');
 }
 // → [{ id, name, role }] · 직함(…장) 먼저 · 맡은 일 있는 사람 · 기록 전 · 이름 순
 export function teamMembers(team, members = []) {
   const rows = (members || []).filter(m => (m.teams || []).includes(team)).map(m => ({ id: m.id || m.name, name: m.name, role: teamPart(m.role, team, m.teams) }));
-  const rank = (r) => (r.role.includes(`${team}장`) ? 0 : r.role ? 1 : 2);
+  const rank = (r) => (r.role.split(' · ').includes('팀장') ? 0 : r.role ? 1 : 2);
   return rows.sort((a, b) => rank(a) - rank(b) || String(a.name).localeCompare(String(b.name), 'ko'));
 }
 const usable = (t, projById) => {
@@ -176,7 +180,7 @@ export function teamInfo(page, pages = [], members = []) {
   const about = (page?.blocks || []).filter(b => b.key === 'about' || b.key === 'lead').map(textOf).join(' ');
   const rows = [];
   const mm = teamMembers(team, members);
-  const heads = mm.filter(m => m.role.split(' · ').some(r => r === `${team}장` || r.endsWith(`${team}장`))).map(m => m.name);
+  const heads = mm.filter(m => m.role.split(' · ').some(r => r === '팀장' || r === `${team}장` || r.endsWith(`${team}장`))).map(m => m.name);
   if (team === '교역자') { const p = mm.map(m => m.name); if (p.length) rows.push({ k: '교역자', v: p.join(' · ') }); }
   else if (heads.length) rows.push({ k: '팀장', v: heads.join(' · ') });
   const name = (/이름은\s+(.+?)(?:이에요|예요)/.exec(about) || [])[1] || '';
