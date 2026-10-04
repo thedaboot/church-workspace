@@ -92,10 +92,21 @@ export function outlineOf(page, { related = false } = {}) {
 // 팀 이름이 없는 일반 직함('순장' · '총무' · '회계' · '리더순장')은 팀 몫이 아니다(사용자 지적 2026-10-04 — '순장 · 찬양팀장'이 섰다) ·
 // 팀 이름이 없는 맡은 일('일렉')은 그 사람이 한 팀일 때만 그 팀 몫으로 본다
 const GENERAL_TITLE = /(장|총무|회계|전도사|목사|간사)$/;
+// 임원진은 일반 직함이 곧 그 팀 몫이다(사용자 지적 2026-10-04 — 임원진 장에 임원 직함이 안 섰다):
+// 회장('청년부 회장' → '회장') · 부회장 · 총무 · 회계 · 서기 · 부장 · 리더팀장 · 리더순장 · 예배팀장 처럼 '…장'인 직함.
+// 순장(순을 이끄는 사람 — 임원이 아니다) · 다른 팀의 '<팀>장' · 직함 아닌 말('여러 팀을 섬기는 팀원')은 뺀다.
+const OFFICER_TITLE = /^(?:총무|회계|서기|[가-힣]{0,4}장)$/;
+export const OFFICER_ORDER = ['회장', '부회장', '총무', '회계', '서기', '부장', '예배팀장', '리더팀장', '리더순장'];
 export function teamPart(role, team, memberTeams = []) {
   const out = [];
-  for (const seg of String(role || '').split(/\s*[·,/]\s*/).map(x => x.trim()).filter(Boolean)) {
+  for (const raw of String(role || '').split(/\s*[·,/]\s*/).map(x => x.trim()).filter(Boolean)) {
+    const seg = team === '임원진' ? raw.replace(/^청년부\s+/, '') : raw;
     const said = TEAM_NAMES.filter(t => seg.includes(t) || stemsOf(t).some(x => seg.includes(x)));
+    if (team === '임원진' && !said.length) {
+      const t = seg.replace(/\([^)]*\)/g, '').trim();
+      if (OFFICER_TITLE.test(t) && t !== '순장') out.push(t);
+      continue;
+    }
     if (said.includes(team)) {
       const part = seg.replace(new RegExp(`^${team}\\s+`), '').trim();
       out.push(part === `${team}장` ? '팀장' : part || seg);
@@ -107,7 +118,9 @@ export function teamPart(role, team, memberTeams = []) {
 export function teamMembers(team, members = []) {
   const rows = (members || []).filter(m => (m.teams || []).includes(team)).map(m => ({ id: m.id || m.name, name: m.name, role: teamPart(m.role, team, m.teams) }));
   const rank = (r) => (r.role.split(' · ').includes('팀장') ? 0 : r.role ? 1 : 2);
-  return rows.sort((a, b) => rank(a) - rank(b) || String(a.name).localeCompare(String(b.name), 'ko'));
+  // 임원진은 직함 차례(회장 → 부회장 → 총무 …)
+  const office = (r) => { const k = Math.min(...r.role.split(' · ').map(x => OFFICER_ORDER.indexOf(x)).filter(i => i >= 0)); return Number.isFinite(k) ? k : 99; };
+  return rows.sort((a, b) => (team === '임원진' ? office(a) - office(b) : 0) || rank(a) - rank(b) || String(a.name).localeCompare(String(b.name), 'ko'));
 }
 const usable = (t, projById) => {
   const p = projById.get(t.projectId);
@@ -182,9 +195,19 @@ export function teamInfo(page, pages = [], members = []) {
   const mm = teamMembers(team, members);
   const heads = mm.filter(m => m.role.split(' · ').some(r => r === '팀장' || r === `${team}장` || r.endsWith(`${team}장`))).map(m => m.name);
   if (team === '교역자') { const p = mm.map(m => m.name); if (p.length) rows.push({ k: '교역자', v: p.join(' · ') }); }
-  else if (heads.length) rows.push({ k: '팀장', v: heads.join(' · ') });
+  else if (team === '임원진') {
+    // 임원 직함마다 한 줄(가입자의 맡은 일에 적힌 것만)
+    for (const t of OFFICER_ORDER) { const who = mm.filter(m => m.role.split(' · ').includes(t)).map(m => m.name); if (who.length) rows.push({ k: t, v: who.join(' · ') }); }
+  } else if (heads.length) rows.push({ k: '팀장', v: heads.join(' · ') });
   const name = (/이름은\s+(.+?)(?:이에요|예요)/.exec(about) || [])[1] || '';
-  for (const m of about.matchAll(/(\S+)\s인도자는\s+(.+?)(?:이에요|예요)/g)) rows.push({ k: `${m[1]} 인도`, v: names(m[2]).join(' · ') });
+  // 인도 — 마스터가 적은 줄('찬양 인도자는 A 청년과 B 청년이에요')의 이름 + 맡은 일에 '인도자'가 적힌 가입자(사용자 결정 2026-10-04 · 지어내지 않는다)
+  const leads = mm.filter(m => m.role.split(' · ').includes('인도자')).map(m => m.name);
+  let leadRow = false;
+  for (const m of about.matchAll(/(\S+)\s인도자는\s+(.+?)(?:이에요|예요)/g)) {
+    rows.push({ k: `${m[1]} 인도`, v: [...new Set([...names(m[2]), ...leads])].join(' · ') });
+    leadRow = true;
+  }
+  if (!leadRow && leads.length) rows.push({ k: `${team.replace(/팀$/, '')} 인도`, v: leads.join(' · ') });
   const intro = (pages || []).find(p => p.id === 'intro');
   const month = textOf((intro?.blocks || []).find(b => b.key === 'month'));
   const practice = new RegExp(`${team}\\s?연습은\\s+(.+?)(?:이에요|예요)`).exec(month);

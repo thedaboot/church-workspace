@@ -6376,3 +6376,80 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(A.cardWho([], []), '');
   console.log('PASS  위키 · 다붓이 10(이어 묻기 · 코드 갈래 · 가드 · 다시 쓴 꼴로 캐시·저장 · 출석 외 N명 · 팀 몫 · 이미 아는 말)');
 }
+
+// ── 위키 · 다붓이 9 (2026-10-04 사용자 지적) — 댓글 줄(쓴 사람 · 답글 · 부른 사람) · 두 글자 이름 풀기 · 이름 형제·자매 ·
+//    아직 모르는 질문에서 지금 코드가 받는 말 빼기 · 임원진 몫 · 인도 줄 ──
+{
+  const B = await import(new URL('../api/_wikiBuild.js', import.meta.url).href);
+  const L = await import(new URL('../src/services/wikiLive.js', import.meta.url).href);
+  const roster = B.rosterOf(
+    [{ id: 'pj', display_name: '노준석', approved: true }, { id: 'pm', display_name: '정민경', approved: true }, { id: 'pr', display_name: '재훈', approved: true },
+      { id: 'px', display_name: '탈퇴자', approved: true, removed_at: '2026-09-01' }],
+    [{ name: '노준석', profile_id: 'pj', gender: 'm' }, { name: '정민경', profile_id: 'pm', gender: 'f' }, { name: '임재훈', profile_id: 'pr', gender: 'm' },
+      { name: '장제훈', gender: 'm' }, { name: '이하빈', gender: 'm' }, { name: '박윤민', gender: 'f' }, { name: '강예은', gender: 'f' }, { name: '김예은', gender: 'f' },
+      { name: '강희라', gender: 'f' }, { name: '임성빈', is_pastor: true, gender: 'm' }, { name: '옛사람', gender: 'm', removed_at: '2026-01-01' }]);
+  assert.ok(!roster.some(p => p.name === '옛사람' || p.name === '탈퇴자'), '환송·탈퇴는 명단에서 뺀다');
+  const people = B.peopleIndex(roster);
+  // 댓글 줄 — 쓴 사람이 주어 · @이름은 부른 사람 · 답글은 누구의 댓글에 · 본문의 @이름은 걷는다
+  const cm = [
+    { id: 'c1', author_id: 'pj', body: '@정민경 9월 9일에 하빈이랑 첫 양육할 듯 !', created_at: '2026-08-31T05:00:00Z' },
+    { id: 'c2', author_id: 'pr', body: '@정민경 장제훈 (4주차/6주차) 완료', created_at: '2026-09-09T05:00:00Z' },
+    { id: 'c3', author_id: 'pm', body: '저는 윤민이와 추석주에 첫 모임을 가지기로 했습니다!', created_at: '2026-09-13T05:00:00Z' },
+    { id: 'c4', parent_id: 'c1', author_id: 'pj', body: '@정민경 9월 19일(토)에 1주차 완료', created_at: '2026-09-14T05:00:00Z' },
+  ];
+  const ctx = { people, names: new Map([['pj', '노준석'], ['pm', '정민경'], ['pr', '재훈']]), byId: new Map(cm.map(c => [c.id, c])) };
+  const l2 = B.commentLine(cm[1], ctx);
+  assert.strictEqual(l2.line, '[댓글 · 9월 9일] 임재훈 형제가 씀(정민경 자매를 부름): 장제훈 형제 (4주차/6주차) 완료');
+  assert.ok(!/@/.test(l2.text) && l2.text.indexOf('임재훈') < l2.text.indexOf('정민경'), '쓴 사람이 먼저 · @ 토큰은 걷는다');
+  assert.strictEqual(B.commentLine(cm[2], ctx).text, '정민경 자매가 씀: 저는 윤민(박윤민 자매)와 추석주에 첫 모임을 가지기로 했습니다!');
+  const l4 = B.commentLine(cm[3], ctx);
+  assert.strictEqual(l4.kind, '답글');
+  assert.strictEqual(l4.line, '[답글 · 9월 14일] 노준석 형제가 노준석 형제의 댓글(“9월 9일에 하빈(이하빈 형제)랑 첫 양육할 듯 !”)에 답함(정민경 자매를 부름): 9월 19일(토)에 1주차 완료');
+  // cardSnips가 댓글 줄을 쓴다 — 머리는 '댓글/답글 날짜'
+  const build = readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8');
+  assert.ok(build.includes('const x = commentLine(m, commentCtx(D));') && build.includes('head: `${x.kind} ${mdLabel(x.date)}`'), '업무 조각의 댓글은 commentLine으로');
+  assert.ok(/B를 주어로 쓰지 마라/.test(build) && /그 일을 한 사람을 B로 쓴 것/.test(build), '쓰기·검사 프롬프트에 댓글 주어 규칙');
+  assert.ok(build.includes("if (c.sids.every(x => /^(?:댓글|답글)/.test(bySid.get(x)?.head || ''))) continue;"), '댓글로만 쓴 문장은 바뀌기 전 검사로 버리지 않는다');
+  // 두 글자 이름 — 명단에 한 사람뿐일 때만 푼다(예은은 둘 → 그대로) · 흔한 낱말은 안 푼다
+  assert.strictEqual(people.resolveGiven('윤민')?.name, '박윤민');
+  assert.strictEqual(people.resolveGiven('예은'), null, '둘이면 안 푼다');
+  assert.strictEqual(people.evidence('예은이랑 유리가 왔다'), '예은이랑 유리가 왔다');
+  assert.strictEqual(people.evidence('진행 하빈이가 완료'), '진행 하빈(이하빈 형제)가 완료');
+  // 문장 고치기 — 맨 이름에 형제·자매(조사 맞춤) · 두 글자 이름은 온 이름으로 · 직함·형제가 붙은 이름은 그대로 · 성별을 알면 청년 → 형제·자매
+  assert.strictEqual(people.fix('정민경은 장제훈과 4주차를 마쳤어요.'), '정민경 자매는 장제훈 형제와 4주차를 마쳤어요.');
+  assert.strictEqual(people.fix('윤민과 추석 주에 만나요.'), '박윤민 자매와 추석 주에 만나요.');
+  assert.strictEqual(people.fix('이하빈이 참여하고 하빈이랑 해요.'), '이하빈 형제가 참여하고 이하빈 형제랑 해요.');
+  assert.strictEqual(people.fix('노준석 찬양팀장님과 임성빈 전도사님, 정민경 자매를 불러요.'), '노준석 찬양팀장님과 임성빈 전도사님, 정민경 자매를 불러요.');
+  assert.strictEqual(people.fix('강희라 청년이 만들어요. 임성빈을 봐요.'), '강희라 자매가 만들어요. 임성빈 전도사님을 봐요.');
+  assert.strictEqual(people.fix('@노준석 노준석이었어요.'), '@노준석 노준석이었어요.', '@ 뒤 · 풀지 못하는 꼬리는 그대로');
+  assert.strictEqual(people.evidence('강희라 미디어팀원과 정민경 리더순장'), '강희라 미디어팀원과 정민경 리더순장', '팀원·직함이 붙은 이름은 그대로(예배 2.0 "김윤주 자매 엔지니어팀원")');
+  assert.ok(build.includes('people ? people.fix(t) : t') && build.includes('text: ev(s.text)'), 'fillPage가 조각에 부르는 꼴 · 문장에 고치기를 쓴다');
+  // 아직 모르는 질문 — 지금 코드가 저장 없이 받는 말 · 위키 한 줄에 다 있는 알려 준 말은 빠진다 · 업무 질문은 남는다
+  const lines = ['청년부 사역자는 임성빈 전도사님 한 분이세요.'];
+  for (const q of ['너 누가 만들었누', '너 아빠 노준석이야', '알아둬 다붓아 너의 개발자는 노준석이야', '임성빈 전도사님이야', '고마워', '오늘 날씨 어때?']) assert.ok(B.answeredToday(q, lines), q);
+  for (const q of ['그럼 다음 달은요 ?', '동계 수련회 장소는 어디예요?', '김철수 형제가 새 회계예요']) assert.ok(!B.answeredToday(q, lines), q);
+  const now = new Date().toISOString();
+  const fp = B.faqPage({ questions: [{ question: '너 누가 만들었누', norm: 'a', status: 'unknown', created_at: now }, { question: '임성빈 전도사님이야', norm: 'b', status: 'unknown', created_at: now },
+    { question: '동계 수련회 장소는?', norm: 'c', status: 'unknown', created_at: now }], edits: [{ page_id: 'team:교역자', text: lines[0] }], pages: [] });
+  assert.deepStrictEqual(fp.blocks[1].items.map(i => i.meta.q), ['동계 수련회 장소는?']);
+  // 임원진 몫 — 임원 직함이 곧 팀 몫(순장 · 다른 팀 몫 · 직함 아닌 말은 뺀다) · 교역자는 전도사
+  assert.strictEqual(L.teamPart('청년부 회장 · 여러 팀을 섬기는 팀원', '임원진', ['임원진']), '회장');
+  assert.strictEqual(L.teamPart('총무 · 회계 · 찬양팀 싱어', '임원진', ['임원진', '찬양팀']), '총무 · 회계');
+  assert.strictEqual(L.teamPart('부장', '임원진', ['임원진']), '부장');
+  assert.strictEqual(L.teamPart('예배팀장 · 리더팀장 · 찬양팀 인도자', '임원진', ['임원진', '찬양팀']), '예배팀장 · 리더팀장');
+  assert.strictEqual(L.teamPart('리더팀장 · 웰컴팀장', '임원진', ['임원진', '웰컴팀']), '리더팀장');
+  assert.strictEqual(L.teamPart('리더순장 · 찬양팀 베이스', '임원진', ['임원진', '찬양팀']), '리더순장');
+  assert.strictEqual(L.teamPart('순장 · 찬양팀장', '임원진', ['임원진', '찬양팀']), '', '순장은 임원이 아니다');
+  assert.strictEqual(L.teamPart('전도사 · 담당 교역자', '교역자', ['교역자']), '전도사 · 담당 교역자');
+  assert.strictEqual(L.teamPart('순장 · 찬양팀장', '찬양팀', ['찬양팀', '임원진']), '팀장', '다른 팀은 그대로');
+  const officers = [{ name: '조해리', role: '총무 · 회계 · 찬양팀 싱어', teams: ['임원진', '찬양팀'] }, { name: '양민혁', role: '청년부 회장 · 여러 팀을 섬기는 팀원', teams: ['임원진'] },
+    { name: '정민경', role: '리더순장 · 찬양팀 베이스', teams: ['임원진', '찬양팀'] }, { name: '김순장', role: '순장', teams: ['임원진'] }];
+  assert.deepStrictEqual(L.teamMembers('임원진', officers).map(m => `${m.name} ${m.role}`), ['양민혁 회장', '조해리 총무 · 회계', '정민경 리더순장', '김순장 ']);
+  assert.deepStrictEqual(L.teamInfo({ id: 'team:임원진', blocks: [] }, [], officers).rows.filter(r => r.k !== '가입자'), [{ k: '회장', v: '양민혁' }, { k: '총무', v: '조해리' }, { k: '회계', v: '조해리' }, { k: '리더순장', v: '정민경' }]);
+  // 인도 줄 — 마스터가 적은 줄의 이름 + 맡은 일에 인도자가 적힌 가입자 · 적힌 줄이 없어도 맡은 일로 선다
+  const singers = [{ name: '노준석', role: '순장 · 찬양팀장', teams: ['찬양팀'] }, { name: '조준환', role: '예배팀장 · 찬양팀 인도자 · 찬양팀 싱어', teams: ['찬양팀'] }];
+  const about = { id: 'team:찬양팀', blocks: [{ key: 'about', type: 'plain', items: [{ text: '찬양 인도자는 노준석 청년과 조준환 청년이에요.' }] }] };
+  assert.deepStrictEqual(L.teamInfo(about, [], singers).rows.find(r => r.k === '찬양 인도'), { k: '찬양 인도', v: '노준석 · 조준환' });
+  assert.deepStrictEqual(L.teamInfo({ id: 'team:찬양팀', blocks: [] }, [], singers).rows.find(r => r.k === '찬양 인도'), { k: '찬양 인도', v: '조준환' });
+  console.log('PASS  위키 · 다붓이 9(댓글 줄 · 두 글자 이름 · 이름 형제·자매 · 모르는 질문 빼기 · 임원진 몫 · 인도 줄)');
+}
