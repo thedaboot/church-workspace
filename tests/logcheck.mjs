@@ -6371,5 +6371,8 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 출석 명단을 못 읽으면 '모두 왔어요'라고 하지 않는다(던져서 '답을 받지 못했어요')
   const attDb = fakeDb({ groups: [], services: [{ id: 's1', kind: 'sunday', service_date: '2026-09-27' }], people: [], attendance: [{ person_id: 'x' }], attendance_guests: [] });
   await assert.rejects(A.attendanceReply('지난주 누가 안 왔어?', { db: attDb, today: '2026-10-04' }), /출석 읽기 실패/);
+  // 업무 줄에 맡은 팀 · 담당자 — '준비는 누가 해?'에 답할 재료(2026-10-04) · '순장'은 팀이 아니다
+  assert.strictEqual(A.cardWho(['임원진', '순장'], ['가나다']), '맡은 팀 임원진 · 순장도 함께 봐요 · 담당자 가나다');
+  assert.strictEqual(A.cardWho([], []), '');
   console.log('PASS  위키 · 다붓이 10(이어 묻기 · 코드 갈래 · 가드 · 다시 쓴 꼴로 캐시·저장 · 출석 외 N명 · 팀 몫 · 이미 아는 말)');
 }

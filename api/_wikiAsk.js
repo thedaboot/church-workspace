@@ -113,7 +113,17 @@ export function secondSunday(today) {
 // '삿 17:1-13' → '사사기 17:1-13'(QT 일정은 약칭으로 저장된다 · bibleRef.fullRef와 같은 뜻)
 export const fullBookRef = (ref) => String(ref || '').trim().replace(/^([가-힣]+)/, (w) => BOOKS.find(b => b.abbr === w || b.name === w)?.name || w);
 
-const sentenceFromCard = (c, projName) => {
+// 맡은 팀 · 담당자 — '준비는 누가 해?'에 답할 재료(사용자 지적 2026-10-04 — 업무 줄에 사람이 없어 '찾지 못했어요'였다).
+// 팀 칩의 '순장'은 팀이 아니라 '순장도 함께 봐요'다(위키와 같다).
+export const cardWho = (teams = [], people = []) => {
+  const t = teams.filter(x => x && x !== '순장');
+  const parts = [];
+  if (t.length) parts.push(`맡은 팀 ${t.join(', ')}`);
+  if (teams.includes('순장')) parts.push('순장도 함께 봐요');
+  if (people.length) parts.push(`담당자 ${people.join(', ')}`);
+  return parts.join(' · ');
+};
+const sentenceFromCard = (c, projName, who = '') => {
   const a = c.start_date; const b = c.due_date;
   // 업무 날짜는 그 일을 하는 날·마감이다 — 행사 날짜가 아니다(근거에 그렇게 밝힌다 · 2026-10-03)
   const when = a && b && a !== b ? `업무 기간 ${mdLabel(a, true)}~${mdLabel(b, true)}` : b ? `업무 마감 ${mdLabel(b, true)}` : a ? `업무 시작 ${mdLabel(a, true)}` : '업무 날짜 미정';
@@ -121,7 +131,7 @@ const sentenceFromCard = (c, projName) => {
   const body = filled ? '상세 내용 있음' : '상세 내용 비어 있음(기록 전)';
   // 마지막 수정 — 위키 글과 어긋나면 업무가 이기고, 업무끼리는 늦게 고친 쪽이 이긴다(사용자 결정 2026-10-04)
   const touched = c.updated_at ? ` · 마지막 수정 ${mdLabel(kstDate(c.updated_at), true)}` : '';
-  return `업무 '${c.title}' · 프로젝트 '${projName}' · ${when} · 상태 ${STATUS[c.status] || c.status}${c.status === 'ongoing' ? '(마감 없이 계속 쓰는 업무)' : ''} · ${body}${touched}`;
+  return `업무 '${c.title}' · 프로젝트 '${projName}' · ${when} · 상태 ${STATUS[c.status] || c.status}${c.status === 'ongoing' ? '(마감 없이 계속 쓰는 업무)' : ''}${who ? ` · ${who}` : ''} · ${body}${touched}`;
 };
 
 // ── 사람(2026-10-04) ─────────────────────────────────────────────────────────
@@ -246,17 +256,22 @@ export function teamHint(q, teamItems, roster) {
 // ── 근거 모으기 ──────────────────────────────────────────────────────────────
 export async function collectEvidence(q, { db, key, today }) {
   const must = (r) => r.data || [];
-  const [pages, edits, cards, projects, files, services, profiles, people, roster] = await Promise.all([
+  const [pages, edits, cards, projects, files, services, profiles, people, roster, cardTeams] = await Promise.all([
     db.from('wiki_pages').select('id, grp, title, kind, blocks').then(must),
     db.from('wiki_edits').select('page_id, item_key, block_key, text, before, edited_by, edited_at').then(must),
-    db.from('cards').select('id, project_id, title, status, start_date, due_date, description, subtasks, updated_at').then(must),
+    db.from('cards').select('id, project_id, title, status, start_date, due_date, description, subtasks, updated_at, assignees').then(must),
     db.from('projects').select('id, name, year').then(must),
     db.from('files').select('id, card_id, service_id, kind, name, mime_type, source, drive_file_id, preview_file_id, created_at, view_pw').then(must),
     db.from('services').select('id, service_date, title, passage_ref, songs, status').eq('status', 'published').order('service_date').then(must),
-    db.from('profiles').select('display_name').then(must),
+    db.from('profiles').select('id, display_name').then(must),
     db.from('people').select('name').then(must),
     loadRoster(db).catch(() => ({ members: [], pastors: [] })),
+    db.from('card_teams').select('card_id, teams(name)').then(must),
   ]);
+  const nameById = new Map(profiles.map(p => [p.id, String(p.display_name || '').trim()]));
+  const teamsOf = new Map();
+  for (const r of cardTeams) { const n = r.teams?.name; if (n) teamsOf.set(r.card_id, [...(teamsOf.get(r.card_id) || []), n]); }
+  const whoOf = (c) => cardWho(teamsOf.get(c.id) || [], (c.assignees || []).map(id => nameById.get(id)).filter(Boolean));
   const hasName = nameMatcher([...profiles.map(p => p.display_name), ...people.map(p => p.name)]);
   const proj = new Map(projects.map(p => [p.id, p]));
   const cardById = new Map(cards.map(c => [c.id, c]));
@@ -311,7 +326,7 @@ export async function collectEvidence(q, { db, key, today }) {
     .slice(0, 6);
   for (const { c } of cardHits) {
     const p = proj.get(c.project_id);
-    push(sentenceFromCard(c, projectTitle(p?.name || '', p?.year)), { t: 'card', id: c.id, label: c.title });
+    push(sentenceFromCard(c, projectTitle(p?.name || '', p?.year), whoOf(c)), { t: 'card', id: c.id, label: c.title });
   }
 
   // 위키 줄(사람이 고친 글 겹침) — 이름 든 줄도 싣는다(2026-10-04)
