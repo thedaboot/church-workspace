@@ -6337,8 +6337,12 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(W.pickLines(MEET, ['체육대회']).includes('후보날짜 11월 7일(토)') && W.pickLines(MEET, ['체육대회']).includes('장소: 한강공원'), '소제목 아래 줄까지');
   assert.strictEqual(W.pickLines(MEET, ['수련회']), '', '안 걸리면 빈 글');
   assert.deepStrictEqual(W.yearTerms('내년도 회장은 누구야?', '2026-10-05'), ['2027']);
-  assert.ok(W.withAliases(W.termsOf('리더 워크샵 언제야?')).includes('MT') && W.withAliases(['MT']).includes('워크샵'), "'MT'는 리더진 워크샵(사용자 2026-10-05)");
-  assert.deepStrictEqual(W.withAliases(['체육대회']), ['체육대회']);
+  // '(리더진) 워크샵'은 리더 가을 MT로 찾는다 · '리더십 워크샵'은 다른 행사(사용자 2026-10-05)
+  assert.strictEqual(W.canonQ('리더진 워크샵은 언제 어디서 해?'), '리더 가을 MT은 언제 어디서 해?');
+  assert.strictEqual(W.canonQ('워크숍 장소 어디야?'), '리더 가을 MT 장소 어디야?');
+  assert.strictEqual(W.canonQ('9월 6일 리더십 워크샵 뭐 했어?'), '9월 6일 리더십 워크샵 뭐 했어?', '리더십 워크샵은 그대로');
+  assert.strictEqual(W.aliasNotes('리더 워크샵 언제야?').length, 1);
+  assert.deepStrictEqual([W.canonQ('체육대회 언제야?'), W.aliasNotes('체육대회 언제야?')], ['체육대회 언제야?', []]);
   const TT = ['양육비', '양육 2기 모집', '10월 월례회'];
   assert.strictEqual(W.rareTerm(W.termWeights(TT, ['그럼', '양육비', '물어보면']), TT), '양육비', '제목에 없는 말은 드문 낱말이 아니다');
   // 담당자 — card_assignees가 정본, 없으면 이름 칸(2026-10-05 — id로만 읽어 담당자가 늘 비었다)
@@ -6347,6 +6351,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(A.assigneeNamesOf({ assignees: ['옛이름'], card_assignees: [{ profile_id: 'u1' }] }, NB), ['조해리'], '조인 행이 먼저');
   assert.deepStrictEqual(W.yearTerms('올해 수련회', '2026-10-05'), ['2026']);
   assert.deepStrictEqual(W.yearTerms('회장은 누구야?', '2026-10-05'), []);
+  assert.strictEqual(W.yearWordsToNumbers('내년도 회장은 정민경 청년이에요. 올해 회장은 A 형제예요.', '2026-10-05'), '2027년 회장은 정민경 청년이에요. 2026년 회장은 A 형제예요.');
   assert.deepStrictEqual(A.noticeLines([{ id: 's', service_date: '2026-10-04', notices: [{ title: '회장 발표', body: '' }, { title: '회장 발표', body: '2027 회장은 A 자매예요.' }, { title: '월례회', body: '11일' }] }], ['회장']).map(n => n.text), ["10월 4일(일) 주보 광고 '회장 발표': 2027 회장은 A 자매예요."], '본문 있는 광고만');
   assert.deepStrictEqual(W.termsOf('오~ 어디소 하는딩?'), [], '말투 꼴 묻는 말은 찾을 낱말이 아니다');
   assert.ok(W.looksFollowUp('오~ 어디소 하는딩?'), '짧은 말투 꼴 물음은 이어 묻기');

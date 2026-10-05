@@ -492,15 +492,16 @@ export function pickLines(text, terms, max = 380) {
   const picked = terms.length ? lines.filter((_, k) => hit.has(k)) : lines;
   return picked.join(' ').replace(/[#*]+|==/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
-// 같은 말 — 기록마다 다르게 적힌 한 가지(사용자가 알려 준 것만). 찾을 때 서로를 같이 본다.
-// 'MT'는 리더진 워크샵이다(사용자 2026-10-05 — 회의 기록에는 '리더 가을 MT').
-export const ALIASES = [{ words: ['MT', '엠티', '워크샵', '워크숍'], note: "리더 MT는 리더진 워크샵이에요(회의 기록에는 '리더 가을 MT'로 적혀 있어요)." }];
-export const aliasGroups = (terms) => ALIASES.filter(g => terms.some(t => g.words.some(a => t.toUpperCase().includes(a))));
-export function withAliases(terms) {
-  const out = [...terms];
-  for (const g of aliasGroups(terms)) for (const a of g.words) if (!out.includes(a)) out.push(a);
-  return out;
+export function yearWordsToNumbers(text, today) {
+  const y = Number(String(today).slice(0, 4));
+  return String(text || '').replace(/내년도?/g, `${y + 1}년`).replace(/올해|금년/g, `${y}년`).replace(/작년도?/g, `${y - 1}년`);
 }
+// 같은 말 — 질문의 말을 기록에 적힌 말로 바꿔 찾는다(사용자가 알려 준 것만). 근거에는 note를 한 줄 싣는다.
+// '(리더진) 워크샵'은 리더 가을 MT다(사용자 2026-10-05 — 워크샵·MT를 둘 다 찾게 했더니 옛 기획안의 '12월 리더십 워크숍'이 섞였다).
+// '리더십 워크샵'이라고 콕 집은 말은 바꾸지 않는다 — 9월 6일에 실제로 한 다른 행사다.
+export const ALIASES = [{ re: /(?:리더진?\s?)?(?<!리더십\s?)(?:워크샵|워크숍)/, canon: '리더 가을 MT', note: "리더진 워크샵은 리더 가을 MT예요(회의 기록에는 '리더 가을 MT'로 적혀 있어요)." }];
+export const canonQ = (q) => ALIASES.reduce((s, a) => s.replace(new RegExp(a.re.source, 'g'), a.canon), String(q || ''));
+export const aliasNotes = (q) => ALIASES.filter(a => a.re.test(String(q || ''))).map(a => a.note);
 // 해 낱말 — '내년도 회장'이 '2027 임원진'에 닿게(2026-10-05)
 export function yearTerms(q, today) {
   const y = Number(String(today).slice(0, 4));

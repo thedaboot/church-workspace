@@ -3,7 +3,7 @@ import {
   prefilter, termsOf, normQ, scoreWikiItems, termWeights, groundedIn, tokenCoverage, overlayEdits, overlayTitles, keepCited, notFoundCites, parseModelJson,
   styleIssues, mdLabel, kstDate, NOT_FOUND, stripBold, talkKind, isPeopleQuestion, josa, hasJong, SEED_PAGES, withTeamCards,
   bibleRefIn, bibleAnswer, BIBLE_MAX, isAttendanceQuestion, asksAbsent, attendanceAnswer, isBirthdayQuestion, birthdayMonths, birthdayAnswer, birthdayOf,
-  contactTail, cacheEligible, cacheFresh, looksFollowUp, followUpRule, followUpGuard, knownStatement, looksCompound, splitGuard, mergeParts, pickLines, yearTerms, withAliases, aliasGroups, rareTerm,
+  contactTail, cacheEligible, cacheFresh, looksFollowUp, followUpRule, followUpGuard, knownStatement, looksCompound, splitGuard, mergeParts, pickLines, yearTerms, canonQ, aliasNotes, yearWordsToNumbers, rareTerm,
 } from '../src/services/wikiCore.js';
 import { teamPart } from '../src/services/wikiLive.js';
 import BOOKS from '../public/bible/index.json' with { type: 'json' };
@@ -71,6 +71,7 @@ const VERIFY_SYS = [
   'extra에 넣는 것: 근거에 없는 사실·날짜·요일·숫자·이유 / 근거보다 넓은 말 / 계획을 이미 한 일로 쓴 것 / 근거와 다르게 읽히는 말 / 근거에 없는 사람 이름·직함.',
   '말을 쉽게 바꾼 것, 해요체로 바꾼 것, 근거의 일부만 말한 것, "찾지 못했어요"·"기록 전이에요"처럼 모른다고 한 것은 extra가 아니다. 문체는 보지 마라.',
   '회의 기록·업무 글에 "일시: X"·"장소: Y"·"시간: Z"처럼 적힌 항목은 그 행사의 날짜·장소·시간으로 정해진 사실이다. 같은 일의 기록이 여럿이면 날짜가 늦은 기록을 따른다.',
+  '주보 광고는 그 주일에 모두에게 알린 정해진 사실이다. "회장 발표: 홍길동"이면 홍길동이 회장으로 뽑혔다(선출됐다)는 뜻이다.',
   '출력: {"problems":[{"n":번호,"extra":["근거에 없는 주장"]}]} — 근거에 없는 주장이 있는 문장만 싣는다. 모두 괜찮으면 problems는 [].',
 ].join('\n');
 
@@ -310,14 +311,16 @@ export async function collectEvidence(q, { db, key, today }) {
   const cardById = new Map(cards.map(c => [c.id, c]));
   const svcById = new Map(services.map(s => [s.id, s]));
   const years = yearTerms(q, today);
-  const terms = withAliases([...termsOf(q), ...years]);   // '워크샵' ↔ 'MT'(wikiCore.ALIASES)
+  const terms = [...termsOf(canonQ(q)), ...years];   // '리더진 워크샵' → '리더 가을 MT'로 찾는다(wikiCore.ALIASES)
   const ev = [];
   const push = (text, cite = null) => { if (!ev.some(e => e.text === text)) ev.push({ id: `E${ev.length + 1}`, text, cite }); };
 
   // 주일 날짜는 코드가 셈해 준다 — 모델이 '이번 주일 = 10월 4일'을 스스로 셈하면 검사가 근거 없음으로 건다
   const { thisSun, lastSun, nextSun } = sundaysOf(today);
-  push(`오늘은 ${years.length ? `${today.slice(0, 4)}년 ` : ''}${mdLabel(today, true)}이에요. 이번 주일은 ${mdLabel(thisSun, true)}, 다음 주일은 ${mdLabel(nextSun, true)}, 지난 주일은 ${mdLabel(lastSun, true)}이에요.`);
-  for (const g of aliasGroups(terms)) push(g.note);   // 같은 말 — 모델·검사가 '워크샵'과 'MT' 줄을 잇게
+  // '내년도 회장'을 검사가 '2027 회장' 근거와 잇게 — 해 낱말이 있으면 올해·내년·작년을 적는다(2026-10-05)
+  const y = Number(today.slice(0, 4));
+  push(`오늘은 ${years.length ? `${y}년 ` : ''}${mdLabel(today, true)}이에요.${years.length ? ` 올해는 ${y}년, 내년은 ${y + 1}년, 작년은 ${y - 1}년이에요.` : ''} 이번 주일은 ${mdLabel(thisSun, true)}, 다음 주일은 ${mdLabel(nextSun, true)}, 지난 주일은 ${mdLabel(lastSun, true)}이에요.`);
+  for (const note of aliasNotes(q)) push(note);   // 같은 말 — 모델·검사가 '워크샵'과 'MT' 줄을 잇게
 
   // 위키 장(사람이 고친 문장을 겹친 지금 모습) — 함께 쓰는 글 초안(SEED_PAGES) 가운데 아직 DB에 심기지 않은 장은 초안 그대로 싣는다
   // (새 초안 장 — 예: 워크스페이스 사용법 — 이 다음 아침 모으기 전에도 근거가 된다 · 2026-10-04)
@@ -712,6 +715,8 @@ export async function answerQuestion(q, { db, admin = null, prev = '', key = pro
   // 이름은 근거에 있는 것만(2026-10-04 — 예전에는 이름이 나오면 버렸다)
   const allEvText = evidence.map(e => e.text).join(' ');
   const nameCheck = (t) => { const x = hasName.strangers(t, allEvText); return x.length ? [`근거에 없는 이름 ${x.join(', ')}`] : []; };
+  // '내년도 회장은 …'을 '2027년 회장은 …'으로 — 검사 모델이 '내년도'와 '2027' 근거를 잇지 못했다(2026-10-05)
+  if (Array.isArray(out.sentences)) out.sentences = out.sentences.map(x => ({ ...x, text: yearWordsToNumbers(x.text, today) }));
   const { kept, dropped } = keepCited(out.sentences, evidence, nameCheck);
   const notFound = out.found === false;
 

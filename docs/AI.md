@@ -309,7 +309,7 @@ FAIL이 나는지 확인**합니다(HANDOFF §3-5).
 **섞인 질문 · 근거 넓히기(2026-10-05 18차)** — 둘 이상을 묻는 말('10월이랑 11월 생일자' · '콩순 출석이랑 생일자' · '언제 어디서 해?')은 `looksCompound`가 문지기, 모델 한 번(`splitCompound`)이 혼자 서는 물음 2~3개로 나누고
 `splitGuard`(없던 숫자·대상 금지)를 지나면 따로 답해 잇는다(`mergeParts` — 모른 물음만 '…는 찾을 수가 없어서' 한 줄, 그 물음만 따로 unknown 저장). 이어 묻기가 먼저 돈다.
 근거에 더한 것: 최근 회의 업무(리더십 회의·월례회) 본문에서 질문 낱말이 든 줄(최신 셋 · `pickLines` — 위키 장은 회의를 두세 줄로 줄여 빠지는 게 있다) · 최근 주보 광고(`noticeLines`) ·
-주보 줄의 자리('예배 탭에 있어요') · '내년/올해/작년' → 해 숫자(`yearTerms`) · 같은 말 표(`ALIASES` — 'MT'=리더진 워크샵, 사용자가 알려 준 것만) · 업무 담당자는 `card_assignees`가 정본(`assigneeNamesOf` — `cards.assignees`는 이름 글자다).
+주보 줄의 자리('예배 탭에 있어요') · '내년/올해/작년' → 해 숫자(`yearTerms`) · 같은 말 표(`ALIASES` · `canonQ` — 질문의 '(리더진) 워크샵'을 '리더 가을 MT'로 바꿔 찾는다, '리더십 워크샵'은 다른 행사라 그대로 · 사용자가 알려 준 것만) · 모델 문장의 '내년도/올해/작년'은 검사 전에 해 숫자로(`yearWordsToNumbers`) · 업무 담당자는 `card_assignees`가 정본(`assigneeNamesOf` — `cards.assignees`는 이름 글자다).
 다붓이 자신: '뭐 할 수 있어?'(`PERSONA_ANSWERS.can`) · '노준석 개발자님이 뭘 해줬어?'(`TALK_ANSWERS.makerDid`). 위기 답에 상담 전화 번호는 싣지 않는다(사용자 결정).
 
 **자가 개선 고리**
