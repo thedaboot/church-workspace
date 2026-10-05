@@ -6482,12 +6482,13 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     { question: '월례회 언제야?', norm: 'f', status: 'answered', via: 'ask', created_at: at(50) },
     { question: '수련회 언제야?', norm: 'g', status: 'answered', via: 'ask', created_at: at(55) },
     { question: '다붓이 안뇽 ?!', norm: 'i', status: 'unknown', via: 'ask', created_at: at(58) },
+    { question: '오~ 어디소 하는딩?', norm: 'j', status: 'unknown', via: 'ask', created_at: at(59) },
   ];
-  assert.deepStrictEqual(A.reaskTodo(rows).map(r => r.norm), ['a', 'c', 'e'], '바꿔 물은 a · 모른 c · 👎 e — 이미 본 d · 낱말이 다른 f · 이제 코드가 받는 인사 i는 빼고');
+  assert.deepStrictEqual(A.reaskTodo(rows).map(r => r.norm), ['a', 'c', 'e'], '바꿔 물은 a · 모른 c · 👎 e — 이미 본 d · 낱말이 다른 f · 이제 코드가 받는 인사 i · 앞 대화 없는 말투 꼴 j는 빼고');
   // 자주 묻는 질문 장 — 검사가 버림으로 가른 것은 '아직 모르는 질문'에 안 선다(마스터에게는 기록 없음만)
   const fq = (cause) => B.faqPage({ questions: [{ question: '체육대회 시간?', norm: 'h', status: 'unknown', via: 'ask', created_at: new Date().toISOString() },
     { question: '체육대회 시간?', norm: 'h', status: 'unknown', via: 'nightly', answer: { cause }, created_at: new Date(Date.now() + 1000).toISOString() }], edits: [], pages: [] }).blocks[1].items.length;
-  assert.deepStrictEqual([fq('dropped'), fq('none')], [0, 1]);
+  assert.deepStrictEqual([fq('dropped'), fq('known'), fq('none')], [0, 0, 1], '검사가 버림 · 이미 아는 알려 준 말은 안 선다');
   // 답 모델 — 3.8 Flash 한 번(25초) · 느리거나 실패하면 flash-lite
   const askSrc = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
   assert.strictEqual(A.ASK_MODEL, 'gemini-3.8-flash');

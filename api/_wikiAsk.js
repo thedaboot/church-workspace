@@ -633,6 +633,7 @@ export function reaskTodo(rows = [], max = 8) {
   return [...lastAsk.values()]
     .filter(r => r.status === 'unknown' || r.feedback === 'bad' || rephrased.has(r.norm))
     .filter(r => !prefilter(r.question) && talkKind(r.question, [])?.status !== 'answered')   // 이제 코드가 받는 말(인사 · 다붓이 자신)은 다시 볼 것이 없다
+    .filter(r => !(!r.answer?.prev && !termsOf(r.question).length))   // 앞 대화 없이 남은, 내용 낱말이 없는 말('오~ 어디소 하는딩?')은 혼자로는 누구도 답할 수 없다(18차 2회 전 저장분)
     .filter(r => !(lastNight.get(r.norm)?.created_at > r.created_at))
     .slice(-max);
 }
@@ -655,7 +656,7 @@ export async function reaskUnknown(admin, { budgetMs = 60 * 1000, max = 8, key =
   const { data } = await admin.from('dabooti_questions').select('question, norm, status, feedback, answer, via, created_at')
     .gte('created_at', new Date(Date.now() - 7 * 864e5).toISOString()).order('created_at');   // 7일(사용자 결정 2026-10-03)
   const todo = reaskTodo(data || [], max);
-  const causes = { missed: 0, dropped: 0, none: 0 };
+  const causes = { missed: 0, dropped: 0, none: 0, known: 0 };
   let tried = 0;
   for (const r of todo) {
     if (Date.now() - started > budgetMs) break;
@@ -664,10 +665,16 @@ export async function reaskUnknown(admin, { budgetMs = 60 * 1000, max = 8, key =
       const prev = r.answer?.prev || '';
       // 먼저 지금 그대로 한 번 — 그사이 기록이 늘었거나 코드 갈래(인사 등)가 받게 됐으면 거기서 끝(찾기 단계는 건너뛴다)
       const now = await answerQuestion(r.question, { db: admin, admin, prev, cache: false, key, today });
-      if (now.status !== 'unknown' || now.kind) {
-        const cause = now.status === 'answered' ? 'missed' : 'none';
+      // 알려 주는 말(talkKind statement)은 답이 아니라 마스터에게 갈 말 — 기록에 이미 있으면 'known'(올리지 않는다), 아니면 기록 없음
+      if (now.kind) {
+        const cause = now.known ? 'known' : 'none';
         causes[cause]++;
-        await saveAnswer(admin, r.question, { ...now, prev: prev || undefined, cause }, 'nightly');
+        await saveAnswer(admin, r.question, { ...now, status: 'unknown', save: true, prev: prev || undefined, cause }, 'nightly');
+        continue;
+      }
+      if (now.status !== 'unknown') {
+        causes.missed++;
+        await saveAnswer(admin, r.question, { ...now, prev: prev || undefined, cause: 'missed' }, 'nightly');
         continue;
       }
       const { evidence } = await collectAll(admin, today);

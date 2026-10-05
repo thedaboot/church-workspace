@@ -876,7 +876,9 @@ export function faqPage(D) {
     }
     // 아침 고리가 '검사가 버림'으로 가른 것은 마스터에게 올리지 않는다 — 기록은 있다(18차 2회 · 마스터에게는 '기록 없음'만)
     const night = [...list].reverse().find(q => q.via === 'nightly');
-    if (night?.answer?.cause === 'dropped' && night.created_at >= latest.created_at) continue;
+    if (['dropped', 'known'].includes(night?.answer?.cause) && night.created_at >= latest.created_at) continue;
+    // 앞 대화 없이 남은, 내용 낱말이 없는 이어 묻는 말('오~ 어디소 하는딩?')은 혼자로는 답할 수 없다 — 마스터에게도 올리지 않는다
+    if (!latest.answer?.prev && !termsOf(latest.question).length) continue;
     if (latest.created_at >= since && !answeredToday(latest.question, wikiLines)) unknown.push({ ...item, at: latest.created_at });
   }
   const order = (a, b) => (b.meta.n - a.meta.n) || String(b.at).localeCompare(String(a.at));
