@@ -295,6 +295,7 @@ export const TALK_ANSWERS = {
   makerTold: '맞아요! 저를 만들어주신 분은 노준석 개발자님이세요.',
   makerKnown: '네, 저를 만들어주신 분은 노준석 개발자님이세요.',
   makerOther: '저를 만들어주신 분은 노준석 개발자님이세요.',
+  makerDid: '노준석 개발자님이 더다붓 워크스페이스와 저 다붓이를 만들었어요!',
   greet: '안녕하세요! 궁금한 게 있으면 편하게 물어봐 주세요.',
   thanks: '도움이 됐다니 기뻐요! 또 궁금한 게 있으면 물어봐 주세요.',
   praise: '칭찬해 주셔서 고마워요! 더 잘 찾아 볼게요.',
@@ -329,6 +330,7 @@ export const PERSONA_ANSWERS = {
   name: '여러분들과 같이 있는 게 좋아서 다붓이에요!',
   two: '둘이 붙어 있어야 다붓하니까요!',
   side: '다 알면서…',
+  can: '저는 더다붓 워크스페이스의 업무, 주보, 위키를 보고 일정이나 담당자, 파일이 어디 있는지 같은 걸 찾아 드려요. 궁금한 걸 편하게 물어봐 주세요!',
   secret: '그건 아직 비밀이에요!',
 };
 // 다붓이 설정을 묻는 낱말 — 질문에 이 낱말 말고 다른 내용 낱말이 없으면(또는 '너'·'다붓이'로 부르면) 다붓이 이야기다
@@ -339,6 +341,8 @@ const P_AGE = /몇\s?살|나이|연세/;
 const P_NAME = /(?:왜|어떻게).{0,8}(?:이름|다붓이)|이름.{0,6}(?:왜|뜻|의미|유래)/;
 const P_TWO = /왜\s?(?:둘|두\s?(?:명|마리|개)|2명)|(?<![가-힣])둘이(?:야|에요|예요|인|라|서)|둘인/;
 const P_SIDE = /옆에?\s?(?:있는|붙어\s?있는)?\s?(?:애|친구|아이|얘|사람)|옆\s?(?:애|친구)/;
+// 무엇을 할 수 있나('너 뭐 할 수 있니' · 2026-10-05 — 엉뚱하게 '위키 내용을 수정하는 일도 맡고 있어요'라고 했다)
+const P_CAN = /(?:뭐|뭘|무엇|무슨\s?일|어떤\s?(?:일|거|것)).{0,8}(?:할\s?수|할\s?줄|해\s?줄|도와|잘해|하는\s?(?:애|거|일|역할)|해)|할\s?수\s?있는\s?(?:게|거|것|일)|기능|역할/;
 const P_SECRET = /mbti|엠비티아이|(?<![가-힣])키(?:가|는|\s|$)|몸무게|사는\s?곳|어디\s?(?:에\s?)?살|성별|남자|여자|취미|혈액형|고향|가족|애인|연애|여친|남친|친구\s?(?:있|누구)|좋아하는\s?사람|별자리|직업|학교|전화\s?번호|정체/i;
 export function personaKind(q) {
   const s = String(q || '').trim();
@@ -346,12 +350,12 @@ export function personaKind(q) {
   const aboutSelf = SELF.test(s) || !termsOf(s).some(t => !PERSONA_WORDS.test(t));
   if (!aboutSelf) return null;
   const k = P_NAME.test(s) ? 'name' : P_TWO.test(s) ? 'two' : P_SIDE.test(s) ? 'side' : P_BIRTH.test(s) ? 'birthday'
-    : P_AGE.test(s) ? 'age' : P_LIKES.test(s) ? 'likes' : P_SECRET.test(s) ? 'secret' : null;
+    : P_AGE.test(s) ? 'age' : P_LIKES.test(s) ? 'likes' : P_CAN.test(s) ? 'can' : P_SECRET.test(s) ? 'secret' : null;
   return k ? { kind: 'persona', topic: k, status: 'answered', answer: PERSONA_ANSWERS[k] } : null;
 }
 
 // 힘든 마음 — 공감 한 문장 + 이을 사람 한 문장. 마스터 알림 없음 · 저장 안 함.
-// 살고 싶지 않다는 말은 상담 전화도 같이 건넨다(109 · 자살예방상담전화 · 24시간).
+// 살고 싶지 않다는 말은 지금 바로 이을 사람에게 — 상담 전화 번호는 싣지 않는다(사용자 결정 2026-10-05).
 export const CARE_LINK = '순장님이나 임성빈 전도사님께 이야기해 보면 힘이 될 거예요.';
 export const FAITH_LINK = '이런 이야기는 임성빈 전도사님이나 순장님과 나누면 더 좋을 것 같아요.';
 const FEEL_CRISIS = /죽고\s?싶|자살|사라지고\s?싶|살기\s?싫|살고\s?싶지\s?않/;
@@ -360,7 +364,7 @@ const FEEL_CHURCH = /(?:교회|예배|청년부|순모임)\s?(?:에\s?)?(?:가�
 const FEEL_HARD = /힘들어|힘드네|힘들다|힘듦|힘든\s?(?:하루|요즘|날|시기)|지쳐|지쳤|지친다|우울|슬퍼|슬프|속상|괴로|불안해|무서워|눈물|버거워|버겁|마음이\s?(?:아파|무거워)|위로해\s?줘|위로가\s?필요/;
 const FEEL_DATA = /언제|어디|누가|누구|몇\s?(?:시|명)|준비|일정|장소|팀|담당|업무|수련회|행사|체육대회|월례회/;
 export const FEEL_ANSWERS = {
-  crisis: '그렇게까지 힘든 마음이라니 정말 걱정돼요. 지금 바로 순장님이나 임성빈 전도사님께 이야기해 주세요. 혼자 견디기 어려우면 자살예방상담전화 109에 언제든 전화할 수 있어요.',
+  crisis: '그렇게까지 힘든 마음이라니 정말 걱정돼요. 지금 바로 순장님이나 임성빈 전도사님께 이야기해 주세요.',
   lonely: '외로운 마음이 드셨군요. 이야기해 줘서 고마워요.',
   church: '그런 마음이 드는 날도 있어요. 솔직하게 말해 줘서 고마워요.',
   hard: '요즘 많이 힘드셨군요. 혼자 버티느라 애쓰셨어요.',
@@ -423,6 +427,8 @@ export function talkKind(q, prev = []) {
     const told = earlier.some(x => makerTold(x) && x.includes(MAKER));
     return { kind: 'self', status: 'answered', answer: told ? TALK_ANSWERS.makerKnown : TALK_ANSWERS.makerAsk };
   }
+  // 만든 사람이 무엇을 했나('노준석 개발자님이 뭘 어떻게 해줬는데?' · 2026-10-05 — 업무 하나를 골라 답했다)
+  if (isAsking(s) && s.includes(MAKER) && /개발자/.test(s) && /뭘|뭐|무슨|어떻게|어떤/.test(s) && /해\s?줬|해\s?준|했|만들/.test(s)) return { kind: 'self', status: 'answered', answer: TALK_ANSWERS.makerDid };
   // 만든 사람을 알려 줌('너 아빠 노준석이야' · '알아둬 다붓아 너의 개발자는 노준석이야')
   if (makerTold(s) && SELF.test(s)) {
     return { kind: 'self', status: 'answered', answer: s.includes(MAKER) ? TALK_ANSWERS.makerTold : TALK_ANSWERS.makerOther };
@@ -464,9 +470,42 @@ export function termsOf(q) {
     if (t.length < 2 || STOP.has(t) || STOP.has(w)) continue;
     // 동사 꼬리('나오나요'·'나왔어요'·'있나요'·'했나요')는 찾을 낱말이 아니다 — 남으면 낱말 수만 늘어 문턱을 못 넘었다(2026-10-03)
     if (/^(나오|나왔|나와|있|없|했|됐|돼|되|하나|할|될|어떤|어떻)/.test(t) && t.length <= 3) continue;
+    // 묻는 말·동사의 말투 꼴('어디소' · '언제임' · '하는딩')도 찾을 낱말이 아니다(2026-10-05 — 이어 묻는 말로 못 읽었다)
+    if ((/^(어디|언제|누구|누가|뭐|무슨|몇)/.test(t) && t.length <= 4) || (/^(하는|하냐|해요|해)/.test(t) && t.length <= 3)) continue;
     if (!out.includes(t)) out.push(t);
   }
   return out;
+}
+
+// 글에서 질문 낱말이 든 줄(과 그 바로 위 소제목)만 — 앞 380자만 자르면 뒤쪽의 답('리더 MT' 줄)이 잘렸다.
+// 걸린 줄이 소제목이면 그 아래 줄까지(답은 대개 소제목 밑 목록에 있다 — '### 리더 가을 MT' 아래 장소). terms가 비면 글 전체.
+export function pickLines(text, terms, max = 380) {
+  const lines = String(text || '').replace(/\r/g, '').split('\n').map(s => s.trim()).filter(s => s && !/^-{3,}$/.test(s));
+  const hit = new Set();
+  if (terms.length) lines.forEach((s, k) => {
+    if (!terms.some(t => s.includes(t))) return;
+    hit.add(k);
+    for (let j = k - 1; j >= 0 && j >= k - 3; j--) if (/^#/.test(lines[j])) { hit.add(j); break; }
+    if (/^#/.test(s)) for (let j = k + 1; j < lines.length && j <= k + 4 && !/^#/.test(lines[j]); j++) hit.add(j);
+  });
+  if (terms.length && !hit.size) return '';
+  const picked = terms.length ? lines.filter((_, k) => hit.has(k)) : lines;
+  return picked.join(' ').replace(/[#*]+|==/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+// 같은 말 — 기록마다 다르게 적힌 한 가지(사용자가 알려 준 것만). 찾을 때 서로를 같이 본다.
+// 'MT'는 리더진 워크샵이다(사용자 2026-10-05 — 회의 기록에는 '리더 가을 MT').
+export const ALIASES = [{ words: ['MT', '엠티', '워크샵', '워크숍'], note: "리더 MT는 리더진 워크샵이에요(회의 기록에는 '리더 가을 MT'로 적혀 있어요)." }];
+export const aliasGroups = (terms) => ALIASES.filter(g => terms.some(t => g.words.some(a => t.toUpperCase().includes(a))));
+export function withAliases(terms) {
+  const out = [...terms];
+  for (const g of aliasGroups(terms)) for (const a of g.words) if (!out.includes(a)) out.push(a);
+  return out;
+}
+// 해 낱말 — '내년도 회장'이 '2027 임원진'에 닿게(2026-10-05)
+export function yearTerms(q, today) {
+  const y = Number(String(today).slice(0, 4));
+  const s = String(q || '');
+  return [/내년/.test(s) && y + 1, /올해|금년/.test(s) && y, /작년|지난\s?해/.test(s) && y - 1].filter(Boolean).map(String);
 }
 
 // 위키 줄 찾기 — 낱말이 몇 개 걸리는가(장 제목·블록 제목·질문도 본다)
@@ -494,6 +533,10 @@ export function termWeights(hays, terms) {
   const N = Math.max(1, hays.length);
   return new Map(terms.map(t => [t, Math.log(1 + N / Math.max(1, hays.filter(h => h.includes(t)).length))]));
 }
+
+// 가장 드문 낱말 — 제목에 한 번이라도 나오는 것 가운데서. 어디에도 없는 말('물어보면')이 무게가 가장 커서
+// 정작 '양육비' 업무가 근거에서 빠졌다(2026-10-05).
+export const rareTerm = (weights, hays) => [...weights.keys()].filter(t => hays.some(h => h.includes(t))).sort((a, b) => weights.get(b) - weights.get(a))[0];
 
 // ── 글 검사(모델 문장) ───────────────────────────────────────────────────────
 // 해요체 · 대시 · 금지어(사용자가 싫어하는 말 — HANDOFF §2 16차·§8) · 근거 표시를 모델이 쓴 것.
@@ -706,6 +749,16 @@ export function birthdayMonth(q, today) {
   if (/지난\s?달/.test(s)) return now === 1 ? 12 : now - 1;
   return now;
 }
+// 여러 달을 한 번에 묻는 말('10월이랑 11월 생일자' · '10, 11월' · '이번 달하고 다음 달') — 나온 차례대로 · 겹치면 한 번
+// (사용자 지적 2026-10-05 — 첫 달만 답했다)
+export function birthdayMonths(q, today) {
+  const s = String(q || '');
+  const at = [];
+  for (const m of s.matchAll(/(\d{1,2})(?=\s?(?:월|[,·]\s?\d{1,2}\s?월|(?:과|와|이랑|랑|하고|및|그리고)\s?\d{1,2}\s?월))/g)) if (+m[1] >= 1 && +m[1] <= 12) at.push([m.index, +m[1]]);
+  for (const m of s.matchAll(/(이번|다음|지난)\s?달/g)) at.push([m.index, birthdayMonth(m[0], today)]);
+  const out = [...new Set(at.sort((a, b) => a[0] - b[0]).map(x => x[1]))];
+  return out.length ? out : [birthdayMonth(s, today)];
+}
 const mdText = (mmdd) => `${Number(mmdd.slice(0, 2))}월 ${Number(mmdd.slice(3, 5))}일`;
 // list: [{ call: '홍길동 형제', mmdd: '10-12' }] → '10월 생일자는 A 형제(10월 12일), B 자매(10월 20일)예요.'(사용자 문장 그대로)
 export function birthdayAnswer(month, list) {
@@ -720,7 +773,9 @@ export const birthdayOf = (p) => `${p.call}의 생일은 ${mdText(p.mmdd)}이에
 // 질문의 낱말이 그 줄에 있으면 답 끝에 그 줄을 붙인다(이미 있으면 맨 끝으로 · 사용자 결정 2026-10-04 '믿음샘 양육').
 const ASK_LINE = /(?:문의해|물어봐|연락해)\s?주세요\.?$/;
 export function contactTail(sentences, evidence, terms) {
-  const line = (evidence || []).find(e => /^\(위키 /.test(e.text) && ASK_LINE.test(e.text.trim()) && (terms || []).some(t => t.length >= 2 && e.text.replace(/^\(위키 [^)]*\)/, '').includes(t)));
+  // 질문 낱말의 과반이 그 줄에 있어야 — '리더 MT 언제야?'의 '리더' 하나가 '리더순장님께 문의'에 걸렸다(2026-10-05)
+  const ts = (terms || []).filter(t => t.length >= 2);
+  const line = (evidence || []).find(e => { const body = e.text.replace(/^\(위키 [^)]*\)/, ''); return /^\(위키 /.test(e.text) && ASK_LINE.test(e.text.trim()) && ts.filter(t => body.includes(t)).length * 2 > ts.length; });
   if (!line) return sentences;
   const text = line.text.replace(/^\(위키 [^)]*\)\s*/, '').trim();
   // 모델이 같은 뜻의 '…문의해 주세요'를 이미 썼으면 그 문장은 걷고 위키 줄 그대로 끝에 둔다(두 번 나왔다 · 2026-10-04)
@@ -791,7 +846,7 @@ export function followUpRule(q, prevQ, { teams = [] } = {}) {
   }
   // 생일 — 달 · 사람을 바꿔 끼운다
   if (isBirthdayQuestion(p)) {
-    const month = rest.match(MONTH_IN)?.[0];
+    const month = (rest.match(new RegExp(MONTH_IN.source, 'g')) || []).join('이랑 ');   // '11월이랑 12월은?' — 달을 다 옮긴다
     if (month) return MONTH_IN.test(p) ? tidy(p.replace(MONTH_IN, month)) : tidy(`${month} ${p}`);
     if (/^[가-힣]{2,4}$/.test(core) && !NOT_NAME.test(core) && !ASPECT.has(core)) return `${core} 생일은 언제예요?`;
     return null;
@@ -825,6 +880,44 @@ export function followUpGuard(rewrite, q, prevQ, prevA = '') {
   if (!mine.every(t => hasTerm(hay, t))) return false;
   const theirs = [...termsOf(prevQ), ...termsOf(prevA)];
   return !theirs.length || theirs.some(t => hasTerm(hay, t));
+}
+
+// ── 섞인 질문 (사용자 지적 2026-10-05 — '10월이랑 11월 생일자'·'콩순 출석이랑 생일자'에서 앞의 것만 답했다) ──────
+// 갈래(출석·생일·근거 찾기)는 한 물음을 보고 정해진다. 둘 이상을 묻는 말은 혼자 서는 물음으로 나눠 따로 답하고 잇는다.
+// 이 검사는 문지기만 — 나눌 만해 보이면 모델이 나누고(api/_wikiAsk.js splitCompound), 그 결과는 splitGuard를 지나야 쓴다.
+// ponytail: 낱말 문지기라 '사과 '처럼 우연히 걸리면 모델 한 번이 더 든다(나누지 않고 그대로 돌려받는다).
+// 묻는 말이 둘 이상('언제 어디서 해?' · '누가 언제 해?')이어도 나눌 만하다(2026-10-05 — 장소만 답했다)
+const WH = [/언제|며칠|몇\s?시/, /어디/, /누가|누구/, /얼마/, /왜/];
+export const looksCompound = (q) => WH.filter(r => r.test(String(q || ''))).length >= 2 || /[?？]\s*\S|그리고|(?<![가-힣])(?:및|또)(?![가-힣])|[,·]|(?:이랑|랑|하고|와|과)\s|[가-힣](?:고|며)\s/.test(String(q || '').trim());
+export function splitGuard(parts, q) {
+  const list = [...new Map((Array.isArray(parts) ? parts : []).map(p => String(p || '').trim()).filter(Boolean).map(p => [flatK(p), p])).values()];
+  if (list.length < 2 || list.length > 3) return null;
+  const hay = flatK(q);
+  const digits = new Set(String(q).match(/\d+/g) || []);
+  for (const p of list) {
+    if (p.length > 150 || flatK(p) === hay) return null;
+    if ((p.match(/\d+/g) || []).some(d => !digits.has(d))) return null;   // 없던 날짜·숫자를 만들지 않는다
+    if (!contentTerms(p).some(t => hasTerm(hay, t))) return null;          // 원래 말의 낱말로 묻는다
+  }
+  return list;
+}
+// 나눈 답 잇기 — 아는 부분 먼저, 모르는 부분은 그 물음을 짚어 '찾지 못했다' 한 줄씩(모르는 것만 따로 배우게 unknownParts)
+export const partNotFound = (p) => `${josa(`'${String(p).trim().replace(/[?？]+$/, '')}'`, '은', '는')} 워크스페이스에서 찾을 수가 없어서, 보완해서 내일 아침에 학습해 둘게요.`;
+export function mergeParts(parts, outs) {
+  const ok = outs.map((o, i) => ({ o, p: parts[i] }));
+  const known = ok.filter(x => x.o.status !== 'unknown');
+  const unknown = ok.filter(x => x.o.status === 'unknown');
+  const sentences = known.length ? [
+    ...known.flatMap(x => x.o.sentences || []),
+    ...unknown.map(x => ({ text: partNotFound(x.p), cites: [] })),
+  ] : [{ text: NOT_FOUND, cites: [] }];
+  const files = [...new Map(known.flatMap(x => x.o.files || []).map(f => [f.id || JSON.stringify(f), f])).values()];
+  return {
+    status: known.some(x => x.o.status === 'answered') ? 'answered' : unknown.length ? 'unknown' : 'refused',
+    sentences, files, dropped: outs.flatMap(o => o.dropped || []), parts,
+    unknownParts: known.length ? unknown.map(x => x.p) : [],
+    ...(outs.every(o => o.cacheable) ? { cacheable: true } : {}),
+  };
 }
 
 // 이미 아는 것을 알려 준 말인가 — 내용 낱말(둘 이상)이 **근거 한 줄에 전부** 있으면 아는 말이다(저장하지 않는다 · 사용자 결정 2026-10-04 '임성빈 전도사님이야')

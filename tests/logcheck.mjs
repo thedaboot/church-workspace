@@ -6056,13 +6056,19 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   };
   for (const [q, a] of Object.entries(persona)) { assert.strictEqual(W.prefilter(q), null, `${q}: 거르지 않는다`); assert.strictEqual(tk(q)?.answer, a, q); assert.strictEqual(tk(q)?.status, 'answered', q); }
   assert.strictEqual(tk('너 누가 만들었누')?.kind, 'self', '만든 사람 답은 그대로');
-  // 마음 — 공감 + 이을 사람 · 살고 싶지 않다는 말은 109
+  // 무엇을 할 수 있나 · 만든 사람이 한 일(2026-10-05)
+  for (const q of ['너 뭐 할수 있니', '다붓아 뭐 할 수 있어?', '다붓이는 무슨 일 해?', '너 뭐하는 애야?']) assert.strictEqual(tk(q)?.answer, W.PERSONA_ANSWERS.can, q);
+  for (const q of ['노준석 개발자님이 뭘 어떻게 해줬는데 ?', '노준석 개발자님이 뭐 했어?']) assert.strictEqual(tk(q)?.answer, W.TALK_ANSWERS.makerDid, q);
+  for (const q of ['엔지니어팀은 무슨 일 해?', '노준석 형제는 무슨 팀이야?', '월례회 때 뭐 해?']) assert.strictEqual(tk(q), null, q);
+  // 마음 — 공감 + 이을 사람 · 살고 싶지 않다는 말은 지금 바로(상담 전화 번호는 안 싣는다)
   for (const q of ['요즘 너무 힘들어', '교회 가기 싫어', '외로워', '안녕 다붓아 나 요즘 힘들어']) {
     const t = tk(q);
     assert.ok(t?.kind === 'feeling' && t.answer.endsWith(W.CARE_LINK) && t.answer.split(/(?<=[.!?])\s/).length === 3, q);
   }
-  assert.ok(tk('죽고 싶어')?.answer.includes('109'), '위기 말은 상담 전화까지');
+  assert.strictEqual(tk('죽고 싶어')?.answer, '그렇게까지 힘든 마음이라니 정말 걱정돼요. 지금 바로 순장님이나 임성빈 전도사님께 이야기해 주세요.', '위기 말은 지금 바로 이을 사람에게 · 109 없음');
   assert.strictEqual(W.CARE_LINK, '순장님이나 임성빈 전도사님께 이야기해 보면 힘이 될 거예요.');
+  // 주보 근거 줄은 있는 자리까지 — '10월 4일 주보는 어디에 있나요?'(2026-10-05)
+  assert.ok(A.serviceLine({ service_date: '2026-10-04', title: 'T', passage_ref: '사사기 17:6-13', songs: [] }).startsWith('10월 4일(일) 주보는 예배 탭에 있어요 · '), '주보 줄에 예배 탭');
   // 신앙 — 교리를 풀지 않는다 · 정해진 문장
   for (const q of ['하나님은 왜 고난을 주시나요?', '기도는 어떻게 해야 해?', '구원은 어떻게 받아?', '천국은 진짜 있어?', '예수님은 누구야?']) assert.strictEqual(tk(q)?.answer, W.FAITH_ANSWER, q);
   assert.ok(W.FAITH_ANSWER.endsWith('이런 이야기는 임성빈 전도사님이나 순장님과 나누면 더 좋을 것 같아요.'));
@@ -6103,6 +6109,9 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(W.birthdayMonth('이번 달에 생일자는 누가 있나요?', '2026-10-04'), 10);
   assert.strictEqual(W.birthdayMonth('다음 달 생일자', '2026-12-04'), 1);
   assert.strictEqual(W.birthdayMonth('3월 생일자 알려줘', '2026-10-04'), 3);
+  // 여러 달을 한 번에(2026-10-05 — 첫 달만 답했다)
+  for (const [q, want] of [['10월 생일자랑 11월 생일자 알려줘', [10, 11]], ['10월이랑 11월 생일자', [10, 11]], ['10, 11월 생일자는?', [10, 11]], ['11월하고 10월 생일', [11, 10]],
+    ['이번 달하고 다음 달 생일자', [10, 11]], ['3월 생일자 알려줘', [3]], ['생일자 누구야', [10]], ['10월 10월 생일자', [10]]]) assert.deepStrictEqual(W.birthdayMonths(q, '2026-10-04'), want, q);
   assert.strictEqual(W.birthdayAnswer(10, [{ call: 'B 자매', mmdd: '10-20' }, { call: 'A 형제', mmdd: '10-12' }, { call: 'C 형제', mmdd: '11-01' }]), '10월 생일자는 A 형제(10월 12일), B 자매(10월 20일)예요.');
   assert.ok(!/\d{4}|살/.test(W.birthdayAnswer(10, [{ call: 'A 형제', mmdd: '10-12' }])), '연도·나이 없음');
   // 물을 사람 줄 — 위키에 있으면 답 끝에 한 번만
@@ -6110,6 +6119,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const tail = W.contactTail([{ text: '믿음샘 양육은 1:1이에요.', ids: ['E2'], cites: [] }, { text: '더 궁금한 점은 정민경 리더순장님께 문의해 주세요.', ids: ['E2'], cites: [] }], ev, ['믿음샘', '양육']);
   assert.deepStrictEqual(tail.map(s => s.text), ['믿음샘 양육은 1:1이에요.', '믿음샘 양육에 대해 더 궁금한 점은 정민경 리더순장님께 문의해 주세요.']);
   assert.strictEqual(W.contactTail([{ text: 'x' }], ev, ['체육대회']).length, 1, '다른 일이면 붙이지 않는다');
+  assert.strictEqual(W.contactTail([{ text: 'x' }], ev, ['리더', 'MT']).length, 1, '낱말 하나(리더)만 걸리면 붙이지 않는다');
   assert.ok(ask.includes('final = contactTail(final, evidence, termsOf(question));'));
   // 바뀌는 칩 — 15개(순이 없으면 14) · 처음 셋은 다른 갈래 · 한 칸씩 돌아가며 겹치지 않게
   const pool = W.chipPool({ cueDate: '2026-10-04', sun: 'TT순' });
@@ -6300,6 +6310,46 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(W.isAttendanceQuestion(R('그럼 콩순에서는?', '지난주 누가 안 왔어?')), '다시 쓴 말은 출석 갈래로 간다');
   assert.strictEqual(R('다음 달은?', '이번 달에 생일자는 누가 있나요?'), '다음 달에 생일자는 누가 있나요?');
   assert.strictEqual(R('정민경은?', '이번 달에 생일자는 누가 있나요?'), '정민경 생일은 언제예요?');
+  assert.deepStrictEqual(W.birthdayMonths(R('그럼 11월이랑 12월은?', '10월 생일자 누구야?'), '2026-10-04'), [11, 12], '이어 묻기도 달을 다 옮긴다');
+  // 섞인 질문(2026-10-05) — 문지기 · 나눈 결과 가드 · 잇기
+  for (const q of ['월례회는 언제 하고 체육대회는 언제야?', '엔지니어팀이랑 미디어팀은 무슨 일 해?', '리더 MT 언제야? 장소는?', '지난주 콩순에 누가 왔고 11월 생일자는 누구야?', '송폼은 언제 나오고 큐시트는 어디 있어?']) assert.ok(W.looksCompound(q), q);
+  for (const q of ['월례회는 언제 해요?', '10월 4일 주보는 어디에 있나요?', '찬양팀에 누가 있어?']) assert.ok(!W.looksCompound(q), q);
+  for (const q of ['리더진 워크샵은 언제 어디서 해?', '체육대회 누가 언제 준비해?']) assert.ok(W.looksCompound(q), `묻는 말 둘: ${q}`);
+  const SQ = '월례회는 언제 하고 체육대회는 언제야?';
+  assert.deepStrictEqual(W.splitGuard(['월례회는 언제 해?', '체육대회는 언제야?'], SQ), ['월례회는 언제 해?', '체육대회는 언제야?']);
+  assert.strictEqual(W.splitGuard([SQ], SQ), null, '하나면 나누지 않는다');
+  assert.strictEqual(W.splitGuard(['월례회는 10월 11일이야?', '체육대회는 언제야?'], SQ), null, '없던 숫자');
+  assert.strictEqual(W.splitGuard(['수련회는 언제야?', '체육대회는 언제야?'], SQ), null, '없던 대상');
+  assert.strictEqual(W.splitGuard(['월례회는 언제 해?', '월례회는 언제 해? '], SQ), null, '같은 물음 둘은 하나');
+  const ans = (t) => ({ status: 'answered', sentences: [{ text: t, cites: [{ t: 'card', id: t }] }], files: [], dropped: [], cacheable: true });
+  const unk = { status: 'unknown', sentences: [{ text: W.NOT_FOUND, cites: [] }], files: [], dropped: [] };
+  const mg = W.mergeParts(['월례회는 언제 해?', '내년도 회장은 누구야?'], [ans('A예요.'), unk]);
+  assert.strictEqual(mg.status, 'answered');
+  assert.deepStrictEqual(mg.sentences.map(s => s.text), ['A예요.', "'내년도 회장은 누구야'는 워크스페이스에서 찾을 수가 없어서, 보완해서 내일 아침에 학습해 둘게요."]);
+  assert.deepStrictEqual(mg.unknownParts, ['내년도 회장은 누구야?'], '모른 물음은 따로 배운다');
+  assert.ok(!mg.cacheable, '모른 물음이 섞이면 캐시하지 않는다');
+  const allUnk = W.mergeParts(['a?', 'b?'], [unk, unk]);
+  assert.deepStrictEqual([allUnk.status, allUnk.sentences.map(s => s.text), allUnk.unknownParts], ['unknown', [W.NOT_FOUND], []], '다 모르면 정해진 한 문장 · 질문 통째로 배운다');
+  assert.deepStrictEqual(W.mergeParts(['a?', 'b?'], [ans('A.'), ans('B.')]).sentences.map(s => s.text), ['A.', 'B.']);
+  // 회의 본문 줄 · 해 낱말 · 주보 광고 · 말투 꼴 묻는 말(2026-10-05 — '회장 선출 완료' · '후보 날짜 11월 7일' · '오~ 어디소 하는딩?')
+  const MEET = '# 9월 27일 리더십 회의\n### 회장 선출 완료\n\n### 팟캐스트\n- 대본 필요\n---\n### 가을 체육대회 관련\n- 날짜 확정 : 10월 31일(토)\n- *날짜 변경 논의 필요: 후보날짜 11월 7일(토)\n- 장소: 한강공원';
+  assert.strictEqual(W.pickLines(MEET, ['회장']), '9월 27일 리더십 회의 회장 선출 완료', '소제목만 걸려도 싣는다(위 소제목과 함께)');
+  assert.ok(W.pickLines(MEET, ['체육대회']).includes('후보날짜 11월 7일(토)') && W.pickLines(MEET, ['체육대회']).includes('장소: 한강공원'), '소제목 아래 줄까지');
+  assert.strictEqual(W.pickLines(MEET, ['수련회']), '', '안 걸리면 빈 글');
+  assert.deepStrictEqual(W.yearTerms('내년도 회장은 누구야?', '2026-10-05'), ['2027']);
+  assert.ok(W.withAliases(W.termsOf('리더 워크샵 언제야?')).includes('MT') && W.withAliases(['MT']).includes('워크샵'), "'MT'는 리더진 워크샵(사용자 2026-10-05)");
+  assert.deepStrictEqual(W.withAliases(['체육대회']), ['체육대회']);
+  const TT = ['양육비', '양육 2기 모집', '10월 월례회'];
+  assert.strictEqual(W.rareTerm(W.termWeights(TT, ['그럼', '양육비', '물어보면']), TT), '양육비', '제목에 없는 말은 드문 낱말이 아니다');
+  // 담당자 — card_assignees가 정본, 없으면 이름 칸(2026-10-05 — id로만 읽어 담당자가 늘 비었다)
+  const NB = new Map([['u1', '조해리']]);
+  assert.deepStrictEqual(A.assigneeNamesOf({ assignees: ['조해리'] }, NB), ['조해리'], '이름 칸');
+  assert.deepStrictEqual(A.assigneeNamesOf({ assignees: ['옛이름'], card_assignees: [{ profile_id: 'u1' }] }, NB), ['조해리'], '조인 행이 먼저');
+  assert.deepStrictEqual(W.yearTerms('올해 수련회', '2026-10-05'), ['2026']);
+  assert.deepStrictEqual(W.yearTerms('회장은 누구야?', '2026-10-05'), []);
+  assert.deepStrictEqual(A.noticeLines([{ id: 's', service_date: '2026-10-04', notices: [{ title: '회장 발표', body: '' }, { title: '회장 발표', body: '2027 회장은 A 자매예요.' }, { title: '월례회', body: '11일' }] }], ['회장']).map(n => n.text), ["10월 4일(일) 주보 광고 '회장 발표': 2027 회장은 A 자매예요."], '본문 있는 광고만');
+  assert.deepStrictEqual(W.termsOf('오~ 어디소 하는딩?'), [], '말투 꼴 묻는 말은 찾을 낱말이 아니다');
+  assert.ok(W.looksFollowUp('오~ 어디소 하는딩?'), '짧은 말투 꼴 물음은 이어 묻기');
   assert.strictEqual(R('엔지니어팀은?', '찬양팀에는 누가 있나요?'), '엔지니어팀에는 누가 있나요?');
   assert.strictEqual(R('팀장은 누구야?', '찬양팀에는 누가 있나요?'), '찬양팀 팀장은 누구야?');
   assert.strictEqual(R('그럼 수련회는?', '가을 체육대회는 언제, 어디서 하나요?'), '수련회는 언제, 어디서 하나요?');
