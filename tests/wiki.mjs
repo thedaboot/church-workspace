@@ -150,7 +150,13 @@ try {
   check('처음 화면: 질문 칩 · 자리표', home.chips >= 3 && home.ph === '예: 수련회 준비는 언제부터 해요?', JSON.stringify(home));
   // 바뀌는 칩(사용자 결정 2026-10-04) — 셋 · 4초마다 한 칸 · 칩 위에 손이 있으면 멈춘다
   const chipText = `[...document.querySelectorAll('.dab-chip')].map(b=>b.textContent).join('|')`;
+  // 바뀜 하나가 끝난 직후에 첫 값을 읽는다 — 바뀜이 두 박자(빠짐 0.2초 → 들어옴)라 아무 때나 읽으면 4.6초 사이에 두 번 바뀔 수 있다
+  await until(`!!document.querySelector('.dab-chip-out')`, 6000);
+  await until(`!document.querySelector('.dab-chip-out')`, 2000);
   const c0 = await ev(chipText);
+  // 칩이 바뀐 바로 그때 다붓이가 갸웃한다 — 5초 고리(CSS)는 없고 칩 박자의 한 번(사용자 지적 2026-10-05)
+  const tilt = await ev(`(()=>{const f=document.querySelector('.dab-home .dab-face');return {css:getComputedStyle(f).animationName, now:f.getAnimations().length}})()`);
+  check('질문 칩: 흐려지며 빠지고, 바뀌는 순간 다붓이가 갸웃(5초 고리 없음)', tilt.css === 'none' && tilt.now >= 1, JSON.stringify(tilt));
   await sleep(4600);
   const c1 = await ev(chipText);
   check('질문 칩: 셋 · 4초 뒤 한 칸만 바뀜', c1.split('|').length === 3 && c0.split('|').filter((c, i) => c !== c1.split('|')[i]).length === 1, `${c0} → ${c1}`);
@@ -388,6 +394,21 @@ try {
       await ev(`document.activeElement.blur()`);
       await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true }); await sleep(400);
       check(`폰: 키보드가 내려가면 표시가 걷힌다`, await ev(`!document.documentElement.hasAttribute('data-kb')`));
+      // 대화가 길 때 키보드를 열어도 칸이 화면 안 · 맨 아래를 보고 있었으면 맨 아래 그대로(사용자 지적 2026-10-05 · PITFALLS 33-u —
+      // 위키 판의 overflow-x-hidden이 세로도 스크롤 통이 되어 sticky가 main 대신 거기에 붙었다)
+      for (let k = 0; k < 3; k++) {
+        const before = await ev(`document.querySelectorAll('.dab-answer').length`);
+        await ev(`(()=>{const i=document.querySelector('.dab-input input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,'질문 ${k} 월례회는 언제 해요?');i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})()`);
+        await until(`document.querySelectorAll('.dab-answer').length > ${before}`);
+      }
+      await sleep(900);
+      await ev(`document.querySelector('.dab-input input').focus()`);
+      await sleep(150);
+      await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 480, deviceScaleFactor: 2, mobile: true }); await sleep(700);
+      const longKb = await ev(`(()=>{const m=document.querySelector('main');const b=document.querySelector('.dab-input').getBoundingClientRect().bottom;return {inputBottom:Math.round(b), mainBottom:Math.round(m.getBoundingClientRect().bottom), left:m.scrollHeight-m.clientHeight-m.scrollTop, wikiOverflowY:getComputedStyle(document.querySelector('.wiki-mobile')).overflowY}})()`);
+      check(`폰: 대화가 길어도 키보드를 열면 칸이 화면 안 · 맨 아래 그대로`, longKb.inputBottom <= longKb.mainBottom && longKb.left <= 2 && longKb.wikiOverflowY !== 'auto', JSON.stringify(longKb));
+      await ev(`document.activeElement.blur()`);
+      await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true }); await sleep(400);
     }
 
     await click('button', '위키');

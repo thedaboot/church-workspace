@@ -487,11 +487,13 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
         if (dirty) closeXRef.current?.querySelector('button')?.click();
         else close();
       }}
-      className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-150 ${expanded ? 'p-0' : 'p-2 md:p-4'}`}
+      // 높이는 보이는 창(--app-vh · inset-0과 같이 두면 height가 이긴다 — 여러 검사가 .fixed.inset-0.z-50으로 찾는다) — 아이패드는 이 넓은 창을 쓰는데 키보드가 레이아웃 뷰포트를 줄이지 않아
+      // 창 아래의 댓글 칸이 키보드 밑에 남았다(사용자 지적 2026-10-05 · 폰 창의 2026-09-22 고침과 같은 길 · PITFALLS 33-v)
+      className={`fixed inset-0 h-[var(--app-vh,100dvh)] bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-150 ${expanded ? 'p-0' : 'p-2 md:p-4'}`}
     >
       {/* 전체 화면이면 창이 뷰포트를 다 쓴다 — 딤·모서리·최대 폭이 전부 사라져야
           "확대된 창"이 아니라 "전체 화면"으로 읽힌다. 복귀 버튼은 헤더의 같은 자리. */}
-      <div className={`bg-surface shadow-elevated border border-line w-full flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-150 ${expanded ? 'max-w-none h-full rounded-none border-0' : 'max-w-5xl h-[100dvh] md:h-[85dvh] rounded-lg'}`}>
+      <div className={`bg-surface shadow-elevated border border-line w-full flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-150 ${expanded ? 'max-w-none h-full rounded-none border-0' : 'max-w-5xl h-[100dvh] md:h-[min(85dvh,calc(var(--app-vh,100dvh)-2rem))] rounded-lg'}`}>
         {/* 스크롤 막대 자리를 늘 잡아 둔다 — 보기(짧다)와 수정(길다)을 오갈 때 막대가 생겼다 없어지며 닫기·본문이 옆으로 뛰었다 */}
         <div className="flex-1 min-w-0 flex flex-col border-r-0 md:border-r border-line overflow-y-auto [scrollbar-gutter:stable]">
           {/* sticky 헤더·푸터에 backdrop-blur를 쓰면 스크롤 프레임마다 뒤 내용을

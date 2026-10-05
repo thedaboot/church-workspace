@@ -6353,6 +6353,9 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(AS('리더 워크샵 언제 해?', '리더진 워크샵인 리더 가을 MT는 11월 13일부터예요.'), ['리더 워크샵은 11월 13일부터예요.'], '같은 말 줄의 꼴이 겹치지 않게');
   assert.deepStrictEqual(AS('리더 MT 언제야?', '리더 가을 MT는 11월 13일부터예요.'), ['리더 가을 MT는 11월 13일부터예요.'], '같은 말을 안 썼으면 그대로');
   assert.deepStrictEqual([W.canonQ('체육대회 언제야?'), W.aliasNotes('체육대회 언제야?')], ['체육대회 언제야?', []]);
+  // '그 다음 월례회'는 다음 것의 다음까지 짚는다(사용자 지적 2026-10-05 — 다음 것을 또 답했다)
+  for (const q of ['그 다음 월례회는 언제 하나요?', '다다음 월례회 언제야?', '그다음 월례회는?']) assert.ok(A.AFTER_NEXT.test(q), q);
+  for (const q of ['다음 월례회는 언제 하나요?', '이번 월례회 언제야?']) assert.ok(!A.AFTER_NEXT.test(q), q);
   const TT = ['양육비', '양육 2기 모집', '10월 월례회'];
   assert.strictEqual(W.rareTerm(W.termWeights(TT, ['그럼', '양육비', '물어보면']), TT), '양육비', '제목에 없는 말은 드문 낱말이 아니다');
   // 담당자 — card_assignees가 정본, 없으면 이름 칸(2026-10-05 — id로만 읽어 담당자가 늘 비었다)

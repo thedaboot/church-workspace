@@ -191,8 +191,10 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
   // ── 폰 ────────────────────────────────────────────────────────────────────
   if (isMobile) {
     return (
-      <div ref={rootRef} className="wiki wiki-mobile overflow-x-hidden -mx-2 px-2">
-        {/* 넘김 애니메이션 때문에 가로를 자르는데, 고치기 칸(.wiki-draft)은 글 밖으로 6px 나와서 왼쪽 테두리가 잘렸다(사용자 지적 2026-10-04) — 자르는 선만 8px 밖으로 */}
+      <div ref={rootRef} className="wiki wiki-mobile overflow-x-clip -mx-2 px-2">
+        {/* 넘김 애니메이션 때문에 가로를 자르는데, 고치기 칸(.wiki-draft)은 글 밖으로 6px 나와서 왼쪽 테두리가 잘렸다(사용자 지적 2026-10-04) — 자르는 선만 8px 밖으로.
+            hidden이 아니라 clip — hidden은 세로도 auto가 되어 이 판이 스크롤 통이 되고, 물어보기 칸의 sticky가 main 대신 여기에 붙어
+            대화가 길 때 키보드를 열면 칸이 화면 밖으로 잘렸다(사용자 지적 2026-10-05 · PITFALLS 33-u) */}
         {sel === null && (
           <div key="index" className={`${dir === 'back' ? 'wiki-in-back' : 'dc-screen'} grid gap-4 pt-1`}>
             <AskEntry onClick={() => go('ask')} className="py-1.5" />

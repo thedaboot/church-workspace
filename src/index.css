@@ -805,6 +805,10 @@ svg.lucide { stroke-width: 1.4px; }
 :root[data-theme='dark'] { --app-hero: #1f2433; }
 @keyframes dab-tilt { 0%, 78%, 100% { transform: rotate(0); } 84% { transform: rotate(-12deg); } 90% { transform: rotate(8deg); } 95% { transform: rotate(-3deg); } }
 .dab-tilt .dab-face { transform-origin: 50% 80%; animation: dab-tilt 5s ease-in-out infinite; }
+/* 물어보기 첫 화면에서 칩이 도는 동안은 고리 대신 칩과 같은 박자로 한 번씩(dabooti.jsx TILT_FRAMES · 사용자 지적 2026-10-05) */
+.dab-tilt-sync .dab-face { transform-origin: 50% 80%; }
+/* 바뀌는 칩이 빠지는 첫 박자(CHIP_OUT 200ms) — 사라졌다 나타나며 뚝 끊기던 것을 흐려지며 빠지게 */
+.dab-chip.dab-chip-out { opacity: 0; filter: blur(2px); transform: scale(.94); transition: opacity .2s ease, filter .2s ease, transform .2s ease; pointer-events: none; }
 @property --dab-ang { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
 @keyframes dab-ring { to { --dab-ang: 360deg; } }
 .dab-ring {

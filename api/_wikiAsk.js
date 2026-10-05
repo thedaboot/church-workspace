@@ -95,6 +95,7 @@ function dateIn(q, today) {
   return `${today.slice(0, 4)}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
 }
 
+export const AFTER_NEXT = /그\s?다음|다다음|그\s?뒤|그\s?후/;   // '그 다음 월례회' — 다음 것의 다음
 // 날짜 셈 — today는 KST 'YYYY-MM-DD'
 const dayAfter = (iso, d) => new Date(new Date(`${iso}T00:00:00Z`).getTime() + d * 864e5).toISOString().slice(0, 10);
 export function sundaysOf(today) {
@@ -336,6 +337,15 @@ export async function collectEvidence(q, { db, key, today }) {
       .sort((a, b) => a.d.localeCompare(b.d))[0];
     if (next) push(`오늘(${mdLabel(today, true)}) 기준으로 다음 월례회는 ${mdLabel(next.d, true)}이에요(업무 '${next.c.title}').`, { t: 'card', id: next.c.id, label: next.c.title });
     else push(`월례회는 둘째 주 주일 순모임 뒤에 해요. 오늘(${mdLabel(today, true)}) 기준으로 다음 둘째 주 주일은 ${mdLabel(secondSunday(today), true)}이에요.`);
+    // '그 다음 월례회는?'·'다다음 월례회' — 그다음 것도 짚는다(사용자 지적 2026-10-05 — 다음 것을 또 답했다).
+    // 업무가 있으면 그 날짜, 없으면 둘째 주 주일 규칙으로 다음 것 뒤의 둘째 주 주일.
+    if (AFTER_NEXT.test(q)) {
+      const firstD = next?.d || secondSunday(today);
+      const second = cards.map(c => ({ c, d: c.due_date || c.start_date })).filter(x => /^\d{1,2}월\s?월례회$/.test(String(x.c.title).trim()) && x.d && x.d > firstD)
+        .sort((a, b) => a.d.localeCompare(b.d))[0];
+      if (second) push(`그 다음 월례회는 ${mdLabel(second.d, true)}이에요(업무 '${second.c.title}').`, { t: 'card', id: second.c.id, label: second.c.title });
+      else push(`그 다음 월례회는 아직 업무로 올라오지 않았어요. 둘째 주 주일 규칙으로 셈하면 ${mdLabel(secondSunday(dayAfter(firstD, 1)), true)}이에요.`);
+    }
   }
 
   // 오늘 QT 본문 — 말씀 탭 QT 일정(qt_schedule · 약칭은 책 이름 전체로)

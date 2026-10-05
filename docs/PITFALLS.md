@@ -1054,3 +1054,10 @@ reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가
 **33-t.** **윈도 셸에서 JS·마크다운 고치기** — Bash 히어독(`<<'EOF'`)·`node -e` 안의 역슬래시가 벗겨진다(`/\\/g` → 깨진 정규식 · `'\n'` → 실제 줄바꿈) · 레포 파일은 CRLF라 `'…\n  ]);'` 같은 줄 걸친 찾기가 안 맞는다.
 고칠 스크립트는 Write로 파일에 쓰고, 읽을 때 `\r\n`→`\n`으로 바꿔 찾고 쓸 때 되돌린다. 병렬 갈래가 `tests/logcheck.mjs` 끝에 블록을 덧붙이면 cherry-pick 때 충돌한다 —
 두 블록을 다 살리고 닫는 `}`를 하나 더한 뒤 반드시 돌려 본다. worktree에 원본 `node_modules` junction을 걸면 지울 때 원본까지 지운다 — 지우기 전에 `cmd /c rmdir`로 연결만 끊는다.
+**33-u.** **sticky의 조상에 `overflow-x: hidden`을 두지 않는다 — `clip`을 쓴다** — 한쪽만 hidden이어도 다른 쪽이 `auto`로 바뀌어 그 판이 스크롤 통이 된다.
+폰 위키 판(`.wiki-mobile`)이 넘김 애니메이션 때문에 `overflow-x-hidden`이었더니, 물어보기 칸의 `sticky bottom-0`이 실제로 스크롤되는 main이 아니라 이 판(스크롤 안 됨)에 붙어
+대화가 길 때 키보드를 열면 칸이 화면 밖으로 잘렸다(사용자 지적 2026-10-05 · 대화가 짧으면 티가 안 났다). `overflow-x-clip`은 스크롤 통을 만들지 않는다. `tests/wiki`가 판의 `overflowY`와 칸 위치를 잰다.
+**33-v.** **넓은 업무 창(태블릿)도 높이를 보이는 창(`--app-vh`)에 맞춘다** — 아이패드는 키보드가 레이아웃 뷰포트(innerHeight)를 줄이지 않아 `fixed inset-0`·`85dvh` 창의 아래(댓글 칸)가 키보드 밑에 남았다
+(사용자 지적 2026-10-05 · 폰 창은 2026-09-22에 같은 길로 고쳤다). 딤은 `inset-0`을 그대로 두고 `h-[var(--app-vh)]`을 더한다(top·bottom·height가 다 있으면 height가 이긴다 —
+여러 검사가 `.fixed.inset-0.z-50`으로 업무 창을 찾는다). 창은 `min(85dvh, --app-vh - 2rem)`. **`duration-150`은 전환 대상이 기본 `all`이라 높이도 0.15초에 걸쳐 바뀐다** —
+검사는 바꾼 직후가 아니라 0.45초 뒤에 잰다(바로 재면 옛 높이가 나와 원인을 한참 헤맸다). `tests/modalclose`가 visualViewport 높이만 700으로 흉내 내 잰다.

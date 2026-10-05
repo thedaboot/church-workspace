@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ArrowUp, Lock, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { askDabooti, sendFeedback } from '../services/wiki.js';
 import { imeComposing, coarsePointer } from '../utils.js';
@@ -219,18 +219,76 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
   const [rot, setRot] = useState({ slots: [0, 1, 2], turn: 0, next: 3, n: 0 });
   const [hover, setHover] = useState(false);
   const [focus, setFocus] = useState(false);
+  // 맨 아래(마지막 답)를 보고 있다가 칸을 누르면, 키보드가 올라와 main이 줄어도 맨 아래를 유지한다 —
+  // 안 그러면 마지막 답이 키보드 뒤로 숨었다(사용자 지적 2026-10-05). 위로 올려 읽던 중이면 건드리지 않는다.
+  const stickRef = useRef(false);
+  const onFocusInput = () => {
+    setFocus(true);
+    const m = inputRef.current?.closest('main');
+    stickRef.current = !!m && m.scrollHeight - m.scrollTop - m.clientHeight < 48;
+  };
+  const hasChat = chat.length > 0;
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv || !hasChat) return undefined;
+    const keep = () => requestAnimationFrame(() => {
+      if (!stickRef.current || document.activeElement !== inputRef.current) return;
+      const m = inputRef.current.closest('main');
+      if (m) m.scrollTop = m.scrollHeight;
+    });
+    vv.addEventListener('resize', keep);
+    return () => vv.removeEventListener('resize', keep);
+  }, [hasChat]);
   const still = hover || focus || !!q || chat.length > 0;
   useEffect(() => {
     if (still || pool.length <= 3 || !window.matchMedia || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
     const t = setInterval(() => { if (!document.hidden) setRot(r => ({ ...rotateChips(r, pool.length), n: r.n + 1 })); }, CHIP_EVERY);
     return () => clearInterval(t);
   }, [still, pool.length]);
-  const shown = rot.slots.map(i => pool[i]).filter(Boolean);
+  const target = rot.slots.map(i => pool[i]).filter(Boolean);
+  // 칩 바꾸기는 두 박자(사용자 지적 2026-10-05 — 줄이 바뀔 때마다 뚝뚝 끊겼다): ① 바뀌는 칩이 흐려지며 빠지고(CHIP_OUT)
+  // ② 새 문구로 갈아 끼우면 나머지 칩은 새 자리로 미끄러지고(FLIP) 묶음 높이도 따라 늘고 준다. 다붓이 갸웃은 ②에 한 번 —
+  // 칩이 도는 동안은 5초 고리(CSS) 대신 칩과 같은 박자로만 갸웃한다(칩이 멈추면 갸웃도 쉰다 · 칩이 셋 이하면 예전 고리).
+  const [shown, setShown] = useState(target);
+  const [leaving, setLeaving] = useState(-1);
+  const targetKey = target.join('|');
+  useEffect(() => {
+    // 회전이 아닌 바뀜(내 순 이름을 불러와 칩 목록이 바뀜 · rot.n 0)은 바로 갈아 끼운다 — 빠짐·미끄러짐·갸웃은 회전에서만
+    if (rot.n === 0 || target.length !== shown.length || reducedMotion()) { setShown(target); return undefined; }
+    const k = target.findIndex((t, i) => t !== shown[i]);
+    if (k < 0) return undefined;
+    setLeaving(k);
+    const t = setTimeout(() => { setLeaving(-1); setShown(target); }, CHIP_OUT);
+    return () => clearTimeout(t);
+  }, [targetKey]);  // eslint-disable-line react-hooks/exhaustive-deps
+  const chipsRef = useRef(null);
+  const faceRef = useRef(null);
+  const rects = useRef({ box: 0, chips: [], texts: [] });
+  useLayoutEffect(() => {
+    const box = chipsRef.current;
+    if (!box) return;
+    const els = [...box.children];
+    const base = box.getBoundingClientRect();
+    const now = { box: base.height, texts: shown, chips: els.map(el => { const r = el.getBoundingClientRect(); return { x: r.left - base.left, y: r.top - base.top }; }) };
+    const was = rects.current;
+    rects.current = now;
+    if (rot.n === 0 || reducedMotion() || !box.animate) return;
+    const ease = { duration: 420, easing: 'cubic-bezier(.22,1,.36,1)' };
+    els.forEach((el, i) => {
+      const p = was.chips[i];
+      if (!p || was.texts[i] !== shown[i]) return;   // 새로 들어온 칩은 제 등장 움직임(Chip)으로
+      const dx = p.x - now.chips[i].x; const dy = p.y - now.chips[i].y;
+      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], ease);
+    });
+    if (was.box && Math.abs(was.box - now.box) > 0.5) box.animate([{ height: `${was.box}px` }, { height: `${now.box}px` }], ease);
+    faceRef.current?.animate?.(TILT_FRAMES, { duration: 1100, easing: 'ease-in-out' });
+  }, [shown.join('|')]);  // eslint-disable-line react-hooks/exhaustive-deps
+  const syncTilt = pool.length > 3 && !reducedMotion();
 
   const input = (
     <div className="dab-input flex items-center gap-2 rounded-full border border-accent bg-surface pl-4 pr-1.5 py-1.5 w-full shadow-[0_1px_0_rgba(0,0,0,.02)]">
       <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} maxLength={300}
-        onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}
+        onFocus={onFocusInput} onBlur={() => setFocus(false)}
         onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); send(); } }}
         enterKeyHint="send"
         placeholder={chat.length ? '다붓이에게 더 물어보기' : '예: 수련회 준비는 언제부터 해요?'}
@@ -246,13 +304,13 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
   if (!chat.length) {
     return (
       <div className="dab-home flex flex-col items-center justify-center gap-2.5 text-center px-4 py-6" style={{ minHeight: fill }}>
-        <div className="dab-tilt dc-card flex flex-col items-center gap-1.5">
-          <img src={DAB_CUT.src} srcSet={cutSet(DAB_CUT.src)} width={DAB_CUT.w} height={DAB_CUT.h} alt="" aria-hidden="true" draggable="false" className="dab-face" />
+        <div className={`${syncTilt ? 'dab-tilt-sync' : 'dab-tilt'} dc-card flex flex-col items-center gap-1.5`}>
+          <img ref={faceRef} src={DAB_CUT.src} srcSet={cutSet(DAB_CUT.src)} width={DAB_CUT.w} height={DAB_CUT.h} alt="" aria-hidden="true" draggable="false" className="dab-face" />
           <b className="text-[16px] text-fg tracking-[-0.3px]">다붓이에게 물어보기</b>
         </div>
         {shown.length > 0 && (
-          <div className="dab-chips flex flex-wrap justify-center gap-1.5 max-w-[560px] mt-1" onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}>
-            {shown.map((c, i) => <Chip key={`${i}:${c}`} text={c} i={i} swapped={rot.n > 0} onPick={send} />)}
+          <div ref={chipsRef} className="dab-chips flex flex-wrap justify-center content-start gap-1.5 max-w-[560px] mt-1" onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}>
+            {shown.map((c, i) => <Chip key={`${i}:${c}`} text={c} i={i} swapped={rot.n > 0} leaving={i === leaving} onPick={send} />)}
           </div>
         )}
         <div className="w-full max-w-[520px] mt-1.5 dc-card" style={{ animationDelay: '160ms' }}>{input}</div>
@@ -293,14 +351,18 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
 
 // 칩 한 개 — 처음 셋은 화면 등장(dc-card)과 같이, 바뀌어 들어온 칩은 0.45초 아래에서 떠오르며 나타난다(Web Animations — CSS를 더하지 않는다)
 const CHIP_EVERY = 4000;
-function Chip({ text, i, swapped, onPick }) {
+const CHIP_OUT = 200;   // 바뀌는 칩이 빠지는 시간(.dab-chip-out과 같다)
+// 갸웃 — index.css의 dab-tilt 고리에서 움직이는 마디(78~100%)만 떼어 한 번(1.1초)
+const TILT_FRAMES = [{ transform: 'rotate(0)' }, { transform: 'rotate(-12deg)', offset: 0.27 }, { transform: 'rotate(8deg)', offset: 0.55 }, { transform: 'rotate(-3deg)', offset: 0.77 }, { transform: 'rotate(0)' }];
+const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+function Chip({ text, i, swapped, leaving, onPick }) {
   const ref = useRef(null);
   useEffect(() => {
     if (swapped && ref.current?.animate) ref.current.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 450, easing: 'cubic-bezier(.22,1,.36,1)' });
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <button ref={ref} type="button" onClick={() => onPick(text)} style={swapped ? undefined : { animationDelay: `${80 + i * 40}ms` }}
-      className={`dab-chip ${swapped ? '' : 'dc-card '}rounded-full border border-line bg-surface px-3 py-[5px] text-[12px] text-fg transition hover:bg-surface-hover active:scale-95`}>{text}</button>
+      className={`dab-chip ${swapped ? '' : 'dc-card '}${leaving ? 'dab-chip-out ' : ''}rounded-full border border-line bg-surface px-3 py-[5px] text-[12px] text-fg transition hover:bg-surface-hover active:scale-95`}>{text}</button>
   );
 }
 

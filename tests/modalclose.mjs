@@ -242,6 +242,27 @@ await sleep(500);
 const reopened = await sideProbe();
 check('다시 펴진다', reopened.found && reopened.width > 100, JSON.stringify(reopened));
 
+// ── 태블릿: 키보드가 떠도 댓글 칸이 보인다 (사용자 지적 2026-10-05 · PITFALLS 33-v) ─────────────
+// 아이패드는 넓은 창을 쓰고, 키보드가 레이아웃 뷰포트(innerHeight)는 그대로 두고 보이는 창만 줄인다 — 그걸 흉내 낸다.
+// 되돌리기 검사: 딤을 다시 fixed inset-0으로 두거나 창 높이를 85dvh로만 두면 칸이 키보드 밑(700 아래)에 남는다.
+await send('Emulation.setDeviceMetricsOverride', { width: 820, height: 1180, deviceScaleFactor: 2, mobile: false });
+await send('Page.navigate', { url: URL_BASE + '/?p=p1' });
+await wait('Page.loadEventFired');
+await sleep(1300);
+await openCard();
+await ev(`[...document.querySelectorAll('.fixed.z-50 textarea')].find(t => /멘션/.test(t.placeholder || ''))?.focus()`);
+await sleep(150);
+// 높이는 0.15초 전환(duration-150 · 전환 대상 기본 all)으로 바뀐다 — 그 뒤에 잰다
+await ev(`(() => { const vv = visualViewport; Object.defineProperty(vv, 'height', { configurable: true, get: () => 700 }); vv.dispatchEvent(new Event('resize')); })()`);
+await sleep(450);
+const tabletKb = await ev(`(() => {
+  const t = [...document.querySelectorAll('.fixed.z-50 textarea')].find(t => /멘션/.test(t.placeholder || ''));
+  return { found: !!t, bottom: t ? Math.round(t.getBoundingClientRect().bottom) : null, innerH: innerHeight };
+})()`);
+await ev(`(() => { const vv = visualViewport; delete vv.height; vv.dispatchEvent(new Event('resize')); })()`);
+check('태블릿: 키보드가 떠도 댓글 칸이 키보드 위(보이는 창 700 안)', tabletKb.found && tabletKb.bottom <= 700, JSON.stringify(tabletKb));
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+
 
 // ── 칸마다 저장해도 댓글·활동이 비지 않는다 (§6-22) ─────────────────────────
 // 클라우드는 댓글·활동을 창을 열 때 따로 읽으므로(§6-20) 창이 사본을 들고 있으면 거기엔 빈 배열이
@@ -722,7 +743,7 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   const d9 = await ev(`(() => {
     const t = ${INPUT}; if (!t) return null;
     const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '등록');
-    const back = [...document.querySelectorAll('div')].find(d => /fixed inset-0/.test(d.className || '') && /z-50/.test(d.className || '') && d.querySelector('textarea'));
+    const back = [...document.querySelectorAll('div')].find(d => d.classList.contains('fixed') && d.classList.contains('bg-black/50') && d.classList.contains('z-50') && d.querySelector('textarea'));   // inset-0으로 찾지 않는다(위 30행 · 2026-10-05 창 높이도 --app-vh)
     const panel = back?.firstElementChild;
     const accent = (() => { const d = document.createElement('i'); d.style.color = 'var(--app-accent)'; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v; })();
     const muted = (() => { const d = document.createElement('i'); d.style.color = 'var(--app-ink-muted)'; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v; })();
