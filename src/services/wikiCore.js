@@ -314,7 +314,7 @@ const REQUEST = /줘|주세요|주실|줄래|줄 수|달라|해\s?봐/;
 const COPULA_END = /(?:이야|야|이에요|예요|에요|입니다|이다|이래|이거든|거든|이잖아|잖아|임)$/;
 const PLAIN_END = /(?:와|와요|해|해요|돼|돼요|어|어요|아|아요|다|요|함|음|네|지)$/;
 const INFO_PARTICLE = /[가-힣A-Za-z0-9](?:은|는|에|에서|까지|부터|이랑|랑)\s/;
-const GREET = /^(?:안녕|하이|hi|hello|헬로|ㅎㅇ|반가워|반갑|좋은\s?(?:아침|하루|저녁))/i;
+const GREET = /^(?:안녕|안뇽|하이|hi|hello|헬로|ㅎㅇ|반가워|반갑|좋은\s?(?:아침|하루|저녁))/i;
 const THANKS = /고마|감사|땡큐|thank|thx|ㄳ|ㄱㅅ/i;
 const PRAISE = /잘했|잘하네|잘한다|최고|똑똑|귀여|귀엽|대단|멋져|멋지|짱|사랑해|천재/;
 const OK = /^(?:응|ㅇㅇ|ㅇㅋ|오케이|ok|알겠|알았|그래|넵|네|예|좋아|좋네|ㅎㅎ|ㅋㅋ)/i;
@@ -391,7 +391,7 @@ export function faithKind(q) {
 
 // 청년부 밖 이야기(날씨 · 맛집 · 과제 · 주식 · 일반 상식) — 청년부 낱말이 같이 있으면 업무 질문이다('수련회 근처 맛집')
 export const OFF_TOPIC_ANSWER = '저는 더다붓 청년부에 있는 업무 일부만 알고 있어요!';
-const OFF = /날씨|기온|미세\s?먼지|비\s?(?:와|올까|오나)|맛집|배달|메뉴\s?추천|점심\s?뭐|저녁\s?뭐|주식|코인|비트코인|환율|로또|부동산|과제|숙제|레포트|리포트|시험\s?(?:문제|범위)|번역해|영어로|코딩|파이썬|자바스크립트|수학\s?문제|레시피|요리\s?법|뉴스|대통령|정치|선거|연예인|아이돌|드라마|영화\s?추천|게임\s?추천|축구\s?경기|야구\s?경기|수도가|인구가|몇\s?km|광년/;
+const OFF = /날씨|기온|미세\s?먼지|비\s?(?:와|올까|오나)|맛집|배달|메뉴\s?추천|점심\s?뭐|저녁\s?뭐|주식|코인|비트코인|환율|로또|부동산|과제|숙제|레포트|리포트|시험\s?(?:문제|범위)|번역해|영어로|코딩|파이썬|자바스크립트|수학\s?문제|레시피|요리\s?법|뉴스|대통령|정치|(?:국회의원|지방|총)\s?선거|연예인|아이돌|드라마|영화\s?추천|게임\s?추천|축구\s?경기|야구\s?경기|수도가|인구가|몇\s?km|광년/;
 const CHURCH_WORDS = /청년부|더다붓|교회|예배|수련회|체육대회|월례회|순모임|(?<![가-힣])순(?![가-힣])|[가-힣A-Za-z]순(?:에|은|의|이)?(?![가-힣])|팀|행사|MT|엠티|양육|찬양|주보|설교|모임|리더|순장|전도사|워크스페이스|업무|간식|회비|장소/;
 export function offTopicKind(q) {
   const s = String(q || '').trim();
@@ -437,7 +437,8 @@ export function talkKind(q, prev = []) {
   const care = personaKind(s) || feelingKind(s) || faithKind(s);
   if (care) return care;
   const c = core(s);
-  if (!isAsking(s) || /^[?？]*$/.test(c)) {
+  // '다붓이 안뇽 ?!'처럼 물음표가 붙은 인사도 인사다(2026-10-05 — 모르는 질문으로 답했다)
+  if (!isAsking(s) || /^[?？]*$/.test(c) || (GREET.test(c) && c.replace(/[?？!~.\s]/g, '').length <= 6)) {
     if (THANKS.test(c) && c.length <= 30) return { kind: 'thanks', status: 'answered', answer: TALK_ANSWERS.thanks };
     if (GREET.test(c) && c.length <= 20) return { kind: 'greet', status: 'answered', answer: TALK_ANSWERS.greet };
     if (BYE.test(c) && c.length <= 15) return { kind: 'bye', status: 'answered', answer: TALK_ANSWERS.bye };
@@ -477,96 +478,12 @@ export function termsOf(q) {
   return out;
 }
 
-// 글에서 질문 낱말이 든 줄(과 그 바로 위 소제목)만 — 앞 380자만 자르면 뒤쪽의 답('리더 MT' 줄)이 잘렸다.
-// 걸린 줄이 소제목이면 그 아래 줄까지(답은 대개 소제목 밑 목록에 있다 — '### 리더 가을 MT' 아래 장소). terms가 비면 글 전체.
-export function pickLines(text, terms, max = 380) {
-  const lines = String(text || '').replace(/\r/g, '').split('\n').map(s => s.trim()).filter(s => s && !/^-{3,}$/.test(s));
-  const hit = new Set();
-  if (terms.length) lines.forEach((s, k) => {
-    if (!terms.some(t => s.includes(t))) return;
-    hit.add(k);
-    for (let j = k - 1; j >= 0 && j >= k - 3; j--) if (/^#/.test(lines[j])) { hit.add(j); break; }
-    if (/^#/.test(s)) for (let j = k + 1; j < lines.length && j <= k + 4 && !/^#/.test(lines[j]); j++) hit.add(j);
-  });
-  if (terms.length && !hit.size) return '';
-  const picked = terms.length ? lines.filter((_, k) => hit.has(k)) : lines;
-  return picked.join(' ').replace(/[#*]+|==/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
-}
-export function yearWordsToNumbers(text, today) {
-  const y = Number(String(today).slice(0, 4));
-  return String(text || '').replace(/내년도?/g, `${y + 1}년`).replace(/올해|금년/g, `${y}년`).replace(/작년도?/g, `${y - 1}년`)
-    .replace(/(\d{4})년\s?\(?\1년?\)?/g, '$1년');   // '내년도(2027년)'·'내년 2027년' → 한 번만(2026-10-05 '2027년 2027년 회장')
-}
-// 같은 말 — 질문의 말을 기록에 적힌 말로 바꿔 찾는다(사용자가 알려 준 것만). 근거에는 note를 한 줄 싣는다.
-// '(리더진·리더십) 워크샵'은 리더 가을 MT다(사용자 2026-10-05 — 워크샵·MT를 둘 다 찾게 했더니 옛 기획안의 '12월 리더십 워크숍'이 섞였다).
-// 8월 30일 회의의 '워크샵 — 9월 6일로 일정 확정'은 그날 MT 일정을 정한다는 뜻이다(다른 행사가 아니다 · 사용자).
-export const ALIASES = [{ re: /(?:리더(?:진|십)?\s?)?(?:워크샵|워크숍)/, canon: '리더 가을 MT', note: "리더진 워크샵은 리더 가을 MT예요(회의 기록에는 '리더 가을 MT'로 적혀 있어요)." }];
-export const canonQ = (q) => ALIASES.reduce((s, a) => s.replace(new RegExp(a.re.source, 'g'), a.canon), String(q || ''));
-export const aliasNotes = (q) => ALIASES.filter(a => a.re.test(String(q || ''))).map(a => a.note);
-// 찾을 낱말 — 같은 말로 바꾼 것은 한 덩어리('리더 가을 MT')로. 쪼개면 '리더'만 남아 리더십 회의·리더순장 줄이 근거를 채웠다(2026-10-05)
-export function searchTerms(q) {
-  const canons = ALIASES.filter(a => a.re.test(String(q || ''))).map(a => a.canon);
-  return [...canons, ...termsOf(canonQ(q)).filter(t => !canons.some(c => c.includes(t)))];
-}
-// 답은 묻는 사람이 쓴 말로 — 'X는 리더 가을 MT를 말해요' 같은 풀이 문장은 빼고, 'X인 리더 가을 MT'·'리더 가을 MT'는 X로 되돌린다
-// (사용자 지적 2026-10-05 — "묻는 거에 대답만"). 조사는 X에 맞춘다.
-export function answerInAsked(sentences, q) {
-  let out = sentences || [];
-  for (const a of ALIASES) {
-    const said = String(q || '').match(a.re)?.[0]?.trim();
-    if (!said) continue;
-    const canon = a.canon.replace(/\s+/g, '\\s?');
-    const explain = new RegExp(`${canon}(?:를|을)?\\s?(?:말해요|말하는\\s?거예요|가리켜요|이에요|예요|라고\\s?(?:해요|불러요))`);
-    const kept = out.filter(s => !(explain.test(s.text) && !/\d/.test(s.text)));
-    // 풀이를 빼서 주어가 사라진 첫 문장('날짜는 …')에는 묻는 말을 붙인다
-    if (kept.length < out.length && kept[0] && /^(?:날짜|장소|시간|일정)(?:은|는)\s/.test(kept[0].text)) kept[0] = { ...kept[0], text: `${said} ${kept[0].text}` };
-    out = kept
-      .map(s => ({ ...s, text: s.text
-        .replace(new RegExp(`(?:${a.re.source})(?:인|이라는|,)?\\s?(?=${canon})`, 'g'), '')   // 같은 말 줄의 '리더진 워크샵인 …'도
-        .replace(new RegExp(`${canon}(은|는|이|가|을|를|과|와|으로|로|의)?`, 'g'), (_, j) => {
-          if (!j) return said;
-          const pair = { 은: ['은', '는'], 는: ['은', '는'], 이: ['이', '가'], 가: ['이', '가'], 을: ['을', '를'], 를: ['을', '를'], 과: ['과', '와'], 와: ['과', '와'], 으로: ['으로', '로'], 로: ['으로', '로'] }[j];
-          return pair ? josa(said, pair[0], pair[1]) : `${said}${j}`;
-        }) }));
-  }
-  return out;
-}
-// 해 낱말 — '내년도 회장'이 '2027 임원진'에 닿게(2026-10-05)
-export function yearTerms(q, today) {
-  const y = Number(String(today).slice(0, 4));
-  const s = String(q || '');
-  return [/내년/.test(s) && y + 1, /올해|금년/.test(s) && y, /작년|지난\s?해/.test(s) && y - 1].filter(Boolean).map(String);
-}
 
-// 위키 줄 찾기 — 낱말이 몇 개 걸리는가(장 제목·블록 제목·질문도 본다)
-// 낱말마다 무게를 매긴다 — 위키 줄 가운데 드물게 나오는 낱말일수록 무겁다(log(1 + 줄 수 / 나온 줄 수)).
-// '예배'처럼 어디에나 있는 말이 '송폼' 줄을 밀어내던 것을 막는다(2026-10-03). score는 걸린 낱말 무게의 합, n은 걸린 낱말 수.
-export function scoreWikiItems(pages, terms) {
-  const hits = [];
-  if (!terms.length) return hits;
-  const rows = [];
-  for (const p of pages || []) for (const b of p.blocks || []) for (const it of b.items || []) {
-    if (!String(it.text || '').trim()) continue;
-    // 띄어 쓴 글도 붙여 쓴 질문 낱말에 걸리게 붙인 글을 덧붙인다 — '찬양인도자 누구야'가 '찬양 인도자는 …' 줄을 못 찾았다(2026-10-04)
-    const hay = `${p.title} ${b.title || ''} ${it.meta?.q || ''} ${it.meta?.team || ''} ${it.meta?.time || ''} ${it.text}`;
-    rows.push({ hay: `${hay} ${String(it.text).replace(/\s+/g, '')}`, p, b, it });
-  }
-  const w = termWeights(rows.map(r => r.hay), terms);
-  for (const r of rows) {
-    const got = terms.filter(t => r.hay.includes(t));
-    if (got.length) hits.push({ score: got.reduce((s, t) => s + w.get(t), 0), n: got.length, page: r.p, block: r.b, item: r.it });
-  }
-  hits.sort((a, b) => b.score - a.score);
-  return hits;
-}
 export function termWeights(hays, terms) {
   const N = Math.max(1, hays.length);
   return new Map(terms.map(t => [t, Math.log(1 + N / Math.max(1, hays.filter(h => h.includes(t)).length))]));
 }
 
-// 가장 드문 낱말 — 제목에 한 번이라도 나오는 것 가운데서. 어디에도 없는 말('물어보면')이 무게가 가장 커서
-// 정작 '양육비' 업무가 근거에서 빠졌다(2026-10-05).
-export const rareTerm = (weights, hays) => [...weights.keys()].filter(t => hays.some(h => h.includes(t))).sort((a, b) => weights.get(b) - weights.get(a))[0];
 
 // ── 글 검사(모델 문장) ───────────────────────────────────────────────────────
 // 해요체 · 대시 · 금지어(사용자가 싫어하는 말 — HANDOFF §2 16차·§8) · 근거 표시를 모델이 쓴 것.
@@ -671,6 +588,13 @@ export function strangeAmounts(text, evidenceText) {
   return [...String(text || '').matchAll(AMOUNT)].map(m => m[0].trim()).filter(a => !hay.includes(a.replace(/\s+/g, '')));
 }
 
+// 숫자(날짜·시간·인원·회차) — 글의 숫자 가운데 근거에 **같은 숫자로** 없는 것. '11월 13~14일'은 11·13·14를 따로 본다.
+// 표현은 보지 않는다(18차 2회 — '발표'↔'선출'처럼 말이 달라도 버리지 않고, 지어낸 숫자만 버린다).
+export function strangeNumbers(text, evidenceText) {
+  const hay = String(evidenceText || '');
+  return [...new Set(String(text || '').match(/\d+/g) || [])].filter(n => !new RegExp(`(?<!\\d)0*${Number(n)}(?!\\d)`).test(hay));
+}
+
 // '찾지 못했어요' 답의 칩 — 문장에 그 근거의 이름이 나올 때만 단다(엉뚱한 칩을 막는다 · 시범 약점)
 export function notFoundCites(text, cites) {
   return (cites || []).filter(c => c?.label && String(text).includes(String(c.label).replace(/\.\w+$/, '')));
@@ -679,14 +603,6 @@ export function notFoundCites(text, cites) {
 // 모르는 질문의 답(사용자 문구 2026-10-04) — 크론이 8시(KST)에 돈다. 자주 묻는 질문 장은 마스터만 보니 그 장 이야기는 답 글에 넣지 않는다(마스터에게는 화면이 칩을 단다).
 export const NOT_FOUND = '워크스페이스에서는 그런 내용을 찾을 수가 없어서, 해당 질문은 보완해서 내일 아침에 학습해 둘게요.';
 
-// 문장이 근거에 글자 그대로 기대는가 — 내용 낱말(termsOf 규칙 · 조사·물음 말 걷음)이 **셋 이상이고 전부** 근거 글에 있으면 true.
-// 다붓이 답의 코드 검사(api/_wikiAsk.js) — 참이면 모델 검사를 건너뛴다. 낱말이 적은 문장은 모델이 본다(관계가 틀릴 여지).
-export function groundedIn(sentence, evidenceText) {
-  const toks = termsOf(sentence).filter(t => !/^\d+$/.test(t));
-  const hay = String(evidenceText || '').replace(/\s+/g, ' ');
-  // 끝 한 글자를 뗀 꼴도 같은 낱말로 본다('파일로' · '결산안이' — 조사가 덜 떨어진 경우)
-  return toks.length >= 3 && toks.every(t => hay.includes(t) || (t.length >= 3 && hay.includes(t.slice(0, -1))));
-}
 // 내용 낱말 가운데 그 글에 있는 비율(0~1) — 한 줄이 문장 대부분을 덮는지 볼 때
 export function tokenCoverage(sentence, text) {
   const toks = termsOf(sentence).filter(t => !/^\d+$/.test(t));
@@ -799,20 +715,6 @@ export function birthdayAnswer(month, list) {
 }
 export const birthdayOf = (p) => `${p.call}의 생일은 ${mdText(p.mmdd)}이에요.`;
 
-// 그 일을 물을 사람 줄 — 위키에 '…더 궁금한 점은 OOO님께 문의해 주세요.'처럼 적힌 줄이 근거에 있고
-// 질문의 낱말이 그 줄에 있으면 답 끝에 그 줄을 붙인다(이미 있으면 맨 끝으로 · 사용자 결정 2026-10-04 '믿음샘 양육').
-const ASK_LINE = /(?:문의해|물어봐|연락해)\s?주세요\.?$/;
-export function contactTail(sentences, evidence, terms) {
-  // 질문 낱말의 과반이 그 줄에 있어야 — '리더 MT 언제야?'의 '리더' 하나가 '리더순장님께 문의'에 걸렸다(2026-10-05)
-  const ts = (terms || []).filter(t => t.length >= 2);
-  const line = (evidence || []).find(e => { const body = e.text.replace(/^\(위키 [^)]*\)/, ''); return /^\(위키 /.test(e.text) && ASK_LINE.test(e.text.trim()) && ts.filter(t => body.includes(t)).length * 2 > ts.length; });
-  if (!line) return sentences;
-  const text = line.text.replace(/^\(위키 [^)]*\)\s*/, '').trim();
-  // 모델이 같은 뜻의 '…문의해 주세요'를 이미 썼으면 그 문장은 걷고 위키 줄 그대로 끝에 둔다(두 번 나왔다 · 2026-10-04)
-  const rest = (sentences || []).filter(s => !ASK_LINE.test(String(s.text).trim()));
-  return [...rest, { text, ids: [line.id], cites: line.cite ? [line.cite] : [] }];
-}
-
 // ── 이어 묻기 (사용자 결정 2026-10-04 — '지난주 누가 안 왔어?' → '그럼 콩순에서는?') ─────────────────
 // 앞 질문에 기대는 짧은 물음을 **혼자 읽어도 되는 한 질문**으로 다시 쓴다. 그 뒤 갈래(출석·생일·캐시·근거)는 다시 쓴 질문으로 돈다.
 // 화면에는 아무것도 더 보이지 않는다. 순서: 코드가 아는 갈래(출석 · 생일 · 팀 · 행사)는 낱말을 바꿔 끼우고(followUpRule),
@@ -898,19 +800,9 @@ export function followUpRule(q, prevQ, { teams = [] } = {}) {
   return null;
 }
 
-// 모델이 다시 쓴 질문을 써도 되는가 — 새 말의 내용 낱말이 다 있고 · 앞 질문의 낱말이 하나 이상 남고 · 짧을 때만
+// 낱말 견주기 — 빈칸·대소문자를 보지 않고, 세 글자 넘는 낱말은 끝 글자(조사 붙은 꼴)를 떼고도 본다(splitGuard · knownStatement)
 const flatK = (t) => String(t || '').replace(/\s+/g, '').toLowerCase();
 const hasTerm = (hay, t) => hay.includes(flatK(t)) || (t.length >= 3 && hay.includes(flatK(t.slice(0, -1))));
-// prevA: 바로 앞 답의 첫 문장('그 사람'이 가리키는 이름) — 그 낱말이 남아도 앞 문맥을 이은 것으로 본다
-export function followUpGuard(rewrite, q, prevQ, prevA = '') {
-  const r = String(rewrite || '').trim();
-  if (!r || r.length > 150 || flatK(r) === flatK(q)) return false;
-  const hay = flatK(r);
-  const mine = termsOf(stripLead(q)).filter(t => !['그럼', '그러면'].includes(t));
-  if (!mine.every(t => hasTerm(hay, t))) return false;
-  const theirs = [...termsOf(prevQ), ...termsOf(prevA)];
-  return !theirs.length || theirs.some(t => hasTerm(hay, t));
-}
 
 // ── 섞인 질문 (사용자 지적 2026-10-05 — '10월이랑 11월 생일자'·'콩순 출석이랑 생일자'에서 앞의 것만 답했다) ──────
 // 갈래(출석·생일·근거 찾기)는 한 물음을 보고 정해진다. 둘 이상을 묻는 말은 혼자 서는 물음으로 나눠 따로 답하고 잇는다.

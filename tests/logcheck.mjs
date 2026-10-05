@@ -5713,24 +5713,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 동사 꼬리·조사는 찾을 낱말이 아니다
   assert.deepStrictEqual(W.termsOf('예배 송폼은 언제까지 나오나요?'), ['예배', '송폼']);
   assert.deepStrictEqual(W.termsOf('다음 주 찬양 콘티 나왔어요?'), ['찬양', '콘티']);
-  // 드문 낱말이 걸린 줄이 앞선다('예배'는 어디에나 있다)
-  const pages = [{ id: 'x', title: 'x', blocks: [{ key: 'b', type: 'list', items: [
-    { key: '1', text: '예배 PPT를 맡아요.' }, { key: '2', text: '예배 때 안무를 해요.' }, { key: '3', text: '예배는 13:30에 시작해요.' },
-    { key: '4', text: '송폼 · 그 전주 금요일까지 나와요.' }] }] }];
-  assert.strictEqual(W.scoreWikiItems(pages, ['예배', '송폼'])[0].item.key, '4', '송폼 줄이 맨 앞');
-  // 글자 그대로 근거 — 내용 낱말 셋 이상이 전부 있으면 참(조사가 덜 떨어진 꼴도) · 하나라도 없으면 거짓
-  assert.ok(W.groundedIn('9월 20일 큐시트는 9월 20일 주보의 말씀 탭 큐시트 칸에 있어요.', "9월 20일 큐시트 'a.docx'은 9월 20일 주보의 말씀 탭 큐시트 칸에 있어요."));
-  assert.ok(W.groundedIn('하계 수련회 결산 업무의 첨부 파일로 결산안이 있어요.', "파일 '결산안.xlsx'은 업무 '하계 수련회 결산'의 첨부에 있어요."));
-  assert.ok(!W.groundedIn('리더 MT는 다온펜션에서 열려요.', '리더 MT 장소 미정'), '근거에 없는 낱말이 있으면 모델이 본다');
-  assert.ok(!W.groundedIn('월례회예요.', '월례회예요.'), '낱말이 적은 문장은 모델이 본다');
   assert.ok(W.tokenCoverage('하계 수련회 결산안 파일이 있어요.', '하계 수련회 결산안') >= 0.75);
   // 서버 배선: 밤 다시 묻기는 7일 · 근거 순서(뜻 찾기가 맨 뒤) · '이번/다음/지난 주'는 코드가 짚는다 · 전부 '찾지 못했어요'면 unknown
   const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
-  assert.ok(ask.includes('Date.now() - 7 * 864e5') && !ask.includes('Date.now() - 30 * 864e5'), '밤 다시 묻기는 7일');
-  assert.ok(ask.indexOf('// 주보(날짜를 말했거나 주보 이야기)') < ask.indexOf('// 뜻 찾기(doc_vec'), '뜻 찾기는 맨 뒤(잘려도 이쪽이 잘린다)');
-  assert.ok(/: \/다음\\s\?주\/\.test\(q\) \? nextSun/.test(ask), "'다음 주'는 다음 주일");
-  assert.ok(ask.includes('if (onlyMissing) return unknown(missingOf(final), dropped);') && ask.includes("return { status: 'unknown', sentences: [...missing, { text: NOT_FOUND"), "'찾지 못했어요'뿐이면 unknown(자주 묻는 질문에 선다)");
-  assert.ok(ask.includes('const sure = new Set(kept.map((s, i) => (isSure(s) ? i : -1))'), '글자 그대로 근거면 모델 검사를 건너뛴다');
+  assert.ok(ask.includes("new Date(Date.now() - 7 * 864e5).toISOString()).order('created_at');   // 7일"), '밤 다시 묻기는 7일');
   const mig89 = readFileSync(new URL('../supabase/migrations/0089_wiki_title_master.sql', import.meta.url), 'utf8');
   assert.ok((mig89.match(/left\(item_key, 1\) <> '#' or public\.is_master\(\)/g) || []).length === 3, '0089: 제목 줄(#)은 마스터만 넣고 고친다');
   const chips = readFileSync(new URL('../src/components/dabooti.jsx', import.meta.url), 'utf8');
@@ -5752,7 +5738,6 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const build = readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8');
   assert.ok(build.includes('const sectionTitle = (c) => c.title;') && build.includes('when: taskWhen(c.start_date, c.due_date)'), '블록 제목에 날짜를 붙이지 않는다');
   const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
-  assert.ok(ask.includes('업무 마감 ${mdLabel(b, true)}') && ask.includes('업무 날짜는 행사 날짜가 아니다'), '근거에 업무 날짜를 밝히고 행사 날짜와 가른다');
   const view = readFileSync(new URL('../src/views/wikiView.jsx', import.meta.url), 'utf8');
   assert.ok(!/<Who |wiki-who|>함께 작성</.test(view), '고친 사람·함께 작성은 장 머리에서도 걷었다(2026-10-04)');
   // 굵게(2026-10-04) — 읽기는 **…**만 굵게 · 모델에게 주는 위키 글은 별표를 걷는다(답에 묻지 않게)
@@ -5763,7 +5748,6 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(W.toggleBold('**지난달**을 돌아봐요', 2, 5), { value: '지난달을 돌아봐요', start: 0, end: 3 }, '안쪽을 고르고 누르면 푼다');
   assert.deepStrictEqual(W.toggleBold('**지난달**을', 0, 7), { value: '지난달을', start: 0, end: 3 }, '별표까지 고르고 누르면 푼다');
   assert.deepStrictEqual(W.toggleBold('가 나 다', 1, 4), { value: '가 **나** 다', start: 4, end: 5 }, '앞뒤 빈칸은 감싸지 않는다');
-  assert.ok(ask.includes('${q2}${stripBold(it.text)}'), '다붓이 근거의 위키 글은 별표를 걷는다');
   assert.ok(build.includes('고친 뒤: ${stripBold(e.text)}') && build.includes('stripBold(it.text).startsWith('), '위키를 쓸 때 사람이 고친 예도 별표를 걷는다');
   // 마스터만(0090) — 자주 묻는 질문 장은 마스터에게만 · 고치기 정책은 is_master() 하나
   const pg = [{ id: 'intro' }, { id: W.FAQ_ID }];
@@ -5849,12 +5833,6 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(pl.includes('찬양팀에는 현재 워크스페이스 가입자로는 가나다(팀장), 라마바(남자 싱어)가 있어요.') && !pl.some(l => l.startsWith('엔지니어팀')), JSON.stringify(pl));
   assert.ok(A.peopleLines(roster, '사역자가 누구여').includes('청년부 교역자(사역자)는 파하 전도사님이에요.'));
   assert.ok(A.peopleLines(roster, '팀원 명단 알려줘').some(l => l.startsWith('엔지니어팀에는 현재 워크스페이스 가입자로는 사아자(팀장), 차카타가')), '팀을 안 말하면 전부');
-  // 붙여 쓴 질문 낱말이 띄어 쓴 위키 줄에 걸린다
-  {
-    const pg = [{ id: 'x', title: '찬양팀', blocks: [{ key: 'about', type: 'plain', items: [{ key: 'a', text: '찬양 인도자는 가나다 청년이에요.' }, { key: 'b', text: '콘티를 만들어요.' }] }] }];
-    const hit = W.scoreWikiItems(pg, W.termsOf('찬양인도자 누구야'));
-    assert.ok(hit.length && hit[0].item.key === 'a', JSON.stringify(hit.map(h => h.item.key)));
-  }
   // 명단 끝 조사 · 한 사람 부르기(사용자 문장 2026-10-04 — '…, 재훈이가 있어요' · '김승찬 형제가 맡고 있어요')
   assert.strictEqual(A.listSubject(['노준석', '재훈']), '노준석, 재훈이가', '성 없는 두 글자 받침 이름은 이가');
   assert.strictEqual(A.listSubject(['가나다', '문진혁(엔지니어팀장)']), '가나다, 문진혁(엔지니어팀장)이', '괄호 직함은 괄호 앞 글자로');
@@ -5873,7 +5851,6 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const build = readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8');
   const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
   assert.ok(build.includes('hasName.strangers(one, blockEv(blk.key))') && !build.includes("hasName(one) ? ['사람 이름']") && !build.includes("'- 사람 이름을 쓰지 마라."), '위키: 이름은 조각에 있는 것만(이름 자체로는 안 버린다)');
-  assert.ok(ask.includes('hasName.strangers(t, allEvText)') && !ask.includes("(hasName(t) ? ['사람 이름'] : [])") && !ask.includes("'- 사람 이름을 쓰지 마라."), '다붓이: 이름은 근거에 있는 것만');
   // 금액 — 가리킨 근거에 글자 그대로 있을 때만
   const ev = [{ id: 'E1', text: "업무 '하계 수련회 결산' · 회비 50,000원 · 총 1,200,000원", cite: null }, { id: 'E2', text: '수련회는 8월이에요.', cite: null }];
   const kc = W.keepCited([
@@ -5883,17 +5860,14 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   ], ev);
   assert.deepStrictEqual(kc.kept.map(k => k.text), ['회비는 50,000원이에요.'], '근거에 없는 금액 · 다른 줄의 금액은 버린다');
   assert.deepStrictEqual(W.strangeAmounts('3만 원이에요.', '회비 3만원'), [], '빈칸은 보지 않는다');
-  // 업무가 위키보다 앞(어긋나면 업무가 이긴다) · 사람 줄은 그보다 앞
-  assert.ok(ask.indexOf('// 사람을 묻는 질문') < ask.indexOf('// 지금의 업무(제목에 낱말이 걸리는 것)') && ask.indexOf('// 지금의 업무(제목에 낱말이 걸리는 것)') < ask.indexOf('// 위키 줄(사람이 고친 글 겹침)'), '근거 순서: 사람 → 업무 → 위키');
-  assert.ok(ask.includes('위키 줄과 업무 줄의 날짜·상태·맡은 사람이 다르면 업무 줄을 따라라') && ask.includes('마지막 수정 ${mdLabel(kstDate(c.updated_at), true)}'), '프롬프트: 지금 업무가 위키 글을 이긴다');
   // 저장 — 인사·다붓이 자신은 저장 안 함, 알려 주는 말은 unknown으로
   assert.ok(ask.includes("save: talk.kind === 'statement'") && ask.includes('if (out.save === false) return null;'), '저장 갈래');
   // 마스터 알림 — 지난 24시간의 모르는 질문(묶음) 수 · 밤 다시 묻기 행은 빼고 · 자주 묻는 질문 장으로
   assert.strictEqual(P.unknownCount([
-    { norm: 'a', status: 'unknown', via: 'ask' }, { norm: 'a', status: 'unknown', via: 'ask' },
-    { norm: 'b', status: 'answered', feedback: 'bad', via: 'ask' }, { norm: 'c', status: 'answered', via: 'ask' },
-    { norm: 'd', status: 'unknown', via: 'nightly' }, { norm: 'e', status: 'refused', via: 'ask' },
-  ]), 2);
+    { norm: 'a', status: 'unknown', via: 'nightly', answer: { cause: 'none' } }, { norm: 'a', status: 'unknown', via: 'nightly', answer: { cause: 'none' } },
+    { norm: 'b', status: 'unknown', via: 'nightly', answer: { cause: 'none' } }, { norm: 'c', status: 'answered', via: 'nightly', answer: { cause: 'missed' } },
+    { norm: 'd', status: 'unknown', via: 'nightly', answer: { cause: 'dropped' } }, { norm: 'e', status: 'unknown', via: 'ask' }, { norm: 'f', status: 'answered', feedback: 'bad', via: 'ask' }, { norm: 'g', status: 'unknown', via: 'ask' },
+  ]), 2, "마스터에게는 '기록 없음'만(18차 2회)");
   assert.deepStrictEqual(P.masterNotice(2, '2026-10-05'), { title: '다붓이가 모르는 질문 2개', body: '자주 묻는 질문에서 답을 적어 주세요', url: '/?p=wiki&wiki=faq', tag: 'dabooti:2026-10-05' });
   const pushSrc = readFileSync(new URL('../api/push.js', import.meta.url), 'utf8');
   assert.ok(pushSrc.indexOf('const built = await buildWiki(') < pushSrc.indexOf('await notifyMasterUnknown(db)') && pushSrc.includes(".from('admins').select('email').eq('is_master', true)"), '위키 뒤에 마스터(admins.is_master)에게');
@@ -6114,13 +6088,6 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     ['이번 달하고 다음 달 생일자', [10, 11]], ['3월 생일자 알려줘', [3]], ['생일자 누구야', [10]], ['10월 10월 생일자', [10]]]) assert.deepStrictEqual(W.birthdayMonths(q, '2026-10-04'), want, q);
   assert.strictEqual(W.birthdayAnswer(10, [{ call: 'B 자매', mmdd: '10-20' }, { call: 'A 형제', mmdd: '10-12' }, { call: 'C 형제', mmdd: '11-01' }]), '10월 생일자는 A 형제(10월 12일), B 자매(10월 20일)예요.');
   assert.ok(!/\d{4}|살/.test(W.birthdayAnswer(10, [{ call: 'A 형제', mmdd: '10-12' }])), '연도·나이 없음');
-  // 물을 사람 줄 — 위키에 있으면 답 끝에 한 번만
-  const ev = [{ id: 'E2', text: '(위키 더다붓 소개 > 양육) 믿음샘 양육에 대해 더 궁금한 점은 정민경 리더순장님께 문의해 주세요.', cite: { t: 'page', id: 'intro', label: '더다붓 소개' } }];
-  const tail = W.contactTail([{ text: '믿음샘 양육은 1:1이에요.', ids: ['E2'], cites: [] }, { text: '더 궁금한 점은 정민경 리더순장님께 문의해 주세요.', ids: ['E2'], cites: [] }], ev, ['믿음샘', '양육']);
-  assert.deepStrictEqual(tail.map(s => s.text), ['믿음샘 양육은 1:1이에요.', '믿음샘 양육에 대해 더 궁금한 점은 정민경 리더순장님께 문의해 주세요.']);
-  assert.strictEqual(W.contactTail([{ text: 'x' }], ev, ['체육대회']).length, 1, '다른 일이면 붙이지 않는다');
-  assert.strictEqual(W.contactTail([{ text: 'x' }], ev, ['리더', 'MT']).length, 1, '낱말 하나(리더)만 걸리면 붙이지 않는다');
-  assert.ok(ask.includes('final = contactTail(final, evidence, termsOf(question));'));
   // 바뀌는 칩 — 15개(순이 없으면 14) · 처음 셋은 다른 갈래 · 한 칸씩 돌아가며 겹치지 않게
   const pool = W.chipPool({ cueDate: '2026-10-04', sun: 'TT순' });
   assert.strictEqual(pool.length, 15);
@@ -6158,12 +6125,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(!W.cacheFresh({ ...row, answer: { sentences: row.answer.sentences } }, '2026-10-04T02:00:00Z', '2026-10-04'), '캐시해도 되는 답으로 저장된 것만');
   assert.ok(!W.cacheFresh({ ...row, answer: { cacheable: true, sentences: [{ text: 'a', cites: [{ t: 'page', id: 'faq' }] }] } }, '2026-10-04T02:00:00Z', '2026-10-04'), '마스터만 보는 장을 근거로 한 답');
   // 순서: 거르기 → talkKind → 이어 묻기(위키 · 다붓이 10) → 성경 → 출석 → 생일 → 캐시 → 근거 · 밤 다시 묻기는 캐시 끔 · 저장은 캐시해도 되는 답 표시
-  const order = ['const pf = prefilter(raw);', 'const talk = talkKind(raw, prevLines);', 'const question = await resolveFollowUp(raw,', 'const ref = bibleRefIn(question, BOOKS);', 'if (isAttendanceQuestion(question))', 'if (isBirthdayQuestion(question))', 'const hit = await cachedAnswer(admin, question, today)', 'await collectEvidence(question,'];
+  const order = ['const pf = prefilter(raw);', 'const talk = talkKind(raw, prevLines);', 'const question = (prevLines.length && looksFollowUp(raw) && followUpRule(', 'const ref = bibleRefIn(question, BOOKS);', 'if (isAttendanceQuestion(question) || isBirthdayQuestion(question))', 'const hit = await cachedAnswer(admin, question, today)', 'await collectAll(db, today);', 'const found = parseModelJson(await gen(LOCATE_SYS'];
   order.reduce((at, s) => { const i = ask.indexOf(s); assert.ok(i > at, `순서: ${s}`); return i; }, -1);
-  assert.ok(ask.includes('answerQuestion(r.question, { db: admin, admin, cache: false })') && ask.includes('...(out.cacheable ? { cacheable: true } : {})'));
+  assert.ok(ask.includes('answerQuestion(r.question, { db: admin, admin, prev, cache: false, key, today, hint: cites })') && ask.includes('...(out.cacheable ? { cacheable: true } : {})'));
   assert.ok(ask.includes("last('wiki_pages', 'updated_at'), last('wiki_edits', 'edited_at'), last('cards', 'updated_at'), last('services', 'updated_at'), last('files', 'created_at'), last('doc_vec', 'updated_at')"), '데이터 도장');
-  // 함께 쓰는 글 초안 가운데 DB에 아직 없는 장도 근거(새 사용법 장) · 같은 무게면 함께 쓰는 글 먼저
-  assert.ok(ask.includes('SEED_PAGES.filter(sp => !pages.some(p => p.id === sp.id))') && ask.includes('b.score - a.score || human(b) - human(a)'));
   // 날짜 셈 — 다음 월례회(규칙) · 주일
   assert.strictEqual(A.secondSunday('2026-10-04'), '2026-10-11');
   assert.strictEqual(A.secondSunday('2026-10-12'), '2026-11-08');
@@ -6332,40 +6297,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual([allUnk.status, allUnk.sentences.map(s => s.text), allUnk.unknownParts], ['unknown', [W.NOT_FOUND], []], '다 모르면 정해진 한 문장 · 질문 통째로 배운다');
   assert.deepStrictEqual(W.mergeParts(['a?', 'b?'], [ans('A.'), ans('B.')]).sentences.map(s => s.text), ['A.', 'B.']);
   // 회의 본문 줄 · 해 낱말 · 주보 광고 · 말투 꼴 묻는 말(2026-10-05 — '회장 선출 완료' · '후보 날짜 11월 7일' · '오~ 어디소 하는딩?')
-  const MEET = '# 9월 27일 리더십 회의\n### 회장 선출 완료\n\n### 팟캐스트\n- 대본 필요\n---\n### 가을 체육대회 관련\n- 날짜 확정 : 10월 31일(토)\n- *날짜 변경 논의 필요: 후보날짜 11월 7일(토)\n- 장소: 한강공원';
-  assert.strictEqual(W.pickLines(MEET, ['회장']), '9월 27일 리더십 회의 회장 선출 완료', '소제목만 걸려도 싣는다(위 소제목과 함께)');
-  assert.ok(W.pickLines(MEET, ['체육대회']).includes('후보날짜 11월 7일(토)') && W.pickLines(MEET, ['체육대회']).includes('장소: 한강공원'), '소제목 아래 줄까지');
-  assert.strictEqual(W.pickLines(MEET, ['수련회']), '', '안 걸리면 빈 글');
-  assert.deepStrictEqual(W.yearTerms('내년도 회장은 누구야?', '2026-10-05'), ['2027']);
-  // '(리더진·리더십) 워크샵'은 리더 가을 MT로 찾는다(사용자 2026-10-05)
-  assert.strictEqual(W.canonQ('리더진 워크샵은 언제 어디서 해?'), '리더 가을 MT은 언제 어디서 해?');
-  assert.strictEqual(W.canonQ('워크숍 장소 어디야?'), '리더 가을 MT 장소 어디야?');
-  assert.strictEqual(W.canonQ('리더십 워크샵 언제야?'), '리더 가을 MT 언제야?', '리더십 워크샵도 리더 가을 MT(사용자)');
-  assert.strictEqual(W.aliasNotes('리더 워크샵 언제야?').length, 1);
-  assert.deepStrictEqual(W.searchTerms('리더 워크샵 언제 해?'), ['리더 가을 MT'], "한 덩어리로 찾는다('리더'만 남지 않게)");
-  assert.deepStrictEqual(W.searchTerms('체육대회 언제야?'), W.termsOf('체육대회 언제야?'));
-  for (const t of ['내년도(2027년) 회장은 A예요.', '내년 2027년 회장은 A예요.', '2027년(2027) 회장은 A예요.']) assert.strictEqual(W.yearWordsToNumbers(t, '2026-10-05'), '2027년 회장은 A예요.', t);
-  // 묻는 사람이 쓴 말로 답한다 — 풀이 문장은 빼고 조사를 맞춘다(사용자 지적 2026-10-05 '묻는 거에 대답만')
-  const AS = (q, ...t) => W.answerInAsked(t.map(text => ({ text, cites: [] })), q).map(s => s.text);
-  assert.deepStrictEqual(AS('리더진 워크샵 언제 하낭?', '리더진 워크샵은 리더 가을 MT를 말해요.', '날짜는 11월 13일부터 14일까지예요.'), ['리더진 워크샵 날짜는 11월 13일부터 14일까지예요.']);
-  assert.deepStrictEqual(AS('리더진 워크샵 언제 하낭?', '리더진 워크샵인 리더 가을 MT는 11월 13일부터 14일까지 진행해요.'), ['리더진 워크샵은 11월 13일부터 14일까지 진행해요.']);
-  assert.deepStrictEqual(AS('리더 워크샵 장소?', '리더 가을 MT 장소는 다온펜션이에요.'), ['리더 워크샵 장소는 다온펜션이에요.']);
-  assert.deepStrictEqual(AS('리더 워크샵 언제 해?', '리더진 워크샵인 리더 가을 MT는 11월 13일부터예요.'), ['리더 워크샵은 11월 13일부터예요.'], '같은 말 줄의 꼴이 겹치지 않게');
-  assert.deepStrictEqual(AS('리더 MT 언제야?', '리더 가을 MT는 11월 13일부터예요.'), ['리더 가을 MT는 11월 13일부터예요.'], '같은 말을 안 썼으면 그대로');
-  assert.deepStrictEqual([W.canonQ('체육대회 언제야?'), W.aliasNotes('체육대회 언제야?')], ['체육대회 언제야?', []]);
-  // '그 다음 월례회'는 다음 것의 다음까지 짚는다(사용자 지적 2026-10-05 — 다음 것을 또 답했다)
-  for (const q of ['그 다음 월례회는 언제 하나요?', '다다음 월례회 언제야?', '그다음 월례회는?']) assert.ok(A.AFTER_NEXT.test(q), q);
-  for (const q of ['다음 월례회는 언제 하나요?', '이번 월례회 언제야?']) assert.ok(!A.AFTER_NEXT.test(q), q);
-  const TT = ['양육비', '양육 2기 모집', '10월 월례회'];
-  assert.strictEqual(W.rareTerm(W.termWeights(TT, ['그럼', '양육비', '물어보면']), TT), '양육비', '제목에 없는 말은 드문 낱말이 아니다');
   // 담당자 — card_assignees가 정본, 없으면 이름 칸(2026-10-05 — id로만 읽어 담당자가 늘 비었다)
   const NB = new Map([['u1', '조해리']]);
   assert.deepStrictEqual(A.assigneeNamesOf({ assignees: ['조해리'] }, NB), ['조해리'], '이름 칸');
   assert.deepStrictEqual(A.assigneeNamesOf({ assignees: ['옛이름'], card_assignees: [{ profile_id: 'u1' }] }, NB), ['조해리'], '조인 행이 먼저');
-  assert.deepStrictEqual(W.yearTerms('올해 수련회', '2026-10-05'), ['2026']);
-  assert.deepStrictEqual(W.yearTerms('회장은 누구야?', '2026-10-05'), []);
-  assert.strictEqual(W.yearWordsToNumbers('내년도 회장은 정민경 청년이에요. 올해 회장은 A 형제예요.', '2026-10-05'), '2027년 회장은 정민경 청년이에요. 2026년 회장은 A 형제예요.');
-  assert.deepStrictEqual(A.noticeLines([{ id: 's', service_date: '2026-10-04', notices: [{ title: '회장 발표', body: '' }, { title: '회장 발표', body: '2027 회장은 A 자매예요.' }, { title: '월례회', body: '11일' }] }], ['회장']).map(n => n.text), ["10월 4일(일) 주보 광고 '회장 발표'", "10월 4일(일) 주보 광고 '회장 발표': 2027 회장은 A 자매예요."], '제목만 있는 광고도 싣는다');
   assert.deepStrictEqual(W.termsOf('오~ 어디소 하는딩?'), [], '말투 꼴 묻는 말은 찾을 낱말이 아니다');
   assert.ok(W.looksFollowUp('오~ 어디소 하는딩?'), '짧은 말투 꼴 물음은 이어 묻기');
   assert.strictEqual(R('엔지니어팀은?', '찬양팀에는 누가 있나요?'), '엔지니어팀에는 누가 있나요?');
@@ -6373,17 +6308,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.strictEqual(R('그럼 수련회는?', '가을 체육대회는 언제, 어디서 하나요?'), '수련회는 언제, 어디서 하나요?');
   assert.strictEqual(R('준비는 누가 해?', '가을 체육대회는 언제, 어디서 하나요?'), '가을 체육대회 준비는 누가 해?');
   assert.strictEqual(R('그럼 Q예배는?', '찬양 인도자는 누가 하고 있나요?'), null, '코드가 모르는 갈래는 모델에게');
-  // 모델이 다시 쓴 말의 가드 — 새 말의 내용 낱말이 다 있고 · 앞 질문(또는 앞 답)의 낱말이 남아야 한다 · 아니면 원래 말
-  assert.ok(W.followUpGuard('Q예배 찬양 인도자는 누가 하고 있나요?', '그럼 Q예배는?', '찬양 인도자는 누가 하고 있나요?'));
-  assert.ok(!W.followUpGuard('찬양 인도자는 누가 하고 있나요?', '그럼 Q예배는?', '찬양 인도자는 누가 하고 있나요?'), '새 말의 낱말이 빠졌다(앞 질문만 되풀이)');
-  assert.ok(!W.followUpGuard('Q예배는 언제예요?', '그럼 Q예배는?', '찬양 인도자는 누가 하고 있나요?'), '앞 질문 낱말이 하나도 없다');
-  assert.ok(!W.followUpGuard('그럼 Q예배는?', '그럼 Q예배는?', '찬양 인도자는 누가 하고 있나요?'), '그대로면 다시 쓴 게 아니다');
-  assert.ok(W.followUpGuard('김승찬 생일은 언제예요?', '그 사람 생일은?', '찬양팀 일렉은 누구야?', '찬양팀에서 일렉은 김승찬 형제가 맡고 있어요.'), '앞 답의 이름을 이은 것');
-  assert.strictEqual(await A.resolveFollowUp('그럼 Q예배는?', '찬양 인도자는 누가 하고 있나요?', '', { key: '' }), '그럼 Q예배는?', '모델 없이는 원래 말');
-  assert.strictEqual(await A.resolveFollowUp('엔지니어팀은?', '', '', { key: '' }), '엔지니어팀은?', '앞 질문이 없으면 그대로');
-  assert.strictEqual(await A.resolveFollowUp('다음 월례회는 언제 하나요?', '찬양팀에는 누가 있나요?', '', { key: 'x' }), '다음 월례회는 언제 하나요?', '이어 묻는 말이 아니면 모델도 안 부른다');
   // 배선 — 다시 쓴 질문으로 갈래가 돈다 · [앞 질문]은 모델에 안 싣는다 · 캐시와 저장은 다시 쓴 꼴 · 화면은 다시 쓴 꼴과 앞 답 첫 문장을 보낸다
-  assert.ok(ask.includes('const canCache = cacheEligible(question);') && !ask.includes('`[앞 질문] ${last') && ask.includes('if (out.asked) question = out.asked;'));
   assert.ok(dab.includes('const follow = done.length > 0 && looksFollowUp(question);') && dab.includes('[`[답] ${lastA') && dab.includes('if (!follow && !a.asked) memoPut(question, a);'));
   // 끝까지 — 가짜 DB로(모델 없음): 생일 이어 묻기 · 이미 아는 말 · 다붓이 자신 이야기
   const chain = (rows) => { const c = new Proxy({}, { get: (_, k) => (k === 'then' ? (res, rej) => Promise.resolve({ data: rows }).then(res, rej) : (k === 'maybeSingle' || k === 'single') ? async () => ({ data: rows[0] || null }) : () => c) }); return c; };
@@ -6445,10 +6370,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   // 다붓이 댓글 조각도 위키와 같은 댓글 줄(쓴 사람 주어 · @는 부른 사람)로 간다
   {
     const askSrc = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
-    assert.ok(askSrc.includes("cmtLines = await commentLinesFor(db,") && askSrc.includes("const cl = r.kind === 'comment' && r.comment_id ? cmtLines.get(r.comment_id) : '';"), '댓글 조각 → commentLine');
-    const fake = { from: (t) => ({ select: () => ({ in: async () => ({ data: t === 'comments' ? [{ id: 'c1', parent_id: null, author_id: 'p1', body: '@가나다 라마바 (4주차/6주차) 완료', created_at: '2026-09-09T03:00:00Z' }] : [] }), then: (f) => f({ data: t === 'profiles' ? [{ id: 'p1', display_name: '사아자', approved: true }, { id: 'p2', display_name: '가나다', approved: true }] : [] }) }) }) };
-    const m = await A.commentLinesFor(fake, ['c1']);
-    assert.ok(/^\[댓글 · [^\]]*\] 사아자 [^:]*씀\(가나다[^)]*부름\): 라마바/.test(m.get('c1') || ''), m.get('c1'));
+    assert.ok(askSrc.includes('const x = commentLine(m, cctx);'), '기록 통째로의 댓글도 commentLine 줄(쓴 사람 주어)');
   }
   console.log('PASS  위키 · 다붓이 10(이어 묻기 · 코드 갈래 · 가드 · 다시 쓴 꼴로 캐시·저장 · 출석 외 N명 · 팀 몫 · 이미 아는 말)');
 }
@@ -6528,4 +6450,56 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(L.teamInfo(about, [], singers).rows.find(r => r.k === '찬양 인도'), { k: '찬양 인도', v: '노준석 · 조준환' });
   assert.deepStrictEqual(L.teamInfo({ id: 'team:찬양팀', blocks: [] }, [], singers).rows.find(r => r.k === '찬양 인도'), { k: '찬양 인도', v: '조준환' });
   console.log('PASS  위키 · 다붓이 9(댓글 줄 · 두 글자 이름 · 이름 형제·자매 · 모르는 질문 빼기 · 임원진 몫 · 인도 줄)');
+}
+
+// ── 위키 · 다붓이 11 (18차 2회): 근거 통째로 — 검사는 지어낸 숫자·이름만(표현은 안 본다) · 번호를 잘못 단 문장은 맞는 기록으로 ──
+{
+  const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
+  const A = await import(new URL('../api/_wikiAsk.js', import.meta.url).href);
+  const B = await import(new URL('../api/_wikiBuild.js', import.meta.url).href);
+  assert.deepStrictEqual(W.strangeNumbers('리더 MT는 11월 13~14일이에요.', '날짜: 11월 13~14일'), []);
+  assert.deepStrictEqual(W.strangeNumbers('10월 4일 주보예요.', '2026-10-04 주보'), [], '04와 4는 같은 숫자');
+  assert.deepStrictEqual(W.strangeNumbers('체육대회는 11월 7일이에요.', '일시: 10월 31일'), ['11', '7']);
+  assert.deepStrictEqual(W.strangeNumbers('3회차까지 했어요.', '13회차'), ['3'], '13 속의 3은 3이 아니다');
+  const hasName = B.nameMatcher(['정민경', '양민혁', '조해리']);
+  const ev = [{ id: 'R1', text: '오늘은 2026년 10월 5일(월)이에요.' }, { id: 'R2', text: '사람 줄' },
+    { id: 'R3', text: '[주보 · 10월 4일(일)] 광고: 내년도(2027) 회장(정민경 청년) 발표', cite: { t: 'service', id: 's1' } },
+    { id: 'R4', text: '[업무 기록] 체육대회 장소: 한강공원 · 시간 14:00~18:00', cite: { t: 'card', id: 'c1' } }];
+  const s = (text, ids) => ({ text, ids, cites: [] });
+  const r = A.checkFull([s('내년도 회장으로 정민경 자매가 선출됐어요.', ['R3']), s('체육대회는 14시에 시작해요.', ['R3']), s('회장은 양민혁 형제예요.', ['R3']), s('체육대회는 15시에 시작해요.', ['R4'])], ev, hasName);
+  assert.deepStrictEqual(r.kept.map(k => k.text), ['내년도 회장으로 정민경 자매가 선출됐어요.', '체육대회는 14시에 시작해요.'], "'발표'↔'선출'은 버리지 않는다");
+  assert.deepStrictEqual(r.kept[1].ids, ['R4'], '숫자가 다 든 다른 기록으로 번호를 바꾼다');
+  assert.deepStrictEqual(r.dropped.map(d => d.why), ['기록에 없는 이름 양민혁', '기록에 없는 숫자 15']);
+  // 아침 고리가 다시 볼 질문 — 모름 · 👎 · 바꿔 다시 물음(2분 안 · 낱말 반 넘게 겹침) · 그 뒤에 이미 본 묶음은 빼고
+  const at = (m) => `2026-10-05T01:${String(m).padStart(2, '0')}:00Z`;
+  const rows = [
+    { question: '체육대회 장소 어디야?', norm: 'a', status: 'answered', via: 'ask', created_at: at(0) },
+    { question: '체육대회 장소 정해졌어?', norm: 'b', status: 'answered', via: 'ask', created_at: at(1) },
+    { question: '송폼 언제 나와?', norm: 'c', status: 'unknown', via: 'ask', created_at: at(10) },
+    { question: '양육비 누구한테 물어봐?', norm: 'd', status: 'unknown', via: 'ask', created_at: at(20) },
+    { question: '양육비 누구한테 물어봐?', norm: 'd', status: 'unknown', via: 'nightly', answer: { cause: 'none' }, created_at: at(30) },
+    { question: '찬양 인도자 누구야?', norm: 'e', status: 'answered', feedback: 'bad', via: 'ask', created_at: at(40) },
+    { question: '월례회 언제야?', norm: 'f', status: 'answered', via: 'ask', created_at: at(50) },
+    { question: '수련회 언제야?', norm: 'g', status: 'answered', via: 'ask', created_at: at(55) },
+    { question: '다붓이 안뇽 ?!', norm: 'i', status: 'unknown', via: 'ask', created_at: at(58) },
+  ];
+  assert.deepStrictEqual(A.reaskTodo(rows).map(r => r.norm), ['a', 'c', 'e'], '바꿔 물은 a · 모른 c · 👎 e — 이미 본 d · 낱말이 다른 f · 이제 코드가 받는 인사 i는 빼고');
+  // 자주 묻는 질문 장 — 검사가 버림으로 가른 것은 '아직 모르는 질문'에 안 선다(마스터에게는 기록 없음만)
+  const fq = (cause) => B.faqPage({ questions: [{ question: '체육대회 시간?', norm: 'h', status: 'unknown', via: 'ask', created_at: new Date().toISOString() },
+    { question: '체육대회 시간?', norm: 'h', status: 'unknown', via: 'nightly', answer: { cause }, created_at: new Date(Date.now() + 1000).toISOString() }], edits: [], pages: [] }).blocks[1].items.length;
+  assert.deepStrictEqual([fq('dropped'), fq('none')], [0, 1]);
+  // 답 모델 — 3.8 Flash 한 번(25초) · 느리거나 실패하면 flash-lite
+  const askSrc = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
+  assert.strictEqual(A.ASK_MODEL, 'gemini-3.8-flash');
+  assert.ok(askSrc.includes("tries: model === WIKI_MODEL ? 3 : 1") && askSrc.includes("call: 'answer-lite', schema: SCHEMA.answer, model: WIKI_MODEL"), '느리면 flash-lite로');
+  // 기다리는 말 — 사용자 문구 그대로 · 기다리는 말풍선에 선다
+  const dabSrc = readFileSync(new URL('../src/components/dabooti.jsx', import.meta.url), 'utf8');
+  assert.ok(dabSrc.includes("const WAIT_LINES = ['다붓이가 열심히 찾는 중이에요', '업무에 남긴 내용을 확인하는 중이에요', '월례회 내용도 보는 중이에요', '조금만 기다려 주세요', '거의 다 됐어요'];"));
+  assert.ok(/aria-label="다붓이가 답을 찾는 중">\s*<WaitLine \/>/.test(dabSrc), '기다리는 말풍선에 WaitLine');
+  // 물음표 붙은 인사는 인사 · 청년부 선거는 청년부 밖 이야기가 아니다
+  assert.strictEqual(W.talkKind('다붓이 안뇽 ?!', [])?.kind, 'greet');
+  assert.strictEqual(W.talkKind('안녕 다붓아 찬양팀 누구야?', []), null, '인사 뒤 물음은 물음');
+  assert.strictEqual(W.talkKind('2027 회장 선거 결과 어떻게 됐어?', []), null);
+  assert.strictEqual(W.talkKind('총선거 언제야?', [])?.kind, 'offtopic');
+  console.log('PASS  위키 · 다붓이 11(근거 통째로 · 지어낸 숫자·이름만 거르기 · 물음표 인사 · 청년부 선거)');
 }

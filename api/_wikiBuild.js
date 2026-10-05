@@ -50,19 +50,21 @@ const TEAM_PROJECT = /^\d{4}\s+(웰컴팀|미디어팀|엔지니어팀|예배팀
 
 // ── 제미나이 한 번 — 온도 0 · JSON 답 ────────────────────────────────────────
 // 시범에서 온도를 안 줘 같은 질문에 답이 매번 달랐다(HANDOFF §2 16차). 429·503은 두 번까지 다시 부른다.
-export async function gen(sys, text, { key = process.env.GEMINI_API_KEY, json = true, schema = null, log = null, call = '' } = {}) {
+// model: 다붓이 답(gemini-3.8-flash · _wikiAsk.ASK_MODEL)처럼 다른 모델 · budgetMs: 한 번의 시간 · tries: 다붓이 답은 1(느리면 flash-lite로 내려간다)
+export async function gen(sys, text, { key = process.env.GEMINI_API_KEY, json = true, schema = null, log = null, call = '', model = WIKI_MODEL, budgetMs = CALL_BUDGET_MS, tries = 3 } = {}) {
   const payload = {
     contents: [{ parts: [{ text }] }],
     systemInstruction: { parts: [{ text: sys }] },
     // responseSchema — 모양을 강제한다(검사 답이 `]`를 하나 더 붙여 통째로 못 읽은 적이 있다 · 2026-10-03)
     generationConfig: { temperature: 0, ...(json ? { responseMimeType: 'application/json' } : {}), ...(schema ? { responseSchema: schema } : {}) },
   };
+  const url = model === WIKI_MODEL ? GEN_URL : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
   let lastErr = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < tries; attempt++) {
     const ctl = new AbortController();
-    const killer = setTimeout(() => ctl.abort(), CALL_BUDGET_MS);
+    const killer = setTimeout(() => ctl.abort(), budgetMs);
     try {
-      const r = await fetch(GEN_URL, {
+      const r = await fetch(url, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
         body: JSON.stringify(payload), signal: ctl.signal,
       });
@@ -72,7 +74,7 @@ export async function gen(sys, text, { key = process.env.GEMINI_API_KEY, json = 
       const { text: out, error } = geminiText(j);
       if (error) throw new Error(`gemini finish ${error}`);
       const u = j.usageMetadata || {};
-      log?.push({ call, input: u.promptTokenCount || 0, output: u.candidatesTokenCount || 0 });
+      log?.push({ call, model, input: u.promptTokenCount || 0, output: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0), cached: u.cachedContentTokenCount || 0 });
       return out;
     } catch (e) {
       lastErr = e;
@@ -872,6 +874,9 @@ export function faqPage(D) {
       }
       continue;
     }
+    // 아침 고리가 '검사가 버림'으로 가른 것은 마스터에게 올리지 않는다 — 기록은 있다(18차 2회 · 마스터에게는 '기록 없음'만)
+    const night = [...list].reverse().find(q => q.via === 'nightly');
+    if (night?.answer?.cause === 'dropped' && night.created_at >= latest.created_at) continue;
     if (latest.created_at >= since && !answeredToday(latest.question, wikiLines)) unknown.push({ ...item, at: latest.created_at });
   }
   const order = (a, b) => (b.meta.n - a.meta.n) || String(b.at).localeCompare(String(a.at));

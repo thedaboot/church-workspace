@@ -559,18 +559,19 @@ export async function runWiki(started, now = Date.now()) {
 }
 
 // ── 위키 갈래 끝: 다붓이가 모르는 질문을 마스터에게 (사용자 결정 2026-10-04) ──────────
-// 지난 24시간에 물어본 질문 가운데 몰랐거나(unknown — 알려 주는 말도 여기) '도움이 안 됐어요'를 받은 것을 묶음(norm)으로 세어
+// 지난 24시간에 아침 고리가 '기록 없음'으로 가른 질문(몰랐거나 · 👎 · 바꿔 다시 물은 것 · 알려 주는 말도 여기)을 묶음(norm)으로 세어
 // 하나라도 있으면 마스터(admins.is_master — is_master()와 같은 표)에게 푸시 **한 통**. 누르면 위키 자주 묻는 질문 장(`/?p=wiki&wiki=faq`).
 // 앱 안 알림 행은 만들지 않는다 — notifications.kind CHECK에 새 종류가 필요해서(마이그레이션). 하루 한 번은 tag(`dabooti:<KST 날짜>`)로
 // 기기에서 한 칸만 남게 한다(같은 날 손으로 다시 부르면 그 칸을 바꿔 다시 울린다 · 크론은 하루 한 번이다).
 export const MASTER_FAQ_LINK = '/?p=wiki&wiki=faq';
+// 18차 2회: 아침 고리(reaskUnknown)가 '기록 없음'(answer.cause none)으로 가른 묶음만 센다 — 못 찾음·검사가 버림은 다붓이가 스스로 고칠 몫이다.
 export function unknownCount(rows = []) {
-  return new Set((rows || []).filter(r => r && r.via !== 'nightly' && (r.status === 'unknown' || r.feedback === 'bad')).map(r => r.norm)).size;
+  return new Set((rows || []).filter(r => r && r.via === 'nightly' && r.answer?.cause === 'none').map(r => r.norm)).size;
 }
 export const masterNotice = (n, day) => ({ title: `다붓이가 모르는 질문 ${n}개`, body: '자주 묻는 질문에서 답을 적어 주세요', url: MASTER_FAQ_LINK, tag: `dabooti:${day}` });
 
 async function notifyMasterUnknown(db, now = Date.now()) {
-  const { data: rows, error } = await db.from('dabooti_questions').select('norm, status, feedback, via')
+  const { data: rows, error } = await db.from('dabooti_questions').select('norm, status, feedback, via, answer')
     .gte('created_at', new Date(now - 24 * 3600e3).toISOString());
   if (error) throw error;
   const n = unknownCount(rows);

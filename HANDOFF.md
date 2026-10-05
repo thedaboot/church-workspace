@@ -38,28 +38,30 @@
 
 ## 2. 남은 일
 
-### 18차 2회 — 시작점: 다붓이를 '규칙 땜질'에서 '스스로 나아지는 구조'로 (18차 1회는 2026-10-05 배포 · 마이그레이션 없음 · 0090까지 라이브)
+### 18차 2회 — 한 일 · 결정 (2026-10-05 · 0091 라이브 · 다붓이를 '규칙 땜질'에서 '스스로 나아지는 구조'로 · 정본은 `docs/AI.md` §5)
 
-**왜**(사용자 2026-10-05): "질문마다 내가 답을 알려 줘야 하나 · 자가개선은 안 되나 · 최신성과 신뢰성을 지키는 간결한 챗봇". 18차 1회의 고침은 대부분 케이스 땜질이었다(같은 말 표 · 월례회 지름길 · 낱말 규칙).
-실패는 세 갈래였다 — ① 근거를 못 찾음(낱말 규칙이 회의 본문·광고·담당자를 놓침) ② 검사가 표현 차이로 버림('발표'↔'선출' · '내년도'↔'2027') ③ 코드 지름길이 좁음('그 다음 월례회').
-아침 고리는 모른 질문을 **같은 방식으로** 다시 묻기만 해서 사실상 돌지 않았다.
-**순서**(사용자 승인 2026-10-05 — 비용표부터 보여 주고 시작):
-1. **회귀 질문 묶음** — 18차 1회에 확인한 질문·정답(이어 묻는 대화 포함 · 아래 18차 1회 기록과 `git log`)을 모은다. 정답에 실명이 있어 레포에 두지 않는다 — 저장 자리(DB 표 0091 또는 레포 밖)는 시작할 때 묻는다.
-2. **비용표** — 지금(flash-lite · 낱말 규칙) 대 한 단계 위 모델 × 근거 통째로 넣기를 묶음으로 재서 정답률·지어냄·문항당 비용·지연을 표로 먼저 보인다(모델 ID는 그때 확인 · 돌리기 전 횟수·비용을 말한다).
-3. **근거 통째로** — 청년부 데이터는 작다. 최근 몇 주의 회의·주보 광고·바뀐 업무·위키 장을 날짜순으로 주고 '늦은 기록이 이긴다'만 지키게 한다. 땜질(낱말 규칙·같은 말 표·월례회 지름길)은 묶음이 통과하는 선에서 걷는다.
-4. **검사는 지어낸 것만** — 근거에 없는 이름·날짜·숫자·금액을 코드로 대조한다. 표현이 달라서 버리지 않는다.
-5. **자가개선 고리** — 아침 크론이 👎·모름·바꿔 다시 물은 질문을 모아 원인을 (기록 없음 / 못 찾음 / 검사가 버림)으로 가르고, 못 찾음은 질문↔근거 짝을 저장해 다음부터 바로 쓴다(저장 자리 → 마이그레이션 먼저 말하기). 마스터에게는 **기록 없음만** 올린다.
-- **지킬 것**: 묻는 것만 짧게 답한다(사용자 '묻는 거에 대답만' — 같은 말 풀이·덧붙임 금지) · 아래 18차 1회 '사용자 결정'은 그대로 · 스위트는 Gemini를 부르지 않는다(회귀 묶음은 따로 돌리고 그때마다 비용을 먼저 말한다).
-- **어디를 보나**: 답 `api/_wikiAsk.js`(`collectEvidence` · `answerQuestion` · `splitCompound` · `reaskUnknown`) · 규칙 `src/services/wikiCore.js` · 크론 `api/push.js`(`runWiki`) · `docs/AI.md` §5.
+**왜**(사용자): "질문마다 내가 답을 알려 줘야 하나 · 자가개선은 안 되나 · 최신성과 신뢰성을 지키는 간결한 챗봇".
+- **회귀 묶음** `dabooti_evals`(0091 · 서버만 · 실명이 있어 레포 밖 · 사용자 결정 'DB로') — 18차 1회에 확인한 질문·정답 + 이어 묻는 대화 + 처음 보는 질문 14 = 49문항.
+  돌리기 `node scripts/dabooti-eval.mjs [--model= --only= --save]` — **실제 모델이라 돈이 든다(49문항 약 $0.6) · 돌리기 전에 횟수·비용을 말한다**. 데이터가 바뀌어 정답이 달라지면 그 행의 `must`를 고치거나 `active=false`
+  (지금 '다음 월례회'(10/11)·'그 다음 월례회'(11/8) 문항은 10월 11일이 지나면 정답이 바뀐다).
+- **비교표로 고름(사용자 결정)**: 옛 방식 43/49 · 통째로+3.1 Flash-Lite 43(지어냄 3) · +3.5 Flash-Lite 44(지어냄 2) · **+3.8 Flash 49(지어냄 0) · 문항당 약 $0.012 · 중간 5.9초** →
+  **기록 통째로 + `gemini-3.8-flash`, 25초 넘거나 실패하면 flash-lite로**(사용자 '시간 너무 끌면 flashlite로'). 위키 장 만들기는 flash-lite 그대로. 3.8 Flash 가격은 2027-01-01부터 두 배($1.50/$7.50).
+- **검사는 지어낸 이름·숫자·금액만**(코드 · 표현 차이로 버리지 않는다) · **아침 자가개선**(몰랐던 것·👎·바꿔 다시 물은 것 → 못 찾음 / 기록 없음 / 검사가 버림 · 못 찾음은 질문↔근거 짝 · **마스터에게는 기록 없음만**).
+  걷은 땜질: 낱말 근거 · 뜻 찾기 · 검사 모델 · 같은 말 표(`ALIASES`) · 해 낱말 · 월례회 지름길 · 물을 사람 줄 · 이어 묻기 모델 다시 쓰기 · 풀이 되돌리기(`answerInAsked`).
+- 데이터: '리더진 워크샵 · 리더십 워크샵 = 리더 가을 MT'를 **위키 자주 쓰는 말에 마스터 글로**(`u:leadermt` — 같은 말 표를 기록으로 옮김 · 위키 화면에도 보인다).
+- 화면: 기다리는 동안 다붓이 말풍선에 사용자 문구 다섯 줄(1.5초 뒤부터 2.5초마다 · `WAIT_LINES`). 코드 규칙: 물음표 붙은 인사('다붓이 안뇽 ?!') · '회장 선거'는 청년부 밖이 아니다.
+- **실기기 확인 대기**: 다붓이 답 속도(보통 5~10초 · 가끔 25초 뒤 flash-lite) · 기다리는 말 · 내일 8시 크론 `wiki.reask`의 missed/none/dropped 수.
+- **남은 것**: GPT-6 Luna 비교(사용자 관심 — platform.openai.com 계정 · 프로젝트 키 · 선불 $5 이상이 필요 · 키를 받으면 `gen` 옆에 OpenAI 호출을 두고 묶음에 한 칸으로 잰다) ·
+  '바꿔 다시 물음'은 낱말 겹침 어림이라 이어 묻는 다른 질문('그 다음 월례회')도 잡는다(해는 없다 — 못 찾음 짝이 하나 더 생길 뿐) · 18차 1회 '남은 것'의 '장제훈 양육' 검사 거름은 이번 구조에서 통과.
 
 ### 18차 1회 — 한 일 · 결정 (2026-10-05 · 다붓이·위키 · 확인하는 법·사용자 결정은 여기가 정본)
 
 **할 일(당시)**: 사용자가 `/clear` 뒤에 다붓이·위키에서 고칠 것이나 더할 것을 준다(그 메시지가 정본). 시작하면 **아래 '확인 대기'부터 묻는다**.
 - **어디를 보나**(머리말 주석부터): 화면 `src/views/wikiView.jsx` · 장 마디·정보 상자·지금 칸 `src/services/wikiLive.js`(`teamPart` · `teamMembers` · 목차) ·
-  다붓이 판 `src/components/dabooti.jsx`(`useDabootiChat` · 칩 회전) · 규칙 `src/services/wikiCore.js`(`talkKind` · `chipPool` · `resolveFollowUp` 짝) ·
+  다붓이 판 `src/components/dabooti.jsx`(`useDabootiChat` · 칩 회전) · 규칙 `src/services/wikiCore.js`(`talkKind` · `chipPool` · `followUpRule`) ·
   답 `api/_wikiAsk.js`(갈래 순서 · 근거 · 출석·생일 · 캐시 · `cardWho` · `commentLinesFor`) · 장 만들기 `api/_wikiBuild.js`(`commentLine` · `peopleIndex` · 준비↔행사 · 정해지기까지) ·
   사용법 장 `src/services/wikiGuide.js` · 다른 AI 기능의 위키 맥락 `src/services/wikiContext.js`. 규칙 전체는 `docs/AI.md` §5.
-- **확인하는 법**: 실제 답은 서버 키로 `answerQuestion(q, { db, prev })`(`api/_wikiAsk.js` · admin 없이 부르면 저장 안 함 · flash-lite 한 문항 1센트 미만 — 횟수를 먼저 말한다).
+- **확인하는 법**: 실제 답은 서버 키로 `answerQuestion(q, { db, prev })`(`api/_wikiAsk.js` · admin 없이 부르면 저장 안 함 · 3.8 Flash 한 문항 약 1센트 · 묶음은 scripts/dabooti-eval.mjs — 횟수를 먼저 말한다).
   위키 장은 `node scripts/wiki-build.mjs --only=<장 id>`(프롬프트만 바꿨으면 `--force --only=` · `--only=faq`는 모델 호출 0 — 초안 장을 DB에 쓴다).
   화면은 게스트 서버 + `window.__wikiFixture`(`tests/wiki.mjs` 머리 FIX · `live` 블록 · `member: true`면 마스터 아님). 실데이터 덤프는 실명이 있어 레포 밖 스크래치에만.
   데이터 고치기(사용자가 알려 준 사실): 위키는 마스터 글로 `wiki_edits`(edited_by=마스터 · 덮이지 않는다) · 사람 맡은 일은 `profiles.role_note`(`직함 · 팀 맡은 일` 꼴).
@@ -343,7 +345,7 @@ scripts/embed-bible.mjs       성경 → bible_vec 한 번(로컬 · --dry-run �
 scripts/embed-docs.mjs        doc_vec 전체·증분 · --dry-run(조각·토큰·비용) · --kind
 scripts/wiki-build.mjs        위키 한 번(--force · --only= · --dry) · scripts/wiki-live.mjs 다붓이·고치기 클라우드 실측(임시 계정 → 흔적 0건)
 (지운 스크립트 — git 이력의 scripts/compare-bible-search.mjs)  AI 검색 대 벡터 검색을 질의 30개로(한 번 쓰고 만 도구 · §7의 근거)
-supabase/migrations/          0001~0089 — 표는 README, 최근 것은 §5
+supabase/migrations/          0001~0091 — 표는 README, 최근 것은 §5
 tests/                        검증 스위트 + 러너 — 목록은 tests/README.md
 ```
 
@@ -352,12 +354,12 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 
 ## 5. 데이터 · 스키마 · 비밀
 
-- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0089`이고 **전부 라이브 DB에 적용**되어 있다. 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
+- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0091`이고 **전부 라이브 DB에 적용**되어 있다. 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
   **0064** `people.gender` · **0065** `bible_state.recent_searches` · **0066** 개인 표 기본값도 `effective_uid()` · **0067~0070** 명단(`people`)의 생일·소속·교역자·대표 팀을 트리거가 계정으로 옮긴다(§8) ·
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads` · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만. 다음 번호는 0090.
+  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads` · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만 · **0090** 위키 고치기·자주 묻는 질문 장은 마스터만 · **0091** 다붓이 회귀 묶음 `dabooti_evals`(서버만). 다음 번호는 0092.
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.

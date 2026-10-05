@@ -185,7 +185,7 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
     setQ('');
     if (coarsePointer()) inputRef.current?.blur();
     // 앞 질문들을 줄바꿈으로 — 마지막 줄이 바로 앞 질문(서버가 다시 쓴 꼴 a.asked가 있으면 그것) + 맨 끝 '[답] 앞 답 첫 문장'.
-    // 서버가 이어 묻는 말('그럼 콩순에서는?')을 혼자 읽히는 질문으로 다시 쓴다(_wikiAsk resolveFollowUp) · 앞에서 알려 준 말도 본다(talkKind)
+    // 서버는 앞 대화를 모델에 그대로 준다([앞 대화] · 18차 2회) — 출석·생일만 코드가 바꿔 끼운다(followUpRule · a.asked) · 앞에서 알려 준 말도 본다(talkKind)
     const done = chat.filter(m => m.a);
     const lastA = done[done.length - 1]?.a?.sentences?.[0]?.text || '';
     const prev = [...done.slice(-6).map(m => (m.a.asked || m.q).replace(/\s*\n\s*/g, ' ')), ...(lastA ? [`[답] ${lastA.replace(/\s*\n\s*/g, ' ')}`] : [])].join('\n');
@@ -328,7 +328,8 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
               <span key={m.react ? `${m.react.v}${m.react.n}` : 'still'} className={`w-[34px] h-[34px] rounded-full overflow-hidden ${fresh(m) ? (m.react.v === 'good' ? 'dab-hop' : 'dab-droop') : ''}`} style={{ background: 'var(--app-hero)' }}><Face size={34} className="bg-transparent" /></span>
               {m.loading ? (
                 <div className="dab-bub-in justify-self-start rounded-[4px_14px_14px_14px] px-3 py-3" style={{ background: 'var(--app-hero)' }} aria-label="다붓이가 답을 찾는 중">
-                  <span className="dab-dots inline-flex gap-1"><span /><span /><span /></span>
+                  <WaitLine />
+                  <span className="dab-dots inline-flex gap-1 align-middle"><span /><span /><span /></span>
                 </div>
               ) : m.err ? (
                 <div className="dab-bub-in dab-err justify-self-start min-w-0 rounded-[4px_14px_14px_14px] bg-surface-hover px-3 py-2.5 text-[13px] leading-relaxed text-fg-muted whitespace-pre-line" role="alert">
@@ -355,6 +356,22 @@ const CHIP_OUT = 200;   // 바뀌는 칩이 빠지는 시간(.dab-chip-out과 �
 // 갸웃 — index.css의 dab-tilt 고리에서 움직이는 마디(78~100%)만 떼어 한 번(1.1초)
 const TILT_FRAMES = [{ transform: 'rotate(0)' }, { transform: 'rotate(-12deg)', offset: 0.27 }, { transform: 'rotate(8deg)', offset: 0.55 }, { transform: 'rotate(-3deg)', offset: 0.77 }, { transform: 'rotate(0)' }];
 const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+// 기다리는 말(사용자 문구 2026-10-05) — 답이 길어지면(근거를 통째로 읽는 3.8 Flash는 5~25초) 1.5초 뒤부터 2.5초마다 바꾸고 마지막 말에 머문다.
+// 모션 최소화면 바꾸지 않고 첫 말만.
+const WAIT_LINES = ['다붓이가 열심히 찾는 중이에요', '업무에 남긴 내용을 확인하는 중이에요', '월례회 내용도 보는 중이에요', '조금만 기다려 주세요', '거의 다 됐어요'];
+function WaitLine() {
+  const [i, setI] = useState(-1);
+  useEffect(() => {
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    let n = -1; let t;
+    const step = () => { n += 1; setI(n); if (!still && n < WAIT_LINES.length - 1) t = setTimeout(step, 2500); };
+    t = setTimeout(step, 1500);
+    return () => clearTimeout(t);
+  }, []);
+  if (i < 0) return null;
+  return <span key={i} className="dab-wait mr-1.5 text-[13px] text-fg-muted">{WAIT_LINES[i]}</span>;
+}
+
 function Chip({ text, i, swapped, leaving, onPick }) {
   const ref = useRef(null);
   useEffect(() => {
