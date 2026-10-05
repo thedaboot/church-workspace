@@ -599,11 +599,11 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
   const t0 = globalThis.__STATE.tasks.byId.t0;
   const PAGES = [
     ...SEED_PAGES.map(p => ({ ...p, updated_at: '2026-10-01T00:00:00Z' })),
-    { id: 'team:찬양팀', grp: '팀', title: '찬양팀', position: 2, updated_at: '2026-10-02T00:00:00Z', blocks: [
+    { id: 'team:찬양팀', grp: '팀', title: '찬양팀', kind: 'auto', position: 2, updated_at: '2026-10-02T00:00:00Z', blocks: [
       // 팀 장의 소개 줄은 함께 쓰는 글 초안을 베낀 것 — 마스터가 초안을 고치면 이 옛 글은 안 실린다
       { key: 'about', type: 'plain', items: [{ key: 'about1', by: 'code', text: '싱어와 연주자가 함께해요. 콘티와 송폼을 만들고 리허설을 해요.' }] },
       { key: 'c:t0', type: 'section', title: '찬양 콘티 결정', meta: { cardId: 't0' }, items: [{ key: 'c:t0:a', by: 'model', text: '콘티 결정 업무 자체를 줄인 문장이에요.' }] },
-      { key: 'c:x1', type: 'section', title: '송폼 공유', meta: { cardId: 'x1', date: '2026-09-25' }, items: [{ key: 'c:x1:a', by: 'model', text: '송폼은 인도자가 **목요일 저녁**에 단톡방에 올려요.' }] },
+      { key: 'c:x1', type: 'section', title: '송폼 공유', meta: { cardId: 'x1', date: '2026-09-25' }, items: [{ key: 'c:x1:a', by: 'human', text: '송폼은 인도자가 **목요일 저녁**에 단톡방에 올려요.' }, { key: 'c:x1:b', by: 'model', text: '송폼 목요일 콘티 크론요약줄이에요.' }] },
       { key: 'together', type: 'chips', items: [{ key: 't:x', by: 'code', text: '칩으로만 선 콘티 업무 제목' }] },
       { key: 'gap', type: 'gap', items: [{ key: 'g:x', by: 'code', text: '기록 전인 콘티 업무 제목' }] },
     ] },
@@ -636,6 +636,8 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
   check('위키 맥락: 자주 묻는 질문 장은 안 실린다', !out.includes('FAQ에만') && !pick('FAQ에만있는줄이에요').includes('FAQ에만'));
   // 되돌리기: SKIP_PAGES에서 'guide'를 빼면 깨진다
   check('위키 맥락: 워크스페이스 사용법 장은 안 실린다', !out.includes('사용법줄') && !pick('사용법줄을 콘티 송폼').includes('사용법줄'));
+  // 되돌리기: wikiRows의 사람이 쓴 장·마스터 줄 거르기를 빼면 깨진다(크론 요약은 하루 늦을 수 있고 업무 글을 이미 받는다 · 2026-10-05)
+  check('위키 맥락: 크론이 만든 장의 모델 문장은 안 실린다(마스터가 고치거나 더한 줄만)', !out.includes('크론요약줄') && !pick('크론요약줄이에요 송폼 콘티').includes('크론요약줄'));
   check('위키 맥락: 사람이 지운 줄(빈 글)은 안 실린다', !pick('월례회 순모임 리더').includes('월례회 · 둘째 주 순모임 뒤에'));
   check('위키 맥락: 사람이 더한 줄도 고른다', pick('리더팀장 순장 모임').includes('리더팀장은 순장들을 챙기고'), pick('리더팀장 순장 모임').replace(/\n/g, ' / '));
   // 되돌리기: take의 글자 수 문턱을 빼면 깨진다

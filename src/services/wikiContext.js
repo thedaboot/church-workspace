@@ -7,7 +7,8 @@ import { WIKI_GROUPS, FAQ_ID, overlayEdits, overlayTitles, stripBold, termsOf, t
 // 더다붓 위키는 마스터만 고치고 교회 맥락의 정본이 됐다. 3줄 요약 · AI 문맥 다듬기(services/ai.js) ·
 // 순모임 가이드(services/sunGuide.js)는 그동안 ai.js의 상수(ORG_CONTEXT 등)만 봐서, 마스터가 위키에
 // 적은 새 사실(리더팀장·리더순장 · 인도자 돌림 · 콘티·송폼이 나오는 때)이 닿지 않았다.
-// 여기서 **위키 전체**(함께 쓰는 글만이 아니라 팀·행사·예배 장까지)에서 그 업무·주보에 맞는 줄만 고른다.
+// 여기서 **사람이 쓴 장(함께 쓰는 글) + 다른 장에서 마스터가 고치거나 더한 줄**만 놓고 그 업무·주보에 맞는 줄을 고른다
+// (2026-10-05 좁힘 — 크론이 업무를 요약한 문장은 하루 늦을 수 있고, 세 기능은 그 업무 글을 이미 직접 받는다).
 //   pickWikiContext(query, { pages, edits, … })  순수 · 결정적 → '[찬양팀] …' 줄들('' = 고를 것 없음)
 //   wikiContextFor(query, opts)                   읽기(10분 쥔다 · 1.5초에 끊는다) + 고르기 → 블록 글('' = 없음)
 //   heldWikiStamp()                               쥔 위키의 마지막 고친 때 — 요약 캐시 열쇠에 넣는다
@@ -65,6 +66,9 @@ export function wikiRows(pages = [], edits = [], { exclude = [] } = {}) {
       for (const it of b.items || []) {
         const text = flat(it.text);
         if (!text || (!it.edit && stale.has(text))) continue;
+        // 사람이 쓴 장(함께 쓰는 글)과 다른 장에서 마스터가 고치거나 더한 줄만 — 크론이 업무를 요약한 문장은 하루 늦을 수 있고
+        // 세 기능은 그 업무 글을 이미 직접 받는다(사용자 결정 2026-10-05 · 17차의 '위키 전체'를 좁힘)
+        if (p.kind !== 'human' && !(it.edit || it.by === 'human')) continue;
         const label = flat(lineLabel(p, b, it));
         rows.push({ order: rows.length, page: p.id, block: b.key, team: it.meta?.team || '', label, text, hay: `${label} ${p.title} ${b.title || ''} ${text}`, human: !!(it.edit || it.by === 'human') });
       }
