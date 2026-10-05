@@ -3,7 +3,7 @@ import {
   prefilter, termsOf, normQ, scoreWikiItems, termWeights, groundedIn, tokenCoverage, overlayEdits, overlayTitles, keepCited, notFoundCites, parseModelJson,
   styleIssues, mdLabel, kstDate, NOT_FOUND, stripBold, talkKind, isPeopleQuestion, josa, hasJong, SEED_PAGES, withTeamCards,
   bibleRefIn, bibleAnswer, BIBLE_MAX, isAttendanceQuestion, asksAbsent, attendanceAnswer, isBirthdayQuestion, birthdayMonths, birthdayAnswer, birthdayOf,
-  contactTail, cacheEligible, cacheFresh, looksFollowUp, followUpRule, followUpGuard, knownStatement, looksCompound, splitGuard, mergeParts, pickLines, yearTerms, canonQ, aliasNotes, yearWordsToNumbers, rareTerm,
+  contactTail, cacheEligible, cacheFresh, looksFollowUp, followUpRule, followUpGuard, knownStatement, looksCompound, splitGuard, mergeParts, pickLines, yearTerms, canonQ, aliasNotes, searchTerms, yearWordsToNumbers, answerInAsked, rareTerm,
 } from '../src/services/wikiCore.js';
 import { teamPart } from '../src/services/wikiLive.js';
 import BOOKS from '../public/bible/index.json' with { type: 'json' };
@@ -48,6 +48,7 @@ const ANSWER_SYS = [
   '문체: 해요체만. 짧고 쉬운 문장. 번역투·추상어("~을 통해", "~에 대한", "진행되다")를 쓰지 마라. 대시(—, –)를 쓰지 마라. "없어요"로 끝내지 마라(대신 "찾지 못했어요", "기록 전이에요").',
   '규칙(반드시):',
   '- [근거] 줄에 있는 것만 말해라. 문장마다 그 문장이 기대는 근거 번호를 e에 적어라(예: ["E3"]). 근거 목록에 없는 번호를 만들지 마라.',
+  '- 묻는 것에만 답해라. 근거에 같은 말을 풀어 준 줄("…은 …예요(회의 기록에는 …)")은 찾는 데만 쓰고 그 풀이를 답에 쓰지 마라.',
   '- 근거에 없으면 지어내지 마라. 근거가 질문의 일부에만 답하면 아는 것만 말하고 나머지는 찾지 못했다고 말해라.',
   '- 근거에 "비어 있음"이나 "기록 전"이 있으면 그 내용은 아직 기록 전이라 모른다고 말해라.',
   '- 날짜는 근거에 적힌 그대로 써라. 오늘 날짜와 견줘 지났는지 다가오는지 말할 수 있다. 근거에 없는 요일·날짜를 셈해 내지 마라.',
@@ -311,7 +312,7 @@ export async function collectEvidence(q, { db, key, today }) {
   const cardById = new Map(cards.map(c => [c.id, c]));
   const svcById = new Map(services.map(s => [s.id, s]));
   const years = yearTerms(q, today);
-  const terms = [...termsOf(canonQ(q)), ...years];   // '리더진 워크샵' → '리더 가을 MT'로 찾는다(wikiCore.ALIASES)
+  const terms = [...searchTerms(q), ...years];   // '리더진 워크샵' → '리더 가을 MT'로 찾는다(wikiCore.ALIASES)
   const ev = [];
   const push = (text, cite = null) => { if (!ev.some(e => e.text === text)) ev.push({ id: `E${ev.length + 1}`, text, cite }); };
 
@@ -428,7 +429,7 @@ export async function collectEvidence(q, { db, key, today }) {
   }
   // 뜻 찾기는 맨 뒤 — 제목·날짜·파일처럼 확실한 근거가 먼저 들어가고, 잘려도 이쪽이 잘린다(2026-10-03 · 파일 줄이 잘렸다)
   // 뜻 찾기(doc_vec · 묻는 사람 권한) — 이름 든 줄과 비밀번호 첨부는 뺀다
-  const vec = key ? await embed(q, key) : null;
+  const vec = key ? await embed(canonQ(q), key) : null;   // 뜻 찾기도 바꾼 말로 — '워크샵'이 옛 기획안의 '12월 리더십 워크숍' 조각을 끌어왔다
   if (vec) {
     const { data } = await db.rpc('match_docs', { q: `[${vec.join(',')}]`, k: 10 });
     cmtLines = await commentLinesFor(db, (data || []).filter(r => r.kind === 'comment' && r.comment_id).map(r => r.comment_id));
@@ -640,13 +641,14 @@ export async function splitCompound(q, { key = process.env.GEMINI_API_KEY, log =
   } catch { return [q]; }
 }
 
-// 주보 광고 줄 — 제목이나 본문에 질문 낱말이 든 것만(본문이 빈 광고는 소식이 없다) · 최신 주보부터 셋
+// 주보 광고 줄 — 제목이나 본문에 질문 낱말이 든 것만 · 최신 주보부터 셋. 제목만 있는 광고도 싣는다
+// ('내년도(2027) 회장(정민경 청년) 발표'처럼 제목이 곧 소식이다 · 2026-10-05)
 export function noticeLines(services, terms, max = 3) {
   const out = [];
   for (const s of services) for (const n of Array.isArray(s.notices) ? s.notices : []) {
     const title = String(n?.title || '').trim(); const body = String(n?.body || '').replace(/s+/g, ' ').trim();
-    if (out.length >= max || !body || !terms.some(t => title.includes(t) || body.includes(t))) continue;
-    out.push({ id: s.id, date: s.service_date, text: `${mdLabel(s.service_date, true)} 주보 광고 '${title}': ${body.slice(0, 300)}` });
+    if (out.length >= max || !terms.some(t => title.includes(t) || body.includes(t))) continue;
+    out.push({ id: s.id, date: s.service_date, text: `${mdLabel(s.service_date, true)} 주보 광고 '${title}'${body ? `: ${body.slice(0, 300)}` : ''}` });
   }
   return out;
 }
@@ -754,6 +756,8 @@ export async function answerQuestion(q, { db, admin = null, prev = '', key = pro
     const line = teamListLine(s.text, (s.ids || []).map(id => evidence.find(e => e.id === id)?.text));
     return line ? { ...s, text: line } : s;
   });
+  // 묻는 사람이 쓴 말로 답한다 — '리더진 워크샵은 리더 가을 MT를 말해요' 같은 풀이는 뺀다(wikiCore.answerInAsked · 2026-10-05)
+  final = answerInAsked(final, question);
 
   // 남은 문장이 전부 '찾지 못했어요·기록 전'이면 답이 아니다 — 모르는 질문으로 남겨 자주 묻는 질문에 서게 한다
   // '기록 전·발행 전'(그 업무·주보는 있는데 글이 비었다)은 사실이라 남기고, 그 뒤에 정해 둔 말을 붙인다

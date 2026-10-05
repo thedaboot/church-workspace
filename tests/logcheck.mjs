@@ -6337,11 +6337,21 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(W.pickLines(MEET, ['체육대회']).includes('후보날짜 11월 7일(토)') && W.pickLines(MEET, ['체육대회']).includes('장소: 한강공원'), '소제목 아래 줄까지');
   assert.strictEqual(W.pickLines(MEET, ['수련회']), '', '안 걸리면 빈 글');
   assert.deepStrictEqual(W.yearTerms('내년도 회장은 누구야?', '2026-10-05'), ['2027']);
-  // '(리더진) 워크샵'은 리더 가을 MT로 찾는다 · '리더십 워크샵'은 다른 행사(사용자 2026-10-05)
+  // '(리더진·리더십) 워크샵'은 리더 가을 MT로 찾는다(사용자 2026-10-05)
   assert.strictEqual(W.canonQ('리더진 워크샵은 언제 어디서 해?'), '리더 가을 MT은 언제 어디서 해?');
   assert.strictEqual(W.canonQ('워크숍 장소 어디야?'), '리더 가을 MT 장소 어디야?');
-  assert.strictEqual(W.canonQ('9월 6일 리더십 워크샵 뭐 했어?'), '9월 6일 리더십 워크샵 뭐 했어?', '리더십 워크샵은 그대로');
+  assert.strictEqual(W.canonQ('리더십 워크샵 언제야?'), '리더 가을 MT 언제야?', '리더십 워크샵도 리더 가을 MT(사용자)');
   assert.strictEqual(W.aliasNotes('리더 워크샵 언제야?').length, 1);
+  assert.deepStrictEqual(W.searchTerms('리더 워크샵 언제 해?'), ['리더 가을 MT'], "한 덩어리로 찾는다('리더'만 남지 않게)");
+  assert.deepStrictEqual(W.searchTerms('체육대회 언제야?'), W.termsOf('체육대회 언제야?'));
+  for (const t of ['내년도(2027년) 회장은 A예요.', '내년 2027년 회장은 A예요.', '2027년(2027) 회장은 A예요.']) assert.strictEqual(W.yearWordsToNumbers(t, '2026-10-05'), '2027년 회장은 A예요.', t);
+  // 묻는 사람이 쓴 말로 답한다 — 풀이 문장은 빼고 조사를 맞춘다(사용자 지적 2026-10-05 '묻는 거에 대답만')
+  const AS = (q, ...t) => W.answerInAsked(t.map(text => ({ text, cites: [] })), q).map(s => s.text);
+  assert.deepStrictEqual(AS('리더진 워크샵 언제 하낭?', '리더진 워크샵은 리더 가을 MT를 말해요.', '날짜는 11월 13일부터 14일까지예요.'), ['리더진 워크샵 날짜는 11월 13일부터 14일까지예요.']);
+  assert.deepStrictEqual(AS('리더진 워크샵 언제 하낭?', '리더진 워크샵인 리더 가을 MT는 11월 13일부터 14일까지 진행해요.'), ['리더진 워크샵은 11월 13일부터 14일까지 진행해요.']);
+  assert.deepStrictEqual(AS('리더 워크샵 장소?', '리더 가을 MT 장소는 다온펜션이에요.'), ['리더 워크샵 장소는 다온펜션이에요.']);
+  assert.deepStrictEqual(AS('리더 워크샵 언제 해?', '리더진 워크샵인 리더 가을 MT는 11월 13일부터예요.'), ['리더 워크샵은 11월 13일부터예요.'], '같은 말 줄의 꼴이 겹치지 않게');
+  assert.deepStrictEqual(AS('리더 MT 언제야?', '리더 가을 MT는 11월 13일부터예요.'), ['리더 가을 MT는 11월 13일부터예요.'], '같은 말을 안 썼으면 그대로');
   assert.deepStrictEqual([W.canonQ('체육대회 언제야?'), W.aliasNotes('체육대회 언제야?')], ['체육대회 언제야?', []]);
   const TT = ['양육비', '양육 2기 모집', '10월 월례회'];
   assert.strictEqual(W.rareTerm(W.termWeights(TT, ['그럼', '양육비', '물어보면']), TT), '양육비', '제목에 없는 말은 드문 낱말이 아니다');
@@ -6352,7 +6362,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.deepStrictEqual(W.yearTerms('올해 수련회', '2026-10-05'), ['2026']);
   assert.deepStrictEqual(W.yearTerms('회장은 누구야?', '2026-10-05'), []);
   assert.strictEqual(W.yearWordsToNumbers('내년도 회장은 정민경 청년이에요. 올해 회장은 A 형제예요.', '2026-10-05'), '2027년 회장은 정민경 청년이에요. 2026년 회장은 A 형제예요.');
-  assert.deepStrictEqual(A.noticeLines([{ id: 's', service_date: '2026-10-04', notices: [{ title: '회장 발표', body: '' }, { title: '회장 발표', body: '2027 회장은 A 자매예요.' }, { title: '월례회', body: '11일' }] }], ['회장']).map(n => n.text), ["10월 4일(일) 주보 광고 '회장 발표': 2027 회장은 A 자매예요."], '본문 있는 광고만');
+  assert.deepStrictEqual(A.noticeLines([{ id: 's', service_date: '2026-10-04', notices: [{ title: '회장 발표', body: '' }, { title: '회장 발표', body: '2027 회장은 A 자매예요.' }, { title: '월례회', body: '11일' }] }], ['회장']).map(n => n.text), ["10월 4일(일) 주보 광고 '회장 발표'", "10월 4일(일) 주보 광고 '회장 발표': 2027 회장은 A 자매예요."], '제목만 있는 광고도 싣는다');
   assert.deepStrictEqual(W.termsOf('오~ 어디소 하는딩?'), [], '말투 꼴 묻는 말은 찾을 낱말이 아니다');
   assert.ok(W.looksFollowUp('오~ 어디소 하는딩?'), '짧은 말투 꼴 물음은 이어 묻기');
   assert.strictEqual(R('엔지니어팀은?', '찬양팀에는 누가 있나요?'), '엔지니어팀에는 누가 있나요?');

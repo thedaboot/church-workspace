@@ -494,14 +494,43 @@ export function pickLines(text, terms, max = 380) {
 }
 export function yearWordsToNumbers(text, today) {
   const y = Number(String(today).slice(0, 4));
-  return String(text || '').replace(/내년도?/g, `${y + 1}년`).replace(/올해|금년/g, `${y}년`).replace(/작년도?/g, `${y - 1}년`);
+  return String(text || '').replace(/내년도?/g, `${y + 1}년`).replace(/올해|금년/g, `${y}년`).replace(/작년도?/g, `${y - 1}년`)
+    .replace(/(\d{4})년\s?\(?\1년?\)?/g, '$1년');   // '내년도(2027년)'·'내년 2027년' → 한 번만(2026-10-05 '2027년 2027년 회장')
 }
 // 같은 말 — 질문의 말을 기록에 적힌 말로 바꿔 찾는다(사용자가 알려 준 것만). 근거에는 note를 한 줄 싣는다.
-// '(리더진) 워크샵'은 리더 가을 MT다(사용자 2026-10-05 — 워크샵·MT를 둘 다 찾게 했더니 옛 기획안의 '12월 리더십 워크숍'이 섞였다).
-// '리더십 워크샵'이라고 콕 집은 말은 바꾸지 않는다 — 9월 6일에 실제로 한 다른 행사다.
-export const ALIASES = [{ re: /(?:리더진?\s?)?(?<!리더십\s?)(?:워크샵|워크숍)/, canon: '리더 가을 MT', note: "리더진 워크샵은 리더 가을 MT예요(회의 기록에는 '리더 가을 MT'로 적혀 있어요)." }];
+// '(리더진·리더십) 워크샵'은 리더 가을 MT다(사용자 2026-10-05 — 워크샵·MT를 둘 다 찾게 했더니 옛 기획안의 '12월 리더십 워크숍'이 섞였다).
+// 8월 30일 회의의 '워크샵 — 9월 6일로 일정 확정'은 그날 MT 일정을 정한다는 뜻이다(다른 행사가 아니다 · 사용자).
+export const ALIASES = [{ re: /(?:리더(?:진|십)?\s?)?(?:워크샵|워크숍)/, canon: '리더 가을 MT', note: "리더진 워크샵은 리더 가을 MT예요(회의 기록에는 '리더 가을 MT'로 적혀 있어요)." }];
 export const canonQ = (q) => ALIASES.reduce((s, a) => s.replace(new RegExp(a.re.source, 'g'), a.canon), String(q || ''));
 export const aliasNotes = (q) => ALIASES.filter(a => a.re.test(String(q || ''))).map(a => a.note);
+// 찾을 낱말 — 같은 말로 바꾼 것은 한 덩어리('리더 가을 MT')로. 쪼개면 '리더'만 남아 리더십 회의·리더순장 줄이 근거를 채웠다(2026-10-05)
+export function searchTerms(q) {
+  const canons = ALIASES.filter(a => a.re.test(String(q || ''))).map(a => a.canon);
+  return [...canons, ...termsOf(canonQ(q)).filter(t => !canons.some(c => c.includes(t)))];
+}
+// 답은 묻는 사람이 쓴 말로 — 'X는 리더 가을 MT를 말해요' 같은 풀이 문장은 빼고, 'X인 리더 가을 MT'·'리더 가을 MT'는 X로 되돌린다
+// (사용자 지적 2026-10-05 — "묻는 거에 대답만"). 조사는 X에 맞춘다.
+export function answerInAsked(sentences, q) {
+  let out = sentences || [];
+  for (const a of ALIASES) {
+    const said = String(q || '').match(a.re)?.[0]?.trim();
+    if (!said) continue;
+    const canon = a.canon.replace(/\s+/g, '\\s?');
+    const explain = new RegExp(`${canon}(?:를|을)?\\s?(?:말해요|말하는\\s?거예요|가리켜요|이에요|예요|라고\\s?(?:해요|불러요))`);
+    const kept = out.filter(s => !(explain.test(s.text) && !/\d/.test(s.text)));
+    // 풀이를 빼서 주어가 사라진 첫 문장('날짜는 …')에는 묻는 말을 붙인다
+    if (kept.length < out.length && kept[0] && /^(?:날짜|장소|시간|일정)(?:은|는)\s/.test(kept[0].text)) kept[0] = { ...kept[0], text: `${said} ${kept[0].text}` };
+    out = kept
+      .map(s => ({ ...s, text: s.text
+        .replace(new RegExp(`(?:${a.re.source})(?:인|이라는|,)?\\s?(?=${canon})`, 'g'), '')   // 같은 말 줄의 '리더진 워크샵인 …'도
+        .replace(new RegExp(`${canon}(은|는|이|가|을|를|과|와|으로|로|의)?`, 'g'), (_, j) => {
+          if (!j) return said;
+          const pair = { 은: ['은', '는'], 는: ['은', '는'], 이: ['이', '가'], 가: ['이', '가'], 을: ['을', '를'], 를: ['을', '를'], 과: ['과', '와'], 와: ['과', '와'], 으로: ['으로', '로'], 로: ['으로', '로'] }[j];
+          return pair ? josa(said, pair[0], pair[1]) : `${said}${j}`;
+        }) }));
+  }
+  return out;
+}
 // 해 낱말 — '내년도 회장'이 '2027 임원진'에 닿게(2026-10-05)
 export function yearTerms(q, today) {
   const y = Number(String(today).slice(0, 4));
