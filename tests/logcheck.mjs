@@ -6492,6 +6492,15 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const askSrc = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
   assert.strictEqual(A.ASK_MODEL, 'gemini-3.8-flash');
   assert.ok(askSrc.includes("tries: model === WIKI_MODEL ? 3 : 1") && askSrc.includes("call: 'answer-lite', schema: SCHEMA.answer, model: WIKI_MODEL"), '느리면 flash-lite로');
+  // 위키 줄글 앞말 굵게(목업 승인 2026-10-05) — 'OO은/는'의 OO만 · 12자 · 세 낱말 · 접속사 뒤 · 꾸밈 꼴·때·곳·이미 굵은 앞말은 그대로
+  assert.strictEqual(W.leadBold('순은 1년을 함께하는 단위예요.'), '**순**은 1년을 함께하는 단위예요.', '한 글자 앞말');
+  assert.strictEqual(W.leadBold('업무와 관련된 소통은 단톡방에서 해요.'), '**업무와 관련된 소통**은 단톡방에서 해요.');
+  assert.strictEqual(W.leadBold('그래서 믿음샘 양육은 1:1이에요.'), '그래서 **믿음샘 양육**은 1:1이에요.');
+  assert.strictEqual(W.leadBold('2026년 리더팀장은 **조준환 청년**이에요.'), '**2026년 리더팀장**은 **조준환 청년**이에요.', '뒤에 굵게가 있어도');
+  for (const t of ['믿음샘 양육에 대해 더 궁금한 점은 문의해 주세요.', '예배 때 앞에서 안무를 하는 팀이에요.', '가을에는 체육대회를 해요.', '**조준환**은 팀장이에요.', '송폼 · 콘티 곡의 진행표예요.'])
+    assert.strictEqual(W.leadBold(t), t, t);
+  const viewSrc = readFileSync(new URL('../src/views/wikiView.jsx', import.meta.url), 'utf8');
+  assert.ok(viewSrc.includes("const shown = PROSE_TYPES.has(b.type) ? leadBold(it.text) : it.text;") && viewSrc.includes("lead={PROSE_TYPES.has(b.type)}"), '읽기 화면 두 길(링크 지도 · 링크 없는 글) 모두 앞말 굵게');
   // 기다리는 말 — 사용자 문구 그대로 · 기다리는 말풍선에 선다
   const dabSrc = readFileSync(new URL('../src/components/dabooti.jsx', import.meta.url), 'utf8');
   assert.ok(dabSrc.includes("const WAIT_LINES = ['다붓이가 열심히 찾는 중이에요', '업무에 남긴 내용을 확인하는 중이에요', '월례회 내용도 보는 중이에요', '조금만 기다려 주세요', '거의 다 됐어요'];"));

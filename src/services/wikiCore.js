@@ -44,6 +44,16 @@ export const stripBold = (t) => String(t ?? '').replace(/\*\*/g, '');
 export function boldParts(t) {
   return String(t ?? '').split(/\*\*(.+?)\*\*/).map((s, i) => ({ t: s, b: i % 2 === 1 })).filter(p => p.t);
 }
+// 앞말 굵게(사용자 승인 2026-10-05 · 목업 DNopg5PGALkw4zzR79LZnN) — 줄 맨 앞 'OO은/는'의 OO만 `**`로 감싼다(글은 그대로 · 읽기에서만).
+// 앞말은 12자 · 세 낱말 안, 기호 없이. '그래서·그리고·또·그런데' 뒤부터 본다. 앞말에 굵게(별표)가 있거나 '하는/있는' 같은 꾸밈 꼴 · '가을에는' 같은 때·곳은 그대로.
+// ponytail: 조사 '은/는' 어림 — 이/가는 '같이' 같은 말에 걸려서 뺐다. 틀리면 그 줄만 안 굵어질 뿐이다.
+export function leadBold(t) {
+  const s = String(t ?? '');
+  const m = s.match(/^((?:그래서|그리고|그런데|또)\s+)?([^\s,.:·()'"‘’“”*[\]]+?(?:\s[^\s,.:·()'"‘’“”*[\]]+?){0,2}?)(은|는)\s/);
+  if (!m || m[2].length > 12 || /(?:하|있|없|되|하고|가|오|에|에서)$/.test(m[2])) return s;
+  const pre = m[1] || '';
+  return `${pre}**${m[2]}**${s.slice(pre.length + m[2].length)}`;
+}
 // 고치기 칸의 B — 고른 글을 `**`로 감싸거나(이미 감싸여 있으면 푼다). 고른 게 없으면 `****` 가운데에 커서.
 // → { value, start, end } (고른 자리는 별표 안쪽 글)
 export function toggleBold(value, start, end) {

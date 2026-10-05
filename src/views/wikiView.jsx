@@ -4,7 +4,7 @@ import { useCached } from '../services/cache.js';
 import { loadWiki, saveWikiEdits, seenMap, markSeen } from '../services/wiki.js';
 import {
   WIKI_GROUPS, EDITABLE_TYPES, ADDABLE_TYPES, overlayEdits, overlayTitles, editStats, editRows, sourceLabel, mdLabel, kstDate,
-  FAQ_SOURCE, FAQ_ID, TITLE_KEY, headKey, visiblePages, boldParts, toggleBold, withTeamCards,
+  FAQ_SOURCE, FAQ_ID, TITLE_KEY, headKey, visiblePages, boldParts, toggleBold, withTeamCards, leadBold,
 } from '../services/wikiCore.js';
 import {
   outlineOf, pageKind, teamMembers, teamWork, pageTasks, prepInfo, teamInfo, relatedPages, linkTargets, linkParts, splitRef, bookColors,
@@ -395,8 +395,11 @@ function Section({ s, ctx, heading = true, targets = [] }) {
   const link = useMemo(() => {
     const used = new Set();
     const map = new Map();
-    const items = [...s.blocks, ...s.subs.map(x => x.block).filter(Boolean)].flatMap(b => b.items || []);
-    for (const it of items) map.set(it.key, { text: it.text, parts: boldParts(it.text).map(p => ({ b: p.b, parts: linkParts(p.t, targets, used) })) });
+    const blocks = [...s.blocks, ...s.subs.map(x => x.block).filter(Boolean)];
+    for (const b of blocks) for (const it of b.items || []) {
+      const shown = PROSE_TYPES.has(b.type) ? leadBold(it.text) : it.text;   // 줄글은 앞말 굵게(읽기에서만 · 글은 그대로)
+      map.set(it.key, { text: it.text, parts: boldParts(shown).map(p => ({ b: p.b, parts: linkParts(p.t, targets, used) })) });
+    }
     return { map, go };
   }, [s, targets, go]);
   return <LinkCtx.Provider value={link}><SectionBody s={s} ctx={ctx} heading={heading} /></LinkCtx.Provider>;
@@ -529,10 +532,13 @@ function Related({ ctx }) {
 
 // 읽기 글 — 줄바꿈 그대로 · `**굵게**`만 굵게(wikiCore.boldParts) · 장 제목·자주 쓰는 말은 그 장으로(마디마다 처음 한 번)
 // 링크 자리는 마디가 한 번에 정한다(Section의 linkMap) — 그리면서 '이미 이은 낱말'을 바꾸면 StrictMode의 두 번 그리기에서 링크가 사라졌다
-function Rich({ text, itemKey = null, extra = null }) {
+// 줄글 블록 — 점 목록 · 앞말 굵게가 서는 자리(정보 상자 · 시간표 · 팀 카드 · 칩은 아니다)
+const PROSE_TYPES = new Set(['list', 'plain', 'section']);
+
+function Rich({ text, itemKey = null, extra = null, lead = false }) {
   const link = useContext(LinkCtx);
   const got = itemKey != null && link?.map.get(itemKey);
-  const parts = got && got.text === text ? got.parts : boldParts(text).map(p => ({ b: p.b, parts: [{ t: p.t }] }));
+  const parts = got && got.text === text ? got.parts : boldParts(lead ? leadBold(text) : text).map(p => ({ b: p.b, parts: [{ t: p.t }] }));
   const run = (xs, k) => xs.map((p, j) => (p.id
     ? <button key={`${k}.${j}`} type="button" onClick={() => link.go?.(p.id)} className="wiki-link inline text-accent-text hover:underline underline-offset-2">{p.t}</button>
     : <span key={`${k}.${j}`}>{p.t}</span>));
@@ -672,7 +678,7 @@ function Block({ b, i, ctx, noTitle = false, no = '' }) {
     if (canEdit) return <Draft value={val(it)} onChange={v => setVal(it, v)} onRemove={ADDABLE_TYPES.has(b.type) || it.by === 'model' ? () => setVal(it, '') : null} />;
     return (
       <span className={it.edit ? 'wiki-fixed block' : ''}>
-        <Rich text={it.text} itemKey={it.key} extra={extra} />
+        <Rich text={it.text} itemKey={it.key} extra={extra} lead={PROSE_TYPES.has(b.type)} />
         <Cites cites={it.cites} onOpen={onOpenCite} />
       </span>
     );
@@ -680,7 +686,7 @@ function Block({ b, i, ctx, noTitle = false, no = '' }) {
   const adder = editing && ADDABLE_TYPES.has(b.type) && page.kind === 'human' && (
     <>
       {added.map(a => (
-        <li key={a.key} className="list-none mt-1.5"><Draft value={a.text} placeholder="새 줄"
+        <li key={a.key} className="wiki-dot"><Draft value={a.text} placeholder="새 줄"
           onChange={v => setAdded(xs => xs.map(x => (x.key === a.key ? { ...x, text: v } : x)))}
           onRemove={() => setAdded(xs => xs.filter(x => x.key !== a.key))} /></li>
       ))}
@@ -701,14 +707,14 @@ function Block({ b, i, ctx, noTitle = false, no = '' }) {
     );
   }
 
-  // 장 개요(lead · 팀 소개)는 한 문단처럼 — 줄마다 문단, 점 없이
+  // 줄글 — 두 줄 넘으면 줄마다 점 + 앞말 굵게(사용자 승인 2026-10-05 · 한 줄짜리 장 개요·팀 소개는 문단 그대로). 고치기에서도 같은 점이 선다.
   if (b.type === 'list' || b.type === 'plain') {
-    const bullets = b.type === 'list' && b.bullets !== false;
+    const dots = visible.length + added.length > 1;
     return (
       <div className="dc-row grid gap-2" style={anim}>
         {h3}
-        <ul className={`${bullets ? 'list-disc pl-5' : 'list-none pl-0'} m-0 grid gap-1`}>
-          {visible.map(it => <li key={it.key} className={`${body} ${it.edit && bullets ? 'list-none' : ''}`}>{line(it)}</li>)}
+        <ul className="list-none pl-0 m-0 grid gap-1.5">
+          {visible.map(it => <li key={it.key} className={`${body} ${dots ? 'wiki-dot' : ''}`}>{line(it)}</li>)}
           {adder}
         </ul>
       </div>
@@ -763,8 +769,8 @@ function Block({ b, i, ctx, noTitle = false, no = '' }) {
           {STATUS_TAG.has(status) && <Tag>{status}</Tag>}
         </>} />
         {visible.length ? (
-          <ul className="list-disc pl-5 m-0 grid gap-1">
-            {visible.map(it => <li key={it.key} className={`${body} ${it.edit ? 'list-none' : ''}`}>{line(it)}</li>)}
+          <ul className="list-none pl-0 m-0 grid gap-1.5">
+            {visible.map(it => <li key={it.key} className={`${body} ${visible.length > 1 ? 'wiki-dot' : ''}`}>{line(it)}</li>)}
           </ul>
         ) : <Cites cites={b.cites} onOpen={onOpenCite} className="" />}
       </div>
