@@ -6489,6 +6489,10 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const fq = (cause) => B.faqPage({ questions: [{ question: '체육대회 시간?', norm: 'h', status: 'unknown', via: 'ask', created_at: new Date().toISOString() },
     { question: '체육대회 시간?', norm: 'h', status: 'unknown', via: 'nightly', answer: { cause }, created_at: new Date(Date.now() + 1000).toISOString() }], edits: [], pages: [] }).blocks[1].items.length;
   assert.deepStrictEqual([fq('dropped'), fq('known'), fq('none')], [0, 0, 1], '검사가 버림 · 이미 아는 알려 준 말은 안 선다');
+  // 자주 묻는 질문 답에 답한 날(마스터만 보는 장 · 그날 답이라 낡는다 · 2026-10-05)
+  const kq = B.faqPage({ questions: [{ question: '다음 월례회 언제?', norm: 'k', status: 'answered', via: 'nightly', created_at: '2026-10-05T03:00:00Z', answer: { sentences: [{ text: '10월 11일(일)이에요.', cites: [] }] } }], edits: [], pages: [] }).blocks[0].items[0];
+  assert.strictEqual(kq?.meta?.day, '2026-10-05', '답한 날(KST)');
+  assert.ok(/faqDay\(it\) && <span className="wiki-faq-day/.test(readFileSync(new URL('../src/views/wikiView.jsx', import.meta.url), 'utf8')), '화면에 \'M월 D일 답\'');
   // 답 모델 — 3.8 Flash 한 번(25초) · 느리거나 실패하면 flash-lite
   const askSrc = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
   assert.strictEqual(A.ASK_MODEL, 'gemini-3.8-flash');

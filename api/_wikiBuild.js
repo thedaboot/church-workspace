@@ -870,7 +870,8 @@ export function faqPage(D) {
       if (list.length >= 2 || answered.via === 'nightly') {
         const cites = [];
         for (const s of answered.answer.sentences) for (const c of s.cites || []) if (!cites.some(x => x.t === c.t && x.id === c.id)) cites.push(c);
-        known.push({ ...item, text: answered.answer.sentences.map(s => s.text).join(' '), cites, at: latest.created_at });
+        // 답한 날 — 그날 답을 찍어 둔 것이라 시간이 지나면 낡는다(마스터만 보는 장 · 사용자 결정 2026-10-05 '언제 답한 것인지')
+        known.push({ ...item, meta: { ...item.meta, day: kstDate(answered.created_at) }, text: answered.answer.sentences.map(s => s.text).join(' '), cites, at: latest.created_at });
       }
       continue;
     }

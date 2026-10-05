@@ -911,6 +911,8 @@ function Block({ b, i, ctx, noTitle = false, no = '' }) {
     );
   }
 
+  // 답한 날(마스터만 보는 장) — 마스터가 적은 답은 적은 날, 다붓이 답은 그 답을 한 날
+  const faqDay = (it) => (it.text ? (it.edit?.at ? kstDate(it.edit.at) : it.meta?.day) : '') || '';
   if (b.type === 'faq') {
     return (
       <div className="dc-row grid gap-2" style={anim}>
@@ -919,7 +921,7 @@ function Block({ b, i, ctx, noTitle = false, no = '' }) {
           <ul className="m-0 p-0 list-none grid gap-2.5">
             {visible.map(it => (
               <li key={it.key} className="wiki-faq rounded-lg border border-line px-3 py-2.5">
-                <p className="m-0 text-[14px] font-semibold text-fg">{it.meta?.q}{it.meta?.n > 1 && <span className="ml-1.5 text-[11px] font-medium text-fg-muted">{it.meta.n}번</span>}</p>
+                <p className="m-0 text-[14px] font-semibold text-fg">{it.meta?.q}{it.meta?.n > 1 && <span className="ml-1.5 text-[11px] font-medium text-fg-muted">{it.meta.n}번</span>}{faqDay(it) && <span className="wiki-faq-day ml-1.5 text-[11px] font-medium text-fg-muted">{mdLabel(faqDay(it))} 답</span>}</p>
                 <div className="mt-1 text-[14px] leading-[1.7] text-fg">
                   {canEdit ? <Draft value={val(it)} onChange={v => setVal(it, v)} placeholder="답을 적어 주세요" />
                     : it.text ? line(it) : <span className="text-fg-muted">기록 전</span>}
