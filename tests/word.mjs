@@ -75,7 +75,10 @@ const check = (n, p, d = '') => results.push(`${p ? 'PASS' : 'FAIL'}  ${n}${d ? 
 const wordSrc = readFileSync(new URL('src/services/word.js', ROOT), 'utf8')
   // 0061부터 myUid도 같이 가져온다 — 노드에서는 둘 다 세운다
   .replace(/import \{ supabase, myUid \} from '\.\/supabaseClient\.js';/,
-    'export const supabase = null; const myUid = async () => null;');
+    'export const supabase = null; const myUid = async () => null;')
+  // 19차 묶음 B — if (error) throw는 cloud/core.js의 unwrap 한 벌이다. 노드에서는 같은 한 줄로 세운다
+  .replace(/import \{ unwrap \} from '\.\/cloud\/core\.js';/,
+    'const unwrap = ({ data, error }) => { if (error) throw error; return data; };');
 const tmp = mkdtempSync(join(tmpdir(), 'word-'));
 const wordFile = join(tmp, 'word.mjs');
 writeFileSync(wordFile, wordSrc);
