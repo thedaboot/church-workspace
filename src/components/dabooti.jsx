@@ -284,7 +284,7 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
     if (was.box && Math.abs(was.box - now.box) > 0.5) box.animate([{ height: `${was.box}px` }, { height: `${now.box}px` }], ease);
     faceRef.current?.animate?.(TILT_FRAMES, { duration: 1100, easing: 'ease-in-out' });
   }, [shown.join('|')]);  // eslint-disable-line react-hooks/exhaustive-deps
-  const syncTilt = pool.length > 3 && !reducedMotion();
+  const syncTilt = pool.length > 3 && !prefersReducedMotion();
 
   const input = (
     <div className="dab-input flex items-center gap-2 rounded-full border border-accent bg-surface pl-4 pr-1.5 py-1.5 w-full shadow-[0_1px_0_rgba(0,0,0,.02)]">
