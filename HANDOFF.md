@@ -45,10 +45,10 @@
 1. **진단부터 · 고치기 전에 보여 준다** — 파일별로 지울 것 · 합칠 것 · 쪼갤 것을 표로(무엇을 · 왜 · 줄 수 변화 · 위험 · 지켜 줄 스위트). 사용자가 고른 것만 한다.
 2. **묶음마다 worktree 에이전트**(셋까지 · 파일이 겹치지 않게 · 포트 4601~ · 끝나면 vite·크롬 끄기) → cherry-pick → 관련 스위트만 → 푸시. 한 묶음 = 한 커밋.
 3. 묶음이 끝날 때마다 **그 화면을 실제로 찍어 본다**(데스크톱·폰 · 라이트·다크) — 리팩토링은 모양이 그대로여야 한다.
-- **잰 것(2026-10-07)**: 코드 215파일 · 8.6만 줄(테스트 포함) · 스위트 38개. 쓰이지 않는 export **0개**(죽은 함수는 이미 적다 — 몫은 구조와 겹침).
+- **잰 것(2026-10-07)**: 코드 215파일 · 8.6만 줄(테스트 포함) · 스위트 36개(묶음 A 뒤 43개). 쓰이지 않는 export **0개**(죽은 함수는 이미 적다 — 몫은 구조와 겹침).
   큰 파일: `components/worshipDetail.jsx` 1,994 · `modals/modals.jsx` 1,749 · `components/wordBible.jsx` 1,738 · `components/layout.jsx` 1,636 · `services/cloud.js` 1,505 ·
   `views/homeView.jsx` 1,268 · `api/_wikiBuild.js` 1,215 · `views/dashboardParts.jsx` 1,191 · `views/wordView.jsx` · `views/views.jsx` · `FilePreviewModal.jsx` · `views/worshipView.jsx` 1,1xx · `services/worship.js` 1,058 · `utils.js` 967.
-  테스트: `tests/logcheck.mjs` 6,519줄(한 파일에 블록 110개 — 위키·다붓이만 11블록) · `worship` 3,914 · `word` 3,315 · `groups` 3,121.
+  테스트: `tests/logcheck.mjs` 6,519줄(한 파일에 블록 101개 — 위키·다붓이만 11블록 · 묶음 A에서 `logcheck`·`logcheck-*` 8파일로 나눴다) · `worship` 3,914 · `word` 3,315 · `groups` 3,121.
 - **후보(진단에서 확인할 것 — 정한 것 아님)**: 큰 화면 파일 쪼개기(파일 머리말 주석·§4 지도를 같이 고친다) · `api/_wikiBuild.js`와 `api/_wikiAsk.js`의 겹친 읽기(업무·댓글·명단 — 18차 2회 `collectAll`이 `gather`와 비슷하다) ·
   `logcheck`를 주제별 파일로 나누기(`npm run verify -- <이름>`과 `tests/README.md`를 같이) · 줄끝 섞임(`.gitattributes` 없음 · `core.autocrlf true` — 윈도 셸 `sed -i`가 CRLF를 LF로 바꿔 파일 하나에 둘이 섞였다 · PITFALLS 33-t).
 - **지킬 것**: 화면 · 문구 · DB · 동작이 바뀌면 리팩토링이 아니다(바뀌어야 하면 따로 묻는다) · §7 · 사용자 결정은 그대로 · `§6-N`·`§3-N` 같은 코드 주석의 번호는 바꾸지 않는다 ·

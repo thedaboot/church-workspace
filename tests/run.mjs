@@ -1,6 +1,7 @@
 // 검증 러너 — 게스트 모드 dev 서버를 띄우고 tests/*.mjs 를 차례로 돌린다.
 //   npm run verify                  전부
 //   npm run verify -- calfit drag    이름으로 골라서
+//   npm run verify -- logcheck       앞 이름으로 — logcheck와 logcheck-* 전부(logcheck-wiki는 하나만)
 //   npm run verify -- --jobs 3       동시 실행(스크립트마다 CDP 포트가 달라 충돌은 없다)
 //   SHOTS=1 npm run verify           스크린샷 남기는 테스트는 파일도 저장
 //
@@ -16,10 +17,11 @@ const PORT = Number(process.env.VERIFY_PORT || 4390);
 const BASE = `http://localhost:${PORT}`;
 
 // 브라우저를 쓰지 않는 순수 로직 자체검증 (서버가 필요 없다)
-const NODE_ONLY = ['logcheck', 'mdcheck', 'bibleref', 'sunguide', 'assignees', 'push', 'sheet', 'office', 'drivesync', 'aictx', 'coedit'];
+const NODE_ONLY = ['logcheck', 'logcheck-task', 'logcheck-dash', 'logcheck-live', 'logcheck-v2', 'logcheck-sec', 'logcheck-ai', 'logcheck-wiki', 'mdcheck', 'bibleref', 'sunguide', 'assignees', 'push', 'sheet', 'office', 'drivesync', 'aictx', 'coedit'];
 // 순서: 넓게 훑는 것부터. 드래그·캘린더는 타이밍에 민감해서 마지막에 조용히 돌린다.
 const ORDER = [
-  'logcheck', 'mdcheck', 'bibleref', 'sunguide', 'sheet', 'office', 'drivesync', 'assignees', 'push', 'aictx', 'coedit',
+  'logcheck', 'logcheck-task', 'logcheck-dash', 'logcheck-live', 'logcheck-v2', 'logcheck-sec', 'logcheck-ai', 'logcheck-wiki',
+  'mdcheck', 'bibleref', 'sunguide', 'sheet', 'office', 'drivesync', 'assignees', 'push', 'aictx', 'coedit',
   'errhunt', 'handoff',
   'navsmoke', 'onebar', 'mobbits', 'bottomgap', 'modalclose',
   'home', 'worship', 'word', 'groups', 'roster', 'wiki',
@@ -33,16 +35,16 @@ const ji = args.indexOf('--jobs');
 if (ji >= 0) { jobs = Math.max(1, Number(args[ji + 1]) || 1); args.splice(ji, 2); }
 const only = args.filter(a => !a.startsWith('-'));
 
-// zip.mjs는 스위트가 아니라 sheet·office가 같이 쓰는 도구다 — 돌리면 PASS 줄이
+// zip.mjs는 스위트가 아니라 sheet·office가 같이 쓰는 도구다(_load.mjs는 logcheck 묶음의 도구) — 돌리면 PASS 줄이
 // 하나도 없어서 러너가 CRASH로 잡는다.
-const HELPERS = new Set(['run', 'zip']);
+const HELPERS = new Set(['run', 'zip', '_load']);
 const found = readdirSync(HERE).filter(f => f.endsWith('.mjs') && !HELPERS.has(f.replace('.mjs', ''))).map(f => f.replace('.mjs', ''));
 const missing = ORDER.filter(n => !found.includes(n));
 const extra = found.filter(n => !ORDER.includes(n));
 if (missing.length) console.log(`(목록에 있지만 파일이 없음: ${missing.join(', ')})`);
 if (extra.length) console.log(`(파일은 있지만 목록에 없음 — 그냥 마지막에 돌린다: ${extra.join(', ')})`);
 const suites = [...ORDER.filter(n => found.includes(n)), ...extra]
-  .filter(n => !only.length || only.includes(n));
+  .filter(n => !only.length || only.some(o => n === o || n.startsWith(o + '-')));
 if (!suites.length) { console.error('돌릴 스위트가 없어요.'); process.exit(1); }
 
 // ── 게스트 모드용 .env.guest (레포에 커밋하지 않는다 — 없으면 만든다) ──
@@ -91,7 +93,7 @@ await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () 
     // 종료 코드가 0이 아니고 FAIL 줄도 없으면 = 스크립트가 터진 것(셀렉터가 낡았을 때 이렇게 된다)
     const crashed = r.code !== 0 && fails === 0;
     const tag = crashed ? 'CRASH' : r.code === 0 ? ' OK  ' : 'FAIL ';
-    console.log(`${tag} ${name.padEnd(11)} ${passes ? passes + ' pass' : ''}${fails ? ' / ' + fails + ' FAIL' : ''}  ${r.secs.toFixed(1)}s`);
+    console.log(`${tag} ${name.padEnd(13)} ${passes ? passes + ' pass' : ''}${fails ? ' / ' + fails + ' FAIL' : ''}  ${r.secs.toFixed(1)}s`);
     if (r.code !== 0) console.log(r.out.split('\n').filter(l => /^(FAIL|Error|TypeError|.*Error:)/.test(l)).slice(0, 6).map(l => '      ' + l).join('\n'));
     done.push({ ...r, fails, passes, crashed });
   }
