@@ -2,13 +2,13 @@
 // logcheck 묶음의 하나다 — `npm run verify -- logcheck`가 logcheck와 logcheck-* 전부를 돈다.
 import assert from 'node:assert';
 import { readFileSync, existsSync } from 'node:fs';
-import { loadSource, readSplit } from './_load.mjs';
+import { loadSource, readSplit, readSrc } from './_load.mjs';
 
 // ── 멘션 꼬리 (utils.splitMention) — 뽑는 쪽과 그리는 쪽이 같은 규칙 ──
 // "(@박지호)"의 닫는 괄호가 칩 안에 들어갔다(2026-09-08). RichText가 `@\S+`를 통째로
 // 칩에 넣었기 때문이다 — 이제 splitMention 한 벌을 쓴다.
 {
-  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const src = readSplit('src/utils.js');
   const { splitMention, extractMentions } = await loadSource('src/utils.js');
   assert.deepStrictEqual(splitMention('@박지호)'), { name: '박지호', tail: ')' });
   assert.deepStrictEqual(splitMention('@민수,'), { name: '민수', tail: ',' });
@@ -24,6 +24,23 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.ok(rich.includes('splitMention(p)'), 'RichText가 splitMention으로 칩과 꼬리를 가른다');
   assert.ok(!/\/\^@\\S\+\$\//.test(rich), 'RichText가 `@\\S+` 통째로 칩을 만들지 않는다');
   console.log('PASS  멘션 꼬리 8가지');
+}
+
+// ── 바렐로 쪼갠 utils.js도 tmp에 그대로 들인다 (_load.loadSource · 19차 B2) ──
+// utils.js가 `export * from './utils/x.js'`를 가지면서 tmp에 utils.mjs 하나만 베끼면 조각을 못 찾는다.
+// loadSource가 바렐 줄을 따라 조각을 같은 상대 자리에 같이 베낀다 — 26곳의 loadSource('src/utils.js')가 그대로 돈다.
+// 되돌리기 검사: _load.mjs에서 `if (follow) copyParts(...)` 줄을 지우면 첫 단정이 깨진다.
+{
+  const U = await loadSource('src/utils.js');
+  assert.strictEqual(typeof U.localDate, 'function', '조각(utils/peopleSeen.js)의 함수가 바렐로 나온다');
+  assert.strictEqual(typeof U.forceStep, 'function', '조각(utils/graphLayout.js)의 함수도');
+  assert.strictEqual(typeof U.splitMention, 'function', '본체에 남은 함수도 그대로');
+  await assert.rejects(loadSource('src/utils.js', { follow: false }), /utils[\\/]authUrl\.js|Cannot find module/,
+    'follow: false면 조각이 없어 들이지 못한다(따라 베끼기가 실제로 일을 한다)');
+  const parts = [...readSrc('src/utils.js').matchAll(/^export \* from '\.\/(utils\/[^']+)';/gm)].map(m => m[1]);
+  assert.ok(parts.length >= 5, 'utils.js는 조각을 바렐로 문다');
+  for (const p of parts) assert.ok(!/^import /m.test(readSrc(`src/${p}`)), `${p}는 import 0개다(순환·노드 들이기 안전)`);
+  console.log('PASS  바렐 따라 베끼기 6가지');
 }
 
 // ── 기호 보조 글꼴 (◡̈ — src/assets/fonts/symbols.css) ──

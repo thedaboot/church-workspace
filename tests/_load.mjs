@@ -5,9 +5,10 @@
 //   loadSource('src/services/word.js', { src })             손질한 글로
 //   loadSource('src/hooks/x.js', { as: 'tick.mjs' })         tmp 안 파일 이름(기본: 이름.mjs)
 //   loadSource(p, { dir, siblings: ['src/services/a.js'] })  같은 폴더에 둘 순수 모듈(상대 import용)
-import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+//   바렐 줄(`export * from './utils/x.js'`)은 그 조각을 tmp의 같은 상대 자리에 같이 베낀다(utils.js — 19차 B2 · follow: false로 끈다)
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, basename } from 'node:path';
+import { join, basename, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const readSrc = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
@@ -22,9 +23,21 @@ export function readSplit(rel) {
 
 export const tmpDir = () => mkdtempSync(join(tmpdir(), 'lc-'));
 
-export async function loadSource(rel, { src, as, dir = tmpDir(), siblings = [] } = {}) {
+// 바렐 줄이 가리키는 조각을 `to` 폴더의 같은 상대 자리에 베낀다(조각 안의 바렐 줄도 따라간다).
+function copyParts(text, from, to) {
+  for (const [, p] of text.matchAll(/^export \* from '\.\/([^']+)';/gm)) {
+    const body = readSrc(from + p);
+    mkdirSync(dirname(join(to, p)), { recursive: true });
+    writeFileSync(join(to, p), body);
+    copyParts(body, from + p.replace(/[^/]*$/, ''), dirname(join(to, p)));
+  }
+}
+
+export async function loadSource(rel, { src, as, dir = tmpDir(), siblings = [], follow = true } = {}) {
   for (const s of siblings) writeFileSync(join(dir, basename(s)), readSrc(s));
   const f = join(dir, as ?? basename(rel).replace(/\.[^.]+$/, '.mjs'));
-  writeFileSync(f, src ?? readSrc(rel));
+  const text = src ?? readSrc(rel);
+  if (follow) copyParts(text, rel.replace(/[^/]*$/, ''), dir);
+  writeFileSync(f, text);
   return import(pathToFileURL(f).href);
 }

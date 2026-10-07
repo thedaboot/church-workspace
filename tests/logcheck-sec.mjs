@@ -12,7 +12,7 @@ import { loadSource, readSplit } from './_load.mjs';
 // hash를 안 보면 '#error=' 케이스가 깨진다. 배선 단정은 auth.jsx가 signInWithOAuth 앞에서
 // 자리를 적는지 · 세션을 넣기 전에 복원하는지 · 로그인 화면이 waiting을 걸러 자동 시작하는지.
 {
-  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const src = readSplit('src/utils.js');
   const { isKakaoInApp, returnToOf, authErrorInUrl } = await loadSource('src/utils.js');
   const KAKAO_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 KAKAOTALK 10.8.0';
   const CHROME_UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36';

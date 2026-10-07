@@ -2,7 +2,7 @@
 // logcheck 묶음의 하나다 — `npm run verify -- logcheck`가 logcheck와 logcheck-* 전부를 돈다.
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { loadSource } from './_load.mjs';
+import { loadSource, readSplit } from './_load.mjs';
 
 const { TaskService } = await import(new URL('../src/services/domain.js', import.meta.url).href);
 
@@ -247,7 +247,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
 // 되돌리기 검사: byNewest/byRecent의 a·b를 뒤집으면 첫 단정이, 호출부에서 .sort를
 // 빼면 마지막 두 단정이 깨진다.
 {
-  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const src = readSplit('src/utils.js');
   const { byNewest, byCompleted, completedTime } = await loadSource('src/utils.js');
 
   const mk = (id, createdAt, updatedAt, completedAt) => ({ id, createdAt, updatedAt, completedAt });
@@ -324,7 +324,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
 // 옛 상수(SPRING .02 · DAMP .8 · MAX_V 18)에서는 최고 52px/프레임 · 반전 3.5회였다.
 // 되돌리기 검사: utils.js의 DAMP를 0.8, MAX_V를 18로 되돌리면 앞 두 단정이 깨진다.
 {
-  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const src = readSplit('src/utils.js');
   const { forceStep } = await loadSource('src/utils.js');
 
   const W = 340, H = 460, M = 15, T = 7, P = 15;   // 모바일 · 지금 워크스페이스 규모
@@ -417,7 +417,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
 // y에 겹쳐 있었다. 지금은 위→아래, 아래→위 두 방향 훑기다.
 // 되돌리기 검사: 아래→위 패스를 지우면 "아래 경계를 안 넘는다"가 깨진다.
 {
-  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const src = readSplit('src/utils.js');
   const { spreadLabels } = await loadSource('src/utils.js');
 
   const ys = (m, items) => items.map(it => Math.round(m.get(it.i)));
@@ -481,7 +481,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   assert.ok(/zxDrag: ZXD\.m/.test(parts) && /zxDrag: ZXD\.p/.test(parts),
     '층마다 끌기용 넓은 범위가 있다');
 
-  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const src = readSplit('src/utils.js');
   const { forceBounds } = await loadSource('src/utils.js');
   const n = { zx: [0.76, 0.99], zxDrag: [0.52, 0.99], pl: 56, pr: 66 };
   const sim = forceBounds(n, 400, 300);
@@ -599,7 +599,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   assert.ok(/absolute inset-0 flex items-center justify-center text-\[11px\] text-fg-muted/.test(parts),
     '빈 줄은 그 높이 안 가운데에 선다');
 
-  const utils = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const utils = readSplit('src/utils.js');
   assert.ok(/export function scrollParentOf\(el\)/.test(utils), '스크롤러를 찾는 헬퍼가 있다');
   assert.ok(/이 앱은 창이 아니라 `main`이 스크롤한다/.test(utils),
     'window.scrollBy로는 아무 일도 안 일어난다는 것을 적어 둔다');
@@ -676,7 +676,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
 // 아닌 청년이 떴다(교역자 팀 업무 한 건을 맡고 있었다 · 사용자 지적 2026-09-07).
 // 기준은 사람 프로필의 소속 팀이고, 숫자는 그 사람이 맡은 **이 팀의 남은 업무**다.
 {
-  const src = readFileSync(new URL('../src/utils.js', import.meta.url), 'utf8');
+  const src = readSplit('src/utils.js');
   const { teamChips } = await loadSource('src/utils.js');
 
   const members = [
