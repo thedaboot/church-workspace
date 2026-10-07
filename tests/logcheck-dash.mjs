@@ -277,8 +277,8 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
     "groupByDue가 '끝낸 업무' 구간만 byCompleted로 정렬한다");
   assert.ok(/rowDate = \(t, bucketKey\)/.test(parts) && /mdLabel\(rowDate\(t, g\.key\)\)/.test(parts),
     "날짜 칸이 rowDate를 쓴다 — '끝낸 업무'는 마감일이 아니라 끝낸 날이다");
-  const modals = readFileSync(new URL('../src/modals/modals.jsx', import.meta.url), 'utf8');
-  assert.ok(/\.sort\(byNewest\)/.test(modals), '선행 업무 후보가 byNewest로 정렬된다');
+  const fields = readFileSync(new URL('../src/modals/taskFields.jsx', import.meta.url), 'utf8');   // DependsRow(19차 묶음 E에서 옮김)
+  assert.ok(/\.sort\(byNewest\)/.test(fields), '선행 업무 후보가 byNewest로 정렬된다');
   console.log('PASS  최신순 정렬 10가지');
 }
 
@@ -867,7 +867,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
 
   // 배선 — 화면이 이 판정을 쓰는가
   const src = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
-  const views = ['views', 'dashboardView', 'projectView', 'viewParts'].map(n => readFileSync(new URL(`../src/views/${n}.jsx`, import.meta.url), 'utf8')).join('\n'), parts = src('../src/views/dashboardParts.jsx'), boards = src('../src/components/boards.jsx'), modals = src('../src/modals/modals.jsx');
+  const views = ['views', 'dashboardView', 'projectView', 'viewParts'].map(n => readFileSync(new URL(`../src/views/${n}.jsx`, import.meta.url), 'utf8')).join('\n'), parts = src('../src/views/dashboardParts.jsx'), boards = src('../src/components/boards.jsx'), modals = src('../src/modals/taskFields.jsx');   // TaskProps는 taskFields(19차 묶음 E)
   assert.ok(/const due = dueCounts\(shown, today\);/.test(views) && /const myDue = dueCounts\(myOpen, today\);/.test(views), 'KPI·인사말이 구간 셈을 쓴다');
   assert.ok(!/dueDate < today/.test(views), 'views에 손으로 적은 지연 판정이 남아 있지 않다');
   assert.ok(/teamLeftStats\(yearTasks\)/.test(views) && /personLoad\(yearTasks\)/.test(views), '팀별·청년별은 고른 해 업무만 센다(연결 지도와 같은 값)');
@@ -1010,7 +1010,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
     && /앞에 있는 프로젝트는 자동으로 조정돼요\./.test(lay) && /이 프로젝트는 구분선 뒤에서 움직일 수 있어요\./.test(lay),
     '앞 칸 넛지 문구(사용자 확정)');
   assert.ok(/NUDGE_MS = 2500/.test(lay) && /front_nudge_seen/.test(lay), '넛지는 2.5초 · 본 브라우저는 hover로 안 뜬다');
-  const mod = src('modals/modals.jsx');
+  const mod = src('modals/taskLists.jsx');   // SubtaskList(19차 묶음 E에서 옮김)
   assert.ok(/dc-check-now/.test(mod) && /dc-strike-now/.test(mod), '하위 업무 체크의 선 그리기·취소선');
   const css = src('index.css');
   assert.ok(/\.dc-check-now path \{ stroke-dasharray: 1; animation: dc-draw \.24s var\(--ease-out-quint\) \.06s both; \}/.test(css), '체크 240ms · 60ms 지연');

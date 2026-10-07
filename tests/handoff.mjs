@@ -59,6 +59,56 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
   check('D9: 주 버튼 비활성에 bg-line을 쓰지 않는다(opacity .4)', bgLine.length === 0, bgLine.join(' · '));
   check('D9: 10px 미만 글자는 얼굴 머리글자·종이뿐이다', tiny.length === 0, tiny.join(' · '));
   check('D9: 12px 미만 글에 faint를 쓰지 않는다', faintSmall.length === 0, faintSmall.join(' · '));
+  // ③-b 같은 문자열만 보면 구멍이 둘이다(2026-10-07 · 19차 묶음 E) — **조건부 문자열**(`text-[10px] ${열림 ? '…' : 'text-fg-faint'}`)과
+  // **물려받은 색**(글자 색이 없는 10px 버튼이 faint 칩 안에 선다). 그래서 JSX를 읽어(vite parseAst) className 식 안의 문자열 조각을
+  // 모두 모으고, 색은 조상에게서, 크기는 자기 것으로 본다. 대문자 부품(Avatar 등)은 안에서 제 색을 정하므로 물려받기는 소문자 태그만.
+  // **되돌리기**: comments.jsx '답글'을 `'text-fg-faint hover:text-accent-text'`로, 반응 칩 +N의 `text-fg-muted`를 걷으면 깨진다.
+  {
+    const { parseAst } = await import('vite');
+    // 이 검사가 처음 찾은 것 중 **사용자에게 아직 묻지 않은 자리**(19차 묶음 E 보고 · 고치면 여기서 뺀다):
+    // 공유 칩 '저장하는 중'(10.5px faint) · 보기 화면의 끝낸 하위 업무 기한(11px faint — 끝낸 줄을 흐리게)
+    const PENDING = [['components/ShareToggle.jsx', 'text-[10.5px]'], ['modals/taskLists.jsx', 'shrink-0 text-[11px] tabular-nums whitespace-nowrap']];
+    const faintTree = [], parseFail = [];
+    const COLOR = /^text-(fg|accent|tag|white|black|status)\b/;
+    const frags = (n, out = []) => {
+      if (!n || typeof n !== 'object') return out;
+      if (n.type === 'Literal' && typeof n.value === 'string') out.push(n.value);
+      else if (n.type === 'TemplateElement') out.push(n.value?.cooked ?? n.value?.raw ?? '');
+      else for (const k of Object.keys(n)) { const v = n[k]; if (k !== 'parent' && v && typeof v === 'object') (Array.isArray(v) ? v : [v]).forEach(c => frags(c, out)); }
+      return out;
+    };
+    for (const u of files) {
+      const name = decodeURIComponent(u.pathname).split('/src/')[1];
+      if (/paper/.test(name)) continue;
+      const code = readFileSync(u, 'utf8');
+      if (!/className/.test(code)) continue;
+      let ast;
+      try { ast = parseAst(code, { lang: 'jsx' }); } catch (e) { parseFail.push(`${name} ${e.message.slice(0, 60)}`); continue; }
+      const lineOf = (off) => code.slice(0, off).split('\n').length;
+      const visit = (n, faintUp) => {
+        if (!n || typeof n !== 'object') return;
+        if (Array.isArray(n)) { n.forEach(c => visit(c, faintUp)); return; }
+        if (n.type === 'JSXElement') {
+          const tag = n.openingElement.name?.name || '';
+          const attr = n.openingElement.attributes.find(a => a.type === 'JSXAttribute' && a.name?.name === 'className');
+          const tokens = attr ? frags(attr.value).join(' ').split(/\s+/).filter(Boolean) : [];
+          const small = tokens.some(t => { const m = /^text-\[(\d+(?:\.\d+)?)px\]$/.exec(t); return m && Number(m[1]) < 12; });
+          const colors = tokens.filter(t => COLOR.test(t));
+          const faintHere = colors.includes('text-fg-faint');
+          const faint = colors.length ? faintHere : (/^[a-z]/.test(tag) && faintUp);
+          const cls = tokens.join(' ');
+          if (small && faint && !PENDING.some(([f, s]) => f === name && cls.startsWith(s))) faintTree.push(`${name}:${lineOf(n.start)} <${tag}>`);
+          n.openingElement.attributes.forEach(a => visit(a, faintUp));
+          visit(n.children, colors.length ? faintHere : faintUp);
+          return;
+        }
+        for (const k of Object.keys(n)) { const v = n[k]; if (k !== 'parent' && v && typeof v === 'object') visit(v, faintUp); }
+      };
+      visit(ast, false);
+    }
+    check('D9: 12px 미만 글에 faint가 없다 — 조건부 문자열 · 조상에게서 물려받은 색까지(JSX를 읽는다)',
+      faintTree.length === 0 && parseFail.length === 0, [...faintTree, ...parseFail].join(' · '));
+  }
   check('D9: 뒤판은 대화창 50% · 전면 미리보기 80% 두 값뿐이다', backs.length === 0, backs.join(' · '));
   const btnSrc = readFileSync(new URL('components/buttons.js', SRC), 'utf8');
   check('D9: 버튼 두 단 — 작은 단 11.5px·600 · 확정 단 13px·600·40px, 둘 다 비활성 opacity .4',

@@ -820,3 +820,22 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   }
   console.log('PASS  클라우드 바탕 셋(unwrap 오류 그대로 · authedPost 토큰 갈래 · 지운 첨부 정리 한 벌) 23가지');
 }
+
+// ── 업무 창 조각(19차 묶음 E · 2026-10-07) — 한 벌로 모은 것이 다시 두 벌이 되지 않는다 ──────────────
+// 셸(modals.jsx) · 칸(taskFields) · 목록(taskLists) · AI(taskSummary)로 갈랐다. 화면 동작은 tests/modalclose가 잰다(휴지통 줄 · 얼굴 · 다듬기 · 뼈대).
+// **되돌리기**: TaskLive에 polishText를 다시 손으로 부르거나, 담당자 칸에 document.addEventListener('mousedown'을 다시 쓰면 깨진다.
+{
+  const rd = (p) => readFileSync(new URL(`../src/modals/${p}`, import.meta.url), 'utf8');
+  const parts = { modals: rd('modals.jsx'), fields: rd('taskFields.jsx'), lists: rd('taskLists.jsx'), summary: rd('taskSummary.jsx') };
+  const all = Object.values(parts).join('\n');
+  assert.strictEqual((all.match(/AiService\.polishText\(/g) || []).length, 1, 'AI 다듬기를 부르는 곳은 usePolish 하나');
+  assert.strictEqual((parts.modals.match(/usePolish\(\{/g) || []).length, 2, '새 업무 폼과 수정 화면이 usePolish를 쓴다');
+  assert.strictEqual((parts.modals.match(/<BodyHead /g) || []).length, 2, "'상세 내용' 머리줄도 한 벌(BodyHead)");
+  assert.strictEqual((all.match(/\.slice\(0, 3\)\.map\(/g) || []).length, 1, '얼굴 쌓기는 FaceStack 하나');
+  assert.strictEqual((all.match(/<FaceStack /g) || []).length, 3, '얼굴 쌓기 세 자리(담당자 칩 · 담당 업무 · 하위 업무)');
+  assert.ok(!/document\.addEventListener\('mousedown'/.test(parts.fields) && (parts.fields.match(/useDismiss\(open, \(\) => setOpen\(false\), \[rootRef, popRef\]\)/g) || []).length === 2,
+    '담당자 고르기 둘은 useDismiss(포털 목록 ref까지)');
+  assert.ok(/export function TaskModalShell/.test(parts.modals) && !/function (SubtaskList|ActionItems|OwnerPicker|AssigneePicker|useTaskSummary)\b/.test(parts.modals),
+    'modals.jsx에는 셸과 화면만');
+  console.log('PASS  업무 창 조각(다듬기 · 얼굴 쌓기 · 바깥 누름 한 벌 · 셸만 남은 modals.jsx) 7가지');
+}

@@ -665,6 +665,7 @@ await check('열 때 달랐나(divergedAtOpen)는 심었다 읽은 모양끼리 
 await check('업무 창 배선 — 엔진은 늦게 받고 · 거울은 조용히 · 세션 끝에 한 번 · 게스트는 800ms', () => {
   const src = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
   const modals = src('../src/modals/modals.jsx'), ui = src('../src/modals/coedit.jsx'), view = src('../src/services/coedit/view.js');
+  const fields = src('../src/modals/taskFields.jsx');   // 제목 칸의 초안(useNameDraft)은 19차 묶음 E에서 이리로 옮겼다
   assert.ok(!/^import[^\n]*coedit\/(index|core|store)\.js/m.test(modals) && !/^import[^\n]*coedit\/(index|core|store)\.js/m.test(ui), '업무 창은 엔진을 정적으로 부르지 않는다');
   assert.ok(/import\('\.\.\/services\/coedit\/index\.js'\)/.test(ui), '엔진은 import()로 늦게');
   assert.ok(!/^import /m.test(view), 'view.js는 import 0(첫 조각에 실린다)');
@@ -673,7 +674,7 @@ await check('업무 창 배선 — 엔진은 늦게 받고 · 거울은 조용�
   const ctrl = src('../src/hooks/controllers.js');
   assert.ok(/skipContent: silentContent/.test(ctrl) && /!silentContent && \(oldData\?\.content/.test(ctrl), '조용한 저장은 본문 기록·멘션을 만들지 않는다');
   assert.ok(/newMentionsOnly\(endMd, startMd, currentUser\.name\)/.test(ctrl), '세션 끝에는 새 멘션만');
-  assert.ok(/export const BODY_IDLE_MS = 800;/.test(modals) && /export const NAME_IDLE_MS = 600;/.test(modals), '게스트 본문 800ms · 제목 600ms');
+  assert.ok(/export const BODY_IDLE_MS = 800;/.test(modals) && /export const NAME_IDLE_MS = 600;/.test(fields), '게스트 본문 800ms · 제목 600ms');
   assert.ok(/card\?\.content \|\| ''/.test(ui) && /cardWritePromise\(cardId\)/.test(ui), '새로 만든 업무는 카드 행이 들어간 뒤에 연다');
   assert.ok(/co\.adoptCheck\(live\.updatedAt\)/.test(ui) && /if \(!adopting\) cb\.current\.onVersion/.test(ui), '받아들이기는 엔진이 셋을 보고 · 그 세션은 활동을 안 남긴다');
   // 2026-09-29 보기/수정 나눔 — 보기 화면에도 얼굴이 서고(편집기 없이 user를 싣는다) · 수정 중이면 editing · 커서 줄 · 사진 이름표

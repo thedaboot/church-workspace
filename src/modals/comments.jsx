@@ -100,12 +100,13 @@ const ReactionRow = ({ reactions, myKey, onToggle, onOpen }) => (
                   className="flex w-[15px] h-[15px] text-[8.5px] leading-none -ml-[5px] first:ml-0 ring-[1.5px] ring-surface animate-in fade-in zoom-in-75 duration-200" />
               ))}
               {/* 넘치는 사람만 +N으로 접는다. aria에 조사를 붙이면 '확인를'이 되므로
-                  라벨과 숫자를 가운뎃점으로 잇는다 */}
+                  라벨과 숫자를 가운뎃점으로 잇는다. 10px 글자라 칩의 faint를 물려받지 않고 muted(D9) —
+                  내가 누른 칩이면 칩의 색을 그대로 쓴다 */}
               {extra > 0 && (
                 <button
                   type="button" onClick={() => onOpen(kind)}
                   title="누른 사람 보기" aria-label={`${label} ${count}명 · 누른 사람 보기`}
-                  className="ml-1 px-1 py-1 text-[10px] font-semibold leading-none tabular-nums rounded-full transition active:scale-95 hover:bg-surface-hover"
+                  className={`ml-1 px-1 py-1 text-[10px] font-semibold leading-none tabular-nums rounded-full transition active:scale-95 hover:bg-surface-hover${mine ? '' : ' text-fg-muted'}`}
                 >+{extra}</button>
               )}
             </span>
@@ -223,19 +224,57 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions
 
 // 상세(댓글·활동)를 읽어 오는 동안의 자리 — 아무것도 안 그리면 "첫 댓글을 남겨보세요!"
 // 같은 빈 상태가 먼저 번쩍였다가 내용이 나타난다. 빈 상태는 "정말 없다"를 뜻해야 한다.
-export const ListSkeleton = ({ rows = 3 }) => (
-  <div className="space-y-4 py-1" aria-hidden>
-    {Array.from({ length: rows }, (_, i) => (
-      <div key={i} className="flex items-start gap-2.5">
-        <div className="w-6 h-6 rounded-full dc-skeleton shrink-0" />
-        <div className="flex-1 min-w-0 space-y-1.5 pt-0.5">
-          <div className="h-2.5 w-24 rounded dc-skeleton" />
-          <div className="h-2.5 max-w-[210px] rounded dc-skeleton" style={{ width: `${86 - i * 18}%` }} />
+// kind — 댓글('comment')·활동('activity')은 **실제 줄과 같은 짜임·같은 높이**로 선다(2026-10-07 · 뼈대 한 줄이 28px라 실제 댓글 줄 ·
+// 활동 줄로 바뀌며 첫 그림이 튀었다). 막대는 실제 글줄 안의 inline-block이라 줄 높이를 글줄이 정한다. 없으면 예전 뼈대(버전 기록).
+const SkelBar = ({ w, h = 'h-2.5 rounded' }) => <span className={`inline-block align-middle ${h} dc-skeleton`} style={{ width: w }} />;
+export const ListSkeleton = ({ rows = 3, kind }) => {
+  if (kind === 'comment') return (
+    <div className="divide-y divide-line/60" aria-hidden>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} data-skel-row="" className="py-3 first:pt-0">
+          {/* CommentBody와 같은 짜임 — 얼굴 · 이름 줄(11px) · 본문 줄(text-xs leading-relaxed) · 반응 줄(칩 26px) */}
+          <div className="flex items-start gap-2.5">
+            <div className="w-6 h-6 rounded-full dc-skeleton shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] mb-0.5"><SkelBar w={96} /></div>
+              <div className="text-xs leading-relaxed"><SkelBar w={`${Math.max(40, 86 - i * 18)}%`} /></div>
+              <div className="flex items-center mt-1.5 h-[26px]"><SkelBar w={64} h="h-[26px] rounded-full" /></div>
+            </div>
+          </div>
+          {/* 답글 줄 — 글자 크기를 주지 않는다(실제 줄도 바깥 줄 높이 24px로 선다) */}
+          <div className="pl-8 mt-1"><SkelBar w={28} h="h-2 rounded" /></div>
         </div>
-      </div>
-    ))}
-  </div>
-);
+      ))}
+    </div>
+  );
+  if (kind === 'activity') return (
+    <div className="space-y-4" aria-hidden>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} data-skel-row="" className="flex items-start gap-3">
+          <div className="mt-1 w-[7px] h-[7px] rounded-full dc-skeleton shrink-0" />
+          {/* ActivityPanel과 같은 두 줄 — 11px leading-snug · 10px mt-0.5 */}
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] leading-snug"><SkelBar w={`${Math.max(40, 80 - i * 15)}%`} h="h-2 rounded" /></p>
+            <p className="text-[10px] mt-0.5"><SkelBar w={72} h="h-2 rounded" /></p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <div className="space-y-4 py-1" aria-hidden>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex items-start gap-2.5">
+          <div className="w-6 h-6 rounded-full dc-skeleton shrink-0" />
+          <div className="flex-1 min-w-0 space-y-1.5 pt-0.5">
+            <div className="h-2.5 w-24 rounded dc-skeleton" />
+            <div className="h-2.5 max-w-[210px] rounded dc-skeleton" style={{ width: `${86 - i * 18}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
 
 // 처음에는 최근 댓글만 그린다 — 60개짜리 업무를 열 때 모달 첫 페인트가
 // 1초 넘게 밀리던 원인(댓글 1건당 RichText 파싱 + 노드 수십 개)을 잘라낸다.
@@ -342,7 +381,7 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
   // 읽는 중 + 아직 아무것도 없을 때만 스켈레톤 — 이미 담아둔 댓글이 있으면(재열람)
   // 그대로 보여주고 조용히 갱신한다
   if (all.length === 0) {
-    if (loading) return <ListSkeleton />;
+    if (loading) return <ListSkeleton kind="comment" />;
     return <p className="text-center mt-8 text-xs text-fg-faint">첫 댓글을 남겨보세요!</p>;
   }
 
@@ -367,7 +406,7 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
             <button
               onClick={() => (replyingTo === c.id ? closeReply(c.id) : setReplyingTo(c.id))}
               aria-expanded={replyingTo === c.id}
-              className={`text-[10px] transition-colors ${replyingTo === c.id ? 'text-accent-text font-semibold' : 'text-fg-faint hover:text-accent-text'}`}
+              className={`text-[10px] transition-colors ${replyingTo === c.id ? 'text-accent-text font-semibold' : 'text-fg-muted hover:text-accent-text'}`}
             >
               답글{getReplies(c.id).length > 0 ? ` ${getReplies(c.id).length}` : ''}
               {replyingTo !== c.id && (replyDrafts[c.id] || '').trim() ? ' · 작성 중' : ''}
@@ -456,7 +495,7 @@ export const ActivityPanel = React.memo(({ logs, loading = false }) => {
   const hiddenCount = showAll ? 0 : Math.max(0, ordered.length - INITIAL_LOGS);
   const shown = hiddenCount > 0 ? ordered.slice(0, INITIAL_LOGS) : ordered;
 
-  if (all.length === 0 && loading) return <ListSkeleton />;
+  if (all.length === 0 && loading) return <ListSkeleton kind="activity" />;
   if (all.length === 0) return (
     <div className="text-center mt-6">
       <span className="inline-flex w-8 h-8 rounded-full bg-tag-purple text-tag-purple-fg items-center justify-center mb-2"><span className="w-1.5 h-1.5 rounded-full bg-current" /></span>

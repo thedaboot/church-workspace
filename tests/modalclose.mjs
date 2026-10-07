@@ -763,6 +763,97 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   check('댓글 시각·수정됨은 꺾이지 않는 한 덩어리', !!d9?.stamp?.nowrap, JSON.stringify(d9?.stamp));
 }
 
+// ── 업무 창 쪼개기(19차 묶음 E · 2026-10-07) — 새 부품이 지키는 것 ─────────────────────────────
+// ① 긴 하위 업무의 휴지통이 줄 밖(다음 줄)으로 떨어지지 않는다 — 짧은 줄과 같은 x · 체크와 같은 가운데 줄(★ 사용자 승인)
+// ② 얼굴 쌓기(taskFields FaceStack) — 하위 업무 줄의 얼굴은 21px · 6px 겹침 · 둘째부터 고리
+// ③ AI 문맥 다듬기(taskSummary usePolish) — 새 업무 폼과 수정 화면이 한 벌: 다듬은 글이 서고 '되돌리기'로 원래 글 · 안내 문구는 본문에 안 들어간다
+// ④ 댓글·활동 뼈대 한 줄 = 실제 한 줄 높이(±4px · ★ 사용자 승인 — 첫 그림이 튀지 않게)
+// **되돌리기**: ①은 SubtaskList ② 칸의 `sm:basis-0`을 `sm:basis-auto`로, ②는 FaceStack 겹침 기본값을 `-ml-1`로,
+// ③은 usePolish의 setBefore(text)를 빼면, ④는 ListSkeleton kind 'comment'의 반응 줄을 빼면 깨진다.
+{
+  const LONG = '수련회 둘째 날 저녁 집회 뒤 소그룹 나눔 자리 배치표를 조장들과 한 번 더 맞추고 바뀐 명단을 미디어팀에 넘기기 '.repeat(3).trim();
+  await seedOne(baseTask('e1', { title: '쪼개기 확인', content: '다듬기 전 본문',
+    subtasks: [{ id: 's1', title: '짧은 일', done: true, assignee: '노준석' }, { id: 's2', title: LONG, done: true, assignee: '노준석, 조해리' }],
+    comments: Array.from({ length: 4 }, (_, k) => ({ id: 'ec' + k, author: '조해리', text: '확인 부탁해요 ' + k, timestamp: '2026-08-02T00:00:00Z', parentId: null })),
+    activityLog: Array.from({ length: 4 }, (_, k) => ({ id: 'ea' + k, action: '상태를 진행 중으로 변경했습니다.', author: '노준석', timestamp: '2026-08-01T00:00:00Z' })) }));
+  await ev(`document.querySelector('.board-card').click()`); await sleep(900);
+  // ② 보기 화면의 하위 업무 얼굴
+  const faces = await ev(`(() => { const row = [...document.querySelectorAll('.fixed.z-50 .subtask-row')][1]; if (!row) return null;
+    const fs = [...row.querySelectorAll('span.flex.items-center.shrink-0 > *')].map(e => { const r = e.getBoundingClientRect(); return { l: r.left, w: r.width, ring: getComputedStyle(e).boxShadow !== 'none' }; });
+    return { n: fs.length, w: fs.map(f => f.w), step: fs.length > 1 ? Math.round(fs[1].l - fs[0].l) : null, ring: fs.map(f => f.ring) }; })()`);
+  check('② 하위 업무 줄의 얼굴 쌓기: 21px · 6px 겹침(15px 간격) · 둘째부터 고리',
+    !!faces && faces.n === 2 && faces.w.every(w => Math.round(w) === 21) && faces.step === 15 && !faces.ring[0] && faces.ring[1], JSON.stringify(faces));
+  // ④ 뼈대 — 게스트는 상세를 읽지 않아 뼈대가 서지 않는다. 같은 패널 자리에 ListSkeleton을 직접 그려 실제 줄과 잰다
+  // (앱과 같은 react 주소를 main.jsx에서 읽어 같은 인스턴스로 그린다)
+  const renderSkel = (kind) => ev(`(async () => {
+    const main = await (await fetch('/src/main.jsx')).text();
+    const reactUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react\\.js\\?v=[^"]+)"/)?.[1];
+    const clientUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react-dom_client\\.js\\?v=[^"]+)"/)?.[1];
+    if (!reactUrl || !clientUrl) return null;
+    // 미리 묶은 의존성은 CJS를 감싼 것이라 default에 들어 있다
+    const R = await import(reactUrl), C = await import(clientUrl);
+    const React = R.default ?? R, createRoot = (C.default ?? C).createRoot;
+    const { ListSkeleton } = await import('/src/modals/comments.jsx');
+    const box = [...document.querySelectorAll('.fixed.z-50 .flex-1.overflow-y-auto.p-4')].find(b => b.offsetParent);
+    if (!box) return null;
+    document.getElementById('skel-host')?.remove();
+    const host = document.createElement('div'); host.id = 'skel-host'; box.appendChild(host);
+    createRoot(host).render(React.createElement(ListSkeleton, { kind: ${JSON.stringify(kind)}, rows: 3 }));
+    await new Promise(r => setTimeout(r, 300));
+    const rows = [...host.querySelectorAll('[data-skel-row]')].map(e => e.getBoundingClientRect());
+    host.remove();
+    return rows.length === 3 ? { pitch: rows[2].top - rows[1].top, h1: rows[1].height } : null;
+  })()`, true);
+  const realComment = await ev(`(() => { const rows = [...document.querySelectorAll('.fixed.z-50 .divide-y > div.py-3')].filter(r => r.querySelector('.comment-stamp')).map(e => e.getBoundingClientRect());
+    return rows.length >= 3 ? { pitch: rows[2].top - rows[1].top, h1: rows[1].height } : null; })()`);
+  const skelComment = await renderSkel('comment');
+  check('④ 댓글 뼈대 한 줄 높이 ≈ 실제 댓글 한 줄(±4px)', !!realComment && !!skelComment && Math.abs(realComment.pitch - skelComment.pitch) <= 4 && Math.abs(realComment.h1 - skelComment.h1) <= 4,
+    JSON.stringify({ realComment, skelComment }));
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '활동')?.click()`); await sleep(400);
+  const realAct = await ev(`(() => { const rows = [...document.querySelectorAll('.fixed.z-50 .space-y-4.relative > div.relative.flex')].map(e => e.getBoundingClientRect());
+    return rows.length >= 3 ? { pitch: rows[2].top - rows[1].top, h1: rows[1].height } : null; })()`);
+  const skelAct = await renderSkel('activity');
+  check('④ 활동 뼈대 한 줄 높이 ≈ 실제 활동 한 줄(±4px)', !!realAct && !!skelAct && Math.abs(realAct.pitch - skelAct.pitch) <= 4 && Math.abs(realAct.h1 - skelAct.h1) <= 4,
+    JSON.stringify({ realAct, skelAct }));
+  // ① 수정 화면 — 끝낸 줄의 이름은 글자(span)라 긴 제목이 줄 폭을 다 쓴다
+  await enterEdit();
+  const trash = await ev(`(() => { const rows = [...document.querySelectorAll('.fixed.z-50 .subtask-row')]; if (rows.length < 2) return null;
+    const at = (row) => { const t = row.querySelector('button[aria-label$=" 삭제"]')?.getBoundingClientRect(); const c = row.querySelector('button[aria-pressed]')?.getBoundingClientRect();
+      return t && c ? { x: Math.round(t.left), dy: Math.round(Math.abs((t.top + t.height / 2) - (c.top + c.height / 2))), h: Math.round(row.getBoundingClientRect().height) } : null; };
+    return { short: at(rows[0]), long: at(rows[1]) }; })()`);
+  check('① 긴 하위 업무의 휴지통이 짧은 줄과 같은 x · 체크와 같은 줄(다음 줄로 떨어지지 않는다)',
+    !!trash?.short && !!trash?.long && trash.long.x === trash.short.x && trash.long.dy <= 2 && trash.long.h > trash.short.h, JSON.stringify(trash));
+  // ③ 수정 화면의 다듬기 — AiService.polishText를 바꿔 끼운다(같은 모듈 주소 · 게스트에는 AI가 없다)
+  const polishWith = (text) => ev(`(async () => { const m = await import('/src/services/ai.js'); window.__polishOrig ??= m.AiService.polishText;
+    m.AiService.polishText = async () => ${JSON.stringify(text)}; return true; })()`, true);
+  const bodyNow = () => ev(`(() => { const t = document.querySelector('.fixed.z-50 .tiptap'); return t ? t.textContent : null; })()`);
+  const hasUndo = () => ev(`!!${byLabel('되돌리기')}`);
+  await polishWith('다듬은 본문');
+  await ev(`${byLabel('AI 문맥 다듬기')}?.click()`); await sleep(500);
+  const live1 = { body: await bodyNow(), undo: await hasUndo() };
+  await ev(`${byLabel('되돌리기')}?.click()`); await sleep(500);
+  const live2 = { body: await bodyNow(), undo: await hasUndo() };
+  await polishWith('AI 기능은 로그인 후 사용할 수 있어요.');
+  await ev(`${byLabel('AI 문맥 다듬기')}?.click()`); await sleep(500);
+  const live3 = { body: await bodyNow(), undo: await hasUndo() };
+  check("③ 수정 화면: 다듬은 글이 서고 '되돌리기'로 원래 글 · 안내 문구는 본문에 안 들어간다",
+    /다듬은 본문/.test(live1.body || '') && live1.undo && /다듬기 전 본문/.test(live2.body || '') && !live2.undo && /다듬기 전 본문/.test(live3.body || '') && !live3.undo,
+    JSON.stringify({ live1, live2, live3 }));
+  await ev(`${byLabel('닫기')}.click()`); await sleep(400);
+  // ③ 새 업무 폼의 다듬기
+  await ev(`${byLabel('새 업무')}?.click()`); await sleep(900);
+  await ev(`(() => { const t = document.querySelector('.fixed.z-50 .tiptap'); t?.focus(); })()`); await sleep(100);
+  await send('Input.insertText', { text: '새 업무 본문' }); await sleep(300);
+  await polishWith('다듬은 새 본문');
+  await ev(`${byLabel('AI 문맥 다듬기')}?.click()`); await sleep(500);
+  const form1 = { body: await bodyNow(), undo: await hasUndo() };
+  await ev(`${byLabel('되돌리기')}?.click()`); await sleep(500);
+  const form2 = { body: await bodyNow(), undo: await hasUndo() };
+  check("③ 새 업무 폼: 다듬은 글이 서고 '되돌리기'로 원래 글",
+    /다듬은 새 본문/.test(form1.body || '') && form1.undo && /새 업무 본문/.test(form2.body || '') && !form2.undo, JSON.stringify({ form1, form2 }));
+  await ev(`(async () => { const m = await import('/src/services/ai.js'); if (window.__polishOrig) m.AiService.polishText = window.__polishOrig; })()`, true);
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

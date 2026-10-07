@@ -1,19 +1,17 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
-import { createPortal } from 'react-dom';
-import { CheckSquare, Clock, X, User, Hash, Wand2, Undo2, CalendarRange, Trash2, Check, Pin, ArrowLeftRight, Maximize2, Minimize2, PanelRight, PanelRightClose, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
+import { CheckSquare, X, Trash2, Check, Maximize2, Minimize2, PanelRight, PanelRightClose, Loader2 } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { formatDate, formatDay, isMobileViewport, keepVisible, generateId, subtaskProgress, summaryOutdated, byNewest, taskEditDirty, taskChangedKeys, imeComposing, toggleTodoLine } from '../utils.js';
+import { formatDate, isMobileViewport, taskEditDirty, taskChangedKeys, toggleTodoLine } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser } from '../store/selectors.js';
-import { AiService, isFallbackText } from '../services/ai.js';
-import { parseActionItems, matchSubtask, stripActionSection, writeActionSection, namesLabel, formatActionLine } from '../services/actionItems.js';
+import { parseActionItems, stripActionSection, writeActionSection } from '../services/actionItems.js';
 import { useCoedit, CoeditFaces, VersionPanel, VersionDiffView, useCoeditFaces, PresencePill, PresenceMarks, useLiveMarkdown, docSource, useDevFake } from './coedit.jsx';
 import { RichText } from '../components/RichText.jsx';
-import { Avatar } from '../components/Avatar.jsx';
-import { Bar } from '../views/dashboardParts.jsx';
-import { DatePicker } from '../components/DatePicker.jsx';
 import { AttachmentSection, PendingAttachments, startUploads } from './attachments.jsx';
 import { CommentPanel, ActivityPanel, CommentInput } from './comments.jsx';
+import { DependsViewRow, TaskProps, TitleField } from './taskFields.jsx';
+import { ActionItems, SubtaskList } from './taskLists.jsx';
+import { useTaskSummary, usePolish, BodyHead } from './taskSummary.jsx';
 // TipTap/ProseMirror는 무거워 초기 번들에서 분리한다 (업무 창을 열 때 받는다)
 const MarkdownEditor = lazy(() => import('../components/MarkdownEditor.jsx').then(m => ({ default: m.MarkdownEditor })));
 // 편집기 조각과 문서(같이 쓰기)를 받는 동안의 뼈대 — 서식 바 자리 + **글줄 모양 막대**가 차례로 숨 쉰다
@@ -30,10 +28,10 @@ const EditorSkeleton = () => (
     </div>
   </div>
 );
-import { ConfirmPopover, useAnchoredPos } from '../components/ConfirmPopover.jsx';
+import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { isMyUid } from '../services/supabaseClient.js';
-import { getMemberNames, loadCardDetail, cardSummaryCloud, cardWritePromise } from '../services/cloudSync.js';
+import { getMemberNames, loadCardDetail, cardWritePromise } from '../services/cloudSync.js';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { showToast } from '../components/Toast.jsx';
@@ -46,6 +44,9 @@ import { trackEditing } from '../services/presence.js';
 // 2026-09-29부터 **보기가 기본이고 `수정`을 누르면 그 자리에서 수정 화면**이 된다(목업 승인). 수정 화면에는
 // 저장 버튼이 없다 — 칸마다 저절로 저장하고 `수정 완료`가 밀린 쓰기를 흘린 뒤 보기로 돌아온다(TaskModalShell 머리말).
 // 같이 뜨는 영역은 파일을 나눠 뒀다:
+//   속성 칸·담당자 고르기·제목 칸 → taskFields.jsx
+//   청년별 담당 업무·하위 업무 → taskLists.jsx
+//   3줄 요약·AI 문맥 다듬기 → taskSummary.jsx
 //   첨부      → attachments.jsx
 //   댓글·활동 → comments.jsx
 //   같이 쓰기(여는 훅 · 머리줄 얼굴 · 버전 기록 · 고친 곳) → coedit.jsx
@@ -409,7 +410,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
     </>
   );
   const detailBody = isNew
-    ? <TaskEditor formData={formData} setFormData={setFormData} members={members} cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
+    ? <TaskEditor formData={formData} setFormData={setFormData} members={members} cloudMode={cloudMode}
         pendingFiles={pendingFiles} setPendingFiles={setPendingFiles} titleRef={titleRef} />
     // key로 카드마다 새로 마운트한다 — 요약·본문 초안·제목 초안이 카드 사이에 남지 않게(PITFALLS 18)
     : editing
@@ -419,7 +420,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
           cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
           diffPick={diffPick} onRestore={restoreVersion} onExitDiff={() => setDiffPick(null)} />
       : <TaskView key={task.id} task={source} commit={commit} co={co} coPending={cloudMode && !co && !coFailed}
-          liveMd={liveMd} editors={editors} members={members}
+          liveMd={liveMd} editors={editors}
           cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
           diffPick={diffPick} onRestore={restoreVersion} onExitDiff={() => setDiffPick(null)} />;
   const commentsPanel = listsReady
@@ -547,687 +548,19 @@ function SaveMark({ busy, failed }) {
   );
 }
 
-// 노션 속성 행: 좌측 라벨 + 우측 값 레이아웃
-// 선행 업무 고르기 — 칩(빼기 X) + 네이티브 <select>(더하기).
-// 같은 프로젝트의 다른 업무만 후보다. 자기 자신·이미 고른 것은 목록에서 뺀다.
-// 한 단계 순환(A→B이면서 B→A)도 후보에서 뺀다 — depLayers가 끊어 주긴 하지만,
-// 만들 수 있게 두면 그래프가 "왜 이 모양이지"가 된다. 긴 순환(A→B→C→A)까지 막는
-// 탐색은 두지 않았다: 사람이 그걸 만들 확률보다 코드가 늘어나는 비용이 크다.
-function DependsRow({ formData, setFormData }) {
-  // 셀렉터가 매번 새 배열을 돌려주면 useSyncExternalStore가 무한 리렌더에 빠진다
-  // (selectMembers의 NO_MEMBERS와 같은 함정 — 실제로 여기서 한 번 터졌다).
-  // 안정된 참조(s.tasks)만 구독하고 파생은 useMemo로 한다.
-  const tasksState = useStore(s => s.tasks);
-  // 최근에 만든 업무가 맨 위다(utils.byNewest) — allIds 순서를 그대로 쓰면 맨 위가
-  // 가장 오래된 업무여서, 방금 만든 업무를 고르려면 목록 끝까지 내려가야 했다.
-  const candidates = useMemo(() => tasksState.allIds
-    .map(id => tasksState.byId[id])
-    .filter(t => t.projectId === formData.projectId && t.id !== formData.id)
-    .sort(byNewest),
-    [tasksState, formData.projectId, formData.id]);
-  const chosen = formData.dependsOn || [];
-  const byId = new Map(candidates.map(t => [t.id, t]));
-  const options = candidates.filter(t =>
-    !chosen.includes(t.id) && !(t.dependsOn || []).includes(formData.id));
-  const add = (id) => { if (id) setFormData(prev => ({ ...prev, dependsOn: [...(prev.dependsOn || []), id] })); };
-  const remove = (id) => setFormData(prev => ({ ...prev, dependsOn: (prev.dependsOn || []).filter(x => x !== id) }));
-  return (
-    <PropertyRow icon={<ArrowLeftRight size={13} className="text-fg-faint" />} label="선행 업무">
-      <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-        {chosen.map(id => (
-          <span key={id} className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-[11px] font-semibold bg-surface-hover text-fg max-w-[220px]">
-            {/* 지워진 카드를 가리키면 제목이 없다 — 그래도 칩은 남겨서 뺄 수 있게 한다 */}
-            <span className="truncate">{byId.get(id)?.title || '(지워진 업무)'}</span>
-            <button type="button" onClick={() => remove(id)} title="선행 업무 빼기"
-              className="text-fg-faint hover:text-tag-red-fg transition-colors shrink-0"><X size={11} /></button>
-          </span>
-        ))}
-        {options.length > 0 && (
-          <select value="" onChange={(e) => add(e.target.value)} aria-label="선행 업무"
-            className="text-[11px] text-fg-muted bg-surface border border-line rounded-full px-2 py-1 outline-none focus:border-accent max-w-[200px]">
-            <option value="">{chosen.length ? '+ 더 추가' : '+ 먼저 끝나야 하는 업무'}</option>
-            {options.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
-          </select>
-        )}
-        {!options.length && !chosen.length && (
-          <span className="text-[11px] text-fg-muted">이 프로젝트에 다른 업무가 생기면 고를 수 있어요</span>
-        )}
-      </div>
-    </PropertyRow>
-  );
-}
-
-// 보기 모드의 선행 업무 줄 — 있을 때만 그린다. 끝난 선행 업무에는 체크를 붙여서
-// "이제 시작해도 되는지"가 제목을 읽지 않아도 보이게 한다.
-function DependsViewRow({ dependsOn }) {
-  // DependsRow와 같은 이유 — 셀렉터에서 새 배열을 만들지 않는다
-  const tasksState = useStore(s => s.tasks);
-  const deps = useMemo(() => (dependsOn || []).map(id => tasksState.byId[id]).filter(Boolean),
-    [tasksState, dependsOn]);
-  if (!deps.length) return null;
-  return (
-    <div className="flex items-start gap-0 py-2.5">
-      <span className="w-24 shrink-0 text-fg-muted">선행 업무</span>
-      <span className="flex flex-wrap gap-x-3 gap-y-1 min-w-0">
-        {deps.map(d => (
-          <span key={d.id} className="inline-flex items-center gap-1 font-medium max-w-full"
-            style={{ color: d.status === '완료' ? 'var(--app-tag-green-fg)' : 'var(--app-ink)' }}>
-            {d.status === '완료' && <Check size={11} className="shrink-0" />}
-            <span className="truncate">{d.title}</span>
-          </span>
-        ))}
-      </span>
-    </div>
-  );
-}
-
-const PropertyRow = ({ icon, label, children }) => (
-  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1.5 sm:gap-0 py-2">
-    <div className="w-28 shrink-0 flex items-center gap-1.5 text-xs text-fg-muted">{icon}{label}</div>
-    <div className="flex-1 min-w-0">{children}</div>
-  </div>
-);
-
-// 담당자 멤버 칩 선택기 — 등록된 멤버만 고를 수 있다(목록 밖 이름은 넣지 못한다).
-// 예전에는 아무 이름이나 타이핑+Enter로 넣을 수 있었는데, 가입하지 않은 사람은
-// 업무를 볼 수도 알림을 받을 수도 없고 아무의 '내 업무'에도 안 잡혀서 배정이
-// 아니라 메모였다. 오타도 그렇게 유령 담당자가 됐다. 그런 메모는 본문에 적는다.
-const AssigneePicker = ({ value = [], onChange, members = [] }) => {
-  const [input, setInput] = useState('');
-  const [open, setOpen] = useState(false);
-  const [activeIdx, setActiveIdx] = useState(0);
-  const rootRef = useRef(null);
-  const popRef = useRef(null);   // 포털로 나간 목록(또는 '없는 이름' 줄) — 바깥 누름 판정에 같이 넣는다
-
-  const suggestions = useMemo(() => {
-    const q = input.trim().toLowerCase();
-    const uniq = [...new Set(members.filter(Boolean))].filter(m => !value.includes(m))
-      .sort((a, b) => a.localeCompare(b, 'ko')); // 가나다순
-    // 전원을 보여준다 — 6명에서 자르면 뒷순번 사람은 목록에 없는 것처럼 보였다
-    // (목록에 max-h + 스크롤이 있어 길어도 화면을 밀지 않는다)
-    return q ? uniq.filter(m => m.toLowerCase().includes(q)) : uniq;
-  }, [input, members, value]);
-
-  // 목록은 **body 포털**이다(HANDOFF §8 '떠 있는 것') — 업무 창은 overflow 있는 상자라
-  // absolute 목록이 잘리거나 좁은 폭에서 화면 밖으로 나갔다. 칸 상자의 왼쪽 끝에서 연다.
-  const listOpen = open && (suggestions.length > 0 || !!input.trim());
-  const [pos, place] = useAnchoredPos(rootRef, listOpen, 160, 200, 8, popRef, { align: 'start' });
-  // 거르면 줄 수가 바뀐다 — 위로 뒤집혀 선 목록이 칸에서 떨어져 뜨지 않게 다시 잰다
-  useLayoutEffect(() => { if (listOpen) place(); }, [listOpen, suggestions.length, place]);
-
-  useEffect(() => {
-    if (!open) return;
-    // 목록이 포털이라 rootRef의 자손이 아니다 — **목록도 '안'으로 센다**(useDismiss 머리말과 같은 이유)
-    const onDown = (e) => {
-      if (rootRef.current?.contains(e.target) || popRef.current?.contains(e.target)) return;
-      setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [open]);
-
-  const add = (name) => {
-    const n = (name || '').trim();
-    setInput(''); setActiveIdx(0);
-    if (!n || value.includes(n)) return;
-    onChange([...value, n]);
-  };
-  const remove = (name) => onChange(value.filter(v => v !== name));
-
-  const onKeyDown = (e) => {
-    if (imeComposing(e)) return;   // 조합을 끝내는 Enter로 고르지 않는다
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      // 목록에 있는 것만 넣는다 — 입력한 글자를 그대로 담당자로 만들지 않는다
-      if (open && suggestions.length) add(suggestions[activeIdx] ?? suggestions[0]);
-    } else if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActiveIdx(i => Math.min(i + 1, suggestions.length - 1)); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)); }
-    else if (e.key === 'Escape') { setOpen(false); }
-    else if (e.key === 'Backspace' && !input && value.length) { remove(value[value.length - 1]); }
-  };
-
-  return (
-    <div className="relative" ref={rootRef}>
-      <div className="flex flex-wrap items-center gap-1.5 border border-line rounded-xs bg-surface px-2 py-1.5 focus-within:border-accent focus-within:shadow-soft transition-all">
-        {value.map(name => (
-          <span key={name} className="inline-flex items-center gap-1 bg-accent-weak text-accent-text rounded-full pl-2 pr-1 py-0.5 text-[11px] font-medium">
-            {name}
-            <button type="button" onClick={() => remove(name)} className="relative before:absolute before:-inset-x-1 before:-inset-y-[5px] hover:bg-accent/20 rounded-full p-0.5 transition active:scale-95" title="제거"><X size={11} /></button>
-          </span>
-        ))}
-        <input
-          value={input}
-          onChange={e => { setInput(e.target.value); setOpen(true); setActiveIdx(0); }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={onKeyDown}
-          placeholder={value.length ? '추가…' : '멤버 이름으로 찾기'} aria-label="담당자"
-          className="flex-1 min-w-[8rem] bg-transparent text-xs text-fg placeholder:text-fg-faint outline-none py-0.5"
-        />
-      </div>
-      {/* 찾는 이름이 목록에 없을 때 — 왜 안 들어가는지 알려준다.
-          아무 안내 없이 Enter가 먹히지 않으면 입력이 씹힌 것처럼 보인다. */}
-      {open && input.trim() && suggestions.length === 0 && createPortal(
-        <p ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
-          className="z-[90] px-2.5 py-2 text-[11px] text-fg-muted bg-surface border border-line rounded-lg shadow-elevated">
-          등록된 멤버에 없는 이름이에요
-        </p>, document.body)}
-      {open && suggestions.length > 0 && createPortal(
-        <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top }}
-          className="z-[90] w-max min-w-[10rem] max-w-[min(18rem,90vw)] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none animate-in fade-in zoom-in-95 duration-150">
-          {suggestions.map((name, i) => (
-            <button key={name} type="button" onMouseDown={e => { e.preventDefault(); add(name); }}
-              // 방향키로 목록 밖까지 내려가도 활성 항목이 보이게
-              // text-[13px]: 다른 메뉴(더보기·프로필)와 같은 크기 — text-sm(14px)은 12px
-              // 입력칸 옆에서 혼자 커 보였다(실제 지적)
-              ref={i === activeIdx ? keepVisible : null}
-              className={`w-full flex items-center gap-2 px-2 py-2 rounded-md text-left text-[13px] transition-colors ${i === activeIdx ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:bg-surface-hover'}`}>
-              <span className="truncate">{name}</span>
-            </button>
-          ))}
-        </div>, document.body)}
-    </div>
-  );
-};
-
-// ── 담당자 고르기 ────────────────────────────────────────────────────────
-// 담당자 칸(AssigneePicker)과 달리 **한 줄 안에 들어가야** 해서 칩 하나를 누르면
-// 목록이 뜨는 모양이다. 목록에 없는 이름은 넣지 않는다(그쪽과 같은 규칙) — 다만
-// 이미 적혀 있는 팀 이름(`엔지니어팀`)은 그대로 두고 지울 수만 있다.
-function OwnerPicker({ names = [], members = [], onChange }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef(null);
-  const triggerRef = useRef(null);
-  const popRef = useRef(null);
-  const [pos] = useAnchoredPos(triggerRef, open, 210, 260);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (e) => {
-      if (!rootRef.current?.contains(e.target) && !popRef.current?.contains(e.target)) setOpen(false);
-    };
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-  }, [open]);
-
-  const toggle = (n) => onChange(names.includes(n) ? names.filter(x => x !== n) : [...names, n]);
-  const list = useMemo(
-    () => [...new Set([...names, ...members.filter(Boolean)])].sort((a, b) => a.localeCompare(b, 'ko')),
-    [names, members],
-  );
-
-  const pop = open ? createPortal(
-    <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: 210 }}
-      className="z-[90] max-h-60 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none animate-in fade-in zoom-in-95 duration-150">
-      {list.map(n => (
-        <button key={n} type="button" onClick={() => toggle(n)}
-          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left text-[12.5px] transition-colors ${names.includes(n) ? 'bg-accent-weak text-accent-text font-semibold' : 'text-fg-muted hover:bg-surface-hover'}`}>
-          <Avatar name={n} className="flex w-5 h-5 text-[10px] shrink-0" />
-          <span className="truncate">{n}</span>
-          {names.includes(n) && <Check size={13} strokeWidth={3} className="ml-auto shrink-0" />}
-        </button>
-      ))}
-    </div>, document.body) : null;
-
-  return (
-    <span className="inline-flex shrink-0" ref={rootRef}>
-      <button ref={triggerRef} type="button" onClick={() => setOpen(o => !o)}
-        className={`inline-flex items-center gap-1.5 h-[30px] rounded-full border text-[12px] transition active:scale-95 ${names.length ? 'pl-1 pr-2.5 border-line bg-surface text-fg' : 'px-2.5 border-dashed border-line bg-surface text-fg-muted'}`}>
-        {names.length > 0 && (
-          <span className="flex items-center">
-            {names.slice(0, 3).map((n, i) => (
-              <Avatar key={n} name={n}
-                className={`flex w-[21px] h-[21px] text-[10px] ${i ? '-ml-1.5 ring-[1.5px] ring-surface' : ''}`} />
-            ))}
-          </span>
-        )}
-        <span className="truncate max-w-[9rem]">{names.length ? namesLabel(names) : '담당자'}</span>
-      </button>
-      {pop}
-    </span>
-  );
-}
-
-// ── 청년별 담당 업무 (2026-09-21 요청 · 2026-09-22 그릴링으로 다시 짰다) ──────
-// 다듬기가 회의록·기획안에서 "누가 · 무엇을 · 언제까지"를 뽑아 두는데, 그게 본문 글자로만
-// 남아서 손으로 하위 업무를 만들지 않으면 그대로 사라졌다.
-//
-// **저장 자리는 본문 그 도막 하나다**(새 칸을 만들지 않았다 · §3-1). 부품은 그것을 읽고
-// (parseActionItems) 고친 결과를 도로 적는다(writeActionSection). 편집기 본문에서는 그
-// 도막을 감춘다 — 고치는 길이 둘이면 두 글이 어긋난다.
-//
-// **줄은 빈 것도 들고 있어야 한다.** writeActionSection은 할 일이 빈 줄을 버리므로(본문에
-// `- ` 껍데기를 남기지 않는다), 부모가 준 items만 그리면 `＋ 항목 추가`가 만든 빈 줄이
-// 그 자리에서 사라진다 — 실제로 "항목 추가가 되지도 않는다"로 보였다(2026-09-22).
-// 그래서 **여기서 줄을 들고 있고**, 바깥 글이 정말 달라졌을 때만 다시 읽는다.
-//
-// 줄 짜임(사용자 요청 "데스크톱·모바일 모두 잘 들어와야 한다"):
-//   좁은 화면 → 첫 줄 [체크][사람] … [✕] · 둘째 줄 [할 일][날짜]
-//   넓은 화면 → 한 줄 [체크][사람][할 일][날짜][✕]
-// order와 basis로 가른다 — 같은 마크업 한 벌이라 두 폭이 어긋날 자리가 없다.
-//
-// **내린 줄은 여기 없다**(2026-09-24 그릴링 — "체크해서 내린 것만 하위에 쌓이고, 위에는
-// 안 내린 것만"). '하위 업무로'는 그 줄을 **본문 도막에서 지우고** cards.subtasks로 옮긴다
-// (onCreate(만든 것, 남은 줄)). 그 뒤로 사람·기한은 아래 SubtaskList가 고친다 — 본문에
-// 옛 이름이 남아 AI 요약이 그걸 읽는 일이 없게. 다듬기를 다시 돌려 같은 제목이 또
-// 뽑히면 matchSubtask로 거른다(그 줄도 다음에 내릴 때 같이 걷힌다).
-// `ops`(같이 쓰기 · 업무 창) — 줄을 Yjs 배열에서 읽고 줄 단위로 고친다(add·update·remove). 그때는 items가
-// 곧 원본이고 빈 줄도 배열에 그대로 있어서 이 부품이 줄을 따로 들 까닭이 없다(위 '빈 줄' 문제가 없다).
-function ActionItems({ items = [], subtasks = [], members = [], editable = false, onChange, onCreate, ops = null }) {
-  const [rows, setRows] = useState(items);
-  // 내가 적어 보낸 것이 그대로 돌아왔으면 그냥 둔다(빈 줄이 살아남는다).
-  // 다듬기·되돌리기처럼 **바깥에서 글이 바뀌었을 때만** 다시 읽는다.
-  const sameAsMine = useMemo(() => {
-    const sig = (rs) => rs.filter(r => String(r?.what || '').trim()).map(formatActionLine).join('\n');
-    return sig(rows) === sig(items);
-  }, [rows, items]);
-  useEffect(() => { if (!sameAsMine) setRows(items); }, [items]);   // eslint-disable-line react-hooks/exhaustive-deps
-
-  const shown = ops ? items : (editable ? rows : items);
-  const pending = useMemo(() => shown.filter(it => !matchSubtask(it, subtasks)), [shown, subtasks]);
-  // 고른 것 — 열 때는 아직 업무가 아닌 것이 전부 골라져 있다(대개 다 만든다).
-  const [off, setOff] = useState(() => new Set());
-  const keyOf = (it, i) => (ops ? it.id : it.raw) || `row-${i}`;
-  const picked = pending.filter((it, i) => String(it?.what || '').trim() && !off.has(keyOf(it, i)));
-
-  if (!pending.length) return null;
-
-  const push = (next) => { setRows(next); onChange?.(next); };
-  const toggle = (k) => setOff(prev => {
-    const n = new Set(prev);
-    if (n.has(k)) n.delete(k); else n.add(k);
-    return n;
-  });
-  const setAt = (i, patch) => (ops ? ops.update(shown[i].id, patch) : push(shown.map((it, k) => (k === i ? { ...it, ...patch } : it))));
-  const removeAt = (i) => (ops ? ops.remove(shown[i].id) : push(shown.filter((_, k) => k !== i)));
-  const addRow = () => {
-    const row = { names: [], name: '', what: '', dueText: '', dueDate: '', raw: ops ? '' : `새 줄 ${Date.now()}` };
-    if (ops) ops.add(row); else push([...shown, row]);
-  };
-  const make = () => {
-    if (!picked.length) return;
-    // 남는 줄 = 안 고른 것 중 아직 업무가 아닌 것(이미 하위 업무인 줄도 이참에 걷는다)
-    const rest = shown.filter(it => !picked.includes(it) && !matchSubtask(it, subtasks));
-    onCreate?.(picked.map(it => ({
-      id: generateId(), title: it.what, done: false,
-      // 이름·기한을 같이 옮긴다(2026-09-22) — 없는 줄은 그냥 비어 있다
-      ...(it.names?.length ? { assignee: it.names.join(', ') } : {}),
-      ...(it.dueDate ? { due: it.dueDate } : {}),
-    })), rest);
-    if (!ops) setRows(rest);
-    setOff(new Set());
-  };
-
-  return (
-    <div className="action-items mt-4">
-      <div className="flex flex-wrap items-center gap-2 mb-1.5">
-        <label className="block text-xs text-fg-muted shrink-0">청년별 담당 업무</label>
-        {picked.length > 0 && (
-          <span className="inline-flex items-center h-[22px] px-2.5 rounded-full bg-tag-blue text-tag-blue-fg text-[11px] font-semibold">
-            선택된 하위 업무 {picked.length}개
-          </span>
-        )}
-      </div>
-      <div className="divide-y divide-line/60 border-y border-line">
-        {shown.map((it, i) => {
-          // 내린 줄은 그리지 않는다 — i는 shown의 자리 그대로라 setAt·removeAt이 안 어긋난다
-          if (matchSubtask(it, subtasks)) return null;
-          const k = keyOf(it, i);
-          const on = !!String(it?.what || '').trim() && !off.has(k);
-          return (
-            <div key={k} className="flex flex-wrap items-center gap-2 py-2">
-
-              {/* ① 체크 + 담당자 — 두 폭 모두 맨 앞 */}
-              <span className="order-1 flex items-center gap-2 min-w-0">
-                <input type="checkbox" checked={on} onChange={() => toggle(k)}
-                  disabled={!String(it?.what || '').trim()}
-                  aria-label={`${it.what || '이 줄'} 고르기`}
-                  className="action-check shrink-0 disabled:opacity-40" />
-                {editable ? (
-                  <OwnerPicker names={it.names || []} members={members}
-                    onChange={(names) => setAt(i, { names, name: names[0] || '' })} />
-                ) : (it.names?.length ? (
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    <span className="flex items-center shrink-0">
-                      {it.names.slice(0, 3).map((n, j) => (
-                        <Avatar key={n} name={n} className={`flex w-[22px] h-[22px] text-[10px] ${j ? '-ml-1.5 ring-[1.5px] ring-surface' : ''}`} />
-                      ))}
-                    </span>
-                    <span className="text-xs font-semibold text-fg truncate">{namesLabel(it.names)}</span>
-                  </span>
-                ) : null)}
-              </span>
-
-              {/* ③ 지우기 — 좁을 때는 첫 줄 오른쪽 끝, 넓을 때는 줄의 맨 끝 */}
-              <span className="order-2 sm:order-3 ml-auto sm:ml-0 flex items-center gap-1 shrink-0">
-                {editable && (
-                  <button type="button" onClick={() => removeAt(i)} aria-label="이 줄 지우기"
-                    className="p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition active:scale-95">
-                    <X size={13} />
-                  </button>
-                )}
-              </span>
-
-              {/* ② 할 일 + 기한 — 좁을 때는 **둘째 줄 통째로**, 넓을 때는 가운데를 채운다 */}
-              <span className="order-3 sm:order-2 basis-full sm:basis-auto sm:flex-1 flex items-center gap-2 min-w-0">
-                {editable ? (
-                  <input value={it.what} onChange={(e) => setAt(i, { what: e.target.value })}
-                    aria-label="할 일" placeholder="할 일"
-                    className="flex-1 min-w-0 h-[34px] px-2.5 text-xs text-fg bg-surface border border-line rounded-md focus:border-accent outline-none transition-colors" />
-                ) : (
-                  <span className="flex-1 min-w-0 text-xs text-fg-secondary break-words">{it.what}</span>
-                )}
-                {editable ? (
-                  <DatePicker value={it.dueDate || ''}
-                    onChange={(v) => setAt(i, { dueDate: v, dueText: '' })}
-                    ariaLabel="기한"
-                    triggerClassName="shrink-0 inline-flex items-center gap-1 h-[34px] px-2.5 text-[11.5px] text-fg-muted bg-surface border border-line rounded-md hover:bg-surface-hover transition-colors whitespace-nowrap">
-                    <span>{it.dueDate ? formatDay(it.dueDate) : '기한'}</span>
-                  </DatePicker>
-                ) : (it.dueText && <span className="shrink-0 text-[11px] text-fg-muted tabular-nums">{it.dueText}</span>)}
-              </span>
-
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex items-center gap-2 pt-2">
-        {editable && (
-          <button type="button" onClick={addRow}
-            className="h-8 px-3 rounded-md border border-dashed border-line text-fg-muted text-xs font-semibold hover:bg-surface-hover transition active:scale-95">
-            ＋ 항목 추가
-          </button>
-        )}
-        <span className="flex-1" />
-        {picked.length > 0 && (
-          // 골랐을 때만 서는 버튼이라 불쑥 튀어나온다 — 아래에서 살짝 올라오며 든다
-          <button type="button" onClick={make}
-            className="h-9 px-4 rounded-md bg-accent hover:bg-accent-strong text-white text-xs font-semibold transition active:scale-95 animate-in fade-in slide-in-from-bottom-1 duration-200">
-            하위 업무로
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── 하위 업무 (체크리스트) ────────────────────────────────────────────────
-// 사역 업무는 대개 여러 단계인데, 본문 마크다운 불릿으로 적으면 진척에 안 잡힌다.
-// cards.subtasks(jsonb) 컬럼 하나로 둔다 — 카드와 언제나 같이 읽고 쓰므로 조인
-// 테이블이 필요 없고, 컬럼 통째 쓰기라 저장이 겹쳐도 깨지지 않는다(0013에서
-// 담당자를 조인으로 옮겼다가 겹친 저장이 duplicate key로 깨졌던 것과 반대 성질).
-//
-// 맡은 사람·기한(2026-09-24 그릴링): 담당 업무에서 내려온 줄은 이 둘을 들고 온다. 내린 뒤로는
-// **여기가 기준이다** — 위와 같은 OwnerPicker·DatePicker로 고친다(모든 카드).
-// assignee는 `'노준석, 박지호'` 글자로 둔다(0013 이후 jsonb 모양 그대로 — 칸을 늘리지 않았다).
-// 줄 짜임은 ActionItems와 같은 order/basis 한 벌이다:
-//   좁은 화면 → 첫 줄 [체크][사람] … [🗑] · 둘째 줄 [할 일][기한]
-//   넓은 화면 → 한 줄 [체크][사람][할 일][기한][🗑]
-//
-// `onChange(fn, opts)` — fn은 (지금 목록 → 새 목록). **목록을 값으로 넘기지 않는다**: 업무 창(live)은
-// 이름을 600ms 뒤에 저장하는데, 그때 이 부품이 들고 있던 목록으로 보내면 그 사이 남이 체크한 줄이 풀린다.
-// 부르는 쪽이 지금 카드(스토어)에 fn을 건다. 새 업무 폼은 폼 state에 건다.
-//
-// `live`(업무 창 · 2026-09-28) — 체크·추가·지우기·사람·기한은 **바로** 저장되고, 이름은 SubtaskTitle이
-// 초안을 들고 있다가 600ms 조용하거나 칸을 떠날 때 저장한다(글자마다 쓰지 않는다).
-// **끝낸 줄의 이름은 글자(span)로 선다** — 방금 체크한 줄의 취소선을 긋는 자리가 그 글자다(PITFALLS 9-ch ·
-// 입력칸에는 그릴 곳이 없다). 그 글자를 누르면 입력칸이 되어 고칠 수 있다.
-const ownersOf = (s) => String(s?.assignee || '').split(',').map(x => x.trim()).filter(Boolean);
-export const NAME_IDLE_MS = 600;
-
-// `readOnly`(업무 창 보기 화면 · 2026-09-29 되살렸다) — 체크만 눌린다(바로 저장). 사람은 얼굴 + 이름, 기한은
-// `M/D까지` 글자, 지우기·추가 칸·기한 고르기는 없다. 항목이 없으면 구역이 서지 않는다.
-function SubtaskList({ value = [], onChange, members = [], live = false, readOnly = false, register, hold }) {
-  const [draft, setDraft] = useState('');
-  const { total, done } = subtaskProgress(value);
-
-  const add = () => {
-    const t = draft.trim();
-    if (!t) return;
-    onChange(list => [...list, { id: generateId(), title: t, done: false }]);
-    setDraft('');
-  };
-  // 작은 완료의 손맛(2026-09-25 · index.css `.dc-check-now`·`.dc-strike-now`) — **방금 체크한 줄만** 체크를
-  // 선으로 그리고 취소선을 왼쪽에서 긋는다. 실시간으로 남이 체크한 줄·다시 연 창에는 이 값이 없어 그대로
-  // 선다. 되돌리면 바로 지운다(움직임 없음). 취소선이 다 그어지면(animationend) 떼어 line-through로 돌아간다.
-  const [justDone, setJustDone] = useState(null);
-  const toggle = (id) => {
-    const cur = value.find(s => s.id === id);
-    setJustDone(cur && !cur.done ? id : null);
-    onChange(list => list.map(s => (s.id === id ? { ...s, done: !s.done } : s)));
-  };
-  const rename = (id, title, opts) => onChange(list => list.map(s => (s.id === id ? { ...s, title } : s)), opts);
-  // 비우면 키를 뺀다 — 손으로 더한 줄과 같은 모양({id,title,done})으로 돌아간다
-  const patch = (id, key, v) => onChange(list => list.map(s => {
-    if (s.id !== id) return s;
-    const { [key]: _drop, ...rest } = s;
-    return v ? { ...rest, [key]: v } : rest;
-  }));
-  const remove = (id) => onChange(list => list.filter(s => s.id !== id));
-
-  // 읽기 전용인데 항목도 없으면 자리만 차지한다
-  if (readOnly && !total) return null;
-
-  return (
-    <div className="mt-4">
-      <div className="flex items-center gap-2 mb-1.5">
-        <label className="block text-xs text-fg-muted shrink-0">하위 업무</label>
-        {total > 0 && (
-          <span className="text-[11px] font-semibold text-fg-muted tabular-nums">{done}/{total}</span>
-        )}
-        <span className="flex-1 min-w-[40px]"><Bar ratio={total ? done / total : 0} color="var(--p-blue)" height={3} /></span>
-      </div>
-      <div className="divide-y divide-line/60 border-y border-line">
-        {value.map(s => {
-          const owners = ownersOf(s);
-          // 좁은 화면에서 할 일을 둘째 줄로 내리나 — 고치는 화면이거나 사람이 있을 때(보기에서 사람이 없으면 한 줄)
-          const twoLine = !readOnly || owners.length > 0;
-          const due = readOnly && s.due && (
-            <span className={`shrink-0 text-[11px] tabular-nums whitespace-nowrap ${s.done ? 'text-fg-faint' : 'text-fg-muted'}`}>
-              {formatDay(s.due)}까지
-            </span>
-          );
-          return (
-            <div key={s.id} className="subtask-row flex flex-wrap items-center gap-2 py-2">
-
-              {/* ① 체크 + 맡은 사람 — 두 폭 모두 맨 앞 */}
-              <span className="order-1 flex items-center gap-2 min-w-0">
-                {/* 체크는 한 번에 눌린다 — 하위 업무를 끝낼 때마다 다른 조작을 거치게 하면 아무도 쓰지 않는다 */}
-                <button
-                  type="button" onClick={() => toggle(s.id)}
-                  className="w-[18px] h-[18px] rounded-sm shrink-0 flex items-center justify-center transition-colors duration-[120ms]"
-                  style={s.done
-                    ? { background: 'var(--app-tag-green-fg)' }
-                    : { border: '1.5px solid var(--app-line)' }}
-                  aria-pressed={s.done} aria-label={`${s.title} ${s.done ? '완료 취소' : '완료'}`}
-                >
-                  {/* lucide Check와 같은 선이지만 pathLength=1이 있어야 선으로 그릴 수 있다 */}
-                  {s.done && (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                      aria-hidden className={`w-[11px] h-[11px] text-white${justDone === s.id ? ' dc-check-now' : ''}`}>
-                      <path pathLength="1" d="M20 6 9 17l-5-5" />
-                    </svg>
-                  )}
-                </button>
-                {readOnly ? (owners.length > 0 && (
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    <span className="flex items-center shrink-0">
-                      {owners.slice(0, 3).map((n, i) => (
-                        <Avatar key={n} name={n} className={`flex w-[21px] h-[21px] text-[10px] ${i ? '-ml-1.5 ring-[1.5px] ring-surface' : ''}`} />
-                      ))}
-                    </span>
-                    <span className={`text-xs font-semibold truncate ${s.done ? 'text-fg-faint' : 'text-fg'}`}>{namesLabel(owners)}</span>
-                  </span>
-                )) : (
-                  <OwnerPicker names={owners} members={members}
-                    onChange={(names) => patch(s.id, 'assignee', names.join(', '))} />
-                )}
-              </span>
-
-              {/* ③ 기한(보기) · 지우기(고치기) — 좁을 때는 첫 줄 오른쪽 끝, 넓을 때는 줄의 맨 끝 */}
-              <span className={`${twoLine ? 'order-2' : 'order-3'} sm:order-3 ml-auto sm:ml-0 flex items-center gap-1 shrink-0`}>
-                {due}
-                {/* 한 번 누르면 바로 지워졌다 — 체크박스 옆 작은 휴지통이라 잘못 누르기 쉽고,
-                    하위 업무는 실행 취소가 없다. 삭제 확인은 §7대로 ConfirmPopover로 통일한다. */}
-                {!readOnly && <ConfirmPopover
-                  className="shrink-0 inline-flex"
-                  title="이 하위 업무 삭제"
-                  message={s.title.trim() ? `'${s.title.trim()}'을(를) 삭제할까요?` : '이 하위 업무를 삭제할까요?'}
-                  onConfirm={() => remove(s.id)}
-                >
-                  <button type="button" aria-label={`${s.title || '이름 없는 하위 업무'} 삭제`}
-                    className="p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors">
-                    <Trash2 size={13} />
-                  </button>
-                </ConfirmPopover>}
-              </span>
-
-              {/* ② 할 일 + 기한 칩 — 좁을 때는 둘째 줄을 체크 폭만큼 들여서, 넓을 때는 가운데 */}
-              <span className={`${twoLine ? 'order-3 basis-full pl-[26px]' : 'order-2 flex-1'} sm:order-2 sm:basis-auto sm:flex-1 sm:pl-0 flex items-center gap-2 min-w-0`}>
-                {readOnly ? (
-                  // 바깥은 자리(flex-1), 안은 **글자만큼인 인라인**이다 — 취소선을 그리는 요소가 줄 폭이면 줄 끝까지
-                  // 그었다가 끝나는 순간 글자 폭으로 되돌아왔다(2026-09-28 사용자 지적). 인라인이라 여러 줄도 줄마다 글자 끝까지.
-                  <span className="flex-1 min-w-0 text-[13px] break-words">
-                    <span data-subtask-title=""
-                      onAnimationEnd={(e) => { if (e.animationName === 'dc-strike' && justDone === s.id) setJustDone(null); }}
-                      className={s.done ? `text-fg-faint line-through${justDone === s.id ? ' dc-strike-now' : ''}` : 'text-fg'}>{s.title}</span>
-                  </span>
-                ) : live ? (
-                  <SubtaskTitle s={s} justDone={justDone === s.id} onStrikeEnd={() => setJustDone(null)}
-                    onCommit={(title, release) => rename(s.id, title, { release })} register={register} hold={hold} />
-                ) : (
-                  // 새 업무 폼은 언제나 입력칸이다 — '눌러서 고치기'로 감추면 고칠 수 있다는 것 자체가 안 보인다
-                  <input
-                    value={s.title}
-                    onChange={e => rename(s.id, e.target.value)}
-                    placeholder="예: 포스터 시안 만들기" aria-label="하위 업무"
-                    className={`flex-1 min-w-0 text-[13px] bg-transparent border border-transparent rounded-xs px-1.5 py-1 outline-none transition-colors hover:border-line focus:border-accent focus:bg-surface ${s.done ? 'text-fg-faint line-through' : 'text-fg'} placeholder:text-fg-faint`}
-                  />
-                )}
-                {!readOnly && (
-                  <DatePicker value={s.due || ''} onChange={(v) => patch(s.id, 'due', v)} ariaLabel="기한"
-                    triggerClassName={`shrink-0 inline-flex items-center gap-1 h-[30px] px-2.5 text-[11.5px] text-fg-muted bg-surface border border-line rounded-md hover:bg-surface-hover transition-colors whitespace-nowrap ${s.due ? '' : 'border-dashed'}`}>
-                    <span>{s.due ? formatDay(s.due) : '기한'}</span>
-                  </DatePicker>
-                )}
-              </span>
-            </div>
-          );
-        })}
-        {/* readOnly + 항목 0개는 위에서 이미 return null이라 여기 오지 않는다 */}
-        {!total && (
-          <p className="py-2.5 text-[11px] text-fg-muted">업무를 여러 개로 나누면 하나씩 체크할 수 있어요</p>
-        )}
-      </div>
-      {!readOnly && <input
-        value={draft} onChange={e => setDraft(e.target.value)}
-        onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); add(); } }}
-        onBlur={add}
-        // '입력하고 Enter'라고만 적혀 있었는데 onBlur로도 추가된다. 방법을 설명하는
-        // 대신 예시를 두는 쪽이 낫다 — '하위 업무'가 무엇인지 모르는 사람에게는
-        // 방법보다 "여기에 무엇을 적는 칸인지"가 먼저다.
-        placeholder="예: 포스터 시안 만들기" aria-label="하위 업무"
-        // px-3 — 글이 위 상세 내용 편집기(p-3)와 같은 x에서 시작한다(사용자 결정 2026-09-25 · 목업 B2)
-        className="w-full mt-2 text-[13px] px-3 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint"
-      />}
-    </div>
-  );
-}
-
-// 초점이 있거나 저장이 밀린 동안만 초안을 든다 — 그 밖에는 스토어의 지금 값(남이 고친 이름)을 그린다.
-// 빈 이름은 저장하지 않는다(칸을 떠나면 원래 이름으로 돌아간다). flush는 창을 닫을 때도 불린다(register).
-function useNameDraft({ value, onCommit, register, hold, idleMs = NAME_IDLE_MS }) {
-  const [draft, setDraft] = useState(null);
-  const ref = useRef({ draft: null, timer: null, release: null, focused: false });
-  const commitRef = useRef(onCommit);
-  commitRef.current = onCommit;
-  const flush = useCallback(() => {
-    const r = ref.current;
-    clearTimeout(r.timer); r.timer = null;
-    const release = r.release; r.release = null;
-    if (!release) return;
-    const d = r.draft;
-    if (d != null && d.trim()) commitRef.current(d, release);
-    else release(true);
-  }, []);
-  useEffect(() => register?.(flush), [register, flush]);
-  useEffect(() => () => flush(), [flush]);
-  const change = (v) => {
-    const r = ref.current;
-    r.draft = v; setDraft(v);
-    if (!r.release) r.release = hold ? hold() : () => {};
-    clearTimeout(r.timer);
-    r.timer = setTimeout(flush, idleMs);
-  };
-  const focus = () => { ref.current.focused = true; };
-  const blur = () => {
-    flush();
-    ref.current.focused = false; ref.current.draft = null; setDraft(null);
-  };
-  return { shown: draft ?? value ?? '', change, focus, blur };
-}
-
-function SubtaskTitle({ s, justDone, onStrikeEnd, onCommit, register, hold }) {
-  const [editing, setEditing] = useState(false);
-  const name = useNameDraft({ value: s.title, onCommit, register, hold });
-  const inputRef = useRef(null);
-  useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
-  if (s.done && !editing) {
-    // 바깥은 자리(flex-1), 안은 **글자만큼인 인라인**이다 — 취소선을 그리는 요소가 줄 폭이면 줄 끝까지
-    // 그었다가 끝나는 순간 글자 폭으로 되돌아왔다(2026-09-28 사용자 지적). 인라인이라 여러 줄도 줄마다 글자 끝까지.
-    return (
-      <span className="flex-1 min-w-0 text-[13px] break-words px-1.5 py-1 cursor-text" onClick={() => setEditing(true)}>
-        <span data-subtask-title=""
-          onAnimationEnd={(e) => { if (e.animationName === 'dc-strike' && justDone) onStrikeEnd(); }}
-          className={`text-fg-faint line-through${justDone ? ' dc-strike-now' : ''}`}>{s.title}</span>
-      </span>
-    );
-  }
-  return (
-    <input ref={inputRef} data-subtask-title=""
-      value={name.shown}
-      onChange={e => name.change(e.target.value)}
-      onFocus={name.focus}
-      onBlur={() => { name.blur(); setEditing(false); }}
-      onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
-      placeholder="예: 포스터 시안 만들기" aria-label="하위 업무"
-      className={`flex-1 min-w-0 text-[13px] bg-transparent border border-transparent rounded-xs px-1.5 py-1 outline-none transition-colors hover:border-line focus:border-accent focus:bg-surface ${s.done ? 'text-fg-faint line-through' : 'text-fg'} placeholder:text-fg-faint`}
-    />
-  );
-}
-
 // ── 새 업무 만들기 폼 ─────────────────────────────────────────────────────
 // 폼 state(formData)에 모았다가 창 아래 `만들기`로 한 번에 만든다(TaskModalShell handleCreate).
 // 만들고 나면 창이 그 카드의 '연 채로 고치기'(TaskLive)로 넘어간다.
-const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, userId, isAdmin, onFileActivity, pendingFiles = [], setPendingFiles, titleRef }) => {
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  // 다듬기 직전 본문. 있으면 '되돌리기'가 보인다. 창을 닫으면 잊는다 —
-  // "방금 다듬었는데 마음에 안 든다"가 실제 상황이고, 그 이상은 편집 이력 관리다.
-  // ponytail: 직전 하나만 기억한다. 두 번 다듬고 두 번 되돌릴 일은 아직 없었다.
-  const [beforePolish, setBeforePolish] = useState(null);
-
+const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode, pendingFiles = [], setPendingFiles, titleRef }) => {
   const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   const set = useCallback((fn) => setFormData(prev => fn(prev)), [setFormData]);
 
-  // AI 결과(마크다운)는 content로 넣으면 MarkdownEditor가 파서를 거쳐 문서로 반영한다
-  const handleAiPolish = async () => {
-    if (!formData.content) return;
-    setIsAiLoading(true);
-    const before = formData.content;
-    const polished = await AiService.polishText(before, formData);
-    setIsAiLoading(false);
-    // **안내 문구를 본문에 넣지 않는다.** 안내 문구도 truthy한 문자열이라 예전에는
-    // 그대로 본문을 덮었다 — 게스트·로컬·세션 만료에서 '다듬기'를 누르면 쓰던 글이
-    // "AI 기능은 로그인 후 사용할 수 있어요." 한 줄로 갈아치워졌다.
-    if (!polished || isFallbackText(polished)) { showToast(polished || '다듬지 못했어요\n잠시 후 다시 시도해주세요'); return; }
-    setBeforePolish(before);
-    setFormData(prev => ({ ...prev, content: polished }));
-  };
-  const undoPolish = () => {
-    setFormData(prev => ({ ...prev, content: beforePolish }));
-    setBeforePolish(null);
-  };
+  // AI 결과(마크다운)는 content로 넣으면 MarkdownEditor가 파서를 거쳐 문서로 반영한다(taskSummary.usePolish)
+  const polish = usePolish({
+    read: () => formData.content || null,
+    write: (md) => setFormData(prev => ({ ...prev, content: md })),
+    context: () => formData,
+  });
 
   return (
     <form className="space-y-4" onSubmit={e => e.preventDefault()}>
@@ -1237,20 +570,7 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
       <TaskProps data={formData} set={set} members={members} />
 
       <div>
-        <div className="flex justify-between items-center gap-2 mb-1.5">
-          <label className="block text-xs text-fg-muted shrink-0">상세 내용</label>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* 다듬은 직후에만 보인다 — 되돌리면 사라진다 */}
-            {beforePolish !== null && !isAiLoading && (
-              <button type="button" onClick={undoPolish} className="flex items-center gap-1 px-2 py-1 bg-surface border border-line text-fg-muted hover:bg-surface-hover rounded-full text-[10px] font-bold transition active:scale-95">
-                <Undo2 size={12} /> 되돌리기
-              </button>
-            )}
-            <button type="button" onClick={handleAiPolish} disabled={isAiLoading || !formData.content} className="flex items-center gap-1 px-2 py-1 bg-tag-purple text-tag-purple-fg hover:opacity-80 rounded-full text-[10px] font-bold transition active:scale-95 disabled:opacity-40">
-              {isAiLoading ? <span className="animate-pulse">다듬는 중...</span> : <><Wand2 size={12} /> AI 문맥 다듬기</>}
-            </button>
-          </div>
-        </div>
+        <BodyHead polish={polish} disabled={polish.loading || !formData.content} />
         {/* **편집기는 그 도막을 감춘 글만 본다**(2026-09-22). 도막은 아래 부품이 소유하고,
             고칠 때마다 `writeActionSection`이 본문 맨 아래에 도로 적는다 — 고치는 길이
             둘이면 두 글이 어긋난다. 저장 자리는 여전히 본문 하나다(새 칸을 안 만들었다). */}
@@ -1296,204 +616,6 @@ const TaskEditor = React.memo(({ formData, setFormData, members = [], cloudMode,
   );
 });
 
-// ── 속성 칸 한 벌 — 새 업무 폼과 업무 창(연 채로 고치기)이 같이 쓴다 ─────────────
-// `set(fn)` — fn은 (지금 카드 → 새 카드). 새 업무 폼은 폼 state에, 업무 창은 스토어의 지금 카드에 걸고
-// **곧바로 저장**한다(TaskModalShell commit — 바뀐 칸만).
-function TaskProps({ data, set, members }) {
-  const toggleTeam = (team) => set(prev => ({ ...prev, teams: (prev.teams || []).includes(team) ? prev.teams.filter(t => t !== team) : [...(prev.teams || []), team] }));
-  return (
-    <div className="border-y border-line divide-y divide-line/60">
-      <PropertyRow icon={<CheckSquare size={13} className="text-fg-faint" />} label="상태">
-        <div className="flex flex-wrap gap-1.5">
-          {/* 상시는 맨 아래(config STATUS_PICK). 상시로 고르는 순간 날짜 두 칸을 비운다 —
-              상시는 마감이 없는 업무이고, 칸을 숨기기만 하면 옛 날짜가 남아 달력·마감 셈에 선다.
-              저장 쪽(domain.updateWithLogs)도 같은 일을 한 번 더 한다. */}
-          {CONFIG.STATUS_PICK.map(s => (
-            <button key={s} type="button" onClick={() => set(prev => (s === CONFIG.STATUS_ONGOING
-              ? { ...prev, status: s, startDate: '', dueDate: '' }
-              : { ...prev, status: s }))}
-              aria-pressed={(data.status || '시작 전') === s}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all active:scale-95 ${(data.status || '시작 전') === s ? CONFIG.STATUS_STYLES[s] + ' border-transparent shadow-soft' : 'bg-surface text-fg-muted border-line hover:bg-surface-hover'}`}>
-              {s}
-            </button>
-          ))}
-        </div>
-      </PropertyRow>
-      {data.status !== CONFIG.STATUS_ONGOING && (
-        <>
-          <PropertyRow icon={<CalendarRange size={13} className="text-fg-faint" />} label="시작일">
-            <DatePicker value={data.startDate || ''} onChange={(v) => set(prev => ({ ...prev, startDate: v }))} />
-          </PropertyRow>
-          <PropertyRow icon={<Clock size={13} className="text-fg-faint" />} label="마감일">
-            <DatePicker value={data.dueDate || ''} onChange={(v) => set(prev => ({ ...prev, dueDate: v }))} />
-          </PropertyRow>
-        </>
-      )}
-      <PropertyRow icon={<Hash size={13} className="text-fg-faint" />} label="담당 팀">
-        <div className="flex flex-wrap gap-1.5">
-          {Object.entries(CONFIG.TEAMS).map(([team, colorClass]) => {
-            const selected = (data.teams || []).includes(team);
-            return (
-              <button key={team} type="button" onClick={() => toggleTeam(team)} aria-pressed={selected}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all active:scale-95 ${selected ? colorClass + ' border-transparent shadow-soft' : 'bg-surface text-fg-muted border-line hover:bg-surface-hover'}`}>
-                {team}
-              </button>
-            );
-          })}
-        </div>
-      </PropertyRow>
-      <PropertyRow icon={<User size={13} className="text-fg-faint" />} label="담당자">
-        <AssigneePicker value={data.assignees || []} onChange={(next) => set(prev => ({ ...prev, assignees: next }))} members={members} />
-      </PropertyRow>
-      {/* 선행 업무(0020) — 이 업무보다 먼저 끝나야 하는 것. 같은 프로젝트 안에서만 고른다
-          (프로젝트를 건너 잇기 시작하면 그래프가 화면 하나에 안 담긴다).
-          네이티브 <select>다: 목록이 길어도 모바일에서 OS가 알아서 잘 굴려 준다. */}
-      <DependsRow formData={data} setFormData={set} />
-    </div>
-  );
-}
-
-// 제목 칸 — 초점이 있거나 저장이 밀린 동안만 초안(useNameDraft), 600ms 조용하거나 떠날 때 저장.
-// Enter는 칸을 떠난다(조합을 끝내는 Enter는 무시 · utils.imeComposing). 빈 제목은 저장하지 않고
-// 떠나면 원래 제목으로 돌아간다(cards.title not null).
-function TitleField({ value, onCommit, register, hold }) {
-  const name = useNameDraft({ value, onCommit, register, hold });
-  return (
-    <input type="text" name="title" value={name.shown}
-      onChange={e => name.change(e.target.value)} onFocus={name.focus} onBlur={name.blur}
-      onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
-      placeholder="업무 제목 입력" aria-label="업무 제목 입력"
-      className="w-full text-xl md:text-2xl font-bold tracking-[-0.25px] text-fg placeholder:text-fg-faint bg-transparent border-none outline-none focus:ring-0 p-0" />
-  );
-}
-
-// ── 3줄 요약 (예전 보기 화면에서 옮겼다) ─────────────────────────────────────
-// 버튼은 '상세 내용' 줄의 AI 다듬기 옆, 요약은 그 줄 위에 선다. 규칙은 그대로다(PITFALLS 19 · §4.4).
-function useTaskSummary(formData, cloudMode) {
-  const [summary, setSummary] = useState('');      // 이번에 AI가 만든 것(고정 전)
-  const [revealed, setRevealed] = useState(false); // 고정된 요약을 펼쳤는지
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [pinning, setPinning] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-
-  // 고정된 요약은 카드에 남아 있어서(0015의 cards.ai_summary) 다른 사람도 본다.
-  // **열자마자 펼치지는 않는다** — 버튼을 눌러서 나오는 편이, 요약이라는 기능이
-  // 있다는 것과 자기가 그걸 불렀다는 것을 같이 알려준다.
-  const pinned = formData.aiSummary || '';
-  // 이번에 만든 것이 있으면 그것이 먼저다(`pinned || summary`로 쓰면 '다시 만들기'가 죽는다)
-  const shown = summary || (revealed ? pinned : '');
-  const showingPinned = !!pinned && shown === pinned;
-  // AI 기능(요약 고정·고치기)은 **마스터만**(0028) — AI는 돈이 들고 워크스페이스 전체에 남는 글을 만든다.
-  const { isMaster } = useAuth();
-  const canPin = cloudMode && isMaster && !!formData.id;
-
-  const runAi = async () => {
-    setIsAiLoading(true);
-    const result = await AiService.summarizeTask(formData);
-    setSummary(result);
-    setIsAiLoading(false);
-  };
-  // 고정된 요약도 '분석하는 중'을 한 번 지나서 나온다 — 같은 버튼이 사람마다 다르게 동작하지 않게.
-  // 일부러 넣은 지연이다(성능 문제가 아니다).
-  const REVEAL_MS = 2000;
-  const revealPinned = async () => {
-    setIsAiLoading(true);
-    await new Promise(r => setTimeout(r, REVEAL_MS));
-    setRevealed(true);
-    setIsAiLoading(false);
-  };
-  const handleSummarize = () => (pinned ? revealPinned() : runAi());
-
-  // 고정/해제 — 카드 저장과 분리된 경로다(요약 세 칸만 건드린다)
-  const setPinnedSummary = async (text) => {
-    setPinning(true);
-    store.dispatch({ type: 'SYNC_TASK', payload: { id: formData.id, aiSummary: text, aiSummaryBy: text ? '나' : '', aiSummaryAt: text ? new Date().toISOString() : '' } });
-    try {
-      await cardSummaryCloud(formData.id, text);
-      setSummary('');
-      setRevealed(!!text);
-    } catch (e) {
-      console.error('[cloud] 요약 고정 실패:', e);
-      showToast('요약을 고정하지 못했어요\n잠시 후 다시 시도해주세요');
-    }
-    setPinning(false);
-  };
-  const startEdit = () => { setDraft(shown); setEditing(true); };
-  const saveEdit = async () => {
-    const text = draft.trim();
-    if (!text) return;
-    setEditing(false);
-    await setPinnedSummary(text);
-  };
-
-  // 요약 버튼은 hover로 숨기지 않는다 — 터치 기기에는 hover가 없다. 고정된 게 있어도 이 버튼이 먼저다.
-  const button = !shown && (formData.content || pinned) ? (
-    <button type="button" onClick={handleSummarize} disabled={isAiLoading}
-      className="flex items-center gap-1 px-2 py-1 bg-tag-purple text-tag-purple-fg hover:opacity-80 rounded-full text-[10px] font-bold transition active:scale-95 disabled:opacity-40">
-      {isAiLoading ? <span className="animate-pulse">요약하는 중...</span> : <><Wand2 size={12} /> 3줄 요약</>}
-    </button>
-  ) : null;
-
-  // 요약 — ✨를 빼고 왼쪽 선으로 "본문이 아닌 덧말"임을 표시
-  const block = (shown || isAiLoading) ? (
-    <div className="pl-3 border-l-2 border-tag-purple-fg/40 animate-in fade-in duration-200">
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className="text-[10px] font-bold text-tag-purple-fg">3줄 요약</span>
-        {/* '고정' 배지는 지금 보고 있는 것이 저장된 요약이고 고정할 수 있는 사람일 때만 */}
-        {showingPinned && canPin && (
-          <span className="inline-flex items-center gap-1 text-[10px] text-fg-muted"><Pin size={9} />고정</span>
-        )}
-        {/* 고정한 뒤에 카드가 바뀌었으면 마스터에게만 알려준다(문구는 사용자가 정했다 · 2026-08-29) */}
-        {showingPinned && canPin && summaryOutdated(formData.updatedAt, formData.aiSummaryAt) && (
-          <span className="text-[10px] text-fg-muted">· 고정한 뒤로 업무가 바뀌었어요</span>
-        )}
-      </div>
-      {isAiLoading
-        ? <div className="text-xs text-fg-muted animate-pulse">업무 내용과 댓글을 분석하고 있습니다...</div>
-        : editing
-          ? <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={5} autoFocus aria-label="3줄 요약"
-              className="w-full text-xs leading-relaxed text-fg bg-surface border border-line rounded-xs px-2 py-1.5 outline-none focus:border-accent resize-y" />
-          : <div className="text-xs text-fg-secondary whitespace-pre-wrap"><RichText content={shown} /></div>}
-      {/* 고정·고치기는 마스터만 — 아무나 덮어쓰면 마지막 사람 것만 남는다 */}
-      {canPin && !isAiLoading && (
-        <div className="flex gap-2 mt-1.5">
-          {/* 저장이 왼쪽, 취소가 오른쪽 — '고치기'를 누른 자리에 '저장'이 와야 손가락 밑의 뜻이 안 바뀐다 */}
-          {editing ? (
-            <>
-              <button type="button" onClick={saveEdit} disabled={pinning || !draft.trim()}
-                className="text-[10px] font-semibold text-accent-text hover:underline transition-colors disabled:opacity-40">
-                {pinning ? '저장하는 중...' : '저장'}
-              </button>
-              <button type="button" onClick={() => setEditing(false)} disabled={pinning}
-                className="text-[10px] text-fg-muted hover:text-fg transition-colors disabled:opacity-40">취소</button>
-            </>
-          ) : showingPinned ? (
-            <>
-              <button type="button" onClick={startEdit} disabled={pinning}
-                className="text-[10px] font-semibold text-accent-text hover:underline transition-colors disabled:opacity-40">고치기</button>
-              <button type="button" onClick={runAi} disabled={pinning}
-                className="text-[10px] text-accent-text hover:underline transition-colors disabled:opacity-40">다시 만들기</button>
-              <button type="button" onClick={() => setPinnedSummary('')} disabled={pinning}
-                className="text-[10px] text-fg-muted hover:text-fg transition-colors disabled:opacity-40">고정 해제</button>
-            </>
-          ) : (
-            <>
-              <button type="button" onClick={() => setPinnedSummary(shown)} disabled={pinning || !shown}
-                className="inline-flex items-center gap-1 text-[10px] font-semibold text-accent-text hover:underline transition-colors disabled:opacity-40">
-                <Pin size={9} />{pinning ? '고정하는 중...' : (pinned ? '이 요약으로 바꾸기' : '이 요약 고정')}
-              </button>
-              <button type="button" onClick={startEdit} disabled={pinning || !shown}
-                className="text-[10px] text-accent-text hover:underline transition-colors disabled:opacity-40">고쳐서 고정</button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  ) : null;
-  return { button, block };
-}
-
 // 같이 쓰기의 담당 업무 줄(Y.Array) — 보기·수정 화면이 같이 쓴다. 줄 단위로 고친다(co.actions · 본문 꼬리를
 // 다시 쓰지 않는다 — 남이 다른 줄을 고친 것이 살아남는다).
 function useCoActions(co) {
@@ -1521,7 +643,7 @@ function useCoActions(co) {
 // 본문은 liveMd(문서의 마크다운 · 남이 치는 글이 따라온다)가 있으면 그것, 없으면 스토어의 본문이다.
 // editors(나 말고 수정 화면에 있는 사람)가 있으면 본문 위 알약과 그 사람이 있는 줄 표시(coedit.jsx)가 선다.
 // **본문 통은 오른쪽 28px(pr-7)을 늘 비워 둔다** — 줄 표시 얼굴이 그 안에 서서 잘리지 않고, 누가 들어와도 글줄이 다시 흐르지 않는다.
-function TaskView({ task, commit, co, coPending, liveMd, editors = [], members, cloudMode, userId, isAdmin, onFileActivity, diffPick, onRestore, onExitDiff }) {
+function TaskView({ task, commit, co, coPending, liveMd, editors = [], cloudMode, userId, isAdmin, onFileActivity, diffPick, onRestore, onExitDiff }) {
   const summary = useTaskSummary(task, cloudMode);
   const md = liveMd ?? task.content ?? '';
   const [bodyEl, setBodyEl] = useState(null);   // 줄 표시가 재는 통(coedit.jsx PresenceMarks)
@@ -1587,7 +709,7 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], members, 
         onCreate={coPending ? undefined : onCreateSubtasks} />
 
       {/* 보기에서도 체크는 눌린다 — 하위 업무를 끝낼 때마다 수정 화면으로 들어갔다 나오게 하면 아무도 쓰지 않는다 */}
-      <SubtaskList readOnly value={task.subtasks || []} members={members}
+      <SubtaskList readOnly value={task.subtasks || []}
         onChange={(fn, opts) => commit(cur => ({ ...cur, subtasks: fn(cur.subtasks || []) }), opts)} />
 
       {cloudMode && <AttachmentSection task={task} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} readOnly />}
@@ -1636,26 +758,12 @@ function TaskLive({ task, commit, register, hold, onSession, co, coPending, memb
   // ── AI 문맥 다듬기 ──
   // 같이 쓰기면 **통째로 갈기**(replaceAll — 한 트랜잭션이라 남에게는 편집 한 번 · 되돌리기 한 걸음),
   // 아니면 이 부품의 마크다운을 바꾼다(편집기가 바깥 값으로 문서를 갈아 끼운다).
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  // 다듬기 직전 본문. 있으면 '되돌리기'가 보인다. 창을 닫으면 잊는다.
-  // ponytail: 직전 하나만 기억한다. 두 번 다듬고 두 번 되돌릴 일은 아직 없었다.
-  const [beforePolish, setBeforePolish] = useState(null);
-  const currentMd = () => (co ? co.markdown() : b.current.md);
-  const handleAiPolish = async () => {
-    const before = currentMd();
-    if (!String(before || '').trim()) return;
-    setIsAiLoading(true);
-    const polished = await AiService.polishText(before, { ...task, content: before });
-    setIsAiLoading(false);
-    // **안내 문구를 본문에 넣지 않는다** — 게스트·세션 만료에서 쓰던 글이 안내 한 줄로 갈아치워졌다
-    if (!polished || isFallbackText(polished)) { showToast(polished || '다듬지 못했어요\n잠시 후 다시 시도해주세요'); return; }
-    setBeforePolish(before);
-    if (co) co.replaceAll(polished); else setBodyNow(polished);
-  };
-  const undoPolish = () => {
-    if (co) co.replaceAll(beforePolish); else setBodyNow(beforePolish);
-    setBeforePolish(null);
-  };
+  // 다듬기 직전 본문은 usePolish가 든다(taskSummary · 새 업무 폼과 한 벌).
+  const polish = usePolish({
+    read: () => { const md = co ? co.markdown() : b.current.md; return String(md || '').trim() ? md : null; },
+    write: (md) => (co ? co.replaceAll(md) : setBodyNow(md)),
+    context: (before) => ({ ...task, content: before }),
+  });
 
   // ── 청년별 담당 업무 ──
   // 같이 쓰기면 줄을 Yjs 배열에서 읽고 줄 단위로 고친다(co.actions — 본문 마크다운 꼬리를 다시 쓰지 않는다 ·
@@ -1707,21 +815,7 @@ function TaskLive({ task, commit, register, hold, onSession, co, coPending, memb
 
       {summary.block}
       <div>
-        <div className="flex justify-between items-center gap-2 mb-1.5">
-          <label className="block text-xs text-fg-muted shrink-0">상세 내용</label>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* 다듬은 직후에만 보인다 — 되돌리면 사라진다 */}
-            {beforePolish !== null && !isAiLoading && (
-              <button type="button" onClick={undoPolish} className="flex items-center gap-1 px-2 py-1 bg-surface border border-line text-fg-muted hover:bg-surface-hover rounded-full text-[10px] font-bold transition active:scale-95">
-                <Undo2 size={12} /> 되돌리기
-              </button>
-            )}
-            {summary.button}
-            <button type="button" onClick={handleAiPolish} disabled={isAiLoading || coPending || (!co && !body)} className="flex items-center gap-1 px-2 py-1 bg-tag-purple text-tag-purple-fg hover:opacity-80 rounded-full text-[10px] font-bold transition active:scale-95 disabled:opacity-40">
-              {isAiLoading ? <span className="animate-pulse">다듬는 중...</span> : <><Wand2 size={12} /> AI 문맥 다듬기</>}
-            </button>
-          </div>
-        </div>
+        <BodyHead polish={polish} disabled={polish.loading || coPending || (!co && !body)}>{summary.button}</BodyHead>
         {/* 버전 기록에서 판을 고르면 본문 자리에 그 판의 고친 곳이 선다 — 편집기는 **내리지 않고** 숨긴다
             (같이 쓰기의 되돌리기 기록·커서가 그대로 남는다) */}
         {diffPick && <VersionDiffView pick={diffPick} onRestore={onRestore} onExit={onExitDiff} />}
