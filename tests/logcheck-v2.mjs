@@ -2,7 +2,7 @@
 // logcheck 묶음의 하나다 — `npm run verify -- logcheck`가 logcheck와 logcheck-* 전부를 돈다.
 import assert from 'node:assert';
 import { readFileSync, existsSync } from 'node:fs';
-import { loadSource, tmpDir, readSrc } from './_load.mjs';
+import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
 
 // ── 새로 읽어 온 묵상을 에디터에 넣어도 되나 (word.shouldAdoptBody · §6-9-n) ──
 // 캐시가 낡아 있으면 옛 글이 에디터에 남고, 그 상태로 저장하면 **서버의 새 글을 덮는다**
@@ -14,7 +14,8 @@ import { loadSource, tmpDir, readSrc } from './_load.mjs';
     // 0061부터 myUid도 같이 가져온다 — 노드에서는 둘 다 세운다(supabaseClient는
     // import.meta.env를 읽어서 그대로 들이면 던진다)
     .replace(/import \{ supabase, myUid \} from '\.\/supabaseClient\.js';/,
-      'const supabase = null; const myUid = async () => null;');
+      'const supabase = null; const myUid = async () => null;')
+    .replace(/^import \{ unwrap \} from '\.\/cloud\/core\.js';$/m, 'const unwrap = ({ data, error }) => { if (error) throw error; return data; };');
   const { shouldAdoptBody } = await loadSource('src/services/word.js', { src });
 
   assert.strictEqual(shouldAdoptBody({ dateChanged: true, body: '쓰던 글', lastSynced: '', next: '' }), true,
@@ -76,10 +77,10 @@ import { loadSource, tmpDir, readSrc } from './_load.mjs';
   const strip = (t) => t
     // 여러 줄 import도 걷는다(worship.js의 cloud import가 2026-09-07부터 두 줄) — 중괄호 안에는 }가 없어
     // 다음 import까지 삼키지 않는다
-    .replace(/^import \{[^}]*\} from '\.\/(supabaseClient|cloud|image)\.js';\s*$/gm, '')
+    .replace(/^import \{[^}]*\} from '\.\.?\/(supabaseClient|cloud|cloud\/core|image)\.js';\s*$/gm, '')
     // localDate·byName은 2026-09-24부터 utils·people에서 온다(한 벌로 모았다)
-    .replace(/^import .*from '\.\.\/utils\.js';\s*$/gm, 'const generateId = () => "id"; const localDate = (d) => new Date(d).toLocaleDateString("sv-SE");')
-    .replace(/^import .*from '\.\/people\.js';\s*$/gm,
+    .replace(/^import .*from '(?:\.\.\/)+utils\.js';\s*$/gm, 'const generateId = () => "id"; const localDate = (d) => new Date(d).toLocaleDateString("sv-SE");')
+    .replace(/^import .*from '\.\.?\/people\.js';\s*$/gm,
       'const guestStore = () => ({ all: () => ({}), rows: () => [], set: () => {} }); const byName = (a, b) => String(a?.name || "").localeCompare(String(b?.name || ""), "ko");');
   const dir = tmpDir();
   const siblings = [
@@ -89,7 +90,7 @@ import { loadSource, tmpDir, readSrc } from './_load.mjs';
     ...['serviceView.js', 'noteTemplate.js', 'honorific.js', 'cueDigest.js'].map(f => `src/services/${f}`),
   ];
   const { honorific, honorificsOf } = await loadSource('src/services/people.js', { src: strip(readSrc('src/services/people.js')), dir, siblings });
-  const { pastSunday, recentSongs, weeksAgoOf, songKey, prefillRoles, PREFILL_ROLES, cueNameFor, pickLastCue } = await loadSource('src/services/worship.js', { src: strip(readSrc('src/services/worship.js')), dir });
+  const { pastSunday, recentSongs, weeksAgoOf, songKey, prefillRoles, PREFILL_ROLES, cueNameFor, pickLastCue } = await loadSource('src/services/worship/pure.js', { src: strip(readSrc('src/services/worship/pure.js')).replace(/from '\.\.\//g, "from './"), dir });
 
   // 지난 큐시트로 바로 편집(2026-10-02) — 이름의 날짜는 이 주보 날짜로, 고르는 것은 이 날짜 **앞**의 가장 가까운 큐시트
   assert.strictEqual(cueNameFor('20260920_더다붓청년예배 큐시트.docx', '2026-09-20', '2026-10-04'), '20261004_더다붓청년예배 큐시트.docx');
@@ -151,7 +152,7 @@ import { loadSource, tmpDir, readSrc } from './_load.mjs';
 
   // ④ 배선 — 함수가 맞아도 화면이 안 부르면 그대로다
   const src = (u) => readFileSync(new URL(u, import.meta.url), 'utf8');
-  const worship = src('../src/services/worship.js');
+  const worship = readSplit('src/services/worship.js');
   assert.ok(/supabase\.rpc\('set_attendance_note', \{ p_service_id: serviceId, p_note: text \}\)/.test(worship),
     '출석 메모는 0052의 rpc로 간다 — services 업데이트(services_write)가 아니다');
   const wview = src('../src/views/worshipView.jsx');
@@ -578,7 +579,7 @@ import { loadSource, tmpDir, readSrc } from './_load.mjs';
   assert.strictEqual(L('2026-09-16', 'bad'), '');
 
   // ③ 호칭 여섯 갈래 — 교역자 · 부장 · 형제 · 자매 · 아직 비어 있음 · 명단 밖
-  const strip = (t) => t.replace(/^import \{[^}]*\} from '\.\/(supabaseClient|cloud|image)\.js';\s*$/gm, '');
+  const strip = (t) => t.replace(/^import \{[^}]*\} from '\.\.?\/(supabaseClient|cloud|cloud\/core|image)\.js';\s*$/gm, '');
   // 호칭은 2026-09-26부터 순수 모듈 honorific.js에 있고 people.js가 다시 내보낸다
   const { honorific, honorificsOf, HONORIFIC } = await loadSource('src/services/people.js', { src: strip(src('../src/services/people.js')), siblings: ['src/services/honorific.js'] });
   assert.deepStrictEqual(HONORIFIC,
@@ -650,7 +651,8 @@ import { loadSource, tmpDir, readSrc } from './_load.mjs';
 {
   const src = readFileSync(new URL('../src/services/word.js', import.meta.url), 'utf8')
     .replace(/import \{ supabase, myUid \} from '\.\/supabaseClient\.js';/,
-      'const supabase = null; const myUid = async () => null;');
+      'const supabase = null; const myUid = async () => null;')
+    .replace(/^import \{ unwrap \} from '\.\/cloud\/core\.js';$/m, 'const unwrap = ({ data, error }) => { if (error) throw error; return data; };');
   const { pushRecentSearch, removeRecentSearch, RECENT_SEARCH_MAX } = await loadSource('src/services/word.js', { src });
 
   assert.strictEqual(RECENT_SEARCH_MAX, 30, '사용자당 30개');
@@ -730,24 +732,27 @@ import { loadSource, tmpDir, readSrc } from './_load.mjs';
 // 되돌리기 검사: GUIDE_SERVICE_COLS에서 songs를 빼면 '가이드 프롬프트가 읽는 칸'이, 게스트
 // 갈래의 since 거르기를 지우면 '게스트도 같은 창'이 깨진다.
 {
-  const raw = readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8');
+  const raw = readSplit('src/services/worship.js');
   const seed = {
     services: [{ id: 'old', service_date: '2026-06-01' }, { id: 'new', service_date: '2026-09-20' }],
     attendance: [{ service_id: 'old' }, { service_id: 'new' }, { service_id: 'new' }],
     attendance_guests: [{ service_id: 'old' }, { service_id: 'new' }],
   };
-  const src = 'const supabase = null; const myUid = () => null;\n' + raw
-    .replace(/^import \{[^}]*\} from '\.\/(supabaseClient|cloud|image)\.js';\s*$/gm, '')
+  const part = (f) => 'const supabase = null; const myUid = () => null;\n' + readSrc(`src/services/worship/${f}`)
+    .replace(/^import \{[^}]*\} from '\.\.?\/(supabaseClient|cloud|cloud\/core|image)\.js';\s*$/gm, '')
     // localDate·byName은 2026-09-24부터 utils·people에서 온다(한 벌로 모았다)
-    .replace(/^import .*from '\.\.\/utils\.js';\s*$/gm, 'const generateId = () => "id"; const localDate = (d) => new Date(d).toLocaleDateString("sv-SE");')
-    .replace(/^import .*from '\.\/people\.js';\s*$/gm,
-      `const guestStore = () => ({ all: () => ({}), rows: (t) => (${JSON.stringify(seed)})[t] || [], set: () => {} }); const byName = (a, b) => String(a?.name || "").localeCompare(String(b?.name || ""), "ko");`);
-  const W = await loadSource('src/services/worship.js', { src, siblings: [
+    .replace(/^import .*from '(?:\.\.\/)+utils\.js';\s*$/gm, 'const generateId = () => "id"; const localDate = (d) => new Date(d).toLocaleDateString("sv-SE");')
+    .replace(/^import .*from '\.\.?\/people\.js';\s*$/gm,
+      `const guestStore = () => ({ all: () => ({}), rows: (t) => (${JSON.stringify(seed)})[t] || [], set: () => {} }); const byName = (a, b) => String(a?.name || "").localeCompare(String(b?.name || ""), "ko");`)
+    .replace(/from '\.\.\//g, "from './");
+  const dirW = tmpDir();
+  const pureW = await loadSource('src/services/worship/pure.js', { src: part('pure.js'), dir: dirW, siblings: [
     'src/services/titleText.js',
     'src/services/cueDigest.js',   // copyExportAs(순수)
     // serviceView.js(표지 갈래 · 0081)와 그것이 부르는 noteTemplate.js도 순수 모듈이라 그대로 옆에 둔다
     ...['serviceView.js', 'noteTemplate.js', 'honorific.js'].map(f => `src/services/${f}`),
   ] });
+  const W = { ...pureW, ...await loadSource('src/services/worship/attendance.js', { src: part('attendance.js').replace(/^import \{ worshipPerms \} from '\.\/pure\.js';\s*$/m, ''), dir: dirW }) };
 
   // ① 창 — 오늘(KST 날짜 글자)에서 56일 전. 달·해를 넘어도 글자로만 셈한다
   assert.strictEqual(W.COUNT_WINDOW_DAYS, 56, '여덟 주');
@@ -856,14 +861,20 @@ import { loadSource, tmpDir, readSrc } from './_load.mjs';
     { service_id: 's2', body: '   ' },                                  // 게스트 행 — 빈 노트는 세지 않는다
   ]), { s1: 2, s2: 1 }, '주보별로 센다(전 기간 합계가 아니다)');
 
-  const wsrc = readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8');
+  const wsrc = readSplit('src/services/worship.js');
   assert.ok(/link: noteSharedLink\(service\.id\)/.test(wsrc) && /noteSharedLink = \(serviceId\) => `\/\?p=groups&note=\$\{serviceId\}`/.test(wsrc),
     '노트 공유 알림은 그 주보를 note=로 싣는다');
+  // 순장 한 사람만 묻는다(2026-10-07 · 예전에는 명단 전체를 읽고 골랐다) — 명단 목록과 같은 조건(내보낸 사람은 뺀다)
+  const nns = wsrc.slice(wsrc.indexOf('export async function notifyNoteShared'), wsrc.indexOf('export async function removeService'));
+  assert.ok(nns.length > 0 && !/fetchPeople\(/.test(nns)
+    && /from\('people'\)\.select\('profile_id'\)\s*\.eq\('id', mine\.leader_person_id\)\.is\('removed_at', null\)\.maybeSingle\(\)/.test(nns),
+    '노트 공유 알림이 순장을 찾으려고 명단 전체를 읽는다');
   const gvsrc = readFileSync(new URL('../src/views/groupsView.jsx', import.meta.url), 'utf8');
   assert.ok(/entryOf\('note'\)/.test(gvsrc) && /entryOf\('guide'\)/.test(gvsrc), '모임 화면이 note·guide를 읽는다');
 
   const wordSrc = readFileSync(new URL('../src/services/word.js', import.meta.url), 'utf8')
-    .replace(/import \{ supabase, myUid \} from '\.\/supabaseClient\.js';/, 'const supabase = null; const myUid = async () => null;');
+    .replace(/import \{ supabase, myUid \} from '\.\/supabaseClient\.js';/, 'const supabase = null; const myUid = async () => null;')
+    .replace(/^import \{ unwrap \} from '\.\/cloud\/core\.js';$/m, 'const unwrap = ({ data, error }) => { if (error) throw error; return data; };');
   const W = await loadSource('src/services/word.js', { src: wordSrc });
   assert.strictEqual(W.compactText(' 사랑 하는\t자 '), '사랑하는자');
   assert.deepStrictEqual(W.matchRanges('하나님이 자기 형상 곧 하나님의 형상대로', '하나님'), [[0, 3], [13, 16]], '한 절에 두 번');
@@ -1054,8 +1065,8 @@ import { loadSource, tmpDir, readSrc } from './_load.mjs';
   assert.strictEqual(SV.dragFocus(0.5, -9999, 343, 514.5), 0);
   assert.strictEqual(SV.dragFocus(0.3, 40, 343, 50), 0.3, '움직일 거리가 없으면 그대로');
   // 표지 배선 — 같은 업로드 한 벌(kind만) · 목록 한 번에 한 조회 · 조회 칸 · 종이에는 없다 · 0081 모양
-  const cl = readFileSync(new URL('../src/services/cloud.js', import.meta.url), 'utf8');
-  const wsvc = readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8');
+  const cl = readSplit('src/services/cloud.js');
+  const wsvc = readSplit('src/services/worship.js');
   const wview = readFileSync(new URL('../src/views/worshipView.jsx', import.meta.url), 'utf8');
   const wpaper = readFileSync(new URL('../src/components/paper.jsx', import.meta.url), 'utf8');
   const m81 = readFileSync(new URL('../supabase/migrations/0081_service_cover.sql', import.meta.url), 'utf8');
@@ -1175,14 +1186,14 @@ import { loadSource, tmpDir, readSrc } from './_load.mjs';
   const wd = readFileSync(new URL('../src/components/worshipDetail.jsx', import.meta.url), 'utf8');
   const wv = readFileSync(new URL('../src/views/worshipView.jsx', import.meta.url), 'utf8');
   const pp = readFileSync(new URL('../src/components/paper.jsx', import.meta.url), 'utf8');
-  const ws = readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8');
+  const ws = readSplit('src/services/worship.js');
   assert.ok(/data-season=\{season\?\.color \|\| 'plain'\}/.test(wv) && /worship-season-dot/.test(wv), '주보 카드에 절기 물·점');
   assert.ok(/worship-head season-wash/.test(wd) && /churchSeason\(service\.service_date\)/.test(wd), '상세 머리에 절기 물');
   assert.ok(/season=\{season\} className="paper-service paper-service-1"/.test(pp) && /season=\{season\} className="paper-service paper-service-2"/.test(pp), '주보 종이 두 쪽 머리 띠에 절기');
   assert.ok(/nameOf\(r\.name, r\.personId \|\| r\.person_id \|\| null\)/.test(pp), '종이 섬기는 이들은 personId로 본명을 찾는다');
   assert.ok(/const r = real\(name, personId\);/.test(wd) && /honor\(r\.found \? r\.name : name, personId\)/.test(wd), '상세의 이름은 본명 + 호칭');
   assert.ok(/worship-story-open md:hidden/.test(wd), "'넘기면서 보기'는 폰에서만(데스크톱에 버튼 없음)");
-  assert.ok(/from\('service_notes'\)[\s\S]{0,120}\.eq\('profile_id', uid\);/.test(ws.slice(ws.indexOf('export async function fetchMyNotes'))),
+  assert.ok(/from\('service_notes'\)[\s\S]{0,120}\.eq\('profile_id', uid\)\)?( \?\? \[\])?;/.test(ws.slice(ws.indexOf('export async function fetchMyNotes'))),
     '내 노트 모아 보기는 profile_id로 거른다(읽기 정책은 같은 순의 공유 노트도 준다)');
   console.log('PASS  교회력(큐시트 대조 3) · 광고 → 달력(라이브 13건 안 읽힘 · .ics · 구글) · 찬양 줄 · 본명 · 장 나누기 · 내 노트 목록');
 }

@@ -11,6 +11,14 @@ import { join, basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const readSrc = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
+// 바렐(`export * from './x/y.js'`)로 쪼갠 소스는 그 조각까지 이어 읽는다 — 소스 글자를 단정하는 검사가
+// 함수가 어느 조각으로 갔는지 몰라도 되게(cloud.js · worship.js — 2026-10-07 19차). 다른 스위트도 이것을 문다.
+export function readSplit(rel) {
+  const text = readSrc(rel);
+  const base = rel.replace(/[^/]*$/, '');
+  const parts = [...text.matchAll(/^export \* from '\.\/([^']+)';/gm)].map(m => readSplit(base + m[1]));
+  return [text, ...parts].join('\n');
+}
 
 export const tmpDir = () => mkdtempSync(join(tmpdir(), 'lc-'));
 

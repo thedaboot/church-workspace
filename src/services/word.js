@@ -1,4 +1,5 @@
 import { supabase, myUid } from './supabaseClient.js';
+import { unwrap } from './cloud/core.js';
 
 // ============================================================================
 // 말씀 화면의 저장 계층 — qt_schedule · qt_entries · bible_state (0036 · docs/V2.md §1)
@@ -112,10 +113,8 @@ export async function fetchSchedule(date) {
     const row = lsGet(LS.schedule, {})[date];
     return row ? { qt_date: date, passage_ref: row.passage_ref, label: row.label || '' } : null;
   }
-  const { data, error } = await supabase.from('qt_schedule')
-    .select('qt_date, passage_ref, label').eq('qt_date', date).maybeSingle();
-  if (error) throw error;
-  return data ?? null;
+  return unwrap(await supabase.from('qt_schedule')
+    .select('qt_date, passage_ref, label').eq('qt_date', date).maybeSingle()) ?? null;
 }
 
 // ── qt_entries — 내 묵상 ────────────────────────────────────────────────────
@@ -132,9 +131,8 @@ export async function fetchMyEntry(date) {
   }
   const uid = await myId();
   if (!uid) return null;
-  const { data, error } = await supabase.from('qt_entries')
-    .select('id, qt_date, body, title, shared').eq('qt_date', date).eq('profile_id', uid).maybeSingle();
-  if (error) throw error;
+  const data = unwrap(await supabase.from('qt_entries')
+    .select('id, qt_date, body, title, shared').eq('qt_date', date).eq('profile_id', uid).maybeSingle());
   return data ? { ...data, title: entryTitle(data) } : null;
 }
 
@@ -148,11 +146,10 @@ export async function saveMyEntry(date, { body, title = '', shared }) {
   }
   const uid = await myId();
   if (!uid) throw new Error('로그인이 필요합니다');
-  const { data, error } = await supabase.from('qt_entries').upsert(
+  const data = unwrap(await supabase.from('qt_entries').upsert(
     { qt_date: date, profile_id: uid, body, title: t, shared: !!shared, updated_at: new Date().toISOString() },
     { onConflict: 'qt_date,profile_id' },
-  ).select('id, qt_date, body, title, shared').single();
-  if (error) throw error;
+  ).select('id, qt_date, body, title, shared').single());
   return { ...data, title: entryTitle(data) };
 }
 
@@ -167,9 +164,8 @@ export async function deleteMyEntry(date) {
   }
   const uid = await myId();
   if (!uid) throw new Error('로그인이 필요합니다');
-  const { error } = await supabase.from('qt_entries')
-    .delete().eq('qt_date', date).eq('profile_id', uid);
-  if (error) throw error;
+  unwrap(await supabase.from('qt_entries')
+    .delete().eq('qt_date', date).eq('profile_id', uid));
 }
 
 // 남의 나눔을 지운다 — **마스터만**(사용자 결정 2026-09-05 · 0045
@@ -194,8 +190,7 @@ export async function deleteEntryAsMaster(id) {
   // 말한 뒤 다시 읽어 온 목록에 그 줄이 그대로 서 있었다(2026-09-06 지적).
   // 여기서 `.select()`는 안전하다(§6-25와 다르다) — qt_entries의 SELECT 정책은 공유된
   // 글을 모두에게 열어 두므로 방금 지운 행을 되읽을 수 있다.
-  const { data, error } = await supabase.from('qt_entries').delete().eq('id', id).select('id');
-  if (error) throw error;
+  const data = unwrap(await supabase.from('qt_entries').delete().eq('id', id).select('id'));
   if (!(data || []).length) {
     const err = new Error(`qt_entries delete affected 0 rows (id=${id})`);
     err.human = '이미 지워졌거나 지울 자격이 없어요\n새로고침해주세요';   // errorText가 human을 먼저 본다
@@ -221,11 +216,10 @@ export async function fetchSharedEntries(date) {
     return [...others, ...mine];
   }
   const uid = await myId();
-  const { data, error } = await supabase.from('qt_entries')
+  const data = unwrap(await supabase.from('qt_entries')
     .select('id, profile_id, body, title, updated_at, profiles(display_name, avatar_url)')
     .eq('qt_date', date).eq('shared', true)
-    .order('updated_at', { ascending: true });
-  if (error) throw error;
+    .order('updated_at', { ascending: true }));
   return (data ?? []).filter(r => (r.body || '').trim()).map(r => ({
     id: r.id,
     profile_id: r.profile_id,
@@ -263,9 +257,8 @@ export async function fetchMyEntryDates(from, to) {
   }
   const uid = await myId();
   if (!uid) return [];
-  const { data, error } = await supabase.from('qt_entries')
-    .select('qt_date, title').eq('profile_id', uid).gte('qt_date', from).lte('qt_date', to);
-  if (error) throw error;
+  const data = unwrap(await supabase.from('qt_entries')
+    .select('qt_date, title').eq('profile_id', uid).gte('qt_date', from).lte('qt_date', to));
   return (data ?? []).map(r => ({ date: r.qt_date, title: entryTitle(r).trim() }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -279,10 +272,8 @@ export async function fetchScheduleRange(from, to) {
       .map(([d, v]) => ({ qt_date: d, passage_ref: String(v?.passage_ref || '') }))
       .sort((a, b) => a.qt_date.localeCompare(b.qt_date));
   }
-  const { data, error } = await supabase.from('qt_schedule')
-    .select('qt_date, passage_ref').gte('qt_date', from).lte('qt_date', to).order('qt_date');
-  if (error) throw error;
-  return data ?? [];
+  return unwrap(await supabase.from('qt_schedule')
+    .select('qt_date, passage_ref').gte('qt_date', from).lte('qt_date', to).order('qt_date')) ?? [];
 }
 
 // ── 이번 주 이 장을 본 사람 (0080 bible_reads) ──────────────────────────────
@@ -295,10 +286,8 @@ export async function fetchScheduleRange(from, to) {
 // → [{ profile_id, name?, avatarUrl? }]
 export async function fetchChapterReaders(chapter, weekStart) {
   if (!supabase) return (lsGet(LS.reads, {})[chapter] || []).filter(r => r && r.profile_id);
-  const { data, error } = await supabase.from('bible_reads')
-    .select('profile_id').eq('chapter_key', chapter).eq('week_start', weekStart);
-  if (error) throw error;
-  return data ?? [];
+  return unwrap(await supabase.from('bible_reads')
+    .select('profile_id').eq('chapter_key', chapter).eq('week_start', weekStart)) ?? [];
 }
 
 // 장을 5초 넘게 펼쳤다 — 이번 주 이 장에 내 줄 하나(같은 주·같은 장은 한 줄 · ignoreDuplicates).
@@ -311,11 +300,10 @@ export async function markChapterRead(chapter, weekStart) {
   }
   const uid = await myId();
   if (!uid) return;
-  const { error } = await supabase.from('bible_reads').upsert(
+  unwrap(await supabase.from('bible_reads').upsert(
     { profile_id: uid, chapter_key: chapter, week_start: weekStart },
     { onConflict: 'profile_id,chapter_key,week_start', ignoreDuplicates: true },
-  );
-  if (error) throw error;
+  ));
 }
 
 // '나도 나누기'를 끄면 **내 줄을 모두 지운다**(사용자 결정 — 기록을 남기지 않고 지움)
@@ -323,8 +311,7 @@ export async function clearMyReads() {
   if (!supabase) { lsSet(LS.readsMine, []); return; }
   const uid = await myId();
   if (!uid) return;
-  const { error } = await supabase.from('bible_reads').delete().eq('profile_id', uid);
-  if (error) throw error;
+  unwrap(await supabase.from('bible_reads').delete().eq('profile_id', uid));
 }
 
 // 켬/끔 — bible_state.share_reads 한 칸(0080). **bible_state의 큰 읽기·쓰기(load/saveBibleState)와
@@ -338,8 +325,7 @@ export async function loadReadShare() {
     const uid = await myId();
     if (!uid) return true;
     if (readShareMemo?.uid === uid) return readShareMemo.on;
-    const { data, error } = await supabase.from('bible_state').select('share_reads').eq('profile_id', uid).maybeSingle();
-    if (error) throw error;
+    const data = unwrap(await supabase.from('bible_state').select('share_reads').eq('profile_id', uid).maybeSingle());
     readShareMemo = { uid, on: data?.share_reads !== false };
     return readShareMemo.on;
   } catch (e) {
@@ -354,11 +340,10 @@ export async function saveReadShare(on) {
   else {
     const uid = await myId();
     if (!uid) throw new Error('로그인이 필요합니다');
-    const { error } = await supabase.from('bible_state').upsert(
+    unwrap(await supabase.from('bible_state').upsert(
       { profile_id: uid, share_reads: next, updated_at: new Date().toISOString() },
       { onConflict: 'profile_id' },
-    );
-    if (error) throw error;
+    ));
     readShareMemo = { uid, on: next };
   }
   if (!next) await clearMyReads();
@@ -374,12 +359,10 @@ export async function fetchSharedOn(dates, profileIds) {
       .filter(r => r?.profile_id && profileIds.includes(r.profile_id) && String(r.body || '').trim())
       .map(r => ({ profile_id: r.profile_id, qt_date: d })));
   }
-  const { data, error } = await supabase.from('qt_entries')
+  return unwrap(await supabase.from('qt_entries')
     .select('profile_id, qt_date').eq('shared', true)
     .in('qt_date', dates).in('profile_id', profileIds)
-    .not('body', 'is', null).neq('body', '');
-  if (error) throw error;
-  return data ?? [];
+    .not('body', 'is', null).neq('body', '')) ?? [];
 }
 
 // ── bible_state — 이어읽기 · 북마크 · 형광펜 · 최근 검색어 ──────────────────
@@ -455,9 +438,8 @@ export async function loadBibleState() {
   try {
     uid = await myId();
     if (!uid) return { ...EMPTY_STATE };
-    const { data, error } = await supabase.from('bible_state')
-      .select('last_ref, bookmarks, highlights, recent_searches').eq('profile_id', uid).maybeSingle();
-    if (error) throw error;
+    const data = unwrap(await supabase.from('bible_state')
+      .select('last_ref, bookmarks, highlights, recent_searches').eq('profile_id', uid).maybeSingle());
     return {
       lastRef: data?.last_ref || '', bookmarks: arr(data?.bookmarks), highlights: arr(data?.highlights),
       recentSearches: recentRows(data?.recent_searches),
@@ -479,7 +461,7 @@ export async function saveBibleState(next) {
   lsSet(bibleKey(uid), next);   // 로그인해도 로컬에 같이 남긴다 — 클라우드가 흔들려도 읽던 자리는 지킨다
   try {
     if (!uid) return { ok: true };   // 로그인 전이면 기기에만 남는 것이 정상이다
-    const { error } = await supabase.from('bible_state').upsert(
+    unwrap(await supabase.from('bible_state').upsert(
       {
         profile_id: uid, last_ref: next.lastRef || null,
         bookmarks: arr(next.bookmarks), highlights: arr(next.highlights),
@@ -487,8 +469,7 @@ export async function saveBibleState(next) {
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'profile_id' },
-    );
-    if (error) throw error;
+    ));
     return { ok: true };
   } catch (error) {
     console.error('[word] 성경 상태 저장 실패:', error);

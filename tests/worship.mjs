@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { readSplit } from './_load.mjs';
 const URL_BASE = process.argv[2] || 'http://localhost:4174';
 const CHROME = (process.env.CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe');
 const PORT = 9573;
@@ -468,7 +469,7 @@ check('서버는 RSS 길과 Data API 길 둘 다에서 제목을 다듬는다',
   && /cleanTitle\(JSON\.parse\(text\)\.title\)/.test(ytSrc),
   JSON.stringify([/cleanTitle\(decode\(title\)\)/.test(ytSrc), /const title = cleanTitle\(sn\.title\)/.test(ytSrc),
     /cleanTitle\(JSON\.parse\(text\)\.title\)/.test(ytSrc)]));
-const wSrc = readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8');
+const wSrc = readSplit('src/services/worship.js');
 check('앱도 받은 제목을 다시 다듬는다(옛 서버가 도는 동안의 안전망)',
   /cleanTitle\(v\.title\)/.test(wSrc) && /return cleanTitle\(title\);/.test(wSrc),
   JSON.stringify([/cleanTitle\(v\.title\)/.test(wSrc), /return cleanTitle\(title\);/.test(wSrc)]));

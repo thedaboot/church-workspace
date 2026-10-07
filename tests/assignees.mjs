@@ -2,7 +2,7 @@
 // 검증 스위트는 게스트 모드만 돌아서 이 경로를 브라우저로는 볼 수 없다 —
 // cloud.js를 가짜로 바꿔치고 cloudSync만 노드에서 직접 돌린다(aictx.mjs와 같은 방식).
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -151,18 +151,21 @@ assert.deepStrictEqual(writes.at(-1).assigneeIds, ['k1'],
 // 저장이 겹치면(저장 두 번 눌림·두 기기) 조인 쓰기 문장이 D1 D2 I1 I2 순으로 도착한다.
 // "전부 지우고 전부 넣기"였을 때는 I2가 I1의 행과 부딪혀 duplicate key로 저장이
 // 실패했다(라이브에서 재현 확인). 순서에 상관없는 모양인지 여기서 못 박는다.
-const SB_SRC = join(import.meta.dirname, '..', 'src', 'services', 'cloud.js');
-const sbPatched = readFileSync(SB_SRC, 'utf8')
-  // cloud.js는 supabase 외에 URL·키도 같이 가져온다(2026-09-05 — keepalive PATCH용) — 이름이 늘어도 한 줄로 받는다
-  .replace(/import \{[^}]*supabase[^}]*\} from '\.\/supabaseClient\.js';/, 'const supabase = globalThis.__SB; const SUPABASE_URL = \"\"; const SUPABASE_ANON_KEY = \"\";')
-  .replace(/import \{ CONFIG \} from '\.\.\/config\.js';/,
+// cloud.js는 2026-10-07(19차)부터 바렐이고 몸통은 cloud/ 조각들이다 — 조각을 tmp/cloud/에 그대로 베껴
+// 조각끼리의 import('./core.js'…)는 살리고, 바깥 것만 바꾼다:
+//   supabaseClient → 가짜 빌더(globalThis.__SB) · config → 상태 표 하나 ·
+//   남은 이웃(previewKind·utils·viewPw…)은 **진짜 파일을 절대 경로로** 문다.
+// 전부 순수 모듈이라 노드에서 그대로 돈다. 하나씩 손으로 적어 두면 cloud가 이웃을
+// 하나 더 가져올 때마다 이 스위트가 통째로 CRASH한다 — previewKind에서 실제로 그랬다
+// (위 cloudSync의 utils 처리와 같은 판단이다).
+const CLOUD_DIR = join(import.meta.dirname, '..', 'src', 'services', 'cloud');
+const patchCloudPart = (text) => text
+  .replace(/import \{[^}]*\} from '\.\.\/supabaseClient\.js';/,
+    'const supabase = globalThis.__SB; const SUPABASE_URL = ""; const SUPABASE_ANON_KEY = ""; const myUid = async () => null;')
+  .replace(/import \{ CONFIG \} from '\.\.\/\.\.\/config\.js';/,
     `const CONFIG = { STATUS_DB: { '시작 전':'todo', '진행 중':'doing', '보류 중':'hold', '완료':'done' }, STATUSES: ['시작 전'] };`)
-  // 남은 이웃 import(previewKind·utils·viewPw…)는 **진짜 파일을 절대 경로로** 문다.
-  // 전부 순수 모듈이라 노드에서 그대로 돈다. 하나씩 손으로 적어 두면 cloud.js가 이웃을
-  // 하나 더 가져올 때마다 이 스위트가 통째로 CRASH한다 — previewKind에서 실제로 그랬다
-  // (위 cloudSync의 utils 처리와 같은 판단이다).
-  .replace(/from '(\.\.?\/[^']+)'/g,
-    (m, rel) => `from '${pathToFileURL(resolve(join(import.meta.dirname, '..', 'src', 'services'), rel)).href}'`);
+  .replace(/from '(\.\.\/[^']+)'/g,
+    (m, rel) => `from '${pathToFileURL(resolve(CLOUD_DIR, rel)).href}'`);
 
 // 부른 문장을 기록만 하는 가짜 쿼리 빌더 (네트워크 없음)
 const stmts = [];
@@ -182,9 +185,9 @@ globalThis.__SB = {
     return self;
   },
 };
-const sbFile = join(dir, 'cloud.mjs');
-writeFileSync(sbFile, sbPatched);
-const cloudMod = await import('file://' + sbFile.replace(/\\/g, '/'));
+mkdirSync(join(dir, 'cloud'), { recursive: true });
+for (const f of readdirSync(CLOUD_DIR)) writeFileSync(join(dir, 'cloud', f), patchCloudPart(readFileSync(join(CLOUD_DIR, f), 'utf8')));
+const cloudMod = await import(pathToFileURL(join(dir, 'cloud', 'board.js')).href);
 
 await cloudMod.updateCard('c1', { title: 'x' }, ['team-1'], ['u1', 'u2']);
 const stmtsFor = (t) => stmts.filter(s => s.table === t);

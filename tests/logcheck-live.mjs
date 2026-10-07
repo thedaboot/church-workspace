@@ -3,7 +3,7 @@
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadSource } from './_load.mjs';
+import { loadSource, readSplit } from './_load.mjs';
 
 // ── 지금 여기를 보고 있는 사람 (utils.viewersOf) ───────────────────────────
 // 프로젝트 탭 옆·업무 줄 오른쪽 얼굴이 보는 판정. 게스트 스위트는 presence 집합이
@@ -653,7 +653,7 @@ import { loadSource } from './_load.mjs';
   assert.deepStrictEqual(late.map(e => e.id), ['b', 'mid', 'a'], '시각 순서로 끼어든다');
   assert.strictEqual(S.prependActivity(feed, null), feed, '줄이 없으면 그대로');
   assert.strictEqual(S.ACTIVITY_FEED_LIMIT, 30);
-  assert.ok(/listRecentActivity\(limit = 30\)/.test(readFileSync(new URL('../src/services/cloud.js', import.meta.url), 'utf8')),
+  assert.ok(/listRecentActivity\(limit = 30\)/.test(readSplit('src/services/cloud.js')),
     '서버 조회의 상한과 같은 값');
   // 액션이 되돌리기 기록에 쌓이지 않는다(SET_ACTIVITY_FEED와 같은 이유 — 내 조작이 아니다)
   S.store.dispatch({ type: 'LOAD_STATE', payload: { currentUser: {}, members: [], activityFeed: [row('x', 1)],
@@ -830,7 +830,7 @@ import { loadSource } from './_load.mjs';
   w('CLOSED'); w('SUBSCRIBED'); assert.strictEqual(n, 2, 'CLOSED 뒤에도');
   S.reconnectWatcher(undefined)('CLOSED');   // 콜백이 없어도 던지지 않는다
   // 배선: 업무 채널이 상태를 받고 · App이 재접속에 재조회하고 · 앞 칸 숫자는 열 때·보일 때만 잰다
-  const cloudSrc = readFileSync(new URL('../src/services/cloud.js', import.meta.url), 'utf8');
+  const cloudSrc = readSplit('src/services/cloud.js');
   const syncSrc = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
   const appSrc = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
   const laySrc2 = readFileSync(new URL('../src/components/layout.jsx', import.meta.url), 'utf8');

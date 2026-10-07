@@ -2,7 +2,7 @@
 // logcheck 묶음의 하나다 — `npm run verify -- logcheck`가 logcheck와 logcheck-* 전부를 돈다.
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { loadSource } from './_load.mjs';
+import { loadSource, readSplit } from './_load.mjs';
 
 // ── 공유 링크로 들어온 로그인 (utils.isKakaoInApp · returnToOf · authErrorInUrl) ──
 // 카카오톡으로 공유한 링크를 인앱 브라우저에서 열면 로그인 화면이 뜨고, OAuth가 origin으로
@@ -196,7 +196,7 @@ import { loadSource } from './_load.mjs';
   assert.ok(/title="합친 계정"/.test(mv), '제 구역 이름이 있다');
   assert.ok(/합쳤어요/.test(mv) && !/mergedRows[\s\S]{0,900}다시 초대하기/.test(mv),
     '그 구역에는 다시 초대하기가 없다');
-  assert.ok(/merged_into/.test(src('../src/services/cloud.js')),
+  assert.ok(/merged_into/.test(readSplit('src/services/cloud.js')),
     '목록 조회가 그 칸을 실어 온다(없으면 화면이 가를 수 없다)');
 
   // 0061 — 합친 계정으로 들어와도 **그 사람**이다(사용자 요구 2026-09-10 "그 계정으로
@@ -231,7 +231,7 @@ import { loadSource } from './_load.mjs';
     '클라이언트가 그 값을 묻고 세션이 바뀌면 버린다');
   assert.ok(/resetMyUid\(\)/.test(src('../src/services/auth.jsx')), '세션이 바뀌면 실제로 버린다');
   for (const f of ['word.js', 'worship.js', 'groups.js', 'people.js']) {
-    assert.ok(/myUid/.test(src(`../src/services/${f}`)), `${f}가 그 값을 쓴다`);
+    assert.ok(/myUid/.test(readSplit(`src/services/${f}`)), `${f}가 그 값을 쓴다`);
   }
   // 화면에 보이는 이름도 남긴 계정의 것이다
   assert.ok(/p\.merged_into && nameOfId\.get\(p\.merged_into\)/.test(src('../src/services/cloudSync.js')),
@@ -287,7 +287,7 @@ import { loadSource } from './_load.mjs';
     '반응의 주인 기본값이 아직 auth.uid()다 — 정책만 올리면 insert가 통째로 막힌다');
 
   // 클라이언트도 같은 값을 봐야 한다(§6-34-d) — 정책만 고치면 화면은 자기 uid로 묻는다
-  const cl = src('../src/services/cloud.js');
+  const cl = readSplit('src/services/cloud.js');
   for (const fn of ['listMyNotifications', 'markAllNotificationsRead', 'savePushSubscription',
                     'updateMyProfile', 'setMyTeams', 'removeCommentReaction']) {
     const at = cl.indexOf(`function ${fn}(`);

@@ -1,4 +1,5 @@
 import { supabase, myUid } from './supabaseClient.js';
+import { unwrap } from './cloud/core.js';
 
 // ============================================================================
 // v2 명단(people)·모임(groups) 읽기 계층 — 예배·모임 줄기가 같이 쓴다 (docs/V2.md §2)
@@ -29,8 +30,7 @@ export async function fetchPeople({ includeRemoved = false } = {}) {
     .select('id, name, birthday, teams, gender, is_pastor, sun_exempt, profile_id, note, removed_at, profiles:profile_id(display_name)')
     .order('name');
   if (!includeRemoved) q = q.is('removed_at', null);
-  const { data, error } = await q;
-  if (error) throw error;
+  const data = unwrap(await q);
   return (data ?? []).map(withDisplayName);
 }
 
@@ -50,10 +50,8 @@ export { HONORIFIC, honorific, honorificsOf } from './honorific.js';
 // 올해(또는 지정 연도) 직분 — [{ person_id, year, role }]
 export async function fetchRoles(year) {
   if (!supabase) return [];
-  const { data, error } = await supabase.from('people_roles')
-    .select('person_id, year, role').eq('year', year);
-  if (error) throw error;
-  return data ?? [];
+  return unwrap(await supabase.from('people_roles')
+    .select('person_id, year, role').eq('year', year)) ?? [];
 }
 
 // 모임 목록. type: 'sun' | 'club'. 순은 연도를 함께 거른다.
@@ -63,18 +61,14 @@ export async function fetchGroups(type, year) {
     .select('id, type, name, year, leader_person_id, note')
     .eq('type', type).is('removed_at', null).order('name');
   if (type === 'sun' && year) q = q.eq('year', year);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data ?? [];
+  return unwrap(await q) ?? [];
 }
 
 // 모임 구성원 — group id 배열을 받아 한 번에 [{ group_id, person_id }]
 export async function fetchGroupMembers(groupIds) {
   if (!supabase || !groupIds?.length) return [];
-  const { data, error } = await supabase.from('group_members')
-    .select('group_id, person_id').in('group_id', groupIds);
-  if (error) throw error;
-  return data ?? [];
+  return unwrap(await supabase.from('group_members')
+    .select('group_id, person_id').in('group_id', groupIds)) ?? [];
 }
 
 // 게스트 저장 자리(클라우드가 없을 때) — 서비스마다 localStorage 한 키에 표들을 둔다.
@@ -96,9 +90,8 @@ export async function fetchMyPerson() {
   // **합친 계정이면 남긴 계정의 id로 찾는다**(0061) — 그 계정으로 들어와도 같은 명단 행이다
   const uid = await myUid();
   if (!uid) return null;
-  const { data, error } = await supabase.from('people')
+  const data = unwrap(await supabase.from('people')
     .select('id, name, birthday, teams, is_pastor, sun_exempt, profile_id, profiles:profile_id(display_name)')
-    .eq('profile_id', uid).is('removed_at', null).maybeSingle();
-  if (error) throw error;
+    .eq('profile_id', uid).is('removed_at', null).maybeSingle());
   return data ? withDisplayName(data) : null;
 }

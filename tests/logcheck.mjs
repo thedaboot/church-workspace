@@ -2,7 +2,7 @@
 // logcheck 묶음의 하나다 — `npm run verify -- logcheck`가 logcheck와 logcheck-* 전부를 돈다.
 import assert from 'node:assert';
 import { readFileSync, existsSync } from 'node:fs';
-import { loadSource } from './_load.mjs';
+import { loadSource, readSplit } from './_load.mjs';
 
 // ── 멘션 꼬리 (utils.splitMention) — 뽑는 쪽과 그리는 쪽이 같은 규칙 ──
 // "(@박지호)"의 닫는 괄호가 칩 안에 들어갔다(2026-09-08). RichText가 `@\S+`를 통째로
@@ -165,7 +165,7 @@ import { loadSource } from './_load.mjs';
 //   · cloud.js에 `const sha256Hex =`를 되살리면 둘째 묶음이 깨진다
 //   · App.jsx의 CHURCH_ORDER를 배열 리터럴로 되돌리면 셋째 묶음이 깨진다
 {
-  const cloudSrc = readFileSync(new URL('../src/services/cloud.js', import.meta.url), 'utf8');
+  const cloudSrc = readSplit('src/services/cloud.js');
   const layoutSrc = readFileSync(new URL('../src/components/layout.jsx', import.meta.url), 'utf8');
   const appSrc = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 
@@ -179,7 +179,7 @@ import { loadSource } from './_load.mjs';
      ['ppt', 'presentation'], ['pptx', 'presentation'],
      ['xls', 'spreadsheets'], ['xlsx', 'spreadsheets']].sort(),
     '구글 편집기 표는 엑셀·워드·PPT 일곱 확장자');
-  assert.ok(/import \{ GOOGLE_EDITOR \} from '\.\.\/utils\.js'/.test(cloudSrc),
+  assert.ok(/import \{ GOOGLE_EDITOR \} from '(\.\.\/)+utils\.js'/.test(cloudSrc),
     'cloud.js가 그 표를 가져다 쓴다');
   assert.ok(!/const (OPEN_EDITOR|DRIVE_EDITOR) = \{/.test(cloudSrc),
     'cloud.js에 같은 표가 다시 적혀 있지 않다');
@@ -196,7 +196,7 @@ import { loadSource } from './_load.mjs';
     '빈 값이면 두 칸을 다 비운다(소금만 남기면 예전 비밀번호가 살아난다)');
   assert.strictEqual(isLocked({ view_pw: null }), false);
   assert.ok(!/const sha256Hex/.test(cloudSrc), 'cloud.js에 같은 해시 계산이 다시 적혀 있지 않다');
-  assert.ok(/import \{ makeViewPw, verifyViewPw \} from '\.\/viewPw\.js'/.test(cloudSrc),
+  assert.ok(/import \{ makeViewPw, verifyViewPw \} from '\.\.?\/viewPw\.js'/.test(cloudSrc),
     'cloud.js가 viewPw.js를 가져다 쓴다');
   assert.ok(/setViewPassword\('files'/.test(cloudSrc) && /setViewPassword\('resource_links'/.test(cloudSrc),
     '첨부와 참고 링크가 같은 쓰기 한 벌을 쓴다');

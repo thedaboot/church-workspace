@@ -2,7 +2,7 @@
 // logcheck 묶음의 하나다 — `npm run verify -- logcheck`가 logcheck와 logcheck-* 전부를 돈다.
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { loadSource } from './_load.mjs';
+import { loadSource, readSplit } from './_load.mjs';
 const { TaskService, ActivityService } = await import(new URL('../src/services/domain.js', import.meta.url).href);
 
 const base = { id: 't1', projectId: 'p1', title: '수련회 준비', content: '내용', status: '시작 전',
@@ -624,7 +624,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   const nfd = '주보 파일.pdf'.normalize('NFD');
   assert.ok(nfd !== '주보 파일.pdf' && norm(nfd).includes(norm('주보파일')),
     '자모로 풀린(NFD) 이름도 같은 글자로 친 검색어에 걸린다');
-  const cloud = readFileSync(new URL('../src/services/cloud.js', import.meta.url), 'utf8');
+  const cloud = readSplit('src/services/cloud.js');
   const up = /async function uploadOwnedFile[\s\S]*?\n}\n/.exec(cloud.replace(/\r\n/g, '\n'))?.[0] || '';
   assert.ok(/const name = String\(file\.name \|\| ''\)\.normalize\('NFC'\);/.test(up),
     '업로드는 이름을 NFC로 한 번 맞춘다');
@@ -670,7 +670,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '클라우드 쓰기는 바뀐 칸만 · 하위 업무는 서버의 지금 목록과 합친다');
   assert.ok(/changed\.includes\('teams'\) \?/.test(sync) && /changed\.includes\('assignees'\) &&/.test(sync), '팀·담당자 조인도 바뀌었을 때만 다시 쓴다');
   // 담당 팀만 바꾸면 카드 칸은 0개다(CARD_COLS.teams = []) — 빈 update는 PGRST116 → upsert({id}) → title 23502였다(2026-10-02)
-  const cloudSrc = readFileSync(new URL('../src/services/cloud.js', import.meta.url), 'utf8');
+  const cloudSrc = readSplit('src/services/cloud.js');
   const upd = cloudSrc.slice(cloudSrc.indexOf('export async function updateCard'));
   assert.ok(/teams: \[\]/.test(sync), '팀은 카드 칸이 없다(조인 표뿐) — 그래서 아래 갈래가 필요하다');
   const emptyAt = upd.search(/if \(!Object\.keys\(patch \|\| \{\}\)\.length\) \{/);
@@ -714,3 +714,109 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   console.log('PASS  첨부 점검 뒤 넷(보기 창 · 사본 요지 · 투명 PNG · no-referrer)');
 }
 
+// ── 클라우드 바탕 셋 — unwrap · authedPost · 지운 첨부의 실체 정리 (2026-10-07 · 19차 cloud 쪼개기) ──────
+// 쪼개면서 한 벌로 모은 것들이다. 예전에는 자리마다 손으로 적혀 있었다:
+//   unwrap — v2 서비스의 `if (error) throw error` 55곳. **오류 객체 그대로** 던져야 errorText가 code로 이유를 가른다.
+//   authedPost — 로그인 토큰을 붙여 /api를 부르는 열 곳. 토큰이 없을 때 할 일이 자리마다 달라 noToken으로 남겼다
+//     (던지기 · 값 · 안 주면 그대로 보낸다 — 위키는 예전부터 'Bearer undefined'로 보내 서버가 401로 답했다).
+//   trashFolder · trashFileBodies — 업무·프로젝트·첨부 삭제의 정리 세 벌. 변환 사본 먼저 · 폴더째 간 것은 건너뛴다 ·
+//     Storage는 언제나 · 실패해도 던지지 않는다(두 번 불러도 같다).
+// 되돌리기 검사(§3-5): unwrap이 `new Error(error.message)`를 던지게 하면 ①이, authedPost의 `if (!t && noToken)`를
+// `if (!t)`로 바꾸면 ②의 'Bearer undefined' 줄이, trashFileBodies의 `[f.preview_file_id, f.drive_file_id]`를 거꾸로
+// 하면 ③의 차례 줄이 깨진다.
+{
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
+  const dirC = mkdtempSync(join(tmpdir(), 'lc-cloud-'));
+  const CLOUD = new URL('../src/services/cloud/', import.meta.url);
+  for (const f of ['core.js', 'drive.js']) {
+    const t = readFileSync(new URL(f, CLOUD), 'utf8')
+      .replace(/import \{[^}]*\} from '\.\.\/supabaseClient\.js';/, 'const supabase = globalThis.__CORE_SB;')
+      .replace(/import \{ CONFIG \} from '\.\.\/\.\.\/config\.js';/, "const CONFIG = { STATUS_DB: { '시작 전': 'todo' }, STATUSES: ['시작 전'] };")
+      .replace(/from '(\.\.\/[^']+)'/g, (m, rel) => `from '${new URL(rel, CLOUD).href}'`);
+    writeFileSync(join(dirC, f.replace('.js', '.mjs')), t.replace("from './core.js'", "from './core.mjs'"));
+  }
+  const calls = [];
+  const last = {};
+  let session = { access_token: 't1' };
+  let sessionAsks = 0;
+  const failing = new Set();
+  globalThis.__CORE_SB = {
+    auth: { getSession: async () => { sessionAsks++; return { data: { session } }; } },
+    storage: { from: () => ({ remove: async (paths) => { calls.push(`rm:${paths.join(',')}`); return { data: [], error: null }; } }) },
+  };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push(url === '/api/drive' ? `trash:${body.fileId}` : `post:${url}`);
+    last.init = init;
+    if (failing.has(body.fileId)) return { status: 500, ok: false, json: async () => ({ error: '스크립트 오류', scriptError: true }) };
+    return { status: 200, ok: true, json: async () => ({}) };
+  };
+  const errLog = console.error; const warnLog = console.warn;
+  console.error = () => {}; console.warn = () => {};
+  try {
+    const core = await import(pathToFileURL(join(dirC, 'core.mjs')).href);
+    const drive = await import(pathToFileURL(join(dirC, 'drive.mjs')).href);
+
+    // ① unwrap — data는 그대로, 오류는 **그 객체 그대로**(message·code가 남는다)
+    assert.deepStrictEqual(core.unwrap({ data: [1, 2], error: null }), [1, 2]);
+    const pgErr = Object.assign(new Error('new row violates row-level security policy'), { code: '42501', details: 'x' });
+    assert.throws(() => core.unwrap({ data: null, error: pgErr }), (e) => e === pgErr && e.code === '42501' && e.details === 'x',
+      'unwrap이 오류를 새로 만들어 던진다 — code가 사라지면 errorText가 이유를 못 가른다');
+
+    // ② authedPost — 토큰을 붙여 JSON POST · 토큰이 없을 때의 세 갈래 · 쥔 토큰은 다시 묻지 않는다
+    calls.length = 0;
+    await core.authedPost('/api/x', { a: 1 });
+    assert.deepStrictEqual(calls, ['post:/api/x']);
+    assert.strictEqual(last.init.method, 'POST');
+    assert.strictEqual(last.init.headers.Authorization, 'Bearer t1');
+    assert.strictEqual(last.init.body, '{"a":1}');
+    session = null; calls.length = 0;
+    assert.strictEqual(await core.authedPost('/api/x', {}, { noToken: () => 'need-login' }), 'need-login', 'noToken의 값을 돌려준다');
+    await assert.rejects(core.authedPost('/api/x', {}, { noToken: () => { throw new Error('로그인'); } }), /로그인/, 'noToken이 던지면 던진다');
+    assert.deepStrictEqual(calls, [], '토큰이 없고 noToken이 있으면 보내지 않는다');
+    await core.authedPost('/api/ai', { ask: 'q' });
+    assert.strictEqual(last.init.headers.Authorization, 'Bearer undefined', 'noToken이 없으면 그대로 보낸다(위키 — 서버가 401)');
+    sessionAsks = 0;
+    await core.authedPost('/api/ai', {}, { token: 'held' });
+    assert.strictEqual(sessionAsks, 0, '쥔 토큰이 있으면 세션을 다시 묻지 않는다');
+    assert.strictEqual(last.init.headers.Authorization, 'Bearer held');
+    session = { access_token: 't1' };
+
+    // ③ 실체 정리 — 폴더째 · 파일마다(Storage는 언제나 · 변환 사본 먼저 · 폴더째 간 것은 건너뛴다) · 던지지 않는다
+    calls.length = 0;
+    assert.strictEqual(await drive.trashFolder(null, '업무 폴더'), false, 'id가 없으면 false');
+    assert.strictEqual(await drive.trashFolder('F1', '업무 폴더'), true);
+    failing.add('F2');
+    assert.strictEqual(await drive.trashFolder('F2', '업무 폴더', '파일 단위로 전환'), false, '실패하면 false(던지지 않는다)');
+    assert.deepStrictEqual(calls, ['trash:F1', 'trash:F2']);
+    const files = [
+      { name: 'a', source: 'storage', storage_path: 'p/a' },
+      { name: 'b', source: 'drive', drive_file_id: 'D1', preview_file_id: 'P1', card_id: 'c1' },
+      { name: 'c', source: 'drive', drive_file_id: 'D2', card_id: 'c2', storage_path: 'p/c' },
+    ];
+    const run = async () => { calls.length = 0; await drive.trashFileBodies(files, { inTrashedFolder: f => f.card_id === 'c2' }); return [...calls]; };
+    const first = await run();
+    assert.deepStrictEqual(first, ['rm:p/a', 'trash:P1', 'trash:D1', 'rm:p/c'],
+      'Storage는 언제나 · 드라이브는 변환 사본 먼저 · 폴더째 간 파일(c2)은 드라이브를 건너뛴다');
+    assert.deepStrictEqual(await run(), first, '두 번 불러도 같은 일을 한다');
+    failing.add('P1');
+    assert.deepStrictEqual(await run(), first, '사본 휴지통이 실패해도 원본까지 가고 던지지 않는다');
+    calls.length = 0;
+    await drive.trashFileBodies([{ name: 'x', source: 'local' }]);
+    assert.deepStrictEqual(calls, [], '아직 올리는 중인(local) 행은 지울 실체가 없다');
+  } finally {
+    globalThis.fetch = realFetch;
+    console.error = errLog; console.warn = warnLog;
+  }
+  // 배선 — 세 삭제가 이 한 벌을 쓴다(업무 · 프로젝트 · 첨부)
+  const cl = readSplit('src/services/cloud.js');
+  const body = (sig) => cl.slice(cl.indexOf(sig), cl.indexOf('\n}', cl.indexOf(sig)));
+  for (const sig of ['export async function deleteCard(', 'export async function deleteProject(', 'export async function deleteAttachment(']) {
+    assert.ok(/trashFileBodies\(/.test(body(sig)) && !/driveCall\(/.test(body(sig)), `${sig} — 정리를 한 벌로 하지 않는다`);
+  }
+  console.log('PASS  클라우드 바탕 셋(unwrap 오류 그대로 · authedPost 토큰 갈래 · 지운 첨부 정리 한 벌) 23가지');
+}

@@ -116,8 +116,9 @@ const kstToUtc = (date, time) => {
   const [h, mm] = time.split(':').map(Number);
   return Date.UTC(y, m - 1, d, h - 9, mm);
 };
-const stampUtc = (t) => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-const ymd = (t) => new Date(t).toISOString().slice(0, 10).replace(/-/g, '');
+// .ics의 시각·날짜 글자 — 내 달력 구독(calendarFeed.js)이 같은 두 줄을 가져다 쓴다
+export const stampUtc = (t) => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+export const ymd = (t) => new Date(t).toISOString().slice(0, 10).replace(/-/g, '');
 
 // RFC 5545 글자 이스케이프 + 75옥텟 접기(한글은 3옥텟이라 글자 수로 자르면 넘는다)
 export const icsText = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');

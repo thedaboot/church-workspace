@@ -17,12 +17,10 @@
 //   카카오 인앱      위 주소를 kakaoExternal로 기본 브라우저에 넘긴다(광고 → 내 달력과 같은 길 · 실기기 확인 대상)
 // 복사는 **https 주소**다(webcal은 붙여 넣을 자리가 받지 않는 곳이 많다).
 // ============================================================================
-import { icsText, fold, kakaoExternal } from './noticeDate.js';
+import { icsText, fold, kakaoExternal, ymd, stampUtc } from './noticeDate.js';
 
 const DAY = 86400000;
 const md = (iso) => `${Number(iso.slice(5, 7))}월 ${Number(iso.slice(8, 10))}일`;
-const ymd = (t) => new Date(t).toISOString().slice(0, 10).replace(/-/g, '');
-const stampUtc = (t) => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 
 // DB 상태 → 앱 글자. config.js의 STATUS_DB를 뒤집은 것과 같아야 한다(logcheck가 견준다) —
 // 서버가 config.js(화면 상수 한 벌)까지 끌어오지 않게 여기 적었다.

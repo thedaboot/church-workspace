@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { readSplit } from './_load.mjs';
 
 const ROOT = join(import.meta.dirname, '..');
 const notify = await import('file://' + join(ROOT, 'src', 'services', 'notifyText.js').replace(/\\/g, '/'));
@@ -49,7 +50,7 @@ assert.equal(api.deepLink(null, null), '/');
 // ── cloud.js 문장 모양 ──────────────────────────────────────────────────────
 // insertNotifications에 .select()를 붙이면 RLS로 insert까지 롤백되어 알림이 한 건도
 // 생기지 않는다(docs/PITFALLS.md §6-25 — 실제로 그렇게 멘션 알림이 죽어 있었다).
-const cloudSrc = readFileSync(join(ROOT, 'src', 'services', 'cloud.js'), 'utf8');
+const cloudSrc = readSplit('src/services/cloud.js');
 const notifBody = cloudSrc.slice(cloudSrc.indexOf('export async function insertNotifications'));
 const insertStmt = notifBody.slice(0, notifBody.indexOf('\n}'));
 assert.ok(/from\('notifications'\)\.insert\(rows\)/.test(insertStmt), 'notifications insert 문장을 찾지 못했다');
@@ -310,7 +311,7 @@ assert.ok(!withCheck.includes("'due_soon'"), 'due_soon은 INSERT 정책에 넣�
 
 // 발행에 넣었으면 구독도 들어야 하고, **라우팅에 적지 않으면 기본이 전체 재조회다**(§6-21).
 {
-  const cSrc = readFileSync(join(ROOT, 'src', 'services', 'cloud.js'), 'utf8');
+  const cSrc = readSplit('src/services/cloud.js');
   assert.ok(/table: 'comment_reactions'/.test(cSrc), 'subscribeAll이 comment_reactions를 듣지 않는다');
   const sSrc = readFileSync(join(ROOT, 'src', 'services', 'cloudSync.js'), 'utf8');
   const route = sSrc.slice(sSrc.indexOf('export function subscribeWorkspace'));
@@ -325,7 +326,7 @@ assert.ok(!withCheck.includes("'due_soon'"), 'due_soon은 INSERT 정책에 넣�
 // 벨이 거의 비어 보이던 자리. **정책과 클라이언트가 같은 값을 봐야 한다**(§6-34-d) —
 // 정책만 effective_uid()로 올리고 화면이 세션 uid로 물으면 결과가 빈 목록이다.
 {
-  const cSrc = readFileSync(join(ROOT, 'src', 'services', 'cloud.js'), 'utf8');
+  const cSrc = readSplit('src/services/cloud.js');
   for (const fn of ['listMyNotifications', 'markAllNotificationsRead', 'savePushSubscription']) {
     const at = cSrc.indexOf(`function ${fn}(`);
     assert.ok(at > 0, `${fn}을 못 찾았다`);
@@ -473,7 +474,7 @@ assert.ok(/renotify: true/.test(sw) && /vibrate: \[/.test(sw), 'sw 알림에 ren
 // `.access_token`을 바로 꺼내면 언제나 undefined이고, 그 자리는 조용히 통과하는
 // 필터가 된다. 실제로 이 실수로 앱 첨부가 한 번도 드라이브로 못 갔다.
 {
-  const cloudSrc = readFileSync(join(ROOT, 'src', 'services', 'cloud.js'), 'utf8');
+  const cloudSrc = readSplit('src/services/cloud.js');
   assert.ok(!/getSession\(\)\)\?\.access_token/.test(cloudSrc),
     'getSession()에서 access_token을 한 겹 덜 벗겨 꺼내고 있다 (§6-29)');
   assert.ok(/getSession\(\)\)\?\.session\?\.access_token/.test(cloudSrc),

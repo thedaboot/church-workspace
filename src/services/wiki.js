@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient.js';
+import { accessToken, authedPost } from './cloud/core.js';
 import { SEED_PAGES, prefilter, NOT_FOUND } from './wikiCore.js';
 
 // ============================================================================
@@ -55,16 +56,11 @@ export async function askDabooti(q, prev = '') {
   if (!supabase && !pf && typeof window !== 'undefined' && window.__dabootiAnswer) return { ...window.__dabootiAnswer };
   if (!supabase) return pf ? { id: null, status: 'refused', sentences: [{ text: pf.answer, cites: [] }], files: [] }
     : { id: null, status: 'unknown', sentences: [{ text: NOT_FOUND, cites: [] }], files: [] };
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token;
+  const token = await accessToken();   // 없어도 그대로 보낸다 — 서버가 401로 답한다
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 55 * 1000);
   try {
-    const r = await fetch('/api/ai', {
-      method: 'POST', signal: ctl.signal,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ ask: q, prev }),
-    });
+    const r = await authedPost('/api/ai', { ask: q, prev }, { token, signal: ctl.signal });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { const err = new Error(j.error || `HTTP ${r.status}`); err.human = j.error || '답을 받지 못했어요\n잠시 후 다시 물어봐 주세요'; throw err; }
     return j;
@@ -77,12 +73,8 @@ export async function askDabooti(q, prev = '') {
 
 export async function sendFeedback(id, v) {
   if (!supabase || !id) return;
-  const { data: { session } } = await supabase.auth.getSession();
-  await fetch('/api/ai', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
-    body: JSON.stringify({ feedback: { id, v } }),
-  }).catch(() => {});
+  const token = await accessToken();
+  await authedPost('/api/ai', { feedback: { id, v } }, { token }).catch(() => {});
 }
 
 // 지난번에 본 때 — 목록의 점(마지막으로 본 뒤 다시 모인 장). 이 브라우저에만 둔다.

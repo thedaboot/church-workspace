@@ -13,6 +13,7 @@ import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { readSplit } from './_load.mjs';
 
 // 경로에 한글이 있어서 URL로 읽는다 — `new URL(...).pathname`은 퍼센트 인코딩된
 // 글자를 그대로 주고, 그걸 파일 경로로 쓰면 없는 파일이 된다(tests/bibleref.mjs와 같은 방식).
@@ -210,7 +211,7 @@ check('큐시트 링크는 프롬프트에 싣지 않는다',
   check('요지 모양이 아닌 긴 발췌는 싣지 않는다(옛 앞 2000자 · 교독문·이름)',
     !G.buildGuidePrompt({ service: SERVICE, passageText, cueText: 'ㄱ'.repeat(1900) }).prompt.includes('[큐시트에서'));
   // 배선(클라우드 경로라 게스트 스위트가 못 본다 · §3-5): 올리는 순간 요지 → files.text_excerpt → 가이드
-  const ws = readFileSync(new URL('../src/services/worship.js', import.meta.url), 'utf8');
+  const ws = readSplit('src/services/worship.js');
   const ft = readFileSync(new URL('../src/services/fileText.js', import.meta.url), 'utf8');
   check('큐시트는 올리는 순간 요지를 뽑아 둔다(worship.uploadServiceFile → fileText kind)',
     /if \(k === CUESHEET && row\?\.id\) void fillCueExcerpt\(row, file\);/.test(ws)

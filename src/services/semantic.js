@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient.js';
+import { accessToken, authedPost } from './cloud/core.js';
 import { vecParam, relatedKey, RELATED_K, BIBLE_VEC_K } from './vecSearch.js';
 
 // ============================================================================
@@ -19,20 +20,14 @@ const EMBED_TIMEOUT_MS = 15000;   // 이보다 늦으면 이 구역은 포기한
 
 export async function embedQuery(text, { signal } = {}) {
   if (!supabase) throw new Error('클라우드 모드가 아니에요');
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token;
+  const token = await accessToken();
   if (!token) throw new Error('로그인이 필요해요');
   const ctl = new AbortController();
   const stop = () => ctl.abort();
   signal?.addEventListener('abort', stop, { once: true });
   const timer = setTimeout(stop, EMBED_TIMEOUT_MS);
   try {
-    const r = await fetch('/api/ai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ embed: String(text || '').trim() }),
-      signal: ctl.signal,
-    });
+    const r = await authedPost('/api/ai', { embed: String(text || '').trim() }, { token, signal: ctl.signal });
     if (!r.ok) { const e = new Error(`임베딩 ${r.status}`); e.status = r.status; throw e; }
     const { vec } = await r.json();
     if (!Array.isArray(vec) || !vec.length) throw new Error('임베딩이 비어 있어요');

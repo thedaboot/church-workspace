@@ -1,5 +1,6 @@
 import assert from 'node:assert';
 import { existsSync, readFileSync } from 'node:fs';
+import { readSplit } from './_load.mjs';
 
 // ============================================================================
 // 드라이브 ↔ 앱 싱크 검사 — 소스 단정.
@@ -17,7 +18,7 @@ const check = (name, fn) => {
 };
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 
-const cloud = read('src/services/cloud.js');
+const cloud = readSplit('src/services/cloud.js');
 const api = read('api/drive.js');
 const sync = read('src/services/cloudSync.js');
 const att = read('src/modals/attachments.jsx');
@@ -585,7 +586,7 @@ check('문서의 스크립트가 uploadFromUrl을 안다 (v5부터)', () => {
 // 큐시트를 파일로도 붙이게 되면서(2026-09-08) 그 함정을 화면에서 다시 밟을 자리가
 // 생겼다 — 갈래는 `files.kind` 한 칸이고 업로드 길은 여전히 하나다(0054 · §6-29-u).
 const view = read('src/views/worshipView.jsx');
-const wsvc = read('src/services/worship.js');
+const wsvc = readSplit('src/services/worship.js');
 const wdet = read('src/components/worshipDetail.jsx');
 const mig = read('supabase/migrations/0047_service_files.sql');
 const migKind = read('supabase/migrations/0054_files_kind.sql');
