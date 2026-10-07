@@ -834,6 +834,7 @@ import { loadSource } from './_load.mjs';
   const syncSrc = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
   const appSrc = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
   const laySrc2 = readFileSync(new URL('../src/components/layout.jsx', import.meta.url), 'utf8');
+  const mobSrc = readFileSync(new URL('../src/components/mobileNav.jsx', import.meta.url), 'utf8');
   assert.ok(/\.subscribe\(\(status\) => onStatus\?\.\(status\)\);/.test(cloudSrc), '업무 채널 subscribe가 상태를 넘긴다');
   assert.ok(/\}, reconnectWatcher\(onReconnect\)\);/.test(syncSrc), 'subscribeWorkspace가 재접속 판정을 붙인다');
   assert.ok(/onReconnect: \(\) => \{\s*clearTimeout\(timer\);[\s\S]{0,200}reloadCloud\(\)/.test(appSrc), 'App이 재접속에 재조회(업무 창이 열려 있어도 — 2026-09-28)');
@@ -841,7 +842,7 @@ import { loadSource } from './_load.mjs';
   assert.strictEqual(calls.length, 2, '앞 칸 숫자는 첫 로드 뒤 한 번 + 보일 때 한 번 — 실시간 경로에서 부르지 않는다');
   assert.ok(/if \(!document\.hidden\) refreshTabFront\(cloudMode\)/.test(appSrc), '다시 보일 때만');
   assert.ok(/draggable=\{!frontIds\.has\(p\.id\)\}/.test(laySrc2), '데스크톱 앞 칸 탭은 끌 수 없다');
-  assert.ok(/const locked = archived \|\| front;/.test(laySrc2), '폰 앞 칸 탭도 끌기·놓기가 막힌다');
+  assert.ok(/const locked = archived \|\| front;/.test(mobSrc), '폰 앞 칸 탭도 끌기·놓기가 막힌다');
   assert.ok(/reorderIds\(posSource\.map\(p => p\.id\), dragTabId, targetId\)/.test(laySrc2), '번호는 position 순 전체로 매긴다');
   console.log('PASS  탭 줄 앞 칸(tabRank — 사람 수·최근·2명 이상·다섯·게스트 줄) · 폰 프로젝트 버튼 · 업무 채널 재접속 따라잡기');
 }

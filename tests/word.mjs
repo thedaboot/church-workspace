@@ -2281,7 +2281,7 @@ check('AI가 없으면 둘째 줄은 문구 배열에 들어가지도 않는다'
   JSON.stringify(hintList));
 // 회전 자체는 메인 검색창의 것을 그대로 쓴다 — 여기에 두 벌째를 만들지 않는다
 const hintSrcBible = readFileSync(new URL('src/components/wordBible.jsx', ROOT), 'utf8');
-const hintSrcLayout = readFileSync(new URL('src/components/layout.jsx', ROOT), 'utf8');
+const hintSrcLayout = readFileSync(new URL('src/components/searchBox.jsx', ROOT), 'utf8');
 check('안내 문구 회전은 메인 검색창과 한 벌이다',
   hintSrcBible.includes("import { SearchHint } from './layout.jsx'")
   && /export function useRotatingHint\(on, hints = SEARCH_HINTS\)/.test(hintSrcLayout)

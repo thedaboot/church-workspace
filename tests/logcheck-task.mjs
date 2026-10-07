@@ -617,7 +617,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
 // 되돌리기 검사: 검색 norm에서 .normalize('NFC')를 빼면 첫 단정이, 업로드의 name 한 벌을
 // file.name으로 되돌리면 둘째·셋째가 깨진다.
 {
-  const lay = readFileSync(new URL('../src/components/layout.jsx', import.meta.url), 'utf8');
+  const lay = readFileSync(new URL('../src/components/searchBox.jsx', import.meta.url), 'utf8');
   const normSrc = /const norm = (\(x\) => [^\n]+);/.exec(lay)?.[1];
   assert.ok(normSrc, '검색의 norm을 찾지 못했다');
   const norm = (0, eval)(normSrc);

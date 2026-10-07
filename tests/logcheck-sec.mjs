@@ -295,7 +295,7 @@ import { loadSource } from './_load.mjs';
     const fnSrc = cl.slice(at, at + 600);
     assert.ok(/await myUid\(\)/.test(fnSrc), `${fn}이 세션 uid로 묻는다 — 합친 계정에게는 빈 목록이다`);
   }
-  assert.ok(/myUid\(\)\.then/.test(src('../src/components/layout.jsx')),
+  assert.ok(/myUid\(\)\.then/.test(src('../src/components/notificationBell.jsx')),
     '알림 실시간 구독 필터가 세션 uid다 — 합친 계정에게는 새 알림이 안 들어온다');
   assert.ok(/presence: \{ key: uid \}/.test(src('../src/services/presence.js')),
     '접속 표시 열쇠가 세션 uid다 — 합친 계정은 접속해도 얼굴이 안 밝는다');

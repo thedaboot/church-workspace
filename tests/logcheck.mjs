@@ -597,3 +597,66 @@ import { loadSource } from './_load.mjs';
   console.log('PASS  내 달력 구독(문장 · 날짜 · .ics · 기기별 버튼 · 저장 줄 세우기 · 서버 배선)');
 }
 
+
+// ── 내비 부품 한 벌(19차 묶음 D — layout.jsx를 navParts·mobileNav·searchBox·notificationBell로 갈랐다) ──
+// 되돌리기 검사:
+//   · searchBox.jsx SearchHint를 matchMedia 한 줄로 되돌리면 ①이 깨진다
+//   · usePopover.js POP_MOTION에서 transition-none을 빼거나, 네 자리 중 하나를 손 껍데기(useDismiss)로 되돌리면 ②가 깨진다
+//   · MarkdownEditor 멘션 목록의 transition-none을 빼면 ③(17-b 훑기)이 깨진다
+//   · MobileTopBar를 자기 계산(splitFrontTabs)으로 되돌리면 ④가 깨진다
+{
+  const read = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  const NAV = ['components/layout.jsx', 'components/navParts.jsx', 'components/mobileNav.jsx', 'components/searchBox.jsx', 'components/notificationBell.jsx'];
+  const nav = Object.fromEntries(NAV.map(p => [p.split('/')[1].replace('.jsx', ''), read(p)]));
+
+  // ① 모션 최소화 판정 한 벌(hooks/useReducedMotion.js)
+  const { prefersReducedMotion, REDUCED_MOTION_QUERY } = await import(new URL('../src/hooks/useReducedMotion.js', import.meta.url).href);
+  const fakeWin = (on) => ({ matchMedia: (q) => ({ matches: on && q === '(prefers-reduced-motion: reduce)' }) });
+  assert.strictEqual(REDUCED_MOTION_QUERY, '(prefers-reduced-motion: reduce)');
+  assert.strictEqual(prefersReducedMotion(fakeWin(true)), true, '줄이라고 했으면 참');
+  assert.strictEqual(prefersReducedMotion(fakeWin(false)), false, '아니면 거짓');
+  assert.strictEqual(prefersReducedMotion({}), false, 'matchMedia가 없는 곳은 줄이라는 말이 없던 것으로 본다');
+  assert.strictEqual(prefersReducedMotion(), false, '노드(window 없음)에서도 던지지 않는다');
+  assert.ok(/const still = useReducedMotion\(\);/.test(nav.searchBox), '검색 안내 문구가 그 훅으로 멈춘다');
+  for (const [k, s] of Object.entries({ ...nav, MarkdownEditor: read('components/MarkdownEditor.jsx') })) {
+    assert.ok(!s.includes('prefers-reduced-motion'), `${k}에 matchMedia 판정이 다시 적혀 있지 않다`);
+  }
+
+  // ② 팝오버 껍데기 한 벌(hooks/usePopover.js) — 등장 모션은 훅이 붙인다(PITFALLS 17-b)
+  const pop = read('hooks/usePopover.js');
+  assert.ok(pop.includes("export const POP_MOTION = 'transition-none animate-in fade-in zoom-in-95 duration-150';"), '훅의 모션에 transition-none이 있다');
+  assert.ok(pop.includes('className: `${className} ${POP_MOTION}`'), '판 클래스 끝에 그 모션을 붙인다');
+  assert.ok(/useDismiss\(open, \(\) => setOpen\(false\), \[rootRef, popRef\]\)/.test(pop), '포털로 나간 판도 바깥 누름의 안이다(17-d)');
+  assert.ok(nav.layout.includes('usePopover(224, 200, { gap: 8, measure: true })') && nav.layout.includes('usePopover(224, 260)'), '프로필 메뉴 · 더보기');
+  assert.ok(nav.navParts.includes('usePopover(112, 40 + years.length * 34)'), '연도 고르기');
+  assert.ok(nav.notificationBell.includes('usePopover(320, 240, { portal: false })'), '알림 종(앵커 곁에 그린다)');
+  for (const k of ['layout', 'navParts', 'notificationBell']) {
+    assert.ok(!/useDismiss\(/.test(nav[k]), `${k}에 손으로 짠 팝오버 껍데기가 다시 생기지 않았다`);
+  }
+
+  // ③ 17-b 훑기 — 자리를 인라인 left/top(state)으로 잡는 fixed 판에 animate-in이 있으면 transition-none도 있어야 한다.
+  //    내비 다섯 파일 + 본문 에디터(멘션 목록 · 링크 팝오버). fixed 다음에 오는 첫 className을 그 판의 것으로 본다.
+  const scan = { ...nav, MarkdownEditor: read('components/MarkdownEditor.jsx') };
+  let seen = 0;
+  for (const [k, s] of Object.entries(scan)) {
+    for (const m of s.matchAll(/position: 'fixed'/g)) {
+      const cls = /className=(["`])([\s\S]*?)\1/.exec(s.slice(m.index, m.index + 600))?.[2] || '';
+      if (!cls.includes('animate-in')) continue;
+      seen++;
+      assert.ok(cls.includes('transition-none'), `${k}: 자리를 state로 잡는 떠 있는 판에 transition-none이 없다(PITFALLS 17-b) — ${cls.slice(0, 60)}`);
+    }
+  }
+  assert.ok(seen >= 4, `훑은 판이 너무 적다(${seen}) — 범위가 비었나`);
+
+  // ④ 고른 해의 탭 계산 한 벌(navParts.useYearTabs) — 데스크톱·폰이 같은 것을 본다
+  assert.ok(/export function useYearTabs\(activeMenu, \{ liftArchived = true \} = \{\}\)/.test(nav.navParts), 'useYearTabs가 있다');
+  assert.ok(/\} = useYearTabs\(activeMenu\);/.test(nav.layout), '데스크톱 TopNav가 쓴다');
+  assert.ok(/\} = useYearTabs\(activeMenu, \{ liftArchived: false \}\);/.test(nav.mobileNav), '폰 MobileTopBar가 쓴다(보관된 지금 프로젝트는 끌어올리지 않는다)');
+  assert.strictEqual((nav.navParts.match(/splitFrontTabs\(/g) || []).length, 1, '앞 칸 가르기는 한 자리');
+  for (const k of ['layout', 'mobileNav']) {
+    assert.ok(!/splitFrontTabs\(|useTabYear\(/.test(nav[k]), `${k}에 탭 계산이 다시 적혀 있지 않다`);
+  }
+  // 옮긴 부품을 들이던 다른 화면의 import 줄은 그대로다(layout.jsx 재수출)
+  assert.ok(/export \{ YearPicker \} from '\.\/navParts\.jsx';/.test(nav.layout) && /export \{ SearchHint \} from '\.\/searchBox\.jsx';/.test(nav.layout), '재수출');
+  console.log('PASS  내비 부품 한 벌(모션 최소화 판정 · 팝오버 껍데기 · 17-b 훑기 · 고른 해의 탭)');
+}

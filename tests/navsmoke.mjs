@@ -404,7 +404,7 @@ check('그 해 프로젝트만 탭에 선다', afterPick.projTabs === 2,
 // ── 더보기에는 고른 해의 것만 — 보관 포함 (사용자 결정 2026-09-01) ──────────
 // 지금 내년을 보고 있다: 더보기에는 내년 보관(p8)만 있어야 하고, 올해 프로젝트가
 // 섞이면 안 된다(예전에는 모든 해의 진행 중이 연도 폴더로 들어갔다 — 대체된 결정).
-// 되돌리기 검사: layout.jsx의 archivedForMore에서 연도 조건을 빼거나 YearFolders의
+// 되돌리기 검사: navParts.jsx useYearTabs의 archivedForYear에서 연도 조건을 빼거나 YearFolders의
 // active에 다른 해를 다시 섞으면 두 번째 단정이 깨진다.
 await ev(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim().startsWith('더보기')); b && b.click(); })()`);
 await sleep(350);
@@ -452,7 +452,7 @@ check('교회 화면끼리 옮겨도 맨 위에서 열린다', (await mainTop())
 // ── 상단 검색 결과 판 (2026-09-25 검색 결과 감사) ─────────────────────────────
 // 결과 판은 칸 폭을 따르는데(matchWidth) 768~1030px에서 칸이 54~310px로 줄어든다 — 판이
 // 글자 하나 폭의 기둥이 됐다. 320px 아래로 줄이지 않고 화면 안에 가둔다(minWidth).
-// 되돌리기 검사: layout.jsx SearchBox의 `minWidth: 320`을 지우면 첫 단정이 깨진다.
+// 되돌리기 검사: searchBox.jsx SearchBox의 `minWidth: 320`을 지우면 첫 단정이 깨진다.
 const deskSearch = async (w, q) => {
   await send('Emulation.setDeviceMetricsOverride', { width: w, height: 800, deviceScaleFactor: 1, mobile: false });
   await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1400);

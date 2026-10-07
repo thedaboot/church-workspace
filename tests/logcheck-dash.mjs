@@ -1002,7 +1002,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   const cap = app.indexOf('captureSeenBase({ at: profile?.last_seen_at');
   const stamp = app.indexOf('cloudSync.markSeen(0)');
   assert.ok(cap > 0 && stamp > cap, '지난 방문 기준 시각은 첫 찍기(markSeen(0)) 전에 붙잡는다');
-  const lay = src('components/layout.jsx');
+  const lay = src('components/navParts.jsx');
   assert.ok(/최근 활발한 프로젝트/.test(lay) && /최근 7일 동안 \{nudge\.people\}명이 보고 있어요/.test(lay)
     && /앞에 있는 프로젝트는 자동으로 조정돼요\./.test(lay) && /이 프로젝트는 구분선 뒤에서 움직일 수 있어요\./.test(lay),
     '앞 칸 넛지 문구(사용자 확정)');

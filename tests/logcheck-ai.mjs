@@ -435,7 +435,7 @@ import { readFileSync } from 'node:fs';
   ]);
   // 게스트에서는 네트워크 0 — semanticOn이 클라우드 클라이언트를 보고, 상단 검색이 그것으로 구역을 가른다
   const semSrc = readFileSync(new URL('../src/services/semantic.js', import.meta.url), 'utf8');
-  const laySrc = readFileSync(new URL('../src/components/layout.jsx', import.meta.url), 'utf8');
+  const laySrc = readFileSync(new URL('../src/components/searchBox.jsx', import.meta.url), 'utf8');
   assert.ok(/export const semanticOn = \(\) => !!supabase;/.test(semSrc), 'semanticOn은 클라우드 클라이언트가 있을 때만 참');
   assert.ok(/const ready = semanticOn\(\) && relatedReady\(query\);/.test(laySrc), '상단 검색의 뜻 결과는 semanticOn일 때만 묻는다');
   assert.ok(/>관련된 업무 내용</.test(laySrc), "구역 머리는 사용자 문구 '관련된 업무 내용'");

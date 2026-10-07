@@ -553,10 +553,12 @@ export function MarkdownEditor({
       <div className={className} onMouseDown={focusEnd}>
         {frame ? frame(<EditorContent editor={editor} />) : <EditorContent editor={editor} />}
       </div>
+      {/* 자리를 커서가 정한다(인라인 left/top) — transition-none이 없으면 duration-150이 top/left까지
+          전이시켜 목록이 커서를 150ms 늦게 미끄러져 따라온다(PITFALLS 17-b) */}
       {mention && suggestions.length > 0 && (
         <div
           style={{ position: 'fixed', left: Math.min(mention.left, window.innerWidth - 176), top: mention.top + 4 }}
-          className="z-[80] w-max min-w-[9rem] max-w-[min(16rem,calc(100vw-2rem))] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 animate-in fade-in zoom-in-95 duration-150"
+          className="z-[80] w-max min-w-[9rem] max-w-[min(16rem,calc(100vw-2rem))] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none animate-in fade-in zoom-in-95 duration-150"
         >
           {suggestions.map((name, i) => (
             <button

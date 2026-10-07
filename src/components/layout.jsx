@@ -1,44 +1,30 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useDeferredValue } from 'react';
-import { createPortal } from 'react-dom';
-import { LayoutDashboard, CheckSquare, Search, X, Hash, ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Bell, BellRing, BellOff, Pencil, Users, Archive, CalendarDays, CalendarClock, Smartphone, Church, BookOpen, HeartHandshake, Home, Briefcase, MessageSquare, Paperclip } from 'lucide-react';
-import {
-  DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
-  useDraggable, useDroppable,
-} from '@dnd-kit/core';
-import { dropCollision } from './dropCollision.js';
-import { store, useStore } from '../store/workspaceStore.js';
-import {
-  selectCurrentUser, selectProjectsList, selectActiveProjectsList, selectArchivedProjectsList,
-  selectProjectsMap, selectMyTasks, selectTasksList, selectTasks, selectMembers
-} from '../store/selectors.js';
+import React, { useState, useRef, useMemo } from 'react';
+import { ChevronDown, Settings, Undo2, Redo2, Sun, Moon, LogOut, Pencil, Users } from 'lucide-react';
+import { useStore } from '../store/workspaceStore.js';
+import { selectCurrentUser, selectMyTasks, selectMembers } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
-import { formatRelative, projectYear, reorderIds, viewersOf, imeComposing } from '../utils.js';
+import { reorderIds, viewersOf } from '../utils.js';
 import { usePresenceViews, presenceMe } from '../services/presence.js';
 import { userColor } from '../services/coedit/view.js';
-import { myUid } from '../services/supabaseClient.js';
-import { useProjectYear, useYearOptions } from '../hooks/useProjectYear.js';
-import { splitFrontTabs, pickProjectToOpen } from '../services/tabRank.js';
-import { useTabFrontStats, useTabActivityRows } from '../services/tabFront.js';
-import { useSeenBase, useOpenedProjects, markProjectOpened } from '../services/sinceSeen.js';
-import { freshProjectIds } from '../services/traces.js';
 import { isOpen } from '../services/taskCounts.js';
 import { Avatar } from './Avatar.jsx';
-import { DaboutiPill, DaboutiFace } from './dabooti.jsx';
-import * as cloudSync from '../services/cloudSync.js';
-import * as push from '../services/push.js';
-import { notifLine, notifText, isSystemNotif, notifArea } from '../services/notifyText.js';
-import { isAppLink } from '../services/entryQuery.js';
-import { showToast } from './Toast.jsx';
-import { failText } from '../services/errorText.js';
-import { useAnchoredPos } from './ConfirmPopover.jsx';
-// 바깥 클릭 / Esc 로 닫히는 팝오버(프로필 메뉴·프로젝트 더보기·알림·검색 공용)
-import { useDismiss } from '../hooks/useDismiss.js';
-import { Skeleton } from './media.jsx';
-import { semanticOn, matchDocs, peekDocs } from '../services/semantic.js';
-import { relatedKey, relatedReady, relatedTasks, RELATED_KIND_LABEL, RELATED_DEBOUNCE_MS } from '../services/vecSearch.js';
+import { DaboutiPill } from './dabooti.jsx';
 import { CONFIG } from '../config.js';
+// 바깥 클릭 / Esc 로 닫히는 팝오버(프로필 메뉴·프로젝트 더보기·연도·알림) 껍데기 한 벌
+import { usePopover } from '../hooks/usePopover.js';
+import {
+  splitProjectTabs, TAB_DIVIDER, tabDividerCls, FreshDot, useFreshProjects, nudgeSeen, finePointer,
+  useFrontNudge, FrontNudge, useTabFit, saveTabOrder, useYearTabs, YearPicker, YearFolders,
+} from './navParts.jsx';
+import { SearchBox } from './searchBox.jsx';
+import { NotificationBell } from './notificationBell.jsx';
 import logoLight from '../assets/logo-light.webp';
 import logoDark from '../assets/logo-dark.webp';
+
+// 다른 화면이 이 파일에서 들이던 부품 — 옮긴 뒤에도 그쪽 import 줄은 그대로 둔다
+// (대시보드·모임·프로젝트 진행의 YearPicker · 성경 검색 칸의 SearchHint)
+export { YearPicker } from './navParts.jsx';
+export { SearchHint } from './searchBox.jsx';
 
 // ============================================================================
 // 11. UI Views (데이터를 구독하는 프레젠테이션 컴포넌트)
@@ -46,172 +32,19 @@ import logoDark from '../assets/logo-dark.webp';
 // 내비는 위쪽 두 줄로 나뉜다 — 1줄은 전역 메뉴(대시보드·내 업무),
 // 2줄은 프로젝트 탭. 예전 좌측 사이드바가 두 가지 일을 겹쳐 하던 걸 분리한 것.
 // 모바일은 같은 역할을 위(프로젝트 탭)/아래(전역 탭바)로 나눠 가진다.
+//
+// 이 파일이 맡는 것: 데스크톱 상단 TopNav · 프로필 메뉴(ProfileMenu — 폰 상단바도 쓴다) · 보고 있는 사람 얼굴
+// (ViewerFaces — 보드 카드도 쓴다) · 교회 축 목록(CHURCH_MENUS). 나머지는 갈라 두었다(19차 묶음 D):
+//   navParts.jsx          탭 줄 공용(고른 해의 탭 · 연도 · 더보기 폴더 · 폭 재기 · 순서 저장 · 앞 칸 넛지 · 점)
+//   mobileNav.jsx         폰 상단바 · 프로젝트 탭 줄(길게 눌러 끌기) · 하단 바 두 층 · 화면 이름
+//   searchBox.jsx         통합 검색(인라인 · 폰 전체 판) · 돌아가는 안내 문구 · 관련된 업무 내용
+//   notificationBell.jsx  알림 종 · 알림 받기 줄 · 안드로이드 설치 줄
 
 // 교회 생활 축의 화면들 — **차례가 곧 화면에 서는 순서**다(하단 바 · 데스크톱 첫 묶음).
 // 세 곳이 이 목록을 본다: 하단 바의 모드 판정 · 데스크톱 탭 줄 접기 · App의 전환 방향
 // (App.jsx가 이것을 CHURCH_ORDER로 가져다 쓴다). 예전에는 같은 배열이 세 벌이라 화면을
 // 하나 늘리면 어느 하나가 조용히 낡았다.
 export const CHURCH_MENUS = ['home', 'worship', 'word', 'groups'];
-
-// 활성 프로젝트는 언제나 탭에 보이게 — 6번째 프로젝트를 열었는데 탭에 아무것도
-// 선택돼 있지 않으면 지금 어디 있는지 알 수 없다.
-// max는 탭 줄 폭에서 잰 값이다(useTabFit) — 예전에는 고정 5라서 넓은 화면에서
-// 자리가 남는데도 '더보기'로 밀어냈다.
-function splitProjectTabs(projectsList, activeMenu, max) {
-  const shown = projectsList.slice(0, max);
-  const active = projectsList.find(p => p.id === activeMenu);
-  if (active && !shown.some(p => p.id === active.id)) shown[max - 1] = active;
-  const shownIds = new Set(shown.map(p => p.id));
-  return { shown, rest: projectsList.filter(p => !shownIds.has(p.id)) };
-}
-
-// 앞 칸과 나머지 사이의 얇은 세로선(데스크톱·폰 한 벌). 줄이 items-end라 self-center로 글자
-// 높이에 맞춘다 — 점·라벨·안내 문구는 두지 않는다(사용자 결정 2026-09-25).
-const TAB_DIVIDER = 'shrink-0 self-center w-px h-4 mx-1 bg-line transition-colors duration-150';
-// 넛지가 떠 있는 동안 세로선이 accent로 바뀐다(아래 앞 칸 넛지)
-const tabDividerCls = (hot) => (hot ? TAB_DIVIDER.replace('bg-line', 'bg-accent') : TAB_DIVIDER);
-
-// ── 지난 방문 이후 남이 움직인 프로젝트의 옅은 점(사용자 결정 2026-09-25 · 목업 권장안) ──
-// 탭 **왼쪽**에 5px accent 60%. 절대 위치라 탭 폭이 변하지 않는다 — useTabFit의 측정 줄은 그대로고,
-// 오른쪽 위 얼굴(ViewerFaces)과도 겹치지 않는다. 숫자·글자 없음. 그 프로젝트를 열면 지운다
-// (sinceSeen.markProjectOpened). 판정은 traces.freshProjectIds, 재료는 탭 앞 칸과 같은 줄(tabFront).
-const FreshDot = ({ className = 'left-[5px]' }) => (
-  <span aria-hidden data-fresh-dot="" className={`absolute top-1/2 -mt-[2.5px] w-[5px] h-[5px] rounded-full bg-accent opacity-60 pointer-events-none ${className}`} />
-);
-function useFreshProjects(activeMenu, isProject) {
-  const rows = useTabActivityRows();
-  const base = useSeenBase();
-  const opened = useOpenedProjects();
-  // 연 프로젝트는 들어갈 때와 나올 때 한 번씩 찍는다 — 보는 동안 생긴 움직임에 나온 뒤 점이 서지 않게
-  useEffect(() => {
-    if (!isProject) return undefined;
-    markProjectOpened(activeMenu);
-    return () => markProjectOpened(activeMenu);
-  }, [activeMenu, isProject]);
-  return useMemo(() => freshProjectIds(rows, base, opened, activeMenu), [rows, base, opened, activeMenu]);
-}
-
-// ── 앞 칸 넛지 N1 (사용자 결정 2026-09-25 · 목업 front-nudge 권장안) ──────────────
-// 앞 칸 탭은 끌 수 없다(활동이 자리를 정한다). 왜 안 움직이는지 **헷갈리는 순간에만** 말풍선 하나:
-//   · 앞 칸 탭을 끌려고 할 때(데스크톱 누른 채 움직임 · 폰 길게 누르기) → '최근 활발한 프로젝트'
-//   · 뒤쪽 탭을 앞 칸 위로 가져갈 때 → '앞에 있는 프로젝트는 자동으로 조정돼요.'
-//   · 데스크톱은 앞 칸 탭 hover에도 첫 말풍선 — **한 번이라도 본 브라우저에서는 hover로는 안 뜬다**
-//     (브라우저 한 칸 `front_nudge_seen`). 끌 때는 언제나 뜬다.
-// 2.5초 뒤 사라지고, 떠 있는 동안 세로선이 accent다. 늘 붙어 있는 안내 줄은 두지 않는다(CLAUDE.md).
-// 떠 있는 것 규칙(§8): body 포털 + useAnchoredPos(가로·세로 가두기) · animate-in에는 transition-none.
-// 앞 칸 탭은 draggable이 아니라 dragstart가 없다 — '끌려는 것'을 잡는 법은 PITFALLS 12-h, 폰은 12-g.
-const NUDGE_MS = 2500;
-const NUDGE_SEEN_KEY = 'front_nudge_seen';
-const nudgeSeen = () => { try { return localStorage.getItem(NUDGE_SEEN_KEY) === '1'; } catch { return false; } };
-const markNudgeSeen = () => { try { localStorage.setItem(NUDGE_SEEN_KEY, '1'); } catch { /* 비공개 모드 */ } };
-const finePointer = () => typeof window !== 'undefined' && !!window.matchMedia?.('(hover: hover) and (pointer: fine)').matches;
-
-function useFrontNudge() {
-  const [nudge, setNudge] = useState(null);   // { el, kind: 'front'|'back', people }
-  const timer = useRef(0);
-  const cur = useRef(null);
-  const show = useCallback((el, kind, people = 0) => {
-    if (!el) return;
-    // 같은 탭·같은 말이 이미 떠 있으면 그대로 둔다 — dragover는 쉬지 않고 오므로 매번 늘리면 안 사라진다
-    if (cur.current && cur.current.el === el && cur.current.kind === kind) return;
-    clearTimeout(timer.current);
-    markNudgeSeen();
-    cur.current = { el, kind, people };
-    setNudge(cur.current);
-    timer.current = setTimeout(() => { cur.current = null; setNudge(null); }, NUDGE_MS);
-  }, []);
-  useEffect(() => () => clearTimeout(timer.current), []);
-  return [nudge, show];
-}
-
-function FrontNudge({ nudge }) {
-  const anchor = useRef(null);
-  anchor.current = nudge?.el || null;
-  const boxRef = useRef(null);
-  const [pos] = useAnchoredPos(anchor, !!nudge, 260, 64, 6, boxRef, { align: 'start' });
-  if (!nudge) return null;
-  return createPortal(
-    <div ref={boxRef} role="status" data-front-nudge={nudge.kind}
-      style={{ position: 'fixed', left: pos.left, top: pos.top }}
-      className="z-[90] w-max max-w-[260px] bg-surface border border-line rounded-lg shadow-elevated px-2.5 py-2 text-[12px] leading-[1.45] text-fg-secondary pointer-events-none transition-none animate-in fade-in duration-150">
-      {nudge.kind === 'front' ? (
-        <>
-          <b className="block font-bold text-fg">최근 활발한 프로젝트</b>
-          <span className="block text-fg-muted">최근 7일 동안 {nudge.people}명이 보고 있어요</span>
-        </>
-      ) : (
-        <span className="block text-fg-muted">앞에 있는 프로젝트는 자동으로 조정돼요.<br />이 프로젝트는 구분선 뒤에서 움직일 수 있어요.</span>
-      )}
-    </div>,
-    document.body
-  );
-}
-
-// 탭 줄에 몇 개가 들어가는지 실제 폭으로 잰다. 보이지 않는 측정 줄(measureRef)에
-// 전체 탭 + '더보기' + '+ 프로젝트'를 같은 클래스로 그려 두고, 줄 폭 안에서
-// "탭 k개 + (남는 게 있으면) 더보기 + '+ 프로젝트'"가 들어가는 최대 k를 고른다.
-// 글자 폭 추정(폰트 상수 곱하기)으로 하지 않는 이유: 제목 길이가 제각각이라 반드시 어긋난다.
-function useTabFit(tabRowRef, measureRef, count, alwaysMore, withDivider = false) {
-  const [fit, setFit] = useState(count);
-  useLayoutEffect(() => {
-    const row = tabRowRef.current;
-    if (!row) return;
-    const calc = () => {
-      const meas = measureRef.current;
-      if (!meas) return;
-      const kids = [...meas.children];              // [탭들…, 더보기, + 프로젝트]
-      const tabW = kids.slice(0, count).map(el => el.offsetWidth);
-      const moreW = kids[count]?.offsetWidth || 0;
-      const plusW = kids[count + 1]?.offsetWidth || 0;
-      const yearW = kids[count + 2]?.offsetWidth || 0;   // 줄 맨 앞의 연도 버튼(항상 있다)
-      // 앞 칸과 나머지 사이의 세로선(tabRank.js) — 앞 칸이 있을 때만 선다. 넘쳐서 안 설 때도
-      // 빼 두면 한 칸이 모자랄 수는 있어도 넘치지는 않는다.
-      const divW = withDivider ? (kids[count + 3]?.getBoundingClientRect().width || 0) + 8 : 0;
-      const cs = getComputedStyle(row);
-      // -16: 측정 span과 실제 button 렌더 사이의 미세 오차(서브픽셀·보더) 여유.
-      // 딱 맞는 경계(800px에 670px 탭)에서 몇 px 넘쳐 '+ 프로젝트'가 잘렸다.
-      const avail = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - plusW - yearW - divW - 16;
-      let used = 0, k = 0;
-      for (let i = 0; i < count; i++) {
-        const needMore = alwaysMore || i < count - 1;  // 이 뒤에 더보기가 서야 하나
-        if (used + tabW[i] + (needMore ? moreW : 0) > avail) break;
-        used += tabW[i]; k = i + 1;
-      }
-      setFit(Math.max(1, k));
-    };
-    calc();
-    const ro = new ResizeObserver(calc);
-    ro.observe(row);
-    // 폰트(SUIT)가 늦게 로드되면 탭 폭이 바뀌는데 줄 폭은 그대로라 ResizeObserver가
-    // 못 잡는다 — 로드 완료 시 한 번 다시 잰다. window resize도 같이 듣는다
-    // (헤드리스 에뮬레이션처럼 RO 콜백이 걸러지는 환경의 안전망).
-    document.fonts?.ready?.then(calc);
-    window.addEventListener('resize', calc);
-    return () => { ro.disconnect(); window.removeEventListener('resize', calc); };
-  }, [tabRowRef, measureRef, count, alwaysMore, withDivider]);
-  return fit;
-}
-
-// 탭 순서 저장 — 데스크톱 드래그(네이티브 DnD)와 모바일 길게 눌러 끌기(dnd-kit)가
-// **같은 경로**를 쓴다(0021의 projects.position). 순서대로 1부터 다시 매긴다.
-// 보관된 프로젝트는 탭에 서지 않으므로 목록에 없고, 그래서 position도 안 건드린다 —
-// 보관함은 연도·created_at으로 묶는다. 값이 겹쳐도 정렬 2차 키가 가른다.
-function saveTabOrder(orderedIds, allProjects, cloudMode) {
-  const changed = [];
-  orderedIds.forEach((pid, i) => {
-    const p = allProjects.find(x => x.id === pid);
-    if (p && (p.position ?? 0) !== i + 1) {
-      store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: pid, position: i + 1 } });
-      changed.push({ id: pid, position: i + 1 });
-    }
-  });
-  if (cloudMode && changed.length) {
-    cloudSync.projectOrderCloud(changed).catch(err => {
-      console.error('[cloud] 탭 순서 저장 실패:', err);
-      showToast('탭 순서를 저장하지 못했어요\n잠시 후 다시 시도해주세요');
-    });
-  }
-}
 
 // 지금 여기를 보고 있는 사람 얼굴 — 프로젝트 탭과 보드 카드가 같이 쓴다.
 // 판정은 `utils.viewersOf`(순수 함수, 본인 제외·사람당 한 번·최대 세 명)가 하고,
@@ -264,28 +97,23 @@ export function ViewerFaces({ projectId = null, cardId = null, className = '' })
 
 // 프로필 아바타 → 내 정보·테마·로그아웃.
 // 사이드바 하단에 있던 것들이 전부 여기로 들어왔다(모바일 '내 정보' 탭도 이걸 쓴다).
-function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', children , onOpenMembers }) {
+export function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', children , onOpenMembers }) {
   const currentUser = useStore(selectCurrentUser);
   // 한 번만 부른다 — 같은 컨텍스트를 두 번 읽던 자리였다(값이 갈릴 수는 없지만 읽는 곳이
   // 둘이면 나중에 조건이 붙을 때 한쪽만 고쳐진다)
   const { enabled, session, signOut, isAdmin } = useAuth();
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef(null);
-  const btnRef = useRef(null);
-  const popRef = useRef(null);
-  // popRef를 넘겨 실제 높이로 위치를 다시 잡는다 — 추정 높이로만 잡으면
+  // measure: 판의 실제 높이로 위치를 다시 잡는다 — 추정 높이로만 잡으면
   // 아래에서 위로 뜨는 모바일 탭바 메뉴가 탭바에서 한참 떨어져 떠 보였다
-  const [pos, place] = useAnchoredPos(btnRef, open, 224, 200, 8, popRef);
-  useDismiss(open, () => setOpen(false), [rootRef, popRef]);
+  const pop = usePopover(224, 200, { gap: 8, measure: true });
 
   const item = 'w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-md text-[13px] text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors text-left';
-  const go = (fn) => () => { setOpen(false); fn(); };
+  const go = (fn) => () => { pop.close(); fn(); };
 
   return (
-    <span ref={rootRef} className={className}>
-      <span ref={btnRef} className="inline-flex flex-1">
-        {/* 열기 전에 위치를 잡는다 — 첫 프레임이 {0,0}에 그려지면 좌상단에서 날아온다 */}
-        <button onClick={() => { place(); setOpen(o => !o); }} className="inline-flex flex-1 justify-center transition active:scale-95" title="설정">
+    <span ref={pop.rootRef} className={className}>
+      <span ref={pop.btnRef} className="inline-flex flex-1">
+        {/* 열기 전에 위치를 잡는다(pop.toggle) — 첫 프레임이 {0,0}에 그려지면 좌상단에서 날아온다 */}
+        <button onClick={pop.toggle} className="inline-flex flex-1 justify-center transition active:scale-95" title="설정">
           {children || (
             /* 내 동그라미의 글자 배경만 대표 팀 색이다(남들은 이름 해시 색) — 사진이 있으면
                사진이 이기지만, 없을 때의 색은 그대로 둔다 */
@@ -295,12 +123,7 @@ function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', childr
           )}
         </button>
       </span>
-      {open && createPortal(
-        <div
-          ref={popRef}
-          style={{ position: 'fixed', left: pos.left, top: pos.top, width: 224 }}
-          className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150"
-        >
+      {pop.panel('z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5', <>
           <div className="px-2.5 py-2 mb-1 border-b border-line">
             <p className="text-[13px] font-semibold text-fg truncate">{currentUser.name}</p>
             <p className="text-[11px] text-fg-muted truncate">{(currentUser.teams?.length ? currentUser.teams : [currentUser.team]).filter(Boolean).join(' · ') || '팀 미지정'}</p>
@@ -315,9 +138,7 @@ function ProfileMenu({ onOpenProfile, className = 'inline-flex shrink-0', childr
           {enabled && session && (
             <button className={`${item} hover:text-tag-red-fg`} onClick={go(signOut)}><LogOut size={15} /> 로그아웃</button>
           )}
-        </div>,
-        document.body
-      )}
+        </>)}
     </span>
   );
 }
@@ -349,33 +170,15 @@ export const TopNav = React.memo(({
   // 탭에는 보관하지 않은 프로젝트만. 보관된 것은 아래 '더보기' 안 보관함에서 연도별로 본다
   // (활성 프로젝트가 보관돼 있으면 splitProjectTabs가 탭에 끌어올려 준다 — 지금 어디
   //  있는지 알 수 없게 되면 안 되므로 보관된 것을 열어 둔 경우도 탭에 보인다)
-  const projectsList = useStore(selectActiveProjectsList);
-  const archived = useStore(selectArchivedProjectsList);
-  const allProjects = useStore(selectProjectsList);
-  const activeProject = allProjects.find(p => p.id === activeMenu);
-  // 연도 고르기 — 고른 해의 프로젝트만 탭에. 지금 보고 있는 것은 해가 달라도 남긴다
-  // (splitProjectTabs가 끌어올리지만, 애초에 목록에 없으면 끌어올릴 것도 없다).
-  const { year, setYear, years, yearCounts } = useTabYear(allProjects, activeMenu);
-  const yearList = projectsList.filter(p => projectYear(p) === year);
-  // 지금 보고 있는 것은 해가 달라도, 보관됐어도 탭에 남는다 — 어디 있는지 표시가
-  // 화면에서 사라지면 안 된다. 갈래를 둘로 나눠 쓰면 **보관된 것을 다른 해에서
-  // 열었을 때 같은 탭이 두 번 들어간다**(navsmoke가 잡았다) — 한 번만 더한다.
-  const posSource = activeProject && !yearList.some(p => p.id === activeMenu)
-    ? [...yearList, activeProject] : yearList;
-  // **앞 칸**(사용자 결정 2026-09-25 · services/tabRank.js): 최근 7일 동안 여럿이 움직인 프로젝트
-  // 다섯까지가 맨 앞에 서고, 그 뒤가 손으로 정한 position 순서다. 숫자는 앱을 열 때·다시 보일
-  // 때만 새로 잰다(tabFront.js). 후보는 고른 해의 것뿐이다(다른 해에서 끌어올린 것은 뒤에 남는다).
-  const frontStats = useTabFrontStats();
-  const { front } = splitFrontTabs(yearList, frontStats);
-  const frontIds = new Set(front.map(p => p.id));
-  const tabSource = front.length ? [...front, ...posSource.filter(p => !frontIds.has(p.id))] : posSource;
-  // 보관된 것을 열어 두면 위 줄이 그걸 탭으로 끌어올린다 — 그때 보관함 목록에도 그대로
-  // 두면 **같은 프로젝트가 탭과 더보기에 동시에** 보인다(실제로 그렇게 보였다).
-  // 지금 보고 있는 것은 이미 탭에 있으니 목록에서 뺀다.
+  // 연도 고르기 — 고른 해의 프로젝트만 탭에. 지금 보고 있는 것은 해가 달라도, 보관됐어도 남긴다.
+  // 앞 칸 · 끌어올리기 · 그 해 보관함 계산은 폰 상단바와 한 벌이다(navParts.useYearTabs 머리말).
   // 더보기에는 **고른 해의 것만** 들어간다 — 보관된 프로젝트도 그 해 것만
   // (사용자 결정 2026-09-01, 2026-08-24의 "모든 해" 결정을 대체). 다른 해는
   // 연도 버튼으로 바꿔 보고, 검색·알림으로 열면 useTabYear가 그 해로 따라간다.
-  const archivedForMore = archived.filter(p => p.id !== activeMenu && projectYear(p) === year);
+  const {
+    allProjects, project: activeProject, year, setYear, years, yearCounts,
+    posSource, tabSource, front, frontIds, frontStats, archivedForYear: archivedForMore,
+  } = useYearTabs(activeMenu);
   const myTasksCount = useStore(selectMyTasks).filter(isOpen).length;
   // 몇 개까지 탭으로 보일지는 화면 폭이 정한다(useTabFit). 보관함이 있으면 탭이 다
   // 들어가도 '더보기'는 남아야 하므로 그 폭까지 계산에 넣는다.
@@ -408,12 +211,7 @@ export const TopNav = React.memo(({
   });
   // 프로젝트 탭 줄은 업무 축 화면에서만 — 교회 생활 화면(홈·예배·말씀·모임)에서는 접힌다
   const showProjectRow = !CHURCH_MENUS.includes(activeMenu) && activeMenu !== 'wiki';
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreRootRef = useRef(null);
-  const moreBtnRef = useRef(null);
-  const morePopRef = useRef(null);
-  const [morePos, placeMore] = useAnchoredPos(moreBtnRef, moreOpen, 224, 260);
-  useDismiss(moreOpen, () => setMoreOpen(false), [moreRootRef, morePopRef]);
+  const more = usePopover(224, 260);
 
   // 탭 드래그로 순서 바꾸기(0021) — 네이티브 HTML5 DnD. dnd-kit sortable을 새로
   // 들이지 않는 이유: 데스크톱 탭 한 줄에는 draggable 속성이면 충분하다.
@@ -429,8 +227,15 @@ export const TopNav = React.memo(({
     if (next) saveTabOrder(next, allProjects, cloudMode);
   };
 
+  // 교회 생활(홈·예배·말씀·모임) | 업무(대시보드·내 업무·일정) — 두 축을 구분선으로 가른다
+  // (docs/V2.md §3 A안 데스크톱 그림). 차례가 곧 화면에 서는 순서다.
+  const gnavGroups = [
+    [['home', '홈'], ['worship', '예배'], ['word', '말씀'], ['groups', '모임']],
+    [['dashboard', '업무 대시보드'], ['myTasks', '내 업무', myTasksCount], ['schedule', '전체 일정']],
+  ];
   const gnav = (menu, label, badge) => (
     <button
+      key={menu}
       onClick={() => setActiveMenu(menu)}
       className={`px-3 py-1.5 rounded-md text-[13.5px] font-semibold transition-colors whitespace-nowrap ${activeMenu === menu ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:text-fg hover:bg-surface-hover'}`}
     >
@@ -446,16 +251,12 @@ export const TopNav = React.memo(({
           <img src={logoDark} alt="더다붓" className="h-7 w-auto hidden dark:block" />
         </button>
         <div className="flex items-center gap-1 shrink-0">
-          {/* 교회 생활(홈·예배·말씀·모임) | 업무(대시보드·내 업무·일정) — 두 축을
-              구분선으로 가른다(docs/V2.md §3 A안 데스크톱 그림) */}
-          {gnav('home', '홈')}
-          {gnav('worship', '예배')}
-          {gnav('word', '말씀')}
-          {gnav('groups', '모임')}
-          <span aria-hidden className="w-px h-4 bg-line mx-1.5 shrink-0" />
-          {gnav('dashboard', '업무 대시보드')}
-          {gnav('myTasks', '내 업무', myTasksCount)}
-          {gnav('schedule', '전체 일정')}
+          {gnavGroups.map((group, gi) => (
+            <React.Fragment key={gi}>
+              {gi > 0 && <span aria-hidden className="w-px h-4 bg-line mx-1.5 shrink-0" />}
+              {group.map(([menu, label, badge]) => gnav(menu, label, badge))}
+            </React.Fragment>
+          ))}
         </div>
         <div className="flex-1 flex items-center justify-end gap-2 min-w-0">
           {/* Undo / Redo — 클라우드 모드에선 다른 사람과 상태가 어긋나므로 숨김 */}
@@ -542,18 +343,14 @@ export const TopNav = React.memo(({
         ))}
         <FrontNudge nudge={nudge} />
         {showMore && (
-          <span ref={moreRootRef} className="inline-flex">
-            <span ref={moreBtnRef} className="inline-flex">
-              <button onClick={() => { placeMore(); setMoreOpen(o => !o); }} className="px-3 pt-2.5 pb-2 -mb-px inline-flex items-center gap-1 text-[13px] font-semibold text-fg-muted hover:text-fg border-b-2 border-transparent transition-colors">
+          <span ref={more.rootRef} className="inline-flex">
+            <span ref={more.btnRef} className="inline-flex">
+              <button onClick={more.toggle} className="px-3 pt-2.5 pb-2 -mb-px inline-flex items-center gap-1 text-[13px] font-semibold text-fg-muted hover:text-fg border-b-2 border-transparent transition-colors">
                 더보기 <ChevronDown size={13} />
               </button>
             </span>
-            {moreOpen && createPortal(
-              <div ref={morePopRef} style={{ position: 'fixed', left: morePos.left, top: morePos.top, width: 224 }} className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 max-h-72 overflow-y-auto transition-none animate-in fade-in zoom-in-95 duration-150">
-                <YearFolders active={rest} archived={archivedForMore} onPick={(id) => { setMoreOpen(false); setActiveMenu(id); }} />
-              </div>,
-              document.body
-            )}
+            {more.panel('z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 max-h-72 overflow-y-auto',
+              <YearFolders active={rest} archived={archivedForMore} onPick={(id) => { more.close(); setActiveMenu(id); }} />)}
           </span>
         )}
         {/* border-b-2 border-transparent: 줄이 items-end라 **아래 테두리 두께만큼**
@@ -570,1067 +367,3 @@ export const TopNav = React.memo(({
     </div>
   );
 });
-
-// ── 연도 고르기 ────────────────────────────────────────────────────────────
-// 프로젝트 탭 줄 앞의 `2026 ▾`. 고른 해의 프로젝트만 탭에 선다 — 해가 쌓일수록
-// 탭 줄이 넘쳐서 '더보기'로 밀려나기만 하던 문제까지 같이 푼다.
-// 연도는 projects.created_at에서 파생한다(연도 컬럼을 따로 두지 않는다 — 0014의 판단).
-// 연도 규칙(값이 없는 옛 행은 만든 해로)은 **utils.projectYear 하나**다 — 대시보드의
-// '프로젝트 진행'도 같은 값을 봐야 해서 옮겼다. 규칙이 두 벌이면 탭에는 있는
-// 프로젝트가 대시보드에는 없는 해가 생긴다.
-// 폴백이 원래 규칙이었고, 해가 바뀌기 전에 미리 만드는 프로젝트를 못 견뎌서 컬럼을
-// 두게 됐다(2027 프로젝트 둘이 2026 폴더에 들어가 있었다 — 사용자 지적).
-
-// 고른 해는 사람마다 다르고 서버가 알 필요가 없다 → useProjectYear(localStorage).
-// 다른 해의 프로젝트를 열면(검색·알림·링크로) 그 해로 따라간다 — 안 그러면 지금
-// 보고 있는 프로젝트가 탭 줄 어디에도 없어서 "어디 있는지" 표시가 사라진다.
-function useTabYear(allProjects, activeMenu) {
-  const { years, yearCounts } = useYearOptions(allProjects);
-  const [year, pick] = useProjectYear();
-  const activeYear = allProjects.find(p => p.id === activeMenu) ? projectYear(allProjects.find(p => p.id === activeMenu)) : null;
-  useEffect(() => { if (activeYear && activeYear !== year) pick(activeYear); }, [activeYear]); // eslint-disable-line react-hooks/exhaustive-deps
-  // 고른 해가 목록에 없으면(그 해 프로젝트를 다 지웠다) 가장 최근 해로 떨어진다.
-  // **고쳐서 스토어에 되돌려 놓는다** — 예전에는 여기서만 갈아 끼웠는데, 지금은
-  // 대시보드가 같은 스토어를 보므로 되돌리지 않으면 탭과 대시보드가 다른 해를 본다.
-  // years에는 올해가 언제나 들어 있어서(위 set.add) 이 되돌림은 한 번에 멎는다.
-  useEffect(() => { if (!years.includes(year)) pick(years[0]); }, [years, year, pick]);
-  const safeYear = years.includes(year) ? year : years[0];
-  return { year: safeYear, setYear: pick, years, yearCounts };
-}
-
-// 연도 버튼 + 목록. 팝오버는 body 포털이 기본이다(§6-1).
-export function YearPicker({ year, years, yearCounts = {}, onPick, compact = false }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef(null);
-  const btnRef = useRef(null);
-  const popRef = useRef(null);
-  const [pos, place] = useAnchoredPos(btnRef, open, 112, 40 + years.length * 34);
-  useDismiss(open, () => setOpen(false), [rootRef, popRef]);
-  return (
-    <span ref={rootRef} className="inline-flex shrink-0">
-      <span ref={btnRef} className="inline-flex">
-        <button onClick={() => { place(); setOpen(o => !o); }} title="연도 고르기"
-          className={`inline-flex items-center gap-1 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-muted hover:text-fg transition-colors tabular-nums ${compact ? 'px-2 pt-2.5 pb-2' : 'pl-0 pr-1.5 pt-2.5 pb-2'}`}>
-          {year} <ChevronDown size={13} />
-        </button>
-      </span>
-      {open && createPortal(
-        <div ref={popRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: 112 }}
-          className="z-[90] bg-surface border border-line rounded-lg shadow-elevated p-1.5 max-h-72 overflow-y-auto transition-none animate-in fade-in zoom-in-95 duration-150">
-          {years.map(y => (
-            <button key={y} onClick={() => { setOpen(false); onPick(y); }}
-              className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-[13px] text-left tabular-nums transition-colors hover:bg-surface-hover ${y === year ? 'text-fg font-bold' : 'text-fg-muted'}`}>
-              <span className="flex-1">{y}년</span>
-              {/* 그 해 프로젝트 수 — 빈 해를 열어보고서야 아는 일이 없게 */}
-              {yearCounts[y] > 0 && <span className="text-[10.5px] text-fg-muted">{yearCounts[y]}</span>}
-            </button>
-          ))}
-        </div>,
-        document.body,
-      )}
-    </span>
-  );
-}
-
-// 더보기 = 연도 폴더 (사용자 결정 2026-08-24). 탭에 못 들어간 진행 중 프로젝트와
-// 보관된 프로젝트를 같은 연도 아래에서 함께 본다 — 예전에는 '보관'해야만 연도로
-// 묶여서, 지난 해 프로젝트를 찾으려면 먼저 보관부터 해야 했다.
-// 2026-09-01부터는 **고른 해의 것만** 받는다(사용자 결정) — 그래서 사실상 폴더가
-// 하나지만, 연도 머리글이 "이건 몇 년 것"을 말해 주므로 묶는 모양은 그대로 둔다.
-// 연도는 projects.created_at에서 파생한다(연도 컬럼을 따로 두지 않는다).
-// 보관된 것은 Archive 아이콘 + 흐린 글자로 가른다. 보관 해제는 열어서 이름 수정 창에서.
-function YearFolders({ active, archived, onPick }) {
-  const yearOf = (p) => projectYear(p) || '연도 모름';
-  const byYear = new Map();
-  const put = (p, isArchived) => {
-    const y = yearOf(p);
-    if (!byYear.has(y)) byYear.set(y, []);
-    byYear.get(y).push({ p, isArchived });
-  };
-  active.forEach(p => put(p, false));
-  archived.forEach(p => put(p, true));
-  // 최신 연도 먼저, '연도 모름'은 맨 뒤(글자라 숫자보다 크게 정렬되는 것을 손으로 뺀다)
-  const years = [...byYear.keys()].filter(y => y !== '연도 모름').sort((a, b) => b.localeCompare(a));
-  if (byYear.has('연도 모름')) years.push('연도 모름');
-  return (
-    <>
-      {years.map(year => (
-        <div key={year}>
-          <p className="px-2.5 pt-2 pb-0.5 text-[10px] font-bold text-fg-muted tabular-nums first:pt-1">{year}</p>
-          {byYear.get(year).map(({ p, isArchived }) => (
-            <button key={p.id} onClick={() => onPick(p.id)}
-              className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-[13px] transition-colors text-left ${isArchived ? 'text-fg-faint hover:text-fg-muted' : 'text-fg-muted hover:text-fg'} hover:bg-surface-hover`}>
-              {isArchived
-                ? <Archive size={13} className="shrink-0" />
-                : <Hash size={14} className="shrink-0 text-fg-faint" />}
-              <span className="truncate">{p.title}</span>
-              {isArchived && <span className="ml-auto shrink-0 text-[10px] text-fg-muted">보관됨</span>}
-            </button>
-          ))}
-        </div>
-      ))}
-    </>
-  );
-}
-
-// 모바일 상단: 현재 화면 이름 + 검색·알림, 그 아래 프로젝트 탭(가로 스크롤)
-export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSelect, onOpenTask, onOpenLink, onOpenProject, onRenameProject, onOpenProfile, onOpenMembers, cloudMode }) => {
-  // 보관된 프로젝트도 **같은 탭 줄**에 선다(사용자 결정 2026-09-14) — 데스크톱은
-  // '더보기 → 연도 폴더'에 보관함이 있는데 여기에는 그 입구가 아예 없어서, 폰에서는
-  // 보관한 프로젝트를 여는 길이 없었다(사용자 신고). 활성 탭을 다 세운 **뒤**에
-  // 이어 붙이고 흐린 글자 + Archive 아이콘으로 가른다(데스크톱 YearFolders와 같은 결).
-  const activeList = useStore(selectActiveProjectsList);
-  const archivedList = useStore(selectArchivedProjectsList);
-  const projectsMap = useStore(selectProjectsMap);
-  // 지금 보고 있는 프로젝트(아니면 null). **이 한 값이 두 가지 일을 한다** — 탭 줄에
-  // 끌어올릴지 정하고, 제목 줄과 탭 줄이 설지 정한다. 예전에는 같은 조회가 두 벌이었다.
-  // 프로젝트 탭 줄은 프로젝트를 보고 있을 때만 — 내 업무·대시보드에서는 쓸 일이 없고
-  // 좁은 화면에서 한 줄이 그대로 낭비된다(다른 프로젝트로는 하단 '프로젝트' 탭으로 간다)
-  const project = projectsMap[activeMenu] || null;
-  const allForYear = useStore(selectProjectsList);
-  const { year, setYear, years, yearCounts } = useTabYear(allForYear, activeMenu);
-  const yearList = activeList.filter(p => projectYear(p) === year);
-  const posBase = project && !project.archived && !yearList.some(p => p.id === activeMenu) ? [...yearList, project] : yearList;
-  // 앞 칸(데스크톱 TopNav와 같은 규칙 · services/tabRank.js) — 폰은 전부 그리므로 더보기가 없다
-  const frontStats = useTabFrontStats();
-  const { front } = splitFrontTabs(yearList, frontStats);
-  const frontIds = new Set(front.map(p => p.id));
-  const base = front.length ? [...front, ...posBase.filter(p => !frontIds.has(p.id))] : posBase;
-  // 그 해의 보관 프로젝트 — 지금 열어 둔 것은 아래에서 한 번만 더한다.
-  // **여기서 빼지 않으면 같은 프로젝트가 두 번 선다**: 보관된 것을 열어 두면 아래 줄이
-  // 이미 탭으로 끌어올리기 때문이다(데스크톱 archivedForMore가 같은 함정 · navsmoke가 잡았다).
-  const archivedTail = archivedList.filter(p => p.id !== activeMenu && projectYear(p) === year);
-  const projectsList = project?.archived ? [...base, project, ...archivedTail] : [...base, ...archivedTail];
-  const currentUser = useStore(selectCurrentUser);
-  const title = menuTitle(activeMenu, projectsMap, currentUser);
-  const freshIds = useFreshProjects(activeMenu, !!project);
-  return (
-    <div className="md:hidden shrink-0 border-b border-line/70 z-20">
-      <div className="flex items-center gap-1 px-3.5 h-12">
-        {/* 프로젝트를 보고 있으면 제목을 눌러 이름을 바꾼다 */}
-        {project ? (
-          <button onClick={() => onRenameProject?.(project)} className="flex-1 min-w-0 flex items-baseline gap-1.5 text-left transition active:scale-[0.98]" title="프로젝트 이름 수정">
-            <span className="min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{title}</span>
-            <Pencil size={12} className="text-fg-faint shrink-0" />
-          </button>
-        ) : (
-          <h2 className="flex-1 min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{title}</h2>
-        )}
-        {/* 전체 일정도 헤더로 — 하단 탭 네 자리(프로젝트·내 업무·대시보드·팀)는
-            핸드오프 규격이라 다섯 번째를 끼우지 않는다. 설정과 같은 처리다. */}
-        {/* 오른쪽 아이콘 넷은 **같은 36px 칸**에 앉힌다(사용자 지적 2026-09-03 — 버튼마다 패딩·flex-1이
-            달라 간격이 들쭉날쭉했다). 칸이 크기를 정하니 안의 버튼 패딩은 상관없다. */}
-        <div className="ml-auto flex items-center gap-0.5 shrink-0">
-          {/* 다붓이 얼굴 — 아이콘 줄 맨 앞(옅은 파란 고리로 다른 아이콘과 가른다 · 목업 v12) */}
-          <span className="w-9 h-9 flex items-center justify-center"><DaboutiFace active={activeMenu === 'wiki'} onClick={() => setActiveMenu('wiki')} /></span>
-          <span className="w-9 h-9 flex items-center justify-center">
-            <button
-              onClick={() => setActiveMenu('schedule')} title="전체 일정"
-              className={`w-9 h-9 flex items-center justify-center rounded-md transition active:scale-95 ${activeMenu === 'schedule' ? 'text-accent-text bg-accent-weak' : 'text-fg-muted'}`}
-            ><CalendarDays size={19} strokeWidth={1.75} /></button>
-          </span>
-          <span className="w-9 h-9 flex items-center justify-center"><SearchBox onSearchSelect={onSearchSelect} variant="icon" /></span>
-          {cloudMode && <span className="w-9 h-9 flex items-center justify-center"><NotificationBell onOpenTask={onOpenTask} onOpenLink={onOpenLink} /></span>}
-          {/* 설정은 상단 헤더로 — 하단 탭 네 자리는 프로젝트·내 업무·대시보드·팀이 쓴다 */}
-          <span className="w-9 h-9 flex items-center justify-center"><ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} /></span>
-        </div>
-      </div>
-      {project && (
-        <MobileProjectTabs
-          projectsList={projectsList} activeMenu={activeMenu} setActiveMenu={setActiveMenu}
-          onOpenProject={onOpenProject} allProjects={allForYear} cloudMode={cloudMode}
-          year={year} setYear={setYear} years={years} yearCounts={yearCounts}
-          frontIds={frontIds} orderIds={posBase.map(p => p.id)} frontStats={frontStats} freshIds={freshIds}
-        />
-      )}
-    </div>
-  );
-});
-
-// 놓을 곳은 "손가락이 있는 곳" 기준이다(dropCollision.js — 보드와 한 벌). 포인터가 어떤
-// 탭에도 안 걸치면(탭 사이 여백) 기본 방식으로 되돌린다.
-
-// 모바일 프로젝트 탭 한 개 — 끌 수도 있고(길게 누르기) 놓을 수도 있다.
-// dnd-kit은 ref를 하나만 받으므로 두 훅의 ref를 손으로 합친다(보드 카드와 같은 방식).
-// 'tab:' 접두사로 끌고 있는 것(active.id = 프로젝트 id)과 놓는 자리를 가른다.
-// **보관된 탭은 끌 수도, 놓을 자리도 될 수 없다**(disabled) — 순서는 projects.position에
-// 저장되는데 보관된 것은 그 순서에 끼지 않기로 되어 있다(saveTabOrder 주석).
-// **앞 칸 탭(front)도 같다** — 그 자리는 활동이 정하므로 끌어도 position이 바뀌면 안 된다.
-// 앞 칸 탭은 **놓을 자리로는 켜 둔다**(끌기만 막는다 · PITFALLS 12-g) — 뒤쪽 탭을 그 위로 가져왔을 때 넛지를 띄우려면
-// dnd-kit이 over로 알려 줘야 한다. 놓아도 순서는 안 바뀐다(MobileProjectTabs.onDragEnd가 거른다).
-// fresh — 지난 방문 이후 남이 움직였다(왼쪽 점) · onLongPress — 앞 칸 탭을 길게 눌렀다(넛지)
-function MobileProjectTab({ project, active, archived = false, front = false, fresh = false, onSelect, onLongPress }) {
-  const locked = archived || front;
-  const nodeRef = useRef(null);
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: project.id, disabled: locked });
-  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `tab:${project.id}`, disabled: archived, data: { el: nodeRef } });
-  // 앞 칸 탭 길게 누르기 — 끌기 센서와 같은 300ms · 8px(아래 MobileProjectTabs 주석). 눌러 둔 뒤 손을
-  // 떼면 click이 한 번 오는데, 그건 여는 뜻이 아니라서 한 번 삼킨다.
-  const hold = useRef(null);
-  const held = useRef(false);
-  const holdProps = front && onLongPress ? {
-    onTouchStart: (e) => {
-      const t = e.touches[0];
-      held.current = false;
-      clearTimeout(hold.current?.timer);
-      hold.current = { x: t.clientX, y: t.clientY, timer: setTimeout(() => { held.current = true; onLongPress(nodeRef.current, project.id); }, 300) };
-    },
-    onTouchMove: (e) => {
-      const s = hold.current; const t = e.touches[0];
-      if (s && Math.hypot(t.clientX - s.x, t.clientY - s.y) > 8) { clearTimeout(s.timer); hold.current = null; }
-    },
-    onTouchEnd: () => { clearTimeout(hold.current?.timer); hold.current = null; },
-    onTouchCancel: () => { clearTimeout(hold.current?.timer); hold.current = null; },
-  } : {};
-  useEffect(() => () => clearTimeout(hold.current?.timer), []);
-  // **ref 콜백에 조건을 넣지 않는다** — 콜백 신원이 바뀌면 React가 ref를 떼었다 다시
-  // 붙이는데, 끄는 도중이면 dnd-kit이 들고 있던 노드가 그 순간 사라진다.
-  const setRefs = useCallback((el) => { nodeRef.current = el; setNodeRef(el); setDropRef(el); }, [setNodeRef, setDropRef]);
-  // 활성 탭이 화면 밖이면 끌어온다 — 여기는 데스크톱과 달리 프로젝트를 전부 그려서
-  // (가로 스크롤), 프로젝트가 늘면 지금 보고 있는 탭이 오른쪽 밖에 있어도 아무 표시가
-  // 없었다. 활성 탭이 바뀔 때만 — 끄는 중에는 활성 탭이 바뀌지 않는다.
-  useEffect(() => { if (active) nodeRef.current?.scrollIntoView({ inline: 'nearest', block: 'nearest' }); }, [active]);
-  // 보관 탭에는 dnd 속성을 아예 얹지 않는다 — disabled면 dnd-kit이 `aria-disabled="true"`를
-  // 붙이는데, 눌러서 열 수 있는 버튼을 보조기기에 "못 쓰는 버튼"으로 알리게 된다.
-  const dragProps = locked ? {} : { ...attributes, ...listeners };
-  return (
-    <button
-      ref={setRefs} {...dragProps} {...holdProps}
-      data-front={front ? '' : undefined}
-      onClick={() => { if (held.current) { held.current = false; return; } onSelect(project.id); }}
-      className={`relative shrink-0 px-3 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap ${active ? 'text-fg border-fg' : archived ? 'text-fg-faint border-transparent' : 'text-fg-muted border-transparent'} ${isDragging ? 'opacity-40' : ''} ${isOver && !isDragging && !front ? 'bg-accent-weak rounded-t-md' : ''} ${front ? 'select-none [-webkit-touch-callout:none]' : ''}`}
-    >
-      {fresh && <FreshDot className="left-[4px]" />}
-      {/* 보관 표시는 데스크톱 연도 폴더와 같다 — 흐린 글자 + Archive 아이콘.
-          아이콘은 **글자 줄 안의 inline-block**이다(감싸는 inline-flex를 두지 않는다):
-          이 줄은 items-end라 탭 높이가 곧 글자 자리라서, 줄 상자 높이를 바꾸는 순간
-          보관 탭의 글자만 이웃보다 떠 보인다(§6-9-bu와 같은 결). */}
-      {archived && <Archive size={12} className="inline-block align-[-2px] mr-1" />}
-      {project.title}
-      {/* 지금 이 프로젝트를 보고 있는 사람 — 데스크톱과 같은 이유로 얹기만 하고,
-          같은 이유로 오른쪽 경계에 반쯤 걸친다(제목 끝 글자를 가리지 않게 —
-          사용자 지적 2026-08-30). z-[1]은 뒤 형제 탭에 덮이지 않게. */}
-      <ViewerFaces projectId={project.id} className="absolute top-1 -right-1 z-[1]" />
-    </button>
-  );
-}
-
-// 모바일 프로젝트 탭 줄 — 가로로 밀어 넘기고, **길게 눌러** 순서를 바꾼다.
-// 데스크톱처럼 누르는 즉시 끌기로 두면 줄을 밀 수가 없다: 손이 닿는 자리가 곧 탭이라
-// 스크롤과 드래그가 같은 제스처를 두고 싸운다. 그래서 TouchSensor의 delay로 가른다.
-const MobileProjectTabs = React.memo(({
-  projectsList, activeMenu, setActiveMenu, onOpenProject, allProjects, cloudMode,
-  year, setYear, years, yearCounts, frontIds, orderIds, frontStats = null, freshIds = null,
-}) => {
-  const [dragId, setDragId] = useState(null);
-  const [nudge, showNudge] = useFrontNudge();
-  // 터치와 마우스는 센서를 분리한다(§6-12) — 하나로 합치면 모바일에서 드래그가 아예
-  // 시작되지 않거나 스크롤과 싸운다. 터치는 **300ms**로 보드(200ms)보다 길게 잡는다:
-  // 이 줄의 기본 동작이 가로로 미는 것이라, 짧으면 넘기려던 손이 탭을 집어 든다.
-  // tolerance 8: 그 사이에 8px 넘게 움직이면 "미는 중"으로 보고 드래그를 접는다.
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 300, tolerance: 8 } }),
-  );
-  const dragProject = dragId ? projectsList.find(p => p.id === dragId) : null;
-  const onDragEnd = ({ active, over }) => {
-    setDragId(null);
-    if (!over) return;
-    const targetId = String(over.id).replace(/^tab:/, '');
-    // 순서를 매기는 목록은 **position 순 전체**(orderIds — 보관된 탭은 없다)다. 보관된 탭은
-    // 줄 끝에 이어 세울 뿐 position에 끼지 않고(saveTabOrder 주석), 앞 칸 탭은 position 안의
-    // 제자리를 지킨다(데스크톱 dropTab과 같은 이유). 둘 다 끌기·놓기가 막혀 있다(disabled).
-    if (frontIds?.has(String(active.id)) || frontIds?.has(targetId)) return;
-    const next = reorderIds(orderIds, String(active.id), targetId);
-    if (next) saveTabOrder(next, allProjects, cloudMode);
-  };
-  return (
-    <DndContext
-      sensors={sensors} collisionDetection={dropCollision}
-      // 자동 스크롤을 통째로 끈다 — 손가락이 줄 끝에 가면 줄이 옆으로 밀려서, 놓으려던
-      // 탭이 손가락 밑에서 빠져나간다(§6-10에서 상태 칩에 실제로 그랬다). 화면 밖의
-      // 탭으로 옮기려면 먼저 줄을 밀어 그 탭을 보이게 하면 된다.
-      autoScroll={false}
-      onDragStart={(e) => setDragId(String(e.active.id))}
-      // 뒤쪽 탭을 앞 칸 위로 가져왔다 — 놓을 자리가 아니라고 말해 준다(앞 칸 넛지)
-      onDragOver={({ over }) => {
-        const target = over ? String(over.id).replace(/^tab:/, '') : '';
-        if (target && frontIds?.has(target)) showNudge(over.data?.current?.el?.current, 'back');
-      }}
-      onDragEnd={onDragEnd} onDragCancel={() => setDragId(null)}
-    >
-      {/* x-scroll-lock: 가로로 밀 때 세로 스크롤이 같이 딸려가지 않게 (index.css) */}
-      <div className="flex items-end gap-0 px-2 overflow-x-auto scrollbar-hide x-scroll-lock border-t border-line/70">
-        {/* 연도는 미는 칸 **안**에 둔다 — 같은 종류가 이어지는 줄이고(§8), 밖으로
-            빼면 좁은 화면에서 탭이 시작하는 자리가 그만큼 밀린다 */}
-        <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={setYear} compact />
-        {projectsList.map((p, i) => (
-          <React.Fragment key={p.id}>
-            <MobileProjectTab project={p} active={activeMenu === p.id} archived={!!p.archived} front={!!frontIds?.has(p.id)}
-              fresh={!!freshIds?.has(p.id)} onSelect={setActiveMenu}
-              onLongPress={(el, pid) => showNudge(el, 'front', frontStats?.[pid]?.people || 0)} />
-            {/* 앞 칸 뒤 세로선 — 마지막 앞 칸 탭 바로 뒤, 뒤에 탭이 더 있을 때만 */}
-            {frontIds?.has(p.id) && i < projectsList.length - 1 && !frontIds.has(projectsList[i + 1].id) && (
-              <span aria-hidden data-tab-divider className={tabDividerCls(!!nudge)} />
-            )}
-          </React.Fragment>
-        ))}
-        {/* 데스크톱과 같은 이유로 투명 2px을 깐다(§6의 항목 참고) */}
-        <button onClick={onOpenProject} className="shrink-0 px-3 pt-2.5 pb-2 -mb-px border-b-2 border-transparent text-[13px] font-semibold text-fg-faint whitespace-nowrap">+ 프로젝트</button>
-      </div>
-      <FrontNudge nudge={nudge} />
-      {/* 들어 올린 탭이 손가락을 따라온다. body 포털이 기본이다(§6-1) — 조상에 걸린
-          transform이 fixed의 기준 박스가 되면 미리보기가 엉뚱한 자리에 뜬다. */}
-      {createPortal(
-        <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>
-          {dragProject ? (
-            <span className="inline-flex items-center px-3 py-1.5 rounded-md bg-surface border border-line shadow-elevated text-[13px] font-semibold text-fg whitespace-nowrap">
-              {dragProject.title}
-            </span>
-          ) : null}
-        </DragOverlay>,
-        document.body
-      )}
-    </DndContext>
-  );
-});
-
-// 모바일 하단 탭바 — 프로젝트 / 내 업무 / 대시보드 / 팀 (핸드오프 규격).
-// 설정은 상단 헤더로 올라갔다. 교회 축 목록(CHURCH_MENUS)은 이 파일 맨 위에 있다.
-export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProject }) => {
-  // '프로젝트' 탭이 새로 골라 주는 것은 보관하지 않은 것 중 첫 번째.
-  // 하지만 지금 보고 있는 것이 보관된 프로젝트여도 탭은 켜져 있어야 한다(전체로 판정).
-  const projectsList = useStore(selectActiveProjectsList);
-  const allProjects = useStore(selectProjectsList);
-  const currentUser = useStore(selectCurrentUser);
-  const myTasksCount = useStore(selectMyTasks).filter(isOpen).length;
-  const isProject = allProjects.some(p => p.id === activeMenu);
-  const [year] = useProjectYear();
-  const frontStats = useTabFrontStats();
-  // 마지막으로 본 프로젝트 — 아래 '업무' 탭의 lastWork와 같은 결(이번 세션 동안만 기억한다)
-  const lastProject = useRef(null);
-  useEffect(() => { if (isProject) lastProject.current = activeMenu; }, [activeMenu, isProject]);
-  const myTeam = (currentUser.teams?.length ? currentUser.teams : [currentUser.team]).filter(Boolean)[0];
-  // '프로젝트' 탭(2026-09-25 · tabRank.pickProjectToOpen): 마지막으로 본 것이 고른 해에 있으면 그것,
-  // 아니면 **고른 해의 탭 순서 첫 프로젝트**(앞 칸 → position — 위 탭 줄과 같은 순서), 그 해가 비면
-  // 가장 최근 해의 첫 것, 아무것도 없으면 새로 만들기. 예전에는 해를 안 보고 position 첫 것을 열어서
-  // 작년 프로젝트가 앞이면 그걸 열고 연도 선택까지 작년으로 끌려갔다.
-  const goProject = () => {
-    if (isProject) return;
-    const id = pickProjectToOpen({ active: projectsList, all: allProjects, year, lastId: lastProject.current, stats: frontStats, yearOf: projectYear });
-    if (id) setActiveMenu(id);
-    else onOpenProject();
-  };
-  // 소속이 없는 사람은 팀 보드로 갈 곳이 없으니 프로필 설정으로 안내한다
-  const goTeam = () => { if (myTeam) setActiveMenu(`team:${myTeam}`); else showToast('설정에서 소속을 먼저 골라주세요'); };
-
-  // ── 두 벌의 바 (docs/V2.md §3 A안 — 사용자가 목업으로 확정) ──────────────
-  // 교회 생활(홈·예배·말씀·모임·업무)과 업무(홈·프로젝트·내 업무·대시보드·팀).
-  // '업무'에 들어가면 바가 통째로 기존 네 칸(+홈)으로 바뀌어 손 습관이 남고,
-  // 겹(상단 줄 수)은 늘지 않는다. '홈'으로 돌아온다.
-  // 위키는 어느 층에도 속하지 않는다 — 들어오기 전 층을 그대로 둔다(다붓이 얼굴은 두 층 어디서나 누른다 · 0088)
-  const lastLayer = useRef(true);
-  const inChurch = activeMenu === 'wiki' ? lastLayer.current : CHURCH_MENUS.includes(activeMenu);
-  useEffect(() => { if (activeMenu !== 'wiki') lastLayer.current = CHURCH_MENUS.includes(activeMenu); }, [activeMenu]);
-  // 업무 모드에서 마지막으로 보던 화면 — '업무' 탭이 여기로 돌려보낸다
-  const lastWork = useRef('dashboard');
-  useEffect(() => { if (!inChurch && activeMenu !== 'wiki') lastWork.current = activeMenu; }, [activeMenu, inChurch]);
-
-  // 두 벌이 **동시에 그려져 있다**(아래 nav) — 지금 쓰는 층이 아니면 초점도 안 받게
-  // `live=false`를 준다. 안 그러면 탭 키가 안 보이는 다섯 개를 먼저 지난다.
-  // 배지 원 색은 층이 정한다(`--tab-dot`) — 남색 위에서는 accent 원이 그대로 사라진다.
-  const tab = (on, icon, label, onClick, badge, live = true) => (
-    <button
-      onClick={onClick} tabIndex={live ? 0 : -1}
-      className={`flex-1 flex flex-col items-center gap-1 py-1 transition-colors ${on ? 'text-[color:var(--tab-on)]' : 'text-[color:var(--tab-off)]'}`}
-    >
-      <span className="relative">{icon}{badge > 0 && <span className="absolute -top-0.5 -right-1.5 w-1.5 h-1.5 rounded-full bg-[color:var(--tab-dot)]" />}</span>
-      <span className="text-[10.5px] font-semibold">{label}</span>
-    </button>
-  );
-  // 층 하나가 쓰는 자리 — 패딩이 nav가 아니라 **층마다** 있어야 겹친 두 층이 같은 자리에
-  // 선다(업무 층은 absolute inset-0이라 nav의 패딩 안으로 들어가지 않는다).
-  // 위 선도 층이 그린다 — nav가 그리면 남색이 찼을 때 그 위에 회색 실선이 남는다.
-  const LAYER = 'flex pt-2 pb-[calc(0.875rem+env(safe-area-inset-bottom))] border-t';
-  const churchTabs = (live) => (
-    <>
-      {tab(activeMenu === 'home', <Home size={20} />, '홈', () => setActiveMenu('home'), 0, live)}
-      {tab(activeMenu === 'worship', <Church size={20} />, '예배', () => setActiveMenu('worship'), 0, live)}
-      {tab(activeMenu === 'word', <BookOpen size={20} />, '말씀', () => setActiveMenu('word'), 0, live)}
-      {tab(activeMenu === 'groups', <HeartHandshake size={20} />, '모임', () => setActiveMenu('groups'), 0, live)}
-      {tab(false, <Briefcase size={20} />, '업무', () => setActiveMenu(lastWork.current || 'dashboard'), myTasksCount, live)}
-    </>
-  );
-  const workTabs = (live) => (
-    <>
-      {tab(false, <Home size={20} />, '홈', () => setActiveMenu('home'), 0, live)}
-      {tab(isProject, <Hash size={20} />, '프로젝트', goProject, 0, live)}
-      {tab(activeMenu === 'myTasks', <CheckSquare size={20} />, '내 업무', () => setActiveMenu('myTasks'), myTasksCount, live)}
-      {tab(activeMenu === 'dashboard', <LayoutDashboard size={20} />, '대시보드', () => setActiveMenu('dashboard'), 0, live)}
-      {tab(activeMenu.startsWith('team:'), <Users size={20} />, '팀', goTeam, 0, live)}
-    </>
-  );
-  // 탭바의 **실제 높이**를 `--mobile-tab-bar-h`로 내보낸다. 이 바는 안 내용으로 높이가 정해져서
-  // (pt-2 + 아이콘 + 글자 + pb + safe-area) 4.5rem 같은 상수와 몇 px 어긋난다 — 주보 편집의
-  // 하단 저장 줄이 그 상수로 앉아 탭바 위에 **얇은 틈**이 남았다(사용자 지적 2026-09-08).
-  // 위에 얹는 것(worshipDetail의 worship-edit-bar)은 이 변수를 bottom으로 쓴다.
-  const navRef = useRef(null);
-  useLayoutEffect(() => {
-    const el = navRef.current;
-    if (!el) return undefined;
-    const root = document.documentElement;
-    const set = () => root.style.setProperty('--mobile-tab-bar-h', `${el.getBoundingClientRect().height}px`);
-    set();
-    const ro = new ResizeObserver(set);
-    ro.observe(el);
-    return () => { ro.disconnect(); root.style.removeProperty('--mobile-tab-bar-h'); };
-  }, []);
-  // ── 넘어온 것을 바가 말한다 (사용자 결정 2026-09-18 · 목업 넷 중 '딥 인디고 채움') ──
-  // 두 벌을 **겹쳐 두고** 업무 층의 왼쪽 끝만 움직인다(`.tab-bar-work` · index.css에
-  // 왜 그 한 값이 두 방향을 다 만드는지 적어 두었다). 그래서 여기 JSX는 조건부가
-  // 아니라 **둘 다 그린다** — 글자가 바뀌는 순간이 색이 지나가는 자리와 맞으려면
-  // 두 벌이 동시에 있어야 한다. `data-tab-bar`가 어느 층이 위인지를 정한다.
-  return (
-    <nav ref={navRef} data-tab-bar={inChurch ? 'church' : 'work'} className="md:hidden fixed inset-x-0 bottom-0 z-40 bg-surface">
-      <div aria-hidden={!inChurch} className={`tab-bar-base ${LAYER} border-line [--tab-on:var(--app-ink)] [--tab-off:var(--app-ink-muted)] [--tab-dot:var(--app-accent)]`}>
-        {churchTabs(inChurch)}
-      </div>
-      {/* 업무 층 — **색과 위선은 index.css의 `.tab-bar-work`가 준다**(`--app-work-bar`).
-          여기 클래스로 박으면 다크에서 따라가 버려서 흰 글자 대비가 무너진다.
-          배지 원은 흰색이다(그 바탕에서 accent 원은 그대로 사라진다). 아래
-          safe-area까지 같이 찬다 — 거기서 색이 끊기면 바가 떠 보인다. */}
-      <div aria-hidden={inChurch} className={`tab-bar-work absolute inset-0 ${LAYER} [--tab-on:#fff] [--tab-off:rgb(255_255_255/0.66)] [--tab-dot:#fff]`}>
-        {workTabs(!inChurch)}
-      </div>
-    </nav>
-  );
-});
-
-// 화면 이름 (모바일 상단 제목) — 뷰 안의 제목은 모바일에서 숨기고 여기 하나만 쓴다
-function menuTitle(activeMenu, projectsMap, currentUser) {
-  if (activeMenu === 'home') return '홈';
-  if (activeMenu === 'dashboard') return '업무 대시보드';
-  if (activeMenu === 'myTasks') return `${currentUser?.name || '내'}님의 업무`;
-  if (activeMenu === 'schedule') return '전체 일정';
-  if (activeMenu === 'members') return '멤버 관리';
-  if (activeMenu === 'worship') return '예배';
-  if (activeMenu === 'word') return '말씀';
-  if (activeMenu === 'groups') return '모임';
-  if (activeMenu === 'wiki') return '위키';
-  if (activeMenu.startsWith('team:')) return `${activeMenu.split(':')[1]} 보드`;
-  return projectsMap[activeMenu]?.title || '워크스페이스';
-}
-
-// 매치 부분을 <mark>로 강조(첫 등장 위치 기준)
-const highlight = (text, q) => {
-  if (!text) return text;
-  const idx = text.toLowerCase().indexOf(q.toLowerCase());
-  if (idx === -1) return text;
-  return (
-    <>{text.slice(0, idx)}<mark className="bg-tag-yellow text-tag-yellow-fg rounded-[2px] px-0.5">{text.slice(idx, idx + q.length)}</mark>{text.slice(idx + q.length)}</>
-  );
-};
-
-const SEARCH_LIMIT = 8; // 그룹당 최대 표시 수
-
-// ── 검색창 안내 문구 (사용자 결정 2026-08-31) ────────────────────────────────
-// 셋을 2초씩 돌린다. 첫 줄만으로는 **첨부 안 글자와 댓글까지 찾는다는 걸 아무도
-// 모르는** 상태였다(그게 이 검색의 숨은 값이다). 셋을 한 줄에 이어 붙이면 320px
-// 칸에서 잘리므로 돌린다.
-const SEARCH_HINTS = [
-  '프로젝트나 업무를 검색해봐요!',
-  '댓글이나 첨부 파일도 검색 가능해요',
-  '무엇을 찾고 계신가요?',
-];
-const HINT_HOLD_MS = 2000;   // 떠 있는 시간
-const HINT_FADE_MS = 700;    // 사라지고 나타나는 시간 — 천천히(사용자 결정 2026-08-31)
-
-// 돌아가는 문구. **input의 placeholder 속성은 첫 줄로 고정**하고(스크린 리더와
-// 검사가 그걸 본다) 눈에 보이는 글자는 겹쳐 놓은 span이 그린다 — placeholder
-// 가상 요소는 브라우저마다 전환이 제각각이라 opacity를 믿을 수 없다.
-// `on`이 false면(글자를 쳤거나 reduced-motion) 첫 줄에서 멈춘다.
-//
-// **한 벌이다** — 문구 배열만 받는다(2026-09-09에 성경 본문 검색 칸도 이걸 쓴다 ·
-// components/wordBible.jsx). 줄이 하나뿐이면 타이머를 아예 걸지 않는다(게스트의
-// 본문 검색이 그렇다 — 돌릴 것이 없는데 700ms마다 다시 그릴 이유가 없다).
-export function useRotatingHint(on, hints = SEARCH_HINTS) {
-  const [i, setI] = useState(0);
-  const [visible, setVisible] = useState(true);
-  const len = hints.length;
-  useEffect(() => {
-    if (!on || len < 2) { setI(0); setVisible(true); return; }
-    let t;
-    const fadeOut = () => { setVisible(false); t = setTimeout(swap, HINT_FADE_MS); };
-    const swap = () => { setI(n => (n + 1) % len); setVisible(true); t = setTimeout(fadeOut, HINT_HOLD_MS); };
-    t = setTimeout(fadeOut, HINT_HOLD_MS);
-    return () => clearTimeout(t);
-  }, [on, len]);
-  return { text: hints[i] || hints[0] || '', visible };
-}
-
-// 겹쳐 놓은 안내 글자. 부모가 relative여야 하고, 왼쪽 여백(아이콘 폭)은 부모가 정한다.
-export const SearchHint = ({ show, left, size, hints = SEARCH_HINTS }) => {
-  // 움직임을 줄이라고 한 사람에게는 돌리지 않는다(§4.2) — 첫 줄만 가만히 보여준다
-  const still = typeof window !== 'undefined'
-    && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const { text, visible } = useRotatingHint(show && !still, hints);
-  if (!show) return null;
-  return (
-    <span aria-hidden data-hint=""
-      className={`pointer-events-none absolute top-1/2 -translate-y-1/2 right-3 truncate text-fg-faint transition-opacity ${size}`}
-      style={{ left, opacity: visible ? 1 : 0, transitionDuration: `${HINT_FADE_MS}ms` }}>
-      {text}
-    </span>
-  );
-};
-
-// ── 관련된 업무 내용 (뜻 검색 · 사용자 결정 G-a 2026-09-25) ──────────────────
-// 글자 결과는 공백을 뺀 includes라 띄어쓰기·낱말이 조금만 달라도 못 찾고('찬양 기획' ↛ '찬양예배 기획'),
-// 클라우드에서는 열어 본 업무의 댓글·첨부만 손에 있다(PITFALLS 6-20). 그래서 글자 결과 **아래에**
-// doc_vec(0074)으로 찾은 업무를 최대 다섯 줄 세운다 — 위에 이미 선 업무는 빼고, 줄마다 어디에 걸렸는지
-// 한 줄('댓글 · ' · '첨부 · ' · '상세 내용 · '). 모양은 services/vecSearch.js, 왕복은 services/semantic.js.
-//   · 두 글자부터 · 치는 동안은 묻지 않는다(RELATED_DEBOUNCE_MS) · 같은 물음은 메모리에서 · 옛 물음은 끊는다
-//   · 도는 동안은 글 없이 줄 모양 뼈대만 · 못 찾았거나 실패하면 구역째 없다(설명 줄 없음)
-//   · **게스트 모드에서는 구역도 네트워크도 없다**(semanticOn) — 그래서 검사는 이 길을 못 탄다(실기기 확인)
-function useRelated(query) {
-  const ready = semanticOn() && relatedReady(query);
-  const key = relatedKey(query);
-  const [got, setGot] = useState({ key: '', rows: null });
-  useEffect(() => {
-    if (!ready) return undefined;
-    const hit = peekDocs(key);
-    if (hit) { setGot({ key, rows: hit }); return undefined; }
-    const ctl = new AbortController();
-    const t = setTimeout(() => {
-      matchDocs(key, { signal: ctl.signal })
-        .then(rows => { if (!ctl.signal.aborted) setGot({ key, rows }); })
-        .catch(e => {
-          if (ctl.signal.aborted || e?.name === 'AbortError') return;
-          console.warn('[search] 관련된 업무 내용을 받지 못했어요:', e);
-          setGot({ key, rows: [] });
-        });
-    }, RELATED_DEBOUNCE_MS);
-    return () => { clearTimeout(t); ctl.abort(); };
-  }, [ready, key]);
-  if (!ready) return { on: false, loading: false, rows: [] };
-  const rows = got.key === key ? got.rows : (peekDocs(key) || null);
-  return { on: true, loading: rows === null, rows: rows || [] };
-}
-
-// 뜻 결과 한 줄의 표시 — 업무는 초록(글자 결과와 같다), 댓글은 파랑, 첨부는 주황(목업에서 정한 색)
-const RELATED_ICON = {
-  card: { Icon: CheckSquare, cls: 'bg-tag-green text-tag-green-fg' },
-  comment: { Icon: MessageSquare, cls: 'bg-tag-blue text-tag-blue-fg' },
-  file: { Icon: Paperclip, cls: 'bg-tag-orange text-tag-orange-fg' },
-};
-
-// 기다리는 동안의 줄 — 실제 줄(아이콘 24 · 제목 20 · 아랫줄 15 · py-2.5)과 같은 높이를 잡는다
-const RelatedSkeleton = () => (
-  <div className="search-related-skel flex items-center gap-2 px-2 py-2.5" aria-hidden="true">
-    <Skeleton className="w-6 h-6 rounded-md shrink-0" />
-    <span className="flex-1 min-w-0">
-      <span className="flex items-center h-5"><Skeleton className="h-2.5 w-[70%] rounded-xs" /></span>
-      <span className="flex items-center h-[15px]"><Skeleton className="h-2 w-[45%] rounded-xs" /></span>
-    </span>
-  </div>
-);
-
-// 결과 계산 + 렌더 (검색 중일 때만 마운트 → store 구독·계산도 그때만 발생)
-// useDeferredValue로 타이핑 입력과 무거운 결과 렌더를 분리해 렉 방지
-function SearchResults({ query, onPick }) {
-  const projectsList = useStore(selectProjectsList);
-  const tasksList = useStore(selectTasksList);
-  const tasksById = useStore(selectTasks).byId;
-  const projectsMap = useStore(selectProjectsMap);
-  const deferred = useDeferredValue(query);
-  const related = useRelated(deferred);
-
-  const results = useMemo(() => {
-    // 공백을 지우고 비교한다 — "버스 견적"이 "전세버스 견적서"를 못 찾던 것(§1.3)이
-    // 대부분 띄어쓰기 차이였다. RAG 없이 잡히는 것부터 잡는다.
-    // NFC로 맞춰 비교한다 — 맥에서 올린 파일 이름은 한글이 자모로 풀린 NFD로 저장돼 있어
-    // 같은 글자를 쳐도 안 걸렸다(업로드는 이제 NFC로 저장한다 · 0072가 옛 행을 맞춘다).
-    const norm = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/\s+/g, '');
-    const q = norm(deferred);
-    if (q.length < 2) return null;
-    const hit = (x) => norm(x).includes(q);
-    const projectHits = projectsList.filter(p => hit(p.title));
-    // 첨부 이름·댓글도 본다. 클라우드에서는 열어 본 카드만 채워져 있다(§6-20) —
-    // 그래도 없는 것보다 낫고, 게스트·최근에 연 카드에서는 온전히 잡힌다.
-    const taskHits = tasksList.filter(t =>
-      hit(t.title) || hit(t.content) ||
-      (t.assignees || []).some(hit) ||
-      (t.teams || []).some(hit) ||
-      // 첨부는 이름뿐 아니라 **안에 든 글자**도 본다(files.text_excerpt, 0030).
-      // "야식 찬조"로 결산 엑셀이 잡힌다. 백필한 사진에는 Gemini 캡션([사진] 접두)이 있어
-      // 그 글로도 잡힌다 · 새로 올리는 사진에는 캡션이 생기지 않아 이름으로만 잡힌다.
-      (t.attachments || []).some(a => (typeof a === 'string' ? hit(a) : (hit(a?.name) || hit(a?.text_excerpt)))) ||
-      (t.comments || []).some(c => hit(c?.text))
-    );
-    return { projectHits, taskHits };
-  }, [deferred, projectsList, tasksList]);
-
-  const pShown = results ? results.projectHits.slice(0, SEARCH_LIMIT) : [];
-  const tShown = results ? results.taskHits.slice(0, SEARCH_LIMIT) : [];
-  // 위에 이미 선 업무는 뜻 결과에서 뺀다(같은 업무를 두 번 세우지 않는다)
-  const shownIds = tShown.map(t => t.id).join(',');
-  const relatedRows = useMemo(
-    () => relatedTasks(related.rows, { tasksById, exclude: new Set(shownIds ? shownIds.split(',') : []) }),
-    [related.rows, tasksById, shownIds],
-  );
-
-  if (!results) return null;
-  const empty = results.projectHits.length === 0 && results.taskHits.length === 0;
-  const showRelated = related.on && (related.loading || relatedRows.length > 0);
-  // '검색 결과가 없어요'는 **그 문구가 서는 자리의 가운데**다 — 뜻 결과 구역이 있으면 글자 결과
-  // 자리(구역 위) 안에서, 없으면 판 전체에서 가로·세로 가운데(사용자 요청 2026-09-25 · tests/navsmoke·mobbits).
-  const none = <p className="search-none px-3 py-6 text-center text-xs text-fg-faint">검색 결과가 없어요</p>;
-  if (empty && !showRelated) return none;
-
-  const pMore = results.projectHits.length - pShown.length;
-  const tMore = results.taskHits.length - tShown.length;
-  const q = deferred.trim();
-
-  return (
-    <>
-      <div className="search-text">
-        {empty && none}
-        {pShown.length > 0 && (
-          <div className="mb-1">
-            <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-muted uppercase tracking-wider">프로젝트</p>
-            {pShown.map(p => (
-              <button key={p.id} onClick={() => onPick('project', p)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
-                <span className="w-6 h-6 rounded-md bg-tag-purple text-tag-purple-fg flex items-center justify-center shrink-0"><Hash size={13} strokeWidth={1.75} /></span>
-                <span className="text-sm text-fg truncate min-w-0">{highlight(p.title, q)}</span>
-                {/* 보관된 것도 검색에는 나온다(지운 게 아니다) — 대신 그렇다고 표시한다 */}
-                {p.archived && <span className="shrink-0 text-[10px] text-fg-muted">보관</span>}
-              </button>
-            ))}
-            {pMore > 0 && <p className="px-2 py-1 text-[10px] text-fg-muted">그 외 {pMore}건 더 있어요</p>}
-          </div>
-        )}
-        {tShown.length > 0 && (
-          <div>
-            <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-muted uppercase tracking-wider">업무</p>
-            {tShown.map(t => (
-              <button key={t.id} onClick={() => onPick('task', t)} className="w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
-                <span className="w-6 h-6 rounded-md bg-tag-green text-tag-green-fg flex items-center justify-center shrink-0"><CheckSquare size={13} strokeWidth={1.75} /></span>
-                <span className="flex-1 min-w-0">
-                  <span className="block text-sm text-fg truncate">{highlight(t.title, q)}</span>
-                  <span className="block text-[10px] text-fg-muted truncate">{projectsMap[t.projectId]?.title || '프로젝트 미지정'}</span>
-                </span>
-              </button>
-            ))}
-            {tMore > 0 && <p className="px-2 py-1 text-[10px] text-fg-muted">그 외 {tMore}건 더 있어요</p>}
-          </div>
-        )}
-      </div>
-      {showRelated && (
-        <div className="search-related mt-1" aria-busy={related.loading || undefined}>
-          <p className="px-2 pt-1.5 pb-1 text-[10px] font-bold text-fg-muted uppercase tracking-wider">관련된 업무 내용</p>
-          {related.loading ? <><RelatedSkeleton /><RelatedSkeleton /></> : relatedRows.map(({ task, kind, excerpt }) => {
-            const { Icon, cls } = RELATED_ICON[kind] || RELATED_ICON.card;
-            return (
-              <button key={task.id} onClick={() => onPick('task', task)} data-kind={kind}
-                className="search-related-row w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left hover:bg-surface-hover transition-colors">
-                <span className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${cls}`}><Icon size={13} strokeWidth={1.75} /></span>
-                <span className="flex-1 min-w-0">
-                  <span className="block text-sm text-fg truncate">{task.title}</span>
-                  <span className="block text-[10px] text-fg-muted truncate">
-                    {excerpt ? `${RELATED_KIND_LABEL[kind]} · ${excerpt}` : (projectsMap[task.projectId]?.title || '프로젝트 미지정')}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </>
-  );
-}
-
-// 통합 검색 — 데스크톱 인라인 드롭다운 + 모바일 아이콘 트리거·전체폭 오버레이
-// store 구독/결과 계산은 SearchResults(검색어 2자+ 일 때만 마운트)로 분리해 타이핑 렉 제거
-function SearchBox({ onSearchSelect, variant = 'inline' }) {
-  const [query, setQuery] = useState('');
-  const [open, setOpen] = useState(false);        // 데스크톱 드롭다운
-  const [mobileOpen, setMobileOpen] = useState(false); // 모바일 오버레이
-  const rootRef = useRef(null);
-  const listRef = useRef(null);
-  const active = query.trim().length >= 2;
-
-  // 데스크톱 결과 판은 **body 포털**이다(HANDOFF §8 '떠 있는 것') — 폭은 검색칸에서 잰다
-  // (matchWidth). z는 z-[80]: 프로필 메뉴가 z-[90]이고 검사(tests/mobbits)가 body의 첫 z-[90]을
-  // 그 메뉴로 본다 — 같은 z를 쓰면 엉뚱한 판을 잰다.
-  // 폭은 칸을 따르되 **320px 아래로는 줄이지 않는다**(minWidth) — 768~1030px에서 칸이 54~310px로
-  // 줄어 결과 판이 글자 하나 폭의 기둥이 됐다(2026-09-25 · tests/navsmoke). 넓힌 판은 화면 안으로 갇힌다.
-  const listOpen = open && active;
-  const [listPos] = useAnchoredPos(rootRef, listOpen, 320, 360, 8, listRef, { matchWidth: true, minWidth: 320, align: 'start' });
-
-  // 데스크톱: 바깥 클릭 / Escape 닫기. 프로필 메뉴·더보기와 **같은 훅**을 쓴다 — 닫는 규칙이
-  // 여러 벌이면 한쪽만 고쳐진다. 결과 판이 포털이라 **그 판도 '안'으로** 넘긴다(useDismiss 머리말).
-  useDismiss(open, () => setOpen(false), [rootRef, listRef]);
-
-  // 검색어가 바뀌면 목록을 맨 위로 — 목록 상자가 그대로 남아 스크롤 위치를 물려받아서, 내려 본
-  // 뒤에 한 글자를 더 치면 새 결과의 가운데(또는 첫 줄이 반쯤 잘린 자리)부터 보였다(2026-09-25).
-  const mobileListRef = useRef(null);
-  useLayoutEffect(() => {
-    if (listRef.current) listRef.current.scrollTop = 0;
-    if (mobileListRef.current) mobileListRef.current.scrollTop = 0;
-  }, [query]);
-
-  const reset = () => setQuery('');
-  const closeMobile = () => { setMobileOpen(false); reset(); };
-
-  // 모바일 오버레이: Escape 닫기
-  useEffect(() => {
-    if (!mobileOpen) return;
-    const onKey = (e) => { if (e.key === 'Escape') { setMobileOpen(false); setQuery(''); } };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [mobileOpen]);
-
-  const pick = (kind, item) => { onSearchSelect(kind, item); setOpen(false); setMobileOpen(false); reset(); };
-
-  // ── 키보드로 결과 고르기 (데스크톱 · 2026-09-25) ──────────────────────────
-  // 결과 판이 body 포털이라 **Tab으로는 닿지 않는다**(DOM 순서가 문서 맨 끝이다) — 키보드로는
-  // 결과를 열 길이 아예 없었다. ↓로 판에 들어가고 ↑↓로 줄을 옮긴다. 여는 것은 줄 버튼의
-  // Enter(브라우저 기본)이고, 첫 줄에서 ↑ · Esc는 칸으로 돌아간다(Esc는 useDismiss가 판도 닫는다).
-  // 표시는 앱 전역의 focus-visible 테두리 그대로다 — 새 모양을 더하지 않는다.
-  const inputRef = useRef(null);
-  const onInputKey = (e) => {
-    if (imeComposing(e)) return;   // 조합 중 ↓는 글자 확정이다
-    if (e.key === 'ArrowDown' && listOpen) {
-      const first = listRef.current?.querySelector('button');
-      if (first) { e.preventDefault(); first.focus(); }
-    }
-  };
-  const onListKey = (e) => {
-    const btns = [...(listRef.current?.querySelectorAll('button') || [])];
-    const i = btns.indexOf(document.activeElement);
-    if (e.key === 'ArrowDown') { e.preventDefault(); btns[Math.min(i + 1, btns.length - 1)]?.focus(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); (i <= 0 ? inputRef.current : btns[i - 1])?.focus(); }
-    else if (e.key === 'Escape') inputRef.current?.focus();
-  };
-
-  // 아이콘 트리거 + 전체폭 오버레이 (모바일 상단바)
-  if (variant === 'icon') {
-    return (
-      <>
-        <button className="p-2 rounded-md text-fg-muted transition active:scale-95 shrink-0" onClick={() => setMobileOpen(true)} title="검색"><Search size={19} /></button>
-        {/* 불투명 배경 — 모바일 GPU 비용 큰 blur 미사용.
-            **body 포털이다**(2026-09-25) — 상단바 상자가 flex 항목에 z-20이라 쌓임 맥락을 만들어,
-            안에 둔 z-50 판이 하단 탭바(z-40)보다 아래에 깔렸다. 탭바가 어둡게 덮이지 않고 눌렸고,
-            가로 폰에서는 마지막 결과가 탭바 밑에 가렸다(tests/mobbits). */}
-        {mobileOpen && createPortal(
-          <div className="fixed inset-0 z-50 bg-black/50 animate-in fade-in duration-150" onClick={closeMobile}>
-            <div className="absolute inset-x-0 top-0 bg-surface border-b border-line shadow-elevated p-3 animate-in fade-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1 min-w-0">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-fg-faint" />
-                  <input
-                    autoFocus type="text" value={query} onChange={e => setQuery(e.target.value)}
-                    /* 키보드의 '검색'(Enter)은 **키보드를 내린다**(2026-09-25) — 전에는 아무 일도 없어
-                       키보드를 내릴 길이 없었고, 그 뒤에 결과 절반이 가려 있었다. 결과는 이미 떠 있다. */
-                    enterKeyHint="search"
-                    onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') e.currentTarget.blur(); }}
-                    /* 속성은 첫 줄로 고정하고 보이는 글자는 SearchHint가 그린다 */
-                    placeholder={SEARCH_HINTS[0]} aria-label={SEARCH_HINTS[0]}
-                    className="pl-9 pr-3 py-2 text-sm bg-surface border border-line rounded-xs focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all placeholder:text-transparent"
-                  />
-                  <SearchHint show={!query} left="2.25rem" size="text-sm" />
-                </div>
-                <button onClick={closeMobile} aria-label="닫기" className="p-2 rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95 shrink-0"><X size={18} /></button>
-              </div>
-              {/* 높이는 **보이는 창(--app-vh · App.jsx)** 안으로도 가둔다(2026-09-25) — 70dvh만으로는
-                  아이폰 키보드가 올라와도 줄지 않아(dvh는 키보드를 모른다) 마지막 결과가 키보드 밑에
-                  남았고, 끝까지 내려도 닿지 않았다. 5rem = 목록 위(칸 줄 58px) + 아래 여백 12px + 틈. */}
-              {active && (
-                <div ref={mobileListRef} className="mt-2 max-h-[min(70dvh,calc(var(--app-vh,100dvh)_-_5rem))] overflow-y-auto">
-                  <SearchResults query={query} onPick={pick} />
-                </div>
-              )}
-            </div>
-          </div>, document.body)}
-      </>
-    );
-  }
-
-  // 데스크톱 인라인 검색창 + 드롭다운
-  return (
-    <div className="relative w-full max-w-[320px]" ref={rootRef}>
-      <Search className="w-[15px] h-[15px] absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-faint" />
-      <input
-        ref={inputRef} type="text" value={query}
-        onChange={e => { setQuery(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)} onKeyDown={onInputKey}
-        placeholder={SEARCH_HINTS[0]} aria-label={SEARCH_HINTS[0]}
-        className="pl-8 pr-3 h-8 text-[12.5px] bg-surface/60 border border-line rounded-sm focus:bg-surface focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all placeholder:text-transparent"
-      />
-      <SearchHint show={!query} left="2rem" size="text-[12.5px]" />
-      {listOpen && createPortal(
-        <div ref={listRef} onKeyDown={onListKey} style={{ position: 'fixed', left: listPos.left, top: listPos.top, width: listPos.width }}
-          className="z-[80] max-h-[360px] overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150">
-          <SearchResults query={query} onPick={pick} />
-        </div>, document.body)}
-    </div>
-  );
-}
-
-// ── @멘션 알림 (클라우드 모드 전용) ────────────────────────────────────────
-// 알림은 전역 스토어에 넣지 않는다(워크스페이스 데이터와 수명·성격이 다름).
-// 헤더 컴포넌트 로컬 state + realtime 구독으로 충분.
-// 종류별 문구는 services/notifyText.js에 있다 — 웹 푸시(api/push.js)가 같은 문구를 쓴다.
-
-// 안드로이드 설치 안내. **알림과는 별개다** — 안드로이드는 설치하지 않아도 브라우저
-// 탭에서 푸시가 온다(iOS만 설치가 전제 조건이라 그쪽은 PushRow의 'needs-pwa' 줄이
-// 다른 문구로 안내한다). 설치하고 아이콘으로 열면 display-mode가 standalone이 되어
-// 이 줄은 저절로 사라진다 — 닫기 버튼도, 닫았다는 기록도 두지 않는 이유다.
-function InstallRow() {
-  if (!push.isAndroid() || push.isStandalone()) return null;
-  return (
-    <div className="flex items-start gap-2 px-3 py-2.5 border-b border-line text-[10px] text-fg-muted">
-      <Smartphone size={13} strokeWidth={1.75} className="shrink-0 mt-px" />
-      <span>
-        크롬 <b className="font-semibold text-fg">⋮ → 앱 설치</b>를 누르면 앱처럼 쓸 수 있어요<br />
-        삼성 인터넷은 <b className="font-semibold text-fg">☰ → 현재 페이지 추가</b>
-      </span>
-    </div>
-  );
-}
-
-// 알림 종 팝오버 안의 '알림 받기' 줄. 여기서 권한을 묻는다 — 앱을 처음 열 때 물으면
-// 무슨 알림인지 모르는 상태에서 거부하기 쉽고, 한 번 거부되면 브라우저 설정에서
-// 손으로 되돌려야 한다.
-function PushRow() {
-  const [state, setState] = useState('unavailable');
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => { let alive = true; push.getPushState().then(s => alive && setState(s)); return () => { alive = false; }; }, []);
-
-  if (state === 'unavailable') return null;
-
-  if (state === 'needs-pwa') {
-    return (
-      <div className="flex items-start gap-2 px-3 py-2.5 border-b border-line text-[10px] text-fg-muted">
-        <Smartphone size={13} strokeWidth={1.75} className="shrink-0 mt-px" />
-        <span>홈 화면에 추가하면 알림을 받을 수 있어요</span>
-      </div>
-    );
-  }
-  if (state === 'denied') {
-    return (
-      <div className="flex items-start gap-2 px-3 py-2.5 border-b border-line text-[10px] text-fg-muted">
-        <BellOff size={13} strokeWidth={1.75} className="shrink-0 mt-px" />
-        <span>브라우저 설정에서 이 사이트의 알림을 허용해 주세요</span>
-      </div>
-    );
-  }
-
-  const on = state === 'on';
-  const toggle = async () => {
-    setBusy(true);
-    try {
-      if (on) { await push.disablePush(); showToast('앱을 닫았을 때는 알림이 오지 않아요'); }
-      else { await push.enablePush(); showToast('이제 앱을 닫아도 알림이 와요'); }
-      setState(await push.getPushState());
-    } catch (e) {
-      console.error('[push] 설정 실패:', e);
-      showToast(failText('알림 설정을 바꾸지 못했어요', e));
-      setState(await push.getPushState());
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <button
-      onClick={toggle} disabled={busy}
-      className="w-full flex items-center gap-2 px-3 py-2.5 border-b border-line text-left hover:bg-surface-hover transition-colors disabled:opacity-60"
-    >
-      {on ? <BellRing size={13} strokeWidth={1.75} className="shrink-0 text-accent-text" />
-          : <Bell size={13} strokeWidth={1.75} className="shrink-0 text-fg-muted" />}
-      <span className="flex-1 min-w-0">
-        <span className="block text-[11px] text-fg">{on ? '이 기기로 알림 받는 중' : '이 기기로 알림 받기'}</span>
-        <span className="block text-[10px] text-fg-muted mt-0.5">{on ? '눌러서 끄기' : '앱을 닫아도 알림이 와요'}</span>
-      </span>
-    </button>
-  );
-}
-
-function NotificationBell({ onOpenTask, onOpenLink }) {
-  const { session } = useAuth();
-  // 알림은 **남긴 계정 앞으로** 온다(0063) — 구독 필터(`recipient_id=eq.…`)가 세션 uid면
-  // 합친 계정에게는 새 알림이 한 줄도 안 들어와 벨이 비어 보인다. 물어 오기 전까지는
-  // 세션 uid로 떨어진다(합치지 않은 계정에게는 같은 값이다).
-  const sessionUid = session?.user?.id;
-  const [userId, setUserId] = useState(null);
-  useEffect(() => {
-    if (!sessionUid) { setUserId(null); return; }
-    let alive = true;
-    myUid().then(id => { if (alive) setUserId(id || sessionUid); })
-      .catch(() => { if (alive) setUserId(sessionUid); });
-    return () => { alive = false; };
-  }, [sessionUid]);
-  const [items, setItems] = useState([]);
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef(null);
-  const btnRef = useRef(null);
-  const [pos, place] = useAnchoredPos(btnRef, open, 320, 240);
-  const unread = items.filter(n => !n.read).length;
-
-  // 앱 아이콘 뱃지. **아이폰 홈 화면 웹앱에서만 보인다** — 안드로이드 크롬은 이 API가
-  // 아예 없고(대신 알림이 와 있으면 OS가 알아서 점을 붙인다), 데스크톱은 설치한 창에서만
-  // 보인다. 지원하지 않는 곳에서 navigator.setAppBadge는 undefined라 호출 전에 본다.
-  useEffect(() => {
-    if (!navigator.setAppBadge) return;
-    // 권한이 없거나 설치 상태가 아니면 거부될 수 있다 — 뱃지 하나 때문에 콘솔을 더럽히지 않는다.
-    const p = unread > 0 ? navigator.setAppBadge(unread) : navigator.clearAppBadge();
-    p?.catch(() => {});
-  }, [unread]);
-
-  // 초기 로드
-  useEffect(() => {
-    if (!userId) return;
-    let alive = true;
-    cloudSync.listMyNotifications(30)
-      .then(rows => { if (alive) setItems(rows || []); })
-      .catch(e => console.error('[cloud] 알림 로드 실패:', e));
-    return () => { alive = false; };
-  }, [userId]);
-
-  // 실시간: 본인 수신 알림 INSERT
-  useEffect(() => {
-    if (!userId) return;
-    const unsub = cloudSync.subscribeMyNotifications(userId, (row) => {
-      setItems(prev => (prev.some(n => n.id === row.id) ? prev : [row, ...prev].slice(0, 30)));
-      showToast(notifLine(row.kind, row.actor_name));
-    });
-    return unsub;
-  }, [userId]);
-
-  // 바깥 클릭 / Esc 닫기 — 이 팝오버는 rootRef 안에 그려지므로(포털이 아니다) 프로필
-  // 메뉴·검색과 같은 훅 한 벌로 충분하다
-  useDismiss(open, () => setOpen(false), [rootRef]);
-
-  const openItem = (n) => {
-    setOpen(false);
-    if (!n.read) {
-      setItems(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
-      cloudSync.markNotificationRead(n.id).catch(e => console.error('[cloud] 알림 읽음 처리 실패:', e));
-    }
-    // 예배·모임 알림(0053)은 우리 주소 한 칸으로 간다 — App이 화면을 바꾸고 나머지 값은
-    // entryQuery에 실어 그 화면이 마운트되며 읽는다(새로고침 없음).
-    if (isAppLink(n.link)) { onOpenLink?.(n.link); return; }
-    if (!n.card_id) return;
-    const task = store.getState().tasks.byId[n.card_id];
-    if (task) onOpenTask?.(task);
-    else showToast('업무를 찾을 수 없어요');
-  };
-
-  // 알림 1건 지우기. 확인은 묻지 않는다 — 잃는 것이 알림 한 줄뿐이고, 지우려고
-  // 누르는 자리에 또 한 번 물으면 목록을 정리하는 일이 두 배로 는다.
-  // 실패하면 되돌린다(토스트만 띄우고 화면에서 지워두면 DB와 어긋난 채로 남는다).
-  const dismiss = (n) => {
-    setItems(prev => prev.filter(x => x.id !== n.id));
-    cloudSync.deleteNotification(n.id).catch(e => {
-      console.error('[cloud] 알림 삭제 실패:', e);
-      showToast('알림을 지우지 못했어요');
-      setItems(prev => (prev.some(x => x.id === n.id) ? prev : [n, ...prev]
-        .sort((a, b) => (a.read - b.read) || (new Date(b.created_at) - new Date(a.created_at)))));
-    });
-  };
-
-  const readAll = () => {
-    setItems(prev => prev.map(x => ({ ...x, read: true })));
-    cloudSync.markAllNotificationsRead().catch(e => console.error('[cloud] 모두 읽음 실패:', e));
-  };
-
-  return (
-    <span className="inline-flex shrink-0" ref={rootRef}>
-      <span ref={btnRef} className="inline-flex">
-        <button
-          // 열기 전에 위치 확정 — 첫 프레임이 {0,0}에 그려지면 좌상단에서
-          // 날아오는 것처럼 보인다(첫 오픈에서만 나던 증상)
-          onClick={() => { place(); setOpen(o => !o); }}
-          className="relative p-2 min-w-11 min-h-11 flex items-center justify-center rounded-md hover:bg-surface-hover text-fg-muted transition active:scale-95"
-          title="알림"
-        >
-          <Bell size={18} strokeWidth={1.75} />
-          {unread > 0 && (
-            <span className="absolute top-1.5 right-1.5 bg-tag-red-fg text-white text-[10px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center">
-              {unread > 9 ? '9+' : unread}
-            </span>
-          )}
-        </button>
-      </span>
-      {open && (
-        <div
-          style={{ position: 'fixed', left: pos.left, top: pos.top, width: 320 }}
-          className="z-[90] max-w-[calc(100vw-2rem)] max-h-96 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated transition-none animate-in fade-in zoom-in-95 duration-150"
-        >
-          <div className="flex items-center justify-between px-3 py-2.5 border-b border-line sticky top-0 bg-surface">
-            <span className="text-xs font-bold text-fg">알림</span>
-            {unread > 0 && (
-              <button onClick={readAll} className="text-[10px] text-accent-text hover:bg-surface-hover rounded-md px-1.5 py-1 transition active:scale-95">모두 읽음</button>
-            )}
-          </div>
-          <InstallRow />
-          <PushRow />
-          {items.length === 0 ? (
-            <div className="text-center py-8 px-3">
-              <span className="inline-flex w-8 h-8 rounded-full bg-tag-yellow text-tag-yellow-fg items-center justify-center mb-2"><Bell size={13} strokeWidth={1.75} /></span>
-              <p className="text-xs text-fg-faint">새로운 알림이 없어요</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-line/60">
-              {/* 줄 전체가 button이었는데 지우기 버튼이 그 안에 들어가야 해서 div로 바꿨다
-                  (button 안의 button은 유효하지 않다). 여는 영역만 button으로 남긴다. */}
-              {items.map(n => (
-                <div
-                  key={n.id}
-                  className={`flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-hover transition-colors ${n.read ? '' : 'bg-accent-weak/40'}`}
-                >
-                  <button onClick={() => openItem(n)} className="flex-1 min-w-0 flex items-start gap-2.5 text-left">
-                    {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2" />}
-                    {/* 마감 알림은 사람이 만든 게 아니라 배치가 만든다 — 아바타 대신 시계 */}
-                    {/* 시스템 알림은 아이콘 — 마감은 시계, 예배는 교회, 모임은 사람들(0053). 사람이 만든 것은 아바타 */}
-                    {isSystemNotif(n.kind) ? (
-                      <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
-                        notifArea(n.kind) === 'worship' ? 'bg-accent-weak text-accent-text'
-                          : notifArea(n.kind) === 'group' ? 'bg-tag-green text-tag-green-fg' : 'bg-tag-yellow text-tag-yellow-fg'}`}>
-                        {notifArea(n.kind) === 'worship' ? <Church size={12} strokeWidth={1.75} />
-                          : notifArea(n.kind) === 'group' ? <Users size={12} strokeWidth={1.75} />
-                          : <CalendarClock size={12} strokeWidth={1.75} />}
-                      </span>
-                    ) : (
-                      <Avatar name={n.actor_name || ''} className="flex w-6 h-6 text-[10px]" />
-                    )}
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[11px] text-fg-secondary leading-snug">
-                        {isSystemNotif(n.kind)
-                          ? notifLine(n.kind, n.actor_name)
-                          : <><span className="font-semibold text-fg">{n.actor_name}</span>님이 {notifText(n.kind)}</>}
-                      </span>
-                      {n.preview && <span className="block text-[10px] text-fg-muted truncate mt-0.5">{n.preview}</span>}
-                      <span className="block text-[10px] text-fg-muted mt-0.5">{formatRelative(n.created_at)}</span>
-                    </span>
-                  </button>
-                  {/* hover로 숨기지 않는다 — 터치 기기에는 hover가 없어서 이 기능이 아예
-                      없는 것처럼 보인다(§7) */}
-                  <button
-                    onClick={() => dismiss(n)} title="이 알림 지우기" aria-label="이 알림 지우기"
-                    className="shrink-0 -mr-1 p-1 rounded-md text-fg-faint hover:text-tag-red-fg hover:bg-surface-hover transition-colors"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </span>
-  );
-}
-
