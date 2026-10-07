@@ -391,7 +391,7 @@ import { loadSource, readSplit } from './_load.mjs';
 {
   const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
   const all = ['modals/attachments.jsx', 'components/worshipDetail.jsx', 'components/groupsClub.jsx',
-    'views/views.jsx', 'views/groupsView.jsx'];
+    'views/views.jsx', 'views/projectView.jsx', 'views/dashboardView.jsx', 'views/groupsView.jsx'];
   const lazyOf = { FilePreviewModal: 'FilePreviewModal.jsx', ClubQrModal: 'ClubQr.jsx', DepGraph: 'depgraph.jsx' };
   for (const p of all) {
     const s = src(p);
@@ -407,7 +407,7 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.ok(/const FilePreviewModal = lazy\(\(\) => import\('\.\/FilePreviewModal\.jsx'\)/.test(src('components/worshipDetail.jsx')),
     '송폼·큐시트의 미리보기 창은 lazy');
   assert.ok(/<Suspense fallback=\{null\}><ClubQrModal/.test(src('components/groupsClub.jsx')), 'QR 창은 lazy · 폴백 없음');
-  assert.ok(/<Suspense fallback=\{null\}><DepGraph/.test(src('views/views.jsx')), '그래프는 lazy · 폴백 없음');
+  assert.ok(/<Suspense fallback=\{null\}><DepGraph/.test(src('views/projectView.jsx')), '그래프는 lazy · 폴백 없음');
   const gv = src('views/groupsView.jsx');
   assert.ok(/import\('\.\.\/components\/sunGuide\.jsx'\)/.test(gv), '가이드 패널은 동적으로 받는다');
   assert.ok(/if \(!canViewGuide \|\| GuidePanel \|\| guideFailed\) return undefined;/.test(gv), '볼 자격이 있을 때만 받는다');
@@ -587,7 +587,8 @@ import { loadSource, readSplit } from './_load.mjs';
     && /for select using \(owner = public\.effective_uid\(\)\)/.test(migCode), '0085: 한 사람·한 프로젝트 한 줄 · 본인만 읽기');
   assert.ok(!/for (insert|update|delete|all)/.test(migCode) && !/publication/.test(migCode), '0085: 쓰기 정책 없음(서버만) · 실시간 밖');
   // 화면 — 프로젝트 달력에만 · 게스트에는 없다
-  const viewsSrc = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');
+  // 프로젝트 화면은 views/projectView.jsx · 전체 일정은 views/views.jsx(2026-10-07에 갈랐다)
+  const viewsSrc = ['views', 'projectView'].map(n => readFileSync(new URL(`../src/views/${n}.jsx`, import.meta.url), 'utf8')).join('\n');
   assert.strictEqual((viewsSrc.match(/headerExtra=/g) || []).length, 1, '내 달력은 프로젝트 달력에만(전체 일정에는 없다)');
   assert.ok(/const feedButton = useMemo\(\(\) => \(cloudOn \? <MyCalendarButton/.test(viewsSrc), '게스트(cloudOn 아님)에는 세우지 않는다');
   const feedUi = readFileSync(new URL('../src/components/calendarFeed.jsx', import.meta.url), 'utf8');

@@ -1,33 +1,24 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useState, useEffect, useRef } from 'react';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
-import { visitOrder, agoLabel, lastVisitOf, teamsLabel, byCompleted, completedTime, spreadLabels, scrollParentOf, localDate } from '../utils.js';
-import { usePresence } from '../services/presence.js';
-import { useIsMobile } from '../hooks/useIsMobile.js';
-import { useMinuteTick } from '../hooks/useMinuteTick.js';
+import { teamsLabel, byCompleted, completedTime, localDate } from '../utils.js';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
-import { useForceGraph, hoverProps } from '../hooks/useForceGraph.js';
+import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { bucketOf, isOverdue, isStaleNoDue, STALE_NODUE_DAYS, personLoad, RECENT_DONE_DAYS } from '../services/taskCounts.js';
-import { YearPicker } from '../components/layout.jsx';
-import { useStore, ACTIVITY_FEED_LIMIT } from '../store/workspaceStore.js';
-import { selectMembers, selectCurrentUser } from '../store/selectors.js';
-import { useSeenBase } from '../services/sinceSeen.js';
-import { groupFeed, extraFeedRows, mixFeed, FEED_FIRST, FEED_STEP } from '../services/traces.js';
-import { loadFeedExtras, loadMoreActivity } from '../services/feedExtras.js';
-import { setEntryQuery } from '../services/entryQuery.js';
 
 // ============================================================================
 // 리디자인 공용 조각 — 대시보드 / 내 업무 / 팀 보드가 같은 부품을 쓴다.
 // (핸드오프 문서의 "마감 그룹 리스트", "KPI 카드", 진행 바 규격)
+// 대시보드에만 서는 큰 덩이 셋은 components/로 갈랐다(2026-10-07 19차) — 사람 칸·가입한 사람 창
+// `peopleStrip.jsx` · 최근 활동 `activityFeed.jsx` · 연결 지도 `networkMap.jsx`.
 // ============================================================================
 
 // 움직임을 줄여 달라고 한 사람 — index.css가 애니메이션·전환을 통째로 끄므로
 // (§4.2) 자라는 연출을 붙이는 자리는 처음부터 최종 값으로 그려야 한다.
-// 안 그러면 전환이 없어서 0에 멈춘 빈 바가 남는다.
-export const prefersReducedMotion = () => typeof window !== 'undefined'
-  && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+// 안 그러면 전환이 없어서 0에 멈춘 빈 바가 남는다. 판정은 hooks/useReducedMotion.js 한 벌이고,
+// 여기서 가져가던 자리(wordBible)를 위해 이어서 내보낸다.
+export { prefersReducedMotion };
 
 export const ISO_TODAY = () => localDate(new Date());
 // 남은 날 수 (음수 = 지남). 자정 기준으로 비교해야 "오늘"이 시간대에 따라 흔들리지 않는다.
@@ -138,22 +129,36 @@ export function StatusSegments({ counts, total }) {
 
 // ── KPI 카드 한 칸 ────────────────────────────────────────────────────────
 // 1px 격자(부모가 background:line + gap:1px)를 쓰므로 카드 자체는 배경만 칠한다.
-export function KpiCell({ dot, label, value, unit = '건', note, ratio, bar, alert, delay = 0 }) {
-  const fg = alert ? 'var(--app-tag-red-fg)' : 'var(--app-ink)';
+// 격자 밖에 혼자 서는 칸(대시보드 '전체 진척도' · 팀 보드 '완료')도 같은 부품이다 — 껍데기만
+// className/style로 바꾼다(KPI_SOLO · 둥근 테두리는 부르는 쪽이 얹는다).
+//   tone="green"  팀 보드 '완료' — 바탕·글자가 초록이고 메모는 흐린 초록
+//   phoneNote     메모를 폰에서도 보인다. 격자 칸의 메모('마감이 지난 업무')는 폰에서 숨기지만,
+//                 '12/30건'·'전체 N건 중'은 값의 분모라 빼면 숫자가 혼자 남는다.
+const KPI_CELL = 'dc-kpi flex flex-col gap-[9px] px-4 pt-3.5 pb-[13px] transition-colors';
+export const KPI_SOLO = 'dc-kpi flex flex-col gap-[9px] justify-center px-4 pt-3.5 pb-[13px]';
+const KPI_TONE = {
+  green: { bg: 'var(--app-tag-green)', fg: 'var(--app-tag-green-fg)', label: 'var(--app-tag-green-fg)' },
+  alert: { bg: 'var(--app-tag-red)', fg: 'var(--app-tag-red-fg)', label: 'var(--app-tag-red-fg)' },
+  plain: { bg: 'var(--app-surface)', fg: 'var(--app-ink)', label: 'var(--app-ink-muted)' },
+};
+export function KpiCell({ dot, label, value, unit = '건', note, ratio, bar, alert, delay = 0, tone, phoneNote = false, className = KPI_CELL, style }) {
+  const t = KPI_TONE[tone || (alert ? 'alert' : 'plain')];
   return (
     <div
-      className="dc-kpi flex flex-col gap-[9px] px-4 pt-3.5 pb-[13px] transition-colors"
-      style={{ background: alert ? 'var(--app-tag-red)' : 'var(--app-surface)', animationDelay: `${delay}ms` }}
+      className={className}
+      style={{ background: t.bg, animationDelay: `${delay}ms`, ...style }}
     >
       <div className="flex items-center gap-1.5">
         <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dot }} />
-        <span className="text-[11.5px] font-semibold whitespace-nowrap" style={{ color: alert ? 'var(--app-tag-red-fg)' : 'var(--app-ink-muted)' }}>{label}</span>
+        <span className="text-[11.5px] font-semibold whitespace-nowrap" style={{ color: t.label }}>{label}</span>
       </div>
       <div className="flex items-baseline gap-[5px]">
-        <span className="text-[34px] font-extrabold leading-none tabular-nums" style={{ letterSpacing: '-1.8px', color: fg }}>{value}</span>
-        {unit && <span className="text-xs font-semibold" style={{ color: alert ? 'var(--app-tag-red-fg)' : 'var(--app-ink-muted)' }}>{unit}</span>}
+        <span className="text-[34px] font-extrabold leading-none tabular-nums" style={{ letterSpacing: '-1.8px', color: t.fg }}>{value}</span>
+        {unit && <span className="text-xs font-semibold" style={{ color: t.label }}>{unit}</span>}
         <span className="flex-1" />
-        {note && <span className="hidden md:inline text-[10.5px] tabular-nums whitespace-nowrap text-fg-muted">{note}</span>}
+        {note && (tone === 'green'
+          ? <span className={`${phoneNote ? '' : 'hidden md:inline '}text-[10.5px] tabular-nums whitespace-nowrap`} style={{ color: t.fg, opacity: .7 }}>{note}</span>
+          : <span className={`${phoneNote ? '' : 'hidden md:inline '}text-[10.5px] tabular-nums whitespace-nowrap text-fg-muted`}>{note}</span>)}
       </div>
       <Bar ratio={ratio} color={bar} />
     </div>
@@ -164,6 +169,21 @@ export function KpiCell({ dot, label, value, unit = '건', note, ratio, bar, ale
 // 대시보드·내 업무·팀 보드가 같이 쓴다. meta로 프로젝트만/팀까지 표시를 고른다.
 const GROUP_LIMIT = 30;   // 한 구간에 먼저 그리는 줄 수. 나머지는 '더 보기'
 const COMPLETE_DRAW_MS = 360;   // 완료 원이 튀고 체크가 다 그려지는 시간(60ms 지연 + 240ms) + 여유
+// 줄 왼쪽 원의 확인 팝오버 두 갈래 — 끝낸 줄은 진행 중으로 되돌리고, 남은 줄은 완료로 옮긴다
+const DONE_ASK = {
+  undo: {
+    next: '진행 중', confirmLabel: '되돌리기', title: '완료 취소', filled: true,
+    message: (title) => `'${title}'을 다시 진행 중으로 되돌릴까요?`, aria: (title) => `${title} 완료 취소`,
+    className: 'w-5 h-5 rounded-full flex items-center justify-center cursor-pointer transition-opacity hover:opacity-70',
+    style: { background: 'var(--app-tag-green-fg)' },
+  },
+  done: {
+    next: '완료', confirmLabel: '완료', title: '완료로 옮기기', filled: false,
+    message: (title) => `'${title}'을 완료로 옮길까요?`, aria: (title) => `${title} 완료로 옮기기`,
+    className: 'group/done w-5 h-5 rounded-full flex items-center justify-center cursor-pointer transition-colors',
+    style: { border: '1.5px solid var(--app-line)' },
+  },
+};
 
 export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, showTeam = true, emptyHint }) {
   const [expanded, setExpanded] = useState({});   // { [구간 key]: true }
@@ -229,6 +249,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
             // 한 줄에서 두 번(title·색) 묻던 판정 — 값이 같아야 노란 글자와 그 설명이 짝이 된다
             const stale = isStaleNoDue(t, today);
             const teams = teamsLabel(t.teams);
+            const ask = DONE_ASK[done ? 'undo' : 'done'];
             return (
               <div
                 key={t.id}
@@ -247,32 +268,14 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                       <Checkmark filled now />
                     </span>
                   </span>
-                ) : done ? (
-                  <ConfirmPopover
-                    className="shrink-0 inline-flex" tone="ok" confirmLabel="되돌리기"
-                    title="완료 취소" message={`'${t.title}'을 다시 진행 중으로 되돌릴까요?`}
-                    onConfirm={() => complete(t, '진행 중')}
-                  >
-                    <span
-                      role="button" aria-label={`${t.title} 완료 취소`}
-                      className="w-5 h-5 rounded-full flex items-center justify-center cursor-pointer transition-opacity hover:opacity-70"
-                      style={{ background: 'var(--app-tag-green-fg)' }}
-                    >
-                      <Checkmark filled />
-                    </span>
-                  </ConfirmPopover>
                 ) : (
                   <ConfirmPopover
-                    className="shrink-0 inline-flex" tone="ok" confirmLabel="완료"
-                    title="완료로 옮기기" message={`'${t.title}'을 완료로 옮길까요?`}
-                    onConfirm={() => complete(t, '완료')}
+                    className="shrink-0 inline-flex" tone="ok" confirmLabel={ask.confirmLabel}
+                    title={ask.title} message={ask.message(t.title)}
+                    onConfirm={() => complete(t, ask.next)}
                   >
-                    <span
-                      role="button" aria-label={`${t.title} 완료로 옮기기`}
-                      className="group/done w-5 h-5 rounded-full flex items-center justify-center cursor-pointer transition-colors"
-                      style={{ border: '1.5px solid var(--app-line)' }}
-                    >
-                      <Checkmark />
+                    <span role="button" aria-label={ask.aria(t.title)} className={ask.className} style={ask.style}>
+                      <Checkmark filled={ask.filled} />
                     </span>
                   </ConfirmPopover>
                 )}
@@ -463,729 +466,3 @@ export function Card({ className = '', children, style }) {
   );
 }
 
-
-// ── 사람 칸 (0019) ────────────────────────────────────────────────────────────
-// 대시보드가 숫자만 있고 사람이 없었다. 참여의 시작은 "여기 사람이 있다"이고, 그걸
-// 말하려면 얼굴이 필요하다. 없는 줄은 그리지 않는다 — 이 앱은 담백함이 먼저다(§8).
-//
-// 판정어·순위·점수를 두지 않는다. 다녀간 사람은 이름을 나열하지 않고 얼굴만 보여준다 —
-// 많이 온 순으로 세우면 그 줄이 곧 "덜 온 사람" 목록이 된다(§8).
-//
-// **줄 수는 언제나 상한이 있다.** 수련회 시즌에 열 명이 한꺼번에 가입하면 이 카드가
-// 화면을 밀어내고, 그러면 정작 업무 목록이 안 보인다. 두 줄까지만 그리고 나머지는 +N이다.
-const PEOPLE_ROWS = 2;
-
-// 얼굴 묶음 (다녀간 사람 · 접힌 +N 자리에서 같이 쓴다)
-function FaceRow({ people, max = 8, size = 'w-[18px] h-[18px] text-[9px]' }) {
-  if (!people.length) return null;
-  return (
-    <span className="flex items-center min-w-0" title={people.map(m => m.name).join(' · ')}>
-      {people.slice(0, max).map(m => (
-        <Avatar key={m.id || m.name} name={m.name} url={m.avatarUrl}
-          className={`flex ${size} -ml-[5px] first:ml-0 ring-[1.5px] ring-surface`} />
-      ))}
-      {people.length > max && (
-        <span className="ml-[5px] text-[10.5px] text-fg-muted tabular-nums">+{people.length - max}</span>
-      )}
-    </span>
-  );
-}
-
-// 한 사람 줄 (생일 · 새로 온 사람이 같은 모양을 쓴다)
-function PersonLine({ member, text, right, rightColor }) {
-  return (
-    <div className="flex items-center gap-2 pt-2 mt-2 border-t border-line/60">
-      <Avatar name={member.name} url={member.avatarUrl} className="flex w-[22px] h-[22px] text-[10.5px]" />
-      <span className="text-[11.5px] text-fg min-w-0 truncate">
-        <span className="font-semibold">{member.name}</span>{text}
-      </span>
-      <span className="flex-1" />
-      {right && (
-        <span className="text-[11px] tabular-nums whitespace-nowrap shrink-0" style={{ color: rightColor }}>{right}</span>
-      )}
-    </div>
-  );
-}
-
-// 상한을 넘은 나머지 — 얼굴 묶음 + "그리고 N명 더"
-function OverflowLine({ rest, text }) {
-  if (!rest.length) return null;
-  return (
-    <div className="flex items-center gap-2 pt-2 mt-2 border-t border-line/60">
-      <FaceRow people={rest} max={6} />
-      <span className="text-[11px] text-fg-muted min-w-0 truncate">{rest.length}명 {text}</span>
-    </div>
-  );
-}
-
-export function PeopleStrip({ members, myName, seen, birthdays, joined, onOpenMembers }) {
-  if (!members.length) return null;
-  const dayLabel = (n) => (n === 0 ? '오늘' : n === 1 ? '내일' : `${n}일 뒤`);
-  const bShown = birthdays.slice(0, PEOPLE_ROWS), bRest = birthdays.slice(PEOPLE_ROWS);
-  const jShown = joined.slice(0, PEOPLE_ROWS), jRest = joined.slice(PEOPLE_ROWS);
-  return (
-    <Card className="px-4 py-[15px]">
-      {/* 머리줄의 숫자는 누를 수 있다 — 가입한 사람 전체 목록이 열린다.
-          누를 수 있다는 걸 밑줄 점선으로 보여준다(hover로만 알 수 있게 두면 §8 위반이다) */}
-      <div className="flex items-baseline justify-between gap-2 pb-2.5">
-        <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">현재까지 가입한 사람</h3>
-        <button type="button" onClick={onOpenMembers}
-          className="text-[11px] font-semibold text-fg-muted hover:text-accent-text tabular-nums shrink-0 transition-colors"
-          style={{ borderBottom: '1px dotted var(--app-line)' }}
-          title="가입한 사람 전체 보기">{members.length}명</button>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] text-fg-muted whitespace-nowrap shrink-0">오늘 다녀간 사람</span>
-        <FaceRow people={seen} />
-      </div>
-
-      {/* 생일은 일주일 전부터. '축하'를 앱이 대신 말하지 않는다 — 그건 사람이 할 일이다 */}
-      {bShown.map(b => (
-        <PersonLine key={b.id || b.name} member={b} text="님 생일이에요"
-          right={`${b.month}월 ${b.day}일 · ${dayLabel(b.inDays)}`}
-          rightColor={b.inDays === 0 ? 'var(--app-accent)' : 'var(--app-ink-muted)'} />
-      ))}
-      <OverflowLine rest={bRest} text="더 생일이 있어요" />
-
-      {/* 새로 온 사람 — 사흘만. 환영은 한 번 지나가면 되고, 오래 남으면 인사가 낡는다 */}
-      {jShown.map(m => (
-        <PersonLine key={m.id || m.name} member={m} text="님이 함께하게 되었어요"
-          right={m.team || ''} rightColor={m.team ? teamColor(m.team) : undefined} />
-      ))}
-      <OverflowLine rest={jRest} text="더 함께하게 되었어요" />
-    </Card>
-  );
-}
-
-// 가입한 사람 전체 — 머리줄의 'N명'을 누르면 열린다.
-// 순서는 **최근에 방문한 사람이 위**다(사용자가 가입순에서 바꿨다). 지금 접속해 있는
-// 사람은 초록 원(presence — DB에 안 쓰고 연결이 끊기면 서버가 지운다)이 붙고 맨 위로 온다.
-// 순번을 매기지 않는다: 방문순에 번호를 붙이면 그 끝이 곧 "안 오는 사람" 순위가 된다(§8).
-// 목록이 길어질 것을 전제로 스크롤을 카드 안에 둔다(창이 화면을 넘지 않게 max-h).
-export function MembersModal({ members, myName, onClose }) {
-  const online = usePresence();
-  // 오른쪽 끝의 'N분 전'은 그릴 때의 시각으로 굳는다 — 창을 열어 둔 동안 같이 늙게 한다
-  useMinuteTick(10000);   // 초 단위 '다녀감'이 굳지 않게
-  const ordered = React.useMemo(() => visitOrder(members, online), [members, online]);
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  // **body 포털이 기본이다**(§6-1). 대시보드 뿌리에 걸린 .dc-screen의 transform 애니메이션이
-  // 조상 containing block이 되어, 그냥 fixed로 두면 뷰포트가 아니라 그 안쪽을 기준으로
-  // 박힌다 — 실제로 창이 화면 아래쪽에 나타나 하단 탭바에 잘렸다.
-  return createPortal(
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-150"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-surface rounded-lg shadow-elevated border border-line w-full max-w-sm max-h-[80dvh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
-        <div className="px-5 pt-5 pb-3 shrink-0">
-          <h3 className="font-bold text-fg tracking-[-0.25px]">가입한 사람 {ordered.length}명</h3>
-        </div>
-        {/* 스크롤은 이 안에서만 — 창이 길어져 화면 밖으로 나가면 닫기 버튼을 못 찾는다 */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-5 divide-y divide-line/60">
-          {ordered.map(m => {
-            const isOnline = online.has(m.id);
-            return (
-              <div key={m.id || m.name} className="flex items-center gap-2.5 py-2.5">
-                {/* 접속 표시는 아바타 귀퉁이의 초록 원. 글자 배지보다 자리를 안 먹고,
-                    사진 위에서도 읽힌다(바탕색 테두리로 뗀다) */}
-                <span className="relative shrink-0 inline-flex">
-                  <Avatar name={m.name} url={m.avatarUrl} className="flex w-7 h-7 text-xs" />
-                  {isOnline && (
-                    <span aria-hidden className="absolute -bottom-px -right-px w-2.5 h-2.5 rounded-full"
-                      style={{ background: 'var(--app-tag-green-fg)', boxShadow: '0 0 0 2px var(--app-surface)' }} />
-                  )}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-semibold text-fg truncate">
-                    {m.name}{m.name === myName && <span className="ml-1 text-[10px] font-normal text-fg-muted">나</span>}
-                  </span>
-                  {/* 대표 팀만 보여주면 겸직(찬양팀+임원진)이 안 보인다 — 전부 적는다.
-                      색은 첫 팀(대표) 것 하나만: 글자마다 딴 색이면 태그 잔치가 된다 */}
-                  {(m.teams?.length || m.team) && (
-                    <span className="block text-[11px] truncate" style={{ color: teamColor((m.teams?.[0]) || m.team) }}>
-                      {[...new Set(m.teams?.length ? m.teams : [m.team])].join(' · ')}
-                    </span>
-                  )}
-                </span>
-                {/* 방문 기록이 없으면 가입 시각으로 — 가입하던 순간에도 앱에 있었다.
-                    (0019 이전 가입자에게 '아직 방문 전'은 틀린 말이었다 — 사용자 지적) */}
-                <span className="text-[11px] tabular-nums whitespace-nowrap shrink-0"
-                  style={{ color: isOnline ? 'var(--app-tag-green-fg)' : 'var(--app-ink-muted)' }}>
-                  {isOnline ? '접속 중' : (agoLabel(lastVisitOf(m)) || '방문 전')}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        <div className="px-5 py-4 shrink-0">
-          <button onClick={onClose}
-            className="w-full bg-surface-hover hover:bg-line text-fg-muted py-2.5 rounded-md text-sm font-medium transition active:scale-95">닫기</button>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
-// ── 최근 활동 피드 (0020) ─────────────────────────────────────────────────────
-// activity는 이미 쌓이고 있었는데 업무 창 안에만 갇혀 있었다 — 꺼내기만 하면 되는
-// 데이터다. 클라우드는 서버 피드(activityFeed), 게스트는 tasks의 activityLog에서
-// 파생한다(selectActivityFeed). 카드 제목은 스토어의 tasks에서 찾는다 — 피드에 제목을
-// 박아 두면 제목을 바꿨을 때 피드만 옛 이름으로 남는다.
-//
-// **카드별로 묶는다.** 한 카드를 다듬으면 기록이 줄줄이 생겨서(제목·내용·상태가 각
-// 한 줄) 같은 제목이 여덟 줄 반복됐고, 그게 대시보드를 길게 만든 주범이었다(사용자
-// 지적). 카드마다 가장 최근 한 줄 + '외 N건'으로 접고, 처음에는 다섯 줄만 그린다.
-// '내 업무만 보기'는 접었다 — 이 칸의 값은 남들이 움직이는 게 보이는 것이라,
-// 내 것만 남기면 참여를 부르는 자리가 내 메아리 방이 된다.
-//
-// '더보기'(사용자 결정 2026-09-25 · 목업 mockup-traces 4 권장안): 다섯 줄 아래 한 줄, 누르면 창을 띄우지
-// 않고 **그 자리에서 열 줄씩** 편다. 편 뒤에는 '접기'. 펴고 접는 높이는 grid-template-rows 0fr↔1fr
-// (TopNav 탭 줄과 같은 기법 · 240ms · reduced-motion이면 없다 · index.css `.dc-feed-*`).
-// **업무 밖 움직임도 섞는다** — 주보 발행 · 동아리 모임 일정 · 더다붓에 나눈 QT 묵상. 같은 줄 모양
-// (얼굴 · 무엇 · 누가 무엇을 · 언제)이고 문장은 알림 문구다(services/traces.extraFeedRows · feedExtras).
-// **지난 방문 이후 남이 움직인 줄**에는 왼쪽에 옅은 점(traces.isFreshMove · 기준 시각은 sinceSeen) —
-// 다음에 앱을 열 때까지 둔다. 카드별로 묶는 규칙(groupFeed)도 traces.js로 옮겼다(점 판정과 한 벌).
-const DEEP_ACTIVITY = 200;   // '더보기'를 처음 누를 때 활동을 이만큼 더 읽는다(클라우드)
-const FEED_HELD = ACTIVITY_FEED_LIMIT;   // 스토어 피드의 상한(workspaceStore)
-
-export function ActivityFeed({ feed, tasksById, onOpenTask, onNavigate }) {
-  // 줄 오른쪽의 'N분 전'이 굳지 않게 — 대시보드는 켜 둔 채로 오래 보는 화면이다.
-  // 훅은 조건부 return보다 **먼저** 불러야 한다(리액트 규칙).
-  useMinuteTick();
-  const base = useSeenBase();
-  const members = useStore(selectMembers);
-  const me = useStore(selectCurrentUser);
-  const [extras, setExtras] = useState(null);
-  const [deep, setDeep] = useState(null);       // '더보기' 뒤 더 읽은 활동(클라우드)
-  const [count, setCount] = useState(FEED_FIRST);
-  const [closing, setClosing] = useState(false);
-  const closeTimer = useRef(0);
-  useEffect(() => {
-    let alive = true;
-    loadFeedExtras({ guestName: me.name }).then(d => { if (alive) setExtras(d); })
-      .catch(e => console.warn('[feed] 업무 밖 움직임을 읽지 못했어요:', e));
-    return () => { alive = false; clearTimeout(closeTimer.current); };
-  }, [me.name]);
-
-  const nameById = useMemo(() => new Map(members.map(m => [m.id, m.name])), [members]);
-  const rows = useMemo(() => {
-    // 활동: 더 읽은 것이 있으면 합친다(같은 줄은 스토어 쪽 — 실시간으로 얹힌 최신 줄)
-    let act = feed;
-    if (deep) {
-      const have = new Set(feed.map(a => a.id));
-      act = [...feed, ...deep.filter(a => !have.has(a.id))].sort((a, b) => String(b.at).localeCompare(String(a.at)));
-    }
-    // 읽은 활동이 상한에 닿았으면 그보다 옛날의 업무 밖 줄은 세우지 않는다 — 활동이 비어 있는 구간에
-    // 주보·모임만 서면 그동안 업무에서 아무 일도 없었던 것처럼 읽힌다.
-    const full = act.length >= (deep ? DEEP_ACTIVITY : FEED_HELD);
-    const oldest = full && act.length ? Date.parse(act[act.length - 1].at) : -Infinity;
-    const ex = extras ? extraFeedRows({
-      services: extras.services, meetings: extras.meetings, qts: extras.qts,
-      nameOf: (id) => nameById.get(id) || (id === me.name ? me.name : ''),
-      groupName: (id) => extras.groupNames[id] || '',
-      passageOf: (d) => extras.passages[d] || '',
-    }).filter(r => Date.parse(r.at) >= oldest) : [];
-    return mixFeed(groupFeed(act, base), ex, base);
-  }, [feed, deep, extras, base, nameById, me.name]);
-
-  if (!rows.length) return null;
-
-  const more = () => {
-    setCount(c => c + FEED_STEP);
-    // 활동은 스토어에 서른 줄뿐이다 — 처음 펼 때 한 번 더 깊게 읽는다(업무 밖 줄과 시간이 맞게)
-    if (!deep && feed.length >= FEED_HELD) {
-      loadMoreActivity(DEEP_ACTIVITY).then(list => {
-        if (list) setDeep(list.map(a => ({
-          id: a.id, actorId: a.actor_id || null, actorName: nameById.get(a.actor_id) || '이름 미상',
-          action: a.action, cardId: a.card_id || null, projectId: a.project_id || null, at: a.created_at,
-        })));
-      }).catch(e => console.warn('[feed] 활동을 더 읽지 못했어요:', e));
-    }
-  };
-  const folded = () => { clearTimeout(closeTimer.current); setClosing(false); setCount(FEED_FIRST); };
-  const fold = () => {
-    if (prefersReducedMotion()) { folded(); return; }
-    setClosing(true);
-    // transitionend를 못 받는 경우(탭이 뒤로 가 있는 동안 등)의 안전망
-    clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(folded, 400);
-  };
-
-  const openLink = (link) => {
-    const q = link.slice(link.indexOf('?') + 1);
-    setEntryQuery(q);
-    const p = new URLSearchParams(q).get('p');
-    if (p) onNavigate?.(p);
-  };
-
-  const row = (a, first) => {
-    const task = a.kind ? null : (a.cardId ? tasksById[a.cardId] : null);
-    const head = a.kind ? a.head : (task ? task.title : a.actorName);
-    const line = a.kind ? a.text : `${task ? `${a.actorName}님이 ` : ''}${a.action}`;
-    const inner = (
-      <>
-        {a.fresh && <span aria-hidden data-fresh-dot="" className="absolute left-px top-[15px] w-[5px] h-[5px] rounded-full bg-accent opacity-60" />}
-        <Avatar name={a.actorName} className="flex w-[22px] h-[22px] text-[10.5px] mt-px" />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-1.5 min-w-0">
-            {/* 카드가 지워졌으면 제목 없이 문장만 남는다 — 기록은 지워지지 않는다.
-                min-w-0: flex 항목은 기본 최소 폭이 내용 폭이라, 없으면 긴 제목이
-                시간 라벨을 오른쪽 끝에서 밀어낸다(줄마다 시간 x가 달라진다). */}
-            <span className="text-[11px] font-semibold text-fg truncate min-w-0">{head}</span>
-            <span className="flex-1" />
-            <span className="text-[10px] text-fg-muted tabular-nums whitespace-nowrap shrink-0">{agoLabel(a.at)}</span>
-          </span>
-          <span className="block text-[11px] text-fg-muted truncate">
-            {line}
-            {a.more > 0 && <span className="text-fg-muted"> 외 {a.more}건</span>}
-          </span>
-        </span>
-      </>
-    );
-    // 줄 사이 선은 **첫 줄만 뺀다** — 편 묶음은 부모가 달라 first-of-type이 묶음마다 다시 걸린다
-    const edge = first ? '' : ' border-t border-line/60';
-    const go = a.kind ? () => openLink(a.link) : (task ? () => onOpenTask(task) : null);
-    // 누를 곳이 있으면 버튼이다. 없으면(지워진 카드) 그냥 줄이다
-    return go ? (
-      /* dc-row(줄 등장 애니메이션)를 쓰지 않는다 — 이 카드는 PeopleStrip처럼 정적인
-         부속 정보이고, .dc-row는 마감 목록의 "행"이라는 뜻으로 검사들도 그 클래스로
-         목록을 찾는다(여기 붙이면 피드 줄이 마감 목록 행으로 세어진다). */
-      <button key={a.id} type="button" onClick={go} data-feed-row={a.kind || 'activity'}
-        /* 폭은 calc(100%+16px)이어야 한다. w-full(=100%)에 -mx-2를 얹으면 왼쪽으로만 8px
-           밀려 오른쪽이 16px 빈다(사용자가 지적한 공백). 그렇다고 w-full을 빼면 button은
-           폼 요소라 display:flex여도 **내용 폭으로 줄어든다** — 줄마다 폭이 달라져 시간
-           라벨이 제각각 섰다. 음수 마진만큼을 폭에 직접 더해 준다. */
-        className={`relative w-[calc(100%+16px)] flex items-start gap-2 py-[7px] -mx-2 px-2 rounded-md text-left hover:bg-surface-hover transition-colors${edge}`}>
-        {inner}
-      </button>
-    ) : (
-      /* 버튼 줄과 같은 박스(-mx-2 px-2)를 준다 — 다르면 이 줄만 16px 좁아져서
-         시간 라벨이 다른 줄과 다른 x에 선다(정렬이 흐트러진 원인 중 하나) */
-      <div key={a.id} data-feed-row="activity" className={`relative flex items-start gap-2 py-[7px] -mx-2 px-2${edge}`}>
-        {inner}
-      </div>
-    );
-  };
-
-  const shown = rows.slice(0, count);
-  const chunks = [];
-  for (let i = FEED_FIRST; i < shown.length; i += FEED_STEP) chunks.push(shown.slice(i, i + FEED_STEP));
-  const hasMore = rows.length > count;
-  const FEED_BTN = 'flex-1 py-2 rounded-md text-[11.5px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-[0.99] disabled:opacity-40';
-  return (
-    <Card className="px-4 py-[15px]">
-      <div className="pb-2">
-        <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">최근 활동</h3>
-      </div>
-      {shown.slice(0, FEED_FIRST).map((a, i) => row(a, i === 0))}
-      {chunks.length > 0 && (
-        <div className="dc-feed-fold" data-closing={closing ? 'true' : undefined}
-          onTransitionEnd={(e) => { if (closing && e.target === e.currentTarget && e.propertyName === 'grid-template-rows') folded(); }}>
-          <div className="min-h-0 overflow-hidden">
-            {chunks.map((chunk, ci) => (
-              // 새로 편 열 줄만 0fr → 1fr로 자란다(이미 편 묶음은 그대로)
-              <div key={ci} className="dc-feed-chunk">
-                <div className="min-h-0 overflow-hidden">{chunk.map(a => row(a, false))}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      {(hasMore || count > FEED_FIRST) && (
-        <div className="flex -mx-2 mt-1">
-          {hasMore && <button type="button" data-feed-more="" onClick={more} className={FEED_BTN}>더보기</button>}
-          {count > FEED_FIRST && <button type="button" data-feed-fold="" onClick={fold} disabled={closing} className={FEED_BTN}>접기</button>}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// ── 연결 지도 — 사람 · 팀 · 프로젝트 (0019·0020 회차의 #28) ──────────────────
-// "내가 어디에 붙어 있나"를 한 장으로. 세 열을 고정 좌표로 두고 선만 SVG로 긋는다 —
-// force 시뮬레이션·측정(ResizeObserver) 없이 렌더와 같은 상수로 좌표를 계산한다.
-// ── 프로젝트 연결 지도 — 힘 기반 노드 그래프 (2026-08-26 · 27) ─────────────────
-// 예전에는 사람·팀·프로젝트 3열 목록이라 사람이 늘수록 높이가 줄 수만큼 쌓였다
-// (사용자 지적). 지금은 힘 배치라 높이가 고정이고 자리 잡는 과정이 모션이다.
-//  · **팀은 가운데 열에 고정**(사용자 결정 2026-08-27 — 순수 force로 두었더니
-//    어디가 팀인지 흔들렸다). 사람·프로젝트만 그 주위에 떠 있다.
-//  · **사람·프로젝트 노드는 손으로 끌 수 있다**(사용자 요청 — 겹치면 직접 편다).
-//    시뮬·드래그·클릭 삼킴은 useForceGraph가 한다(그래프 뷰와 공용).
-//  · 판정어 없음(§8): 연결이 없는 사람도 그대로 보인다.
-// 배치 상수 한 곳 — **노드 앵커 · 열 머리글 · 선의 목표 길이가 같은 값을 본다.**
-// 예전에는 세 군데에 숫자를 흩뿌려서 '프로젝트' 머리글(0.8)과 실제 앵커(0.85)가
-// 어긋나 있었다.
-const FM = {
-  // 높이는 **줄 수를 따라간다**(2026-08-31). 340px에 프로젝트 15개를 넣으면 한 칸이
-  // 22px인데 라벨이 26px이라 겹칠 수밖에 없었다(사용자 스크린샷의 그 상태다).
-  H_MIN_DESK: 340, H_MAX_DESK: 540, ROW_DESK: 30,
-  H_MIN_MOB: 300, H_MAX_MOB: 580, ROW_MOB: 30,
-  // 시뮬 폭 — **데스크톱은 카드를 다 쓴다**(2026-08-31 사용자 지적 — "좌우 공간이 많이
-  // 남는다"). 예전에 760으로 묶어 둔 이유는 "넓으면 앵커가 양끝으로 찢는다"였는데,
-  // 그건 폭 탓이 아니라 **선의 목표 길이가 고정(92·150px)이라 앵커 간격과 싸운 것**
-  // 이었다. 지금은 목표 길이를 앵커 간격에서 뽑으므로(EDGE_OF) 폭에 따라 같이 늘고,
-  // 넓어질수록 오히려 조용해진다(실측: 총이동 168 → 52px/노드).
-  // 1400으로 한 번 묶어 봤더니 1858px 카드에서 좌우 229px씩 또 남았다 → 상한을 없앤다.
-  // x 앵커(폭 비율): 사람 · 팀 · 프로젝트.
-  // 프로젝트 라벨이 180px까지라 0.84에 세우면 오른쪽 끝(+90)이 카드 경계에 딱 맞는다.
-  AX_DESK: { m: 0.09, t: 0.44, p: 0.84 },
-  AX_MOB: { m: 0.16, t: 0.44, p: 0.84 },
-  // 라벨 최소 간격 — 그릴 때 utils.spreadLabels가 이만큼은 띄운다(층별)
-  GAP_DESK: { m: 36, t: 22, p: 30 },
-  GAP_MOB: { m: 36, t: 20, p: 30 },
-  // 층이 가로로 헤맬 수 있는 범위(폭 비율). 겹침은 그릴 때 y로 풀므로 가로 흔들림은
-  // 그냥 잡음이다 — 좁혀서 **열로 읽히게** 한다. 넓게 뒀더니 프로젝트 라벨이 팀 열
-  // 위로 들어왔다(모바일에서 특히). 끌기는 세로로는 그대로 자유롭다.
-  ZX_DESK: { m: [0.02, 0.20], p: [0.78, 0.99] },
-  ZX_MOB: { m: [0.02, 0.30], p: [0.76, 0.99] },
-  // 끌 때만 쓰는 넓은 범위(utils.forceBounds의 drag). 시뮬 범위로 끌면 몇십 px에서
-  // 벽에 부딪혀 뻑뻑하다(사용자 지적 2026-08-31). **층 밖으로는 여전히 못 나간다**
-  // (사용자 결정 2026-08-27) — 넓어진 것은 자기 층 안에서의 여유뿐이다.
-  ZXD_DESK: { m: [0.02, 0.40], p: [0.58, 0.99] },
-  ZXD_MOB: { m: [0.02, 0.42], p: [0.52, 0.99] },
-};
-// 선의 목표 길이 = 두 층의 앵커 간격. 스프링이 앵커와 싸우지 않으므로 가로로는
-// 가만히 있고 **세로로만** 이어진 짝을 끌어당긴다 — 그게 이 그림이 원하는 힘이다.
-const EDGE_OF = (a, b, W) => Math.max(48, (b - a) * W);
-
-export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLeft = {}, memberLoad,
-  year, years, yearCounts, onPickYear, onOpenTeam, onOpenProject }) {
-  const compact = useIsMobile();
-  const wrapRef = useRef(null);
-  // **폭을 재기 전에는 배치하지 않는다**(cw = 0 · 2026-08-31 사용자 지적 — "모바일에서
-  // 렌더링될 때 뚜둑하면서 펼쳐지는 느낌"). 예전에는 짐작한 폭(340/640)으로 한 번
-  // 배치하고, ResizeObserver가 진짜 폭을 알려주면 W가 바뀌어 **처음부터 다시** 배치했다.
-  // 그 두 번째 배치가 눈에 보이는 "뚜둑"이었다. 모바일은 더 심했다 — '연결' 탭이
-  // 숨어 있는 동안 clientWidth가 0이라 하한(280)으로 한 번 더 배치됐다.
-  const [cw, setCw] = useState(0);
-  // 가장 붐비는 층이 높이를 정한다 — 라벨이 겹치지 않을 만큼만 키우고 상한에서 멈춘다
-  const rows = Math.max(members.length, teamsInUse.length, projects.length, 1);
-  const H = compact
-    ? Math.min(FM.H_MAX_MOB, Math.max(FM.H_MIN_MOB, rows * FM.ROW_MOB + 60))
-    : Math.min(FM.H_MAX_DESK, Math.max(FM.H_MIN_DESK, rows * FM.ROW_DESK + 60));
-  const W = cw;   // 카드 폭을 그대로 쓴다(좌우 여백을 만들지 않는다)
-  const AX = compact ? FM.AX_MOB : FM.AX_DESK;
-  const ZX = compact ? FM.ZX_MOB : FM.ZX_DESK;
-  const ZXD = compact ? FM.ZXD_MOB : FM.ZXD_DESK;
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    // 숨어 있는 동안(clientWidth 0)은 0으로 둔다 — 하한으로 배치해 두면 보일 때
-    // 다시 배치되고 그게 "뚜둑"이다. 창을 몇 px 흔드는 것으로 다시 배치되지 않게
-    // 8px 단위로 끊는다(회전·창 크기 변경은 그대로 따라간다).
-    const read = () => {
-      const w = el.clientWidth;
-      setCw(w < 200 ? 0 : Math.round(w / 8) * 8);
-    };
-    read();
-    const ro = new ResizeObserver(read);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // ── 노드·연결 목록 ─────────────────────────────────────────────────────────
-  // **사람과 프로젝트를 자기 팀의 띠(밴드) 높이에 세운다**(2026-08-31 읽기 보조).
-  // 예전에는 세로 등분이라 순서가 팀과 아무 상관이 없었고, 그래서 선 40개가 서로를
-  // 가로질렀습니다 — 가독성을 망친 것은 라벨 겹침이 아니라 **교차**였습니다.
-  // 팀을 여럿 맡은 사람은 **첫 팀** 띠에 서고 나머지 팀으로 가는 선만 띠를 건넙니다
-  // (그게 실제로 겸직이라는 사실이라 숨기지 않습니다).
-  // ay를 안 주면 forceStep이 **전부 세로 가운데로** 끌어당깁니다(기본 0.5) — 그것도
-  // 순서를 흐트러뜨리던 원인이었습니다.
-  const { nodes, edges, bands } = useMemo(() => {
-    // 폭을 아직 모르면 **아무것도 만들지 않는다.** 노드를 만들어 두면 그 폭으로 한 번
-    // 배치되고 자리가 posById에 기억돼서, 진짜 폭이 들어올 때 그 자리에서 다시
-    // 움직인다 — 그게 "뚜둑"이다. 빈 목록이면 시뮬이 기억할 것도 없다.
-    if (!W) return { nodes: [], edges: [], bands: [] };
-    const nodes = [];
-    const idx = new Map();
-    const push = (n) => { idx.set(n.id, nodes.length); nodes.push(n); };
-    const T = Math.max(1, teamsInUse.length);
-    const slot = new Map(teamsInUse.map((t, i) => [t, i]));
-    // 띠 = 세로를 팀 수로 나눈 칸. 팀 칩은 그 칸의 가운데에 고정된다.
-    const top = 26, span = H - 52;
-    const bandTop = (k) => top + (k / T) * span;
-    const bandH = span / T;
-    const bands = teamsInUse.map((t, k) => ({ team: t, y0: bandTop(k), y1: bandTop(k) + bandH }));
-
-    // 한 띠 안에서 j번째(총 n개)면 어디에 서나 — 등분해서 겹치지 않게
-    const inBand = (k, j, n) => (bandTop(k) + ((j + 0.5) / Math.max(1, n)) * bandH) / H;
-    // 팀이 없거나 목록에 없는 팀이면 전체 높이에 편다(마지막 띠 아래로 밀지 않는다)
-    const spread = (j, n) => (top + ((j + 0.5) / Math.max(1, n)) * span) / H;
-
-    // 층별로 "같은 띠에 몇 번째인가"를 먼저 센다 — 그래야 등분할 수 있다
-    const rank = (list, teamOf) => {
-      const seen = new Map();
-      return list.map((x) => {
-        const k = slot.has(teamOf(x)) ? slot.get(teamOf(x)) : -1;
-        const j = seen.get(k) || 0;
-        seen.set(k, j + 1);
-        return { k, j };
-      }).map((r, i, all) => ({ ...r, n: all.filter(o => o.k === r.k).length, i }));
-    };
-    const firstTeam = (m) => (m.teams?.length ? m.teams : [m.team]).filter(Boolean)[0];
-    const mainTeamOfProject = (pr) => {
-      const hit = teamProjects.filter(([, pid]) => pid === pr.id);
-      if (!hit.length) return null;
-      // 업무가 가장 많은 팀을 그 프로젝트의 자리로 본다
-      return hit.slice().sort((a, b) => (b[2] || 1) - (a[2] || 1))[0][0];
-    };
-
-    const mRank = rank(members, firstTeam);
-    members.forEach((m, k) => {
-      const r = mRank[k];
-      push({
-        id: `m:${m.name}`, kind: 'member', m, pl: 30, pr: 46,
-        // zx: 사람은 왼쪽 영역 밖으로 못 나간다 — 층 읽기가 안 깨진다(사용자 결정)
-        ax: AX.m, zx: ZX.m, zxDrag: ZXD.m,
-        ay: r.k >= 0 ? inBand(r.k, r.j, r.n) : spread(r.j, r.n),
-        iy: r.k >= 0 ? inBand(r.k, r.j, r.n) : spread(r.j, r.n),
-      });
-    });
-    // 팀은 가운데 열 고정 — 자기 띠의 가운데. 모바일은 살짝 왼쪽(0.44).
-    const teamX = W * AX.t;
-    teamsInUse.forEach((t, k) => push({
-      id: `t:${t}`, kind: 'team', t, left: teamLeft[t] || 0,
-      fixed: { x: teamX, y: bandTop(k) + bandH / 2 },
-    }));
-    const pRank = rank(projects, mainTeamOfProject);
-    projects.forEach((pr, k) => {
-      const r = pRank[k];
-      const y = r.k >= 0 ? inBand(r.k, r.j, r.n) : spread(r.j, r.n);
-      push({
-        id: `p:${pr.id}`, kind: 'project', p: pr,
-        // pr = 라벨 반폭 + 여유. 이 값이 라벨 폭보다 작으면 좁은 데스크톱(좌우 여백이 없는
-        // 폭)에서 라벨 오른쪽이 카드 밖으로 나간다.
-        pl: 56, pr: compact ? 66 : 96,
-        // **한 열로 세운다.** 두 열(홀짝 지그재그)로 벌려 봤더니 선이 오히려 더
-        // 엇갈려 보였다 — 겹침은 그릴 때 떼어놓는 쪽(spreadLabels)이 확실하다.
-        ax: AX.p,
-        ay: y, iy: y, zx: ZX.p, zxDrag: ZXD.p,
-        repel: 1.7,   // 라벨이 제일 크다 — 서로는 더 세게 밀어야 안 겹친다
-      });
-    });
-
-    const edges = [];
-    // 목표 길이는 앵커 간격이다(EDGE_OF) — 고정값이면 폭이 넓어질수록 스프링이
-    // 앵커를 이기려 들어 그래프가 계속 출렁인다(실측: 방향 반전 4.9 → 1.0회/노드).
-    const lenMT = EDGE_OF(AX.m, AX.t, W);
-    const lenTP = EDGE_OF(AX.t, AX.p, W);
-    // 선 굵기 = 같이 맡은 업무 수(사용자 결정 2026-08-31). **선이 있냐 없냐는 멤버십**
-    // 이고 굵기만 업무 수다 — 업무 수로 선을 만들면 맡은 일이 없는 사람이 팀에서
-    // 사라집니다(§8).
-    members.forEach(m => [...new Set((m.teams?.length ? m.teams : [m.team]).filter(Boolean))].forEach(t => {
-      if (!idx.has(`t:${t}`)) return;
-      edges.push([idx.get(`m:${m.name}`), idx.get(`t:${t}`), lenMT, teamColor(t),
-        memberLoad?.get?.(`${m.name}|${t}`) || 0]);
-    }));
-    teamProjects.forEach(([team, pid, n]) => {
-      if (idx.has(`t:${team}`) && idx.has(`p:${pid}`)) {
-        edges.push([idx.get(`t:${team}`), idx.get(`p:${pid}`), lenTP, teamColor(team), n || 0]);
-      }
-    });
-    return { nodes, edges, bands };
-  }, [members, teamsInUse, projects, teamProjects, teamLeft, memberLoad, compact, W, H, AX, ZX, ZXD]);
-
-  // 엔진은 프로젝트 그래프 뷰(depgraph)와 **같은 useForceGraph/forceStep**이다
-  // (사용자 지시 2026-08-31 — "힘 엔진은 같이 가져가라"). 상수·미리 돌리기·선 길이
-  // 규칙을 여기서 고치면 그 화면도 같이 따라온다. 갈라 두지 마세요.
-  // **끌기는 그대로 둡니다**(사용자 지시 2026-08-31 — "끌기는 왜 빼").
-  const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, compact });
-  // hover(데스크톱) 또는 탭(모바일)으로 고른 노드. 사람 노드는 갈 곳이 없으므로
-  // **탭이 곧 포커스**다 — 터치 기기에는 hover가 없어서 이 기능이 아예 없었다(§8).
-  // **고른 노드는 인덱스가 아니라 id로 기억한다.** 인덱스로 들고 있으면 목록이 다시
-  // 만들어질 때(사람이 가입하거나 실시간 재조회가 오거나 폭이 바뀔 때) 같은 번호가
-  // **딴 노드**를 가리켜서, 아무것도 안 했는데 엉뚱한 프로젝트가 강조됐다
-  // (사용자 지적 2026-08-31 — "가끔 다른 프로젝트가 갑자기 강조가 된다").
-  // 그 노드가 사라졌으면 강조도 사라진다(찾지 못하면 null).
-  const [hiId, setHiId] = useState(null);
-  const [pinId, setPinId] = useState(null);
-  const curId = hiId ?? pinId;
-  const curIdx = curId == null ? -1 : nodes.findIndex(n => n.id === curId);
-  const cur = curIdx >= 0 ? curIdx : null;
-  // **호버는 진짜 마우스에만**(hooks/useForceGraph.js의 hoverProps — 그래프 뷰와 한 벌).
-  // 터치에서 강조를 보는 길은 사람 노드를 눌러 두는 것(pin)뿐이고, 그건 기준이 분명하다
-  // (누르면 켜지고 다시 누르거나 빈 데를 누르면 꺼진다).
-  const hoverOn = hoverProps(setHiId);
-
-
-  // 만진(또는 탭해 둔) 노드와 그 이웃만 또렷하게 — 나머지는 흐린다
-  const linked = useMemo(() => {
-    if (cur == null) return null;
-    const set = new Set([cur]);
-    edges.forEach(([a, b]) => { if (a === cur) set.add(b); if (b === cur) set.add(a); });
-    return set;
-  }, [cur, edges]);
-  // 선 굵기의 기준 — 가장 굵은 연결이 상한이 된다(절대 굵기를 박으면 업무가 늘 때 다 굵어진다)
-  const maxW = useMemo(() => Math.max(1, ...edges.map(e => e[4] || 0)), [edges]);
-
-  // **그릴 때 같은 층 라벨을 떼어놓는다**(utils.spreadLabels · 2026-08-31).
-  // 힘 배치는 겹치지 않음을 보장할 수 없다 — 척력을 세게 하면 노드가 영역 밖으로
-  // 밀리고, 약하면 라벨이 겹친다(실측 4~9건). 시뮬 좌표(pos)는 건드리지 않고
-  // 화면 y만 민다: 끌기는 여전히 자기 좌표를 따라가고, 보이는 것만 안 겹친다.
-  // useMemo를 쓰지 않는다 — pos는 ref 배열이라 참조가 안 바뀌어서 의존성으로 못 쓴다.
-  // 노드 37개 × 층 3개짜리 정렬이라 매 프레임 돌아도 공짜다.
-  const GAP = compact ? FM.GAP_MOB : FM.GAP_DESK;
-  const drawY = new Map();
-  for (const [kind, key] of [['member', 'm'], ['team', 't'], ['project', 'p']]) {
-    const items = nodes.map((n, i) => ({ n, i }))
-      .filter(({ n }) => n.kind === kind)
-      .map(({ i }) => ({ i, y: pos[i]?.y ?? 0 }));
-    if (!items.length) continue;
-    // 위 경계 38: 열 머리글(9.5px, 위에 붙어 있다) 아래다 — 20으로 뒀더니 첫 노드가
-    // 머리글을 덮었다(실측 '사람'·'프로젝트' 둘 다).
-    spreadLabels(items, GAP[key], 38, H - 16).forEach((y, i) => drawY.set(i, y));
-  }
-  const yOf = (i) => drawY.get(i) ?? (pos[i]?.y ?? 0);
-
-  // 연도를 바꾸면 **위쪽 칸('프로젝트 진행')이 크게 줄어서** 페이지가 짧아지고, 지도를
-  // 보려고 끝까지 내려온 상태에서는 스크롤이 위로 튄다(사용자 지적 2026-08-31 —
-  // 실측으로 스크롤 높이 −696px · 스크롤 −720px). 브라우저의 scroll anchoring은
-  // 스크롤 끝에서 잘리는 이 경우를 못 잡는다.
-  // 그래서 **지도 카드가 화면에서 있던 자리를 지킨다** — 바꾸기 전 top을 재두고,
-  // 다음 프레임에 그만큼 되돌린다. 페이지가 더 짧아져 되돌릴 스크롤이 없으면
-  // 남는 만큼은 어쩔 수 없다(그때는 지도가 화면 아래에 온전히 보인다).
-  const pickYear = (y) => {
-    const el = wrapRef.current;
-    const before = el?.getBoundingClientRect().top;
-    onPickYear(y);
-    if (before == null) return;
-    requestAnimationFrame(() => {
-      const now = wrapRef.current;
-      if (!now) return;
-      const d = now.getBoundingClientRect().top - before;
-      if (Math.abs(d) > 1) scrollParentOf(now)?.scrollBy({ top: d, behavior: 'instant' });
-    });
-  };
-
-  return (
-    <Card className="px-4 py-[15px]">
-      <div className="flex items-center gap-2 pb-1">
-        <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">프로젝트 연결 지도</h3>
-        <span className="text-[10px] text-fg-muted truncate">사람 → 팀 → 프로젝트</span>
-        {/* 연도 고르기 — **'프로젝트 진행' 칸·탭 줄과 같은 하나의 값**이다
-            (useProjectYear 모듈 스토어). 여기서 바꾸면 그 둘도 따라간다.
-            해가 쌓일수록 프로젝트 층이 넘쳐 라벨이 겹치므로 이 칸에도 필요해졌다
-            (사용자 결정 2026-08-31). 데스크톱·모바일 같은 자리다. */}
-        {onPickYear && (
-          <span className="shrink-0 ml-auto -my-1">
-            <YearPicker year={year} years={years} yearCounts={yearCounts} onPick={pickYear} compact />
-          </span>
-        )}
-      </div>
-      {/* 고른 해에 프로젝트가 없을 수 있다 — 다른 해에는 있다는 뜻이므로 '아직'이라고
-          하지 않는다('프로젝트 진행' 칸과 같은 문장). 사람 층만 남은 그림은 뜻이 없다.
-          **칸의 높이는 그대로 둔다**(통째로 접으면 페이지가 확 짧아져서 위 스크롤
-          보정으로도 못 막는다). 빈 줄을 그 높이 안 가운데에 세운다.
-          빈 데를 누르면 탭 포커스가 풀린다. */}
-      <div ref={wrapRef} className="relative select-none" style={{ height: H }}
-        onClick={(e) => { if (e.target === e.currentTarget) setPinId(null); }}
-        onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHiId(null); }}>
-        {/* 팀 띠 — 사람·프로젝트가 자기 팀 높이에 서므로, 옅은 가로 띠가 "이 줄은 이 팀"을
-            말해 준다(2026-08-31 읽기 보조). 홀수 띠만 칠해서 줄무늬로 읽히게 하고, 고른
-            팀의 띠는 그 팀 색으로 한 겹 더 밝힌다. 선 아래에 깔린다(pointer-events 없음). */}
-        {!projects.length && (
-          <p className="absolute inset-0 flex items-center justify-center text-[11px] text-fg-muted">
-            {year}년에 프로젝트는 아직 없어요
-          </p>
-        )}
-        {bands.map((b, k) => {
-          const isCur = cur != null && nodes[cur]?.kind === 'team' && nodes[cur].t === b.team;
-          const near = cur != null && linked && [...linked].some(j => nodes[j]?.kind === 'team' && nodes[j].t === b.team);
-          return (
-            <span key={b.team} aria-hidden className="absolute pointer-events-none"
-              style={{
-                left: 0, top: b.y0, width: W, height: b.y1 - b.y0,
-                background: isCur || near
-                  ? `color-mix(in srgb, ${teamColor(b.team)} 12%, transparent)`
-                  : k % 2 ? 'var(--app-surface-hover)' : 'transparent',
-                opacity: isCur || near ? 1 : 0.55,
-                transition: 'background 200ms, opacity 200ms',
-              }} />
-          );
-        })}
-        {/* 열 머리글 — 팀 열(가운데)은 고정이라 정확하고, 사람·프로젝트는 영역(zx)의 가운데쯤이다 */}
-        <span className="absolute text-[10px] font-bold text-fg-muted" style={{ left: W * AX.m, top: 0, transform: 'translateX(-50%)' }}>사람</span>
-        <span className="absolute text-[10px] font-bold text-fg-muted" style={{ left: W * AX.t, top: 0, transform: 'translateX(-50%)' }}>팀</span>
-        <span className="absolute text-[10px] font-bold text-fg-muted" style={{ left: W * AX.p, top: 0, transform: 'translateX(-50%)' }}>프로젝트</span>
-        <svg className="absolute inset-0 pointer-events-none" width={cw} height={H} aria-hidden>
-          {edges.map(([a, b, , color, weight], i) => {
-            const on = cur != null && (a === cur || b === cur);
-            const dim = cur != null && !on;
-            const x1 = (pos[a]?.x || 0), y1 = yOf(a);
-            const x2 = (pos[b]?.x || 0), y2 = yOf(b);
-            const bend = Math.min(26, Math.hypot(x2 - x1, y2 - y1) * 0.12);
-            // 굵기 = 같이 맡은 업무 수(사용자 결정 2026-08-31). 0.9~3.2px 사이로 누른다 —
-            // 상한이 없으면 업무가 많은 한 줄이 화면을 갈라 버리고, 하한이 없으면
-            // 0건 연결이 사라져 "그 팀 사람이 아닌 것"처럼 보인다.
-            const wpx = 0.9 + Math.min(1, (weight || 0) / maxW) * 2.3;
-            return (
-              <path key={i}
-                d={`M ${x1} ${y1} Q ${(x1 + x2) / 2} ${(y1 + y2) / 2 - bend} ${x2} ${y2}`}
-                fill="none" stroke={color} strokeWidth={on ? wpx + 0.7 : wpx}
-                strokeLinecap="round"
-                opacity={dim ? 0.1 : on ? 0.9 : 0.42}
-                style={{ transition: 'opacity 200ms, stroke-width 200ms' }} />
-            );
-          })}
-        </svg>
-        {nodes.map((n, i) => {
-          const P = pos[i];
-          if (!P) return null;
-          const dim = linked && !linked.has(i);
-          const base = {
-            position: 'absolute', left: P.x, top: yOf(i), transform: 'translate(-50%, -50%)',
-            opacity: dim ? 0.22 : 1, transition: 'opacity 200ms',
-          };
-          if (n.kind === 'member') {
-            const drag = bindDrag(i);
-            const picked = pinId === n.id;
-            return (
-              // 사람 노드는 갈 곳이 없어서 예전에는 눌러도 아무 일이 없었다 → **탭이 포커스**다.
-              // 터치 기기에는 hover가 없어서 "그 사람의 연결만 보기"가 아예 없는 기능이었다(§8).
-              <button key={n.id} type="button" {...drag}
-                style={{ ...base, ...drag.style, cursor: 'grab' }}
-                aria-pressed={picked}
-                title={`${n.m.name} — 눌러서 이 사람의 연결만 보기`}
-                className="flex flex-col items-center gap-0.5"
-                onClick={() => setPinId(picked ? null : n.id)}
-                {...hoverOn(n.id)}>
-                <Avatar name={n.m.name} url={n.m.avatarUrl}
-                  className={`flex w-[20px] h-[20px] text-[9px] pointer-events-none ${picked ? 'ring-2 ring-accent' : ''}`} />
-                <span className={`text-[10px] leading-none whitespace-nowrap pointer-events-none ${picked ? 'text-fg font-bold' : 'text-fg-muted'}`}>{n.m.name}</span>
-              </button>
-            );
-          }
-          if (n.kind === 'team') {
-            return (
-              // 남은 업무 수를 칩 안에 붙인다(사용자 결정 2026-08-31) — 연결과 부담을
-              // 한 번에 읽는다. 0건이면 숫자를 쓰지 않는다(없는 것을 굳이 말하지 않는다).
-              <button key={n.id} type="button" title={`${n.t} 보드로${n.left ? ` · 남은 업무 ${n.left}건` : ''}`} style={base}
-                {...hoverOn(n.id)}
-                onClick={() => onOpenTeam(n.t)}
-                className="inline-flex items-center gap-1 pl-2 pr-[7px] py-[3px] rounded-full text-[10.5px] font-bold whitespace-nowrap bg-surface border border-line shadow-soft transition hover:opacity-70">
-                <span style={{ color: teamColor(n.t) }}>{n.t}</span>
-                {n.left > 0 && (
-                  <span className="text-[10px] font-semibold tabular-nums text-fg-muted">{n.left}</span>
-                )}
-              </button>
-            );
-          }
-          const drag = bindDrag(i);
-          return (
-            <button key={n.id} type="button" title={`${n.p.title} 열기`} {...drag}
-              style={{ ...base, ...drag.style, cursor: 'grab' }}
-              {...hoverOn(n.id)}
-              onClick={() => onOpenProject(n.p.id)}
-              className={`px-2.5 py-1 rounded-md bg-surface shadow-soft border border-line font-bold text-fg whitespace-nowrap truncate transition hover:opacity-70 ${compact ? 'text-[10.5px] max-w-[128px]' : 'text-[11.5px] max-w-[200px]'}`}>
-              {n.p.title}
-            </button>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}

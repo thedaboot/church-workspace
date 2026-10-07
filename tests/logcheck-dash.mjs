@@ -398,12 +398,12 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   assert.ok(frames <= 200, `그래도 멈춘다 — ${frames}프레임`);
 
   // 선의 목표 길이가 앵커 간격에서 나오는지(화면 코드) — 고정값이면 스프링이 앵커와 싸운다
-  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  const parts = readFileSync(new URL('../src/components/networkMap.jsx', import.meta.url), 'utf8');
   assert.ok(/const EDGE_OF = \(a, b, W\)/.test(parts) && /EDGE_OF\(AX\.m, AX\.t, W\)/.test(parts),
     '연결 지도의 선 길이 = 앵커 간격');
   // 1400 상한도 1858px 카드에서 좌우 229px씩 남겼다 → 상한을 없애고 카드 폭을 그대로 쓴다
   assert.ok(/const W = cw;/.test(parts), '데스크톱은 카드 폭을 다 쓴다(좌우 여백 낭비를 줄인 자리)');
-  assert.ok(/rows \* FM\.ROW_DESK \+ 60/.test(parts), '높이가 줄 수를 따라간다(라벨 겹침의 원인)');
+  assert.ok(/const L = FM\[compact \? 'mob' : 'desk'\];/.test(parts) && /rows \* L\.ROW \+ 60/.test(parts), '높이가 줄 수를 따라간다(라벨 겹침의 원인 · 폭 갈래는 FM에서 한 번 고른다)');
   const dep = readFileSync(new URL('../src/components/depgraph.jsx', import.meta.url), 'utf8');
   assert.ok(/colGap \* span/.test(dep), '프로젝트 그래프 뷰도 열 간격으로 선 길이를 잡는다');
   console.log('PASS  그래프 부드러움 12가지');
@@ -447,7 +447,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   assert.strictEqual(spreadLabels([{ i: 'x', y: 5 }], 30, 20, 100).get('x'), 20, '하나면 위 경계로');
 
   // 화면이 실제로 쓰는지 — 순수 함수만 맞아도 안 쓰면 아무 일도 안 일어난다
-  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  const parts = readFileSync(new URL('../src/components/networkMap.jsx', import.meta.url), 'utf8');
   assert.ok(/spreadLabels\(items, GAP\[key\], 38, H - 16\)/.test(parts),
     '연결 지도가 층별로 라벨을 떼어놓는다(위 경계는 열 머리글 아래다)');
   assert.ok(/top: yOf\(i\)/.test(parts) && /const yOf = \(i\)/.test(parts),
@@ -461,7 +461,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
 // 끝난 뒤에 열려서 그 순간을 못 봤다 — 숫자로 못 재는 것에 숫자를 대지 않는다(HANDOFF §2 '성능은 측정하지 않았다').
 // 되돌리기 검사: 각 단정은 그 줄을 되돌리면 깨진다.
 {
-  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  const parts = readFileSync(new URL('../src/components/networkMap.jsx', import.meta.url), 'utf8');
   // ① 폭을 재기 전에는 배치하지 않는다 — 짐작한 폭으로 배치하면 진짜 폭이 들어올 때
   //    처음부터 다시 배치되고, 그 두 번째가 눈에 보이는 "뚜둑"이다(사용자 지적).
   assert.ok(/const \[cw, setCw\] = useState\(0\);/.test(parts),
@@ -514,7 +514,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
     '호버는 진짜 마우스에만 켠다');
   assert.ok(/onPointerLeave: \(e\) => \{ if \(e\.pointerType === 'mouse'\) setHiId\(null\); \}/.test(forceHook),
     '호버를 끄는 것도 마우스에만');
-  for (const f of ['../src/views/dashboardParts.jsx', '../src/components/depgraph.jsx']) {
+  for (const f of ['../src/components/networkMap.jsx', '../src/components/depgraph.jsx']) {
     const src = readFileSync(new URL(f, import.meta.url), 'utf8');
     const who = f.includes('depgraph') ? '그래프 뷰' : '연결 지도';
     assert.ok(/const hoverOn = hoverProps\(setHiId\);/.test(src) && /\{\.\.\.hoverOn\(n\.id\)\}/.test(src),
@@ -524,7 +524,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
       who + ': 고른 노드를 id로 찾는다(인덱스로 들고 있으면 딴 노드를 가리킨다)');
     assert.ok(/setHiId\(null\); \}\}>/.test(src), who + ': 지도 밖으로 마우스가 빠지면 강조를 끈다');
   }
-  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  const parts = readFileSync(new URL('../src/components/networkMap.jsx', import.meta.url), 'utf8');
   assert.ok(/const picked = pinId === n\.id;/.test(parts), '탭해 둔 사람도 id로 판정한다');
   assert.ok(/setPinId\(picked \? null : n\.id\)/.test(parts), '다시 누르면 풀린다');
   assert.ok(/if \(e\.target === e\.currentTarget\) setPinId\(null\)/.test(parts), '빈 데를 누르면 풀린다');
@@ -540,7 +540,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
 // 예전 주석에는 "연결 지도는 해로 거르지 않는다"고 적혀 있었다 — 뒤집힌 결정이다.
 // 되돌리기 검사: 아래 각 줄을 되돌리면 그 단정이 깨진다.
 {
-  const views = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');
+  const views = readFileSync(new URL('../src/views/dashboardView.jsx', import.meta.url), 'utf8');
   assert.ok(/projects=\{projectsList\}/.test(views),
     '지도가 고른 해의 프로젝트만 받는다(activeProjects 전체가 아니다)');
   assert.ok(/year=\{year\} years=\{years\} yearCounts=\{yearCounts\} onPickYear=\{setYear\}/.test(views),
@@ -549,8 +549,8 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
     '팀 목록·팀별 남은 수·선 굵기도 그 해 업무만 센다(딴 해 팀이 빈 줄로 남지 않게)');
   assert.ok(!/연결 지도는 해로 거르지 않는다/.test(views), '뒤집힌 옛 주석이 남아 있지 않다');
 
-  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
-  assert.ok(/import \{ YearPicker \} from '\.\.\/components\/layout\.jsx';/.test(parts),
+  const parts = readFileSync(new URL('../src/components/networkMap.jsx', import.meta.url), 'utf8');
+  assert.ok(/import \{ YearPicker \} from '\.\/layout\.jsx';/.test(parts),
     "'프로젝트 진행' 칸과 **같은 부품**을 쓴다(연도 고르기를 두 벌 만들지 않는다)");
   // 2026-08-31: onPick은 스크롤 보정을 거치는 pickYear다(그 아래 블록)
   assert.ok(/onPick=\{pickYear\} compact \/>/.test(parts), '지도 머리줄에 연도 고르기가 있다');
@@ -585,7 +585,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
 // 되돌아오는 방향(2027→2026)도 0px이다.
 // 되돌리기 검사: onPick을 pickYear에서 onPickYear로 되돌리면 다시 24px 튄다.
 {
-  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
+  const parts = readFileSync(new URL('../src/components/networkMap.jsx', import.meta.url), 'utf8');
   assert.ok(/const pickYear = \(y\) => \{/.test(parts), '연도 고르기를 감싸는 보정이 있다');
   assert.ok(/const before = el\?\.getBoundingClientRect\(\)\.top;/.test(parts),
     '바꾸기 전 지도 카드의 화면 위치를 재둔다');
@@ -724,9 +724,12 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   assert.ok(/teamChips as teamMemberChips/.test(views)
     && /teamMemberChips\(storeMembers, tasksList, teamName\)/.test(views),
     '팀 보드가 스토어의 멤버로 칩을 세운다');
-  assert.ok(/TEAM_CHIP_ROW[\s\S]{0,200}overflow-x-auto/.test(views),
+  const vparts = readFileSync(new URL('../src/views/viewParts.jsx', import.meta.url), 'utf8');
+  assert.ok(/import \{[^}]*\bTEAM_CHIP_ROW\b[^}]*\} from '\.\/viewParts\.jsx';/.test(views) && /className=\{`\$\{TEAM_CHIP_ROW\} mt-2\.5`\}/.test(views),
+    '팀 보드가 칩 줄 클래스를 viewParts에서 가져다 쓴다');
+  assert.ok(/TEAM_CHIP_ROW[\s\S]{0,200}overflow-x-auto/.test(vparts),
     '칩이 넘치면 줄바꿈이 아니라 가로 스크롤이다');
-  assert.ok(/TEAM_CHIP_ROW[\s\S]{0,200}after:w-3/.test(views),
+  assert.ok(/TEAM_CHIP_ROW[\s\S]{0,200}after:w-3/.test(vparts),
     '끝까지 밀면 마지막 칩 뒤에 여백이 남는다');
   assert.ok(!/members\.slice\(0, 5\)/.test(views), '5명 상한은 없앴다(전원이 선다)');
 
@@ -758,7 +761,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
 
   // 화면 두 곳이 실제로 이 규칙을 쓰는가 — 구간 판정은 services/taskCounts.bucketOf 한 벌이다(2026-09-25).
   const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
-  const views = readFileSync(new URL('../src/views/views.jsx', import.meta.url), 'utf8');
+  const views = ['views', 'dashboardView', 'projectView', 'viewParts'].map(n => readFileSync(new URL(`../src/views/${n}.jsx`, import.meta.url), 'utf8')).join('\n');
   const tc = readFileSync(new URL('../src/services/taskCounts.js', import.meta.url), 'utf8');
   assert.ok(/function bucketOf[\s\S]{0,800}?weekEndOf\(today\)/.test(tc),
     '마감 구간의 이번 주는 weekEndOf로 자른다');
@@ -864,7 +867,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
 
   // 배선 — 화면이 이 판정을 쓰는가
   const src = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
-  const views = src('../src/views/views.jsx'), parts = src('../src/views/dashboardParts.jsx'), boards = src('../src/components/boards.jsx'), modals = src('../src/modals/modals.jsx');
+  const views = ['views', 'dashboardView', 'projectView', 'viewParts'].map(n => readFileSync(new URL(`../src/views/${n}.jsx`, import.meta.url), 'utf8')).join('\n'), parts = src('../src/views/dashboardParts.jsx'), boards = src('../src/components/boards.jsx'), modals = src('../src/modals/modals.jsx');
   assert.ok(/const due = dueCounts\(shown, today\);/.test(views) && /const myDue = dueCounts\(myOpen, today\);/.test(views), 'KPI·인사말이 구간 셈을 쓴다');
   assert.ok(!/dueDate < today/.test(views), 'views에 손으로 적은 지연 판정이 남아 있지 않다');
   assert.ok(/teamLeftStats\(yearTasks\)/.test(views) && /personLoad\(yearTasks\)/.test(views), '팀별·청년별은 고른 해 업무만 센다(연결 지도와 같은 값)');
@@ -991,7 +994,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   const views = src('views/views.jsx');
   assert.ok(/isRecentlyDone\(t, completedTime, today\)/.test(views) && (views.match(/recentDone: /g) || []).length >= 2,
     '내 업무·팀 보드의 기본 목록이 최근 7일 완료를 넣고 머리를 바꾼다');
-  const dp = src('views/dashboardParts.jsx');
+  const dp = src('views/dashboardParts.jsx') + src('components/activityFeed.jsx');
   assert.ok(/label: '완료한 업무', note: `최근 \$\{RECENT_DONE_DAYS\}일`/.test(dp), "구간 머리 '완료한 업무' + '최근 7일'");
   assert.ok(/mixFeed\(groupFeed\(act, base\), ex, base\)/.test(dp) && /FEED_STEP/.test(dp), '피드는 섞고 열 줄씩 편다');
   assert.ok(/dc-ring-now/.test(dp) && /COMPLETE_DRAW_MS/.test(dp), '마감 목록 완료 원은 그리고 나서 저장한다');
@@ -1024,3 +1027,50 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   console.log('PASS  흔적과 움직임(점 판정 · 피드 묶기·섞기·업무 밖 줄 · 모임 나누기 · 최근 7일 완료 · 넛지·손맛 배선 · 0079)');
 }
 
+// ── 19차 리팩토링(2026-10-07)에서 한 벌로 모은 것 — 달력 날짜 칸 바탕 · 화면 파일 가르기 배선 ─────────
+// 달력 날짜 칸 바탕은 데스크톱 격자와 모바일 달력이 같은 cellStyle 하나다(예전에는 두 자리에 같은 삼항이 있었다).
+// 되돌리기 검사: cellStyle의 `isSel && !isToday`를 `isSel`로 바꾸면 '오늘이면 고른 날이어도 테두리 없음'이,
+// 모바일 칸을 옛 인라인 삼항으로 되돌리면 '두 자리 다 cellStyle'이 깨진다.
+{
+  const cal = readFileSync(new URL('../src/components/calendar.jsx', import.meta.url), 'utf8');
+  const m = /^export function cellStyle\([\s\S]*?\n\}/m.exec(cal);
+  assert.ok(m, 'calendar.jsx에 cellStyle이 있다');
+  const { cellStyle } = await loadSource('src/components/calendar.jsx', { as: 'cell.mjs', src: m[0] });
+  const ctx = { month: 9, todayIso: '2026-10-07', selected: '2026-10-09' };   // 10월(0부터 9)
+  assert.deepStrictEqual(cellStyle('2026-10-07', ctx), { background: 'var(--app-accent-weak)', boxShadow: 'none' }, '오늘');
+  assert.deepStrictEqual(cellStyle('2026-10-09', ctx), { background: 'var(--app-surface-hover)', boxShadow: 'inset 0 0 0 1.5px var(--app-accent)' }, '고른 날');
+  assert.deepStrictEqual(cellStyle('2026-10-15', ctx), { background: 'var(--app-surface)', boxShadow: 'none' }, '달 안');
+  assert.deepStrictEqual(cellStyle('2026-11-01', ctx), { background: 'var(--app-canvas)', boxShadow: 'none' }, '달 밖');
+  assert.deepStrictEqual(cellStyle('2026-10-07', { ...ctx, selected: '2026-10-07' }),
+    { background: 'var(--app-accent-weak)', boxShadow: 'none' }, '오늘이면 고른 날이어도 테두리 없음');
+  assert.strictEqual((cal.match(/style=\{cellStyle\(iso, \{ month(: view\.m)?, todayIso, selected \}\)\}/g) || []).length, 2,
+    '두 자리 다 cellStyle(데스크톱 view.m · 모바일 month)');
+  assert.ok(!/background: isToday \?/.test(cal.replace(m[0], '')), 'cellStyle 밖에 날짜 칸 삼항이 남아 있지 않다');
+  // 열 폭은 useSnapCols 한 벌이고, 데스크톱은 다시 재는 조건(주 수 · 폭 갈래)을 넘긴다
+  assert.ok(/const colStyle = useSnapCols\(gridRef, \[weekCount, isMobile\]\);/.test(cal)
+    && /function useSnapCols\(ref, deps = \[\]\)/.test(cal) && (cal.match(/snapCols\(el\.clientWidth/g) || []).length === 1,
+    '달력 열 폭은 useSnapCols 하나(데스크톱은 [weekCount, isMobile]에 다시 잰다)');
+
+  // views.jsx를 가른 배선 — App은 views.jsx 하나에서 가져가고, 화면 파일끼리는 서로 import하지 않는다
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  const views = src('views/views.jsx');
+  assert.ok(/export \{ DashboardView, DASH_FILTERS, DASH_FILTER_DEFAULT \} from '\.\/dashboardView\.jsx';/.test(views)
+    && /export \{ ProjectView \} from '\.\/projectView\.jsx';/.test(views), 'views.jsx가 대시보드·프로젝트를 이어서 내보낸다');
+  for (const f of ['views/dashboardView.jsx', 'views/projectView.jsx', 'views/viewParts.jsx']) {
+    assert.ok(!/from '\.\/(views|dashboardView|projectView)\.jsx'/.test(src(f)), `${f}가 다른 화면 파일을 import하지 않는다`);
+  }
+  // 회색 토글 세 자리가 한 부품 · 칩 줄 클래스 한 벌
+  assert.strictEqual((src('views/dashboardView.jsx').match(/<Segmented /g) || []).length, 3, '대시보드의 토글 셋(필터 두 자리 · 폰 탭)');
+  assert.strictEqual((src('views/projectView.jsx').match(/<Segmented /g) || []).length, 1, '프로젝트 보기 토글');
+  assert.ok(!/'var\(--app-surface\)' : 'transparent'/.test(src('views/dashboardView.jsx') + src('views/projectView.jsx')),
+    '화면 파일에 토글 바탕 삼항이 남아 있지 않다(segmented.jsx 한 벌)');
+  // KPI 칸 — 혼자 선 칸(진척도 · 팀 보드 완료)도 KpiCell이다
+  assert.ok(/<KpiCell[\s\S]{0,200}phoneNote[\s\S]{0,200}label="전체 진척도"/.test(src('views/dashboardView.jsx')), '진척도 칸은 KpiCell(폰에서도 메모)');
+  assert.ok(/<KpiCell[\s\S]{0,200}tone="green" phoneNote[\s\S]{0,100}label="완료"/.test(views), "팀 보드 '완료' 칸은 KpiCell(초록 · 폰에서도 메모)");
+  // 움직임 줄이기 판정은 hooks/useReducedMotion.js 한 벌
+  for (const f of ['views/dashboardParts.jsx', 'hooks/useForceGraph.js', 'components/activityFeed.jsx']) {
+    assert.ok(!/matchMedia/.test(src(f)), `${f}가 matchMedia를 직접 부르지 않는다`);
+  }
+  assert.ok(/export \{ prefersReducedMotion \};/.test(src('views/dashboardParts.jsx')), 'dashboardParts는 이어서 내보낸다(wordBible이 가져간다)');
+  console.log('PASS  19차 한 벌(달력 칸 바탕 · 열 폭 · 화면 파일 배선 · 토글 · KPI 칸 · 모션 판정)');
+}

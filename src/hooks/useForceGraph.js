@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { forceStep, forceBounds } from '../utils.js';
+import { prefersReducedMotion } from './useReducedMotion.js';
 
 // ============================================================================
-// 힘 기반 그래프 훅 — 연결 지도(dashboardParts)와 프로젝트 그래프 뷰(depgraph)가 쓴다
+// 힘 기반 그래프 훅 — 연결 지도(components/networkMap)와 프로젝트 그래프 뷰(depgraph)가 쓴다
 // ----------------------------------------------------------------------------
 // · **alpha 냉각**(utils.forceStep 주석): 마운트 때 1에서 시작해 매 틱 식는다.
 //   식으면 루프가 스스로 멈추고, 드래그가 살짝 데운다(0.3) — 이웃이 따라오되
@@ -46,8 +47,7 @@ export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact =
   const swallowClickRef = useRef(false);
   const [, bump] = useState(0);          // pos는 ref에 있고, 이걸로만 다시 그린다
 
-  const reduce = typeof window !== 'undefined'
-    && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+  const reduce = prefersReducedMotion();   // hooks/useReducedMotion.js 한 벌
 
   const skipSet = useCallback(() => {
     const set = new Set();

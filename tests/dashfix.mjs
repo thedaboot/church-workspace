@@ -420,6 +420,74 @@ const doneLine = await ev(`(() => {
 })()`);
 check('지난 7일 줄이 끝낸 날로 센다(수정한 날이 아니다)', doneLine === '지난 7일 간 1건 끝냈어요', String(doneLine));
 
+// ── 19차 리팩토링(2026-10-07)에서 한 벌로 모은 부품 — 회색 토글 · 혼자 선 KPI 칸 · 프로젝트 화면 훅 순서 ──
+// 회색 토글(components/segmented.jsx): 고른 칸만 흰 바탕·진한 글자이고 칸 클래스는 자리마다 그대로다.
+// 되돌리기 검사: segStyle의 on/off 바탕을 맞바꾸면 첫 단정과 폰 탭 단정이, 폰 탭의 `tabs`를 빼면 폰 탭 단정이 깨진다.
+await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1400);
+const seg = await ev(`(() => {
+  const btns = ['보드', '캘린더', '그래프'].map(t => [...document.querySelectorAll('main button')].find(b => b.textContent.trim() === t));
+  if (btns.some(b => !b)) return null;
+  const box = btns[0].parentElement;
+  return {
+    same: btns.every(b => b.parentElement === box), boxCls: box.className, boxBg: box.style.background,
+    cls: btns.map(b => b.className),
+    bg: btns.map(b => b.style.background), fg: btns.map(b => b.style.color),
+  };
+})()`);
+check('프로젝트 보기 토글: 고른 칸(보드)만 흰 바탕 · 진한 글자 · 칸 클래스 그대로',
+  !!seg && seg.same && seg.boxCls === 'flex p-[3px] rounded-md shrink-0' && seg.boxBg === 'var(--app-surface-hover)'
+    && seg.cls.every(c => c === 'px-3 py-[5px] rounded-sm text-[12.5px] font-semibold transition-colors')
+    && seg.bg.join() === 'var(--app-surface),transparent,transparent'
+    && seg.fg.join() === 'var(--app-ink),var(--app-ink-muted),var(--app-ink-muted)',
+  JSON.stringify(seg));
+
+// 훅 순서(★ 사용자 승인): 보던 프로젝트가 **다른 곳에서** 지워지면(실시간 삭제 · 잘못된 딥링크) 대시보드로
+// 돌아가야 한다. 가드가 훅 위에 있던 때는 'Rendered fewer hooks'로 ErrorBoundary가 떴다.
+// 되돌리기 검사: projectView.jsx의 `if (!project) return null;`을 useMemo들 위로 올리면 깨진다.
+const logsBefore = logs.length;
+await ev(`window.__store.dispatch({ type: 'DELETE_PROJECT', payload: 'p1' })`);
+await sleep(900);
+const afterDel = await ev(`({
+  boundary: !!document.querySelector('[data-error-boundary]'),
+  dash: [...document.querySelectorAll('main span')].some(s => s.textContent.trim() === '전체 진척도'),
+})`);
+const hookErr = logs.slice(logsBefore).filter(l => /fewer hooks|Rendered more hooks|change in the order of Hooks/i.test(l));
+check('보던 프로젝트가 지워지면 오류 상자 없이 대시보드로 돌아간다',
+  afterDel.boundary === false && afterDel.dash === true && hookErr.length === 0,
+  JSON.stringify({ ...afterDel, hookErr: hookErr.slice(0, 1) }));
+
+// 혼자 선 KPI 칸(KpiCell phoneNote): 폰에서 격자 칸 메모는 숨지만 '12/30건'·'전체 N건 중'은 값의 분모라 남는다.
+// 되돌리기 검사: KpiCell에서 phoneNote를 무시하고 늘 `hidden md:inline`을 붙이면 깨진다.
+await load({ width: 390, height: 844, deviceScaleFactor: 2, mobile: true }, 'light');
+const tabs = await ev(`(() => {
+  const list = document.querySelector('main [role="tablist"][aria-label="대시보드"]');
+  const t = list ? [...list.querySelectorAll('[role="tab"]')] : [];
+  return { names: t.map(b => b.textContent.trim()), sel: t.map(b => b.getAttribute('aria-selected')), bg: t.map(b => b.style.background) };
+})()`);
+check('폰 대시보드 탭: 세 칸이 role=tab이고 고른 칸만 aria-selected · 흰 바탕',
+  tabs.names.join() === '업무,청년,연결' && tabs.sel.join() === 'true,false,false'
+    && tabs.bg.join() === 'var(--app-surface),transparent,transparent', JSON.stringify(tabs));
+const vis = `e => !!e && e.getBoundingClientRect().width > 0`;
+const phoneNotes = await ev(`(() => {
+  const vis = ${vis};
+  const spans = [...document.querySelectorAll('main .dc-kpi span')];
+  const prog = spans.find(s => !s.children.length && /^[0-9]+\\/[0-9]+건$/.test(s.textContent.trim()) && vis(s));
+  const week = spans.find(s => s.textContent.trim() === '이번 주 토요일까지');
+  return { prog: prog ? prog.textContent.trim() : null, weekShown: vis(week), weekInDom: !!week };
+})()`);
+check('폰: 진척도 칸의 분모 메모(N/M건)는 보이고 격자 칸 메모는 숨는다',
+  !!phoneNotes.prog && phoneNotes.weekInDom && !phoneNotes.weekShown, JSON.stringify(phoneNotes));
+await ev(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.title === '찬양팀 보드로'); b && b.click(); })()`);
+await sleep(900);
+const teamNote = await ev(`(() => {
+  const vis = ${vis};
+  const s = [...document.querySelectorAll('main .dc-kpi span')].find(x => /^전체 [0-9]+건 중$/.test(x.textContent.trim()));
+  const done = s ? s.closest('.dc-kpi') : null;
+  return { note: s ? s.textContent.trim() : null, shown: vis(s), bg: done ? done.style.background : null };
+})()`);
+check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 초록",
+  teamNote.shown === true && teamNote.bg === 'var(--app-tag-green)', JSON.stringify(teamNote));
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,4).join('\n'):'\n콘솔 오류 없음');
 ws.close();chrome.kill();process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

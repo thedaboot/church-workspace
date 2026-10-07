@@ -36,6 +36,19 @@ export function clampMonth(v, bounds) {
   return { y: Math.floor(i / 12), m: i % 12 };
 }
 
+// 날짜 칸 바탕 — 오늘(옅은 accent) · 고른 날(hover 바탕 + accent 테두리) · 달 안(surface) · 달 밖(canvas).
+// 데스크톱 격자와 모바일 달력이 한 벌이다(month는 0부터 · 오늘이면 고른 날이어도 테두리가 없다).
+export function cellStyle(iso, { month, todayIso, selected }) {
+  const isToday = iso === todayIso;
+  const isSel = iso === selected;
+  const inMonth = Number(iso.slice(5, 7)) === month + 1;
+  return {
+    background: isToday ? 'var(--app-accent-weak)' : isSel ? 'var(--app-surface-hover)'
+      : inMonth ? 'var(--app-surface)' : 'var(--app-canvas)',
+    boxShadow: isSel && !isToday ? 'inset 0 0 0 1.5px var(--app-accent)' : 'none',
+  };
+}
+
 const isoOf = localDate;   // 브라우저 로컬 'YYYY-MM-DD' — utils에 한 벌
 const addDays = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return isoOf(d); };
 const mdOf = (iso) => `${Number(iso.slice(5, 7))}. ${Number(iso.slice(8, 10))}.`;
@@ -133,7 +146,9 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
   // 격자선이 장치 픽셀에 붙도록 열 폭을 직접 정한다(utils.snapCols) — 1fr로 두면
   // 열 폭이 소수가 되어 어떤 선만 굵어 보인다(사용자 지적 2026-08-29).
   // 요일 줄과 주 줄이 **같은 값**을 써야 세로줄이 위아래로 이어진다.
-  const [cols, setCols] = React.useState(null);
+  // 열 폭은 모바일 달력과 같은 useSnapCols다 — 다시 재는 조건(주 수 · 폭 갈래)만 넘긴다.
+  // 주 줄 안의 격자들이 같이 쓰는 열 폭. 못 재면 null이라 grid-cols-7(1fr)이 남는다.
+  const colStyle = useSnapCols(gridRef, [weekCount, isMobile]);
   React.useEffect(() => {
     const el = gridRef.current;
     if (!el || isMobile) return;
@@ -146,14 +161,11 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
       // 안 들어가 laneFit이 1로 떨어졌다(사용자 화면 — "+2건만 나온다").
       const DATE = 22, PAD = 6, OVER = 12, LANE = 18;
       setLaneFit(Math.max(1, Math.min(CAL_LANES, Math.floor((rowH - DATE - PAD - OVER) / LANE))));
-      const next = snapCols(el.clientWidth, window.devicePixelRatio);
-      setCols(prev => (prev && next && prev.join() === next.join() ? prev : next));
     };
     calc();
     const ro = new ResizeObserver(calc);
     ro.observe(el);
-    const offDpr = onDprChange(calc);
-    return () => { ro.disconnect(); offDpr(); };
+    return () => ro.disconnect();
   }, [weekCount, isMobile]);
 
   const weeks = React.useMemo(() => weekStarts.map(ws => ({ ws, ...layoutWeek(ws, tasks || [], laneFit) })),
@@ -182,8 +194,6 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
     });
     return m;
   }, [tasks]);
-  // 주 줄 안의 격자들이 같이 쓰는 열 폭. 못 재면 undefined라 grid-cols-7(1fr)이 남는다.
-  const colStyle = cols ? { gridTemplateColumns: cols.map(c => `${c}px`).join(' ') } : null;
   const dayTasks = (iso) => tasksByDate.get(iso) || [];
   const selectedList = dayTasks(selected);
 
@@ -255,17 +265,10 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
               <div className="absolute inset-0 grid grid-cols-7" style={{ gap: 1, ...colStyle }}>
                 {Array.from({ length: 7 }, (_, i) => {
                   const iso = addDays(ws, i);
-                  const inMonth = Number(iso.slice(5, 7)) === view.m + 1;
-                  const isToday = iso === todayIso;
-                  const isSel = iso === selected;
                   return (
                     <button key={iso} onClick={() => setSelected(iso)} aria-label={mdOf(iso)}
                       className="transition-colors"
-                      style={{
-                        background: isToday ? 'var(--app-accent-weak)' : isSel ? 'var(--app-surface-hover)'
-                          : inMonth ? 'var(--app-surface)' : 'var(--app-canvas)',
-                        boxShadow: isSel && !isToday ? 'inset 0 0 0 1.5px var(--app-accent)' : 'none',
-                      }} />
+                      style={cellStyle(iso, { month: view.m, todayIso, selected })} />
                   );
                 })}
               </div>
@@ -386,9 +389,9 @@ function onDprChange(cb) {
   return () => mq?.removeEventListener('change', fire);
 }
 
-// 모바일 달력도 같은 격자다 — 열 폭을 안 붙이면 여기서도 어떤 세로선만 굵어 보인다.
-// 데스크톱은 laneFit을 재는 ResizeObserver에 얹었는데 여기는 잴 것이 이것뿐이라 따로 둔다.
-function useSnapCols(ref) {
+// 데스크톱 격자와 모바일 달력이 같이 쓴다 — 열 폭을 안 붙이면 어떤 세로선만 굵어 보인다.
+// deps: 다시 잴 때(데스크톱은 주 수 · 폭 갈래 — 격자가 그때 새로 붙는다). 모바일은 붙을 때 한 번이다.
+function useSnapCols(ref, deps = []) {
   const [cols, setCols] = React.useState(null);
   React.useEffect(() => {
     const el = ref.current;
@@ -402,7 +405,8 @@ function useSnapCols(ref) {
     ro.observe(el);
     const offDpr = onDprChange(calc);
     return () => { ro.disconnect(); offDpr(); };
-  }, [ref]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ref, ...deps]);
   return cols ? { gridTemplateColumns: cols.map(c => `${c}px`).join(' ') } : null;
 }
 
@@ -419,19 +423,12 @@ function MobileCalendar({ weekStarts, month, todayIso, selected, setSelected, da
         style={{ gap: 1, background: 'color-mix(in srgb, var(--app-line) 55%, var(--app-ink-faint))', border: '1px solid var(--app-line)', gridAutoRows: '52px', ...colStyle }}>
         {weekStarts.flatMap(ws => Array.from({ length: 7 }, (_, i) => {
           const iso = addDays(ws, i);
-          const inMonth = Number(iso.slice(5, 7)) === month + 1;
-          const isToday = iso === todayIso;
-          const isSel = iso === selected;
           const list = dayTasks(iso);
           const bl = birthdaysOn(bdays, iso);
           return (
             <button key={iso} onClick={() => setSelected(iso)}
               className="flex flex-col items-center pt-1.5 gap-1 transition-colors"
-              style={{
-                background: isToday ? 'var(--app-accent-weak)' : isSel ? 'var(--app-surface-hover)'
-                  : inMonth ? 'var(--app-surface)' : 'var(--app-canvas)',
-                boxShadow: isSel && !isToday ? 'inset 0 0 0 1.5px var(--app-accent)' : 'none',
-              }}>
+              style={cellStyle(iso, { month, todayIso, selected })}>
               {/* 날짜 숫자 + 생일 얼굴. 52px 칸이라 한 명까지만 그리고 나머지는 +N —
                   칸을 넘기면 아래 점(업무)이 밀려 내려간다. 틈은 4px 하나다(D9 — +N을 10px로
                   키우면서 6px로는 375 칸에 안 들어가 4로 줄였다 · tests/calfit이 칸 안인지 잰다) */}

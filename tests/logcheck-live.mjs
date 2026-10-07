@@ -289,9 +289,12 @@ import { loadSource, readSplit } from './_load.mjs';
   // 훅이 붙어 있어야 하는 자리 — 빠지면 그 화면의 'N분 전'이 다시 굳는다
   const members = readFileSync(new URL('../src/views/membersView.jsx', import.meta.url), 'utf8');
   assert.ok(/useMinuteTick\(tab === 'account' \? 10000 : 60000\)/.test(members), '멤버 관리 화면이 10초 틱을 쓴다(떠난 순간의 초 단위)');
-  const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
-  assert.strictEqual((parts.match(/useMinuteTick\(10000\)/g) || []).length, 1, '가입한 사람 모달은 10초 틱');
-  assert.strictEqual((parts.match(/useMinuteTick\(\)/g) || []).length, 1, '최근 활동 피드는 1분 틱');
+  // 두 자리는 dashboardParts에서 components/로 갈라 나갔다(2026-10-07) — 파일마다 하나씩
+  const people = readFileSync(new URL('../src/components/peopleStrip.jsx', import.meta.url), 'utf8');
+  const feedSrc = readFileSync(new URL('../src/components/activityFeed.jsx', import.meta.url), 'utf8');
+  assert.strictEqual((people.match(/useMinuteTick\(10000\)/g) || []).length, 1, '가입한 사람 모달은 10초 틱');
+  assert.strictEqual((people.match(/useMinuteTick\(/g) || []).length, 1, '사람 칸 파일의 틱은 그 하나뿐');
+  assert.strictEqual((feedSrc.match(/useMinuteTick\(\)/g) || []).length, 1, '최근 활동 피드는 1분 틱');
   console.log('PASS  1분 틱 8가지');
 }
 
