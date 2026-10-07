@@ -1,0 +1,449 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Highlighter, Eraser } from 'lucide-react';
+import { loadBibleState, saveBibleState } from '../services/word.js';
+import { showToast } from './Toast.jsx';
+import { readCache, writeCache } from '../services/cache.js';
+import { failText } from '../services/errorText.js';
+import { Skeleton } from './media.jsx';
+import { useReducedMotion } from '../hooks/useReducedMotion.js';
+
+// ============================================================================
+// 성경 공용 부품 — 본문 한 덩이 · 형광펜 · 화면 전환 · 기다리는 자리 · 성경 상태 그릇
+// ----------------------------------------------------------------------------
+// 성경 리더(wordBible.jsx BibleTab)와 QT 본문(views/wordView.jsx QtPassage)이 같이 쓰고,
+// 예배(worshipPassage·worshipParts)·내 정보(settings)도 몇 개를 가져간다. 19차(2026-10-07)에
+// wordBible.jsx(1,738줄)에서 갈라 왔다 — 다른 화면의 import는 그대로 두려고 **wordBible.jsx가
+// EmptyBookMark·PassageSkeleton·ShareSwitch·hlColor를 이어서 내보낸다**. 말씀 화면(wordView)은 여기서 바로 가져간다.
+// 북마크·형광펜 목록은 bibleMarks.jsx, 검색·목차·리더는 wordBible.jsx에 있다.
+// ============================================================================
+
+// 캐시 열쇠 — 이어읽기·북마크·형광펜(services/cache.js).
+// **'word:'로 시작하지 않는다.** dropCache는 그냥 접두 비교라, 묵상을 저장할 때 부르는
+// dropCache('word'…)가 이 값까지 가져갔다(그러면 다음 진입에서 형광펜이 통째로 다시
+// 로딩된다). 갈래가 다르면 열쇠의 첫 도막도 다르게 짓는다.
+const STATE_KEY = 'bible:state';
+
+// 글자 크기 3단계. 계정이 아니라 기기에 남긴다(같은 사람도 폰과 노트북이 다르다).
+const FONT_STEPS = [
+  { size: '13.5px', line: '1.75', gap: '5px', mark: '11px' },
+  { size: '15px', line: '1.8', gap: '7px', mark: '12.5px' },
+  { size: '17px', line: '1.85', gap: '9px', mark: '14px' },
+];
+
+// ── 화면이 바뀔 때의 결 ─────────────────────────────────────────────────────
+// 말씀 화면 안에서 무엇이 바뀌든(세그먼트 · 날짜 · 장 · 목차↔리더) 같은 결로 바뀐다.
+// index.css에 새 키프레임을 두지 않고 **전환**으로 낸다: k가 달라진 렌더에서 시작
+// 자리로 되돌려 놓고(렌더 중 setState — 그 렌더가 곧바로 다시 돈다), 그림이 나간
+// 뒤(useEffect)에 제자리로 보낸다. 움직이는 것은 transform·opacity뿐이다(§4.2).
+// dir: 1 다음 · -1 이전 · 0 방향 없음(그때는 세로로 아주 조금).
+//
+// **거리를 키웠다**(사용자 피드백 2026-09-02 — "이전/다음 장 애니메이션이 안 보인다").
+// 12px·.26s는 스크롤 한 칸보다 작아서, 장이 바뀐 것은 알아도 어느 쪽으로 갔는지가
+// 눈에 남지 않았다. 28px·.3s면 방향이 읽히고 §4.2의 결(이징 하나 · transform/opacity만)
+// 안에 그대로 있다. prefers-reduced-motion이면 전환 자체가 없다.
+const SWAP_SHIFT = 28;    // px — 방향이 보이는 최소치. 이보다 작으면 없는 것과 같았다
+const SWAP_LIFT = 8;      // px — 방향이 없을 때(dir 0)의 세로 이동
+const SWAP_MS = 300;      // ms — §4.2의 .dc-screen(260ms)과 같은 결
+
+export function Swap({ k, dir = 0, className = '', children }) {
+  const [seen, setSeen] = useState(k);
+  const [shown, setShown] = useState(true);
+  const nodeRef = useRef(null);
+  const reduce = useReducedMotion();
+
+  if (seen !== k) { setSeen(k); if (!reduce) setShown(false); }
+  useEffect(() => {
+    if (shown) return;
+    // **이 줄이 애니메이션의 전부다.** 시작 자리를 브라우저에 한 번 '보여 주고' 나서
+    // 제자리로 보낸다 — offsetHeight를 읽으면 그 자리로 스타일이 확정되고, 그래야
+    // 다음 값이 전환의 끝점이 된다. 없으면 두 값이 같은 스타일 갱신 안에서 처리되어
+    // **전환이 아예 시작되지 않는다**(사용자 피드백 2026-09-02 "애니메이션이 눈에
+    // 안 잡힌다"의 진짜 원인 — 거리가 작아서가 아니라 안 돌고 있었다). 지우지 말 것.
+    void nodeRef.current?.offsetHeight;
+    setShown(true);
+  }, [shown]);
+
+  const off = dir === 0
+    ? `translate3d(0, ${SWAP_LIFT}px, 0)`
+    : `translate3d(${dir > 0 ? SWAP_SHIFT : -SWAP_SHIFT}px, 0, 0)`;
+  const ease = `${SWAP_MS}ms var(--ease-out-quint)`;
+  return (
+    <div
+      ref={nodeRef}
+      className={className}
+      data-swap={String(k)}
+      style={reduce ? undefined : {
+        opacity: shown ? 1 : 0,
+        transform: shown ? 'none' : off,
+        // 되돌릴 때는 전환을 끄고 튕겨 놓는다 — 안 그러면 나가는 것과 들어오는 것이
+        // 같은 자리에서 서로 되감겨 흐릿하게 흔들린다.
+        transition: shown ? `opacity ${ease}, transform ${ease}` : 'none',
+      }}
+    >{children}</div>
+  );
+}
+
+// ── 기다리는 자리 ───────────────────────────────────────────────────────────
+// 자리를 먼저 잡아 두는 것이 목적이다 — 글자 한 줄("본문을 여는 중")로 두면 본문이
+// 도착할 때 아래 것들이 통째로 밀린다(사용자 피드백 2026-09-01 '출렁임').
+// 줄 길이를 조금씩 달리해 글 덩이처럼 보이게 한다.
+const SKEL_W = ['92%', '86%', '96%', '78%', '90%', '84%', '94%', '72%', '88%', '82%', '95%', '76%'];
+
+export function PassageSkeleton({ lines = 8, step = 1 }) {
+  const f = FONT_STEPS[step] || FONT_STEPS[1];
+  // 줄 길이 열두 개를 돌려 쓴다 — QT는 넘기기 직전 높이만큼 자리를 채우므로(wordView의
+  // QtPassage) 열두 줄로는 긴 본문의 자리가 덜 차서 카드 아래가 비어 보인다
+  const widths = Array.from({ length: Math.max(1, lines) }, (_, i) => SKEL_W[i % SKEL_W.length]);
+  return (
+    <div className="flex flex-col" style={{ gap: f.gap }} aria-hidden="true">
+      {widths.map((w, i) => (
+        // 크기는 **바깥**이 잡는다 — Skeleton은 className만 받고, `.dc-skeleton`이
+        // position:relative를 박고 있어 위치 유틸은 어차피 먹지 않는다(media.jsx 머리말)
+        <div key={i} style={{ width: w, height: `calc(${f.size} * ${f.line})` }}>
+          <Skeleton className="w-full h-full rounded-[4px]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── 형광펜 한 벌 ────────────────────────────────────────────────────────────
+// **글자가 있는 자리만 칠한다**(사용자 피드백 2026-09-02 4차 — "칠할 때 그 줄 블록
+// 전체가 칠해진다"). 예전에는 절 <p>에 배경을 줘서, 짧은 절도 카드 오른쪽 끝까지
+// 노랗게 그어졌다. 배경을 절 안의 인라인 요소로 내리고 `box-decoration-break: clone`을
+// 걸면 여러 줄로 감기는 절도 **각 줄의 글자 폭만** 칠해진다(안 걸면 마지막 줄 끝까지
+// 한 덩이로 이어진다). 좌우 padding은 같은 값의 음수 margin으로 상쇄해 글자 자리가
+// 밀리지 않게 한다. 색은 업무 본문의 ==형광펜==과 같은 토큰이다(RichText·.tiptap mark).
+const HL_STYLE = {
+  borderRadius: '3px',
+  padding: '1px 2px',
+  margin: '0 -2px',
+  boxDecorationBreak: 'clone',
+  WebkitBoxDecorationBreak: 'clone',
+};
+
+// **색은 네 가지다**(사용자 결정 2026-09-03 — 빨·파·노·초). 값은 업무 태그와 같은 토큰이라
+// 다크 모드에서도 따라온다(Tailwind 기본 팔레트를 쓰면 themefit이 잡는다). 저장은
+// bible_state.highlights 항목의 `color`이고, **색이 없는 예전 항목은 노랑으로 읽는다**
+// (0038로 들어간 항목에는 색 칸이 없었다 — 마이그레이션 없이 화면에서 흡수한다).
+const HL_COLORS = [['red', '빨강'], ['blue', '파랑'], ['yellow', '노랑'], ['green', '초록']];
+const HL_TOKEN = {
+  red: ['var(--app-tag-red)', 'var(--app-tag-red-fg)'],
+  blue: ['var(--app-tag-blue)', 'var(--app-tag-blue-fg)'],
+  yellow: ['var(--app-tag-yellow)', 'var(--app-tag-yellow-fg)'],
+  green: ['var(--app-tag-green)', 'var(--app-tag-green-fg)'],
+};
+export const hlColor = (c) => (HL_TOKEN[c] ? c : 'yellow');
+
+export function Hl({ color, children }) {
+  const c = hlColor(color);
+  const [bg, fg] = HL_TOKEN[c];
+  return <mark data-lit={c} style={{ ...HL_STYLE, background: bg, color: fg }}>{children}</mark>;
+}
+
+// ── 본문 한 덩이 (QT 탭도 같이 쓴다) ───────────────────────────────────────
+// marks: 형광펜이 켜진 절의 Map('장:절' → 색 이름)
+// onPickVerse(chapter, verse): 절을 눌렀을 때(리더에서만 준다). **여기서 칠하지
+//   않는다** — 부른 쪽이 도구 줄(VerseTool)을 넘겨 준다.
+// picked: 지금 고른 **범위**의 '장:절' Set — 그 절들에 표시를 준다(사용자 결정 2026-09-03)
+// toolAt: 그 범위의 마지막 절 '장:절' — 그 **다음 형제로** tool을 그린다
+export function PassageText({
+  verses, step = 1, showChapter = false, focus = null, marks = null, onPickVerse = null, picked = null,
+  toolAt = null, tool = null,
+}) {
+  const f = FONT_STEPS[step] || FONT_STEPS[1];
+  // 글을 끌어 고르고 손을 뗀 자리에도 click이 온다 — 고른 것이 있으면 팝오버를 띄우지
+  // 않는다(복사하려고 고른 것을 형광펜으로 알아들으면 고른 것이 풀린다).
+  // **누른 요소는 넘기지 않는다** — 좌표를 재던 시절의 앵커였는데, 도구 줄이 문서 흐름
+  // 안으로 들어오면서(§6-9-m) 받는 쪽이 쓰지 않게 됐다.
+  const hit = (chapter, verse) => {
+    const sel = typeof window !== 'undefined' ? window.getSelection?.() : null;
+    if (sel && !sel.isCollapsed && String(sel).trim()) return;
+    onPickVerse(chapter, verse);
+  };
+  return (
+    <div className="flex flex-col" style={{ gap: f.gap }}>
+      {verses.map(v => {
+        // 이 판에서 비워 둔 절. 글자는 남기고 색만 죽인다 — 지우면 뒤 절 번호가 밀린다
+        const blank = v.text === '(없음)';
+        const on = focus && focus.chapter === v.chapter && focus.verse === v.verse;
+        const key = `${v.chapter}:${v.verse}`;
+        const litColor = marks?.get?.(key) || null;
+        const lit = !!litColor;
+        const isPicked = !!picked?.has?.(key);
+        const style = { fontSize: f.size, lineHeight: f.line };
+        // 형광펜은 절 상자가 아니라 글자에 걸린다(HL_STYLE) — 여기서 배경을 주지 말 것
+        if (on) style.boxShadow = 'inset 0 0 0 1.5px var(--app-accent)';
+        // **지금 도구 줄이 무엇을 대상으로 하는지 절이 말한다**(사용자 피드백 2026-09-03).
+        // 왼쪽 accent 선 + 옅은 바닥. 형광펜(노랑, 글자)·검색 도착(테두리)과 안 겹친다.
+        if (isPicked) { style.boxShadow = 'inset 2px 0 0 var(--app-accent)'; style.background = 'var(--app-surface-hover)'; }
+        const line = (
+          <p
+            key={key}
+            data-verse={key}
+            data-focus={on ? '1' : undefined}
+            data-mark={lit ? '1' : undefined}
+            data-picked={isPicked ? '1' : undefined}
+            role={onPickVerse ? 'button' : undefined}
+            tabIndex={onPickVerse ? 0 : undefined}
+            aria-expanded={onPickVerse ? toolAt === key : undefined}
+            onClick={onPickVerse ? () => hit(v.chapter, v.verse) : undefined}
+            onKeyDown={onPickVerse ? (e) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return;
+              e.preventDefault(); onPickVerse(v.chapter, v.verse);
+            } : undefined}
+            // 도착 강조(focus)는 3초 뒤에 꺼진다(BibleTab) — 그때 툭 사라지지 않게
+            // 배경·테두리에 전이를 건다. 속성을 못 박는 이유는 §6-17-b와 같다.
+            className={`dc-verse rounded-xs transition-[color,background-color,box-shadow] duration-300 motion-reduce:transition-none ${blank ? 'text-fg-faint' : 'text-fg-secondary'} ${
+              on || isPicked ? '-mx-1.5 px-1.5' : ''} ${on && !isPicked ? 'bg-accent-weak' : ''} ${
+              isPicked ? 'dc-verse-picked' : ''} ${onPickVerse ? 'cursor-pointer' : ''}`}
+            style={style}
+          >
+            {/* 절 번호는 칠하지 않는다 — 형광펜은 읽은 글에 긋는 것이고, 번호까지 노래지면
+                본문이 어디서 시작하는지가 흐려진다 */}
+            <span className="mr-1.5 tabular-nums font-bold text-fg-faint" style={{ fontSize: f.mark }}>
+              {showChapter ? `${v.chapter}:${v.verse}` : v.verse}
+            </span>
+            {lit ? <Hl color={litColor}>{v.text}</Hl> : v.text}
+          </p>
+        );
+        // **도구 줄은 눌린 절 바로 다음 형제다**(사용자 피드백 2026-09-03 — 좌표를 재는
+        // 팝오버는 어긋날 길이 여러 개였다. 문서 흐름 안에 있으면 어긋날 자리가 없다).
+        // 칸 사이 간격(f.gap)만큼 음수 마진으로 당겨, 글자 크기를 바꿔도 절에 붙어 선다.
+        //
+        // **언제나 Fragment로 감싼다.** 고른 절만 감싸면 그 자리의 타입이 p ↔ Fragment로
+        // 바뀌어 리액트가 <p>를 새로 만든다 — 누르는 순간 절 요소가 갈려서 그 절에 걸린
+        // 것(선택·포커스·검사가 쥔 참조)이 통째로 끊긴다.
+        return (
+          <React.Fragment key={key}>
+            {line}
+            {tool && toolAt === key ? <div style={{ marginTop: `calc(2px - ${f.gap})` }}>{tool}</div> : null}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── 절을 눌렀을 때의 도구 줄 ────────────────────────────────────────────────
+// **누르자마자 칠하지 않는다**(사용자 피드백 2026-09-02). 본문을 읽다 보면 손이
+// 스치기만 해도 절이 노래졌고, 되돌리려면 같은 자리를 또 눌러야 했다. 절을 누르면
+// 무엇을 할지 먼저 묻는다 — 이미 칠해져 있으면 [형광펜 지우기], 아니면 [형광펜 칠하기]
+// ('긋기'에서 바뀐 이름 — 2026-09-02 4차. 색을 입히는 일이라 '칠하기'다).
+// 취소는 바깥 누름과 Esc다(따로 '취소' 줄을 두지 않는다 — 잃는 것이 없다).
+//
+// **좌표를 재지 않는다**(사용자 피드백 2026-09-03 — "형광펜 칠하기 버튼이 아직도 엉뚱한
+// 곳에 뜬다"). 예전에는 body 포털 + useAnchoredPos로 눌린 절 옆에 fixed로 세웠는데,
+// 어긋날 자리가 세 군데였다: ① 위치가 state라 tailwind `duration-*`이 top/left까지 전이
+// (§6-17-b) ② 앵커를 갈아 끼우면 배치 훅이 다시 안 돈다 ③ 스크롤·리사이즈·주소 줄
+// 접힘처럼 rect가 바뀌는 순간마다 다시 재야 한다. 지금은 **눌린 절의 다음 형제**로
+// 문서 흐름 안에 그린다(PassageText의 `tool`) — 잴 것이 없으니 어긋날 수도 없다.
+// 대상이 무엇인지는 절 자신이 말한다(왼쪽 accent 선 + 옅은 바닥, `dc-verse-picked`).
+//
+// **여기는 색이 늘 자리다.** 지금은 노랑 하나라 칩이 '무슨 색으로 칠하는지'를 보여 주는
+// 표시다. 색이 늘면 칩을 색마다 하나씩 두고 각 칩이 그 색으로 칠하게 하면 된다
+// (services/word.js의 verseKey는 그대로 두고 highlights 항목을 { ref, at, color }로 늘린다).
+const toolBtn = 'inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[12px] font-semibold text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors';
+
+function VerseTool({ label, current, lit, onPaint, onErase }) {
+  return (
+    // `pr-2`·`ml-1`이 칩 오른쪽 여백이다(사용자 지적 2026-09-03 — 칩이 테두리에 붙어 있었다)
+    <span
+      data-verse-tool={label} role="group" aria-label={`${label} 형광펜`}
+      className="inline-flex items-center gap-1 p-1 pr-2 rounded-lg bg-surface border border-line shadow-soft animate-in fade-in duration-150"
+    >
+      <Highlighter size={13} className="shrink-0 mx-1 text-fg-faint" />
+      {HL_COLORS.map(([c, ko]) => (
+        <button
+          key={c} type="button" data-hl-color={c} onClick={() => onPaint(c)}
+          aria-pressed={current === c} title={`${ko}으로 칠하기`} aria-label={`${ko}으로 칠하기`}
+          className="shrink-0 w-7 h-7 rounded-full transition active:scale-90"
+          style={{
+            background: HL_TOKEN[c][0],
+            // 지금 칠해져 있는 색에는 accent 링이 돈다 — '현재 색'을 칩이 말한다
+            boxShadow: current === c ? 'inset 0 0 0 2px var(--app-accent)' : 'inset 0 0 0 1px var(--app-line)',
+          }}
+        />
+      ))}
+      {/* 칠할 것이 없는데 지우기가 있으면 아무 일도 못 한다 — 켜져 있을 때만 세운다 */}
+      {lit && (
+        <button type="button" onClick={onErase} className={`${toolBtn} ml-1`}>
+          <Eraser size={13} className="shrink-0" />형광펜 지우기
+        </button>
+      )}
+    </span>
+  );
+}
+
+// ── 글자 크기 Aa 3단계 ─────────────────────────────────────────────────────
+export function FontSteps({ step, onChange }) {
+  return (
+    <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
+      {FONT_STEPS.map((f, i) => (
+        <button
+          key={i} onClick={() => onChange(i)} title={['작게', '보통', '크게'][i]}
+          aria-label={`글자 ${['작게', '보통', '크게'][i]}`} aria-pressed={step === i}
+          className="px-2 py-[3px] rounded-sm font-bold leading-none transition-colors"
+          style={{
+            fontSize: [11, 13, 15][i],
+            background: step === i ? 'var(--app-surface)' : 'transparent',
+            color: step === i ? 'var(--app-ink)' : 'var(--app-ink-muted)',
+          }}
+        >Aa</button>
+      ))}
+    </span>
+  );
+}
+
+// 빈 화면 표식 — 펼친 책. 왼쪽 면 → 오른쪽 면 → 가운데 선 순서로 그려진다(§4.2)
+// 크기는 밖에서 준다 — 본문 자리(48px)와 옆 칸 '내 기록'(36px)이 쓰는 자리가 다르다.
+export function EmptyBookMark({ className = 'w-12 h-12 mx-auto' }) {
+  return (
+    <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
+      <path className="dc-draw" pathLength="1" d="M24 15c-4.6-3.2-9.8-3.6-15.5-1.2v21c5.7-2.4 10.9-2 15.5 1.2"
+        fill="none" stroke="var(--app-ink-faint)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path className="dc-draw dc-draw-2" pathLength="1" d="M24 15c4.6-3.2 9.8-3.6 15.5-1.2v21c-5.7-2.4-10.9-2-15.5 1.2"
+        fill="none" stroke="var(--app-ink-faint)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path className="dc-draw dc-draw-3" pathLength="1" d="M24 15v21"
+        fill="none" stroke="var(--app-ink-faint)" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// ── 상태 저장 · 형광펜 칠하기 — 리더(BibleTab)와 QT 본문(wordView QtPassage)이 같이 쓴다 ──
+const EMPTY_STATE = { lastRef: '', bookmarks: [], highlights: [], recentSearches: [] };
+
+// what을 주면 **못 남겼을 때 이유까지 말한다**(사용자 피드백 2026-09-03 — 예외 문구).
+// 예전에는 saveBibleState가 실패를 삼켜서, 클라우드에 안 남은 형광펜이 화면에는
+// 칠해져 있었다(새로 열면 사라진다). 이어읽기(lastRef)만 바뀌는 호출은 조용히 넘긴다.
+function persistState(next, what = '') {
+  writeCache(STATE_KEY, next);   // 고친 값이 곧 다음 진입의 첫 화면이다
+  saveBibleState(next).then(r => {
+    if (what && r && r.ok === false) showToast(failText(what, r.error));
+  }).catch(() => {});
+}
+
+// ── 성경 상태 그릇 한 벌 ────────────────────────────────────────────────────
+// **캐시로 시작하고**(§6-9-p — 이펙트에 맡기면 한 프레임 스켈레톤이 그려진다),
+// **읽어 온 값이 그 사이에 칠한 형광펜을 덮지 않는다**(2026-09-06). 클라우드 왕복이
+// 한 박자 늦게 끝나므로, 로딩 중에 칠한 절이 도착값으로 통째로 되돌아갔다(사람에게는
+// "칠했는데 사라졌다"로 보인다 — 게다가 그 되돌아간 값이 다음 저장에 그대로 올라간다).
+// 한 번이라도 내가 고쳤으면 도착값은 버린다(edited) — 어차피 update가 그 자리에서
+// 저장했으므로 서버도 곧 같은 값이다.
+//
+// 읽어 오는 자리가 둘로 갈려서 그릇만 여기 둔다: 형광펜만 쓰는 곳(QT 본문 —
+// useBibleState)은 스스로 한 번 읽고, 리더(BibleTab)는 **책 목록과 한 묶음으로** 읽으며
+// 그 답의 lastRef로 펼 장까지 정한다. 그래서 그릇은 같고 읽는 이펙트만 다르다.
+export function useStateBox() {
+  const [state, setState] = useState(() => readCache(STATE_KEY) || EMPTY_STATE);
+  const edited = useRef(false);
+  // 읽어 온 값을 받아들인다 — 내가 이미 고쳤으면 버린다
+  const adopt = (saved) => { if (edited.current) return; setState(saved); writeCache(STATE_KEY, saved); };
+  const update = (next, what = '') => { edited.current = true; setState(next); persistState(next, what); };
+  return { state, adopt, update };
+}
+
+// 형광펜만 필요한 자리(QT 본문)의 상태 — 캐시로 시작하고 한 번 읽어 온다.
+export function useBibleState() {
+  const { state, adopt, update } = useStateBox();
+  useEffect(() => {
+    let alive = true;
+    loadBibleState().then(saved => { if (alive) adopt(saved); }).catch(() => {});
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return [state, update];
+}
+
+// highlights 중 prefix로 시작하는 것 → Map('장:절' → 색). PassageText의 marks 모양이다.
+export function marksFor(highlights, prefix) {
+  const map = new Map();
+  for (const h of highlights || []) {
+    const ref = String(h?.ref || '');
+    if (ref.startsWith(prefix)) map.set(ref.slice(prefix.length), hlColor(h?.color));
+  }
+  return map;
+}
+
+// ── 범위 고르기(사용자 결정 2026-09-03) ────────────────────────────────────
+// **앵커 방식**이다. 첫 클릭이 앵커고, 다음 클릭은 앵커와 그 절 사이를 범위로 만든다:
+// 4 → 1이면 1~4, 1 → 4도 1~4, 1~3에서 6을 누르면 1~6, 1~6에서 5를 누르면 1~5로
+// **줄어든다**(역으로 취소). 앵커를 다시 누르면 해제. 늘리기와 취소가 같은 손짓이라
+// '범위 시작/끝' 두 모드를 만들지 않아도 된다. 다른 장의 절을 누르면 거기서 새로 시작한다
+// (QT 본문은 장을 넘어갈 수 있다).
+// refOf(chapter, verse) → highlights에 남길 ref · name → 라벨 앞머리(책 이름) ·
+// guard() → true면 이번 클릭을 무시한다(리더의 스와이프 직후).
+// 돌려주는 것은 PassageText에 그대로 꽂는 네 가지(onPickVerse·picked·toolAt·tool)와 clear.
+export function useVersePaint({ state, update, refOf, name, guard = null }) {
+  const [sel, setSel] = useState(null);   // { chapter, anchor, from, to }
+  const pickVerse = (chapter, verse) => {
+    if (guard?.()) return;
+    setSel(prev => {
+      if (!prev || prev.chapter !== chapter) return { chapter, anchor: verse, from: verse, to: verse };
+      if (verse === prev.anchor) return null;
+      return { ...prev, from: Math.min(prev.anchor, verse), to: Math.max(prev.anchor, verse) };
+    });
+  };
+
+  // 바깥을 누르거나 Esc면 해제한다. **절과 도구 줄은 '안'이다** — 다른 절의 mousedown이
+  // 여기서 닫아 버리면 곧 오는 click이 새 앵커를 잡아 범위가 절대 만들어지지 않는다
+  // (2026-09-05 실물에서 잡힘 — 고른 절만 '안'으로 쳤고, 테스트는 p.click()만 쏴서
+  // mousedown 없이 통과했었다. 지금은 tests/word.mjs가 mousedown을 먼저 보낸다).
+  useEffect(() => {
+    if (!sel) return undefined;
+    const onDown = (e) => {
+      if (e.target?.closest?.('[data-verse-tool], [data-verse]')) return;
+      setSel(null);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setSel(null); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [sel]);
+
+  // 고른 범위 — 화면에 줄 표시(Set) · 저장에 쓸 참조 목록 · 지금 색 · 라벨
+  const range = sel ? Array.from({ length: sel.to - sel.from + 1 }, (_, i) => sel.from + i) : [];
+  const picked = sel ? new Set(range.map(v => `${sel.chapter}:${v}`)) : null;
+  const selRefs = range.map(v => refOf(sel.chapter, v));
+  const selHits = selRefs.map(ref => (state.highlights || []).find(h => h?.ref === ref)).filter(Boolean);
+  const selLit = selHits.length > 0;
+  const selColor = selLit ? hlColor(selHits[0].color) : null;
+  const selLabel = sel
+    ? `${name || ''} ${sel.chapter}:${sel.from}${sel.to > sel.from ? `~${sel.to}` : ''}`.trim()
+    : '';
+  // 도구 줄은 **범위의 마지막 절 아래**에 선다(사용자 결정 2026-09-03)
+  const toolAt = sel ? `${sel.chapter}:${sel.to}` : null;
+
+  // 범위 전체를 그 색으로 칠한다 — 이미 다른 색이면 **덧칠**이다(같은 절이 두 번 남지
+  // 않게 먼저 걷어내고 다시 넣는다).
+  const paintRange = (color) => {
+    if (!selRefs.length) return;
+    const at = new Date().toISOString();
+    const rest = (state.highlights || []).filter(h => !selRefs.includes(h?.ref));
+    setSel(null);
+    update({ ...state, highlights: [...rest, ...selRefs.map(ref => ({ ref, at, color }))] },
+      `${selLabel}에 형광펜을 칠하지 못했어요`);
+  };
+  const eraseRange = () => {
+    if (!selRefs.length || !selLit) return;
+    setSel(null);
+    update({ ...state, highlights: (state.highlights || []).filter(h => !selRefs.includes(h?.ref)) },
+      `${selLabel}의 형광펜을 지우지 못했어요`);
+  };
+
+  const tool = sel
+    ? <VerseTool label={selLabel} current={selColor} lit={selLit} onPaint={paintRange} onErase={eraseRange} />
+    : null;
+  return { onPickVerse: pickVerse, picked, toolAt, tool, clear: () => setSel(null) };
+}
+
+// 켬/끔 스위치 모양 한 벌 — 장 머리의 판과 내 정보(settings.jsx)가 같이 쓴다
+export function ShareSwitch({ on }) {
+  return (
+    <span aria-hidden="true" className="relative shrink-0 w-[30px] h-[18px] rounded-full transition-colors"
+      style={{ background: on ? 'var(--app-accent)' : 'var(--app-line)' }}>
+      <span className="absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-[left] duration-150"
+        style={{ left: on ? 14 : 2 }} />
+    </span>
+  );
+}

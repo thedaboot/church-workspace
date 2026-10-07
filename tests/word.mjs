@@ -2560,6 +2560,18 @@ check('띄어쓰기를 붙여 쳐도 찾고, 절의 글자 그대로 칠한다',
 
 await clickSel('button[aria-label="검색어 지우기"]');
 await sleep(600);
+// 검색을 접는 길은 한 벌이다(wordBible useBibleSearch의 resetSearch · 19차) — X를 누르면 칸·결과·지우기 단추가
+// 다 걷히고 목차로 돌아온다. **되돌리기**: clearSearch가 resetSearch를 거르고 칸 글자만 비우게 하면 결과가 남아 깨진다.
+{
+  const cleared = await ev(`(() => ({
+    typed: document.querySelector('input[aria-label="어떤 본문을 찾으시나요?"]')?.value ?? null,
+    results: !!document.querySelector('[data-col="search"]'),
+    x: !!document.querySelector('button[aria-label="검색어 지우기"]'),
+    toc: !!document.querySelector('[data-col="toc"]') || !!document.querySelector('[data-col="read"]'),
+  }))()`);
+  check('검색어를 지우면 칸·결과·지우기 단추가 함께 걷힌다(resetSearch 한 벌)',
+    cleared.typed === '' && !cleared.results && !cleared.x && cleared.toc, JSON.stringify(cleared));
+}
 
 // ── 북마크·형광펜이 쌓였을 때 (2026-09-02) ─────────────────────────────────
 // 여러 권에 걸쳐 심어 두고 다시 연다. 책으로 묶이는지 · 정경 순인지 ·
@@ -3315,6 +3327,51 @@ await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, dev
   check("내 정보에서도 끈다 — 판 토글과 같은 글자·같은 저장", /<span>나도 나누기<\/span>/.test(settings) && /saveReadShare\(next\)/.test(settings) && /loadReadShare\(\)/.test(settings));
   await ev(`['word_bible_reads', 'word_bible_reads_mine', 'word_bible_read_share', 'word_qt_shared', 'word_bible_state'].forEach(k => localStorage.removeItem(k));
     localStorage.setItem('word_qt_schedule', ${JSON.stringify(JSON.stringify(seed.schedule))});`);
+}
+
+// ── ★ 뼈대 높이 = 실제 높이(19차 묶음 H · 사용자 허락) ─────────────────────────────
+// 말씀 나눔 뼈대는 옛 '한 줄 피드'(얼굴 + 두 줄 · 52px)였는데 실제는 **사람 칩 한 줄 + 종이 한 장**(§7)이라
+// 나눔이 도착하는 순간 아래가 수백 px 밀렸다. 노트 편집기 뼈대는 서식 바·종이 머리가 빠져 100px 넘게 짧았다.
+// 게스트의 읽기는 곧바로 끝나 뼈대가 한 순간만 선다 — 들어가기 전에 MutationObserver를 심어 꽂히는 그 순간 잰다.
+// 나눔은 두 도막을 한 줄씩 쓴 오늘 묵상(공유) · 편집기는 아직 안 쓴 날(템플릿)로 잰다. 두 폭(375 · 1440).
+// **되돌리기**: wordView의 FeedSkeleton을 얼굴 + 두 줄로, EditorSkeleton을 `dc-skeleton … EDITOR_SLOT` 한 덩이로 되돌리면 깨진다.
+{
+  const NOTE = '### 나의 결단\n오늘 한 걸음 더\n\n### 기도\n함께 걷게 하소서';
+  const bones = [];
+  for (const [w, feed] of [[375, true], [1440, true], [375, false], [1440, false]]) {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: 900, deviceScaleFactor: 1, mobile: w < 768 });
+    const entries = feed ? { [today]: { body: NOTE, shared: true } } : {};
+    await ev(`(() => {
+      localStorage.setItem('word_qt_schedule', ${JSON.stringify(JSON.stringify(seed.schedule))});
+      localStorage.setItem('word_qt_entries', ${JSON.stringify(JSON.stringify(entries))});
+    })()`);
+    await reload(); await sleep(900);
+    bones.push([w, feed ? 'feed' : 'editor', await ev(`(async () => {
+      let bone = null;
+      const BONE = ${JSON.stringify(feed ? '.qt-feed-loading' : '.qt-editor-loading')};
+      const ob = new MutationObserver(() => {
+        const b = document.querySelector(BONE);
+        if (b && bone === null) bone = b.getBoundingClientRect().height;
+      });
+      ob.observe(document.body, { childList: true, subtree: true });
+      const go = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '말씀');
+      go && go.click();
+      const REAL = ${JSON.stringify(feed ? '[data-share-feed]' : '.qt-note-editor .tiptap')};
+      for (let i = 0; i < 400 && !document.querySelector(REAL); i++) await new Promise(r => setTimeout(r, 25));
+      ob.disconnect();
+      await new Promise(r => setTimeout(r, 700));
+      const real = document.querySelector(${JSON.stringify(feed ? '[data-share-feed]' : '.qt-note-editor')});
+      return { bone, real: real ? real.getBoundingClientRect().height : null };
+    })()`, true)]);
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  const ok = (k) => bones.filter(b => b[1] === k).every(([, , v]) => v.bone !== null && v.real !== null && Math.abs(v.bone - v.real) <= 2);
+  check('★ 말씀 나눔 뼈대가 실제 나눔(사람 칩 한 줄 + 종이 한 장)과 같은 높이다(375 · 1440 · ±2px)', ok('feed'), JSON.stringify(bones.filter(b => b[1] === 'feed')));
+  check('★ 노트 편집기 뼈대가 실제 편집기(서식 바 + 종이)와 같은 높이다(375 · 1440 · ±2px)', ok('editor'), JSON.stringify(bones.filter(b => b[1] === 'editor')));
+  await ev(`(() => {
+    localStorage.setItem('word_qt_schedule', ${JSON.stringify(JSON.stringify(seed.schedule))});
+    localStorage.setItem('word_qt_entries', ${JSON.stringify(JSON.stringify(seed.entries))});
+  })()`);
 }
 
 console.log(results.join('\n'));

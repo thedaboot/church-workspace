@@ -1,16 +1,14 @@
 import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, Lock, Pencil, Trash2, Share2, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Trash2, Share2, Loader2 } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
 import { selectMembers, selectCurrentUser } from '../store/selectors.js';
 import { useAuth } from '../services/auth.jsx';
 import { myUidSync } from '../services/supabaseClient.js';
-import { Avatar } from '../components/Avatar.jsx';
-import { Skeleton } from '../components/media.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { failText } from '../services/errorText.js';
-import { useCached, dropCache, readCache, writeCache } from '../services/cache.js';
+import { useCached, dropCache, readCache } from '../services/cache.js';
 import { useLiveRefresh } from '../services/liveV2.js';
 import { ShareChip, ShareToggle } from '../components/ShareToggle.jsx';
 import { SectionHead, Card } from './dashboardParts.jsx';
@@ -18,18 +16,25 @@ import { loadPassage, loadBibleIndex } from '../services/bible.js';
 import { fullRef } from '../services/bibleRef.js';
 import { entryParam, takeEntryParam } from '../services/entryQuery.js';
 import { qtNoteTemplate, isTemplateOnly, bodyOrTemplate, splitNoteSections,
-  ensureNoteSections, QT_SECTIONS, noteDraftKey, hasDraft, NOTE_DRAFT_DELAY } from '../services/noteTemplate.js';
-// 저장 상태 칩은 **예배 노트와 같은 한 벌**이다(worshipDetail의 SaveState) — 같은 뜻의
+  ensureNoteSections, QT_SECTIONS, noteDraftKey, hasDraft } from '../services/noteTemplate.js';
+// 저장 상태 칩은 **예배 노트와 같은 한 벌**이다(worshipParts의 SaveState) — 같은 뜻의
 // 표시가 두 파일에 각자 적혀 있으면 한쪽만 고쳐진다(출석 화면도 그 한 벌을 쓴다).
-import { SaveState } from '../components/worshipDetail.jsx';
+import { SaveState } from '../components/worshipParts.jsx';
 import { NoteSheet, NotePaper, PAPER, paperDate } from '../components/paper.jsx';
 import { useSheetShare } from '../hooks/useSheetShare.jsx';
-import { BibleTab, PassageText, PassageSkeleton, EmptyBookMark, Swap, useBibleState, useVersePaint, marksFor } from '../components/wordBible.jsx';
+import { useNoteDraft } from '../hooks/useNoteDraft.js';
+import { BibleTab } from '../components/wordBible.jsx';
+import { PassageText, PassageSkeleton, EmptyBookMark, Swap, useBibleState, useVersePaint, marksFor } from '../components/bibleParts.jsx';
+import { ShareFeed, FeedSkeleton, mergeFeed, MY_ROW, QT_SHEET_BOX, QT_CUT } from './shareFeed.jsx';
+import { Grass } from './grass.jsx';
 import {
-  kstToday, shiftDay, dayLabel, shortDayLabel, monthDays, shiftMonth, weekRange, shouldAdoptBody,
-  fetchSchedule, fetchMyEntry, saveMyEntry, deleteMyEntry, deleteEntryAsMaster,
-  fetchSharedEntries, fetchMyEntryDates, fetchScheduleRange,
+  kstToday, shiftDay, dayLabel, shouldAdoptBody,
+  fetchSchedule, fetchMyEntry, saveMyEntry, deleteMyEntry, deleteEntryAsMaster, fetchSharedEntries,
 } from '../services/word.js';
+
+// 나눔 피드의 순수 함수 둘은 shareFeed.jsx로 옮겼다(19차) — 검사(tests/word)가 이 경로로 부른다
+export { mergeFeed };
+export { canDeleteShared } from './shareFeed.jsx';
 
 // ============================================================================
 // v2 말씀 화면 — QT(오늘 본문 · 묵상 기록 · 나눔 · 내 기록) | 성경 읽기
@@ -113,16 +118,22 @@ const EDITOR_BOX = 'overflow-hidden border border-line rounded-md rounded-t-none
 // 서식 바(37px) + 본문 칸. 에디터가 붙기 전에도 같은 높이를 잡아 두어야 도착하는 순간
 // 아래 것들이 밀리지 않는다.
 const EDITOR_SLOT = 'min-h-[197px] md:min-h-[261px]';
-const EditorSkeleton = () => (
-  <div className={`dc-skeleton border border-line rounded-md ${EDITOR_SLOT}`} />
+// ★ 편집기가 오기 전 자리는 **실제 편집기와 같은 짜임**이다 — 서식 바 + 종이(19차 2026-10-07 · 사용자 허락).
+// 예전에는 서식 바와 종이 머리가 빠진 한 덩이(197/261px)라 편집기가 도착하는 순간 아래 칸이 190px 밀렸다.
+// 종이는 진짜 부품(NotePaper — 제목 칸이 있는 편집 머리)을 보이지 않게 세워 자리만 잡는다. 글 칸의 높이는
+// index.css `.note-paper .paper-rows`의 하한이 정한다 — 이 뼈대도 `.qt-note-editor.note-paper` 안에 선다.
+// 38px = 서식 바 37px + 그 아래 상자(EDITOR_BOX)의 윗선 1px.
+// 종이 폭·캐릭터(QT_SHEET_BOX · QT_CUT)는 나눔 종이와 한 벌이라 shareFeed.jsx에 있다.
+const EditorSkeleton = ({ date = '', passageRef = '' }) => (
+  <div className="qt-editor-loading dc-skeleton border border-line rounded-md" aria-hidden="true">
+    <div className="invisible" inert>
+      <div className="h-[38px]" />
+      <NotePaper date={paperDate(date)} kind="묵상 노트" passageRef={passageRef} onTitleChange={() => {}} cut={QT_CUT}>
+        <div className="paper-rows mt-5" />
+      </NotePaper>
+    </div>
+  </div>
 );
-// 종이 폭 상한 — 인쇄물이라 여기만 max-w를 쓴다(§6-9-k의 예외). 예배 노트와 같은 값이고
-// **읽기와 편집이 같이 쓴다**(2026-09-10 — 두 모드에서 종이의 폭·왼쪽 자리가 같아야
-// 수정·취소를 눌렀을 때 종이가 옆으로 흔들리지 않는다. tests/word가 단정한다).
-// 2026-09-07~09-09에는 읽기 상자를 **편집기의 실제 높이**(198/262px)로 맞춰 두었는데,
-// 편집 화면도 종이가 되면서 두 높이가 내용에 따라 달라졌다 — 2026-09-25 사용자 결정 A1로 글 줄의 자리는 편집과 같게 맞췄다(PITFALLS 9-aa-11).
-const QT_SHEET_BOX = 'qt-note-sheet w-full max-w-[560px] mx-auto';
-const QT_CUT = { src: '/chars/book.webp', w: 196, h: 157 };
 
 // 본문이 차지할 자리. **빈 상태도 이 자리를 그대로 받는다**(사용자 피드백 2026-09-02 3차)
 // — 자리는 320px인데 빈 상태만 220px이라, 본문이 없는 날에는 마크가 위로 올라붙고 아래
@@ -184,97 +195,20 @@ export function WordView({ initialTab = 'qt', initialRef = '' }) {
   );
 }
 
-// ── QT ──────────────────────────────────────────────────────────────────────
-function QtTab({ onOpenBible, focus = null }) {
-  const members = useStore(selectMembers);
-  const currentUser = useStore(selectCurrentUser);
-  const { session, isMaster } = useAuth();
-  const today = kstToday();
-
-  // '나눔 보기'로 들어오면 그 날부터 연다(focus — WordView.openShare)
-  const [date, setDate] = useState(() => focus?.date || today);
-  const [dir, setDir] = useState(0);
-  const [day, setDay] = useState({ loading: true, schedule: null, passage: null });
+// ── 내 묵상 노트의 상태 (QtTab) ────────────────────────────────────────────
+// 저장된 묵상(entry) · 지금 편집기의 글과 제목 · 읽기/편집 모드 · 브라우저 초안. 그날 묶음(qt)이 도착하면
+// 아직 손대지 않은 글만 갈아 끼운다(아래 shouldAdoptBody). 피드·공유 칩은 QtTab의 것이라 받아서 비운다.
+// passageRef(그날 구절 — 책 이름 전체)도 여기서 정한다: 템플릿 판정과 종이 머리가 같은 값을 봐야 한다.
+function useQtNote({ qt, qtError, date, setFeed, setShareState }) {
   // 저장된 묵상 — **어느 날짜의 것인지 같이 들고 있는다**(본문이 그러는 것과 같은 이유).
   // null이면 아직 한 번도 안 읽었다. { date, body, title, shared, exists }
   const [entry, setEntry] = useState(null);
   const [body, setBody] = useState('');            // 지금 에디터에 있는 글
   const [title, setTitle] = useState('');          // 지금 제목 칸에 있는 글(0062)
-  const [saving, setSaving] = useState(false);
-  const [shareState, setShareState] = useState(''); // '' | 'saving' | 'saved' (공유 칩)
-  const [feed, setFeed] = useState(null);          // null이면 아직 안 읽음
   // 저장된 글을 고치는 중인가. 저장된 것이 없는 날은 이 값과 상관없이 편집기가 선다.
   const [editing, setEditing] = useState(false);
   // 브라우저에 남아 있던 글을 되살렸다는 표시('draft') — 글자는 SaveState가 가진다
   const [noteState, setNoteState] = useState('');
-  const [grassKey, setGrassKey] = useState(0);     // 올리면 잔디가 보고 있는 달을 다시 읽는다
-  const editorRef = useRef(null);
-  const slotRef = useRef(null);
-  const [hold, setHold] = useState(0);             // 넘기기 직전 본문 자리의 높이(px)
-
-  const go = (next) => {
-    if (next === date) return;
-    setHold(slotRef.current?.offsetHeight || 0);
-    setDir(next > date ? 1 : -1);
-    setDate(next);
-  };
-
-  // ── 그날의 QT 한 묶음 (일정 · 내 묵상 · 나눔) ──────────────────────────────
-  // **캐시가 있으면 스켈레톤 없이 그 값으로 먼저 그린다**(사용자 요청 2026-09-03 —
-  // "매번 스켈레톤이 아니라 캐시된 값이 먼저"). 한 번 본 날짜로 되돌아오면 기다림이
-  // 아예 없다. 뒤에서 다시 읽어 갈아 끼우는 것은 useCached가 한다(services/cache.js).
-  // 셋을 한 열쇠로 묶는 이유: 화면에서 늘 같이 쓰이고, 저장·삭제 뒤 비울 때도 같이 비운다.
-  // 본문(절 텍스트)은 여기 넣지 않는다 — 그건 bible.js가 이미 책 단위로 캐시한다.
-  const qtKey = `word:qt:${date}`;
-  const { data: qt, loading: qtLoading, error: qtError, refresh: refreshQt } = useCached(
-    qtKey,
-    async () => {
-      const [schedule, mine, shared] = await Promise.all([
-        fetchSchedule(date), fetchMyEntry(date), fetchSharedEntries(date),
-      ]);
-      // **구절을 책 이름 전체로 편다**(사용자 요청 2026-09-11 · bibleRef.fullRef).
-      // 읽기표(0038 시드)는 '삿 5:19-31'처럼 약자로 저장되어 있는데 주보의 구절은
-      // 이름 전체라, 같은 모양의 종이인데 묵상 쪽 머리만 약자였다. **여기서 한 번만
-      // 푸는 이유**: 책 목록도 비동기라 화면에서 따로 읽으면 구절이 한 박자 늦게 바뀌고,
-      // 그 사이에 만든 템플릿이 손대지 않은 글을 '고쳐진 글'로 만든다. 이 묶음과 같이
-      // 오면 그럴 틈이 없다. 목록을 못 읽으면 저장된 글자 그대로 간다(안전한 실패).
-      let refFull = schedule?.passage_ref || '';
-      if (refFull) {
-        try { refFull = fullRef(refFull, await loadBibleIndex()); }
-        catch (e) { console.error('[word] 책 목록을 읽지 못해 구절을 약자 그대로 둡니다:', e); }
-      }
-      // 어느 날짜의 묶음인지 같이 들고 있는다 — 날짜가 먼저 바뀌고 값이 한 프레임 늦게
-      // 오므로, 이걸 안 보면 **앞 날짜의 값을 새 날짜에 적어 버린다**(빈 묵상으로 덮였다)
-      return { date, schedule: schedule ?? null, mine: mine ?? null, shared: shared || [], refFull };
-    },
-    [date],
-  );
-
-  // 남이 그날 나눔을 올리거나 지우면 피드에 몇 초 안에 뜬다(0049 · services/liveV2.js).
-  // 고치던 글은 안전하다 — 아래 동기화가 body를 **아직 손대지 않았을 때만** 갈아 끼운다
-  // (word.js shouldAdoptBody).
-  useLiveRefresh('word', refreshQt);
-
-  // 일정이 정해지면 그 구절의 본문을 편다(책 파일은 bible.js 캐시라 두 번째부터 즉시다)
-  useEffect(() => {
-    let alive = true;
-    if (qt && qt.date !== date) return undefined;   // 아직 앞 날짜의 값이다 — 그대로 둔다
-    const ref = qt?.schedule?.passage_ref || '';
-    if (qtLoading) { setDay({ loading: true, schedule: null, passage: null }); return undefined; }
-    // **못 읽은 것과 없는 것은 다르다**(사용자 피드백 2026-09-03 — 예외 문구 검토).
-    // 예전에는 읽기가 실패해도 '아직 올라오지 않았어요'가 떠서 화면이 거짓말을 했다(§6-29-b).
-    // 다만 **캐시에 그날 구절이 이미 있으면 그것을 그린다**(2026-09-06) — 재조회 한 번이
-    // 실패했다고 이미 읽고 있던 본문을 걷어 내면, 화면이 또 다른 거짓말을 한다.
-    if (qtError && !ref) { setDay({ loading: false, schedule: null, passage: null, failed: qtError }); return undefined; }
-    if (!ref) { setDay({ loading: false, schedule: qt?.schedule || null, passage: null }); return undefined; }
-    setDay(d => (d.schedule?.passage_ref === ref ? d : { loading: true, schedule: null, passage: null }));
-    (async () => {
-      let passage = null;
-      try { passage = await loadPassage(ref); } catch { /* 못 읽으면 구절만 보여준다 */ }
-      if (alive) setDay({ loading: false, schedule: qt.schedule, passage });
-    })();
-    return () => { alive = false; };
-  }, [qt, qtLoading, qtError, date]);
 
   // 내 묵상 · 그날 나눔. **entry·body를 비우지 않는다** — 비우면 에디터가 언마운트되어
   // 자리가 줄고, 도착할 때 아래 것들이 다시 밀린다(머리말).
@@ -352,17 +286,6 @@ function QtTab({ onOpenBible, focus = null }) {
     showToast(failText('이 날 묵상과 나눔을 불러오지 못했어요', qtError));
   }, [qtError, qt, date]);
 
-  // 저장한 뒤 잠깐만 남는 칩(공유 토글) — 상태 표시라 계속 서 있을 이유가 없다
-  useEffect(() => {
-    if (shareState !== 'saved') return undefined;
-    const t = setTimeout(() => setShareState(''), 2600);
-    return () => clearTimeout(t);
-  }, [shareState]);
-
-  // 잔디는 자기가 보고 있는 달을 스스로 읽는다(Grass) — 여기서는 저장·삭제 뒤에
-  // "다시 읽어라"만 알린다. 어느 달을 보고 있는지는 그쪽이 안다.
-  const reloadGrass = useCallback(() => setGrassKey(k => k + 1), []);
-
   // 지금 화면의 날짜와 읽어 온 날짜가 같을 때에만 저장·공유를 연다 — 넘긴 직후
   // 한 순간은 앞 날짜의 글이 에디터에 남아 있으므로, 그때 저장하면 엉뚱한 날에 쓴다
   const ready = !!entry && entry.date === date;
@@ -382,23 +305,125 @@ function QtTab({ onOpenBible, focus = null }) {
 
   // 편집 중에는 주기적으로 브라우저에 남긴다(사용자 결정 2026-09-14). 저장된 글과 같아지는
   // 순간(저장·취소·삭제) 지운다 — 되살릴 것이 없는 초안이 자리만 차지하지 않게.
-  //
-  // **기다리는 동안 떠나면 그 자리에서 남긴다**(2026-09-25 감사 5) — 쓰고 1.2초 안에 화면을
-  // 옮기거나 날짜를 바꾸면 타이머만 치워지고 마지막 글이 사라졌다. 아직 못 남긴 글을
-  // pendingDraft에 들고 있다가, 이 열쇠(날짜)를 떠날 때(날짜 바꿈·화면 떠남) 바로 쓴다.
-  const pendingDraft = useRef(null);
+  // 쓰고 1.2초 안에 떠나도(날짜 바꿈·화면 떠남) 그 자리에서 남긴다(2026-09-25 감사 5) — 예배 노트와 같은
+  // 한 벌이다(hooks/useNoteDraft.js). 아직 이 날의 글을 모르면(ready 전) 아무것도 하지 않는다.
+  useNoteDraft(draftKey, !ready ? undefined : (dirty ? { body, title } : null));
+
+  return {
+    entry, setEntry, body, setBody, title, setTitle, editing, setEditing, noteState, setNoteState,
+    passageRef, draftKey, putBody, putTitle, ready, dirty, hasText, canShare, reading,
+  };
+}
+
+// ── QT ──────────────────────────────────────────────────────────────────────
+function QtTab({ onOpenBible, focus = null }) {
+  const members = useStore(selectMembers);
+  const currentUser = useStore(selectCurrentUser);
+  const { session, isMaster } = useAuth();
+  const today = kstToday();
+
+  // '나눔 보기'로 들어오면 그 날부터 연다(focus — WordView.openShare)
+  const [date, setDate] = useState(() => focus?.date || today);
+  const [dir, setDir] = useState(0);
+  const [day, setDay] = useState({ loading: true, schedule: null, passage: null });
+  const [saving, setSaving] = useState(false);
+  const [shareState, setShareState] = useState(''); // '' | 'saving' | 'saved' (공유 칩)
+  const [feed, setFeed] = useState(null);          // null이면 아직 안 읽음
+  const [grassKey, setGrassKey] = useState(0);     // 올리면 잔디가 보고 있는 달을 다시 읽는다
+  const editorRef = useRef(null);
+  const slotRef = useRef(null);
+  const [hold, setHold] = useState(0);             // 넘기기 직전 본문 자리의 높이(px)
+
+  const go = (next) => {
+    if (next === date) return;
+    setHold(slotRef.current?.offsetHeight || 0);
+    setDir(next > date ? 1 : -1);
+    setDate(next);
+  };
+
+  // ── 그날의 QT 한 묶음 (일정 · 내 묵상 · 나눔) ──────────────────────────────
+  // **캐시가 있으면 스켈레톤 없이 그 값으로 먼저 그린다**(사용자 요청 2026-09-03 —
+  // "매번 스켈레톤이 아니라 캐시된 값이 먼저"). 한 번 본 날짜로 되돌아오면 기다림이
+  // 아예 없다. 뒤에서 다시 읽어 갈아 끼우는 것은 useCached가 한다(services/cache.js).
+  // 셋을 한 열쇠로 묶는 이유: 화면에서 늘 같이 쓰이고, 저장·삭제 뒤 비울 때도 같이 비운다.
+  // 본문(절 텍스트)은 여기 넣지 않는다 — 그건 bible.js가 이미 책 단위로 캐시한다.
+  const qtKey = `word:qt:${date}`;
+  const { data: qt, loading: qtLoading, error: qtError, refresh: refreshQt } = useCached(
+    qtKey,
+    async () => {
+      const [schedule, mine, shared] = await Promise.all([
+        fetchSchedule(date), fetchMyEntry(date), fetchSharedEntries(date),
+      ]);
+      // **구절을 책 이름 전체로 편다**(사용자 요청 2026-09-11 · bibleRef.fullRef).
+      // 읽기표(0038 시드)는 '삿 5:19-31'처럼 약자로 저장되어 있는데 주보의 구절은
+      // 이름 전체라, 같은 모양의 종이인데 묵상 쪽 머리만 약자였다. **여기서 한 번만
+      // 푸는 이유**: 책 목록도 비동기라 화면에서 따로 읽으면 구절이 한 박자 늦게 바뀌고,
+      // 그 사이에 만든 템플릿이 손대지 않은 글을 '고쳐진 글'로 만든다. 이 묶음과 같이
+      // 오면 그럴 틈이 없다. 목록을 못 읽으면 저장된 글자 그대로 간다(안전한 실패).
+      let refFull = schedule?.passage_ref || '';
+      if (refFull) {
+        try { refFull = fullRef(refFull, await loadBibleIndex()); }
+        catch (e) { console.error('[word] 책 목록을 읽지 못해 구절을 약자 그대로 둡니다:', e); }
+      }
+      // 어느 날짜의 묶음인지 같이 들고 있는다 — 날짜가 먼저 바뀌고 값이 한 프레임 늦게
+      // 오므로, 이걸 안 보면 **앞 날짜의 값을 새 날짜에 적어 버린다**(빈 묵상으로 덮였다)
+      return { date, schedule: schedule ?? null, mine: mine ?? null, shared: shared || [], refFull };
+    },
+    [date],
+  );
+
+  // 남이 그날 나눔을 올리거나 지우면 피드에 몇 초 안에 뜬다(0049 · services/liveV2.js).
+  // 고치던 글은 안전하다 — 아래 동기화가 body를 **아직 손대지 않았을 때만** 갈아 끼운다
+  // (word.js shouldAdoptBody).
+  useLiveRefresh('word', refreshQt);
+
+  // 일정이 정해지면 그 구절의 본문을 편다(책 파일은 bible.js 캐시라 두 번째부터 즉시다)
   useEffect(() => {
-    if (!ready) return undefined;
-    if (!dirty) { pendingDraft.current = null; dropCache(draftKey); return undefined; }
-    const value = { body, title, at: Date.now() };
-    pendingDraft.current = { key: draftKey, value };
-    const t = setTimeout(() => { writeCache(draftKey, value); pendingDraft.current = null; }, NOTE_DRAFT_DELAY);
+    let alive = true;
+    if (qt && qt.date !== date) return undefined;   // 아직 앞 날짜의 값이다 — 그대로 둔다
+    const ref = qt?.schedule?.passage_ref || '';
+    if (qtLoading) { setDay({ loading: true, schedule: null, passage: null }); return undefined; }
+    // **못 읽은 것과 없는 것은 다르다**(사용자 피드백 2026-09-03 — 예외 문구 검토).
+    // 예전에는 읽기가 실패해도 '아직 올라오지 않았어요'가 떠서 화면이 거짓말을 했다(§6-29-b).
+    // 다만 **캐시에 그날 구절이 이미 있으면 그것을 그린다**(2026-09-06) — 재조회 한 번이
+    // 실패했다고 이미 읽고 있던 본문을 걷어 내면, 화면이 또 다른 거짓말을 한다.
+    if (qtError && !ref) { setDay({ loading: false, schedule: null, passage: null, failed: qtError }); return undefined; }
+    if (!ref) { setDay({ loading: false, schedule: qt?.schedule || null, passage: null }); return undefined; }
+    setDay(d => (d.schedule?.passage_ref === ref ? d : { loading: true, schedule: null, passage: null }));
+    (async () => {
+      let passage = null;
+      try { passage = await loadPassage(ref); } catch { /* 못 읽으면 구절만 보여준다 */ }
+      if (alive) setDay({ loading: false, schedule: qt.schedule, passage });
+    })();
+    return () => { alive = false; };
+  }, [qt, qtLoading, qtError, date]);
+
+  // 내 묵상 — 저장된 글 · 편집기의 글 · 모드 · 초안(useQtNote 머리말)
+  const {
+    entry, setEntry, body, setBody, title, setTitle, editing, setEditing, noteState, setNoteState,
+    passageRef, draftKey, putBody, putTitle, ready, dirty, hasText, canShare, reading,
+  } = useQtNote({ qt, qtError, date, setFeed, setShareState });
+
+  // 저장한 뒤 잠깐만 남는 칩(공유 토글) — 상태 표시라 계속 서 있을 이유가 없다
+  useEffect(() => {
+    if (shareState !== 'saved') return undefined;
+    const t = setTimeout(() => setShareState(''), 2600);
     return () => clearTimeout(t);
-  }, [ready, dirty, body, title, draftKey]);
-  useEffect(() => () => {
-    const p = pendingDraft.current;
-    if (p && p.key === draftKey) { writeCache(p.key, p.value); pendingDraft.current = null; }
-  }, [draftKey]);
+  }, [shareState]);
+
+  // 잔디는 자기가 보고 있는 달을 스스로 읽는다(Grass) — 여기서는 저장·삭제 뒤에
+  // "다시 읽어라"만 알린다. 어느 달을 보고 있는지는 그쪽이 안다.
+  const reloadGrass = useCallback(() => setGrassKey(k => k + 1), []);
+
+  // 쓰고 난 뒤의 꼬리 한 벌 — 그날 나눔을 다시 읽고, 옛 값이 먼저 그려지지 않게 그 날짜의 묶음만 비우고
+  // 다시 읽는다. home: 홈의 '오늘의 QT' 카드·모임이 묵상을 센다(homeView) · grass: 내 기록(잔디)에 찍히거나 빠진다.
+  // 저장·공유 바꿈·지우기·남의 나눔 지우기 넷이 부른다 — 하나가 실패하면(던지면) 부른 쪽의 catch로 간다.
+  const afterWrite = async ({ home = false, grass = false } = {}) => {
+    setFeed(await fetchSharedEntries(date));
+    dropCache(qtKey); refreshQt();
+    if (home) dropCache('home');
+    if (grass) reloadGrass();
+  };
 
   // ── 종이(읽기 모드) — 예배 노트와 같은 부품, 캐릭터만 book ────────────────
   const qtSections = useMemo(() => splitNoteSections(entry?.body || ''), [entry?.body]);
@@ -450,10 +475,7 @@ function QtTab({ onOpenBible, focus = null }) {
       // 글이 달라져서 저장 직후에도 '고친 것이 있다'(dirty)로 남고, 그러면 방금 지운
       // 초안이 곧바로 다시 쓰인다. putBody가 `syncedBody`까지 맞춰 준다(다음 도착값 판정).
       putBody(kept);
-      setFeed(await fetchSharedEntries(date));
-      dropCache(qtKey); refreshQt();   // 옛 값이 먼저 그려지지 않게 그 날짜만 비운다
-      dropCache('home');               // 홈의 '오늘의 QT' 카드가 '오늘 썼나'를 센다(homeView)
-      reloadGrass();
+      await afterWrite({ home: true, grass: true });
       showToast(entry.shared ? '묵상을 저장하고 더다붓에 공유했어요' : '묵상을 저장했어요');
     } catch (e) {
       console.error('[word] 묵상 저장 실패:', e);
@@ -472,9 +494,7 @@ function QtTab({ onOpenBible, focus = null }) {
     try {
       await saveMyEntry(date, { body: entry.body, title: entry.title || '', shared: v });
       setEntry(e => ({ ...e, shared: v }));
-      setFeed(await fetchSharedEntries(date));
-      dropCache(qtKey); refreshQt();
-      dropCache('home');   // 모임·홈이 공유된 묵상을 같이 센다
+      await afterWrite({ home: true });   // 모임·홈이 공유된 묵상을 같이 센다
       setShareState('saved');
     } catch (e) {
       console.error('[word] 공유 상태 저장 실패:', e);
@@ -490,10 +510,7 @@ function QtTab({ onOpenBible, focus = null }) {
       setEntry({ date, body: '', title: '', shared: false, exists: false });
       putBody(''); putTitle(''); setEditing(false);
       dropCache(draftKey); setNoteState('');
-      setFeed(await fetchSharedEntries(date));
-      dropCache(qtKey); refreshQt();
-      dropCache('home');
-      reloadGrass();
+      await afterWrite({ home: true, grass: true });
       showToast('이 날 묵상을 지웠어요');
     } catch (e) {
       console.error('[word] 묵상 삭제 실패:', e);
@@ -506,8 +523,7 @@ function QtTab({ onOpenBible, focus = null }) {
   const removeShared = async (row) => {
     try {
       await deleteEntryAsMaster(row.id);
-      setFeed(await fetchSharedEntries(date));
-      dropCache(qtKey); refreshQt();
+      await afterWrite();
       showToast('이 나눔을 지웠어요');
     } catch (e) {
       console.error('[word] 남의 나눔 삭제 실패:', e);
@@ -617,7 +633,7 @@ function QtTab({ onOpenBible, focus = null }) {
                 `.note-paper`의 격자 한 겹이다(§6-32-p). 예배 노트와 같은 짜임이다. */}
             <div className={`qt-note-editor note-paper ${QT_SHEET_BOX} ${reading ? 'hidden' : ''}`}>
               {entry ? (
-                <Suspense fallback={<EditorSkeleton />}>
+                <Suspense fallback={<EditorSkeleton date={date} passageRef={passageRef} />}>
                   <MarkdownEditor
                     value={body}
                     onChange={(v) => { setNoteState(''); setBody(v); }}
@@ -641,7 +657,7 @@ function QtTab({ onOpenBible, focus = null }) {
                     )}
                   />
                 </Suspense>
-              ) : <EditorSkeleton />}
+              ) : <EditorSkeleton date={date} passageRef={passageRef} />}
             </div>
           </div>
           {/* 도구 줄. **flex-wrap에 맡기지 않는다** — 375px에서 넷 중 토글만 다음 줄로
@@ -708,7 +724,7 @@ function QtTab({ onOpenBible, focus = null }) {
                 2026-09-03). 피드 자체는 공유된 글만 읽으므로(RLS와 같은 경계),
                 내 것 한 줄은 화면에서 얹는다 — 남에게는 여전히 안 보인다(mergeFeed). */}
             {feed === null
-              ? <FeedSkeleton />
+              ? <FeedSkeleton date={date} passageRef={passageRef} tools={isMaster} />
               : <ShareFeed rows={feedRows} members={members} myName={currentUser?.name || ''}
                   wantPerson={focus?.date === date ? focus.profileId : ''}
                   date={date} passageRef={passageRef}
@@ -787,348 +803,5 @@ export function QtPassage({ day, date, minH = PASSAGE_MIN_H, refText = '', onOpe
           : <p className="text-[12.5px] text-fg-faint">읽기표에 적힌 구절을 성경에서 찾지 못했어요</p>}
       </div>
     </Card>
-  );
-}
-
-// ── 나눔 (사람 칩 + 종이 하나) ──────────────────────────────────────────────
-function FeedSkeleton() {
-  return (
-    <div className="flex items-start gap-2.5 py-2.5" aria-hidden="true">
-      <div className="w-7 h-7 shrink-0 mt-px"><Skeleton className="w-full h-full rounded-full" /></div>
-      <div className="flex-1 min-w-0">
-        <Skeleton className="h-3 w-16 rounded-[4px]" />
-        <div className="mt-1.5"><Skeleton className="h-3.5 w-full rounded-[4px]" /></div>
-      </div>
-    </div>
-  );
-}
-
-// 내 줄의 열쇠는 공개 범위와 상관없이 하나다 — 토글할 때마다 key가 바뀌면 같은 줄이
-// 언마운트됐다 다시 붙어서, 고쳐 놓은 두 줄 문제 대신 한 줄이 깜빡인다.
-const MY_ROW = 'mine';
-
-// 나눔 피드에 설 줄들 — 그 날 **공유 목록**(fetchSharedEntries)과 **지금 내 묵상 상태**를
-// 합친다. 이 둘은 서로 다른 시각의 값이다: 토글은 내 상태를 먼저 바꾸고 목록은 그 다음에
-// 다시 읽어 오므로, 그 사이 한 프레임에서는 같은 글이 양쪽에 다 있다. 예전처럼 그냥 이어
-// 붙이면 **공유 → 나만 보기로 넘길 때 내 묵상이 두 줄로 보였다가 하나로** 합쳐졌고
-// (사용자 관찰 2026-09-05), 반대로 넘길 때는 목록이 도착하기 전까지 한 줄도 없어서
-// '올라온 나눔이 아직 없어요'가 스쳤다. 그래서 **내 줄은 지금 내 상태에서 한 줄만 만들고**
-// 목록에서 온 내 줄은 걷어낸다.
-//   mine: undefined = 아직 이 날 내 묵상을 못 읽었다(목록을 그대로 둔다)
-//         null      = 이 날 내 묵상이 없다(지우고 나서 목록이 늦게 오는 경우도 여기다)
-//         { … }     = 내 줄 한 줄
-// 자리: 비공개면 맨 위다(남에게는 안 보이는 줄이라 목록의 시간 순서에 낄 자리가 없다).
-// 공유 중이면 목록이 준 자리 그대로 두고, 목록에 아직 없으면 맨 뒤에 세운다 — 목록은
-// updated_at 오름차순이고 방금 저장한 글이 갈 자리가 거기라, 새 목록이 와도 줄이 안 움직인다.
-export function mergeFeed(shared, mine) {
-  const rows = shared || [];
-  if (mine === undefined) return rows;
-  const others = rows.filter(e => !e.mine);
-  if (!mine) return others;
-  // 이름·사진은 목록에 있던 내 줄에서 이어받는다(없으면 프로필에서 찾는다 — profile_id)
-  const at = rows.findIndex(e => e.mine);
-  const row = { ...(at < 0 ? null : rows[at]), ...mine };
-  if (mine.private) return [row, ...others];
-  return at < 0 ? [...others, row] : [...others.slice(0, at), row, ...others.slice(at)];
-}
-
-// **비공개 묵상도 내 피드에는 선다**(사용자 결정 2026-09-03). 그 칩에 '나만 보기'
-// 표시가 붙는다. 남에게는 여전히 안 보인다: 피드 데이터는 공유된 글만 읽고(RLS와 같은
-// 경계) 내 것 하나는 화면에서 얹은 것이다(mergeFeed).
-//
-// **이 자리에는 공유를 바꾸는 칸이 없다**(사용자 결정 2026-09-05 — 머리말 '공유를 조작하는
-// 자리는 한 곳'). 표시(잠금)와 고치기(연필)만 두고, 공개 범위는 위 '내 묵상' 칸의 토글이
-// 정한다 — 연필이 그 칸으로 데려간다.
-//
-// **남의 것을 지우는 것은 마스터만이다**(사용자 결정 2026-09-05 · 0045
-// qt_entries_delete_master). 내 것에는 붙지 않는다 — 내 것은 위 '내 묵상' 칸의 휴지통이
-// 지우고, 거기는 잔디까지 같이 비운다.
-export const canDeleteShared = (row, isMaster) => !!isMaster && !row?.mine;
-
-// 나눔은 **종이 하나 + 사람 칩**이다(사용자 결정 2026-09-13 — "더다붓에 공유할 때도
-// 묵상 제목이 아니라 그 종이 전체를 보여줘야지. 쌓이는 구조는 아니고, 사람마다 볼 수
-// 있게 피커를 둔다든지. 물론 쓴 사람에 한해서만. 쌓이지 않는 구조가 중요"). 예전에는
-// 사람마다 한 줄씩 쌓고 도막을 라벨|글 두 칸으로 접어 요약했는데(NoteDigest — 지웠다),
-// 나가는 것은 요약이 아니라 그 사람이 쓴 종이다. **종이는 언제나 하나**라서 몇 명이
-// 올렸든 화면이 그만큼 길어지지 않는다.
-//
-// 종이는 '내 묵상' 칸의 읽기 종이와 **같은 부품·같은 폭**이다(paper.jsx `NoteSheet` ·
-// `QT_SHEET_BOX`) — 여기에만 다른 마크업을 두면 한쪽만 고쳐진다(§6-32-p). 도막 없이
-// 쓴 옛 나눔은 `splitNoteSections`가 라벨 없는 도막 하나로 주므로 종이가 그대로 선다.
-//
-// 사람 칩이 이어지는 줄 — 넘치면 줄을 바꾸지 않고 가로로 민다(§8 · 같은 종류가 이어지는
-// 줄에서는 허용). roster.jsx의 CHIP_ROW·views.jsx의 TEAM_CHIP_ROW와 **같은 한 벌**이다:
-// 끝까지 밀었을 때 마지막 칩이 통 끝에 붙지 않게 ::after로 12px을 세운다(스크롤 통의
-// padding-right는 넘친 내용에 안 걸린다 — §6-2와 같은 이유).
-const PERSON_CHIP_ROW = 'flex items-center gap-1.5 flex-nowrap min-w-0 overflow-x-auto scrollbar-hide x-scroll-lock'
-  + " after:content-[''] after:shrink-0 after:w-3";
-
-function ShareFeed({ rows = [], members = [], myName = '', date, passageRef = '',
-  onEdit, isMaster = false, onDeleteOther, wantPerson = '' }) {
-  const byId = useMemo(() => new Map(members.map(m => [m.id, m])), [members]);
-  // 고르는 것은 **사람이지 자리가 아니다** — 순번으로 들면 남이 하나 올리는 순간 보고
-  // 있던 종이가 다른 사람 것으로 바뀐다. 날짜를 넘겨 그 id가 없어지면 목록의 첫 사람으로
-  // 떨어진다(mergeFeed 순서 그대로 — 내 것이 있으면 그게 첫째다).
-  const [pickedId, setPickedId] = useState('');
-  // 성경 읽기의 '나눔 보기'로 왔으면 그 사람의 칩을 한 번 골라 둔다(목록이 늦게 와도 도착하면 고른다)
-  const wanted = useRef('');
-  useEffect(() => {
-    if (!wantPerson || wanted.current === wantPerson) return;
-    const row = rows.find(r => r.profile_id === wantPerson);
-    if (row) { wanted.current = wantPerson; setPickedId(row.id); }
-  }, [wantPerson, rows]);
-  const cur = rows.find(r => r.id === pickedId) || rows[0];
-  // 이름·사진의 원본은 워크스페이스 멤버 목록이다(profiles에서 온다).
-  // 게스트 모드의 로컬 나눔은 언제나 내 글이라 프로필이 붙지 않는다.
-  const who = (e) => {
-    const m = byId.get(e.profile_id);
-    return { name: m?.name || e.name || myName, url: m?.avatarUrl || e.avatarUrl || '' };
-  };
-  const sections = useMemo(() => splitNoteSections(cur?.body || ''), [cur?.body]);
-  if (!rows.length) {
-    return <p className="text-[11.5px] text-fg-muted">이 날짜에 올라온 QT 나눔이 아직 없어요</p>;
-  }
-  return (
-    <div data-share-feed="1">
-      {/* 한 명뿐인 날에도 칩 줄은 선다 — 사람 수에 따라 있다 없다 하면 그 줄이 무엇인지
-          배울 자리가 없다(§8 '기능을 숨기지 않는다'). */}
-      <div className={PERSON_CHIP_ROW}>
-        {rows.map((e) => {
-          const p = who(e);
-          const on = e.id === cur.id;
-          return (
-            <button key={e.id} type="button" onClick={() => setPickedId(e.id)} aria-pressed={on}
-              data-share-person={e.mine ? (e.private ? 'mine-private' : 'mine') : 'other'}
-              className={`inline-flex items-center gap-1.5 shrink-0 pl-1 pr-2.5 py-1 rounded-full text-[11.5px] font-semibold transition active:scale-95
-                ${on ? 'bg-accent text-white' : 'bg-surface-hover text-fg-muted hover:bg-line'}`}>
-              <Avatar name={p.name} url={p.url || undefined} className="flex w-5 h-5 text-[9px] shrink-0" />
-              <span className="truncate max-w-[8.5rem]">{p.name}</span>
-              {/* 지금 이 글이 나만 보는 것임을 그 칩에서 말한다 — 내 칩에만 붙는다 */}
-              {e.private && (
-                <span data-private="1" role="img" aria-label="나만 보기" className="inline-flex shrink-0">
-                  <Lock size={10} />
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 그 사람의 **종이 하나**. 칩을 바꾸면 이 종이의 내용만 바뀐다 — 쌓이지 않는다.
-          머리의 구절은 '내 묵상' 칸과 **같은 값**(그날 구절 전체 이름 · §6-32-w)이고
-          제목은 쓴 사람이 종이 위에 적어 둔 것이다(0062). */}
-      <div data-share-paper={cur.mine ? 'mine' : 'other'} className={`mt-3 ${QT_SHEET_BOX}`}>
-        <div className="rounded-lg overflow-hidden border border-line">
-          <NoteSheet date={paperDate(date)} kind="묵상 노트"
-            passageRef={passageRef} passageTitle={cur.title || ''}
-            sections={sections} cut={QT_CUT} />
-        </div>
-        {/* 도구 줄 — 고치기가 왼쪽, 지우기가 오른쪽 끝이다(§8 도구 줄 규칙).
-            **언제나 보인다** — hover로만 뜨면 터치 기기에서는 없는 기능이 된다. */}
-        {((cur.mine && onEdit) || (canDeleteShared(cur, isMaster) && onDeleteOther)) && (
-          <div data-share-tools="1" className="flex items-center gap-1 mt-2">
-            {cur.mine && onEdit && (
-              <button onClick={onEdit} aria-label="내 나눔 고치기"
-                className="w-8 h-8 shrink-0 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
-                <Pencil size={13} />
-              </button>
-            )}
-            {/* 공유 해제가 아니라 그 사람의 그날 묵상이 없어진다 — 문구가 그걸 말한다 */}
-            {canDeleteShared(cur, isMaster) && onDeleteOther && (
-              <ConfirmPopover className="inline-flex ml-auto"
-                message="이 나눔을 지울까요? 공유만 내려가는 게 아니라 그 사람의 이 날 묵상이 지워져요."
-                onConfirm={() => onDeleteOther(cur)}>
-                <button aria-label="이 나눔 지우기"
-                  className="w-8 h-8 shrink-0 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors">
-                  <Trash2 size={13} />
-                </button>
-              </ConfirmPopover>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── 내 기록 (잔디 — 개인 전용) ──────────────────────────────────────────────
-// **칸을 잔디만큼 줄였다**(사용자 피드백 2026-09-02 4차 — "모바일과 아래쪽 뷰에서 너무
-// 크다"). 예전에는 칸이 `aspect-square`라 폭을 나눠 가졌고, 모바일 전체 폭에서는 한 칸이
-// 41px·1440px 옆 칸에서는 35px이었다 — 달력만큼 커져서 '기록 달력'이 아니라 달력으로
-// 읽혔다. 칸을 고정 크기로 못 박으면 어느 폭에서도 같은 크기다.
-//
-// **날짜 숫자는 다시 들어왔다**(사용자 결정 2026-09-03 — "숫자가 있어도 좋을 것 같다,
-// 살짝만 키워라"). 13px에는 숫자가 못 들어가서 20px로 올렸다 — 한 달이 158px(7×20 + 6×3)
-// 이라 375px 화면에도 여유가 있고, 예전 41px의 절반이다. 요일 머리글·월 표시는 그대로
-// 두고(숫자만으로는 무슨 요일인지 모른다) 칸마다 title·aria-label도 유지한다.
-//
-// **이전 달·다음 달로 넘길 수 있다**(2026-09-07). 이번 달만 보이면 지난 기록을 볼 길이
-// 없었다. 보고 있는 달은 이 부품이 들고 있고(`view`), 그 달의 기록 날짜도 스스로 읽는다 —
-// 한 번 읽은 달은 기억해 두므로 앞뒤로 넘나들 때 기다림이 없다. 저장·삭제가 있으면
-// 부르는 쪽이 `reloadKey`를 올리고, 그때 보고 있는 달을 다시 읽는다(다른 달은 버린다).
-// 다음 달 버튼은 **이번 달을 보고 있을 때 꺼진다** — 앞날의 기록은 있을 수 없다.
-const WEEK_HEAD = ['일', '월', '화', '수', '목', '금', '토'];
-const CELL = 20;   // px — 칸 한 변(숫자가 들어가는 최소 크기)
-const GAP = 3;     // px — 칸 사이
-const HEAD_H = 11; // px — 요일 머리글 한 줄(10px + pb-px · 최소 글자 10px — D9)
-// 6주 짜리 달의 높이. 5주 달을 볼 때도 이만큼 잡아 두어야 달을 넘길 때 아래가 안 튄다
-// (한 줄이 23px이라 9월 ↔ 8월에서 카드가 통째로 오르내렸다).
-const GRID_MIN_H = HEAD_H + 6 * CELL + 6 * GAP;
-
-const monthKey = (iso) => iso.slice(0, 7);
-const NO_DATES = [];
-const NO_REFS = {};
-// 그 달 묵상 목록 — 일곱 줄까지 펴 두고 넘치면 'N건 더 보기'(목업 '지난 기록' 2번)
-const MONTH_ROWS = 7;
-// '2026-09-24' → '9. 24. 목'
-const monthRowDate = (iso) => `${+iso.slice(5, 7)}. ${+iso.slice(8, 10)}. ${WEEK_HEAD[new Date(`${iso}T00:00:00Z`).getUTCDay()]}`;
-
-function Grass({ today, picked = '', onPick, reloadKey = 0 }) {
-  const [view, setView] = useState(today);          // 보고 있는 달(그 달의 아무 날)
-  const month = useMemo(() => monthDays(view), [view]);
-  const [weekStart, weekEnd] = useMemo(() => weekRange(today), [today]);
-  const key = monthKey(view);
-  const thisMonth = monthKey(today);
-  const isNow = key === thisMonth;
-
-  // 이번 달 격자는 **이번 주가 걸친 만큼까지** 읽는다(달을 넘나드는 주가 있다).
-  // 다른 달에는 '이번 주'라는 말이 없으므로 그 달만 읽는다.
-  const first = month.days[0];
-  const last = month.days[month.days.length - 1];
-  const from = isNow && weekStart < first ? weekStart : first;
-  const to = isNow && weekEnd > last ? weekEnd : last;
-
-  // 달마다 한 번만 읽고 기억한다. 값을 달 열쇠로 들고 있으므로 **넘긴 첫 프레임에
-  // 앞 달의 초록이 남지 않는다**(늦게 오는 값으로 덮는 방식이면 한 프레임 남는다).
-  // 값은 [{ date, title }]다(제목이 같이 온다 — 아래 그 달 묵상 목록). 구절은 따로 읽는다(ref).
-  const [byMonth, setByMonth] = useState({});
-  const rows = byMonth[key]?.rows || NO_DATES;
-  const refOf = byMonth[key]?.refs || NO_REFS;
-  const dates = useMemo(() => rows.map(r => r.date), [rows]);
-  const stale = useRef(false);
-  useEffect(() => { stale.current = true; }, [reloadKey]);   // 저장·삭제 뒤에는 기억을 못 믿는다
-  useEffect(() => {
-    let alive = true;
-    // 구절은 곁줄이다 — 못 읽으면 제목 없는 줄의 흐린 구절만 빈다(달력·문장은 그대로)
-    // 읽기표는 약자로 저장되어 있다(0038) — 이 조회 안에서 한 번 책 이름 전체로 편다(§6-32-w와 같은 자리)
-    Promise.all([
-      fetchMyEntryDates(from, to),
-      fetchScheduleRange(first, last).catch(() => []),
-      loadBibleIndex().catch(() => null),
-    ]).then(([v, sch, books]) => {
-      if (!alive) return;
-      const full = (ref) => (books ? fullRef(ref, books) : ref);
-      const val = { rows: v, refs: Object.fromEntries(sch.map(r => [r.qt_date, full(r.passage_ref)])) };
-      setByMonth(m => (stale.current ? { [key]: val } : { ...m, [key]: val }));
-      stale.current = false;
-    }).catch(() => {});
-    return () => { alive = false; };
-  }, [key, from, to, first, last, reloadKey]);
-
-  const set = useMemo(() => new Set(dates), [dates]);
-  // 그 달 묵상 — **최근 날짜부터** 한 줄씩(이번 주가 걸친 앞 달 날짜는 빼고 그 달 것만)
-  const monthRows = useMemo(() => rows.filter(r => r.date >= first && r.date <= last)
-    .sort((a, b) => b.date.localeCompare(a.date)), [rows, first, last]);
-  const [allRows, setAllRows] = useState(false);
-  useEffect(() => { setAllRows(false); }, [key]);   // 달을 넘기면 다시 접힌다
-  const shownRows = allRows ? monthRows : monthRows.slice(0, MONTH_ROWS);
-  const inMonth = month.days.filter(d => set.has(d)).length;
-  const inWeek = dates.filter(d => d >= weekStart && d <= weekEnd).length;
-  const navBtn = 'w-9 h-7 shrink-0 flex items-center justify-center rounded-md text-fg-muted hover:bg-surface-hover disabled:opacity-35 disabled:hover:bg-transparent transition active:scale-95';
-  // 달이 바뀌는 결은 날짜를 넘길 때와 같다(Swap의 옆으로 슬라이드)
-  const [dir, setDir] = useState(0);
-  const goMonth = (n) => { setDir(n); setView(shiftMonth(view, n)); };
-  return (
-    // data-col: 검사(tests/word.mjs)가 이 칸이 자기 트랙을 다 쓰는지 잰다(§6-9-k)
-    <div data-col="grass">
-      <SectionHead right={
-        <span className="flex items-center gap-0.5 shrink-0">
-          {!isNow && (
-            <button onClick={() => { setDir(view < today ? 1 : -1); setView(today); }}
-              className="mr-1 shrink-0 px-2 h-7 rounded-md text-[11px] font-semibold text-accent-text bg-accent-weak transition active:scale-95">
-              오늘
-            </button>
-          )}
-          <button onClick={() => goMonth(-1)} aria-label="지난 달" className={navBtn}>
-            <ChevronLeft size={14} />
-          </button>
-          <span className="text-[11px] text-fg-muted tabular-nums whitespace-nowrap">{month.year}년 {month.month}월</span>
-          {/* 앞날의 기록은 있을 수 없다 — 이번 달에서는 잠근다 */}
-          <button onClick={() => goMonth(1)} aria-label="다음 달" disabled={isNow} className={navBtn}>
-            <ChevronRight size={14} />
-          </button>
-        </span>
-      }>
-        내 기록
-      </SectionHead>
-      <Card className="p-3.5">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-          {/* 6주 자리를 늘 잡아 둔다(GRID_MIN_H) — 5주 달과 6주 달의 높이가 다르면
-              달을 넘길 때마다 카드가 통째로 오르내린다 */}
-          <Swap k={key} dir={dir} className="shrink-0">
-          <div className="grid content-start"
-            style={{ gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP, minHeight: GRID_MIN_H }}>
-            {WEEK_HEAD.map(w => (
-              <span key={w} className="text-[10px] font-semibold text-fg-muted text-center leading-none pb-px">{w}</span>
-            ))}
-            {Array.from({ length: month.lead }, (_, i) => <span key={`b${i}`} />)}
-            {month.days.map(d => {
-              const has = set.has(d);
-              return (
-                <button
-                  key={d} onClick={() => onPick(d)} title={shortDayLabel(d)} aria-label={shortDayLabel(d)}
-                  className="rounded-xs flex items-center justify-center text-[10px] font-semibold tabular-nums leading-none transition active:scale-90"
-                  style={{
-                    width: CELL, height: CELL,
-                    background: has ? 'var(--app-tag-green)' : 'var(--app-surface-hover)',
-                    // 기록한 날은 초록 위의 짙은 초록, 안 한 날은 옅은 바닥 위의 무채색 —
-                    // 10px이라 faint로 두면 안 읽힌다(대비를 한 단계 올렸다)
-                    color: has ? 'var(--app-tag-green-fg)' : 'var(--app-ink-muted)',
-                    opacity: d > today ? 0.45 : 1,
-                    boxShadow: d === today ? 'inset 0 0 0 1.5px var(--app-accent)' : undefined,
-                  }}
-                >{+d.slice(8)}</button>
-              );
-            })}
-          </div>
-          </Swap>
-          {/* '이번 주·이번 달'은 오늘이 든 달의 말이다 — 지난 달을 보고 있으면
-              그 달의 이름으로 센다(8월 3번 기록했어요) */}
-          <p className="flex-1 min-w-[9rem] text-[11.5px] text-fg-muted tabular-nums">
-            {isNow
-              ? `이번 주 ${inWeek}번, 이번 달 ${inMonth}번 기록했어요`
-              : `${month.month}월 ${inMonth}번 기록했어요`}
-          </p>
-        </div>
-        {/* 그 달 묵상 — 달력 **아래** 가는 선 하나 + 최근 날짜부터 한 줄씩(목업 '지난 기록' 2번 · 사용자 승인
-            2026-09-25). 줄은 '날짜 · 제목'이고 제목이 비면 그 날 구절을 흐리게. 누르면 달력 칸과 같은 길(onPick)로
-            그 날로 간다. 스트릭·숫자 강조는 없다(결정 10) — 위 문장이 그대로 수를 말한다. 기록이 없는 달은 줄째 없다. */}
-        {monthRows.length > 0 && (
-          <div data-qt-month="" className="mt-3 pt-1.5 border-t border-line">
-            {shownRows.map((r, i) => {
-              const ref = refOf[r.date] || '';
-              return (
-                <button key={r.date} type="button" data-qt-row={r.date} onClick={() => onPick(r.date)}
-                  className={`w-full flex items-center gap-2.5 py-[7px] px-2 -mx-2 rounded-md text-left transition-colors hover:bg-surface-hover
-                    ${r.date === picked ? 'bg-surface-hover' : ''}`}
-                  style={{ width: 'calc(100% + 1rem)', borderTop: i ? '1px solid color-mix(in srgb, var(--app-line) 60%, transparent)' : undefined }}>
-                  <span className="shrink-0 w-[52px] text-[11.5px] font-bold text-fg-muted tabular-nums">{monthRowDate(r.date)}</span>
-                  {r.title
-                    ? <span data-qt-row-title="" className="flex-1 min-w-0 truncate text-[12.5px] text-fg">{r.title}</span>
-                    : <span data-qt-row-ref="" className="flex-1 min-w-0 truncate text-[12.5px] text-fg-muted">{ref}</span>}
-                </button>
-              );
-            })}
-            {/* 일곱 줄을 넘으면 그 자리에서 편다(마감 목록과 같은 말투) */}
-            {!allRows && monthRows.length > MONTH_ROWS && (
-              <button type="button" data-qt-more="" onClick={() => setAllRows(true)}
-                className="mt-1 px-2 -mx-2 py-1.5 rounded-md text-[11.5px] font-semibold text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors">
-                {`${monthRows.length - MONTH_ROWS}건 더 보기`}
-              </button>
-            )}
-          </div>
-        )}
-      </Card>
-    </div>
   );
 }

@@ -53,7 +53,8 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   // 형광펜: 로딩 중에 칠한 것을 도착값이 덮지 않는다(ref 플래그). 그릇은 **useStateBox 한 벌**이다
   // (2026-09-09 — 예전에는 useBibleState·BibleTab이 같은 코드를 두 벌 들고 있었다): update가 표식을
   // 놓고, adopt가 표식을 보고 도착값을 버린다. 읽는 이펙트 둘(QT 본문 · 리더)은 그 adopt를 부른다.
-  const bible = readFileSync(new URL('../src/components/wordBible.jsx', import.meta.url), 'utf8');
+  // 그릇과 QT 본문의 읽기는 19차에 bibleParts.jsx로 갈라 갔다 — 리더의 읽기(BibleTab)는 wordBible.jsx에 남는다
+  const bible = ['wordBible', 'bibleParts'].map(n => readFileSync(new URL(`../src/components/${n}.jsx`, import.meta.url), 'utf8')).join('\n');
   assert.strictEqual((bible.match(/edited\.current = true;/g) || []).length, 1,
     '표식을 놓는 자리는 useStateBox.update 하나다(두 벌로 갈리면 한쪽만 고쳐진다)');
   assert.ok(/const adopt = \(saved\) => \{ if \(edited\.current\) return; setState\(saved\); writeCache\(STATE_KEY, saved\); \};/.test(bible),
@@ -1361,7 +1362,7 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   const det = rd('components/worshipDetail.jsx');
   const note = rd('components/worshipNote.jsx');
   const view = rd('views/worshipView.jsx');
-  // ① 공용 부품은 한 벌 — 출석·모임은 worshipDetail을 import하지 않는다 · 말씀(wordView)은 다음 묶음까지 재수출로 받는다
+  // ① 공용 부품은 한 벌 — 출석·모임은 worshipDetail을 import하지 않는다 · 말씀(wordView)은 묶음 H부터 worshipParts에서 바로 받는다(상세의 재수출 줄은 남아 있다)
   assert.ok(!/from '\.\/worshipDetail\.jsx'/.test(rd('components/worshipAttendance.jsx')) && !/from '\.\/worshipDetail\.jsx'/.test(rd('components/groupsSun.jsx')),
     '출석·모임 화면이 2천 줄 상세를 import하지 않는다');
   assert.ok(/export const NOTE_CUT = \{ src: '\/chars\/heart\.webp'/.test(rd('components/paper.jsx')) && !/NOTE_CUT =/.test(det + note), '노트 컷은 종이(paper.jsx) 한 벌');
@@ -1384,3 +1385,58 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   console.log('PASS  예배 쪼개기 배선(공용 부품 한 벌 · 노트 컷 · 초안 훅 · 실패 처리 한 벌 · 모션 판정)');
 }
 
+// ── 말씀 화면 쪼개기 배선 (19차 묶음 H · 2026-10-07) ─────────────────────────────
+// wordBible.jsx(1,738줄)를 공용 부품(bibleParts)·북마크/형광펜 목록(bibleMarks)·리더로, wordView.jsx(1,134줄)를
+// 나눔(shareFeed)·잔디(grass)·QT로 갈랐다. 한 벌로 모은 자리가 다시 두 벌로 갈리지 않게 글자로 못 박는다.
+// 되돌리기 검사: goto에 옛 검색 비우기 여섯 줄을 되살리면 ①이, 키워드 결과 줄을 옛 <button> 마크업으로
+// 되돌리면 ②가, removeShared에 옛 꼬리(setFeed·dropCache·refreshQt)를 다시 적으면 ③이,
+// wordView에 옛 pendingDraft 효과를 되살리면 ⑤가 깨진다.
+{
+  const rd = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  const wb = rd('components/wordBible.jsx');
+  const parts = rd('components/bibleParts.jsx');
+  const marks = rd('components/bibleMarks.jsx');
+  const wv = rd('views/wordView.jsx');
+  const feed = rd('views/shareFeed.jsx');
+  const count = (s, re) => (s.match(re) || []).length;
+  const body = (src, head) => {
+    const s = src.replace(/\r/g, '');
+    const i = s.indexOf(head); assert.ok(i >= 0, head);
+    const j = s.indexOf('\n}\n', i); return s.slice(i, j < 0 ? undefined : j);
+  };
+  // ① 검색 자리를 비우는 길은 resetSearch 한 벌(새 검색 · 검색 접기 · 자리 옮기기)
+  assert.ok(/const resetSearch = \(q = ''\) => \{/.test(wb), 'resetSearch가 있다');
+  assert.strictEqual(count(wb, /setAiHits\(\[\]\); setAiWait\(false\);/g), 1, '검색 비우기 줄은 resetSearch 안 한 곳');
+  assert.strictEqual(count(wb, /\+\+searchToken\.current|searchToken\.current\+\+/g), 1, '검색 열쇠를 가는 자리도 한 곳');
+  // ② 결과 한 줄은 HitRow 한 벌 — 낱말 도막과 AI 도막이 같은 모양
+  assert.strictEqual(count(wb, /<HitRow /g), 2, '낱말 결과와 AI 결과가 HitRow를 쓴다');
+  assert.strictEqual(count(wb, /text-left py-2\.5 px-2\.5 -mx-2\.5/g), 1, '결과 줄의 클래스는 한 자리');
+  // ③ 쓰고 난 뒤의 꼬리는 afterWrite 한 벌 — 저장 · 공유 바꿈 · 지우기 · 남의 나눔 지우기
+  assert.strictEqual(count(wv, /await afterWrite\(/g), 4, '꼬리를 부르는 자리가 넷');
+  assert.strictEqual(count(wv, /dropCache\(qtKey\); refreshQt\(\);/g), 1, '그 날짜 묶음을 비우고 다시 읽는 줄은 afterWrite 안 한 곳');
+  assert.strictEqual(count(wv, /setFeed\(await fetchSharedEntries\(date\)\)/g), 1, '나눔을 다시 읽는 줄도 한 곳');
+  // ④ 큰 함수의 상태는 훅으로 — BibleTab에 검색·쓸기·본 사람·판 차례가, QtTab에 노트 동기화가 남지 않는다
+  for (const h of ['useBibleSearch', 'useRecentPanel', 'useChapterReaders', 'useSwipe']) {
+    assert.ok(new RegExp(`function ${h}\\(`).test(wb), `${h}가 있다`);
+  }
+  const tab = body(wb, 'export function BibleTab(');
+  assert.ok(!/searchToken|touchAt|moodOrderRef|setReaders/.test(tab), 'BibleTab 본문에 훅으로 옮긴 상태가 남아 있지 않다');
+  const qtTab = body(wv, 'function QtTab(');
+  assert.ok(/useQtNote\(\{ qt, qtError, date, setFeed, setShareState \}\)/.test(qtTab)
+    && !/const syncedBody|shouldAdoptBody\(\{|const \[entry, setEntry\]/.test(qtTab),
+    'QtTab은 노트 상태를 useQtNote에서 받는다');
+  // ⑤ 노트 초안은 hooks/useNoteDraft.js 한 벌(예배 노트와 같다)
+  assert.ok(/useNoteDraft\(draftKey, !ready \? undefined : \(dirty \? \{ body, title \} : null\)\);/.test(wv) && !/pendingDraft/.test(wv),
+    '말씀 묵상이 초안 훅을 쓴다(지역 사본 없음)');
+  // ⑥ 공용 것을 가져다 쓴다 — 저장 칩은 worshipParts · 사람 칩 줄은 TEAM_CHIP_ROW · 모션 판정은 hooks/useReducedMotion
+  assert.ok(/import \{ SaveState \} from '\.\.\/components\/worshipParts\.jsx';/.test(wv), '저장 상태 칩은 worshipParts에서');
+  assert.ok(/className=\{TEAM_CHIP_ROW\}/.test(feed) && !/overflow-x-auto scrollbar-hide x-scroll-lock/.test(feed), '나눔 사람 칩 줄은 TEAM_CHIP_ROW 한 벌');
+  for (const [k, s] of Object.entries({ wb, parts, marks })) {
+    assert.ok(!/matchMedia/.test(s) && !/prefersReducedMotion \} from '\.\.\/views\/dashboardParts/.test(s), `${k}가 모션 판정을 따로 하지 않는다`);
+  }
+  assert.strictEqual(count(parts + marks, /useReducedMotion\(\)/g), 2, '그리는 중 판정(Swap · 책 묶음 접기)은 훅으로');
+  // ⑦ 다른 화면의 import 경로는 그대로 — wordBible·wordView가 이어서 내보낸다
+  assert.ok(/export \{ EmptyBookMark, PassageSkeleton, ShareSwitch, hlColor \};/.test(wb), 'wordBible이 공용 부품을 이어서 내보낸다');
+  assert.ok(/export \{ mergeFeed \};/.test(wv) && /export \{ canDeleteShared \} from '\.\/shareFeed\.jsx';/.test(wv), 'wordView가 나눔 순수 함수를 이어서 내보낸다');
+  console.log('PASS  말씀 쪼개기 배선(검색 비우기 · 결과 줄 · 쓰기 꼬리 · 훅 넷 · 초안 훅 · 공용 부품 · 재수출)');
+}

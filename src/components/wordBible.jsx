@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, ChevronDown, Bookmark, Search, X, Highlighter, Eraser } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Bookmark, Search, X } from 'lucide-react';
 import { loadBibleIndex, loadBook, forEachPool, warmBooks, POOL } from '../services/bible.js';
 import { parseRef } from '../services/bibleRef.js';
 import { aiBibleSearchOutcome, hitLabel } from '../services/bibleSearch.js';
@@ -8,7 +8,7 @@ import { semanticOn, matchBible } from '../services/semantic.js';
 import { andParticle, bibleVecHits } from '../services/vecSearch.js';
 import { AiService, aiEnabled } from '../services/ai.js';
 import {
-  loadBibleState, saveBibleState, loadFontStep, saveFontStep,
+  loadBibleState, loadFontStep, saveFontStep,
   chapterKey, parseChapterKey, verseKey, parseVerseKey, bibleSearchStore,
   pushRecentSearch, removeRecentSearch, compactText, matchRanges,
   kstToday, weekRange, fetchScheduleRange, fetchChapterReaders, markChapterRead, fetchSharedOn,
@@ -23,13 +23,21 @@ import { myUidSync } from '../services/supabaseClient.js';
 import { useDismiss } from '../hooks/useDismiss.js';
 import { Avatar } from './Avatar.jsx';
 import { showToast } from './Toast.jsx';
-import { readCache, writeCache } from '../services/cache.js';
 import { failText } from '../services/errorText.js';
-import { SectionHead, Card, prefersReducedMotion } from '../views/dashboardParts.jsx';
+import { SectionHead, Card } from '../views/dashboardParts.jsx';
+import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { SearchHint } from './layout.jsx';
 import { Skeleton } from './media.jsx';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { coarsePointer } from '../utils.js';
+import {
+  Swap, PassageText, PassageSkeleton, EmptyBookMark, FontSteps, ShareSwitch, hlColor,
+  useStateBox, useVersePaint, marksFor,
+} from './bibleParts.jsx';
+import { groupByBook, MarkSection } from './bibleMarks.jsx';
+
+// 공용 부품은 bibleParts.jsx로 옮겼다(19차) — 예배·내 정보는 예전처럼 여기서 가져간다
+export { EmptyBookMark, PassageSkeleton, ShareSwitch, hlColor };
 
 // ============================================================================
 // 성경 읽기 — 목차 · 리더 · 본문 검색 · 북마크 · 형광펜 · 이어읽기 (docs/V2.md 결정 12)
@@ -71,15 +79,15 @@ import { coarsePointer } from '../utils.js';
 // 1000px 남짓에서 오른쪽에 230px 빈 띠가 남는 쪽이 더 거슬렸다 — 사용자 결정이 이긴다.
 // 대신 목록은 폭이 넓어질수록 열을 늘려(2 → 3열) 한 열이 너무 길어지지 않게 하고, 책
 // 머리글의 개수는 이름 **바로 옆**에 붙인다(오른쪽 끝에 붙이면 넓은 열에서 400px 떨어진다).
+//
+// **파일 셋으로 나뉜다**(19차 2026-10-07): 본문 한 덩이·형광펜·화면 전환·성경 상태 그릇은 bibleParts.jsx,
+// 북마크·형광펜 목록은 bibleMarks.jsx, 여기는 리더(BibleTab)·검색·목차다. BibleTab의 상태는 훅 넷으로 갈랐다 —
+// 검색(useBibleSearch) · 최근 검색어 판과 마음 칩 차례(useRecentPanel) · 이 장을 본 사람(useChapterReaders) ·
+// 쓸어 넘기기(useSwipe). 훅은 이 파일 안에 둔다(검사가 이 파일의 글자로 배선을 본다).
 // ============================================================================
 
 const OT_COUNT = 39;               // 정경 순서 — index.json의 앞 39권이 구약
 const SWIPE_MIN = 60;              // px — 이만큼 가로로 쓸면 장을 넘긴다(모바일)
-// 캐시 열쇠 — 이어읽기·북마크·형광펜(services/cache.js).
-// **'word:'로 시작하지 않는다.** dropCache는 그냥 접두 비교라, 묵상을 저장할 때 부르는
-// dropCache('word'…)가 이 값까지 가져갔다(그러면 다음 진입에서 형광펜이 통째로 다시
-// 로딩된다). 갈래가 다르면 열쇠의 첫 도막도 다르게 짓는다.
-const STATE_KEY = 'bible:state';
 // 낱말 결과는 **한 번에 50줄씩** 그린다(2026-09-25 — 예전에는 50건에서 훑기를 멈춰서 '하나님'·'사랑'
 // 같은 흔한 말은 창세기·출애굽기에서 끝나고 신약이 통째로 빠졌다). 이제 66권을 끝까지 훑어 건수는
 // 전부 세고, 줄은 50씩 '더 보기'로 이어 편다(수천 줄을 한 번에 그리면 폰이 멈춘다).
@@ -99,293 +107,6 @@ const FOCUS_MS = 3000;
 const BIBLE_HINTS = ['어떤 본문을 찾으시나요?', 'AI가 본문을 같이 찾아줄게요'];
 export const searchHints = (aiOn) => (aiOn ? BIBLE_HINTS : BIBLE_HINTS.slice(0, 1));
 
-// 글자 크기 3단계. 계정이 아니라 기기에 남긴다(같은 사람도 폰과 노트북이 다르다).
-const FONT_STEPS = [
-  { size: '13.5px', line: '1.75', gap: '5px', mark: '11px' },
-  { size: '15px', line: '1.8', gap: '7px', mark: '12.5px' },
-  { size: '17px', line: '1.85', gap: '9px', mark: '14px' },
-];
-
-// ── 화면이 바뀔 때의 결 ─────────────────────────────────────────────────────
-// 말씀 화면 안에서 무엇이 바뀌든(세그먼트 · 날짜 · 장 · 목차↔리더) 같은 결로 바뀐다.
-// index.css에 새 키프레임을 두지 않고 **전환**으로 낸다: k가 달라진 렌더에서 시작
-// 자리로 되돌려 놓고(렌더 중 setState — 그 렌더가 곧바로 다시 돈다), 그림이 나간
-// 뒤(useEffect)에 제자리로 보낸다. 움직이는 것은 transform·opacity뿐이다(§4.2).
-// dir: 1 다음 · -1 이전 · 0 방향 없음(그때는 세로로 아주 조금).
-//
-// **거리를 키웠다**(사용자 피드백 2026-09-02 — "이전/다음 장 애니메이션이 안 보인다").
-// 12px·.26s는 스크롤 한 칸보다 작아서, 장이 바뀐 것은 알아도 어느 쪽으로 갔는지가
-// 눈에 남지 않았다. 28px·.3s면 방향이 읽히고 §4.2의 결(이징 하나 · transform/opacity만)
-// 안에 그대로 있다. prefers-reduced-motion이면 전환 자체가 없다.
-const SWAP_SHIFT = 28;    // px — 방향이 보이는 최소치. 이보다 작으면 없는 것과 같았다
-const SWAP_LIFT = 8;      // px — 방향이 없을 때(dir 0)의 세로 이동
-const SWAP_MS = 300;      // ms — §4.2의 .dc-screen(260ms)과 같은 결
-
-export function Swap({ k, dir = 0, className = '', children }) {
-  const [seen, setSeen] = useState(k);
-  const [shown, setShown] = useState(true);
-  const nodeRef = useRef(null);
-  const reduce = prefersReducedMotion();
-
-  if (seen !== k) { setSeen(k); if (!reduce) setShown(false); }
-  useEffect(() => {
-    if (shown) return;
-    // **이 줄이 애니메이션의 전부다.** 시작 자리를 브라우저에 한 번 '보여 주고' 나서
-    // 제자리로 보낸다 — offsetHeight를 읽으면 그 자리로 스타일이 확정되고, 그래야
-    // 다음 값이 전환의 끝점이 된다. 없으면 두 값이 같은 스타일 갱신 안에서 처리되어
-    // **전환이 아예 시작되지 않는다**(사용자 피드백 2026-09-02 "애니메이션이 눈에
-    // 안 잡힌다"의 진짜 원인 — 거리가 작아서가 아니라 안 돌고 있었다). 지우지 말 것.
-    void nodeRef.current?.offsetHeight;
-    setShown(true);
-  }, [shown]);
-
-  const off = dir === 0
-    ? `translate3d(0, ${SWAP_LIFT}px, 0)`
-    : `translate3d(${dir > 0 ? SWAP_SHIFT : -SWAP_SHIFT}px, 0, 0)`;
-  const ease = `${SWAP_MS}ms var(--ease-out-quint)`;
-  return (
-    <div
-      ref={nodeRef}
-      className={className}
-      data-swap={String(k)}
-      style={reduce ? undefined : {
-        opacity: shown ? 1 : 0,
-        transform: shown ? 'none' : off,
-        // 되돌릴 때는 전환을 끄고 튕겨 놓는다 — 안 그러면 나가는 것과 들어오는 것이
-        // 같은 자리에서 서로 되감겨 흐릿하게 흔들린다.
-        transition: shown ? `opacity ${ease}, transform ${ease}` : 'none',
-      }}
-    >{children}</div>
-  );
-}
-
-// ── 기다리는 자리 ───────────────────────────────────────────────────────────
-// 자리를 먼저 잡아 두는 것이 목적이다 — 글자 한 줄("본문을 여는 중")로 두면 본문이
-// 도착할 때 아래 것들이 통째로 밀린다(사용자 피드백 2026-09-01 '출렁임').
-// 줄 길이를 조금씩 달리해 글 덩이처럼 보이게 한다.
-const SKEL_W = ['92%', '86%', '96%', '78%', '90%', '84%', '94%', '72%', '88%', '82%', '95%', '76%'];
-
-export function PassageSkeleton({ lines = 8, step = 1 }) {
-  const f = FONT_STEPS[step] || FONT_STEPS[1];
-  // 줄 길이 열두 개를 돌려 쓴다 — QT는 넘기기 직전 높이만큼 자리를 채우므로(wordView의
-  // QtPassage) 열두 줄로는 긴 본문의 자리가 덜 차서 카드 아래가 비어 보인다
-  const widths = Array.from({ length: Math.max(1, lines) }, (_, i) => SKEL_W[i % SKEL_W.length]);
-  return (
-    <div className="flex flex-col" style={{ gap: f.gap }} aria-hidden="true">
-      {widths.map((w, i) => (
-        // 크기는 **바깥**이 잡는다 — Skeleton은 className만 받고, `.dc-skeleton`이
-        // position:relative를 박고 있어 위치 유틸은 어차피 먹지 않는다(media.jsx 머리말)
-        <div key={i} style={{ width: w, height: `calc(${f.size} * ${f.line})` }}>
-          <Skeleton className="w-full h-full rounded-[4px]" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── 형광펜 한 벌 ────────────────────────────────────────────────────────────
-// **글자가 있는 자리만 칠한다**(사용자 피드백 2026-09-02 4차 — "칠할 때 그 줄 블록
-// 전체가 칠해진다"). 예전에는 절 <p>에 배경을 줘서, 짧은 절도 카드 오른쪽 끝까지
-// 노랗게 그어졌다. 배경을 절 안의 인라인 요소로 내리고 `box-decoration-break: clone`을
-// 걸면 여러 줄로 감기는 절도 **각 줄의 글자 폭만** 칠해진다(안 걸면 마지막 줄 끝까지
-// 한 덩이로 이어진다). 좌우 padding은 같은 값의 음수 margin으로 상쇄해 글자 자리가
-// 밀리지 않게 한다. 색은 업무 본문의 ==형광펜==과 같은 토큰이다(RichText·.tiptap mark).
-const HL_STYLE = {
-  borderRadius: '3px',
-  padding: '1px 2px',
-  margin: '0 -2px',
-  boxDecorationBreak: 'clone',
-  WebkitBoxDecorationBreak: 'clone',
-};
-
-// **색은 네 가지다**(사용자 결정 2026-09-03 — 빨·파·노·초). 값은 업무 태그와 같은 토큰이라
-// 다크 모드에서도 따라온다(Tailwind 기본 팔레트를 쓰면 themefit이 잡는다). 저장은
-// bible_state.highlights 항목의 `color`이고, **색이 없는 예전 항목은 노랑으로 읽는다**
-// (0038로 들어간 항목에는 색 칸이 없었다 — 마이그레이션 없이 화면에서 흡수한다).
-const HL_COLORS = [['red', '빨강'], ['blue', '파랑'], ['yellow', '노랑'], ['green', '초록']];
-const HL_TOKEN = {
-  red: ['var(--app-tag-red)', 'var(--app-tag-red-fg)'],
-  blue: ['var(--app-tag-blue)', 'var(--app-tag-blue-fg)'],
-  yellow: ['var(--app-tag-yellow)', 'var(--app-tag-yellow-fg)'],
-  green: ['var(--app-tag-green)', 'var(--app-tag-green-fg)'],
-};
-export const hlColor = (c) => (HL_TOKEN[c] ? c : 'yellow');
-
-function Hl({ color, children }) {
-  const c = hlColor(color);
-  const [bg, fg] = HL_TOKEN[c];
-  return <mark data-lit={c} style={{ ...HL_STYLE, background: bg, color: fg }}>{children}</mark>;
-}
-
-// ── 본문 한 덩이 (QT 탭도 같이 쓴다) ───────────────────────────────────────
-// marks: 형광펜이 켜진 절의 Map('장:절' → 색 이름)
-// onPickVerse(chapter, verse): 절을 눌렀을 때(리더에서만 준다). **여기서 칠하지
-//   않는다** — 부른 쪽이 도구 줄(VerseTool)을 넘겨 준다.
-// picked: 지금 고른 **범위**의 '장:절' Set — 그 절들에 표시를 준다(사용자 결정 2026-09-03)
-// toolAt: 그 범위의 마지막 절 '장:절' — 그 **다음 형제로** tool을 그린다
-export function PassageText({
-  verses, step = 1, showChapter = false, focus = null, marks = null, onPickVerse = null, picked = null,
-  toolAt = null, tool = null,
-}) {
-  const f = FONT_STEPS[step] || FONT_STEPS[1];
-  // 글을 끌어 고르고 손을 뗀 자리에도 click이 온다 — 고른 것이 있으면 팝오버를 띄우지
-  // 않는다(복사하려고 고른 것을 형광펜으로 알아들으면 고른 것이 풀린다).
-  // **누른 요소는 넘기지 않는다** — 좌표를 재던 시절의 앵커였는데, 도구 줄이 문서 흐름
-  // 안으로 들어오면서(§6-9-m) 받는 쪽이 쓰지 않게 됐다.
-  const hit = (chapter, verse) => {
-    const sel = typeof window !== 'undefined' ? window.getSelection?.() : null;
-    if (sel && !sel.isCollapsed && String(sel).trim()) return;
-    onPickVerse(chapter, verse);
-  };
-  return (
-    <div className="flex flex-col" style={{ gap: f.gap }}>
-      {verses.map(v => {
-        // 이 판에서 비워 둔 절. 글자는 남기고 색만 죽인다 — 지우면 뒤 절 번호가 밀린다
-        const blank = v.text === '(없음)';
-        const on = focus && focus.chapter === v.chapter && focus.verse === v.verse;
-        const key = `${v.chapter}:${v.verse}`;
-        const litColor = marks?.get?.(key) || null;
-        const lit = !!litColor;
-        const isPicked = !!picked?.has?.(key);
-        const style = { fontSize: f.size, lineHeight: f.line };
-        // 형광펜은 절 상자가 아니라 글자에 걸린다(HL_STYLE) — 여기서 배경을 주지 말 것
-        if (on) style.boxShadow = 'inset 0 0 0 1.5px var(--app-accent)';
-        // **지금 도구 줄이 무엇을 대상으로 하는지 절이 말한다**(사용자 피드백 2026-09-03).
-        // 왼쪽 accent 선 + 옅은 바닥. 형광펜(노랑, 글자)·검색 도착(테두리)과 안 겹친다.
-        if (isPicked) { style.boxShadow = 'inset 2px 0 0 var(--app-accent)'; style.background = 'var(--app-surface-hover)'; }
-        const line = (
-          <p
-            key={key}
-            data-verse={key}
-            data-focus={on ? '1' : undefined}
-            data-mark={lit ? '1' : undefined}
-            data-picked={isPicked ? '1' : undefined}
-            role={onPickVerse ? 'button' : undefined}
-            tabIndex={onPickVerse ? 0 : undefined}
-            aria-expanded={onPickVerse ? toolAt === key : undefined}
-            onClick={onPickVerse ? () => hit(v.chapter, v.verse) : undefined}
-            onKeyDown={onPickVerse ? (e) => {
-              if (e.key !== 'Enter' && e.key !== ' ') return;
-              e.preventDefault(); onPickVerse(v.chapter, v.verse);
-            } : undefined}
-            // 도착 강조(focus)는 3초 뒤에 꺼진다(BibleTab) — 그때 툭 사라지지 않게
-            // 배경·테두리에 전이를 건다. 속성을 못 박는 이유는 §6-17-b와 같다.
-            className={`dc-verse rounded-xs transition-[color,background-color,box-shadow] duration-300 motion-reduce:transition-none ${blank ? 'text-fg-faint' : 'text-fg-secondary'} ${
-              on || isPicked ? '-mx-1.5 px-1.5' : ''} ${on && !isPicked ? 'bg-accent-weak' : ''} ${
-              isPicked ? 'dc-verse-picked' : ''} ${onPickVerse ? 'cursor-pointer' : ''}`}
-            style={style}
-          >
-            {/* 절 번호는 칠하지 않는다 — 형광펜은 읽은 글에 긋는 것이고, 번호까지 노래지면
-                본문이 어디서 시작하는지가 흐려진다 */}
-            <span className="mr-1.5 tabular-nums font-bold text-fg-faint" style={{ fontSize: f.mark }}>
-              {showChapter ? `${v.chapter}:${v.verse}` : v.verse}
-            </span>
-            {lit ? <Hl color={litColor}>{v.text}</Hl> : v.text}
-          </p>
-        );
-        // **도구 줄은 눌린 절 바로 다음 형제다**(사용자 피드백 2026-09-03 — 좌표를 재는
-        // 팝오버는 어긋날 길이 여러 개였다. 문서 흐름 안에 있으면 어긋날 자리가 없다).
-        // 칸 사이 간격(f.gap)만큼 음수 마진으로 당겨, 글자 크기를 바꿔도 절에 붙어 선다.
-        //
-        // **언제나 Fragment로 감싼다.** 고른 절만 감싸면 그 자리의 타입이 p ↔ Fragment로
-        // 바뀌어 리액트가 <p>를 새로 만든다 — 누르는 순간 절 요소가 갈려서 그 절에 걸린
-        // 것(선택·포커스·검사가 쥔 참조)이 통째로 끊긴다.
-        return (
-          <React.Fragment key={key}>
-            {line}
-            {tool && toolAt === key ? <div style={{ marginTop: `calc(2px - ${f.gap})` }}>{tool}</div> : null}
-          </React.Fragment>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── 절을 눌렀을 때의 도구 줄 ────────────────────────────────────────────────
-// **누르자마자 칠하지 않는다**(사용자 피드백 2026-09-02). 본문을 읽다 보면 손이
-// 스치기만 해도 절이 노래졌고, 되돌리려면 같은 자리를 또 눌러야 했다. 절을 누르면
-// 무엇을 할지 먼저 묻는다 — 이미 칠해져 있으면 [형광펜 지우기], 아니면 [형광펜 칠하기]
-// ('긋기'에서 바뀐 이름 — 2026-09-02 4차. 색을 입히는 일이라 '칠하기'다).
-// 취소는 바깥 누름과 Esc다(따로 '취소' 줄을 두지 않는다 — 잃는 것이 없다).
-//
-// **좌표를 재지 않는다**(사용자 피드백 2026-09-03 — "형광펜 칠하기 버튼이 아직도 엉뚱한
-// 곳에 뜬다"). 예전에는 body 포털 + useAnchoredPos로 눌린 절 옆에 fixed로 세웠는데,
-// 어긋날 자리가 세 군데였다: ① 위치가 state라 tailwind `duration-*`이 top/left까지 전이
-// (§6-17-b) ② 앵커를 갈아 끼우면 배치 훅이 다시 안 돈다 ③ 스크롤·리사이즈·주소 줄
-// 접힘처럼 rect가 바뀌는 순간마다 다시 재야 한다. 지금은 **눌린 절의 다음 형제**로
-// 문서 흐름 안에 그린다(PassageText의 `tool`) — 잴 것이 없으니 어긋날 수도 없다.
-// 대상이 무엇인지는 절 자신이 말한다(왼쪽 accent 선 + 옅은 바닥, `dc-verse-picked`).
-//
-// **여기는 색이 늘 자리다.** 지금은 노랑 하나라 칩이 '무슨 색으로 칠하는지'를 보여 주는
-// 표시다. 색이 늘면 칩을 색마다 하나씩 두고 각 칩이 그 색으로 칠하게 하면 된다
-// (services/word.js의 verseKey는 그대로 두고 highlights 항목을 { ref, at, color }로 늘린다).
-const toolBtn = 'inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[12px] font-semibold text-fg-muted hover:bg-surface-hover hover:text-fg transition-colors';
-
-function VerseTool({ label, current, lit, onPaint, onErase }) {
-  return (
-    // `pr-2`·`ml-1`이 칩 오른쪽 여백이다(사용자 지적 2026-09-03 — 칩이 테두리에 붙어 있었다)
-    <span
-      data-verse-tool={label} role="group" aria-label={`${label} 형광펜`}
-      className="inline-flex items-center gap-1 p-1 pr-2 rounded-lg bg-surface border border-line shadow-soft animate-in fade-in duration-150"
-    >
-      <Highlighter size={13} className="shrink-0 mx-1 text-fg-faint" />
-      {HL_COLORS.map(([c, ko]) => (
-        <button
-          key={c} type="button" data-hl-color={c} onClick={() => onPaint(c)}
-          aria-pressed={current === c} title={`${ko}으로 칠하기`} aria-label={`${ko}으로 칠하기`}
-          className="shrink-0 w-7 h-7 rounded-full transition active:scale-90"
-          style={{
-            background: HL_TOKEN[c][0],
-            // 지금 칠해져 있는 색에는 accent 링이 돈다 — '현재 색'을 칩이 말한다
-            boxShadow: current === c ? 'inset 0 0 0 2px var(--app-accent)' : 'inset 0 0 0 1px var(--app-line)',
-          }}
-        />
-      ))}
-      {/* 칠할 것이 없는데 지우기가 있으면 아무 일도 못 한다 — 켜져 있을 때만 세운다 */}
-      {lit && (
-        <button type="button" onClick={onErase} className={`${toolBtn} ml-1`}>
-          <Eraser size={13} className="shrink-0" />형광펜 지우기
-        </button>
-      )}
-    </span>
-  );
-}
-
-// ── 글자 크기 Aa 3단계 ─────────────────────────────────────────────────────
-function FontSteps({ step, onChange }) {
-  return (
-    <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
-      {FONT_STEPS.map((f, i) => (
-        <button
-          key={i} onClick={() => onChange(i)} title={['작게', '보통', '크게'][i]}
-          aria-label={`글자 ${['작게', '보통', '크게'][i]}`} aria-pressed={step === i}
-          className="px-2 py-[3px] rounded-sm font-bold leading-none transition-colors"
-          style={{
-            fontSize: [11, 13, 15][i],
-            background: step === i ? 'var(--app-surface)' : 'transparent',
-            color: step === i ? 'var(--app-ink)' : 'var(--app-ink-muted)',
-          }}
-        >Aa</button>
-      ))}
-    </span>
-  );
-}
-
-// 빈 화면 표식 — 펼친 책. 왼쪽 면 → 오른쪽 면 → 가운데 선 순서로 그려진다(§4.2)
-// 크기는 밖에서 준다 — 본문 자리(48px)와 옆 칸 '내 기록'(36px)이 쓰는 자리가 다르다.
-export function EmptyBookMark({ className = 'w-12 h-12 mx-auto' }) {
-  return (
-    <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
-      <path className="dc-draw" pathLength="1" d="M24 15c-4.6-3.2-9.8-3.6-15.5-1.2v21c5.7-2.4 10.9-2 15.5 1.2"
-        fill="none" stroke="var(--app-ink-faint)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      <path className="dc-draw dc-draw-2" pathLength="1" d="M24 15c4.6-3.2 9.8-3.6 15.5-1.2v21c-5.7-2.4-10.9-2-15.5 1.2"
-        fill="none" stroke="var(--app-ink-faint)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      <path className="dc-draw dc-draw-3" pathLength="1" d="M24 15v21"
-        fill="none" stroke="var(--app-ink-faint)" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 const btn = 'inline-flex items-center justify-center gap-1 rounded-md text-[12px] font-semibold transition active:scale-95';
 // 따라다니는 장 넘기기 버튼 — 테두리 없이 옅은 판 + 은은한 그림자, hover에서만 떠오른다.
 // **전이는 opacity·배경색만**(위치 속성에 걸면 sticky가 미끄러진다 — §6-17-b).
@@ -399,134 +120,7 @@ const chapNav = 'sticky w-11 h-11 flex items-center justify-center rounded-full 
 const PANES = [['toc', '본문'], ['bookmark', '북마크'], ['highlight', '형광펜']];
 const paneIndex = (key) => PANES.findIndex(p => p[0] === key);
 
-// ── 성경 읽기 탭 ────────────────────────────────────────────────────────────
-// ── 상태 저장 · 형광펜 칠하기 — 리더(BibleTab)와 QT 본문(wordView QtPassage)이 같이 쓴다 ──
-const EMPTY_STATE = { lastRef: '', bookmarks: [], highlights: [], recentSearches: [] };
 const RECENT_MAX_H = 288;   // 최근 검색어 판의 높이 상한(예전 max-h-72) — 키보드가 있으면 더 줄어든다
-
-// what을 주면 **못 남겼을 때 이유까지 말한다**(사용자 피드백 2026-09-03 — 예외 문구).
-// 예전에는 saveBibleState가 실패를 삼켜서, 클라우드에 안 남은 형광펜이 화면에는
-// 칠해져 있었다(새로 열면 사라진다). 이어읽기(lastRef)만 바뀌는 호출은 조용히 넘긴다.
-function persistState(next, what = '') {
-  writeCache(STATE_KEY, next);   // 고친 값이 곧 다음 진입의 첫 화면이다
-  saveBibleState(next).then(r => {
-    if (what && r && r.ok === false) showToast(failText(what, r.error));
-  }).catch(() => {});
-}
-
-// ── 성경 상태 그릇 한 벌 ────────────────────────────────────────────────────
-// **캐시로 시작하고**(§6-9-p — 이펙트에 맡기면 한 프레임 스켈레톤이 그려진다),
-// **읽어 온 값이 그 사이에 칠한 형광펜을 덮지 않는다**(2026-09-06). 클라우드 왕복이
-// 한 박자 늦게 끝나므로, 로딩 중에 칠한 절이 도착값으로 통째로 되돌아갔다(사람에게는
-// "칠했는데 사라졌다"로 보인다 — 게다가 그 되돌아간 값이 다음 저장에 그대로 올라간다).
-// 한 번이라도 내가 고쳤으면 도착값은 버린다(edited) — 어차피 update가 그 자리에서
-// 저장했으므로 서버도 곧 같은 값이다.
-//
-// 읽어 오는 자리가 둘로 갈려서 그릇만 여기 둔다: 형광펜만 쓰는 곳(QT 본문 —
-// useBibleState)은 스스로 한 번 읽고, 리더(BibleTab)는 **책 목록과 한 묶음으로** 읽으며
-// 그 답의 lastRef로 펼 장까지 정한다. 그래서 그릇은 같고 읽는 이펙트만 다르다.
-function useStateBox() {
-  const [state, setState] = useState(() => readCache(STATE_KEY) || EMPTY_STATE);
-  const edited = useRef(false);
-  // 읽어 온 값을 받아들인다 — 내가 이미 고쳤으면 버린다
-  const adopt = (saved) => { if (edited.current) return; setState(saved); writeCache(STATE_KEY, saved); };
-  const update = (next, what = '') => { edited.current = true; setState(next); persistState(next, what); };
-  return { state, adopt, update };
-}
-
-// 형광펜만 필요한 자리(QT 본문)의 상태 — 캐시로 시작하고 한 번 읽어 온다.
-export function useBibleState() {
-  const { state, adopt, update } = useStateBox();
-  useEffect(() => {
-    let alive = true;
-    loadBibleState().then(saved => { if (alive) adopt(saved); }).catch(() => {});
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return [state, update];
-}
-
-// highlights 중 prefix로 시작하는 것 → Map('장:절' → 색). PassageText의 marks 모양이다.
-export function marksFor(highlights, prefix) {
-  const map = new Map();
-  for (const h of highlights || []) {
-    const ref = String(h?.ref || '');
-    if (ref.startsWith(prefix)) map.set(ref.slice(prefix.length), hlColor(h?.color));
-  }
-  return map;
-}
-
-// ── 범위 고르기(사용자 결정 2026-09-03) ────────────────────────────────────
-// **앵커 방식**이다. 첫 클릭이 앵커고, 다음 클릭은 앵커와 그 절 사이를 범위로 만든다:
-// 4 → 1이면 1~4, 1 → 4도 1~4, 1~3에서 6을 누르면 1~6, 1~6에서 5를 누르면 1~5로
-// **줄어든다**(역으로 취소). 앵커를 다시 누르면 해제. 늘리기와 취소가 같은 손짓이라
-// '범위 시작/끝' 두 모드를 만들지 않아도 된다. 다른 장의 절을 누르면 거기서 새로 시작한다
-// (QT 본문은 장을 넘어갈 수 있다).
-// refOf(chapter, verse) → highlights에 남길 ref · name → 라벨 앞머리(책 이름) ·
-// guard() → true면 이번 클릭을 무시한다(리더의 스와이프 직후).
-// 돌려주는 것은 PassageText에 그대로 꽂는 네 가지(onPickVerse·picked·toolAt·tool)와 clear.
-export function useVersePaint({ state, update, refOf, name, guard = null }) {
-  const [sel, setSel] = useState(null);   // { chapter, anchor, from, to }
-  const pickVerse = (chapter, verse) => {
-    if (guard?.()) return;
-    setSel(prev => {
-      if (!prev || prev.chapter !== chapter) return { chapter, anchor: verse, from: verse, to: verse };
-      if (verse === prev.anchor) return null;
-      return { ...prev, from: Math.min(prev.anchor, verse), to: Math.max(prev.anchor, verse) };
-    });
-  };
-
-  // 바깥을 누르거나 Esc면 해제한다. **절과 도구 줄은 '안'이다** — 다른 절의 mousedown이
-  // 여기서 닫아 버리면 곧 오는 click이 새 앵커를 잡아 범위가 절대 만들어지지 않는다
-  // (2026-09-05 실물에서 잡힘 — 고른 절만 '안'으로 쳤고, 테스트는 p.click()만 쏴서
-  // mousedown 없이 통과했었다. 지금은 tests/word.mjs가 mousedown을 먼저 보낸다).
-  useEffect(() => {
-    if (!sel) return undefined;
-    const onDown = (e) => {
-      if (e.target?.closest?.('[data-verse-tool], [data-verse]')) return;
-      setSel(null);
-    };
-    const onKey = (e) => { if (e.key === 'Escape') setSel(null); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-  }, [sel]);
-
-  // 고른 범위 — 화면에 줄 표시(Set) · 저장에 쓸 참조 목록 · 지금 색 · 라벨
-  const range = sel ? Array.from({ length: sel.to - sel.from + 1 }, (_, i) => sel.from + i) : [];
-  const picked = sel ? new Set(range.map(v => `${sel.chapter}:${v}`)) : null;
-  const selRefs = range.map(v => refOf(sel.chapter, v));
-  const selHits = selRefs.map(ref => (state.highlights || []).find(h => h?.ref === ref)).filter(Boolean);
-  const selLit = selHits.length > 0;
-  const selColor = selLit ? hlColor(selHits[0].color) : null;
-  const selLabel = sel
-    ? `${name || ''} ${sel.chapter}:${sel.from}${sel.to > sel.from ? `~${sel.to}` : ''}`.trim()
-    : '';
-  // 도구 줄은 **범위의 마지막 절 아래**에 선다(사용자 결정 2026-09-03)
-  const toolAt = sel ? `${sel.chapter}:${sel.to}` : null;
-
-  // 범위 전체를 그 색으로 칠한다 — 이미 다른 색이면 **덧칠**이다(같은 절이 두 번 남지
-  // 않게 먼저 걷어내고 다시 넣는다).
-  const paintRange = (color) => {
-    if (!selRefs.length) return;
-    const at = new Date().toISOString();
-    const rest = (state.highlights || []).filter(h => !selRefs.includes(h?.ref));
-    setSel(null);
-    update({ ...state, highlights: [...rest, ...selRefs.map(ref => ({ ref, at, color }))] },
-      `${selLabel}에 형광펜을 칠하지 못했어요`);
-  };
-  const eraseRange = () => {
-    if (!selRefs.length || !selLit) return;
-    setSel(null);
-    update({ ...state, highlights: (state.highlights || []).filter(h => !selRefs.includes(h?.ref)) },
-      `${selLabel}의 형광펜을 지우지 못했어요`);
-  };
-
-  const tool = sel
-    ? <VerseTool label={selLabel} current={selColor} lit={selLit} onPaint={paintRange} onErase={eraseRange} />
-    : null;
-  return { onPickVerse: pickVerse, picked, toolAt, tool, clear: () => setSel(null) };
-}
 
 // ── "이런 마음일 때" (사용자 결정 2026-09-25 · 목업 '은혜와 리듬' 5번) ─────────────
 // 최근 검색어 판 맨 위의 칩 **한 줄**. 규칙은 services/moodPick.js 머리말 — 여기는 폭을 재는 일만 한다.
@@ -640,17 +234,231 @@ function ChapterReaders({ view, shared = {}, onOpenShare }) {
   );
 }
 
-// 켬/끔 스위치 모양 한 벌 — 장 머리의 판과 내 정보(settings.jsx)가 같이 쓴다
-export function ShareSwitch({ on }) {
-  return (
-    <span aria-hidden="true" className="relative shrink-0 w-[30px] h-[18px] rounded-full transition-colors"
-      style={{ background: on ? 'var(--app-accent)' : 'var(--app-line)' }}>
-      <span className="absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-[left] duration-150"
-        style={{ left: on ? 14 : 2 }} />
-    </span>
-  );
+// ── 본문 검색 (BibleTab의 검색 상태 한 벌) ──────────────────────────────────
+// 낱말 그대로 찾기와 뜻으로 찾기를 같이 띄우고, 둘 다 같은 열쇠(searchToken)로 늦게 온 답을 버린다.
+// stateArrived: bible_state가 도착했는가(BibleTab 머리 — 그 전에는 최근 검색어를 남기지 않는다).
+function useBibleSearch({ books, state, update, stateArrived }) {
+  const [query, setQuery] = useState('');
+  const [typed, setTyped] = useState('');
+  const [results, setResults] = useState([]);
+  const [shown, setShown] = useState(RESULT_PAGE);    // 낱말 결과 중 그리는 줄 수('더 보기'로 는다)
+  // 검색 결과에서 절을 열었나 — 그러면 결과를 지우지 않고 들고 있다가 머리줄의 되돌아가기가
+  // 목차 대신 **결과로** 돌아간다(2026-09-25 — 예전에는 절을 여는 순간 결과가 지워져 같은 검색을
+  // 다시 쳐야 했다). 장을 넘겨도 그대로다(결과 속 절 앞뒤를 읽다가 돌아오는 흐름).
+  const [fromSearch, setFromSearch] = useState(false);
+  const [progress, setProgress] = useState(null);     // { done, total } · null이면 안 돌고 있다
+  // 뜻으로 찾은 구절(services/bibleSearch.js). aiWait는 답을 기다리는 중인가 —
+  // 게스트 모드(로그인이 없는 빌드)에서는 묻지도 않으므로 둘 다 그대로 비어 있다.
+  const [aiHits, setAiHits] = useState([]);
+  const [aiWait, setAiWait] = useState(false);
+  // AI 도막에 선 줄이 어디서 왔나 — 'ai'(평소) | 'vec'(AI를 못 물어서 벡터로 채웠다 · S-a). 머리줄만 달라진다.
+  const [aiFrom, setAiFrom] = useState('ai');
+  const searchToken = useRef(0);
+
+  // 검색 자리를 비우고 q를 지금 검색어로 세운다 — 열쇠를 갈아서 돌고 있던 훑기·AI 답은 버려진다.
+  // 새 검색(runSearch) · 검색 접기(clearSearch) · 다른 자리로 옮기기(goto)가 모두 이 한 벌을 거친다.
+  const resetSearch = (q = '') => {
+    const token = ++searchToken.current;
+    setQuery(q);
+    setFromSearch(false);
+    setResults([]); setProgress(null);
+    setAiHits([]); setAiWait(false);
+    return token;
+  };
+  // 검색을 접는다 — 칸의 글자까지 비운다
+  const clearSearch = () => { resetSearch(); setTyped(''); };
+
+  // 낱말 그대로 찾기 — **받는 것만 겹친다**(forEachPool). 훑기는 목록 순서 그대로라
+  // 결과 줄이 정경 순이다. 한 권이 끝날 때마다 결과·진행을 그린다. 66권을 끝까지 훑는다(RESULT_PAGE).
+  // **띄어쓰기는 지우고 견준다**(services/word.js compactText) — '사랑 하는'을 '사랑하는'으로 쳐도 걸린다.
+  const runKeyword = async (q, token) => {
+    setResults([]); setShown(RESULT_PAGE); setProgress({ done: 0, total: books.length });
+    const needle = compactText(q);
+    const out = [];
+    await forEachPool(books, POOL, b => loadBook(b.id), async (data, b, i) => {
+      if (token !== searchToken.current) return false;
+      if (data) {
+        const packed = packedOf(data);
+        for (let c = 0; c < data.chapters.length; c++) {
+          const verses = data.chapters[c];
+          for (let v = 0; v < verses.length; v++) {
+            if (!packed[c][v].includes(needle)) continue;
+            out.push({ bookId: b.id, name: b.name, chapter: c + 1, verse: v + 1, text: verses[v] });
+          }
+        }
+      }
+      setResults(out.slice());
+      setProgress({ done: i + 1, total: books.length });
+      await new Promise(r => setTimeout(r, 0));   // 진행이 화면에 그려질 틈
+      return true;
+    });
+    if (token === searchToken.current) setProgress(p => (p ? { ...p, done: books.length } : null));
+  };
+
+  // 뜻으로 찾기 — 제미나이가 고른 구절을 우리 본문으로 확인해서 돌려준다
+  // (services/bibleSearch.js). **실패는 조용하다** — 그 도막을 감출 뿐이다.
+  //
+  // **AI를 못 물었으면(실패·시간 초과) 그 자리에 벡터 결과를 같은 줄 모양으로 세운다**(사용자 결정 S-a
+  // 2026-09-25). 평소 화면은 그대로다 — 비교에서 AI가 이겼으므로(HANDOFF §7) AI가 답한 자리에는 벡터를
+  // 섞지 않고, 지금까지 아무것도 안 뜨던 자리만 채운다. 머리줄은 '{검색어}와/과 관련된 성경 구절'.
+  // 벡터도 실패하면 예전처럼 도막째 감춘다. 게스트에서는 둘 다 묻지 않는다(aiEnabled · semanticOn).
+  const runAi = async (q, token) => {
+    if (!aiEnabled()) return;          // 게스트 모드에서는 묻지도 않는다(빈 자리도 안 뜬다)
+    setAiWait(true); setAiFrom('ai');
+    let out = { hits: [], failed: false };
+    // 다섯째 인자가 **사람들 사이에 공유되는 캐시**다(0057) — 남이 같은 말로 이미
+    // 물어봤으면 AI를 부르지 않는다(사용자 요청 2026-09-09).
+    try { out = await aiBibleSearchOutcome(q, books, loadBook, AiService.callGemini, bibleSearchStore); }
+    catch { out = { hits: [], failed: true }; }
+    if (token !== searchToken.current) return;
+    if (!out.failed || !semanticOn()) { setAiHits(out.hits); setAiWait(false); return; }
+    let vec = [];
+    try { vec = bibleVecHits(await matchBible(q), books); }
+    catch (e) { console.warn('[word] 관련된 성경 구절을 받지 못했어요:', e); }
+    if (token !== searchToken.current) return;
+    setAiFrom('vec'); setAiHits(vec); setAiWait(false);
+  };
+
+  // recentAs: 최근 검색어에 남길 글자(칩 — AI 물음 대신 칩 글자 그대로 · 목업 5번). 없으면 검색어 그대로.
+  const run = (raw, recentAs = '') => {
+    const q = raw.trim();
+    const token = resetSearch(q);
+    if (!q) return;
+    // 최근 검색어는 **여기 한 자리**에서만 쌓인다(0065) — 검색이 실제로 시작되는 곳이다.
+    // 글자를 칠 때(setTyped) 남기면 '사'·'사사'·'사사기'가 세 줄이 된다.
+    if (stateArrived.current) update({ ...state, recentSearches: pushRecentSearch(state.recentSearches, recentAs || q) });
+    // 둘을 **같이** 띄운다 — AI 답을 기다리느라 낱말 결과가 늦으면 안 된다
+    runKeyword(q, token);
+    runAi(q, token);
+  };
+
+  return {
+    query, typed, setTyped, results, shown, setShown, fromSearch, setFromSearch,
+    progress, aiHits, aiWait, aiFrom, run, clearSearch,
+  };
 }
 
+// ── 최근 검색어 판 · 마음 칩 차례 ───────────────────────────────────────────
+// 최근 검색어 줄은 **검색어를 비운 채 칸에 들어왔을 때** 선다(0065). rowRef: 칸 + 글자 크기 줄(마음 칩이
+// 있으면 판이 이 폭을 쓴다) · formRef: 검색 칸 · panelRef: 판.
+function useRecentPanel({ typed, recent, moodsOn, rowRef, formRef, panelRef }) {
+  const [focused, setFocused] = useState(false);
+  // 최근 검색어 판이 서는 조건 — **검색 칸 안 안내 문구의 회전도 이 값이 멈춘다**(BibleTab의
+  // SearchHint). 두 자리가 같은 값을 봐야 판이 열린 순간과 문구가 멎는 순간이 어긋나지 않는다.
+  // **칩이 있으면 최근 검색어가 없어도 판이 뜬다**(목업 5번). 게스트(AI 없음)에는 칩이 없다 — 낱말 검색으로
+  // '지칠 때'를 찾으면 0건이라 없는 것을 약속하는 자리가 된다(searchHints와 같은 근거).
+  const recentOpen = focused && !typed && (recent.length > 0 || moodsOn);
+  // 칩 차례 — 판이 **열리는 순간** 한 번 정한다(1분 안이면 기억한 차례, 지났으면 새로 섞고 방금 본 칩은 뒤로).
+  // 닫히는 순간 그때 보였던 칩과 시각을 적는다(services/moodPick.js). 렌더 중에 정해야 칩이 첫 그림부터 맞다.
+  const wasOpen = useRef(false);
+  const moodOrderRef = useRef(null);
+  const moodShown = useRef([]);
+  if (moodsOn && recentOpen !== wasOpen.current) {
+    if (recentOpen) {
+      const memo = readMoodMemo();
+      moodOrderRef.current = orderOnOpen(memo, MOODS.length);
+      writeMoodMemo({ order: moodOrderRef.current, shownAt: memo?.shownAt || 0, last: memo?.last || [] });
+    } else if (moodOrderRef.current) {
+      writeMoodMemo({ order: moodOrderRef.current, shownAt: Date.now(), last: moodShown.current });
+    }
+    wasOpen.current = recentOpen;
+  }
+  // 최근 검색어 판은 **body 포털**이다(HANDOFF §8 '떠 있는 것') — 폭은 검색 칸에서 잰다.
+  // 바깥 누름으로 닫는 훅이 없다: 칸의 blur가 닫고, 판의 mousedown preventDefault가 포커스를
+  // 지켜서 포털이어도 판 안을 누르는 동안은 열려 있다.
+  // 키보드가 올라와 칸 아래가 짧으면 **판을 그 자리에 맞게 줄인다**(fitHeight · 2026-09-25) — 전에는
+  // 가두기가 288px 판을 칸 위로 끌어올려 검색 칸을 덮었다(375×667 · 키보드 300px).
+  // 마음 칩이 있으면(AI 있는 판) 판은 **검색 줄 전체 폭**이다(목업 5번 — 폰 375에서 칸 폭만 쓰면 칩이 두 개밖에 안 든다).
+  // 칩이 없는 판(게스트)은 예전처럼 칸 폭이다.
+  const [recentPos, placeRecent] = useAnchoredPos(moodsOn ? rowRef : formRef, recentOpen, 320, RECENT_MAX_H, 8, panelRef,
+    { matchWidth: true, align: 'start', fitHeight: true });
+  // 한 줄을 지우면 판이 줄어든다 — 위로 뒤집혀 선 판이 칸에서 떨어져 뜨지 않게 다시 잰다
+  useLayoutEffect(() => { if (recentOpen) placeRecent(); }, [recentOpen, recent.length, placeRecent]);
+  return { setFocused, recentOpen, recentPos, moodOrder: moodOrderRef.current, onMoodFit: (f) => { moodShown.current = f; } };
+}
+
+// ── 이번 주 이 장을 본 사람(0080) — 장을 열 때 **한 번** 읽는다(실시간 없음) ─────────────
+// 이름·사진은 멤버 목록이 원본이다(나눔 칩과 같다). 게스트의 심어 둔 줄은 이름을 들고 온다.
+// '나눔 보기'는 이번 주 읽기표에서 이 장에 걸친 날 → 그 날 공유해 둔 묵상이 있는 사람만.
+// loaded: 지금 장의 본문이 도착했나 — 그때부터 5초를 센다(아래).
+function useChapterReaders({ place, placeKey, books, loaded }) {
+  const members = useStore(selectMembers);
+  const [readers, setReaders] = useState(null);   // { key, rows, shared: { [profile_id]: 날짜 } }
+  useEffect(() => {
+    if (!place || !books.length) return undefined;
+    let alive = true;
+    const key = placeKey;
+    const today = kstToday();
+    (async () => {
+      const rows = await fetchChapterReaders(key, weekStartOf(today));
+      const me = myUidSync() || '';
+      const ids = [...new Set(rows.map(r => r.profile_id))].filter(id => id && id !== me);
+      let shared = {};
+      if (ids.length) {
+        const [ws, we] = weekRange(today);
+        const sch = await fetchScheduleRange(ws, we).catch(() => []);
+        const dates = qtDatesCovering(sch, place.bookId, place.chapter, ref => parseRef(ref, books));
+        const on = await fetchSharedOn(dates, ids).catch(() => []);
+        for (const r of on) if (!shared[r.profile_id] || r.qt_date > shared[r.profile_id]) shared[r.profile_id] = r.qt_date;
+      }
+      if (alive) setReaders({ key, rows, shared });
+    })().catch(e => { console.warn('[word] 이 장을 본 사람을 읽지 못했어요:', e); if (alive) setReaders(null); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placeKey, books]);
+  const view = useMemo(() => {
+    if (!readers || readers.key !== placeKey) return readersView([], '');
+    const byId = new Map((members || []).map(m => [m.id, m]));
+    return readersView(readers.rows.map(r => {
+      const m = byId.get(r.profile_id);
+      return { profile_id: r.profile_id, name: m?.name || r.name || '', avatarUrl: m?.avatarUrl || r.avatarUrl || '' };
+    }), myUidSync() || '');
+  }, [readers, placeKey, members]);
+
+  // 장을 **5초 넘게** 펼쳐 두면 이번 주 이 장에 내 줄 하나(나도 나누기가 켜져 있을 때만).
+  // 목차에서 훑고 지나간 장은 적히지 않는다 — 장을 옮기면 타이머가 풀린다.
+  useEffect(() => {
+    if (!loaded || !placeKey) return undefined;
+    const key = placeKey;
+    const t = setTimeout(async () => {
+      try {
+        if (!(await loadReadShare())) return;
+        await markChapterRead(key, weekStartOf(kstToday()));
+      } catch (e) { console.warn('[word] 이 장을 본 기록을 남기지 못했어요:', e); }
+    }, READ_DWELL_MS + 100);
+    return () => clearTimeout(t);
+  }, [loaded, placeKey]);
+  return { view, shared: readers?.shared };
+}
+
+// ── 쓸어서 넘기기 ───────────────────────────────────────────────────────────
+// 모바일은 **쓸어서** 넘긴다(사용자 피드백 2026-09-03 — 화살표가 맨 아래라 스크롤을 다
+// 내려야 넘길 수 있었다). 가로 이동이 60px을 넘고 세로보다 커야 장이 바뀐다 — 읽다가
+// 위아래로 훑는 손짓과 갈라야 한다. 쓸고 난 뒤의 click은 절 선택으로 세지 않는다
+// (터치 기기는 손을 떼는 자리에 click을 한 번 더 보낸다 — justSwiped).
+// onSwipe(1 | -1): 다음 장 · 이전 장
+function useSwipe(onSwipe) {
+  const touchAt = useRef(null);
+  const swipedAt = useRef(0);   // 마지막 스와이프 시각(onTouchEnd가 적는다)
+  const onTouchStart = (e) => {
+    const t = e.touches && e.touches[0];
+    touchAt.current = t ? { x: t.clientX, y: t.clientY } : null;
+  };
+  const onTouchEnd = (e) => {
+    const from = touchAt.current;
+    touchAt.current = null;
+    const t = e.changedTouches && e.changedTouches[0];
+    if (!from || !t) return;
+    const dx = t.clientX - from.x, dy = t.clientY - from.y;
+    if (Math.abs(dx) > 10) swipedAt.current = Date.now();
+    if (Math.abs(dx) < SWIPE_MIN || Math.abs(dy) > Math.abs(dx)) return;   // 세로로 더 움직였으면 스크롤이다
+    onSwipe(dx < 0 ? 1 : -1);
+  };
+  const justSwiped = () => Date.now() - swipedAt.current < 400;
+  return { onTouchStart, onTouchEnd, justSwiped };
+}
+
+// ── 성경 읽기 탭 ────────────────────────────────────────────────────────────
 export function BibleTab({ initialRef = '', onOpenShare }) {
   const [books, setBooks] = useState([]);
   // **캐시가 있으면 그 값으로 시작한다**(사용자 요청 2026-09-03 — "매번 스켈레톤이 아니라
@@ -669,25 +477,7 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
   const [dir, setDir] = useState(0);             // 화면이 바뀌는 방향(이전/다음 장)
 
   const [chap, setChap] = useState(null);        // { key, verses } — 지금 장의 절 배열
-  const [query, setQuery] = useState('');
-  const [typed, setTyped] = useState('');
-  const [results, setResults] = useState([]);
-  const [shown, setShown] = useState(RESULT_PAGE);    // 낱말 결과 중 그리는 줄 수('더 보기'로 는다)
-  // 검색 결과에서 절을 열었나 — 그러면 결과를 지우지 않고 들고 있다가 머리줄의 되돌아가기가
-  // 목차 대신 **결과로** 돌아간다(2026-09-25 — 예전에는 절을 여는 순간 결과가 지워져 같은 검색을
-  // 다시 쳐야 했다). 장을 넘겨도 그대로다(결과 속 절 앞뒤를 읽다가 돌아오는 흐름).
-  const [fromSearch, setFromSearch] = useState(false);
-  const [progress, setProgress] = useState(null);     // { done, total } · null이면 안 돌고 있다
-  // 뜻으로 찾은 구절(services/bibleSearch.js). aiWait는 답을 기다리는 중인가 —
-  // 게스트 모드(로그인이 없는 빌드)에서는 묻지도 않으므로 둘 다 그대로 비어 있다.
-  const [aiHits, setAiHits] = useState([]);
-  const [aiWait, setAiWait] = useState(false);
-  // AI 도막에 선 줄이 어디서 왔나 — 'ai'(평소) | 'vec'(AI를 못 물어서 벡터로 채웠다 · S-a). 머리줄만 달라진다.
-  const [aiFrom, setAiFrom] = useState('ai');
-  const searchToken = useRef(0);
   const bodyRef = useRef(null);
-  // 최근 검색어 줄은 **검색어를 비운 채 칸에 들어왔을 때** 선다(0065)
-  const [focused, setFocused] = useState(false);
   const inputRef = useRef(null);
   const searchFormRef = useRef(null);
   const searchRowRef = useRef(null);   // 칸 + 글자 크기 줄 — 마음 칩이 있으면 판이 이 폭을 쓴다
@@ -697,6 +487,11 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
   // (북마크·형광펜 버튼은 장을 펼쳐야 눌려서 이 위험이 검색 칸에만 있다). 그 짧은 사이에
   // 친 말은 목록에 안 남을 뿐이고, 검색 자체는 그대로 돈다.
   const stateArrived = useRef(false);
+  const search = useBibleSearch({ books, state, update, stateArrived });
+  const {
+    query, typed, setTyped, results, shown, setShown, fromSearch, setFromSearch,
+    progress, aiHits, aiWait, aiFrom, clearSearch,
+  } = search;
 
   // **장을 넘길 때 자리를 붙잡는다**(사용자 피드백 2026-09-03 — 본문이 비었다가 채워지며
   // 높이가 튀고 스크롤이 점프했다). QT가 하는 것과 같은 방식이다(wordView 머리말):
@@ -788,55 +583,7 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
   const placeKey = place ? chapterKey(place.bookId, place.chapter) : '';
   const loaded = !!place && chap?.key === placeKey;
 
-  // ── 이번 주 이 장을 본 사람(0080) — 장을 열 때 **한 번** 읽는다(실시간 없음) ─────────────
-  // 이름·사진은 멤버 목록이 원본이다(나눔 칩과 같다). 게스트의 심어 둔 줄은 이름을 들고 온다.
-  // '나눔 보기'는 이번 주 읽기표에서 이 장에 걸친 날 → 그 날 공유해 둔 묵상이 있는 사람만.
-  const members = useStore(selectMembers);
-  const [readers, setReaders] = useState(null);   // { key, rows, shared: { [profile_id]: 날짜 } }
-  useEffect(() => {
-    if (!place || !books.length) return undefined;
-    let alive = true;
-    const key = placeKey;
-    const today = kstToday();
-    (async () => {
-      const rows = await fetchChapterReaders(key, weekStartOf(today));
-      const me = myUidSync() || '';
-      const ids = [...new Set(rows.map(r => r.profile_id))].filter(id => id && id !== me);
-      let shared = {};
-      if (ids.length) {
-        const [ws, we] = weekRange(today);
-        const sch = await fetchScheduleRange(ws, we).catch(() => []);
-        const dates = qtDatesCovering(sch, place.bookId, place.chapter, ref => parseRef(ref, books));
-        const on = await fetchSharedOn(dates, ids).catch(() => []);
-        for (const r of on) if (!shared[r.profile_id] || r.qt_date > shared[r.profile_id]) shared[r.profile_id] = r.qt_date;
-      }
-      if (alive) setReaders({ key, rows, shared });
-    })().catch(e => { console.warn('[word] 이 장을 본 사람을 읽지 못했어요:', e); if (alive) setReaders(null); });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placeKey, books]);
-  const readersOf = useMemo(() => {
-    if (!readers || readers.key !== placeKey) return readersView([], '');
-    const byId = new Map((members || []).map(m => [m.id, m]));
-    return readersView(readers.rows.map(r => {
-      const m = byId.get(r.profile_id);
-      return { profile_id: r.profile_id, name: m?.name || r.name || '', avatarUrl: m?.avatarUrl || r.avatarUrl || '' };
-    }), myUidSync() || '');
-  }, [readers, placeKey, members]);
-
-  // 장을 **5초 넘게** 펼쳐 두면 이번 주 이 장에 내 줄 하나(나도 나누기가 켜져 있을 때만).
-  // 목차에서 훑고 지나간 장은 적히지 않는다 — 장을 옮기면 타이머가 풀린다.
-  useEffect(() => {
-    if (!loaded || !placeKey) return undefined;
-    const key = placeKey;
-    const t = setTimeout(async () => {
-      try {
-        if (!(await loadReadShare())) return;
-        await markChapterRead(key, weekStartOf(kstToday()));
-      } catch (e) { console.warn('[word] 이 장을 본 기록을 남기지 못했어요:', e); }
-    }, READ_DWELL_MS + 100);
-    return () => clearTimeout(t);
-  }, [loaded, placeKey]);
+  const readers = useChapterReaders({ place, placeKey, books, loaded });
 
   // 검색·형광펜 목록에서 들어온 절로 데려간다
   useEffect(() => {
@@ -864,13 +611,12 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
   // 기다리는 동안 세울 스켈레톤 줄 수 — 붙잡아 둔 높이를 채운다(한 줄 ≈ 34px)
   const holdLines = holdH ? Math.max(8, Math.round((holdH - 44) / 34)) : 10;
 
-  const swipedAt = useRef(0);   // 마지막 스와이프 시각(onTouchEnd가 적는다)
   // 형광펜 범위 고르기·칠하기 — 도구 줄까지 훅이 만든다(useVersePaint 머리말).
   // ref는 '책 장:절'(services/word.js verseKey — bible_state.highlights의 모양).
   const paint = useVersePaint({
     state, update, name: here?.name,
     refOf: (chapter, verse) => verseKey(place.bookId, chapter, verse),
-    guard: () => Date.now() - swipedAt.current < 400,   // 방금 쓸었다면 그건 넘기려던 손이다
+    guard: () => swipe.justSwiped(),   // 방금 쓸었다면 그건 넘기려던 손이다
   });
   // keepSearch: 검색 결과를 들고 간다(결과에서 절을 열 때 · 결과에서 연 장을 넘길 때). 그 밖의 길
   // (목차·북마크·형광펜)은 예전처럼 검색을 접는다.
@@ -880,12 +626,8 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
     setPlace({ bookId, chapter });
     setFocus(at);
     paint.clear();      // 자리를 옮기면 고른 절이 사라진다 — 선택도 같이 내린다
-    setFromSearch(keepSearch);
-    if (!keepSearch) {
-      setQuery(''); setTyped(''); setResults([]); setProgress(null);
-      setAiHits([]); setAiWait(false);
-      searchToken.current++;
-    }
+    if (keepSearch) setFromSearch(true);
+    else clearSearch();
     update({ ...state, lastRef: chapterKey(bookId, chapter) });
   };
 
@@ -911,95 +653,14 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
   const canPrev = !!place && bookIdx >= 0 && !(bookIdx === 0 && place.chapter === 1);
   const canNext = !!place && bookIdx >= 0
     && !(bookIdx === books.length - 1 && place.chapter === (books[bookIdx]?.chapters || 1));
+  const swipe = useSwipe((d) => { if (d > 0 ? canNext : canPrev) move(d); });
 
-  // 모바일은 **쓸어서** 넘긴다(사용자 피드백 2026-09-03 — 화살표가 맨 아래라 스크롤을 다
-  // 내려야 넘길 수 있었다). 가로 이동이 60px을 넘고 세로보다 커야 장이 바뀐다 — 읽다가
-  // 위아래로 훑는 손짓과 갈라야 한다. 쓸고 난 뒤의 click은 절 선택으로 세지 않는다
-  // (터치 기기는 손을 떼는 자리에 click을 한 번 더 보낸다).
-  const touchAt = useRef(null);
-  const onTouchStart = (e) => {
-    const t = e.touches && e.touches[0];
-    touchAt.current = t ? { x: t.clientX, y: t.clientY } : null;
-  };
-  const onTouchEnd = (e) => {
-    const from = touchAt.current;
-    touchAt.current = null;
-    const t = e.changedTouches && e.changedTouches[0];
-    if (!from || !t) return;
-    const dx = t.clientX - from.x, dy = t.clientY - from.y;
-    if (Math.abs(dx) > 10) swipedAt.current = Date.now();
-    if (Math.abs(dx) < SWIPE_MIN || Math.abs(dy) > Math.abs(dx)) return;   // 세로로 더 움직였으면 스크롤이다
-    if (dx < 0 ? canNext : canPrev) move(dx < 0 ? 1 : -1);
-  };
-
-  // 낱말 그대로 찾기 — **받는 것만 겹친다**(forEachPool). 훑기는 목록 순서 그대로라
-  // 결과 줄이 정경 순이다. 한 권이 끝날 때마다 결과·진행을 그린다. 66권을 끝까지 훑는다(RESULT_PAGE).
-  // **띄어쓰기는 지우고 견준다**(services/word.js compactText) — '사랑 하는'을 '사랑하는'으로 쳐도 걸린다.
-  const runKeyword = async (q, token) => {
-    setResults([]); setShown(RESULT_PAGE); setProgress({ done: 0, total: books.length });
-    const needle = compactText(q);
-    const out = [];
-    await forEachPool(books, POOL, b => loadBook(b.id), async (data, b, i) => {
-      if (token !== searchToken.current) return false;
-      if (data) {
-        const packed = packedOf(data);
-        for (let c = 0; c < data.chapters.length; c++) {
-          const verses = data.chapters[c];
-          for (let v = 0; v < verses.length; v++) {
-            if (!packed[c][v].includes(needle)) continue;
-            out.push({ bookId: b.id, name: b.name, chapter: c + 1, verse: v + 1, text: verses[v] });
-          }
-        }
-      }
-      setResults(out.slice());
-      setProgress({ done: i + 1, total: books.length });
-      await new Promise(r => setTimeout(r, 0));   // 진행이 화면에 그려질 틈
-      return true;
-    });
-    if (token === searchToken.current) setProgress(p => (p ? { ...p, done: books.length } : null));
-  };
-
-  // 뜻으로 찾기 — 제미나이가 고른 구절을 우리 본문으로 확인해서 돌려준다
-  // (services/bibleSearch.js). **실패는 조용하다** — 그 도막을 감출 뿐이다.
-  //
-  // **AI를 못 물었으면(실패·시간 초과) 그 자리에 벡터 결과를 같은 줄 모양으로 세운다**(사용자 결정 S-a
-  // 2026-09-25). 평소 화면은 그대로다 — 비교에서 AI가 이겼으므로(HANDOFF §7) AI가 답한 자리에는 벡터를
-  // 섞지 않고, 지금까지 아무것도 안 뜨던 자리만 채운다. 머리줄은 '{검색어}와/과 관련된 성경 구절'.
-  // 벡터도 실패하면 예전처럼 도막째 감춘다. 게스트에서는 둘 다 묻지 않는다(aiEnabled · semanticOn).
-  const runAi = async (q, token) => {
-    if (!aiEnabled()) return;          // 게스트 모드에서는 묻지도 않는다(빈 자리도 안 뜬다)
-    setAiWait(true); setAiFrom('ai');
-    let out = { hits: [], failed: false };
-    // 다섯째 인자가 **사람들 사이에 공유되는 캐시**다(0057) — 남이 같은 말로 이미
-    // 물어봤으면 AI를 부르지 않는다(사용자 요청 2026-09-09).
-    try { out = await aiBibleSearchOutcome(q, books, loadBook, AiService.callGemini, bibleSearchStore); }
-    catch { out = { hits: [], failed: true }; }
-    if (token !== searchToken.current) return;
-    if (!out.failed || !semanticOn()) { setAiHits(out.hits); setAiWait(false); return; }
-    let vec = [];
-    try { vec = bibleVecHits(await matchBible(q), books); }
-    catch (e) { console.warn('[word] 관련된 성경 구절을 받지 못했어요:', e); }
-    if (token !== searchToken.current) return;
-    setAiFrom('vec'); setAiHits(vec); setAiWait(false);
-  };
-
-  // recentAs: 최근 검색어에 남길 글자(칩 — AI 물음 대신 칩 글자 그대로 · 목업 5번). 없으면 검색어 그대로.
+  // 검색을 시작한다 — 결과는 본문 열의 자리에 그린다
   const runSearch = (raw, recentAs = '') => {
-    const q = raw.trim();
-    const token = ++searchToken.current;
-    setQuery(q);
-    setFromSearch(false);
-    setPane('toc');           // 결과는 본문 열의 자리에 그린다
+    setPane('toc');
     setFocus(null);
     setDir(0);
-    setAiHits([]); setAiWait(false);
-    if (!q) { setResults([]); setProgress(null); return; }
-    // 최근 검색어는 **여기 한 자리**에서만 쌓인다(0065) — 검색이 실제로 시작되는 곳이다.
-    // 글자를 칠 때(setTyped) 남기면 '사'·'사사'·'사사기'가 세 줄이 된다.
-    if (stateArrived.current) update({ ...state, recentSearches: pushRecentSearch(state.recentSearches, recentAs || q) });
-    // 둘을 **같이** 띄운다 — AI 답을 기다리느라 낱말 결과가 늦으면 안 된다
-    runKeyword(q, token);
-    runAi(q, token);
+    search.run(raw, recentAs);
   };
 
   // 최근 검색어 한 줄을 누르면 **지금 검색을 시작하는 그 길** 그대로다(runSearch).
@@ -1014,13 +675,6 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
     '최근 검색어를 지우지 못했어요',
   );
   const recent = state.recentSearches || [];
-
-  const clearSearch = () => {
-    searchToken.current++;
-    setFromSearch(false);
-    setQuery(''); setTyped(''); setResults([]); setProgress(null);
-    setAiHits([]); setAiWait(false);
-  };
 
   const verses = useMemo(() => (loaded ? chap.verses : []).map((text, i) => ({
     chapter: place?.chapter || 1, verse: i + 1, text,
@@ -1043,38 +697,10 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
 
   // AI를 부를 수 있는 자리인지는 한 세션 안에서 바뀌지 않는다(!!supabase)
   const hints = useMemo(() => searchHints(aiEnabled()), []);
-  // 최근 검색어 판이 서는 조건 — **검색 칸 안 안내 문구의 회전도 이 값이 멈춘다**(아래
-  // SearchHint). 두 자리가 같은 값을 봐야 판이 열린 순간과 문구가 멎는 순간이 어긋나지 않는다.
-  // **칩이 있으면 최근 검색어가 없어도 판이 뜬다**(목업 5번). 게스트(AI 없음)에는 칩이 없다 — 낱말 검색으로
-  // '지칠 때'를 찾으면 0건이라 없는 것을 약속하는 자리가 된다(searchHints와 같은 근거).
   const moodsOn = hints.length > 1;   // = aiEnabled() — 한 세션 안에서 바뀌지 않는다
-  const recentOpen = focused && !typed && (recent.length > 0 || moodsOn);
-  // 칩 차례 — 판이 **열리는 순간** 한 번 정한다(1분 안이면 기억한 차례, 지났으면 새로 섞고 방금 본 칩은 뒤로).
-  // 닫히는 순간 그때 보였던 칩과 시각을 적는다(services/moodPick.js). 렌더 중에 정해야 칩이 첫 그림부터 맞다.
-  const wasOpen = useRef(false);
-  const moodOrderRef = useRef(null);
-  const moodShown = useRef([]);
-  if (moodsOn && recentOpen !== wasOpen.current) {
-    if (recentOpen) {
-      const memo = readMoodMemo();
-      moodOrderRef.current = orderOnOpen(memo, MOODS.length);
-      writeMoodMemo({ order: moodOrderRef.current, shownAt: memo?.shownAt || 0, last: memo?.last || [] });
-    } else if (moodOrderRef.current) {
-      writeMoodMemo({ order: moodOrderRef.current, shownAt: Date.now(), last: moodShown.current });
-    }
-    wasOpen.current = recentOpen;
-  }
-  // 최근 검색어 판은 **body 포털**이다(HANDOFF §8 '떠 있는 것') — 폭은 검색 칸에서 잰다.
-  // 바깥 누름으로 닫는 훅이 없다: 칸의 blur가 닫고, 판의 mousedown preventDefault가 포커스를
-  // 지켜서 포털이어도 판 안을 누르는 동안은 열려 있다.
-  // 키보드가 올라와 칸 아래가 짧으면 **판을 그 자리에 맞게 줄인다**(fitHeight · 2026-09-25) — 전에는
-  // 가두기가 288px 판을 칸 위로 끌어올려 검색 칸을 덮었다(375×667 · 키보드 300px).
-  // 마음 칩이 있으면(AI 있는 판) 판은 **검색 줄 전체 폭**이다(목업 5번 — 폰 375에서 칸 폭만 쓰면 칩이 두 개밖에 안 든다).
-  // 칩이 없는 판(게스트)은 예전처럼 칸 폭이다.
-  const [recentPos, placeRecent] = useAnchoredPos(moodsOn ? searchRowRef : searchFormRef, recentOpen, 320, RECENT_MAX_H, 8, recentRef,
-    { matchWidth: true, align: 'start', fitHeight: true });
-  // 한 줄을 지우면 판이 줄어든다 — 위로 뒤집혀 선 판이 칸에서 떨어져 뜨지 않게 다시 잰다
-  useLayoutEffect(() => { if (recentOpen) placeRecent(); }, [recentOpen, recent.length, placeRecent]);
+  const { setFocused, recentOpen, recentPos, moodOrder, onMoodFit } = useRecentPanel({
+    typed, recent, moodsOn, rowRef: searchRowRef, formRef: searchFormRef, panelRef: recentRef,
+  });
 
   // 북마크·형광펜 — 책으로 묶어 정경 순으로. 파싱이 안 되는 옛 값은 그룹에 못 들어가므로
   // 개수는 실제로 그린 줄로 센다
@@ -1147,7 +773,7 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
                 maxHeight: Math.min(RECENT_MAX_H, recentPos.maxHeight ?? RECENT_MAX_H) }}
               className="z-[90] overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150"
             >
-              {moodsOn && <MoodChips order={moodOrderRef.current} width={recentPos.width} onPick={pickMood} onFit={f => { moodShown.current = f; }} />}
+              {moodsOn && <MoodChips order={moodOrder} width={recentPos.width} onPick={pickMood} onFit={onMoodFit} />}
               {moodsOn && recent.length > 0 && <hr className="border-0 h-px bg-line mx-1.5 mb-1.5" />}
               {recent.length > 0 && <p className="px-2 pt-0.5 pb-1 text-[11px] font-bold text-fg-muted">최근 검색어</p>}
               {recent.map(r => (
@@ -1225,8 +851,8 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
               <h3 className="bible-place flex-1 min-w-0 truncate text-[15px] font-extrabold text-fg tracking-[-0.3px]">
                 {here?.name} {place.chapter}장
               </h3>
-              {readersOf.all.length > 0 && (
-                <ChapterReaders key={placeKey} view={readersOf} shared={readers?.shared} onOpenShare={onOpenShare} />
+              {readers.view.all.length > 0 && (
+                <ChapterReaders key={placeKey} view={readers.view} shared={readers.shared} onOpenShare={onOpenShare} />
               )}
               <button onClick={toggleBookmark} title={marked ? '북마크 지우기' : '북마크에 넣기'}
                 aria-label={marked ? '북마크 지우기' : '북마크에 넣기'}
@@ -1245,7 +871,7 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
                 sticky가 스크롤마다 미끄러진다(§6-17-b).
                 본문과의 간격도 6px 더 벌렸다(gap-1.5 → gap-3). */}
             <div data-chap-swipe="" className="flex items-stretch gap-3"
-              onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+              onTouchStart={swipe.onTouchStart} onTouchEnd={swipe.onTouchEnd}>
               <div className="hidden md:flex w-11 shrink-0 justify-center">
                 {canPrev && (
                   <button data-chap-nav="prev" onClick={() => move(-1)} aria-label="이전 장" title="이전 장"
@@ -1303,204 +929,6 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
             setPicked={id => { setDir(id ? 1 : -1); setPickedBook(id); }} onOpen={goto} />
         )}
       </Swap>
-    </div>
-  );
-}
-
-// ── 북마크 · 형광펜 목록 ────────────────────────────────────────────────────
-// 세그먼트로 고른 것 하나만 그린다(BibleTab 머리말). 누르면 그 자리로 간다 — 형광펜은
-// 절까지 데려가고 그 절이 화면 가운데에 선다.
-//
-// **책으로 묶는다**(사용자 피드백 2026-09-02 — "북마크·형광펜이 계속 쌓인다").
-// 평평한 칩 목록은 스무 개만 넘어가도 어디가 어디인지 안 보였다. 정경 순으로 책마다
-// 묶고, 책 머리글에 개수를 적고, 책 단위로 접었다 편다.
-//
-// **펼친 책의 파일만 그때 받는다.** 형광펜 줄에 절 미리보기를 한 줄 붙이려면 그 책
-// 파일이 필요한데, 목록 전체를 미리 받으면 여러 권에 걸친 사람은 목록 하나에 몇 MB를
-// 받는다. 그래서 펼칠 때 loadBook 한 권만 부른다(services/bible.js가 캐시하므로 두 번째
-// 부터는 즉시 온다). 북마크는 장 제목이면 되므로 파일이 필요 없다 — 받지 않는다.
-//
-// **기본 펼침/접힘의 기준**: 책이 두 권까지면 펼쳐 둔다. 그때는 접힌 껍데기가 오히려
-// 손을 한 번 더 쓰게 만든다(줄이 서너 개인데 머리글만 보이는 꼴). 세 권부터는 접어
-// 둔다 — 그 정도면 목록이 화면을 넘기고, 무엇이 어느 책에 있는지가 먼저 궁금해진다.
-// 사람이 직접 접거나 편 책은 그 선택이 이긴다(open에 남는다).
-const AUTO_OPEN_BOOKS = 2;
-
-// 책별로 묶어 정경 순으로 돌려준다 — [{ book, items, count }].
-// count는 **절(장) 수**다. items는 범위로 묶여 줄이 그보다 적을 수 있으므로(mergeRuns)
-// 머리글의 '3절'은 items.length가 아니라 이 값으로 센다.
-// 항목에 얹는 것: at = 파싱한 자리(bookId·chapter·verse) · stamp = 항목이 들고 있던 시각 ·
-// to·refs = 이 줄이 품은 마지막 절 번호와 참조들(묶이지 않았으면 자기 하나뿐이다).
-function groupByBook(entries, books, parse, merge = false) {
-  const bag = new Map();
-  for (const e of entries) {
-    const at = parse(e?.ref);
-    if (!at) continue;
-    if (!bag.has(at.bookId)) bag.set(at.bookId, []);
-    bag.get(at.bookId).push({ ...e, at, stamp: String(e?.at || ''), to: at.verse, refs: [e.ref] });
-  }
-  // books가 곧 정경 순이다(index.json). 책 안에서는 장·절 순 — 읽는 차례와 같다.
-  return books
-    .filter(b => bag.has(b.id))
-    .map(b => {
-      const sorted = bag.get(b.id)
-        .sort((x, y) => (x.at.chapter - y.at.chapter) || ((x.at.verse || 0) - (y.at.verse || 0)));
-      return { book: b, items: merge ? mergeRuns(sorted) : sorted, count: sorted.length };
-    });
-}
-
-// **한 번에 칠한 범위는 한 줄이다**(사용자 지시 2026-09-05 — "형광펜 범위로 칠했을 때,
-// 형광펜 섹션에 절마다 죄다 들어가는 게 아니라 해당 범위가 형광펜 섹션에 들어가게").
-// 저장 모양은 절 단위 { ref, at, color } 그대로다 — 리더의 marks·지우기·이어읽기가 모두
-// 절 하나를 열쇠로 쓰므로 **보여줄 때만** 묶는다.
-// 묶는 기준은 paintRange가 남긴 자취다: 그 함수는 범위의 모든 절에 **같은 at**을 찍으므로
-// (장 · at · 색)이 같고 절 번호가 이어지면 그것이 곧 한 번의 손짓이다. 따로따로 칠한
-// 이웃 절은 at이 달라 묶이지 않고, 범위의 일부를 덧칠하면 at이 갈려 저절로 둘로 쪼개진다.
-// 들어오는 목록은 장·절 순으로 서 있어야 한다(groupByBook이 세워 준다).
-function mergeRuns(items) {
-  const out = [];
-  for (const it of items) {
-    const prev = out[out.length - 1];
-    if (prev && prev.at.chapter === it.at.chapter && prev.stamp === it.stamp
-      && (prev.color || '') === (it.color || '') && prev.to + 1 === it.at.verse) {
-      prev.to = it.at.verse;
-      prev.refs.push(it.ref);
-      continue;
-    }
-    out.push({ ...it, refs: [...it.refs] });
-  }
-  return out;
-}
-
-const markRow = 'flex-1 min-w-0 text-left px-2 py-1.5 rounded-md hover:bg-surface-hover transition-colors';
-// **북마크 줄은 눌리는 판이 보인다**(사용자 지적 2026-09-08 — "북마크 쪽에 여백이 너무
-// 커서 어딜 눌러야 해당 북마크된 장으로 넘어갈 수 있을지가 안 잡힌다. 배경을 미세하게
-// 넣어주든가"). 형광펜 줄은 절 미리보기가 줄을 채워서 누를 자리가 눈에 잡히는데,
-// 북마크 줄은 '23장' 넉 자뿐이라 넓은 열에서 오른쪽이 통째로 비어 보였다. 옅은 판을
-// 깔고 hover에서 한 단계 진해진다 — 값은 토큰이라 다크에서도 따라온다(§8).
-const bookmarkRow = `${markRow} bg-surface-hover hover:bg-line`;
-
-// 책 하나 — 머리글(개수) + 펼쳤을 때의 줄들. kind: 'bookmark' | 'highlight'
-// onRemoveItem은 **참조 목록**을 받는다 — 범위로 묶인 줄은 절 여럿을 한꺼번에 지운다.
-function MarkBookGroup({ book, items, count, kind, open, onToggle, onOpenItem, onRemoveItem }) {
-  const [chapters, setChapters] = useState(null);   // 형광펜 미리보기용 절 본문
-  const reduce = prefersReducedMotion();
-  const needsText = kind === 'highlight';
-
-  // 펼친 책만, 펼친 그때 받는다
-  useEffect(() => {
-    if (!open || !needsText || chapters) return undefined;
-    let alive = true;
-    loadBook(book.id)
-      .then(d => { if (alive) setChapters(d.chapters || []); })
-      .catch(() => { if (alive) setChapters([]); });   // 못 받아도 참조 줄은 남는다
-    return () => { alive = false; };
-  }, [open, needsText, chapters, book.id]);
-
-  return (
-    <div className="min-w-0">
-      <button
-        onClick={onToggle} aria-expanded={open} data-book-group={`${kind}:${book.id}`}
-        className="w-full flex items-center gap-1.5 px-2 -mx-2 py-1.5 rounded-md hover:bg-surface-hover transition-colors text-left"
-      >
-        <ChevronDown
-          size={13} className="shrink-0 text-fg-faint"
-          style={{ transform: open ? 'none' : 'rotate(-90deg)', transition: reduce ? 'none' : 'transform .18s var(--ease-out-quint)' }}
-        />
-        {/* 개수는 이름 **바로 옆**이다 — 오른쪽 끝에 붙이면 열이 넓어질수록 이름과 개수가
-            멀어져 한 줄로 읽히지 않는다(폭 상한을 없앤 2026-09-03 회차) */}
-        <span className="min-w-0 truncate text-[11.5px] font-bold text-fg">{book.name}</span>
-        <span className="shrink-0 text-[11px] text-fg-muted tabular-nums">
-          {count}{kind === 'bookmark' ? '장' : '절'}
-        </span>
-        <span className="flex-1" />
-      </button>
-
-      {open && (
-        // 줄 사이를 4px로 좁힌다 — 판이 깔린 줄은 붙어 있어야 '목록'으로 읽힌다
-        <div className="pl-[18px] flex flex-col gap-1">
-          {items.map(it => {
-            const { chapter, verse } = it.at;
-            // 범위로 묶인 줄은 '1:2~4'다(mergeRuns) — 절 하나면 그대로 '1:2'
-            const span = it.to > verse ? `${chapter}:${verse}~${it.to}` : `${chapter}:${verse}`;
-            const label = kind === 'bookmark'
-              ? (it.label || `${book.name} ${chapter}장`)
-              : `${book.name} ${span}`;
-            // 형광펜 미리보기 한 줄. 아직 안 왔으면 자리만 잡아 둔다(오면서 밀지 않게).
-            // 범위면 그 절들을 이어 붙인다 — 한 줄에 truncate로 잘려 앞머리만 보인다.
-            const preview = needsText && chapters
-              ? (chapters[chapter - 1] || []).slice(verse - 1, it.to).join(' ')
-              : '';
-            return (
-              <span key={it.ref} className="flex items-center gap-0.5">
-                <button data-goto={it.ref} onClick={() => onOpenItem(it.at)}
-                  className={kind === 'bookmark' ? bookmarkRow : markRow}>
-                  {kind === 'bookmark' ? (
-                    <span className="block truncate text-[11.5px] font-semibold text-fg">{chapter}장</span>
-                  ) : (
-                    <span className="block truncate">
-                      <span className="text-[11px] font-bold text-accent-text tabular-nums">{span}</span>
-                      {/* 발췌는 리더에서 칠한 그 색으로 그린다 — 색이 곧 '무엇으로
-                          칠했는지'다(색이 늘면 항목의 색 값을 그대로 넘긴다) */}
-                      {needsText && !chapters
-                        ? <span className="inline-flex align-middle ml-1.5 w-24 h-3"><Skeleton className="w-full h-full rounded-[3px]" /></span>
-                        : <span className="ml-1.5 text-[11.5px]">{preview ? <Hl color={it.color}>{preview}</Hl> : ''}</span>}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => onRemoveItem(it.refs)}
-                  aria-label={`${label} ${kind === 'bookmark' ? '북마크' : '형광펜'} 지우기`}
-                  className="relative before:absolute before:-inset-y-0.5 before:-left-px before:-right-1 shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors"
-                >
-                  <X size={12} />
-                </button>
-              </span>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// 한 칸(북마크 또는 형광펜) — 제목 · 총 개수 · 책 그룹들, 비었으면 마크와 한 줄.
-// 책 묶음은 넓은 화면에서 여러 열로 선다 — 목록은 격자라 읽기 폭에 갇힐 이유가 없다.
-function MarkSection({ title, unit, empty, groups, total, kind, onOpenItem, onRemoveItem }) {
-  // 사람이 직접 접거나 편 책만 남는다 — 나머지는 책 수에 따라 기본값을 따른다.
-  // **열쇠에 kind를 넣는다.** 북마크와 형광펜은 같은 자리에 그려지는 같은 부품이라
-  // 리액트가 칸을 옮겨도 이 state를 그대로 물려준다(§6-18과 같은 함정) — 형광펜에서 편
-  // 창세기가 북마크에서도 펼쳐져 있었다. 칸 이름을 열쇠에 넣으면 갈리면서도 **각 칸의
-  // 선택은 남는다**(리마운트로 지우면 오갈 때마다 접힘으로 되돌아간다).
-  const [open, setOpen] = useState({});
-  const auto = groups.length <= AUTO_OPEN_BOOKS;
-  const isOpen = (id) => open[`${kind}:${id}`] ?? auto;
-
-  return (
-    <div data-col={kind} className="min-w-0">
-      <SectionHead right={total
-        ? <span className="text-[11px] text-fg-muted tabular-nums shrink-0">{total}{unit}</span> : null}>
-        {title}
-      </SectionHead>
-      {!total ? (
-        // 빈 칸은 남는 자리의 가운데에 마크와 함께 선다(§8). 표식은 SVG 선 그리기다 —
-        // 캐릭터 컷은 홈에만 둔다(사용자 결정 2026-09-03).
-        <div className="min-h-[38vh] flex flex-col items-center justify-center text-center">
-          <EmptyBookMark />
-          <p className="text-[13.5px] font-semibold text-fg mt-3">{empty}</p>
-        </div>
-      ) : (
-        <div className="grid gap-x-7 items-start sm:grid-cols-2 xl:grid-cols-3">
-          {groups.map(g => (
-            <MarkBookGroup
-              key={g.book.id} book={g.book} items={g.items} count={g.count} kind={kind}
-              open={isOpen(g.book.id)}
-              onToggle={() => setOpen(o => ({ ...o, [`${kind}:${g.book.id}`]: !isOpen(g.book.id) }))}
-              onOpenItem={onOpenItem} onRemoveItem={onRemoveItem}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -1632,6 +1060,17 @@ export function searchHeads({ query, count = 0, searching = false, progress = nu
   };
 }
 
+// 결과 한 줄 — 낱말 도막과 AI 도막이 같은 모양이다(자리 · 글자 · 누르면 그 절로). data-*는 그대로 단추에 붙는다.
+function HitRow({ label, onClick, children, ...data }) {
+  return (
+    <button onClick={onClick} {...data}
+      className="text-left py-2.5 px-2.5 -mx-2.5 rounded-md hover:bg-surface-hover transition-colors">
+      <span className="block text-[11.5px] font-bold text-accent-text tabular-nums">{label}</span>
+      <span className="block text-[12.5px] leading-relaxed text-fg-secondary mt-0.5">{children}</span>
+    </button>
+  );
+}
+
 function SearchResults({ query, results, progress, searching, aiHits = [], aiWait = false, aiFrom = 'ai', step = 1, shown = RESULT_PAGE, onMore, onOpen }) {
   const heads = searchHeads({
     query, count: results.length, searching, progress, aiCount: aiHits.length, aiWait, aiFrom,
@@ -1655,16 +1094,10 @@ function SearchResults({ query, results, progress, searching, aiHits = [], aiWai
               {results.length ? (
                 <div className="flex flex-col">
                   {results.slice(0, shown).map(r => (
-                    <button key={`${r.bookId}-${r.chapter}-${r.verse}`} onClick={() => onOpen(r)}
-                      data-hit={verseKey(r.bookId, r.chapter, r.verse)}
-                      className="text-left py-2.5 px-2.5 -mx-2.5 rounded-md hover:bg-surface-hover transition-colors">
-                      <span className="block text-[11.5px] font-bold text-accent-text tabular-nums">
-                        {r.name} {r.chapter}:{r.verse}
-                      </span>
-                      <span className="block text-[12.5px] leading-relaxed text-fg-secondary mt-0.5">
-                        {highlight(r.text, query)}
-                      </span>
-                    </button>
+                    <HitRow key={`${r.bookId}-${r.chapter}-${r.verse}`} onClick={() => onOpen(r)}
+                      data-hit={verseKey(r.bookId, r.chapter, r.verse)} label={`${r.name} ${r.chapter}:${r.verse}`}>
+                      {highlight(r.text, query)}
+                    </HitRow>
                   ))}
                   {/* 끝에서 이어 편다 — 대시보드 마감 목록의 '더 보기'와 같은 모양(행동이 아니라 펼치기라
                       accent 채움이 아니다 · §8 색 규칙) */}
@@ -1685,14 +1118,10 @@ function SearchResults({ query, results, progress, searching, aiHits = [], aiWai
               {aiHits.length ? (
                 <div className="flex flex-col">
                   {aiHits.map(h => (
-                    <button key={`ai-${h.bookId}-${h.chapter}-${h.verse}`} onClick={() => onOpen(h)}
-                      data-ai-hit={verseKey(h.bookId, h.chapter, h.verse)}
-                      className="text-left py-2.5 px-2.5 -mx-2.5 rounded-md hover:bg-surface-hover transition-colors">
-                      <span className="block text-[11.5px] font-bold text-accent-text tabular-nums">
-                        {hitLabel(h)}
-                      </span>
-                      <span className="block text-[12.5px] leading-relaxed text-fg-secondary mt-0.5">{h.text}</span>
-                    </button>
+                    <HitRow key={`ai-${h.bookId}-${h.chapter}-${h.verse}`} onClick={() => onOpen(h)}
+                      data-ai-hit={verseKey(h.bookId, h.chapter, h.verse)} label={hitLabel(h)}>
+                      {h.text}
+                    </HitRow>
                   ))}
                 </div>
               ) : <PassageSkeleton lines={4} step={step} />}
