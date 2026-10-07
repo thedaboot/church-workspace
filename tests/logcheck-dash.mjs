@@ -275,7 +275,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   const parts = readFileSync(new URL('../src/views/dashboardParts.jsx', import.meta.url), 'utf8');
   assert.ok(/\.sort\(b\.key === 'done' \? byCompleted : byDue\)/.test(parts),
     "groupByDue가 '끝낸 업무' 구간만 byCompleted로 정렬한다");
-  assert.ok(/rowDate = \(t, bucketKey\)/.test(parts) && /mdLabel\(rowDate\(t, g\.key\)\)/.test(parts),
+  assert.ok(/rowDate = \(t, bucketKey\)/.test(parts) && /mdDot\(rowDate\(t, g\.key\)\)/.test(parts),
     "날짜 칸이 rowDate를 쓴다 — '끝낸 업무'는 마감일이 아니라 끝낸 날이다");
   const fields = readFileSync(new URL('../src/modals/taskFields.jsx', import.meta.url), 'utf8');   // DependsRow(19차 묶음 E에서 옮김)
   assert.ok(/\.sort\(byNewest\)/.test(fields), '선행 업무 후보가 byNewest로 정렬된다');
@@ -1073,4 +1073,20 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   }
   assert.ok(/export \{ prefersReducedMotion \};/.test(src('views/dashboardParts.jsx')), 'dashboardParts는 이어서 내보낸다(wordBible이 가져간다)');
   console.log('PASS  19차 한 벌(달력 칸 바탕 · 열 폭 · 화면 파일 배선 · 토글 · KPI 칸 · 모션 판정)');
+}
+
+// ── 짧은 날짜 'M. D.' 한 벌(utils.mdDot · 19차 묶음 J) ──────────────────────────
+// 대시보드 마감 목록 · 달력 · 칸반 카드(완료·보류의 마감) · 홈 '작년 이맘때'가 같은 표기를 따로 들고 있었다.
+// 되돌리기 검사: mdDot에서 Number(…)를 빼면('09. 06.') 첫 단정이, 네 자리 중 하나가 제 사본을 다시 들면 둘째가 깨진다.
+{
+  const { mdDot } = await loadSource('src/utils.js');
+  assert.deepStrictEqual(['2026-09-06', '2026-12-31', '2027-01-01', '2026-10-07T09:00:00'].map(mdDot),
+    ['9. 6.', '12. 31.', '1. 1.', '10. 7.'], '앞 0을 떼고 점 뒤에 한 칸 — 시각이 붙어도 날짜만');
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  for (const f of ['views/dashboardParts.jsx', 'components/calendar.jsx', 'components/boards.jsx', 'views/homeView.jsx']) {
+    const s = src(f);
+    assert.ok(/import \{[^}]*\bmdDot\b[^}]*\} from '\.\.\/utils\.js';/.test(s) && !/slice\(5, 7\)\)?\}\. \$\{/.test(s),
+      `${f}가 utils.mdDot 한 벌을 쓴다(제 사본 없음)`);
+  }
+  console.log('PASS  짧은 날짜 한 벌(mdDot) 5가지');
 }

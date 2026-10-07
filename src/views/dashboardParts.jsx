@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CONFIG, teamBar, teamColor } from '../config.js';
 import { Avatar } from '../components/Avatar.jsx';
-import { teamsLabel, byCompleted, completedTime, localDate } from '../utils.js';
+import { teamsLabel, byCompleted, completedTime, localDate, mdDot } from '../utils.js';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
@@ -24,7 +24,6 @@ export const ISO_TODAY = () => localDate(new Date());
 // 남은 날 수 (음수 = 지남). 자정 기준으로 비교해야 "오늘"이 시간대에 따라 흔들리지 않는다.
 export const daysLeft = (iso, today = ISO_TODAY()) =>
   Math.round((new Date(`${iso}T00:00:00`) - new Date(`${today}T00:00:00`)) / 86400000);
-const mdLabel = (iso) => `${Number(iso.slice(5, 7))}. ${Number(iso.slice(8, 10))}.`;
 // 청년별 셈은 services/taskCounts.js 한 벌이다 — 여기서는 이어서 내보내기만 한다
 // (views가 이 파일에서 가져간다).
 export { personLoad };
@@ -287,7 +286,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                       읽힌다(사용자 지적 2026-08-31). title로 마감일도 같이 알려준다. */}
                   <span className="shrink-0 w-11 text-[11.5px] font-bold tabular-nums"
                     title={done
-                      ? (t.dueDate ? `끝낸 날 · 마감은 ${mdLabel(t.dueDate)}였어요` : '끝낸 날')
+                      ? (t.dueDate ? `끝낸 날 · 마감은 ${mdDot(t.dueDate)}였어요` : '끝낸 날')
                       : stale ? `마감 미정으로 ${STALE_NODUE_DAYS / 7}주 넘게 그대로예요` : undefined}
                     style={{
                       color: over ? 'var(--app-tag-red-fg)'
@@ -296,7 +295,7 @@ export function DueGroupList({ groups, projectsMap, today, onComplete, onOpen, s
                         : 'var(--app-ink-muted)',
                     }}>
                     {/* 상시는 날짜가 없는 것이 제 모양이라 '미정'을 쓰지 않는다(칸은 비워 제목 자리를 맞춘다) */}
-                    {rowDate(t, g.key) ? mdLabel(rowDate(t, g.key)) : g.key === 'ongoing' ? '' : '미정'}
+                    {rowDate(t, g.key) ? mdDot(rowDate(t, g.key)) : g.key === 'ongoing' ? '' : '미정'}
                   </span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-[13.5px] font-semibold text-fg truncate" style={{ letterSpacing: '-0.2px' }}>{t.title}</span>

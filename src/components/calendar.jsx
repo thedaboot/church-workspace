@@ -5,7 +5,7 @@ import { STATUS_BAR, STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useStore } from '../store/workspaceStore.js';
 import { selectMembers } from '../store/selectors.js';
-import { birthdayMap, birthdaysOn, snapCols, localDate } from '../utils.js';
+import { birthdayMap, birthdaysOn, snapCols, localDate, mdDot } from '../utils.js';
 import { Avatar } from './Avatar.jsx';
 
 // ============================================================================
@@ -51,7 +51,6 @@ export function cellStyle(iso, { month, todayIso, selected }) {
 
 const isoOf = localDate;   // 브라우저 로컬 'YYYY-MM-DD' — utils에 한 벌
 const addDays = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return isoOf(d); };
-const mdOf = (iso) => `${Number(iso.slice(5, 7))}. ${Number(iso.slice(8, 10))}.`;
 
 // 업무 기간 — 시작일이 없으면 마감일 하루로 본다(핸드오프: 없으면 마감일 당일로 처리)
 const spanOf = (t) => {
@@ -266,7 +265,7 @@ export const CalendarBoard = React.memo(({ tasks, onTaskClick, onNewTask, header
                 {Array.from({ length: 7 }, (_, i) => {
                   const iso = addDays(ws, i);
                   return (
-                    <button key={iso} onClick={() => setSelected(iso)} aria-label={mdOf(iso)}
+                    <button key={iso} onClick={() => setSelected(iso)} aria-label={mdDot(iso)}
                       className="transition-colors"
                       style={cellStyle(iso, { month: view.m, todayIso, selected })} />
                   );
@@ -359,7 +358,7 @@ function CalBar({ bar, onClick }) {
   const { task, col, span, continued, clippedRight } = bar;
   return (
     <button
-      onClick={onClick} title={`${task.title} (${mdOf(spanOf(task).start)} ~ ${mdOf(spanOf(task).end)})`}
+      onClick={onClick} title={`${task.title} (${mdDot(spanOf(task).start)} ~ ${mdDot(spanOf(task).end)})`}
       className="pointer-events-auto min-w-0 h-[16px] px-1.5 flex items-center text-left hover:brightness-95 transition-[filter]"
       style={{
         gridColumn: `${col + 1} / span ${span}`,
@@ -507,7 +506,7 @@ function DaySheet({ iso, list, onTaskClick, tight = false, birthdays = [], onNew
               <span className="flex-1 min-w-0">
                 <span className="block text-[13px] font-semibold text-fg truncate">{t.title}</span>
                 <span className="block text-[10.5px] text-fg-muted truncate">
-                  {[t.teams?.join(', '), t.assignees?.join(', '), s && (s.start === s.end ? mdOf(s.end) : `${mdOf(s.start)} ~ ${mdOf(s.end)}`)]
+                  {[t.teams?.join(', '), t.assignees?.join(', '), s && (s.start === s.end ? mdDot(s.end) : `${mdDot(s.start)} ~ ${mdDot(s.end)}`)]
                     .filter(Boolean).join(' · ')}
                 </span>
               </span>

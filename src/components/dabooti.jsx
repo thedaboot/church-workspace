@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 import { ArrowUp, Lock, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { askDabooti, sendFeedback } from '../services/wiki.js';
 import { imeComposing, coarsePointer } from '../utils.js';
+import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { chipPool, rotateChips, normQ, chatExpired, looksFollowUp } from '../services/wikiCore.js';
 import { fetchMyPerson, fetchGroups, fetchGroupMembers } from '../services/people.js';
 
@@ -254,7 +255,7 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
   const targetKey = target.join('|');
   useEffect(() => {
     // 회전이 아닌 바뀜(내 순 이름을 불러와 칩 목록이 바뀜 · rot.n 0)은 바로 갈아 끼운다 — 빠짐·미끄러짐·갸웃은 회전에서만
-    if (rot.n === 0 || target.length !== shown.length || reducedMotion()) { setShown(target); return undefined; }
+    if (rot.n === 0 || target.length !== shown.length || prefersReducedMotion()) { setShown(target); return undefined; }
     const k = target.findIndex((t, i) => t !== shown[i]);
     if (k < 0) return undefined;
     setLeaving(k);
@@ -272,7 +273,7 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
     const now = { box: base.height, texts: shown, chips: els.map(el => { const r = el.getBoundingClientRect(); return { x: r.left - base.left, y: r.top - base.top }; }) };
     const was = rects.current;
     rects.current = now;
-    if (rot.n === 0 || reducedMotion() || !box.animate) return;
+    if (rot.n === 0 || prefersReducedMotion() || !box.animate) return;
     const ease = { duration: 420, easing: 'cubic-bezier(.22,1,.36,1)' };
     els.forEach((el, i) => {
       const p = was.chips[i];
@@ -355,14 +356,13 @@ const CHIP_EVERY = 4000;
 const CHIP_OUT = 200;   // 바뀌는 칩이 빠지는 시간(.dab-chip-out과 같다)
 // 갸웃 — index.css의 dab-tilt 고리에서 움직이는 마디(78~100%)만 떼어 한 번(1.1초)
 const TILT_FRAMES = [{ transform: 'rotate(0)' }, { transform: 'rotate(-12deg)', offset: 0.27 }, { transform: 'rotate(8deg)', offset: 0.55 }, { transform: 'rotate(-3deg)', offset: 0.77 }, { transform: 'rotate(0)' }];
-const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 // 기다리는 말(사용자 문구 2026-10-05) — 답이 길어지면(근거를 통째로 읽는 3.8 Flash는 5~25초) 1.5초 뒤부터 2.5초마다 바꾸고 마지막 말에 머문다.
 // 모션 최소화면 바꾸지 않고 첫 말만.
 const WAIT_LINES = ['다붓이가 열심히 찾는 중이에요', '업무에 남긴 내용을 확인하는 중이에요', '월례회 내용도 보는 중이에요', '조금만 기다려 주세요', '거의 다 됐어요'];
 function WaitLine() {
   const [i, setI] = useState(-1);
   useEffect(() => {
-    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const still = prefersReducedMotion();
     let n = -1; let t;
     const step = () => { n += 1; setI(n); if (!still && n < WAIT_LINES.length - 1) t = setTimeout(step, 2500); };
     t = setTimeout(step, 1500);

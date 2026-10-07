@@ -1313,6 +1313,40 @@ const sunPhone = await todayCard();
 check('375에서도 오늘의 예배가 맨 앞 · 가로로 넘치지 않는다', sunPhone.first === 'worship' && !sunPhone.overflow && sunPhone.cut, JSON.stringify({ first: sunPhone.first, overflow: sunPhone.overflow }));
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 
+// 주일 모드의 뼈대 — 예배 목록이 아직 없는 첫 그림에도 예배 자리가 **맨 앞 두 칸**으로 선다(19차 묶음 J ★).
+// 예전에는 뼈대가 평소 차례(QT · 예배 한 칸 …)로 섰다가 목록이 오면 예배 카드가 앞으로 오며 격자가 다시 짜였다.
+// 판정은 실제 카드와 같은 sundayMode이고, 재료는 지난 날 열쇠에 남은 목록이다 — 오늘 열쇠를 비우고 어제 열쇠로
+// 옮겨 둔 뒤 홈에 다시 들어와 **첫 그림**의 예배 뼈대를 잰다.
+// 되돌리기 검사: homeView의 `sunday`를 `sundayMode(todayService, nowK)`로 되돌리면(뼈대가 평소 차례) 이 단정이 깨진다.
+await enter({ worship: WORSHIP_SUN, now: `${TODAY} 11:40:00` });
+await ev(`(async () => {
+  const c = await import('/src/services/cache.js');
+  const v = c.readCache('home:services:${TODAY}');
+  c.dropCache('home:services');
+  c.writeCache('home:services:${shift(TODAY, -1)}', v);
+})()`);
+await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '말씀')?.click()`);
+await sleep(700);
+await ev(`(() => {
+  window.__sunSkel = null;
+  const ob = new MutationObserver(() => {
+    const grid = document.querySelector('.home-cards');
+    const sk = grid?.querySelector('.home-skel-worship');
+    if (!sk) return;
+    window.__sunSkel = { first: grid.firstElementChild?.dataset.slot || '', w: Math.round(sk.getBoundingClientRect().width) };
+    ob.disconnect();
+  });
+  ob.observe(document.body, { childList: true, subtree: true });
+  setTimeout(() => ob.disconnect(), 5000);
+})()`);
+await goHome();
+await sleep(600);
+const sunSkel = await ev(`({ skel: window.__sunSkel, real: Math.round(document.querySelector('.home-today')?.getBoundingClientRect().width || 0),
+  cells: [...document.querySelectorAll('.home-cards > [data-slot]')].map(x => x.dataset.slot) })`);
+check('주일 모드의 뼈대도 예배가 맨 앞 두 칸 — 첫 칸 폭이 실제 오늘의 예배 카드 폭과 같다',
+  sunSkel.skel?.first === 'worship' && sunSkel.real > 0 && Math.abs(sunSkel.skel.w - sunSkel.real) <= 1
+  && sunSkel.cells.join(',') === 'worship,qt,tasks', JSON.stringify(sunSkel));
+
 // 지난 해의 오늘 — 작년 오늘 ±7일 activity가 가장 많은 작년 프로젝트 하나 · 모두에게 같은 줄
 const LOG = (iso) => [{ id: `l${iso}`, action: '상태를 바꿨습니다.', author: '조해리', timestamp: iso }];
 const YA_APP = {

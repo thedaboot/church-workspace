@@ -58,6 +58,14 @@ export function useSettled(key, loading) {
 export const CARD = 'rounded-[10px] shadow-soft';
 export const CARD_STYLE = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
 
+// 생성기의 칸은 **모두 같은 높이**다(34px = FIELD 한 칸의 높이). 라벨이 칸 위에 앉는
+// 짜임이라 칸 높이가 다르면 아래를 맞춘 만큼 라벨 줄이 어긋나 계단처럼 보인다
+// (세그먼트 37 · 날짜 30 · 입력칸 34로 두었을 때 1440에서 라벨이 3~4px씩 엇갈렸다).
+// 예배 만들기(worshipView)와 동아리 모임 만들기(groupsClub)가 이 한 벌을 쓴다 — 두 생성기는 한 식구로 읽혀야 한다.
+// 날짜 픽커는 공용이라 손대지 않고 트리거 모양만 넘긴다(DatePicker의 triggerClassName).
+export const NEW_H = 'h-[34px]';
+export const DATE_TRIGGER = `inline-flex items-center gap-1.5 ${NEW_H} border border-line rounded-xs bg-surface px-2 text-xs text-fg hover:bg-surface-hover focus:border-accent focus:shadow-soft outline-none transition-all`;
+
 // 작은 주 버튼은 앱 전체가 한 벌이다(components/buttons.js — 두 단 · D9). 모임·예배·명단이 여기서 가져가던 이름을 그대로 둔다.
 export { BTN };
 export const BTN_QUIET = 'px-2.5 py-1.5 rounded-md text-fg-muted hover:bg-surface-hover text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';

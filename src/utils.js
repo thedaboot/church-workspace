@@ -47,6 +47,11 @@ export const formatDay = (iso) => {
   return m ? `${Number(m[2])}월 ${Number(m[3])}일` : '';
 };
 
+// 날짜만 있는 값('2026-09-26')을 '9. 26.'으로 — 대시보드 마감 목록·달력·칸반 카드·홈 '작년 이맘때'가
+// 같은 짧은 표기를 쓴다(예전에는 화면마다 같은 한 줄을 따로 들고 있었다). 문자열을 그대로 쪼갠다 —
+// new Date로 읽으면 시간대에 따라 하루가 밀린다.
+export const mdDot = (iso) => `${Number(iso.slice(5, 7))}. ${Number(iso.slice(8, 10))}.`;
+
 // 상대 시간 (방금 · n분 전 · n시간 전 · n일 전 · 그 이상은 날짜)
 export const formatRelative = (dateString) => {
   if (!dateString) return '';

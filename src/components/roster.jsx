@@ -7,6 +7,7 @@ import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { DatePicker } from './DatePicker.jsx';
 import { BTN as BTN_BASE, BTN_QUIET as BTN_QUIET_BASE, FIELD as FIELD_BASE, WITH_ICON, LabeledField, FailLeft } from './groupsParts.jsx';
 import { CONFIG, teamColor, teamBgColor } from '../config.js';
+import { TEAM_CHIP_ROW } from '../views/viewParts.jsx';
 import { objectParticle } from '../services/errorText.js';
 import {
   ROLE_LABEL, YEAR_ROLES, PASTOR_LABEL, GENDERS, GENDER_LABEL,
@@ -47,9 +48,32 @@ const ROW = { borderBottom: '1px solid var(--app-line)' };
 // 끝까지 밀면 마지막 칩이 통 끝에 딱 붙어 답답했다(사용자 지적 2026-09-07) — 마지막에
 // 12px을 세워 여백을 남긴다. **스크롤 통의 padding-right로는 안 된다**: 넘쳐 흐른 내용에는
 // 그 여백이 안 걸린다(§6-2와 같은 이유). 그래서 ::after를 flex 항목 하나로 세운다.
-// views/views.jsx의 TEAM_CHIP_ROW(팀 보드 사람 칩)와 같은 한 벌이다.
-const CHIP_ROW = 'flex items-center gap-1.5 flex-nowrap min-w-0 overflow-x-auto scrollbar-hide x-scroll-lock'
-  + " after:content-[''] after:shrink-0 after:w-3";
+// views/viewParts.jsx의 TEAM_CHIP_ROW(팀 보드 사람 칩)를 그대로 쓴다.
+
+// 이름으로 찾기 — 성경 리더의 검색 폼과 같은 모양이다(wordBible.jsx). 명단 탭 머리와
+// 가입자 → 명단 잇기 판이 같은 칸을 쓴다(자리마다 다른 것은 바깥 여백·폭 className뿐).
+function NameSearch({ value, onChange, className }) {
+  return (
+    <div className={`${className} flex items-center gap-1.5 px-2.5 h-9 rounded-md`}
+      style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
+      <Search size={14} className="shrink-0 text-fg-faint" />
+      <input value={value} onChange={e => onChange(e.target.value)} placeholder="이름으로 찾기" aria-label="이름으로 찾기"
+        className="flex-1 min-w-0 bg-transparent text-[12.5px] text-fg placeholder:text-fg-faint outline-none" />
+      {value && (
+        <button type="button" onClick={() => onChange('')} aria-label="검색어 지우기"
+          className="shrink-0 p-1 -mr-1 rounded text-fg-faint hover:text-fg transition-colors"><X size={13} /></button>
+      )}
+    </div>
+  );
+}
+
+// 아래로 펴진 판(계정 연결 · 명단 잇기)의 맨 아래 '닫기' 한 줄
+function PanelClose({ onClick }) {
+  return (
+    <button type="button" onClick={onClick}
+      className="w-full mt-1 py-2 rounded-md text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition-colors">닫기</button>
+  );
+}
 
 // 고를 수 있는 것: **사역 팀 + 순 자리(순장·순원)**. 순장·순원은 2026-09-22에 열었다
 // (그전에는 `t.endsWith('팀')` 하나여서 명단에서 고를 데가 아예 없었다).
@@ -190,7 +214,7 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
         <label className="block text-[11px] font-semibold text-fg-muted mb-1.5">
           소속 <span className="font-normal text-fg-muted">여러 개 고를 수 있어요</span>
         </label>
-        <div className={CHIP_ROW}>
+        <div className={TEAM_CHIP_ROW}>
           {TEAM_CHIPS.map(([t, color]) => (
             <Chip key={t} on={teams.includes(t)} onClick={() => toggleTeam(t)} className={color}>{t}</Chip>
           ))}
@@ -244,8 +268,7 @@ function AccountRow({ person, linked, link, busy, onLink, onUnlink }) {
           </span>
         </button>
       ))}
-      <button type="button" onClick={() => setPick(false)}
-        className="w-full mt-1 py-2 rounded-md text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition-colors">닫기</button>
+      <PanelClose onClick={() => setPick(false)} />
     </div>
   ) : (
     <button type="button" className={BTN_QUIET} onClick={() => setPick(true)} data-link-open={person.id}>
@@ -273,16 +296,7 @@ export function ProfileLinkPanel({ account, people = [], ready = true, busy = fa
         {ready && <span className="text-[11px] text-fg-muted tabular-nums">미연결 {unlinked.length}명</span>}
       </p>
       {/* 이름으로 찾기 — 명단 탭의 찾기 칸과 같은 모양(성경 리더 검색 폼 한 벌) */}
-      <div className="mx-1 mb-1 flex items-center gap-1.5 px-2.5 h-9 rounded-md"
-        style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
-        <Search size={14} className="shrink-0 text-fg-faint" />
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="이름으로 찾기" aria-label="이름으로 찾기"
-          className="flex-1 min-w-0 bg-transparent text-[12.5px] text-fg placeholder:text-fg-faint outline-none" />
-        {q && (
-          <button type="button" onClick={() => setQ('')} aria-label="검색어 지우기"
-            className="shrink-0 p-1 -mr-1 rounded text-fg-faint hover:text-fg transition-colors"><X size={13} /></button>
-        )}
-      </div>
+      <NameSearch value={q} onChange={setQ} className="mx-1 mb-1" />
       <div className="max-h-56 overflow-y-auto">
         {!ready ? (
           <Skeleton className="h-4 w-40 rounded my-2 mx-2" />
@@ -300,8 +314,7 @@ export function ProfileLinkPanel({ account, people = [], ready = true, busy = fa
           </button>
         ))}
       </div>
-      <button type="button" onClick={onClose}
-        className="w-full mt-1 py-2 rounded-md text-[11px] font-semibold text-fg-muted hover:bg-surface-hover transition-colors">닫기</button>
+      <PanelClose onClick={onClose} />
     </div>
   );
 }
@@ -339,7 +352,7 @@ function EditPanel({ person, linked, link, roleSet, year, busy, on }) {
           비어 있는 것이 정상 상태다(그동안은 '청년'으로 부른다). 자격·부품·모양은 아래
           직분 줄과 같고, 연도와 무관한 명단 속성이라 sub(연도)가 없다. */}
       <PanelRow label="성별">
-        <div className={`${CHIP_ROW} py-0.5`}>
+        <div className={`${TEAM_CHIP_ROW} py-0.5`}>
           {GENDERS.map(g => (
             <Chip key={g} on={person.gender === g} disabled={busy} className={GENDER_STYLE[g]}
               onClick={() => on.gender(person, person.gender === g ? null : g)}>{GENDER_LABEL[g]}</Chip>
@@ -351,7 +364,7 @@ function EditPanel({ person, linked, link, roleSet, year, busy, on }) {
         {/* `data-roles`: 직분 줄을 집는 표. 2026-09-22에 소속 줄에도 '교역자'를 잠깐 넣었다가
             검사가 엉뚱한 칩을 눌러 깨졌다 — 칩은 도로 뺐지만 이 표는 남긴다(글자로 찾는
             검사는 같은 이름이 하나만 있다는 가정에 기대고, 그 가정은 또 깨진다). */}
-        <div data-roles className={`${CHIP_ROW} py-0.5`}>
+        <div data-roles className={`${TEAM_CHIP_ROW} py-0.5`}>
           {/* 교역자만 연도와 무관한 명단 속성이다(people.is_pastor) */}
           <Chip on={!!person.is_pastor} disabled={busy} className={BADGE_STYLE[PASTOR_LABEL]}
             onClick={() => on.pastor(person, !person.is_pastor)}>{PASTOR_LABEL}</Chip>
@@ -453,16 +466,7 @@ export function RosterPanel({
           내용 폭 그대로다(basis-full을 세그먼트에 직접 주면 배경이 화면을 가로지른다). */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         {/* 이름으로 찾기 — 성경 리더의 검색 폼과 같은 모양이다(wordBible.jsx) */}
-        <div className="flex-1 basis-[11rem] min-w-0 flex items-center gap-1.5 px-2.5 h-9 rounded-md"
-          style={{ background: 'var(--app-surface)', border: '1px solid var(--app-line)' }}>
-          <Search size={14} className="shrink-0 text-fg-faint" />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="이름으로 찾기" aria-label="이름으로 찾기"
-            className="flex-1 min-w-0 bg-transparent text-[12.5px] text-fg placeholder:text-fg-faint outline-none" />
-          {q && (
-            <button type="button" onClick={() => setQ('')} aria-label="검색어 지우기"
-              className="shrink-0 p-1 -mr-1 rounded text-fg-faint hover:text-fg transition-colors"><X size={13} /></button>
-          )}
-        </div>
+        <NameSearch value={q} onChange={setQ} className="flex-1 basis-[11rem] min-w-0" />
         <button type="button" className={`${BTN} shrink-0 whitespace-nowrap sm:order-3`} onClick={() => setAdding(v => !v)}>
           <Plus size={13} /> 사람 추가
         </button>

@@ -8,7 +8,7 @@ import { useCached, readCache, writeCache, dropCache } from '../services/cache.j
 import { useLiveRefresh } from '../services/liveV2.js';
 import { entryParam, takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
 import { DatePicker } from '../components/DatePicker.jsx';
-import { BTN, BTN_QUIET, FIELD, LabeledField, FailTail } from '../components/groupsParts.jsx';
+import { BTN, BTN_QUIET, FIELD, LabeledField, FailTail, NEW_H, DATE_TRIGGER, CARD_STYLE } from '../components/groupsParts.jsx';
 import { ServiceDetail } from '../components/worshipDetail.jsx';
 import { WorshipEmpty, BTN_SOFT } from '../components/worshipParts.jsx';
 import { MyNotesScreen } from '../components/worshipNote.jsx';
@@ -59,12 +59,7 @@ const KINDS = [
 // 자리에서는 두 칸이 한눈에 대비되어야 한다.
 const KIND_SEG = [[false, '주일예배'], [true, '다른 예배']];
 
-// 생성기의 칸은 **모두 같은 높이**다(34px = FIELD 한 칸의 높이). 라벨이 칸 위에 앉는
-// 짜임이라 칸 높이가 다르면 아래를 맞춘 만큼 라벨 줄이 어긋나 계단처럼 보인다
-// (세그먼트 37 · 날짜 30 · 입력칸 34로 두었을 때 1440에서 라벨이 3~4px씩 엇갈렸다).
-// 날짜 픽커는 공용이라 손대지 않고 트리거 모양만 넘긴다(DatePicker의 triggerClassName).
-const NEW_H = 'h-[34px]';
-const DATE_TRIGGER = `inline-flex items-center gap-1.5 ${NEW_H} border border-line rounded-xs bg-surface px-2 text-xs text-fg hover:bg-surface-hover focus:border-accent focus:shadow-soft outline-none transition-all`;
+// 생성기의 칸 높이(NEW_H)·날짜 트리거 모양(DATE_TRIGGER)은 동아리 모임 만들기와 한 벌이다(groupsParts).
 
 // 모션을 꺼 둔 사람에게는 등장·퇴장을 걸지 않는다(§4.2 · 판정은 hooks/useReducedMotion.js 한 벌)
 const CLOSE_MS = 150;
@@ -112,7 +107,6 @@ async function attempt(log, what, byCode, fn, { undo = null, orElse = false, qui
 }
 
 const CARD = 'rounded-[10px] shadow-soft transition active:scale-[.995]';
-const CARD_STYLE = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
 
 // 카드는 **두 줄**이다(사용자 지적 2026-09-03: "줄바꿈이 많아 무엇을 봐야 할지
 // 고민하게 된다"). 예전에는 종류 칩·날짜 / 제목 / 본문·설교자가 각각 줄이라 카드

@@ -176,9 +176,12 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.ok(/worship-praise-leader/.test(detail), '주보 상세는 인도자를 그대로 보여 준다');
   // 홈 캐릭터 — **그림이 도착한 뒤에** 등장 연출이 걸린다(모바일에서 모션이 빈 자리에서
   // 먼저 끝나던 자리 · 사용자 2026-09-06). 히어로는 우선순위까지 올려 먼저 받는다.
-  assert.ok(/\$\{shown \? 'dc-card' : 'opacity-0'\}/.test(home),
+  // 컷 부품(Cut)은 쇼케이스와 한 파일이다(19차 묶음 J — views/showcase.jsx) · 히어로는 홈이 eager로 부른다
+  const showSrc = src('../src/views/showcase.jsx');
+  assert.ok(/\$\{shown \? 'dc-card' : 'opacity-0'\}/.test(showSrc),
     '컷은 도착 전에는 숨어 있다가 도착한 뒤에 등장한다');
-  assert.ok(/fetchPriority: 'high'/.test(home), '히어로 컷은 fetchpriority=high로 먼저 받는다');
+  assert.ok(/fetchPriority: 'high'/.test(showSrc) && /<Cut src=\{HERO_CUT\.src\}[^>]*\beager\b/.test(home),
+    '히어로 컷은 fetchpriority=high로 먼저 받는다');
   assert.ok(/pre\.srcset = cutSet\(HERO_CUT\.src\)/.test(home),
     '히어로 컷은 번들이 읽히는 순간부터 받기 시작한다(index.html의 preload 대신)');
   const mig = src('../supabase/migrations/0052_attendance_note_rpc.sql');

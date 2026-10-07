@@ -144,6 +144,13 @@ check('가입자 줄은 화면 함수 밖에서 만든다(렌더마다 다시 �
   && viewCode.indexOf('function MemberRow(') < viewCode.indexOf('export function MembersView'),
   String(viewCode.indexOf('function MemberRow(')));
 
+// 이름 찾기 칸은 한 벌이다(NameSearch · 19차 묶음 J) — 명단 탭 머리와 가입자 잇기 판이 같은 칸을 쓴다.
+// 되돌리기 확인: 잇기 판의 칸을 손으로 다시 적으면 자리표가 두 번 나와 깨진다.
+const rosterUi = readFileSync(new URL('src/components/roster.jsx', ROOT), 'utf8');
+check('이름 찾기 칸은 roster.jsx에 한 벌(NameSearch)이고 두 자리가 그것을 쓴다',
+  rosterUi.split('placeholder="이름으로 찾기"').length === 2 && (rosterUi.match(/<NameSearch /g) || []).length === 2,
+  String(rosterUi.split('placeholder="이름으로 찾기"').length - 1));
+
 // ── 2. 브라우저 ─────────────────────────────────────────────────────────────
 const prof = mkdtempSync(join(tmpdir(), 'croster-'));
 const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${prof}`, '--no-first-run', 'about:blank'], { stdio: 'ignore' });
@@ -735,6 +742,15 @@ await send('Emulation.clearDeviceMetricsOverride');
   await sleep(150);
   const found = await ev(`[...document.querySelectorAll('[data-link-panel="u6"] [data-link-person]')].map(b => b.innerText.split('\\n')[0])`);
   check('이름으로 찾으면 후보가 준다', JSON.stringify(found) === '["천진영"]', JSON.stringify(found));
+  // 찾기 칸은 명단 탭과 같은 한 벌(roster.jsx NameSearch · 19차 묶음 J) — 이 판에서도 지우기(✕)가 서고 누르면 비운다.
+  // 되돌리기 검사: NameSearch의 지우기 버튼이 onChange('')를 부르지 않게 하면 이 단정이 깨진다.
+  await ev(`document.querySelector('[data-link-panel="u6"] button[aria-label="검색어 지우기"]')?.click()`);
+  await sleep(150);
+  const cleared = await ev(`(() => { const pan = document.querySelector('[data-link-panel="u6"]');
+    return { q: pan?.querySelector('input')?.value ?? null, x: !!pan?.querySelector('button[aria-label="검색어 지우기"]'),
+      n: pan?.querySelectorAll('[data-link-person]').length || 0 }; })()`);
+  check('잇기 판의 지우기(✕)가 찾기 칸을 비우고 후보를 되돌린다(명단 탭과 같은 찾기 칸)',
+    cleared.q === '' && !cleared.x && cleared.n === 3, JSON.stringify(cleared));
   // 누르면 바로 연결 → 판이 닫히고 줄이 '함께하는 사람'으로 내려간다
   await ev(`document.querySelector('[data-link-panel="u6"] [data-link-person="p2"]')?.click()`);
   await poll2(`!document.querySelector('[data-link-panel="u6"]')`);

@@ -7,7 +7,7 @@ import {
 } from '@dnd-kit/core';
 import { dropCollision } from './dropCollision.js';
 import { CONFIG, teamPaint, teamColor } from '../config.js';
-import { subtaskProgress } from '../utils.js';
+import { subtaskProgress, mdDot } from '../utils.js';
 import { Avatar } from './Avatar.jsx';
 import { ViewerFaces } from './layout.jsx';
 import { STATUS_BAR, STATUS_DOT_VAR, byDue } from '../views/dashboardParts.jsx';
@@ -33,7 +33,7 @@ const ONGOING_DROP = 'ongoing-row';   // 줄의 드롭 id — 컬럼(상태 이�
 const ddLabel = (task) => {
   if (!task.dueDate) return '';
   const d = Math.round((new Date(`${task.dueDate}T00:00:00`) - new Date(new Date().toDateString())) / 86400000);
-  if (task.status === '완료' || task.status === '보류 중') return `${Number(task.dueDate.slice(5, 7))}. ${Number(task.dueDate.slice(8, 10))}.`;
+  if (task.status === '완료' || task.status === '보류 중') return mdDot(task.dueDate);
   if (d < 0) return `${-d}일 지남`;
   return d === 0 ? '오늘' : `D-${d}`;
 };

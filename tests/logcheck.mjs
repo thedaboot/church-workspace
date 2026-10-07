@@ -390,7 +390,7 @@ import { loadSource, readSplit } from './_load.mjs';
 // 되돌리기 검사: attachments.jsx의 import를 정적으로 되돌리면 첫 단정이 깨진다.
 {
   const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
-  const all = ['modals/attachments.jsx', 'components/worshipDetail.jsx', 'components/groupsClub.jsx',
+  const all = ['modals/attachments.jsx', 'components/worshipDetail.jsx', 'components/groupsClub.jsx', 'components/clubDetail.jsx',
     'views/views.jsx', 'views/projectView.jsx', 'views/dashboardView.jsx', 'views/groupsView.jsx'];
   const lazyOf = { FilePreviewModal: 'FilePreviewModal.jsx', ClubQrModal: 'ClubQr.jsx', DepGraph: 'depgraph.jsx' };
   for (const p of all) {
@@ -406,7 +406,7 @@ import { loadSource, readSplit } from './_load.mjs';
     '업무 첨부의 미리보기 창은 lazy');
   assert.ok(/const FilePreviewModal = lazy\(\(\) => import\('\.\/FilePreviewModal\.jsx'\)/.test(src('components/worshipDetail.jsx')),
     '송폼·큐시트의 미리보기 창은 lazy');
-  assert.ok(/<Suspense fallback=\{null\}><ClubQrModal/.test(src('components/groupsClub.jsx')), 'QR 창은 lazy · 폴백 없음');
+  assert.ok(/<Suspense fallback=\{null\}><ClubQrModal/.test(src('components/clubDetail.jsx')), 'QR 창은 lazy · 폴백 없음');
   assert.ok(/<Suspense fallback=\{null\}><DepGraph/.test(src('views/projectView.jsx')), '그래프는 lazy · 폴백 없음');
   const gv = src('views/groupsView.jsx');
   assert.ok(/import\('\.\.\/components\/sunGuide\.jsx'\)/.test(gv), '가이드 패널은 동적으로 받는다');

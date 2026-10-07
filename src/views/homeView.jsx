@@ -1,27 +1,29 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, Church, ChevronLeft, ChevronRight, ClipboardCheck, ExternalLink, History, ListChecks, ListMusic,
+import { BookOpen, Church, ChevronRight, ClipboardCheck, ExternalLink, History, ListChecks, ListMusic,
   Lock, Map as MapIcon, PencilLine, Users } from 'lucide-react';
 import { useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser, selectMyTasks, selectTasksList, selectProjectsList } from '../store/selectors.js';
-import { Avatar } from '../components/Avatar.jsx';
 import { useEnterStagger } from '../hooks/useEnterStagger.js';
 import { Skeleton } from '../components/media.jsx';
 import { CARD, CARD_STYLE, Empty } from '../components/groupsParts.jsx';
 import { ISO_TODAY, byDue } from './dashboardParts.jsx';
 import { isOpen, isOverdue } from '../services/taskCounts.js';
-import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry, countSharedEntries, loadBibleState } from '../services/word.js';
-import { loadPassage, loadBook, loadBibleIndex } from '../services/bible.js';
+import { kstToday, shortDayLabel, fetchSchedule, fetchMyEntry, countSharedEntries, shiftDay } from '../services/word.js';
+import { loadPassage } from '../services/bible.js';
 import { kindLabel, formatServiceDate, fetchServices, fetchAttendance, fetchAttendanceCounts, pastSunday, countsSince, HOME_SERVICE_COLS,
   kstNow, attendanceOpen, ATTEND_OPEN_HM } from '../services/worship.js';
-import { sundayMode, yearAgoWindow, pickYearAgo, footprintYear, footprintSections, localDayOf, ACTIVITY_SINCE } from '../services/homeMoments.js';
+import { sundayMode, yearAgoWindow, pickYearAgo, footprintYear, ACTIVITY_SINCE } from '../services/homeMoments.js';
 import { isCloudEnabled } from '../services/supabaseClient.js';
-import { fetchActivityBetween, fetchMyNoteSundays } from '../services/moments.js';
+import { fetchActivityBetween } from '../services/moments.js';
 import { guestActivityRows } from '../services/tabRank.js';
 import { fetchGroupPerms, fetchGroupsRoster, mySun, groupPeople, countSunSharedNotesByService, attendanceSunday } from '../services/groups.js';
-import { useCached, pruneCache } from '../services/cache.js';
+import { useCached, pruneCache, readCache } from '../services/cache.js';
 import { fetchPeople, fetchRoles, honorificsOf } from '../services/people.js';
 import { realNameOf } from '../services/serviceView.js';
 import { useLiveRefresh, refreshTouched } from '../services/liveV2.js';
+import { mdDot } from '../utils.js';
+import { Cut, cutSet, Showcase } from './showcase.jsx';
+import { FootprintPage, SkelLine } from './footprint.jsx';
 import logoLight from '../assets/logo-light.webp';
 import logoDark from '../assets/logo-dark.webp';
 
@@ -71,39 +73,8 @@ import logoDark from '../assets/logo-dark.webp';
 // 보인다"). 지금은 컷마다 `@2x`(2배, 406×336)가 있어서 `srcset`으로 갈라 주고 상한을
 // 140px로 되돌렸다(2x 화면 280px ≤ 336px). `image-rendering`은 손대지 않는다(auto) —
 // 억지로 픽셀을 세우면 파스텔 그라디언트가 더 상한다.
-const cutSet = (src) => `${src} 1x, ${src.replace(/\.webp$/, '@2x.webp')} 2x`;
+// 컷(Cut · cutSet)은 views/showcase.jsx 한 벌이다 — 쇼케이스 블록과 히어로가 같이 쓴다.
 const HERO_CUT = { src: '/chars/sparkle-wave.webp', w: 203, h: 168 };
-// 글이 다 들어온 뒤에 컷이 선다(§4.2) — 그 지연이 이 한 곳이다.
-const CUT_DELAY = 280;
-
-// **그림이 도착하기 전에 시작한 모션은 빈 자리에서 끝난다.** 등장 연출(.dc-card)이
-// 마운트와 함께 돌면, 느린 회선(모바일)에서는 280+280ms가 지나도록 칸이 비어 있다가
-// 그림이 뒤늦게 **툭** 나타났다(사용자 2026-09-06: "확실하게 모바일에서도 캐릭터가 뜨는
-// 모션이 잘 적용되게"). 그래서 **도착한 뒤에** 연출을 건다:
-//   · 캐시에 이미 있으면(complete) 첫 이펙트에서 바로 — 지연은 그대로 280ms
-//   · 늦게 오면 onLoad에서 지연 0으로 — 이미 늦었는데 또 기다릴 이유가 없다
-//   · 못 받아도(onError) 숨긴 채로 두지 않는다
-// `prefers-reduced-motion`이면 index.css가 .dc-card의 animation을 끄므로 **즉시** 보인다.
-// width/height는 그대로 적는다 — 자리 잡기(그림이 늦게 와도 아래 카드가 안 밀린다)는
-// 이 연출과 별개다.
-function Cut({ src, w, h, className, eager = false, delay = CUT_DELAY }) {
-  const ref = useRef(null);
-  const [shown, setShown] = useState(false);
-  const [wait, setWait] = useState(delay);
-  useEffect(() => { if (ref.current?.complete) setShown(true); }, []);
-  const reveal = () => setShown(s => { if (!s) setWait(0); return true; });
-  return (
-    <img
-      ref={ref} src={src} srcSet={cutSet(src)} width={w} height={h}
-      alt="" aria-hidden="true" draggable="false"
-      loading={eager ? 'eager' : 'lazy'} decoding="async"
-      {...(eager ? { fetchPriority: 'high' } : {})}
-      onLoad={reveal} onError={reveal}
-      className={`${className} ${shown ? 'dc-card' : 'opacity-0'}`}
-      style={{ animationDelay: `${wait}ms` }}
-    />
-  );
-}
 
 // 히어로 컷은 **번들이 읽히는 순간** 받기 시작한다. 홈은 첫 화면이라 이 그림이 가장
 // 먼저 보여야 하는데, 리액트가 트리를 다 그린 뒤에야 <img>가 생겨서 그만큼 늦었다.
@@ -362,109 +333,7 @@ function TasksCard({ tasks, today, onOpenList, onOpenTask, delay, slot, enter = 
   );
 }
 
-// ── 랜딩 쇼케이스 ───────────────────────────────────────────────────────────
-// 카드 넷 아래에 서는 네 블록(예배 · 말씀 · 모임 · 업무). 사용자 요청 2026-09-03 —
-// "카드 아래 남는 부분에 랜딩 페이지 같은 인터랙션·모션 그래픽으로 '우리 서비스로
-// 이걸 할 수 있다' 느낌." 카드가 **오늘 무엇이 있는지**를 말하고, 이 블록은 **여기서
-// 무엇을 할 수 있는지**를 말한다. 그래서 카드가 하나도 없는 날에도 이건 선다.
-//
-// 숫자를 세지 않는다 — 통계·랭킹은 §1 원칙에서 금지다. 블록은 눌러서 그 화면으로 간다.
-//
-// **모션은 CSS만으로 돈다.** 자바스크립트 타이머로 프레임을 돌리면 홈이 떠 있는 동안
-// 계속 리렌더가 돈다. 키프레임은 `index.css`가 아니라 이 화면이 들고 있다 — 그 파일은
-// 이 회차의 소유가 아니어서 건드리지 않았다(옮길 자리는 §4.2의 모션 절이다).
-// 규칙은 그대로 지킨다: **transform·opacity만** 움직이고, 색은 토큰만 쓰고,
-// `prefers-reduced-motion`이면 전부 멈춘다.
-// 문구는 사용자가 준 그대로다(2026-09-03) — 무엇을 할 수 있는지 한 줄이고, 과장·비교가
-// 없다(§8). 블록은 **캐릭터 컷 + 제목 + 설명 한 줄**이다.
-//
-// 모션 그래픽은 만들었다가 **뺐다**(사용자 결정 2026-09-03 — "가독성을 높이든지, 아니면
-// 모션 그래픽 자체를 없애자, 그게 나을 것 같다"). 작은 도형이 네 칸에서 각자 돌면
-// 시선이 글보다 그쪽으로 가고, 좁은 폭에서는 부품이 서로 겹쳤다. 되살리지 말 것.
-//
-// 컷은 서로, 그리고 히어로의 sparkle-wave와 겹치지 않게 고른다. 원본 크기(1x)를 함께
-// 들고 있는 이유는 width/height로 자리를 미리 잡기 위해서다 — 그림이 늦게 와도 카드가
-// 안 밀린다. 실제로 받는 파일은 `srcset`이 화면 배율에 따라 고른다(1x 또는 @2x).
-//
-// 설명은 **두 도막**이다. 어디서 줄이 나뉘는지를 사용자가 정했다(2026-09-03) — 넓은
-// 화면에서 브라우저가 알아서 접으면 '예배 중'과 '예배 노트를' 사이처럼 뜻이 끊기는
-// 자리에서 나뉜다. `text-wrap: balance`는 쓰지 않는다(줄 위치가 폭마다 또 달라진다).
-// 좁은 화면에서는 `<br>`을 숨겨 한 문장으로 흐르게 두고, 그때는 브라우저가 접는다.
-const SHOWCASE = [
-  { key: 'worship', to: 'worship', title: '예배', cut: '/chars/heart.webp', w: 187, h: 156,
-    desc: ['이번 주 주보를 확인하고', '예배 중 예배 노트를 남겨요'] },
-  { key: 'word', to: 'word', title: '말씀', cut: '/chars/book.webp', w: 196, h: 157,
-    desc: ['오늘 QT 본문을 읽고', '묵상을 기록해요'] },
-  { key: 'groups', to: 'groups', title: '모임', cut: '/chars/coffee.webp', w: 190, h: 153,
-    desc: ['우리 순, 우리 동아리의 명단과', '순모임 가이드를 확인해요'] },
-  { key: 'work', to: 'dashboard', title: '업무', cut: '/chars/laptop.webp', w: 189, h: 160,
-    desc: ['내가 맡은 업무와', '프로젝트를 이어서 진행해요'] },
-];
-
-function Showcase({ onNavigate }) {
-  const ref = useRef(null);
-  // 스크롤로 내려올 때 한 번 나타난다. 처음부터 세워 두면 카드 넷과 함께 이미 다 서
-  // 있어서 '내려오다 만나는' 인상이 없다. **한 번 보이면 관찰을 끊는다** — 오르내릴
-  // 때마다 다시 나타나면 스크롤이 덜컹거린다(§4.2 — 순번 지연은 첫 마운트만).
-  const [seen, setSeen] = useState(() => typeof IntersectionObserver === 'undefined');
-  useEffect(() => {
-    if (seen || !ref.current) return undefined;
-    const ob = new IntersectionObserver((rows) => {
-      if (rows.some(r => r.isIntersecting)) { setSeen(true); ob.disconnect(); }
-    }, { rootMargin: '-40px' });
-    ob.observe(ref.current);
-    return () => ob.disconnect();
-  }, [seen]);
-
-  return (
-    <section className="home-show mt-9 md:mt-11" ref={ref}>
-      <h3 className="home-show-title text-[12.5px] font-bold text-fg-muted pb-3">더다붓 워크스페이스에서 할 수 있는 것</h3>
-      {/* 1열 → 768px 2열 → 1280px 4열. 1024에서 4열로 가면 한 칸이 230px 남짓이라
-          설명 한 줄이 세 줄로 접힌다(사용자 요청 2026-09-03 — 폭마다 예쁘게).
-          사이는 12px, 넓은 화면에서 16px. */}
-      <div className="home-show-grid grid gap-3 lg:gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {SHOWCASE.map(({ key, to, title, desc, cut, w, h }, i) => (
-          // 차례는 **컷 → 제목 → 설명 → 모션**이다(사용자 정정 2026-09-03). 컷과 모션은
-          // 가로 가운데이고 글은 왼쪽 정렬이다 — 글까지 가운데로 두면 네 블록의 설명
-          // 길이가 달라서 줄 시작이 제각각이 된다. 모션은 눌리지 않는다(블록 전체가
-          // 버튼이다). 설명 길이가 블록마다 달라 모션 줄의 높이를 맞추려면 설명 칸이
-          // 남는 자리를 먹어야 한다 — 그래서 블록은 flex 세로 배치이고 설명이 flex-1이다.
-          // 호버에서 살짝 떠오르고 화살표가 오른쪽으로 미끄러진다. **transition에
-          // `all`을 주지 않는다**(§6-17-b) — 자리(top/left)까지 전이 대상이 되면
-          // 그림자·자리 계산이 겹쳐 미끄러진다. transform·box-shadow만 전이한다.
-          // 호버가 없는 기기에서는 화살표가 그냥 제자리에 있고, 그래도 '눌러서 가는
-          // 것'이 보인다(§8 — hover로만 나타나는 조작은 만들지 않는다).
-          <button
-            key={key} type="button" onClick={() => onNavigate(to)}
-            // **전이 목록에 `translate`가 들어가야 한다.** 테일윈드 4의 `-translate-y-*`는
-            // `transform`이 아니라 독립 속성 `translate`를 쓴다 — `transition-[transform]`만
-            // 적어 두면 값은 바뀌는데 전이가 걸리지 않아 툭 튄다(실측: transform은
-            // 내내 matrix(1,0,0,1,0,0)이었다). `all`은 쓰지 않는다(§6-17-b).
-            className={`home-show-item home-show-${key} group ${seen ? 'dc-card' : 'opacity-0'} relative flex flex-col items-center w-full text-center p-5 lg:p-6 ${CARD} transition-[translate,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-elevated active:scale-[.995]`}
-            style={{ ...CARD_STYLE, animationDelay: `${i * 70}ms` }}
-          >
-            <ChevronRight size={14}
-              className="home-show-go absolute top-4 right-4 text-fg-faint transition-[translate] duration-200 ease-out group-hover:translate-x-[3px]" />
-            {/* 컷도 **도착한 뒤에** 뜬다(위 Cut) — 블록이 먼저 서고 그림 자리만 비는 일이 없게 */}
-            <Cut src={cut} w={w} h={h} delay={0}
-              className="home-show-cut block w-auto h-[96px] select-none pointer-events-none" />
-            {/* 제목은 가운데다. 화살표는 블록 오른쪽 위 — **제목 줄로 옮기지 않는다**
-                (사용자 정정 2026-09-03: "화살표를 옮기라고 하진 않았다"). 제목 줄 오른쪽
-                끝 규칙은 위 카드 넷에만 해당한다. */}
-            <span className="home-show-name block w-full mt-3 text-[15.5px] font-extrabold text-fg tracking-[-0.3px]">{title}</span>
-            {/* 설명은 읽는 줄이다 — 줄 간격을 넉넉히 두고(1.7) keep-all로 낱말이 쪼개지지
-                않게 한다(body에 걸려 있다). 줄바꿈 자리는 사용자가 정했다(위 SHOWCASE). */}
-            <span className="home-show-desc block w-full mt-1.5 text-[13px] leading-[1.7] text-fg-muted">
-              <span className="home-show-l1">{desc[0]}</span>
-              <br className="hidden sm:inline" />
-              <span className="home-show-l2">{` ${desc[1]}`}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
+// ── 랜딩 쇼케이스는 views/showcase.jsx다(카드 넷 아래 네 블록) ──
 
 // ── 오늘의 예배 (주일 모드 · 사용자 결정 2026-09-25 · 목업 '은혜와 리듬' 3번) ────────────
 // 발행된 주보의 날짜가 오늘(KST)이면 08:00~자정(homeMoments.sundayMode) 예배 카드가 격자 맨 앞에서
@@ -617,7 +486,6 @@ function TodayWorshipCard({ service, open, att, leader = '', onOpen, onOpenSun, 
 // 줄은 업무 창으로, 머리는 그 프로젝트로 간다(보관된 것이어도). activity가 2026-07-25부터라 창(±7일)이
 // 처음 닿는 2027-07-18 전에는 안 보이는 것이 정상이다.
 const PILL = 'home-pill inline-flex items-center gap-1.5 max-w-full mt-3 pl-3 pr-2 py-[5px] rounded-full text-[12px] text-fg-muted shadow-soft transition-colors hover:bg-surface-hover';
-const dotDate = (iso) => `${+iso.slice(5, 7)}. ${+iso.slice(8, 10)}.`;
 
 function YearAgoPill({ pick, onOpenProject, onOpenTask }) {
   const [open, setOpen] = useState(false);
@@ -640,7 +508,7 @@ function YearAgoPill({ pick, onOpenProject, onOpenTask }) {
           {tasks.map(({ task, date }) => (
             <button key={task.id} type="button" data-year-ago-task={task.id} onClick={() => onOpenTask(task)}
               className="w-full flex items-center gap-2 p-1.5 rounded-md text-left text-[12.5px] text-fg hover:bg-surface-hover transition-colors">
-              <span className="w-[52px] shrink-0 text-[11.5px] font-bold text-fg-muted tabular-nums">{dotDate(date)}</span>
+              <span className="w-[52px] shrink-0 text-[11.5px] font-bold text-fg-muted tabular-nums">{mdDot(date)}</span>
               <span className="min-w-0 truncate">{task.title}</span>
             </button>
           ))}
@@ -650,159 +518,19 @@ function YearAgoPill({ pick, onOpenProject, onOpenTask }) {
   );
 }
 
-// ── 한 해의 발자취 — 나만 보는 한 장(창이 아니라 화면 · '홈으로'로 돌아온다) ──────────────
-// 제목 '{해}년의 발자취' · 부제 '예수님과 함께 걸어온 한 해' · 구역 넷(사용자 문구 2026-09-25):
-// 마음에 남긴 구절(내 형광펜 + 본문) · 다시금 펼치게 된 말씀(북마크한 장) · 예배 노트를 작성한 주일(설교
-// 제목만) · 더다붓과 함께한 프로젝트(그 해 내가 담당한 업무의 프로젝트 + 같이 한 얼굴 셋).
-// **숫자·합계·순위·공유가 없다**(§8 · 나만 보는 장에 공유를 붙이면 견주는 물건이 된다). 노트·묵상 글은
-// 싣지 않는다. 빈 구역은 자리째 서지 않는다. 고르는 규칙은 homeMoments.footprintSections.
-// **App의 전역 화면이 아니다** — 홈 안의 한 상태(page)라 GLOBAL_MENUS를 건드리지 않는다.
-const FOOT_GLOW = {
-  backgroundRepeat: 'no-repeat',
-  backgroundImage: [
-    'radial-gradient(26rem 10rem at 10% 0%, color-mix(in srgb, var(--app-tag-purple) 80%, transparent), transparent 70%)',
-    'radial-gradient(20rem 9rem at 95% 10%, color-mix(in srgb, var(--app-accent-weak) 90%, transparent), transparent 70%)',
-  ].join(','),
-};
-const monthDay = (iso) => `${+String(iso).slice(5, 7)}월 ${+String(iso).slice(8, 10)}일`;
-const FootSection = ({ name, title, children }) => (
-  <section data-foot={name} className="px-5 pt-3.5 pb-4 border-t border-line">
-    <h4 className="mb-2 text-[11.5px] font-bold text-fg-muted">{title}</h4>
-    {children}
-  </section>
-);
-
-function FootprintPage({ year, onBack, onOpenLink, onNavigate }) {
-  const currentUser = useStore(selectCurrentUser);
-  const tasks = useStore(selectTasksList);
-  const projects = useStore(selectProjectsList);
-  const [data, setData] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      const [state, notes, books] = await Promise.all([
-        loadBibleState().catch(() => null),
-        fetchMyNoteSundays(year).catch((e) => { console.warn('[home] 예배 노트를 쓴 주일을 읽지 못했어요:', e); return []; }),
-        loadBibleIndex().catch(() => []),
-      ]);
-      const sec = footprintSections({
-        year, highlights: state?.highlights || [], bookmarks: state?.bookmarks || [], notes,
-        tasks, projects, myName: currentUser?.name || '',
-      });
-      // 구절 본문 — 그 책 파일만 받는다(bible.js가 책 단위로 캐시한다). 못 받으면 참조만 선다.
-      const nameOf = (id) => books.find(b => b.id === id)?.name || id;
-      const passages = await Promise.all(sec.passages.map(async (p) => {
-        let text = '';
-        try {
-          const book = await loadBook(p.bookId);
-          text = (book?.chapters?.[p.chapter - 1] || []).slice(p.from - 1, p.to).join(' ');
-        } catch { /* 참조만 */ }
-        return { ...p, text, label: `${nameOf(p.bookId)} ${p.chapter}:${p.from}${p.to > p.from ? `-${p.to}` : ''}` };
-      }));
-      const chapters = sec.chapters.map(c => ({ ...c, label: c.label || `${nameOf(c.bookId)} ${c.chapter}장` }));
-      if (alive) setData({ ...sec, passages, chapters });
-    })().catch(e => { console.error('[home] 발자취를 읽지 못했어요:', e); if (alive) setData({ passages: [], chapters: [], sundays: [], together: [] }); });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year]);
-
-  return (
-    <div className="home-screen home-footprint dc-screen pb-8">
-      <button type="button" data-foot-back="" onClick={onBack}
-        className="inline-flex items-center gap-0.5 h-11 pl-2 pr-3 -ml-2 mb-1 rounded-md text-[13px] font-semibold text-fg-muted hover:bg-surface-hover transition-colors">
-        <ChevronLeft size={15} />홈으로
-      </button>
-      <div className="home-foot-page overflow-hidden rounded-[14px] border border-line bg-surface">
-        <header className="px-5 pt-[22px] pb-4" style={FOOT_GLOW}>
-          <h2 className="text-[22px] font-extrabold text-fg tracking-[-0.6px]">{`${year}년의 발자취`}</h2>
-          <p className="mt-1 text-[12.5px] text-fg-muted">예수님과 함께 걸어온 한 해</p>
-        </header>
-        {!data ? (
-          <div className="px-5 pt-3.5 pb-5 border-t border-line space-y-2.5" aria-hidden="true">
-            <SkelLine className="text-[13px]" w="72%" /><SkelLine className="text-[13px]" w="58%" /><SkelLine className="text-[13px]" w="64%" />
-          </div>
-        ) : (
-          <>
-            {data.passages.length > 0 && (
-              <FootSection name="verses" title="마음에 남긴 구절">
-                {data.passages.map(p => (
-                  <blockquote key={`${p.bookId} ${p.chapter}:${p.from}`} className="m-0 mb-2.5 last:mb-0 pl-3 border-l-2 text-[13px] leading-[1.75] text-fg"
-                    style={{ borderColor: 'var(--app-tag-red)' }}>
-                    {p.text || null}
-                    <cite className="block not-italic mt-0.5 text-[11px] font-bold text-fg-muted">{`${p.label} · ${+localDayOf(p.at).slice(5, 7)}월`}</cite>
-                  </blockquote>
-                ))}
-              </FootSection>
-            )}
-            {data.chapters.length > 0 && (
-              <FootSection name="bookmarks" title="다시금 펼치게 된 말씀">
-                {data.chapters.map(c => (
-                  <div key={c.ref} className="flex items-baseline gap-2.5 py-1 text-[12.5px] text-fg">
-                    <span className="w-16 shrink-0 text-[11.5px] font-bold text-fg-muted">{monthDay(localDayOf(c.at))}</span>
-                    <span className="min-w-0 truncate">{c.label}</span>
-                  </div>
-                ))}
-              </FootSection>
-            )}
-            {data.sundays.length > 0 && (
-              <FootSection name="notes" title="예배 노트를 작성한 주일">
-                {data.sundays.map(n => (
-                  <button key={n.serviceId} type="button" onClick={() => (onOpenLink ? onOpenLink(`/?p=worship&s=${n.serviceId}`) : onNavigate('worship'))}
-                    className="w-full flex items-baseline gap-2.5 py-1 text-left text-[12.5px] text-fg hover:text-accent-text transition-colors">
-                    <span className="w-16 shrink-0 text-[11.5px] font-bold text-fg-muted">{monthDay(n.date)}</span>
-                    <span className="min-w-0 truncate">{n.title || '설교 제목 미정'}</span>
-                  </button>
-                ))}
-              </FootSection>
-            )}
-            {data.together.length > 0 && (
-              <FootSection name="projects" title="더다붓과 함께한 프로젝트">
-                {data.together.map(({ project, faces }) => (
-                  <button key={project.id} type="button" onClick={() => onNavigate(project.id)}
-                    className="w-full flex items-center gap-2.5 py-1.5 text-left text-[12.5px] text-fg hover:text-accent-text transition-colors">
-                    <b className="flex-1 min-w-0 truncate font-bold">{project.title}</b>
-                    <span className="flex shrink-0">
-                      {faces.map((n, i) => (
-                        <Avatar key={n} name={n} className={`flex w-[21px] h-[21px] text-[10px] ring-[1.5px] ring-surface ${i ? '-ml-1.5' : ''}`} />
-                      ))}
-                    </span>
-                  </button>
-                ))}
-              </FootSection>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
+// ── 한 해의 발자취(나만 보는 한 장)는 views/footprint.jsx다 ──
 
 // ── 자리를 지키는 스켈레톤 카드 ─────────────────────────────────────────────
 // **카드와 같은 상자, 같은 줄 높이**다. 예전에는 카드 줄 전체를 104px짜리 회색 상자 넷으로
 // 대신했는데, 갈래가 하나라도 도착하면 그 통짜 스켈레톤이 통째로 사라지고 **있는 카드만**
 // 섰다 — 늦게 오는 갈래가 나중에 자기 자리로 끼어들며 이미 읽던 카드를 아래로 밀었다
 // (사용자 지적 2026-09-07). 지금은 자리마다 따로 서고, 그 자리의 갈래가 도착할 때
-// 그 칸만 내용으로 바뀐다.
-//
-// 줄 높이를 맞추는 방법: 폭 0짜리 글자(U+200B) 하나로 **진짜 줄 상자**를 만들고 뼈대는
-// 그 위에 얹는다. 높이를 px로 박으면 글꼴·줄 간격이 바뀔 때마다 어긋난다.
-// 뼈대에 위치 유틸리티를 직접 주지 않는 이유는 §6-9-e의 짝이다 — `.dc-skeleton`이
-// `position: relative`를 갖고 있어 나중에 오는 그 규칙이 이긴다. 자리는 바깥 span이 잡는다.
-function SkelLine({ className, w }) {
-  return (
-    <span className={`relative block ${className}`}>
-      {'\u200b'}
-      <span className="absolute left-0 top-[12%] bottom-[12%]" style={{ width: w }}>
-        <Skeleton className="w-full h-full rounded-[5px]" />
-      </span>
-    </span>
-  );
-}
-
-function CardSkeleton({ slot, delay, enter = 'dc-card' }) {
+// 그 칸만 내용으로 바뀐다. 줄 하나는 footprint.jsx의 SkelLine(같은 줄 높이 뼈대)이다.
+// wide: 주일 모드의 예배 자리 — 오늘의 예배 카드(TodayWorshipCard)와 같은 두 칸이다.
+function CardSkeleton({ slot, delay, enter = 'dc-card', wide = false }) {
   return (
     <div data-slot={slot} data-state="wait" aria-hidden="true"
-      className={`home-skel home-skel-${slot} ${enter} flex flex-col items-stretch justify-start w-full p-4 md:p-[18px] ${CARD}`}
+      className={`home-skel home-skel-${slot} ${enter}${wide ? ' md:col-span-2' : ''} flex flex-col items-stretch justify-start w-full p-4 md:p-[18px] ${CARD}`}
       style={{ ...CARD_STYLE, animationDelay: `${delay}ms` }}>
       {/* 라벨 자리 — 카드의 제목 줄과 같은 18px 칸 */}
       <span className="home-skel-head flex items-center h-[18px] mb-2">
@@ -1033,8 +761,19 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
   // 서 있는다(위 orderedSlots). 업무는 스토어 값이라 기다릴 것이 없다(loading 없음).
   // 오늘의 예배(주일 모드) — 발행된 오늘 주보 + 08:00~자정(homeMoments.sundayMode). 13:30 전후로 칸 순서만 바뀐다.
   const nowDay = nowK.slice(0, 10);
-  const todayService = (svcQ.data?.published || []).find(s => s.service_date === nowDay) || null;
-  const sunday = sundayMode(todayService, nowK);
+  const todayOf = (list) => (list || []).find(s => s.service_date === nowDay) || null;
+  const todayService = todayOf(svcQ.data?.published);
+  // 예배 목록이 아직 없을 때(캐시 없는 첫 진입의 뼈대)는 지난 날 열쇠에 남은 발행본으로 **같은 판정**을 미리 한다 —
+  // 뼈대가 평소 차례로 섰다가 예배 카드(두 칸)가 앞으로 오며 격자가 다시 짜이던 자리다. 지난 날 열쇠는
+  // 예배 목록을 새로 읽을 때 지워지므로(pruneCache) 첫 그림에서 한 번만 집는다. 없으면 평소 차례 그대로다.
+  const [svcHint] = useState(() => {
+    for (let i = 1; i <= 7; i++) {
+      const v = readCache(`home:services:${shiftDay(day, -i)}`);
+      if (Array.isArray(v?.published)) return v.published;
+    }
+    return [];
+  });
+  const sunday = sundayMode(svcQ.data ? todayService : todayOf(svcHint), nowK);
   // 오늘의 예배 카드의 찬양 인도자 — 주일 모드일 때만 명단을 읽는다(평소 카드에는 싣지 않는다 · 2026-10-02 사용자 결정으로 다시 뺐다)
   const leaderRaw = sunday ? String(todayService?.praise_leader || '').trim() : '';
   const [leaderLabel, setLeaderLabel] = useState('');
@@ -1217,7 +956,7 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
             width/height를 적어 두면 그림이 도착하기 전에도 이 자리가 확보되어 아래
             카드가 밀리지 않는다. eager + fetchpriority=high: 첫 화면에 바로 보이는
             그림이라 미루면 홈이 한 번 비어 보인다. decoding=async: 디코딩이 첫 페인트를
-            붙잡지 않게. 등장 연출은 **그림이 도착한 뒤에** 걸린다(위 Cut). */}
+            붙잡지 않게. 등장 연출은 **그림이 도착한 뒤에** 걸린다(showcase.jsx의 Cut). */}
         <Cut src={HERO_CUT.src} w={HERO_CUT.w} h={HERO_CUT.h} eager
           className="home-cut block mx-auto mt-4 md:mt-5 w-auto h-[112px] md:h-[140px] select-none pointer-events-none" />
       </section>
@@ -1239,7 +978,7 @@ export function HomeView({ onNavigate, onTaskClick, onOpenLink }) {
             const enter = enterOf(kind, key);
             const delay = enter === 'dc-card' ? i * 40 : 0;
             return state === 'wait'
-              ? <CardSkeleton key={key} slot={key} enter={enter} delay={delay} />
+              ? <CardSkeleton key={key} slot={key} enter={enter} delay={delay} wide={sunday && key === 'worship'} />
               : <React.Fragment key={key}>{cards[key](delay, enter)}</React.Fragment>;
           })}
         </div>
