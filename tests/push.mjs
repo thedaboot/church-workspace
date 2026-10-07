@@ -334,8 +334,8 @@ assert.ok(!withCheck.includes("'due_soon'"), 'due_soon은 INSERT 정책에 넣�
       `${fn}이 세션 uid로 묻는다 — 합친 계정에게는 알림이 안 보인다`);
   }
   // 실시간 필터(`recipient_id=eq.<id>`)도 같은 값이어야 새 알림이 들어온다
-  const layoutSrc = readFileSync(join(ROOT, 'src', 'components', 'layout.jsx'), 'utf8');
-  assert.ok(/myUid\(\)\.then/.test(layoutSrc), '알림 구독 필터가 세션 uid다');
+  const bellSrc = readFileSync(join(ROOT, 'src', 'components', 'notificationBell.jsx'), 'utf8'); // 19차: 알림 종은 layout.jsx에서 갈라져 나왔다
+  assert.ok(/myUid\(\)\.then/.test(bellSrc), '알림 구독 필터가 세션 uid다');
   // 푸시는 남긴 계정 앞으로 온다 — 구독 행도 그 계정이어야 기기에 닿는다
   const m63 = readFileSync(join(ROOT, 'supabase', 'migrations', '0063_effective_uid_rest.sql'), 'utf8');
   const body63 = m63.slice(m63.indexOf('begin;'), m63.indexOf('commit;'))
