@@ -1739,8 +1739,9 @@ const hlFit = await markEmptyFit('형광펜을 칠한 절은');
 check('북마크·형광펜 빈 상태가 마크와 함께 가운데에 선다',
   centered(bmFit) && centered(hlFit), JSON.stringify({ bmFit, hlFit }));
 // 말씀 화면에는 캐릭터 컷을 두지 않는다(사용자 결정 2026-09-03 — 홈만 쓴다)
+// 상단바의 다붓이 입구 얼굴(.dab-face · 0088)은 말씀 화면 것이 아니다 — 셈에서 뺀다.
 check('말씀 화면에 캐릭터 컷이 없다',
-  (await ev(`document.querySelectorAll('img[src*="/chars/"]').length`)) === 0);
+  (await ev(`document.querySelectorAll('img[src*="/chars/"]:not(.dab-face)').length`)) === 0);
 
 check('목차 칸으로 돌아간다', await clickSel('[data-pane="toc"]'));
 await sleep(500);
@@ -3187,9 +3188,13 @@ await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, dev
   check('QT 내 기록 — 달력 아래 가는 선 + 그 달 묵상 최근 날짜부터 일곱 줄', ml.below && ml.line === '1px' && JSON.stringify(ml.dates) === JSON.stringify(wantDates), JSON.stringify(ml));
   check('줄은 날짜 · 제목(제목이 비면 그 날 구절을 책 이름 전체로 흐리게)',
     /오늘 묵상 제목$/.test(ml.first) && /시편 121:1-8$/.test(ml.second) && ml.titleColor !== ml.refColor, `${ml.first} / ${ml.second}`);
-  check("일곱 줄을 넘으면 'N건 더 보기' · 기존 문장 그대로 · 연속 표시 없음", ml.more === '2건 더 보기' && ml.sentence && !ml.streak, JSON.stringify(ml));
-  await clickSel('[data-qt-more]'); await sleep(250);
-  check('더 보기를 누르면 그 자리에서 다 편다', await ev(`document.querySelectorAll('[data-qt-row]').length === 9 && !document.querySelector('[data-qt-more]')`));
+  // 그 달 1일부터 오늘까지만 넣을 수 있어 매달 1~8일에는 일곱 줄을 못 넘긴다 — 기대값을 오늘 일수로 센다.
+  const extra = Math.max(0, days.length - 7);
+  check("일곱 줄을 넘으면 'N건 더 보기' · 기존 문장 그대로 · 연속 표시 없음", ml.more === (extra ? `${extra}건 더 보기` : '') && ml.sentence && !ml.streak, JSON.stringify(ml));
+  if (extra) {
+    await clickSel('[data-qt-more]'); await sleep(250);
+    check('더 보기를 누르면 그 자리에서 다 편다', await ev(`document.querySelectorAll('[data-qt-row]').length === ${days.length} && !document.querySelector('[data-qt-more]')`));
+  }
   const pickDay = days[1];
   await clickSel(`[data-qt-row="${pickDay}"]`); await sleep(900);
   const moved = await ev(`(document.body.innerText.match(/\\d+년 \\d+월 \\d+일 \\([일월화수목금토]\\)/) || [])[0] || ''`);

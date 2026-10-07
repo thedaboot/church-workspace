@@ -372,9 +372,10 @@ check('캐시로 곧바로 선 카드는 순번 지연을 받으며 떠오른다
 // 336px짜리여도 naturalHeight가 168로 보고된다(규격) — 브라우저가 CSS 픽셀로 환산해
 // 준다. 그래서 여기에 dpr을 곱하면 안 된다. 잰다: `CSS 높이 ≤ naturalHeight`.
 // 실제 디바이스 픽셀은 그 두 배이고, @2x 파일이 그만큼 크다.
+// 상단바의 다붓이 입구 얼굴(.dab-face · 0088)은 홈 컷이 아니다 — 셈에서 뺀다.
 const cutInfo = `(() => {
   const dpr = window.devicePixelRatio || 1;
-  const all = [...document.querySelectorAll('img[src*="/chars/"]')];
+  const all = [...document.querySelectorAll('img[src*="/chars/"]:not(.dab-face)')];
   return {
     count: all.length,
     srcs: all.map(c => c.getAttribute('src')),
@@ -995,7 +996,7 @@ await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, devi
 await sleep(900);
 const mob = await ev(`(() => {
   const dpr = window.devicePixelRatio || 1;
-  const all = [...document.querySelectorAll('img[src*="/chars/"]')];
+  const all = [...document.querySelectorAll('img[src*="/chars/"]:not(.dab-face)')];
   const t = document.querySelector('.home-hero-text').getBoundingClientRect();
   const one = document.querySelector('.home-cut').getBoundingClientRect();
   return {
