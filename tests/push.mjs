@@ -492,7 +492,7 @@ assert.ok(/renotify: true/.test(sw) && /vibrate: \[/.test(sw), 'sw 알림에 ren
 
   // 바로가기(아이콘 길게 누르기)의 ?p= 는 App.jsx가 그대로 activeMenu로 쓴다.
   // 메뉴 키 이름이 바뀌면 바로가기는 조용히 대시보드로 떨어진다 — 눌러 보기 전에는 모른다.
-  const src = ['components/layout.jsx', 'App.jsx']
+  const src = ['components/layout.jsx', 'components/mobileNav.jsx', 'components/navParts.jsx', 'App.jsx'] // 19차: 내비가 네 파일
     .map(f => readFileSync(join(ROOT, 'src', f), 'utf8')).join('\n');
   const menus = new Set([...src.matchAll(/(?:setActiveMenu\(|activeMenu === )'([A-Za-z]+)'/g)].map(m => m[1]));
   for (const sc of mf.shortcuts || []) {
@@ -504,7 +504,7 @@ assert.ok(/renotify: true/.test(sw) && /vibrate: \[/.test(sw), 'sw 알림에 ren
 // ── 설치 안내는 설치하면 사라져야 한다 ──────────────────────────────────────
 // 설치를 마친 사람에게 설치하라는 줄이 계속 뜨는 것이 이 줄의 유일한 실패 방식이다.
 {
-  const layout = readFileSync(join(ROOT, 'src', 'components', 'layout.jsx'), 'utf8');
+  const layout = readFileSync(join(ROOT, 'src', 'components', 'notificationBell.jsx'), 'utf8'); // 19차: 설치 줄은 종 팝오버 파일에
   const i = layout.indexOf('function InstallRow');
   assert.ok(i > 0, 'InstallRow가 없다');
   const body = layout.slice(i, layout.indexOf('\nfunction ', i + 20));
@@ -843,8 +843,8 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
   assert.equal(notify.notifLine('meeting_tomorrow', ''), '내일 동아리 모임이 있어요', '이름이 비면 문구가 깨진다');
   assert.ok(notify.isSystemNotif('meeting_tomorrow'));
   assert.equal(notify.notifArea('meeting_tomorrow'), 'group');
-  const layoutSrc = readFileSync(join(ROOT, 'src', 'components', 'layout.jsx'), 'utf8');
-  assert.ok(/notifLine\(n\.kind, n\.actor_name\)/.test(layoutSrc), '종 팝오버가 시스템 알림에 actor_name(동아리 이름)을 넘기지 않는다');
+  const bellSrc2 = readFileSync(join(ROOT, 'src', 'components', 'notificationBell.jsx'), 'utf8'); // 19차: 종은 notificationBell.jsx
+  assert.ok(/notifLine\(n\.kind, n\.actor_name\)/.test(bellSrc2), '종 팝오버가 시스템 알림에 actor_name(동아리 이름)을 넘기지 않는다');
 
   // 내일(KST) 경계 — 11:30 KST(02:30 UTC)에 돌면 내일은 KST 다음 날 · KST 자정(15:00 UTC)에서 넘어간다
   assert.equal(api.kstDate(1, Date.parse('2026-09-26T02:30:00Z')), '2026-09-27', '11:30 배치의 내일');
