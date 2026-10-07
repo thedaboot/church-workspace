@@ -11,8 +11,7 @@ import {
 } from './groupsParts.jsx';
 import { groupPeople, presentCount, sunCandidates } from '../services/groups.js';
 import { formatServiceDate } from '../services/worship.js';
-import { NoteSheet, paperDate } from './paper.jsx';
-import { NOTE_CUT } from './worshipDetail.jsx';
+import { NoteSheet, paperDate, NOTE_CUT } from './paper.jsx';
 import { splitNoteSections } from '../services/noteTemplate.js';
 import { guidePickLabel } from '../services/sunGuide.js';
 import { imeComposing } from '../utils.js';

@@ -588,6 +588,7 @@ check('문서의 스크립트가 uploadFromUrl을 안다 (v5부터)', () => {
 const view = read('src/views/worshipView.jsx');
 const wsvc = readSplit('src/services/worship.js');
 const wdet = read('src/components/worshipDetail.jsx');
+const wparts = read('src/components/worshipParts.jsx');   // 파일 줄 부품은 19차에 공용 부품 파일로 갔다
 const mig = read('supabase/migrations/0047_service_files.sql');
 const migKind = read('supabase/migrations/0054_files_kind.sql');
 
@@ -680,8 +681,9 @@ check('큐시트 파일이 송폼과 같은 길을 지나고 갈래는 kind 한 
   assert.match(wdet, /filesOfKind\(files, SONGFORM\)/, '찬양 탭이 송폼만 세우지 않는다');
   assert.match(wdet, /filesOfKind\(files, CUESHEET\)/, '말씀 탭이 큐시트 파일만 세우지 않는다');
   // 파일 줄 부품도 한 벌이다 — 두 벌이면 크기 표기·종류 칩이 화면마다 갈라진다
-  assert.ok(!/function SongFormRow\(/.test(wdet), '송폼 전용 줄 부품이 남아 있다 — 큐시트와 한 벌이어야 한다');
-  assert.match(wdet, /function ServiceFileRow\(/, '공용 파일 줄 부품(ServiceFileRow)이 없다');
+  assert.ok(!/function SongFormRow\(/.test(wdet + wparts), '송폼 전용 줄 부품이 남아 있다 — 큐시트와 한 벌이어야 한다');
+  assert.match(wparts, /export function ServiceFileRow\(/, '공용 파일 줄 부품(ServiceFileRow)이 없다');
+  assert.ok(!/function ServiceFileRow\(/.test(wdet), '파일 줄 부품이 worshipDetail에 한 벌 더 있다');
 });
 
 check('파일 중계는 불변 캐시다(재열람 왕복 0)', () => {

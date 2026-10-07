@@ -402,7 +402,7 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   // 편집기에서도 고정된다(사용자 결정 2026-09-10 — "아예 수정 창에서부터")
   const src = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
   const ed = src('../src/components/MarkdownEditor.jsx');
-  const worship = src('../src/components/worshipDetail.jsx');
+  const worship = src('../src/components/worshipNote.jsx');   // 예배 노트는 19차에 worshipDetail에서 갈라 왔다
   const word = src('../src/views/wordView.jsx');
   assert.ok(/name: 'lockedHeadings'/.test(ed) && /filterTransaction/.test(ed),
     '편집기가 정해진 중제목을 지우는 트랜잭션을 물린다');
@@ -1346,5 +1346,38 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   const handoff = readFileSync(new URL('../HANDOFF.md', import.meta.url), 'utf8');
   assert.ok(/카드별 조회 추적[^\n]*\n\|[^\n]*성경 장 보기는 예외/.test(handoff), 'HANDOFF §7에 성경 장 보기 예외 줄이 카드별 조회 추적 바로 아래에 있다');
   console.log('PASS  은혜와 리듬 묶음(오늘의 예배 · 지난 해의 오늘 · 발자취 · 이 장을 본 사람 · 마음 칩)');
+}
+
+// ── 예배 화면 쪼개기 배선 (19차 묶음 G · 2026-10-07) ─────────────────────────────
+// worshipDetail.jsx(1,994줄)를 보기·편집(worshipEdit)·노트(worshipNote)·공용 부품(worshipParts)으로 갈랐다.
+// 저장 상태 칩 하나·노트 컷 하나 때문에 출석·모임 화면이 2천 줄을 import하던 자리를 못 박는다.
+// 되돌리기 검사: worshipNote의 useNoteDraft 줄을 옛 pendingDraft 효과 두 벌로 되돌리면 ②가,
+// worshipView의 attempt 하나를 try/catch로 다시 적으면 ③이 깨진다.
+{
+  const rd = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  const det = rd('components/worshipDetail.jsx');
+  const note = rd('components/worshipNote.jsx');
+  const view = rd('views/worshipView.jsx');
+  // ① 공용 부품은 한 벌 — 출석·모임은 worshipDetail을 import하지 않는다 · 말씀(wordView)은 다음 묶음까지 재수출로 받는다
+  assert.ok(!/from '\.\/worshipDetail\.jsx'/.test(rd('components/worshipAttendance.jsx')) && !/from '\.\/worshipDetail\.jsx'/.test(rd('components/groupsSun.jsx')),
+    '출석·모임 화면이 2천 줄 상세를 import하지 않는다');
+  assert.ok(/export const NOTE_CUT = \{ src: '\/chars\/heart\.webp'/.test(rd('components/paper.jsx')) && !/NOTE_CUT =/.test(det + note), '노트 컷은 종이(paper.jsx) 한 벌');
+  assert.ok(/export \{ SaveState \};/.test(det) && !/function SaveState\(/.test(det + note) && /export function SaveState\(/.test(rd('components/worshipParts.jsx')), '저장 상태 칩은 worshipParts 한 벌 · 상세는 재수출만');
+  // ② 노트 초안은 훅 한 벌(hooks/useNoteDraft.js) — 기다리는 동안 떠나면 그 자리에서 남긴다
+  const hook = rd('hooks/useNoteDraft.js');
+  assert.ok(/useNoteDraft\(draftKey, body === base \? null : \{ body \}\);/.test(note) && !/pendingDraft/.test(note), '예배 노트가 초안 훅을 쓴다(지역 사본 없음)');
+  assert.ok(/if \(p && p\.key === key\) \{ writeCache\(p\.key, p\.value\); pending\.current = null; \}/.test(hook)
+    && /setTimeout\(\(\) => \{ writeCache\(key, value\); pending\.current = null; \}, NOTE_DRAFT_DELAY\)/.test(hook), '훅이 늦은 쓰기와 떠날 때 쓰기를 둘 다 한다');
+  // ③ 실패 처리 한 벌 — 콘솔 줄 모양은 그대로(`[worship] … 실패:`). 손으로 적은 실패 토스트는
+  //    attempt 안 하나 + 출석 칩(23505를 되돌리지 않는 갈래) + 목록 읽기 실패 이펙트 + 내 노트 목록(캐시 유무 갈래)뿐이다
+  const toasts = [...view.matchAll(/showToast\(fail\(/g)].length;
+  const uses = [...view.matchAll(/\battempt\('/g)].length;
+  assert.ok(/console\.error\(`\[worship\] \$\{log\} 실패:`, e\);/.test(view), 'attempt가 콘솔에 같은 꼴로 남긴다');
+  assert.ok(uses >= 17 && toasts === 4, `attempt ${uses}곳 · 손으로 적은 실패 토스트 ${toasts}곳`);
+  // ④ 모션 최소화 판정은 hooks/useReducedMotion.js 한 벌
+  for (const [k, s] of Object.entries({ det, note, view, edit: rd('components/worshipEdit.jsx') })) {
+    assert.ok(!/matchMedia/.test(s), `${k}에 matchMedia 판정이 다시 적혀 있지 않다`);
+  }
+  console.log('PASS  예배 쪼개기 배선(공용 부품 한 벌 · 노트 컷 · 초안 훅 · 실패 처리 한 벌 · 모션 판정)');
 }
 

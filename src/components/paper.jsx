@@ -58,6 +58,12 @@ export const PAPER = {
   check: '#2c5d42',
 };
 
+// 노트 종이 위의 캐릭터 — 예배는 heart, 말씀(QT)은 book. 홈 쇼케이스가 쓰는 그 컷이다.
+// **주보 종이에는 얹지 않는다** — 설교 본문 전문이 실리는 공식 문서이고, 예배 화면에서
+// 캐릭터를 걷어낸 결정(홈 말고는 캐릭터 없음 · tests/worship이 단정한다)과도 그쪽이 맞는다.
+// 예배 노트(worshipNote)와 내 순의 공유 노트(groupsSun)가 같은 컷을 쓴다 — 19차에 worshipDetail에서 옮겨 왔다.
+export const NOTE_CUT = { src: '/chars/heart.webp', w: 187, h: 156 };
+
 // 종이에 앉는 사진의 높이 상한(사용자 결정 2026-09-14) — 글 칸 폭을 다 쓰고 이 높이에서
 // 멈춘다. 편집 종이의 같은 값은 index.css `.note-paper .tiptap img`에 있다.
 const PHOTO_MAX_H = 260;

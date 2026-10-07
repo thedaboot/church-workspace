@@ -347,7 +347,9 @@ check('파일 이름에 못 쓰는 글자는 걷는다',
 // 화면이 실제로 그 이름을 쓰는지(순수 함수만 맞아도 배선이 빠지면 옛 이름 그대로다).
 // 노트 이름은 **그대로 둔다** — 거기에는 예배 종류가 붙을 자리가 아니다.
 {
-  const wdSrc = readFileSync(new URL('../src/components/worshipDetail.jsx', import.meta.url), 'utf8');
+  // 주보 종이는 worshipDetail, 노트는 worshipNote(19차에 갈랐다) — 두 파일을 같이 본다
+  const wdSrc = ['worshipDetail.jsx', 'worshipNote.jsx']
+    .map(f => readFileSync(new URL(`../src/components/${f}`, import.meta.url), 'utf8')).join('\n');
   check('주보 PDF가 그 이름을 쓴다(노트 이름은 그대로)',
     wdSrc.includes('fileName: servicePaperName(service),')
     && wdSrc.includes('fileName: `예배 노트 ${paperDate(serviceDate)}`.trim(),')
@@ -1451,7 +1453,7 @@ check('고치는 중에 공유를 바꿔도 편집이 닫히지 않고 쓰던 �
   && shareWhileEdit.storedHasEdit === false, JSON.stringify(shareWhileEdit));
 // **쓰고 곧바로 나가도 초안이 남는다**(감사 5) — 초안은 1.2초 뒤에 쓰이는데, 그 안에 목록으로
 // 나가면 타이머만 치워지고 마지막 글이 사라졌다. 떠날 때 그 자리에서 남긴다.
-// 되돌리기 검사: MyNote의 `[draftKey]` 정리 효과(pendingDraft를 쓰는 것)를 빼면 깨진다.
+// 되돌리기 검사: hooks/useNoteDraft.js의 `[key]` 정리 효과(pending을 쓰는 것)를 빼면 깨진다(19차에 MyNote에서 훅으로 옮겼다).
 await ev(`(() => { const t = document.querySelector('.worship-note .tiptap'); if (!t) return;
   const p = [...t.children].find(el => el.tagName === 'P' && el.textContent.includes('공유 중 고친 글')) || [...t.children].find(el => el.tagName === 'P');
   t.focus(); const r = document.createRange(); r.selectNodeContents(p); r.collapse(false);
@@ -1880,6 +1882,25 @@ const byKey = await ev(`JSON.parse(localStorage.getItem('church_worship_v1')).se
 check('방향키·Enter로도 고를 수 있다',
   byKey.length === 3 && byKey[2].personId === 'p3' && byKey[2].name === '김승찬', JSON.stringify(byKey.slice(2)));
 
+// 줄 목록 한 벌(worshipEdit useRowList · 19차) — 줄을 옮기면 저장된 순서가 바뀌고 **입력칸이 그 줄을 따라간다**
+// (열쇠가 자리 번호가 아니라 줄이다 — 자리 번호면 쓰던 칸의 커서·조합이 옆 줄로 넘어간다).
+// **되돌리기**: useRowList의 move를 `onChange(rows)`로 바꾸면 순서가, keys를 자리 번호로 바꾸면 따라가기가 깨진다.
+await ev(`(() => {
+  const row = document.querySelectorAll('.worship-role-edit')[0];
+  row.querySelector('input[aria-label="역할"]').dataset.mark = 'first';
+  row.querySelector('button[aria-label="담당자 아래로"]').click();
+})()`);
+await sleep(1700);
+const movedRow = await ev(`(() => ({
+  order: JSON.parse(localStorage.getItem('church_worship_v1')).services.find(s => s.kind === '성탄절 예배').roles.map(r => r.role),
+  at: [...document.querySelectorAll('.worship-role-edit')].findIndex(r => r.querySelector('input[aria-label="역할"]').dataset.mark === 'first'),
+}))()`);
+check('담당자 줄을 아래로 옮기면 저장 순서가 바뀌고 그 줄의 입력칸이 따라간다(useRowList)',
+  JSON.stringify(movedRow.order) === JSON.stringify(['특송', '광고', '']) && movedRow.at === 1, JSON.stringify(movedRow));
+// 뒤 검사들이 보던 순서로 되돌린다
+await ev(`document.querySelectorAll('.worship-role-edit')[1].querySelector('button[aria-label="담당자 위로"]').click()`);
+await sleep(1700);
+
 // 삭제 확인은 **무엇을 지우는지**를 말한다 — '이 담당자 줄을'이 아니라 '이 담당자를'
 // (사용자 결정 2026-09-03). 조사는 이름에 맞춘다(담당자를 · 찬양을 · 광고를).
 await ev(`document.querySelector('button[aria-label="담당자 삭제"]').click()`); await sleep(400);
@@ -1925,6 +1946,35 @@ check('가져올 수 없는 환경이면 그 이유를 말한다(게스트 모�
 
 // 받침이 있는 이름에는 '을'이 붙는다(errorText의 objectParticle 한 벌을 쓴다)
 await ev(`${byText('찬양 추가')}.click()`); await sleep(350);
+
+// ★ 가져오는 중 뼈대 줄 = 실제 찬양 줄 높이(19차 2026-10-07 · 사용자 허락) — 한 줄짜리 뼈대(51px)였을 때 폰에서는
+// 실제 줄이 두 줄(제목 / 링크 · 약 94px)이라 곡이 들어오는 순간 목록이 줄마다 43px씩 뛰었다.
+// 게스트의 가져오기는 곧바로 실패해서 뼈대가 한 순간만 선다 — 누르기 전에 MutationObserver를 심어 꽂히는 그 순간 잰다.
+// **되돌리기**: worshipEdit SongsEdit의 뼈대 줄을 `[번호][썸네일][h-30 막대]` 한 줄로 되돌리면 375에서 깨진다.
+const songBones = [];
+for (const w of [375, 1440]) {
+  await send('Emulation.setDeviceMetricsOverride', { width: w, height: 900, deviceScaleFactor: 1, mobile: w < 768 });
+  await sleep(400);
+  songBones.push([w, await ev(`(async () => {
+    const real = document.querySelector('.worship-song-row')?.getBoundingClientRect().height ?? null;
+    let bone = null;
+    const ob = new MutationObserver(() => {
+      const li = document.querySelector('.worship-song-loading li');
+      if (li && bone === null) bone = li.getBoundingClientRect().height;
+    });
+    ob.observe(document.body, { childList: true, subtree: true });
+    document.querySelector('.worship-song-pull').click();
+    await new Promise(r => setTimeout(r, 400));
+    ob.disconnect();
+    return { real, bone };
+  })()`, true)]);
+}
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await sleep(300);
+check('★ 찬양 가져오는 중 뼈대 줄이 실제 찬양 줄과 같은 높이다(375 두 줄 · 1440 한 줄 · ±2px)',
+  songBones.every(([, v]) => v.real !== null && v.bone !== null && Math.abs(v.real - v.bone) <= 2) && songBones[0][1].real > 80,
+  JSON.stringify(songBones));
+
 await ev(`document.querySelector('button[aria-label="찬양 삭제"]').click()`); await sleep(400);
 const askSong = await ev(`document.body.innerText.includes('이 찬양을 삭제할까요?')`);
 check("확인 문구의 조사는 이름에 맞춘다 — '이 찬양을 삭제할까요?'", askSong === true, String(askSong));
@@ -2920,7 +2970,7 @@ check('좁으면 한 단 · 1024부터 두 단, 한 단은 읽는 폭 안에 머
 // 지역 사본을 다시 만들면 두 화면이 조용히 갈라지므로 소스로 못 박는다.
 const sameParts = await ev(`(async () => {
   const one = async (u) => (await fetch(u)).text();
-  const [wor, word] = await Promise.all([one('/src/components/worshipDetail.jsx'), one('/src/views/wordView.jsx')]);
+  const [wor, word] = await Promise.all([one('/src/components/worshipNote.jsx'), one('/src/views/wordView.jsx')]);
   const has = (t) => t.includes('/src/components/ShareToggle.jsx');
   const local = (t) => /function ShareToggle\\s*\\(/.test(t);
   return { worImports: has(wor), wordImports: has(word), worLocal: local(wor), wordLocal: local(word) };
@@ -3272,6 +3322,31 @@ check('첫 진입 스켈레톤이 목록 카드가 설 자리를 그대로 잡�
   skelFit.chips === true && skelFit.skel !== null && skelFit.card !== null
   && Math.abs(skelFit.skel - skelFit.card) <= 4, JSON.stringify(skelFit));
 
+// ★ 카드 뼈대 높이 = 실제 카드 높이(19차 2026-10-07 · 사용자 허락) — 뼈대 86px · 실제 76.8px이던 때 폰 한 열에서
+// 카드가 도착하는 순간 카드마다 9px씩 위로 당겨졌다(셋이면 마지막 카드 위가 28px). 위 검사는 격자의 **위**만 본다.
+// **되돌리기**: worshipView LOADING의 h-[76.8px]을 h-[86px]로 되돌리면 깨진다.
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 1, mobile: true });
+await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1400);
+const cardBone = await ev(`(async () => {
+  let bone = null, card = null;
+  const ob = new MutationObserver(() => {
+    const b = document.querySelector('.worship-loading-cards > *');
+    if (b && bone === null) bone = b.getBoundingClientRect().height;
+  });
+  ob.observe(document.body, { childList: true, subtree: true });
+  ${GO};
+  for (let i = 0; i < 120 && card === null; i++) {
+    await new Promise(r => requestAnimationFrame(r));
+    const c = document.querySelector('.worship-card');
+    if (c) card = c.getBoundingClientRect().height;
+  }
+  ob.disconnect();
+  return { bone, card };
+})()`, true);
+check('★ 첫 진입 카드 뼈대가 실제 카드와 같은 높이다(375 한 열 · ±2px)',
+  cardBone.bone !== null && cardBone.card !== null && Math.abs(cardBone.bone - cardBone.card) <= 2, JSON.stringify(cardBone));
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+
 // ── 19) 출석 메모도 트랙을 다 쓴다 (§6-9-k) ────────────────────────────────
 // `max-w-[42rem]`이던 때는 1440에서 이 구역만 672px에서 멈춰 오른쪽 726px이 비었다 —
 // 같은 화면의 순 묶음·손님 줄은 이미 폭을 다 쓰고 있었다(주보 편집 폼 46rem · 본문
@@ -3435,8 +3510,8 @@ const noFlash = await ev(`(() => ({ ...window.__seen,
   nowDetail: !!document.querySelector('.worship-detail'),
   nowSkel: !!document.querySelector('.worship-detail-loading'),
   nowList: !!document.querySelector('.worship-list') }))()`);
-// **되돌리기**(§3-5): worshipView의 `if (wantId) return DETAIL_LOADING;`(또는 그 위
-// `wantId ? DETAIL_LOADING : LOADING`)를 지우면 목록이 먼저 꽂혀 order가 list/loading으로 시작한다.
+// **되돌리기**(§3-5): worshipView의 `if (wantId) return detailLoading(…);`(또는 그 위
+// `wantId ? detailLoading(…) : LOADING`)를 지우면 목록이 먼저 꽂혀 order가 list/loading으로 시작한다.
 check('딥링크로 들어오면 목록이 스치지 않고 상세 스켈레톤이 먼저 선다',
   noFlash.skel === true && noFlash.list === false && noFlash.loading === false
   && noFlash.order[0] === 'skel' && noFlash.detail === true
@@ -3507,6 +3582,39 @@ await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: watcher.ide
   // 일부러 낸 실패의 콘솔 줄은 이 검사의 몫이다 — 아래 '콘솔 오류 0'에서 뺀다
   const mine = logs.splice(logsBefore).filter(l => !l.includes('[worship] 주보 목록 실패'));
   logs.push(...mine);
+  await ev(`localStorage.removeItem('church_worship_v1')`);
+}
+
+// ── 쓰기 실패 한 벌(worshipView attempt · 19차 2026-10-07) ─────────────────────
+// 핸들러 열일곱이 같은 꼴(콘솔 원문 + 토스트 '무엇을 못 했는지 + 왜' + 실패 값)이라 한 벌로 모았다.
+// 저절로 저장되는 주보 수정에서 저장 자리를 망가뜨려 실패를 낸다(services: 1 → 펼치기에서 던진다):
+// 콘솔에 `[worship] 주보 저장 실패:` 그대로 · 토스트 첫 줄 · 실패 값(false)이라 저장 칩이 '저장되었어요'로 서지 않는다.
+// **되돌리기**: attempt의 console.error 줄을 지우면 깨진다(`return orElse;`를 `return true;`로 바꾸면 칩이 '저장되었어요'로
+// 서지만, 그 판에서는 재생목록 가져오기가 true를 곡 목록으로 받아 앞 절에서 스위트가 먼저 멈춘다).
+{
+  const logsBefore = logs.length;
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await ev(plant(null));
+  await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired'); await sleep(1200);
+  await ev(GO); await waitFor(HAS_CARD);
+  await ev(`document.querySelector('.worship-card').click()`); await waitFor(HAS_DETAIL);
+  await waitFor(`!!document.querySelector('.worship-edit-open')`);
+  await ev(`document.querySelector('.worship-edit-open').click()`);
+  await waitFor(`!!document.querySelector('input[aria-label="설교 제목"]')`);
+  await ev(`localStorage.setItem('church_worship_v1', JSON.stringify({ services: 1 }))`);
+  await ev(typeIn('input[aria-label="설교 제목"]', '저장이 안 되는 제목'));
+  await sleep(1800);
+  const failSave = await ev(`(() => ({
+    toast: [...document.querySelectorAll('[data-toast]')].map(t => t.innerText).join(' / '),
+    chip: document.querySelector('.worship-head .worship-save-state')?.textContent.trim() ?? null,
+  }))()`);
+  const mineLogs = logs.slice(logsBefore);
+  check('쓰기 실패는 콘솔 원문(같은 글자) · 토스트(무엇을 못 했는지) · 실패 값(저장 칩이 서지 않는다) 한 벌이다(attempt)',
+    failSave.toast.includes('주보를 저장하지 못했어요') && failSave.chip === ''
+    && mineLogs.some(l => l.startsWith('[worship] 주보 저장 실패:')), JSON.stringify({ ...failSave, logs: mineLogs.map(l => l.slice(0, 60)) }));
+  // 일부러 낸 실패의 콘솔 줄은 이 검사의 몫이다 — 아래 '콘솔 오류 0'에서 뺀다
+  const rest = logs.splice(logsBefore).filter(l => !l.includes('[worship] 주보 저장 실패'));
+  logs.push(...rest);
   await ev(`localStorage.removeItem('church_worship_v1')`);
 }
 
@@ -3784,6 +3892,35 @@ cover: {
       title: getComputedStyle(c.querySelector('.worship-card-title')).color, other: o.classList.contains('has-cover') }; })()`);
   check('예배 목록 카드 — 그 주보만 사진 위 흰 글자(같은 위치) · 다른 카드는 그대로',
     card.has && card.img === 'blob:' && card.pos === '50% 70%' && card.title === 'rgb(255, 255, 255)' && !card.other, JSON.stringify(card));
+
+  // ★ 표지가 있는 주보로 딥링크해 들어오면 상세 뼈대의 머리도 사진 머리 높이다(폰 76 · 넓은 폭 92 · 19차 2026-10-07 · 사용자 허락).
+  // 46으로 잡아 두면 상세가 서는 순간 탭 줄이 30~46px 아래로 뛰었다. 표지가 있는지는 목록 캐시가 안다.
+  // 앱이 떠 있는 채 알림을 누른 길(setEntryQuery)로 들어간다 — 뼈대는 한 순간만 서므로 꽂히는 그 순간 잰다.
+  // **되돌리기**: worshipView의 `detailLoading(wantCover)`를 `detailLoading()`으로 되돌리면 깨진다.
+  const headBones = [];
+  for (const w of [390, 1440]) {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: w < 768 ? 844 : 900, deviceScaleFactor: 1, mobile: w < 768 });
+    await sleep(400);
+    headBones.push([w, await ev(`(async () => {
+      let bone = null;
+      const ob = new MutationObserver(() => {
+        const h = document.querySelector('.worship-detail-loading-head');
+        if (h && bone === null) bone = h.getBoundingClientRect().height;
+      });
+      ob.observe(document.body, { childList: true, subtree: true });
+      (await import('/src/services/entryQuery.js')).setEntryQuery('?p=worship&s=s1');
+      for (let i = 0; i < 120 && !document.querySelector('.worship-head'); i++) await new Promise(r => requestAnimationFrame(r));
+      ob.disconnect();
+      await new Promise(r => setTimeout(r, 300));
+      const head = document.querySelector('.worship-head');
+      return { bone, head: head ? head.getBoundingClientRect().height : null, cover: !!head?.classList.contains('has-cover') };
+    })()`, true)]);
+    await ev(`${byText('목록으로')}.click()`); await waitFor(HAS_CARD); await sleep(300);
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await sleep(300);
+  check('★ 표지가 있는 주보의 상세 뼈대 머리가 실제 사진 머리와 같은 높이다(390 · 1440 · ±2px)',
+    headBones.every(([, v]) => v.cover && v.bone !== null && v.head !== null && Math.abs(v.bone - v.head) <= 2), JSON.stringify(headBones));
 
   // 새 사진 — 옛 표지는 지워지고(주보당 한 장) 위치는 .5로 돌아가며 창이 다시 뜬다
   await ev(`${cardOf('흔들리지 않는 기쁨')}.click()`); await waitFor(HAS_DETAIL); await sleep(500);

@@ -3,7 +3,7 @@ import { ArrowLeft, ChevronDown, Plus, X } from 'lucide-react';
 import { groupRoster, countPresent, canToggleGroup, kindLabel, formatServiceDate, attendanceOpen } from '../services/worship.js';
 import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import { BTN, BTN_QUIET } from './groupsParts.jsx';
-import { SaveState, BTN_SOFT } from './worshipDetail.jsx';
+import { SaveState, BTN_SOFT } from './worshipParts.jsx';
 import { imeComposing } from '../utils.js';
 
 // ============================================================================

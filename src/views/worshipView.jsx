@@ -9,7 +9,10 @@ import { useLiveRefresh } from '../services/liveV2.js';
 import { entryParam, takeEntryParam, useEntryQuery } from '../services/entryQuery.js';
 import { DatePicker } from '../components/DatePicker.jsx';
 import { BTN, BTN_QUIET, FIELD, LabeledField, FailTail } from '../components/groupsParts.jsx';
-import { ServiceDetail, WorshipEmpty, MyNotesScreen, BTN_SOFT } from '../components/worshipDetail.jsx';
+import { ServiceDetail } from '../components/worshipDetail.jsx';
+import { WorshipEmpty, BTN_SOFT } from '../components/worshipParts.jsx';
+import { MyNotesScreen } from '../components/worshipNote.jsx';
+import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { AttendanceScreen } from '../components/worshipAttendance.jsx';
 import {
   SUNDAY_KIND, kindLabel, formatServiceDate, nextSundayDate, serviceYear, worshipPerms, mergeSongs, kstNow,
@@ -27,7 +30,7 @@ import { CoverImg, useCoverShown } from '../components/worshipCover.jsx';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 import { imeComposing, isKakaoInApp } from '../utils.js';
 import { churchSeason } from '../services/churchYear.js';
-import { myNoteRows } from '../services/serviceView.js';
+import { myNoteRows, coverImage } from '../services/serviceView.js';
 import { buildIcs, googleCalendarUrl, kakaoExternal, noticeEvent } from '../services/noticeDate.js';
 
 // ============================================================================
@@ -63,9 +66,7 @@ const KIND_SEG = [[false, '주일예배'], [true, '다른 예배']];
 const NEW_H = 'h-[34px]';
 const DATE_TRIGGER = `inline-flex items-center gap-1.5 ${NEW_H} border border-line rounded-xs bg-surface px-2 text-xs text-fg hover:bg-surface-hover focus:border-accent focus:shadow-soft outline-none transition-all`;
 
-// 모션을 꺼 둔 사람에게는 등장·퇴장을 걸지 않는다(§4.2 · dashboardParts와 같은 한 줄)
-const reduceMotion = () => typeof window !== 'undefined'
-  && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+// 모션을 꺼 둔 사람에게는 등장·퇴장을 걸지 않는다(§4.2 · 판정은 hooks/useReducedMotion.js 한 벌)
 const CLOSE_MS = 150;
 
 // ── 실패 문구 ───────────────────────────────────────────────────────────────
@@ -92,6 +93,23 @@ const reasonOf = (err, byCode = {}) => {
 };
 const LIST_FAIL = '주보 목록을 받지 못했어요';
 const LIST_FAIL_BY = { 42501: '승인된 멤버만 주보를 볼 수 있어요' };
+
+// 쓰기·읽기 한 번 — 이 화면의 핸들러 열일곱이 같은 꼴(try → 실패면 콘솔 + 토스트 + 실패 값)이라 한 벌로 둔다.
+//   log    콘솔 줄 `[worship] {log} 실패:` 그대로(원문은 콘솔에 남긴다 · §8 실패 문구 · tests/errhunt가 콘솔을 본다)
+//   what   토스트 앞도막(무엇을 못 했는지) · byCode 아는 오류 코드 → 사람 말(뒷도막 · 위 fail)
+//   fn     할 일. 성공하면 그 값을 돌려준다
+//   undo   먼저 화면에 반영해 둔 것을 되돌린다(토스트보다 먼저) · orElse 실패했을 때 돌려줄 값(기본 false)
+//   quiet  환경 탓인 실패(게스트·주소 모양 — services의 `quiet`)는 콘솔에 남기지 않는다
+async function attempt(log, what, byCode, fn, { undo = null, orElse = false, quiet = false } = {}) {
+  try {
+    return await fn();
+  } catch (e) {
+    if (!(quiet && e?.quiet)) console.error(`[worship] ${log} 실패:`, e);
+    if (undo) undo();
+    showToast(fail(what, e, byCode ?? {}));
+    return orElse;
+  }
+}
 
 const CARD = 'rounded-[10px] shadow-soft transition active:scale-[.995]';
 const CARD_STYLE = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
@@ -270,7 +288,7 @@ function ServiceList({ services, perms, counts = {}, covers = {}, onOpen, onCrea
   // 그리기 위해 잠깐 더 남겨 두고 지운다. 모션을 꺼 둔 사람에게는 바로 접는다.
   const [closing, setClosing] = useState(false);
   const closeNew = () => {
-    if (reduceMotion()) { setCreating(false); return; }
+    if (prefersReducedMotion()) { setCreating(false); return; }
     setClosing(true);
     setTimeout(() => { setClosing(false); setCreating(false); }, CLOSE_MS);
   };
@@ -356,7 +374,9 @@ function ServiceList({ services, perms, counts = {}, covers = {}, onOpen, onCrea
 // 거르기 칩 줄(≈30px + mb-3)이 빠져 있었고, 목록이 도착하는 순간 카드가 통째로 42px
 // 아래로 뛰었다 — 스켈레톤은 '기다리는 그림'이 아니라 **자리를 지키는 그림**이다
 // (홈 카드가 자리마다 따로 서는 것과 같은 판단 · homeView의 CardSkeleton).
-// 높이는 실제 줄에서 잰 값이다: 머리줄 28 + mb-4 · 칩 줄 30 + mb-3 · 카드 86.
+// 높이는 실제 줄에서 잰 값이다: 머리줄 28 + mb-4 · 칩 줄 30 + mb-3 · 카드 76.8
+// (테두리 2 + py-3.5 28 + 제목 한 줄 22.5 + mt-1 4 + 메타 한 줄 20.3 · 19차 2026-10-07 — 86으로 두었을 때
+// 폰 한 열에서 카드가 도착하는 순간 카드마다 9px씩 위로 당겨졌다. 표지 사진이 있어도 높이는 같다).
 // **'작성 중인 주보 N건' 줄은 여기서 잡지 못한다** — 그 줄이 서는지는 자격과 초안 수,
 // 곧 아직 오지 않은 데이터가 정한다. 자리를 미리 비워 두면 초안이 없는 사람에게는
 // 도리어 빈 띠가 남는다(대부분이 그렇다).
@@ -370,9 +390,9 @@ const LOADING = (
       <Skeleton className="h-full w-[88px] rounded-full" />
     </div>
     <div className="worship-loading-cards grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
-      <Skeleton className="h-[86px] w-full rounded-[10px]" />
-      <Skeleton className="h-[86px] w-full rounded-[10px]" />
-      <Skeleton className="h-[86px] w-full rounded-[10px]" />
+      <Skeleton className="h-[76.8px] w-full rounded-[10px]" />
+      <Skeleton className="h-[76.8px] w-full rounded-[10px]" />
+      <Skeleton className="h-[76.8px] w-full rounded-[10px]" />
     </div>
   </div>
 );
@@ -394,7 +414,11 @@ const LOADING = (
 // 데스크톱 12px·폰 23px만큼 내려온다.
 // 탭 안쪽은 종이 상자 하나로 둔다: 그 아래에는 노트 구역밖에 없어서 길이가 어긋나도
 // 화면에 보이는 것이 밀리지 않는다.
-const DETAIL_LOADING = (
+// **표지 사진(0081)이 있는 주보는 머리가 폰 76 · 넓은 폭 92px이다**(index.css `.worship-head.has-cover`의 min-height ·
+// 19차 2026-10-07). 46으로 잡아 두면 상세가 서는 순간 탭 줄이 30~46px 아래로 뛰었다. 표지가 있는지는
+// **목록 캐시가 안다**(표지는 목록과 한 번에 온다 — fetchCovers) — 그래서 cover는 그 캐시에서 본 값이다.
+// 캐시가 아예 없는 첫 진입은 모른다(그때는 46 — 사진 없는 주보가 대부분이다).
+const detailLoading = (cover = false) => (
   <div className="worship-detail-loading dc-screen pb-10" aria-hidden="true">
     {/* 도구 줄 — 오른쪽 끝의 '목록으로' 하나 */}
     <div className="flex items-center h-[29px] mb-4">
@@ -402,7 +426,7 @@ const DETAIL_LOADING = (
       <Skeleton className="h-[22px] w-[76px] rounded-md" />
     </div>
     {/* 머리 카드 — 종류 칩·날짜·설교자가 한 줄로 앉는 상자 */}
-    <div className="h-[46px] mb-4"><Skeleton className="h-full w-full rounded-[10px]" /></div>
+    <div className={`worship-detail-loading-head ${cover ? 'h-[76px] md:h-[92px]' : 'h-[46px]'} mb-4`}><Skeleton className="h-full w-full rounded-[10px]" /></div>
     {/* 탭 줄 — 주보·말씀·담당자·찬양·광고 */}
     <div className="worship-detail-loading-tabs flex items-center gap-1 h-[37px] mb-3">
       <Skeleton className="h-[20px] w-[42px] rounded-md" />
@@ -531,7 +555,7 @@ export function WorshipView({ onOpenBible } = {}) {
     setGuests(hit?.guests || []);
     setNote(hit?.note ?? null);
     setFiles(hit?.files || []);
-    try {
+    await attempt('주보 상세', '주보에 딸린 명단과 출석을 받지 못했어요', { 42501: '승인된 멤버만 명단을 볼 수 있어요' }, async () => {
       const [r, att, gs, n, fs] = await Promise.all([
         fetchRoster(serviceYear(svc.service_date)),
         fetchAttendance(svc.id),
@@ -544,10 +568,7 @@ export function WorshipView({ onOpenBible } = {}) {
       // 이 조회에 안 잡히는데, 그대로 갈아 끼우면 방금 고른 파일이 화면에서 사라진다.
       setFiles(prev => [...fs, ...prev.filter(f => f._pending)]);
       writeCache(key, { roster: r, present: att, guests: gs, note: n, files: fs });
-    } catch (e) {
-      console.error('[worship] 주보 상세 실패:', e);
-      showToast(fail('주보에 딸린 명단과 출석을 받지 못했어요', e, { 42501: '승인된 멤버만 명단을 볼 수 있어요' }));
-    }
+    });
   }, [canWriteNote]);
 
   // ── 딥링크 진입 (`/?p=worship&s=<주보 id>` · 0053의 알림 link) ──────────────
@@ -558,7 +579,7 @@ export function WorshipView({ onOpenBible } = {}) {
   // 안 왔을 수 있다(첫 진입은 조회가 돈다). 기억해 두었다가 그 주보가 목록에 나타나면 연다.
   //
   // **ref가 아니라 state다**(2026-09-19). 그리는 쪽이 "지금 딥링크로 들어오는 중"을 알아야
-  // 목록 대신 DETAIL_LOADING을 세울 수 있는데, ref는 렌더를 부르지 않는다. 초기값을
+  // 목록 대신 상세 스켈레톤(detailLoading)을 세울 수 있는데, ref는 렌더를 부르지 않는다. 초기값을
   // `entryParam('s')`로 잡아 **첫 렌더부터** 안다 — 홈 카드 경로는 App.handleOpenLink가
   // setEntryQuery를 먼저 부르고 화면을 바꾸므로, 이 화면이 마운트될 때 값이 이미 들어 있다
   // (읽기만 하는 entryParam이다 — 지우는 것은 아래 이펙트의 몫이다).
@@ -583,67 +604,47 @@ export function WorshipView({ onOpenBible } = {}) {
     setWantId(null);
   }, [entrySignal, services, open, wantId, cached.stale, cached.error, listFailed]);
 
-  const create = useCallback(async (v) => {
-    try {
-      const made = await createService(v);
-      setServices(list => [made, ...(list || [])]);
-      invalidate();
-      // 만들면 목록이 아니라 그 주보의 수정 화면으로 바로 간다(사용자 결정) —
-      // 갓 만든 주보는 전부 빈 칸이라 목록으로 돌아갈 이유가 없다
-      open(made, { edit: true });
-      return true;
-    } catch (e) {
-      console.error('[worship] 주보 만들기 실패:', e);
-      showToast(fail('주보를 만들지 못했어요', e, {
-        23505: '그 날짜의 주일 예배 주보가 이미 있어요',
-        42501: '주보는 회장·교역자·미디어팀·관리자만 만들 수 있어요',
-      }));
-      return false;
-    }
-  }, [open, invalidate]);
+  const create = useCallback((v) => attempt('주보 만들기', '주보를 만들지 못했어요', {
+    23505: '그 날짜의 주일 예배 주보가 이미 있어요',
+    42501: '주보는 회장·교역자·미디어팀·관리자만 만들 수 있어요',
+  }, async () => {
+    const made = await createService(v);
+    setServices(list => [made, ...(list || [])]);
+    invalidate();
+    // 만들면 목록이 아니라 그 주보의 수정 화면으로 바로 간다(사용자 결정) —
+    // 갓 만든 주보는 전부 빈 칸이라 목록으로 돌아갈 이유가 없다
+    open(made, { edit: true });
+    return true;
+  }), [open, invalidate]);
 
-  const save = useCallback(async (patch) => {
-    try {
-      const row = await saveService(openId, patch);
-      setServices(list => (list || []).map(s => (s.id === openId ? { ...s, ...(row || patch) } : s)));
-      invalidate();
-      return true;
-    } catch (e) {
-      console.error('[worship] 주보 저장 실패:', e);
-      showToast(fail('주보를 저장하지 못했어요', e, { 42501: NEED_EDIT, PGRST116: GONE }));
-      return false;
-    }
-  }, [openId, invalidate]);
+  const save = useCallback((patch) => attempt('주보 저장', '주보를 저장하지 못했어요', { 42501: NEED_EDIT, PGRST116: GONE }, async () => {
+    const row = await saveService(openId, patch);
+    setServices(list => (list || []).map(s => (s.id === openId ? { ...s, ...(row || patch) } : s)));
+    invalidate();
+    return true;
+  }), [openId, invalidate]);
 
-  const publish = useCallback(async () => {
-    try {
-      await publishService(openId);
-      setServices(list => (list || []).map(s => (s.id === openId ? { ...s, status: 'published' } : s)));
-      invalidate();
-      showToast('주보를 발행했어요');
-      // 승인 멤버 전원에게 알린다(0053). **기다리지 않는다** — 발행은 이미 끝났고,
-      // 알림이 늦거나 실패해도 화면은 그대로다(services/worship.js가 콘솔에만 남긴다).
-      if (service) void notifyServicePublished({ ...service, status: 'published' });
-    } catch (e) {
-      console.error('[worship] 주보 발행 실패:', e);
-      showToast(fail('주보를 발행하지 못했어요', e, { 42501: NEED_EDIT, PGRST116: GONE }));
-    }
-  }, [openId, service, invalidate]);
+  const publish = useCallback(() => attempt('주보 발행', '주보를 발행하지 못했어요', { 42501: NEED_EDIT, PGRST116: GONE }, async () => {
+    await publishService(openId);
+    setServices(list => (list || []).map(s => (s.id === openId ? { ...s, status: 'published' } : s)));
+    invalidate();
+    showToast('주보를 발행했어요');
+    // 승인 멤버 전원에게 알린다(0053). **기다리지 않는다** — 발행은 이미 끝났고,
+    // 알림이 늦거나 실패해도 화면은 그대로다(services/worship.js가 콘솔에만 남긴다).
+    if (service) void notifyServicePublished({ ...service, status: 'published' });
+  }), [openId, service, invalidate]);
 
-  const drop = useCallback(async () => {
+  const drop = useCallback(() => {
     const id = openId;
-    try {
+    return attempt('주보 삭제', '주보를 삭제하지 못했어요', {
+      42501: NEED_EDIT, PGRST116: GONE,
+      23503: '이 주보에 딸린 출석 기록이 아직 남아 있어요',
+    }, async () => {
       await removeService(id);
       setServices(list => (list || []).filter(s => s.id !== id));
       invalidate();
       setOpenId(null); setScreen('list');
-    } catch (e) {
-      console.error('[worship] 주보 삭제 실패:', e);
-      showToast(fail('주보를 삭제하지 못했어요', e, {
-        42501: NEED_EDIT, PGRST116: GONE,
-        23503: '이 주보에 딸린 출석 기록이 아직 남아 있어요',
-      }));
-    }
+    });
   }, [openId, invalidate]);
 
   // 노트를 순에 공유로 **바꾸는 순간에만** 순장에게 알린다(0053). 이미 공유 상태에서
@@ -653,34 +654,33 @@ export function WorshipView({ onOpenBible } = {}) {
     void notifyNoteShared(service);
   }, [service]);
 
-  const saveNote = useCallback(async ({ body, sharedToSun }) => {
+  const saveNote = useCallback(({ body, sharedToSun }) => {
     const wasShared = !!note?.shared_to_sun;
-    try {
+    return attempt('예배 노트 저장', '예배 노트를 저장하지 못했어요', {
+      42501: '노트는 로그인한 본인만 쓸 수 있어요',
+      PGRST116: GONE,
+    }, async () => {
       const row = await saveMyNote(openId, { body, sharedToSun });
       if (row) setNote(row);
       invalidate();
       notifyIfNewlyShared(wasShared, !!sharedToSun);
       return true;
-    } catch (e) {
-      console.error('[worship] 예배 노트 저장 실패:', e);
-      showToast(fail('예배 노트를 저장하지 못했어요', e, {
-        42501: '노트는 로그인한 본인만 쓸 수 있어요',
-        PGRST116: GONE,
-      }));
-      return false;
-    }
+    });
   }, [openId, note, invalidate, notifyIfNewlyShared]);
 
-  // 상세 캐시(`worship:svc:<id>`)의 출석만 그 자리에서 갈아 끼운다. 출석은 주보 목록을
-  // 바꾸지 않으므로 목록을 다시 읽을 이유가 없다 — 칩 하나에 조회 넷이 돌던 자리다.
-  const patchAttendanceCache = useCallback((personId, next) => {
+  // 상세 캐시(`worship:svc:<id>`)의 한 칸만 그 자리에서 갈아 끼운다 — 출석(present)·손님(guests) 한 벌.
+  // 출석은 주보 목록을 바꾸지 않으므로 목록을 다시 읽을 이유가 없다 — 칩 하나에 조회 넷이 돌던 자리다.
+  // patch(hit) → 바꿀 칸들. 캐시가 없으면(아직 한 번도 안 연 주보) 아무것도 안 한다.
+  const patchSvcCache = useCallback((patch) => {
     const key = `worship:svc:${openId}`;
     const hit = readCache(key);
-    if (!hit) return;
+    if (hit) writeCache(key, { ...hit, ...patch(hit) });
+  }, [openId]);
+  const patchAttendanceCache = useCallback((personId, next) => patchSvcCache((hit) => {
     const list = new Set(hit.present || []);
     if (next) list.add(personId); else list.delete(personId);
-    writeCache(key, { ...hit, present: [...list] });
-  }, [openId]);
+    return { present: [...list] };
+  }), [patchSvcCache]);
 
   // 목록 카드의 '출석 N명'을 그 자리에서 더하고 뺀다. 목록을 다시 읽으면 출석 칩 한 번에
   // 조회가 통째로 돌아서(위 patchAttendanceCache와 같은 이유) 지역 상태와 목록 캐시를
@@ -731,71 +731,53 @@ export function WorshipView({ onOpenBible } = {}) {
   }, [openId, roster.people, patchAttendanceCache, patchCount]);
 
   // 상세 캐시의 손님 목록만 갈아 끼운다(출석 칩과 같은 이유 — 목록을 다시 읽지 않는다)
-  const patchGuestCache = useCallback((rows) => {
-    const key = `worship:svc:${openId}`;
-    const hit = readCache(key);
-    if (hit) writeCache(key, { ...hit, guests: rows });
-  }, [openId]);
+  const patchGuestCache = useCallback((rows) => patchSvcCache(() => ({ guests: rows })), [patchSvcCache]);
 
   // 미등록 출석자 — **명단에 올리지 않는다**(사용자 결정 2026-09-07 · 0053). 예전에는
   // people에 행을 만들고 순장이면 자기 순(group_members)에까지 넣었는데, 출석을 부르다
   // 잘못 적은 이름이 그대로 청년 명단에 남았고 이 화면에는 지우는 길이 없었다.
   // 지금은 그 예배의 손님 한 줄이고, 걸음도 하나다(그래서 실패도 한 가지다).
-  const addGuest = useCallback(async (name) => {
+  const addGuest = useCallback((name) => {
     const clean = String(name || '').trim();
-    try {
+    return attempt('미등록 출석자 추가', `${clean}님을 미등록 출석자로 올리지 못했어요`, {
+      42501: '출석을 체크할 수 있는 사람만 올릴 수 있어요',
+      23503: '이 주보가 이미 지워졌어요\n새로고침해주세요',
+    }, async () => {
       const made = await addGuestRow(openId, clean);
       if (!made) return null;
       setGuests(prev => { const next = [...prev, made]; patchGuestCache(next); return next; });
       patchCount(1);
       dropCache('home');
       return made;
-    } catch (e) {
-      console.error('[worship] 미등록 출석자 추가 실패:', e);
-      showToast(fail(`${clean}님을 미등록 출석자로 올리지 못했어요`, e, {
-        42501: '출석을 체크할 수 있는 사람만 올릴 수 있어요',
-        23503: '이 주보가 이미 지워졌어요\n새로고침해주세요',
-      }));
-      return null;
-    }
+    }, { orElse: null });
   }, [openId, patchGuestCache, patchCount]);
 
   // **확인 없이 바로 지운다**(알림 지우기와 같은 판단 · §8) — 잃는 것이 이름 한 줄이다.
   // 대신 실패하면 그 자리에 되돌려 놓는다(줄이 사라진 채로 두면 지워진 것으로 읽힌다).
-  const removeGuest = useCallback(async (row) => {
+  const removeGuest = useCallback((row) => {
     let before = [];
     setGuests(prev => { before = prev; const next = prev.filter(g => g.id !== row.id); patchGuestCache(next); return next; });
     patchCount(-1);
     dropCache('home');
-    try {
-      await removeGuestRow(row.id);
-    } catch (e) {
-      console.error('[worship] 미등록 출석자 삭제 실패:', e);
-      setGuests(before); patchGuestCache(before); patchCount(1);
-      showToast(fail(`${row.name}님을 지우지 못했어요`, e, {
-        42501: '출석을 체크할 수 있는 사람만 지울 수 있어요',
-      }));
-    }
+    return attempt('미등록 출석자 삭제', `${row.name}님을 지우지 못했어요`, {
+      42501: '출석을 체크할 수 있는 사람만 지울 수 있어요',
+    }, () => removeGuestRow(row.id), { undo: () => { setGuests(before); patchGuestCache(before); patchCount(1); } });
   }, [patchGuestCache, patchCount]);
 
   // 공유만 바꾸는 길 — 글을 다시 보내지 않는다(services의 setNoteShared 한 벌).
   // 모임 화면의 '공유된 노트' 목록도 같은 함수를 쓰기로 했다(보고서의 계약).
-  const shareNote = useCallback(async (shared) => {
+  const shareNote = useCallback((shared) => {
     const wasShared = !!note?.shared_to_sun;
-    try {
+    return attempt('예배 노트 공유 변경', shared ? '노트를 순에 공유하지 못했어요' : '노트를 나만 보기로 바꾸지 못했어요', {
+      42501: '노트는 로그인한 본인만 바꿀 수 있어요',
+      PGRST116: '이 노트가 이미 지워졌어요\n새로고침해주세요',
+    }, async () => {
       const row = await setNoteShared(openId, shared);
       if (row) setNote(row);
       invalidate();
       notifyIfNewlyShared(wasShared, !!shared);
       return true;
-    } catch (e) {
-      console.error('[worship] 예배 노트 공유 변경 실패:', e);
-      showToast(fail(shared ? '노트를 순에 공유하지 못했어요' : '노트를 나만 보기로 바꾸지 못했어요', e, {
-        42501: '노트는 로그인한 본인만 바꿀 수 있어요',
-        PGRST116: '이 노트가 이미 지워졌어요\n새로고침해주세요',
-      }));
-      return false;
-    }
+    });
   }, [openId, note, invalidate, notifyIfNewlyShared]);
 
   // ── 주보에 붙는 파일 — 송폼 · 큐시트 (0047 · 갈래는 0054) ─────────────────
@@ -843,15 +825,11 @@ export function WorshipView({ onOpenBible } = {}) {
     const folderId = await serviceFolder();
     for (let i = 0; i < ok.length; i += 1) {
       const stagedId = staged[i].id;
-      try {
+      await attempt('주보 파일 올리기', `'${ok[i].name}'을(를) 올리지 못했어요`, { 42501: NEED_EDIT_FILE }, async () => {
         const row = await sendServiceFile(ok[i], folderId, kind, { awaitCopy });
         setFiles(prev => prev.map(x => (x.id === stagedId ? row : x)));
         done.push(row);
-      } catch (e) {
-        console.error('[worship] 주보 파일 올리기 실패:', e);
-        setFiles(prev => prev.filter(x => x.id !== stagedId));
-        showToast(fail(`'${ok[i].name}'을(를) 올리지 못했어요`, e, { 42501: NEED_EDIT_FILE }));
-      }
+      }, { undo: () => setFiles(prev => prev.filter(x => x.id !== stagedId)) });
     }
     invalidate();
     return done;
@@ -860,30 +838,22 @@ export function WorshipView({ onOpenBible } = {}) {
   // 지난 큐시트를 이 주보로 복사해 올린다(worship.lastCueFile — 편집 사본의 최신 글) — 올라간 행 | null
   const copyLastCue = useCallback(async (prev) => {
     if (!service || !prev) return null;
-    let file;
-    try { file = await lastCueFile(prev, service.service_date); }
-    catch (e) {
-      console.error('[worship] 지난 큐시트 받기 실패:', e);
-      showToast(fail('지난 큐시트를 가져오지 못했어요', e));
-      return null;
-    }
+    const file = await attempt('지난 큐시트 받기', '지난 큐시트를 가져오지 못했어요', null,
+      () => lastCueFile(prev, service.service_date), { orElse: null });
+    if (!file) return null;
     const rows = await uploadFiles([file], CUESHEET, { awaitCopy: true });
     return rows[0] || null;
   }, [service, uploadFiles]);
 
   // **줄을 먼저 지우고 서버에 알린다**(§6-29-e와 같은 순서 · 첨부와 한 벌).
   // 실패하면 되돌린다 — 지워진 척하고 사라지면 파일을 잃은 것으로 읽힌다.
-  const removeFile = useCallback(async (row) => {
+  const removeFile = useCallback((row) => {
     let before = [];
     setFiles(prev => { before = prev; return prev.filter(x => x.id !== row.id); });
-    try {
+    return attempt('주보 파일 삭제', `'${row.name}'을(를) 지우지 못했어요`, { 42501: NEED_EDIT_FILE }, async () => {
       await removeServiceFile(row);
       invalidate();
-    } catch (e) {
-      console.error('[worship] 주보 파일 삭제 실패:', e);
-      setFiles(before);
-      showToast(fail(`'${row.name}'을(를) 지우지 못했어요`, e, { 42501: NEED_EDIT_FILE }));
-    }
+    }, { undo: () => setFiles(before) });
   }, [invalidate]);
 
   // ── 표지 사진 (0081) ──────────────────────────────────────────────────────
@@ -900,7 +870,7 @@ export function WorshipView({ onOpenBible } = {}) {
     const local = URL.createObjectURL(file);
     setCovers(prev => ({ ...prev, [sid]: { id: `local:${file.name}`, service_id: sid, kind: COVER, _pending: true, _src: local } }));
     if (Number(service.cover_focus_y ?? 0.5) !== 0.5) void save({ cover_focus_y: 0.5 });
-    try {
+    return attempt('표지 올리기', '표지 사진을 올리지 못했어요', { 42501: NEED_EDIT_FILE }, async () => {
       const row = await sendServiceFile(file, await serviceFolder(), COVER);
       setCovers(prev => ({ ...prev, [sid]: { ...row, _src: row._src || local } }));
       if (old?.id) {
@@ -908,12 +878,7 @@ export function WorshipView({ onOpenBible } = {}) {
       }
       invalidate();
       return true;
-    } catch (e) {
-      console.error('[worship] 표지 올리기 실패:', e);
-      setCovers(prev => { const next = { ...prev }; if (old) next[sid] = old; else delete next[sid]; return next; });
-      showToast(fail('표지 사진을 올리지 못했어요', e, { 42501: NEED_EDIT_FILE }));
-      return false;
-    }
+    }, { undo: () => setCovers(prev => { const next = { ...prev }; if (old) next[sid] = old; else delete next[sid]; return next; }) });
   }, [service, covers, save, invalidate, serviceFolder, sendServiceFile]);
 
   const removeCover = useCallback(async () => {
@@ -921,14 +886,10 @@ export function WorshipView({ onOpenBible } = {}) {
     const row = sid ? covers[sid] : null;
     if (!row || row._pending) return;
     setCovers(prev => { const next = { ...prev }; delete next[sid]; return next; });
-    try {
+    await attempt('표지 제거', '표지 사진을 지우지 못했어요', { 42501: NEED_EDIT_FILE }, async () => {
       await removeServiceFile(row);
       invalidate();
-    } catch (e) {
-      console.error('[worship] 표지 제거 실패:', e);
-      setCovers(prev => ({ ...prev, [sid]: row }));
-      showToast(fail('표지 사진을 지우지 못했어요', e, { 42501: NEED_EDIT_FILE }));
-    }
+    }, { undo: () => setCovers(prev => ({ ...prev, [sid]: row })) });
   }, [service, covers, invalidate]);
 
   const saveCoverFocus = useCallback((y) => save({ cover_focus_y: y }), [save]);
@@ -945,41 +906,29 @@ export function WorshipView({ onOpenBible } = {}) {
   // 출석 메모는 **주보를 쓰는 길이 아니다**(사용자 결정 2026-09-06). `saveService`로 보내면
   // `services_write`(can_edit_service)라 순장에게 42501이었다 — 0052의 rpc가 그 한 칸만
   // 쓰고, 자격은 '출석을 체크할 수 있는 사람'이다(services/worship.js의 주석).
-  const saveAttendanceNote = useCallback(async (text) => {
-    try {
-      await saveAttendanceNoteRow(openId, text);
-      setServices(list => (list || []).map(s => (s.id === openId ? { ...s, attendance_note: text } : s)));
-      invalidate();
-      return true;
-    } catch (e) {
-      console.error('[worship] 출석 메모 저장 실패:', e);
-      showToast(fail('출석 메모를 저장하지 못했어요', e, {
-        42501: '출석을 체크할 수 있는 사람만 메모를 남길 수 있어요',
-        P0002: GONE, PGRST116: GONE,
-      }));
-      return false;
-    }
-  }, [openId, invalidate]);
+  const saveAttendanceNote = useCallback((text) => attempt('출석 메모 저장', '출석 메모를 저장하지 못했어요', {
+    42501: '출석을 체크할 수 있는 사람만 메모를 남길 수 있어요',
+    P0002: GONE, PGRST116: GONE,
+  }, async () => {
+    await saveAttendanceNoteRow(openId, text);
+    setServices(list => (list || []).map(s => (s.id === openId ? { ...s, attendance_note: text } : s)));
+    invalidate();
+    return true;
+  }), [openId, invalidate]);
 
   // 유튜브 재생목록 → 찬양 목록. 통신은 이 파일이 갖고(worshipDetail 머리말) 화면은
   // 돌려받은 목록을 그대로 쓴다. **왜 안 됐는지는 원인마다 다르다** — 주소가 아닌지,
   // 게스트 모드인지, 배포된 앱이 아닌지, 재생목록이 비공개인지(services/worship.js가
   // 이유를 만들고 여기서 '무엇을 못 했는지'를 앞에 붙인다).
-  const pullPlaylist = useCallback(async (url, rows) => {
-    try {
-      const picked = await fetchPlaylistSongs(url);
-      const next = mergeSongs(rows, picked);
-      const added = next.length - (rows || []).length;
-      showToast(added ? `${added}곡을 가져왔어요` : '가져올 새 곡이 없어요\n재생목록의 곡이 이미 다 들어 있어요');
-      return added ? next : null;
-    } catch (e) {
-      // 서버 함수가 없는 환경(게스트·로컬 vite)이나 주소를 잘못 붙인 것은 고장이
-      // 아니다 — 토스트 한 줄로 끝내고 콘솔에는 남기지 않는다(worship.js의 quiet)
-      if (!e?.quiet) console.error('[worship] 재생목록 가져오기 실패:', e);
-      showToast(fail('재생목록을 가져오지 못했어요', e));
-      return null;
-    }
-  }, []);
+  // 서버 함수가 없는 환경(게스트·로컬 vite)이나 주소를 잘못 붙인 것은 고장이
+  // 아니다 — 토스트 한 줄로 끝내고 콘솔에는 남기지 않는다(worship.js의 quiet)
+  const pullPlaylist = useCallback((url, rows) => attempt('재생목록 가져오기', '재생목록을 가져오지 못했어요', null, async () => {
+    const picked = await fetchPlaylistSongs(url);
+    const next = mergeSongs(rows, picked);
+    const added = next.length - (rows || []).length;
+    showToast(added ? `${added}곡을 가져왔어요` : '가져올 새 곡이 없어요\n재생목록의 곡이 이미 다 들어 있어요');
+    return added ? next : null;
+  }, { orElse: null, quiet: true }), []);
 
   // 링크만 붙였을 때 제목을 채운다. 실패하면 아무 말도 하지 않는다 — 사람이 부탁한
   // 일이 아니라 곁들이는 일이고, 제목은 손으로 적으면 된다.
@@ -1031,7 +980,7 @@ export function WorshipView({ onOpenBible } = {}) {
       else window.open(g, '_blank', 'noopener');
       return;
     }
-    try {
+    await attempt('달력에 넣기', '달력에 넣지 못했어요', null, async () => {
       const url = await noticeIcsUrl(svc.id, index);
       if (!url) {
         // 게스트(서버 없음) — blob
@@ -1045,10 +994,7 @@ export function WorshipView({ onOpenBible } = {}) {
       }
       const abs = new URL(url, window.location.origin).href;
       window.location.href = kakao ? kakaoExternal(abs) : abs;
-    } catch (e) {
-      if (!e?.quiet) console.error('[worship] 달력에 넣기 실패:', e);
-      showToast(fail('달력에 넣지 못했어요', e));
-    }
+    }, { quiet: true });
   }, []);
 
   // 주보 공개 보기 주소(2026-09-26 · api/service-view.js) — 주보마다 한 번만 묻고 쥔다(서명은 늘 같다).
@@ -1070,8 +1016,10 @@ export function WorshipView({ onOpenBible } = {}) {
       onOpen={open} onCreate={create}
       failed={{ reason: reasonOf(cached.error, LIST_FAIL_BY), onRetry: retryList }} />;
   }
-  // 딥링크로 들어오는 중이면 목록 스켈레톤도 아니다 — 갈 데는 상세다(DETAIL_LOADING 머리말)
-  if (!perms || services === null) return wantId ? DETAIL_LOADING : LOADING;
+  // 딥링크로 들어오는 중이면 목록 스켈레톤도 아니다 — 갈 데는 상세다(detailLoading 머리말)
+  // 표지가 있는지는 목록 캐시의 표지가 말한다(캐시가 없으면 모른다 — 그때 covers는 비어 있다)
+  const wantCover = !!(wantId && coverImage(covers[wantId]));
+  if (!perms || services === null) return wantId ? detailLoading(wantCover) : LOADING;
 
   if (screen === 'notes') {
     return (
@@ -1116,7 +1064,7 @@ export function WorshipView({ onOpenBible } = {}) {
   // 목록은 왔는데 그 주보를 아직 못 열었다(이펙트가 다음 틱에 연다) — 그 한 프레임이
   // 바로 사용자가 본 '목록이 스치는' 자리다. 여기서도 목록을 그리지 않는다.
   // 스켈레톤이 영영 남지 않게 하는 것은 위 진입 이펙트의 ② 갈래다.
-  if (wantId) return DETAIL_LOADING;
+  if (wantId) return detailLoading(wantCover);
 
   return <ServiceList services={services} perms={perms} counts={counts} covers={covers} onOpen={open} onCreate={create}
     onOpenNotes={canWriteNote ? openNotes : null} />;
