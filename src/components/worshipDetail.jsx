@@ -27,9 +27,6 @@ import { ROW_LINE, CARD_BOX, NUM, ROLE_VIEW, BTN_SOFT, LIST, SHEET_BOX, SaveStat
 import { WordEdit, RolesEdit, SongsEdit, NoticesEdit, isSeeded } from './worshipEdit.jsx';
 import { MyNote } from './worshipNote.jsx';
 
-// 말씀 묵상(wordView)이 아직 여기서 저장 상태 칩을 가져간다 — 그 화면을 옮기는 묶음(19차 H)이 worshipParts로 바꾸면 지운다.
-export { SaveState };
-
 // 미리보기 창(+PdfView)은 열 때만 받는다 — 첨부를 안 여는 사람까지 그 무게를 받지 않게(2026-09-24).
 const FilePreviewModal = lazy(() => import('./FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));
 

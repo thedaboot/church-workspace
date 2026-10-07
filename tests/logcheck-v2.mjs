@@ -1362,11 +1362,11 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   const det = rd('components/worshipDetail.jsx');
   const note = rd('components/worshipNote.jsx');
   const view = rd('views/worshipView.jsx');
-  // ① 공용 부품은 한 벌 — 출석·모임은 worshipDetail을 import하지 않는다 · 말씀(wordView)은 묶음 H부터 worshipParts에서 바로 받는다(상세의 재수출 줄은 남아 있다)
+  // ① 공용 부품은 한 벌 — 출석·모임은 worshipDetail을 import하지 않는다 · 말씀(wordView)은 묶음 H부터 worshipParts에서 바로 받는다(상세의 재수출 줄은 19차 끝에 걷었다)
   assert.ok(!/from '\.\/worshipDetail\.jsx'/.test(rd('components/worshipAttendance.jsx')) && !/from '\.\/worshipDetail\.jsx'/.test(rd('components/groupsSun.jsx')),
     '출석·모임 화면이 2천 줄 상세를 import하지 않는다');
   assert.ok(/export const NOTE_CUT = \{ src: '\/chars\/heart\.webp'/.test(rd('components/paper.jsx')) && !/NOTE_CUT =/.test(det + note), '노트 컷은 종이(paper.jsx) 한 벌');
-  assert.ok(/export \{ SaveState \};/.test(det) && !/function SaveState\(/.test(det + note) && /export function SaveState\(/.test(rd('components/worshipParts.jsx')), '저장 상태 칩은 worshipParts 한 벌 · 상세는 재수출만');
+  assert.ok(!/export \{ SaveState \};/.test(det) && !/function SaveState\(/.test(det + note) && /export function SaveState\(/.test(rd('components/worshipParts.jsx')) && !/SaveState \} from '\.\.\/components\/worshipDetail\.jsx'/.test(rd('views/wordView.jsx')), '저장 상태 칩은 worshipParts 한 벌 · 상세는 재수출도 하지 않는다');
   // ② 노트 초안은 훅 한 벌(hooks/useNoteDraft.js) — 기다리는 동안 떠나면 그 자리에서 남긴다
   const hook = rd('hooks/useNoteDraft.js');
   assert.ok(/useNoteDraft\(draftKey, body === base \? null : \{ body \}\);/.test(note) && !/pendingDraft/.test(note), '예배 노트가 초안 훅을 쓴다(지역 사본 없음)');

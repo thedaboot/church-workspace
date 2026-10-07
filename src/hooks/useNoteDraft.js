@@ -3,7 +3,7 @@ import { writeCache, dropCache } from '../services/cache.js';
 import { NOTE_DRAFT_DELAY } from '../services/noteTemplate.js';
 
 // 노트 초안을 브라우저에 남기는 한 벌(사용자 결정 2026-09-14 — 서버 자동 저장은 순원에게 미완성 글을 보인다).
-// 예배 노트(worshipNote MyNote)가 쓴다. 말씀 묵상(wordView)에 같은 꼴의 사본이 있고 다음 묶음이 이리로 옮긴다.
+// 예배 노트(worshipNote MyNote)와 말씀 묵상(wordView QtTab)이 쓴다 — 두 화면의 초안 규칙은 이 한 벌이다.
 //
 //   key    초안 열쇠(noteTemplate.noteDraftKey — 사용자별 · 노트 한 건마다 하나 · §6-24-d)
 //   draft  undefined — 아직 아무것도 하지 않는다(서버 값을 기다리는 중)

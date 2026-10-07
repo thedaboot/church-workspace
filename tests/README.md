@@ -32,7 +32,7 @@ CHROME=/path/to/chrome npm run verify   # 크롬 경로가 다를 때
 
 | 파일 | 보는 것 |
 |---|---|
-| `logcheck` (노드) | `logcheck` 묶음 8개가 `utils.js`·서비스 계층의 **순수 로직 전부**를 본다(`npm run verify -- logcheck`는 `logcheck-*`까지 · 소스를 tmp에 베껴 들이는 손질은 `_load.mjs`). 이 파일은 묶음에 안 드는 것 — 서식 안 멘션 · 무거운 부품은 열 때만 · pdf.js 6.3 옛 브라우저 폴리필 · 주보 편집 줄 열쇠(`stableRowKeys`) · 내 달력 구독(`calendarFeed` — 설명 문장 · 날짜 글자 · .ics 하루 종일·UID·접기 · 기기별 버튼 · 저장 줄 세우기 · `/cal/` 재작성·upsert·승인 배선) · **소스의 모든 Enter 핸들러에 한글 조합 가드**가 있는지. 새 순수 함수는 기본적으로 여기에(주제가 맞는 `logcheck-*`가 있으면 거기에) 붙는다 |
+| `logcheck` (노드) | `logcheck` 묶음 8개가 `utils.js`·서비스 계층의 **순수 로직 전부**를 본다(`npm run verify -- logcheck`는 `logcheck-*`까지 · 소스를 tmp에 베껴 들이는 손질은 `_load.mjs` — `export * from` 바렐 줄을 따라 조각도 같이 베낀다). 이 파일은 묶음에 안 드는 것 — 서식 안 멘션 · 무거운 부품은 열 때만 · pdf.js 6.3 옛 브라우저 폴리필 · 주보 편집 줄 열쇠(`stableRowKeys`) · 내 달력 구독(`calendarFeed` — 설명 문장 · 날짜 글자 · .ics 하루 종일·UID·접기 · 기기별 버튼 · 저장 줄 세우기 · `/cal/` 재작성·upsert·승인 배선) · **소스의 모든 Enter 핸들러에 한글 조합 가드**가 있는지. 새 순수 함수는 기본적으로 여기에(주제가 맞는 `logcheck-*`가 있으면 거기에) 붙는다 |
 | `logcheck-task` (노드) | 활동 기록 · 하위 업무 진척 · 회의록 날짜 반년 경계(로컬) · 첨부 이름 NFC · 담당 업무 도막 value 왕복 |
 | `logcheck-dash` (노드) | 정렬·순서 규칙 · 호버 공장·`rowDelay` 배선 · 상시(0075)와 업무 셈 한 벌(`taskCounts` — 지연·구간·2주 방치·진척·고른 해 · 상시로 바꾸면 날짜를 지운다) |
 | `logcheck-live` (노드) | 지금 보고 있는 사람 · 다녀간 시각·심장박동 · 캐시 범위(15초 재조회 생략·날짜 열쇠 정리) · v2 실시간 라우팅(홈 접두 넷) · 카드 실시간 모으기·활동 앞에 얹기 · 탭 줄 앞 칸(`tabRank`)·업무 채널 재접속 판정(`realtimeStatus`) |

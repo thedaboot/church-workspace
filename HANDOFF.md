@@ -38,23 +38,16 @@
 
 ## 2. 남은 일
 
-### 19차 — 시작점: 전면 리팩토링 (18차 2회는 2026-10-05~06 배포 · `cabd1f7`까지 라이브 · 0091까지 라이브)
+### 19차 — 한 일 · 결정 (2026-10-07~08 · 전면 리팩토링 · 화면·문구·DB·동작은 그대로)
 
-**할 일**: 동작은 그대로 두고 코드를 줄이고 읽기 쉽게 한다(사용자 2026-10-07 "전체적으로 리팩토링"). 12차(2026-09-25)에 한 번 했고 그 뒤 6차례 기능이 붙었다.
-**순서**(사용자 승인 방식 — 18차 2회와 같다):
-1. **진단부터 · 고치기 전에 보여 준다** — 파일별로 지울 것 · 합칠 것 · 쪼갤 것을 표로(무엇을 · 왜 · 줄 수 변화 · 위험 · 지켜 줄 스위트). 사용자가 고른 것만 한다.
-2. **묶음마다 worktree 에이전트**(셋까지 · 파일이 겹치지 않게 · 포트 4601~ · 끝나면 vite·크롬 끄기) → cherry-pick → 관련 스위트만 → 푸시. 한 묶음 = 한 커밋.
-3. 묶음이 끝날 때마다 **그 화면을 실제로 찍어 본다**(데스크톱·폰 · 라이트·다크) — 리팩토링은 모양이 그대로여야 한다.
-- **잰 것(2026-10-07)**: 코드 215파일 · 8.6만 줄(테스트 포함) · 스위트 36개(묶음 A 뒤 43개). 쓰이지 않는 export **0개**(죽은 함수는 이미 적다 — 몫은 구조와 겹침).
-  큰 파일: `components/worshipDetail.jsx` 1,994 · `modals/modals.jsx` 1,749 · `components/wordBible.jsx` 1,738 · `components/layout.jsx` 1,636 · `services/cloud.js` 1,505 ·
-  `views/homeView.jsx` 1,268 · `api/_wikiBuild.js` 1,215 · `views/dashboardParts.jsx` 1,191 · `views/wordView.jsx` · `views/views.jsx` · `FilePreviewModal.jsx` · `views/worshipView.jsx` 1,1xx · `services/worship.js` 1,058 · `utils.js` 967.
-  테스트: `tests/logcheck.mjs` 6,519줄(한 파일에 블록 101개 — 위키·다붓이만 11블록 · 묶음 A에서 `logcheck`·`logcheck-*` 8파일로 나눴다) · `worship` 3,914 · `word` 3,315 · `groups` 3,121.
-- **후보(진단에서 확인할 것 — 정한 것 아님)**: 큰 화면 파일 쪼개기(파일 머리말 주석·§4 지도를 같이 고친다) · `api/_wikiBuild.js`와 `api/_wikiAsk.js`의 겹친 읽기(업무·댓글·명단 — 18차 2회 `collectAll`이 `gather`와 비슷하다) ·
-  `logcheck`를 주제별 파일로 나누기(`npm run verify -- <이름>`과 `tests/README.md`를 같이) · 줄끝 섞임(`.gitattributes` 없음 · `core.autocrlf true` — 윈도 셸 `sed -i`가 CRLF를 LF로 바꿔 파일 하나에 둘이 섞였다 · PITFALLS 33-t).
-- **지킬 것**: 화면 · 문구 · DB · 동작이 바뀌면 리팩토링이 아니다(바뀌어야 하면 따로 묻는다) · §7 · 사용자 결정은 그대로 · `§6-N`·`§3-N` 같은 코드 주석의 번호는 바꾸지 않는다 ·
-  검사는 **관련 스위트만**(전체 verify 금지) · 지운 규칙의 단정만 걷고 새 단정은 되돌려 실패 확인 · 다붓이 답을 건드리면 회귀 묶음(`scripts/dabooti-eval.mjs` · 약 $0.6 — 먼저 묻는다).
-- **실기기 확인 대기(18차 2회)**: 다붓이 답 속도(3.8 Flash 5~10초 · 25초 넘으면 flash-lite) · 기다리는 말 · 위키 줄글 점·앞말 굵게 · 자주 묻는 질문 '답한 날'.
-  크론은 10/6 · 10/7 둘 다 08:10에 돌았다(10/5 저녁 뒤로 다붓이 질문 0건이라 아침 고리는 할 일이 없었다 · 장은 해시가 바뀐 것만 다시 모음). Vercel 런타임 로그는 `ExceedsBillingLimitError`로 못 읽는다 — 크론 결과는 DB(`wiki_pages.built_at` · `dabooti_questions` nightly 행 · `doc_vec.updated_at`)로 본다.
+- **방식**: 진단 표(지울 것·합칠 것·쪼갤 것 · 줄 수 · 위험 · 스위트)를 먼저 보이고 사용자가 고른 묶음만 · 묶음마다 worktree 에이전트(셋까지 · 파일 겹치지 않게) → cherry-pick → 관련 스위트 → **같은 시각에 이전 커밋 worktree와 픽셀 비교**(레포 밖 scratchpad의 `shots.mjs`+`imgdiff.py` — 9화면+업무 창 × 데스크톱·폰 × 라이트·다크) → 푸시. 한 묶음 = 한 커밋.
+- **묶음**: A 테스트(`logcheck` 8파일 · `tests/_load.mjs` · `verify -- logcheck`는 접두로 전부) · C api(`_wiki/` 9조각 · `_lib` 공용 · 서버만 `AbortSignal.timeout`) · D 내비(layout → navParts·mobileNav·searchBox·notificationBell · usePopover · useReducedMotion) · B 서비스(cloud/ 7 · worship/ 6 · authedPost·unwrap·첨부 정리 한 벌) · F 대시보드(dashboardView·projectView·viewParts · networkMap·activityFeed·peopleStrip · Segmented) · E 업무 창(taskFields·taskLists·taskSummary · usePolish·FaceStack) · G 예배(worshipParts·worshipEdit·worshipNote · useRowList·attempt·useNoteDraft) · J 모임/명단/홈(footprint·showcase·clubDetail · mdDot·NameSearch) · H 말씀(bibleParts·bibleMarks·shareFeed·grass · BibleTab 훅 넷) · B2 utils 조각 · K `.gitattributes`. 각 묶음의 새 파일은 §4 지도에 있다.
+- **사용자가 허락한 동작 변경**(그 밖은 모양·문구 그대로): ProjectView **훅 순서 버그**(보던 프로젝트가 지워지면 ErrorBoundary — 가드를 훅 아래로) · **D9**(댓글 `답글`·`+N` 10px faint → muted · `tests/handoff`가 JSX를 읽어 조건부·물려받은 색까지 본다) · **뼈대(스켈레톤) 높이**를 실제와 맞춤(댓글·활동 · 말씀 나눔 · 노트 편집기 · 예배 목록 카드 · 찬양 줄 · 예배 상세 머리(표지 유무) · 홈 주일 모드) · 긴 하위 업무의 휴지통이 줄 밖으로 떨어지던 것.
+- **안 한 것(사용자 결정)**: I 첨부(FilePreviewModal 손가락 확대 290줄 → 훅 · 실기기 신고가 잦은 자리라 위험 높음) · L DB 0092(바뀌는 일 없는 `updated_at` 셋 — 효과 작음). 합치지 않은 것: `gather`/`collectAll`(동작 차이 아래) · `must` 두 벌(던짐/삼킴) · 호칭 꼴 3벌·'N월 N일' 5벌(문구가 바뀔 수 있다) · `highlight` 둘(동작 다름) · 모달 껍데기·EditorSkeleton(모양 다름).
+- **잰 것(끝)**: 코드 211파일(+54) · 코드 줄(주석·빈 줄 빼고) 36,322 → 36,335(**같다** — 사본 제거 몫을 조각 머리말·재수출·import가 상쇄했다 · 비어 있지 않은 줄 +471) · 테스트 30,984 → 31,853(새 단정) · 가장 큰 파일 1,994 → 1,167 · 1,000줄 넘는 파일 14 → 4(wordBible 1,167 · FilePreviewModal 1,125 · worshipView 1,065 · homeView 1,007) · 밖에서 안 쓰는 export 15개 떼고 죽은 함수 2개 지움 · 안 쓰는 테이블·함수·파일·의존성·CSS 규칙은 처음부터 0.
+- **교훈**: 묶음 에이전트에게 돌릴 스위트 목록을 줄 때 **그 파일이 그리는 화면의 스위트를 빼면 회귀가 샌다** — J의 `reducedMotion` 참조(위키 데스크톱 ErrorBoundary)와 B가 `word.js`에 더한 import(`word` CRASH)는 픽셀 비교와 병합 뒤 스위트가 잡았다. 스위트가 도는 동안 main 파일을 고치지 않는다(vite 새로고침). `sed -i`는 줄끝을 섞는다(K 뒤에는 `.gitattributes`가 막는다).
+- **다음 회차 후보 — 따로 물을 것(화면·문구·동작이 바뀜)**: 다붓이 밤 다시 묻기(`reaskUnknown`·`talkReply`)가 admin 키로 읽어 묻는 사람 권한보다 넓게 봄 · `collectAll`이 조회 오류를 삼키고 빈 근거로 답함 · 둘 다 1000행 상한에서 잘림 → 정하면 `gather`/`collectAll` 합치기(회귀 묶음 $0.6) · 모션(폰 업무 창만 200ms · `animate-in` 59곳이 reduce를 안 봄 · tw-animate ease/앱 토큰 quint 두 벌 · 업무 창 사이드바 폭 전이) · '없어요'로 끝나는 빈 상태 약 25곳 · 답글 칸과 댓글 칸 자리표가 같음 · 댓글 창이 최신(맨 아래)이 아니라 맨 위에서 열림 · 폰 답글 칸이 키보드에 가릴 수 있음(추정) · 업로드 실패에 '다시 시도' 없음 · 용량 초과 안내 두 번 · `앞부분만 보여줘요`가 눌리지 않음 · 본문 사진 붙여넣기가 첨부로도 또 올라갈 수 있음(추정 · `MarkdownEditor.handlePaste` ↔ `attachments` document paste) · 대비 경계값(다크 accent 위 흰 글 4.02 · 폰 업무 바 꺼진 탭 3.08 — 토큰) · 그래프 뷰 151건 겹침 · 예배·말씀·모임·명단 화면 lazy(main gzip 235kB 중 80~120kB) · **새 D9 위반 둘**(ShareToggle '저장하는 중' 10.5px faint · 끝낸 하위 업무 기한 11px faint — `tests/handoff.mjs` PENDING 목록에 있다 · 고치면 목록에서 뺀다) · `Segmented`에 버튼 속성 통과(aria-pressed·data-*·title)가 생기면 명단·말씀·모임·ShareToggle 세그먼트 7벌도 옮길 수 있다 · 로고 preload 경고(`index.html` — 폰·다크는 안 씀) · `useNoteDraft`·`worshipDetail` 30행·`dashboardParts`의 `prefersReducedMotion` 재수출 같은 "뒤 묶음이 옮긴다" 주석 걷기.
+- **18차 2회 실기기 확인**: 사용자가 2026-10-07 "했고 모두 정상"(다붓이 답 속도 · 기다리는 말 · 위키 점·앞말 굵게 · 답한 날). 크론은 10/6 · 10/7 둘 다 08:10에 돌았다(10/5 저녁 뒤로 다붓이 질문 0건이라 아침 고리는 할 일이 없었다 · 장은 해시가 바뀐 것만 다시 모음). Vercel 런타임 로그는 `ExceedsBillingLimitError`로 못 읽는다 — 크론 결과는 DB(`wiki_pages.built_at` · `dabooti_questions` nightly 행 · `doc_vec.updated_at`)로 본다.
 
 ### 18차 2회 — 한 일 · 결정 (2026-10-05 · 0091 라이브 · 다붓이를 '규칙 땜질'에서 '스스로 나아지는 구조'로 · 정본은 `docs/AI.md` §5)
 
@@ -217,7 +210,7 @@ src/main.jsx                  부트스트랩(React 마운트)
 src/App.jsx                   조립 + 라우팅 상태 · GLOBAL_MENUS·CHURCH_ORDER·needsFullHeight · main 스크롤(§6-9-v)
 src/index.css                 토큰(--app-*/--p-*)·모션(dc-*)·`.tab-bar-work`(하단바 모드 전환)·`.tiptap`·`.note-paper`(§6-32-p) · 폰트 import (§4.2)
 src/config.js                 팀·상태 상수 · teamColor/teamPaint · MAX_UPLOAD_MB · 팀 표는 안전목록(§6-9-bo)
-src/utils.js                  순수 헬퍼 한 벌(정렬·날짜·생일·그래프 물리·멘션·drive 주소…) — logcheck가 검사
+src/utils.js                  순수 헬퍼 한 벌(정렬·날짜·생일·멘션·drive 주소·mdDot…) + utils/ 조각 바렐(authUrl · peopleSeen(사람 칸·다녀간 시각·localDate) · taskEdit · presenceWhere · graphLayout) — logcheck가 검사(_load.mjs가 바렐을 따라 조각을 같이 베낀다)
 src/store/workspaceStore.js   useSyncExternalStore 스토어 + 되돌리기 기록(§6-22)
 src/store/selectors.js        셀렉터 — 매번 새 배열을 만들면 무한 리렌더(§4.9)
 src/hooks/controllers.js      저장·삭제 등 쓰기 경로
@@ -225,10 +218,17 @@ src/hooks/useIsMobile.js      반응형 분기 — 한쪽만 마운트(§6-3)
 src/hooks/useForceGraph.js    그래프 시뮬 루프·냉각·드래그 — 연결 지도와 그래프 뷰 한 벌 · 호버 공장 `hoverProps`(§4.9)
 src/hooks/useMinuteTick.js    상대 시간 라벨 늙히기(§4.9)
 src/hooks/useEnterStagger.js  순차 등장은 첫 마운트만(§4.2)
-src/hooks/useDismiss.js       바깥 누름·Esc 닫기 한 벌 — 포털로 나간 목록도 refs에 넣는다(layout·groupsParts·worshipPassage)
+src/hooks/useDismiss.js       바깥 누름·Esc 닫기 한 벌 — 포털로 나간 목록도 refs에 넣는다(navParts·groupsParts·worshipPassage·taskFields)
+src/hooks/usePopover.js       떠 있는 판 껍데기 한 벌(자리·바깥 닫기·포털·transition-none · §6-17·17-b·17-d) — 내비 넷이 쓴다 · 새 팝오버는 이걸로
+src/hooks/useReducedMotion.js 모션 최소화 판정 한 벌(useReducedMotion 훅 + prefersReducedMotion) — 사본을 다시 만들지 않는다
+src/hooks/useNoteDraft.js     노트 초안 브라우저 저장 한 벌(늦은 쓰기 · 떠날 때 쓰기 · §6-24-d) — 예배 노트·QT 묵상
 src/hooks/useProjectYear.js   고른 연도 모듈 스토어 — 지도·프로젝트 진행·탭 줄이 같은 값을 본다(§4.9)
 src/hooks/useSheetShare.jsx   종이를 미리 구워 두는 훅 + 마지막 갈래 overlay(§6-32-g·32-s·32-m)
-src/components/layout.jsx     TopNav / MobileTopBar / MobileTabBar / ProfileMenu / SearchBox / NotificationBell
+src/components/layout.jsx     TopNav · ProfileMenu · ViewerFaces · CHURCH_MENUS(재수출: YearPicker·SearchHint)
+src/components/navParts.jsx   탭 줄 공용 — useYearTabs · YearPicker · YearFolders · useTabFit · saveTabOrder · 앞 칸 넛지 · FreshDot(§6-12-g·12-h)
+src/components/mobileNav.jsx  MobileTopBar · 폰 프로젝트 탭 줄(길게 눌러 끌기) · MobileTabBar 두 층 · menuTitle(§6-9-cb)
+src/components/searchBox.jsx  통합 검색 · useRotatingHint/SearchHint · 관련된 업무 내용(z-80 · §6-9-cb·17-d)
+src/components/notificationBell.jsx 알림 종 · 알림 받기 줄 · 설치 줄
 src/components/boards.jsx     칸반 보드(dnd-kit) — 카드·상태 칩·컬럼·DragOverlay(§6-1·§6-10~12-c)
 src/components/calendar.jsx   캘린더(주 단위 행) — 띠 배치·모바일 달력·날짜 옆 생일 얼굴(§4.8·§6-13~15)
 src/components/depgraph.jsx   프로젝트 '그래프' 보기 — useForceGraph 공용(§4.9)
@@ -249,44 +249,64 @@ src/components/MarkdownEditor.jsx  TipTap 편집기 — 서식 바·sticky·Lock
 src/components/media.jsx      이미지·영상·소리 미리보기
 src/components/MentionInput.jsx  @멘션 자동완성 — 댓글·답글 공용(§4.11)
 src/components/OfficeView.jsx 워드·PPT 미리보기 **폴백**(구글 사본이 있으면 안 쓴다 · §6-29-y)
-src/components/paper.jsx      **종이** — PaperMast·PaperNoteHead·PaperSheet·NotePaper·NoteSheet·ServiceSheetOne/Two(§6-32-p)
+src/components/paper.jsx      **종이** — PaperMast·PaperNoteHead·PaperSheet·NotePaper·NoteSheet·ServiceSheetOne/Two(§6-32-p) · NOTE_CUT
 src/components/PdfView.jsx    pdf.js 미리보기 — cmaps 없이는 한글이 빈다 · 폭이 바뀌면 다시 그린다(§6-29-z-9)
 src/components/RichText.jsx   본문 렌더 — InlineLink가 앱 안에서 연다(§6의 본문 링크 항목)
-src/components/roster.jsx     (v2) 청년 명단 — 연도 세그먼트·직분 6종·계정 연결(0043) · `RowSkeleton`·`rowDelay`(멤버 화면도 쓴다)
+src/components/roster.jsx     (v2) 청년 명단 — 연도 세그먼트·직분 6종·계정 연결(0043) · `RowSkeleton`·`rowDelay`(멤버 화면도 쓴다) · NameSearch·PanelClose 한 벌
 src/components/ShareButton.jsx  프로젝트·카드 공유 링크
 src/components/ShareToggle.jsx  공유 토글 한 벌 — 말씀 묵상·예배 노트·내 순 노트가 같은 부품
 src/components/sunGuide.jsx   (v2) 순모임 가이드 패널 — 주보 피커·이미지로 공유·고정(§4.4·§6-9-av)
 src/components/calendarFeed.jsx 프로젝트 달력 머리의 `내 달력` — 업무 고르기 팝오버/아래 창 · 규칙·.ics·기기별 버튼은 services/calendarFeed.js(서버 api/ics.js와 한 벌 · 0085)
 src/components/Toast.jsx      토스트(`[data-toast]` · 폭 상한 28rem · §8)
-src/components/wordBible.jsx  (v2) 성경 리더 — 본문|북마크|형광펜 · useVersePaint · searchHeads(§6-9-bs)
-src/components/worshipDetail.jsx  (v2) 주보 상세·편집·발행 · 송폼·큐시트 · 내 예배 노트 · useFillRest(§6-9-h)
+src/components/wordBible.jsx  (v2) 성경 리더·검색·목차 — BibleTab 훅 넷(useBibleSearch·useRecentPanel·useChapterReaders·useSwipe) · searchHeads(§6-9-bs) · 재수출(EmptyBookMark·PassageSkeleton·ShareSwitch·hlColor)
+src/components/bibleParts.jsx (v2) 성경 공용 부품 — 본문 글·형광펜·Swap·뼈대·성경 상태 저장·useVersePaint·ShareSwitch(worshipParts·worshipPassage·settings가 쓴다)
+src/components/bibleMarks.jsx (v2) 북마크·형광펜 목록(책별 묶기 · mergeRuns)
+src/components/worshipDetail.jsx  (v2) 주보 상세 — 보기 탭·발행본 종이(ServicePaper)·표지 도구·ServiceDetail
+src/components/worshipParts.jsx   (v2) 예배 공용 부품 — SaveState·WorshipEmpty·useFillRest(§6-9-h)·TrashConfirm·송폼/큐시트 파일 줄
+src/components/worshipEdit.jsx    (v2) 주보 수정 — 말씀(+큐시트)·담당자·찬양·광고 · 줄 목록 한 벌 useRowList
+src/components/worshipNote.jsx    (v2) 내 예배 노트(MyNote) · 내 예배 노트 모아 보기(MyNotesScreen)
 src/components/worshipPassage.jsx (v2) 본문 선택 피커 + PassageBody(§6-9-j)
 src/components/worshipStory.jsx (v2) 주보 '넘기면서 보기' 여섯 장 — 폰에서만 · 장 나누기는 serviceView.packPages(§32-zd)
 src/components/worshipCover.jsx (v2) 표지 사진 — CoverImg · 수정 중 도구 줄 · `표지 위치` 창(0081 · §32-zg~zi)
 src/components/worshipAttendance.jsx (v2) 출석 체크 — 순별 칩·손님 · 13:30 게이트(§6-19-c)
 src/components/groupsSun.jsx  (v2) 내 순 · 순 편성
-src/components/groupsClub.jsx (v2) 동아리 카드·신청·리더 도구·dnd 순서(§6-9-bi)
-src/components/groupsParts.jsx (v2) 모임 공용 — CARD/BTN/FIELD · PersonPick·MenuPick(§6-9-an·33-a) · useSettled(§6-9-ad) · 읽기 실패 자리 FailTail·FailLeft(D2 · §6-24-g)
+src/components/groupsClub.jsx (v2) 동아리 목록·dnd 순서·방향 감싸개(§6-9-bi)
+src/components/clubDetail.jsx (v2) 동아리 상세 — 구성원·추가·신청·모임·출석·QR(lazy)
+src/components/groupsParts.jsx (v2) 모임 공용 — CARD/BTN/FIELD·NEW_H·DATE_TRIGGER·CARD_STYLE(예배·동아리 만들기가 같이 쓴다) · PersonPick·MenuPick(§6-9-an·33-a) · useSettled(§6-9-ad) · 읽기 실패 자리 FailTail·FailLeft(D2 · §6-24-g)
+src/components/segmented.jsx  회색 토글 한 벌(Segmented · segStyle) — 지금은 대시보드·프로젝트만(명단·말씀·모임·ShareToggle은 aria-pressed·data-* 통과가 생기면)
 src/components/ClubQr.jsx     (v2) 동아리 신청 QR 카드(§6-29-z-7)
-src/views/views.jsx           DashboardView / ProjectView / MyTasksView / TeamView / ScheduleView / TeamFilterBar
-src/views/dashboardParts.jsx  여러 화면이 쓰는 부품 — 마감 구간·KpiCell·Bar·PeopleStrip(§4.8)·ActivityFeed·NetworkMap(§4.9)
+src/views/views.jsx           MyTasksView / TeamView / ScheduleView + DashboardView·ProjectView 재수출
+src/views/dashboardView.jsx   전체 대시보드(KPI · 마감 목록 · 프로젝트 진행 · 폰 세 탭)
+src/views/projectView.jsx     프로젝트 화면(헤더 · 참고 링크 · 보기 전환 · 팀 칩) — 없는 프로젝트 가드는 모든 훅 **아래**(19차에 고친 훅 순서 버그)
+src/views/viewParts.jsx       화면들이 같이 쓰는 셈(dueLabelOf·teamCountsOf·teamChipsOf) · TEAM_CHIP_ROW · TeamFilterBar
+src/views/dashboardParts.jsx  여러 화면이 쓰는 작은 부품 — 마감 구간·DueGroupList·KpiCell(tone·phoneNote)·Bar·Card·SectionHead
+src/components/networkMap.jsx 대시보드 연결 지도(§4.9 · FM desk/mob)
+src/components/activityFeed.jsx 대시보드 최근 활동
+src/components/peopleStrip.jsx 대시보드 사람 칸 · 가입한 사람 창(§4.8)
 src/views/membersView.jsx     전역 '멤버'(관리자) — [가입자 | 청년 명단] · 접속 표시는 스토어를 겹쳐 쓴다(§4.8)
-src/views/homeView.jsx        (v2) 홈 — 인사말 + 카드 넷. 자기 저장 자리가 없다(§6-9-x·9-r·9-s)
+src/views/homeView.jsx        (v2) 홈 — 인사말 + 카드 넷. 자기 저장 자리가 없다(§6-9-x·9-r·9-s) · 주일 모드 뼈대는 지난 7일 캐시의 오늘 주보로 미리 가른다
+src/views/footprint.jsx       한 해 발자취 화면(홈의 일부) · SkelLine(홈 카드 뼈대도 쓴다)
+src/views/showcase.jsx        캐릭터 컷 Cut/cutSet(히어로·쇼케이스가 같이) · 첫 화면 쇼케이스
 src/views/worshipView.jsx     (v2) 예배 — 주보 목록 → 상세/작성/발행 → 출석
-src/views/wordView.jsx        (v2) 말씀 — [QT | 성경 읽기] · 내 묵상은 저장하면 종이 · 나눔은 사람 칩 + 종이 하나(§6-32-p·19-b·19-b-1)
+src/views/wordView.jsx        (v2) 말씀 — [QT | 성경 읽기] · QtTab(useQtNote · afterWrite · useNoteDraft) · 내 묵상은 저장하면 종이(§6-32-p·19-b·19-b-1) · 재수출(mergeFeed·canDeleteShared)
+src/views/shareFeed.jsx       QT 나눔 피드(사람 칩 한 줄 + 종이 하나) · mergeFeed · canDeleteShared · 뼈대는 실제 종이와 같은 높이
+src/views/grass.jsx           내 기록 잔디 · 그 달 묵상 줄 목록
 src/views/groupsView.jsx      (v2) 모임 — 내 순 · 동아리 · 순 편성
 src/views/wikiView.jsx        위키 — 왼쪽 장 목록 | 물어보기·장(블록 모양마다 그리기 · ✎ 수정 · 고친 줄 겹침) · 폰은 첫 화면 → 장(‹ 위키) · 늦게 싣는다(0088)
 src/components/dabooti.jsx    다붓이 입구(상단 알약·폰 얼굴·위키 안 칸) · 물어보기 판(칩 · 말풍선 · 근거 칩 · 파일 카드 · 👍/👎) · 효과는 index.css `dab-*`
 src/services/wikiCore.js      위키·다붓이 순수 모듈(import 0 · 서버와 한 벌) — 함께 쓰는 글 초안 · 거르기(prefilter) · 고친 줄 겹치기 · 근거 없는 문장 버리기 — logcheck
 src/services/wiki.js          위키 읽기·고치기 저장 · /api/ai { ask } · 피드백 · 게스트는 초안(검사는 window.__wikiFixture)
-src/modals/modals.jsx         업무 창 — TaskModalShell(보기↔수정 · 칸마다 저장 · `수정 완료`·닫을 때 흘림)·TaskView(보기 · 기본)·TaskLive(수정 화면)·TaskEditor(새 업무 `만들기`)·SubtaskList·담당자·선행 업무(§4.9 · 19-e-2·19-e-3)
+src/modals/modals.jsx         업무 창 셸 — TaskModalShell(보기↔수정 · 칸마다 저장 · `수정 완료`·닫을 때 흘림)·TaskView(보기 · 기본)·TaskLive(수정 화면)·TaskEditor(새 업무 `만들기`)(§4.9 · 19-e-2·19-e-3)
+src/modals/taskFields.jsx     업무 창의 칸 — TaskProps(상태·날짜·팀·담당자·선행 업무) · AssigneePicker/OwnerPicker(포털 목록 · useDismiss) · FaceStack · TitleField·useNameDraft(600ms)
+src/modals/taskLists.jsx      업무 창의 목록 — 청년별 담당 업무(ActionItems · 본문 도막) · 하위 업무(SubtaskList · SubtaskTitle · 9-ch)
+src/modals/taskSummary.jsx    업무 창의 AI — 3줄 요약(useTaskSummary · PITFALLS 19) · 문맥 다듬기(usePolish + BodyHead)
 src/modals/coedit.jsx         업무 창의 같이 쓰기 — useCoedit(늦게 연다 · 받아들이기) · 머리줄 얼굴 · 보기의 수정 중 알약·줄 표시·살아 있는 본문 · 버전 기록 탭 · 고친 곳(그린 줄) · 개발용 가짜(32-zq·32-zr·32-zt~zw)
 src/services/coedit/          같이 쓰기 엔진(0084) — index.js 여는 곳(awareness user·editing·line · 사진 이름표) · core.js 순수(caretLine 포함) · store.js Supabase · view.js 화면 순수(색·알약 대비·판 글자·줄 차이 · import 0)
 src/modals/attachments.jsx    업무 창의 첨부 구역 — 업로드·미리보기·삭제·구글 사본 편집 자격(§6-34-h · startUploads는 §6-29-u)
 src/modals/comments.jsx       업무 창의 댓글·반응·활동 기록 패널(§4.11)
 src/modals/settings.jsx       내 정보(사진·이름·팀) / 프로젝트 만들기·이름 수정(§4.7·§6-34-g)
 src/services/supabaseClient.js 클라이언트 한 벌 + setWriteObserver(§4.8) + myUid()(§6-34-d)
-src/services/cloud.js         Supabase 읽기·쓰기 — 업로드는 `uploadOwnedFile` 한 벌(업무·주보가 같이 쓴다)
+src/services/cloud.js         Supabase 읽기·쓰기 — 재수출만(`import * as cloud` 그대로). 몸통은 cloud/ — core(client·unwrap·getSession·accessToken·authedPost) · profiles · board(프로젝트·업무·댓글·반응·참고 링크) · drive(업로드 `uploadOwnedFile` 한 벌 · trashFolder·trashFileBodies) · fileUrls · notify · admin
 src/services/cloudSync.js     모양 변환 + 실시간 라우팅 + 알림 만들기(§6-21·21-a·29-a)
 src/services/auth.jsx         OAuth — 로그인 전 자리 기억·카카오 인앱 자동 시작(§6의 auth 항목)
 src/services/approvalWatch.js 승인 대기 → 승인 전환 판정(순수 · logcheck) — auth.jsx가 대기 중에 실시간·다시 보일 때·30초로 다시 묻는다
@@ -326,15 +346,15 @@ src/services/errorText.js     오류 코드 → 사람 말(§6-29-e · §8)
 src/services/shareImage.js    종이를 그림·PDF로 — nodeToPng·bakeAndSlice·shareOrSave·isBlankCanvas(§6-32-*)
 src/services/people.js        (v2) 명단·모임 읽기 공용 + guestStore(게스트 저장 자리 공장) · `byName`(이름순 한 벌)
 src/services/roster.js        (v2) 명단 쓰기·계정 연결(§6의 roster_name 항목)
-src/services/worship.js       (v2) 주보·출석·노트·자격(§6-9-ak) · recentSongs(최근 8주 곡+링크) · prefillRoles(지난 주보 **광고**의 '다음 주 예배 위원' → 대표기도·헌금봉헌, 같은 kind만)
+src/services/worship.js       (v2) 재수출만. 몸통은 worship/ — pure(COLS·prefillRoles(지난 주보 **광고**의 '다음 주 예배 위원' → 대표기도·헌금봉헌, 같은 kind만)·worshipPerms·pickLastCue·recentSongs) · bulletin(CRUD·알림 둘) · files(송폼·큐시트·표지) · attendance(자격 §6-9-ak·출석·손님·메모) · notes(내 예배 노트) · api(yt·ics·service-view)
 src/services/word.js          (v2) QT 일정·묵상·bible_state · shouldAdoptBody(§6-24-c)
 src/services/groups.js        (v2) 순·동아리·신청·모임·groupPerms · share()로 중복 조회 묶기(§6-9-bg)
 src/services/bible.js bibleRef.js  (v2) public/bible 로더·캐시 / 구절 파서 — 주보·QT·리더가 한 벌(§6-9-aq)
 src/services/noteTemplate.js  (v2) 노트 템플릿·LEGACY_SECTIONS·isTemplateOnly·ensureNoteSections(§6-9-as·32-l)
 src/assets/                   SUIT 서브셋 + symbols(보조 글꼴) + 로고 — 생성 스크립트는 scripts/(§4.2·§6-9-au)
-api/_lib.js                   api 공용 머리 — readJson·requireApprovedUser·safeEqual·sameOriginPath. `_`로 시작해 라우트가 아니다(dev도 건너뛴다)
+api/_lib.js                   api 공용 머리 — readJson·requireApprovedUser·safeEqual·sameOriginPath · 작은 공용 값(UUID_RE·STATUS·serviceKindLabel·escHtml·sha256({len})·liveProfile) · geminiFetch(주소·키·AbortSignal.timeout)·isTimeout(TimeoutError). `_`로 시작해 라우트가 아니다(dev도 건너뛴다)
 api/ai.js                     Gemini 프록시(25초에 끊는다 · §6-9-bn) · `{ embed }` 질문 임베딩 — EMBED_MODEL·unitVec을 스크립트·_docsync가 가져다 쓴다 · `{ ask }`·`{ feedback }` 다붓이(0088)
-api/_wikiBuild.js             위키 장 만들기 — 원본 모으기(서버 키) → 장 뼈대(코드가 사실) → 문장 쓰기 → 검증 → 저장 · 바뀐 장만(src_hash) · 자주 묻는 질문 장(docs/AI.md §5)
+api/_wikiBuild.js             위키 장 만들기 — 한 번 돌기(buildWiki) + 바깥 이름 재수출. 몸통은 api/_wiki/ — const · gen(Gemini 한 번) · people(이름·부르는 꼴·댓글 줄·명단) · text · gather(원본 읽기 · 서버 키) · excerpt(블록·정보 상자·정해지기까지) · skeleton(장 뼈대 — 코드가 사실) · faq(자주 묻는 질문 장 · docs/AI.md §5) · fill(쓰기·검사·src_hash)
 api/_wikiAsk.js               다붓이 답 — 근거 모으기(묻는 사람 세션) → 답 → 검증(두 번) → 파일 카드 · 저장(익명) · 밤에 다시 묻기
 api/_docsync.js               업무·댓글·첨부 → doc_vec 증분(조각·해시·계획·임베딩) — 8시 크론·?job=embed·스크립트 한 벌
 api/push.js                   POST=앱 알림을 푸시로 / GET=마감 임박·오늘 예배+내일 동아리 모임 배치(`?job` · §4.3) · 8시 뒤 문서 임베딩 → 위키(다시 묻기·바뀐 장) · `?job=embed` · 300초
@@ -369,7 +389,7 @@ supabase/migrations/          0001~0091 — 표는 README, 최근 것은 §5
 tests/                        검증 스위트 + 러너 — 목록은 tests/README.md
 ```
 
-업무 창 네 파일은 `modals.jsx`가 `attachments.jsx`·`comments.jsx`를 쓰고 `settings.jsx`는 App이 직접 가져온다. **새 전역 화면을 만들면 `App.jsx`의 `GLOBAL_MENUS`에 넣으세요** — 없으면
+업무 창 일곱 파일은 `modals.jsx`(셸)가 `taskFields`·`taskLists`·`taskSummary`·`attachments.jsx`·`comments.jsx`를 쓰고 `settings.jsx`는 App이 직접 가져온다. **새 전역 화면을 만들면 `App.jsx`의 `GLOBAL_MENUS`에 넣으세요** — 없으면
 프로젝트 id로 오해돼 대시보드로 튕긴다. 안에서 스크롤하는 화면(보드·달력)은 `needsFullHeight`에도 넣어야 높이가 확정된다(§6-2).
 
 ## 5. 데이터 · 스키마 · 비밀

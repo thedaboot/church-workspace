@@ -37,7 +37,7 @@ import { imeComposing } from '../utils.js';
 // ============================================================================
 
 // 편집 진입 버튼(연한 accent)은 내 예배 노트의 '수정'과 **같은 한 벌**을 그대로 받아
-// 쓴다(worshipDetail의 BTN_SOFT) — 예전에는 같은 글자를 두 파일에 각자 적어 두어서
+// 쓴다(worshipParts의 BTN_SOFT) — 예전에는 같은 글자를 두 파일에 각자 적어 두어서
 // 한쪽만 고쳐질 자리였다. 저장 상태 칩(SaveState)도 그 파일에서 온다.
 
 function PersonChip({ person, on, disabled, onToggle }) {
@@ -246,7 +246,7 @@ export function AttendanceScreen({
           <div className="flex items-center gap-2 pb-2.5">
             <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">출석 메모</h3>
             <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
-            {/* 주보 편집·예배 노트와 같은 저장 표시 한 벌(worshipDetail의 SaveState) */}
+            {/* 주보 편집·예배 노트와 같은 저장 표시 한 벌(worshipParts의 SaveState) */}
             <SaveState state={noteState} />
           </div>
           {readingNote ? (
