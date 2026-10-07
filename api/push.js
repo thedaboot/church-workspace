@@ -1,6 +1,6 @@
 import webpush from 'web-push';
 import { notifLine } from '../src/services/notifyText.js';
-import { adminClient, readJson, bearer, requireApprovedUser, safeEqual, sameOriginPath } from './_lib.js';
+import { adminClient, readJson, bearer, requireApprovedUser, safeEqual, sameOriginPath, serviceKindLabel } from './_lib.js';
 import { syncDocVectors } from './_docsync.js';
 import { buildWiki } from './_wikiBuild.js';
 import { reaskUnknown } from './_wikiAsk.js';
@@ -402,9 +402,7 @@ async function dropLastWeekReads(db) {
 //
 // **kindLabel을 import하지 않는다** — services/worship.js는 브라우저 모듈이라(supabase
 // 클라이언트를 물고 온다) 서버리스에서 부르면 통째로 딸려 온다. 이름 하나를 위해 그럴
-// 이유가 없어 여기서 한 줄로 가른다(notifyText.js는 순수 모듈이라 그대로 import한다).
-const SUNDAY_LABEL = '주일 4부 젊은이 예배';
-const serviceLabel = (kind) => (kind === 'sunday' ? SUNDAY_LABEL : (kind || '예배'));
+// 이유가 없어 서버 쪽 한 벌(_lib.serviceKindLabel · ics와 같이)을 쓴다(notifyText.js는 순수 모듈이라 그대로 import한다).
 
 async function handleWorshipToday(req, res) {
   const secret = process.env.CRON_SECRET;
@@ -440,7 +438,7 @@ async function handleWorshipToday(req, res) {
   const wanted = [];
   for (const s of services) {
     const link = `/?p=worship&s=${s.id}`;
-    const preview = `${serviceLabel(s.kind)}${s.title ? ` · ${s.title}` : ''}`;
+    const preview = `${serviceKindLabel(s.kind)}${s.title ? ` · ${s.title}` : ''}`;
     for (const id of ids) {
       if (!already.has(`${id}|${link}`)) wanted.push({ recipientId: id, link, preview });
     }
@@ -563,7 +561,7 @@ export async function runWiki(started, now = Date.now()) {
 // 하나라도 있으면 마스터(admins.is_master — is_master()와 같은 표)에게 푸시 **한 통**. 누르면 위키 자주 묻는 질문 장(`/?p=wiki&wiki=faq`).
 // 앱 안 알림 행은 만들지 않는다 — notifications.kind CHECK에 새 종류가 필요해서(마이그레이션). 하루 한 번은 tag(`dabooti:<KST 날짜>`)로
 // 기기에서 한 칸만 남게 한다(같은 날 손으로 다시 부르면 그 칸을 바꿔 다시 울린다 · 크론은 하루 한 번이다).
-export const MASTER_FAQ_LINK = '/?p=wiki&wiki=faq';
+const MASTER_FAQ_LINK = '/?p=wiki&wiki=faq';
 // 18차 2회: 아침 고리(reaskUnknown)가 '기록 없음'(answer.cause none)으로 가른 묶음만 센다 — 못 찾음·검사가 버림은 다붓이가 스스로 고칠 몫이다.
 export function unknownCount(rows = []) {
   return new Set((rows || []).filter(r => r && r.via === 'nightly' && r.answer?.cause === 'none').map(r => r.norm)).size;

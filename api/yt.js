@@ -31,13 +31,9 @@ const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
 // 8초 안에 못 받으면 끊는다 — 유튜브가 늦어도 함수 예산을 다 태우지 않는다
 async function getText(url) {
-  const ctl = new AbortController();
-  const killer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
-  try {
-    const r = await fetch(url, { signal: ctl.signal, headers: { 'User-Agent': 'thedabot/1.0' } });
-    if (!r.ok) return { status: r.status, text: '' };
-    return { status: 200, text: await r.text() };
-  } finally { clearTimeout(killer); }
+  const r = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS), headers: { 'User-Agent': 'thedabot/1.0' } });
+  if (!r.ok) return { status: r.status, text: '' };
+  return { status: 200, text: await r.text() };
 }
 
 const decode = (s = '') => String(s)
@@ -119,7 +115,7 @@ export default async function handler(req, res) {
 
     res.status(400).json({ error: '보낸 주소에서 재생목록을 찾지 못했어요' });
   } catch (e) {
-    // AbortError(8초 초과)도 여기로 온다 — 화면에는 초 단위를 내보내지 않는다(§8).
+    // TimeoutError(8초 초과)도 여기로 온다 — 화면에는 초 단위를 내보내지 않는다(§8).
     // 이 글은 화면에서 '왜 안 됐나' 자리에 실린다(services/worship.js의 err.human).
     console.error('[yt] 유튜브 요청 실패:', e);
     res.status(502).json({ error: '유튜브가 제때 답하지 않았어요\n잠시 후 다시 시도해주세요' });

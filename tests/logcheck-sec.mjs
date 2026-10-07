@@ -98,7 +98,7 @@ import { loadSource } from './_load.mjs';
 // 크롤러 말고는 아무도 안 보는 화면이라 증상이 밖으로 안 난다. 실제로 없는 컬럼
 // (projects.description — 0009에서 지웠다)을 고르고 있어서 42703으로 늘 실패했다.
 // 되돌리기 검사: select('name')을 select('name, description')으로 되돌리거나
-// STATUS_KO에서 hold를 빼면 아래가 깨진다.
+// api/_lib.js STATUS에서 hold를 빼면 아래가 깨진다.
 {
   const src = readFileSync(new URL('../api/share.js', import.meta.url), 'utf8');
   assert.ok(/from\('projects'\)\.select\('name'\)/.test(src),
@@ -109,9 +109,12 @@ import { loadSource } from './_load.mjs';
     '조회 실패를 로그로 남기지 않는 갈래가 있다');
 
   // 상태 라벨은 앱과 같은 글자여야 한다 — DB는 todo/doing/hold/done(0006) + ongoing(0075 상시)이다.
+  // 글자는 api/_lib.js STATUS 한 벌(19차 — 공유 카드·위키·다붓이가 같이 쓴다)
   const { CONFIG } = await import(new URL('../src/config.js', import.meta.url).href);
+  assert.ok(/STATUS\[data\.status\]/.test(src) && /import \{[^}]*\bSTATUS\b[^}]*\} from '\.\/_lib\.js'/.test(src), '공유 카드가 _lib.STATUS를 쓰지 않는다');
+  const libStatus = /export const STATUS = \{[^}]*\}/.exec(readFileSync(new URL('../api/_lib.js', import.meta.url), 'utf8'))?.[0] || '';
   const ko = Object.fromEntries(
-    [...src.matchAll(/(todo|doing|hold|done|ongoing): '([^']+)'/g)].map(m => [m[1], m[2]]));
+    [...libStatus.matchAll(/(todo|doing|hold|done|ongoing): '([^']+)'/g)].map(m => [m[1], m[2]]));
   const want = Object.fromEntries(Object.entries(CONFIG.STATUS_DB).map(([k, v]) => [v, k]));
   assert.deepStrictEqual(ko, want, '공유 카드의 상태 글자가 config.js의 STATUSES와 다르다');
   console.log('PASS  공유 카드 메타 5가지');

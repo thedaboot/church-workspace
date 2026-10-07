@@ -1,9 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, createHash } from 'node:crypto';
 import { isApprovedProfile } from '../src/services/approval.js';
 
 // ============================================================================
 // api/ 공용 머리 — 몸통 읽기 · 세션 확인 · 승인 확인 · 비밀 비교 (보안 감사 2026-09-24)
+//   + 작은 공용 값(UUID · 상태 글자 · 예배 이름 · HTML 이스케이프 · 해시 · 살아 있는 가입자) · Gemini 한 번(19차)
 // ----------------------------------------------------------------------------
 // **이름이 `_`로 시작하면 Vercel이 라우트로 만들지 않는다** — 형제 파일이 import만 한다.
 // dev 서버(vite.config.js의 devApiFunctions)도 같은 규칙으로 `_`파일을 건너뛴다.
@@ -88,3 +89,40 @@ export function sameOriginPath(link) {
     return u.origin === PROBE_ORIGIN ? `${u.pathname}${u.search}${u.hash}` : null;
   } catch { return null; }
 }
+
+// ── 여러 라우트가 같이 쓰는 작은 것들 (19차 리팩토링 — 사본 둘·셋을 한 벌로) ──────────────
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// 업무 상태 글자 — config.js의 STATUSES와 같은 글자다(한쪽만 고치면 공유 카드·위키·다붓이와 앱이 갈린다)
+export const STATUS = { todo: '시작 전', doing: '진행 중', hold: '보류 중', done: '완료', ongoing: '상시' };
+// 예배 종류 이름 — services/serviceView.js kindLabel과 같은 글자(push·ics는 브라우저 모듈을 물지 않는다)
+export const SUNDAY_LABEL = '주일 4부 젊은이 예배';
+export const serviceKindLabel = (kind) => (kind === 'sunday' ? SUNDAY_LABEL : (kind || '예배'));
+// HTML 속성·본문에 넣을 글자(공유 카드 · 주보 공개 보기)
+export const escHtml = (s = '') => String(s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// sha256 16진 — len을 주면 앞에서 그만큼만(위키 원본 해시는 24자 · 문서 조각 해시는 통째로)
+export const sha256 = (s, { len = 0 } = {}) => {
+  const h = createHash('sha256').update(String(s), 'utf8').digest('hex');
+  return len ? h.slice(0, len) : h;
+};
+// 살아 있는 가입자 — 승인 · 환송 안 됨 · 합쳐지지 않음 · 표시 이름 있음(위키 명단 · 다붓이 사람 줄·생일)
+export const liveProfile = (p) => !!(p && p.approved && !p.removed_at && !p.merged_into && String(p.display_name || '').trim());
+
+// ── Gemini 한 번 ─────────────────────────────────────────────────────────────
+// 주소 · 키 머리 · 시간 상한만 한 벌이다. 다시 부르기 · 오류 가르기 · 답 읽기는 부르는 쪽마다 달라서 거기에 둔다
+// (위키는 429·503을 다시 부르고, /api/ai는 504·502로 가르고, 문서 임베딩은 남은 시간 안에서만 다시 부른다).
+// ms가 지나면 fetch와 몸통 읽기가 TimeoutError로 끊긴다 — 판정은 isTimeout 하나로(AbortError가 아니다).
+// lenient: 몸통이 JSON이 아니면 {}로(문서 임베딩 — 상태 코드로 가른다).
+export const geminiUrl = (model, method = 'generateContent') => `https://generativelanguage.googleapis.com/v1beta/models/${model}:${method}`;
+export async function geminiFetch(model, method, body, { key = process.env.GEMINI_API_KEY, ms, lenient = false } = {}) {
+  const r = await fetch(geminiUrl(model, method), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(ms),
+  });
+  const j = lenient ? await r.json().catch(() => ({})) : await r.json();
+  return { r, j };
+}
+// 우리가 정한 시간 상한에 끊겼나 — AbortSignal.timeout은 AbortError가 아니라 TimeoutError를 낸다
+export const isTimeout = (e) => e?.name === 'TimeoutError';

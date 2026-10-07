@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { adminClient, readJson, requireApprovedUser, safeEqual, isAdminEmail } from './_lib.js';
+import { adminClient, readJson, requireApprovedUser, safeEqual, isAdminEmail, UUID_RE, serviceKindLabel } from './_lib.js';
 import { readNoticeDate, buildIcs, noticeEvent } from '../src/services/noticeDate.js';
 import { isApprovedProfile } from '../src/services/approval.js';
 import { STATUS_KO, feedKeepRow, feedEvent, buildFeedIcs, feedCalName, feedUrls, taskLink } from '../src/services/calendarFeed.js';
@@ -30,10 +30,7 @@ import { STATUS_KO, feedKeepRow, feedEvent, buildFeedIcs, feedCalName, feedUrls,
 // 누르면 엉뚱한 날이 들어가는 일이 없게, 그리고 주소를 손으로 바꿔 아무 광고나 달력으로 만들지 못하게.
 // ============================================================================
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TTL_MS = 10 * 60 * 1000;
-const SUNDAY_LABEL = '주일 4부 젊은이 예배';   // services/worship.js kindLabel과 같은 글자
-const kindText = (kind) => (kind === 'sunday' ? SUNDAY_LABEL : (kind || '예배'));
 
 const sign = (s, n, e) => createHmac('sha256', `ics:${process.env.SUPABASE_SECRET_KEY || ''}`)
   .update(`${s}.${n}.${e}`).digest('base64url');
@@ -194,7 +191,7 @@ export default async function handler(req, res) {
     res.end('이 광고에서 날짜를 읽지 못했어요.');
     return;
   }
-  const ev = noticeEvent(hit.service, hit.notice, a.n, hit.read, kindText(hit.service.kind));
+  const ev = noticeEvent(hit.service, hit.notice, a.n, hit.read, serviceKindLabel(hit.service.kind));
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
   // inline이라야 아이폰 Safari가 내려받기 대신 캘린더 '추가' 화면을 띄운다
   res.setHeader('Content-Disposition', `inline; filename="event.ics"`);

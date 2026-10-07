@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import { EMBED_MODEL, EMBED_DIM, unitVec } from './ai.js';
+import { sha256, geminiFetch, isTimeout } from './_lib.js';
 
 // ============================================================================
 // 업무·댓글·첨부 → doc_vec(0074) 증분 동기화 — 크론과 스크립트가 같이 쓰는 한 벌 (배치 E4)
@@ -28,15 +28,15 @@ export const CHUNK_MAX = 1200;         // 조각 본문 글자 상한(머리줄 
 export const CHUNK_OVERLAP = 150;      // 앞 조각 끝을 다음 조각 앞에 이만큼까지 겹친다
 export const KINDS = ['card', 'comment', 'file'];
 export const PRICE_PER_M_TOKENS = 0.15;   // gemini-embedding-001 입력 1M 토큰당(scripts/embed-bible.mjs와 같은 값)
-const BATCH_URL = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL}:batchEmbedContents`;
 
 // ── 글 만들기 (순수 함수 — tests/logcheck가 노드에서 부른다) ─────────────────
 
-export const sha256 = (s) => createHash('sha256').update(String(s), 'utf8').digest('hex');
+// 조각 해시 — 임베딩한 글의 sha256 통째로(_lib 한 벌 · 스크립트·tests가 여기서 가져간다)
+export { sha256 };
 
 // 마크다운에서 벡터에 소음인 것만 걷는다 — 링크 주소(글자만 남긴다) · 이미지 · 강조 기호(==, **).
 // 제목(#)·목록(-)·@이름은 둔다 — 구조와 사람 이름이 뜻의 일부다('청년별 담당 업무' 도막도 그대로).
-export function cleanMarkdown(md) {
+function cleanMarkdown(md) {
   return String(md || '')
     .replace(/\r\n?/g, '\n')
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
@@ -215,28 +215,18 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // texts(최대 100) → 단위 길이 벡터 배열. deadline(ms 시각)을 넘길 요청은 끊는다.
 // 429·5xx는 **남은 시간 안에서만** 한 번 더 — 크론이 기다리다 함수 시간 제한에 죽지 않게.
-export async function embedTexts(texts, key, { deadline = Infinity, tries = 3 } = {}) {
+async function embedTexts(texts, key, { deadline = Infinity, tries = 3 } = {}) {
   for (let i = 1; ; i++) {
     const left = deadline - Date.now();
     if (left < 3000) throw Object.assign(new Error('시간 예산이 다 됐다'), { budget: true });
-    const ctl = new AbortController();
-    const killer = setTimeout(() => ctl.abort(), Math.min(left - 1000, 30000));
     let r, j;
     try {
-      r = await fetch(BATCH_URL, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-        body: JSON.stringify({ requests: docRequests(texts) }),
-        signal: ctl.signal,
-      });
-      j = await r.json().catch(() => ({}));
+      ({ r, j } = await geminiFetch(EMBED_MODEL, 'batchEmbedContents', { requests: docRequests(texts) }, { key, ms: Math.min(left - 1000, 30000), lenient: true }));
     } catch (e) {
-      if (e?.name === 'AbortError') throw Object.assign(new Error('임베딩 요청이 시간 안에 안 끝났다'), { budget: true });
+      if (isTimeout(e)) throw Object.assign(new Error('임베딩 요청이 시간 안에 안 끝났다'), { budget: true });
       if (i >= tries) throw e;
       await sleep(1000 * i);
       continue;
-    } finally {
-      clearTimeout(killer);
     }
     if (!r.ok) {
       const retryable = r.status === 429 || r.status >= 500;
@@ -270,7 +260,7 @@ async function readAll(db, table, columns, where = (q) => q) {
   }
 }
 
-export async function loadSources(db, kinds = KINDS) {
+async function loadSources(db, kinds = KINDS) {
   const want = new Set(kinds);
   const [projects, cards, comments, files] = await Promise.all([
     readAll(db, 'projects', 'id, name'),

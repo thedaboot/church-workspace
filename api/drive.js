@@ -1,4 +1,4 @@
-import { adminClient, readJson, requireApprovedUser, isAdminEmail, myIds } from './_lib.js';
+import { adminClient, readJson, requireApprovedUser, isAdminEmail, myIds, isTimeout } from './_lib.js';
 
 // ============================================================================
 // /api/drive — 개인 구글 드라이브(Apps Script 웹앱) 프록시
@@ -162,14 +162,12 @@ export default async function handler(req, res) {
   // 아무 단서가 없어서 짐작만 하게 된 적이 있다(사용자 지적).
   const tag = `[drive] ${action} ${body.name || body.projectName || ''}`.trim();
   const started = Date.now();
-  const ctl = new AbortController();
-  const killer = setTimeout(() => ctl.abort(), SCRIPT_BUDGET_MS);
   try {
     const r = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(forward),
-      signal: ctl.signal,
+      signal: AbortSignal.timeout(SCRIPT_BUDGET_MS),
     });
     const text = await r.text();
     let out;
@@ -188,7 +186,7 @@ export default async function handler(req, res) {
     const ms = Date.now() - started;
     // 시간 초과는 502가 아니라 504로 돌려준다 — 부르는 쪽이 "다시 해볼 만한 실패"와
     // "다시 해도 소용없는 실패"를 가를 수 있어야 한다.
-    if (e?.name === 'AbortError') {
+    if (isTimeout(e)) {
       console.error(`${tag} → 시간 초과 (${ms}ms)`);
       // 쓰는 사람에게 초 단위는 아무 소용이 없다 — 무엇이 막혔고 무엇을 하면 되는지만
       // 말한다(사용자 결정). 몇 초 걸렸는지는 위 서버 로그에 남는다.
@@ -203,7 +201,5 @@ export default async function handler(req, res) {
     // 아는 코드가 하나도 없을 때 원문마저 없으면 원인을 영영 못 본다(§6-29-e).
     console.error(`${tag} → 닿지 못함 (${ms}ms):`, e?.message || e);
     res.status(502).json({ error: `드라이브에 파일을 올리는 데 문제가 있어요\n개발자에게 알려주시고, 잠시 뒤 다시 시도해주세요\n(${e.message || e})` });
-  } finally {
-    clearTimeout(killer);
   }
 }

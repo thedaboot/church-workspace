@@ -1,7 +1,11 @@
 // logcheck-wiki — 위키·다붓이(0088~). 노드 스위트(브라우저·서버 없음 · tests/README.md).
 // logcheck 묶음의 하나다 — `npm run verify -- logcheck`가 logcheck와 logcheck-* 전부를 돈다.
 import assert from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+
+// 위키 만들기 소스 글자 — 19차에 api/_wikiBuild.js(한 번 돌기 · 내보내기)와 api/_wiki/*.js(몸통)로 나눴다. 글자 단정은 둘을 이어 본다.
+const wikiBuildSrc = () => ['../api/_wikiBuild.js', ...readdirSync(new URL('../api/_wiki/', import.meta.url)).filter(f => f.endsWith('.js')).sort().map(f => `../api/_wiki/${f}`)]
+  .map(f => readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n');
 
 // ── 위키 · 다붓이 (0088 · 16차) — 사람이 고친 줄은 덮이지 않는다 · 모델 앞 거르기 · 근거 없는 문장 버리기 ──
 {
@@ -131,7 +135,7 @@ import { readFileSync } from 'node:fs';
   assert.strictEqual(W.prefilter('내년 동계수련회 기획안좀 만들어줘.')?.kind, 'make');
   assert.strictEqual(W.prefilter('공지 초안 써줘')?.kind, 'make');
   assert.strictEqual(W.prefilter('10월 4일 예배 큐시트는 어디에 있나요?'), null);
-  const build = readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8');
+  const build = wikiBuildSrc();
   assert.ok(build.includes('const sectionTitle = (c) => c.title;') && build.includes('when: taskWhen(c.start_date, c.due_date)'), '블록 제목에 날짜를 붙이지 않는다');
   const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
   const view = readFileSync(new URL('../src/views/wikiView.jsx', import.meta.url), 'utf8');
@@ -244,7 +248,7 @@ import { readFileSync } from 'node:fs';
   assert.deepStrictEqual(hn.strangers('찬양팀에는 가나다가 있어요.', '찬양팀에는 현재 워크스페이스 가입자로는 가나다(찬양팀장)'), []);
   assert.deepStrictEqual(hn.strangers('라마바가 인도해요.', '찬양팀에는 가나다'), ['라마바']);
   assert.deepStrictEqual(hn.strangers('김철수 목사님이 오세요.', '설교는 담당 교역자'), ['김철수'], '명단 밖 이름도 근거에 없으면 걸린다');
-  const build = readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8');
+  const build = wikiBuildSrc();
   const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
   assert.ok(build.includes('hasName.strangers(one, blockEv(blk.key))') && !build.includes("hasName(one) ? ['사람 이름']") && !build.includes("'- 사람 이름을 쓰지 마라."), '위키: 이름은 조각에 있는 것만(이름 자체로는 안 버린다)');
   // 금액 — 가리킨 근거에 글자 그대로 있을 때만
@@ -389,7 +393,7 @@ import { readFileSync } from 'node:fs';
   const view = readFileSync(new URL('../src/views/wikiView.jsx', import.meta.url), 'utf8');
   const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
   const ctx = readFileSync(new URL('../src/services/wikiContext.js', import.meta.url), 'utf8');
-  const build = readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8');
+  const build = wikiBuildSrc();
   assert.ok(view.includes('return withTeamCards(visiblePages(') && ask.includes('const now = withTeamCards(') && ctx.includes('const now = withTeamCards('), '팀 소개 겹치기 배선');
   assert.ok(view.includes("if (b.type === 'head')") && view.includes('{b.meta?.note &&') && view.includes('{it.meta?.note &&'), "화면: '준비' 머리 · 보는 사람 표시");
   assert.ok(![view, ask, build].some(s => s.includes('다붓했던 일')), "옛 이름 '다붓했던 일'");
@@ -545,7 +549,7 @@ import { readFileSync } from 'node:fs';
   assert.ok(g && g.grp === '함께 쓰는 글' && g.title === '워크스페이스 사용법' && g.kind === 'human', '사용법 장이 함께 쓰는 글 초안에 있다');
   const pos = (id) => W.SEED_PAGES.find(p => p.id === id).position;
   assert.ok(pos('terms') < g.position && g.position < 3, '자주 쓰는 말 다음 · 자주 묻는 질문(3) 앞');
-  assert.ok(readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8').includes("title: '자주 묻는 질문', kind: 'auto', position: 3,"), '자주 묻는 질문은 사용법 뒤');
+  assert.ok(wikiBuildSrc().includes("title: '자주 묻는 질문', kind: 'auto', position: 3,"), '자주 묻는 질문은 사용법 뒤');
   assert.deepStrictEqual(g.blocks.map(b => b.title), ['화면 둘러보기', '가입과 승인', '주보 보기', 'QT 나눔', '업무 만들기와 담당 지정', '내 달력', '알림 켜기',
     '3줄 요약', 'AI 문맥 다듬기', '순모임 가이드', '성경 본문 AI 검색', '관련된 업무 내용', '다붓이에게 물어보기', '위키']);
   const lines = g.blocks.flatMap(b => b.items);
@@ -646,7 +650,7 @@ import { readFileSync } from 'node:fs';
   assert.deepStrictEqual(L.linkParts('콘티와 송폼', tg, used).filter(p => p.id).length, 0, '같은 마디에서는 처음 한 번만');
   assert.deepStrictEqual(L.linkParts('콘티장은 콘티', L.linkTargets(all, 'x'), new Set()).map(p => p.id || ''), ['', 'terms'], "'콘티장'의 '콘티'는 잇지 않는다");
   // 정해지기까지는 items가 아니라 steps — 바뀌기 전 줄이 다붓이 근거(wikiCore.scoreWikiItems는 items만 본다)로 읽히지 않게
-  const build = readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8');
+  const build = wikiBuildSrc();
   assert.ok(build.includes("blocks.push({ ...rest, items: [], steps: items.map(it =>") && build.includes("if (c?.b === 'decide') { if (kept.some(x => x.b === 'decide' && x.date > c.date)) c.old = true; continue; }"), '정해지기까지는 steps · 모델 검사는 버리지 않고 바뀌기 전으로');
   console.log('PASS  위키 · 다붓이 8(바뀌기 전 조각 · 정해지기까지 · 행사 정보 상자 · 되풀이 모임 개요 · 마디와 번호 · 팀 몫 · 지금 하는 일 · 관련 문서 · 글 안 링크)');
 }
@@ -766,7 +770,7 @@ import { readFileSync } from 'node:fs';
   // 다붓이 댓글 조각도 위키와 같은 댓글 줄(쓴 사람 주어 · @는 부른 사람)로 간다
   {
     const askSrc = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
-    assert.ok(askSrc.includes('const x = commentLine(m, cctx);'), '기록 통째로의 댓글도 commentLine 줄(쓴 사람 주어)');
+    assert.ok(askSrc.includes('[m.card_id, commentLine(m, cctx)]'), '기록 통째로의 댓글도 commentLine 줄(쓴 사람 주어)');
   }
   console.log('PASS  위키 · 다붓이 10(이어 묻기 · 코드 갈래 · 가드 · 다시 쓴 꼴로 캐시·저장 · 출석 외 N명 · 팀 몫 · 이미 아는 말)');
 }
@@ -800,7 +804,7 @@ import { readFileSync } from 'node:fs';
   assert.strictEqual(l4.kind, '답글');
   assert.strictEqual(l4.line, '[답글 · 9월 14일] 노준석 형제가 노준석 형제의 댓글(“9월 9일에 하빈(이하빈 형제)랑 첫 양육할 듯 !”)에 답함(정민경 자매를 부름): 9월 19일(토)에 1주차 완료');
   // cardSnips가 댓글 줄을 쓴다 — 머리는 '댓글/답글 날짜'
-  const build = readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8');
+  const build = wikiBuildSrc();
   assert.ok(build.includes('const x = commentLine(m, commentCtx(D));') && build.includes('head: `${x.kind} ${mdLabel(x.date)}`'), '업무 조각의 댓글은 commentLine으로');
   assert.ok(/B를 주어로 쓰지 마라/.test(build) && /그 일을 한 사람을 B로 쓴 것/.test(build), '쓰기·검사 프롬프트에 댓글 주어 규칙');
   assert.ok(build.includes("if (c.sids.every(x => /^(?:댓글|답글)/.test(bySid.get(x)?.head || ''))) continue;"), '댓글로만 쓴 문장은 바뀌기 전 검사로 버리지 않는다');

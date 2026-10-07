@@ -372,7 +372,9 @@ assert.ok(/^\S+ \S+ \* \* \*$/.test(cron.schedule), '마감 임박은 하루 한
   assert.ok(/req\.query\?\.job === 'worship'/.test(src), 'GET이 job=worship으로 갈리지 않는다');
   const at = src.indexOf('async function handleWorshipToday');
   assert.ok(at > 0, 'handleWorshipToday를 못 찾았다');
-  const fn = src.slice(at, src.indexOf('export default'));
+  // 함수 몸통만 — 다음 최상위 선언까지(파일 끝 export default까지 자르면 뒤에 붙은 마스터 알림의 .from이 걸린다 · 18차 2회)
+  const end = src.slice(at + 1).search(/\n(?:export |(?:async )?function |const |\/\/ ──)/);
+  const fn = src.slice(at, end > 0 ? at + 1 + end : src.indexOf('export default'));
   assert.ok(/kstDate\(0\)/.test(fn), '오늘 날짜를 KST로 세지 않는다 — UTC로 세면 하루씩 어긋난다');
   assert.ok(/eq\('status', 'published'\)/.test(fn), '작성 중인 주보로도 알림이 나간다');
   assert.ok(/eq\('approved', true\)/.test(fn) && /is\('removed_at', null\)/.test(fn),
@@ -679,6 +681,57 @@ const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g,
   }
   const src = readFileSync(join(ROOT, 'api', 'ai.js'), 'utf8');
   assert.ok(src.indexOf('await requireApprovedUser(req, res)') < src.indexOf('if (body.embed != null)'), '임베딩 분기가 인증보다 앞에 있다');
+}
+
+// ── Gemini 한 번(_lib.geminiFetch) · 시간 초과 판정(_lib.isTimeout) — 19차 ─────────────────────
+// 서버의 시간 상한은 AbortSignal.timeout이다 — 끊기면 AbortError가 아니라 **TimeoutError**가 온다. 판정을 옛 이름으로 두면
+// 시간 초과가 504(다시 해 볼 만한 실패)가 아니라 502로 떨어지고 위키 gen은 다시 부르지 않는다.
+// 되돌리기 검사: isTimeout을 'AbortError'로 되돌리거나 geminiFetch에서 signal을 빼면 아래가 깨진다.
+{
+  const lib = await import('file://' + join(ROOT, 'api', '_lib.js').replace(/\\/g, '/'));
+  const aiApi = await import('file://' + join(ROOT, 'api', 'ai.js').replace(/\\/g, '/'));
+  const WB = await import('file://' + join(ROOT, 'api', '_wikiBuild.js').replace(/\\/g, '/'));
+  const fakeRes = () => { const r = { code: 0, body: null }; r.status = (c) => { r.code = c; return r; }; r.json = (b) => { r.body = b; return r; }; return r; };
+  // ① 진짜 fetch + AbortSignal.timeout — 답하지 않는 로컬 서버에서 TimeoutError가 온다(노드가 정한 이름)
+  const http = await import('node:http');
+  const srv = http.createServer(() => {});
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const hung = await fetch(`http://127.0.0.1:${srv.address().port}/`, { signal: AbortSignal.timeout(50) }).then(() => null, e => e);
+  srv.closeAllConnections(); srv.close();
+  assert.ok(lib.isTimeout(hung) && hung.name !== 'AbortError', `시간 상한에 끊긴 fetch를 시간 초과로 못 가른다(${hung?.name})`);
+  assert.ok(!lib.isTimeout(new TypeError('fetch failed')) && !lib.isTimeout(null), '시간 초과가 아닌 실패를 시간 초과로 본다');
+  const realFetch = globalThis.fetch;
+  try {
+    // ② geminiFetch — 주소 · 키 머리 · 몸통 · 시간 상한 신호(신호가 없으면 아래가 2초 안에 안 끝난다)
+    const seen = [];
+    globalThis.fetch = (url, init) => { seen.push({ url: String(url), init }); return new Promise((_, rej) => init.signal?.addEventListener('abort', () => rej(init.signal.reason))); };
+    const t0 = Date.now();
+    const cut = await Promise.race([lib.geminiFetch('m-1', 'embedContent', { a: 1 }, { key: 'k', ms: 40 }).then(() => null, e => e), new Promise(r => setTimeout(() => r('안 끊김'), 2000))]);
+    assert.ok(lib.isTimeout(cut) && Date.now() - t0 < 2000, `geminiFetch가 시간 상한에 끊기지 않는다(${cut?.name || cut})`);
+    assert.equal(seen[0].url, 'https://generativelanguage.googleapis.com/v1beta/models/m-1:embedContent');
+    assert.equal(seen[0].init.headers['x-goog-api-key'], 'k');
+    assert.deepEqual(JSON.parse(seen[0].init.body), { a: 1 });
+    // ③ /api/ai — 시간 초과는 504(안내 문구 그대로) · 닿지 못함은 502
+    globalThis.fetch = async () => { throw new DOMException('signal timed out', 'TimeoutError'); };
+    const r1 = fakeRes(); await aiApi.handleEmbed('위로', 'k', r1);
+    assert.equal(r1.code, 504, '시간 초과가 504로 가지 않는다');
+    assert.equal(r1.body.error, '요청이 제때 끝나지 않았어요\n잠시 후 다시 시도해주세요');
+    globalThis.fetch = async () => { throw new TypeError('fetch failed'); };
+    const r2 = fakeRes(); await aiApi.handleEmbed('위로', 'k', r2);
+    assert.equal(r2.code, 502);
+    // ④ 위키 gen — 시간 초과만 tries만큼 다시 부르고 마지막 TimeoutError를 던진다(다붓이 답이 504로) · 다른 실패는 한 번
+    let n = 0;
+    globalThis.fetch = async () => { n++; throw new DOMException('signal timed out', 'TimeoutError'); };
+    const ge = await WB.gen('s', 't', { key: 'k', tries: 2 }).then(() => null, e => e);
+    assert.ok(lib.isTimeout(ge) && n === 2, `gen이 시간 초과를 다시 부르지 않는다(${n}번)`);
+    n = 0;
+    globalThis.fetch = async () => { n++; throw new TypeError('fetch failed'); };
+    await WB.gen('s', 't', { key: 'k', tries: 3 }).catch(() => {});
+    assert.equal(n, 1, '시간 초과가 아닌 실패를 다시 부른다');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  console.log('PASS  Gemini 한 번(_lib) · 시간 초과는 TimeoutError(504 · 위키 다시 부르기)');
 }
 
 // ── 8시 크론에 얹은 문서 임베딩 (배치 E4 · 0074 doc_vec · api/_docsync.js) ────────────

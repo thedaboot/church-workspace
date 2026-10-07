@@ -9,6 +9,7 @@ import { teamPart } from '../src/services/wikiLive.js';
 import BOOKS from '../public/bible/index.json' with { type: 'json' };
 import { gen, SCHEMA, nameMatcher, projectTitle, WIKI_MODEL, TEAM_ORDER, commentLine, peopleIndex, rosterOf, recordDate } from './_wikiBuild.js';
 import { splitRoleNote, callName, PASTOR_TITLE } from '../src/services/aiPeople.js';
+import { STATUS, liveProfile } from './_lib.js';
 
 // ============================================================================
 // 다붓이에게 물어보기 — api/ai.js의 { ask } 갈래와 아침 크론(다시 묻기 · 자가개선)이 같이 쓴다 (0088 · 16차 · 18차 2회에 다시 지음)
@@ -30,8 +31,6 @@ import { splitRoleNote, callName, PASTOR_TITLE } from '../src/services/aiPeople.
 //   · 모르면 정해 둔 말(wikiCore.NOT_FOUND) + 맡은 팀이 하나로 분명하면 누구에게 물을지 한 문장(teamHint).
 //   · 금액은 가리킨 기록에 글자 그대로 있을 때만 · 업무 글 속 지시는 자료로만 읽는다.
 // ============================================================================
-
-const STATUS = { todo: '시작 전', doing: '진행 중', done: '완료', hold: '보류 중', ongoing: '상시' };
 
 export const userClient = (token) => createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY, {
   global: { headers: { Authorization: `Bearer ${token}` } },
@@ -110,7 +109,7 @@ export async function loadRoster(db) {
     db.from('people').select('profile_id, gender').not('profile_id', 'is', null).then(must),
   ]);
   const tn = new Map(teams.map(t => [t.id, t.name]));
-  const live = profiles.filter(p => p.approved && !p.removed_at && !p.merged_into && String(p.display_name || '').trim());
+  const live = profiles.filter(liveProfile);
   const gender = new Map(genders.map(g => [g.profile_id, g.gender]));
   const members = live.map(p => ({
     name: String(p.display_name).trim(),
@@ -234,7 +233,7 @@ function fileCiteOf(f, cardById, svcById) {
 const coded = (status, text, { cites = [], ...extra } = {}) => ({ status, sentences: [{ text, cites }], files: [], dropped: [], save: false, ...extra });
 
 // 성경 구절 — bible_vec(개역한글 · 앱의 말씀 탭과 같은 본문)
-export async function bibleReply(ref, db) {
+async function bibleReply(ref, db) {
   let query = db.from('bible_vec').select('chapter, verse, body').eq('book', ref.bookId).eq('chapter', ref.chapter).order('verse').limit(BIBLE_MAX + 1);
   if (ref.from) query = query.gte('verse', ref.from).lte('verse', ref.to || ref.from);
   const { data } = await query;
@@ -313,7 +312,7 @@ export async function attendanceReply(q, { db, today }) {
 }
 
 // 생일 — 명단(people.birthday 'MM-DD')이 원본이고, 명단에 없는 가입자는 profiles.birthday(같은 모양)
-export async function birthdayReply(q, { db, today }) {
+async function birthdayReply(q, { db, today }) {
   const must = (r) => r.data || [];
   const [people, profiles] = await Promise.all([
     db.from('people').select('name, gender, is_pastor, birthday, removed_at, profile_id, profiles:profile_id(display_name)').is('removed_at', null).then(must),
@@ -323,7 +322,7 @@ export async function birthdayReply(q, { db, today }) {
   const callOf = (name, p = {}) => (p.is_pastor ? `${name} ${PASTOR_TITLE}님` : p.gender === 'm' ? `${name} 형제` : p.gender === 'f' ? `${name} 자매` : callName(name));
   const list = [
     ...people.filter(p => p.birthday).map(p => ({ name: shownName(p), roster: String(p.name || '').trim(), call: callOf(shownName(p), p), mmdd: p.birthday })),
-    ...profiles.filter(p => p.approved && !p.removed_at && !p.merged_into && p.birthday && !linked.has(p.id) && String(p.display_name || '').trim())
+    ...profiles.filter(p => liveProfile(p) && p.birthday && !linked.has(p.id))
       .map(p => ({ name: String(p.display_name).trim(), roster: '', call: callName(String(p.display_name).trim()), mmdd: p.birthday })),
   ];
   // 한 사람의 생일('정민경 생일 언제야?') — 이름이 질문에 있으면 그 사람만
@@ -336,7 +335,7 @@ export async function birthdayReply(q, { db, today }) {
 // ── 답 캐시 — 오늘 같은 질문을 데이터가 바뀐 뒤에 이미 답했으면 그 답(모델 없음 · wikiCore.cacheFresh) ──────────
 // 데이터 도장: 위키 장 · 고친 줄 · 업무 · 주보 · 파일 · 뜻 찾기 조각(댓글·첨부 글)의 마지막 변경 시각 가운데 가장 늦은 것.
 // 지운 행은 도장에 안 남는다(드문 경우 — 그날 하루만 옛 답이 갈 수 있다).
-export async function dataStamp(admin) {
+async function dataStamp(admin) {
   const last = (t, col) => admin.from(t).select(col).order(col, { ascending: false }).limit(1).then(r => (r.error ? null : r.data?.[0]?.[col] || null));
   const all = await Promise.all([last('wiki_pages', 'updated_at'), last('wiki_edits', 'edited_at'), last('cards', 'updated_at'), last('services', 'updated_at'), last('files', 'created_at'), last('doc_vec', 'updated_at')]);
   return all.filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0] || null;
@@ -408,8 +407,7 @@ export async function collectAll(db, today) {
     db.from('comments').select('id, card_id, parent_id, author_id, body, created_at').order('created_at').then(must),
   ]);
   const nameById = new Map(profiles.map(p => [p.id, String(p.display_name || '').trim()]));
-  const teamsOf = new Map();
-  for (const r of cardTeams) { const n = r.teams?.name; if (n) teamsOf.set(r.card_id, [...(teamsOf.get(r.card_id) || []), n]); }
+  const teamsOf = Map.groupBy(cardTeams.filter(r => r.teams?.name), r => r.card_id);
   const proj = new Map(projects.map(p => [p.id, p]));
   const cardById = new Map(cards.map(c => [c.id, c]));
   const svcById = new Map(services.map(s => [s.id, s]));
@@ -426,8 +424,7 @@ export async function collectAll(db, today) {
   if (pl.length) push(pl.join(' '));
 
   // 위키 장 — 장 하나가 기록 하나(사람이 고친 문장 겹침)
-  const editsBy = new Map();
-  for (const e of edits) { if (!editsBy.has(e.page_id)) editsBy.set(e.page_id, []); editsBy.get(e.page_id).push(e); }
+  const editsBy = Map.groupBy(edits, e => e.page_id);
   const allPages = [...pages, ...SEED_PAGES.filter(sp => !pages.some(p => p.id === sp.id))];
   const now = withTeamCards(allPages.map(p => { const pe = editsBy.get(p.id) || []; const o = overlayTitles(p, pe); return { ...o, blocks: overlayEdits(o.blocks, pe) }; }));
   for (const p of now) {
@@ -436,14 +433,13 @@ export async function collectAll(db, today) {
   }
 
   // 업무 — 기록의 날(회의는 회의 날 · 나머지는 마지막 수정) 오래된 것부터. 늦게 나온 기록이 뒤에 선다.
-  const cmtBy = new Map();
-  for (const m of comments) { const x = commentLine(m, cctx); if (x?.line && x.body.length >= 6) cmtBy.set(m.card_id, [...(cmtBy.get(m.card_id) || []), x.line.slice(0, 300)]); }
+  const cmtBy = Map.groupBy(comments.map(m => [m.card_id, commentLine(m, cctx)]).filter(([, x]) => x?.line && x.body.length >= 6), ([id]) => id);
   for (const c of cards.filter(c => !PERSONAL_TITLE.test(c.title)).sort((a, b) => recordDate(a).localeCompare(recordDate(b)))) {
     const p = proj.get(c.project_id);
-    const head = sentenceFromCard(c, projectTitle(p?.name || '', p?.year), cardWho(teamsOf.get(c.id) || [], assigneeNamesOf(c, nameById)));
+    const head = sentenceFromCard(c, projectTitle(p?.name || '', p?.year), cardWho((teamsOf.get(c.id) || []).map(r => r.teams.name), assigneeNamesOf(c, nameById)));
     const subs = (Array.isArray(c.subtasks) ? c.subtasks : []).filter(x => x?.title).map(x => `${x.done ? '[끝]' : '[ ]'} ${plain(x.title)}`);
     const desc = plain(c.description).slice(0, 3000);
-    push([`[업무 기록 · ${mdLabel(recordDate(c), true)}] ${head}`, desc && `상세 내용:\n${desc}`, subs.length && `하위 업무: ${subs.join(', ')}`, ...(cmtBy.get(c.id) || [])].filter(Boolean).join('\n'), { t: 'card', id: c.id, label: c.title });
+    push([`[업무 기록 · ${mdLabel(recordDate(c), true)}] ${head}`, desc && `상세 내용:\n${desc}`, subs.length && `하위 업무: ${subs.join(', ')}`, ...(cmtBy.get(c.id) || []).map(([, x]) => x.line.slice(0, 300))].filter(Boolean).join('\n'), { t: 'card', id: c.id, label: c.title });
   }
   // 주보 — 설교 · 찬양 · 광고(광고는 그 주일에 모두에게 알린 정해진 소식)
   for (const s of services) {

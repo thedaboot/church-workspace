@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { adminClient, UUID_RE, STATUS, escHtml as esc } from './_lib.js';
 
 // ============================================================================
 // /s/:type/:id → 크롤러용 OG 메타 HTML + 사람은 앱으로 리디렉션
@@ -10,11 +10,6 @@ import { createClient } from '@supabase/supabase-js';
 // 값을 보고 신청까지 한다(services/entryQuery.js의 딥링크 약속). vercel.json의
 // rewrite(`/s/:type/:id`)는 나머지 쿼리를 그대로 넘긴다.
 // ============================================================================
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// 라벨은 config.js의 STATUSES와 같은 글자다 — 한쪽만 고치면 공유 카드와 앱이 갈린다.
-const STATUS_KO = { todo: '시작 전', doing: '진행 중', hold: '보류 중', done: '완료', ongoing: '상시' };
-const esc = (s = '') => String(s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 export default async function handler(req, res) {
   const { type, id } = req.query;
@@ -30,7 +25,7 @@ export default async function handler(req, res) {
 
   if ((type === 'p' || type === 't' || type === 'c') && id && UUID_RE.test(id)) {
     try {
-      const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
+      const supabase = adminClient();
       if (type === 'c') {
         // **name만 고른다.** groups에 `description` 칸은 없고(0035 — 설명 칸의 이름은
         // `note`다) 설명 문구는 아래처럼 못 박은 한 줄이라 읽을 것이 없다. 없는 칸을
@@ -58,7 +53,7 @@ export default async function handler(req, res) {
         if (error) console.error('[share] 업무 조회 실패:', error);
         if (data) {
           title = `더다붓 · ${data.title}`;
-          const parts = [STATUS_KO[data.status] || ''];
+          const parts = [STATUS[data.status] || ''];
           if (data.due_date) parts.push(`마감 ${data.due_date}`);
           description = parts.filter(Boolean).join(' · ') || '업무 상세';
           appUrl = `/?p=${data.project_id}&t=${id}`;

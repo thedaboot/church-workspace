@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { adminClient, readJson, requireApprovedUser, safeEqual } from './_lib.js';
+import { adminClient, readJson, requireApprovedUser, safeEqual, UUID_RE, escHtml as esc } from './_lib.js';
 import { publicService, kindLabel, coverUrl, PUBLIC_MISSING } from '../src/services/serviceView.js';
 import { churchSeason } from '../src/services/churchYear.js';
 
@@ -22,11 +22,8 @@ import { churchSeason } from '../src/services/churchYear.js';
 // 싣는 칸은 serviceView.publicService가 정한다(출석·메모·노트·큐시트·개인 표는 읽지도 않는다).
 // ============================================================================
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // 공개로 읽는 주보 칸 — 여기 없는 칸(attendance_note·cue_sheet·drive_folder_id·created_by…)은 아예 받지 않는다
 const COLS = 'id, kind, service_date, status, title, passage_ref, preacher, roles, songs, notices, praise_leader, cover_focus_y';
-const esc = (s = '') => String(s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 export const viewSig = (id) => createHmac('sha256', `service-view:${process.env.SUPABASE_SECRET_KEY || ''}`)
   .update(String(id)).digest('base64url').slice(0, 22);

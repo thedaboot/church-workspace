@@ -125,7 +125,8 @@ check('함수 시간 제한을 우리가 명시한다', () => {
 check('프록시가 스스로 시간을 재고 한국어 이유를 돌려준다', () => {
   // 안 끊으면 함수가 죽을 때까지 매달리고, 브라우저는 JSON이 아닌 오류 페이지를 받는다.
   // 그러면 부르는 쪽이 이유를 못 읽어 "드라이브가 응답하지 않았어요"만 뜬다(사용자 신고).
-  assert.match(api, /AbortController/, 'AbortController가 없다');
+  assert.match(api, /signal: AbortSignal\.timeout\(SCRIPT_BUDGET_MS\)/, '시간 상한(AbortSignal.timeout)이 없다');
+  assert.match(api, /if \(isTimeout\(e\)\)/, '시간 초과를 isTimeout으로 가르지 않는다(AbortSignal.timeout은 TimeoutError다)');
   assert.match(api, /SCRIPT_BUDGET_MS/, '시간 예산 상수가 없다');
   assert.match(api, /status\(504\)/, '시간 초과를 504로 구분하지 않는다');
   assert.match(api, /timeout: true/, '시간 초과 표시를 안 실어 보낸다');

@@ -1,4 +1,4 @@
-import { readJson, requireApprovedUser, bearer, adminClient } from './_lib.js';
+import { readJson, requireApprovedUser, bearer, adminClient, geminiFetch, isTimeout } from './_lib.js';
 
 // ============================================================================
 // /api/ai — Gemini 프록시. 클라이언트에 API 키를 노출하지 않는다.
@@ -11,7 +11,7 @@ import { readJson, requireApprovedUser, bearer, adminClient } from './_lib.js';
 //   임베딩을 따로 라우트로 두지 않은 이유: 인증 머리·키·시간 상한이 같고, Vercel 함수가
 //   하나 늘면 vercel.json·dev 서버·tests/push의 다섯 라우트 목록을 같이 고쳐야 한다.
 // ============================================================================
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent';
+const TEXT_MODEL = 'gemini-3.1-flash-lite';
 
 // ── 임베딩 (배치 E · 0073 bible_vec) ────────────────────────────────────────
 // **절 쪽(scripts/embed-bible.mjs)과 질문 쪽이 이 값 한 벌을 쓴다** — 스크립트가 여기서
@@ -22,7 +22,6 @@ const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemi
 export const EMBED_MODEL = 'gemini-embedding-001';
 export const EMBED_DIM = 768;                 // 0073의 halfvec(768)과 같아야 한다
 export const MAX_EMBED_QUERY = 500;           // 질문 글자 상한 — 넘는 뒤쪽은 잘라 버린다
-const EMBED_URL = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL}:embedContent`;
 
 // 단위 길이로 맞춘다. 768차원으로 줄여 받은 출력은 **정규화되어 오지 않는다**(재 보니 길이
 // 약 0.58) — 절 쪽과 질문 쪽을 같은 방식으로 맞춰야 코사인 거리가 제 뜻이 된다.
@@ -99,16 +98,8 @@ export default async function handler(req, res) {
   const payload = { contents: [{ parts: [{ text: prompt }] }] };
   if (systemInstruction) payload.systemInstruction = { parts: [{ text: systemInstruction }] };
 
-  const ctl = new AbortController();
-  const killer = setTimeout(() => ctl.abort(), GEMINI_BUDGET_MS);
   try {
-    const r = await fetch(GEMINI_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
-      body: JSON.stringify(payload),
-      signal: ctl.signal,
-    });
-    const result = await r.json();
+    const { r, j: result } = await geminiFetch(TEXT_MODEL, 'generateContent', payload, { key: geminiKey, ms: GEMINI_BUDGET_MS });
     if (!r.ok) { console.error('[ai] Gemini 오류:', result); res.status(502).json({ error: 'Gemini 호출 실패' }); return; }
     const { text, error } = geminiText(result);
     // 중간에 끊긴 답(MAX_TOKENS · SAFETY 등)은 실패로 돌려준다 — 잘린 글이 요약·본문에 그대로 들어가면 안 된다.
@@ -118,15 +109,13 @@ export default async function handler(req, res) {
   } catch (e) {
     // 시간 초과는 504로 가른다 — 부르는 쪽이 "다시 해볼 만한 실패"를 알 수 있어야 한다
     // (api/drive.js와 같은 판단). 몇 초 걸렸는지는 이 서버 로그에만 남긴다.
-    if (e?.name === 'AbortError') {
+    if (isTimeout(e)) {
       console.error('[ai] Gemini 시간 초과');
       res.status(504).json({ error: '요청이 제때 끝나지 않았어요\n잠시 후 다시 시도해주세요' });
       return;
     }
     console.error('[ai] Gemini 요청 실패:', e);
     res.status(502).json({ error: 'Gemini 요청 실패' });
-  } finally {
-    clearTimeout(killer);
   }
 }
 
@@ -136,16 +125,8 @@ export async function handleEmbed(raw, geminiKey, res) {
   const text = typeof raw === 'string' ? raw.trim() : '';
   if (!text) { res.status(400).json({ error: 'embed는 비어 있지 않은 글자여야 합니다.' }); return; }
 
-  const ctl = new AbortController();
-  const killer = setTimeout(() => ctl.abort(), GEMINI_BUDGET_MS);
   try {
-    const r = await fetch(EMBED_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
-      body: JSON.stringify(embedQueryPayload(text)),
-      signal: ctl.signal,
-    });
-    const result = await r.json();
+    const { r, j: result } = await geminiFetch(EMBED_MODEL, 'embedContent', embedQueryPayload(text), { key: geminiKey, ms: GEMINI_BUDGET_MS });
     if (!r.ok) { console.error('[ai] 임베딩 오류:', result); res.status(502).json({ error: 'Gemini 호출 실패' }); return; }
     const values = result.embedding?.values;
     if (!Array.isArray(values) || values.length !== EMBED_DIM) {
@@ -155,15 +136,13 @@ export async function handleEmbed(raw, geminiKey, res) {
     }
     res.status(200).json({ vec: unitVec(values) });
   } catch (e) {
-    if (e?.name === 'AbortError') {
+    if (isTimeout(e)) {
       console.error('[ai] 임베딩 시간 초과');
       res.status(504).json({ error: '요청이 제때 끝나지 않았어요\n잠시 후 다시 시도해주세요' });
       return;
     }
     console.error('[ai] 임베딩 요청 실패:', e);
     res.status(502).json({ error: 'Gemini 요청 실패' });
-  } finally {
-    clearTimeout(killer);
   }
 }
 
@@ -194,6 +173,6 @@ async function handleAsk(req, body, res) {
   } catch (e) {
     console.error('[ai] 다붓이 답 실패:', e?.message || e);
     await saveAnswer(admin, q, { status: 'failed', sentences: [], dropped: [] }).catch(() => {});
-    res.status(e?.name === 'AbortError' ? 504 : 502).json({ error: '답을 받지 못했어요\n잠시 후 다시 물어봐 주세요' });
+    res.status(isTimeout(e) ? 504 : 502).json({ error: '답을 받지 못했어요\n잠시 후 다시 물어봐 주세요' });
   }
 }

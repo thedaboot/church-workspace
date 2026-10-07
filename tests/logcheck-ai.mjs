@@ -166,6 +166,12 @@ import { readFileSync } from 'node:fs';
 
   // 해시 — 임베딩한 글의 sha256
   assert.strictEqual(D.sha256('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  // 해시는 api/_lib.js 한 벌(19차) — 위키 원본 해시는 같은 함수의 앞 24자(len 옵션). 되돌리기: len을 무시하면 아래가 깨진다.
+  const Lib = await import(new URL('../api/_lib.js', import.meta.url).href);
+  assert.strictEqual(D.sha256, Lib.sha256, '문서 조각 해시가 _lib 한 벌이 아니다');
+  assert.strictEqual(Lib.sha256('abc', { len: 24 }), 'ba7816bf8f01cfea414140de', 'len 옵션이 앞 24자만 남기지 않는다');
+  const WB = await import(new URL('../api/_wikiBuild.js', import.meta.url).href);
+  assert.strictEqual(WB.sha('abc'), 'ba7816bf8f01cfea414140de', '위키 원본 해시(src_hash)가 예전 24자와 다르다 — 모든 장이 다시 모인다');
 
   // 조각 — 짧으면 그대로 · 비면 없음 · 길면 max 이하로 문단 경계 · 앞 조각 끝이 다음 조각 앞에 겹친다
   assert.deepStrictEqual(D.chunkText('  짧은 글  '), ['짧은 글']);
