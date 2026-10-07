@@ -1,0 +1,14 @@
+# 줄끝은 저장소 안에서 LF 하나다(19차 K · PITFALLS 33-t — 윈도 셸 sed -i가 한 파일에 CRLF·LF를 섞었다).
+# core.autocrlf 값과 상관없이 체크아웃·커밋 모두 LF. 바이너리는 손대지 않는다.
+* text=auto eol=lf
+*.png binary
+*.webp binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff2 binary
+*.pdf binary
+*.xlsx binary
+*.docx binary
+*.pptx binary
