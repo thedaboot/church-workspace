@@ -63,7 +63,9 @@
     --app-canvas: #191919; --app-surface: #202020; --app-surface-hover: #2a2a2a;
     --app-line: #333230;
     --app-ink: #ededec; --app-ink-secondary: #d3d1cb; --app-ink-muted: #9b9998; --app-ink-faint: #6f6d66;
-    --app-accent: #4f7ed0; --app-accent-strong: #3f6fc4; --app-accent-text: #8fb4ea; --app-accent-weak: #202a3a;
+    /* accent #4573c6(2026-10-09 · 시안 승인): 흰 글씨 4.65:1(예전 #4f7ed0은 4.02) · 테두리·초점은 #202020 위 3.51 · #2a2a2a 위 3.09 —
+       더 진하면(#4370c4) 테두리가 hover 바탕 위에서 3:1 아래로 내려간다. */
+    --app-accent: #4573c6; --app-accent-strong: #3f6fc4; --app-accent-text: #8fb4ea; --app-accent-weak: #202a3a;
     --app-night: #213183;
     --app-tag-gray: #303030;   --app-tag-gray-fg: #b9b7b3;
     --app-tag-brown: #362e26;  --app-tag-brown-fg: #c2a891;

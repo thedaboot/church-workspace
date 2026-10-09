@@ -292,10 +292,11 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
   const tab = (on, icon, label, onClick, badge, live = true) => (
     <button
       key={label} onClick={onClick} tabIndex={live ? 0 : -1}
-      className={`flex-1 flex flex-col items-center gap-1 py-1 transition-colors ${on ? 'text-[color:var(--tab-on)]' : 'text-[color:var(--tab-off)]'}`}
+      className={`relative flex-1 flex flex-col items-center gap-1 py-1 transition-colors ${on ? 'text-[color:var(--tab-on)]' : 'text-[color:var(--tab-off)]'}`}
     >
       <span className="relative">{icon}{badge > 0 && <span className="absolute -top-0.5 -right-1.5 w-1.5 h-1.5 rounded-full bg-[color:var(--tab-dot)]" />}</span>
-      <span className="text-[10.5px] font-semibold">{label}</span>
+      <span className="text-[10.5px] font-semibold" style={on ? { fontWeight: 'var(--tab-on-w, 600)' } : undefined}>{label}</span>
+      {on && <span aria-hidden="true" className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-1 h-1 rounded-full bg-[color:var(--tab-mark,transparent)]" />}
     </button>
   );
   // 층 하나가 쓰는 자리 — 패딩이 nav가 아니라 **층마다** 있어야 겹친 두 층이 같은 자리에
@@ -348,7 +349,7 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
           여기 클래스로 박으면 다크에서 따라가 버려서 흰 글자 대비가 무너진다.
           배지 원은 흰색이다(그 바탕에서 accent 원은 그대로 사라진다). 아래
           safe-area까지 같이 찬다 — 거기서 색이 끊기면 바가 떠 보인다. */}
-      <div aria-hidden={inChurch} className={`tab-bar-work absolute inset-0 ${LAYER} [--tab-on:#fff] [--tab-off:rgb(255_255_255/0.66)] [--tab-dot:#fff]`}>
+      <div aria-hidden={inChurch} className={`tab-bar-work absolute inset-0 ${LAYER} [--tab-on:#fff] [--tab-off:rgb(255_255_255/0.85)] [--tab-dot:#fff] [--tab-on-w:700] [--tab-mark:#fff]`}>
         {tabs(workTabs, !inChurch)}
       </div>
     </nav>

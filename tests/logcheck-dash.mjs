@@ -1101,3 +1101,23 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   assert.ok(/\.animate-in \{ animation: none !important; \}/.test(reduce), '움직임 줄이기에서 .animate-in도 멈춘다');
   console.log('PASS  붙여넣기 한 번 · animate-in 움직임 줄이기');
 }
+
+// 2026-10-09 — 색 대비(시안 승인): 다크 accent 위 흰 글씨 4.5 넘게 · accent 테두리는 다크 바탕들 위 3 넘게 · 업무 바 꺼진 탭 4 넘게
+{
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  const lum = (h) => { const c = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(x => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => p - q); return (y + 0.05) / (x + 0.05); };
+  const css = src('index.css');
+  const dark = css.match(/--app-canvas: (#[0-9a-f]{6}); --app-surface: (#[0-9a-f]{6}); --app-surface-hover: (#[0-9a-f]{6});/);
+  const acc = css.match(/\n\s*--app-accent: (#[0-9a-f]{6}); --app-accent-strong/);
+  assert.ok(dark && acc, '다크 토큰을 읽는다');
+  assert.ok(ratio('#ffffff', acc[1]) >= 4.5, `다크 accent 위 흰 글씨 ${ratio('#ffffff', acc[1]).toFixed(2)}`);
+  for (const bg of dark.slice(1)) assert.ok(ratio(acc[1], bg) >= 3, `다크 accent 테두리 · ${bg} 위 ${ratio(acc[1], bg).toFixed(2)}`);
+  const bar = css.match(/--app-work-bar: (#[0-9a-f]{6})/)[1];
+  const nav = src('components/mobileNav.jsx');
+  const a = Number(nav.match(/tab-bar-work[^`]*\[--tab-off:rgb\(255_255_255\/([0-9.]+)\)\]/)[1]);
+  const mix = '#' + [1, 3, 5].map(i => Math.round(255 * a + parseInt(bar.slice(i, i + 2), 16) * (1 - a)).toString(16).padStart(2, '0')).join('');
+  assert.ok(ratio(mix, bar) >= 4, `업무 바 꺼진 탭 ${ratio(mix, bar).toFixed(2)}`);
+  assert.ok(/tab-bar-work[^`]*\[--tab-on-w:700\] \[--tab-mark:#fff\]/.test(nav) && /bg-\[color:var\(--tab-mark,transparent\)\]/.test(nav), '업무 바 켜진 탭은 굵기와 점으로 가른다(색 차이가 작다)');
+  console.log('PASS  색 대비(다크 accent · 업무 바 꺼진 탭)');
+}
