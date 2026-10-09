@@ -305,6 +305,7 @@ src/modals/taskSummary.jsx    업무 창의 AI — 3줄 요약(useTaskSummary ·
 src/modals/coedit.jsx         업무 창의 같이 쓰기 — useCoedit(늦게 연다 · 받아들이기) · 머리줄 얼굴 · 보기의 수정 중 알약·줄 표시·살아 있는 본문 · 버전 기록 탭 · 고친 곳(그린 줄) · 개발용 가짜(32-zq·32-zr·32-zt~zw)
 src/services/coedit/          같이 쓰기 엔진(0084) — index.js 여는 곳(awareness user·editing·line · 사진 이름표) · core.js 순수(caretLine 포함) · store.js Supabase · view.js 화면 순수(색·알약 대비·판 글자·줄 차이 · import 0)
 src/modals/attachments.jsx    업무 창의 첨부 구역 — 업로드·미리보기·삭제·구글 사본 편집 자격(§6-34-h · startUploads는 §6-29-u)
+src/modals/uploadQueue.js     올리는 중·못 올린 첨부 줄(업무마다 · 모듈 목록 · 동시 3개 · 다시 시도)
 src/modals/comments.jsx       업무 창의 댓글·반응·활동 기록 패널(§4.11)
 src/modals/settings.jsx       내 정보(사진·이름·팀) / 프로젝트 만들기·이름 수정(§4.7·§6-34-g)
 src/services/supabaseClient.js 클라이언트 한 벌 + setWriteObserver(§4.8) + myUid()(§6-34-d)
