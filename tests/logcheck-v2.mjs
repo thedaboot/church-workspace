@@ -1451,5 +1451,7 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
     assert.ok(!new RegExp(`^import .* from '\\./views/${file}\\.jsx';`, 'm').test(app), `${file}를 정적으로 들이지 않는다`);
     assert.ok(new RegExp(`<Suspense fallback=\\{null\\}><${name} `).test(app), `${name}는 Suspense 안에 선다`);
   }
-  console.log('PASS  예배·말씀·모임·청년 명단은 늦게 싣는다');
+  const main = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
+  assert.ok(/addEventListener\('vite:preloadError'[\s\S]{0,400}location\.reload\(\)/.test(main) && main.includes('Date.now() - last < 10e3'), '배포 뒤 옛 조각 404는 한 번만 새로 불러 넘긴다');
+  console.log('PASS  예배·말씀·모임·청년 명단은 늦게 싣는다 · 옛 조각은 한 번 새로 고침');
 }

@@ -6,6 +6,17 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import ChurchApp from './App.jsx';
 
+// 배포 뒤에 열려 있던 탭은 옛 조각 이름을 찾다가 404가 난다(늦게 싣는 화면 · 2026-10-09). Vite가 알려 주면 한 번만
+// 새로 불러 새 판을 받는다 — 10초 안에 또 나면 그대로 둔다(계속 새로 고치는 고리를 막는다).
+window.addEventListener('vite:preloadError', (e) => {
+  let last = 0;
+  try { last = Number(sessionStorage.getItem('chunk-reload-at')) || 0; } catch { /* 저장소가 막힌 브라우저 */ }
+  if (Date.now() - last < 10e3) return;
+  try { sessionStorage.setItem('chunk-reload-at', String(Date.now())); } catch { /* 위와 같다 */ }
+  e.preventDefault();
+  location.reload();
+});
+
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ChurchApp />
