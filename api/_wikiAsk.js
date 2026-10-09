@@ -9,7 +9,7 @@ import { teamPart } from '../src/services/wikiLive.js';
 import BOOKS from '../public/bible/index.json' with { type: 'json' };
 import { gen, SCHEMA, nameMatcher, projectTitle, WIKI_MODEL, TEAM_ORDER, commentLine, peopleIndex, rosterOf, recordDate } from './_wikiBuild.js';
 import { splitRoleNote, callName, PASTOR_TITLE } from '../src/services/aiPeople.js';
-import { STATUS, liveProfile } from './_lib.js';
+import { STATUS, liveProfile, readAll } from './_lib.js';
 
 // ============================================================================
 // 다붓이에게 물어보기 — api/ai.js의 { ask } 갈래와 아침 크론(다시 묻기 · 자가개선)이 같이 쓴다 (0088 · 16차 · 18차 2회에 다시 지음)
@@ -391,20 +391,23 @@ const PERSONAL_TITLE = /미수료|명단|출석|연락처/;
 const plain = (s) => String(s || '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/https?:\/\/\S+/g, '')
   .replace(/[=*_`>#]+/g, '').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
 
+// 자주 묻는 질문 장(faq)은 싣지 않는다(2026-10-09) — 남이 물은 질문 글이 들어 있고 마스터만 읽는 장이라, 아침 고리(서버 키)가
+// 읽으면 그 글이 묻는 사람에게 답으로 나갈 수 있었다. 그 장의 답은 어차피 다른 기록에서 왔다.
+// 조회가 실패하면 던진다(예전에는 빈 표로 삼키고 "기록 없음"으로 답했다 — 이제 화면은 '답을 받지 못했어요').
 export async function collectAll(db, today) {
-  const must = (r) => r.data || [];
+  const all = (t, cols) => readAll(() => db.from(t).select(cols).order('id'), t);
   const [pages, edits, cards, projects, files, services, profiles, people, roster, cardTeams, comments] = await Promise.all([
-    db.from('wiki_pages').select('id, grp, title, kind, blocks').then(must),
-    db.from('wiki_edits').select('page_id, item_key, block_key, text, before, edited_by, edited_at').then(must),
-    db.from('cards').select('id, project_id, title, status, start_date, due_date, description, subtasks, updated_at, assignees, card_assignees(profile_id)').then(must),
-    db.from('projects').select('id, name, year').then(must),
-    db.from('files').select('id, card_id, service_id, kind, name, mime_type, source, drive_file_id, preview_file_id, created_at, view_pw').then(must),
-    db.from('services').select('id, service_date, title, passage_ref, songs, notices, status').eq('status', 'published').order('service_date').then(must),
-    db.from('profiles').select('id, display_name, approved, removed_at, merged_into').then(must),
-    db.from('people').select('name, profile_id, gender, is_pastor, removed_at').then(must),
+    all('wiki_pages', 'id, grp, title, kind, blocks'),
+    readAll(() => db.from('wiki_edits').select('page_id, item_key, block_key, text, before, edited_by, edited_at').order('page_id').order('item_key'), 'wiki_edits'),
+    all('cards', 'id, project_id, title, status, start_date, due_date, description, subtasks, updated_at, assignees, card_assignees(profile_id)'),
+    all('projects', 'id, name, year'),
+    all('files', 'id, card_id, service_id, kind, name, mime_type, source, drive_file_id, preview_file_id, created_at, view_pw'),
+    readAll(() => db.from('services').select('id, service_date, title, passage_ref, songs, notices, status').eq('status', 'published').order('service_date').order('id'), 'services'),
+    all('profiles', 'id, display_name, approved, removed_at, merged_into'),
+    all('people', 'name, profile_id, gender, is_pastor, removed_at'),
     loadRoster(db).catch(() => ({ members: [], pastors: [] })),
-    db.from('card_teams').select('card_id, teams(name)').then(must),
-    db.from('comments').select('id, card_id, parent_id, author_id, body, created_at').order('created_at').then(must),
+    readAll(() => db.from('card_teams').select('card_id, teams(name)').order('card_id').order('team_id'), 'card_teams'),
+    readAll(() => db.from('comments').select('id, card_id, parent_id, author_id, body, created_at').order('created_at').order('id'), 'comments'),
   ]);
   const nameById = new Map(profiles.map(p => [p.id, String(p.display_name || '').trim()]));
   const teamsOf = Map.groupBy(cardTeams.filter(r => r.teams?.name), r => r.card_id);
@@ -424,8 +427,8 @@ export async function collectAll(db, today) {
   if (pl.length) push(pl.join(' '));
 
   // 위키 장 — 장 하나가 기록 하나(사람이 고친 문장 겹침)
-  const editsBy = Map.groupBy(edits, e => e.page_id);
-  const allPages = [...pages, ...SEED_PAGES.filter(sp => !pages.some(p => p.id === sp.id))];
+  const editsBy = Map.groupBy(edits.filter(e => e.page_id !== 'faq'), e => e.page_id);
+  const allPages = [...pages, ...SEED_PAGES.filter(sp => !pages.some(p => p.id === sp.id))].filter(p => p.id !== 'faq');
   const now = withTeamCards(allPages.map(p => { const pe = editsBy.get(p.id) || []; const o = overlayTitles(p, pe); return { ...o, blocks: overlayEdits(o.blocks, pe) }; }));
   for (const p of now) {
     const body = (p.blocks || []).map(b => `${b.title ? `${b.title}: ` : ''}${(b.items || []).map(it => `${it.meta?.q ? `(질문 '${it.meta.q}') ` : ''}${it.meta?.team ? `${it.meta.team} ` : ''}${stripBold(it.text)}`).join(' / ')}`).filter(Boolean).join('\n');
@@ -649,9 +652,10 @@ const LOCATE_SCHEMA = { type: 'OBJECT', properties: { ids: { type: 'ARRAY', item
 // 결과는 via='nightly' 행으로 남긴다(answer.cause). 자주 묻는 질문 장은 missed 답을 싣는다.
 export async function reaskUnknown(admin, { budgetMs = 60 * 1000, max = 8, key = process.env.GEMINI_API_KEY, today = kstDate(new Date().toISOString()) } = {}) {
   const started = Date.now();
-  const { data } = await admin.from('dabooti_questions').select('question, norm, status, feedback, answer, via, created_at')
-    .gte('created_at', new Date(Date.now() - 7 * 864e5).toISOString()).order('created_at');   // 7일(사용자 결정 2026-10-03)
-  const todo = reaskTodo(data || [], max);
+  const since = new Date(Date.now() - 7 * 864e5).toISOString();   // 7일(사용자 결정 2026-10-03)
+  const data = await readAll(() => admin.from('dabooti_questions').select('question, norm, status, feedback, answer, via, created_at')
+    .gte('created_at', since).order('created_at').order('id'), 'dabooti_questions');
+  const todo = reaskTodo(data, max);
   const causes = { missed: 0, dropped: 0, none: 0, known: 0 };
   let tried = 0;
   for (const r of todo) {

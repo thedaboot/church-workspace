@@ -126,3 +126,16 @@ export async function geminiFetch(model, method, body, { key = process.env.GEMIN
 }
 // 우리가 정한 시간 상한에 끊겼나 — AbortSignal.timeout은 AbortError가 아니라 TimeoutError를 낸다
 export const isTimeout = (e) => e?.name === 'TimeoutError';
+
+// 표를 끝까지 읽는다(2026-10-09). PostgREST는 한 번에 1000줄까지만 주고 넘으면 **말없이 자른다** — 다붓이 기록·위키 원본이
+// 그 뒤를 모른 채 "기록 없음"이 된다. 조회 오류도 삼키지 않고 던진다(빈 근거로 답하지 않게).
+// make()는 부를 때마다 **새** 질의를 만들고, 쪽이 어긋나지 않게 기본 키로 끝나는 순서를 단다.
+export async function readAll(make, what, page = 1000) {
+  const out = [];
+  for (let from = 0; ; from += page) {
+    const { data, error } = await make().range(from, from + page - 1);
+    if (error) throw new Error(`${what}: ${error.message}`);
+    out.push(...(data || []));
+    if (!data || data.length < page) return out;
+  }
+}

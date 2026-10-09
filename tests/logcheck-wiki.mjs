@@ -116,7 +116,7 @@ const wikiBuildSrc = () => ['../api/_wikiBuild.js', ...readdirSync(new URL('../a
   assert.ok(W.tokenCoverage('하계 수련회 결산안 파일이 있어요.', '하계 수련회 결산안') >= 0.75);
   // 서버 배선: 밤 다시 묻기는 7일 · 근거 순서(뜻 찾기가 맨 뒤) · '이번/다음/지난 주'는 코드가 짚는다 · 전부 '찾지 못했어요'면 unknown
   const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
-  assert.ok(ask.includes("new Date(Date.now() - 7 * 864e5).toISOString()).order('created_at');   // 7일"), '밤 다시 묻기는 7일');
+  assert.ok(ask.includes("const since = new Date(Date.now() - 7 * 864e5).toISOString();   // 7일"), '밤 다시 묻기는 7일');
   const mig89 = readFileSync(new URL('../supabase/migrations/0089_wiki_title_master.sql', import.meta.url), 'utf8');
   assert.ok((mig89.match(/left\(item_key, 1\) <> '#' or public\.is_master\(\)/g) || []).length === 3, '0089: 제목 줄(#)은 마스터만 넣고 고친다');
   const chips = readFileSync(new URL('../src/components/dabooti.jsx', import.meta.url), 'utf8');
@@ -916,4 +916,30 @@ const wikiBuildSrc = () => ['../api/_wikiBuild.js', ...readdirSync(new URL('../a
   assert.strictEqual(W.talkKind('2027 회장 선거 결과 어떻게 됐어?', []), null);
   assert.strictEqual(W.talkKind('총선거 언제야?', [])?.kind, 'offtopic');
   console.log('PASS  위키 · 다붓이 11(근거 통째로 · 지어낸 숫자·이름만 거르기 · 물음표 인사 · 청년부 선거)');
+}
+
+// 2026-10-09 — 다붓이 기록 모으기: 표를 끝까지(1000줄 넘어도) · 조회 오류는 던진다 · 자주 묻는 질문 장은 싣지 않는다
+{
+  const { readAll } = await import(new URL('../api/_lib.js', import.meta.url).href);
+  const A = await import(new URL('../api/_wikiAsk.js', import.meta.url).href);
+  const rows = Array.from({ length: 2500 }, (_, i) => ({ id: i }));
+  let calls = 0;
+  const paged = () => ({ range: async (a, b) => { calls++; return { data: rows.slice(a, b + 1) }; } });
+  const got = await readAll(paged, 't');
+  assert.ok(got.length === 2500 && got[2499].id === 2499 && calls === 3, `1000줄 넘는 표도 끝까지 읽는다(${got.length}줄 · ${calls}번)`);
+  await assert.rejects(readAll(() => ({ range: async () => ({ data: null, error: { message: '권한' } }) }), 'cards'), /cards: 권한/, '조회 오류는 삼키지 않는다');
+  // 가짜 DB — 모든 표 · 쪽 나눔은 range로
+  const chain = (rows) => { const c = new Proxy({}, { get: (_, k) => (k === 'then' ? (res, rej) => Promise.resolve({ data: rows }).then(res, rej) : k === 'range' ? async (a, b) => ({ data: rows.slice(a, b + 1) }) : () => c) }); return c; };
+  const db = { from: (t) => chain({
+    wiki_pages: [{ id: 'faq', grp: 'x', title: '자주 묻는 질문', kind: 'auto', blocks: [{ key: 'unknown', items: [{ text: '남이물은비밀질문' }] }] },
+      { id: 'p1', grp: 'x', title: '수련회', kind: 'auto', blocks: [{ key: 'a', items: [{ text: '수련회는 11월이에요' }] }] }],
+    wiki_edits: [{ page_id: 'faq', item_key: 'k', block_key: 'unknown', text: '마스터가고친질문', before: '' }],
+  }[t] || []), rpc: async () => ({ data: null }) };
+  const { evidence } = await A.collectAll(db, '2026-10-09');
+  const text = evidence.map(e => e.text).join('\n');
+  assert.ok(text.includes('수련회는 11월이에요'), '보통 위키 장은 싣는다');
+  assert.ok(!/남이물은비밀질문|마스터가고친질문|자주 묻는 질문/.test(text), '자주 묻는 질문 장과 그 고침은 싣지 않는다(서버 키로 읽어도)');
+  const failDb = { from: (t) => (t === 'cards' ? { select: () => ({ order: () => ({ range: async () => ({ data: null, error: { message: 'down' } }) }) }) } : chain([])), rpc: async () => ({ data: null }) };
+  await assert.rejects(A.collectAll(failDb, '2026-10-09'), /cards: down/, '업무 조회가 실패하면 빈 기록으로 답하지 않는다');
+  console.log('PASS  다붓이 기록 모으기(끝까지 읽기 · 오류 던짐 · 자주 묻는 질문 장 뺌)');
 }
