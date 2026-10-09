@@ -1440,3 +1440,16 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.ok(/export \{ mergeFeed \};/.test(wv) && /export \{ canDeleteShared \} from '\.\/shareFeed\.jsx';/.test(wv), 'wordView가 나눔 순수 함수를 이어서 내보낸다');
   console.log('PASS  말씀 쪼개기 배선(검색 비우기 · 결과 줄 · 쓰기 꼬리 · 훅 넷 · 초안 훅 · 공용 부품 · 재수출)');
 }
+
+// ── 예배·말씀·모임·청년 명단은 늦게 싣는다 (App.jsx 소스 단정) ──
+// 첫 화면(홈·대시보드)이 쓰지 않는 화면이라 main 번들에서 뺐다(main gzip 165→118kB).
+// 되돌리기: 넷 중 하나라도 App에서 정적 import로 되돌리면 깨진다.
+{
+  const app = readSrc('src/App.jsx');
+  for (const [name, file] of [['MembersView', 'membersView'], ['WorshipView', 'worshipView'], ['WordView', 'wordView'], ['GroupsView', 'groupsView']]) {
+    assert.ok(app.includes(`const ${name} = lazy(() => import('./views/${file}.jsx').then(m => ({ default: m.${name} })));`), `${name}는 lazy`);
+    assert.ok(!new RegExp(`^import .* from '\\./views/${file}\\.jsx';`, 'm').test(app), `${file}를 정적으로 들이지 않는다`);
+    assert.ok(new RegExp(`<Suspense fallback=\\{null\\}><${name} `).test(app), `${name}는 Suspense 안에 선다`);
+  }
+  console.log('PASS  예배·말씀·모임·청년 명단은 늦게 싣는다');
+}

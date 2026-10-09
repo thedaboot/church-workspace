@@ -87,13 +87,16 @@ function keepCaretVisibleSettled() {
   };
   followId = requestAnimationFrame(step);
 }
-import { MembersView } from './views/membersView.jsx';
 // v2 화면 (docs/V2.md §3) — 각 줄기가 자기 파일만 채운다
 import { HomeView } from './views/homeView.jsx';
-import { WorshipView } from './views/worshipView.jsx';
-import { WordView } from './views/wordView.jsx';
 import { setCacheScope } from './services/cache.js';
-import { GroupsView } from './views/groupsView.jsx';
+// 예배·말씀·모임·청년 명단도 늦게 싣는다 — 첫 화면(홈·대시보드)이 쓰지 않으니 그 탭을 처음 열 때 받는다.
+// 폴백은 null이다: 내비는 Suspense 밖이라 그대로 서 있다. 각 화면의 스켈레톤은 '캐시가 없는 첫 진입'이라는
+// 뜻이라 빌려 오지 않는다 — 캐시가 있는데 스켈레톤이 한 번 비치면 tests/groups·worship이 그것을 잡는다.
+const MembersView = lazy(() => import('./views/membersView.jsx').then(m => ({ default: m.MembersView })));
+const WorshipView = lazy(() => import('./views/worshipView.jsx').then(m => ({ default: m.WorshipView })));
+const WordView = lazy(() => import('./views/wordView.jsx').then(m => ({ default: m.WordView })));
+const GroupsView = lazy(() => import('./views/groupsView.jsx').then(m => ({ default: m.GroupsView })));
 // 위키는 늦게 싣는다 — 첫 화면 번들에 넣지 않는다(다붓이 입구를 눌러야 받는다 · 0088)
 const WikiView = lazy(() => import('./views/wikiView.jsx'));
 import { ToastHost, showToast } from './components/Toast.jsx';
@@ -823,11 +826,11 @@ function WorkspaceShell() {
           <div key={activeMenu} className={`app-screen ${navClass} ${needsFullHeight ? 'h-full' : ''}`}>
           {activeMenu === 'dashboard' && <DashboardView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} filter={dashFilter} setFilter={setDashFilter} />}
           {activeMenu === 'schedule' && <ScheduleView onTaskClick={handleTaskClick} />}
-          {activeMenu === 'members' && <MembersView isAdmin={isAdmin} isMaster={isMaster} />}
+          {activeMenu === 'members' && <Suspense fallback={null}><MembersView isAdmin={isAdmin} isMaster={isMaster} /></Suspense>}
           {activeMenu === 'home' && <HomeView onNavigate={setActiveMenu} onTaskClick={handleTaskClick} onOpenLink={handleOpenLink} />}
-          {activeMenu === 'worship' && <WorshipView onOpenBible={openBible} />}
-          {activeMenu === 'word' && <WordView initialRef={wordRef} />}
-          {activeMenu === 'groups' && <GroupsView />}
+          {activeMenu === 'worship' && <Suspense fallback={null}><WorshipView onOpenBible={openBible} /></Suspense>}
+          {activeMenu === 'word' && <Suspense fallback={null}><WordView initialRef={wordRef} /></Suspense>}
+          {activeMenu === 'groups' && <Suspense fallback={null}><GroupsView /></Suspense>}
           {activeMenu === 'wiki' && <Suspense fallback={null}><WikiView onTaskClick={handleTaskClick} onOpenLink={handleOpenLink} /></Suspense>}
           {activeMenu === "myTasks" && <MyTasksView onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
           {activeMenu.startsWith('team:') && <TeamView teamName={teamName} onTaskClick={handleTaskClick} onStatusChange={handleStatusChange} onNavigate={setActiveMenu} />}
