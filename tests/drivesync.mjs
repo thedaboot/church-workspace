@@ -360,10 +360,14 @@ check('failText: 무엇과 왜는 언제나 줄을 바꿔 잇는다', () => {
 
 check('고른 파일이 드라이브를 기다리지 않고 바로 목록에 든다', () => {
   // 업로드를 기다린 뒤에 넣으면 그게 지금의 "기다려야 한다" 그대로다
-  const stage = att.indexOf('stageUploads(task.id, staged)');
-  const wait = att.indexOf('await ensureProjectFolder');
+  // 줄 세우기는 uploadQueue.runUploads가 한다 — 폴더 확보(prepare)보다 먼저다
+  const queue = read('src/modals/uploadQueue.js');
+  const run = queue.slice(queue.indexOf('export async function runUploads'));
+  const stage = run.indexOf('stageUploads(cardId, rows)');
+  const wait = run.indexOf('await prepare()');
   assert.ok(stage > 0, '대기 목록에 넣는 자리가 없다');
   assert.ok(stage < wait, '대기 목록에 넣기가 드라이브 호출보다 뒤에 있다');
+  assert.ok(/prepare: async \(\) => \{\s*folderId = project \? await ensureProjectFolder/.test(att), '폴더 확보가 prepare에 없다');
 });
 
 check('첨부 목록은 한 곳에서만 걸러진다', () => {
@@ -449,13 +453,14 @@ check('한글 PDF 글꼴 자료(cmaps)가 실제로 나간다', () => {
 check('올리는 중 표시가 업무 창을 닫아도 남는다', () => {
   // 창을 닫아도 업로드는 계속 돈다. 목록이 컴포넌트 안에만 있으면 다시 열었을 때
   // 그 줄이 사라져 화면이 "아무 일도 안 한다"고 거짓말한다(사용자 지적 2026-08-28).
-  assert.ok(att.includes('const uploadingByCard = new Map()'), '올리는 중 목록이 모듈 레벨이 아니다');
+  // 목록은 2026-10-09부터 uploadQueue.js(모듈)에 있다 — 노드에서 돌려 보려고 떼어 냈다
+  const queue = read('src/modals/uploadQueue.js');
+  assert.ok(queue.includes('export const uploadingByCard = new Map()'), '올리는 중 목록이 모듈 레벨이 아니다');
   assert.ok(att.includes('useState(() => uploadingByCard.get(task.id)'), '다시 열 때 모듈 목록에서 시작하지 않는다');
   assert.ok(att.includes('uploadWatchers.add(sync)'), '다른 인스턴스의 업로드를 따라가지 않는다');
   // 탭 경고도 모듈에 있어야 한다 — 컴포넌트에 매달면 창을 닫는 순간 같이 풀린다
-  const warn = att.indexOf("window.addEventListener('beforeunload', warnUnload)");
-  const comp = att.indexOf('export const AttachmentSection');
-  assert.ok(warn > 0 && warn < comp, '탭 경고가 컴포넌트 안에 있다');
+  assert.ok(queue.includes("window.addEventListener('beforeunload', warnUnload)"), '탭 경고가 모듈에 없다');
+  assert.ok(!att.includes("addEventListener('beforeunload'"), '탭 경고가 컴포넌트 쪽에 있다');
 });
 
 check('올리는 중에는 새 탭 버튼을 두지 않는다', () => {
@@ -486,8 +491,9 @@ check('사진·PDF는 로컬 바이트로 바로 보이고, 엑셀은 안 보인
 
 check('탭을 닫으려 하면 묻는다 · blob 주소를 되돌려준다', () => {
   // 메모리에만 있어서 닫으면 드라이브에도 DB에도 남지 않는다
-  assert.match(att, /beforeunload/, '올리는 중에 탭을 닫아도 아무 말이 없다');
-  assert.match(att, /revokeObjectURL/, 'blob 주소를 되돌려주지 않는다');
+  const queue = read('src/modals/uploadQueue.js');
+  assert.match(queue, /beforeunload/, '올리는 중에 탭을 닫아도 아무 말이 없다');
+  assert.match(queue, /revokeObjectURL/, 'blob 주소를 되돌려주지 않는다');
 });
 
 // ── 큰 파일 (2026-08-28 실측) ───────────────────────────────────────────────

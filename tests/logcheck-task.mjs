@@ -839,3 +839,55 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     'modals.jsx에는 셸과 화면만');
   console.log('PASS  업무 창 조각(다듬기 · 얼굴 쌓기 · 바깥 누름 한 벌 · 셸만 남은 modals.jsx) 7가지');
 }
+
+// ── 못 올린 첨부는 빨간 줄로 남고 '다시 시도'로 올라간다 (modals/uploadQueue.js · 2026-10-09) ──
+// 예전에는 실패하면 토스트만 남기고 줄이 사라져 파일을 다시 골라야 했다.
+// 되돌리기 검사: runUploads의 catch에서 failUpload 대신 unstageUpload를 부르면 첫 단정이 깨진다.
+{
+  const Q = await import(new URL('../src/modals/uploadQueue.js', import.meta.url).href);
+  const revoked = [];
+  const origRevoke = URL.revokeObjectURL;
+  URL.revokeObjectURL = (u) => { revoked.push(u); };
+  try {
+    const card = 'c-fail';
+    const a = new File(['aaa'], 'a.pdf', { type: 'application/pdf' });
+    const b = new File(['bbb'], 'b.png', { type: 'image/png' });
+    let failOnce = true;
+    const errors = [];
+    const send = async (f) => {
+      if (f === b && failOnce) { failOnce = false; throw new Error('끊김'); }
+      return { id: `row:${f.name}`, name: f.name };
+    };
+    const done = await Q.runUploads({ cardId: card, rows: [a, b].map(Q.stagedRow), send, onError: (f) => errors.push(f.name) });
+    const left = Q.uploadingByCard.get(card) || [];
+    assert.deepStrictEqual(left.map(r => [r.name, r._failed]), [['b.png', true]], '못 올린 파일은 줄로 남는다(_failed)');
+    assert.deepStrictEqual(done.map(r => r.name), ['a.pdf'], '올라간 것만 결과로');
+    assert.deepStrictEqual(errors, ['b.png'], '실패는 한 번 알린다(토스트 자리)');
+    assert.strictEqual(Q.hasActiveUploads(card), false, '못 올린 줄만 남으면 올리는 중이 아니다(탭 경고·조회 경합)');
+    const failedUrl = left[0]._url;
+    assert.ok(failedUrl && !revoked.includes(failedUrl), '못 올린 사진의 blob 주소는 아직 살아 있다');
+
+    // 다시 시도 — 같은 줄(같은 id·같은 File)이 같은 자리에서 다시 '올리는 중'이 된다
+    const again = Q.failedRow(card, left[0].id);
+    assert.ok(again && again._file === b, '다시 시도는 고른 File 그대로');
+    const p = Q.runUploads({ cardId: card, rows: [again], send });
+    assert.deepStrictEqual((Q.uploadingByCard.get(card) || []).map(r => [r.id, r._failed]), [[again.id, false]], '다시 시도하면 그 줄이 올리는 중으로');
+    assert.strictEqual(Q.failedRow(card, again.id), null, '올리는 중인 줄은 두 번 다시 시도하지 않는다');
+    const done2 = await p;
+    assert.deepStrictEqual(done2.map(r => r.name), ['b.png'], '두 번째에 올라간다');
+    assert.strictEqual(Q.uploadingByCard.has(card), false, '올라가면 줄이 빠진다');
+    assert.ok(revoked.includes(failedUrl), '줄이 빠질 때 blob 주소를 돌려준다');
+
+    // 폴더 확보(prepare)에서 던지면 남은 줄은 전부 못 올린 줄이 된다(끝나지 않는 '올리는 중' 금지)
+    const c = new File(['c'], 'c.txt');
+    await Q.runUploads({ cardId: card, rows: [Q.stagedRow(c)], prepare: async () => { throw new Error('폴더'); }, send })
+      .catch(() => {});
+    assert.deepStrictEqual((Q.uploadingByCard.get(card) || []).map(r => r._failed), [true], '폴더 실패도 빨간 줄로');
+    // '목록에서 빼기'
+    Q.unstageUpload(card, Q.uploadingByCard.get(card)[0].id);
+    assert.strictEqual(Q.uploadingByCard.has(card), false, '빼면 목록에서 사라진다');
+  } finally {
+    URL.revokeObjectURL = origRevoke;
+  }
+  console.log('PASS  못 올린 첨부 — 빨간 줄로 남고 다시 시도로 올라간다 12가지');
+}
