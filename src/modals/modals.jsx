@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { CheckSquare, X, Trash2, Check, Maximize2, Minimize2, PanelRight, PanelRightClose, Loader2 } from 'lucide-react';
 import { CONFIG } from '../config.js';
 import { formatDate, isMobileViewport, taskEditDirty, taskChangedKeys, toggleTodoLine } from '../utils.js';
@@ -128,6 +128,21 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
       .finally(() => { if (alive) setDetailLoading(false); });
     return () => { alive = false; };
   }, [cloudMode, task.id]);
+
+  // 댓글 칸은 **맨 아래(최신)에서 연다** — 대화처럼(2026-10-09 승인). 바닥에 붙어 있는 동안(cmtPin)만
+  // 내용이 바뀔 때 바닥으로 다시 내린다: 칸을 열 때 · 읽기가 끝날 때 · 내가 댓글을 달 때.
+  // 위로 올라가 읽는 중이면 남의 댓글이 실시간으로 와도 끌어내리지 않는다(바닥 40px 안이면 따라간다).
+  // 데스크톱은 탭이 바뀌어도 같은 통이라 scrollTop을 물려받는다(PITFALLS 9-cd) — 칸을 열 때마다 다시 붙인다.
+  const cmtBox = useRef(null);
+  const cmtPin = useRef(true);
+  const cmtShown = listsReady && !!task.id && (isMobile ? mobileTab : activeTab) === 'comments';
+  useLayoutEffect(() => { cmtPin.current = true; }, [task.id, cmtShown]);
+  useLayoutEffect(() => {
+    const el = cmtBox.current;
+    if (cmtShown && el && cmtPin.current) el.scrollTop = el.scrollHeight;
+  }, [cmtShown, detailLoading, source.comments]);
+  const onCmtScroll = (e) => { const el = e.currentTarget; cmtPin.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; };
+  const addComment = (text) => { cmtPin.current = true; onAddComment(text); };
 
   // 삭제 노출 조건: 저장된 카드 + (게스트=작성자 본인 / 클라우드=작성자 본인 또는 관리자)
   // isMyUid = 세션 uid와 남긴 계정 id를 **둘 다** 내 것으로 본다(0063 · §6-34-i) —
@@ -429,7 +444,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
     : null;
   const activityPanel = listsReady ? <ActivityPanel logs={source.activityLog} loading={detailLoading} /> : null;
   const versionsPanel = showVersions ? <VersionPanel cardId={task.id} pickedId={diffPick?.version.id} onPick={pickVersion} refreshKey={versionsKey} load={cloudMode ? null : fake?.versions} /> : null;
-  const commentInputEl = <CommentInput onAdd={onAddComment} members={members} />;
+  const commentInputEl = <CommentInput onAdd={addComment} members={members} />;
 
   // ── 모바일: 풀스크린 + 세그먼트 탭 ──
   if (isMobile) {
@@ -457,7 +472,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             {/* 상세는 탭을 옮겨도 **내리지 않는다** — 같이 쓰기 편집기와 치던 초안이 탭마다 새로 서지 않게 */}
             <div className={`flex-1 overflow-y-auto p-5 ${mobileTab === 'detail' ? '' : 'hidden'}`}>{detailBody}</div>
-            {mobileTab === 'comments' && <div className="flex-1 overflow-y-auto p-4">{commentsPanel}</div>}
+            {mobileTab === 'comments' && <div ref={cmtBox} onScroll={onCmtScroll} className="flex-1 overflow-y-auto p-4">{commentsPanel}</div>}
             {mobileTab === 'activity' && <div className="flex-1 overflow-y-auto p-4">{activityPanel}</div>}
             {mobileTab === 'versions' && <div className="flex-1 overflow-y-auto p-4">{versionsPanel}</div>}
             {mobileTab === 'comments' && commentInputEl}
@@ -520,7 +535,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
               {sideTab('activity', '활동')}
               {showVersions && sideTab('versions', '버전 기록')}
             </div>
-            <div className="flex-1 overflow-y-auto p-4">{activeTab === 'comments' ? commentsPanel : activeTab === 'activity' ? activityPanel : versionsPanel}</div>
+            <div ref={cmtBox} onScroll={onCmtScroll} className="flex-1 overflow-y-auto p-4">{activeTab === 'comments' ? commentsPanel : activeTab === 'activity' ? activityPanel : versionsPanel}</div>
             {activeTab === 'comments' && commentInputEl}
           </div>
           </div>

@@ -242,6 +242,30 @@ await sleep(500);
 const reopened = await sideProbe();
 check('다시 펴진다', reopened.found && reopened.width > 100, JSON.stringify(reopened));
 
+// ── 댓글 칸은 맨 아래(최신)에서 연다 (2026-10-09 승인 · 대화처럼) ─────────────────
+// t0은 댓글 15개 — 10개만 서고 '이전 댓글 5개 더 보기'가 위에 있다. 통이 바닥이고 마지막 댓글(댓글 내용 14)이 통 안에 보여야 한다.
+// 되돌리기 검사(§3-5): modals.jsx의 cmtBox 레이아웃 효과에서 scrollTop 줄을 지우면 데스크톱·폰 둘 다 깨진다.
+const CMT_AT_BOTTOM = `(() => {
+  const more = [...document.querySelectorAll('.fixed.z-50 button')].find(b => /^이전 댓글 [0-9]+개 더 보기$/.test(b.textContent.trim()));
+  const box = more?.closest('.overflow-y-auto'); if (!box) return { found: false };
+  const last = [...box.querySelectorAll('*')].filter(e => /댓글 내용 14/.test(e.textContent || '')).pop();   // 멘션이 끼어 잎이 아니다 — 가장 안쪽
+  const b = box.getBoundingClientRect(), l = last?.getBoundingClientRect();
+  return { found: true, gap: Math.round(box.scrollHeight - box.scrollTop - box.clientHeight), scrollTop: Math.round(box.scrollTop),
+    lastVisible: !!l && l.top >= b.top - 1 && l.bottom <= b.bottom + 1 };
+})()`;
+const cmtBottom = {};
+await send('Page.navigate', { url: URL_BASE + '/?p=p1&t=t0' }); await wait('Page.loadEventFired'); await sleep(1500);
+cmtBottom.desk = await ev(CMT_AT_BOTTOM);
+await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
+await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+await send('Page.navigate', { url: URL_BASE + '/?p=p1&t=t0' }); await wait('Page.loadEventFired'); await sleep(1500);
+await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim().startsWith('댓글 ('))?.click()`); await sleep(400);
+cmtBottom.phone = await ev(CMT_AT_BOTTOM);
+await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+check('댓글 칸은 맨 아래(최신 댓글이 보이게)에서 연다 — 데스크톱·폰',
+  ['desk', 'phone'].every(k => cmtBottom[k].found && cmtBottom[k].scrollTop > 0 && Math.abs(cmtBottom[k].gap) <= 2 && cmtBottom[k].lastVisible), JSON.stringify(cmtBottom));
+
 // ── 태블릿: 키보드가 떠도 댓글 칸이 보인다 (사용자 지적 2026-10-05 · PITFALLS 33-v) ─────────────
 // 아이패드는 넓은 창을 쓰고, 키보드가 레이아웃 뷰포트(innerHeight)는 그대로 두고 보이는 창만 줄인다 — 그걸 흉내 낸다.
 // 되돌리기 검사: 딤을 다시 fixed inset-0으로 두거나 창 높이를 85dvh로만 두면 칸이 키보드 밑(700 아래)에 남는다.

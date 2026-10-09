@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Pencil, Trash2, Heart, ThumbsUp, Check } from 'lucide-react';
 import { formatDate, isMobileViewport, keepVisible, imeComposing, coarsePointer } from '../utils.js';
@@ -288,6 +288,20 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
   const [replyDrafts, setReplyDrafts] = useState({});   // { [parentId]: '작성 중인 글' }
   const [showAll, setShowAll] = useState(false);
   const all = comments || [];
+  // '이전 댓글 더 보기'는 위에 끼워 넣는다 — 바닥에서의 거리를 지켜 보던 댓글이 그 자리에 남게 한다
+  // (칸은 바닥에서 열린다 · modals.jsx cmtPin).
+  const rootRef = useRef(null);
+  const fromBottom = useRef(null);
+  const showOlder = () => {
+    const box = rootRef.current?.closest('.overflow-y-auto');
+    fromBottom.current = box ? box.scrollHeight - box.scrollTop : null;
+    setShowAll(true);
+  };
+  useLayoutEffect(() => {
+    const box = rootRef.current?.closest('.overflow-y-auto');
+    if (showAll && box && fromBottom.current != null) box.scrollTop = box.scrollHeight - fromBottom.current;
+    fromBottom.current = null;
+  }, [showAll]);
 
   // ── 반응 (0032) ──────────────────────────────────────────────────────────
   // 클라우드: 서버가 원본이고 댓글에 실려 온다(loadCardDetail). local은 방금 누른
@@ -386,10 +400,10 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
   }
 
   return (
-    <div className="divide-y divide-line/60">
+    <div ref={rootRef} className="divide-y divide-line/60">
       {hiddenCount > 0 && (
         <button
-          type="button" onClick={() => setShowAll(true)}
+          type="button" onClick={showOlder}
           className="w-full text-[11px] text-accent-text hover:bg-surface-hover rounded-md py-2 mb-1 transition active:scale-95"
         >이전 댓글 {hiddenCount}개 더 보기</button>
       )}
