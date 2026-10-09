@@ -1071,7 +1071,7 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   for (const f of ['views/dashboardParts.jsx', 'hooks/useForceGraph.js', 'components/activityFeed.jsx']) {
     assert.ok(!/matchMedia/.test(src(f)), `${f}가 matchMedia를 직접 부르지 않는다`);
   }
-  assert.ok(/export \{ prefersReducedMotion \};/.test(src('views/dashboardParts.jsx')), 'dashboardParts는 이어서 내보낸다(wordBible이 가져간다)');
+  assert.ok(!/export \{ prefersReducedMotion \}/.test(src('views/dashboardParts.jsx')), 'dashboardParts는 모션 판정을 다시 내보내지 않는다(가져가는 곳이 없다)');
   console.log('PASS  19차 한 벌(달력 칸 바탕 · 열 폭 · 화면 파일 배선 · 토글 · KPI 칸 · 모션 판정)');
 }
 
@@ -1089,4 +1089,15 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
       `${f}가 utils.mdDot 한 벌을 쓴다(제 사본 없음)`);
   }
   console.log('PASS  짧은 날짜 한 벌(mdDot) 5가지');
+}
+
+// 2026-10-09 — 본문에 붙인 사진이 첨부로 또 올라가지 않는다 · 움직임 줄이기가 tw-animate 등장도 끈다
+{
+  const src = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  const att = src('modals/attachments.jsx');
+  assert.ok(/const onPaste = \(e\) => \{ if \(e\.defaultPrevented\) return;/.test(att), '편집기가 받은 붙여넣기(defaultPrevented)는 첨부가 건너뛴다');
+  const css = src('index.css');
+  const reduce = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g)].map(m => m[1]).join('\n');
+  assert.ok(/\.animate-in \{ animation: none !important; \}/.test(reduce), '움직임 줄이기에서 .animate-in도 멈춘다');
+  console.log('PASS  붙여넣기 한 번 · animate-in 움직임 줄이기');
 }

@@ -16,9 +16,7 @@ import { bucketOf, isOverdue, isStaleNoDue, STALE_NODUE_DAYS, personLoad, RECENT
 
 // 움직임을 줄여 달라고 한 사람 — index.css가 애니메이션·전환을 통째로 끄므로
 // (§4.2) 자라는 연출을 붙이는 자리는 처음부터 최종 값으로 그려야 한다.
-// 안 그러면 전환이 없어서 0에 멈춘 빈 바가 남는다. 판정은 hooks/useReducedMotion.js 한 벌이고,
-// 여기서 가져가던 자리(wordBible)를 위해 이어서 내보낸다.
-export { prefersReducedMotion };
+// 안 그러면 전환이 없어서 0에 멈춘 빈 바가 남는다. 판정은 hooks/useReducedMotion.js 한 벌이다.
 
 export const ISO_TODAY = () => localDate(new Date());
 // 남은 날 수 (음수 = 지남). 자정 기준으로 비교해야 "오늘"이 시간대에 따라 흔들리지 않는다.

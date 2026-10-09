@@ -5,7 +5,7 @@ import { useDismiss } from './useDismiss.js';
 
 // 버튼 하나에 붙어 떠 있는 판의 껍데기 한 벌 — 열림 · 앵커 자리(useAnchoredPos) · 바깥 누름/Esc 닫기(useDismiss) ·
 // body 포털 · 등장 모션. 상단 내비의 프로필 메뉴 · 프로젝트 더보기 · 연도 고르기 · 알림 종이 쓴다(19차 묶음 D에서
-// 네 벌을 모았다). **다른 파일의 팝오버는 아직 각자 들고 있다**(뒤 묶음이 옮긴다).
+// 네 벌을 모았다). **다른 파일의 팝오버는 아직 각자 들고 있다.**
 //
 //   const pop = usePopover(224, 200, { gap: 8, measure: true });
 //   <span ref={pop.rootRef}><span ref={pop.btnRef}><button onClick={pop.toggle}>…</button></span>

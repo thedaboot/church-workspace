@@ -606,10 +606,11 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
   // 파일의 blob 주소가 회수돼 창을 다시 열었을 때 미리보기가 죽는다.
   // 되돌리기는 업로드가 끝나거나 실패하는 자리(uploadOne)에서 한다.
 
-  // 클립보드 이미지 붙여넣기 (수정 모드에서만; 본문 textarea 붙여넣기는 stopPropagation으로 제외)
+  // 클립보드 이미지 붙여넣기(수정 모드에서만). 본문 편집기가 이미 받아 본문 사진으로 올린 붙여넣기(defaultPrevented)는
+  // 건너뛴다 — 안 그러면 같은 사진이 본문과 첨부로 두 번 올라간다(2026-10-09).
   useEffect(() => {
     if (readOnly) return;
-    const onPaste = (e) => { const f = e.clipboardData?.files; if (f && f.length) uploadFiles(f); };
+    const onPaste = (e) => { if (e.defaultPrevented) return; const f = e.clipboardData?.files; if (f && f.length) uploadFiles(f); };
     document.addEventListener('paste', onPaste);
     return () => document.removeEventListener('paste', onPaste);
     // eslint-disable-next-line react-hooks/exhaustive-deps

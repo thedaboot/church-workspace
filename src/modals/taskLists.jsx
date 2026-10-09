@@ -243,7 +243,7 @@ export function SubtaskList({ value = [], onChange, members = [], live = false, 
           // 좁은 화면에서 할 일을 둘째 줄로 내리나 — 고치는 화면이거나 사람이 있을 때(보기에서 사람이 없으면 한 줄)
           const twoLine = !readOnly || owners.length > 0;
           const due = readOnly && s.due && (
-            <span className={`shrink-0 text-[11px] tabular-nums whitespace-nowrap ${s.done ? 'text-fg-faint' : 'text-fg-muted'}`}>
+            <span className={`shrink-0 text-[11px] tabular-nums whitespace-nowrap text-fg-muted`}>
               {formatDay(s.due)}까지
             </span>
           );

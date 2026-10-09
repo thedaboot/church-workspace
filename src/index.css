@@ -408,6 +408,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .dc-screen, .dc-row, .dc-card, .dc-kpi, .dc-pop { animation: none !important; }
+  .animate-in { animation: none !important; }   /* tw-animate-css 등장(팝오버·경고·토스트 57곳)도 같이 끈다(2026-10-09) */
   .dc-bar-fill, .dc-press { transition: none !important; }
 }
 

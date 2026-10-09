@@ -36,7 +36,7 @@ export function ShareChip({ state, label }) {
   const done = state === 'saved';
   return (
     <span data-share-chip={state} className={`text-[10.5px] ${
-      done ? 'px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg font-bold' : 'text-fg-faint'}`}>
+      done ? 'px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg font-bold' : 'text-fg-muted'}`}>
       {done ? label : '저장하는 중'}
     </span>
   );

@@ -65,9 +65,6 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
   // **되돌리기**: comments.jsx '답글'을 `'text-fg-faint hover:text-accent-text'`로, 반응 칩 +N의 `text-fg-muted`를 걷으면 깨진다.
   {
     const { parseAst } = await import('vite');
-    // 이 검사가 처음 찾은 것 중 **사용자에게 아직 묻지 않은 자리**(19차 묶음 E 보고 · 고치면 여기서 뺀다):
-    // 공유 칩 '저장하는 중'(10.5px faint) · 보기 화면의 끝낸 하위 업무 기한(11px faint — 끝낸 줄을 흐리게)
-    const PENDING = [['components/ShareToggle.jsx', 'text-[10.5px]'], ['modals/taskLists.jsx', 'shrink-0 text-[11px] tabular-nums whitespace-nowrap']];
     const faintTree = [], parseFail = [];
     const COLOR = /^text-(fg|accent|tag|white|black|status)\b/;
     const frags = (n, out = []) => {
@@ -97,7 +94,7 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
           const faintHere = colors.includes('text-fg-faint');
           const faint = colors.length ? faintHere : (/^[a-z]/.test(tag) && faintUp);
           const cls = tokens.join(' ');
-          if (small && faint && !PENDING.some(([f, s]) => f === name && cls.startsWith(s))) faintTree.push(`${name}:${lineOf(n.start)} <${tag}>`);
+          if (small && faint) faintTree.push(`${name}:${lineOf(n.start)} <${tag}>`);
           n.openingElement.attributes.forEach(a => visit(a, faintUp));
           visit(n.children, colors.length ? faintHere : faintUp);
           return;

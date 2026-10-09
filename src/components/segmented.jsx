@@ -8,7 +8,8 @@ import React from 'react';
 //   className   통 클래스 · btnClassName 칸 클래스 · as 통의 태그(기본 span)
 //   tabs        칸이 role="tab" + aria-selected(통에는 role="tablist"를 넘긴다)
 // 나머지 props는 통에 붙는다(role · aria-label).
-// 19차(2026-10-07)에 views.jsx 세 자리를 모았다 — 다른 화면(명단·말씀·모임)의 같은 줄은 뒤 묶음이 옮긴다.
+// 19차(2026-10-07)에 views.jsx 세 자리를 모았다. 명단·말씀·모임·공유 토글의 세그먼트는 칸마다 aria-pressed·data-*·title을
+// 얹어서 아직 각자 그린다(칸에 속성을 넘기는 길이 생기면 옮길 수 있다).
 // ============================================================================
 export const segStyle = (on) => ({
   background: on ? 'var(--app-surface)' : 'transparent',
