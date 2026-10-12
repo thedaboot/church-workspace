@@ -416,7 +416,7 @@ scripts/embed-bible.mjs       성경 → bible_vec 한 번(로컬 · --dry-run �
 scripts/embed-docs.mjs        doc_vec 전체·증분 · --dry-run(조각·토큰·비용) · --kind
 scripts/wiki-build.mjs        위키 한 번(--force · --only= · --dry) · scripts/wiki-live.mjs 다붓이·고치기 클라우드 실측(임시 계정 → 흔적 0건)
 (지운 스크립트 — git 이력의 scripts/compare-bible-search.mjs)  AI 검색 대 벡터 검색을 질의 30개로(한 번 쓰고 만 도구 · §7의 근거)
-supabase/migrations/          0001~0091 — 표는 README, 최근 것은 §5
+supabase/migrations/          0001~0096 — 표는 README, 최근 것은 §5
 tests/                        검증 스위트 + 러너 — 목록은 tests/README.md
 ```
 
