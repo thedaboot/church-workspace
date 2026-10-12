@@ -421,7 +421,9 @@ export function MembersView({ isAdmin, isMaster }) {
           ? [...prev.roles, { person_id: p.id, year, role }]
           : prev.roles.filter(r => !(r.person_id === p.id && r.year === year && r.role === role)),
       }));
-      showToast(next ? `${year}년 ${label}으로 지정했어요` : `${year}년 ${label} 지정을 해제했어요`);
+      // '으로/로' — 받침이 없거나 ㄹ이면 '로'('비전 메이커로' · '총무로' — 예전에는 늘 '으로'였다)
+      const tail = (label.charCodeAt(label.length - 1) - 0xac00) % 28;
+      showToast(next ? `${year}년 ${label}${tail > 0 && tail !== 8 ? '으로' : '로'} 지정했어요` : `${year}년 ${label} 지정을 해제했어요`);
     }, next ? '직분을 지정하지 못했어요' : '직분 지정을 해제하지 못했어요'),
   };
 

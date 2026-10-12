@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import {
   prefilter, termsOf, normQ, overlayEdits, overlayTitles, keepCited, notFoundCites, parseModelJson,
-  strangeNumbers, mdLabel, kstDate, NOT_FOUND, stripBold, talkKind, hasJong, SEED_PAGES, withTeamCards,
+  strangeNumbers, mdLabel, kstDate, NOT_FOUND, stripBold, talkKind, hasJong, SEED_PAGES,
   bibleRefIn, bibleAnswer, BIBLE_MAX, isAttendanceQuestion, asksAbsent, attendanceAnswer, isBirthdayQuestion, birthdayMonths, birthdayAnswer, birthdayOf,
   cacheEligible, cacheFresh, looksFollowUp, followUpRule, knownStatement, looksCompound, splitGuard, mergeParts, termWeights,
 } from '../src/services/wikiCore.js';
@@ -9,7 +9,11 @@ import { teamPart } from '../src/services/wikiLive.js';
 import BOOKS from '../public/bible/index.json' with { type: 'json' };
 import { gen, SCHEMA, nameMatcher, projectTitle, WIKI_MODEL, TEAM_ORDER, commentLine, peopleIndex, rosterOf, recordDate } from './_wikiBuild.js';
 import { splitRoleNote, callName, PASTOR_TITLE, ROLE_TITLE } from '../src/services/aiPeople.js';
-import { STATUS, liveProfile, readAll } from './_lib.js';
+import { STATUS, liveProfile, readAll, geminiFetch } from './_lib.js';
+import { EMBED_MODEL, EMBED_DIM, embedQueryPayload, unitVec } from './ai.js';
+import { plain, serviceLine, serviceText, wikiEvidence } from './_wiki/evidence.js';
+
+export { serviceLine };
 
 // ============================================================================
 // 다붓이에게 물어보기 — api/ai.js의 { ask } 갈래와 아침 크론(다시 묻기 · 자가개선)이 같이 쓴다 (0088 · 16차 · 18차 2회에 다시 지음)
@@ -23,6 +27,8 @@ import { STATUS, liveProfile, readAll } from './_lib.js';
 //   · 회귀 묶음은 dabooti_evals(0091) · 돌리기는 scripts/dabooti-eval.mjs(돈이 든다 — 횟수·비용을 먼저 말한다).
 // 2026-10-12(사용자 결정): 👎 받은 답은 아침 고리가 그대로 다시 답해 굳히지 않는다(reaskUnknown · disputed) · 알려 주는 말은 'told'로 따로 센다 ·
 //   직분(부장·회장·총무·리더순장·리더팀장)과 교역자는 '이름 직함님'(callFor · FULL_SYS) · 저장에 응답 시간·모델(saveAnswer) · 읽기는 한 번에(Promise.all).
+// 20차 ②(사용자 결정 2026-10-12): **검색 모드**(DABOOTI_RETRIEVE=1 · 기본 꺼짐 — pickEvidence) · 단계 신호(onStage → api/ai.js 스트림 → 기다리는 말) ·
+//   사람 줄에 올해 순장(groups) · 비전 메이커('이름 집사님' · 0094) · 내년 직분. 위키 장·주보 근거 글은 api/_wiki/evidence.js(뜻 찾기 조각과 한 벌).
 // 지키는 것(사용자 결정 2026-10-02~05):
 //   · 찾기는 **묻는 사람의 권한으로**(그 사람 세션의 클라이언트 → RLS). 비밀번호 첨부는 이름·자리만, 내용은 싣지 않는다.
 //   · 노트·묵상·비밀 값·기도제목·사람 평가는 코드가 먼저 걸러 모델을 부르지 않는다(wikiCore.prefilter).
@@ -75,12 +81,6 @@ export const cardWho = (teams = [], people = []) => {
   if (people.length) parts.push(`담당자 ${people.join(', ')}`);
   return parts.join(' · ');
 };
-// 주보 근거 줄 — 있는 자리(예배 탭)까지 싣는다. 자리가 없어 '10월 4일 주보는 어디에 있나요?'의 '예배 탭에 있어요'를
-// 검사가 근거 밖 말로 버렸다(2026-10-05 · 아침 다시 묻기에서도 남은 질문).
-export const serviceLine = (s) => {
-  const songs = (Array.isArray(s.songs) ? s.songs : []).map(x => x?.title).filter(Boolean).join(' · ');
-  return `${mdLabel(s.service_date, true)} 주보는 예배 탭에 있어요 · 설교 '${s.title || '미입력'}' · 본문 ${s.passage_ref || '미입력'}${songs ? ` · 찬양 ${songs}` : ''}`;
-};
 // 담당자 이름 — card_assignees(profile_id)가 정본, 없으면 cards.assignees(이름 글자)로(앱 cloudSync.assigneeNames와 같다).
 // 예전에는 cards.assignees를 id로 읽어 담당자가 늘 비었다 — 그 칸은 이름이다('양육비는 누구한테?' · 2026-10-05).
 export const assigneeNamesOf = (c, nameById) => {
@@ -100,17 +100,24 @@ const sentenceFromCard = (c, projName, who = '') => {
 
 // ── 사람(2026-10-04) ─────────────────────────────────────────────────────────
 // 묻는 사람 세션으로 읽는다(RLS) — 승인 · 환송 안 됨 · 합쳐지지 않은 가입자. 교역자는 people.is_pastor도 본다.
-// → { members: [{ name, role, gender, office, teams }], pastors: [이름] } · 못 읽으면 빈 목록(그래도 돈다)
+// → { members: [{ name, role, gender, office, teams }], pastors: [이름], year, suns, staff, next } · 못 읽으면 빈 목록(그래도 돈다)
 // office는 부를 때 쓰는 직분(officeOf · 교역자면 전도사) — 그해 people_roles를 같이 읽는다(2026-10-12).
+// 20차 ②(사용자 결정 2026-10-12): 계정 없는 사람도 사람 줄에 서는 자리가 셋 —
+//   suns  올해 순장(groups.leader_person_id · 순 차례) + role_note가 '순장'인 가입자(겹치면 한 번) — 천진영(콩순)은 role_note가 비어 '순장 명단'에서 빠졌다
+//   staff 비전 메이커처럼 청년도 교역자도 임원진도 아닌 직분(STAFF_ROLES · 그해 people_roles) — '김우한 집사님'
+//   next  내년 직분(people_roles year+1 · '2027 회장') — 올해 직분(office)과 섞지 않는다
 export async function loadRoster(db, year = Number(kstDate(new Date().toISOString()).slice(0, 4))) {
   const must = (r) => r.data || [];
-  const [profiles, pteams, teams, pastors, genders, yearRoles] = await Promise.all([
+  const [profiles, pteams, teams, pastors, genders, yearRoles, everyone, suns, nextRoles] = await Promise.all([
     db.from('profiles').select('id, display_name, team_id, role_note, approved, removed_at, merged_into').then(must),
     db.from('profile_teams').select('profile_id, team_id').then(must),
     db.from('teams').select('id, name').then(must),
     db.from('people').select('name, profile_id, is_pastor, removed_at').eq('is_pastor', true).then(must),
     db.from('people').select('id, profile_id, gender').not('profile_id', 'is', null).then(must),
     db.from('people_roles').select('person_id, role').eq('year', year).then(must),
+    db.from('people').select('id, name, removed_at, profiles:profile_id(display_name)').then(must),
+    db.from('groups').select('name, leader_person_id, position').eq('type', 'sun').eq('year', year).is('removed_at', null).then(must),
+    db.from('people_roles').select('person_id, role').eq('year', year + 1).then(must),
   ]);
   const tn = new Map(teams.map(t => [t.id, t.name]));
   const live = profiles.filter(liveProfile);
@@ -129,16 +136,28 @@ export async function loadRoster(db, year = Number(kstDate(new Date().toISOStrin
       : officeOf(p.role_note, (rolesOf.get(p.id) || []).map(r => r.role)),
     teams: [...new Set([tn.get(p.team_id), ...pteams.filter(x => x.profile_id === p.id).map(x => tn.get(x.team_id))].filter(Boolean))],
   }));
-  return { members, pastors: [...new Set(pastorNames)] };
+  // 계정이 이어진 사람은 계정 표시명(앱 people.withDisplayName · 출석 답과 같다)
+  const person = new Map(everyone.filter(p => !p.removed_at).map(p => [p.id, shownName(p)]));
+  const sunList = [...suns].sort((a, b) => (a.position ?? 1e9) - (b.position ?? 1e9) || byKo(a.name, b.name))
+    .map(g => ({ name: person.get(g.leader_person_id) || '', sun: String(g.name || '').trim() })).filter(s => s.name);
+  for (const m of members) if (splitRoleNote(m.role).titles.includes('순장') && !sunList.some(s => s.name === m.name)) sunList.push({ name: m.name, sun: '' });
+  const staff = yearRoles.filter(r => STAFF_ROLES[r.role] && person.has(r.person_id))
+    .map(r => ({ name: person.get(r.person_id), label: STAFF_ROLES[r.role].label, call: callName(person.get(r.person_id), STAFF_ROLES[r.role].call) }));
+  const next = nextRoles.filter(r => NEXT_LABEL[r.role] && person.has(r.person_id)).map(r => ({ name: person.get(r.person_id), label: NEXT_LABEL[r.role] }));
+  return { members, pastors: [...new Set(pastorNames)], year, suns: sunList, staff, next };
 }
 
 // 직분 — 부를 때 '이름 직함님'이 되는 자리(사용자 결정 2026-10-12 — '신효진 자매'가 아니라 '신효진 부장님').
 // 연도 직분 다섯(부장 · 청년부 회장 · 총무 · 리더순장 · 리더팀장 = aiPeople.ROLE_TITLE)과 같은 글자다.
 // role_note에 그 직함이 있으면 그 글자(role_note가 이긴다 — aiPeople과 같다), 없으면 그해 people_roles.
 // 순장·OO팀장 같은 나머지 직함은 직분이 아니다 — 형제·자매가 먼저다(callFor).
+// 비전 메이커(0094 · 청년부 간사 — 청년도 교역자도 임원진도 아니다)는 '이름 집사님'으로 부른다(사용자 결정 2026-10-12 · 김우한 집사님).
+// 화면 칩 글자는 services/roster.js ROLE_LABEL과 같다(그 파일은 supabase를 물어 서버가 못 부른다 — 바꾸면 둘 다).
+export const STAFF_ROLES = { vision_maker: { label: '비전 메이커', call: '집사' } };
+const NEXT_LABEL = { director: '부장', president: '회장', treasurer: '총무', lead_sunjang: '리더순장', lead_team: '리더팀장', vision_maker: '비전 메이커' };
 const OFFICES = new Set([...Object.values(ROLE_TITLE), '회장'].map(t => t.replace(/\s+/g, '')));
 export function officeOf(roleNote, roles = []) {
-  return splitRoleNote(roleNote).titles.find(t => OFFICES.has(t.replace(/\s+/g, ''))) || roles.map(r => ROLE_TITLE[r]).find(Boolean) || '';
+  return splitRoleNote(roleNote).titles.find(t => OFFICES.has(t.replace(/\s+/g, ''))) || roles.map(r => ROLE_TITLE[r] || STAFF_ROLES[r]?.call).find(Boolean) || '';
 }
 
 // 묻는 팀 — 이름이나 앞말('찬양' · '엔지니어')이 질문에 있으면 그 팀만, 없으면 전부
@@ -190,7 +209,15 @@ export function peopleLines(roster, q) {
   }
   const roles = members.filter(m => String(m.role).trim()).map(m => `${m.name}(${String(m.role).trim()})`);
   if (roles.length) out.push(`워크스페이스 가입자의 직함과 맡은 일은 ${roles.join(', ')}이에요.`);
+  // 순장 · 비전 메이커 · 내년 직분 — 계정이 없어도 명단(people)에 있는 사람(20차 ② · loadRoster 머리말)
+  const { suns = [], staff = [], next = [], year } = roster || {};
+  if (!want.length) {
+    if (suns.length) out.push(`올해${year ? `(${year}년)` : ''} 순장 ${suns.length}명은 ${suns.map(s => (s.sun ? `${s.name}(${s.sun})` : s.name)).join(', ')}이에요.`);
+    for (const s of staff) out.push(`${s.call}은 청년부 ${s.label}(간사)예요. 청년이나 교역자가 아니고 임원진도 아니에요.`);
+    if (next.length && year) out.push(`내년(${year + 1}년) 직분이 정해진 사람은 ${next.map(n => `${n.name}(${year + 1} ${n.label})`).join(', ')}이에요.`);
+  }
   const called = members.filter(m => !want.length || m.teams.some(t => want.includes(t))).map(callFor);
+  if (!want.length) called.push(...staff.filter(s => !members.some(m => m.name === s.name)).map(s => s.call));
   if (called.length) out.push(`한 사람을 부를 때는 ${called.join(', ')}처럼 불러요.`);
   return out;
 }
@@ -424,8 +451,6 @@ export async function splitCompound(q, { key = process.env.GEMINI_API_KEY, log =
 // 문장이 가리킨 기록에 없는 이름·숫자·금액만 버린다(표현이 달라도 버리지 않는다).
 // 한 사람의 기록인 업무(명단·미수료자·출석·연락처)는 싣지 않는다 — 위키와 같다(_wikiBuild PERSONAL_CARD).
 const PERSONAL_TITLE = /미수료|명단|출석|연락처/;
-const plain = (s) => String(s || '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/https?:\/\/\S+/g, '')
-  .replace(/[=*_`>#]+/g, '').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
 
 // 위키 장과 사람이 고친 줄 — collectAll과 알려 주는 말(talkReply)이 같이 읽는다
 const readWiki = async (db) => {
@@ -435,19 +460,6 @@ const readWiki = async (db) => {
   ]);
   return { pages, edits };
 };
-// 위키 장 — 장 하나가 기록 하나(사람이 고친 문장 겹침) → { items: [{ text, cite }], now: 겹친 장들 }
-function wikiEvidence(pages, edits) {
-  const editsBy = Map.groupBy(edits.filter(e => e.page_id !== 'faq'), e => e.page_id);
-  const allPages = [...pages, ...SEED_PAGES.filter(sp => !pages.some(p => p.id === sp.id))].filter(p => p.id !== 'faq');
-  const now = withTeamCards(allPages.map(p => { const pe = editsBy.get(p.id) || []; const o = overlayTitles(p, pe); return { ...o, blocks: overlayEdits(o.blocks, pe) }; }));
-  const items = [];
-  for (const p of now) {
-    const body = (p.blocks || []).map(b => `${b.title ? `${b.title}: ` : ''}${(b.items || []).map(it => `${it.meta?.q ? `(질문 '${it.meta.q}') ` : ''}${it.meta?.team ? `${it.meta.team} ` : ''}${stripBold(it.text)}`).join(' / ')}`).filter(Boolean).join('\n');
-    if (body.trim()) items.push({ text: `[위키 '${p.title}' · 매일 아침 모은 글]\n${body.slice(0, 4000)}`, cite: { t: 'page', id: p.id, label: p.title } });
-  }
-  return { items, now };
-}
-
 // 자주 묻는 질문 장(faq)은 싣지 않는다(2026-10-09) — 남이 물은 질문 글이 들어 있고 마스터만 읽는 장이라, 아침 고리(서버 키)가
 // 읽으면 그 글이 묻는 사람에게 답으로 나갈 수 있었다. 그 장의 답은 어차피 다른 기록에서 왔다.
 // 조회가 실패하면 던진다(예전에는 빈 표로 삼키고 "기록 없음"으로 답했다 — 이제 화면은 '답을 받지 못했어요').
@@ -476,17 +488,18 @@ export async function collectAll(db, today) {
   const ros = rosterOf(profiles, people);
   const cctx = { people: peopleIndex(ros), names: nameById, byId: new Map(comments.map(c => [c.id, c])), mentionNames: ros.flatMap(r => [r.name, r.display]).filter(Boolean) };
   const ev = [];
-  const push = (text, cite = null) => ev.push({ id: `R${ev.length + 1}`, text, cite });
+  // tag — 검색 모드(pickEvidence)가 늘 넣는 기록과 잇는 기록을 고르는 표 · 모델 글에는 안 실린다
+  const push = (text, cite = null, tag = '') => ev.push({ id: `R${ev.length + 1}`, text, cite, tag });
 
   const { thisSun, lastSun, nextSun } = sundaysOf(today);
   const y = Number(today.slice(0, 4));
-  push(`오늘은 ${y}년 ${mdLabel(today, true)}이에요. 올해는 ${y}년, 내년은 ${y + 1}년, 작년은 ${y - 1}년이에요. 이번 주일은 ${mdLabel(thisSun, true)}, 다음 주일은 ${mdLabel(nextSun, true)}, 지난 주일은 ${mdLabel(lastSun, true)}이에요. 오늘 기준 다음 둘째 주 주일은 ${mdLabel(secondSunday(today), true)}이에요.`);
+  push(`오늘은 ${y}년 ${mdLabel(today, true)}이에요. 올해는 ${y}년, 내년은 ${y + 1}년, 작년은 ${y - 1}년이에요. 이번 주일은 ${mdLabel(thisSun, true)}, 다음 주일은 ${mdLabel(nextSun, true)}, 지난 주일은 ${mdLabel(lastSun, true)}이에요. 오늘 기준 다음 둘째 주 주일은 ${mdLabel(secondSunday(today), true)}이에요.`, null, 'today');
   const pl = peopleLines(roster, '');
-  if (pl.length) push(pl.join(' '));
+  if (pl.length) push(pl.join(' '), null, 'people');
 
-  // 위키 장 — 장 하나가 기록 하나(사람이 고친 문장 겹침)
+  // 위키 장 — 장 하나가 기록 하나(사람이 고친 문장 겹침 · api/_wiki/evidence.js — 뜻 찾기 조각과 같은 글)
   const { items: wikiItems, now } = wikiEvidence(pages, edits);
-  for (const w of wikiItems) push(w.text, w.cite);
+  for (const w of wikiItems) push(w.text, w.cite, w.page.grp === '함께 쓰는 글' ? 'shared' : 'wiki');
 
   // 업무 — 기록의 날(회의는 회의 날 · 나머지는 마지막 수정) 오래된 것부터. 늦게 나온 기록이 뒤에 선다.
   const cmtBy = Map.groupBy(comments.map(m => [m.card_id, commentLine(m, cctx)]).filter(([, x]) => x?.line && x.body.length >= 6), ([id]) => id);
@@ -495,21 +508,19 @@ export async function collectAll(db, today) {
     const head = sentenceFromCard(c, projectTitle(p?.name || '', p?.year), cardWho((teamsOf.get(c.id) || []).map(r => r.teams.name), assigneeNamesOf(c, nameById)));
     const subs = (Array.isArray(c.subtasks) ? c.subtasks : []).filter(x => x?.title).map(x => `${x.done ? '[끝]' : '[ ]'} ${plain(x.title)}`);
     const desc = plain(c.description).slice(0, 3000);
-    push([`[업무 기록 · ${mdLabel(recordDate(c), true)}] ${head}`, desc && `상세 내용:\n${desc}`, subs.length && `하위 업무: ${subs.join(', ')}`, ...(cmtBy.get(c.id) || []).map(([, x]) => x.line.slice(0, 300))].filter(Boolean).join('\n'), { t: 'card', id: c.id, label: c.title });
+    push([`[업무 기록 · ${mdLabel(recordDate(c), true)}] ${head}`, desc && `상세 내용:\n${desc}`, subs.length && `하위 업무: ${subs.join(', ')}`, ...(cmtBy.get(c.id) || []).map(([, x]) => x.line.slice(0, 300))].filter(Boolean).join('\n'), { t: 'card', id: c.id, label: c.title }, 'card');
   }
-  // 주보 — 설교 · 찬양 · 광고(광고는 그 주일에 모두에게 알린 정해진 소식)
-  for (const s of services) {
-    const notices = (Array.isArray(s.notices) ? s.notices : []).map(n => [String(n?.title || '').trim(), plain(n?.body).replace(/\n/g, ' ')].filter(Boolean).join(': ')).filter(Boolean);
-    push(`[주보 · ${mdLabel(s.service_date, true)}] ${serviceLine(s)}${notices.length ? `\n광고: ${notices.join(' / ')}` : ''}`, { t: 'service', id: s.id, label: `${mdLabel(s.service_date)} 주보` });
-  }
-  // 파일 자리 — 이름과 자리만(비밀번호 첨부도 내용은 없다)
+  // 주보 — 설교 · 찬양 · 광고(광고는 그 주일에 모두에게 알린 정해진 소식) · 이번 주일까지 발행된 가장 늦은 주보는 'week'(검색 모드가 늘 넣는다)
+  const weekSvc = services.filter(s => s.service_date <= thisSun).at(-1)?.id;
+  for (const s of services) push(serviceText(s), { t: 'service', id: s.id, label: `${mdLabel(s.service_date)} 주보` }, s.id === weekSvc ? 'week' : 'service');
+  // 파일 자리 — 이름과 자리만(비밀번호 첨부도 내용은 없다) · tag는 딸린 업무·주보(검색 모드가 그 업무·주보를 실으면 같이 싣는다)
   for (const f of files.filter(f => !f.service_id || svcById.has(f.service_id)).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))) {
     const s = f.service_id ? svcById.get(f.service_id) : null;
     const place = s ? `${mdLabel(s.service_date)} 주보의 ${f.kind === 'songform' ? '찬양 탭 송폼 칸' : f.kind === 'cuesheet' ? '말씀 탭 큐시트 칸' : '파일 칸'}` : `업무 '${cardById.get(f.card_id)?.title || ''}'의 첨부`;
-    push(`[파일] '${f.name}'은 ${place}에 있어요(${mdLabel(kstDate(f.created_at))} 올라옴${f.view_pw ? ' · 비밀번호 파일' : ''}).`, fileCiteOf(f, cardById, svcById));
+    push(`[파일] '${f.name}'은 ${place}에 있어요(${mdLabel(kstDate(f.created_at))} 올라옴${f.view_pw ? ' · 비밀번호 파일' : ''}).`, fileCiteOf(f, cardById, svcById), `file:${f.service_id || f.card_id}`);
   }
   // QT 본문 — 오늘 · 내일
-  for (const r of qt || []) push(`${r.qt_date === today ? '오늘' : '내일'}(${mdLabel(r.qt_date, true)}) 매일 성경 QT 본문은 ${fullBookRef(r.passage_ref)}이에요. 말씀 탭 QT에서 볼 수 있어요.`, { t: 'page', id: 'qt', label: 'QT' });
+  for (const r of qt || []) push(`${r.qt_date === today ? '오늘' : '내일'}(${mdLabel(r.qt_date, true)}) 매일 성경 QT 본문은 ${fullBookRef(r.passage_ref)}이에요. 말씀 탭 QT에서 볼 수 있어요.`, { t: 'page', id: 'qt', label: 'QT' }, 'qt');
 
   const intro = now.find(p => p.id === 'intro') || { blocks: overlayEdits(SEED_PAGES[0].blocks, []) };
   const teamItems = ((intro.blocks || []).find(b => b.key === 'teams')?.items || []).filter(it => it.meta?.team).map(it => ({ team: it.meta.team, text: it.text }));
@@ -550,6 +561,72 @@ export function checkFull(kept, evidence, hasName) {
   return { kept: ok, dropped };
 }
 
+// ── 검색 모드 (20차 ② · 사용자 결정 2026-10-12 — 속도가 목적 · 기본은 꺼짐) ─────────────────────────
+// 통째 모드는 기록 전부(약 6만 토큰)를 싣는다. 검색 모드는 같은 기록(collectAll — 번호 R…도 그대로)에서 셋을 합쳐 싣는다:
+//   ① 늘 넣는 것 — 오늘 줄 · 사람 줄 · 함께 쓰는 글(더다붓 소개 · 자주 쓰는 말 · 사용법) · 이번 주 주보 · QT · 짝([참고]가 가리킨 기록)
+//   ② 뜻 찾기 — 질문(+앞 질문 둘)을 한 번 임베딩해 match_docs(묻는 사람 세션 · RLS) 가까운 조각 RETRIEVE_K개 → 그 조각의 기록
+//      (업무 · 댓글 · 첨부는 그 업무 · 위키 장 · 주보 — 0096) 가운데 앞에서부터 RETRIEVE_MAX개
+//   ③ 글자 일치 — 질문의 날짜('10월 11일')·이름·드문 낱말이 KEYWORD_DF개 이하의 기록에만 있으면 그 기록(늦은 것부터 KEYWORD_MAX개)
+//   + 실린 업무·주보에 딸린 파일 자리. 순서는 기록 순서 그대로(오래된 것부터 — '늦은 기록이 이긴다'가 그대로 선다).
+// 기록 쪽 임베딩은 크론이 만든다(api/_docsync.js) — 질문 때 임베딩하는 것은 질문 한 번뿐이다.
+export const RETRIEVE_K = 40;
+export const RETRIEVE_MAX = 16;
+export const KEYWORD_DF = 6;
+export const KEYWORD_MAX = 10;
+export const SEARCH_KINDS = ['card', 'comment', 'file', 'wiki', 'service'];
+export const retrieveOn = () => process.env.DABOOTI_RETRIEVE === '1';
+const ALWAYS_TAGS = new Set(['today', 'people', 'shared', 'week', 'qt']);
+
+// 질문 → 단위 벡터(api/ai.js { embed }와 같은 모델·차원·정규화)
+export async function embedQuestion(text, key) {
+  const { r, j } = await geminiFetch(EMBED_MODEL, 'embedContent', embedQueryPayload(text), { key, ms: 8000 });
+  if (!r.ok) throw new Error(`임베딩 HTTP ${r.status}`);
+  const v = j.embedding?.values;
+  if (!Array.isArray(v) || v.length !== EMBED_DIM) throw new Error(`임베딩 차원 ${v?.length}`);
+  return unitVec(v);
+}
+export const matchDocs = (db) => async (vec, k) => {
+  const { data, error } = await db.rpc('match_docs', { q: `[${vec.map(x => x.toFixed(6)).join(',')}]`, k, kinds: SEARCH_KINDS });
+  if (error) throw new Error(`match_docs: ${error.message}`);
+  return data || [];
+};
+
+// 질문의 고유한 말 — 날짜('10월 11일' · 기록은 'M월 D일(요)' 꼴)와 찾을 낱말(termsOf · 이름 포함)
+export function keyTerms(text) {
+  const s = String(text || '');
+  const dates = [...s.matchAll(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/g)].map(m => `${Number(m[1])}월 ${Number(m[2])}일`);
+  return [...new Set([...dates, ...termsOf(s).filter(t => !/^\d+$/.test(t) && !/^\d+[월일]$/.test(t))])];
+}
+
+// 조각 → 그 조각이 가리키는 기록의 열쇠(근거 cite 't:id')
+const hitKeys = (h) => (h.kind === 'wiki' ? [`page:${h.page_id}`] : h.kind === 'service' ? [`service:${h.service_id}`]
+  : [h.card_id && `card:${h.card_id}`, h.file_id && `file:${h.file_id}`].filter(Boolean));
+
+// 기록 전부 → 검색 모드가 싣는 기록(위 ①②③ · 순수 — logcheck가 노드에서 본다)
+export function pickEvidence(evidence, { hits = [], terms = [], pairs = [], max = RETRIEVE_MAX, kwMax = KEYWORD_MAX, df = KEYWORD_DF } = {}) {
+  const keep = new Set();
+  const at = new Map();
+  evidence.forEach((e, i) => { if (e.cite && !at.has(`${e.cite.t}:${e.cite.id}`)) at.set(`${e.cite.t}:${e.cite.id}`, i); if (ALWAYS_TAGS.has(e.tag)) keep.add(i); });
+  for (const c of pairs || []) { const i = at.get(`${c.t}:${c.id}`); if (i != null) keep.add(i); }
+  let n = 0;
+  for (const h of hits || []) {
+    if (n >= max) break;
+    const idx = hitKeys(h).map(k => at.get(k)).filter(i => i != null && !keep.has(i));
+    for (const i of idx) keep.add(i);
+    if (idx.length) n++;
+  }
+  const kw = new Set();
+  for (const t of terms) {
+    const got = evidence.flatMap((e, i) => (!ALWAYS_TAGS.has(e.tag) && e.text.includes(t) ? [i] : []));
+    if (got.length && got.length <= df) got.forEach(i => { if (!keep.has(i)) kw.add(i); });
+  }
+  for (const i of [...kw].sort((a, b) => a - b).slice(-kwMax)) keep.add(i);
+  // 실린 업무·주보에 딸린 파일 자리('파일 어디 있어?' — 파일 이름이 질문에 없어도)
+  const owners = new Set([...keep].map(i => evidence[i].cite).filter(c => c && (c.t === 'card' || c.t === 'service')).map(c => c.id));
+  evidence.forEach((e, i) => { if (String(e.tag).startsWith('file:') && owners.has(e.tag.slice(5))) keep.add(i); });
+  return evidence.filter((_, i) => keep.has(i));
+}
+
 // ── 한 번 답하기 ──────────────────────────────────────────────────────────────
 // → { status: answered|unknown|refused, sentences:[{text, cites}], files:[…], dropped:[…], model, ms, fallback?, prev? }
 // 답 모델은 gemini-3.8-flash(사용자 결정 2026-10-05 · 회귀 묶음 49/49 · 지어냄 0). 25초 넘거나 실패하면 flash-lite로 한 번 더(같은 기록 · 같은 검사).
@@ -559,8 +636,13 @@ const ASK_BUDGET_MS = 25 * 1000;
 // cache: 오늘 같은 답을 다시 쓸지(아침 다시 묻기는 끈다) · model: 회귀 묶음 비교(scripts/dabooti-eval.mjs)에서만 바꾼다
 // hint: 아침 고리가 찾은 기록 · wrong: 👎 받은 앞 답(아침 고리 — 모델에 틀렸다고 알린다)
 // gate: 모델을 부르기 직전에 기다리는 상한 확인(api/ai.js — 참이면 모델 없이 던진다 · e.busy) — 기록 읽기와 같이 돈다(1-d)
-export async function answerQuestion(q, { db, admin = null, prev = '', key = process.env.GEMINI_API_KEY, today = kstDate(new Date().toISOString()), log = null, cache = true, part = false, model = ASK_MODEL, hint = null, wrong = '', gate = null } = {}) {
+// retrieve: 검색 모드(아래 pickEvidence · 기본은 환경변수 DABOOTI_RETRIEVE=1일 때만 — 사용자가 비교표를 보고 정한다) ·
+//   search: (벡터, k) → match_docs 모양 행(회귀 묶음의 --local-index가 바꿔 끼운다 · 기본은 묻는 사람 세션의 match_docs)
+// onStage: 단계 신호 — 'gather'(기록을 모으기 시작) · 'answer'(모델을 부름) · 'fallback'(flash-lite로 넘어감). 모델 없는 갈래
+//   (거르기 · 인사 · 알려 주는 말 · 성경 · 출석 · 생일 · 캐시)는 부르지 않는다 — 화면은 문구 없이 점만(api/ai.js 스트리밍 · 1-c)
+export async function answerQuestion(q, { db, admin = null, prev = '', key = process.env.GEMINI_API_KEY, today = kstDate(new Date().toISOString()), log = null, cache = true, part = false, model = ASK_MODEL, hint = null, wrong = '', gate = null, retrieve = retrieveOn(), search = null, onStage = null } = {}) {
   const t0 = Date.now();
+  const stage = (s) => { try { onStage?.(s); } catch { /* 신호가 실패해도 답은 간다 */ } };
   const beforeModel = async () => { if (gate && await gate) throw Object.assign(new Error('상한'), { busy: true }); };
   const raw = String(q || '').trim().slice(0, 300);
   const pf = prefilter(raw);
@@ -588,11 +670,17 @@ export async function answerQuestion(q, { db, admin = null, prev = '', key = pro
     const hit = await cachedAnswer(admin, question, today).catch(() => null);
     if (hit) return { ...hit, ms: Date.now() - t0 };
   }
-  // 기록 통째로와 같은 질문의 짝(못 찾음 → 짝 · reaskUnknown)은 함께 읽는다(1-d)
-  const [{ evidence, hasName, files, roster, teamItems }, pairs] = await Promise.all([
+  // 기록 통째로와 같은 질문의 짝(못 찾음 → 짝 · reaskUnknown)은 함께 읽는다(1-d) · 검색 모드면 질문 임베딩 → match_docs도 같이
+  // (임베딩·찾기가 실패하면 통째로 — 답이 느려질 뿐 틀리지 않는다)
+  stage('gather');
+  const askText = [raw, ...prevLines.slice(-2)].join('\n');
+  const [{ evidence: everything, hasName, files, roster, teamItems }, pairs, hits] = await Promise.all([
     collectAll(db, today),
     hint || (admin ? pairedCites(admin, question).catch(() => []) : []),
+    retrieve && key ? embedQuestion(askText, key).then(v => (search || matchDocs(db))(v, RETRIEVE_K))
+      .catch(e => { console.error('[dabooti] 검색 실패 — 통째로:', e?.message || e); return null; }) : null,
   ]);
+  const evidence = hits ? pickEvidence(everything, { hits, terms: keyTerms(askText), pairs }) : everything;
   const keep = lines.length ? { prev: lines.join('\n') } : {};
   const unknown = (missing, dropped) => {
     const h = teamHint(question, teamItems, roster);
@@ -605,6 +693,7 @@ export async function answerQuestion(q, { db, admin = null, prev = '', key = pro
   const note = pairIds.length ? `[참고] 같은 질문의 답은 예전에 ${pairIds.join(', ')} 기록에 있었어요.\n` : '';
   const prompt = `[기록]\n${evidence.map(e => `${e.id} ${e.text}`).join('\n\n')}\n\n${convo}${note}${wrongNote(wrong)}[질문] ${raw}`;
   await beforeModel();
+  stage('answer');
   let used = model;
   let out;
   try {
@@ -612,6 +701,7 @@ export async function answerQuestion(q, { db, admin = null, prev = '', key = pro
   } catch (e) {
     if (model === WIKI_MODEL) throw e;
     used = WIKI_MODEL;   // 느리거나 실패하면 flash-lite로(사용자 결정 2026-10-05)
+    stage('fallback');
     out = parseModelJson(await gen(FULL_SYS, prompt, { key, log, call: 'answer-lite', schema: SCHEMA.answer, model: WIKI_MODEL, budgetMs: 20 * 1000 }));
   }
   out = out || {};

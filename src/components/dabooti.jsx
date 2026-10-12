@@ -3,7 +3,7 @@ import { ArrowUp, Lock, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { askDabooti, sendFeedback } from '../services/wiki.js';
 import { imeComposing, coarsePointer } from '../utils.js';
 import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
-import { chipPool, rotateChips, normQ, chatExpired, looksFollowUp } from '../services/wikiCore.js';
+import { chipPool, rotateChips, normQ, chatExpired, looksFollowUp, waitLine } from '../services/wikiCore.js';
 import { fetchMyPerson, fetchGroups, fetchGroupMembers } from '../services/people.js';
 
 // ============================================================================
@@ -195,9 +195,11 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
     const id = `${Date.now()}`;
     const known = follow ? null : memoGet(question);
     if (known) { setChat(c => [...c, { id, q: question, a: known }]); return; }
-    setChat(c => [...c, { id, q: question, loading: true }]);
+    setChat(c => [...c, { id, q: question, loading: true, since: Date.now(), follow: !!prev }]);
     try {
-      const a = await askDabooti(question, prev);
+      // 서버가 흘려보내는 단계(기록 모음 → 답 작성 → flash-lite) — 기다리는 말풍선이 그 단계의 문구를 고른다(wikiCore.waitLine)
+      const onStage = (stage) => setChat(c => c.map(m => (m.id === id && m.loading ? { ...m, stage } : m)));
+      const a = await askDabooti(question, prev, { onStage });
       if (!follow && !a.asked) memoPut(question, a);
       setChat(c => c.map(m => (m.id === id ? { ...m, loading: false, a } : m)));
     } catch (e) {
@@ -329,7 +331,7 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
               <span key={m.react ? `${m.react.v}${m.react.n}` : 'still'} className={`w-[34px] h-[34px] rounded-full overflow-hidden ${fresh(m) ? (m.react.v === 'good' ? 'dab-hop' : 'dab-droop') : ''}`} style={{ background: 'var(--app-hero)' }}><Face size={34} className="bg-transparent" /></span>
               {m.loading ? (
                 <div className="dab-bub-in justify-self-start rounded-[4px_14px_14px_14px] px-3 py-3" style={{ background: 'var(--app-hero)' }} aria-label="다붓이가 답을 찾는 중">
-                  <WaitLine />
+                  <WaitLine stage={m.stage} since={m.since} follow={m.follow} />
                   <span className="dab-dots inline-flex gap-1 align-middle"><span /><span /><span /></span>
                 </div>
               ) : m.err ? (
@@ -356,20 +358,21 @@ const CHIP_EVERY = 4000;
 const CHIP_OUT = 200;   // 바뀌는 칩이 빠지는 시간(.dab-chip-out과 같다)
 // 갸웃 — index.css의 dab-tilt 고리에서 움직이는 마디(78~100%)만 떼어 한 번(1.1초)
 const TILT_FRAMES = [{ transform: 'rotate(0)' }, { transform: 'rotate(-12deg)', offset: 0.27 }, { transform: 'rotate(8deg)', offset: 0.55 }, { transform: 'rotate(-3deg)', offset: 0.77 }, { transform: 'rotate(0)' }];
-// 기다리는 말(사용자 문구 2026-10-05) — 답이 길어지면(근거를 통째로 읽는 3.8 Flash는 5~25초) 1.5초 뒤부터 2.5초마다 바꾸고 마지막 말에 머문다.
-// 모션 최소화면 바꾸지 않고 첫 말만.
-const WAIT_LINES = ['다붓이가 열심히 찾는 중이에요', '업무에 남긴 내용을 확인하는 중이에요', '월례회 내용도 보는 중이에요', '조금만 기다려 주세요', '거의 다 됐어요'];
-function WaitLine() {
-  const [i, setI] = useState(-1);
+// 기다리는 말(사용자 확정 문구 2026-10-12 · 1-c) — 시간으로 돌리던 다섯 줄(2026-10-05)을 **서버의 실제 단계**에 맞췄다.
+// 문구 다섯 줄과 고르는 규칙은 wikiCore(WAIT_LINES · waitLine — logcheck가 본다): 처음 1.5초는 점만 · 기록 모음 → 답 작성 ·
+// 15초 넘음 · flash-lite로 넘어감 · 앞 대화가 있으면 첫 단계 대신 '앞 이야기들과…'. 바로 오는 답(캐시·출석·생일·인사)은 문구 없이 점만.
+// 모션 최소화면 처음 선 말에 머문다(바꾸지 않는다 — 예전 규칙 그대로).
+function WaitLine({ stage = '', since = Date.now(), follow = false }) {
+  const [now, setNow] = useState(() => Date.now());
+  const frozen = useRef('');
   useEffect(() => {
-    const still = prefersReducedMotion();
-    let n = -1; let t;
-    const step = () => { n += 1; setI(n); if (!still && n < WAIT_LINES.length - 1) t = setTimeout(step, 2500); };
-    t = setTimeout(step, 1500);
-    return () => clearTimeout(t);
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
   }, []);
-  if (i < 0) return null;
-  return <span key={i} className="dab-wait mr-1.5 text-[13px] text-fg-muted">{WAIT_LINES[i]}</span>;
+  let line = waitLine(stage, now - since, follow);
+  if (prefersReducedMotion()) { if (!frozen.current) frozen.current = line; line = frozen.current; }
+  if (!line) return null;
+  return <span key={line} className="dab-wait mr-1.5 text-[13px] text-fg-muted">{line}</span>;
 }
 
 function Chip({ text, i, swapped, leaving, onPick }) {

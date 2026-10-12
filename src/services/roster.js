@@ -37,11 +37,13 @@ const COLS = 'id, name, birthday, teams, gender, is_pastor, profile_id, note, re
 // 사라졌다. **권한은 그대로다**: DB의 is_officer()는 그 해 줄이 있는지만 보고 값을 보지
 // 않는다(0035) — 새 값들도 임원과 같은 자리를 맡는다.
 // 팀장 같은 나머지 직함은 지금처럼 role_note 자유 텍스트다.
+// 비전 메이커(vision_maker · 0094 · 2026-10-12 사용자 결정)는 청년부 간사 — 청년도 교역자도 임원진도 아니다. 같은 연도 줄에
+// 두지만 아무 권한도 주지 않는다(has_role은 값을 보고, 줄만 보던 is_officer는 0094가 뺐다). 다붓이는 '이름 집사님'으로 부른다.
 export const ROLE_LABEL = {
   director: '부장', president: '회장', treasurer: '총무',
-  lead_sunjang: '리더순장', lead_team: '리더팀장',
+  lead_sunjang: '리더순장', lead_team: '리더팀장', vision_maker: '비전 메이커',
 };
-export const YEAR_ROLES = ['director', 'president', 'treasurer', 'lead_sunjang', 'lead_team'];
+export const YEAR_ROLES = ['director', 'president', 'treasurer', 'lead_sunjang', 'lead_team', 'vision_maker'];
 export const PASTOR_LABEL = '교역자';
 
 // ── 순수 헬퍼 (브라우저 없이도 검사된다 — tests/roster.mjs 앞부분) ───────────

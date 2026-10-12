@@ -7,6 +7,7 @@ import { readJson, requireApprovedUser, bearer, adminClient, geminiFetch, isTime
 //     { prompt, systemInstruction } → { text }   gemini-3.1-flash-lite (글 만들기)
 //     { embed: '<질문>' }            → { vec }    gemini-embedding-001 (질문 임베딩 · 0073)
 //     { ask: '<질문>', prev? }        → { id, status, sentences, files }   다붓이에게 물어보기(0088 · api/_wikiAsk.js)
+//     { ask, prev?, stream: 1 }       → 단계 줄들(`{"stage":"gather"}` …) + 마지막 줄에 위와 같은 JSON(NDJSON · 20차 ②)
 //     { feedback: { id, v } }         → { ok }     답에 '도움이 됐어요/안 됐어요'(v: good|bad|null)
 //   임베딩을 따로 라우트로 두지 않은 이유: 인증 머리·키·시간 상한이 같고, Vercel 함수가
 //   하나 늘면 vercel.json·dev 서버·tests/push의 다섯 라우트 목록을 같이 고쳐야 한다.
@@ -167,17 +168,43 @@ async function handleAsk(req, body, res) {
   // 넘었으면 모델 없이 멈춘다. 모델 없는 갈래(인사·캐시 등)도 끝난 뒤 같은 값으로 429 — 넘친 물음은 예전처럼 저장하지 않는다.
   const busy = admin.from('dabooti_questions').select('id', { count: 'exact', head: true }).gte('created_at', new Date(Date.now() - 60e3).toISOString())
     .then(r => (r.count || 0) >= ASK_PER_MINUTE, () => false);
-  const tooMany = () => res.status(429).json({ error: '지금 물어보는 사람이 많아요\n잠시 후 다시 물어봐 주세요' });
+  const reply = askReply(res, !!body.stream);
+  const tooMany = () => reply(429, { error: '지금 물어보는 사람이 많아요\n잠시 후 다시 물어봐 주세요' });
   try {
-    const out = await answerQuestion(q, { db: userClient(bearer(req)), admin, prev: typeof body.prev === 'string' ? body.prev : '', gate: busy });
+    const out = await answerQuestion(q, { db: userClient(bearer(req)), admin, prev: typeof body.prev === 'string' ? body.prev : '', gate: busy, onStage: reply.stage });
     if (await busy) { tooMany(); return; }
     const id = await saveAnswer(admin, q, out);
     const { dropped, ...shown } = out;
-    res.status(200).json({ id, ...shown });
+    reply(200, { id, ...shown });
   } catch (e) {
     if (await busy) { tooMany(); return; }
     console.error('[ai] 다붓이 답 실패:', e?.message || e);
     await saveAnswer(admin, q, { status: 'failed', sentences: [], dropped: [] }).catch(() => {});
-    res.status(isTimeout(e) ? 504 : 502).json({ error: '답을 받지 못했어요\n잠시 후 다시 물어봐 주세요' });
+    reply(isTimeout(e) ? 504 : 502, { error: '답을 받지 못했어요\n잠시 후 다시 물어봐 주세요' });
   }
+}
+
+// 다붓이 답의 단계 신호(20차 ② · 사용자 확정 1-c) — { stream: 1 }이면 단계마다 한 줄(`{"stage":"gather"}\n`)을 흘려보내고
+// 마지막 줄에 답(지금과 같은 모양)을 쓴다. 실패도 마지막 줄 `{"error", "status"}`(스트림이 열린 뒤에는 HTTP 코드를 못 바꾼다).
+// 단계 신호가 한 번도 없으면(캐시 · 출석 · 생일 · 인사 · 알려 주는 말 — 바로 오는 답) 스트림을 열지 않고 예전처럼 코드 + JSON 한 번.
+// 앱(services/wiki.js)은 몸통을 줄 단위로 읽고, 스트림을 못 읽는 웹뷰면 끝에 한 번 읽는다(같은 마지막 줄).
+// Vercel Node 함수는 res.write를 그대로 흘려보낸다 — 압축·버퍼링을 막는 머리를 같이 단다.
+export function askReply(res, stream) {
+  let open = false;
+  const reply = (code, body) => {
+    if (!open) { res.status(code).json(body); return; }
+    res.end(`${JSON.stringify(code === 200 ? body : { ...body, status: code })}\n`);
+  };
+  reply.stage = stream ? (s) => {
+    if (!open) {
+      open = true;
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders?.();
+    }
+    res.write(`${JSON.stringify({ stage: s })}\n`);
+  } : null;
+  return reply;
 }

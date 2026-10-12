@@ -218,7 +218,9 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0091_dabooti_evals` | 다붓이 회귀 질문 묶음(`dabooti_evals` · 질문 · 앞 대화 · 기대 결과 · 꼭/나오면 안 되는 말 · 마지막 결과) — 정책 없음(서버만 · 실명이 있어 레포 밖) · `scripts/dabooti-eval.mjs` |
 | `0092_project_visibility` | 리더만 보는 프로젝트 — `projects.visibility`(all · leaders) · 함수 `is_leader`·`can_see_project`·`can_see_card`·`hidden_ids`(정책이 질의마다 한 번)·`leader_profile_ids` · 업무·댓글·첨부(업무 갈래)·활동·담당·링크·반응·같이 쓰기·doc_vec·같이 쓰기 채널·레거시 첨부 버킷 정책을 `alter`로 조임(정책 수 그대로) · 보호 트리거 둘(비리더는 visibility·업무 옮기기 되돌림) | ✅ |
 | `0093_meeting_files` | 동아리 모임 활동 보고서 — `files.meeting_id`(모임을 지우면 같이 · 주인은 업무·주보·모임 셋 중 하나 CHECK) · `group_meetings.drive_folder_id` · 함수 `can_edit_meeting`(관리자 또는 그 동아리장 — 0035와 같은 식) · files 모임 갈래 정책(읽기 승인 전원 · 쓰기 permissive 하나 + restrictive 셋 — 기존 정책 넷은 그대로) | ✅ |
+| `0094_vision_maker` | 직분 '비전 메이커'(`people_roles.role` `vision_maker` — 청년부 간사 · 임원진 아님 · `is_officer()`에서 뺀다) · 데이터(김우한 집사님 명단 줄·직분·위키 '자주 쓰는 말')는 레포 밖 SQL | ✅ |
 | `0095_drop_bible_reads` | 0080 걷음(사용자 결정 2026-10-12) — `bible_reads` 표 · `bible_state.share_reads` 칸을 지운다. 되돌리기는 0080을 다시 돌린다 | ✅ |
+| `0096_doc_vec_wiki_service` | 다붓이 검색 모드(`DABOOTI_RETRIEVE`) 근거 — `doc_vec`에 위키 장(`page_id` · faq 제외)·발행 주보(`service_id`) 종류 · `source_id` text 생성 칸 · `match_docs`에 kinds(없으면 옛 세 종류만) | ✅ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.

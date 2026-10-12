@@ -47,15 +47,16 @@ check('생일 형식이 DB 체크와 같은 식', R.MMDD.source === dbRe, `${R.M
 
 // 직분 값이 DB(0043의 role 체크)와 **같은 집합**이어야 한다 — 화면에만 있는 값은
 // 저장이 조용히 막히고, DB에만 있는 값은 배지가 안 붙는다.
-const roleSql = readFileSync(new URL('supabase/migrations/0043_people_roles_split.sql', ROOT), 'utf8');
+// 0094가 비전 메이커(vision_maker)를 더했다 — 가장 늦은 CHECK를 본다
+const roleSql = readFileSync(new URL('supabase/migrations/0094_vision_maker.sql', ROOT), 'utf8');
 const dbRoles = [...(/add constraint people_roles_role_check\s*\n?\s*check \(role in \(([^)]+)\)\)/.exec(roleSql) || [, ''])[1]
   .matchAll(/'([a-z_]+)'/g)].map(m => m[1]);
 check('직분 값이 DB 체크와 같은 집합',
   [...R.YEAR_ROLES].sort().join(',') === [...dbRoles].sort().join(','),
   `${R.YEAR_ROLES.join(',')} / ${dbRoles.join(',')}`);
-check('직분 라벨 여섯 — 교역자·부장·회장·총무·리더순장·리더팀장',
+check('직분 라벨 일곱 — 교역자·부장·회장·총무·리더순장·리더팀장·비전 메이커',
   R.PASTOR_LABEL === '교역자'
-  && R.YEAR_ROLES.map(r => R.ROLE_LABEL[r]).join('·') === '부장·회장·총무·리더순장·리더팀장',
+  && R.YEAR_ROLES.map(r => R.ROLE_LABEL[r]).join('·') === '부장·회장·총무·리더순장·리더팀장·비전 메이커',
   R.YEAR_ROLES.map(r => R.ROLE_LABEL[r]).join('·'));
 check("'임원'은 더 이상 없다(0043이 부장·총무·리더팀장으로 갈랐다)",
   !('officer' in R.ROLE_LABEL) && !dbRoles.includes('officer'), JSON.stringify(dbRoles));
@@ -458,9 +459,9 @@ const panel = await ev(`(() => {
   return { chips, labels, farewell: btns.indexOf('환송해주기'), save: btns.indexOf('저장'),
            cancel: btns.indexOf('취소') };
 })()`);
-check('직분 칩이 교역자·부장·회장·총무·리더순장·리더팀장 한 줄',
-  JSON.stringify((panel.chips || []).slice(-6))
-    === JSON.stringify(['교역자', '부장', '회장', '총무', '리더순장', '리더팀장']),
+check('직분 칩이 교역자·부장·회장·총무·리더순장·리더팀장·비전 메이커 한 줄',
+  JSON.stringify((panel.chips || []).slice(-7))
+    === JSON.stringify(['교역자', '부장', '회장', '총무', '리더순장', '리더팀장', '비전 메이커']),
   JSON.stringify(panel.chips));
 check('이름·생일·메모가 한 줄에 셋', JSON.stringify(panel.labels) === '["이름","생일","메모"]',
   JSON.stringify(panel.labels));

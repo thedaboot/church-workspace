@@ -96,6 +96,7 @@ const BADGE_STYLE = {
   [ROLE_LABEL.treasurer]: 'bg-tag-blue text-tag-blue-fg',
   [ROLE_LABEL.lead_sunjang]: 'bg-tag-purple text-tag-purple-fg',
   [ROLE_LABEL.lead_team]: 'bg-tag-green text-tag-green-fg',
+  [ROLE_LABEL.vision_maker]: 'bg-tag-brown text-tag-brown-fg',
 };
 
 // 성별 칩도 같은 토큰 표를 쓴다. 자매의 pink는 직분 배지가 안 쓰는 색이고, 형제의 blue는

@@ -918,3 +918,35 @@ export function rotateChips({ slots, turn, next }, size) {
   return { slots: out, turn: (turn + 1) % slots.length, next: (n + 1) % size };
 }
 export const chatExpired = (hiddenAt, now) => hiddenAt != null && now - hiddenAt >= CHAT_IDLE_MS;
+
+// ── 기다리는 말 (사용자 확정 문구 2026-10-12 · 1-c) ───────────────────────────────
+// 서버가 흘려보내는 실제 단계(api/ai.js { stream } · _wikiAsk onStage)에 맞춘 다섯 줄 — 문구는 사용자가 정한 그대로.
+// 처음 1.5초는 점만(예전과 같다). 단계 신호가 없으면(캐시 · 출석 · 생일 · 인사 · 알려 주는 말처럼 바로 오는 답) 문구 없이 점만 —
+// 단 15초가 넘으면 신호가 없어도(스트림을 못 읽는 웹뷰) '조금 더 살펴볼게요'. flash-lite로 넘어가면 그 줄이 가장 앞선다.
+export const WAIT_LINES = {
+  gather: '업무를 살펴보고 있어요',              // 기록을 모으는 동안
+  follow: '앞 이야기들과 연관지어 살펴볼게요',   // 앞 대화가 있을 때 첫 단계 대신
+  answer: '답변을 작성 중이에요',                // 모델이 답하는 동안
+  slow: '조금 더 살펴볼게요',                    // 15초 넘음
+  fallback: '다른 방법으로 찾아볼게요',          // 25초 넘어 flash-lite로
+};
+export const WAIT_QUIET_MS = 1500;
+export const WAIT_SLOW_MS = 15000;
+// stage: 마지막으로 받은 단계('' · gather · answer · fallback) · ms: 물은 뒤 지난 시간 · follow: 앞 대화를 같이 보냈다
+export function waitLine(stage, ms, follow = false) {
+  if (ms < WAIT_QUIET_MS) return '';
+  if (stage === 'fallback') return WAIT_LINES.fallback;
+  if (ms >= WAIT_SLOW_MS) return WAIT_LINES.slow;
+  if (stage === 'answer') return WAIT_LINES.answer;
+  if (stage === 'gather') return follow ? WAIT_LINES.follow : WAIT_LINES.gather;
+  return '';
+}
+// 스트리밍 몸통(줄마다 JSON · api/ai.js askReply) → 다 받은 줄들 + 남은 끝 조각(다음 조각에 잇는다). 못 읽는 줄은 버린다.
+export function askLines(buf) {
+  const parts = String(buf).split('\n');
+  const rest = parts.pop();
+  const items = [];
+  for (const s of parts) { if (!s.trim()) continue; try { items.push(JSON.parse(s)); } catch { /* 깨진 줄 */ } }
+  return { items, rest };
+}
+export const isStageLine = (o) => !!o && typeof o.stage === 'string' && Object.keys(o).length === 1;

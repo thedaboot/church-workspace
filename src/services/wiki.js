@@ -1,6 +1,6 @@
 import { supabase } from './supabaseClient.js';
 import { accessToken, authedPost } from './cloud/core.js';
-import { SEED_PAGES, prefilter, NOT_FOUND } from './wikiCore.js';
+import { SEED_PAGES, prefilter, NOT_FOUND, askLines, isStageLine } from './wikiCore.js';
 
 // ============================================================================
 // 위키 · 다붓이 — 화면 쪽 읽기·쓰기 (0088 · 16차). 그리는 규칙은 wikiCore.js(순수)에 있다.
@@ -50,7 +50,9 @@ export async function saveWikiEdits(rows) {
 }
 
 // → { id, status, sentences:[{text, cites}], files:[…] } · 실패는 던진다(err.human = 화면 글)
-export async function askDabooti(q, prev = '') {
+// onStage(stage) — 서버가 흘려보내는 단계('gather' · 'answer' · 'fallback' · 20차 ②). 몸통을 줄 단위로 읽고, 스트림을 못 읽는
+// 웹뷰(body.getReader 없음)면 끝에 한 번 읽는다 — 마지막 줄은 같은 답이라 예전처럼 돈다(단계 문구만 없다). 55초 끊기는 그대로.
+export async function askDabooti(q, prev = '', { onStage } = {}) {
   const pf = prefilter(q);
   // 검사(tests/wiki)가 게스트에 답 하나를 넣는 자리 — 👍/👎·파일 카드를 그려 보려고(클라우드에서는 보지 않는다)
   if (!supabase && !pf && typeof window !== 'undefined' && window.__dabootiAnswer) return { ...window.__dabootiAnswer };
@@ -60,9 +62,26 @@ export async function askDabooti(q, prev = '') {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 55 * 1000);
   try {
-    const r = await authedPost('/api/ai', { ask: q, prev }, { token, signal: ctl.signal });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) { const err = new Error(j.error || `HTTP ${r.status}`); err.human = j.error || '답을 받지 못했어요\n잠시 후 다시 물어봐 주세요'; throw err; }
+    const r = await authedPost('/api/ai', { ask: q, prev, stream: 1 }, { token, signal: ctl.signal });
+    let j = {};
+    const take = (o) => { if (isStageLine(o)) onStage?.(o.stage); else if (o && typeof o === 'object') j = o; };
+    const reader = r.ok && typeof TextDecoder !== 'undefined' ? r.body?.getReader?.() : null;
+    if (reader) {
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const got = askLines(buf + dec.decode(value, { stream: true }));
+        buf = got.rest;
+        got.items.forEach(take);
+      }
+      askLines(`${buf}${dec.decode()}\n`).items.forEach(take);
+    } else {
+      askLines(`${await r.text().catch(() => '')}\n`).items.forEach(take);
+    }
+    // 스트림이 열린 뒤의 실패는 마지막 줄의 error(HTTP 코드는 200)
+    if (!r.ok || j.error) { const err = new Error(j.error || `HTTP ${r.status}`); err.human = j.error || '답을 받지 못했어요\n잠시 후 다시 물어봐 주세요'; throw err; }
     return j;
   } catch (e) {
     if (e?.name === 'AbortError') { const err = new Error('timeout'); err.human = '답이 제때 오지 않았어요\n잠시 후 다시 물어봐 주세요'; throw err; }

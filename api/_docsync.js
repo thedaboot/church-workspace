@@ -1,5 +1,7 @@
 import { EMBED_MODEL, EMBED_DIM, unitVec } from './ai.js';
 import { sha256, geminiFetch, isTimeout } from './_lib.js';
+import { mdLabel } from '../src/services/wikiCore.js';
+import { wikiEvidence, pageBody, serviceText } from './_wiki/evidence.js';
 
 // ============================================================================
 // 업무·댓글·첨부 → doc_vec(0074) 증분 동기화 — 크론과 스크립트가 같이 쓰는 한 벌 (배치 E4)
@@ -19,6 +21,10 @@ import { sha256, geminiFetch, isTimeout } from './_lib.js';
 //
 // 넣지 않는 것: 주보에 딸린 첨부(service_id — 작성 중 주보의 파일은 편집자만 본다) · 발췌가 빈
 // 첨부 · 개인 표(service_notes·qt_entries — 공유 규칙이 사람마다 다르다). 이유는 0074 머리말.
+//
+// 20차 ②(2026-10-12 · 0096): 다붓이 검색 모드(api/_wikiAsk.js DABOOTI_RETRIEVE)가 근거를 좁히려고 **위키 장**(wiki · 자주 묻는
+// 질문 장은 빼고 · 사람이 고친 글 겹침)과 **발행된 주보**(service · 설교·찬양·광고 + 딸린 파일 이름 — 발췌는 안 싣는다)를 더했다.
+// 글은 다붓이가 모델에 싣는 기록과 같은 글이다(api/_wiki/evidence.js). 0096 전이면(page_id 칸이 없다) 두 종류는 건너뛴다.
 // ============================================================================
 
 export const TASK_TYPE = 'RETRIEVAL_DOCUMENT';
@@ -26,7 +32,8 @@ export const EMBED_BATCH = 100;        // batchEmbedContents 한 번의 상한
 export const UPSERT_BATCH = 100;       // 한 번 임베딩한 묶음을 바로 쓴다(시간이 끊겨도 한 일은 남는다)
 export const CHUNK_MAX = 1200;         // 조각 본문 글자 상한(머리줄 제외)
 export const CHUNK_OVERLAP = 150;      // 앞 조각 끝을 다음 조각 앞에 이만큼까지 겹친다
-export const KINDS = ['card', 'comment', 'file'];
+export const NEW_KINDS = ['wiki', 'service'];   // 0096 — 원본 칸은 page_id(text) · service_id
+export const KINDS = ['card', 'comment', 'file', ...NEW_KINDS];
 export const PRICE_PER_M_TOKENS = 0.15;   // gemini-embedding-001 입력 1M 토큰당(scripts/embed-bible.mjs와 같은 값)
 
 // ── 글 만들기 (순수 함수 — tests/logcheck가 노드에서 부른다) ─────────────────
@@ -114,6 +121,7 @@ export function chunkText(text, max = CHUNK_MAX, overlap = CHUNK_OVERLAP) {
 
 // 한 원본 → 조각 행들(벡터 없이). 머리줄은 조각마다 붙는다 — 조각 하나만 걸려도 어느 업무인지 안다.
 // 본문이 비면 머리줄만으로 한 조각(업무 제목만으로도 찾을 수 있게).
+// 새 종류(위키 장 · 주보)만 page_id · service_id를 단다 — 옛 세 종류의 행 모양은 그대로(0096 전에도 upsert가 돈다).
 function rowsFor(kind, sourceId, projectId, header, body) {
   const parts = chunkText(body);
   const texts = parts.length ? parts.map(p => `${header}\n${p}`) : [header];
@@ -122,6 +130,7 @@ function rowsFor(kind, sourceId, projectId, header, body) {
     card_id: kind === 'card' ? sourceId : null,
     comment_id: kind === 'comment' ? sourceId : null,
     file_id: kind === 'file' ? sourceId : null,
+    ...(kind === 'wiki' ? { page_id: sourceId } : kind === 'service' ? { service_id: sourceId } : {}),
     source_id: sourceId,
     project_id: projectId || null,
     chunk,
@@ -132,11 +141,13 @@ function rowsFor(kind, sourceId, projectId, header, body) {
 
 const clean1 = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
-// 원본 넷 → 넣어야 할 조각 전부. kinds를 주면 그 종류만. **updated_at은 보지 않는다**(해시가 열쇠).
+// 원본 → 넣어야 할 조각 전부. kinds를 주면 그 종류만. **updated_at은 보지 않는다**(해시가 열쇠).
 //   card    '프로젝트명 / 업무 제목' + 본문
 //   comment '업무 제목 · 댓글: 본문'
 //   file    '업무 제목 · 첨부: 파일명' + 발췌   — 업무에 달린 것 · 발췌가 있는 것만
-export function buildDocs({ projects = [], cards = [], comments = [], files = [] }, kinds = KINDS) {
+//   wiki    "위키 '장 제목'" + 장 글(다붓이 근거와 같은 글)   — DB에 있는 장만(FK) · 자주 묻는 질문 장은 빼고
+//   service 'M월 D일(요) 주보' + 설교·찬양·광고 + 첨부 이름   — 발행된 주보만(services_select와 같은 범위)
+export function buildDocs({ projects = [], cards = [], comments = [], files = [], pages = [], edits = [], services = [], serviceFiles = [] }, kinds = KINDS) {
   const want = new Set(kinds);
   const projName = new Map(projects.map(p => [p.id, clean1(p.name)]));
   const cardById = new Map(cards.map(c => [c.id, c]));
@@ -170,6 +181,19 @@ export function buildDocs({ projects = [], cards = [], comments = [], files = []
       if (!card || !excerpt) continue;
       const header = `${clean1(card.title)} · 첨부: ${clean1(f.name)}`;
       out.push(...rowsFor('file', f.id, card.project_id, header, excerpt));
+    }
+  }
+  if (want.has('wiki')) {
+    const stored = new Set(pages.map(p => p.id));
+    for (const { page } of wikiEvidence(pages, edits).items) {
+      if (stored.has(page.id)) out.push(...rowsFor('wiki', page.id, null, `위키 '${clean1(page.title)}'`, pageBody(page)));
+    }
+  }
+  if (want.has('service')) {
+    const filesOf = Map.groupBy(serviceFiles.filter(f => f.service_id && f.name), f => f.service_id);
+    for (const s of services.filter(s => s.status === 'published')) {
+      const names = (filesOf.get(s.id) || []).map(f => clean1(f.name));
+      out.push(...rowsFor('service', s.id, null, `${mdLabel(s.service_date, true)} 주보`, `${serviceText(s)}${names.length ? `\n첨부: ${names.join(', ')}` : ''}`));
     }
   }
   return out;
@@ -215,7 +239,8 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // texts(최대 100) → 단위 길이 벡터 배열. deadline(ms 시각)을 넘길 요청은 끊는다.
 // 429·5xx는 **남은 시간 안에서만** 한 번 더 — 크론이 기다리다 함수 시간 제한에 죽지 않게.
-async function embedTexts(texts, key, { deadline = Infinity, tries = 3 } = {}) {
+// 내보내는 것은 다붓이 회귀 묶음(scripts/dabooti-eval.mjs --local-index)이 DB에 쓰지 않고 같은 조각을 재 보려는 것이다.
+export async function embedTexts(texts, key, { deadline = Infinity, tries = 3 } = {}) {
   for (let i = 1; ; i++) {
     const left = deadline - Date.now();
     if (left < 3000) throw Object.assign(new Error('시간 예산이 다 됐다'), { budget: true });
@@ -250,28 +275,35 @@ async function embedTexts(texts, key, { deadline = Infinity, tries = 3 } = {}) {
 // ── DB ──────────────────────────────────────────────────────────────────────
 
 // PostgREST 기본 상한(1000행)을 넘어 끝까지 읽는다
-async function readAll(db, table, columns, where = (q) => q) {
+async function readAll(db, table, columns, where = (q) => q, orderBy = ['id']) {
   const out = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await where(db.from(table).select(columns)).order('id').range(from, from + 999);
+    const { data, error } = await orderBy.reduce((q, col) => q.order(col), where(db.from(table).select(columns))).range(from, from + 999);
     if (error) throw Object.assign(new Error(`${table} 읽기 실패: ${error.code || ''} ${error.message}`), { pg: error });
     out.push(...data);
     if (data.length < 1000) return out;
   }
 }
 
-async function loadSources(db, kinds = KINDS) {
+export async function loadSources(db, kinds = KINDS) {
   const want = new Set(kinds);
-  const [projects, cards, comments, files] = await Promise.all([
+  const [projects, cards, comments, files, pages, edits, services, serviceFiles] = await Promise.all([
     readAll(db, 'projects', 'id, name'),
     readAll(db, 'cards', 'id, project_id, title, description'),
     want.has('comment') ? readAll(db, 'comments', 'id, card_id, body') : [],
     want.has('file') ? readAll(db, 'files', 'id, card_id, service_id, name, text_excerpt', q => q.not('card_id', 'is', null)) : [],
+    want.has('wiki') ? readAll(db, 'wiki_pages', 'id, grp, title, kind, blocks') : [],
+    // wiki_edits에는 id 칸이 없다 — (page_id, item_key)로 차례를 세운다
+    want.has('wiki') ? readAll(db, 'wiki_edits', 'page_id, item_key, block_key, text, before, edited_by, edited_at', q => q, ['page_id', 'item_key']) : [],
+    want.has('service') ? readAll(db, 'services', 'id, service_date, title, passage_ref, songs, notices, status', q => q.eq('status', 'published')) : [],
+    want.has('service') ? readAll(db, 'files', 'id, service_id, name', q => q.not('service_id', 'is', null)) : [],
   ]);
-  return { projects, cards, comments, files };
+  return { projects, cards, comments, files, pages, edits, services, serviceFiles };
 }
 
 const isMissingTable = (e) => ['42P01', 'PGRST205'].includes(e?.pg?.code);
+// 0096 전 — doc_vec에 page_id 칸이 없다(PostgREST는 42703 또는 PGRST204로 답한다)
+const isMissingColumn = (e) => ['42703', 'PGRST204'].includes(e?.pg?.code);
 
 // ── 동기화 ──────────────────────────────────────────────────────────────────
 // db는 **서버 키 클라이언트**여야 한다(doc_vec에 클라이언트 쓰기 권한이 없다).
@@ -281,17 +313,24 @@ const isMissingTable = (e) => ['42P01', 'PGRST205'].includes(e?.pg?.code);
 export async function syncDocVectors(db, { geminiKey, budgetMs = 40000, dryRun = false, kinds = KINDS, log = () => {} } = {}) {
   const t0 = Date.now();
   const deadline = t0 + budgetMs;
-  const src = await loadSources(db, kinds);
-  const docs = buildDocs(src, kinds);
 
+  // 있는 행을 먼저 읽는다 — 0096 전(page_id 칸 없음)이면 새 종류를 빼고 돈다(마이그레이션이 늦어도 업무 임베딩은 그대로)
   let existing = [];
   let missingTable = false;
+  let newCols = true;
   try {
-    existing = await readAll(db, 'doc_vec', 'id, kind, source_id, chunk, body_hash, project_id');
+    existing = await readAll(db, 'doc_vec', 'id, kind, source_id, chunk, body_hash, project_id, page_id');
   } catch (e) {
-    if (!(dryRun && isMissingTable(e))) throw e;
-    missingTable = true;
+    if (isMissingColumn(e)) {
+      newCols = false;
+      kinds = kinds.filter(k => !NEW_KINDS.includes(k));
+      log('[docsync] doc_vec에 page_id가 없다(0096 전) — 위키 장·주보는 건너뛴다');
+      existing = await readAll(db, 'doc_vec', 'id, kind, source_id, chunk, body_hash, project_id');
+    } else if (dryRun && isMissingTable(e)) missingTable = true;
+    else throw e;
   }
+  const src = await loadSources(db, kinds);
+  const docs = buildDocs(src, kinds);
   const plan = planSync(docs, existing, kinds);
 
   const byKind = {};
@@ -344,6 +383,7 @@ export async function syncDocVectors(db, { geminiKey, budgetMs = 40000, dryRun =
     const now = new Date().toISOString();
     const rows = batch.map((d, n) => ({
       kind: d.kind, card_id: d.card_id, comment_id: d.comment_id, file_id: d.file_id,
+      ...(newCols ? { page_id: d.page_id ?? null, service_id: d.service_id ?? null } : {}),
       project_id: d.project_id, chunk: d.chunk, body: d.body, body_hash: d.body_hash,
       vec: vecLiteral(vecs[n]), updated_at: now,
     }));
