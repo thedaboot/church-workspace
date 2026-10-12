@@ -30,8 +30,10 @@ writeFileSync(file, patched);
 const wsrc = readFileSync(`${ROOT}/src/services/wikiContext.js`, 'utf8');
 const wpatched = wsrc
   .replace(/import \{ loadWiki \} from '\.\/wiki\.js';/, "const loadWiki = async () => (typeof globalThis.__WIKI === 'function' ? globalThis.__WIKI() : globalThis.__WIKI);")
-  .replace(/from '\.\/wikiCore\.js';/, `from '${pathToFileURL(`${ROOT}/src/services/wikiCore.js`).href}';`);
-if (wpatched.includes("'./wiki.js'") || wpatched.includes("'./wikiCore.js'") || !patched.includes("'./wikiContext.mjs'")) { console.log('FAIL  wikiContext import 줄을 못 바꿨어요'); process.exit(1); }
+  .replace(/from '\.\/wikiCore\.js';/, `from '${pathToFileURL(`${ROOT}/src/services/wikiCore.js`).href}';`)
+  // 보이는 업무는 스토어에서(20차 ⑦) — ai.js와 같은 가짜 스토어(__STATE)
+  .replace(/import \{ store \} from '\.\.\/store\/workspaceStore\.js';/, 'const store = { getState: () => globalThis.__STATE };');
+if (wpatched.includes("'./wiki.js'") || wpatched.includes("'./wikiCore.js'") || wpatched.includes('workspaceStore') || !patched.includes("'./wikiContext.mjs'")) { console.log('FAIL  wikiContext import 줄을 못 바꿨어요'); process.exit(1); }
 writeFileSync(join(dir, 'wikiContext.mjs'), wpatched);
 
 const mk = (id, title, teams, status, sd, dd, assignees, projectId = 'p1') => ({ id, projectId, title, teams, status,
@@ -603,7 +605,8 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
       // 팀 장의 소개 줄은 함께 쓰는 글 초안을 베낀 것 — 마스터가 초안을 고치면 이 옛 글은 안 실린다
       { key: 'about', type: 'plain', items: [{ key: 'about1', by: 'code', text: '싱어와 연주자가 함께해요. 콘티와 송폼을 만들고 리허설을 해요.' }] },
       { key: 'c:t0', type: 'section', title: '찬양 콘티 결정', meta: { cardId: 't0' }, items: [{ key: 'c:t0:a', by: 'model', text: '콘티 결정 업무 자체를 줄인 문장이에요.' }] },
-      { key: 'c:x1', type: 'section', title: '송폼 공유', meta: { cardId: 'x1', date: '2026-09-25' }, items: [{ key: 'c:x1:a', by: 'human', text: '송폼은 인도자가 **목요일 저녁**에 단톡방에 올려요.' }, { key: 'c:x1:b', by: 'model', text: '송폼 목요일 콘티 크론요약줄이에요.' }] },
+      // 블록이 가리키는 업무는 스토어(__STATE)에 있는 것 — 없는 업무의 블록은 wikiContextFor가 뺀다(20차 ⑦ · 아래 블록)
+      { key: 'c:t1', type: 'section', title: '송폼 공유', meta: { cardId: 't1', date: '2026-09-25' }, items: [{ key: 'c:t1:a', by: 'human', text: '송폼은 인도자가 **목요일 저녁**에 단톡방에 올려요.' }, { key: 'c:t1:b', by: 'model', text: '송폼 목요일 콘티 크론요약줄이에요.' }] },
       { key: 'together', type: 'chips', items: [{ key: 't:x', by: 'code', text: '칩으로만 선 콘티 업무 제목' }] },
       { key: 'gap', type: 'gap', items: [{ key: 'g:x', by: 'code', text: '기록 전인 콘티 업무 제목' }] },
     ] },
@@ -645,6 +648,29 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
   check('위키 맥락: 글자 수 상한을 지킨다', short.length > 0 && short.length <= 150, `${short.length}자`);
   check('위키 맥락: 장 차례가 달라도 같은 줄(결정적)', W.pickWikiContext(q0, { pages: [...PAGES].reverse(), edits: [...EDITS].reverse(), teams: ['워십팀', '찬양팀'], exclude: ['c:t0'] }) === out);
   check('위키 맥락: 위키가 비면 빈 글', pick('', { pages: [] }) === '' && W.wikiBlock('') === '');
+
+  // 20차 ⑦ — 안 보이는 업무(리더 프로젝트 · 스토어에 없다)를 가리키는 블록은 마스터가 고친 줄째 안 실린다.
+  // 같은 장의 보이는 업무 블록은 그대로. 되돌리기: wikiRows의 hideUnseenBlocks를 빼면 '거른다'가,
+  // 겹치기 전에 거르면(고친 줄이 보이는 블록 끝으로 옮겨 붙는다) '고친 줄째'가, wikiContextFor의 스토어 cards를 빼면 '스토어 기준'이 깨진다.
+  const LPAGES = [...PAGES, { id: 'p:mt', grp: '행사', title: '리더 가을 MT', kind: 'auto', position: 0, updated_at: '2026-10-02T00:00:00Z', blocks: [
+    { key: 'c:tL', type: 'section', title: '숙소 계약', meta: { cardId: 'tL' }, items: [{ key: 'c:tL:a', by: 'human', text: '숙소는 가평 풀빌라로 마스터가 적었어요.' }] },
+    { key: 'c:t2', type: 'section', title: '사운드 체크', meta: { cardId: 't2' }, items: [{ key: 'c:t2:a', by: 'human', text: '풀빌라 사운드 체크는 공개된 줄이에요.' }] },
+  ] }];
+  const LEDITS = [...EDITS, { page_id: 'p:mt', item_key: 'c:tL:gone', block_key: 'c:tL', text: '풀빌라 리더가고친줄이에요.', before: '옛 글', edited_at: '2026-10-03T03:00:00Z' }];
+  const seen = new Set(globalThis.__STATE.tasks.allIds);
+  const lq = '풀빌라 숙소 사운드';
+  const open = W.pickWikiContext(lq, { pages: LPAGES, edits: LEDITS });
+  check('위키 맥락 ⑦: 거르지 않으면(cards 없음) 그 줄이 실린다', open.includes('가평 풀빌라') && open.includes('리더가고친줄'), open.replace(/\n/g, ' / '));
+  const shut = W.pickWikiContext(lq, { pages: LPAGES, edits: LEDITS, cards: seen });
+  check('위키 맥락 ⑦: 안 보이는 업무 블록은 고친 줄째 안 실린다 · 보이는 블록은 그대로', !shut.includes('가평 풀빌라') && !shut.includes('리더가고친줄') && shut.includes('공개된 줄'), shut.replace(/\n/g, ' / '));
+  W.setWikiMemo({ pages: LPAGES, edits: LEDITS });
+  const viaStore = await W.wikiContextFor(lq);
+  check('위키 맥락 ⑦: wikiContextFor는 스토어의 업무 기준', viaStore.includes('공개된 줄') && !viaStore.includes('가평 풀빌라') && !viaStore.includes('리더가고친줄'), viaStore.replace(/\n/g, ' / '));
+  globalThis.__STATE.tasks.allIds.push('tL');
+  const asLeader = await W.wikiContextFor(lq);
+  globalThis.__STATE.tasks.allIds.pop();
+  check('위키 맥락 ⑦: 그 업무가 스토어에 있으면(리더) 실린다', asLeader.includes('가평 풀빌라') && asLeader.includes('리더가고친줄'), asLeader.replace(/\n/g, ' / '));
+  W.setWikiMemo(null);
 
   // 읽기 — 실패와 늦음은 빈 글이다(상수만으로 돈다). 되돌리기: startLoad의 catch와 wikiContextFor의 try를 같이 빼면 깨진다
   W.setWikiMemo(null);

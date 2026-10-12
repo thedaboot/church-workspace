@@ -232,6 +232,38 @@ export function withTeamCards(pages) {
   });
 }
 
+// ── 안 보이는 업무를 가리키는 블록 걷기 (20차 ⑦ · 사용자 결정 2026-10-13) ──────────────────────
+// 프로젝트를 '리더만'(0092)으로 잠그면 업무·댓글·첨부는 그 자리에서 가려지지만, 아침 크론이 이미 구운 장 문장은 다음 빌드까지 남는다.
+// 그래서 읽는 쪽이 거른다 — 블록의 근거(블록·줄·단계 cites · 표 줄 cite · 첨부 cardId · meta.cardId)에 **보는 사람에게 없는 업무**가
+// 하나라도 있으면 그 블록을 통째로 뺀다. 사람이 고친 줄도 같이 빠지게 **겹친 뒤에** 거른다(먼저 거르면 고친 줄이 다른 블록 끝으로 옮겨 붙는다).
+// 근거에 업무가 없는 블록(함께 쓰는 글 · 주보 · 표)은 그대로 · 업무 블록이 하나도 안 남은 장(리더 프로젝트의 행사 장)은 장째 뺀다.
+// 지운 업무를 가리키는 블록도 같이 빠진다 — 다음 빌드에서 어차피 빠질 블록이다.
+// cards: 보는 사람에게 있는 업무 id Set(화면·wikiContext = 스토어 · 다붓이 = 묻는 사람 세션으로 읽은 업무) · null이면 거르지 않는다.
+export function blockCardIds(block) {
+  const ids = new Set();
+  const walk = (v) => {
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    if (!v || typeof v !== 'object') return;
+    if (v.t === 'card' && v.id) ids.add(v.id);
+    if (v.cardId) ids.add(v.cardId);
+    for (const x of Object.values(v)) if (x && typeof x === 'object') walk(x);
+  };
+  walk(block);
+  return ids;
+}
+export function hideUnseenBlocks(pages, cards) {
+  if (!cards) return pages || [];
+  const out = [];
+  for (const p of pages || []) {
+    const blocks = (p.blocks || []).map(b => ({ b, ids: [...blockCardIds(b)] }));
+    const kept = blocks.filter(x => x.ids.every(id => cards.has(id)));
+    if (kept.length === blocks.length) { out.push(p); continue; }
+    if (!kept.some(x => x.ids.length)) continue;
+    out.push({ ...p, blocks: kept.map(x => x.b) });
+  }
+  return out;
+}
+
 // 그 장에서 사람이 고친 곳 수 · 마지막으로 고친 사람과 때
 export function editStats(blocks) {
   let n = 0; let last = null;
@@ -850,9 +882,10 @@ export function mergeParts(parts, outs) {
     ...unknown.map(x => ({ text: partNotFound(x.p), cites: [] })),
   ] : [{ text: NOT_FOUND, cites: [] }];
   const files = [...new Map(known.flatMap(x => x.o.files || []).map(f => [f.id || JSON.stringify(f), f])).values()];
+  const wikiCards = [...new Set(known.flatMap(x => x.o.wikiCards || []))];   // 위키 장 근거가 기댄 업무(20차 ⑦ · visibility.leaderCited)
   return {
     status: known.some(x => x.o.status === 'answered') ? 'answered' : unknown.length ? 'unknown' : 'refused',
-    sentences, files, dropped: outs.flatMap(o => o.dropped || []), parts,
+    sentences, files, dropped: outs.flatMap(o => o.dropped || []), parts, ...(wikiCards.length ? { wikiCards } : {}),
     unknownParts: known.length ? unknown.map(x => x.p) : [],
     ...(outs.every(o => o.cacheable) ? { cacheable: true } : {}),
   };

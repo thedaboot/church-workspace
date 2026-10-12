@@ -1,5 +1,6 @@
 import { loadWiki } from './wiki.js';
-import { WIKI_GROUPS, FAQ_ID, overlayEdits, overlayTitles, stripBold, termsOf, termWeights, mdLabel, withTeamCards } from './wikiCore.js';
+import { WIKI_GROUPS, FAQ_ID, overlayEdits, overlayTitles, stripBold, termsOf, termWeights, mdLabel, withTeamCards, hideUnseenBlocks } from './wikiCore.js';
+import { store } from '../store/workspaceStore.js';
 
 // ============================================================================
 // 위키 → 다른 AI 기능의 맥락 (17차 · 사용자 결정 2026-10-04)
@@ -15,6 +16,8 @@ import { WIKI_GROUPS, FAQ_ID, overlayEdits, overlayTitles, stripBold, termsOf, t
 // 사람이 고친 문장은 화면과 같은 규칙으로 겹친다(wikiCore.overlayEdits — 같은 열쇠는 글을 바꾸고, 빈 글은 지운 줄,
 // 열쇠가 없는 줄은 더한 줄). 굵게 별표는 걷는다(stripBold). 자주 묻는 질문 장 · 업무 제목만 늘어놓은 칸(chips·gap) ·
 // 표(rows)·QT·찬양 목록은 싣지 않는다. 못 읽으면 ''이고, 부르는 쪽은 상수만으로 돈다(게스트 · 실패).
+// 부르는 사람에게 안 보이는 업무(리더 프로젝트 · 0092)를 가리키는 블록은 고친 줄째 뺀다(20차 ⑦ · 화면과 같은 wikiCore.hideUnseenBlocks) —
+// 세 기능은 브라우저에서 만들므로 스토어의 업무가 기준이다(cards · wikiContextFor가 채운다).
 // ============================================================================
 
 export const WIKI_CONTEXT_LIMIT = 1200;
@@ -49,7 +52,7 @@ function lineLabel(page, block, item) {
 }
 
 // 겹친 지금 모습의 줄 전부 — [{ order, page, label, text, hay, human }]
-export function wikiRows(pages = [], edits = [], { exclude = [] } = {}) {
+export function wikiRows(pages = [], edits = [], { exclude = [], cards = null } = {}) {
   const skipBlock = new Set(exclude);
   const by = new Map();
   for (const e of edits || []) { if (!by.has(e.page_id)) by.set(e.page_id, []); by.get(e.page_id).push(e); }
@@ -58,7 +61,7 @@ export function wikiRows(pages = [], edits = [], { exclude = [] } = {}) {
   // (팀 장의 소개 줄은 함께 쓰는 글 초안을 베낀 것이라, 마스터가 '더다붓 소개 › 팀'을 고쳐도 옛 글이 같이 실렸다 · 실데이터 2026-10-04)
   const stale = new Set((edits || []).map(e => flat(e.before)).filter(Boolean));
   // 팀 장 소개 줄은 더다붓 소개 › 팀 카드의 지금 글(wikiCore.withTeamCards)
-  const now = withTeamCards([...(pages || [])].sort(pageOrder).map(raw => { const pe = by.get(raw.id) || []; const o = overlayTitles(raw, pe); return { ...o, blocks: overlayEdits(o.blocks, pe) }; }));
+  const now = hideUnseenBlocks(withTeamCards([...(pages || [])].sort(pageOrder).map(raw => { const pe = by.get(raw.id) || []; const o = overlayTitles(raw, pe); return { ...o, blocks: overlayEdits(o.blocks, pe) }; })), cards);
   for (const p of now) {
     if (SKIP_PAGES.has(p.id)) continue;
     for (const b of p.blocks) {
@@ -83,8 +86,9 @@ const queryTerms = (query) => termsOf(String(query || '').slice(0, QUERY_MAX * 2
 // query: 업무 제목·본문 앞·팀·프로젝트 이름(요약·다듬기) · 설교 제목·본문 구절·찬양(가이드)
 // teams: 이 업무의 팀 — 그 팀 소개 줄을 맨 앞에 둔다(위키 '더다붓 소개 › 팀'이나 그 팀 장의 소개 줄 · 최대 셋)
 // exclude: 블록 열쇠(그 업무 자신의 장 블록 'c:<id>' · 그 주보 's:<id>' — 같은 글을 되먹이지 않는다)
-export function pickWikiContext(query, { pages = [], edits = [], limit = WIKI_CONTEXT_LIMIT, teams = [], exclude = [] } = {}) {
-  const rows = wikiRows(pages, edits, { exclude });
+// cards: 보이는 업무 id Set — 그 밖의 업무를 가리키는 블록은 뺀다(20차 ⑦) · null이면 거르지 않는다
+export function pickWikiContext(query, { pages = [], edits = [], limit = WIKI_CONTEXT_LIMIT, teams = [], exclude = [], cards = null } = {}) {
+  const rows = wikiRows(pages, edits, { exclude, cards });
   if (!rows.length) return '';
   const out = []; const seen = new Set(); const perPage = new Map();
   let used = 0;
@@ -174,7 +178,8 @@ export async function wikiContextFor(query, opts = {}) {
   try {
     const w = await loadWikiForAi(opts);
     if (!w) return '';
-    return wikiBlock(pickWikiContext(query, { ...opts, pages: w.pages, edits: w.edits }), opts.note);
+    const cards = opts.cards ?? new Set(store.getState().tasks?.allIds || []);   // 스토어 = 이 사람에게 보이는 업무(RLS)
+    return wikiBlock(pickWikiContext(query, { ...opts, pages: w.pages, edits: w.edits, cards }), opts.note);
   } catch (e) {
     console.warn('[wikiContext] 맥락을 고르지 못했다:', e?.message || e);
     return '';

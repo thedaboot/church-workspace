@@ -174,7 +174,7 @@ async function handleAsk(req, body, res) {
     const out = await answerQuestion(q, { db: userClient(bearer(req)), admin, prev: typeof body.prev === 'string' ? body.prev : '', gate: busy, onStage: reply.stage });
     if (await busy) { tooMany(); return; }
     const id = await saveAnswer(admin, q, out);
-    const { dropped, ...shown } = out;
+    const { dropped, wikiCards: _wc, ...shown } = out;   // wikiCards는 저장용(20차 ⑦ · leaderCited) — 화면에는 안 간다
     reply(200, { id, ...shown });
   } catch (e) {
     if (await busy) { tooMany(); return; }

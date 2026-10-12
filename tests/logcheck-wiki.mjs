@@ -396,7 +396,8 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   const ask = askSource();
   const ctx = readFileSync(new URL('../src/services/wikiContext.js', import.meta.url), 'utf8');
   const build = wikiBuildSrc();
-  assert.ok(view.includes('return withTeamCards(visiblePages(') && ask.includes('const now = withTeamCards(') && ctx.includes('const now = withTeamCards('), '팀 소개 겹치기 배선');
+  // 안 보이는 업무 블록 걷기(20차 ⑦)는 그 겹친 모습 위에 — 세 자리 모두
+  assert.ok(view.includes('return hideUnseenBlocks(withTeamCards(visiblePages(') && ask.includes('const now = hideUnseenBlocks(withTeamCards(') && ctx.includes('const now = hideUnseenBlocks(withTeamCards('), '팀 소개 겹치기 배선');
   assert.ok(view.includes("if (b.type === 'head')") && view.includes('{b.meta?.note &&') && view.includes('{it.meta?.note &&'), "화면: '준비' 머리 · 보는 사람 표시");
   assert.ok(![view, ask, build].some(s => s.includes('다붓했던 일')), "옛 이름 '다붓했던 일'");
   // 모델 쪽(실호출이라 문구로 본다): 늦은 기록이 이긴다 · 준비 업무는 준비로 · 바뀌기 전 걷기는 장마다 한 번 · 장 소개는 늦은 기록으로 · 걸린 문장은 두 번 걸려야
@@ -1454,4 +1455,121 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   const gatherSrc = readFileSync(new URL('../api/_wiki/gather.js', import.meta.url), 'utf8');
   assert.ok(gatherSrc.includes('const leaderCards = leaderCardIdsOf({ projects: projectsAll, cards: cardsAll });') && /questions, leaderCards \};/.test(gatherSrc), 'gather가 걷은 업무 id를 넘긴다');
   console.log('PASS  다붓이 20차 ⑥(리더 근거 답 — 캐시에 안 남김 · 비리더에게 캐시 안 줌 · 짝 · 아침 고리 · 자주 묻는 질문)');
+}
+
+// 20차 ⑦ — 리더 프로젝트 업무를 가리키는 위키 블록을 그 자리에서 뺀다(사용자 결정 2026-10-13).
+// 잠근 뒤 다음 아침 빌드 전까지 장에 남은 문장이 비리더의 다붓이 근거(통째 · 검색 모드)로 나가지 않는다 — 묻는 사람 세션으로 읽은
+// 업무(RLS — 비리더에게 리더 업무는 없다)에 없는 업무를 가리키는 블록은 겹친 뒤에 걷는다(wikiCore.hideUnseenBlocks).
+// 장 근거만 단 답도 answer.wikiCards로 ⑥의 판정(leaderCited)에 걸린다. 모델은 fetch를 가로채 흉내 낸다(돈 들지 않음).
+// 되돌리기 검사: wikiEvidence의 hideUnseenBlocks를 빼면 '비리더 통째'·'검색 모드'가, 겹치기 전에 거르면 '고친 줄째'가,
+// collectAll의 cards 넘김을 빼면 '비리더 통째'가, answerQuestion의 wikiCards를 빼면 '장 근거 캐시'가, leaderCited의 wikiCards를 빼면 '판정'이 깨진다.
+{
+  const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
+  const A = await import(new URL('../api/_wikiAsk.js', import.meta.url).href);
+  const B = await import(new URL('../api/_wikiBuild.js', import.meta.url).href);
+  const V = await import(new URL('../src/services/visibility.js', import.meta.url).href);
+  const fakeDb = (tables, { inserts = [] } = {}) => ({
+    from: (t) => {
+      let rows = [...(tables[t] || [])];
+      const q = {
+        select: () => q, order: () => q, limit: (n) => { rows = rows.slice(0, n); return q; },
+        eq: (k, v) => { rows = rows.filter(r => r[k] === v); return q; },
+        is: (k, v) => { rows = rows.filter(r => (r[k] ?? null) === v); return q; },
+        not: (k, _op, v) => { rows = rows.filter(r => (r[k] ?? null) !== v); return q; },
+        in: (k, vs) => { rows = rows.filter(r => vs.includes(r[k])); return q; },
+        gte: (k, v) => { rows = rows.filter(r => r[k] == null || String(r[k]) >= String(v)); return q; },
+        lte: () => q,
+        range: async (a, b) => ({ data: rows.slice(a, b + 1) }),
+        then: (res, rej) => Promise.resolve({ data: rows, count: rows.length }).then(res, rej),
+        insert: (row) => { inserts.push({ t, row }); const done = { data: { id: `n${inserts.length}` } }; return { select: () => ({ single: async () => done }), then: (res, rej) => Promise.resolve(done).then(res, rej) }; },
+      };
+      return q;
+    },
+    rpc: async () => ({ data: null }),
+  });
+  const today = W.kstDate(new Date().toISOString());
+  const cardRef = (id, label) => ({ t: 'card', id, label });
+  const card = (id, project_id, title) => ({ id, project_id, title, description: '', status: 'ongoing', start_date: null, due_date: null, subtasks: [], updated_at: '2026-10-01T00:00:00Z', assignees: [], card_assignees: [] });
+  const projects = [{ id: 'pL', name: '리더 가을 MT', year: 2026, visibility: 'leaders' }, { id: 'pA', name: '가을 체육대회', year: 2026, visibility: 'all' }];
+  const allCards = [card('cL', 'pL', '숙소 계약'), card('cA', 'pA', '체육대회 장소')];
+  // 장 — 공개 행사 장에 리더 업무를 가리키는 블록이 섞였다(잠그기 전에 구운 정해지기까지) · 리더 행사 장은 통째로 리더 업무
+  const pages = [
+    { id: 'p:pA', grp: '행사', title: '가을 체육대회', kind: 'auto', blocks: [
+      { key: 'about', type: 'plain', items: [{ key: 'about1', text: '체육대회는 해마다 가을에 해요.', by: 'code', cites: [{ t: 'page', id: 'intro', label: '더다붓 소개' }] }] },
+      { key: 'c:cA', type: 'section', title: '체육대회 장소', meta: { cardId: 'cA' }, cites: [cardRef('cA', '체육대회 장소')], items: [{ key: 'c:cA:a.0', text: '장소는 성내 체육관이에요.', by: 'model', cites: [cardRef('cA', '체육대회 장소')] }] },
+      { key: 'c:cL', type: 'section', title: '숙소 계약', meta: { cardId: 'cL' }, cites: [cardRef('cL', '숙소 계약')], items: [{ key: 'c:cL:a.0', text: '숙소는 가평 풀빌라로 정했어요.', by: 'model', cites: [cardRef('cL', '숙소 계약')] }] },
+    ] },
+    { id: 'p:pL', grp: '행사', title: '리더 가을 MT', kind: 'auto', blocks: [
+      { key: 'info', type: 'info', items: [], rows: [{ k: '장소', v: '양평 리더수련원' }] },
+      { key: 'decide', type: 'decisions', title: '정해지기까지', items: [], steps: [{ key: 'd1', text: '리더 숙소 계약을 마쳤어요.', cites: [cardRef('cL', '숙소 계약')] }] },
+      { key: 'lead', type: 'plain', items: [{ key: 'lead:x.0', text: '리더 MT는 양평 리더수련원에서 해요.', by: 'model', cites: [cardRef('cL', '숙소 계약')] }] },
+    ] },
+  ];
+  // 마스터가 리더 블록에 더한 줄(그 블록 열쇠) — 블록과 같이 빠져야 한다(먼저 거르면 같은 장의 다른 블록 끝으로 옮겨 붙는다)
+  const edits = [{ page_id: 'p:pA', item_key: 'c:cL:human', block_key: 'c:cL', text: '리더 숙소 보증금은 마스터가 적은 줄이에요.', before: '', edited_by: 'u1', edited_at: '2026-10-03T00:00:00Z' }];
+
+  // 순수 — 블록이 가리키는 업무(블록·줄·단계 cites · 첨부 cardId · meta.cardId) · 거르기
+  assert.deepStrictEqual([...W.blockCardIds(pages[1].blocks[1])], ['cL'], '단계(steps)의 근거');
+  assert.deepStrictEqual([...W.blockCardIds({ key: 'x', type: 'list', items: [{ key: 'i', text: 'f', cites: [{ t: 'file', id: 'f1', cardId: 'cL' }] }] })], ['cL'], '첨부 근거의 cardId');
+  assert.deepStrictEqual([...W.blockCardIds(pages[0].blocks[0])], [], '장 근거만 단 블록은 업무가 없다');
+  const hid = W.hideUnseenBlocks(pages, new Set(['cA']));
+  assert.deepStrictEqual(hid.map(p => [p.id, p.blocks.map(b => b.key)]), [['p:pA', ['about', 'c:cA']]], '리더 업무 블록만 빠지고 · 업무 블록이 다 빠진 리더 행사 장은 장째(정보 상자째) 빠진다');
+  assert.strictEqual(W.hideUnseenBlocks(pages, null), pages, 'cards가 없으면 거르지 않는다');
+  assert.strictEqual(W.hideUnseenBlocks(pages, new Set(['cA', 'cL']))[0], pages[0], '다 보이면 장 그대로');
+
+  // 통째 모드 — 비리더 세션(RLS: 리더 업무가 cards에 없다) · 리더 세션
+  const member = fakeDb({ projects: projects.filter(p => p.id === 'pA'), cards: allCards.filter(c => c.id === 'cA'), wiki_pages: pages, wiki_edits: edits });
+  const leader = fakeDb({ projects, cards: allCards, wiki_pages: pages, wiki_edits: edits });
+  const textOf = async (db) => (await A.collectAll(db, today)).evidence.map(e => e.text).join('\n');
+  const mText = await textOf(member);
+  assert.ok(mText.includes('장소는 성내 체육관이에요') && mText.includes('체육대회는 해마다 가을에 해요'), '보이는 업무 블록 · 업무 없는 블록은 그대로');
+  assert.ok(!mText.includes('가평 풀빌라') && !mText.includes('보증금') && !mText.includes('양평 리더수련원') && !mText.includes("[위키 '리더 가을 MT'"), `비리더 통째: 리더 업무 블록(고친 줄째)·리더 행사 장이 빠진다\n${mText}`);
+  const lText = await textOf(leader);
+  assert.ok(lText.includes('가평 풀빌라') && lText.includes('보증금') && lText.includes("[위키 '리더 가을 MT'") && lText.includes('양평 리더수련원'), '리더에게는 남는다');
+  const mPage = (await A.collectAll(member, today)).evidence.find(e => e.cite?.id === 'p:pA');
+  assert.deepStrictEqual(mPage.cardIds, ['cA'], '장 기록은 실린 블록의 업무를 쥔다(cardIds)');
+
+  // 검색 모드 — 조각은 장 id로 기록을 고를 뿐이고 실리는 글은 위의 거른 장 글이다(조각 글은 모델에 안 간다)
+  const realFetch = globalThis.fetch;
+  const prompts = [];
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    if (/:embedContent/.test(String(url))) return new Response(JSON.stringify({ embedding: { values: Array.from({ length: 768 }, (_, i) => (i === 0 ? 1 : 0)) } }), { status: 200 });
+    const p = body.contents[0].parts[0].text;
+    prompts.push(p);
+    const rid = p.match(/(R\d+) \[위키 '가을 체육대회'/)?.[1];
+    return new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ found: true, sentences: [{ text: '장소는 성내 체육관이에요.', e: [rid] }] }) }] } }] }), { status: 200 });
+  };
+  try {
+    const search = async () => [{ kind: 'wiki', page_id: 'p:pL', body: '양평 리더수련원' }, { kind: 'wiki', page_id: 'p:pA', body: '가평 풀빌라' }];
+    const Q = '체육대회 장소 어디야?';
+    const mOut = await A.answerQuestion(Q, { db: member, key: 'k', today, retrieve: true, search, cache: false });
+    const mp = prompts.at(-1);
+    assert.ok(mp.includes("[위키 '가을 체육대회'") && !mp.includes('가평 풀빌라') && !mp.includes('보증금') && !mp.includes('양평 리더수련원') && !mp.includes('리더 숙소 계약'), `검색 모드(비리더): 거른 장 글만\n${mp.slice(0, 600)}`);
+    const lOut = await A.answerQuestion(Q, { db: leader, key: 'k', today, retrieve: true, search, cache: false });
+    const lp = prompts.at(-1);
+    assert.ok(lp.includes('가평 풀빌라') && lp.includes('양평 리더수련원'), '검색 모드(리더): 남는다');
+
+    // 장 근거만 단 답 — wikiCards가 ⑥의 판정에 걸린다(리더가 물은 답은 캐시로 안 남고 · 비리더 답은 남는다)
+    assert.ok(mOut.status === 'answered' && mOut.sentences[0].cites.every(c => c.t === 'page'), `답 근거는 장뿐: ${JSON.stringify(mOut.sentences)}`);
+    assert.deepStrictEqual([mOut.wikiCards, lOut.wikiCards], [['cA'], ['cA', 'cL']], '답이 장을 근거로 달면 그 장 블록의 업무(wikiCards)');
+    const admin = (ins) => fakeDb({ projects, cards: allCards }, { inserts: ins });
+    const save = async (out) => { const ins = []; await A.saveAnswer(admin(ins), Q, out); return ins[0].row.answer; };
+    const lSaved = await save(lOut);
+    assert.ok(!('cacheable' in lSaved) && (lSaved.wikiCards || []).includes('cL'), `리더 업무 블록이 실린 장 근거 답은 캐시로 안 남는다(wikiCards는 저장): ${JSON.stringify(lSaved)}`);
+    assert.strictEqual((await save(mOut)).cacheable, true, '비리더(거른 장) 답은 캐시로 남는다');
+    const hidden = V.leaderCardIdsOf({ projects, cards: allCards });
+    assert.ok(V.leaderCited({ sentences: [{ text: 'x', cites: [{ t: 'page', id: 'p:pA' }] }], wikiCards: ['cA', 'cL'] }, hidden) && !V.leaderCited({ sentences: [], wikiCards: ['cA'] }, hidden), 'leaderCited가 wikiCards를 본다');
+    const merged = W.mergeParts(['a', 'b'], [{ status: 'answered', sentences: [], wikiCards: ['cL'], cacheable: true }, { status: 'answered', sentences: [], cacheable: true }]);
+    assert.deepStrictEqual(merged.wikiCards, ['cL'], '섞인 질문을 합쳐도 wikiCards가 남는다');
+    // 짝 · 자주 묻는 질문 — 저장된 아침 고리 답의 wikiCards로 거른다
+    const ask1 = { id: 'a1', question: Q, norm: W.normQ(Q), status: 'unknown', feedback: null, via: 'ask', created_at: new Date(Date.now() - 3600e3).toISOString(), answer: { sentences: [], files: [] } };
+    const night = { ...ask1, id: 'n1', via: 'nightly', status: 'answered', created_at: new Date(Date.now() - 1800e3).toISOString(), answer: { cause: 'missed', ...lSaved } };
+    assert.deepStrictEqual(A.pairFrom([ask1, night], hidden), [], '리더 업무 블록이 실린 장 근거 nightly는 짝이 아니다');
+    const fp = B.faqPage({ questions: [ask1, night], edits: [], pages: [], leaderCards: hidden });
+    assert.deepStrictEqual([fp.blocks[0].items.length, fp.blocks[1].items.length], [0, 0], '자주 묻는 질문 장에도 안 싣는다');
+    // 화면에는 안 간다(저장용)
+    assert.ok(readFileSync(new URL('../api/ai.js', import.meta.url), 'utf8').includes('const { dropped, wikiCards: _wc, ...shown } = out;'), '응답에서 wikiCards를 뗀다');
+  } finally { globalThis.fetch = realFetch; }
+  console.log('PASS  다붓이 20차 ⑦(리더 업무를 가리키는 위키 블록 — 비리더 근거 통째·검색 모드에서 빠짐 · 고친 줄째 · 리더 행사 장째 · 칩 없는 블록은 그대로 · 장 근거 답 wikiCards → 캐시·짝·자주 묻는 질문)');
 }

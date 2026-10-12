@@ -4,7 +4,7 @@ import { useCached } from '../services/cache.js';
 import { loadWiki, saveWikiEdits, seenMap, markSeen } from '../services/wiki.js';
 import {
   WIKI_GROUPS, EDITABLE_TYPES, ADDABLE_TYPES, overlayEdits, overlayTitles, editStats, editRows, sourceLabel, mdLabel, kstDate,
-  FAQ_SOURCE, FAQ_ID, TITLE_KEY, headKey, visiblePages, boldParts, toggleBold, withTeamCards, leadBold,
+  FAQ_SOURCE, FAQ_ID, TITLE_KEY, headKey, visiblePages, boldParts, toggleBold, withTeamCards, hideUnseenBlocks, leadBold,
 } from '../services/wikiCore.js';
 import {
   outlineOf, pageKind, teamMembers, teamWork, pageTasks, prepInfo, teamInfo, relatedPages, linkTargets, linkParts, splitRef, bookColors,
@@ -72,6 +72,9 @@ const STATUS_TAG = new Set(['진행 중', '시작 전', '보류 중', '상시'])
 
 // '지금' 마디의 재료 — 스토어가 이미 들고 있는 가입자·업무·프로젝트(새로 묻지 않는다).
 // 게스트(클라우드 없음)는 검사(tests/wiki)가 장 묶음에 실어 준 live를 쓴다.
+// cards: 보는 사람에게 있는 업무 id — 이것 밖의 업무를 가리키는 블록은 그리지 않는다(20차 ⑦ · wikiCore.hideUnseenBlocks).
+//   클라우드는 스토어의 업무 전부(리더 프로젝트 업무는 RLS로 비리더 스토어에 없다) · 장 묶음은 live.cards(없으면 거르지 않는다 —
+//   live.tasks는 '지금' 마디에 쓰는 몇 줄뿐이라 업무 전부가 아니다).
 const EMPTY = { byId: {}, allIds: [] };
 function useWikiLive() {
   const tasks = useStore(s => s.tasks) || EMPTY;
@@ -79,8 +82,8 @@ function useWikiLive() {
   const members = useStore(s => s.members);
   const fx = !isCloudEnabled() && typeof window !== 'undefined' ? window.__wikiFixture?.live : null;
   return useMemo(() => (fx
-    ? { tasks: fx.tasks || [], projects: fx.projects || [], members: fx.members || [] }
-    : { tasks: (tasks.allIds || []).map(id => tasks.byId[id]).filter(Boolean), projects: (projects.allIds || []).map(id => projects.byId[id]).filter(Boolean), members: members || [] }),
+    ? { tasks: fx.tasks || [], projects: fx.projects || [], members: fx.members || [], cards: fx.cards ? new Set(fx.cards) : null }
+    : { tasks: (tasks.allIds || []).map(id => tasks.byId[id]).filter(Boolean), projects: (projects.allIds || []).map(id => projects.byId[id]).filter(Boolean), members: members || [], cards: new Set(tasks.allIds || []) }),
   [fx, tasks, projects, members]);
 }
 
@@ -104,9 +107,10 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
     const by = new Map();
     for (const e of data.edits || []) { if (!by.has(e.page_id)) by.set(e.page_id, []); by.get(e.page_id).push(e); }
     // 팀 장 맨 위 소개 줄은 더다붓 소개 › 팀 카드의 지금 글(wikiCore.withTeamCards · 사용자 결정 2026-10-04)
-    return withTeamCards(visiblePages(data.pages || [], isMaster).map(p => { const pe = by.get(p.id) || []; const o = overlayTitles(p, pe); return { ...o, blocks: overlayEdits(o.blocks, pe), edits: pe }; }))
+    // 안 보이는 업무를 가리키는 블록(사람이 고친 줄째)과 업무 블록이 다 빠진 장은 그리지 않는다(20차 ⑦ — 잠근 뒤 다음 아침 빌드 전까지)
+    return hideUnseenBlocks(withTeamCards(visiblePages(data.pages || [], isMaster).map(p => { const pe = by.get(p.id) || []; const o = overlayTitles(p, pe); return { ...o, blocks: overlayEdits(o.blocks, pe), edits: pe }; })), live.cards)
       .sort((a, b) => WIKI_GROUPS.indexOf(a.grp) - WIKI_GROUPS.indexOf(b.grp) || a.position - b.position || a.title.localeCompare(b.title));
-  }, [data, isMaster]);
+  }, [data, isMaster, live.cards]);
   const page = pages.find(p => p.id === sel) || null;
   const chips = useMemo(() => chipsFrom(pages), [pages]);
 

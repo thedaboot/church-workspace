@@ -46,9 +46,11 @@ export function leaderCardIdsOf({ projects = [], cards = [] } = {}) {
 
 // 다붓이 답(answer jsonb · 화면에 준 답)이 리더 프로젝트 기록에 기댔나 — 문장 근거의 업무 · 첨부(cardId)와 파일 카드(card_id).
 // 댓글은 업무 기록 안에 실리고 뜻 찾기 조각도 그 업무로 묶이므로(card cite) 업무로 갈린다. 저장된 옛 답에도 같은 판정이다(20차 ⑥).
+// 위키 장 근거(page cite)는 장 id뿐이라 그 장의 실린 블록이 가리킨 업무(answer.wikiCards · api/_wikiAsk.js)로 본다(20차 ⑦).
 export function leaderCited(answer, hiddenCards) {
   if (!answer || !hiddenCards?.size) return false;
   const cites = (answer.sentences || []).flatMap(s => s.cites || []);
   return cites.some(c => (c.t === 'card' && hiddenCards.has(c.id)) || (c.t === 'file' && hiddenCards.has(c.cardId)))
-    || (answer.files || []).some(f => hiddenCards.has(f.card_id));
+    || (answer.files || []).some(f => hiddenCards.has(f.card_id))
+    || (answer.wikiCards || []).some(id => hiddenCards.has(id));
 }

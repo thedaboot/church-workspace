@@ -9,6 +9,7 @@
 //   ⑤ 폰·다크: 가로로 넘치지 않는다 · ‹ 위키로 돌아온다
 //   ⑥ 2026-10-04: 장 머리에 고친 사람 없음 · **굵게**(읽기 · B 버튼) · 고치기 칸이 겹치지·넘치지 않는다 · QT 날 → 말씀 QT의 그 날 ·
 //      마스터가 아니면(장 묶음 member) ✎ 수정·자주 묻는 질문 장·그 장 링크가 없다(0090)
+//   ⑦ 20차 ⑦: 보는 사람에게 없는 업무(장 묶음 live.cards 밖 — 리더 프로젝트)를 가리키는 블록은 고친 줄째, 그런 블록만 남은 장은 목록째 그리지 않는다
 import { spawn } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -48,6 +49,9 @@ const FIX = { pages: [
     { key: 'c:c8', type: 'section', title: '8월 월례회', meta: { status: '완료', cardId: 'c8', when: '업무 날짜 8월 23일' }, cites: [card('c8', '8월 월례회')], items: [
       it('c:c8:a.0', '수련회를 돌아봤어요.', { cites: [card('c8', '8월 월례회')] }), it('c:c8:b.0', '하반기 일정을 맞춰 봤어요.', { cites: [card('c8', '8월 월례회')] })] },
     { key: 'c:c9', type: 'section', title: '9월 월례회 · 9월 13일', meta: { status: '진행 중', cardId: 'c9' }, cites: [card('c9', '9월 월례회')], items: [] },
+    // 잠그기 전에 구운 리더 프로젝트 업무 블록(20차 ⑦) — lx는 live.cards에 없다(비리더 스토어에 없는 업무) → 고친 줄째 안 그린다
+    { key: 'c:lx', type: 'section', title: '리더숙소 계약', meta: { status: '진행 중', cardId: 'lx' }, cites: [card('lx', '리더숙소 계약')], items: [
+      it('c:lx:a.0', '리더숙소 보증금을 냈어요.', { cites: [card('lx', '리더숙소 계약')] })] },
     // 행사 장: 행사 기록 뒤에 '준비' 묶음 머리 · 준비 업무 · 순장은 팀이 아니라 보는 사람 표시(2026-10-04)
     { key: 'prep', type: 'head', title: '준비', items: [] },
     { key: 'c:c11', type: 'section', title: '월례회 포스터 제작', meta: { status: '완료', cardId: 'c11', when: '업무 날짜 8월 1일', prep: true, note: '순장도 함께 봐요' }, cites: [card('c11', '월례회 포스터 제작')], items: [
@@ -93,7 +97,13 @@ const FIX = { pages: [
   { page_id: 'intro', item_key: 'team1', block_key: 'teams', text: '싱어와 연주자가 함께해요.\n콘티와 송폼으로 찬양해요.', before: '콘티와 송폼을 만들어요.', edited_by: null, edited_at: '2026-10-03T02:00:00Z' },
   { page_id: 'team:찬양팀', item_key: 'u:a1', block_key: 'about', text: '찬양팀 이름은 따로 있어요.', before: '', edited_by: null, edited_at: '2026-10-03T02:00:00Z' },
   { page_id: 'p:wol', item_key: 'c:c8:b.0', block_key: 'c:c8', text: '하반기 일정과 임원 선출 준비를 이야기했어요.', before: '하반기 일정을 맞춰 봤어요.', edited_by: null, edited_at: '2026-10-02T03:00:00Z' },
+  { page_id: 'p:wol', item_key: 'c:lx:a.0', block_key: 'c:lx', text: '리더숙소고친줄이에요.', before: '리더숙소 보증금을 냈어요.', edited_by: null, edited_at: '2026-10-02T04:00:00Z' },
 ] };
+// 리더 프로젝트의 행사 장(20차 ⑦) — 업무 블록이 모두 안 보이는 업무라 장째(정보 상자째) 목록에도 없다
+FIX.pages.push({ id: 'p:lmt', grp: '행사', title: '리더숨은장', kind: 'auto', position: 3, source: '업무', source_count: 1, built_at: '2026-10-03T00:00:00Z', blocks: [
+  { key: 'info', type: 'info', items: [], rows: [{ k: '장소', v: '양평' }] },
+  { key: 'c:lx', type: 'section', title: '리더숙소 계약', meta: { status: '진행 중', cardId: 'lx' }, cites: [card('lx', '리더숙소 계약')], items: [it('c:lx:b.0', '숨은 장의 줄이에요.', { cites: [card('lx', '리더숙소 계약')] })] },
+] });
 // 되풀이 모임 장(월례회 꼴 · 개요는 뜻 + 다음 날짜 · 업무 마디 이름은 '업무')
 FIX.pages.push({ id: 'p:monthly', grp: '행사', title: '리더 모임', kind: 'auto', position: 2, source: '업무', source_count: 2, built_at: '2026-10-03T00:00:00Z', blocks: [
   { key: 'lead', type: 'plain', meta: { recurring: true }, items: [it('def', '리더 모임은 둘째 주에 모여요.', { by: 'code' }), it('next', '다음 리더 모임은 10월 11일(일)이에요.', { by: 'code', cites: [card('r10', '10월 리더 모임')] })] },
@@ -119,6 +129,8 @@ FIX.live = {
     { id: 'kx', projectId: 'PX', title: '위키 개발', status: '진행 중', teams: ['찬양팀'], subtasks: [] },
     { id: 'e1', projectId: 'P1', title: '가을 체육대회 개요', status: '진행 중', teams: ['임원진'], dueDate: '2026-10-25', subtasks: [{ title: 'x', done: false }, { title: 'y', done: false }] },
   ],
+  // 보는 사람에게 있는 업무 id 전부(클라우드에서는 스토어의 업무 전부 · 20차 ⑦) — lx(리더 프로젝트)는 없다
+  cards: ['c1', 'c8', 'c9', 'c10', 'c11', 'e1', 'k1', 'k2', 'k3', 'kx', 'm20', 'm27', 'r10', 'r11'],
 };
 const ANSWER = { id: 'q-test', status: 'answered', sentences: [{ text: '월례회는 둘째 주 순모임 뒤에 해요.', cites: [{ t: 'page', id: 'intro', label: '더다붓 소개' }] }], files: [] };
 const UNKNOWN = { id: 'q-unk', status: 'unknown', sentences: [{ text: '워크스페이스에서는 그런 내용을 찾을 수가 없어서, 해당 질문은 보완해서 내일 아침에 학습해 둘게요.', cites: [] }], files: [] };
@@ -198,6 +210,10 @@ try {
   await click('.wiki-item', '월례회');
   check('장: 출처 표시 · 기록 수 · 수정한 곳', await until(`!!document.querySelector('.wiki-page[data-page="p:wol"]')`)
     && await ev(`(()=>{const t=document.querySelector('.wiki-page').textContent;return t.includes('업무에서 자동으로 수집')&&t.includes('업무 5건')&&t.includes('수정한 곳 1')})()`));
+  // 20차 ⑦ — 안 보이는 업무(lx)를 가리키는 블록은 고친 줄째 안 그리고 · 업무 블록이 다 빠진 장은 목록에도 없다. 장 숫자(업무 5건)는 그대로.
+  // 되돌리기: wikiView의 hideUnseenBlocks를 빼면 깨진다(겹치기 전에 거르면 고친 줄이 다른 블록 끝으로 옮겨 붙어 깨진다)
+  const unseen = await ev(`(()=>{const t=document.querySelector('.wiki-page').textContent;const l=document.querySelector('.wiki-list').textContent;return {block:t.includes('리더숙소'),page:l.includes('리더숨은장'),shown:l.includes('월례회')&&l.includes('가을 체육대회')}})()`);
+  check('안 보이는 업무를 가리키는 블록(고친 줄째)과 그런 장은 그리지 않는다(20차 ⑦)', !unseen.block && !unseen.page && unseen.shown, JSON.stringify(unseen));
   const wol = await ev(`(()=>{const p=document.querySelector('.wiki-page');return {fixed:p.querySelectorAll('.wiki-fixed').length, fixedText:p.querySelector('.wiki-fixed')?.textContent||'', gap:!!p.querySelector('.wiki-prep')?.textContent.includes('10월 월례회'), chips:p.querySelectorAll('.wiki-cite').length, status:p.textContent.includes('진행 중'), together:p.textContent.includes('다른 팀과 했던 일'), emptySectionChip:[...p.querySelectorAll('h3')].some(h=>h.textContent.includes('9월 월례회')), who:p.querySelectorAll('.wiki-who').length}})()`);
   // 고친 사람(사진 · 'OOO · 날짜 수정')은 어디에도 없다 — 장 머리에서도 걷었다(사용자 결정 2026-10-04)
   check('고친 줄은 고친 글(다시 모은 글을 덮지 않는다) · 고친 사람 표시는 어디에도 없다', wol.fixed === 1 && wol.fixedText.includes('임원 선출 준비') && !wol.fixedText.includes('수정') && wol.who === 0 && !/· \d+월 \d+일 수정/.test(await ev(`document.querySelector('.wiki-page').textContent`)), JSON.stringify(wol));

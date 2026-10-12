@@ -34,6 +34,8 @@ export { serviceLine };
 // 20차 ⑥(0092 리더만 보는 프로젝트 뒤): 답은 묻는 사람 세션으로 찾지만 캐시·짝·아침 고리는 서버 키라 남의 답이 건너간다 —
 //   리더 프로젝트 기록(업무·댓글·첨부)에 기댄 답(visibility.leaderCited · 업무 id는 _leaders.leaderCardIds)은 캐시에 남기지 않고(saveAnswer) ·
 //   옛 저장분이라도 리더가 아닌 사람에게 캐시로 주지 않고(cachedAnswer · is_leader()) · 짝([참고] · pairFrom)과 자주 묻는 질문 장(_wiki/faq.js)에 쓰지 않는다.
+// 20차 ⑦(사용자 결정 2026-10-13): 위키 장은 묻는 사람에게 안 보이는 업무를 가리키는 블록을 빼고 싣는다(collectAll · wikiCore.hideUnseenBlocks) ·
+//   장 근거가 기댄 업무는 answer.wikiCards로 남아 ⑥의 판정이 장 근거도 본다.
 //   못 읽으면 닫힌 쪽이다(캐시 없이 새로 답한다). 검색 모드의 match_docs는 세션이라 RLS가 이미 거른다.
 // 지키는 것(사용자 결정 2026-10-02~05):
 //   · 찾기는 **묻는 사람의 권한으로**(그 사람 세션의 클라이언트 → RLS). 비밀번호 첨부는 이름·자리만, 내용은 싣지 않는다.
@@ -501,7 +503,7 @@ export async function collectAll(db, today) {
   const cctx = { people: peopleIndex(ros), names: nameById, byId: new Map(comments.map(c => [c.id, c])), mentionNames: ros.flatMap(r => [r.name, r.display]).filter(Boolean) };
   const ev = [];
   // tag — 검색 모드(pickEvidence)가 늘 넣는 기록과 잇는 기록을 고르는 표 · 모델 글에는 안 실린다
-  const push = (text, cite = null, tag = '') => ev.push({ id: `R${ev.length + 1}`, text, cite, tag });
+  const push = (text, cite = null, tag = '', extra = null) => ev.push({ id: `R${ev.length + 1}`, text, cite, tag, ...extra });
 
   const { thisSun, lastSun, nextSun } = sundaysOf(today);
   const y = Number(today.slice(0, 4));
@@ -510,8 +512,11 @@ export async function collectAll(db, today) {
   if (pl.length) push(pl.join(' '), null, 'people');
 
   // 위키 장 — 장 하나가 기록 하나(사람이 고친 문장 겹침 · api/_wiki/evidence.js — 뜻 찾기 조각과 같은 글)
-  const { items: wikiItems, now } = wikiEvidence(pages, edits);
-  for (const w of wikiItems) push(w.text, w.cite, w.page.grp === '함께 쓰는 글' ? 'shared' : 'wiki');
+  // 묻는 사람에게 안 보이는 업무(리더 프로젝트 · 0092 RLS로 cards에 없다)를 가리키는 블록은 뺀다(20차 ⑦) — 잠근 뒤 다음 아침 빌드 전까지
+  // 장에 남은 문장이다. 검색 모드도 이 글을 싣는다(조각은 장 id로 기록을 고를 뿐 · 조각 글은 모델에 안 간다).
+  // 서버 키(아침 고리)는 업무를 다 보므로 거르지 않는다 — 그 답은 cardIds → answer.wikiCards로 ⑥의 판정(leaderCited)에 걸린다.
+  const { items: wikiItems, now } = wikiEvidence(pages, edits, { cards: new Set(cards.map(c => c.id)) });
+  for (const w of wikiItems) push(w.text, w.cite, w.page.grp === '함께 쓰는 글' ? 'shared' : 'wiki', { cardIds: w.cardIds });
 
   // 업무 — 기록의 날(회의는 회의 날 · 나머지는 마지막 수정) 오래된 것부터. 늦게 나온 기록이 뒤에 선다.
   const cmtBy = Map.groupBy(comments.map(m => [m.card_id, commentLine(m, cctx)]).filter(([, x]) => x?.line && x.body.length >= 6), ([id]) => id);
@@ -731,7 +736,10 @@ export async function answerQuestion(q, { db, admin = null, prev = '', key = pro
   if (out.found === false || !final.length) return fin(unknown(out.found === false ? missingOf(final) : [], dropped));
   if (final.every(s => /찾지 못|기록 전|발행 전/.test(s.text))) return fin(unknown(missingOf(final), dropped));
   const fileIds = new Set(final.flatMap(s => s.cites.filter(c => c.t === 'file').map(c => c.id)));
-  return fin({ status: 'answered', sentences: final.map(s => ({ text: s.text, cites: s.cites.filter(c => c.t !== 'file') })), files: fileCards(files, fileIds, evidence), dropped, cacheable: canCache, ...asked, ...keep });
+  // 근거로 단 위키 장의 실린 블록이 가리키는 업무(20차 ⑦) — 근거 칩은 장 id뿐이라 ⑥의 판정(leaderCited)이 이것으로 장 근거를 본다
+  const pageIds = new Set(final.flatMap(s => s.cites.filter(c => c.t === 'page').map(c => c.id)));
+  const wikiCards = [...new Set(evidence.filter(e => e.cite?.t === 'page' && pageIds.has(e.cite.id)).flatMap(e => e.cardIds || []))];
+  return fin({ status: 'answered', sentences: final.map(s => ({ text: s.text, cites: s.cites.filter(c => c.t !== 'file') })), files: fileCards(files, fileIds, evidence), dropped, cacheable: canCache, ...(wikiCards.length ? { wikiCards } : {}), ...asked, ...keep });
 }
 
 // 👎 받은 앞 답 — 아침 고리가 다시 찾을 때 모델에 알린다(2026-10-12 · 그 답을 그대로 다시 내고 '못 찾음'으로 굳혔다)
@@ -797,6 +805,8 @@ export async function saveAnswer(admin, question, out, via = 'ask', { hidden = n
       sentences: out.sentences, files: out.files || [], ...(out.cacheable ? { cacheable: true } : {}), ...(out.prev ? { prev: out.prev } : {}), ...(out.cause ? { cause: out.cause } : {}),
       ...(Number.isFinite(out.ms) ? { ms: out.ms } : {}), ...(out.cached ? { cached: true } : out.model ? { model: out.model } : {}), ...(out.fallback ? { fallback: true } : {}),
       ...(out.kind === 'statement' ? { told: true } : {}), ...(out.fromBad ? { fromBad: true } : {}),
+      // 위키 장 근거가 기댄 업무(20차 ⑦) — 저장된 답도 짝·자주 묻는 질문·캐시 꺼내기에서 leaderCited가 본다
+      ...(out.wikiCards?.length ? { wikiCards: out.wikiCards } : {}),
     },
     dropped: out.dropped || [],
   };
