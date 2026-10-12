@@ -624,7 +624,7 @@ import { loadSource, readSplit } from './_load.mjs';
   const ics = rd('api/ics.js');
   ok((ics.match(/await seeProject\(supabase, /g) || []).length === 2 && /if \(!proj\) \{ reply\(null\); return; \}/.test(ics),
     '달력: 등록(POST — 읽기·쓰기)과 구독(GET) 둘 다 주인이 볼 수 있는 프로젝트인지');
-  ok(/import \{ dropLeaderOnly \} from '\.\.\/\.\.\/src\/services\/visibility\.js';/.test(rd('api/_wiki/gather.js'))
+  ok(/import \{[^}]*\bdropLeaderOnly\b[^}]*\} from '\.\.\/\.\.\/src\/services\/visibility\.js';/.test(rd('api/_wiki/gather.js'))
     && /select\('id, name, year, archived, position, visibility'\)/.test(rd('api/_wiki/gather.js')), '위키 장: 읽은 자리에서 걷는다');
   ok(/rpc\('leader_profile_ids'\)/.test(rd('api/_leaders.js')) && /select\('project_id, projects\(visibility\)'\)\.eq\('id', cardId\)/.test(rd('api/_leaders.js')),
     '서버 판정: 리더 목록은 DB 함수 한 벌 · 업무는 지금 프로젝트로');
@@ -694,3 +694,16 @@ import { loadSource, readSplit } from './_load.mjs';
   console.log('PASS  승인 대기 자동 전환(approvalWatch) · 승인 알림(0076) · 화면에 기술 원문 안 싣기');
 }
 
+
+// 0097 — 가입 트리거가 뒤늦게 온 카카오·구글 메타도 받아 적는다(2026-10-11 천진영: identity가 150ms 늦어 사진이 비었다).
+// UPDATE 갈래는 **10분 안에 만든 프로필의 빈 칸만** 메운다 — 사용자가 나중에 고른 '기본으로'(null)는 건드리지 않는다.
+// **되돌리기**(§3-5): 트리거에서 `or update of raw_user_meta_data`를 빼거나, UPDATE 갈래의 10분 조건·`is null` 조건을 지우면 깨진다.
+{
+  const sql = readFileSync(new URL('../supabase/migrations/0097_signup_avatar_late.sql', import.meta.url), 'utf8')
+    .split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  assert.ok(/after insert or update of raw_user_meta_data on auth\.users/.test(sql), '트리거는 insert와 raw_user_meta_data update');
+  assert.ok(/if tg_op = 'INSERT' then[\s\S]*on conflict \(id\) do nothing;[\s\S]*else/.test(sql), 'INSERT 갈래는 0001 그대로(on conflict do nothing)');
+  assert.ok(/and \(p\.avatar_url is null or p\.display_name is null\)\s*and p\.created_at > now\(\) - interval '10 minutes'/.test(sql), 'UPDATE 갈래는 10분 안의 빈 칸만');
+  assert.ok(/set avatar_url\s*=\s*coalesce\(p\.avatar_url, new\.raw_user_meta_data ->> 'avatar_url', new\.raw_user_meta_data ->> 'picture'\)/.test(sql), '있는 사진은 안 덮는다(coalesce 앞이 p.avatar_url)');
+  console.log('PASS  0097 가입 트리거 — 늦게 온 메타는 10분 안 빈 칸만');
+}

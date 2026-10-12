@@ -38,7 +38,7 @@
 
 ## 2. 남은 일
 
-### 20차 — 한 일 · 결정 (2026-10-12~13 · 워크스페이스 전반 피드백 · 0092~0096 라이브 · 마이그레이션 다음 번호 0097)
+### 20차 — 한 일 · 결정 (2026-10-12~13 · 워크스페이스 전반 피드백 · 0092~0097 라이브 · 마이그레이션 다음 번호 0098)
 
 - **피드백 넷(사용자)**: ① 다붓이 품질·속도 ② 보안·개인정보 ③ 업무별 권한 ④ 동아리 활동 보고서 — 여기에 ⑤ 성경 '이 장을 본 사람' 제거 · 비전 메이커(김우한 집사님)가 더해졌다. **방식**: 분류 표 → 사용자가 고름 → 시안(https://claude.ai/artifact/CYcKxtnnGp6miyJmDY9fgo · 리더 프로젝트 · 동아리 보고서) → worktree 에이전트(Opus 5.5 high · 셋까지 · 파일 안 겹치게) → cherry-pick → main에서 관련 스위트 → 푸시 → 배포 success. 묶음 하나 = 커밋 하나(①~⑥).
 - **사용자 결정(뒤집으려면 묻는다)**: 다붓이 근거는 **검색 모드**(임베딩 · 속도가 목적 · 비교표 같은 정답에 23% 빠름) · 기다리는 문구 다섯 줄은 사용자 문구 그대로(`wikiCore.WAIT_LINES` · 처음 1.5초는 점만) · 👎 받은 답은 아침 고리가 굳히지 않는다 · 직분 호칭 '이름 직함님'(정민경 리더순장님 · 2027 회장) · **보안(②)은 이미 된 것으로 안심 — 손대지 않음**(Gemini 유료 등급 확인됨) · 리더 = 마스터·관리자·교역자·그 해 임원진(**순장 제외** · 암호 방식은 §7 선례대로 안 함 · V2 결정 15 뒤집음) · 동아리 보고서는 **파일**(양식 파일은 아직 없음 → `파일 올리기` + `지난 보고서 가져오기`만 · 마스터·관리자·동아리장 · 지난 모임만) · 비전 메이커 = 청년부 간사(청년·교역자·임원진 아님 · 남자 · '집사님' · 2026 `vision_maker`) · 김우한 계정의 '임원진' 소속은 뺐다 · 성경 '이 장을 본 사람'은 통째로 뺐다(§7).
@@ -416,7 +416,7 @@ scripts/embed-bible.mjs       성경 → bible_vec 한 번(로컬 · --dry-run �
 scripts/embed-docs.mjs        doc_vec 전체·증분 · --dry-run(조각·토큰·비용) · --kind
 scripts/wiki-build.mjs        위키 한 번(--force · --only= · --dry) · scripts/wiki-live.mjs 다붓이·고치기 클라우드 실측(임시 계정 → 흔적 0건)
 (지운 스크립트 — git 이력의 scripts/compare-bible-search.mjs)  AI 검색 대 벡터 검색을 질의 30개로(한 번 쓰고 만 도구 · §7의 근거)
-supabase/migrations/          0001~0096 — 표는 README, 최근 것은 §5
+supabase/migrations/          0001~0097 — 표는 README, 최근 것은 §5
 tests/                        검증 스위트 + 러너 — 목록은 tests/README.md
 ```
 
@@ -430,7 +430,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`(0095에서 걷음) · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만 · **0090** 위키 고치기·자주 묻는 질문 장은 마스터만 · **0091** 다붓이 회귀 묶음 `dabooti_evals`(서버만) · **0092** 리더만 보는 프로젝트(`projects.visibility` · `is_leader`·`can_see_*`·`hidden_ids` · 정책 `alter`만 · 보호 트리거 둘) · **0093** 동아리 모임 활동 보고서(`files.meeting_id` · 세 갈래 CHECK · `can_edit_meeting` · 모임 갈래 정책 + restrictive 셋) · **0094** 직분 `vision_maker`(비전 메이커 · 임원 아님) · **0095** 0080 걷음(`bible_reads` 표 · `share_reads` 칸 · 2026-10-12) · **0096** `doc_vec`에 위키 장·발행 주보(다붓이 검색 모드). 다음 번호는 0097.
+  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`(0095에서 걷음) · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만 · **0090** 위키 고치기·자주 묻는 질문 장은 마스터만 · **0091** 다붓이 회귀 묶음 `dabooti_evals`(서버만) · **0092** 리더만 보는 프로젝트(`projects.visibility` · `is_leader`·`can_see_*`·`hidden_ids` · 정책 `alter`만 · 보호 트리거 둘) · **0093** 동아리 모임 활동 보고서(`files.meeting_id` · 세 갈래 CHECK · `can_edit_meeting` · 모임 갈래 정책 + restrictive 셋) · **0094** 직분 `vision_maker`(비전 메이커 · 임원 아님) · **0095** 0080 걷음(`bible_reads` 표 · `share_reads` 칸 · 2026-10-12) · **0096** `doc_vec`에 위키 장·발행 주보(다붓이 검색 모드) · **0097** 가입 트리거가 늦게 온 메타 사진·이름도 받아 적음(10분 안 빈 칸만). 다음 번호는 0098.
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.

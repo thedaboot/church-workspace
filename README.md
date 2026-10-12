@@ -221,6 +221,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0094_vision_maker` | 직분 '비전 메이커'(`people_roles.role` `vision_maker` — 청년부 간사 · 임원진 아님 · `is_officer()`에서 뺀다) · 데이터(김우한 집사님 명단 줄·직분·위키 '자주 쓰는 말')는 레포 밖 SQL | ✅ |
 | `0095_drop_bible_reads` | 0080 걷음(사용자 결정 2026-10-12) — `bible_reads` 표 · `bible_state.share_reads` 칸을 지운다. 되돌리기는 0080을 다시 돌린다 | ✅ |
 | `0096_doc_vec_wiki_service` | 다붓이 검색 모드(`DABOOTI_RETRIEVE`) 근거 — `doc_vec`에 위키 장(`page_id` · faq 제외)·발행 주보(`service_id`) 종류 · `source_id` text 생성 칸 · `match_docs`에 kinds(없으면 옛 세 종류만) | ✅ |
+| `0097_signup_avatar_late` | 가입 트리거가 뒤늦게 온 카카오·구글 메타(사진·이름)도 받아 적는다 — `after insert or update of raw_user_meta_data` · UPDATE는 10분 안에 만든 프로필의 빈 칸만(천진영 가입 때 identity가 150ms 늦어 사진이 비었다) | ✅ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.
