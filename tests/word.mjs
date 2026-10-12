@@ -3167,10 +3167,10 @@ const bibleSearchBox = async (w, h) => {
 }
 await ev(`localStorage.removeItem('word_bible_state')`);
 
-// ── 은혜와 리듬(2026-09-25) — QT 그 달 묵상 목록 · 마음 칩 폭 · 이번 주 이 장을 본 사람 ──────────────
+// ── 은혜와 리듬(2026-09-25) — QT 그 달 묵상 목록 · 마음 칩 폭 ──────────────
+// ('이번 주 이 장을 본 사람'(0080)은 2026-10-12에 뺐다 — '없어야 한다'는 tests/logcheck-v2의 은혜와 리듬 ④가 본다.)
 // 되돌리기 검사: Grass의 monthRows 정렬을 오름차순으로 바꾸면 '최근 날짜부터'가, 제목 갈래를 지우면 '제목이 먼저'가,
-// ChapterReaders 자리를 지우면 '제목과 북마크 사이 얼굴'이, 5초 타이머(markChapterRead)를 지우면 '5초 넘게 펼치면 남는다'가,
-// saveReadShare의 clearMyReads를 지우면 '끄면 내 기록을 지운다'가, fitMoods의 폰 상한을 지우면 '폰 한 줄 3~4개'가 깨진다.
+// fitMoods의 폰 상한을 지우면 '폰 한 줄 3~4개'가 깨진다.
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 {
   // ① QT 그 달 묵상 — 달력 아래 가는 선 + 최근 날짜부터 한 줄씩 · 제목 우선, 비면 구절 흐리게 · 7줄 넘으면 'N건 더 보기'
@@ -3255,80 +3255,6 @@ await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, dev
   await ev(`localStorage.removeItem('word_bible_state')`);
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 }
-{
-  // ③ 이번 주 이 장을 본 사람(0080) — 제목과 북마크 사이 얼굴 셋 + '+N' · 나 제외 · 이름순 · 나눔 보기 · 나도 나누기
-  const readers = { 'jdg 9': [
-    { profile_id: 'r-a', name: '조해리' }, { profile_id: 'r-b', name: '김승찬' }, { profile_id: 'r-c', name: '시온' }, { profile_id: 'r-d', name: '박지호' },
-  ] };
-  const qtDay = today;
-  await ev(`(() => {
-    localStorage.setItem('word_bible_reads', ${JSON.stringify(JSON.stringify(readers))});
-    localStorage.removeItem('word_bible_reads_mine'); localStorage.removeItem('word_bible_read_share');
-    localStorage.setItem('word_qt_schedule', ${JSON.stringify(JSON.stringify({ ...seed.schedule, [qtDay]: { passage_ref: '삿 9:7-21', label: '' } }))});
-    localStorage.setItem('word_qt_shared', ${JSON.stringify(JSON.stringify({ [qtDay]: [{ id: 'sh-b', profile_id: 'r-b', name: '김승찬', body: '요담의 비유를 묵상한 한 줄' }] }))});
-    localStorage.setItem('word_bible_state', ${JSON.stringify(JSON.stringify({ lastRef: 'jdg 9', bookmarks: [], highlights: [], recentSearches: [] }))});
-  })()`);
-  await reload(); await sleep(1200);
-  await clickText('말씀'); await sleep(500); await clickText('성경 읽기');
-  await waitFor(`document.querySelector('[data-readers]')`);
-  const openedAt = Date.now();
-  const head = await ev(`(() => {
-    const h = document.querySelector('[data-chap-head]');
-    const kids = [...h.children];
-    const iR = kids.findIndex(k => k.matches('[data-readers]')), iH = kids.findIndex(k => k.tagName === 'H3');
-    const iB = kids.findIndex(k => /북마크/.test(k.getAttribute('aria-label') || ''));
-    const r = h.querySelector('[data-readers]');
-    return { order: iH < iR && iR < iB, faces: r.querySelectorAll('.rounded-full').length, more: r.querySelector('[data-readers-more]')?.textContent.trim(),
-      title: h.querySelector('h3').textContent.trim(), trunc: h.querySelector('h3').scrollWidth <= h.querySelector('h3').clientWidth };
-  })()`);
-  check("장 머리 제목과 북마크 사이에 얼굴 셋 + '+1'", head.order && head.faces === 3 && head.more === '+1' && head.trunc, JSON.stringify(head));
-  await clickSel('[data-readers]'); await sleep(300);
-  const pop = await ev(`(() => {
-    const p = document.querySelector('[data-readers-pop]');
-    if (!p) return { none: true };
-    return { portal: p.parentElement === document.body, title: p.querySelector('p').textContent.trim(),
-      names: [...p.querySelectorAll('[data-reader]')].map(r => r.dataset.reader),
-      share: [...p.querySelectorAll('[data-reader-share]')].map(b => b.closest('[data-reader]').dataset.reader + ':' + b.textContent.trim()),
-      toggle: p.querySelector('[data-read-share]')?.textContent.trim(), on: p.querySelector('[data-read-share]')?.getAttribute('aria-checked'),
-      counts: /\\d+\\s*(번|회|분|시)/.test(p.innerText) };
-  })()`);
-  check("판: '이번 주 이 장을 본 사람' · 이름순 · 시각·횟수 없음(body 포털)",
-    pop.portal && pop.title === '이번 주 이 장을 본 사람' && pop.names.join(',') === '김승찬,박지호,시온,조해리' && !pop.counts, JSON.stringify(pop));
-  check("이 장에 걸친 QT 묵상을 공유해 둔 사람에게만 '나눔 보기' · 판 아래 '나도 나누기'(기본 켬)",
-    pop.share.join(',') === '김승찬:나눔 보기' && pop.toggle === '나도 나누기' && pop.on === 'true', JSON.stringify(pop));
-  // 5초 넘게 펼쳐 두면 이번 주 이 장에 내 줄 하나
-  const waitMs = Math.max(0, 5600 - (Date.now() - openedAt));
-  await sleep(waitMs);
-  const mine = await ev(`JSON.parse(localStorage.getItem('word_bible_reads_mine') || '[]')`);
-  const { weekStartOf } = await import(new URL('src/services/bibleReads.js', ROOT).href);
-  check('장을 5초 넘게 펼치면 이번 주(주일 시작) 이 장에 내 줄이 남는다',
-    mine.length === 1 && mine[0].chapter_key === 'jdg 9' && mine[0].week_start === weekStartOf(today), JSON.stringify(mine));
-  await clickSel('[data-read-share]'); await sleep(400);
-  const off = await ev(`({ on: document.querySelector('[data-read-share]')?.getAttribute('aria-checked'), mine: JSON.parse(localStorage.getItem('word_bible_reads_mine') || '[]'), flag: localStorage.getItem('word_bible_read_share') })`);
-  check('나도 나누기를 끄면 내 기록을 지우고 꺼짐이 남는다', off.on === 'false' && off.mine.length === 0 && off.flag === 'false', JSON.stringify(off));
-  await clickSel('[data-read-share]'); await sleep(400);
-  check('다시 켤 수 있다', await ev(`document.querySelector('[data-read-share]')?.getAttribute('aria-checked') === 'true' && localStorage.getItem('word_bible_read_share') === 'true'`));
-  await clickSel('[data-reader-share]');
-  await waitFor(`document.querySelector('[data-share-paper]')`);
-  await sleep(600);
-  const shared = await ev(`(() => ({
-    seg: [...document.querySelectorAll('button[aria-pressed="true"]')].map(b => b.textContent.trim()),
-    chip: [...document.querySelectorAll('[data-share-person][aria-pressed="true"]')].map(b => b.textContent.trim()),
-    paper: document.querySelector('[data-share-paper]')?.innerText.includes('요담의 비유를 묵상한 한 줄'),
-  }))()`);
-  check("'나눔 보기'를 누르면 QT의 그 날 · 그 사람의 종이", shared.seg.includes('QT') && shared.chip.length === 1 && shared.chip[0].endsWith('김승찬') && shared.paper, JSON.stringify(shared));
-  // 0명이면 자리째 없다
-  await ev(`localStorage.setItem('word_bible_reads', ${JSON.stringify(JSON.stringify({ 'jdg 9': [] }))})`);
-  await reload(); await sleep(1200);
-  await clickText('말씀'); await sleep(500); await clickText('성경 읽기');
-  await waitFor(`document.querySelector('[data-chap-head] h3')`); await sleep(500);
-  check('본 사람이 없으면 얼굴 자리 자체가 없다', await ev(`!document.querySelector('[data-readers]')`));
-  const settings = readFileSync(new URL('src/modals/settings.jsx', ROOT), 'utf8');
-  check("내 정보에서도 끈다 — 판 토글과 같은 글자·같은 저장", /<span>나도 나누기<\/span>/.test(settings) && /saveReadShare\(next\)/.test(settings) && /loadReadShare\(\)/.test(settings));
-  await ev(`['word_bible_reads', 'word_bible_reads_mine', 'word_bible_read_share', 'word_qt_shared', 'word_bible_state'].forEach(k => localStorage.removeItem(k));
-    localStorage.setItem('word_qt_schedule', ${JSON.stringify(JSON.stringify(seed.schedule))});`);
-}
-
 // ── ★ 뼈대 높이 = 실제 높이(19차 묶음 H · 사용자 허락) ─────────────────────────────
 // 말씀 나눔 뼈대는 옛 '한 줄 피드'(얼굴 + 두 줄 · 52px)였는데 실제는 **사람 칩 한 줄 + 종이 한 장**(§7)이라
 // 나눔이 도착하는 순간 아래가 수백 px 밀렸다. 노트 편집기 뼈대는 서식 바·종이 머리가 빠져 100px 넘게 짧았다.

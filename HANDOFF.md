@@ -46,6 +46,7 @@
   ③ 승인된 묶음은 worktree 에이전트(셋까지 · 파일 겹치지 않게) → 검토 → cherry-pick → **main에서** 관련 스위트(그 파일이 그리는 화면 스위트 포함) → 푸시 → 배포 success 확인 → 이 블록을 "한 일 · 결정"으로 바꾼다.
 - **조심**: 합친 뒤 스위트 전에 남은 테스트 크롬(`remote-debugging-port`)과 4390·4598·4601~4605 서버를 끈다 — 스위트마다 CDP 포트가 고정이라 에이전트가 남긴 크롬이 다음 실행을 깨뜨렸다(19차 뒤 modalclose). 다붓이 답이 바뀌는 일은 회귀 묶음 비용(49문항 · 약 $0.55)을 먼저 말한다. 색을 바꾸면 흰 글씨 4.5 · 테두리 3을 `logcheck-dash`가 셈한다.
 - **안 하기로 권함(19차 뒤 · 사용자가 다시 원하면 그때)**: 빈 상태 '없어요' 문구 통일 · 그래프 151건 겹침 · 로고 preload 경고 · 용량 초과 안내 두 번(일부러) · '앞부분만 보여줘요'(머리줄 버튼을 가리킴) · I 첨부 손가락 확대 훅 분리 · L DB 0092(`updated_at` 셋).
+- **묶음 ⑤ 한 일(2026-10-12 · 사용자 결정)**: '이번 주 이 장을 본 사람'(0080)을 통째로 뺐다 — 장 머리 얼굴·판(그 안의 `나눔 보기`)·`나도 나누기`(판·내 정보)·5초 기록·11:30 지난주 정리·`services/bibleReads.js` · **0095**(`bible_reads` 표 · `share_reads` 칸 · psql로 적용) · QT 나눔은 그대로 · '없어야 한다'는 `logcheck-v2` 은혜와 리듬 ④.
 - **남은 후보(정해지지 않음)**: 모션 정리(폰 업무 창만 200ms · tw-animate ease/앱 quint 두 벌 · 사이드바 폭 전이) · `Segmented`에 버튼 속성 통과 → 세그먼트 7벌 · `gather`/`collectAll` 합치기 · 실기기 확인 대기: 못 올린 첨부 빨간 줄(게스트로는 못 봄) · 댓글 칸 바닥에서 열기 · 폰 업무 바 켜진 탭 점.
 
 ### 20차 다붓이 서버 묶음 ① — 한 일 · 결정 (2026-10-12 · DB·화면 그대로 · 정본은 `docs/AI.md` §5)
@@ -280,7 +281,7 @@ src/components/ShareToggle.jsx  공유 토글 한 벌 — 말씀 묵상·예배 
 src/components/sunGuide.jsx   (v2) 순모임 가이드 패널 — 주보 피커·이미지로 공유·고정(§4.4·§6-9-av)
 src/components/calendarFeed.jsx 프로젝트 달력 머리의 `내 달력` — 업무 고르기 팝오버/아래 창 · 규칙·.ics·기기별 버튼은 services/calendarFeed.js(서버 api/ics.js와 한 벌 · 0085)
 src/components/Toast.jsx      토스트(`[data-toast]` · 폭 상한 28rem · §8)
-src/components/wordBible.jsx  (v2) 성경 리더·검색·목차 — BibleTab 훅 넷(useBibleSearch·useRecentPanel·useChapterReaders·useSwipe) · searchHeads(§6-9-bs) · 재수출(EmptyBookMark·PassageSkeleton·ShareSwitch·hlColor)
+src/components/wordBible.jsx  (v2) 성경 리더·검색·목차 — BibleTab 훅 셋(useBibleSearch·useRecentPanel·useSwipe) · searchHeads(§6-9-bs) · 재수출(EmptyBookMark·PassageSkeleton·ShareSwitch·hlColor)
 src/components/bibleParts.jsx (v2) 성경 공용 부품 — 본문 글·형광펜·Swap·뼈대·성경 상태 저장·useVersePaint·ShareSwitch(worshipParts·worshipPassage·settings가 쓴다)
 src/components/bibleMarks.jsx (v2) 북마크·형광펜 목록(책별 묶기 · mergeRuns)
 src/components/worshipDetail.jsx  (v2) 주보 상세 — 보기 탭·발행본 종이(ServicePaper)·표지 도구·ServiceDetail
@@ -422,7 +423,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads` · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만 · **0090** 위키 고치기·자주 묻는 질문 장은 마스터만 · **0091** 다붓이 회귀 묶음 `dabooti_evals`(서버만). 다음 번호는 0092.
+  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`(0095에서 걷음) · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만 · **0090** 위키 고치기·자주 묻는 질문 장은 마스터만 · **0091** 다붓이 회귀 묶음 `dabooti_evals`(서버만) · **0095** 0080 걷음(`bible_reads` 표 · `share_reads` 칸 · 2026-10-12). 다음 번호는 0096(0092~0094는 같은 날 다른 묶음).
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.
@@ -467,7 +468,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 | 랭킹·점수·배지·스트릭 | §8의 "누가 누구와 견주는 구조를 만들지 마세요"와 정면으로 부딪힌다 |
 | 최근 활동을 '내 업무만' 보기 | 이 칸의 값은 남들이 움직이는 게 보이는 것이다 |
 | 카드별 조회 추적 | 같이 사역하는 사람들이 쓰는 화면에서 감시처럼 읽힌다. `last_seen_at` 한 칸이 정직한 중간 |
-| ↳ 성경 장 보기는 예외 | **사용자 결정 2026-09-25, 공동체성** — '이번 주 이 장을 본 사람'(0080 `bible_reads`: 누가·어느 장·어느 주만 · 나 제외 이름순 · 시각·횟수·절 없음 · 기본 켬, 판·내 정보의 '나도 나누기'로 끄면 지운다). 되돌리지 말 것 |
+| ↳ 성경 장 보기('이번 주 이 장을 본 사람') | 2026-09-25에 위 행의 예외로 넣었다가(0080 `bible_reads`) **2026-10-12 사용자 결정으로 뺐다(0095)** — 장 머리 얼굴·'나도 나누기'를 다시 제안하지 말 것 |
 | 미가입자 명단으로 생일 관리 | (당시) 넣을 행이 없었다 — **v2의 `people`(0035)로 풀렸다** |
 | 커밋 날짜를 고쳐 잔디 채우기 | 어시스턴트가 거절했다(방법 안내도 하지 않는다) |
 | 첨부를 **진짜로** 잠그기 | 진짜 잠금과 펼쳐보기는 동시에 가질 수 없다 — 화면 가림을 골랐다(0023) |
@@ -624,5 +625,4 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
   **QT 그 달 묵상** — 내 기록 카드의 달력 아래 가는 선 + 최근 날짜부터 '날짜 · 제목'(비면 구절 흐리게) · 7줄 넘으면 `N건 더 보기` · 누르면 그 날.
   **이런 마음일 때** — 빈 검색칸의 판 맨 위 칩 **한 줄**(폰 넷까지 · 실제 폭을 재서 넘치는 칩은 건너뜀) · 후보 50은 `src/data/moods.js`(칩 글자만) · AI 물음은 한 틀 `'{칩} 읽을 성경 말씀'` · 최근 검색어엔 칩 글자 ·
   닫고 1분 뒤 다시 열면 새로 섞고 방금 본 칩은 뒤로 · 게스트엔 칩 없음 · 칩이 있는 판은 검색 줄 전체 폭.
-  **이번 주 이 장을 본 사람**(0080 `bible_reads`) — 장 머리 제목과 북마크 사이 얼굴 셋 + `+N` · 나 제외 이름순 · 판 제목 `이번 주 이 장을 본 사람` · 이 장에 걸친 이번 주 QT 묵상을 공유해 둔 사람만 `나눔 보기`(QT의 그 날·그 사람 종이로) ·
-  판 아래·내 정보에 `나도 나누기`(기본 켬 · `bible_state.share_reads` · 끄면 내 줄을 지운다) · 장을 5초 넘게 펼쳤을 때만 남긴다 · 지난주 줄은 11:30 배치 끝이 지운다 · §7 '카드별 조회 추적'의 예외(그 행 아래).
+  **이번 주 이 장을 본 사람**(0080) — 2026-10-12 사용자 결정으로 뺐다(0095 · §7).

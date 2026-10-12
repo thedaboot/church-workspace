@@ -719,9 +719,7 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
     '읽기는 bible_state를 읽던 그 한 벌에 얹혀 있다');
   assert.ok(/recent_searches: recentRows\(next\.recentSearches\)/.test(src),
     '쓰기도 그 upsert 한 벌이다');
-  // 0080의 나도 나누기(share_reads)는 **일부러 따로 오간다**(loadReadShare·saveReadShare — 0080이 늦게 나가도
-  // 북마크·형광펜 저장이 같이 실패하지 않게). 그 둘을 빼면 여전히 읽기·쓰기 한 벌이다.
-  const stateTrips = src.split(/(?=from\('bible_state'\))/).slice(1).filter(c => !/^from\('bible_state'\)[^;]*share_reads/.test(c));
+  const stateTrips = src.split(/(?=from\('bible_state'\))/).slice(1);
   assert.strictEqual(stateTrips.length, 2,
     'bible_state를 오가는 왕복은 읽기·쓰기 둘뿐이다');
 
@@ -1203,10 +1201,10 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
 }
 
 // ── 은혜와 리듬 묶음(2026-09-25 · 목업 '은혜와 리듬' 3·5·6·7·8 · '지난 기록' 2) ──────────────
-// 홈의 날짜로 켜지는 세 자리(homeMoments) · 이번 주 이 장을 본 사람(bibleReads · 0080) · 마음 칩(moodPick·moods).
+// 홈의 날짜로 켜지는 세 자리(homeMoments) · 마음 칩(moodPick·moods). '이번 주 이 장을 본 사람'(0080)은 2026-10-12에 뺐다(0095).
 // 되돌리기 검사: sundayMode의 SUNDAY_FROM 비교를 지우면 '07:59에는 아직'이, pickYearAgo의 작년 거르기를 지우면
-// '올해 프로젝트는 고르지 않는다'가, readersView의 나 빼기를 지우면 '나는 빠진다'가, fitMoods의 폰 상한을 지우면
-// '폰은 넷까지'가, reshuffle의 뒤로 밀기를 지우면 '방금 본 칩은 뒤로'가, push.js의 delete 한 줄을 지우면 '지난주 줄을 지운다'가 깨진다.
+// '올해 프로젝트는 고르지 않는다'가, fitMoods의 폰 상한을 지우면 '폰은 넷까지'가, reshuffle의 뒤로 밀기를 지우면
+// '방금 본 칩은 뒤로'가 깨진다. ④는 '없어야 한다' — 장 머리 얼굴·나도 나누기를 되살리면 깨진다.
 {
   const M = await import(new URL('../src/services/homeMoments.js', import.meta.url).href);
   // ① 오늘의 예배 — 발행된 오늘 주보 + 08:00~자정
@@ -1284,23 +1282,16 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
     '그 해 내가 담당한 업무의 프로젝트만 · 같이 한 얼굴은 이름순 셋까지(나를 빼고)');
   assert.ok(!JSON.stringify(fs).match(/"(count|total|rank)"/), '합계·순위 칸이 없다');
 
-  // ④ 이번 주 이 장을 본 사람(0080)
-  const R = await import(new URL('../src/services/bibleReads.js', import.meta.url).href);
-  assert.strictEqual(R.weekStartOf('2026-09-25'), '2026-09-20', '주는 주일 시작');
-  assert.strictEqual(R.weekStartOf('2026-09-20'), '2026-09-20');
-  assert.strictEqual(R.weekStartOf('2026-09-26'), '2026-09-20', '토요일까지 같은 주');
-  assert.strictEqual(R.weekStartOf('2027-01-01'), '2026-12-27', '해를 넘는다');
-  assert.strictEqual(R.READ_DWELL_MS, 5000, '5초 넘게');
-  const rv = R.readersView([
-    { profile_id: 'me', name: '노준석' }, { profile_id: 'a', name: '조해리' }, { profile_id: 'b', name: '김승찬' },
-    { profile_id: 'c', name: '시온' }, { profile_id: 'd', name: '박지호' }, { profile_id: 'b', name: '김승찬' }, { profile_id: 'e', name: '' },
-  ], 'me');
-  assert.deepStrictEqual(rv.all.map(p => p.name), ['김승찬', '박지호', '시온', '조해리'], '나는 빠지고 · 같은 사람은 한 번 · 이름순');
-  assert.deepStrictEqual([rv.faces.length, rv.more], [3, 1], '얼굴 셋 + +1');
-  assert.deepStrictEqual(R.readersView([{ profile_id: 'me', name: '노준석' }], 'me').all, [], '나뿐이면 0명(자리째 없다)');
-  const parse = (s) => { const m = /^(\S+) (\d+)(?::\d+)?(?:-(\d+))?/.exec(s); return m ? { bookId: m[1], start: { chapter: +m[2] }, end: { chapter: +m[2] } } : null; };
-  assert.deepStrictEqual(R.qtDatesCovering([{ qt_date: '2026-09-21', passage_ref: 'jdg 9:1-21' }, { qt_date: '2026-09-22', passage_ref: 'jdg 10:1' },
-    { qt_date: '2026-09-20', passage_ref: 'jdg 9:22' }], 'jdg', 9, parse), ['2026-09-20', '2026-09-21'], '이 장에 걸친 날만');
+  // ④ '이번 주 이 장을 본 사람'(0080)은 뺐다(사용자 결정 2026-10-12 · 0095) — 장 머리 얼굴·판·'나도 나누기'·
+  //    5초 기록·11:30 지난주 정리가 어디에도 남지 않는다
+  assert.ok(!existsSync(new URL('../src/services/bibleReads.js', import.meta.url)), 'services/bibleReads.js가 없다');
+  for (const f of ['src/components/wordBible.jsx', 'src/modals/settings.jsx', 'src/services/word.js', 'src/views/wordView.jsx', 'api/push.js']) {
+    const t = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
+    assert.ok(!/나도 나누기|bible_reads|share_reads|data-readers|bibleReads|READ_DWELL_MS/.test(t), `${f}에 '이 장을 본 사람'이 남지 않는다`);
+  }
+  const drop = readFileSync(new URL('../supabase/migrations/0095_drop_bible_reads.sql', import.meta.url), 'utf8');
+  assert.ok(/drop table if exists public\.bible_reads;/.test(drop) && /alter table public\.bible_state drop column if exists share_reads;/.test(drop),
+    '0095가 표와 칸을 지운다');
 
   // ⑤ 마음 칩 — 한 줄 · 폰 넷까지 · 1분 · 방금 본 칩은 뒤로
   const P = await import(new URL('../src/services/moodPick.js', import.meta.url).href);
@@ -1331,25 +1322,10 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.strictEqual(new Set(again).size, 50);
   assert.strictEqual(P.validMemo({ order: [0, 1], shownAt: 1 }, 50), null, '후보 수가 바뀐 기억은 버린다');
 
-  // ⑥ 배선 — 11:30 배치 끝의 지난주 지우기(크론을 새로 만들지 않는다) · 0080 모양 · §7 예외 줄
-  const push = readFileSync(new URL('../api/push.js', import.meta.url), 'utf8');
-  const wtm = push.slice(push.indexOf('async function handleWorshipThenMeetings'), push.indexOf('// GET ?job=embed'));
-  assert.ok(/await dropLastWeekReads\(admin\(\)\)/.test(wtm)
-    && /async function dropLastWeekReads\(db\) \{\s*const \{ error \} = await db\.from\('bible_reads'\)\.delete\(\)\.lt\('week_start', weekStartOf\(kstDate\(0\)\)\)/.test(push), '11:30 배치 끝에서 지난주 줄을 지운다');
+  // ⑥ 크론은 둘 그대로(HANDOFF §5 · Vercel Hobby)
   const vercel = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
   assert.strictEqual((vercel.crons || []).length, 2, '크론은 둘 그대로');
-  const mig = readFileSync(new URL('../supabase/migrations/0080_bible_reads.sql', import.meta.url), 'utf8');
-  const sql = mig.split('\n').filter(l => !/^\s*--/.test(l)).join('\n');
-  assert.ok(/primary key \(profile_id, chapter_key, week_start\)/.test(sql), '누가·어느 장·어느 주 셋이 열쇠');
-  assert.ok(!/(verse|seen_at|count)\s/.test(sql.slice(sql.indexOf('create table'), sql.indexOf(');'))), '절·시각·횟수 칸이 없다');
-  assert.ok(/bible_reads_select[\s\S]*?for select using \(public\.is_approved\(\)\)/.test(sql), '읽기는 승인된 전원');
-  assert.ok(/bible_reads_insert[\s\S]*?profile_id = public\.effective_uid\(\)/.test(sql) && /bible_reads_delete[\s\S]*?profile_id = public\.effective_uid\(\)/.test(sql), '쓰기·지우기는 본인만');
-  assert.ok(!/for update|for all/.test(sql), 'update 정책 없음');
-  assert.ok(/share_reads boolean not null default true/.test(sql), '나도 나누기는 bible_state 한 칸 · 기본 켬');
-  assert.ok(!/supabase_realtime/.test(sql), '실시간 발행에 넣지 않는다');
-  const handoff = readFileSync(new URL('../HANDOFF.md', import.meta.url), 'utf8');
-  assert.ok(/카드별 조회 추적[^\n]*\n\|[^\n]*성경 장 보기는 예외/.test(handoff), 'HANDOFF §7에 성경 장 보기 예외 줄이 카드별 조회 추적 바로 아래에 있다');
-  console.log('PASS  은혜와 리듬 묶음(오늘의 예배 · 지난 해의 오늘 · 발자취 · 이 장을 본 사람 · 마음 칩)');
+  console.log('PASS  은혜와 리듬 묶음(오늘의 예배 · 지난 해의 오늘 · 발자취 · 이 장을 본 사람은 없다 · 마음 칩)');
 }
 
 // ── 예배 화면 쪼개기 배선 (19차 묶음 G · 2026-10-07) ─────────────────────────────
@@ -1415,12 +1391,12 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.strictEqual(count(wv, /await afterWrite\(/g), 4, '꼬리를 부르는 자리가 넷');
   assert.strictEqual(count(wv, /dropCache\(qtKey\); refreshQt\(\);/g), 1, '그 날짜 묶음을 비우고 다시 읽는 줄은 afterWrite 안 한 곳');
   assert.strictEqual(count(wv, /setFeed\(await fetchSharedEntries\(date\)\)/g), 1, '나눔을 다시 읽는 줄도 한 곳');
-  // ④ 큰 함수의 상태는 훅으로 — BibleTab에 검색·쓸기·본 사람·판 차례가, QtTab에 노트 동기화가 남지 않는다
-  for (const h of ['useBibleSearch', 'useRecentPanel', 'useChapterReaders', 'useSwipe']) {
+  // ④ 큰 함수의 상태는 훅으로 — BibleTab에 검색·쓸기·판 차례가, QtTab에 노트 동기화가 남지 않는다
+  for (const h of ['useBibleSearch', 'useRecentPanel', 'useSwipe']) {
     assert.ok(new RegExp(`function ${h}\\(`).test(wb), `${h}가 있다`);
   }
   const tab = body(wb, 'export function BibleTab(');
-  assert.ok(!/searchToken|touchAt|moodOrderRef|setReaders/.test(tab), 'BibleTab 본문에 훅으로 옮긴 상태가 남아 있지 않다');
+  assert.ok(!/searchToken|touchAt|moodOrderRef/.test(tab), 'BibleTab 본문에 훅으로 옮긴 상태가 남아 있지 않다');
   const qtTab = body(wv, 'function QtTab(');
   assert.ok(/useQtNote\(\{ qt, qtError, date, setFeed, setShareState \}\)/.test(qtTab)
     && !/const syncedBody|shouldAdoptBody\(\{|const \[entry, setEntry\]/.test(qtTab),

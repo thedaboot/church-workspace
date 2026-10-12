@@ -11,18 +11,9 @@ import {
   loadBibleState, loadFontStep, saveFontStep,
   chapterKey, parseChapterKey, verseKey, parseVerseKey, bibleSearchStore,
   pushRecentSearch, removeRecentSearch, compactText, matchRanges,
-  kstToday, weekRange, fetchScheduleRange, fetchChapterReaders, markChapterRead, fetchSharedOn,
-  loadReadShare, saveReadShare,
 } from '../services/word.js';
-import { READ_DWELL_MS, weekStartOf, readersView, qtDatesCovering } from '../services/bibleReads.js';
 import { MOODS, moodAsk } from '../data/moods.js';
 import { MOOD_CHIP, MOOD_GAP, fitMoods, orderOnOpen, validMemo } from '../services/moodPick.js';
-import { useStore } from '../store/workspaceStore.js';
-import { selectMembers } from '../store/selectors.js';
-import { myUidSync } from '../services/supabaseClient.js';
-import { useDismiss } from '../hooks/useDismiss.js';
-import { Avatar } from './Avatar.jsx';
-import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { SectionHead, Card } from '../views/dashboardParts.jsx';
 import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
@@ -81,9 +72,8 @@ export { EmptyBookMark, PassageSkeleton, ShareSwitch, hlColor };
 // 머리글의 개수는 이름 **바로 옆**에 붙인다(오른쪽 끝에 붙이면 넓은 열에서 400px 떨어진다).
 //
 // **파일 셋으로 나뉜다**(19차 2026-10-07): 본문 한 덩이·형광펜·화면 전환·성경 상태 그릇은 bibleParts.jsx,
-// 북마크·형광펜 목록은 bibleMarks.jsx, 여기는 리더(BibleTab)·검색·목차다. BibleTab의 상태는 훅 넷으로 갈랐다 —
-// 검색(useBibleSearch) · 최근 검색어 판과 마음 칩 차례(useRecentPanel) · 이 장을 본 사람(useChapterReaders) ·
-// 쓸어 넘기기(useSwipe). 훅은 이 파일 안에 둔다(검사가 이 파일의 글자로 배선을 본다).
+// 북마크·형광펜 목록은 bibleMarks.jsx, 여기는 리더(BibleTab)·검색·목차다. BibleTab의 상태는 훅 셋으로 갈랐다 —
+// 검색(useBibleSearch) · 최근 검색어 판과 마음 칩 차례(useRecentPanel) · 쓸어 넘기기(useSwipe). 훅은 이 파일 안에 둔다(검사가 이 파일의 글자로 배선을 본다).
 // ============================================================================
 
 const OT_COUNT = 39;               // 정경 순서 — index.json의 앞 39권이 구약
@@ -167,69 +157,6 @@ export function MoodChips({ order, width = 0, onPick, onFit }) {
           {MOODS.map(label => <span key={label} className={MOOD_CHIP}>{label}</span>)}
         </span>
       </div>
-    </>
-  );
-}
-
-// ── 이번 주 이 장을 본 사람 (0080 · 사용자 결정 2026-09-25 · 목업 '은혜와 리듬' 6번) ──────
-// 장 머리의 제목과 북마크 사이 — 얼굴 셋 + '+N', 나 제외, **이름순**, 시각·횟수·절 없음, 0명이면 자리째 없다.
-// 누르면 판(body 포털 · HANDOFF §8 '떠 있는 것'): 제목 · 이름 줄(그 사람이 이 장에 걸친 이번 주 QT 묵상을
-// 공유해 뒀으면 '나눔 보기') · 판 아래 '나도 나누기'(끄면 내 기록을 지우고 다시 남기지 않는다 — 내 정보에도 같은 토글).
-// §7 '카드별 조회 추적'의 **예외다**(사용자 결정 — 공동체성). 되돌리지 말 것.
-const READERS_W = 236;
-function ChapterReaders({ view, shared = {}, onOpenShare }) {
-  const btnRef = useRef(null);
-  const popRef = useRef(null);
-  const [open, setOpen] = useState(false);
-  const [share, setShare] = useState(true);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { let alive = true; loadReadShare().then(v => { if (alive) setShare(v); }); return () => { alive = false; }; }, []);
-  useDismiss(open, () => setOpen(false), [btnRef, popRef]);
-  const [pos] = useAnchoredPos(btnRef, open, READERS_W, 240, 8, popRef);
-  const toggleShare = async () => {
-    if (busy) return;
-    const next = !share;
-    setShare(next); setBusy(true);
-    try { await saveReadShare(next); }
-    catch (e) { setShare(!next); showToast(failText('나도 나누기를 바꾸지 못했어요', e)); }
-    finally { setBusy(false); }
-  };
-  return (
-    <>
-      <button ref={btnRef} type="button" data-readers="" onClick={() => setOpen(o => !o)}
-        aria-expanded={open} aria-label="이번 주 이 장을 본 사람"
-        className="shrink-0 flex items-center h-11 px-1.5 rounded-md hover:bg-surface-hover transition-colors">
-        {view.faces.map((p, i) => (
-          <Avatar key={p.profile_id} name={p.name} url={p.avatarUrl || undefined}
-            className={`flex w-[21px] h-[21px] text-[10px] ring-[1.5px] ring-surface ${i ? '-ml-1.5' : ''}`} />
-        ))}
-        {view.more > 0 && <span data-readers-more="" className="ml-1 text-[11px] font-bold text-fg-muted tabular-nums">+{view.more}</span>}
-      </button>
-      {open && createPortal(
-        <div ref={popRef} data-readers-pop=""
-          style={{ position: 'fixed', left: pos.left, top: pos.top, width: READERS_W }}
-          className="z-[90] bg-surface border border-line rounded-xl shadow-elevated p-2 transition-none animate-in fade-in zoom-in-95 duration-150">
-          <p className="px-1.5 pt-0.5 pb-1.5 text-[11px] font-bold text-fg-muted">이번 주 이 장을 본 사람</p>
-          <div className="max-h-[220px] overflow-y-auto">
-            {view.all.map(p => (
-              <div key={p.profile_id} data-reader={p.name} className="flex items-center gap-2 p-1.5 rounded-md text-[12.5px] font-semibold text-fg">
-                <Avatar name={p.name} url={p.avatarUrl || undefined} className="flex w-[21px] h-[21px] text-[10px]" />
-                <span className="min-w-0 truncate">{p.name}</span>
-                {shared[p.profile_id] && onOpenShare && (
-                  <button type="button" data-reader-share="" onClick={() => { setOpen(false); onOpenShare(shared[p.profile_id], p.profile_id); }}
-                    className="ml-auto shrink-0 px-1.5 py-0.5 rounded text-[11px] font-bold text-accent-text hover:bg-accent-weak transition-colors">
-                    나눔 보기
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-          <button type="button" role="switch" aria-checked={share} data-read-share="" onClick={toggleShare} disabled={busy}
-            className="w-full mt-1.5 pt-2 pb-0.5 px-1.5 border-t border-line flex items-center justify-between text-[11.5px] font-semibold text-fg-muted">
-            <span>나도 나누기</span>
-            <ShareSwitch on={share} />
-          </button>
-        </div>, document.body)}
     </>
   );
 }
@@ -377,60 +304,6 @@ function useRecentPanel({ typed, recent, moodsOn, rowRef, formRef, panelRef }) {
   return { setFocused, recentOpen, recentPos, moodOrder: moodOrderRef.current, onMoodFit: (f) => { moodShown.current = f; } };
 }
 
-// ── 이번 주 이 장을 본 사람(0080) — 장을 열 때 **한 번** 읽는다(실시간 없음) ─────────────
-// 이름·사진은 멤버 목록이 원본이다(나눔 칩과 같다). 게스트의 심어 둔 줄은 이름을 들고 온다.
-// '나눔 보기'는 이번 주 읽기표에서 이 장에 걸친 날 → 그 날 공유해 둔 묵상이 있는 사람만.
-// loaded: 지금 장의 본문이 도착했나 — 그때부터 5초를 센다(아래).
-function useChapterReaders({ place, placeKey, books, loaded }) {
-  const members = useStore(selectMembers);
-  const [readers, setReaders] = useState(null);   // { key, rows, shared: { [profile_id]: 날짜 } }
-  useEffect(() => {
-    if (!place || !books.length) return undefined;
-    let alive = true;
-    const key = placeKey;
-    const today = kstToday();
-    (async () => {
-      const rows = await fetchChapterReaders(key, weekStartOf(today));
-      const me = myUidSync() || '';
-      const ids = [...new Set(rows.map(r => r.profile_id))].filter(id => id && id !== me);
-      let shared = {};
-      if (ids.length) {
-        const [ws, we] = weekRange(today);
-        const sch = await fetchScheduleRange(ws, we).catch(() => []);
-        const dates = qtDatesCovering(sch, place.bookId, place.chapter, ref => parseRef(ref, books));
-        const on = await fetchSharedOn(dates, ids).catch(() => []);
-        for (const r of on) if (!shared[r.profile_id] || r.qt_date > shared[r.profile_id]) shared[r.profile_id] = r.qt_date;
-      }
-      if (alive) setReaders({ key, rows, shared });
-    })().catch(e => { console.warn('[word] 이 장을 본 사람을 읽지 못했어요:', e); if (alive) setReaders(null); });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placeKey, books]);
-  const view = useMemo(() => {
-    if (!readers || readers.key !== placeKey) return readersView([], '');
-    const byId = new Map((members || []).map(m => [m.id, m]));
-    return readersView(readers.rows.map(r => {
-      const m = byId.get(r.profile_id);
-      return { profile_id: r.profile_id, name: m?.name || r.name || '', avatarUrl: m?.avatarUrl || r.avatarUrl || '' };
-    }), myUidSync() || '');
-  }, [readers, placeKey, members]);
-
-  // 장을 **5초 넘게** 펼쳐 두면 이번 주 이 장에 내 줄 하나(나도 나누기가 켜져 있을 때만).
-  // 목차에서 훑고 지나간 장은 적히지 않는다 — 장을 옮기면 타이머가 풀린다.
-  useEffect(() => {
-    if (!loaded || !placeKey) return undefined;
-    const key = placeKey;
-    const t = setTimeout(async () => {
-      try {
-        if (!(await loadReadShare())) return;
-        await markChapterRead(key, weekStartOf(kstToday()));
-      } catch (e) { console.warn('[word] 이 장을 본 기록을 남기지 못했어요:', e); }
-    }, READ_DWELL_MS + 100);
-    return () => clearTimeout(t);
-  }, [loaded, placeKey]);
-  return { view, shared: readers?.shared };
-}
-
 // ── 쓸어서 넘기기 ───────────────────────────────────────────────────────────
 // 모바일은 **쓸어서** 넘긴다(사용자 피드백 2026-09-03 — 화살표가 맨 아래라 스크롤을 다
 // 내려야 넘길 수 있었다). 가로 이동이 60px을 넘고 세로보다 커야 장이 바뀐다 — 읽다가
@@ -459,7 +332,7 @@ function useSwipe(onSwipe) {
 }
 
 // ── 성경 읽기 탭 ────────────────────────────────────────────────────────────
-export function BibleTab({ initialRef = '', onOpenShare }) {
+export function BibleTab({ initialRef = '' }) {
   const [books, setBooks] = useState([]);
   // **캐시가 있으면 그 값으로 시작한다**(사용자 요청 2026-09-03 — "매번 스켈레톤이 아니라
   // 캐시된 값이 먼저"). 이어읽기·북마크·형광펜은 이 화면이 직접 고치기도 해서
@@ -582,8 +455,6 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
   const here = place ? bookOf(place.bookId) : null;
   const placeKey = place ? chapterKey(place.bookId, place.chapter) : '';
   const loaded = !!place && chap?.key === placeKey;
-
-  const readers = useChapterReaders({ place, placeKey, books, loaded });
 
   // 검색·형광펜 목록에서 들어온 절로 데려간다
   useEffect(() => {
@@ -851,9 +722,6 @@ export function BibleTab({ initialRef = '', onOpenShare }) {
               <h3 className="bible-place flex-1 min-w-0 truncate text-[15px] font-extrabold text-fg tracking-[-0.3px]">
                 {here?.name} {place.chapter}장
               </h3>
-              {readers.view.all.length > 0 && (
-                <ChapterReaders key={placeKey} view={readers.view} shared={readers.shared} onOpenShare={onOpenShare} />
-              )}
               <button onClick={toggleBookmark} title={marked ? '북마크 지우기' : '북마크에 넣기'}
                 aria-label={marked ? '북마크 지우기' : '북마크에 넣기'}
                 className={`${btn} shrink-0 w-11 h-11 ${marked ? 'text-accent-text bg-accent-weak' : 'text-fg-muted hover:bg-surface-hover'}`}>

@@ -158,16 +158,13 @@ export function WordView({ initialTab = 'qt', initialRef = '' }) {
   // QT 본문의 구절 → 성경 읽기의 그 장(주보의 구절과 같은 길 · worshipDetail WordTab). 같은 화면
   // 안이라 App을 거치지 않고 세그먼트만 옮긴다.
   const openBible = (ref) => { if (!ref) return; setReadRef(ref); pick('read'); };
-  // 성경 읽기 장 머리의 '나눔 보기'(이번 주 이 장을 본 사람 · 0080) → QT의 그 날, 그 사람의 종이.
-  // 같은 화면 안이라 세그먼트만 옮기고 QT 탭이 날짜·사람을 받는다.
   // 위키 'QT 본문 일정'의 날을 누르면 `/?p=word&qt=<날짜>`로 온다(services/entryQuery) — 그 날의 QT로 연다.
   // 처음 값은 지우지 않고 읽고(StrictMode가 초기값 함수를 두 번 부른다) 마운트 뒤에 가져가 지운다.
-  const [qtFocus, setQtFocus] = useState(() => {
+  const [qtFocus] = useState(() => {
     const d = entryParam('qt');
     return /^\d{4}-\d{2}-\d{2}$/.test(d || '') ? { date: d, profileId: '' } : null;
   });   // { date, profileId }
   useEffect(() => { takeEntryParam('qt'); }, []);
-  const openShare = (date, profileId) => { if (!date) return; setQtFocus({ date, profileId }); setReadRef(''); pick('qt'); };
 
   return (
     <div className="dc-screen pb-6">
@@ -189,7 +186,7 @@ export function WordView({ initialTab = 'qt', initialRef = '' }) {
       </div>
 
       <Swap k={tab} dir={dir}>
-        {tab === 'qt' ? <QtTab onOpenBible={openBible} focus={qtFocus} /> : <BibleTab initialRef={readRef} onOpenShare={openShare} />}
+        {tab === 'qt' ? <QtTab onOpenBible={openBible} focus={qtFocus} /> : <BibleTab initialRef={readRef} />}
       </Swap>
     </div>
   );
@@ -322,7 +319,7 @@ function QtTab({ onOpenBible, focus = null }) {
   const { session, isMaster } = useAuth();
   const today = kstToday();
 
-  // '나눔 보기'로 들어오면 그 날부터 연다(focus — WordView.openShare)
+  // 위키의 QT 날짜로 들어오면 그 날부터 연다(focus — WordView qtFocus)
   const [date, setDate] = useState(() => focus?.date || today);
   const [dir, setDir] = useState(0);
   const [day, setDay] = useState({ loading: true, schedule: null, passage: null });
