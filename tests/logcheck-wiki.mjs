@@ -525,9 +525,9 @@ const wikiBuildSrc = () => ['../api/_wikiBuild.js', ...readdirSync(new URL('../a
   assert.ok(!W.cacheFresh({ ...row, answer: { sentences: row.answer.sentences } }, '2026-10-04T02:00:00Z', '2026-10-04'), '캐시해도 되는 답으로 저장된 것만');
   assert.ok(!W.cacheFresh({ ...row, answer: { cacheable: true, sentences: [{ text: 'a', cites: [{ t: 'page', id: 'faq' }] }] } }, '2026-10-04T02:00:00Z', '2026-10-04'), '마스터만 보는 장을 근거로 한 답');
   // 순서: 거르기 → talkKind → 이어 묻기(위키 · 다붓이 10) → 성경 → 출석 → 생일 → 캐시 → 근거 · 밤 다시 묻기는 캐시 끔 · 저장은 캐시해도 되는 답 표시
-  const order = ['const pf = prefilter(raw);', 'const talk = talkKind(raw, prevLines);', 'const question = (prevLines.length && looksFollowUp(raw) && followUpRule(', 'const ref = bibleRefIn(question, BOOKS);', 'if (isAttendanceQuestion(question) || isBirthdayQuestion(question))', 'const hit = await cachedAnswer(admin, question, today)', 'await collectAll(db, today);', 'const found = parseModelJson(await gen(LOCATE_SYS'];
+  const order = ['const pf = prefilter(raw);', 'const talk = talkKind(raw, prevLines);', 'const question = (prevLines.length && looksFollowUp(raw) && followUpRule(', 'const ref = bibleRefIn(question, BOOKS);', 'if (isAttendanceQuestion(question) || isBirthdayQuestion(question))', 'const hit = await cachedAnswer(admin, question, today)', 'collectAll(db, today),', 'const found = parseModelJson(await gen(LOCATE_SYS'];
   order.reduce((at, s) => { const i = ask.indexOf(s); assert.ok(i > at, `순서: ${s}`); return i; }, -1);
-  assert.ok(ask.includes('answerQuestion(r.question, { db: admin, admin, prev, cache: false, key, today, hint: cites })') && ask.includes('...(out.cacheable ? { cacheable: true } : {})'));
+  assert.ok(ask.includes('answerQuestion(r.question, { db: admin, admin, prev, cache: false, key, today, hint: cites, wrong })') && ask.includes('...(out.cacheable ? { cacheable: true } : {})'));
   assert.ok(ask.includes("last('wiki_pages', 'updated_at'), last('wiki_edits', 'edited_at'), last('cards', 'updated_at'), last('services', 'updated_at'), last('files', 'created_at'), last('doc_vec', 'updated_at')"), '데이터 도장');
   // 날짜 셈 — 다음 월례회(규칙) · 주일
   assert.strictEqual(A.secondSunday('2026-10-04'), '2026-10-11');
@@ -942,4 +942,210 @@ const wikiBuildSrc = () => ['../api/_wikiBuild.js', ...readdirSync(new URL('../a
   const failDb = { from: (t) => (t === 'cards' ? { select: () => ({ order: () => ({ range: async () => ({ data: null, error: { message: 'down' } }) }) }) } : chain([])), rpc: async () => ({ data: null }) };
   await assert.rejects(A.collectAll(failDb, '2026-10-09'), /cards: down/, '업무 조회가 실패하면 빈 기록으로 답하지 않는다');
   console.log('PASS  다붓이 기록 모으기(끝까지 읽기 · 오류 던짐 · 자주 묻는 질문 장 뺌)');
+}
+
+// 2026-10-12 — 👎 받은 답을 아침 고리가 굳히지 않는다 · 알려 준 말(told) · 응답 시간·모델 저장 · 직분 호칭 · 왕복 줄이기
+// (라이브: '우리 청년부 부장님은 누구셔?' → '신효진 자매예요' 👎 → 아침 고리가 같은 답을 missed로 저장 → 그 근거가 [참고]로 붙었다)
+// 모델은 fetch를 가로채 흉내 낸다(돈 들지 않음) — 부른 차례·프롬프트를 잰다.
+{
+  const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
+  const A = await import(new URL('../api/_wikiAsk.js', import.meta.url).href);
+  const B = await import(new URL('../api/_wikiBuild.js', import.meta.url).href);
+  const P = await import(new URL('../api/push.js', import.meta.url).href);
+  const ask = readFileSync(new URL('../api/_wikiAsk.js', import.meta.url), 'utf8');
+  // 가짜 DB — eq · is · not · in · gte를 실제로 거른다 · 넣은 행은 inserts에 · 읽은 표는 reads에
+  const fakeDb = (tables, { inserts = [], reads = [], fail = [] } = {}) => ({
+    from: (t) => {
+      reads.push(t);
+      if (fail.includes(t)) throw new Error(`${t}: 읽으면 안 된다`);
+      let rows = [...(tables[t] || [])];
+      const q = {
+        select: () => q, order: () => q, limit: (n) => { rows = rows.slice(0, n); return q; },
+        eq: (k, v) => { rows = rows.filter(r => r[k] === v); return q; },
+        is: (k, v) => { rows = rows.filter(r => (r[k] ?? null) === v); return q; },
+        not: (k, _op, v) => { rows = rows.filter(r => (r[k] ?? null) !== v); return q; },
+        in: (k, vs) => { rows = rows.filter(r => vs.includes(r[k])); return q; },
+        gte: (k, v) => { rows = rows.filter(r => r[k] == null || String(r[k]) >= String(v)); return q; },
+        lte: (k, v) => { rows = rows.filter(r => r[k] == null || String(r[k]) <= String(v)); return q; },
+        range: async (a, b) => ({ data: rows.slice(a, b + 1) }),
+        then: (res, rej) => Promise.resolve({ data: rows, count: rows.length }).then(res, rej),
+        insert: (row) => { inserts.push({ t, row }); const done = { data: { id: `n${inserts.length}` } }; return { select: () => ({ single: async () => done }), then: (res, rej) => Promise.resolve(done).then(res, rej) }; },
+      };
+      return q;
+    },
+    rpc: async () => ({ data: null }),
+  });
+  // 가짜 제미나이 — sys 첫 줄로 찾기(LOCATE)·답을 가른다 · reply(kind, n)이 돌려줄 JSON
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  const fakeGemini = (reply) => { globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    const kind = body.systemInstruction.parts[0].text.startsWith('너는 [기록]에서') ? 'locate' : 'answer';
+    const model = String(url).match(/models\/([^:]+):/)?.[1];
+    calls.push({ kind, model, prompt: body.contents[0].parts[0].text });
+    const out = reply(kind, model);
+    if (out === 500) return new Response('{}', { status: 500 });
+    return new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(out) }] } }] }), { status: 200 });
+  }; };
+  const recent = (min) => new Date(Date.now() - min * 60e3).toISOString();
+  const today = W.kstDate(new Date().toISOString());
+  const people = {
+    profiles: [{ id: 'u1', display_name: '신효진', role_note: '부장', approved: true, removed_at: null, merged_into: null, team_id: 't1' },
+      { id: 'u2', display_name: '정민경', role_note: '리더순장 · 찬양팀 베이스', approved: true, removed_at: null, merged_into: null, team_id: 't1' },
+      { id: 'u3', display_name: '김승찬', role_note: '순장 · 찬양팀 일렉', approved: true, removed_at: null, merged_into: null, team_id: null },
+      { id: 'u4', display_name: '조해리', role_note: '', approved: true, removed_at: null, merged_into: null, team_id: null }],
+    people: [{ id: 'p1', name: '신효진', profile_id: 'u1', gender: 'f', is_pastor: false, removed_at: null }, { id: 'p2', name: '정민경', profile_id: 'u2', gender: 'f', is_pastor: false, removed_at: null },
+      { id: 'p3', name: '김승찬', profile_id: 'u3', gender: 'm', is_pastor: false, removed_at: null }, { id: 'p4', name: '조해리', profile_id: 'u4', gender: 'f', is_pastor: false, removed_at: null }],
+    people_roles: [{ person_id: 'p4', role: 'treasurer', year: Number(today.slice(0, 4)) }, { person_id: 'p1', role: 'director', year: Number(today.slice(0, 4)) }],
+    teams: [{ id: 't1', name: '임원진' }], profile_teams: [],
+  };
+  const Q = '우리 청년부 부장님은 누구셔?';
+  const WRONG = '청년부 부장님은 신효진 자매예요.';
+  const badAsk = { id: 'a1', question: Q, norm: W.normQ(Q), status: 'answered', feedback: 'bad', via: 'ask', created_at: recent(60), answer: { sentences: [{ text: WRONG, cites: [] }], files: [] } };
+  const nightRow = (ins) => ins.find(x => x.t === 'dabooti_questions' && x.row.via === 'nightly')?.row;
+
+  try {
+    // ① 👎 받은 질문 — '그대로 다시 답해 보기'를 건너뛰고 찾기(LOCATE)가 먼저 · 앞 답이 틀렸다고 알린다 · 같은 답이면 disputed
+    calls.length = 0;
+    let ins = [];
+    fakeGemini((kind) => (kind === 'locate' ? { ids: ['R2', 'R3'] } : { found: true, sentences: [{ text: WRONG, e: ['R2'] }] }));
+    let got = await A.reaskUnknown(fakeDb({ ...people, dabooti_questions: [badAsk] }, { inserts: ins }), { key: 'k', today });
+    assert.deepStrictEqual(calls.map(c => c.kind), ['locate', 'answer'], `👎 행은 찾기부터(그대로 다시 답해 보기 없음): ${calls.map(c => c.kind)}`);
+    assert.ok(calls.every(c => c.prompt.includes(`[틀린 답] 예전에 이 질문에 "${WRONG}"라고 답했는데, 묻는 사람이 이 답은 틀렸다고 표시했어요.`)), '찾기·답 모두 앞 답이 틀렸다고 안다');
+    assert.ok(calls[1].prompt.includes('[참고] 같은 질문의 답은 예전에 R3 기록에 있었어요.'), '찾은 기록(자리가 있는 것)은 [참고]로');
+    let row = nightRow(ins);
+    assert.ok(row && row.answer.cause === 'disputed' && row.answer.fromBad === true && got.disputed === 1 && got.missed === 0, `같은 답 → disputed(missed 아님): ${JSON.stringify(row?.answer)}`);
+    // 다른 답이면 missed(👎에서 비롯함 표시) · 짝으로 쓰지 않는다
+    calls.length = 0; ins = [];
+    fakeGemini((kind) => (kind === 'locate' ? { ids: ['R2'] } : { found: true, sentences: [{ text: '청년부 부장님은 신효진 부장님이에요.', e: ['R2'] }] }));
+    got = await A.reaskUnknown(fakeDb({ ...people, dabooti_questions: [badAsk] }, { inserts: ins }), { key: 'k', today });
+    row = nightRow(ins);
+    assert.ok(row.answer.cause === 'missed' && row.answer.fromBad === true && got.missed === 1, '다른 답 → missed + fromBad');
+    assert.deepStrictEqual(calls.map(c => c.kind), ['locate', 'answer'], '찾은 기록이 사람 줄(자리 없음)뿐이어도 👎 행은 답해 본다');
+    assert.deepStrictEqual(A.pairFrom([badAsk, { ...row, created_at: recent(1) }]), [], '👎에서 비롯한 nightly 근거는 짝이 아니다');
+    // 기록을 못 찾으면 none(마스터에게) · 👎 아닌 모르는 질문은 예전처럼 그대로 다시 답해 보기가 먼저
+    calls.length = 0; ins = [];
+    fakeGemini((kind) => (kind === 'locate' ? { ids: [] } : { found: false, sentences: [] }));
+    await A.reaskUnknown(fakeDb({ ...people, dabooti_questions: [{ ...badAsk, feedback: null, status: 'unknown' }] }, { inserts: ins }), { key: 'k', today });
+    assert.deepStrictEqual(calls.map(c => c.kind), ['answer', 'locate'], '👎 아닌 모름은 그대로 한 번 → 찾기');
+    assert.ok(!calls.some(c => c.prompt.includes('[틀린 답]')), '👎 아니면 틀린 답 줄 없음');
+    assert.strictEqual(nightRow(ins).answer.cause, 'none');
+    // 가름 — 순수
+    assert.strictEqual(A.nightCause({ status: 'answered', sentences: [{ text: '청년부 부장님은  신효진 자매예요' }] }, { bad: true, before: badAsk.answer }), 'disputed', '띄어쓰기·마침표가 달라도 같은 답');
+    assert.strictEqual(A.nightCause({ status: 'answered', sentences: [{ text: WRONG }] }, { bad: false, before: badAsk.answer }), 'missed', '👎 아니면 같은 답이어도 missed');
+    assert.strictEqual(A.nightCause({ status: 'unknown', dropped: [{}] }, { located: true }), 'dropped');
+
+    // ② 알려 주는 말 — 라이브의 두 정정 글이 statement로 · 아침 고리는 모델 없이 told · 답 문구는 기존 그대로
+    const fix1 = '신효진 자매가 아니라 신효진 부장님이셔. 성별은 자매가 맞지만, 호칭은 꼭 부장님이라고 해줘.';
+    const fix2 = '정민경은 순장이 아니라 리더순장이고, 천진영도 순장이야';
+    for (const q of [fix1, fix2, '천진영도 순장이야', '신효진은 부장이야', '회비는 만원이 아니라 이만원이야']) {
+      const t = W.talkKind(q, []);
+      assert.ok(t?.kind === 'statement' && t.answer === W.TALK_ANSWERS.statement, `알려 주는 말: ${q}`);
+    }
+    for (const q of ['리더 MT는 어디가 아니라 언제야?', '그게 아니라 다른 거 알려줘', '이거 맞지?', Q]) assert.strictEqual(W.talkKind(q, []), null, `물음은 물음: ${q}`);
+    assert.ok(!W.isAsking('성별은 자매가 맞지만 호칭은 부장님'), "'맞지만'은 물음이 아니다");
+    calls.length = 0; ins = [];
+    fakeGemini(() => { throw new Error('모델을 부르면 안 된다'); });
+    got = await A.reaskUnknown(fakeDb({ ...people, dabooti_questions: [{ ...badAsk, id: 'a2', question: fix1, norm: W.normQ(fix1) }] }, { inserts: ins }), { key: 'k', today });
+    row = nightRow(ins);
+    assert.ok(calls.length === 0 && row.answer.cause === 'told' && row.answer.told === true && row.status === 'unknown' && got.told === 1, `👎 받은 정정 글도 told(모델 없음): ${JSON.stringify(row?.answer)}`);
+    assert.strictEqual(row.answer.sentences[0].text, W.TALK_ANSWERS.statement, '답 문구는 기존 알려 주는 말 그대로');
+    // 옛 고리가 👎 질문을 missed로 굳힌 것(fromBad 없음)은 한 번 더 본다 · 새 고리가 본 것(fromBad)은 다시 안 본다
+    const oldNight = { ...badAsk, id: 'n1', via: 'nightly', feedback: null, created_at: recent(30), answer: { cause: 'missed', sentences: [{ text: WRONG, cites: [{ t: 'page', id: 'intro' }] }] } };
+    assert.deepStrictEqual(A.reaskTodo([badAsk, oldNight]).map(r => r.id), ['a1'], '옛 missed는 다시 본다');
+    assert.deepStrictEqual(A.reaskTodo([badAsk, { ...oldNight, answer: { ...oldNight.answer, fromBad: true } }]), [], '새 고리가 본 것은 다시 안 본다');
+
+    // ③ 짝(pairedCites) — 👎 받은 질문에서 비롯한 nightly 근거는 [참고]로 쓰지 않는다
+    const goodAsk = { ...badAsk, feedback: null };
+    assert.deepStrictEqual(A.pairFrom([goodAsk, oldNight]), [{ t: 'page', id: 'intro' }], '보통 짝은 쓴다');
+    assert.deepStrictEqual(A.pairFrom([badAsk, oldNight]), [], '👎 뒤의 옛 missed는 안 쓴다(표시 전 저장분)');
+    assert.deepStrictEqual(A.pairFrom([goodAsk, { ...oldNight, answer: { ...oldNight.answer, cause: 'disputed' } }]), [], 'disputed는 짝이 아니다');
+    assert.deepStrictEqual(A.pairFrom([goodAsk, { ...oldNight, feedback: 'bad' }]), [], '👎 받은 행');
+    assert.deepStrictEqual(A.pairFrom([goodAsk, { ...oldNight, answer: { ...oldNight.answer, fromBad: true } }]), [], 'fromBad 표시만으로도 뺀다');
+    calls.length = 0;
+    fakeGemini(() => ({ found: true, sentences: [{ text: '청년부 부장님은 신효진 부장님이에요.', e: ['R2'] }] }));
+    await A.answerQuestion(Q, { db: fakeDb(people), admin: fakeDb({ dabooti_questions: [badAsk, oldNight] }), key: 'k', today, cache: false });
+    assert.ok(!calls[0].prompt.includes('[참고]'), '낮의 답 프롬프트에 👎 근거가 [참고]로 안 붙는다');
+    calls.length = 0;
+    await A.answerQuestion(Q, { db: fakeDb(people), admin: fakeDb({ dabooti_questions: [goodAsk, oldNight] }), key: 'k', today, cache: false });
+    assert.ok(/\[참고\] 같은 질문의 답은 예전에 R\d+ 기록에 있었어요\./.test(calls[0].prompt), '보통 짝은 [참고]로 붙는다');
+
+    // ④ 응답 시간·모델 저장(jsonb · 칼럼 그대로) — 폴백이면 flash-lite 이름과 fallback
+    calls.length = 0;
+    fakeGemini((_k, model) => (model === A.ASK_MODEL ? 500 : { found: true, sentences: [{ text: '청년부 부장님은 신효진 부장님이에요.', e: ['R2'] }] }));
+    const fb = await A.answerQuestion(Q, { db: fakeDb(people), key: 'k', today });
+    assert.ok(fb.model === B.WIKI_MODEL && fb.fallback === true && Number.isFinite(fb.ms) && fb.ms >= 0, `폴백: ${fb.model} ${fb.fallback} ${fb.ms}`);
+    ins = [];
+    await A.saveAnswer(fakeDb({}, { inserts: ins }), Q, fb);
+    const saved = ins[0].row.answer;
+    assert.ok(saved.model === B.WIKI_MODEL && saved.fallback === true && saved.ms === fb.ms && !('cause' in saved), `저장 모양: ${JSON.stringify(saved)}`);
+    fakeGemini(() => ({ found: true, sentences: [{ text: '청년부 부장님은 신효진 부장님이에요.', e: ['R2'] }] }));
+    const ok1 = await A.answerQuestion(Q, { db: fakeDb(people), key: 'k', today });
+    ins = [];
+    await A.saveAnswer(fakeDb({}, { inserts: ins }), Q, ok1);
+    assert.ok(ins[0].row.answer.model === A.ASK_MODEL && !('fallback' in ins[0].row.answer) && Number.isFinite(ins[0].row.answer.ms), '폴백 없음 → 3.8 Flash · fallback 없음');
+    ins = [];
+    await A.saveAnswer(fakeDb({}, { inserts: ins }), Q, { status: 'answered', sentences: [], files: [], cached: true, model: B.WIKI_MODEL, ms: 12, cacheable: true });
+    assert.ok(ins[0].row.answer.cached === true && !('model' in ins[0].row.answer) && ins[0].row.answer.ms === 12, '캐시로 준 답은 모델 이름 대신 cached');
+    assert.ok(!Object.keys(ins[0].row).some(k => !['question', 'norm', 'status', 'via', 'answer', 'dropped'].includes(k)), '칼럼은 그대로(새 값은 answer 안)');
+
+    // ⑤ 직분 호칭 — 부장·회장·총무·리더순장·리더팀장 · 교역자는 '이름 직함님'(형제·자매보다 먼저) · 나머지 직함은 형제·자매 그대로
+    assert.strictEqual(A.callFor({ name: '신효진', role: '부장', gender: 'f' }), '신효진 부장님');
+    assert.strictEqual(A.callFor({ name: '정민경', role: '리더순장 · 찬양팀 베이스', gender: 'f' }), '정민경 리더순장님');
+    assert.strictEqual(A.callFor({ name: '양민혁', role: '청년부 회장 · 여러 팀을 섬기는 팀원', gender: 'm' }), '양민혁 청년부 회장님');
+    assert.strictEqual(A.callFor({ name: '조준환', role: '예배팀장 · 리더팀장 · 찬양팀 인도자', gender: 'm' }), '조준환 리더팀장님');
+    assert.strictEqual(A.callFor({ name: '김승찬', role: '순장 · 찬양팀 일렉', gender: 'm' }), '김승찬 형제', '순장·OO팀장은 직분이 아니다');
+    assert.strictEqual(A.officeOf('', ['treasurer']), '총무', 'role_note가 비면 그해 people_roles');
+    assert.strictEqual(A.officeOf('부장', ['lead_team']), '부장', 'role_note가 이긴다');
+    const ros = await A.loadRoster(fakeDb(people), Number(today.slice(0, 4)));
+    assert.deepStrictEqual(ros.members.map(m => [m.name, m.office]), [['신효진', '부장'], ['정민경', '리더순장'], ['김승찬', ''], ['조해리', '총무']], '사람 줄에 직분(role_note → people_roles)');
+    assert.deepStrictEqual(ros.pastors, [], 'is_pastor 거름은 그대로');
+    const called = A.peopleLines(ros, '').find(l => l.startsWith('한 사람을 부를 때는'));
+    assert.strictEqual(called, '한 사람을 부를 때는 신효진 부장님, 정민경 리더순장님, 김승찬 형제, 조해리 총무님처럼 불러요.');
+    const pastorRos = await A.loadRoster(fakeDb({ ...people, profiles: [...people.profiles, { id: 'u9', display_name: '임성빈', role_note: '전도사 · 담당 교역자', approved: true }], people: [...people.people, { id: 'p9', name: '임성빈', profile_id: 'u9', gender: 'm', is_pastor: true, removed_at: null }] }));
+    assert.strictEqual(A.callFor(pastorRos.members.find(m => m.name === '임성빈')), '임성빈 전도사님', '교역자는 형제가 아니라 전도사님');
+    assert.ok(ask.includes(`'- 직분(부장·회장·총무·리더순장·리더팀장)이 있는 사람과 교역자는 형제·자매가 아니라 "이름 직함님"으로 불러라(예: "OOO 부장님").',`), '프롬프트 규칙 한 줄');
+    const bday = await A.answerQuestion('신효진 생일 언제야?', { db: fakeDb({ ...people, people: people.people.map(p => (p.id === 'p1' ? { ...p, birthday: '03-02', profiles: { display_name: '신효진', role_note: '부장' } } : p)) }), key: '', today });
+    assert.ok(bday.sentences[0].text.startsWith('신효진 부장님'), `생일 답도 직분 호칭: ${bday.sentences[0].text}`);
+
+    // ⑥ 자주 묻는 질문 장 · 마스터 푸시 — 👎·disputed·알려 준 말은 '자주 묻는 질문' 답으로 안 싣는다(아직 모르는 질문 쪽으로)
+    const fp = (questions) => { const p = B.faqPage({ questions, edits: [], pages: [] }); return { known: p.blocks[0].items.map(i => i.meta.q), unknown: p.blocks[1].items.map(i => i.meta.q) }; };
+    assert.deepStrictEqual(fp([badAsk, oldNight]), { known: [], unknown: [Q] }, '👎 뒤 옛 missed 답은 안 싣는다');
+    assert.deepStrictEqual(fp([goodAsk, oldNight]).known, [Q], '👎 없으면 missed 답은 싣는다(그대로)');
+    assert.deepStrictEqual(fp([badAsk, { ...oldNight, answer: { ...oldNight.answer, cause: 'disputed', fromBad: true } }]), { known: [], unknown: [Q] }, 'disputed는 모르는 질문');
+    assert.deepStrictEqual(fp([badAsk, { ...goodAsk, id: 'a3', status: 'unknown', created_at: recent(40) }, { ...oldNight, answer: { ...oldNight.answer, fromBad: true } }]).known, [], 'fromBad 답(그 뒤 👎 없는 물음이 있어도)');
+    const toldAsk = { ...badAsk, question: fix1, norm: W.normQ(fix1) };
+    assert.deepStrictEqual(fp([toldAsk, { ...oldNight, question: fix1, norm: toldAsk.norm }]), { known: [], unknown: [fix1] }, '알려 준 말(옛 missed 답이 있어도)');
+    assert.deepStrictEqual(fp([{ ...toldAsk, feedback: null, status: 'unknown' }, { ...oldNight, question: fix1, norm: toldAsk.norm }]).known, [], '👎 없는 알려 준 말도');
+    assert.deepStrictEqual(fp([{ ...goodAsk, status: 'unknown' }, { ...oldNight, answer: { ...oldNight.answer, cause: 'disputed' } }]).known, [], 'disputed 표시만으로도');
+    const N = (norm, cause) => ({ norm, via: 'nightly', status: 'unknown', answer: { cause } });
+    assert.strictEqual(P.unknownCount([N('a', 'none'), N('b', 'disputed'), N('b', 'disputed'), N('c', 'told'), N('d', 'missed')]), 2, '모르는 질문 = none + disputed');
+    assert.strictEqual(P.toldCount([N('a', 'none'), N('c', 'told'), N('c', 'told'), N('e', 'told'), { norm: 'f', via: 'ask', answer: { told: true } }]), 2, '알려 준 말 = nightly told 묶음');
+    assert.strictEqual(P.masterNotice(2, '2026-10-12', 3).title, '다붓이가 모르는 질문 2개 · 알려 준 말 3건');
+    assert.strictEqual(P.masterNotice(0, '2026-10-12', 1).title, '다붓이에게 알려 준 말 1건');
+    assert.deepStrictEqual(P.masterNotice(2, '2026-10-12'), { title: '다붓이가 모르는 질문 2개', body: '자주 묻는 질문에서 답을 적어 주세요', url: '/?p=wiki&wiki=faq', tag: 'dabooti:2026-10-12' }, '알려 준 말이 없으면 예전 그대로');
+
+    // ⑦ 왕복 줄이기 — 캐시가 맞으면 기록을 안 읽는다 · 알려 주는 말은 업무·댓글·파일을 안 읽는다 · 상한은 모델 직전
+    const cq = '엔지니어팀은 어떤 역할을 하나요?';
+    const reads = [];
+    const hitAdmin = fakeDb({ dabooti_questions: [{ norm: W.normQ(cq), status: 'answered', feedback: null, created_at: new Date().toISOString(), answer: { cacheable: true, sentences: [{ text: '캐시 답', cites: [] }] } }],
+      wiki_pages: [{ updated_at: '2000-01-01T00:00:00Z' }] });
+    const hit = await A.answerQuestion(cq, { db: fakeDb({}, { reads, fail: ['cards', 'comments', 'files'] }), admin: hitAdmin, key: '', today });
+    assert.ok(hit.cached && hit.sentences[0].text === '캐시 답' && Number.isFinite(hit.ms) && !reads.length, `캐시 적중 → 기록 안 읽음(${reads})`);
+    const treads = [];
+    const st = await A.answerQuestion('체육대회 회비는 만오천원이야', { db: fakeDb(people, { reads: treads, fail: ['cards', 'comments', 'files', 'services', 'card_teams'] }), key: '', today });
+    assert.ok(st.save === true && st.kind === 'statement' && !treads.some(t => ['cards', 'comments', 'files'].includes(t)), `알려 주는 말은 사람 줄·위키만(${[...new Set(treads)]})`);
+    const known = await A.answerQuestion('신효진은 부장이야', { db: fakeDb(people), key: '', today });
+    assert.ok(known.known && known.save === false, '사람 줄에 이미 있는 말은 아는 말');
+    calls.length = 0;
+    fakeGemini(() => ({ found: true, sentences: [] }));
+    await assert.rejects(A.answerQuestion(Q, { db: fakeDb(people), key: 'k', today, gate: Promise.resolve(true) }), (e) => e.busy === true);
+    assert.strictEqual(calls.length, 0, '상한이 넘으면 모델을 부르지 않는다');
+    assert.ok(ask.includes('const [{ data }, stamp] = await Promise.all([') && ask.includes('dataStamp(admin),\n  ]);'), '캐시 행과 데이터 도장은 함께');
+    assert.ok(/const \[\{ evidence, hasName, files, roster, teamItems \}, pairs\] = await Promise\.all\(\[\n\s+collectAll\(db, today\),\n\s+hint \|\| \(admin \? pairedCites\(admin, question\)/.test(ask), '기록과 짝은 함께');
+    assert.ok(/comments'\),\n\s+db\.from\('qt_schedule'\)/.test(ask) && !ask.includes('const { data: qt } = await'), 'QT도 같은 묶음');
+    const aiSrc = readFileSync(new URL('../api/ai.js', import.meta.url), 'utf8');
+    assert.ok(aiSrc.includes('gate: busy });') && aiSrc.indexOf('if (await busy) { tooMany(); return; }') < aiSrc.indexOf('const id = await saveAnswer(admin, q, out);'), '상한은 답 찾기와 같이 · 넘으면 저장 없이 429');
+  } finally { globalThis.fetch = realFetch; }
+  console.log('PASS  다붓이 2026-10-12(👎는 찾기부터 · disputed · 알려 준 말 told · 짝에서 👎 뺌 · 응답 시간·모델 저장 · 직분 호칭 · 자주 묻는 질문 · 마스터 푸시 · 왕복)');
 }

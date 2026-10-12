@@ -557,35 +557,41 @@ export async function runWiki(started, now = Date.now()) {
 }
 
 // ── 위키 갈래 끝: 다붓이가 모르는 질문을 마스터에게 (사용자 결정 2026-10-04) ──────────
-// 지난 24시간에 아침 고리가 '기록 없음'으로 가른 질문(몰랐거나 · 👎 · 바꿔 다시 물은 것 · 알려 주는 말도 여기)을 묶음(norm)으로 세어
+// 지난 24시간에 아침 고리가 '기록 없음'으로 가른 질문(몰랐거나 · 👎 · 바꿔 다시 물은 것)과 '알려 준 말'을 묶음(norm)으로 세어
 // 하나라도 있으면 마스터(admins.is_master — is_master()와 같은 표)에게 푸시 **한 통**. 누르면 위키 자주 묻는 질문 장(`/?p=wiki&wiki=faq`).
 // 앱 안 알림 행은 만들지 않는다 — notifications.kind CHECK에 새 종류가 필요해서(마이그레이션). 하루 한 번은 tag(`dabooti:<KST 날짜>`)로
 // 기기에서 한 칸만 남게 한다(같은 날 손으로 다시 부르면 그 칸을 바꿔 다시 울린다 · 크론은 하루 한 번이다).
 const MASTER_FAQ_LINK = '/?p=wiki&wiki=faq';
 // 18차 2회: 아침 고리(reaskUnknown)가 '기록 없음'(answer.cause none)으로 가른 묶음만 센다 — 못 찾음·검사가 버림은 다붓이가 스스로 고칠 몫이다.
-export function unknownCount(rows = []) {
-  return new Set((rows || []).filter(r => r && r.via === 'nightly' && r.answer?.cause === 'none').map(r => r.norm)).size;
-}
-export const masterNotice = (n, day) => ({ title: `다붓이가 모르는 질문 ${n}개`, body: '자주 묻는 질문에서 답을 적어 주세요', url: MASTER_FAQ_LINK, tag: `dabooti:${day}` });
+// 2026-10-12: 👎 받은 답을 다시 찾아도 같은 답이 나온 것(disputed)도 모르는 질문으로 센다 · 알려 준 말(told)은 따로 센다(toldCount).
+const nightly = (rows, causes) => new Set((rows || []).filter(r => r && r.via === 'nightly' && causes.includes(r.answer?.cause)).map(r => r.norm)).size;
+export const unknownCount = (rows = []) => nightly(rows, ['none', 'disputed']);
+export const toldCount = (rows = []) => nightly(rows, ['told']);
+// 알려 준 말만 있으면 그것만 · 둘 다 있으면 한 통에 같이(하루 한 통 · tag 그대로)
+export const masterNotice = (n, day, told = 0) => ({
+  title: n ? `다붓이가 모르는 질문 ${n}개${told ? ` · 알려 준 말 ${told}건` : ''}` : `다붓이에게 알려 준 말 ${told}건`,
+  body: '자주 묻는 질문에서 답을 적어 주세요', url: MASTER_FAQ_LINK, tag: `dabooti:${day}`,
+});
 
 async function notifyMasterUnknown(db, now = Date.now()) {
   const { data: rows, error } = await db.from('dabooti_questions').select('norm, status, feedback, via, answer')
     .gte('created_at', new Date(now - 24 * 3600e3).toISOString());
   if (error) throw error;
   const n = unknownCount(rows);
-  if (!n) return { unknown: 0, sent: 0 };
+  const told = toldCount(rows);
+  if (!n && !told) return { unknown: 0, told: 0, sent: 0 };
   const { data: masters, error: mErr } = await db.from('admins').select('email').eq('is_master', true);
   if (mErr) throw mErr;
   const emails = new Set((masters || []).map(m => String(m.email || '').toLowerCase()).filter(Boolean));
   const { data: profs, error: pErr } = await db.from('profiles').select('id, email');
   if (pErr) throw pErr;
   const ids = (profs || []).filter(p => emails.has(String(p.email || '').toLowerCase())).map(p => p.id);
-  if (!ids.length || !pushReady()) return { unknown: n, sent: 0 };
+  if (!ids.length || !pushReady()) return { unknown: n, told, sent: 0 };
   const targets = await loadTargets(db, ids);
   const dead = [];
-  const sent = await pushWith(targets, ids, masterNotice(n, kstDate(0, now)), dead);
+  const sent = await pushWith(targets, ids, masterNotice(n, kstDate(0, now), told), dead);
   await dropDead(db, dead);
-  return { unknown: n, sent };
+  return { unknown: n, told, sent };
 }
 
 // GET ?job=worship(11:30 크론) — 예배 당일 → 동아리 모임 전날. 한쪽이 DB 오류로 죽어도 다른 쪽은 돈다.

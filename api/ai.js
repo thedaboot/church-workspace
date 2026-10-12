@@ -163,14 +163,19 @@ async function handleAsk(req, body, res) {
   const q = typeof body.ask === 'string' ? body.ask.trim() : '';
   if (!q) { res.status(400).json({ error: 'ask는 비어 있지 않은 글자여야 합니다.' }); return; }
   if (q.length > 300) { res.status(413).json({ error: '질문이 너무 길어요\n300자 안으로 줄여 주세요' }); return; }
-  const { count } = await admin.from('dabooti_questions').select('id', { count: 'exact', head: true }).gte('created_at', new Date(Date.now() - 60e3).toISOString());
-  if ((count || 0) >= ASK_PER_MINUTE) { res.status(429).json({ error: '지금 물어보는 사람이 많아요\n잠시 후 다시 물어봐 주세요' }); return; }
+  // 상한 세기는 기록 읽기와 같이 돈다(2026-10-12 · 왕복 하나 줄임) — 답 찾기는 모델을 부르기 직전에 이 값을 기다리고(gate),
+  // 넘었으면 모델 없이 멈춘다. 모델 없는 갈래(인사·캐시 등)도 끝난 뒤 같은 값으로 429 — 넘친 물음은 예전처럼 저장하지 않는다.
+  const busy = admin.from('dabooti_questions').select('id', { count: 'exact', head: true }).gte('created_at', new Date(Date.now() - 60e3).toISOString())
+    .then(r => (r.count || 0) >= ASK_PER_MINUTE, () => false);
+  const tooMany = () => res.status(429).json({ error: '지금 물어보는 사람이 많아요\n잠시 후 다시 물어봐 주세요' });
   try {
-    const out = await answerQuestion(q, { db: userClient(bearer(req)), admin, prev: typeof body.prev === 'string' ? body.prev : '' });
+    const out = await answerQuestion(q, { db: userClient(bearer(req)), admin, prev: typeof body.prev === 'string' ? body.prev : '', gate: busy });
+    if (await busy) { tooMany(); return; }
     const id = await saveAnswer(admin, q, out);
     const { dropped, ...shown } = out;
     res.status(200).json({ id, ...shown });
   } catch (e) {
+    if (await busy) { tooMany(); return; }
     console.error('[ai] 다붓이 답 실패:', e?.message || e);
     await saveAnswer(admin, q, { status: 'failed', sentences: [], dropped: [] }).catch(() => {});
     res.status(isTimeout(e) ? 504 : 502).json({ error: '답을 받지 못했어요\n잠시 후 다시 물어봐 주세요' });

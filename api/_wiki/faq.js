@@ -32,7 +32,14 @@ export function faqPage(D) {
   for (const [norm, list] of byNorm) {
     const key = `q:${hashKey(norm)}`;
     const latest = list[list.length - 1];
-    const answered = [...list].reverse().find(q => q.status === 'answered' && q.feedback !== 'bad' && q.answer?.sentences?.length);
+    // 자주 묻는 질문 답으로 싣지 않는 것(2026-10-12 — 👎 받은 '부장님은 누구셔?'의 같은 답이 아침 고리의 missed로 실렸다):
+    // 알려 주는 말(지금 코드가 그렇게 읽는 말 · 옛 저장분 포함) · 아침 고리의 disputed · told · 👎에서 비롯한 답(fromBad) ·
+    // 마지막 물음이 👎인 묶음의 아침 고리 답(표시 전 저장분). 이것들은 아래 '아직 모르는 질문' 갈래로 간다.
+    const told = talkKind(latest.question)?.kind === 'statement';
+    const lastAsk = [...list].reverse().find(q => q.via !== 'nightly');
+    const disliked = lastAsk?.feedback === 'bad';
+    const answered = told ? null : [...list].reverse().find(q => q.status === 'answered' && q.feedback !== 'bad' && q.answer?.sentences?.length
+      && !['disputed', 'told'].includes(q.answer?.cause) && !q.answer?.fromBad && !(disliked && q.via === 'nightly'));
     const badAfter = answered && list.some(q => q.feedback === 'bad' && q.created_at >= answered.created_at);
     const item = { key, text: '', by: 'model', meta: { q: latest.question, n: list.length } };
     if (human.has(key)) { known.push({ ...item, at: latest.created_at }); continue; }
