@@ -9,6 +9,8 @@
 // ── 호칭 (사용자 결정 2026-09-06 · 형제/자매는 2026-09-14) ──────────────────
 // 주보 발행본과 홈에서는 이름 뒤에 호칭을 붙인다. 차례대로 본다:
 //   ① 교역자(`people.is_pastor`)            → 'OOO 전도사님'
+//   ①-2 그 해 비전 메이커(`people_roles.role` vision_maker · 0094) → 'OOO 집사님'
+//        (청년부 간사 — 청년도 교역자도 임원진도 아니다 · 다붓이 사람 줄과 같은 호칭 · 사용자 결정 2026-10-12 · 20차 ⑥)
 //   ② 그 해 부장(`people_roles.role`)       → 'OOO 부장님'
 //   ③ 성별이 적힌 사람(`people.gender`)     → 'OOO 형제' · 'OOO 자매'   (0064)
 //   ④ 성별이 아직 비어 있으면               → 'OOO 청년'
@@ -29,9 +31,10 @@
 // 규칙이 이 함수 하나라서 대표기도·헌금 봉헌·찬양 인도·인도자·주보 종이가 저절로
 // 따라온다. **AI 문구(services/ai.js)는 '청년' 그대로 둔다**(사용자 결정 2026-09-14).
 export const HONORIFIC = {
-  pastor: '전도사님', director: '부장님', brother: '형제', sister: '자매', youth: '청년',
+  pastor: '전도사님', deacon: '집사님', director: '부장님', brother: '형제', sister: '자매', youth: '청년',
 };
 const DIRECTOR = 'director';
+const VISION_MAKER = 'vision_maker';
 // DB에 넣는 값은 'm'·'f' 두 글자다(0064의 check) — 화면 글자는 위 HONORIFIC이 정한다.
 const BY_GENDER = { m: HONORIFIC.brother, f: HONORIFIC.sister };
 
@@ -39,6 +42,7 @@ export function honorific(name, info) {
   const clean = String(name || '').trim();
   if (!clean || !info) return clean;
   if (info.isPastor) return `${clean} ${HONORIFIC.pastor}`;
+  if ((info.roles || []).includes(VISION_MAKER)) return `${clean} ${HONORIFIC.deacon}`;
   if ((info.roles || []).includes(DIRECTOR)) return `${clean} ${HONORIFIC.director}`;
   return `${clean} ${BY_GENDER[info.gender] || HONORIFIC.youth}`;
 }

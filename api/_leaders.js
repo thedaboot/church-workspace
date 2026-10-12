@@ -1,9 +1,10 @@
-import { isLeaderOnly } from '../src/services/visibility.js';
+import { LEADERS, isLeaderOnly, leaderCardIdsOf } from '../src/services/visibility.js';
 
 // ============================================================================
 // 리더만 보는 프로젝트(0092) — 서버 키 경로의 판정 한 벌(RLS를 안 타는 자리라 코드로 거른다)
 // ----------------------------------------------------------------------------
-// 부르는 곳: api/push.js(앱 알림의 푸시 · 마감 임박) · api/ics.js(내 달력 구독). 위키 장(api/_wiki/gather.js)은
+// 부르는 곳: api/push.js(앱 알림의 푸시 · 마감 임박) · api/ics.js(내 달력 구독) · api/_wikiAsk.js(다붓이 답 캐시·짝 —
+// leaderCardIds + visibility.leaderCited · 20차 ⑥). 위키 장(api/_wiki/gather.js)은
 // 통째로 읽은 원본을 visibility.dropLeaderOnly로 걷고, 공유 카드(api/share.js)는 그 행의 visibility만 본다.
 // 리더 판정은 DB 함수 leader_profile_ids() 한 벌이다 — 서비스 키는 auth.uid()가 없어 그대로 받는다(0092).
 // `_`로 시작해 라우트가 아니다.
@@ -30,4 +31,15 @@ export async function leaderOnlyOf(db, { cardId, projectId } = {}) {
     return isLeaderOnly(data);
   }
   return false;
+}
+
+// 리더 프로젝트의 업무 id Set — 다붓이 답이 그 기록에 기댔는지(visibility.leaderCited) 가를 재료. 리더 프로젝트가 없으면 한 번만 읽는다.
+// 못 읽으면 던진다 — 부르는 쪽이 닫힌 쪽(캐시에 안 남김 · 캐시를 안 줌 · 짝을 안 씀)으로 받는다.
+export async function leaderCardIds(db) {
+  const { data: projects, error } = await db.from('projects').select('id, visibility').eq('visibility', LEADERS);
+  if (error) throw error;
+  if (!projects?.length) return new Set();
+  const { data: cards, error: e2 } = await db.from('cards').select('id, project_id').in('project_id', projects.map(p => p.id));
+  if (e2) throw e2;
+  return leaderCardIdsOf({ projects, cards: cards || [] });
 }

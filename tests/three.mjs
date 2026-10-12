@@ -803,6 +803,18 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
   check("리더만: 켜면 제목 옆에 '리더만' 칩 · 토글·자물쇠가 켜짐으로", on.chip === '리더만' && on.switchOn === 'true' && on.pressed === 'true', JSON.stringify(on));
   check('리더만: 값이 저장소에 남는다(게스트=localStorage)', on.saved === 'leaders', JSON.stringify(on));
   check('리더만: 칩 글자 11px · accent-weak 바탕', on.chipPx === 11 && /rgb\(232, 238, 250\)/.test(on.chipBg || ''), JSON.stringify(on));
+  // 탭 줄 자물쇠(20차 ⑥ · 시안 '프로젝트 탭줄(리더에게)') — 리더 프로젝트 탭 이름 앞 10px · 색은 탭 글자를 따른다.
+  // **되돌리기**: layout.jsx 탭의 <TabLock>을 지우면 여기가, mobileNav의 것을 지우면 아래 '폰 탭'이 깨진다.
+  const tabLock = await ev(`(() => {
+    const tabs = [...document.querySelectorAll('button')].filter(b => b.querySelector(':scope > span.truncate') && /하계 수련회|새신자 초청/.test(b.textContent));
+    const t1 = tabs.find(b => b.textContent.includes('하계 수련회')); const t2 = tabs.find(b => b.textContent.includes('새신자 초청'));
+    const lock = t1?.querySelector('[data-tab-lock]');
+    const r = lock?.getBoundingClientRect();
+    return { lock: !!lock, w: r ? Math.round(r.width) : null, sameColor: !!lock && getComputedStyle(lock).color === getComputedStyle(t1).color,
+             beforeTitle: !!lock && lock.nextSibling?.textContent === '2026 하계 수련회', other: !!t2?.querySelector('[data-tab-lock]'),
+             measured: !!document.querySelector('div.invisible[aria-hidden] [data-tab-lock]') };
+  })()`);
+  check('리더만: 탭 줄 — 그 프로젝트 탭 이름 앞에만 10px 자물쇠 · 탭 글자색 · 폭 재기 줄에도', tabLock.lock && tabLock.w === 10 && tabLock.sameColor && tabLock.beforeTitle && !tabLock.other && tabLock.measured, JSON.stringify(tabLock));
   // 업무 창 머리 — 프로젝트의 칩을 물려받는다
   await ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
   await sleep(250);
@@ -827,6 +839,12 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
              lock: !!document.querySelector('button[data-leader-lock][aria-pressed="true"]') };
   })()`);
   check('리더만: 폰 상단바 제목 옆에 칩 · 자물쇠는 켜짐', mob.chip === '리더만' && mob.onScreen === true && mob.lock === true, JSON.stringify(mob));
+  const mobTab = await ev(`(() => {
+    const tabs = [...document.querySelectorAll('button')].filter(b => b.offsetParent && b.closest('.overflow-x-auto') && /하계 수련회|새신자 초청/.test(b.textContent));
+    const t1 = tabs.find(b => b.textContent.includes('하계 수련회')); const t2 = tabs.find(b => b.textContent.includes('새신자 초청'));
+    return { lock: !!t1?.querySelector('[data-tab-lock]'), other: !!t2?.querySelector('[data-tab-lock]') };
+  })()`);
+  check('리더만: 폰 탭 줄에도 그 탭에만 자물쇠', mobTab.lock === true && mobTab.other === false, JSON.stringify(mobTab));
   // 끄면 칩이 걷힌다
   await ev(`document.querySelector('button[data-leader-lock]').click()`);
   await sleep(400);

@@ -21,7 +21,7 @@ import { CHURCH_MENUS, ProfileMenu, ViewerFaces } from './layout.jsx';
 import { tabDividerCls, FreshDot, useFreshProjects, useFrontNudge, FrontNudge, saveTabOrder, useYearTabs, YearPicker } from './navParts.jsx';
 import { SearchBox } from './searchBox.jsx';
 import { NotificationBell } from './notificationBell.jsx';
-import { LeaderChip } from './leaderOnly.jsx';
+import { LeaderChip, TabLock } from './leaderOnly.jsx';
 
 // ============================================================================
 // 폰 내비 — 상단바(MobileTopBar: 화면 이름 + 아이콘 줄 + 프로젝트 탭 줄)와 하단 바(MobileTabBar: 교회 층 ↔ 업무 층).
@@ -159,7 +159,7 @@ function MobileProjectTab({ project, active, archived = false, front = false, fr
           이 줄은 items-end라 탭 높이가 곧 글자 자리라서, 줄 상자 높이를 바꾸는 순간
           보관 탭의 글자만 이웃보다 떠 보인다(§6-9-bu와 같은 결). */}
       {archived && <Archive size={12} className="inline-block align-[-2px] mr-1" />}
-      {project.title}
+      <TabLock project={project} />{project.title}
       {/* 지금 이 프로젝트를 보고 있는 사람 — 데스크톱과 같은 이유로 얹기만 하고,
           같은 이유로 오른쪽 경계에 반쯤 걸친다(제목 끝 글자를 가리지 않게 —
           사용자 지적 2026-08-30). z-[1]은 뒤 형제 탭에 덮이지 않게. */}

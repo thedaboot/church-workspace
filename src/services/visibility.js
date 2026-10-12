@@ -3,7 +3,8 @@
 // ----------------------------------------------------------------------------
 // 실제 경계는 DB다(0092 정책 · hidden_ids). 여기는 **RLS를 안 타는 자리**가 같은 규칙을 쓰게 모은 것이다:
 //   앱   — 알림 받는 사람·멘션 후보 거르기(cloudSync) · 자물쇠·칩을 세울지(projectView·mobileNav·업무 창)
-//   서버 — 서비스 키 경로(api/_wiki/gather.js 위키 장 · api/share.js 공유 카드 · api/push.js 알림 · api/ics.js 달력)
+//   서버 — 서비스 키 경로(api/_wiki/gather.js 위키 장 · api/share.js 공유 카드 · api/push.js 알림 · api/ics.js 달력 ·
+//          api/_wikiAsk.js 다붓이 답 캐시·짝 — leaderCited)
 // 리더 = 마스터·관리자·교역자·그 해 임원진(leader_profile_ids()와 같은 판정 · 순장은 아니다).
 // 게스트(localStorage)에는 리더 판정이 없다 — 자물쇠를 숨기지 않고 로컬 값으로 돈다(스위트가 게스트로 돈다).
 // ============================================================================
@@ -35,4 +36,19 @@ export function dropLeaderOnly({ projects = [], cards = [], comments = [], files
     comments: comments.filter(c => !hiddenCards.has(c.card_id)),
     files: files.filter(f => !(f.card_id && hiddenCards.has(f.card_id))),
   };
+}
+
+// 리더 프로젝트의 업무 id Set — dropLeaderOnly가 걷는 업무와 같다(위키 장 gather · api/_leaders.leaderCardIds)
+export function leaderCardIdsOf({ projects = [], cards = [] } = {}) {
+  const kept = new Set(dropLeaderOnly({ projects, cards }).cards.map(c => c.id));
+  return new Set(cards.filter(c => !kept.has(c.id)).map(c => c.id));
+}
+
+// 다붓이 답(answer jsonb · 화면에 준 답)이 리더 프로젝트 기록에 기댔나 — 문장 근거의 업무 · 첨부(cardId)와 파일 카드(card_id).
+// 댓글은 업무 기록 안에 실리고 뜻 찾기 조각도 그 업무로 묶이므로(card cite) 업무로 갈린다. 저장된 옛 답에도 같은 판정이다(20차 ⑥).
+export function leaderCited(answer, hiddenCards) {
+  if (!answer || !hiddenCards?.size) return false;
+  const cites = (answer.sentences || []).flatMap(s => s.cites || []);
+  return cites.some(c => (c.t === 'card' && hiddenCards.has(c.id)) || (c.t === 'file' && hiddenCards.has(c.cardId)))
+    || (answer.files || []).some(f => hiddenCards.has(f.card_id));
 }

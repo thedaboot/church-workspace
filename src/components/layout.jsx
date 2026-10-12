@@ -17,6 +17,7 @@ import {
   useFrontNudge, FrontNudge, useTabFit, saveTabOrder, useYearTabs, YearPicker, YearFolders,
 } from './navParts.jsx';
 import { SearchBox } from './searchBox.jsx';
+import { TabLock } from './leaderOnly.jsx';
 import { NotificationBell } from './notificationBell.jsx';
 import logoLight from '../assets/logo-light.webp';
 import logoDark from '../assets/logo-dark.webp';
@@ -290,7 +291,7 @@ export const TopNav = React.memo(({
             scrollWidth를 늘려서 "탭 줄이 넘쳤다"로 잘못 측정된다(왼쪽 넘침은 안 잡힌다) */}
         <div ref={measureRef} aria-hidden className="invisible absolute right-full top-0 w-max flex items-end pointer-events-none whitespace-nowrap">
           {tabSource.map(p => (
-            <span key={p.id} className="shrink-0 inline-block px-3.5 pt-2.5 pb-2 text-[13px] font-semibold whitespace-nowrap max-w-[220px] truncate">{p.title}</span>
+            <span key={p.id} className="shrink-0 inline-block px-3.5 pt-2.5 pb-2 text-[13px] font-semibold whitespace-nowrap max-w-[220px] truncate"><TabLock project={p} />{p.title}</span>
           ))}
           <span className="shrink-0 inline-flex items-center gap-1 px-3 pt-2.5 pb-2 text-[13px] font-semibold">더보기 <ChevronDown size={13} /></span>
           <span className="shrink-0 inline-block px-3 pt-2.5 pb-2 text-[13px] font-semibold whitespace-nowrap">+ 프로젝트</span>
@@ -327,7 +328,7 @@ export const TopNav = React.memo(({
             className={`relative px-3.5 pt-2.5 pb-2 -mb-px text-[13px] font-semibold border-b-2 transition-colors whitespace-nowrap max-w-[220px] ${activeMenu === p.id ? 'text-fg border-fg' : 'text-fg-muted border-transparent hover:text-fg'} ${dragTabId === p.id ? 'opacity-50' : ''}`}
           >
             {freshIds.has(p.id) && <FreshDot />}
-            <span className="block max-w-full truncate">{p.title}</span>
+            <span className="block max-w-full truncate"><TabLock project={p} />{p.title}</span>
             {/* 지금 이 프로젝트를 보고 있는 사람. **자리를 차지하지 않게 얹는다** —
                 얼굴이 붙고 떨어질 때마다 탭 폭이 바뀌면 useTabFit이 다시 재서 탭이
                 옆으로 튀고, 누르려던 탭이 손가락 밑에서 빠져나간다.

@@ -835,7 +835,7 @@ export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {
 // 필요한 만큼만 읽는다.
 //   cards        → 그 카드 1건만 다시 읽기 (삭제는 바로 제거)
 //   comments/files/comment_reactions → 목록 화면에 안 나오는 데이터
-//                → 열려 있는 업무 창일 때만 상세 갱신
+//                → 열려 있는 업무 창일 때만 상세 갱신(files의 주보 송폼·모임 보고서는 업무와 상관없어 건너뛴다)
 //   activity     → INSERT면 그 한 줄을 피드 앞에 얹기(onActivityFeed(entry)), 그 밖은 피드만 다시 읽기
 //   profiles     → 다녀간 시각만 바뀐 UPDATE(심장박동)면 그 사람 한 칸만 스토어에 얹기,
 //                  그 밖의 변경(가입·이름·사진·팀·승인)은 전체 재조회
@@ -864,7 +864,9 @@ export function subscribeWorkspace({ onCard, onCardDelete, onCardDetail, onActiv
       // 상관이 없으므로 여기서 끝낸다 — 안 그러면 송폼 한 장에 접속자 전원이 열어 둔
       // 업무의 상세를 다시 읽는다. (DELETE payload에는 PK뿐이라 못 가리는데, 그때는
       // 지금까지의 '열려 있는 카드 다시 읽기'와 같은 값이라 손해가 없다.)
-      if (row.service_id) return;
+      // 모임 활동 보고서(0093 · meeting_id · card_id 없음)도 같은 이유로 끝낸다 — 업무 창이 열린 채 보고서를
+      // 올리면 열린 업무를 한 번 더 읽었다(20차 ⑥).
+      if (row.service_id || row.meeting_id) return;
       onCardDetail(row.card_id || old.card_id || null);
       return;
     }

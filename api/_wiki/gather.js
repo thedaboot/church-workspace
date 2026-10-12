@@ -2,11 +2,12 @@ import { kstDate } from '../../src/services/wikiCore.js';
 import { TEAM_ORDER, AUDIENCE } from './const.js';
 import { rosterOf } from './people.js';
 import { readAll } from '../_lib.js';
-import { dropLeaderOnly } from '../../src/services/visibility.js';
+import { dropLeaderOnly, leaderCardIdsOf } from '../../src/services/visibility.js';
 
 // ── 원본 읽기 (서버 키 — 모두가 읽는 위키라 RLS로 갈리는 것은 넣지 않는다) ───────────────
 // 리더만 보는 프로젝트(0092)도 그런 것이다 — 그 프로젝트·업무·댓글·첨부를 읽은 자리에서 걷는다(visibility.dropLeaderOnly).
 // 걷은 뒤의 값만 돌려주므로 장 뼈대·쓰기·src_hash가 리더 프로젝트를 모른다(바뀌면 그 장이 다시 모인다).
+// leaderCards(걷은 업무 id)만은 따로 넘긴다 — 자주 묻는 질문 장이 그 기록에 기댄 다붓이 답을 싣지 않게(_wiki/faq.js · 20차 ⑥).
 export async function gather(db, today = kstDate(new Date().toISOString())) {
   const must = (r, what) => { if (r.error) throw new Error(`${what}: ${r.error.message}`); return r.data || []; };
   const monthStart = `${today.slice(0, 7)}-01`;
@@ -41,5 +42,6 @@ export async function gather(db, today = kstDate(new Date().toISOString())) {
   }
   const names = [...profiles.map(p => p.display_name), ...people.map(p => p.name)].filter(Boolean);
   const roster = rosterOf(profiles, people);
-  return { today, projects, cards, comments, files, services, guides, qt, groups, meetings, names, roster, profiles, edits, pages, questions };
+  const leaderCards = leaderCardIdsOf({ projects: projectsAll, cards: cardsAll });
+  return { today, projects, cards, comments, files, services, guides, qt, groups, meetings, names, roster, profiles, edits, pages, questions, leaderCards };
 }

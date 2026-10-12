@@ -13,6 +13,7 @@ import * as cloudSync from '../services/cloudSync.js';
 import { showToast } from './Toast.jsx';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { usePopover } from '../hooks/usePopover.js';
+import { TabLock } from './leaderOnly.jsx';
 
 // ============================================================================
 // 프로젝트 탭 줄의 공용 부품 — 데스크톱 TopNav(layout.jsx)와 폰 MobileTopBar(mobileNav.jsx)가 같이 쓴다.
@@ -293,7 +294,7 @@ export function YearFolders({ active, archived, onPick }) {
               {isArchived
                 ? <Archive size={13} className="shrink-0" />
                 : <Hash size={14} className="shrink-0 text-fg-faint" />}
-              <span className="truncate">{p.title}</span>
+              <span className="truncate"><TabLock project={p} />{p.title}</span>
               {isArchived && <span className="ml-auto shrink-0 text-[10px] text-fg-muted">보관됨</span>}
             </button>
           ))}

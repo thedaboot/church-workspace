@@ -865,3 +865,31 @@ import { loadSource, readSplit } from './_load.mjs';
   console.log('PASS  탭 줄 앞 칸(tabRank — 사람 수·최근·2명 이상·다섯·게스트 줄) · 폰 프로젝트 버튼 · 업무 채널 재접속 따라잡기');
 }
 
+
+// ── 실시간 files 갈래 — 업무와 상관없는 첨부는 열린 업무를 다시 읽지 않는다 (cloudSync.subscribeWorkspace · 20차 ⑥) ──
+// 주보 송폼(service_id · 0047)과 모임 활동 보고서(meeting_id · 0093 — card_id 없음)는 업무 창과 상관없다. 예전에는 보고서를
+// 올리면 card_id가 비어 '지금 열려 있는 업무 다시 읽기'로 떨어졌다. 라우터 함수만 오려 가짜 채널에 물려 돌린다.
+// 되돌리기: `|| row.meeting_id`를 빼면 '모임 보고서'가 깨진다.
+{
+  const syncSrc = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
+  const fn = /^export function subscribeWorkspace\([\s\S]*?\n\}/m.exec(syncSrc)?.[0];
+  assert.ok(fn, 'cloudSync가 subscribeWorkspace를 export 한다');
+  const { subscribeWorkspace } = await loadSource('src/services/cloudSync.js', { as: 'route.mjs', src: [
+    'const cloud = { subscribeAll: (fn) => { globalThis.__route = fn; } };',
+    'const reconnectWatcher = () => () => {};',
+    'const profileListeners = new Set(); const profileRows = new Map();',
+    'const seenOnlyChange = () => false; const isoTime = (v) => v; const activityFeedToApp = (r) => r;',
+    fn,
+  ].join('\n') });
+  const seen = [];
+  subscribeWorkspace({ onCard: () => seen.push('card'), onCardDelete: () => seen.push('del'), onCardDetail: (id) => seen.push(`detail:${id}`),
+    onActivityFeed: () => seen.push('feed'), onMemberSeen: () => {}, onFullReload: () => seen.push('full'), onReconnect: () => {} });
+  const handler = globalThis.__route;
+  const route = (table, row, old = {}) => { seen.length = 0; handler({ table, eventType: 'INSERT', new: row, old }); return [...seen]; };
+  assert.deepStrictEqual(route('files', { id: 'f1', card_id: 'c1' }), ['detail:c1'], '업무 첨부는 그 업무 상세');
+  assert.deepStrictEqual(route('files', { id: 'f2', card_id: null, service_id: 's1' }), [], '주보 송폼은 건너뛴다');
+  assert.deepStrictEqual(route('files', { id: 'f3', card_id: null, meeting_id: 'm1' }), [], '모임 보고서는 건너뛴다(열린 업무를 다시 읽지 않는다)');
+  assert.deepStrictEqual(route('files', {}, { id: 'f4' }), ['detail:null'], 'DELETE(PK뿐)는 예전 그대로 열린 업무');
+  assert.deepStrictEqual(route('comments', { id: 'm', card_id: 'c2' }), ['detail:c2'], '댓글은 그대로');
+  console.log('PASS  실시간 files 갈래(업무 첨부만 상세 · 주보 송폼·모임 보고서는 건너뜀)');
+}

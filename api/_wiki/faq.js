@@ -1,4 +1,5 @@
 import { FAQ_SOURCE, hashKey, kstDate, stripBold, talkKind, termsOf, tokenCoverage } from '../../src/services/wikiCore.js';
+import { leaderCited } from '../../src/services/visibility.js';
 
 // ── 자주 묻는 질문 장 — 물어본 글로 매일 다시 세운다(모델 없음) ─────────────────
 // · 자주 묻는 질문: 두 번 넘게 물었거나 답을 찾은(밤에 다시 물어 찾은 것 포함) 질문 · 사람이 답을 적은 질문
@@ -38,8 +39,11 @@ export function faqPage(D) {
     const told = talkKind(latest.question)?.kind === 'statement';
     const lastAsk = [...list].reverse().find(q => q.via !== 'nightly');
     const disliked = lastAsk?.feedback === 'bad';
+    // 리더 프로젝트 기록(D.leaderCards — gather)에 기댄 답도 싣지 않는다(20차 ⑥) — 답은 있었으니 '아직 모르는 질문'으로도 올리지 않는다
+    // (마스터가 거기에 답을 적으면 그 글이 모두의 근거가 된다).
+    const leader = (q) => q.status === 'answered' && leaderCited(q.answer, D.leaderCards);
     const answered = told ? null : [...list].reverse().find(q => q.status === 'answered' && q.feedback !== 'bad' && q.answer?.sentences?.length
-      && !['disputed', 'told'].includes(q.answer?.cause) && !q.answer?.fromBad && !(disliked && q.via === 'nightly'));
+      && !['disputed', 'told'].includes(q.answer?.cause) && !q.answer?.fromBad && !(disliked && q.via === 'nightly') && !leader(q));
     const badAfter = answered && list.some(q => q.feedback === 'bad' && q.created_at >= answered.created_at);
     const item = { key, text: '', by: 'model', meta: { q: latest.question, n: list.length } };
     if (human.has(key)) { known.push({ ...item, at: latest.created_at }); continue; }
@@ -52,6 +56,7 @@ export function faqPage(D) {
       }
       continue;
     }
+    if (list.some(leader)) continue;
     // 아침 고리가 '검사가 버림'으로 가른 것은 마스터에게 올리지 않는다 — 기록은 있다(18차 2회 · 마스터에게는 '기록 없음'만)
     const night = [...list].reverse().find(q => q.via === 'nightly');
     if (['dropped', 'known'].includes(night?.answer?.cause) && night.created_at >= latest.created_at) continue;

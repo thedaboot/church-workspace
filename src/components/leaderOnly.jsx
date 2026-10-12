@@ -25,6 +25,14 @@ export function LeaderChip({ project, small = false, className = '' }) {
   );
 }
 
+// 탭 줄 자물쇠(20차 ⑥ · 시안 '프로젝트 탭줄(리더에게)') — 리더 프로젝트 탭 이름 앞 10px. 색은 탭 글자를 따른다
+// (currentColor — 켜진 탭은 진하게 · 꺼진 탭은 muted · 보관은 faint). 데스크톱 탭과 그 폭 재기 줄 · 더보기 연도 폴더 · 폰 탭 줄.
+// 글자 줄 안의 inline-block이다(감싸는 flex를 두지 않는다 — 폰 보관 탭의 Archive 아이콘과 같은 이유 · §6-9-bu).
+export function TabLock({ project, className = '' }) {
+  if (!isLeaderOnly(project)) return null;
+  return <Lock size={10} strokeWidth={2.6} data-tab-lock="" aria-hidden className={`inline-block shrink-0 align-[-1px] mr-[5px] ${className}`} />;
+}
+
 // onSet(on) → 약속. 실패하면 부르는 쪽이 토스트를 띄우고 값은 그대로다(저장된 것만 비춘다 — 낙관적으로 먼저 뒤집지 않는다).
 export function LeaderLockButton({ project, onSet }) {
   const pop = usePopover(140, 40, { gap: 8, measure: true });

@@ -12,6 +12,8 @@ import { splitRoleNote, callName, PASTOR_TITLE, ROLE_TITLE } from '../src/servic
 import { STATUS, liveProfile, readAll, geminiFetch } from './_lib.js';
 import { EMBED_MODEL, EMBED_DIM, embedQueryPayload, unitVec } from './ai.js';
 import { plain, serviceLine, serviceText, wikiEvidence } from './_wiki/evidence.js';
+import { leaderCardIds } from './_leaders.js';
+import { leaderCited } from '../src/services/visibility.js';
 
 export { serviceLine };
 
@@ -29,6 +31,10 @@ export { serviceLine };
 //   직분(부장·회장·총무·리더순장·리더팀장)과 교역자는 '이름 직함님'(callFor · FULL_SYS) · 저장에 응답 시간·모델(saveAnswer) · 읽기는 한 번에(Promise.all).
 // 20차 ②(사용자 결정 2026-10-12): **검색 모드**(DABOOTI_RETRIEVE=1 · 기본 꺼짐 — pickEvidence) · 단계 신호(onStage → api/ai.js 스트림 → 기다리는 말) ·
 //   사람 줄에 올해 순장(groups) · 비전 메이커('이름 집사님' · 0094) · 내년 직분. 위키 장·주보 근거 글은 api/_wiki/evidence.js(뜻 찾기 조각과 한 벌).
+// 20차 ⑥(0092 리더만 보는 프로젝트 뒤): 답은 묻는 사람 세션으로 찾지만 캐시·짝·아침 고리는 서버 키라 남의 답이 건너간다 —
+//   리더 프로젝트 기록(업무·댓글·첨부)에 기댄 답(visibility.leaderCited · 업무 id는 _leaders.leaderCardIds)은 캐시에 남기지 않고(saveAnswer) ·
+//   옛 저장분이라도 리더가 아닌 사람에게 캐시로 주지 않고(cachedAnswer · is_leader()) · 짝([참고] · pairFrom)과 자주 묻는 질문 장(_wiki/faq.js)에 쓰지 않는다.
+//   못 읽으면 닫힌 쪽이다(캐시 없이 새로 답한다). 검색 모드의 match_docs는 세션이라 RLS가 이미 거른다.
 // 지키는 것(사용자 결정 2026-10-02~05):
 //   · 찾기는 **묻는 사람의 권한으로**(그 사람 세션의 클라이언트 → RLS). 비밀번호 첨부는 이름·자리만, 내용은 싣지 않는다.
 //   · 노트·묵상·비밀 값·기도제목·사람 평가는 코드가 먼저 걸러 모델을 부르지 않는다(wikiCore.prefilter).
@@ -395,15 +401,21 @@ async function dataStamp(admin) {
   return all.filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0] || null;
 }
 // 같은 질문 행과 데이터 도장은 함께 읽는다(1-d · 2026-10-12 — 차례로 두 번 오가던 것을 한 번에 · 둘 다 짧은 조회).
-export async function cachedAnswer(admin, question, today) {
+// 리더 프로젝트 기록에 기댄 답(옛 저장분 포함 · cites로 가른다)은 묻는 사람이 리더일 때만(db = 묻는 사람 세션 → is_leader()) —
+// 리더 업무 id를 못 읽거나 리더 판정을 못 받으면 주지 않는다(새로 답한다 · 20차 ⑥).
+export async function cachedAnswer(admin, question, today, db = null) {
   const since = new Date(`${today}T00:00:00+09:00`).toISOString();
-  const [{ data }, stamp] = await Promise.all([
+  const [{ data }, stamp, hidden] = await Promise.all([
     admin.from('dabooti_questions').select('status, feedback, answer, created_at').eq('norm', normQ(question)).gte('created_at', since).order('created_at', { ascending: false }).limit(10),
     dataStamp(admin),
+    leaderCardIds(admin).catch(() => null),
   ]);
   // 오늘 같은 질문에 '도움이 안 됐어요'가 하나라도 있으면 캐시를 쓰지 않는다(다시 찾는다)
   if (!data?.length || data.some(r => r.feedback === 'bad')) return null;
-  const row = data.find(r => cacheFresh(r, stamp, today));
+  const fresh = data.filter(r => cacheFresh(r, stamp, today));
+  if (!fresh.length || !hidden) return null;
+  let row = fresh.find(r => !leaderCited(r.answer, hidden));
+  if (!row && db) row = (await db.rpc('is_leader').then(r => r.data === true, () => false)) ? fresh[0] : null;
   if (!row) return null;
   return { status: 'answered', sentences: row.answer.sentences, files: row.answer.files || [], dropped: [], model: WIKI_MODEL, cached: true, cacheable: true };
 }
@@ -667,7 +679,7 @@ export async function answerQuestion(q, { db, admin = null, prev = '', key = pro
   const canCache = cacheEligible(question) && !prevLines.length;
   // 캐시를 먼저 짧게 본다 — 맞으면 기록을 읽지 않는다(그 절약은 그대로 · 1-d)
   if (cache && admin && canCache) {
-    const hit = await cachedAnswer(admin, question, today).catch(() => null);
+    const hit = await cachedAnswer(admin, question, today, db).catch(() => null);
     if (hit) return { ...hit, ms: Date.now() - t0 };
   }
   // 기록 통째로와 같은 질문의 짝(못 찾음 → 짝 · reaskUnknown)은 함께 읽는다(1-d) · 검색 모드면 질문 임베딩 → match_docs도 같이
@@ -731,20 +743,24 @@ export const sameAnswer = (a, b) => !!normQ(answerText(a)) && normQ(answerText(a
 // 아침 고리가 '못 찾음'으로 가른 같은 질문의 근거(최근 30일 · 가장 늦은 답한 nightly 행) → [{t, id}]
 // 👎 받은 행과 👎 받은 질문에서 비롯한 nightly 행(answer.fromBad · 그 앞 마지막 물음이 👎 — 표시 전 저장분)의 근거는 쓰지 않는다(2026-10-12 —
 // '신효진 자매예요'의 근거가 [참고]로 다음 답에 붙었다). rows는 그 묶음의 행(물음 · nightly 섞어서).
-export function pairFrom(rows = []) {
+// 리더 프로젝트 기록에 기댄 답(hidden — 리더 업무 id · leaderCited)도 쓰지 않는다 — 아침 고리는 서버 키로 찾아 남의 질문에 붙는다(20차 ⑥).
+export function pairFrom(rows = [], hidden = new Set()) {
   let lastAsk = null; let pick = null;
   for (const r of [...rows].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))) {
     if (r.via !== 'nightly') { lastAsk = r; continue; }
     if (r.status === 'answered') pick = { r, bad: lastAsk?.feedback === 'bad' };
   }
   const a = pick?.r.answer;
-  if (!a || a.cause !== 'missed' || a.fromBad || pick.bad || pick.r.feedback === 'bad') return [];
+  if (!a || a.cause !== 'missed' || a.fromBad || pick.bad || pick.r.feedback === 'bad' || leaderCited(a, hidden)) return [];
   return (a.sentences || []).flatMap(s => s.cites || []);
 }
 async function pairedCites(admin, question) {
-  const { data } = await admin.from('dabooti_questions').select('status, feedback, via, answer, created_at').eq('norm', normQ(question))
-    .gte('created_at', new Date(Date.now() - 30 * 864e5).toISOString()).order('created_at', { ascending: false }).limit(50);
-  return pairFrom(data || []);
+  const [{ data }, hidden] = await Promise.all([
+    admin.from('dabooti_questions').select('status, feedback, via, answer, created_at').eq('norm', normQ(question))
+      .gte('created_at', new Date(Date.now() - 30 * 864e5).toISOString()).order('created_at', { ascending: false }).limit(50),
+    leaderCardIds(admin).catch(() => null),
+  ]);
+  return hidden ? pairFrom(data || [], hidden) : [];
 }
 
 // 파일 카드 — 화면이 미리보기 창을 바로 열 수 있게 행 모양 그대로(비밀번호 첨부는 업무 창으로 보낸다)
@@ -765,9 +781,15 @@ function fileCards(files, ids, evidence) {
 // 앞 대화(prev)는 answer.prev로 — 아침 다시 묻기가 같은 대화로 묻는다. cause는 아침 고리의 가름(missed · dropped · none · disputed · told · known).
 // 2026-10-12: ms(모델 호출까지 넣은 전체) · model(실제로 답을 낸 모델 — 캐시로 준 답은 cached) · fallback(flash-lite로 넘어감) ·
 // told(알려 주는 말 — status는 0088 CHECK 때문에 unknown 그대로) · fromBad(👎 받은 질문을 아침 고리가 다시 본 답). 칼럼은 늘리지 않는다(jsonb).
-export async function saveAnswer(admin, question, out, via = 'ask') {
+// cacheable은 리더 프로젝트 기록에 기댄 답이면 떼어 낸다(20차 ⑥ · leaderCited) — hidden: 리더 업무 id(아침 고리가 한 번 읽어 넘긴다 ·
+// 없으면 여기서 읽는다 · 못 읽으면 떼는 쪽).
+export async function saveAnswer(admin, question, out, via = 'ask', { hidden = null } = {}) {
   if (out.save === false) return null;
   if (out.asked) question = out.asked;
+  if (out.cacheable) {
+    const h = hidden || await leaderCardIds(admin).catch(() => null);
+    if (!h || leaderCited(out, h)) out = { ...out, cacheable: false };
+  }
   const row = {
     question: String(question).trim().slice(0, 500), norm: normQ(question), status: out.status, via,
     // 파일 카드는 통째로 — 캐시로 다시 줄 때 화면이 미리보기를 바로 연다(cachedAnswer) · cacheable: 묻는 사람과 상관없는 답(wikiCore.cacheEligible)
@@ -840,6 +862,9 @@ export async function reaskUnknown(admin, { budgetMs = 60 * 1000, max = 8, key =
     .gte('created_at', since).order('created_at').order('id'), 'dabooti_questions');
   const todo = reaskTodo(data, max);
   const causes = { missed: 0, dropped: 0, none: 0, known: 0, disputed: 0, told: 0 };
+  // 아침 고리는 서버 키라 리더 프로젝트 기록까지 찾는다 — 그 답은 캐시로 남지 않고(saveAnswer) 짝·자주 묻는 질문에도 안 쓰인다(20차 ⑥).
+  // 리더 업무 id는 한 번만 읽는다(못 읽으면 null — saveAnswer가 저마다 다시 읽고 그래도 못 읽으면 캐시를 뗀다).
+  const hidden = todo.length ? await leaderCardIds(admin).catch(() => null) : null;
   let tried = 0;
   for (const r of todo) {
     if (Date.now() - started > budgetMs) break;
@@ -855,12 +880,12 @@ export async function reaskUnknown(admin, { budgetMs = 60 * 1000, max = 8, key =
         if (now.kind) {
           const cause = now.known ? 'known' : now.kind === 'statement' ? 'told' : 'none';
           causes[cause]++;
-          await saveAnswer(admin, r.question, { ...now, status: 'unknown', save: true, prev: prev || undefined, cause }, 'nightly');
+          await saveAnswer(admin, r.question, { ...now, status: 'unknown', save: true, prev: prev || undefined, cause }, 'nightly', { hidden });
           continue;
         }
         if (now.status !== 'unknown') {
           causes.missed++;
-          await saveAnswer(admin, r.question, { ...now, prev: prev || undefined, cause: 'missed' }, 'nightly');
+          await saveAnswer(admin, r.question, { ...now, prev: prev || undefined, cause: 'missed' }, 'nightly', { hidden });
           continue;
         }
       }
@@ -876,7 +901,7 @@ export async function reaskUnknown(admin, { budgetMs = 60 * 1000, max = 8, key =
       if (located) out = await answerQuestion(r.question, { db: admin, admin, prev, cache: false, key, today, hint: cites, wrong });
       const cause = nightCause(out, { bad, before: r.answer, located });
       causes[cause]++;
-      await saveAnswer(admin, r.question, { ...out, save: true, prev: prev || undefined, cause, ...(bad ? { fromBad: true } : {}) }, 'nightly');
+      await saveAnswer(admin, r.question, { ...out, save: true, prev: prev || undefined, cause, ...(bad ? { fromBad: true } : {}) }, 'nightly', { hidden });
     } catch (e) { console.error('[dabooti] 다시 묻기 실패:', e?.message || e); }
   }
   return { tried, ...causes, waiting: todo.length - tried };

@@ -527,7 +527,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   assert.ok(!W.cacheFresh({ ...row, answer: { sentences: row.answer.sentences } }, '2026-10-04T02:00:00Z', '2026-10-04'), '캐시해도 되는 답으로 저장된 것만');
   assert.ok(!W.cacheFresh({ ...row, answer: { cacheable: true, sentences: [{ text: 'a', cites: [{ t: 'page', id: 'faq' }] }] } }, '2026-10-04T02:00:00Z', '2026-10-04'), '마스터만 보는 장을 근거로 한 답');
   // 순서: 거르기 → talkKind → 이어 묻기(위키 · 다붓이 10) → 성경 → 출석 → 생일 → 캐시 → 근거 · 밤 다시 묻기는 캐시 끔 · 저장은 캐시해도 되는 답 표시
-  const order = ['const pf = prefilter(raw);', 'const talk = talkKind(raw, prevLines);', 'const question = (prevLines.length && looksFollowUp(raw) && followUpRule(', 'const ref = bibleRefIn(question, BOOKS);', 'if (isAttendanceQuestion(question) || isBirthdayQuestion(question))', 'const hit = await cachedAnswer(admin, question, today)', 'collectAll(db, today),', 'const found = parseModelJson(await gen(LOCATE_SYS'];
+  const order = ['const pf = prefilter(raw);', 'const talk = talkKind(raw, prevLines);', 'const question = (prevLines.length && looksFollowUp(raw) && followUpRule(', 'const ref = bibleRefIn(question, BOOKS);', 'if (isAttendanceQuestion(question) || isBirthdayQuestion(question))', 'const hit = await cachedAnswer(admin, question, today, db)', 'collectAll(db, today),', 'const found = parseModelJson(await gen(LOCATE_SYS'];
   order.reduce((at, s) => { const i = ask.indexOf(s); assert.ok(i > at, `순서: ${s}`); return i; }, -1);
   assert.ok(ask.includes('answerQuestion(r.question, { db: admin, admin, prev, cache: false, key, today, hint: cites, wrong })') && ask.includes('...(out.cacheable ? { cacheable: true } : {})'));
   assert.ok(ask.includes("last('wiki_pages', 'updated_at'), last('wiki_edits', 'edited_at'), last('cards', 'updated_at'), last('services', 'updated_at'), last('files', 'created_at'), last('doc_vec', 'updated_at')"), '데이터 도장');
@@ -1142,7 +1142,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
     fakeGemini(() => ({ found: true, sentences: [] }));
     await assert.rejects(A.answerQuestion(Q, { db: fakeDb(people), key: 'k', today, gate: Promise.resolve(true) }), (e) => e.busy === true);
     assert.strictEqual(calls.length, 0, '상한이 넘으면 모델을 부르지 않는다');
-    assert.ok(ask.includes('const [{ data }, stamp] = await Promise.all([') && ask.includes('dataStamp(admin),\n  ]);'), '캐시 행과 데이터 도장은 함께');
+    assert.ok(ask.includes('const [{ data }, stamp, hidden] = await Promise.all([') && ask.includes('dataStamp(admin),\n    leaderCardIds(admin).catch(() => null),\n  ]);'), '캐시 행과 데이터 도장(과 리더 업무 id · 20차 ⑥)은 함께');
     assert.ok(/const \[\{ evidence: everything, hasName, files, roster, teamItems \}, pairs, hits\] = await Promise\.all\(\[\n\s+collectAll\(db, today\),\n\s+hint \|\| \(admin \? pairedCites\(admin, question\)/.test(ask), '기록과 짝(과 검색 모드의 찾기)은 함께');
     assert.ok(/comments'\),\n\s+db\.from\('qt_schedule'\)/.test(ask) && !ask.includes('const { data: qt } = await'), 'QT도 같은 묶음');
     const aiSrc = readFileSync(new URL('../api/ai.js', import.meta.url), 'utf8');
@@ -1353,4 +1353,105 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   assert.ok(b95.includes('page_id text references public.wiki_pages(id) on delete cascade') && b95.includes('service_id uuid references public.services(id) on delete cascade') && b95.includes("check (page_id is distinct from 'faq')"), '0096 원본 칸 · faq 막기');
   assert.deepStrictEqual(A.SEARCH_KINDS, D.KINDS, '다붓이가 찾는 종류 = 크론이 만드는 종류');
   console.log('PASS  다붓이 20차 ②(검색 모드 근거 · 늘 넣는 것 · 단계 신호 순서 · 스트림 · 다섯 문구 · 순장 줄 · 비전 메이커 집사님 · 내년 직분 · doc_vec 위키·주보)');
+}
+
+// 20차 ⑥ — 다붓이 답 캐시·짝·자주 묻는 질문이 리더 프로젝트(0092) 근거를 남에게 흘리지 않는다.
+// 답은 묻는 사람 세션(RLS)으로 찾지만 캐시·짝·아침 고리는 서버 키라 남의 답이 건너간다 — 근거(cites)로 가른다.
+// 모델은 fetch를 가로채 흉내 낸다(돈 들지 않음).
+// 되돌리기 검사: saveAnswer의 leaderCited 거름을 빼면 '캐시에 안 남김'·'아침 고리'가, cachedAnswer의 거름을 빼면 '비리더에게 캐시 안 줌'이,
+// pairFrom의 leaderCited를 빼면 '짝'이, faq.js의 leader 거름을 빼면 '자주 묻는 질문'이 깨진다.
+{
+  const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
+  const A = await import(new URL('../api/_wikiAsk.js', import.meta.url).href);
+  const B = await import(new URL('../api/_wikiBuild.js', import.meta.url).href);
+  const V = await import(new URL('../src/services/visibility.js', import.meta.url).href);
+  const fakeDb = (tables, { inserts = [], leader = false, fail = [] } = {}) => ({
+    from: (t) => {
+      if (fail.includes(t)) return { select: () => ({ eq: async () => ({ data: null, error: { message: 'down' } }) }) };
+      let rows = [...(tables[t] || [])];
+      const q = {
+        select: () => q, order: () => q, limit: (n) => { rows = rows.slice(0, n); return q; },
+        eq: (k, v) => { rows = rows.filter(r => r[k] === v); return q; },
+        is: (k, v) => { rows = rows.filter(r => (r[k] ?? null) === v); return q; },
+        not: (k, _op, v) => { rows = rows.filter(r => (r[k] ?? null) !== v); return q; },
+        in: (k, vs) => { rows = rows.filter(r => vs.includes(r[k])); return q; },
+        gte: (k, v) => { rows = rows.filter(r => r[k] == null || String(r[k]) >= String(v)); return q; },
+        lte: () => q,
+        range: async (a, b) => ({ data: rows.slice(a, b + 1) }),
+        then: (res, rej) => Promise.resolve({ data: rows, count: rows.length }).then(res, rej),
+        insert: (row) => { inserts.push({ t, row }); const done = { data: { id: `n${inserts.length}` } }; return { select: () => ({ single: async () => done }), then: (res, rej) => Promise.resolve(done).then(res, rej) }; },
+      };
+      return q;
+    },
+    rpc: async (fn) => ({ data: fn === 'is_leader' ? leader : null }),
+  });
+  const today = W.kstDate(new Date().toISOString());
+  const proj = [{ id: 'pL', name: '리더 가을 MT', year: 2026, visibility: 'leaders' }, { id: 'pA', name: '가을 체육대회', year: 2026, visibility: 'all' }];
+  const card = (id, project_id, title, description) => ({ id, project_id, title, description, status: 'ongoing', start_date: null, due_date: null, subtasks: [], updated_at: '2026-10-01T00:00:00Z', assignees: [], card_assignees: [] });
+  const cards = [card('cL', 'pL', '숙소 계약', '숙소는 가평 풀빌라예요'), card('cA', 'pA', '체육대회 장소', '장소는 성내 체육관이에요')];
+  const base = { projects: proj, cards };
+  const leaderAns = { sentences: [{ text: '숙소는 가평 풀빌라예요.', cites: [{ t: 'card', id: 'cL', label: '숙소 계약' }] }], files: [] };
+  const publicAns = { sentences: [{ text: '장소는 성내 체육관이에요.', cites: [{ t: 'card', id: 'cA', label: '체육대회 장소' }] }], files: [] };
+
+  // 순수 — 리더 업무 id · 근거 판정(업무 · 첨부 cardId · 파일 카드 card_id)
+  const hidden = V.leaderCardIdsOf(base);
+  assert.deepStrictEqual([...hidden], ['cL'], '리더 프로젝트의 업무만');
+  assert.ok(V.leaderCited(leaderAns, hidden) && !V.leaderCited(publicAns, hidden), '업무 근거');
+  assert.ok(V.leaderCited({ sentences: [{ text: 'x', cites: [{ t: 'file', id: 'f1', cardId: 'cL' }] }] }, hidden), '첨부 근거(cardId)');
+  assert.ok(V.leaderCited({ sentences: [], files: [{ id: 'f1', card_id: 'cL' }] }, hidden), '파일 카드(card_id)');
+  assert.ok(!V.leaderCited(leaderAns, new Set()) && !V.leaderCited(null, hidden), '리더 프로젝트가 없으면 가릴 것 없음');
+
+  // (a) 저장 — 리더 근거 든 답은 cacheable을 뗀다 · 공개 답은 그대로 · 리더 업무를 못 읽으면 떼는 쪽
+  const saved = async (out, db) => { const ins = []; await A.saveAnswer(db(ins), '리더 MT 숙소 어디야?', out); return ins[0].row.answer; };
+  assert.ok(!('cacheable' in await saved({ status: 'answered', ...leaderAns, cacheable: true }, (ins) => fakeDb(base, { inserts: ins }))), '리더 근거 → 캐시에 안 남김');
+  assert.strictEqual((await saved({ status: 'answered', ...publicAns, cacheable: true }, (ins) => fakeDb(base, { inserts: ins }))).cacheable, true, '공개 근거 → 캐시');
+  assert.ok(!('cacheable' in await saved({ status: 'answered', ...publicAns, cacheable: true }, (ins) => fakeDb(base, { inserts: ins, fail: ['projects'] }))), '리더 업무를 못 읽으면 캐시에 안 남김');
+
+  // (b) 꺼내기 — 옛 저장분(cacheable 그대로)이라도 리더 근거면 리더에게만
+  const row = (answer) => ({ norm: W.normQ('리더 MT 숙소 어디야?'), status: 'answered', feedback: null, created_at: new Date().toISOString(), answer: { cacheable: true, ...answer } });
+  const admin = (answer) => fakeDb({ ...base, dabooti_questions: [row(answer)], wiki_pages: [{ updated_at: '2000-01-01T00:00:00Z' }] });
+  assert.strictEqual(await A.cachedAnswer(admin(leaderAns), '리더 MT 숙소 어디야?', today, fakeDb({}, { leader: false })), null, '비리더에게 리더 근거 캐시를 안 준다');
+  assert.strictEqual(await A.cachedAnswer(admin(leaderAns), '리더 MT 숙소 어디야?', today), null, '묻는 사람을 모르면 안 준다');
+  assert.strictEqual((await A.cachedAnswer(admin(leaderAns), '리더 MT 숙소 어디야?', today, fakeDb({}, { leader: true })))?.cached, true, '리더에게는 준다');
+  assert.strictEqual((await A.cachedAnswer(admin(publicAns), '리더 MT 숙소 어디야?', today, fakeDb({}, { leader: false })))?.cached, true, '공개 근거는 누구에게나');
+  assert.ok(askSource().includes('const hit = await cachedAnswer(admin, question, today, db).catch(() => null);'), '낮의 답은 묻는 사람 세션을 넘긴다');
+
+  // (c) 짝 — 리더 근거로 답한 아침 고리 행은 [참고]로 안 쓴다 · 아침 고리가 저장한 답도 캐시로 남지 않는다
+  const Q = '리더 MT 숙소 어디야?';
+  const ask1 = { id: 'a1', question: Q, norm: W.normQ(Q), status: 'unknown', feedback: null, via: 'ask', created_at: new Date(Date.now() - 3600e3).toISOString(), answer: { sentences: [], files: [] } };
+  const night = { ...ask1, id: 'n1', via: 'nightly', status: 'answered', created_at: new Date(Date.now() - 1800e3).toISOString(), answer: { cause: 'missed', ...leaderAns } };
+  assert.deepStrictEqual(A.pairFrom([ask1, night], hidden), [], '리더 근거 nightly는 짝이 아니다');
+  assert.deepStrictEqual(A.pairFrom([ask1, { ...night, answer: { cause: 'missed', ...publicAns } }], hidden).map(c => c.id), ['cA'], '공개 근거 짝은 그대로');
+  const realFetch = globalThis.fetch;
+  const prompts = [];
+  // 가짜 제미나이 — 찾기(LOCATE)는 빈 답 · 답은 그 업무 기록 번호를 단다
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const p = body.contents[0].parts[0].text;
+    prompts.push(p);
+    const rid = p.match(/(R\d+) \[업무 기록[^\n]*숙소 계약/)?.[1];
+    const out = body.systemInstruction.parts[0].text.startsWith('너는 [기록]에서') ? { ids: [] } : { found: true, sentences: [{ text: '숙소는 가평 풀빌라예요.', e: [rid] }] };
+    return new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(out) }] } }] }), { status: 200 });
+  };
+  try {
+    // 리더가 묻는다(그 업무가 근거에 보인다) — 남의 아침 고리 답을 [참고]로 받지 않는다
+    await A.answerQuestion(Q, { db: fakeDb(base), admin: fakeDb({ ...base, dabooti_questions: [ask1, night] }), key: 'k', today, cache: false });
+    assert.ok(prompts.length === 1 && !prompts[0].includes('[참고]'), '리더 근거 짝은 [참고]로 안 붙는다');
+    prompts.length = 0;
+    await A.answerQuestion(Q, { db: fakeDb(base), admin: fakeDb({ ...base, dabooti_questions: [ask1, night] }, { fail: ['projects'] }), key: 'k', today, cache: false });
+    assert.ok(!prompts[0].includes('[참고]'), '리더 업무를 못 읽으면 짝을 안 쓴다');
+    // 아침 고리 — 서버 키로 리더 업무에서 답을 찾았다 → missed로 남기되 캐시로는 안 남긴다
+    const ins = [];
+    const got = await A.reaskUnknown(fakeDb({ ...base, dabooti_questions: [ask1] }, { inserts: ins }), { key: 'k', today });
+    const nrow = ins.find(x => x.row.via === 'nightly')?.row;
+    assert.ok(got.missed === 1 && nrow?.answer.cause === 'missed' && !('cacheable' in nrow.answer), `아침 고리 답도 캐시에 안 남김: ${JSON.stringify(nrow?.answer)}`);
+  } finally { globalThis.fetch = realFetch; }
+
+  // 자주 묻는 질문 장 — 리더 근거 답은 '자주 묻는 질문'에도 '아직 모르는 질문'에도 싣지 않는다(gather가 leaderCards를 넘긴다)
+  const fp = (leaderCards) => { const p = B.faqPage({ questions: [ask1, night], edits: [], pages: [], leaderCards }); return [p.blocks[0].items.length, p.blocks[1].items.length]; };
+  assert.deepStrictEqual(fp(new Set()), [1, 0], '리더 프로젝트가 없으면 예전 그대로(자주 묻는 질문)');
+  assert.deepStrictEqual(fp(hidden), [0, 0], '리더 근거 답은 어디에도 안 싣는다');
+  const gatherSrc = readFileSync(new URL('../api/_wiki/gather.js', import.meta.url), 'utf8');
+  assert.ok(gatherSrc.includes('const leaderCards = leaderCardIdsOf({ projects: projectsAll, cards: cardsAll });') && /questions, leaderCards \};/.test(gatherSrc), 'gather가 걷은 업무 id를 넘긴다');
+  console.log('PASS  다붓이 20차 ⑥(리더 근거 답 — 캐시에 안 남김 · 비리더에게 캐시 안 줌 · 짝 · 아침 고리 · 자주 묻는 질문)');
 }

@@ -587,7 +587,12 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   // 호칭은 2026-09-26부터 순수 모듈 honorific.js에 있고 people.js가 다시 내보낸다
   const { honorific, honorificsOf, HONORIFIC } = await loadSource('src/services/people.js', { src: strip(src('../src/services/people.js')), siblings: ['src/services/honorific.js'] });
   assert.deepStrictEqual(HONORIFIC,
-    { pastor: '전도사님', director: '부장님', brother: '형제', sister: '자매', youth: '청년' });
+    { pastor: '전도사님', deacon: '집사님', director: '부장님', brother: '형제', sister: '자매', youth: '청년' });
+  // 비전 메이커(0094 · 20차 ⑥) — 앱 화면도 다붓이 사람 줄과 같이 '이름 집사님'(교역자 바로 아래 · 성별보다 먼저).
+  // 되돌리기: honorific의 VISION_MAKER 줄을 지우면 '김우한 형제'가 나와 여기가 깨진다.
+  assert.strictEqual(honorific('김우한', { roles: ['vision_maker'], gender: 'm' }), '김우한 집사님',
+    '비전 메이커는 형제가 아니라 집사님');
+  assert.strictEqual(honorific('김우한', { isPastor: true, roles: ['vision_maker'] }), '김우한 전도사님', '교역자가 먼저다');
   assert.strictEqual(honorific('임성빈', { isPastor: true, gender: 'f' }), '임성빈 전도사님',
     '교역자가 성별보다 먼저다');
   assert.strictEqual(honorific('신효진', { roles: ['director'], gender: 'f' }), '신효진 부장님',
@@ -605,9 +610,11 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
     [{ id: 'p1', name: '임성빈', is_pastor: true, gender: 'm' },
       { id: 'p2', name: '신효진', gender: 'f' },
       { id: 'p3', name: '말감이', roster_name: '임재훈', gender: 'm' },
-      { id: 'p4', name: '아직' }],
-    [{ person_id: 'p2', year: 2026, role: 'director' }],
+      { id: 'p4', name: '아직' },
+      { id: 'p5', name: '김우한', gender: 'm' }],
+    [{ person_id: 'p2', year: 2026, role: 'director' }, { person_id: 'p5', year: 2026, role: 'vision_maker' }],
   );
+  assert.strictEqual(nameOf('김우한'), '김우한 집사님', '한 벌도 그 해 직분으로 집사님(주보 담당자 줄)');
   assert.strictEqual(nameOf('임성빈'), '임성빈 전도사님');
   assert.strictEqual(nameOf('신효진'), '신효진 부장님');
   assert.strictEqual(nameOf('임재훈'), '임재훈 형제', '명단에 적힌 이름으로 찾아도 성별이 붙는다');
