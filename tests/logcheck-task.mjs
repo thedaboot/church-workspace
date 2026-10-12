@@ -891,3 +891,38 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   }
   console.log('PASS  못 올린 첨부 — 빨간 줄로 남고 다시 시도로 올라간다 12가지');
 }
+
+// ── 동아리 모임 활동 보고서도 같은 큐를 탄다 (0093 · 20차 묶음 ④ · modals/uploadQueue.js) ──
+// 열쇠는 `meeting:<모임 id>` — 업무 카드 id와 섞이지 않는다. 올리는 동안 탭 닫기 경고가 걸리고 끝나면 풀린다.
+// 드라이브로 가는 자리는 groupsView의 sendReports 하나다(§6-29-u — 두 번째 업로드 길 금지).
+// 되돌리기 검사: groupsView sendReports의 `cardId: meetingQueueKey(meeting.id)`를 `cardId: meeting.id`로 바꾸면 둘째 단정이 깨진다.
+{
+  const Q = await import(new URL('../src/modals/uploadQueue.js', import.meta.url).href);
+  const gsrc = readFileSync(new URL('../src/services/groups.js', import.meta.url), 'utf8');
+  const gv = readFileSync(new URL('../src/views/groupsView.jsx', import.meta.url), 'utf8');
+  assert.match(gsrc, /export const meetingQueueKey = \(meetingId\) => `meeting:\$\{meetingId\}`;/, '모임 보고서 큐 열쇠가 meeting:<id>가 아니다');
+  assert.match(gv, /return runUploads\(\{\s*cardId: meetingQueueKey\(meeting\.id\), rows,/, '보고서가 업무 첨부와 같은 큐(runUploads)를 모임 열쇠로 안 탄다');
+  assert.strictEqual((gv.match(/uploadMeetingReport\(/g) || []).length, 1, '보고서가 드라이브로 가는 자리가 둘 이상이다(§6-29-u)');
+  assert.match(gv, /const row = failedRow\(meetingQueueKey\(meeting\.id\), id\);\s*\n\s*if \(row\) sendReports\(club, meeting, \[row\]\);/,
+    "'다시 시도'가 같은 길(sendReports)로 같은 줄을 보내지 않는다");
+
+  const seen = [];
+  const hadWindow = 'window' in globalThis;
+  globalThis.window = { addEventListener: (t) => seen.push(`+${t}`), removeEventListener: (t) => seen.push(`-${t}`) };
+  try {
+    const key = 'meeting:m1';
+    let release;
+    const gate = new Promise(r => { release = r; });
+    const p = Q.runUploads({ cardId: key, rows: [Q.stagedRow(new File(['x'], '9월 보고서.xlsx'))],
+      send: async (f) => { await gate; return { id: 'r1', name: f.name, meeting_id: 'm1' }; } });
+    assert.ok(Q.hasActiveUploads(key) && !Q.uploadingByCard.has('m1'), '모임 열쇠로 줄이 선다(업무 카드 열쇠와 따로)');
+    assert.strictEqual(seen.at(-1), '+beforeunload', '올리는 동안 탭 닫기 경고가 걸린다');
+    release();
+    const done = await p;
+    assert.deepStrictEqual(done.map(r => r.meeting_id), ['m1'], '올라간 행을 돌려준다');
+    assert.ok(!Q.uploadingByCard.has(key) && seen.at(-1) === '-beforeunload', '끝나면 줄이 빠지고 경고가 풀린다');
+  } finally {
+    if (!hadWindow) delete globalThis.window;
+  }
+  console.log('PASS  모임 활동 보고서 — 업무 첨부와 같은 큐 · meeting:<id> 열쇠 · 탭 닫기 경고 7가지');
+}

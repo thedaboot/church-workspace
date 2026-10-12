@@ -1,0 +1,154 @@
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Paperclip, UploadCloud, FilePen, X, Loader2, AlertTriangle } from 'lucide-react';
+import { ConfirmPopover } from './ConfirmPopover.jsx';
+import { formatBytes, fileKind } from './fileRow.jsx';
+import { BTN, BTN_SOFT } from './buttons.js';
+import { WITH_ICON, ICON_BTN } from './groupsParts.jsx';
+import { uploadingByCard, uploadWatchers, unstageUpload } from '../modals/uploadQueue.js';
+import { meetingQueueKey, REPORT_ACCEPT } from '../services/groups.js';
+import { previewCopyOf } from '../services/previewKind.js';
+
+// 미리보기·편집 창(+PdfView)은 열 때만 받는다 — 업무 첨부·주보와 같은 창이다
+const FilePreviewModal = lazy(() => import('./FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));
+
+// ============================================================================
+// 동아리 모임의 활동 보고서 칸 (0093 · 사용자 결정 2026-10-12 · 시안 4-C)
+// ----------------------------------------------------------------------------
+// **지난 모임**(오늘 KST 앞)의 출석 칩 아래에 가는 선 + `활동 보고서` 한 칸. 그리는 일만 한다 —
+// 통신·큐는 views/groupsView.jsx가 하고(services/groups.js · modals/uploadQueue.js), 여기는 큐의 줄을 구독해
+// 올리는 중(`드라이브에 올리는 중` — 주보 파일 줄과 같은 말)·못 올린 줄(빨간 줄 + 다시 시도)을 세운다.
+//
+//   manage(마스터·관리자·동아리장 = canManageClub · 0093 can_edit_meeting) — 파일 줄 + `편집` + 지우기 X ·
+//     `파일 올리기`(보고서가 없으면 진한 accent, 있으면 연한) · `지난 보고서 가져오기`(이 모임에 보고서가 없고
+//     이 동아리의 다른 모임에 있을 때만 — groups.lastReportOf)
+//   구성원 — 보고서가 있는 모임만 파일 줄(버튼·X 없음), 없으면 칸 자체가 없다
+// 줄을 누르면 미리보기, `편집`은 구글 편집 사본을 연다(큐시트처럼 — 데스크톱은 앱 안 창이 곧 편집 화면,
+// 폰은 창 머리줄의 '구글 시트에서 편집' · FilePreviewModal canEditCopy/inlineEdit).
+// 클래스는 `club-meet-report-*`(tests/groups가 잡는다).
+// ============================================================================
+
+// 'M월 D일' — 올린 날(한국 날짜)
+const dayOf = (iso) => {
+  const t = Date.parse(iso || '');
+  if (!Number.isFinite(t)) return '';
+  const [, m, d] = new Date(t).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).split('-');
+  return `${+m}월 ${+d}일`;
+};
+
+export function MeetingReport({ meeting, manage, people = [], prev = null, onPick, onRetry, onRemove, onCopyLast, onGrantEdit = null }) {
+  const key = meetingQueueKey(meeting.id);
+  const [pending, setPending] = useState(() => [...(uploadingByCard.get(key) || [])]);
+  // 큐는 모듈 레벨이다 — 동아리를 나갔다 와도(이 칸이 다시 마운트돼도) 올리는 중인 줄이 그대로 선다(§6-29-r)
+  useEffect(() => {
+    const sync = () => setPending([...(uploadingByCard.get(key) || [])]);
+    uploadWatchers.add(sync);
+    sync();
+    return () => { uploadWatchers.delete(sync); };
+  }, [key]);
+  const [preview, setPreview] = useState(null);   // { row, edit }
+  const [copying, setCopying] = useState(false);
+  const inputRef = useRef(null);
+
+  const files = meeting.files || [];
+  if (!manage && !files.length) return null;
+  const has = files.length > 0 || pending.length > 0;
+  const nameOf = (uid) => (uid && people.find(p => p.profile_id === uid)?.name) || '';
+  const copyLast = async () => {
+    if (copying) return;
+    setCopying(true);
+    try {
+      const row = await onCopyLast(prev);
+      if (row) setPreview({ row, edit: true });   // 사본이 서면 곧바로 편집 화면(주보 '지난 큐시트로 바로 편집'과 같은 길)
+    } finally { setCopying(false); }
+  };
+
+  return (
+    <div className="club-meet-report mt-3 pt-2.5 flex flex-col gap-1.5" style={{ borderTop: '1px solid var(--app-line)' }}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Paperclip size={13} className="shrink-0 text-fg-faint" />
+        <span className="club-meet-report-label text-[11.5px] font-bold text-fg-muted">활동 보고서</span>
+        <span className="flex-1" />
+        {manage && (
+          <>
+            {/* 칸 자체는 안 보인다 — 버튼이 대신 연다(주보 파일 줄과 같은 방식) */}
+            <input ref={inputRef} type="file" multiple accept={REPORT_ACCEPT} className="hidden" tabIndex={-1} aria-hidden="true"
+              onChange={e => { onPick(e.target.files); e.target.value = ''; }} />
+            {!has && prev && (
+              <button type="button" onClick={copyLast} disabled={copying} title={prev.file?.name || ''}
+                className={`club-meet-report-copy shrink-0 ${WITH_ICON} ${BTN_SOFT}`}>
+                {copying ? <Loader2 size={13} className="animate-spin" /> : <FilePen size={13} />}<span>지난 보고서 가져오기</span>
+              </button>
+            )}
+            <button type="button" onClick={() => inputRef.current?.click()}
+              className={`club-meet-report-add shrink-0 ${WITH_ICON} ${has ? BTN_SOFT : BTN}`}>
+              <UploadCloud size={13} /><span>파일 올리기</span>
+            </button>
+          </>
+        )}
+      </div>
+      {files.map(row => {
+        const meta = [nameOf(row.uploaded_by), dayOf(row.created_at), formatBytes(row.size_bytes)].filter(Boolean).join(' · ');
+        return (
+          <ReportRow key={row.id} row={row} meta={meta} onOpen={() => setPreview({ row, edit: false })}>
+            {manage && previewCopyOf(row.name) && (
+              <button type="button" onClick={() => setPreview({ row, edit: true })} aria-label={`${row.name} 편집`}
+                className="club-meet-report-edit shrink-0 px-2.5 py-0.5 rounded-full border border-line bg-surface text-[11px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-95">
+                편집
+              </button>
+            )}
+            {manage && (
+              <ConfirmPopover className="shrink-0 inline-flex" message={`'${row.name}'을(를) 삭제할까요?`} onConfirm={() => onRemove(row)}>
+                <button type="button" aria-label={`${row.name} 삭제`} className={`club-meet-report-drop ${ICON_BTN} hover:text-tag-red-fg`}>
+                  <X size={12} />
+                </button>
+              </ConfirmPopover>
+            )}
+          </ReportRow>
+        );
+      })}
+      {pending.map(row => (row._failed ? (
+        // 못 올린 파일 — 업무 첨부와 같은 빨간 줄(2026-10-09). 다시 시도는 고른 파일 그대로 같은 길로 간다.
+        <div key={row.id} className="club-meet-report-failed flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-tag-red text-tag-red-fg min-w-0">
+          <span className="w-[26px] h-[26px] rounded-md flex items-center justify-center shrink-0"><AlertTriangle size={15} /></span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[12px] font-semibold truncate">{row.name}</p>
+            <p className="mt-px text-[10.5px]">올리지 못했어요</p>
+          </div>
+          <button type="button" onClick={() => onRetry(row.id)} className={`club-meet-report-retry shrink-0 ${BTN}`}>다시 시도</button>
+          <button type="button" onClick={() => unstageUpload(key, row.id)} aria-label="목록에서 빼기"
+            className="shrink-0 p-1.5 rounded-md hover:bg-surface-hover transition active:scale-95"><X size={13} /></button>
+        </div>
+      ) : (
+        // 아직 드라이브에 안 올라간 줄 — 고르자마자 선다(§6-29-k). 편집·지우기는 없다(DB에 행이 아직 없다).
+        <ReportRow key={row.id} row={row} pending onOpen={() => setPreview({ row, edit: false })}
+          meta={`드라이브에 올리는 중 · ${formatBytes(row.size_bytes)}`} />
+      )))}
+      {preview && (
+        <Suspense fallback={null}>
+          <FilePreviewModal row={preview.row} rows={files} initialSrc={null} onClose={() => setPreview(null)}
+            canEditCopy={manage}
+            onGrantEdit={manage && onGrantEdit ? () => onGrantEdit(preview.row) : null}
+            inlineEdit={manage && preview.edit} />
+        </Suspense>
+      )}
+    </div>
+  );
+}
+
+// 파일 한 줄 — 종류 칩 · 이름(말줄임) · 올린 사람 · 날짜 · 크기. 줄을 누르면 미리보기.
+function ReportRow({ row, meta, pending = false, onOpen, children = null }) {
+  const kind = fileKind(row.name, row.mime_type);
+  return (
+    <div className={`club-meet-report-row${pending ? ' club-meet-report-pending' : ''} flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-canvas min-w-0`}>
+      <span className={`w-[26px] h-[26px] rounded-md flex items-center justify-center shrink-0 ${pending ? 'bg-surface-hover text-fg-faint' : kind.chip}`}>{kind.icon}</span>
+      <button type="button" onClick={onOpen} title={row.name} className="min-w-0 flex-1 text-left">
+        <p className={`club-meet-report-name text-[12px] font-semibold truncate ${pending ? 'text-fg-muted' : 'text-fg'}`}>{row.name}</p>
+        <p className="club-meet-report-meta mt-px flex items-center gap-1 text-[10.5px] text-fg-muted min-w-0">
+          {pending && <Loader2 size={10} className="shrink-0 animate-spin" />}
+          <span className="truncate">{meta}</span>
+        </p>
+      </button>
+      {children}
+    </div>
+  );
+}

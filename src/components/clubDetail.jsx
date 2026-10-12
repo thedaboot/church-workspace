@@ -7,7 +7,8 @@ import {
   CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, WITH_ICON, EXIT, useClosing, NEW_H, DATE_TRIGGER,
   PersonTag, PersonPick, LabeledField, Empty, PeopleMark, MeetMark, FailTail,
 } from './groupsParts.jsx';
-import { groupPeople, canManageClub, canEditClub, notInGroup } from '../services/groups.js';
+import { groupPeople, canManageClub, canEditClub, notInGroup, lastReportOf } from '../services/groups.js';
+import { MeetingReport } from './meetingReport.jsx';
 import { formatServiceDate } from '../services/worship.js';
 import { imeComposing } from '../utils.js';
 import { splitMeetings, PAST_MEETINGS_SHOWN } from '../services/traces.js';
@@ -16,7 +17,8 @@ import { splitMeetings, PAST_MEETINGS_SHOWN } from '../services/traces.js';
 const ClubQrModal = lazy(() => import('./ClubQr.jsx').then(m => ({ default: m.ClubQrModal })));
 
 // ============================================================================
-// 동아리 상세 — 구성원 · 멤버 추가 · 가입 신청 · 모임과 출석(groupsClub.jsx에서 갈라 왔다 · 19차)
+// 동아리 상세 — 구성원 · 멤버 추가 · 가입 신청 · 모임과 출석 · 지난 모임의 활동 보고서(meetingReport.jsx · 0093)
+// (groupsClub.jsx에서 갈라 왔다 · 19차)
 // ----------------------------------------------------------------------------
 // 목록·끌어서 순서·방향 전환 겉껍데기(ClubsPanel)는 groupsClub.jsx에 있고, 권한 표도 그 파일 머리말이다.
 // 그리는 일만 한다 — 통신은 views/groupsView.jsx가 한다.
@@ -30,7 +32,7 @@ const MEET_FAIL = '모임 일정을 불러오지 못했어요';
 export function ClubDetail({
   club, people, members, apps, perms, meetings, meetingsFail = null, onBack, onApply, onCancelApply,
   onAccept, onDecline, onAddMember, onRemoveMember, onEditClub, onCreateMeeting, onToggleMeeting,
-  onDeleteMeeting,
+  onDeleteMeeting, report = null,
 }) {
   const [adding, setAdding] = useState(false);
   const [closingMeet, closeMeet] = useClosing();
@@ -288,7 +290,15 @@ export function ClubDetail({
                   <div className="space-y-2">
                     {(pastOpen ? past : past.slice(0, PAST_MEETINGS_SHOWN)).map(m => (
                       <MeetingRow key={m.id} meeting={m} list={list} manage={manage}
-                        onToggle={onToggleMeeting} onDelete={onDeleteMeeting} />
+                        onToggle={onToggleMeeting} onDelete={onDeleteMeeting}
+                        report={report && (
+                          // 활동 보고서는 **지난 모임에만**(시안 4-C) — 가져올 지난 보고서는 이 모임에 보고서가 없을 때만 찾는다
+                          <MeetingReport meeting={m} manage={manage} people={people}
+                            prev={manage && !(m.files || []).length ? lastReportOf(meetings, m) : null}
+                            onPick={files => report.onPick(club, m, files)} onRetry={id => report.onRetry(club, m, id)}
+                            onRemove={row => report.onRemove(m, row)} onCopyLast={prev => report.onCopyLast(club, m, prev)}
+                            onGrantEdit={report.onGrantEdit} />
+                        )} />
                     ))}
                   </div>
                   {!pastOpen && past.length > PAST_MEETINGS_SHOWN && (
@@ -313,7 +323,8 @@ export function ClubDetail({
 // 관리자). manage가 곧 그 경계고 0035 group_meetings_write와 같은 줄이다(services/groups
 // deleteMeeting 주석). 확인은 ConfirmPopover 한 벌(§8), 자리는 줄 오른쪽 끝 — **늘 보인다**.
 // hover에서만 나타나게 하면 터치 기기에서는 기능이 없는 것처럼 보인다(§8).
-function MeetingRow({ meeting, list, manage, onToggle, onDelete }) {
+// `report` — 지난 모임이면 출석 칩 아래에 서는 활동 보고서 칸(meetingReport.jsx · 0093). 다가오는 모임은 null.
+function MeetingRow({ meeting, list, manage, onToggle, onDelete, report = null }) {
   const present = useMemo(() => new Set(Array.isArray(meeting.attendance) ? meeting.attendance : []),
     [meeting.attendance]);
   const when = formatServiceDate(meeting.meeting_date);
@@ -351,6 +362,7 @@ function MeetingRow({ meeting, list, manage, onToggle, onDelete }) {
           );
         })}
       </div>
+      {report}
     </div>
   );
 }

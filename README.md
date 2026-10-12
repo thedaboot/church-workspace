@@ -35,7 +35,7 @@ npm run verify -- <이름>   # 검증 스위트 — 고친 것과 관련된 것�
 - **말씀** — QT(읽기표 본문 → 묵상 → 더다붓에 공유하기 · 나만 보는 잔디 · 종이) ·
   성경 읽기(본문 · 검색 = 그대로 나오는 절 + AI가 찾은 구절(AI가 실패하면 뜻이 가까운 절) · 북마크 · 절 형광펜).
 - **모임** — 내 순(구성원·출석·공유된 노트·**순모임 가이드**) · 동아리(가입 신청·모임·
-  리더 도구·신청 QR) · 순 편성.
+  지난 모임의 활동 보고서(엑셀 올리기·구글 시트 편집·지난 보고서 가져오기)·리더 도구·신청 QR) · 순 편성.
 - **명단** — 계정 없이도 청년 전체를 등록하고 가입한 사람을 명단에 연결합니다
   (멤버 화면의 `[가입자 | 청년 명단]` 탭). 한 사람의 여러 계정은 합칠 수 있습니다.
 
@@ -217,6 +217,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0090_wiki_master_only` | 위키 고치기는 문장까지 마스터만 · 자주 묻는 질문 장(`faq`)과 그 장의 고친 줄은 마스터만 읽는다 |
 | `0091_dabooti_evals` | 다붓이 회귀 질문 묶음(`dabooti_evals` · 질문 · 앞 대화 · 기대 결과 · 꼭/나오면 안 되는 말 · 마지막 결과) — 정책 없음(서버만 · 실명이 있어 레포 밖) · `scripts/dabooti-eval.mjs` |
 | `0092_project_visibility` | 리더만 보는 프로젝트 — `projects.visibility`(all · leaders) · 함수 `is_leader`·`can_see_project`·`can_see_card`·`hidden_ids`(정책이 질의마다 한 번)·`leader_profile_ids` · 업무·댓글·첨부(업무 갈래)·활동·담당·링크·반응·같이 쓰기·doc_vec·같이 쓰기 채널·레거시 첨부 버킷 정책을 `alter`로 조임(정책 수 그대로) · 보호 트리거 둘(비리더는 visibility·업무 옮기기 되돌림) | ✅ |
+| `0093_meeting_files` | 동아리 모임 활동 보고서 — `files.meeting_id`(모임을 지우면 같이 · 주인은 업무·주보·모임 셋 중 하나 CHECK) · `group_meetings.drive_folder_id` · 함수 `can_edit_meeting`(관리자 또는 그 동아리장 — 0035와 같은 식) · files 모임 갈래 정책(읽기 승인 전원 · 쓰기 permissive 하나 + restrictive 셋 — 기존 정책 넷은 그대로) | ✅ |
 | `0095_drop_bible_reads` | 0080 걷음(사용자 결정 2026-10-12) — `bible_reads` 표 · `bible_state.share_reads` 칸을 지운다. 되돌리기는 0080을 다시 돌린다 | ✅ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가

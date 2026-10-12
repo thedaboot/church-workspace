@@ -2,7 +2,9 @@ import { supabase, myUid } from './supabaseClient.js';
 import { unwrap } from './cloud/core.js';
 import { fetchPeople, fetchRoles, fetchGroups, fetchGroupMembers, fetchMyPerson, guestStore, byName } from './people.js';
 import { SUNDAY_KIND, kstNow, fetchMyNote, saveMyNote } from './worship.js';
-import { insertNotifications } from './cloud.js';
+import { insertNotifications, uploadMeetingFile, ensureMeetingFolder, deleteAttachment, fetchDriveFileBlob, OFFICE_TYPE, trashFolder, trashFileBodies, grantCopyEditors } from './cloud.js';
+import { copyExportAs } from './cueDigest.js';
+import { downscaleImage, FILE_MAX_DIM } from './image.js';
 import { generateId } from '../utils.js';
 
 // ============================================================================
@@ -20,7 +22,7 @@ import { generateId } from '../utils.js';
 //
 // 명단·모임 읽기는 people.js 한 벌을 쓰고(다시 만들지 않는다), 예배 출석은 예배 줄기의
 // worship.js를 그대로 부른다. 이 파일은 그 위에 모임 화면이 필요로 하는 것만 얹는다:
-// 순·동아리 쓰기, 가입 신청, 모임 일정·출석, 내 순에 공유된 예배 노트 읽기.
+// 순·동아리 쓰기, 가입 신청, 모임 일정·출석·활동 보고서(0093), 내 순에 공유된 예배 노트 읽기.
 //
 // **남의 비공개 노트를 묻는 코드는 여기 없다**(결정 7). 공유 노트 조회는 언제나
 // shared_to_sun = true로 좁히고, 그 안에서 '올해 같은 순'을 가르는 것은 0036의
@@ -36,7 +38,10 @@ import { generateId } from '../utils.js';
 // 동아리는 여기서 직접 읽는다 — 명단 계층은 예배·모임이 함께 쓰는 곳이라 건드리지 않는다.
 const GROUP_COLS = 'id, type, name, year, leader_person_id, note, position';
 const APP_COLS = 'id, group_id, person_id, status, created_at';
-const MEETING_COLS = 'id, group_id, meeting_date, title, attendance, note';
+const MEETING_COLS = 'id, group_id, meeting_date, title, attendance, note, drive_folder_id';
+// 모임에 붙은 활동 보고서(0093 · files.meeting_id) — 모임 조회에 **같이 딸려 온다**(PostgREST embed · 왕복 하나).
+// 칸은 파일 줄·미리보기·편집 사본·지우기가 쓰는 것만(text_excerpt 같은 무거운 칸은 뺀다).
+const MEETING_FILE_COLS = 'id, meeting_id, name, mime_type, size_bytes, source, drive_file_id, preview_file_id, storage_path, web_view_link, uploaded_by, created_at';
 
 // ── 게스트 저장 자리 ────────────────────────────────────────────────────────
 const { all: guestAll, rows: guestRows, set: guestSet } = guestStore('church_groups_v1');
@@ -503,13 +508,121 @@ export async function fetchNextMeetings(today = kstNow().slice(0, 10)) {
   return nextMeetingDates(data, today);
 }
 
+// 모임마다 `files`(활동 보고서 · 0093)가 같이 실려 온다 — 조회 한 번(embed). 파일은 올린 차례.
 export async function fetchMeetings(groupId) {
   if (!supabase) {
+    const files = guestRows('files');
     return guestRows('group_meetings').filter(m => m.group_id === groupId)
+      .map(m => ({ ...m, files: files.filter(f => f.meeting_id === m.id).map(withGuestBytes) }))
       .sort((a, b) => String(b.meeting_date).localeCompare(String(a.meeting_date)));
   }
-  return unwrap(await supabase.from('group_meetings')
-    .select(MEETING_COLS).eq('group_id', groupId).order('meeting_date', { ascending: false })) ?? [];
+  const rows = unwrap(await supabase.from('group_meetings')
+    .select(`${MEETING_COLS}, files(${MEETING_FILE_COLS})`).eq('group_id', groupId).order('meeting_date', { ascending: false })) ?? [];
+  return rows.map(m => ({ ...m, files: [...(m.files || [])].sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))) }));
+}
+
+// ── 모임 활동 보고서 (0093 · 사용자 결정 2026-10-12 · 시안 4-C) ───────────────
+// 지난 모임마다 파일 줄 하나 — 올리기·편집·지우기는 마스터·관리자·그 동아리장(canManageClub = 0093의
+// can_edit_meeting = 0035 group_meetings_write와 같은 식), 구성원은 보고서가 있는 모임만 줄을 본다.
+// **올리는 길은 업무 첨부와 한 벌**이다 — 드라이브는 cloud.uploadMeetingFile → uploadOwnedFile(§6-29-u),
+// 올리는 중·못 올린 줄은 modals/uploadQueue.js(열쇠 `meeting:<id>` · 동시 3 · 다시 시도 · 탭 닫기 경고),
+// 지우기는 deleteAttachment(DB 행부터, 실체는 그 뒤 최선으로 · §6-29-e).
+//
+// **게스트 모드**는 주보 파일과 같은 방식이다(worship/files.js): 행만 localStorage에, 바이트는 메모리에.
+// 새로고침하면 줄은 남고 미리보기·'지난 보고서 가져오기'만 못 쓴다(가져올 바이트가 없다).
+const guestReportBytes = new Map();   // files.id → 고른 File (게스트 세션 동안만)
+const withGuestBytes = (f) => (guestReportBytes.has(f.id) ? { ...f, _file: guestReportBytes.get(f.id) } : f);
+
+// 업로드 큐(uploadQueue.js)의 열쇠 — 업무 첨부는 카드 id, 모임 보고서는 이 모양이라 둘이 섞이지 않는다
+export const meetingQueueKey = (meetingId) => `meeting:${meetingId}`;
+// 받는 파일 — 엑셀(구글 시트에서 내려받은 xlsx·csv 포함) 위주, 필요하면 pdf
+export const REPORT_ACCEPT = '.xlsx,.xlsm,.xls,.csv,.pdf';
+
+// 보고서 이름 — `<동아리명> 활동보고서(<M>월).xlsx`(사용자 결정 · 시안 문구). 월은 모임 날짜의 달이다.
+export function reportName(clubName, meetingDate, ext = 'xlsx') {
+  const m = /^\d{4}-(\d{2})-\d{2}/.exec(String(meetingDate || ''));
+  const name = String(clubName || '').trim() || '동아리';
+  return `${name} 활동보고서(${m ? `${+m[1]}월` : ''})${ext ? `.${ext}` : ''}`.replace('()', '');
+}
+
+// 다른 모임에서 가져올 수 있는 보고서인가 — 클라우드는 드라이브에 실체가 있는 것, 게스트는 바이트를 쥔 것
+export const reportUsable = (f) => !!(f?._file || (f?.source === 'drive' && f?.drive_file_id));
+
+// '지난 보고서 가져오기'가 가져올 것 — { meeting, file } | null. **이 동아리의 다른 모임** 중 보고서가 있는
+// 것에서 날짜가 가장 가까운 것: 이 모임 **앞**의 가장 최근 것이 먼저이고, 앞에 없으면 뒤에서 가장 이른 것
+// (지난 모임을 늦게 채우는 경우 — 시안: "이 동아리에 지난 보고서가 있을 때만 보인다").
+// 한 모임에 여럿이면 마지막에 올린 것. meetings는 fetchMeetings 모양(모임마다 files).
+export function lastReportOf(meetings = [], meeting) {
+  const at = String(meeting?.meeting_date || '');
+  const cands = [];
+  for (const m of meetings || []) {
+    if (!m || m.id === meeting?.id) continue;
+    const files = (m.files || []).filter(reportUsable);
+    if (!files.length) continue;
+    const file = files.reduce((a, b) => (String(b.created_at || '') >= String(a.created_at || '') ? b : a));
+    cands.push({ meeting: m, file, date: String(m.meeting_date || '') });
+  }
+  const before = cands.filter(c => c.date < at).sort((a, b) => b.date.localeCompare(a.date))[0];
+  const after = cands.filter(c => c.date >= at).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const pick = before || after;
+  return pick ? { meeting: pick.meeting, file: pick.file } : null;
+}
+
+// 폴더를 파일 바이트보다 먼저(§6-29-h) — 게스트에는 폴더가 없다(null이면 그냥 올린다)
+export async function ensureMeetingDriveFolder(club, meeting) {
+  if (!supabase) return null;
+  return ensureMeetingFolder(meeting, club?.name);
+}
+
+// 보고서 한 장을 올린다 — 돌려주는 행은 fetchMeetings의 files 한 줄과 같은 모양이다.
+export async function uploadMeetingReport(club, meeting, file, folderId = null, { awaitCopy = false } = {}) {
+  if (!supabase) {
+    const row = {
+      id: generateId(), meeting_id: meeting.id, name: file.name, size_bytes: file.size ?? null,
+      mime_type: file.type || null, source: 'local', uploaded_by: null, created_at: new Date().toISOString(),
+    };
+    guestReportBytes.set(row.id, file);
+    guestSet('files', [...guestRows('files'), row]);
+    return { ...row, _file: file };
+  }
+  // 사진으로 찍어 온 보고서도 있을 수 있다 — 첨부와 같이 보내기 직전에 줄인다(§6-29-m · 사진이 아니면 그대로)
+  const sending = await downscaleImage(file, FILE_MAX_DIM, 0.9);
+  return uploadMeetingFile(sending, {
+    meetingId: meeting.id, clubName: club?.name, meetingDate: meeting.meeting_date,
+    meetingFolderId: folderId || meeting.drive_folder_id || null, awaitCopy,
+  });
+}
+
+// '지난 보고서 가져오기'의 파일 — **편집 사본의 최신 글**을 .xlsx로 받는다(주보 worship.lastCueFile과 같은 길 ·
+// /api/drive-file?as=xlsx). 사본이 없으면 원본 그대로. 이름은 이 모임의 달로 새로 짓는다(reportName).
+export async function lastReportFile(prev, club, meeting) {
+  const f = prev.file;
+  if (!supabase) {
+    if (!f._file) throw Object.assign(new Error('게스트 바이트 없음'), { human: '지난 보고서를 다시 올려주세요' });
+    const ext = String(f.name || '').split('.').pop().toLowerCase();
+    return new File([f._file], reportName(club?.name, meeting.meeting_date, ext), { type: f.mime_type || f._file.type || '' });
+  }
+  const as = f.preview_file_id ? copyExportAs(f.name) : null;
+  const blob = await fetchDriveFileBlob(as ? f.preview_file_id : f.drive_file_id, { as });
+  const ext = as || String(f.name || '').split('.').pop().toLowerCase();
+  return new File([blob], reportName(club?.name, meeting.meeting_date, ext), { type: as ? OFFICE_TYPE[as] : (f.mime_type || blob.type || '') });
+}
+
+// '편집'을 누른 그 자리에서 편집자를 붙인다(업무 첨부와 같은 보험 · api/drive.js mayGrantEditors —
+// 올린 사람·관리자·그 동아리장). 게스트에는 사본이 없다.
+export async function grantReportEditors(row) {
+  if (!supabase) return null;
+  return grantCopyEditors(row, []);
+}
+
+// 지우는 길은 업무 첨부와 한 벌이다 — DB 행부터, 실체는 그 뒤 최선으로(§6-29-e)
+export async function removeMeetingReport(row) {
+  if (!supabase) {
+    guestReportBytes.delete(row.id);
+    guestSet('files', guestRows('files').filter(f => f.id !== row.id));
+    return;
+  }
+  return deleteAttachment(row);
 }
 
 // ── 쓰기 · 구성원 ───────────────────────────────────────────────────────────
@@ -684,9 +797,15 @@ export async function saveMeetingAttendance(meetingId, ids) {
 // delete의 대상이 아니라서 오류가 나지 않는다. 그대로 두면 자격이 없는 사람에게 '지웠어요'가
 // 뜨고, 다시 읽어 온 목록에는 그 줄이 그대로 서 있다. 여기서 `.select()`는 안전하다 —
 // group_meetings_select는 승인 멤버 전부에게 열려 있어 방금 지운 행을 되읽을 수 있다.
-export async function deleteMeeting(meetingId) {
+//
+// **활동 보고서(0093)도 같이 간다** — 행은 cascade로 DB가 지우고, 드라이브 실체는 여기서 그 뒤에 최선으로
+// (업무 삭제와 같은 정리 · board.js): 모임 폴더째 휴지통, 폴더 id가 없으면 파일 단위로. 실패는 던지지 않는다.
+// `files`·`folderId`는 화면이 들고 있는 모임 행에서 넘긴다(지운 뒤에는 다시 읽을 수 없다).
+export async function deleteMeeting(meetingId, { folderId = null, files = [] } = {}) {
   if (!supabase) {
     guestSet('group_meetings', guestRows('group_meetings').filter(m => m.id !== meetingId));
+    for (const f of files) guestReportBytes.delete(f.id);
+    guestSet('files', guestRows('files').filter(f => f.meeting_id !== meetingId));
     return;
   }
   const data = unwrap(await supabase.from('group_meetings')
@@ -696,6 +815,9 @@ export async function deleteMeeting(meetingId) {
     err.human = '이미 지워졌거나 지울 자격이 없어요\n새로고침해주세요';   // errorText가 human을 먼저 본다
     throw err;
   }
+  const folderTrashed = await trashFolder(folderId, '모임 폴더', '파일 단위로 전환');
+  const real = (files || []).filter(f => f.source !== 'local');
+  if (real.length) await trashFileBodies(folderTrashed ? real.filter(f => f.source !== 'drive') : real);
 }
 
 // ── 모임 알림 (0053) ────────────────────────────────────────────────────────

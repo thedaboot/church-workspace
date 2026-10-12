@@ -17,11 +17,14 @@ import {
   createGroup, saveGroup, saveClubInfo, addMember, removeMember, moveMember, reorderClubs,
   applyToClub, cancelApplication, acceptApplication, declineApplication,
   createMeeting, saveMeetingAttendance, deleteMeeting, setNoteShared,
+  meetingQueueKey, ensureMeetingDriveFolder, uploadMeetingReport, lastReportFile, removeMeetingReport, grantReportEditors,
   notifyClubApply, notifyClubAccepted, notifyMeetingNew,
   groupPerms, mySun, myGroupIds, groupPeople, latestSunday, attendanceSunday,
   toggleAttendance, yearOptions,
   leaderPlan, dupReason, duplicateName, dupNameText,
 } from '../services/groups.js';
+import { runUploads, stagedRow, failedRow } from '../modals/uploadQueue.js';
+import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
 // ============================================================================
 // v2 모임 화면 — 내 순 · 동아리 · 순 편성 (docs/V2.md §1 결정 1·2·3·7 · §2 · §3)
@@ -457,7 +460,8 @@ export function GroupsView() {
   // 맞춰진다 — 여기서 실시간을 켜지 않는다.
   const removeMeeting = useCallback(async (meeting) => {
     try {
-      await deleteMeeting(meeting.id);
+      // 활동 보고서(0093)의 드라이브 실체도 같이 정리한다 — 지우기 전에 든 값을 넘긴다(groups.deleteMeeting)
+      await deleteMeeting(meeting.id, { folderId: meeting.drive_folder_id || null, files: meeting.files || [] });
       setMeetings(await fetchMeetings(meeting.group_id));
       baseQ.refresh();
       showToast('모임을 지웠어요');
@@ -482,6 +486,78 @@ export function GroupsView() {
       showToast(failText('모임 출석을 바꾸지 못했어요', e));
     }
   }, []);
+
+  // ── 지난 모임의 활동 보고서 (0093 · 시안 4-C) ─────────────────────────────
+  // 올리는 길은 업무 첨부와 **한 벌**이다 — 큐(uploadQueue.runUploads · 열쇠 `meeting:<id>` · 동시 3 · 못 올린
+  // 줄은 빨간 줄 + 다시 시도 · 탭 닫기 경고) → 폴더를 먼저(§6-29-h) → groups.uploadMeetingReport →
+  // cloud.uploadMeetingFile → uploadOwnedFile(§6-29-u). 올라간 행은 그 자리에서 모임 행의 files에 넣는다 —
+  // 큐가 줄을 빼는 순간(unstage)과 다시 읽기 사이에 줄이 깜빡 사라지지 않게. 모임은 캐시에 없으므로 그것으로 끝이다.
+  const patchMeeting = useCallback((id, fn) => setMeetings(rows => rows.map(m => (m.id === id ? fn(m) : m))), []);
+  const sendReports = useCallback((club, meeting, rows, { awaitCopy = false } = {}) => {
+    let folderId = null;
+    return runUploads({
+      cardId: meetingQueueKey(meeting.id), rows,
+      prepare: async () => {
+        folderId = await ensureMeetingDriveFolder(club, meeting);
+        if (folderId && !meeting.drive_folder_id) patchMeeting(meeting.id, m => ({ ...m, drive_folder_id: folderId }));
+      },
+      send: async (file) => {
+        const row = await uploadMeetingReport(club, meeting, file, folderId, { awaitCopy });
+        // 폴더를 미리 못 잡았으면(스크립트가 path로 판 경우) 첫 파일에서 받아 둔다 — DB에는 rememberFolder가 적었다
+        if (!folderId && row._driveFolderId) {
+          folderId = row._driveFolderId;
+          patchMeeting(meeting.id, m => ({ ...m, drive_folder_id: folderId }));
+        }
+        patchMeeting(meeting.id, m => ({ ...m, files: [...(m.files || []).filter(f => f.id !== row.id), row] }));
+        return row;
+      },
+      onError: (file, e) => {
+        console.error('[groups] 활동 보고서 올리기 실패:', e);
+        showToast(failText(`'${file.name}'을(를) 올리지 못했어요`, e));
+      },
+    });
+  }, [patchMeeting]);
+  const report = useMemo(() => ({
+    onPick: (club, meeting, fileList) => {
+      const picked = Array.from(fileList || []);
+      // 용량 초과는 여기서 걸러 낸다 — 상한은 config.js 한 곳이고 첨부·주보 파일과 같은 값이다
+      picked.filter(f => f.size > MAX_UPLOAD_BYTES)
+        .forEach(f => showToast(`'${f.name}'은(는) ${MAX_UPLOAD_MB}MB를 넘어 첨부하지 못했어요.`));
+      const ok = picked.filter(f => f.size <= MAX_UPLOAD_BYTES);
+      if (ok.length) sendReports(club, meeting, ok.map(stagedRow));
+    },
+    // '다시 시도' — 못 올린 줄을 같은 자리에서 다시 '올리는 중'으로 돌려 같은 길로 보낸다
+    onRetry: (club, meeting, id) => {
+      const row = failedRow(meetingQueueKey(meeting.id), id);
+      if (row) sendReports(club, meeting, [row]);
+    },
+    // 줄을 먼저 빼고 서버에 알린다(첨부·주보 파일과 같은 순서 · §6-29-e) — 실패하면 되돌린다
+    onRemove: async (meeting, row) => {
+      patchMeeting(meeting.id, m => ({ ...m, files: (m.files || []).filter(f => f.id !== row.id) }));
+      try {
+        await removeMeetingReport(row);
+      } catch (e) {
+        console.error('[groups] 활동 보고서 지우기 실패:', e);
+        patchMeeting(meeting.id, m => ({ ...m, files: [...(m.files || []).filter(f => f.id !== row.id), row] }));
+        showToast(failText(`'${row.name}'을(를) 지우지 못했어요`, e));
+      }
+    },
+    // 지난 보고서의 편집 사본(최신 글)을 받아 이 모임에 올린다 — 사본이 설 때까지 기다리고(awaitCopy) 그 행을
+    // 돌려주면 칸이 곧바로 편집 화면을 연다(주보 '지난 큐시트로 바로 편집'과 같은 길)
+    onCopyLast: async (club, meeting, prev) => {
+      if (!prev) return null;
+      let file;
+      try { file = await lastReportFile(prev, club, meeting); }
+      catch (e) {
+        console.error('[groups] 지난 보고서 받기 실패:', e);
+        showToast(failText('지난 보고서를 가져오지 못했어요', e));
+        return null;
+      }
+      const done = await sendReports(club, meeting, [stagedRow(file)], { awaitCopy: true });
+      return done[0] || null;
+    },
+    onGrantEdit: (row) => grantReportEditors(row),
+  }), [sendReports, patchMeeting]);
 
   // 새 순의 순장도 같은 판정을 거친다(사용자 지시 2026-09-03). 피커가 이미 '어느 순에도
   // 없는 사람'만 올리므로 화면에서는 걸릴 일이 없고, 목록이 낡았을 때의 마지막 방어선이다.
@@ -724,7 +800,7 @@ export function GroupsView() {
           onCreateClub={newClub} onEditClub={editClub} onApply={apply} onCancelApply={cancelApply}
           onAccept={accept} onDecline={decline}
           onAddMember={addClubMember} onRemoveMember={dropClubMember} onReorder={reorderClubList}
-          onCreateMeeting={newMeeting} onToggleMeeting={toggleMeeting} onDeleteMeeting={removeMeeting} />
+          onCreateMeeting={newMeeting} onToggleMeeting={toggleMeeting} onDeleteMeeting={removeMeeting} report={report} />
       )}
 
       {/* 지난 해를 처음 고르면 그 해 편성이 오는 동안 잠깐 비어 있다. 예전에는 그때

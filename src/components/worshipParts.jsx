@@ -5,6 +5,7 @@ import { formatBytes, fileKind } from './fileRow.jsx';
 import { EmptyBookMark } from './wordBible.jsx';
 import { objectParticle } from '../services/errorText.js';
 import { BTN, WITH_ICON } from './groupsParts.jsx';
+import { BTN_SOFT } from './buttons.js';
 
 // ============================================================================
 // 예배 화면 공용 부품 — 주보 보기(worshipDetail) · 편집(worshipEdit) · 노트(worshipNote) · 출석(worshipAttendance)이 같이 쓴다
@@ -24,7 +25,8 @@ export const ROLE_VIEW = 'px-2.5 py-0.5 rounded-full bg-accent-weak text-accent-
 // 편집 진입은 **연한 accent**, 확정은 진한 accent, 나가기는 무채색(§8의 색 규칙).
 // **출석 화면도 이 한 줄을 쓴다**(worshipAttendance의 '수정') — 같은 뜻의 버튼이
 // 두 파일에 각자 적혀 있으면 한쪽만 고쳐진다.
-export const BTN_SOFT = 'px-3 py-1.5 rounded-md bg-accent-weak text-accent-text text-[11.5px] font-semibold transition active:scale-95 disabled:opacity-40';
+// 값은 buttons.js 한 벌이다(모임 보고서도 쓴다 · 0093).
+export { BTN_SOFT };
 // 누르는 자리는 before로 3px 넓힌다(모양은 그대로) — 순서 버튼끼리 틈이 6px(gap-1.5)이라 그 절반.
 export const ICON_BTN = 'relative before:absolute before:-inset-[3px] p-1.5 rounded-md text-fg-faint hover:text-fg hover:bg-surface-hover transition-colors disabled:opacity-30';
 // 목록·편집 줄은 **트랙을 다 쓴다**(사용자 결정 2026-09-05: "다 반응형으로 메워야

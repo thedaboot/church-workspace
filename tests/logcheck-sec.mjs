@@ -359,6 +359,39 @@ import { loadSource, readSplit } from './_load.mjs';
   console.log('PASS  9차 마이그레이션 0064·0065·0066 20가지');
 }
 
+// ── 0093 모임 활동 보고서 — files의 세 번째 주인 · 모임 갈래 정책 (20차 묶음 ④) ─────────────
+// 기존 files 정책 넷은 건드리지 않는다(0092가 업무 갈래를 alter policy로 조인다 — 두 파일이 같은 정책을 고치면 뒤의 것이
+// 앞을 지운다). 그 대신 모임 갈래 permissive 둘 + **restrictive 셋**: 지금 업무 갈래 조건(`service_id is null`)이 모임 행도
+// 통과시키므로, restrictive가 없으면 승인된 누구나 남의 모임에 보고서를 붙이거나 업무 첨부를 모임으로 옮길 수 있다.
+// psql 리허설(ROLLBACK · 2026-10-12): 남의 모임에 넣기 42501 · 업무 첨부를 모임으로 옮기기 42501 · 업무 첨부 넣기 그대로 ·
+// 동아리장 자기 모임 넣기/고치기 · 다른 동아리 막힘 · 구성원 읽기 1 · 고치기·지우기 0행 · 관리자 넣기·지우기 · 모임 지우면 cascade.
+// 되돌리기 검사: guard 셋 중 하나의 `as restrictive`를 지우면 '모임 행 쓰기는 restrictive' 단정이 깨진다.
+{
+  const raw = readFileSync(new URL('../supabase/migrations/0093_meeting_files.sql', import.meta.url), 'utf8');
+  const m = raw.split('\n').filter(l => !/^\s*--/.test(l)).join('\n');
+  assert.ok(/add column if not exists meeting_id uuid references public\.group_meetings\(id\) on delete cascade/.test(m),
+    'files.meeting_id — 모임을 지우면 행도 같이(set null이면 셋 다 null이 되어 배타 CHECK에 걸린다)');
+  assert.ok(/check \(num_nonnulls\(card_id, service_id, meeting_id\) = 1\)/.test(m), '주인은 셋 중 정확히 하나(files_owner_exactly_one)');
+  assert.ok(/alter table public\.group_meetings add column if not exists drive_folder_id text;/.test(m), 'group_meetings.drive_folder_id(폴더 기억)');
+  assert.ok(!/(alter|drop) policy (if exists )?files_(select|insert|update|delete) /.test(m), '기존 files 정책 넷은 건드리지 않는다');
+  assert.ok(/create or replace function public\.can_edit_meeting\(p_meeting uuid\)[\s\S]*?security definer set search_path = public, pg_temp[\s\S]*?public\.is_admin\(\) or exists[\s\S]*?g\.leader_person_id = public\.my_person_id\(\)/.test(m),
+    '모임 판정은 0035 group_meetings_write와 같은 식(관리자 또는 그 동아리장)');
+  assert.ok(/create policy files_meeting_select on public\.files\s+for select using \(\s*files\.meeting_id is not null\s+and public\.is_approved\(\)/.test(m),
+    '보고서 읽기는 승인된 사람(group_meetings_select와 같다)');
+  assert.ok(/create policy files_meeting_write on public\.files\s+for all using \(\s*files\.meeting_id is not null[\s\S]*?can_edit_meeting\(files\.meeting_id\)\s*\) with check \(\s*files\.meeting_id is not null[\s\S]*?can_edit_meeting\(files\.meeting_id\)/.test(m),
+    '보고서 쓰기 permissive — using·check 둘 다');
+  for (const [cmd, body] of [['insert', /as restrictive for insert with check \(\s*files\.meeting_id is null or public\.can_edit_meeting\(files\.meeting_id\)\s*\)/],
+    ['update', /as restrictive for update using \(\s*files\.meeting_id is null or public\.can_edit_meeting\(files\.meeting_id\)\s*\) with check \(\s*files\.meeting_id is null or public\.can_edit_meeting\(files\.meeting_id\)\s*\)/],
+    ['delete', /as restrictive for delete using \(\s*files\.meeting_id is null or public\.can_edit_meeting\(files\.meeting_id\)\s*\)/]]) {
+    assert.ok(new RegExp(`create policy files_meeting_guard_${cmd} on public\\.files\\s+${body.source}`).test(m),
+      `모임 행 쓰기는 restrictive(${cmd}) — 업무·주보 행(meeting_id is null)에는 언제나 참`);
+  }
+  assert.ok(/--\s*drop policy if exists files_meeting_guard_delete on public\.files;/.test(raw)
+    && /--\s*check \(\(card_id is null\) <> \(service_id is null\)\);/.test(raw)
+    && /--\s*alter table public\.files drop column if exists meeting_id;/.test(raw), '되돌리는 SQL이 맨 아래 주석에 있다');
+  console.log('PASS  0093 모임 활동 보고서(세 번째 주인 · 기존 정책 그대로 · 모임 갈래 permissive 둘 + restrictive 셋) 11가지');
+}
+
 // ── 로그아웃이 이 기기만 끊는지 (services/auth.jsx 소스 단정) ────────────────
 // auth-js의 `signOut()` 기본 scope는 `'global'`이라, 옵션을 비우면 **그 사람의 모든
 // 기기**의 리프레시 토큰이 서버에서 폐기된다. 폰에서 한 번 로그아웃하면 아이패드는

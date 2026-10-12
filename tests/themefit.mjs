@@ -48,6 +48,26 @@ const st = {
 await send('Page.enable'); await send('Runtime.enable');
 await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
 await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))})`);
+// 동아리 상세의 지난 모임 활동 보고서(0093 · 20차 묶음 ④) — 동아리장(나)에게 파일 줄(긴 이름 · 올린 사람 · 편집 · 지우기)과
+// 보고서 없는 모임의 '파일 올리기'(진한 accent)가 같이 선다. 딥링크 g=로 상세를 곧장 연다(알림과 같은 길).
+// 되돌리기 검사: meetingReport의 '편집' 칩 글자색 text-accent-text를 text-fg-faint로 바꾸면 '12px 미만 faint'가 깨진다.
+{
+  const day = (off) => new Date(Date.now() + 9 * 3600000 + off * 86400000).toISOString().slice(0, 10);
+  const grp = {
+    me: { personId: 'tp1', isMaster: false, isAdmin: false, roles: [] },
+    people: [{ id: 'tp1', name: '노준석', profile_id: 'tu1' }, { id: 'tp2', name: '천진영', profile_id: null }],
+    groups: [{ id: 'tfc1', type: 'club', name: '통통', year: null, leader_person_id: 'tp1', note: '통기타 동아리' }],
+    group_members: [{ group_id: 'tfc1', person_id: 'tp1' }, { group_id: 'tfc1', person_id: 'tp2' }],
+    club_applications: [],
+    group_meetings: [
+      { id: 'tm1', group_id: 'tfc1', meeting_date: day(-20), title: '보고서 있는 모임', attendance: ['tp1'], note: null },
+      { id: 'tm2', group_id: 'tfc1', meeting_date: day(-6), title: '보고서 없는 모임', attendance: [], note: null },
+    ],
+    files: [{ id: 'tf1', meeting_id: 'tm1', name: '통통 활동보고서(9월) 최종 수정본 회계 제출용.xlsx', size_bytes: 24576,
+      mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', source: 'local', uploaded_by: 'tu1', created_at: '2026-09-22T03:00:00Z' }],
+  };
+  await ev(`localStorage.setItem('church_groups_v1', ${JSON.stringify(JSON.stringify(grp))})`);
+}
 
 // ── 검사 본체 ───────────────────────────────────────────────────────────────
 // 배경은 조상으로 올라가며 투명이 아닌 첫 색을 쓴다(그게 눈에 보이는 배경이다).
@@ -133,6 +153,7 @@ const SCREENS = [
   // D9의 최소 글자·흐린 글자는 앱 전체 규칙이라 v2 화면과 전역 화면도 돈다(2026-09-25)
   ['내 업무', '/?p=myTasks'], ['전체 일정', '/?p=schedule'], ['홈', '/?p=home'], ['예배', '/?p=worship'],
   ['말씀', '/?p=word'], ['모임', '/?p=groups'], ['멤버', '/?p=members'],
+  ['동아리 활동 보고서', '/?p=groups&g=tfc1'],
 ];
 
 for (const [theme, themeLabel] of [['light', '라이트'], ['dark', '다크']]) {
@@ -145,6 +166,12 @@ for (const [theme, themeLabel] of [['light', '라이트'], ['dark', '다크']]) 
       await ev(`document.documentElement.setAttribute('data-theme', '${theme}')`);
       await sleep(900);
       const tag = `${themeLabel}·${sizeLabel}·${screenLabel}`;
+      // 보고서 칸이 실제로 선 뒤에 잰다(안 서면 아래 대비 검사가 빈 화면을 통과시킨다)
+      if (path.includes('g=tfc1')) {
+        let shown = false;
+        for (let i = 0; i < 20 && !shown; i++) { shown = await ev(`!!document.querySelector('.club-meet-report-row .club-meet-report-edit') && !!document.querySelector('.club-meet-report-add.bg-accent')`); if (!shown) await sleep(150); }
+        check(`${tag} — 파일 줄(편집·지우기)과 '파일 올리기'가 선다`, shown);
+      }
       const r = await ev(PROBE);
       check(`${tag} — 글자가 배경에 묻히지 않는다`, r.lowCount === 0, `${r.lowCount}건 ${JSON.stringify(r.low)}`);
       check(`${tag} — Tailwind 기본 팔레트를 쓰지 않는다`, r.bannedCount === 0, `${r.bannedCount}건 ${JSON.stringify(r.banned)}`);

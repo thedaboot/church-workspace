@@ -67,13 +67,27 @@ async function editorsFor(supabase, user) {
 // 화면은 이미 그렇게 막는데(attachments.jsx `canEditCopy`) 서버가 안 봐서, 로그인한 누구나
 // 아무 파일 id로 자기를 편집자로 붙일 수 있었다. 사본은 `files.preview_file_id`로 앱이 안다.
 // 올린 사람은 **두 id를 다 내 것으로 본다**(합친 계정 · §6-34-i · DB의 files_delete와 같은 규칙).
+// **모임 활동 보고서(0093)는 그 동아리장도 붙는다** — 보고서를 고치는 자격이 DB의 can_edit_meeting(관리자 ·
+// 그 동아리장)이라, 관리자가 올린 보고서를 동아리장이 못 고치면 화면의 '편집'이 거짓말이 된다.
 export async function mayGrantEditors(supabase, user, fileId) {
   if (!fileId) return false;
-  const { data: rows } = await supabase.from('files').select('uploaded_by').eq('preview_file_id', fileId);
+  const { data: rows } = await supabase.from('files').select('uploaded_by, meeting_id').eq('preview_file_id', fileId);
   if (!rows?.length) return false;
   const mine = await myIds(supabase, user.id);
   if (rows.some(r => mine.has(r.uploaded_by))) return true;
-  return isAdminEmail(supabase, user.email);
+  if (await isAdminEmail(supabase, user.email)) return true;
+  const meetingId = rows.find(r => r.meeting_id)?.meeting_id;
+  return !!meetingId && leadsClubOf(supabase, mine, meetingId);
+}
+
+// 이 모임이 달린 동아리의 동아리장이 나인가(0035 group_meetings_write의 leader_person_id = my_person_id()와 같은 줄)
+async function leadsClubOf(supabase, mine, meetingId) {
+  const { data: m } = await supabase.from('group_meetings').select('group_id').eq('id', meetingId).maybeSingle();
+  if (!m?.group_id) return false;
+  const { data: g } = await supabase.from('groups').select('leader_person_id').eq('id', m.group_id).maybeSingle();
+  if (!g?.leader_person_id) return false;
+  const { data: p } = await supabase.from('people').select('profile_id, removed_at').eq('id', g.leader_person_id).maybeSingle();
+  return !!p?.profile_id && !p.removed_at && mine.has(p.profile_id);
 }
 
 // 큰 파일은 브라우저가 Storage에 올리고 **서명 주소만** 보낸다(cloud.uploadViaStorage).

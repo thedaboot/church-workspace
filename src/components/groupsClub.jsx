@@ -50,7 +50,7 @@ const NAV_BACK = 'dc-nav dc-nav-back';
 export function ClubsPanel({
   clubs, people, members, apps, perms, openClub, meetings, meetingsFail = null, nextMeet = {}, creating, closingCreate, onCloseCreate,
   onOpen, onBack, onCreateClub, onEditClub, onApply, onCancelApply, onAccept, onDecline,
-  onAddMember, onRemoveMember, onReorder, onCreateMeeting, onToggleMeeting, onDeleteMeeting,
+  onAddMember, onRemoveMember, onReorder, onCreateMeeting, onToggleMeeting, onDeleteMeeting, report = null,
 }) {
   // 목록 → 상세는 앞으로, 상세 → 목록은 뒤로 미끄러진다(위 NAV_IN 주석).
   // **렌더 중에 정하지만 값이 바뀔 때만 간다** — App.jsx navRef와 같은 짜임이라
@@ -69,7 +69,7 @@ export function ClubsPanel({
           meetings={meetings} meetingsFail={meetingsFail} onBack={onBack} onApply={onApply} onCancelApply={onCancelApply}
           onAccept={onAccept} onDecline={onDecline} onAddMember={onAddMember} onRemoveMember={onRemoveMember}
           onEditClub={onEditClub} onCreateMeeting={onCreateMeeting} onToggleMeeting={onToggleMeeting}
-          onDeleteMeeting={onDeleteMeeting} />
+          onDeleteMeeting={onDeleteMeeting} report={report} />
       ) : (
         <ClubList clubs={clubs} people={people} members={members} apps={apps} perms={perms} nextMeet={nextMeet}
           creating={creating} closingCreate={closingCreate} onCloseCreate={onCloseCreate} onOpen={onOpen}

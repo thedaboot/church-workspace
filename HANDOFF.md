@@ -49,6 +49,7 @@
 - **묶음 ⑤ 한 일(2026-10-12 · 사용자 결정)**: '이번 주 이 장을 본 사람'(0080)을 통째로 뺐다 — 장 머리 얼굴·판(그 안의 `나눔 보기`)·`나도 나누기`(판·내 정보)·5초 기록·11:30 지난주 정리·`services/bibleReads.js` · **0095**(`bible_reads` 표 · `share_reads` 칸 · psql로 적용) · QT 나눔은 그대로 · '없어야 한다'는 `logcheck-v2` 은혜와 리듬 ④.
 - **남은 후보(정해지지 않음)**: 모션 정리(폰 업무 창만 200ms · tw-animate ease/앱 quint 두 벌 · 사이드바 폭 전이) · `Segmented`에 버튼 속성 통과 → 세그먼트 7벌 · `gather`/`collectAll` 합치기 · 실기기 확인 대기: 못 올린 첨부 빨간 줄(게스트로는 못 봄) · 댓글 칸 바닥에서 열기 · 폰 업무 바 켜진 탭 점.
 - **묶음 ③ 리더만 보는 프로젝트(사용자 결정 2026-10-12 · V2 결정 15 뒤집음)**: 0092(`projects.visibility` · 리더 = 마스터·관리자·교역자·그 해 임원진 · 정책은 `alter`만 · `hidden_ids()` 한 번 · 보호 트리거 둘 · ROLLBACK 리허설로 비리더 업무 98→74 등 확인 · **마이그레이션이 코드보다 먼저**) · 서버 키 넷(위키 장·공유 카드·달력·푸시)은 `services/visibility.js`·`api/_leaders.js`로 거름 · 화면은 `components/leaderOnly.jsx`(자물쇠·칩) · '공개 → 리더만'은 `workspace-all` broadcast로 걷힘 · 남은 것: 다붓이 답 캐시(`_wikiAsk.js`) · 드라이브 첨부는 링크로 열림 · 공유 카드 CDN 5분 · 클라우드 실측 부탁(§3-6) · §4 지도에 새 파일 셋.
+- **묶음 ④ 동아리 모임 활동 보고서 — 한 일**(2026-10-12 · 시안 https://claude.ai/artifact/CYcKxtnnGp6miyJmDY9fgo 4-C · 버튼 이름 `지난 보고서 가져오기` · **0093 라이브**): 지난 모임 출석 칩 아래 `활동 보고서` 칸 — 마스터·관리자·동아리장(`canManageClub` = 0093 `can_edit_meeting`)은 파일 줄·`편집`(구글 편집 사본)·지우기·`파일 올리기`·`지난 보고서 가져오기`(이 모임에 보고서가 없고 다른 모임에 있을 때 · 앞의 가장 가까운 것 → 없으면 뒤 · 편집 사본을 `<동아리> 활동보고서(<M>월).xlsx`로 올려 곧바로 편집 화면), 구성원은 보고서 있는 모임만 줄 · 큐는 업무 첨부 한 벌(`meeting:<id>`) · 드라이브 `모임/<동아리>/<날짜>`(`group_meetings.drive_folder_id`) · 모임을 지우면 드라이브 폴더도 휴지통 · files 모임 갈래는 permissive 둘 + restrictive 셋(기존 정책 넷 그대로 · PITFALLS 31-k) · 동아리장도 사본 편집자(`api/drive.js` mayGrantEditors). **실기기 확인 대기**: 클라우드 올리기·폴더 한 벌 · 편집 사본(데스크톱 앱 안 편집 · 폰 `구글 시트에서 편집`) · 지난 보고서 가져오기(as=xlsx) · 관리자가 올린 보고서를 동아리장이 편집 · 모임 지우면 폴더 휴지통 · 업무 창이 열린 채 보고서를 올릴 때(files 실시간이 `meeting_id`를 안 가려 열린 업무를 한 번 더 읽는다 — cloudSync는 ③ 몫이라 두었다).
 
 ### 20차 다붓이 서버 묶음 ① — 한 일 · 결정 (2026-10-12 · DB·화면 그대로 · 정본은 `docs/AI.md` §5)
 
@@ -296,6 +297,7 @@ src/components/worshipAttendance.jsx (v2) 출석 체크 — 순별 칩·손님 �
 src/components/groupsSun.jsx  (v2) 내 순 · 순 편성
 src/components/groupsClub.jsx (v2) 동아리 목록·dnd 순서·방향 감싸개(§6-9-bi)
 src/components/clubDetail.jsx (v2) 동아리 상세 — 구성원·추가·신청·모임·출석·QR(lazy)
+src/components/meetingReport.jsx (v2) 지난 모임의 활동 보고서 칸(0093) — 파일 줄·편집 사본·지우기·파일 올리기·지난 보고서 가져오기 · 큐는 uploadQueue(`meeting:<id>`) · 통신은 groupsView
 src/components/groupsParts.jsx (v2) 모임 공용 — CARD/BTN/FIELD·NEW_H·DATE_TRIGGER·CARD_STYLE(예배·동아리 만들기가 같이 쓴다) · PersonPick·MenuPick(§6-9-an·33-a) · useSettled(§6-9-ad) · 읽기 실패 자리 FailTail·FailLeft(D2 · §6-24-g)
 src/components/segmented.jsx  회색 토글 한 벌(Segmented · segStyle) — 지금은 대시보드·프로젝트만(명단·말씀·모임·ShareToggle은 aria-pressed·data-* 통과가 생기면)
 src/components/ClubQr.jsx     (v2) 동아리 신청 QR 카드(§6-29-z-7)
@@ -327,7 +329,7 @@ src/modals/taskSummary.jsx    업무 창의 AI — 3줄 요약(useTaskSummary ·
 src/modals/coedit.jsx         업무 창의 같이 쓰기 — useCoedit(늦게 연다 · 받아들이기) · 머리줄 얼굴 · 보기의 수정 중 알약·줄 표시·살아 있는 본문 · 버전 기록 탭 · 고친 곳(그린 줄) · 개발용 가짜(32-zq·32-zr·32-zt~zw)
 src/services/coedit/          같이 쓰기 엔진(0084) — index.js 여는 곳(awareness user·editing·line · 사진 이름표) · core.js 순수(caretLine 포함) · store.js Supabase · view.js 화면 순수(색·알약 대비·판 글자·줄 차이 · import 0)
 src/modals/attachments.jsx    업무 창의 첨부 구역 — 업로드·미리보기·삭제·구글 사본 편집 자격(§6-34-h · startUploads는 §6-29-u)
-src/modals/uploadQueue.js     올리는 중·못 올린 첨부 줄(업무마다 · 모듈 목록 · 동시 3개 · 다시 시도)
+src/modals/uploadQueue.js     올리는 중·못 올린 첨부 줄(업무마다 · 모임 보고서는 `meeting:<id>` · 모듈 목록 · 동시 3개 · 다시 시도)
 src/modals/comments.jsx       업무 창의 댓글·반응·활동 기록 패널(§4.11)
 src/modals/settings.jsx       내 정보(사진·이름·팀) / 프로젝트 만들기·이름 수정(§4.7·§6-34-g)
 src/services/supabaseClient.js 클라이언트 한 벌 + setWriteObserver(§4.8) + myUid()(§6-34-d)

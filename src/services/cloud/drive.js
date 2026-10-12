@@ -1,6 +1,6 @@
 // ============================================================================
 // 첨부의 실체 — 파일 목록 · 개인 구글 드라이브(/api/drive · docs/DRIVE.md) · 업로드 한 벌(uploadOwnedFile) ·
-// 구글 변환 사본 · 주보 파일(0047) · Storage 옛 길 · 본문 이미지 · 지운 첨부의 실체 정리
+// 구글 변환 사본 · 주보 파일(0047) · 모임 보고서(0093) · Storage 옛 길 · 본문 이미지 · 지운 첨부의 실체 정리
 // ----------------------------------------------------------------------------
 // 재시도·멱등 열쇠·3MB 갈래·되돌리기의 이유는 각 자리 주석에 있다(§6-29 머리말 — 두 벌로 두지 않는다).
 // ============================================================================
@@ -16,9 +16,9 @@ export const ATTACH_BUCKET = 'attachments';
 // 초기 로드가 읽는 것은 **업무 첨부뿐**이다. 0047부터 files에는 주보 송폼도 들어 있는데
 // (service_id), 그것까지 끌어오면 워크스페이스 스토어가 업무와 상관없는 행을 지고 다닌다
 // — cloudSync가 card_id 없는 행을 어차피 버리므로 순전히 낭비다(그리고 주보가 쌓일수록
-// 늘어난다). 거르는 자리는 조회 한 곳이면 된다.
+// 늘어난다). 거르는 자리는 조회 한 곳이면 된다. 0093부터는 모임 보고서(meeting_id)도 같은 표다.
 export async function listAllFiles() {
-  return unwrap(await client().from('files').select('*').is('service_id', null).order('created_at', { ascending: true }));
+  return unwrap(await client().from('files').select('*').is('service_id', null).is('meeting_id', null).order('created_at', { ascending: true }));
 }
 export async function listCardFiles(cardId) {
   return unwrap(await client().from('files').select('*').eq('card_id', cardId).order('created_at', { ascending: true }));
@@ -302,13 +302,13 @@ export async function grantCopyEditors(row, emails = []) {
 }
 
 // ============================================================================
-// 첨부 한 건이 지나가는 **하나의 길**. 업무 첨부와 주보 송폼(0047)이 이것을 같이 쓴다.
+// 첨부 한 건이 지나가는 **하나의 길**. 업무 첨부와 주보 송폼(0047)·모임 보고서(0093)가 이것을 같이 쓴다.
 // ----------------------------------------------------------------------------
-// 두 갈래가 다른 것은 셋뿐이다:
+// 갈래마다 다른 것은 넷뿐이다:
 //   folderHint     — 드라이브의 어느 폴더로 갈지
-//   owner          — files 행의 주인 칸(`{project_id, card_id}` 또는 `{service_id}`)
+//   owner          — files 행의 주인 칸(`{project_id, card_id}` · `{service_id}` · `{meeting_id}`)
 //   prefix         — Storage를 거칠 때 임시 사본을 둘 자리
-//   rememberFolder — 스크립트가 폴더를 새로 판 경우 그 id를 어디에 적을지(0026·0047)
+//   rememberFolder — 스크립트가 폴더를 새로 판 경우 그 id를 어디에 적을지(0026·0047·0093)
 // 나머지 — 3MB 갈래(INLINE_MAX) · 멱등 열쇠 · 타임아웃 뒤 확인 · 시트 변환 사본 ·
 // 행을 못 만들면 올린 파일 되돌리기 — 는 **두 갈래가 똑같아야 하는 것들**이라 여기
 // 한 벌로 둔다. 두 벌로 두면 고칠 때마다 한쪽만 고쳐진다(§6-29 머리말의 그 함정).
@@ -453,6 +453,48 @@ export async function uploadServiceFile(file, { serviceId, serviceDate, serviceF
     owner: { service_id: serviceId, kind: SERVICE_FILE_KINDS.includes(kind) ? kind : 'songform' },
     prefix: `services/${serviceId}`,
     rememberFolder: serviceFolderId ? null : (folderId) => setServiceFolder(serviceId, folderId),
+    awaitCopy,
+  });
+}
+
+// ── 동아리 모임에 붙는 파일 — 활동 보고서 (0093) ─────────────────────────────
+// 주보 파일과 **같은 모양**이다: 드라이브 자리는 `더다붓 워크스페이스/모임/<동아리>/<YYYY-MM-DD>/`이고
+// (Apps Script는 고칠 것이 없다 — folderFor가 path 배열로 멱등하게 판다) 두 번째부터는
+// group_meetings.drive_folder_id로 곧장 간다. 동아리 이름을 바꾸면 그 뒤 모임만 새 이름 폴더로
+// 간다 — 지난 모임은 적어 둔 id가 그대로라 파일이 두 폴더로 갈리지 않는다.
+export const MEETING_DRIVE_ROOT = '모임';
+export const meetingFolderPath = (clubName, meetingDate) =>
+  [MEETING_DRIVE_ROOT, String(clubName || '동아리'), String(meetingDate || '날짜 미정')];
+
+// 모임 폴더 id만 적는다 — 한 칸만 update(setServiceFolder와 같은 이유).
+export async function setMeetingFolder(meetingId, folderId) {
+  return unwrap(await client().from('group_meetings').update({ drive_folder_id: folderId }).eq('id', meetingId).select('id').single());
+}
+
+// 폴더를 **파일 바이트가 오가기 전에** 확보한다(§6-29-h). 실패하면 null — 업로드는 path 폴백으로 간다.
+export async function ensureMeetingFolder(meeting, clubName) {
+  if (meeting?.drive_folder_id) return meeting.drive_folder_id;
+  if (!meeting?.id || !meeting?.meeting_date) return null;
+  try {
+    const { folderId } = await ensureDriveFolder(null, null, meetingFolderPath(clubName, meeting.meeting_date));
+    if (!folderId) return null;
+    await setMeetingFolder(meeting.id, folderId);
+    return folderId;
+  } catch (e) {
+    if (!e.notConfigured) console.error('[drive] 모임 폴더 확보 실패:', e);
+    return null;
+  }
+}
+
+export async function uploadMeetingFile(file, { meetingId, clubName, meetingDate, meetingFolderId, awaitCopy = false }) {
+  const folderHint = meetingFolderId
+    ? { folderId: meetingFolderId }
+    : { path: meetingFolderPath(clubName, meetingDate) };
+  return uploadOwnedFile(file, {
+    folderHint,
+    owner: { meeting_id: meetingId },
+    prefix: `meetings/${meetingId}`,
+    rememberFolder: meetingFolderId ? null : (folderId) => setMeetingFolder(meetingId, folderId),
     awaitCopy,
   });
 }

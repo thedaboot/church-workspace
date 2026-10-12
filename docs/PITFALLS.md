@@ -635,13 +635,17 @@
 31-i. **`ON CONFLICT DO UPDATE`도 INSERT 정책의 with check를 먼저 본다** — update 정책만 넓혀서는 upsert가 여전히 42501이다(합친 계정의 내 정보 저장 · 0071이 `profiles_insert`도 `effective_uid()`로 열었다). `INSERT … RETURNING`이 SELECT 정책을 보는 것은 25번.
 31-j. **임베딩 표는 원본보다 넓게 읽히면 안 된다** — `bible_vec`·`doc_vec`은 읽기가 `is_approved()` 하나라, 원본의 읽기 규칙이 그보다 좁은 것을 넣으면 그 글이 전원에게 샌다.
     그래서 **주보 첨부**(작성 중 주보의 파일은 `can_edit_service()`만 읽는다)와 **개인 표**(`service_notes`·`qt_entries` — 본인·순·공개로 갈린다)는 `doc_vec`에 없다. 넣으려면 표를 따로 두거나 RLS를 원본과 같게 한다.
-31-k. **'가리기' 정책에서 밟은 넷(0092 리더만 보는 프로젝트 · 2026-10-12 리허설).** ① 정책이 줄마다 security definer 함수를 부르면 느리다 — doc_vec 468줄
+31-l. **'가리기' 정책에서 밟은 넷(0092 리더만 보는 프로젝트 · 2026-10-12 리허설).** ① 정책이 줄마다 security definer 함수를 부르면 느리다 — doc_vec 468줄
     count가 0.1초 → 0.4초였다. 가릴 id를 한 벌로 모으는 함수(`hidden_ids()`)를 `(select …)`로 감싸면 **질의마다 한 번**(InitPlan)이다. 단 `x <> all ((select f()))`는
     부분질의 꼴로 읽혀 `uuid <> uuid[]` 오류가 난다 — `((select f())::uuid[])`처럼 형을 붙인다. ② 정책 안에서 다른 표를 다시 읽어 주인을 찾으면(댓글 → 업무)
     **안 보이는 줄이 null로 와서 '가릴 것 없음'으로 뒤집힌다** — 주인 찾기는 RLS 밖(definer)에서. ③ 트리거 함수는 부른 사람 권한이라 **가려진 행을 '없음'으로 읽는다** —
     가드는 definer 판정 함수(`can_see_project`)를 부른다. ④ 받는 사람의 SELECT 정책을 타는 실시간(postgres_changes)은 **가려지는 순간의 변경 자체가 안 온다**
     ('공개 → 리더만'이 리더 아닌 화면에 안 닿는다) — 바꾼 쪽이 공개 채널에 id만 알리고 받은 쪽이 다시 읽는다(`announceProjectVisibility`).
     리허설 팁: 비리더 claims를 세운 채 `reset role`만 하고 `update`하면 보호 트리거가 'leaders'를 'all'로 되돌린다 — **claims를 비우고** 고친다.
+31-m. **배타 축에 주인을 하나 더하면 기존 정책의 '아닌 쪽' 조건이 새 갈래를 통과시킨다** — files의 업무 갈래는 `service_id is null`로 적혀 있어서 0093의 모임 보고서 행(card_id·service_id 둘 다
+    null)도 그 갈래로 지났다: 승인된 누구나 남의 모임에 보고서를 넣고(files_insert), 업무 첨부를 모임으로 옮길 수 있었다(files_update · psql 리허설로 확인). 기존 정책을 고칠 수 없을 때(다른 묶음이
+    같은 정책을 `alter policy` 중 — 0092) 31-a의 예외로 **restrictive**를 더한다 — `meeting_id is null or can_edit_meeting(…)`은 다른 행에 언제나 참이라 그 갈래들은 그대로다.
+    새로 쓰는 갈래 조건은 '아닌 것'(`x is null`)이 아니라 '그것인 것'(`card_id is not null`)으로 적으세요. 화면·게스트 검사로는 안 보인다 — ROLLBACK 리허설에서 42501을 직접 본다.
 
 그 밖에(번호 없음):
 - **"넣으려던 상태가 이미 참"인 유니크 위반(23505)은 실패가 아니다** — 순장 교체가 그렇게 거짓말했다. 저장 **전에** 갈래를 판정하고(`groups.leaderPlan`) DB 오류는 마지막 방어선으로만, 사람 말은 `dupReason`이 얹는다.

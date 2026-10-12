@@ -645,6 +645,31 @@ check('초기 로드가 주보 송폼까지 끌어오지 않는다', () => {
   assert.match(sync, /if \(row\.service_id\) return;/, 'files 실시간이 주보 갈래를 안 가른다');
 });
 
+// ── 동아리 모임 활동 보고서 (0093 · 20차 묶음 ④) ─────────────────────────────
+// 세 번째 갈래도 **같은 업로드 한 벌**이다 — 주인 칸(meeting_id)·폴더 자리(모임/<동아리>/<날짜>)·폴더 id 칸만 다르다.
+// 되돌리기 검사: uploadMeetingFile의 `return uploadOwnedFile(`을 다른 길(uploadToStorageOnly)로 바꾸면 첫 단정이,
+// groupsView sendReports의 prepare(폴더 확보)를 지우면 '폴더가 먼저'가 깨진다.
+check('모임 보고서도 업무 첨부와 같은 업로드 한 벌을 지나고 폴더가 파일보다 먼저다 (0093)', () => {
+  const up = /export async function uploadMeetingFile[\s\S]*?\n}/.exec(cloud)?.[0] || '';
+  assert.match(up, /return uploadOwnedFile\(/, '모임 보고서가 공용 길(uploadOwnedFile)을 안 쓴다');
+  assert.match(up, /owner: \{ meeting_id: meetingId \}/, '보고서 행의 주인 칸이 meeting_id가 아니다');
+  assert.match(up, /rememberFolder: meetingFolderId \? null : \(folderId\) => setMeetingFolder\(meetingId, folderId\)/,
+    '스크립트가 판 폴더 id를 모임에 안 적는다 — 다음 업로드가 같은 이름 폴더를 또 만든다');
+  assert.match(cloud, /export const MEETING_DRIVE_ROOT = '모임'/, '드라이브 뿌리 이름이 상수가 아니다');
+  assert.match(cloud, /meetingFolderPath = \(clubName, meetingDate\) =>\s*\n?\s*\[MEETING_DRIVE_ROOT, String\(clubName/,
+    'path가 [모임, 동아리, 날짜] 세 겹이 아니다 — 스크립트(v7 folderFor)가 멱등하게 파는 path 배열이어야 한다');
+  assert.match(cloud, /from\('files'\)\.select\('\*'\)\.is\('service_id', null\)\.is\('meeting_id', null\)/,
+    '초기 로드(listAllFiles)가 모임 보고서까지 워크스페이스 스토어로 끌어온다');
+  const groups = read('src/services/groups.js');
+  const gview = read('src/views/groupsView.jsx');
+  assert.strictEqual((groups.match(/uploadMeetingFile\(/g) || []).length, 1, 'groups.js에 드라이브로 가는 자리가 둘 이상이다');
+  assert.match(groups, /export async function removeMeetingReport[\s\S]*?return deleteAttachment\(row\);/, '보고서 지우기가 두 번째 구현이다(§6-29-e)');
+  const send = gview.slice(gview.indexOf('const sendReports = useCallback'));
+  const folderAt = send.search(/await ensureMeetingDriveFolder\(club, meeting\)/);
+  const upAt = send.search(/await uploadMeetingReport\(club, meeting, file, folderId/);
+  assert.ok(folderAt > 0 && upAt > folderAt, '보고서가 폴더를 받기 전에 올린다(§6-29-h)');
+});
+
 check('files RLS 넷이 전부 주보 갈래로 갈라져 있다 (0047)', () => {
   for (const p of ['files_select', 'files_insert', 'files_update', 'files_delete']) {
     const at = mig.indexOf(`create policy ${p} on public.files`);
@@ -1262,7 +1287,7 @@ check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () =
 // 되돌리기 검사: mayGrantEditors에서 `mine.has(r.uploaded_by)` 갈래를 `true`로 바꾸면
 // '남의 사본' 줄이 깨진다.
 {
-  const mockDb = ({ profiles = {}, files = [], admins = [], users = {} } = {}) => ({
+  const mockDb = ({ profiles = {}, files = [], admins = [], users = {}, tables = {} } = {}) => ({
     auth: {
       getUser: async (t) => (users[t]
         ? { data: { user: users[t] }, error: null }
@@ -1272,7 +1297,7 @@ check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () =
       const filters = [];
       const rows = () => {
         let r = table === 'profiles' ? Object.entries(profiles).map(([id, p]) => ({ id, ...p }))
-          : table === 'files' ? files : table === 'admins' ? admins.map(email => ({ email })) : [];
+          : table === 'files' ? files : table === 'admins' ? admins.map(email => ({ email })) : (tables[table] || []);
         for (const [k, v, op] of filters) {
           r = r.filter(x => (op === 'ilike' ? String(x[k]).toLowerCase() === String(v).toLowerCase() : x[k] === v));
         }
@@ -1351,6 +1376,26 @@ check('첫 화면 벤더 칸이 lazy 무거운 것을 삼키지 않는다', () =
     assert.strictEqual(grant.admin, true, '관리자');
     assert.strictEqual(grant.unknown, false, '앱이 모르는 파일 id(files.preview_file_id에 없음)도 통과한다');
     assert.strictEqual(grant.empty, false, '빈 id');
+  });
+
+  // 모임 활동 보고서(0093)는 **그 동아리장도** — DB의 can_edit_meeting과 같은 경계(관리자가 올린 보고서를 동아리장이 고친다).
+  // 되돌리기 검사: mayGrantEditors의 `leadsClubOf(…)` 갈래를 `false`로 바꾸면 첫 줄이 깨진다.
+  const mdb = mockDb({
+    profiles: { L: { approved: true }, C: { approved: true }, X: { approved: true } },
+    files: [{ uploaded_by: 'ADMIN', preview_file_id: 'COPY_M', meeting_id: 'M1' }, { uploaded_by: 'A', preview_file_id: 'COPY_CARD', meeting_id: null }],
+    tables: {
+      group_meetings: [{ id: 'M1', group_id: 'G1' }],
+      groups: [{ id: 'G1', leader_person_id: 'P_L' }, { id: 'G2', leader_person_id: 'P_X' }],
+      people: [{ id: 'P_L', profile_id: 'L', removed_at: null }, { id: 'P_X', profile_id: 'X', removed_at: null }],
+    },
+  });
+  const mmay = async (id, fileId) => drive.mayGrantEditors(mdb, { id, email: `${id.toLowerCase()}@x.com` }, fileId);
+  const mgrant = { leader: await mmay('L', 'COPY_M'), member: await mmay('C', 'COPY_M'), otherLeader: await mmay('X', 'COPY_M'), leaderOnCard: await mmay('L', 'COPY_CARD') };
+  check('모임 보고서 사본은 그 동아리장도 편집자로 붙는다 — 다른 동아리장·구성원·업무 첨부는 아니다 (0093)', () => {
+    assert.strictEqual(mgrant.leader, true, '그 동아리장');
+    assert.strictEqual(mgrant.member, false, '구성원');
+    assert.strictEqual(mgrant.otherLeader, false, '다른 동아리의 동아리장');
+    assert.strictEqual(mgrant.leaderOnCard, false, '동아리장이라고 업무 첨부 사본까지 붙지는 않는다');
   });
 
   check('uploadFromUrl은 우리 Storage의 attachments 서명 주소만 (isOurSignedUrl)', () => {

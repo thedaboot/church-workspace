@@ -863,6 +863,42 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
     { service_id: 's2', body: '   ' },                                  // 게스트 행 — 빈 노트는 세지 않는다
   ]), { s1: 2, s2: 1 }, '주보별로 센다(전 기간 합계가 아니다)');
 
+  // ⑥ 모임 활동 보고서(0093 · 20차 묶음 ④) — 이름 · 가져올 지난 보고서 고르기 · 저장 모양
+  // 되돌리기 검사: lastReportOf의 `before || after`를 `after || before`로 바꾸면 ⑥-b가, MEETING_COLS에서
+  // drive_folder_id를 빼면 ⑥-d가, fetchMeetings의 `files(${MEETING_FILE_COLS})`를 빼면 ⑥-d가 깨진다.
+  assert.strictEqual(G.reportName('통통', '2026-09-21'), '통통 활동보고서(9월).xlsx', '⑥-a 사용자 문구 그대로(모임 날짜의 달)');
+  assert.strictEqual(G.reportName('더다붓 러닝', '2026-10-05', 'pdf'), '더다붓 러닝 활동보고서(10월).pdf', '⑥-a 확장자는 가져온 것');
+  assert.strictEqual(G.reportName('', 'bad'), '동아리 활동보고서.xlsx', '⑥-a 이름·날짜가 없어도 깨지지 않는다');
+  const D = (id) => ({ id: `f${id}`, source: 'drive', drive_file_id: `d${id}`, created_at: `2026-10-0${id}T00:00:00Z` });
+  const ms = [
+    { id: 'm1', meeting_date: '2026-09-07', files: [D(1)] },
+    { id: 'm2', meeting_date: '2026-09-21', files: [D(2), D(3)] },             // 한 모임에 둘 — 나중 것
+    { id: 'm3', meeting_date: '2026-10-05', files: [] },                        // 이 모임
+    { id: 'm4', meeting_date: '2026-10-19', files: [D(4)] },
+    { id: 'm5', meeting_date: '2026-09-28', files: [{ id: 'fx', source: 'storage', storage_path: 'x' }] },   // 드라이브 실체가 없다 — 못 가져온다
+  ];
+  const pickOf = (mid) => { const r = G.lastReportOf(ms, ms.find(m => m.id === mid)); return r && [r.meeting.id, r.file.id]; };
+  assert.deepStrictEqual(pickOf('m3'), ['m2', 'f3'], '⑥-b 앞의 가장 가까운 모임 · 그 안에서 마지막에 올린 것(드라이브 실체 없는 m5는 건너뛴다)');
+  assert.strictEqual(G.lastReportOf([ms[2], ms[3]], ms[2])?.meeting.id, 'm4', '⑥-b 앞에 없으면 뒤에서 가장 이른 것(지난 모임을 늦게 채우는 경우)');
+  assert.strictEqual(G.lastReportOf([ms[2], ms[4]], ms[2]), null, '⑥-b 가져올 것이 없으면 null — 버튼이 서지 않는다');
+  assert.strictEqual(G.lastReportOf(ms, ms[0])?.meeting.id, 'm2', '⑥-b 자기 모임의 파일은 고르지 않는다');
+  assert.ok(G.reportUsable({ _file: {} }) && !G.reportUsable({ source: 'drive' }) && !G.reportUsable(null), '⑥-c 게스트는 쥔 바이트, 클라우드는 드라이브 id');
+  assert.strictEqual(G.meetingQueueKey('m9'), 'meeting:m9', '⑥-c 업로드 큐 열쇠');
+  {
+    const raw = readFileSync(new URL('../src/services/groups.js', import.meta.url), 'utf8');
+    const drv = readFileSync(new URL('../src/services/cloud/drive.js', import.meta.url), 'utf8');
+    assert.match(raw, /const MEETING_COLS = '[^']*\bdrive_folder_id\b[^']*';/, '⑥-d 모임 행이 폴더 id를 싣는다(rememberFolder 선례)');
+    assert.match(raw, /\.select\(`\$\{MEETING_COLS\}, files\(\$\{MEETING_FILE_COLS\}\)`\)/, '⑥-d 모임 조회 한 번에 보고서가 같이 온다(embed)');
+    const fileCols = /const MEETING_FILE_COLS = '([^']*)';/.exec(raw)?.[1] || '';
+    for (const c of ['meeting_id', 'drive_file_id', 'preview_file_id', 'uploaded_by', 'created_at', 'size_bytes'])
+      assert.ok(fileCols.split(/,\s*/).includes(c), `⑥-d 보고서 칸에 ${c}`);
+    assert.ok(!/text_excerpt/.test(fileCols), '⑥-d 무거운 칸(text_excerpt)은 싣지 않는다');
+    assert.match(drv, /from\('group_meetings'\)\.update\(\{ drive_folder_id: folderId \}\)\.eq\('id', meetingId\)/, '⑥-d 폴더 id는 그 한 칸만 update');
+    const del = raw.slice(raw.indexOf('export async function deleteMeeting'));
+    assert.ok(del.indexOf(".delete().eq('id', meetingId)") > 0 && del.indexOf(".delete().eq('id', meetingId)") < del.indexOf('trashFolder(folderId'),
+      '⑥-d 모임을 지운 **뒤에** 드라이브 실체를 휴지통으로(행이 먼저 · §6-29-e)');
+  }
+
   const wsrc = readSplit('src/services/worship.js');
   assert.ok(/link: noteSharedLink\(service\.id\)/.test(wsrc) && /noteSharedLink = \(serviceId\) => `\/\?p=groups&note=\$\{serviceId\}`/.test(wsrc),
     '노트 공유 알림은 그 주보를 note=로 싣는다');
@@ -908,7 +944,7 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.deepStrictEqual(C.clampMonth({ y: 2028, m: 0 }, b27), { y: 2028, m: 0 });
   assert.deepStrictEqual(C.clampMonth({ y: 2028, m: 12 }, b27), { y: 2028, m: 11 }, '위(내년 12월)로도 가둔다');
   assert.ok(!/CAL_MAX_YEAR|= 2030/.test(cal), '2030 상한이 박혀 있지 않다');
-  console.log('PASS  9월 25일 묶음(다음 동아리 모임 · 주보별 공유 노트 · 노트 알림 링크 · 성경 띄어쓰기 · 달력 연도)');
+  console.log('PASS  9월 25일 묶음(다음 동아리 모임 · 주보별 공유 노트 · 노트 알림 링크 · 성경 띄어쓰기 · 달력 연도) · 모임 활동 보고서(0093 · 이름 · 지난 보고서 고르기 · 저장 모양)');
 }
 
 // ── 교회력 · 광고 → 내 달력 · 주보를 보여 주는 규칙 (2026-09-25 사용자 결정) ────────────
