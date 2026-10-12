@@ -4,6 +4,8 @@ import { adminClient, readJson, bearer, requireApprovedUser, safeEqual, sameOrig
 import { syncDocVectors } from './_docsync.js';
 import { buildWiki } from './_wikiBuild.js';
 import { reaskUnknown } from './_wikiAsk.js';
+import { isLeaderOnly, visibleRecipients } from '../src/services/visibility.js';
+import { leaderIdSet, leaderOnlyOf } from './_leaders.js';
 
 // ============================================================================
 // /api/push — 웹 푸시 발송. 두 입구가 한 파일에 있다.
@@ -170,9 +172,21 @@ async function handleSend(req, res) {
   // 자기 자신에게는 보내지 않는다(앱 안 알림도 같은 규칙 — cloudSync가 먼저 걸러내지만
   // 여기서도 막아 둔다. 알림은 종류가 늘 때마다 호출부가 늘어나는 자리다).
   // 같은 id가 여럿이면 하나로 — 상한은 **거른 뒤의** 수로 센다.
-  const ids = [...new Set((Array.isArray(recipientIds) ? recipientIds : [])
+  let ids = [...new Set((Array.isArray(recipientIds) ? recipientIds : [])
     .filter(id => typeof id === 'string' && id && id !== user.id))].slice(0, MAX_RECIPIENTS);
   if (!ids.length) { res.status(200).json({ sent: 0 }); return; }
+  // 리더만 보는 프로젝트(0092)의 업무 알림은 리더에게만 — 앱(cloudSync)이 먼저 거르지만 미리보기가 기기 밖으로
+  // 나가는 자리라 여기서 한 번 더. 업무는 지금 프로젝트로 본다(몸통의 projectId는 믿지 않는다 · _leaders.js).
+  // 판정을 못 하면 보내지 않는다(닫힌 쪽이 기본 — 앱 안 알림은 이미 들어갔다).
+  if (cardId || projectId) {
+    try {
+      if (await leaderOnlyOf(db, { cardId, projectId })) ids = visibleRecipients(ids, { leaderOnly: true, leaderIds: await leaderIdSet(db) });
+    } catch (e) {
+      console.error('[push] 리더 프로젝트 판정 실패 — 보내지 않는다:', e?.message || e);
+      res.status(200).json({ sent: 0 }); return;
+    }
+    if (!ids.length) { res.status(200).json({ sent: 0 }); return; }
+  }
 
   // 예배·모임 알림(0053)은 우리 주소 한 칸(link)으로 간다 — 업무 알림은 예전 그대로.
   // 앞글자만 보면 `'/\t/evil.com'`이 지나간다 — 브라우저와 같은 파서로 풀어 우리 출처인지 본다
@@ -197,6 +211,19 @@ export const kstDate = (offsetDays = 0, now = Date.now()) => new Date(
   now + 9 * 3600e3 + offsetDays * 86400e3,
 ).toISOString().slice(0, 10);
 
+// 마감 임박 카드 → 넣을 알림 줄(순수 · tests/push.mjs가 직접 부른다). 리더만 보는 프로젝트(0092)의 업무는
+// **리더인 담당자에게만** — 리더 프로젝트로 바꾸기 전에 붙어 있던 담당자는 그 업무를 더는 못 본다.
+// leaderIds가 없으면(못 읽었다) 그 카드들은 아무에게도 안 간다(visibleRecipients의 닫힌 쪽).
+export function dueSoonWanted(cards = [], today, leaderIds = new Set()) {
+  const out = [];
+  for (const c of cards || []) {
+    const when = c.due_date === today ? '오늘 마감' : '내일 마감';
+    const to = visibleRecipients((c.card_assignees || []).map(a => a.profile_id), { leaderOnly: isLeaderOnly(c.projects), leaderIds });
+    for (const id of to) out.push({ cardId: c.id, projectId: c.project_id, recipientId: id, preview: `${c.title} · ${when}` });
+  }
+  return out;
+}
+
 async function handleDueSoon(req, res) {
   const secret = process.env.CRON_SECRET;
   if (!secret) { res.status(501).json({ error: 'CRON_SECRET이 설정되지 않았습니다.' }); return; }
@@ -211,19 +238,18 @@ async function handleDueSoon(req, res) {
   // 보관한 프로젝트는 뺀다 — 대시보드·탭에서 이미 빠진 일로 알림이 오면 소음이다.
   const { data: cards, error } = await db
     .from('cards')
-    .select('id, title, project_id, due_date, card_assignees(profile_id), projects!inner(archived)')
+    .select('id, title, project_id, due_date, card_assignees(profile_id), projects!inner(archived, visibility)')
     .in('due_date', [today, tomorrow])
     .neq('status', 'done')
     .eq('projects.archived', false);
   if (error) { console.error('[push] 마감 임박 조회 실패:', error); res.status(502).json({ error: 'DB 조회 실패' }); return; }
 
-  const wanted = [];
-  for (const c of cards || []) {
-    const when = c.due_date === today ? '오늘 마감' : '내일 마감';
-    for (const a of c.card_assignees || []) {
-      if (a.profile_id) wanted.push({ cardId: c.id, projectId: c.project_id, recipientId: a.profile_id, preview: `${c.title} · ${when}` });
-    }
+  // 리더 목록은 리더 프로젝트 카드가 있을 때만 읽는다. 못 읽으면 그 카드들만 빠진다(닫힌 쪽)
+  let leaderIds = new Set();
+  if ((cards || []).some(c => isLeaderOnly(c.projects))) {
+    try { leaderIds = await leaderIdSet(db); } catch (e) { console.error('[push] 리더 목록 조회 실패 — 리더 프로젝트 마감은 건너뛴다:', e?.message || e); }
   }
+  const wanted = dueSoonWanted(cards, today, leaderIds);
   if (!wanted.length) { res.status(200).json({ cards: 0, notified: 0, sent: 0 }); return; }
 
   // 같은 날 두 번 알리지 않는다. 하루 한 번 도는 작업이지만 손으로 부를 수도 있고,

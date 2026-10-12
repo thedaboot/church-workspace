@@ -22,6 +22,8 @@ const patched = readFileSync(SRC, 'utf8')
   // 가져오는 이름이 늘 때마다(extractMentions에서 실제로 CRASH) 여기가 같이 깨졌다.
   // 가져온 이름 목록({...})을 그대로 두고 경로만 바꾸므로 이름이 늘어도 안 깨진다.
   // 재접속 판정(2026-09-25)은 순수 모듈이라 진짜 파일을 절대 경로로 문다
+    // 리더만 보는 프로젝트 판정(0092)도 순수 모듈이라 진짜 파일을 절대 경로로 문다
+  .replace(/from '\.\/visibility\.js';/, `from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'services', 'visibility.js')).href}';`)
   .replace(/from '\.\/realtimeStatus\.js';/, `from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'services', 'realtimeStatus.js')).href}';`)
   .replace(/import (\{[^}]*\}) from '\.\.\/utils\.js';/,
     (m, names) => `import ${names} from '${pathToFileURL(join(import.meta.dirname, '..', 'src', 'utils.js')).href}';`);

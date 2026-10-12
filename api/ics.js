@@ -3,6 +3,8 @@ import { adminClient, readJson, requireApprovedUser, safeEqual, isAdminEmail, UU
 import { readNoticeDate, buildIcs, noticeEvent } from '../src/services/noticeDate.js';
 import { isApprovedProfile } from '../src/services/approval.js';
 import { STATUS_KO, feedKeepRow, feedEvent, buildFeedIcs, feedCalName, feedUrls, taskLink } from '../src/services/calendarFeed.js';
+import { isLeaderOnly } from '../src/services/visibility.js';
+import { leaderIdSet } from './_leaders.js';
 
 // ============================================================================
 // /api/ics — 주보 광고 한 건 → 폰 기본 달력(.ics) (2026-09-25 · 광고 → 내 달력 방식 가)
@@ -25,6 +27,8 @@ import { STATUS_KO, feedKeepRow, feedEvent, buildFeedIcs, feedCalName, feedUrls,
 //   재작성의 마지막 도막은 `:file`(= `<서명>.ics`)로 통째로 받아 여기서 `.ics`를 뗀다 — `:sig.ics` 모양은
 //   경로 패턴 해석기에 따라 점을 이름에 넣기도 해서 믿지 않았다.
 //
+// **리더만 보는 프로젝트(0092)**는 주인이 리더일 때만 — 등록(POST)도 구독(GET)도. 서비스 키라 RLS를 안 타서
+// 여기서 직접 본다(seeProject). 프로젝트가 나중에 리더만으로 바뀌면 리더가 아닌 사람의 구독 주소는 404로 닫힌다.
 // **발행된 주보만**이다(작성 중 주보는 RLS가 편집 자격자에게만 준다 — 서비스 키라 여기서 직접 본다).
 // 두 걸음 모두 **화면과 같은 파서**(src/services/noticeDate.js)로 광고를 다시 읽는다 — 칩은 섰는데
 // 누르면 엉뚱한 날이 들어가는 일이 없게, 그리고 주소를 손으로 바꿔 아무 광고나 달력으로 만들지 못하게.
@@ -64,6 +68,18 @@ async function ownerOf(supabase, uid) {
   return data?.merged_into || uid;
 }
 
+// 주인이 이 프로젝트를 볼 수 있는가 → 프로젝트 행(이름 포함) | null. 리더만 보는 프로젝트면 주인이 리더여야 한다(0092).
+// 리더 목록을 못 읽으면 못 본다고 한다(닫힌 쪽).
+async function seeProject(supabase, projectId, owner) {
+  const { data: proj, error } = await supabase.from('projects').select('id, name, visibility').eq('id', projectId).maybeSingle();
+  if (error) { console.error('[ics] 프로젝트 조회 실패:', error); return null; }
+  if (!proj) return null;
+  if (!isLeaderOnly(proj)) return proj;
+  try { return (await leaderIdSet(supabase)).has(owner) ? proj : null; } catch (e) {
+    console.error('[ics] 리더 목록 조회 실패:', e?.message || e); return null;
+  }
+}
+
 async function feedPost(req, res, supabase, user, body) {
   const project = String(body?.project || '');
   if (!UUID_RE.test(project)) { res.status(400).json({ error: '어느 프로젝트인지 알 수 없어요' }); return; }
@@ -72,8 +88,11 @@ async function feedPost(req, res, supabase, user, body) {
   const reply = (row) => res.status(200).json(row
     ? { cards: row.card_ids || [], ...feedUrls(host, row.id, calSig(row.id), proto) }
     : { cards: null });
+  // 지운 프로젝트와 못 보는 프로젝트(0092)를 가르지 않는다 — 있다는 것부터 알리지 않는다
+  const proj = await seeProject(supabase, project, owner);
 
   if (!Array.isArray(body.cards)) {
+    if (!proj) { reply(null); return; }
     const { data, error } = await supabase.from('calendar_feeds').select('id, card_ids')
       .eq('owner', owner).eq('project_id', project).maybeSingle();
     if (error) { console.error('[ics] 구독 조회 실패:', error); res.status(500).json({ error: 'feed' }); return; }
@@ -84,7 +103,6 @@ async function feedPost(req, res, supabase, user, body) {
   if (want.length > MAX_CARDS || !want.every(id => UUID_RE.test(id))) {
     res.status(400).json({ error: '고른 업무를 읽지 못했어요' }); return;
   }
-  const { data: proj } = await supabase.from('projects').select('id').eq('id', project).maybeSingle();
   if (!proj) { res.status(404).json({ error: '프로젝트가 지워졌어요' }); return; }
   // 그 프로젝트의 업무만 남긴다(다른 프로젝트 id를 끼워 넣어도 달력에 들어가지 않게 — GET도 한 번 더 거른다)
   let kept = [];
@@ -135,7 +153,7 @@ async function feedGet(req, res) {
   const supabase = adminClient();
   const { data: feed } = await supabase.from('calendar_feeds').select('id, owner, project_id, card_ids').eq('id', f).maybeSingle();
   if (!feed || !(await ownerApproved(supabase, feed.owner))) { gone(res); return; }
-  const { data: proj } = await supabase.from('projects').select('id, name').eq('id', feed.project_id).maybeSingle();
+  const proj = await seeProject(supabase, feed.project_id, feed.owner);
   if (!proj) { gone(res); return; }
   let rows = [];
   if (feed.card_ids?.length) {

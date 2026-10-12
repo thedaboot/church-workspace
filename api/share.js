@@ -1,4 +1,5 @@
 import { adminClient, UUID_RE, STATUS, escHtml as esc } from './_lib.js';
+import { isLeaderOnly } from '../src/services/visibility.js';
 
 // ============================================================================
 // /s/:type/:id → 크롤러용 OG 메타 HTML + 사람은 앱으로 리디렉션
@@ -9,6 +10,10 @@ import { adminClient, UUID_RE, STATUS, escHtml as esc } from './_lib.js';
 // 앱 주소에도 그대로 얹어 `/?p=groups&g=<id>&apply=1`로 보낸다 — 모임 화면이 그
 // 값을 보고 신청까지 한다(services/entryQuery.js의 딥링크 약속). vercel.json의
 // rewrite(`/s/:type/:id`)는 나머지 쿼리를 그대로 넘긴다.
+//
+// **리더만 보는 프로젝트(0092)와 그 업무는 일반 문구로 낸다** — 제목·상태·마감을 싣지 않는다. 공유 카드는
+// 카카오톡 미리보기처럼 로그인 없이 읽히는 자리다. 딥링크는 그대로 둔다(앱에서 리더가 아니면 RLS가 행을
+// 안 줘서 대시보드로 떨어진다 — 없는 프로젝트와 같은 길).
 // ============================================================================
 
 export default async function handler(req, res) {
@@ -41,21 +46,25 @@ export default async function handler(req, res) {
         // projects에 description 컬럼은 없다(0009에서 지웠다 — HANDOFF §5). 없는 칸을
         // 고르면 PostgREST가 42703으로 던지고 data가 null이 되어, OG 제목이 기본값으로
         // 떨어지고 appUrl이 '/'로 남아 **딥링크까지 사라졌다**.
-        const { data, error } = await supabase.from('projects').select('name').eq('id', id).maybeSingle();
+        const { data, error } = await supabase.from('projects').select('name, visibility').eq('id', id).maybeSingle();
         if (error) console.error('[share] 프로젝트 조회 실패:', error);
         if (data) {
-          title = `더다붓 · ${data.name}`;
-          description = '팀과 함께 준비하는 프로젝트예요.';
+          if (!isLeaderOnly(data)) {
+            title = `더다붓 · ${data.name}`;
+            description = '팀과 함께 준비하는 프로젝트예요.';
+          }
           appUrl = `/?p=${id}`;
         }
       } else {
-        const { data, error } = await supabase.from('cards').select('title, status, due_date, project_id').eq('id', id).maybeSingle();
+        const { data, error } = await supabase.from('cards').select('title, status, due_date, project_id, projects(visibility)').eq('id', id).maybeSingle();
         if (error) console.error('[share] 업무 조회 실패:', error);
         if (data) {
-          title = `더다붓 · ${data.title}`;
-          const parts = [STATUS[data.status] || ''];
-          if (data.due_date) parts.push(`마감 ${data.due_date}`);
-          description = parts.filter(Boolean).join(' · ') || '업무 상세';
+          if (!isLeaderOnly(data.projects)) {
+            title = `더다붓 · ${data.title}`;
+            const parts = [STATUS[data.status] || ''];
+            if (data.due_date) parts.push(`마감 ${data.due_date}`);
+            description = parts.filter(Boolean).join(' · ') || '업무 상세';
+          }
           appUrl = `/?p=${data.project_id}&t=${id}`;
         }
       }

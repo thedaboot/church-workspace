@@ -764,6 +764,79 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
     (await verifyViewPw(stored, 'cue!')) === true && (await verifyViewPw(stored, 'cue')) === false);
 }
 
+// ── 리더만 보는 프로젝트(0092 · 2026-10-12 시안) — 자물쇠 → `리더만 보기` 토글 → 제목 옆·업무 창 머리·폰 상단바 칩 ──
+// 게스트에는 리더 판정이 없어 자물쇠가 언제나 서고 값은 localStorage에 남는다(services/visibility.js canSetVisibility).
+// 실제 경계(리더가 아니면 행이 안 온다)는 DB라 여기서는 못 본다 — 0092 리허설(psql)이 그 몫이다.
+// **되돌리기**(§3-5): projectView에서 LeaderLockButton 줄을 지우면 '자물쇠' 셋이, LeaderChip을 지우면 '칩'이,
+// modals.jsx 머리의 LeaderChip을 지우면 '업무 창 머리', mobileNav의 것을 지우면 '폰 상단바'가 깨진다.
+{
+  await load(DESK);
+  const head = () => ev(`(() => {
+    const lock = document.querySelector('button[data-leader-lock]');
+    const share = document.querySelector('button[title*="프로젝트 공유"]');
+    const titleBtn = document.querySelector('button[title="프로젝트 이름 수정"]');
+    const chip = titleBtn?.parentElement?.querySelector('[data-leader-chip]');
+    const sw = document.querySelector('[data-leader-switch]');
+    const pop = sw?.closest('div');
+    const s = JSON.parse(localStorage.getItem('church_app_v4') || '{}');
+    return { lock: !!lock, pressed: lock?.getAttribute('aria-pressed'),
+             lockBeforeShare: !!(lock && share && (lock.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING)),
+             chip: chip ? chip.textContent.trim() : null,
+             chipPx: chip ? parseFloat(getComputedStyle(chip).fontSize) : null,
+             chipBg: chip ? getComputedStyle(chip).backgroundColor : null,
+             switchOn: sw ? sw.getAttribute('aria-checked') : null, label: sw ? sw.textContent.trim() : null,
+             popW: pop ? Math.round(pop.getBoundingClientRect().width) : null,
+             popLines: pop ? pop.querySelectorAll('p').length : null,
+             saved: s.projects?.byId?.p1?.visibility || null };
+  })()`);
+  const before = await head();
+  check('리더만: 자물쇠가 공유·삭제 묶음 앞에 선다(게스트는 언제나)', before.lock === true && before.lockBeforeShare === true, JSON.stringify(before));
+  check('리더만: 기본은 꺼짐 — 칩이 없다', before.chip === null && before.pressed === 'false', JSON.stringify(before));
+  await ev(`document.querySelector('button[data-leader-lock]').click()`);
+  await sleep(400);
+  const open = await head();
+  check("리더만: 팝오버는 '리더만 보기' 토글 한 줄(설명 줄 없음)", open.label === '리더만 보기' && open.switchOn === 'false' && open.popLines === 0, JSON.stringify(open));
+  check('리더만: 팝오버 폭은 내용만큼(200px 미만)', open.popW > 0 && open.popW < 200, JSON.stringify(open));
+  await ev(`document.querySelector('[data-leader-switch]').click()`);
+  await sleep(500);
+  const on = await head();
+  check("리더만: 켜면 제목 옆에 '리더만' 칩 · 토글·자물쇠가 켜짐으로", on.chip === '리더만' && on.switchOn === 'true' && on.pressed === 'true', JSON.stringify(on));
+  check('리더만: 값이 저장소에 남는다(게스트=localStorage)', on.saved === 'leaders', JSON.stringify(on));
+  check('리더만: 칩 글자 11px · accent-weak 바탕', on.chipPx === 11 && /rgb\(232, 238, 250\)/.test(on.chipBg || ''), JSON.stringify(on));
+  // 업무 창 머리 — 프로젝트의 칩을 물려받는다
+  await ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+  await sleep(250);
+  await ev(`[...document.querySelectorAll('h4,h3,span,div,p')].find(e => e.children.length === 0 && e.textContent.trim() === '업무 0')?.click()`);
+  await sleep(900);
+  const modalChip = await ev(`(() => {
+    const label = [...document.querySelectorAll('span')].find(s => s.textContent.trim() === '업무 세부 정보');
+    const chip = label?.parentElement?.querySelector('[data-leader-chip]');
+    return { open: !!label, chip: chip ? chip.textContent.trim() : null, px: chip ? parseFloat(getComputedStyle(chip).fontSize) : null };
+  })()`);
+  check("리더만: 업무 창 머리에도 같은 칩(10.5px)", modalChip.open === true && modalChip.chip === '리더만' && modalChip.px === 10.5, JSON.stringify(modalChip));
+  // 폰 상단바 — 제목 옆
+  await load(MOB);
+  await ev(`(() => { const s = JSON.parse(localStorage.getItem('church_app_v4')); s.projects.byId.p1.visibility = 'leaders';
+    localStorage.setItem('church_app_v4', JSON.stringify(s)); })()`);
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1400);
+  const mob = await ev(`(() => {
+    const t = document.querySelector('button[title="프로젝트 이름 수정"]');
+    const chip = t?.querySelector('[data-leader-chip]');
+    const r = chip?.getBoundingClientRect();
+    return { chip: chip ? chip.textContent.trim() : null, onScreen: !!r && r.right <= window.innerWidth && r.width > 0,
+             lock: !!document.querySelector('button[data-leader-lock][aria-pressed="true"]') };
+  })()`);
+  check('리더만: 폰 상단바 제목 옆에 칩 · 자물쇠는 켜짐', mob.chip === '리더만' && mob.onScreen === true && mob.lock === true, JSON.stringify(mob));
+  // 끄면 칩이 걷힌다
+  await ev(`document.querySelector('button[data-leader-lock]').click()`);
+  await sleep(400);
+  await ev(`document.querySelector('[data-leader-switch]').click()`);
+  await sleep(500);
+  const off = await ev(`(() => { const s = JSON.parse(localStorage.getItem('church_app_v4') || '{}');
+    return { chips: document.querySelectorAll('[data-leader-chip]').length, saved: s.projects?.byId?.p1?.visibility }; })()`);
+  check('리더만: 끄면 칩이 걷히고 공개로 저장', off.chips === 0 && off.saved === 'all', JSON.stringify(off));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n'+logs.slice(0,5).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

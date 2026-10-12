@@ -74,6 +74,8 @@ const patched = readFileSync(SRC, 'utf8')
   // utils는 진짜 파일을 절대 경로로 문다(assignees.mjs와 같은 이유 — 가짜로 다시
   // 적으면 cloudSync가 utils에서 가져오는 이름이 늘 때마다 여기가 같이 깨진다)
   // 재접속 판정(2026-09-25)은 순수 모듈이라 진짜 파일을 절대 경로로 문다
+    // 리더만 보는 프로젝트 판정(0092)도 순수 모듈이라 진짜 파일을 절대 경로로 문다
+  .replace(/from '\.\/visibility\.js';/, `from '${pathToFileURL(join(ROOT, 'src', 'services', 'visibility.js')).href}';`)
   .replace(/from '\.\/realtimeStatus\.js';/, `from '${pathToFileURL(join(ROOT, 'src', 'services', 'realtimeStatus.js')).href}';`)
   .replace(/import (\{[^}]*\}) from '\.\.\/utils\.js';/,
     (m, names) => `import ${names} from '${pathToFileURL(join(ROOT, 'src', 'utils.js')).href}';`);
@@ -155,6 +157,59 @@ await sync.notifyComment('확인했어요', { actorName: '노준석', cardId: 'c
 assert.equal(notified.length, 1);
 assert.deepStrictEqual(notified[0].ids, ['u2']);
 assert.equal(notified[0].meta.kind, 'reply');
+
+// ── 리더만 보는 프로젝트(0092) — 알림 받는 사람·멘션 후보·마감 임박 ─────────────────
+// 리더가 아니면 RLS가 그 프로젝트를 안 주지만 **알림은 보내는 사람의 클라이언트가 받는 사람을 고른다** — 리더가 쓴 댓글의
+// @멘션·답글·반응·배정이 리더 아닌 사람에게 미리보기째 가면 그대로 샌다. 마감 임박은 서버 키 배치라 RLS 밖이다.
+// **되돌리기**(§3-5): cloudSync의 seeing(…)을 네 함수 중 하나에서 빼면 그 줄이, getMemberNames의 leaderNames 갈래를
+// 빼면 '멘션 후보'가, push.js dueSoonWanted의 visibleRecipients를 빼면 '마감 임박'이 깨진다.
+{
+  const C = globalThis.__CLOUD;
+  const keep = { listProjects: C.listProjects };
+  C.listProjects = async () => [{ id: 'p1', name: '2026 하계 수련회' }, { id: 'p2', name: '임원 MT', visibility: 'leaders' }];
+  C.getLeaderInfo = async () => ({ amLeader: true, ids: ['u1', 'u2'] });
+  const { state } = await sync.loadCloudState();
+  assert.strictEqual(state.amLeader, true, '리더 판정이 스토어에 실린다');
+  assert.strictEqual(state.projects.byId.p2.visibility, 'leaders');
+  assert.strictEqual(state.projects.byId.p1.visibility, 'all', '칸이 없으면 공개');
+  assert.deepStrictEqual(sync.getMemberNames('p2'), ['노준석', '조준환'], '리더 프로젝트의 멘션·담당자 후보는 리더만');
+  assert.deepStrictEqual(sync.getMemberNames('p1'), ['노준석', '조준환', '천진영'], '공개 프로젝트는 예전 그대로');
+  notified.length = 0;
+  await sync.notifyAssignees(['u2', 'u3'], { actorName: '노준석', cardId: 'c9', projectId: 'p2', preview: '숙소 계약금' });
+  assert.deepStrictEqual(notified.map(n => n.ids), [['u2']], '배정 알림은 리더에게만');
+  notified.length = 0;
+  await sync.notifyComment('@천진영 @조준환 확인 부탁해요', { actorName: '노준석', cardId: 'c9', projectId: 'p2', replyToName: '천진영' });
+  assert.deepStrictEqual(notified.map(n => [n.meta.kind, n.ids]), [['mention', ['u2']]], '멘션·답글도 리더에게만(천진영 빠짐)');
+  notified.length = 0;
+  await sync.notifyMentions('@천진영', { actorName: '노준석', cardId: 'c9', projectId: 'p2', recipientIds: ['u3'] });
+  await sync.notifyReaction('천진영', { actorName: '노준석', cardId: 'c9', projectId: 'p2', preview: '확인' });
+  assert.deepStrictEqual(notified, [], '본문 멘션·반응도 리더가 아니면 안 간다');
+  await sync.notifyAssignees(['u3'], { actorName: '노준석', cardId: 'c1', projectId: 'p1', preview: '콘티' });
+  assert.deepStrictEqual(notified.map(n => n.ids), [['u3']], '공개 프로젝트는 그대로 간다');
+  // 리더 목록을 못 읽으면(마이그레이션 전 · 조회 실패) 리더 프로젝트 알림은 아무에게도 안 간다 — 통과가 기본값이면 깨져도 소리가 안 난다
+  C.getLeaderInfo = async () => { throw new Error('function leader_profile_ids() does not exist'); };
+  const { state: s2 } = await sync.loadCloudState();
+  assert.strictEqual(s2.amLeader, false, '판정을 못 읽어도 로드는 던지지 않고 리더 아님');
+  notified.length = 0;
+  await sync.notifyAssignees(['u2'], { actorName: '노준석', cardId: 'c9', projectId: 'p2', preview: 'x' });
+  assert.deepStrictEqual(notified, [], '리더 목록이 없으면 리더 프로젝트 알림은 닫힌다');
+  // 마감 임박 배치(api/push.js · 서버 키) — 순수 함수로
+  const cards = [
+    { id: 'c1', title: '콘티', project_id: 'p1', due_date: '2026-10-12', card_assignees: [{ profile_id: 'u3' }], projects: { archived: false, visibility: 'all' } },
+    { id: 'c9', title: '숙소', project_id: 'p2', due_date: '2026-10-13', card_assignees: [{ profile_id: 'u2' }, { profile_id: 'u3' }, { profile_id: null }], projects: { archived: false, visibility: 'leaders' } },
+  ];
+  assert.deepStrictEqual(api.dueSoonWanted(cards, '2026-10-12', new Set(['u1', 'u2'])).map(w => `${w.cardId}:${w.recipientId}:${w.preview}`),
+    ['c1:u3:콘티 · 오늘 마감', 'c9:u2:숙소 · 내일 마감'], '리더 프로젝트 마감은 리더 담당자에게만');
+  assert.deepStrictEqual(api.dueSoonWanted(cards, '2026-10-12').map(w => w.cardId), ['c1'], '리더 목록이 없으면 리더 프로젝트 마감은 건너뛴다');
+  const src = readFileSync(join(ROOT, 'api', 'push.js'), 'utf8');
+  assert.ok(/projects!inner\(archived, visibility\)/.test(src), '마감 임박 조회가 visibility를 같이 읽는다');
+  assert.ok(/leaderOnlyOf\(db, \{ cardId, projectId \}\)/.test(src) && /res\.status\(200\)\.json\(\{ sent: 0 \}\); return;\n\s*\}/.test(src),
+    'POST 푸시도 리더 프로젝트면 리더만 · 판정 실패면 보내지 않는다');
+  // 되돌려 두기 — 아래 검사는 0092 전 모양을 본다
+  C.listProjects = keep.listProjects; delete C.getLeaderInfo;
+  await sync.loadCloudState();
+  console.log('PASS  리더만 보는 프로젝트(0092) — 알림 받는 사람·멘션 후보·판정 실패는 닫힘·마감 임박 13가지');
+}
 
 // ── 댓글 반응 (0032) ────────────────────────────────────────────────────────
 // 토글 판정은 순수 함수다. **이름이 아니라 auth user id로 가른다** — 이름으로

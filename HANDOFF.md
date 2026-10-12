@@ -48,6 +48,7 @@
 - **안 하기로 권함(19차 뒤 · 사용자가 다시 원하면 그때)**: 빈 상태 '없어요' 문구 통일 · 그래프 151건 겹침 · 로고 preload 경고 · 용량 초과 안내 두 번(일부러) · '앞부분만 보여줘요'(머리줄 버튼을 가리킴) · I 첨부 손가락 확대 훅 분리 · L DB 0092(`updated_at` 셋).
 - **묶음 ⑤ 한 일(2026-10-12 · 사용자 결정)**: '이번 주 이 장을 본 사람'(0080)을 통째로 뺐다 — 장 머리 얼굴·판(그 안의 `나눔 보기`)·`나도 나누기`(판·내 정보)·5초 기록·11:30 지난주 정리·`services/bibleReads.js` · **0095**(`bible_reads` 표 · `share_reads` 칸 · psql로 적용) · QT 나눔은 그대로 · '없어야 한다'는 `logcheck-v2` 은혜와 리듬 ④.
 - **남은 후보(정해지지 않음)**: 모션 정리(폰 업무 창만 200ms · tw-animate ease/앱 quint 두 벌 · 사이드바 폭 전이) · `Segmented`에 버튼 속성 통과 → 세그먼트 7벌 · `gather`/`collectAll` 합치기 · 실기기 확인 대기: 못 올린 첨부 빨간 줄(게스트로는 못 봄) · 댓글 칸 바닥에서 열기 · 폰 업무 바 켜진 탭 점.
+- **묶음 ③ 리더만 보는 프로젝트(사용자 결정 2026-10-12 · V2 결정 15 뒤집음)**: 0092(`projects.visibility` · 리더 = 마스터·관리자·교역자·그 해 임원진 · 정책은 `alter`만 · `hidden_ids()` 한 번 · 보호 트리거 둘 · ROLLBACK 리허설로 비리더 업무 98→74 등 확인 · **마이그레이션이 코드보다 먼저**) · 서버 키 넷(위키 장·공유 카드·달력·푸시)은 `services/visibility.js`·`api/_leaders.js`로 거름 · 화면은 `components/leaderOnly.jsx`(자물쇠·칩) · '공개 → 리더만'은 `workspace-all` broadcast로 걷힘 · 남은 것: 다붓이 답 캐시(`_wikiAsk.js`) · 드라이브 첨부는 링크로 열림 · 공유 카드 CDN 5분 · 클라우드 실측 부탁(§3-6) · §4 지도에 새 파일 셋.
 
 ### 20차 다붓이 서버 묶음 ① — 한 일 · 결정 (2026-10-12 · DB·화면 그대로 · 정본은 `docs/AI.md` §5)
 
@@ -331,7 +332,9 @@ src/modals/comments.jsx       업무 창의 댓글·반응·활동 기록 패널
 src/modals/settings.jsx       내 정보(사진·이름·팀) / 프로젝트 만들기·이름 수정(§4.7·§6-34-g)
 src/services/supabaseClient.js 클라이언트 한 벌 + setWriteObserver(§4.8) + myUid()(§6-34-d)
 src/services/cloud.js         Supabase 읽기·쓰기 — 재수출만(`import * as cloud` 그대로). 몸통은 cloud/ — core(client·unwrap·getSession·accessToken·authedPost) · profiles · board(프로젝트·업무·댓글·반응·참고 링크) · drive(업로드 `uploadOwnedFile` 한 벌 · trashFolder·trashFileBodies) · fileUrls · notify · admin
-src/services/cloudSync.js     모양 변환 + 실시간 라우팅 + 알림 만들기(§6-21·21-a·29-a)
+src/services/cloudSync.js     모양 변환 + 실시간 라우팅 + 알림 만들기(§6-21·21-a·29-a) · 리더 깃발(0092 · 못 읽으면 비리더 · 알림 받는 사람 거르기)
+src/services/visibility.js    리더만 보는 프로젝트의 순수 판정(import 0 · 앱과 서버가 같이) — isLeaderOnly·visibleRecipients·dropLeaderOnly
+src/components/leaderOnly.jsx 프로젝트 머리 자물쇠 버튼(팝오버 `리더만 보기` 토글 · 리더에게만) · `리더만` 칩(제목 옆 · 폰 상단바 · 업무 창 머리)
 src/services/auth.jsx         OAuth — 로그인 전 자리 기억·카카오 인앱 자동 시작(§6의 auth 항목)
 src/services/approvalWatch.js 승인 대기 → 승인 전환 판정(순수 · logcheck) — auth.jsx가 대기 중에 실시간·다시 보일 때·30초로 다시 묻는다
 src/services/approval.js      승인 확인 **서버 전용** 한 벌 — api/drive*.js가 쓴다(합친 계정은 남긴 계정 칸 · §6-34-i)
@@ -379,6 +382,7 @@ src/assets/                   SUIT 서브셋 + symbols(보조 글꼴) + 로고 �
 api/_lib.js                   api 공용 머리 — readJson·requireApprovedUser·safeEqual·sameOriginPath · 작은 공용 값(UUID_RE·STATUS·serviceKindLabel·escHtml·sha256({len})·liveProfile) · geminiFetch(주소·키·AbortSignal.timeout)·isTimeout(TimeoutError). `_`로 시작해 라우트가 아니다(dev도 건너뛴다)
 api/ai.js                     Gemini 프록시(25초에 끊는다 · §6-9-bn) · `{ embed }` 질문 임베딩 — EMBED_MODEL·unitVec을 스크립트·_docsync가 가져다 쓴다 · `{ ask }`·`{ feedback }` 다붓이(0088)
 api/_wikiBuild.js             위키 장 만들기 — 한 번 돌기(buildWiki) + 바깥 이름 재수출. 몸통은 api/_wiki/ — const · gen(Gemini 한 번) · people(이름·부르는 꼴·댓글 줄·명단) · text · gather(원본 읽기 · 서버 키) · excerpt(블록·정보 상자·정해지기까지) · skeleton(장 뼈대 — 코드가 사실) · faq(자주 묻는 질문 장 · docs/AI.md §5) · fill(쓰기·검사·src_hash)
+api/_leaders.js               서버 키 경로의 리더 명단·리더 프로젝트 조회(0092 — 위키 장·공유 카드·달력·푸시가 거른다)
 api/_wikiAsk.js               다붓이 답 — 근거 모으기(묻는 사람 세션) → 답 → 검증(두 번) → 파일 카드 · 저장(익명) · 밤에 다시 묻기
 api/_docsync.js               업무·댓글·첨부 → doc_vec 증분(조각·해시·계획·임베딩) — 8시 크론·?job=embed·스크립트 한 벌
 api/push.js                   POST=앱 알림을 푸시로 / GET=마감 임박·오늘 예배+내일 동아리 모임 배치(`?job` · §4.3) · 8시 뒤 문서 임베딩 → 위키(다시 묻기·바뀐 장) · `?job=embed` · 300초
@@ -423,7 +427,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`(0095에서 걷음) · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만 · **0090** 위키 고치기·자주 묻는 질문 장은 마스터만 · **0091** 다붓이 회귀 묶음 `dabooti_evals`(서버만) · **0095** 0080 걷음(`bible_reads` 표 · `share_reads` 칸 · 2026-10-12). 다음 번호는 0096(0092~0094는 같은 날 다른 묶음).
+  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`(0095에서 걷음) · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만 · **0090** 위키 고치기·자주 묻는 질문 장은 마스터만 · **0091** 다붓이 회귀 묶음 `dabooti_evals`(서버만) · **0092** 리더만 보는 프로젝트(`projects.visibility` · `is_leader`·`can_see_*`·`hidden_ids` · 정책 `alter`만 · 보호 트리거 둘) · **0095** 0080 걷음(`bible_reads` 표 · `share_reads` 칸 · 2026-10-12). 다음 번호는 0096(0093·0094는 같은 날 다른 묶음).
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.

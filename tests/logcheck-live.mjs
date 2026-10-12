@@ -822,6 +822,21 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.strictEqual(pick({ year: '2027', lastId: 'gone' }), 'n1', '지워진 것은 건너뛴다');
   assert.strictEqual(pick({ year: '2028' }), 'n1', '고른 해가 비면 가장 최근 해의 첫 것');
   assert.strictEqual(R.pickProjectToOpen({ active: [], all: [], year: '2027', yearOf: yr }), null, '아무것도 없으면 새로 만들기');
+  // 리더만 보는 프로젝트(0092) — 리더가 아니면 그 프로젝트는 스토어에 없다(RLS). 마지막으로 본 것·활동 숫자에 그 id가
+  // 남아 있어도(리더였다가 내려왔다 · 다른 기기 · 숫자를 잰 뒤에 바뀌었다) 그냥 건너뛴다 — 없는 프로젝트와 같은 길.
+  assert.strictEqual(pick({ year: '2027', lastId: 'hidden' }), 'n1', '안 보이는 프로젝트를 마지막으로 봤어도 고른 해의 첫 것');
+  assert.strictEqual(pick({ year: '2027', stats: { hidden: { people: 9, lastAt: 9 } } }), 'n1', '안 보이는 프로젝트의 활동 숫자는 앞 칸을 못 먹는다');
+  assert.deepStrictEqual(R.splitFrontTabs([P('p1'), P('p2')], { hidden: { people: 5, lastAt: 5 }, p2: { people: 2, lastAt: 1 } }).front.map(p => p.id), ['p2'],
+    '앞 칸 후보는 지금 탭 줄 안에서만');
+  // '공개 → 리더만'은 리더가 아닌 사람에게 postgres_changes로 오지 않는다 → 바꾼 리더가 공개 채널에 id를 알리고, 받은 쪽은
+  // projects 변경처럼 전체 재조회(다시 읽으면 RLS가 걷는다). **되돌리기**: notify.js의 broadcast 줄이나 cloudSync의
+  // announceProjectVisibility 부르기를 빼면 아래가 깨진다.
+  const notifySrc = readFileSync(new URL('../src/services/cloud/notify.js', import.meta.url), 'utf8');
+  assert.ok(/\.on\('broadcast', \{ event: 'project-visibility' \}, \(msg\) => onChange\(\{ table: 'projects',/.test(notifySrc),
+    '보는 사람 바뀜 알림이 workspace-all 채널에서 projects 변경으로 들어온다');
+  assert.ok(/send\(\{ type: 'broadcast', event: 'project-visibility', payload: \{ id \} \}\)/.test(notifySrc), '실리는 것은 id 하나');
+  assert.ok(/export async function projectVisibilityCloud[\s\S]{0,600}cloud\.announceProjectVisibility\(id\)\.catch\(/.test(readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8')),
+    '보는 사람을 바꾸면 알린다(실패는 삼킨다 — 다음 재조회에 따라온다)');
   // 재접속 판정 — 처음 SUBSCRIBED는 무시, 끊겼다 다시 붙을 때만 한 번
   let n = 0;
   const w = S.reconnectWatcher(() => { n++; });

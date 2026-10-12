@@ -3,7 +3,7 @@ import { CheckSquare, X, Trash2, Check, Maximize2, Minimize2, PanelRight, PanelR
 import { CONFIG } from '../config.js';
 import { formatDate, isMobileViewport, taskEditDirty, taskChangedKeys, toggleTodoLine } from '../utils.js';
 import { store, useStore } from '../store/workspaceStore.js';
-import { selectCurrentUser } from '../store/selectors.js';
+import { selectCurrentUser, selectProjectsMap } from '../store/selectors.js';
 import { parseActionItems, stripActionSection, writeActionSection } from '../services/actionItems.js';
 import { useCoedit, CoeditFaces, VersionPanel, VersionDiffView, useCoeditFaces, PresencePill, PresenceMarks, useLiveMarkdown, docSource, useDevFake } from './coedit.jsx';
 import { RichText } from '../components/RichText.jsx';
@@ -36,6 +36,7 @@ import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { showToast } from '../components/Toast.jsx';
 import { trackEditing } from '../services/presence.js';
+import { LeaderChip } from '../components/leaderOnly.jsx';
 
 // ============================================================================
 // 업무 창 — 보기(TaskView · 기본) / 수정(TaskLive · 칸마다 저절로 저장) / 만들기 폼(TaskEditor · 새 업무) /
@@ -152,15 +153,18 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   // 멘션·담당자 자동완성 멤버 소스 (클라우드=프로필 표시명 / 게스트=현재 사용자 + 기존 담당자)
   // 마운트 시 1회만 계산 — selectTasksList를 구독하면 실시간 재조회마다 모달이
   // 리렌더되어 모바일에서 타이핑 렉이 발생한다(멤버 목록은 비반응이어도 충분).
+  // 리더만 보는 프로젝트(0092)의 업무면 리더 이름만 — 볼 수 없는 사람을 부르거나 맡기지 않는다.
   const members = useMemo(() => {
-    if (cloudMode) return getMemberNames();
+    if (cloudMode) return getMemberNames(task.projectId);
     const set = new Set();
     const st = store.getState();
     if (st.currentUser?.name) set.add(st.currentUser.name);
     st.tasks.allIds.forEach(id => (st.tasks.byId[id]?.assignees || []).forEach(a => a && set.add(a)));
     return [...set].sort((a, b) => a.localeCompare(b, 'ko'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloudMode]);
+  }, [cloudMode, task.projectId]);
+  // 머리 줄의 '리더만' 칩 — 프로젝트 것을 물려받는다(업무마다 따로 켜지 않는다 · 0092)
+  const project = useStore(selectProjectsMap)[source.projectId];
 
   const titleRef = useRef(null);
   // 댓글·활동 사이드바 접기. 본문을 넓게 보고 싶은 사람이 매번 접게 두면 번거로우니
@@ -361,7 +365,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   // ── 공용 조각 (데스크톱/모바일 레이아웃이 재사용) ──
   const headerInner = (
     <>
-      <div className="flex items-center gap-2 text-xs font-semibold text-fg-muted min-w-0"><CheckSquare size={14} className="text-accent shrink-0"/> <span className="truncate">{task.id ? '업무 세부 정보' : '새 업무 만들기'}</span></div>
+      <div className="flex items-center gap-2 text-xs font-semibold text-fg-muted min-w-0"><CheckSquare size={14} className="text-accent shrink-0"/> <span className="truncate">{task.id ? '업무 세부 정보' : '새 업무 만들기'}</span><LeaderChip project={project} small /></div>
       <div className="flex items-center gap-1 shrink-0">
         {/* 지금 이 본문에 들어와 있는 사람(나 먼저) — 공유·닫기 왼쪽 */}
         {task.id && <CoeditFaces faces={faces} />}

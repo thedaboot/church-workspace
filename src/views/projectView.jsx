@@ -22,9 +22,13 @@ import { PinnedLinkChip, LinkAddPopover } from '../components/links.jsx';
 import { Segmented } from '../components/segmented.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
+import { LEADERS, canSetVisibility } from '../services/visibility.js';
+import { LeaderChip, LeaderLockButton } from '../components/leaderOnly.jsx';
 
 // ── 프로젝트 화면 ─────────────────────────────────────────────────────────
-// 헤더(제목 · 메타 줄 · 참고 링크 · 공유·삭제 · 새 업무) + 보기 전환(보드 · 캘린더 · 그래프) + 팀 칩.
+// 헤더(제목 · 메타 줄 · 참고 링크 · 리더만 보기·공유·삭제 · 새 업무) + 보기 전환(보드 · 캘린더 · 그래프) + 팀 칩.
+// 리더만 보는 프로젝트(0092): 자물쇠는 리더에게만(게스트는 언제나) · 켜지면 제목 옆 '리더만' 칩(components/leaderOnly.jsx).
+// 리더가 아닌 사람에게는 이 화면 자체가 안 온다(RLS가 행을 걷는다 → 아래 '없는 프로젝트' 가드가 대시보드로).
 // 보던 프로젝트가 사라지면(삭제 · 잘못된 딥링크) 대시보드로 되돌린다 — 그 가드는 **모든 훅 아래**다.
 
 // 선후관계 그래프는 그 보기로 바꿀 때만 받는다(2026-09-24)
@@ -46,6 +50,8 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   const tasksList = useStore(selectTasksList);
   const { enabled, session, isAdmin } = useAuth();
   const cloudOn = enabled && !!session;
+  // 나는 리더인가(0092 · cloudSync.loadCloudState) — 게스트 스토어에는 이 칸이 없고 자물쇠는 언제나 선다
+  const amLeader = useStore(s => s.amLeader);
   // 참고 링크에 비밀번호를 걸 수 있는 사람을 가르는 데만 쓴다(만든 사람 + 관리자).
   const myId = session?.user?.id || null;
   // 특정 프로젝트의 Task만 필터링 (해당 View 내부에서만 필요한 연산)
@@ -93,6 +99,18 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
       pinnedLinks: (project.pinnedLinks || []).map(l => (l.id === link.id
         ? { ...l, view_pw: patch?.view_pw ?? null, view_pw_salt: patch?.view_pw_salt ?? null }
         : l)) } });
+  };
+
+  // 보는 사람(0092). **낙관적으로 먼저 바꾸지 않는다** — 누가 보느냐는 저장된 값이 곧 화면의 사실이다(위 setLinkPw와
+  // 같은 순서). 클라우드는 서버가 돌려준 값(리더가 아니면 트리거가 옛 값으로 되돌린다)을 그대로 쓴다.
+  const setVisibility = async (on) => {
+    const want = on ? LEADERS : 'all';
+    try {
+      const v = cloudOn ? await cloudSync.projectVisibilityCloud(project.id, want) : want;
+      store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, visibility: v } });
+    } catch (err) {
+      cloudErr('보는 사람을 바꾸지 못했어요')(err);
+    }
   };
 
   const deleteProject = () => {
@@ -168,11 +186,14 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
         {/* 모바일에서는 감싸개를 지워 안쪽 줄이 직접 그리드 칸이 되게 한다(§6-3 — 반응형으로
             구조가 달라져도 컴포넌트를 두 벌 두지 않는다) */}
         <div className="contents md:block md:min-w-0 md:flex-1">
-          {/* 모바일은 상단바에 같은 제목(과 수정 연필)이 이미 있다 — 한 줄을 두 번 쓰지 않는다 */}
-          <button onClick={() => onRenameProject?.(project)} className="group/title hidden md:inline-flex items-baseline gap-1.5 mb-[5px] text-left" title="프로젝트 이름 수정">
-            <span className="text-[19px] md:text-[23px] font-extrabold text-fg" style={{ letterSpacing: '-0.7px' }}>{project.title}</span>
-            <Pencil size={12} className="text-fg-faint pointer-fine:md:opacity-0 md:group-hover/title:opacity-100 transition-opacity shrink-0" />
-          </button>
+          {/* 모바일은 상단바에 같은 제목(과 수정 연필 · 리더만 칩)이 이미 있다 — 한 줄을 두 번 쓰지 않는다 */}
+          <div className="hidden md:flex items-center gap-2 mb-[5px] min-w-0">
+            <button onClick={() => onRenameProject?.(project)} className="group/title inline-flex items-baseline gap-1.5 text-left min-w-0" title="프로젝트 이름 수정">
+              <span className="text-[19px] md:text-[23px] font-extrabold text-fg" style={{ letterSpacing: '-0.7px' }}>{project.title}</span>
+              <Pencil size={12} className="text-fg-faint pointer-fine:md:opacity-0 md:group-hover/title:opacity-100 transition-opacity shrink-0" />
+            </button>
+            <LeaderChip project={project} />
+          </div>
           {/* 개수가 변하는 것(참고 링크)과 하나로 고정된 것(공유·삭제)을 같은 스크롤 칸에
               두면, 링크가 늘 때마다 삭제가 화면 밖으로 밀려난다. 밀어야 나오는 삭제는
               '기능을 숨기지 않는다'(§7)를 가로 스크롤로 어기는 것이다.
@@ -252,6 +273,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
               <span className="inline-flex items-center justify-center gap-0.5 shrink-0 -mr-2 md:mr-0 md:justify-start md:ml-1">
                 {/* 링크 줄이 여기서 끝난다는 표시. 높이는 아이콘 자획과 같은 16px */}
                 <span aria-hidden className="w-px h-4 mr-1.5 shrink-0 md:hidden" style={{ background: 'var(--app-line)' }} />
+                {canSetVisibility({ cloudOn, amLeader }) && <LeaderLockButton project={project} onSet={setVisibility} />}
                 {shareBtn}{deleteBtn}
               </span>
             </div>

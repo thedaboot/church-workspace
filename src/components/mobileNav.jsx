@@ -21,6 +21,7 @@ import { CHURCH_MENUS, ProfileMenu, ViewerFaces } from './layout.jsx';
 import { tabDividerCls, FreshDot, useFreshProjects, useFrontNudge, FrontNudge, saveTabOrder, useYearTabs, YearPicker } from './navParts.jsx';
 import { SearchBox } from './searchBox.jsx';
 import { NotificationBell } from './notificationBell.jsx';
+import { LeaderChip } from './leaderOnly.jsx';
 
 // ============================================================================
 // 폰 내비 — 상단바(MobileTopBar: 화면 이름 + 아이콘 줄 + 프로젝트 탭 줄)와 하단 바(MobileTabBar: 교회 층 ↔ 업무 층).
@@ -61,6 +62,8 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
         {project ? (
           <button onClick={() => onRenameProject?.(project)} className="flex-1 min-w-0 flex items-baseline gap-1.5 text-left transition active:scale-[0.98]" title="프로젝트 이름 수정">
             <span className="min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{title}</span>
+            {/* 리더만 보는 프로젝트(0092) — 제목 옆에 칩(데스크톱은 프로젝트 머리 제목 옆) */}
+            <LeaderChip project={project} small className="self-center" />
             <Pencil size={12} className="text-fg-faint shrink-0" />
           </button>
         ) : (

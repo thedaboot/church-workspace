@@ -17,6 +17,14 @@ export async function createProject(data) {
 export async function updateProject(id, patch) {
   return unwrap(await client().from('projects').update(patch).eq('id', id).select().single());
 }
+// 리더 판정(0092) — 나는 리더인가 + 리더 계정 id 목록(남긴 계정). 판정은 DB 함수 한 벌이다(is_leader ·
+// leader_profile_ids — 서버 키 경로도 같은 함수를 부른다). 부르는 쪽(cloudSync.loadCloudState)이 실패를 삼킨다.
+export async function getLeaderInfo() {
+  const [me, ids] = await Promise.all([client().rpc('is_leader'), client().rpc('leader_profile_ids')]);
+  if (me.error) throw me.error;
+  if (ids.error) throw ids.error;
+  return { amLeader: me.data === true, ids: Array.isArray(ids.data) ? ids.data : [] };
+}
 // 프로젝트를 지우면 DB는 카드까지 cascade로 지우지만 files.card_id는 set null이라
 // **드라이브에 폴더·파일이 고아로 남았다**(업무 삭제에서 이미 겪은 일 — deleteCard 주석).
 // 프로젝트 폴더 하나를 휴지통에 넣으면 안의 업무 폴더·파일이 전부 따라간다.

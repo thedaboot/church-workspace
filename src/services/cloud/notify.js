@@ -184,6 +184,17 @@ export function subscribeAll(onChange, onStatus) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, onChange)
     // 대시보드 '최근 활동' 피드(0020). 라우팅은 전체 재조회가 아니라 피드만 다시 읽기다
     .on('postgres_changes', { event: '*', schema: 'public', table: 'activity' }, onChange)
+    // 리더만 보는 프로젝트(0092) — '공개 → 리더만'은 리더가 아닌 사람에게 postgres_changes로 오지 않는다(받는
+    // 사람의 SELECT 정책을 탄다). 바꾼 리더가 이 채널에 id 하나를 알리고(아래 announceProjectVisibility),
+    // 받은 쪽은 projects 변경처럼 전체 재조회로 간다 — 다시 읽으면 RLS가 걷어 낸다. 실린 것은 id뿐이고 믿지 않는다.
+    .on('broadcast', { event: 'project-visibility' }, (msg) => onChange({ table: 'projects', eventType: 'VISIBILITY', new: { id: msg?.payload?.id || null }, old: {} }))
     .subscribe((status) => onStatus?.(status));
   return () => c.removeChannel(channel);
+}
+
+// 위 broadcast를 보낸다. 채널이 아직 없으면(실시간 전) 조용히 지나간다 — 남의 화면은 다음 재조회 때 따라온다.
+export async function announceProjectVisibility(id) {
+  const ch = client().getChannels().find(x => x.topic === 'realtime:workspace-all' || x.topic === 'workspace-all');
+  if (!ch) return;
+  await ch.send({ type: 'broadcast', event: 'project-visibility', payload: { id } });
 }

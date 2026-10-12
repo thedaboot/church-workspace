@@ -216,7 +216,8 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0089_wiki_title_master` | 위키 제목·소제목 고치기는 마스터만 — `wiki_edits`의 `#` 열쇠 줄(`#title` · `#h:<블록>`)만 `is_master()`로 좁힌다(문장 고치기는 승인 전원 그대로) | ✅ |
 | `0090_wiki_master_only` | 위키 고치기는 문장까지 마스터만 · 자주 묻는 질문 장(`faq`)과 그 장의 고친 줄은 마스터만 읽는다 |
 | `0091_dabooti_evals` | 다붓이 회귀 질문 묶음(`dabooti_evals` · 질문 · 앞 대화 · 기대 결과 · 꼭/나오면 안 되는 말 · 마지막 결과) — 정책 없음(서버만 · 실명이 있어 레포 밖) · `scripts/dabooti-eval.mjs` |
-| `0095_drop_bible_reads` | 0080 걷음(사용자 결정 2026-10-12) — `bible_reads` 표 · `bible_state.share_reads` 칸을 지운다. 되돌리기는 0080을 다시 돌린다 | ⏳ |
+| `0092_project_visibility` | 리더만 보는 프로젝트 — `projects.visibility`(all · leaders) · 함수 `is_leader`·`can_see_project`·`can_see_card`·`hidden_ids`(정책이 질의마다 한 번)·`leader_profile_ids` · 업무·댓글·첨부(업무 갈래)·활동·담당·링크·반응·같이 쓰기·doc_vec·같이 쓰기 채널·레거시 첨부 버킷 정책을 `alter`로 조임(정책 수 그대로) · 보호 트리거 둘(비리더는 visibility·업무 옮기기 되돌림) | ✅ |
+| `0095_drop_bible_reads` | 0080 걷음(사용자 결정 2026-10-12) — `bible_reads` 표 · `bible_state.share_reads` 칸을 지운다. 되돌리기는 0080을 다시 돌린다 | ✅ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.

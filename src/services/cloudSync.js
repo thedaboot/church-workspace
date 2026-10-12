@@ -2,6 +2,7 @@ import * as cloud from './cloud.js';
 import { statusToDb, statusFromDb } from './cloud.js';
 import { setWriteObserver } from './supabaseClient.js';
 import { reconnectWatcher } from './realtimeStatus.js';
+import { LEADERS, isLeaderOnly, visibleRecipients } from './visibility.js';
 import {
   normalize, httpsImage, extractMentions, isoTime, seenOnlyChange,
   dueForHeartbeat, HEARTBEAT_MS, LEAVE_STAMP_MS, WRITE_STAMP_MS, subtasksForDb, mergeSubtasks,
@@ -26,6 +27,13 @@ let memberNames = [];
 // 바뀐 것(심장박동)'인지 가리는 데만 쓴다 — 그 판정에는 **직전 행**이 필요하고,
 // payload.old에는 id밖에 없다(replica identity가 PK뿐 · §6-21). 화면은 이 표를 안 본다.
 let profileRows = new Map();
+// 리더만 보는 프로젝트(0092 · services/visibility.js). 알림 받는 사람·멘션 후보를 거르는 데 쓴다 —
+// 화면에서 프로젝트를 감추는 일은 DB(RLS)가 한다(리더가 아니면 그 행이 아예 안 온다).
+//   leaderIds      리더 계정 id(남긴 계정) — 못 읽으면 빈 Set이고, 그러면 리더 프로젝트 알림은 **아무에게도** 안 간다
+//   leaderProjects 'leaders'인 프로젝트 id — 로드마다 다시 만들고, 내가 바꾸면 그 자리에서 고친다
+let leaderIds = new Set();
+let leaderProjects = new Set();
+let leaderNames = [];
 
 const primeMaps = (teams, profiles) => {
   teamIdToName = new Map(teams.map(t => [t.id, t.name]));
@@ -71,7 +79,13 @@ const primeMaps = (teams, profiles) => {
 };
 
 // 멘션·담당자 자동완성용 멤버 표시명 목록(클라우드 로드 후 프라이밍됨)
-export function getMemberNames() { return memberNames.slice(); }
+// projectId가 리더만 보는 프로젝트면 리더 이름만(0092) — 볼 수 없는 사람을 부르거나 맡기지 않는다.
+export function getMemberNames(projectId) {
+  return (projectId && leaderProjects.has(projectId) ? leaderNames : memberNames).slice();
+}
+export const isLeaderProject = (projectId) => !!projectId && leaderProjects.has(projectId);
+// 알림 받는 사람 — 리더 프로젝트의 업무면 리더만(멘션·배정·답글·반응 넷이 이 한 줄을 지난다)
+const seeing = (ids, projectId) => visibleRecipients(ids, { leaderOnly: isLeaderProject(projectId), leaderIds });
 
 // 표시명 → 프로필 사진 주소. 없으면 빈 문자열 → 화면은 이름 첫 글자 원으로 떨어진다.
 // 게스트 모드에서는 표가 비어 있어 언제나 글자 원이다.
@@ -148,7 +162,7 @@ export function newMentionsOnly(nextText, prevText, excludeName) {
 // 멘션 알림 생성 (실패는 조용히 삼킨다 — 본 저장 흐름을 막지 않는다)
 // 본인 제외는 여기서 auth user id로 최종 차단한다 — 자기 자신에게는 절대 알림이 가지 않는다.
 export async function notifyMentions(text, { actorName, cardId, projectId, recipientIds }) {
-  let ids = recipientIds ?? resolveMentionRecipients(text, actorName);
+  let ids = seeing(recipientIds ?? resolveMentionRecipients(text, actorName), projectId);
   const myId = await myUserId();
   if (myId) ids = ids.filter(id => id !== myId);
   if (!ids.length) return;
@@ -178,7 +192,7 @@ export function newAssigneesOnly(nextNames, prevNames, excludeName) {
 // 담당자 지정 알림 (실패는 조용히 삼킨다 — 본 저장 흐름을 막지 않는다)
 // 본인 제외는 여기서 auth user id로 최종 차단한다 — 내가 나를 담당자로 넣어도 알림 없음.
 export async function notifyAssignees(recipientIds, { actorName, cardId, projectId, preview }) {
-  let ids = recipientIds || [];
+  let ids = seeing(recipientIds, projectId);
   const myId = await myUserId();
   if (myId) ids = ids.filter(id => id !== myId);
   if (!ids.length) return;
@@ -195,10 +209,10 @@ export async function notifyAssignees(recipientIds, { actorName, cardId, project
 export async function notifyComment(text, { actorName, cardId, projectId, replyToName }) {
   const myId = await myUserId();
   const notMe = (id) => id !== myId;
-  const mentionIds = resolveMentionRecipients(text, actorName).filter(notMe);
+  const mentionIds = seeing(resolveMentionRecipients(text, actorName), projectId).filter(notMe);
   const mentioned = new Set(mentionIds);
   const replyIds = replyToName
-    ? resolveNameRecipients(replyToName).filter(id => notMe(id) && !mentioned.has(id))
+    ? seeing(resolveNameRecipients(replyToName), projectId).filter(id => notMe(id) && !mentioned.has(id))
     : [];
   const preview = String(text || '').slice(0, 80);
   const meta = { actorName, cardId, projectId, preview };
@@ -216,7 +230,7 @@ export async function notifyComment(text, { actorName, cardId, projectId, replyT
 // 취소(다시 누르기)는 아무에게도 알리지 않는다: 부르는 쪽이 켤 때만 부른다.
 export async function notifyReaction(authorName, { actorName, cardId, projectId, preview }) {
   const myId = await myUserId();
-  let ids = resolveNameRecipients(authorName);
+  let ids = seeing(resolveNameRecipients(authorName), projectId);
   if (myId) ids = ids.filter(id => id !== myId);
   if (!ids.length) return;
   try {
@@ -389,6 +403,8 @@ const projectToApp = (p, linksByProject) => ({
   // · created_by — '비밀번호를 걸 수 있는 사람'을 가르는 칸이다(첨부의 uploaded_by와 같은 자리).
   //   이 값이 없으면 관리자만 걸 수 있게 되어, 자기가 만든 링크에 자기가 못 건다.
   pinnedLinks: linkRows(linksByProject.get(p.id)),
+  // 보는 사람(0092) — 'leaders'면 리더만. 칸이 없으면(마이그레이션 전) 공개다
+  visibility: isLeaderOnly(p) ? LEADERS : 'all',
 });
 
 // ── 초기 로드: 전체를 병렬 조회 → 앱 스토어 모양으로 정규화 ──────────────────
@@ -397,6 +413,10 @@ const projectToApp = (p, linksByProject) => ({
 // 기준으로도 댓글 수백 행·활동 수천 행이 되고, 그걸 실시간 변경마다 모든 접속자가
 // 다시 읽고 있었다.
 export async function loadCloudState() {
+  // 리더 판정(0092)은 **없어도 되는 값**이라 따로 받고 실패를 여기서 삼킨다 — 함수가 아직 없거나(마이그레이션 전)
+  // 조회가 실패해도 아래 Promise.all이 깨지면 모두에게 오류 화면이 뜬다(HANDOFF §3-4). 그때는 '리더 아님 · 목록 없음'.
+  const leaderInfo = Promise.resolve().then(() => cloud.getLeaderInfo())
+    .catch((e) => { console.warn('[cloud] 리더 판정을 못 읽었어요:', e?.message || e); return null; });
   const [teams, profiles, projects, cards, links, files, initialProfile, sessionRes, profileTeams, activityRows] = await cloud.withClockSkewRetry(() => Promise.all([
     cloud.listTeams(), cloud.listProfiles(), cloud.listProjects(), cloud.listAllCards(),
     cloud.listAllLinks(), cloud.listAllFiles(), cloud.getMyProfile(),
@@ -439,6 +459,11 @@ export async function loadCloudState() {
   });
 
   const projectsApp = projects.map(p => projectToApp(p, linksByProject));
+  const leaders = await leaderInfo;
+  leaderIds = new Set(leaders?.ids || []);
+  leaderProjects = new Set(projectsApp.filter(isLeaderOnly).map(p => p.id));
+  leaderNames = [...new Set(profiles.filter(p => leaderIds.has(p.id) && !p.removed_at && !p.merged_into)
+    .map(p => p.display_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
 
   // **합친 계정으로 들어와도 화면에 보이는 것은 남긴 계정이다**(사용자 결정 2026-09-10 ·
   // 0061 effective_uid의 취지 — 화면에 보이는 사람은 한 명). 헤더·'내 정보'·아바타 색이
@@ -504,6 +529,8 @@ export async function loadCloudState() {
   return {
     state: {
       currentUser, members,
+      // 나는 리더인가(0092) — 프로젝트 머리의 자물쇠를 세울지만 가른다. 못 읽었으면 false(자물쇠 없음)
+      amLeader: leaders?.amLeader === true,
       activityFeed: (activityRows || []).map(activityFeedToApp),
       projects: normalize(projectsApp), tasks: normalize(tasks),
     },
@@ -748,6 +775,15 @@ export async function ensureCardFolder(project, card) {
 }
 
 export async function projectArchiveCloud(id, archived) { return write(() => cloud.updateProject(id, { archived })); }
+// 보는 사람 바꾸기(0092) → 저장된 값('all' | 'leaders'). 리더가 아니면 DB 트리거가 옛 값으로 되돌리므로
+// 돌려받은 행이 곧 사실이다. 리더가 아닌 화면은 이 변경을 실시간으로 못 받는다 — 공개 채널에 id만 알린다(notify.js).
+export async function projectVisibilityCloud(id, visibility) {
+  const saved = await write(() => cloud.updateProject(id, { visibility }));
+  const v = isLeaderOnly(saved) ? LEADERS : 'all';
+  if (v === LEADERS) leaderProjects.add(id); else leaderProjects.delete(id);
+  cloud.announceProjectVisibility(id).catch(e => console.warn('[cloud] 보는 사람 바뀜 알리기 실패:', e?.message || e));
+  return v;
+}
 export async function projectDeleteCloud(id) { return write(() => cloud.deleteProject(id)); }
 
 // 탭 드래그가 정한 순서 저장 — 바뀐 행만 넘어온다(몇 건 안 된다).
@@ -803,7 +839,7 @@ export async function profileUpdateCloud({ name, team, teams, avatarUrl }) {
 //   activity     → INSERT면 그 한 줄을 피드 앞에 얹기(onActivityFeed(entry)), 그 밖은 피드만 다시 읽기
 //   profiles     → 다녀간 시각만 바뀐 UPDATE(심장박동)면 그 사람 한 칸만 스토어에 얹기,
 //                  그 밖의 변경(가입·이름·사진·팀·승인)은 전체 재조회
-//   그 외(projects·resource_links) → 전체 재조회 (드문 변경)
+//   그 외(projects·resource_links) → 전체 재조회 (드문 변경) — 보는 사람 알림(broadcast · 0092)도 projects로 온다
 // comments의 DELETE payload에는 card_id가 없다(replica identity가 PK뿐) → cardId가
 // 비면 "지금 열려 있는 카드"로 본다. 호출부가 그렇게 처리한다.
 // onReconnect: 채널이 끊겼다가 다시 붙었을 때 한 번(realtimeStatus.reconnectWatcher) — 폰이 잠든 사이의

@@ -101,7 +101,8 @@ import { loadSource, readSplit } from './_load.mjs';
 // api/_lib.js STATUS에서 hold를 빼면 아래가 깨진다.
 {
   const src = readFileSync(new URL('../api/share.js', import.meta.url), 'utf8');
-  assert.ok(/from\('projects'\)\.select\('name'\)/.test(src),
+  // 0092부터 visibility를 같이 읽는다(리더만 보는 프로젝트는 이름을 싣지 않는다 — 아래 0092 묶음)
+  assert.ok(/from\('projects'\)\.select\('name(, visibility)?'\)/.test(src),
     "projects에 없는 컬럼을 고르고 있다(description은 0009에서 지웠다)");
   assert.ok(!/select\('name, description'\)/.test(src), 'description이 다시 들어왔다');
   // 조회 오류를 버리면 같은 고장이 또 조용히 지나간다
@@ -479,6 +480,122 @@ import { loadSource, readSplit } from './_load.mjs';
     ok(m71.includes(`--   ${line}`), `0071의 되돌리는 SQL에 '${line.slice(0, 40)}…'이 있다`);
   }
   console.log(`PASS  0071 보안 조이기의 모양 ${n}가지`);
+}
+
+// ── 0092 리더만 보는 프로젝트의 모양 (사용자 결정 2026-10-12) ─────────────────────
+// 라이브 경계는 psql 리허설(ROLLBACK)로 봤다 — 리더/비리더 select 수 · 쓰기 막힘(HANDOFF 20차 블록). 여기는 파일 모양:
+// 함수 다섯(security definer · search_path · anon 회수) · 정책은 alter만(§6-31-a) · 정책이 줄마다 함수를 부르지 않고
+// `(select public.hidden_ids())`로 한 번만(InitPlan — 줄마다 부르면 doc_vec count가 4배 느렸다) · files는 업무 갈래만 ·
+// 보호 트리거 둘(예외 없이 되돌리기) · 같이 쓰기 함수 셋의 can_see_card · 되돌리는 SQL.
+// 서버 키 경로 넷(위키 장·공유 카드·달력·푸시)은 코드로 거른다 — 그 배선과 순수 판정(services/visibility.js)도 여기서 본다.
+// **되돌리기**(§3-5): 0092에서 doc_vec 정책의 comment_id를 빼거나, files_select의 주보 갈래를 고치거나, guard_card_project가
+// projects를 직접 읽게 하거나, share.js의 isLeaderOnly 분기를 빼면 아래가 깨진다.
+{
+  const m92 = readFileSync(new URL('../supabase/migrations/0092_project_visibility.sql', import.meta.url), 'utf8');
+  const sql = m92.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  let n = 0;
+  const ok = (cond, msg) => { assert.ok(cond, msg); n++; };
+  const H = 'coalesce\\(';
+  const hidden = (col) => new RegExp(`${H}${col} <> all \\(\\(select public\\.hidden_ids\\(\\)\\)::uuid\\[\\]\\), true\\)`);
+
+  ok(/alter table public\.projects add column if not exists visibility text not null default 'all';/.test(sql), 'projects.visibility 기본 all');
+  ok(/check \(visibility in \('all', 'leaders'\)\)/.test(sql), 'visibility는 all|leaders만');
+  for (const f of ['is_leader()', 'can_see_project(p uuid)', 'can_see_card(c uuid)', 'hidden_ids()', 'leader_profile_ids()']) {
+    const name = f.split('(')[0];
+    ok(new RegExp(`create or replace function public\\.${name.replace(/_/g, '_')}\\([^)]*\\) returns \\w+(\\[\\])?\\s+language sql stable security definer set search_path = public, pg_temp`).test(sql),
+      `${f}: security definer · stable · search_path 고정`);
+    ok(new RegExp(`revoke all on function public\\.${name}\\([^)]*\\) from public, anon;`).test(sql), `${name}: anon 실행 회수`);
+  }
+  ok(/select public\.is_admin\(\) or public\.is_pastor\(\) or public\.is_officer\(\);/.test(sql),
+    '리더 = 관리자(마스터 포함) · 교역자 · 그 해 임원진 — role_note·팀은 보지 않는다');
+  ok(!/role_note|profile_teams|'임원진'/.test(sql), '본인이 고칠 수 있는 칸(role_note·팀)으로 판정하지 않는다');
+  ok(/leader_profile_ids\(\)[\s\S]*?\(auth\.uid\(\) is null or public\.is_approved\(\)\)[\s\S]*?p\.merged_into is null and p\.removed_at is null/.test(sql),
+    '리더 id 목록은 승인된 사람·서버만 · 남긴 계정만 · 환송 제외');
+
+  // 정책 — alter만, 그리고 줄마다 함수를 부르지 않는다
+  ok(!/create policy|drop policy/i.test(sql), '0092는 정책을 만들거나 지우지 않는다 — alter만(§6-31-a)');
+  const altered = [...sql.matchAll(/alter policy (\w+) on (\w+\.\w+)/g)].map(m => m[1]);
+  const want = ['projects_select', 'projects_update', 'projects_delete',
+    ...['cards', 'comments', 'card_teams', 'card_assignees', 'resource_links', 'files'].flatMap(t => ['select', 'insert', 'update', 'delete'].map(c => `${t}_${c}`)),
+    'activity_select', 'activity_insert', 'comment_reactions_select', 'comment_reactions_insert', 'comment_reactions_delete',
+    'card_docs_select', 'card_doc_updates_select', 'card_doc_updates_insert', 'card_doc_versions_select', 'card_doc_versions_insert',
+    'doc_vec_select', 'coedit_channel_read', 'coedit_channel_write', 'attachments_select_authenticated'];
+  for (const p of want) ok(altered.includes(p), `${p}를 조인다`);
+  ok(!altered.includes('projects_insert'), 'projects_insert는 그대로(트리거가 비리더의 leaders를 all로)');
+  const policyText = sql.slice(sql.indexOf('alter policy projects_select'), sql.indexOf('create or replace function public.card_doc_seed'));
+  ok(!/can_see_(card|project)\(/.test(policyText), '정책이 줄마다 can_see_*를 부르지 않는다 — hidden_ids 한 번(InitPlan)');
+  for (const [p, col] of [['cards_select', 'project_id'], ['comments_select', 'card_id'], ['card_teams_select', 'card_id'],
+    ['comment_reactions_select', 'comment_id'], ['card_docs_select', 'card_id'], ['activity_select', 'coalesce\\(card_id, project_id\\)'],
+    ['resource_links_select', 'coalesce\\(card_id, project_id\\)'], ['doc_vec_select', 'coalesce\\(card_id, comment_id, file_id, project_id\\)']]) {
+    const body = sql.slice(sql.indexOf(`alter policy ${p} `)).split(/;\n/)[0];
+    ok(hidden(col).test(body), `${p}: ${col.replace(/\\/g, '')}가 가릴 id가 아니다(업무가 먼저 · 낡을 수 있는 project_id는 마지막)`);
+    ok(/public\.is_approved\(\)/.test(body), `${p}: 승인 게이트를 유지한다`);
+  }
+  for (const c of ['select', 'insert', 'update', 'delete']) {
+    const body = sql.slice(sql.indexOf(`alter policy files_${c} `)).split(/;\n/)[0];
+    ok(/service_id is null( and|\s+then) coalesce\(coalesce\(card_id, project_id\) <> all/.test(body), `files_${c}: 업무 첨부 갈래에만 감싼다`);
+  }
+  ok(/exists \(select 1 from public\.services s\s+where s\.id = files\.service_id and \(s\.status = 'published' or public\.can_edit_service\(\)\)\)/.test(sql),
+    'files_select의 주보 갈래(발행본 · 편집 자격)는 그대로');
+  ok(!/alter table public\.files|files_\w*check|drop constraint[^;]*files/.test(sql), 'files의 CHECK 제약은 건드리지 않는다(④ 모임 갈래)');
+  ok(/created_by = any \(array\[auth\.uid\(\), public\.effective_uid\(\)\]\) or public\.is_admin\(\)\)\s+and coalesce\(project_id <> all/.test(sql),
+    'cards_insert는 0071의 작성자 칸 식을 그대로 두고 and만 더한다');
+  ok(/substr\(realtime\.topic\(\), 8\) <> all \(\(select public\.hidden_ids\(\)\)::text\[\]\)/.test(sql), '같이 쓰기 채널은 주제의 업무 id로(글자 비교 — 형 변환 오류 없음)');
+  ok(/\(storage\.foldername\(name\)\)\[2\] <> all \(\(select public\.hidden_ids\(\)\)::text\[\]\)/.test(sql), '레거시 첨부 버킷은 경로 둘째 도막(업무 id)으로');
+  ok(/union all select c\.id from public\.comments c join lc[\s\S]*?union all select f\.id from public\.files f join lc/.test(sql),
+    'hidden_ids가 댓글·첨부 id도 담는다(doc_vec·반응은 card_id 칸이 없다)');
+
+  // 보호 트리거 — 예외 없이 되돌리기(0071 방식) · 트리거는 projects를 직접 읽지 않는다(RLS에 가려 '없음'이 된다 — 리허설에서 밟음)
+  ok(/create trigger trg_projects_guard_visibility before insert or update of visibility on public\.projects/.test(sql), 'visibility 보호 트리거');
+  ok(/if tg_op = 'INSERT' then\s+new\.visibility := 'all';\s+else\s+new\.visibility := old\.visibility;/.test(sql), '비리더는 INSERT면 all · UPDATE면 옛 값');
+  ok(/create trigger trg_cards_guard_project before update of project_id on public\.cards/.test(sql), '업무 옮기기 보호 트리거');
+  const g = sql.slice(sql.indexOf('function public.guard_card_project'), sql.indexOf('create trigger trg_cards_guard_project'));
+  ok(/not public\.can_see_project\(old\.project_id\) or not public\.can_see_project\(new\.project_id\)[\s\S]*?new\.project_id := old\.project_id;/.test(g)
+    && !/from public\.projects/.test(g), '업무 옮기기 가드는 can_see_project(definer)로 보고 옛 값으로 되돌린다');
+  const guards = sql.slice(sql.indexOf('function public.guard_project_visibility'), sql.indexOf('alter policy projects_select'));
+  ok(!/raise exception/i.test(guards), '보호 트리거는 예외를 던지지 않는다');
+  for (const f of ['card_doc_seed', 'card_doc_compact', 'card_doc_baseline']) {
+    const body = sql.slice(sql.indexOf(`function public.${f}(`)).split('end $$;')[0];
+    ok(/if not public\.can_see_card\(p_card\) then raise exception 'not visible' using errcode = '42501';/.test(body), `${f}가 리더 업무를 막는다(security definer라 RLS 밖)`);
+  }
+  for (const line of ['alter table public.projects drop column if exists visibility;', 'drop function if exists public.hidden_ids();',
+    'drop trigger if exists trg_cards_guard_project on public.cards;', 'alter policy doc_vec_select on public.doc_vec using (public.is_approved());']) {
+    ok(m92.includes(`--   ${line}`), `0092의 되돌리는 SQL에 '${line.slice(0, 40)}…'`);
+  }
+
+  // 순수 판정 한 벌(services/visibility.js · import 0)
+  const V = await import(new URL('../src/services/visibility.js', import.meta.url).href);
+  ok(V.isLeaderOnly({ visibility: 'leaders' }) && !V.isLeaderOnly({ visibility: 'all' }) && !V.isLeaderOnly({}) && !V.isLeaderOnly(null), 'isLeaderOnly — 칸이 없으면 공개');
+  ok(V.canSetVisibility({ cloudOn: false }) && V.canSetVisibility({ cloudOn: true, amLeader: true })
+    && !V.canSetVisibility({ cloudOn: true, amLeader: false }) && !V.canSetVisibility({ cloudOn: true }), '자물쇠는 리더에게만 · 게스트는 언제나');
+  ok(JSON.stringify(V.visibleRecipients(['a', 'b', null], { leaderOnly: true, leaderIds: new Set(['b']) })) === '["b"]'
+    && JSON.stringify(V.visibleRecipients(['a'], { leaderOnly: true })) === '[]'
+    && JSON.stringify(V.visibleRecipients(['a', ''], {})) === '["a"]', '받는 사람 — 리더 목록이 없으면 닫힌다');
+  const d = V.dropLeaderOnly({
+    projects: [{ id: 'p1' }, { id: 'p2', visibility: 'leaders' }],
+    cards: [{ id: 'c1', project_id: 'p1' }, { id: 'c2', project_id: 'p2' }],
+    comments: [{ id: 'm1', card_id: 'c1' }, { id: 'm2', card_id: 'c2' }, { id: 'm3', card_id: 'gone' }],
+    files: [{ id: 'f1', card_id: 'c2' }, { id: 'f2', card_id: null, service_id: 's1' }, { id: 'f3', card_id: 'c1' }],
+  });
+  ok(d.projects.map(x => x.id).join() === 'p1' && d.cards.map(x => x.id).join() === 'c1'
+    && d.comments.map(x => x.id).join() === 'm1,m3' && d.files.map(x => x.id).join() === 'f2,f3',
+    '위키 원본에서 리더 프로젝트·업무·댓글·첨부만 걷는다(주보 첨부·주인 없는 줄은 그대로)');
+
+  // 서버 키 경로 배선
+  const rd = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
+  const share = rd('api/share.js');
+  ok(/from\('projects'\)\.select\('name, visibility'\)/.test(share) && /if \(!isLeaderOnly\(data\)\) \{\s+title = `더다붓 · \$\{data\.name\}`/.test(share),
+    '공유 카드: 리더 프로젝트면 이름을 싣지 않는다');
+  ok(/projects\(visibility\)/.test(share) && /if \(!isLeaderOnly\(data\.projects\)\) \{\s+title = `더다붓 · \$\{data\.title\}`/.test(share),
+    '공유 카드: 리더 프로젝트의 업무면 제목·상태·마감을 싣지 않는다');
+  const ics = rd('api/ics.js');
+  ok((ics.match(/await seeProject\(supabase, /g) || []).length === 2 && /if \(!proj\) \{ reply\(null\); return; \}/.test(ics),
+    '달력: 등록(POST — 읽기·쓰기)과 구독(GET) 둘 다 주인이 볼 수 있는 프로젝트인지');
+  ok(/import \{ dropLeaderOnly \} from '\.\.\/\.\.\/src\/services\/visibility\.js';/.test(rd('api/_wiki/gather.js'))
+    && /select\('id, name, year, archived, position, visibility'\)/.test(rd('api/_wiki/gather.js')), '위키 장: 읽은 자리에서 걷는다');
+  ok(/rpc\('leader_profile_ids'\)/.test(rd('api/_leaders.js')) && /select\('project_id, projects\(visibility\)'\)\.eq\('id', cardId\)/.test(rd('api/_leaders.js')),
+    '서버 판정: 리더 목록은 DB 함수 한 벌 · 업무는 지금 프로젝트로');
+  console.log(`PASS  0092 리더만 보는 프로젝트의 모양·판정·서버 키 경로 ${n}가지`);
 }
 
 // ── 승인 대기가 저절로 넘어가기 · 승인 알림 · 화면에 기술 원문 안 싣기 (2026-09-25) ──
