@@ -582,21 +582,27 @@ export async function runWiki(started, now = Date.now()) {
 const MASTER_FAQ_LINK = '/?p=wiki&wiki=faq';
 // 18차 2회: 아침 고리(reaskUnknown)가 '기록 없음'(answer.cause none)으로 가른 묶음만 센다 — 못 찾음·검사가 버림은 다붓이가 스스로 고칠 몫이다.
 // 2026-10-12: 👎 받은 답을 다시 찾아도 같은 답이 나온 것(disputed)도 모르는 질문으로 센다 · 알려 준 말(told)은 따로 센다(toldCount).
+// 20차 ⑧(사용자 결정 2026-10-13): '알려 준 말 M건'은 이제 **확인을 기다리는 말**(dabooti_facts pending · 0098) 수다 — 날짜와 상관없이 지금 쌓인 것.
+// 그것만 있으면 '다붓이가 배운 것' 장으로 연다(확인을 기다리는 말이 거기 있다). 승인된 사실과 기록의 어긋남 알림은 모델 호출이 더 들어 넣지 않았다.
+const MASTER_LEARNED_LINK = '/?p=wiki&wiki=learned';
 const nightly = (rows, causes) => new Set((rows || []).filter(r => r && r.via === 'nightly' && causes.includes(r.answer?.cause)).map(r => r.norm)).size;
 export const unknownCount = (rows = []) => nightly(rows, ['none', 'disputed']);
-export const toldCount = (rows = []) => nightly(rows, ['told']);
+export const toldCount = (facts = []) => (facts || []).filter(f => f?.status === 'pending').length;
 // 알려 준 말만 있으면 그것만 · 둘 다 있으면 한 통에 같이(하루 한 통 · tag 그대로)
 export const masterNotice = (n, day, told = 0) => ({
   title: n ? `다붓이가 모르는 질문 ${n}개${told ? ` · 알려 준 말 ${told}건` : ''}` : `다붓이에게 알려 준 말 ${told}건`,
-  body: '자주 묻는 질문에서 답을 적어 주세요', url: MASTER_FAQ_LINK, tag: `dabooti:${day}`,
+  body: '자주 묻는 질문에서 답을 적어 주세요', url: n ? MASTER_FAQ_LINK : MASTER_LEARNED_LINK, tag: `dabooti:${day}`,
 });
 
 async function notifyMasterUnknown(db, now = Date.now()) {
-  const { data: rows, error } = await db.from('dabooti_questions').select('norm, status, feedback, via, answer')
-    .gte('created_at', new Date(now - 24 * 3600e3).toISOString());
+  const [{ data: rows, error }, { data: facts, error: fErr }] = await Promise.all([
+    db.from('dabooti_questions').select('norm, status, feedback, via, answer').gte('created_at', new Date(now - 24 * 3600e3).toISOString()),
+    db.from('dabooti_facts').select('id, status').eq('status', 'pending'),
+  ]);
   if (error) throw error;
+  if (fErr) throw fErr;
   const n = unknownCount(rows);
-  const told = toldCount(rows);
+  const told = toldCount(facts);
   if (!n && !told) return { unknown: 0, told: 0, sent: 0 };
   const { data: masters, error: mErr } = await db.from('admins').select('email').eq('is_master', true);
   if (mErr) throw mErr;

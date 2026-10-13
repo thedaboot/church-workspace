@@ -614,6 +614,10 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
     { id: 'faq', grp: '함께 쓰는 글', title: '자주 묻는 질문', position: 9, updated_at: '2026-10-02T00:00:00Z', blocks: [
       { key: 'known', type: 'list', items: [{ key: 'f1', by: 'human', text: '콘티 송폼 찬양팀 FAQ에만있는줄이에요.' }] },
     ] },
+    // 다붓이가 배운 것 장(20차 ⑧ · 마스터만 · 알려 준 사람과 확인을 기다리는 말)도 싣지 않는다 — 사람이 쓴 줄이어도
+    { id: 'learned', grp: '함께 쓰는 글', title: '다붓이가 배운 것', position: 3, updated_at: '2026-10-02T00:00:00Z', blocks: [
+      { key: 'learned', type: 'facts', title: '다붓이가 배운 것', items: [{ key: 'f:1', by: 'human', text: '콘티 송폼 찬양팀 배운것에만있는줄이에요.', meta: { who: '노준석' } }] },
+    ] },
     // 워크스페이스 사용법 장은 앱 쓰는 법이라 업무 AI 맥락에 싣지 않는다(다붓이만 읽는다)
     { id: 'guide', grp: '함께 쓰는 글', title: '워크스페이스 사용법', position: 2, updated_at: '2026-10-02T00:00:00Z', blocks: [
       { key: 'bulletin', type: 'list', title: '주보 보기', items: [{ key: 'b1', by: 'seed', text: '예배 탭에서 콘티 송폼 사용법줄을 골라요.' }] },
@@ -637,6 +641,9 @@ check('task 없이 부르면 주변 상황 없이도 동작', captured && !captu
   check('위키 맥락: 그 업무 자신의 장 블록 · 칩 · 기록 전 칸은 안 실린다', !out.includes('콘티 결정 업무 자체') && !out.includes('칩으로만') && !out.includes('기록 전인'));
   // 되돌리기: SKIP_PAGES에서 FAQ_ID를 빼면 깨진다
   check('위키 맥락: 자주 묻는 질문 장은 안 실린다', !out.includes('FAQ에만') && !pick('FAQ에만있는줄이에요').includes('FAQ에만'));
+  // 되돌리기: SKIP_PAGES에서 LEARNED_ID를 빼면 깨진다(블록 type이 facts라 줄이 안 서므로 type도 list로 본다)
+  const learnedAsList = PAGES.map(p => (p.id === 'learned' ? { ...p, blocks: p.blocks.map(b => ({ ...b, type: 'list' })) } : p));
+  check('위키 맥락: 다붓이가 배운 것 장은 안 실린다', !out.includes('배운것에만') && !W.pickWikiContext('배운것에만있는줄이에요 콘티 송폼', { pages: learnedAsList, edits: EDITS }).includes('배운것에만'));
   // 되돌리기: SKIP_PAGES에서 'guide'를 빼면 깨진다
   check('위키 맥락: 워크스페이스 사용법 장은 안 실린다', !out.includes('사용법줄') && !pick('사용법줄을 콘티 송폼').includes('사용법줄'));
   // 되돌리기: wikiRows의 사람이 쓴 장·마스터 줄 거르기를 빼면 깨진다(크론 요약은 하루 늦을 수 있고 업무 글을 이미 받는다 · 2026-10-05)

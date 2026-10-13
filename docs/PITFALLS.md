@@ -1070,3 +1070,7 @@ reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가
 (사용자 지적 2026-10-05 · 폰 창은 2026-09-22에 같은 길로 고쳤다). 딤은 `inset-0`을 그대로 두고 `h-[var(--app-vh)]`을 더한다(top·bottom·height가 다 있으면 height가 이긴다 —
 여러 검사가 `.fixed.inset-0.z-50`으로 업무 창을 찾는다). 창은 `min(85dvh, --app-vh - 2rem)`. **`duration-150`은 전환 대상이 기본 `all`이라 높이도 0.15초에 걸쳐 바뀐다** —
 검사는 바꾼 직후가 아니라 0.45초 뒤에 잰다(바로 재면 옛 높이가 나와 원인을 한참 헤맸다). `tests/modalclose`가 visualViewport 높이만 700으로 흉내 내 잰다.
+**33-w.** **빈 칸이 있는 열을 내림차순 `limit(1)`로 '마지막 때'를 읽으면 빈 칸이 먼저 온다** — Postgres는 `desc`에서 NULL이 맨 앞이다(NULLS FIRST).
+답 캐시 도장(`_wikiAsk.dataStamp`)에 배운 것의 `decided_at`(대기 중이면 비었다)을 그대로 더했으면 늘 null이 나와 '데이터가 안 바뀜'으로 읽혔을 것이다
+(20차 ⑧ · 0098). 승인된 것만(`eq('status','approved')`) 몇 줄 받아 빈 값을 걸러 고른다. 다른 도장 열(updated_at · edited_at · created_at)은 `not null`이라 괜찮다.
+가짜 DB(`tests/logcheck-wiki` 20차 ⑧)의 `update`는 표의 행을 그대로 고치므로, 같은 행 객체를 여러 가짜 DB에 넣으면 앞 검사가 닫은(resolved_at) 행이 뒤 검사로 샌다 — 표마다 복사본(`{ ...row }`)을 넣는다.

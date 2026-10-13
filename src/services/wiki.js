@@ -8,6 +8,7 @@ import { SEED_PAGES, prefilter, NOT_FOUND, askLines, isStageLine } from './wikiC
 //   saveWikiEdits()   고친 줄 upsert(wiki_edits · 고친 사람·때는 DB 트리거가 정한다)
 //   askDabooti()      /api/ai { ask } — 찾기·답·검증은 서버(api/_wikiAsk.js)가 묻는 사람 권한으로 한다
 //   sendFeedback()    답의 '도움이 됐어요/안 됐어요'
+//   tellDabooti()     👎 뒤에 알려 준 말 · learnDabooti() 마스터의 ✓/✗/고치기/알려 주기(20차 ⑧ · 0098)
 // 게스트 모드(수파베이스 없음)는 함께 쓰는 글 초안만 보이고, 고친 것은 이 탭 메모리에만 남는다.
 // ============================================================================
 
@@ -94,6 +95,30 @@ export async function sendFeedback(id, v) {
   if (!supabase || !id) return;
   const token = await accessToken();
   await authedPost('/api/ai', { feedback: { id, v } }, { token }).catch(() => {});
+}
+
+// 👎 뒤에 알려 준 말(20차 ⑧ · 0098) — 화면은 기다리지 않고 고마움 말풍선을 바로 세운다(실패해도 👎는 남는다)
+export async function tellDabooti(questionId, text) {
+  if (!String(text || '').trim()) return;
+  // 게스트는 검사(tests/wiki)가 보는 자리 — 부른 것을 window.__tellCalls에 쌓는다
+  if (!supabase) { if (typeof window !== 'undefined') (window.__tellCalls ||= []).push({ questionId, text }); return; }
+  const token = await accessToken();
+  await authedPost('/api/ai', { tell: { questionId: questionId || null, text: String(text).trim().slice(0, 300) } }, { token }).catch(() => {});
+}
+
+// 마스터의 손(위키 '다붓이가 배운 것' · '자주 묻는 질문') — op: approve · reject · edit · add · answer → { ok, resolved } · 실패는 던진다.
+// 반영되면 서버가 닮은 열린 질문을 그 자리에서 다시 답하고 두 장을 다시 쓴다(부르는 쪽은 위키를 다시 읽는다).
+// 게스트는 검사(tests/wiki)가 보는 자리 — 부른 것을 window.__learnCalls에 쌓는다(클라우드에서는 보지 않는다).
+export async function learnDabooti(op, { id = null, text = '', questionId = null } = {}) {
+  if (!supabase) {
+    if (typeof window !== 'undefined') (window.__learnCalls ||= []).push({ op, id, text, questionId });
+    return { ok: true, resolved: 0 };
+  }
+  const token = await accessToken();
+  const r = await authedPost('/api/ai', { learn: { op, id, text, questionId } }, { token });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) { const err = new Error(j.error || `HTTP ${r.status}`); err.human = j.error || '저장하지 못했어요'; throw err; }
+  return j;
 }
 
 // 지난번에 본 때 — 목록의 점(마지막으로 본 뒤 다시 모인 장). 이 브라우저에만 둔다.

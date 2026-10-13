@@ -222,13 +222,15 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0095_drop_bible_reads` | 0080 걷음(사용자 결정 2026-10-12) — `bible_reads` 표 · `bible_state.share_reads` 칸을 지운다. 되돌리기는 0080을 다시 돌린다 | ✅ |
 | `0096_doc_vec_wiki_service` | 다붓이 검색 모드(`DABOOTI_RETRIEVE`) 근거 — `doc_vec`에 위키 장(`page_id` · faq 제외)·발행 주보(`service_id`) 종류 · `source_id` text 생성 칸 · `match_docs`에 kinds(없으면 옛 세 종류만) | ✅ |
 | `0097_signup_avatar_late` | 가입 트리거가 뒤늦게 온 카카오·구글 메타(사진·이름)도 받아 적는다 — `after insert or update of raw_user_meta_data` · UPDATE는 10분 안에 만든 프로필의 빈 칸만(천진영 가입 때 identity가 150ms 늦어 사진이 비었다) | ✅ |
+| `0098_dabooti_facts` | 다붓이 학습 고리(20차 ⑧) — `dabooti_facts`(사람이 알려 준 사실 · `pending/approved/rejected` · 알려 준 사람 `told_by` · 이어진 물음 · `leader` · `count` · 읽기·쓰기 **마스터만**) · `dabooti_questions.resolved_at`(열린 질문이 닫힌 때 · 질문은 그대로 익명) · 위키 `learned` 장도 마스터만 읽는다 · `doc_vec`에 그 장을 안 넣는다 · 옮기기(아침 고리의 told 글 → 확인을 기다리는 말 · 이미 답한 물음 → 닫힘) | |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.
 
 임베딩(상단 검색의 '관련된 업무 내용'과 성경 검색의 대체가 씁니다): `node scripts/embed-bible.mjs`는 성경 전체를 `bible_vec`에 한 번 넣고(로컬 · 약 15분 · `--dry-run`),
 `node scripts/embed-docs.mjs`는 업무·댓글·첨부를 `doc_vec`에 맞춥니다(전체·증분 · `--dry-run` · `--kind`) — 평소에는 8시 크론이 증분을 돕니다.
-위키(0088): 평소에는 8시 크론이 임베딩 뒤에 몰랐던 질문을 다시 묻고 **원본이 바뀐 장만** 다시 모읍니다. 손으로는
+위키(0088): 평소에는 8시 크론이 임베딩 뒤에 열린 질문을 다시 묻고 **원본이 바뀐 장만** 다시 모읍니다. 다붓이 학습 고리(0098): 👎 뒤에 알려 준 말 ·
+알려 주는 말은 '다붓이가 배운 것'(마스터만)에 쌓이고 — 마스터 말은 바로, 다른 사람 말은 마스터가 ✓한 뒤 — 승인된 사실은 늘 다붓이 근거가 되며 닮은 열린 질문을 그 자리에서 다시 답합니다(`docs/AI.md` §5). 손으로는
 `node scripts/wiki-build.mjs`(`--force` 전부 · `--only=<장 id>` · `--dry` 모델 없이 뼈대만), 클라우드 경로 실측은
 `node --env-file=.env scripts/wiki-live.mjs`(임시 계정 → 끝나면 지우고 흔적 0건 확인).
 둘 다 `.env`의 서버 키가 필요합니다. (AI 검색과 벡터 검색을 질의 30개로 견준 한 번짜리 도구 `scripts/compare-bible-search.mjs`는 지웠습니다 — git 이력)

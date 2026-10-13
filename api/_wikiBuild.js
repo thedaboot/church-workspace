@@ -1,9 +1,10 @@
-import { SEED_PAGES } from '../src/services/wikiCore.js';
+import { SEED_PAGES, LEARNED_ID } from '../src/services/wikiCore.js';
 import { sha } from './_wiki/const.js';
 import { gather } from './_wiki/gather.js';
 import { nameMatcher, peopleIndex } from './_wiki/people.js';
 import { skeletons } from './_wiki/skeleton.js';
 import { faqPage } from './_wiki/faq.js';
+import { learnedPage, pendingCount } from './_wiki/learn.js';
 import { fillPage, srcHashOf } from './_wiki/fill.js';
 
 // ============================================================================
@@ -25,7 +26,7 @@ import { fillPage, srcHashOf } from './_wiki/fill.js';
 // 이 파일은 한 번 돌기(buildWiki)와 바깥에 내보이는 이름만 — 몸통은 api/_wiki/에 나눠 있다(19차 · `_`라 라우트가 아니다):
 //   const.js 공용 값(모델 · 팀 순서 · 순장 표시 · 해시) · gen.js Gemini 한 번 · people.js 사람 이름·부르는 꼴·댓글 줄·명단 ·
 //   text.js 글 조각(본문 → 조각) · gather.js 원본 읽기 · excerpt.js 블록 하나·바뀌기 전·정보 상자·정해지기까지 ·
-//   skeleton.js 장 뼈대 · faq.js 자주 묻는 질문 장 · fill.js 모델로 채우기(쓰기·검사 프롬프트 · 원본 해시)
+//   skeleton.js 장 뼈대 · faq.js 자주 묻는 질문 장(열린 질문) · learn.js 다붓이가 배운 것(0098 · 장 · 근거 · 저장) · fill.js 모델로 채우기(쓰기·검사 프롬프트 · 원본 해시)
 // ============================================================================
 
 export { WIKI_MODEL, sha, TEAM_ORDER, AUDIENCE } from './_wiki/const.js';
@@ -35,7 +36,8 @@ export { fillIn, snippetsOf } from './_wiki/text.js';
 export { gather } from './_wiki/gather.js';
 export { projectTitle, recordDate, finishedTask, foldGap, supersededSnips, eventInfo, recurringLead, decideSnips } from './_wiki/excerpt.js';
 export { skeletons } from './_wiki/skeleton.js';
-export { answeredToday, faqPage } from './_wiki/faq.js';
+export { answeredToday, faqPage, openGroups } from './_wiki/faq.js';
+export { learnedPage, factEvidence, factStatus, pendingCount } from './_wiki/learn.js';
 export { examplesFromEdits, wikiSentenceIssues, phantomExtra, dropRepeats, fillPage, srcHashOf } from './_wiki/fill.js';
 
 // ── 한 번 돌기 ───────────────────────────────────────────────────────────────
@@ -81,7 +83,7 @@ export async function buildWiki(db, { budgetMs = 200 * 1000, force = false, only
   // 원본이 사라진 자동 장(지운 프로젝트 · 팀에 업무가 없어짐)은 걷는다. 일부만 돈 날(only)은 건드리지 않는다.
   const removed = [];
   if (!only) {
-    const keep = new Set([...pages.map(p => p.id), 'faq']);
+    const keep = new Set([...pages.map(p => p.id), 'faq', LEARNED_ID]);
     const gone = D.pages.filter(p => p.kind === 'auto' && !keep.has(p.id)).map(p => p.id);
     if (gone.length) { const { error } = await db.from('wiki_pages').delete().in('id', gone); if (!error) removed.push(...gone); }
   }
@@ -91,8 +93,16 @@ export async function buildWiki(db, { budgetMs = 200 * 1000, force = false, only
   if (!only || only.includes('faq')) {
     const fp = faqPage(D);
     const { error } = await db.from('wiki_pages').upsert({ ...fp, src_hash: sha(JSON.stringify(fp.blocks)), built_at: new Date().toISOString() });
-    faq = error ? `실패: ${error.message}` : `${fp.blocks[0].items.length}+${fp.blocks[1].items.length}`;
+    const n = (k) => fp.blocks.find(b => b.key === k)?.items.length || 0;
+    faq = error ? `실패: ${error.message}` : `${n('asked')}+${n('open')}`;
+  }
+  // 다붓이가 배운 것(20차 ⑧ · 모델 없음 · 마스터가 손댈 때는 _wiki/learn.js rebuildLearned가 그 자리에서)
+  let learned = null;
+  if (!only || only.includes(LEARNED_ID)) {
+    const lp = learnedPage(D.facts || [], new Map((D.profiles || []).map(p => [p.id, String(p.display_name || '').trim()])));
+    const { error } = await db.from('wiki_pages').upsert({ ...lp, src_hash: sha(JSON.stringify(lp.blocks)), built_at: new Date().toISOString() });
+    learned = error ? `실패: ${error.message}` : `${pendingCount(lp)}+${lp.source_count}`;
   }
   const usage = log.reduce((a, u) => ({ calls: a.calls + 1, input: a.input + u.input, output: a.output + u.output }), { calls: 0, input: 0, output: 0 });
-  return { built, skipped, pending, removed, faq, usage, dropped, ms: Date.now() - started };
+  return { built, skipped, pending, removed, faq, learned, usage, dropped, ms: Date.now() - started };
 }

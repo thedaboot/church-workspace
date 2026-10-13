@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ArrowUp, Lock, ThumbsUp, ThumbsDown } from 'lucide-react';
-import { askDabooti, sendFeedback } from '../services/wiki.js';
+import { askDabooti, sendFeedback, tellDabooti } from '../services/wiki.js';
 import { imeComposing, coarsePointer } from '../utils.js';
 import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
-import { chipPool, rotateChips, normQ, chatExpired, looksFollowUp, waitLine } from '../services/wikiCore.js';
+import { chipPool, rotateChips, normQ, chatExpired, looksFollowUp, waitLine, tellTurn, TELL_ASK, NUDGE, TALK_ANSWERS } from '../services/wikiCore.js';
 import { fetchMyPerson, fetchGroups, fetchGroupMembers } from '../services/people.js';
 
 // ============================================================================
@@ -14,6 +14,10 @@ import { fetchMyPerson, fetchGroups, fetchGroupMembers } from '../services/peopl
 // 답은 서버가 근거를 찾고 검증까지 끝낸 것만 온다(api/_wikiAsk.js) — 여기서는 그리기만 한다.
 // 대화는 이 모듈이 쥔다(useDabootiChat · 2026-10-04) — 앱이 떠 있는 동안 화면을 오가도 남고, 새로 열거나
 // 30분 넘게 가려져 있다 돌아오면 빈다(wikiCore.chatExpired · localStorage에 쓰지 않는다 · 메모리만).
+// 학습 고리(20차 ⑧ · 사용자 결정 2026-10-13): 👎를 누르면 다붓이가 '어떻게 말해야 할까요?'를 묻는 말풍선({ tellFor }) —
+// 평소 입력창의 다음 말이 원래 물음과 이어지면 알려 준 말(wikiCore.tellTurn → services/wiki.tellDabooti · 고마움 말풍선 { told }),
+// 다른 물음이면 새 질문(알려 주기는 접는다). 👎를 풀거나 👍로 바꾸면 아직 답하지 않은 그 말풍선을 걷는다(마지막 것만).
+// 서버가 nudge를 단 답은 말풍선 끝에 권유 한 줄(NUDGE · 가운데 👎 아이콘은 답 줄의 버튼과 같은 회색 선 아이콘).
 // ============================================================================
 
 // ── 대화 · 같은 질문 답 (메모리만) ─────────────────────────────────────────────
@@ -164,7 +168,8 @@ export function FileCard({ file, onOpen }) {
 // chat/setChat은 부르는 쪽(위키 화면)이 쥔다 — 장을 오가도 대화가 남는다.
 // fill — 판이 차지할 높이(위키 화면이 main의 안쪽 높이를 재서 준다 · CSS 길이). 처음 화면은 그 가운데에 서고,
 // 대화가 시작되면 입력 칸이 그 높이의 바닥(=화면 아래)에 붙는다(사용자 지적 2026-10-03 — 가운데에 떠 있었다).
-export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, onOpenFaq, fill = 'min(520px, calc(var(--app-vh,100dvh) - 220px))' }) {
+// pending — 밖에서 넣는 질문 { q, n }(자주 묻는 질문 장의 '많이 물어본 질문' 칩 · n이 바뀔 때마다 한 번 묻는다)
+export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, onOpenFaq, pending = null, fill = 'min(520px, calc(var(--app-vh,100dvh) - 220px))' }) {
   const [q, setQ] = useState('');
   const endRef = useRef(null);
   const inputRef = useRef(null);
@@ -185,9 +190,18 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
     if (!question || busy) return;
     setQ('');
     if (coarsePointer()) inputRef.current?.blur();
+    // 👎 뒤 '어떻게 말해야 할까요?'에 이어진 말 — 원래 물음과 이어지면 알려 준 말(고마움 말풍선 · 서버 { tell }), 아니면 그 말풍선은 접고 새 질문
+    const open = [...chat].reverse().find(m => m.tellFor && !m.closed);
+    if (open) {
+      const told = tellTurn(question, open.oq) === 'tell';
+      const id = `${Date.now()}`;
+      setChat(c => [...c.map(m => (m.id === open.id ? { ...m, closed: true } : m)),
+        ...(told ? [{ id, q: question, told: true, a: { status: 'answered', sentences: [{ text: TALK_ANSWERS.statement, cites: [] }], files: [] } }] : [])]);
+      if (told) { tellDabooti(open.qid, question); return; }
+    }
     // 앞 질문들을 줄바꿈으로 — 마지막 줄이 바로 앞 질문(서버가 다시 쓴 꼴 a.asked가 있으면 그것) + 맨 끝 '[답] 앞 답 첫 문장'.
     // 서버는 앞 대화를 모델에 그대로 준다([앞 대화] · 18차 2회) — 출석·생일만 코드가 바꿔 끼운다(followUpRule · a.asked) · 앞에서 알려 준 말도 본다(talkKind)
-    const done = chat.filter(m => m.a);
+    const done = chat.filter(m => m.a && !m.told);   // 알려 준 말과 그 고마움은 앞 대화가 아니다
     const lastA = done[done.length - 1]?.a?.sentences?.[0]?.text || '';
     const prev = [...done.slice(-6).map(m => (m.a.asked || m.q).replace(/\s*\n\s*/g, ' ')), ...(lastA ? [`[답] ${lastA.replace(/\s*\n\s*/g, ' ')}`] : [])].join('\n');
     // 이어 묻는 말은 앞 대화에 따라 답이 달라서 같은 말 기억(10분)을 쓰지 않는다
@@ -208,11 +222,18 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
   };
   const retry = (m) => { setChat(c => c.filter(x => x.id !== m.id)); send(m.q); };
   // 누를 때마다 react.n이 늘어 애니메이션이 처음부터 다시 돈다(같은 버튼을 다시 누르면 풀린다 — 그때는 움직이지 않는다)
+  // 👎(권유 줄이 있든 없든 모든 👎) →다붓이가 묻는 말풍선을 맨 뒤에 하나 · 풀거나 👍로 바꾸면 아직 이어진 말이 없는 그 말풍선을 걷는다
   const rate = (m, v) => {
     const next = m.rated === v ? null : v;
-    setChat(c => c.map(x => (x.id === m.id ? { ...x, rated: next, react: next ? { v: next, n: (x.react?.n || 0) + 1, at: Date.now() } : x.react } : x)));
+    setChat(c => {
+      const out = c.map(x => (x.id === m.id ? { ...x, rated: next, react: next ? { v: next, n: (x.react?.n || 0) + 1, at: Date.now() } : x.react } : x))
+        .filter(x => !(x.tellFor === m.id && !x.closed));
+      return next === 'bad' && m.a?.id ? [...out, { id: `t${Date.now()}`, tellFor: m.id, qid: m.a.id, oq: m.a.asked || m.q }] : out;
+    });
     sendFeedback(m.a?.id, next);
   };
+  // 밖에서 넣은 질문(자주 묻는 질문 칩) — n이 바뀔 때 한 번
+  useEffect(() => { if (pending?.q) send(pending.q); }, [pending?.n]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // 바뀌는 질문 칩(사용자 결정 2026-10-04) — 셋을 보이고 4초마다 한 칸씩 돌아가며 다음 질문으로 바꾼다.
   // 칩 위에 손이 있거나 · 칸에 초점이 있거나 · 치는 중이면 멈춘다 · 움직임 줄이기면 돌리지 않는다.
@@ -324,7 +345,16 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
   return (
     <div className="dab-chat flex flex-col" style={{ minHeight: fill }}>
       <div className="flex-1 grid content-start gap-3 px-1 py-3">
-        {chat.map(m => (
+        {chat.map(m => (m.tellFor ? (
+          // 👎 뒤에 다붓이가 묻는 말 — 다음 말을 평소 입력창에서 받는다(따로 칸 없음)
+          <div key={m.id} className="dab-tell grid grid-cols-[34px_1fr] gap-2 items-start">
+            <span className="w-[34px] h-[34px] rounded-full overflow-hidden" style={{ background: 'var(--app-hero)' }}><Face size={34} className="bg-transparent" /></span>
+            <div className="dab-bub-in justify-self-start min-w-0 rounded-[4px_14px_14px_14px] px-3 py-2.5 text-[13.5px] leading-[1.7] text-fg" style={{ background: 'var(--app-hero)' }}>
+              <span className="block text-[11px] font-bold text-accent-text mb-0.5">다붓이</span>
+              {TELL_ASK}
+            </div>
+          </div>
+        ) : (
           <div key={m.id} className="grid gap-3">
             <div className="dab-q dab-q-in justify-self-end max-w-[82%] rounded-[14px_14px_4px_14px] bg-accent text-white px-3 py-2 text-[13.5px] leading-relaxed break-words">{m.q}</div>
             <div className="grid grid-cols-[34px_1fr] gap-2 items-start">
@@ -344,7 +374,7 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
               )}
             </div>
           </div>
-        ))}
+        )))}
         <div ref={endRef} />
       </div>
       {/* bottom 0 — 스티키 자리는 main의 아래 여백(폰은 하단 바 몫)을 이미 뺀 곳이라 더 띄우면 하단 바 높이만큼 떠 있었다(2026-10-03) */}
@@ -410,6 +440,12 @@ function Answer({ m, onOpenCite, onOpenFile, onOpenFaq, onRate }) {
         </>
       ) : (
         <span className="break-words">{(a.sentences || []).map(s => s.text).join(' ')}</span>
+      )}
+      {/* 권유 한 줄(20차 ⑧ · 사용자 문구) — 글자는 accent 600 · 가운데 아이콘은 아래 👎 버튼과 같은 회색 선 아이콘(누르는 자리는 아래 버튼) */}
+      {a.nudge && !refused && (
+        <span className="dab-nudge block mt-1 font-semibold text-accent-text break-words">
+          {NUDGE.before}<ThumbsDown size={13} fill="none" className="inline-block align-[-2px] text-fg-faint" role="img" aria-label="싫어요" />{NUDGE.after}
+        </span>
       )}
       {cites.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-1.5">

@@ -707,3 +707,23 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.ok(/set avatar_url\s*=\s*coalesce\(p\.avatar_url, new\.raw_user_meta_data ->> 'avatar_url', new\.raw_user_meta_data ->> 'picture'\)/.test(sql), '있는 사진은 안 덮는다(coalesce 앞이 p.avatar_url)');
   console.log('PASS  0097 가입 트리거 — 늦게 온 메타는 10분 안 빈 칸만');
 }
+
+// 0098 — 다붓이가 배운 것(20차 ⑧ · 사용자 결정 2026-10-13). 알려 준 사람(told_by)이 든 표라 읽기·쓰기 모두 마스터만 —
+// 서버는 서버 키로 대신 쓰고 승인된 것만 근거로 읽는다. 'learned' 장도 0090의 faq처럼 마스터만. 질문 표는 그대로 익명.
+// **되돌리기**(§3-5): 정책 하나를 is_approved()로 풀거나, wiki_pages 정책에서 'learned'를 빼거나, 질문 표에 묻는 사람 칸을 더하면 깨진다.
+{
+  const sql = readFileSync(new URL('../supabase/migrations/0098_dabooti_facts.sql', import.meta.url), 'utf8')
+    .split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  const table = sql.slice(sql.indexOf('create table if not exists public.dabooti_facts'), sql.indexOf('create index'));
+  for (const col of ['id ', 'question ', 'text ', 'told_by ', 'status ', 'from_question_id ', 'leader ', 'count ', 'created_at ', 'decided_at ']) assert.ok(table.includes(`  ${col}`), `0098 칸: ${col.trim()}`);
+  assert.ok(/status\s+text not null default 'pending' check \(status in \('pending', 'approved', 'rejected'\)\)/.test(table), '상태 셋 · 기본 pending');
+  assert.ok(/told_by\s+uuid references public\.profiles\(id\) on delete set null/.test(table) && /from_question_id uuid references public\.dabooti_questions\(id\) on delete set null/.test(table), '알려 준 사람 · 이어진 물음');
+  assert.ok(sql.includes('alter table public.dabooti_facts enable row level security;'), 'RLS 켬');
+  const pols = [...sql.matchAll(/create policy (\w+) on public\.dabooti_facts for (\w+) (using|with check) \(([^;]*)\);/g)];
+  assert.deepStrictEqual(pols.map(m => m[2]).sort(), ['delete', 'insert', 'select', 'update'], '정책 넷');
+  assert.ok(pols.every(m => !/is_approved/.test(m[4]) && (m[4].match(/public\.is_master\(\)/g) || []).length >= 1 && !/\bor\b/.test(m[4])), `모두 is_master()만: ${pols.map(m => m[4])}`);
+  assert.ok(sql.includes("using (public.is_approved() and (id not in ('faq', 'learned') or public.is_master()));") && sql.includes("using (public.is_approved() and (page_id not in ('faq', 'learned') or public.is_master()));"), "'learned' 장 · 그 장의 고친 줄은 마스터만 읽는다");
+  assert.ok(sql.includes("add constraint doc_vec_no_learned check (page_id is distinct from 'learned')"), '뜻 찾기 조각으로 만들지 않는다');
+  assert.ok(sql.includes('alter table public.dabooti_questions add column if not exists resolved_at timestamptz;') && !/dabooti_questions add column if not exists (user_id|asked_by|profile_id|told_by)/.test(sql), '질문 표는 닫힌 때만 더한다(익명 그대로)');
+  console.log('PASS  0098 다붓이가 배운 것 — 마스터만(정책 넷) · learned 장 마스터만 · 질문 표 익명 그대로');
+}

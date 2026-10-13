@@ -6,9 +6,12 @@ import { readJson, requireApprovedUser, bearer, adminClient, geminiFetch, isTime
 //   몸통 두 갈래:
 //     { prompt, systemInstruction } → { text }   gemini-3.1-flash-lite (글 만들기)
 //     { embed: '<질문>' }            → { vec }    gemini-embedding-001 (질문 임베딩 · 0073)
-//     { ask: '<질문>', prev? }        → { id, status, sentences, files }   다붓이에게 물어보기(0088 · api/_wikiAsk.js)
+//     { ask: '<질문>', prev? }        → { id, status, sentences, files, nudge? }   다붓이에게 물어보기(0088 · api/_wikiAsk.js · nudge 20차 ⑧)
 //     { ask, prev?, stream: 1 }       → 단계 줄들(`{"stage":"gather"}` …) + 마지막 줄에 위와 같은 JSON(NDJSON · 20차 ②)
 //     { feedback: { id, v } }         → { ok }     답에 '도움이 됐어요/안 됐어요'(v: good|bad|null)
+//     { tell: { questionId, text } }  → { ok, status }   👎 뒤에 알려 준 말(0098 dabooti_facts · 마스터 말이면 바로 반영 · 20차 ⑧)
+//     { learn: { op, id?, text?, questionId? } } → { ok, status, resolved }   마스터만 — ✓ approve · ✗ reject · 연필 edit ·
+//                                       '+ 직접 알려 주기' add · '답을 알려 주기' answer(반영되면 닮은 열린 질문을 그 자리에서 다시 답한다)
 //   임베딩을 따로 라우트로 두지 않은 이유: 인증 머리·키·시간 상한이 같고, Vercel 함수가
 //   하나 늘면 vercel.json·dev 서버·tests/push의 다섯 라우트 목록을 같이 고쳐야 한다.
 // ============================================================================
@@ -85,7 +88,7 @@ export default async function handler(req, res) {
   const body = await readJson(req);
   // 임베딩 갈래 — 인증은 위에서 이미 봤다(두 갈래가 같은 머리를 지난다)
   if (body.embed != null) { await handleEmbed(body.embed, geminiKey, res); return; }
-  if (body.ask != null || body.feedback != null) { await handleAsk(req, body, res); return; }
+  if (body.ask != null || body.feedback != null || body.tell != null || body.learn != null) { await handleAsk(req, body, res); return; }
 
   const { prompt, systemInstruction } = body;
   if (!prompt || typeof prompt !== 'string') { res.status(400).json({ error: 'prompt가 필요합니다.' }); return; }
@@ -154,13 +157,16 @@ export async function handleEmbed(raw, geminiKey, res) {
 // 누가 물었는지는 저장하지 않는다 — 상한도 사람별이 아니라 전체 1분 30번이다.
 const ASK_PER_MINUTE = 30;
 async function handleAsk(req, body, res) {
-  const { answerQuestion, saveAnswer, setFeedback, userClient } = await import('./_wikiAsk.js');
+  const mod = await import('./_wikiAsk.js');
+  const { answerQuestion, saveAnswer, setFeedback, userClient, askNudge, statementQuestion, tellOp, whoAsks } = mod;
   const admin = adminClient();
   if (body.feedback != null) {
     const ok = await setFeedback(admin, body.feedback?.id, body.feedback?.v ?? null);
     res.status(ok ? 200 : 400).json({ ok });
     return;
   }
+  if (body.tell != null || body.learn != null) { await handleLearn(req, body, res, mod, admin); return; }
+  const prev = typeof body.prev === 'string' ? body.prev : '';
   const q = typeof body.ask === 'string' ? body.ask.trim() : '';
   if (!q) { res.status(400).json({ error: 'ask는 비어 있지 않은 글자여야 합니다.' }); return; }
   if (q.length > 300) { res.status(413).json({ error: '질문이 너무 길어요\n300자 안으로 줄여 주세요' }); return; }
@@ -171,16 +177,45 @@ async function handleAsk(req, body, res) {
   const reply = askReply(res, !!body.stream);
   const tooMany = () => reply(429, { error: '지금 물어보는 사람이 많아요\n잠시 후 다시 물어봐 주세요' });
   try {
-    const out = await answerQuestion(q, { db: userClient(bearer(req)), admin, prev: typeof body.prev === 'string' ? body.prev : '', gate: busy, onStage: reply.stage });
+    const db = userClient(bearer(req));
+    const out = await answerQuestion(q, { db, admin, prev, gate: busy, onStage: reply.stage });
     if (await busy) { tooMany(); return; }
     const id = await saveAnswer(admin, q, out);
+    // 알려 주는 말(talkKind statement)도 배운 것 저장소로(20차 ⑧ — 마스터 말이면 바로 반영) · 이미 아는 말(save: false)은 남기지 않는다
+    if (out.kind === 'statement' && out.save !== false) {
+      await whoAsks(db).then(who => tellOp(admin, { text: q, question: statementQuestion(q, prev), who })).catch(e => console.error('[ai] 알려 준 말 저장 실패:', e?.message || e));
+    }
     const { dropped, wikiCards: _wc, ...shown } = out;   // wikiCards는 저장용(20차 ⑦ · leaderCited) — 화면에는 안 간다
-    reply(200, { id, ...shown });
+    reply(200, { id, ...shown, ...(askNudge(out, q, prev) ? { nudge: true } : {}) });
   } catch (e) {
     if (await busy) { tooMany(); return; }
     console.error('[ai] 다붓이 답 실패:', e?.message || e);
     await saveAnswer(admin, q, { status: 'failed', sentences: [], dropped: [] }).catch(() => {});
     reply(isTimeout(e) ? 504 : 502, { error: '답을 받지 못했어요\n잠시 후 다시 물어봐 주세요' });
+  }
+}
+
+// 배운 것(20차 ⑧ · 0098) — { tell }은 승인된 누구나(👎 뒤 대화 · 저장은 서버 키 · 알려 준 사람은 세션의 effective_uid),
+// { learn }은 마스터만(세션의 is_master() — 표 RLS와 같은 판정). 반영되면 닮은 열린 질문을 그 자리에서 다시 답한다(모델 1~3회 · 60초 함수 안).
+async function handleLearn(req, body, res, { tellOp, learnOp, whoAsks, userClient }, admin) {
+  const who = await whoAsks(userClient(bearer(req))).catch(() => null);
+  if (!who?.uid) { res.status(502).json({ error: '저장하지 못했어요' }); return; }
+  try {
+    if (body.tell != null) {
+      const text = typeof body.tell?.text === 'string' ? body.tell.text.trim() : '';
+      if (!text || text.length > 300) { res.status(400).json({ error: '저장하지 못했어요' }); return; }
+      const out = await tellOp(admin, { text, questionId: body.tell?.questionId || null, who });
+      res.status(out ? 200 : 400).json({ ok: !!out, status: out?.status || null });
+      return;
+    }
+    if (!who.master) { res.status(403).json({ error: '마스터만 할 수 있어요' }); return; }
+    const l = body.learn || {};
+    const text = typeof l.text === 'string' ? l.text.trim().slice(0, 300) : '';
+    const out = await learnOp(admin, { op: l.op, id: l.id || null, text, questionId: l.questionId || null }, { who });
+    res.status(out ? 200 : 400).json({ ok: !!out, status: out?.status || null, resolved: out?.resolve?.resolved || 0 });
+  } catch (e) {
+    console.error('[ai] 배운 것 저장 실패:', e?.message || e);
+    res.status(502).json({ error: '저장하지 못했어요' });
   }
 }
 

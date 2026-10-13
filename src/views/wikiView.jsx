@@ -1,11 +1,12 @@
 import { createContext, lazy, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Bold, ChevronLeft, ChevronRight, Pencil, Plus, X } from 'lucide-react';
+import { ArrowUp, Bold, Check, ChevronLeft, ChevronRight, Lock, Pencil, Plus, ThumbsDown, X } from 'lucide-react';
 import { useCached } from '../services/cache.js';
-import { loadWiki, saveWikiEdits, seenMap, markSeen } from '../services/wiki.js';
+import { loadWiki, saveWikiEdits, seenMap, markSeen, learnDabooti } from '../services/wiki.js';
 import {
   WIKI_GROUPS, EDITABLE_TYPES, ADDABLE_TYPES, overlayEdits, overlayTitles, editStats, editRows, sourceLabel, mdLabel, kstDate,
-  FAQ_SOURCE, FAQ_ID, TITLE_KEY, headKey, visiblePages, boldParts, toggleBold, withTeamCards, hideUnseenBlocks, leadBold,
+  FAQ_SOURCE, FAQ_ID, LEARNED_ID, MASTER_PAGES, TITLE_KEY, headKey, visiblePages, boldParts, toggleBold, withTeamCards, hideUnseenBlocks, leadBold,
 } from '../services/wikiCore.js';
+import { imeComposing } from '../utils.js';
 import {
   outlineOf, pageKind, teamMembers, teamWork, pageTasks, prepInfo, teamInfo, relatedPages, linkTargets, linkParts, splitRef, bookColors,
 } from '../services/wikiLive.js';
@@ -35,6 +36,9 @@ const FilePreviewModal = lazy(() => import('../components/FilePreviewModal.jsx')
 // 고친 줄은 다음 날 다시 모아도 덮이지 않는다(글에 표시는 없다 · 마스터에게 장 머리 '수정한 곳 N'만).
 // 고치기는 마스터만(0090): ✎ 수정 → 줄마다 글 칸(B = **굵게**) → 저장(바뀐 줄만 upsert) · 함께 쓰는 글의 목록은 줄을 더할 수 있다.
 // 자주 묻는 질문 장은 마스터만 본다(목록·다붓이 링크에서 뺀다 — wikiCore.visiblePages).
+// 20차 ⑧(사용자 결정 2026-10-13 · 0098): '다붓이가 배운 것' 장(learned · 마스터만) — 확인을 기다리는 말(✓ 반영 · ✗ 버리기) · 다붓이가 배운 것
+//   (연필 고치기 · 리더 관련이면 자물쇠) · '+ 직접 알려 주기'. 자주 묻는 질문 장은 '많이 물어본 질문' 칩(누르면 물어보기 판에서 지금 답) ·
+//   '아직 답하지 못한 질문'(답을 알려 주기). 둘 다 서버가 바꾸고 장을 다시 쓴다(services/wiki.learnDabooti → 위키를 다시 읽는다) · ✎ 수정은 없다.
 // 근거 칩: 업무 → 업무 창 · 주보 → 그 주보 · 파일 → 미리보기(비밀번호 파일은 업무 창으로) · 장 → 그 장.
 // 장 모양(17차): 갈래 › 장 · 제목 · 목차 · 번호 붙은 마디(services/wikiLive.outlineOf) · 정보 상자(팀·행사) ·
 //   '지금' 마디(구성원 · 지금 하는 일 · 준비 — 화면을 열 때 스토어의 가입자·업무로 센다 · 머리 오른쪽 '현재 … 기준') ·
@@ -69,6 +73,8 @@ function useMainHeight(ref) {
   }, [ref]);
 }
 const STATUS_TAG = new Set(['진행 중', '시작 전', '보류 중', '상시']);
+// 다붓이가 배운 것 — 확인을 기다리는 말 수(장 목록의 점 · api/_wiki/learn.js pendingCount와 같다)
+const waitingOf = (p) => ((p?.blocks || []).find(b => b.key === 'pending')?.items || []).length;
 
 // '지금' 마디의 재료 — 스토어가 이미 들고 있는 가입자·업무·프로젝트(새로 묻지 않는다).
 // 게스트(클라우드 없음)는 검사(tests/wiki)가 장 묶음에 실어 준 live를 쓴다.
@@ -120,7 +126,10 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
     setSeen(seenMap());
   }, [page?.id, page?.built_at]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const go = (id) => { if (id === FAQ_ID && !isMaster) return; setDir(id === null ? 'back' : 'fwd'); setSel(id); document.querySelector('main')?.scrollTo?.({ top: 0 }); };
+  // 자주 묻는 질문 칩 → 물어보기 판에 그 질문(n이 바뀔 때마다 한 번)
+  const [askNow, setAskNow] = useState(null);
+  const askFromPage = (q) => { if (!q) return; setAskNow({ q, n: Date.now() }); go('ask'); };
+  const go = (id) => { if (MASTER_PAGES.has(id) && !isMaster) return; setDir(id === null ? 'back' : 'fwd'); setSel(id); document.querySelector('main')?.scrollTo?.({ top: 0 }); };
   // 딥링크 `/?p=wiki&wiki=<장 id>` — 8시 크론의 마스터 알림('다붓이가 모르는 질문 N개' → 자주 묻는 질문)이 연다(services/entryQuery)
   const entry = useEntryQuery();
   useEffect(() => {
@@ -162,7 +171,11 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
                 {fresh(p) && <span className="w-[5px] h-[5px] rounded-full bg-accent/60 shrink-0" title="다시 모았어요" />}
                 <span className="truncate">{p.title}</span>
               </span>
-              {p.kind === 'auto' && p.source_count > 0 && <small className="text-[10.5px] text-fg-muted tabular-nums">{p.source_count}</small>}
+              <span className="shrink-0 flex items-center gap-1.5">
+                {p.kind === 'auto' && p.source_count > 0 && <small className="text-[10.5px] text-fg-muted tabular-nums">{p.source_count}</small>}
+                {/* 확인을 기다리는 말이 있다(다붓이가 배운 것 · 마스터만) */}
+                {p.id === LEARNED_ID && waitingOf(p) > 0 && <span className="wiki-waiting w-[5px] h-[5px] rounded-full bg-accent" aria-label="확인을 기다리는 말" />}
+              </span>
             </button>
           ))}
         </div>
@@ -183,14 +196,14 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
   ) : null;
 
   // 폰은 ‹ 위키 줄(약 40px)만큼 뺀다
-  const ask = <AskPanel chat={chat} setChat={setChat} chips={chips} onOpenCite={openCite} onOpenFile={openFile} onOpenFaq={isMaster ? () => go(FAQ_ID) : null}
+  const ask = <AskPanel chat={chat} setChat={setChat} chips={chips} onOpenCite={openCite} onOpenFile={openFile} onOpenFaq={isMaster ? () => go(FAQ_ID) : null} pending={askNow}
     fill={isMobile ? 'calc(var(--wiki-h, 70vh) - 40px)' : 'var(--wiki-h, 70vh)'} />;
   const modal = preview && (
     <Suspense fallback={null}>
       <FilePreviewModal row={preview} rows={[preview]} initialSrc={null} onClose={() => setPreview(null)} />
     </Suspense>
   );
-  const pageProps = { pages, live, isMaster, onOpenCite: openCite, onOpenQt: openQt, onGo: go, onSaved: refresh };
+  const pageProps = { pages, live, isMaster, onOpenCite: openCite, onOpenQt: openQt, onGo: go, onSaved: refresh, onAsk: askFromPage };
 
   // ── 폰 ────────────────────────────────────────────────────────────────────
   if (isMobile) {
@@ -246,7 +259,7 @@ const LinkCtx = createContext(null);
 
 const todayKst = () => kstDate(new Date().toISOString());
 
-function WikiPage({ page, pages = [], live = {}, mobile = false, isMaster = false, onOpenCite, onOpenQt, onGo, onSaved }) {
+function WikiPage({ page, pages = [], live = {}, mobile = false, isMaster = false, onOpenCite, onOpenQt, onGo, onSaved, onAsk }) {
   const [editing, setEditing] = useState(false);
   const [drafts, setDrafts] = useState({});
   const [added, setAdded] = useState([]);   // [{ key, block_key, text }]
@@ -304,8 +317,8 @@ function WikiPage({ page, pages = [], live = {}, mobile = false, isMaster = fals
     } finally { setSaving(false); }
   };
 
-  // 고치기는 마스터만(0090) — 마스터가 아니면 ✎ 수정을 세우지 않는다
-  const editBar = !isMaster ? null : editing ? (
+  // 고치기는 마스터만(0090) — 마스터가 아니면 ✎ 수정을 세우지 않는다 · 마스터 장 둘(자주 묻는 질문 · 배운 것)은 줄마다 제 버튼으로 고친다(20차 ⑧)
+  const editBar = !isMaster || MASTER_PAGES.has(page.id) ? null : editing ? (
     <span className="flex items-center gap-1.5 shrink-0">
       {/* 누르는 순간 칸의 초점을 뺏지 않는다(데스크톱) — 폰은 lastDraft가 고른 자리를 쥐고 있다 */}
       <button type="button" onPointerDown={e => e.preventDefault()} onClick={bold} aria-label="굵게" title="굵게"
@@ -319,7 +332,7 @@ function WikiPage({ page, pages = [], live = {}, mobile = false, isMaster = fals
     </button>
   );
 
-  const ctx = { page, pages, live, today, mobile, editing, isMaster, drafts, setDrafts, added, setAdded, onOpenCite, onOpenQt, onGo, prep, team, related };
+  const ctx = { page, pages, live, today, mobile, editing, isMaster, drafts, setDrafts, added, setAdded, onOpenCite, onOpenQt, onGo, onSaved, onAsk, prep, team, related };
   const single = outline.sections.length < 2;
   const toc = !single && (
     <nav className="wiki-toc self-start justify-self-start min-w-[240px] max-w-full rounded-[10px] border border-line bg-surface px-[18px] py-3.5 grid gap-1.5 text-[13px]" aria-label="목차">
@@ -345,7 +358,7 @@ function WikiPage({ page, pages = [], live = {}, mobile = false, isMaster = fals
           </h1>
           {/* 누가 고쳤는지('함께 작성' · 'OOO · 날짜 수정')는 걷었다(사용자 결정 2026-10-04) — 출처·기록 수·모은 날만.
               '수정한 곳 N'은 마스터에게만(고치는 사람이 마스터뿐이라 그쪽에만 쓸모가 있다) */}
-          {!human && (
+          {!human && page.id !== LEARNED_ID && (
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-fg-muted">
               <Tag>{sourceLabel(page.source)}</Tag>
               {page.source_count > 0 && <span>{UNIT[page.source] || '기록'} {page.source_count}{page.source === '업무' || page.source === '주보' ? '건' : '개'}</span>}
@@ -655,6 +668,113 @@ function QtDays({ days, onOpen, mobile = false, today }) {
   );
 }
 
+// ── 마스터 장 둘의 손(20차 ⑧) ─────────────────────────────────────────────────
+// 한 줄 칸 — Enter나 보내기로 넘기고 Esc로 닫는다(답을 알려 주기 · 직접 알려 주기 · 고치기)
+function OneLine({ value = '', label, busy = false, onSubmit, onCancel }) {
+  const [v, setV] = useState(value);
+  const go = () => { if (v.trim() && !busy) onSubmit(v.trim()); };
+  return (
+    <span className="wiki-oneline flex items-center gap-1.5 mt-1">
+      <input autoFocus value={v} maxLength={300} aria-label={label} disabled={busy}
+        onChange={e => setV(e.target.value)}
+        onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); go(); } else if (e.key === 'Escape') onCancel?.(); }}
+        className="flex-1 min-w-0 rounded-md border border-line bg-surface px-2.5 py-1.5 text-[13.5px] text-fg outline-none focus:border-accent" />
+      <button type="button" onClick={go} disabled={!v.trim() || busy} aria-label="보내기"
+        className="w-8 h-8 shrink-0 rounded-full bg-accent text-white inline-flex items-center justify-center transition active:scale-90 disabled:opacity-40"><ArrowUp size={15} strokeWidth={2.4} /></button>
+    </span>
+  );
+}
+// 서버에 맡기고 위키를 다시 읽는다 — key: 누르는 중인 줄(그 줄 버튼만 잠근다)
+function useLearn(ctx) {
+  const [busy, setBusy] = useState('');
+  const run = async (key, op, args, done) => {
+    setBusy(key);
+    try { await learnDabooti(op, args); done?.(); ctx.onSaved?.(); }
+    catch (e) { showToast(`저장하지 못했어요\n${errorReason(e)}`); }
+    finally { setBusy(''); }
+  };
+  return [busy, run];
+}
+
+// 다붓이가 배운 것 — 확인을 기다리는 말(pending · ✓ 반영 / ✗ 버리기)과 다붓이가 배운 것(learned · 연필 고치기 · '+ 직접 알려 주기')
+function FactsBlock({ b, ctx, h3, anim }) {
+  const waiting = b.key === 'pending';
+  const [busy, run] = useLearn(ctx);
+  const [editKey, setEditKey] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const icon = 'w-[30px] h-[30px] shrink-0 rounded-lg inline-flex items-center justify-center transition active:scale-90 disabled:opacity-40';
+  return (
+    <div className={`dc-row grid gap-2 wiki-facts is-${b.key}`} style={anim}>
+      {h3}
+      {(b.items || []).length > 0 && (
+        <ul className="m-0 p-0 list-none grid gap-1.5">
+          {b.items.map(it => {
+            const m = it.meta || {};
+            const sub = [mdLabel(m.day), m.who, m.q ? `물음: "${m.q}"` : ''].filter(Boolean).join(' · ');
+            return (
+              <li key={it.key} className={`wiki-fact flex items-start gap-2 ${waiting ? 'rounded-lg bg-surface-hover px-2.5 py-2' : 'px-1 py-1'}`}>
+                {!waiting && <span className="w-[5px] h-[5px] rounded-full bg-accent mt-[10px] shrink-0" aria-hidden="true" />}
+                <span className="min-w-0 flex-1 text-[14px] leading-[1.65] text-fg break-words">
+                  {editKey === it.key
+                    ? <OneLine value={it.text} label="고치기" busy={busy === it.key} onCancel={() => setEditKey(null)} onSubmit={text => run(it.key, 'edit', { id: m.id, text }, () => setEditKey(null))} />
+                    : <>{it.text}{m.leader && <Lock size={11} className="inline-block ml-1 align-[-1px] text-fg-muted" aria-label="리더만" />}</>}
+                  {sub && <span className="block text-[11.5px] text-fg-muted">{sub}</span>}
+                </span>
+                {waiting ? (
+                  <>
+                    <button type="button" aria-label="반영" title="반영" disabled={!!busy} onClick={() => run(it.key, 'approve', { id: m.id })} className={`wiki-fact-ok ${icon} bg-accent text-white`}><Check size={15} strokeWidth={2.6} /></button>
+                    <button type="button" aria-label="버리기" title="버리기" disabled={!!busy} onClick={() => run(it.key, 'reject', { id: m.id })} className={`wiki-fact-no ${icon} bg-surface text-fg-muted`}><X size={14} strokeWidth={2.4} /></button>
+                  </>
+                ) : editKey !== it.key && (
+                  <button type="button" aria-label="고치기" title="고치기" onClick={() => setEditKey(it.key)} className="wiki-fact-edit w-7 h-7 shrink-0 rounded-md inline-flex items-center justify-center text-fg-faint hover:text-fg-muted hover:bg-surface-hover transition active:scale-90"><Pencil size={12} /></button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {!waiting && (adding
+        ? <OneLine label="직접 알려 주기" busy={busy === 'add'} onCancel={() => setAdding(false)} onSubmit={text => run('add', 'add', { text }, () => setAdding(false))} />
+        : <button type="button" onClick={() => setAdding(true)} className="wiki-fact-add justify-self-start inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-dashed border-line text-[12px] font-semibold text-fg-muted hover:bg-surface-hover transition active:scale-95"><Plus size={13} /> 직접 알려 주기</button>)}
+    </div>
+  );
+}
+
+// 아직 답하지 못한 질문 — 날짜 · 못 찾음/👎 · '답을 알려 주기'(한 줄 → 반영된 사실 + 그 자리에서 다시 답해 닫힌다)
+function OpenBlock({ b, ctx, h3, anim }) {
+  const [busy, run] = useLearn(ctx);
+  const [openKey, setOpenKey] = useState(null);
+  return (
+    <div className="dc-row grid gap-2 wiki-open-list" style={anim}>
+      {h3}
+      <ul className="m-0 p-0 list-none grid gap-1.5">
+        {(b.items || []).map(it => {
+          const m = it.meta || {};
+          return (
+            <li key={it.key} className="wiki-open rounded-lg bg-surface-hover px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 text-[14px] leading-[1.6] text-fg break-words">
+                  {m.q}
+                  <span className="ml-1.5 text-[11.5px] text-fg-muted whitespace-nowrap">
+                    {m.day && `${mdLabel(m.day)} · `}{m.why === 'bad' ? <ThumbsDown size={11} className="inline-block align-[-1px]" role="img" aria-label="싫어요" /> : '못 찾음'}
+                  </span>
+                </span>
+                {openKey !== it.key && (
+                  <button type="button" onClick={() => setOpenKey(it.key)} className="wiki-open-tell shrink-0 px-2.5 py-1 rounded-full bg-accent text-white text-[11.5px] font-bold transition active:scale-95">답을 알려 주기</button>
+                )}
+              </div>
+              {openKey === it.key && (
+                <OneLine label="답을 알려 주기" busy={busy === it.key} onCancel={() => setOpenKey(null)}
+                  onSubmit={text => run(it.key, 'answer', { questionId: m.qid, text }, () => setOpenKey(null))} />
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 // 제목 칸 — 같은 글꼴로 그 자리에서(마스터만)
 function TitleDraft({ value, onChange, label }) {
   return <input value={value} onChange={e => onChange(e.target.value)} aria-label={label} maxLength={120} className="wiki-draft wiki-title-draft" />;
@@ -911,6 +1031,28 @@ function Block({ b, i, ctx, noTitle = false, no = '' }) {
             ))}
           </ol>
         )}
+      </div>
+    );
+  }
+
+  // 마스터 장 둘(20차 ⑧) — 다붓이가 배운 것(facts) · 많이 물어본 질문(askchips) · 아직 답하지 못한 질문(open)
+  if (b.type === 'facts') return <FactsBlock b={b} ctx={ctx} h3={h3} anim={anim} />;
+  if (b.type === 'open') return <OpenBlock b={b} ctx={ctx} h3={h3} anim={anim} />;
+  if (b.type === 'askchips') {
+    return (
+      <div className="dc-row grid gap-2" style={anim}>
+        {h3}
+        <ul className="m-0 p-0 list-none flex flex-wrap gap-1.5">
+          {visible.map(it => (
+            <li key={it.key} className="min-w-0 max-w-full">
+              <button type="button" onClick={() => ctx.onAsk?.(it.meta?.q)}
+                className="wiki-askchip max-w-full inline-flex items-center gap-1.5 min-h-[32px] px-3 py-1 rounded-full bg-accent-weak text-accent-text text-[12.5px] font-semibold text-left transition hover:brightness-95 active:scale-95">
+                <span className="min-w-0">{it.meta?.q}</span>
+                {it.meta?.n > 1 && <span className="opacity-60 tabular-nums shrink-0">{it.meta.n}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
     );
   }

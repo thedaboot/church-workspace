@@ -1,4 +1,4 @@
-import { SEED_PAGES, overlayEdits, overlayTitles, withTeamCards, hideUnseenBlocks, blockCardIds, stripBold, mdLabel } from '../../src/services/wikiCore.js';
+import { SEED_PAGES, MASTER_PAGES, overlayEdits, overlayTitles, withTeamCards, hideUnseenBlocks, blockCardIds, stripBold, mdLabel } from '../../src/services/wikiCore.js';
 
 // ── 다붓이 근거 글 — 위키 장 · 주보 (20차 ② · 2026-10-12) ─────────────────────────
 // 다붓이 답(api/_wikiAsk.js collectAll)과 뜻 찾기 조각(api/_docsync.js — 크론이 doc_vec에 임베딩)이 **같은 글**을 쓴다.
@@ -24,12 +24,13 @@ export const serviceText = (s) => {
 
 // 위키 장 — 장 하나가 기록 하나(사람이 고친 문장 겹침 · 팀 소개 카드) → { items: [{ text, cite, page, cardIds }], now: 겹친 장들 }
 // 자주 묻는 질문 장(faq)은 싣지 않는다(2026-10-09) — 남이 물은 질문 글이 들어 있고 마스터만 읽는 장이다.
+// '다붓이가 배운 것' 장(learned · 20차 ⑧)도 — 확인을 기다리는 말과 알려 준 사람이 있다. 승인된 사실은 _wiki/learn.js factEvidence로 따로 실린다.
 // cards: 묻는 사람에게 보이는 업무 id(20차 ⑦ — 그 밖의 업무를 가리키는 블록은 겹친 뒤에 걷는다 · wikiCore.hideUnseenBlocks) · null이면 그대로.
 // cardIds: 실린 블록이 가리키는 업무 — 답이 이 장을 근거로 달면 answer.wikiCards로 남아 visibility.leaderCited가 본다.
 export const pageBody = (p) => (p.blocks || []).map(b => `${b.title ? `${b.title}: ` : ''}${(b.items || []).map(it => `${it.meta?.q ? `(질문 '${it.meta.q}') ` : ''}${it.meta?.team ? `${it.meta.team} ` : ''}${stripBold(it.text)}`).join(' / ')}`).filter(Boolean).join('\n').slice(0, 4000);
 export function wikiEvidence(pages, edits, { cards = null } = {}) {
-  const editsBy = Map.groupBy(edits.filter(e => e.page_id !== 'faq'), e => e.page_id);
-  const allPages = [...pages, ...SEED_PAGES.filter(sp => !pages.some(p => p.id === sp.id))].filter(p => p.id !== 'faq');
+  const editsBy = Map.groupBy(edits.filter(e => !MASTER_PAGES.has(e.page_id)), e => e.page_id);
+  const allPages = [...pages, ...SEED_PAGES.filter(sp => !pages.some(p => p.id === sp.id))].filter(p => !MASTER_PAGES.has(p.id));
   const now = hideUnseenBlocks(withTeamCards(allPages.map(p => { const pe = editsBy.get(p.id) || []; const o = overlayTitles(p, pe); return { ...o, blocks: overlayEdits(o.blocks, pe) }; })), cards);
   const items = [];
   for (const p of now) {

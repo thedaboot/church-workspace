@@ -10,7 +10,7 @@
 //   linkTargets / linkParts  글 안의 장 제목·자주 쓰는 말을 그 장으로(마디마다 처음 한 번)
 // 빼는 업무는 장을 만들 때(api/_wikiBuild.js)와 같다 — 워크스페이스 개선·회계 프로젝트 · 명단·출석 같은 한 사람 한 사람의 기록.
 // ============================================================================
-import { mdLabel, kstDate, taskWhen, stripBold } from './wikiCore.js';
+import { mdLabel, kstDate, taskWhen, stripBold, MASTER_PAGES } from './wikiCore.js';
 
 export const TEAM_NAMES = ['교역자', '임원진', '찬양팀', '워십팀', '웰컴팀', '미디어팀', '엔지니어팀'];
 const AUDIENCE = new Set(['순장', '순원']);
@@ -230,7 +230,7 @@ export function relatedPages(page, pages = [], limit = 8) {
   const out = [];
   if (mine.size) {
     for (const p of pages || []) {
-      if (!p || p.id === page.id || p.id === 'faq' || p.id === 'intro' || p.id === 'terms') continue;
+      if (!p || p.id === page.id || MASTER_PAGES.has(p.id) || p.id === 'intro' || p.id === 'terms') continue;
       const n = pageCardIds(p).filter(id => mine.has(id)).length;
       if (n) out.push({ id: p.id, title: p.title, n });
     }
@@ -257,7 +257,7 @@ export function linkTargets(pages = [], selfId = '') {
   const self = (pages || []).find(p => p.id === selfId)?.title;
   for (const w of termWords(terms)) if (selfId !== 'terms' && w !== self) map.set(w, 'terms');
   for (const p of pages || []) {
-    if (!p?.title || p.id === selfId || p.id === 'faq' || p.kind === 'human' || String(p.title).length < 2) continue;
+    if (!p?.title || p.id === selfId || MASTER_PAGES.has(p.id) || p.kind === 'human' || String(p.title).length < 2) continue;
     map.set(p.title, p.id);   // 장 제목이 자주 쓰는 말보다 앞(월례회 → 월례회 장)
   }
   return [...map].map(([word, id]) => ({ word, id })).sort((a, b) => b.word.length - a.word.length);

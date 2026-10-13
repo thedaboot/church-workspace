@@ -36,7 +36,11 @@ export function overlayTitles(page, edits = []) {
 
 // 자주 묻는 질문 장은 마스터만 본다(사용자 결정 2026-10-04 · 0090) — 화면 목록에서도 뺀다. DB도 마스터에게만 준다.
 export const FAQ_ID = 'faq';
-export const visiblePages = (pages, isMaster) => (isMaster ? pages : pages.filter(p => p.id !== FAQ_ID));
+// '다붓이가 배운 것' 장도 마스터만(20차 ⑧ · 0098) — 알려 준 사람 이름과 확인을 기다리는 말이 있다.
+// 두 장은 다붓이 근거·뜻 찾기 조각·다른 AI 맥락에 장 글로 싣지 않는다(배운 것은 dabooti_facts에서 따로 — api/_wiki/learn.js).
+export const LEARNED_ID = 'learned';
+export const MASTER_PAGES = new Set([FAQ_ID, LEARNED_ID]);
+export const visiblePages = (pages, isMaster) => (isMaster ? pages : pages.filter(p => !MASTER_PAGES.has(p.id)));
 
 // 굵게 — 위키 글은 `**굵게**`만 안다(마크다운 라이브러리 없이). 읽기는 boldParts로 갈라 그리고,
 // 모델에게 근거·예시로 줄 때는 stripBold로 별표를 걷는다(_wikiAsk · _wikiBuild — 별표가 답에 묻어나지 않게).
@@ -330,7 +334,7 @@ export function prefilter(q) {
 // talkKind(질문, 앞 질문들) → { kind, answer, status } 또는 null(근거를 찾는 보통 길).
 //   self      다붓이를 누가 만들었나 · 만든 사람을 알려 줌 — answered(칩 없음 · 저장하지 않는다)
 //   greet · thanks · praise · ok · bye — answered(저장하지 않는다)
-//   statement 알려 주는 말 — unknown으로 저장해 마스터가 자주 묻는 질문 › 모르는 질문에서 위키에 옮긴다
+//   statement 알려 주는 말 — unknown으로 저장하고, 그 말은 배운 것 저장소(0098 dabooti_facts)로 간다(마스터면 바로 반영 · api/ai.js)
 export const MAKER = '노준석';
 export const TALK_ANSWERS = {
   makerAsk: '청년부에서 가장 목소리가 좋은, 위대하신 노준석 개발자님이 만들었어요!',
@@ -343,7 +347,8 @@ export const TALK_ANSWERS = {
   praise: '칭찬해 주셔서 고마워요! 더 잘 찾아 볼게요.',
   ok: '네, 좋아요! 또 궁금한 게 있으면 물어봐 주세요.',
   bye: '네, 다음에 또 만나요! 좋은 하루 보내세요.',
-  statement: '알려 주셔서 고마워요! 정리해서 내일 아침에 학습해 둘게요.',
+  // 사용자 문구(2026-10-13 · 20차 ⑧) — 👎 뒤에 알려 준 말과 같은 문장(마스터든 누구든 같다)
+  statement: '알려주셔서 고마워요 ! 내일까지 확실하게 공부해올게요 !',
 };
 // 다붓이를 부르는 말 — '더다붓'(청년부 이름)은 아니다
 const SELF = /(?<![가-힣])(?:너|넌|너는|너를|너의|니|니가|네가|당신|너희|너희는|너희들|너네|니네)(?![가-힣])|(?<!더)다붓(?:이|아)/;
@@ -918,7 +923,7 @@ export function cacheFresh(row, stamp, today) {
   if (kstDate(row.created_at) !== today) return false;
   if (!stamp || !(new Date(row.created_at).getTime() > new Date(stamp).getTime())) return false;
   // 마스터만 보는 장(자주 묻는 질문)을 근거로 한 답은 다른 사람에게 주지 않는다
-  return !row.answer.sentences.some(s => (s.cites || []).some(c => c.t === 'page' && c.id === FAQ_ID));
+  return !row.answer.sentences.some(s => (s.cites || []).some(c => c.t === 'page' && MASTER_PAGES.has(c.id)));
 }
 
 // ── 대화 수명 (사용자 결정 2026-10-04) ────────────────────────────────────────
@@ -983,3 +988,32 @@ export function askLines(buf) {
   return { items, rest };
 }
 export const isStageLine = (o) => !!o && typeof o.stage === 'string' && Object.keys(o).length === 1;
+
+// ── 학습 고리 (20차 ⑧ · 사용자 결정 2026-10-13 · 정본 docs/AI.md §5) ──────────────────
+// 👎를 누르면 다붓이가 묻고(TELL_ASK), 평소 입력창에 친 다음 말이 알려 준 말이다(tellTurn) — 서버 { tell }이 배운 것 저장소에 남긴다.
+// 서버가 nudge를 단 답(못 찾음 · 검사가 문장을 버림 · 바꿔 다시 물음)은 말풍선 끝에 권유 한 줄(NUDGE — 가운데에 👎 아이콘).
+export const TELL_ASK = '다붓이가 어떻게 말해야 할까요?';
+export const NUDGE = { before: '맞는 답을 아신다면 ', after: '를 눌러서 직접 알려주세요!' };
+
+// 같은 질문을 바꿔 다시 물었나 — a 뒤에 b: 묶음(norm)이 다르고 a의 내용 낱말이 반 넘게 b에도 있다.
+// 아침 고리(api/_wikiAsk.js reaskTodo — 2분 안)와 낮의 권유 줄(askNudge — 같은 대화의 바로 앞 물음)이 같은 어림을 쓴다.
+export function rephrased(a, b) {
+  if (!String(a || '').trim() || !String(b || '').trim() || normQ(a) === normQ(b)) return false;
+  const ta = termsOf(a); const tb = new Set(termsOf(b));
+  return ta.length > 0 && ta.filter(t => tb.has(t)).length * 2 > ta.length;
+}
+
+// 👎 뒤의 다음 말 → 'tell'(알려 준 말) | 'ask'(새 질문 — 알려 주기는 접는다).
+//   인사·고마움 같은 코드가 받는 말은 새 말 · 바로잡는 말('A가 아니라 B야')은 알려 준 말 ·
+//   원래 물음과 낱말이 겹치면 알려 준 말(단 '언제·누구·알려 줘' 같은 물음이면 새 질문) · 전혀 다른 말이면 새 질문(사용자 결정 그대로 —
+//   '3주차까지 했어'처럼 낱말이 안 겹치는 짧은 답도 새 질문이 된다 · 그 말이 알려 주는 말 꼴이면 서버의 알려 주는 말 갈래가 받는다).
+export function tellTurn(text, question) {
+  const s = String(text || '').trim();
+  if (!s) return 'ask';
+  const talk = talkKind(s);
+  if (talk && talk.kind !== 'statement') return 'ask';
+  if (CORRECTION.test(s) && !WH_ASK.test(s)) return 'tell';
+  const hay = flatK(s); const qhay = flatK(question);
+  const overlap = termsOf(question).some(t => hasTerm(hay, t)) || termsOf(s).some(t => hasTerm(qhay, t));
+  return overlap && !WH_ASK.test(s) ? 'tell' : 'ask';
+}
