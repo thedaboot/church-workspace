@@ -231,14 +231,15 @@ export function peopleLines(roster, q) {
 }
 
 // 팀 사람을 나열한 답 문장 → 그 문장이 가리킨 팀 줄(peopleLines) 그대로 · 나열이 아니면 null.
-// 나열: 그 줄의 이름이 둘 넘게 나오거나, '<팀>에는'으로 시작해 이름이 하나라도 나온다. 한 사람 문장('일렉은 김승찬 형제가…')은 그대로 둔다.
+// 나열: '<팀>에는'으로 시작해 이름이 하나라도 나오거나, 그 줄의 이름이 **셋 넘게** 나온다. 한 사람 문장('일렉은 김승찬 형제가…')은 그대로 둔다.
+// 둘로 잡으면 '찬양 인도자는 노준석 형제와 조준환 형제예요'(묻는 것만 답한 문장)까지 팀 명단으로 둔갑했다(2026-10-13 라이브 👎 — 사용자 지적).
 export function teamListLine(text, lines = []) {
   const t = String(text || '');
   for (const line of lines.filter(l => l && l.includes('현재 워크스페이스 가입자로는'))) {
     const team = line.slice(0, line.indexOf('에는'));
     const names = line.split('가입자로는 ')[1].replace(/(?:이가|이|가) 있어요\.$/, '').split(', ').map(n => n.replace(/\([^)]*\)$/, ''));
     const n = names.filter(x => x && t.includes(x)).length;
-    if (n >= 2 || (n >= 1 && t.startsWith(`${team}에는`))) return line;
+    if (n >= 3 || (n >= 1 && t.startsWith(`${team}에는`))) return line;
   }
   return null;
 }

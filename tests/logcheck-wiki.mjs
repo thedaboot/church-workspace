@@ -764,6 +764,9 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   assert.strictEqual(A.teamListLine('찬양팀에는 현재 워크스페이스 가입자로는 노준석, 조준환, 재훈이 있어요.', ['오늘은 …', line]), line);
   assert.strictEqual(A.teamListLine('찬양팀에는 노준석, 조준환이 있어요.', [line]), line, "'가입자'가 빠져도");
   assert.strictEqual(A.teamListLine('찬양팀에서 일렉은 김승찬 형제가 맡고 있어요.', [line]), null, '한 사람 문장');
+  // 묻는 것만 답한 두 사람 문장은 명단으로 바꾸지 않는다(2026-10-13 라이브 👎 — '찬양 인도자는 누가 하고 있나요?'가 찬양팀 명단으로 둔갑했다)
+  assert.strictEqual(A.teamListLine('찬양 인도자는 노준석 형제와 조준환 형제예요.', [line]), null, '두 사람 문장은 그대로');
+  assert.strictEqual(A.teamListLine('노준석, 조준환, 재훈이 찬양팀에서 섬겨요.', [line]), line, '셋 넘게 나열하면 명단 줄');
   // 출석 명단을 못 읽으면 '모두 왔어요'라고 하지 않는다(던져서 '답을 받지 못했어요')
   const attDb = fakeDb({ groups: [], services: [{ id: 's1', kind: 'sunday', service_date: '2026-09-27' }], people: [], attendance: [{ person_id: 'x' }], attendance_guests: [] });
   await assert.rejects(A.attendanceReply('지난주 누가 안 왔어?', { db: attDb, today: '2026-10-04' }), /출석 읽기 실패/);
