@@ -193,7 +193,7 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
     // 👎 뒤 '어떻게 말해야 할까요?'에 이어진 말 — 원래 물음과 이어지면 알려 준 말(고마움 말풍선 · 서버 { tell }), 아니면 그 말풍선은 접고 새 질문
     const open = [...chat].reverse().find(m => m.tellFor && !m.closed);
     if (open) {
-      const told = tellTurn(question, open.oq) === 'tell';
+      const told = tellTurn(question) === 'tell';
       const id = `${Date.now()}`;
       setChat(c => [...c.map(m => (m.id === open.id ? { ...m, closed: true } : m)),
         ...(told ? [{ id, q: question, told: true, a: { status: 'answered', sentences: [{ text: TALK_ANSWERS.statement, cites: [] }], files: [] } }] : [])]);

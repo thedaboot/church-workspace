@@ -1702,9 +1702,10 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
 
   // ── D. 👎 뒤 다음 말 — 겹치면 알려 준 말 · 다른 물음은 새 질문 · 인사는 새 말 ──
   const oq = '혹시 예배자학교는 어디까지 진행되었어 ?';
-  assert.strictEqual(W.tellTurn('예배자학교는 3주차까지 했어', oq), 'tell', '겹침 → 알려 준 말');
-  assert.strictEqual(W.tellTurn('시편 119편', oq), 'ask', '전혀 다른 말 → 새 질문(물음 꼴이 아니어도)');
+  assert.strictEqual(W.tellTurn('예배자학교는 3주차까지 했어', oq), 'tell', '이어 치는 말은 답');
+  assert.strictEqual(W.tellTurn('3주차까지 했어', oq), 'tell', '원래 물음과 낱말이 안 겹쳐도 답(2026-10-13 — 겹침을 요구하면 알려 주기가 접혔다)');
   assert.strictEqual(W.tellTurn('체육대회는 언제 해?', oq), 'ask', '다른 물음 → 새 질문');
+  assert.strictEqual(W.tellTurn('체육대회는 언제 해', oq), 'ask', '물음표가 없어도 물음 꼴이면 새 질문');
   assert.strictEqual(W.tellTurn('예배자학교 어디까지 했는지 알려줘', oq), 'ask', '겹쳐도 물음이면 새 질문');
   assert.strictEqual(W.tellTurn('고마워', oq), 'ask', '인사·고마움은 새 말');
   assert.strictEqual(W.tellTurn('신효진 자매가 아니라 부장님이야', '우리 청년부 부장님은 누구셔?'), 'tell', '바로잡는 말');

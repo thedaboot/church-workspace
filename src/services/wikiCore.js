@@ -1004,16 +1004,14 @@ export function rephrased(a, b) {
 }
 
 // 👎 뒤의 다음 말 → 'tell'(알려 준 말) | 'ask'(새 질문 — 알려 주기는 접는다).
-//   인사·고마움 같은 코드가 받는 말은 새 말 · 바로잡는 말('A가 아니라 B야')은 알려 준 말 ·
-//   원래 물음과 낱말이 겹치면 알려 준 말(단 '언제·누구·알려 줘' 같은 물음이면 새 질문) · 전혀 다른 말이면 새 질문(사용자 결정 그대로 —
-//   '3주차까지 했어'처럼 낱말이 안 겹치는 짧은 답도 새 질문이 된다 · 그 말이 알려 주는 말 꼴이면 서버의 알려 주는 말 갈래가 받는다).
-export function tellTurn(text, question) {
+//   '어떻게 말해야 할까요?'에 이어 치는 말은 **답으로 본다** — '3주차까지 했어'처럼 원래 물음과 낱말이 안 겹치는 짧은 답이 보통이라
+//   겹침을 요구하면 알려 주기가 접혀 버린다(2026-10-13). 새 질문으로 보는 것은 분명한 물음뿐: 인사·고마움 같은 코드가 받는 말 ·
+//   물음표로 끝나거나 '언제·누구·알려 줘' 같은 물음 꼴(WH_ASK). 바로잡는 말('A가 아니라 B야')은 물음표가 있어도 알려 준 말.
+export function tellTurn(text) {
   const s = String(text || '').trim();
   if (!s) return 'ask';
   const talk = talkKind(s);
   if (talk && talk.kind !== 'statement') return 'ask';
-  if (CORRECTION.test(s) && !WH_ASK.test(s)) return 'tell';
-  const hay = flatK(s); const qhay = flatK(question);
-  const overlap = termsOf(question).some(t => hasTerm(hay, t)) || termsOf(s).some(t => hasTerm(qhay, t));
-  return overlap && !WH_ASK.test(s) ? 'tell' : 'ask';
+  if (CORRECTION.test(s)) return 'tell';
+  return /\?\s*$/.test(s) || WH_ASK.test(s) ? 'ask' : 'tell';
 }
