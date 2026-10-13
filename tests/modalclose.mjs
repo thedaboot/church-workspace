@@ -878,6 +878,137 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   await ev(`(async () => { const m = await import('/src/services/ai.js'); if (window.__polishOrig) m.AiService.polishText = window.__polishOrig; })()`, true);
 }
 
+
+// ── 업무 잠금(0099 · 20차 ⑨ · 사용자 결정 2026-10-13) ────────────────────────────────────────────
+// 게스트는 로컬 해시로 같은 흐름(viewPw.js — 서버는 0099 함수). 지키는 것:
+//   ① 자물쇠 버튼은 만든 사람에게만 · 공유 바로 왼쪽 · 얼굴 묶음은 머리줄 안에 온전히(잘리거나 버튼과 겹치지 않는다 — 1440·375)
+//   ② 팝오버 `업무 잠그기` · 두 칸이 비었거나 다르면 그 칸이 흔들리고(.dc-shake) 빨간 테두리 · 토스트 없음
+//   ③ 잠그면 버튼이 눌린 모양 · 만든 사람에게는 본문이 그대로
+//   ④ 다른 사람 화면에서 잠기면 본문이 흐려지며 판으로 접힌다(data-lock-phase=closing) → 잠금 판(`이 업무는 현재 잠겨있어요` · `입력`) ·
+//      `수정`·댓글 사이드바·자물쇠 버튼 없음 · 틀리면 흔들림 · 맞히면 판이 걷힌다(opening) → 본문
+//   ⑤ 움직임 줄이기면 판이 즉시 바뀌고(data-lock-phase 없음) 흔들림 애니메이션이 none · 게스트도 1분에 5번
+// **되돌리기**: LockGate에서 phase를 안 세우면 ④가, CardLockButton의 lockFormError 검사를 빼면 ②가, modals의 isMine 조건을 빼면 ④의
+// '자물쇠 버튼 없음'이 깨진다.
+{
+  const LOCKED_SRC = '잠기는 본문 — 임원진 후보 명단';
+  // 바로 앞 묶음이 새 업무 폼에 글을 친 채로 끝난다 — 그대로 떠나면 beforeunload 확인 창에 걸려 멈춘다. 묻는 쪽으로 닫는다.
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(250);
+  await ev(`${byLabel('무시하고 닫기')}?.click()`); await sleep(300);
+  await seedOne(baseTask('k1', { title: '잠글 업무', content: LOCKED_SRC }));
+  await ev(`window.__coeditFake = [[11, { user: { id: 'me', name: '노준석', color: '#2f6fb5' } }], [12, { user: { id: 'u2', name: '조해리', color: '#c0392b' } }], [14, { user: { id: 'u3', name: '정민경', color: '#8e44ad' } }]]`);
+  const HEAD = `(() => { const m = document.querySelector('.fixed.z-50'); if (!m) return null;
+    const head = m.querySelector('[data-coedit-faces]')?.parentElement?.parentElement; const f = m.querySelector('[data-coedit-faces]');
+    const lock = m.querySelector('[data-card-lock-btn]'); const share = m.querySelector('button[title*="공유"]');
+    if (!head || !f) return { faces: !!f, lock: !!lock };
+    const H = head.getBoundingClientRect(), F = f.getBoundingClientRect(), K = lock?.getBoundingClientRect(), S = share?.getBoundingClientRect();
+    const kids = [...f.children].map(k => k.getBoundingClientRect());
+    return { lock: !!lock, pressed: lock?.getAttribute('aria-pressed'), inHead: F.left >= H.left - 0.5 && F.right <= H.right + 0.5,
+      faceW: kids.map(r => Math.round(r.width)), facesBeforeLock: !!K && F.right <= K.left + 0.5, lockBeforeShare: !!K && !!S && K.right <= S.left + 0.5,
+      shrink: getComputedStyle(f).flexShrink, noScroll: head.scrollWidth <= head.clientWidth + 1 }; })()`;
+  for (const [w, h, mobile] of [[1440, 900, false], [375, 760, true]]) {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile });
+    await send('Page.navigate', { url: URL_BASE + '/?p=p1&t=k1' }); await wait('Page.loadEventFired'); await sleep(1400);
+    await ev(`window.__coeditFake = [[11, { user: { id: 'me', name: '노준석', color: '#2f6fb5' } }], [12, { user: { id: 'u2', name: '조해리', color: '#c0392b' } }], [14, { user: { id: 'u3', name: '정민경', color: '#8e44ad' } }]]`);
+    if (!(await isOpen())) { await ev(`document.querySelector('.board-card')?.click()`); await sleep(800); }
+    else { await ev(`${byLabel('닫기')}?.click()`); await sleep(400); await ev(`document.querySelector('.board-card')?.click()`); await sleep(800); }
+    const hd = await ev(HEAD);
+    check(`잠금 ① ${w}: 자물쇠는 만든 사람에게 · 공유 왼쪽 · 얼굴 묶음(셋)은 머리줄 안에 통째로 · 버튼과 안 겹친다`,
+      !!hd && hd.lock && hd.pressed === 'false' && hd.inHead && hd.facesBeforeLock && hd.lockBeforeShare && hd.shrink === '0'
+      && hd.faceW?.length === 3 && hd.faceW.every(x => x === 22) && hd.noScroll, JSON.stringify(hd));
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1300);
+  await ev(`delete window.__coeditFake`);
+  await openCard();
+  // ② 팝오버 — 비었을 때 · 다를 때
+  await ev(`document.querySelector('.fixed.z-50 [data-card-lock-btn]').click()`); await sleep(300);
+  const FIELD = (k) => `(() => { const i = document.querySelector('[data-card-lock-pop] [data-lock-field="${k}"]'); if (!i) return null;
+    return { bad: i.getAttribute('aria-invalid'), shake: i.classList.contains('dc-shake'), border: getComputedStyle(i).borderTopColor,
+      red: getComputedStyle(document.documentElement).getPropertyValue('--app-tag-red-fg').trim() }; })()`;
+  const pop = await ev(`(() => { const p = document.querySelector('[data-card-lock-pop]'); if (!p) return null;
+    return { text: p.innerText.replace(/\\s+/g, ' ').trim(), labels: [...p.querySelectorAll('label')].map(l => l.firstChild.textContent.trim()),
+      buttons: [...p.querySelectorAll('button')].map(b => b.textContent.trim()) }; })()`);
+  check("잠금 ② 팝오버: '업무 잠그기' · '비밀번호' · '비밀번호 확인' · 취소/잠그기(안 잠겼으면 '잠금 해제' 없음)",
+    !!pop && pop.text.startsWith('업무 잠그기') && JSON.stringify(pop.labels) === '["비밀번호","비밀번호 확인"]' && JSON.stringify(pop.buttons) === '["취소","잠그기"]', JSON.stringify(pop));
+  // 테두리 색은 0.15초 전환(transition-colors)이라 그 뒤에 잰다
+  await ev(`document.querySelector('[data-lock-submit]').click()`); await sleep(300);
+  const empty = await ev(FIELD('pw'));
+  const typeIn = async (k, text) => { await ev(`document.querySelector('[data-card-lock-pop] [data-lock-field="${k}"]').focus()`); await send('Input.insertText', { text }); await sleep(60); };
+  await typeIn('pw', '1234'); await typeIn('confirm', '9999');
+  await ev(`document.querySelector('[data-lock-submit]').click()`); await sleep(300);
+  const diff = await ev(FIELD('confirm'));
+  const toRgb = (hex) => `rgb(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)})`;
+  check('잠금 ② 비밀번호가 비었으면 첫 칸 · 두 칸이 다르면 확인 칸이 흔들리고 빨간 테두리',
+    !!empty && empty.bad === 'true' && empty.shake && !!diff && diff.bad === 'true' && diff.shake && diff.border === toRgb(diff.red), JSON.stringify({ empty, diff }));
+  check('잠금 ② 토스트 없음 · 판은 열린 채', !(await ev(`!!document.querySelector('[data-toast]')`)) && await ev(`!!document.querySelector('[data-card-lock-pop]')`));
+  // ③ 맞게 넣고 잠그기
+  await ev(`(() => { const i = document.querySelector('[data-card-lock-pop] [data-lock-field="confirm"]'); i.select(); })()`);
+  await send('Input.insertText', { text: '1234' }); await sleep(80);
+  await ev(`document.querySelector('[data-lock-submit]').click()`); await sleep(600);
+  const locked = await ev(`(() => { const t = window.__store.getState().tasks.byId.k1; const m = document.querySelector('.fixed.z-50');
+    return { locked: t.locked, open: t.lockedOpen, hash: !!t.lockPw?.view_pw, pop: !!document.querySelector('[data-card-lock-pop]'),
+      pressed: m.querySelector('[data-card-lock-btn]')?.getAttribute('aria-pressed'), body: m.querySelector('[data-view-body]')?.textContent || '',
+      panel: !!m.querySelector('[data-lock-panel]'), stored: JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.k1.locked }; })()`);
+  check('잠금 ③ 잠그면 버튼이 눌린 모양 · 만든 사람에게는 본문 그대로 · 로컬에 해시', !!locked && locked.locked && locked.open && locked.hash && !locked.pop
+    && locked.pressed === 'true' && locked.body.includes(LOCKED_SRC) && !locked.panel && locked.stored === true, JSON.stringify(locked));
+  // 다시 열면 '잠금 해제'가 선다
+  await ev(`document.querySelector('.fixed.z-50 [data-card-lock-btn]').click()`); await sleep(300);
+  check("잠금 ③ 잠긴 뒤 팝오버에 '잠금 해제'", await ev(`!!document.querySelector('[data-card-lock-pop] [data-lock-release]')`));
+  await ev(`${byLabel('취소')}?.click()`); await sleep(200);
+  // ④ 다른 사람이 만든 업무로 바꾸고(나에게 안 열림) — 열린 창에서 잠긴다
+  await ev(`window.__store.dispatch({ type: 'SYNC_TASK', payload: { id: 'k1', author: '조해리', lockedOpen: false } })`);
+  await sleep(60);
+  const closing = await ev(`(() => { const g = document.querySelector('.fixed.z-50 [data-lock-phase]'); return g ? { phase: g.dataset.lockPhase,
+    blur: !!g.querySelector('.dc-lock-blur-out'), veil: !!g.querySelector('.dc-lock-veil-in'), shut: !!g.querySelector('.dc-lock-shut') } : null; })()`);
+  check('잠금 ④ 잠기는 순간 본문이 흐려지며 판이 접혀 들어온다(closing · 고리 닫힘)', !!closing && closing.phase === 'closing' && closing.blur && closing.veil && closing.shut, JSON.stringify(closing));
+  await sleep(600);
+  const shut = await ev(`(() => { const m = document.querySelector('.fixed.z-50'); const p = m.querySelector('[data-lock-panel]');
+    return { phase: !!m.querySelector('[data-lock-phase]'), panel: p ? p.innerText.replace(/\\s+/g, ' ').trim() : null, enter: !!p?.querySelector('[data-lock-enter]'),
+      placeholder: p?.querySelector('input')?.placeholder, body: !!m.querySelector('[data-view-body]'), leak: m.innerText.includes(${JSON.stringify(LOCKED_SRC)}),
+      edit: [...m.querySelectorAll('button')].some(b => b.textContent.trim() === '수정'), lockBtn: !!m.querySelector('[data-card-lock-btn]'),
+      cmtInput: !!m.querySelector('textarea[placeholder*="댓글"]'), title: m.querySelector('[data-task-view] h2')?.textContent }; })()`);
+  check("잠금 ④ 잠금 판: '이 업무는 현재 잠겨있어요' · 비밀번호 칸 + '입력' · 제목은 보이고 본문·수정·댓글 칸·자물쇠 버튼은 없다",
+    !!shut && !shut.phase && shut.panel === '이 업무는 현재 잠겨있어요 입력' && shut.enter && shut.placeholder === '비밀번호' && !shut.body && !shut.leak
+    && !shut.edit && !shut.lockBtn && !shut.cmtInput && shut.title === '잠글 업무', JSON.stringify(shut));
+  const tryPw = async (text) => {
+    await ev(`(() => { const i = document.querySelector('.fixed.z-50 [data-lock-field="unlock"]'); i.focus(); i.select(); })()`);
+    await send('Input.insertText', { text }); await sleep(60);
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+    await sleep(150);
+  };
+  await tryPw('0000');
+  const wrong = await ev(`(() => { const i = document.querySelector('.fixed.z-50 [data-lock-field="unlock"]'); return i ? { bad: i.getAttribute('aria-invalid'), shake: i.classList.contains('dc-shake'),
+    panel: !!document.querySelector('.fixed.z-50 [data-lock-panel]'), toast: !!document.querySelector('[data-toast]') } : null; })()`);
+  check('잠금 ④ 틀리면 칸이 흔들리고 빨간 테두리 · 판 그대로 · 토스트 없음', !!wrong && wrong.bad === 'true' && wrong.shake && wrong.panel && !wrong.toast, JSON.stringify(wrong));
+  await tryPw('1234');
+  const opening = await ev(`(() => { const g = document.querySelector('.fixed.z-50 [data-lock-phase]'); return g ? { phase: g.dataset.lockPhase,
+    blurIn: !!g.querySelector('.dc-lock-blur-in'), veilOut: !!g.querySelector('.dc-lock-veil-out'), lift: !!g.querySelector('.dc-lock-lift') } : null; })()`);
+  check('잠금 ④ 맞히면 고리가 올라가며 판이 걷히고 본문이 또렷해진다(opening)', !!opening && opening.phase === 'opening' && opening.blurIn && opening.veilOut && opening.lift, JSON.stringify(opening));
+  await sleep(600);
+  const opened = await ev(`(() => { const m = document.querySelector('.fixed.z-50'); return { panel: !!m.querySelector('[data-lock-panel]'),
+    body: m.querySelector('[data-view-body]')?.textContent || '', open: window.__store.getState().tasks.byId.k1.lockedOpen,
+    stored: JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.k1.lockedOpen }; })()`);
+  await sleep(400);
+  const storedOpen = await ev(`JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.k1.lockedOpen`);
+  check('잠금 ④ 열린 뒤 본문 · 그 계정은 계속 열림(저장)', !opened.panel && opened.body.includes(LOCKED_SRC) && opened.open && storedOpen === true, JSON.stringify({ opened, storedOpen }));
+  // ⑤ 움직임 줄이기 — 즉시 · 흔들림 none · 게스트도 1분 5회
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  await sleep(100);
+  await ev(`window.__store.dispatch({ type: 'SYNC_TASK', payload: { id: 'k1', lockedOpen: false } })`);
+  await sleep(40);
+  const rm = await ev(`({ phase: !!document.querySelector('.fixed.z-50 [data-lock-phase]'), panel: !!document.querySelector('.fixed.z-50 [data-lock-panel]') })`);
+  await tryPw('0000');
+  const rmShake = await ev(`(() => { const i = document.querySelector('.fixed.z-50 [data-lock-field="unlock"]'); return { cls: i.classList.contains('dc-shake'), anim: getComputedStyle(i).animationName, bad: i.getAttribute('aria-invalid') }; })()`);
+  check('잠금 ⑤ 움직임 줄이기: 판이 곧바로 바뀌고 흔들림은 none(빨간 테두리는 그대로)', !rm.phase && rm.panel && rmShake.cls && rmShake.anim === 'none' && rmShake.bad === 'true', JSON.stringify({ rm, rmShake }));
+  for (const p of ['0001', '0002', '0003', '0004']) await tryPw(p);   // 앞의 0000 둘 + 넷 = 1분에 여섯 번째부터 막힌다
+  await tryPw('1234');
+  const capped = await ev(`({ panel: !!document.querySelector('.fixed.z-50 [data-lock-panel]'), open: window.__store.getState().tasks.byId.k1.lockedOpen })`);
+  check('잠금 ⑤ 1분에 5번 넘게 틀리면 맞는 비밀번호도 안 받는다(서버와 같은 흐름)', capped.panel && !capped.open, JSON.stringify(capped));
+  await send('Emulation.setEmulatedMedia', { features: [] });
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(300);
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

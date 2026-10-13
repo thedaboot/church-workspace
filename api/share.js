@@ -14,6 +14,7 @@ import { isLeaderOnly } from '../src/services/visibility.js';
 // **리더만 보는 프로젝트(0092)와 그 업무는 일반 문구로 낸다** — 제목·상태·마감을 싣지 않는다. 공유 카드는
 // 카카오톡 미리보기처럼 로그인 없이 읽히는 자리다. 딥링크는 그대로 둔다(앱에서 리더가 아니면 RLS가 행을
 // 안 줘서 대시보드로 떨어진다 — 없는 프로젝트와 같은 길).
+// **잠긴 업무(0099)는 제목만** 싣는다(상태·마감은 빼고 설명 줄은 기본 문구) — 본문은 원래 싣지 않는다. 딥링크는 그대로(앱에서 잠금 판).
 // ============================================================================
 
 export default async function handler(req, res) {
@@ -56,14 +57,15 @@ export default async function handler(req, res) {
           appUrl = `/?p=${id}`;
         }
       } else {
-        const { data, error } = await supabase.from('cards').select('title, status, due_date, project_id, projects(visibility)').eq('id', id).maybeSingle();
+        const { data, error } = await supabase.from('cards').select('title, status, due_date, project_id, locked, projects(visibility)').eq('id', id).maybeSingle();
         if (error) console.error('[share] 업무 조회 실패:', error);
         if (data) {
           if (!isLeaderOnly(data.projects)) {
             title = `더다붓 · ${data.title}`;
             const parts = [STATUS[data.status] || ''];
             if (data.due_date) parts.push(`마감 ${data.due_date}`);
-            description = parts.filter(Boolean).join(' · ') || '업무 상세';
+            // 잠긴 업무(0099)는 제목만 — 상태·마감도 싣지 않는다(설명 줄은 기본 문구 그대로)
+            if (!data.locked) description = parts.filter(Boolean).join(' · ') || '업무 상세';
           }
           appUrl = `/?p=${data.project_id}&t=${id}`;
         }

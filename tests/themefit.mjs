@@ -38,6 +38,8 @@ const list = [
   mk('t1', '수련회 포스터', ['미디어팀'], '2026-08-01', '2026-08-10', '진행 중'),
   mk('t2', '버스 견적', ['웰컴팀'], '2026-08-05', '2026-08-20', '시작 전'),
   mk('t3', '찬양 콘티', ['찬양팀'], '2026-08-02', '2026-08-08', '완료'),
+  // 남이 잠근 업무(0099) — 업무 창 잠금 판의 대비를 본다(아래 '잠금 판')
+  { ...mk('t4', '임원 후보 명단', ['임원진'], '', '2026-08-30', '보류 중'), author: '조해리', locked: true, lockedOpen: false },
 ];
 const byId = {}; list.forEach(t => { byId[t.id] = t; });
 const st = {
@@ -208,6 +210,27 @@ for (const [theme, themeLabel] of [['light', '라이트'], ['dark', '다크']]) 
       })()`);
       if (cb.found) check(`${tag} — 체크박스를 직접 그린다`, cb.appearance === 'none', JSON.stringify(cb));
     }
+    // 잠금 판(0099 · 20차 ⑨) — 남이 잠근 업무(t4)를 열면 본문 자리의 판: 글(13px 본문색)·`입력`(accent 위 흰 글)이 판 바탕 위 4.5:1 넘게 ·
+    // 자물쇠 그림은 꾸밈(aria-hidden · 시안대로 faint — 라이트 2.4:1)이라 대비를 재지 않고, 글이 같은 말을 한다.
+    // **되돌리기**: cardLock.jsx 판 글을 text-fg-faint로 바꾸면 깨진다.
+    await send('Page.navigate', { url: URL_BASE + '/?p=p1&t=t4' });
+    await wait('Page.loadEventFired');
+    await ev(`document.documentElement.setAttribute('data-theme', '${theme}')`);
+    await sleep(1000);
+    const lp = await ev(`(() => {
+      const p = document.querySelector('[data-lock-panel]'); if (!p) return null;
+      const parse = (c) => { const m = /rgba?\\(([^)]+)\\)/.exec(c || ''); if (!m) return null; const [r, g, b] = m[1].split(',').map(Number); return { r, g, b }; };
+      const lum = ({ r, g, b }) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+      const ratio = (a, b) => { const l1 = lum(a), l2 = lum(b); const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1]; return Math.round((hi + 0.05) / (lo + 0.05) * 100) / 100; };
+      const bg = parse(getComputedStyle(p).backgroundColor);
+      const text = [...p.querySelectorAll('div')].find(d => d.textContent.trim() === '이 업무는 현재 잠겨있어요');
+      const btn = p.querySelector('[data-lock-enter]');
+      const icon = p.querySelector('svg');
+      return { text: ratio(parse(getComputedStyle(text).color), bg), enter: ratio(parse(getComputedStyle(btn).color), parse(getComputedStyle(btn).backgroundColor)),
+        icon: ratio(parse(getComputedStyle(icon).color), bg), px: parseFloat(getComputedStyle(text).fontSize) };
+    })()`);
+    check(`${themeLabel}·${sizeLabel}·잠금 판 — 글·'입력' 4.5:1`, !!lp && lp.text >= 4.5 && lp.enter >= 4.5 && lp.px === 13, JSON.stringify(lp));
+
   }
 }
 await send('Emulation.clearDeviceMetricsOverride');

@@ -10,6 +10,7 @@ import { CONFIG, teamPaint, teamColor } from '../config.js';
 import { subtaskProgress, mdDot } from '../utils.js';
 import { Avatar } from './Avatar.jsx';
 import { ViewerFaces } from './layout.jsx';
+import { CardLockMark } from './cardLock.jsx';
 import { STATUS_BAR, STATUS_DOT_VAR, byDue } from '../views/dashboardParts.jsx';
 import { useStore } from '../store/workspaceStore.js';
 import { selectProjectsMap } from '../store/selectors.js';
@@ -71,7 +72,8 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action 
           {task.id && <ViewerFaces cardId={task.id} className="shrink-0" />}
           {action}
         </span>
-        <span className="block text-sm font-semibold text-fg" style={{ lineHeight: 1.4, letterSpacing: '-0.2px' }}>{task.title}</span>
+        {/* 잠긴 업무(0099)는 제목 앞 자물쇠(시안 ③ · 움직이지 않는다) — 담당자·마감·개수는 그대로 */}
+        <span className="block text-sm font-semibold text-fg" style={{ lineHeight: 1.4, letterSpacing: '-0.2px' }}><CardLockMark task={task} />{task.title}</span>
         <span className="flex items-center justify-between gap-2 mt-2">
           <span className="inline-flex items-center gap-1.5 min-w-0">
             {task.assignees.length > 0 ? (
@@ -320,7 +322,7 @@ function OngoingChip({ task, onTaskClick }) {
 function OngoingChipInner({ task }) {
   return (
     <>
-      <span className="min-w-0 truncate text-[12px] font-semibold text-fg" style={{ letterSpacing: '-0.1px' }}>{task.title}</span>
+      <span className="min-w-0 truncate text-[12px] font-semibold text-fg" style={{ letterSpacing: '-0.1px' }}><CardLockMark task={task} size={11} />{task.title}</span>
       {task.assignees.length > 0 && (
         <span className="flex items-center shrink-0">
           {task.assignees.slice(0, 2).map(a => (

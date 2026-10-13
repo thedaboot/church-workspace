@@ -103,11 +103,15 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
 
   // 보는 사람(0092). **낙관적으로 먼저 바꾸지 않는다** — 누가 보느냐는 저장된 값이 곧 화면의 사실이다(위 setLinkPw와
   // 같은 순서). 클라우드는 서버가 돌려준 값(리더가 아니면 트리거가 옛 값으로 되돌린다)을 그대로 쓴다.
+  // 누가·언제(visibilityBy·visibilityAt · 0099)도 같이 적는다 — 화면 문구는 없다. 클라우드는 DB 트리거가 적은 값을 받고,
+  // 게스트는 로컬에 이름과 시각을 적는다(바뀔 때만 — 같은 값을 다시 누르면 옛 기록 그대로).
   const setVisibility = async (on) => {
     const want = on ? LEADERS : 'all';
     try {
-      const v = cloudOn ? await cloudSync.projectVisibilityCloud(project.id, want) : want;
-      store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, visibility: v } });
+      const saved = cloudOn ? await cloudSync.projectVisibilityCloud(project.id, want)
+        : (want === (project.visibility || 'all') ? { visibility: want }
+          : { visibility: want, visibilityBy: store.getState().currentUser?.name || null, visibilityAt: new Date().toISOString() });
+      store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, ...saved } });
     } catch (err) {
       cloudErr('보는 사람을 바꾸지 못했어요')(err);
     }

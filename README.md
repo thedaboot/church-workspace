@@ -46,7 +46,8 @@ npm run verify -- <이름>   # 검증 스위트 — 고친 것과 관련된 것�
 - **업무 창** — **보기로 열고 `수정`을 누르면 그 자리에서 고칩니다**(저장 버튼 없이 칸마다 저절로 저장 · 제목은 멈추면 · `수정 완료`로 보기로). 상세 내용은 WYSIWYG(TipTap)이고
   여럿이 **같이 씁니다**(Yjs · 사진 이름표 커서 · 머리줄에 들어와 있는 사람 · 보기 화면에는 누가 어느 줄을 고치는 중인지 · **버전 기록** 탭에서 고친 곳 보기·되돌리기 — 로그인했을 때).
   저장 형식은 여전히 마크다운 문자열입니다(`cards.description`이 거울). 하위 업무 체크리스트 · 댓글·@멘션·반응(하트·따봉·체크) ·
-  활동 기록 · 선후관계.
+  활동 기록 · 선후관계. 만든 사람은 머리줄 자물쇠로 **업무를 비밀번호로 잠글 수 있습니다** — 잠기면 본문·댓글·첨부·같이 쓰기·버전 기록이
+  서버에서 막히고(제목·상태·담당·마감은 보입니다) 비밀번호를 맞힌 계정과 마스터만 엽니다(0099).
 - **첨부 파일** — 한 파일 25MB · 동시 3개. 실체는 **개인 구글 드라이브**에 `프로젝트 / 업무`
   폴더로 들어가고 DB에는 참조만 남습니다([`docs/DRIVE.md`](docs/DRIVE.md)). 앱 안 미리보기는
   PDF·이미지·영상·소리·텍스트이고 **워드·PPT·엑셀은 구글 화면 그대로**입니다.
@@ -223,6 +224,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0096_doc_vec_wiki_service` | 다붓이 검색 모드(`DABOOTI_RETRIEVE`) 근거 — `doc_vec`에 위키 장(`page_id` · faq 제외)·발행 주보(`service_id`) 종류 · `source_id` text 생성 칸 · `match_docs`에 kinds(없으면 옛 세 종류만) | ✅ |
 | `0097_signup_avatar_late` | 가입 트리거가 뒤늦게 온 카카오·구글 메타(사진·이름)도 받아 적는다 — `after insert or update of raw_user_meta_data` · UPDATE는 10분 안에 만든 프로필의 빈 칸만(천진영 가입 때 identity가 150ms 늦어 사진이 비었다) | ✅ |
 | `0098_dabooti_facts` | 다붓이 학습 고리(20차 ⑧) — `dabooti_facts`(사람이 알려 준 사실 · `pending/approved/rejected` · 알려 준 사람 `told_by` · 이어진 물음 · `leader` · `count` · 읽기·쓰기 **마스터만**) · `dabooti_questions.resolved_at`(열린 질문이 닫힌 때 · 질문은 그대로 익명) · 위키 `learned` 장도 마스터만 읽는다 · `doc_vec`에 그 장을 안 넣는다 · 옮기기(아침 고리의 told 글 → 확인을 기다리는 말 · 이미 답한 물음 → 닫힘) | |
+| `0099_card_lock` | 업무 잠금(비밀번호 · 진짜 잠금) — `cards.locked`·`locked_by`·`locked_at` · `card_secrets`(잠긴 동안의 본문·고정 요약 거울 + 해시 — 해시는 칸 권한으로 아무에게도 안 준다) · `card_unlocks`(맞힌 계정) · `card_unlock_tries`(1분 5회) · 함수 `can_open_card`·`locked_hidden_ids`(정책이 질의마다 한 번)·`lock_card`·`unlock_card`·`unlock_owner` · 댓글·반응·첨부(업무 갈래)·활동(읽기)·같이 쓰기·doc_vec·채널·레거시 버킷 정책을 `alter`로 조임 · 보호·거울 트리거 · `projects.visibility_by`·`visibility_at`(트리거가 적는다) | ⏳ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.

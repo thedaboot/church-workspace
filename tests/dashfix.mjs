@@ -488,6 +488,35 @@ const teamNote = await ev(`(() => {
 check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 초록",
   teamNote.shown === true && teamNote.bg === 'var(--app-tag-green)', JSON.stringify(teamNote));
 
+// ── 보드 카드 자물쇠(0099 · 20차 ⑨ 시안 ③) — 잠긴 업무만 제목 앞 12px 자물쇠 · muted · 움직이지 않는다 · 담당자·마감은 그대로 ──
+// **되돌리기**: boards.jsx 카드 제목의 <CardLockMark>를 지우면 깨진다.
+{
+  const lockedSt = JSON.parse(JSON.stringify(st));
+  lockedSt.tasks.byId.t1 = { ...lockedSt.tasks.byId.t1, author: '조준환', locked: true, lockedOpen: false };
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+  await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(lockedSt))}); localStorage.setItem('theme','light')`);
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1500);
+  const mark = await ev(`(() => {
+    const cards = [...document.querySelectorAll('.board-card')];
+    const card = cards.find(c => c.textContent.includes('업무 1') && !c.textContent.includes('업무 1 0'));
+    const lock = card?.querySelector('[data-card-lock]');
+    const title = lock?.parentElement;
+    const r = lock?.getBoundingClientRect();
+    return { lock: !!lock, w: r ? Math.round(r.width) : null, color: lock ? getComputedStyle(lock).color : null,
+      muted: getComputedStyle(document.documentElement).getPropertyValue('--app-ink-muted').trim(),
+      before: !!lock && title.textContent.trim() === '업무 1' && title.firstElementChild === lock,
+      anim: lock ? [getComputedStyle(lock).animationName, getComputedStyle(lock.querySelector('.dc-lock-shackle')).animationName] : null,
+      others: cards.filter(c => c !== card && c.querySelector('[data-card-lock]')).length,
+      who: card ? /노준석/.test(card.textContent) : false };
+  })()`);
+  const hex2rgb = (h) => `rgb(${parseInt(h.slice(1, 3), 16)}, ${parseInt(h.slice(3, 5), 16)}, ${parseInt(h.slice(5, 7), 16)})`;
+  check('보드 카드: 잠긴 업무만 제목 앞 12px 자물쇠(muted · 움직이지 않음) · 담당자 그대로',
+    mark.lock && mark.w === 12 && mark.before && mark.others === 0 && mark.who && mark.color === hex2rgb(mark.muted)
+    && JSON.stringify(mark.anim) === '["none","none"]', JSON.stringify(mark));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,4).join('\n'):'\n콘솔 오류 없음');
 ws.close();chrome.kill();process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

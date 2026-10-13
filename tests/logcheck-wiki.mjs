@@ -1465,7 +1465,8 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   assert.deepStrictEqual(fp(new Set()), [0, 1], '리더 프로젝트가 없으면 열린 질문');
   assert.deepStrictEqual(fp(hidden), [0, 0], '리더 근거 답이 있던 묶음은 어디에도 안 싣는다');
   const gatherSrc = readFileSync(new URL('../api/_wiki/gather.js', import.meta.url), 'utf8');
-  assert.ok(gatherSrc.includes('const leaderCards = leaderCardIdsOf({ projects: projectsAll, cards: cardsAll });') && /questions, leaderCards, facts \};/.test(gatherSrc), 'gather가 걷은 업무 id를 넘긴다');
+  // 잠긴 업무(0099 · 묶음 ⑨)도 같은 Set에 더한다 — 자주 묻는 질문 장이 그 기록에 기댄 답도 싣지 않는다
+  assert.ok(gatherSrc.includes('const leaderCards = new Set([...leaderCardIdsOf({ projects: projectsAll, cards: cardsAll }), ...open.locked]);') && /questions, leaderCards, facts \};/.test(gatherSrc), 'gather가 걷은 업무 id(리더 · 잠긴)를 넘긴다');
   console.log('PASS  다붓이 20차 ⑥(리더 근거 답 — 캐시에 안 남김 · 비리더에게 캐시 안 줌 · 짝 · 아침 고리 · 자주 묻는 질문)');
 }
 

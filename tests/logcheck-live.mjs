@@ -893,3 +893,36 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.deepStrictEqual(route('comments', { id: 'm', card_id: 'c2' }), ['detail:c2'], '댓글은 그대로');
   console.log('PASS  실시간 files 갈래(업무 첨부만 상세 · 주보 송폼·모임 보고서는 건너뜀)');
 }
+
+
+// ── 잠긴 업무의 실시간 다시 읽기 — card_secrets까지 (cloudSync.loadCardPatch · 0099 · 20차 ⑨) ──
+// 잠그고 푸는 순간은 cards UPDATE(본문을 card_secrets로 옮기며 description이 '')라 모두의 화면이 그 카드 1건을 다시 읽는다.
+// 그때 card_secrets 행이 오면(만든 사람 · 맞힌 계정 · 마스터 — RLS) 본문·고정 요약을 얹고 '열림', 안 오면 본문 없이 '잠금 판'.
+// 거울 쓰기는 앱이 그대로 cards.description에 쓰고 DB 트리거가 card_secrets로 돌린다(0099 trg_cards_lock_mirror — psql 리허설로 봤다).
+// 함수만 오려 가짜 cloud에 물려 돌린다. **되돌리기**: loadCardPatch에서 getCardSecret을 빼면 '여는 사람' 줄이 깨진다.
+{
+  const syncSrc = readFileSync(new URL('../src/services/cloudSync.js', import.meta.url), 'utf8');
+  const fn = /^export async function loadCardPatch\([\s\S]*?\n\}/m.exec(syncSrc)?.[0];
+  assert.ok(fn, 'cloudSync가 loadCardPatch를 export 한다');
+  const { pathToFileURL } = await import('node:url');
+  const lockUrl = pathToFileURL(join(import.meta.dirname, '..', 'src', 'services', 'cardLock.js')).href;
+  const { loadCardPatch } = await loadSource('src/services/cloudSync.js', { as: 'patch.mjs', src: [
+    `import { withSecret } from '${lockUrl}';`,
+    'const cloud = { withClockSkewRetry: (f) => f(), getCard: async (id) => globalThis.__card, getCardSecret: async (id) => globalThis.__secret };',
+    'let lockedCards = new Set();',
+    "const cardToTask = (c) => ({ id: c.id, content: c.description || '', aiSummary: c.ai_summary || '', locked: !!c.locked, lockedOpen: false, comments: [], activityLog: [], attachments: [] });",
+    fn,
+  ].join('\n') });
+  globalThis.__card = { id: 'c1', description: '', ai_summary: null, locked: true };
+  globalThis.__secret = { card_id: 'c1', description: '잠긴 본문', ai_summary: '요약' };
+  const open = await loadCardPatch('c1');
+  assert.deepStrictEqual([open.content, open.aiSummary, open.lockedOpen, 'comments' in open], ['잠긴 본문', '요약', true, false], '여는 사람 — 본문·요약을 얹고 목록 칸은 안 덮는다');
+  globalThis.__secret = null;
+  const shut = await loadCardPatch('c1');
+  assert.deepStrictEqual([shut.content, shut.lockedOpen, shut.locked], ['', false, true], '못 여는 사람 — 본문 없이 잠금 판');
+  globalThis.__card = { id: 'c1', description: '풀린 본문', locked: false };
+  globalThis.__secret = { card_id: 'c1', description: '옛 거울' };
+  const freed = await loadCardPatch('c1');
+  assert.deepStrictEqual([freed.content, freed.locked], ['풀린 본문', false], '풀리면 cards 본문 그대로(거울을 보지 않는다)');
+  console.log('PASS  잠긴 업무의 실시간 다시 읽기(card_secrets가 오면 열림 · 안 오면 잠금 판 · 풀리면 cards 본문 · 0099)');
+}

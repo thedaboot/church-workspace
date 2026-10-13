@@ -113,6 +113,34 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
     && /min-h-10 px-4 py-2\.5 rounded-md text-\[13px\] font-semibold[^']*disabled:opacity-40/.test(btnSrc));
 }
 
+// ── 업무 잠금(0099 · 20차 ⑨ 시안 '⑨ 업무 잠금')의 글자·색 규격과 모션 토큰 — 소스로 본다(화면 흐름은 tests/modalclose) ──
+// 팝오버 제목 12.5px 굵게 · 칸 이름 11px muted · 취소(회색)/잠그기(accent 12px 굵게) · 잠금 판은 surface-2 판에 13px 본문색 글 +
+// accent `입력`(12.5px 굵게 · 36px) · 틀린 칸은 tag-red-fg 테두리(팔레트 기본 red 아님) · 모션은 .42s quint 하나 + 움직임 줄이기에서 끈다.
+// **되돌리기**: cardLock.jsx의 빨간 테두리를 `border-red-500`으로, index.css .dc-lock-veil-in의 이징을 ease로 바꾸면 깨진다.
+{
+  const { readFileSync } = await import('node:fs');
+  const lk = readFileSync(new URL('../src/components/cardLock.jsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
+  const spec = {
+    title: /className="text-\[12\.5px\] font-bold text-fg">업무 잠그기</.test(lk),
+    labels: (lk.match(/text-\[11px\] text-fg-muted">비밀번호( 확인)?\n/g) || []).length === 2,
+    cancel: /bg-surface-hover text-fg-muted text-\[12px\] font-semibold[^"]*">취소</.test(lk),
+    submit: /bg-accent hover:bg-accent-strong text-white text-\[12px\] font-bold[^"]*">잠그기</.test(lk),
+    panel: /data-lock-panel="" className="[^"]*rounded-\[10px\] bg-surface-2"/.test(lk) && /text-\[13px\] leading-relaxed text-center text-fg">이 업무는 현재 잠겨있어요</.test(lk),
+    enter: /h-9 px-3\.5 rounded-\[9px\] bg-accent hover:bg-accent-strong text-white text-\[12\.5px\] font-bold[^"]*">입력</.test(lk),
+    red: /border-tag-red-fg/.test(lk) && !/(border|ring)-red-\d/.test(lk),
+    board: /CardLockMark[\s\S]*?size = 12[\s\S]*?text-fg-muted/.test(lk),
+  };
+  const motion = {
+    quint: ['dc-lock-shut', 'dc-lock-lift', 'dc-lock-veil-in', 'dc-lock-veil-out', 'dc-lock-blur-out', 'dc-lock-blur-in', 'dc-shake']
+      .every(k => new RegExp(`animation: ${k} \\.(42|36)s var\\(--ease-out-quint\\)`).test(css)),
+    reduce: /@media \(prefers-reduced-motion: reduce\) \{\s*\.dc-lock-shut \.dc-lock-shackle, \.dc-lock-lift \.dc-lock-shackle,\s*\.dc-lock-veil-in, \.dc-lock-veil-out, \.dc-lock-blur-out, \.dc-lock-blur-in, \.dc-shake \{ animation: none !important; \}/.test(css),
+    gate: /if \(reduced\) \{ setPhase\(null\); return undefined; \}/.test(lk) && /LOCK_MOTION_MS/.test(lk),
+  };
+  check('잠금: 팝오버·잠금 판·보드 자물쇠의 글자·색 규격(시안 ⑨)', Object.values(spec).every(Boolean), JSON.stringify(spec));
+  check('잠금: 모션은 .42s quint 하나 · 움직임 줄이기면 전부 끄고 판은 즉시', Object.values(motion).every(Boolean), JSON.stringify(motion));
+}
+
 const D=(off)=>{const d=new Date();d.setDate(d.getDate()+off);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
 const T=[
  ['찬양 콘티 확정',['워십팀','찬양팀'],'완료',D(-14),D(-8),['노준석']],

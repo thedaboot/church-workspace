@@ -646,6 +646,18 @@
     null)도 그 갈래로 지났다: 승인된 누구나 남의 모임에 보고서를 넣고(files_insert), 업무 첨부를 모임으로 옮길 수 있었다(files_update · psql 리허설로 확인). 기존 정책을 고칠 수 없을 때(다른 묶음이
     같은 정책을 `alter policy` 중 — 0092) 31-a의 예외로 **restrictive**를 더한다 — `meeting_id is null or can_edit_meeting(…)`은 다른 행에 언제나 참이라 그 갈래들은 그대로다.
     새로 쓰는 갈래 조건은 '아닌 것'(`x is null`)이 아니라 '그것인 것'(`card_id is not null`)으로 적으세요. 화면·게스트 검사로는 안 보인다 — ROLLBACK 리허설에서 42501을 직접 본다.
+31-n. **'진짜 잠금'에서 고른 것 다섯(0099 업무 잠금 · 2026-10-13 리허설).** ① **해시를 모두가 읽는 행에 두지 않는다** — `cards`는 승인된 누구나
+    읽어서 `lock_hash`·소금이 같이 나가면 짧은 비밀번호가 오프라인으로 풀리고 서버의 1분 5회가 뜻을 잃는다. 해시는 `card_secrets`에 두고
+    **칸 권한**(`grant select (card_id, description, ai_summary, updated_at)`)으로 여는 사람에게도 안 준다 — 앱은 `select('*')`가 아니라 칸을 골라야 한다.
+    ② **보호 트리거의 통과 조건은 `current_user`다** — security definer 함수(`lock_card`) 안의 UPDATE도 `auth.uid()`는 그 사용자 그대로라
+    `auth.uid() is null`(0071 방식)로 가르면 잠금 함수 자신이 막힌다. 함수 안에서는 `current_user`가 함수 주인이 된다(리허설로 확인).
+    ③ **잠그는 순간 본문을 비워야 서버 키 경로가 저절로 막힌다** — description을 `card_secrets`로 옮기고 `''`로 두면 검색·실시간 cards 행·위키·
+    다붓이·크론이 본문을 아예 못 본다. 그 뒤 앱의 거울 쓰기는 트리거(`trg_cards_lock_mirror`)가 여는 사람이면 `card_secrets`로 돌린다 — 앱은 빈 본문을
+    `null`로 보내므로(`cardPatch`) `'' → null`도 '바뀜'으로 잡혀 통째로 지운 본문도 거울에 간다. ④ **임베딩 조각은 잠근다고 지우지 않는다** — 크론이
+    빈 본문으로 머리줄만 다시 임베딩하면 풀었을 때 다음 크론까지 뜻 찾기에서 빠진다. `_docsync.holdLocked`가 잠긴 몫을 건드리지 않고 정책이 거른다.
+    ⑤ `viewPw.verifyViewPw`는 **해시가 없으면 통과**다(첨부 화면 가림의 규칙) — 진짜 잠금의 게스트 흐름에서 그대로 쓰면 해시 없는 잠긴 업무가 아무
+    비밀번호에나 열린다. 해시가 없으면 틀린 것으로 먼저 거른다(`modals.tryUnlock`). 리허설 팁: 마이그레이션 파일을 `\i`로 바깥 `begin` 안에 넣지 말 것 —
+    안의 `commit`이 바깥 트랜잭션을 닫는다(본문에서 begin/commit 줄을 뺀 사본으로).
 
 그 밖에(번호 없음):
 - **"넣으려던 상태가 이미 참"인 유니크 위반(23505)은 실패가 아니다** — 순장 교체가 그렇게 거짓말했다. 저장 **전에** 갈래를 판정하고(`groups.leaderPlan`) DB 오류는 마지막 방어선으로만, 사람 말은 `dupReason`이 얹는다.

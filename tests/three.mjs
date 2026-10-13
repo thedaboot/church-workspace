@@ -802,6 +802,12 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
   const on = await head();
   check("리더만: 켜면 제목 옆에 '리더만' 칩 · 토글·자물쇠가 켜짐으로", on.chip === '리더만' && on.switchOn === 'true' && on.pressed === 'true', JSON.stringify(on));
   check('리더만: 값이 저장소에 남는다(게스트=localStorage)', on.saved === 'leaders', JSON.stringify(on));
+  // 누가·언제 바꿨나(0099 · 20차 ⑨) — 화면 문구 없이 저장에만(클라우드는 DB 트리거가 visibility_by·visibility_at을 적는다).
+  // **되돌리기**: projectView.setVisibility에서 visibilityBy·visibilityAt을 빼면 깨진다.
+  const by = await ev(`(() => { const p = JSON.parse(localStorage.getItem('church_app_v4')).projects.byId.p1;
+    return { by: p.visibilityBy || null, at: p.visibilityAt || null, fresh: !!p.visibilityAt && Date.now() - Date.parse(p.visibilityAt) < 60000,
+             shown: document.body.innerText.includes(p.visibilityBy + ' ') && /바꿨|변경/.test(document.body.innerText.split(p.visibilityBy || '@@')[1]?.slice(0, 20) || '') }; })()`);
+  check('리더만: 누가·언제 바꿨는지가 저장된다(문구 없음)', by.by === '노준석' && by.fresh && !by.shown, JSON.stringify(by));
   check('리더만: 칩 글자 11px · accent-weak 바탕', on.chipPx === 11 && /rgb\(232, 238, 250\)/.test(on.chipBg || ''), JSON.stringify(on));
   // 탭 줄 자물쇠(20차 ⑥ · 시안 '프로젝트 탭줄(리더에게)') — 리더 프로젝트 탭 이름 앞 10px · 색은 탭 글자를 따른다.
   // **되돌리기**: layout.jsx 탭의 <TabLock>을 지우면 여기가, mobileNav의 것을 지우면 아래 '폰 탭'이 깨진다.

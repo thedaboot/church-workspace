@@ -727,3 +727,145 @@ import { loadSource, readSplit } from './_load.mjs';
   assert.ok(sql.includes('alter table public.dabooti_questions add column if not exists resolved_at timestamptz;') && !/dabooti_questions add column if not exists (user_id|asked_by|profile_id|told_by)/.test(sql), '질문 표는 닫힌 때만 더한다(익명 그대로)');
   console.log('PASS  0098 다붓이가 배운 것 — 마스터만(정책 넷) · learned 장 마스터만 · 질문 표 익명 그대로');
 }
+
+// ── 0099 업무 잠금(비밀번호 · 사용자 결정 2026-10-13 · 20차 묶음 ⑨) ───────────────────────────
+// 라이브 경계는 psql 리허설(ROLLBACK)로 봤다 — 만든 사람 / 맞힌 사람 / 못 맞힌 사람 / 마스터 네 시점의 select 수 · 1분 5회 ·
+// 보호·거울 트리거 · 칸 권한(HANDOFF 20차 블록). 여기는 파일 모양: 새 표 셋(해시는 cards가 아니라 card_secrets · 칸 권한으로 해시를
+// 아무에게도 안 준다) · 함수 다섯(security definer · search_path · anon 회수) · 있는 정책은 alter만 + `(select locked_hidden_ids())`
+// 한 번(InitPlan) · 0092 식은 그대로 둔 채 and 하나 · 보호 트리거는 current_user로(함수 안은 주인) · 같이 쓰기 함수 셋의 can_open_card ·
+// 순수 판정(services/cardLock.js) · 서버 키 경로(위키 장·임베딩·공유 카드)와 앱 배선(card_secrets 얹기 · 알림 미리보기 · 업무 창).
+// **되돌리기**(§3-5): 0099에서 comments_select의 locked_hidden_ids 줄을 빼거나, unlock_card의 `tries >= 5`를 지우거나, 칸 권한에
+// lock_hash를 넣거나, guard_card_lock을 auth.uid()로 가르거나, cloudSync.loadCardPatch의 getCardSecret을 빼면 아래가 깨진다.
+{
+  const m99 = readFileSync(new URL('../supabase/migrations/0099_card_lock.sql', import.meta.url), 'utf8');
+  const sql = m99.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  let n = 0;
+  const ok = (cond, msg) => { assert.ok(cond, msg); n++; };
+  const L = (col) => new RegExp(`coalesce\\(${col} <> all \\(\\(select public\\.locked_hidden_ids\\(\\)\\)::uuid\\[\\]\\), true\\)`);
+
+  ok(/alter table public\.cards add column if not exists locked boolean not null default false;/.test(sql), 'cards.locked 기본 false');
+  ok(/cards add column if not exists locked_by uuid/.test(sql) && /cards add column if not exists locked_at timestamptz/.test(sql), '누가·언제 잠갔나는 DB 칸에만');
+  ok(/projects add column if not exists visibility_by uuid/.test(sql) && /projects add column if not exists visibility_at timestamptz/.test(sql), '리더만 보기를 누가·언제');
+  ok(!/cards add column[^;]*lock_hash/.test(sql), '해시는 cards에 두지 않는다(승인된 누구나 읽는 행이다 — 오프라인으로 풀린다)');
+  ok(/create table if not exists public\.card_secrets \([\s\S]*?lock_hash\s+text not null,[\s\S]*?lock_salt\s+text not null/.test(sql), 'card_secrets에 본문 거울과 해시');
+  ok(/grant select \(card_id, description, ai_summary, updated_at\) on public\.card_secrets to authenticated;/.test(sql)
+    && /grant update \(description, ai_summary, updated_at\) on public\.card_secrets to authenticated;/.test(sql)
+    && !/grant [^;]*lock_hash[^;]*to authenticated/.test(sql), '해시 두 칸은 칸 권한으로 아무에게도 안 준다(여는 사람에게도)');
+  ok(/revoke all on public\.card_unlock_tries from anon, authenticated;/.test(sql) && !/policy \w+ on public\.card_unlock_tries/.test(sql), '시도 기록은 함수만');
+  for (const t of ['card_secrets', 'card_unlocks', 'card_unlock_tries']) ok(new RegExp(`alter table public\\.${t} enable row level security;`).test(sql), `${t} RLS`);
+
+  for (const name of ['can_open_card', 'locked_hidden_ids']) {
+    ok(new RegExp(`create or replace function public\\.${name}\\([^)]*\\) returns [\\w\\[\\]]+\\s+language sql stable security definer set search_path = public, pg_temp`).test(sql), `${name}: security definer · stable · search_path`);
+  }
+  for (const f of ['lock_card(uuid, text)', 'unlock_card(uuid, text)', 'unlock_owner(uuid)', 'can_open_card(uuid)', 'locked_hidden_ids()']) {
+    ok(sql.includes(`revoke all on function public.${f} from public, anon;`), `${f}: anon 실행 회수`);
+  }
+  for (const f of ['lock_card', 'unlock_card', 'unlock_owner']) {
+    ok(new RegExp(`function public\\.${f}\\([^)]*\\) returns boolean\\s+language plpgsql security definer set search_path = public, pg_temp`).test(sql), `${f}: security definer`);
+  }
+  const canOpen = sql.slice(sql.indexOf('function public.can_open_card'), sql.indexOf('function public.locked_hidden_ids'));
+  ok(/not exists \(select 1 from public\.cards k where k\.id = c and k\.locked\)/.test(canOpen) && /k\.created_by = any \(array\[auth\.uid\(\), public\.effective_uid\(\)\]\)/.test(canOpen)
+    && /from public\.card_unlocks u/.test(canOpen) && /public\.is_master\(\)/.test(canOpen) && !/is_admin\(\)|is_leader\(\)/.test(canOpen),
+    '여는 사람 = 안 잠김 · 만든 사람(남긴 계정) · 맞힌 계정 · 마스터 — 관리자·리더는 아니다');
+  ok(/union all select c\.id from public\.comments c join lk[\s\S]*?union all select f\.id from public\.files f join lk/.test(sql), 'locked_hidden_ids가 댓글·첨부 id도 담는다');
+  const lockFn = sql.slice(sql.indexOf('function public.lock_card'), sql.indexOf('function public.unlock_card'));
+  ok(lockFn.includes("encode(sha256(convert_to(salt || pw, 'UTF8')), 'hex')") && /salt text := gen_random_uuid\(\)::text;/.test(lockFn),
+    '해시 = hex(sha256(소금‖비밀번호)) · 소금은 uuid 글자 — viewPw.js와 같은 규칙(31-f)');
+  ok(/raise exception 'not the author' using errcode = '42501'/.test(lockFn) && /coalesce\(pw, ''\) = ''/.test(lockFn), '잠그기는 만든 사람만 · 빈 비밀번호 거절');
+  ok(/description = '', ai_summary = null/.test(lockFn) && /coalesce\(k\.description, ''\), k\.ai_summary/.test(lockFn), '잠그면 본문·고정 요약을 card_secrets로 옮기고 cards를 비운다');
+  ok(/delete from public\.card_unlocks where card_id = c;/.test(lockFn), '다시 설정하면 맞힌 계정을 걷는다');
+  const unl = sql.slice(sql.indexOf('function public.unlock_card'), sql.indexOf('function public.unlock_owner'));
+  ok(/if tries >= 5 then return false; end if;/.test(unl) && /interval '1 minute'/.test(unl) && /insert into public\.card_unlock_tries/.test(unl), '시도 제한 — 1분에 5회');
+  ok(unl.indexOf('card_unlock_tries (card_id, profile_id) values') < unl.indexOf('select lock_hash, lock_salt'), '시도를 먼저 적고 견준다(틀려도 남는다)');
+  ok(/insert into public\.card_unlocks \(card_id, profile_id\) values \(c, me\)/.test(unl) && /me\s+uuid := public\.effective_uid\(\);/.test(unl), '맞히면 남긴 계정으로 계속 열림');
+  const own = sql.slice(sql.indexOf('function public.unlock_owner'), sql.indexOf('revoke all on function public.can_open_card'));
+  ok(/or public\.is_master\(\)\) then\s+raise exception 'not the author'/.test(own) && /description = d, ai_summary = s/.test(own) && /delete from public\.card_secrets/.test(own),
+    '잠금 해제는 만든 사람·마스터 — 본문을 되돌리고 거울을 걷는다');
+
+  // 보호·거울 트리거 — current_user로 가른다(함수 안 = 주인). 예외 없이 되돌린다.
+  const guard = sql.slice(sql.indexOf('function public.guard_card_lock'), sql.indexOf('create trigger trg_cards_guard_lock'));
+  ok(/if current_user not in \('authenticated', 'anon'\) then\s+return new;/.test(guard) && !/auth\.uid\(\)/.test(guard) && !/raise exception/i.test(guard), '보호 트리거는 current_user로(auth.uid()면 잠금 함수도 막힌다)');
+  ok(/new\.locked := old\.locked; new\.locked_by := old\.locked_by; new\.locked_at := old\.locked_at;/.test(guard), '클라이언트의 잠금 칸 쓰기는 옛 값으로');
+  ok(/create trigger trg_cards_guard_lock before insert or update of locked, locked_by, locked_at on public\.cards/.test(sql), '잠금 칸 보호 트리거');
+  const mir = sql.slice(sql.indexOf('function public.mirror_locked_card'), sql.indexOf('create trigger trg_cards_lock_mirror'));
+  ok(/if public\.can_open_card\(new\.id\) then\s+update public\.card_secrets/.test(mir) && /new\.description := old\.description;/.test(mir), '잠긴 업무의 본문 쓰기는 여는 사람이면 거울로 · cards는 그대로 비운 채');
+  ok(/create trigger trg_cards_lock_mirror before update of description, ai_summary on public\.cards/.test(sql), '거울 트리거');
+  ok('trg_cards_guard_lock' < 'trg_cards_lock_mirror', '이름 차례 — 보호가 거울보다 먼저 돈다');
+  const stamp = sql.slice(sql.indexOf('function public.stamp_project_visibility'), sql.indexOf('create trigger trg_projects_visibility_stamp'));
+  ok(/elsif new\.visibility is distinct from old\.visibility then\s+new\.visibility_by := public\.effective_uid\(\); new\.visibility_at := now\(\);\s+else\s+new\.visibility_by := old\.visibility_by;/.test(stamp),
+    '리더만 보기가 바뀔 때만 누가·언제를 적고 그 밖에는 옛 값(위조 못 함)');
+  ok('trg_projects_guard_visibility' < 'trg_projects_visibility_stamp', '0092 보호가 먼저 되돌린 뒤 적는다');
+
+  // 정책 — 새 정책은 새 표에만 · 있는 정책은 alter만 · 줄마다 can_open_card를 부르지 않는다
+  const created = [...sql.matchAll(/create policy (\w+) on public\.(\w+)/g)].map(m => m[2]);
+  ok(created.length === 3 && created.every(t => ['card_secrets', 'card_unlocks'].includes(t)), '새 정책은 새 표 둘에만(셋)');
+  const altered = [...sql.matchAll(/alter policy (\w+) on (\w+\.\w+)/g)].map(m => m[1]);
+  const want = [...['select', 'insert', 'update', 'delete'].flatMap(c => [`comments_${c}`, `files_${c}`]),
+    'comment_reactions_select', 'comment_reactions_insert', 'comment_reactions_delete', 'activity_select',
+    'card_docs_select', 'card_doc_updates_select', 'card_doc_updates_insert', 'card_doc_versions_select', 'card_doc_versions_insert',
+    'doc_vec_select', 'coedit_channel_read', 'coedit_channel_write', 'attachments_select_authenticated'];
+  ok(want.every(p => altered.includes(p)) && altered.length === want.length, `조이는 정책 ${want.length}개 그대로(${altered.length})`);
+  for (const p of ['activity_insert', 'cards_select', 'card_teams_select', 'card_assignees_select', 'resource_links_select']) ok(!altered.includes(p), `${p}는 그대로(제목·칩·담당은 보인다 · 상태 바꾼 기록은 남긴다)`);
+  const pol = sql.slice(sql.indexOf('alter policy comments_select'), sql.indexOf('create or replace function public.card_doc_seed'));
+  ok(!/can_open_card\(/.test(pol), '있는 정책이 줄마다 can_open_card를 부르지 않는다 — locked_hidden_ids 한 번(InitPlan)');
+  for (const [p, col] of [['comments_select', 'card_id'], ['comments_insert', 'card_id'], ['comment_reactions_select', 'comment_id'], ['activity_select', 'card_id'],
+    ['card_docs_select', 'card_id'], ['card_doc_updates_insert', 'card_id'], ['doc_vec_select', 'coalesce\\(card_id, comment_id, file_id\\)']]) {
+    const body = sql.slice(sql.indexOf(`alter policy ${p} `)).split(/;\n/)[0];
+    ok(L(col).test(body), `${p}: ${col.replace(/\\/g, '')}가 잠긴 id가 아니다`);
+    ok(/\(select public\.hidden_ids\(\)\)/.test(body) && /public\.is_approved\(\)/.test(body), `${p}: 0092 식(리더 가림 · 승인 게이트)은 그대로`);
+  }
+  for (const c of ['select', 'insert', 'update', 'delete']) {
+    const body = sql.slice(sql.indexOf(`alter policy files_${c} `)).split(/;\n/)[0];
+    ok(/service_id is null( and|\s+then) coalesce\(coalesce\(card_id, project_id\) <> all \(\(select public\.hidden_ids\(\)\)::uuid\[\]\), true\)\s+and coalesce\(card_id <> all \(\(select public\.locked_hidden_ids\(\)\)/.test(body),
+      `files_${c}: 업무 첨부 갈래 안에만 더한다`);
+  }
+  ok(/exists \(select 1 from public\.services s\s+where s\.id = files\.service_id and \(s\.status = 'published' or public\.can_edit_service\(\)\)\)/.test(sql), 'files_select의 주보 갈래는 그대로');
+  ok(!/files_meeting/.test(sql), '모임 갈래 정책 다섯(0093)은 건드리지 않는다');
+  ok(/substr\(realtime\.topic\(\), 8\) <> all \(\(select public\.locked_hidden_ids\(\)\)::text\[\]\)/.test(sql), '같이 쓰기 채널도 잠긴 업무 id로');
+  for (const f of ['card_doc_seed', 'card_doc_compact', 'card_doc_baseline']) {
+    const body = sql.slice(sql.indexOf(`function public.${f}(`)).split('end $$;')[0];
+    ok(/if not public\.can_see_card\(p_card\)/.test(body) && /if not public\.can_open_card\(p_card\) then raise exception 'locked' using errcode = '42501';/.test(body), `${f}가 잠긴 업무를 막는다(0092 줄도 그대로)`);
+  }
+  for (const line of ['drop table if exists public.card_secrets;', 'drop function if exists public.locked_hidden_ids();', 'alter table public.cards drop column if exists locked;',
+    'drop trigger if exists trg_projects_visibility_stamp on public.projects;']) ok(m99.includes(`--   ${line}`), `되돌리는 SQL에 '${line.slice(0, 40)}…'`);
+  ok(/본문을 begin\/commit 줄 없이/.test(m99), '리허설 안내: \\i로 바깥 begin 안에 넣지 않는다');
+
+  // 순수 판정(services/cardLock.js · import 0)
+  const K = await import(new URL('../src/services/cardLock.js', import.meta.url).href);
+  ok(K.isCardClosed({ locked: true }) && !K.isCardClosed({ locked: true, lockedOpen: true }) && !K.isCardClosed({}) && !K.isCardClosed(null), '잠금 판 — 잠겼고 나에게 안 열렸을 때만');
+  ok(K.canLockCard({ cloudOn: true, isMine: true }) && !K.canLockCard({ cloudOn: true, isMine: false })
+    && K.canLockCard({ cloudOn: false, author: '노준석', me: '노준석' }) && !K.canLockCard({ cloudOn: false, author: '', me: '' }), '자물쇠는 만든 사람에게만');
+  ok(K.lockFormError('', '') === 'pw' && K.lockFormError('1', '2') === 'confirm' && K.lockFormError('12', '12') === null, '두 칸 — 비었으면 첫 칸 · 다르면 확인 칸');
+  const t0 = 1_000_000;
+  ok(K.allowTry([t0, t0, t0, t0], t0) && !K.allowTry([t0, t0, t0, t0, t0], t0 + 1) && K.allowTry([t0, t0, t0, t0, t0], t0 + K.LOCK_TRY_WINDOW_MS), '게스트 시도 제한 — 1분에 5회(서버와 같은 값)');
+  ok(K.LOCK_TRY_LIMIT === 5 && K.LOCK_MOTION_MS === 420, '상수 — 5회 · 420ms');
+  const sec = K.withSecret({ id: 'c', locked: true, content: '', aiSummary: '' }, { description: '본문', ai_summary: '요약' });
+  ok(sec.lockedOpen && sec.content === '본문' && sec.aiSummary === '요약' && !K.withSecret({ id: 'c', locked: true, content: 'x' }, null).lockedOpen
+    && K.withSecret({ id: 'c', locked: true, content: 'x' }, null).content === '', 'card_secrets 행이 오면 열림 · 안 오면 본문 없음');
+  const dl = K.dropLocked({ cards: [{ id: 'a' }, { id: 'b', locked: true }], comments: [{ id: 'm1', card_id: 'a' }, { id: 'm2', card_id: 'b' }],
+    files: [{ id: 'f1', card_id: 'b' }, { id: 'f2', card_id: null, service_id: 's' }] });
+  ok(dl.cards.map(x => x.id).join() === 'a' && dl.comments.map(x => x.id).join() === 'm1' && dl.files.map(x => x.id).join() === 'f2' && dl.locked.has('b'), '서버 키 원본에서 잠긴 업무·댓글·첨부만 걷는다');
+  const V = await import(new URL('../src/services/viewPw.js', import.meta.url).href);
+  const g = await V.makeViewPw('1234');
+  const { createHash } = await import('node:crypto');
+  ok(createHash('sha256').update(g.view_pw_salt + '1234', 'utf8').digest('hex') === g.view_pw, '게스트 해시(viewPw)가 0099의 hex(sha256(소금‖비밀번호))와 같은 규칙');
+
+  // 서버 키 경로 · 앱 배선
+  const rd = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
+  const gather = rd('api/_wiki/gather.js');
+  ok(/const open = dropLocked\(kept\);/.test(gather) && /updated_at, locked'\)/.test(gather) && /\.\.\.open\.locked\]\);/.test(gather), '위키 장: 잠긴 업무 몫을 걷고 그 id를 자주 묻는 질문 거르개에 더한다');
+  const share = rd('api/share.js');
+  ok(/select\('title, status, due_date, project_id, locked, projects\(visibility\)'\)/.test(share) && /if \(!data\.locked\) description = /.test(share), '공유 카드: 잠긴 업무는 제목만');
+  const lead = rd('api/_leaders.js');
+  ok(/export async function lockedCardIds\(db\)[\s\S]*?\.eq\('locked', true\)/.test(lead) && /rpc\('locked_hidden_ids'\)/.test(lead) && /export async function lockedOf/.test(lead), '서버 판정: 잠긴 업무 id · 묻는 사람에게 가린 id · 한 업무');
+  const cs = rd('src/services/cloudSync.js');
+  ok(/const secret = card\.locked \? await cloud\.getCardSecret\(cardId\)/.test(cs) && /withSecret\(cardToTask\(card\), secret\)/.test(cs), '카드 1건 다시 읽기(실시간·잠그고 풀 때)가 card_secrets까지 읽는다');
+  ok(/cloud\.listCardSecrets\(\)\.catch/.test(cs) && /withSecret\(cardToTask\(card\), secretOf\.get\(card\.id\)\)/.test(cs), '첫 로드도 — 실패는 삼킨다(마이그레이션 전)');
+  ok((cs.match(/previewOf\(cardId, /g) || []).length === 3, '알림 미리보기 셋(멘션·댓글·반응)이 잠긴 업무면 비운다');
+  ok(/SECRET_COLS = 'card_id, description, ai_summary'/.test(rd('src/services/cloud/board.js')), 'card_secrets는 해시 없이 세 칸만 고른다');
+  const mo = rd('src/modals/modals.jsx');
+  ok(/enabled: cloudMode && !!cardId && !closed/.test(mo), '같이 쓰기는 잠금 판이 걷힌 뒤에만 연다');
+  ok(/if \(!cloudMode \|\| !task\.id \|\| closed\) return;/.test(mo) && /\}, \[cloudMode, task\.id, closed\]\);/.test(mo), '상세(댓글·활동)는 열린 뒤 그 자리에서 다시 읽는다');
+  ok(/task\.id && isMine && <CardLockButton/.test(mo), '자물쇠 버튼은 만든 사람에게만');
+  console.log(`PASS  0099 업무 잠금의 모양·판정·서버 키 경로·앱 배선 ${n}가지`);
+}

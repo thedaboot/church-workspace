@@ -243,7 +243,23 @@ import { readFileSync } from 'node:fs';
   const extra = [...existing, { id: 99, kind: 'card', source_id: C1, chunk: 5, body_hash: 'old', project_id: P }];
   assert.deepStrictEqual(D.planSync(docs, extra).drop, [99], '줄어든 조각을 지우지 않는다');
   assert.deepStrictEqual(D.planSync(D.buildDocs(src, ['file']), extra, ['file']), { embed: [], move: [], drop: [] }, '--kind file이 카드 조각을 지운다');
-  console.log('PASS  문서 임베딩 뒷단(0074 모양 · 조각·해시 · 글 모양 · 증분 계획)');
+
+  // 업무 잠금(0099 · 묶음 ⑨) — 잠긴 업무 몫(업무·댓글·첨부)은 새로 만들지도 지우지도 않는다. 잠그는 순간 cards.description이 ''가 돼도
+  // 조각을 머리줄만으로 다시 임베딩하지 않고(정책이 여는 사람에게만 보이게 거른다) 풀면 그 자리에서 다시 보인다.
+  // **되돌리기**: syncDocVectors에서 holdLocked를 빼거나 holdLocked의 keep에서 댓글·첨부를 빼면 아래가 깨진다.
+  const lockedSrc = { ...src, cards: src.cards.map(c => (c.id === C1 ? { ...c, locked: true, description: '' } : c)) };
+  const held = D.holdLocked(lockedSrc);
+  const wantKeep = [C1, ...src.comments.filter(m => m.card_id === C1).map(m => m.id), ...src.files.filter(f => f.card_id === C1).map(f => f.id)];
+  assert.ok(wantKeep.length >= 4, '잠글 업무에 댓글·첨부가 있어야 검사가 뜻이 있다');
+  assert.deepStrictEqual([...held.keep].sort(), wantKeep.sort(), '잠긴 업무·그 댓글·그 첨부를 그대로 둘 몫으로 잡는다');
+  const lockedPlan = D.planSync(D.buildDocs(held.src), existing.filter(r => !held.keep.has(String(r.source_id))));
+  assert.deepStrictEqual(lockedPlan, { embed: [], move: [], drop: [] }, '잠갔다고 그 업무 조각을 지우거나 다시 임베딩한다');
+  assert.ok(D.buildDocs(held.src).every(d => !held.keep.has(d.source_id)), '잠긴 업무 몫의 새 조각을 만든다');
+  const dsSrc = readFileSync(new URL('../api/_docsync.js', import.meta.url), 'utf8');
+  assert.ok(/const \{ src, keep \} = holdLocked\(await loadSources\(db, kinds\)\);/.test(dsSrc)
+    && /planSync\(docs, existing\.filter\(r => !keep\.has\(String\(r\.source_id\)\)\), kinds\)/.test(dsSrc)
+    && /readAll\(db, 'cards', 'id, project_id, title, description, locked'\)/.test(dsSrc), '크론 동기화가 잠긴 몫을 건너뛴다');
+  console.log('PASS  문서 임베딩 뒷단(0074 모양 · 조각·해시 · 글 모양 · 증분 계획 · 잠긴 업무 몫은 그대로 0099)');
 }
 
 // ── AI가 사람을 부르는 말 · 글에 나온 사람 (services/aiPeople.js · 2026-09-25 AI 감사 결정 1·3·6·7·9·13) ──

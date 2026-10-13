@@ -261,6 +261,27 @@ export async function removeLink(id) {
   unwrap(await client().from('resource_links').delete().eq('id', id));
 }
 
+// ── 업무 잠금 (0099) ────────────────────────────────────────────────────────
+// 판정·해시는 전부 DB다(lock_card · unlock_card · unlock_owner — 비밀번호를 서버가 견준다 · 1분 5회). 여기는 부르기만.
+// card_secrets는 **여는 사람에게만 행이 온다**(만든 사람 · 맞힌 계정 · 마스터) — 칸은 넷만 고른다(해시 두 칸은 칸 권한이 없다).
+const SECRET_COLS = 'card_id, description, ai_summary';
+export async function listCardSecrets() {
+  return unwrap(await client().from('card_secrets').select(SECRET_COLS));
+}
+export async function getCardSecret(cardId) {
+  return unwrap(await client().from('card_secrets').select(SECRET_COLS).eq('card_id', cardId).maybeSingle());
+}
+export async function lockCard(cardId, pw) {
+  return unwrap(await client().rpc('lock_card', { c: cardId, pw }));
+}
+// 맞으면 true · 틀렸거나 1분에 5번을 넘었으면 false(둘을 가르지 않는다 — 화면은 같은 흔들림)
+export async function unlockCard(cardId, pw) {
+  return unwrap(await client().rpc('unlock_card', { c: cardId, pw })) === true;
+}
+export async function unlockOwner(cardId) {
+  return unwrap(await client().rpc('unlock_owner', { c: cardId }));
+}
+
 // 카드 순서만 쓴다 — 카드 폼 전체를 실어 보내면 순서를 바꾸는 사람이 남의 편집을
 // 같이 덮는다(요약 고정이 cardSummaryCloud로 세 칸만 쓰는 것과 같은 이유).
 export async function setCardPosition(id, position) {

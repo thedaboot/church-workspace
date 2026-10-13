@@ -3,6 +3,7 @@ import { statusToDb, statusFromDb } from './cloud.js';
 import { setWriteObserver } from './supabaseClient.js';
 import { reconnectWatcher } from './realtimeStatus.js';
 import { LEADERS, isLeaderOnly, visibleRecipients } from './visibility.js';
+import { withSecret } from './cardLock.js';
 import {
   normalize, httpsImage, extractMentions, isoTime, seenOnlyChange,
   dueForHeartbeat, HEARTBEAT_MS, LEAVE_STAMP_MS, WRITE_STAMP_MS, subtasksForDb, mergeSubtasks,
@@ -34,6 +35,10 @@ let profileRows = new Map();
 let leaderIds = new Set();
 let leaderProjects = new Set();
 let leaderNames = [];
+// 잠긴 업무(0099 · services/cardLock.js) id — 알림 미리보기에 본문·댓글 글을 싣지 않으려고 든다(받는 사람이 못 여는 글일 수 있다).
+// 로드마다 다시 만들고 카드 1건을 다시 읽을 때 고친다. 화면에서 본문을 가리는 일은 DB가 한다(card_secrets).
+let lockedCards = new Set();
+const previewOf = (cardId, text) => (cardId && lockedCards.has(cardId) ? '' : String(text || '').slice(0, 80));
 
 const primeMaps = (teams, profiles) => {
   teamIdToName = new Map(teams.map(t => [t.id, t.name]));
@@ -167,7 +172,7 @@ export async function notifyMentions(text, { actorName, cardId, projectId, recip
   if (myId) ids = ids.filter(id => id !== myId);
   if (!ids.length) return;
   try {
-    await cloud.insertNotifications(ids, { kind: 'mention', actorName, cardId, projectId, preview: String(text || '').slice(0, 80) });
+    await cloud.insertNotifications(ids, { kind: 'mention', actorName, cardId, projectId, preview: previewOf(cardId, text) });
   } catch (e) {
     console.error('[cloud] 멘션 알림 생성 실패:', e);
   }
@@ -214,7 +219,7 @@ export async function notifyComment(text, { actorName, cardId, projectId, replyT
   const replyIds = replyToName
     ? seeing(resolveNameRecipients(replyToName), projectId).filter(id => notMe(id) && !mentioned.has(id))
     : [];
-  const preview = String(text || '').slice(0, 80);
+  const preview = previewOf(cardId, text);
   const meta = { actorName, cardId, projectId, preview };
   try {
     if (mentionIds.length) await cloud.insertNotifications(mentionIds, { ...meta, kind: 'mention' });
@@ -234,7 +239,7 @@ export async function notifyReaction(authorName, { actorName, cardId, projectId,
   if (myId) ids = ids.filter(id => id !== myId);
   if (!ids.length) return;
   try {
-    await cloud.insertNotifications(ids, { kind: 'reaction', actorName, cardId, projectId, preview });
+    await cloud.insertNotifications(ids, { kind: 'reaction', actorName, cardId, projectId, preview: previewOf(cardId, preview) });
   } catch (e) {
     console.error('[cloud] 반응 알림 생성 실패:', e);
   }
@@ -321,6 +326,9 @@ const cardToTask = (card) => ({
   completedAt: card.completed_at || '',
   // 마지막으로 고친 사람 (0010 트리거가 채운다). 한 번도 수정되지 않았으면 빈 값
   updatedBy: card.updated_by ? (profileIdToName.get(card.updated_by) || '') : '',
+  // 업무 잠금(0099). 잠겼으면 description·ai_summary가 비어 온다 — 여는 사람이면 card_secrets 행을 얹는다(withSecret)
+  locked: !!card.locked,
+  lockedOpen: false,
   comments: [],
   activityLog: [],
   attachments: [],
@@ -405,6 +413,9 @@ const projectToApp = (p, linksByProject) => ({
   pinnedLinks: linkRows(linksByProject.get(p.id)),
   // 보는 사람(0092) — 'leaders'면 리더만. 칸이 없으면(마이그레이션 전) 공개다
   visibility: isLeaderOnly(p) ? LEADERS : 'all',
+  // 누가 언제 바꿨나(0099 트리거가 적는다) — 화면 문구 없음
+  visibilityBy: p.visibility_by || null,
+  visibilityAt: p.visibility_at || null,
 });
 
 // ── 초기 로드: 전체를 병렬 조회 → 앱 스토어 모양으로 정규화 ──────────────────
@@ -451,8 +462,14 @@ export async function loadCloudState() {
   const filesByCard = new Map();
   files.forEach(f => { if (!f.card_id) return; if (!filesByCard.has(f.card_id)) filesByCard.set(f.card_id, []); filesByCard.get(f.card_id).push(f); });
 
+  // 잠긴 업무의 본문(0099) — 여는 사람에게만 행이 온다. **없어도 되는 값**이라 실패를 삼킨다(마이그레이션 전 · §3-4)
+  const secrets = cards.some(c => c.locked)
+    ? await cloud.listCardSecrets().catch((e) => { console.warn('[cloud] 잠긴 업무 본문을 못 읽었어요:', e?.message || e); return []; })
+    : [];
+  const secretOf = new Map((secrets || []).map(r => [r.card_id, r]));
+  lockedCards = new Set(cards.filter(c => c.locked).map(c => c.id));
   const tasks = cards.map(card => {
-    const t = cardToTask(card);
+    const t = withSecret(cardToTask(card), secretOf.get(card.id));
     t.attachments = filesByCard.get(card.id) || [];
     t.pinnedLinks = linkRows(linksByCard.get(card.id));
     return t;   // comments·activityLog는 창을 열 때 채운다(loadCardDetail)
@@ -599,7 +616,10 @@ export async function loadCardDetail(cardId) {
 export async function loadCardPatch(cardId) {
   const card = await cloud.withClockSkewRetry(() => cloud.getCard(cardId));
   if (!card) return null;
-  const { comments, activityLog, attachments, ...patch } = cardToTask(card);
+  if (card.locked) lockedCards.add(cardId); else lockedCards.delete(cardId);
+  // 잠긴 업무면 내가 열 수 있는지(card_secrets 행이 오나)까지 — 잠그고 푸는 순간·맞힌 뒤에 이 길로 다시 읽는다(0099)
+  const secret = card.locked ? await cloud.getCardSecret(cardId).catch(() => null) : null;
+  const { comments, activityLog, attachments, ...patch } = withSecret(cardToTask(card), secret);
   return patch;
 }
 
@@ -777,12 +797,33 @@ export async function ensureCardFolder(project, card) {
 export async function projectArchiveCloud(id, archived) { return write(() => cloud.updateProject(id, { archived })); }
 // 보는 사람 바꾸기(0092) → 저장된 값('all' | 'leaders'). 리더가 아니면 DB 트리거가 옛 값으로 되돌리므로
 // 돌려받은 행이 곧 사실이다. 리더가 아닌 화면은 이 변경을 실시간으로 못 받는다 — 공개 채널에 id만 알린다(notify.js).
+// 누가·언제(visibility_by·visibility_at)는 DB 트리거가 적는다(0099 — 위조 못 함) · 돌려받은 행 그대로 싣는다.
 export async function projectVisibilityCloud(id, visibility) {
   const saved = await write(() => cloud.updateProject(id, { visibility }));
   const v = isLeaderOnly(saved) ? LEADERS : 'all';
   if (v === LEADERS) leaderProjects.add(id); else leaderProjects.delete(id);
   cloud.announceProjectVisibility(id).catch(e => console.warn('[cloud] 보는 사람 바뀜 알리기 실패:', e?.message || e));
-  return v;
+  return { visibility: v, visibilityBy: saved?.visibility_by || null, visibilityAt: saved?.visibility_at || null };
+}
+
+// ── 업무 잠금 (0099) ────────────────────────────────────────────────────────
+// 판정·비교는 서버(lock_card · unlock_card · unlock_owner). 끝나면 그 카드를 다시 읽어(loadCardPatch — card_secrets까지)
+// 돌려준다 — 부르는 쪽이 SYNC_TASK로 얹는다. 남의 화면은 cards UPDATE 실시간으로 같은 길을 탄다(잠그고 풀 때 본문을 옮기며
+// 행이 바뀐다 · 맞힌 것은 나에게만이라 실시간이 없다 — 그래서 여기서 다시 읽는다).
+// 본문 거울 쓰기는 그대로 cards.description이다 — 잠긴 동안은 DB 트리거(trg_cards_lock_mirror)가 card_secrets로 돌린다.
+export async function lockCardCloud(id, pw) {
+  await write(() => cloud.lockCard(id, pw));
+  lockedCards.add(id);
+  return loadCardPatch(id);
+}
+// 맞으면 다시 읽은 카드 · 틀렸거나 1분 5회를 넘었으면 null
+export async function unlockCardCloud(id, pw) {
+  if (!(await write(() => cloud.unlockCard(id, pw)))) return null;
+  return loadCardPatch(id);
+}
+export async function unlockOwnerCloud(id) {
+  await write(() => cloud.unlockOwner(id));
+  return loadCardPatch(id);
 }
 export async function projectDeleteCloud(id) { return write(() => cloud.deleteProject(id)); }
 

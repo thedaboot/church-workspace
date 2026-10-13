@@ -2,6 +2,7 @@ import { EMBED_MODEL, EMBED_DIM, unitVec } from './ai.js';
 import { sha256, geminiFetch, isTimeout } from './_lib.js';
 import { mdLabel } from '../src/services/wikiCore.js';
 import { wikiEvidence, pageBody, serviceText } from './_wiki/evidence.js';
+import { dropLocked } from '../src/services/cardLock.js';
 
 // ============================================================================
 // 업무·댓글·첨부 → doc_vec(0074) 증분 동기화 — 크론과 스크립트가 같이 쓰는 한 벌 (배치 E4)
@@ -201,6 +202,19 @@ export function buildDocs({ projects = [], cards = [], comments = [], files = []
 
 const keyOf = (r) => `${r.kind}|${r.source_id}|${r.chunk}`;
 
+// 잠긴 업무(0099)의 몫은 **건드리지 않는다** — 새로 만들지도(본문은 card_secrets로 옮겨 cards 쪽이 비었다), 지우지도 않는다.
+// 이미 있는 조각은 정책(doc_vec_select의 locked_hidden_ids)이 여는 사람에게만 보이게 거르고, 풀면 **그 자리에서** 다시 보인다
+// (다음 크론을 기다리지 않는다). 돌려주는 것: 잠긴 몫을 뺀 원본 + 그대로 둘 source_id Set(업무·그 댓글·그 첨부).
+export function holdLocked(src) {
+  const open = dropLocked(src);
+  const keep = new Set([
+    ...open.locked,
+    ...(src.comments || []).filter(m => open.locked.has(m.card_id)).map(m => m.id),
+    ...(src.files || []).filter(f => f.card_id && open.locked.has(f.card_id)).map(f => f.id),
+  ].map(String));
+  return { src: { ...src, cards: open.cards, comments: open.comments, files: open.files }, keep };
+}
+
 // 지금 있어야 할 조각(docs)과 doc_vec에 있는 행(existing: id·kind·source_id·chunk·body_hash·project_id)을
 // 견준다. kinds 밖의 기존 행은 건드리지 않는다(--kind로 한 종류만 돌릴 때).
 //   embed — 없거나 해시가 다른 조각(임베딩해 upsert)
@@ -289,7 +303,7 @@ export async function loadSources(db, kinds = KINDS) {
   const want = new Set(kinds);
   const [projects, cards, comments, files, pages, edits, services, serviceFiles] = await Promise.all([
     readAll(db, 'projects', 'id, name'),
-    readAll(db, 'cards', 'id, project_id, title, description'),
+    readAll(db, 'cards', 'id, project_id, title, description, locked'),
     want.has('comment') ? readAll(db, 'comments', 'id, card_id, body') : [],
     want.has('file') ? readAll(db, 'files', 'id, card_id, service_id, name, text_excerpt', q => q.not('card_id', 'is', null)) : [],
     want.has('wiki') ? readAll(db, 'wiki_pages', 'id, grp, title, kind, blocks') : [],
@@ -329,9 +343,9 @@ export async function syncDocVectors(db, { geminiKey, budgetMs = 40000, dryRun =
     } else if (dryRun && isMissingTable(e)) missingTable = true;
     else throw e;
   }
-  const src = await loadSources(db, kinds);
+  const { src, keep } = holdLocked(await loadSources(db, kinds));
   const docs = buildDocs(src, kinds);
-  const plan = planSync(docs, existing, kinds);
+  const plan = planSync(docs, existing.filter(r => !keep.has(String(r.source_id))), kinds);
 
   const byKind = {};
   for (const k of kinds) byKind[k] = { sources: 0, chunks: 0, chars: 0, embed: 0 };

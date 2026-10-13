@@ -200,7 +200,8 @@ export function CoeditFaces({ awareness, faces: given }) {
   const faces = given || own;
   if (!faces.length) return null;
   return (
-    <span data-coedit-faces="" className="flex items-center mr-2">
+    // 묶음째 줄지 않는다(shrink-0) — 머리줄에 자물쇠(0099)가 들어와도 얼굴은 통째로 왼쪽으로 물러나고 제목이 양보한다
+    <span data-coedit-faces="" className="flex items-center shrink-0 mr-2">
       {faces.slice(0, 5).map((f, i) => (
         <span key={f.key} title={f.editing ? `${f.name} · 수정 중` : f.name} data-face={f.name} data-editing={f.editing ? '' : undefined}
           className={`relative inline-flex rounded-full shrink-0 ${i ? (f.editing || faces[i - 1].editing ? '-ml-0.5' : '-ml-1.5') : ''}`}

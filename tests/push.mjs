@@ -76,6 +76,8 @@ const patched = readFileSync(SRC, 'utf8')
   // 재접속 판정(2026-09-25)은 순수 모듈이라 진짜 파일을 절대 경로로 문다
     // 리더만 보는 프로젝트 판정(0092)도 순수 모듈이라 진짜 파일을 절대 경로로 문다
   .replace(/from '\.\/visibility\.js';/, `from '${pathToFileURL(join(ROOT, 'src', 'services', 'visibility.js')).href}';`)
+  // 업무 잠금 판정(0099)도 순수 모듈 — 진짜 파일을 절대 경로로
+  .replace(/from '\.\/cardLock\.js';/, `from '${pathToFileURL(join(ROOT, 'src', 'services', 'cardLock.js')).href}';`)
   .replace(/from '\.\/realtimeStatus\.js';/, `from '${pathToFileURL(join(ROOT, 'src', 'services', 'realtimeStatus.js')).href}';`)
   .replace(/import (\{[^}]*\}) from '\.\.\/utils\.js';/,
     (m, names) => `import ${names} from '${pathToFileURL(join(ROOT, 'src', 'utils.js')).href}';`);

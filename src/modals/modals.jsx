@@ -31,7 +31,11 @@ const EditorSkeleton = () => (
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { isMyUid } from '../services/supabaseClient.js';
-import { getMemberNames, loadCardDetail, cardWritePromise } from '../services/cloudSync.js';
+import { getMemberNames, loadCardDetail, cardWritePromise, lockCardCloud, unlockCardCloud, unlockOwnerCloud } from '../services/cloudSync.js';
+import { isCardClosed, allowTry } from '../services/cardLock.js';
+import { makeViewPw, verifyViewPw } from '../services/viewPw.js';
+import { failText } from '../services/errorText.js';
+import { CardLockButton, LockedPanel, LockGate } from '../components/cardLock.jsx';
 import { ShareButton } from '../components/ShareButton.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { showToast } from '../components/Toast.jsx';
@@ -51,8 +55,12 @@ import { LeaderChip } from '../components/leaderOnly.jsx';
 //   첨부      → attachments.jsx
 //   댓글·활동 → comments.jsx
 //   같이 쓰기(여는 훅 · 머리줄 얼굴 · 버전 기록 · 고친 곳) → coedit.jsx
+//   업무 잠금(0099 · 머리줄 자물쇠 · 잠금 판 · 모션) → components/cardLock.jsx · 판정은 services/cardLock.js
 //   내 정보·프로젝트 창 → settings.jsx
 // ============================================================================
+
+// 게스트의 잠긴 업무 비밀번호 시도 시각(업무 id → [ms]) — 서버의 1분 5회(0099 unlock_card)와 같은 흐름(cardLock.allowTry)
+const guestTries = new Map();
 
 // 첫 페인트가 끝난 뒤 true — 목록(댓글·활동)처럼 무거운 영역을 첫 커밋에서 빼낸다.
 // 마운트 직후 1회만 false→true로 바뀌고 이후 계속 true(탭 전환 시 지연 없음).
@@ -113,14 +121,22 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   // 열려 있는 동안 스토어의 최신 카드를 따라간다 — 댓글·활동·남이 바꾼 칸이 그대로 들어온다
   const liveTask = useStore(s => (task.id ? s.tasks.byId[task.id] : null));
   const source = liveTask || task;
+  // 업무 잠금(0099 · components/cardLock.jsx) — 나에게 잠겨 있으면 본문·댓글·첨부·같이 쓰기·버전 기록 자리에 잠금 판 하나.
+  // 클라우드는 그 데이터가 아예 안 온다(RLS) — 여기서는 읽지도 열지도 않는다(상세 읽기 · 같이 쓰기 세션 · 사이드바).
+  // 자물쇠 버튼은 만든 사람에게만(created_by — 남긴 계정까지 · 게스트는 작성자 이름). 마스터는 비밀번호 없이 열린다(DB가 card_secrets를 준다).
+  const closed = !isNew && isCardClosed(source);
+  const isMine = !isNew && (cloudMode ? isMyUid(source.created_by, userId) : !!source.author && source.author === currentUser.name);
+  // 폰은 탭 줄을 걷고 상세 하나로(댓글 탭을 보던 중에 잠겨도)
+  if (closed && mobileTab !== 'detail') setMobileTab('detail');
 
   // 댓글·활동은 초기 로드에서 빼두고(목록 화면에는 나오지 않는 데이터다) 창을 열 때
   // 이 카드 것만 읽는다 — 첨부가 이미 쓰고 있던 방식과 같다(AttachmentSection).
   // 읽는 동안은 detailLoading — 패널이 빈 상태("첫 댓글을 남겨보세요!") 대신 스켈레톤을
   // 그린다. 빈 상태가 먼저 번쩍이면 "댓글이 없다"고 잘못 읽힌다.
   const [detailLoading, setDetailLoading] = useState(false);
+  // 잠긴 업무는 열릴 때(맞힌 순간 · 만든 사람이 푼 순간) 그 자리에서 다시 읽는다(closed가 deps에 있다).
   useEffect(() => {
-    if (!cloudMode || !task.id) return;
+    if (!cloudMode || !task.id || closed) return;
     let alive = true;
     setDetailLoading(true);
     loadCardDetail(task.id)
@@ -128,7 +144,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
       .catch(e => console.error('[cloud] 업무 상세 로드 실패:', e))
       .finally(() => { if (alive) setDetailLoading(false); });
     return () => { alive = false; };
-  }, [cloudMode, task.id]);
+  }, [cloudMode, task.id, closed]);
 
   // 댓글 칸은 **맨 아래(최신)에서 연다** — 대화처럼(2026-10-09 승인). 바닥에 붙어 있는 동안(cmtPin)만
   // 내용이 바뀔 때 바닥으로 다시 내린다: 칸을 열 때 · 읽기가 끝날 때 · 내가 댓글을 달 때.
@@ -218,8 +234,9 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
 
   // ── 같이 쓰기(클라우드 · 있는 업무) ───────────────────────────────────────
   // 거울(onMirror)은 **조용한 저장**이다 — 활동·멘션은 세션 끝(onVersion)에 한 번(controllers).
+  // 잠금 판이 서 있는 동안은 열지 않는다(채널·문서 표가 RLS로 막혀 있기도 하다 · 0099) — 열리면 그때 연다.
   const { co, failed: coFailed } = useCoedit({
-    cardId, enabled: cloudMode && !!cardId, name: currentUser.name,
+    cardId, enabled: cloudMode && !!cardId && !closed, name: currentUser.name,
     onMirror: (md) => commit({ content: md }, { silentContent: true }),
     onVersion: ({ startMd, endMd }) => onSessionRef.current?.(cardId, startMd, endMd),
   });
@@ -228,6 +245,8 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   const [mode, setMode] = useState('view');
   const [modeCard, setModeCard] = useState(cardId);
   if (modeCard !== cardId) { setModeCard(cardId); setMode('view'); }
+  // 수정 중에 남이 잠그면(만든 사람이 아닌 나에게 닫히면) 보기로 — 잠금 판은 보기 화면에 선다
+  if (closed && mode === 'edit') setMode('view');
   const editing = !isNew && mode === 'edit';
   // 개발 빌드 전용 가짜(얼굴 · 문서 마크다운 · 버전 기록) — 게스트 검사가 그려 본다(coedit.jsx useDevFake · tests/modalclose)
   const fake = useDevFake();
@@ -277,6 +296,37 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   const showVersions = (cloudMode && !!cardId) || (!!cardId && !!fake?.versions);
   useEffect(() => { if (!showVersions && (activeTab === 'versions' || mobileTab === 'versions')) { setActiveTab('comments'); setMobileTab('detail'); } },
     [showVersions, activeTab, mobileTab]);
+
+  // ── 업무 잠금(0099) ───────────────────────────────────────────────────
+  // 클라우드는 서버 함수(판정·해시·1분 5회 전부 DB) 뒤 그 카드를 다시 읽어 얹는다(card_secrets까지 — cloudSync).
+  // 게스트는 같은 흐름을 로컬로 — 해시는 viewPw.js 한 벌(서버의 hex(sha256(소금‖비밀번호))와 같은 규칙) · 본문은 그대로 들고 있다.
+  // 잠그기·풀기 실패(통신)는 토스트, 비밀번호가 틀린 것은 흔들림(부품 · 토스트 없음 — §8).
+  const sync = (patch) => { if (patch) store.dispatch({ type: 'SYNC_TASK', payload: patch }); };
+  const lockNow = async (pw) => {
+    try {
+      if (cloudMode) sync(await lockCardCloud(cardId, pw));
+      else sync({ id: cardId, locked: true, lockedOpen: true, lockPw: await makeViewPw(pw) });
+    } catch (e) { console.error('[cloud] 업무 잠그기 실패:', e); showToast(failText('업무를 잠그지 못했어요', e)); throw e; }
+  };
+  const unlockOwner = async () => {
+    try {
+      if (cloudMode) sync(await unlockOwnerCloud(cardId));
+      else sync({ id: cardId, locked: false, lockedOpen: false, lockPw: null });
+    } catch (e) { console.error('[cloud] 업무 잠금 해제 실패:', e); showToast(failText('잠금을 풀지 못했어요', e)); throw e; }
+  };
+  const tryUnlock = async (pw) => {
+    try {
+      if (cloudMode) { const patch = await unlockCardCloud(cardId, pw); sync(patch); return !!patch; }
+      const times = guestTries.get(cardId) || [];
+      if (!allowTry(times)) return false;
+      guestTries.set(cardId, [...times, Date.now()]);
+      // 해시가 없으면 틀린 것으로 — verifyViewPw는 '안 잠김'을 통과로 본다(첨부 화면 가림의 규칙)
+      const lockPw = store.getState().tasks.byId[cardId]?.lockPw;
+      if (!lockPw?.view_pw || !(await verifyViewPw(lockPw, pw))) return false;
+      sync({ id: cardId, lockedOpen: true });
+      return true;
+    } catch (e) { console.error('[cloud] 잠긴 업무 열기 실패:', e); showToast(failText('업무를 열지 못했어요', e)); throw e; }
+  };
 
   // ── 보기 ↔ 수정 ───────────────────────────────────────────────────────
   const enterEdit = () => { setMode('edit'); if (isMobile) setMobileTab('detail'); };
@@ -369,8 +419,11 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
       <div className="flex items-center gap-1 shrink-0">
         {/* 지금 이 본문에 들어와 있는 사람(나 먼저) — 공유·닫기 왼쪽 */}
         {task.id && <CoeditFaces faces={faces} />}
+        {/* 자물쇠(0099) — 만든 사람에게만 · 공유 바로 왼쪽. 얼굴 묶음은 통째로 그 왼쪽으로 물러나고(잘리지 않는다)
+            양보는 왼쪽 제목('업무 세부 정보')이 말줄임으로 한다 — 이 묶음 전체가 shrink-0이다 */}
+        {task.id && isMine && <CardLockButton locked={!!source.locked} onLock={lockNow} onUnlock={unlockOwner} />}
         {task.id && <ShareButton url={`${window.location.origin}/s/t/${task.id}`} what="업무" />}
-        {!isMobile && task.id && (
+        {!isMobile && task.id && !closed && (
           <button onClick={toggleSide} className="p-1 hover:bg-surface-hover rounded-full text-fg-faint"
             title={sideOpen ? '댓글·활동 접기' : '댓글·활동 펴기'} aria-expanded={sideOpen}>
             {sideOpen ? <PanelRightClose size={16} strokeWidth={1.75}/> : <PanelRight size={16} strokeWidth={1.75}/>}
@@ -421,7 +474,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
             <span className="mr-1 inline-flex"><SaveMark busy={busy > 0} failed={failed} /></span>
             <button type="button" onClick={finishEdit} className="bg-accent hover:bg-accent-strong text-white px-5 py-2 rounded-md text-xs font-semibold transition active:scale-95 whitespace-nowrap">수정 완료</button>
           </>
-        ) : (
+        ) : closed ? null : (
           <button type="button" onClick={enterEdit} className="bg-accent-weak hover:brightness-95 text-accent-text px-6 py-2 rounded-md text-xs font-semibold transition active:scale-95 whitespace-nowrap">수정</button>
         )}
         <button type="button" onClick={close} className={`${closeBtnCls} whitespace-nowrap`}>닫기</button>
@@ -438,17 +491,19 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
           co={co} coPending={cloudMode && !co && !coFailed} members={members}
           cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
           diffPick={diffPick} onRestore={restoreVersion} onExitDiff={() => setDiffPick(null)} />
-      : <TaskView key={task.id} task={source} commit={commit} co={co} coPending={cloudMode && !co && !coFailed}
-          liveMd={liveMd} editors={editors}
+      : <TaskView key={task.id} task={source} commit={commit} co={co} coPending={cloudMode && !co && !coFailed && !closed}
+          liveMd={liveMd} editors={editors} closed={closed} onUnlock={tryUnlock}
           cloudMode={cloudMode} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity}
           diffPick={diffPick} onRestore={restoreVersion} onExitDiff={() => setDiffPick(null)} />;
-  const commentsPanel = listsReady
+  // 잠금 판이 서 있으면 댓글·활동·버전 기록 자리는 비운다 — 사이드바는 접히고(데스크톱) 탭은 상세 하나(폰). 판은 본문 자리 하나뿐이다.
+  const commentsPanel = listsReady && !closed
     /* members: 답글 입력창도 댓글 입력창과 같은 @멘션 자동완성을 쓴다 */
     ? <CommentPanel comments={source.comments} onReply={onAddComment} currentUser={currentUser} onUpdate={onUpdateComment} onDelete={onDeleteComment} loading={detailLoading} members={members} />
     : null;
-  const activityPanel = listsReady ? <ActivityPanel logs={source.activityLog} loading={detailLoading} /> : null;
-  const versionsPanel = showVersions ? <VersionPanel cardId={task.id} pickedId={diffPick?.version.id} onPick={pickVersion} refreshKey={versionsKey} load={cloudMode ? null : fake?.versions} /> : null;
-  const commentInputEl = <CommentInput onAdd={addComment} members={members} />;
+  const activityPanel = listsReady && !closed ? <ActivityPanel logs={source.activityLog} loading={detailLoading} /> : null;
+  const versionsPanel = showVersions && !closed ? <VersionPanel cardId={task.id} pickedId={diffPick?.version.id} onPick={pickVersion} refreshKey={versionsKey} load={cloudMode ? null : fake?.versions} /> : null;
+  const commentInputEl = closed ? null : <CommentInput onAdd={addComment} members={members} />;
+  const sideShown = sideOpen && !closed;
 
   // ── 모바일: 풀스크린 + 세그먼트 탭 ──
   if (isMobile) {
@@ -462,7 +517,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
          댓글 입력칸과 아래 도구 줄이 키보드 바로 위에 선다(App.jsx의 --app-vh 주석). */
       <div className="fixed inset-x-0 top-0 h-[var(--app-vh,100dvh)] z-50 bg-surface flex flex-col animate-in slide-in-from-bottom-4 duration-200">
         <div className="shrink-0 px-4 py-3 border-b border-line flex justify-between items-center gap-2 bg-surface">{headerInner}</div>
-        {!isNew && (
+        {!isNew && !closed && (
           <div className="flex border-b border-line bg-surface shrink-0">
             {segBtn('detail', '상세')}
             {segBtn('comments', `댓글 (${commentCount})`)}
@@ -530,7 +585,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
           <div
             style={{ transition: 'width .28s var(--ease-out-quint)' }}
             className={`h-[40dvh] md:h-auto bg-surface-2 flex flex-col shrink-0 overflow-hidden ${
-              sideOpen ? 'w-full md:w-80 border-t md:border-t-0 md:border-l border-line' : 'w-full md:w-0 h-0 md:h-auto'}`}>
+              sideShown ? 'w-full md:w-80 border-t md:border-t-0 md:border-l border-line' : 'w-full md:w-0 h-0 md:h-auto'}`}>
           {/* 안쪽은 폭을 지킨다 — 감싸개만 줄이면 내용이 눌리면서 글자가 뭉개진다.
               감싸개가 잘라 내니 밖에서 보면 옆으로 밀려 사라지는 모양이 된다. */}
           <div className="w-full md:w-80 h-full flex flex-col shrink-0">
@@ -662,7 +717,8 @@ function useCoActions(co) {
 // 본문은 liveMd(문서의 마크다운 · 남이 치는 글이 따라온다)가 있으면 그것, 없으면 스토어의 본문이다.
 // editors(나 말고 수정 화면에 있는 사람)가 있으면 본문 위 알약과 그 사람이 있는 줄 표시(coedit.jsx)가 선다.
 // **본문 통은 오른쪽 28px(pr-7)을 늘 비워 둔다** — 줄 표시 얼굴이 그 안에 서서 잘리지 않고, 누가 들어와도 글줄이 다시 흐르지 않는다.
-function TaskView({ task, commit, co, coPending, liveMd, editors = [], cloudMode, userId, isAdmin, onFileActivity, diffPick, onRestore, onExitDiff }) {
+// closed(업무 잠금 · 0099)면 위 줄들(상태·팀·제목·담당자·날짜·선행 업무) 아래가 **잠금 판 하나**다(LockGate — 잠길 때·열릴 때만 움직인다).
+function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = false, onUnlock, cloudMode, userId, isAdmin, onFileActivity, diffPick, onRestore, onExitDiff }) {
   const summary = useTaskSummary(task, cloudMode);
   const md = liveMd ?? task.content ?? '';
   const [bodyEl, setBodyEl] = useState(null);   // 줄 표시가 재는 통(coedit.jsx PresenceMarks)
@@ -703,6 +759,8 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], cloudMode
         <DependsViewRow dependsOn={task.dependsOn} />
       </div>
 
+      <LockGate closed={closed} panel={(stir) => <div className="mt-5"><LockedPanel onUnlock={onUnlock} stir={stir} /></div>}>
+      <div>
       {summary.block && <div className="mt-4">{summary.block}</div>}
       {/* 본문 위 한 줄 — 왼쪽은 '○○○님이 수정 중'(남이 수정 화면일 때만), 오른쪽은 3줄 요약 버튼(hover로 숨기지 않는다) */}
       {((editors.length > 0 && !diffPick) || summary.button) && (
@@ -732,6 +790,8 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], cloudMode
         onChange={(fn, opts) => commit(cur => ({ ...cur, subtasks: fn(cur.subtasks || []) }), opts)} />
 
       {cloudMode && <AttachmentSection task={task} userId={userId} isAdmin={isAdmin} onFileActivity={onFileActivity} readOnly />}
+      </div>
+      </LockGate>
     </div>
   );
 }

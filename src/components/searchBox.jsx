@@ -4,6 +4,7 @@ import { CheckSquare, Search, X, Hash, MessageSquare, Paperclip } from 'lucide-r
 import { useStore } from '../store/workspaceStore.js';
 import { selectProjectsList, selectProjectsMap, selectTasksList, selectTasks } from '../store/selectors.js';
 import { imeComposing } from '../utils.js';
+import { isCardClosed } from '../services/cardLock.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { useDismiss } from '../hooks/useDismiss.js';
 import { useReducedMotion } from '../hooks/useReducedMotion.js';
@@ -156,8 +157,11 @@ function SearchResults({ query, onPick }) {
     const projectHits = projectsList.filter(p => hit(p.title));
     // 첨부 이름·댓글도 본다. 클라우드에서는 열어 본 카드만 채워져 있다(§6-20) —
     // 그래도 없는 것보다 낫고, 게스트·최근에 연 카드에서는 온전히 잡힌다.
-    const taskHits = tasksList.filter(t =>
-      hit(t.title) || hit(t.content) ||
+    // 나에게 잠긴 업무(0099)는 제목·담당·팀으로만 — 클라우드는 본문·댓글·첨부가 애초에 안 온다(RLS · card_secrets),
+    // 게스트는 들고 있으니 여기서 거른다(같은 흐름)
+    const taskHits = tasksList.filter(t => isCardClosed(t)
+      ? hit(t.title) || (t.assignees || []).some(hit) || (t.teams || []).some(hit)
+      : hit(t.title) || hit(t.content) ||
       (t.assignees || []).some(hit) ||
       (t.teams || []).some(hit) ||
       // 첨부는 이름뿐 아니라 **안에 든 글자**도 본다(files.text_excerpt, 0030).
