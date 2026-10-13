@@ -5,7 +5,7 @@ import { syncDocVectors } from './_docsync.js';
 import { buildWiki } from './_wikiBuild.js';
 import { reaskUnknown } from './_wikiAsk.js';
 import { isLeaderOnly, visibleRecipients } from '../src/services/visibility.js';
-import { leaderIdSet, leaderOnlyOf } from './_leaders.js';
+import { leaderIdSet, leaderOnlyOf, lockedOf } from './_leaders.js';
 
 // ============================================================================
 // /api/push — 웹 푸시 발송. 두 입구가 한 파일에 있다.
@@ -194,11 +194,18 @@ async function handleSend(req, res) {
   const safeLink = sameOriginPath(link);
   const result = await sendToProfiles(db, ids, {
     title: notifLine(kind, await actorNameOf(db, user.id, actorName)),
-    body: String(preview || '').slice(0, MAX_PREVIEW),
+    body: await pushPreview(db, cardId, preview),
     url: safeLink || deepLink(projectId, cardId),
     tag: cardId ? `card:${cardId}` : (safeLink ? `link:${safeLink}` : 'thedaboot'),
   });
   res.status(200).json(result);
+}
+
+// 푸시 본문(미리보기) — 잠긴 업무(0099)의 알림(멘션·댓글·반응)은 본문을 싣지 않는다. 앱(cloudSync)이 먼저 비우지만
+// 옛 앱이 보낸 것도 기기 밖으로 안 나가게 한 번 더(20차 ⑩). 판정을 못 하면 비운다(닫힌 쪽 — 제목·종류는 그대로 간다).
+export async function pushPreview(db, cardId, preview) {
+  if (cardId && await lockedOf(db, cardId).catch(() => true)) return '';
+  return String(preview || '').slice(0, MAX_PREVIEW);
 }
 
 // ── GET: 마감 임박 배치 ─────────────────────────────────────────────────────

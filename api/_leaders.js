@@ -6,7 +6,8 @@ import { LEADERS, isLeaderOnly, leaderCardIdsOf } from '../src/services/visibili
 // 부르는 곳: api/push.js(앱 알림의 푸시 · 마감 임박) · api/ics.js(내 달력 구독) · api/_wikiAsk.js(다붓이 답 캐시·짝 —
 // leaderCardIds + visibility.leaderCited · 20차 ⑥). 위키 장(api/_wiki/gather.js)은
 // 통째로 읽은 원본을 visibility.dropLeaderOnly로 걷고, 공유 카드(api/share.js)는 그 행의 visibility만 본다.
-// 업무 잠금(0099)도 여기 — lockedCardIds(서버 키 · 잠긴 것 전부) · lockedHiddenFor(묻는 사람 세션) · lockedOf(푸시 미리보기).
+// 업무 잠금(0099)도 여기 — lockedCardIds(서버 키 · 잠긴 것 전부) · lockedHiddenFor(묻는 사람 세션) · lockedOf(푸시 미리보기) ·
+// unseenCardIds(리더 ∪ 잠긴 — 다붓이 답 캐시·짝·아침 고리·자주 묻는 질문 장 · 20차 ⑩).
 // 리더 판정은 DB 함수 leader_profile_ids() 한 벌이다 — 서비스 키는 auth.uid()가 없어 그대로 받는다(0092).
 // `_`로 시작해 라우트가 아니다.
 // ============================================================================
@@ -52,6 +53,13 @@ export async function lockedCardIds(db) {
   const { data, error } = await db.from('cards').select('id').eq('locked', true);
   if (error) throw error;
   return new Set((data || []).map(c => c.id));
+}
+
+// 서버 키에 '안 보이는 업무' 전부 — 리더 프로젝트의 업무 ∪ 잠긴 업무(20차 ⑩ · visibility.leaderCited에 넘기는 Set).
+// 하나라도 못 읽으면 던진다 — 부르는 쪽이 닫힌 쪽으로 받는다.
+export async function unseenCardIds(db) {
+  const [leaders, locked] = await Promise.all([leaderCardIds(db), lockedCardIds(db)]);
+  return new Set([...leaders, ...locked]);
 }
 
 // 묻는 사람에게 가려진 id(잠긴 업무 · 그 댓글 · 그 첨부) — **그 사람 세션 클라이언트로** 부른다(locked_hidden_ids · 0099).

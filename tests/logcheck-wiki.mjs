@@ -1152,7 +1152,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
     fakeGemini(() => ({ found: true, sentences: [] }));
     await assert.rejects(A.answerQuestion(Q, { db: fakeDb(people), key: 'k', today, gate: Promise.resolve(true) }), (e) => e.busy === true);
     assert.strictEqual(calls.length, 0, '상한이 넘으면 모델을 부르지 않는다');
-    assert.ok(ask.includes('const [{ data }, stamp, hidden] = await Promise.all([') && ask.includes('dataStamp(admin),\n    leaderCardIds(admin).catch(() => null),\n  ]);'), '캐시 행과 데이터 도장(과 리더 업무 id · 20차 ⑥)은 함께');
+    assert.ok(ask.includes('const [{ data }, stamp, leaders, locked] = await Promise.all([') && ask.includes('dataStamp(admin),\n    leaderCardIds(admin).catch(() => null),\n    lockedCardIds(admin).catch(() => null),\n  ]);'), '캐시 행과 데이터 도장(과 리더 업무 id · 20차 ⑥ · 잠긴 업무 id · 20차 ⑩)은 함께');
     assert.ok(/const \[\{ evidence: everything, hasName, files, roster, teamItems \}, pairs, hits\] = await Promise\.all\(\[\n\s+collectAll\(db, today, \{ admin \}\),\n\s+hint \|\| \(admin \? pairedCites\(admin, question\)/.test(ask), '기록과 짝(과 검색 모드의 찾기)은 함께');
     assert.ok(/comments'\),\n\s+db\.from\('qt_schedule'\)/.test(ask) && !ask.includes('const { data: qt } = await'), 'QT도 같은 묶음');
     const aiSrc = readFileSync(new URL('../api/ai.js', import.meta.url), 'utf8');
@@ -1768,4 +1768,107 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   const buildSrc = readFileSync(new URL('../api/_wikiBuild.js', import.meta.url), 'utf8');
   assert.ok(buildSrc.includes("const keep = new Set([...pages.map(p => p.id), 'faq', LEARNED_ID]);") && buildSrc.includes('const lp = learnedPage(D.facts || []'), '아침 빌드가 같이 다시 쓴다(지우지 않는다)');
   console.log('PASS  다붓이 20차 ⑧(배운 것 — 마스터 approved · 남 pending · 비밀 값 pending · count · 승인된 사실은 늘 근거(리더 관련은 리더에게만) · 권유 줄 셋 · 👎 뒤 다음 말 · 열린 질문 닫기 · 승인 즉시 다시 답하기 · 장 모양)');
+}
+
+// 20차 ⑩ — 잠긴 업무(0099 · 묶음 ⑨)를 다붓이 답·푸시에 잇는다. 서버 키에는 잠긴 업무도 '안 보이는 업무'다(리더 ∪ 잠긴 · _leaders.unseenCardIds) —
+// 저장 · 짝 · 아침 고리 · 승인 즉시 다시 답하기 · 자주 묻는 질문 장. 캐시 꺼내기는 묻는 사람 세션의 locked_hidden_ids로 가른다(여는 사람·마스터에게만) ·
+// 여는 사람의 기록에는 card_secrets 본문이 얹힌다 · 푸시 미리보기는 서버가 한 번 더 비운다. 모델은 fetch를 가로채 흉내 낸다(돈 들지 않음).
+// 되돌리기 검사: saveAnswer의 unseenCardIds를 leaderCardIds로 되돌리면 '캐시에 안 남김'이, cachedAnswer의 shut 거름을 빼면 '못 여는 사람에게 캐시 안 줌'이,
+// pairedCites의 unseenCardIds를 되돌리면 '짝'이, collectAll의 secretOf를 빼면 '본문이 얹힘'이, pushPreview의 lockedOf를 빼면 '푸시 미리보기'가 깨진다.
+{
+  const W = await import(new URL('../src/services/wikiCore.js', import.meta.url).href);
+  const A = await import(new URL('../api/_wikiAsk.js', import.meta.url).href);
+  const L = await import(new URL('../api/_leaders.js', import.meta.url).href);
+  const P = await import(new URL('../api/push.js', import.meta.url).href);
+  // 가짜 DB — rpc locked_hidden_ids는 묻는 사람에게 가려진 id(hiddenIds) · fail에 든 표·함수는 오류를 돌려준다
+  const fakeDb = (tables, { inserts = [], leader = false, hiddenIds = [], fail = [] } = {}) => ({
+    from: (t) => {
+      let rows = [...(tables[t] || [])];
+      const down = { data: null, error: { message: 'down' } };
+      const q = {
+        update: () => { const u = { eq: () => u, is: () => u, then: (res, rej) => Promise.resolve({ error: null }).then(res, rej) }; return u; },
+        select: () => q, order: () => q, limit: (n) => { rows = rows.slice(0, n); return q; },
+        eq: (k, v) => { rows = rows.filter(r => r[k] === v); return q; },
+        is: (k, v) => { rows = rows.filter(r => (r[k] ?? null) === v); return q; },
+        in: (k, vs) => { rows = rows.filter(r => vs.includes(r[k])); return q; },
+        gte: (k, v) => { rows = rows.filter(r => r[k] == null || String(r[k]) >= String(v)); return q; },
+        lte: () => q,
+        range: async (a, b) => (fail.includes(t) ? down : { data: rows.slice(a, b + 1) }),
+        maybeSingle: async () => (fail.includes(t) ? down : { data: rows[0] || null }),
+        then: (res, rej) => Promise.resolve(fail.includes(t) ? down : { data: rows, count: rows.length }).then(res, rej),
+        insert: (row) => { inserts.push({ t, row }); const done = { data: { id: `n${inserts.length}` } }; return { select: () => ({ single: async () => done }), then: (res, rej) => Promise.resolve(done).then(res, rej) }; },
+      };
+      return q;
+    },
+    rpc: async (fn) => (fail.includes(fn) ? { data: null, error: { message: 'down' } } : { data: fn === 'is_leader' ? leader : fn === 'locked_hidden_ids' ? hiddenIds : null }),
+  });
+  const today = W.kstDate(new Date().toISOString());
+  const card = (id, title, description, locked = false) => ({ id, project_id: 'pA', title, description, locked, status: 'ongoing', start_date: null, due_date: null, subtasks: [], updated_at: '2026-10-01T00:00:00Z', assignees: [], card_assignees: [] });
+  // 잠긴 업무는 cards.description이 비어 있고 본문은 card_secrets에 있다(0099)
+  const cards = [card('cK', '수련회 장소', '', true), card('cA', '체육대회 장소', '장소는 성내 체육관이에요')];
+  const base = { projects: [{ id: 'pA', name: '가을 행사', year: 2026, visibility: 'all' }], cards };
+  const secrets = [{ card_id: 'cK', description: '수련회 장소는 양평 비밀 리조트예요' }];
+  const lockedAns = { sentences: [{ text: '양평 비밀 리조트예요.', cites: [{ t: 'card', id: 'cK', label: '수련회 장소' }] }], files: [] };
+  const publicAns = { sentences: [{ text: '장소는 성내 체육관이에요.', cites: [{ t: 'card', id: 'cA', label: '체육대회 장소' }] }], files: [] };
+
+  // 서버 키의 '안 보이는 업무' = 리더 ∪ 잠긴 · 하나라도 못 읽으면 던진다(닫힌 쪽)
+  assert.deepStrictEqual([...await L.unseenCardIds(fakeDb(base))], ['cK'], '잠긴 업무가 안 보이는 업무에 든다');
+  await assert.rejects(L.unseenCardIds(fakeDb(base, { fail: ['cards'] })), '못 읽으면 던진다');
+
+  // (a) 저장 — 잠긴 업무 근거 답은 cacheable을 뗀다 · 공개 답은 그대로
+  const saved = async (out, opt = {}) => { const ins = []; await A.saveAnswer(fakeDb(base, { inserts: ins, ...opt }), '수련회 장소 어디야?', out); return ins[0].row.answer; };
+  assert.ok(!('cacheable' in await saved({ status: 'answered', ...lockedAns, cacheable: true })), '잠긴 업무 근거 → 캐시에 안 남김');
+  assert.strictEqual((await saved({ status: 'answered', ...publicAns, cacheable: true })).cacheable, true, '공개 근거 → 캐시');
+
+  // (b) 꺼내기 — 옛 저장분(잠그기 전 cacheable)이라도 잠긴 업무 근거면 그 업무를 여는 사람에게만(묻는 사람 세션의 locked_hidden_ids)
+  const row = (answer) => ({ norm: W.normQ('수련회 장소 어디야?'), status: 'answered', feedback: null, created_at: new Date().toISOString(), answer: { cacheable: true, ...answer } });
+  const admin = (answer) => fakeDb({ ...base, dabooti_questions: [row(answer)], wiki_pages: [{ updated_at: '2000-01-01T00:00:00Z' }] });
+  const cached = (answer, db) => A.cachedAnswer(admin(answer), '수련회 장소 어디야?', today, db);
+  assert.strictEqual(await cached(lockedAns, fakeDb({}, { hiddenIds: ['cK', 'm1'] })), null, '못 여는 사람에게 잠긴 업무 근거 캐시를 안 준다');
+  assert.strictEqual(await cached(lockedAns), null, '묻는 사람을 모르면 안 준다');
+  assert.strictEqual(await cached(lockedAns, fakeDb({}, { fail: ['locked_hidden_ids'] })), null, '그 사람 몫을 못 받으면 안 준다');
+  assert.strictEqual((await cached(lockedAns, fakeDb({}, { hiddenIds: [] })))?.cached, true, '여는 사람(만든 사람·맞힌 계정)·마스터에게는 준다');
+  assert.strictEqual((await cached(publicAns, fakeDb({}, { hiddenIds: ['cK'] })))?.cached, true, '공개 근거는 누구에게나');
+  assert.strictEqual(await A.cachedAnswer(fakeDb({ ...base, dabooti_questions: [row(publicAns)], wiki_pages: [{ updated_at: '2000-01-01T00:00:00Z' }] }, { fail: ['cards'] }), '수련회 장소 어디야?', today, fakeDb({})), null, '잠긴 업무 id를 못 읽으면 안 준다');
+
+  // (c) 짝 — 잠긴 업무 근거로 답한 아침 고리 행은 [참고]로 안 쓴다 · (d) 여는 사람의 기록에는 card_secrets 본문이 얹힌다
+  const Q = '수련회 장소 어디야?';
+  const ask1 = { id: 'a1', question: Q, norm: W.normQ(Q), status: 'unknown', feedback: null, via: 'ask', created_at: new Date(Date.now() - 3600e3).toISOString(), answer: { sentences: [], files: [] } };
+  const night = { ...ask1, id: 'n1', via: 'nightly', status: 'answered', created_at: new Date(Date.now() - 1800e3).toISOString(), answer: { cause: 'missed', ...lockedAns } };
+  assert.deepStrictEqual(A.pairFrom([ask1, night], await L.unseenCardIds(fakeDb(base))), [], '잠긴 업무 근거 nightly는 짝이 아니다');
+  const realFetch = globalThis.fetch;
+  const prompts = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const p = body.contents[0].parts[0].text;
+    prompts.push(p);
+    const rid = p.match(/(R\d+) \[업무 기록[^\n]*수련회 장소/)?.[1];
+    const out = { found: true, sentences: [{ text: '양평 비밀 리조트예요.', e: [rid] }] };
+    return new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(out) }] } }] }), { status: 200 });
+  };
+  try {
+    const opener = fakeDb({ ...base, card_secrets: secrets });
+    const ask = (db, nightRow) => A.answerQuestion(Q, { db, admin: fakeDb({ ...base, dabooti_questions: [ask1, nightRow] }), key: 'k', today, cache: false });
+    const out = await ask(opener, night);
+    assert.ok(prompts.length === 1 && !prompts[0].includes('[참고]'), '잠긴 업무 근거 짝은 [참고]로 안 붙는다(여는 사람에게도 — 남의 답이다)');
+    assert.ok(prompts[0].includes('수련회 장소는 양평 비밀 리조트예요'), `여는 사람의 기록에 card_secrets 본문이 얹힌다: ${prompts[0].slice(0, 400)}`);
+    // 그 답은 묻는 사람에게는 가지만 캐시로는 안 남는다
+    const ins = [];
+    await A.saveAnswer(fakeDb(base, { inserts: ins }), Q, out);
+    assert.ok(out.status === 'answered' && !('cacheable' in ins[0].row.answer), `여는 사람이 받은 잠긴 업무 답도 캐시에 안 남김: ${JSON.stringify(ins[0]?.row.answer)}`);
+    prompts.length = 0;
+    await ask(fakeDb(base), { ...night, answer: { cause: 'missed', ...publicAns } });
+    assert.ok(prompts[0].includes('[참고]') && !prompts[0].includes('양평'), '공개 근거 짝은 그대로 · 못 여는 사람(card_secrets 행 없음)의 기록에는 본문이 없다');
+    prompts.length = 0;
+    await ask(fakeDb(base, { fail: ['card_secrets'] }), night);
+    assert.ok(prompts.length === 1 && !prompts[0].includes('양평'), 'card_secrets를 못 읽으면 본문 없이 답한다');
+  } finally { globalThis.fetch = realFetch; }
+
+  // (e) 푸시 미리보기 — 잠긴 업무의 알림(멘션·댓글·반응)은 본문을 비운다 · 판정을 못 하면 비운다 · 업무 없는 알림은 그대로
+  const pdb = fakeDb(base);
+  assert.strictEqual(await P.pushPreview(pdb, 'cK', '수련회 장소는 양평'), '', '잠긴 업무 → 미리보기 비움');
+  assert.strictEqual(await P.pushPreview(pdb, 'cA', '확인했습니다'), '확인했습니다', '안 잠긴 업무는 그대로');
+  assert.strictEqual(await P.pushPreview(pdb, null, 'x'.repeat(300)), 'x'.repeat(P.MAX_PREVIEW), '업무 없는 알림은 상한만');
+  assert.strictEqual(await P.pushPreview(fakeDb(base, { fail: ['cards'] }), 'cA', '확인'), '', '판정을 못 하면 비운다');
+  console.log('PASS  다붓이 20차 ⑩(잠긴 업무 — 캐시에 안 남김 · 못 여는 사람에게 캐시 안 줌(여는 사람·마스터는 줌) · 짝 · card_secrets 본문 · 푸시 미리보기 비움)');
 }

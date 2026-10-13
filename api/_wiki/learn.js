@@ -1,5 +1,5 @@
 import { kstDate, mdLabel, normQ, prefilter, LEARNED_ID, FAQ_SOURCE } from '../../src/services/wikiCore.js';
-import { leaderCardIds } from '../_leaders.js';
+import { unseenCardIds } from '../_leaders.js';
 import { readAll } from '../_lib.js';
 import { sha } from './const.js';
 import { faqPage } from './faq.js';
@@ -115,7 +115,7 @@ export async function rebuildFaq(admin) {
       .gte('created_at', new Date(Date.now() - 90 * 864e5).toISOString()).order('created_at').order('id'), 'dabooti_questions'),
     readAll(() => admin.from('wiki_pages').select('id, blocks').order('id'), 'wiki_pages'),
     readAll(() => admin.from('wiki_edits').select('page_id, item_key, text').order('page_id').order('item_key'), 'wiki_edits'),
-    leaderCardIds(admin),
+    unseenCardIds(admin),   // 리더 ∪ 잠긴 업무(20차 ⑩) — 아침 빌드(gather.js leaderCards)와 같은 Set
   ]);
   const fp = faqPage({ questions, pages, edits, leaderCards });
   const { error } = await admin.from('wiki_pages').upsert({ ...fp, source: FAQ_SOURCE, src_hash: sha(JSON.stringify(fp.blocks)), built_at: new Date().toISOString() });
