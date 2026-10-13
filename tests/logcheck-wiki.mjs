@@ -1133,6 +1133,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
     assert.strictEqual(P.masterNotice(2, '2026-10-12', 3).title, '다붓이가 모르는 질문 2개 · 알려 준 말 3건');
     assert.strictEqual(P.masterNotice(0, '2026-10-12', 1).title, '다붓이에게 알려 준 말 1건');
     assert.strictEqual(P.masterNotice(0, '2026-10-12', 1).url, '/?p=wiki&wiki=learned', '알려 준 말만이면 다붓이가 배운 것 장으로');
+    assert.strictEqual(P.masterNotice(0, '2026-10-12', 1).body, '다붓이가 배운 것에서 확인해주세요', '본문도 그 장을 가리킨다(사용자 문구 2026-10-13)');
     assert.deepStrictEqual(P.masterNotice(2, '2026-10-12'), { title: '다붓이가 모르는 질문 2개', body: '자주 묻는 질문에서 답을 적어 주세요', url: '/?p=wiki&wiki=faq', tag: 'dabooti:2026-10-12' }, '알려 준 말이 없으면 예전 그대로');
 
     // ⑦ 왕복 줄이기 — 캐시가 맞으면 기록을 안 읽는다 · 알려 주는 말은 업무·댓글·파일을 안 읽는다 · 상한은 모델 직전
