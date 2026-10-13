@@ -67,7 +67,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   assert.strictEqual(B.projectTitle('2026 월례회', 2026), '월례회');
   assert.strictEqual(B.projectTitle('2026 더다붓 예배 2.0', 2026), '예배 2.0');
   assert.strictEqual(B.projectTitle('2027 더다붓 사역기획', 2026), '2027 더다붓 사역기획');
-  // 자주 묻는 질문(20차 ⑧): 두 번 넘게 물은 질문은 '많이 물어본 질문' 칩(답 스냅샷 없음) · 몰랐던 질문은 '아직 답하지 못한 질문' · 닫히면(resolved_at) 빠진다
+  // '아직 답하지 못한 질문' 장(id faq · 20차 ⑧): 몰랐던 질문만(답이 나온 질문의 칩은 2026-10-13 사용자 결정으로 걷었다) · 닫히면(resolved_at) 빠진다
   const now = new Date().toISOString();
   const D = { questions: [
     { question: '리더 MT 어디서 해요?', norm: W.normQ('리더 MT 어디서 해요?'), status: 'unknown', created_at: now },
@@ -76,9 +76,9 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
     { question: '출석', norm: '출석', status: 'refused', created_at: now },
   ], edits: [] };
   let fp = B.faqPage(D);
-  assert.deepStrictEqual(fp.blocks.map(b => [b.key, b.type, b.title]), [['asked', 'askchips', '많이 물어본 질문'], ['open', 'open', '아직 답하지 못한 질문']], '장 모양');
-  assert.deepStrictEqual(fp.blocks[0].items.map(i => [i.meta.q, i.meta.n, i.text]), [['송폼은 언제까지 나와요', 2, '']], '두 번 물은 질문은 칩(답 글 없음)');
-  assert.deepStrictEqual(fp.blocks[1].items.map(i => i.meta.q), ['리더 MT 어디서 해요?'], '몰랐던 질문(거른 질문은 싣지 않는다)');
+  assert.strictEqual(fp.title, '아직 답하지 못한 질문', '장 이름(id는 faq 그대로)');
+  assert.deepStrictEqual(fp.blocks.map(b => [b.key, b.type, b.title]), [['open', 'open', '아직 답하지 못한 질문']], '장 모양 — 답이 나온 질문의 칩은 없다(2026-10-13)');
+  assert.deepStrictEqual(fp.blocks[0].items.map(i => i.meta.q), ['리더 MT 어디서 해요?'], '몰랐던 질문(거른 질문·답한 질문은 싣지 않는다)');
   D.questions[0] = { ...D.questions[0], resolved_at: now };
   fp = B.faqPage(D);
   assert.ok(!fp.blocks.some(b => b.key === 'open'), '닫힌 질문은 빠진다(빈 갈래는 세우지 않는다)');
@@ -271,7 +271,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
     { norm: 'b', status: 'unknown', via: 'nightly', answer: { cause: 'none' } }, { norm: 'c', status: 'answered', via: 'nightly', answer: { cause: 'missed' } },
     { norm: 'd', status: 'unknown', via: 'nightly', answer: { cause: 'dropped' } }, { norm: 'e', status: 'unknown', via: 'ask' }, { norm: 'f', status: 'answered', feedback: 'bad', via: 'ask' }, { norm: 'g', status: 'unknown', via: 'ask' },
   ]), 2, "마스터에게는 '기록 없음'만(18차 2회)");
-  assert.deepStrictEqual(P.masterNotice(2, '2026-10-05'), { title: '다붓이가 모르는 질문 2개', body: '자주 묻는 질문에서 답을 적어 주세요', url: '/?p=wiki&wiki=faq', tag: 'dabooti:2026-10-05' });
+  assert.deepStrictEqual(P.masterNotice(2, '2026-10-05'), { title: '다붓이가 모르는 질문 2개', body: '아직 답하지 못한 질문에서 답을 알려 주세요', url: '/?p=wiki&wiki=faq', tag: 'dabooti:2026-10-05' });
   const pushSrc = readFileSync(new URL('../api/push.js', import.meta.url), 'utf8');
   assert.ok(pushSrc.indexOf('const built = await buildWiki(') < pushSrc.indexOf('await notifyMasterUnknown(db)') && pushSrc.includes(".from('admins').select('email').eq('is_master', true)"), '위키 뒤에 마스터(admins.is_master)에게');
   const view = readFileSync(new URL('../src/views/wikiView.jsx', import.meta.url), 'utf8');
@@ -553,7 +553,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
   assert.ok(g && g.grp === '함께 쓰는 글' && g.title === '워크스페이스 사용법' && g.kind === 'human', '사용법 장이 함께 쓰는 글 초안에 있다');
   const pos = (id) => W.SEED_PAGES.find(p => p.id === id).position;
   assert.ok(pos('terms') < g.position && g.position < 3, '자주 쓰는 말 다음 · 자주 묻는 질문(3) 앞');
-  assert.ok(wikiBuildSrc().includes("title: '자주 묻는 질문', kind: 'auto', position: 3,"), '자주 묻는 질문은 사용법 뒤');
+  assert.ok(wikiBuildSrc().includes("title: '아직 답하지 못한 질문', kind: 'auto', position: 3,"), "'아직 답하지 못한 질문'(id faq)은 사용법 뒤");
   assert.deepStrictEqual(g.blocks.map(b => b.title), ['화면 둘러보기', '가입과 승인', '주보 보기', 'QT 나눔', '업무 만들기와 담당 지정', '내 달력', '알림 켜기',
     '3줄 요약', 'AI 문맥 다듬기', '순모임 가이드', '성경 본문 AI 검색', '관련된 업무 내용', '다붓이에게 물어보기', '위키']);
   const lines = g.blocks.flatMap(b => b.items);
@@ -1117,12 +1117,12 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
     assert.ok(bday.sentences[0].text.startsWith('신효진 부장님'), `생일 답도 직분 호칭: ${bday.sentences[0].text}`);
 
     // ⑥ 자주 묻는 질문 장 · 마스터 푸시 — 👎·disputed·알려 준 말은 '자주 묻는 질문' 답으로 안 싣는다(아직 모르는 질문 쪽으로)
-    // 20차 ⑧: known = '많이 물어본 질문' 칩 · unknown = '아직 답하지 못한 질문'(열린 질문)
+    // 20차 ⑧: unknown = '아직 답하지 못한 질문'(열린 질문) · 답이 나온 질문은 어디에도 없다(known은 늘 비어야 한다 — 칩을 걷었다 2026-10-13)
     const fp = (questions) => { const p = B.faqPage({ questions, edits: [], pages: [] }); const of = (k) => (p.blocks.find(b => b.key === k)?.items || []).map(i => i.meta.q); return { known: of('asked'), unknown: of('open') }; };
     assert.deepStrictEqual(fp([badAsk, oldNight]), { known: [], unknown: [Q] }, '👎 뒤 옛 missed 답은 닫힌 것이 아니다');
-    assert.deepStrictEqual(fp([goodAsk, oldNight]), { known: [], unknown: [] }, '👎 없이 답한 한 번 물음 — 칩도 열린 질문도 아니다');
+    assert.deepStrictEqual(fp([goodAsk, oldNight]), { known: [], unknown: [] }, '👎 없이 답한 한 번 물음 — 열린 질문이 아니다');
     assert.deepStrictEqual(fp([badAsk, { ...oldNight, answer: { ...oldNight.answer, cause: 'disputed', fromBad: true } }]), { known: [], unknown: [Q] }, 'disputed는 모르는 질문');
-    assert.deepStrictEqual(fp([badAsk, { ...goodAsk, id: 'a3', status: 'unknown', created_at: recent(40) }, { ...oldNight, answer: { ...oldNight.answer, fromBad: true } }]), { known: [Q], unknown: [] }, '새 고리가 답한(fromBad missed) 묶음은 닫힘 · 두 번 물었으니 칩(답 글은 없다)');
+    assert.deepStrictEqual(fp([badAsk, { ...goodAsk, id: 'a3', status: 'unknown', created_at: recent(40) }, { ...oldNight, answer: { ...oldNight.answer, fromBad: true } }]), { known: [], unknown: [] }, '새 고리가 답한(fromBad missed) 묶음은 닫힘 · 답이 나왔으니 어디에도 없다');
     const toldAsk = { ...badAsk, question: fix1, norm: W.normQ(fix1) };
     assert.deepStrictEqual(fp([toldAsk, { ...oldNight, question: fix1, norm: toldAsk.norm }]), { known: [], unknown: [] }, '알려 준 말은 질문이 아니다(배운 것 저장소로 · 20차 ⑧)');
     assert.deepStrictEqual(fp([{ ...toldAsk, feedback: null, status: 'unknown' }, { ...oldNight, question: fix1, norm: toldAsk.norm }]).known, [], '👎 없는 알려 준 말도');
@@ -1134,7 +1134,7 @@ const askSource = () => ['../api/_wikiAsk.js', '../api/_wiki/evidence.js'].map(f
     assert.strictEqual(P.masterNotice(0, '2026-10-12', 1).title, '다붓이에게 알려 준 말 1건');
     assert.strictEqual(P.masterNotice(0, '2026-10-12', 1).url, '/?p=wiki&wiki=learned', '알려 준 말만이면 다붓이가 배운 것 장으로');
     assert.strictEqual(P.masterNotice(0, '2026-10-12', 1).body, '다붓이가 배운 것에서 확인해주세요', '본문도 그 장을 가리킨다(사용자 문구 2026-10-13)');
-    assert.deepStrictEqual(P.masterNotice(2, '2026-10-12'), { title: '다붓이가 모르는 질문 2개', body: '자주 묻는 질문에서 답을 적어 주세요', url: '/?p=wiki&wiki=faq', tag: 'dabooti:2026-10-12' }, '알려 준 말이 없으면 예전 그대로');
+    assert.deepStrictEqual(P.masterNotice(2, '2026-10-12'), { title: '다붓이가 모르는 질문 2개', body: '아직 답하지 못한 질문에서 답을 알려 주세요', url: '/?p=wiki&wiki=faq', tag: 'dabooti:2026-10-12' }, '모르는 질문이 있으면 그 장(이름이 바뀌었다 2026-10-13)');
 
     // ⑦ 왕복 줄이기 — 캐시가 맞으면 기록을 안 읽는다 · 알려 주는 말은 업무·댓글·파일을 안 읽는다 · 상한은 모델 직전
     const cq = '엔지니어팀은 어떤 역할을 하나요?';

@@ -423,8 +423,8 @@ function Answer({ m, onOpenCite, onOpenFile, onOpenFaq, onRate }) {
   // 자주 묻는 질문 장은 마스터만 본다(0090) — onOpenFaq가 없으면(마스터 아님) 그 장으로 가는 칩을 세우지 않는다
   const isFaq = (c) => c.t === 'page' && c.id === 'faq';
   for (const s of a.sentences || []) for (const c of s.cites || []) if ((onOpenFaq || !isFaq(c)) && !cites.some(x => x.t === c.t && x.id === c.id)) cites.push(c);
-  // 모르는 질문은 마스터에게만 그 장 칩(답을 적으러 간다) — 답 글에는 '자주 묻는 질문'을 쓰지 않는다(2026-10-04)
-  if (onOpenFaq && a.status === 'unknown' && !cites.some(isFaq)) cites.push({ t: 'page', id: 'faq', label: '자주 묻는 질문' });
+  // 모르는 질문은 마스터에게만 그 장 칩(답을 알려 주러 간다) — 장 이름은 '아직 답하지 못한 질문'(2026-10-13 · id는 faq 그대로)
+  if (onOpenFaq && a.status === 'unknown' && !cites.some(isFaq)) cites.push({ t: 'page', id: 'faq', label: '아직 답하지 못한 질문' });
   return (
     <div className={`dab-answer dab-bub-in justify-self-start min-w-0 max-w-full rounded-[4px_14px_14px_14px] px-3 py-2.5 text-[13.5px] leading-[1.7] text-fg ${refused ? 'bg-surface-hover' : ''}`}
       style={refused ? undefined : { background: 'var(--app-hero)' }} data-status={a.status}>

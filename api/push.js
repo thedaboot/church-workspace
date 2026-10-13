@@ -592,7 +592,7 @@ export const toldCount = (facts = []) => (facts || []).filter(f => f?.status ===
 export const masterNotice = (n, day, told = 0) => ({
   title: n ? `다붓이가 모르는 질문 ${n}개${told ? ` · 알려 준 말 ${told}건` : ''}` : `다붓이에게 알려 준 말 ${told}건`,
   // 확인을 기다리는 말만 있으면 '다붓이가 배운 것' 장으로 열리므로 본문도 그 장을 가리킨다(사용자 문구 2026-10-13)
-  body: n ? '자주 묻는 질문에서 답을 적어 주세요' : '다붓이가 배운 것에서 확인해주세요', url: n ? MASTER_FAQ_LINK : MASTER_LEARNED_LINK, tag: `dabooti:${day}`,
+  body: n ? '아직 답하지 못한 질문에서 답을 알려 주세요' : '다붓이가 배운 것에서 확인해주세요', url: n ? MASTER_FAQ_LINK : MASTER_LEARNED_LINK, tag: `dabooti:${day}`,
 });
 
 async function notifyMasterUnknown(db, now = Date.now()) {

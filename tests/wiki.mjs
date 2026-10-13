@@ -42,9 +42,8 @@ const FIX = { pages: [
     { key: 'teams', type: 'teams', title: '팀', items: [it('team1', '콘티와 송폼을 만들어요.', { by: 'seed', meta: { team: '찬양팀' } }), it('team2', '안무를 해요.', { by: 'seed', meta: { team: '워십팀' } })] },
     { key: 'flow', type: 'timeline', items: [it('flow1', '임원진 모임', { by: 'seed', meta: { time: '11:30', sub: true } }), it('flow2', '찬양', { by: 'seed', meta: { time: '13:30' } })] },
   ] },
-  // 20차 ⑧ — 답 스냅샷 대신 '많이 물어본 질문' 칩 · '아직 답하지 못한 질문'(답을 알려 주기)
-  { id: 'faq', grp: '함께 쓰는 글', title: '자주 묻는 질문', kind: 'auto', position: 3, source: '다붓이에게 물어본 질문', source_count: 3, built_at: '2026-10-03T00:00:00Z', blocks: [
-    { key: 'asked', type: 'askchips', title: '많이 물어본 질문', items: [it('q:a', '', { meta: { q: '송폼은 언제까지 나와요?', n: 3 } })] },
+  // 20차 ⑧ — 답 스냅샷 대신 '아직 답하지 못한 질문'(답을 알려 주기)만(답이 나온 질문의 칩은 2026-10-13에 걷었다 · id는 faq 그대로)
+  { id: 'faq', grp: '함께 쓰는 글', title: '아직 답하지 못한 질문', kind: 'auto', position: 3, source: '다붓이에게 물어본 질문', source_count: 2, built_at: '2026-10-03T00:00:00Z', blocks: [
     { key: 'open', type: 'open', title: '아직 답하지 못한 질문', items: [it('q:b', '', { meta: { q: '리더 MT 어디서 해요?', n: 1, day: '2026-10-05', why: 'none', qid: 'qid-b' } }), it('q:c', '', { meta: { q: '예배자학교 어디까지 했어?', n: 1, day: '2026-10-04', why: 'bad', qid: 'qid-c' } })] },
   ] },
   // 다붓이가 배운 것(20차 ⑧ · 마스터만) — 확인을 기다리는 말 · 다붓이가 배운 것(리더 관련은 자물쇠)
@@ -211,7 +210,7 @@ try {
     && await ev(`document.querySelectorAll('.dab-input input').length === 1`));
   // 성경 구절 답 — 어느 말씀인지 한 줄 · 절마다 한 줄 · 말씀 탭 안내(2026-10-04)
   await ev(`window.__dabootiAnswer=${JSON.stringify({ id: null, status: 'answered', sentences: [{ text: '시편 119편 말씀이에요(개역한글).', cites: [] }, { text: '119편 전체는 말씀 탭에서 볼 수 있어요.', cites: [] }], verses: Array.from({ length: 8 }, (_, i) => ({ n: `119:${i + 1}`, text: `절 ${i + 1}` })), files: [] })}`);
-  await ev(`(()=>{const i=document.querySelector('.dab-input input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,'시편 119편');i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})()`);
+  await ev(`(()=>{const i=document.querySelector('.dab-input input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,'시편 119편 보여줘');i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})()`);
   await until(`document.querySelectorAll('.dab-answer').length === 3`);
   const verse = await ev(`(()=>{const a=[...document.querySelectorAll('.dab-answer')].pop();const v=a.querySelector('.dab-verses');return {lines:v?v.children.length:0, tail:a.textContent.includes('119편 전체는 말씀 탭에서 볼 수 있어요.'), head:a.textContent.indexOf('시편 119편 말씀이에요')<a.textContent.indexOf('119:1')}})()`);
   check('성경 구절: 절마다 한 줄 · 안내는 아래', verse.lines === 8 && verse.tail && verse.head, JSON.stringify(verse));
@@ -270,18 +269,16 @@ try {
   await click('.wiki-item', '더다붓 소개');
   check('함께 쓰는 글: 우산 컷 · 팀 색 카드 · 시간표 · 함께 작성 꼬리표 없음', await until(`!!document.querySelector('.wiki-page[data-page="intro"]')`)
     && await ev(`(()=>{const p=document.querySelector('.wiki-page');return !!p.querySelector('img[src*="umbrella"]')&&p.querySelectorAll('.wiki-time').length===2&&!p.textContent.includes('함께 작성')&&getComputedStyle([...p.querySelectorAll('li')].find(l=>l.textContent.includes('콘티와 송폼'))).backgroundColor!=='rgba(0, 0, 0, 0)'})()`));
-  // 20차 ⑧ — 자주 묻는 질문: '많이 물어본 질문' 칩(답 글 없음) · '아직 답하지 못한 질문'(날짜 · 못 찾음/👎 · 답을 알려 주기) · ✎ 수정 없음
-  await click('.wiki-item', '자주 묻는 질문');
-  check('자주 묻는 질문: 많이 물어본 질문 칩 · 아직 답하지 못한 질문 · 소제목 문구', await until(`!!document.querySelector('.wiki-askchip')`)
+  // 20차 ⑧ — '아직 답하지 못한 질문' 장(id faq): 열린 질문(날짜 · 못 찾음/👎 · 답을 알려 주기)만 · 답이 나온 질문의 칩 없음(2026-10-13) · ✎ 수정 없음
+  await click('.wiki-item', '아직 답하지 못한 질문');
+  check('아직 답하지 못한 질문: 열린 질문 줄 · 칩 없음 · 소제목 문구', await until(`!!document.querySelector('.wiki-page[data-page="faq"] .wiki-open')`)
     && await ev(`(()=>{const p=document.querySelector('.wiki-page[data-page="faq"]');const c=[...p.querySelectorAll('.wiki-askchip')];const o=[...p.querySelectorAll('.wiki-open')];const h=[...p.querySelectorAll('h2,h3')].map(x=>x.textContent).join('|');
-      return c.length===1&&c[0].textContent==='송폼은 언제까지 나와요?3'&&o.length===2&&o[0].textContent.includes('리더 MT 어디서 해요?')&&o[0].textContent.includes('10월 5일 · 못 찾음')&&!!o[1].querySelector('svg.lucide-thumbs-down')
-        &&h.includes('많이 물어본 질문')&&h.includes('아직 답하지 못한 질문')&&!p.querySelector('.wiki-edit')&&!p.textContent.includes('그 전주 금요일')})()`));
+      return c.length===0&&o.length===2&&o[0].textContent.includes('리더 MT 어디서 해요?')&&o[0].textContent.includes('10월 5일 · 못 찾음')&&!!o[1].querySelector('svg.lucide-thumbs-down')
+        &&!h.includes('많이 물어본 질문')&&h.includes('아직 답하지 못한 질문')&&!p.querySelector('.wiki-edit')&&!p.textContent.includes('그 전주 금요일')})()`));
   await click('.wiki-open-tell', '답을 알려 주기');
   await until(`!!document.querySelector('.wiki-open .wiki-oneline input')`);
   await ev(`(()=>{const i=document.querySelector('.wiki-open .wiki-oneline input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,'리더 MT는 양평 펜션이에요');i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})()`);
   check("'답을 알려 주기' → 한 줄 → 서버 { learn: answer } · 칸이 닫힌다", await until(`(window.__learnCalls||[]).some(c=>c.op==='answer'&&c.questionId==='qid-b'&&c.text==='리더 MT는 양평 펜션이에요') && !document.querySelector('.wiki-open .wiki-oneline')`), await ev(`JSON.stringify(window.__learnCalls)`));
-  await click('.wiki-askchip', '송폼은 언제까지 나와요?');
-  check('칩을 누르면 물어보기 판에서 그 질문을 지금 답한다', await until(`[...document.querySelectorAll('.dab-q')].pop()?.textContent === '송폼은 언제까지 나와요?' && !document.querySelector('.wiki-page[data-page="faq"]')`));
   // 다붓이가 배운 것(마스터만) — 장 목록의 점(확인을 기다리는 말) · ✓ 반영 · 연필 고치기 · 자물쇠 · '+ 직접 알려 주기'
   const learnedItem = await ev(`(()=>{const b=[...document.querySelectorAll('.wiki-item')].find(x=>x.textContent.includes('다붓이가 배운 것'));return b?{n:b.querySelector('small')?.textContent,dot:!!b.querySelector('.wiki-waiting')}:null})()`);
   check('장 목록: 다붓이가 배운 것 · 숫자 옆 점(확인을 기다리는 말)', learnedItem?.n === '2' && learnedItem.dot, JSON.stringify(learnedItem));
@@ -321,8 +318,8 @@ try {
   const dot = await ev(`(()=>{const row=document.querySelector('.wiki-time');const a=getComputedStyle(row,'::after');const d=getComputedStyle(row,'::before');const lx=row.getBoundingClientRect().left+parseFloat(a.left)+parseFloat(a.width)/2;const cx=row.getBoundingClientRect().left+parseFloat(d.left)+parseFloat(d.width)/2;return Math.abs(lx-cx)})()`);
   check('시간표 점은 선 가운데', dot <= 1, String(dot));
   check('흰 판 없음(앱 바탕 위에 바로)', await ev(`(()=>{const w=getComputedStyle(document.querySelector('.wiki-desk'));return w.borderTopWidth==='0px' && (w.backgroundColor==='rgba(0, 0, 0, 0)'||w.backgroundColor==='transparent')})()`));
-  await click('.wiki-item', '자주 묻는 질문');
-  check('자주 묻는 질문 출처 문구', await until(`!!document.querySelector('.wiki-page[data-page="faq"]')?.textContent.includes('다붓이에게 물어본 질문에서 수집')`));
+  await click('.wiki-item', '아직 답하지 못한 질문');
+  check('아직 답하지 못한 질문 출처 문구', await until(`!!document.querySelector('.wiki-page[data-page="faq"]')?.textContent.includes('다붓이에게 물어본 질문에서 수집')`));
   // 예배 찬양: 주일 한 장 · 곡 번호 목록(곡 진하게 · 부른 사람 옅게) / QT: 데스크톱 7칸 달력 · 책 이름 전체
   await click('.wiki-item', '예배 찬양');
   check('예배 찬양: 주일 카드 · 번호 목록 · 부른 사람', await until(`!!document.querySelector('.wiki-songs')`)
@@ -536,7 +533,7 @@ try {
 
   // ── 마스터 알림의 딥링크(2026-10-04) — /?p=wiki&wiki=faq가 자주 묻는 질문 장을 연다 ──
   await open({ mobile: false, path: '/?p=wiki&wiki=faq' });
-  check('딥링크 wiki=faq → 자주 묻는 질문 장', await until(`!!document.querySelector('.wiki-page[data-page="faq"]')`));
+  check('딥링크 wiki=faq → 아직 답하지 못한 질문 장', await until(`!!document.querySelector('.wiki-page[data-page="faq"]')`));
   // ── 마스터가 아닌 사람(0090) — ✎ 수정 없음 · 자주 묻는 질문 장 없음 · 모르는 답에 그 장 칩 없음 · 수정한 곳 없음 ──
   await open({ mobile: false, member: true });
   await until(`!!document.querySelector('.wiki-item')`);
@@ -544,7 +541,7 @@ try {
   await click('.wiki-item', '월례회');
   await until(`!!document.querySelector('.wiki-page[data-page="p:wol"]')`);
   const memPage = await ev(`({edit:!!document.querySelector('.wiki-edit'), fixedTag:document.querySelector('.wiki-page').textContent.includes('수정한 곳'), source:document.querySelector('.wiki-page').textContent.includes('업무에서 자동으로 수집')})`);
-  check('마스터 아님: 자주 묻는 질문 장 없음 · ✎ 수정 없음 · 수정한 곳 없음(출처는 그대로)', mem.length >= 5 && !mem.some(t => t.includes('자주 묻는 질문')) && !memPage.edit && !memPage.fixedTag && memPage.source, JSON.stringify({ mem, memPage }));
+  check('마스터 아님: 자주 묻는 질문 장 없음 · ✎ 수정 없음 · 수정한 곳 없음(출처는 그대로)', mem.length >= 5 && !mem.some(t => t.includes('아직 답하지 못한 질문')) && !memPage.edit && !memPage.fixedTag && memPage.source, JSON.stringify({ mem, memPage }));
   // 20차 ⑧ — 다붓이가 배운 것 장도 마스터만(목록 · 딥링크). 되돌리기: wikiCore.MASTER_PAGES에서 LEARNED_ID를 빼면 깨진다
   check('마스터 아님: 다붓이가 배운 것 장 없음', !mem.some(t => t.includes('다붓이가 배운 것')), JSON.stringify(mem));
   await open({ mobile: false, member: true, path: '/?p=wiki&wiki=learned' });
