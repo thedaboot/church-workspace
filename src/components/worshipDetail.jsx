@@ -254,6 +254,8 @@ const PraiseHead = ({ leader, playlistUrl, nameOf }) => (
 //
 // 곡도 인도자도 없으면 **빈 상태 한 벌 그대로**다 — 아직 아무것도 안 정했는데 팀
 // 이름만 남겨 두면 '찬양을 정해 뒀다'로 읽힌다.
+const WJ = '⁠';   // 단어 잇개 — 아래 곡 링크의 아이콘이 혼자 다음 줄로 내려가지 않게
+
 function SongsTab({ rows, leader, playlistUrl, nameOf }) {
   // 빈 상태 한 벌 — 인도자·재생목록만 정해 둔 주보는 머리 한 줄 아래에 같은 빈 상태가 선다
   const empty = <WorshipEmpty text="찬양을 아직 정하지 않았어요" />;
@@ -268,10 +270,13 @@ function SongsTab({ rows, leader, playlistUrl, nameOf }) {
             <span className={NUM}>{i + 1}</span>
             <SongThumb link={s.link} big />
             {s.link ? (
+              // 아이콘은 **글의 마지막 글자 바로 뒤**다(2026-10-14 반응형 점검). 예전에는 글과 아이콘을
+              // inline-flex의 두 칸으로 두어서, 제목이 두 줄로 접히면 글 칸이 줄 폭을 다 먹고 아이콘이
+              // 줄 오른쪽 끝으로 떨어졌다(한 줄 제목은 바로 뒤 · 접힌 제목은 끝 — 줄마다 자리가 달랐다).
+              // 지금은 글 흐름 안의 인라인 그림이고, 앞의 단어 잇개(U+2060)가 아이콘 혼자 다음 줄로 내려가지 않게 붙든다.
               <a href={s.link} target="_blank" rel="noreferrer"
-                className="worship-song-link min-w-0 inline-flex items-center gap-1.5 text-[13px] font-semibold text-accent-text hover:underline break-words">
-                <span className="min-w-0 break-words">{s.title || '제목 없는 찬양'}</span>
-                <ExternalLink size={11} className="shrink-0" />
+                className="worship-song-link min-w-0 text-[13px] font-semibold text-accent-text hover:underline break-words">
+                {s.title || '제목 없는 찬양'}{WJ}<ExternalLink size={11} className="worship-song-ext inline-block ml-1.5 align-[-1px]" />
               </a>
             ) : (
               <span className="min-w-0 text-[13px] text-fg break-words">{s.title}</span>
@@ -383,7 +388,11 @@ function NoticesTab({ rows, serviceDate = '', onCalendar, real = null }) {
 // 기본 공유창으로(없으면 복사). 주소는 **이 탭이 열릴 때 미리 받아 둔다** — 누른 뒤에 서버를 기다리면 폰
 // 브라우저가 공유창을 열 자격(사용자 동작)을 잃는다(PDF를 미리 굽는 것과 같은 이유). 발행본에만 이 탭이 있고
 // 발행본은 모두가 보므로 **전원에게** 선다. 게스트(서버 없음)에는 onShareLink가 null을 돌려 버튼이 없다.
-function ServicePaper({ service, nameOf, real = null, rosterKey = '', cover = null, onShareLink = null }) {
+//
+// **명단이 오기 전에는 이름 자리를 비워 둔다**(namesReady · 2026-10-14 반응형 점검 · PITFALLS 48-a). 첫 진입에는
+// 호칭·본명의 재료(명단·직분)가 아직 없어서 '양민혁'으로 섰다가 몇 초 뒤 '양민혁 형제'로 바뀌었다. 줄은
+// 그대로 두고 이름 글자만 숨긴다(visibility) — 종이 높이가 안 변한다. 그동안 PDF는 잠근다(이름 빈 종이가 나간다).
+function ServicePaper({ service, nameOf, real = null, rosterKey = '', namesReady = true, cover = null, onShareLink = null }) {
   const [link, setLink] = useState(null);      // null(받는 중) | 주소 | Error | ''(게스트 — 버튼 없음)
   const [verses, setVerses] = useState(null);
   const [story, setStory] = useState(false);
@@ -459,7 +468,7 @@ function ServicePaper({ service, nameOf, real = null, rosterKey = '', cover = nu
       {/* 도구는 종이 위 한 줄 — 감추지 않는다(§8). 본문이 아직 안 왔으면 잠긴다:
           그때 구우면 본문 없는 주보가 나간다 */}
       <div className="flex items-center gap-1.5 mb-3">
-        <button type="button" onClick={pdf.share} disabled={pdf.busy || verses === null}
+        <button type="button" onClick={pdf.share} disabled={pdf.busy || verses === null || !namesReady}
           className={`worship-paper-pdf ${WITH_ICON} ${BTN}`}>
           {pdf.busy ? <Loader2 size={13} className="animate-spin" /> : <Share2 size={13} />}
           <span>PDF로 공유</span>
@@ -486,7 +495,7 @@ function ServicePaper({ service, nameOf, real = null, rosterKey = '', cover = nu
         <div className="rounded-lg overflow-hidden border border-line">
           <ServiceSheetTwo sheetRef={two} date={date} kind={kind} team={PRAISE_TEAM} season={season}
             leader={service?.praise_leader || ''} songs={service?.songs || []}
-            roles={service?.roles || []} notices={notices} nameOf={nameOf} />
+            roles={service?.roles || []} notices={notices} nameOf={nameOf} namesReady={namesReady} />
         </div>
       </div>
 
@@ -528,7 +537,7 @@ function CoverTools({ cover, busy = false, onPick, onPosition, onRemove }) {
 
 // ── 상세 ─────────────────────────────────────────────────────────────────────
 export function ServiceDetail({
-  service, people = [], personRoles = [], perms = {}, note = null, canWriteNote = false, startEditing = false,
+  service, people = [], personRoles = [], rosterReady = true, perms = {}, note = null, canWriteNote = false, startEditing = false,
   files = [], recentSongs = [], prefill = [], onBack, onSave, onPublish, onDelete, onSaveNote, onOpenAttendance, onOpenBible,
   onPullPlaylist, onLookupTitle, onShareNote, onUploadFiles, onRemoveFile, onAddToCalendar, focusNote = false, onCopyLastCue = null,
   cover = null, onUploadCover, onRemoveCover, onSaveCoverFocus, onShareLink = null,
@@ -584,7 +593,9 @@ export function ServiceDetail({
     const r = real(name, personId);
     return honor(r.found ? r.name : name, personId);
   }, [real, honor]);
-  const rosterKey = `${(people || []).length}:${(personRoles || []).length}`;
+  // 명단이 아직 안 왔으면 'wait' — 그동안 구운 PDF는 이름이 빈 종이라 명단이 오면 버려야 한다
+  // (명단이 0명이어도 열쇠가 바뀌게 · 아래 ServicePaper의 namesReady)
+  const rosterKey = rosterReady ? `${(people || []).length}:${(personRoles || []).length}` : 'wait';
 
   // 임사자 줄이 **아직 하나도 없을 때만** 지난 주보에서 둘을 물려받는다(2026-09-21).
   // 이미 적은 주보를 다시 열 때 덮어쓰면 사람이 지운 줄이 되살아난다.
@@ -771,7 +782,7 @@ export function ServiceDetail({
 
       <div className="worship-tabpanel">
         {activeTab === 'paper' && (
-          <ServicePaper service={service} nameOf={nameOf} real={real} rosterKey={rosterKey} cover={cover} onShareLink={onShareLink} />
+          <ServicePaper service={service} nameOf={nameOf} real={real} rosterKey={rosterKey} namesReady={rosterReady} cover={cover} onShareLink={onShareLink} />
         )}
         {activeTab === 'word' && (editing
           ? <WordEdit draft={draft} set={set} cueFiles={cueFiles} canEdit={!!(editing && perms.canEdit)}

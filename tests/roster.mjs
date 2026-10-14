@@ -145,6 +145,17 @@ check('가입자 줄은 화면 함수 밖에서 만든다(렌더마다 다시 �
   && viewCode.indexOf('function MemberRow(') < viewCode.indexOf('export function MembersView'),
   String(viewCode.indexOf('function MemberRow(')));
 
+// **내 줄에는 환송해주기·계정 합치기가 없다**(사용자 결정 2026-10-14). 게스트에는 로그인이 없어 '내 줄'이
+// 없으므로 화면 소스로 지킨다: 함께하는 사람 줄의 action이 isMe로 갈리고, isMe는 앱 다른 자리와 같은
+// 규칙(supabaseClient.isMyUid — 세션 uid와 남긴 계정 id 둘 다 · 0063)이다.
+// 되돌리기 확인: `action={isMe(row.id) ? null : (`를 `action={(`로 되돌리면 첫 검사가, isMe를 세션 uid
+// 비교(`id === sessionUid`)로 바꾸면 둘째 검사가 깨진다.
+check('가입자 탭의 내 줄에는 환송해주기·계정 합치기가 서지 않는다',
+  /action=\{isMe\(row\.id\) \? null : \(\s*<span className="flex items-center gap-1">[\s\S]{0,400}members-merge[\s\S]{0,1600}환송해주기/.test(viewCode));
+check("'나'는 세션 uid와 남긴 계정 id 둘 다다(합친 계정 · isMyUid)",
+  /const isMe = \(id\) => isMyUid\(id, sessionUid\);/.test(viewCode)
+  && /import \{[^}]*isMyUid[^}]*\} from '\.\.\/services\/supabaseClient\.js'/.test(viewCode));
+
 // 이름 찾기 칸은 한 벌이다(NameSearch · 19차 묶음 J) — 명단 탭 머리와 가입자 잇기 판이 같은 칸을 쓴다.
 // 되돌리기 확인: 잇기 판의 칸을 손으로 다시 적으면 자리표가 두 번 나와 깨진다.
 const rosterUi = readFileSync(new URL('src/components/roster.jsx', ROOT), 'utf8');

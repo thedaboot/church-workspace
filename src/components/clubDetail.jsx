@@ -332,7 +332,9 @@ function MeetingRow({ meeting, list, manage, onToggle, onDelete, report = null }
     <div className={`club-meeting dc-row p-3.5 ${CARD}`} style={CARD_STYLE}>
       <div className="flex flex-wrap items-baseline gap-x-2">
         <span className="club-meeting-date text-[12.5px] font-bold text-fg">{when}</span>
-        {meeting.title && <span className="text-[12px] text-fg-secondary break-words">{meeting.title}</span>}
+        {/* 긴 제목은 카드 안에서 접힌다(2026-10-14 반응형 점검) — break-words만으로는 flex 칸의 최소 폭이
+            '가장 긴 낱말'이라 띄어쓰기 없는 제목이 카드 밖으로 나갔다. min-w-0 + anywhere가 그 최소 폭을 푼다. */}
+        {meeting.title && <span className="club-meeting-title min-w-0 text-[12px] text-fg-secondary [overflow-wrap:anywhere]">{meeting.title}</span>}
         <span className="flex-1" />
         <span className="club-meeting-count text-[11.5px] text-fg-muted">{present.size}/{list.length}</span>
         {manage && onDelete && (

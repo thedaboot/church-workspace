@@ -5,7 +5,7 @@ import { formatBytes, fileKind } from './fileRow.jsx';
 import { BTN, BTN_SOFT } from './buttons.js';
 import { WITH_ICON, ICON_BTN } from './groupsParts.jsx';
 import { uploadingByCard, uploadWatchers, unstageUpload } from '../modals/uploadQueue.js';
-import { meetingQueueKey, REPORT_ACCEPT } from '../services/groups.js';
+import { meetingQueueKey, REPORT_ACCEPT, splitNameTail } from '../services/groups.js';
 import { previewCopyOf } from '../services/previewKind.js';
 
 // 미리보기·편집 창(+PdfView)은 열 때만 받는다 — 업무 첨부·주보와 같은 창이다
@@ -136,13 +136,20 @@ export function MeetingReport({ meeting, manage, people = [], prev = null, onPic
 }
 
 // 파일 한 줄 — 종류 칩 · 이름(말줄임) · 올린 사람 · 날짜 · 크기. 줄을 누르면 미리보기.
+// 이름은 **가운데를 줄인다**(2026-10-14 반응형 점검) — 끝을 자르면 작은 폰에서 `(10월).xlsx`가 통째로
+// 사라졌다. 앞 칸만 말줄임하고 꼬리(확장자 앞 몇 글자 + 확장자)는 늘 선다(groups.splitNameTail).
+// 앞 칸은 whitespace-pre — 띄어쓰기에서 갈린 이름의 끝 칸 공백이 접혀 두 낱말이 붙어 보이지 않게.
 function ReportRow({ row, meta, pending = false, onOpen, children = null }) {
   const kind = fileKind(row.name, row.mime_type);
+  const [head, tail] = splitNameTail(row.name);
   return (
     <div className={`club-meet-report-row${pending ? ' club-meet-report-pending' : ''} flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-canvas min-w-0`}>
       <span className={`w-[26px] h-[26px] rounded-md flex items-center justify-center shrink-0 ${pending ? 'bg-surface-hover text-fg-faint' : kind.chip}`}>{kind.icon}</span>
       <button type="button" onClick={onOpen} title={row.name} className="min-w-0 flex-1 text-left">
-        <p className={`club-meet-report-name text-[12px] font-semibold truncate ${pending ? 'text-fg-muted' : 'text-fg'}`}>{row.name}</p>
+        <p className={`club-meet-report-name flex min-w-0 text-[12px] font-semibold ${pending ? 'text-fg-muted' : 'text-fg'}`}>
+          <span className="club-meet-report-head min-w-0 overflow-hidden text-ellipsis whitespace-pre">{head}</span>
+          <span className="club-meet-report-tail shrink-0 whitespace-pre">{tail}</span>
+        </p>
         <p className="club-meet-report-meta mt-px flex items-center gap-1 text-[10.5px] text-fg-muted min-w-0">
           {pending && <Loader2 size={10} className="shrink-0 animate-spin" />}
           <span className="truncate">{meta}</span>

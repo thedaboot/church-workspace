@@ -3236,9 +3236,15 @@ await send('Emulation.clearDeviceMetricsOverride');
   check('구성원에게는 올리기·가져오기·편집·지우기가 없고, 보고서 없는 모임에는 칸 자체가 없다',
     member.buttons === 0 && member.other === false, JSON.stringify(member));
 
-  // ⑦ 폰 375 — 동아리장 · 긴 이름은 말줄임 · 줄이 카드 밖으로 나가지 않는다
+  // ⑦ 폰 375 — 동아리장 · 긴 이름은 **가운데** 말줄임(꼬리 ` 제출용).xlsx`는 늘 선다) · 줄이 카드 밖으로 나가지 않는다
+  // 띄어쓰기 없는 긴 모임 제목도 카드 안에서 접힌다 — 다가오는 모임(rp4)·지난 모임(rp5) 둘 다(2026-10-14 반응형 점검).
+  // 되돌리기(2026-10-14 확인): meetingReport의 이름 줄을 `{row.name}` 한 칸 truncate로 되돌리면 tail이 비어 깨지고,
+  // clubDetail 제목 칸에서 `min-w-0 [overflow-wrap:anywhere]`를 break-words로 되돌리면 제목이 카드 밖으로 나가 깨진다.
+  const LONG_TITLE = '띄어쓰기없이아주길게이어지는한국어낱말띄어쓰기없이아주길게이어지는한국어낱말';
   const LONG = `g.files = [{ id: 'rf2', meeting_id: 'rp1', name: '통통 동아리 2026년 가을 학기 활동보고서 최종 수정본 (회계 제출용).xlsx', size_bytes: 24576,
-    mime_type: '${XLSX}', source: 'local', uploaded_by: 'u2', created_at: '${RP1}T03:00:00Z' }];`;
+    mime_type: '${XLSX}', source: 'local', uploaded_by: 'u2', created_at: '${RP1}T03:00:00Z' }];
+    g.group_meetings.push({ id: 'rp4', group_id: 'gc1', meeting_date: '${dayShift(KST_TODAY, 9)}', title: '${LONG_TITLE}', attendance: [], note: null },
+      { id: 'rp5', group_id: 'gc1', meeting_date: '${dayShift(KST_TODAY, -2)}', title: '${LONG_TITLE}끝', attendance: [], note: null });`;
   await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
   await enter(ME6, 'light', MEETS + LONG);
   await tab('동아리'); await sleep(600);
@@ -3246,11 +3252,22 @@ await send('Emulation.clearDeviceMetricsOverride');
   await sleep(300);
   const phone = await ev(`(() => { const c = ${card('보고서 칸 하나')}; const row = c?.querySelector('.club-meet-report-row'); if (!row) return { err: 'no-row' };
     const name = row.querySelector('.club-meet-report-name'); const cr = c.getBoundingClientRect(), rr = row.getBoundingClientRect();
+    const head = name.querySelector('.club-meet-report-head'), tail = name.querySelector('.club-meet-report-tail');
+    const tr = tail?.getBoundingClientRect(), nr = name.getBoundingClientRect();
     const btns = [...row.querySelectorAll('.club-meet-report-edit, .club-meet-report-drop')].map(b => b.getBoundingClientRect());
-    return { clipped: name.scrollWidth > name.clientWidth, inside: rr.right <= cr.right + 0.5 && btns.every(b => b.right <= cr.right + 0.5 && b.width > 0),
+    const titles = [...document.querySelectorAll('.club-meeting')].filter(m => m.innerText.includes('띄어쓰기없이')).map(m => {
+      const t = m.querySelector('.club-meeting-title').getBoundingClientRect(), mr = m.getBoundingClientRect();
+      return { inside: t.left >= mr.left && t.right <= mr.right + 0.5, lines: Math.round(t.height / 16), up: !!m.closest('.club-meet-upcoming') }; });
+    return { clipped: !!head && head.scrollWidth > head.clientWidth, tail: tail?.textContent || '', full: name.textContent,
+      tailIn: !!tr && tr.width > 0 && tr.right <= nr.right + 0.5, titles,
+      inside: rr.right <= cr.right + 0.5 && btns.every(b => b.right <= cr.right + 0.5 && b.width > 0),
       over: document.documentElement.scrollWidth - document.documentElement.clientWidth }; })()`);
-  check('폰 375 — 긴 파일 이름은 말줄임 · 편집·지우기가 카드 안 · 가로 넘침 없음',
-    phone.clipped && phone.inside && phone.over <= 0, JSON.stringify(phone));
+  check('폰 375 — 긴 파일 이름은 가운데 말줄임(꼬리·확장자는 보인다) · 편집·지우기가 카드 안 · 가로 넘침 없음',
+    phone.clipped && phone.tail === ' 제출용).xlsx' && phone.tailIn && phone.full.endsWith('최종 수정본 (회계 제출용).xlsx')
+    && phone.inside && phone.over <= 0, JSON.stringify(phone));
+  check('폰 375 — 띄어쓰기 없는 긴 모임 제목은 다가오는·지난 모임 카드 안에서 접힌다',
+    phone.titles.length === 2 && phone.titles.some(t => t.up) && phone.titles.some(t => !t.up)
+    && phone.titles.every(t => t.inside && t.lines >= 2), JSON.stringify(phone.titles));
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   await sleep(300);
 

@@ -15,7 +15,8 @@ import { useStore } from '../store/workspaceStore.js';
 import { selectMembers, selectActivityFeed } from '../store/selectors.js';
 import * as cloud from '../services/cloud.js';
 import { onProfilesChanged } from '../services/cloudSync.js';
-import { isCloudEnabled } from '../services/supabaseClient.js';
+import { isCloudEnabled, isMyUid, myUid } from '../services/supabaseClient.js';
+import { useAuth } from '../services/auth.jsx';
 import { readCache, writeCache, dropCache } from '../services/cache.js';
 import { useLiveTick } from '../services/liveV2.js';
 import * as roster from '../services/roster.js';
@@ -143,6 +144,19 @@ export function MembersView({ isAdmin, isMaster }) {
   // 값이 스치지 않게(§6의 캐시 훅 한 프레임 함정과 같은 이유. groupsParts.useSettled).
   const [book, setBook] = useState(null);       // { key, data } | null
   const online = usePresence();
+  // **내 줄에는 환송해주기·계정 합치기가 없다**(사용자 결정 2026-10-14 — 의도한 것이 아니었다). 나를
+  // 내보내거나 남의 계정을 내 줄로 끌어오는 버튼이 내 줄에 서 있었다. '나'는 앱 다른 자리와 같은 규칙이다 —
+  // 세션 uid와 남긴 계정 id(0061 effective_uid) **둘 다**(supabaseClient.isMyUid · 0063). 합친 계정으로
+  // 들어오면 세션 uid는 '합친 계정' 구역의 옛 줄이고, 함께하는 사람의 내 줄은 남긴 계정 id다.
+  // 남긴 계정 id는 한 번 물어 둔 값이라(알림 종이 앱이 뜰 때 묻는다) 여기서도 물어 두고 다시 그린다.
+  const sessionUid = useAuth().session?.user?.id || '';
+  const [, setMeKnown] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    if (isCloudEnabled()) myUid().then(() => { if (alive) setMeKnown(n => n + 1); }).catch(() => {});
+    return () => { alive = false; };
+  }, [sessionUid]);
+  const isMe = (id) => isMyUid(id, sessionUid);
   // 줄마다 'N분 전 가입 · N분 전 다녀감'이 있다 — 이 화면을 열어 두면 그 글자가 굳는다
   useMinuteTick(tab === 'account' ? 10000 : 60000);   // 초 단위 '다녀감'은 가입자 탭에만 있다 — 명단 탭까지 10초로 그리지 않는다
   // 줄 등장은 앱의 관례대로 `.dc-row` + 순번 지연이고 **첫 마운트에만** 준다
@@ -527,7 +541,7 @@ export function MembersView({ isAdmin, isMaster }) {
                     명단 미연결
                   </button>
                 ) : null}
-                action={
+                action={isMe(row.id) ? null : (
                 <span className="flex items-center gap-1">
                   {/* 합치기는 마스터만 — 남의 댓글·담당자를 다른 계정으로 옮기는 일이다 */}
                   {isMaster && (
@@ -545,7 +559,7 @@ export function MembersView({ isAdmin, isMaster }) {
                     </button>
                   </ConfirmPopover>
                 </span>
-              } below={linkFor === row.id ? linkPanel(row) : mergeFor === row.id ? (
+              )} below={linkFor === row.id ? linkPanel(row) : mergeFor === row.id ? (
                 <div className="members-merge-pick mt-2 border border-line rounded-lg p-1.5 max-h-60 overflow-y-auto">
                   <p className="px-2 py-1.5 text-[11px] text-fg-muted leading-relaxed">
                     <span className="font-bold text-fg">{row.display_name || '이 계정'}</span>으로 합칠 계정을 고르세요.

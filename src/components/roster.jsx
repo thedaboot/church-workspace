@@ -113,7 +113,9 @@ const birthdayLabel = (mmdd) => {
 // 명단 한 줄 자리(가입자 탭 membersView도 같은 것을 쓴다).
 export const RowSkeleton = () => (
   <div className="flex items-center gap-2.5 py-2.5">
-    <Skeleton className="w-8 h-8 rounded-full shrink-0" />
+    {/* 진짜 얼굴은 동그라미다 — Skeleton의 rounded-md가 rounded-full을 이겨서(§6-9-bw) 둥근 네모로
+        섰다가 도착하는 순간 모양이 튀었다. 그래서 important(`!`)로 이긴다(2026-10-14) */}
+    <Skeleton className="w-8 h-8 rounded-full! shrink-0" />
     <div className="flex-1 min-w-0 space-y-1.5">
       <Skeleton className="h-3 w-24 rounded" />
       <Skeleton className="h-2 w-16 rounded" />

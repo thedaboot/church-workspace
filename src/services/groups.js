@@ -545,6 +545,18 @@ export function reportName(clubName, meetingDate, ext = 'xlsx') {
   return `${name} 활동보고서(${m ? `${+m[1]}월` : ''})${ext ? `.${ext}` : ''}`.replace('()', '');
 }
 
+// 파일 이름을 [앞, 꼬리]로 — 좁은 폭에서 **가운데**를 말줄임하려고 쓴다(2026-10-14 반응형 점검).
+// 꼬리 = 확장자 앞 `keep`글자 + 확장자. 끝을 자르면 `.xlsx`와 `(10월)`이 함께 사라졌다 — 이름에서
+// 어느 달 보고서인지·어떤 파일인지 읽히는 자리가 바로 거기다. 글자는 코드 포인트로 센다(이모지가 안 갈라지게).
+export function splitNameTail(name, keep = 5) {
+  const chars = Array.from(String(name || ''));
+  const s = chars.join('');
+  const dot = s.lastIndexOf('.');
+  const extLen = dot > 0 && s.length - dot <= 8 ? Array.from(s.slice(dot)).length : 0;
+  const cut = Math.max(0, chars.length - extLen - keep);
+  return [chars.slice(0, cut).join(''), chars.slice(cut).join('')];
+}
+
 // 다른 모임에서 가져올 수 있는 보고서인가 — 클라우드는 드라이브에 실체가 있는 것, 게스트는 바이트를 쥔 것
 export const reportUsable = (f) => !!(f?._file || (f?.source === 'drive' && f?.drive_file_id));
 

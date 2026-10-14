@@ -457,6 +457,12 @@ export function WorshipView({ onOpenBible } = {}) {
   const [guests, setGuests] = useState([]);          // 이 주보의 미등록 출석자(0053)
   const [note, setNote] = useState(null);
   const [files, setFiles] = useState([]);                // 이 주보에 붙은 파일 — 송폼·큐시트 한 목록(0047·0054)
+  // 명단·출석이 **그 주보의 것으로** 손에 들어왔나 — 캐시로든 조회로든(2026-10-14 반응형 점검).
+  // 첫 진입(캐시 없음)에는 roster가 빈 껍데기라, 그 사이 출석 체크를 열면 `전체 0/0`·순 묶음 없음·
+  // 빈 메모가 1초 남짓 섰다가 `29/55`로 뛰었고, 주보 종이의 이름은 호칭 없이 섰다가 바뀌었다.
+  // 그동안 출석 화면은 스켈레톤을, 종이는 이름 자리만 비워 둔다(PITFALLS 48-a).
+  const [readyId, setReadyId] = useState(null);
+  const lastOpen = useRef(null);                         // 마지막으로 연 주보 — 늦게 끝난 앞 조회가 덮지 않게
   const [editOnOpen, setEditOnOpen] = useState(false);   // 만들자마자 수정 화면으로
   const [noteOnOpen, setNoteOnOpen] = useState(false);   // 열자마자 내 예배 노트 칸으로(0건 자리의 '예배 노트 쓰기')
 
@@ -541,6 +547,9 @@ export function WorshipView({ onOpenBible } = {}) {
     setGuests(hit?.guests || []);
     setNote(hit?.note ?? null);
     setFiles(hit?.files || []);
+    // 캐시가 없으면 아직 빈 명단이다 — 출석 화면은 스켈레톤, 주보 종이는 이름을 잠시 숨긴다(readyId 머리말)
+    lastOpen.current = svc.id;
+    setReadyId(hit ? svc.id : null);
     await attempt('주보 상세', '주보에 딸린 명단과 출석을 받지 못했어요', { 42501: '승인된 멤버만 명단을 볼 수 있어요' }, async () => {
       const [r, att, gs, n, fs] = await Promise.all([
         fetchRoster(serviceYear(svc.service_date)),
@@ -555,6 +564,9 @@ export function WorshipView({ onOpenBible } = {}) {
       setFiles(prev => [...fs, ...prev.filter(f => f._pending)]);
       writeCache(key, { roster: r, present: att, guests: gs, note: n, files: fs });
     });
+    // 실패해도 연다 — 토스트가 이미 말했고, 스켈레톤·숨긴 이름이 영영 남으면 안 된다.
+    // 그 사이 다른 주보로 갔으면 그쪽 값을 덮지 않는다(그 주보의 open이 자기 것을 정한다).
+    if (lastOpen.current === svc.id) setReadyId(svc.id);
   }, [canWriteNote]);
 
   // ── 딥링크 진입 (`/?p=worship&s=<주보 id>` · 0053의 알림 link) ──────────────
@@ -1020,6 +1032,7 @@ export function WorshipView({ onOpenBible } = {}) {
     return (
       <AttendanceScreen
         service={service} roster={roster} present={present} guests={guests} perms={perms}
+        loading={readyId !== service.id}
         onToggle={toggle} onAddGuest={addGuest} onRemoveGuest={removeGuest} onSaveNote={saveAttendanceNote}
         onBack={() => setScreen('detail')}
       />
@@ -1032,7 +1045,8 @@ export function WorshipView({ onOpenBible } = {}) {
     // 수정 화면으로 들어간다. 출석은 보기 모드에서만 들어가므로 꺼도 잃는 것이 없다.
     return (
       <ServiceDetail
-        service={service} people={roster.people} personRoles={roster.roles} perms={perms} note={note} canWriteNote={canWriteNote}
+        service={service} people={roster.people} personRoles={roster.roles} rosterReady={readyId === service.id}
+        perms={perms} note={note} canWriteNote={canWriteNote}
         startEditing={editOnOpen} files={files} recentSongs={recentSongs} prefill={prefill}
         onUploadFiles={uploadFiles} onRemoveFile={removeFile} onCopyLastCue={copyLastCue}
         cover={covers[service.id] || null} onUploadCover={uploadCover} onRemoveCover={removeCover} onSaveCoverFocus={saveCoverFocus}

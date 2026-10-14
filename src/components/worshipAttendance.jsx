@@ -5,6 +5,7 @@ import { useMinuteTick } from '../hooks/useMinuteTick.js';
 import { BTN, BTN_QUIET } from './groupsParts.jsx';
 import { SaveState, BTN_SOFT } from './worshipParts.jsx';
 import { imeComposing } from '../utils.js';
+import { Skeleton } from './media.jsx';
 
 // ============================================================================
 // 예배 출석 체크 (docs/V2.md 결정 6 · 0035·0036)
@@ -34,11 +35,73 @@ import { imeComposing } from '../utils.js';
 // **출석 메모는 노트처럼 읽기/편집 두 모드다**(사용자 요청 2026-09-08: "출석 메모도
 // 노트처럼 저장하고 수정할 수 있는 구조로 — 지금은 저장이 된다 해도 저장의 기능을
 // 제대로 하고 있는지를 모르겠음"). 아래 메모 구역 주석 참고.
+//
+// **명단이 오기 전(`loading`)에는 집계·순 묶음·손님·메모 자리가 스켈레톤이다**(2026-10-14 ·
+// PITFALLS 48-a) — 빈 명단으로 그리면 `전체 0/0`이 한 번 읽힌다. 아래 AttendanceBones.
 // ============================================================================
 
 // 편집 진입 버튼(연한 accent)은 내 예배 노트의 '수정'과 **같은 한 벌**을 그대로 받아
 // 쓴다(worshipParts의 BTN_SOFT) — 예전에는 같은 글자를 두 파일에 각자 적어 두어서
 // 한쪽만 고쳐질 자리였다. 저장 상태 칩(SaveState)도 그 파일에서 온다.
+
+// ── 명단이 오기 전의 자리 (2026-10-14 반응형 점검 · PITFALLS 48-a) ─────────────────
+// 첫 진입(캐시 없음)에는 부르는 쪽(worshipView)의 명단이 빈 껍데기다. 그대로 그리면 `전체 0/0`·
+// `미등록 출석자 0`·빈 메모가 1초 남짓 섰다가 `29/55`와 순 묶음으로 뛰었다 — 틀린 숫자가 한 번
+// 읽힌다. 그동안은 **같은 줄 모양의 스켈레톤**이 선다(앱의 Skeleton 한 벌).
+// 뼈마다 **보이지 않는 글자**를 깔고 그 위에 Skeleton을 덮는다 — 높이·폭이 진짜 줄과 같은 글꼴
+// 지표에서 나오므로 픽셀 값을 따로 들고 있지 않아도 머리·집계 줄이 한 픽셀도 안 움직인다.
+// 순 묶음 수는 아직 모르는 값이라 셋으로 잡는다(아래로만 자라거나 줄고, 위에 선 것은 그대로다).
+// 뼈는 Skeleton과 **같은 클래스의 span**이다 — 집계 줄이 `<p>`라 Skeleton의 `<div>`를 넣으면 잘못된 중첩이다
+// (리액트 콘솔 오류). 둥근 모서리는 rounded-md가 rounded-full을 이겨서(§6-9-bw) 칩 뼈만 rounded-md를 안 붙인다.
+function Bone({ text, round = false, className = '' }) {
+  return (
+    <span className={`relative inline-block align-top ${className}`}>
+      <span className="invisible">{text}</span>
+      <span className="absolute inset-0">
+        <span className={`dc-skeleton block w-full h-full border border-line ${round ? 'rounded-full' : 'rounded-md'}`} />
+      </span>
+    </span>
+  );
+}
+
+const BONE_GROUPS = [['김다붓', '이다붓', '박다붓', '최다붓', '정다붓'], ['김다붓', '이다붓', '박다붓', '최다붓'], ['김다붓', '이다붓', '박다붓']];
+
+function AttendanceBones({ withNote }) {
+  return (
+    <div className="att-loading" aria-hidden="true">
+      {BONE_GROUPS.map((names, i) => (
+        <div key={i} className="mb-2.5">
+          {/* 순 머리 — att-group-head와 같은 상자(py-2.5 · 아래 선 · 13px 굵은 글자) */}
+          <div className="flex items-center gap-2 py-2.5" style={{ borderBottom: '1px solid var(--app-line)' }}>
+            <span className="w-[14px] shrink-0" />
+            <span className="flex-1 min-w-0 text-[13px] font-bold"><Bone text="다붓순" /></span>
+            <span className="shrink-0 text-[11.5px] tabular-nums"><Bone text="0/0" /></span>
+          </div>
+          {/* 사람 칩 — PersonChip과 같은 안쪽 여백·글자·테두리 두께 */}
+          <div className="flex flex-wrap gap-1.5 py-2.5">
+            {names.map((n, j) => (
+              <Bone key={j} round text={n} className="px-2.5 py-1.5 rounded-full text-[12px] font-semibold border border-transparent" />
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="mt-5">
+        <div className="flex items-center gap-2 py-2.5" style={{ borderBottom: '1px solid var(--app-line)' }}>
+          <span className="flex-1 min-w-0 text-[13px] font-bold"><Bone text="미등록 출석자" /></span>
+        </div>
+        <div className="mt-2.5">
+          <Bone text="+ 미등록 출석자 추가" className="px-3 py-1.5 text-[11.5px] font-semibold" />
+        </div>
+      </div>
+      {withNote && (
+        <div className="mt-7">
+          <div className="pb-2.5 text-[12.5px] font-bold"><Bone text="출석 메모" /></div>
+          <Skeleton className="w-full min-h-[4.5rem]" />
+        </div>
+      )}
+    </div>
+  );
+}
 
 function PersonChip({ person, on, disabled, onToggle }) {
   return (
@@ -73,7 +136,7 @@ function GuestChip({ guest, disabled, onRemove }) {
 }
 
 export function AttendanceScreen({
-  service, roster, present, guests = [], perms = {}, onToggle, onAddGuest, onRemoveGuest, onSaveNote, onBack,
+  service, roster, present, guests = [], perms = {}, loading = false, onToggle, onAddGuest, onRemoveGuest, onSaveNote, onBack,
 }) {
   useMinuteTick();
   const checkOpen = attendanceOpen(service);   // 체크가 열렸나(묶음 펼침 open과 다른 값이다)
@@ -138,10 +201,11 @@ export function AttendanceScreen({
         <p className="mt-1 text-[11.5px] text-fg-muted">
           {kindLabel(service?.kind)} · {formatServiceDate(service?.service_date)}
         </p>
-        <p className="att-total mt-3 flex flex-wrap items-center gap-2 text-[13px] font-bold text-fg tabular-nums">
-          <span>전체 <span className="text-accent-text">{here}</span>/{total}</span>
+        {/* 명단이 오기 전에는 집계 자리만 뼈로 — 잠긴 이유 칩은 주보가 정하는 값이라 그대로 선다 */}
+        <p className={`${loading ? 'att-total-wait' : 'att-total'} mt-3 flex flex-wrap items-center gap-2 text-[13px] font-bold text-fg tabular-nums`}>
+          {loading ? <Bone text="전체 00/00" /> : <span>전체 <span className="text-accent-text">{here}</span>/{total}</span>}
           {/* 손님은 명단 밖이라 분모에 넣을 수 없다 — 도막을 따로 붙인다(0053) */}
-          {guests.length > 0 && <span className="att-guest-count font-semibold text-fg-muted">· 손님 {guests.length}</span>}
+          {!loading && guests.length > 0 && <span className="att-guest-count font-semibold text-fg-muted">· 손님 {guests.length}</span>}
           {/* 잠긴 이유 — 예배 시작(13:30) 전에는 체크가 안 된다 */}
           {!checkOpen && (
             <span className="att-not-yet px-2 py-0.5 rounded-full bg-tag-yellow text-tag-yellow-fg text-[10.5px] font-bold">
@@ -151,6 +215,7 @@ export function AttendanceScreen({
         </p>
       </header>
 
+      {loading ? <AttendanceBones withNote={!!perms.canCheck} /> : (<>
       {buckets.map(g => {
         const open = !closed.has(String(g.id));
         const can = canToggleGroup(perms, g.id);
@@ -279,6 +344,7 @@ export function AttendanceScreen({
           </div>
         </section>
       )}
+      </>)}
     </div>
   );
 }

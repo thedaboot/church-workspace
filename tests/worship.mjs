@@ -3618,6 +3618,75 @@ await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: watcher.ide
   await ev(`localStorage.removeItem('church_worship_v1')`);
 }
 
+// ── 명단이 오기 전 — 출석 체크는 스켈레톤 · 종이는 이름 자리만 비운다 (2026-10-14 반응형 점검 · PITFALLS 48-a) ──
+// 클라우드에서 첫 진입(캐시 없음)에 출석 체크를 열면 `전체 0/0`·순 묶음 없음·빈 메모가 1초 남짓 섰다가 `29/55`로
+// 뛰었고, 주보 종이의 섬기는 이들·찬양 인도는 호칭 없이 섰다가 몇 초 뒤 바뀌었다. 게스트는 조회가 마이크로태스크
+// 안에 끝나 그 틈이 없다 — 그래서 페이지의 `Promise.all`을 늦춰(worshipView open이 다섯 조회를 그것으로 묶는다)
+// 클라우드의 왕복을 흉내 낸다. 새로 연 페이지라 상세 캐시(메모리)가 없다.
+// **되돌리기**: worshipView의 `loading={readyId !== service.id}`를 지우면 기다리는 동안 `.att-total`(0/0)이 서서
+// 첫 검사가, paper.jsx의 `style={held}`를 지우면 둘째 검사가 깨진다.
+{
+  const logsBefore = logs.length;
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await ev(plant(null));
+  // 찬양 첫 곡은 폰에서 두 줄로 접히는 긴 제목으로(아래 아이콘 자리 검사)
+  await ev(`(() => { const g = JSON.parse(localStorage.getItem('church_worship_v1'));
+    g.services.find(s => s.id === 's1').songs[0].title = '아이자야씩스티원 - 나의 만족과 유익을 위해 늘 함께하시는 주님을 찬양합니다';
+    localStorage.setItem('church_worship_v1', JSON.stringify(g)); })()`);
+  await send('Page.navigate', { url: `${URL_BASE}/?p=worship` }); await wait('Page.loadEventFired');
+  await waitFor(HAS_CARD);
+  await ev(`(() => { const all = Promise.all.bind(Promise); window.__holdMs = 2500;
+    Promise.all = (xs) => { const p = all(xs); return window.__holdMs ? p.then(v => new Promise(r => setTimeout(() => r(v), window.__holdMs))) : p; }; })()`);
+  await ev(`document.querySelector('.worship-card').click()`);
+  await waitFor(`!!document.querySelector('.worship-detail .paper-service-2')`, 4000);
+  const NAMES = `[...document.querySelectorAll('.paper-service-2 .paper-name')].map(n => [n.textContent, getComputedStyle(n).visibility])`;
+  const heldNames = await ev(NAMES);
+  const heldPdf = await ev(`document.querySelector('.worship-paper-pdf')?.disabled ?? null`);
+  await waitFor(HAS_ATT, 4000); await ev(`document.querySelector('.worship-att-open').click()`);
+  await waitFor(`!!document.querySelector('.worship-attendance')`, 3000);
+  await sleep(450);   // 등장 연출(.dc-screen — 몇 px 내려와 선다)이 끝난 뒤에 잰다
+  const GEO = `(() => { const top = (el) => el ? Math.round(el.getBoundingClientRect().top * 10) / 10 : null;
+    const tot = document.querySelector('.att-total, .att-total-wait');
+    return { skel: !!document.querySelector('.worship-attendance .att-loading'), total: document.querySelector('.att-total')?.innerText.replace(/\\s+/g, ' ') || '',
+      groups: document.querySelectorAll('.att-group-head').length, guests: !!document.querySelector('.att-guests'), note: !!document.querySelector('.att-note'),
+      h2: top(document.querySelector('.worship-attendance h2')), tot: top(tot), totH: tot ? Math.round(tot.getBoundingClientRect().height * 10) / 10 : null,
+      head: top(document.querySelector('.att-loading > div > div, .att-group-head')) }; })()`;
+  const during = await ev(GEO);
+  await waitFor(`!!document.querySelector('.att-total')`, 6000);
+  const after = await ev(GEO);
+  check('명단이 오기 전 출석 체크는 스켈레톤이다 — 0/0·순 묶음·손님·메모가 서지 않는다',
+    during.skel && during.total === '' && during.groups === 0 && !during.guests && !during.note, JSON.stringify(during));
+  check('명단이 오면 스켈레톤이 걷히고, 머리·집계 줄·첫 순 머리가 그 자리 그대로다',
+    !after.skel && after.total === '전체 1/8' && after.groups > 0 && after.h2 === during.h2 && after.tot === during.tot
+    && after.totH === during.totH && after.head === during.head, JSON.stringify({ during, after }));
+  await ev(`${byText('주보로')}.click()`);
+  await waitFor(`!!document.querySelector('.worship-detail .paper-service-2')`, 4000);
+  const readyNames = await ev(NAMES);
+  await waitFor(`document.querySelector('.worship-paper-pdf')?.disabled === false`, 5000);
+  const readyPdf = await ev(`document.querySelector('.worship-paper-pdf')?.disabled ?? null`);
+  check('명단이 오기 전 주보 종이의 이름은 자리만 남고(호칭 없는 이름이 보이지 않는다) PDF는 잠긴다',
+    heldNames.length === 4 && heldNames.every(([, v]) => v === 'hidden') && heldPdf === true, JSON.stringify({ heldNames, heldPdf }));
+  check('명단이 오면 이름이 호칭과 함께 선다',
+    readyNames.length === 4 && readyNames.every(([, v]) => v === 'visible')
+    && readyNames.some(([t]) => t === '양민혁 전도사님') && readyNames.some(([t]) => t === '조해리 부장님') && readyPdf === false,
+    JSON.stringify({ readyNames, readyPdf }));
+  await ev(`window.__holdMs = 0`);
+  // 찬양 줄의 바깥 링크 아이콘은 **글의 마지막 글자 바로 뒤**다 — 한 줄 제목이든 접힌 제목이든(2026-10-14 반응형 점검).
+  // 되돌리기: worship-song-link를 inline-flex 두 칸(글 span + 아이콘)으로 되돌리면 접힌 제목의 아이콘이 줄 오른쪽 끝으로 가 깨진다.
+  await ev(`[...document.querySelectorAll('.worship-tab')].find(t => t.textContent.trim() === '찬양').click()`);
+  await waitFor(`!!document.querySelector('.worship-song-link .worship-song-ext')`, 3000);
+  const ext = await ev(`[...document.querySelectorAll('.worship-song-link')].map(a => {
+    const r = document.createRange(); r.selectNodeContents(a.firstChild); const rs = [...r.getClientRects()]; const last = rs[rs.length - 1];
+    const i = a.querySelector('.worship-song-ext').getBoundingClientRect();
+    return { lines: new Set(rs.map(x => Math.round(x.top))).size, gap: Math.round(i.left - last.right),
+      same: Math.abs((i.top + i.bottom) / 2 - (last.top + last.bottom) / 2) <= last.height / 2 }; })`);
+  check('찬양 링크 아이콘은 접힌 제목에서도 마지막 글자 바로 뒤다(줄 끝으로 떨어지지 않는다)',
+    ext.length >= 1 && ext.some(e => e.lines >= 2) && ext.every(e => e.same && e.gap >= 0 && e.gap <= 10), JSON.stringify(ext));
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  logs.push(...logs.splice(logsBefore));
+  await ev(`localStorage.removeItem('church_worship_v1')`);
+}
+
 
 // ── 12) 교회력 · 넘기면서 보기 · 본명 · 내 예배 노트 · 광고 → 달력 (사용자 결정 2026-09-25) ─────
 // 저장 자리를 새로 심는다: 지난해 성탄절 주보(흰/금 — 늘 과거라 검사 시기와 무관) + 명단의 본명이

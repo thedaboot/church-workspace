@@ -891,6 +891,14 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
   assert.strictEqual(G.lastReportOf(ms, ms[0])?.meeting.id, 'm2', '⑥-b 자기 모임의 파일은 고르지 않는다');
   assert.ok(G.reportUsable({ _file: {} }) && !G.reportUsable({ source: 'drive' }) && !G.reportUsable(null), '⑥-c 게스트는 쥔 바이트, 클라우드는 드라이브 id');
   assert.strictEqual(G.meetingQueueKey('m9'), 'meeting:m9', '⑥-c 업로드 큐 열쇠');
+  // ⑥-e 보고서 이름의 가운데 말줄임(2026-10-14 반응형 점검) — 꼬리는 확장자 앞 다섯 글자 + 확장자다. 끝을 자르면
+  // 작은 폰에서 `(10월).xlsx`가 통째로 사라졌다. 되돌리기 확인: keep을 0으로 바꾸면 첫 줄이 깨진다.
+  assert.deepStrictEqual(G.splitNameTail('서부버튼_동아리 활동보고서(10월).xlsx'), ['서부버튼_동아리 활동보고서', '(10월).xlsx'], '⑥-e 달·확장자가 꼬리에 남는다');
+  assert.deepStrictEqual(G.splitNameTail('짧음.pdf'), ['', '짧음.pdf'], '⑥-e 짧은 이름은 통째로 꼬리');
+  assert.deepStrictEqual(G.splitNameTail('README'), ['R', 'EADME'], '⑥-e 확장자가 없으면 끝 다섯 글자');
+  assert.deepStrictEqual(G.splitNameTail('보고서.backup1234'), ['보고서.backu', 'p1234'], '⑥-e 여덟 글자 넘는 꼬리는 확장자로 보지 않는다');
+  assert.deepStrictEqual(G.splitNameTail('기도🙏🙏🙏🙏.xlsx'), ['기', '도🙏🙏🙏🙏.xlsx'], '⑥-e 글자는 코드 포인트로 센다(이모지가 안 갈라진다)');
+  assert.deepStrictEqual(G.splitNameTail(''), ['', ''], '⑥-e 빈 이름도 깨지지 않는다');
   {
     const raw = readFileSync(new URL('../src/services/groups.js', import.meta.url), 'utf8');
     const drv = readFileSync(new URL('../src/services/cloud/drive.js', import.meta.url), 'utf8');

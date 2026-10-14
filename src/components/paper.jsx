@@ -450,9 +450,11 @@ export const paperRoles = (rows = []) =>
   (rows || []).filter(r => (r?.name || r?.person_id) && !PAPER_ROLE_SKIP.includes(roleKey(r?.role)));
 
 export function ServiceSheetTwo({
-  sheetRef, date, kind, team, leader, songs = [], roles = [], notices = [], nameOf, cut = null, tagline = '', season = null,
+  sheetRef, date, kind, team, leader, songs = [], roles = [], notices = [], nameOf, namesReady = true, cut = null, tagline = '', season = null,
 }) {
   const rows = paperRoles(roles);
+  // 명단이 아직이면 이름 글자만 숨긴다 — 호칭 없는 이름이 섰다가 바뀌지 않게(worshipDetail ServicePaper 머리말)
+  const held = namesReady ? undefined : { visibility: 'hidden' };
   // personId를 같이 넘긴다 — 명단 본명·호칭을 id로 찾는다(이름은 계정 표시 이름일 수 있다 · serviceView.realNameOf)
   const who = (r) => (nameOf ? nameOf(r.name, r.personId || r.person_id || null) : r.name);
   return (
@@ -474,7 +476,7 @@ export function ServiceSheetTwo({
               <span className="paper-leader flex items-baseline gap-1.5 mt-[3px]">
                 <span className="shrink-0 text-[9.5px] font-extrabold tracking-[0.02em]"
                   style={{ color: PAPER.faint }}>찬양 인도</span>
-                <span className="min-w-0 break-words">{nameOf ? nameOf(leader) : leader}</span>
+                <span className="paper-name min-w-0 break-words" style={held}>{nameOf ? nameOf(leader) : leader}</span>
               </span>
             ) : null}
             {songs.length ? (
@@ -500,7 +502,7 @@ export function ServiceSheetTwo({
                     <span className="shrink-0 text-[9.5px] font-extrabold tracking-[0.02em]"
                       style={{ color: PAPER.faint }}>{r.role}</span>
                   ) : null}
-                  <span className="min-w-0 break-words">{who(r)}</span>
+                  <span className="paper-name min-w-0 break-words" style={held}>{who(r)}</span>
                 </div>
               ))}
             </div>
