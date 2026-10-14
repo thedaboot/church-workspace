@@ -435,7 +435,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .dc-screen, .dc-row, .dc-card, .dc-kpi, .dc-pop { animation: none !important; }
-  .animate-in { animation: none !important; }   /* tw-animate-css 등장(팝오버·경고·토스트 57곳)도 같이 끈다(2026-10-09) */
+  .animate-in, .animate-out { animation: none !important; }   /* tw-animate-css 등장(팝오버·경고·토스트 57곳)·퇴장도 같이 끈다(2026-10-09 · 퇴장 2026-10-14) */
   .dc-bar-fill, .dc-press { transition: none !important; }
 }
 
@@ -823,6 +823,11 @@ svg.lucide { stroke-width: 1.4px; }
 @media (prefers-reduced-motion: reduce) {
   .dc-fade, .dc-nav-fwd, .dc-nav-back { animation: none !important; }
 }
+
+/* tw-animate(`animate-in`·`animate-out` — 업무 창 · 댓글·첨부 줄 · 토스트 등 50여 곳)도 이징은 앱 토큰 하나다(2026-10-14).
+   그 유틸리티의 기본 이징은 `ease`라 quint와 두 벌이었다. `--tw-ease`는 tw-animate가 이징 자리에 읽는 값이다.
+   움직임 줄이기는 위 업무 잠금 블록 옆에서 끈다. */
+.animate-in, .animate-out { --tw-ease: var(--ease-out-quint); }
 
 /* ── 다붓이 · 위키 (0088 · 16차 · 목업 v12) ───────────────────────────────────
    입구 셋(상단 알약 · 폰 얼굴 · 위키 안 물어보기 칸)은 **갸웃** — 얼굴이 5초에 한 번 고개를 기울인다.

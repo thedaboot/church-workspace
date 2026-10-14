@@ -1098,8 +1098,10 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   assert.ok(/const onPaste = \(e\) => \{ if \(e\.defaultPrevented\) return;/.test(att), '편집기가 받은 붙여넣기(defaultPrevented)는 첨부가 건너뛴다');
   const css = src('index.css');
   const reduce = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g)].map(m => m[1]).join('\n');
-  assert.ok(/\.animate-in \{ animation: none !important; \}/.test(reduce), '움직임 줄이기에서 .animate-in도 멈춘다');
-  console.log('PASS  붙여넣기 한 번 · animate-in 움직임 줄이기');
+  assert.ok(/\.animate-in, \.animate-out \{ animation: none !important; \}/.test(reduce), '움직임 줄이기에서 .animate-in·.animate-out도 멈춘다');
+  assert.ok(/^\.animate-in, \.animate-out \{ --tw-ease: var\(--ease-out-quint\); \}$/m.test(css), 'tw-animate 이징도 앱 토큰 quint 하나(2026-10-14)');
+  assert.ok(/flex flex-col animate-in slide-in-from-bottom-4 duration-150">/.test(src('modals/modals.jsx')), '폰 업무 창 여는 시간은 데스크톱 창과 같은 150ms');
+  console.log('PASS  붙여넣기 한 번 · tw-animate 이징·움직임 줄이기 · 폰 업무 창 150ms');
 }
 
 // 2026-10-09 — 색 대비(시안 승인): 다크 accent 위 흰 글씨 4.5 넘게 · accent 테두리는 다크 바탕들 위 3 넘게 · 업무 바 꺼진 탭 4 넘게
