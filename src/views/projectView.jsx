@@ -22,8 +22,7 @@ import { PinnedLinkChip, LinkAddPopover } from '../components/links.jsx';
 import { Segmented } from '../components/segmented.jsx';
 import { showToast } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
-import { LEADERS, canSetVisibility } from '../services/visibility.js';
-import { LeaderChip, LeaderLockButton } from '../components/leaderOnly.jsx';
+import { LeaderChip, LeaderLockButton, useSetVisibility } from '../components/leaderOnly.jsx';
 
 // ── 프로젝트 화면 ─────────────────────────────────────────────────────────
 // 헤더(제목 · 메타 줄 · 참고 링크 · 리더만 보기·공유·삭제 · 새 업무) + 보기 전환(보드 · 캘린더 · 그래프) + 팀 칩.
@@ -50,8 +49,6 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
   const tasksList = useStore(selectTasksList);
   const { enabled, session, isAdmin } = useAuth();
   const cloudOn = enabled && !!session;
-  // 나는 리더인가(0092 · cloudSync.loadCloudState) — 게스트 스토어에는 이 칸이 없고 자물쇠는 언제나 선다
-  const amLeader = useStore(s => s.amLeader);
   // 참고 링크에 비밀번호를 걸 수 있는 사람을 가르는 데만 쓴다(만든 사람 + 관리자).
   const myId = session?.user?.id || null;
   // 특정 프로젝트의 Task만 필터링 (해당 View 내부에서만 필요한 연산)
@@ -101,21 +98,8 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
         : l)) } });
   };
 
-  // 보는 사람(0092). **낙관적으로 먼저 바꾸지 않는다** — 누가 보느냐는 저장된 값이 곧 화면의 사실이다(위 setLinkPw와
-  // 같은 순서). 클라우드는 서버가 돌려준 값(리더가 아니면 트리거가 옛 값으로 되돌린다)을 그대로 쓴다.
-  // 누가·언제(visibilityBy·visibilityAt · 0099)도 같이 적는다 — 화면 문구는 없다. 클라우드는 DB 트리거가 적은 값을 받고,
-  // 게스트는 로컬에 이름과 시각을 적는다(바뀔 때만 — 같은 값을 다시 누르면 옛 기록 그대로).
-  const setVisibility = async (on) => {
-    const want = on ? LEADERS : 'all';
-    try {
-      const saved = cloudOn ? await cloudSync.projectVisibilityCloud(project.id, want)
-        : (want === (project.visibility || 'all') ? { visibility: want }
-          : { visibility: want, visibilityBy: store.getState().currentUser?.name || null, visibilityAt: new Date().toISOString() });
-      store.dispatch({ type: 'UPDATE_PROJECT', payload: { id: project.id, ...saved } });
-    } catch (err) {
-      cloudErr('보는 사람을 바꾸지 못했어요')(err);
-    }
-  };
+  // 보는 사람(0092) — 저장은 폰 상단바 제목 자물쇠와 한 벌(leaderOnly.useSetVisibility · 바꿀 수 없는 사람이면 null)
+  const setVisibility = useSetVisibility(project);
 
   const deleteProject = () => {
     store.dispatch({ type: 'DELETE_PROJECT', payload: project.id });
@@ -190,7 +174,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
         {/* 모바일에서는 감싸개를 지워 안쪽 줄이 직접 그리드 칸이 되게 한다(§6-3 — 반응형으로
             구조가 달라져도 컴포넌트를 두 벌 두지 않는다) */}
         <div className="contents md:block md:min-w-0 md:flex-1">
-          {/* 모바일은 상단바에 같은 제목(과 수정 연필 · 리더만 칩)이 이미 있다 — 한 줄을 두 번 쓰지 않는다 */}
+          {/* 모바일은 상단바에 같은 제목(과 수정 연필 · 리더만 자물쇠)이 이미 있다 — 한 줄을 두 번 쓰지 않는다 */}
           <div className="hidden md:flex items-center gap-2 mb-[5px] min-w-0">
             <button onClick={() => onRenameProject?.(project)} className="group/title inline-flex items-baseline gap-1.5 text-left min-w-0" title="프로젝트 이름 수정">
               <span className="text-[19px] md:text-[23px] font-extrabold text-fg" style={{ letterSpacing: '-0.7px' }}>{project.title}</span>
@@ -277,7 +261,7 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
               <span className="inline-flex items-center justify-center gap-0.5 shrink-0 -mr-2 md:mr-0 md:justify-start md:ml-1">
                 {/* 링크 줄이 여기서 끝난다는 표시. 높이는 아이콘 자획과 같은 16px */}
                 <span aria-hidden className="w-px h-4 mr-1.5 shrink-0 md:hidden" style={{ background: 'var(--app-line)' }} />
-                {canSetVisibility({ cloudOn, amLeader }) && <LeaderLockButton project={project} onSet={setVisibility} />}
+                {setVisibility && <LeaderLockButton project={project} onSet={setVisibility} />}
                 {shareBtn}{deleteBtn}
               </span>
             </div>

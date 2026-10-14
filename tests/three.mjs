@@ -764,11 +764,11 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
     (await verifyViewPw(stored, 'cue!')) === true && (await verifyViewPw(stored, 'cue')) === false);
 }
 
-// ── 리더만 보는 프로젝트(0092 · 2026-10-12 시안) — 자물쇠 → `리더만 보기` 토글 → 제목 옆·업무 창 머리·폰 상단바 칩 ──
+// ── 리더만 보는 프로젝트(0092 · 2026-10-12 시안) — 자물쇠 → `리더만 보기` 토글 → 제목 옆·업무 창 머리 칩 · 폰 상단바 제목 앞 자물쇠 ──
 // 게스트에는 리더 판정이 없어 자물쇠가 언제나 서고 값은 localStorage에 남는다(services/visibility.js canSetVisibility).
 // 실제 경계(리더가 아니면 행이 안 온다)는 DB라 여기서는 못 본다 — 0092 리허설(psql)이 그 몫이다.
 // **되돌리기**(§3-5): projectView에서 LeaderLockButton 줄을 지우면 '자물쇠' 셋이, LeaderChip을 지우면 '칩'이,
-// modals.jsx 머리의 LeaderChip을 지우면 '업무 창 머리', mobileNav의 것을 지우면 '폰 상단바'가 깨진다.
+// modals.jsx 머리의 LeaderChip을 지우면 '업무 창 머리', mobileNav의 LeaderTitleLock을 지우면 '폰 상단바'가 깨진다.
 {
   await load(DESK);
   const head = () => ev(`(() => {
@@ -803,7 +803,7 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
   check("리더만: 켜면 제목 옆에 '리더만' 칩 · 토글·자물쇠가 켜짐으로", on.chip === '리더만' && on.switchOn === 'true' && on.pressed === 'true', JSON.stringify(on));
   check('리더만: 값이 저장소에 남는다(게스트=localStorage)', on.saved === 'leaders', JSON.stringify(on));
   // 누가·언제 바꿨나(0099 · 20차 ⑨) — 화면 문구 없이 저장에만(클라우드는 DB 트리거가 visibility_by·visibility_at을 적는다).
-  // **되돌리기**: projectView.setVisibility에서 visibilityBy·visibilityAt을 빼면 깨진다.
+  // **되돌리기**: leaderOnly.useSetVisibility에서 visibilityBy·visibilityAt을 빼면 깨진다.
   const by = await ev(`(() => { const p = JSON.parse(localStorage.getItem('church_app_v4')).projects.byId.p1;
     return { by: p.visibilityBy || null, at: p.visibilityAt || null, fresh: !!p.visibilityAt && Date.now() - Date.parse(p.visibilityAt) < 60000,
              shown: document.body.innerText.includes(p.visibilityBy + ' ') && /바꿨|변경/.test(document.body.innerText.split(p.visibilityBy || '@@')[1]?.slice(0, 20) || '') }; })()`);
@@ -832,33 +832,43 @@ check('빈 컬럼으로 넘기면 안내 문구가 화면에 보인다', visible
     return { open: !!label, chip: chip ? chip.textContent.trim() : null, px: chip ? parseFloat(getComputedStyle(chip).fontSize) : null };
   })()`);
   check("리더만: 업무 창 머리에도 같은 칩(10.5px)", modalChip.open === true && modalChip.chip === '리더만' && modalChip.px === 10.5, JSON.stringify(modalChip));
-  // 폰 상단바 — 제목 옆
+  // 폰 상단바 — 칩 대신 제목 **앞** 자물쇠 하나(시안 승인 2026-10-14 · PITFALLS 51-b) · 연필은 그대로 · 제목이 칩 몫을 돌려받는다
+  // **되돌리기**: mobileNav의 <LeaderTitleLock>을 지우거나 옛 칩(<LeaderChip small>)을 제목 버튼에 되살리면 깨진다.
   await load(MOB);
   await ev(`(() => { const s = JSON.parse(localStorage.getItem('church_app_v4')); s.projects.byId.p1.visibility = 'leaders';
     localStorage.setItem('church_app_v4', JSON.stringify(s)); })()`);
   await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1400);
   const mob = await ev(`(() => {
     const t = document.querySelector('button[title="프로젝트 이름 수정"]');
-    const chip = t?.querySelector('[data-leader-chip]');
-    const r = chip?.getBoundingClientRect();
-    return { chip: chip ? chip.textContent.trim() : null, onScreen: !!r && r.right <= window.innerWidth && r.width > 0,
+    const title = t?.querySelector('span');
+    const tl = document.querySelector('button[data-title-lock]');
+    const svg = tl?.querySelector('svg')?.getBoundingClientRect();
+    const tr = title?.getBoundingClientRect();
+    const accent = getComputedStyle(document.documentElement).getPropertyValue('--app-accent-text').trim();
+    return { chip: !!t?.parentElement?.querySelector('[data-leader-chip]'), titleLock: !!tl, svgW: svg ? Math.round(svg.width) : null,
+             before: !!(svg && tr && svg.right <= tr.left), full: !!title && title.scrollWidth <= title.clientWidth,
+             pencil: !!t?.querySelector(':scope > svg'), color: tl ? getComputedStyle(tl).color : null,
              lock: !!document.querySelector('button[data-leader-lock][aria-pressed="true"]') };
   })()`);
-  check('리더만: 폰 상단바 제목 옆에 칩 · 자물쇠는 켜짐', mob.chip === '리더만' && mob.onScreen === true && mob.lock === true, JSON.stringify(mob));
+  check('리더만: 폰 상단바는 칩 없이 제목 앞 15px 자물쇠 · 제목이 다 보이고 연필 그대로 · 머리 자물쇠는 켜짐',
+    !mob.chip && mob.titleLock && mob.svgW === 15 && mob.before && mob.full && mob.pencil && mob.lock, JSON.stringify(mob));
   const mobTab = await ev(`(() => {
     const tabs = [...document.querySelectorAll('button')].filter(b => b.offsetParent && b.closest('.overflow-x-auto') && /하계 수련회|새신자 초청/.test(b.textContent));
     const t1 = tabs.find(b => b.textContent.includes('하계 수련회')); const t2 = tabs.find(b => b.textContent.includes('새신자 초청'));
     return { lock: !!t1?.querySelector('[data-tab-lock]'), other: !!t2?.querySelector('[data-tab-lock]') };
   })()`);
   check('리더만: 폰 탭 줄에도 그 탭에만 자물쇠', mobTab.lock === true && mobTab.other === false, JSON.stringify(mobTab));
-  // 끄면 칩이 걷힌다
-  await ev(`document.querySelector('button[data-leader-lock]').click()`);
+  // 제목 자물쇠를 누르면 머리 자물쇠와 같은 '리더만 보기' 팝오버(화면 안) — 거기서 끄면 칩·자물쇠가 걷히고 공개로 저장
+  await ev(`document.querySelector('button[data-title-lock]')?.click()`);
   await sleep(400);
-  await ev(`document.querySelector('[data-leader-switch]').click()`);
+  const tpop = await ev(`(() => { const sw = document.querySelector('[data-leader-switch]'); const r = sw?.parentElement.getBoundingClientRect();
+    return { label: sw?.textContent.trim() || null, on: sw?.getAttribute('aria-checked') || null, inside: !!r && r.left >= 0 && r.right <= innerWidth }; })()`);
+  check("리더만: 폰 제목 자물쇠 → '리더만 보기' 팝오버(켜짐 · 화면 안)", tpop.label === '리더만 보기' && tpop.on === 'true' && tpop.inside, JSON.stringify(tpop));
+  await ev(`document.querySelector('[data-leader-switch]')?.click()`);
   await sleep(500);
   const off = await ev(`(() => { const s = JSON.parse(localStorage.getItem('church_app_v4') || '{}');
-    return { chips: document.querySelectorAll('[data-leader-chip]').length, saved: s.projects?.byId?.p1?.visibility }; })()`);
-  check('리더만: 끄면 칩이 걷히고 공개로 저장', off.chips === 0 && off.saved === 'all', JSON.stringify(off));
+    return { chips: document.querySelectorAll('[data-leader-chip]').length, titleLock: !!document.querySelector('[data-title-lock]'), saved: s.projects?.byId?.p1?.visibility }; })()`);
+  check('리더만: 끄면 칩·제목 자물쇠가 걷히고 공개로 저장', off.chips === 0 && !off.titleLock && off.saved === 'all', JSON.stringify(off));
 }
 
 console.log(results.join('\n'));

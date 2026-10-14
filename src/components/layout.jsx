@@ -8,7 +8,8 @@ import { usePresenceViews, presenceMe } from '../services/presence.js';
 import { userColor } from '../services/coedit/view.js';
 import { isOpen } from '../services/taskCounts.js';
 import { Avatar } from './Avatar.jsx';
-import { DaboutiPill } from './dabooti.jsx';
+import { DaboutiPill, DaboutiFace } from './dabooti.jsx';
+import { useIsNarrowDesk } from '../hooks/useIsMobile.js';
 import { CONFIG } from '../config.js';
 // 바깥 클릭 / Esc 로 닫히는 팝오버(프로필 메뉴·프로젝트 더보기·연도·알림) 껍데기 한 벌
 import { usePopover } from '../hooks/usePopover.js';
@@ -213,6 +214,10 @@ export const TopNav = React.memo(({
   // 프로젝트 탭 줄은 업무 축 화면에서만 — 교회 생활 화면(홈·예배·말씀·모임)에서는 접힌다
   const showProjectRow = !CHURCH_MENUS.includes(activeMenu) && activeMenu !== 'wiki';
   const more = usePopover(224, 260);
+  // 아이패드 세로(768~1023 · 시안 승인 2026-10-14): 다붓이 알약 → 폰 상단 바와 같은 얼굴 버튼 · 찾기 칸 → 돋보기 버튼
+  // (누르면 폰과 같은 찾기 판이 위에서 열린다) · 사이 간격도 한 단 좁힌다. 메뉴 글자는 그대로 — 알약(151px)과
+  // 46px로 눌린 찾기 칸이 메뉴 위를 덮던 자리다(PITFALLS 51-a). 1024부터는 지금 그대로.
+  const narrow = useIsNarrowDesk();
 
   // 탭 드래그로 순서 바꾸기(0021) — 네이티브 HTML5 DnD. dnd-kit sortable을 새로
   // 들이지 않는 이유: 데스크톱 탭 한 줄에는 draggable 속성이면 충분하다.
@@ -246,7 +251,7 @@ export const TopNav = React.memo(({
 
   return (
     <div className="hidden md:block shrink-0 border-b border-line/70 z-20">
-      <div className="flex items-center gap-5 px-6 h-[52px]">
+      <div className="flex items-center gap-3 lg:gap-5 px-6 h-[52px]">
         <button onClick={() => setActiveMenu('home')} className="shrink-0 transition active:scale-95" title="홈으로">
           <img src={logoLight} alt="더다붓" className="h-7 w-auto dark:hidden" />
           <img src={logoDark} alt="더다붓" className="h-7 w-auto hidden dark:block" />
@@ -259,7 +264,7 @@ export const TopNav = React.memo(({
             </React.Fragment>
           ))}
         </div>
-        <div className="flex-1 flex items-center justify-end gap-2 min-w-0">
+        <div className="flex-1 flex items-center justify-end gap-1.5 lg:gap-2 min-w-0">
           {/* Undo / Redo — 클라우드 모드에선 다른 사람과 상태가 어긋나므로 숨김 */}
           {!cloudMode && (
             <div className="flex items-center rounded-md p-0.5 shrink-0">
@@ -268,8 +273,10 @@ export const TopNav = React.memo(({
             </div>
           )}
           {/* 다붓이 — 두 묶음 밖, 찾기 바로 앞(사용자 결정 2026-10-02 · 목업 v12) */}
-          <DaboutiPill active={activeMenu === 'wiki'} onClick={() => setActiveMenu('wiki')} />
-          <SearchBox onSearchSelect={onSearchSelect} variant="inline" />
+          {narrow
+            ? <DaboutiFace active={activeMenu === 'wiki'} onClick={() => setActiveMenu('wiki')} />
+            : <DaboutiPill active={activeMenu === 'wiki'} onClick={() => setActiveMenu('wiki')} />}
+          <SearchBox onSearchSelect={onSearchSelect} variant={narrow ? 'icon' : 'inline'} />
           {cloudMode && <NotificationBell onOpenTask={onOpenTask} onOpenLink={onOpenLink} />}
           <ProfileMenu onOpenProfile={onOpenProfile} onOpenMembers={onOpenMembers} />
         </div>

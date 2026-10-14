@@ -14,6 +14,7 @@ import { relatedKey, relatedReady, relatedTasks, RELATED_KIND_LABEL, RELATED_DEB
 
 // ============================================================================
 // 통합 검색 — 데스크톱 상단의 인라인 칸 + 결과 판(body 포털 · z-[80]) · 폰 상단바의 아이콘 + 전체 판(body 포털 · z-50).
+// 아이패드 세로(768~1023)의 데스크톱 상단 바도 아이콘 갈래다(layout.jsx TopNav가 폭으로 고른다 · 한쪽만 마운트 · PITFALLS 51-a).
 // 19차 묶음 D에서 layout.jsx에서 갈라 왔다(동작·모양은 그대로).
 //   · 글자 결과(공백·NFC를 맞춘 includes · 프로젝트·업무·첨부 글자·댓글) 아래에 뜻 결과 '관련된 업무 내용'(게스트는 없다)
 //   · 돌아가는 안내 문구(useRotatingHint · SearchHint) — 성경 본문 검색 칸(wordBible)도 쓴다(layout.jsx 재수출로 들인다)

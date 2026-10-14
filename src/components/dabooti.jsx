@@ -103,7 +103,8 @@ export function DaboutiPill({ active, onClick }) {
   );
 }
 
-// 폰 상단 아이콘 줄 맨 앞 — 옅은 파란 고리로 다른 아이콘과 가른다
+// 폰 상단 아이콘 줄 맨 앞 — 옅은 파란 고리로 다른 아이콘과 가른다.
+// 아이패드 세로(768~1023)의 데스크톱 상단 바도 알약 대신 이 얼굴이다(layout.jsx TopNav · 시안 승인 2026-10-14).
 export function DaboutiFace({ active, onClick }) {
   return (
     <button type="button" onClick={onClick} onPointerDown={prefetchWiki} title="다붓이에게 물어보기" aria-label="다붓이에게 물어보기"

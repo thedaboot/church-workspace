@@ -450,7 +450,7 @@ await goto('말씀');
 check('교회 화면끼리 옮겨도 맨 위에서 열린다', (await mainTop()) === 0, String(await mainTop()));
 
 // ── 상단 검색 결과 판 (2026-09-25 검색 결과 감사) ─────────────────────────────
-// 결과 판은 칸 폭을 따르는데(matchWidth) 768~1030px에서 칸이 54~310px로 줄어든다 — 판이
+// 결과 판은 칸 폭을 따르는데(matchWidth) 좁은 데스크톱에서 칸이 54~310px로 줄어든다 — 판이
 // 글자 하나 폭의 기둥이 됐다. 320px 아래로 줄이지 않고 화면 안에 가둔다(minWidth).
 // 되돌리기 검사: searchBox.jsx SearchBox의 `minWidth: 320`을 지우면 첫 단정이 깨진다.
 const deskSearch = async (w, q) => {
@@ -470,7 +470,8 @@ const searchList = `(() => {
     t: Math.round(b.top), b: Math.round(b.bottom), vw: innerWidth, vh: innerHeight, n: list.querySelectorAll('button').length,
     active: document.activeElement === inp ? 'input' : (list.contains(document.activeElement) ? 'list:' + document.activeElement.textContent.trim().slice(0, 12) : document.activeElement.tagName) };
 })()`;
-for (const w of [800, 1440]) {
+// 칸은 1024부터다(그 밑은 돋보기 버튼 · 아래 51-a) — 1024에서 칸이 약 160px라 여전히 320 바닥이 일한다.
+for (const w of [1024, 1440]) {
   await deskSearch(w, '프로젝트');
   const sl = await ev(searchList);
   check(`검색 결과 판이 좁은 칸에서도 320px 폭(${w}px)`, sl.w >= 320 && sl.n >= 8, JSON.stringify(sl));
@@ -725,6 +726,52 @@ await send('Emulation.clearDeviceMetricsOverride');
   }
   const d = await bellAt(1440, 900, false);
   check('알림 판(데스크톱 1440): 320px 그대로 종 오른쪽 끝에 맞춘다', !!d && d.width === 320 && Math.abs((d.left + d.width) - d.bellRight) <= 1, JSON.stringify(d));
+  await send('Emulation.clearDeviceMetricsOverride');
+}
+
+// ── 아이패드 세로 상단 바(768~1023 · 시안 승인 2026-10-14 · PITFALLS 51-a) ─────────────────────────────
+// 다붓이 알약(151px)과 46px로 눌린 찾기 칸이 메뉴('전체 일정')를 덮던 자리 — 이 폭에서는 폰과 같은 다붓이 얼굴 버튼(36px · 물음표 컷)과
+// 돋보기 버튼(폰과 같은 찾기 판)이고 메뉴 글자는 그대로다. 줄의 버튼마다 가운데 점이 자기 것인지(elementFromPoint)·서로 겹치지 않는지 두 테마로 본다.
+// 1024부터는 알약 + 찾기 칸 그대로. **되돌리기**: layout.jsx TopNav의 `narrow`를 false로 두면 768~1023의 단정이 깨진다.
+{
+  const topRow = `(() => {
+    const nav = [...document.querySelectorAll('div')].find(d => /hidden md:block/.test(d.className) && d.querySelector('button[title="설정"]'));
+    const row = nav.firstElementChild;
+    const items = [...row.querySelectorAll('button,input')].filter(b => b.offsetParent);
+    const name = (b) => (b.getAttribute('aria-label') || b.title || b.textContent || '').trim().slice(0, 12);
+    const bx = items.map(b => b.getBoundingClientRect());
+    const covered = items.filter((b, i) => { const r = bx[i]; const el = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2); return !(el && (el === b || b.contains(el))); }).map(name);
+    const overlaps = [];
+    for (let i = 0; i < bx.length; i++) for (let j = i + 1; j < bx.length; j++) if (bx[i].left < bx[j].right - 0.5 && bx[j].left < bx[i].right - 0.5) overlaps.push(name(items[i]) + '×' + name(items[j]));
+    const face = row.querySelector('button[aria-label="다붓이에게 물어보기"]'); const fr = face?.getBoundingClientRect();
+    return { covered, overlaps, labels: items.filter(b => /^(홈|예배|말씀|모임|업무 대시보드|내 업무|전체 일정)/.test(b.textContent.trim())).length,
+      face: fr ? Math.round(fr.width) + 'x' + Math.round(fr.height) : null, cut: !!face?.querySelector('img.dab-face[src*="question"]'),
+      pill: !!row.querySelector('.dab-pill'), searchBtn: !!row.querySelector('button[title="검색"]'), inputs: document.querySelectorAll('input[placeholder*="검색"]').length };
+  })()`;
+  for (const theme of ['light', 'dark']) {
+    await ev(`localStorage.setItem('theme', '${theme}')`);
+    for (const w of [768, 820, 1023, 1024]) {
+      await send('Emulation.setDeviceMetricsOverride', { width: w, height: 900, deviceScaleFactor: 1, mobile: false });
+      await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired'); await sleep(1200);
+      const r = await ev(topRow);
+      check(`상단 바 ${w}(${theme}): 메뉴 일곱 글자 그대로 · 버튼끼리 안 겹치고 가운데 점이 자기 것`, r.labels === 7 && r.covered.length === 0 && r.overlaps.length === 0, JSON.stringify(r));
+      if (w < 1024) {
+        check(`상단 바 ${w}(${theme}): 다붓이 얼굴 버튼 36px(물음표 컷) · 돋보기 · 알약·찾기 칸 없음`, r.face === '36x36' && r.cut && r.searchBtn && !r.pill && r.inputs === 0, JSON.stringify(r));
+        await ev(`document.querySelector('button[title="검색"]')?.click()`); await sleep(400);
+        await ev(`(() => { const i = document.activeElement; if (i?.tagName !== 'INPUT') return; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '프로젝트'); i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        await sleep(500);
+        const p = await ev(`(() => { const i = document.activeElement; const panel = i?.tagName === 'INPUT' ? i.closest('.fixed > div') : null;
+          if (!panel) return { panel: false, active: document.activeElement?.tagName };
+          const r = panel.getBoundingClientRect();
+          return { panel: true, l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom), vw: innerWidth, vh: innerHeight,
+            rows: [...panel.querySelectorAll('button')].filter(b => /프로젝트 \\d/.test(b.textContent)).length }; })()`);
+        check(`상단 바 ${w}(${theme}): 돋보기 → 찾기 판이 화면 안에 다 열리고 칸에 초점 · 결과`, p.panel && p.l >= 0 && p.r <= p.vw && p.t >= 0 && p.b <= p.vh && p.rows > 0, JSON.stringify(p));
+      } else {
+        check(`상단 바 ${w}(${theme}): 1024부터는 알약 + 찾기 칸 그대로`, r.pill && !r.searchBtn && r.inputs === 1 && !r.face, JSON.stringify(r));
+      }
+    }
+  }
+  await ev(`localStorage.removeItem('theme')`);
   await send('Emulation.clearDeviceMetricsOverride');
 }
 

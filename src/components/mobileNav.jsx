@@ -21,7 +21,7 @@ import { CHURCH_MENUS, ProfileMenu, ViewerFaces } from './layout.jsx';
 import { tabDividerCls, FreshDot, useFreshProjects, useFrontNudge, FrontNudge, saveTabOrder, useYearTabs, YearPicker } from './navParts.jsx';
 import { SearchBox } from './searchBox.jsx';
 import { NotificationBell } from './notificationBell.jsx';
-import { LeaderChip, TabLock } from './leaderOnly.jsx';
+import { LeaderTitleLock, TabLock, useSetVisibility } from './leaderOnly.jsx';
 
 // ============================================================================
 // 폰 내비 — 상단바(MobileTopBar: 화면 이름 + 아이콘 줄 + 프로젝트 탭 줄)와 하단 바(MobileTabBar: 교회 층 ↔ 업무 층).
@@ -55,17 +55,21 @@ export const MobileTopBar = React.memo(({ activeMenu, setActiveMenu, onSearchSel
   const currentUser = useStore(selectCurrentUser);
   const title = menuTitle(activeMenu, projectsMap, currentUser);
   const freshIds = useFreshProjects(activeMenu, !!project);
+  const setVisibility = useSetVisibility(project);
   return (
     <div className="md:hidden shrink-0 border-b border-line/70 z-20">
       <div className="flex items-center gap-1 px-3.5 h-12">
         {/* 프로젝트를 보고 있으면 제목을 눌러 이름을 바꾼다 */}
         {project ? (
-          <button onClick={() => onRenameProject?.(project)} className="flex-1 min-w-0 flex items-baseline gap-1.5 text-left transition active:scale-[0.98]" title="프로젝트 이름 수정">
-            <span className="min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{title}</span>
-            {/* 리더만 보는 프로젝트(0092) — 제목 옆에 칩(데스크톱은 프로젝트 머리 제목 옆) */}
-            <LeaderChip project={project} small className="self-center" />
-            <Pencil size={12} className="text-fg-faint shrink-0" />
-          </button>
+          <div className="flex-1 min-w-0 flex items-center">
+            {/* 리더만 보는 프로젝트(0092) — 제목 **앞** 자물쇠 하나(칩은 좁은 폰에서 제목 자리를 먹었다 · PITFALLS 51-b).
+                누르면 프로젝트 머리 자물쇠와 같은 '리더만 보기' 팝오버 · 이름 바꾸기 버튼 밖이다(버튼 안에 버튼을 두지 않는다) */}
+            <LeaderTitleLock project={project} onSet={setVisibility} />
+            <button onClick={() => onRenameProject?.(project)} className="flex-1 min-w-0 flex items-baseline gap-1.5 text-left transition active:scale-[0.98]" title="프로젝트 이름 수정">
+              <span className="min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{title}</span>
+              <Pencil size={12} className="text-fg-faint shrink-0" />
+            </button>
+          </div>
         ) : (
           <h2 className="flex-1 min-w-0 truncate text-base font-extrabold text-fg tracking-[-0.4px]">{title}</h2>
         )}

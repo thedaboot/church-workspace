@@ -27,13 +27,14 @@ const probe = () => ev(`(() => ({
   searchInputs: document.querySelectorAll('input[placeholder*="검색"]').length,
   profileBtns: document.querySelectorAll('button[title="설정"]').length,
 }))()`);
-for (const [w,h,mob,label] of [[1440,900,false,'데스크톱'],[390,844,true,'모바일']]) {
+// 아이패드 세로(820)는 데스크톱 내비에 돋보기 버튼 하나 — 찾기 칸과 버튼을 CSS로 같이 두지 않는다(PITFALLS 51-a · §6-3)
+for (const [w,h,mob,label] of [[1440,900,false,'데스크톱'],[820,1180,false,'아이패드 세로'],[390,844,true,'모바일']]) {
   await send('Emulation.setDeviceMetricsOverride',{width:w,height:h,deviceScaleFactor:1,mobile:mob});
   await send('Page.navigate',{url:URL_BASE}); await wait('Page.loadEventFired');
   await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))})`);
   await send('Page.navigate',{url:URL_BASE+'/?p=p1'}); await wait('Page.loadEventFired'); await sleep(1300);
   const p = await probe();
-  check(`${label}: 내비가 하나만 마운트`, (label==='데스크톱' ? p.mobtop===0 && p.tabbar===0 : p.topnav===0 && p.tabbar===1), JSON.stringify(p));
+  check(`${label}: 내비가 하나만 마운트`, (!mob ? p.mobtop===0 && p.tabbar===0 : p.topnav===0 && p.tabbar===1), JSON.stringify(p));
   check(`${label}: 검색 진입점 1개`, (p.searchBtns + p.searchInputs) === 1, `버튼 ${p.searchBtns} + 입력 ${p.searchInputs}`);
   check(`${label}: 설정 버튼 1개`, p.profileBtns === 1, `${p.profileBtns}개`);
 }
