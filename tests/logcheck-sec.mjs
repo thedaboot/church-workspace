@@ -908,3 +908,25 @@ import { loadSource, readSplit } from './_load.mjs';
   ok(left.length === 0, `0101: 정책 안 판정 호출은 모두 (select …) — 맨 호출 남음: ${left.map(a => a.split('\n')[0]).join(', ')}`);
   console.log(`PASS  0101 점검 보완 — 트리거 함수 회수 · search_path · 정책 116개 판정 한 번씩 ${n}가지`);
 }
+
+// ── 0102 정책은 로그인한 사람에게만 · 판정 함수 14개 익명 회수 (2026-10-14 · advisors 후속) ──────────────────
+// 라이브 경계는 psql 리허설(ROLLBACK)로 봤다 — 승인 회원·관리자가 표 42개에서 보는 행 수가 같고, 익명은 원래도 0행이던 것이
+// 18개 표에서 '권한 오류' 대신 빈 결과가 된다(남은 둘은 표 권한 자체가 없는 card_secrets·card_unlocks). 로그인 뒤 rpc(is_admin ·
+// is_master · is_approved · my_person_id)와 댓글 쓰기 그대로. 여기는 파일 모양: 정책은 대상 역할만 alter(108) · 14개 회수와 재부여.
+// **되돌리기**(§3-5): 0102에서 alter policy 하나를 빼거나, 회수 목록에서 is_approved()를 빼면 아래가 깨진다.
+{
+  const m102 = readFileSync(new URL('../supabase/migrations/0102_policies_to_authenticated.sql', import.meta.url), 'utf8');
+  const sql = m102.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  let n = 0;
+  const ok = (cond, msg) => { assert.ok(cond, msg); n++; };
+  const fns = ['can_check_all_attendance()', 'can_edit_meeting(uuid)', 'can_edit_service()', 'can_manage_sun()', 'has_role(text)', 'is_admin()', 'is_approved()',
+    'is_master()', 'is_officer()', 'is_pastor()', 'leads_any_sun()', 'leads_sun_of(uuid)', 'my_person_id()', 'same_sun(uuid)'];
+  const rev = sql.match(/revoke execute on function([\s\S]*?)from public, anon;/)?.[1] ?? '';
+  const gra = sql.match(/grant execute on function([\s\S]*?)to authenticated, service_role;/)?.[1] ?? '';
+  ok(fns.every(f => rev.includes(`public.${f}`)), '0102: 판정 함수 14개 public·anon 회수');
+  ok(fns.every(f => gra.includes(`public.${f}`)), '0102: 같은 14개를 authenticated·service_role에 다시 준다');
+  const alters = sql.match(/alter policy .*;/g) || [];
+  ok(alters.length === 108 && alters.every(a => / on public\.\w+ to authenticated;$/.test(a)), '0102: 정책 108개는 대상 역할만 authenticated로');
+  ok(!/create policy|drop policy|using \(|with check \(/i.test(sql), '0102: 정책 식·수는 그대로(§6-31-a)');
+  console.log(`PASS  0102 정책은 로그인한 사람에게만 · 판정 함수 익명 회수 ${n}가지`);
+}
