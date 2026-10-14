@@ -14,6 +14,7 @@ import {
   parseBirthday, searchPeople, accountLinkState, sunNames, rolesByPerson, personBadges,
 } from '../services/roster.js';
 
+import { Segmented } from './segmented.jsx';
 // ============================================================================
 // 청년 명단 구역의 부품 — 멤버 화면(views/membersView.jsx)의 '청년 명단' 탭이 쓴다
 // ----------------------------------------------------------------------------
@@ -473,17 +474,10 @@ export function RosterPanel({
         </button>
         {/* 연도 — 고를 값이 셋뿐이라 세그먼트 컨트롤이다(탭 줄과 같은 짜임) */}
         <div className="flex shrink-0 basis-full sm:basis-auto sm:order-2">
-          <span role="group" aria-label="연도" className="flex p-[3px] rounded-md shrink-0"
-            style={{ background: 'var(--app-surface-hover)' }}>
-            {years.map(y => (
-              <button key={y} type="button" data-year={y} onClick={() => on.year?.(y)} aria-pressed={year === y}
-                className="px-2.5 py-[6px] rounded-sm text-[12px] font-semibold tabular-nums transition-colors"
-                style={{
-                  background: year === y ? 'var(--app-surface)' : 'transparent',
-                  color: year === y ? 'var(--app-ink)' : 'var(--app-ink-muted)',
-                }}>{y}</button>
-            ))}
-          </span>
+          <Segmented role="group" aria-label="연도" className="flex p-[3px] rounded-md shrink-0"
+            value={year} onPick={y => on.year?.(y)}
+            btnClassName="px-2.5 py-[6px] rounded-sm text-[12px] font-semibold tabular-nums transition-colors"
+            items={years.map(y => [y, y, { 'data-year': y }])} />
         </div>
       </div>
 

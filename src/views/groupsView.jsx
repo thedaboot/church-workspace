@@ -26,6 +26,7 @@ import {
 import { runUploads, stagedRow, failedRow } from '../modals/uploadQueue.js';
 import { MAX_UPLOAD_MB, MAX_UPLOAD_BYTES } from '../config.js';
 
+import { Segmented } from '../components/segmented.jsx';
 // ============================================================================
 // v2 모임 화면 — 내 순 · 동아리 · 순 편성 (docs/V2.md §1 결정 1·2·3·7 · §2 · §3)
 // ----------------------------------------------------------------------------
@@ -720,17 +721,9 @@ export function GroupsView() {
       {/* 탭 줄도 아래 카드와 같은 폭 안에 선다 — 왼쪽 끝에 두면 내용과 세로선이 어긋난다.
           '새 …'는 이 줄의 오른쪽에 둔다: 따로 한 줄을 차지하면 버튼만 떠 있게 보인다. */}
       <div className="flex items-center gap-2 pb-3.5">
-        <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
-          {tabs.map(([key, label]) => (
-            <button key={key} type="button"
-              onClick={() => { setTab(key); setCreating(null); setMineFocus(null); }} aria-pressed={active === key}
-              className="groups-tab px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors"
-              style={{
-                background: active === key ? 'var(--app-surface)' : 'transparent',
-                color: active === key ? 'var(--app-ink)' : 'var(--app-ink-muted)',
-              }}>{label}</button>
-          ))}
-        </span>
+        <Segmented className="flex p-[3px] rounded-md shrink-0" items={tabs} value={active}
+          onPick={key => { setTab(key); setCreating(null); setMineFocus(null); }}
+          btnClassName="groups-tab px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors" />
         <span className="flex-1" />
         {/* 아이콘과 글자 사이는 gap 하나로만 벌린다 — 글자를 span으로 감싸지 않으면
             JSX의 앞 공백이 그대로 남아 버튼마다 사이가 달라진다(groupsParts WITH_ICON) */}

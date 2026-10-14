@@ -1,5 +1,6 @@
 import { Lock, Users } from 'lucide-react';
 
+import { Segmented } from './segmented.jsx';
 // ============================================================================
 // 나만 보기 / 공유하기 — **말씀(QT 묵상)과 예배 노트가 같이 쓰는 한 벌**
 // ----------------------------------------------------------------------------
@@ -45,20 +46,9 @@ export function ShareChip({ state, label }) {
 export function ShareToggle({ value, disabled, onChange, shareLabel = '더다붓에 공유하기', className = '' }) {
   const OPTIONS = [[false, '나만 보기', Lock], [true, shareLabel, Users]];
   return (
-    <span className={`share-toggle flex p-[3px] rounded-md shrink-0 ${disabled ? 'opacity-40' : ''} ${className}`}
-      style={{ background: 'var(--app-surface-hover)' }}>
-      {OPTIONS.map(([v, label, Icon]) => (
-        <button
-          key={label} onClick={() => onChange(v)} disabled={disabled} aria-pressed={value === v}
-          className="grow inline-flex items-center justify-center gap-1.5 px-2.5 py-[5px] rounded-sm text-[11.5px] font-semibold whitespace-nowrap transition-colors"
-          style={{
-            background: value === v ? 'var(--app-surface)' : 'transparent',
-            color: value === v ? 'var(--app-ink)' : 'var(--app-ink-muted)',
-          }}
-        >
-          <Icon size={12.5} className="shrink-0" />{label}
-        </button>
-      ))}
-    </span>
+    <Segmented className={`share-toggle flex p-[3px] rounded-md shrink-0 ${disabled ? 'opacity-40' : ''} ${className}`}
+      value={value} onPick={onChange} disabled={disabled}
+      btnClassName="grow inline-flex items-center justify-center gap-1.5 px-2.5 py-[5px] rounded-sm text-[11.5px] font-semibold whitespace-nowrap transition-colors"
+      items={OPTIONS.map(([v, label, Icon]) => [v, <><Icon size={12.5} className="shrink-0" />{label}</>])} />
   );
 }

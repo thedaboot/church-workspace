@@ -7,6 +7,7 @@ import { failText } from '../services/errorText.js';
 import { Skeleton } from './media.jsx';
 import { useReducedMotion } from '../hooks/useReducedMotion.js';
 
+import { Segmented } from './segmented.jsx';
 // ============================================================================
 // 성경 공용 부품 — 본문 한 덩이 · 형광펜 · 화면 전환 · 기다리는 자리 · 성경 상태 그릇
 // ----------------------------------------------------------------------------
@@ -278,20 +279,12 @@ function VerseTool({ label, current, lit, onPaint, onErase }) {
 // ── 글자 크기 Aa 3단계 ─────────────────────────────────────────────────────
 export function FontSteps({ step, onChange }) {
   return (
-    <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
-      {FONT_STEPS.map((f, i) => (
-        <button
-          key={i} onClick={() => onChange(i)} title={['작게', '보통', '크게'][i]}
-          aria-label={`글자 ${['작게', '보통', '크게'][i]}`} aria-pressed={step === i}
-          className="px-2 py-[3px] rounded-sm font-bold leading-none transition-colors"
-          style={{
-            fontSize: [11, 13, 15][i],
-            background: step === i ? 'var(--app-surface)' : 'transparent',
-            color: step === i ? 'var(--app-ink)' : 'var(--app-ink-muted)',
-          }}
-        >Aa</button>
-      ))}
-    </span>
+    <Segmented className="flex p-[3px] rounded-md shrink-0" value={step} onPick={onChange}
+      btnClassName="px-2 py-[3px] rounded-sm font-bold leading-none transition-colors"
+      items={FONT_STEPS.map((f, i) => {
+        const ko = ['작게', '보통', '크게'][i];
+        return [i, 'Aa', { title: ko, 'aria-label': `글자 ${ko}`, style: { fontSize: [11, 13, 15][i] } }];
+      })} />
   );
 }
 

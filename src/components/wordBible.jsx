@@ -27,6 +27,7 @@ import {
 } from './bibleParts.jsx';
 import { groupByBook, MarkSection } from './bibleMarks.jsx';
 
+import { Segmented } from './segmented.jsx';
 // 공용 부품은 bibleParts.jsx로 옮겼다(19차) — 예배·내 정보는 예전처럼 여기서 가져간다
 export { EmptyBookMark, PassageSkeleton, ShareSwitch, hlColor };
 
@@ -667,18 +668,9 @@ export function BibleTab({ initialRef = '' }) {
 
       {/* 목차 · 북마크 · 형광펜 — 어느 폭에서도, 본문을 읽는 중에도 늘 여기 있다 */}
       <div className="flex items-center gap-2 pb-3.5">
-        <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
-          {PANES.map(([key, label]) => (
-            <button
-              key={key} data-pane={key} onClick={() => pickPane(key)} aria-pressed={pane === key}
-              className="px-3 py-[6px] rounded-sm text-[12px] font-semibold transition-colors"
-              style={{
-                background: pane === key ? 'var(--app-surface)' : 'transparent',
-                color: pane === key ? 'var(--app-ink)' : 'var(--app-ink-muted)',
-              }}
-            >{label}</button>
-          ))}
-        </span>
+        <Segmented className="flex p-[3px] rounded-md shrink-0" value={pane} onPick={pickPane}
+          btnClassName="px-3 py-[6px] rounded-sm text-[12px] font-semibold transition-colors"
+          items={PANES.map(([key, label]) => [key, label, { 'data-pane': key }])} />
       </div>
 
       <Swap k={viewKey} dir={dir} className="min-w-0">

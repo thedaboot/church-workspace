@@ -33,6 +33,7 @@ import { churchSeason } from '../services/churchYear.js';
 import { myNoteRows, coverImage } from '../services/serviceView.js';
 import { buildIcs, googleCalendarUrl, kakaoExternal, noticeEvent } from '../services/noticeDate.js';
 
+import { Segmented } from '../components/segmented.jsx';
 // ============================================================================
 // v2 예배 화면 — 주보 목록/상세(말씀·임사자·찬양·광고) · 작성/발행 · 출석 체크 · 예배 노트
 // ----------------------------------------------------------------------------
@@ -183,18 +184,9 @@ function ServiceCard({ service, onOpen, attended = 0, cover = null }) {
 // 형광펜]과 **같은 짜임·같은 토큰**이다(surface-hover 트랙 + 고른 칸만 surface).
 function KindPicker({ other, onPick }) {
   return (
-    <span className={`worship-kind-seg flex ${NEW_H} w-full sm:w-auto p-[3px] rounded-md`}
-      style={{ background: 'var(--app-surface-hover)' }}>
-      {KIND_SEG.map(([v, label]) => (
-        <button key={label} type="button" data-kind={v ? 'other' : 'sunday'} aria-pressed={other === v}
-          onClick={() => onPick(v)}
-          className="worship-kind-opt flex-1 sm:flex-none whitespace-nowrap px-3.5 rounded-sm text-[12.5px] font-semibold transition-colors"
-          style={{
-            background: other === v ? 'var(--app-surface)' : 'transparent',
-            color: other === v ? 'var(--app-ink)' : 'var(--app-ink-muted)',
-          }}>{label}</button>
-      ))}
-    </span>
+    <Segmented className={`worship-kind-seg flex ${NEW_H} w-full sm:w-auto p-[3px] rounded-md`} value={other} onPick={onPick}
+      btnClassName="worship-kind-opt flex-1 sm:flex-none whitespace-nowrap px-3.5 rounded-sm text-[12.5px] font-semibold transition-colors"
+      items={KIND_SEG.map(([v, label]) => [v, label, { 'data-kind': v ? 'other' : 'sunday' }])} />
   );
 }
 

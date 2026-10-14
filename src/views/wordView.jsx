@@ -32,6 +32,7 @@ import {
   fetchSchedule, fetchMyEntry, saveMyEntry, deleteMyEntry, deleteEntryAsMaster, fetchSharedEntries,
 } from '../services/word.js';
 
+import { Segmented } from '../components/segmented.jsx';
 // 나눔 피드의 순수 함수 둘은 shareFeed.jsx로 옮겼다(19차) — 검사(tests/word)가 이 경로로 부른다
 export { mergeFeed };
 export { canDeleteShared } from './shareFeed.jsx';
@@ -169,20 +170,11 @@ export function WordView({ initialTab = 'qt', initialRef = '' }) {
   return (
     <div className="dc-screen pb-6">
       <div className="flex items-center gap-2 pb-3.5">
-        <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
-          {SEGMENTS.map(([key, label]) => (
-            // aria-pressed는 성경 읽기의 [본문|북마크|형광펜] 세그먼트와 같은 한 벌이다 —
-            // 색만으로 고른 것을 말하면 화면을 읽어 주는 기기에는 아무 표시도 안 남는다
-            // 세그먼트를 손으로 옮기면 넘어온 구절을 내려놓는다 — 다시 '성경 읽기'로 오면 이어읽기 자리다
-            // (내려놓지 않으면 QT·주보에서 한 번 넘어간 장이 탭을 오갈 때마다 다시 펼쳐졌다).
-            <button key={key} onClick={() => { if (key !== tab) setReadRef(''); pick(key); }} aria-pressed={tab === key}
-              className="px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors"
-              style={{
-                background: tab === key ? 'var(--app-surface)' : 'transparent',
-                color: tab === key ? 'var(--app-ink)' : 'var(--app-ink-muted)',
-              }}>{label}</button>
-          ))}
-        </span>
+        {/* 세그먼트를 손으로 옮기면 넘어온 구절을 내려놓는다 — 다시 '성경 읽기'로 오면 이어읽기 자리다
+            (내려놓지 않으면 QT·주보에서 한 번 넘어간 장이 탭을 오갈 때마다 다시 펼쳐졌다). */}
+        <Segmented className="flex p-[3px] rounded-md shrink-0" items={SEGMENTS} value={tab}
+          onPick={key => { if (key !== tab) setReadRef(''); pick(key); }}
+          btnClassName="px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors" />
       </div>
 
       <Swap k={tab} dir={dir}>

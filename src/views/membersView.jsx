@@ -21,6 +21,7 @@ import { useLiveTick } from '../services/liveV2.js';
 import * as roster from '../services/roster.js';
 import { guestStore } from '../services/people.js';
 
+import { Segmented } from '../components/segmented.jsx';
 // 게스트 모드의 계정 목록(roster.guestProfiles와 같은 칸) — 수락을 게스트 스위트가 눌러 볼 수 있게
 // 그 칸에 승인 값을 적는다(클라우드에는 없는 길 · 아래 approve).
 const guestAccounts = guestStore('church_roster_v1');
@@ -473,16 +474,8 @@ export function MembersView({ isAdmin, isMaster }) {
 
       {/* 사람의 축이 둘이다 — 가입한 '계정'과 청년부 전체 '명단'(파일 머리말) */}
       <div className="flex items-center gap-2 pb-4">
-        <span className="flex p-[3px] rounded-md shrink-0" style={{ background: 'var(--app-surface-hover)' }}>
-          {TABS.map(([key, label]) => (
-            <button key={key} type="button" onClick={() => setTab(key)} aria-pressed={tab === key}
-              className="px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors"
-              style={{
-                background: tab === key ? 'var(--app-surface)' : 'transparent',
-                color: tab === key ? 'var(--app-ink)' : 'var(--app-ink-muted)',
-              }}>{label}</button>
-          ))}
-        </span>
+        <Segmented className="flex p-[3px] rounded-md shrink-0" items={TABS} value={tab} onPick={setTab}
+          btnClassName="px-3.5 py-[6px] rounded-sm text-[12.5px] font-semibold transition-colors" />
       </div>
 
       {/* 탭을 바꾸면 그 내용이 살짝 들어온다(.dc-screen · §4.2 260ms). '청년 명단' 쪽은

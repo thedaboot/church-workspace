@@ -56,7 +56,7 @@
 - **0101 Supabase 점검(advisors) 보완(2026-10-14 · 동작 그대로 · 라이브)**: 트리거 함수 12개 EXECUTE 회수 · `reorder_clubs`는 로그인한 사람만 · search_path 셋 · 정책 116개(119 중)의 `auth.*()`·인자 없는 판정 함수를 `(select …)`로(쿼리마다 한 번 · 정책 수 그대로). 리허설: 승인 회원·관리자·익명이 표 42개에서 보는 행 수 같음 · 승인 회원 activity 최근 200개 401→6ms, files 101→9ms. **새 정책을 쓸 때도** 판정 호출은 `(select is_approved())` 꼴로(맨 호출은 행마다 돈다). **0102 후속**: public 정책 108개를 `to authenticated`로(식 그대로 · 익명은 원래 0행 — 이제 오류 대신 빈 결과) · 판정 함수 14개 익명 EXECUTE 회수(안 쓰는 경로 · 앱 rpc는 모두 로그인 뒤). **새 정책은 `to authenticated`로 쓴다**. 남긴 경고: 판정 함수·rpc의 authenticated EXECUTE 32(정책·앱이 쓰는 것 · 안에서 권한을 다시 본다) · 여러 permissive 정책 80(합치면 뜻이 바뀔 수 있음) · 외래 키 색인 32(작은 표) · 유출 비밀번호 보호(비밀번호 로그인 없음).
 - **실기기 확인 대기(사용자가 본다)**: 두 계정으로 '리더만 보기' → 비리더 화면에서 사라지는지(탭·검색·활동·알림·다붓이) · 동아리 지난 모임 엑셀 올리기 → 드라이브 `모임/동아리/날짜` · `편집`(데스크톱 앱 안 / 폰 구글 시트) · `지난 보고서 가져오기` · 관리자가 올린 보고서를 동아리장이 편집 · 다붓이 기다리는 문구가 단계마다 바뀌는지(카카오 인앱 스트림) · '비전 메이커가 뭐야?' · '부장님은 누구셔?' → 신효진 부장님 · 내일 08:10 아침 고리 뒤 마스터 푸시 문구('모르는 질문 N개 · 알려 준 말 M건').
 - **남은 것**: 드라이브 첨부는 링크로 열림(0023 한계 · 리더 프로젝트도 같다) · 위키 원본 행(`wiki_pages.blocks`)과 위키 뜻 찾기 조각(`doc_vec` body)은 다음 빌드까지 리더 문장을 쥔다(리더만 보기 · ⑦은 화면·다붓이·AI 맥락에서 거를 뿐 — API로 직접 읽으면 보인다 · 잠긴 업무는 ⑪이 잠그는 순간 걷는다) · 같은 질문 묶음에 리더 근거 답이 있으면 뒤의 모르는 질문도 자주 묻는 질문 장에 안 오른다 · 다붓이가 '앞으로 그렇게 부를게요'처럼 지킬 수 없는 약속을 한 답(10/11 👍) · 회귀 비용 $1.46(승인 $1.2 넘음 — 다음엔 디버그 호출도 셈에) · 에이전트가 worktree에 `node_modules`를 링크로 걸었다 지우면 **main의 node_modules가 비워진다**(이번에 두 번) — 링크 대신 `npm ci`.
-- **남은 후보(정해지지 않음)**: 모션 정리(폰 업무 창만 200ms · tw-animate ease/앱 quint 두 벌 · 사이드바 폭 전이) · `Segmented`에 버튼 속성 통과 → 세그먼트 7벌 · `gather`/`collectAll` 합치기 · 태그 활용(10월 월례회 피드백) · 19차 뒤 실기기 확인 대기: 못 올린 첨부 빨간 줄 · 댓글 칸 바닥에서 열기 · 폰 업무 바 켜진 탭 점.
+- **남은 후보(정해지지 않음)**: 모션 정리(폰 업무 창만 200ms · tw-animate ease/앱 quint 두 벌 · 사이드바 폭 전이) · `gather`/`collectAll` 합치기 · 태그 활용(10월 월례회 피드백) · 19차 뒤 실기기 확인 대기: 못 올린 첨부 빨간 줄 · 댓글 칸 바닥에서 열기 · 폰 업무 바 켜진 탭 점.
 
 ### 20차 다붓이 서버 묶음 ① — 한 일 · 결정 (2026-10-12 · DB·화면 그대로 · 정본은 `docs/AI.md` §5)
 
@@ -306,7 +306,7 @@ src/components/groupsClub.jsx (v2) 동아리 목록·dnd 순서·방향 감싸�
 src/components/clubDetail.jsx (v2) 동아리 상세 — 구성원·추가·신청·모임·출석·QR(lazy)
 src/components/meetingReport.jsx (v2) 지난 모임의 활동 보고서 칸(0093) — 파일 줄·편집 사본·지우기·파일 올리기·지난 보고서 가져오기 · 큐는 uploadQueue(`meeting:<id>`) · 통신은 groupsView
 src/components/groupsParts.jsx (v2) 모임 공용 — CARD/BTN/FIELD·NEW_H·DATE_TRIGGER·CARD_STYLE(예배·동아리 만들기가 같이 쓴다) · PersonPick·MenuPick(§6-9-an·33-a) · useSettled(§6-9-ad) · 읽기 실패 자리 FailTail·FailLeft(D2 · §6-24-g)
-src/components/segmented.jsx  회색 토글 한 벌(Segmented · segStyle) — 지금은 대시보드·프로젝트만(명단·말씀·모임·ShareToggle은 aria-pressed·data-* 통과가 생기면)
+src/components/segmented.jsx  회색 토글 한 벌(Segmented · segStyle) — 앱의 회색 토글 전부(대시보드·프로젝트·명단 연도·멤버·말씀·성경 칸·글자 크기·모임·예배 종류·공유 토글 · 칸 속성은 items 셋째 값) · 새로 손으로 그리지 않는다
 src/components/ClubQr.jsx     (v2) 동아리 신청 QR 카드(§6-29-z-7)
 src/views/views.jsx           MyTasksView / TeamView / ScheduleView + DashboardView·ProjectView 재수출
 src/views/dashboardView.jsx   전체 대시보드(KPI · 마감 목록 · 프로젝트 진행 · 폰 세 탭)
