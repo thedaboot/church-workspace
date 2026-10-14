@@ -882,3 +882,29 @@ import { loadSource, readSplit } from './_load.mjs';
   ok(/task\.id && isMine && <CardLockButton/.test(mo), '자물쇠 버튼은 만든 사람에게만');
   console.log(`PASS  0099 업무 잠금의 모양·판정·서버 키 경로·앱 배선 ${n}가지`);
 }
+
+// ── 0101 Supabase 점검(advisors) 보완 (2026-10-14) ─────────────────────────────────────────────
+// 라이브 경계는 psql 리허설(ROLLBACK)로 봤다 — 승인 회원·관리자·익명이 정책 걸린 표 42개에서 보는 행 수가 적용 전후 같고,
+// 권한을 걷은 트리거가 그대로 돈다(댓글 넣기). 승인 회원의 activity 최근 200개 401ms → 6ms. 여기는 파일 모양:
+// 트리거 함수 12개 EXECUTE 회수 · reorder_clubs는 로그인한 사람만 · search_path 셋 · 정책은 alter만(116개)이고
+// 그 안의 auth.*()·인자 없는 판정 함수는 모두 (select …)로 감쌌다(행마다가 아니라 쿼리마다 한 번).
+// **되돌리기**(§3-5): 0101의 alter policy 하나에서 `(select is_approved())`를 `is_approved()`로 풀거나, 트리거 함수 하나를
+// revoke 목록에서 빼면 아래가 깨진다.
+{
+  const m101 = readFileSync(new URL('../supabase/migrations/0101_advisor_fixes.sql', import.meta.url), 'utf8');
+  const sql = m101.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  let n = 0;
+  const ok = (cond, msg) => { assert.ok(cond, msg); n++; };
+  const trig = ['blank_locked_preview', 'handle_new_user', 'keep_sun_guide_final', 'notifications_actor_name', 'notify_admins_on_signup', 'rls_auto_enable',
+    'services_stamp_published', 'sync_pastor_team', 'sync_person_birthday', 'sync_person_teams', 'sync_profile_email', 'tg_recount_card'];
+  const rev = sql.match(/revoke execute on function([\s\S]*?)from public, anon, authenticated;/)?.[1] ?? '';
+  ok(trig.every(f => rev.includes(`public.${f}()`)), '0101: 트리거 함수 12개 모두 anon·authenticated EXECUTE 회수');
+  ok(/revoke execute on function public\.reorder_clubs\(uuid\[\]\) from public, anon;\s*grant execute on function public\.reorder_clubs\(uuid\[\]\) to authenticated;/.test(sql), '0101: reorder_clubs는 로그인한 사람만');
+  ok(['is_roster_team(text)', 'kst_year()', 'touch_last_seen()'].every(f => sql.includes(`alter function public.${f} set search_path = public, pg_temp;`)), '0101: search_path 셋');
+  const alters = sql.match(/alter policy [\s\S]*?;\n/g) || [];
+  ok(alters.length === 116 && !/create policy|drop policy/i.test(sql), '0101: 정책은 alter만 116개(수·이름·역할 그대로)');
+  const bare = /(?<!select )(?<!SELECT )(auth\.(uid|role|jwt)|\b(is_approved|hidden_ids|effective_uid|is_admin|is_master|locked_hidden_ids|my_person_id|can_manage_sun|leads_any_sun|can_edit_service|can_check_all_attendance|is_leader|kst_year))\(\)/;
+  const left = alters.filter(a => bare.test(a));
+  ok(left.length === 0, `0101: 정책 안 판정 호출은 모두 (select …) — 맨 호출 남음: ${left.map(a => a.split('\n')[0]).join(', ')}`);
+  console.log(`PASS  0101 점검 보완 — 트리거 함수 회수 · search_path · 정책 116개 판정 한 번씩 ${n}가지`);
+}
