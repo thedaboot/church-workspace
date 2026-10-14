@@ -677,7 +677,9 @@ export async function cardUpsertCloud(task, isNew, { changed = null, base = null
     if (!changed.length) return null;               // 바뀐 게 없으면 쓰지 않는다
     const patch = pickCols(cardPatch(task), changed);
     if (changed.includes('subtasks') && base) {
-      const now = await write(() => cloud.getCard(task.id)).catch(() => null);
+      let now = await write(() => cloud.getCard(task.id)).catch(() => null);
+      // 잠긴 업무(0100)는 하위 업무가 card_secrets에 있다 — cards 쪽 '[]'과 합치면 남의 줄을 지운 것으로 읽힌다
+      if (now?.locked) now = await cloud.getCardSecret(task.id).catch(() => null);
       if (now) patch.subtasks = subtasksForDb(mergeSubtasks(base.subtasks, task.subtasks, now.subtasks));
     }
     const teamIds = changed.includes('teams') ? (task.teams || []).map(n => teamNameToId.get(n)).filter(Boolean) : undefined;

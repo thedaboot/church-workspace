@@ -517,9 +517,9 @@ export async function collectAll(db, today, { admin = null } = {}) {
     readAll(() => db.from('comments').select('id, card_id, parent_id, author_id, body, created_at').order('created_at').order('id'), 'comments'),
     db.from('qt_schedule').select('qt_date, passage_ref').in('qt_date', [today, dayAfter(today, 1)]).then(r => r.data),
     approvedFacts(admin),
-    db === admin ? [] : readAll(() => db.from('card_secrets').select('card_id, description').order('card_id'), 'card_secrets').catch(() => []),
+    db === admin ? [] : readAll(() => db.from('card_secrets').select('card_id, description, subtasks').order('card_id'), 'card_secrets').catch(() => []),
   ]);
-  const secretOf = new Map(secrets.map(s => [s.card_id, s.description]));
+  const secretOf = new Map(secrets.map(s => [s.card_id, s]));
   const nameById = new Map(profiles.map(p => [p.id, String(p.display_name || '').trim()]));
   const teamsOf = Map.groupBy(cardTeams.filter(r => r.teams?.name), r => r.card_id);
   const proj = new Map(projects.map(p => [p.id, p]));
@@ -550,8 +550,9 @@ export async function collectAll(db, today, { admin = null } = {}) {
   for (const c of cards.filter(c => !PERSONAL_TITLE.test(c.title)).sort((a, b) => recordDate(a).localeCompare(recordDate(b)))) {
     const p = proj.get(c.project_id);
     const head = sentenceFromCard(c, projectTitle(p?.name || '', p?.year), cardWho((teamsOf.get(c.id) || []).map(r => r.teams.name), assigneeNamesOf(c, nameById)));
-    const subs = (Array.isArray(c.subtasks) ? c.subtasks : []).filter(x => x?.title).map(x => `${x.done ? '[끝]' : '[ ]'} ${plain(x.title)}`);
-    const desc = plain(secretOf.get(c.id) || c.description).slice(0, 3000);
+    const sec = secretOf.get(c.id);   // 잠긴 업무를 여는 사람 — 본문·하위 업무(0100)는 card_secrets에
+    const subs = (Array.isArray(sec?.subtasks) ? sec.subtasks : Array.isArray(c.subtasks) ? c.subtasks : []).filter(x => x?.title).map(x => `${x.done ? '[끝]' : '[ ]'} ${plain(x.title)}`);
+    const desc = plain(sec?.description || c.description).slice(0, 3000);
     push([`[업무 기록 · ${mdLabel(recordDate(c), true)}] ${head}`, desc && `상세 내용:\n${desc}`, subs.length && `하위 업무: ${subs.join(', ')}`, ...(cmtBy.get(c.id) || []).map(([, x]) => x.line.slice(0, 300))].filter(Boolean).join('\n'), { t: 'card', id: c.id, label: c.title }, 'card');
   }
   // 주보 — 설교 · 찬양 · 광고(광고는 그 주일에 모두에게 알린 정해진 소식) · 이번 주일까지 발행된 가장 늦은 주보는 'week'(검색 모드가 늘 넣는다)

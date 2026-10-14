@@ -225,6 +225,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
 | `0097_signup_avatar_late` | 가입 트리거가 뒤늦게 온 카카오·구글 메타(사진·이름)도 받아 적는다 — `after insert or update of raw_user_meta_data` · UPDATE는 10분 안에 만든 프로필의 빈 칸만(천진영 가입 때 identity가 150ms 늦어 사진이 비었다) | ✅ |
 | `0098_dabooti_facts` | 다붓이 학습 고리(20차 ⑧) — `dabooti_facts`(사람이 알려 준 사실 · `pending/approved/rejected` · 알려 준 사람 `told_by` · 이어진 물음 · `leader` · `count` · 읽기·쓰기 **마스터만**) · `dabooti_questions.resolved_at`(열린 질문이 닫힌 때 · 질문은 그대로 익명) · 위키 `learned` 장도 마스터만 읽는다 · `doc_vec`에 그 장을 안 넣는다 · 옮기기(아침 고리의 told 글 → 확인을 기다리는 말 · 이미 답한 물음 → 닫힘) | |
 | `0099_card_lock` | 업무 잠금(비밀번호 · 진짜 잠금) — `cards.locked`·`locked_by`·`locked_at` · `card_secrets`(잠긴 동안의 본문·고정 요약 거울 + 해시 — 해시는 칸 권한으로 아무에게도 안 준다) · `card_unlocks`(맞힌 계정) · `card_unlock_tries`(1분 5회) · 함수 `can_open_card`·`locked_hidden_ids`(정책이 질의마다 한 번)·`lock_card`·`unlock_card`·`unlock_owner` · 댓글·반응·첨부(업무 갈래)·활동(읽기)·같이 쓰기·doc_vec·채널·레거시 버킷 정책을 `alter`로 조임 · 보호·거울 트리거 · `projects.visibility_by`·`visibility_at`(트리거가 적는다) | ⏳ |
+| `0100_card_lock_gaps` | 업무 잠금의 남은 틈 — `card_secrets.subtasks`(하위 업무도 잠긴 동안 거울로 · 거울 트리거가 쓰기를 돌림) · `scrub_locked_card`(잠그는 순간 그 업무를 가리키는 위키 블록·위키 조각·알림 미리보기를 걷는다) · 잠긴 업무의 새 알림 미리보기를 비우는 트리거 | ⏳ |
 
 옛 첨부의 글자 발췌는 `node scripts/backfill_attachments.mjs`(읽기만 · `--fix`로 적는다 · `--limit`·`--redo`·`--only doc|photo`)가
 채웁니다 — 문서는 앱과 같은 파서, 사진·글자 없는 PDF는 Gemini가 읽습니다. `--cuesheet`는 옛 큐시트 발췌를 가이드용 요지로 다시 만듭니다.
@@ -243,7 +244,7 @@ public/bible/  개역한글 66권 json(책 단위 청크)
   주보 상세 · `/?p=groups&g=<groupId>` — 동아리 상세(`&apply=1`이면 로그인 뒤 가입 신청까지).
   알림의 딥링크가 이 모양이고(`notifications.link`), 앱 안에서 이동하면 주소창이 따라 바뀝니다.
 - `/s/p/<projectId>` · `/s/t/<taskId>` · `/s/c/<groupId>` — 공유 링크. 크롤러에는 OG 메타
-  HTML을, 사람에게는 앱으로 리디렉션을 줍니다(`api/share.js`, `s-maxage=300`).
+  HTML을, 사람에게는 앱으로 리디렉션을 줍니다(`api/share.js` · CDN에 두지 않음 — 잠금·리더만 보기가 바로 걸리게).
   점검은 [카카오 공유 디버거](https://developers.kakao.com/tool/debugger/sharing).
 - `/w/<serviceId>/<sig>` — **주보 공개 보기**(로그인 없이 · 발행본만). 서명은 서버 비밀에서 갈라 낸 HMAC이라
   추측할 수 없고 만료가 없습니다. `api/service-view.js`가 필요한 칸만 읽어 `service-view.html`에 끼워 보내고

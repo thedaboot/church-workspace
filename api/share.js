@@ -76,7 +76,8 @@ export default async function handler(req, res) {
   }
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=60');
+  // CDN에 두지 않는다 — 잠그거나 '리더만 보기'로 바꾼 뒤 5분 동안 옛 제목이 미리보기로 나가던 틈(2026-10-14)
+  res.setHeader('Cache-Control', 'no-store');
   res.status(200).send(`<!doctype html>
 <html lang="ko"><head>
 <meta charset="utf-8"/>

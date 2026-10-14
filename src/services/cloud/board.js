@@ -263,8 +263,8 @@ export async function removeLink(id) {
 
 // ── 업무 잠금 (0099) ────────────────────────────────────────────────────────
 // 판정·해시는 전부 DB다(lock_card · unlock_card · unlock_owner — 비밀번호를 서버가 견준다 · 1분 5회). 여기는 부르기만.
-// card_secrets는 **여는 사람에게만 행이 온다**(만든 사람 · 맞힌 계정 · 마스터) — 칸은 넷만 고른다(해시 두 칸은 칸 권한이 없다).
-const SECRET_COLS = 'card_id, description, ai_summary';
+// card_secrets는 **여는 사람에게만 행이 온다**(만든 사람 · 맞힌 계정 · 마스터) — 해시 두 칸은 칸 권한이 없어 고르지 않는다.
+const SECRET_COLS = 'card_id, description, ai_summary, subtasks';   // subtasks는 0100
 export async function listCardSecrets() {
   return unwrap(await client().from('card_secrets').select(SECRET_COLS));
 }

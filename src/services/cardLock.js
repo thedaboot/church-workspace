@@ -36,11 +36,12 @@ export function allowTry(times = [], now = Date.now()) {
   return times.filter(t => now - t < LOCK_TRY_WINDOW_MS).length < LOCK_TRY_LIMIT;
 }
 
-// 클라우드 card_secrets 행을 업무에 얹는다 — 행이 왔으면 열 수 있는 사람이다(본문 · 고정 요약). 안 잠겼으면 그대로.
+// 클라우드 card_secrets 행을 업무에 얹는다 — 행이 왔으면 열 수 있는 사람이다(본문 · 고정 요약 · 하위 업무(0100)). 안 잠겼으면 그대로.
 export function withSecret(task, secret) {
   if (!task?.locked) return { ...task, lockedOpen: false };
-  if (!secret) return { ...task, lockedOpen: false, content: '', aiSummary: '' };
-  return { ...task, lockedOpen: true, content: secret.description || '', aiSummary: secret.ai_summary || '' };
+  if (!secret) return { ...task, lockedOpen: false, content: '', aiSummary: '', subtasks: [] };
+  return { ...task, lockedOpen: true, content: secret.description || '', aiSummary: secret.ai_summary || '',
+    subtasks: Array.isArray(secret.subtasks) ? secret.subtasks : (task.subtasks || []) };
 }
 
 // 서버 키로 통째로 읽은 원본에서 잠긴 업무 몫(업무·댓글·첨부)을 걷는다 — 위키 장(gather) · 문서 임베딩(_docsync).

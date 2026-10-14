@@ -862,7 +862,20 @@ import { loadSource, readSplit } from './_load.mjs';
   ok(/const secret = card\.locked \? await cloud\.getCardSecret\(cardId\)/.test(cs) && /withSecret\(cardToTask\(card\), secret\)/.test(cs), '카드 1건 다시 읽기(실시간·잠그고 풀 때)가 card_secrets까지 읽는다');
   ok(/cloud\.listCardSecrets\(\)\.catch/.test(cs) && /withSecret\(cardToTask\(card\), secretOf\.get\(card\.id\)\)/.test(cs), '첫 로드도 — 실패는 삼킨다(마이그레이션 전)');
   ok((cs.match(/previewOf\(cardId, /g) || []).length === 3, '알림 미리보기 셋(멘션·댓글·반응)이 잠긴 업무면 비운다');
-  ok(/SECRET_COLS = 'card_id, description, ai_summary'/.test(rd('src/services/cloud/board.js')), 'card_secrets는 해시 없이 세 칸만 고른다');
+  ok(/SECRET_COLS = 'card_id, description, ai_summary, subtasks'/.test(rd('src/services/cloud/board.js')), 'card_secrets는 해시 없이 네 칸만 고른다(하위 업무 0100)');
+  // 0100 — 하위 업무도 card_secrets로 · 잠그는 순간 위키 블록·조각·알림 미리보기를 걷는다
+  const m100 = rd('supabase/migrations/0100_card_lock_gaps.sql');
+  ok(/subtasks = '\[\]'::jsonb\s*where id = c;\s*perform public\.scrub_locked_card\(c\);/.test(m100), '0100: 잠글 때 cards.subtasks를 비우고 위키·알림을 걷는다');
+  ok(/before update of description, ai_summary, subtasks on public\.cards/.test(m100) && /new\.subtasks := old\.subtasks;/.test(m100), '0100: 거울 트리거가 하위 업무 쓰기도 card_secrets로 돌린다');
+  ok(/subtasks = coalesce\(st, '\[\]'::jsonb\)/.test(m100), '0100: 풀면 하위 업무를 되돌린다');
+  ok(/delete from public\.doc_vec where page_id = any \(pages\)/.test(m100) && /update public\.notifications set preview = null where card_id = c/.test(m100)
+    && /before insert or update of preview, card_id on public\.notifications/.test(m100), '0100: 위키 조각·있던 알림 미리보기·새 알림 미리보기');
+  ok(/revoke all on function public\.scrub_locked_card\(uuid\) from public, anon, authenticated;/.test(m100), '0100: 걷는 함수는 lock_card 안에서만');
+  const sub = K.withSecret({ id: 'c', locked: true, subtasks: [] }, { description: '', subtasks: [{ title: '하위' }] });
+  ok(sub.subtasks.length === 1 && K.withSecret({ id: 'c', locked: true, subtasks: [{ title: 'x' }] }, null).subtasks.length === 0, '여는 사람은 card_secrets 하위 업무 · 못 여는 사람은 빈 목록');
+  ok(/if \(now\?\.locked\) now = await cloud\.getCardSecret\(task\.id\)/.test(cs), '잠긴 업무의 하위 업무 합치기는 card_secrets 목록과');
+  ok(/select\('card_id, description, subtasks'\)/.test(rd('api/_wikiAsk.js')), '다붓이: 여는 사람의 기록에 잠긴 업무 하위 업무도');
+  ok(/'Cache-Control', 'no-store'/.test(share), '공유 카드는 CDN에 두지 않는다(잠금·리더만 보기가 바로 걸리게)');
   const mo = rd('src/modals/modals.jsx');
   ok(/enabled: cloudMode && !!cardId && !closed/.test(mo), '같이 쓰기는 잠금 판이 걷힌 뒤에만 연다');
   ok(/if \(!cloudMode \|\| !task\.id \|\| closed\) return;/.test(mo) && /\}, \[cloudMode, task\.id, closed\]\);/.test(mo), '상세(댓글·활동)는 열린 뒤 그 자리에서 다시 읽는다');
