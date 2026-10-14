@@ -70,14 +70,15 @@ export function useRotatingHint(on, hints = SEARCH_HINTS) {
 }
 
 // 겹쳐 놓은 안내 글자. 부모가 relative여야 하고, 왼쪽 여백(아이콘 폭)은 부모가 정한다.
-export const SearchHint = ({ show, left, size, hints = SEARCH_HINTS }) => {
+// tone: 글자 색 — 데스크톱 상단 칸은 그라데이션 머리 위 반투명 칸이라 faint(약 2.6:1)가 묻혀 muted로 준다(2026-10-14 점검 · PITFALLS 49-b)
+export const SearchHint = ({ show, left, size, hints = SEARCH_HINTS, tone = 'text-fg-faint' }) => {
   // 움직임을 줄이라고 한 사람에게는 돌리지 않는다(§4.2) — 첫 줄만 가만히 보여준다
   const still = useReducedMotion();
   const { text, visible } = useRotatingHint(show && !still, hints);
   if (!show) return null;
   return (
     <span aria-hidden data-hint=""
-      className={`pointer-events-none absolute top-1/2 -translate-y-1/2 right-3 truncate text-fg-faint transition-opacity ${size}`}
+      className={`pointer-events-none absolute top-1/2 -translate-y-1/2 right-3 truncate ${tone} transition-opacity ${size}`}
       style={{ left, opacity: visible ? 1 : 0, transitionDuration: `${HINT_FADE_MS}ms` }}>
       {text}
     </span>
@@ -370,7 +371,7 @@ export function SearchBox({ onSearchSelect, variant = 'inline' }) {
         placeholder={SEARCH_HINTS[0]} aria-label={SEARCH_HINTS[0]}
         className="pl-8 pr-3 h-8 text-[12.5px] bg-surface/60 border border-line rounded-sm focus:bg-surface focus:border-accent focus:ring-2 focus:ring-accent-weak outline-none w-full transition-all placeholder:text-transparent"
       />
-      <SearchHint show={!query} left="2rem" size="text-[12.5px]" />
+      <SearchHint show={!query} left="2rem" size="text-[12.5px]" tone="text-fg-muted" />
       {listOpen && createPortal(
         <div ref={listRef} onKeyDown={onListKey} style={{ position: 'fixed', left: listPos.left, top: listPos.top, width: listPos.width }}
           className="z-[80] max-h-[360px] overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1.5 transition-none animate-in fade-in zoom-in-95 duration-150">

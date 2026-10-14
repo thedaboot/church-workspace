@@ -1057,7 +1057,9 @@ export function FilePreviewModal({ row, rows = null, initialSrc = null, onClose,
           <button type="button" onClick={onClose} className="p-2 rounded-md text-fg-faint hover:bg-surface-hover transition active:scale-95" title="닫기"><X size={18} /></button>
         </div>
         {/* 미리보기 영역은 남은 공간을 그대로 채운다(고정 dvh를 쓰면 창 크기에 안 맞는다) */}
-        <div className="relative flex-1 min-h-0 p-2 md:p-4 flex items-center justify-center overflow-hidden">
+        {/* 넘김 필이 있으면 그 높이(약 34px + 아래 12px + 틈)만큼 아래를 비운다 — 사진이 칸 아래 끝까지 차면
+            필이 사진 아래 가장자리를 덮었다(1440×900 · 2026-10-14 점검 · PITFALLS 49-d). 사진 칸(boxSize)이 이만큼 줄어 맞춤이 따라온다. */}
+        <div className={`relative flex-1 min-h-0 p-2 md:p-4 ${canNav ? 'pb-14 md:pb-14' : ''} flex items-center justify-center overflow-hidden`}>
           {body}
           {/* 사진 이전/다음 — 아래 가운데 필 하나로(앱의 surface·line 토큰).
               사진 양옆의 검은 원은 우리 어디에도 없는 색이었고 가장자리를 가렸다

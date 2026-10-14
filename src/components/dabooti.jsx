@@ -344,10 +344,12 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
 
   return (
     <div className="dab-chat flex flex-col" style={{ minHeight: fill }}>
-      <div className="flex-1 grid content-start gap-3 px-1 py-3">
+      {/* 열은 minmax(0,1fr) — 그냥 grid면 열이 내용의 최소 폭(띄어쓰기 없는 긴 낱말·주소)만큼 커져 질문·답 말풍선이
+          둘 다 화면 오른쪽 밖으로 밀렸다(2026-10-14 점검 · PITFALLS 49-a). 말풍선 글은 overflow-wrap:anywhere로 어디서든 끊는다. */}
+      <div className="flex-1 grid grid-cols-[minmax(0,1fr)] content-start gap-3 px-1 py-3">
         {chat.map(m => (m.tellFor ? (
           // 👎 뒤에 다붓이가 묻는 말 — 다음 말을 평소 입력창에서 받는다(따로 칸 없음)
-          <div key={m.id} className="dab-tell grid grid-cols-[34px_1fr] gap-2 items-start">
+          <div key={m.id} className="dab-tell grid grid-cols-[34px_minmax(0,1fr)] gap-2 items-start">
             <span className="w-[34px] h-[34px] rounded-full overflow-hidden" style={{ background: 'var(--app-hero)' }}><Face size={34} className="bg-transparent" /></span>
             <div className="dab-bub-in justify-self-start min-w-0 rounded-[4px_14px_14px_14px] px-3 py-2.5 text-[13.5px] leading-[1.7] text-fg" style={{ background: 'var(--app-hero)' }}>
               <span className="block text-[11px] font-bold text-accent-text mb-0.5">다붓이</span>
@@ -355,9 +357,9 @@ export function AskPanel({ chat, setChat, chips = [], onOpenCite, onOpenFile, on
             </div>
           </div>
         ) : (
-          <div key={m.id} className="grid gap-3">
-            <div className="dab-q dab-q-in justify-self-end max-w-[82%] rounded-[14px_14px_4px_14px] bg-accent text-white px-3 py-2 text-[13.5px] leading-relaxed break-words">{m.q}</div>
-            <div className="grid grid-cols-[34px_1fr] gap-2 items-start">
+          <div key={m.id} className="grid grid-cols-[minmax(0,1fr)] gap-3">
+            <div className="dab-q dab-q-in justify-self-end max-w-[82%] rounded-[14px_14px_4px_14px] bg-accent text-white px-3 py-2 text-[13.5px] leading-relaxed [overflow-wrap:anywhere]">{m.q}</div>
+            <div className="grid grid-cols-[34px_minmax(0,1fr)] gap-2 items-start">
               <span key={m.react ? `${m.react.v}${m.react.n}` : 'still'} className={`w-[34px] h-[34px] rounded-full overflow-hidden ${fresh(m) ? (m.react.v === 'good' ? 'dab-hop' : 'dab-droop') : ''}`} style={{ background: 'var(--app-hero)' }}><Face size={34} className="bg-transparent" /></span>
               {m.loading ? (
                 <div className="dab-bub-in justify-self-start rounded-[4px_14px_14px_14px] px-3 py-3" style={{ background: 'var(--app-hero)' }} aria-label="다붓이가 답을 찾는 중">
@@ -426,7 +428,7 @@ function Answer({ m, onOpenCite, onOpenFile, onOpenFaq, onRate }) {
   // 모르는 질문은 마스터에게만 그 장 칩(답을 알려 주러 간다) — 장 이름은 '아직 답하지 못한 질문'(2026-10-13 · id는 faq 그대로)
   if (onOpenFaq && a.status === 'unknown' && !cites.some(isFaq)) cites.push({ t: 'page', id: 'faq', label: '아직 답하지 못한 질문' });
   return (
-    <div className={`dab-answer dab-bub-in justify-self-start min-w-0 max-w-full rounded-[4px_14px_14px_14px] px-3 py-2.5 text-[13.5px] leading-[1.7] text-fg ${refused ? 'bg-surface-hover' : ''}`}
+    <div className={`dab-answer dab-bub-in justify-self-start min-w-0 max-w-full rounded-[4px_14px_14px_14px] px-3 py-2.5 text-[13.5px] leading-[1.7] text-fg [overflow-wrap:anywhere] ${refused ? 'bg-surface-hover' : ''}`}
       style={refused ? undefined : { background: 'var(--app-hero)' }} data-status={a.status}>
       <span className="block text-[11px] font-bold text-accent-text mb-0.5">다붓이</span>
       {a.verses?.length > 0 ? (

@@ -661,6 +661,73 @@ await send('Emulation.clearDeviceMetricsOverride');
   await send('Emulation.clearDeviceMetricsOverride');
 }
 
+// ── 반응형 점검 후속(2026-10-14 · PITFALLS 49-b·49-f) ─────────────────────────────────────────
+// ① 데스크톱 상단 검색 칸의 돌아가는 안내 글자 — 그라데이션 머리 위 반투명 칸이라 faint(약 2.6:1)는 묻혔다. 두 테마에서 4.5:1 이상.
+//    **되돌리기**: searchBox.jsx 데스크톱 SearchHint의 tone="text-fg-muted"를 걷으면(faint) 깨진다.
+{
+  const lum = `const lum=(c)=>{const v=c.map(x=>{x/=255;return x<=0.03928?x/12.92:Math.pow((x+0.055)/1.055,2.4)});return 0.2126*v[0]+0.7152*v[1]+0.0722*v[2]};`;
+  for (const theme of ['light', 'dark']) {
+    await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await ev(`localStorage.setItem('theme', '${theme}')`);
+    await send('Page.navigate', { url: URL_BASE + '/?p=home' }); await wait('Page.loadEventFired'); await sleep(1200);
+    const hint = await ev(`(() => { ${lum}
+      const span = [...document.querySelectorAll('span[data-hint]')].find(s => s.offsetParent && s.getBoundingClientRect().top < 80);
+      if (!span) return null;
+      const input = span.parentElement.querySelector('input');
+      // 칸 뒤 바탕은 앱 바탕(--app-canvas)으로 어림한다(머리 그라데이션은 그 위에 옅게 깔린다)
+      // 계산값이 oklab(… / .6) 같은 꼴로 올 수 있어(surface/60) 1px 캔버스에 겹쳐 칠해 sRGB로 읽는다
+      const cv = document.createElement('canvas'); cv.width = cv.height = 1; const g = cv.getContext('2d', { willReadFrequently: true });
+      const paint = (...cs) => { g.clearRect(0, 0, 1, 1); for (const c of cs) { g.fillStyle = c; g.fillRect(0, 0, 1, 1); } const d = g.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2]]; };
+      const canvasColor = getComputedStyle(document.documentElement).getPropertyValue('--app-canvas').trim();
+      const field = paint(canvasColor, getComputedStyle(input).backgroundColor);
+      const fg = paint(canvasColor, getComputedStyle(span).color);
+      const a = lum(fg), b = lum(field);
+      return { color: getComputedStyle(span).color, ratio: Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100 };
+    })()`);
+    check(`데스크톱 검색 칸 안내 글자(${theme}): 칸 위에서 4.5:1 이상`, !!hint && hint.ratio >= 4.5, JSON.stringify(hint));
+  }
+  await ev(`localStorage.removeItem('theme')`);
+}
+// ② 알림 종 판 — 좁은 폰(SE 375 · 폴드 겉화면 344)에서는 화면 폭 - 32px로 서고 좌우 16px(앱 거터)이 같다. 데스크톱은 320px 그대로 종 오른쪽 끝에.
+//    종은 클라우드에서만 서서 게스트 화면에는 없다 — 앱과 같은 react로 NotificationBell을 직접 그려 잰다(폰 상단바 자리 · 오른쪽에서 56px).
+//    **되돌리기**: notificationBell.jsx 판 클래스의 `max-sm:w-[calc(100vw-2rem)]!`나 gap 16을 걷으면 왼쪽 8~9px · 오른쪽 23~47px로 깨진다.
+{
+  const bellAt = (w, h, mobile) => (async () => {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: mobile ? 2 : 1, mobile });
+    await sleep(300);
+    return ev(`(async () => {
+      const main = await (await fetch('/src/main.jsx')).text();
+      const reactUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react\\.js\\?v=[^"]+)"/)?.[1];
+      const clientUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react-dom_client\\.js\\?v=[^"]+)"/)?.[1];
+      if (!reactUrl || !clientUrl) return null;
+      const R = await import(reactUrl), C = await import(clientUrl);
+      const React = R.default ?? R, createRoot = (C.default ?? C).createRoot;
+      const { NotificationBell } = await import('/src/components/notificationBell.jsx');
+      const host = document.createElement('div'); host.id = 'bell-host';
+      host.style.cssText = 'position:fixed;top:4px;right:56px;z-index:200';
+      document.body.appendChild(host);
+      const root = createRoot(host);
+      root.render(React.createElement(NotificationBell, {}));
+      await new Promise(r => setTimeout(r, 300));
+      const btn = host.querySelector('button[title="알림"]');
+      btn.click();
+      await new Promise(r => setTimeout(r, 400));
+      const panel = [...host.querySelectorAll('div')].find(d => d.style.position === 'fixed');
+      const out = panel ? (() => { const r = panel.getBoundingClientRect(), b = btn.getBoundingClientRect();
+        return { left: Math.round(r.left), right: Math.round(innerWidth - r.right), width: Math.round(r.width), bellRight: Math.round(b.right) }; })() : null;
+      root.unmount(); host.remove();
+      return out;
+    })()`, true);
+  })();
+  for (const [w, label] of [[375, 'SE 375'], [344, '폴드 겉화면 344']]) {
+    const p = await bellAt(w, 740, true);
+    check(`알림 판(${label}): 좌우 16px 거터가 같다`, !!p && Math.abs(p.left - 16) <= 1 && Math.abs(p.right - 16) <= 1, JSON.stringify(p));
+  }
+  const d = await bellAt(1440, 900, false);
+  check('알림 판(데스크톱 1440): 320px 그대로 종 오른쪽 끝에 맞춘다', !!d && d.width === 320 && Math.abs((d.left + d.width) - d.bellRight) <= 1, JSON.stringify(d));
+  await send('Emulation.clearDeviceMetricsOverride');
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.slice(0, 6).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

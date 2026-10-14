@@ -488,6 +488,20 @@ try {
       check(`폰: 대화가 길어도 키보드를 열면 칸이 화면 안 · 맨 아래 그대로`, longKb.inputBottom <= longKb.mainBottom && longKb.left <= 2 && longKb.wikiOverflowY !== 'auto', JSON.stringify(longKb));
       await ev(`document.activeElement.blur()`);
       await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true }); await sleep(400);
+      // 띄어쓰기 없는 긴 낱말·주소 — 질문·답 말풍선이 둘 다 화면 안에서 줄을 바꾼다(2026-10-14 점검 · PITFALLS 49-a ·
+      // **되돌리기**: dabooti.jsx 대화 grid들의 minmax(0,1fr)와 말풍선의 overflow-wrap:anywhere를 옛 모양(grid gap-3 · 34px_1fr ·
+      // break-words)으로 두면 둘 다 오른쪽 밖(right 746 · 폭 390)으로 밀려 깨진다 — 둘 중 하나만 남아도 막힌다(겹쳐 막은 것))
+      {
+        const LONG = '띄어쓰기없이아주길게이어지는질문이에요https://example.com/averylongpathsegmentwithoutanybreakopportunity/andmore';
+        await ev(`window.__dabootiAnswer=${JSON.stringify({ id: 'q-long', status: 'answered', sentences: [{ text: '워크스페이스에서는 그런 내용을 찾을 수가 없어서, 해당 질문은 보완해서 내일 아침에 학습해 둘게요. https://example.com/averylongpathsegmentwithoutanybreakopportunity/andmore', cites: [] }], files: [] })}`);
+        const before = await ev(`document.querySelectorAll('.dab-answer').length`);
+        await ev(`(()=>{const i=document.querySelector('.dab-input input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(i,${JSON.stringify(LONG)});i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))})()`);
+        await until(`document.querySelectorAll('.dab-answer').length > ${before}`);
+        await sleep(500);
+        const wrap = await ev(`(()=>{const q=[...document.querySelectorAll('.dab-q')].pop().getBoundingClientRect();const a=[...document.querySelectorAll('.dab-answer')].pop().getBoundingClientRect();return {qRight:Math.round(q.right), aRight:Math.round(a.right), aH:Math.round(a.height), w:innerWidth, sw:document.documentElement.scrollWidth}})()`);
+        check(`폰: 긴 낱말·주소도 질문·답 말풍선이 화면 안에서 줄을 바꾼다`, wrap.qRight <= wrap.w && wrap.aRight <= wrap.w && wrap.sw <= wrap.w + 1 && wrap.aH > 80, JSON.stringify(wrap));
+        await ev(`window.__dabootiAnswer=${JSON.stringify(ANSWER)}`);
+      }
     }
 
     await click('button', '위키');

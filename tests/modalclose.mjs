@@ -1009,6 +1009,50 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   await ev(`${byLabel('닫기')}?.click()`); await sleep(300);
 }
 
+// ── 반응형 점검 후속(2026-10-14 · PITFALLS 49-c·49-d) ─────────────────────────────────────────
+// ① 보기에서 본문이 비면 120px 자리를 잡지 않는다(칸과 첨부 사이 빈 띠) — 본문이 있으면 그대로 120px.
+//    **되돌리기**: modals.jsx TaskView 본문 통을 늘 `min-h-[120px]`로 두면 첫 줄이 깨진다.
+// ② 첨부 사진 미리보기(1440×900)의 넘김 필 '1 / N'이 사진 아래 끝을 덮지 않는다 — 앱과 같은 react로 FilePreviewModal을 직접 그린다.
+//    **되돌리기**: FilePreviewModal 미리보기 칸의 `pb-14 md:pb-14`를 걷으면 필이 사진 위로 올라와 깨진다.
+{
+  await seedOne(baseTask('v0', { title: '빈 본문 보기', content: '' }));
+  await openCard();
+  const emptyBody = await ev(`(() => { const b = document.querySelector('.fixed.z-50 [data-view-body]'); return b ? Math.round(b.getBoundingClientRect().height) : null; })()`);
+  await ev(`window.__store.dispatch({ type: 'SYNC_TASK', payload: { id: 'v0', content: '한 줄 본문' } })`); await sleep(300);
+  const fullBody = await ev(`(() => { const b = document.querySelector('.fixed.z-50 [data-view-body]'); return b ? Math.round(b.getBoundingClientRect().height) : null; })()`);
+  check('① 보기: 빈 본문은 120px 자리를 잡지 않는다 · 본문이 있으면 120px 그대로', emptyBody !== null && emptyBody < 40 && fullBody >= 120, JSON.stringify({ emptyBody, fullBody }));
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(300);
+
+  const pager = await ev(`(async () => {
+    const main = await (await fetch('/src/main.jsx')).text();
+    const reactUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react\\.js\\?v=[^"]+)"/)?.[1];
+    const clientUrl = main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react-dom_client\\.js\\?v=[^"]+)"/)?.[1];
+    if (!reactUrl || !clientUrl) return null;
+    const R = await import(reactUrl), C = await import(clientUrl);
+    const React = R.default ?? R, createRoot = (C.default ?? C).createRoot;
+    const { FilePreviewModal } = await import('/src/components/FilePreviewModal.jsx');
+    // 창보다 가로로 긴 사진 — 칸 높이를 꽉 채우는 쪽(그림 아래 끝이 칸 아래 끝)이라 필과 겹치기 쉽다
+    const cv = document.createElement('canvas'); cv.width = 1400; cv.height = 1000;
+    const g = cv.getContext('2d'); g.fillStyle = '#2a6fb0'; g.fillRect(0, 0, 1400, 1000);
+    // 올리는 중인 첨부 모양(source 'local' · _file + _url) — 받으러 가지 않고 그 파일로 그린다
+    const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+    const url = URL.createObjectURL(blob);
+    const rows = [0, 1, 2].map(i => ({ id: 'img' + i, name: 'photo' + i + '.png', mime_type: 'image/png', source: 'local', _file: blob, _url: url, size_bytes: blob.size }));
+    const host = document.createElement('div'); host.id = 'pv-host'; document.body.appendChild(host);
+    const root = createRoot(host);
+    root.render(React.createElement(FilePreviewModal, { row: rows[0], rows, onClose: () => {} }));
+    await new Promise(r => setTimeout(r, 1200));
+    const label = [...document.querySelectorAll('span')].find(s => /^1 \\/ 3$/.test(s.textContent.trim()));
+    const pill = label?.closest('.rounded-full');
+    const img = [...document.querySelectorAll('[data-zoom-layer] img')].find(i => i.getBoundingClientRect().height > 0);
+    const out = pill && img ? { pillTop: Math.round(pill.getBoundingClientRect().top), imgBottom: Math.round(img.getBoundingClientRect().bottom), imgH: Math.round(img.getBoundingClientRect().height) }
+      : { pill: !!pill, img: !!img, imgs: [...document.querySelectorAll('[data-zoom-layer] img')].map(i => [i.complete, Math.round(i.getBoundingClientRect().height), i.src.slice(0, 30)]), layer: document.querySelector('[data-zoom-layer]')?.outerHTML.slice(0, 300) };
+    root.unmount(); host.remove();
+    return out;
+  })()`, true);
+  check('② 사진 미리보기(1440×900): 넘김 필이 사진 아래 끝을 덮지 않는다', !!pager && pager.imgH > 300 && pager.pillTop >= pager.imgBottom, JSON.stringify(pager));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

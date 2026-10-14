@@ -774,7 +774,8 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = 
       ) : (
         // text-sm: RichText는 크기를 강제하지 않는다 — 본문의 기준 크기는 이 통이 준다.
         // relative isolate: 줄 표시(물 z -1 · 얼굴)가 이 통 안에 겹쳐 선다
-        <div ref={setBodyEl} data-view-body="" className="prose prose-sm max-w-none mt-3 min-h-[120px] text-sm relative isolate pr-7">
+        // 본문이 비면 120px 자리를 잡지 않는다 — 칸 아래에 빈 띠가 120~200px 남았다(2026-10-14 점검 · PITFALLS 49-c · 수정 화면은 그대로)
+        <div ref={setBodyEl} data-view-body="" className={`prose prose-sm max-w-none mt-3 ${stripActionSection(md).trim() ? 'min-h-[120px]' : ''} text-sm relative isolate pr-7`}>
           {/* 청년별 담당 업무 도막은 **여기서 그리지 않는다** — 바로 아래 부품이 얼굴과 체크칸까지 붙여 보여 준다 */}
           <RichText content={stripActionSection(md)} onToggleTodo={coPending ? undefined : toggleTodo} lineAttrs />
           <PresenceMarks box={bodyEl} editors={editors} content={md} />

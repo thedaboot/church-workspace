@@ -233,13 +233,15 @@ function DraggableCard({ task, index, projectsMap, showProjectBadge, onTaskClick
 function StatusChip({ status, count, current, dragging, isDraggedStatus, onClick }) {
   const { setNodeRef, isOver } = useDroppable({ id: `chip:${status}` });
   const base = 'shrink-0 inline-flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-full border text-[11px] font-semibold transition active:scale-95';
+  // 그림자는 두지 않는다 — 칩 줄이 가로 스크롤 통이라 그림자가 통 가장자리에서 잘려 둥근 칩 뒤에 네모난
+  // 회색 조각으로 보였다(2026-10-14 점검 · PITFALLS 49-e). 고른 칩은 accent 테두리·surface 바탕으로 이미 갈린다.
   let tone;
   if (dragging) {
-    if (isOver) tone = 'bg-accent-weak border-accent text-accent-text shadow-soft scale-105';
+    if (isOver) tone = 'bg-accent-weak border-accent text-accent-text scale-105';
     else if (isDraggedStatus) tone = 'bg-surface-2 border-line border-dashed text-fg-muted';
     else tone = 'bg-surface border-accent border-dashed text-fg-muted';
   } else {
-    tone = current ? 'bg-surface border-accent text-fg shadow-soft' : 'bg-surface-2 border-line text-fg-muted';
+    tone = current ? 'bg-surface border-accent text-fg' : 'bg-surface-2 border-line text-fg-muted';
   }
   return (
     <button ref={setNodeRef} type="button" onClick={onClick} className={`${base} ${tone}`}>

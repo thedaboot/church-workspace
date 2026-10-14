@@ -18,7 +18,7 @@ import { usePopover } from '../hooks/usePopover.js';
 // 19차 묶음 D에서 layout.jsx에서 갈라 왔다(동작·모양은 그대로).
 //   · 알림은 **남긴 계정 앞으로** 온다(0063) — 구독 필터는 myUid()로 물은 값(세션 uid가 아니다)
 //   · 판 안: 머리(모두 읽음) · 안드로이드 설치 줄 · '이 기기로 알림 받기'(권한은 여기서 묻는다) · 알림 줄(열기 · 지우기)
-//   · 판은 앵커 곁에 그린다(portal: false — 원래 그렇다) · 껍데기는 hooks/usePopover 한 벌
+//   · 판은 앵커 곁에 그린다(portal: false — 원래 그렇다) · 껍데기는 hooks/usePopover 한 벌 · 640 미만 폰은 화면 폭 - 32px(좌우 16px · PITFALLS 49-f)
 // ============================================================================
 
 // ── @멘션 알림 (클라우드 모드 전용) ────────────────────────────────────────
@@ -131,7 +131,9 @@ export function NotificationBell({ onOpenTask, onOpenLink }) {
   const [items, setItems] = useState([]);
   // 바깥 클릭 / Esc 닫기는 프로필 메뉴·검색과 같은 훅 한 벌(usePopover 안의 useDismiss) — 이 판은
   // rootRef 안에 그려진다(포털이 아니다 · portal: false)
-  const pop = usePopover(320, 240, { portal: false });
+  // 좁은 폰(640 미만)은 판이 화면 폭 - 32px로 서고 좌우 16px 여백(앱 거터)에 맞춘다 — 320px 판을 종 오른쪽 끝에 맞추면
+  // 왼쪽 9px · 오른쪽 25~48px로 어긋났다(2026-10-14 점검 · PITFALLS 49-f). 폭은 아래 판 클래스(!)가 정하고, measure로 그 실제 폭을 재서 가둔다.
+  const pop = usePopover(320, 240, { portal: false, gap: 16, measure: true });
   const unread = items.filter(n => !n.read).length;
 
   // 앱 아이콘 뱃지. **아이폰 홈 화면 웹앱에서만 보인다** — 안드로이드 크롬은 이 API가
@@ -215,7 +217,7 @@ export function NotificationBell({ onOpenTask, onOpenLink }) {
           )}
         </button>
       </span>
-      {pop.panel('z-[90] max-w-[calc(100vw-2rem)] max-h-96 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated', <>
+      {pop.panel('z-[90] max-w-[calc(100vw-2rem)] max-sm:w-[calc(100vw-2rem)]! max-h-96 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated', <>
           <div className="flex items-center justify-between px-3 py-2.5 border-b border-line sticky top-0 bg-surface">
             <span className="text-xs font-bold text-fg">알림</span>
             {unread > 0 && (

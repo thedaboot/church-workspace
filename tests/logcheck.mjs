@@ -647,7 +647,8 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   assert.ok(/useDismiss\(open, \(\) => setOpen\(false\), \[rootRef, popRef\]\)/.test(pop), '포털로 나간 판도 바깥 누름의 안이다(17-d)');
   assert.ok(nav.layout.includes('usePopover(224, 200, { gap: 8, measure: true })') && nav.layout.includes('usePopover(224, 260)'), '프로필 메뉴 · 더보기');
   assert.ok(nav.navParts.includes('usePopover(112, 40 + years.length * 34)'), '연도 고르기');
-  assert.ok(nav.notificationBell.includes('usePopover(320, 240, { portal: false })'), '알림 종(앵커 곁에 그린다)');
+  // 좁은 폰은 좌우 16px 거터 · 판의 실제 폭으로 가둔다(PITFALLS 49-f · 화면 잼은 tests/navsmoke)
+  assert.ok(nav.notificationBell.includes('usePopover(320, 240, { portal: false, gap: 16, measure: true })'), '알림 종(앵커 곁에 그린다)');
   for (const k of ['layout', 'navParts', 'notificationBell']) {
     assert.ok(!/useDismiss\(/.test(nav[k]), `${k}에 손으로 짠 팝오버 껍데기가 다시 생기지 않았다`);
   }

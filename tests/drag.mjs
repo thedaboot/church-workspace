@@ -72,6 +72,14 @@ const statusOf = (title) => ev(`(() => {
 await reload();
 let g = await geom();
 check('상태 칩 4개 인식', g.chips.length === 4, g.chips.map(c => c.label).join(' | '));
+// 칩 줄은 가로 스크롤 통이라 고른 칩의 그림자가 통 가장자리에서 잘려 네모난 회색 조각이 됐다(2026-10-14 점검 · PITFALLS 49-e) —
+// 칩에는 그림자가 없다(고른 칩은 accent 테두리로 갈린다). **되돌리기**: boards.jsx StatusChip의 current에 shadow-soft를 되살리면 깨진다.
+const chipShadow = await ev(`(() => {
+  const chips = [...document.querySelectorAll('button')].filter(b => /^(시작 전|진행 중|보류 중|완료)\\s*\\d+$/.test(b.textContent.trim().replace(/\\s+/g, ' ')));
+  return chips.map(c => ({ label: c.textContent.trim(), shadow: getComputedStyle(c).boxShadow, accent: getComputedStyle(c).borderColor }));
+})()`);
+check('상태 칩: 그림자 없음(가로 스크롤 통에 잘리지 않게) · 고른 칩은 다른 테두리',
+  chipShadow.length === 4 && chipShadow.every(c => c.shadow === 'none') && new Set(chipShadow.map(c => c.accent)).size === 2, JSON.stringify(chipShadow));
 const before = await statusOf(g.title);
 const doneChip = g.chips.find(c => c.label.startsWith('완료'));
 await touchDrag(g.card, doneChip);

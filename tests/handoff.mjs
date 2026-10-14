@@ -111,6 +111,18 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
   check('D9: 버튼 두 단 — 작은 단 11.5px·600 · 확정 단 13px·600·40px, 둘 다 비활성 opacity .4',
     /BTN = 'px-3 py-1\.5 rounded-md bg-accent text-white text-\[11\.5px\] font-semibold[^']*disabled:opacity-40'/.test(btnSrc)
     && /min-h-10 px-4 py-2\.5 rounded-md text-\[13px\] font-semibold[^']*disabled:opacity-40/.test(btnSrc));
+  // 내 정보 → 연결된 계정(클라우드에서만 선다 — 게스트 화면에 없어 소스로 본다 · 2026-10-14 점검 · PITFALLS 49-g)
+  // 카카오 아이콘은 노란 칸(#FEE500) 위 검은 말풍선 — 말풍선만(#191919) 두면 다크 판과 거의 같은 색이라 묻혔다.
+  // '연결됨'은 앱의 상태 배지 한 벌(px-2 py-0.5 rounded-full 10.5px 굵게 — 참여 중·수락됨·순에 공유와 같은 꼴).
+  // **되돌리기**: settings.jsx 카카오 svg의 rect를 걷거나 배지를 옛 text-[10px]로 두면 깨진다.
+  {
+    const setSrc = readFileSync(new URL('modals/settings.jsx', SRC), 'utf8');
+    const kakao = setSrc.match(/provider: 'kakao'[^\n]*<\/svg>/)?.[0] || '';
+    check('내 정보: 카카오 아이콘은 노란 칸 위 검은 말풍선(두 테마에서 같은 모양)',
+      /<rect [^>]*fill="#FEE500"/.test(kakao) && /<path fill="#191919"/.test(kakao) && kakao.indexOf('<rect') < kakao.indexOf('<path'), kakao.slice(0, 120));
+    check("내 정보: '연결됨'은 상태 배지 한 벌(10.5px 굵게)",
+      /className="inline-flex items-center gap-1 px-2 py-0\.5 rounded-full bg-tag-green text-tag-green-fg text-\[10\.5px\] font-bold"><Check size=\{11\} \/> 연결됨/.test(setSrc));
+  }
 }
 
 // ── 업무 잠금(0099 · 20차 ⑨ 시안 '⑨ 업무 잠금')의 글자·색 규격과 모션 토큰 — 소스로 본다(화면 흐름은 tests/modalclose) ──

@@ -109,7 +109,8 @@ export function ProfileModal({ onClose, onSave }) {
   };
   const ACCOUNTS = [
     { provider: 'google', label: '구글', icon: <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.1A6.6 6.6 0 0 1 5.5 12c0-.73.13-1.44.34-2.1V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.07.56 4.21 1.64l3.16-3.16A11 11 0 0 0 2.18 7.06L5.84 9.9c.87-2.6 3.3-4.52 6.16-4.52z"/></svg> },
-    { provider: 'kakao', label: '카카오', icon: <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#191919" d="M12 3C6.48 3 2 6.54 2 10.9c0 2.8 1.86 5.26 4.66 6.65l-1.19 4.4c-.1.39.34.7.68.47l5.23-3.47c.2.01.41.02.62.02 5.52 0 10-3.54 10-7.9S17.52 3 12 3z"/></svg> },
+    // 카카오는 노란 칸(#FEE500) 위 검은 말풍선 — 말풍선만 두면 다크에서 판 색에 묻혔다(2026-10-14 점검 · PITFALLS 49-g · 두 테마 같은 모양)
+    { provider: 'kakao', label: '카카오', icon: <svg width="16" height="16" viewBox="0 0 24 24" data-brand="kakao"><rect width="24" height="24" rx="6" fill="#FEE500"/><path fill="#191919" transform="translate(4.8 4.4) scale(.6)" d="M12 3C6.48 3 2 6.54 2 10.9c0 2.8 1.86 5.26 4.66 6.65l-1.19 4.4c-.1.39.34.7.68.47l5.23-3.47c.2.01.41.02.62.02 5.52 0 10-3.54 10-7.9S17.52 3 12 3z"/></svg> },
   ];
   // 첫 설정이 안 끝난 상태(이름이 없거나 소속이 없음) = 온보딩.
   // 안내 문구를 바꾸고, 이름·소속을 채우기 전에는 닫지 못하게 한다.
@@ -198,7 +199,7 @@ export function ProfileModal({ onClose, onSave }) {
                     <span className="shrink-0">{icon}</span>
                     <span className="flex-1 text-sm text-fg">{label}</span>
                     {linked
-                      ? <span className="inline-flex items-center gap-1 bg-tag-green text-tag-green-fg rounded-full text-[10px] px-2 py-0.5"><Check size={10} /> 연결됨</span>
+                      ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tag-green text-tag-green-fg text-[10.5px] font-bold"><Check size={11} /> 연결됨</span>
                       : <button type="button" onClick={() => linkProvider(provider)} disabled={linking === provider} className="text-accent-text hover:bg-accent-weak rounded-md px-2 py-1 text-xs transition active:scale-95 disabled:opacity-50">{linking === provider ? '연결 중...' : '연결하기'}</button>}
                   </div>
                 );
