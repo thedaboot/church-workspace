@@ -531,6 +531,19 @@ svg.lucide { stroke-width: 1.4px; }
   overflow-y: hidden;
 }
 
+/* 가로로 넘기는 통의 오른쪽 끝을 옅게 — 더 있다는 단서(보드 네 칸 · 2026-10-14 시안 'Board').
+   마스크라 바탕색을 몰라도 된다(라이트·다크·보드가 놓인 자리 모두). `data-fade-r`는 오른쪽에
+   더 있을 때만 JS가 붙인다 — 끝까지 넘기면 옅음이 같은 곡선으로 걷힌다(폭을 @property로 전이).
+   움직임 줄이기면 즉시. */
+@property --x-fade { syntax: '<length>'; inherits: false; initial-value: 0px; }
+.x-fade-edge {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--x-fade)), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--x-fade)), transparent);
+  transition: --x-fade .32s var(--ease-out-quint);
+}
+.x-fade-edge[data-fade-r] { --x-fade: 32px; }
+@media (prefers-reduced-motion: reduce) { .x-fade-edge { transition: none; } }
+
 /* ── TipTap(상세 내용 WYSIWYG 에디터) 내부 스타일 ──────────────────────────
    RichText 뷰어와 같은 톤을 유지해 "쓰던 그대로 보인다"를 만든다.
    토큰 변수만 사용하므로 다크 모드는 자동 대응. */

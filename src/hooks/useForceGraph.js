@@ -14,6 +14,9 @@ import { prefersReducedMotion } from './useReducedMotion.js';
 //   영역(zx) 밖으로 끌어낼 수 없다.
 // · 4px 이상 움직였으면 그 노드의 click은 삼킨다(끌기 끝에 업무 창이 열리면 안 된다).
 // · prefers-reduced-motion이면 동기로 수렴시켜 정착 상태를 바로 그린다.
+// · 상자(node.box)가 겹쳐 있는 동안은 식었어도 루프를 잇는다(PUSH_MIN · PITFALLS 50-a).
+// · 이미 그려진 자리에서 다시 짤 때(업무 추가 · 폭·높이 변경)는 미리 돌리지 않고 미끄러진다(50-c).
+// · 글자 폭 재기(textPx · appFont)도 여기 — 알약·이름 상자의 크기를 두 화면이 같은 식으로 잰다.
 // ============================================================================
 const ALPHA_DECAY = 0.0228;   // ≈300틱에 수렴(d3 기본)
 const ALPHA_MIN = 0.002;      // 이보다 식으면 정착 — 루프 종료
@@ -21,6 +24,7 @@ const ALPHA_MIN = 0.002;      // 이보다 식으면 정착 — 루프 종료
 // 이웃이 우르르 튀어 오르는 것이 "탄성"으로 읽혔다. 이웃은 따라오지만 느리게 온다.
 const ALPHA_DRAG = 0.14;      // 드래그 중 유지할 온기
 const ALPHA_WAKE = 0.2;       // 깨울 때 — 너무 높으면 튄다
+const ALPHA_RESUME = 0.4;     // 그려진 자리에서 다시 짤 때(데이터·폭·높이가 바뀜) — 새 앵커까지 갈 만큼만
 const MAX_FRAMES = 900;       // 무한 rAF 방지 백스톱
 
 // **첫 페인트 전에 조용히 미리 돌린다**(2026-08-31 · 사용자 지적 "모바일에서 갑자기
@@ -34,6 +38,9 @@ const MAX_FRAMES = 900;       // 무한 rAF 방지 백스톱
 const SETTLE_DESK = 0.55;
 const SETTLE_MOBILE = 0.3;
 const PRE_GUARD = 400;        // 미리 돌리는 루프의 백스톱
+// 상자 충돌(forceStep의 node.box)이 이만큼(px/프레임) 넘게 밀고 있으면 식었어도 루프를 잇는다 —
+// alpha만 보고 멈추면 겹침이 반쯤 풀린 채 굳는다(2026-10-14 · PITFALLS 50-a).
+const PUSH_MIN = 0.05;
 
 export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact = false }) {
   const pRef = useRef([]);
@@ -62,14 +69,15 @@ export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact =
     if (rafRef.current) return;
     const tick = () => {
       const skip = skipSet();
+      let push = 0;
       for (let k = 0; k < 3; k++) {
-        forceStep(pRef.current, velRef.current, nodes, edges, W, H, { alpha: alphaRef.current, skip });
+        push += forceStep(pRef.current, velRef.current, nodes, edges, W, H, { alpha: alphaRef.current, skip }) || 0;
         // 냉각 — 드래그 중에는 온기를 유지해 이웃이 계속 따라온다
         alphaRef.current += ((dragRef.current ? ALPHA_DRAG : 0) - alphaRef.current) * ALPHA_DECAY;
       }
       bump(x => x + 1);
       framesRef.current++;
-      if ((alphaRef.current > ALPHA_MIN || dragRef.current) && framesRef.current < MAX_FRAMES) {
+      if ((alphaRef.current > ALPHA_MIN || dragRef.current || push > PUSH_MIN) && framesRef.current < MAX_FRAMES) {
         rafRef.current = requestAnimationFrame(tick);
       } else {
         rafRef.current = 0;
@@ -81,14 +89,18 @@ export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact =
 
   useEffect(() => {
     // 초기 자리 — 같은 id는 이전 자리를 물려받고, 새 노드는 앵커 근처에 결정적으로 선다
+    // (n.start가 있으면 그 자리 — 그래프 뷰는 짜 둔 자리 곁에서 시작해 살짝만 움직인다)
     const remembered = posById.current;
+    let resumed = 0;
     pRef.current = nodes.map((n, i) => {
       if (n.fixed) return { x: n.fixed.x, y: n.fixed.y };
       const old = remembered.get(n.id);
       if (old) {
+        resumed++;
         const b = forceBounds(n, W, H);
         return { x: Math.min(b.x1, Math.max(b.x0, old.x)), y: Math.min(b.y1, Math.max(b.y0, old.y)) };
       }
+      if (n.start) return { x: n.start.x, y: n.start.y };
       return {
         x: W * (n.ax ?? 0.5) + ((i * 37) % 13) - 6,
         y: 24 + (n.iy ?? ((i * 61) % 97) / 97) * (H - 48),
@@ -98,11 +110,17 @@ export function useForceGraph({ nodes, edges, W, H, wrapRef, offX = 0, compact =
     alphaRef.current = 1;
     if (reduce) {
       const skip = skipSet();
-      for (let i = 0; i < 600 && alphaRef.current > ALPHA_MIN; i++) {
-        forceStep(pRef.current, velRef.current, nodes, edges, W, H, { alpha: alphaRef.current, skip });
+      for (let i = 0, push = 1; i < 1200 && (alphaRef.current > ALPHA_MIN || push > PUSH_MIN); i++) {
+        push = forceStep(pRef.current, velRef.current, nodes, edges, W, H, { alpha: alphaRef.current, skip }) || 0;
         alphaRef.current -= alphaRef.current * ALPHA_DECAY;
       }
       bump(x => x + 1);
+    } else if (resumed) {
+      // **이미 그려진 자리에서 이어 간다**(2026-10-14 — 업무가 늘거나 폭·높이가 바뀔 때).
+      // 미리 돌리기를 하면 첫 페인트 전에 노드가 수십 px 옮겨 앉아 '툭' 튄다 — 여기서는
+      // 보이는 채로 새 자리까지 미끄러진다(미리 돌리기는 처음 그릴 때의 폭발만 감춘다).
+      alphaRef.current = ALPHA_RESUME;
+      kick(ALPHA_RESUME);
     } else {
       // 폭발 구간을 첫 페인트 전에 흘려보낸다(SETTLE_* 주석). 37개 노드로 16프레임쯤
       // 이라 몇 ms다 — rAF 밖에서 돌아도 화면이 밀리지 않는다.
@@ -188,3 +206,15 @@ export const hoverProps = (setHiId) => (id) => ({
   onPointerEnter: (e) => { if (e.pointerType === 'mouse') setHiId(id); },
   onPointerLeave: (e) => { if (e.pointerType === 'mouse') setHiId(null); },
 });
+
+// 글자 폭(px) — 그래프 알약·연결 지도 이름의 상자(forceStep의 box) 크기를 잰다(2026-10-14).
+// 캔버스 하나를 돌려 쓴다. 글꼴은 앱 본문 글꼴(--font-sans)이다.
+let measureCtx = null;
+export function textPx(text, font) {
+  const s = String(text || '');
+  if (typeof document === 'undefined') return s.length * 11;
+  measureCtx = measureCtx || document.createElement('canvas').getContext('2d');
+  measureCtx.font = font;
+  return measureCtx.measureText(s).width;
+}
+export const appFont = () => (typeof document === 'undefined' ? 'sans-serif' : getComputedStyle(document.body).fontFamily);

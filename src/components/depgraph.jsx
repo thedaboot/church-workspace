@@ -1,20 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CONFIG, teamPaint } from '../config.js';
-import { depLayers } from '../utils.js';
-import { useForceGraph, hoverProps } from '../hooks/useForceGraph.js';
+import { depGraphLayout } from '../utils.js';
+import { useForceGraph, hoverProps, textPx, appFont } from '../hooks/useForceGraph.js';
+import { useReducedMotion } from '../hooks/useReducedMotion.js';
 import { STATUS_DOT_VAR } from '../views/dashboardParts.jsx';
 
 // ============================================================================
 // 프로젝트 '그래프' 보기 — 업무 선후관계 (0020의 cards.depends_on)
 // ----------------------------------------------------------------------------
 // 예전에는 고정 열·행 배치라 **선행을 아무도 안 정하면 전부 0열에 세로로만
-// 쌓였다**(사용자 지적 — 업무가 늘수록 높이만 늘었다). 지금은 연결 지도와 같은
-// 힘 배치다(useForceGraph 공용): 높이 고정, 노드는 손으로 끌 수 있고,
-// 선후 깊이(depLayers)는 x 앵커로만 남아 "왼쪽이 먼저"라는 읽기는 유지된다.
-// 노드는 점 + 제목이다 — 카드 상자(190px)를 힘 배치에 그대로 두면 서로 밀어낼
-// 자리가 안 나온다. 상세는 클릭해서 업무 창으로.
+// 쌓였다**(사용자 지적 — 업무가 늘수록 높이만 늘었다). 그 뒤 연결 지도와 같은
+// 힘 배치(useForceGraph 공용)로 바꿨는데, 점끼리만 밀어내고 높이가 고정이라 알약이
+// 겹치고 판 위아래 끝에 줄지어 눌렸다(2026-10-14 시안 'Graph' · PITFALLS 50-a·50-b).
+// 지금은 **자리를 먼저 짠다**(utils.depGraphLayout — 넓은 판은 깊이 = 열(왼쪽이 먼저),
+// 좁은 판은 깊이 = 줄(위가 먼저) · 선 없는 업무는 격자). 판 높이는 업무 수를 따라가고
+// (폰 최소 360), 힘 배치는 그 자리를 앵커로 끌기·자리 잡는 모션·상자 충돌만 맡는다.
+// 노드는 [팀 레일 | 상태 점 | 제목] 알약이다 — 폭 = 잰 글자 폭. 상세는 클릭해서 업무 창으로.
 // ============================================================================
-const DG = { H_DESK: 440, H_MOBILE: 360 };
+// 판 최소 높이(폰 360 · 넓은 판 440)와 알약 높이. 판 높이는 업무 수를 따라 늘어난다(depGraphLayout).
+const DG = { H_DESK: 440, H_MOBILE: 360, PH: 28 };
+// 알약에서 글자 밖 폭 — pl 6 · 레일 3 · 틈 6 · 점 8 · 틈 6 · pr 10 · 테두리 2 · 반올림 여유 2
+const PILL_CHROME = 43;
 
 // 업무가 하나도 없을 때 — 남는 공간의 **정가운데**에 표식과 함께 선다(사용자 요청
 // 2026-08-31 — "글자만 위에 덩그러니가 아니라 로티 느낌으로 가운데에"). 로티 파일을
@@ -53,63 +59,59 @@ export function DepGraph({ tasks, onTaskClick }) {
   const list = tasks || [];
   const hasEdges = list.some(t => (t.dependsOn || []).length);
   const compact = typeof window !== 'undefined' && window.innerWidth < 768;
-  const H = compact ? DG.H_MOBILE : DG.H_DESK;
+  const reduce = useReducedMotion();
   const wrapRef = useRef(null);
-  const [cw, setCw] = useState(compact ? 340 : 760);
-  // 시뮬 폭은 980까지만 — 전폭(1400px)에 그대로 돌리면 깊이 앵커 사이가 너무 멀어
-  // 오른쪽이 통째로 빈다(연결 지도와 같은 판단). 남는 폭은 여백으로 가운데 정렬.
-  const W = Math.min(cw, 980);
-  const offX = Math.max(0, (cw - W) / 2);
-  useEffect(() => {
+  // **폭을 재기 전에는 짜지 않는다**(연결 지도와 같은 판단 — 짐작한 폭으로 짜 두면 진짜 폭이
+  // 들어올 때 다시 짜여 한 번 더 움직인다). 레이아웃 이펙트라 첫 페인트 전에 잰다.
+  const [cw, setCw] = useState(0);
+  useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setCw(Math.max(280, el.clientWidth)));
+    const read = () => setCw(el.clientWidth < 200 ? 0 : el.clientWidth);
+    read();
+    const ro = new ResizeObserver(read);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [list.length > 0]);
+  // 짜는 폭은 8px 단위로 끊는다 — 몇 px 흔들림에 다시 짜이지 않게. 남는 몇 px은 좌우 여백(offX).
+  const W = Math.floor(cw / 8) * 8;
+  const offX = (cw - W) / 2;
 
-  const { nodes, edges, byId } = useMemo(() => {
-    const cols = depLayers(list);
-    const depthOf = new Map();
-    cols.forEach((col, ci) => col.forEach(t => depthOf.set(t.id, ci)));
-    const rowOf = new Map();
-    cols.forEach(col => col.forEach((t, ri) => rowOf.set(t.id, (ri + 0.5) / col.length)));
-    const nCols = Math.max(1, cols.length);
-    // 앵커는 두 부류다 — 이 뷰를 바꾼 이유가 "연결 안 하면 높이만 쌓인다"였다.
-    //  · 선이 있는 업무: 깊이(depLayers) → x 앵커. 왼쪽이 먼저라는 읽기.
-    //  · 선이 없는 업무: 격자 앵커로 캔버스 전체에 편다(높이가 아니라 면으로).
-    const linkedIds = new Set();
-    list.forEach(t => (t.dependsOn || []).forEach(d => {
-      if (d !== t.id && list.some(x => x.id === d)) { linkedIds.add(t.id); linkedIds.add(d); }
-    }));
-    const loose = list.filter(t => !linkedIds.has(t.id));
-    const looseIdx = new Map(loose.map((t, k) => [t.id, k]));
-    const gridCols = Math.max(2, Math.ceil(Math.sqrt(loose.length * 2)));
-    const gridRows = Math.max(1, Math.ceil(loose.length / gridCols));
-    const nodes = list.map(t => {
-      const base = { id: t.id, t, repel: 2.2, pl: 78, pr: 82, pt: 22, pb: 20 };
-      if (linkedIds.has(t.id) && nCols > 1) {
-        const y = rowOf.get(t.id);
-        return { ...base, ax: 0.14 + 0.72 * (depthOf.get(t.id) || 0) / (nCols - 1), ay: y, iy: y };
-      }
-      const k = looseIdx.get(t.id) ?? 0;
-      const y = 0.1 + 0.8 * (Math.floor(k / gridCols) + 0.5) / gridRows;
-      return { ...base, ax: 0.12 + 0.76 * ((k % gridCols) + 0.5) / gridCols, ay: y, iy: y };
+  const { nodes, edges, byId, H } = useMemo(() => {
+    const minH = compact ? DG.H_MOBILE : DG.H_DESK;
+    if (!W) return { nodes: [], edges: [], byId: new Map(), H: minH };
+    // 알약 폭 = 글자 폭 + 레일·점·여백(PILL_CHROME). 글자는 168px까지 — 폰은 두 알약이 한 줄에
+    // 나란히 들어갈 만큼까지만(최소 88px). 이 폭이 그대로 알약 width가 된다 —
+    // 짠 자리와 그려진 크기가 어긋나 겹치는 일이 없다.
+    const textMax = compact ? Math.max(88, Math.min(168, Math.floor((W - 44) / 2) - PILL_CHROME)) : 168;
+    const font = `600 12px ${appFont()}`;
+    const widths = new Map(list.map(t => [t.id, Math.ceil(Math.min(textMax, textPx(t.title, font))) + PILL_CHROME]));
+    const { at, H } = depGraphLayout(list, W, { widthOf: t => widths.get(t.id), PH: DG.PH, minH });
+    const nodes = list.map((t, i) => {
+      const p = at.get(t.id);
+      const w = widths.get(t.id);
+      return {
+        id: t.id, t, w,
+        // 짠 자리가 앵커다(세게 · ak) — 척력은 끌 때 이웃이 비켜서는 정도만 남긴다.
+        ax: p.x / W, ay: p.y / H, ak: 4, repel: 0.3,
+        // 상자(반폭·반높이)로 서로 밀어낸다 — 짠 간격(16 · 12)보다 조금 작게 잡아 제자리에서는 안 민다
+        box: [w / 2 + 6, DG.PH / 2 + 4],
+        pl: w / 2 + 4, pr: w / 2 + 4, pt: DG.PH / 2 + 4, pb: DG.PH / 2 + 4,
+        // 짠 자리 곁(±6·±4px)에서 시작해 살짝 자리 잡는다 — 펼쳐지는 폭발 없이 모션만 남는다
+        start: { x: p.x + ((i * 37) % 13) - 6, y: p.y + ((i * 23) % 9) - 4 },
+      };
     });
     const idx = new Map(nodes.map((n, i) => [n.id, i]));
     const edges = [];
-    // 선의 목표 길이는 **깊이 앵커 사이 간격**이다(연결 지도와 같은 수정 2026-08-31).
-    // 고정값(180px)이면 열 간격(넓은 화면에서 350px 넘는다)과 싸워서 그래프가 계속
-    // 출렁였다 — 실측으로 방향 반전이 노드당 4.9회에서 1회로 줄어든 그 자리다.
-    // 두 열 이상 건너뛰는 선은 그만큼 길게 잡는다.
-    const colGap = nCols > 1 ? (0.72 * W) / (nCols - 1) : 0;
+    // 선의 목표 길이 = **두 앵커 사이 거리**. 스프링이 짠 자리와 싸우지 않아 가만히 있고,
+    // 끌 때만 이웃을 당긴다(예전에 열 간격으로 잡던 것과 같은 이유 — 고정값이면 출렁였다).
     list.forEach(t => (t.dependsOn || []).forEach(d => {
       if (!idx.has(d) || d === t.id) return;
-      const span = Math.max(1, (depthOf.get(t.id) ?? 0) - (depthOf.get(d) ?? 0));
-      edges.push([idx.get(d), idx.get(t.id), Math.max(compact ? 110 : 150, colGap * span)]);
+      const a = at.get(d), b = at.get(t.id);
+      edges.push([idx.get(d), idx.get(t.id), Math.max(24, Math.hypot(b.x - a.x, b.y - a.y))]);
     }));
-    return { nodes, edges, byId: new Map(list.map(t => [t.id, t])) };
-    // W가 들어온 이유: 선의 목표 길이가 열 간격(폭에 비례)에서 나온다
+    return { nodes, edges, byId: new Map(list.map(t => [t.id, t])), H };
+    // W가 들어온 이유: 자리를 폭에 맞춰 짠다
   }, [list, compact, W]);
 
   const { pos, bindDrag } = useForceGraph({ nodes, edges, W, H, wrapRef, offX, compact });
@@ -155,9 +157,11 @@ export function DepGraph({ tasks, onTaskClick }) {
       </div>
       <div className="rounded-[10px] shadow-soft select-none"
         style={{ border: '1px solid var(--app-line)', background: 'var(--app-surface)' }}>
-        <div ref={wrapRef} className="relative" style={{ height: H }}
+        {/* 판 높이는 업무 수를 따라간다 — 바뀔 때 툭 늘지 않게 높이도 같은 곡선으로(움직임 줄이기면 즉시) */}
+        <div ref={wrapRef} className="relative"
+          style={{ height: H, transition: reduce ? 'none' : 'height .42s var(--ease-out-quint)' }}
           onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHiId(null); }}>
-          <svg className="absolute inset-0 pointer-events-none" width={cw} height={H} aria-hidden>
+          <svg className="absolute inset-0 pointer-events-none overflow-visible" width={cw} height={H} aria-hidden>
             {edges.map(([a, b], i) => {
               // 선행이 끝났으면 초록, 아직이면 회색 — "여기가 막혀 있다"가 색으로 보인다
               const done = byId.get(nodes[a].id)?.status === '완료';
@@ -192,14 +196,14 @@ export function DepGraph({ tasks, onTaskClick }) {
                 title={`${t.title}${t.assignees?.length ? ` · ${t.assignees.join(', ')}` : ''} · ${t.status}`}
                 // 연결 지도의 필과 같은 시각 언어 — [팀 레일 | 상태 점 | 제목].
                 // 맨 점 + 밑 글자는 허전하고 무엇을 누르는지도 흐렸다(사용자 지적).
-                className="absolute flex items-center gap-1.5 pl-1.5 pr-2.5 py-[5px] rounded-full bg-surface border border-line shadow-soft hover:shadow-elevated transition"
+                className="absolute flex items-center gap-1.5 pl-1.5 pr-2.5 rounded-full bg-surface border border-line shadow-soft hover:shadow-elevated transition"
                 style={{
-                  left: offX + P.x, top: P.y, transform: 'translate(-50%, -50%)', cursor: 'grab',
+                  left: offX + P.x, top: P.y, width: n.w, height: DG.PH, transform: 'translate(-50%, -50%)', cursor: 'grab',
                   opacity: dim ? 0.2 : done ? 0.55 : 1, transition: 'opacity 200ms, box-shadow 150ms', ...drag.style,
                 }}>
                 <span className="shrink-0 w-[3px] h-3.5 rounded-full pointer-events-none" style={teamPaint(t.teams, true)} />
                 <span className="shrink-0 w-2 h-2 rounded-full pointer-events-none" style={{ background: STATUS_DOT_VAR[t.status] }} />
-                <span className={`text-[11px] font-semibold leading-none text-fg truncate pointer-events-none ${compact ? 'max-w-[88px]' : 'max-w-[120px]'}`}>
+                <span className="flex-1 min-w-0 text-[12px] font-semibold leading-none text-fg truncate pointer-events-none">
                   {t.title}
                 </span>
               </button>

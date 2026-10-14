@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { teamColor } from '../config.js';
 import { Avatar } from './Avatar.jsx';
 import { YearPicker } from './layout.jsx';
-import { spreadLabels, scrollParentOf } from '../utils.js';
+import { spreadLabels, spreadBoxes, scrollParentOf } from '../utils.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
-import { useForceGraph, hoverProps } from '../hooks/useForceGraph.js';
+import { useForceGraph, hoverProps, textPx, appFont } from '../hooks/useForceGraph.js';
 import { Card } from '../views/dashboardParts.jsx';
 
 // 대시보드 맨 아래의 프로젝트 연결 지도(views/dashboardView.jsx만 쓴다 · 2026-10-07 dashboardParts에서 갈랐다).
@@ -19,6 +19,9 @@ import { Card } from '../views/dashboardParts.jsx';
 //  · **사람·프로젝트 노드는 손으로 끌 수 있다**(사용자 요청 — 겹치면 직접 편다).
 //    시뮬·드래그·클릭 삼킴은 useForceGraph가 한다(그래프 뷰와 공용).
 //  · 판정어 없음(§8): 연결이 없는 사람도 그대로 보인다.
+//  · **사람은 얼굴+이름 한 덩어리로 밀어낸다**(2026-10-14 시안 'NetMap' · PITFALLS 50-a) — 모양(띠·선·알약·끌기·연도)은
+//    그대로이고, 이름이 남의 얼굴 밑에 안 깔리게 상자 충돌(box)·그릴 때 상자 떼어놓기(spreadBoxes)·이름 헤일로만 더했다.
+//    덩어리가 사람 층에 안 들어가면 지도가 그만큼 길어진다(peopleH).
 // 배치 상수 한 곳 — **노드 앵커 · 열 머리글 · 선의 목표 길이가 같은 값을 본다.**
 // 예전에는 세 군데에 숫자를 흩뿌려서 '프로젝트' 머리글(0.8)과 실제 앵커(0.85)가
 // 어긋나 있었다.
@@ -33,7 +36,7 @@ import { Card } from '../views/dashboardParts.jsx';
 //    1400으로 한 번 묶어 봤더니 1858px 카드에서 좌우 229px씩 또 남았다 → 상한을 없앤다.
 //    x 앵커(폭 비율): 사람 · 팀 · 프로젝트.
 //    프로젝트 라벨이 180px까지라 0.84에 세우면 오른쪽 끝(+90)이 카드 경계에 딱 맞는다.
-//  · GAP: 라벨 최소 간격 — 그릴 때 utils.spreadLabels가 이만큼은 띄운다(층별)
+//  · GAP: 라벨 최소 간격 — 그릴 때 utils.spreadLabels가 이만큼은 띄운다(팀·프로젝트 층 · 사람 층은 상자로)
 //  · ZX: 층이 가로로 헤맬 수 있는 범위(폭 비율). 겹침은 그릴 때 y로 풀므로 가로 흔들림은
 //    그냥 잡음이다 — 좁혀서 **열로 읽히게** 한다. 넓게 뒀더니 프로젝트 라벨이 팀 열
 //    위로 들어왔다(모바일에서 특히). 끌기는 세로로는 그대로 자유롭다.
@@ -56,6 +59,12 @@ const FM = {
     ZXD: { m: [0.02, 0.42], p: [0.52, 0.99] },
   },
 };
+// 사람 한 명 = 얼굴(20) + 틈(2) + 이름 줄(10) **한 덩어리**(2026-10-14 시안 'NetMap' · PITFALLS 50-a).
+// 예전에는 얼굴 점끼리만 밀어내서 이름이 아래 사람 얼굴 밑에 깔렸다. 상자 반높이 = 덩어리 16 + 여유 2,
+// 반폭 = 이름 폭(굵게 골랐을 때도 들어가게 8% 여유)의 반 + 여유 3.
+const PERSON_HH = 18;
+const NAME_HALO = '0 0 2px var(--app-surface), 0 0 3px var(--app-surface), 0 0 5px var(--app-surface)';
+const personHW = (name, font) => Math.max(10, (textPx(name, font) * 1.08) / 2) + 3;
 // 선의 목표 길이 = 두 층의 앵커 간격. 스프링이 앵커와 싸우지 않으므로 가로로는
 // 가만히 있고 **세로로만** 이어진 짝을 끌어당긴다 — 그게 이 그림이 원하는 힘이다.
 const EDGE_OF = (a, b, W) => Math.max(48, (b - a) * W);
@@ -73,9 +82,24 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
   // 가장 붐비는 층이 높이를 정한다 — 라벨이 겹치지 않을 만큼만 키우고 상한에서 멈춘다
   const rows = Math.max(members.length, teamsInUse.length, projects.length, 1);
   const L = FM[compact ? 'mob' : 'desk'];
-  const H = Math.min(L.H_MAX, Math.max(L.H_MIN, rows * L.ROW + 60));
   const W = cw;   // 카드 폭을 그대로 쓴다(좌우 여백을 만들지 않는다)
   const { AX, ZX, ZXD } = L;
+  // 사람 덩어리의 반폭(이름 폭) — 상자 충돌과 높이 셈이 같은 값을 본다
+  const personW = useMemo(() => {
+    const font = `400 10px ${appFont()}`;
+    return new Map(members.map(m => [m.name, personHW(m.name, font)]));
+  }, [members]);
+  // 높이: 줄 수를 따라가고 상한에서 멈춘다. 다만 **사람 덩어리가 겹치지 않을 자리는 상한을 넘어서도 준다**
+  // (시안 '지도가 조금 길어져도 된다'). 사람 층 폭에 덩어리가 몇 줄로 서나(cols)를 보고, 시뮬이
+  // 빈틈 없이 채우지는 못하니 15% 여유를 둔다. 위 38(열 머리글 아래) · 아래 16은 그릴 때의 경계와 같다.
+  const peopleH = (() => {
+    if (!W || !members.length) return 0;
+    const x0 = Math.max(30, ZX.m[0] * W), x1 = Math.min(W - 46, ZX.m[1] * W);
+    const boxW = 2 * Math.max(...personW.values());
+    const cols = Math.max(1, Math.floor(Math.max(0, x1 - x0) / boxW) + 1);
+    return Math.ceil(Math.ceil(members.length / cols) * 2 * PERSON_HH * 1.15 + 38 + 16);
+  })();
+  const H = Math.max(Math.min(L.H_MAX, Math.max(L.H_MIN, rows * L.ROW + 60)), peopleH);
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -143,7 +167,8 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
     members.forEach((m, k) => {
       const r = mRank[k];
       push({
-        id: `m:${m.name}`, kind: 'member', m, pl: 30, pr: 46,
+        id: `m:${m.name}`, kind: 'member', m, pl: 30, pr: 46, pt: 38,
+        box: [personW.get(m.name) || 20, PERSON_HH],
         // zx: 사람은 왼쪽 영역 밖으로 못 나간다 — 층 읽기가 안 깨진다(사용자 결정)
         ax: AX.m, zx: ZX.m, zxDrag: ZXD.m,
         ay: r.k >= 0 ? inBand(r.k, r.j, r.n) : spread(r.j, r.n),
@@ -192,7 +217,7 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
       }
     });
     return { nodes, edges, bands };
-  }, [members, teamsInUse, projects, teamProjects, teamLeft, memberLoad, compact, W, H, AX, ZX, ZXD]);
+  }, [members, personW, teamsInUse, projects, teamProjects, teamLeft, memberLoad, compact, W, H, AX, ZX, ZXD]);
 
   // 엔진은 프로젝트 그래프 뷰(depgraph)와 **같은 useForceGraph/forceStep**이다
   // (사용자 지시 2026-08-31 — "힘 엔진은 같이 가져가라"). 상수·미리 돌리기·선 길이
@@ -238,11 +263,14 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
   for (const [kind, key] of [['member', 'm'], ['team', 't'], ['project', 'p']]) {
     const items = nodes.map((n, i) => ({ n, i }))
       .filter(({ n }) => n.kind === kind)
-      .map(({ i }) => ({ i, y: pos[i]?.y ?? 0 }));
+      .map(({ n, i }) => ({ i, y: pos[i]?.y ?? 0, x: pos[i]?.x ?? 0, hw: n.box?.[0], hh: n.box?.[1] }));
     if (!items.length) continue;
     // 위 경계 38: 열 머리글(9.5px, 위에 붙어 있다) 아래다 — 20으로 뒀더니 첫 노드가
     // 머리글을 덮었다(실측 '사람'·'프로젝트' 둘 다).
-    spreadLabels(items, GAP[key], 38, H - 16).forEach((y, i) => drawY.set(i, y));
+    // 사람은 좁은 층 안에 두 줄로도 서므로 **가로로 겹치는 덩어리끼리만** 민다(spreadBoxes) —
+    // y 한 줄로 벌리면 자리가 모자랄 때 균등 분배로 내려앉아 이름이 남의 얼굴에 깔렸다.
+    const spread = key === 'm' ? spreadBoxes(items, 38, H - 16) : spreadLabels(items, GAP[key], 38, H - 16);
+    spread.forEach((y, i) => drawY.set(i, y));
   }
   const yOf = (i) => drawY.get(i) ?? (pos[i]?.y ?? 0);
 
@@ -360,7 +388,9 @@ export function NetworkMap({ members, teamsInUse, projects, teamProjects, teamLe
                 {...hoverOn(n.id)}>
                 <Avatar name={n.m.name} url={n.m.avatarUrl}
                   className={`flex w-[20px] h-[20px] text-[9px] pointer-events-none ${picked ? 'ring-2 ring-accent' : ''}`} />
-                <span className={`text-[10px] leading-none whitespace-nowrap pointer-events-none ${picked ? 'text-fg font-bold' : 'text-fg-muted'}`}>{n.m.name}</span>
+                {/* 바탕색 헤일로 — 선이 이름 위를 지나가도 글자가 읽힌다(시안 'NetMap' · 두 테마 모두 surface) */}
+                <span className={`text-[10px] leading-none whitespace-nowrap pointer-events-none ${picked ? 'text-fg font-bold' : 'text-fg-muted'}`}
+                  style={{ textShadow: NAME_HALO }}>{n.m.name}</span>
               </button>
             );
           }

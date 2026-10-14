@@ -517,6 +517,151 @@ check("폰: 팀 보드 '완료' 칸의 '전체 N건 중'이 보이고 바탕은 
     && JSON.stringify(mark.anim) === '["none","none"]', JSON.stringify(mark));
 }
 
+// ── 반응형 점검 후속(2026-10-14 시안 'Graph'·'NetMap'·'Board' · PITFALLS 50-a) ──
+// 사람 24 · 프로젝트 13 · 실제 '2026 워크스페이스 개선'을 닮은 업무 25건(사슬 13·9 + 갈래 둘 + 선 없는 하나)으로
+// 그래프 알약이 안 겹치고 판 가장자리에 안 붙는지 · 지도 이름이 남의 얼굴에 안 깔리는지 · 보드 네 칸 폭을 잰다.
+// 되돌리기: ① depgraph가 자리를 40px 알약으로 짜고(widthOf) box를 지우면(점처럼 밀어내면) '그래프 알약이 안 겹친다'가
+// (둘 중 하나만 되돌리면 나머지가 메운다 — 짠 자리와 상자 충돌이 서로의 안전망이다), ② networkMap 사람의
+// box를 지우고 spreadBoxes를 spreadLabels로 되돌리면 '이름이 남의 얼굴에 안 깔린다'가, ③ boards의 md:min-w-[180px]을
+// 210으로 되돌리면 '820에서 네 칸이 다 들어온다'가, ④ useForceGraph의 resumed 갈래를 지우면 '업무가 늘어도 툭 튀지
+// 않는다'가 깨진다.
+{
+  const TEAMS = ['웰컴팀', '워십팀', '찬양팀', '엔지니어팀', '미디어팀', '임원진', '교역자'];
+  const NAMES = ['김우한', '윤현서', '이서진', '양민혁', '노준석', '안병현', '김승찬', '이준원', '조해리', '문진혁', '박지호', '재훈', '김윤주', '이하랑Alex', '손채은', '정민경', '강희라', '시온', '장제훈', '조준환', '신효진', '주재은', '천진영', '김다은'];
+  const members = NAMES.map((name, i) => ({ id: 'u' + i, name, avatarUrl: '', team: TEAMS[i % 7],
+    teams: i % 5 === 0 ? [TEAMS[i % 7], TEAMS[(i + 3) % 7]] : [TEAMS[i % 7]], birthday: '', lastSeenAt: '', joinedAt: '2026-01-01T00:00:00Z' }));
+  const PN = ['2026 웰컴팀', '2026 워크스페이스 개선', '2026 예배팀', '2026 엔지니어링팀', '새신자 관리', '다붓캐스트', '2026 미디어팀', '2026 월례회', '2026 믿음샘 양육', '회계', '2026 가을 체육대회', '더다붓 임원진 회의', '2026 더다붓 예배 2.0'];
+  const projects = { byId: {}, allIds: [] };
+  PN.forEach((title, k) => { projects.byId['p' + k] = { id: 'p' + k, title, pinnedLinks: [], year: 2026, createdAt: '2026-01-01T00:00:00Z' }; projects.allIds.push('p' + k); });
+  const byId = {}, allIds = [];
+  let n = 0;
+  const ST = ['완료', '완료', '진행 중', '완료', '시작 전'];
+  const task = (projectId, title, extra = {}) => {
+    const tid = 'c' + (n++);
+    byId[tid] = { id: tid, projectId, title, content: '', status: ST[n % 5], assignees: [NAMES[n % 24]], teams: [TEAMS[n % 7]],
+      startDate: '', dueDate: `2026-0${1 + (n % 9)}-1${n % 9}`, position: n, author: '노준석', createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z', comments: [], attachments: [], activityLog: [], ...extra };
+    allIds.push(tid); return tid;
+  };
+  const W = [], F = [];
+  for (let k = 1; k <= 13; k++) W.push(task('p1', k === 13 ? '워크스페이스 13차 개선 (다붓이)' : `워크스페이스 ${k}차 개선`, { teams: ['찬양팀'], dependsOn: W.length ? [W[W.length - 1]] : [] }));
+  for (let k = 1; k <= 9; k++) F.push(task('p1', k === 2 ? '2차 피드백 개선(feedback 묶음)' : `${k}차 피드백 개선`, { teams: ['찬양팀'], dependsOn: F.length ? [F[F.length - 1]] : [W[2]] }));
+  task('p1', '추석 맞이 워크스페이스', { teams: ['찬양팀'], dependsOn: [W[9]] });
+  task('p1', '더다붓 위키와 다붓이', { teams: ['찬양팀'], dependsOn: [W[11]] });
+  task('p1', '워크스페이스 대개편 회의', { teams: ['찬양팀'] });
+  PN.forEach((_, k) => { if (k !== 1) for (let j = 0; j < 4; j++) task('p' + k, `업무 ${k}-${j}`, { teams: [TEAMS[(k + j) % 7]], assignees: [NAMES[(k * 3 + j) % 24]] }); });
+  const crowd = { currentUser: { name: '노준석', team: '찬양팀', teams: ['찬양팀', '임원진'] }, members, projects, tasks: { byId, allIds } };
+  const openCrowd = async (w, path) => {
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: w < 768 ? 860 : 1000, deviceScaleFactor: 1, mobile: w < 1024 });
+    await send('Emulation.setTouchEmulationEnabled', { enabled: w < 1200, maxTouchPoints: w < 1200 ? 5 : 1 });
+    await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+    await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(crowd))}); localStorage.setItem('theme','light')`);
+    await send('Page.navigate', { url: URL_BASE + path }); await wait('Page.loadEventFired'); await sleep(1400);
+  };
+  const graphNodes = `[...document.querySelectorAll('main button')].filter(b => /워크스페이스|피드백|다붓이/.test(b.title || ''))`;
+  const openGraph = async (w) => {
+    await openCrowd(w, '/?p=p1');
+    await ev(`[...document.querySelectorAll('main button')].find(b => b.textContent.trim() === '그래프')?.click()`);
+  };
+  // ① 그래프 — 폴드 바깥 · 아이패드 세로 · 데스크톱
+  for (const w of [344, 820, 1440]) {
+    await openGraph(w); await sleep(2600);
+    const g = await ev(`(() => {
+      const btns = ${graphNodes}; const wrap = btns[0]?.parentElement; if (!wrap) return null;
+      const C = wrap.getBoundingClientRect(), R = btns.map(b => b.getBoundingClientRect());
+      let over = 0;
+      for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) {
+        const a = R[i], b = R[j];
+        if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5) over++;
+      }
+      const edge = R.filter(r => r.top - C.top < 3 || C.bottom - r.bottom < 3 || r.left - C.left < 3 || C.right - r.right < 3).length;
+      return { n: btns.length, H: Math.round(C.height), over, edge };
+    })()`);
+    check(`그래프 ${w}px: 업무 25건 알약이 서로 안 겹치고 판 가장자리에 줄지어 붙지 않는다`,
+      !!g && g.n === 25 && g.over === 0 && g.edge === 0 && g.H >= (w < 768 ? 360 : 440), JSON.stringify(g));
+  }
+  // ② 업무가 늘어 판이 길어져도 툭 튀지 않는다 — 한 프레임에 움직인 거리 · 판 높이가 같은 곡선으로 늘어나는지
+  await openGraph(393); await sleep(3000);
+  await ev(`(() => {
+    window.__gs = [];
+    const t0 = performance.now();
+    const tick = () => {
+      const btns = ${graphNodes};
+      window.__gs.push({ h: btns[0]?.parentElement.getBoundingClientRect().height,
+        p: Object.fromEntries(btns.map(b => [b.textContent.trim(), [parseFloat(b.style.left), parseFloat(b.style.top)]])) });
+      if (performance.now() - t0 < 1600) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    setTimeout(() => window.__store.dispatch({ type: 'UPSERT_TASK', payload: { ...window.__store.getState().tasks.byId['${W[12]}'],
+      id: 'cnew', title: '워크스페이스 14차 개선', dependsOn: ['${W[12]}'], status: '시작 전', position: 99 } }), 120);
+  })()`);
+  await sleep(2000);
+  const glide = await ev(`(() => {
+    const s = window.__gs; let step = 0;
+    for (let k = 1; k < s.length; k++) for (const [name, [x, y]] of Object.entries(s[k - 1].p)) {
+      const q = s[k].p[name]; if (q) step = Math.max(step, Math.hypot(q[0] - x, q[1] - y));
+    }
+    const hs = [...new Set(s.map(f => Math.round(f.h)))];
+    return { frames: s.length, step: Math.round(step * 10) / 10, heights: hs.length, from: hs[0], to: hs[hs.length - 1],
+      added: !!s[s.length - 1].p['워크스페이스 14차 개선'] };
+  })()`);
+  check('그래프: 업무가 늘어도 알약이 툭 튀지 않고(프레임당 10px 이하) 판 높이가 미끄러지듯 늘어난다',
+    glide.added && glide.step <= 10 && glide.to > glide.from && glide.heights >= 4, JSON.stringify(glide));
+  // ③ 움직임 줄이기 — 판 높이 전이 없음 · 처음부터 제자리(프레임 사이 움직임 0)
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  await openGraph(393);
+  // 그래프는 lazy라 노드가 처음 나타나는 순간을 기다렸다가 바로 찍는다
+  for (let k = 0; k < 60 && (await ev(`${graphNodes}.length`)) < 25; k++) await sleep(25);
+  const snapG = `JSON.stringify(${graphNodes}.map(b => [b.style.left, b.style.top]))`;
+  const firstSnap = await ev(snapG);
+  await sleep(400);
+  const still = await ev(`({ same: ${snapG} === ${JSON.stringify(firstSnap)}, n: ${graphNodes}.length,
+    tr: ${graphNodes}[0]?.parentElement.style.transition })`);
+  check('그래프(움직임 줄이기): 처음부터 제자리 · 판 높이 전이 없음', still.n === 25 && still.same && still.tr === 'none', JSON.stringify(still));
+  await send('Emulation.setEmulatedMedia', { features: [] });
+  // ④ 연결 지도 — 이름이 남의 얼굴에 안 깔린다(폰 393 · 데스크톱 1440) · 이름에 바탕색 헤일로
+  for (const w of [393, 1440]) {
+    await openCrowd(w, '/');
+    await ev(`(() => { const d=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='업무 대시보드'); if (d) { d.click(); return; }
+      const b=[...(document.querySelector('nav')?.querySelectorAll('button')||[])].find(x=>x.textContent.trim()==='업무'); b&&b.click(); })()`);
+    await sleep(500);
+    await ev(`(() => { const d=[...(document.querySelector('nav')?.querySelectorAll('button')||[])].find(x=>x.textContent.trim()==='대시보드'); d&&d.click(); })()`);
+    await sleep(700);
+    await ev(`(() => { const t=[...document.querySelectorAll('[role="tab"]')].find(x=>x.textContent.trim()==='연결'); t&&t.click(); })()`);
+    await sleep(3200);
+    const nm = await ev(`(() => {
+      const h=[...document.querySelectorAll('h3')].find(x=>x.textContent==='프로젝트 연결 지도'); if(!h) return null;
+      const ppl=[...h.closest('div').parentElement.querySelectorAll('button[aria-pressed]')];
+      const P=ppl.map(b=>({ face:b.children[0].getBoundingClientRect(), name:b.children[1].getBoundingClientRect() }));
+      const hit=(a,b)=>Math.min(a.right,b.right)-Math.max(a.left,b.left)>0.5&&Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)>0.5;
+      let bad=0; for(let i=0;i<P.length;i++)for(let j=0;j<P.length;j++) if(i!==j&&(hit(P[i].name,P[j].face)||(i<j&&hit(P[i].name,P[j].name)))) bad++;
+      return { people:P.length, bad, halo: ppl[0] ? getComputedStyle(ppl[0].children[1]).textShadow : '' };
+    })()`);
+    check(`연결 지도 ${w}px: 사람 24명의 이름이 남의 얼굴·이름에 안 깔리고 바탕색 헤일로가 있다`,
+      !!nm && nm.people === 24 && nm.bad === 0 && /rgb\(.*\) 0px 0px 2px/.test(nm.halo), JSON.stringify(nm));
+  }
+  // ⑤ 보드 네 칸 — 820(아이패드 세로)은 네 칸이 다 들어오고(칸 180px 이상) 옅음이 없다 ·
+  //    800은 가로로 넘기며 오른쪽 끝이 옅고, 끝까지 넘기면 옅음이 걷힌다
+  const boardOf = `(() => {
+    const sc=[...document.querySelectorAll('main div')].find(d=>d.children.length===4&&[...d.children].every(c=>c.querySelector('h3'))&&getComputedStyle(d).overflowX==='auto');
+    if(!sc) return null;
+    return { client: sc.clientWidth, scroll: sc.scrollWidth, cols: [...sc.children].map(c => Math.round(c.getBoundingClientRect().width)),
+      fade: sc.hasAttribute('data-fade-r'), mask: getComputedStyle(sc).maskImage !== 'none' };
+  })()`;
+  await openCrowd(820, '/?p=p1');
+  const b820 = await ev(boardOf);
+  check('보드 820px: 네 칸이 폭을 나눠 다 들어온다(칸 180px 이상 · 가로 넘침·옅음 없음)',
+    !!b820 && b820.cols.every(c => c >= 180) && b820.scroll <= b820.client && !b820.fade && !b820.mask, JSON.stringify(b820));
+  await openCrowd(800, '/?p=p1');
+  const b800 = await ev(boardOf);
+  await ev(`(() => { const sc=[...document.querySelectorAll('main div')].find(d=>d.children.length===4&&[...d.children].every(c=>c.querySelector('h3'))&&getComputedStyle(d).overflowX==='auto'); sc.scrollLeft = sc.scrollWidth; })()`);
+  await sleep(300);
+  const b800end = await ev(boardOf);
+  check('보드 800px: 칸 180px로 가로로 넘기고 오른쪽 끝이 옅다 · 끝까지 넘기면 걷힌다',
+    !!b800 && b800.cols.every(c => c === 180) && b800.scroll > b800.client && b800.fade && b800.mask && b800end && !b800end.fade,
+    JSON.stringify({ b800, end: b800end?.fade }));
+}
+
 console.log(results.join('\n'));
 console.log(logs.length?'\n콘솔 오류:\n'+logs.slice(0,4).join('\n'):'\n콘솔 오류 없음');
 ws.close();chrome.kill();process.exit(results.some(r=>r.startsWith('FAIL'))?1:0);

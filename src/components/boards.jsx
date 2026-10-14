@@ -23,6 +23,8 @@ import { isOverdue, todayIso } from '../services/taskCounts.js';
 // 캘린더는 같은 자리에 놓이는 다른 보기라 calendar.jsx로 나눠 뒀다.
 // **상시(0075)는 칸이 아니다** — 네 칸 위 한 줄(OngoingRow)에 칩으로 선다(사용자가 목업에서 고른 C안 ·
 // 2026-09-25). 카드를 그 줄에 놓으면 상시, 줄의 칩을 칸에 놓으면 그 상태다. 0건이면 줄이 없다.
+// **네 칸은 폭을 나눠 쓴다**(768px부터 칸 최소 180px · 2026-10-14 시안 'Board') — 그보다 좁으면 가로로 넘기고
+// 오른쪽 끝이 옅다(.x-fade-edge · 넘칠 때만 마스크 · PITFALLS 50-d).
 // ============================================================================
 const ONGOING = CONFIG.STATUS_ONGOING;
 const ONGOING_DROP = 'ongoing-row';   // 줄의 드롭 id — 컬럼(상태 이름)·'card:'·'chip:'과 겹치지 않게
@@ -259,8 +261,9 @@ function ColumnDroppable({ status, count, share, dragging, empty, children }) {
     <div
       ref={setNodeRef}
       // 모바일: 82vw로 다음 컬럼이 살짝 보이게(더 있다는 신호) + 스냅
-      // 데스크톱: 최소 210px, 4개 상태가 한 화면에 들어온다
-      className={`flex-1 basis-0 min-w-[82vw] md:min-w-[210px] flex flex-col min-h-0 snap-start h-full rounded-sm transition-colors duration-150 ${isOver ? 'bg-accent-weak/70' : ''}`}
+      // 768px부터: 네 칸이 폭을 똑같이 나눠 쓰고(flex-1 basis-0) 칸마다 최소 180px(2026-10-14 시안 'Board' —
+      // 210이던 때는 아이패드 세로 820에서 '완료' 칸이 잘렸다). 그보다 좁으면 가로로 넘기고 오른쪽 끝이 옅다.
+      className={`flex-1 basis-0 min-w-[82vw] md:min-w-[180px] flex flex-col min-h-0 snap-start h-full rounded-sm transition-colors duration-150 ${isOver ? 'bg-accent-weak/70' : ''}`}
     >
       {/* 컬럼 헤더: 상태 점 + 이름 + 건수 + 우측 44×3px 비중 바 */}
       <div className="flex items-center gap-[7px] pb-2 shrink-0" style={{ borderBottom: '1px solid var(--app-line)' }}>
@@ -384,11 +387,31 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
     const col = el?.children?.[i];
     if (col) el.scrollTo({ left: col.offsetLeft - el.offsetLeft, behavior: 'smooth' });
   };
+  // 오른쪽에 더 있나 — 있으면 통의 오른쪽 끝을 옅게(.x-fade-edge · 가로 넘김 단서). 넘길 때와
+  // 통 폭이 바뀔 때(회전·창 크기) 다시 본다. 칸 폭은 통 폭만 따르므로 카드가 늘어도 그대로다.
+  // 넘칠 수 있을 때만 마스크를 건다(over) — 네 칸이 다 들어오는 폭에는 마스크 층 자체가 없다.
+  const [over, setOver] = React.useState(false);
+  const [fadeR, setFadeR] = React.useState(false);
+  const readFade = React.useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setOver(el.scrollWidth - el.clientWidth > 1);
+    setFadeR(el.scrollWidth - el.clientWidth - el.scrollLeft > 1);
+  }, []);
+  React.useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    readFade();
+    const ro = new ResizeObserver(readFade);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [readFade]);
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
     const per = el.scrollWidth / CONFIG.STATUSES.length;
     setVisibleCol(Math.min(CONFIG.STATUSES.length - 1, Math.round(el.scrollLeft / per)));
+    readFade();
   };
 
   // MouseSensor + TouchSensor로 입력 종류를 완전히 분리한다.
@@ -492,7 +515,7 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
           <p className="md:hidden text-center text-[10px] text-fg-muted mb-1.5 -mt-0.5">위 상태 칩에 놓으면 바로 옮겨져요</p>
         )}
         <div
-          ref={scrollRef} onScroll={onScroll}
+          ref={scrollRef} onScroll={onScroll} data-fade-r={fadeR ? '' : undefined}
           // overscroll-behavior-x만 건다 — touch-action:pan-x를 걸면 컬럼 안 카드 목록의
           // 세로 스크롤까지 막힌다(자손 전체에 적용되므로).
           // contain이 아니라 none: contain은 부모로 스크롤이 넘어가는 것만 막고 자기
@@ -500,7 +523,7 @@ export const Board = React.memo(({ tasks, onStatusChange, onReorder, onTaskClick
           // overflow-y-hidden: overflow-x만 auto면 규격상 y도 auto가 계산돼 이 요소
           // 자체가 세로로 흔들렸다(x-scroll-lock 주석 참고). 카드 목록의 세로 스크롤은
           // 컬럼 **안**(ColumnDroppable)의 일이라 여기는 hidden이 맞다.
-          className={`flex-1 min-h-0 flex gap-[14px] md:gap-[22px] pb-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:none] ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}
+          className={`${over ? 'x-fade-edge ' : ''}flex-1 min-h-0 flex gap-[14px] md:gap-[22px] pb-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:none] ${activeId ? '' : 'snap-x snap-mandatory md:snap-none'}`}
         >
           {CONFIG.STATUSES.map(status => (
             <ColumnDroppable key={status} status={status} dragging={!!activeId} count={(byStatus[status] || []).length} share={boardCount ? (byStatus[status] || []).length / boardCount : 0} empty={(byStatus[status] || []).length === 0}>

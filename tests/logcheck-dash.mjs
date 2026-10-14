@@ -405,7 +405,8 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   assert.ok(/const W = cw;/.test(parts), '데스크톱은 카드 폭을 다 쓴다(좌우 여백 낭비를 줄인 자리)');
   assert.ok(/const L = FM\[compact \? 'mob' : 'desk'\];/.test(parts) && /rows \* L\.ROW \+ 60/.test(parts), '높이가 줄 수를 따라간다(라벨 겹침의 원인 · 폭 갈래는 FM에서 한 번 고른다)');
   const dep = readFileSync(new URL('../src/components/depgraph.jsx', import.meta.url), 'utf8');
-  assert.ok(/colGap \* span/.test(dep), '프로젝트 그래프 뷰도 열 간격으로 선 길이를 잡는다');
+  // 2026-10-14부터 그래프 뷰는 자리를 먼저 짜고(depGraphLayout) 선 길이 = 두 앵커 사이 거리다 — 같은 이유(스프링이 앵커와 안 싸운다)
+  assert.ok(/Math\.hypot\(b\.x - a\.x, b\.y - a\.y\)/.test(dep), '프로젝트 그래프 뷰도 앵커 사이 거리로 선 길이를 잡는다');
   console.log('PASS  그래프 부드러움 12가지');
 }
 
@@ -499,6 +500,117 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   assert.ok(/animationDelay: '\.28s'/.test(dep) && /animationDelay: '\.72s'/.test(dep),
     '표식도 순서대로 그려진다(원 → 선 → 원, §4.2)');
   console.log('PASS  지도 한 번 배치·끌기 손맛·빈 그래프 12가지');
+}
+// ── 겹치지 않는 그래프 · 얼굴+이름 한 덩어리 (2026-10-14 시안 'Graph'·'NetMap' · PITFALLS 50-a) ──
+// 프로젝트 그래프의 알약이 서로 덮고 판 위아래 끝에 줄지어 눌렸고(점끼리만 밀어냈다), 연결 지도의
+// 이름이 남의 얼굴 밑에 깔렸다(얼굴 점끼리만 밀고, 그릴 때 y 한 줄로 균등 분배). 브라우저 실측은 dashfix.
+// 되돌리기 검사: ① depGraphLayout이 widthOf를 무시하고 알약을 40px 점처럼 짜면 '알약끼리 안 겹친다'가,
+// ② forceStep의 collide 호출을 지우면 '겹친 둘이 풀린다'·'꽉 찬 사람 층'이, ③ collide의 옆으로 비끼기(¼)를
+// 지우면 '꽉 찬 사람 층'이(실측 14쌍이 그대로 굳었다), ④ spreadBoxes의 1px 너그러움을 지우면 '소수점 겹침'이 깨진다.
+{
+  const { depGraphLayout, forceStep, spreadBoxes } = await loadSource('src/utils.js');
+  // 실제 '2026 워크스페이스 개선'을 닮은 25건 — 사슬 둘(13 · 9, 둘째 사슬은 첫 사슬 3차에서 갈라진다) + 갈래 둘 + 선 없는 하나
+  const T = [];
+  const mk = (id, title, dependsOn = []) => T.push({ id, title, dependsOn, dueDate: '' });
+  for (let k = 1; k <= 13; k++) mk('w' + k, `워크스페이스 ${k}차 개선`, k > 1 ? ['w' + (k - 1)] : []);
+  for (let k = 1; k <= 9; k++) mk('f' + k, `${k}차 피드백 개선`, [k > 1 ? 'f' + (k - 1) : 'w3']);
+  mk('c1', '추석 맞이 워크스페이스', ['w10']); mk('c2', '더다붓 위키와 다붓이', ['w12']); mk('l1', '워크스페이스 대개편 회의');
+  const widthOf = t => Math.min(168, t.title.length * 10.5) + 43;
+  const PH = 28;
+  // 폴드 바깥 · 폰 · 폴드 펼침 · 아이패드 세로 · 아이패드 가로 · 데스크톱 · 넓은 모니터의 그래프 판 폭
+  for (const [W, minH] of [[312, 360], [360, 360], [664, 360], [784, 440], [1144, 440], [1400, 440], [1880, 440]]) {
+    const { at, H, mode } = depGraphLayout(T, W, { widthOf, PH, minH });
+    const box = T.map(t => { const p = at.get(t.id), w = widthOf(t); return { l: p.x - w / 2, r: p.x + w / 2, t: p.y - PH / 2, b: p.y + PH / 2 }; });
+    let over = 0;
+    for (let i = 0; i < box.length; i++) for (let j = i + 1; j < box.length; j++) {
+      const a = box[i], b = box[j];
+      if (Math.min(a.r, b.r) - Math.max(a.l, b.l) > 0 && Math.min(a.b, b.b) - Math.max(a.t, b.t) > 0) over++;
+    }
+    assert.strictEqual(over, 0, `${W}px: 알약끼리 안 겹친다 (${over}쌍 · ${mode})`);
+    const edge = box.filter(b => b.l < 10 || b.r > W - 10 || b.t < 10 || b.b > H - 10).length;
+    assert.strictEqual(edge, 0, `${W}px: 판 가장자리에 붙은 알약이 없다 (${edge}개)`);
+    assert.ok(H >= minH, `${W}px: 최소 높이 ${minH} (${H})`);
+    // 가로 흐름은 왼쪽이, 세로 흐름은 위가 먼저 — 사슬의 다음 업무는 그 앞보다 오른쪽(아래)
+    for (let k = 2; k <= 13; k++) {
+      const a = at.get('w' + (k - 1)), b = at.get('w' + k);
+      assert.ok(mode === 'across' ? b.x > a.x : b.y > a.y, `${W}px: 사슬은 ${mode === 'across' ? '왼쪽' : '위'}이 먼저 (${k - 1}→${k})`);
+    }
+  }
+  assert.strictEqual(depGraphLayout(T, 1400, { widthOf, PH, minH: 440 }).mode, 'across', '넓은 판은 가로 흐름(왼쪽이 먼저)');
+  assert.strictEqual(depGraphLayout(T, 360, { widthOf, PH, minH: 360 }).mode, 'down', '폰은 세로 흐름(시안의 두 갈래)');
+  assert.ok(depGraphLayout(T, 360, { widthOf, PH, minH: 360 }).H > 360, '폰에서 25건이면 판이 360보다 길어진다(업무 수를 따라간다)');
+  assert.strictEqual(depGraphLayout(T.slice(0, 3), 360, { widthOf, PH, minH: 360 }).H, 360, '적으면 최소 높이 그대로');
+  // 선이 없는 업무만 있어도 한 열에 세로로 쌓이지 않는다(예전 고정 열의 '높이만 늘어난다'로 돌아가지 않는다)
+  const loose = Array.from({ length: 12 }, (_, k) => ({ id: 'x' + k, title: '업무 ' + k }));
+  const lz = depGraphLayout(loose, 1400, { widthOf, PH, minH: 440 });
+  assert.ok(new Set([...lz.at.values()].map(p => Math.round(p.x))).size >= 4 && lz.H === 440, `선 없는 업무는 면으로 편다 (H ${lz.H})`);
+
+  // 상자 충돌 — 겹친 둘이 풀리고, 식은 뒤(alpha 0)에도 민다. 다 풀리면 민 양이 0이다(루프가 멈출 수 있다)
+  {
+    const nodes = [{ id: 'a', box: [30, 10] }, { id: 'b', box: [30, 10] }];
+    const pos = [{ x: 100, y: 100 }, { x: 104, y: 103 }], vel = [{ x: 0, y: 0 }, { x: 0, y: 0 }];
+    let push = 0;
+    for (let i = 0; i < 300; i++) push = forceStep(pos, vel, nodes, [], 400, 400, { alpha: 0 });
+    const free = Math.abs(pos[0].x - pos[1].x) >= 59 || Math.abs(pos[0].y - pos[1].y) >= 19;
+    assert.ok(free, `겹친 둘이 풀린다 (${JSON.stringify(pos.map(p => [Math.round(p.x), Math.round(p.y)]))})`);
+    assert.ok(push < 0.05, `다 풀리면 민 양이 0이다 (${push})`);
+    assert.ok(Math.abs(pos[0].y - pos[1].y) >= 19, '덜 겹친 축(위아래)으로 민다');
+  }
+  // 꽉 찬 사람 층 — 지도 폰(카드 288px)에서 사람 24명이 얼굴+이름 상자로 좁은 층(30~86px)에 선다.
+  // 위아래로만 밀면 한 줄이 서로 밀고 당기며 굳었다(14쌍). 옆으로 비껴 두 줄로 풀려야 한다.
+  {
+    const W = 288, H = 580, TT = 7, top = 26, bandH = (H - 52) / TT;
+    const names = ['김우한', '윤현서', '이서진', '양민혁', '노준석', '안병현', '김승찬', '이준원', '조해리', '문진혁', '박지호', '재훈', '김윤주', '이하랑Alex', '손채은', '정민경', '강희라', '시온', '장제훈', '조준환', '신효진', '주재은', '천진영', '김다은'];
+    const hw = n => Math.max(10, (n.replace(/[A-Za-z]/g, '').length * 10 + (n.match(/[A-Za-z]/g) || []).length * 5.5) * 1.08 / 2) + 3;
+    const cnt = Array(TT).fill(0), seen = Array(TT).fill(0);
+    names.forEach((_, i) => cnt[i % TT]++);
+    const nodes = names.map((nm, i) => {
+      const k = i % TT, j = seen[k]++, ay = (top + k * bandH + ((j + 0.5) / cnt[k]) * bandH) / H;
+      return { id: nm, pl: 30, pr: 46, pt: 38, box: [hw(nm), 18], ax: 0.16, zx: [0.02, 0.30], ay, iy: ay };
+    });
+    for (let k = 0; k < TT; k++) nodes.push({ id: 't' + k, fixed: { x: W * 0.44, y: top + k * bandH + bandH / 2 } });
+    const edges = names.map((_, i) => [i, names.length + (i % TT), (0.44 - 0.16) * W]);
+    const pos = nodes.map((n, i) => n.fixed ? { ...n.fixed } : { x: W * n.ax + ((i * 37) % 13) - 6, y: 24 + n.iy * (H - 48) });
+    const vel = nodes.map(() => ({ x: 0, y: 0 }));
+    let alpha = 1, push = 1, frames = 0;
+    while (frames++ < 900 && (alpha > 0.002 || push > 0.05)) {
+      push = 0;
+      for (let k = 0; k < 3; k++) { push += forceStep(pos, vel, nodes, edges, W, H, { alpha }); alpha -= alpha * 0.0228; }
+    }
+    let over = 0;
+    for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++) {
+      const a = nodes[i].box, b = nodes[j].box;
+      if (Math.abs(pos[i].x - pos[j].x) < a[0] + b[0] - 0.5 && Math.abs(pos[i].y - pos[j].y) < a[1] + b[1] - 0.5) over++;
+    }
+    assert.strictEqual(over, 0, `꽉 찬 사람 층이 옆 줄로 풀린다 (겹침 ${over}쌍 · ${frames}프레임)`);
+    assert.ok(frames < 300, `그래도 5초 안에 멈춘다 (${frames}프레임)`);
+    assert.ok(pos.slice(0, names.length).every(p => p.x >= 30 - 0.01 && p.x <= W * 0.30 + 0.01), '사람은 자기 층 밖으로 안 나간다');
+  }
+  // 그릴 때의 안전망(spreadBoxes) — 가로로 겹치는 덩어리끼리만 민다
+  {
+    const side = spreadBoxes([{ i: 'a', x: 30, y: 100, hw: 20, hh: 18 }, { i: 'b', x: 80, y: 100, hw: 20, hh: 18 }], 38, 500);
+    assert.deepStrictEqual([side.get('a'), side.get('b')], [100, 100], '옆에 선 둘은 안 민다(y 한 줄로 벌리던 옛 방식은 여기서 밀었다)');
+    const stack = spreadBoxes([{ i: 'a', x: 30, y: 100, hw: 20, hh: 18 }, { i: 'b', x: 40, y: 110, hw: 20, hh: 18 }], 38, 500);
+    assert.strictEqual(stack.get('b') - stack.get('a'), 36, '가로로 겹치면 덩어리 높이만큼 민다');
+    const tiny = spreadBoxes([{ i: 'a', x: 30, y: 100, hw: 20, hh: 18 }, { i: 'b', x: 30, y: 135.6, hw: 20, hh: 18 }], 38, 500);
+    assert.strictEqual(tiny.get('b'), 135.6, '시뮬이 남긴 소수점 겹침은 안 민다(한 줄이 통째로 밀려 튀었다)');
+    const low = spreadBoxes([{ i: 'a', x: 30, y: 490, hw: 20, hh: 18 }, { i: 'b', x: 30, y: 495, hw: 20, hh: 18 }], 38, 500);
+    assert.ok(low.get('a') >= 38 && low.get('b') <= 500 && low.get('b') - low.get('a') >= 36, '아래 경계를 넘으면 위로 되민다');
+  }
+  // 화면 배선 — 순수 함수만 맞아도 안 쓰면 아무 일도 안 일어난다
+  const dep = readFileSync(new URL('../src/components/depgraph.jsx', import.meta.url), 'utf8');
+  assert.ok(/depGraphLayout\(list, W, \{ widthOf: t => widths\.get\(t\.id\)/.test(dep) && /width: n\.w, height: DG\.PH/.test(dep),
+    '그래프 뷰가 글자 폭으로 자리를 짜고, 그 폭 그대로 알약을 그린다');
+  assert.ok(/box: \[w \/ 2 \+ 6, DG\.PH \/ 2 \+ 4\]/.test(dep), '그래프 알약도 상자로 밀어낸다(끌 때 이웃이 비켜선다)');
+  assert.ok(/height \.42s var\(--ease-out-quint\)/.test(dep) && /reduce \? 'none'/.test(dep), '판 높이가 바뀌면 같은 곡선으로 · 움직임 줄이기면 즉시');
+  const map = readFileSync(new URL('../src/components/networkMap.jsx', import.meta.url), 'utf8');
+  assert.ok(/box: \[personW\.get\(m\.name\) \|\| 20, PERSON_HH\]/.test(map), '연결 지도 사람은 얼굴+이름 한 덩어리로 밀어낸다');
+  assert.ok(/key === 'm' \? spreadBoxes\(items, 38, H - 16\)/.test(map), '그릴 때도 사람 층은 상자로 떼어놓는다');
+  assert.ok(/style=\{\{ textShadow: NAME_HALO \}\}/.test(map) && /var\(--app-surface\)/.test(map), '이름에 바탕색 헤일로');
+  const hook = readFileSync(new URL('../src/hooks/useForceGraph.js', import.meta.url), 'utf8');
+  assert.ok(/push > PUSH_MIN/.test(hook), '겹침이 풀릴 때까지 루프를 잇는다(식었다고 반쯤 겹친 채 굳지 않게)');
+  assert.ok(/\} else if \(resumed\) \{/.test(hook), '그려진 자리에서 다시 짤 때는 미리 돌리지 않는다(툭 튀지 않게)');
+  console.log('PASS  겹치지 않는 그래프·사람 덩어리(그래프 7폭 · 상자 충돌 · 꽉 찬 사람 층 · 그릴 때 안전망 · 배선)');
 }
 // ── 강조가 엉뚱한 노드로 옮겨가지 않나 (연결 지도 · 그래프 뷰) ────────────────
 // 사용자 지적 2026-08-31 — "가끔 다른 프로젝트가 갑자기 강조가 된다". 원인이 둘이었다:

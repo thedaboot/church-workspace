@@ -6,7 +6,7 @@
 //   utils/peopleSeen.js    대시보드 사람 칸 · 다녀간 시각 · localDate
 //   utils/taskEdit.js      업무 창 수정 판정 · 바뀐 칸 · 하위 업무 병합
 //   utils/presenceWhere.js 지금 보고 있는 사람 고르기 · 자리 옮김
-//   utils/graphLayout.js   선후관계 열 · 힘 그래프 한 스텝 · 라벨 떼어놓기 · 이동 범위
+//   utils/graphLayout.js   선후관계 열 · 그래프 자리 짜기 · 힘 그래프 한 스텝(상자 충돌) · 라벨·상자 떼어놓기 · 이동 범위
 // 조각은 import 0개다(노드 검사가 베껴 들인다 — tests/_load.mjs). 조각이 이 파일을 물면 순환이다.
 export * from './utils/authUrl.js';
 export * from './utils/peopleSeen.js';
