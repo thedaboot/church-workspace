@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import logoLight from '../assets/logo-light.webp';
 import { tokenizeInline, IMAGE_LINE_RE, unescapeLine } from '../services/markdown.js';
 import { SEASON_MAST } from '../services/churchYear.js';
+import { isNextWeekNotice } from '../services/serviceView.js';
 
 // ============================================================================
 // 종이 — 예배 노트 · 묵상 노트 · 주보가 **바깥으로 나갈 때** 입는 옷 (2026-09-09)
@@ -522,8 +523,10 @@ export function ServiceSheetTwo({
                     {n.title ? (
                       <span className="block font-bold" style={{ color: PAPER.ink }}>{n.title}</span>
                     ) : null}
+                    {/* '다음 주 예배 위원' 광고의 이름도 명단 본명으로 바뀐다 — 명단이 오기 전에는 그 글만 숨긴다(held) */}
                     {n.body ? (
-                      <span className="block whitespace-pre-line" style={{ color: PAPER.ink2 }}>{n.body}</span>
+                      <span className={`block whitespace-pre-line${isNextWeekNotice(n) ? ' paper-notice-names' : ''}`}
+                        style={{ color: PAPER.ink2, ...(isNextWeekNotice(n) ? held : null) }}>{n.body}</span>
                     ) : null}
                   </span>
                 </li>

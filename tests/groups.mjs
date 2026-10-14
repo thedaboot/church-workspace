@@ -3268,8 +3268,65 @@ await send('Emulation.clearDeviceMetricsOverride');
   check('폰 375 — 띄어쓰기 없는 긴 모임 제목은 다가오는·지난 모임 카드 안에서 접힌다',
     phone.titles.length === 2 && phone.titles.some(t => t.up) && phone.titles.some(t => !t.up)
     && phone.titles.every(t => t.inside && t.lines >= 2), JSON.stringify(phone.titles));
+
+  // 모임 머리줄(시안 Club.dc · 2026-10-14 반응형 점검 C3 · PITFALLS 52-b): 인원·휴지통은 **늘 카드 오른쪽 위**(날짜와 같은 줄) ·
+  // 긴 제목은 날짜 **아래로** 접힌다. 예전 한 줄 flex-wrap에서는 휴지통이 다음 줄 왼쪽에 혼자 떨어졌다.
+  // 되돌리기: clubDetail 머리줄을 한 줄 flex-wrap(날짜·제목·인원·휴지통 형제)으로 되돌리면 휴지통이 날짜 줄을 벗어나 깨진다.
+  const head = await ev(`[...document.querySelectorAll('.club-meeting')].filter(m => m.innerText.includes('띄어쓰기없이')).map(m => {
+    const mr = m.getBoundingClientRect(), d = m.querySelector('.club-meeting-date').getBoundingClientRect(), t = m.querySelector('.club-meeting-title').getBoundingClientRect();
+    const n = m.querySelector('.club-meeting-count').getBoundingClientRect(), x = m.querySelector('.club-meet-drop').getBoundingClientRect();
+    const mid = (r) => (r.top + r.bottom) / 2;
+    return { below: t.top >= d.bottom - 1 && t.left <= d.left + 1, cnt: Math.abs(mid(n) - mid(d)) <= 2, trash: Math.abs(mid(x) - mid(d)) <= 2,
+      right: Math.round(mr.right - x.right), order: n.right <= x.left + 0.5, titleClear: t.right <= n.left + 0.5 }; })`);
+  check('폰 375 — 모임 머리줄: 긴 제목은 날짜 아래로 접히고 인원·휴지통은 날짜 줄 오른쪽 끝에 남는다',
+    head.length === 2 && head.every(h => h.below && h.cnt && h.trash && h.order && h.titleClear && h.right <= 20), JSON.stringify(head));
+
+  // 못 올린 빨간 줄의 이름도 **가운데** 말줄임(2026-10-14 반응형 점검 C3 · 48-d) — 끝을 자르면 `(회계 제출용).xlsx`가 사라졌다.
+  // 되돌리기: meetingReport 빨간 줄의 MiddleName을 `{row.name}` 한 칸 truncate로 되돌리면 꼬리가 비어 깨진다.
+  await ev(`crypto.randomUUID = () => { throw new Error('검사가 일부러 낸 실패'); }`);
+  await pick('보고서 칸 하나', [['통통 동아리 2026년 가을 학기 활동보고서 다시 올림 (회계 제출용).xlsx', 1024, XLSX]]);
+  await poll(`!!${rep('보고서 칸 하나')}?.querySelector('.club-meet-report-failed')`);
+  await ev(`delete crypto.randomUUID`);
+  const failName = await ev(`(() => { const f = ${rep('보고서 칸 하나')}?.querySelector('.club-meet-report-failed'); if (!f) return { err: 'no-failed' };
+    const name = f.querySelector('.club-meet-report-failed-name'), head = name?.querySelector('.club-meet-report-head'), tail = name?.querySelector('.club-meet-report-tail');
+    const fr = f.getBoundingClientRect(), tr = tail?.getBoundingClientRect(), nr = name?.getBoundingClientRect();
+    return { clipped: !!head && head.scrollWidth > head.clientWidth, tail: tail?.textContent || '', tailIn: !!tr && tr.width > 0 && tr.right <= nr.right + 0.5,
+      inside: [...f.querySelectorAll('button')].every(b => b.getBoundingClientRect().right <= fr.right + 0.5) }; })()`);
+  check('폰 375 — 못 올린 빨간 줄의 긴 이름도 가운데 말줄임(꼬리·확장자는 보인다)',
+    failName.clipped && failName.tail === ' 제출용).xlsx' && failName.tailIn && failName.inside, JSON.stringify(failName));
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   await sleep(300);
+
+  // 넓은 화면의 사람 칸(시안 Assign.dc · 2026-10-14 반응형 점검 C3 · PITFALLS 52-d): 1024부터 칸 폭을 260px로 묶는다 — 1920에서 칸이
+  // 370px까지 늘어 이름과 '순 옮기기'·휴지통이 멀리 떨어졌다. **화면(구역) 폭은 그대로**(대시보드 폭 · 2026-09-01 결정 — max-w 금지).
+  // 폰은 예전처럼 한 칸이 통 폭을 다 쓴다. 동아리 상세의 구성원 칸도 같은 격자(PEOPLE_GRID)다.
+  // 되돌리기: groupsParts PEOPLE_GRID의 `lg:` 갈래를 지우면 1920 칸이 260을 넘어 깨진다.
+  {
+    await send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1000, deviceScaleFactor: 1, mobile: false });
+    await enter({ personId: 'p6', isMaster: true, isAdmin: true, roles: [] }, 'light');
+    await tab('동아리'); await sleep(600);
+    await openClub('통통'); await poll(`!!document.querySelector('.club-member')`);
+    await sleep(300);
+    const clubWide = await ev(`(() => { const g = document.querySelector('.club-people'); const card = g?.closest('.p-4');
+      return { cells: [...document.querySelectorAll('.club-member')].map(c => Math.round(c.getBoundingClientRect().width)),
+        card: card ? Math.round(card.getBoundingClientRect().width) : 0 }; })()`);
+    await tab('순 편성'); await poll(`!!document.querySelector('.sun-row .sun-member')`);
+    await sleep(300);
+    const sunWide = await ev(`(() => { const row = document.querySelector('.sun-row'); const cells = [...row.querySelectorAll('.sun-member')];
+      const far = cells.filter(c => c.querySelector('.sun-move')).map(c => Math.round(c.querySelector('.sun-drop').getBoundingClientRect().right - c.getBoundingClientRect().left));
+      return { cells: cells.map(c => Math.round(c.getBoundingClientRect().width)), far, row: Math.round(row.getBoundingClientRect().width), vw: innerWidth }; })()`);
+    check('1920 — 순 편성·동아리 구성원의 사람 칸은 260px로 묶이고(조작이 이름 곁에) 구역 폭은 화면을 그대로 쓴다',
+      sunWide.cells.length > 0 && sunWide.cells.every(w => w <= 260) && sunWide.far.every(x => x <= 260)
+      && sunWide.row >= sunWide.vw - 80 && clubWide.cells.length > 0 && clubWide.cells.every(w => w <= 260) && clubWide.card >= sunWide.vw - 80,
+      JSON.stringify({ sunWide, clubWide }));
+    await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+    await sleep(400);
+    const sunPhone = await ev(`(() => { const row = document.querySelector('.sun-row'); const grid = row?.querySelector('.sun-people');
+      return { cells: [...(grid?.querySelectorAll('.sun-member') || [])].map(c => Math.round(c.getBoundingClientRect().width)), grid: grid ? Math.round(grid.getBoundingClientRect().width) : 0 }; })()`);
+    check('폰 375 — 사람 칸은 예전처럼 한 칸이 통 폭을 다 쓴다', sunPhone.cells.length > 0 && sunPhone.cells.every(w => Math.abs(w - sunPhone.grid) <= 1), JSON.stringify(sunPhone));
+    await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await sleep(300);
+  }
 
   const mineLogs = logs.splice(logsBefore).filter(l => !/활동 보고서 올리기 실패/.test(l));
   logs.push(...mineLogs);

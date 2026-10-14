@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { UserCheck, UserX, ShieldCheck, Shield, Plus, Loader2, Merge } from 'lucide-react';
+import { UserCheck, UserX, ShieldCheck, Shield, Plus, Loader2, SquaresUnite, Ellipsis } from 'lucide-react';
 import { Avatar } from '../components/Avatar.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
+import { usePopover } from '../hooks/usePopover.js';
 import { RosterPanel, RowSkeleton, rowDelay, ProfileLinkPanel } from '../components/roster.jsx';
 import { FailLeft } from '../components/groupsParts.jsx';
 import { BTN } from '../components/buttons.js';
@@ -34,6 +35,7 @@ const guestAccounts = guestStore('church_roster_v1');
 // **누가 있는지 보는 자리**로 그대로 두고, 여기는 **손을 대는 자리**다.
 //
 // 네 가지만 한다. 승인 대기 수락 · 환송해주기 · 다시 초대하기 · 관리자 지정·해제.
+// (함께하는 사람 줄의 계정 합치기·환송해주기는 640부터 글자 버튼 둘, 폰은 '⋯' 메뉴 하나 — 아래 MemberMenu.)
 // '환송해주기'는 접근만 끊는다(0022) — 지난 댓글·기록의 이름은 그대로 남는다.
 // 환송한 사람은 '승인을 기다리는 사람'으로 **다시 올라오지 않는다**(0027):
 // approved 하나로 둘을 겸했더니 방금 내보낸 사람을 다시 수락하라고 화면이 졸랐다.
@@ -123,6 +125,72 @@ function MemberRow({ row, action, delay = 0, isOnline = false, at = '', below = 
     </div>
     {below}
     </div>
+  );
+}
+
+// ── 폰(640 미만)의 '⋯' 메뉴 — 계정 합치기 · 환송해주기 (시안 Members.dc · 사용자 승인 2026-10-14) ─────
+// 344px에서 글자 버튼 둘이 줄 절반을 먹어 '다녀감'이 잘렸다. 640부터는 지금처럼 두 버튼이 글자째 선다.
+// 판은 앱의 다른 메뉴(프로필·프로젝트 더보기)와 같은 껍데기다(usePopover — 같은 등장 모션 · body 포털 ·
+// 화면 안에 가둠 · 바깥 누름/Esc로 닫힘). 메뉴답게 초점을 다룬다: 열리면 첫 줄로 · ↑↓·Home·End로 오가고 ·
+// Esc·Tab·고르기로 닫히면 '⋯'로 돌아온다. '환송해주기'는 메뉴를 닫고 **같은 '⋯' 자리에서** 확인 판을 연다
+// (ConfirmPopover를 밖에서 여닫기 — 메뉴 안에 확인 판을 두면 바깥 누름 판정이 메뉴를 먼저 닫아 확정 누름이 사라진다 · PITFALLS 52-a).
+// 환송은 메뉴 안에서도 빨간 글씨다(잘못 누르기 어렵게).
+// 아이콘: 계정 합치기는 lucide `SquaresUnite`(두 칸이 한 윤곽으로 합쳐진 꼴) — 예전 `Merge`(갈래 화살표)는
+// 13px에서 위로 가는 화살표로 읽혔다. '합친 계정' 구역의 표시도 같은 그림이다.
+const MENU_W = 168;
+function MemberMenu({ name, canMerge, busy = false, onMerge, farewellMessage, onFarewell }) {
+  const pop = usePopover(MENU_W, canMerge ? 90 : 50, { gap: 8, measure: true });
+  const [confirm, setConfirm] = useState(false);
+  const listRef = useRef(null);
+  const btn = () => pop.btnRef.current?.querySelector('button');
+  const back = () => btn()?.focus({ preventScroll: true });
+  // 열리면 첫 줄로 초점 — 손가락으로 연 사람에게는 테두리가 서지 않는다(focus-visible)
+  useEffect(() => {
+    if (!pop.open) return undefined;
+    const raf = requestAnimationFrame(() => listRef.current?.querySelector('[role="menuitem"]')?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(raf);
+  }, [pop.open]);
+  const choose = (fn) => () => { pop.close(); fn(); };
+  const onKey = (e) => {
+    const items = [...(listRef.current?.querySelectorAll('[role="menuitem"]') || [])];
+    const at = items.indexOf(document.activeElement);
+    const go = (i) => { e.preventDefault(); items[(i + items.length) % items.length]?.focus(); };
+    if (e.key === 'ArrowDown') go(at + 1);
+    else if (e.key === 'ArrowUp') go(at - 1);
+    else if (e.key === 'Home') go(0);
+    else if (e.key === 'End') go(items.length - 1);
+    else if (e.key === 'Escape') back();   // 닫기는 usePopover(useDismiss)가 한다
+    else if (e.key === 'Tab') { e.preventDefault(); pop.close(); back(); }
+  };
+  const item = 'members-menu-item w-full h-10 flex items-center gap-[9px] px-2.5 rounded-[7px] text-[13.5px] text-left outline-none transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover disabled:opacity-40';
+  return (
+    <span ref={pop.rootRef} className="members-more-wrap sm:hidden inline-flex shrink-0">
+      <ConfirmPopover open={confirm} onOpenChange={(v) => { setConfirm(v); if (!v) back(); }}
+        message={farewellMessage} onConfirm={onFarewell}>
+        <span ref={pop.btnRef} className="inline-flex">
+          <button type="button" disabled={busy} aria-label={`${name} 더 보기`} aria-haspopup="menu" aria-expanded={pop.open}
+            onClick={() => { setConfirm(false); pop.toggle(); }}
+            className={`members-more w-9 h-9 -my-1 inline-flex items-center justify-center rounded-full transition active:scale-95 disabled:opacity-40 ${
+              pop.open || confirm ? 'bg-surface-hover text-fg' : 'text-fg-muted hover:bg-surface-hover hover:text-fg'}`}>
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <Ellipsis size={18} />}
+          </button>
+        </span>
+      </ConfirmPopover>
+      {pop.panel('members-menu z-[90] bg-surface border border-line rounded-[10px] shadow-elevated p-1', (
+        <div ref={listRef} role="menu" aria-label={`${name} 더 보기`} onKeyDown={onKey}>
+          {canMerge && (
+            <button type="button" role="menuitem" tabIndex={-1} onClick={choose(() => { onMerge(); back(); })}
+              className={`members-menu-merge ${item} text-fg-secondary`}>
+              <SquaresUnite size={16} className="shrink-0 text-fg-muted" /> 계정 합치기
+            </button>
+          )}
+          <button type="button" role="menuitem" tabIndex={-1} onClick={choose(() => setConfirm(true))}
+            className={`members-menu-farewell ${item} text-tag-red-fg`}>
+            <UserX size={16} className="shrink-0" /> 환송해주기
+          </button>
+        </div>
+      ))}
+    </span>
   );
 }
 
@@ -335,6 +403,9 @@ export function MembersView({ isAdmin, isMaster }) {
   const [justAccepted, setJustAccepted] = useState({});   // { [계정 id]: true } — 판이 닫힐 때까지 위 구역에
   const [linkFor, setLinkFor] = useState('');              // 잇기 판이 열린 계정 id
   const closeLink = () => { setLinkFor(''); setJustAccepted({}); };
+  // 합칠 계정 고르는 판 여닫기 — 글자 버튼(640부터)과 '⋯' 메뉴(폰)가 같은 것을 부른다
+  const toggleMerge = (id) => { setLinkFor(''); setMergeFor(v => (v === id ? '' : id)); };
+  const farewellMessage = (row) => `${row.display_name || '이 분'}을 환송할까요? 지난 댓글·기록은 그대로 남아요.`;
   const mergeInto = async (keep, drop) => {
     mark(keep.id, true);
     try {
@@ -541,17 +612,18 @@ export function MembersView({ isAdmin, isMaster }) {
                     명단 미연결
                   </button>
                 ) : null}
-                action={isMe(row.id) ? null : (
-                <span className="flex items-center gap-1">
+                action={isMe(row.id) ? null : (<>
+                {/* 640부터는 두 버튼이 글자째 · 폰은 '⋯' 하나(MemberMenu · 시안 Members.dc) */}
+                <span className="members-actions hidden sm:flex items-center gap-1">
                   {/* 합치기는 마스터만 — 남의 댓글·담당자를 다른 계정으로 옮기는 일이다 */}
                   {isMaster && (
                     <button type="button" disabled={!!busy[row.id]}
-                      onClick={() => { setLinkFor(''); setMergeFor(v => (v === row.id ? '' : row.id)); }}
+                      onClick={() => toggleMerge(row.id)}
                       className="members-merge shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-fg-muted hover:text-fg hover:bg-surface-hover text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
-                      {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <Merge size={13} />} 계정 합치기
+                      {busy[row.id] ? <Loader2 size={13} className="animate-spin" /> : <SquaresUnite size={13} />} 계정 합치기
                     </button>
                   )}
-                  <ConfirmPopover message={`${row.display_name || '이 분'}을 환송할까요? 지난 댓글·기록은 그대로 남아요.`}
+                  <ConfirmPopover message={farewellMessage(row)}
                     onConfirm={() => approve(row, false)}>
                     <button type="button" disabled={!!busy[row.id]}
                       className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-fg-muted hover:text-tag-red-fg hover:bg-surface-hover text-[11px] font-semibold transition active:scale-95 disabled:opacity-40">
@@ -559,7 +631,10 @@ export function MembersView({ isAdmin, isMaster }) {
                     </button>
                   </ConfirmPopover>
                 </span>
-              )} below={linkFor === row.id ? linkPanel(row) : mergeFor === row.id ? (
+                <MemberMenu name={row.display_name || '이름 미입력'} canMerge={isMaster} busy={!!busy[row.id]}
+                  onMerge={() => toggleMerge(row.id)}
+                  farewellMessage={farewellMessage(row)} onFarewell={() => approve(row, false)} />
+              </>)} below={linkFor === row.id ? linkPanel(row) : mergeFor === row.id ? (
                 <div className="members-merge-pick mt-2 border border-line rounded-lg p-1.5 max-h-60 overflow-y-auto">
                   <p className="px-2 py-1.5 text-[11px] text-fg-muted leading-relaxed">
                     <span className="font-bold text-fg">{row.display_name || '이 계정'}</span>으로 합칠 계정을 고르세요.
@@ -599,7 +674,7 @@ export function MembersView({ isAdmin, isMaster }) {
               {mergedRows.map((row, i) => (
                 <MemberRow key={row.id} row={row} delay={rowDelay(i, stagger)} {...rowProps(row)} action={
                   <span className="members-merged shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-fg-muted">
-                    <Merge size={13} />
+                    <SquaresUnite size={13} />
                     {nameById.get(row.merged_into)
                       ? `${nameById.get(row.merged_into)}(으)로 합쳤어요`
                       : '다른 계정으로 합쳤어요'}

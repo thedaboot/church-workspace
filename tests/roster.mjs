@@ -150,8 +150,9 @@ check('가입자 줄은 화면 함수 밖에서 만든다(렌더마다 다시 �
 // 규칙(supabaseClient.isMyUid — 세션 uid와 남긴 계정 id 둘 다 · 0063)이다.
 // 되돌리기 확인: `action={isMe(row.id) ? null : (`를 `action={(`로 되돌리면 첫 검사가, isMe를 세션 uid
 // 비교(`id === sessionUid`)로 바꾸면 둘째 검사가 깨진다.
-check('가입자 탭의 내 줄에는 환송해주기·계정 합치기가 서지 않는다',
-  /action=\{isMe\(row\.id\) \? null : \(\s*<span className="flex items-center gap-1">[\s\S]{0,400}members-merge[\s\S]{0,1600}환송해주기/.test(viewCode));
+// (2026-10-14 C3: 그 action이 [640부터 글자 버튼 둘 | 폰 '⋯' 메뉴] 한 벌이 되었다 — 둘 다 같은 isMe 갈래 안이다)
+check('가입자 탭의 내 줄에는 환송해주기·계정 합치기가 서지 않는다(글자 버튼도 ⋯ 메뉴도)',
+  /action=\{isMe\(row\.id\) \? null : \(<>[\s\S]{0,300}members-actions[\s\S]{0,400}members-merge[\s\S]{0,1600}환송해주기[\s\S]{0,600}<MemberMenu /.test(viewCode));
 check("'나'는 세션 uid와 남긴 계정 id 둘 다다(합친 계정 · isMyUid)",
   /const isMe = \(id\) => isMyUid\(id, sessionUid\);/.test(viewCode)
   && /import \{[^}]*isMyUid[^}]*\} from '\.\.\/services\/supabaseClient\.js'/.test(viewCode));
@@ -785,6 +786,93 @@ await send('Emulation.clearDeviceMetricsOverride');
   await ev(`[...document.querySelectorAll('[data-link-panel="u4"] button')].find(b => b.textContent.trim() === '닫기')?.click()`);
   await sleep(250);
   check("'닫기'로 미루면 칩이 남는다", (await ev(`!document.querySelector('[data-link-panel]') && !!(${rowOf('함께하는 사람', '조해리')})?.querySelector('[data-unlinked]')`)) === true);
+}
+
+// ── 폰(640 미만) 가입자 줄의 '⋯' 메뉴 (시안 Members.dc · 사용자 승인 2026-10-14 · PITFALLS 52-a) ─────────────
+// 344px에서 '계정 합치기'·'환송해주기' 글자 버튼 둘이 줄 절반을 먹어 '다녀감'이 잘렸다 → '⋯' 하나 → 메뉴. 사용자가 짚은 두 가지:
+// 아이콘(계정 합치기 = SquaresUnite) · 메뉴 인터랙션(다른 메뉴와 같은 등장 모션 · 바깥 누름/Esc로 닫힘 · 화면 끝에서 안 잘림 · 초점).
+// 되돌리기: MemberMenu의 '열리면 첫 줄로 초점' effect를 지우면 초점 검사가, onKey의 Escape 갈래(back)를 지우면 'Esc 뒤 ⋯로' 검사가,
+// membersView의 `members-actions hidden sm:flex`를 `flex`로 되돌리면 첫 검사가 깨진다.
+{
+  const poll3 = async (expr, to = 4000) => { const t0 = Date.now(); while (Date.now() - t0 < to) { if (await ev(expr)) return true; await sleep(80); } return false; };
+  await ev(`localStorage.setItem('church_roster_v1', ${JSON.stringify(JSON.stringify(seed))})`);
+  await send('Emulation.setDeviceMetricsOverride', { width: 344, height: 760, deviceScaleFactor: 2, mobile: true });
+  await send('Page.navigate', { url: `${URL_BASE}/?p=members` });
+  await wait('Page.loadEventFired');
+  await poll3(`!!document.querySelector('.members-more')`, 6000);
+  await sleep(500);
+  const SEC = `[...document.querySelectorAll('section')].find(s => (s.querySelector('h3')?.textContent || '').includes('함께하는 사람'))`;
+  const rowsOf = `[...(${SEC})?.querySelectorAll('.dc-row') || []]`;
+  const row0 = await ev(`(() => { const rows = ${rowsOf}; return rows.map(r => { const m = r.querySelector('.members-more'); const a = r.querySelector('.members-actions');
+    const b = m?.getBoundingClientRect(); return { more: !!m && getComputedStyle(m).display !== 'none' && b.width >= 36 && b.height >= 36,
+      label: m?.getAttribute('aria-label') || '', pop: m?.getAttribute('aria-haspopup') || '', actions: a ? getComputedStyle(a).display : 'none',
+      name: r.querySelector('.truncate')?.textContent.trim() || '' }; }); })()`);
+  check("폰 344 — 함께하는 사람 줄마다 '⋯' 하나(36px 이상 · aria-label '<이름> 더 보기' · 메뉴를 연다), 글자 버튼 둘은 숨는다",
+    row0.length >= 4 && row0.every(r => r.more && r.label === `${r.name} 더 보기` && r.pop === 'menu' && r.actions === 'none'), JSON.stringify(row0));
+  // 셋째 줄의 ⋯ — 진짜 누름(CDP 마우스)으로 연다
+  const at = await ev(`(() => { const m = (${rowsOf})[2]?.querySelector('.members-more'); const r = m.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, name: (${rowsOf})[2].querySelector('.truncate').textContent.trim() }; })()`);
+  const tapAt = async (x, y) => { await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }); await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }); };
+  await tapAt(at.x, at.y);
+  await poll3(`!!document.querySelector('.members-menu')`);
+  await sleep(250);
+  const menu = await ev(`(() => { const p = document.querySelector('.members-menu'); const r = p.getBoundingClientRect();
+    const m = (${rowsOf})[2].querySelector('.members-more').getBoundingClientRect();
+    const red = document.createElement('span'); red.style.color = 'var(--app-tag-red-fg)'; document.body.appendChild(red); const redC = getComputedStyle(red).color; red.remove();
+    return { portal: p.parentElement === document.body, cls: p.className, l: r.left, r: r.right, b: r.bottom, vw: innerWidth, vh: innerHeight, below: r.top >= m.bottom - 1,
+      items: [...p.querySelectorAll('[role=menuitem]')].map(b => b.textContent.trim()), role: p.querySelector('[role=menu]') ? 'menu' : '',
+      focus: document.activeElement?.textContent.trim() || '', expanded: (${rowsOf})[2].querySelector('.members-more').getAttribute('aria-expanded'),
+      red: getComputedStyle(p.querySelector('.members-menu-farewell')).color === redC,
+      icon: !!p.querySelector('.members-menu-merge svg.lucide-squares-unite') }; })()`);
+  check('⋯를 누르면 메뉴 — 계정 합치기 · 환송해주기(빨간 글씨) · 계정 합치기 아이콘은 SquaresUnite',
+    JSON.stringify(menu.items) === JSON.stringify(['계정 합치기', '환송해주기']) && menu.role === 'menu' && menu.red && menu.icon && menu.expanded === 'true', JSON.stringify(menu));
+  check('메뉴는 앱의 다른 메뉴와 같은 껍데기 — body 포털 · 등장 모션(fade·zoom-95 150ms · transition-none) · 344에서 화면 안',
+    menu.portal && /animate-in/.test(menu.cls) && /fade-in/.test(menu.cls) && /zoom-in-95/.test(menu.cls) && /duration-150/.test(menu.cls) && /transition-none/.test(menu.cls)
+    && menu.l >= 8 && menu.r <= menu.vw - 8 && menu.b <= menu.vh && menu.below, JSON.stringify(menu));
+  check('메뉴가 열리면 첫 줄(계정 합치기)로 초점이 간다', menu.focus === '계정 합치기', menu.focus);
+  const keyOn = (k) => ev(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true }))`);
+  await keyOn('ArrowDown'); await sleep(60);
+  const down = await ev(`document.activeElement?.textContent.trim() || ''`);
+  await keyOn('ArrowDown'); await sleep(60);
+  const wrap = await ev(`document.activeElement?.textContent.trim() || ''`);
+  check('↓로 다음 줄 · 끝에서 처음으로 돈다', down === '환송해주기' && wrap === '계정 합치기', JSON.stringify({ down, wrap }));
+  await keyOn('Escape'); await sleep(200);
+  const esc = await ev(`({ open: !!document.querySelector('.members-menu'), focus: document.activeElement?.getAttribute('aria-label') || '' })`);
+  check("Esc로 닫히고 초점은 그 줄의 '⋯'로 돌아온다", !esc.open && esc.focus === `${at.name} 더 보기`, JSON.stringify(esc));
+  // 바깥을 누르면 닫힌다
+  await tapAt(at.x, at.y); await poll3(`!!document.querySelector('.members-menu')`);
+  await tapAt(20, 120); await sleep(250);
+  check('바깥을 누르면 메뉴가 닫힌다', (await ev(`!document.querySelector('.members-menu')`)) === true);
+  // 계정 합치기 → 그 줄 아래 고르는 판
+  await tapAt(at.x, at.y); await poll3(`!!document.querySelector('.members-menu')`);
+  await ev(`document.querySelector('.members-menu-merge').click()`); await sleep(250);
+  const merge = await ev(`({ open: !!document.querySelector('.members-menu'), pick: !!(${rowsOf})[2].querySelector('.members-merge-pick') })`);
+  check("'계정 합치기'를 고르면 메뉴가 닫히고 그 줄 아래 합칠 계정 고르는 판이 펴진다", !merge.open && merge.pick, JSON.stringify(merge));
+  await ev(`[...(${rowsOf})[2].querySelectorAll('.members-merge-pick button')].find(b => b.textContent.trim() === '닫기')?.click()`); await sleep(200);
+  // 환송해주기 → 같은 ⋯ 자리에서 확인 판(취소로 초점) → 확정하면 환송
+  await tapAt(at.x, at.y); await poll3(`!!document.querySelector('.members-menu')`);
+  await ev(`document.querySelector('.members-menu-farewell').click()`);
+  await poll3(`[...document.body.children].some(d => (d.innerText || '').includes('환송할까요?'))`);
+  await sleep(150);
+  const conf = await ev(`(() => { const box = [...document.body.children].find(d => (d.innerText || '').includes('환송할까요?')); const r = box.getBoundingClientRect();
+    const m = (${rowsOf})[2].querySelector('.members-more').getBoundingClientRect();
+    return { menu: !!document.querySelector('.members-menu'), text: box.innerText.split('\\n')[0], focus: document.activeElement?.textContent.trim() || '',
+      inside: r.left >= 8 && r.right <= innerWidth - 8, anchored: Math.abs(r.right - m.right) <= 1 }; })()`);
+  check("'환송해주기'를 고르면 메뉴가 닫히고 같은 '⋯' 자리에서 확인 판이 뜬다(초점은 취소)",
+    !conf.menu && conf.text.startsWith(`${at.name}을 환송할까요?`) && conf.focus === '취소' && conf.inside && conf.anchored, JSON.stringify(conf));
+  await ev(`[...document.body.children].find(d => (d.innerText || '').includes('환송할까요?'))?.querySelectorAll('button')[1]?.click()`);
+  await sleep(500);
+  const gone = await ev(`(() => { const names = (${rowsOf}).map(r => r.querySelector('.truncate')?.textContent.trim());
+    const rem = [...document.querySelectorAll('section')].find(s => (s.querySelector('h3')?.textContent || '').includes('환송한 사람'));
+    return { left: !names.includes(${JSON.stringify(at.name)}), moved: !!rem && rem.innerText.includes(${JSON.stringify(at.name)}) }; })()`);
+  check('확정하면 그 사람이 환송한 사람으로 옮겨 간다', gone.left && gone.moved, JSON.stringify(gone));
+  // 640부터는 글자 버튼 둘 그대로 · ⋯ 없음
+  await send('Emulation.setDeviceMetricsOverride', { width: 690, height: 900, deviceScaleFactor: 2, mobile: true });
+  await sleep(300);
+  const wide = await ev(`(${rowsOf}).map(r => ({ more: getComputedStyle(r.querySelector('.members-more-wrap')).display, act: getComputedStyle(r.querySelector('.members-actions')).display,
+    btns: [...r.querySelectorAll('.members-actions button')].map(b => b.textContent.trim()) }))`);
+  check("640부터는 지금처럼 '계정 합치기'·'환송해주기' 글자 버튼이 서고 '⋯'는 없다",
+    wide.length >= 3 && wide.every(w => w.more === 'none' && w.act === 'flex' && w.btns.join() === '계정 합치기,환송해주기'), JSON.stringify(wide));
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 }
 
 check('콘솔 오류 0', logs.length === 0, logs.slice(0, 2).join(' | '));

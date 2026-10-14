@@ -30,6 +30,9 @@ import { MyNote } from './worshipNote.jsx';
 // 미리보기 창(+PdfView)은 열 때만 받는다 — 첨부를 안 여는 사람까지 그 무게를 받지 않게(2026-09-24).
 const FilePreviewModal = lazy(() => import('./FilePreviewModal.jsx').then(m => ({ default: m.FilePreviewModal })));
 
+// 명단이 오기 전 이름 자리 — 글자만 숨기고 자리는 그대로(PITFALLS 48-a·52-c · paper.jsx의 held와 같은 값)
+const HELD = { visibility: 'hidden' };
+
 // ============================================================================
 // 주보 상세 — 말씀 · 담당자 · 찬양 · 광고 + 내 예배 노트 (docs/V2.md 결정 4·5·7)
 // ----------------------------------------------------------------------------
@@ -153,7 +156,10 @@ function WordTab({ service, onOpenBible, cueFiles = [], onOpenFile }) {
 // 그 해 부장 '부장님' · 나머지 명단 사람 '청년'. 명단에 없는 객원은 적힌 글자 그대로다.
 // 규칙은 services/people.js 한 곳이고(honorific), 여기는 그 한 벌을 받아 쓴다.
 // 편집 줄은 손대지 않는다 — 입력칸에 담기는 값은 이름이라야 명단 연결이 계속 맞는다.
-function RolesTab({ rows, people, nameOf }) {
+// **명단이 오기 전에는 얼굴·이름 자리를 비워 둔다**(namesReady · PITFALLS 48-a·52-c) — 호칭 없는 이름과 글자 원이 섰다가
+// 명단이 오면 '양민혁 전도사님'과 사진으로 바뀌었다. 줄·번호·역할 칩은 그대로 서고 둘만 visibility로 숨긴다(줄 높이 그대로).
+function RolesTab({ rows, people, nameOf, namesReady = true }) {
+  const held = namesReady ? undefined : HELD;
   const byId = useMemo(() => new Map((people || []).map(p => [p.id, p])), [people]);
   if (!rows.length) return <WorshipEmpty text="담당자를 아직 정하지 않았어요" />;
   return (
@@ -168,12 +174,14 @@ function RolesTab({ rows, people, nameOf }) {
           <li key={i} className="worship-role-row flex items-center gap-2.5 py-2.5" style={{ borderBottom: '1px solid var(--app-line)' }}>
             <span className={NUM}>{i + 1}</span>
             {/* 계정이 이어진 사람만 사진이 있다 — 나머지는 이름 글자 원이다(§4.7) */}
-            <Avatar name={name} {...(person?.profile_id ? {} : { url: null })} className="flex w-7 h-7 text-[12px] shrink-0" />
+            <span className="worship-role-face inline-flex shrink-0" style={held}>
+              <Avatar name={name} {...(person?.profile_id ? {} : { url: null })} className="flex w-7 h-7 text-[12px] shrink-0" />
+            </span>
             {/* 역할은 편집 줄과 같은 자리·같은 칩이다. 예전에는 오른쪽 끝에 밀어 뒀는데,
                 폭 상한을 걷어내니 이름과 역할이 화면 양 끝으로 갈라졌다(위 지적의
                 재발). 붙여 두면 어느 폭에서도 '누가 무엇을' 한 눈에 읽힌다. */}
             {r.role && <span className={`${ROLE_VIEW} shrink-0`}>{r.role}</span>}
-            <span className="min-w-0 text-[13px] font-semibold text-fg truncate">{shown || '이름 미입력'}</span>
+            <span className="worship-role-name min-w-0 text-[13px] font-semibold text-fg truncate" style={held}>{shown || '이름 미입력'}</span>
             <span className="flex-1" />
           </li>
         );
@@ -233,13 +241,14 @@ function SongThumb({ link, big = false }) {
 // 그 상자의 기준선은 **첫 칸(아이콘 svg)의 아랫변**이다 — 아이콘 밑동이 글자 기준선에
 // 붙으면서 아이콘과 글자가 통째로 몇 px 위로 떠올랐다. 세로 가운데로 맞추면 글자 크기가
 // 달라도(12.5 / 11.5) 두 상자의 한가운데가 같은 자리에 온다.
-const PraiseHead = ({ leader, playlistUrl, nameOf }) => (
+const PraiseHead = ({ leader, playlistUrl, nameOf, namesReady = true }) => (
   <p className="worship-praise-head flex flex-wrap items-center gap-1.5 pb-2.5 text-[12.5px] text-fg-muted">
     <span className="worship-praise-team font-bold text-fg">{PRAISE_TEAM}</span>
     {/* 인도자도 담당자 줄과 같은 호칭 규칙이다(services/people.js honorific) — 명단에
         없는 객원 인도자는 적은 글자 그대로 선다 */}
     {/* '찬양 인도'다 — 예배 인도가 아니다(사용자 지적 2026-09-09) */}
-    {leader ? <span className="worship-praise-leader">· 찬양 인도 {nameOf ? nameOf(leader) : leader}</span> : null}
+    {/* 명단이 오기 전에는 이름 글자만 숨긴다(namesReady · RolesTab과 같은 이유) */}
+    {leader ? <span className="worship-praise-leader">· 찬양 인도 <span className="worship-praise-leader-name" style={namesReady ? undefined : HELD}>{nameOf ? nameOf(leader) : leader}</span></span> : null}
     {playlistUrl ? (
       <a href={playlistUrl} target="_blank" rel="noreferrer"
         className="worship-praise-playlist inline-flex items-center gap-1 leading-none text-[11.5px] font-semibold text-accent-text hover:underline">
@@ -256,13 +265,13 @@ const PraiseHead = ({ leader, playlistUrl, nameOf }) => (
 // 이름만 남겨 두면 '찬양을 정해 뒀다'로 읽힌다.
 const WJ = '⁠';   // 단어 잇개 — 아래 곡 링크의 아이콘이 혼자 다음 줄로 내려가지 않게
 
-function SongsTab({ rows, leader, playlistUrl, nameOf }) {
+function SongsTab({ rows, leader, playlistUrl, nameOf, namesReady = true }) {
   // 빈 상태 한 벌 — 인도자·재생목록만 정해 둔 주보는 머리 한 줄 아래에 같은 빈 상태가 선다
   const empty = <WorshipEmpty text="찬양을 아직 정하지 않았어요" />;
   if (!rows.length && !leader && !playlistUrl) return empty;
   return (
     <>
-      <PraiseHead leader={leader} playlistUrl={playlistUrl} nameOf={nameOf} />
+      <PraiseHead leader={leader} playlistUrl={playlistUrl} nameOf={nameOf} namesReady={namesReady} />
       {!rows.length ? empty : (
       <ul className={LIST}>
         {rows.map((s, i) => (
@@ -296,7 +305,7 @@ function SongsTab({ rows, leader, playlistUrl, nameOf }) {
 // **날짜가 읽힌 광고에는 본문 아래에 달력 칩이 선다**(광고 → 내 달력 · 2026-09-25 · services/noticeDate.js).
 // 칩 글자가 곧 "무엇을 읽었는지"의 확인이다(`10월 11일 (일) 오후 2:00`) — 못 읽은 광고에는 아무것도 없다.
 // 누르면 부르는 쪽(worshipView)이 기기에 맞는 길로 폰 기본 달력에 넣는다.
-function NoticeCard({ notice, index, serviceDate = '', onCalendar }) {
+function NoticeCard({ notice, index, serviceDate = '', onCalendar, held = false }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const read = useMemo(() => readNoticeDate(notice, serviceDate), [notice, serviceDate]);
@@ -327,7 +336,8 @@ function NoticeCard({ notice, index, serviceDate = '', onCalendar }) {
       {notice.body && (
         <div className="mt-1 pl-7">
           <p ref={bodyRef}
-            className={`worship-notice-body text-[12.5px] leading-relaxed text-fg-secondary whitespace-pre-line break-words ${open ? '' : 'line-clamp-2'}`}>
+            className={`worship-notice-body text-[12.5px] leading-relaxed text-fg-secondary whitespace-pre-line break-words ${open ? '' : 'line-clamp-2'}`}
+            style={held ? HELD : undefined}>
             {notice.body}
           </p>
           {(over || open) && (
@@ -354,12 +364,14 @@ function NoticeCard({ notice, index, serviceDate = '', onCalendar }) {
 
 // '다음 주 예배 위원' 광고의 이름은 본명으로 세운다(real · serviceView.realNamesInRoleLines) —
 // 저장된 광고 글은 그대로다. 나머지 광고는 사람이 쓴 글이라 한 글자도 안 건드린다.
-function NoticesTab({ rows, serviceDate = '', onCalendar, real = null }) {
+// 그 광고의 글은 명단이 오기 전에는 숨긴다(namesReady — 본명으로 바뀌기 전 글자가 섰다가 바뀌지 않게 · 제목은 선다).
+function NoticesTab({ rows, serviceDate = '', onCalendar, real = null, namesReady = true }) {
   if (!rows.length) return <WorshipEmpty text="광고를 아직 적지 않았어요" />;
   return (
     <ul className={`${LIST} space-y-2`}>
       {rows.map((n, i) => (
         <NoticeCard key={i} index={i} serviceDate={serviceDate} onCalendar={onCalendar}
+          held={!namesReady && isNextWeekNotice(n)}
           notice={real && isNextWeekNotice(n) ? { ...n, body: realNamesInRoleLines(n.body, real) } : n} />
       ))}
     </ul>
@@ -499,7 +511,7 @@ function ServicePaper({ service, nameOf, real = null, rosterKey = '', namesReady
         </div>
       </div>
 
-      {story && <ServiceStory service={service} verses={verses || []} nameOf={nameOf} realName={real} cover={cover} onClose={closeStory} />}
+      {story && <ServiceStory service={service} verses={verses || []} nameOf={nameOf} realName={real} namesReady={namesReady} cover={cover} onClose={closeStory} />}
 
       {/* 공유·저장이 막힌 브라우저에서 마지막 갈래 — 쪽마다 그림으로 띄운다
           (hooks/useSheetShare.jsx). **그리지 않으면 그 갈래가 아무것도 안 한다.** */}
@@ -792,7 +804,7 @@ export function ServiceDetail({
         {activeTab === 'roles' && (editing
           ? <RolesEdit rows={rows('roles')} people={people} onChange={v => set({ roles: v })}
               seeded={seeded} onClearPrefill={clearPrefill} />
-          : <RolesTab rows={rows('roles')} people={people} nameOf={nameOf} />)}
+          : <RolesTab rows={rows('roles')} people={people} nameOf={nameOf} namesReady={rosterReady} />)}
         {activeTab === 'songs' && (
           <>
             {editing
@@ -803,7 +815,7 @@ export function ServiceDetail({
                   onPlaylist={v => set({ praise_playlist_url: v })}
                   onPullPlaylist={onPullPlaylist} onLookupTitle={onLookupTitle} Thumb={SongThumb} />
               : <SongsTab rows={rows('songs')} leader={service.praise_leader || ''}
-                  playlistUrl={service.praise_playlist_url || ''} nameOf={nameOf} />}
+                  playlistUrl={service.praise_playlist_url || ''} nameOf={nameOf} namesReady={rosterReady} />}
             {/* 송폼은 찬양 목록 바로 아래 한 구역이다(0047). 붙이고 지우는 것은 수정
                 화면에서, 보기 화면에는 줄만 선다 — 담당자·찬양·광고와 같은 문법이다.
                 큐시트 파일(말씀 탭)이 여기 섞이지 않는 것은 kind로 갈랐기 때문이다(0054). */}
@@ -813,7 +825,7 @@ export function ServiceDetail({
         )}
         {activeTab === 'notices' && (editing
           ? <NoticesEdit rows={rows('notices')} onChange={v => set({ notices: v })} />
-          : <NoticesTab rows={rows('notices')} serviceDate={service.service_date} real={real}
+          : <NoticesTab rows={rows('notices')} serviceDate={service.service_date} real={real} namesReady={rosterReady}
               onCalendar={onAddToCalendar && !isDraft ? (i, n, r) => onAddToCalendar(service, i, n, r) : null} />)}
       </div>
 

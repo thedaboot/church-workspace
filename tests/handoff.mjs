@@ -35,7 +35,7 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
   const SRC = new URL('../src/', import.meta.url);
   const walk = (u) => readdirSync(u).flatMap(n => { const c = new URL(n, u); return statSync(c).isDirectory() ? walk(new URL(n + '/', u)) : [c]; });
   const files = walk(SRC).filter(u => /\.(jsx|js)$/.test(u.pathname));
-  const bgLine = [], tiny = [], faintSmall = [], backs = [];
+  const bgLine = [], tiny = [], faintSmall = [], backs = [], roundSkel = [];
   for (const u of files) {
     const name = decodeURIComponent(u.pathname).split('/src/')[1];
     const lines = readFileSync(u, 'utf8').split('\n');
@@ -54,6 +54,7 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
         if (/(?:^|\s)text-fg-faint(?:\s|$)/.test(body) && /(?:^|\s)text-\[(?:[0-9]|1[01])(?:\.\d+)?px\]/.test(body) && !/paper/.test(name)) faintSmall.push(at);
       }
       for (const m of l.matchAll(/fixed inset-0[^"'`]*bg-black\/(\d+)/g)) if (!['50', '80'].includes(m[1])) backs.push(`${at} /${m[1]}`);
+      if (/<Skeleton\b[^>]*className=["'`][^"'`]*\brounded-full(?!!)/.test(l)) roundSkel.push(at);
     });
   }
   check('D9: 주 버튼 비활성에 bg-line을 쓰지 않는다(opacity .4)', bgLine.length === 0, bgLine.join(' · '));
@@ -107,6 +108,10 @@ const results=[]; const check=(n,p,d='')=>results.push(`${p?'PASS':'FAIL'}  ${n}
       faintTree.length === 0 && parseFail.length === 0, [...faintTree, ...parseFail].join(' · '));
   }
   check('D9: 뒤판은 대화창 50% · 전면 미리보기 80% 두 값뿐이다', backs.length === 0, backs.join(' · '));
+  // ⑤ 동그라미 뼈는 `rounded-full!` — Skeleton이 자기 `rounded-md`를 붙여서 그냥 `rounded-full`은 CSS 차례에서 진다(PITFALLS 9-bw·48-b·52-e).
+  // 가입자 얼굴(roster RowSkeleton) 뒤에 예배 목록 칩 셋 · 공유 피드 사람 칩이 둥근 네모로 섰다가 도착하는 순간 모양이 튀었다(2026-10-14 C3).
+  // **되돌리기**: worshipView LOADING 칩이나 shareFeed FeedSkeleton 칩의 `!`를 걷으면 깨진다.
+  check('뼈대: 동그라미여야 하는 Skeleton은 rounded-full!(Skeleton의 rounded-md에 지지 않게)', roundSkel.length === 0, roundSkel.join(' · '));
   const btnSrc = readFileSync(new URL('components/buttons.js', SRC), 'utf8');
   check('D9: 버튼 두 단 — 작은 단 11.5px·600 · 확정 단 13px·600·40px, 둘 다 비활성 opacity .4',
     /BTN = 'px-3 py-1\.5 rounded-md bg-accent text-white text-\[11\.5px\] font-semibold[^']*disabled:opacity-40'/.test(btnSrc)

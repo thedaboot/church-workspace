@@ -143,13 +143,30 @@ const TONE = {
 // `altLabel`·`onAlt`를 주면 **길이 셋**이 된다(2026-09-22 — 업무 창의 '닫기'가 그렇다:
 // 저장하고 닫기 / 무시하고 닫기 / 돌아가기). 셋일 때는 가로로 늘어놓지 않고 **세로로
 // 쌓는다** — 폰에서 가로로 셋을 두면 글자가 줄어들어 어느 것이 무엇인지 안 읽힌다.
-export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel = '취소', onConfirm, children, title, tone = 'danger', className = 'inline-flex', altLabel = '', onAlt = null }) {
-  const [open, setOpen] = useState(false);
+//
+// **밖에서 여닫기**(`open` + `onOpenChange` · 2026-10-14 반응형 점검 C3): 트리거가 따로 할 일이 있는 자리 —
+// 폰 가입자 줄의 '⋯'는 누르면 메뉴가 뜨고, 그 메뉴의 '환송해주기'가 이 확인을 **같은 '⋯' 자리에서** 연다.
+// 이때 트리거를 눌러도 여기서는 열지 않고(메뉴의 몫), 열리면 첫 버튼(취소)으로 초점을 옮긴다 — 키보드로 메뉴를
+// 고른 사람이 확인 판 안에서 이어 가게. 닫는 모든 길(취소·확정·바깥·Esc)은 onOpenChange(false)로 알린다.
+export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel = '취소', onConfirm, children, title, tone = 'danger', className = 'inline-flex', altLabel = '', onAlt = null, open: openProp, onOpenChange = null }) {
+  const [openState, setOpenState] = useState(false);
+  const controlled = openProp !== undefined;
+  const open = controlled ? !!openProp : openState;
+  const setOpen = (next) => {
+    if (!controlled) { setOpenState(next); return; }
+    const v = typeof next === 'function' ? next(open) : next;
+    if (v !== open) onOpenChange?.(v);
+  };
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
   const popRef = useRef(null);
   const stacked = !!altLabel;
   const [pos, place] = useAnchoredPos(triggerRef, open, W, stacked ? EST_H + 80 : EST_H);
+  useEffect(() => {
+    if (!open || !controlled) return undefined;
+    const raf = requestAnimationFrame(() => popRef.current?.querySelector('button')?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(raf);
+  }, [open, controlled]);
 
   useEffect(() => {
     if (!open) return;
@@ -162,9 +179,9 @@ export function ConfirmPopover({ message, confirmLabel = '삭제', cancelLabel =
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-  }, [open]);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const toggle = (e) => { e.stopPropagation(); place(); setOpen(o => !o); };
+  const toggle = controlled ? undefined : (e) => { e.stopPropagation(); place(); setOpen(o => !o); };
 
   // 포털로 body에 띄운다 — 트리거가 hover에서만 보이는 영역(댓글의 수정·삭제 아이콘)
   // 안에 있으면, 마우스가 벗어날 때 부모의 opacity-0이 팝오버까지 같이 숨겨서

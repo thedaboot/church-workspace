@@ -58,6 +58,13 @@ export function useSettled(key, loading) {
 export const CARD = 'rounded-[10px] shadow-soft';
 export const CARD_STYLE = { background: 'var(--app-surface)', border: '1px solid var(--app-line)' };
 
+// 사람 칸 격자 — 순 편성의 순원 칸 · 동아리 상세의 구성원 칸(이름 + 그 사람의 조작이 한 칸 안에 붙는 자리).
+// 1024 밑(폰·아이패드 세로)은 예전 그대로 폭을 나눠 쓰고(한 열이면 100%), **1024부터는 칸 폭을 260px로 묶는다**
+// (시안 Assign.dc · 사용자 승인 2026-10-14) — 1920에서 칸이 370px까지 늘어 이름과 '순 옮기기'·휴지통이 200px 넘게
+// 떨어졌다. 남는 자리는 줄 끝에 둔다. **화면 폭은 건드리지 않는다**(대시보드 폭 · 2026-09-01 사용자 결정 — max-w 금지).
+// auto-fill의 칸 수는 최대 폭(260)으로 세므로 칸은 늘 260이고, 최소(240)는 그보다 좁은 통에서만 쓰인다(PITFALLS 52-d).
+export const PEOPLE_GRID = 'grid gap-x-3 gap-y-1.5 [grid-template-columns:repeat(auto-fill,minmax(min(100%,17rem),1fr))] lg:[grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),260px))]';
+
 // 생성기의 칸은 **모두 같은 높이**다(34px = FIELD 한 칸의 높이). 라벨이 칸 위에 앉는
 // 짜임이라 칸 높이가 다르면 아래를 맞춘 만큼 라벨 줄이 어긋나 계단처럼 보인다
 // (세그먼트 37 · 날짜 30 · 입력칸 34로 두었을 때 1440에서 라벨이 3~4px씩 엇갈렸다).

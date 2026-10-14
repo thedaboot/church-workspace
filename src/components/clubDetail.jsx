@@ -4,7 +4,7 @@ import { SectionHead } from '../views/dashboardParts.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { DatePicker } from './DatePicker.jsx';
 import {
-  CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, WITH_ICON, EXIT, useClosing, NEW_H, DATE_TRIGGER,
+  CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, WITH_ICON, EXIT, useClosing, NEW_H, DATE_TRIGGER, PEOPLE_GRID,
   PersonTag, PersonPick, LabeledField, Empty, PeopleMark, MeetMark, FailTail,
 } from './groupsParts.jsx';
 import { groupPeople, canManageClub, canEditClub, notInGroup, lastReportOf } from '../services/groups.js';
@@ -148,8 +148,8 @@ export function ClubDetail({
 
         <div className="mt-4">
           <SectionHead>구성원 {list.length}명</SectionHead>
-          {/* 이름과 내보내기가 한 칸 안에서 붙어 있게 — 칸 수는 폭이 정한다(groupsSun과 같다) */}
-          <div className="grid gap-x-3 gap-y-1.5 [grid-template-columns:repeat(auto-fill,minmax(min(100%,17rem),1fr))]">
+          {/* 이름과 내보내기가 한 칸 안에서 붙어 있게 — 칸 수는 폭이 정한다(groupsSun과 같은 PEOPLE_GRID · 1024부터 칸 260px) */}
+          <div className={`club-people ${PEOPLE_GRID}`}>
             {list.map(p => (
               <PersonTag key={p.id} person={p} className="club-member"
                 badge={p.id === club.leader_person_id ? '동아리장' : null}
@@ -330,16 +330,21 @@ function MeetingRow({ meeting, list, manage, onToggle, onDelete, report = null }
   const when = formatServiceDate(meeting.meeting_date);
   return (
     <div className={`club-meeting dc-row p-3.5 ${CARD}`} style={CARD_STYLE}>
-      <div className="flex flex-wrap items-baseline gap-x-2">
-        <span className="club-meeting-date text-[12.5px] font-bold text-fg">{when}</span>
-        {/* 긴 제목은 카드 안에서 접힌다(2026-10-14 반응형 점검) — break-words만으로는 flex 칸의 최소 폭이
-            '가장 긴 낱말'이라 띄어쓰기 없는 제목이 카드 밖으로 나갔다. min-w-0 + anywhere가 그 최소 폭을 푼다. */}
-        {meeting.title && <span className="club-meeting-title min-w-0 text-[12px] text-fg-secondary [overflow-wrap:anywhere]">{meeting.title}</span>}
-        <span className="flex-1" />
-        <span className="club-meeting-count text-[11.5px] text-fg-muted">{present.size}/{list.length}</span>
+      {/* 머리줄은 [날짜 + 제목] | 인원 | 휴지통(시안 Club.dc · 사용자 승인 2026-10-14). 인원·휴지통은 **늘 카드 오른쪽 위**다 —
+          예전에는 한 줄 flex-wrap이라 344px에서 제목이 길면 휴지통이 다음 줄 왼쪽에 혼자 떨어졌다. 지금은 왼쪽 칸만
+          접힌다: 제목이 길면 날짜 아래로 내려가고(날짜는 한 덩어리 · nowrap), 넓은 폭에서는 예전처럼 한 줄이다.
+          바깥 줄은 baseline — 접힌 왼쪽 칸의 기준선은 첫 줄(날짜)이라 인원이 날짜와 같은 줄에 선다(PITFALLS 52-b). */}
+      <div className="club-meeting-headrow flex items-baseline gap-2">
+        <div className="club-meeting-head min-w-0 flex-1 flex flex-wrap items-baseline gap-x-2">
+          <span className="club-meeting-date whitespace-nowrap text-[12.5px] font-bold text-fg">{when}</span>
+          {/* 긴 제목은 카드 안에서 접힌다(2026-10-14 반응형 점검) — break-words만으로는 flex 칸의 최소 폭이
+              '가장 긴 낱말'이라 띄어쓰기 없는 제목이 카드 밖으로 나갔다. min-w-0 + anywhere가 그 최소 폭을 푼다. */}
+          {meeting.title && <span className="club-meeting-title min-w-0 text-[12px] text-fg-secondary [overflow-wrap:anywhere]">{meeting.title}</span>}
+        </div>
+        <span className="club-meeting-count shrink-0 text-[11.5px] text-fg-muted">{present.size}/{list.length}</span>
         {manage && onDelete && (
           <ConfirmPopover
-            className="inline-flex self-center"
+            className="club-meeting-drop-wrap inline-flex shrink-0 self-start -my-[3px]"
             message={`${when} 모임을 지울까요?\n출석 체크도 같이 지워져요.`}
             confirmLabel="삭제" onConfirm={() => onDelete(meeting)}>
             <button type="button" aria-label={`${when} 모임 지우기`}

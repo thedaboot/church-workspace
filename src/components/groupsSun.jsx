@@ -6,7 +6,7 @@ import { ConfirmPopover } from './ConfirmPopover.jsx';
 import { ShareChip, ShareToggle } from './ShareToggle.jsx';
 import { YearPicker } from './layout.jsx';
 import {
-  CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, EXIT,
+  CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, ICON_BTN, EXIT, PEOPLE_GRID,
   PersonTag, PersonPick, MenuPick, Empty, PeopleMark, NoteMark,
 } from './groupsParts.jsx';
 import { groupPeople, presentCount, sunCandidates } from '../services/groups.js';
@@ -362,7 +362,7 @@ function SunRow({ group, suns, people, members, unplaced, leaderPool, onRename, 
 
       {/* 이름과 그 사람의 조작(옮기기·빼기)은 한 칸 안에서 붙어 있어야 한다 —
           칸이 넓어지면 조작이 이름에서 멀찍이 떨어져 누구 것인지 흐려진다. */}
-      <div className="mt-3 grid gap-x-3 gap-y-1.5 [grid-template-columns:repeat(auto-fill,minmax(min(100%,17rem),1fr))]">
+      <div className={`sun-people mt-3 ${PEOPLE_GRID}`}>
         {/* 순장은 옮기기·빼기 대상이 아니다 — 그러면 순장 자리는 그대로인데 구성원에서만
             빠져서, 출석 정책(leads_sun_of)이 보는 명단과 화면이 어긋난다. 순장을 바꾸려면
             위의 순장 칸에서 다른 사람을 고른다. */}

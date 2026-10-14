@@ -110,8 +110,9 @@ export function MeetingReport({ meeting, manage, people = [], prev = null, onPic
         // 못 올린 파일 — 업무 첨부와 같은 빨간 줄(2026-10-09). 다시 시도는 고른 파일 그대로 같은 길로 간다.
         <div key={row.id} className="club-meet-report-failed flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-tag-red text-tag-red-fg min-w-0">
           <span className="w-[26px] h-[26px] rounded-md flex items-center justify-center shrink-0"><AlertTriangle size={15} /></span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[12px] font-semibold truncate">{row.name}</p>
+          <div className="min-w-0 flex-1" title={row.name}>
+            {/* 이름은 올라간 줄과 같은 가운데 말줄임(MiddleName) — 끝을 자르면 `(10월).xlsx`가 빨간 줄에서도 사라졌다 */}
+            <MiddleName name={row.name} className="club-meet-report-failed-name text-[12px] font-semibold" />
             <p className="mt-px text-[10.5px]">올리지 못했어요</p>
           </div>
           <button type="button" onClick={() => onRetry(row.id)} className={`club-meet-report-retry shrink-0 ${BTN}`}>다시 시도</button>
@@ -135,21 +136,28 @@ export function MeetingReport({ meeting, manage, people = [], prev = null, onPic
   );
 }
 
-// 파일 한 줄 — 종류 칩 · 이름(말줄임) · 올린 사람 · 날짜 · 크기. 줄을 누르면 미리보기.
-// 이름은 **가운데를 줄인다**(2026-10-14 반응형 점검) — 끝을 자르면 작은 폰에서 `(10월).xlsx`가 통째로
-// 사라졌다. 앞 칸만 말줄임하고 꼬리(확장자 앞 몇 글자 + 확장자)는 늘 선다(groups.splitNameTail).
+// 파일 이름 한 줄 — **가운데를 줄인다**(2026-10-14 반응형 점검) — 끝을 자르면 작은 폰에서 `(10월).xlsx`가 통째로
+// 사라졌다. 앞 칸만 말줄임하고 꼬리(확장자 앞 몇 글자 + 확장자)는 늘 선다(groups.splitNameTail · PITFALLS 48-d).
 // 앞 칸은 whitespace-pre — 띄어쓰기에서 갈린 이름의 끝 칸 공백이 접혀 두 낱말이 붙어 보이지 않게.
+// 올라간 줄(ReportRow)과 못 올린 빨간 줄이 이 한 벌을 쓴다.
+function MiddleName({ name, className = '' }) {
+  const [head, tail] = splitNameTail(name);
+  return (
+    <p className={`flex min-w-0 ${className}`}>
+      <span className="club-meet-report-head min-w-0 overflow-hidden text-ellipsis whitespace-pre">{head}</span>
+      <span className="club-meet-report-tail shrink-0 whitespace-pre">{tail}</span>
+    </p>
+  );
+}
+
+// 파일 한 줄 — 종류 칩 · 이름(가운데 말줄임) · 올린 사람 · 날짜 · 크기. 줄을 누르면 미리보기.
 function ReportRow({ row, meta, pending = false, onOpen, children = null }) {
   const kind = fileKind(row.name, row.mime_type);
-  const [head, tail] = splitNameTail(row.name);
   return (
     <div className={`club-meet-report-row${pending ? ' club-meet-report-pending' : ''} flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-canvas min-w-0`}>
       <span className={`w-[26px] h-[26px] rounded-md flex items-center justify-center shrink-0 ${pending ? 'bg-surface-hover text-fg-faint' : kind.chip}`}>{kind.icon}</span>
       <button type="button" onClick={onOpen} title={row.name} className="min-w-0 flex-1 text-left">
-        <p className={`club-meet-report-name flex min-w-0 text-[12px] font-semibold ${pending ? 'text-fg-muted' : 'text-fg'}`}>
-          <span className="club-meet-report-head min-w-0 overflow-hidden text-ellipsis whitespace-pre">{head}</span>
-          <span className="club-meet-report-tail shrink-0 whitespace-pre">{tail}</span>
-        </p>
+        <MiddleName name={row.name} className={`club-meet-report-name text-[12px] font-semibold ${pending ? 'text-fg-muted' : 'text-fg'}`} />
         <p className="club-meet-report-meta mt-px flex items-center gap-1 text-[10.5px] text-fg-muted min-w-0">
           {pending && <Loader2 size={10} className="shrink-0 animate-spin" />}
           <span className="truncate">{meta}</span>

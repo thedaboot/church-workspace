@@ -110,7 +110,9 @@ function useSplit(probeRef, count, deps) {
 
 // 공개 보기(src/serviceViewMain.jsx · 2026-09-26)는 같은 부품을 이렇게 부른다: closable=false(닫을 곳이 없다 —
 // X·Esc 없음) · onAll = 종이 보기로 · rootClassName으로 데스크톱에서 가운데 세로 판.
-export function ServiceStory({ service, verses = [], nameOf, realName, cover: coverPhoto = null, onClose, onAll = null,
+// namesReady — 앱 안에서 명단이 아직 안 왔으면 false(worshipDetail의 rosterReady). 그동안 찬양 인도·섬기는 이들·다음 주 예배 위원의
+// 이름 글자만 숨긴다(호칭·본명 없는 이름이 섰다가 바뀌지 않게 · 자리 그대로 · PITFALLS 48-a·52-c). 공개 보기는 서버가 이미 풀어 보내 늘 true.
+export function ServiceStory({ service, verses = [], nameOf, realName, namesReady = true, cover: coverPhoto = null, onClose, onAll = null,
   closable = true, rootClassName = '' }) {
   const rootRef = useRef(null);
   const wordProbe = useRef(null);
@@ -127,6 +129,7 @@ export function ServiceStory({ service, verses = [], nameOf, realName, cover: co
   const roles = useMemo(() => paperRoles(service?.roles), [service?.roles]);
   const nextRoles = useMemo(() => nextWeekRoles(service?.notices), [service?.notices]);
   const who = (name, id = null) => (nameOf ? nameOf(name, id) : name);
+  const held = namesReady ? undefined : { visibility: 'hidden' };
 
   const wordPages = useSplit(wordProbe, verses.length, [verses]);
   const noticePages = useSplit(noticeProbe, notices.length, [notices]);
@@ -234,7 +237,7 @@ export function ServiceStory({ service, verses = [], nameOf, realName, cover: co
             {leader && (
               <p className="flex items-baseline gap-[.45em]" style={{ fontSize: '.84em', marginBottom: '.9em' }}>
                 <span style={{ ...LAB, letterSpacing: '.02em' }}>찬양 인도</span>
-                <span className="story-leader text-fg">{who(leader)}</span>
+                <span className="story-leader text-fg" style={held}>{who(leader)}</span>
               </p>
             )}
             {songs.length > 0 && (
@@ -291,7 +294,7 @@ export function ServiceStory({ service, verses = [], nameOf, realName, cover: co
                 {roles.map((r, j) => (
                   <div key={j} className="contents">
                     <dt style={{ ...LAB, letterSpacing: '.02em', paddingTop: '.3em' }}>{r.role}</dt>
-                    <dd className="m-0 text-fg break-words" style={{ fontWeight: 600 }}>{who(r.name, r.personId || r.person_id || null)}</dd>
+                    <dd className="story-name m-0 text-fg break-words" style={{ fontWeight: 600, ...held }}>{who(r.name, r.personId || r.person_id || null)}</dd>
                   </div>
                 ))}
               </dl>
@@ -304,7 +307,7 @@ export function ServiceStory({ service, verses = [], nameOf, realName, cover: co
                 {nextRoles.map((r, j) => (
                   <div key={j} className="contents">
                     <dt style={{ ...LAB, letterSpacing: '.02em', paddingTop: '.3em' }}>{r.role}</dt>
-                    <dd className="m-0 text-fg break-words" style={{ fontWeight: 600 }}>{realNameText(r.value, realName)}</dd>
+                    <dd className="story-name m-0 text-fg break-words" style={{ fontWeight: 600, ...held }}>{realNameText(r.value, realName)}</dd>
                   </div>
                 ))}
               </dl>

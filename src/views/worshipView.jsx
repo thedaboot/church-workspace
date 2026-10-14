@@ -371,9 +371,9 @@ const LOADING = (
     <div className="flex items-center h-[28px] mb-4"><Skeleton className="h-[22px] w-24 rounded-md" /></div>
     {/* 거르기 칩 줄 — 셋의 폭은 '전체 · 주일예배 · 그 밖의 예배'만큼이다 */}
     <div className="worship-loading-chips flex items-center gap-1.5 h-[30px] mb-3">
-      <Skeleton className="h-full w-[54px] rounded-full" />
-      <Skeleton className="h-full w-[74px] rounded-full" />
-      <Skeleton className="h-full w-[88px] rounded-full" />
+      <Skeleton className="h-full w-[54px] rounded-full!" />
+      <Skeleton className="h-full w-[74px] rounded-full!" />
+      <Skeleton className="h-full w-[88px] rounded-full!" />
     </div>
     <div className="worship-loading-cards grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
       <Skeleton className="h-[76.8px] w-full rounded-[10px]" />

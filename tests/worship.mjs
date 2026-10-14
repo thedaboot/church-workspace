@@ -3687,6 +3687,70 @@ await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: watcher.ide
   await ev(`localStorage.removeItem('church_worship_v1')`);
 }
 
+// ── 명단이 오기 전 — 담당자 탭·찬양 인도·광고(다음 주 예배 위원)·넘기면서 보기도 이름 자리만 비운다 (2026-10-14 반응형 점검 C3 · PITFALLS 52-c) ──
+// 위 블록(48-a)은 종이만 막았다 — 같은 상세의 담당자 탭은 '양민혁'(글자 원)으로 섰다가 '양민혁 전도사님'(사진)으로, 찬양 탭의 '찬양 인도 조해리'는
+// '조해리 부장님'으로, 넘기면서 보기의 찬양 인도·섬기는 이들도 그렇게 바뀌었다. 같은 방법(Promise.all을 늦춤)으로 기다리는 동안을 만든다.
+// 넘기면서 보기는 모든 장이 DOM에 있고 안 보이는 장은 invisible이라 계산값으로는 못 가른다 — 인라인 visibility를 본다.
+// **되돌리기**: worshipDetail RolesTab의 `style={held}`(이름 칸)를 지우면 첫 검사가, PraiseHead의 이름 칸 style을 지우면 둘째가,
+// worshipStory의 `story-leader` style을 지우면 넷째가 깨진다.
+{
+  const logsBefore = logs.length;
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await ev(plant(null));
+  await ev(`(() => { const g = JSON.parse(localStorage.getItem('church_worship_v1'));
+    g.services.find(s => s.id === 's1').notices.push({ title: '다음 주 예배 위원', body: '대표기도: 양민혁' });
+    localStorage.setItem('church_worship_v1', JSON.stringify(g)); })()`);
+  await send('Page.navigate', { url: `${URL_BASE}/?p=worship` }); await wait('Page.loadEventFired');
+  await waitFor(HAS_CARD);
+  await ev(`(() => { const all = Promise.all.bind(Promise); window.__holdMs = 5000;
+    Promise.all = (xs) => { const p = all(xs); return window.__holdMs ? p.then(v => new Promise(r => setTimeout(() => r(v), window.__holdMs))) : p; }; })()`);
+  await ev(`document.querySelector('.worship-card').click()`);
+  await waitFor(`!!document.querySelector('.worship-detail .worship-tab')`, 4000);
+  const tabTo = (t) => ev(`[...document.querySelectorAll('.worship-tab')].find(x => x.textContent.trim() === ${JSON.stringify(t)})?.click()`);
+  const READ = `({
+    roles: [...document.querySelectorAll('.worship-role-row')].map(r => [r.querySelector('.worship-role-name')?.textContent || '', getComputedStyle(r.querySelector('.worship-role-name')).visibility, getComputedStyle(r.querySelector('.worship-role-face')).visibility, getComputedStyle(r.querySelector('span')).visibility]),
+    leader: (() => { const n = document.querySelector('.worship-praise-leader-name'); return n ? [n.textContent, getComputedStyle(n).visibility, getComputedStyle(document.querySelector('.worship-praise-leader')).visibility] : null; })(),
+    notices: [...document.querySelectorAll('.worship-notice-card')].map(c => [c.querySelector('.worship-notice-title')?.textContent || '', getComputedStyle(c.querySelector('.worship-notice-body')).visibility]),
+  })`;
+  await tabTo('담당자'); await sleep(150);
+  const r1 = await ev(READ);
+  await tabTo('찬양'); await sleep(150);
+  const r2 = await ev(READ);
+  await tabTo('광고'); await sleep(150);
+  const r3 = await ev(READ);
+  await tabTo('주보'); await waitFor(`document.querySelector('.worship-story-open')?.disabled === false`, 4000);
+  await ev(`document.querySelector('.worship-story-open').click()`);
+  await waitFor(`!!document.querySelector('.worship-story .story-leader')`, 3000);
+  const STORY = `({ leader: document.querySelector('.worship-story .story-leader')?.style.visibility || '',
+    names: [...document.querySelectorAll('.worship-story .story-name')].map(n => n.style.visibility || '') })`;
+  const s1 = await ev(STORY);
+  const stillHeld = await ev(`!!document.querySelector('.worship-detail .paper-service-2 .paper-name') && getComputedStyle(document.querySelector('.paper-service-2 .paper-name')).visibility === 'hidden'`);
+  check('명단이 오기 전 담당자 탭은 번호·역할만 서고 얼굴·이름 자리는 비어 있다(호칭 없는 이름이 서지 않는다)',
+    stillHeld && r1.roles.length === 3 && r1.roles.every(([, n, f, num]) => n === 'hidden' && f === 'hidden' && num === 'visible'), JSON.stringify(r1.roles));
+  check("명단이 오기 전 찬양 탭의 '찬양 인도' 이름 자리도 비어 있다(줄은 선다)",
+    !!r2.leader && r2.leader[1] === 'hidden' && r2.leader[2] === 'visible', JSON.stringify(r2.leader));
+  check("명단이 오기 전 '다음 주 예배 위원' 광고 글만 비고 다른 광고는 그대로다",
+    r3.notices.length === 2 && r3.notices.some(([t, v]) => t === '다음 주 예배 위원' && v === 'hidden')
+    && r3.notices.some(([t, v]) => t !== '다음 주 예배 위원' && v === 'visible'), JSON.stringify(r3.notices));
+  check('명단이 오기 전 넘기면서 보기의 찬양 인도·섬기는 이들·다음 주 예배 위원 이름 자리도 비어 있다',
+    s1.leader === 'hidden' && s1.names.length >= 3 && s1.names.every(v => v === 'hidden'), JSON.stringify(s1));
+  await waitFor(`document.querySelector('.worship-story .story-leader')?.style.visibility === ''`, 8000);
+  const s2 = await ev(STORY);
+  await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`); await sleep(300);
+  await tabTo('담당자'); await sleep(150);
+  const a1 = await ev(READ);
+  await tabTo('찬양'); await sleep(150);
+  const a2 = await ev(READ);
+  check('명단이 오면 담당자·찬양 인도·넘기면서 보기의 이름이 호칭과 함께 그 자리에 선다',
+    s2.leader === '' && s2.names.every(v => v === '')
+    && a1.roles.every(([, n, f]) => n === 'visible' && f === 'visible') && a1.roles.some(([t]) => t === '양민혁 전도사님')
+    && !!a2.leader && a2.leader[0] === '조해리 부장님' && a2.leader[1] === 'visible', JSON.stringify({ s2, roles: a1.roles, leader: a2.leader }));
+  await ev(`window.__holdMs = 0`);
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  logs.push(...logs.splice(logsBefore));
+  await ev(`localStorage.removeItem('church_worship_v1')`);
+}
+
 
 // ── 12) 교회력 · 넘기면서 보기 · 본명 · 내 예배 노트 · 광고 → 달력 (사용자 결정 2026-09-25) ─────
 // 저장 자리를 새로 심는다: 지난해 성탄절 주보(흰/금 — 늘 과거라 검사 시기와 무관) + 명단의 본명이

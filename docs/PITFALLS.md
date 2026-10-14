@@ -446,7 +446,7 @@
     페이지의 `Promise.all`을 늦춰 클라우드 왕복을 흉내 낸다(open이 다섯 조회를 그것으로 묶는다).
 48-b. **`<p>` 안에는 Skeleton(`<div>`)을 넣을 수 없다** — 리액트가 콘솔 오류(잘못된 중첩)를 낸다. 글 줄 안의 뼈는 같은 클래스의 `<span>`이다
     (`worshipAttendance`의 `Bone` — 보이지 않는 글자 위에 덮어 높이·폭을 글꼴 지표에서 얻는다). 그리고 Skeleton에 `rounded-full`을 넘기면
-    자기 `rounded-md`가 이긴다(§6-9-bw) — 동그라미여야 하는 뼈는 `rounded-full!`(가입자 줄 얼굴 `RowSkeleton`). 예배 목록 칩 뼈·공유 피드 뼈는 아직 그대로다.
+    자기 `rounded-md`가 이긴다(§6-9-bw) — 동그라미여야 하는 뼈는 `rounded-full!`(가입자 줄 얼굴 `RowSkeleton` · 예배 목록 칩 뼈 · 공유 피드 사람 칩 뼈 — 52-e).
 48-c. **`flex-wrap` 줄의 글 칸에 `break-words`만 주면 띄어쓰기 없는 긴 글이 상자 밖으로 나간다** — flex 칸의 최소 폭은 '가장 긴 낱말'이고
     (한글은 keep-all이라 문장 전체가 한 낱말), overflow-wrap:break-word는 그 최소 폭을 줄이지 않는다. `min-w-0 [overflow-wrap:anywhere]`(동아리 모임 카드 제목).
 48-d. **가운데 말줄임은 두 칸이다** — 앞 칸 `min-w-0 overflow-hidden text-ellipsis whitespace-pre` + 꼬리 칸 `shrink-0 whitespace-pre`(`groups.splitNameTail` ·
@@ -1160,3 +1160,24 @@ CSS로 같이 두면 숨은 칸이 검색 입구로 둘 잡힌다 · `tests/oneb
 '더다…'까지 잘렸다. 자물쇠는 이름 바꾸기 버튼 **밖**의 형제 버튼이다(버튼 안에 버튼을 두지 않는다 — 제목·연필은 그대로 이름 바꾸기). 누르면 프로젝트 머리
 자물쇠와 같은 팝오버(`useLeaderSwitch` 한 벌)이고 저장도 한 벌(`useSetVisibility` — 프로젝트 머리와 같이 쓴다 · 바꿀 수 없는 사람이면 누르지 않는 표시만).
 누름 자리는 36px 높이 · 왼쪽은 `-ml-1.5`로 바 여백에 내밀어 자물쇠 획이 바 왼쪽 14px에 맞는다(`tests/three`).
+
+
+### 반응형 점검 후속 C3 — 폰 '⋯' 메뉴 · 모임 머리줄 · 넓은 화면 사람 칸 (2026-10-14)
+
+52-a. **떠 있는 메뉴 안에 `ConfirmPopover`를 넣지 마세요** — 메뉴(usePopover)의 바깥 누름 판정은 mousedown이고 확인 판은 body 포털이라, 확인 판의 '삭제'를
+    누르는 mousedown에서 메뉴가 먼저 닫혀 확인 판째 사라지고 click이 허공에 떨어진다. 폰 가입자 줄 '⋯'(`membersView` `MemberMenu`)은 메뉴를 닫고
+    **같은 '⋯'에 걸린 ConfirmPopover를 밖에서 연다**(`open` + `onOpenChange` · 열리면 첫 버튼 '취소'로 초점 · 닫히면 '⋯'로). 메뉴 초점: 열리면 첫 줄 ·
+    ↑↓·Home·End · Esc는 useDismiss가 닫고 onKeyDown이 '⋯'로 초점을 돌린다(판이 사라지면 초점이 body로 떨어진다) · Tab은 닫고 '⋯'로. 첫 줄 초점은 rAF
+    뒤에 준다(판이 그려지기 전이면 없다) — 손가락으로 연 사람에게는 `focus-visible`이 안 걸려 테두리가 서지 않는다(`tests/roster`).
+52-b. **[글 + 숫자 + 버튼]을 한 `flex-wrap` 줄의 형제로 두면 좁은 폭에서 버튼만 다음 줄 왼쪽에 떨어진다** — 동아리 모임 카드 머리. 접히는 것은
+    왼쪽 칸(날짜 nowrap + 제목) 하나로 묶고 인원·휴지통은 그 밖의 shrink-0 형제로(바깥 줄 `items-baseline` — 접힌 칸의 기준선은 첫 줄이라 인원이
+    날짜 줄에 선다). 글자 없는 아이콘 버튼은 baseline이 아래 끝이라 `self-start -my-[3px]`로 날짜 줄 가운데에 맞췄다(실측 차 0.2px · `tests/groups` ⑦).
+52-c. **명단을 기다리는 동안 이름을 숨기는 자리는 종이(48-a)만이 아니다** — 같은 상세의 담당자 탭(얼굴도 — 명단이 오면 글자 원이 사진으로 바뀐다) ·
+    찬양 탭 '찬양 인도' · 광고 탭과 종이의 '다음 주 예배 위원' 글(본명으로 바뀐다) · 넘기면서 보기(찬양 인도·섬기는 이들·다음 주 예배 위원)가 모두
+    `rosterReady`를 받아 글자만 `visibility: hidden`(`worshipDetail` HELD · `worshipStory` namesReady). 넘기면서 보기는 모든 장이 DOM에 있고 안 보이는 장은
+    `invisible`이라 계산값으로는 못 가른다 — 검사는 **인라인** `style.visibility`를 본다(`tests/worship`).
+52-d. **`repeat(auto-fill, minmax(A, B))`의 칸 수는 최대(B)가 정해져 있으면 B로 센다** — 그래서 칸은 늘 B 폭이고 남는 자리는 줄 끝에 남는다(A는 통이
+    B보다 좁을 때만 쓰인다). 순 편성·동아리 구성원 칸(`groupsParts.PEOPLE_GRID`)은 1024부터 `minmax(min(100%,240px),260px)`, 그 밑은 예전
+    `minmax(min(100%,17rem),1fr)` 그대로(폰은 한 칸이 통 폭). **화면 폭에는 max-w를 걸지 않는다**(2026-09-01 사용자 결정 · `tests/groups`가 구역 폭도 본다).
+52-e. **동그라미 뼈는 `rounded-full!`** — 48-b의 남은 두 자리(예배 목록 거르기 칩 셋 · 공유 피드 사람 칩)를 고쳤고, `tests/handoff`가 소스에서
+    `<Skeleton … rounded-full>`(느낌표 없이)을 찾으면 깨진다. `rounded-[Npx]` 뼈(9-bw의 여섯 곳)는 바꾸면 모양이 바뀌어 그대로다.

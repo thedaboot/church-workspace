@@ -35,7 +35,7 @@ export function FeedSkeleton({ date = '', passageRef = '', tools = false }) {
   return (
     <div className="qt-feed-loading" aria-hidden="true">
       <div className="flex items-center">
-        <div className="w-24 h-7"><Skeleton className="w-full h-full rounded-full" /></div>
+        <div className="w-24 h-7"><Skeleton className="w-full h-full rounded-full!" /></div>
       </div>
       <div className={`mt-3 ${QT_SHEET_BOX}`}>
         <div className="dc-skeleton rounded-lg border border-line">
