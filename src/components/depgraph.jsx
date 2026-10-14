@@ -199,12 +199,15 @@ export function DepGraph({ tasks, onTaskClick }) {
                 className="absolute flex items-center gap-1.5 pl-1.5 pr-2.5 rounded-full bg-surface border border-line shadow-soft hover:shadow-elevated transition"
                 style={{
                   left: offX + P.x, top: P.y, width: n.w, height: DG.PH, transform: 'translate(-50%, -50%)', cursor: 'grab',
-                  opacity: dim ? 0.2 : done ? 0.55 : 1, transition: 'opacity 200ms, box-shadow 150ms', ...drag.style,
+                  opacity: dim ? 0.2 : 1, transition: 'opacity 200ms, box-shadow 150ms', ...drag.style,
                 }}>
-                <span className="shrink-0 w-[3px] h-3.5 rounded-full pointer-events-none" style={teamPaint(t.teams, true)} />
-                <span className="shrink-0 w-2 h-2 rounded-full pointer-events-none" style={{ background: STATUS_DOT_VAR[t.status] }} />
-                <span className="flex-1 min-w-0 text-[12px] font-semibold leading-none text-fg truncate pointer-events-none">
-                  {t.title}
+                {/* 끝낸 업무는 **안쪽만** 흐리게 — 필째 반투명이면 뒤를 지나는 선이 제목 위로 비친다(2026-10-15 실화면 확인) */}
+                <span className="flex flex-1 min-w-0 items-center gap-1.5 pointer-events-none" style={{ opacity: done ? 0.55 : 1 }}>
+                  <span className="shrink-0 w-[3px] h-3.5 rounded-full" style={teamPaint(t.teams, true)} />
+                  <span className="shrink-0 w-2 h-2 rounded-full" style={{ background: STATUS_DOT_VAR[t.status] }} />
+                  <span className="flex-1 min-w-0 text-[12px] font-semibold leading-none text-fg truncate">
+                    {t.title}
+                  </span>
                 </span>
               </button>
             );
