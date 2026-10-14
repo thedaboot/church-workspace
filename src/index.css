@@ -903,6 +903,10 @@ svg.lucide { stroke-width: 1.4px; }
    (안 걷으면 칸과 키보드 사이가 그만큼 비었다 · 사용자 지적 2026-10-04). 키보드가 없으면(초점만 남은 안드로이드 뒤로 가기) 그대로 —
    걷으면 칸이 하단 바 뒤로 숨는다. data-kb는 App.jsx가 초점 없을 때의 높이와 견주어 단다 · 판 높이(--wiki-h)는 main의 ResizeObserver가 따라온다 */
 @media (max-width: 767px) { html[data-kb] main:has(.dab-input input:focus) { padding-bottom: .5rem; } }
+/* 업무 창 댓글 목록 안(답글 · 댓글 고치기)에서 키보드가 떠 있으면 아래 댓글 입력 칸은 비켜 준다(2026-10-14 점검 · PITFALLS 47-a).
+   그 칸(약 120px)이 키보드 위 띠를 먹어 작은 폰(SE)에서는 목록 칸이 90px만 남았고, 답글 칸(칸 + 버튼 97px)이 끝내 다 못 들어갔다.
+   쓰는 곳은 목록 안이라 아래 칸은 그동안 할 일이 없다 — 초점이 빠지거나 키보드가 내려가면 그대로 돌아온다. */
+html[data-kb] :has(> [data-cmt-box] :focus) > .cmt-input { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .dab-thumb-pop, .dab-thumb-shake, .dab-burst i, .dab-hop, .dab-droop, .wiki-in-fwd, .wiki-in-back { animation: none !important; }
 }

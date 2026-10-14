@@ -11,7 +11,8 @@ import { TaskModalShell } from './modals/modals.jsx';
 import { ProfileModal, ProjectModal } from './modals/settings.jsx';
 import { AuthProvider, useAuth } from './services/auth.jsx';
 import { LoginScreen } from './components/LoginScreen.jsx';
-import { caretShift, topPosition } from './utils.js';
+import { keepShift, topPosition } from './utils.js';
+import { prefersReducedMotion } from './hooks/useReducedMotion.js';
 
 // ── 키보드가 올라와도 커서가 보이게 (2026-09-22 신고) ───────────────────────
 // 폰에서 업무 상세를 고칠 때, 커서가 있는 줄이 **저장·취소 바 뒤로** 들어가 손으로
@@ -57,32 +58,50 @@ function caretGap() {
   if (!(el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return { el: null, dy: 0 };
   // 쓸 수 있는 띠 = 보이는 창에서 아래 도구 줄(data-kb-bar)을 뺀 구간
   let bottom = vv.height;
+  let top = 0;
   for (const bar of document.querySelectorAll('[data-kb-bar]')) {
     const r = bar.getBoundingClientRect();
     if (r.height && r.top < bottom) bottom = Math.min(bottom, r.top);
   }
-  return { el, dy: caretShift(caretBox(el), { top: 0, bottom }) };
-}
-
-function keepCaretVisible() {
-  const { el, dy } = caretGap();
-  if (el && dy) shiftBy(el, dy);
+  // **칸이 든 스크롤 통의 보이는 칸도 띠를 자른다**(2026-10-14 점검 — PITFALLS 47-a). 업무 창 댓글 목록은
+  // 아래에 댓글 입력 칸이 붙은 통이라, 창 바닥보다 먼저 잘린다 — 창만 보고 재면 답글 칸이 그 입력 칸 뒤에
+  // 20px만 남긴 채 '보인다'로 셌다.
+  for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+    const oy = getComputedStyle(n).overflowY;
+    if (oy !== 'auto' && oy !== 'scroll') continue;
+    const r = n.getBoundingClientRect();
+    if (r.bottom < bottom) bottom = r.bottom;
+    if (r.top > top) top = r.top;
+  }
+  // 칸이 `data-kb-keep` 안이면 그 묶음(답글 칸 · 메모와 저장 줄)도 같이 보이게 — 자리가 있을 때만(utils.keepShift).
+  // 아래끝은 묶음 안의 `data-kb-keep-end`(저장·만들기 줄)가 있으면 그것, 없으면 묶음 자체다.
+  const keep = el.closest('[data-kb-keep]');
+  let box = null;
+  if (keep) {
+    const k = keep.getBoundingClientRect();
+    const end = keep.querySelector('[data-kb-keep-end]');
+    box = { top: k.top, bottom: end ? end.getBoundingClientRect().bottom : k.bottom };
+  }
+  return { el, dy: keepShift(caretBox(el), box, { top, bottom }) };
 }
 
 // 키보드가 올라오는 **0.25초 동안 매 프레임 따라간다**(2026-09-22 실기기 — 시각마다
 // 툭툭 밀었더니 "뚜두둑" 끊겨 보였다). 한 프레임에 남은 거리의 일부만 좁히면 움직임이
 // 이어지고, 키보드가 아직 올라오는 중이라 목표가 계속 바뀌어도 그때그때 다시 잰다.
 // 다 맞으면 dy가 0이라 저절로 멈춘다 — 굴러 있는 화면을 흔들지 않는다.
+// 글을 쓰는 동안(selectionchange)도 이 길이다(2026-10-14) — 줄이 늘 때 툭 밀지 않고 같은 곡선으로 따라간다.
+// 움직임 줄이기면 비율이 1이라 프레임마다 바로 붙는다(따라가기는 그대로 — 키보드가 올라오는 동안 목표가 바뀐다).
 const FOLLOW_MS = 520;        // 아이폰 키보드가 다 올라오고도 조금 남는 길이
 const FOLLOW_EASE = 0.34;     // 한 프레임에 좁히는 비율. 크면 딱딱하고 작으면 늘어진다
 let followId = 0;
 function keepCaretVisibleSettled() {
   cancelAnimationFrame(followId);
   const until = performance.now() + FOLLOW_MS;
+  const ease = prefersReducedMotion() ? 1 : FOLLOW_EASE;
   const step = () => {
     const { el, dy } = caretGap();
     // 2px 안쪽은 한 번에 붙인다 — 비율로만 좁히면 영영 안 닿는다
-    if (el && dy) shiftBy(el, Math.abs(dy) < 2 ? dy : dy * FOLLOW_EASE);
+    if (el && dy) shiftBy(el, Math.abs(dy) < 2 ? dy : dy * ease);
     if (performance.now() < until) followId = requestAnimationFrame(step);
   };
   followId = requestAnimationFrame(step);
@@ -447,8 +466,42 @@ function WorkspaceShell() {
   }, [cloudMode, modalState.isOpen, isProfileModalOpen, isProjectModalOpen, renameTarget]);
 
   // 업무 창에는 수정 모드가 없다(2026-09-28) — 있는 업무는 연 채로 고치고, id가 없으면 만들기 폼이다
-  const openTaskModal = useCallback((task) => {
+  // **앱 안에서 연 업무 창은 history에 한 자리를 남긴다**(2026-10-14 점검 · PITFALLS 47-c) — 폰 뒤로가기(안드로이드 버튼·
+  // 가장자리 밀기)가 창을 닫게. 닫힌 창을 열 때만 한 번이다(창 안에서 다른 업무로 넘어가는 것은 그 자리를 그대로 쓴다).
+  // 딥링크·공유 주소로 들어온 창은 남기지 않는다({ history: false }) — 뒤로가기가 들어오기 전 페이지로 나가는 것이 그대로다.
+  // 실제 pushState는 아래 URL 동기화 effect가 한다(주소를 만드는 유일한 곳 — '뒤로가기' 주석).
+  const modalOpenRef = useRef(false);
+  modalOpenRef.current = modalState.isOpen;
+  const activeMenuRef = useRef(activeMenu);
+  activeMenuRef.current = activeMenu;
+  const pushModalRef = useRef(false);    // 다음 주소 쓰기를 '업무 창 자리' push로
+  const modalHistRef = useRef(false);    // 지금 열린 창이 history에 제 자리를 갖고 있다
+  const menuBeforeRef = useRef(null);    // 창을 열기 전 화면 — 검색·알림은 창과 함께 화면도 옮긴다
+  const pendingBackRef = useRef(false);  // 닫기(✕·닫기·삭제)가 그 자리를 history.back()으로 걷는 중
+  const lastUrlRef = useRef('');         // 동기화 effect가 마지막으로 만든 주소
+  const openTaskModal = useCallback((task, { history: remember = true } = {}) => {
+    // 새 업무 폼(id 없음)은 남기지 않는다 — 뒤로가기가 묻지 않고 닫으면 적던 것이 사라진다(✕·닫기는 묻는다 · modals.jsx confirmClose)
+    if (remember && task?.id && !modalOpenRef.current) { pushModalRef.current = true; menuBeforeRef.current = activeMenuRef.current; }
+    modalOpenRef.current = true;
     setModalState({ isOpen: true, task });
+  }, []);
+  // 창을 닫는 길은 모두 이것이다(✕·닫기·딤·Esc·삭제). 창이 history에 제 자리를 갖고 있으면 **그 자리를 뒤로 걷는다** —
+  // 그냥 닫으면 걷히지 않은 자리가 남아 다음 뒤로가기 한 번이 아무 일도 안 하는 것처럼 보인다.
+  // 지금 자리가 우리 것(state.taskModal)일 때만 — 아니면(창 안에서 링크로 건너뛴 자리 등) 예전처럼 주소만 고친다.
+  const closeTaskModal = useCallback(() => {
+    if (modalHistRef.current && window.history.state?.taskModal) {
+      pendingBackRef.current = true;
+      window.history.back();
+      // popstate가 끝내 안 오면(막힌 history) 주소 쓰기가 멈춘 채 남지 않게 한 번 풀어 준다
+      setTimeout(() => {
+        if (!pendingBackRef.current) return;
+        pendingBackRef.current = false;
+        window.history.replaceState(null, '', lastUrlRef.current);
+      }, 1000);
+    }
+    modalHistRef.current = false;
+    modalOpenRef.current = false;
+    setModalState({ isOpen: false, task: null });
   }, []);
 
   // 업무 창 핸들러의 기준 카드는 모달을 연 시점의 스냅샷(modalState.task)이 아니라
@@ -629,7 +682,7 @@ function WorkspaceShell() {
     const onSel = () => {
       if (visibleH() >= window.innerHeight - 80) return;   // 키보드가 없으면 할 일이 없다
       clearTimeout(t);
-      t = setTimeout(keepCaretVisible, 120);
+      t = setTimeout(keepCaretVisibleSettled, 120);
     };
     document.addEventListener('selectionchange', onSel);
     return () => {
@@ -669,7 +722,7 @@ function WorkspaceShell() {
     if (!tid) return;
     if (cloudMode && !cloudReady) return; // 클라우드 로드 완료 대기
     const task = store.getState().tasks.byId[tid];
-    if (task) { setActiveMenu(task.projectId); openTaskModal(task); }
+    if (task) { setActiveMenu(task.projectId); openTaskModal(task, { history: false }); }
     pendingTaskIdRef.current = null;
   }, [cloudMode, cloudReady, openTaskModal]);
 
@@ -701,16 +754,33 @@ function WorkspaceShell() {
   // 본문 링크로 **건너뛸 때만** pushNextUrlRef를 올려 그 한 번을 pushState로 바꾼다 —
   // 새 주소가 새 자리로 들어가고, 보던 자리는 바로 뒤에 남는다.
   //
+  // 업무 창 자리(2026-10-14 · 위 openTaskModal 주석): 앱 안에서 연 창은 그 자리 하나를 push하고, 뒤로가기로 그 자리를
+  // 떠나면(주소에 t가 없어지면) **창만 닫는다** — 화면은 열기 전 화면으로(검색·알림이 옮긴 경우). 닫기 버튼이 부른
+  // history.back()의 popstate는 이미 닫았으니 주소만 지금 상태로 맞춘다(pendingBackRef).
+  //
   // popstate가 오면 주소를 다시 읽어 화면·업무 창을 복원한다. 여기서 상태를 바꾸면
   // 동기화 effect가 한 번 더 돌지만, **같은 상태에서 같은 주소가 나오므로**
   // replaceState 한 번으로 끝난다(되돌아가는 루프가 생기지 않는다). history API는
   // popstate를 다시 일으키지 않는다는 점도 같이 기댄다.
   useEffect(() => {
     const onPop = () => {
+      if (pendingBackRef.current) {
+        pendingBackRef.current = false;
+        window.history.replaceState(null, '', lastUrlRef.current);
+        return;
+      }
+      const q = new URLSearchParams(window.location.search);
+      if (modalHistRef.current && !q.get('t')) {
+        modalHistRef.current = false;
+        modalOpenRef.current = false;
+        setModalState({ isOpen: false, task: null });
+        const before = menuBeforeRef.current;
+        if (before && before !== activeMenuRef.current) { keepScrollRef.current = true; setActiveMenu(before); }
+        return;
+      }
       // 뒤로가기는 **보던 자리로 돌아가는 것**이다 — 화면을 바꾼다고 스크롤을 맨 위로
       // 끌어올리면 그 뜻이 깨진다. 아래 '맨 위로' 되돌리기를 한 번 비켜 준다.
       keepScrollRef.current = true;
-      const q = new URLSearchParams(window.location.search);
       const f = q.get('f');
       setDashFilter(DASH_FILTERS.includes(f) ? f : DASH_FILTER_DEFAULT);
       const s = store.getState();
@@ -718,7 +788,11 @@ function WorkspaceShell() {
       // 낡은 사본에 덮이지 않게(openTaskModal 위 주석과 같은 이유).
       const tid = q.get('t');
       const task = tid ? s.tasks.byId[tid] : null;
-      if (task) { setActiveMenu(task.projectId); setModalState({ isOpen: true, task }); return; }
+      if (task) {
+        // 앞으로 가기로 업무 창 자리에 다시 섰으면 그 자리는 다시 이 창의 것이다
+        if (window.history.state?.taskModal) modalHistRef.current = true;
+        setActiveMenu(task.projectId); setModalState({ isOpen: true, task }); return;
+      }
       setModalState({ isOpen: false, task: null });
       const pid = q.get('p');
       setActiveMenu(pid && s.projects.byId[pid] ? pid : 'dashboard');
@@ -747,10 +821,18 @@ function WorkspaceShell() {
     // 한 번만 pushState라서 뒤로가기가 보던 자리로 돌아온다 — 위 '뒤로가기' 주석.
     // 주소가 이미 같으면 밀지 않는다: 같은 자리를 두 번 쌓으면 뒤로가기를 두 번
     // 눌러야 움직이는 것처럼 보인다.
+    lastUrlRef.current = next;
+    // 닫기가 그 자리를 뒤로 걷는 중이면 쓰지 않는다 — 지금 자리는 곧 떠날 업무 창 자리다(onPop이 맞춘다)
+    if (pendingBackRef.current) return;
     const push = pushNextUrlRef.current;
     pushNextUrlRef.current = false;
+    // 앱 안에서 연 업무 창 — 같은 주소여도(새 업무 만들기) 한 자리를 남긴다. 표시(state.taskModal)로 우리 자리임을 안다.
+    const pushModal = pushModalRef.current && modalState.isOpen;
+    pushModalRef.current = false;
+    if (pushModal) { window.history.pushState({ taskModal: 1 }, '', next); modalHistRef.current = true; return; }
+    // 창이 열려 있는 동안 고쳐 쓸 때는 그 표시를 지킨다(댓글·저장으로 주소를 다시 쓴다)
     if (push && next !== `${window.location.pathname}${window.location.search}`) window.history.pushState(null, '', next);
-    else window.history.replaceState(null, '', next);
+    else window.history.replaceState(modalState.isOpen ? window.history.state : null, '', next);
   }, [activeMenu, modalState, dashFilter]);
 
   // ── 화면을 바꾸면 스크롤 통을 맨 위로 ──────────────────────────────────────
@@ -852,7 +934,7 @@ function WorkspaceShell() {
         <ErrorBoundary>
           <TaskModalShell
             task={modalState.task}
-            onClose={() => setModalState({ isOpen: false, task: null })}
+            onClose={closeTaskModal}
             // 칸마다 저장한다 — 창이 이전 카드(oldData = 스토어의 지금 카드)를 같이 넘겨서 바뀐 칸만 간다.
             // 새 업무(id 없음)를 만들면 창이 그 카드로 넘어가 곧바로 고칠 수 있다.
             onSave={(newData, oldData, opts) => {
@@ -866,7 +948,7 @@ function WorkspaceShell() {
             onUpdateComment={(commentId, newText) => { const updated = controller.handleUpdateComment(liveModalTask(), commentId, newText); setModalState(prev => ({ ...prev, task: updated })); }}
             onDeleteComment={(commentId) => { const updated = controller.handleDeleteComment(liveModalTask(), commentId); setModalState(prev => ({ ...prev, task: updated })); }}
             onFileActivity={(action) => { const updated = controller.handleFileActivity(liveModalTask(), action); setModalState(prev => ({ ...prev, task: updated })); }}
-            onDelete={() => { controller.handleDeleteTask(modalState.task); setModalState({ isOpen: false, task: null }); }}
+            onDelete={() => { controller.handleDeleteTask(modalState.task); closeTaskModal(); }}
           />
         </ErrorBoundary>
       )}

@@ -232,6 +232,23 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   }, [flushAll]);
   const close = useCallback(() => { flushAll(); onClose(); }, [flushAll, onClose]);
 
+  // ── 닫은 뒤 초점 · 보기 화면의 Esc (2026-10-14 점검 · PITFALLS 47-d) ──────────────
+  // 창을 연 것(보드 카드·버튼)을 첫 렌더에서 잡아 두었다가, 창이 내려간 뒤 초점을 그리로 돌린다 — 키보드로 쓰는 사람이
+  // 닫을 때마다 문서 맨 앞에서 다시 찾아 들어가지 않게. 글 칸(검색 칸 등)에는 돌리지 않는다(폰에서 키보드가 다시 올라온다).
+  // 닫는 사이 초점이 다른 데로 옮겨 갔으면 건드리지 않는다.
+  const openerRef = useRef(undefined);
+  if (openerRef.current === undefined) {
+    const a = typeof document !== 'undefined' ? document.activeElement : null;
+    openerRef.current = a && a !== document.body ? a : null;
+  }
+  useEffect(() => () => {
+    const el = openerRef.current;
+    if (!el || !el.isConnected || el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+    const a = document.activeElement;
+    if (a && a !== document.body) return;
+    el.focus({ preventScroll: true });
+  }, []);
+
   // ── 같이 쓰기(클라우드 · 있는 업무) ───────────────────────────────────────
   // 거울(onMirror)은 **조용한 저장**이다 — 활동·멘션은 세션 끝(onVersion)에 한 번(controllers).
   // 잠금 판이 서 있는 동안은 열지 않는다(채널·문서 표가 RLS로 막혀 있기도 하다 · 0099) — 열리면 그때 연다.
@@ -258,6 +275,27 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   useEffect(() => { awareness?.setLocalStateField('editing', editing); }, [awareness, editing]);
   // 보드 카드 얼굴에도 — 같이 쓰기 문서 밖(presence)이라 창을 열지 않은 사람도 본다
   useEffect(() => { trackEditing(editing); return () => trackEditing(false); }, [editing]);
+  // Esc는 **보기 화면에서만** 창을 닫는다(하드웨어 키보드 · 위 '닫은 뒤 초점'과 같은 묶음). 수정 화면·새 업무 폼은 칸에서 Esc를
+  // 치다 창이 통째로 닫히면 안 되니 그대로다. 글 칸 안의 Esc(답글 닫기·멘션 목록)도 그 칸의 것이다.
+  // **떠 있는 판이 있으면 그 판만 닫는다** — 팝오버·확인 창은 body 포털(HANDOFF §8)이고 저마다 document에서 Esc를 들어
+  // 닫는다. 같은 키에 창까지 닫히지 않게, 누른 순간(capture — 그 판들이 닫히기 전)에 #root 밖에 그려진 것이 있는지 본다.
+  useEffect(() => {
+    if (isNew || editing) return undefined;
+    let layer = false;
+    const onCapture = (e) => {
+      if (e.key !== 'Escape') return;
+      layer = [...document.body.children].some(n => n.id !== 'root' && !/^(SCRIPT|STYLE|LINK|TEMPLATE|NOSCRIPT)$/.test(n.tagName) && n.getClientRects().length > 0);
+    };
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || layer) return;
+      const t = e.target;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      close();
+    };
+    window.addEventListener('keydown', onCapture, true);
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onCapture, true); window.removeEventListener('keydown', onKey); };
+  }, [isNew, editing, close]);
   // 보기 화면의 본문 — 문서의 마크다운(남이 치는 글이 150ms 안에 따라온다). 문서가 없으면(게스트 · 여는 중 · 실패) null →
   // 스토어의 본문을 그린다.
   const liveSrc = useMemo(() => docSource(co) || fake?.doc || null, [co, fake]);
@@ -531,7 +569,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             {/* 상세는 탭을 옮겨도 **내리지 않는다** — 같이 쓰기 편집기와 치던 초안이 탭마다 새로 서지 않게 */}
             <div className={`flex-1 overflow-y-auto p-5 ${mobileTab === 'detail' ? '' : 'hidden'}`}>{detailBody}</div>
-            {mobileTab === 'comments' && <div ref={cmtBox} onScroll={onCmtScroll} className="flex-1 overflow-y-auto p-4">{commentsPanel}</div>}
+            {mobileTab === 'comments' && <div ref={cmtBox} data-cmt-box onScroll={onCmtScroll} className="flex-1 overflow-y-auto p-4">{commentsPanel}</div>}
             {mobileTab === 'activity' && <div className="flex-1 overflow-y-auto p-4">{activityPanel}</div>}
             {mobileTab === 'versions' && <div className="flex-1 overflow-y-auto p-4">{versionsPanel}</div>}
             {mobileTab === 'comments' && commentInputEl}
@@ -594,7 +632,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
               {sideTab('activity', '활동')}
               {showVersions && sideTab('versions', '버전 기록')}
             </div>
-            <div ref={cmtBox} onScroll={onCmtScroll} className="flex-1 overflow-y-auto p-4">{activeTab === 'comments' ? commentsPanel : activeTab === 'activity' ? activityPanel : versionsPanel}</div>
+            <div ref={cmtBox} data-cmt-box onScroll={onCmtScroll} className="flex-1 overflow-y-auto p-4">{activeTab === 'comments' ? commentsPanel : activeTab === 'activity' ? activityPanel : versionsPanel}</div>
             {activeTab === 'comments' && commentInputEl}
           </div>
           </div>

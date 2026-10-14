@@ -189,7 +189,8 @@ function PersonForm({ initial = {}, submitLabel, onSubmit, onCancel, busy, withN
   };
 
   return (
-    <div className="rounded-lg border border-line p-3 space-y-2.5" style={{ background: 'var(--app-surface)' }}>
+    // data-kb-keep: 키보드가 떠 있으면 고치는 칸과 아래 추가·저장 줄까지 같이 보이게(App.jsx caretGap · PITFALLS 47-a)
+    <div data-kb-keep className="rounded-lg border border-line p-3 space-y-2.5" style={{ background: 'var(--app-surface)' }}>
       <div className="flex flex-wrap items-start gap-2">
         <LabeledField label="이름" className="flex-1 basis-[7rem] min-w-0">
           <input aria-label="이름" value={name} onChange={e => setName(e.target.value)} placeholder="이름"

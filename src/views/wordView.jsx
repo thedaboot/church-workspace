@@ -598,7 +598,7 @@ function QtTab({ onOpenBible, focus = null }) {
         </div>
 
         {/* 내 묵상 — 저장된 글이 있으면 읽기 모드, '수정'을 눌러야 편집기다(머리말) */}
-        <div className="mt-6" ref={editorRef} data-note={reading ? 'read' : 'edit'}>
+        <div className="mt-6" ref={editorRef} data-kb-keep data-note={reading ? 'read' : 'edit'}>
           {/* 되살아난 초안은 **이미 있는 저장 상태 칩 자리**에서 말한다(§8의 안내 줄 금지) */}
           <SectionHead right={<SaveState state={noteState} />}>내 묵상</SectionHead>
           <div className={EDITOR_SLOT}>
@@ -654,7 +654,8 @@ function QtTab({ onOpenBible, focus = null }) {
               각각 한 줄을 통째로 쓰고, 그 위에서는 예전처럼 한 줄에 양 끝으로 선다.
               자리는 §8 그대로 — 확정(저장·수정) 왼쪽, 나가기(취소) 그 오른쪽. */}
           <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] items-center gap-2 mt-2.5">
-            <div data-note-tools="left" className="flex items-center gap-2 min-w-0">
+            {/* data-kb-keep-end: 키보드가 떠 있으면 묵상 제목·글 칸과 이 저장 줄이 같이 보이게 — 자리가 있을 때만(App.jsx caretGap · PITFALLS 47-a) */}
+            <div data-note-tools="left" data-kb-keep-end className="flex items-center gap-2 min-w-0">
               {reading ? (
                 <>
                   <button onClick={openEditor}

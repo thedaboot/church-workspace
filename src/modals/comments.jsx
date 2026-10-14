@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Pencil, Trash2, Heart, ThumbsUp, Check } from 'lucide-react';
-import { formatDate, isMobileViewport, keepVisible, imeComposing, coarsePointer } from '../utils.js';
+import { formatDate, isMobileViewport, imeComposing, coarsePointer } from '../utils.js';
+import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { RichText } from '../components/RichText.jsx';
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
@@ -280,6 +281,13 @@ export const ListSkeleton = ({ rows = 3, kind }) => {
 // 1초 넘게 밀리던 원인(댓글 1건당 RichText 파싱 + 노드 수십 개)을 잘라낸다.
 const INITIAL_COMMENTS = 10;
 
+// 답글 칸이 열릴 때 통째로(버튼까지) 보이게 — ref 콜백이라 열릴 때 한 번 돈다. 툭 옮기지 않고 부드럽게(움직임 줄이기면 바로).
+// 키보드가 이미 떠 있으면 App.jsx의 커서 따라가기가 맡는다(data-kb-keep) — 둘이 같이 굴리면 서로 민다.
+const revealReply = (el) => {
+  if (!el || document.documentElement.hasAttribute('data-kb')) return;
+  el.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+};
+
 export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpdate, onDelete, loading = false, members = [] }) => {
   const [replyingTo, setReplyingTo] = useState(null);
   // 초안은 **원 댓글별로** 들고 있는다. 하나의 replyText 하나였을 때는 답글을 쓰다가
@@ -445,9 +453,11 @@ export const CommentPanel = React.memo(({ comments, onReply, currentUser, onUpda
                 // ③ 버튼이 없어서 모바일에는 'Enter로 등록·Esc로 취소'가 아예 없는
                 //    조작이었다(자동 초점도 모바일에서는 끄는 자리다).
                 // ④ 누구에게 다는 답글인지 화면에 없었다.
-                // keepVisible: 모바일에서 키보드가 올라와도 입력칸이 가려지지 않게
-                // 열릴 때 한 번 스크롤해 준다(담당자·멘션 팝오버와 같은 헬퍼).
-                <div ref={keepVisible} className="animate-in fade-in duration-200">
+                // 열릴 때 답글 칸 전체(버튼까지)를 부드럽게 끌어온다(revealReply). 키보드가 올라올 때·치는 동안은
+                // `data-kb-keep`이 App.jsx의 커서 따라가기에 '이 묶음까지 같이 보이게'라고 알린다 — 그 셈은 댓글 목록 통의
+                // 바닥(아래 댓글 입력 칸)까지 안다(2026-10-14 점검 · PITFALLS 47-a). 키보드가 떠 있는 동안 목록 안에서
+                // 글을 쓰면 아래 댓글 입력 칸은 비켜 준다(index.css `.cmt-input` — 작은 폰에서는 답글 칸이 들어갈 자리가 없었다).
+                <div ref={revealReply} data-kb-keep className="animate-in fade-in duration-200">
                   <p className="text-[10px] text-fg-muted mb-1">
                     <span className="font-semibold text-fg-muted">{c.author}</span>님에게 답글
                   </p>
@@ -543,7 +553,7 @@ export const CommentInput = ({ onAdd, members = [] }) => {
   const submit = () => { if (val.trim()) { onAdd(val); setVal(''); } };
 
   return (
-    <div className="p-3 bg-surface border-t border-line shrink-0 relative">
+    <div className="cmt-input p-3 bg-surface border-t border-line shrink-0 relative">
       <MentionInput
         as="textarea" value={val} onChange={setVal} members={members} dropUp
         placeholder="@이름 으로 멘션..."

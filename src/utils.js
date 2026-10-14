@@ -384,6 +384,31 @@ export function caretShift(caret, view, pad = 12) {
   return 0;
 }
 
+// 커서와 함께 **그 칸의 묶음**(`data-kb-keep` — 답글 칸 · 메모와 저장 줄)까지 보이게 하려면 얼마나 굴리나(2026-10-14 점검).
+// 커서가 먼저다 — 묶음은 자리가 있을 때만 끌어온다:
+//   ① 묶음이 띠에 통째로 들어가면 가장 적게 움직여 통째로 보이게(답글 칸의 'OO님에게 답글'부터 버튼까지)
+//   ② 통째로는 안 들어가도 커서 줄부터 묶음 아래끝(저장 버튼)까지 들어가면 그 아래끝까지
+//   ③ 그것도 안 되면 커서만(긴 노트의 가운데를 쓰는 중이면 저장 버튼을 보려고 화면을 끌지 않는다)
+// keep은 { top, bottom } 또는 null(그러면 caretShift와 같다).
+export function keepShift(caret, keep, view, pad = 12) {
+  const base = caretShift(caret, view, pad);
+  if (!caret || !keep || !view) return base;
+  const top = view.top + pad;
+  const bottom = view.bottom - pad;
+  if (!(bottom > top)) return base;
+  // 커서를 맞춘 뒤의 자리로 견준다
+  const cTop = caret.top - base;
+  const kTop = Math.min(keep.top, caret.top) - base;
+  const kBot = Math.max(keep.bottom, caret.bottom) - base;
+  if (kBot - kTop <= bottom - top) {
+    if (kBot > bottom) return base + Math.round(kBot - bottom);
+    if (kTop < top) return base + Math.round(kTop - top);
+    return base;
+  }
+  if (kBot > bottom && kBot - cTop <= bottom - top) return base + Math.round(kBot - bottom);
+  return base;
+}
+
 // 생일을 'MM-DD' → 사람들 로 묶는다. 달력이 날짜 칸마다 물어보므로 한 번만 만든다
 // (12명 × 42칸을 매 렌더 훑지 않게).
 export const birthdayMap = (members = []) => {

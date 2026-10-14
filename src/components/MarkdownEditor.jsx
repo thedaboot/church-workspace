@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import { useRef, useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useEditor, useEditorState, EditorContent } from '@tiptap/react';
 import { Placeholder } from '@tiptap/extension-placeholder';
 // 노드·마크(StarterKit·형광펜·체크리스트·이미지)는 한 벌이다 — 같이 쓰기가 마크다운에서
@@ -336,6 +336,29 @@ export function MarkdownEditor({
   }, [mention, members]);
   useEffect(() => { suggestionsRef.current = suggestions; }, [suggestions]);
 
+  // 멘션 목록의 자리 — 댓글 칸 멘션(MentionInput)과 같은 `useAnchoredPos`다(2026-10-14 점검 · PITFALLS 47-b).
+  // 예전에는 늘 커서 **아래**(top: 커서 + 4)라 키보드가 떠 있으면 목록이 키보드 밑으로 들어갔다. 이제 보이는 창
+  // (visualViewport)에 남은 자리로 위/아래를 고르고 화면 안에 가둔다. 앵커는 커서 자리를 **그때그때** 잰다 —
+  // 목록이 떠 있는 동안 키보드가 올라오거나 통이 굴러도 따라온다(useAnchoredPos의 rAF 고리가 이 상자를 매 프레임 본다).
+  const mentionPopRef = useRef(null);
+  // 렌더에서 바로 든다 — mentionRef는 효과에서 옮겨져서, 목록이 처음 서는 레이아웃 효과에서는 아직 앞 값(null)이다
+  const mentionNow = useRef(null);
+  mentionNow.current = mention;
+  const mentionAnchor = useRef({
+    getBoundingClientRect: () => {
+      const m = mentionNow.current;
+      const view = editorRef.current?.view;
+      let c = null;
+      try { c = m && view ? view.coordsAtPos(m.to) : null; } catch { c = null; }
+      if (!c) return { left: m?.left || 0, right: m?.left || 0, top: m?.top || 0, bottom: m?.top || 0, width: 0, height: 0 };
+      return { left: c.left, right: c.right, top: c.top, bottom: c.bottom, width: c.right - c.left, height: c.bottom - c.top };
+    },
+  });
+  const mentionOpen = !!mention && suggestions.length > 0;
+  const [mentionPos, placeMention] = useAnchoredPos(mentionAnchor, mentionOpen, 176, 192, 8, mentionPopRef, { align: 'start' });
+  // 글자를 칠수록 줄 수가 바뀐다 — 위로 선 목록은 높이가 바뀌면 커서에서 떨어져 뜨므로 다시 잰다(MentionInput과 같다)
+  useLayoutEffect(() => { if (mentionOpen) placeMention(); }, [mentionOpen, suggestions.length, placeMention]);
+
   // 커서 앞 '@단어'를 감지해 제안 팝오버 위치를 잡는다
   const detectMention = useCallback((editor) => {
     const { state, view } = editor;
@@ -555,9 +578,10 @@ export function MarkdownEditor({
       </div>
       {/* 자리를 커서가 정한다(인라인 left/top) — transition-none이 없으면 duration-150이 top/left까지
           전이시켜 목록이 커서를 150ms 늦게 미끄러져 따라온다(PITFALLS 17-b) */}
-      {mention && suggestions.length > 0 && (
+      {mentionOpen && (
         <div
-          style={{ position: 'fixed', left: Math.min(mention.left, window.innerWidth - 176), top: mention.top + 4 }}
+          ref={mentionPopRef}
+          style={{ position: 'fixed', left: mentionPos.left, top: mentionPos.top }}
           className="z-[80] w-max min-w-[9rem] max-w-[min(16rem,calc(100vw-2rem))] max-h-48 overflow-y-auto bg-surface border border-line rounded-lg shadow-elevated p-1 transition-none animate-in fade-in zoom-in-95 duration-150"
         >
           {suggestions.map((name, i) => (

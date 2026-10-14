@@ -203,7 +203,8 @@ export function MyNote({ note, serviceId = '', serviceDate = '', passageRef = ''
   };
 
   return (
-    <section ref={sectionRef} className="worship-note mt-7 scroll-mt-4">
+    // data-kb-keep: 키보드가 떠 있을 때 커서 줄과 함께 아래 저장 줄(data-kb-keep-end)까지 보이게 — 자리가 있을 때만(App.jsx caretGap · PITFALLS 47-a)
+    <section ref={sectionRef} data-kb-keep className="worship-note mt-7 scroll-mt-4">
       <div className="flex items-center gap-2 pb-2.5">
         <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">내 예배 노트</h3>
         <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
@@ -249,7 +250,7 @@ export function MyNote({ note, serviceId = '', serviceDate = '', passageRef = ''
           </Suspense>
         </div>
       )}
-      <div className={NOTE_TOOLS}>
+      <div data-kb-keep-end className={NOTE_TOOLS}>
         {reading ? (
           <span className="flex items-center gap-2">
             <button type="button" onClick={() => { userEditing.current = true; setEditing(true); }} className={`worship-note-edit ${BTN_SOFT}`}>수정</button>

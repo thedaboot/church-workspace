@@ -161,8 +161,20 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   const src = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
   assert.ok(/pushNextUrlRef\.current = true; setActiveMenu\(task\.projectId\); openTaskModal\(task\)/.test(src),
     '본문 링크로 업무를 열 때 다음 주소를 push로 남긴다');
-  assert.ok(/window\.history\.pushState\(null, '', next\)[\s\S]{0,40}window\.history\.replaceState\(null, '', next\)/.test(src),
-    '주소 동기화는 push 한 번을 빼면 replaceState다');
+  assert.ok(/window\.history\.pushState\(null, '', next\)[\s\S]{0,40}window\.history\.replaceState\(modalState\.isOpen \? window\.history\.state : null, '', next\)/.test(src),
+    '주소 동기화는 push 한 번을 빼면 replaceState다(열린 업무 창 자리의 표시는 지킨다)');
+  // 업무 창 자리(2026-10-14 · PITFALLS 47-c) — 앱 안에서 연 창만 한 자리를 push하고, 뒤로가기는 창만 닫고, 닫기 버튼은 그 자리를 뒤로 걷는다.
+  // 되돌리기 검사: openTaskModal의 pushModalRef를 안 올리면 첫 단정이, 딥링크에 { history: false }를 빼면 둘째가, closeTaskModal의
+  // history.back()을 지우면 넷째가 깨진다. (실제 동작은 tests/modalclose가 브라우저로 잰다)
+  assert.ok(/if \(remember && task\?\.id && !modalOpenRef\.current\) \{ pushModalRef\.current = true;/.test(src),
+    '닫힌 창을 앱 안에서 열 때만(있는 업무) 업무 창 자리를 남긴다');
+  assert.ok(/openTaskModal\(task, \{ history: false \}\)/.test(src),
+    '딥링크·공유 주소로 들어온 창은 자리를 남기지 않는다');
+  assert.ok(/window\.history\.pushState\(\{ taskModal: 1 \}, '', next\)/.test(src) && /if \(modalHistRef\.current && !q\.get\('t'\)\)/.test(src),
+    '업무 창 자리는 표시를 달고 push · 뒤로가기로 t가 없어지면 창만 닫는다');
+  assert.ok(/modalHistRef\.current && window\.history\.state\?\.taskModal\) \{\s*pendingBackRef\.current = true;\s*window\.history\.back\(\);/.test(src)
+    && /onClose=\{closeTaskModal\}/.test(src),
+    '닫기(✕·닫기·Esc)는 업무 창 자리를 뒤로 걷는다 — 걷지 않으면 다음 뒤로가기 한 번이 헛돈다');
   assert.ok(/addEventListener\('popstate'/.test(src) && /removeEventListener\('popstate'/.test(src),
     'popstate를 듣고 떼어낸다');
   // 업무 창이 열려 있으면 프로젝트는 그 업무의 것 — 내 업무·대시보드·검색에서 연
@@ -170,7 +182,7 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   // 붙는데 프로젝트 탭 집계에서는 빠졌다(2026-08-30 — "업무는 3명인데 탭은 1명").
   assert.ok(/modalState\.isOpen && modalState\.task\?\.projectId\)\s*\|\|\s*\(isProjectScreen \? activeMenu : null\)/.test(src),
     '업무 창이 열려 있으면 그 업무의 프로젝트로 track한다(탭·카드 집계가 어긋나지 않게)');
-  console.log('PASS  뒤로가기·트래킹 배선 4가지');
+  console.log('PASS  뒤로가기·트래킹 배선 8가지');
 }
 
 // ── 한 벌로 모은 것들 (2026-09-08 정리 회차) ───────────────────────────────
@@ -263,7 +275,7 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   // 바꾸면 첫 단정이, 2px 스냅을 빼면 셋째가 깨진다(비율로만 좁히면 영영 안 닿는다).
   assert.ok(/followId = requestAnimationFrame\(step\)/.test(app),
     '키보드가 올라오는 동안 프레임마다 따라간다');
-  assert.ok(/dy \* FOLLOW_EASE/.test(app), '한 프레임에 남은 거리의 일부만 좁힌다');
+  assert.ok(/dy \* ease/.test(app), '한 프레임에 남은 거리의 일부만 좁힌다');
   assert.ok(/Math\.abs\(dy\) < 2 \? dy :/.test(app), '2px 안쪽은 한 번에 붙인다');
   assert.ok(/cancelAnimationFrame\(followId\)/.test(app),
     '다시 부르면 앞의 따라가기를 멈춘다 — 둘이 겹치면 서로 민다');
@@ -274,8 +286,15 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
     '커서 맞추기는 바로 민다 — 부드럽게 하면 여러 번 부르는 것과 서로 싸운다');
   assert.ok(/const shrank = h < lastH - 80/.test(vv),
     '키보드와 주소창 여닫힘을 가른다 — 주소창은 이보다 적게 움직인다');
-  assert.ok(/selectionchange/.test(vv) && /setTimeout\(keepCaretVisible, 120\)/.test(vv),
-    '글을 쓰는 동안 커서가 내려가도 따라간다(글자마다 굴리지 않게 한 박자 묶는다)');
+  assert.ok(/selectionchange/.test(vv) && /setTimeout\(keepCaretVisibleSettled, 120\)/.test(vv),
+    '글을 쓰는 동안 커서가 내려가도 따라간다(글자마다 굴리지 않게 한 박자 묶고, 같은 곡선으로 · 2026-10-14)');
+  // 2026-10-14 점검(PITFALLS 47-a): 칸이 든 스크롤 통의 바닥(댓글 목록 아래의 댓글 입력 칸)도 띠를 자르고, data-kb-keep 묶음까지 본다.
+  // 되돌리기 검사: 통 자르기 고리를 지우면 첫 단정이, keepShift 대신 caretShift로 돌리면 둘째가 깨진다.
+  assert.ok(/for \(let n = el\.parentElement; n && n !== document\.body; n = n\.parentElement\) \{\s*const oy = getComputedStyle\(n\)\.overflowY;\s*if \(oy !== 'auto' && oy !== 'scroll'\) continue;\s*const r = n\.getBoundingClientRect\(\);\s*if \(r\.bottom < bottom\) bottom = r\.bottom;/.test(app),
+    '커서 띠는 칸이 든 스크롤 통의 보이는 칸으로도 잘린다');
+  assert.ok(/el\.closest\('\[data-kb-keep\]'\)/.test(app) && /keepShift\(caretBox\(el\), box, \{ top, bottom \}\)/.test(app),
+    'data-kb-keep 묶음(답글 칸 · 메모와 저장 줄)도 같이 보이게 잰다');
+  assert.ok(/const ease = prefersReducedMotion\(\) \? 1 : FOLLOW_EASE/.test(app), '움직임 줄이기면 프레임마다 바로 붙는다');
   // 주석에는 그 이름이 남아 있다(왜 안 쓰는지를 적어 뒀다) — **부르는 자리**만 본다.
   assert.ok(!new RegExp('\\.scrollIntoView\\(').test(app.split('\n').filter(l => !l.trim().startsWith('//')).join('\n')),
     'scrollIntoView로 돌아가지 않았다 — 그건 칸 전체를 가운데로 보내서 커서와 무관하다');
@@ -283,7 +302,7 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
     '아래 도구 줄(저장·취소) 높이를 셈이 안다 — 그 줄이 커서를 가리던 자리다');
   assert.ok(/isContentEditable/.test(app),
     '본문 편집기(contenteditable)도 같이 본다 — 업무 수정이 그 자리다');
-  console.log('PASS  키보드가 올라와도 커서가 보인다 14가지');
+  console.log('PASS  키보드가 올라와도 커서가 보인다 17가지');
 }
 
 // ── 커서를 얼마나 굴려야 하나 (utils.caretShift) ────────────────────────────
@@ -305,6 +324,24 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   assert.strictEqual(U.caretShift({ top: 10, bottom: 30 }, { top: 0, bottom: 10 }), 0,
     '키보드가 띠를 다 먹었으면 굴리지 않는다(굴려 봐야 보일 자리가 없다)');
   console.log('PASS  커서를 얼마나 굴리나 6가지');
+
+  // ── 커서와 그 칸의 묶음(utils.keepShift · 2026-10-14 점검 · PITFALLS 47-a) ──
+  // 되돌리기 검사: ①의 통째 갈래를 지우면 둘째가(첫째는 ②가 받는다), ②의 '커서 줄부터 아래끝까지' 갈래를 지우면 셋째가, ③의 자리 검사를
+  // 지우면(늘 아래끝까지 올리면) 넷째가 깨진다.
+  const v = { top: 100, bottom: 400 };   // 띠 100~400(여백 12 → 112~388)
+  assert.strictEqual(U.keepShift({ top: 300, bottom: 356 }, { top: 280, bottom: 420 }, v), 32,
+    '① 묶음이 통째로 들어가면 아래끝(버튼)까지 올린다 — 커서는 이미 보여도');
+  assert.strictEqual(U.keepShift({ top: 120, bottom: 170 }, { top: 90, bottom: 250 }, v), -22,
+    '① 머리(이름에게 답글)가 위로 잘렸으면 통째로 보이게 내린다');
+  assert.strictEqual(U.keepShift({ top: 300, bottom: 320 }, { top: 0, bottom: 560 }, v), 172,
+    '② 통째로는 안 들어가도 커서 줄부터 저장 줄까지 들어가면 저장 줄까지');
+  assert.strictEqual(U.keepShift({ top: 200, bottom: 220 }, { top: 0, bottom: 900 }, v), 0,
+    '③ 저장 줄이 한참 아래면(긴 노트 가운데) 커서만 지킨다 — 화면을 끌지 않는다');
+  assert.strictEqual(U.keepShift({ top: 380, bottom: 400 }, null, v), U.caretShift({ top: 380, bottom: 400 }, v),
+    '묶음이 없으면 caretShift와 같다');
+  assert.strictEqual(U.keepShift({ top: 10, bottom: 30 }, { top: 0, bottom: 60 }, { top: 0, bottom: 10 }), 0,
+    '띠가 없으면 굴리지 않는다');
+  console.log('PASS  커서와 그 칸의 묶음 6가지');
 }
 
 // ── 한글 조합 중의 Enter는 확정이 아니다 (utils.imeComposing · 2026-09-25 감사 S6) ──────

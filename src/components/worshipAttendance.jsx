@@ -242,7 +242,7 @@ export function AttendanceScreen({
           폭을 다 쓴다(같은 자리에 같은 규칙). 이미 두 번 밟은 함정이다(주보 편집 폼의
           46rem · 본문 보기의 42rem). */}
       {perms.canCheck && (
-        <section className="att-note mt-7">
+        <section data-kb-keep className="att-note mt-7">
           <div className="flex items-center gap-2 pb-2.5">
             <h3 className="text-[12.5px] font-bold text-fg whitespace-nowrap shrink-0">출석 메모</h3>
             <span className="flex-1 h-px" style={{ background: 'var(--app-line)' }} />
@@ -262,7 +262,8 @@ export function AttendanceScreen({
               aria-label="출석 메모" placeholder="예: 오늘은 새신자가 두 명 왔어요"
               className="att-note-box w-full resize-y min-h-[4.5rem] text-[13px] px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint leading-relaxed" />
           )}
-          <div className="att-note-tools mt-2.5 flex items-center gap-2">
+          {/* 키보드가 떠 있으면 메모 칸과 이 저장 줄이 같이 보이게(App.jsx caretGap · PITFALLS 47-a) */}
+          <div data-kb-keep-end className="att-note-tools mt-2.5 flex items-center gap-2">
             {readingNote ? (
               <button type="button" onClick={() => setEditingNote(true)}
                 className={`att-note-edit ${BTN_SOFT}`}>수정</button>

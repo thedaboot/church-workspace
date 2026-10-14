@@ -244,7 +244,7 @@ export function ClubDetail({
               카드들(저마다 같은 이유로 맥락을 갖는다)이 패널을 덮었다(예배 화면에서
               먼저 발견 · §6-1과 같은 뿌리). */}
           {adding && (
-            <div className={`club-meet-new ${closingMeet ? EXIT : 'dc-card'} relative z-20 p-3 mb-2 flex flex-wrap items-end gap-2.5 sm:gap-1.5 ${CARD}`} style={CARD_STYLE}>
+            <div data-kb-keep className={`club-meet-new ${closingMeet ? EXIT : 'dc-card'} relative z-20 p-3 mb-2 flex flex-wrap items-end gap-2.5 sm:gap-1.5 ${CARD}`} style={CARD_STYLE}>
               <LabeledField label="제목"
                 className="club-meet-title order-1 w-full sm:order-2 sm:w-auto sm:flex-1 sm:basis-40 sm:min-w-0 sm:max-w-[26rem]">
                 <input value={title} onChange={e => setTitle(e.target.value)} aria-label="모임 제목"

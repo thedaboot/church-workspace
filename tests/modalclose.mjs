@@ -1053,6 +1053,111 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   check('② 사진 미리보기(1440×900): 넘김 필이 사진 아래 끝을 덮지 않는다', !!pager && pager.imgH > 300 && pager.pillTop >= pager.imgBottom, JSON.stringify(pager));
 }
 
+// ── 폰 키보드 · 뒤로가기 · 닫은 뒤 초점 (2026-10-14 점검 · PITFALLS 47-a~d) ──────────────────────────────
+// 키보드는 visualViewport 높이만 줄여 흉내 낸다(PITFALLS 42-g — 레이아웃 뷰포트는 그대로라 아이폰과 같다).
+// 되돌리기 검사: App.jsx caretGap의 스크롤 통 자르기를 빼면 ①이, index.css `.cmt-input` 비키기를 빼면 ①(SE 폭)이,
+// MarkdownEditor 멘션 목록을 예전 `top: 커서 + 4`로 두면 ②가, openTaskModal의 push를 빼면 ③이, modals.jsx의 Esc 효과를 빼면 ④가 깨진다.
+{
+  const kbOn = (h) => ev(`(() => { const H = ${h}; Object.defineProperty(visualViewport, 'height', { configurable: true, get: () => H }); visualViewport.dispatchEvent(new Event('resize')); return H; })()`);
+  const kbOff = () => ev(`(() => { delete visualViewport.height; visualViewport.dispatchEvent(new Event('resize')); return true; })()`);
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 2, mobile: true });
+  await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+  await ev(readFileSync(join(import.meta.dirname, 'seed.js'), 'utf8'));
+  // 멘션 후보를 여덟 명 더 — 목록이 커서 아래(키보드 위) 남은 자리보다 길어야 위/아래 고르기를 잰다
+  await ev(`(() => { const s = JSON.parse(localStorage.getItem('church_app_v4')); ['노아','노을','노현','노민','노지','노경','노태','노하은'].forEach((n, i) => { const t = s.tasks.byId['t' + (10 + i)]; if (t) t.assignees = [n]; }); localStorage.setItem('church_app_v4', JSON.stringify(s)); })()`);
+  await send('Page.navigate', { url: URL_BASE + '/?p=p1' });
+  await wait('Page.loadEventFired');
+  await sleep(1500);
+  await send('Page.bringToFront');
+  // ① 답글 칸 — 키보드가 올라오면 칸·취소·답글 버튼이 통째로 키보드와 아래 댓글 입력 칸 위에
+  await ev(`document.querySelectorAll('.board-card')[1].click()`); await sleep(900);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => /^댓글/.test(b.textContent.trim()))?.click()`); await sleep(500);
+  await ev(`(() => { const b = [...document.querySelectorAll('.fixed.z-50 button')].filter(x => x.textContent.trim() === '답글'); b[b.length - 1]?.click(); })()`); await sleep(600);
+  await ev(`document.querySelector('.fixed.z-50 [data-kb-keep] textarea')?.focus()`); await sleep(150);
+  await kbOn(367);
+  await sleep(1000);
+  const reply = await ev(`(() => {
+    const t = document.querySelector('.fixed.z-50 [data-kb-keep] textarea');
+    if (!t) return { found: false };
+    const box = t.closest('[data-cmt-box]').getBoundingClientRect();
+    const btns = [...t.closest('[data-kb-keep]').querySelectorAll('button')].map(b => b.getBoundingClientRect());
+    const r = t.getBoundingClientRect();
+    const low = Math.min(box.bottom, visualViewport.height);
+    const input = document.querySelector('.fixed.z-50 .cmt-input');
+    return { found: true, top: Math.round(r.top), boxTop: Math.round(box.top), btnBottom: Math.round(Math.max(...btns.map(b => b.bottom))), low: Math.round(low),
+      inputHidden: !input || getComputedStyle(input).display === 'none' };
+  })()`);
+  check('키보드: 답글 칸·취소·답글 버튼이 통째로 보인다(목록 통 바닥 · 보이는 창 안 · 375×367)',
+    reply.found && reply.top >= reply.boxTop && reply.btnBottom <= reply.low && reply.inputHidden, JSON.stringify(reply));
+  await kbOff(); await ev(`document.activeElement.blur()`); await sleep(400);
+  const inputBack = await ev(`(() => { const i = document.querySelector('.fixed.z-50 .cmt-input'); return !!i && getComputedStyle(i).display !== 'none'; })()`);
+  check('키보드가 내려가면 아래 댓글 입력 칸이 돌아온다', inputBack);
+  // ② 본문 편집기의 @멘션 목록 — 키보드가 떠 있으면 커서 위로 연다(보이는 창 안)
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '상세')?.click()`); await sleep(300);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '수정')?.click()`); await sleep(1500);
+  await ev(`(() => { const e = document.querySelector('.fixed.z-50 [contenteditable=true]'); e.focus(); const s = getSelection(); s.selectAllChildren(e); s.collapseToEnd(); })()`);
+  await sleep(150);
+  await kbOn(367); await sleep(800);
+  await send('Input.insertText', { text: ' @노' }); await sleep(700);
+  const ment = await ev(`(() => {
+    const l = [...document.querySelectorAll('.max-h-48')].find(e => e.getBoundingClientRect().height > 0);
+    const s = getSelection(); const c = s.rangeCount ? s.getRangeAt(0).getBoundingClientRect() : null;
+    if (!l || !c) return { found: !!l, caret: !!c };
+    const r = l.getBoundingClientRect();
+    return { found: true, top: Math.round(r.top), bottom: Math.round(r.bottom), caretTop: Math.round(c.top), vh: visualViewport.height, left: Math.round(r.left), right: Math.round(r.right), vw: innerWidth };
+  })()`);
+  check('키보드: 본문 @멘션 목록은 커서 위로 열리고 보이는 창 안이다',
+    ment.found && ment.bottom <= ment.caretTop + 1 && ment.top >= 0 && ment.bottom <= ment.vh && ment.left >= 0 && ment.right <= ment.vw, JSON.stringify(ment));
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await kbOff(); await sleep(300);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '수정 완료')?.click()`); await sleep(500);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '닫기')?.click()`); await sleep(700);
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+
+  // ③ 뒤로가기는 업무 창을 닫는다 — 앱 안에서 연 창만 한 자리 · 닫기 버튼은 그 자리를 걷는다 · 딥링크는 그대로
+  const hist = () => ev(`({ url: location.pathname + location.search, len: history.length, tagged: !!history.state?.taskModal, open: !!document.querySelector('.fixed.z-50'),
+    focus: document.activeElement?.classList?.contains('board-card') || false })`);
+  // 못 찾아도 던지지 않는다(PITFALLS 40 — 되돌리기 검사에서 창이 안 닫힌 채 남으면 카드가 없다)
+  const openWithFocus = () => ev(`(() => { const c = document.querySelectorAll('.board-card')[1]; c?.focus(); c?.click(); })()`);
+  const h0 = await hist();
+  await openWithFocus(); await sleep(800);
+  const h1 = await hist();
+  await ev(`history.back()`); await sleep(800);
+  const h2 = await hist();
+  check('뒤로가기: 앱 안에서 연 업무 창은 history 한 자리 · 뒤로가기는 창만 닫는다',
+    !h0.open && h1.open && h1.tagged && !h2.open && !h2.tagged && h2.url === h0.url, JSON.stringify({ h0, h1, h2 }));
+  await openWithFocus(); await sleep(800);
+  const h3 = await hist();
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(800);
+  const h4 = await hist();
+  await openWithFocus(); await sleep(800);
+  const h5 = await hist();
+  check('닫기 버튼은 창 자리를 뒤로 걷는다(다시 열어도 자리가 쌓이지 않는다) · 닫으면 연 카드로 초점',
+    h3.len === h1.len && !h4.open && !h4.tagged && h4.url === h0.url && h4.focus && h5.len === h1.len, JSON.stringify({ h3, h4, h5 }));
+  // ④ 보기 화면 Esc(하드웨어 키보드) — 창을 닫고 · 떠 있는 판이 있으면 그 판만
+  await ev(`document.querySelector('.fixed.z-50 [title="업무 삭제"]')?.click()`); await sleep(400);
+  const esc = async () => { await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }); await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }); await sleep(500); };
+  const popUp = await ev(`document.body.innerText.includes('이 업무를 삭제할까요?')`);
+  await esc();
+  const afterPop = await ev(`({ open: !!document.querySelector('.fixed.z-50'), pop: document.body.innerText.includes('이 업무를 삭제할까요?') })`);
+  await esc();
+  const h6 = await hist();
+  check('보기 화면 Esc: 떠 있는 확인 판만 먼저 닫고, 다음 Esc가 창을 닫는다(자리도 걷는다 · 카드로 초점)',
+    popUp && afterPop.open && !afterPop.pop && !h6.open && !h6.tagged && h6.focus, JSON.stringify({ popUp, afterPop, h6 }));
+  // 딥링크로 들어온 창은 자리를 남기지 않는다(뒤로가기는 들어오기 전 페이지로)
+  const tid = await ev(`JSON.parse(localStorage.getItem('church_app_v4')).tasks.allIds[1]`);
+  await send('Page.navigate', { url: `${URL_BASE}/?p=p1&t=${tid}` });
+  await wait('Page.loadEventFired');
+  await sleep(1500);
+  const d0 = await hist();
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(600);
+  const d1 = await hist();
+  check('딥링크로 연 창은 자리를 남기지 않고, 닫으면 주소만 고친다',
+    d0.open && !d0.tagged && !d1.open && d1.len === d0.len && d1.url === '/?p=p1', JSON.stringify({ d0, d1 }));
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

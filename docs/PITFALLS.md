@@ -1087,6 +1087,36 @@ reduced-motion에서는 `::after`가 없어 animationend가 안 오므로 CSS가
 (20차 ⑧ · 0098). 승인된 것만(`eq('status','approved')`) 몇 줄 받아 빈 값을 걸러 고른다. 다른 도장 열(updated_at · edited_at · created_at)은 `not null`이라 괜찮다.
 가짜 DB(`tests/logcheck-wiki` 20차 ⑧)의 `update`는 표의 행을 그대로 고치므로, 같은 행 객체를 여러 가짜 DB에 넣으면 앞 검사가 닫은(resolved_at) 행이 뒤 검사로 샌다 — 표마다 복사본(`{ ...row }`)을 넣는다.
 
+### 폰 키보드 · 업무 창 뒤로가기 (2026-10-14 반응형 점검)
+
+47-a. **커서 띠는 보이는 창만이 아니라 칸이 든 스크롤 통으로도 잘린다**(`App.jsx` `caretGap`) — 업무 창 댓글 목록은 아래에 댓글 입력 칸(`.cmt-input`)이 붙은 통이라
+    창 바닥보다 먼저 잘린다. 창(visualViewport)과 `data-kb-bar`만 빼서 재던 때는 답글 칸이 그 입력 칸 뒤에 20px만 남은 채 '보인다'로 셌고, 취소·답글 버튼이 끝내 안 보였다
+    (키보드 흉내 · SE·아이폰16·아이패드 미니). 고친 것 셋: ① 커서에서 위로 올라가며 `overflow-y: auto|scroll` 통의 위·아래끝으로 띠를 자른다 ② 칸이 `data-kb-keep` 안이면
+    그 묶음(아래끝은 안의 `data-kb-keep-end`, 없으면 묶음 자체)까지 같이 보이게 — **자리가 있을 때만**(`utils.keepShift`: 통째로 들어가면 통째로 · 커서 줄부터 아래끝까지 들어가면 아래끝까지 ·
+    아니면 커서만. 긴 노트 가운데를 쓰는 중에 저장 버튼을 보려고 화면을 끌지 않는다) ③ SE 폭은 그래도 자리가 없다(목록 통 91px < 답글 칸+버튼 97px) — 키보드가 떠 있는 동안 목록 안에서
+    글을 쓰면 아래 댓글 입력 칸을 비킨다(`index.css` `html[data-kb] :has(> [data-cmt-box] :focus) > .cmt-input`). 글을 쓰는 동안(selectionchange)도 키보드가 올라올 때와 같은
+    프레임 따라가기(비율 0.34 · 움직임 줄이기면 1)다 — `scrollIntoView`·`behavior: 'smooth'`는 여러 번 부르는 따라가기와 서로 민다(`tests/logcheck` 단정). 답글 칸이 **열릴 때**만은
+    키보드가 없으니 `scrollIntoView({ block: 'nearest', behavior: 'smooth' })` 한 번(`comments.jsx` `revealReply` · 키보드가 떠 있으면 따라가기에 맡긴다).
+    `data-kb-keep`을 단 자리: 답글 칸 · 예배 노트 · 출석 메모 · 묵상(제목·글) · 동아리 모임 만들기 · 명단 사람 폼. 새 입력 묶음도 이 속성만 달면 된다. SE의 묵상 **제목**은 저장 줄이
+    319px 아래라 자리가 없어 커서만 지킨다(③ 갈래 — 일부러).
+47-b. **본문 편집기의 @멘션 목록도 `useAnchoredPos`로 선다**(`MarkdownEditor.jsx`) — 예전에는 늘 `top: 커서 + 4`라 키보드가 떠 있으면 목록이 키보드 밑으로 들어갔다(업무 본문 · 예배 노트 · 묵상).
+    앵커는 `{ getBoundingClientRect }` 가짜 상자로 **그때그때** `view.coordsAtPos(mention.to)`를 잰다 — 훅의 rAF 고리가 매 프레임 보니 키보드가 올라오거나 통이 굴러도 따라온다.
+    그 상자는 **렌더에서 바로 든 ref**(`mentionNow`)를 읽는다 — `mentionRef`는 효과에서 옮겨져서 목록이 처음 서는 레이아웃 효과에서는 아직 null이라 한 프레임 (0,0)에 그려진다.
+    목록은 포털이 아니라 제자리 `position: fixed` 그대로다(예전과 같다 · `.max-h-48`은 검사가 찾는 클래스).
+47-c. **앱 안에서 연 업무 창은 history에 한 자리를 남긴다**(`App.jsx` `openTaskModal`·`closeTaskModal`·`onPop`) — 폰 뒤로가기가 창을 닫게. 지키는 것:
+    ① 닫힌 창을 열 때만 한 번(`pushState({ taskModal: 1 })` — 창 안에서 다른 업무로 넘어가는 것은 그 자리를 그대로 쓴다) · 창이 열린 동안 주소를 고쳐 쓰는 replaceState는 그 표시를 지킨다
+    ② 뒤로가기로 t가 없어지면 **창만 닫고** 화면은 열기 전 화면으로(`menuBeforeRef` — 검색·알림은 창과 함께 화면도 옮긴다. 주소의 p만 읽으면 내 업무·예배 같은 전역 화면이 대시보드로 튄다)
+    ③ ✕·닫기·딤·Esc·삭제는 그 자리를 `history.back()`으로 **걷는다** — 그냥 닫으면 걷히지 않은 자리가 남아 다음 뒤로가기 한 번이 헛돈다. back의 popstate는 이미 닫았으니 주소만 맞추고
+    (`pendingBackRef`), 그동안 동기화 effect는 주소를 쓰지 않는다(떠날 자리를 고치면 앞으로 가기 자리가 망가진다). popstate가 1초 안에 안 오면 스스로 푼다
+    ④ 딥링크·공유 주소로 들어온 창은 남기지 않는다(`{ history: false }` — 뒤로가기는 들어오기 전 페이지로) ⑤ **새 업무 폼(id 없음)도 남기지 않는다** — 뒤로가기는 묻지 않고 닫아 적던 것이 사라진다(✕·닫기는 묻는다).
+    본문 링크로 건너뛰기(pushNextUrlRef)는 그대로다. history API는 popstate를 다시 일으키지 않으니 고리가 없다. 검사 `tests/modalclose`(앞으로 가기·다시 열기·딥링크까지) · `tests/logcheck` 배선.
+    **검사에서 '닫기' 직후 `Page.navigate`를 부르면** back이 아직 안 끝났을 수 있다 — 새 검사는 닫은 뒤 한 박자(400ms쯤) 기다리고 부른다.
+47-d. **업무 창을 닫으면 연 것(보드 카드·버튼)으로 초점이 돌아가고, 보기 화면의 Esc는 창을 닫는다**(`modals.jsx`) — 연 것은 첫 렌더의 `document.activeElement`
+    (보드 카드는 dnd-kit이 tabIndex 0을 준다). 글 칸(검색 칸)에는 돌리지 않는다(폰에서 키보드가 다시 올라온다) · 닫는 사이 초점이 다른 데로 갔으면 그대로.
+    Esc는 수정 화면·새 업무 폼에서는 닫지 않고 글 칸 안의 Esc(답글 닫기·멘션 목록)도 건드리지 않는다. **떠 있는 판(팝오버·확인)이 있으면 그 판만** — 그 판들은 body 포털이고 저마다
+    document에서 Esc를 들으며 preventDefault를 안 한다. 그래서 누른 순간(window capture — 판이 닫히기 전)에 `#root` 밖에 그려진 body 자식이 있는지 본다.
+    포털이 아닌 판(창 안 absolute)이 생기면 이 판정에 안 걸린다 — 새 판은 HANDOFF §8대로 포털로.
+
 ### 반응형 점검 후속 — 좁은 폭에서 밟은 것 (2026-10-14)
 
 49-a. **열 틀 없는 `grid`는 열이 내용의 최소 폭만큼 커진다** — 다붓이 대화(`dabooti.jsx AskPanel`)가 `grid gap-3`·`grid-cols-[34px_1fr]`이라 띄어쓰기 없는 긴 낱말·주소 하나가
