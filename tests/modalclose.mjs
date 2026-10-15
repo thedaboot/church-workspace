@@ -1333,8 +1333,9 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   await ev(`document.querySelector('button[title="검색"]')?.click()`); await sleep(400);
   await send('Input.insertText', { text: '고유어찾기' }); await sleep(700);
   await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => /댓글 많은 업무/.test(b.textContent))?.click()`);
-  await sleep(1100);
-  const m1 = await ev(FOCUSED);
+  // 폰 업무 창은 .dc-rise(380ms)로 떠오른 뒤에 댓글을 찾아 굴린다 — 고정 대기 대신 찾힐 때까지 본다(최대 3초)
+  let m1 = { found: false };
+  for (let i = 0; i < 15 && !(m1.found && m1.inView && m1.flash); i++) { await sleep(200); m1 = await ev(FOCUSED); }
   check('댓글에 걸린 검색 결과(폰): 댓글 탭으로 열고 그 댓글이 칸 안에 서서 밝다', m1.found && m1.inView && m1.flash && /^댓글/.test(m1.tab || ''), JSON.stringify(m1));
   await ev(`${byLabel('닫기')}?.click()`); await sleep(500);
   await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
