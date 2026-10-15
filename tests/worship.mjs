@@ -2517,6 +2517,18 @@ const mobDetail = await ev(`(() => ({
 check('모바일 375px — 주보 상세가 가로로 넘치지 않는다', mobDetail.overflow <= 0, `넘침 ${mobDetail.overflow}px`);
 check('모바일에서도 머리줄 출석 체크와 본문이 그대로 선다',
   mobDetail.att === true && mobDetail.verses === 12, JSON.stringify(mobDetail));
+// 말씀 탭 본문은 성경 탭의 '가 가 가'(기기에 남는 word_bible_font)를 따른다(2026-10-15) — 가운데가 예전 고정 14px.
+// 종이(주보 탭)는 따르지 않는다. **되돌리기**: worshipPassage의 BODY_FONT를 빼고 14px로 박으면 첫 단정이 깨진다.
+{
+  const sizes = {};
+  for (const step of ['2', '0', null]) {
+    await ev(step == null ? `localStorage.removeItem('word_bible_font')` : `localStorage.setItem('word_bible_font', '${step}')`);
+    await tabClick('주보'); await sleep(400); await tabClick('말씀'); await sleep(600);
+    sizes[step ?? 'none'] = await ev(`(() => { const v = document.querySelector('.worship-verse'); return v ? getComputedStyle(v).fontSize : ''; })()`);
+  }
+  check('말씀 탭 본문이 성경 글자 크기를 따른다(크게 16 · 작게 12.5 · 기본 14)',
+    sizes['2'] === '16px' && sizes['0'] === '12.5px' && sizes.none === '14px', JSON.stringify(sizes));
+}
 
 // 노트 도구 줄 — 375에서 공유 토글만 다음 줄 **오른쪽 끝**에 혼자 서서 저장 버튼과
 // 어긋나던 자리다(사용자 지적 2026-09-07). 지금은 의도된 두 줄이고, 둘째 줄의 토글이
@@ -2611,6 +2623,23 @@ const mobList = await ev(`(() => ({
   cards: document.querySelectorAll('.worship-card').length,
 }))()`);
 check('모바일 375px — 목록도 한 줄로 선다', mobList.overflow <= 0 && mobList.cards === 2, JSON.stringify(mobList));
+// 목록 → 상세 → 목록에서 목록 자리를 지킨다 · 상세는 맨 위에서 연다(2026-10-15 · hooks/useScrollMemory · 56-h).
+// 목록이 짧아 화면을 낮춰 스크롤이 생기게 한다. **되돌리기**: worshipView의 useScrollMemory 줄을 빼면 깨진다.
+{
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 420, deviceScaleFactor: 2, mobile: true });
+  await sleep(500);
+  const listTop = await ev(`(() => { const m = document.querySelector('main'); m.scrollTop = m.scrollHeight; return m.scrollTop; })()`);
+  await sleep(300);
+  await ev(`document.querySelectorAll('.worship-card')[1]?.click()`); await sleep(900);
+  const inDetail = await ev(`document.querySelector('main').scrollTop`);
+  await ev(`(() => { const m = document.querySelector('main'); m.scrollTop = 200; })()`); await sleep(200);
+  await ev(`${byText('목록으로')}.click()`); await sleep(800);
+  const back = await ev(`document.querySelector('main').scrollTop`);
+  check('주보 목록 → 상세는 맨 위에서 · 돌아오면 목록 자리 그대로',
+    listTop > 40 && inDetail === 0 && Math.abs(back - listTop) <= 2, JSON.stringify({ listTop, inDetail, back }));
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 780, deviceScaleFactor: 2, mobile: true });
+  await sleep(500);
+}
 
 // 새 주보 생성기 — 375px에서는 종류가 한 줄을 통째로 쓰고(잘리지 않게), 이름이 그 아래,
 // 날짜와 두 버튼이 **같은 줄**에 선다. 버튼만 따로 한 줄에 남으면 안 된다(사용자 지적

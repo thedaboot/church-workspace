@@ -4,6 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import { loadBibleIndex, loadBook, loadPassage } from '../services/bible.js';
 import { parseRef, formatRef } from '../services/bibleRef.js';
 import { PassageSkeleton } from './wordBible.jsx';
+import { loadFontStep } from '../services/word.js';
 import { useAnchoredPos } from './ConfirmPopover.jsx';
 import { keepVisible, imeComposing } from '../utils.js';
 // 바깥 클릭·Esc로 닫는다. 팝오버가 body 포털로 나가 있으므로 바깥 판정에 팝오버 자신도 넣는다.
@@ -289,8 +290,19 @@ export function PassagePicker({ value, onChange }) {
 // (index.css `.worship-passage` 컨테이너 쿼리 — 재는 것은 화면 폭이 아니라 이 상자
 // 폭이다). 한 단이 680px 남짓으로 남아서 1440px을 한 줄이 가로지르지 않는다.
 // 절 번호는 왼쪽 고정 칸이라 이어지는 줄이 번호 아래로 들어가지 않는다.
+// 말씀 탭 본문의 글자 — 성경 탭 '가 가 가'(services/word.js loadFontStep · 기기마다)를 따른다(2026-10-15).
+// 가운데 단이 예전 고정값(14px · 절 번호 11px · 위 5px)이고, 작게·크게는 성경 리더의 폭(-1.5 · +2px)만큼 움직인다.
+// **종이(PDF)는 따르지 않는다** — 그건 인쇄 문서다(worshipPaper).
+const BODY_FONT = [
+  { size: 12.5, mark: 10, pad: 4.5 },
+  { size: 14, mark: 11, pad: 5 },
+  { size: 16, mark: 12.5, pad: 5.5 },
+];
+
 export function PassageBody({ refStr }) {
   const [verses, setVerses] = useState(null);
+  const step = loadFontStep();
+  const f = BODY_FONT[step] || BODY_FONT[1];
   useEffect(() => {
     let alive = true;
     setVerses(null);
@@ -309,7 +321,7 @@ export function PassageBody({ refStr }) {
   if (verses === null) {
     return (
       <div className="worship-passage worship-passage-wait mt-4 pt-4" style={{ borderTop: '1px solid var(--app-line)' }}>
-        <PassageSkeleton lines={6} />
+        <PassageSkeleton lines={6} step={step} />
       </div>
     );
   }
@@ -325,8 +337,8 @@ export function PassageBody({ refStr }) {
             {i > 0 && v.chapter !== verses[i - 1].chapter && (
               <p className="worship-chapter mt-3.5 mb-1.5 text-[11.5px] font-bold text-fg-muted tabular-nums">{v.chapter}장</p>
             )}
-            <p className="worship-verse flex gap-2 py-[3px] text-[14px] leading-[1.85] text-fg-secondary">
-              <span className="w-5 shrink-0 text-right text-[11px] font-bold text-fg-muted tabular-nums pt-[5px]">{v.verse}</span>
+            <p className="worship-verse flex gap-2 py-[3px] leading-[1.85] text-fg-secondary" style={{ fontSize: f.size }}>
+              <span className="w-5 shrink-0 text-right font-bold text-fg-muted tabular-nums" style={{ fontSize: f.mark, paddingTop: f.pad }}>{v.verse}</span>
               <span className="min-w-0 break-words">{v.text}</span>
             </p>
           </React.Fragment>

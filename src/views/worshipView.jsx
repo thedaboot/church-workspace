@@ -34,6 +34,7 @@ import { myNoteRows, coverImage } from '../services/serviceView.js';
 import { buildIcs, googleCalendarUrl, kakaoExternal, noticeEvent } from '../services/noticeDate.js';
 
 import { Segmented } from '../components/segmented.jsx';
+import { useScrollMemory } from '../hooks/useScrollMemory.js';
 // ============================================================================
 // v2 예배 화면 — 주보 목록/상세(말씀·임사자·찬양·광고) · 작성/발행 · 출석 체크 · 예배 노트
 // ----------------------------------------------------------------------------
@@ -448,6 +449,8 @@ export function WorshipView({ onOpenBible } = {}) {
   const [covers, setCovers] = useState(() => cached.data?.covers ?? {});   // 주보 id → 표지 files 행(0081)
   const [openId, setOpenId] = useState(null);
   const [screen, setScreen] = useState('list');      // 'list' | 'detail' | 'attendance' | 'notes'
+  // 목록 → 상세(출석·내 노트 포함) → 목록에서 목록 자리를 지킨다 · 상세는 맨 위에서(hooks/useScrollMemory · 56-h)
+  useScrollMemory(screen !== 'list');
   // 내 예배 노트 모아 보기(2026-09-25) — null이면 읽는 중. 노트 행만 받고 주보는 이미 손에 있는
   // 목록과 잇는다(serviceView.myNoteRows — 조회 하나). 캐시는 목록과 같은 자리 관례(worship: 접두).
   const [myNotes, setMyNotes] = useState(() => readCache('worship:mynotes'));
