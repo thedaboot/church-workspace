@@ -277,10 +277,16 @@ check('프로젝트 화면에 + 참고 링크 버튼이 있다', !!(await addBtn
 await openLinkPop();
 check('누르면 링크 입력 팝오버가 열린다', (await linkPopOpen()) === true);
 
-// 이름 칸은 autoFocus지만, URL 칸은 눌러서 옮겨가야 한다 — 이 클릭에서 닫혔다
-await send('Input.insertText', { text: '전세버스 견적서' });
-const typedUrl = await typeInto('input[placeholder="https://..."]', 'example.com/quote');
-check('팝오버 안을 눌러도 닫히지 않는다', typedUrl === true && (await linkPopOpen()) === true, typedUrl ? '' : 'URL 칸이 사라졌다');
+// 주소 칸이 먼저고 열자마자 커서가 간다(2026-10-15 시안 C10) · 이름은 뒤 '이름 (선택)'.
+// 이름 칸은 눌러서 옮겨가야 한다 — 예전(이름이 먼저일 때)에는 이 클릭에서 팝오버가 닫혔다.
+// 되돌리기: LinkAddPopover의 두 칸 순서를 바꾸면 첫 단정이 깨진다.
+const order = await ev(`(() => { const ins = [...document.querySelectorAll('.dc-pop input')];
+  return { labels: ins.map(i => i.getAttribute('aria-label')).join(','), ph: ins.map(i => i.placeholder), focus: document.activeElement?.getAttribute('aria-label') || null }; })()`);
+check("참고 링크 칸: 주소가 먼저 · 열자마자 주소에 커서 · 이름은 '이름 (선택)'",
+  order.labels === '주소,이름' && order.focus === '주소' && order.ph[1] === '이름 (선택)', JSON.stringify(order));
+await send('Input.insertText', { text: 'example.com/quote' });
+const typedUrl = await typeInto('input[aria-label="이름"]', '전세버스 견적서');
+check('팝오버 안을 눌러도 닫히지 않는다', typedUrl === true && (await linkPopOpen()) === true, typedUrl ? '' : '이름 칸이 사라졌다');
 
 const addLinkBtn = await ev(`(() => {
   const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '추가');
@@ -321,8 +327,8 @@ check('팝오버 바깥을 누르면 닫힌다', !!outside && (await linkPopOpen
 
 // 아는 서비스면 이름 앞에 글자만 한 표시가 붙는다(linkIcons.jsx). 모르는 주소에는 안 붙는다.
 await openLinkPop();
-await send('Input.insertText', { text: '수련회 찬양 영상' });
-await typeInto('input[placeholder="https://..."]', 'https://www.youtube.com/watch?v=abc');
+await send('Input.insertText', { text: 'https://www.youtube.com/watch?v=abc' });
+await typeInto('input[aria-label="이름"]', '수련회 찬양 영상');
 const addBtn2 = await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='추가');
   if(!b) return null; const r=b.getBoundingClientRect(); return {x:Math.round(r.left+r.width/2), y:Math.round(r.top+r.height/2)}; })()`);
 if (addBtn2) await clickAt(addBtn2.x, addBtn2.y);
@@ -420,6 +426,41 @@ for (const w of [375, 414, 768]) {
     // 보이고, 밀어야 나오는 버튼은 §8을 어긴다)
     check(`${w}px: '+ 참고 링크'가 미는 칸 밖에 있다`, acts?.addInsideScroller === false, JSON.stringify(acts));
   }
+}
+
+// ── 이름을 비우고 추가하면 이름을 지어 준다(2026-10-15 시안 C10 · PITFALLS 60-f) ──
+// 클라우드는 /api/link-title이 제목을 받아 오고, 못 받으면(게스트는 늘) '도메인 · 마지막 경로 한 토막'. 받는 동안은 그 자리에
+// 도메인이 옅게(faint) 한 칸 선다. 줄에는 종류 표시 + 이름만 — 주소 글자는 어디에도 안 선다. 지은 이름이 저장된다(다시 받지 않는다).
+// 게스트는 받으러 가지 않아 옅은 칸이 한 프레임도 안 설 수 있다(같은 틱에 칩으로 바뀐다) — 섰다면 그 모양을 보고, 칸 모양은 소스로도 본다.
+// 되돌리기: LinkAddPopover save의 `title || fallback` 갈래를 지우고 예전처럼 이름이 없으면 막으면(ready에 이름) 둘째 단정이 깨진다.
+{
+  const linksSrc = (await import('node:fs')).readFileSync(new URL('../src/components/links.jsx', import.meta.url), 'utf8');
+  check('이름을 받는 동안의 칸 — data-link-naming · 500 muted(11px라 faint가 아니다 · D9) · 도메인(domainOf)만',
+    /data-link-naming aria-busy="true"[\s\S]{0,120}font-medium text-fg-muted[\s\S]{0,200}\{domainOf\(n\.url\)\}/.test(linksSrc));
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(300);
+  await ev(`(() => { window.__naming = []; window.__namingMo?.disconnect();
+    window.__namingMo = new MutationObserver(() => { const g = document.querySelector('[data-link-naming]');
+      if (g) window.__naming.push({ text: g.textContent.trim(), faint: g.classList.contains('text-fg-muted') }); });
+    window.__namingMo.observe(document.body, { subtree: true, childList: true }); return true; })()`);
+  await openLinkPop();
+  await send('Input.insertText', { text: 'example.org/files/주보-안내.pdf' });
+  const ready = await ev(`[...document.querySelectorAll('.dc-pop button')].find(b => b.textContent.trim() === '추가')?.disabled === false`);
+  await ev(`[...document.querySelectorAll('.dc-pop button')].find(b => b.textContent.trim() === '추가')?.click()`);
+  await sleep(600);
+  const named = await ev(`(() => {
+    const s = JSON.parse(localStorage.getItem('church_app_v4') || '{}');
+    const links = s.projects?.byId?.p1?.pinnedLinks || [];
+    const l = links.find(x => x.url === 'https://example.org/files/주보-안내.pdf');
+    const a = [...document.querySelectorAll('a')].find(x => x.getAttribute('href') === 'https://example.org/files/주보-안내.pdf');
+    const chips = [...document.querySelectorAll('[class*="group/link"] a')].map(x => x.textContent.trim());
+    return { stored: l?.title || null, chip: a?.textContent.trim() || null, rawUrlShown: chips.some(t => t.includes('http') || t.includes('example.org/')), ghost: window.__naming, left: !!document.querySelector('[data-link-naming]') };
+  })()`);
+  await ev('window.__namingMo?.disconnect()');
+  check('이름 칸은 비워도 추가할 수 있다', ready === true, String(ready));
+  check("이름을 비우면 '도메인 · 마지막 경로 한 토막'으로 짓고 그 이름을 저장한다 · 받는 동안 도메인이 옅게 · 주소 글자는 안 선다",
+    named.stored === 'example.org · 주보 안내.pdf' && named.chip === named.stored && !named.rawUrlShown
+      && !named.left && (!named.ghost.length || (named.ghost[0].text === 'example.org' && named.ghost[0].faint)), JSON.stringify(named));
 }
 
 // 값 줄이 비어 보이지 않게 진척 바를 둔다(대시보드와 같은 부품)

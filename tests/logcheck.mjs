@@ -745,3 +745,61 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   assert.ok(/animationDelay: splashDelay\(\)/.test(splash) && /getAnimations/.test(app), '다시 마운트돼도 숨쉬기 박자를 잇는다');
   console.log('PASS  첫 페인트 로고 하나(index.html · AuthGate · 같은 바탕·크기·박자)');
 }
+
+// ── 참고 링크 이름 받기 (2026-10-15 · UX 다듬기 2차 C10 · PITFALLS 60-f) — services/linkTitle.js · api/link-title.js ─────────────
+// ① 이름 짓기(못 받았을 때 '도메인 · 마지막 경로 한 토막' · 동작 토막·긴 id는 건너뜀) ② 페이지 제목(구글 꼬리 떼기 · 로그인 화면은 빈 값 · 엔티티)
+// ③ SSRF 글자 판정(스킴·포트·계정·내부 이름·사설 IP 글자) ④ DNS 답 판정(사설·루프백·링크 로컬·메타데이터·IPv6·v4 매핑)
+// ⑤ 핸들러를 노드에서 직접 — 승인만 가짜. localhost로 풀리는 이름·사설 IP 글자는 받으러 가지 않는다 · 유튜브는 oEmbed(가짜 fetch) 제목을 다듬어 준다
+// 되돌리기: isPrivateAddress의 169.254 줄을 지우면 ④가, guardedLookup의 사설 IP 거르기를 지우면 ⑤의 '풀린 이름'이 깨진다.
+{
+  const L = await import(new URL('../src/services/linkTitle.js', import.meta.url).href);
+  assert.strictEqual(L.domainOf('https://www.notion.site/abc'), 'notion.site');
+  assert.strictEqual(L.fallbackTitle('https://ivp.kr'), 'ivp.kr', '경로가 없으면 도메인만');
+  assert.strictEqual(L.fallbackTitle('https://example.org/files/%EC%A3%BC%EB%B3%B4-%EC%95%88%EB%82%B4.pdf'), 'example.org · 주보 안내.pdf', '마지막 토막(퍼센트 풀기 · - _ 는 띄어쓰기)');
+  assert.strictEqual(L.fallbackTitle('https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd/edit'), 'docs.google.com · document', 'edit·긴 id·d는 건너뛴다');
+  assert.strictEqual(L.fallbackTitle('https://docs.google.com/forms/d/e/1FAIpQLSdAbCdEfGhIjKlMnOpQrStUv/viewform'), 'docs.google.com · forms');
+  assert.ok(L.isYoutube('https://youtu.be/sA-Qbfj2Zeg') && L.isYoutube('https://www.youtube.com/playlist?list=PL1') && !L.isYoutube('https://notyoutube.com/x'));
+  assert.strictEqual(L.pageTitle('<html><head><title>대림절, 브레인스토밍 - Google Slides</title>', 'https://docs.google.com/presentation/d/x/edit'), '대림절, 브레인스토밍');
+  assert.strictEqual(L.pageTitle('<title>2027 회장 추천 투표 - Google 설문지</title>', 'https://docs.google.com/forms/d/e/x/viewform'), '2027 회장 추천 투표');
+  assert.strictEqual(L.pageTitle('<title>Google Docs: Sign-in</title>', 'https://docs.google.com/document/d/x/edit'), '', '로그인 화면 제목은 이름이 아니다');
+  assert.strictEqual(L.pageTitle('<title>\n  A &amp; B &#8211; &#xD55C;  </title>', 'https://a.com/'), 'A & B – 한');
+  assert.strictEqual(L.pageTitle('<meta property="og:title" content="오지 제목">', 'https://a.com/'), '오지 제목', '<title>이 없으면 og:title');
+  const bad = ['file:///etc/passwd', 'ftp://a.com/x', 'http://user:pw@a.com/', 'http://a.com:8080/', 'http://localhost/', 'http://foo.localhost/', 'http://intranet/',
+    'http://db.internal/', 'http://127.0.0.1/', 'http://10.0.0.5/', 'http://169.254.169.254/latest/meta-data', 'http://192.168.0.1/', 'http://[::1]/', 'http://[fd00::1]/', 'http://0.0.0.0/'];
+  for (const u of bad) assert.ok(L.linkUrlProblem(u), `받으러 가면 안 되는 주소: ${u}`);
+  for (const u of ['https://www.youtube.com/watch?v=x', 'http://ivp.kr', 'https://8.8.8.8/', 'https://docs.google.com/document/d/x/edit']) assert.strictEqual(L.linkUrlProblem(u), null, u);
+  for (const ip of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '224.0.0.1',
+    '::1', '::', 'fe80::1', 'fc00::1', 'fd12:3456::1', '::ffff:127.0.0.1', '::ffff:10.0.0.1', '64:ff9b::a9fe:a9fe', 'not-an-ip']) {
+    assert.ok(L.isPrivateAddress(ip), `안쪽 주소: ${ip}`);
+  }
+  for (const ip of ['8.8.8.8', '172.32.0.1', '1.1.1.1', '2001:4860:4860::8888', '::ffff:8.8.8.8']) assert.ok(!L.isPrivateAddress(ip), `바깥 주소: ${ip}`);
+
+  const src = readSrc('api/link-title.js').replace(/^import \{ readJson, requireApprovedUser \} from '\.\/_lib\.js';\r?$/m,
+    "const requireApprovedUser = async () => ({ id: 'u1' }); const readJson = async (req) => req.body;");
+  const dir = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'lt-'));
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  mkdirSync(`${dir}/api`); mkdirSync(`${dir}/src/services`, { recursive: true });
+  writeFileSync(`${dir}/src/services/titleText.js`, readSrc('src/services/titleText.js'));
+  writeFileSync(`${dir}/src/services/linkTitle.js`, readSrc('src/services/linkTitle.js'));
+  const { default: handler, guardedLookup } = await loadSource('api/link-title.js', { src, dir: `${dir}/api`, as: 'link-title.mjs' });
+  const call = async (url) => {
+    const res = { code: 0, body: null, status(c) { this.code = c; return this; }, json(b) { this.body = b; return this; } };
+    const ow = console.warn; console.warn = () => {};
+    try { await handler({ method: 'POST', headers: {}, body: { url } }, res); } finally { console.warn = ow; }
+    return res;
+  };
+  const r1 = await call('http://127.0.0.1/admin');
+  assert.ok(r1.code === 400 && r1.body.title === '', '사설 IP 글자는 받으러 가지 않는다');
+  const r2 = await call('http://localtest.me/');   // 공개 이름이지만 127.0.0.1로 풀린다
+  assert.ok(r2.code === 200 && r2.body.title === '', `풀린 IP가 루프백이면 연결하지 않는다 ${JSON.stringify(r2)}`);
+  const blocked = await new Promise((resolve) => guardedLookup('localhost', {}, (err) => resolve(err?.code)));
+  assert.strictEqual(blocked, 'EBLOCKED', 'lookup이 루프백을 막는다');
+  const realFetch = globalThis.fetch; let asked = '';
+  globalThis.fetch = async (u) => { asked = String(u); return new Response(JSON.stringify({ title: '𝗪𝗼𝗿𝘀𝗵𝗶𝗽  찬양 콘티​' }), { status: 200 }); };
+  try {
+    const r3 = await call('https://www.youtube.com/playlist?list=PLabc');
+    assert.ok(r3.code === 200 && r3.body.title === 'Worship 찬양 콘티', `유튜브 제목(다듬기) ${JSON.stringify(r3.body)}`);
+    assert.ok(asked.startsWith('https://www.youtube.com/oembed?format=json&url=') && asked.includes(encodeURIComponent('list=PLabc')), '유튜브는 oEmbed로');
+  } finally { globalThis.fetch = realFetch; }
+  console.log('PASS  참고 링크 이름 — 이름 짓기 · 페이지 제목 · SSRF(글자·DNS) · 핸들러 46가지');
+}

@@ -9,6 +9,9 @@ import { isLocked, verifyViewPw } from '../services/viewPw.js';
 import { showToast } from './Toast.jsx';
 import { failText } from '../services/errorText.js';
 import { BTN } from './buttons.js';
+import { authedPost } from '../services/cloud/core.js';
+import { isCloudEnabled } from '../services/supabaseClient.js';
+import { domainOf, fallbackTitle } from '../services/linkTitle.js';
 
 // ============================================================================
 // 참고 링크 부품 — **프로젝트 헤더 하나가 쓴다** (views.jsx)
@@ -164,17 +167,38 @@ export function PinnedLinkChip({ link, canLock, onRemove, onSetPw }) {
   );
 }
 
+// ── 링크 이름 받기 (2026-10-15 · UX 다듬기 2차 C10 · PITFALLS 60-f) ──────────────────────
+// 이름을 비우고 추가하면 서버(/api/link-title)가 유튜브 제목·구글 문서 제목·페이지 제목을 받아 온다. 못 받으면(게스트·
+// 로그인 풀림·막힌 주소·4초) 빈 값 — 이름은 부르는 쪽이 '도메인 · 경로 한 토막'으로 짓는다(services/linkTitle.fallbackTitle).
+export async function fetchLinkTitle(url) {
+  if (!isCloudEnabled()) return '';
+  try {
+    const r = await authedPost('/api/link-title', { url }, { noToken: () => null, signal: AbortSignal.timeout(6000) });
+    if (!r?.ok) return '';
+    const out = await r.json().catch(() => ({}));
+    return String(out?.title || '').trim();
+  } catch { return ''; }
+}
+
 // ── 링크 하나 추가하는 점선 버튼 + 팝오버 ────────────────────────────────────
 // **프로젝트 헤더의 그 DOM 그대로다** — 그 줄은 폭·잘림·순서를 재는 검사가 여럿 붙어
 // 있어서(§6-9 링크 줄) 옮기면서 마크업을 바꾸지 않았다. 열기 전에 위치를 먼저 잡는
 // 이유도 그대로다: 안 그러면 첫 프레임이 {0,0}에 그려진다.
 // 라벨은 '+ 참고 링크' 하나다 — 업무 창의 '+ 링크'는 2026-09-11에 되돌렸다(§6-35 · §8).
+//
+// **주소가 먼저다**(2026-10-15 · 시안 C10) — 열자마자 주소 칸에 커서가 가고 이름은 `이름 (선택)`. 이름을 비우면
+// 제목을 받는 동안 이 자리에 도메인이 옅게 한 칸 서고(글자 600 accent가 아니라 500 muted — 시안은 faint였지만 11px라 D9의 muted · §8), 제목이 오면 그 이름으로 **한 번** 저장한다(onAdd) —
+// 저장된 이름이 곧 화면의 이름이라 다시 받지 않는다(이름이 있는 옛 링크는 그대로). 옅은 칸은 '+ 참고 링크' 바로 앞이고
+// 진짜 칩은 링크 줄 끝(같은 자리)에 들어온다. 받는 동안 창을 닫거나 화면을 옮겨도 마지막 onAdd로 저장된다(onAddRef).
 export function LinkAddPopover({ onAdd }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState({ title: '', url: '' });
+  const [naming, setNaming] = useState([]);   // [{ id, url }] — 이름을 받는 중인 링크(옅은 칸)
   const rootRef = useRef(null);
   const btnRef = useRef(null);
   const bodyRef = useRef(null);
+  const onAddRef = useRef(onAdd);
+  onAddRef.current = onAdd;
   const [pos, place] = useAnchoredPos(btnRef, open, 256, 140);
 
   useEffect(() => {
@@ -189,19 +213,38 @@ export function LinkAddPopover({ onAdd }) {
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [open]);
 
-  const ready = !!draft.title.trim() && !!draft.url.trim();
+  const ready = !!draft.url.trim();
   const save = () => {
     if (!ready) return;
     // 주소만 적어도 링크가 되게 한다 — `docs.google.com/…`을 그대로 붙이는 사람이 많다
-    const url = /^https?:\/\//.test(draft.url) ? draft.url : `https://${draft.url}`;
-    onAdd({ id: generateId(), title: draft.title.trim(), url });
+    const raw = draft.url.trim();
+    const url = /^https?:\/\//.test(raw) ? raw : `https://${raw}`;
+    const title = draft.title.trim();
+    const id = generateId();
     setDraft({ title: '', url: '' });
     setOpen(false);
+    if (title) { onAdd({ id, title, url }); return; }
+    setNaming(list => [...list, { id, url }]);
+    fetchLinkTitle(url).then((got) => {
+      onAddRef.current({ id, title: got || fallbackTitle(url), url });
+      setNaming(list => list.filter(x => x.id !== id));
+    });
   };
+  const onEnter = (e) => { if (imeComposing(e)) return; if (e.key === 'Enter') save(); };
 
   const FIELD_CLS = 'w-full text-xs px-2 py-1.5 bg-surface border border-line rounded-xs outline-none focus:border-accent text-fg placeholder:text-fg-faint';
   return (
-    <span className="inline-flex shrink-0" ref={rootRef}>
+    <span className="inline-flex items-center gap-[7px] shrink-0" ref={rootRef}>
+      {/* 이름을 받는 중 — 칩과 같은 글자 자리에 도메인만 옅게(누르지 않는다 · 주소 글자는 끝까지 안 보인다) */}
+      {naming.map(n => {
+        const kind = docEmbedKind(n.url);
+        return (
+          <span key={n.id} data-link-naming aria-busy="true"
+            className="inline-flex items-center gap-[5px] text-[11px] font-medium text-fg-muted whitespace-nowrap">
+            {kind ? <DocKindIcon kind={kind} size={11} /> : <LinkIcon url={n.url} />}{domainOf(n.url)}
+          </span>
+        );
+      })}
       <span ref={btnRef} className="inline-flex">
         <button type="button" onClick={() => { place(); setOpen(v => !v); }}
           className="text-[11px] text-fg-muted px-1.5 py-px rounded-xs transition-colors hover:text-fg"
@@ -211,10 +254,10 @@ export function LinkAddPopover({ onAdd }) {
         <div ref={bodyRef} style={{ position: 'fixed', left: pos.left, top: pos.top, width: 256, ...popMotion(pos) }}
           className="dc-pop transition-none bg-surface border border-line rounded-lg shadow-elevated p-3 z-[90]">
           <div className="space-y-2">
-            <input autoFocus value={draft.title} onChange={e => setDraft(p => ({ ...p, title: e.target.value }))}
-              placeholder="이름" aria-label="이름" className={FIELD_CLS} />
-            <input value={draft.url} onChange={e => setDraft(p => ({ ...p, url: e.target.value }))}
-              placeholder="https://..." aria-label="주소" onKeyDown={e => { if (imeComposing(e)) return; if (e.key === 'Enter') save(); }} className={FIELD_CLS} />
+            <input autoFocus value={draft.url} onChange={e => setDraft(p => ({ ...p, url: e.target.value }))}
+              placeholder="https://..." aria-label="주소" onKeyDown={onEnter} className={FIELD_CLS} />
+            <input value={draft.title} onChange={e => setDraft(p => ({ ...p, title: e.target.value }))}
+              placeholder="이름 (선택)" aria-label="이름" onKeyDown={onEnter} className={FIELD_CLS} />
             <div className="flex justify-end gap-2 pt-1">
               <button type="button" onClick={() => setOpen(false)}
                 className="text-xs px-2.5 py-1 text-fg-muted hover:bg-surface-hover rounded-md transition active:scale-95">취소</button>
