@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, Check, X, Pencil, QrCode } from 'lucide-react';
 import { SectionHead } from '../views/dashboardParts.jsx';
 import { ConfirmPopover } from './ConfirmPopover.jsx';
@@ -11,6 +11,7 @@ import { groupPeople, canManageClub, canEditClub, notInGroup, lastReportOf } fro
 import { MeetingReport } from './meetingReport.jsx';
 import { formatServiceDate } from '../services/worship.js';
 import { imeComposing } from '../utils.js';
+import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 import { splitMeetings, PAST_MEETINGS_SHOWN } from '../services/traces.js';
 
 // QR 창(qrcode 포함)은 열 때만 받는다(2026-09-24)
@@ -68,6 +69,18 @@ export function ClubDetail({
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
   const { upcoming, past } = useMemo(() => splitMeetings(meetings, today), [meetings, today]);
   const [pastOpen, setPastOpen] = useState(false);
+  // '더 보기'로 편 나머지는 최근 활동의 더보기·접기와 같은 결이다(2026-10-15 · index.css .dc-feed-fold/.dc-feed-chunk) —
+  // 펼 때 0fr → 1fr로 자라고, '접기'는 1fr → 0fr로 줄어든 뒤 뗀다(transitionend · 못 받으면 .4초 안전망 · 움직임 줄이기면 즉시).
+  const [pastClosing, setPastClosing] = useState(false);
+  const foldTimer = useRef(0);
+  useEffect(() => () => clearTimeout(foldTimer.current), []);
+  const pastFolded = () => { clearTimeout(foldTimer.current); setPastClosing(false); setPastOpen(false); };
+  const foldPast = () => {
+    if (prefersReducedMotion()) { pastFolded(); return; }
+    setPastClosing(true);
+    clearTimeout(foldTimer.current);
+    foldTimer.current = setTimeout(pastFolded, 400);
+  };
   const submitMeeting = async () => {
     const ok = await onCreateMeeting(club, { date, title: title.trim() });
     if (ok) { closeMeet(() => { setAdding(false); setTitle(''); }); }
@@ -287,8 +300,8 @@ export function ClubDetail({
               {past.length > 0 && (
                 <div className="club-meet-past mt-5">
                   <SectionHead>지난 모임</SectionHead>
-                  <div className="space-y-2">
-                    {(pastOpen ? past : past.slice(0, PAST_MEETINGS_SHOWN)).map(m => (
+                  {(() => {
+                    const pastRow = (m) => (
                       <MeetingRow key={m.id} meeting={m} list={list} manage={manage}
                         onToggle={onToggleMeeting} onDelete={onDeleteMeeting}
                         report={report && (
@@ -299,14 +312,35 @@ export function ClubDetail({
                             onRemove={row => report.onRemove(m, row)} onCopyLast={prev => report.onCopyLast(club, m, prev)}
                             onGrantEdit={report.onGrantEdit} />
                         )} />
-                    ))}
-                  </div>
-                  {!pastOpen && past.length > PAST_MEETINGS_SHOWN && (
+                    );
+                    return (
+                      <>
+                        <div className="space-y-2">{past.slice(0, PAST_MEETINGS_SHOWN).map(pastRow)}</div>
+                        {pastOpen && past.length > PAST_MEETINGS_SHOWN && (
+                          <div className="club-meet-past-fold dc-feed-fold" data-closing={pastClosing ? 'true' : undefined}
+                            onTransitionEnd={(e) => { if (pastClosing && e.target === e.currentTarget && e.propertyName === 'grid-template-rows') pastFolded(); }}>
+                            <div className="min-h-0 overflow-hidden">
+                              <div className="dc-feed-chunk">
+                                {/* 틈(8px)은 안쪽 위 여백으로 — 바깥 마진이면 접힌 뒤에도 남는다 */}
+                                <div className="min-h-0 overflow-hidden"><div className="space-y-2 pt-2">{past.slice(PAST_MEETINGS_SHOWN).map(pastRow)}</div></div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                  {past.length > PAST_MEETINGS_SHOWN && (!pastOpen ? (
                     <button type="button" onClick={() => setPastOpen(true)}
                       className="club-meet-past-more w-full mt-1 py-2 rounded-md text-[11.5px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-[0.99]">
                       {past.length - PAST_MEETINGS_SHOWN}건 더 보기
                     </button>
-                  )}
+                  ) : (
+                    <button type="button" onClick={foldPast} disabled={pastClosing}
+                      className="club-meet-past-less w-full mt-1 py-2 rounded-md text-[11.5px] font-semibold text-accent-text hover:bg-surface-hover transition active:scale-[0.99] disabled:opacity-40">
+                      접기
+                    </button>
+                  ))}
                 </div>
               )}
             </>

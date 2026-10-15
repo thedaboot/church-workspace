@@ -2252,12 +2252,44 @@ check('모임이 없을 때 — 다가오는 모임 머리 · 상태 한 줄 · 
   await ev(`document.querySelector('.club-meet-past-more')?.click()`); await sleep(300);
   const opened = await ev(`document.querySelectorAll('.club-meet-past .club-meeting').length`);
   check("'더 보기'를 누르면 지난 모임이 다 선다", opened === 4, String(opened));
+  // 편 나머지는 최근 활동과 같은 결(.dc-feed-chunk가 자란다)이고 끝에 '접기'가 선다 — 누르면 다시 세 개 + '1건 더 보기'
+  // (2026-10-15). **되돌리기**: clubDetail의 club-meet-past-fold·club-meet-past-less를 빼면 깨진다.
+  const unfolded = await ev(`(() => ({
+    chunk: !!document.querySelector('.club-meet-past .dc-feed-fold .dc-feed-chunk .club-meeting'),
+    less: document.querySelector('.club-meet-past-less')?.textContent.trim() || '',
+    more: !!document.querySelector('.club-meet-past-more'),
+  }))()`);
+  check("편 지난 모임은 활동 피드와 같은 묶음으로 자라고 끝에 '접기'", unfolded.chunk && unfolded.less === '접기' && !unfolded.more, JSON.stringify(unfolded));
+  await ev(`document.querySelector('.club-meet-past-less')?.click()`); await sleep(700);
+  const refolded = await ev(`(() => ({
+    n: document.querySelectorAll('.club-meet-past .club-meeting').length,
+    more: document.querySelector('.club-meet-past-more')?.textContent.trim() || '',
+    less: !!document.querySelector('.club-meet-past-less'),
+  }))()`);
+  check("'접기'를 누르면 다시 세 개 + '1건 더 보기'", refolded.n === 3 && refolded.more === '1건 더 보기' && !refolded.less, JSON.stringify(refolded));
   // 다른 동아리로 갔다 오면 다시 접힌다(열어 둔 것이 다음 동아리로 새지 않는다)
   await ev(`(() => { const all = JSON.parse(localStorage.getItem('church_groups_v1'));
     all.group_meetings = all.group_meetings.filter(m => !/^r[1-6]$/.test(m.id));
     localStorage.setItem('church_groups_v1', JSON.stringify(all)); })()`);
 }
 await ev(`${byText('목록으로')}.click()`); await sleep(500);
+// 동아리 목록 → 상세 → 목록에서 목록 자리를 지킨다 · 상세는 맨 위에서(2026-10-15 · hooks/useScrollMemory · 56-h).
+// 목록이 짧아 화면을 낮춘다. **되돌리기**: groupsClub의 useScrollMemory 줄을 빼면 깨진다.
+{
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 380, deviceScaleFactor: 1, mobile: false });
+  await sleep(500);
+  const listTop = await ev(`(() => { const m = document.querySelector('main'); m.scrollTop = m.scrollHeight; return m.scrollTop; })()`);
+  await sleep(300);
+  await openClub('달리기'); await sleep(900);
+  const inDetail = await ev(`document.querySelector('main').scrollTop`);
+  await ev(`(() => { const m = document.querySelector('main'); m.scrollTop = 120; })()`); await sleep(200);
+  await ev(`${byText('목록으로')}.click()`); await sleep(800);
+  const back = await ev(`document.querySelector('main').scrollTop`);
+  check('동아리 목록 → 상세는 맨 위에서 · 돌아오면 목록 자리 그대로',
+    listTop > 40 && inDetail === 0 && Math.abs(back - listTop) <= 2, JSON.stringify({ listTop, inDetail, back }));
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(500);
+}
 await openClub('달리기'); await sleep(800);
 const appEmpty = await centered('.club-app-empty');
 isCentered('가입 신청이 없는 자리', appEmpty, 120);

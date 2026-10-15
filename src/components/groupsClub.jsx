@@ -7,6 +7,7 @@ import {
 import { dropCollision } from './dropCollision.js';
 import { CARD, CARD_STYLE, BTN, BTN_QUIET, FIELD, EXIT, PersonPick, LabeledField, Empty, PeopleMark } from './groupsParts.jsx';
 import { ClubDetail } from './clubDetail.jsx';
+import { useScrollMemory } from '../hooks/useScrollMemory.js';
 import { groupPeople, myGroupIds, meetingDateShort } from '../services/groups.js';
 import { reorderIds, imeComposing } from '../utils.js';
 
@@ -59,6 +60,8 @@ export function ClubsPanel({
   const openId = openClub?.id || null;
   const navRef = useRef({ id: openId, cls: '' });
   if (navRef.current.id !== openId) navRef.current = { id: openId, cls: openId ? NAV_IN : NAV_BACK };
+  // 동아리 목록 → 상세 → 목록에서 목록 자리를 지킨다 · 상세는 맨 위에서(hooks/useScrollMemory · 56-h)
+  useScrollMemory(!!openId);
 
   // key가 바뀌어야 CSS 애니메이션이 처음부터 다시 돈다 — 같은 자리에 다른 내용을
   // 끼우면 브라우저는 이미 끝난 애니메이션을 다시 틀지 않는다(App.jsx의 key={activeMenu}).
