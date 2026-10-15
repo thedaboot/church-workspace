@@ -1158,6 +1158,163 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 }
 
+// ── UX 다듬기 α (2026-10-15 · PITFALLS 54) — 댓글로 열기 · 쓰던 글 · 자라는 칸 · 삭제 되돌리기 · 토스트 두 자리 · 키보드 ──────────
+// ① 댓글에만 걸린 검색 결과를 고르면 그 댓글을 보며 연다 — 데스크톱은 접어 둔 댓글 칸을 펴고(접은 기억은 그대로) · 접힌 '이전 댓글'도 펴서
+//    그 댓글을 칸 안에 세우고 잠깐 밝힌다 · 폰은 댓글 탭으로
+// ② 쓰던 댓글·답글은 탭을 옮겨도 · 창을 닫았다 열어도 남고 · 등록하면 지워진다
+// ③ 댓글 칸은 글을 따라 자라고 여섯 줄을 넘으면 칸 안에서 구른다
+// ④ 업무 삭제 → 화면에서 바로 빠지고 '되돌리기' 토스트 · 그냥 토스트가 와도 되돌리기가 남는다 · 되돌리면 그대로 돌아온다
+// ⑤ '/'는 찾기 칸으로(업무 창이 떠 있으면 아니다) · 새 업무 제목의 Enter는 본문으로 · Ctrl+Enter는 만들기
+// 되돌리기 검사: modals.jsx '댓글로 열기'의 setSideOpen(true)를 지우면 ①이, comments.jsx CommentInput의 draftOf 초기값을 ''로 두면 ②가,
+// useAutoGrow의 높이 줄을 지우면 ③이, Toast.jsx emit을 한 자리(setAct만)로 되돌리면 ④가, searchBox의 '/' 효과를 지우면 ⑤가 깨진다.
+{
+  const cmts = Array.from({ length: 13 }, (_, k) => ({ id: 'x' + k, author: k % 2 ? '조해리' : '노준석',
+    text: k === 1 ? '오래된 고유어찾기 댓글이에요' : '보통 댓글 ' + k, timestamp: `2026-08-${String(2 + k).padStart(2, '0')}T00:00:00Z`, parentId: null }));
+  const T = (id, title, extra = {}) => ({ id, projectId: 'p1', title, content: '본문', status: '진행 중', assignees: ['노준석'], teams: ['찬양팀'],
+    startDate: '', dueDate: '2026-09-01', position: 1, author: '노준석', createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z',
+    comments: [], activityLog: [], attachments: [], ...extra });
+  const st = { currentUser: { name: '노준석', team: '임원진' },
+    projects: { byId: { p1: { id: 'p1', title: 'UX 프로젝트', pinnedLinks: [], year: 2026 } }, allIds: ['p1'] },
+    tasks: { byId: { u1: T('u1', '댓글 많은 업무', { comments: cmts }), u2: T('u2', '지울 업무', { position: 2 }) }, allIds: ['u1', 'u2'] } };
+  const load = async (w, h, mobile) => {
+    await send('Emulation.setTouchEmulationEnabled', { enabled: !!mobile, maxTouchPoints: mobile ? 5 : 1 });
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: mobile ? 2 : 1, mobile: !!mobile });
+    await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+    await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))}); localStorage.setItem('task_side_closed', '1')`);
+    await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired');
+    await sleep(1300);
+  };
+  const key = async (k, extra = {}) => {
+    const base = { key: k, code: extra.code || k, windowsVirtualKeyCode: extra.vk || 0, modifiers: extra.modifiers || 0 };
+    await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base });
+    if (extra.text) await send('Input.dispatchKeyEvent', { type: 'char', ...base, text: extra.text });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+  };
+  const FOCUSED = `(() => { const m = document.querySelector('.fixed.z-50'); const box = m?.querySelector('[data-cmt-box]');
+    const el = box?.querySelector('[data-comment-id="x1"]'); if (!el) return { found: false };
+    const b = box.getBoundingClientRect(), r = el.getBoundingClientRect();
+    const side = box.closest('.shrink-0.overflow-hidden');
+    return { found: true, inView: r.top >= b.top - 1 && r.bottom <= b.bottom + 1, flash: el.hasAttribute('data-flash'),
+      sideW: side ? Math.round(side.getBoundingClientRect().width) : null, tab: [...m.querySelectorAll('button')].find(x => /border-accent/.test(x.className) && /^댓글/.test(x.textContent.trim()))?.textContent.trim() || null }; })()`;
+
+  // ① 데스크톱 — 댓글 칸을 접어 둔 채로 찾기
+  await load(1440, 900, false);
+  await ev(`(() => { const i = document.querySelector('input[placeholder="프로젝트나 업무를 검색해봐요!"]'); i.focus(); })()`);
+  await send('Input.insertText', { text: '고유어찾기' }); await sleep(700);
+  await ev(`[...document.querySelectorAll('.z-\\\\[80\\\\] button')].find(b => /댓글 많은 업무/.test(b.textContent))?.click()`);
+  await sleep(1100);
+  const d1 = await ev(FOCUSED);
+  const kept = await ev(`localStorage.getItem('task_side_closed')`);
+  check('댓글에 걸린 검색 결과(데스크톱): 접어 둔 댓글 칸이 펴지고 · 접힌 이전 댓글 속 그 댓글이 칸 안에 서서 밝다 · 접은 기억은 그대로',
+    d1.found && d1.inView && d1.flash && d1.sideW >= 300 && kept === '1', JSON.stringify({ d1, kept }));
+  await sleep(1900);
+  check('밝힘은 잠깐이다', (await ev(FOCUSED)).flash === false);
+  await ev(`${byLabel('닫기')}.click()`); await sleep(500);
+
+  // ⑤ '/'는 찾기 칸으로 · 업무 창이 떠 있으면 건드리지 않는다
+  await ev(`document.activeElement?.blur()`);
+  await key('/', { code: 'Slash', vk: 191, text: '/' }); await sleep(200);
+  const slash = await ev(`({ focus: document.activeElement?.getAttribute('placeholder'), val: document.activeElement?.value ?? null })`);
+  check("'/'를 누르면 찾기 칸으로 간다('/' 글자는 안 들어간다)", slash.focus === '프로젝트나 업무를 검색해봐요!' && slash.val === '', JSON.stringify(slash));
+  await ev(`document.activeElement?.blur()`);
+  await ev(`document.querySelector('.board-card').click()`); await sleep(800);
+  await ev(`document.activeElement?.blur()`);
+  await key('/', { code: 'Slash', vk: 191, text: '/' }); await sleep(200);
+  check("업무 창이 떠 있으면 '/'가 뒤의 찾기 칸으로 가지 않는다", (await ev(`document.activeElement?.getAttribute('placeholder') || ''`)) !== '프로젝트나 업무를 검색해봐요!');
+
+  // ② 쓰던 댓글·답글 — 이 창(데스크톱 · 칸은 위에서 펴졌다)
+  const cmtBoxArea = `document.querySelector('.fixed.z-50 .cmt-input textarea')`;
+  const tabBtn = (t) => `[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim().startsWith(${JSON.stringify(t)}))`;
+  await ev(`${cmtBoxArea}.focus()`);
+  await send('Input.insertText', { text: '쓰다 만 댓글' }); await sleep(150);
+  await ev(`${tabBtn('활동')}.click()`); await sleep(300);
+  await ev(`${tabBtn('댓글')}.click()`); await sleep(400);
+  const afterTab = await ev(`${cmtBoxArea}?.value`);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].filter(b => /^답글( [0-9]+)?$/.test(b.textContent.trim())).at(-1).click()`); await sleep(400);
+  await ev(`[...document.querySelectorAll('p')].find(x => /님에게 답글$/.test(x.textContent.trim())).parentElement.querySelector('textarea').focus()`);
+  await send('Input.insertText', { text: '쓰다 만 답글' }); await sleep(150);
+  await ev(`${tabBtn('활동')}.click()`); await sleep(300);
+  await ev(`${tabBtn('댓글')}.click()`); await sleep(400);
+  const writing = await ev(`[...document.querySelectorAll('.fixed.z-50 button')].some(b => / · 작성 중$/.test(b.textContent.trim()))`);
+  await ev(`${byLabel('닫기')}.click()`); await sleep(500);
+  await ev(`document.querySelector('.board-card').click()`); await sleep(900);
+  const reopened = await ev(`${cmtBoxArea}?.value`);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => / · 작성 중$/.test(b.textContent.trim()))?.click()`); await sleep(400);
+  const replyBack = await ev(`[...document.querySelectorAll('p')].find(x => /님에게 답글$/.test(x.textContent.trim()))?.parentElement.querySelector('textarea')?.value`);
+  check('쓰던 댓글은 탭을 옮겨도 · 창을 닫았다 열어도 남는다', afterTab === '쓰다 만 댓글' && reopened === '쓰다 만 댓글', JSON.stringify({ afterTab, reopened }));
+  check("쓰던 답글도 남는다('· 작성 중' · 다시 열면 그 글)", writing && replyBack === '쓰다 만 답글', JSON.stringify({ writing, replyBack }));
+
+  // ③ 자라는 칸 — 지금 든 글(한 줄) · 네 줄 · 열 줄
+  const H = `(() => { const t = ${cmtBoxArea}; const cs = getComputedStyle(t); return { h: Math.round(t.getBoundingClientRect().height), oy: cs.overflowY, line: parseFloat(cs.lineHeight) }; })()`;
+  const setVal = (v) => ev(`(() => { const t = ${cmtBoxArea}; t.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(t, ${JSON.stringify(v)}); t.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  const h1 = await ev(H);
+  await setVal('하나\n둘\n셋\n넷'); await sleep(150);
+  const h4 = await ev(H);
+  await setVal(Array.from({ length: 10 }, (_, i) => '줄 ' + i).join('\n')); await sleep(150);
+  const h10 = await ev(H);
+  check('댓글 칸은 글을 따라 자라고(최소 56px) 여섯 줄을 넘으면 칸 안에서 구른다',
+    h1.h === 56 && h4.h > h1.h && h4.oy === 'hidden' && h10.h > h4.h && h10.h <= Math.round(h10.line * 6 + 16 + 2) + 1 && h10.oy === 'auto', JSON.stringify({ h1, h4, h10 }));
+  // 등록하면 지운다
+  await ev(`${byLabel('등록')}.click()`); await sleep(300);
+  await ev(`${byLabel('닫기')}.click()`); await sleep(500);
+  await ev(`document.querySelector('.board-card').click()`); await sleep(900);
+  const cleared = await ev(`${cmtBoxArea}?.value`);
+  const h0 = await ev(H);
+  check('등록하면 쓰던 글이 지워지고 칸도 처음 높이로', cleared === '' && h0.h === 56, JSON.stringify({ cleared, h0 }));
+  await ev(`${byLabel('닫기')}.click()`); await sleep(500);
+
+  // ④ 삭제 되돌리기 · 토스트 두 자리
+  const cards = () => ev(`[...document.querySelectorAll('.board-card')].map(c => c.textContent).filter(t => /지울 업무/.test(t)).length`);
+  await ev(`[...document.querySelectorAll('.board-card')].find(c => /지울 업무/.test(c.textContent)).click()`); await sleep(800);
+  await ev(`document.querySelector('.fixed.z-50 [title="업무 삭제"]').click()`); await sleep(400);
+  await ev(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '삭제')?.click()`); await sleep(600);
+  const del = await ev(`(() => { const t = document.querySelector('[data-toast="action"]');
+    return { open: !!document.querySelector('.fixed.z-50'), text: t?.innerText.replace(/\\s+/g, ' ').trim() || null,
+      stored: !!JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.u2 }; })()`);
+  const gone = await cards();
+  check("업무를 지우면 화면에서 바로 빠지고 \"'지울 업무'을(를) 삭제했어요 · 되돌리기\" 토스트",
+    !del.open && gone === 0 && del.text === "'지울 업무'을(를) 삭제했어요 되돌리기", JSON.stringify({ del, gone }));
+  // 그냥 토스트 하나 — 새 업무 폼을 제목 없이 `만들기`(앱 화면으로 띄운다 · 모듈을 import()로 부르면 HMR 뒤에는 다른 사본이라 안 뜬다)
+  await ev(`${byLabel('새 업무')}?.click()`); await sleep(1000);
+  await ev(`${byLabel('만들기')}?.click()`); await sleep(300);
+  const two = await ev(`[...document.querySelectorAll('[data-toast]')].map(t => ({ kind: t.getAttribute('data-toast'), text: t.innerText.trim(), bottom: Math.round(t.getBoundingClientRect().bottom) }))`);
+  check('그냥 토스트가 와도 되돌리기는 남는다(그냥 토스트는 그 위에)',
+    two.length === 2 && two[0].kind === '' && two[0].text === '업무 제목을 먼저 적어주세요' && two[1].kind === 'action' && two[0].bottom < two[1].bottom, JSON.stringify(two));
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(400);
+  await ev(`[...(document.querySelector('[data-toast="action"]')?.querySelectorAll('button') || [])].find(b => b.textContent.trim() === '되돌리기')?.click()`); await sleep(600);
+  const back = await cards();
+  const backStored = await ev(`!!JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId.u2`);
+  check('되돌리면 업무가 그대로 돌아온다(화면 · 저장)', back === 1 && backStored, JSON.stringify({ back, backStored }));
+
+  // ⑤ 새 업무 — 제목 Enter는 본문으로 · Ctrl+Enter는 만들기
+  await ev(`${byLabel('새 업무')}?.click()`); await sleep(1500);
+  await setTitle('키보드로 만든 업무'); await sleep(150);
+  await key('Enter', { code: 'Enter', vk: 13 }); await sleep(250);
+  const toBody = await ev(`(() => { const a = document.activeElement; return { editable: !!a?.isContentEditable, inForm: !!a?.closest('form') }; })()`);
+  check('새 업무: 제목 칸의 Enter는 본문 편집기로 넘어간다', toBody.editable && toBody.inForm, JSON.stringify(toBody));
+  await ev(`document.querySelector('input[name="title"]').focus()`);
+  await key('Enter', { code: 'Enter', vk: 13, modifiers: 2 }); await sleep(900);
+  const made = await ev(`(() => { const m = document.querySelector('.fixed.z-50');
+    return { view: !!m?.querySelector('[data-task-view]'), h2: m?.querySelector('[data-task-view] h2')?.textContent || null,
+      stored: Object.values(JSON.parse(localStorage.getItem('church_app_v4')).tasks.byId).some(t => t.title === '키보드로 만든 업무') }; })()`);
+  check('새 업무: Ctrl+Enter가 만들기다', made.view && made.h2 === '키보드로 만든 업무' && made.stored, JSON.stringify(made));
+  // 못 만들었으면 폼이 적힌 채 남는다 — 그대로 두면 다음 이동이 '떠나기 전 확인'(beforeunload)에 걸려 멈춘다
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(400);
+  if (!made.view) { await ev(`${byLabel('무시하고 닫기')}?.click()`); await sleep(400); }
+
+  // ① 폰 — 댓글 탭으로
+  await load(390, 844, true);
+  await ev(`document.querySelector('button[title="검색"]')?.click()`); await sleep(400);
+  await send('Input.insertText', { text: '고유어찾기' }); await sleep(700);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => /댓글 많은 업무/.test(b.textContent))?.click()`);
+  await sleep(1100);
+  const m1 = await ev(FOCUSED);
+  check('댓글에 걸린 검색 결과(폰): 댓글 탭으로 열고 그 댓글이 칸 안에 서서 밝다', m1.found && m1.inView && m1.flash && /^댓글/.test(m1.tab || ''), JSON.stringify(m1));
+  await ev(`${byLabel('닫기')}?.click()`); await sleep(500);
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

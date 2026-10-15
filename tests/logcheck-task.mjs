@@ -926,3 +926,126 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   }
   console.log('PASS  모임 활동 보고서 — 업무 첨부와 같은 큐 · meeting:<id> 열쇠 · 탭 닫기 경고 7가지');
 }
+
+// ── UX 다듬기 α (2026-10-15 · PITFALLS 54) — 실패 되돌리기 · 지운 업무 붙들기 · 댓글로 열기 · 알림 ─────────────────
+// ① 먼저 그린 쓰기가 실패하면 내가 바꾼 칸만, 그 사이 아무도 다시 바꾸지 않았을 때만 되돌린다(services/optimistic.rollbackPatch)
+// ② 지운 업무는 토스트 동안 붙든다 — 되살아나는 재조회를 다시 빼고 · 되돌리면 안 보내고 · 시간이 되면 한 번 · pagehide면 바로(createDeleteHold)
+// ③ 알림·검색이 고른 댓글(modals/taskFocus.findFocusComment · notifFocusHint · 한 번 쓰고 5초 뒤 버림 · 열린 업무 알림)
+// ④ 배선(클라우드 길은 게스트 브라우저 검사가 못 탄다 — HANDOFF §3-5)
+// 되돌리기 검사: rollbackPatch의 `if (!same(live[k], wrote[k])) continue;`를 지우면 ①이, createDeleteHold 구독 안의
+// DELETE_TASK 디스패치를 지우면 ②가, findFocusComment의 byActor를 걷으면 ③이, notificationBell의 `notifArrival(row, openTaskId())`를
+// 지우면 ④가 깨진다.
+{
+  const O = await import(new URL('../src/services/optimistic.js', import.meta.url).href);
+  // ①
+  const prev = { id: 'k', status: '시작 전', position: 5, title: '가' };
+  const wrote = { id: 'k', status: '완료', position: -1, title: '가' };
+  assert.deepStrictEqual(O.rollbackPatch({ wrote, prev, live: { ...wrote } }), { id: 'k', status: '시작 전', position: 5 }, '상태·자리를 이전 값으로');
+  assert.deepStrictEqual(O.rollbackPatch({ wrote, prev, live: { ...wrote, status: '보류 중' } }), { id: 'k', position: 5 }, '그 사이 남이 바꾼 상태는 두고 자리만');
+  assert.strictEqual(O.rollbackPatch({ wrote, prev, live: { ...wrote, status: '보류 중', position: 9 } }), null, '둘 다 바뀌었으면 아무것도');
+  assert.strictEqual(O.rollbackPatch({ wrote: { ...wrote, title: '나' }, prev, live: { ...wrote, title: '나' }, keys: ['title'] })?.title, '가', 'keys로 칸을 고른다');
+  assert.strictEqual(O.rollbackPatch({ wrote, prev, live: null }), null, '지워진 카드는 건드리지 않는다');
+  assert.deepStrictEqual(O.ROLLBACK_KEYS, ['status', 'position'], '업무 저장이 되돌리는 칸은 누르는 칸뿐(제목·본문은 창의 초안이 원본)');
+
+  // ②
+  const fakeStore = () => {
+    let state = { tasks: { byId: {} } };
+    const subs = new Set();
+    return {
+      getState: () => state,
+      subscribe: (fn) => { subs.add(fn); return () => subs.delete(fn); },
+      dispatch: (a) => {
+        const byId = { ...state.tasks.byId };
+        if (a.type === 'DELETE_TASK') { if (!byId[a.payload]) return; delete byId[a.payload]; }
+        else byId[a.payload.id] = a.payload;
+        state = { tasks: { byId } };
+        [...subs].forEach(fn => fn());
+      },
+      subs,
+    };
+  };
+  const winEvents = new Map();
+  const fakeWin = { addEventListener: (t, fn) => winEvents.set(t, fn), removeEventListener: (t) => winEvents.delete(t) };
+  const st = fakeStore();
+  const H = O.createDeleteHold({ store: st, ms: 30, win: fakeWin });
+  const sent = [];
+  H.hold('a', () => sent.push('a'));
+  assert.ok(H.has('a') && H.guarded && st.subs.size === 1 && winEvents.has('pagehide'), '붙들면 스토어를 지켜보고 pagehide를 듣는다');
+  st.dispatch({ type: 'SYNC_TASK', payload: { id: 'a', title: '되살아난 것' } });
+  assert.ok(!st.getState().tasks.byId.a, '재조회가 서버의 그 업무를 다시 넣어도 바로 뺀다');
+  st.dispatch({ type: 'SYNC_TASK', payload: { id: 'b', title: '다른 업무' } });
+  assert.ok(st.getState().tasks.byId.b, '다른 업무는 건드리지 않는다');
+  assert.strictEqual(H.cancel('a'), true, '되돌리기 = 붙든 것을 놓는다');
+  assert.ok(!H.guarded && st.subs.size === 0 && !winEvents.has('pagehide'), '붙든 것이 없으면 구독·pagehide를 걷는다');
+  st.dispatch({ type: 'SYNC_TASK', payload: { id: 'a', title: '되살림' } });
+  assert.ok(st.getState().tasks.byId.a, '놓은 뒤에는 다시 들어온다(되살리기)');
+  await new Promise(r => setTimeout(r, 60));
+  assert.deepStrictEqual(sent, [], '되돌린 삭제는 보내지 않는다');
+  assert.strictEqual(H.cancel('a'), false, '두 번 놓을 것은 없다');
+  H.hold('c', () => sent.push('c'));
+  await new Promise(r => setTimeout(r, 60));
+  assert.deepStrictEqual(sent, ['c'], '시간이 되면 한 번 보낸다');
+  assert.strictEqual(H.cancel('c'), false, '보낸 뒤에는 되돌릴 수 없다');
+  H.hold('d', () => sent.push('d'));
+  H.hold('e', () => sent.push('e'));
+  winEvents.get('pagehide')();
+  assert.deepStrictEqual(sent, ['c', 'd', 'e'], '페이지를 떠나면 붙든 것을 바로 보낸다');
+  await new Promise(r => setTimeout(r, 60));
+  assert.deepStrictEqual(sent, ['c', 'd', 'e'], '보낸 것은 타이머가 또 보내지 않는다');
+
+  // ③
+  const F = await import(new URL('../src/modals/taskFocus.js', import.meta.url).href);
+  const cm = [
+    { id: 'c1', author: '조해리', text: '같이 확인 부탁해요 @노준석' },
+    { id: 'c2', author: '조준환', text: '같이 확인 부탁해요 @노준석' },
+    { id: 'c3', author: '노준석', text: '내 댓글  입니다' },
+    { id: 'c4', author: '조해리', text: '다른 글' },
+  ];
+  assert.strictEqual(F.findFocusComment(cm, { kind: 'mention', actor: '조해리', preview: '같이 확인 부탁해요 @노준석' }), 'c1', '멘션 — 보낸 사람의 댓글');
+  assert.strictEqual(F.findFocusComment(cm, { kind: 'reply', actor: '조준환', preview: '같이 확인 부탁해요' }), 'c2', '답글 — 보낸 사람의 것');
+  assert.strictEqual(F.findFocusComment(cm, { kind: 'reaction', actor: '조해리', preview: '내 댓글 입니다' }), 'c3', '반응 — 내 댓글(보낸 사람으로 거르지 않는다 · 빈칸은 하나로 본다)');
+  assert.strictEqual(F.findFocusComment(cm, { kind: 'mention', actor: '모르는 사람', preview: '같이 확인' }), 'c2', '보낸 사람 것이 없으면 가장 최근 것');
+  assert.strictEqual(F.findFocusComment(cm, { kind: 'mention', actor: '조해리', preview: '본문에서 부른 멘션' }), null, '본문 멘션은 댓글이 아니다');
+  assert.strictEqual(F.findFocusComment(cm, { kind: 'comment', commentId: 'c4' }), 'c4', 'id가 있으면 그것');
+  assert.strictEqual(F.findFocusComment(cm, { kind: 'comment', commentId: 'zz' }), null, '없는 id는 아무것도');
+  assert.strictEqual(F.findFocusComment(cm, { kind: 'mention', preview: '' }), null, '미리보기가 빈 알림(잠긴 업무)은 찾지 않는다');
+  assert.deepStrictEqual(F.notifFocusHint({ kind: 'reply', card_id: 'x', actor_name: '조해리', preview: '답' }), { kind: 'reply', actor: '조해리', preview: '답' });
+  assert.strictEqual(F.notifFocusHint({ kind: 'assign', card_id: 'x' }), null, '담당자 알림은 상세로');
+  assert.strictEqual(F.notifFocusHint({ kind: 'mention', card_id: null }), null, '업무 없는 알림');
+  assert.ok(F.wantsComments({ kind: 'reply' }) && F.wantsComments({ kind: 'comment' }) && !F.wantsComments({ kind: 'mention' }) && !F.wantsComments(null),
+    '답글·반응·댓글 검색은 찾기 전에도 댓글 칸 · 멘션은 찾아야');
+  F.setTaskFocus('t1', { kind: 'reply' });
+  assert.strictEqual(F.peekTaskFocus('t2'), null, '다른 업무에는 안 붙는다');
+  assert.deepStrictEqual([F.peekTaskFocus('t1'), F.peekTaskFocus('t1')], [{ kind: 'reply' }, { kind: 'reply' }], '읽기는 순수(렌더에서 두 번 불려도 같다)');
+  assert.strictEqual(F.peekTaskFocus('t1', Date.now() + 6000), null, '5초가 지난 것은 버린다');
+  F.clearTaskFocus('t1');
+  assert.strictEqual(F.peekTaskFocus('t1'), null, '창이 가져간 뒤에는 없다');
+  const opened = [];
+  const off = F.onTaskOpen(id => opened.push(id));
+  F.noteTaskOpen('t9'); F.noteTaskOpen(null);
+  off(); F.noteTaskOpen('t8');
+  assert.deepStrictEqual(opened, ['t9'], '열릴 때만 알린다 · 걷은 뒤에는 안 듣는다');
+  assert.strictEqual(F.openTaskId(), 't8');
+  F.noteTaskOpen(null);
+  assert.strictEqual(F.notifArrival({ card_id: 'x' }, 'x'), 'quiet', '열린 업무의 새 알림은 토스트 없이');
+  assert.strictEqual(F.notifArrival({ card_id: 'x' }, 'y'), 'toast');
+  assert.strictEqual(F.notifArrival({ card_id: null }, null), 'toast', '업무 없는 알림은 늘 토스트');
+  assert.ok(F.easeOutQuint(0) === 0 && F.easeOutQuint(1) === 1 && F.easeOutQuint(0.5) > 0.96 && F.easeOutQuint(2) === 1, '앱 곡선(quint)');
+
+  // ④
+  const rd = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  const ctl = rd('hooks/controllers.js'), bell = rd('components/notificationBell.jsx'), toast = rd('components/Toast.jsx');
+  const notify = rd('services/cloud/notify.js'), search = rd('components/searchBox.jsx'), modals = rd('modals/modals.jsx');
+  assert.ok(/if \(!cardOk && !isNew\)/.test(ctl) && /\.then\(\(\) => \{ cardOk = true;/.test(ctl), '업무 저장은 카드 쓰기가 실패했을 때만 되돌린다(뒤따르는 활동·알림 실패는 아니다)');
+  assert.ok(/type: 'DELETE_PROJECT', payload: newProject\.id/.test(ctl) && /archived: !archived/.test(ctl), '못 만든 프로젝트는 빼고 · 못 보관하면 되돌린다');
+  assert.ok(/createDeleteHold\(\{ store, ms: HOLD_MS_ACTION \+ 300 \}\)/.test(ctl) && /'\$\{snap\.title\}'을\(를\) 삭제했어요/.test(ctl) && /deleteHold\.cancel\(id\)/.test(ctl),
+    '지우기는 토스트 시간 동안 붙들고 되돌리기로 놓는다');
+  assert.ok(/const \[act, setAct\] = useSlot\(HOLD_MS_ACTION\);/.test(toast) && /if \(action\) setAct\(t\); else setPlain\(t\);/.test(toast), '토스트 자리는 둘(그냥 토스트가 되돌리기를 밀어내지 않는다)');
+  assert.ok(/notifArrival\(row, openTaskId\(\)\) === 'quiet'/.test(bell) && /label: '열기', onAction: \(\) => openRef\.current\(got\)/.test(bell),
+    '새 알림 토스트에 열기 · 열린 업무의 알림은 조용히 읽음');
+  assert.ok(/useEffect\(\(\) => onTaskOpen\(markCardRead\), \[markCardRead\]\)/.test(bell) && /setTaskFocus\(task\.id, notifFocusHint\(n\)\)/.test(bell), '업무를 열면 그 업무 알림을 읽음 · 댓글 알림은 댓글로 연다');
+  assert.ok(/\.eq\('recipient_id', uid\)\.eq\('card_id', cardId\)\.eq\('read', false\)/.test(notify), '한 업무의 알림 읽음은 한 번의 update');
+  assert.ok(/if \(kind === 'task'\) setTaskFocus\(item\.id, focus\);/.test(search), '검색은 업무를 고를 때마다 적는다(댓글이 아니면 null로 지운다)');
+  assert.ok(/noteTaskOpen\(task\.id\);/.test(modals) && /peekTaskFocus\(task\.id\)/.test(modals), '업무 창이 열림을 알리고 적힌 것을 읽는다');
+  console.log('PASS  UX 다듬기 α — 실패 되돌리기 · 지운 업무 붙들기 · 댓글로 열기 · 알림 배선');
+}

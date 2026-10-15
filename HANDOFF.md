@@ -262,7 +262,7 @@ src/config.js                 팀·상태 상수 · teamColor/teamPaint · MAX_U
 src/utils.js                  순수 헬퍼 한 벌(정렬·날짜·생일·멘션·drive 주소·mdDot…) + utils/ 조각 바렐(authUrl · peopleSeen(사람 칸·다녀간 시각·localDate) · taskEdit · presenceWhere · graphLayout) — logcheck가 검사(_load.mjs가 바렐을 따라 조각을 같이 베낀다)
 src/store/workspaceStore.js   useSyncExternalStore 스토어 + 되돌리기 기록(§6-22)
 src/store/selectors.js        셀렉터 — 매번 새 배열을 만들면 무한 리렌더(§4.9)
-src/hooks/controllers.js      저장·삭제 등 쓰기 경로
+src/hooks/controllers.js      저장·삭제 등 쓰기 경로 — 실패하면 되돌리기·지운 업무 붙들기는 services/optimistic.js(PITFALLS 54-b)
 src/hooks/useIsMobile.js      반응형 분기 — 한쪽만 마운트(§6-3)
 src/hooks/useForceGraph.js    그래프 시뮬 루프·냉각·드래그 — 연결 지도와 그래프 뷰 한 벌 · 호버 공장 `hoverProps`(§4.9)
 src/hooks/useMinuteTick.js    상대 시간 라벨 늙히기(§4.9)
@@ -306,7 +306,7 @@ src/components/ShareButton.jsx  프로젝트·카드 공유 링크
 src/components/ShareToggle.jsx  공유 토글 한 벌 — 말씀 묵상·예배 노트·내 순 노트가 같은 부품
 src/components/sunGuide.jsx   (v2) 순모임 가이드 패널 — 주보 피커·이미지로 공유·고정(§4.4·§6-9-av)
 src/components/calendarFeed.jsx 프로젝트 달력 머리의 `내 달력` — 업무 고르기 팝오버/아래 창 · 규칙·.ics·기기별 버튼은 services/calendarFeed.js(서버 api/ics.js와 한 벌 · 0085)
-src/components/Toast.jsx      토스트(`[data-toast]` · 폭 상한 28rem · §8)
+src/components/Toast.jsx      토스트(`[data-toast]` · 폭 상한 28rem · §8) — 자리 둘: 동작 토스트(아래) + 그냥 토스트(그 위 · PITFALLS 54-a)
 src/components/wordBible.jsx  (v2) 성경 리더·검색·목차 — BibleTab 훅 셋(useBibleSearch·useRecentPanel·useSwipe) · searchHeads(§6-9-bs) · 재수출(EmptyBookMark·PassageSkeleton·ShareSwitch·hlColor)
 src/components/bibleParts.jsx (v2) 성경 공용 부품 — 본문 글·형광펜·Swap·뼈대·성경 상태 저장·useVersePaint·ShareSwitch(worshipParts·worshipPassage·settings가 쓴다)
 src/components/bibleMarks.jsx (v2) 북마크·형광펜 목록(책별 묶기 · mergeRuns)
@@ -354,7 +354,8 @@ src/modals/coedit.jsx         업무 창의 같이 쓰기 — useCoedit(늦게 �
 src/services/coedit/          같이 쓰기 엔진(0084) — index.js 여는 곳(awareness user·editing·line · 사진 이름표) · core.js 순수(caretLine 포함) · store.js Supabase · view.js 화면 순수(색·알약 대비·판 글자·줄 차이 · import 0)
 src/modals/attachments.jsx    업무 창의 첨부 구역 — 업로드·미리보기·삭제·구글 사본 편집 자격(§6-34-h · startUploads는 §6-29-u)
 src/modals/uploadQueue.js     올리는 중·못 올린 첨부 줄(업무마다 · 모임 보고서는 `meeting:<id>` · 모듈 목록 · 동시 3개 · 다시 시도)
-src/modals/comments.jsx       업무 창의 댓글·반응·활동 기록 패널(§4.11)
+src/modals/comments.jsx       업무 창의 댓글·반응·활동 기록 패널(§4.11) · 쓰던 댓글·답글 표(업무 열쇠) · 자라는 칸(`useAutoGrow`)
+src/modals/taskFocus.js       업무 창을 어느 댓글로 여나(알림·검색 → 창 · App을 거치지 않는다) · 지금 열린 업무(알림 종이 듣는다) — PITFALLS 54-d
 src/modals/settings.jsx       내 정보(사진·이름·팀) / 프로젝트 만들기·이름 수정(§4.7·§6-34-g)
 src/services/supabaseClient.js 클라이언트 한 벌 + setWriteObserver(§4.8) + myUid()(§6-34-d)
 src/services/cloud.js         Supabase 읽기·쓰기 — 재수출만(`import * as cloud` 그대로). 몸통은 cloud/ — core(client·unwrap·getSession·accessToken·authedPost) · profiles · board(프로젝트·업무·댓글·반응·참고 링크) · drive(업로드 `uploadOwnedFile` 한 벌 · trashFolder·trashFileBodies) · fileUrls · notify · admin
