@@ -270,7 +270,9 @@ export const ProjectView = React.memo(function ProjectView({ projectId, onTaskCl
         {/* 그리드에서는 첫 줄 오른쪽 칸을 명시한다 — 자동 배치에 맡기면 아래 줄 다음(3번째
             줄)으로 떨어진다 */}
         <button onClick={onNewTask}
-          className="dc-press row-start-1 col-start-2 inline-flex items-center gap-1.5 pl-[11px] pr-3.5 py-[7px] rounded-md text-[12.5px] font-bold text-white whitespace-nowrap shrink-0 hover:brightness-[1.07] transition-[filter]"
+          // justify-center + 좌우 같은 여백: 폰 그리드에서는 이 칸이 아래 공유·삭제 묶음 폭만큼 늘어나 글자 오른쪽이 23px(왼쪽 11px)
+          // 비었다 — 늘어나도 아이콘+글자 묶음이 가운데에 선다(사용자 지적 2026-10-16)
+          className="dc-press row-start-1 col-start-2 inline-flex items-center justify-center gap-1.5 px-3 py-[7px] rounded-md text-[12.5px] font-bold text-white whitespace-nowrap shrink-0 hover:brightness-[1.07] transition-[filter]"
           style={{ background: 'var(--app-accent)', boxShadow: '0 1px 2px rgba(25,23,32,.18), inset 0 1px 0 rgba(255,255,255,.22)' }}>
           {/* -translate-y-px: 화면에 **찍힌 잉크**로 재면 아이콘 중심이 글자 중심보다 1px
               아래에 앉는다(사용자 지적 2026-08-30). 배율 1·1.25·2 모두에서 같은 값이고,
