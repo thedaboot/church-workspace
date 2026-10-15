@@ -4,6 +4,7 @@ import { Skeleton, usePanDrag } from './media.jsx';
 // pdf.js 6이 확인 없이 쓰는 Uint8Array 메서드 채우기 — 없으면 PDF가 한 장도 안 그려진다.
 // **워커 쪽에도 따로** 들어가야 한다(pdfWorkerEntry.js가 같은 파일을 먼저 import한다).
 import '../services/pdfPolyfill.js';
+import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
 
 // ============================================================================
 // PDF 미리보기 — 브라우저 내장 뷰어(iframe) 대신 직접 그린다.
@@ -14,9 +15,16 @@ import '../services/pdfPolyfill.js';
 // 뷰어의 검은 배경이 번쩍이는 일도 없다.
 //
 // pdf.js는 무거우므로(수백 KB) PDF를 열 때만 동적으로 불러온다.
+//
+// **화면 가까운 쪽만 그린다**(2026-10-15 · UX 다듬기 2차 C11 · PITFALLS 60-e). 예전에는 앞에서부터 다 그려서
+// 50쪽에서 끊었다('50쪽까지만 보여줘요'). 지금은 쪽마다 **자리(빈 종이 · 크기는 그 쪽의 비율)** 를 먼저 다 깔고
+// — 그래서 스크롤 높이가 처음부터 맞다 — 보이는 곳 위아래 한 화면 반(IntersectionObserver rootMargin) 안의 자리만
+// 캔버스로 바꾼다. 그 밖으로 나간 캔버스는 다시 빈 자리로 돌려 메모리를 돌려받는다. 쪽 수 상한이 없다.
+// 자리와 캔버스는 같은 dataset(cssw·z·ratio·page)과 같은 크기 셈을 쓴다 — 확대 중 CSS 늘리기·제자리 교체가 둘을 가리지 않는다.
+// 내려 읽는 동안 아래 가운데에 '3 / 7' 알약(사진 넘김 알약과 같은 모양 · 바닥에서 24px · 멈추고 1.2초 뒤 .42s quint로 걷힌다).
 // ============================================================================
-const MAX_PAGES = 50;          // 이 이상은 앱에서 그리지 않고 '새 탭에서 열기' 안내
-const FIRST_CHUNK = 3;         // 먼저 그릴 쪽 수(나머지는 이어서)
+const NEAR = '150% 0px';       // 그릴 범위 — 보이는 곳 위아래로 한 화면 반
+const PILL_HIDE_MS = 1200;     // 알약은 스크롤이 멎고 이만큼 뒤에 걷힌다
 // 캔버스 하나의 **실제 픽셀** 가로 상한. 확대는 CSS로 늘리는 것이 아니라 그 배율로
 // 다시 그리는 것이라(글자가 뭉개지면 확대하는 뜻이 없다) 상한이 없으면 3배에서
 // 쪽마다 수십 MB짜리 캔버스가 쉰 장 쌓인다. 3000이면 1200px 칸을 2.5배로 보는
@@ -85,13 +93,18 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
   const hostRef = useRef(null);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [pageCount, setPageCount] = useState(0);
-  const [drawn, setDrawn] = useState(0);
+  // 지금 보고 있는 쪽(보이는 곳 세로 가운데에 걸린 쪽) · 알약이 떠 있나
+  const [page, setPage] = useState(1);
+  const [pill, setPill] = useState(false);
+  // 쪽 비율(높이/폭) — 같은 문서를 배율만 바꿔 다시 열 때 쪽마다 다시 묻지 않는다
+  const ratiosRef = useRef(null);   // { doc, list }
   // 그릴 때 쓸 칸 너비. **이 값이 바뀔 때만** 다시 그린다(아래 ResizeObserver).
   const [boxW, setBoxW] = useState(0);
   // `onError`를 효과의 의존성에 두면 안 된다 — 부르는 쪽이 인라인 화살표로 넘기므로
   // 그 쪽이 한 번 다시 그려질 때마다 새 함수가 되고, 그때마다 이 효과가 통째로 다시
   // 돌아 **PDF를 다시 열고 50쪽을 다시 래스터화**했다(감사 2026-09-13). 내려받기 버튼의
   // 스피너 하나에도 그 일이 벌어졌다. 함수는 ref에 담아 두고 부를 때만 꺼낸다.
+  const stopRef = useRef(null);      // 지금 도는 그리기 고리의 관찰자를 끊는다(효과 정리)
   const errRef = useRef(onError);
   errRef.current = onError;
   // 확대한 종이를 마우스로 끌어서 민다(media.usePanDrag 머리말). 사진 쪽과 한 벌이다.
@@ -131,12 +144,13 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
     if (!layer || !drawZoom || zoom === drawZoom) return;
     for (const el of layer.children) {
       const base = Number(el.dataset?.cssw);   // 그릴 때 적어 둔 CSS 폭(겹쳐 곱하지 않게)
-      if (!base || !el.width) continue;
+      const ratio = Number(el.dataset?.ratio) || (el.width ? el.height / el.width : 0);   // 빈 자리(div)는 비율만 안다
+      if (!base || !ratio) continue;
       // **그 쪽이 그려진 배율에서** 지금 배율까지. 다시 그리는 도중에 배율이 또 바뀌면
       // 층에 두 배율의 쪽이 잠깐 섞여 있으므로(아래 제자리 교체), 쪽마다 제 배율로 곱한다.
       const w = base * (zoom / (Number(el.dataset?.z) || drawZoom));
       el.style.width = `${w}px`;
-      el.style.height = `${Math.round(w * (el.height / el.width))}px`;
+      el.style.height = `${Math.round(w * ratio)}px`;
       el.style.marginBottom = `${PAGE_GAP * zoom}px`;   // 틈도 같이(위 PAGE_GAP)
       el.style.marginLeft = el.style.marginRight = `${PAGE_SIDE * zoom}px`;
     }
@@ -199,7 +213,6 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
         const inPlace = !!prev && prev.doc === (blob || src) && prev.boxW === boxW
           && layer.children.length > 0;
         drawnKeyRef.current = { doc: blob || src, boxW };
-        const kept = inPlace ? layer.children.length : 0;   // 이미 화면에 서 있는 쪽 수
         // **비우고 다시 붙일 때만** 보던 자리를 되돌린다. `replaceChildren`로 비우면 높이가
         // 0으로 접혀 스크롤이 맨 위로 튄다 — 배율만 조금 바꿨는데 1쪽으로 돌아갔다.
         // 쪽 높이가 다 같지는 않으니 위치가 아니라 **비율**로 기억하고, 쪽이 쌓일 때마다
@@ -216,7 +229,6 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
           if (keep.y) host.scrollTop = keep.y * Math.max(0, host.scrollHeight - host.clientHeight);
           if (keep.x) host.scrollLeft = keep.x * Math.max(0, host.scrollWidth - host.clientWidth);
         };
-        if (!inPlace) layer.replaceChildren();
 
         // 가로 폭에 맞춰 그린다(화면 배율 반영 — 모바일에서 흐릿하지 않게).
         // 쪽이 쌓이면 세로 스크롤바가 생겨 내용 폭이 그만큼 줄어든다 → 미리 비워둔다.
@@ -225,10 +237,92 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         // 실제 픽셀에는 상한이 있다(위 MAX_CANVAS_PX_W) — 넘으면 그만큼만 그리고 CSS로 편다
         const pxWidth = Math.min(cssWidth * dpr, MAX_CANVAS_PX_W);
-        const total = Math.min(doc.numPages, MAX_PAGES);
+        const total = doc.numPages;
+        // 쪽 비율 — 자리를 깔려면 쪽마다 크기가 먼저 있어야 한다(getPage는 그리지 않아 가볍다)
+        const docKey = blob || src;
+        if (ratiosRef.current?.doc !== docKey) {
+          const list = [];
+          for (let n = 1; n <= total; n++) {
+            if (!alive) return;
+            const v = (await doc.getPage(n)).getViewport({ scale: 1 });
+            list.push(v.height / v.width);
+          }
+          ratiosRef.current = { doc: docKey, list };
+        }
+        const ratios = ratiosRef.current.list;
+        // 빈 자리 한 장 — 캔버스와 같은 크기 셈·같은 dataset(위 CSS 확대가 둘을 가리지 않는다)
+        const live0 = () => (zoomRef.current || drawZoom) / drawZoom;
+        const sizeSlot = (el, live = live0()) => {
+          el.style.width = `${cssWidth * live}px`;
+          el.style.height = `${Math.round(cssWidth * Number(el.dataset.ratio) * live)}px`;
+          el.style.marginBottom = `${PAGE_GAP * drawZoom * live}px`;
+          el.style.marginLeft = el.style.marginRight = `${PAGE_SIDE * drawZoom * live}px`;
+        };
+        const blank = (n, like = null) => {
+          const el = document.createElement('div');
+          el.className = 'block rounded-md border border-line bg-white shadow-soft';
+          el.dataset.page = String(n);
+          el.dataset.ratio = String(ratios[n - 1] || 1.414);
+          if (like) {
+            // 내보낸 캔버스 자리 — 그 캔버스가 서 있던 크기 그대로(그린 배율의 값까지)
+            el.dataset.cssw = like.dataset.cssw; el.dataset.z = like.dataset.z;
+            for (const k of ['width', 'height', 'marginBottom', 'marginLeft', 'marginRight']) el.style[k] = like.style[k];
+          } else {
+            el.dataset.cssw = String(cssWidth); el.dataset.z = String(drawZoom);
+            sizeSlot(el);
+          }
+          return el;
+        };
+        if (!inPlace) layer.replaceChildren();
+        if (!inPlace) {
+          for (let n = 1; n <= total; n++) layer.appendChild(blank(n));
+          keepScroll();   // 높이가 처음부터 다 있으므로 한 번이면 된다
+        }
+        setPage(p => Math.min(Math.max(1, p), total || 1));
 
-        for (let n = 1; n <= total; n++) {
+        // 그릴 범위 안의 자리를 모은다. 범위를 나간 캔버스는 빈 자리로 돌린다(메모리).
+        const near = new Set();
+        let wake = null;
+        let seen = false;
+        const kick = () => { const w = wake; wake = null; w?.(); };
+        const io = new IntersectionObserver((entries) => {
+          seen = true;
+          for (const en of entries) {
+            if (en.isIntersecting) { near.add(en.target); continue; }
+            near.delete(en.target);
+            if (en.target.tagName === 'CANVAS' && en.target.parentNode === layer) {
+              const ph = blank(Number(en.target.dataset.page), en.target);
+              layer.replaceChild(ph, en.target);
+              io.unobserve(en.target); io.observe(ph);
+            }
+          }
+          kick();
+        }, { root: host, rootMargin: NEAR });
+        for (const el of layer.children) io.observe(el);
+        stopRef.current = () => { io.disconnect(); kick(); };
+        // 다음에 그릴 자리 — 범위 안이면서 아직 빈 자리이거나 옛 배율인 것 중 보이는 곳 가운데에 가장 가까운 것
+        const pick = () => {
+          const mid = host.scrollTop + host.clientHeight / 2;
+          let best = null; let bestD = Infinity;
+          for (const el of near) {
+            if (el.parentNode !== layer) { near.delete(el); continue; }
+            if (el.tagName === 'CANVAS' && Number(el.dataset.z) === drawZoom) continue;
+            const d = Math.abs(el.offsetTop + el.offsetHeight / 2 - mid);
+            if (d < bestD) { bestD = d; best = el; }
+          }
+          return best;
+        };
+
+        for (;;) {
           if (!alive) return;
+          const el = seen ? pick() : null;
+          if (!el) {
+            // 범위 안이 다 그려졌다 — 처음이면 그때 걷는다(관찰자의 첫 답이 오기 전에는 기다린다)
+            if (seen && alive) setStatus('ready');
+            await new Promise(r => { wake = r; });
+            continue;
+          }
+          const n = Number(el.dataset.page);
           const page = await doc.getPage(n);
           const base = page.getViewport({ scale: 1 });
           const viewport = page.getViewport({ scale: pxWidth / base.width });
@@ -240,6 +334,8 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
           // effect)가 이 값에서 곱한다. 늘어난 폭에서 또 곱하면 배율이 겹쳐 쌓인다.
           canvas.dataset.cssw = String(cssWidth);
           canvas.dataset.z = String(drawZoom);   // 어느 배율에서 그린 쪽인가(위 CSS 확대)
+          canvas.dataset.page = String(n);
+          canvas.dataset.ratio = String(ratios[n - 1] || canvas.height / canvas.width);
           canvas.className = 'block rounded-md border border-line bg-white shadow-soft';
           // **다 그린 뒤에 끼운다.** 빈 캔버스를 먼저 붙이고 그리면 그 동안 그 자리가
           // 빈 종이라, 쪽마다 하얗게 한 번씩 번쩍인다(위 제자리 교체 머리말).
@@ -248,20 +344,16 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
           // 그리는 중에 배율이 앞서 갔으면 그만큼 미리 늘려 끼운다(위 zoomRef).
           const live = (zoomRef.current || drawZoom) / drawZoom;
           canvas.style.width = `${cssWidth * live}px`;
-          canvas.style.height = `${Math.floor(viewport.height * (cssWidth / pxWidth) * live)}px`;
+          canvas.style.height = `${Math.round(cssWidth * Number(canvas.dataset.ratio) * live)}px`;
           // 틈·좌우 여백은 배율을 따라간다(위 PAGE_GAP·PAGE_SIDE) — 고정해 두면 손짓 중의
           // transform과 어긋나 손을 뗄 때 종이가 뛴다.
           canvas.style.marginBottom = `${PAGE_GAP * drawZoom * live}px`;
           canvas.style.marginLeft = canvas.style.marginRight = `${PAGE_SIDE * drawZoom * live}px`;
           const old = layer.children[n - 1];
           if (old) layer.replaceChild(canvas, old); else layer.appendChild(canvas);
-          setDrawn(Math.max(n, kept));   // 제자리 교체 중에는 옛 쪽도 화면에 서 있다
-          keepScroll();
-          if (n === Math.min(FIRST_CHUNK, total)) setStatus('ready');
-          // 나머지 쪽은 한 박자 쉬며 그려 스크롤이 끊기지 않게
-          if (n >= FIRST_CHUNK) await new Promise(r => setTimeout(r, 0));
+          if (old) { io.unobserve(old); near.delete(old); }
+          near.add(canvas); io.observe(canvas);
         }
-        if (alive) setStatus('ready');
       } catch (e) {
         // 배율이 또 바뀌어 **취소된** 그리기다(정리에서 doc.destroy를 부르면 그리던 것이
         // 떨어진다) — 손짓 한 번에 여러 번 나는 일이라 조용히 버린다.
@@ -271,8 +363,25 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
       }
     })();
 
-    return () => { alive = false; if (doc) doc.destroy?.(); };
+    return () => { alive = false; stopRef.current?.(); stopRef.current = null; if (doc) doc.destroy?.(); };
   }, [blob, src, boxW, drawZoom]);
+
+  // ── 쪽 알약 '3 / 7' ── 보이는 곳 세로 가운데에 걸린 쪽(자리의 offsetTop은 스크롤 내용 안의 자리다 — 차례대로라 반으로 갈라 찾는다).
+  // 스크롤하면 서고, 멎고 PILL_HIDE_MS 뒤에 걷힌다. 한 쪽짜리에는 세우지 않는다.
+  const hideRef = useRef(0);
+  const onScroll = useCallback(() => {
+    const host = hostRef.current;
+    const kids = layerRef.current?.children;
+    if (!host || !kids?.length) return;
+    const mid = host.scrollTop + host.clientHeight / 2;
+    let lo = 0; let hi = kids.length - 1;
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (kids[m].offsetTop <= mid) lo = m; else hi = m - 1; }
+    setPage(lo + 1);
+    setPill(true);
+    clearTimeout(hideRef.current);
+    hideRef.current = setTimeout(() => setPill(false), PILL_HIDE_MS);
+  }, []);
+  useEffect(() => () => clearTimeout(hideRef.current), []);
 
   return (
     <div className="relative w-full h-full">
@@ -286,6 +395,7 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
         // `cancelable: false`로 오고 `preventDefault`가 아무 일도 하지 않는다.
         // 한 손가락 밀기(pan-x·pan-y)는 그대로다 — 긴 PDF를 내려 읽는 기본 조작이다.
         style={{ touchAction: 'pan-x pan-y' }}
+        onScroll={onScroll}
         onDoubleClick={onToggleZoom ? (e) => onToggleZoom(e.clientX, e.clientY) : undefined}
         // 확대했을 때만 좌우로 민다 — 배율 1에서는 넘칠 것이 없고, 가로 스크롤이
         // 열려 있으면 세로로 훑다가 옆으로 미끄러진다.
@@ -307,15 +417,14 @@ export function PdfView({ blob = null, src = null, zoom = 1, onBox = null, onTog
           </span>
         </>
       )}
-      {status === 'ready' && pageCount > MAX_PAGES && (
-        <p className="absolute bottom-1 inset-x-0 text-center text-[10px] text-fg-muted">
-          {MAX_PAGES}쪽까지만 보여줘요 · 전체는 새 탭에서 열기
-        </p>
-      )}
-      {status === 'ready' && drawn < Math.min(pageCount, MAX_PAGES) && (
-        <span className="absolute top-1 right-2 text-[10px] text-fg-muted bg-surface/80 rounded px-1.5 py-0.5">
-          {drawn}/{Math.min(pageCount, MAX_PAGES)}쪽
-        </span>
+      {/* 쪽 알약 — 미리보기 창의 사진 넘김 알약과 같은 모양(surface · line · shadow-elevated · 11px). 넘김 알약은 사진에만
+          서므로 겹치지 않는다. 누르는 것이 아니라 pointer-events-none(밑의 종이를 끄는 손가락을 받지 않는다). */}
+      {status === 'ready' && pageCount > 1 && (
+        <div data-pdf-page="" aria-hidden={!pill}
+          className="absolute left-1/2 -translate-x-1/2 z-10 flex items-center px-3 py-1.5 rounded-full bg-surface border border-line shadow-elevated pointer-events-none"
+          style={{ bottom: 24, opacity: pill ? 1 : 0, transition: prefersReducedMotion() ? 'none' : 'opacity .42s var(--ease-out-quint)' }}>
+          <span className="text-[11px] font-semibold text-fg-muted tabular-nums whitespace-nowrap">{page} / {pageCount}</span>
+        </div>
       )}
     </div>
   );
