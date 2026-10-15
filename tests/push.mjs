@@ -160,6 +160,44 @@ assert.equal(notified.length, 1);
 assert.deepStrictEqual(notified[0].ids, ['u2']);
 assert.equal(notified[0].meta.kind, 'reply');
 
+// ── 담당 업무 댓글 알림 (0103 · UX 다듬기 2차 D9 · 2026-10-15) ─────────────────────────────────────
+// 업무에 댓글이 달리면 그 업무의 담당자에게 '○○님이 내가 담당한 업무에 댓글을 남겼어요' — 댓글 쓴 사람 본인과, 같은 댓글로 멘션·답글을
+// 받는 사람은 뺀다(한 사람에게 한 통). 문구는 답글·멘션과 같은 틀(notifLine) · 미리보기는 같은 댓글 앞 80자.
+// **되돌리기**(§3-5): notifyComment의 담당자 거르기에서 `!mentioned.has(id) && !replied.has(id)`를 빼면 '한 통만'이,
+// notifyText의 assignee_comment 줄을 빼면 문구가(멘션 문구로 떨어진다), 0103의 INSERT 정책에서 'assignee_comment'를 빼면 아래 마이그레이션 단정이 깨진다.
+{
+  assert.equal(notify.notifLine('assignee_comment', '조준환'), '조준환님이 내가 담당한 업무에 댓글을 남겼어요');
+  assert.ok(!notify.isSystemNotif('assignee_comment') && notify.notifArea('assignee_comment') === 'task', '사람이 만드는 업무 알림이다(얼굴 · 업무 갈래)');
+  notified.length = 0;
+  // 담당자 조준환·천진영 · 댓글 쓴 사람 노준석(담당자이기도) → 둘에게 담당 업무 알림
+  await sync.notifyComment('3시까지로 수정', { actorName: '노준석', cardId: 'c1', projectId: 'p1', assignees: ['조준환', '천진영', '노준석'] });
+  assert.deepStrictEqual(notified.map(n => [n.meta.kind, n.ids, n.meta.preview]), [['assignee_comment', ['u2', 'u3'], '3시까지로 수정']],
+    '담당자에게(댓글 쓴 본인은 빼고) · 미리보기는 댓글');
+  notified.length = 0;
+  // 같은 댓글로 멘션(천진영)·답글(조준환)을 받는 담당자는 그쪽 한 통만
+  await sync.notifyComment('@천진영 확인 부탁해요', { actorName: '노준석', cardId: 'c1', projectId: 'p1', replyToName: '조준환', assignees: ['조준환', '천진영'] });
+  assert.deepStrictEqual(notified.map(n => [n.meta.kind, n.ids]), [['mention', ['u3']], ['reply', ['u2']]], '멘션·답글을 받는 담당자에게는 담당 업무 알림을 또 보내지 않는다');
+  notified.length = 0;
+  await sync.notifyComment('혼자 남긴 메모', { actorName: '노준석', cardId: 'c1', projectId: 'p1', assignees: ['노준석'] });
+  await sync.notifyComment('담당자 없음', { actorName: '조준환', cardId: 'c1', projectId: 'p1' });
+  assert.deepStrictEqual(notified, [], '내가 맡은 업무에 내가 단 댓글 · 담당자 없는 업무는 알림 없음');
+  // 마이그레이션 0103 — CHECK와 INSERT 정책을 같이 넓힌다(한쪽만이면 RLS에 조용히 막힌다 · 0017·0022)
+  const m103 = readFileSync(join(ROOT, 'supabase', 'migrations', '0103_assignee_comment_notice.sql'), 'utf8').replace(/\r\n/g, '\n');
+  const body103 = m103.slice(0, m103.indexOf('-- ── 확인'));
+  const check103 = body103.slice(body103.indexOf('add constraint notifications_kind_check'), body103.indexOf('alter policy'));
+  for (const k of ['mention', 'reply', 'assign', 'due_soon', 'approval', 'reaction', 'worship_today', 'service_published', 'note_shared',
+    'club_apply', 'club_accepted', 'meeting_new', 'approved', 'guide_pinned', 'meeting_tomorrow', 'assignee_comment']) {
+    assert.ok(check103.includes(`'${k}'`), `0103의 체크 제약에 ${k}가 없다`);
+  }
+  const pol103 = body103.slice(body103.indexOf('alter policy notifications_insert_authenticated'));
+  const wc103 = pol103.slice(0, pol103.indexOf(';\n'));
+  assert.ok(wc103.includes("'assignee_comment'::text") && wc103.includes("'guide_pinned'::text") && /\(select is_approved\(\)\)/.test(wc103) && /\(kind = 'approved'::text\) AND \(select is_admin\(\)\)/.test(wc103),
+    '0103: INSERT 정책은 지금 정책(0101 꼴)에 assignee_comment만 더한다');
+  assert.ok(!wc103.includes("'due_soon'") && !wc103.includes("'worship_today'") && !wc103.includes("'approval'") && !wc103.includes("'meeting_tomorrow'"),
+    '서버·트리거가 만드는 종류를 INSERT 정책에 넣으면 로그인 사용자가 위조할 수 있다');
+  assert.ok(!/create policy|drop policy/i.test(body103), '0103은 정책을 alter만(이름·역할 그대로)');
+}
+
 // ── 리더만 보는 프로젝트(0092) — 알림 받는 사람·멘션 후보·마감 임박 ─────────────────
 // 리더가 아니면 RLS가 그 프로젝트를 안 주지만 **알림은 보내는 사람의 클라이언트가 받는 사람을 고른다** — 리더가 쓴 댓글의
 // @멘션·답글·반응·배정이 리더 아닌 사람에게 미리보기째 가면 그대로 샌다. 마감 임박은 서버 키 배치라 RLS 밖이다.

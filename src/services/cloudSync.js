@@ -208,10 +208,12 @@ export async function notifyAssignees(recipientIds, { actorName, cardId, project
   }
 }
 
-// 댓글/답글 1건에 대한 알림 — 멘션 알림 + (답글이면) 원 댓글 작성자 알림.
-// 같은 사람이 양쪽에 걸리면 멘션 쪽만 보낸다(중복 알림 방지).
-// 본인 제외는 auth user id 기준 — 자기 댓글에 자기가 답글 달면 알림 없음.
-export async function notifyComment(text, { actorName, cardId, projectId, replyToName }) {
+// 댓글/답글 1건에 대한 알림 — 멘션 알림 + (답글이면) 원 댓글 작성자 알림 + 그 업무의 담당자 알림(0103 `assignee_comment`).
+// 한 사람에게는 한 통만 — 멘션 > 답글 > 담당자 순으로 앞에 걸린 쪽만 보낸다(중복 알림 방지).
+// 본인 제외는 auth user id 기준 — 자기 댓글에 자기가 답글 달면 알림 없음. 담당자는 이름으로도 한 번 더 뺀다(합친 계정이면
+// 세션 id와 이름이 가리키는 남긴 계정 id가 달라서 · 멘션의 excludeName과 같은 까닭).
+// assignees — 업무의 담당자 이름 배열(task.assignees). 담당자가 아닌 사람이 단 댓글도, 담당자끼리 단 댓글도 같다.
+export async function notifyComment(text, { actorName, cardId, projectId, replyToName, assignees = [] }) {
   const myId = await myUserId();
   const notMe = (id) => id !== myId;
   const mentionIds = seeing(resolveMentionRecipients(text, actorName), projectId).filter(notMe);
@@ -219,11 +221,16 @@ export async function notifyComment(text, { actorName, cardId, projectId, replyT
   const replyIds = replyToName
     ? seeing(resolveNameRecipients(replyToName), projectId).filter(id => notMe(id) && !mentioned.has(id))
     : [];
+  const replied = new Set(replyIds);
+  const nameToIds = nameToIdsMap();
+  const assigneeIds = seeing([...new Set((assignees || []).filter(n => n && n !== actorName).flatMap(n => nameToIds.get(n) || []))], projectId)
+    .filter(id => notMe(id) && !mentioned.has(id) && !replied.has(id));
   const preview = previewOf(cardId, text);
   const meta = { actorName, cardId, projectId, preview };
   try {
     if (mentionIds.length) await cloud.insertNotifications(mentionIds, { ...meta, kind: 'mention' });
     if (replyIds.length) await cloud.insertNotifications(replyIds, { ...meta, kind: 'reply' });
+    if (assigneeIds.length) await cloud.insertNotifications(assigneeIds, { ...meta, kind: 'assignee_comment' });
   } catch (e) {
     console.error('[cloud] 댓글 알림 생성 실패:', e);
   }

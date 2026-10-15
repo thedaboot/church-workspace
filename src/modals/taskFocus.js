@@ -13,7 +13,7 @@
 const FOCUS_TTL_MS = 5000;
 let pending = null;   // { cardId, hint, at }
 
-// hint: { kind: 'mention'|'reply'|'reaction'|'comment', commentId?, actor?, preview? }
+// hint: { kind: 'mention'|'reply'|'reaction'|'assignee_comment'|'comment', commentId?, actor?, preview? }
 export function setTaskFocus(cardId, hint) {
   pending = cardId && hint ? { cardId, hint, at: Date.now() } : null;
 }
@@ -40,13 +40,14 @@ export function onTaskOpen(fn) {
 
 // ── 순수 판정 ──
 // 댓글에서 생기는 알림만 댓글 자리로 연다. 멘션은 본문 멘션일 수도 있어서 미리보기가 댓글과 맞을 때만 댓글로 간다.
-const FOCUS_KINDS = ['mention', 'reply', 'reaction'];
+// 담당 업무 댓글 알림(0103 `assignee_comment`)은 늘 댓글이고, 답글처럼 보낸 사람의 댓글을 먼저 고른다.
+const FOCUS_KINDS = ['mention', 'reply', 'reaction', 'assignee_comment'];
 export function notifFocusHint(n) {
   if (!n?.card_id || !FOCUS_KINDS.includes(n.kind)) return null;
   return { kind: n.kind, actor: n.actor_name || '', preview: n.preview || '' };
 }
-// 찾기 전에도 댓글 칸을 펴도 되는가 — 답글·반응·댓글 검색은 늘 댓글 이야기다(멘션은 찾아야 안다)
-export const wantsComments = (hint) => !!hint && (hint.kind === 'reply' || hint.kind === 'reaction' || hint.kind === 'comment');
+// 찾기 전에도 댓글 칸을 펴도 되는가 — 답글·반응·담당 업무 댓글·댓글 검색은 늘 댓글 이야기다(멘션은 찾아야 안다)
+export const wantsComments = (hint) => !!hint && ['reply', 'reaction', 'assignee_comment', 'comment'].includes(hint.kind);
 
 const flat = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 // 보여 줄 댓글 id. commentId가 있으면 그것(있을 때만) · 없으면 미리보기(알림은 댓글 앞 80자 · cloudSync.previewOf)로 시작하는 댓글 중
