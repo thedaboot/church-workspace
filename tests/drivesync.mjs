@@ -1562,5 +1562,69 @@ check('첨부 발췌도 미리보기와 같은 PDF 워커를 쓴다 (fileText ·
   });
 }
 
+// ── 첨부 줄은 이름을 눌러도 열린다 · 창 어디에 놓아도 브라우저가 파일로 떠나지 않는다 (2026-10-15 · 56-b) ──
+// 첨부는 클라우드 전용이라 게스트 화면으로는 못 본다 — 훅은 소스에서 떼어 가짜 window로 직접 돌린다.
+{
+  const acheck = async (name, fn) => {
+    try { await fn(); console.log(`PASS  ${name}`); }
+    catch (e) { fails++; console.log(`FAIL  ${name}\n      ${e.message}`); }
+  };
+  check('문서 첨부 줄 — 종류 칩 + 이름이 여는 버튼이다(같은 onOpen · 올리는 중인 엑셀은 아님)', () => {
+    const row = att.slice(att.indexOf('const AttachmentRow ='), att.indexOf('const FailedRow ='));
+    assert.match(row, /<button type="button" onClick=\{onOpen\}[^>]*data-att-open[\s\S]{0,120}\{label\}<\/button>/, '칩·이름이 버튼이 아니다');
+    assert.match(row, /const label = \([\s\S]*kind\.chip[\s\S]*row\.name/, '버튼 안에 칩과 이름이 없다');
+    assert.match(row, /sheetPending\s*\? <div/, '올리는 중인 엑셀까지 열린다');
+    assert.ok(!/<p[\s>]/.test(row.slice(row.indexOf('const label'), row.indexOf('return ('))), '버튼 안에 p가 있다');
+  });
+  await acheck('창 어디에 놓아도 — 수정은 첨부로 · 보기는 이동만 막는다 · 편집기가 받은 사진은 건드리지 않는다', async () => {
+    const m = /export function useWindowFileDrop[\s\S]*?\n\}\r?\n/.exec(att);
+    assert.ok(m, 'useWindowFileDrop을 못 찾았다');
+    const win = new EventTarget();
+    const effects = [];
+    const run = new Function('window', 'useRef', 'useEffect', 'setTimeout', 'clearTimeout',
+      `${m[0].replace('export function', 'function')}; return useWindowFileDrop;`);
+    const hook = run(win, (v) => ({ current: v }), (fn) => effects.push(fn), (f) => 1, () => {});
+    const ev = (type, files = ['f']) => {
+      const e = new Event(type, { cancelable: true });
+      e.dataTransfer = { types: files ? ['Files'] : ['text/plain'], files, dropEffect: 'copy' };
+      return e;
+    };
+    // 수정 화면
+    const got = []; const overs = [];
+    hook((f) => got.push(f), (v) => overs.push(v));
+    const undo = effects.pop()();
+    const o = ev('dragover'); win.dispatchEvent(o);
+    assert.ok(o.defaultPrevented, '수정 화면 dragover를 안 받는다 — 점선 칸 밖에서는 놓을 수가 없다');
+    assert.strictEqual(overs.at(-1), true, '끄는 동안 점선 칸이 안 켜진다');
+    const d = ev('drop'); win.dispatchEvent(d);
+    assert.ok(d.defaultPrevented, '놓기를 안 막는다 — 브라우저가 파일로 떠난다');
+    assert.strictEqual(got.length, 1, '점선 칸 밖에 놓은 파일이 안 올라간다');
+    assert.strictEqual(overs.at(-1), false, '놓은 뒤 점선 칸이 꺼지지 않는다');
+    const taken = ev('drop'); taken.preventDefault(); win.dispatchEvent(taken);
+    assert.strictEqual(got.length, 1, '편집기·점선 칸이 이미 받은 놓기를 또 올린다(두 번 올라간다)');
+    const text = ev('drop', null); win.dispatchEvent(text);
+    assert.ok(!text.defaultPrevented && got.length === 1, '파일이 아닌 끌기까지 가로챈다');
+    undo();
+    const after = ev('drop'); win.dispatchEvent(after);
+    assert.ok(!after.defaultPrevented, '창이 닫힌 뒤에도 놓기를 잡고 있다');
+    // 보기 화면
+    hook(null, (v) => overs.push(v));
+    const undo2 = effects.pop()();
+    const vo = ev('dragover'); win.dispatchEvent(vo);
+    assert.ok(vo.defaultPrevented && vo.dataTransfer.dropEffect === 'none', '보기 화면이 놓을 수 없음으로 안 선다');
+    const vd = ev('drop'); win.dispatchEvent(vd);
+    assert.ok(vd.defaultPrevented, '보기 화면에서 놓으면 브라우저가 파일로 떠난다');
+    undo2();
+  });
+  check('두 첨부 칸이 창 놓기 훅을 쓴다 — 보기 화면은 빈 목록이어도(숨기기 전에 건다)', () => {
+    const sec = att.slice(att.indexOf('export const AttachmentSection'));
+    const hookAt = sec.indexOf('useWindowFileDrop(readOnly ? null : uploadFiles, setDragOver)');
+    assert.ok(hookAt > 0, 'AttachmentSection이 훅을 안 쓴다');
+    assert.ok(hookAt < sec.indexOf('return null'), '보기 화면에서 첨부가 없으면 훅이 안 걸린다');
+    const pend = att.slice(att.indexOf('export const PendingAttachments'), att.indexOf('function PasswordGate'));
+    assert.match(pend, /useWindowFileDrop\(add, setDragOver\)/, '새 업무 첨부 칸이 훅을 안 쓴다');
+  });
+}
+
 console.log(fails ? `\n${fails} FAIL` : '\nall pass');
 process.exit(fails ? 1 : 0);

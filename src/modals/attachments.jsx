@@ -195,6 +195,50 @@ const cancelIdle = (h) => {
 // 주보 송폼(0047)이 같은 줄 모양을 써야 해서다. 두 벌로 두면 같은 PDF가 화면마다
 // 다른 칩으로 선다.
 
+// ── 창 어디에 떨어뜨려도 (2026-10-15 · PITFALLS 56-b) ─────────────────────────
+// 점선 칸 밖(제목·본문 옆·뒤판)이나 보기 화면에 파일을 놓으면 **브라우저가 그 파일로 이동했다** —
+// 업무 창과 쓰던 글이 통째로 사라진다. 첨부 칸이 떠 있는 동안 창(window) 전체에서 파일 끌기를 받는다:
+//   수정 화면(onFiles 있음) — 어디에 놓든 첨부로 올리고, 끄는 동안 점선 칸을 켠다(setOver)
+//   보기 화면(onFiles 없음) — 놓을 수 없음으로 두고 이동만 막는다
+// **이미 누가 받은 놓기(defaultPrevented)는 건드리지 않는다** — 본문 편집기가 사진을 본문으로 받은 것
+// (MarkdownEditor handleDrop)과 점선 칸 자신의 onDrop(React가 window보다 먼저 받는다)이 그렇다.
+// 파일이 아닌 끌기(본문 글 옮기기·카드 끌기)는 types에 'Files'가 없어 그냥 지나간다.
+// dragleave는 자식 사이를 지날 때도 와서 믿을 수 없다 — dragover가 끊기고 잠시 뒤에 끈다.
+export function useWindowFileDrop(onFiles, setOver) {
+  const ref = useRef({ onFiles, setOver });
+  ref.current = { onFiles, setOver };
+  const accept = !!onFiles;
+  useEffect(() => {
+    let off = 0;
+    const isFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+    const clear = () => { clearTimeout(off); ref.current.setOver?.(false); };
+    const over = (e) => {
+      if (!isFiles(e)) return;
+      e.preventDefault();
+      if (!accept) { e.dataTransfer.dropEffect = 'none'; return; }
+      ref.current.setOver?.(true);
+      clearTimeout(off);
+      off = setTimeout(clear, 150);
+    };
+    const drop = (e) => {
+      if (!isFiles(e)) return;
+      clear();
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      if (accept) ref.current.onFiles(e.dataTransfer.files);
+    };
+    window.addEventListener('dragover', over);
+    window.addEventListener('drop', drop);
+    window.addEventListener('dragend', clear);
+    return () => {
+      window.removeEventListener('dragover', over);
+      window.removeEventListener('drop', drop);
+      window.removeEventListener('dragend', clear);
+      clearTimeout(off);
+    };
+  }, [accept]);
+}
+
 // 새 업무(저장 전) 첨부 — 파일은 카드 id가 있어야 올라간다(files가 카드를 참조).
 // 그래서 여기서는 File 객체를 골라 담아두기만 하고, 저장 직후 셸이 올린다.
 // 쓰는 사람에게는 "처음부터 첨부"와 같다.
@@ -211,6 +255,7 @@ export const PendingAttachments = ({ files = [], onChange }) => {
     if (ok.length) onChange([...files, ...ok]);
   };
   const remove = (i) => onChange(files.filter((_, x) => x !== i));
+  useWindowFileDrop(add, setDragOver);
   return (
     <div className="mt-5">
       <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-fg-muted"><Paperclip size={13} className="text-fg-faint" /> 첨부 파일</div>
@@ -400,24 +445,38 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
   const sheetPending = pending && isSheetName(row.name);
   const isImage = (row.mime_type || '').startsWith('image/') && !!src && !thumbFailed;
   const kind = fileKind(row.name, row.mime_type);
-  return (
-    <div className="flex items-center gap-2.5 py-2 animate-in fade-in duration-200">
-      {isImage
-        ? <SmartImage
-            src={src} alt={row.name} onClick={onOpen} title="미리보기"
-            wrapperClassName="h-20 w-20 shrink-0 inline-block"
-            className="h-20 w-20 object-cover rounded-md border border-line"
-          />
-        : <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>}
-      <div className="flex-1 min-w-0">
-        <p className="text-xs text-fg truncate">{row.name}</p>
+  const openTitle = locked ? '비밀번호를 넣어야 열려요' : '미리보기';
+  const label = (
+    <>
+      {!isImage && <span className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${kind.chip}`}>{kind.icon}</span>}
+      {/* 버튼 안이라 p·div 대신 block span(모양은 같다) */}
+      <span className="block flex-1 min-w-0">
+        <span className="block text-xs text-fg truncate">{row.name}</span>
         {/* 올리는 중에도 크기는 그대로 말해 준다. '올리는 중'은 상태이지 안내가 아니다 —
             이게 없으면 새 탭 버튼이 왜 없는지 아무도 모른다. */}
-        <p className="text-[10px] mt-0.5 flex items-center gap-1 text-fg-muted">
+        <span className="text-[10px] mt-0.5 flex items-center gap-1 text-fg-muted">
           {pending && <Loader2 size={10} className="animate-spin shrink-0" />}
           {pending ? `드라이브에 올리는 중 · ${formatBytes(row.size_bytes)}` : formatBytes(row.size_bytes)}
-        </p>
-      </div>
+        </span>
+      </span>
+    </>
+  );
+  return (
+    <div className="flex items-center gap-2.5 py-2 animate-in fade-in duration-200">
+      {isImage && (
+        <SmartImage
+          src={src} alt={row.name} onClick={onOpen} title="미리보기"
+          wrapperClassName="h-20 w-20 shrink-0 inline-block"
+          className="h-20 w-20 object-cover rounded-md border border-line"
+        />
+      )}
+      {/* 종류 칩 + 이름이 곧 여는 자리다(2026-10-15) — 문서 줄은 14px 눈 아이콘으로만 열려서 손가락이
+          자꾸 빗나갔다. 모양은 그대로(같은 gap · 글자 왼쪽 정렬) · 잠긴 파일은 같은 openFile이 비밀번호부터 묻는다.
+          올리는 중인 엑셀은 열 수 없으므로 그냥 줄이다(아래 sheetPending). */}
+      {sheetPending
+        ? <div className="flex-1 min-w-0 flex items-center gap-2.5">{label}</div>
+        : <button type="button" onClick={onOpen} title={openTitle} data-att-open
+            className="flex-1 min-w-0 flex items-center gap-2.5 text-left rounded-md">{label}</button>}
       {/* 잠긴 파일이라는 표시. 자물쇠는 '아는 사람만 본다'를 한눈에 말한다 */}
       {!pending && row.view_pw && <Lock size={12} className="shrink-0 text-fg-faint" aria-label="비밀번호가 걸린 파일" />}
       {!pending && canLock && (
@@ -435,7 +494,7 @@ const AttachmentRow = ({ row, canDelete, thumb, thumbFailed, onOpen, onRemove, e
         </button>
       )}
       {!sheetPending && (
-        <button type="button" onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title={locked ? '비밀번호를 넣어야 열려요' : '미리보기'}><Eye size={14} /></button>
+        <button type="button" onClick={onOpen} className="p-1.5 rounded-md text-fg-faint hover:text-accent-text hover:bg-surface-hover transition active:scale-95" title={openTitle}><Eye size={14} /></button>
       )}
       {!pending && canDelete && (
         <ConfirmPopover message={`'${row.name}'을(를) 삭제할까요?`} onConfirm={onRemove}>
@@ -600,6 +659,9 @@ export const AttachmentSection = ({ task, userId, isAdmin, onFileActivity, readO
     return () => document.removeEventListener('paste', onPaste);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id, readOnly]);
+
+  // 점선 칸 밖에 놓아도 첨부로(수정) · 보기 화면은 이동만 막는다 — 위 useWindowFileDrop
+  useWindowFileDrop(readOnly ? null : uploadFiles, setDragOver);
 
   // 스토리지 링크를 새 탭으로 던지지 않고 앱 안 미리보기로 연다
   // (모달 안에 '새 탭에서 열기'·'내려받기'가 있다)
