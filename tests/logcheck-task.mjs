@@ -1130,6 +1130,7 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
     '업무 창 저장은 못 간 칸을 실패하기 전 값으로 견준다');
   assert.ok(/useSyncExternalStore\(failedComments\.subscribe, failedComments\.version\)/.test(comments), '댓글 목록이 못 보낸 댓글을 구독한다');
   console.log('PASS  UX 다듬기 2차 P1 — 못 간 칸 다시 보내기 · 못 보낸 댓글 · 담당 업무 댓글 알림으로 열기 · 배선');
+}
 
 // ── UX 다듬기 2차 C2·C3·C4 (2026-10-15 · PITFALLS 60-a~d) — 올리는 진행 · 올리기 멈춤 · 받는 진행 ─────────────────
 // ① transfer.xhrSend — 올리는 바이트 진행 · 다 보냄(onSent) · fetch Response 모양 · 멈추면 cancelled · 끊김은 상태 없는 TypeError
