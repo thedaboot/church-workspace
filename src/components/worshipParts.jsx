@@ -137,7 +137,7 @@ function useFillRest() {
 // mark — 그림을 바꿀 때(내 예배 노트 0건은 노트 그림 · groupsParts NoteMark). alert — children이
 // 실패가 아니라 할 일 버튼일 때 false로 준다(그때는 경고 역할이 아니다).
 // onEdit — 주보 보기의 빈 탭에서 **편집할 수 있는 사람에게만** 문구 아래 작은 '수정'(BTN_SOFT · 노트·출석의 '수정'과
-// 같은 것 · 시안 E9 · 사용자 승인 2026-10-15). 누르면 그 탭을 연 채 수정으로 들어간다(부르는 쪽 ServiceDetail).
+// 같은 것 · 시안 E9 · 사용자 승인 2026-10-15). 누르면 그 탭을 연 채 수정으로 들어간다(부르는 쪽 ServiceDetail · PITFALLS 58-d).
 export function WorshipEmpty({ text, className = '', children, mark = null, alert = null, onEdit = null }) {
   const [ref, minH] = useFillRest();
   return (

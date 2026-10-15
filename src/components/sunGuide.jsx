@@ -312,7 +312,7 @@ const SKELETON = (
 // 얼굴은 **보는 화면의 가운데**에 선다: 종이 중 보이는 영역(main 스크롤 판 ∩ 하단 탭바 위)에 든 부분의 세로 가운데 —
 // 종이가 다 보이면 종이의 가운데, 화면보다 길면 보이는 부분의 가운데다. 스크롤하면 따라간다(main의 scroll은 거품이 안 올라와 capture로 듣는다).
 // 자리는 렌더가 아니라 style.top을 바로 고친다 — 스크롤마다 리렌더하지 않게. 실패하면 흐림만 걷힌다(부르는 쪽).
-// 감싸는 상자는 **늘** 세운다(on이 아닐 때도) — 켜고 끌 때 종이가 다시 마운트되면 굽기 ref·편집 초점이 끊긴다.
+// 감싸는 상자는 **늘** 세운다(on이 아닐 때도) — 켜고 끌 때 종이가 다시 마운트되면 굽기 ref·편집 초점이 끊긴다(PITFALLS 58-b).
 function RegenVeil({ on, children }) {
   const boxRef = useRef(null);
   const badgeRef = useRef(null);

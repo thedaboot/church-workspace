@@ -78,7 +78,7 @@ function useMainHeight(ref) {
 // 실패 글 위에 다붓이 물음표 컷(DAB_CUT · 64px — 다른 빈 자리 그림 48~64px과 같은 크기)을 얹고, 컷 + 글 + 버튼 묶음을
 // **위키 판의 정가운데**(가로·세로)에 세운다. 폰은 이 자리 위 끝(물어보기 줄 · ‹ 위키 줄 아래)부터 하단 탭바 위까지를 재서
 // 높이로 준다(main의 아래 여백은 탭바보다 커서 --wiki-h로 셈하면 가운데가 위로 뜬다). 데스크톱은 옆 목록과 같은 높이(--wiki-h)다.
-// 판이 들어오는 모션(dc-screen) 동안 잰 자리가 몇 px 어긋날 수 있어 모션이 끝날 즈음 한 번 더 잰다.
+// 판이 들어오는 모션(dc-screen) 동안 잰 자리가 몇 px 어긋날 수 있어 모션이 끝날 즈음 한 번 더 잰다(PITFALLS 58-c).
 function WikiFail({ error, onRetry, mobile }) {
   const ref = useRef(null);
   useLayoutEffect(() => {
