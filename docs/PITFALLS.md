@@ -1304,3 +1304,16 @@ online을 기다렸다 한 번 새로 고친다(`main.jsx` — 10초 고리 판�
     폰 뒤로가기(App.jsx popstate)는 걷는 모션 없이 곧바로 내린다.
 57-e. **검사는 열자마자 rect를 재면 등장 transform 중이다**(최대 380ms · scale .96부터) — `offsetWidth`·계산값 top으로 재거나 그 뒤에 잰다. 닫은 판은 180ms 동안 DOM에 남는다(`aria-hidden`) —
     '닫혔나'는 `:not([aria-hidden="true"])`로 보고, 닫을 때 붙는 저장(본문 활동 한 줄 등)은 그만큼 늦게 온다(`tests/modalclose` ⑥ · `tests/roster` 환송).
+
+### UX 다듬기 2차 P3 (2026-10-15)
+
+**58-a.** **홈 카드의 '못 읽음'은 'none'이 아니라 'fail'이고 'ready'보다 먼저 본다**(`orderedSlots` · 시안 B4). 못 읽음 = `error && data === undefined` — 캐시가 있으면 지난 값을 둔 채 조용히 넘어간다(홈은 토스트가 없다).
+'none'으로 떨어뜨리면 카드가 통째로 빠지고, 셋 다 못 읽으면 '아직 올라오지 않았어요'가 거짓으로 선다. 'ready'를 먼저 보면 주일 모드(지난 날 캐시 힌트로도 켜진다)가 오늘 주보 없이 오늘의 예배 카드를 그리려 든다.
+실패 카드의 제목 줄은 `leading-[22.5px]` — 보통 카드 초점 줄(15px · 줄 높이 22.5)과 같아야 같은 행의 높이가 안 흔들린다(13.5px 글자에 기본 줄 높이를 두면 1px 낮다).
+**58-b.** **순모임 가이드 다시 만들기의 덮개(RegenVeil)는 늘 감싼다**(on이 아닐 때도) — 켤 때만 감싸면 종이가 다시 마운트되어 굽기 ref·편집 초점이 끊긴다. 얼굴 자리는 렌더가 아니라 `style.top`을 바로 고친다(스크롤마다 리렌더 금지).
+**main의 scroll은 거품이 안 올라온다** — `document`에 capture로 듣는다. 보이는 영역 = main 상자 ∩ `[data-tab-bar]` 위. 게스트 AI는 곧바로 답해 '만드는 중'이 한 프레임뿐이라 검사는 개발 서버의 `window.__guideHold`로 붙잡는다(배포 빌드에서 빠진다).
+CDP `Runtime.evaluate`에 `awaitPromise: true`로 `window.__guideHold = new Promise(…)`를 보내면 **그 약속을 기다리느라 영영 안 돌아온다** — 식 끝에 `; true`.
+**58-c.** **데스크톱 위키는 처음 자리가 물어보기('ask')라, 못 읽은 실패가 어디에도 안 보였다** — 옆 목록은 비고 본문 칸은 물어보기였다. 지금은 사람이 물어보기를 누르기 전(`asked`)이면 본문 칸에 실패가 선다(`askShown` · 시안 E6).
+폰 실패 묶음의 높이는 **하단 탭바 위까지 잰다** — main의 아래 여백(5.5rem + safe-area)이 탭바보다 커서 `--wiki-h`로 셈하면 가운데가 위로 뜬다. 판이 들어오는 모션 동안 잰 자리가 어긋날 수 있어 360ms 뒤 한 번 더 잰다.
+**58-d.** **주보 빈 탭에 '수정'이 붙은 뒤로 `.worship-empty`의 innerText는 '문구\n수정'이다** — 빈 문구를 견주는 검사는 `p`의 글만 본다(`tests/worship` EMPTY). 탭 판은 `key={activeTab}` + `.dc-fade`라 탭을 바꿀 때마다 새로 들어온다(수정 들어가기·나오기는 같은 탭이라 다시 안 돈다).
+`motion-reduce:transition-none`은 **transition-property만 none**으로 바꾼다 — duration은 그대로 남으니 검사는 property를 본다(`tests/groups` B6).
