@@ -3912,7 +3912,7 @@ await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: watcher.ide
   await ev(`document.querySelector('.worship-story-open').click()`); await sleep(60);
   const dim = await ev(`(() => { const d = document.querySelector('.worship-story');
     const cs = d && getComputedStyle(d); return cs ? { bg: cs.backgroundColor, dur: cs.animationDuration } : null; })()`);
-  check('뒤판은 전면 미리보기 값(검정 80% · 150ms)', dim && /^(rgba\(0, 0, 0, 0\.8\)|oklab\(0 0 0 \/ 0\.8\))$/.test(dim.bg) && dim.dur === '0.15s', JSON.stringify(dim));
+  check('뒤판은 전면 미리보기 값(검정 80% · .dc-scrim 260ms)', dim && /^(rgba\(0, 0, 0, 0\.8\)|oklab\(0 0 0 \/ 0\.8\))$/.test(dim.bg) && dim.dur === '0.26s', JSON.stringify(dim));
   await ev(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`); await sleep(200);
 
   // 내 예배 노트 — 0건이면 노트 그림 + 문구 + '{M월 D일} 예배 노트 쓰기'

@@ -19,8 +19,8 @@
 `src/index.css` 한 곳. `@theme inline`으로 `bg-surface`와 `var(--app-surface)`가 같은 값을 본다.
 
 - **진행 바 파스텔** `--p-track/-blue/-red/…`(다크는 별도) · **이징 하나** `--ease-out-quint`(새로 만들지 않는다).
-- **애니메이션 클래스** `.dc-screen` `.dc-row` `.dc-card` `.dc-kpi` `.dc-pop` `.dc-bar-fill`(scaleX) `.dc-draw`/`-2`/`-3` `.dc-draw-ring` `.dc-skeleton`
-  `.dc-fade` `.dc-nav-fwd`/`-back`.
+- **애니메이션 클래스** `.dc-screen` `.dc-row` `.dc-card` `.dc-kpi` `.dc-bar-fill`(scaleX) `.dc-draw`/`-2`/`-3` `.dc-draw-ring` `.dc-skeleton`
+  `.dc-fade` `.dc-nav-fwd`/`-back`. 떠 있는 것(메뉴·대화창·시트·뒤판·토스트)은 `.dc-pop` `.dc-dialog` `.dc-sheet-up` `.dc-sheet-dialog` `.dc-rise` `.dc-scrim` `.dc-toast` + 닫힘 `.dc-out`(57).
 - **`transform`/`opacity`만** 애니메이션한다(진행 바도 scaleX). `prefers-reduced-motion`에서 전부 해제(`tests/handoff`).
 - **순서가 있는 애니메이션은 앞 것이 끝난 뒤에 시작한다**(`.dc-draw` .1+.44 → `-2` .54+.24 → `-3` .78+.24 · `.dc-draw-ring` .28 → `AllClearMark` 체크). **한쪽 길이를 바꾸면 짝도 고친다.**
 - **줄 순번 지연은 첫 마운트에서만**(`useEnterStagger`) — fill-mode가 both라 나중에 붙는 줄이 혼자 늦게 나타난다.
@@ -1289,3 +1289,18 @@ online을 기다렸다 한 번 새로 고친다(`main.jsx` — 10초 고리 판�
 **55-g.** **첫 페인트 로고(`index.html` `.boot-splash`)는 Tailwind가 아니라 인라인 style 값이다** — 개발 서버는 CSS를 JS가 넣어서 번들 전에는 클래스가 안 먹는다. 값(바탕 = --app-canvas 라이트/다크 · 3rem · 2s 숨쉬기)을
 바꾸면 `CloudSplash`도 같이(logcheck가 대조한다). 새 인라인 `<script>`는 넣지 말 것 — CSP 테마 스크립트 해시(drivesync)가 깨진다. 박자는 React가 첫 그림의 애니메이션 시각을 읽어 잇는다(`splashDelay`).
 늦게 싣는 화면 미리 받기(`services/viewChunks.js`)는 App의 lazy와 **같은 import 주소**라 같은 조각이다 — App의 lazy 줄은 logcheck-v2·logcheck-wiki가 글자 그대로 단정하니 그대로 둔다.
+
+### 모달·떠 있는 것 모션 (2026-10-15)
+
+57-a. **quint는 길이의 1/3에서 90%를 와 버린다 — 150ms면 3프레임에 다 떠서 '뚝'이다.** 10/14에 tw-animate 이징을 quint로 바꾼 뒤 `duration-150` 판이 전부 그랬다(실측 프로필 메뉴 opacity .53·.79·.90이 9·25·42ms ·
+    폰 업무 창은 opacity 없이 16px만 움직여 안 보였다). 떠 있는 것은 `index.css` '떠 있는 것 모션' 한 벌을 쓴다(`.dc-pop` 260 · `.dc-dialog` 320 · `.dc-rise`·`.dc-sheet-up` 380 · `.dc-scrim` 260 · 닫힘 180ms).
+    새 판에 `animate-in … duration-150`을 다시 붙이지 말 것(`tests/handoff` '떠 있는 것').
+57-b. **판은 앵커 쪽에서 자란다** — `useAnchoredPos`가 `pos.up`·`pos.ax`를 돌려주고 `popMotion(pos)`가 `--pop-dy`·`--pop-origin`으로 바꾼다(가운데서 커지면 옆에서 날아온 것처럼 보인다).
+    `useAnchoredPos`를 안 쓰는 판(흐름 안 목록·폰 검색 판·형광펜 도구)은 `[--pop-origin:…]`로 준다. 자리를 state로 잡는 판의 `transition-none`(17-b)은 그대로 둔다.
+57-c. **등장의 fill은 backwards다(both 아님)** — 끝난 뒤에도 transform이 남으면 그 판이 fixed 자손의 기준 박스가 된다(§6-1). 닫힘(`.dc-out`)만 forwards로 걷힌 채 내려간다.
+    업무 창 판·뒤판 · 파일 미리보기 · 문서 창에 남은 `duration-150`·`transition-[…]`은 **넓히기 전이**용이다(애니메이션 길이가 아니다 · 지우면 전체 화면 전환이 뚝 바뀐다).
+57-d. **닫힘은 `hooks/useExit.js`** — 팝오버·토스트는 `usePresence(open)`, 스스로 닫는 창은 `useLeave()`(설정·프로젝트 창 · 업무 창). 걷히는 동안 판은 누름을 놓고(`.dc-out`) 뒤판은 막는다.
+    업무 창은 App이 key 없이 같은 창에 새 카드를 넣으므로 걷히는 사이 카드가 바뀌면 닫지 않는다(id 대조). 움직임 줄이기면 기다리지 않는다(CSS가 animation: none이라 기다리면 판이 멈춰 선다).
+    폰 뒤로가기(App.jsx popstate)는 걷는 모션 없이 곧바로 내린다.
+57-e. **검사는 열자마자 rect를 재면 등장 transform 중이다**(최대 380ms · scale .96부터) — `offsetWidth`·계산값 top으로 재거나 그 뒤에 잰다. 닫은 판은 180ms 동안 DOM에 남는다(`aria-hidden`) —
+    '닫혔나'는 `:not([aria-hidden="true"])`로 보고, 닫을 때 붙는 저장(본문 활동 한 줄 등)은 그만큼 늦게 온다(`tests/modalclose` ⑥ · `tests/roster` 환송).

@@ -1212,8 +1212,10 @@ const { TaskService } = await import(new URL('../src/services/domain.js', import
   const reduce = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g)].map(m => m[1]).join('\n');
   assert.ok(/\.animate-in, \.animate-out \{ animation: none !important; \}/.test(reduce), '움직임 줄이기에서 .animate-in·.animate-out도 멈춘다');
   assert.ok(/^\.animate-in, \.animate-out \{ --tw-ease: var\(--ease-out-quint\); \}$/m.test(css), 'tw-animate 이징도 앱 토큰 quint 하나(2026-10-14)');
-  assert.ok(/flex flex-col animate-in slide-in-from-bottom-4 duration-150">/.test(src('modals/modals.jsx')), '폰 업무 창 여는 시간은 데스크톱 창과 같은 150ms');
-  console.log('PASS  붙여넣기 한 번 · tw-animate 이징·움직임 줄이기 · 폰 업무 창 150ms');
+  // 폰 업무 창은 '떠 있는 것 모션' 한 벌의 전면 창(.dc-rise)이다(2026-10-15 — 150ms quint는 3프레임 만에 다 와서 뚝 떴다 · PITFALLS 57-a).
+  // 길이·이름은 화면에서 tests/handoff '떠 있는 것'이 잰다.
+  assert.ok(/flex flex-col dc-rise\$\{out\}`\}>/.test(src('modals/modals.jsx')), '폰 업무 창은 .dc-rise(아래에서 떠오른다 · 닫힐 때 .dc-out)');
+  console.log('PASS  붙여넣기 한 번 · tw-animate 이징·움직임 줄이기 · 폰 업무 창 .dc-rise');
 }
 
 // 2026-10-09 — 색 대비(시안 승인): 다크 accent 위 흰 글씨 4.5 넘게 · accent 테두리는 다크 바탕들 위 3 넘게 · 업무 바 꺼진 탭 4 넘게

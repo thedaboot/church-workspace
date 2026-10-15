@@ -404,6 +404,79 @@ const rm = await ev(`(() => { const s=document.querySelector('main .dc-screen');
 check('모션: reduced-motion에서 전부 해제', rm.anim === 'none' && rm.trans === '0s', JSON.stringify(rm));
 await send('Emulation.setEmulatedMedia', { features: [] });
 
+// ── 떠 있는 것 모션 (2026-10-15 · 사용자 지적 "딱딱하게 뜬다" · index.css '떠 있는 것 모션' · PITFALLS 57) ──
+// 프로필 메뉴 · 알림 판 · 확인 팝오버 · 설정(내 정보) 창 · 업무 창(데스크톱 · 폰 393)이 **열리는 그 프레임에** 등장 모션을 타는가 —
+// 이름이 우리 한 벌(dc-*-in)이고 길이 160ms 이상 · 이징 quint. 닫기는 걷히는 모션(dc-*-out)을 거쳐 내린다.
+// 움직임 줄이기에서는 등장이 없고 닫기도 기다리지 않는다.
+// **되돌리기**: index.css의 --dur-pop·--dur-dialog를 .15s로 두거나 usePopover의 POP_MOTION을 옛 `animate-in … duration-150`으로
+// 되돌리면 길이·이름 검사가, hooks/useExit.js의 useLeave를 곧바로 fn()만 부르게 하면 퇴장 검사가 깨진다.
+{
+  const QUINT = 'cubic-bezier(0.16, 1, 0.3, 1)';
+  // 누르고 → 다음 프레임에 찾은 판의 계산값. find는 문서에서 판을 돌려주는 식이다.
+  const enter = (click, find) => ev(`new Promise(res => { ${click};
+    requestAnimationFrame(() => { const el = (${find})(); if (!el) return res(null);
+      const cs = getComputedStyle(el); res({ name: cs.animationName, ms: Math.round(parseFloat(cs.animationDuration) * 1000), ease: cs.animationTimingFunction,
+        origin: el.style.getPropertyValue('--pop-origin') }); }); })`, true);
+  const ok = (m, name, min = 160) => !!m && m.name === name && m.ms >= min && m.ease === QUINT;
+  const pop90 = `() => [...document.querySelectorAll('div')].find(d => d.style.position === 'fixed' && /z-\\[90\\]/.test(d.className))`;
+  const scrimOf = (inner) => `() => [...document.querySelectorAll('div.fixed')].find(d => /bg-black\\/50/.test(d.className) && ${inner})`;
+  const avatar = `[...document.querySelectorAll('button[title="설정"]')].find(b => b.offsetParent).click()`;
+  const menuItem = `[...document.querySelectorAll('div')].find(d => d.style.position === 'fixed' && /z-\\[90\\]/.test(d.className))?.querySelectorAll('button')[0]?.click()`;
+  const profileBox = scrimOf(`d.querySelector('input[aria-label], input[type=text]')`);
+  const bell = `(async () => {
+      const main = await (await fetch('/src/main.jsx')).text();
+      const R = await import(main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react\\.js\\?v=[^"]+)"/)[1]);
+      const C = await import(main.match(/"(\\/node_modules\\/\\.vite\\/deps\\/react-dom_client\\.js\\?v=[^"]+)"/)[1]);
+      const { NotificationBell } = await import('/src/components/notificationBell.jsx');
+      const host = document.createElement('div'); host.id = 'bell-host'; host.style.cssText = 'position:fixed;top:4px;right:56px;z-index:200';
+      document.body.appendChild(host); (C.default ?? C).createRoot(host).render((R.default ?? R).createElement(NotificationBell, {}));
+      await new Promise(r => setTimeout(r, 300)); })()`;
+  const bellPanel = `() => [...document.querySelectorAll('#bell-host div')].find(d => d.style.position === 'fixed')`;
+
+  const run = async (reduce) => {
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduce ? 'reduce' : 'no-preference' }] });
+    await load(DESK, '/?p=p1');
+    const r = {};
+    r.menu = await enter(avatar, pop90);
+    await sleep(300);
+    r.settings = await enter(menuItem, profileBox);
+    const box = `(() => { const s = (${profileBox})(); return s && s.firstElementChild; })`;
+    r.settingsBox = await ev(`(() => { const b = ${box}(); if (!b) return null; const cs = getComputedStyle(b); return { name: cs.animationName, ms: Math.round(parseFloat(cs.animationDuration) * 1000), ease: cs.animationTimingFunction }; })()`);
+    await sleep(400);
+    // 닫기(Esc) — 다음 프레임에도 창이 남아 걷히는 중인가, 그 뒤에는 내려갔나
+    r.leave = await ev(`new Promise(res => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      requestAnimationFrame(() => { const b = ${box}(); res(b ? getComputedStyle(b).animationName : 'gone'); }); })`, true);
+    await sleep(400);
+    r.gone = await ev(`!(${profileBox})()`);
+    r.confirm = await enter(`document.querySelector('main button[title="프로젝트 삭제"]').click()`, pop90);
+    await ev(`document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`); await sleep(400);
+    r.task = await enter(`document.querySelector('.board-card').click()`, scrimOf(`d.classList.contains('z-50')`));
+    r.taskBox = await ev(`(() => { const s = [...document.querySelectorAll('div.fixed')].find(d => /bg-black\\/50/.test(d.className) && d.classList.contains('z-50')); const b = s && s.firstElementChild;
+      if (!b) return null; const cs = getComputedStyle(b); return { name: cs.animationName, ms: Math.round(parseFloat(cs.animationDuration) * 1000), ease: cs.animationTimingFunction }; })()`);
+    await sleep(500);
+    await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '닫기')?.click()`); await sleep(400);
+    await ev(bell, true);
+    r.bell = await enter(`document.querySelector('#bell-host button[title="알림"]').click()`, bellPanel);
+    await load({ width: 393, height: 852, deviceScaleFactor: 2, mobile: true }, '/?p=p1');
+    r.phoneTask = await enter(`document.querySelector('.board-card').click()`, `() => [...document.querySelectorAll('div.fixed.z-50')].find(d => d.classList.contains('top-0') && d.classList.contains('inset-x-0'))`);
+    return r;
+  };
+  const on = await run(false);
+  check('떠 있는 것: 프로필 메뉴는 앵커에서 자란다(dc-pop-in · 160ms 이상 · quint · 원점은 아바타 쪽)', ok(on.menu, 'dc-pop-in') && /px 0$/.test(on.menu.origin), JSON.stringify(on.menu));
+  check('떠 있는 것: 설정 창 — 뒤판 dc-scrim-in · 창 dc-dialog-in(160ms 이상 · quint)', ok(on.settings, 'dc-scrim-in') && ok(on.settingsBox, 'dc-dialog-in'), JSON.stringify([on.settings, on.settingsBox]));
+  check('떠 있는 것: 설정 창 Esc — 걷히는 모션(dc-dialog-out)을 거쳐 내려간다', on.leave === 'dc-dialog-out' && on.gone === true, JSON.stringify([on.leave, on.gone]));
+  check('떠 있는 것: 확인 팝오버(프로젝트 삭제)도 같은 판 모션', ok(on.confirm, 'dc-pop-in'), JSON.stringify(on.confirm));
+  check('떠 있는 것: 업무 창(데스크톱) — 뒤판 dc-scrim-in · 창 dc-dialog-in', ok(on.task, 'dc-scrim-in') && ok(on.taskBox, 'dc-dialog-in'), JSON.stringify([on.task, on.taskBox]));
+  check('떠 있는 것: 알림 판 — dc-pop-in(160ms 이상 · quint)', ok(on.bell, 'dc-pop-in'), JSON.stringify(on.bell));
+  check('떠 있는 것: 폰 업무 창(393) — 아래에서 떠오른다(dc-rise-in · 160ms 이상 · quint)', ok(on.phoneTask, 'dc-rise-in'), JSON.stringify(on.phoneTask));
+  const off = await run(true);
+  const none = (m) => !!m && m.name === 'none';
+  check('떠 있는 것: 움직임 줄이기 — 메뉴·설정 창·확인·업무 창(데스크톱·폰)·알림 판에 등장 모션이 없다',
+    [off.menu, off.settings, off.settingsBox, off.confirm, off.task, off.taskBox, off.bell, off.phoneTask].every(none), JSON.stringify(off));
+  check('떠 있는 것: 움직임 줄이기 — 닫기는 기다리지 않는다(다음 프레임에 이미 없다)', off.leave === 'gone' && off.gone === true, JSON.stringify([off.leave, off.gone]));
+  await send('Emulation.setEmulatedMedia', { features: [] });
+}
+
 // ── 첨부 + 저장 경로 ──
 await load(DESK, '/?p=p1');
 await ev(`document.querySelector('.board-card').click()`); await sleep(900);

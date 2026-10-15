@@ -651,7 +651,7 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
   const feedUi = readFileSync(new URL('../src/components/calendarFeed.jsx', import.meta.url), 'utf8');
   assert.ok(feedUi.includes('이 주소를 아는 사람도 동일하게 업무 제목과 마감일을 등록할 수 있어요.') && feedUi.includes('마감일을 바꾸면 내 달력에는 몇 시간 뒤에 반영돼요.')
     && feedUi.includes("failText('달력 주소를 만들지 못했어요', { human: '잠시 뒤 다시 눌러 주세요' })"), '고지 두 줄 · 실패 두 줄(목업 문구)');
-  assert.ok(/transition-none animate-in fade-in zoom-in-95 duration-150/.test(feedUi), '떠 있는 판은 transition-none(PITFALLS 17-b)');
+  assert.ok(/transition-none dc-pop/.test(feedUi), '떠 있는 판은 transition-none(PITFALLS 17-b) · 등장은 .dc-pop(2026-10-15)');
   console.log('PASS  내 달력 구독(문장 · 날짜 · .ics · 기기별 버튼 · 저장 줄 세우기 · 서버 배선)');
 }
 
@@ -682,8 +682,8 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
 
   // ② 팝오버 껍데기 한 벌(hooks/usePopover.js) — 등장 모션은 훅이 붙인다(PITFALLS 17-b)
   const pop = read('hooks/usePopover.js');
-  assert.ok(pop.includes("export const POP_MOTION = 'transition-none animate-in fade-in zoom-in-95 duration-150';"), '훅의 모션에 transition-none이 있다');
-  assert.ok(pop.includes('className: `${className} ${POP_MOTION}`'), '판 클래스 끝에 그 모션을 붙인다');
+  assert.ok(pop.includes("export const POP_MOTION = 'transition-none dc-pop';"), '훅의 모션에 transition-none이 있다 · 등장은 .dc-pop(2026-10-15)');
+  assert.ok(pop.includes("className: `${className} ${POP_MOTION}${leaving ? ' dc-out' : ''}`"), '판 클래스 끝에 그 모션을 붙인다(닫히는 동안 .dc-out)');
   assert.ok(/useDismiss\(open, \(\) => setOpen\(false\), \[rootRef, popRef\]\)/.test(pop), '포털로 나간 판도 바깥 누름의 안이다(17-d)');
   assert.ok(nav.layout.includes('usePopover(224, 200, { gap: 8, measure: true })') && nav.layout.includes('usePopover(224, 260)'), '프로필 메뉴 · 더보기');
   assert.ok(nav.navParts.includes('usePopover(112, 40 + years.length * 34)'), '연도 고르기');
@@ -693,14 +693,14 @@ import { loadSource, readSplit, readSrc } from './_load.mjs';
     assert.ok(!/useDismiss\(/.test(nav[k]), `${k}에 손으로 짠 팝오버 껍데기가 다시 생기지 않았다`);
   }
 
-  // ③ 17-b 훑기 — 자리를 인라인 left/top(state)으로 잡는 fixed 판에 animate-in이 있으면 transition-none도 있어야 한다.
+  // ③ 17-b 훑기 — 자리를 인라인 left/top(state)으로 잡는 fixed 판에 등장 모션(.dc-pop · 옛 animate-in)이 있으면 transition-none도 있어야 한다.
   //    내비 다섯 파일 + 본문 에디터(멘션 목록 · 링크 팝오버). fixed 다음에 오는 첫 className을 그 판의 것으로 본다.
   const scan = { ...nav, MarkdownEditor: read('components/MarkdownEditor.jsx') };
   let seen = 0;
   for (const [k, s] of Object.entries(scan)) {
     for (const m of s.matchAll(/position: 'fixed'/g)) {
       const cls = /className=(["`])([\s\S]*?)\1/.exec(s.slice(m.index, m.index + 600))?.[2] || '';
-      if (!cls.includes('animate-in')) continue;
+      if (!/animate-in|dc-pop/.test(cls)) continue;
       seen++;
       assert.ok(cls.includes('transition-none'), `${k}: 자리를 state로 잡는 떠 있는 판에 transition-none이 없다(PITFALLS 17-b) — ${cls.slice(0, 60)}`);
     }

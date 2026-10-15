@@ -69,7 +69,7 @@ check('이름 칸에 예시 placeholder 없음', !m.namePlaceholder, `placeholde
 check('팀 칩 7개', m.chips === 7, `${m.chips}개`);
 
 // 확정 단(D9 · 2026-09-25): 창 맨 아래 확정은 13px · 600 · 40px · 모서리 8px이고 비활성은 opacity .4다
-// (예전 bg-line은 라이트에서 1.41:1로 안 보였다). 뒤판은 검정 50% · 150ms.
+// (예전 bg-line은 라이트에서 1.41:1로 안 보였다). 뒤판은 검정 50% · 뒤판 260ms · 창 320ms('떠 있는 것 모션' 2026-10-15 — 150ms였다).
 // **되돌리기**: settings.jsx의 BTN_CONFIRM을 옛 `disabled:bg-line … text-sm font-medium`으로 두면 깨진다.
 const tier = await ev(`(() => {
   const box=${BOX}; if (!box) return null;
@@ -82,7 +82,7 @@ const tier = await ev(`(() => {
 })()`);
 check('첫 로그인 시작하기는 확정 단이다(13px · 600 · 40px · 8px)', !!tier && tier.px === '13px' && tier.w === '600' && tier.h === 40 && tier.r === '8px', JSON.stringify(tier));
 check('비활성 확정 버튼은 accent 그대로 opacity .4다(bg-line 아님)', !!tier && tier.off && tier.opacity === '0.4' && tier.bg === tier.accent, JSON.stringify(tier));
-check('대화창 뒤판은 검정 50% · 뒤판과 창 모두 150ms', !!tier && /^(rgba\(0, 0, 0, 0\.5\)|oklab\(0 0 0 \/ 0\.5\))$/.test(tier.back) && tier.backMs === '0.15s' && tier.boxMs === '0.15s', JSON.stringify(tier));
+check('대화창 뒤판은 검정 50% · 뒤판 260ms · 창 320ms', !!tier && /^(rgba\(0, 0, 0, 0\.5\)|oklab\(0 0 0 \/ 0\.5\))$/.test(tier.back) && tier.backMs === '0.26s' && tier.boxMs === '0.32s', JSON.stringify(tier));
 
 await ev(`(() => { const box=${BOX}; const inp=box.querySelector('input[type=text]');
   const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;

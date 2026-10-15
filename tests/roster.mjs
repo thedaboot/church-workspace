@@ -825,8 +825,8 @@ await send('Emulation.clearDeviceMetricsOverride');
       icon: !!p.querySelector('.members-menu-merge svg.lucide-squares-unite') }; })()`);
   check('⋯를 누르면 메뉴 — 계정 합치기 · 환송해주기(빨간 글씨) · 계정 합치기 아이콘은 SquaresUnite',
     JSON.stringify(menu.items) === JSON.stringify(['계정 합치기', '환송해주기']) && menu.role === 'menu' && menu.red && menu.icon && menu.expanded === 'true', JSON.stringify(menu));
-  check('메뉴는 앱의 다른 메뉴와 같은 껍데기 — body 포털 · 등장 모션(fade·zoom-95 150ms · transition-none) · 344에서 화면 안',
-    menu.portal && /animate-in/.test(menu.cls) && /fade-in/.test(menu.cls) && /zoom-in-95/.test(menu.cls) && /duration-150/.test(menu.cls) && /transition-none/.test(menu.cls)
+  check('메뉴는 앱의 다른 메뉴와 같은 껍데기 — body 포털 · 등장 모션(.dc-pop · transition-none) · 344에서 화면 안',
+    menu.portal && /\bdc-pop\b/.test(menu.cls) && /transition-none/.test(menu.cls)
     && menu.l >= 8 && menu.r <= menu.vw - 8 && menu.b <= menu.vh && menu.below, JSON.stringify(menu));
   check('메뉴가 열리면 첫 줄(계정 합치기)로 초점이 간다', menu.focus === '계정 합치기', menu.focus);
   const keyOn = (k) => ev(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true }))`);
@@ -855,7 +855,7 @@ await send('Emulation.clearDeviceMetricsOverride');
   await sleep(150);
   const conf = await ev(`(() => { const box = [...document.body.children].find(d => (d.innerText || '').includes('환송할까요?')); const r = box.getBoundingClientRect();
     const m = (${rowsOf})[2].querySelector('.members-more').getBoundingClientRect();
-    return { menu: !!document.querySelector('.members-menu'), text: box.innerText.split('\\n')[0], focus: document.activeElement?.textContent.trim() || '',
+    return { menu: !!document.querySelector('.members-menu:not([aria-hidden="true"])'), text: box.innerText.split('\\n')[0], focus: document.activeElement?.textContent.trim() || '',
       inside: r.left >= 8 && r.right <= innerWidth - 8, anchored: Math.abs(r.right - m.right) <= 1 }; })()`);
   check("'환송해주기'를 고르면 메뉴가 닫히고 같은 '⋯' 자리에서 확인 판이 뜬다(초점은 취소)",
     !conf.menu && conf.text.startsWith(`${at.name}을 환송할까요?`) && conf.focus === '취소' && conf.inside && conf.anchored, JSON.stringify(conf));

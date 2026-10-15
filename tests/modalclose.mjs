@@ -408,7 +408,8 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   const xBtn = `document.querySelector('.fixed.z-50 button[aria-label="닫기"]')`;
   await setTitle('닫기 확인 4'); await sleep(80);
   const unloadBlocked = await ev(`(() => { const e = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented; })()`);
-  await ev(`${xBtn}?.click()`); await sleep(350);
+  // 창은 걷히는 모션(EXIT_MS 180)을 그린 뒤 내려가고, 본문 활동 한 줄은 그때(TaskLive 정리) 붙는다 — 게스트 저장 300ms 모으기까지 기다린다
+  await ev(`${xBtn}?.click()`); await sleep(650);
   const x1 = await stored('x1');
   check('⑥ 쓰는 중에도 새로고침을 막지 않는다(묻지 않는다)', unloadBlocked === false, String(unloadBlocked));
   check('⑥ ✕로 닫으면 묻지 않고 닫히며 밀린 제목이 저장된다', (await isOpen()) === false && !(await ev(`!!(${ASK})`)) && x1.title === '닫기 확인 4', x1.title);
@@ -761,7 +762,7 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   check('④ 데스크톱에서는 Enter가 예전처럼 등록이다', n2 === n0 + 1, JSON.stringify({ n0, n2 }));
 
   // ── D9(2026-09-25): 댓글 등록은 작은 단(11.5px · 600 · 29px · 비활성 opacity .4) ·
-  // 업무 창 뒤판은 검정 50% · 뒤판과 창 모두 150ms · 댓글 시각·(수정됨)은 10px muted.
+  // 업무 창 뒤판은 검정 50% · 뒤판 .dc-scrim 260ms · 창 .dc-dialog 320ms(2026-10-15 '떠 있는 것 모션' — 150ms였다 · PITFALLS 57-a) · 댓글 시각·(수정됨)은 10px muted.
   // **되돌리기**: comments.jsx 등록을 옛 `text-[10px] font-bold … disabled:bg-line`으로 두면 첫 검사가,
   // modals.jsx 뒤판을 `bg-black/60 … duration-200`으로 두면 둘째 검사가 깨진다.
   const d9 = await ev(`(() => {
@@ -781,7 +782,7 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   })()`);
   check('D9: 댓글 등록은 작은 단 — 11.5px · 600 · 29px, 빈 칸이면 accent 그대로 opacity .4',
     !!d9 && d9.px === '11.5px' && d9.w === '600' && d9.h === 29 && d9.off === true && d9.opacity === '0.4' && d9.bgIsAccent, JSON.stringify(d9));
-  check('D9: 업무 창 뒤판은 검정 50% · 뒤판과 창 150ms', !!d9 && /^(rgba\(0, 0, 0, 0\.5\)|oklab\(0 0 0 \/ 0\.5\))$/.test(d9.back) && d9.backMs === '0.15s' && d9.panelMs === '0.15s', JSON.stringify(d9));
+  check('D9: 업무 창 뒤판은 검정 50% · 뒤판 260ms · 창 320ms', !!d9 && /^(rgba\(0, 0, 0, 0\.5\)|oklab\(0 0 0 \/ 0\.5\))$/.test(d9.back) && d9.backMs === '0.26s' && d9.panelMs === '0.32s', JSON.stringify(d9));
   check('D9: 댓글 시각은 10px muted', !!d9 && !!d9.stamp && d9.stamp.px === '10px' && d9.stamp.muted, JSON.stringify(d9?.stamp));
   // 2026-09-28 — 시각('9월 25일 오후 07:39 · 수정됨')이 좁은 칸에서 가운데가 꺾였다. **되돌리기**: comment-stamp의 whitespace-nowrap을 걷으면 깨진다.
   check('댓글 시각·수정됨은 꺾이지 않는 한 덩어리', !!d9?.stamp?.nowrap, JSON.stringify(d9?.stamp));
