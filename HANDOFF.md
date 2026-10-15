@@ -262,7 +262,7 @@ src/config.js                 팀·상태 상수 · teamColor/teamPaint · MAX_U
 src/utils.js                  순수 헬퍼 한 벌(정렬·날짜·생일·멘션·drive 주소·mdDot…) + utils/ 조각 바렐(authUrl · peopleSeen(사람 칸·다녀간 시각·localDate) · taskEdit · presenceWhere · graphLayout) — logcheck가 검사(_load.mjs가 바렐을 따라 조각을 같이 베낀다)
 src/store/workspaceStore.js   useSyncExternalStore 스토어 + 되돌리기 기록(§6-22)
 src/store/selectors.js        셀렉터 — 매번 새 배열을 만들면 무한 리렌더(§4.9)
-src/hooks/controllers.js      저장·삭제 등 쓰기 경로 — 실패하면 되돌리기·지운 업무 붙들기는 services/optimistic.js(PITFALLS 54-b)
+src/hooks/controllers.js      저장·삭제 등 쓰기 경로 — 실패하면 되돌리기·지운 업무 붙들기·못 간 칸·못 보낸 댓글은 services/optimistic.js(PITFALLS 54-b · 59-a·59-b)
 src/hooks/useIsMobile.js      반응형 분기 — 한쪽만 마운트(§6-3)
 src/hooks/useForceGraph.js    그래프 시뮬 루프·냉각·드래그 — 연결 지도와 그래프 뷰 한 벌 · 호버 공장 `hoverProps`(§4.9)
 src/hooks/useMinuteTick.js    상대 시간 라벨 늙히기(§4.9)
@@ -280,7 +280,7 @@ src/components/navParts.jsx   탭 줄 공용 — useYearTabs · YearPicker · Ye
 src/components/mobileNav.jsx  MobileTopBar · 폰 프로젝트 탭 줄(길게 눌러 끌기) · MobileTabBar 두 층 · menuTitle(§6-9-cb) · 켜진 탭 다시 누르면 맨 위로(scrollMainTop · PITFALLS 55-d)
 src/components/searchBox.jsx  통합 검색 · useRotatingHint/SearchHint · 관련된 업무 내용(z-80 · §6-9-cb·17-d)
 src/components/notificationBell.jsx 알림 종 · 알림 받기 줄 · 설치 줄
-src/components/boards.jsx     칸반 보드(dnd-kit) — 카드·상태 칩·컬럼·DragOverlay(§6-1·§6-10~12-c)
+src/components/boards.jsx     칸반 보드(dnd-kit) — 카드·상태 칩·컬럼·DragOverlay(§6-1·§6-10~12-c) · 상태 고르기 팝오버 `StatusMenu`(업무 창 보기의 상태 칩도 · 59-c)
 src/components/calendar.jsx   캘린더(주 단위 행) — 띠 배치·모바일 달력·날짜 옆 생일 얼굴(§4.8·§6-13~15)
 src/components/depgraph.jsx   프로젝트 '그래프' 보기 — useForceGraph 공용(§4.9)
 src/components/Avatar.jsx     사람 동그라미 — 사진 없으면 이름 첫 글자(§4.7)
@@ -302,7 +302,7 @@ src/components/MentionInput.jsx  @멘션 자동완성 — 댓글·답글 공용(
 src/components/OfficeView.jsx 워드·PPT 미리보기 **폴백**(구글 사본이 있으면 안 쓴다 · §6-29-y)
 src/components/paper.jsx      **종이** — PaperMast·PaperNoteHead·PaperSheet·NotePaper·NoteSheet·ServiceSheetOne/Two(§6-32-p) · NOTE_CUT
 src/components/PdfView.jsx    pdf.js 미리보기 — cmaps 없이는 한글이 빈다 · 폭이 바뀌면 다시 그린다(§6-29-z-9)
-src/components/RichText.jsx   본문 렌더 — InlineLink가 앱 안에서 연다(§6의 본문 링크 항목)
+src/components/RichText.jsx   본문 렌더 — InlineLink가 앱 안에서 연다(§6의 본문 링크 항목) · 유튜브 링크 카드(`ytCards` — 댓글·업무 보기만 · 59-d)
 src/components/roster.jsx     (v2) 청년 명단 — 연도 세그먼트·직분 6종·계정 연결(0043) · `RowSkeleton`·`rowDelay`(멤버 화면도 쓴다) · NameSearch·PanelClose 한 벌
 src/components/ShareButton.jsx  프로젝트·카드 공유 링크
 src/components/ShareToggle.jsx  공유 토글 한 벌 — 말씀 묵상·예배 노트·내 순 노트가 같은 부품
@@ -348,7 +348,7 @@ src/views/wikiView.jsx        위키 — 왼쪽 장 목록 | 물어보기·장(�
 src/components/dabooti.jsx    다붓이 입구(상단 알약·폰 얼굴·위키 안 칸) · 물어보기 판(칩 · 말풍선 · 근거 칩 · 파일 카드 · 👍/👎) · 효과는 index.css `dab-*`
 src/services/wikiCore.js      위키·다붓이 순수 모듈(import 0 · 서버와 한 벌) — 함께 쓰는 글 초안 · 거르기(prefilter) · 고친 줄 겹치기 · 근거 없는 문장 버리기 — logcheck
 src/services/wiki.js          위키 읽기·고치기 저장 · /api/ai { ask } · 피드백 · 게스트는 초안(검사는 window.__wikiFixture)
-src/modals/modals.jsx         업무 창 셸 — TaskModalShell(보기↔수정 · 칸마다 저장 · `수정 완료`·닫을 때 흘림)·TaskView(보기 · 기본)·TaskLive(수정 화면)·TaskEditor(새 업무 `만들기`)(§4.9 · 19-e-2·19-e-3)
+src/modals/modals.jsx         업무 창 셸 — TaskModalShell(보기↔수정 · 칸마다 저장 · `수정 완료`·닫을 때 흘림 · 못 간 칸은 '저장하지 못했어요'+'다시 시도' 59-b)·TaskView(보기 · 기본 · 상태 칩 59-c)·TaskLive(수정 화면)·TaskEditor(새 업무 `만들기`)(§4.9 · 19-e-2·19-e-3)
 src/modals/taskFields.jsx     업무 창의 칸 — TaskProps(상태·날짜·팀·담당자·선행 업무) · AssigneePicker/OwnerPicker(포털 목록 · useDismiss) · FaceStack · TitleField·useNameDraft(600ms)
 src/modals/taskLists.jsx      업무 창의 목록 — 청년별 담당 업무(ActionItems · 본문 도막) · 하위 업무(SubtaskList · SubtaskTitle · 9-ch)
 src/modals/taskSummary.jsx    업무 창의 AI — 3줄 요약(useTaskSummary · PITFALLS 19) · 문맥 다듬기(usePolish + BodyHead)
@@ -356,7 +356,7 @@ src/modals/coedit.jsx         업무 창의 같이 쓰기 — useCoedit(늦게 �
 src/services/coedit/          같이 쓰기 엔진(0084) — index.js 여는 곳(awareness user·editing·line · 사진 이름표) · core.js 순수(caretLine 포함) · store.js Supabase · view.js 화면 순수(색·알약 대비·판 글자·줄 차이 · import 0)
 src/modals/attachments.jsx    업무 창의 첨부 구역 — 업로드·미리보기·삭제·구글 사본 편집 자격(§6-34-h · startUploads는 §6-29-u)
 src/modals/uploadQueue.js     올리는 중·못 올린 첨부 줄(업무마다 · 모임 보고서는 `meeting:<id>` · 모듈 목록 · 동시 3개 · 다시 시도)
-src/modals/comments.jsx       업무 창의 댓글·반응·활동 기록 패널(§4.11) · 쓰던 댓글·답글 표(업무 열쇠) · 자라는 칸(`useAutoGrow`)
+src/modals/comments.jsx       업무 창의 댓글·반응·활동 기록 패널(§4.11) · 쓰던 댓글·답글 표(업무 열쇠) · 자라는 칸(`useAutoGrow`) · 못 보낸 댓글(흐리게 + '다시 보내기' · 59-a)
 src/modals/taskFocus.js       업무 창을 어느 댓글로 여나(알림·검색 → 창 · App을 거치지 않는다) · 지금 열린 업무(알림 종이 듣는다) — PITFALLS 54-d
 src/modals/settings.jsx       내 정보(사진·이름·팀) / 프로젝트 만들기·이름 수정(§4.7·§6-34-g)
 src/services/supabaseClient.js 클라이언트 한 벌 + setWriteObserver(§4.8) + myUid()(§6-34-d)
@@ -455,12 +455,12 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 
 ## 5. 데이터 · 스키마 · 비밀
 
-- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0091`이고 **전부 라이브 DB에 적용**되어 있다. 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
+- **마이그레이션 번호별 표는 `README.md`에 하나만 둔다.** 스키마는 `supabase/migrations/0001~0103`이고 **전부 라이브 DB에 적용**되어 있다. 최근 것: **0063** 0061이 남긴 나머지 `auth.uid()` 자리를 `alter policy`로(§6-34-i) ·
   **0064** `people.gender` · **0065** `bible_state.recent_searches` · **0066** 개인 표 기본값도 `effective_uid()` · **0067~0070** 명단(`people`)의 생일·소속·교역자·대표 팀을 트리거가 계정으로 옮긴다(§8) ·
   **0071** 칸 가드(승인·합치기·이메일은 관리자·서버만 · 작성자 칸 · 알림 이름 — 되돌리기만 하고 오류는 안 낸다. `auth.uid()`가 없으면(psql·서비스 키·가입 트리거) 통과하므로 백필은 그대로 먹힌다) ·
   **0072** `files.name`을 NFC로(데이터만 · 되돌릴 수 없고 되돌릴 까닭도 없다) ·
   **0073** pgvector(`extensions`) + `bible_vec`(halfvec 768) + `match_bible` · **0074** `doc_vec`(업무·댓글·첨부 조각 · 원본 FK cascade) + `match_docs` — 둘 다 벡터 인덱스 없음 ·
-  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`(0095에서 걷음) · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만 · **0090** 위키 고치기·자주 묻는 질문 장은 마스터만 · **0091** 다붓이 회귀 묶음 `dabooti_evals`(서버만) · **0092** 리더만 보는 프로젝트(`projects.visibility` · `is_leader`·`can_see_*`·`hidden_ids` · 정책 `alter`만 · 보호 트리거 둘) · **0093** 동아리 모임 활동 보고서(`files.meeting_id` · 세 갈래 CHECK · `can_edit_meeting` · 모임 갈래 정책 + restrictive 셋) · **0094** 직분 `vision_maker`(비전 메이커 · 임원 아님) · **0095** 0080 걷음(`bible_reads` 표 · `share_reads` 칸 · 2026-10-12) · **0096** `doc_vec`에 위키 장·발행 주보(다붓이 검색 모드) · **0097** 가입 트리거가 늦게 온 메타 사진·이름도 받아 적음(10분 안 빈 칸만) · **0098** 다붓이 학습 고리(`dabooti_facts` · `resolved_at` · learned 장 마스터만) · **0099** 업무 잠금(`cards.locked` · `card_secrets` · `card_unlocks` · 함수 다섯 · 정책 alter · 보호·거울 트리거 · `projects.visibility_by/at`) · **0100** 잠금의 남은 틈(`card_secrets.subtasks` · 잠그는 순간 위키 블록·조각·알림 미리보기를 걷는 `scrub_locked_card` · 새 알림 미리보기 비움 트리거) · **0101** 점검 보완(트리거 함수 EXECUTE 회수 · search_path 셋 · 정책 116개 판정 호출을 `(select …)`로) · **0102** 정책 대상 역할 `authenticated` · 판정 함수 14개 익명 회수. 다음 번호는 0103.
+  **0075** 상시(`cards.status` `ongoing` · §8) · **0076** 알림 종류 `approved`(관리자만 넣는다) · **0077** 가이드 고정 알림 `guide_pinned` · `sun_guides.pin_notified_at` · **0078** 동아리 모임 전날 알림 `meeting_tomorrow`(CHECK만) · **0079** 최근 활동의 발행 시각·사람(`services.published_at`·`published_by` · `group_meetings.created_by`) · **0080** `bible_reads` + `bible_state.share_reads`(0095에서 걷음) · **0081** 주보 표지 사진(`files.kind` `cover` · `services.cover_focus_y`) · **0082** 순모임 가이드 고정은 주보마다(한 번에 하나 인덱스 걷음) + 최종본 보관 `sun_guide_finals`(트리거) · **0083** 주보 편집자 한 사람(명단 id) · **0084** 업무 본문 같이 쓰기(`card_doc_updates`·`card_docs`·`card_doc_versions` + 함수 둘 + `coedit:` 비공개 채널 정책 · `modals/coedit.jsx`) · **0085** `calendar_feeds`(내 달력) · **0086** 기준 판(`card_doc_baseline` · `kind`) · **0087** 판의 `editors` · **0088** 위키(`wiki_pages` · `wiki_edits` · `dabooti_questions` 익명 · 서버만) · **0089** 위키 제목 줄(`#`)은 마스터만 · **0090** 위키 고치기·자주 묻는 질문 장은 마스터만 · **0091** 다붓이 회귀 묶음 `dabooti_evals`(서버만) · **0092** 리더만 보는 프로젝트(`projects.visibility` · `is_leader`·`can_see_*`·`hidden_ids` · 정책 `alter`만 · 보호 트리거 둘) · **0093** 동아리 모임 활동 보고서(`files.meeting_id` · 세 갈래 CHECK · `can_edit_meeting` · 모임 갈래 정책 + restrictive 셋) · **0094** 직분 `vision_maker`(비전 메이커 · 임원 아님) · **0095** 0080 걷음(`bible_reads` 표 · `share_reads` 칸 · 2026-10-12) · **0096** `doc_vec`에 위키 장·발행 주보(다붓이 검색 모드) · **0097** 가입 트리거가 늦게 온 메타 사진·이름도 받아 적음(10분 안 빈 칸만) · **0098** 다붓이 학습 고리(`dabooti_facts` · `resolved_at` · learned 장 마스터만) · **0099** 업무 잠금(`cards.locked` · `card_secrets` · `card_unlocks` · 함수 다섯 · 정책 alter · 보호·거울 트리거 · `projects.visibility_by/at`) · **0100** 잠금의 남은 틈(`card_secrets.subtasks` · 잠그는 순간 위키 블록·조각·알림 미리보기를 걷는 `scrub_locked_card` · 새 알림 미리보기 비움 트리거) · **0101** 점검 보완(트리거 함수 EXECUTE 회수 · search_path 셋 · 정책 116개 판정 호출을 `(select …)`로) · **0102** 정책 대상 역할 `authenticated` · 판정 함수 14개 익명 회수 · **0103** 알림 종류 `assignee_comment`(담당한 업무에 달린 댓글 · CHECK + INSERT 정책 alter · 2026-10-15 라이브). 다음 번호는 0104.
 - **`npx supabase db push`를 쓰지 마세요.** 원장(`supabase_migrations.schema_migrations`)에는 0038까지만 적혀 있어서 dry-run이 0039부터를 "적용할 것"으로 잡는다. 새 파일은 `psql
   "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<파일>`로 넣는다.
 - **적용 여부는 원장이 아니라 실제 객체로 확인한다**(컬럼·함수·정책·발행 목록). 되돌리는 SQL은 파일 맨 아래 주석.
@@ -567,7 +567,7 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
   `relative before:absolute before:-inset-…`(배경 없는 가상 요소)로 넓히되 **이웃 조작과의 틈의 절반까지만**(PITFALLS 9-by).
 - **주 버튼은 두 단이다**(D9 · 2026-09-25 · `components/buttons.js`): 작은 단 `BTN`(11.5px·600·29px — 도구 줄·입력 줄 옆: 댓글 등록·답글·저장, 새 주보, 가입 신청,
   팝오버의 추가·적용) · 확정 단 `BTN_CONFIRM`(13px·600·40px — 창 맨 아래 확정: 내 정보 저장·시작하기·프로젝트 만들기, 짝 취소는 `BTN_CONFIRM_QUIET`). **비활성은 opacity .4 하나**
-  (`disabled:bg-line` 금지 — 라이트 1.41:1). 업무 창 아래 줄(새 업무의 `만들기`·닫기 · 있는 업무는 보기 `수정`·닫기 / 수정 `저장됨`·`수정 완료`·닫기 — 2026-09-28 저장 버튼을 걷었고 2026-09-29 보기/수정을 다시 나눴다)은 상시 도구 줄이라 두 단 밖이다. 새 accent 버튼은 둘 중 하나를 쓴다.
+  (`disabled:bg-line` 금지 — 라이트 1.41:1). 업무 창 아래 줄(새 업무의 `만들기`·닫기 · 있는 업무는 보기 `수정`·닫기 / 수정 `저장됨`·`수정 완료`·닫기 — 2026-09-28 저장 버튼을 걷었고 2026-09-29 보기/수정을 다시 나눴다 · 못 간 칸이 있으면 `저장됨` 자리에 빨간 `저장하지 못했어요` + 글자 버튼 `다시 시도` — 2026-10-15 시안 A2)은 상시 도구 줄이라 두 단 밖이다. 새 accent 버튼은 둘 중 하나를 쓴다.
 - **뒤판은 두 값**(D9): 대화창(업무 창·내 정보·프로젝트·동아리 QR·모바일 검색·가입한 사람·댓글 반응)은 검정 50% · 뒤판 `.dc-scrim` 260ms · 창 `.dc-dialog` 320ms(폰 업무 창 `.dc-rise` · 폰 시트 `.dc-sheet-up`),
   전면 미리보기(파일·문서·사진·그림 저장·넘기면서 보기)는 80% · `.dc-scrim`(2026-10-15 — 150ms였다 · PITFALLS 57-a).
 - **최소 글자 10px · 12px 미만 글은 faint 대신 muted**(D9) — faint는 12px 이상 보조 글·자리표·아이콘에만. 예외는 얼굴 원 안의 머리글자와 종이(인쇄 문서).
@@ -578,6 +578,8 @@ tests/                        검증 스위트 + 러너 — 목록은 tests/READ
 - **가이드 고정 알림**(0077 · 사용자 문구 `이번 예배 순모임 가이드가 도착했어요!`): 그 해 순장에게 · **가이드당 한 번**(`pin_notified_at` — 풀었다 다시 걸어도 두 번 안 간다) ·
   누르면 `?p=groups&guide=<주보>`. 노트 공유 알림은 `note=<주보>`(PITFALLS 24-c-1).
 - **동아리 모임 전날 알림**(0078 · 사용자 결정 2026-09-25): 모임 **전날 11:30**(`?job=worship` 배치의 두 번째 갈래 — 크론 자리가 둘뿐이고 8시는 이르다) 그 동아리 구성원+동아리장(만든 사람 포함)에게 `내일 {동아리 이름} 모임이 있어요` · preview는 모임 제목 · 누르면 `?p=groups&g=<동아리>` · 당일 알림은 없다. 동아리 이름은 **actor_name 칸**에 싣는다(시스템 알림이라 비어 있던 칸).
+- **담당 업무 댓글 알림**(0103 · 사용자 승인 시안 D9 2026-10-15): 업무에 댓글·답글이 달리면 그 업무 담당자에게 `○○님이 내가 담당한 업무에 댓글을 남겼어요`(미리보기는 댓글 앞 80자 · 누르면 그 댓글로) — 댓글 쓴 사람 본인과 같은 댓글로 멘션·답글 알림을 받는 사람은 뺀다(한 사람에게 한 통 · PITFALLS 59-e).
+  **업무 창 실패 자리**(시안 A1·A2): 못 보낸 댓글은 그 자리에 흐리게 + `댓글 달기에 실패했어요` · `다시 보내기`(같은 id) · 업무 창 저장 실패는 위 아래 줄. 보기 화면의 상태는 칩(▾)이고 보드와 같은 팝오버·되돌리기 토스트다(D1). 댓글·업무 본문의 유튜브 영상 주소 아래에 주보 찬양 줄과 같은 카드(C13 · 제목을 못 받으면 링크만).
 - **성경 낱말 검색**은 띄어쓰기를 지우고 견주고(`word.matchRanges`) 66권을 끝까지 센 뒤 50줄씩 '더 보기'로 편다. 결과에서 연 절의 되돌아가기는 `결과`다(목차가 아니다).
 - **뜻 검색 문구**(사용자 문구 2026-09-25): 상단 검색 구역 머리 **'관련된 업무 내용'**, 줄 아래 발췌 앞 '댓글 · ' / '첨부 · ' / '상세 내용 · '(아이콘: 업무 초록 · 댓글 파랑 · 첨부 주황) ·
   성경 대체 머리 **'{검색어}와/과 관련된 성경 구절'** — 와/과는 마지막 글자의 받침으로 가른다(`vecSearch.andParticle` · 숫자는 읽는 소리 · 영문은 '와').
