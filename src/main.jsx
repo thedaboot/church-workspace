@@ -8,7 +8,14 @@ import ChurchApp from './App.jsx';
 
 // 배포 뒤에 열려 있던 탭은 옛 조각 이름을 찾다가 404가 난다(늦게 싣는 화면 · 2026-10-09). Vite가 알려 주면 한 번만
 // 새로 불러 새 판을 받는다 — 10초 안에 또 나면 그대로 둔다(계속 새로 고치는 고리를 막는다).
+// **오프라인이면 새로 고치지 않는다**(2026-10-15) — 조각을 못 받은 까닭이 배포가 아니라 끊긴 연결이라, 새로 고치면 브라우저의
+// '오프라인' 페이지에 떨어져 앱이 통째로 사라진다. 연결이 돌아오는 순간(online) 한 번 새로 불러 그 화면을 받는다.
+let reloadOnline = false;
 window.addEventListener('vite:preloadError', (e) => {
+  if (navigator.onLine === false) {
+    if (!reloadOnline) { reloadOnline = true; window.addEventListener('online', () => location.reload(), { once: true }); }
+    return;
+  }
   let last = 0;
   try { last = Number(sessionStorage.getItem('chunk-reload-at')) || 0; } catch { /* 저장소가 막힌 브라우저 */ }
   if (Date.now() - last < 10e3) return;

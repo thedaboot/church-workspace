@@ -1479,6 +1479,11 @@ import { loadSource, tmpDir, readSrc, readSplit } from './_load.mjs';
     assert.ok(new RegExp(`<Suspense fallback=\\{null\\}><${name} `).test(app), `${name}는 Suspense 안에 선다`);
   }
   const main = readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
-  assert.ok(/addEventListener\('vite:preloadError'[\s\S]{0,400}location\.reload\(\)/.test(main) && main.includes('Date.now() - last < 10e3'), '배포 뒤 옛 조각 404는 한 번만 새로 불러 넘긴다');
+  assert.ok(/e\.preventDefault\(\);\s*location\.reload\(\);/.test(main) && main.includes('Date.now() - last < 10e3'), '배포 뒤 옛 조각 404는 한 번만 새로 불러 넘긴다');
+  // 오프라인이면 새로 고치지 않고 연결이 돌아올 때 한 번(2026-10-15 · PITFALLS 55-c) — 브라우저 오프라인 페이지에 떨어지지 않게.
+  // 되돌리기: onLine 갈래를 지우면 깨진다(오프라인 판정이 10초 고리·새로 고침보다 앞이어야 한다).
+  const pre = main.slice(main.indexOf("addEventListener('vite:preloadError'"));
+  assert.ok(/if \(navigator\.onLine === false\) \{[\s\S]{0,200}addEventListener\('online', \(\) => location\.reload\(\), \{ once: true \}\);[\s\S]{0,40}return;/.test(pre)
+    && pre.indexOf('navigator.onLine === false') < pre.indexOf('sessionStorage'), '오프라인이면 online을 기다렸다 새로 고친다');
   console.log('PASS  예배·말씀·모임·청년 명단은 늦게 싣는다 · 옛 조각은 한 번 새로 고침');
 }

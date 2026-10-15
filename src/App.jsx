@@ -395,13 +395,26 @@ function WorkspaceShell() {
       // **끊겼다가 다시 붙으면 전체를 한 번 읽는다**(2026-09-25) — 폰이 잠든 사이의 카드·활동 변경은
       // 이벤트로 오지 않는다. reloadCloud가 카드·프로젝트·활동 피드를 다 읽고 열린 창의 상세도 채운다.
       // 처음 붙을 때는 오지 않는다(realtimeStatus.js).
-      onReconnect: () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재접속 뒤 재조회 실패:', e)); }, 300);
-      },
+      onReconnect: () => refetchAll(),
     });
-    return () => { clearTimeout(timer); clearTimeout(feedTimer); cards.cancel(); unsub(); };
+    // **기기가 다시 연결되면(online) 같은 길로 한 번 읽는다**(2026-10-15) — 실시간 소켓은 다시 붙기까지 몇 초~몇십 초가
+    // 걸리고, 그 사이에 화면은 끊기기 전 값이다. 둘이 300ms 안에 겹치면 타이머 하나로 묶인다. 더 늦게 붙은 소켓의
+    // onReconnect는 건너뛰지 않는다 — 그 사이(읽은 뒤 ~ 소켓이 붙기 전)의 변경은 이벤트로 오지 않는다.
+    function refetchAll() {
+      clearTimeout(timer);
+      timer = setTimeout(() => { reloadCloud().catch(e => console.error('[cloud] 재접속 뒤 재조회 실패:', e)); }, 300);
+    }
+    window.addEventListener('online', refetchAll);
+    return () => { clearTimeout(timer); clearTimeout(feedTimer); cards.cancel(); unsub(); window.removeEventListener('online', refetchAll); };
   }, [cloudMode, reloadCloud, syncCard, syncCardDetail]);
+
+  // 첫 로드가 끊긴 연결로 실패했으면(오류 화면 '다시 시도') 연결이 돌아오는 순간 그 버튼을 대신 누른다 — 문구는 그대로다.
+  useEffect(() => {
+    if (!cloudMode || !loadError) return undefined;
+    const onOnline = () => { retryLoad(); };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [cloudMode, loadError, retryLoad]);
 
   // 프로젝트 탭 줄 앞 칸(services/tabFront.js) — **첫 로드 뒤 한 번 + 앱이 다시 보일 때만** 잰다.
   // 보고 있는 동안에는 다시 재지 않는다: 남의 활동으로 탭이 움직이면 누르려던 탭이 손가락 밑에서 튄다.

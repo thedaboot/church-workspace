@@ -855,7 +855,10 @@ import { loadSource, readSplit } from './_load.mjs';
   const mobSrc = readFileSync(new URL('../src/components/mobileNav.jsx', import.meta.url), 'utf8');
   assert.ok(/\.subscribe\(\(status\) => onStatus\?\.\(status\)\);/.test(cloudSrc), '업무 채널 subscribe가 상태를 넘긴다');
   assert.ok(/\}, reconnectWatcher\(onReconnect\)\);/.test(syncSrc), 'subscribeWorkspace가 재접속 판정을 붙인다');
-  assert.ok(/onReconnect: \(\) => \{\s*clearTimeout\(timer\);[\s\S]{0,200}reloadCloud\(\)/.test(appSrc), 'App이 재접속에 재조회(업무 창이 열려 있어도 — 2026-09-28)');
+  assert.ok(/onReconnect: \(\) => refetchAll\(\),/.test(appSrc) && /function refetchAll\(\) \{\s*clearTimeout\(timer\);[\s\S]{0,200}reloadCloud\(\)/.test(appSrc),
+    'App이 재접속에 재조회(업무 창이 열려 있어도 — 2026-09-28)');
+  // 기기가 다시 연결되면(online) 같은 길로 한 번(2026-10-15 · PITFALLS 55-c) — 되돌리기: online 줄을 지우면 깨진다
+  assert.ok(/window\.addEventListener\('online', refetchAll\);/.test(appSrc) && /window\.removeEventListener\('online', refetchAll\)/.test(appSrc), 'online도 재접속과 같은 재조회');
   const calls = appSrc.match(/refreshTabFront\(/g) || [];
   assert.strictEqual(calls.length, 2, '앞 칸 숫자는 첫 로드 뒤 한 번 + 보일 때 한 번 — 실시간 경로에서 부르지 않는다');
   assert.ok(/if \(!document\.hidden\) refreshTabFront\(cloudMode\)/.test(appSrc), '다시 보일 때만');
