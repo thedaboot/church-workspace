@@ -130,6 +130,7 @@ import logoLight from './assets/logo-light.webp';
 import logoDark from './assets/logo-dark.webp';
 import { BTN_CONFIRM } from './components/buttons.js';
 import { errorReason } from './services/errorText.js';
+import { prefetchViewsIdle } from './services/viewChunks.js';
 
 // activeMenu에는 화면 이름이나 프로젝트 id가 들어간다 — 여기 없는 값은 프로젝트로 본다.
 // 새 전역 화면을 만들면 이 목록에도 넣어야 그 이름이 프로젝트 id로 오해되지 않는다
@@ -426,6 +427,10 @@ function WorkspaceShell() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [cloudMode, cloudReady]);
+
+  // 늦게 싣는 화면(예배·말씀·모임·청년 명단·위키)을 첫 화면이 선 뒤 한가할 때 미리 받는다(services/viewChunks.js) —
+  // 그 탭을 처음 누를 때 조각을 기다리며 빈 화면이 서던 자리(2026-10-15). 폰 하단 탭은 누르는 순간에도 받는다(mobileNav).
+  useEffect(() => (cloudReady ? prefetchViewsIdle() : undefined), [cloudReady]);
 
   // 지금 접속해 있는 사람(presence) — DB에 아무것도 쓰지 않고, 연결이 끊기면 서버가
   // 바로 지운다. 값은 전용 미니 스토어로 흐른다(LOAD_STATE가 상태를 통째로 갈아치우는

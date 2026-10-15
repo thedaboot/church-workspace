@@ -22,6 +22,31 @@ import { tabDividerCls, FreshDot, useFreshProjects, useFrontNudge, FrontNudge, s
 import { SearchBox } from './searchBox.jsx';
 import { NotificationBell } from './notificationBell.jsx';
 import { LeaderTitleLock, TabLock, useSetVisibility } from './leaderOnly.jsx';
+import { prefetchView } from '../services/viewChunks.js';
+import { prefersReducedMotion } from '../hooks/useReducedMotion.js';
+
+// 화면의 스크롤 통(App.jsx의 main — 뷰는 자기 안에서 스크롤하지 않는다 · §6-2)을 맨 위로. 앱의 움직임 곡선(quint ·
+// index.css --ease-out-quint와 같은 감속)으로 미끄러지고, 움직임 줄이기면 바로 간다. 올라가는 중에 손가락·휠이 닿으면
+// 그 자리에서 멈춘다(사람이 잡은 것을 빼앗지 않는다). 하단 탭을 다시 누를 때 쓴다(2026-10-15 · PITFALLS 55-d).
+const TOP_MS = 480;
+let topRun = 0;
+export function scrollMainTop() {
+  const el = document.querySelector('main');
+  if (!el || el.scrollTop <= 0) return;
+  cancelAnimationFrame(topRun);
+  if (prefersReducedMotion()) { el.scrollTop = 0; return; }
+  const from = el.scrollTop;
+  const t0 = performance.now();
+  const stop = () => { cancelAnimationFrame(topRun); el.removeEventListener('wheel', stop); el.removeEventListener('touchstart', stop); };
+  el.addEventListener('wheel', stop, { passive: true, once: true });
+  el.addEventListener('touchstart', stop, { passive: true, once: true });
+  const step = (now) => {
+    const t = Math.min(1, (now - t0) / TOP_MS);
+    el.scrollTop = from * (1 - t) ** 5;   // 남은 거리 = (1-t)^5 — ease-out quint
+    if (t < 1) topRun = requestAnimationFrame(step); else stop();
+  };
+  topRun = requestAnimationFrame(step);
+}
 
 // ============================================================================
 // 폰 내비 — 상단바(MobileTopBar: 화면 이름 + 아이콘 줄 + 프로젝트 탭 줄)와 하단 바(MobileTabBar: 교회 층 ↔ 업무 층).
@@ -273,13 +298,17 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
   // 가장 최근 해의 첫 것, 아무것도 없으면 새로 만들기. 예전에는 해를 안 보고 position 첫 것을 열어서
   // 작년 프로젝트가 앞이면 그걸 열고 연도 선택까지 작년으로 끌려갔다.
   const goProject = () => {
-    if (isProject) return;
+    if (isProject) { scrollMainTop(); return; }   // 켜진 탭을 다시 누름(아래 go 주석)
     const id = pickProjectToOpen({ active: projectsList, all: allProjects, year, lastId: lastProject.current, stats: frontStats, yearOf: projectYear });
     if (id) setActiveMenu(id);
     else onOpenProject();
   };
   // 소속이 없는 사람은 팀 보드로 갈 곳이 없으니 프로필 설정으로 안내한다
-  const goTeam = () => { if (myTeam) setActiveMenu(`team:${myTeam}`); else showToast('설정에서 소속을 먼저 골라주세요'); };
+  const goTeam = () => {
+    if (myTeam && activeMenu === `team:${myTeam}`) scrollMainTop();   // 켜진 탭을 다시 누름
+    else if (myTeam) setActiveMenu(`team:${myTeam}`);
+    else showToast('설정에서 소속을 먼저 골라주세요');
+  };
 
   // ── 두 벌의 바 (docs/V2.md §3 A안 — 사용자가 목업으로 확정) ──────────────
   // 교회 생활(홈·예배·말씀·모임·업무)과 업무(홈·프로젝트·내 업무·대시보드·팀).
@@ -296,9 +325,12 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
   // 두 벌이 **동시에 그려져 있다**(아래 nav) — 지금 쓰는 층이 아니면 초점도 안 받게
   // `live=false`를 준다. 안 그러면 탭 키가 안 보이는 다섯 개를 먼저 지난다.
   // 배지 원 색은 층이 정한다(`--tab-dot`) — 남색 위에서는 accent 원이 그대로 사라진다.
-  const tab = (on, icon, label, onClick, badge, live = true) => (
+  // 늦게 싣는 화면의 탭은 누르는 순간 조각을 미리 받는다(prefetch · services/viewChunks.js — 손가락이 떨어지기 전에
+  // 요청이 나간다 · 2026-10-15). 이미 그 화면이면 받을 것이 없다.
+  const tab = (on, icon, label, onClick, badge, live = true, prefetch = null) => (
     <button
       key={label} onClick={onClick} tabIndex={live ? 0 : -1}
+      onPointerDown={prefetch && !on ? () => prefetchView(prefetch) : undefined}
       className={`relative flex-1 flex flex-col items-center gap-1 py-1 transition-colors ${on ? 'text-[color:var(--tab-on)]' : 'text-[color:var(--tab-off)]'}`}
     >
       <span className="relative">{icon}{badge > 0 && <span className="absolute -top-0.5 -right-1.5 w-1.5 h-1.5 rounded-full bg-[color:var(--tab-dot)]" />}</span>
@@ -311,12 +343,13 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
   // 위 선도 층이 그린다 — nav가 그리면 남색이 찼을 때 그 위에 회색 실선이 남는다.
   const LAYER = 'flex pt-2 pb-[calc(0.875rem+env(safe-area-inset-bottom))] border-t';
   // 층마다 칸 다섯 — [켜졌나, 아이콘, 글자, 누르면, 배지]. 차례가 곧 바에 서는 순서다.
-  const go = (menu) => () => setActiveMenu(menu);
+  // **지금 화면의 탭을 다시 누르면 맨 위로 올라간다**(2026-10-15 — 예전에는 아무 일도 안 했다 · scrollMainTop).
+  const go = (menu) => () => (activeMenu === menu ? scrollMainTop() : setActiveMenu(menu));
   const churchTabs = [
     [activeMenu === 'home', Home, '홈', go('home'), 0],
-    [activeMenu === 'worship', Church, '예배', go('worship'), 0],
-    [activeMenu === 'word', BookOpen, '말씀', go('word'), 0],
-    [activeMenu === 'groups', HeartHandshake, '모임', go('groups'), 0],
+    [activeMenu === 'worship', Church, '예배', go('worship'), 0, 'worship'],
+    [activeMenu === 'word', BookOpen, '말씀', go('word'), 0, 'word'],
+    [activeMenu === 'groups', HeartHandshake, '모임', go('groups'), 0, 'groups'],
     [false, Briefcase, '업무', () => setActiveMenu(lastWork.current || 'dashboard'), myTasksCount],
   ];
   const workTabs = [
@@ -326,7 +359,7 @@ export const MobileTabBar = React.memo(({ activeMenu, setActiveMenu, onOpenProje
     [activeMenu === 'dashboard', LayoutDashboard, '대시보드', go('dashboard'), 0],
     [activeMenu.startsWith('team:'), Users, '팀', goTeam, 0],
   ];
-  const tabs = (rows, live) => rows.map(([on, Icon, label, onClick, badge]) => tab(on, <Icon size={20} />, label, onClick, badge, live));
+  const tabs = (rows, live) => rows.map(([on, Icon, label, onClick, badge, prefetch]) => tab(on, <Icon size={20} />, label, onClick, badge, live, prefetch));
   // 탭바의 **실제 높이**를 `--mobile-tab-bar-h`로 내보낸다. 이 바는 안 내용으로 높이가 정해져서
   // (pt-2 + 아이콘 + 글자 + pb + safe-area) 4.5rem 같은 상수와 몇 px 어긋난다 — 주보 편집의
   // 하단 저장 줄이 그 상수로 앉아 탭바 위에 **얇은 틈**이 남았다(사용자 지적 2026-09-08).

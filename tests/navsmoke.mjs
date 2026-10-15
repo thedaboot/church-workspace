@@ -775,6 +775,83 @@ await send('Emulation.clearDeviceMetricsOverride');
   await send('Emulation.clearDeviceMetricsOverride');
 }
 
+// ── UX 다듬기 β (2026-10-15 · PITFALLS 55) — 첫 페인트 로고 · 늦게 싣는 화면 미리 받기 · 켜진 탭 다시 누르기 · 푸시 제자리 열기 ──
+// 되돌리기: index.html #root를 비우면 ①이, App의 prefetchViewsIdle 효과를 지우면 ②의 한가할 때가, mobileNav의 onPointerDown을
+// 지우면 ②의 누르는 순간이, mobileNav go의 scrollMainTop을 지우면 ③이, App의 서비스 워커 message 효과를 지우면 ④가 깨진다.
+{
+  await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))})`);
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  // ① 번들이 오기 전 첫 그림 — main.jsx를 막고 index.html만으로 그린다(테마 스크립트는 돈다)
+  await send('Network.enable');
+  await send('Network.setBlockedURLs', { urls: ['*main.jsx*'] });
+  for (const theme of ['light', 'dark']) {
+    await ev(`localStorage.setItem('theme', '${theme}')`);
+    await send('Page.navigate', { url: URL_BASE + '/' }); await wait('Page.loadEventFired'); await sleep(500);
+    const b = await ev(`(() => { const s = document.querySelector('#root .boot-splash'); if (!s) return null;
+      const img = [...s.querySelectorAll('img')].find(i => i.getBoundingClientRect().height > 0); const r = img?.getBoundingClientRect();
+      return { imgs: s.querySelectorAll('img').length, which: img?.className, h: r && Math.round(r.height), cx: r && Math.round(r.left + r.width / 2), cy: r && Math.round(r.top + r.height / 2),
+        vw: innerWidth, vh: innerHeight, bg: getComputedStyle(s).backgroundColor, pulse: img && getComputedStyle(img).animationName, loaded: !!img?.complete && img.naturalWidth > 0 }; })()`);
+    const bg = theme === 'dark' ? 'rgb(25, 25, 25)' : 'rgb(246, 245, 247)';
+    check(`첫 페인트(${theme}): 번들 전부터 로고 하나 — 3rem · 화면 가운데 · 바탕 = canvas · 숨쉬기`,
+      !!b && b.imgs === 2 && b.which === `boot-${theme}` && b.h === 48 && Math.abs(b.cx - b.vw / 2) <= 1 && Math.abs(b.cy - b.vh / 2) <= 1 && b.bg === bg && b.pulse === 'boot-pulse' && b.loaded, JSON.stringify(b));
+  }
+  await send('Network.setBlockedURLs', { urls: [] });
+  await ev(`localStorage.setItem('theme', 'light')`);
+  // ② 늦게 싣는 화면 — 한가할 때 미리 받는다 · 폰 하단 탭은 누르는 순간 받는다
+  const chunks = `['worshipView', 'wordView', 'groupsView', 'membersView', 'wikiView'].filter(n => performance.getEntriesByType('resource').some(e => e.name.includes('/views/' + n + '.jsx')))`;
+  await send('Page.navigate', { url: URL_BASE + '/' }); await wait('Page.loadEventFired'); await sleep(4000);
+  const idle = await ev(chunks);
+  const gone = await ev(`!document.querySelector('.boot-splash')`);
+  check('첫 화면이 선 뒤 한가할 때 다섯 화면 조각을 미리 받는다 · 첫 그림은 앱이 걷는다', idle.length === 5 && gone, JSON.stringify({ idle, gone }));
+  const noIdle = await send('Page.addScriptToEvaluateOnNewDocument', { source: 'window.requestIdleCallback = () => 0; window.cancelIdleCallback = () => {};' });
+  await send('Page.navigate', { url: URL_BASE + '/' }); await wait('Page.loadEventFired'); await sleep(2500);
+  const before = await ev(chunks);
+  await ev(`(() => { const b = [...document.querySelectorAll('nav[data-tab-bar] button')].find(x => x.textContent.trim() === '예배'); b?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); })()`);
+  await sleep(800);
+  const after = await ev(chunks);
+  const still = await ev(`document.querySelector('nav[data-tab-bar] button')?.closest('nav')?.dataset.tabBar`);
+  check("하단 '예배'를 누르는 순간(pointerdown) 그 조각을 받는다 — 화면은 아직 그대로",
+    !before.includes('worshipView') && after.includes('worshipView') && !after.includes('wordView'), JSON.stringify({ before, after, still }));
+  await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: noIdle.identifier });
+  // ③ 켜진 탭을 다시 누르면 맨 위로 — quint로 미끄러지고(중간에 멈춰 있지 않다) · 움직임 줄이기면 바로
+  await send('Page.navigate', { url: URL_BASE + '/' }); await wait('Page.loadEventFired'); await sleep(1500);
+  const homeTab = `[...document.querySelectorAll('nav[data-tab-bar] button')].find(x => x.textContent.trim() === '홈')`;
+  const retap = (reduce) => ev(`(async () => {
+    const w = ms => new Promise(r => setTimeout(r, ms));
+    const m = document.querySelector('main'); m.firstElementChild.style.paddingBottom = '3000px'; m.scrollTop = 1500; await w(50);
+    const from = m.scrollTop;
+    ${homeTab}.click();
+    const now = m.scrollTop; await w(120); const mid = m.scrollTop; await w(700); const end = m.scrollTop;
+    return { from, now, mid, end, menu: document.querySelector('nav[data-tab-bar]').dataset.tabBar };
+  })()`, true);
+  const r1 = await retap(false);
+  check('켜진 탭(홈)을 다시 누르면 맨 위로 미끄러진다(누른 순간은 그대로 · 중간 · 끝 0)',
+    r1.from >= 1400 && r1.now === r1.from && r1.mid > 0 && r1.mid < r1.from && r1.end === 0, JSON.stringify(r1));
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  const r2 = await retap(true);
+  await send('Emulation.setEmulatedMedia', { features: [] });
+  check('움직임 줄이기면 누르는 순간 맨 위', r2.from >= 1400 && r2.now === 0 && r2.end === 0, JSON.stringify(r2));
+  // ④ 앱이 떠 있는 동안 누른 푸시 — 워커의 { open } 메시지를 제자리에서 열고 답한다(새로 불러오지 않는다)
+  const push = (url) => ev(`(async () => {
+    window.__stay = window.__stay || Math.random();
+    const mark = window.__stay;
+    const ch = new MessageChannel(); let got = null; ch.port1.onmessage = (e) => { got = e.data; };
+    navigator.serviceWorker.dispatchEvent(new MessageEvent('message', { data: { open: location.origin + ${JSON.stringify(url)} }, ports: [ch.port2] }));
+    await new Promise(r => setTimeout(r, 700));
+    return { got, same: window.__stay === mark, url: location.search, open: !!document.querySelector('.fixed.z-50'), title: document.querySelector('.fixed.z-50 h2')?.textContent || '' };
+  })()`, true);
+  const p1 = await push('/?p=p1&t=t2');
+  check('푸시(업무)는 새로 불러오지 않고 그 업무 창을 연다 · { ok: true }',
+    p1.got?.ok === true && p1.same && p1.open && p1.url.includes('t=t2'), JSON.stringify(p1));
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '닫기')?.click()`); await sleep(500);
+  const p2 = await push('/?p=p1&t=nope');
+  const p3 = await push('/s/t/abc');
+  check('못 여는 주소(없는 업무 · 공유 주소)는 { ok: false } — 워커가 예전처럼 navigate',
+    p2.got?.ok === false && p3.got?.ok === false && p2.same && p3.same, JSON.stringify({ p2, p3 }));
+  await ev(`localStorage.removeItem('theme')`);
+  await send('Emulation.clearDeviceMetricsOverride');
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.slice(0, 6).join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);
