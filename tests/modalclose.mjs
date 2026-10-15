@@ -1342,6 +1342,154 @@ const baseTask = (id, extra = {}) => ({ id, projectId: 'p1', title: '저장 확�
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 }
 
+// ── UX 다듬기 2차 P1 (2026-10-15 · PITFALLS 59) — 댓글 달기 실패 · 업무 창 저장 실패 · 보기 화면 상태 칩 · 유튜브 링크 카드 ──────────
+// 게스트에는 서버가 없어 실패하는 길이 없다 — 개발 빌드의 `window.__devFail`(controllers.js devFail)로 쓰기를 실패로 만든다.
+// 유튜브 제목은 `window.__ytTitleFake`(RichText askTitle)가 답한다 — 게스트는 api/yt에 못 닿아 카드를 걷는 것이 정상이다.
+// ① 댓글 달기 실패 → 그 자리에 흐리게 남고 '댓글 달기에 실패했어요' + '다시 보내기' · 수정·삭제·반응·답글 없음 · 창이 열려 있으면 토스트 없음 ·
+//    실시간 재조회가 목록을 갈아 끼워도 남는다 · 또 실패하면 그대로 · 되면 보통 댓글로
+// ② 업무 창 저장 실패 → '저장됨' 자리에 '저장하지 못했어요' + '다시 시도' · 다른 칸 저장이 또 실패해도 남는다 · 다시 시도가 못 간 칸(제목)을 실어 간다
+// ③ 보기 화면 상태 칩 → 보드와 같은 팝오버(칩 아래 · 왼쪽 맞춤) · 고르면 저장 + 되돌리기 토스트 · 되돌리면 상태·자리 그대로 · 잠긴 업무는 글자
+// ④ 유튜브 영상 주소 줄 아래 카드(썸네일 곧바로 · 제목은 도착하면) · 못 받으면 카드 없이 링크만 · 같은 영상은 한 번만 묻는다 · 댓글에도
+// 되돌리기 검사(§3-5): comments.jsx CommentPanel의 failed 합치기(`extra`)를 빼면 ①의 '갈아 끼워도 남는다'가, modals.jsx commit의 `t.base`를
+// `cur`로 되돌리면 ②의 '못 간 칸을 실어 간다'가, TaskView의 상태 칩을 글자로 되돌리면 ③이, RichText의 `{yt(block.value)}`를 빼면 ④가 깨진다.
+{
+  const YT = 'sA-Qbfj2Zeg';
+  const T2 = (id, title, extra = {}) => ({ id, projectId: 'p1', title, content: '본문', status: '진행 중', assignees: ['노준석'], teams: ['찬양팀'],
+    startDate: '', dueDate: '2026-09-01', position: 1, author: '노준석', createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z',
+    comments: [], activityLog: [], attachments: [], ...extra });
+  const st = { currentUser: { name: '노준석', team: '임원진' },
+    projects: { byId: { p1: { id: 'p1', title: 'P1 프로젝트', pinnedLinks: [], year: 2026 } }, allIds: ['p1'] },
+    tasks: { byId: {
+      v1: T2('v1', '실패 확인 업무', { position: 1, comments: [{ id: 'k0', author: '조해리', text: '먼저 단 댓글 https://youtu.be/' + YT, timestamp: '2026-08-02T00:00:00Z', parentId: null }],
+        content: `10월 찬양예배 기획안\n- 참고 자료: [워리커 in 제주](https://www.youtube.com/watch?v=${YT})\n- 못 받는 영상: https://youtu.be/AAAAAAAAAAA` }),
+      v2: T2('v2', '상태 칩 업무', { position: 2 }),
+      v3: T2('v3', '앞에 있던 업무', { position: 0, status: '완료' }),
+      v4: T2('v4', '잠긴 업무', { position: 3, author: '조해리', locked: true, lockPw: { view_pw: 'x', salt: 'y' } }),
+    }, allIds: ['v1', 'v2', 'v3', 'v4'] } };
+  const load = async () => {
+    await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+    await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await send('Page.navigate', { url: URL_BASE }); await wait('Page.loadEventFired');
+    await ev(`localStorage.setItem('church_app_v4', ${JSON.stringify(JSON.stringify(st))}); localStorage.removeItem('task_side_closed')`);
+    await send('Page.navigate', { url: URL_BASE + '/?p=p1' }); await wait('Page.loadEventFired');
+    await sleep(1300);
+  };
+  const openTask = async (title) => { await ev(`[...document.querySelectorAll('.board-card')].find(c => c.textContent.includes(${JSON.stringify(title)}))?.click()`); await sleep(900); };
+  const closeTask = async () => { await ev(`${byLabel('닫기')}?.click()`); await sleep(500); };
+  const live = (id) => ev(`window.__store.getState().tasks.byId[${JSON.stringify(id)}]`);
+  const key = async (k, extra = {}) => {
+    const base = { key: k, code: extra.code || k, windowsVirtualKeyCode: extra.vk || 0, modifiers: extra.modifiers || 0 };
+    await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+  };
+  await load();
+  await ev(`window.__ytAsks = 0; window.__ytTitleFake = new Proxy({ ${JSON.stringify(YT)}: new Promise(r => { window.__ytResolve = r; }), AAAAAAAAAAA: null },
+    { get(t, k) { if (typeof k === 'string' && k.length === 11) window.__ytAsks++; return t[k]; } })`);
+
+  // ④ 유튜브 카드 — 본문(보기) · 댓글
+  await openTask('실패 확인 업무');
+  const card = (scope) => `[...document.querySelectorAll(${JSON.stringify(scope + ' [data-yt-card]')})]`;
+  const y1 = await ev(`(() => { const c = ${card('[data-view-body]')};
+    const one = c.find(x => x.getAttribute('data-yt-card') === ${JSON.stringify(YT)});
+    return { n: c.length, inLine: one?.closest('li')?.textContent.includes('워리커 in 제주') || false, img: one?.querySelector('img')?.getAttribute('src') || null,
+      skel: !!one?.querySelector('.dc-skeleton'), title: one?.querySelector('.worship-song-link')?.textContent || null }; })()`);
+  await ev(`window.__ytResolve('워십 리더 커뮤니티 | 워리커 & 워밴커 in JEJU Full.ver')`); await sleep(300);
+  const y2 = await ev(`(() => { const c = ${card('[data-view-body]')}; const one = c[0];
+    return { n: c.length, title: one?.querySelector('.worship-song-link')?.textContent.trim() || null, skel: !!one?.querySelector('.dc-skeleton'),
+      href: one?.getAttribute('href'), plainLink: [...document.querySelectorAll('[data-view-body] a')].some(a => a.href.includes('AAAAAAAAAAA') && !a.hasAttribute('data-yt-card')),
+      cmt: ${card('[data-cmt-box]')}.length, asks: window.__ytAsks }; })()`);
+  check('④ 유튜브 영상 주소 줄 아래 카드 — 썸네일은 곧바로, 제목은 막대로 기다린다',
+    y1.n === 1 && y1.inLine && y1.img === `https://i.ytimg.com/vi/${YT}/mqdefault.jpg` && y1.skel && y1.title === null, JSON.stringify(y1));
+  check('④ 제목이 오면 글자로 · 못 받은 영상은 카드 없이 링크만 · 댓글의 주소에도 카드',
+    y2.n === 1 && /^워십 리더 커뮤니티/.test(y2.title || '') && !y2.skel && y2.href === `https://www.youtube.com/watch?v=${YT}` && y2.plainLink && y2.cmt === 1, JSON.stringify(y2));
+  await closeTask(); await openTask('실패 확인 업무'); await sleep(300);
+  const y3 = await ev(`({ asks: window.__ytAsks, title: ${card('[data-view-body]')}[0]?.querySelector('.worship-song-link')?.textContent.trim() || null })`);
+  check('④ 같은 영상은 이 탭에서 한 번만 묻는다(다시 열면 곧바로 제목)', y3.asks === y2.asks && /^워십 리더 커뮤니티/.test(y3.title || ''), JSON.stringify({ y2: y2.asks, y3 }));
+
+  // ① 댓글 달기 실패 — 창은 열린 채(데스크톱 사이드바 댓글 칸)
+  await ev(`window.__devFail = { comment: true }`);
+  const cmtArea = `document.querySelector('.fixed.z-50 .cmt-input textarea')`;
+  await ev(`${cmtArea}.focus()`); await send('Input.insertText', { text: '내일 오전에 다시 확인해 볼게요' }); await sleep(150);
+  await ev(`${byLabel('등록')}.click()`); await sleep(500);
+  const FAILED = `(() => { const el = document.querySelector('.fixed.z-50 [data-comment-failed]'); if (!el) return { found: false };
+    const row = el.closest('.py-3');
+    return { found: true, text: el.textContent.includes('내일 오전에 다시 확인해 볼게요'), line: el.textContent.includes('댓글 달기에 실패했어요'),
+      resend: [...el.querySelectorAll('button')].some(b => b.textContent.trim() === '다시 보내기'), edit: !!el.querySelector('[title="수정"], [title="삭제"]'),
+      react: !!el.querySelector('[aria-label="좋아요"]'), reply: [...(row?.querySelectorAll('button') || [])].some(b => /^답글/.test(b.textContent.trim())),
+      faded: getComputedStyle(el.querySelector('.text-xs.text-fg-secondary')).opacity, toast: [...document.querySelectorAll('[data-toast]')].some(t => /댓글을 남기지 못했어요/.test(t.innerText)),
+      input: ${cmtArea}.value }; })()`;
+  const f1 = await ev(FAILED);
+  check('① 댓글 달기 실패 — 그 자리에 흐리게 남고 실패 한 줄 + 다시 보내기 · 수정·삭제·반응·답글 없음 · 창이 열려 있으면 토스트 없음 · 칸은 비었다',
+    f1.found && f1.text && f1.line && f1.resend && !f1.edit && !f1.react && !f1.reply && f1.faded === '0.5' && !f1.toast && f1.input === '', JSON.stringify(f1));
+  // 실시간 재조회가 목록을 서버 것(못 보낸 댓글 없음)으로 갈아 끼운다
+  await ev(`(() => { const t = window.__store.getState().tasks.byId.v1; window.__store.dispatch({ type: 'SYNC_TASK', payload: { id: 'v1', comments: t.comments.filter(c => c.id === 'k0') } }); })()`);
+  await sleep(300);
+  const f2 = await ev(FAILED);
+  check('① 실시간 재조회가 목록을 갈아 끼워도 못 보낸 댓글은 그 자리에 남는다', f2.found && f2.line, JSON.stringify(f2));
+  await ev(`[...document.querySelectorAll('.fixed.z-50 [data-comment-failed] button')].find(b => b.textContent.trim() === '다시 보내기')?.click()`); await sleep(400);
+  const f3 = await ev(FAILED);
+  await ev(`window.__devFail = {}`);
+  await ev(`[...document.querySelectorAll('.fixed.z-50 [data-comment-failed] button')].find(b => b.textContent.trim() === '다시 보내기')?.click()`); await sleep(500);
+  const f4 = await ev(`(() => { const t = window.__store.getState().tasks.byId.v1; const el = [...document.querySelectorAll('.fixed.z-50 [data-comment-id]')].find(n => n.textContent.includes('내일 오전에 다시 확인해 볼게요'));
+    return { failed: !!document.querySelector('.fixed.z-50 [data-comment-failed]'), shown: !!el, react: !!el?.querySelector('[aria-label="좋아요"]'),
+      inStore: t.comments.filter(c => c.text === '내일 오전에 다시 확인해 볼게요').length }; })()`);
+  check('① 또 실패하면 그대로 · 다시 보내기가 되면 보통 댓글(반응 줄) · 한 벌만', f3.found && f3.line && !f4.failed && f4.shown && f4.react && f4.inStore === 1, JSON.stringify({ f3, f4 }));
+  await closeTask();
+
+  // ② 업무 창 저장 실패
+  await openTask('상태 칩 업무'); await enterEdit();
+  await ev(`window.__devFail = { task: true }`);
+  await setTitle('상태 칩 업무 고침'); await ev(`document.querySelector('input[name="title"]').blur()`); await sleep(500);
+  const MARK = `(() => { const m = document.querySelector('[data-save-state]'); return { state: m?.getAttribute('data-save-state') || null, text: m?.textContent.replace(/\\s+/g, ' ').trim() || '',
+    retry: [...(m?.querySelectorAll('button') || [])].some(b => b.textContent.trim() === '다시 시도') }; })()`;
+  const s1 = await ev(MARK);
+  check("② 저장이 실패하면 '저장됨' 자리에 '저장하지 못했어요' + '다시 시도'", s1.state === 'failed' && s1.text.replace(/\s/g, '') === '저장하지못했어요다시시도' && s1.retry, JSON.stringify(s1));
+  // 다른 칸(하위 업무 없음 → 팀) 저장도 실패 — 남는다
+  await ev(`[...document.querySelectorAll('.fixed.z-50 button')].find(b => b.textContent.trim() === '보류 중')?.click()`); await sleep(400);
+  const s2 = await ev(MARK);
+  check('② 다른 칸 저장이 또 실패해도 그대로 남는다', s2.state === 'failed', JSON.stringify(s2));
+  const titleLogs = async () => ((await live('v2')).activityLog || []).filter(l => /제목/.test(l.action)).length;
+  const before = await titleLogs();
+  await ev(`window.__devFail = {}`);
+  await ev(`[...document.querySelectorAll('[data-save-state] button')].find(b => b.textContent.trim() === '다시 시도')?.click()`); await sleep(500);
+  const s3 = { ...(await ev(MARK)), titleLogs: await titleLogs(), before };
+  check("② '다시 시도'가 못 간 칸(제목)을 다시 실어 가고, 되면 '저장됨'으로", s3.state === 'saved' && s3.titleLogs === before + 1, JSON.stringify(s3));
+  await ev(`${byLabel('수정 완료')}?.click()`); await sleep(400);
+  await closeTask();
+
+  // ③ 보기 화면 상태 칩
+  await openTask('상태 칩 업무');
+  const chip = `document.querySelector('.fixed.z-50 [data-status-chip]')`;
+  const c0 = await ev(`(() => { const b = ${chip}; return b ? { text: b.textContent.trim(), haspopup: b.getAttribute('aria-haspopup'), label: b.getAttribute('aria-label') } : null; })()`);
+  await ev(`${chip}?.click()`); await sleep(300);
+  const pop = await ev(`(() => { const p = [...document.querySelectorAll('.dc-pop')].at(-1); const b = ${chip}?.getBoundingClientRect();
+    if (!p || !b) return null; const r = p.getBoundingClientRect();
+    return { items: [...p.querySelectorAll('button')].map(x => x.textContent.trim()), portal: p.parentElement === document.body, w: Math.round(r.width),
+      left: Math.round(r.left - b.left), below: Math.round(r.top - b.bottom) }; })()`);
+  check('③ 보기 화면 상태 칩(▾) — 보드와 같은 150px 팝오버가 칩 아래 왼쪽 맞춤으로(body 포털)',
+    c0?.text === '보류 중' && c0.haspopup === 'menu' && pop && pop.portal && pop.w === 150 && pop.left === 0 && pop.below >= 0 && pop.below <= 12
+      && pop.items.join(',') === '시작 전,진행 중,보류 중,완료,상시', JSON.stringify({ c0, pop }));
+  const pos0 = (await live('v2')).position;
+  await ev(`[...document.querySelectorAll('.dc-pop button')].find(b => b.textContent.trim() === '완료')?.click()`); await sleep(500);
+  const m1 = await ev(`(() => { const t = document.querySelector('[data-toast="action"]'); return { chip: ${chip}?.textContent.trim(), toast: t?.innerText.replace(/\\s+/g, ' ').trim() || null,
+    pop: !!document.querySelector('.dc-pop') }; })()`);
+  const v2a = await live('v2');
+  check("③ 고르면 바로 저장 · 그 상태 맨 위 자리 · '상태 칩 업무 고침'을 완료로 옮겼어요 · 되돌리기",
+    m1.chip === '완료' && !m1.pop && v2a.status === '완료' && v2a.position < 0 && m1.toast === "'상태 칩 업무 고침'을 완료로 옮겼어요 되돌리기", JSON.stringify({ m1, status: v2a.status, pos: v2a.position }));
+  await ev(`[...(document.querySelector('[data-toast="action"]')?.querySelectorAll('button') || [])].find(b => b.textContent.trim() === '되돌리기')?.click()`); await sleep(500);
+  const v2b = await live('v2');
+  check('③ 되돌리면 상태와 자리가 그대로', v2b.status === '보류 중' && v2b.position === pos0 && (await ev(`${chip}?.textContent.trim()`)) === '보류 중', JSON.stringify({ status: v2b.status, pos: v2b.position, pos0 }));
+  await ev(`${chip}?.click()`); await sleep(250);
+  await key('Escape', { code: 'Escape', vk: 27 }); await sleep(250);
+  const esc = await ev(`({ pop: !!document.querySelector('.dc-pop'), open: !!document.querySelector('.fixed.z-50') })`);
+  check('③ Esc는 팝오버만 닫는다(창은 그대로)', !esc.pop && esc.open, JSON.stringify(esc));
+  await closeTask();
+  await openTask('잠긴 업무');
+  const locked = await ev(`({ chip: !!${chip}, text: document.querySelector('.fixed.z-50 [data-task-view]')?.textContent.includes('진행 중') })`);
+  check('③ 잠긴 업무(나에게 닫힌 것)는 상태가 글자 그대로 — 칩이 아니다', !locked.chip && locked.text, JSON.stringify(locked));
+  await closeTask();
+}
+
 console.log(results.join('\n'));
 console.log(logs.length ? '\n콘솔 오류:\n' + logs.join('\n') : '\n콘솔 오류 없음');
 ws.close(); chrome.kill(); process.exit(results.some(r => r.startsWith('FAIL')) ? 1 : 0);

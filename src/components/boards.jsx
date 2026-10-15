@@ -124,24 +124,21 @@ const TaskCardInner = React.memo(({ task, projectsMap, showProjectBadge, action 
   );
 });
 
-// 모바일에서 끌지 않고 상태를 옮기는 버튼 — 카드마다 하나(모바일 전용).
-// 길게 눌러 끌기는 그대로 두고, "탭 → 상태 고르기"라는 확실한 길을 하나 더 준다.
-// 팝오버는 반드시 포털로 띄운다: 카드에 content-visibility가 걸려 있어 카드 안의
-// position:fixed는 뷰포트가 아니라 카드를 기준으로 잡힌다.
-function StatusMoveButton({ task, onStatusChange }) {
-  const [open, setOpen] = React.useState(false);
-  const rootRef = React.useRef(null);
-  const btnRef = React.useRef(null);
+// 상태 고르기 팝오버 — 보드 카드의 상태 옮기기(아래 StatusMoveButton)와 업무 창 보기 화면의 상태 칩(modals.jsx · UX 다듬기 2차 D1)이
+// 같이 쓴다. 150px · 다섯 줄(상시는 맨 아래 · config STATUS_PICK) · body 포털 + useAnchoredPos(HANDOFF §8 — 카드에 content-visibility가 걸려
+// 있어 카드 안의 position:fixed는 뷰포트가 아니라 카드를 기준으로 잡힌다). 바깥 누름·Esc로 닫는다 — rootRef(트리거 묶음)와 판은 '안'이다.
+// align — 'start'면 트리거 왼쪽 끝에 맞춘다(줄 앞쪽에 선 상태 칩 · 기본은 오른쪽 끝 — 카드 우상단 버튼).
+export function StatusMenu({ anchorRef, rootRef, open, onClose, current, onPick, align }) {
   const popRef = React.useRef(null);
-  const [pos, place] = useAnchoredPos(btnRef, open, 150, 192, 8, popRef);
+  const [pos] = useAnchoredPos(anchorRef, open, 150, 192, 8, popRef, align ? { align } : null);
 
   React.useEffect(() => {
     if (!open) return;
     const onDown = (e) => {
-      const inside = rootRef.current?.contains(e.target) || popRef.current?.contains(e.target);
-      if (!inside) setOpen(false);
+      const inside = rootRef?.current?.contains(e.target) || popRef.current?.contains(e.target);
+      if (!inside) onClose();
     };
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('touchstart', onDown);
     document.addEventListener('keydown', onKey);
@@ -150,7 +147,43 @@ function StatusMoveButton({ task, onStatusChange }) {
       document.removeEventListener('touchstart', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open]);
+  }, [open, onClose, rootRef]);
+
+  if (!open) return null;
+  return createPortal(
+        <div
+          ref={popRef}
+          style={{ position: 'fixed', left: pos.left, top: pos.top, width: 150, ...popMotion(pos) }}
+          className="dc-pop transition-none z-[90] bg-surface border border-line rounded-md shadow-soft p-[5px]"
+        >
+          {/* 상시도 고를 수 있다(맨 아래 · config STATUS_PICK) — 칸이 아니라 보드 위 줄로 간다 */}
+          {CONFIG.STATUS_PICK.map(s => (
+            <button
+              key={s} type="button"
+              onClick={(e) => { e.stopPropagation(); onClose(); if (s !== current) onPick(s); }}
+              className="w-full flex items-center gap-2 px-2 py-[7px] rounded-sm text-left text-[12.5px] transition-colors hover:bg-surface-hover"
+              style={{
+                background: s === current ? 'var(--app-surface-hover)' : 'transparent',
+                color: s === current ? 'var(--app-ink)' : 'var(--app-ink-muted)',
+              }}
+            >
+              <span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: STATUS_DOT_VAR[s] }} />
+              <span className="flex-1 truncate">{s}</span>
+            </button>
+          ))}
+        </div>,
+        document.body
+  );
+}
+
+// 모바일에서 끌지 않고 상태를 옮기는 버튼 — 카드마다 하나(모바일 전용).
+// 길게 눌러 끌기는 그대로 두고, "탭 → 상태 고르기"라는 확실한 길을 하나 더 준다.
+// 팝오버는 위 StatusMenu(포털)다.
+function StatusMoveButton({ task, onStatusChange }) {
+  const [open, setOpen] = React.useState(false);
+  const rootRef = React.useRef(null);
+  const btnRef = React.useRef(null);
+  const close = React.useCallback(() => setOpen(false), []);
 
   // pointerDown까지 막아야 dnd-kit이 이 버튼을 드래그 시작으로 보지 않는다
   const stop = (e) => { e.stopPropagation(); e.preventDefault(); };
@@ -163,36 +196,14 @@ function StatusMoveButton({ task, onStatusChange }) {
         <button
           type="button" title="상태 옮기기" aria-label="상태 옮기기"
           onPointerDown={stop} onTouchStart={stop} onMouseDown={stop}
-          onClick={(e) => { e.stopPropagation(); place(); setOpen(o => !o); }}
+          onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
           className="w-6 h-6 -mr-1 -mt-0.5 rounded-md flex items-center justify-center text-fg-faint hover:text-accent-text hover:bg-surface-hover transition-colors"
         >
           <ArrowLeftRight size={13} />
         </button>
       </span>
-      {open && createPortal(
-        <div
-          ref={popRef}
-          style={{ position: 'fixed', left: pos.left, top: pos.top, width: 150, ...popMotion(pos) }}
-          className="dc-pop transition-none z-[90] bg-surface border border-line rounded-md shadow-soft p-[5px]"
-        >
-          {/* 상시도 고를 수 있다(맨 아래 · config STATUS_PICK) — 칸이 아니라 보드 위 줄로 간다 */}
-          {CONFIG.STATUS_PICK.map(s => (
-            <button
-              key={s} type="button"
-              onClick={(e) => { e.stopPropagation(); setOpen(false); if (s !== task.status) onStatusChange(task, s); }}
-              className="w-full flex items-center gap-2 px-2 py-[7px] rounded-sm text-left text-[12.5px] transition-colors hover:bg-surface-hover"
-              style={{
-                background: s === task.status ? 'var(--app-surface-hover)' : 'transparent',
-                color: s === task.status ? 'var(--app-ink)' : 'var(--app-ink-muted)',
-              }}
-            >
-              <span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: STATUS_DOT_VAR[s] }} />
-              <span className="flex-1 truncate">{s}</span>
-            </button>
-          ))}
-        </div>,
-        document.body
-      )}
+      <StatusMenu anchorRef={btnRef} rootRef={rootRef} open={open} onClose={close} current={task.status}
+        onPick={(s) => onStatusChange(task, s)} />
     </span>
   );
 }

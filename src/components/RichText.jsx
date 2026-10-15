@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { ExternalLink } from 'lucide-react';
 import { tokenizeInline, MD_LINK_RE, IMAGE_LINE_RE, unescapeLine } from '../services/markdown.js';
+import { youtubeVideoId, youtubeThumb, fetchVideoTitle } from '../services/worship.js';
 import { SmartImage, ImageLightbox } from './media.jsx';
 import { docEmbedKind, DocEmbedModal, DocKindIcon } from './DocEmbed.jsx';
 import { splitMention } from '../utils.js';
@@ -75,6 +77,63 @@ function InlineLink({ href, children }) {
     >{children}</a>
   );
 }
+// ── 유튜브 링크 카드 (UX 다듬기 2차 C13 · 2026-10-15 · PITFALLS 59-d) ─────────────────────────────
+// 댓글·업무 본문(ytCards를 넘긴 자리만)의 유튜브 **영상** 주소 아래에 카드 한 장 — 주보 찬양 줄(worshipDetail SongThumb + 제목 링크 + ↗)과
+// 같은 한 벌을 테두리 상자로 감쌌다(시안 C13). 썸네일은 공개 주소(i.ytimg.com)라 곧바로 서고, 제목은 우리 서버(api/yt · 승인된 사람만 ·
+// oEmbed)에서 받아 오는 동안 그 자리에 막대가 숨 쉰다. **못 받으면(게스트 · 비공개 영상 · 서버 실패) 카드를 걷는다** — 링크는 글 안에
+// 그대로 있다. 제목은 영상 id마다 이 탭에 한 번만 묻는다(실패도 적어 둔다 — 그리는 때마다 서버를 두드리지 않게).
+// 잠긴 업무(0099)는 본문·댓글을 아예 그리지 않으므로(잠금 판) 묻지도 않는다. 본문 링크에는 비밀번호가 없다(위 InlineLink).
+// 개발 빌드의 게스트 검사(tests/modalclose)는 `window.__ytTitleFake = { [영상 id]: '제목' | null }`로 답을 정한다(null = 실패).
+const ytTitles = new Map();   // 영상 id → '제목' | '' (못 받음) | Promise
+const URL_IN_LINE = /https?:\/\/[^\s)\]]+/g;
+const ytIdsIn = (text) => [...new Set((String(text || '').match(URL_IN_LINE) || []).map(u => youtubeVideoId(u)).filter(Boolean))];
+function askTitle(id) {
+  const had = ytTitles.get(id);
+  if (had !== undefined) return Promise.resolve(had);
+  const fake = import.meta.env?.DEV && typeof window !== 'undefined' ? window.__ytTitleFake : null;
+  const p = (fake ? Promise.resolve(fake[id] ?? null).then(t => { if (!t) throw new Error('fake'); return t; })
+    : fetchVideoTitle(`https://www.youtube.com/watch?v=${id}`))
+    .then(t => String(t || '').trim(), (e) => { if (!e?.quiet) console.warn('[yt] 영상 제목을 받지 못했어요:', e?.human || e); return ''; })
+    .then(t => { ytTitles.set(id, t); return t; });
+  ytTitles.set(id, p);
+  return p;
+}
+const WJ = '⁠';   // 단어 잇개 — 아이콘이 혼자 다음 줄로 내려가지 않게(worshipDetail과 같다)
+function YtCard({ id }) {
+  const cached = ytTitles.get(id);
+  const [title, setTitle] = useState(typeof cached === 'string' ? cached : null);   // null = 받는 중
+  const [thumbOk, setThumbOk] = useState(true);
+  useEffect(() => {
+    if (typeof ytTitles.get(id) === 'string') { setTitle(ytTitles.get(id)); return undefined; }
+    let alive = true;
+    askTitle(id).then(t => { if (alive) setTitle(t); });
+    return () => { alive = false; };
+  }, [id]);
+  if (title === '' || !thumbOk) return null;
+  const href = `https://www.youtube.com/watch?v=${id}`;
+  return (
+    <a href={href} target="_blank" rel="noreferrer" data-yt-card={id}
+      className="yt-card flex items-center gap-2.5 mt-1.5 mb-1 px-2.5 py-2 rounded-md border border-line hover:bg-surface-hover transition-colors max-w-[380px] no-underline">
+      <span className="worship-song-thumbbox w-16 h-9 shrink-0 relative inline-block overflow-hidden rounded-sm" style={{ background: 'var(--app-surface-hover)' }}>
+        <img referrerPolicy="no-referrer" src={youtubeThumb(href)} alt="" loading="lazy" draggable={false} onError={() => setThumbOk(false)}
+          className="worship-song-thumb w-full h-full rounded-sm object-cover" />
+      </span>
+      {title === null
+        ? <span className="flex-1 min-w-0"><span className="block h-2.5 w-3/4 rounded-full dc-skeleton" /></span>
+        : (
+          <span className="worship-song-link min-w-0 text-[13px] font-semibold text-accent-text leading-snug break-words">
+            {title}{WJ}<ExternalLink size={11} className="worship-song-ext inline-block ml-1.5 align-[-1px]" />
+          </span>
+        )}
+    </a>
+  );
+}
+// 한 줄(문단·목록 한 칸·체크 항목·제목)의 영상 주소마다 카드 — 그 줄 바로 아래에 선다(같은 영상은 한 장)
+const YtCards = ({ text }) => {
+  const ids = useMemo(() => ytIdsIn(text), [text]);
+  return ids.map(id => <YtCard key={id} id={id} />);
+};
+
 // 마크 → 태그·클래스 (에디터 .tiptap 스타일과 같은 톤)
 const MARK_TAG = { bold: 'strong', italic: 'em', underline: 'u', strike: 's', highlight: 'mark' };
 const MARK_CLS = {
@@ -198,9 +257,11 @@ function ContentImage({ src }) {
 // 넘긴다(하위 업무처럼 보기에서 바로 눌린다). 안 넘기면(댓글·요약 등) 읽기 전용이다.
 // lineAttrs: 줄마다 `data-line`(마크다운 줄 번호)을 단다 — 업무 창 보기 화면이 '누가 어느 줄을 고치는 중인가'를
 // 그 줄 옆에 세우는 좌표다(modals/coedit.jsx PresenceMarks · 엔진 core.caretLine과 같은 번호). 모양은 안 바뀐다.
-export const RichText = React.memo(({ content, onToggleTodo, lineAttrs = false }) => {
+// ytCards: 유튜브 영상 주소가 있는 줄 아래에 카드(위 '유튜브 링크 카드') — 댓글·업무 보기 본문만 넘긴다.
+export const RichText = React.memo(({ content, onToggleTodo, lineAttrs = false, ytCards = false }) => {
   const blocks = useMemo(() => parseBlocks(content), [content]);
   const ln = (k) => (lineAttrs ? { 'data-line': k } : null);
+  const yt = (value) => (ytCards ? <YtCards text={value} /> : null);
   return (
     <>
       {blocks.map(block => {
@@ -229,22 +290,22 @@ export const RichText = React.memo(({ content, onToggleTodo, lineAttrs = false }
                         <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
                       )}
                     </button>
-                    <span className={`min-w-0 ${it.checked ? 'text-fg-faint line-through' : 'text-fg'}`}>{renderInline(it.value, it.key)}</span>
+                    <span className={`min-w-0 ${it.checked ? 'text-fg-faint line-through' : 'text-fg'}`}>{renderInline(it.value, it.key)}{yt(it.value)}</span>
                   </div>
                 ))}
               </div>
             );
           case 'heading': {
             const Tag = `h${block.level}`;
-            return <Tag key={block.key} {...ln(block.key)} className={HEADING_CLS[block.level]}>{renderInline(block.value, block.key)}</Tag>;
+            return <Tag key={block.key} {...ln(block.key)} className={HEADING_CLS[block.level]}>{renderInline(block.value, block.key)}{yt(block.value)}</Tag>;
           }
           // 글자 크기는 호출부가 정한다 — 여기서 text-sm을 박아 두면 댓글(11px 이름 옆),
           // 요약(text-xs 래퍼) 안에서도 14px로 커져서 주변과 어긋났다(실제 지적).
           // 본문은 TaskViewer 래퍼가 text-sm을 준다.
           case 'ul':
-            return <ul key={block.key} className="list-disc pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key} {...ln(it.key)}>{renderInline(it.value, it.key)}</li>)}</ul>;
+            return <ul key={block.key} className="list-disc pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key} {...ln(it.key)}>{renderInline(it.value, it.key)}{yt(it.value)}</li>)}</ul>;
           case 'ol':
-            return <ol key={block.key} start={block.start || 1} className="list-decimal pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key} {...ln(it.key)}>{renderInline(it.value, it.key)}</li>)}</ol>;
+            return <ol key={block.key} start={block.start || 1} className="list-decimal pl-5 mb-1 space-y-0.5 text-fg leading-relaxed">{block.items.map(it => <li key={it.key} {...ln(it.key)}>{renderInline(it.value, it.key)}{yt(it.value)}</li>)}</ol>;
           // **빈 줄은 글자 한 줄 높이 · 들여쓰기는 그대로**(사용자 결정 2026-09-25 · 목업 A1 —
           // 편집 화면과 같게). 예전에는 빈 줄이 8px(h-2)이고 앞 공백이 접혀서, 엔터 두 번으로
           // 나눈 문단이 보기에서 붙고 수정↔보기 때 줄이 뛰었다. 빈 줄은 빈 문단 하나라 어느
@@ -252,7 +313,7 @@ export const RichText = React.memo(({ content, onToggleTodo, lineAttrs = false }
           case 'gap':
             return <p key={block.key} {...ln(block.key)} className="mb-1 text-fg leading-relaxed"><br /></p>;
           default:
-            return <p key={block.key} {...ln(block.key)} className="mb-1 text-fg leading-relaxed whitespace-break-spaces">{renderInline(block.value, block.key)}</p>;
+            return <p key={block.key} {...ln(block.key)} className="mb-1 text-fg leading-relaxed whitespace-break-spaces">{renderInline(block.value, block.key)}{yt(block.value)}</p>;
         }
       })}
     </>

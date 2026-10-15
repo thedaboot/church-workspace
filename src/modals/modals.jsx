@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
-import { CheckSquare, X, Trash2, Check, Maximize2, Minimize2, PanelRight, PanelRightClose, Loader2 } from 'lucide-react';
+import { CheckSquare, X, Trash2, Check, Maximize2, Minimize2, PanelRight, PanelRightClose, Loader2, AlertCircle, ChevronDown } from 'lucide-react';
 import { CONFIG } from '../config.js';
-import { formatDate, isMobileViewport, taskEditDirty, taskChangedKeys, toggleTodoLine, imeComposing } from '../utils.js';
+import { formatDate, isMobileViewport, taskEditDirty, taskChangedKeys, toggleTodoLine, imeComposing, topPosition } from '../utils.js';
+import { createSaveRetry } from '../services/optimistic.js';
+import { StatusMenu } from '../components/boards.jsx';
 import { store, useStore } from '../store/workspaceStore.js';
 import { selectCurrentUser, selectProjectsMap } from '../store/selectors.js';
 import { parseActionItems, stripActionSection, writeActionSection } from '../services/actionItems.js';
@@ -33,7 +35,7 @@ const EditorSkeleton = () => (
 import { ConfirmPopover } from '../components/ConfirmPopover.jsx';
 import { useAuth } from '../services/auth.jsx';
 import { isMyUid } from '../services/supabaseClient.js';
-import { getMemberNames, loadCardDetail, cardWritePromise, lockCardCloud, unlockCardCloud, unlockOwnerCloud } from '../services/cloudSync.js';
+import { getMemberNames, loadCardDetail, loadCardPatch, cardWritePromise, lockCardCloud, unlockCardCloud, unlockOwnerCloud } from '../services/cloudSync.js';
 import { isCardClosed, allowTry } from '../services/cardLock.js';
 import { makeViewPw, verifyViewPw } from '../services/viewPw.js';
 import { failText } from '../services/errorText.js';
@@ -92,7 +94,8 @@ function useAfterPaint() {
 // 창은 칸마다 **스토어의 지금 값**을 그린다(남이 바꾼 상태·하위 업무가 바로 보인다 · App.jsx가 실시간을
 // 더는 미루지 않는다). 창이 들고 있는 것은 **막 치고 있는 것**뿐이다: 초점이 있는 제목 · 하위 업무 이름 ·
 // 게스트 본문. 닫을 때(✕·딤·닫기)는 묻지 않고 **밀린 쓰기를 흘린 뒤** 닫는다(flushers) — 페이지를 떠날
-// 때도(pagehide) 같다. '저장됨'은 밀린 쓰기가 하나라도 있는 동안 작은 돌기로 바뀐다(hold).
+// 때도(pagehide) 같다. '저장됨'은 밀린 쓰기가 하나라도 있는 동안 작은 돌기로 바뀐다(hold) · 못 간 칸이 남아 있으면
+// '저장하지 못했어요' + '다시 시도'(아래 '못 간 칸' · PITFALLS 59-b).
 // 수정 화면 아래 줄: 삭제 · 메타 · '저장됨' · `수정 완료`(진한 accent — 밀린 쓰기를 흘리고 같이 쓰기 세션을 끝낸 뒤
 // 보기로) · `닫기`. 저장하지 않은 것이 없으니 묻는 창도 없다.
 //
@@ -249,23 +252,33 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
   onSessionRef.current = onContentSession;
   // 밀린 쓰기 수 — '저장됨' 자리(SaveMark). hold()가 준 끝내기를 쓰기가 끝나면 부른다(두 번 불러도 한 번).
   const [busy, setBusy] = useState(0);
-  const [failed, setFailed] = useState(false);
   const hold = useCallback(() => {
     setBusy(n => n + 1);
     let done = false;
-    return (ok = true) => { if (done) return; done = true; setBusy(n => Math.max(0, n - 1)); setFailed(!ok); };
+    return () => { if (done) return; done = true; setBusy(n => Math.max(0, n - 1)); };
   }, []);
   const cardId = task.id;
+  // ── 못 간 칸 (UX 다듬기 2차 A2 · 2026-10-15 · PITFALLS 59-b) ──
+  // 저장이 실패한 칸은 실패하기 전 값과 같이 기억해 두고(services/optimistic.createSaveRetry) 다음 저장이 그 값으로 견준다 — 스토어에는
+  // 내가 쓴 값이 이미 있어서 그냥 견주면 '안 바뀐 칸'이 되어 영영 안 간다. 남아 있는 동안 '저장됨' 자리에 '저장하지 못했어요' +
+  // '다시 시도'(retrySave)가 선다 — 저장이 성공해 다 비울 때까지. 업무마다 새로(창이 다른 업무로 넘어가면 그 업무 것이 아니다).
+  const retry = useMemo(() => createSaveRetry(), [cardId]);
+  const [failed, setFailed] = useState(0);
+  useEffect(() => { setFailed(retry.size()); }, [retry]);
   // patch는 칸 몇 개 또는 (지금 카드 → 새 카드) 함수. 바뀐 칸이 없으면 아무것도 보내지 않는다.
   const commit = useCallback((patch, { release, ...opts } = {}) => {
     const done = release || hold();
     const cur = cardId && store.getState().tasks.byId[cardId];
-    if (!cur) { done(true); return null; }
+    if (!cur) { done(); return null; }
     const next = typeof patch === 'function' ? patch(cur) : { ...cur, ...patch };
-    const keys = taskChangedKeys(next, cur);
-    if (!keys || !keys.length) { done(true); return cur; }
-    return onSaveRef.current(next, cur, { ...opts, onSettled: done });
-  }, [cardId, hold]);
+    const t = retry.begin(cur);
+    const keys = taskChangedKeys(next, t.base) || [];
+    const settle = (ok) => { setFailed(retry.settle(t, keys, ok, { silent: !!opts.silentContent })); done(); };
+    if (!keys.length) { settle(true); return cur; }
+    return onSaveRef.current(next, t.base, { ...opts, silentContent: !!opts.silentContent || (t.silent && keys.includes('content')), onSettled: settle });
+  }, [cardId, hold, retry]);
+  // '다시 시도' — 지금 카드 그대로 한 번 더(못 간 칸만 실려 간다)
+  const retrySave = useCallback(() => commit(cur => cur), [commit]);
   // 닫을 때 · 페이지를 떠날 때 흘릴 것들(제목 · 하위 업무 이름 · 게스트 본문이 저마다 등록한다)
   const flushers = useRef(new Set());
   const register = useCallback((fn) => { flushers.current.add(fn); return () => flushers.current.delete(fn); }, []);
@@ -578,7 +591,7 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
       <div className="flex items-center gap-2 shrink-0">
         {editing ? (
           <>
-            <span className="mr-1 inline-flex"><SaveMark busy={busy > 0} failed={failed} /></span>
+            <span className="mr-1 inline-flex"><SaveMark busy={busy > 0} failed={failed > 0} onRetry={retrySave} /></span>
             <button type="button" onClick={finishEdit} className="bg-accent hover:bg-accent-strong text-white px-5 py-2 rounded-md text-xs font-semibold transition active:scale-95 whitespace-nowrap">수정 완료</button>
           </>
         ) : closed ? null : (
@@ -714,8 +727,10 @@ export function TaskModalShell({ task, onClose, onSave, onContentSession, onAddC
 }
 
 // '저장됨' — 밀린 쓰기가 없으면 작은 체크 + 글자, 있으면 돌기 하나(새 글자 없음 · 목업).
-// 실패는 토스트가 두 줄로 말한다(controllers.reportCloudError) — 여기서는 '저장됨'을 거두기만 한다(거짓이 되니까).
-function SaveMark({ busy, failed }) {
+// 못 간 칸이 남아 있으면 그 자리에 빨간 '저장하지 못했어요' + 글자 버튼 '다시 시도'(UX 다듬기 2차 A2 시안) — 저장이 성공해 못 간 칸이
+// 다 비워질 때까지 남는다(다른 칸을 고쳐 성공해도 못 간 칸을 같이 실어 가므로 그때 걷힌다). 토스트는 그대로 한 번 뜬다.
+// 다시 보내는 동안은 돌기다(busy가 앞선다).
+function SaveMark({ busy, failed, onRetry }) {
   if (busy) {
     return (
       <span data-save-state="saving" aria-label="저장하는 중" className="inline-flex items-center justify-center w-4 h-4 text-fg-muted">
@@ -723,7 +738,14 @@ function SaveMark({ busy, failed }) {
       </span>
     );
   }
-  if (failed) return <span data-save-state="failed" />;
+  if (failed) {
+    return (
+      <span data-save-state="failed" className="inline-flex items-center gap-1.5 text-[11px] font-medium whitespace-nowrap">
+        <span className="inline-flex items-center gap-1 text-tag-red-fg"><AlertCircle size={12} strokeWidth={2.5} />저장하지 못했어요</span>
+        <button type="button" onClick={onRetry} className="text-[11px] font-semibold text-accent-text hover:underline">다시 시도</button>
+      </span>
+    );
+  }
   return (
     <span data-save-state="saved" className="inline-flex items-center gap-1 text-[11px] font-medium text-fg-muted whitespace-nowrap">
       <Check size={12} strokeWidth={2.5} className="text-tag-green-fg" />저장됨
@@ -825,6 +847,38 @@ function useCoActions(co) {
   return { items, ops };
 }
 
+// 보기 화면의 상태 칩에서 고른 상태로(UX 다듬기 2차 D1) — 보드의 상태 옮기기(App.handleStatusChange)와 같은 일을 업무 창의 저장 길(commit ·
+// 바뀐 칸만)로 한다: 그 상태의 맨 위 자리(utils.topPosition · 2026-10-02 사용자 요청) + 같은 되돌리기 토스트. 되돌리기는 클라우드면 서버의
+// 지금 상태가 내가 바꾼 그대로인지 먼저 본다(남이 그 사이 바꿨으면 덮지 않는다) · 자리까지 되돌린다. 창이 닫힌 뒤 눌러도 된다(commit은 스토어의
+// 지금 카드로 간다). 상시로 고르면 날짜 두 칸을 저장 쪽(domain.updateWithLogs)이 비운다.
+function moveStatus(cardId, status, commit, cloudMode) {
+  const all = store.getState().tasks.byId;
+  const t = all[cardId];
+  if (!t || t.status === status) return;
+  const prev = t.status;
+  const prevPos = t.position;
+  commit({ status, position: topPosition(Object.values(all), status, t.id) });
+  showToast(`'${t.title}'을 ${status}로 옮겼어요`, {
+    label: '되돌리기',
+    onAction: async () => {
+      if (!store.getState().tasks.byId[cardId]) { showToast('업무가 이미 삭제되었어요'); return; }
+      if (cloudMode) {
+        try {
+          const fresh = await loadCardPatch(cardId);
+          if (!fresh) { showToast('업무가 이미 삭제되었어요'); return; }
+          if (fresh.status !== status) { showToast(`다른 사람이 이미 ${fresh.status}로 바꿨어요`); return; }
+        } catch (e) {
+          console.error('[cloud] 되돌리기 전 확인 실패:', e);
+          showToast('지금은 되돌릴 수 없어요\n잠시 후 다시 시도해주세요');
+          return;
+        }
+      }
+      commit({ status: prev, position: prevPos });
+      showToast(`${prev}로 되돌렸어요`);
+    },
+  });
+}
+
 // ── 업무 창 — 보기 (있는 업무의 기본 화면 · 2026-09-29 되살렸다) ──────────────────
 // 2026-09-28 이전 보기 화면의 짜임 그대로다: 상태 점 + 팀 · 제목 · 담당자/시작일/마감일/선행 업무 줄 · 3줄 요약 ·
 // 그린 본문(RichText — 체크리스트는 눌린다) · 청년별 담당 업무(고르고 '하위 업무로') · 하위 업무(체크만) · 첨부(읽기).
@@ -862,11 +916,30 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = 
 
   const fullDate = (d) => new Date(d).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
   const ongoing = task.status === CONFIG.STATUS_ONGOING;
+  // 상태 칩(UX 다듬기 2차 D1) — 누르면 보드의 상태 옮기기와 같은 팝오버(boards.StatusMenu)가 칩 아래 왼쪽에 맞춰 선다. 고르면 바로 저장하고
+  // 보드와 같은 되돌리기 토스트(moveStatus). 잠금 판이 서 있으면(나에게 닫힌 업무) 예전 그대로 글자다 — '수정'도 없는 자리다.
+  const [statusOpen, setStatusOpen] = useState(false);
+  const chipRef = useRef(null);
+  const chipRoot = useRef(null);
+  const closeStatus = useCallback(() => setStatusOpen(false), []);
+  const dot = <span className={`w-[5px] h-[5px] rounded-full ${CONFIG.STATUS_DOTS[task.status] || 'bg-fg-faint'}`} />;
   return (
     <div data-task-view="">
       {/* 상태는 점, 팀은 팀 색 글자 — 카드와 같은 표기법을 쓴다(배지 남발 금지) */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1.5 text-[11px] font-bold">
-        <span className="inline-flex items-center gap-1.5 text-fg-muted"><span className={`w-[5px] h-[5px] rounded-full ${CONFIG.STATUS_DOTS[task.status] || 'bg-fg-faint'}`} />{task.status}</span>
+        {closed ? (
+          <span className="inline-flex items-center gap-1.5 text-fg-muted">{dot}{task.status}</span>
+        ) : (
+          <span ref={chipRoot} className="inline-flex">
+            <button ref={chipRef} type="button" data-status-chip="" aria-label="상태 바꾸기" aria-haspopup="menu" aria-expanded={statusOpen}
+              onClick={() => setStatusOpen(o => !o)}
+              className="inline-flex items-center gap-1.5 pl-2 pr-1.5 py-[3px] rounded-full border border-line text-fg-muted hover:bg-surface-hover transition active:scale-95">
+              {dot}{task.status}<ChevronDown size={11} strokeWidth={2.5} className="text-fg-faint" aria-hidden />
+            </button>
+            <StatusMenu anchorRef={chipRef} rootRef={chipRoot} open={statusOpen} onClose={closeStatus} current={task.status} align="start"
+              onPick={(s) => moveStatus(task.id, s, commit, cloudMode)} />
+          </span>
+        )}
         {task.teams?.map(t => <span key={t} className={`tracking-[0.03em] ${CONFIG.TEAM_FG[t] || 'text-fg-muted'}`}>{t}</span>)}
       </div>
       <h2 className="text-xl md:text-2xl font-extrabold text-fg leading-tight tracking-[-0.6px] break-words">{task.title}</h2>
@@ -895,7 +968,7 @@ function TaskView({ task, commit, co, coPending, liveMd, editors = [], closed = 
         // 본문이 비면 120px 자리를 잡지 않는다 — 칸 아래에 빈 띠가 120~200px 남았다(2026-10-14 점검 · PITFALLS 49-c · 수정 화면은 그대로)
         <div ref={setBodyEl} data-view-body="" className={`prose prose-sm max-w-none mt-3 ${stripActionSection(md).trim() ? 'min-h-[120px]' : ''} text-sm relative isolate pr-7`}>
           {/* 청년별 담당 업무 도막은 **여기서 그리지 않는다** — 바로 아래 부품이 얼굴과 체크칸까지 붙여 보여 준다 */}
-          <RichText content={stripActionSection(md)} onToggleTodo={coPending ? undefined : toggleTodo} lineAttrs />
+          <RichText content={stripActionSection(md)} onToggleTodo={coPending ? undefined : toggleTodo} lineAttrs ytCards />
           <PresenceMarks box={bodyEl} editors={editors} content={md} />
         </div>
       )}

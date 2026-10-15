@@ -7,7 +7,12 @@ import { useAuth } from '../services/auth.jsx';
 import * as cloudSync from '../services/cloudSync.js';
 import { showToast, HOLD_MS_ACTION } from '../components/Toast.jsx';
 import { failText } from '../services/errorText.js';
-import { rollbackPatch, createDeleteHold } from '../services/optimistic.js';
+import { rollbackPatch, createDeleteHold, failedComments } from '../services/optimistic.js';
+import { openTaskId } from '../modals/taskFocus.js';
+
+// 개발 빌드의 게스트 검사만(tests/modalclose) — `window.__devFail = { task: true, comment: true }`면 그 쓰기를 실패로 본다.
+// 게스트는 서버가 없어 실패하는 길이 아예 없다. 배포 빌드에서는 import.meta.env.DEV가 거짓이라 늘 false다(homeView `__kstNow`와 같은 관례).
+const devFail = (what) => !!(import.meta.env?.DEV && typeof window !== 'undefined' && window.__devFail?.[what]);
 
 // 클라우드 쓰기 실패 공통 처리.
 // 화면에는 사람이 읽을 두 도막(`무엇을 못했다 · 무엇을 하면 된다`)만, 원문은 콘솔에만.
@@ -117,15 +122,23 @@ export const useWorkspaceController = () => {
           actorName: currentUser.name, cardId: task.id, projectId: task.projectId, preview: task.title,
         }))
         .then(() => onSettled?.(true), (e) => {
-          onSettled?.(false);
+          // onSettled(false)는 **카드 쓰기가 실패했을 때만** — 업무 창이 그 칸을 '못 간 칸'으로 기억했다가 다시 보낸다
+          // (services/optimistic.createSaveRetry). 뒤따른 활동·알림만 실패했으면 카드는 이미 저장됐다.
+          onSettled?.(cardOk);
           if (!cardOk && !isNew) {
-            const back = rollbackPatch({ wrote: task, prev: oldData, live: store.getState().tasks.byId[task.id] });
+            const live = store.getState().tasks.byId[task.id];
+            const back = rollbackPatch({ wrote: task, prev: oldData, live });
             if (back) store.dispatch({ type: 'SYNC_TASK', payload: back });
+            // 이 저장이 붙인 활동 줄도 걷는다 — 서버에 안 갔고, 다시 보낼 때 그 저장이 같은 줄을 새로 만든다(두 줄이 서지 않게)
+            if (logs?.length && live?.activityLog) {
+              const drop = new Set(logs.map(l => l.id));
+              store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, activityLog: live.activityLog.filter(l => !drop.has(l.id)) } });
+            }
           }
           reportCloudError('업무를 저장하지 못했어요')(e);
         });
     } else {
-      onSettled?.(true);
+      onSettled?.(!devFail('task'));
     }
     // 창에 돌려주는 것도 **스토어의 살아 있는 카드**다. task를 그대로 주면
     // 폼의 빈 목록이 그대로 화면에 실린다(스토어는 위에서 지켰는데 화면만 비는 꼴).
@@ -151,22 +164,38 @@ export const useWorkspaceController = () => {
       .catch(reportCloudError('활동 기록을 남기지 못했어요'));
   }, [currentUser.name, cloudOn]);
 
+  // 댓글 — 화면에 먼저 세우고 서버가 뒤따른다. **댓글 행 쓰기가 실패하면** 그 댓글을 '못 보낸 댓글'로 적는다
+  // (services/optimistic.failedComments · UX 다듬기 2차 A1) — 목록이 그 자리에 흐리게 세우고 '다시 보내기'를 단다. 다시 보내기는
+  // 아래 send를 그대로 다시 부른다(같은 id · 활동 줄 · 알림까지). 그 업무 창이 닫혀 있을 때만 토스트로도 말한다.
+  // 뒤따르는 활동·알림이 실패한 것은 댓글이 이미 들어간 것이다 — 활동 쪽 토스트만.
   const handleAddComment = useCallback((task, text, parentId = null) => {
     const updated = TaskService.addComment(task, text, currentUser.name, parentId);
     store.dispatch({ type: 'UPSERT_TASK', payload: updated });
-    if (cloudOn) {
-      const newComment = updated.comments[updated.comments.length - 1];
-      const addedLogs = (updated.activityLog || []).slice((task.activityLog || []).length);
-      // 답글이면 원 댓글 작성자에게도 알림 (본인 댓글에 본인이 답글 단 경우는 제외 — notifyComment가 처리)
-      const parent = parentId ? (task.comments || []).find(c => c.id === parentId) : null;
-      cloudSync.commentAddCloud(newComment, task.id)
-        .then(() => addedLogs.length && cloudSync.activityAddCloud(addedLogs, task.projectId, task.id))
-        .then(() => cloudSync.notifyComment(text, {
-          actorName: currentUser.name, cardId: task.id, projectId: task.projectId,
-          replyToName: parent?.author,
-        }))
-        .catch(reportCloudError('댓글을 남기지 못했어요'));
-    }
+    const newComment = updated.comments[updated.comments.length - 1];
+    const addedLogs = (updated.activityLog || []).slice((task.activityLog || []).length);
+    // 답글이면 원 댓글 작성자에게도 알림 (본인 댓글에 본인이 답글 단 경우는 제외 — notifyComment가 처리)
+    const parent = parentId ? (task.comments || []).find(c => c.id === parentId) : null;
+    const after = () => (addedLogs.length ? cloudSync.activityAddCloud(addedLogs, task.projectId, task.id) : Promise.resolve())
+      .then(() => cloudSync.notifyComment(text, {
+        actorName: currentUser.name, cardId: task.id, projectId: task.projectId,
+        replyToName: parent?.author, assignees: task.assignees,
+      }))
+      .catch(reportCloudError('활동 기록을 남기지 못했어요'));
+    const send = () => (cloudOn ? cloudSync.commentAddCloud(newComment, task.id)
+      : devFail('comment') ? Promise.reject(new Error('dev: comment')) : Promise.resolve())
+      .then(() => {
+        // 다시 보낸 사이 실시간 재조회가 목록을 갈아 끼웠으면 그 댓글을 다시 붙인다(곧 올 실시간이 서버 것으로 맞춘다)
+        const live = store.getState().tasks.byId[task.id];
+        if (live && !(live.comments || []).some(c => c.id === newComment.id)) {
+          store.dispatch({ type: 'SYNC_TASK', payload: { id: task.id, comments: [...(live.comments || []), newComment] } });
+        }
+        if (cloudOn) after();
+      });
+    send().catch((e) => {
+      console.error('[cloud] 댓글을 남기지 못했어요:', cloudSync.formatCloudError(e), e);
+      failedComments.add(task.id, newComment, send);
+      if (openTaskId() !== task.id) showToast(failText('댓글을 남기지 못했어요', e));
+    });
     return updated;
   }, [currentUser.name, cloudOn]);
 

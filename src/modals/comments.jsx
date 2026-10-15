@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { Pencil, Trash2, Heart, ThumbsUp, Check } from 'lucide-react';
 import { formatDate, isMobileViewport, imeComposing, coarsePointer } from '../utils.js';
@@ -13,6 +13,7 @@ import { store } from '../store/workspaceStore.js';
 import { showToast } from '../components/Toast.jsx';
 import { reactionSummary, toggleReaction, commentReactionCloud, notifyReaction } from '../services/cloudSync.js';
 import { BTN } from '../components/buttons.js';
+import { failedComments } from '../services/optimistic.js';
 
 // ============================================================================
 // 업무 창의 댓글 · 활동 기록 패널
@@ -207,11 +208,13 @@ const flashStyle = (on) => (on ? FLASH_ON : prefersReducedMotion() ? null
 
 // 노션 스타일 플랫 댓글: 아바타 + 이름·시간 + 본문, 카드 대신 헤어라인 구분
 // 작성자 본인일 때만 수정(인라인 textarea)·삭제(인라인 확인) 노출
-const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions, myKey, onToggleReaction, onOpenReaction, flash = false }) => {
+// failed — 서버에 못 간 댓글(아래 '못 보낸 댓글'): 얼굴·이름 줄·본문이 흐리고, 본문 아래에 실패 한 줄 + '다시 보내기'. 서버에 없는 글이라
+// 수정·삭제·반응을 걷는다(시안 A1). sending이면 '다시 보내기'를 잠깐 막는다.
+const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions, myKey, onToggleReaction, onOpenReaction, flash = false, failed = null, onResend }) => {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(c.text);
   const editRef = useAutoGrow(editing ? editText : null);
-  const isOwner = c.author === currentUser?.name;
+  const isOwner = c.author === currentUser?.name && !failed;
 
   const saveEdit = () => {
     if (!editText.trim()) return;
@@ -220,12 +223,12 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions
   };
 
   return (
-    <div data-comment-id={c.id} data-flash={flash ? '' : undefined} style={flashStyle(flash) || undefined} className="flex items-start gap-2.5 group/comment">
-      <Avatar name={c.author || ''} className="flex w-6 h-6 text-[10px] mt-0.5" />
+    <div data-comment-id={c.id} data-flash={flash ? '' : undefined} data-comment-failed={failed ? '' : undefined} style={flashStyle(flash) || undefined} className="flex items-start gap-2.5 group/comment">
+      <Avatar name={c.author || ''} className={`flex w-6 h-6 text-[10px] mt-0.5${failed ? ' opacity-50' : ''}`} />
       <div className="flex-1 min-w-0">
         {/* 시각과 '수정됨'은 **꺾이지 않는 한 덩어리**다(2026-09-28 사용자 지적 — 좁은 칸에서 '9월 25일 오후 / 07:39'로
             꺾였다). 칸이 모자라면 덩어리째 다음 줄로 내려간다(flex-wrap) — 시각 가운데가 갈라지지 않는다. */}
-        <div className="flex flex-wrap items-baseline gap-x-2 mb-0.5">
+        <div className={`flex flex-wrap items-baseline gap-x-2 mb-0.5${failed ? ' opacity-50' : ''}`}>
           <span className="font-semibold text-[11px] text-fg">{c.author}</span>
           <span className="comment-stamp text-[10px] text-fg-muted whitespace-nowrap">
             {formatDate(c.timestamp)}{c.edited && ' · 수정됨'}
@@ -258,9 +261,16 @@ const CommentBody = ({ c, currentUser, onUpdate, onDelete, hasReplies, reactions
             </div>
           </>
         ) : (
-          <div className="text-xs text-fg-secondary leading-relaxed"><RichText content={c.text} /></div>
+          <div className={`text-xs text-fg-secondary leading-relaxed${failed ? ' opacity-50' : ''}`}><RichText content={c.text} ytCards /></div>
         )}
-        {!editing && (
+        {failed && (
+          <p className="mt-1 flex items-center gap-2 text-[10px]">
+            <span className="text-tag-red-fg font-medium">댓글 달기에 실패했어요</span>
+            <button type="button" onClick={onResend} disabled={failed.sending}
+              className="text-[10px] font-semibold text-accent-text hover:underline disabled:opacity-40">다시 보내기</button>
+          </p>
+        )}
+        {!editing && !failed && (
           <ReactionRow
             reactions={reactions} myKey={myKey}
             onToggle={(kind) => onToggleReaction(c, kind)}
@@ -346,7 +356,19 @@ export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser
   // 잃게 하지 않는다). 탭을 옮기거나 창을 닫았다 열어도 남게 모듈 표(drafts)에도 적는다.
   const [replyDrafts, setReplyDrafts] = useState(() => draftOf(cardId).replies);   // { [parentId]: '작성 중인 글' }
   const [showAll, setShowAll] = useState(false);
-  const all = comments || [];
+  // 못 보낸 댓글(UX 다듬기 2차 A1 · services/optimistic.failedComments) — 목록에 없으면(실시간 재조회가 서버 것으로 갈아 끼웠다) 끝에 다시 세운다
+  const failVer = useSyncExternalStore(failedComments.subscribe, failedComments.version);
+  const failed = useMemo(() => new Map(failedComments.list(cardId).map(f => [f.comment.id, f])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cardId, failVer]);
+  const all = useMemo(() => {
+    const base = comments || [];
+    if (!failed.size) return base;
+    const have = new Set(base.map(c => c.id));
+    const extra = [...failed.values()].map(f => f.comment).filter(c => !have.has(c.id));
+    return extra.length ? [...base, ...extra] : base;
+  }, [comments, failed]);
+  const resend = (id) => { failedComments.resend(cardId, id); };
   // '이전 댓글 더 보기'는 위에 끼워 넣는다 — 바닥에서의 거리를 지켜 보던 댓글이 그 자리에 남게 한다
   // (칸은 바닥에서 열린다 · modals.jsx cmtPin).
   const rootRef = useRef(null);
@@ -478,12 +500,14 @@ export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser
         <div key={c.id} className="py-3 first:pt-0 animate-in fade-in duration-200">
           <CommentBody c={c} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete} hasReplies={getReplies(c.id).length > 0}
             reactions={reactionsOf(c)} myKey={me.userId} onToggleReaction={toggleFor} flash={flashId === c.id}
-            onOpenReaction={(cc, kind) => setPeekAt({ commentId: cc.id, kind })} />
+            onOpenReaction={(cc, kind) => setPeekAt({ commentId: cc.id, kind })}
+            failed={failed.get(c.id) || null} onResend={() => resend(c.id)} />
           {/* 답글 버튼은 **언제나 보인다.** 예전에는 데스크톱에서 hover해야 나타났는데,
               그러면 답글이라는 기능 자체가 마우스를 올려 본 사람에게만 있다(§8).
               답글이 있으면 개수를 같이 적는다 — 아래 접힌 줄이 몇 개인지 눌러 보지
               않고도 안다. 접었는데 쓰던 글이 남아 있으면 그것도 말해 준다. */}
-          <div className="pl-8 mt-1">
+          {/* 못 보낸 댓글에는 답글을 달 수 없다(서버에 없는 글이다 · 시안 A1) */}
+          {!failed.has(c.id) && <div className="pl-8 mt-1">
             <button
               onClick={() => (replyingTo === c.id ? closeReply(c.id) : setReplyingTo(c.id))}
               aria-expanded={replyingTo === c.id}
@@ -492,14 +516,15 @@ export const CommentPanel = React.memo(({ cardId, comments, onReply, currentUser
               답글{getReplies(c.id).length > 0 ? ` ${getReplies(c.id).length}` : ''}
               {replyingTo !== c.id && (replyDrafts[c.id] || '').trim() ? ' · 작성 중' : ''}
             </button>
-          </div>
+          </div>}
           {(getReplies(c.id).length > 0 || replyingTo === c.id) && (
             <div className="ml-8 mt-2 border-l border-line pl-3 space-y-3">
               {getReplies(c.id).map(r => (
                 <div key={r.id} className="animate-in fade-in duration-200">
                   <CommentBody c={r} currentUser={currentUser} onUpdate={onUpdate} onDelete={onDelete}
                     reactions={reactionsOf(r)} myKey={me.userId} onToggleReaction={toggleFor} flash={flashId === r.id}
-                    onOpenReaction={(cc, kind) => setPeekAt({ commentId: cc.id, kind })} />
+                    onOpenReaction={(cc, kind) => setPeekAt({ commentId: cc.id, kind })}
+                    failed={failed.get(r.id) || null} onResend={() => resend(r.id)} />
                 </div>
               ))}
               {replyingTo === c.id && (

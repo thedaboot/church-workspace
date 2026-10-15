@@ -1049,3 +1049,85 @@ console.log('활동 기록 로직 자체검증 통과 (22 asserts)');
   assert.ok(/noteTaskOpen\(task\.id\);/.test(modals) && /peekTaskFocus\(task\.id\)/.test(modals), '업무 창이 열림을 알리고 적힌 것을 읽는다');
   console.log('PASS  UX 다듬기 α — 실패 되돌리기 · 지운 업무 붙들기 · 댓글로 열기 · 알림 배선');
 }
+
+// ── UX 다듬기 2차 P1 (2026-10-15 · PITFALLS 59) — 못 간 칸 · 못 보낸 댓글 · 담당 업무 댓글 알림으로 열기 · 배선 ─────────────────
+// ① 업무 창 저장이 실패한 칸은 실패하기 전 값으로 기억했다가 다음 저장이 그 값으로 견준다(services/optimistic.createSaveRetry) — 성공하면 실어 간 칸만 지우고,
+//    이 저장보다 나중에 시작한 저장이 실패한 칸은 남긴다 · 본문을 조용히 못 보냈으면 다음 본문도 조용히
+// ② 못 보낸 댓글(createFailedComments) — 업무별로 적고 · 다시 보내기는 같은 send · 또 실패하면 남고 · 보내는 동안 두 번 안 보낸다
+// ③ 담당 업무 댓글 알림(0103 assignee_comment)은 댓글로 연다(taskFocus) · 보낸 사람의 댓글을 고른다
+// ④ 배선(클라우드 길은 게스트 브라우저 검사가 못 탄다 — HANDOFF §3-5)
+// 되돌리기 검사: settle의 `f.seq < ticket.seq`를 지우면 ①의 '나중에 시작한 저장의 실패는 남긴다'가, resend의 drop을 빼면 ②가,
+// FOCUS_KINDS에서 'assignee_comment'를 빼면 ③이, handleAddComment의 `failedComments.add`를 빼면 ④가 깨진다.
+{
+  const O = await import(new URL('../src/services/optimistic.js', import.meta.url).href);
+  // ①
+  const R = O.createSaveRetry();
+  const cur0 = { id: 'k', title: '가', status: '진행 중', content: '본문' };
+  const t1 = R.begin(cur0);
+  assert.deepStrictEqual(t1.base, cur0, '못 간 칸이 없으면 지금 카드 그대로 견준다');
+  assert.strictEqual(R.settle(t1, ['title'], false), 1, '제목이 못 갔다');
+  // 스토어에는 내가 쓴 값('나')이 남아 있다 — 다음 저장은 '가'와 견줘서 제목을 다시 싣는다
+  const cur1 = { ...cur0, title: '나', status: '보류 중' };
+  const t2 = R.begin(cur1);
+  assert.ok(t2.base.title === '가' && t2.base.status === '보류 중' && t2.carried.join() === 'title', '다음 저장은 못 간 칸을 실패하기 전 값으로 견준다');
+  const t3 = R.begin(cur1);                                      // t2보다 나중에 시작한 저장
+  assert.strictEqual(R.settle(t3, ['status'], false), 2, '그 뒤 다른 칸도 못 갔다');
+  assert.strictEqual(R.settle(t2, ['title', 'status'], true), 1, 't2가 되면 t2보다 먼저 실패한 제목만 지운다 — 나중에 시작한 t3의 실패(상태)는 남긴다');
+  assert.deepStrictEqual(R.keys(), ['status']);
+  const t4 = R.begin({ ...cur1, status: '완료' });               // 스토어에는 t3가 쓴 '완료'가 남아 있다
+  assert.strictEqual(t4.base.status, '보류 중', '남은 칸은 t3가 쓰기 전 값으로 견준다');
+  assert.strictEqual(R.settle(t4, [], true), 0, "바뀐 것이 없어도(되돌려진 칸) 성공하면 실어 간 칸을 비운다('다시 시도')");
+  const R2 = O.createSaveRetry();
+  const s1 = R2.begin({ id: 'k', content: 'a' });
+  R2.settle(s1, ['content'], false, { silent: true });
+  assert.strictEqual(R2.begin({ id: 'k', content: 'b' }).silent, true, '본문을 조용히(자동 저장·거울) 못 보냈으면 다음 본문도 조용히');
+  const s2 = R2.begin({ id: 'k', content: 'b' });
+  R2.settle(s2, ['content'], false, { silent: false });
+  assert.strictEqual(R2.begin({ id: 'k', content: 'c' }).base.content, 'a', '두 번 실패해도 견주는 값은 처음 실패하기 전 것');
+
+  // ②
+  const FC = O.createFailedComments();
+  let calls = 0, fail = true, heard = 0;
+  const off = FC.subscribe(() => heard++);
+  const send = () => { calls++; return fail ? Promise.reject(new Error('x')) : Promise.resolve(); };
+  const v0 = FC.version();
+  FC.add('t1', { id: 'c1', text: '안녕' }, send);
+  assert.ok(FC.has('t1', 'c1') && !FC.has('t2', 'c1') && FC.version() > v0 && heard === 1, '업무별로 적고 알린다');
+  assert.deepStrictEqual(FC.list('t1'), [{ comment: { id: 'c1', text: '안녕' }, sending: false }]);
+  const origErr = console.error; console.error = () => {};
+  const p1 = FC.resend('t1', 'c1');
+  assert.strictEqual(FC.list('t1')[0].sending, true, '보내는 동안');
+  assert.strictEqual(await FC.resend('t1', 'c1'), false, '보내는 동안 또 누르면 아무것도 안 한다');
+  assert.strictEqual(await p1, false, '또 실패하면 false');
+  console.error = origErr;
+  assert.ok(FC.has('t1', 'c1') && FC.list('t1')[0].sending === false && calls === 1, '또 실패하면 그대로 남는다(보낸 것은 한 번)');
+  fail = false;
+  assert.strictEqual(await FC.resend('t1', 'c1'), true);
+  assert.ok(!FC.has('t1', 'c1') && FC.list('t1').length === 0 && calls === 2, '되면 뺀다');
+  assert.strictEqual(await FC.resend('t1', 'nope'), false, '없는 것은 아무것도');
+  off();
+  assert.ok(O.failedComments && typeof O.failedComments.add === 'function', '앱이 같이 쓰는 한 벌');
+
+  // ③
+  const F = await import(new URL('../src/modals/taskFocus.js', import.meta.url).href);
+  const hint = F.notifFocusHint({ kind: 'assignee_comment', card_id: 'x', actor_name: '조준환', preview: '3시까지로 수정' });
+  assert.deepStrictEqual(hint, { kind: 'assignee_comment', actor: '조준환', preview: '3시까지로 수정' }, '담당 업무 댓글 알림도 댓글로 연다');
+  assert.ok(F.wantsComments(hint), '찾기 전에도 댓글 칸을 편다(늘 댓글이다)');
+  const cm = [{ id: 'a', author: '노준석', text: '3시까지로 수정' }, { id: 'b', author: '조준환', text: '3시까지로 수정' }, { id: 'c', author: '노준석', text: '3시까지로 수정했어요' }];
+  assert.strictEqual(F.findFocusComment(cm, hint), 'b', '보낸 사람의 댓글을 고른다');
+
+  // ④
+  const rd = (p) => readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8');
+  const ctl = rd('hooks/controllers.js'), modals = rd('modals/modals.jsx'), comments = rd('modals/comments.jsx'), sync = rd('services/cloudSync.js');
+  assert.ok(/failedComments\.add\(task\.id, newComment, send\)/.test(ctl) && /if \(openTaskId\(\) !== task\.id\) showToast\(failText\('댓글을 남기지 못했어요', e\)\)/.test(ctl),
+    '댓글 행 쓰기가 실패하면 못 보낸 댓글로 적는다 · 그 업무 창이 닫혀 있을 때만 토스트');
+  assert.ok(/cloudSync\.commentAddCloud\(newComment, task\.id\)/.test(ctl) && /if \(cloudOn\) after\(\);/.test(ctl), '다시 보내기는 같은 id · 활동·알림은 댓글이 들어간 뒤에');
+  assert.ok(/assignees: task\.assignees/.test(ctl) && /kind: 'assignee_comment'/.test(sync) && /!mentioned\.has\(id\) && !replied\.has\(id\)/.test(sync),
+    '댓글 알림에 담당자를 넘기고 · 멘션·답글을 받는 사람은 뺀다');
+  assert.ok(/onSettled\?\.\(cardOk\);/.test(ctl) && /activityLog: live\.activityLog\.filter\(l => !drop\.has\(l\.id\)\)/.test(ctl),
+    '카드 쓰기가 실패했을 때만 못 간 칸으로 · 서버에 안 간 활동 줄은 걷는다');
+  assert.ok(/const t = retry\.begin\(cur\);/.test(modals) && /taskChangedKeys\(next, t\.base\)/.test(modals) && /onSaveRef\.current\(next, t\.base,/.test(modals),
+    '업무 창 저장은 못 간 칸을 실패하기 전 값으로 견준다');
+  assert.ok(/useSyncExternalStore\(failedComments\.subscribe, failedComments\.version\)/.test(comments), '댓글 목록이 못 보낸 댓글을 구독한다');
+  console.log('PASS  UX 다듬기 2차 P1 — 못 간 칸 다시 보내기 · 못 보낸 댓글 · 담당 업무 댓글 알림으로 열기 · 배선');
+}
