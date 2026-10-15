@@ -639,6 +639,41 @@ try {
     await sleep(4600);
     check('모션 최소화: 질문 칩이 바뀌지 않는다', await ev(`[...document.querySelectorAll('.dab-chip')].map(b=>b.textContent).join('|')`) === r0);
   } else check('모션 최소화: 질문 칩이 바뀌지 않는다', false, '칩이 안 보임');
+  // ── 위키 읽기 실패(시안 E6 · 사용자 승인 2026-10-15) ───────────────────────────────
+  // 실패 글 위에 다붓이 물음표 컷(64px)이 서고, 컷 + 글 + 버튼 묶음이 위키 판의 정가운데에 선다 —
+  // 폰은 물어보기 줄 아래부터 하단 탭바 위까지, 데스크톱은 옆 목록과 같은 높이의 본문 칸. 실패는 장 묶음 getter가 던져서 만든다.
+  // **되돌리기**: WikiFail의 컷 <img>를 지우면 '컷'이, minHeight(폰 잰 값 · 데스크톱 --wiki-h)를 지우면 '가운데'가 깨진다.
+  for (const mobile of [true, false]) {
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+    await send('Emulation.setDeviceMetricsOverride', mobile ? { width: 390, height: 844, deviceScaleFactor: 2, mobile: true } : { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    const s = await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__wikiFixture = { get pages() { throw new Error('위키 읽기 실패(검사)'); } };` });
+    await send('Page.navigate', { url: URL_BASE + '/?p=wiki' });
+    await sleep(600);
+    await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: s.identifier });
+    await until(`!!document.querySelector('.wiki-load-failed')`);
+    await sleep(500);
+    const f = await ev(`(() => {
+      const p = document.querySelector('.wiki-load-failed'); if (!p) return { none: true };
+      const kids = [...p.children]; const a = kids[0].getBoundingClientRect(), z = kids[kids.length - 1].getBoundingClientRect(), r = p.getBoundingClientRect();
+      const bar = document.querySelector('[data-tab-bar]');
+      const aside = document.querySelector('.wiki-side'); const sec = p.closest('section');
+      const img = p.querySelector('img');
+      return { cut: img ? (img.getAttribute('src') + ' ' + Math.round(img.getBoundingClientRect().width)) : '', first: kids[0].tagName,
+        title: p.querySelector('.load-fail-title')?.textContent, retry: !!p.querySelector('.load-fail-retry'),
+        groupMid: Math.round((a.top + z.bottom) / 2), groupX: Math.round((Math.min(a.left, z.left) + Math.max(a.right, z.right)) / 2),
+        want: ${mobile} ? Math.round((r.top + (bar ? bar.getBoundingClientRect().top : innerHeight)) / 2) : Math.round((aside.getBoundingClientRect().top + aside.getBoundingClientRect().bottom) / 2),
+        wantX: Math.round(${mobile} ? (r.left + r.right) / 2 : (sec.getBoundingClientRect().left + parseFloat(getComputedStyle(sec).paddingLeft) + sec.getBoundingClientRect().right - parseFloat(getComputedStyle(sec).paddingRight)) / 2) };
+    })()`);
+    const tag = mobile ? '폰 390' : '데스크톱 1440';
+    check(`위키 읽기 실패 — 글 위에 다붓이 물음표 컷 64px(${tag})`, f.first === 'IMG' && f.cut === '/chars/question.webp 64' && f.title === '위키를 불러오지 못했어요' && f.retry, JSON.stringify(f));
+    check(`위키 읽기 실패 묶음은 판의 정가운데에 선다(${tag})`, Math.abs(f.groupMid - f.want) <= 3 && Math.abs(f.groupX - f.wantX) <= 2, JSON.stringify(f));
+    if (!mobile) {
+      // 데스크톱은 처음 자리가 물어보기다 — 실패가 그 자리에 서고, 물어보기 칸을 누르면 그때는 물어보기다
+      await ev(`document.querySelector('.wiki-side .dab-ring, .wiki-side button')?.click(); true`);
+      await sleep(400);
+      check('데스크톱 위키 실패 중에도 물어보기 칸을 누르면 물어보기가 열린다', await ev(`!!document.querySelector('.dab-home') && document.querySelector('.dab-home').offsetParent !== null && !document.querySelector('.wiki-load-failed')`));
+    }
+  }
   check('예외 없음', errs.length === 0, errs.slice(0, 2).join(' | '));
 } catch (e) {
   check('실행', false, e.message);

@@ -15,7 +15,7 @@ import { entryParam, takeEntryParam, useEntryQuery } from '../services/entryQuer
 import { loadBibleIndex } from '../services/bible.js';
 import { fullRef } from '../services/bibleRef.js';
 import { AskPanel, AskEntry, CiteChip, chipsFrom, useDabootiChat } from '../components/dabooti.jsx';
-import { cutSet } from '../components/dabooti.jsx';
+import { cutSet, DAB_CUT } from '../components/dabooti.jsx';
 import { CONFIG } from '../config.js';
 import { BTN } from '../components/buttons.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -74,6 +74,40 @@ function useMainHeight(ref) {
     return () => { ro.disconnect(); main.style.scrollbarGutter = prevGutter; };
   }, [ref]);
 }
+// ── 위키 읽기 실패 (시안 E6 · 사용자 승인 2026-10-15) ───────────────────────────────
+// 실패 글 위에 다붓이 물음표 컷(DAB_CUT · 64px — 다른 빈 자리 그림 48~64px과 같은 크기)을 얹고, 컷 + 글 + 버튼 묶음을
+// **위키 판의 정가운데**(가로·세로)에 세운다. 폰은 이 자리 위 끝(물어보기 줄 · ‹ 위키 줄 아래)부터 하단 탭바 위까지를 재서
+// 높이로 준다(main의 아래 여백은 탭바보다 커서 --wiki-h로 셈하면 가운데가 위로 뜬다). 데스크톱은 옆 목록과 같은 높이(--wiki-h)다.
+// 판이 들어오는 모션(dc-screen) 동안 잰 자리가 몇 px 어긋날 수 있어 모션이 끝날 즈음 한 번 더 잰다.
+function WikiFail({ error, onRetry, mobile }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    if (!mobile) return undefined;
+    const el = ref.current;
+    const main = document.querySelector('main');
+    if (!el || !main) return undefined;
+    const set = () => {
+      const bar = document.querySelector('[data-tab-bar]');
+      const b = bar?.getBoundingClientRect();
+      const bottom = b?.height ? b.top : main.getBoundingClientRect().bottom - parseFloat(getComputedStyle(main).paddingBottom);
+      el.style.minHeight = `${Math.max(0, Math.round(bottom - el.getBoundingClientRect().top))}px`;
+    };
+    set();
+    const t = setTimeout(set, 360);
+    const ro = new ResizeObserver(set);
+    ro.observe(main);
+    return () => { clearTimeout(t); ro.disconnect(); };
+  }, [mobile]);
+  return (
+    <div ref={ref} role="alert" className="wiki-load-failed load-failed flex flex-col items-center justify-center text-center py-6"
+      style={mobile ? undefined : { minHeight: 'var(--wiki-h, 70vh)' }}>
+      <img src={DAB_CUT.src} srcSet={cutSet(DAB_CUT.src)} width={64} height={64} alt="" aria-hidden="true" draggable="false"
+        className="wiki-fail-cut block w-16 h-16 mb-3 select-none pointer-events-none" />
+      <p className="load-fail-title text-[13.5px] font-semibold text-fg">위키를 불러오지 못했어요</p>
+      <FailTail reason={errorReason(error)} onRetry={onRetry} />
+    </div>
+  );
+}
 const STATUS_TAG = new Set(['진행 중', '시작 전', '보류 중', '상시']);
 // 다붓이가 배운 것 — 확인을 기다리는 말 수(장 목록의 점 · api/_wiki/learn.js pendingCount와 같다)
 const waitingOf = (p) => ((p?.blocks || []).find(b => b.key === 'pending')?.items || []).length;
@@ -131,11 +165,14 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
   // 자주 묻는 질문 칩 → 물어보기 판에 그 질문(n이 바뀔 때마다 한 번)
   const [askNow, setAskNow] = useState(null);
   const askFromPage = (q) => { if (!q) return; setAskNow({ q, n: Date.now() }); go('ask'); };
+  // 물어보기를 사람이 눌러 열었나 — 데스크톱은 처음부터 'ask'라, 위키를 못 읽었을 때 그 처음 자리에 실패를 세운다(아래 askShown)
+  const [asked, setAsked] = useState(false);
   // 폰의 첫 화면(장 목록) ↔ 장은 목록 자리를 지킨다(hooks/useScrollMemory · 56-h) — 그 넘나듦에서는 여기서 맨 위로 올리지 않는다
   // (훅이 목록 자리를 스크롤로 적어 두므로, 넘어가기 전에 0으로 올리면 그 0이 목록 자리가 된다). 장 → 장은 예전처럼 맨 위.
   useScrollMemory(isMobile && sel !== null);
   const go = (id) => {
     if (MASTER_PAGES.has(id) && !isMaster) return;
+    if (id === 'ask') setAsked(true);
     setDir(id === null ? 'back' : 'fwd'); setSel(id);
     if (!(isMobile && (id === null || sel === null))) document.querySelector('main')?.scrollTo?.({ top: 0 });
   };
@@ -194,10 +231,7 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
 
   const failed = !data && error;
   const body = failed ? (
-    <div className="load-failed py-10 text-center" role="alert">
-      <p className="load-fail-title text-[13.5px] font-semibold text-fg">위키를 불러오지 못했어요</p>
-      <FailTail reason={errorReason(error)} onRetry={refresh} />
-    </div>
+    <WikiFail error={error} onRetry={refresh} mobile={isMobile} />
   ) : loading && !data ? (
     <div className="grid gap-3 py-6" aria-busy="true">
       {[70, 92, 84, 60].map((w, i) => <div key={i} className="dc-skeleton dc-skel-line h-3.5 rounded" style={{ width: `${w}%` }} />)}
@@ -244,16 +278,19 @@ export default function WikiView({ onTaskClick, onOpenLink }) {
   }
 
   // ── 데스크톱 ──────────────────────────────────────────────────────────────
+  // 처음 자리(물어보기)에서 위키를 못 읽었으면 본문 칸에 실패가 선다(시안 E6) — 예전에는 옆 목록만 비고 실패가 어디에도 없었다.
+  // 물어보기 칸을 눌러 열면 그때는 물어보기다(다붓이는 위키 없이도 묻는다).
+  const askShown = sel === 'ask' && !(body && failed && !asked);
   return (
     // 흰 판(테두리 카드)을 두지 않는다 — 앱 바탕 위에 목록과 글이 바로 선다(사용자 지적 2026-10-03 · 앱에 속한 느낌)
     <div ref={rootRef} className="wiki wiki-desk dc-screen grid grid-cols-[236px_minmax(0,1fr)] max-w-[1320px] mx-auto">
       <aside className="wiki-side sticky top-0 self-start overflow-y-auto border-r border-line/70 pr-3 py-1 grid content-start gap-3.5" style={{ height: 'var(--wiki-h, 80vh)' }}>
-        <AskEntry active={sel === 'ask'} onClick={() => go('ask')} />
+        <AskEntry active={askShown} onClick={() => go('ask')} />
         {body ? null : list}
       </aside>
       <section className="min-w-0 pl-8 pr-2">
-        <div className={sel === 'ask' ? '' : 'hidden'}>{ask}</div>
-        {sel !== 'ask' && (body || (page ? <div key={page.id} className="dc-fade py-1"><WikiPage page={page} {...pageProps} /></div> : null))}
+        <div className={askShown ? '' : 'hidden'}>{ask}</div>
+        {!askShown && (body || (page ? <div key={page.id} className="dc-fade py-1"><WikiPage page={page} {...pageProps} /></div> : null))}
       </section>
       {modal}
     </div>
